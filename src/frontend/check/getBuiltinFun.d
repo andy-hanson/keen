@@ -155,7 +155,7 @@ FunBody inner(
 		case symbol!"*".value:
 			return isPointerConstOrMut(p0)
 				? unary(BuiltinUnary.deref)
-				: binary(isFloat32(rt)
+				: binary(isBinaryFloat32()
 					? BuiltinBinary.mulFloat32
 					: isBinaryFloat64()
 					? BuiltinBinary.mulFloat64
@@ -400,6 +400,8 @@ FunBody inner(
 		case symbol!"pointer-cast-from-extern".value:
 		case symbol!"pointer-cast-to-extern".value:
 			return FunBody(BuiltinFun(BuiltinFun.PointerCast()));
+		case symbol!"unsafe-pow".value:
+			return binaryMath(BuiltinBinaryMath.unsafePowFloat32, BuiltinBinaryMath.unsafePowFloat64);
 		case symbol!"reference-equal".value:
 			return binary(BuiltinBinary.referenceEqual);
 		case symbol!"reference-from-pointer".value:

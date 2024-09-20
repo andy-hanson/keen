@@ -11,7 +11,7 @@ import frontend.check.checkCtx :
 	checkNoTypeParams,
 	visibilityFromDefaultWithDiag,
 	visibilityFromExplicitTopLevel;
-import frontend.check.checkFuns : checkReturnTypeAndParams, ReturnTypeAndParams;
+import frontend.check.checkFuns : checkReturnTypeAndParams, getExternLibraryName, ReturnTypeAndParams;
 import frontend.check.exprCtx : LocalsInfo;
 import frontend.check.instantiate : DelayStructInsts, instantiateStructWithOwnTypeParams, MayDelayStructInsts;
 import frontend.check.maps : FunsMap, StructsAndAliasesMap;
@@ -94,10 +94,10 @@ import util.col.array :
 import util.col.hashTable : HashTable, makeHashTable;
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
-import util.opt : force, has, MutOpt, none, noneMut, Opt, optFromMut, optIf, some, someMut;
+import util.opt : force, has, MutOpt, none, noneMut, Opt, optFromMut, optIf, optOrDefault, some, someMut;
 import util.sourceRange : Range;
 import util.symbol : Symbol, symbol;
-import util.symbolSet : emptySymbolSet;
+import util.symbolSet : emptySymbolSet, SymbolSet;
 import util.util : enumConvertOrAssert, isMultipleOf, ptrTrustMe;
 
 void modifierTypeArgInvalid(ref CheckCtx ctx, in ModifierAst.Keyword modifier) {
@@ -120,7 +120,7 @@ StructDecl[] checkStructsInitial(ref CheckCtx ctx, in StructDeclAst[] asts) =>
 			StructDeclSource(ast),
 			ctx.curUri,
 			visibilityFromExplicitTopLevel(ast.visibility),
-			m.linkage,
+			m.extern_,
 			m.purityAndForced.purity,
 			m.purityAndForced.forced);
 	});
@@ -234,7 +234,7 @@ private Opt!VariantAndMethodImpls getVariantMemberTypeFromModifier(
 ) {
 	if (mod.isA!(ModifierAst.Keyword)) {
 		ModifierAst.Keyword* kw = &mod.as!(ModifierAst.Keyword)();
-		if (kw.keyword == ModifierKeyword.variantMember) {
+		if (isVariantMemberKeyword(kw.keyword)) {
 			if (has(kw.typeArg)) {
 				Type type = typeFromAst(
 					ctx, commonTypes, structsAndAliasesMap,
@@ -269,6 +269,9 @@ void checkVariantMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, Funs
 
 private:
 
+bool isVariantMemberKeyword(ModifierKeyword a) =>
+	a == ModifierKeyword.summonVariantMember || a == ModifierKeyword.variantMember;
+
 void checkMethodImplsForVariant(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
@@ -287,8 +290,8 @@ void checkMethodImplsForVariant(
 				Opt!Called called = findFunctionForReturnAndParamTypes(
 					ctx, commonTypes, TypeContainer(struct_),
 					funsInNonExprScope(ctx, funsMap),
-					FunFlags.none,
-					emptySymbolSet,
+					FunFlags.none.withSummon(variant.isSummon),
+					struct_.externSet,
 					LocalsInfo(),
 					sig.name,
 					variant.ast.range,
@@ -361,8 +364,9 @@ uint defaultAlignment(size_t size) =>
 	isMultipleOf(size, 2) ? 2 :
 	1;
 
-immutable struct LinkageAndPurity {
-	Linkage linkage;
+immutable struct LinkageAndPurity { // rename? ----------------------------------------------------------------------------
+	// If this is the empty set, the record is extern-compatible
+	Opt!SymbolSet extern_;
 	PurityAndForced purityAndForced;
 }
 
@@ -374,15 +378,15 @@ immutable struct PurityAndForced {
 // Note: purity is taken for granted here, and verified later when we check the body.
 LinkageAndPurity getStructModifiers(ref CheckCtx ctx, DeclKind declKind, ModifierAst[] modifiers) {
 	LinkageAndPurityModifiers accum = accumulateStructModifiers(ctx, modifiers);
-	Linkage linkage = () {
-		Linkage defaultLinkage = defaultLinkage(declKind);
+	Opt!SymbolSet extern_ = () {
+		Opt!SymbolSet defaultLinkage = defaultLinkage(declKind);
 		if (has(accum.linkage)) {
 			ModifierAst.Keyword keyword = *force(accum.linkage);
-			assert(keyword.keyword == ModifierKeyword.extern_);
-			if (defaultLinkage == Linkage.extern_)
+			SymbolSet set = getExternLibraryName(ctx, keyword, required: false);
+			if (has(defaultLinkage))
 				addDiag(ctx, keyword.keywordRange, Diag(
 					Diag.ModifierRedundantDueToDeclKind(keyword.keyword, declKind)));
-			return Linkage.extern_;
+			return some(set);
 		} else
 			return defaultLinkage;
 	}();
@@ -399,31 +403,31 @@ LinkageAndPurity getStructModifiers(ref CheckCtx ctx, DeclKind declKind, Modifie
 		} else
 			return PurityAndForced(defaultPurity, false);
 	}();
-	return LinkageAndPurity(linkage, purity);
+	return LinkageAndPurity(extern_, purity);
 }
 
-immutable struct LinkageAndPurityModifiers {
-	Opt!(ModifierAst.Keyword*) linkage;
+immutable struct LinkageAndPurityModifiers { // rename? --------------------------------------------------------------------
+	Opt!(ModifierAst.Keyword*) linkage; // rename -------------------------------------------------------------------------------------
 	Opt!(ModifierAst.Keyword*) purityAndForced;
 }
 LinkageAndPurityModifiers accumulateStructModifiers(ref CheckCtx ctx, ModifierAst[] modifiers) {
-	MutOpt!(ModifierAst.Keyword*) linkage;
+	MutOpt!(ModifierAst.Keyword*) linkage; // rename -------------------------------------------------------------------------------------
 	MutOpt!(ModifierAst.Keyword*) purityAndForced;
 	foreach (ref ModifierAst modifier; modifiers) {
 		if (isCommonModifier(modifier)) {
 			ModifierAst.Keyword* kw = &modifier.as!(ModifierAst.Keyword)();
-			if (kw.keyword != ModifierKeyword.variantMember)
+			if (!isVariantMemberKeyword(kw.keyword))
 				accumulateModifier(ctx, kw.keyword == ModifierKeyword.extern_ ? linkage : purityAndForced, kw);
 		} // else already warned in 'checkOnlyCommonModifiers'
 	}
-	modifierTypeArgInvalid(ctx, [linkage, purityAndForced]);
+	modifierTypeArgInvalid(ctx, [purityAndForced]);
 	return LinkageAndPurityModifiers(
 		linkage: optFromMut!(ModifierAst.Keyword*)(linkage),
 		purityAndForced: optFromMut!(ModifierAst.Keyword*)(purityAndForced));
 }
 
-Linkage defaultLinkage(DeclKind a) =>
-	a == DeclKind.extern_ ? Linkage.extern_ : Linkage.internal;
+Opt!SymbolSet defaultLinkage(DeclKind a) => // rename ---------------------------------------------------------------------------
+	a == DeclKind.extern_ ? some(emptySymbolSet) : none!SymbolSet;
 
 Purity defaultPurity(DeclKind a) {
 	final switch (a) {
@@ -443,7 +447,6 @@ Purity defaultPurity(DeclKind a) {
 		case DeclKind.test:
 		case DeclKind.spec:
 		case DeclKind.threadLocal:
-		case DeclKind.variantMember:
 			assert(false);
 	}
 }
@@ -496,7 +499,7 @@ bool isCommonModifier(in ModifierAst a) =>
 	a.matchIn!bool(
 		(in ModifierAst.Keyword x) =>
 			x.keyword == ModifierKeyword.extern_ ||
-			x.keyword == ModifierKeyword.variantMember ||
+			isVariantMemberKeyword(x.keyword) ||
 			has(purityAndForcedFromModifier(x.keyword)),
 		(in SpecUseAst _) =>
 			false);

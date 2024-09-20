@@ -17,6 +17,7 @@ import model.model :
 	Called,
 	CalledDecl,
 	CalledSpecSig,
+	CommonTypes,
 	countSigs,
 	FunDecl,
 	FunDeclAndTypeArgs,
@@ -65,6 +66,7 @@ bool isPurityAlwaysCompatibleConsideringSpecs(in immutable SpecInst*[] funSpecs,
 
 Called checkCallSpecs(
 	ref CheckCtx ctx,
+	ref CommonTypes commonTypes,
 	TypeContainer typeContainer,
 	FunsInScope funsInScope,
 	Range diagRange,
@@ -74,10 +76,10 @@ Called checkCallSpecs(
 	return getCalledFromCandidateAfterTypeChecks!DummyTrace(checkSpecsCtx, candidate, DummyTrace()).match!Called(
 		(Called x) =>
 			checkSpecsCtx.hasErrors
-				? checkCallSpecsWithRealTrace(ctx, typeContainer, funsInScope, diagRange, candidate)
+				? checkCallSpecsWithRealTrace(ctx, commonTypes, typeContainer, funsInScope, diagRange, candidate)
 				: x,
 		(DummyTrace.NoMatch _) =>
-			checkCallSpecsWithRealTrace(ctx, typeContainer, funsInScope, diagRange, candidate));
+			checkCallSpecsWithRealTrace(ctx, commonTypes, typeContainer, funsInScope, diagRange, candidate));
 }
 
 Called checkSpecSingleSigIgnoreParents(ref CheckCtx ctx, in FunsMap funsMap, FunDecl* decl, SpecInst* spec) =>
@@ -186,6 +188,7 @@ void checkCallFlags(
 
 Called checkCallSpecsWithRealTrace(
 	ref CheckCtx ctx,
+	ref CommonTypes commonTypes,
 	TypeContainer typeContainer,
 	FunsInScope funsInScope,
 	Range range,
@@ -197,7 +200,7 @@ Called checkCallSpecsWithRealTrace(
 			(Called x) => x,
 			(Diag.SpecNoMatch x) {
 				addDiag(ctx, range, Diag(x));
-				return candidateBogusCalled(ctx.alloc, ctx.instantiateCtx, candidate);
+				return candidateBogusCalled(ctx.alloc, ctx.instantiateCtx, commonTypes, candidate);
 			}));
 }
 

@@ -227,6 +227,8 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 						return "Determines the type of number used to store the enum.";
 					case ModifierKeyword.summon:
 						return "This function can directly access all I/O capabilities.";
+					case ModifierKeyword.summonVariantMember:
+						return "Acts like 'variant-member', but method implementations can be 'summon'.";
 					case ModifierKeyword.trusted:
 						return "This function is not unsafe, but can do unsafe things internally.";
 					case ModifierKeyword.unsafe:

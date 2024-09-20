@@ -4,7 +4,8 @@ module frontend.parse.lexToken;
 
 import frontend.parse.lexWhitespace :
 	AddDiag, DocCommentAndIndentDelta, IndentKind, skipBlankLinesAndGetIndentDelta, takeRestOfLine;
-import model.ast : LiteralFloatAst, LiteralIntegral;
+import model.ast : HighPrecisionFloat, LiteralFloatAst, LiteralIntegral;
+import util.conv : safeToLong;
 import util.integralValues : IntegralValue;
 import util.opt : force, has, none, Opt, optOrDefault, some;
 import util.sourceRange : Pos;
@@ -202,6 +203,7 @@ enum Token {
 	spec, // 'spec'
 	storage, // 'storage'
 	summon, // 'summon'
+	summonVariantMember, // 'summon-variant-member'
 	test, // 'test'
 	thread_local, // 'thread-local'
 	throw_, // 'throw'
@@ -598,6 +600,8 @@ Token tokenForSymbol(Symbol a) {
 			return Token.storage;
 		case symbol!"summon".value:
 			return Token.summon;
+		case symbol!"summon-variant-member".value:
+			return Token.summonVariantMember;
 		case symbol!"test".value:
 			return Token.test;
 		case symbol!"thread-local".value:
@@ -634,6 +638,14 @@ Token tokenForSymbol(Symbol a) {
 enum Sign {
 	plus,
 	minus,
+}
+int intOfSign(Sign a) {
+	final switch (a) {
+		case Sign.plus:
+			return 1;
+		case Sign.minus:
+			return -1;
+	}
 }
 
 TokenAndData takeNumberAfterSign(ref MutCString ptr, Opt!Sign sign) {
@@ -673,22 +685,19 @@ bool peekDecimalPoint(MutCString ptr) {
 
 
 TokenAndData takeFloat(ref MutCString ptr, Sign sign, NatAndOverflow natPart, ulong base) {
-	// TODO: improve accuracy
-	MutCString afterDecimalPoint = ptr;
-	NatAndOverflow rest = takeNat(ptr, base);
-	bool overflow = natPart.overflow || rest.overflow;
-	ulong power = ptr - afterDecimalPoint;
-	double multiplier = pow(1.0, 1.0 / base, power);
-	double floatSign = () {
-		final switch (sign) {
-			case Sign.minus:
-				return -1.0;
-			case Sign.plus:
-				return 1.0;
-		}
-	}();
-	double f = floatSign * (natPart.value + (rest.value * multiplier));
-	return TokenAndData(Token.literalFloat, LiteralFloatAst(f, overflow));
+	NatAndOverflow res = takeNatContinue(ptr, base, NatAndOverflow(natPart.value, natPart.overflow, countDigits: 0));
+	bool overflow = res.overflow || (res.value > long.max);
+	long value = intOfSign(sign) * res.value;
+	long exp = -safeToLong(res.countDigits);
+	assert(-100 <= exp); // kill -------------------------------------------------------------------------------------------------
+	assert(exp <= 100); // kill -------------------------------------------------------------------------------------------------
+	if (tryTakeChar(ptr, 'e')) {
+		bool neg = tryTakeChar(ptr, '-');
+		NatAndOverflow x = takeNat(ptr, 10);
+		overflow = overflow || x.overflow;
+		exp += (neg ? -1 : 1) * x.value; // TODO: this can overflow on negate -------------------------------------------------------------
+	}
+	return TokenAndData(Token.literalFloat, LiteralFloatAst(HighPrecisionFloat(value, exp), overflow));
 }
 
 double pow(double acc, double base, ulong power) =>
@@ -698,16 +707,21 @@ double pow(double acc, double base, ulong power) =>
 ulong getDivisor(ulong acc, ulong a, ulong base) =>
 	acc < a ? getDivisor(acc * base, a, base) : acc;
 
-public immutable struct NatAndOverflow { ulong value; bool overflow; }
+public immutable struct NatAndOverflow { ulong value; bool overflow; uint countDigits; }
 LiteralIntegral toLiteralIntegral(NatAndOverflow a) =>
 	LiteralIntegral(isSigned: false, overflow: a.overflow, value: IntegralValue(a.value));
 
-public NatAndOverflow takeNat(ref MutCString ptr, ulong base) {
-	ulong value = 0;
-	bool overflow = false;
+public NatAndOverflow takeNat(scope ref MutCString ptr, ulong base) =>
+	takeNatContinue(ptr, base, NatAndOverflow(0, false, 0));
+
+NatAndOverflow takeNatContinue(scope ref MutCString ptr, ulong base, NatAndOverflow starting) {
+	ulong value = starting.value;
+	bool overflow = starting.overflow;
+	uint countDigits = starting.countDigits;
 	while (true) {
 		Opt!ubyte digit = decodeHexDigit(*ptr);
 		if (has(digit) && force(digit) < base) {
+			countDigits++;
 			ptr++;
 			ulong newValue = value * base + force(digit);
 			tryTakeChar(ptr, '_');
@@ -716,7 +730,7 @@ public NatAndOverflow takeNat(ref MutCString ptr, ulong base) {
 		} else
 			break;
 	}
-	return NatAndOverflow(value, overflow);
+	return NatAndOverflow(value, overflow, countDigits);
 }
 
 public bool tryTakeIdentifier(ref MutCString ptr) {

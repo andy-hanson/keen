@@ -6,7 +6,7 @@ import util.alloc.alloc : Alloc, withStackAlloc, withStackAllocImpure;
 import util.alloc.stackAlloc : StackArrayBuilder, withBuildStackArray;
 import util.col.arrayBuilder : asTemporaryArray, Builder, finish, sizeSoFar;
 import util.col.array : reverseInPlace, zip;
-import util.conv : bitsOfFloat64, round, safeToSizeT, safeToUlong;
+import util.conv : bitsOfFloat64, powerOf10, round, safeToSizeT, safeToUlong;
 import util.string : eachChar, CString, stringOfCString;
 import util.unicode : isValidUnicodeCharacter, mustUnicodeDecode, mustUnicodeEncode;
 import util.util : abs, castImmutable, debugLog, isNan, max, min;
@@ -116,11 +116,11 @@ T withStackWriter(size_t nBytes, T)(
 		cbRes(makeStringWithWriter(alloc, (scope ref Writer writer) {
 			cb(alloc, writer);
 		})));
-T withStackWriterCString(size_t nBytes = 0x10000, T)(
+T withStackWriterCString(size_t sizeBytes = 0x1000, T)(
 	in void delegate(scope ref Writer) @safe @nogc pure nothrow cb,
 	in T delegate(in CString) @safe @nogc pure nothrow cbRes,
 ) =>
-	withStackAlloc!nBytes((scope ref Alloc alloc) =>
+	withStackAlloc!(sizeBytes * ulong.sizeof)((scope ref Alloc alloc) =>
 		cbRes(withWriter(alloc, (scope ref Writer writer) {
 			cb(writer);
 		})));
@@ -154,6 +154,10 @@ string makeStringWithWriter(ref Alloc alloc, in void delegate(scope ref Writer w
 	cb(writer);
 	return finish(writer);
 }
+string makeStringWithWriter(T)(ref Alloc alloc, in T value) =>
+	makeStringWithWriter(alloc, (scope ref Writer writer) {
+		writer ~= value;
+	});
 
 void writeHex(scope ref Writer writer, ulong a, uint minDigits = 1) {
 	writeNat(writer, a, 16, minDigits);
@@ -163,6 +167,10 @@ void writeHex(scope ref Writer writer, long a) {
 	if (a < 0)
 		writer ~= '-';
 	writeHex(writer, cast(ulong) (a < 0 ? -a : a));
+}
+
+void writeFloatLiteralForJS(scope ref Writer writer, double a) {
+	writeFloatLiteral(writer, a, infinity: "Number.POSITIVE_INFINITY", nan: "Number.NaN");
 }
 
 void writeFloatLiteral(scope ref Writer writer, double a, in string infinity, in string nan) {
@@ -219,25 +227,25 @@ private immutable struct DecimalAndExponent {
 private DecimalAndExponent toDecimalAndExponent(double a) {
 	assert(a > 0);
 	double x = a;
-	long exp = 0;
+	long power = 0;
 	while (x < 1) {
-		x *= 10;
-		exp--;
+		power++;
+		x = a * powerOf10(power);
 	}
 
 	ulong digits = 0;
 	while (!isNearInt(x) && digits < 15) {
-		x *= 10;
-		exp--;
+		power++;
+		x = a * powerOf10(power);
 		digits++;
 	}
 
 	ulong dec = safeToUlong(cast(long) round(x));
 	while (dec % 10 == 0) {
 		dec /= 10;
-		exp++;
+		power--;
 	}
-	return DecimalAndExponent(dec, exp);
+	return DecimalAndExponent(dec, -power);
 }
 private bool isNearInt(double a) {
 	double b = round(a);

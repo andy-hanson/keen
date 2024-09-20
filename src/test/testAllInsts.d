@@ -32,8 +32,9 @@ import util.col.array : contains, indexOf, newArray, newSmallArray, small;
 import util.col.hashTable : ValueAndDidAdd;
 import util.col.mutMultiMap : countKeys, eachValueForKey, MutMultiMap;
 import util.memory : allocate;
-import util.opt : force, Opt;
+import util.opt : force, none, Opt;
 import util.symbol : Symbol, symbol;
+import util.symbolSet : SymbolSet;
 import util.uri : mustParseUri, Uri;
 import util.util : ptrTrustMe;
 import util.writer : debugLogWithWriter, writeNewline, Writer;
@@ -207,7 +208,7 @@ StructDecl dummyStruct(ref Alloc alloc, Uri uri, Symbol name, size_t nTypeParams
 			small!NameAndRange(typeParams[0 .. nTypeParams])))),
 		uri,
 		Visibility.public_,
-		Linkage.internal,
+		none!SymbolSet,
 		Purity.data,
 		false);
 

@@ -236,7 +236,7 @@ void genAssertType(
 		(in StructInst x) {
 			Opt!JsExpr notOk = x.decl.body_.isA!BuiltinType
 				? genIsNotBuiltinType(ctx, source, x.decl.body_.as!BuiltinType, get)
-				: optIf(!x.decl.body_.isA!(StructBody.Extern), () =>
+				: optIf(!x.decl.body_.isA!(StructBody.Extern) && !x.decl.body_.isA!(StructBody.Variant), () =>
 					genNot(
 						ctx.alloc, source,
 						genInstanceof(ctx.alloc, source, get, translateStructReference(ctx, source, x.decl))));
@@ -1399,7 +1399,7 @@ JsExpr translateBuiltinUnary(ref Alloc alloc, in Source source, BuiltinUnary a, 
 				JsMemberName.noPrefix(symbol!"map"),
 				[BigInt]);
 		case BuiltinUnary.truncateToInt64FromFloat64:
-			return genCallSync(alloc, source, BigInt, [callMath(alloc, source, symbol!"trunc", arg)]);
+			return genCallSync(alloc, source, BigInt, [callMath(alloc, source, symbol!"trunc", [arg])]);
 		case BuiltinUnary.trustAsString:
 			// new TextDecoder().decode(new Uint8Array(arg.map(Number)))
 			return genCallPropertySync(
@@ -1417,17 +1417,17 @@ JsExpr genArrayFrom(ref Alloc alloc, in Source source, JsExpr arg) =>
 
 JsExpr translateBuiltinUnaryMath(ref Alloc alloc, in Source source, BuiltinUnaryMath a, JsExpr arg) {
 	JsExpr f32(Symbol name) =>
-		toFloat32(alloc, source, callMath(alloc, source, name, arg));
+		toFloat32(alloc, source, callMath(alloc, source, name, [arg]));
 	JsExpr f64(Symbol name) =>
-		callMath(alloc, source, name, arg);
+		callMath(alloc, source, name, [arg]);
 	JsExpr round() =>
 		// JS round gives wrong results for negative numbers, so fix by only rounding positive
 		// Math.sign(arg) * Math.round(Math.abs(arg))
 		genTimes(
 			alloc,
 			source,
-			callMath(alloc, source, symbol!"sign", arg),
-			callMath(alloc, source, symbol!"round", callMath(alloc, source, symbol!"abs", arg)));
+			callMath(alloc, source, symbol!"sign", [arg]),
+			callMath(alloc, source, symbol!"round", [callMath(alloc, source, symbol!"abs", [arg])]));
 
 	final switch (a) {
 		case BuiltinUnaryMath.acosFloat32:
@@ -1501,10 +1501,10 @@ JsExpr translateBuiltinUnaryMath(ref Alloc alloc, in Source source, BuiltinUnary
 			return f64(symbol!"log");
 	}
 }
-JsExpr callMath(ref Alloc alloc, in Source source, Symbol name, JsExpr arg) =>
-	genCallPropertySync(alloc, source, genGlobal(source, symbol!"Math"), JsMemberName.noPrefix(name), [arg]);
+JsExpr callMath(ref Alloc alloc, in Source source, Symbol name, in JsExpr[] args) =>
+	genCallPropertySync(alloc, source, genGlobal(source, symbol!"Math"), JsMemberName.noPrefix(name), args);
 JsExpr toFloat32(ref Alloc alloc, in Source source, JsExpr arg) =>
-	callMath(alloc, source, symbol!"fround", arg);
+	callMath(alloc, source, symbol!"fround", [arg]);
 
 JsExpr genAsNat(ref Alloc alloc, in Source source, uint bits, JsExpr arg) =>
 	genCallPropertySync(
@@ -1730,13 +1730,19 @@ JsExpr translateBuiltinBinaryMath(
 	JsExpr left,
 	JsExpr right,
 ) {
-	JsExpr Math = genGlobal(source, symbol!"Math");
-	JsExpr atan2 = genCallPropertySync(ctx.alloc, source, Math, JsMemberName.noPrefix(symbol!"atan2"), [left, right]);
+	JsExpr atan2() =>
+		callMath(ctx.alloc, source, symbol!"atan2", [left, right]);
+	JsExpr pow() =>
+		callMath(ctx.alloc, source, symbol!"pow", [left, right]);
 	final switch (kind) {
 		case BuiltinBinaryMath.atan2Float32:
-			return toFloat32(ctx.alloc, source, atan2);
+			return toFloat32(ctx.alloc, source, atan2());
 		case BuiltinBinaryMath.atan2Float64:
-			return atan2;
+			return atan2();
+		case BuiltinBinaryMath.unsafePowFloat32:
+			return toFloat32(ctx.alloc, source, pow());
+		case BuiltinBinaryMath.unsafePowFloat64:
+			return pow();
 	}
 }
 

@@ -2,6 +2,8 @@ module util.conv;
 
 @safe @nogc pure nothrow:
 
+import util.opt : Opt, optIf;
+
 int safeIntFromUint(uint u) {
 	assert(u <= int.max);
 	return cast(int) u;
@@ -26,6 +28,13 @@ uint safeToUint(ulong a) {
 	assert(isUint(a));
 	return cast(uint) a;
 }
+
+long safeToLong(ulong a) {
+	assert(a <= long.max);
+	return cast(long) a;
+}
+Opt!long tryToLong(ulong a) =>
+	optIf(a <= long.max, () => cast(long) a);
 
 ulong safeToUlong(long a) {
 	assert(a >= 0);
@@ -76,6 +85,94 @@ ulong bitsOfInt(int a) =>
 
 ulong bitsOfLong(long a) =>
 	cast(ulong) a;
+double powerOf10(long power) {
+	switch (power) {
+		case -20:
+			return 0.000_000_000_000_000_000_01;
+		case -19:
+			return 0.000_000_000_000_000_000_1;
+		case -18:
+			return 0.000_000_000_000_000_001;
+		case -17:
+			return 0.000_000_000_000_000_01;
+		case -16:
+			return 0.000_000_000_000_000_1;
+		case -15:
+			return 0.000_000_000_000_001;
+		case -14:
+			return 0.000_000_000_000_01;
+		case -13:
+			return 0.000_000_000_000_1;
+		case -12:
+			return 0.000_000_000_001;
+		case -11:
+			return 0.000_000_000_01;
+		case -10:
+			return 0.000_000_000_1;
+		case -9:
+			return 0.000_000_001;
+		case -8:
+			return 0.000_000_01;
+		case -7:
+			return 0.000_000_1;
+		case -6:
+			return 0.000_001;
+		case -5:
+			return 0.000_01;
+		case -4:
+			return 0.000_1;
+		case -3:
+			return 0.001;
+		case -2:
+			return 0.01;
+		case -1:
+			return 0.1;
+		case 0:
+			return 1;
+		case 1:
+			return 10;
+		case 2:
+			return 100;
+		case 3:
+			return 1_000;
+		case 4:
+			return 10_000;
+		case 5:
+			return 100_000;
+		case 6:
+			return 1_000_000;
+		case 7:
+			return 10_000_000;
+		case 8:
+			return 100_000_000;
+		case 9:
+			return 1_000_000_000;
+		case 10:
+			return 10_000_000_000;
+		case 11:
+			return 100_000_000_000;
+		case 12:
+			return 1_000_000_000_000;
+		case 13:
+			return 10_000_000_000_000;
+		case 14:
+			return 100_000_000_000_000;
+		case 15:
+			return 1_000_000_000_000_000;
+		case 16:
+			return 10_000_000_000_000_000;
+		case 17:
+			return 100_000_000_000_000_000;
+		case 18:
+			return 1_000_000_000_000_000_000;
+		case 19:
+			return 10_000_000_000_000_000_000;
+		case 20:
+			return 100_000_000_000_000_000_000.0;
+		default:
+			return powerOf10(power / 2) * powerOf10(power / 2) * (power % 2 == 0 ? 1 : power < 0 ? 0.1 : 10);
+	}
+}
 
 private:
 

@@ -100,7 +100,6 @@ enum DeclKind {
 	threadLocal,
 	union_,
 	variant,
-	variantMember,
 }
 
 enum ReadFileDiag_ {

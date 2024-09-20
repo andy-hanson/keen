@@ -90,6 +90,7 @@ import util.sourceRange : jsonOfLineAndColumn, jsonOfLineAndColumnRange, LineAnd
 import util.union_ : Union;
 import util.uri : Path, RelPath, stringOfPath;
 import util.util : stringOfEnum;
+import util.writer : makeStringWithWriter;
 
 Json jsonOfAst(ref Alloc alloc, in LineAndColumnGetter lineAndColumnGetter, in FileAst ast) {
 	Ctx ctx = Ctx(lineAndColumnGetter);
@@ -202,7 +203,12 @@ Json jsonOfEnumOrFlagsMember(ref Alloc alloc, in Ctx ctx, in EnumOrFlagsMemberAs
 			jsonOfLiteralIntegralAndRange(alloc, ctx, x))]);
 
 Json jsonOfLiteralFloatAst(ref Alloc alloc, in LiteralFloatAst a) =>
-	jsonOfLiteral!"float"(alloc, a.value, a.overflow);
+	jsonObject(alloc, [
+		kindField!"float",
+		// Convert to a string to avoid lossing long -> double conversion
+		field!"long"(makeStringWithWriter(alloc, a.value.longValue)),
+		field!"exponent"(a.value.exponent),
+		field!"overflow"(a.overflow)]);
 
 Json jsonOfLiteralStringAst(ref Alloc alloc, in LiteralStringAst a) =>
 	jsonObject(alloc, [

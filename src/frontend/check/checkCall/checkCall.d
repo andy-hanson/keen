@@ -367,7 +367,7 @@ Opt!Called findFunctionForReturnAndParamTypes(
 				return none!Called;
 			} else
 				return some(checkCallAfterChoosingOverload(
-					ctx, typeContainer, funsInScope, outermostFunFlags, externs, locals,
+					ctx, commonTypes, typeContainer, funsInScope, outermostFunFlags, externs, locals,
 					only(candidates), diagRange, arity, canDoUnsafe));
 		});
 }
@@ -484,7 +484,7 @@ Opt!Called checkCallInner(
 			return none!Called;
 		} else
 			return some(checkCallAfterChoosingOverload(
-				ctx.checkCtx, ctx.typeContainer, funsInExprScope(ctx), ctx.outermostFunFlags, ctx.externs, locals,
+				ctx.checkCtx, ctx.commonTypes, ctx.typeContainer, funsInExprScope(ctx), ctx.outermostFunFlags, ctx.externs, locals,
 				only(candidates), diagRange, nArgs,
 				() => checkCanDoUnsafe(ctx)));
 	});
@@ -687,6 +687,7 @@ bool inferCandidateTypeArgsFromSpecSig(
 
 Called checkCallAfterChoosingOverload(
 	ref CheckCtx ctx,
+	ref CommonTypes commonTypes,
 	TypeContainer typeContainer,
 	FunsInScope funsInScope,
 	in FunFlags outermostFunFlags,
@@ -697,7 +698,7 @@ Called checkCallAfterChoosingOverload(
 	size_t nArgs,
 	in bool delegate() @safe @nogc pure nothrow canDoUnsafe,
 ) {
-	Called called = checkCallSpecs(ctx, typeContainer, funsInScope, diagRange, candidate);
+	Called called = checkCallSpecs(ctx, commonTypes, typeContainer, funsInScope, diagRange, candidate);
 	checkCalled(
 		ctx, diagRange, called, outermostFunFlags, externs, locals,
 		nArgs == 0 ? ArgsKind.empty : ArgsKind.nonEmpty, canDoUnsafe);

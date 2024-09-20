@@ -23,27 +23,27 @@ private alias unaryFloat64(alias cb) = opFnUnary!((ulong a) =>
 Operation.Fn fnForUnaryMath(BuiltinUnaryMath a) {
 	final switch (a) {
 		case BuiltinUnaryMath.acosFloat32:
-			return &unaryFloat32!((float a) => acos(a));
+			return &unaryFloat32!((float a) => acosf(a));
 		case BuiltinUnaryMath.acosFloat64:
 			return &unaryFloat64!((double a) => acos(a));
 		case BuiltinUnaryMath.acoshFloat32:
-			return &unaryFloat32!((float a) => acosh(a));
+			return &unaryFloat32!((float a) => acoshf(a));
 		case BuiltinUnaryMath.acoshFloat64:
 			return &unaryFloat64!((double a) => acosh(a));
 		case BuiltinUnaryMath.asinFloat32:
-			return &unaryFloat32!((float a) => asin(a));
+			return &unaryFloat32!((float a) => asinf(a));
 		case BuiltinUnaryMath.asinFloat64:
 			return &unaryFloat64!((double a) => asin(a));
 		case BuiltinUnaryMath.asinhFloat32:
-			return &unaryFloat32!((float a) => asinh(a));
+			return &unaryFloat32!((float a) => asinhf(a));
 		case BuiltinUnaryMath.asinhFloat64:
 			return &unaryFloat64!((double a) => asinh(a));
 		case BuiltinUnaryMath.atanFloat32:
-			return &unaryFloat32!((float a) => atan(a));
+			return &unaryFloat32!((float a) => atanf(a));
 		case BuiltinUnaryMath.atanFloat64:
 			return &unaryFloat64!((double a) => atan(a));
 		case BuiltinUnaryMath.atanhFloat32:
-			return &unaryFloat32!((float a) => atanh(a));
+			return &unaryFloat32!((float a) => atanhf(a));
 		case BuiltinUnaryMath.atanhFloat64:
 			return &unaryFloat64!((double a) => atanh(a));
 		case BuiltinUnaryMath.cosFloat32:
@@ -51,7 +51,7 @@ Operation.Fn fnForUnaryMath(BuiltinUnaryMath a) {
 		case BuiltinUnaryMath.cosFloat64:
 			return &unaryFloat64!((double a) => cos(a));
 		case BuiltinUnaryMath.coshFloat32:
-			return &unaryFloat32!((float a) => cosh(a));
+			return &unaryFloat32!((float a) => coshf(a));
 		case BuiltinUnaryMath.coshFloat64:
 			return &unaryFloat64!((double a) => cosh(a));
 		case BuiltinUnaryMath.roundDownFloat32:
@@ -59,7 +59,7 @@ Operation.Fn fnForUnaryMath(BuiltinUnaryMath a) {
 		case BuiltinUnaryMath.roundDownFloat64:
 			return &unaryFloat64!((double a) => floor(a));
 		case BuiltinUnaryMath.roundFloat32:
-			return &unaryFloat32!((float a) => round(a));
+			return &unaryFloat32!((float a) => roundf(a));
 		case BuiltinUnaryMath.roundFloat64:
 			return &unaryFloat64!((double a) => round(a));
 		case BuiltinUnaryMath.roundUpFloat32:
@@ -71,23 +71,23 @@ Operation.Fn fnForUnaryMath(BuiltinUnaryMath a) {
 		case BuiltinUnaryMath.sinFloat64:
 			return &unaryFloat64!((double a) => sin(a));
 		case BuiltinUnaryMath.sinhFloat32:
-			return &unaryFloat32!((float a) => sinh(a));
+			return &unaryFloat32!((float a) => sinhf(a));
 		case BuiltinUnaryMath.sinhFloat64:
 			return &unaryFloat64!((double a) => sinh(a));
 		case BuiltinUnaryMath.sqrtFloat32:
-			return &unaryFloat32!((float a) => sqrt(a));
+			return &unaryFloat32!((float a) => sqrtf(a));
 		case BuiltinUnaryMath.sqrtFloat64:
 			return &unaryFloat64!((double a) => sqrt(a));
 		case BuiltinUnaryMath.tanFloat32:
-			return &unaryFloat32!((float a) => tan(a));
+			return &unaryFloat32!((float a) => tanf(a));
 		case BuiltinUnaryMath.tanFloat64:
 			return &unaryFloat64!((double a) => tan(a));
 		case BuiltinUnaryMath.tanhFloat32:
-			return &unaryFloat32!((float a) => tanh(a));
+			return &unaryFloat32!((float a) => tanhf(a));
 		case BuiltinUnaryMath.tanhFloat64:
 			return &unaryFloat64!((double a) => tanh(a));
 		case BuiltinUnaryMath.unsafeLogFloat32:
-			return &unaryFloat32!((float a) => log(a));
+			return &unaryFloat32!((float a) => logf(a));
 		case BuiltinUnaryMath.unsafeLogFloat64:
 			return &unaryFloat64!((double a) => log(a));
 	}
@@ -96,9 +96,13 @@ Operation.Fn fnForUnaryMath(BuiltinUnaryMath a) {
 Operation.Fn fnForBinaryMath(BuiltinBinaryMath a) {
 	final switch (a) {
 		case BuiltinBinaryMath.atan2Float32:
-			return &binaryFloat32s!((float a, float b) => atan2(a, b));
+			return &binaryFloat32s!((float a, float b) => atan2f(a, b));
 		case BuiltinBinaryMath.atan2Float64:
 			return &binaryFloat64s!((double a, double b) => atan2(a, b));
+		case BuiltinBinaryMath.unsafePowFloat32:
+			return &binaryFloat32s!((float a, float b) => powf(a, b));
+		case BuiltinBinaryMath.unsafePowFloat64:
+			return &binaryFloat64s!((double a, double b) => pow(a, b));
 	}
 }
 
@@ -202,25 +206,41 @@ long popcount(ulong a) =>
 // Importing 'core.stdc.math' breaks WASM builds, so declaring here
 extern(C) {
 	double acos(double x);
+	float acosf(float x);
 	double acosh(double x);
+	float acoshf(float x);
 	double asin(double x);
+	float asinf(float x);
 	double asinh(double x);
+	float asinhf(float x);
 	double atan(double x);
+	float atanf(float x);
 	double atanh(double x);
+	float atanhf(float x);
 	double atan2(double x, double y);
+	float atan2f(float x, float y);
 	double ceil(double x);
 	float ceilf(float x);
 	double cos(double x);
 	float cosf(float x);
 	double cosh(double x);
+	float coshf(float x);
 	double floor(float x);
 	float floorf(float x);
 	double log(double x);
+	double logf(float x);
+	double pow(double x, double y);
+	float powf(float x, float y);
 	double round(double x);
+	float roundf(float x);
 	double sin(double x);
 	float sinf(float x);
 	double sinh(double x);
+	float sinhf(float x);
 	double sqrt(double x);
+	float sqrtf(float x);
 	double tan(double x);
+	float tanf(float x);
 	double tanh(double x);
+	float tanhf(float x);
 }

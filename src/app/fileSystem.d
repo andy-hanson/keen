@@ -54,7 +54,7 @@ version (Windows) {
 		WriteFile;
 } else {
 	import core.sys.posix.dirent : closedir, DIR, dirent, opendir, readdir;
-	import core.sys.posix.fcntl : O_CREAT, O_EXCL, open, O_WRONLY;
+	import core.sys.posix.fcntl : O_CREAT, O_EXCL, open, O_TRUNC, O_WRONLY;
 	import core.sys.posix.spawn : posix_spawn;
 	import core.sys.posix.stdio : fdopen;
 	import core.sys.posix.sys.wait : waitpid;
@@ -455,7 +455,7 @@ private @system MutOpt!(FILE*) openFileForWrite(FilePath path, FilePermissions p
 				case FileOverwrite.forbid:
 					return O_CREAT | O_EXCL | O_WRONLY;
 				case FileOverwrite.allow:
-					return O_CREAT | O_WRONLY;
+					return O_CREAT | O_TRUNC | O_WRONLY;
 			}
 		}();
 		int res = withCStringOfFilePath(path, (in CString x) @trusted =>

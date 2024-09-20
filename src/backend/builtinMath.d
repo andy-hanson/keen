@@ -32,6 +32,8 @@ enum BuiltinFunction {
 	floorf,
 	log,
 	logf,
+	pow,
+	powf,
 	round,
 	roundf,
 	sin,
@@ -125,5 +127,9 @@ BuiltinFunction builtinForBinaryMath(BuiltinBinaryMath a) {
 			return BuiltinFunction.atan2f;
 		case BuiltinBinaryMath.atan2Float64:
 			return BuiltinFunction.atan2;
+		case BuiltinBinaryMath.unsafePowFloat32:
+			return BuiltinFunction.powf;
+		case BuiltinBinaryMath.unsafePowFloat64:
+			return BuiltinFunction.pow;
 	}
 }

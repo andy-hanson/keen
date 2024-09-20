@@ -1,0 +1,71 @@
+import
+	crow/io/duration: duration, seconds
+	crow/js
+	./note
+
+mixer variant mut
+	cur-time duration()
+	start-note playing-note(a note)
+	stop-note void(a playing-note)
+
+-web-mixer record mut, mixer summon-variant-member
+	context mut js-any
+web-mixer mixer() summon, unsafe, js extern
+	(null,) to
+
+cur-time duration(a web-mixer) summon, trusted
+	assert extern js # TODO: support extern modifier on 'web-mixer', then mark this function 'js extern' ------------------------
+	if a.context == null
+		0 seconds
+	else
+		a.context["currentTime"].cast seconds
+
+playing-note record
+	-gain js-any
+
+start-note playing-note(a web-mixer, note note) summon, trusted
+	assert extern js # TODO: support extern modifier on 'web-mixer', then mark this function 'js extern' ------------------------
+	if a.context == null
+		a.context := "AudioContext".js-global call-new
+
+	osc = a.context call-property "createOscillator"
+	osc["type"] := "sine"::string
+
+	_ = osc["frequency"] call-property "setValueAtTime", note.freq-for-note, a.cur-time.seconds
+	_ = osc call-property "start"
+	
+	gain = a.context call-property "createGain"
+	_ = gain["gain"] call-property "setValueAtTime", 0::float, gain["context"]["currentTime"].cast::float
+	_ = gain["gain"] call-property "linearRampToValueAtTime", 0.1::float, gain["context"]["currentTime"].cast::float + 0.1
+
+	_ = osc call-property "connect", gain
+	_ = gain call-property "connect", a.context["destination"]
+	gain,
+
+stop-note void(_ web-mixer, note playing-note) summon, trusted
+	assert extern js # TODO: support extern modifier on 'web-mixer', then mark this function 'js extern' ------------------------
+	gain = note gain
+
+	cur-value float = gain["gain"]["value"] cast
+
+	# I need to cancel out the existing ramp!
+
+	# Fade out over 1 second
+	cur-time float = gain["context"]["currentTime"] cast
+	# Cancel the existing fade in if any
+	_ = gain["gain"] call-property "cancelAndHoldAtTime", cur-time
+	_ = gain["gain"] call-property "setValueAtTime", cur-value, cur-time
+	_ = gain["gain"] call-property "linearRampToValueAtTime", 0::float, cur-time + 0.5
+
+	# TODO ------------------------------------------------------------------------------------------------------------------
+	#1.seconds delay
+	#_ = old-gain call-property "disconnect"
+	#info log "disconnect"
+
+-freq-for-note float(note note)
+	A float = 440
+	half-step float = 2 ** (1 / 12)
+	A * (half-step ** note.value.to)
+
+# NOTE: every node has 'context' on it, so I don't need to keep passing htat around...
+# https://developer.mozilla.org/en-US/docs/Web/API/AudioNode

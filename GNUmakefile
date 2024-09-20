@@ -7,7 +7,7 @@
 # WARN: Does not clean `dyncall` as that takes too long to restore
 # Also does not clean `node_modules` for the VSCode plugin
 clean:
-	rm -rf bin site demo/webapp/db demo/webapp/index.js demo/webapp/index.js.map
+	rm -rf bin site demo/webapp/db demo/*/index.js demo/*/index.js.map
 
 all: clean test lint serve
 

@@ -1,0 +1,49 @@
+import
+	crow/experimental/observable
+	crow/io/duration
+	./note
+	./mixer
+
+main-controller void(mixer mixer, notes note-event events, mode-obs mode mutable-observable)
+	playing-notes playing-note mut[note] = ()
+
+	# If recording, time is relative to start of recording.
+	# If idle, the value shouldn't matter.
+	# This lets us compare the mixer's current-time with the start time
+	start-time mut duration = 0 seconds
+	# Only used when recording
+	recording-builder recording-builder = ()
+
+	stop-note void mut(x note) = note =>
+		if x ?= playing-notes remove note
+			mixer stop-note x
+
+	notes subscribe shared event =>
+		if mode-obs.get == recording
+			recording-builder ~= ((mixer.cur-time - start-time), event)
+		match event
+		as note-on note
+			stop-note[note]
+			playing-notes[note] := mixer start-note note
+		as note-off note
+			stop-note[note]
+
+	mode-obs.events subscribe shared mode =>
+		match mode
+		as idle
+			r recording = recording-builder finish (mixer.cur-time - start-time)
+			info log "your record is:"
+			info log "{r.to::json}"
+			start-time := 0 seconds
+			()
+		as recording
+			start-time := mixer.cur-time
+			()
+
+mode enum(idle, recording)
+show string(a mode)
+	match a
+	as idle
+		"Idle"
+	as recording
+		"Recording"

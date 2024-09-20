@@ -19,6 +19,7 @@ import model.ast :
 	ImportOrExportAst,
 	MatchAst,
 	ModifierAst,
+	ModifierKeyword,
 	NameAndRange,
 	RecordOrUnionMemberAst,
 	SpecDeclAst,
@@ -58,11 +59,11 @@ import util.col.enumMap : EnumMap;
 import util.conv : safeToUint;
 import util.integralValues : IntegralValue;
 import util.late : Late, lateGet, lateIsSet, lateSet, lateSetOverwrite;
-import util.opt : force, has, none, Opt, optEqual, optIf, optOr, some;
+import util.opt : force, has, none, Opt, optEqual, optIf, optOr, optOrDefault, some;
 import util.sourceRange : combineRanges, UriAndRange, Pos, Range;
 import util.string : emptySmallString, SmallString;
 import util.symbol : enumOfSymbol, Symbol, symbol, symbolOfEnum;
-import util.symbolSet : buildSymbolSet, SymbolSet, SymbolSetBuilder;
+import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, SymbolSetBuilder;
 import util.union_ : IndexType, TaggedUnion, Union;
 import util.uri : RelPath, Uri;
 import util.util : enumConvertOrAssert, max, min, stringOfEnum;
@@ -295,10 +296,13 @@ private immutable struct Arity {
 	immutable struct Varargs {}
 	mixin TaggedUnion!(immutable uint, Varargs);
 
-	uint countParamDecls() =>
+	uint countParamDecls() scope =>
 		matchIn!uint(
 			(in uint x) => x,
 			(in Varargs) => 1);
+
+	bool isVariadic() scope =>
+		isA!Varargs;
 }
 
 bool arityMatches(Arity sigArity, size_t nArgs) =>
@@ -618,7 +622,7 @@ immutable struct StructDecl {
 	StructDeclSource source;
 	Uri moduleUri;
 	Visibility visibility;
-	Linkage linkage;
+	Opt!SymbolSet extern_;
 	// Note: purity on the decl does not take type args into account
 	Purity purity;
 	bool purityIsForced;
@@ -627,6 +631,12 @@ immutable struct StructDecl {
 
 	bool bodyIsSet() =>
 		lateIsSet(lateBody);
+
+	SymbolSet externSet() =>
+		optOrDefault!SymbolSet(extern_, () => emptySymbolSet);
+	//TODO:KILL? ----------------------------------------------------------------------------------------------------------
+	Linkage linkage() scope =>
+		has(extern_) ? Linkage.extern_ : Linkage.internal;
 
 	SmallArray!VariantAndMethodImpls variants() return scope =>
 		lateGet(variants_);
@@ -684,7 +694,7 @@ immutable struct VariantAndMethodImpls {
 	StructInst* variant;
 	private Late!(SmallArray!(Opt!Called)) methodImpls_;
 
-	SmallArray!(Opt!Called) methodImpls() =>
+	SmallArray!(Opt!Called) methodImpls() return scope =>
 		lateGet(methodImpls_);
 	void methodImpls(SmallArray!(Opt!Called) value) =>
 		lateSet(methodImpls_, value);
@@ -693,6 +703,9 @@ immutable struct VariantAndMethodImpls {
 		variant.decl.body_.as!(StructBody.Variant).methods;
 	SmallArray!Type variantInstantiatedMethodTypes() =>
 		variant.instantiatedTypes;
+
+	bool isSummon() scope =>
+		ast.keyword == ModifierKeyword.summonVariantMember;
 }
 
 immutable struct StructDeclSource {
@@ -1196,6 +1209,8 @@ enum BuiltinBinaryLazy {
 enum BuiltinBinaryMath {
 	atan2Float32,
 	atan2Float64,
+	unsafePowFloat32,
+	unsafePowFloat64,
 }
 
 enum BuiltinTernary { interpreterBacktrace }
@@ -1214,7 +1229,9 @@ immutable struct FunFlags {
 	FunFlags withOkIfUnused() =>
 		FunFlags(bare, summon, safety, true, forceCtx);
 	FunFlags withSummon() =>
-		FunFlags(bare, true, safety, okIfUnused, forceCtx);
+		withSummon(true);
+	FunFlags withSummon(bool value) =>
+		FunFlags(bare, value, safety, okIfUnused, forceCtx);
 
 	static FunFlags regular(bool bare, bool summon, Safety safety, bool forceCtx) =>
 		FunFlags(bare, summon, safety, false, forceCtx);
@@ -1544,6 +1561,8 @@ immutable struct CalledDecl {
 			(in CalledSpecSig x) =>
 				x.arity);
 
+	bool isVariadic() scope =>
+		arity.isVariadic;
 }
 
 size_t nTypeParams(in CalledDecl a) =>
@@ -1596,7 +1615,7 @@ immutable struct Called {
 				x.arity);
 
 	bool isVariadic() scope =>
-		arity.isA!(Arity.Varargs);
+		arity.isVariadic;
 }
 
 Type paramTypeAt(in Called a, size_t argIndex) scope =>
@@ -2863,7 +2882,7 @@ Opt!T findDirectChildExpr(T)(
 			return none!T;
 		},
 		(ClosureSetExpr x) {
-			assert(a.type == voidType);
+			assert(a.type == voidType || a.type.isBogus);
 			return cb(ExprRef(x.value, x.local.type));
 		},
 		(ExternExpr x) =>

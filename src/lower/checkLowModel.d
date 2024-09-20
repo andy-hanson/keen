@@ -589,8 +589,10 @@ ExpectBinary binaryExpected(
 LowType binaryMathType(BuiltinBinaryMath kind) {
 	final switch (kind) {
 		case BuiltinBinaryMath.atan2Float32:
+		case BuiltinBinaryMath.unsafePowFloat32:
 			return float32Type;
 		case BuiltinBinaryMath.atan2Float64:
+		case BuiltinBinaryMath.unsafePowFloat64:
 			return float64Type;
 	}
 }

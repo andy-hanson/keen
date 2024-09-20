@@ -32,6 +32,7 @@ import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, someMut, some;
 import util.sourceRange : Range;
 import util.symbol : Symbol, symbol, symbolOfEnum;
+import util.symbolSet : SymbolSet;
 import util.uri : Uri;
 import util.util : ptrTrustMe;
 
@@ -206,7 +207,7 @@ public StructDecl* bogusStructDecl(ref Alloc alloc, Symbol name, size_t nTypePar
 				NameAndRange(0, symbol!"")))))),
 		Uri.empty,
 		Visibility.public_,
-		Linkage.internal,
+		none!SymbolSet,
 		Purity.data,
 		false,
 		late(emptySmallArray!VariantAndMethodImpls),

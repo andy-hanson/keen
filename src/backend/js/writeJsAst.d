@@ -66,7 +66,7 @@ import util.string : isAsciiIdentifierChar, isDecimalDigit;
 import util.symbol : Symbol, symbol, writeQuotedSymbol;
 import util.uri : RelPath, Uri;
 import util.util : ptrTrustMe, stringOfEnum;
-import util.writer : finish, writeAndVerify, writeFloatLiteral, writeNewline, writeQuotedString, Writer;
+import util.writer : finish, writeAndVerify, writeFloatLiteralForJS, writeNewline, writeQuotedString, Writer;
 
 JsAndMap writeJsScriptAst(
 	ref Alloc alloc,
@@ -771,7 +771,7 @@ void writeExpr(scope ref Output writer, uint indent, in JsExpr a, ExprPos pos = 
 		},
 		(in JsLiteralNumber x) {
 			writeOnSingleLine(writer, (scope ref Writer w) {
-				writeFloatLiteral(w, x.value, infinity: "Number.POSITIVE_INFINITY", nan: "Number.NaN");
+				writeFloatLiteralForJS(w, x.value);
 			});
 		},
 		(in JsLiteralString x) {

@@ -57,7 +57,7 @@ import util.opt : force, has, none, MutOpt, Opt, some, someMut;
 import util.sourceRange : Range, UriAndRange;
 import util.string : emptySmallString;
 import util.symbol : Symbol, symbol;
-import util.symbolSet : SymbolSet, symbolSetDifference;
+import util.symbolSet : emptySymbolSet, SymbolSet, symbolSetDifference;
 import util.uri : Uri;
 import util.util : castNonScope_ref;
 
@@ -420,6 +420,7 @@ FunDeclAndSigIndex getFunDeclMulti(
 			expectedSigs[0].returnType,
 			makeParams(alloc, expectedSigs[0].params),
 			FunFlags.generatedBare,
+			emptySymbolSet,
 			[],
 			FunBody(FunBody.Bogus())));
 		add(alloc, diagsBuilder, UriAndDiagnostic(

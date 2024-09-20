@@ -85,6 +85,7 @@ import model.ast :
 	ExternAst,
 	FinallyAst,
 	ForAst,
+	HighPrecisionFloat,
 	IdentifierAst,
 	IfAst,
 	InterpolatedAst,
@@ -217,7 +218,7 @@ import util.col.arrayBuilder : buildArray, Builder;
 import util.col.enumMap : EnumMap, makeEnumMap;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, newExactSizeArrayBuilder, smallFinish;
 import util.col.tempSet : TempSet, tryAdd, withTempSet;
-import util.conv : safeToUshort;
+import util.conv : powerOf10, safeToUshort, tryToLong;
 import util.integralValues : IntegralValue;
 import util.memory : allocate, overwriteMemory;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, optIf, optOrDefault, someMut, some;
@@ -814,13 +815,38 @@ Expr asFloat(
 	ExprAst* source,
 	FloatType floatType,
 	StructInst* inst,
-	double value,
+	HighPrecisionFloat value,
 	bool overflow,
 	ref Expected expected,
 ) {
 	if (overflow)
-		addDiag2(ctx, source, Diag(Diag.LiteralFloatAccuracy(floatType, value)));
-	return check(ctx, expected, Type(inst), source, ExprKind(LiteralExpr(Constant(Constant.Float(value)))));
+		addDiag2(ctx, source, Diag(Diag.LiteralFloatAccuracy(floatType, toDouble(value))));
+	return check(ctx, expected, Type(inst), source, ExprKind(LiteralExpr(Constant(Constant.Float(toDouble(value))))));
+}
+
+// TODO: report precision issues here ... -------------------------------------------------------------------------------------
+double toDouble(HighPrecisionFloat a) {
+	// TODO: HAX (WebAssembly version is not quite as accurate, gives an imperfect value for 3.14159) -------------------------------------------------------------------------------------------------------------
+	// Since unfortunately 3.14159 !== (314159 * 0.00001)
+	version (WebAssembly) {
+		return a.longValue * powerOf10(a.exponent);
+	} else {
+		import core.stdc.stdio : sscanf;
+		import util.string : CString;
+		import util.writer : withStackWriterCString, Writer;
+		return withStackWriterCString!(0x100, double)(
+			(scope ref Writer writer) {
+				writer ~= a.longValue;
+				writer ~= "e";
+				writer ~= a.exponent;
+			},
+			(in CString s) @trusted {
+				double res;
+				(cast(void function(scope const char*, scope const char*, double*) @system @nogc pure nothrow) &sscanf)(s.ptr, "%lf", &res);
+				return res;
+			});
+	}
+	
 }
 
 immutable IntegralType[4] natTypes = [IntegralType.nat8, IntegralType.nat16, IntegralType.nat32, IntegralType.nat64];
@@ -847,9 +873,14 @@ Expr checkLiteralIntegral(ref ExprCtx ctx, ExprAst* source, in LiteralIntegral a
 				ExprKind(LiteralExpr(Constant(checkLiteralIntegral(
 					ctx.checkCtx, integralTypes[typeIndex], LiteralIntegralAndRange(source.range, ast))))));
 		else {
-			double value = ast.isSigned ? double(ast.value.asSigned) : double(ast.value.asUnsigned);
+			Opt!long value = ast.isSigned ? some(ast.value.asSigned) : tryToLong(ast.value.asUnsigned);
 			return asFloat(
-				ctx, source, floatTypes[typeIndex - integralTypes.length], numberType, value, ast.overflow, expected);
+				ctx, source,
+				floatTypes[typeIndex - integralTypes.length],
+				numberType,
+				HighPrecisionFloat(optOrDefault!long(value, () => 0), 0),
+				ast.overflow || !has(value),
+				expected);
 		}
 	} else
 		return bogus(expected, source);

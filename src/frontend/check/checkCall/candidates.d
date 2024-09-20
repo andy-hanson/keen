@@ -11,13 +11,14 @@ import frontend.check.inferringType :
 	tryGetNonInferringType,
 	TypeAndContext,
 	TypeContext;
-import frontend.check.instantiate : InstantiateCtx;
+import frontend.check.instantiate : InstantiateCtx, makeArrayType;
 import frontend.check.maps : FunsMap;
 import model.model :
 	arityMatches,
 	Called,
 	CalledDecl,
 	CalledSpecSig,
+	CommonTypes,
 	Destructure,
 	ExportVisibility,
 	FunDecl,
@@ -30,7 +31,7 @@ import model.model :
 	Type;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : pushStackArray, StackArrayBuilder, withBuildStackArray, withRestoreStack;
-import util.col.array : everyWithIndex, filterUnordered, map, makeArray, MutSmallArray, small;
+import util.col.array : everyWithIndex, filterUnordered, map, makeArray, MutSmallArray, newArray, small;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.conv : safeToUshort;
 import util.memory : allocate;
@@ -171,10 +172,14 @@ bool testCandidateParamType(
 		: inout TypeAndContext(declType, typeContextForCandidate(candidate));
 }
 
-Called candidateBogusCalled(ref Alloc alloc, InstantiateCtx instantiateCtx, ref const Candidate candidate) {
+Called candidateBogusCalled(ref Alloc alloc, InstantiateCtx instantiateCtx, ref CommonTypes commonTypes, ref const Candidate candidate) {
 	Type returnType = getCandidateTypeOrBogus(instantiateCtx, candidate, candidate.called.returnType);
-	Type[] paramTypes = makeArray(alloc, candidate.called.arity.countParamDecls, (size_t i) =>
-		getCandidateTypeOrBogus(instantiateCtx, candidate, paramTypeAt(candidate.called, i)));
+	Type[] paramTypes = candidate.called.isVariadic
+		? newArray!Type(alloc, [
+			Type(makeArrayType(instantiateCtx, commonTypes, getCandidateTypeOrBogus(instantiateCtx, candidate, paramTypeAt(candidate.called, 0)))),
+		])
+		: makeArray(alloc, candidate.called.arity.countParamDecls, (size_t i) =>
+			getCandidateTypeOrBogus(instantiateCtx, candidate, paramTypeAt(candidate.called, i)));
 	return Called(allocate(alloc, Called.Bogus(candidate.called, returnType, paramTypes)));
 }
 

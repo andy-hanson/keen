@@ -1524,8 +1524,6 @@ string aOrAnDeclKind(DeclKind a) {
 			return "A union type";
 		case DeclKind.variant:
 			return "A variant type";
-		case DeclKind.variantMember:
-			return "A variant member";
 	}
 }
 
@@ -1687,9 +1685,6 @@ string describeTokenForUnexpected(Token token) {
 			return "Unexpected keyword 'if'.";
 		case Token.import_:
 			return "Unexpected keyword 'import'.";
-		case Token.unexpectedCharacter:
-			// This is ParseDiag.UnexpectedCharacter instead
-			assert(false);
 		case Token.literalFloat:
 		case Token.literalIntegral:
 			return "Unexpected number literal expression.";
@@ -1758,6 +1753,8 @@ string describeTokenForUnexpected(Token token) {
 			return "Unexpected keyword 'storage'.";
 		case Token.summon:
 			return "Unexpected keyword 'summon'.";
+		case Token.summonVariantMember:
+			return "Unexpected keyword 'summon-variant-member'.";
 		case Token.test:
 			return "Unexpected keyword 'test'.";
 		case Token.thread_local:
@@ -1770,6 +1767,9 @@ string describeTokenForUnexpected(Token token) {
 			return "Unexpected keyword 'try'.";
 		case Token.underscore:
 			return "Unexpected '_'.";
+		case Token.unexpectedCharacter:
+			// This is ParseDiag.UnexpectedCharacter instead
+			assert(false);
 		case Token.union_:
 			return "Unexpected keyword 'union'.";
 		case Token.unless:

@@ -642,8 +642,14 @@ immutable struct LetAst {
 	ExprAst then;
 }
 
+immutable struct HighPrecisionFloat {
+	// value is longValue * (10 ** exponent)
+	long longValue;
+	long exponent;
+}
+
 immutable struct LiteralFloatAst {
-	double value;
+	HighPrecisionFloat value;
 	bool overflow;
 }
 
@@ -1026,6 +1032,7 @@ enum ModifierKeyword : ubyte {
 	shared_,
 	storage,
 	summon,
+	summonVariantMember,
 	trusted,
 	unsafe,
 	variantMember,
@@ -1206,6 +1213,8 @@ string stringOfModifierKeyword(ModifierKeyword a) {
 			return "storage";
 		case ModifierKeyword.summon:
 			return "summon";
+		case ModifierKeyword.summonVariantMember:
+			return "summon-variant-member";
 		case ModifierKeyword.trusted:
 			return "trusted";
 		case ModifierKeyword.unsafe:
