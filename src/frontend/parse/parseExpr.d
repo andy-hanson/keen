@@ -206,7 +206,6 @@ bool isExpressionStartToken(in TokenAndData a) {
 		case Token.spec:
 		case Token.storage:
 		case Token.summon:
-		case Token.summonVariantMember:
 		case Token.test:
 		case Token.thread_local:
 		case Token.unexpectedCharacter:

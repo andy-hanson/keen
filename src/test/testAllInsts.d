@@ -209,6 +209,7 @@ StructDecl dummyStruct(ref Alloc alloc, Uri uri, Symbol name, size_t nTypeParams
 		uri,
 		Visibility.public_,
 		none!SymbolSet,
+		isSummon: false,
 		Purity.data,
 		false);
 

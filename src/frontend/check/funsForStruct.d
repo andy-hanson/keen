@@ -133,7 +133,7 @@ private void addFunsForVariants(
 			symbol!"to",
 			Type(variant),
 			makeParams(ctx.alloc, [param!"a"(Type(memberType))]),
-			FunFlags.generatedBare.withSummon(vm.isSummon),
+			FunFlags.generatedBare,
 			FunBody(FunBody.CreateVariant()));
 		funsBuilder ~= funForStruct(
 			struct_,
@@ -149,7 +149,7 @@ private void addFunsForVariants(
 				struct_.name,
 				Type(variant),
 				recordConstructorParams(ctx.alloc, record),
-				(recordIsAlwaysByVal(record) ? FunFlags.generatedBare : FunFlags.generated).withSummon(vm.isSummon),
+				recordIsAlwaysByVal(record) ? FunFlags.generatedBare : FunFlags.generated,
 				FunBody(FunBody.CreateRecordAndConvertToVariant(memberType)));
 		}
 	}
@@ -208,16 +208,18 @@ FunDecl funForStruct(
 	Params params,
 	FunFlags flags,
 	FunBody body_,
-) =>
-	basicFunDecl(
+) {
+	assert(!flags.summon);
+	return basicFunDecl(
 		FunDeclSource(struct_),
 		struct_.visibility,
 		name,
 		returnType,
 		params,
-		flags,
+		flags.withSummon(struct_.isSummon),
 		struct_.externSet,
 		body_);
+}
 
 FunDecl basicFunDecl(
 	FunDeclSource source,
@@ -298,7 +300,7 @@ FunDecl enumOrFlagsConstructor(ref Alloc alloc, Visibility visibility, StructIns
 		member.name,
 		Type(enum_),
 		Params([]),
-		FunFlags.generatedBare,
+		FunFlags.generatedBare.withSummon(enum_.decl.isSummon),
 		enum_.decl.externSet,
 		FunBody(FunBody.CreateEnumOrFlags(member)));
 
@@ -373,7 +375,7 @@ void addFunsForRecordConstructor(
 		record.flags.nominal ? struct_.name : symbol!"new",
 		structType,
 		recordConstructorParams(ctx.alloc, record),
-		byVal ? FunFlags.generatedBare : FunFlags.generated,
+		(byVal ? FunFlags.generatedBare : FunFlags.generated).withSummon(struct_.isSummon),
 		struct_.externSet,
 		[],
 		FunBody(FunBody.CreateRecord()));
@@ -398,7 +400,7 @@ void addFunsForRecordField(
 		field.name,
 		field.type,
 		makeParams(ctx.alloc, [param!"a"(recordType)]),
-		FunFlags.generatedBare,
+		FunFlags.generatedBare.withSummon(struct_.isSummon),
 		struct_.externSet,
 		[],
 		FunBody(FunBody.RecordFieldGet(field)));
@@ -410,7 +412,7 @@ void addFunsForRecordField(
 			field.name,
 			fieldPointer,
 			makeParams(ctx.alloc, [param!"a"(recordPointer)]),
-			FunFlags.generatedBareUnsafe,
+			FunFlags.generatedBareUnsafe.withSummon(struct_.isSummon),
 			struct_.externSet,
 			[],
 			FunBody(FunBody.RecordFieldPointer(field)));
@@ -437,7 +439,7 @@ void addFunsForRecordField(
 					param!"a"(recordMutPointer),
 					ParamShort(field.name, field.type),
 				]),
-				FunFlags.generatedBareUnsafe,
+				FunFlags.generatedBareUnsafe.withSummon(struct_.isSummon),
 				struct_.externSet,
 				[],
 				FunBody(FunBody.RecordFieldSet(field)));
@@ -452,7 +454,7 @@ void addFunsForRecordField(
 				prependSet(field.name),
 				Type(commonTypes.void_),
 				makeParams(ctx.alloc, [param!"a"(recordType), ParamShort(field.name, field.type)]),
-				FunFlags.generatedBare,
+				FunFlags.generatedBare.withSummon(struct_.isSummon),
 				struct_.externSet,
 				[],
 				FunBody(FunBody.RecordFieldSet(field)));
@@ -482,7 +484,7 @@ void maybeAddFieldCaller(
 			field.name,
 			funType.returnType,
 			params,
-			FunFlags.generated.withOkIfUnused,
+			FunFlags.generated.withOkIfUnused.withSummon(struct_.isSummon),
 			struct_.externSet,
 			[],
 			FunBody(FunBody.RecordFieldCall(field, funType.kind)));
@@ -531,7 +533,7 @@ void addFunsForUnion(
 			member.name,
 			unionType,
 			voidMember ? Params([]) : makeParams(ctx.alloc, [param!"a"(member.type)]),
-			FunFlags.generatedBare,
+			FunFlags.generatedBare.withSummon(struct_.isSummon),
 			struct_.externSet,
 			[],
 			FunBody(FunBody.CreateUnion(&member)));
@@ -542,7 +544,7 @@ void addFunsForUnion(
 				member.name,
 				Type(makeOptionType(ctx.instantiateCtx, commonTypes, member.type)),
 				makeParams(ctx.alloc, [param!"a"(unionType)]),
-				FunFlags.generatedBare,
+				FunFlags.generatedBare.withSummon(struct_.isSummon),
 				struct_.externSet,
 				[],
 				FunBody(FunBody.UnionMemberGet(&member)));
@@ -567,7 +569,7 @@ void addFunsForVariant(
 					sig.ast.range.start,
 					Type(instantiateStructWithOwnTypeParams(ctx.instantiateCtx, struct_))))),
 				sig.params)),
-			FunFlags.generated,
+			FunFlags.generated.withSummon(struct_.isSummon),
 			struct_.externSet,
 			[],
 			FunBody(FunBody.VariantMethod(&sig)));

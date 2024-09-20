@@ -623,6 +623,7 @@ immutable struct StructDecl {
 	Uri moduleUri;
 	Visibility visibility;
 	Opt!SymbolSet extern_;
+	bool isSummon;
 	// Note: purity on the decl does not take type args into account
 	Purity purity;
 	bool purityIsForced;
@@ -634,7 +635,6 @@ immutable struct StructDecl {
 
 	SymbolSet externSet() =>
 		optOrDefault!SymbolSet(extern_, () => emptySymbolSet);
-	//TODO:KILL? ----------------------------------------------------------------------------------------------------------
 	Linkage linkage() scope =>
 		has(extern_) ? Linkage.extern_ : Linkage.internal;
 
@@ -703,9 +703,6 @@ immutable struct VariantAndMethodImpls {
 		variant.decl.body_.as!(StructBody.Variant).methods;
 	SmallArray!Type variantInstantiatedMethodTypes() =>
 		variant.instantiatedTypes;
-
-	bool isSummon() scope =>
-		ast.keyword == ModifierKeyword.summonVariantMember;
 }
 
 immutable struct StructDeclSource {

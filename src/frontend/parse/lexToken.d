@@ -203,7 +203,6 @@ enum Token {
 	spec, // 'spec'
 	storage, // 'storage'
 	summon, // 'summon'
-	summonVariantMember, // 'summon-variant-member'
 	test, // 'test'
 	thread_local, // 'thread-local'
 	throw_, // 'throw'
@@ -600,8 +599,6 @@ Token tokenForSymbol(Symbol a) {
 			return Token.storage;
 		case symbol!"summon".value:
 			return Token.summon;
-		case symbol!"summon-variant-member".value:
-			return Token.summonVariantMember;
 		case symbol!"test".value:
 			return Token.test;
 		case symbol!"thread-local".value:
@@ -682,7 +679,6 @@ bool peekDecimalPoint(MutCString ptr) {
 	} else
 		return false;
 }
-
 
 TokenAndData takeFloat(ref MutCString ptr, Sign sign, NatAndOverflow natPart, ulong base) {
 	NatAndOverflow res = takeNatContinue(ptr, base, NatAndOverflow(natPart.value, natPart.overflow, countDigits: 0));

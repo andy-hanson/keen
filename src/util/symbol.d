@@ -840,7 +840,6 @@ immutable string[] specialSymbols = [
 	"structs",
 	"subscript",
 	"suffix-pos",
-	"summon-variant-member",
 	"supports-jit",
 	"symbol-of-c-string",
 	"TextDecoder",

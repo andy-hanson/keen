@@ -208,6 +208,7 @@ public StructDecl* bogusStructDecl(ref Alloc alloc, Symbol name, size_t nTypePar
 		Uri.empty,
 		Visibility.public_,
 		none!SymbolSet,
+		isSummon: false,
 		Purity.data,
 		false,
 		late(emptySmallArray!VariantAndMethodImpls),

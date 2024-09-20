@@ -1032,7 +1032,6 @@ enum ModifierKeyword : ubyte {
 	shared_,
 	storage,
 	summon,
-	summonVariantMember,
 	trusted,
 	unsafe,
 	variantMember,
@@ -1213,8 +1212,6 @@ string stringOfModifierKeyword(ModifierKeyword a) {
 			return "storage";
 		case ModifierKeyword.summon:
 			return "summon";
-		case ModifierKeyword.summonVariantMember:
-			return "summon-variant-member";
 		case ModifierKeyword.trusted:
 			return "trusted";
 		case ModifierKeyword.unsafe:
