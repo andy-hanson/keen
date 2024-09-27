@@ -131,6 +131,7 @@ import model.model :
 	CommonTypes,
 	Condition,
 	Destructure,
+	DestructureIgnoreSource,
 	emptySpecs,
 	emptyTypeParams,
 	EnumOrFlagsMember,
@@ -195,7 +196,8 @@ import model.model :
 	TypedExpr,
 	UnionMember,
 	VariableRef,
-	VariantAndMethodImpls;
+	VariantAndMethodImpls,
+	VariantKind;
 import util.alloc.stackAlloc : MaxStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell;
 import util.col.array :
@@ -218,7 +220,7 @@ import util.col.arrayBuilder : buildArray, Builder;
 import util.col.enumMap : EnumMap, makeEnumMap;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, newExactSizeArrayBuilder, smallFinish;
 import util.col.tempSet : TempSet, tryAdd, withTempSet;
-import util.conv : powerOf10, safeToUshort, tryToLong;
+import util.conv : powerOf10, safeToUshort, toLongWithOverflow;
 import util.integralValues : IntegralValue;
 import util.memory : allocate, overwriteMemory;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, optIf, optOrDefault, someMut, some;
@@ -228,7 +230,7 @@ import util.symbol : prependSet, prependSetDeref, stringOfSymbol, Symbol, symbol
 import util.symbolSet : buildSymbolSet, SymbolSet, SymbolSetBuilder;
 import util.unicode : decodeAsSingleUnicodeChar;
 import util.union_ : Union;
-import util.util : castImmutable, castNonScope_ref, ptrTrustMe;
+import util.util : castImmutable, castNonScope_ref, ptrTrustMe, todo;
 
 Expr checkFunctionBody(
 	ref CheckCtx checkCtx,
@@ -824,9 +826,8 @@ Expr asFloat(
 	return check(ctx, expected, Type(inst), source, ExprKind(LiteralExpr(Constant(Constant.Float(toDouble(value))))));
 }
 
-// TODO: report precision issues here ... -------------------------------------------------------------------------------------
 double toDouble(HighPrecisionFloat a) {
-	// TODO: HAX (WebAssembly version is not quite as accurate, gives an imperfect value for 3.14159) -------------------------------------------------------------------------------------------------------------
+	// TODO: WebAssembly version is not quite as accurate, gives an imperfect value for 3.14159
 	// Since unfortunately 3.14159 !== (314159 * 0.00001)
 	version (WebAssembly) {
 		return a.longValue * powerOf10(a.exponent);
@@ -842,11 +843,11 @@ double toDouble(HighPrecisionFloat a) {
 			},
 			(in CString s) @trusted {
 				double res;
-				(cast(void function(scope const char*, scope const char*, double*) @system @nogc pure nothrow) &sscanf)(s.ptr, "%lf", &res);
+				(cast(void function(scope const char*, scope const char*, double*) @system @nogc pure nothrow) &sscanf)(
+					s.ptr, "%lf", &res);
 				return res;
 			});
 	}
-	
 }
 
 immutable IntegralType[4] natTypes = [IntegralType.nat8, IntegralType.nat16, IntegralType.nat32, IntegralType.nat64];
@@ -873,13 +874,14 @@ Expr checkLiteralIntegral(ref ExprCtx ctx, ExprAst* source, in LiteralIntegral a
 				ExprKind(LiteralExpr(Constant(checkLiteralIntegral(
 					ctx.checkCtx, integralTypes[typeIndex], LiteralIntegralAndRange(source.range, ast))))));
 		else {
-			Opt!long value = ast.isSigned ? some(ast.value.asSigned) : tryToLong(ast.value.asUnsigned);
+			bool overflow = ast.overflow;
+			long value = ast.isSigned ? ast.value.asSigned : toLongWithOverflow(ast.value.asUnsigned, overflow);
 			return asFloat(
 				ctx, source,
 				floatTypes[typeIndex - integralTypes.length],
 				numberType,
-				HighPrecisionFloat(optOrDefault!long(value, () => 0), 0),
-				ast.overflow || !has(value),
+				HighPrecisionFloat(value, 0),
+				ast.overflow,
 				expected);
 		}
 	} else
@@ -1568,8 +1570,10 @@ Expr checkMatch(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ref Mat
 		},
 		(ref StructBody.Union x) =>
 			checkMatchUnion(ctx, locals, source, ast, expected, matched, x, inst),
-		(StructBody.Variant) =>
-			checkMatchVariant(ctx, locals, source, ast, expected, matched, inst));
+		(StructBody.Variant x) =>
+			x.kind == VariantKind.variant
+				? checkMatchVariant(ctx, locals, source, ast, expected, matched, inst)
+				: notMatchable());
 }
 
 Expr checkMatchEnum(
@@ -1700,7 +1704,8 @@ CaseResult checkMatchUnionOrVariantCase(Member)(
 			if (!isEmptyType(memberType))
 				addDiag2(ctx, memberAst.nameRange, Diag(
 					Diag.MatchCaseShouldUseIgnore(Diag.MatchCaseShouldUseIgnore.Member(member))));
-			return Destructure(allocate(ctx.alloc, Destructure.Ignore(memberAst.nameRange.start, memberType)));
+			return Destructure(allocate(ctx.alloc, Destructure.Ignore(
+				DestructureIgnoreSource(memberAst), memberAst.nameRange.start, memberType)));
 		}
 	}();
 	return CaseResult(destructure, checkExprWithDestructure(ctx, locals, destructure, thenAst, expected));

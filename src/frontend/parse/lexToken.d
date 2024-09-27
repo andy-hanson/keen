@@ -5,7 +5,7 @@ module frontend.parse.lexToken;
 import frontend.parse.lexWhitespace :
 	AddDiag, DocCommentAndIndentDelta, IndentKind, skipBlankLinesAndGetIndentDelta, takeRestOfLine;
 import model.ast : HighPrecisionFloat, LiteralFloatAst, LiteralIntegral;
-import util.conv : safeToLong;
+import util.conv : mulWithOverflow, safeToLong, Sign, toLongWithOverflow;
 import util.integralValues : IntegralValue;
 import util.opt : force, has, none, Opt, optOrDefault, some;
 import util.sourceRange : Pos;
@@ -162,6 +162,7 @@ enum Token {
 	guard, // 'guard'
 	if_, // 'if'
 	import_, // 'import'
+	interface_, // 'interface'
 	literalFloat, // Use asLiteralFloat
 	literalIntegral, // Use asLiteralIntegral
 	loop, // 'loop'
@@ -572,7 +573,7 @@ Token tokenForSymbol(Symbol a) {
 		case symbol!"import".value:
 			return Token.import_;
 		case symbol!"interface".value:
-			return Token.reserved;
+			return Token.interface_;
 		case symbol!"loop".value:
 			return Token.loop;
 		case symbol!"match".value:
@@ -632,19 +633,6 @@ Token tokenForSymbol(Symbol a) {
 	}
 }
 
-enum Sign {
-	plus,
-	minus,
-}
-int intOfSign(Sign a) {
-	final switch (a) {
-		case Sign.plus:
-			return 1;
-		case Sign.minus:
-			return -1;
-	}
-}
-
 TokenAndData takeNumberAfterSign(ref MutCString ptr, Opt!Sign sign) {
 	ulong base = tryTakeChars(ptr, "0x")
 		? 16
@@ -682,26 +670,17 @@ bool peekDecimalPoint(MutCString ptr) {
 
 TokenAndData takeFloat(ref MutCString ptr, Sign sign, NatAndOverflow natPart, ulong base) {
 	NatAndOverflow res = takeNatContinue(ptr, base, NatAndOverflow(natPart.value, natPart.overflow, countDigits: 0));
-	bool overflow = res.overflow || (res.value > long.max);
-	long value = intOfSign(sign) * res.value;
+	bool overflow = res.overflow;
+	long value = mulWithOverflow(sign, toLongWithOverflow(res.value, overflow), overflow);
 	long exp = -safeToLong(res.countDigits);
-	assert(-100 <= exp); // kill -------------------------------------------------------------------------------------------------
-	assert(exp <= 100); // kill -------------------------------------------------------------------------------------------------
 	if (tryTakeChar(ptr, 'e')) {
-		bool neg = tryTakeChar(ptr, '-');
-		NatAndOverflow x = takeNat(ptr, 10);
-		overflow = overflow || x.overflow;
-		exp += (neg ? -1 : 1) * x.value; // TODO: this can overflow on negate -------------------------------------------------------------
+		Sign powerSign = tryTakeChar(ptr, '-') ? Sign.minus : Sign.plus;
+		NatAndOverflow power = takeNat(ptr, 10);
+		overflow = overflow || power.overflow;
+		exp += mulWithOverflow(powerSign, toLongWithOverflow(power.value, overflow), overflow);
 	}
 	return TokenAndData(Token.literalFloat, LiteralFloatAst(HighPrecisionFloat(value, exp), overflow));
 }
-
-double pow(double acc, double base, ulong power) =>
-	power == 0 ? acc : pow(acc * base, base, power - 1);
-
-//TODO: overflow bug possible here
-ulong getDivisor(ulong acc, ulong a, ulong base) =>
-	acc < a ? getDivisor(acc * base, a, base) : acc;
 
 public immutable struct NatAndOverflow { ulong value; bool overflow; uint countDigits; }
 LiteralIntegral toLiteralIntegral(NatAndOverflow a) =>

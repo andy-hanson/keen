@@ -484,8 +484,8 @@ Opt!Called checkCallInner(
 			return none!Called;
 		} else
 			return some(checkCallAfterChoosingOverload(
-				ctx.checkCtx, ctx.commonTypes, ctx.typeContainer, funsInExprScope(ctx), ctx.outermostFunFlags, ctx.externs, locals,
-				only(candidates), diagRange, nArgs,
+				ctx.checkCtx, ctx.commonTypes, ctx.typeContainer, funsInExprScope(ctx),
+				ctx.outermostFunFlags, ctx.externs, locals, only(candidates), diagRange, nArgs,
 				() => checkCanDoUnsafe(ctx)));
 	});
 

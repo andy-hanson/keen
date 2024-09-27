@@ -352,19 +352,41 @@ BuiltinFunctions generateBuiltinFunctions(ref gcc_jit_context ctx) =>
 immutable struct ConversionFunctions {
 	gcc_jit_function* ptrToNat64;
 	gcc_jit_function* nat64ToPtr;
+	gcc_jit_function* bitsOfFloat32;
+	gcc_jit_function* bitsOfFloat64;
+	gcc_jit_function* float32FromBits;
+	gcc_jit_function* float64FromBits;
 }
 
 @trusted ConversionFunctions generateConversionFunctions(ref gcc_jit_context ctx) {
 	immutable gcc_jit_type* voidPtrType = gcc_jit_context_get_type(ctx, gcc_jit_types.GCC_JIT_TYPE_VOID_PTR);
+	immutable gcc_jit_type* float32Type = gcc_jit_context_get_type(ctx, gcc_jit_types.GCC_JIT_TYPE_FLOAT);
+	immutable gcc_jit_type* float64Type = gcc_jit_context_get_type(ctx, gcc_jit_types.GCC_JIT_TYPE_DOUBLE);
+	immutable gcc_jit_type* nat32Type = gcc_jit_context_get_type(ctx, gcc_jit_types.GCC_JIT_TYPE_UNSIGNED_INT);
 	immutable gcc_jit_type* nat64Type = gcc_jit_context_get_type(ctx, gcc_jit_types.GCC_JIT_TYPE_UNSIGNED_LONG);
-	immutable gcc_jit_field* ptrField = gcc_jit_context_new_field(ctx, null, voidPtrType, "ptr");
+
+	immutable gcc_jit_field* float32Field = gcc_jit_context_new_field(ctx, null, float32Type, "float32");
+	immutable gcc_jit_field* float64Field = gcc_jit_context_new_field(ctx, null, float64Type, "float64");
+	immutable gcc_jit_field* nat32Field = gcc_jit_context_new_field(ctx, null, nat32Type, "nat32");
 	immutable gcc_jit_field* nat64Field = gcc_jit_context_new_field(ctx, null, nat64Type, "nat64");
-	immutable gcc_jit_field*[2] fields = [ptrField, nat64Field];
+	immutable gcc_jit_field* ptrField = gcc_jit_context_new_field(ctx, null, voidPtrType, "ptr");
+	immutable gcc_jit_field*[5] fields = [float32Field, float64Field, nat32Field, nat64Field, ptrField];
+
 	immutable gcc_jit_type* unionType =
-		gcc_jit_context_new_union_type(ctx, null, "__ptrToNat64Converter", 2, fields.ptr);
+		gcc_jit_context_new_union_type(ctx, null, "__ptrToNat64Converter", fields.length, fields.ptr);
 	return ConversionFunctions(
-		makeConversionFunction(ctx, "__ptrToNat64", unionType, voidPtrType, ptrField, nat64Type, nat64Field),
-		makeConversionFunction(ctx, "__nat64ToPtr", unionType, nat64Type, nat64Field, voidPtrType, ptrField));
+		ptrToNat64: makeConversionFunction(
+			ctx, "__ptrToNat64", unionType, voidPtrType, ptrField, nat64Type, nat64Field),
+		nat64ToPtr: makeConversionFunction(
+			ctx, "__nat64ToPtr", unionType, nat64Type, nat64Field, voidPtrType, ptrField),
+		bitsOfFloat32: makeConversionFunction(
+			ctx, "__bitsOfFloat32", unionType, float32Type, float32Field, nat32Type, nat32Field),
+		bitsOfFloat64: makeConversionFunction(
+			ctx, "__bitsOfFloat64", unionType, float64Type, float64Field, nat64Type, nat64Field),
+		float32FromBits: makeConversionFunction(
+			ctx, "__float32FromBits", unionType, nat32Type, nat32Field, float32Type, float32Field),
+		float64FromBits: makeConversionFunction(
+			ctx, "__float64FromBits", unionType, nat64Type, nat64Field, float64Type, float64Field));
 }
 
 immutable(gcc_jit_function*) makeConversionFunction(
@@ -1435,6 +1457,10 @@ ExprResult funPointerToGcc(ref ExprCtx ctx, ExprEmit emit, LowType type, LowFunI
 		case BuiltinUnary.trustAsString:
 			// done in lower
 			assert(false);
+		case BuiltinUnary.bitsOfFloat32:
+			return callFn(ctx.conversionFunctions.bitsOfFloat32, noSideEffects: true);
+		case BuiltinUnary.bitsOfFloat64:
+			return callFn(ctx.conversionFunctions.bitsOfFloat64, noSideEffects: true);
 		case BuiltinUnary.bitwiseNotNat8:
 		case BuiltinUnary.bitwiseNotNat16:
 		case BuiltinUnary.bitwiseNotNat32:
@@ -1480,6 +1506,10 @@ ExprResult funPointerToGcc(ref ExprCtx ctx, ExprEmit emit, LowType type, LowFunI
 				null,
 				emitToRValue(ctx, locals, a.arg),
 				getGccType(ctx.types, type)));
+		case BuiltinUnary.float32FromBits:
+			return callFn(ctx.conversionFunctions.float32FromBits, noSideEffects: true);
+		case BuiltinUnary.float64FromBits:
+			return callFn(ctx.conversionFunctions.float64FromBits, noSideEffects: true);
 		case BuiltinUnary.isNanFloat32:
 		case BuiltinUnary.isNanFloat64:
 			return builtinAndCast(BuiltinFunction.__builtin_isnan);

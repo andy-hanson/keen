@@ -2,48 +2,82 @@ import
 	crow/experimental/observable
 	crow/io/duration
 	./note
+	./note-controller
 	./mixer
 
-main-controller void(mixer mixer, notes note-event events, mode-obs mode mutable-observable)
-	playing-notes playing-note mut[note] = ()
-
-	# If recording, time is relative to start of recording.
-	# If idle, the value shouldn't matter.
-	# This lets us compare the mixer's current-time with the start time
-	start-time mut duration = 0 seconds
-	# Only used when recording
-	recording-builder recording-builder = ()
-
-	stop-note void mut(x note) = note =>
-		if x ?= playing-notes remove note
-			mixer stop-note x
-
-	notes subscribe shared event =>
-		if mode-obs.get == recording
-			recording-builder ~= ((mixer.cur-time - start-time), event)
-		match event
-		as note-on note
-			stop-note[note]
-			playing-notes[note] := mixer start-note note
-		as note-off note
-			stop-note[note]
-
-	mode-obs.events subscribe shared mode =>
-		match mode
-		as idle
-			r recording = recording-builder finish (mixer.cur-time - start-time)
-			info log "your record is:"
-			info log "{r.to::json}"
-			start-time := 0 seconds
-			()
-		as recording
-			start-time := mixer.cur-time
-			()
-
 mode enum(idle, recording)
+opposite mode(a mode)
+	match a
+	as idle
+		recording
+	as recording
+		idle
 show string(a mode)
 	match a
 	as idle
 		"Idle"
 	as recording
 		"Recording"
+
+start-main-controller main-controller(mixer mixer, control control-event events)
+	a main-controller = mixer, (idle,), (plum,), (), 0.seconds, ((plum,),), ((),)
+
+	control subscribe shared event =>
+		match event
+		as enter
+			a.mode modify x => x opposite
+		as note-event x
+			a on-note x
+
+	playing-tracks mut playing-tracks? = ()
+
+	a.mode.events subscribe shared mode =>
+		match mode
+		as idle
+			if x ?= playing-tracks
+				a.mixer stop-tracks x
+			playing-tracks := ()
+			track track = a.current-track.get finish (mixer.cur-time - a.start-time)
+			a.current-track set (a.current-track.get.instrument,)
+			unless track is-empty
+				a.tracks-obs set ((a.tracks-obs.get.tracks ~ track),)
+			a.start-time := 0 seconds
+			()
+		as recording
+			a.start-time := mixer.cur-time
+			a.current-track set (a.instrument.get,)
+			playing-tracks := (a.mixer start-tracks a.tracks-obs.get),
+			()
+	a
+
+main-controller record mut
+	-mixer mixer
+	mode mode mut-observable
+	instrument instrument mut-observable
+	-playing-notes playing-note mut[note]
+	# If recording, time is relative to start of recording.
+	# If idle, the value shouldn't matter.
+	# This lets us compare the mixer's current-time with the start time
+	-start-time mut duration
+	# Only used when recording
+	-current-track current-track mut-observable
+	-tracks-obs all-tracks mut-observable
+tracks-including-current tracks-including-current observable(a main-controller)
+	for x, y : a.tracks-obs.observable join a.current-track.observable
+		x, y
+
+-stop-note void(a main-controller, note note)
+	if x ?= a.playing-notes remove note
+		a.mixer stop-note x
+
+-on-note void(a main-controller, event note-event)
+	if a.mode.get == recording
+		time = a.mixer.cur-time - a.start-time
+		a.current-track modify x => x ~ (time, event)
+
+	match event
+	as note-on note
+		a stop-note note
+		a.playing-notes[note] := a.mixer start-note note, a.instrument.get
+	as note-off note
+		a stop-note note

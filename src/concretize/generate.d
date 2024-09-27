@@ -269,18 +269,21 @@ ConcreteFunBody generateCallVariantMethod(
 	size_t methodIndex,
 ) {
 	UriAndRange range = fun.range;
-	return ConcreteFunBody(genMatchUnion(
-		ctx, fun.returnType, range, variant.body_.as!(ConcreteStructBody.Union).members,
-		genParamGet(range, &fun.params[0]),
-		(size_t i, ConcreteExpr member) {
-			Opt!(ConcreteFun*) impl = impls[i].methodImpls[methodIndex];
-			return has(impl)
-				? genCallNoAllocArgs(
-					range, force(impl),
-					mapPointersWithIndex(ctx.alloc, fun.params, (size_t paramIndex, ConcreteLocal* param) =>
-						paramIndex == 0 ? member : genParamGet(range, param)))
-				: concretizeBogus(ctx, fun.returnType, range);
- 		}));
+	SmallArray!ConcreteType members = variant.body_.as!(ConcreteStructBody.Union).members;
+	return isEmpty(members)
+		? ConcreteFunBody(genThrowString(ctx, fun.returnType, range, "Called method of empty variant"))
+		: ConcreteFunBody(genMatchUnion(
+			ctx, fun.returnType, range, members,
+			genParamGet(range, &fun.params[0]),
+			(size_t i, ConcreteExpr member) {
+				Opt!(ConcreteFun*) impl = impls[i].methodImpls[methodIndex];
+				return has(impl)
+					? genCallNoAllocArgs(
+						range, force(impl),
+						mapPointersWithIndex(ctx.alloc, fun.params, (size_t paramIndex, ConcreteLocal* param) =>
+							paramIndex == 0 ? member : genParamGet(range, param)))
+					: concretizeBogus(ctx, fun.returnType, range);
+			}));
 }
 
 ConcreteExpr genThrow(ref Alloc alloc, ConcreteType type, UriAndRange range, ConcreteExpr thrown) =>
@@ -291,6 +294,9 @@ private ConcreteExprKind genThrowKind(ref Alloc alloc, ConcreteExpr thrown) =>
 
 ConcreteExpr genError(ref ConcretizeCtx ctx, UriAndRange range, string message) =>
 	genCall(ctx.alloc, range, ctx.createErrorFunction, [genStringLiteral(ctx, range, message)]);
+
+ConcreteExpr genThrowString(ref ConcretizeCtx ctx, ConcreteType type, UriAndRange range, string message) =>
+	genThrow(ctx.alloc, type, range, genError(ctx, range, message));
 
 ConcreteExprKind genThrowStringKind(ref ConcretizeCtx ctx, UriAndRange range, string message) =>
 	genThrowKind(ctx.alloc, genError(ctx, range, message));

@@ -1,68 +1,99 @@
 import
-	crow/io/duration: duration, seconds
+	crow/io/duration
 	crow/js
 	./note
+	./web-audio
 
-mixer variant mut
+mixer interface mut
 	cur-time duration()
-	start-note playing-note(a note)
+	start-tracks playing-tracks(a all-tracks)
+	stop-tracks void(a playing-tracks)
+	start-note playing-note(a note, instrument instrument)
 	stop-note void(a playing-note)
+playing-tracks variant mut
+playing-note variant mut
 
 -web-mixer record mut, mixer variant-member, summon, js extern
-	context mut js-any
-web-mixer mixer() summon, unsafe, js extern
-	(null,) to
+	context mut AudioContext
 
-cur-time duration(a web-mixer) summon, trusted, js extern
-	if a.context == null
+-web-playing-note record mut, js extern, playing-note variant-member
+	osc OscillatorNode
+	gain GainNode
+-as-tuple (OscillatorNode, GainNode)(a web-playing-note) js extern
+	a.osc, a.gain
+
+-web-playing-tracks record(notes playing-note[]) mut, playing-tracks variant-member
+
+web-mixer mixer() summon, unsafe, js extern
+	null.cast web-mixer
+
+-cur-time duration(a web-mixer) summon, trusted, js extern
+	if a.context.as-js == null
 		0 seconds
 	else
-		a.context["currentTime"].cast seconds
+		a.context current-time
 
-playing-note record
-	-gain js-any
+-start-tracks playing-tracks(a web-mixer, tracks all-tracks) summon, js extern
+	# We need the ability to start a note *at a time*. And be able to cancel it later.
+	a ensure-init
+	time = a.context current-time
+	notes playing-note mut[] = ()
+	for track : tracks tracks
+		instrument instrument = track instrument
+		for note : track notes
+			playing = a start-note-at-time note.note, instrument, time + note.start
+			a stop-note-at-time playing, time + note.end
+			notes ~= playing
+	notes.move-to web-playing-tracks
+-stop-tracks void(a web-mixer, tracks playing-tracks) summon, js extern
+	for note : tracks.web-playing-tracks! notes
+		a stop-note note
 
-start-note playing-note(a web-mixer, note note) summon, trusted, js extern
-	if a.context == null
-		a.context := "AudioContext".js-global call-new
+-ensure-init void(a web-mixer) summon, trusted, js extern
+	if a.context.as-js == null
+		a.context := ()
 
-	osc = a.context call-property "createOscillator"
-	osc["type"] := "sine"::string
+-start-note playing-note(a web-mixer, note note, instrument instrument) summon, js extern
+	a ensure-init
+	a start-note-at-time note, instrument, a.context.current-time
 
-	_ = osc["frequency"] call-property "setValueAtTime", note.freq-for-note, a.cur-time.seconds
-	_ = osc call-property "start"
+-start-note-at-time playing-note(a web-mixer, note note, instrument instrument, time duration) summon, js extern
+	a ensure-init
+	osc = a.context create-oscillator match instrument
+	as lightning
+		triangle
+	as plum
+		sine
+	osc.frequency setValueAtTime note.freq-for-note, time
+	osc start
 	
-	gain = a.context call-property "createGain"
-	_ = gain["gain"] call-property "setValueAtTime", 0::float, gain["context"]["currentTime"].cast::float
-	_ = gain["gain"] call-property "linearRampToValueAtTime", 0.1::float, gain["context"]["currentTime"].cast::float + 0.1
+	gain = a.context create-gain
+	gain.gain setValueAtTime 0, a.context.current-time
+	gain.gain setValueAtTime 0, time
+	gain.gain linearRampToValueAtTime 0.1, time + 0.1.seconds
 
-	_ = osc call-property "connect", gain
-	_ = gain call-property "connect", a.context["destination"]
-	gain,
+	osc connect gain
+	gain connect a.context.destination
+	osc web-playing-note gain
 
-stop-note void(_ web-mixer, note playing-note) summon, trusted, js extern
-	gain = note gain
-
-	cur-value float = gain["gain"]["value"] cast
-
-	# I need to cancel out the existing ramp!
-
-	# Fade out over 1 second
-	cur-time float = gain["context"]["currentTime"] cast
+-stop-note void(a web-mixer, note playing-note) summon, js extern
 	# Cancel the existing fade in if any
-	_ = gain["gain"] call-property "cancelAndHoldAtTime", cur-time
-	_ = gain["gain"] call-property "setValueAtTime", cur-value, cur-time
-	_ = gain["gain"] call-property "linearRampToValueAtTime", 0::float, cur-time + 0.5
+	gain = note.web-playing-note!.gain.gain
+	cur-time = a.context current-time
+	gain cancelAndHoldAtTime cur-time
+	gain setValueAtTime gain.value, cur-time
+	a stop-note-at-time note, cur-time
 
-	# TODO ------------------------------------------------------------------------------------------------------------------
-	#1.seconds delay
-	#_ = old-gain call-property "disconnect"
-	#info log "disconnect"
+-stop-note-at-time void(_ web-mixer, a playing-note, time duration) summon, trusted, js extern
+	osc, gain = a.web-playing-note! as-tuple
+	end-time = time + 0.5.seconds
+	gain.gain linearRampToValueAtTime 0, end-time
+	osc stop end-time
+	on-end void mut() = () =>
+		gain disconnect
+	_ = osc.as-js call-property "addEventListener", "end"::string, on-end
 
 -freq-for-note float(note note)
 	A float = 440
 	half-step float = 2 ** (1 / 12)
 	A * (half-step ** note.value.to)
-
-# NOTE: every node has 'context' on it, so I don't need to keep passing htat around...
-# https://developer.mozilla.org/en-US/docs/Web/API/AudioNode

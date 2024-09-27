@@ -245,14 +245,14 @@ Uri findCommonMainDirectory(Module* main) =>
 		// First: Find the common URI for all modules accessible from 'main' through relative imports.
 		size_t minComponents = countComponents(main.uri);
 		eachRelativeImportModule(main, (Module* x) {
-			if (!globalImports.has(x))
+			if (x !in globalImports)
 				minComponents = min(minComponents, countComponents(x.uri));
 		});
 
 		assert(minComponents > 0);
 		Uri res = firstNComponents(main.uri, minComponents - 1);
 		eachRelativeImportModule(main, (Module* x) {
-			if (!globalImports.has(x))
+			if (x !in globalImports)
 				assert(isAncestor(res, x.uri));
 		});
 		return res;

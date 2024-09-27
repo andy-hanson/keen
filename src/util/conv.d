@@ -33,8 +33,29 @@ long safeToLong(ulong a) {
 	assert(a <= long.max);
 	return cast(long) a;
 }
-Opt!long tryToLong(ulong a) =>
-	optIf(a <= long.max, () => cast(long) a);
+long toLongWithOverflow(ulong a, ref bool overflow) {
+	if (a > ulong(long.max)) {
+		overflow = true;
+		return long.max;
+	} else
+		return cast(long) a;
+}
+enum Sign {
+	plus,
+	minus,
+}
+long mulWithOverflow(Sign a, long b, ref bool overflow) {
+	final switch (a) {
+		case Sign.plus:
+			return b;
+		case Sign.minus:
+			if (b == long.min) {
+				overflow = true;
+				return long.max;
+			} else
+				return -b;
+	}
+}
 
 ulong safeToUlong(long a) {
 	assert(a >= 0);

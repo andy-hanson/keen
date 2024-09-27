@@ -1,4 +1,5 @@
 import
+	crow/col/sorted-list
 	crow/io/duration
 
 note record by-val
@@ -11,6 +12,9 @@ to json(a note)
 hash-mix void(a hasher, b note)
 	a hash-mix b.value
 
+to symbol(a note)
+	a.show to
+
 A note()
 	0,
 B note()
@@ -22,6 +26,8 @@ C note()
 	a.value + half-steps,
 ~- note(a note, half-steps int)
 	a.value - half-steps,
+~- int(a note, b note)
+	a.value - b.value
 
 show string(a note)
 	"{a note-name}{a.value / 12}"
@@ -66,48 +72,102 @@ show string(a note-event)
 	as note-off x
 		"-{x}"
 
-# Events are in order
-recording record(notes recorded-note[])
-== bool(a recording, b recording)
-to json(a recording)
-length duration(a recording)
-	unless a.notes is-empty
-		a.notes[end - 1] end
+all-tracks record(tracks track[])
+new all-tracks()
+	(),
+total-length duration(a all-tracks)
+	unless a.tracks is-empty
+		(for x : a tracks; x length)::duration[] max
 
-recorded-note record(note note, start duration, length duration)
-== bool(a recorded-note, b recorded-note)
-to json(a recorded-note)
-end duration(a recorded-note)
+min-and-max-note note min-and-max?(a all-tracks)
+	unless a.tracks is-empty
+		all-notes note[] = for track : a.tracks and-concat
+			for x : track notes
+				x note
+		all-notes.min-and-max,
+
+instrument enum(lightning, plum)
+<=> comparison(a instrument, b instrument)
+	a.to::string <=> b.to
+hash-mix void(a hasher, b instrument)
+	a hash-mix b.to::string
+show string(a instrument)
+	match a
+	as lightning
+		"Lightning"
+	as plum
+		"Plum"
+
+track record(instrument instrument, notes (duration, track-note) sorted-list)
+== bool(a track, b track)
+to json(a track)
+is-empty bool(a track)
+	a.notes is-empty
+length duration(a track)
+	if start, x ?= a.notes last
+		start + x.end
+
+track-note record(note note, length duration)
+== bool(a track-note, b track-note)
+to json(a track-note)
+end duration(a track-note)
 	a.start + a.length
 
 recorded-event record(time duration, kind note-event)
 show string(a recorded-event)
 	"{a kind} at {a time}"
 
-recording-builder record mut
+current-track record
+	instrument instrument
 	# Maps a currently playing note to the start time
-	-cur-notes-playing duration mut[note]
-	-out recorded-note mut[]
-new recording-builder()
-	(), ()
+	cur-notes-playing duration[note]
+	done-notes (note, track-note) sorted-list
+new current-track(instrument instrument)
+	instrument, (), ()
+== bool(a current-track, b current-track)
+to json(a current-track)
+min-and-max-note note min-and-max?(a current-track)
+	all-notes note set = a.cur-notes-playing.keys.to ~~ a.done-notes.keys
+	unless all-notes is-empty
+		all-notes.min-and-max,
 
-~= void(a recording-builder, (time duration, event note-event))
+~ ~ current-track(a current-track, (time duration, event note-event))
 	match event
 	as note-on note
-		a.cur-notes-playing[note] := time
+		a.instrument, (a.cur-notes-playing ~ (note, time)), a.done-notes
 	as note-off note
-		start = a.cur-notes-playing remove! note
-		a.out ~= (note, start, time - start)
+		if start, rest-notes-playing ?= a.cur-notes-playing try-remove note
+			a.instrument, rest-notes-playing, (a.done-notes ~ (note, start, time - start)) sort x => x.start
+		else
+			a
 
-finish recording(a recording-builder, time duration)
-	for note, start : a cur-notes-playing
-		a.out ~= (note, start, time - start)
-	notes recorded-note[] = a.out.move-to sort x => x start
-	notes,
+finish track(a current-track, time duration)
+	done = a.done-notes ~~ for note, start : a cur-notes-playing
+		note, start, time - start
+	a.instrument, done sort x => x.start
 
 test
-	a recording-builder = ()
-	a ~= (1.seconds, A.note-on)
-	a ~= (2.seconds, B.note-on)
-	a ~= (3.seconds, B.note-off)
-	a finish 4.seconds is (((A, 1.seconds, 3.seconds), (B, 2.seconds, 1.seconds)),)
+	a mut current-track = plum,
+	a ~:= (1.seconds, A.note-on)
+	a is (plum, ((A, 1.seconds),), ())
+	a ~:= (2.seconds, B.note-on)
+	a is (plum, ((A, 1.seconds), (B, 2.seconds)), ())
+	a ~:= (3.seconds, B.note-off)
+	a is (plum, ((A, 1.seconds),), ((B, 2.seconds, 1.seconds),))
+	info log "{(a finish 4.seconds).to::json}"
+	a finish 4.seconds is (plum, ((A, 1.seconds, 3.seconds), (B, 2.seconds, 1.seconds)))
+
+tracks-including-current record(all-tracks all-tracks, current current-track)
+total-length duration(a tracks-including-current, cur-time duration)
+	a.all-tracks.total-length max cur-time
+min-and-max-note note min-and-max?(a tracks-including-current)
+	a.all-tracks.min-and-max-note | a.current.min-and-max-note
+
+|[t] t min-and-max?(a t min-and-max?, b t min-and-max?) t compare
+	if x ?= a
+		if y ?= b
+			x | y,
+		else
+			a
+	else
+		b

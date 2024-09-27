@@ -133,10 +133,10 @@ ReturnTypeAndParams checkReturnTypeAndParams(
 			ctx, commonTypes, structsAndAliasesMap, returnTypeAst, typeParams, delayStructInsts, AliasAllowed.yes),
 		checkParams(ctx, commonTypes, typeContainer, paramsAst, structsAndAliasesMap, typeParams, delayStructInsts));
 
-SymbolSet getExternLibraryName(ref CheckCtx ctx, in ModifierAst.Keyword modifier, bool required) { // rename? --------------------------------------
+SymbolSet getExternsFromModifier(ref CheckCtx ctx, in ModifierAst.Keyword modifier, bool required) {
 	assert(modifier.keyword == ModifierKeyword.extern_);
 	if (has(modifier.typeArg))
-		return optOrDefault!SymbolSet(tryGetExternLibraryNameFromTypeArg(ctx, force(modifier.typeArg)), () =>
+		return optOrDefault!SymbolSet(tryGetExternsFromTypeArg(ctx, force(modifier.typeArg)), () =>
 			required ? symbolSet(symbol!"bogus") : emptySymbolSet);
 	else if (required) {
 		addDiag(ctx, modifier.keywordRange, Diag(Diag.ExternMissingLibraryName()));
@@ -147,7 +147,7 @@ SymbolSet getExternLibraryName(ref CheckCtx ctx, in ModifierAst.Keyword modifier
 
 private:
 
-Opt!SymbolSet tryGetExternLibraryNameFromTypeArg(ref CheckCtx ctx, in TypeAst arg) { // rename? --------------------------------------
+Opt!SymbolSet tryGetExternsFromTypeArg(ref CheckCtx ctx, in TypeAst arg) {
 	if (arg.isA!NameAndRange) {
 		return some(symbolSet(checkExternNameOrBogus(ctx, arg.as!NameAndRange, emptySymbolSet)));
 	} else if (arg.isA!(TypeAst.Tuple*)) {
@@ -395,7 +395,7 @@ FunModifiers checkFunModifiers(
 				(in ModifierAst.Keyword x) {
 					if (x.keyword == ModifierKeyword.extern_) {
 						if (cellGet(externs).isEmpty)
-							cellSet(externs, getExternLibraryName(ctx, x, required: true));
+							cellSet(externs, getExternsFromModifier(ctx, x, required: true));
 						else
 							addDiag(ctx, x.range, Diag(Diag.ModifierDuplicate(ModifierKeyword.extern_)));
 					} else {
@@ -452,7 +452,7 @@ TestModifiers checkTestModifiers(ref CheckCtx ctx, in TestAst ast) {
 					allFlags |= flag;
 				} else if (x.keyword == ModifierKeyword.extern_) {
 					if (cellGet(externs).isEmpty)
-						cellSet(externs, getExternLibraryName(ctx, x, required: true));
+						cellSet(externs, getExternsFromModifier(ctx, x, required: true));
 					else
 						addDiag(ctx, x.range, Diag(Diag.ModifierDuplicate(ModifierKeyword.extern_)));
 				} else

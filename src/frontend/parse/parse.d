@@ -54,7 +54,7 @@ import model.ast :
 	TestAst,
 	TypeAst,
 	VarDeclAst;
-import model.model : TypeParams, VarKind, Visibility;
+import model.model : TypeParams, VariantKind, VarKind, Visibility;
 import model.parseDiag : ParseDiag, ParseDiagnostic;
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
@@ -216,7 +216,8 @@ void parseSpecOrStructOrFun(
 			docComment, range(lexer, start), visibility, name, typeParams, keywordPos, modifiers, body_));
 	}
 
-	switch (getPeekToken(lexer)) {
+	Token token = getPeekToken(lexer);
+	switch (token) {
 		case Token.alias_:
 			mustTakeToken(lexer, Token.alias_);
 			TypeAst target = takeIndentOrFailGeneric!TypeAst(lexer,
@@ -277,9 +278,12 @@ void parseSpecOrStructOrFun(
 			Opt!ParamsAst params = tryParseParams(lexer);
 			addStruct(() => StructBodyAst(StructBodyAst.Union(params, parseRecordOrUnionMembers(lexer))));
 			break;
+		case Token.interface_:
 		case Token.variant:
-			mustTakeToken(lexer, Token.variant);
-			addStruct(() => StructBodyAst(StructBodyAst.Variant(parseIndentedSigs(lexer))));
+			mustTakeToken(lexer, token);
+			addStruct(() => StructBodyAst(StructBodyAst.Variant(
+				token == Token.variant ? VariantKind.variant : VariantKind.interface_,
+				parseIndentedSigs(lexer))));
 			break;
 		default:
 			add(lexer.alloc, funs, parseFun(lexer, docComment, visibility, start, name, typeParams));

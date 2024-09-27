@@ -3,7 +3,7 @@ module frontend.check.check;
 @safe @nogc pure nothrow:
 
 import frontend.allInsts : AllInsts;
-import frontend.check.checkFuns : checkFuns, getExternLibraryName;
+import frontend.check.checkFuns : checkFuns, getExternsFromModifier;
 import frontend.check.checkCtx :
 	addDiag,
 	addDiagAssertSameUri,
@@ -298,7 +298,7 @@ Opt!Symbol checkVarModifiers(ref CheckCtx ctx, VarKind kind, in ModifierAst[] mo
 		modifier.matchIn!void(
 			(in ModifierAst.Keyword x) {
 				if (x.keyword == ModifierKeyword.extern_) {
-					SymbolSet names = getExternLibraryName(ctx, x, required: true);
+					SymbolSet names = getExternsFromModifier(ctx, x, required: true);
 					if (has(cellGet(externLibraryName)))
 						addDiag(ctx, x.keywordRange, Diag(Diag.ModifierDuplicate(ModifierKeyword.extern_)));
 					else {

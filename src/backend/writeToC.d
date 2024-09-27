@@ -113,6 +113,8 @@ WriteToCResult writeToC(ref Alloc alloc, in ShowCtx printCtx, in LowProgram prog
 			writer ~= "unsigned int __popcnt(unsigned int value);\n";
 			writer ~= "unsigned __int64 __popcnt64(unsigned __int64 value);\n";
 		}
+		writer ~= "union _convert { uint32_t nat32; uint64_t nat64; float float32; double float64; };\n";
+
 		CVersion cVersion = params.compileOptions.cVersion;
 		if (cVersion == CVersion.c99) {
 			// Based on https://github.com/BartMassey/popcount/blob/master/popcount.c
@@ -1657,6 +1659,17 @@ WriteExprResult writeSpecialUnary(
 			writer ~= ')';
 		});
 
+	WriteExprResult convert(string to, string from) =>
+		writeInlineableSingleArg(writer, indent, ctx, writeKind, type, a.arg, (in WriteExprResult temp) {
+			writer ~= "((union _convert) { .";
+			writer ~= from;
+			writer ~= " = ";
+			writeTempOrInline(writer, ctx, a.arg, temp);
+			writer ~= " }.";
+			writer ~= to;
+			writer ~= ')';
+		});
+
 	WriteExprResult writeCast() =>
 		writeInlineableSingleArg(writer, indent, ctx, writeKind, type, a.arg, (in WriteExprResult temp) {
 			if (isEmptyType(ctx, a.arg.type))
@@ -1685,10 +1698,18 @@ WriteExprResult writeSpecialUnary(
 			assert(false);
 		case BuiltinUnary.asAnyPointer:
 			return prefix("(uint8_t*) ");
+		case BuiltinUnary.bitsOfFloat32:
+			return convert(to: "nat32", from: "float32");
+		case BuiltinUnary.bitsOfFloat64:
+			return convert(to: "nat64", from: "float64");
 		case BuiltinUnary.deref:
 			return prefix("*");
 		case BuiltinUnary.drop:
 			return a.arg.kind.isA!(Constant) ? writeVoid(writeKind) : writeCast();
+		case BuiltinUnary.float32FromBits:
+			return convert(to: "float32", from: "nat32");
+		case BuiltinUnary.float64FromBits:
+			return convert(to: "float64", from: "nat64");
 		case BuiltinUnary.isNanFloat32:
 		case BuiltinUnary.isNanFloat64:
 			return specialCall(ctx.isMSVC ? "isnan" : "__builtin_isnan");

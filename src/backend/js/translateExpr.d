@@ -1301,6 +1301,7 @@ JsExpr translateBuiltinUnary(ref Alloc alloc, in Source source, BuiltinUnary a, 
 	JsExpr BigInt = genGlobal(source, symbol!"BigInt");
 	JsExpr Number = genGlobal(source, symbol!"Number");
 	JsExpr bitwiseNot() => genBitwiseNot(alloc, source, arg);
+
 	final switch (a) {
 		case BuiltinUnary.asFuture:
 		case BuiltinUnary.asFutureImpl:
@@ -1323,6 +1324,11 @@ JsExpr translateBuiltinUnary(ref Alloc alloc, in Source source, BuiltinUnary a, 
 			return genCallSync(
 				alloc, source, BigInt,
 				[genPropertyAccess(alloc, source, arg, JsMemberName.noPrefix(symbol!"length"))]);
+		case BuiltinUnary.bitsOfFloat32:
+			return genCallSync(alloc, source, BigInt, [
+				genConvert(alloc, source, 4, symbol!"Float32Array", symbol!"Uint32Array", arg)]);
+		case BuiltinUnary.bitsOfFloat64:
+			return genConvert(alloc, source, 8, symbol!"Float64Array", symbol!"BigInt64Array", arg);
 		case BuiltinUnary.bitwiseNotNat8:
 			return genAsNat8(alloc, source, bitwiseNot());
 		case BuiltinUnary.bitwiseNotNat16:
@@ -1350,6 +1356,12 @@ JsExpr translateBuiltinUnary(ref Alloc alloc, in Source source, BuiltinUnary a, 
 					source,
 					genCallPropertySync(alloc, source, digits, JsMemberName.noPrefix(symbol!"filter"), [fn]),
 					JsMemberName.noPrefix(symbol!"length"))]);
+		case BuiltinUnary.float32FromBits:
+			return genConvert(
+				alloc, source, 4, symbol!"Uint32Array", symbol!"Float32Array",
+				genCallSync(alloc, source, Number, [arg]));
+		case BuiltinUnary.float64FromBits:
+			return genConvert(alloc, source, 8, symbol!"BigInt64Array", symbol!"Float64Array", arg);
 		case BuiltinUnary.isNanFloat32:
 		case BuiltinUnary.isNanFloat64:
 			return genCallPropertySync(alloc, source, Number, JsMemberName.noPrefix(symbol!"isNaN"), [arg]);
@@ -1414,6 +1426,32 @@ JsExpr translateBuiltinUnary(ref Alloc alloc, in Source source, BuiltinUnary a, 
 }
 JsExpr genArrayFrom(ref Alloc alloc, in Source source, JsExpr arg) =>
 	genCallPropertySync(alloc, source, genGlobal(source, symbol!"Array"), JsMemberName.noPrefix(symbol!"from"), [arg]);
+JsExpr genConvert(
+	ref Alloc alloc,
+	in Source source,
+	double size,
+	Symbol inputArrayType,
+	Symbol outputArrayType,
+	JsExpr arg,
+) {
+	JsName bufName = JsName.specialLocal(symbol!"buf");
+	return genIife(alloc, source, SyncOrAsync.sync, genBlockStatement(alloc, [
+		genConst(
+			alloc, source, bufName,
+			genNew(alloc, source, genGlobal(source, symbol!"ArrayBuffer"), [genNumber(source, size)])),
+		genAssign(
+			alloc, source,
+			genSubscriptZero(
+				alloc, source,
+				genNew(alloc, source, genGlobal(source, inputArrayType), [genIdentifier(source, bufName)])),
+			arg),
+		genReturn(alloc, source, genSubscriptZero(
+			alloc, source,
+			genNew(alloc, source, genGlobal(source, outputArrayType), [genIdentifier(source, bufName)]))),
+	]));
+}
+JsExpr genSubscriptZero(ref Alloc alloc, in Source source, JsExpr arg) =>
+	genPropertyAccessComputed(alloc, source, arg, genNumber(source, 0));
 
 JsExpr translateBuiltinUnaryMath(ref Alloc alloc, in Source source, BuiltinUnaryMath a, JsExpr arg) {
 	JsExpr f32(Symbol name) =>
@@ -1968,6 +2006,7 @@ JsExpr translateConstant(ref TranslateModuleCtx ctx, in Source source, in Consta
 			case BuiltinType.bool_:
 				return genBool(source, asBool(value));
 			case BuiltinType.float32:
+				return toFloat32(ctx.alloc, source, genNumber(source, value.as!(Constant.Float).value));
 			case BuiltinType.float64:
 				return genNumber(source, value.as!(Constant.Float).value);
 			case BuiltinType.int8:

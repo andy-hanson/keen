@@ -455,7 +455,13 @@ void writeTypeUnquoted(scope ref Writer writer, in ShowTypeCtx ctx, in TypeWithC
 			writer ~= "<<any>>";
 		},
 		(in TypeParamIndex x) {
-			writer ~= a.container.typeParams[x.index].name;
+			if (x.index < a.container.typeParams.length) {
+				writer ~= a.container.typeParams[x.index].name;
+			} else {
+				// TODO: This should be unreachable, but see 'test/end-to-end/compile-errors/nested-spec-error.crow'
+				writer ~= "Type parameter ";
+				writer ~= x.index;
+			}
 		},
 		(in StructInst x) {
 			writeStructInst(writer, ctx, a.container, x);

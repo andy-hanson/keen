@@ -22,12 +22,12 @@ struct TempSet(T) {
 	private size_t size;
 	private T[] storage;
 
-	bool has(T value) =>
+	bool opBinaryRight(string op)(in T value) scope const if (op == "in") =>
 		contains(storage[0 .. size], value);
 }
 
 bool tryAdd(T)(scope ref TempSet!T a, T value) {
-	if (a.has(value))
+	if (value in a)
 		return false;
 	else {
 		mustAdd(a, value);
@@ -36,7 +36,7 @@ bool tryAdd(T)(scope ref TempSet!T a, T value) {
 }
 
 void mustAdd(T)(scope ref TempSet!T a, T value) {
-	assert(!a.has(value));
+	assert(value !in a);
 	assert(a.size <= a.storage.length);
 	initMemory(&a.storage[a.size], value);
 	a.size++;

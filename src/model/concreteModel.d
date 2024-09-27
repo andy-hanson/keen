@@ -88,10 +88,12 @@ bool isVoid(in ConcreteType a) =>
 	a.struct_.body_.isA!(ConcreteStructBody.Builtin*) &&
 	a.struct_.body_.as!(ConcreteStructBody.Builtin*).kind == BuiltinType.void_;
 bool isEmptyType(in ConcreteType a) =>
-	isVoid(a) || (
-		a.reference == ReferenceKind.byVal &&
-		a.struct_.body_.isA!(ConcreteStructBody.Record) &&
-		isEmpty(a.struct_.body_.as!(ConcreteStructBody.Record).fields));
+	// TODO: Shouldn't depend on this ...
+	a.struct_.infoIsSet && (
+		isVoid(a) || (
+			a.reference == ReferenceKind.byVal &&
+			a.struct_.body_.isA!(ConcreteStructBody.Record) &&
+			isEmpty(a.struct_.body_.as!(ConcreteStructBody.Record).fields)));
 
 alias ReferenceKind = immutable ReferenceKind_;
 private enum ReferenceKind_ { byVal, byRef }
@@ -171,6 +173,8 @@ immutable struct ConcreteStruct {
 	// Only set for records
 	private Late!(immutable uint[]) fieldOffsets_;
 
+	bool infoIsSet() scope =>
+		lateIsSet(info_);
 	void info(ConcreteStructInfo value) {
 		lateSet(info_, value);
 	}

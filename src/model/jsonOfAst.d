@@ -157,13 +157,15 @@ Json jsonOfSpecDeclAst(ref Alloc alloc, in Ctx ctx, in SpecDeclAst a) =>
 		field!"name"(jsonOfNameAndRange(alloc, ctx, a.name)),
 		field!"modifiers"(jsonOfModifiers(alloc, ctx, a.modifiers)),
 		maybeTypeParams(alloc, ctx, a.typeParams),
-		field!"sigs"(jsonList!SignatureAst(alloc, a.sigs, (in SignatureAst sig) =>
-			jsonOfSpecSig(alloc, ctx, sig)))]);
+		field!"sigs"(jsonOfSignatureAsts(alloc, ctx, a.sigs))]);
 
 Json.ObjectField visibilityField(Opt!Visibility a) =>
 	optionalField!("visibility", Visibility)(a, (in Visibility x) => jsonString(stringOfEnum(x)));
 
-Json jsonOfSpecSig(ref Alloc alloc, in Ctx ctx, in SignatureAst a) =>
+Json jsonOfSignatureAsts(ref Alloc alloc, in Ctx ctx, in SignatureAst[] a) =>
+	jsonList!SignatureAst(alloc, a, (in SignatureAst x) =>
+		jsonOfSignatureAst(alloc, ctx, x));
+Json jsonOfSignatureAst(ref Alloc alloc, in Ctx ctx, in SignatureAst a) =>
 	jsonObject(alloc, [
 		field!"range"(jsonOfRange(alloc, ctx, a.range)),
 		optionalStringField!"doc"(alloc, a.docComment),
@@ -255,8 +257,10 @@ Json jsonOfStructBodyAst(ref Alloc alloc, in Ctx ctx, in StructBodyAst a) =>
 			jsonOfRecordOrUnion(alloc, ctx, "record", a.params, a.fields),
 		(in StructBodyAst.Union a) =>
 			jsonOfRecordOrUnion(alloc, ctx, "union", a.params, a.members),
-		(in StructBodyAst.Variant a) =>
-			jsonString!"variant");
+		(in StructBodyAst.Variant x) =>
+			jsonObject(alloc, [
+				field!"kind"(stringOfEnum(x.kind)),
+				field!"methods"(jsonOfSignatureAsts(alloc, ctx, x.methods))]));
 
 Json jsonOfRecordOrUnion(
 	ref Alloc alloc,

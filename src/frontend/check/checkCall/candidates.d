@@ -172,11 +172,18 @@ bool testCandidateParamType(
 		: inout TypeAndContext(declType, typeContextForCandidate(candidate));
 }
 
-Called candidateBogusCalled(ref Alloc alloc, InstantiateCtx instantiateCtx, ref CommonTypes commonTypes, ref const Candidate candidate) {
+Called candidateBogusCalled(
+	ref Alloc alloc,
+	InstantiateCtx instantiateCtx,
+	ref CommonTypes commonTypes,
+	ref const Candidate candidate,
+) {
 	Type returnType = getCandidateTypeOrBogus(instantiateCtx, candidate, candidate.called.returnType);
 	Type[] paramTypes = candidate.called.isVariadic
 		? newArray!Type(alloc, [
-			Type(makeArrayType(instantiateCtx, commonTypes, getCandidateTypeOrBogus(instantiateCtx, candidate, paramTypeAt(candidate.called, 0)))),
+			Type(makeArrayType(
+				instantiateCtx, commonTypes,
+				getCandidateTypeOrBogus(instantiateCtx, candidate, paramTypeAt(candidate.called, 0)))),
 		])
 		: makeArray(alloc, candidate.called.arity.countParamDecls, (size_t i) =>
 			getCandidateTypeOrBogus(instantiateCtx, candidate, paramTypeAt(candidate.called, i)));

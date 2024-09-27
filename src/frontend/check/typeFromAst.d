@@ -18,6 +18,7 @@ import model.model :
 	asTuple,
 	CommonTypes,
 	Destructure,
+	DestructureIgnoreSource,
 	emptyTypeParams,
 	ExportVisibility,
 	importCanSee,
@@ -485,7 +486,8 @@ Destructure checkDestructure(
 			if (x.name.name == symbol!"_") {
 				if (has(x.mut))
 					addDiag(ctx, ast.range, Diag(Diag.LocalIgnoredButMutable()));
-				return Destructure(allocate(ctx.alloc, Destructure.Ignore(x.name.start, type)));
+				return Destructure(allocate(ctx.alloc, Destructure.Ignore(
+					DestructureIgnoreSource(&ast.as!(DestructureAst.Single)()), x.name.start, type)));
 			} else {
 				LocalMutability mutability = () {
 					if (has(x.mut) && kind == DestructureKind.param) {
@@ -501,7 +503,8 @@ Destructure checkDestructure(
 		},
 		(DestructureAst.Void x) {
 			Type type = getType(some(Type(commonTypes.void_)));
-			return Destructure(allocate(ctx.alloc, Destructure.Ignore(x.range.start, type)));
+			return Destructure(allocate(ctx.alloc, Destructure.Ignore(
+				DestructureIgnoreSource(&ast.as!(DestructureAst.Void)()), x.range.start, type)));
 		},
 		(DestructureAst[] partAsts) {
 			if (has(destructuredType)) {

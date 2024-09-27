@@ -2,7 +2,7 @@ module model.ast;
 
 @safe @nogc pure nothrow:
 
-import model.model : FunKind, stringOfVarKindLowerCase, VarKind, Visibility;
+import model.model : FunKind, stringOfVarKindLowerCase, VariantKind, VarKind, Visibility;
 import model.parseDiag : ParseDiag, ParseDiagnostic;
 import util.alloc.alloc : Alloc;
 import util.col.array : arrayOfSingle, exists, isEmpty, newArray, newSmallArray, sizeEq, SmallArray;
@@ -1060,6 +1060,7 @@ immutable struct StructBodyAst {
 		SmallArray!RecordOrUnionMemberAst members;
 	}
 	immutable struct Variant {
+		VariantKind kind;
 		SmallArray!SignatureAst methods;
 	}
 

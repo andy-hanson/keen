@@ -1,9 +1,103 @@
+import
+	crow/private/thread-utils: acquire, init, lock, release, uninit
+
++atomic[t] record force-shared, by-ref
+	-lk mut lock
+	-sequence mut nat
+	-value mut t
+-lock[t] lock mut*(a t atomic) bare, unsafe, native extern
+	&a.lk
+-new[t] t atomic(value t) trusted
+	res t atomic = uninit, 0, value
+	if extern native
+		res.lock init
+	res
++get[t] t(a t atomic) bare, trusted
+	if extern native
+		a.lock acquire
+		finally a.lock release
+		res = a value
+		a.lock release
+		res
+	else
+		a value
++set[t] void(a t atomic, value t) bare, trusted
+	if extern native
+		a.lock acquire
+		finally a.lock release
+		a.sequence +:= 1
+		a.value := value
+	else
+		a.sequence +:= 1
+		a.value := value
++get-and-set[t] t(a t atomic, value t) bare, trusted
+	if extern native
+		a.lock acquire
+		finally a.lock release
+		res = a value
+		a.sequence +:= 1
+		a.value := value
+		res
+	else
+		res = a value
+		a.sequence +:= 1
+		a.value := value
+		res
+
+-get-with-sequence[t] (nat, t)(a t atomic) bare, trusted
+	if extern native
+		a.lock acquire
+		finally a.lock release
+		a.sequence, a.value
+	else
+		a.sequence, a.value
+-compare-sequence-and-set[t] bool(a t atomic, sequence nat, value t) bare, trusted
+	if extern native
+		a.lock acquire
+		finally a.lock release
+		ok = a.sequence == sequence
+		if ok
+			a.sequence +:= 1
+			a.value := value
+		ok
+	else
+		ok = a.sequence == sequence
+		if ok
+			a.sequence +:= 1
+			a.value := value
+		ok
+
+# This will retry if the value changed during modification
++modify[t] t(a t atomic, cb t data(x t)) trusted, t equal
+	loop
+		sequence, old-value = a get-with-sequence
+		new-value = cb[old-value]
+		if a compare-sequence-and-set sequence, new-value
+			break new-value
+		else
+			continue
+
+test
+	a nat atomic = 0,
+	results nat[] = for x : 1::nat .. 10 parallel
+		a get-and-set x
+	(results ~ a.get).sort is (0 .. 10).to
+
+###
+This is the type for receiving events.
+To send events, use 'events-out'.
+###
 +events[t] record shared
 	-subscribers void shared(x t) shared[]
+
+# Empty events object which will never have an event.
++new[t] t events()
+	(),
 
 +subscribe[t] void(a t events, cb void shared(x t)) t shared
 	a.subscribers ~= cb
 
+# Create a new events object that is mapped from input events.
 +for-loop[out, in] out events(a in events, cb out mut(x in)) in shared, out shared
 	res out events-out = ()
 	a subscribe shared x =>
@@ -22,15 +116,29 @@
 			subscriber[event]
 
 # Unlike 'events', this has a current value.
-+observable[t] record mut
-	-value mut t
++observable[t] record shared
+	-value t atomic
 	-events-out t events-out
++constant[t] t observable(a t)
+	(a,), ((),)
+
++|[t, u] (t, u) observable(a t observable, b u observable) t shared, u shared
+	cur-a mut = a get
+	cur-b mut = b get
+	res (t, u) mut-observable = (cur-a, cur-b),
+	a subscribe shared x =>
+		cur-a := x
+		res set (cur-a, cur-b)
+	b subscribe shared x =>
+		cur-b := x
+		res set (cur-a, cur-b)
+	res observable
 
 +events[t] t events(a t observable) t shared
 	a.events-out events
 
 +get[t] t(a t observable) t shared
-	a value
+	a.value get
 
 +subscribe[t] void(a t observable, cb void shared(x t)) t shared
 	a.events subscribe cb
@@ -39,18 +147,33 @@
 	cb[a get]
 	a subscribe cb
 
-+mutable-observable[t] record mut
++mut-observable[t] record mut
 	observable t observable
 
-+events[t] t events(a t mutable-observable) t shared
++events[t] t events(a t mut-observable) t shared
 	a.observable events
 
-+new[t] t mutable-observable(initial t) t shared
-	(initial, ()),
++new[t] t mut-observable(initial t) t shared
+	((initial,), ()),
 
-+get[t] t(a t mutable-observable) t shared
++get[t] t(a t mut-observable) t shared
 	a.observable get
 
-+set[t] void(a t mutable-observable, value t) t shared
-	a.observable.value := value
++set[t] void(a t mut-observable, value t) t shared
+	a.observable.value set value
 	a.observable.events-out ~= value
+
++modify[t] void(a t mut-observable, cb t data(x t)) t equal, t shared
+	a set (a.observable.value modify cb)
+
++join[t, u] record(a t observable, b u observable) nominal, shared
++for-loop[out, t, u] out observable(
+	a (t, u) join,
+	f out shared(x t, y u),
+) t shared, u shared, out shared
+	res out mut-observable = f[a.a.get, a.b.get],
+	a.a subscribe shared x =>
+		res set f[x, a.b.get]
+	a.b subscribe shared x =>
+		res set f[a.a.get, x]
+	res observable

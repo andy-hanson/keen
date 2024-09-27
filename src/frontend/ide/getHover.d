@@ -57,7 +57,8 @@ import model.model :
 	Type,
 	TypeParamIndex,
 	UnionMember,
-	VarDecl;
+	VarDecl,
+	VariantKind;
 import util.alloc.alloc : Alloc;
 import util.col.hashTable : withSortedKeys;
 import util.conv : safeToUint;
@@ -136,7 +137,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 						return "Declares a union-like type with an unlimited set of members, " ~
 							"created by 'variant-member' declarations.";
 					case PositionKind.Keyword.Kind.variantMember:
-						return "Adds a member to a variant type.";
+						return "Adds a member to an interface or variant type.";
 				}
 			}();
 		},
@@ -313,7 +314,15 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 			writeTypeUnquoted(writer, ctx, TypeWithContainer(x.type, TypeContainer(x)));
 		},
 		(PositionKind.VariantMethod x) {
-			writer ~= "Variant ";
+			writer ~= () {
+				final switch (x.variantBody.kind) {
+					case VariantKind.interface_:
+						return "Interface";
+					case VariantKind.variant:
+						return "Variant";
+				}
+			}();
+			writer ~= ' ';
 			writeName(writer, ctx, x.variant.name);
 			writer ~= " method ";
 			writeName(writer, ctx, x.method.name);
@@ -349,8 +358,14 @@ void writeStructDeclHover(scope ref Writer writer, in ShowModelCtx ctx, in Struc
 			"Record type ",
 		(in StructBody.Union) =>
 			"Union type ",
-		(in StructBody.Variant) =>
-			"Variant type ");
+		(in StructBody.Variant x) {
+			final switch (x.kind) {
+				case VariantKind.interface_:
+					return "Interface type";
+				case VariantKind.variant:
+					return "Variant type";
+			}
+		});
 	writeName(writer, ctx, a.name);
 }
 

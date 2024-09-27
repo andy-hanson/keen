@@ -297,6 +297,13 @@ FunBody inner(
 		case symbol!"as-mut".value:
 		case symbol!"pointer-cast".value:
 			return FunBody(BuiltinFun(BuiltinFun.PointerCast()));
+		case symbol!"bits-of".value:
+			return unary(
+				isNat32(rt) && isFloat32(p0)
+				? BuiltinUnary.bitsOfFloat32
+				: isNat64(rt) && isFloat64(p0)
+				? BuiltinUnary.bitsOfFloat64
+				: failUnary);
 		case symbol!"call".value:
 			return isJsAny(rt)
 				? FunBody(BuiltinFun(JsFun.call))
@@ -331,6 +338,13 @@ FunBody inner(
 				: failUnary);
 		case symbol!"false".value:
 			return FunBody(BuiltinFun(constantBool(false)));
+		case symbol!"from-bits".value:
+			return unary(
+				isFloat32(rt) && isNat32(p0)
+				? BuiltinUnary.float32FromBits
+				: isFloat64(rt) && isNat64(p0)
+				? BuiltinUnary.float64FromBits
+				: failUnary);
 		case symbol!"gc-safe-value".value:
 			return FunBody(BuiltinFun(BuiltinFun.GcSafeValue()));
 		case symbol!"global-init".value:

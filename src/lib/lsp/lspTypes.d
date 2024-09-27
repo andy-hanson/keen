@@ -43,6 +43,7 @@ immutable struct LspInRequestParams {
 	mixin Union!(
 		BuildJsScriptParams,
 		DefinitionParams,
+		DocumentHighlightParams,
 		HoverParams,
 		InitializeParams,
 		ReferenceParams,
@@ -76,6 +77,7 @@ immutable struct LspOutResult {
 	immutable struct Null {}
 	mixin Union!(
 		BuildJsScriptResult,
+		DocumentHighlightResult,
 		InitializeResult,
 		Opt!Hover,
 		RunResult,
@@ -247,6 +249,25 @@ immutable struct RenameParams {
 
 immutable struct ReferenceParams {
 	TextDocumentPositionParams params;
+}
+
+immutable struct DocumentHighlightParams {
+	TextDocumentPositionParams params;
+}
+
+// Result for a document highlight can also be Null instead of this
+immutable struct DocumentHighlightResult {
+	Uri uri;
+	DocumentHighlight[] highlights;
+}
+immutable struct DocumentHighlight {
+	Range range;
+	DocumentHighlightKind kind;
+}
+enum DocumentHighlightKind {
+	Text = 1,
+	Read = 2,
+	Write = 3,
 }
 
 immutable struct SemanticTokensParams {

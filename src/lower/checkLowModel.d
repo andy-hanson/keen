@@ -286,6 +286,10 @@ ExpectUnary unaryExpected(
 		case BuiltinUnary.asAnyPointer:
 			//TODO: returns one of anyPtrConstType or anyPtrMutType. Maybe split these up
 			return ExpectUnary();
+		case BuiltinUnary.bitsOfFloat32:
+			return expect(nat32Type, float32Type);
+		case BuiltinUnary.bitsOfFloat64:
+			return expect(nat64Type, float64Type);
 		case BuiltinUnary.bitwiseNotNat8:
 			return expect(nat8Type, nat8Type);
 		case BuiltinUnary.bitwiseNotNat16:
@@ -299,6 +303,10 @@ ExpectUnary unaryExpected(
 			return ExpectUnary(some(asPointee(argType)), none!LowType);
 		case BuiltinUnary.drop:
 			return ExpectUnary(some(voidType), none!LowType);
+		case BuiltinUnary.float32FromBits:
+			return expect(float32Type, nat32Type);
+		case BuiltinUnary.float64FromBits:
+			return expect(float64Type, nat64Type);
 		case BuiltinUnary.isNanFloat32:
 			return expect(boolType, float32Type);
 		case BuiltinUnary.isNanFloat64:

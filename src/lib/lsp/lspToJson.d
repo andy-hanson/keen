@@ -6,6 +6,8 @@ import frontend.ide.getTokens : getTokensLegend;
 import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes :
 	BuildJsScriptResult,
+	DocumentHighlight,
+	DocumentHighlightResult,
 	Hover,
 	InitializeResult,
 	LspDiagnostic,
@@ -70,10 +72,12 @@ Json jsonOfLspOutNotification(ref Alloc alloc, in LineAndCharacterGetters lcg, r
 					Json(stringOfUri(alloc, x))))])));
 }
 
-Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcg, ref LspOutResult a) =>
+Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref LspOutResult a) =>
 	a.match!Json(
 		(BuildJsScriptResult x) =>
 			jsonObject(alloc, [field!"diagnostics"(x.diagnostics), optionalField!"script"(x.script)]),
+		(DocumentHighlightResult x) =>
+			jsonOfDocumentHighlight(alloc, lcgs[x.uri], x),
 		(InitializeResult _) =>
 			jsonObject(alloc, [field!"capabilities"(initializeCapabilities(alloc))]),
 		(Opt!Hover x) =>
@@ -90,9 +94,9 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcg, ref Lsp
 			jsonObject(alloc, [field!"unloadedUris"(jsonList!Uri(alloc, x.unloadedUris, (in Uri x) =>
 				Json(stringOfUri(alloc, x))))]),
 		(UriAndRange[] x) =>
-			jsonOfReferences(alloc, lcg, x),
+			jsonOfReferences(alloc, lcgs, x),
 		(Opt!WorkspaceEdit x) =>
-			jsonOfRename(alloc, lcg, x),
+			jsonOfRename(alloc, lcgs, x),
 		(LspOutResult.Null) =>
 			jsonNull);
 
@@ -112,6 +116,7 @@ Json initializeCapabilities(ref Alloc alloc) =>
 		field!"textDocumentSync"(2), // incremental
 		//TODO: completionProvider: {resolveProvider: true},
 		field!"definitionProvider"(jsonObject([])),
+		field!"documentHighlightProvider"(jsonObject([])),
 		field!"hoverProvider"(jsonObject([])),
 		field!"referencesProvider"(jsonObject([])),
 		field!"renameProvider"(jsonObject([])),
@@ -130,6 +135,12 @@ public Json jsonOfHover(ref Alloc alloc, in Opt!Hover a) =>
 
 Json jsonOfHover(ref Alloc alloc, in Hover a) =>
 	jsonObject(alloc, [field!"contents"(jsonOfMarkupContent(alloc, a.contents))]);
+
+public Json jsonOfDocumentHighlight(ref Alloc alloc, in LineAndCharacterGetter lcg, in DocumentHighlightResult a) =>
+	jsonList!DocumentHighlight(alloc, a.highlights, (in DocumentHighlight x) =>
+		jsonObject(alloc, [
+			field!"range"(jsonOfLineAndCharacterRange(alloc, lcg[x.range])),
+			field!"kind"(uint(x.kind))]));
 
 public Json jsonOfReferences(ref Alloc alloc, in LineAndCharacterGetters lcg, in UriAndRange[] references) =>
 	jsonList!UriAndRange(alloc, references, (in UriAndRange x) =>

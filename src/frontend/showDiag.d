@@ -1523,7 +1523,7 @@ string aOrAnDeclKind(DeclKind a) {
 		case DeclKind.union_:
 			return "A union type";
 		case DeclKind.variant:
-			return "A variant type";
+			return "An interface or variant type";
 	}
 }
 
@@ -1685,6 +1685,8 @@ string describeTokenForUnexpected(Token token) {
 			return "Unexpected keyword 'if'.";
 		case Token.import_:
 			return "Unexpected keyword 'import'.";
+		case Token.interface_:
+			return "Unexpected keyword 'interface'.";
 		case Token.literalFloat:
 		case Token.literalIntegral:
 			return "Unexpected number literal expression.";

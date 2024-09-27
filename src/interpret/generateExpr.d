@@ -827,6 +827,10 @@ void generateSpecialUnary(
 			// done in lower
 			assert(false);
 		case BuiltinUnary.asAnyPointer:
+		case BuiltinUnary.bitsOfFloat32:
+		case BuiltinUnary.bitsOfFloat64:
+		case BuiltinUnary.float32FromBits:
+		case BuiltinUnary.float64FromBits:
 		case BuiltinUnary.referenceFromPointer:
 		case BuiltinUnary.toChar8FromNat8:
 		case BuiltinUnary.toNat8FromChar8:

@@ -11,7 +11,7 @@ import frontend.check.checkCtx :
 	checkNoTypeParams,
 	visibilityFromDefaultWithDiag,
 	visibilityFromExplicitTopLevel;
-import frontend.check.checkFuns : checkReturnTypeAndParams, getExternLibraryName, ReturnTypeAndParams;
+import frontend.check.checkFuns : checkReturnTypeAndParams, getExternsFromModifier, ReturnTypeAndParams;
 import frontend.check.exprCtx : LocalsInfo;
 import frontend.check.instantiate : DelayStructInsts, instantiateStructWithOwnTypeParams, MayDelayStructInsts;
 import frontend.check.maps : FunsMap, StructsAndAliasesMap;
@@ -115,7 +115,7 @@ void modifierTypeArgInvalid(ref CheckCtx ctx, in MutOpt!(ModifierAst.Keyword*)[]
 StructDecl[] checkStructsInitial(ref CheckCtx ctx, in StructDeclAst[] asts) =>
 	mapPointers!(StructDecl, StructDeclAst)(ctx.alloc, asts, (StructDeclAst* ast) {
 		checkTypeParams(ctx, ast.typeParams);
-		LinkageAndPurity m = getStructModifiers(ctx, getDeclKind(ast.body_), ast.modifiers);
+		StructModifiers m = getStructModifiers(ctx, getDeclKind(ast.body_), ast.modifiers);
 		return StructDecl(
 			StructDeclSource(ast),
 			ctx.curUri,
@@ -169,7 +169,7 @@ void checkStructBodies(
 			},
 			(StructBodyAst.Variant x) {
 				checkOnlyCommonModifiers(ctx, DeclKind.variant, ast.modifiers);
-				return StructBody(StructBody.Variant(checkSignatures(
+				return StructBody(StructBody.Variant(x.kind, checkSignatures(
 					ctx, commonTypes, structsAndAliasesMap, TypeContainer(struct_), ast.typeParams, x.methods,
 					someMut(ptrTrustMe(delayStructInsts)))));
 			});
@@ -362,8 +362,7 @@ uint defaultAlignment(size_t size) =>
 	isMultipleOf(size, 2) ? 2 :
 	1;
 
-immutable struct LinkageAndPurity { // rename? ----------------------------------------------------------------------------
-	// If this is the empty set, the record is extern-compatible
+immutable struct StructModifiers {
 	Opt!SymbolSet extern_;
 	bool isSummon;
 	PurityAndForced purityAndForced;
@@ -375,19 +374,19 @@ immutable struct PurityAndForced {
 }
 
 // Note: purity is taken for granted here, and verified later when we check the body.
-LinkageAndPurity getStructModifiers(ref CheckCtx ctx, DeclKind declKind, ModifierAst[] modifiers) {
-	LinkageAndPurityModifiers accum = accumulateStructModifiers(ctx, modifiers);
+StructModifiers getStructModifiers(ref CheckCtx ctx, DeclKind declKind, ModifierAst[] modifiers) {
+	StructModifierAsts accum = accumulateStructModifiers(ctx, modifiers);
 	Opt!SymbolSet extern_ = () {
-		Opt!SymbolSet defaultLinkage = defaultLinkage(declKind);
-		if (has(accum.linkage)) {
-			ModifierAst.Keyword keyword = *force(accum.linkage);
-			SymbolSet set = getExternLibraryName(ctx, keyword, required: false);
-			if (has(defaultLinkage))
+		Opt!SymbolSet defaultExtern = declKind == DeclKind.extern_ ? some(emptySymbolSet) : none!SymbolSet;
+		if (has(accum.extern_)) {
+			ModifierAst.Keyword keyword = *force(accum.extern_);
+			SymbolSet set = getExternsFromModifier(ctx, keyword, required: false);
+			if (has(defaultExtern))
 				addDiag(ctx, keyword.keywordRange, Diag(
 					Diag.ModifierRedundantDueToDeclKind(keyword.keyword, declKind)));
 			return some(set);
 		} else
-			return defaultLinkage;
+			return defaultExtern;
 	}();
 	bool isSummon = () {
 		if (has(accum.summon))
@@ -407,16 +406,16 @@ LinkageAndPurity getStructModifiers(ref CheckCtx ctx, DeclKind declKind, Modifie
 		} else
 			return PurityAndForced(defaultPurity, false);
 	}();
-	return LinkageAndPurity(extern_, isSummon, purity);
+	return StructModifiers(extern_, isSummon, purity);
 }
 
-immutable struct LinkageAndPurityModifiers { // rename? --------------------------------------------------------------------
-	Opt!(ModifierAst.Keyword*) linkage; // rename -------------------------------------------------------------------------------------
+immutable struct StructModifierAsts {
+	Opt!(ModifierAst.Keyword*) extern_;
 	Opt!(ModifierAst.Keyword*) summon;
 	Opt!(ModifierAst.Keyword*) purityAndForced;
 }
-LinkageAndPurityModifiers accumulateStructModifiers(ref CheckCtx ctx, ModifierAst[] modifiers) {
-	MutOpt!(ModifierAst.Keyword*) linkage; // rename -------------------------------------------------------------------------------------
+StructModifierAsts accumulateStructModifiers(ref CheckCtx ctx, ModifierAst[] modifiers) {
+	MutOpt!(ModifierAst.Keyword*) extern_;
 	MutOpt!(ModifierAst.Keyword*) summon;
 	MutOpt!(ModifierAst.Keyword*) purityAndForced;
 	foreach (ref ModifierAst modifier; modifiers) {
@@ -426,7 +425,7 @@ LinkageAndPurityModifiers accumulateStructModifiers(ref CheckCtx ctx, ModifierAs
 				accumulateModifier(
 					ctx,
 					kw.keyword == ModifierKeyword.extern_
-						? linkage
+						? extern_
 						: kw.keyword == ModifierKeyword.summon
 						? summon
 						: purityAndForced,
@@ -434,14 +433,11 @@ LinkageAndPurityModifiers accumulateStructModifiers(ref CheckCtx ctx, ModifierAs
 		} // else already warned in 'checkOnlyCommonModifiers'
 	}
 	modifierTypeArgInvalid(ctx, [purityAndForced]);
-	return LinkageAndPurityModifiers(
-		linkage: optFromMut!(ModifierAst.Keyword*)(linkage),
+	return StructModifierAsts(
+		extern_: optFromMut!(ModifierAst.Keyword*)(extern_),
 		summon: optFromMut!(ModifierAst.Keyword*)(summon),
 		purityAndForced: optFromMut!(ModifierAst.Keyword*)(purityAndForced));
 }
-
-Opt!SymbolSet defaultLinkage(DeclKind a) => // rename ---------------------------------------------------------------------------
-	a == DeclKind.extern_ ? some(emptySymbolSet) : none!SymbolSet;
 
 Purity defaultPurity(DeclKind a) {
 	final switch (a) {
@@ -711,7 +707,7 @@ StructBody.Record checkRecord(
 	scope ref DelayStructInsts delayStructInsts,
 ) {
 	RecordModifiers modifiers = accumulateRecordModifiers(ctx, modifierAsts);
-	bool externForcesByVal = struct_.linkage != Linkage.internal && struct_.externSet != symbolSet(symbol!"js"); // remember to document this! and test!
+	bool externForcesByVal = struct_.linkage != Linkage.internal && struct_.externSet != symbolSet(symbol!"js");
 	Opt!ByValOrRef valOrRef = externForcesByVal
 		? some(ByValOrRef.byVal)
 		: has(modifiers.byValOrRef)

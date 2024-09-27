@@ -307,10 +307,13 @@ void addSpecTokens(scope ref Ctx ctx, in SpecDeclAst a) {
 	declare(ctx.tokens, TokenType.interface_, a.name.range);
 	addTypeParamsTokens(ctx, a.typeParams);
 	addModifierTokens(ctx, a.modifiers);
-	foreach (ref SignatureAst sig; a.sigs) {
-		declare(ctx.tokens, TokenType.function_, sig.nameRange);
-		addSigReturnTypeAndParamsTokens(ctx, sig.returnType, sig.params);
-	}
+	foreach (ref SignatureAst x; a.sigs)
+		addSignatureTokens(ctx, x);
+}
+
+void addSignatureTokens(scope ref Ctx ctx, in SignatureAst a) {
+	declare(ctx.tokens, TokenType.function_, a.nameRange);
+	addSigReturnTypeAndParamsTokens(ctx, a.returnType, a.params);
 }
 
 void addSigReturnTypeAndParamsTokens(scope ref Ctx ctx, in TypeAst returnType, in ParamsAst params) {
@@ -390,8 +393,10 @@ void addStructTokens(scope ref Ctx ctx, in StructDeclAst a) {
 		(in StructBodyAst.Union x) {
 			addRecordOrUnionTokens(ctx, a, x.params, x.members, TokenType.enumMember);
 		},
-		(in StructBodyAst.Variant) {
+		(in StructBodyAst.Variant x) {
 			addModifierTokens(ctx, a.modifiers);
+			foreach (ref SignatureAst sig; x.methods)
+				addSignatureTokens(ctx, sig);
 		});
 }
 

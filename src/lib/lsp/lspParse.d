@@ -5,6 +5,7 @@ module lib.lsp.lspParse;
 import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	CancelRequestParams,
+	DocumentHighlightParams,
 	SyntaxTranslateParams,
 	DefinitionParams,
 	DidChangeTextDocumentParams,
@@ -94,6 +95,8 @@ LspInMessage parseLspInMessage(ref Alloc alloc, in Json message) {
 		case "textDocument/didSave":
 			return notification(DidSaveTextDocumentParams(
 				parseTextDocumentIdentifier(get!"textDocument"(params))));
+		case "textDocument/documentHighlight":
+			return request(DocumentHighlightParams(parseTextDocumentPositionParams(alloc, params)));
 		case "textDocument/hover":
 			return request(HoverParams(parseTextDocumentPositionParams(alloc, params)));
 		case "textDocument/references":

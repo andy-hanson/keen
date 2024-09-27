@@ -660,7 +660,12 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, ref Loops loops, ExprRef a, Pos
 				ForAst* for_ = ast.kind.as!(ForAst*);
 				// 'for' keyword is handled in the CallExpr
 				return optOr!PositionKind(
-					inDestructure(x.param, for_.param),
+					// We don't know whether this lambda is for the main body or for the optional 'else'.
+					// If it's an 'else', it will be a DestructureAst.Void*.
+					x.param.isA!(Destructure.Ignore*)
+						&& x.param.as!(Destructure.Ignore*).source.isA!(DestructureAst.Void*)
+						? none!PositionKind
+						: inDestructure(x.param, for_.param),
 					() => keywordAt(for_.colonRange, ExprKeyword.colonInFor));
 			} else if (ast.kind.isA!(WithAst*)) {
 				// 'with' keyword is handled in the CallExpr

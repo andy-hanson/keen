@@ -183,6 +183,7 @@ bool isExpressionStartToken(in TokenAndData a) {
 		case Token.function_:
 		case Token.global:
 		case Token.import_:
+		case Token.interface_:
 		case Token.mut:
 		case Token.nameOrOperatorColonEquals:
 		case Token.nameOrOperatorEquals:

@@ -9,6 +9,7 @@ import frontend.storage : FileContentGetters;
 import model.ast :
 	AssertOrForbidAst,
 	CaseAst,
+	CaseMemberAst,
 	ConditionAst,
 	DestructureAst,
 	EnumOrFlagsMemberAst,
@@ -63,7 +64,7 @@ import util.opt : force, has, none, Opt, optEqual, optIf, optOr, optOrDefault, s
 import util.sourceRange : combineRanges, UriAndRange, Pos, Range;
 import util.string : emptySmallString, SmallString;
 import util.symbol : enumOfSymbol, Symbol, symbol, symbolOfEnum;
-import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, SymbolSetBuilder;
+import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, SymbolSetBuilder;
 import util.union_ : IndexType, TaggedUnion, Union;
 import util.uri : RelPath, Uri;
 import util.util : enumConvertOrAssert, max, min, stringOfEnum;
@@ -487,7 +488,9 @@ immutable struct StructBody {
 		SmallArray!UnionMember members;
 		HashTable!(UnionMember*, Symbol, nameOfUnionMember) membersByName;
 	}
+	// This is an interface or variant
 	immutable struct Variant {
+		VariantKind kind;
 		SmallArray!Signature methods;
 	}
 
@@ -503,6 +506,8 @@ Symbol nameOfUnionMember(in UnionMember* a) =>
 ulong getAllFlagsValue(in StructBody.Flags body_) =>
 	fold!(ulong, EnumOrFlagsMember)(0, body_.members, (ulong a, in EnumOrFlagsMember b) =>
 		a | b.value.asUnsigned());
+
+enum VariantKind { interface_, variant }
 
 enum BuiltinType {
 	array,
@@ -636,7 +641,7 @@ immutable struct StructDecl {
 	SymbolSet externSet() =>
 		optOrDefault!SymbolSet(extern_, () => emptySymbolSet);
 	Linkage linkage() scope =>
-		has(extern_) ? Linkage.extern_ : Linkage.internal;
+		has(extern_) && force(extern_) != symbolSet(symbol!"js") ? Linkage.extern_ : Linkage.internal;
 
 	SmallArray!VariantAndMethodImpls variants() return scope =>
 		lateGet(variants_);
@@ -699,8 +704,13 @@ immutable struct VariantAndMethodImpls {
 	void methodImpls(SmallArray!(Opt!Called) value) =>
 		lateSet(methodImpls_, value);
 
+	ref StructBody.Variant variantBody() return scope =>
+		variant.decl.body_.as!(StructBody.Variant);
+
+	VariantKind variantKind() scope =>
+		variantBody.kind;
 	SmallArray!Signature variantDeclMethods() =>
-		variant.decl.body_.as!(StructBody.Variant).methods;
+		variantBody.methods;
 	SmallArray!Type variantInstantiatedMethodTypes() =>
 		variant.instantiatedTypes;
 }
@@ -998,6 +1008,8 @@ enum BuiltinUnary {
 	asFutureImpl,
 	asMutArray,
 	asMutArrayImpl,
+	bitsOfFloat32,
+	bitsOfFloat64,
 	bitwiseNotNat8,
 	bitwiseNotNat16,
 	bitwiseNotNat32,
@@ -1006,6 +1018,8 @@ enum BuiltinUnary {
 	cStringOfSymbol,
 	deref,
 	drop,
+	float32FromBits,
+	float64FromBits,
 	isNanFloat32,
 	isNanFloat64,
 	not,
@@ -1260,8 +1274,12 @@ immutable struct FunDeclSource {
 		ImportOrExportAst* ast;
 	}
 	immutable struct VariantMethod {
+		@safe @nogc pure nothrow:
 		StructDecl* variant;
 		Signature* method;
+
+		ref StructBody.Variant variantBody() return scope =>
+			variant.body_.as!(StructBody.Variant);
 	}
 
 	mixin Union!(
@@ -2247,11 +2265,16 @@ immutable struct VariableRef {
 				ClosureReferenceKind.allocated);
 }
 
+immutable struct DestructureIgnoreSource {
+	mixin Union!(CaseMemberAst*, StructDecl*, DestructureAst.Single*, DestructureAst.Void*);
+}
+
 immutable struct Destructure {
 	@safe @nogc pure nothrow:
 
 	// This can come from '_' or '()' (which is the same as '_ void')
 	immutable struct Ignore {
+		DestructureIgnoreSource source;
 		Pos pos;
 		Type type;
 	}

@@ -6,6 +6,7 @@ import frontend.ide.getDefinition : definitionForTarget;
 import frontend.ide.getTarget : Target, targetForPosition;
 import frontend.ide.ideUtil : eachFunSpec, eachSpecParent, eachTypeComponent, eachPackedTypeArg, ReferenceCb, TypeCb;
 import frontend.ide.position : ExprContainer, Position, PositionKind;
+import lib.lsp.lspTypes : DocumentHighlight, DocumentHighlightKind, DocumentHighlightResult;
 import model.ast :
 	AssertOrForbidAst,
 	AssignmentAst,
@@ -125,10 +126,22 @@ import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array : allSame, contains, fold, isEmpty, only, zip, zipIfSizeEq;
 import util.col.arrayBuilder : buildArray, Builder;
-import util.opt : force, has, none, Opt, some;
+import util.col.tempSet : mustAdd, TempSet, tryAdd, withTempSet;
+import util.opt : force, has, none, Opt, optIf, some;
 import util.sourceRange : Range, UriAndRange;
 import util.symbol : Symbol;
 import util.uri : Uri;
+
+Opt!DocumentHighlightResult getDocumentHighlightsForPosition(ref Alloc alloc, in Program program, in Position pos) {
+	Opt!Target target = targetForPosition(program.commonTypes, pos.kind);
+	return optIf(has(target), () =>
+		DocumentHighlightResult(pos.module_.uri, buildArray!DocumentHighlight(alloc, (scope ref Builder!DocumentHighlight res) {
+			eachReferenceForTarget(program, pos.module_.uri, force(target), (in UriAndRange x) {
+				if (x.uri == pos.module_.uri)
+					res ~= DocumentHighlight(x.range, DocumentHighlightKind.Read);
+			});
+		})));
+}
 
 UriAndRange[] getReferencesForPosition(ref Alloc alloc, in Program program, in Position pos) {
 	Opt!Target target = targetForPosition(program.commonTypes, pos.kind);
@@ -763,10 +776,35 @@ void eachModuleReferencing(
 	in Program program,
 	in Module* exportingModule,
 	in void delegate(in Module, in ImportOrExport) @safe @nogc pure nothrow cb,
+) =>
+	withExportersSet!void(program, exportingModule, (in TempSet!(Module*) exporters) {
+		foreach (immutable Module* importingModule; program.allModules) {
+			eachImportOrReExport(*importingModule, (ref ImportOrExport x) {
+				if (x.modulePtr in exporters)
+					cb(*importingModule, x);
+			});
+		}
+	});
+
+// Set of a module and all modules that re-export something from it.
+Out withExportersSet(Out)(
+	in Program program,
+	in Module* exportingModule,
+	in Out delegate(in TempSet!(Module*)) @safe @nogc pure nothrow cb,
 ) {
-	foreach (immutable Module* importingModule; program.allModules)
-		eachImportOrReExport(*importingModule, (ref ImportOrExport x) {
-			if (x.modulePtr == exportingModule)
-				cb(*importingModule, x);
-		});
+	withTempSet!(Out, Module*)(0x1000, (scope ref TempSet!(Module*) exporters) {
+		mustAdd(exporters, exportingModule);
+		bool didAdd = true;
+		while (didAdd) {
+			didAdd = false;
+			foreach (immutable Module* x; program.allModules) {
+				foreach (ImportOrExport ex; x.reExports)
+					if (ex.modulePtr in exporters)
+						if (tryAdd(exporters, x))
+							didAdd = true;
+			}
+		}
+		return cb(exporters);
+	});
 }
+

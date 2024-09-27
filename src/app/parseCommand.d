@@ -375,10 +375,26 @@ Opt!PrintKind parsePrintKind(in CString a, in CString[] args) {
 		case "low-model":
 			return expectEmptyArgs(PrintKind(PrintKind.LowModel()));
 		default:
-			Opt!(PrintKind.Ide.Kind) kind = optEnumOfString!(PrintKind.Ide.Kind)(stringOfCString(a));
+			Opt!(PrintKind.Ide.Kind) kind = ideKind(stringOfCString(a));
 			return has(kind)
 				? expectLineAndColumn((in LineAndColumn lc) => PrintKind(PrintKind.Ide(force(kind), lc)))
 				: none!PrintKind;
+	}
+}
+Opt!(PrintKind.Ide.Kind) ideKind(in string a) {
+	switch (a) {
+		case "definition":
+			return some(PrintKind.Ide.Kind.definition);
+		case "document-highlight":
+			return some(PrintKind.Ide.Kind.documentHighlight);
+		case "hover":
+			return some(PrintKind.Ide.Kind.hover);
+		case "references":
+			return some(PrintKind.Ide.Kind.references);
+		case "rename":
+			return some(PrintKind.Ide.Kind.rename);
+		default:
+			return none!(PrintKind.Ide.Kind);
 	}
 }
 
@@ -786,8 +802,9 @@ string commandDescription(CommandName name) {
 				"\ncrow print low-model PATH" ~
 				"\ncrow print hover PATH LINE:COLUMN" ~
 				"\ncrow print definition PATH LINE:COLUMN" ~
+				"\ncrow print document-highlight PATH LINE:COLUMN" ~
 				"\ncrow print rename PATH LINE:COLUMN" ~
-				"\ncrow print reference PATH LINE:COLUMN";
+				"\ncrow print references PATH LINE:COLUMN";
 		case CommandName.run:
 			return "Runs the program at PATH." ~
 				"\nArguments after '--' will be sent to the program." ~

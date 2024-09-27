@@ -19,6 +19,7 @@ import model.model :
 	ByValOrRef,
 	CommonTypes,
 	Destructure,
+	DestructureIgnoreSource,
 	IntegralType,
 	isVoid,
 	EnumOrFlagsFunction,
@@ -40,6 +41,7 @@ import model.model :
 	UnionMember,
 	VarDecl,
 	VariantAndMethodImpls,
+	VariantKind,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withStackArray;
@@ -82,7 +84,15 @@ private size_t countFunsForStruct(in CommonTypes commonTypes, in StructDecl a) =
 		(in StructBody.Variant x) =>
 			x.methods.length);
 private size_t countFunsForVariants(in StructDecl a) =>
-	a.variants.length * (a.body_.isA!(StructBody.Record) ? 3 : 2);
+	sum!VariantAndMethodImpls(a.variants, (in VariantAndMethodImpls x) {
+		size_t res = a.body_.isA!(StructBody.Record) ? 2 : 1;
+		final switch (x.variant.decl.body_.as!(StructBody.Variant).kind) {
+			case VariantKind.interface_:
+				return res;
+			case VariantKind.variant:
+				return res + 1;
+		}
+	});
 
 size_t countFunsForVars(in VarDecl[] vars) =>
 	vars.length * 2;
@@ -135,13 +145,6 @@ private void addFunsForVariants(
 			makeParams(ctx.alloc, [param!"a"(Type(memberType))]),
 			FunFlags.generatedBare,
 			FunBody(FunBody.CreateVariant()));
-		funsBuilder ~= funForStruct(
-			struct_,
-			struct_.name,
-			Type(makeOptionType(ctx.instantiateCtx, commonTypes, Type(memberType))),
-			makeParams(ctx.alloc, [param!"a"(Type(variant))]),
-			FunFlags.generatedBare,
-			FunBody(FunBody.VariantMemberGet()));
 		if (struct_.body_.isA!(StructBody.Record)) {
 			ref StructBody.Record record() => struct_.body_.as!(StructBody.Record);
 			funsBuilder ~= funForStruct(
@@ -151,6 +154,19 @@ private void addFunsForVariants(
 				recordConstructorParams(ctx.alloc, record),
 				recordIsAlwaysByVal(record) ? FunFlags.generatedBare : FunFlags.generated,
 				FunBody(FunBody.CreateRecordAndConvertToVariant(memberType)));
+		}
+		final switch (vm.variantKind) {
+			case VariantKind.interface_:
+				break;
+			case VariantKind.variant:
+				funsBuilder ~= funForStruct(
+					struct_,
+					struct_.name,
+					Type(makeOptionType(ctx.instantiateCtx, commonTypes, Type(memberType))),
+					makeParams(ctx.alloc, [param!"a"(Type(variant))]),
+					FunFlags.generatedBare,
+					FunBody(FunBody.VariantMemberGet()));
+				break;
 		}
 	}
 }
@@ -566,6 +582,7 @@ void addFunsForVariant(
 			sig.returnType,
 			Params(prepend(ctx.alloc,
 				Destructure(allocate(ctx.alloc, Destructure.Ignore(
+					DestructureIgnoreSource(struct_),
 					sig.ast.range.start,
 					Type(instantiateStructWithOwnTypeParams(ctx.instantiateCtx, struct_))))),
 				sig.params)),

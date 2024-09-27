@@ -20,7 +20,7 @@ import frontend.ide.getDefinition : getDefinitionForPosition;
 import frontend.ide.getHover : getHover;
 import frontend.ide.getPosition : getPosition;
 import frontend.ide.getRename : getRenameForPosition;
-import frontend.ide.getReferences : getReferencesForPosition;
+import frontend.ide.getReferences : getDocumentHighlightsForPosition, getReferencesForPosition;
 import frontend.ide.getTokens : jsonOfDecodedTokens, tokensOfAst;
 import frontend.ide.position : Position;
 import frontend.showDiag :
@@ -51,7 +51,7 @@ import interpret.extern_ : Extern, ExternPointersForAllLibraries, WriteError;
 import interpret.fakeExtern : withFakeExtern, WriteCb;
 import interpret.generateBytecode : generateBytecode;
 import interpret.runBytecode : runBytecode;
-import lib.lsp.lspToJson : jsonOfHover, jsonOfReferences, jsonOfRename;
+import lib.lsp.lspToJson : jsonOfDocumentHighlight, jsonOfHover, jsonOfReferences, jsonOfRename;
 import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	BuildJsScriptResult,
@@ -61,6 +61,8 @@ import lib.lsp.lspTypes :
 	DidCloseTextDocumentParams,
 	DidOpenTextDocumentParams,
 	DidSaveTextDocumentParams,
+	DocumentHighlightParams,
+	DocumentHighlightResult,
 	ExitParams,
 	Hover,
 	HoverParams,
@@ -126,7 +128,7 @@ import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.col.mutArr : clearAndDoNotFree, MutArr, push;
 import util.exitCode : ExitCode, ExitCodeOrSignal, Signal;
 import util.integralValues : initIntegralValues;
-import util.json : field, Json, jsonObject;
+import util.json : field, Json, jsonNull, jsonObject;
 import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
@@ -136,7 +138,7 @@ import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
 import util.union_ : Union;
-import util.util : castNonScope, castNonScope_ref;
+import util.util : castNonScope, castNonScope_ref, todo;
 import versionInfo : getOS, JsTarget, OS, VersionInfo, versionInfoForBuildToC, versionInfoForInterpret, VersionOptions;
 
 ExitCodeOrSignal buildAndInterpret(
@@ -266,6 +268,8 @@ private Opt!LspOutResult handleLspRequest(
 			respondWithProgram(perf, alloc, server, a),
 		(in DefinitionParams x) =>
 			respondWithProgram(perf, alloc, server, a),
+		(in DocumentHighlightParams x) =>
+			respondWithProgram(perf, alloc, server, a),
 		(in HoverParams x) =>
 			respondWithProgram(perf, alloc, server, a),
 		(in InitializeParams x) {
@@ -323,6 +327,10 @@ private LspOutResult handleLspRequestWithProgram(
 		},
 		(in DefinitionParams x) =>
 			LspOutResult(getDefinitionForProgram(alloc, server, program, x)),
+		(in DocumentHighlightParams x) {
+			Opt!DocumentHighlightResult res = getDocumentHighlightsForProgram(alloc, server, program, x);
+			return has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null());
+		},
 		(in HoverParams x) =>
 			LspOutResult(getHoverForProgram(alloc, server, program, x)),
 		(in InitializeParams _) =>
@@ -557,6 +565,18 @@ private UriAndRange[] getDefinitionForProgram(
 	return has(position) ? getDefinitionForPosition(alloc, program.commonTypes, force(position)) : [];
 }
 
+private Opt!DocumentHighlightResult getDocumentHighlightsForProgram(
+	ref Alloc alloc,
+	scope ref Server server,
+	in Program program,
+	in DocumentHighlightParams params,
+) {
+	Opt!Position position = serverGetPosition(server, program, params.params);
+	return has(position)
+		? getDocumentHighlightsForPosition(alloc, program, force(position))
+		: none!DocumentHighlightResult;
+}
+
 private UriAndRange[] getReferencesForProgram(
 	ref Alloc alloc,
 	scope ref Server server,
@@ -680,7 +700,7 @@ immutable struct PrintKind {
 	immutable struct ConcreteModel {}
 	immutable struct LowModel {}
 	immutable struct Ide {
-		enum Kind { hover, definition, rename, references }
+		enum Kind { definition, documentHighlight, hover, references, rename }
 		Kind kind;
 		LineAndColumn lineAndColumn;
 	}
@@ -703,6 +723,11 @@ Json jsonForPrintIde(
 	final switch (kind) {
 		case PrintKind.Ide.Kind.definition:
 			return locations(getDefinitionForProgram(alloc, server, program, DefinitionParams(params)));
+		case PrintKind.Ide.Kind.documentHighlight:
+			Opt!DocumentHighlightResult res = getDocumentHighlightsForProgram(alloc, server, program, DocumentHighlightParams(params));
+			return has(res)
+				? jsonOfDocumentHighlight(alloc, server.lineAndCharacterGetters[where.uri], force(res))
+				: jsonNull;
 		case PrintKind.Ide.Kind.hover:
 			return jsonOfHover(alloc, getHoverForProgram(alloc, server, program, HoverParams(params)));
 		case PrintKind.Ide.Kind.rename:
@@ -842,6 +867,7 @@ LspDiagnosticSeverity toLspDiagnosticSeverity(DiagnosticSeverity a) {
 LspOutAction initializedAction(ref Alloc alloc, ref Server server) {
 	return LspOutAction(newArray!LspOutMessage(alloc, [
 		register("textDocument/definition"),
+		register("textDocument/documentHighlight"),
 		register("textDocument/hover"),
 		register("textDocument/rename"),
 		register("textDocument/references"),
