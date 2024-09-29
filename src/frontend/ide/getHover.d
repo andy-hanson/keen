@@ -6,8 +6,10 @@ import frontend.ide.position : ExpressionPosition, ExpressionPositionKind, ExprK
 import frontend.showModel :
 	ShowModelCtx,
 	writeCalled,
+	writeCalledDecl,
 	writeFile,
 	writeFunDecl,
+	WriteKind,
 	writeName,
 	writeSpecInst,
 	writeTypeQuoted,
@@ -20,6 +22,7 @@ import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
 	asBuiltinExtern,
 	AssertOrForbidExpr,
+	BogusCallExpr,
 	BuiltinExtern,
 	BuiltinType,
 	CallExpr,
@@ -60,6 +63,7 @@ import model.model :
 	VarDecl,
 	VariantKind;
 import util.alloc.alloc : Alloc;
+import util.col.array : only;
 import util.col.hashTable : withSortedKeys;
 import util.conv : safeToUint;
 import util.opt : force, has, Opt;
@@ -87,7 +91,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 			getExprHover(writer, ctx, pos.module_.uri, x);
 		},
 		(FunDecl* x) {
-			writeFunDecl(writer, ctx, x);
+			writeFunDecl(writer, ctx, WriteKind.unquoted, x);
 		},
 		(PositionKind.ImportedModule x) {
 			writer ~= "Import module ";
@@ -401,7 +405,7 @@ void getImportedNameHover(scope ref Writer writer, in ShowModelCtx ctx, in Posit
 		}
 		foreach (FunDecl* x; referents.funs) {
 			separate();
-			writeFunDecl(writer, ctx, x);
+			writeFunDecl(writer, ctx, WriteKind.unquoted, x);
 		}
 	}
 }
@@ -625,14 +629,24 @@ void getExprHover(
 ) {
 	TypeContainer typeContainer = a.container.toTypeContainer;
 	a.kind.matchIn!void(
+		(in BogusCallExpr x) {
+			if (x.candidates.length == 1) {
+				writer ~= "Calls ";
+				writeCalledDecl(writer, ctx, WriteKind.quoted, typeContainer, only(x.candidates));
+			} else {
+				writer ~= "Calls a function named ";
+				writeName(writer, ctx, x.candidates[0].name);
+			}
+			writer ~= '.';
+		},
 		(in CallExpr x) {
 			writer ~= "Calls ";
-			writeCalled(writer, ctx, typeContainer, x.called);
+			writeCalled(writer, ctx, WriteKind.quoted, typeContainer, x.called);
 			writer ~= '.';
 		},
 		(in CallOptionExpr x) {
 			writer ~= "Calls ";
-			writeCalled(writer, ctx, typeContainer, x.called);
+			writeCalled(writer, ctx, WriteKind.quoted, typeContainer, x.called);
 			writer ~= " if the first argument is non-empty.";
 		},
 		(in ExprKeyword x) {
@@ -676,7 +690,8 @@ void getExprHover(
 		},
 		(in FunPointerExpr x) {
 			writer ~= "Pointer to function ";
-			writeCalled(writer, ctx, typeContainer, x.called);
+			writeCalled(writer, ctx, WriteKind.quoted, typeContainer, x.called);
+			writer ~= '.';
 		},
 		(in ExpressionPositionKind.Literal x) {
 			writer ~= "Literal expression.";

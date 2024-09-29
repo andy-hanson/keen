@@ -30,6 +30,7 @@ import lib.lsp.lspTypes :
 	SemanticTokensParams,
 	SetTraceParams,
 	ShutdownParams,
+	SignatureHelpParams,
 	TextDocumentContentChangeEvent,
 	TextDocumentIdentifier,
 	TextDocumentItem,
@@ -107,6 +108,8 @@ LspInMessage parseLspInMessage(ref Alloc alloc, in Json message) {
 				get!"newName"(params).as!string));
 		case "textDocument/semanticTokens/full":
 			return request(SemanticTokensParams(parseTextDocumentIdentifier(get!"textDocument"(params))));
+		case "textDocument/signatureHelp":
+			return request(SignatureHelpParams(parseTextDocumentPositionParams(alloc, params)));
 		default:
 			assert(false);
 	}

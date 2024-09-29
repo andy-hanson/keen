@@ -5,7 +5,7 @@ module frontend.parse.lexWhitespace;
 import model.parseDiag : ParseDiag;
 import util.col.array : isEmpty;
 import util.conv : safeIntFromUint;
-import util.sourceRange : Range;
+import util.sourceRange : Pos, Range;
 import util.string :
 	CString,
 	cStringIsEmpty,
@@ -27,6 +27,7 @@ enum IndentKind {
 	tabs,
 	spaces2,
 	spaces4,
+	ignore,
 }
 
 // Note: Not issuing any diagnostics here. We'll fail later if we detect the wrong indent kind.
@@ -154,11 +155,18 @@ DocCommentAndIndentDelta skipBlankLinesAndGetIndentDelta(
 	}
 }
 
-bool mayContinueOntoNextLine(ref MutCString ptr) {
+bool mayContinueOntoNextLine(ref MutCString ptr, IndentKind indentKind, uint minIndent) {
+	MutCString original = ptr;
 	while (tryTakeChar(ptr, ' ')) {}
 	if (tryTakeNewline(ptr)) {
-		while (tryTakeNewline(ptr) || tryTakeChar(ptr, '\t') || tryTakeChar(ptr, ' ')) {}
-		return true;
+		bool diag = false;
+		uint newIndent = takeIndentAmountAfterNewline(ptr, indentKind, (CString _, ParseDiag _2) { diag = true; });
+		if (newIndent >= minIndent) {
+			return true;
+		} else {
+			ptr = original;
+			return false;
+		}
 	} else
 		return false;
 }
@@ -170,7 +178,7 @@ bool tryTakeLineContinuation(ref MutCString ptr, in CbComment cbComment) {
 	if (*ptr == '\\') {
 		scope MutCString ptr2 = ptr;
 		ptr2++;
-		bool res = mayContinueOntoNextLine(ptr2);
+		bool res = mayContinueOntoNextLine(ptr2, IndentKind.ignore, minIndent: 0);
 		if (res) {
 			ptr = castNonScope_ref(ptr2);
 			cbComment(start, "");
@@ -198,6 +206,18 @@ bool ignoreCharForTokens(char c) =>
 		if (ptr == start)
 			break;
 	}
+}
+
+// Walk to the *left* skipping whitespace on the same line.
+public Pos skipWhitespaceBackwards(string sourceText, Pos pos) {
+	while (pos != 0) {
+		char x = sourceText[pos - 1];
+		if (x == ' ')
+			pos --;
+		else
+			break;
+	}
+	return pos;
 }
 
 // Skip mundane punctuation instead of highlighting it as a keyword
@@ -263,6 +283,9 @@ uint takeIndentAmountAfterNewline(ref MutCString ptr, IndentKind indentKind, in 
 			return takeIndentAmountAfterNewlineSpaces(ptr, 2, addDiag);
 		case IndentKind.spaces4:
 			return takeIndentAmountAfterNewlineSpaces(ptr, 4, addDiag);
+		case IndentKind.ignore:
+			while (tryTakeChar(ptr, '\t') || tryTakeChar(ptr, ' ')) {}
+			return 0;
 	}
 }
 

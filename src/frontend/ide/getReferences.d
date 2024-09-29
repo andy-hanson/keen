@@ -43,6 +43,7 @@ import model.ast :
 	WithAst;
 import model.model :
 	AssertOrForbidExpr,
+	BogusCallExpr,
 	BogusExpr,
 	BuiltinType,
 	Called,
@@ -135,12 +136,14 @@ import util.uri : Uri;
 Opt!DocumentHighlightResult getDocumentHighlightsForPosition(ref Alloc alloc, in Program program, in Position pos) {
 	Opt!Target target = targetForPosition(program.commonTypes, pos.kind);
 	return optIf(has(target), () =>
-		DocumentHighlightResult(pos.module_.uri, buildArray!DocumentHighlight(alloc, (scope ref Builder!DocumentHighlight res) {
-			eachReferenceForTarget(program, pos.module_.uri, force(target), (in UriAndRange x) {
-				if (x.uri == pos.module_.uri)
-					res ~= DocumentHighlight(x.range, DocumentHighlightKind.Read);
-			});
-		})));
+		DocumentHighlightResult(
+			pos.module_.uri,
+			buildArray!DocumentHighlight(alloc, (scope ref Builder!DocumentHighlight res) {
+				eachReferenceForTarget(program, pos.module_.uri, force(target), (in UriAndRange x) {
+					if (x.uri == pos.module_.uri)
+						res ~= DocumentHighlight(x.range, DocumentHighlightKind.Read);
+				});
+			})));
 }
 
 UriAndRange[] getReferencesForPosition(ref Alloc alloc, in Program program, in Position pos) {
@@ -459,6 +462,7 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 		(in AssertOrForbidExpr x) {
 			eachTypeInCondition(x.condition, astKind.as!AssertOrForbidAst.condition, cb);
 		},
+		(in BogusCallExpr _) {},
 		(in BogusExpr _) {},
 		(in CallExpr x) {
 			if (astKind.isA!CallAst) {
@@ -477,12 +481,14 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 			eachTypeInCondition(x.condition, astKind.as!IfAst.condition, cb);
 		},
 		(in LambdaExpr x) {
-			DestructureAst param = astKind.isA!(ForAst*)
-				? astKind.as!(ForAst*).param
-				: astKind.isA!(WithAst*)
-				? astKind.as!(WithAst*).param
-				: astKind.as!(LambdaAst*).param;
-			eachTypeInDestructure(x.param, param, cb);
+			if (!x.isIgnore) {
+				DestructureAst param = astKind.isA!(ForAst*)
+					? astKind.as!(ForAst*).param
+					: astKind.isA!(WithAst*)
+					? astKind.as!(WithAst*).param
+					: astKind.as!(LambdaAst*).param;
+				eachTypeInDestructure(x.param, param, cb);
+			}
 		},
 		(in LetExpr x) {
 			eachTypeInDestructure(x.destructure, astKind.as!(LetAst*).destructure, cb);

@@ -6,12 +6,15 @@ import frontend.ide.position : ExpressionPosition, ExpressionPositionKind, ExprK
 import model.diag : TypeWithContainer;
 import model.model :
 	AutoFun,
+	BogusCallExpr,
 	BuiltinFun,
 	Called,
+	CalledDecl,
 	CalledSpecSig,
 	CallExpr,
 	CallOptionExpr,
 	CommonTypes,
+	Destructure,
 	EnumOrFlagsFunction,
 	EnumOrFlagsMember,
 	Expr,
@@ -34,7 +37,7 @@ import model.model :
 	UnionMember,
 	VarDecl;
 import util.col.array : only;
-import util.opt : none, Opt, some;
+import util.opt : none, Opt, optIf, some;
 import util.union_ : Union;
 
 immutable struct Target {
@@ -130,6 +133,9 @@ private:
 
 Opt!Target exprTarget(in CommonTypes commonTypes, ExpressionPosition a) =>
 	a.kind.match!(Opt!Target)(
+		(BogusCallExpr x) =>
+			optIf(x.candidates.length == 1, () =>
+				calledDeclTarget(commonTypes, only(x.candidates))),
 		(CallExpr x) =>
 			calledTarget(commonTypes, x.called),
 		(CallOptionExpr x) =>
@@ -147,64 +153,75 @@ Opt!Target exprTarget(in CommonTypes commonTypes, ExpressionPosition a) =>
 		(ExpressionPositionKind.LoopKeyword x) =>
 			some(Target(Target.Loop(x.loop))));
 
+Target calledDeclTarget(in CommonTypes commonTypes, ref CalledDecl a) =>
+	a.matchWithPointers!Target(
+		(FunDecl* x) =>
+			funDeclTarget(commonTypes, x),
+		(CalledSpecSig x) =>
+			calledSpecSigTarget(x));
+
 Opt!Target calledTarget(in CommonTypes commonTypes, ref Called a) =>
 	a.match!(Opt!Target)(
 		(ref Called.Bogus) =>
 			none!Target,
-		(ref FunInst funInst) {
-			FunDecl* decl = funInst.decl;
-			return some(decl.body_.match!Target(
-				(FunBody.Bogus) =>
-					Target(decl),
-				(AutoFun _) =>
-					Target(decl),
-				(BuiltinFun _) =>
-					Target(decl),
-				(FunBody.CreateEnumOrFlags x) =>
-					// goto the enum member
-					Target(x.member),
-				(FunBody.CreateExtern) =>
-					// goto the return type
-					returnTypeTarget(decl),
-				(FunBody.CreateRecord) =>
-					returnTypeTarget(decl),
-				(FunBody.CreateRecordAndConvertToVariant x) =>
-					Target(x.member.decl),
-				(FunBody.CreateUnion) =>
-					// TODO: goto the particular union member
-					returnTypeTarget(decl),
-				(FunBody.CreateVariant x) =>
-					Target(only(a.paramTypes).as!(StructInst*).decl),
-				(EnumOrFlagsFunction x) =>
-					returnTypeTarget(decl),
-				(Expr _) =>
-					Target(decl),
-				(FunBody.Extern) =>
-					Target(decl),
-				(FunBody.FileImport) =>
-					// TODO: Target for a file showing all imports
-					Target(decl),
-				(FunBody.RecordFieldCall x) =>
-					Target(x.field),
-				(FunBody.RecordFieldGet x) =>
-					Target(x.field),
-				(FunBody.RecordFieldPointer x) =>
-					Target(x.field),
-				(FunBody.RecordFieldSet x) =>
-					Target(x.field),
-				(FunBody.UnionMemberGet x) =>
-					Target(x.member),
-				(FunBody.VarGet x) =>
-					Target(x.var),
-				(FunBody.VariantMemberGet) =>
-					Target(mustUnwrapOptionType(commonTypes, a.returnType).as!(StructInst*).decl),
-				(FunBody.VariantMethod x) =>
-					Target(decl.source.as!(FunDeclSource.VariantMethod)),
-				(FunBody.VarSet x) =>
-					Target(x.var)));
-		},
+		(ref FunInst funInst) =>
+			some(funDeclTarget(commonTypes, funInst.decl)),
 		(CalledSpecSig x) =>
-			some(Target(PositionKind.SpecSig(x.specInst.decl, x.nonInstantiatedSig))));
+			some(calledSpecSigTarget(x)));
+
+Target calledSpecSigTarget(CalledSpecSig a) =>
+	Target(PositionKind.SpecSig(a.specInst.decl, a.nonInstantiatedSig));
+
+Target funDeclTarget(in CommonTypes commonTypes, FunDecl* a) =>
+	a.body_.match!Target(
+		(FunBody.Bogus) =>
+			Target(a),
+		(AutoFun _) =>
+			Target(a),
+		(BuiltinFun _) =>
+			Target(a),
+		(FunBody.CreateEnumOrFlags x) =>
+			// goto the enum member
+			Target(x.member),
+		(FunBody.CreateExtern) =>
+			// goto the return type
+			returnTypeTarget(a),
+		(FunBody.CreateRecord) =>
+			returnTypeTarget(a),
+		(FunBody.CreateRecordAndConvertToVariant x) =>
+			Target(x.member.decl),
+		(FunBody.CreateUnion) =>
+			// TODO: goto the particular union member
+			returnTypeTarget(a),
+		(FunBody.CreateVariant x) =>
+			Target(only(a.params.as!(Destructure[])).type.as!(StructInst*).decl),
+		(EnumOrFlagsFunction x) =>
+			returnTypeTarget(a),
+		(Expr _) =>
+			Target(a),
+		(FunBody.Extern) =>
+			Target(a),
+		(FunBody.FileImport) =>
+			// TODO: Target for a file showing all imports
+			Target(a),
+		(FunBody.RecordFieldCall x) =>
+			Target(x.field),
+		(FunBody.RecordFieldGet x) =>
+			Target(x.field),
+		(FunBody.RecordFieldPointer x) =>
+			Target(x.field),
+		(FunBody.RecordFieldSet x) =>
+			Target(x.field),
+		(FunBody.UnionMemberGet x) =>
+			Target(x.member),
+		(FunBody.VarGet x) =>
+			Target(x.var),
+		(FunBody.VariantMemberGet) =>
+			Target(mustUnwrapOptionType(commonTypes, a.returnType).as!(StructInst*).decl),
+		(FunBody.VariantMethod x) =>
+			Target(a.source.as!(FunDeclSource.VariantMethod)),
+		(FunBody.VarSet x) =>
+			Target(x.var));
 
 Target returnTypeTarget(FunDecl* fun) =>
 	Target(fun.returnType.as!(StructInst*).decl);

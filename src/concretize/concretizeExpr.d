@@ -83,6 +83,8 @@ import model.concreteModel :
 import model.constant : asBool, asNat64, Constant, constantBool, constantZero;
 import model.model :
 	AssertOrForbidExpr,
+	BogusCallExpr,
+	BogusExpr,
 	BuiltinBinary,
 	BuiltinBinaryLazy,
 	BuiltinFun,
@@ -1204,7 +1206,9 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 	return a.kind.matchWithPointers!ConcreteExpr(
 		(AssertOrForbidExpr* x) =>
 			concretizeAssertOrForbid(ctx, type, range, locals, a, *x),
-		(BogusExpr) =>
+		(BogusCallExpr _) =>
+			concretizeBogus(ctx, type, range),
+		(BogusExpr _) =>
 			concretizeBogus(ctx, type, range),
 		(CallExpr x) =>
 			concretizeCall(ctx, type, range, locals, x),

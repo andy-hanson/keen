@@ -5,6 +5,7 @@ module frontend.check.checkCall.checkCall;
 import frontend.check.checkCall.candidates :
 	Candidate,
 	candidatesForDiag,
+	eachFunInScope,
 	funsInExprScope,
 	FunsInScope,
 	getAllCandidatesAsCalledDecls,
@@ -28,7 +29,9 @@ import frontend.check.inferringType :
 	inferTypeArgsFromLambdaParameterType,
 	matchExpectedVsReturnTypeNoDiagnostic,
 	nonInferring,
+	setToBogus,
 	SingleInferringType,
+	tryCheck,
 	tryGetInferred,
 	TypeAndContext,
 	TypeContext,
@@ -38,6 +41,7 @@ import frontend.check.typeFromAst : getNTypeArgsForDiagnostic, tryUnpackOptionTy
 import model.ast : CallAst, CallNamedAst, DestructureAst, ExprAst, LambdaAst, NameAndRange;
 import model.diag : Diag, TypeContainer;
 import model.model :
+	BogusCallExpr,
 	Called,
 	CalledDecl,
 	CalledSpecSig,
@@ -56,10 +60,12 @@ import model.model :
 	Signature,
 	SpecInst,
 	Type;
+import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array :
 	arraysCorrespond,
 	copyArray,
+	emptySmallArray,
 	every,
 	everyWithIndex,
 	exists,
@@ -67,33 +73,38 @@ import util.col.array :
 	filterUnorderedButDontRemoveAll,
 	isEmpty,
 	map,
+	mapZip,
 	newArray,
+	newSmallArray,
 	only,
+	small,
+	SmallArray,
 	zipEvery;
-import util.col.arrayBuilder : finish;
-import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, newExactSizeArrayBuilder, smallFinish;
+import util.col.arrayBuilder : Builder, buildSmallArray, finish;
+import util.col.exactSizeArrayBuilder :
+	ExactSizeArrayBuilder, newExactSizeArrayBuilder, finishAllowSmaller, smallFinish;
 import util.late : Late, late, lateGet, lateSet;
 import util.memory : allocate;
-import util.opt : force, has, none, Opt, optIf, some, some;
+import util.opt : force, has, none, Opt, optIf, optOrDefault, some, some;
 import util.perf : endMeasure, PerfMeasure, PerfMeasurer, pauseMeasure, resumeMeasure, startMeasure;
 import util.sourceRange : Range;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : SymbolSet;
+import util.union_ : Union;
 import util.util : typeAs;
 
 Expr checkCall(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ref CallAst ast, ref Expected expected) {
 	checkCallShouldUseSyntax(ctx, ast);
 	return ast.style == CallAst.Style.questionSubscript || ast.style == CallAst.Style.questionDot
 		? checkOptionCall(ctx, locals, source, ast, expected)
-		: exprFromCall(ctx, expected, source, checkCallCommon(
-			ctx, locals,
+		: checkCallCommon(
+			ctx, expected, source, locals,
 			// Show diags at the function name and not at the whole call ast
 			ast.nameRange(source),
 			ast.funName.name,
 			has(ast.typeArg) ? some(typeFromAst2(ctx, *force(ast.typeArg))) : none!Type,
 			ast.args,
-			expected,
-			(in CalledDecl _) => true));
+			(in CalledDecl _) => true);
 }
 
 Expr checkCallNamed(
@@ -103,21 +114,9 @@ Expr checkCallNamed(
 	ref CallNamedAst ast,
 	ref Expected expected,
 ) =>
-	exprFromCall(ctx, expected, source, checkCallCommon(
-		ctx,
-		locals,
-		source.range,
-		symbol!"new",
-		none!Type,
-		ast.args,
-		expected,
-		(in CalledDecl x) =>
-			parameterNamesAre(x, ast.names)));
-
-private Expr exprFromCall(ref ExprCtx ctx, ref Expected expected, ExprAst* source, Opt!CallExpr call) =>
-	has(call)
-		? check(ctx, expected, force(call).called.returnType, source, ExprKind(force(call)))
-		: bogus(expected, source);
+	checkCallCommon(
+		ctx, expected, source, locals, source.range, symbol!"new", none!Type, ast.args,
+		(in CalledDecl x) => parameterNamesAre(x, ast.names));
 
 private bool parameterNamesAre(in CalledDecl a, in NameAndRange[] names) {
 	assert(!isEmpty(names));
@@ -142,34 +141,38 @@ Expr checkCallSpecial(
 	in ExprAst[] args,
 	ref Expected expected,
 ) =>
-	exprFromCall(ctx, expected, source, checkCallCommon(
-		ctx, locals, range, funName, none!Type, newArray(ctx.alloc, args), expected,
-		(in CalledDecl _) => true));
+	checkCallCommon(
+		ctx, expected, source, locals, range, funName, none!Type, newArray(ctx.alloc, args),
+		(in CalledDecl _) => true);
 
-private Opt!CallExpr checkCallCommon(
+private Expr checkCallCommon(
 	ref ExprCtx ctx,
+	ref Expected expected,
+	ExprAst* source,
 	ref LocalsInfo locals,
 	Range diagRange,
 	Symbol funName,
 	Opt!Type typeArg,
 	ExprAst[] argAsts,
-	ref Expected expected,
 	in bool delegate(in CalledDecl) @safe @nogc pure nothrow cbAdditionalFilter,
-) {
-	ExactSizeArrayBuilder!Expr args = newExactSizeArrayBuilder!Expr(ctx.alloc, argAsts.length);
-	Opt!Called called = checkCallCb(
-		ctx, locals, diagRange, funName, typeArg, argAsts.length, expected,
-		(size_t i, ref Expected argExpected) {
-			args ~= checkExpr(ctx, locals, &argAsts[i], argExpected);
-		},
+) =>
+	checkCallSpecialCbN2(
+		ctx,
+		locals,
+		source,
+		diagRange,
+		funName,
+		expected,
+		typeArg,
+		argAsts.length,
+		(size_t i, ref Expected argExpected) =>
+			checkExpr(ctx, locals, &argAsts[i], argExpected),
 		cbAdditionalFilter,
 		(scope ref Candidate[] candidates) =>
 			everyWithIndex!ExprAst(argAsts, (size_t argIdx, ref ExprAst arg) =>
 				inferCandidateTypeArgsFromExplicitlyTypedArgument(
 					ctx, candidates, argIdx, arg
 				) == ContinueOrAbort.continue_));
-	return optIf(has(called), () => CallExpr(force(called), smallFinish(args)));
-}
 
 Expr checkCallArgAndLambda(
 	ref ExprCtx ctx,
@@ -203,9 +206,11 @@ Expr checkCallArgAnd2Lambdas(
 	ExprAst* body2Ast, // second lambda has no param
 	ref Expected expected,
 ) =>
-	checkCallSpecialCbN(
-		ctx, locals, source, diagRange, funName, expected, 3,
-		(size_t i, ref Expected argExpected) {
+	checkCallSpecialCbN2(
+		ctx, locals, source, diagRange, funName, expected,
+		typeArg: none!Type,
+		nArgs: 3,
+		cbCheckArg: (size_t i, ref Expected argExpected) {
 			final switch (i) {
 				case 0:
 					return checkExpr(ctx, locals, argAst, argExpected);
@@ -215,7 +220,8 @@ Expr checkCallArgAnd2Lambdas(
 					return checkLambda(ctx, locals, source, &voidDestructure, body2Ast, argExpected);
 			}
 		},
-		(scope ref Candidate[] candidates) =>
+		cbAdditionalFilter: (in CalledDecl _) => true,
+		cbBeforeCheck: (scope ref Candidate[] candidates) =>
 			inferCandidateTypeArgsFromLambdaParameter(ctx, candidates, 1, *paramAst) == ContinueOrAbort.continue_);
 
 private immutable DestructureAst voidDestructure = DestructureAst(DestructureAst.Void(Range.empty));
@@ -234,8 +240,7 @@ Expr checkCallSpecialCb1(
 		(size_t i, ref Expected argExpected) {
 			assert(i == 0);
 			return cbArg(argExpected);
-		},
-		(scope ref Candidate[] candidates) => true);
+		});
 
 Expr checkCallSpecialCb2(
 	ref ExprCtx ctx,
@@ -248,9 +253,11 @@ Expr checkCallSpecialCb2(
 	in Expr delegate(ref Expected) @safe @nogc pure nothrow cbArg1,
 	in bool delegate(scope ref Candidate[]) @safe @nogc pure nothrow cbBeforeCheck,
 ) =>
-	checkCallSpecialCbN(
-		ctx, locals, source, diagRange, funName, expected, 2,
-		(size_t i, ref Expected argExpected) {
+	checkCallSpecialCbN2(
+		ctx, locals, source, diagRange, funName, expected,
+		typeArg: none!Type,
+		nArgs: 2,
+		cbCheckArg: (size_t i, ref Expected argExpected) {
 			final switch (i) {
 				case 0:
 					return cbArg0(argExpected);
@@ -258,7 +265,8 @@ Expr checkCallSpecialCb2(
 					return cbArg1(argExpected);
 			}
 		},
-		cbBeforeCheck);
+		cbAdditionalFilter: (in CalledDecl _) => true,
+		cbBeforeCheck: cbBeforeCheck);
 
 Expr checkCallSpecialCbN(
 	ref ExprCtx ctx,
@@ -270,34 +278,70 @@ Expr checkCallSpecialCbN(
 	size_t nArgs,
 	in Expr delegate(size_t, ref Expected) @safe @nogc pure nothrow cbCheckArg,
 ) =>
-	checkCallSpecialCbN(
-		ctx, locals, source, diagRange, funName, expected, nArgs, cbCheckArg,
+	checkCallSpecialCbN2(
+		ctx, locals, source, diagRange, funName, expected, none!Type, nArgs, cbCheckArg,
+		(in CalledDecl) => true,
 		(scope ref Candidate[]) => true);
-Expr checkCallSpecialCbN(
+Expr checkCallSpecialCbN2( // TODO: a better name ........................................................................................
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
 	Range diagRange,
 	Symbol funName,
 	ref Expected expected,
+	Opt!Type typeArg,
 	size_t nArgs,
 	in Expr delegate(size_t, ref Expected) @safe @nogc pure nothrow cbCheckArg,
+	in bool delegate(in CalledDecl) @safe @nogc pure nothrow cbAdditionalFilter,
 	in bool delegate(scope ref Candidate[]) @safe @nogc pure nothrow cbBeforeCheck,
 ) {
-	ExactSizeArrayBuilder!Expr args = newExactSizeArrayBuilder!Expr(ctx.alloc, nArgs);
-	Opt!Called called = checkCallCb(
-		ctx, locals, diagRange, funName, none!Type, nArgs, expected,
+	ExactSizeArrayBuilder!Expr argsBuilder = newExactSizeArrayBuilder!Expr(ctx.alloc, nArgs);
+	CallInnerResult res = checkCallCb(
+		ctx, locals, diagRange, funName, typeArg, nArgs, expected,
 		(size_t i, ref Expected argExpected) {
-			args ~= cbCheckArg(i, argExpected);
+			argsBuilder ~= cbCheckArg(i, argExpected);
 		},
-		(in CalledDecl) => true,
+		cbAdditionalFilter,
 		cbBeforeCheck);
-	Opt!CallExpr call = optIf(has(called), () => CallExpr(force(called), smallFinish(args)));
-	return exprFromCall(ctx, expected, source, call);
+	SmallArray!Expr args = small!Expr(finishAllowSmaller(argsBuilder));
+	return res.match!Expr(
+		(Called called) {
+			CallExpr expr = CallExpr(called, args);
+			Opt!ExprAndType res = tryCheck(ctx, expected, ExprAndType(Expr(source, ExprKind(expr)), called.returnType));
+			if (has(res))
+				return force(res).expr;
+			else {
+				// TODO: is this ever actually reached? -------------------------------------------------------------------------------
+				SmallArray!ExprAndType argsAndTypes = called.isVariadic
+					? map!ExprAndType(ctx.alloc, args, (ref Expr x) => ExprAndType(x, only(called.paramTypes)))
+					: exprsAndTypes(ctx.alloc, args, small!Type(called.paramTypes));
+				return Expr(source, ExprKind(
+					BogusCallExpr(newSmallArray(ctx.alloc, [called.calledDecl]), argsAndTypes)));
+			}
+		},
+		(CallInnerResult.Failure failure) {
+			SmallArray!CalledDecl candidates = getCandidateDeclsForBogus(ctx, funName);
+			if (isEmpty(candidates))
+				return bogus(expected, source);
+			else {
+				setToBogus(expected);
+				return Expr(source, ExprKind(BogusCallExpr(
+					candidates,
+					exprsAndTypes(ctx.alloc, args, failure.argTypes))));
+			}
+ 		});
 }
+SmallArray!ExprAndType exprsAndTypes(ref Alloc alloc, SmallArray!Expr args, SmallArray!Type types) =>
+	mapZip!(ExprAndType, Expr, Type)(alloc, args, types, (ref Expr x, ref Type y) => ExprAndType(x, y));
+SmallArray!CalledDecl getCandidateDeclsForBogus(ref ExprCtx ctx, Symbol funName) =>
+	buildSmallArray!CalledDecl(ctx.alloc, (scope ref Builder!CalledDecl res) {
+		eachFunInScope(funsInExprScope(ctx), funName, (CalledDecl called) {
+			res ~= called;
+		});
+	});
 
 private alias CbCheckArg = void delegate(size_t argIndex, ref Expected) @safe @nogc pure nothrow;
-private Opt!Called checkCallCb(
+private CallInnerResult checkCallCb(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	Range diagRange,
@@ -310,7 +354,8 @@ private Opt!Called checkCallCb(
 	in bool delegate(scope ref Candidate[]) @safe @nogc pure nothrow cbBeforeCheck,
 ) {
 	PerfMeasurer perfMeasurer = startMeasure(ctx.perf, ctx.alloc, PerfMeasure.checkCall);
-	Opt!Called res = withCandidates!(Opt!Called)(
+	scope(exit) endMeasure(ctx.perf, ctx.alloc, perfMeasurer);
+	return withCandidates!CallInnerResult(
 		funsInExprScope(ctx), funName, nArgs,
 		(ref Candidate candidate) =>
 			(!has(typeArg) || filterCandidateByExplicitTypeArg(ctx.commonTypes, candidate, force(typeArg))) &&
@@ -323,9 +368,7 @@ private Opt!Called checkCallCb(
 				? checkCallInner(
 					ctx, locals, diagRange, funName, typeArg,
 					perfMeasurer, candidates, expected, nArgs, cbCheckArg)
-				: none!Called);
-	endMeasure(ctx.perf, ctx.alloc, perfMeasurer);
-	return res;
+				: CallInnerResult(CallInnerResult.Failure(emptySmallArray!Type)));
 }
 
 Expr checkCallIdentifier(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, Symbol name, ref Expected expected) {
@@ -393,7 +436,7 @@ Expr checkOptionCall(
 			Late!ExprAndType firstArg = late!ExprAndType;
 			assert(ast.args.length != 0);
 			ExactSizeArrayBuilder!Expr restArgs = newExactSizeArrayBuilder!Expr(ctx.alloc, ast.args.length - 1);
-			Opt!Called called = checkCallCb(
+			CallInnerResult res = checkCallCb(
 				ctx, locals, ast.funName.range, ast.funName.name, none!Type, ast.args.length, innerExpected,
 				(size_t index, ref Expected argExpected) {
 					ExprAst* argAst = &ast.args[index];
@@ -416,15 +459,22 @@ Expr checkOptionCall(
 				},
 				(in CalledDecl _) => true,
 				(scope ref Candidate[] _) => true);
-			return has(called)
-				? ExprAndType(
-					Expr(source, ExprKind(allocate(ctx.alloc,
-						CallOptionExpr(force(called), lateGet(firstArg), smallFinish(restArgs))))),
-					makeOptionIfNotAlready(ctx.instantiateCtx, ctx.commonTypes, force(called).returnType))
-				: ExprAndType(bogus(innerExpected, source), Type.bogus);
+			return res.match!ExprAndType(
+				(Called called) =>
+					ExprAndType(
+						Expr(source, ExprKind(allocate(ctx.alloc,
+							CallOptionExpr(called, lateGet(firstArg), smallFinish(restArgs))))),
+						makeOptionIfNotAlready(ctx.instantiateCtx, ctx.commonTypes, called.returnType)),
+				(CallInnerResult.Failure) =>
+					ExprAndType(bogus(innerExpected, source), Type.bogus));
 		}).expr;
 
-Opt!Called checkCallInner(
+
+immutable struct CallInnerResult {
+	immutable struct Failure { SmallArray!Type argTypes; }
+	mixin Union!(Called, Failure);
+}
+CallInnerResult checkCallInner(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	in Range diagRange,
@@ -436,7 +486,7 @@ Opt!Called checkCallInner(
 	size_t nArgs,
 	in CbCheckArg cbCheckArg,
 ) =>
-	withMaxStackArray!(Opt!Called, Type)(nArgs, (scope ref MaxStackArray!Type actualArgTypes) {
+	withMaxStackArray!(CallInnerResult, Type)(nArgs, (scope ref MaxStackArray!Type actualArgTypesBuilder) {
 		bool someArgIsBogus = false;
 		foreach (size_t argIdx; 0 .. nArgs) {
 			if (isEmpty(candidates))
@@ -450,24 +500,26 @@ Opt!Called checkCallInner(
 				cbCheckArg(argIdx, argExpected);
 				resumeMeasure(ctx.perf, ctx.alloc, perfMeasurer);
 			});
+			actualArgTypesBuilder ~= argType;
 			// If it failed to check, don't continue, just stop there.
 			if (argType.isBogus) {
 				someArgIsBogus = true;
 				candidates = [];
 				break;
 			}
-			actualArgTypes ~= argType;
 			filterUnordered(candidates, (ref Candidate candidate) =>
 				testCandidateParamType(ctx.instantiateCtx, candidate, argIdx, nonInferring(argType)));
 		}
+		scope SmallArray!Type actualArgTypes = small!Type(actualArgTypesBuilder.finish);
 
 		if (someArgIsBogus)
-			return none!Called;
+			return CallInnerResult(CallInnerResult.Failure(newSmallArray(ctx.alloc, actualArgTypes)));
 
 		filterUnorderedButDontRemoveAll(candidates, (ref Candidate x) =>
 			preCheckCandidateSpecs(ctx, x));
 
 		if (candidates.length != 1) {
+			SmallArray!Type allocatedArgTypes = newSmallArray(ctx.alloc, actualArgTypes);
 			if (isEmpty(candidates)) {
 				CalledDecl[] allCandidates = getAllCandidatesAsCalledDecls(ctx, funName);
 				addDiag2(ctx, diagRange, Diag(Diag.CallNoMatch(
@@ -476,14 +528,14 @@ Opt!Called checkCallInner(
 					getExpectedForDiag(ctx, expected),
 					getNTypeArgsForDiagnostic(ctx.commonTypes, explicitTypeArg),
 					nArgs,
-					newArray(ctx.alloc, actualArgTypes.finish),
+					allocatedArgTypes,
 					allCandidates)));
 			} else
 				addDiag2(ctx, diagRange, Diag(
 					Diag.CallMultipleMatches(funName, ctx.typeContainer, candidatesForDiag(ctx.alloc, candidates))));
-			return none!Called;
+			return CallInnerResult(CallInnerResult.Failure(allocatedArgTypes));
 		} else
-			return some(checkCallAfterChoosingOverload(
+			return CallInnerResult(checkCallAfterChoosingOverload(
 				ctx.checkCtx, ctx.commonTypes, ctx.typeContainer, funsInExprScope(ctx),
 				ctx.outermostFunFlags, ctx.externs, locals, only(candidates), diagRange, nArgs,
 				() => checkCanDoUnsafe(ctx)));

@@ -73,31 +73,49 @@ struct ShowOptions {
 		ShowOptions(false);
 }
 
-void writeCalled(scope ref Writer writer, in ShowTypeCtx ctx, in TypeContainer typeContainer, in Called a) {
+void writeCalled(
+	scope ref Writer writer,
+	in ShowTypeCtx ctx,
+	WriteKind writeKind,
+	in TypeContainer typeContainer,
+	in Called a,
+) {
 	a.matchIn!void(
 		(in Called.Bogus x) {
 			writer ~= "<<bogus>>";
 		},
 		(in FunInst x) {
-			writeFunInst(writer, ctx, typeContainer, x);
+			writeFunInst(writer, ctx, writeKind, typeContainer, x);
 		},
 		(in CalledSpecSig x) {
-			writeCalledSpecSig(writer, ctx, typeContainer, x);
+			writeCalledSpecSig(writer, ctx, writeKind, typeContainer, x, () {}, () {});
 		});
 }
 
-private void writeCalledDecl(
+void writeCalledDecl(
 	scope ref Writer writer,
 	in ShowTypeCtx ctx,
+	WriteKind writeKind,
 	in TypeContainer typeContainer,
 	in CalledDecl a,
 ) {
+	writeCalledDecl(writer, ctx, writeKind, typeContainer, a, () {}, () {});
+}
+void writeCalledDecl(
+	scope ref Writer writer,
+	in ShowTypeCtx ctx,
+	WriteKind writeKind,
+	in TypeContainer typeContainer,
+	in CalledDecl a,
+	in void delegate() @safe @nogc pure nothrow beforeParameter,
+	in void delegate() @safe @nogc pure nothrow afterParameter,
+) {
 	a.matchWithPointers!void(
 		(FunDecl* x) {
-			writeFunDecl(writer, ctx, x);
+			writeFunDecl(writer, ctx, writeKind, x, beforeParameter, afterParameter);
 		},
 		(CalledSpecSig x) {
-			writeCalledSpecSig(writer, ctx, typeContainer, x);
+			writeCalledSpecSig(writer, ctx, writeKind, typeContainer, x, beforeParameter, afterParameter);
 		});
 }
 
@@ -111,25 +129,30 @@ void writeCalledDecls(
 	foreach (ref CalledDecl c; cs)
 		if (filter(c)) {
 			writeNewline(writer, 1);
-			writeCalledDecl(writer, ctx, typeContainer, c);
+			writeCalledDecl(writer, ctx, WriteKind.unquoted, typeContainer, c);
 		}
 }
 
 void writeCalleds(scope ref Writer writer, in ShowTypeCtx ctx, in TypeContainer typeContainer, in Called[] cs) {
 	foreach (ref Called x; cs) {
 		writeNewline(writer, 1);
-		writeCalled(writer, ctx, typeContainer, x);
+		writeCalled(writer, ctx, WriteKind.unquoted, typeContainer, x);
 	}
 }
 
 private void writeCalledSpecSig(
 	scope ref Writer writer,
 	in ShowTypeCtx ctx,
+	WriteKind writeKind,
 	in TypeContainer typeContainer,
 	in CalledSpecSig x,
+	in void delegate() @safe @nogc pure nothrow beforeParameter,
+	in void delegate() @safe @nogc pure nothrow afterParameter,
 ) {
 	writeSig(
-		writer, ctx, typeContainer, x.name, x.returnType, Params(x.nonInstantiatedSig.params), some(x.instantiatedSig));
+		writer, ctx, writeKind, typeContainer, x.name, x.returnType,
+		Params(x.nonInstantiatedSig.params), some(x.instantiatedSig),
+		beforeParameter, afterParameter);
 	writer ~= " (from spec ";
 	writeName(writer, ctx, x.specInst.decl.name);
 	writer ~= ')';
@@ -153,8 +176,20 @@ private void writeTypeParamsAndArgs(
 	}
 }
 
-void writeFunDecl(scope ref Writer writer, in ShowTypeCtx ctx, in FunDecl* a) {
-	writeSig(writer, ctx, TypeContainer(a), a.name, a.returnType, a.params, none!ReturnAndParamTypes);
+void writeFunDecl(scope ref Writer writer, in ShowTypeCtx ctx, WriteKind kind, in FunDecl* a) {
+	writeFunDecl(writer, ctx, kind, a, () {}, () {});
+}
+void writeFunDecl(
+	scope ref Writer writer,
+	in ShowTypeCtx ctx,
+	WriteKind kind,
+	in FunDecl* a,
+	in void delegate() @safe @nogc pure nothrow beforeParameter,
+	in void delegate() @safe @nogc pure nothrow afterParameter,
+) {
+	writeSig(
+		writer, ctx, kind, TypeContainer(a), a.name, a.returnType, a.params, none!ReturnAndParamTypes,
+		beforeParameter, afterParameter);
 	writeFunDeclLocation(writer, ctx, *a);
 }
 
@@ -169,8 +204,16 @@ void writeFunDeclAndTypeArgs(
 	writeFunDeclLocation(writer, ctx, *a.decl);
 }
 
-void writeFunInst(scope ref Writer writer, in ShowTypeCtx ctx, in TypeContainer typeContainer, in FunInst a) {
-	writeFunDecl(writer, ctx, a.decl);
+enum WriteKind { quoted, unquoted }
+
+void writeFunInst(
+	scope ref Writer writer,
+	in ShowTypeCtx ctx,
+	WriteKind kind,
+	in TypeContainer typeContainer,
+	in FunInst a,
+) {
+	writeFunDecl(writer, ctx, kind, a.decl);
 	writeTypeParamsAndArgs(writer, ctx, a.decl.typeParams, typeContainer, a.typeArgs);
 }
 
@@ -193,13 +236,29 @@ private void writeLineNumber(scope ref Writer writer, in ShowCtx ctx, in UriAndP
 void writeSig(
 	scope ref Writer writer,
 	in ShowTypeCtx ctx,
+	WriteKind kind,
 	in TypeContainer typeContainer,
 	Symbol name,
 	in Type returnType,
 	in Params params,
 	in Opt!ReturnAndParamTypes instantiated,
 ) {
-	writer ~= '\'';
+	writeSig(writer, ctx, kind, typeContainer, name, returnType, params, instantiated, () {}, () {});
+}
+void writeSig(
+	scope ref Writer writer,
+	in ShowTypeCtx ctx,
+	WriteKind kind,
+	in TypeContainer typeContainer,
+	Symbol name,
+	in Type returnType,
+	in Params params,
+	in Opt!ReturnAndParamTypes instantiated,
+	in void delegate() @safe @nogc pure nothrow beforeParameter,
+	in void delegate() @safe @nogc pure nothrow afterParameter,
+) {
+	bool quoted = kind == WriteKind.quoted;
+	if (quoted) writer ~= "'";
 	writer ~= name;
 	if (!has(instantiated))
 		writeTypeParams(writer, ctx, typeContainer.typeParams);
@@ -216,20 +275,27 @@ void writeSig(
 					paramsArray,
 					force(instantiated).paramTypes,
 					(in Destructure x, in Type t) {
+						beforeParameter();
 						writeDestructure(writer, ctx, typeContainer, x, some(t));
+						afterParameter();
 					});
 			else
 				writeWithCommas!Destructure(writer, paramsArray, (in Destructure x) {
+					beforeParameter();
 					writeDestructure(writer, ctx, typeContainer, x, none!Type);
+					afterParameter();
 				});
 		},
 		(in Params.Varargs varargs) {
+			beforeParameter();
 			writer ~= "...";
 			writeTypeUnquoted(writer, ctx, TypeWithContainer(
 				has(instantiated) ? only(force(instantiated).paramTypes) : varargs.param.type,
 				typeContainer));
+			afterParameter();
 		});
-	writer ~= ")'";
+	writer ~= ")";
+	if (quoted) writer ~= "'";
 }
 
 void writeSigSimple(

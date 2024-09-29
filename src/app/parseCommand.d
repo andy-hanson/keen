@@ -393,6 +393,8 @@ Opt!(PrintKind.Ide.Kind) ideKind(in string a) {
 			return some(PrintKind.Ide.Kind.references);
 		case "rename":
 			return some(PrintKind.Ide.Kind.rename);
+		case "signature-help":
+			return some(PrintKind.Ide.Kind.signatureHelp);
 		default:
 			return none!(PrintKind.Ide.Kind);
 	}
@@ -804,7 +806,8 @@ string commandDescription(CommandName name) {
 				"\ncrow print definition PATH LINE:COLUMN" ~
 				"\ncrow print document-highlight PATH LINE:COLUMN" ~
 				"\ncrow print rename PATH LINE:COLUMN" ~
-				"\ncrow print references PATH LINE:COLUMN";
+				"\ncrow print references PATH LINE:COLUMN" ~
+				"\ncrow print signature-help PATH LINE:COLUMN";
 		case CommandName.run:
 			return "Runs the program at PATH." ~
 				"\nArguments after '--' will be sent to the program." ~

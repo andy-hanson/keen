@@ -7,10 +7,12 @@ import model.jsonOfConstant : jsonOfConstant;
 import model.model :
 	AssertOrForbidExpr,
 	AutoFun,
+	BogusCallExpr,
 	BogusExpr,
 	BuiltinFun,
 	BuiltinSpec,
 	Called,
+	CalledDecl,
 	CalledSpecSig,
 	CallExpr,
 	CallOptionExpr,
@@ -90,7 +92,7 @@ import util.json :
 	optionalField,
 	kindField;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetter, Range;
+import util.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetter, Range, UriAndRange;
 import util.symbol : compareSymbolsAlphabetically, Symbol, symbol;
 import util.symbolSet : SymbolSet;
 import util.uri : stringOfUri;
@@ -117,6 +119,11 @@ Json jsonOfModule(ref Alloc alloc, in LineAndColumnGetter lcg, in Module a) {
 }
 
 private:
+
+Json jsonOfUriAndRange(ref Alloc alloc, in Ctx ctx, in UriAndRange range) =>
+	jsonObject(alloc, [
+		field!"uri"(stringOfUri(alloc, range.uri)),
+		field!"range"(jsonOfRange(alloc, ctx, range.range))]);
 
 Json jsonOfRange(ref Alloc alloc, in Ctx ctx, in Range range) =>
 	jsonOfLineAndColumnRange(alloc, ctx.lineAndColumnGetter[range]);
@@ -348,6 +355,13 @@ Json jsonOfExprKind(ref Alloc alloc, in Ctx ctx, in ExprKind a) =>
 				field!"condition"(jsonOfCondition(alloc, ctx, x.condition)),
 				optionalField!("thrown", Expr*)(x.thrown, (in Expr* thrown) =>
 					jsonOfExpr(alloc, ctx, *thrown))]),
+		(in BogusCallExpr x) =>
+			jsonObject(alloc, [
+				kindField!"bogus-call",
+				field!"candidates"(jsonList!CalledDecl(alloc, x.candidates, (in CalledDecl d) =>
+					jsonOfCalledDecl(alloc, ctx, d))),
+				field!"checked-args"(jsonList!ExprAndType(alloc, x.checkedArgs, (in ExprAndType e) =>
+					jsonOfExprAndType(alloc, ctx, e)))]),
 		(in BogusExpr _) =>
 			jsonObject(alloc, [kindField!"bogus"]),
 		(in CallExpr x) =>
@@ -578,6 +592,18 @@ Json jsonOfCalled(ref Alloc alloc, in Ctx ctx, in Called a) =>
 			jsonOfFunInst(alloc, ctx, x),
 		(in CalledSpecSig x) =>
 			jsonOfCalledSpecSig(alloc, ctx, x));
+
+Json jsonOfCalledDecl(ref Alloc alloc, in Ctx ctx, in CalledDecl a) =>
+	a.matchIn!Json(
+		(in FunDecl x) =>
+			jsonOfFunDeclReference(alloc, ctx, x),
+		(in CalledSpecSig x) =>
+			jsonOfCalledSpecSig(alloc, ctx, x));
+
+Json jsonOfFunDeclReference(ref Alloc alloc, in Ctx ctx, in FunDecl a) =>
+	jsonObject(alloc, [
+		field!"name"(a.name),
+		field!"range"(jsonOfUriAndRange(alloc, ctx, a.range))]);
 
 Json jsonOfFunInst(ref Alloc alloc, in Ctx ctx, in FunInst a) =>
 	jsonObject(alloc, [

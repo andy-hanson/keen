@@ -18,11 +18,13 @@ import frontend.getDiagnosticSeverity : getDiagnosticSeverity;
 import frontend.ide.syntaxTranslate : syntaxTranslate;
 import frontend.ide.getDefinition : getDefinitionForPosition;
 import frontend.ide.getHover : getHover;
-import frontend.ide.getPosition : getPosition;
+import frontend.ide.getPosition : getPosition, GetPositionKind;
 import frontend.ide.getRename : getRenameForPosition;
 import frontend.ide.getReferences : getDocumentHighlightsForPosition, getReferencesForPosition;
+import frontend.ide.getSignatureHelp : getSignatureHelpForPosition;
 import frontend.ide.getTokens : jsonOfDecodedTokens, tokensOfAst;
 import frontend.ide.position : Position;
+import frontend.parse.lexWhitespace : skipWhitespaceBackwards;
 import frontend.showDiag :
 	sortedDiagnostics, stringOfDiag, stringOfDiagnostics, stringOfParseDiagnostics, UriAndDiagnostics;
 import frontend.showModel : ShowCtx, ShowDiagCtx, ShowOptions;
@@ -51,7 +53,7 @@ import interpret.extern_ : Extern, ExternPointersForAllLibraries, WriteError;
 import interpret.fakeExtern : withFakeExtern, WriteCb;
 import interpret.generateBytecode : generateBytecode;
 import interpret.runBytecode : runBytecode;
-import lib.lsp.lspToJson : jsonOfDocumentHighlight, jsonOfHover, jsonOfReferences, jsonOfRename;
+import lib.lsp.lspToJson : jsonOfDocumentHighlight, jsonOfHover, jsonOfReferences, jsonOfRename, jsonOfSignatureHelp;
 import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	BuildJsScriptResult,
@@ -92,6 +94,8 @@ import lib.lsp.lspTypes :
 	SemanticTokensParams,
 	SetTraceParams,
 	ShutdownParams,
+	SignatureHelp,
+	SignatureHelpParams,
 	SyntaxTranslateParams,
 	TextDocumentContentChangeEvent,
 	TextDocumentIdentifier,
@@ -133,7 +137,7 @@ import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.perf : Perf;
-import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndRange, UriLineAndColumn;
+import util.sourceRange : LineAndColumn, Pos, toLineAndCharacter, UriAndRange, UriLineAndColumn;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
@@ -288,6 +292,8 @@ private Opt!LspOutResult handleLspRequest(
 		},
 		(in ShutdownParams _) =>
 			some(LspOutResult(LspOutResult.Null())),
+		(in SignatureHelpParams x) =>
+			respondWithProgram(perf, alloc, server, a),
 		(in SyntaxTranslateParams x) =>
 			some(LspOutResult(syntaxTranslate(alloc, x))),
 		(in UnloadedUrisParams) =>
@@ -356,6 +362,10 @@ private LspOutResult handleLspRequestWithProgram(
 			assert(false),
 		(in ShutdownParams _) =>
 			assert(false),
+		(in SignatureHelpParams x) {
+			Opt!SignatureHelp res = getSignatureHelpForProgram(alloc, server, program, x);
+			return has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null());
+		},
 		(in SyntaxTranslateParams x) =>
 			assert(false),
 		(in UnloadedUrisParams _) =>
@@ -599,6 +609,18 @@ private Opt!WorkspaceEdit getRenameForProgram(
 		: none!WorkspaceEdit;
 }
 
+private Opt!SignatureHelp getSignatureHelpForProgram(
+	ref Alloc alloc,
+	scope ref Server server,
+	in Program program,
+	in SignatureHelpParams params,
+) {
+	Opt!Position position = serverGetPositionForSignatureHelp(server, program, params.textDocumentAndPosition);
+	return has(position)
+		? getSignatureHelpForPosition(alloc, getShowDiagCtx(server, program, forceNoColor: true), force(position))
+		: none!SignatureHelp;
+}
+
 private Opt!Hover getHoverForProgram(
 	ref Alloc alloc,
 	in Server server,
@@ -606,7 +628,8 @@ private Opt!Hover getHoverForProgram(
 	in HoverParams params,
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params);
-	return optIf(has(position), () => getHover(alloc, getShowDiagCtx(server, program), force(position)));
+	return optIf(has(position), () =>
+		getHover(alloc, getShowDiagCtx(server, program, forceNoColor: true), force(position)));
 }
 
 private Program getProgram(scope ref Perf perf, ref Alloc alloc, ref Server server, in Uri[] roots) =>
@@ -630,9 +653,27 @@ Program getProgramForAll(scope ref Perf perf, ref Alloc alloc, ref Server server
 private Opt!Position serverGetPosition(in Server server, ref Program program, in TextDocumentPositionParams where) {
 	Opt!(immutable Module*) module_ = program.allModules[where.textDocument.uri];
 	return has(module_)
-		? getPosition(program, force(module_), server.lineAndCharacterGetters[where])
+		? getPosition(program, force(module_), server.lineAndCharacterGetters[where], GetPositionKind.target)
 		: none!Position;
 }
+
+private Opt!Position serverGetPositionForSignatureHelp(
+	in Server server,
+	ref Program program,
+	in TextDocumentPositionParams where,
+) {
+	Opt!(immutable Module*) module_ = program.allModules[where.textDocument.uri];
+	if (has(module_)) {
+		Pos pos = skipWhitespaceBackwards(
+			getSourceText(server, where.textDocument.uri),
+			server.lineAndCharacterGetters[where]);
+		return getPosition(program, force(module_), pos, GetPositionKind.signatureHelp);
+	} else
+		return none!Position;
+}
+
+private string getSourceText(in Server server, in Uri uri) =>
+	FileContentGetters(&server.storage).getSourceText(uri);
 
 struct DiagsAndResultJson {
 	string diagnostics;
@@ -700,7 +741,7 @@ immutable struct PrintKind {
 	immutable struct ConcreteModel {}
 	immutable struct LowModel {}
 	immutable struct Ide {
-		enum Kind { definition, documentHighlight, hover, references, rename }
+		enum Kind { definition, documentHighlight, hover, references, rename, signatureHelp }
 		Kind kind;
 		LineAndColumn lineAndColumn;
 	}
@@ -724,7 +765,8 @@ Json jsonForPrintIde(
 		case PrintKind.Ide.Kind.definition:
 			return locations(getDefinitionForProgram(alloc, server, program, DefinitionParams(params)));
 		case PrintKind.Ide.Kind.documentHighlight:
-			Opt!DocumentHighlightResult res = getDocumentHighlightsForProgram(alloc, server, program, DocumentHighlightParams(params));
+			Opt!DocumentHighlightResult res = getDocumentHighlightsForProgram(
+				alloc, server, program, DocumentHighlightParams(params));
 			return has(res)
 				? jsonOfDocumentHighlight(alloc, server.lineAndCharacterGetters[where.uri], force(res))
 				: jsonNull;
@@ -735,6 +777,9 @@ Json jsonForPrintIde(
 			return jsonOfRename(alloc, server.lineAndCharacterGetters, rename);
 		case PrintKind.Ide.Kind.references:
 			return locations(getReferencesForProgram(alloc, server, program, ReferenceParams(params)));
+		case PrintKind.Ide.Kind.signatureHelp:
+			Opt!SignatureHelp res = getSignatureHelpForProgram(alloc, server, program, SignatureHelpParams(params));
+			return has(res) ? jsonOfSignatureHelp(alloc, force(res)) : jsonNull;
 	}
 }
 
@@ -872,6 +917,7 @@ LspOutAction initializedAction(ref Alloc alloc, ref Server server) {
 		register("textDocument/rename"),
 		register("textDocument/references"),
 		register("textDocument/semanticTokens/full"),
+		register("textDocument/signatureHelp"),
 	]));
 }
 

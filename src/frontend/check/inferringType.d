@@ -369,7 +369,7 @@ private @trusted void setToType(ref Expected expected, Type type) {
 		(TypeParamIndex x) { expected = x; },
 		(StructInst* x) { expected = x; });
 }
-private void setToBogus(ref Expected expected) {
+void setToBogus(ref Expected expected) {
 	expected = Type.Bogus();
 }
 
@@ -571,13 +571,16 @@ Type inferred(ref const Expected expected) =>
 
 Expr check(ref ExprCtx ctx, ref Expected expected, Type exprType, ExprAst* source, ExprKind exprKind) =>
 	check(ctx, expected, ExprAndType(Expr(source, exprKind), exprType)).expr;
-private ExprAndType check(ref ExprCtx ctx, ref Expected expected, ExprAndType a) {
+private ExprAndType check(ref ExprCtx ctx, ref Expected expected, ExprAndType a) =>
+	optOrDefault!ExprAndType(tryCheck(ctx, expected, a), () =>
+		ExprAndType(bogus(expected, a.expr.ast), Type.bogus));
+Opt!ExprAndType tryCheck(ref ExprCtx ctx, ref Expected expected, ExprAndType a) {
 	if (setTypeNoDiagnostic(ctx.instantiateCtx, expected, a.type))
-		return a;
+		return some(a);
 	else {
 		addDiag2(ctx, a.expr.range, Diag(
 			Diag.TypeConflict(getExpectedForDiag(ctx, expected), typeWithContainer(ctx, a.type))));
-		return ExprAndType(bogus(expected, a.expr.ast), Type.bogus);
+		return none!ExprAndType;
 	}
 }
 

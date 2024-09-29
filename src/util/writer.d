@@ -88,6 +88,9 @@ struct Writer {
 	}
 }
 
+size_t curUtf16Offset(in Writer writer) =>
+	sizeSoFar(writer.res); // TODO: This is the utf8 offset! ----------------------------------------------------------------
+
 void debugLogWithWriter(in void delegate(scope ref Writer) @safe @nogc pure nothrow cb) {
 	debugLogWithWriter((scope ref Alloc, scope ref Writer writer) {
 		cb(writer);

@@ -191,7 +191,7 @@ TokenAndData takeNextToken(ref Lexer lexer) {
 }
 
 TokenAndData takeNextTokenMayContinueOntoNextLine(ref Lexer lexer) {
-	mayContinueOntoNextLine(lexer.ptr);
+	mayContinueOntoNextLine(lexer.ptr, lexer.indentKind, minIndent: lexer.curIndent);
 	return takeNextToken(lexer);
 }
 

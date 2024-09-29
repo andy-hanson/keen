@@ -82,7 +82,9 @@ total-length duration(a all-tracks)
 min-and-max-note note min-and-max?(a all-tracks)
 	unless a.tracks is-empty
 		all-notes note[] = for track : a.tracks and-concat
-			for x : track notes
+			for _ : track notes
+				()
+			for _, x : track notes
 				x note
 		all-notes.min-and-max,
 
@@ -105,13 +107,11 @@ is-empty bool(a track)
 	a.notes is-empty
 length duration(a track)
 	if start, x ?= a.notes last
-		start + x.end
+		start + x.length
 
 track-note record(note note, length duration)
 == bool(a track-note, b track-note)
 to json(a track-note)
-end duration(a track-note)
-	a.start + a.length
 
 recorded-event record(time duration, kind note-event)
 show string(a recorded-event)
@@ -121,13 +121,14 @@ current-track record
 	instrument instrument
 	# Maps a currently playing note to the start time
 	cur-notes-playing duration[note]
-	done-notes (note, track-note) sorted-list
+	done-notes (duration, track-note) sorted-list
 new current-track(instrument instrument)
 	instrument, (), ()
 == bool(a current-track, b current-track)
 to json(a current-track)
 min-and-max-note note min-and-max?(a current-track)
-	all-notes note set = a.cur-notes-playing.keys.to ~~ a.done-notes.keys
+	all-notes note set = a.cur-notes-playing.keys.to ~~ for _, x : a done-notes
+		x note
 	unless all-notes is-empty
 		all-notes.min-and-max,
 
@@ -137,14 +138,14 @@ min-and-max-note note min-and-max?(a current-track)
 		a.instrument, (a.cur-notes-playing ~ (note, time)), a.done-notes
 	as note-off note
 		if start, rest-notes-playing ?= a.cur-notes-playing try-remove note
-			a.instrument, rest-notes-playing, (a.done-notes ~ (note, start, time - start)) sort x => x.start
+			a.instrument, rest-notes-playing, a.done-notes ~ (start, (note, time - start))
 		else
 			a
 
 finish track(a current-track, time duration)
 	done = a.done-notes ~~ for note, start : a cur-notes-playing
-		note, start, time - start
-	a.instrument, done sort x => x.start
+		start, (note, time - start)
+	a.instrument, done
 
 test
 	a mut current-track = plum,
@@ -153,9 +154,14 @@ test
 	a ~:= (2.seconds, B.note-on)
 	a is (plum, ((A, 1.seconds), (B, 2.seconds)), ())
 	a ~:= (3.seconds, B.note-off)
-	a is (plum, ((A, 1.seconds),), ((B, 2.seconds, 1.seconds),))
+	a is do
+		instrument: plum
+		cur-notes-playing: (A, 1.seconds),
+		done-notes: (2.seconds, (B, 1.seconds)),
 	info log "{(a finish 4.seconds).to::json}"
-	a finish 4.seconds is (plum, ((A, 1.seconds, 3.seconds), (B, 2.seconds, 1.seconds)))
+	a finish 4.seconds is do
+		instrument: plum
+		notes: (1.seconds, (A, 3.seconds)), (2.seconds, (B, 1.seconds))
 
 tracks-including-current record(all-tracks all-tracks, current current-track)
 total-length duration(a tracks-including-current, cur-time duration)

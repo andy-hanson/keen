@@ -3,7 +3,7 @@ module util.json;
 @safe @nogc pure nothrow:
 
 import util.alloc.alloc : Alloc;
-import util.col.array : arraysEqual, concatenateIn, copyArray, every, exists, find, isEmpty, map, SmallArray;
+import util.col.array : arraysEqual, concatenateIn, copyArray, every, exists, find, isEmpty, map, newArray, SmallArray;
 import util.col.fullIndexMap : FullIndexMap;
 import util.col.hashTable : HashTable, withSortedKeys;
 import util.col.map : KeyValuePair;
@@ -89,6 +89,8 @@ Json jsonNull() =>
 Json.ObjectField optionalField(string name)(bool isPresent, in Json delegate() @safe @nogc pure nothrow cb) =>
 	field!name(isPresent ? cb() : jsonNull);
 
+Json.ObjectField optionalField(string name)(in Opt!uint a) =>
+	optionalField!(name, uint)(a, (in uint x) => Json(x));
 Json.ObjectField optionalField(string name)(in Opt!string a) =>
 	optionalField!(name, string)(a, (in string x) => jsonString(x));
 Json.ObjectField optionalField(string name, T)(in Opt!T a, in Json delegate(in T) @safe @nogc pure nothrow cb) =>
@@ -117,7 +119,8 @@ Json.ObjectField kindField(string kindName) =>
 
 Json jsonList(Json[] xs) =>
 	Json(xs);
-
+Json jsonList(ref Alloc alloc, in Json[] xs) =>
+	Json(newArray(alloc, xs));
 Json jsonList(T)(ref Alloc alloc, in T[] xs, in Json delegate(in T) @safe @nogc pure nothrow cb) =>
 	jsonList(map!(Json, const T)(alloc, xs, (ref const T x) => cb(x)));
 

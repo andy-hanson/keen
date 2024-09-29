@@ -116,7 +116,7 @@ private void eachFunInExprScope(
 ) {
 	eachFunInScope(funsInExprScope(ctx), funName, cb);
 }
-private void eachFunInScope(
+void eachFunInScope(
 	in FunsInScope a,
 	Symbol funName,
 	in void delegate(CalledDecl) @safe @nogc pure nothrow cb,

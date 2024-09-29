@@ -5,6 +5,7 @@ module frontend.ide.position;
 import model.ast : ModifierKeyword, NameAndRange;
 import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
+	BogusCallExpr,
 	CallExpr,
 	CallOptionExpr,
 	EnumOrFlagsMember,
@@ -240,7 +241,16 @@ immutable struct ExpressionPositionKind {
 		Kind kind;
 		ExprRef loop;
 	}
-	mixin Union!(CallExpr, CallOptionExpr, ExprKeyword, ExternExpr, FunPointerExpr, Literal, LocalRef, LoopKeyword);
+	mixin Union!(
+		BogusCallExpr,
+		CallExpr,
+		CallOptionExpr,
+		ExprKeyword,
+		ExternExpr,
+		FunPointerExpr,
+		Literal,
+		LocalRef,
+		LoopKeyword);
 }
 
 enum ExprKeyword {

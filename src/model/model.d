@@ -292,7 +292,7 @@ SmallArray!Destructure paramsArray(return scope Params a) =>
 Destructure[] assertNonVariadic(Params a) =>
 	a.as!(Destructure[]);
 
-private immutable struct Arity {
+immutable struct Arity {
 	@safe @nogc pure nothrow:
 	immutable struct Varargs {}
 	mixin TaggedUnion!(immutable uint, Varargs);
@@ -1354,6 +1354,9 @@ immutable struct FunDeclSource {
 				x.nameRange,
 			(in VariantMethod x) =>
 				UriAndRange(x.variant.moduleUri, x.method.ast.nameRange));
+
+	SmallString docComment() scope =>
+		isA!Ast ? as!Ast.ast.docComment : emptySmallString;
 }
 
 immutable struct FunDecl {
@@ -1405,9 +1408,8 @@ immutable struct FunDecl {
 		source.range;
 	UriAndRange nameRange() scope =>
 		source.nameRange;
-
 	SmallString docComment() scope =>
-		source.as!(FunDeclSource.Ast).ast.docComment;
+		source.docComment;
 
 	Linkage linkage() scope =>
 		body_.isA!(FunBody.Extern) ? Linkage.extern_ : Linkage.internal;
@@ -1576,6 +1578,20 @@ immutable struct CalledDecl {
 			(in CalledSpecSig x) =>
 				x.arity);
 
+	SmallString docComment() =>
+		match!SmallString(
+			(ref FunDecl x) =>
+				x.docComment,
+			(CalledSpecSig x) =>
+				emptySmallString);
+
+	Params nonInstantiatedParams() =>
+		match!Params(
+			(ref FunDecl x) =>
+				x.params,
+			(CalledSpecSig x) =>
+				Params(x.nonInstantiatedSig.params));
+
 	bool isVariadic() scope =>
 		arity.isVariadic;
 }
@@ -1593,14 +1609,17 @@ immutable struct Called {
 	}
 	mixin TaggedUnion!(Bogus*, FunInst*, CalledSpecSig);
 
+	CalledDecl calledDecl() return scope =>
+		match!CalledDecl(
+			(ref Bogus x) =>
+				x.decl,
+			(ref FunInst x) =>
+				CalledDecl(x.decl),
+			(CalledSpecSig x) =>
+				CalledDecl(x));
+
 	Symbol name() scope =>
-		matchIn!Symbol(
-			(in Bogus x) =>
-				x.decl.name,
-			(in FunInst f) =>
-				f.name,
-			(in CalledSpecSig s) =>
-				s.name);
+		calledDecl.name;
 
 	Type returnType() scope =>
 		match!Type(
@@ -1621,13 +1640,7 @@ immutable struct Called {
 				s.instantiatedSig.paramTypes);
 
 	Arity arity() scope =>
-		matchIn!Arity(
-			(in Bogus x) =>
-				x.decl.arity,
-			(in FunInst x) =>
-				x.arity,
-			(in CalledSpecSig x) =>
-				x.arity);
+		calledDecl.arity;
 
 	bool isVariadic() scope =>
 		arity.isVariadic;
@@ -2343,6 +2356,7 @@ immutable struct Expr {
 immutable struct ExprKind {
 	mixin Union!(
 		AssertOrForbidExpr*,
+		BogusCallExpr,
 		BogusExpr,
 		CallExpr,
 		CallOptionExpr*,
@@ -2469,6 +2483,18 @@ string defaultAssertOrForbidMessage(
 
 immutable struct BogusExpr {}
 
+immutable struct BogusCallExpr {
+	SmallArray!CalledDecl candidates;
+	// Note: It may have given up on checking arguments.
+	SmallArray!ExprAndType checkedArgs;
+
+	@safe @nogc pure nothrow this(SmallArray!CalledDecl cs, SmallArray!ExprAndType cas) {
+		candidates = cs;
+		checkedArgs = cas;
+		assert(!isEmpty(candidates));
+	}
+}
+
 immutable struct CallExpr {
 	Called called;
 	SmallArray!Expr args;
@@ -2574,6 +2600,12 @@ immutable struct LambdaExpr {
 		lateGet(closure_);
 	Type returnType() return scope =>
 		lateGet(returnType_);
+
+	// We don't know whether this lambda is for the main body or for the optional 'else'.
+	// But if it is from the `else`, this function will return true.
+	bool isIgnore() scope =>
+		param.isA!(Destructure.Ignore*) &&
+		param.as!(Destructure.Ignore*).source.isA!(DestructureAst.Void*);
 }
 
 immutable struct LetExpr {
@@ -2881,6 +2913,8 @@ Opt!T findDirectChildExpr(T)(
 				cb(directChildInCondition(x.condition)),
 				() => has(x.thrown) ? cb(ExprRef(force(x.thrown), exceptionType)) : none!T,
 				() => cb(sameType(&x.after))),
+		(BogusCallExpr _) =>
+			none!T,
 		(BogusExpr _) =>
 			none!T,
 		(CallExpr x) {

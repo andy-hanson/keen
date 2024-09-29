@@ -8,6 +8,7 @@ import model.model :
 	asExtern,
 	AssertOrForbidExpr,
 	AutoFun,
+	BogusCallExpr,
 	BogusExpr,
 	Builtin4ary,
 	BuiltinBinary,
@@ -701,6 +702,7 @@ void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, ExprRef a)
 				if (!has(x.thrown))
 					trackAllUsedInFun(res, from, res.program.commonFuns.createError.decl, FunUse.regular);
 			},
+			(BogusCallExpr _) {},
 			(BogusExpr _) {},
 			(CallExpr _) {},
 			(ref CallOptionExpr x) {

@@ -17,10 +17,14 @@ import lib.lsp.lspTypes :
 	LspOutResponse,
 	LspOutResult,
 	MarkupContent,
+	ParameterInformation,
 	PublishDiagnosticsParams,
 	RegisterCapability,
 	RunResult,
 	SemanticTokens,
+	SignatureHelp,
+	SignatureHelpParams,
+	SignatureInformation,
 	SyntaxTranslateResult,
 	TextEdit,
 	UnknownUris,
@@ -28,7 +32,7 @@ import lib.lsp.lspTypes :
 	WorkspaceEdit,
 	Write;
 import util.alloc.alloc : Alloc;
-import util.col.array : map;
+import util.col.array : isEmpty, map, newArray;
 import util.col.multiMap : mapToArray, MultiMap;
 import util.exitCode : ExitCode;
 import util.json : field, Json, jsonBool, jsonList, jsonNull, jsonObject, jsonString, optionalField;
@@ -86,6 +90,8 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 			jsonOfRunResult(alloc, x),
 		(SemanticTokens x) =>
 			jsonObject(alloc, [field!"data"(jsonList(alloc, x.data, (in uint i) => Json(i)))]),
+		(SignatureHelp x) =>
+			jsonOfSignatureHelp(alloc, x),
 		(SyntaxTranslateResult x) =>
 			jsonObject(alloc, [
 				field!"output"(x.output),
@@ -122,7 +128,9 @@ Json initializeCapabilities(ref Alloc alloc) =>
 		field!"renameProvider"(jsonObject([])),
 		field!"semanticTokensProvider"(jsonObject(alloc, [
 			field!"full"(jsonBool(true)),
-			field!"legend"(getTokensLegend(alloc))]))]);
+			field!"legend"(getTokensLegend(alloc))])),
+		field!"signatureHelpProvider"(jsonObject(alloc, [
+			field!"triggerCharacters"(jsonList(alloc, [jsonString(",")]))]))]);
 
 Json jsonOfPublishDiagnosticsParams(ref Alloc alloc, in LineAndCharacterGetter lcg, in PublishDiagnosticsParams a) =>
 	jsonObject(alloc, [
@@ -177,3 +185,22 @@ Json jsonOfMarkupContent(ref Alloc alloc, in MarkupContent a) =>
 	jsonObject(alloc, [
 		field!"kind"(stringOfEnum(a.kind)),
 		field!"value"(jsonString(alloc, a.value))]);
+
+public Json jsonOfSignatureHelp(ref Alloc alloc, in SignatureHelp a) =>
+	jsonObject(alloc, [
+		field!"signatures"(jsonList(map(alloc, a.signatures, (ref SignatureInformation x) =>
+			jsonOfSignatureInformation(alloc, x)))),
+		optionalField!"activeSignature"(a.activeSignature),
+		optionalField!"activeParameter"(a.activeParameter)]);
+
+Json jsonOfSignatureInformation(ref Alloc alloc, ref SignatureInformation a) =>
+	jsonObject(alloc, [
+		field!"label"(a.label),
+		field!"documentation"(a.documentation),
+		field!"parameters"(jsonList(map(alloc, a.parameters, (ref ParameterInformation x) =>
+			jsonOfParameterInformation(alloc, x)))),
+		optionalField!"activeParameter"(a.activeParameter)]);
+
+Json jsonOfParameterInformation(ref Alloc alloc, ref ParameterInformation a) =>
+	jsonObject(alloc, [
+		field!"label"(jsonList(alloc, [Json(a.label.start), Json(a.label.end)]))]);

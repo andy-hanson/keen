@@ -13,6 +13,7 @@ import frontend.showModel :
 	writeFunDeclAndTypeArgs,
 	writeFunInst,
 	writeKeyword,
+	WriteKind,
 	writeName,
 	writePurity,
 	writeSig,
@@ -409,7 +410,7 @@ void writeCallNoMatch(scope ref Writer writer, in ShowDiagCtx ctx, in Diag.CallN
 		writeName(writer, ctx, d.funName);
 		writer ~= ", but they do not match the ";
 		bool hasRet = d.expectedReturnType.isA!(ExpectedForDiag.Choices);
-		bool hasArgs = isEmpty(d.actualArgTypes);
+		bool hasArgs = !isEmpty(d.actualArgTypes);
 		string descr = hasRet
 			? hasArgs ? "expected return type and actual argument types" : "expected return type"
 			: "actual argument types";
@@ -503,7 +504,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in Diag.CallMissingExtern x) {
 			writer ~= "Function ";
-			writeFunDecl(writer, ctx, x.callee);
+			writeFunDecl(writer, ctx, WriteKind.quoted, x.callee);
 			writer ~= " requires extern ";
 			writeName(writer, ctx, x.missingExtern);
 			writer ~= ", but that is not in scope.";
@@ -562,7 +563,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				}
 			}();
 			writer ~= ' ';
-			writeFunDecl(writer, ctx, x.callee);
+			writeFunDecl(writer, ctx, WriteKind.quoted, x.callee);
 			writer ~= '.';
 			if (x.reason == Diag.CantCall.Reason.unsafe)
 				writer ~= "\n(Consider putting the call in a 'trusted' expression.)";
@@ -1192,13 +1193,13 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				},
 				(in Diag.SpecNoMatch.Reason.CantInferTypeArguments y) {
 					writer ~= "Can't infer type arguments to ";
-					writeFunDecl(writer, ctx, y.fun);
+					writeFunDecl(writer, ctx, WriteKind.quoted, y.fun);
 				},
 				(in Diag.SpecNoMatch.Reason.SpecImplNotFound y) {
 					writer ~= "No implementation was found for spec signature ";
 					Signature* sig = y.sigDecl;
 					writeSig(
-						writer, ctx, x.outermostTypeContainer, sig.name, sig.returnType,
+						writer, ctx, WriteKind.quoted, x.outermostTypeContainer, sig.name, sig.returnType,
 						Params(sig.params), some(y.sigType));
 					writer ~= '.';
 				},
@@ -1378,7 +1379,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= "A method of variant ";
 			writeTypeQuoted(writer, ctx, TypeWithContainer(Type(x.variant), TypeContainer(x.member)));
 			writer ~= " is implemented by ";
-			writeFunInst(writer, ctx, TypeContainer(x.member), *x.methodImpl);
+			writeFunInst(writer, ctx, WriteKind.quoted, TypeContainer(x.member), *x.methodImpl);
 			writer ~= ", but it is less visible than ";
 			writeName(writer, ctx, x.member.name);
 			writer ~= '.';

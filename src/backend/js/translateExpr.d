@@ -99,6 +99,7 @@ import model.model :
 	AssertOrForbidExpr,
 	asTuple,
 	AutoFun,
+	BogusCallExpr,
 	BogusExpr,
 	Builtin4ary,
 	BuiltinBinary,
@@ -858,6 +859,8 @@ ExprResult translateExpr(ref TranslateExprCtx ctx, ref Expr a, Type type, scope 
 	return a.kind.match!ExprResult(
 		(ref AssertOrForbidExpr x) =>
 			translateAssertOrForbid(ctx, a, source, x, type, pos),
+		(BogusCallExpr x) =>
+			forceStatement(ctx, pos, genThrowBogus(ctx.alloc, source)),
 		(BogusExpr x) =>
 			forceStatement(ctx, pos, genThrowBogus(ctx.alloc, source)),
 		(CallExpr x) =>

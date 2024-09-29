@@ -1,4 +1,3 @@
-
 module lib.lsp.lspTypes;
 
 @safe @nogc pure nothrow:
@@ -9,6 +8,7 @@ import util.exitCode : ExitCode;
 import util.col.multiMap : MultiMap;
 import util.opt : Opt;
 import util.sourceRange : LineAndCharacter, LineAndCharacterRange, Pos, Range, UriAndRange;
+import util.string : SmallString;
 import util.union_ : Union;
 import util.uri : Uri;
 
@@ -51,6 +51,7 @@ immutable struct LspInRequestParams {
 		RunParams,
 		SemanticTokensParams,
 		ShutdownParams,
+		SignatureHelpParams,
 		SyntaxTranslateParams,
 		UnloadedUrisParams);
 }
@@ -82,6 +83,7 @@ immutable struct LspOutResult {
 		Opt!Hover,
 		RunResult,
 		SemanticTokens,
+		SignatureHelp,
 		SyntaxTranslateResult,
 		UnloadedUris,
 		UriAndRange[], // for definition or references
@@ -289,4 +291,27 @@ immutable struct TextEdit {
 
 immutable struct SemanticTokens {
 	uint[] data;
+}
+
+immutable struct SignatureHelpParams {
+	TextDocumentPositionParams textDocumentAndPosition;
+}
+
+immutable struct SignatureHelp {
+	SignatureInformation[] signatures;
+	Opt!uint activeSignature;
+	Opt!uint activeParameter;
+}
+
+immutable struct SignatureInformation {
+	string label;
+	SmallString documentation;
+	ParameterInformation[] parameters;
+	Opt!uint activeParameter;
+}
+
+immutable struct ParameterInformation {
+	// This is actually a range of UTF-16 characters
+	Range label;
+	SmallString documentation; // omitted if empty
 }
