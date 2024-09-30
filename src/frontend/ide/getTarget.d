@@ -2,7 +2,7 @@ module frontend.ide.getTarget;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.position : ExpressionPosition, ExpressionPositionKind, ExprKeyword, PositionKind;
+import frontend.ide.position : ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, PositionKind;
 import model.diag : TypeWithContainer;
 import model.model :
 	AutoFun,
@@ -42,6 +42,7 @@ import util.union_ : Union;
 
 immutable struct Target {
 	immutable struct Loop {
+		ExprContainer container;
 		ExprRef loop;
 	}
 
@@ -151,7 +152,7 @@ Opt!Target exprTarget(in CommonTypes commonTypes, ExpressionPosition a) =>
 		(ExpressionPositionKind.LocalRef x) =>
 			some(Target(PositionKind.LocalPosition(a.container.toLocalContainer, x.local))),
 		(ExpressionPositionKind.LoopKeyword x) =>
-			some(Target(Target.Loop(x.loop))));
+			some(Target(Target.Loop(a.container, x.loop))));
 
 Target calledDeclTarget(in CommonTypes commonTypes, ref CalledDecl a) =>
 	a.matchWithPointers!Target(

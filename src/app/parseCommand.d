@@ -383,6 +383,8 @@ Opt!PrintKind parsePrintKind(in CString a, in CString[] args) {
 }
 Opt!(PrintKind.Ide.Kind) ideKind(in string a) {
 	switch (a) {
+		case "completion":
+			return some(PrintKind.Ide.Kind.completion);
 		case "definition":
 			return some(PrintKind.Ide.Kind.definition);
 		case "document-highlight":
@@ -395,6 +397,8 @@ Opt!(PrintKind.Ide.Kind) ideKind(in string a) {
 			return some(PrintKind.Ide.Kind.rename);
 		case "signature-help":
 			return some(PrintKind.Ide.Kind.signatureHelp);
+		case "type-definition":
+			return some(PrintKind.Ide.Kind.typeDefinition);
 		default:
 			return none!(PrintKind.Ide.Kind);
 	}
@@ -807,7 +811,8 @@ string commandDescription(CommandName name) {
 				"\ncrow print document-highlight PATH LINE:COLUMN" ~
 				"\ncrow print rename PATH LINE:COLUMN" ~
 				"\ncrow print references PATH LINE:COLUMN" ~
-				"\ncrow print signature-help PATH LINE:COLUMN";
+				"\ncrow print signature-help PATH LINE:COLUMN" ~
+				"\ncrow print type-definition PATH LINE:COLUMN";
 		case CommandName.run:
 			return "Runs the program at PATH." ~
 				"\nArguments after '--' will be sent to the program." ~

@@ -10,6 +10,7 @@ import model.model :
 	AutoFun,
 	BogusCallExpr,
 	BogusExpr,
+	BogusWrongTypeExpr,
 	Builtin4ary,
 	BuiltinBinary,
 	BuiltinBinaryLazy,
@@ -704,6 +705,7 @@ void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, ExprRef a)
 			},
 			(BogusCallExpr _) {},
 			(BogusExpr _) {},
+			(BogusWrongTypeExpr _) {},
 			(CallExpr _) {},
 			(ref CallOptionExpr x) {
 				trackAllUsedInType(res, from, a.type);

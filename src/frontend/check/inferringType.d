@@ -10,10 +10,12 @@ import model.ast : ExprAst;
 import model.diag : Diag, ExpectedForDiag, TypeContainer, TypeWithContainer;
 import model.model :
 	BogusExpr,
+	BogusWrongTypeExpr,
 	CommonTypes,
 	Expr,
 	ExprAndType,
 	ExprKind,
+	ExprRef,
 	FunKind,
 	LoopExpr,
 	StructDecl,
@@ -40,6 +42,7 @@ import util.col.array :
 	zipEvery;
 import util.col.arrayBuilder : add, ArrayBuilder, arrayBuilderIsEmpty, asTemporaryArray, finish;
 import util.col.enumMap : enumMapFindKey;
+import util.memory : allocate;
 import util.opt : has, force, MutOpt, none, noneMut, Opt, optOrDefault, some, someInout, someMut;
 import util.union_ : TaggedUnion;
 import util.uri : UrisInfo;
@@ -372,6 +375,18 @@ private @trusted void setToType(ref Expected expected, Type type) {
 void setToBogus(ref Expected expected) {
 	expected = Type.Bogus();
 }
+void setToBogusIfInferring(ref Expected expected) {
+	expected.matchCombineType!void(
+		(Expected.Infer) {
+			setToBogus(expected);
+		},
+		(Type _) {},
+		(TypeAndContext[]) {
+			setToBogus(expected);
+		},
+		(LoopInfo*) {});
+
+}
 
 struct Pair(T, U) {
 	T a;
@@ -545,15 +560,7 @@ bool matchExpectedVsReturnTypeNoDiagnostic(
 			false);
 
 Expr bogus(ref Expected expected, ExprAst* ast) {
-	expected.matchCombineType!void(
-		(Expected.Infer) {
-			setToBogus(expected);
-		},
-		(Type _) {},
-		(TypeAndContext[]) {
-			setToBogus(expected);
-		},
-		(LoopInfo*) {});
+	setToBogusIfInferring(expected);
 	return Expr(ast, ExprKind(BogusExpr()));
 }
 
@@ -572,8 +579,12 @@ Type inferred(ref const Expected expected) =>
 Expr check(ref ExprCtx ctx, ref Expected expected, Type exprType, ExprAst* source, ExprKind exprKind) =>
 	check(ctx, expected, ExprAndType(Expr(source, exprKind), exprType)).expr;
 private ExprAndType check(ref ExprCtx ctx, ref Expected expected, ExprAndType a) =>
-	optOrDefault!ExprAndType(tryCheck(ctx, expected, a), () =>
-		ExprAndType(bogus(expected, a.expr.ast), Type.bogus));
+	optOrDefault!ExprAndType(tryCheck(ctx, expected, a), () {
+		setToBogusIfInferring(expected);
+		return ExprAndType(
+			Expr(a.expr.ast, ExprKind(BogusWrongTypeExpr(ExprRef(allocate(ctx.alloc, a.expr), a.type)))),
+			Type.bogus);
+	});
 Opt!ExprAndType tryCheck(ref ExprCtx ctx, ref Expected expected, ExprAndType a) {
 	if (setTypeNoDiagnostic(ctx.instantiateCtx, expected, a.type))
 		return some(a);

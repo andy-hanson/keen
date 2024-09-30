@@ -9,6 +9,7 @@ import model.model :
 	AutoFun,
 	BogusCallExpr,
 	BogusExpr,
+	BogusWrongTypeExpr,
 	BuiltinFun,
 	BuiltinSpec,
 	Called,
@@ -25,6 +26,7 @@ import model.model :
 	Expr,
 	ExprAndType,
 	ExprKind,
+	ExprRef,
 	ExternExpr,
 	FinallyExpr,
 	FunBody,
@@ -68,6 +70,7 @@ import model.model :
 	Test,
 	ThrowExpr,
 	TrustedExpr,
+	toExprAndType,
 	TryExpr,
 	TryLetExpr,
 	Type,
@@ -342,6 +345,9 @@ Json jsonOfExprAndType(ref Alloc alloc, in Ctx ctx, in ExprAndType a) =>
 		field!"expr"(jsonOfExpr(alloc, ctx, a.expr)),
 		field!"type"(jsonOfType(alloc, ctx, a.type))]);
 
+Json jsonOfExprRef(ref Alloc alloc, in Ctx ctx, in ExprRef a) =>
+	jsonOfExprAndType(alloc, ctx, toExprAndType(a));
+
 Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 	jsonObject(alloc, [
 		field!"range"(jsonOfRange(alloc, ctx, a.range)),
@@ -364,6 +370,10 @@ Json jsonOfExprKind(ref Alloc alloc, in Ctx ctx, in ExprKind a) =>
 					jsonOfExprAndType(alloc, ctx, e)))]),
 		(in BogusExpr _) =>
 			jsonObject(alloc, [kindField!"bogus"]),
+		(in BogusWrongTypeExpr x) =>
+			jsonObject(alloc, [
+				kindField!"bogus-wrong-type",
+				field!"inner"(jsonOfExprRef(alloc, ctx, x.inner))]),
 		(in CallExpr x) =>
 			jsonObject(alloc, [
 				kindField!"call",

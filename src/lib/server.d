@@ -16,7 +16,8 @@ import frontend.frontendCompile :
 	programWithMainFromProgram;
 import frontend.getDiagnosticSeverity : getDiagnosticSeverity;
 import frontend.ide.syntaxTranslate : syntaxTranslate;
-import frontend.ide.getDefinition : getDefinitionForPosition;
+import frontend.ide.getCompletion : getCompletionForPosition;
+import frontend.ide.getDefinition : getDefinitionForPosition, getTypeDefinitionForPosition;
 import frontend.ide.getHover : getHover;
 import frontend.ide.getPosition : getPosition, GetPositionKind;
 import frontend.ide.getRename : getRenameForPosition;
@@ -53,11 +54,14 @@ import interpret.extern_ : Extern, ExternPointersForAllLibraries, WriteError;
 import interpret.fakeExtern : withFakeExtern, WriteCb;
 import interpret.generateBytecode : generateBytecode;
 import interpret.runBytecode : runBytecode;
-import lib.lsp.lspToJson : jsonOfDocumentHighlight, jsonOfHover, jsonOfReferences, jsonOfRename, jsonOfSignatureHelp;
+import lib.lsp.lspToJson :
+	jsonOfCompletionList, jsonOfDocumentHighlight, jsonOfHover, jsonOfReferences, jsonOfRename, jsonOfSignatureHelp;
 import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	BuildJsScriptResult,
 	CancelRequestParams,
+	CompletionList,
+	CompletionParams,
 	DefinitionParams,
 	DidChangeTextDocumentParams,
 	DidCloseTextDocumentParams,
@@ -100,6 +104,7 @@ import lib.lsp.lspTypes :
 	TextDocumentContentChangeEvent,
 	TextDocumentIdentifier,
 	TextDocumentPositionParams,
+	TypeDefinitionParams,
 	UnloadedUris,
 	UnloadedUrisParams,
 	UnknownUris,
@@ -270,6 +275,8 @@ private Opt!LspOutResult handleLspRequest(
 	a.params.matchImpure!(Opt!LspOutResult)(
 		(in BuildJsScriptParams x) =>
 			respondWithProgram(perf, alloc, server, a),
+		(in CompletionParams x) =>
+			respondWithProgram(perf, alloc, server, a),
 		(in DefinitionParams x) =>
 			respondWithProgram(perf, alloc, server, a),
 		(in DocumentHighlightParams x) =>
@@ -296,6 +303,8 @@ private Opt!LspOutResult handleLspRequest(
 			respondWithProgram(perf, alloc, server, a),
 		(in SyntaxTranslateParams x) =>
 			some(LspOutResult(syntaxTranslate(alloc, x))),
+		(in TypeDefinitionParams x) =>
+			respondWithProgram(perf, alloc, server, a),
 		(in UnloadedUrisParams) =>
 			some(LspOutResult(UnloadedUris(allUnloadedUris(alloc, server)))));
 
@@ -330,6 +339,10 @@ private LspOutResult handleLspRequestWithProgram(
 				showDiagnostics(alloc, server, pwm, x.diagnosticsOnlyForUris),
 				optIf(!hasFatalDiagnostics(pwm), () =>
 					buildToJsScript(alloc, server, pwm, JsTarget.browser, none!Symbol).js)));
+		},
+		(in CompletionParams x) {
+			Opt!CompletionList res = getCompletionForProgram(alloc, server, program, x);
+			return has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null());
 		},
 		(in DefinitionParams x) =>
 			LspOutResult(getDefinitionForProgram(alloc, server, program, x)),
@@ -368,6 +381,8 @@ private LspOutResult handleLspRequestWithProgram(
 		},
 		(in SyntaxTranslateParams x) =>
 			assert(false),
+		(in TypeDefinitionParams x) =>
+			LspOutResult(getTypeDefinitionForProgram(alloc, server, program, x)),
 		(in UnloadedUrisParams _) =>
 			assert(false));
 }
@@ -565,6 +580,18 @@ private string showDiagnosticsCommon(
 ) =>
 	stringOfDiagnostics(alloc, getShowDiagCtx(server, program.program), program, onlyForUris);
 
+private Opt!CompletionList getCompletionForProgram(
+	ref Alloc alloc,
+	in Server server,
+	in Program program,
+	in CompletionParams params,
+) {
+	Opt!Position position = serverGetPositionForSignatureHelp(server, program, params.params); // TODO: rename it then ------
+	return has(position)
+		? getCompletionForPosition(alloc, force(position))
+		: none!CompletionList;
+}
+
 private UriAndRange[] getDefinitionForProgram(
 	ref Alloc alloc,
 	in Server server,
@@ -573,6 +600,16 @@ private UriAndRange[] getDefinitionForProgram(
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params);
 	return has(position) ? getDefinitionForPosition(alloc, program.commonTypes, force(position)) : [];
+}
+
+private UriAndRange[] getTypeDefinitionForProgram(
+	ref Alloc alloc,
+	in Server server,
+	in Program program,
+	in TypeDefinitionParams params,
+) {
+	Opt!Position position = serverGetPosition(server, program, params.textDocmuentAndPosition);
+	return has(position) ? getTypeDefinitionForPosition(alloc, program.commonTypes, force(position)) : [];
 }
 
 private Opt!DocumentHighlightResult getDocumentHighlightsForProgram(
@@ -741,7 +778,7 @@ immutable struct PrintKind {
 	immutable struct ConcreteModel {}
 	immutable struct LowModel {}
 	immutable struct Ide {
-		enum Kind { definition, documentHighlight, hover, references, rename, signatureHelp }
+		enum Kind { completion, definition, documentHighlight, hover, references, rename, signatureHelp, typeDefinition }
 		Kind kind;
 		LineAndColumn lineAndColumn;
 	}
@@ -762,6 +799,11 @@ Json jsonForPrintIde(
 		toLineAndCharacter(server.lineAndColumnGetters[where.uri], where.pos));
 	Json locations(UriAndRange[] xs) => jsonOfReferences(alloc, server.lineAndCharacterGetters, xs);
 	final switch (kind) {
+		case PrintKind.Ide.Kind.completion:
+			Opt!CompletionList res = getCompletionForProgram(alloc, server, program, CompletionParams(params));
+			return has(res)
+				? jsonOfCompletionList(alloc, force(res))
+				: jsonNull;
 		case PrintKind.Ide.Kind.definition:
 			return locations(getDefinitionForProgram(alloc, server, program, DefinitionParams(params)));
 		case PrintKind.Ide.Kind.documentHighlight:
@@ -780,6 +822,8 @@ Json jsonForPrintIde(
 		case PrintKind.Ide.Kind.signatureHelp:
 			Opt!SignatureHelp res = getSignatureHelpForProgram(alloc, server, program, SignatureHelpParams(params));
 			return has(res) ? jsonOfSignatureHelp(alloc, force(res)) : jsonNull;
+		case PrintKind.Ide.Kind.typeDefinition:
+			return locations(getTypeDefinitionForProgram(alloc, server, program, TypeDefinitionParams(params)));
 	}
 }
 
@@ -911,6 +955,7 @@ LspDiagnosticSeverity toLspDiagnosticSeverity(DiagnosticSeverity a) {
 
 LspOutAction initializedAction(ref Alloc alloc, ref Server server) {
 	return LspOutAction(newArray!LspOutMessage(alloc, [
+		register("textDocument/completion"),
 		register("textDocument/definition"),
 		register("textDocument/documentHighlight"),
 		register("textDocument/hover"),
@@ -918,6 +963,7 @@ LspOutAction initializedAction(ref Alloc alloc, ref Server server) {
 		register("textDocument/references"),
 		register("textDocument/semanticTokens/full"),
 		register("textDocument/signatureHelp"),
+		register("textDocument/typeDefinition"),
 	]));
 }
 

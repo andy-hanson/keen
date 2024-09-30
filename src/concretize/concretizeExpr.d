@@ -85,6 +85,7 @@ import model.model :
 	AssertOrForbidExpr,
 	BogusCallExpr,
 	BogusExpr,
+	BogusWrongTypeExpr,
 	BuiltinBinary,
 	BuiltinBinaryLazy,
 	BuiltinFun,
@@ -1209,6 +1210,8 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 		(BogusCallExpr _) =>
 			concretizeBogus(ctx, type, range),
 		(BogusExpr _) =>
+			concretizeBogus(ctx, type, range),
+		(BogusWrongTypeExpr _) =>
 			concretizeBogus(ctx, type, range),
 		(CallExpr x) =>
 			concretizeCall(ctx, type, range, locals, x),

@@ -5,6 +5,7 @@ module lib.lsp.lspParse;
 import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	CancelRequestParams,
+	CompletionParams,
 	DocumentHighlightParams,
 	SyntaxTranslateParams,
 	DefinitionParams,
@@ -36,6 +37,7 @@ import lib.lsp.lspTypes :
 	TextDocumentItem,
 	TextDocumentPositionParams,
 	TraceValue,
+	TypeDefinitionParams,
 	UnloadedUrisParams;
 import util.alloc.alloc : Alloc;
 import util.col.array : map;
@@ -85,6 +87,8 @@ LspInMessage parseLspInMessage(ref Alloc alloc, in Json message) {
 			return notification(InitializedParams());
 		case "shutdown":
 			return request(ShutdownParams());
+		case "textDocument/completion":
+			return request(CompletionParams(parseTextDocumentPositionParams(alloc, params)));
 		case "textDocument/definition":
 			return request(DefinitionParams(parseTextDocumentPositionParams(alloc, params)));
 		case "textDocument/didChange":
@@ -110,6 +114,8 @@ LspInMessage parseLspInMessage(ref Alloc alloc, in Json message) {
 			return request(SemanticTokensParams(parseTextDocumentIdentifier(get!"textDocument"(params))));
 		case "textDocument/signatureHelp":
 			return request(SignatureHelpParams(parseTextDocumentPositionParams(alloc, params)));
+		case "textDocument/typeDefinition":
+			return request(TypeDefinitionParams(parseTextDocumentPositionParams(alloc, params)));
 		default:
 			assert(false);
 	}

@@ -42,6 +42,7 @@ immutable struct LspInRequest {
 immutable struct LspInRequestParams {
 	mixin Union!(
 		BuildJsScriptParams,
+		CompletionParams,
 		DefinitionParams,
 		DocumentHighlightParams,
 		HoverParams,
@@ -53,6 +54,7 @@ immutable struct LspInRequestParams {
 		ShutdownParams,
 		SignatureHelpParams,
 		SyntaxTranslateParams,
+		TypeDefinitionParams,
 		UnloadedUrisParams);
 }
 
@@ -78,6 +80,7 @@ immutable struct LspOutResult {
 	immutable struct Null {}
 	mixin Union!(
 		BuildJsScriptResult,
+		CompletionList,
 		DocumentHighlightResult,
 		InitializeResult,
 		Opt!Hover,
@@ -176,6 +179,22 @@ immutable struct InitializationOptions {
 immutable struct InitializedParams {}
 
 immutable struct ShutdownParams {}
+
+immutable struct CompletionParams {
+	TextDocumentPositionParams params;
+}
+
+immutable struct CompletionList {
+	CompletionItem[] items;
+}
+immutable struct CompletionItem {
+	string label;
+	string detail; // E.g., the full function signature
+	string documentation;
+	// TODO: use 'insertText' and 'insertTextMode'text to replace the '.' if the completion is a function with more than one argument -------------------
+	// or 'textEdit'?
+}
+
 
 immutable struct DefinitionParams {
 	TextDocumentPositionParams params;
@@ -314,4 +333,8 @@ immutable struct ParameterInformation {
 	// This is actually a range of UTF-16 characters
 	Range label;
 	SmallString documentation; // omitted if empty
+}
+
+immutable struct TypeDefinitionParams {
+	TextDocumentPositionParams textDocmuentAndPosition;
 }

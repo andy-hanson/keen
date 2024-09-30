@@ -62,6 +62,7 @@ import model.model :
 	AssertOrForbidExpr,
 	BogusCallExpr,
 	BogusExpr,
+	BogusWrongTypeExpr,
 	BuiltinType,
 	CallExpr,
 	CallOptionExpr,
@@ -642,6 +643,8 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, ref Loops loops, ExprRef a, Pos
 		(BogusCallExpr x) =>
 			call(ExpressionPositionKind(x)),
 		(BogusExpr _) =>
+			none!PositionKind,
+		(BogusWrongTypeExpr _) =>
 			none!PositionKind,
 		(CallExpr x) =>
 			call(ExpressionPositionKind(x)),

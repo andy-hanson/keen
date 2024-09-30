@@ -6,6 +6,8 @@ import frontend.ide.getTokens : getTokensLegend;
 import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes :
 	BuildJsScriptResult,
+	CompletionItem,
+	CompletionList,
 	DocumentHighlight,
 	DocumentHighlightResult,
 	Hover,
@@ -80,6 +82,8 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 	a.match!Json(
 		(BuildJsScriptResult x) =>
 			jsonObject(alloc, [field!"diagnostics"(x.diagnostics), optionalField!"script"(x.script)]),
+		(CompletionList x) =>
+			jsonOfCompletionList(alloc, x),
 		(DocumentHighlightResult x) =>
 			jsonOfDocumentHighlight(alloc, lcgs[x.uri], x),
 		(InitializeResult _) =>
@@ -130,7 +134,8 @@ Json initializeCapabilities(ref Alloc alloc) =>
 			field!"full"(jsonBool(true)),
 			field!"legend"(getTokensLegend(alloc))])),
 		field!"signatureHelpProvider"(jsonObject(alloc, [
-			field!"triggerCharacters"(jsonList(alloc, [jsonString(",")]))]))]);
+			field!"triggerCharacters"(jsonList(alloc, [jsonString(",")]))])),
+		field!"typeDefinitionProvider"(jsonObject([]))]);
 
 Json jsonOfPublishDiagnosticsParams(ref Alloc alloc, in LineAndCharacterGetter lcg, in PublishDiagnosticsParams a) =>
 	jsonObject(alloc, [
@@ -143,6 +148,16 @@ public Json jsonOfHover(ref Alloc alloc, in Opt!Hover a) =>
 
 Json jsonOfHover(ref Alloc alloc, in Hover a) =>
 	jsonObject(alloc, [field!"contents"(jsonOfMarkupContent(alloc, a.contents))]);
+
+public Json jsonOfCompletionList(ref Alloc alloc, in CompletionList a) =>
+	jsonObject(alloc, [
+		field!"items"(jsonList(map(alloc, a.items, (ref CompletionItem x) =>
+			jsonOfCompletionItem(alloc, x))))]);
+Json jsonOfCompletionItem(ref Alloc alloc, ref CompletionItem a) =>
+	jsonObject(alloc, [
+		field!"label"(a.label),
+		field!"detail"(a.detail),
+		field!"documentation"(a.documentation)]);
 
 public Json jsonOfDocumentHighlight(ref Alloc alloc, in LineAndCharacterGetter lcg, in DocumentHighlightResult a) =>
 	jsonList!DocumentHighlight(alloc, a.highlights, (in DocumentHighlight x) =>

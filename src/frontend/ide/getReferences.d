@@ -45,6 +45,7 @@ import model.model :
 	AssertOrForbidExpr,
 	BogusCallExpr,
 	BogusExpr,
+	BogusWrongTypeExpr,
 	BuiltinType,
 	Called,
 	CalledSpecSig,
@@ -464,6 +465,7 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 		},
 		(in BogusCallExpr _) {},
 		(in BogusExpr _) {},
+		(in BogusWrongTypeExpr _) {},
 		(in CallExpr x) {
 			if (astKind.isA!CallAst) {
 				Opt!(TypeAst*) typeArg = astKind.as!CallAst.typeArg;

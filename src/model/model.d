@@ -2358,6 +2358,7 @@ immutable struct ExprKind {
 		AssertOrForbidExpr*,
 		BogusCallExpr,
 		BogusExpr,
+		BogusWrongTypeExpr,
 		CallExpr,
 		CallOptionExpr*,
 		ClosureGetExpr,
@@ -2482,6 +2483,11 @@ string defaultAssertOrForbidMessage(
 }
 
 immutable struct BogusExpr {}
+
+// Wraps an expression that has an invalid type.
+immutable struct BogusWrongTypeExpr {
+	ExprRef inner;
+}
 
 immutable struct BogusCallExpr {
 	SmallArray!CalledDecl candidates;
@@ -2847,6 +2853,8 @@ immutable struct ExprRef {
 	Expr* expr;
 	Type type;
 }
+ExprAndType toExprAndType(return scope ExprRef a) =>
+	ExprAndType(*a.expr, a.type);
 
 ExprRef funBodyExprRef(FunDecl* a) =>
 	ExprRef(&a.body_.as!Expr(), a.returnType);
@@ -2917,6 +2925,8 @@ Opt!T findDirectChildExpr(T)(
 			none!T,
 		(BogusExpr _) =>
 			none!T,
+		(BogusWrongTypeExpr x) =>
+			cb(x.inner),
 		(CallExpr x) {
 			assert(a.type == x.called.returnType);
 			if (x.called.isVariadic) {

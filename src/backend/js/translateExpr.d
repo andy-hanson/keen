@@ -101,6 +101,7 @@ import model.model :
 	AutoFun,
 	BogusCallExpr,
 	BogusExpr,
+	BogusWrongTypeExpr,
 	Builtin4ary,
 	BuiltinBinary,
 	BuiltinBinaryLazy,
@@ -862,6 +863,8 @@ ExprResult translateExpr(ref TranslateExprCtx ctx, ref Expr a, Type type, scope 
 		(BogusCallExpr x) =>
 			forceStatement(ctx, pos, genThrowBogus(ctx.alloc, source)),
 		(BogusExpr x) =>
+			forceStatement(ctx, pos, genThrowBogus(ctx.alloc, source)),
+		(BogusWrongTypeExpr x) =>
 			forceStatement(ctx, pos, genThrowBogus(ctx.alloc, source)),
 		(CallExpr x) =>
 			translateCall(ctx, source, x, type, pos),

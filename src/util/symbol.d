@@ -617,6 +617,7 @@ immutable string[] specialSymbols = [
 	"textDocumentSync",
 	"tokenModifiers",
 	"triggerCharacters",
+	"typeDefinitionProvider",
 	"unloadedUris",
 
 	".",
