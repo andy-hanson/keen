@@ -25,7 +25,6 @@ import lib.lsp.lspTypes :
 	RunResult,
 	SemanticTokens,
 	SignatureHelp,
-	SignatureHelpParams,
 	SignatureInformation,
 	SyntaxTranslateResult,
 	TextEdit,
@@ -34,7 +33,7 @@ import lib.lsp.lspTypes :
 	WorkspaceEdit,
 	Write;
 import util.alloc.alloc : Alloc;
-import util.col.array : isEmpty, map, newArray;
+import util.col.array : map;
 import util.col.multiMap : mapToArray, MultiMap;
 import util.exitCode : ExitCode;
 import util.json : field, Json, jsonBool, jsonList, jsonNull, jsonObject, jsonString, optionalField;
@@ -124,7 +123,9 @@ Json jsonOfWrite(ref Alloc alloc, Write a) =>
 Json initializeCapabilities(ref Alloc alloc) =>
 	jsonObject(alloc, [
 		field!"textDocumentSync"(2), // incremental
-		//TODO: completionProvider: {resolveProvider: true},
+		field!"completionProvider"(jsonObject(alloc, [
+			field!"triggerCharacters"(jsonList(alloc, [jsonString(".")]))])),
+			//field!"resolveProvider"(true)])), --------------------------------------------------------------------------------
 		field!"definitionProvider"(jsonObject([])),
 		field!"documentHighlightProvider"(jsonObject([])),
 		field!"hoverProvider"(jsonObject([])),

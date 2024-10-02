@@ -86,7 +86,7 @@ all_src_files = src/*.d \
 	src/lower/*.d \
 	src/model/*.d \
 	src/test/*.d \
-	src/test/hover/* \
+	src/test/*/* \
 	src/util/*.d \
 	src/util/alloc/*.d \
 	src/util/col/*.d

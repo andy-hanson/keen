@@ -16,6 +16,7 @@ import test.testJson : testJson;
 import test.testMemory : testMemory;
 import test.testMutMultiMap : testMutMultiMap;
 import test.testServer : testServer;
+import test.testSignatureHelp : testSignatureHelp;
 import test.testSortUtil : testSortUtil;
 import test.testSourceMap : testSourceMap;
 import test.testSourceRange : testSourceRange;
@@ -72,6 +73,7 @@ immutable NameAndTest[] allTests = [
 	NameAndTest("memory", &testMemory),
 	NameAndTest("mut-multi-map", &testMutMultiMap),
 	NameAndTest("server", &testServer),
+	NameAndTest("signature-help", &testSignatureHelp),
 	NameAndTest("sort-util", &testSortUtil),
 	NameAndTest("source-map", &testSourceMap),
 	NameAndTest("source-range", &testSourceRange),

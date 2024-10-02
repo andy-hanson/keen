@@ -44,6 +44,7 @@ import frontend.parse.parseUtil :
 	takeOrAddDiagExpectedTokenAndSkipRestOfLine,
 	tryTakeLiteralIntegral,
 	tryTakeNameAndRange,
+	tryTakeNameAndRangeOrDiag,
 	tryTakeToken,
 	tryTakeTokenAndMayContinueOntoNextLine;
 import model.ast :
@@ -519,8 +520,10 @@ ExprAst handleDotOrQuestionDot(ref Lexer lexer, ExprAst initial, Pos start, Pos 
 				lexer.alloc, range(lexer, start), name.range.end, symbol!"force",
 				ExprAst(range(lexer, start), ExprAstKind(call(name, none!(TypeAst*)))));
 		} else {
-			NameAndRange name = takeNameAndRange(lexer);
-			return ExprAst(range(lexer, start), ExprAstKind(call(name, tryParseTypeArgForExpr(lexer))));
+			Opt!NameAndRange name = tryTakeNameAndRangeOrDiag(lexer);
+			return has(name)
+				? ExprAst(range(lexer, start), ExprAstKind(call(force(name), tryParseTypeArgForExpr(lexer))))
+				: initial;
 		}
 	}();
 	return tryParseDotsAndSubscripts(lexer, res);

@@ -77,7 +77,6 @@ import util.json :
 	Json,
 	jsonObject,
 	optionalArrayField,
-	optionalFlagField,
 	optionalField,
 	optionalStringField,
 	Json,
@@ -216,12 +215,6 @@ Json jsonOfLiteralStringAst(ref Alloc alloc, in LiteralStringAst a) =>
 	jsonObject(alloc, [
 		kindField!"string",
 		field!"value"(jsonString(alloc, a.value))]);
-
-Json jsonOfLiteral(string typeName, T)(ref Alloc alloc, T value, bool overflow) =>
-	jsonObject(alloc, [
-		kindField!typeName,
-		field!"value"(value),
-		optionalFlagField!"overflow"(overflow)]);
 
 Json jsonOfLiteralIntegralAndRange(ref Alloc alloc, in Ctx ctx, in LiteralIntegralAndRange a) =>
 	jsonObject(alloc, [

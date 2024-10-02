@@ -26,6 +26,9 @@ immutable struct FileContent {
 	immutable(ubyte[]) asBytes() return scope =>
 		bytesWithNul[0 .. $ - 1];
 
+	@system string assumeUtf8String() return scope =>
+		cast(string) bytesWithNul[0 .. $ - 1];
+
 	@system CString assumeUtf8() return scope =>
 		CString(cast(immutable char*) bytesWithNul.ptr);
 

@@ -404,7 +404,7 @@ Opt!(PrintKind.Ide.Kind) ideKind(in string a) {
 	}
 }
 
-Opt!LineAndColumn parseLineAndColumn(in CString a) {
+public Opt!LineAndColumn parseLineAndColumn(in CString a) { // move? --------------------------------------------------------
 	MutCString ptr = a;
 	Opt!uint line = convertFrom1Indexed(tryTakeNat(ptr));
 	bool colon = tryTakeChar(ptr, ':');

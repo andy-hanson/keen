@@ -103,8 +103,10 @@ void skipSpacesAndComments(ref MutCString ptr, in CbComment cbComment, in AddDia
 			case '#':
 				if (tryTakeTripleHashThenNewline(ptr))
 					cbComment(start, takeRestOfBlockComment(ptr, addDiag));
-				else
+				else {
+					while (tryTakeChar(ptr, ' ')) {}
 					cbComment(start, takeRestOfLine(ptr));
+				}
 				continue;
 			default:
 				return;
@@ -129,14 +131,14 @@ DocCommentAndIndentDelta skipBlankLinesAndGetIndentDelta(
 		uint newIndent;
 		skipBlankLines(
 			ptr,
-			() {
+			cbStartOfLoop: () {
 				start = ptr;
 				newIndent = takeIndentAmountAfterNewline(ptr, indentKind, addDiag);
 			},
-			(CString _, string dc) {
+			cbComment: (CString _, string dc) {
 				docComment = dc;
 			},
-			addDiag);
+			addDiag: addDiag);
 
 		if (*ptr == '\0')
 			// Ignore indent before EOF
@@ -209,7 +211,13 @@ bool ignoreCharForTokens(char c) =>
 }
 
 // Walk to the *left* skipping whitespace on the same line.
-public Pos skipWhitespaceBackwards(string sourceText, Pos pos) {
+public Pos skipWhitespaceBackwards(string sourceText, Pos pos) { // TODO: RENAME, this also skips a single '.' -----------------------------
+	pos = skipWhitespaceBackwards2(sourceText, pos);
+	return pos != 0 && sourceText[pos - 1] == '.'
+		? skipWhitespaceBackwards2(sourceText, pos - 1)
+		: pos;
+}
+Pos skipWhitespaceBackwards2(string sourceText, Pos pos) { // TODO: RENAME 0000000000000000000000000000000000000000000000000000000000
 	while (pos != 0) {
 		char x = sourceText[pos - 1];
 		if (x == ' ')
@@ -249,6 +257,7 @@ void skipBlankLines(
 		} else if (tryTakeTripleHashThenNewline(ptr)) {
 			cbComment(before, takeRestOfBlockComment(ptr, addDiag));
 		} else if (tryTakeChar(ptr, '#')) {
+			while (tryTakeChar(ptr, ' ')) {}
 			cbComment(before, takeRestOfLine(ptr));
 		} else if (!tryTakeLineContinuation(ptr, cbComment))
 			break;

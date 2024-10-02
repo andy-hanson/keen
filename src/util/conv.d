@@ -2,8 +2,6 @@ module util.conv;
 
 @safe @nogc pure nothrow:
 
-import util.opt : Opt, optIf;
-
 int safeIntFromUint(uint u) {
 	assert(u <= int.max);
 	return cast(int) u;

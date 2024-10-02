@@ -2,11 +2,8 @@ module frontend.ide.getSignatureHelp;
 
 @safe @nogc pure nothrow:
 
-import std.typecons : Tuple;
-
-import frontend.ide.position :
-	ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind;
-import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind, writeTypeUnquoted;
+import frontend.ide.position : ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position;
+import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : ParameterInformation, SignatureHelp, SignatureInformation;
 import model.ast : CallAst, ExprAstKind;
 import model.diag : TypeContainer;
@@ -17,23 +14,16 @@ import model.model :
 	CalledSpecSig,
 	CallExpr,
 	CallOptionExpr,
-	Destructure,
 	ExternExpr,
 	FunDecl,
-	FunPointerExpr,
-	Params,
-	Program,
-	Type;
+	FunPointerExpr;
 import util.alloc.alloc : Alloc;
-import util.col.array : isEmpty, map, newArray;
+import util.col.array : map;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, finish, newExactSizeArrayBuilder;
 import util.conv : safeToUint;
-import util.opt : none, Opt, optIf, some;
+import util.opt : none, Opt, some;
 import util.sourceRange : Range;
-import util.string : smallString;
-import util.symbol : stringOfSymbol;
 import util.writer : curUtf16Offset, makeStringWithWriter, Writer;
-import util.util : stringOfEnum;
 
 Opt!SignatureHelp getSignatureHelpForPosition(ref Alloc alloc, in ShowTypeCtx showCtx, in Position position) =>
 	position.kind.isA!ExpressionPosition

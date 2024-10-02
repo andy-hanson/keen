@@ -12,7 +12,6 @@ import model.model :
 	FunKind,
 	IntegralType,
 	IntegralTypes,
-	Linkage,
 	Purity,
 	StructAlias,
 	StructBody,

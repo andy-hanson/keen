@@ -12,6 +12,7 @@ import frontend.ide.position :
 	Position,
 	PositionKind,
 	VisibilityContainer;
+import frontend.parse.lexWhitespace : skipWhitespaceBackwards;
 import model.ast :
 	ArrowAccessAst,
 	AssertOrForbidAst,
@@ -140,19 +141,27 @@ import util.col.array :
 import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
 import util.conv : safeToUint;
 import util.opt : force, has, none, Opt, optIf, optOr, optOr, optOrDefault, some;
-import util.sourceRange : combineRanges, LineAndColumnGetter, Pos, PosKind, Range;
+import util.sourceRange : combineRanges, Pos, Range;
 import util.union_ : TaggedUnion, Union;
-import util.util : enumConvert, stringOfEnum;
+import util.util : enumConvert;
 
 enum GetPositionKind {
-	// For hover, go to definition, get references: Expect cursor exactly on the thing.
-	target,
-	// For signature help, the cursor may be to the right of the call.
-	signatureHelp,
+	// Expect cursor exactly on the thing. Used for requests like hover.
+	exact,
+	// The cursor may be to the right of the thing; used for speculative requests such as completions.
+	after,
 }
-Opt!Position getPosition(ref Program program, Module* module_, Pos pos, GetPositionKind posKind) {
+Opt!Position getPosition(ref Program program, Module* module_, string sourceText, Pos pos, GetPositionKind posKind) {
+	Pos posAdjusted = () {
+		final switch (posKind) {
+			case GetPositionKind.exact:
+				return pos;
+			case GetPositionKind.after:
+				return skipWhitespaceBackwards(sourceText, pos);
+		}
+	}();
 	Ctx ctx = Ctx(program.commonTypesPtr);
-	Opt!PositionKind kind = getPositionKind(ctx, *module_, pos, posKind);
+	Opt!PositionKind kind = getPositionKind(ctx, *module_, posAdjusted, posKind);
 	return optIf(has(kind), () => Position(module_, force(kind)));
 }
 
@@ -621,9 +630,9 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, ref Loops loops, ExprRef a, Pos
 	Opt!PositionKind call(ExpressionPositionKind kind) {
 		bool ok = () {
 			final switch (posKind) {
-				case GetPositionKind.target:
+				case GetPositionKind.exact:
 					return posIsAtCall(*ast, pos);
-				case GetPositionKind.signatureHelp:
+				case GetPositionKind.after:
 					return true;
 			}
 		}();

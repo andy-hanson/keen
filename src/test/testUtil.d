@@ -4,19 +4,23 @@ module test.testUtil;
 
 import std.meta : AliasSeq, staticMap;
 
-import frontend.showModel : ShowCtx, ShowOptions;
+import frontend.showModel : ShowCtx, ShowModelCtx, ShowOptions;
 import frontend.storage : FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
 import interpret.bytecode : ByteCode, ByteCodeIndex, Operation;
 import interpret.debugInfo : showDataArr;
 import interpret.stacks : dataEnd, returnTempAsArrReverse, Stacks;
-import lib.server : allUnknownUris, Server, ServerSettings, setServerSettings, setFile, setFileAssumeUtf8;
+import lib.server : allUnknownUris, getProgramForAll, getShowDiagCtx, Server, ServerSettings, setServerSettings, setFile, setFileAssumeUtf8;
 import model.diag : ReadFileDiag;
+import model.model : Module, Program;
 import util.alloc.alloc : Alloc, allocateElements, AllocKind, MetaAlloc, newAlloc, withTempAlloc, word;
-import util.col.array : arraysEqual, arrayOfRange, arraysCorrespond, endPtr, indexOf, isEmpty, makeArray, map;
+import util.col.array : arraysEqual, arrayOfRange, arraysCorrespond, endPtr, indexOf, isEmpty, makeArray, map, mapCompileTime;
+import util.col.hashTable : mustGet;
+import util.json : Json, writeJsonPretty;
+import util.jsonParse : mustParseJson;
 import util.opt : force, has, none, Opt;
 import util.perf : Perf;
 import util.string : CString, CStringAndLength, stringOfCString;
-import util.symbol : Extension;
+import util.symbol : addExtension, Extension, symbol, symbolOfString;
 import util.unicode : FileContent;
 import util.uri : concatUriAndPath, getExtension, isAncestor, mustParseUri, parsePath, Uri, UrisInfo;
 import util.util : ptrTrustMe;
@@ -104,6 +108,28 @@ private void withShowDiagCtxForTestImpl(alias cb)(scope ref Test test, in Storag
 
 pure:
 
+@trusted void testWithCrowAndJsonFiles(string dirName, string[] names)(
+	ref Test test,
+	in void delegate(Uri uri, in string crow, in Json json) @safe @nogc pure nothrow cb
+) {
+	CrowJsonTest[names.length] tests = mapCompileTime!(names.length, CrowJsonTest, names, importCrowTest!dirName);
+	foreach (CrowJsonTest x; tests)
+		cb(
+			mustParseUri("magic:") / addExtension(symbolOfString(x.name), Extension.crow),
+			x.crow,
+			mustParseJson(test.alloc, CString(x.json)));
+}
+private template importCrowTest(string dirName) {
+	CrowJsonTest importCrowTest(string name)() =>
+		CrowJsonTest(name, import(dirName ~ "/" ~ name ~ ".crow"), import(dirName ~ "/" ~ name ~ ".json"));
+}
+
+private immutable struct CrowJsonTest {
+	string name;
+	string crow;
+	immutable char* json;
+}
+
 void assertEqual(T)(
 	in T actual,
 	in T expected,
@@ -122,7 +148,23 @@ void assertEqual(T)(
 
 void assertEqual(T)(in immutable T actual, in immutable T expected) {
 	assertEqual!(immutable T)(actual, expected, (scope ref Writer writer, in immutable T x) {
-		writer ~= x;
+		static if (is(T == Json))
+			writeJsonPretty(writer, x, 0);
+		else
+			writer ~= x;
+	});
+}
+
+void withIdeTest(
+	ref Test test,
+	Uri uri,
+	in string content,
+	in void delegate(in ShowModelCtx, in Program, in Module*) @safe @nogc pure nothrow cb,
+) {
+	withTestServer(test, (ref Alloc alloc, ref Server server) {
+		setupTestServer(test, alloc, server, uri, content);
+		Program program = getProgramForAll(test.perf, alloc, server);
+		cb(getShowDiagCtx(server, program), program, mustGet(program.allModules, uri));
 	});
 }
 

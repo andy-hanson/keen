@@ -22,7 +22,7 @@ import model.model :
 	StructInst,
 	Type,
 	TypeParamIndex;
-import util.alloc.stackAlloc : MaxStackArray, withMapOrNoneToStackArray, withMapToStackArray, withMaxStackArray;
+import util.alloc.stackAlloc : MaxStackArray, withMapOrNoneToStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array :
 	contains,
@@ -375,7 +375,7 @@ private @trusted void setToType(ref Expected expected, Type type) {
 void setToBogus(ref Expected expected) {
 	expected = Type.Bogus();
 }
-void setToBogusIfInferring(ref Expected expected) {
+private void setToBogusIfInferring(ref Expected expected) {
 	expected.matchCombineType!void(
 		(Expected.Infer) {
 			setToBogus(expected);
@@ -792,6 +792,18 @@ public void inferTypeArgsFrom(
 			}
 		});
 }
+
+public bool isTypeMatchPossibleForCompletions(
+	in TypeWithContainer paramType,
+	in Type actualArgType,
+) =>
+	withStackArray!(bool, SingleInferringType)(
+		paramType.container.typeParams.length,
+		(size_t _) => SingleInferringType(),
+		(scope SingleInferringType[] inferring) =>
+			isTypeMatchPossible(
+				TypeAndContext(paramType.type, TypeContext(small!SingleInferringType(inferring))),
+				nonInferring(actualArgType)));
 
 bool isTypeMatchPossible(in TypeAndContext a, in TypeAndContext b) {
 	if (isInferringNonInferredTypeParam(a) || isInferringNonInferredTypeParam(b))

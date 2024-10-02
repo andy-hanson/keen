@@ -94,7 +94,7 @@ import util.col.array :
 import util.col.hashTable : HashTable, makeHashTable;
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
-import util.opt : force, has, MutOpt, none, noneMut, Opt, optFromMut, optIf, optOrDefault, some, someMut;
+import util.opt : force, has, MutOpt, none, noneMut, Opt, optFromMut, optIf, some, someMut;
 import util.sourceRange : Range;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet, symbolSet;

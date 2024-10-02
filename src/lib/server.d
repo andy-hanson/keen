@@ -25,7 +25,6 @@ import frontend.ide.getReferences : getDocumentHighlightsForPosition, getReferen
 import frontend.ide.getSignatureHelp : getSignatureHelpForPosition;
 import frontend.ide.getTokens : jsonOfDecodedTokens, tokensOfAst;
 import frontend.ide.position : Position;
-import frontend.parse.lexWhitespace : skipWhitespaceBackwards;
 import frontend.showDiag :
 	sortedDiagnostics, stringOfDiag, stringOfDiagnostics, stringOfParseDiagnostics, UriAndDiagnostics;
 import frontend.showModel : ShowCtx, ShowDiagCtx, ShowOptions;
@@ -142,12 +141,12 @@ import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.perf : Perf;
-import util.sourceRange : LineAndColumn, Pos, toLineAndCharacter, UriAndRange, UriLineAndColumn;
+import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndRange, UriLineAndColumn;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
 import util.union_ : Union;
-import util.util : castNonScope, castNonScope_ref, todo;
+import util.util : castNonScope, castNonScope_ref;
 import versionInfo : getOS, JsTarget, OS, VersionInfo, versionInfoForBuildToC, versionInfoForInterpret, VersionOptions;
 
 ExitCodeOrSignal buildAndInterpret(
@@ -586,9 +585,9 @@ private Opt!CompletionList getCompletionForProgram(
 	in Program program,
 	in CompletionParams params,
 ) {
-	Opt!Position position = serverGetPositionForSignatureHelp(server, program, params.params); // TODO: rename it then ------
+	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.after);
 	return has(position)
-		? getCompletionForPosition(alloc, force(position))
+		? getCompletionForPosition(alloc, getShowDiagCtx(server, program, forceNoColor: true), force(position))
 		: none!CompletionList;
 }
 
@@ -598,7 +597,7 @@ private UriAndRange[] getDefinitionForProgram(
 	in Program program,
 	in DefinitionParams params,
 ) {
-	Opt!Position position = serverGetPosition(server, program, params.params);
+	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
 	return has(position) ? getDefinitionForPosition(alloc, program.commonTypes, force(position)) : [];
 }
 
@@ -608,7 +607,7 @@ private UriAndRange[] getTypeDefinitionForProgram(
 	in Program program,
 	in TypeDefinitionParams params,
 ) {
-	Opt!Position position = serverGetPosition(server, program, params.textDocmuentAndPosition);
+	Opt!Position position = serverGetPosition(server, program, params.textDocumentAndPosition, GetPositionKind.exact);
 	return has(position) ? getTypeDefinitionForPosition(alloc, program.commonTypes, force(position)) : [];
 }
 
@@ -618,7 +617,7 @@ private Opt!DocumentHighlightResult getDocumentHighlightsForProgram(
 	in Program program,
 	in DocumentHighlightParams params,
 ) {
-	Opt!Position position = serverGetPosition(server, program, params.params);
+	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
 	return has(position)
 		? getDocumentHighlightsForPosition(alloc, program, force(position))
 		: none!DocumentHighlightResult;
@@ -630,7 +629,7 @@ private UriAndRange[] getReferencesForProgram(
 	in Program program,
 	in ReferenceParams params,
 ) {
-	Opt!Position position = serverGetPosition(server, program, params.params);
+	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
 	return has(position) ? getReferencesForPosition(alloc, program, force(position)) : [];
 }
 
@@ -640,7 +639,7 @@ private Opt!WorkspaceEdit getRenameForProgram(
 	in Program program,
 	in RenameParams params,
 ) {
-	Opt!Position position = serverGetPosition(server, program, params.textDocumentAndPosition);
+	Opt!Position position = serverGetPosition(server, program, params.textDocumentAndPosition, GetPositionKind.exact);
 	return has(position)
 		? getRenameForPosition(alloc, program, force(position), params.newName)
 		: none!WorkspaceEdit;
@@ -652,7 +651,7 @@ private Opt!SignatureHelp getSignatureHelpForProgram(
 	in Program program,
 	in SignatureHelpParams params,
 ) {
-	Opt!Position position = serverGetPositionForSignatureHelp(server, program, params.textDocumentAndPosition);
+	Opt!Position position = serverGetPosition(server, program, params.textDocumentAndPosition, GetPositionKind.after);
 	return has(position)
 		? getSignatureHelpForPosition(alloc, getShowDiagCtx(server, program, forceNoColor: true), force(position))
 		: none!SignatureHelp;
@@ -664,7 +663,7 @@ private Opt!Hover getHoverForProgram(
 	in Program program,
 	in HoverParams params,
 ) {
-	Opt!Position position = serverGetPosition(server, program, params.params);
+	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
 	return optIf(has(position), () =>
 		getHover(alloc, getShowDiagCtx(server, program, forceNoColor: true), force(position)));
 }
@@ -687,26 +686,11 @@ Program getProgramForRoots(scope ref Perf perf, ref Alloc alloc, ref Server serv
 Program getProgramForAll(scope ref Perf perf, ref Alloc alloc, ref Server server) =>
 	getProgram(perf, alloc, server, allKnownGoodCrowUris(alloc, server.storage));
 
-private Opt!Position serverGetPosition(in Server server, ref Program program, in TextDocumentPositionParams where) {
+private Opt!Position serverGetPosition(in Server server, ref Program program, in TextDocumentPositionParams where, GetPositionKind kind) {
 	Opt!(immutable Module*) module_ = program.allModules[where.textDocument.uri];
 	return has(module_)
-		? getPosition(program, force(module_), server.lineAndCharacterGetters[where], GetPositionKind.target)
+		? getPosition(program, force(module_), getSourceText(server, where.textDocument.uri), server.lineAndCharacterGetters[where], kind)
 		: none!Position;
-}
-
-private Opt!Position serverGetPositionForSignatureHelp(
-	in Server server,
-	ref Program program,
-	in TextDocumentPositionParams where,
-) {
-	Opt!(immutable Module*) module_ = program.allModules[where.textDocument.uri];
-	if (has(module_)) {
-		Pos pos = skipWhitespaceBackwards(
-			getSourceText(server, where.textDocument.uri),
-			server.lineAndCharacterGetters[where]);
-		return getPosition(program, force(module_), pos, GetPositionKind.signatureHelp);
-	} else
-		return none!Position;
 }
 
 private string getSourceText(in Server server, in Uri uri) =>

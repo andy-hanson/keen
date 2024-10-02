@@ -336,5 +336,5 @@ immutable struct ParameterInformation {
 }
 
 immutable struct TypeDefinitionParams {
-	TextDocumentPositionParams textDocmuentAndPosition;
+	TextDocumentPositionParams textDocumentAndPosition;
 }

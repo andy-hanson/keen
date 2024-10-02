@@ -20,7 +20,7 @@ import frontend.parse.lexToken : isSymbolToken;
 import model.ast : LiteralIntegral, LiteralIntegralAndRange, NameAndRange;
 import model.parseDiag : ParseDiag;
 import util.col.array : contains;
-import util.opt : force, has, none, Opt, optIf, some;
+import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
 import util.sourceRange : Pos, Range;
 import util.string : emptySmallString, SmallString;
 import util.symbol : Symbol, symbol;
@@ -138,17 +138,17 @@ Opt!NameAndRange tryTakeNameAndRange(ref Lexer lexer) {
 	return tryTakeTokenCb!NameAndRange(lexer, (TokenAndData x) =>
 		optIf(x.token == Token.name, () => NameAndRange(start, x.asSymbol)));
 }
-
-NameAndRange takeNameAndRange(ref Lexer lexer) {
+Opt!NameAndRange tryTakeNameAndRangeOrDiag(ref Lexer lexer) {
 	Pos start = curPos(lexer);
-	Opt!NameAndRange name = tryTakeNameAndRange(lexer);
-	if (has(name))
-		return force(name);
-	else {
+	Opt!NameAndRange res = tryTakeNameAndRange(lexer);
+	if (!has(res))
 		addDiag(lexer, rangeForCurToken(lexer, start), ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.name)));
-		return NameAndRange(start, symbol!"");
-	}
+	return res;
 }
+
+NameAndRange takeNameAndRange(ref Lexer lexer) =>
+	optOrDefault!NameAndRange(tryTakeNameAndRangeOrDiag(lexer), () =>
+		NameAndRange(curPos(lexer), symbol!""));
 
 NameAndRange takeNameAndRangeAllowUnderscore(ref Lexer lexer) {
 	Pos start = curPos(lexer);

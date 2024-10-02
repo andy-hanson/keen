@@ -85,7 +85,7 @@ import util.col.exactSizeArrayBuilder :
 	ExactSizeArrayBuilder, newExactSizeArrayBuilder, finishAllowSmaller, smallFinish;
 import util.late : Late, late, lateGet, lateSet;
 import util.memory : allocate;
-import util.opt : force, has, none, Opt, optIf, optOrDefault, some, some;
+import util.opt : force, has, none, Opt, optIf, some, some;
 import util.perf : endMeasure, PerfMeasure, PerfMeasurer, pauseMeasure, resumeMeasure, startMeasure;
 import util.sourceRange : Range;
 import util.symbol : Symbol, symbol;
@@ -282,7 +282,7 @@ Expr checkCallSpecialCbN(
 		ctx, locals, source, diagRange, funName, expected, none!Type, nArgs, cbCheckArg,
 		(in CalledDecl) => true,
 		(scope ref Candidate[]) => true);
-Expr checkCallSpecialCbN2( // TODO: a better name ........................................................................................
+private Expr checkCallSpecialCbN2( // TODO: a better name ........................................................................................
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
@@ -331,9 +331,9 @@ Expr checkCallSpecialCbN2( // TODO: a better name ..............................
 			}
  		});
 }
-SmallArray!ExprAndType exprsAndTypes(ref Alloc alloc, SmallArray!Expr args, SmallArray!Type types) =>
+private SmallArray!ExprAndType exprsAndTypes(ref Alloc alloc, SmallArray!Expr args, SmallArray!Type types) =>
 	mapZip!(ExprAndType, Expr, Type)(alloc, args, types, (ref Expr x, ref Type y) => ExprAndType(x, y));
-SmallArray!CalledDecl getCandidateDeclsForBogus(ref ExprCtx ctx, Symbol funName) =>
+private SmallArray!CalledDecl getCandidateDeclsForBogus(ref ExprCtx ctx, Symbol funName) =>
 	buildSmallArray!CalledDecl(ctx.alloc, (scope ref Builder!CalledDecl res) {
 		eachFunInScope(funsInExprScope(ctx), funName, (CalledDecl called) {
 			res ~= called;

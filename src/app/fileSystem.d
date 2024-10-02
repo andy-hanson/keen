@@ -254,13 +254,17 @@ private ExitCode removeEmptyDirectory(FilePath dirPath) {
 	});
 }
 
-private @trusted ExitCode removeAllInDirectory(FilePath dirPath) {
+private ExitCode removeAllInDirectory(FilePath dirPath) =>
+	eachFileInDirectory(dirPath, okIfNotExists: true, cb: (FilePath path) =>
+		removeFileOrDirectoryIfExists(path));
+
+private @trusted ExitCode eachFileInDirectory(FilePath dirPath, bool okIfNotExists, in ExitCode delegate(FilePath) @safe @nogc nothrow cb) {
 	version (Windows) {
-		return todo!ExitCode("TODO: removeAllInDirectory");
+		return todo!ExitCode("TODO: eachFileInDirectory");
 	} else {
 		DIR* dir = withCStringOfFilePath(dirPath, (in CString x) @trusted => opendir(x.ptr));
 		if (dir == null) {
-			if (errno == ENOENT)
+			if (okIfNotExists && errno == ENOENT)
 				return ExitCode.ok;
 			else
 				return printErrorCb((scope ref Writer writer) {
@@ -276,7 +280,7 @@ private @trusted ExitCode removeAllInDirectory(FilePath dirPath) {
 				if (dirent != null) {
 					Symbol name = symbolOfString(stringOfCString(CString(castImmutable(dirent.d_name.ptr))));
 					if (name != symbol!".." && name != symbol!".")
-						exit = removeFileOrDirectoryIfExists(dirPath / name).value;
+						exit = cb(dirPath / name).value;
 				} else
 					break;
 			}

@@ -176,11 +176,6 @@ string jsonToString(ref Alloc alloc, in Json a) =>
 		writer ~= a;
 	});
 
-string jsonToStringPretty(ref Alloc alloc, in Json a) =>
-	makeStringWithWriter(alloc, (scope ref Writer writer) {
-		writeJsonPretty(writer, a, 0);
-	});
-
 private void writeJson(ref Writer writer, in Json a) =>
 	a.matchIn!void(
 		(in Json.Null _) {

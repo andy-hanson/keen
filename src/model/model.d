@@ -20,7 +20,6 @@ import model.ast :
 	ImportOrExportAst,
 	MatchAst,
 	ModifierAst,
-	ModifierKeyword,
 	NameAndRange,
 	RecordOrUnionMemberAst,
 	SpecDeclAst,

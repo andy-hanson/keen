@@ -343,7 +343,7 @@ SmallArray!Out map(Out, In)(ref Alloc alloc, in SmallArray!In a, in Out delegate
 	return res;
 }
 
-@trusted Out[n] mapStatic(size_t n, Out, In)(ref In[n] a, in Out delegate(In) @safe @nogc pure nothrow cb) {
+Out[n] mapStatic(size_t n, Out, In)(ref In[n] a, in Out delegate(In) @safe @nogc pure nothrow cb) {
 	static if (n == 0)
 		return [];
 	else static if (n == 1)
@@ -354,6 +354,20 @@ SmallArray!Out map(Out, In)(ref Alloc alloc, in SmallArray!In a, in Out delegate
 		return [cb(a[0]), cb(a[1]), cb(a[2])];
 	else static if (n == 4)
 		return [cb(a[0]), cb(a[1]), cb(a[2]), cb(a[3])];
+	else
+		static assert(false, "TODO");
+}
+Out[n] mapCompileTime(size_t n, Out, alias a, alias cb)() { // TODO: merge with mapStatic? ------------------------
+	static if (n == 0)
+		return [];
+	else static if (n == 1)
+		return [cb!(a[0])];
+	else static if (n == 2)
+		return [cb!(a[0]), cb!(a[1])];
+	else static if (n == 3)
+		return [cb!(a[0]), cb!(a[1]), cb!(a[2])];
+	else static if (n == 4)
+		return [cb!(a[0]), cb!(a[1]), cb!(a[2]), cb!(a[3])];
 	else
 		static assert(false, "TODO");
 }
