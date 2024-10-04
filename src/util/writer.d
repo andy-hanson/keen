@@ -8,7 +8,7 @@ import util.col.arrayBuilder : asTemporaryArray, Builder, finish, sizeSoFar;
 import util.col.array : reverseInPlace, zip;
 import util.conv : bitsOfFloat64, powerOf10, round, safeToSizeT, safeToUlong;
 import util.string : eachChar, CString, stringOfCString;
-import util.unicode : isValidUnicodeCharacter, mustUnicodeDecode, mustUnicodeEncode;
+import util.unicode : isValidUnicodeCharacter, mustUnicodeDecode, mustUnicodeEncode, utf16Length;
 import util.util : abs, castImmutable, debugLog, isNan, max, min;
 
 T withStackWriterImpure(T)(
@@ -89,7 +89,7 @@ struct Writer {
 }
 
 size_t curUtf16Offset(in Writer writer) =>
-	sizeSoFar(writer.res); // TODO: This is the utf8 offset! ----------------------------------------------------------------
+	utf16Length(asTemporaryArray(writer.res));
 
 void debugLogWithWriter(in void delegate(scope ref Writer) @safe @nogc pure nothrow cb) {
 	debugLogWithWriter((scope ref Alloc, scope ref Writer writer) {

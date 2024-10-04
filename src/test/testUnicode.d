@@ -2,11 +2,11 @@ module test.testUnicode;
 
 @safe @nogc pure nothrow:
 
-import test.testUtil : Test;
+import test.testUtil : assertEqual, Test;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.opt : force, has, Opt;
 import util.string : CString, cString, CStringAndLength, stringOfCString;
-import util.unicode : FileContent, mustUnicodeDecode, mustUnicodeEncode, unicodeValidate;
+import util.unicode : FileContent, mustUnicodeDecode, mustUnicodeEncode, unicodeValidate, utf16Length;
 
 void testUnicode(ref Test test) {
 	assertUnicode(test, cString!"$¥₿𝄮", 10, "$¥₿𝄮", 4);
@@ -17,6 +17,9 @@ void testUnicode(ref Test test) {
 		Opt!CStringAndLength valid = unicodeValidate(FileContent(CStringAndLength(cString!"a\0b", 3)));
 		assert(!has(valid));
 	})();
+
+	assertEqual(utf16Length("alpha"), 5);
+	assertEqual(utf16Length("𝄮"), 2);
 }
 
 private:

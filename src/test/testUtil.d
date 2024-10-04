@@ -143,9 +143,11 @@ void assertEqual(T)(
 	in T actual,
 	in T expected,
 	in void delegate(scope ref Writer, in T) @safe @nogc pure nothrow cbShow,
+	in void delegate(scope ref Writer) @safe @nogc pure nothrow cbDescribe = null,
 ) {
 	if (actual != expected) {
 		debugLogWithWriter((scope ref Writer writer) {
+			if (cbDescribe) cbDescribe(writer);
 			writer ~= "Actual: ";
 			cbShow(writer, actual);
 			writer ~= "\nExpected: ";
@@ -156,12 +158,24 @@ void assertEqual(T)(
 }
 
 void assertEqual(T)(in immutable T actual, in immutable T expected) {
-	assertEqual!(immutable T)(actual, expected, (scope ref Writer writer, in immutable T x) {
-		static if (is(T == Json))
-			writeJsonPretty(writer, x, 0);
-		else
-			writer ~= x;
-	});
+	assertEqual!(immutable T)(actual, expected, (scope ref Writer _) {});
+}
+
+void assertEqual(T)(
+	in immutable T actual,
+	in immutable T expected,
+	in void delegate(scope ref Writer) @safe @nogc pure nothrow cbDescribe,
+) {
+	assertEqual!(immutable T)(
+		actual,
+		expected,
+		(scope ref Writer writer, in immutable T x) {
+			static if (is(T == Json))
+				writeJsonPretty(writer, x, 0);
+			else
+				writer ~= x;
+		},
+		cbDescribe);
 }
 
 void withIdeTest(

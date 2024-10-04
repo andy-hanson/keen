@@ -772,7 +772,16 @@ immutable struct PrintKind {
 	immutable struct ConcreteModel {}
 	immutable struct LowModel {}
 	immutable struct Ide {
-		enum Kind { completion, definition, documentHighlight, hover, references, rename, signatureHelp, typeDefinition }
+		enum Kind {
+			completion,
+			definition,
+			documentHighlight,
+			hover,
+			references,
+			rename,
+			signatureHelp,
+			typeDefinition,
+		}
 		Kind kind;
 		LineAndColumn lineAndColumn;
 	}

@@ -125,7 +125,6 @@ Json initializeCapabilities(ref Alloc alloc) =>
 		field!"textDocumentSync"(2), // incremental
 		field!"completionProvider"(jsonObject(alloc, [
 			field!"triggerCharacters"(jsonList(alloc, [jsonString(".")]))])),
-			//field!"resolveProvider"(true)])), --------------------------------------------------------------------------------
 		field!"definitionProvider"(jsonObject([])),
 		field!"documentHighlightProvider"(jsonObject([])),
 		field!"hoverProvider"(jsonObject([])),

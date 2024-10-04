@@ -882,6 +882,7 @@ immutable string[] specialSymbols = [
 	"tuple9",
 	"type-arg",
 	"type-args",
+	"type-definition",
 	"type-index",
 	"type-params",
 	"Uint8Array",

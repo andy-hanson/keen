@@ -50,6 +50,15 @@ Opt!CStringAndLength unicodeValidate(in FileContent utf8) {
 		CStringAndLength(utf8.assumeUtf8, str.length));
 }
 
+// Returns the size of 'utf8' if it were encoded as UTF816.
+size_t utf16Length(in string utf8) {
+	size_t res;
+	mustUnicodeDecode(utf8, (dchar x) {
+		res += x <= 0xd7ff || (x >= 0xe000 && x <= 0xffff) ? 1 : 2;
+	});
+	return res;
+}
+
 void mustUnicodeEncode(ref Builder!(immutable char) builder, in dchar[] a) {
 	bool ok = tryUnicodeEncode(builder, a);
 	assert(ok);

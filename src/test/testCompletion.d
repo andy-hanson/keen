@@ -16,6 +16,7 @@ import util.opt : force, Opt;
 import util.sourceRange : LineAndColumn, Pos;
 import util.symbol : cStringOfSymbol;
 import util.uri : Uri;
+import util.writer : Writer;
 
 void testCompletion(ref Test test) {
 	testWithCrowAndJsonFiles!(
@@ -37,7 +38,13 @@ void singleTest(ref Test test, Uri uri, in string crow, in Json json) {
 			Pos pos = ctx.lineAndColumnGetters[module_.uri][where];
 			Opt!Position position = getPosition(program, module_, crow, pos, GetPositionKind.after);
 			Opt!CompletionList res = getCompletionForPosition(test.alloc, ctx, force(position));
-			assertEqual(jsonOfCompletionList(test.alloc, force(res)), field.value);
+			assertEqual(jsonOfCompletionList(test.alloc, force(res)), field.value, (scope ref Writer writer) {
+				writer ~= "For ";
+				writer ~= uri;
+				writer ~= " ";
+				writer ~= where;
+				writer ~= ":\n";
+			});
 		}
 	});
 }

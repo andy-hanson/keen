@@ -12,7 +12,7 @@ import frontend.ide.position :
 	Position,
 	PositionKind,
 	VisibilityContainer;
-import frontend.parse.lexWhitespace : skipWhitespaceBackwards;
+import frontend.parse.lexWhitespace : walkBackwardsForPosition;
 import model.ast :
 	ArrowAccessAst,
 	AssertOrForbidAst,
@@ -157,7 +157,7 @@ Opt!Position getPosition(ref Program program, Module* module_, string sourceText
 			case GetPositionKind.exact:
 				return pos;
 			case GetPositionKind.after:
-				return skipWhitespaceBackwards(sourceText, pos);
+				return walkBackwardsForPosition(sourceText, pos);
 		}
 	}();
 	Ctx ctx = Ctx(program.commonTypesPtr);

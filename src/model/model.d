@@ -56,7 +56,7 @@ import util.col.array :
 import util.col.hashTable : existsInHashTable, HashTable, mustGet;
 import util.col.map : Map, mustGet;
 import util.col.enumMap : EnumMap;
-import util.conv : safeToUint;
+import util.conv : safeToUint, safeToUshort;
 import util.integralValues : IntegralValue;
 import util.late : Late, lateGet, lateIsSet, lateSet, lateSetOverwrite;
 import util.opt : force, has, none, Opt, optEqual, optIf, optOr, optOrDefault, some;
@@ -327,6 +327,8 @@ immutable struct Signature {
 		UriAndRange(moduleUri, ast.range);
 	UriAndRange nameRange() scope =>
 		UriAndRange(moduleUri, ast.nameAndRange.range);
+	SmallString docComment() scope =>
+		ast.docComment;
 }
 
 immutable struct TypeParamsAndSig {
@@ -829,6 +831,12 @@ size_t countSigs(in SpecInst*[] a) =>
 	sum(a, (in SpecInst* x) => countSigs(*x));
 size_t countSigs(in SpecInst a) =>
 	countSigs(a.parents) + a.sigTypes.length;
+void eachCalledSpecSig(SpecInst* specInst, in void delegate(CalledSpecSig) @safe @nogc pure nothrow cb) {
+	foreach (SpecInst* parent; specInst.parents)
+		eachCalledSpecSig(parent, cb);
+	foreach (size_t sigIndex, ref Signature sig; specInst.decl.sigs)
+		cb(CalledSpecSig(specInst, safeToUshort(sigIndex)));
+}
 
 immutable struct SpecInstBody {
 	Specs parents;
@@ -1577,12 +1585,12 @@ immutable struct CalledDecl {
 			(in CalledSpecSig x) =>
 				x.arity);
 
-	SmallString docComment() =>
+	SmallString docComment() scope =>
 		match!SmallString(
 			(ref FunDecl x) =>
 				x.docComment,
 			(CalledSpecSig x) =>
-				emptySmallString);
+				x.nonInstantiatedSig.docComment);
 
 	Params nonInstantiatedParams() =>
 		match!Params(

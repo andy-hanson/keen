@@ -579,20 +579,16 @@ Type inferred(ref const Expected expected) =>
 
 Expr check(ref ExprCtx ctx, ref Expected expected, Type exprType, ExprAst* source, ExprKind exprKind) =>
 	check(ctx, expected, ExprAndType(Expr(source, exprKind), exprType)).expr;
-private ExprAndType check(ref ExprCtx ctx, ref Expected expected, ExprAndType a) =>
-	optOrDefault!ExprAndType(tryCheck(ctx, expected, a), () {
+private ExprAndType check(ref ExprCtx ctx, ref Expected expected, ExprAndType a) {
+	if (setTypeNoDiagnostic(ctx.instantiateCtx, expected, a.type))
+		return a;
+	else {
+		addDiag2(ctx, a.expr.range, Diag(
+			Diag.TypeConflict(getExpectedForDiag(ctx, expected), typeWithContainer(ctx, a.type))));
 		setToBogusIfInferring(expected);
 		return ExprAndType(
 			Expr(a.expr.ast, ExprKind(BogusWrongTypeExpr(ExprRef(allocate(ctx.alloc, a.expr), a.type)))),
 			Type.bogus);
-	});
-Opt!ExprAndType tryCheck(ref ExprCtx ctx, ref Expected expected, ExprAndType a) {
-	if (setTypeNoDiagnostic(ctx.instantiateCtx, expected, a.type))
-		return some(a);
-	else {
-		addDiag2(ctx, a.expr.range, Diag(
-			Diag.TypeConflict(getExpectedForDiag(ctx, expected), typeWithContainer(ctx, a.type))));
-		return none!ExprAndType;
 	}
 }
 

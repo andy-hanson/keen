@@ -191,8 +191,6 @@ immutable struct CompletionItem {
 	string label;
 	string detail; // E.g., the full function signature
 	string documentation;
-	// TODO: use 'insertText' and 'insertTextMode'text to replace the '.' if the completion is a function with more than one argument -------------------
-	// or 'textEdit'?
 }
 
 

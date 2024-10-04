@@ -20,6 +20,7 @@ import model.model :
 	CalledSpecSig,
 	CommonTypes,
 	Destructure,
+	eachCalledSpecSig,
 	ExportVisibility,
 	FunDecl,
 	importCanSee,
@@ -214,10 +215,8 @@ private void eachFunInScopeForSpec(
 	Symbol funName,
 	in void delegate(CalledDecl) @safe @nogc pure nothrow cb,
 ) {
-	foreach (SpecInst* parent; specInst.parents)
-		eachFunInScopeForSpec(parent, funName, cb);
-	foreach (size_t sigIndex, ref Signature sig; specInst.decl.sigs) {
-		if (sig.name == funName)
-			cb(CalledDecl(CalledSpecSig(specInst, safeToUshort(sigIndex))));
-	}
+	eachCalledSpecSig(specInst, (CalledSpecSig x) {
+		if (x.name == funName)
+			cb(CalledDecl(x));
+	});
 }

@@ -2,7 +2,7 @@ module test.testHover;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.getDefinition : getDefinitionForPosition;
+import frontend.ide.getDefinition : getDefinitionForPosition, getTypeDefinitionForPosition;
 import frontend.ide.getHover : getHover;
 import frontend.ide.getPosition : getPosition, GetPositionKind;
 import frontend.ide.position : Position;
@@ -44,19 +44,20 @@ struct InfoAtPos {
 
 	string hover;
 	UriAndRange[] definition;
+	UriAndRange[] typeDefinition;
 
 	bool isEmpty() scope =>
-		.isEmpty(hover) && .isEmpty(definition);
+		.isEmpty(hover) && .isEmpty(definition) && .isEmpty(typeDefinition);
 
 	bool opEquals(in InfoAtPos b) scope =>
-		hover == b.hover && arraysEqual(definition, b.definition);
+		hover == b.hover && arraysEqual(definition, b.definition) && arraysEqual(typeDefinition, b.typeDefinition);
 }
 
 Json hoverResult(ref Alloc alloc, in string content, in ShowModelCtx ctx, in Program program, in Module* mainModule) =>
 	jsonList(buildArray!Json(alloc, (scope ref Builder!Json res) {
 		// We combine ranges that have the same info.
 		Pos curRangeStart = 0;
-		InfoAtPos curInfo = InfoAtPos("", []);
+		InfoAtPos curInfo = InfoAtPos("", [], []);
 
 		LineAndCharacterGetter lcg = ctx.lineAndCharacterGetters[mainModule.uri];
 
@@ -67,6 +68,9 @@ Json hoverResult(ref Alloc alloc, in string content, in ShowModelCtx ctx, in Pro
 					field!"hover"(curInfo.hover),
 					optionalArrayField!("definition", UriAndRange)(alloc, curInfo.definition, (in UriAndRange x) =>
 						jsonOfUriAndLineAndCharacterRange(alloc, ctx.lineAndCharacterGetters[x])),
+					optionalArrayField!("type-definition", UriAndRange)(
+						alloc, curInfo.typeDefinition, (in UriAndRange x) =>
+							jsonOfUriAndLineAndCharacterRange(alloc, ctx.lineAndCharacterGetters[x])),
 				]);
 		}
 
@@ -76,7 +80,8 @@ Json hoverResult(ref Alloc alloc, in string content, in ShowModelCtx ctx, in Pro
 			Opt!Hover hover = optIf(has(position), () => getHover(alloc, ctx, force(position)));
 			InfoAtPos here = InfoAtPos(
 				has(hover) ? force(hover).contents.value : "",
-				has(position) ? getDefinitionForPosition(alloc, program.commonTypes, force(position)) : []);
+				has(position) ? getDefinitionForPosition(alloc, program.commonTypes, force(position)) : [],
+				has(position) ? getTypeDefinitionForPosition(alloc, program.commonTypes, force(position)) : []);
 			if (here != curInfo) {
 				endRange(pos);
 				curRangeStart = pos;

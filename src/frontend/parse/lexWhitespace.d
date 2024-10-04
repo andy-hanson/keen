@@ -210,14 +210,17 @@ bool ignoreCharForTokens(char c) =>
 	}
 }
 
-// Walk to the *left* skipping whitespace on the same line.
-public Pos skipWhitespaceBackwards(string sourceText, Pos pos) { // TODO: RENAME, this also skips a single '.' -----------------------------
-	pos = skipWhitespaceBackwards2(sourceText, pos);
+/*
+Used for completions and signature help.
+Walks to the left skipping whitespace on the same line. Can also skip a single '.'.
+*/
+public Pos walkBackwardsForPosition(string sourceText, Pos pos) {
+	pos = skipWhitespaceBackwards(sourceText, pos);
 	return pos != 0 && sourceText[pos - 1] == '.'
-		? skipWhitespaceBackwards2(sourceText, pos - 1)
+		? skipWhitespaceBackwards(sourceText, pos - 1)
 		: pos;
 }
-Pos skipWhitespaceBackwards2(string sourceText, Pos pos) { // TODO: RENAME 0000000000000000000000000000000000000000000000000000000000
+Pos skipWhitespaceBackwards(string sourceText, Pos pos) {
 	while (pos != 0) {
 		char x = sourceText[pos - 1];
 		if (x == ' ')

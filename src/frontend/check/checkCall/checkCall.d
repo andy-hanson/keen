@@ -31,7 +31,6 @@ import frontend.check.inferringType :
 	nonInferring,
 	setToBogus,
 	SingleInferringType,
-	tryCheck,
 	tryGetInferred,
 	TypeAndContext,
 	TypeContext,
@@ -156,7 +155,7 @@ private Expr checkCallCommon(
 	ExprAst[] argAsts,
 	in bool delegate(in CalledDecl) @safe @nogc pure nothrow cbAdditionalFilter,
 ) =>
-	checkCallSpecialCbN2(
+	checkCallSpecialCbN(
 		ctx,
 		locals,
 		source,
@@ -165,10 +164,10 @@ private Expr checkCallCommon(
 		expected,
 		typeArg,
 		argAsts.length,
-		(size_t i, ref Expected argExpected) =>
+		cbCheckArg: (size_t i, ref Expected argExpected) =>
 			checkExpr(ctx, locals, &argAsts[i], argExpected),
-		cbAdditionalFilter,
-		(scope ref Candidate[] candidates) =>
+		cbAdditionalFilter: cbAdditionalFilter,
+		cbBeforeCheck: (scope ref Candidate[] candidates) =>
 			everyWithIndex!ExprAst(argAsts, (size_t argIdx, ref ExprAst arg) =>
 				inferCandidateTypeArgsFromExplicitlyTypedArgument(
 					ctx, candidates, argIdx, arg
@@ -206,7 +205,7 @@ Expr checkCallArgAnd2Lambdas(
 	ExprAst* body2Ast, // second lambda has no param
 	ref Expected expected,
 ) =>
-	checkCallSpecialCbN2(
+	checkCallSpecialCbN(
 		ctx, locals, source, diagRange, funName, expected,
 		typeArg: none!Type,
 		nArgs: 3,
@@ -253,7 +252,7 @@ Expr checkCallSpecialCb2(
 	in Expr delegate(ref Expected) @safe @nogc pure nothrow cbArg1,
 	in bool delegate(scope ref Candidate[]) @safe @nogc pure nothrow cbBeforeCheck,
 ) =>
-	checkCallSpecialCbN2(
+	checkCallSpecialCbN(
 		ctx, locals, source, diagRange, funName, expected,
 		typeArg: none!Type,
 		nArgs: 2,
@@ -278,11 +277,11 @@ Expr checkCallSpecialCbN(
 	size_t nArgs,
 	in Expr delegate(size_t, ref Expected) @safe @nogc pure nothrow cbCheckArg,
 ) =>
-	checkCallSpecialCbN2(
+	checkCallSpecialCbN(
 		ctx, locals, source, diagRange, funName, expected, none!Type, nArgs, cbCheckArg,
 		(in CalledDecl) => true,
 		(scope ref Candidate[]) => true);
-private Expr checkCallSpecialCbN2( // TODO: a better name ........................................................................................
+private Expr checkCallSpecialCbN(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
@@ -305,20 +304,9 @@ private Expr checkCallSpecialCbN2( // TODO: a better name ......................
 		cbBeforeCheck);
 	SmallArray!Expr args = small!Expr(finishAllowSmaller(argsBuilder));
 	return innerResult.match!Expr(
-		(Called called) {
-			CallExpr expr = CallExpr(called, args);
-			Opt!ExprAndType res = tryCheck(ctx, expected, ExprAndType(Expr(source, ExprKind(expr)), called.returnType));
-			if (has(res))
-				return force(res).expr;
-			else {
-				// TODO: is this ever actually reached? -------------------------------------------------------------------------------
-				SmallArray!ExprAndType argsAndTypes = called.isVariadic
-					? map!ExprAndType(ctx.alloc, args, (ref Expr x) => ExprAndType(x, only(called.paramTypes)))
-					: exprsAndTypes(ctx.alloc, args, small!Type(called.paramTypes));
-				return Expr(source, ExprKind(
-					BogusCallExpr(newSmallArray(ctx.alloc, [called.calledDecl]), argsAndTypes)));
-			}
-		},
+		(Called called) =>
+			// Check should always succeed, but we need it to set the inferred type
+			check(ctx, expected, called.returnType, source, ExprKind(CallExpr(called, args))),
 		(CallInnerResult.Failure failure) {
 			SmallArray!CalledDecl candidates = getCandidateDeclsForBogus(ctx, funName);
 			if (isEmpty(candidates))

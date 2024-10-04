@@ -8,6 +8,7 @@ import model.model :
 	BogusCallExpr,
 	CallExpr,
 	CallOptionExpr,
+	emptySpecs,
 	EnumOrFlagsMember,
 	ExprRef,
 	ExternExpr,
@@ -21,6 +22,7 @@ import model.model :
 	NameReferents,
 	RecordField,
 	SpecDecl,
+	Specs,
 	Signature,
 	SpecInst,
 	StructAlias,
@@ -59,6 +61,13 @@ immutable struct ExprContainer {
 
 	Uri moduleUri() scope =>
 		toTypeContainer.moduleUri;
+
+	Specs specs() scope =>
+		match!Specs(
+			(ref FunDecl x) =>
+				x.specs,
+			(ref Test _) =>
+				emptySpecs);
 }
 
 immutable struct LocalContainer {
