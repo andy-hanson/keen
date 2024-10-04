@@ -22,7 +22,8 @@ import model.model :
 	StructInst,
 	Type,
 	TypeParamIndex;
-import util.alloc.stackAlloc : MaxStackArray, withMapOrNoneToStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
+import util.alloc.stackAlloc :
+	MaxStackArray, withMapOrNoneToStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array :
 	contains,

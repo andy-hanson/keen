@@ -296,7 +296,7 @@ private Expr checkCallSpecialCbN2( // TODO: a better name ......................
 	in bool delegate(scope ref Candidate[]) @safe @nogc pure nothrow cbBeforeCheck,
 ) {
 	ExactSizeArrayBuilder!Expr argsBuilder = newExactSizeArrayBuilder!Expr(ctx.alloc, nArgs);
-	CallInnerResult res = checkCallCb(
+	CallInnerResult innerResult = checkCallCb(
 		ctx, locals, diagRange, funName, typeArg, nArgs, expected,
 		(size_t i, ref Expected argExpected) {
 			argsBuilder ~= cbCheckArg(i, argExpected);
@@ -304,7 +304,7 @@ private Expr checkCallSpecialCbN2( // TODO: a better name ......................
 		cbAdditionalFilter,
 		cbBeforeCheck);
 	SmallArray!Expr args = small!Expr(finishAllowSmaller(argsBuilder));
-	return res.match!Expr(
+	return innerResult.match!Expr(
 		(Called called) {
 			CallExpr expr = CallExpr(called, args);
 			Opt!ExprAndType res = tryCheck(ctx, expected, ExprAndType(Expr(source, ExprKind(expr)), called.returnType));

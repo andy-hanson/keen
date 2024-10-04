@@ -1,14 +1,14 @@
-module test.testSignatureHelp;
+module test.testCompletions;
 
 @safe @nogc pure nothrow:
 
 import app.parseCommand : parseLineAndColumn;
+import frontend.ide.getCompletion : getCompletionForPosition;
 import frontend.ide.getPosition : getPosition, GetPositionKind;
-import frontend.ide.getSignatureHelp : getSignatureHelpForPosition;
 import frontend.ide.position : Position;
 import frontend.showModel : ShowModelCtx;
-import lib.lsp.lspToJson : jsonOfSignatureHelp;
-import lib.lsp.lspTypes : SignatureHelp;
+import lib.lsp.lspToJson : jsonOfCompletionList;
+import lib.lsp.lspTypes : CompletionList;
 import model.model : Module, Program;
 import test.testUtil : assertEqual, Test, testWithCrowAndJsonFiles, withIdeTest;
 import util.json : Json;
@@ -17,10 +17,10 @@ import util.sourceRange : LineAndColumn, Pos;
 import util.symbol : cStringOfSymbol;
 import util.uri : Uri;
 
-void testSignatureHelp(ref Test test) {
+void testCompletion(ref Test test) {
 	testWithCrowAndJsonFiles!(
-		"signature-help",
-		["after-comma", "overloads"],
+		"completion",
+		["after-dot"],
 	)(
 		test,
 		(Uri uri, in string crow, in Json json) {
@@ -36,8 +36,8 @@ void singleTest(ref Test test, Uri uri, in string crow, in Json json) {
 			LineAndColumn where = force(parseLineAndColumn(cStringOfSymbol(test.alloc, field.key)));
 			Pos pos = ctx.lineAndColumnGetters[module_.uri][where];
 			Opt!Position position = getPosition(program, module_, crow, pos, GetPositionKind.after);
-			Opt!SignatureHelp res = getSignatureHelpForPosition(test.alloc, ctx, force(position));
-			assertEqual(jsonOfSignatureHelp(test.alloc, force(res)), field.value);
+			Opt!CompletionList res = getCompletionForPosition(test.alloc, ctx, force(position));
+			assertEqual(jsonOfCompletionList(test.alloc, force(res)), field.value);
 		}
 	});
 }

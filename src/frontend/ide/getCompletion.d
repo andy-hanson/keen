@@ -27,14 +27,11 @@ import util.col.arrayBuilder : buildArray, Builder;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.symbol : stringOfSymbol;
 import util.writer : makeStringWithWriter, Writer;
-import util.util : debugLog; // -----------------------------------------------------------------------------------------------------------------
 
-Opt!CompletionList getCompletionForPosition(ref Alloc alloc, in ShowTypeCtx showCtx, in Position pos) {
-	debugLog("Top of getCompletionForPosition");
-	return pos.kind.isA!ExpressionPosition
+Opt!CompletionList getCompletionForPosition(ref Alloc alloc, in ShowTypeCtx showCtx, in Position pos) =>
+	pos.kind.isA!ExpressionPosition
 		? completionAtExpressionPosition(alloc, showCtx, pos.module_, pos.kind.as!ExpressionPosition)
 		: none!CompletionList;
-}
 
 private:
 
@@ -68,8 +65,13 @@ Opt!CompletionList completionAtExpressionPosition(
 			none!CompletionList);
 }
 
-Opt!CompletionList completionAfterType(ref Alloc alloc, in ShowTypeCtx showCtx, in Module* module_, in ExprContainer container, Type type) {
-	debugLog("top of completionAfterType"); 
+Opt!CompletionList completionAfterType(
+	ref Alloc alloc,
+	in ShowTypeCtx showCtx,
+	in Module* module_,
+	in ExprContainer container,
+	Type type,
+) {
 	CompletionItem[] items = buildArray!CompletionItem(alloc, (scope ref Builder!CompletionItem out_) {
 		eachFunInExprScope(*module_, container, (FunDecl* fun) {
 			Opt!Type t = firstParamType(*fun);
@@ -96,7 +98,11 @@ Opt!Type firstParamType(in FunDecl a) =>
 		(in Params.Varargs x) =>
 			some(x.elementType));
 
-void eachFunInExprScope(in Module module_, in ExprContainer container, in void delegate(FunDecl*) @safe @nogc pure nothrow cb) {
+void eachFunInExprScope(
+	in Module module_,
+	in ExprContainer container,
+	in void delegate(FunDecl*) @safe @nogc pure nothrow cb,
+) {
 	// TODO: also use specs from container -----------------------------------------------------------------------------------------------------------------
 	eachImportOrReExport(module_, (ref ImportOrExport x) {
 		foreach (ref immutable NameReferents* refs; x.imported) {

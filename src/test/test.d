@@ -6,13 +6,14 @@ import app.fileSystem : printCb;
 import test.testAllInsts : testAllInsts;
 import test.testAlloc : testAlloc;
 import test.testApplyFn : testApplyFn;
-import test.testMap : testMap;
+import test.testCompletion : testCompletion;
 import test.testFakeExtern : testFakeExtern;
 import test.testHashTable : testHashTable;
 import test.testHover : testHover;
 import test.testIntegralValues : testIntegralValues;
 import test.testInterpreter : testInterpreter;
 import test.testJson : testJson;
+import test.testMap : testMap;
 import test.testMemory : testMemory;
 import test.testMutMultiMap : testMutMultiMap;
 import test.testServer : testServer;
@@ -63,6 +64,7 @@ immutable NameAndTest[] allTests = [
 	NameAndTest("alloc", &testAlloc),
 	NameAndTest("all-insts", &testAllInsts),
 	NameAndTest("apply-fn", &testApplyFn),
+	NameAndTest("completion", &testCompletion),
 	NameAndTest("fake-extern", &testFakeExtern),
 	NameAndTest("hash-table", &testHashTable),
 	NameAndTest("hover", &testHover),

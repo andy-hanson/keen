@@ -258,7 +258,11 @@ private ExitCode removeAllInDirectory(FilePath dirPath) =>
 	eachFileInDirectory(dirPath, okIfNotExists: true, cb: (FilePath path) =>
 		removeFileOrDirectoryIfExists(path));
 
-private @trusted ExitCode eachFileInDirectory(FilePath dirPath, bool okIfNotExists, in ExitCode delegate(FilePath) @safe @nogc nothrow cb) {
+private @trusted ExitCode eachFileInDirectory(
+	FilePath dirPath,
+	bool okIfNotExists,
+	in ExitCode delegate(FilePath) @safe @nogc nothrow cb,
+) {
 	version (Windows) {
 		return todo!ExitCode("TODO: eachFileInDirectory");
 	} else {

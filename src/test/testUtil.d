@@ -9,11 +9,20 @@ import frontend.storage : FileType, fileType, LineAndColumnGetters, ReadFileResu
 import interpret.bytecode : ByteCode, ByteCodeIndex, Operation;
 import interpret.debugInfo : showDataArr;
 import interpret.stacks : dataEnd, returnTempAsArrReverse, Stacks;
-import lib.server : allUnknownUris, getProgramForAll, getShowDiagCtx, Server, ServerSettings, setServerSettings, setFile, setFileAssumeUtf8;
+import lib.server :
+	allUnknownUris,
+	getProgramForAll,
+	getShowDiagCtx,
+	Server,
+	ServerSettings,
+	setServerSettings,
+	setFile,
+	setFileAssumeUtf8;
 import model.diag : ReadFileDiag;
 import model.model : Module, Program;
 import util.alloc.alloc : Alloc, allocateElements, AllocKind, MetaAlloc, newAlloc, withTempAlloc, word;
-import util.col.array : arraysEqual, arrayOfRange, arraysCorrespond, endPtr, indexOf, isEmpty, makeArray, map, mapCompileTime;
+import util.col.array :
+	arraysEqual, arrayOfRange, arraysCorrespond, endPtr, indexOf, isEmpty, makeArray, map, mapCompileTime;
 import util.col.hashTable : mustGet;
 import util.json : Json, writeJsonPretty;
 import util.jsonParse : mustParseJson;

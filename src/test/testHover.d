@@ -1,6 +1,6 @@
 module test.testHover;
 
-@safe @nogc nothrow: // not pure
+@safe @nogc pure nothrow:
 
 import frontend.ide.getDefinition : getDefinitionForPosition;
 import frontend.ide.getHover : getHover;
@@ -32,7 +32,6 @@ import util.sourceRange :
 }
 
 private:
-pure:
 
 void hoverTest(ref Test test, Uri uri, in string crow, in Json expected) {
 	withIdeTest(test, uri, crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
