@@ -12,6 +12,8 @@ import lib.lsp.lspTypes :
 	DocumentHighlightResult,
 	Hover,
 	InitializeResult,
+	InlayHint,
+	InlayHintResult,
 	LspDiagnostic,
 	LspOutAction,
 	LspOutMessage,
@@ -39,7 +41,13 @@ import util.exitCode : ExitCode;
 import util.json : field, Json, jsonBool, jsonList, jsonNull, jsonObject, jsonString, optionalField;
 import util.opt : force, has, Opt;
 import util.sourceRange :
-	jsonOfLineAndCharacterRange, jsonOfUriAndLineAndCharacterRange, LineAndCharacterGetter, Pos, UriAndRange;
+	jsonOfLineAndCharacter,
+	jsonOfLineAndCharacterRange,
+	jsonOfUriAndLineAndCharacterRange,
+	LineAndCharacterGetter,
+	Pos,
+	PosKind,
+	UriAndRange;
 import util.uri : stringOfUri, symbolOfUri, Uri;
 import util.util : stringOfEnum;
 
@@ -87,6 +95,8 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 			jsonOfDocumentHighlight(alloc, lcgs[x.uri], x),
 		(InitializeResult _) =>
 			jsonObject(alloc, [field!"capabilities"(initializeCapabilities(alloc))]),
+		(InlayHintResult x) =>
+			jsonOfInlayHintResult(alloc, lcgs, x),
 		(Opt!Hover x) =>
 			jsonOfHover(alloc, x),
 		(RunResult x) =>
@@ -128,6 +138,7 @@ Json initializeCapabilities(ref Alloc alloc) =>
 		field!"definitionProvider"(jsonObject([])),
 		field!"documentHighlightProvider"(jsonObject([])),
 		field!"hoverProvider"(jsonObject([])),
+		field!"inlayHintProvider"(jsonObject([])),
 		field!"referencesProvider"(jsonObject([])),
 		field!"renameProvider"(jsonObject([])),
 		field!"semanticTokensProvider"(jsonObject(alloc, [
@@ -164,6 +175,19 @@ public Json jsonOfDocumentHighlight(ref Alloc alloc, in LineAndCharacterGetter l
 		jsonObject(alloc, [
 			field!"range"(jsonOfLineAndCharacterRange(alloc, lcg[x.range])),
 			field!"kind"(uint(x.kind))]));
+
+public Json jsonOfInlayHintResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, in InlayHintResult a) =>
+	jsonOfInlayHints(alloc, lcgs[a.uri], a.hints);
+public Json jsonOfInlayHints(ref Alloc alloc, in LineAndCharacterGetter lcg, in InlayHint[] a) =>
+	jsonList(map(alloc, a, (ref InlayHint x) =>
+		jsonOfInlayHint(alloc, lcg, x)));
+Json jsonOfInlayHint(ref Alloc alloc, in LineAndCharacterGetter lcg, ref InlayHint a) =>
+	jsonObject(alloc, [
+		field!"position"(jsonOfLineAndCharacter(alloc, lcg[a.position, PosKind.startOfRange])),
+		field!"label"(a.label),
+		field!"kind"(uint(a.kind)),
+		field!"paddingLeft"(a.paddingLeft),
+		field!"paddingRight"(a.paddingRight)]);
 
 public Json jsonOfReferences(ref Alloc alloc, in LineAndCharacterGetters lcg, in UriAndRange[] references) =>
 	jsonList!UriAndRange(alloc, references, (in UriAndRange x) =>

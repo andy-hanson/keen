@@ -72,6 +72,7 @@ import lib.server :
 	getProgramForMain,
 	getProgramForRoots,
 	handleLspMessage,
+	jsonForInlayHints,
 	jsonForPrintIde,
 	jsonOfConcreteModel,
 	jsonOfLowModel,
@@ -191,7 +192,7 @@ bool inAssert;
 
 	while (true) {
 		// TODO: get this from specified trace level
-		bool logLsp = false;
+		bool logLsp = true; // --------------------------------------------------------------------------------------------------
 		//TODO: track perf for each message/response
 		Opt!ExitCode stop = withNullPerf!(Opt!ExitCode, (scope ref Perf perf) =>
 			withTempAllocImpure!(Opt!ExitCode)(server.metaAlloc, (ref Alloc alloc) =>
@@ -440,7 +441,10 @@ ExitCodeOrSignal doPrint(scope ref Perf perf, ref Alloc alloc, ref Server server
 		(in PrintKind.Ide x) =>
 			withProgramForRoots(perf, alloc, server, [mainUri], (ref Program program) =>
 				printJson(alloc, jsonForPrintIde(
-					perf, alloc, server, program, UriLineAndColumn(mainUri, x.lineAndColumn), x.kind))));
+					perf, alloc, server, program, UriLineAndColumn(mainUri, x.lineAndColumn), x.kind))),
+		(in PrintKind.InlayHints x) =>
+			withProgramForRoots(perf, alloc, server, [mainUri], (ref Program program) =>
+				printJson(alloc, jsonForInlayHints(perf, alloc, server, program, mainUri))));
 }
 
 ExitCodeOrSignal buildAndRun(

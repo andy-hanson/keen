@@ -374,6 +374,8 @@ Opt!PrintKind parsePrintKind(in CString a, in CString[] args) {
 			return expectEmptyArgs(PrintKind(PrintKind.ConcreteModel()));
 		case "low-model":
 			return expectEmptyArgs(PrintKind(PrintKind.LowModel()));
+		case "inlay-hints":
+			return expectEmptyArgs(PrintKind(PrintKind.InlayHints()));
 		default:
 			Opt!(PrintKind.Ide.Kind) kind = ideKind(stringOfCString(a));
 			return has(kind)
@@ -807,6 +809,7 @@ string commandDescription(CommandName name) {
 				"\ncrow print concrete-model PATH" ~
 				"\ncrow print low-model PATH" ~
 				"\ncrow print hover PATH LINE:COLUMN" ~
+				"\ncrow print inlay-hints PATH" ~
 				"\ncrow print definition PATH LINE:COLUMN" ~
 				"\ncrow print document-highlight PATH LINE:COLUMN" ~
 				"\ncrow print rename PATH LINE:COLUMN" ~

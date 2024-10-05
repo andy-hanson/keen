@@ -47,6 +47,7 @@ immutable struct LspInRequestParams {
 		DocumentHighlightParams,
 		HoverParams,
 		InitializeParams,
+		InlayHintParams,
 		ReferenceParams,
 		RenameParams,
 		RunParams,
@@ -83,6 +84,7 @@ immutable struct LspOutResult {
 		CompletionList,
 		DocumentHighlightResult,
 		InitializeResult,
+		InlayHintResult,
 		Opt!Hover,
 		RunResult,
 		SemanticTokens,
@@ -336,3 +338,21 @@ immutable struct ParameterInformation {
 immutable struct TypeDefinitionParams {
 	TextDocumentPositionParams textDocumentAndPosition;
 }
+
+immutable struct InlayHintParams {
+	TextDocumentIdentifier textDocument;
+	LineAndCharacterRange range;
+}
+// JSON output is just an array, but we need the URI to help translate it
+immutable struct InlayHintResult {
+	Uri uri;
+	InlayHint[] hints;
+}
+immutable struct InlayHint {
+	Pos position;
+	string label;
+	InlayHintKind kind;
+	bool paddingLeft;
+	bool paddingRight;
+}
+enum InlayHintKind { Type = 1, Parameter = 2 }

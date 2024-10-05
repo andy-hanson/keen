@@ -19,6 +19,7 @@ import frontend.ide.syntaxTranslate : syntaxTranslate;
 import frontend.ide.getCompletion : getCompletionForPosition;
 import frontend.ide.getDefinition : getDefinitionForPosition, getTypeDefinitionForPosition;
 import frontend.ide.getHover : getHover;
+import frontend.ide.getInlayHints : getInlayHints;
 import frontend.ide.getPosition : getPosition, GetPositionKind;
 import frontend.ide.getRename : getRenameForPosition;
 import frontend.ide.getReferences : getDocumentHighlightsForPosition, getReferencesForPosition;
@@ -54,7 +55,13 @@ import interpret.fakeExtern : withFakeExtern, WriteCb;
 import interpret.generateBytecode : generateBytecode;
 import interpret.runBytecode : runBytecode;
 import lib.lsp.lspToJson :
-	jsonOfCompletionList, jsonOfDocumentHighlight, jsonOfHover, jsonOfReferences, jsonOfRename, jsonOfSignatureHelp;
+	jsonOfCompletionList,
+	jsonOfDocumentHighlight,
+	jsonOfHover,
+	jsonOfInlayHintResult,
+	jsonOfReferences,
+	jsonOfRename,
+	jsonOfSignatureHelp;
 import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	BuildJsScriptResult,
@@ -74,6 +81,9 @@ import lib.lsp.lspTypes :
 	InitializedParams,
 	InitializeParams,
 	InitializeResult,
+	InlayHint,
+	InlayHintParams,
+	InlayHintResult,
 	LspDiagnostic,
 	LspDiagnosticSeverity,
 	LspInMessage,
@@ -272,25 +282,27 @@ private Opt!LspOutResult handleLspRequest(
 	in LspInRequest a,
 ) =>
 	a.params.matchImpure!(Opt!LspOutResult)(
-		(in BuildJsScriptParams x) =>
+		(in BuildJsScriptParams _) =>
 			respondWithProgram(perf, alloc, server, a),
-		(in CompletionParams x) =>
+		(in CompletionParams _) =>
 			respondWithProgram(perf, alloc, server, a),
-		(in DefinitionParams x) =>
+		(in DefinitionParams _) =>
 			respondWithProgram(perf, alloc, server, a),
-		(in DocumentHighlightParams x) =>
+		(in DocumentHighlightParams _) =>
 			respondWithProgram(perf, alloc, server, a),
-		(in HoverParams x) =>
+		(in HoverParams _) =>
 			respondWithProgram(perf, alloc, server, a),
 		(in InitializeParams x) {
 			server.lspState.supportsUnknownUris = x.initializationOptions.unknownUris;
 			return some(LspOutResult(InitializeResult()));
 		},
-		(in ReferenceParams x) =>
+		(in InlayHintParams _) =>
 			respondWithProgram(perf, alloc, server, a),
-		(in RenameParams x) =>
+		(in ReferenceParams _) =>
 			respondWithProgram(perf, alloc, server, a),
-		(in RunParams x) =>
+		(in RenameParams _) =>
+			respondWithProgram(perf, alloc, server, a),
+		(in RunParams _) =>
 			respondWithProgram(perf, alloc, server, a),
 		(in SemanticTokensParams x) {
 			Uri uri = x.textDocument.uri;
@@ -298,13 +310,13 @@ private Opt!LspOutResult handleLspRequest(
 		},
 		(in ShutdownParams _) =>
 			some(LspOutResult(LspOutResult.Null())),
-		(in SignatureHelpParams x) =>
+		(in SignatureHelpParams _) =>
 			respondWithProgram(perf, alloc, server, a),
 		(in SyntaxTranslateParams x) =>
 			some(LspOutResult(syntaxTranslate(alloc, x))),
-		(in TypeDefinitionParams x) =>
+		(in TypeDefinitionParams _) =>
 			respondWithProgram(perf, alloc, server, a),
-		(in UnloadedUrisParams) =>
+		(in UnloadedUrisParams _) =>
 			some(LspOutResult(UnloadedUris(allUnloadedUris(alloc, server)))));
 
 private Opt!LspOutResult respondWithProgram(
@@ -353,6 +365,8 @@ private LspOutResult handleLspRequestWithProgram(
 			LspOutResult(getHoverForProgram(alloc, server, program, x)),
 		(in InitializeParams _) =>
 			assert(false),
+		(in InlayHintParams x) =>
+			LspOutResult(getInlayHintsForProgram(alloc, server, program, x)),
 		(in ReferenceParams x) =>
 			LspOutResult(getReferencesForProgram(alloc, server, program, x)),
 		(in RenameParams x) =>
@@ -668,6 +682,19 @@ private Opt!Hover getHoverForProgram(
 		getHover(alloc, getShowDiagCtx(server, program, forceNoColor: true), force(position)));
 }
 
+private InlayHintResult getInlayHintsForProgram(
+	ref Alloc alloc,
+	in Server server,
+	in Program program,
+	in InlayHintParams params,
+) =>
+	InlayHintResult(
+		params.textDocument.uri,
+		getInlayHints(
+			alloc,
+			getShowDiagCtx(server, program, forceNoColor: true),
+			*moduleAtUri(program, params.textDocument.uri)));
+
 private Program getProgram(scope ref Perf perf, ref Alloc alloc, ref Server server, in Uri[] roots) =>
 	makeProgram(perf, alloc, server.frontend, roots);
 
@@ -785,8 +812,9 @@ immutable struct PrintKind {
 		Kind kind;
 		LineAndColumn lineAndColumn;
 	}
+	immutable struct InlayHints {}
 
-	mixin Union!(Tokens, Ast, Model, ConcreteModel, LowModel, Ide);
+	mixin Union!(Tokens, Ast, Model, ConcreteModel, LowModel, Ide, InlayHints);
 }
 
 Json jsonForPrintIde(
@@ -829,6 +857,18 @@ Json jsonForPrintIde(
 			return locations(getTypeDefinitionForProgram(alloc, server, program, TypeDefinitionParams(params)));
 	}
 }
+
+Json jsonForInlayHints(
+	scope ref Perf perf,
+	ref Alloc alloc,
+	ref Server server,
+	ref Program program,
+	Uri uri
+) =>
+	jsonOfInlayHintResult(
+		alloc,
+		server.lineAndCharacterGetters,
+		getInlayHintsForProgram(alloc, server, program, InlayHintParams(TextDocumentIdentifier(uri))));
 
 LowProgram buildToLowProgram(
 	scope ref Perf perf,
@@ -962,6 +1002,7 @@ LspOutAction initializedAction(ref Alloc alloc, ref Server server) {
 		register("textDocument/definition"),
 		register("textDocument/documentHighlight"),
 		register("textDocument/hover"),
+		register("textDocument/inlayHint"),
 		register("textDocument/rename"),
 		register("textDocument/references"),
 		register("textDocument/semanticTokens/full"),

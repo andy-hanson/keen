@@ -174,7 +174,7 @@ Json jsonOfLineAndCharacterRange(ref Alloc alloc, in LineAndCharacterRange a) =>
 Json jsonOfLineAndColumn(ref Alloc alloc, in LineAndColumn a) =>
 	jsonObject(alloc, [field!"line"(a.line1Indexed), field!"column"(a.column1Indexed)]);
 
-private Json jsonOfLineAndCharacter(ref Alloc alloc, in LineAndCharacter a) =>
+Json jsonOfLineAndCharacter(ref Alloc alloc, in LineAndCharacter a) =>
 	jsonObject(alloc, [field!"line"(a.line), field!"character"(a.character)]);
 
 immutable struct LineAndCharacterGetter {

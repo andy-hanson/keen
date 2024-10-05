@@ -18,6 +18,7 @@ import lib.lsp.lspTypes :
 	InitializationOptions,
 	InitializeParams,
 	InitializedParams,
+	InlayHintParams,
 	Language,
 	LspInMessage,
 	LspInNotification,
@@ -104,6 +105,8 @@ LspInMessage parseLspInMessage(ref Alloc alloc, in Json message) {
 			return request(DocumentHighlightParams(parseTextDocumentPositionParams(alloc, params)));
 		case "textDocument/hover":
 			return request(HoverParams(parseTextDocumentPositionParams(alloc, params)));
+		case "textDocument/inlayHint":
+			return request(parseInlayHintParams(alloc, params));
 		case "textDocument/references":
 			return request(ReferenceParams(parseTextDocumentPositionParams(alloc, params)));
 		case "textDocument/rename":
@@ -153,6 +156,11 @@ TextDocumentPositionParams parseTextDocumentPositionParams(ref Alloc alloc, in J
 	TextDocumentPositionParams(
 		parseTextDocumentIdentifier(get!"textDocument"(a)),
 		parsePosition(get!"position"(a)));
+
+InlayHintParams parseInlayHintParams(ref Alloc alloc, in Json a) =>
+	InlayHintParams(
+		parseTextDocumentIdentifier(get!"textDocument"(a)),
+		parseLineAndCharacterRange(get!"range"(a)));
 
 TextDocumentIdentifier parseTextDocumentIdentifier(in Json a) =>
 	TextDocumentIdentifier(parseUriProperty(a));

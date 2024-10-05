@@ -25,7 +25,7 @@ import util.sourceRange :
 	Range,
 	UriAndRange;
 
-@trusted void testHover(ref Test test) {
+void testHover(ref Test test) {
 	testWithCrowAndJsonFiles!("hover", ["basic", "function"])(test, (Uri uri, in string crow, in Json json) {
 		hoverTest(test, uri, crow, json);
 	});
@@ -33,7 +33,7 @@ import util.sourceRange :
 
 private:
 
-void hoverTest(ref Test test, Uri uri, in string crow, in Json expected) {
+void hoverTest(ref Test test, Uri uri, in string crow, in Json expected) { // inline ----------------------------------------------------------
 	withIdeTest(test, uri, crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
 		assertEqual(hoverResult(test.alloc, crow, ctx, program, module_), expected);
 	});

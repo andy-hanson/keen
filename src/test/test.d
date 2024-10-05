@@ -10,6 +10,7 @@ import test.testCompletion : testCompletion;
 import test.testFakeExtern : testFakeExtern;
 import test.testHashTable : testHashTable;
 import test.testHover : testHover;
+import test.testInlayHints : testInlayHints;
 import test.testIntegralValues : testIntegralValues;
 import test.testInterpreter : testInterpreter;
 import test.testJson : testJson;
@@ -68,6 +69,7 @@ immutable NameAndTest[] allTests = [
 	NameAndTest("fake-extern", &testFakeExtern),
 	NameAndTest("hash-table", &testHashTable),
 	NameAndTest("hover", &testHover),
+	NameAndTest("inlay-hints", &testInlayHints),
 	NameAndTest("integral-values", &testIntegralValues),
 	NameAndTest("interpreter", &testInterpreter),
 	NameAndTest("json", &testJson),

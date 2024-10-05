@@ -159,6 +159,8 @@ Json.ObjectField field(string name)(return scope Json value) =>
 	Json.ObjectField(symbol!name, value);
 Json.ObjectField field(string name)(double value) =>
 	field!name(Json(value));
+Json.ObjectField field(string name)(bool value) =>
+	field!name(Json(value));
 Json.ObjectField field(string name)(CString value) =>
 	field!name(stringOfCString(value));
 Json.ObjectField field(string name)(string value) =>
