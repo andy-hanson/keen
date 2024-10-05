@@ -374,6 +374,8 @@ Opt!PrintKind parsePrintKind(in CString a, in CString[] args) {
 			return expectEmptyArgs(PrintKind(PrintKind.ConcreteModel()));
 		case "low-model":
 			return expectEmptyArgs(PrintKind(PrintKind.LowModel()));
+		case "folding-ranges":
+			return expectEmptyArgs(PrintKind(PrintKind.FoldingRanges()));
 		case "inlay-hints":
 			return expectEmptyArgs(PrintKind(PrintKind.InlayHints()));
 		default:
@@ -803,18 +805,20 @@ string commandDescription(CommandName name) {
 			return "This runs the Language Server Protocol through stdin/stdout.\nNo options.";
 		case CommandName.print:
 			return "Internal command for debugging. This should be one of:" ~
-				"\ncrow print tokens PATH" ~
 				"\ncrow print ast PATH" ~
 				"\ncrow print model PATH" ~
 				"\ncrow print concrete-model PATH" ~
 				"\ncrow print low-model PATH" ~
-				"\ncrow print hover PATH LINE:COLUMN" ~
-				"\ncrow print inlay-hints PATH" ~
+				"\n" ~
 				"\ncrow print definition PATH LINE:COLUMN" ~
 				"\ncrow print document-highlight PATH LINE:COLUMN" ~
-				"\ncrow print rename PATH LINE:COLUMN" ~
+				"\ncrow print folding-ranges PATH" ~
+				"\ncrow print hover PATH LINE:COLUMN" ~
+				"\ncrow print inlay-hints PATH" ~
 				"\ncrow print references PATH LINE:COLUMN" ~
+				"\ncrow print rename PATH LINE:COLUMN" ~
 				"\ncrow print signature-help PATH LINE:COLUMN" ~
+				"\ncrow print tokens PATH" ~
 				"\ncrow print type-definition PATH LINE:COLUMN";
 		case CommandName.run:
 			return "Runs the program at PATH." ~

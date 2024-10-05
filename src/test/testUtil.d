@@ -5,7 +5,7 @@ module test.testUtil;
 import std.meta : AliasSeq, staticMap;
 
 import frontend.showModel : ShowCtx, ShowModelCtx, ShowOptions;
-import frontend.storage : FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
+import frontend.storage : CrowFileInfo, FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
 import interpret.bytecode : ByteCode, ByteCodeIndex, Operation;
 import interpret.debugInfo : showDataArr;
 import interpret.stacks : dataEnd, returnTempAsArrReverse, Stacks;
@@ -176,6 +176,16 @@ void assertEqual(T)(
 				writer ~= x;
 		},
 		cbDescribe);
+}
+
+void withAstTest(
+	ref Test test,
+	Uri uri,
+	in string content,
+	in void delegate(in CrowFileInfo) @safe @nogc pure nothrow cb,
+) {
+	Storage storage = Storage(test.metaAlloc);
+	return cb(*setFileAssumeUtf8(test.perf, storage, uri, content).as!(CrowFileInfo*));
 }
 
 void withIdeTest(

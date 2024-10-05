@@ -4,12 +4,11 @@ module test.testInlayHints;
 
 import frontend.ide.getInlayHints : getInlayHints;
 import frontend.showModel : ShowModelCtx;
-import lib.lsp.lspTypes : InlayHint;
 import lib.lsp.lspToJson : jsonOfInlayHints;
 import model.model : Module, Program;
 import test.testUtil : assertEqual, Test, testWithCrowAndJsonFiles, withIdeTest;
 import util.alloc.alloc : Alloc;
-import util.json : field, Json, jsonList, jsonObject, optionalArrayField;
+import util.json : Json;
 import util.uri : Uri;
 import util.writer : Writer;
 

@@ -45,6 +45,7 @@ immutable struct LspInRequestParams {
 		CompletionParams,
 		DefinitionParams,
 		DocumentHighlightParams,
+		FoldingRangeParams,
 		HoverParams,
 		InitializeParams,
 		InlayHintParams,
@@ -83,6 +84,7 @@ immutable struct LspOutResult {
 		BuildJsScriptResult,
 		CompletionList,
 		DocumentHighlightResult,
+		FoldingRange[],
 		InitializeResult,
 		InlayHintResult,
 		Opt!Hover,
@@ -356,3 +358,13 @@ immutable struct InlayHint {
 	bool paddingRight;
 }
 enum InlayHintKind { Type = 1, Parameter = 2 }
+
+immutable struct FoldingRangeParams {
+	TextDocumentIdentifier textDocument;
+}
+immutable struct FoldingRange {
+	uint startLine;
+	uint endLine;
+	FoldingRangeKind kind;
+}
+enum FoldingRangeKind { comment, imports, region }

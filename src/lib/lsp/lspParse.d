@@ -14,6 +14,7 @@ import lib.lsp.lspTypes :
 	DidOpenTextDocumentParams,
 	DidSaveTextDocumentParams,
 	ExitParams,
+	FoldingRangeParams,
 	HoverParams,
 	InitializationOptions,
 	InitializeParams,
@@ -103,6 +104,8 @@ LspInMessage parseLspInMessage(ref Alloc alloc, in Json message) {
 				parseTextDocumentIdentifier(get!"textDocument"(params))));
 		case "textDocument/documentHighlight":
 			return request(DocumentHighlightParams(parseTextDocumentPositionParams(alloc, params)));
+		case "textDocument/foldingRange":
+			return request(FoldingRangeParams(parseTextDocumentIdentifier(get!"textDocument"(params))));
 		case "textDocument/hover":
 			return request(HoverParams(parseTextDocumentPositionParams(alloc, params)));
 		case "textDocument/inlayHint":

@@ -4,7 +4,7 @@ module frontend.ide.getCompletion;
 
 import frontend.check.inferringType : isTypeMatchPossibleForCompletions;
 import frontend.ide.position : ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position;
-import frontend.showModel : ShowTypeCtx, writeCalledDecl, writeFunDecl, WriteKind;
+import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : CompletionItem, CompletionList;
 import model.diag : TypeContainer, TypeWithContainer;
 import model.model :

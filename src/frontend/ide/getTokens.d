@@ -5,6 +5,7 @@ module frontend.ide.getTokens;
 import std.range : iota;
 import std.traits : EnumMembers;
 
+import frontend.ide.ideUtil : walkAstInOrder;
 import frontend.parse.lexWhitespace : lexTokensBetweenAsts;
 import frontend.storage : CrowFileInfo;
 import lib.lsp.lspTypes : SemanticTokens;
@@ -25,7 +26,6 @@ import model.ast :
 	EnumOrFlagsMemberAst,
 	ExprAst,
 	ExternAst,
-	FileAst,
 	FinallyAst,
 	ForAst,
 	FunDeclAst,
@@ -72,7 +72,6 @@ import model.ast :
 import util.alloc.alloc : Alloc;
 import util.col.array : newArray, only, zip;
 import util.col.arrayBuilder : add, addAll, ArrayBuilder, buildArray, Builder, finish;
-import util.col.sortUtil : eachSorted, sortedIter;
 import util.conv : safeToUint;
 import util.json : field, Json, jsonList, jsonObject, jsonString;
 import util.opt : force, has, Opt;
@@ -91,22 +90,16 @@ import util.util : stringOfEnum;
 
 SemanticTokens tokensOfAst(ref Alloc alloc, in CrowFileInfo file) {
 	scope Ctx ctx = Ctx(TokensBuilder(file.content.content, &alloc, file.content.lineAndCharacterGetter));
-	ref FileAst ast() => file.ast;
-
-	if (has(ast.imports))
-		addImportTokens(ctx, force(ast.imports));
-	if (has(ast.reExports))
-		addImportTokens(ctx, force(ast.reExports));
-
-	eachSorted!(Pos, Ctx)(
-		ctx,
-		sortedIter!(SpecDeclAst, Pos, Ctx, (in SpecDeclAst x) => x.range.start, addSpecTokens)(ast.specs),
-		sortedIter!(StructAliasAst, Pos, Ctx, (in StructAliasAst x) => x.range.start, addStructAliasTokens)(
-			ast.structAliases),
-		sortedIter!(StructDeclAst, Pos, Ctx, (in StructDeclAst x) => x.range.start, addStructTokens)(ast.structs),
-		sortedIter!(FunDeclAst, Pos, Ctx, (in FunDeclAst x) => x.range.start, addFunTokens)(ast.funs),
-		sortedIter!(TestAst, Pos, Ctx, (in TestAst x) => x.range.start, addTestTokens)(ast.tests),
-		sortedIter!(VarDeclAst, Pos, Ctx, (in VarDeclAst x) => x.range.start, addVarDeclTokens)(ast.vars));
+	walkAstInOrder!(
+		Ctx,
+		addImportTokens,
+		addSpecTokens,
+		addStructAliasTokens,
+		addStructTokens,
+		addFunTokens,
+		addTestTokens,
+		addVarDeclTokens,
+	)(file.ast, ctx);
 	addLastTokens(ctx.tokens);
 	return SemanticTokens(finish(alloc, ctx.tokens.encoded));
 }

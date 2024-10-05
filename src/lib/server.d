@@ -18,6 +18,7 @@ import frontend.getDiagnosticSeverity : getDiagnosticSeverity;
 import frontend.ide.syntaxTranslate : syntaxTranslate;
 import frontend.ide.getCompletion : getCompletionForPosition;
 import frontend.ide.getDefinition : getDefinitionForPosition, getTypeDefinitionForPosition;
+import frontend.ide.getFoldingRanges : foldingRangesOfAst;
 import frontend.ide.getHover : getHover;
 import frontend.ide.getInlayHints : getInlayHints;
 import frontend.ide.getPosition : getPosition, GetPositionKind;
@@ -57,6 +58,7 @@ import interpret.runBytecode : runBytecode;
 import lib.lsp.lspToJson :
 	jsonOfCompletionList,
 	jsonOfDocumentHighlight,
+	jsonOfFoldingRanges,
 	jsonOfHover,
 	jsonOfInlayHintResult,
 	jsonOfReferences,
@@ -76,12 +78,12 @@ import lib.lsp.lspTypes :
 	DocumentHighlightParams,
 	DocumentHighlightResult,
 	ExitParams,
+	FoldingRangeParams,
 	Hover,
 	HoverParams,
 	InitializedParams,
 	InitializeParams,
 	InitializeResult,
-	InlayHint,
 	InlayHintParams,
 	InlayHintResult,
 	LspDiagnostic,
@@ -290,6 +292,8 @@ private Opt!LspOutResult handleLspRequest(
 			respondWithProgram(perf, alloc, server, a),
 		(in DocumentHighlightParams _) =>
 			respondWithProgram(perf, alloc, server, a),
+		(in FoldingRangeParams x) =>
+			some(LspOutResult(foldingRangesOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument.uri)))),
 		(in HoverParams _) =>
 			respondWithProgram(perf, alloc, server, a),
 		(in InitializeParams x) {
@@ -304,10 +308,8 @@ private Opt!LspOutResult handleLspRequest(
 			respondWithProgram(perf, alloc, server, a),
 		(in RunParams _) =>
 			respondWithProgram(perf, alloc, server, a),
-		(in SemanticTokensParams x) {
-			Uri uri = x.textDocument.uri;
-			return some(LspOutResult(tokensOfAst(alloc, *getCrowFileForTokens(alloc, server, uri))));
-		},
+		(in SemanticTokensParams x) =>
+			some(LspOutResult(tokensOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument.uri)))),
 		(in ShutdownParams _) =>
 			some(LspOutResult(LspOutResult.Null())),
 		(in SignatureHelpParams _) =>
@@ -361,6 +363,8 @@ private LspOutResult handleLspRequestWithProgram(
 			Opt!DocumentHighlightResult res = getDocumentHighlightsForProgram(alloc, server, program, x);
 			return has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null());
 		},
+		(in FoldingRangeParams x) =>
+			assert(false),
 		(in HoverParams x) =>
 			LspOutResult(getHoverForProgram(alloc, server, program, x)),
 		(in InitializeParams _) =>
@@ -749,6 +753,12 @@ DiagsAndResultJson printTokens(ref Alloc alloc, ref Server server, in SemanticTo
 	return printForAst(alloc, server, uri, file.ast, jsonOfDecodedTokens(alloc, tokensOfAst(alloc, *file)));
 }
 
+DiagsAndResultJson printFoldingRanges(ref Alloc alloc, ref Server server, in FoldingRangeParams params) {
+	Uri uri = params.textDocument.uri;
+	CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
+	return printForAst(alloc, server, uri, file.ast, jsonOfFoldingRanges(alloc, foldingRangesOfAst(alloc, *file)));
+}
+
 DiagsAndResultJson printAst(scope ref Perf perf, ref Alloc alloc, ref Server server, Uri uri) {
 	CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
 	return printForAst(alloc, server, uri, file.ast, jsonOfAst(alloc, server.lineAndColumnGetters[uri], file.ast));
@@ -812,9 +822,10 @@ immutable struct PrintKind {
 		Kind kind;
 		LineAndColumn lineAndColumn;
 	}
+	immutable struct FoldingRanges {}
 	immutable struct InlayHints {}
 
-	mixin Union!(Tokens, Ast, Model, ConcreteModel, LowModel, Ide, InlayHints);
+	mixin Union!(Tokens, Ast, Model, ConcreteModel, LowModel, Ide, FoldingRanges, InlayHints);
 }
 
 Json jsonForPrintIde(
@@ -1001,6 +1012,7 @@ LspOutAction initializedAction(ref Alloc alloc, ref Server server) {
 		register("textDocument/completion"),
 		register("textDocument/definition"),
 		register("textDocument/documentHighlight"),
+		register("textDocument/foldingRange"),
 		register("textDocument/hover"),
 		register("textDocument/inlayHint"),
 		register("textDocument/rename"),

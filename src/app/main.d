@@ -49,6 +49,7 @@ import interpret.extern_ : Extern;
 import lib.lsp.lspParse : parseLspInMessage;
 import lib.lsp.lspToJson : jsonOfLspOutMessage;
 import lib.lsp.lspTypes :
+	FoldingRangeParams,
 	LspInMessage,
 	LspInNotification,
 	LspOutAction,
@@ -79,6 +80,7 @@ import lib.server :
 	jsonOfModel,
 	perfStats,
 	printAst,
+	printFoldingRanges,
 	PrintKind,
 	printTokens,
 	Server,
@@ -442,6 +444,11 @@ ExitCodeOrSignal doPrint(scope ref Perf perf, ref Alloc alloc, ref Server server
 			withProgramForRoots(perf, alloc, server, [mainUri], (ref Program program) =>
 				printJson(alloc, jsonForPrintIde(
 					perf, alloc, server, program, UriLineAndColumn(mainUri, x.lineAndColumn), x.kind))),
+		(in PrintKind.FoldingRanges x) {
+			loadSingleFile(perf, server, mainUri);
+			return printDiagsAndJson(
+				alloc, printFoldingRanges(alloc, server, FoldingRangeParams(TextDocumentIdentifier(mainUri))));
+		},
 		(in PrintKind.InlayHints x) =>
 			withProgramForRoots(perf, alloc, server, [mainUri], (ref Program program) =>
 				printJson(alloc, jsonForInlayHints(perf, alloc, server, program, mainUri))));

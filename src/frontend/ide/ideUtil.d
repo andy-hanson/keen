@@ -2,12 +2,51 @@ module frontend.ide.ideUtil;
 
 @safe @nogc pure nothrow:
 
-import model.ast : DestructureAst, ModifierAst, NameAndRange, ParamsAst, SpecUseAst, TypeAst;
+import model.ast :
+	DestructureAst,
+	FileAst,
+	FunDeclAst,
+	ModifierAst,
+	NameAndRange,
+	ParamsAst,
+	SpecDeclAst,
+	SpecUseAst,
+	StructAliasAst,
+	StructDeclAst,
+	TestAst,
+	TypeAst,
+	VarDeclAst;
 import model.model : FunDecl, FunDeclSource, SpecInst, SpecDecl, StructInst, Type, TypeParamIndex;
 import util.col.array : arrayOfSingle, count, firstZip, isEmpty, only, only2;
+import util.col.sortUtil : eachSorted, sortedIter;
 import util.opt : force, has, none, Opt, optOr, some;
-import util.sourceRange : UriAndRange;
+import util.sourceRange : Pos, UriAndRange;
 import util.util : ptrTrustMe;
+
+void walkAstInOrder(
+	Ctx,
+	alias cbImportsOrExports,
+	alias cbSpecDecl,
+	alias cbStructAlias,
+	alias cbStructDecl,
+	alias cbFunDecl,
+	alias cbTest,
+	alias cbVarDecl,
+)(in FileAst ast, scope ref Ctx ctx) {
+	if (has(ast.imports))
+		cbImportsOrExports(ctx, force(ast.imports));
+	if (has(ast.reExports))
+		cbImportsOrExports(ctx, force(ast.reExports));
+	eachSorted!(Pos, Ctx)(
+		ctx,
+		sortedIter!(SpecDeclAst, Pos, Ctx, (in SpecDeclAst x) => x.range.start, cbSpecDecl)(ast.specs),
+		sortedIter!(StructAliasAst, Pos, Ctx, (in StructAliasAst x) => x.range.start, cbStructAlias)(
+			ast.structAliases),
+		sortedIter!(StructDeclAst, Pos, Ctx, (in StructDeclAst x) => x.range.start, cbStructDecl)(ast.structs),
+		sortedIter!(FunDeclAst, Pos, Ctx, (in FunDeclAst x) => x.range.start, cbFunDecl)(ast.funs),
+		sortedIter!(TestAst, Pos, Ctx, (in TestAst x) => x.range.start, cbTest)(ast.tests),
+		sortedIter!(VarDeclAst, Pos, Ctx, (in VarDeclAst x) => x.range.start, cbVarDecl)(ast.vars));
+}
 
 alias ReferenceCb = void delegate(in UriAndRange) @safe @nogc pure nothrow;
 

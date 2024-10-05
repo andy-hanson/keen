@@ -10,6 +10,7 @@ import lib.lsp.lspTypes :
 	CompletionList,
 	DocumentHighlight,
 	DocumentHighlightResult,
+	FoldingRange,
 	Hover,
 	InitializeResult,
 	InlayHint,
@@ -93,6 +94,8 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 			jsonOfCompletionList(alloc, x),
 		(DocumentHighlightResult x) =>
 			jsonOfDocumentHighlight(alloc, lcgs[x.uri], x),
+		(FoldingRange[] x) =>
+			jsonOfFoldingRanges(alloc, x),
 		(InitializeResult _) =>
 			jsonObject(alloc, [field!"capabilities"(initializeCapabilities(alloc))]),
 		(InlayHintResult x) =>
@@ -137,6 +140,7 @@ Json initializeCapabilities(ref Alloc alloc) =>
 			field!"triggerCharacters"(jsonList(alloc, [jsonString(".")]))])),
 		field!"definitionProvider"(jsonObject([])),
 		field!"documentHighlightProvider"(jsonObject([])),
+		field!"foldingRangeProvider"(jsonObject([])),
 		field!"hoverProvider"(jsonObject([])),
 		field!"inlayHintProvider"(jsonObject([])),
 		field!"referencesProvider"(jsonObject([])),
@@ -243,3 +247,12 @@ Json jsonOfSignatureInformation(ref Alloc alloc, ref SignatureInformation a) =>
 Json jsonOfParameterInformation(ref Alloc alloc, ref ParameterInformation a) =>
 	jsonObject(alloc, [
 		field!"label"(jsonList(alloc, [Json(a.label.start), Json(a.label.end)]))]);
+
+public Json jsonOfFoldingRanges(ref Alloc alloc, in FoldingRange[] a) =>
+	jsonList!FoldingRange(alloc, a, (in FoldingRange x) =>
+		jsonOfFoldingRange(alloc, x));
+Json jsonOfFoldingRange(ref Alloc alloc, in FoldingRange a) =>
+	jsonObject(alloc, [
+		field!"startLine"(a.startLine),
+		field!"endLine"(a.endLine),
+		field!"kind"(stringOfEnum(a.kind))]);

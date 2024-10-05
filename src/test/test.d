@@ -8,6 +8,7 @@ import test.testAlloc : testAlloc;
 import test.testApplyFn : testApplyFn;
 import test.testCompletion : testCompletion;
 import test.testFakeExtern : testFakeExtern;
+import test.testFoldingRanges : testFoldingRanges;
 import test.testHashTable : testHashTable;
 import test.testHover : testHover;
 import test.testInlayHints : testInlayHints;
@@ -26,6 +27,7 @@ import test.testStack : testStack;
 import test.testSymbol : testSymbol;
 import test.testSymbolSet : testSymbolSet;
 import test.testSyntaxTranslate : testSyntaxTranslate;
+import test.testTokens : testTokens;
 import test.testUnicode : testUnicode;
 import test.testUri : testUri;
 import test.testUtil : Test;
@@ -67,6 +69,7 @@ immutable NameAndTest[] allTests = [
 	NameAndTest("apply-fn", &testApplyFn),
 	NameAndTest("completion", &testCompletion),
 	NameAndTest("fake-extern", &testFakeExtern),
+	NameAndTest("folding-ranges", &testFoldingRanges),
 	NameAndTest("hash-table", &testHashTable),
 	NameAndTest("hover", &testHover),
 	NameAndTest("inlay-hints", &testInlayHints),
@@ -85,6 +88,7 @@ immutable NameAndTest[] allTests = [
 	NameAndTest("symbol", &testSymbol),
 	NameAndTest("symbol-set", &testSymbolSet),
 	NameAndTest("syntax-translate", &testSyntaxTranslate),
+	NameAndTest("tokens", &testTokens),
 	NameAndTest("unicode", &testUnicode),
 	NameAndTest("uri", &testUri),
 	NameAndTest("writer", &testWriter),

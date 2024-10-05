@@ -27,14 +27,12 @@ import model.model :
 	NameReferents,
 	Params,
 	ReturnAndParamTypes,
-	Signature,
 	SpecInst,
 	Type;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : pushStackArray, StackArrayBuilder, withBuildStackArray, withRestoreStack;
 import util.col.array : everyWithIndex, filterUnordered, map, makeArray, MutSmallArray, newArray, small;
 import util.col.arrayBuilder : buildArray, Builder;
-import util.conv : safeToUshort;
 import util.memory : allocate;
 import util.opt : force, has, Opt, optOrDefault;
 import util.symbol : Symbol;
