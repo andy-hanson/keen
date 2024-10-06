@@ -5,7 +5,7 @@ module test.testUtil;
 import std.meta : AliasSeq, staticMap;
 
 import frontend.showModel : ShowCtx, ShowModelCtx, ShowOptions;
-import frontend.storage : CrowFileInfo, FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
+import frontend.storage : CrowFileInfo, FileContentGetters, FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
 import interpret.bytecode : ByteCode, ByteCodeIndex, Operation;
 import interpret.debugInfo : showDataArr;
 import interpret.stacks : dataEnd, returnTempAsArrReverse, Stacks;
@@ -65,7 +65,11 @@ void withShowDiagCtxForTestImpure(
 }
 
 private void withShowDiagCtxForTestImpl(alias cb)(scope ref Test test, in Storage storage) =>
-	cb(ShowCtx(LineAndColumnGetters(ptrTrustMe(storage)), UrisInfo(none!Uri), ShowOptions(false)));
+	cb(ShowCtx(
+		LineAndColumnGetters(ptrTrustMe(storage)),
+		FileContentGetters(ptrTrustMe(storage)),
+		UrisInfo(none!Uri),
+		ShowOptions(false)));
 
 @trusted void expectDataStack(ref Test test, in ulong[] storage, in Stacks stacks, in immutable ulong[] expected) {
 	scope const ulong[] stack = arrayOfRange(storage.ptr, dataEnd(stacks));

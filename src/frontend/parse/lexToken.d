@@ -3,12 +3,12 @@ module frontend.parse.lexToken;
 @safe @nogc pure nothrow:
 
 import frontend.parse.lexWhitespace :
-	AddDiag, DocCommentAndIndentDelta, IndentKind, skipBlankLinesAndGetIndentDelta, takeRestOfLine;
+	AddDiag, CStringRange, DocCommentAndIndentDelta, IndentKind, skipBlankLinesAndGetIndentDelta, skipUntilNewline;
 import model.ast : HighPrecisionFloat, LiteralFloatAst, LiteralIntegral;
 import util.conv : mulWithOverflow, safeToLong, Sign, toLongWithOverflow;
 import util.integralValues : IntegralValue;
 import util.opt : force, has, none, Opt, optOrDefault, some;
-import util.sourceRange : Pos;
+import util.sourceRange : Pos, Range;
 import util.string :
 	CString,
 	decodeHexDigit,
@@ -26,7 +26,7 @@ import util.symbol : appendEquals, Symbol, symbol, symbolOfString;
 import util.unicode : isUtf8InitialOrContinueCode, mustTakeOneUnicodeChar;
 
 immutable struct DocCommentAndExtraDedents {
-	SmallString docComment;
+	CStringRange docComment;
 	uint extraDedents;
 }
 
@@ -41,8 +41,8 @@ immutable struct TokenAndData {
 		DocCommentAndExtraDedents docComment = void;
 		LiteralFloatAst literalFloat = void; // for Token.literalFloat
 		LiteralIntegral literalIntegral = void; // for Token.literalIntegral
-		dchar unexpectedCharacter;
-		string region;
+		dchar unexpectedCharacter = void;
+		CStringRange region = void;
 	}
 
 	public:
@@ -79,10 +79,10 @@ immutable struct TokenAndData {
 		token = t;
 		unexpectedCharacter = c;
 	}
-	this(Token t, string s) {
+	this(Token t, CStringRange r) {
 		assert(t == Token.region);
 		token = t;
-		region = s;
+		region = r;
 	}
 
 	bool isSymbol() scope =>
@@ -108,7 +108,7 @@ immutable struct TokenAndData {
 		assert(token == Token.unexpectedCharacter);
 		return unexpectedCharacter;
 	}
-	@trusted string asRegion() {
+	@trusted CStringRange asRegion() {
 		assert(token == Token.region);
 		return region;
 	}
@@ -386,7 +386,8 @@ private TokenAndData lexIdentifierLike(ref MutCString ptr) {
 			case Token.name:
 				return nameLikeToken(ptr, symbol, Token.name);
 			case Token.region:
-				return TokenAndData(Token.region, takeRestOfLine(ptr));
+				skipUntilNewline(ptr);
+				return TokenAndData(Token.region, CStringRange(start, ptr));
 			default:
 				return plainToken(token);
 		}

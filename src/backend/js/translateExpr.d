@@ -728,8 +728,8 @@ struct TranslateExprCtx {
 		ctx.alloc;
 	ref CommonTypes commonTypes() =>
 		ctx.commonTypes;
-	ref FileContentGetters fileContentGetters() =>
-		*ctx.ctx.fileContentGetters;
+	FileContentGetters fileContentGetters() =>
+		ctx.ctx.showCtx.fileContentGetters;
 }
 Source exprSource(in TranslateExprCtx ctx, in Expr expr) =>
 	exprSource(ctx, expr.range);

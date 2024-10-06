@@ -343,7 +343,7 @@ VarDecl* getVarDecl(
 			Diag(Diag.CommonVarMissing(kind, name))));
 		VarDeclAst* ast = allocate(alloc, VarDeclAst(
 			Range.empty,
-			emptySmallString,
+			Range.empty,
 			none!Visibility,
 			NameAndRange(0, name),
 			emptySmallArray!NameAndRange,

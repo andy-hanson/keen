@@ -71,12 +71,11 @@ import util.writer : finish, writeAndVerify, writeFloatLiteralForJS, writeNewlin
 JsAndMap writeJsScriptAst(
 	ref Alloc alloc,
 	in ShowTypeCtx showCtx,
-	in FileContentGetters files,
 	in ModulePaths modulePaths,
 	in JsScriptAst a,
 	Opt!Symbol sourceMapName,
 ) =>
-	buildOutput(alloc, files, modulePaths, has(sourceMapName), (scope ref Output writer) {
+	buildOutput(alloc, showCtx.fileContentGetters, modulePaths, has(sourceMapName), (scope ref Output writer) {
 		writeShebang(writer, a.shebang);
 		if (has(sourceMapName))
 			writeSourceMapUrl(writer, force(sourceMapName));
@@ -88,12 +87,11 @@ JsAndMap writeJsScriptAst(
 string writeJsModuleAst(
 	ref Alloc alloc,
 	in ShowTypeCtx showCtx,
-	in FileContentGetters files,
 	in ModulePaths modulePaths,
 	Uri sourceUri,
 	in JsModuleAst a,
 ) =>
-	buildOutput(alloc, files, modulePaths, false, (scope ref Output writer) {
+	buildOutput(alloc, showCtx.fileContentGetters, modulePaths, false, (scope ref Output writer) {
 		writeShebang(writer, a.shebang);
 		foreach (JsImport x; a.imports)
 			writeImportOrReExport(writer, "import", x);

@@ -11,6 +11,7 @@ import lib.lsp.lspTypes :
 	DocumentHighlight,
 	DocumentHighlightResult,
 	FoldingRange,
+	FoldingRangeKind,
 	Hover,
 	InitializeResult,
 	InlayHint,
@@ -255,4 +256,4 @@ Json jsonOfFoldingRange(ref Alloc alloc, in FoldingRange a) =>
 	jsonObject(alloc, [
 		field!"startLine"(a.startLine),
 		field!"endLine"(a.endLine),
-		field!"kind"(stringOfEnum(a.kind))]);
+		optionalField!("kind", FoldingRangeKind)(a.kind, (in FoldingRangeKind x) => jsonString(stringOfEnum(x)))]);

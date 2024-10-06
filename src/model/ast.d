@@ -10,8 +10,7 @@ import util.conv : safeToUint;
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
-import util.sourceRange : combineRanges, Pos, Range, rangeOfStartAndLength;
-import util.string : SmallString;
+import util.sourceRange : combineRanges, Pos, Range, rangeOfStartAndLength, UriAndRange;
 import util.symbol : Symbol, symbol, symbolSize;
 import util.union_ : TaggedUnion, Union;
 import util.uri : Path, pathLength, RelPath, relPathLength;
@@ -932,7 +931,7 @@ DestructureAst[] paramsArray(return scope ParamsAst a) =>
 immutable struct SignatureAst {
 	@safe @nogc pure nothrow:
 
-	SmallString docComment;
+	Range docComment;
 	Range range;
 	Symbol name;
 	TypeAst returnType;
@@ -947,7 +946,7 @@ immutable struct SignatureAst {
 immutable struct StructAliasAst {
 	@safe @nogc pure nothrow:
 
-	SmallString docComment;
+	Range docComment;
 	Range range;
 	Opt!Visibility visibility_;
 	NameAndRange name;
@@ -1100,7 +1099,7 @@ immutable struct RecordOrUnionMemberAst {
 immutable struct StructDeclAst {
 	@safe @nogc pure nothrow:
 
-	SmallString docComment;
+	Range docComment;
 	// Range starts at the visibility
 	Range range;
 	Opt!Visibility visibility_;
@@ -1139,7 +1138,7 @@ immutable struct SpecDeclAst {
 	@safe @nogc pure nothrow:
 
 	Range range;
-	SmallString docComment;
+	Range docComment;
 	Opt!Visibility visibility_;
 	NameAndRange name;
 	SmallArray!NameAndRange typeParams;
@@ -1159,7 +1158,7 @@ immutable struct FunDeclAst {
 	@safe @nogc pure nothrow:
 
 	Range range;
-	SmallString docComment;
+	Range docComment;
 	Opt!Visibility visibility_;
 	NameAndRange name;
 	SmallArray!NameAndRange typeParams;
@@ -1238,7 +1237,7 @@ immutable struct VarDeclAst {
 	@safe @nogc pure nothrow:
 
 	Range range;
-	SmallString docComment;
+	Range docComment;
 	Opt!Visibility visibility_;
 	NameAndRange name;
 	SmallArray!NameAndRange typeParams; // This will be a compile error
@@ -1295,10 +1294,12 @@ immutable struct ImportsOrExportsAst {
 
 immutable struct FileAst {
 	SmallArray!ParseDiagnostic parseDiagnostics;
-	SmallString docComment;
+	Range docComment;
 	bool noStd;
 	Opt!ImportsOrExportsAst imports;
 	Opt!ImportsOrExportsAst reExports;
+	// Stores range of each 'region' comment. (Not the range of the region itself.)
+	SmallArray!Range regions;
 	SmallArray!SpecDeclAst specs;
 	SmallArray!StructAliasAst structAliases;
 	SmallArray!StructDeclAst structs;
@@ -1309,7 +1310,7 @@ immutable struct FileAst {
 
 private FileAst fileAstForDiags(SmallArray!ParseDiagnostic diags) =>
 	// Make sure the dummy AST doesn't have implicit imports
-	FileAst(diags, noStd: true);
+	FileAst(diags, Range.empty, noStd: true);
 
 FileAst fileAstForDiag(ref Alloc alloc, ParseDiag diag) =>
 	fileAstForDiags(newSmallArray(alloc, [ParseDiagnostic(Range.empty, diag)]));

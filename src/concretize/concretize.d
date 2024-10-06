@@ -52,10 +52,9 @@ ConcreteProgram concretize(
 	in ShowCtx showCtx,
 	in VersionInfo versionInfo,
 	ref ProgramWithMain program,
-	in FileContentGetters fileContentGetters,
 ) =>
 	withMeasure!(ConcreteProgram, () =>
-		concretizeInner(&alloc, showCtx, versionInfo, program, fileContentGetters)
+		concretizeInner(&alloc, showCtx, versionInfo, program)
 	)(perf, alloc, PerfMeasure.concretize);
 
 private:
@@ -65,7 +64,6 @@ ConcreteProgram concretizeInner(
 	in ShowCtx showCtx,
 	in VersionInfo versionInfo,
 	ref ProgramWithMain program,
-	in FileContentGetters fileContentGetters,
 ) {
 	ref Alloc alloc() =>
 		*allocPtr;
@@ -73,7 +71,7 @@ ConcreteProgram concretizeInner(
 		allocPtr,
 		versionInfo,
 		ptrTrustMe(program.program),
-		castNonScope_ref(fileContentGetters),
+		castNonScope_ref(showCtx.fileContentGetters),
 		allExterns(program, BuildTarget.native));
 	CommonFuns commonFuns = program.program.commonFuns;
 	lateSet(ctx.createErrorFunction_, getNonTemplateConcreteFun(ctx, commonFuns.createError));

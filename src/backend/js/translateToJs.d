@@ -149,18 +149,11 @@ JsAndMap translateToJsScript(
 	ref Alloc alloc,
 	ref ProgramWithMain program,
 	in ShowTypeCtx showCtx,
-	in LineAndCharacterGetters lineAndCharacterGetters,
-	in FileContentGetters fileContentGetters,
 	JsTarget jsTarget,
 	Opt!Symbol sourceMapName,
 ) =>
-	withTranslateProgram(
-		alloc, program, showCtx, lineAndCharacterGetters, fileContentGetters, jsTarget, true,
-		(ref TranslateProgramCtx ctx) =>
-			writeJsScriptAst(
-				alloc, showCtx, fileContentGetters,
-				modulePaths(alloc, program),
-				translateProgramToScript(ctx), sourceMapName));
+	withTranslateProgram(alloc, program, showCtx, jsTarget, true, (ref TranslateProgramCtx ctx) =>
+		writeJsScriptAst(alloc, showCtx, modulePaths(alloc, program), translateProgramToScript(ctx), sourceMapName));
 
 immutable struct JsModules {
 	Path mainJs;
@@ -170,21 +163,17 @@ JsModules translateToJsModules(
 	ref Alloc alloc,
 	ref ProgramWithMain program,
 	in ShowTypeCtx showCtx,
-	in LineAndCharacterGetters lineAndCharacterGetters,
-	in FileContentGetters fileContentGetters,
 	JsTarget jsTarget,
 ) =>
-	withTranslateProgram(
-		alloc, program, showCtx, lineAndCharacterGetters, fileContentGetters, jsTarget, false,
-		(ref TranslateProgramCtx ctx) {
-			ModulePaths modulePaths = modulePaths(alloc, program);
-			// None for unused modules
-			MutMap!(Module*, Opt!JsModuleAst) done;
-			doTranslateModule(ctx, modulePaths, done, program.mainModule);
-			return JsModules(
-				modulePaths.jsPath(program.mainUri),
-				getOutputFiles(alloc, showCtx, fileContentGetters, modulePaths, done, jsTarget));
-		});
+	withTranslateProgram(alloc, program, showCtx, jsTarget, false, (ref TranslateProgramCtx ctx) {
+		ModulePaths modulePaths = modulePaths(alloc, program);
+		// None for unused modules
+		MutMap!(Module*, Opt!JsModuleAst) done;
+		doTranslateModule(ctx, modulePaths, done, program.mainModule);
+		return JsModules(
+			modulePaths.jsPath(program.mainUri),
+			getOutputFiles(alloc, showCtx, modulePaths, done, jsTarget));
+	});
 
 private:
 
@@ -192,8 +181,6 @@ Out withTranslateProgram(Out)(
 	ref Alloc alloc,
 	ref ProgramWithMain program,
 	in ShowTypeCtx showCtx,
-	in LineAndCharacterGetters lineAndCharacterGetters,
-	in FileContentGetters fileContentGetters,
 	JsTarget jsTarget,
 	bool isScript,
 	in Out delegate(ref TranslateProgramCtx) @safe @nogc pure nothrow cb,
@@ -205,8 +192,6 @@ Out withTranslateProgram(Out)(
 	TranslateProgramCtx ctx = TranslateProgramCtx(
 		ptrTrustMe(alloc),
 		castNonScope_ref(showCtx),
-		castNonScope_ref(lineAndCharacterGetters),
-		ptrTrustMe(fileContentGetters),
 		ptrTrustMe(program),
 		version_,
 		jsTarget,
@@ -292,7 +277,6 @@ void eachRelativeImportModule(Module* main, in void delegate(Module*) @safe @nog
 PathAndContent[] getOutputFiles(
 	ref Alloc alloc,
 	in ShowTypeCtx showCtx,
-	in FileContentGetters fileContentGetters,
 	in ModulePaths modulePaths,
 	in MutMap!(Module*, Opt!JsModuleAst) done,
 	JsTarget target,
@@ -305,7 +289,7 @@ PathAndContent[] getOutputFiles(
 				out_ ~= PathAndContent(
 					modulePaths.jsPath(module_.uri),
 					force(ast).shebang == Shebang.none ? FilePermissions.regular : FilePermissions.executable,
-					writeJsModuleAst(alloc, showCtx, fileContentGetters, modulePaths, module_.uri, force(ast)));
+					writeJsModuleAst(alloc, showCtx, modulePaths, module_.uri, force(ast)));
 	});
 
 void doTranslateModule(

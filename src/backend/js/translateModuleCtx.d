@@ -34,8 +34,6 @@ struct TranslateProgramCtx {
 
 	Alloc* allocPtr;
 	const ShowCtx showCtx;
-	const LineAndCharacterGetters lineAndCharacterGetters;
-	const FileContentGetters* fileContentGetters;
 	immutable ProgramWithMain* programWithMainPtr;
 	immutable VersionInfo version_;
 	immutable JsTarget target;
@@ -80,7 +78,7 @@ struct TranslateModuleCtx {
 }
 
 Source sourceAtRange(in TranslateModuleCtx ctx, in UriAndRange range, Symbol name) =>
-	Source(range.uri, name, ctx.ctx.lineAndCharacterGetters[range].range.start);
+	Source(range.uri, name, ctx.ctx.showCtx.lineAndCharacterGetters[range].range.start);
 private Source declSource(in TranslateModuleCtx ctx, in AnyDecl a) =>
 	sourceAtRange(ctx, a.range, a.name);
 Source aliasSource(in TranslateModuleCtx ctx, in StructAlias* a) =>

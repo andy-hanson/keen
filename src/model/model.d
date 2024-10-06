@@ -327,8 +327,8 @@ immutable struct Signature {
 		UriAndRange(moduleUri, ast.range);
 	UriAndRange nameRange() scope =>
 		UriAndRange(moduleUri, ast.nameAndRange.range);
-	SmallString docComment() scope =>
-		ast.docComment;
+	UriAndRange docComment() scope =>
+		UriAndRange(moduleUri, ast.docComment);
 }
 
 immutable struct TypeParamsAndSig {
@@ -579,8 +579,8 @@ immutable struct StructAlias {
 	Visibility visibility;
 	private Late!(StructInst*) target_;
 
-	SmallString docComment() return scope =>
-		ast.docComment;
+	UriAndRange docComment() return scope =>
+		UriAndRange(moduleUri, ast.docComment);
 
 	Symbol name() scope =>
 		ast.name.name;
@@ -656,12 +656,12 @@ immutable struct StructDecl {
 		lateSet(lateBody, value);
 	}
 
-	SmallString docComment() return scope =>
-		source.match!SmallString(
+	UriAndRange docComment() return scope =>
+		UriAndRange(moduleUri, source.match!Range(
 			(ref StructDeclAst x) =>
 				x.docComment,
 			(ref StructDeclSource.Bogus) =>
-				emptySmallString);
+				Range.empty));
 	TypeParams typeParams() return scope =>
 		source.match!TypeParams(
 			(ref StructDeclAst x) =>
@@ -769,8 +769,8 @@ immutable struct SpecDecl {
 	Visibility visibility;
 	private Late!SpecDeclBody lateBody;
 
-	SmallString docComment() return scope =>
-		ast.docComment;
+	UriAndRange docComment() return scope =>
+		UriAndRange(moduleUri, ast.docComment);
 	Symbol name() scope =>
 		ast.name.name;
 	TypeParams typeParams() return scope =>
@@ -1362,8 +1362,10 @@ immutable struct FunDeclSource {
 			(in VariantMethod x) =>
 				UriAndRange(x.variant.moduleUri, x.method.ast.nameRange));
 
-	SmallString docComment() scope =>
-		isA!Ast ? as!Ast.ast.docComment : emptySmallString;
+	UriAndRange docComment() scope =>
+		isA!Ast
+			? UriAndRange(as!Ast.moduleUri, as!Ast.ast.docComment)
+			: UriAndRange.empty;
 }
 
 immutable struct FunDecl {
@@ -1415,7 +1417,7 @@ immutable struct FunDecl {
 		source.range;
 	UriAndRange nameRange() scope =>
 		source.nameRange;
-	SmallString docComment() scope =>
+	UriAndRange docComment() scope =>
 		source.docComment;
 
 	Linkage linkage() scope =>
@@ -1585,8 +1587,8 @@ immutable struct CalledDecl {
 			(in CalledSpecSig x) =>
 				x.arity);
 
-	SmallString docComment() scope =>
-		match!SmallString(
+	UriAndRange docComment() scope =>
+		match!UriAndRange(
 			(ref FunDecl x) =>
 				x.docComment,
 			(CalledSpecSig x) =>
@@ -1706,8 +1708,8 @@ immutable struct VarDecl {
 	Type type;
 	Opt!Symbol externLibraryName;
 
-	SmallString docComment() return scope =>
-		ast.docComment;
+	UriAndRange docComment() return scope =>
+		UriAndRange(moduleUri, ast.docComment);
 	Symbol name() scope =>
 		ast.name.name;
 	TypeParams typeParams() return scope =>
@@ -1741,6 +1743,8 @@ immutable struct Module {
 
 	UriAndRange range() scope =>
 		UriAndRange.topOfFile(uri);
+	UriAndRange docComment() scope =>
+		UriAndRange(uri, ast.docComment);
 }
 Uri getModuleUri(in Module* a) =>
 	a.uri;

@@ -41,6 +41,12 @@ struct MutCString {
 		ptr++;
 	}
 
+	@system CString opBinary(string op : "-")(in size_t b) const =>
+		MutCString(ptr - b);
+	@system void opUnary(string op : "--")() {
+		ptr--;
+	}
+
 	uint opBinary(string op : "-")(in MutCString b) scope const =>
 		safeToUint(ptr - b.ptr);
 

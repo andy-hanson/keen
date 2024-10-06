@@ -12,6 +12,8 @@ import frontend.parse.lexer :
 	Lexer,
 	mustTakeToken,
 	range,
+	rangeOf,
+	takeNextToken,
 	Token,
 	TokenAndData;
 import frontend.parse.parseExpr : parseFunExprBody, parseSingleStatementLine;
@@ -22,6 +24,7 @@ import frontend.parse.parseUtil :
 	addDiagExpected,
 	NewlineOrDedent,
 	peekEndOfLine,
+	peekToken,
 	takeDedent,
 	takeIndentOrFailGeneric,
 	takeName,
@@ -111,7 +114,7 @@ SmallArray!T parseIndentedLines(T)(ref Lexer lexer, in T delegate() @safe @nogc 
 SmallArray!SignatureAst parseIndentedSigs(ref Lexer lexer) =>
 	parseIndentedLines!SignatureAst(lexer, () {
 		// TODO: get doc comment
-		SmallString docComment = emptySmallString;
+		Range docComment = Range.empty;
 		Pos start = curPos(lexer);
 		NameAndRange name = takeNameOrOperator(lexer);
 		assert(name.start == start);
@@ -161,7 +164,7 @@ Opt!FieldMutabilityAst parseFieldMutability(ref Lexer lexer) {
 
 FunDeclAst parseFun(
 	ref Lexer lexer,
-	SmallString docComment,
+	Range docComment,
 	Opt!Visibility visibility,
 	Pos start,
 	NameAndRange name,
@@ -183,7 +186,7 @@ void parseSpecOrStructOrFunOrTest(
 	scope ref ArrayBuilder!FunDeclAst funs,
 	scope ref ArrayBuilder!TestAst tests,
 	scope ref ArrayBuilder!VarDeclAst vars,
-	SmallString docComment,
+	Range docComment,
 ) {
 	Pos start = curPos(lexer);
 	if (tryTakeToken(lexer, Token.test)) {
@@ -201,7 +204,7 @@ void parseSpecOrStructOrFun(
 	scope ref ArrayBuilder!StructDeclAst structs,
 	scope ref ArrayBuilder!FunDeclAst funs,
 	scope ref ArrayBuilder!VarDeclAst varDecls,
-	SmallString docComment,
+	Range docComment,
 ) {
 	Pos start = curPos(lexer);
 	Opt!Visibility visibility = tryTakeVisibility(lexer);
@@ -315,7 +318,7 @@ Opt!(LiteralIntegralAndRange*) parseIntegral(ref Lexer lexer) {
 VarDeclAst parseVarDecl(
 	ref Lexer lexer,
 	Pos start,
-	SmallString docComment,
+	Range docComment,
 	Opt!Visibility visibility,
 	NameAndRange name,
 	SmallArray!NameAndRange typeParams,
@@ -328,8 +331,8 @@ VarDeclAst parseVarDecl(
 }
 
 FileAst parseFileInner(ref Lexer lexer) {
-	SmallString moduleDocComment = takeNewline_topLevel(lexer);
-	Cell!(Opt!SmallString) firstDocComment = Cell!(Opt!SmallString)(some(emptySmallString));
+	Range moduleDocComment = takeNewline_topLevel(lexer);
+	Cell!(Opt!Range) firstDocComment = Cell!(Opt!Range)(some(Range.empty));
 	bool noStd = tryTakeToken(lexer, Token.noStd);
 	if (noStd)
 		cellSet(firstDocComment, some(takeNewline_topLevel(lexer)));
@@ -340,6 +343,7 @@ FileAst parseFileInner(ref Lexer lexer) {
 	if (has(exports))
 		cellSet(firstDocComment, some(takeNewline_topLevel(lexer)));
 
+	ArrayBuilder!Range regions;
 	ArrayBuilder!SpecDeclAst specs;
 	ArrayBuilder!StructAliasAst structAliases;
 	ArrayBuilder!StructDeclAst structs;
@@ -348,19 +352,22 @@ FileAst parseFileInner(ref Lexer lexer) {
 	ArrayBuilder!VarDeclAst vars;
 
 	while (!tryTakeToken(lexer, Token.EOF)) {
-		SmallString docComment = () {
+		Range docComment = () {
 			if (has(cellGet(firstDocComment))) {
-				SmallString res = force(cellGet(firstDocComment));
-				cellSet(firstDocComment, none!SmallString);
+				Range res = force(cellGet(firstDocComment));
+				cellSet(firstDocComment, none!Range);
 				return res;
 			} else
 				return takeNewline_topLevel(lexer);
 		}();
-		if (tryTakeToken(lexer, Token.region))
-			continue;
 		if (tryTakeToken(lexer, Token.EOF))
 			break;
-		parseSpecOrStructOrFunOrTest(lexer, specs, structAliases, structs, funs, tests, vars, docComment);
+		else if (peekToken(lexer, Token.region)) {
+			TokenAndData x = takeNextToken(lexer);
+			assert(x.token == Token.region);
+			add(lexer.alloc, regions, rangeOf(lexer, x.asRegion));
+		} else 
+			parseSpecOrStructOrFunOrTest(lexer, specs, structAliases, structs, funs, tests, vars, docComment);
 	}
 
 	return FileAst(
@@ -369,6 +376,7 @@ FileAst parseFileInner(ref Lexer lexer) {
 		noStd,
 		imports,
 		exports,
+		smallFinish(lexer.alloc, regions),
 		smallFinish(lexer.alloc, specs),
 		smallFinish(lexer.alloc, structAliases),
 		smallFinish(lexer.alloc, structs),

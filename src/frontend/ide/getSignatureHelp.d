@@ -2,6 +2,7 @@ module frontend.ide.getSignatureHelp;
 
 @safe @nogc pure nothrow:
 
+import document.document : docCommentString;
 import frontend.ide.position : ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position;
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : ParameterInformation, SignatureHelp, SignatureInformation;
@@ -23,6 +24,7 @@ import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, finish, newExactS
 import util.conv : safeToUint;
 import util.opt : none, Opt, some;
 import util.sourceRange : Range;
+import util.string : smallString;
 import util.writer : curUtf16Offset, makeStringWithWriter, Writer;
 
 Opt!SignatureHelp getSignatureHelpForPosition(ref Alloc alloc, in ShowTypeCtx showCtx, in Position position) =>
@@ -108,7 +110,7 @@ SignatureInformation signatureInformation(
 	});
 	return SignatureInformation(
 		signature,
-		a.docComment,
+		smallString(docCommentString(showCtx.fileContentGetters, a.docComment)),
 		finish(parameters),
 		activeParameter: activeParameter);
 }

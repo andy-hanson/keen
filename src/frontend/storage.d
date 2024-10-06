@@ -304,6 +304,8 @@ const struct FileContentGetters {
 		force(getFileInfo(uri)).as!(CrowFileInfo*).content.asString;
 	string getSourceText(Uri uri, Range range) scope =>
 		getSourceText(uri)[range.start .. range.end];
+	string opIndex(in UriAndRange x) scope =>
+		x.range.isEmpty ? "" : getSourceText(x.uri, x.range);
 }
 
 const struct LineAndCharacterGetters {

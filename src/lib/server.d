@@ -14,6 +14,7 @@ import frontend.frontendCompile :
 	onFileChanged,
 	perfStats,
 	programWithMainFromProgram;
+import document.document : documentModules;
 import frontend.getDiagnosticSeverity : getDiagnosticSeverity;
 import frontend.ide.syntaxTranslate : syntaxTranslate;
 import frontend.ide.getCompletion : getCompletionForPosition;
@@ -471,6 +472,8 @@ struct Server {
 		LineAndCharacterGetters(&castNonScope_ref(storage));
 	LineAndColumnGetters lineAndColumnGetters() return scope const =>
 		LineAndColumnGetters(&castNonScope_ref(storage));
+	FileContentGetters fileContentGetters() return scope const =>
+		FileContentGetters(&castNonScope_ref(storage));
 }
 
 immutable struct ServerSettings {
@@ -596,6 +599,9 @@ private string showDiagnosticsCommon(
 	in Opt!(Uri[]) onlyForUris,
 ) =>
 	stringOfDiagnostics(alloc, getShowDiagCtx(server, program.program), program, onlyForUris);
+
+Json documentModules(ref Alloc alloc, in Server server, in Program program, in Uri[] uris) =>
+	documentModules(alloc, program, getShowDiagCtx(server, program), uris);
 
 private Opt!CompletionList getCompletionForProgram(
 	ref Alloc alloc,
@@ -735,7 +741,7 @@ private Opt!Position serverGetPosition(
 }
 
 private string getSourceText(in Server server, in Uri uri) =>
-	FileContentGetters(&server.storage).getSourceText(uri);
+	server.fileContentGetters.getSourceText(uri);
 
 struct DiagsAndResultJson {
 	string diagnostics;
@@ -786,11 +792,7 @@ Json jsonOfConcreteModel(
 ) =>
 	jsonOfConcreteProgram(
 		alloc, lineAndColumnGetters,
-		concretize(
-			perf, alloc,
-			getShowDiagCtx(server, program.program),
-			versionInfo, program,
-			FileContentGetters(&server.storage)));
+		concretize(perf, alloc, getShowDiagCtx(server, program.program), versionInfo, program));
 
 Json jsonOfLowModel(
 	scope ref Perf perf,
@@ -890,8 +892,7 @@ LowProgram buildToLowProgram(
 ) {
 	assert(!hasFatalDiagnostics(program));
 	ShowCtx ctx = getShowDiagCtx(server, program.program);
-	ConcreteProgram concreteProgram = concretize(
-		perf, alloc, ctx, versionInfo, program, FileContentGetters(&server.storage));
+	ConcreteProgram concreteProgram = concretize(perf, alloc, ctx, versionInfo, program);
 	return lower(perf, alloc, ctx, program.mainConfig.extern_, program.program, concreteProgram);
 }
 
@@ -923,13 +924,7 @@ JsAndMap buildToJsScript(
 ) {
 	assert(!hasFatalDiagnostics(program));
 	return translateToJsScript(
-		alloc,
-		program,
-		getShowDiagCtx(server, program.program, forceNoColor: true),
-		LineAndCharacterGetters(&server.storage),
-		FileContentGetters(&server.storage),
-		target,
-		sourceMapName);
+		alloc, program, getShowDiagCtx(server, program.program, forceNoColor: true), target, sourceMapName);
 }
 
 JsModules buildToJsModules(
@@ -939,12 +934,7 @@ JsModules buildToJsModules(
 	JsTarget target,
 ) =>
 	translateToJsModules(
-		alloc,
-		program,
-		getShowDiagCtx(server, program.program, forceNoColor: true),
-		LineAndCharacterGetters(&server.storage),
-		FileContentGetters(&server.storage),
-		target);
+		alloc, program, getShowDiagCtx(server, program.program, forceNoColor: true), target);
 
 ShowDiagCtx getShowDiagCtx(
 	return scope ref const Server server,
@@ -958,6 +948,7 @@ private:
 ShowCtx getShowCtx(return scope ref const Server server, bool forceNoColor = false) =>
 	ShowCtx(
 		server.lineAndColumnGetters,
+		server.fileContentGetters,
 		server.urisInfo,
 		forceNoColor ? server.showOptions.withoutColor : server.showOptions);
 

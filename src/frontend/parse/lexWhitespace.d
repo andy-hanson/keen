@@ -3,11 +3,13 @@ module frontend.parse.lexWhitespace;
 @safe @nogc pure nothrow:
 
 import model.parseDiag : ParseDiag;
+import util.cell : Cell, cellGet, cellSet;
 import util.col.array : isEmpty;
 import util.conv : safeIntFromUint;
 import util.sourceRange : Pos, Range;
 import util.string :
 	CString,
+	cString,
 	cStringIsEmpty,
 	isWhitespace,
 	MutCString,
@@ -20,8 +22,26 @@ import util.util : castNonScope_ref;
 
 // Takes beginning of range; end is the current ptr
 alias AddDiag = void delegate(CString, ParseDiag) @safe @nogc pure nothrow;
-// 'fullStart' includes the '#' (or '###'). The full range is from there to the current source pointer.
-private alias CbComment = void delegate(CString fullStart, string content) @safe @nogc pure nothrow;
+// The argument is the start of the comment. (The source ptr will have been advanced to the end of the comment.)
+private alias CbComment = void delegate(CString) @safe @nogc pure nothrow;
+
+immutable struct CStringRange { // used? ------------------------------------------------------------------------------------------
+	@safe @nogc pure nothrow:
+	CString start;
+	CString end;
+
+	@trusted this(CString s, CString e) {
+		start = s;
+		end = e;
+		assert(start <= end);
+	}
+
+	bool isEmpty() scope =>
+		start == end;
+
+	@trusted static CStringRange empty() =>
+		CStringRange(cString!"", cString!"");
+}
 
 enum IndentKind {
 	tabs,
@@ -73,7 +93,9 @@ void skipUntilNewline(scope ref MutCString ptr) {
 	Range toRange(CString start) =>
 		Range(start - source, ptr - source);
 	while (ptr < end) {
-		skipForTokens(ptr, end, (CString start, string _) { cbComment(toRange(start)); });
+		skipForTokens(ptr, end, (CString x) {
+			cbComment(toRange(x));
+		});
 		if (ptr < end) {
 			CString start = ptr;
 			while (!ignoreCharForTokens(*ptr) && ptr < end)
@@ -101,11 +123,13 @@ void skipSpacesAndComments(ref MutCString ptr, in CbComment cbComment, in AddDia
 				else
 					return;
 			case '#':
-				if (tryTakeTripleHashThenNewline(ptr))
-					cbComment(start, takeRestOfBlockComment(ptr, addDiag));
-				else {
+				if (tryTakeTripleHashThenNewline(ptr)) {
+					skipRestOfBlockComment(ptr, addDiag);
+					cbComment(start);
+				} else {
 					while (tryTakeChar(ptr, ' ')) {}
-					cbComment(start, takeRestOfLine(ptr));
+					skipUntilNewline(ptr);
+					cbComment(start);
 				}
 				continue;
 			default:
@@ -115,7 +139,7 @@ void skipSpacesAndComments(ref MutCString ptr, in CbComment cbComment, in AddDia
 }
 
 immutable struct DocCommentAndIndentDelta {
-	SmallString docComment;
+	CStringRange docComment;
 	int indentDelta;
 }
 
@@ -125,7 +149,7 @@ DocCommentAndIndentDelta skipBlankLinesAndGetIndentDelta(
 	ref uint curIndent,
 	in AddDiag addDiag,
 ) {
-	string docComment = "";
+	Cell!CStringRange docComment = Cell!CStringRange(CStringRange.empty);
 	while (true) {
 		MutCString start = ptr;
 		uint newIndent;
@@ -135,8 +159,8 @@ DocCommentAndIndentDelta skipBlankLinesAndGetIndentDelta(
 				start = ptr;
 				newIndent = takeIndentAmountAfterNewline(ptr, indentKind, addDiag);
 			},
-			cbComment: (CString _, string dc) {
-				docComment = dc;
+			cbComment: (CString start) {
+				cellSet(docComment, CStringRange(start, ptr));
 			},
 			addDiag: addDiag);
 
@@ -152,7 +176,7 @@ DocCommentAndIndentDelta skipBlankLinesAndGetIndentDelta(
 			continue;
 		} else {
 			curIndent = newIndent;
-			return DocCommentAndIndentDelta(smallString(docComment), delta);
+			return DocCommentAndIndentDelta(cellGet(docComment), delta);
 		}
 	}
 }
@@ -176,14 +200,15 @@ bool mayContinueOntoNextLine(ref MutCString ptr, IndentKind indentKind, uint min
 private:
 
 bool tryTakeLineContinuation(ref MutCString ptr, in CbComment cbComment) {
-	CString start = ptr;
 	if (*ptr == '\\') {
 		scope MutCString ptr2 = ptr;
 		ptr2++;
 		bool res = mayContinueOntoNextLine(ptr2, IndentKind.ignore, minIndent: 0);
 		if (res) {
+			CString start = ptr;
+			ptr++;
+			cbComment(start);
 			ptr = castNonScope_ref(ptr2);
-			cbComment(start, "");
 		}
 		return res;
 	} else
@@ -258,10 +283,12 @@ void skipBlankLines(
 		CString before = ptr;
 		if (tryTakeNewline(ptr)) {
 		} else if (tryTakeTripleHashThenNewline(ptr)) {
-			cbComment(before, takeRestOfBlockComment(ptr, addDiag));
+			skipRestOfBlockComment(ptr, addDiag);
+			cbComment(before);
 		} else if (tryTakeChar(ptr, '#')) {
 			while (tryTakeChar(ptr, ' ')) {}
-			cbComment(before, takeRestOfLine(ptr));
+			skipUntilNewline(ptr);
+			cbComment(before);
 		} else if (!tryTakeLineContinuation(ptr, cbComment))
 			break;
 	}
@@ -316,26 +343,6 @@ uint takeIndentAmountAfterNewlineSpaces(ref MutCString ptr, uint nSpacesPerInden
 	return res;
 }
 
-string takeRestOfBlockComment(return scope ref MutCString ptr, in AddDiag addDiag) {
-	CString begin = ptr;
-	CString end = skipRestOfBlockComment(ptr, addDiag);
-	return stripWhitespace(stringOfRange(begin, end));
-}
-
-public string takeRestOfLine(return scope ref MutCString ptr) {
-	CString begin = ptr;
-	skipUntilNewline(ptr);
-	return stringOfRange(begin, ptr);
-}
-
-string stripWhitespace(string a) {
-	while (!isEmpty(a) && isWhitespace(a[0]))
-		a = a[1 .. $];
-	while (!isEmpty(a) && isWhitespace(a[$ - 1]))
-		a = a[0 .. $ - 1];
-	return a;
-}
-
 bool tryTakeTripleHashThenNewline(ref MutCString ptr) {
 	MutCString ptr2 = ptr;
 	if (tryTakeChars(ptr2, "###")) {
@@ -351,16 +358,13 @@ bool tryTakeTripleHashThenNewline(ref MutCString ptr) {
 }
 
 // Returns the end of the comment text (ptr will be advanced further, past the '###')
-CString skipRestOfBlockComment(ref MutCString ptr, in AddDiag addDiag) {
+void skipRestOfBlockComment(ref MutCString ptr, in AddDiag addDiag) {
 	while (true) {
 		while (tryTakeChar(ptr, '\t') || tryTakeChar(ptr, ' ')) {}
-		CString end = ptr;
 		if (tryTakeTripleHashThenNewline(ptr))
-			return end;
-		else if (*ptr == '\0') {
+			break;
+		else if (*ptr == '\0')
 			addDiag(ptr, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.blockCommentEnd)));
-			return end;
-		}
 		skipRestOfLineAndNewline(ptr);
 	}
 }

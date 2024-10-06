@@ -365,6 +365,6 @@ immutable struct FoldingRangeParams {
 immutable struct FoldingRange {
 	uint startLine;
 	uint endLine;
-	FoldingRangeKind kind;
+	Opt!FoldingRangeKind kind;
 }
 enum FoldingRangeKind { comment, imports, region }

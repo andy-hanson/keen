@@ -5,7 +5,7 @@ module frontend.check.inferringType;
 import frontend.check.exprCtx : addDiag2, ExprCtx, typeWithContainer;
 import frontend.check.instantiate : InstantiateCtx, instantiateStructNeverDelay;
 import frontend.showModel : ShowCtx, ShowTypeCtx, ShowOptions, writeTypeUnquoted;
-import frontend.storage : LineAndColumnGetters;
+import frontend.storage : FileContentGetters, LineAndColumnGetters;
 import model.ast : ExprAst;
 import model.diag : Diag, ExpectedForDiag, TypeContainer, TypeWithContainer;
 import model.model :
@@ -239,6 +239,7 @@ void debugLogExpected(scope ref Writer writer, ref ExprCtx ctx, in Expected a) {
 	ShowTypeCtx showCtx = ShowTypeCtx(
 		ShowCtx(
 			LineAndColumnGetters(null), // not used
+			FileContentGetters(null),
 			UrisInfo(),
 			ShowOptions(color: false)),
 		ctx.commonTypesPtr);

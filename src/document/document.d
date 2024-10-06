@@ -2,6 +2,8 @@ module document.document;
 
 @safe @nogc pure nothrow:
 
+import frontend.showModel : ShowModelCtx;
+import frontend.storage : FileContentGetters;
 import model.ast : NameAndRange;
 import model.concreteModel : TypeSize;
 import model.model :
@@ -49,43 +51,54 @@ import util.json :
 	jsonList,
 	jsonString,
 	kindField;
-import util.opt : force, has, none, Opt, some;
+import util.opt : force, has, none, Opt, optIf, some;
 import util.sourceRange : compareUriAndRange, UriAndRange;
-import util.string : SmallString;
+import util.string : isWhitespace, SmallString;
 import util.symbol : Symbol, symbol;
 import util.uri : stringOfUri, Uri;
-import util.util : stringOfEnum;
+import util.util : ptrTrustMe, stringOfEnum;
 
-Json documentModules(ref Alloc alloc, in Program program, in Uri[] moduleUris) =>
-	jsonObject(alloc, [
+Json documentModules(ref Alloc alloc, in Program program, in ShowModelCtx showCtx, in Uri[] moduleUris) {
+	Ctx ctx = Ctx(ptrTrustMe(alloc), showCtx.fileContentGetters);
+	return jsonObject(alloc, [
 		field!"modules"(jsonList!Uri(alloc, moduleUris, (in Uri x) =>
-			documentModule(alloc, program, *moduleAtUri(program, x))))]);
+			documentModule(ctx, program, *moduleAtUri(program, x))))]);
+}
 
 private:
 
-Json documentModule(ref Alloc alloc, in Program program, in Module a) {
-	DocExport[] exports = buildArray!DocExport(alloc, (scope ref Builder!DocExport res) {
+struct Ctx {
+	@safe @nogc pure nothrow:
+	Alloc* allocPtr;
+	FileContentGetters fileContentGetters;
+
+	ref Alloc alloc() =>
+		*allocPtr;
+}
+
+Json documentModule(ref Ctx ctx, in Program program, in Module a) {
+	DocExport[] exports = buildArray!DocExport(ctx.alloc, (scope ref Builder!DocExport res) {
 		// Use 'exports' instead of direct module members so it accounts for re-exports
 		foreach (NameReferents referents; a.exports) {
 			if (has(referents.structOrAlias) && force(referents.structOrAlias).visibility == Visibility.public_)
-				res ~= documentStructOrAlias(alloc, force(referents.structOrAlias));
+				res ~= documentStructOrAlias(ctx, force(referents.structOrAlias));
 			if (has(referents.spec) && force(referents.spec).visibility == Visibility.public_)
-				res ~= documentSpec(alloc, *force(referents.spec));
+				res ~= documentSpec(ctx, *force(referents.spec));
 			foreach (FunDecl* fun; referents.funs)
 				if (fun.visibility == Visibility.public_) {
 					if (fun.isGenerated) {
 						if (fun.body_.isA!(FunBody.VarGet))
-							res ~= documentVarDecl(alloc, *fun.body_.as!(FunBody.VarGet).var);
+							res ~= documentVarDecl(ctx, *fun.body_.as!(FunBody.VarGet).var);
 					} else
-						res ~= documentFun(alloc, *fun);
+						res ~= documentFun(ctx, *fun);
 				}
 		}
 		arrayBuilderSort!(DocExport, compareDocExport)(res);
 	});
-	return jsonObject(alloc, [
-		field!"uri"(stringOfUri(alloc, a.uri)),
-		optionalStringField!"doc"(alloc, a.ast.docComment),
-		field!"exports"(jsonList!DocExport(alloc, exports, (in DocExport x) => x.json))]);
+	return jsonObject(ctx.alloc, [
+		field!"uri"(stringOfUri(ctx.alloc, a.uri)),
+		docCommentField(ctx, a.docComment),
+		field!"exports"(jsonList!DocExport(ctx.alloc, exports, (in DocExport x) => x.json))]);
 }
 
 immutable struct DocExport {
@@ -96,74 +109,90 @@ Comparison compareDocExport(in DocExport a, in DocExport b) =>
 	compareUriAndRange(a.range, b.range);
 
 DocExport documentExport(
-	ref Alloc alloc,
+	ref Ctx ctx,
 	UriAndRange range,
 	Symbol name,
-	in SmallString docComment,
+	in UriAndRange docComment,
 	in TypeParams typeParams,
 	Json value,
 ) =>
-	DocExport(range, jsonObject(alloc, [
+	DocExport(range, jsonObject(ctx.alloc, [
 		field!"name"(name),
-		optionalStringField!"doc"(alloc, docComment),
-		optionalArrayField!("type-params", NameAndRange)(alloc, typeParams, (in NameAndRange x) =>
-			jsonObject(alloc, [field!"name"(x.name)])),
+		docCommentField(ctx, docComment),
+		optionalArrayField!("type-params", NameAndRange)(ctx.alloc, typeParams, (in NameAndRange x) =>
+			jsonObject(ctx.alloc, [field!"name"(x.name)])),
 		field!"value"(value)]));
 
-DocExport documentStructOrAlias(ref Alloc alloc, in StructOrAlias a) =>
+Json.ObjectField docCommentField(ref Ctx ctx, in UriAndRange docComment) =>
+	optionalField!"doc"(!docComment.range.isEmpty, () =>
+		jsonString(docCommentString(ctx.fileContentGetters, docComment)));
+
+public string docCommentString(in FileContentGetters a, in UriAndRange docComment) =>
+	stripDocComment(a[docComment]);
+string stripDocComment(string a) {
+	while (!isEmpty(a) && isWhitespaceOrHash(a[0]))
+		a = a[1 .. $];
+	while (!isEmpty(a) && isWhitespaceOrHash(a[$ - 1]))
+		a = a[0 .. $ - 1];
+	return a;
+}
+bool isWhitespaceOrHash(char a) =>
+	isWhitespace(a) || a == '#';
+
+DocExport documentStructOrAlias(ref Ctx ctx, in StructOrAlias a) =>
 	a.matchIn!DocExport(
 		(in StructAlias x) =>
-			documentStructAlias(alloc, x),
+			documentStructAlias(ctx, x),
 		(in StructDecl x) =>
-			documentStructDecl(alloc, x));
+			documentStructDecl(ctx, x));
 
-DocExport documentStructAlias(ref Alloc alloc, in StructAlias a) =>
-	documentExport(alloc, a.range, a.name, a.docComment, a.typeParams, jsonObject(alloc, [
+DocExport documentStructAlias(ref Ctx ctx, in StructAlias a) =>
+	documentExport(ctx, a.range, a.name, a.docComment, a.typeParams, jsonObject(ctx.alloc, [
 		kindField!"alias",
-		field!"target"(documentStructInst(alloc, a.typeParams, *a.target))]));
+		field!"target"(documentStructInst(ctx, a.typeParams, *a.target))]));
 
-DocExport documentStructDecl(ref Alloc alloc, in StructDecl a) {
+DocExport documentStructDecl(ref Ctx ctx, in StructDecl a) {
 	Json.ObjectField variantsField = optionalArrayField!("variants", VariantAndMethodImpls)(
-		alloc, a.variants, (in VariantAndMethodImpls x) =>
-			documentStructInst(alloc, a.typeParams, *x.variant));
-	return documentExport(alloc, a.range, a.name, a.docComment, a.typeParams, a.body_.matchIn!Json(
+		ctx.alloc, a.variants, (in VariantAndMethodImpls x) =>
+			documentStructInst(ctx, a.typeParams, *x.variant));
+	return documentExport(ctx, a.range, a.name, a.docComment, a.typeParams, a.body_.matchIn!Json(
 		(in StructBody.Bogus) =>
 			assert(false),
 		(in BuiltinType _) =>
-			jsonObject(alloc, [kindField!"builtin", variantsField]),
+			jsonObject(ctx.alloc, [kindField!"builtin", variantsField]),
 		(in StructBody.Enum x) =>
-			jsonObject(alloc, [kindField!"enum", field!"members"(jsonOfEnumMembers(alloc, x.members)), variantsField]),
+			jsonObject(ctx.alloc, [kindField!"enum", field!"members"(jsonOfEnumMembers(ctx.alloc, x.members)), variantsField]),
 		(in StructBody.Extern x) =>
-			jsonObject(alloc, [
+			jsonObject(ctx.alloc, [
 				kindField!"extern",
 				optionalField!("size", TypeSize)(x.size, (in TypeSize size) =>
-					jsonObject(alloc, [
+					jsonObject(ctx.alloc, [
 						field!"size"(size.sizeBytes),
 						field!"alignment"(size.alignmentBytes)])),
 				variantsField]),
 		(in StructBody.Flags x) =>
-			jsonObject(alloc, [kindField!"flags", field!"members"(jsonOfEnumMembers(alloc, x.members)), variantsField]),
+			jsonObject(ctx.alloc, [kindField!"flags", field!"members"(jsonOfEnumMembers(ctx.alloc, x.members)), variantsField]),
 		(in StructBody.Record x) =>
-			documentRecord(alloc, a, x, variantsField),
+			documentRecord(ctx, a, x, variantsField),
 		(in StructBody.Union x) =>
-			documentUnion(alloc, a, x, variantsField),
+			documentUnion(ctx, a, x, variantsField),
 		(in StructBody.Variant x) =>
-			documentVariant(alloc, a, x, variantsField)));
+			documentVariant(ctx.alloc, a, x, variantsField)));
 }
 
 Json jsonOfEnumMembers(ref Alloc alloc, in EnumOrFlagsMember[] members) =>
 	jsonList!EnumOrFlagsMember(alloc, members, (in EnumOrFlagsMember member) =>
 		jsonString(member.name));
 
-Json documentRecord(ref Alloc alloc, in StructDecl decl, in StructBody.Record a, Json.ObjectField variantsField) =>
-	jsonObject(alloc, [
+Json documentRecord(ref Ctx ctx, in StructDecl decl, in StructBody.Record a, Json.ObjectField variantsField) =>
+	jsonObject(ctx.alloc, [
 		kindField!"record",
-		maybePurity(alloc, decl),
+		maybePurity(ctx.alloc, decl),
 		optionalFlagField!"has-non-public-fields"(hasNonPublicFields(a)),
 		optionalFlagField!"nominal"(a.flags.nominal),
 		field!"fields"(jsonList(
-			mapOp!(Json, RecordField)(alloc, a.fields, (ref RecordField field) =>
-				documentRecordField(alloc, decl.typeParams, field)))),
+			mapOp!(Json, RecordField)(ctx.alloc, a.fields, (ref RecordField field) =>
+				documentRecordField(ctx, decl.typeParams, field)))),
 		variantsField]);
 
 Json.ObjectField maybePurity(ref Alloc alloc, in StructDecl decl) =>
@@ -180,55 +209,55 @@ bool hasNonPublicFields(in StructBody.Record a) =>
 		}
 	});
 
-Json documentUnion(ref Alloc alloc, in StructDecl decl, in StructBody.Union a, Json.ObjectField variantsField) =>
-	jsonObject(alloc, [
+Json documentUnion(ref Ctx ctx, in StructDecl decl, in StructBody.Union a, Json.ObjectField variantsField) =>
+	jsonObject(ctx.alloc, [
 		kindField!"union",
-		maybePurity(alloc, decl),
-		field!"members"(jsonList!UnionMember(alloc, a.members, (in UnionMember member) =>
-			documentUnionMember(alloc, decl.typeParams, member))),
+		maybePurity(ctx.alloc, decl),
+		field!"members"(jsonList!UnionMember(ctx.alloc, a.members, (in UnionMember member) =>
+			documentUnionMember(ctx, decl.typeParams, member))),
 		variantsField]);
 
 Json documentVariant(ref Alloc alloc, in StructDecl decl, in StructBody.Variant a, Json.ObjectField variantsField) =>
 	jsonObject(alloc, [kindField!"variant", maybePurity(alloc, decl), variantsField]);
 
-Opt!Json documentRecordField(ref Alloc alloc, in TypeParams typeParams, in RecordField a) {
+Opt!Json documentRecordField(ref Ctx ctx, in TypeParams typeParams, in RecordField a) {
 	final switch (a.visibility) {
 		case Visibility.private_:
 		case Visibility.internal:
 			return none!Json;
 		case Visibility.public_:
-			return some(jsonObject(alloc, [
+			return some(jsonObject(ctx.alloc, [
 				field!"name"(a.name),
-				field!"type"(documentTypeRef(alloc, typeParams, a.type)),
+				field!"type"(documentTypeRef(ctx, typeParams, a.type)),
 				optionalFlagField!"mut"(has(a.mutability) && force(a.mutability) == Visibility.public_)]));
 	}
 }
 
-Json documentUnionMember(ref Alloc alloc, in TypeParams typeParams, in UnionMember a) =>
-	jsonObject(alloc, [
+Json documentUnionMember(ref Ctx ctx, in TypeParams typeParams, in UnionMember a) =>
+	jsonObject(ctx.alloc, [
 		field!"name"(a.name),
-		field!"type"(documentTypeRef(alloc, typeParams, a.type))]);
+		field!"type"(documentTypeRef(ctx, typeParams, a.type))]);
 
-DocExport documentSpec(ref Alloc alloc, in SpecDecl a) =>
-	documentExport(alloc, a.range, a.name, a.docComment, a.typeParams, jsonObject(alloc, [
+DocExport documentSpec(ref Ctx ctx, in SpecDecl a) =>
+	documentExport(ctx, a.range, a.name, a.docComment, a.typeParams, jsonObject(ctx.alloc, [
 		kindField!"spec",
 		optionalFlagField!"builtin"(has(a.builtin)),
-		field!"parents"(jsonList(map(alloc, a.parents, (ref immutable SpecInst* x) =>
-			documentSpecInst(alloc, a.typeParams, *x)))),
-		field!"sigs"(jsonList!Signature(alloc, a.sigs, (in Signature sig) =>
-			documentSpecDeclSig(alloc, a.typeParams, sig)))]));
+		field!"parents"(jsonList(map(ctx.alloc, a.parents, (ref immutable SpecInst* x) =>
+			documentSpecInst(ctx, a.typeParams, *x)))),
+		field!"sigs"(jsonList!Signature(ctx.alloc, a.sigs, (in Signature sig) =>
+			documentSpecDeclSig(ctx, a.typeParams, sig)))]));
 
-Json documentSpecDeclSig(ref Alloc alloc, in TypeParams typeParams, in Signature a) =>
-	jsonObject(alloc, [
-		optionalStringField!"doc"(alloc, a.ast.docComment),
+Json documentSpecDeclSig(ref Ctx ctx, in TypeParams typeParams, in Signature a) =>
+	jsonObject(ctx.alloc, [
+		docCommentField(ctx, a.docComment),
 		field!"name"(a.name),
-		field!"return-type"(documentTypeRef(alloc, typeParams, a.returnType)),
-		field!"params"(documentParamDestructures(alloc, typeParams, a.params))]);
+		field!"return-type"(documentTypeRef(ctx, typeParams, a.returnType)),
+		field!"params"(documentParamDestructures(ctx, typeParams, a.params))]);
 
-DocExport documentVarDecl(ref Alloc alloc, in VarDecl a) =>
-	documentExport(alloc, a.range, a.name, a.docComment, a.typeParams, jsonObject(alloc, [
+DocExport documentVarDecl(ref Ctx ctx, in VarDecl a) =>
+	documentExport(ctx, a.range, a.name, a.docComment, a.typeParams, jsonObject(ctx.alloc, [
 		kindField(stringOfVarDeclKind(a.kind)),
-		field!"type"(documentTypeRef(alloc, a.typeParams, a.type))]));
+		field!"type"(documentTypeRef(ctx, a.typeParams, a.type))]));
 
 string stringOfVarDeclKind(VarKind kind) {
 	final switch (kind) {
@@ -239,72 +268,72 @@ string stringOfVarDeclKind(VarKind kind) {
 	}
 }
 
-DocExport documentFun(ref Alloc alloc, in FunDecl a) =>
-	documentExport(alloc, a.range, a.name, a.docComment, a.typeParams, jsonObject(alloc, [
+DocExport documentFun(ref Ctx ctx, in FunDecl a) =>
+	documentExport(ctx, a.range, a.name, a.docComment, a.typeParams, jsonObject(ctx.alloc, [
 		kindField!"fun",
-		field!"return-type"(documentTypeRef(alloc, a.typeParams, a.returnType)),
-		documentParams(alloc, a.typeParams, a.params),
+		field!"return-type"(documentTypeRef(ctx, a.typeParams, a.returnType)),
+		documentParams(ctx, a.typeParams, a.params),
 		optionalFlagField!"variadic"(a.isVariadic),
-		optionalArrayField!"specs"(documentSpecs(alloc, a))]));
+		optionalArrayField!"specs"(documentSpecs(ctx, a))]));
 
-Json[] documentSpecs(ref Alloc alloc, in FunDecl a) =>
-	buildArray!Json(alloc, (scope ref Builder!Json res) {
+Json[] documentSpecs(ref Ctx ctx, in FunDecl a) =>
+	buildArray!Json(ctx.alloc, (scope ref Builder!Json res) {
 		if (a.isBare)
-			res ~= jsonOfSpecialSpec(alloc, symbol!"bare");
+			res ~= jsonOfSpecialSpec(ctx, symbol!"bare");
 		if (a.isSummon)
-			res ~= jsonOfSpecialSpec(alloc, symbol!"summon");
+			res ~= jsonOfSpecialSpec(ctx, symbol!"summon");
 		if (a.isUnsafe)
-			res ~= jsonOfSpecialSpec(alloc, symbol!"unsafe");
+			res ~= jsonOfSpecialSpec(ctx, symbol!"unsafe");
 		foreach (SpecInst* spec; a.specs)
-			res ~= documentSpecInst(alloc, a.typeParams, *spec);
+			res ~= documentSpecInst(ctx, a.typeParams, *spec);
 	});
 
-Json jsonOfSpecialSpec(ref Alloc alloc, Symbol name) =>
-	jsonObject(alloc, [kindField!"special", field!"name"(name)]);
+Json jsonOfSpecialSpec(ref Ctx ctx, Symbol name) =>
+	jsonObject(ctx.alloc, [kindField!"special", field!"name"(name)]);
 
-Json.ObjectField documentParams(ref Alloc alloc, in TypeParams typeParams, in Params params) =>
-	field!"params"(documentParamDestructures(alloc, typeParams, paramsArray(params)));
+Json.ObjectField documentParams(ref Ctx ctx, in TypeParams typeParams, in Params params) =>
+	field!"params"(documentParamDestructures(ctx, typeParams, paramsArray(params)));
 
-Json documentParamDestructures(ref Alloc alloc, in TypeParams typeParams, in Destructure[] a) =>
-	jsonList!Destructure(alloc, a, (in Destructure x) =>
-		documentParam(alloc, typeParams, x));
+Json documentParamDestructures(ref Ctx ctx, in TypeParams typeParams, in Destructure[] a) =>
+	jsonList!Destructure(ctx.alloc, a, (in Destructure x) =>
+		documentParam(ctx, typeParams, x));
 
-Json documentParam(ref Alloc alloc, in TypeParams typeParams, in Destructure a) {
+Json documentParam(ref Ctx ctx, in TypeParams typeParams, in Destructure a) {
 	Opt!Symbol name = a.name;
-	return jsonObject(alloc, [
+	return jsonObject(ctx.alloc, [
 		field!"name"(has(name) ? force(name) : symbol!"anonymous"),
-		field!"type"(documentTypeRef(alloc, typeParams, a.type))]);
+		field!"type"(documentTypeRef(ctx, typeParams, a.type))]);
 }
 
-Json documentTypeRef(ref Alloc alloc, in TypeParams typeParams, in Type a) =>
+Json documentTypeRef(ref Ctx ctx, in TypeParams typeParams, in Type a) =>
 	a.matchIn!Json(
 		(in Type.Bogus) =>
 			assert(false),
 		(in TypeParamIndex x) =>
-			jsonObject(alloc, [kindField!"type-param", field!"name"(typeParams[x.index].name)]),
+			jsonObject(ctx.alloc, [kindField!"type-param", field!"name"(typeParams[x.index].name)]),
 		(in StructInst x) =>
-			documentStructInst(alloc, typeParams, x));
+			documentStructInst(ctx, typeParams, x));
 
-Json documentSpecInst(ref Alloc alloc, in TypeParams typeParams, in SpecInst a) =>
-	documentNameAndTypeArgs(alloc, typeParams, "spec", a.name, a.typeArgs);
+Json documentSpecInst(ref Ctx ctx, in TypeParams typeParams, in SpecInst a) =>
+	documentNameAndTypeArgs(ctx, typeParams, "spec", a.name, a.typeArgs);
 
-Json documentStructInst(ref Alloc alloc, in TypeParams typeParams, in StructInst a) =>
-	documentNameAndTypeArgs(alloc, typeParams, "struct", a.decl.name, a.typeArgs);
+Json documentStructInst(ref Ctx ctx, in TypeParams typeParams, in StructInst a) =>
+	documentNameAndTypeArgs(ctx, typeParams, "struct", a.decl.name, a.typeArgs);
 
 Json documentNameAndTypeArgs(
-	ref Alloc alloc,
+	ref Ctx ctx,
 	in TypeParams typeParams,
 	string nodeType,
 	Symbol name,
 	in Type[] typeArgs,
 ) =>
 	isEmpty(typeArgs)
-		? jsonObject(alloc, [kindField(nodeType), field!"name"(name)])
-		: jsonObject(alloc, [
+		? jsonObject(ctx.alloc, [kindField(nodeType), field!"name"(name)])
+		: jsonObject(ctx.alloc, [
 			kindField(nodeType),
 			field!"name"(name),
-			field!"type-args"(jsonList!Type(alloc, typeArgs, (in Type typeArg) =>
-				documentTypeRef(alloc, typeParams, typeArg)))]);
+			field!"type-args"(jsonList!Type(ctx.alloc, typeArgs, (in Type typeArg) =>
+				documentTypeRef(ctx, typeParams, typeArg)))]);
 
 void eachLine(string a, in void delegate(string) @safe @nogc pure nothrow cb) {
 	Opt!size_t index = indexOf(a, '\n');

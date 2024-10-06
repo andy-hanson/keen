@@ -41,7 +41,6 @@ version (GccJitAvailable) {
 import backend.js.sourceMap : JsAndMap;
 import backend.js.translateToJs : JsModules;
 import backend.writeToC : PathAndArgs, WriteToCParams;
-import document.document : documentModules;
 import frontend.lang : CCompileOptions;
 import frontend.showModel : ShowOptions;
 import frontend.storage : FilesState;
@@ -69,6 +68,7 @@ import lib.server :
 	buildToJsScript,
 	buildToLowProgram,
 	DiagsAndResultJson,
+	documentModules,
 	filesState,
 	getProgramForMain,
 	getProgramForRoots,
@@ -343,7 +343,7 @@ ExitCodeOrSignal go(
 				hasAnyDiagnostics(program) ? ExitCodeOrSignal.error : ExitCodeOrSignal(print("OK"))),
 		(in CommandKind.Document x) =>
 			withProgramForRoots(perf, alloc, server, x.rootUris, (ref Program program) =>
-				printJson(alloc, documentModules(alloc, program, x.rootUris))),
+				printJson(alloc, documentModules(alloc, server, program, x.rootUris))),
 		(in CommandKind.Help x) {
 			print(x.helpText);
 			return ExitCodeOrSignal(x.exitCode);

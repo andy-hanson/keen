@@ -16,7 +16,7 @@ import frontend.parse.lexToken :
 	lookaheadQuestionEquals,
 	plainToken;
 import frontend.parse.lexWhitespace :
-	mayContinueOntoNextLine, detectIndentKind, IndentKind, skipSpacesAndComments, skipUntilNewline;
+	CStringRange, detectIndentKind, IndentKind, mayContinueOntoNextLine, skipSpacesAndComments, skipUntilNewline;
 import model.parseDiag : ParseDiag, ParseDiagnostic;
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
@@ -74,6 +74,10 @@ Pos curPos(in Lexer lexer) =>
 private Pos posAtPtr(in Lexer lexer) =>
 	posOf(lexer, lexer.ptr);
 
+Range rangeOf(in Lexer lexer, in CStringRange range) =>
+	range.isEmpty
+		? Range.empty
+		: Range(posOf(lexer, range.start), posOf(lexer, range.end));
 private Pos posOf(in Lexer lexer, in CString ptr) =>
 	ptr - lexer.sourceBegin;
 
@@ -155,7 +159,7 @@ void skipNewlinesIgnoreIndentation(ref Lexer lexer, uint indentLevel) {
 				continue;
 			case Token.EOF:
 				if (indentLevel != 0)
-					cellSet(lexer.nextToken, TokenAndData(Token.newlineDedent, DocCommentAndExtraDedents()));
+					cellSet(lexer.nextToken, TokenAndData(Token.newlineDedent, DocCommentAndExtraDedents(CStringRange.empty, 0)));
 				lexer.curIndent = 0;
 				return;
 			default:
@@ -197,7 +201,7 @@ TokenAndData takeNextTokenMayContinueOntoNextLine(ref Lexer lexer) {
 
 private void readNextToken(ref Lexer lexer) {
 	lexer.prevTokenEnd = lexer.ptr;
-	skipSpacesAndComments(lexer.ptr, (CString _, string _2) {}, (CString start, ParseDiag x) =>
+	skipSpacesAndComments(lexer.ptr, (CString _) {}, (CString start, ParseDiag x) =>
 		addDiagFromPointer(lexer, start, x));
 	lexer.nextTokenPos = posAtPtr(lexer);
 	cellSet(lexer.nextToken, lexToken(

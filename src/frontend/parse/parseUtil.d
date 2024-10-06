@@ -11,6 +11,7 @@ import frontend.parse.lexer :
 	Lexer,
 	range,
 	rangeForCurToken,
+	rangeOf,
 	skipUntilNewlineNoDiag,
 	takeNextToken,
 	takeNextTokenMayContinueOntoNextLine,
@@ -189,16 +190,16 @@ private immutable Token[] endOfLineTokens =
 bool peekEndOfLine(ref Lexer lexer) =>
 	peekToken(lexer, endOfLineTokens);
 
-SmallString takeNewline_topLevel(ref Lexer lexer) {
+Range takeNewline_topLevel(ref Lexer lexer) {
 	TokenAndData token = takeNextToken(lexer);
 	if (token.token == Token.newlineSameIndent)
-		return token.asDocComment().docComment;
+		return rangeOf(lexer, token.asDocComment().docComment);
 	else {
 		addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.newline)));
 		assert(token.token != Token.newlineDedent);
 		NewlineOrDedent nl = skipToNextNewlineOrDedent(lexer, token.token == Token.newlineIndent ? 1 : 0);
 		assert(nl == NewlineOrDedent.newline);
-		return emptySmallString;
+		return Range.empty;
 	}
 }
 

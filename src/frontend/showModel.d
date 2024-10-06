@@ -3,7 +3,7 @@ module frontend.showModel;
 @safe @nogc pure nothrow:
 
 import frontend.check.typeFromAst : typeSyntaxKind;
-import frontend.storage : LineAndCharacterGetters, LineAndColumnGetters;
+import frontend.storage : FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters;
 import model.ast : NameAndRange;
 import model.diag : Diag, TypeContainer, TypeWithContainer;
 import model.model :
@@ -44,6 +44,7 @@ const struct ShowCtx {
 	@safe @nogc pure nothrow:
 
 	LineAndColumnGetters lineAndColumnGetters;
+	FileContentGetters fileContentGetters; // TODO: these both just wrap a Storage*, so maybe they should be the same type ------------------------
 	UrisInfo urisInfo;
 	ShowOptions options;
 

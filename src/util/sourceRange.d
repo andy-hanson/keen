@@ -4,6 +4,7 @@ module util.sourceRange;
 
 import util.alloc.alloc : Alloc;
 import util.comparison : compareOr, compareUint, Comparison;
+import util.col.array : isEmpty;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.conv : safeToUint;
 import util.json : field, Json, jsonObject;
@@ -36,6 +37,9 @@ immutable struct Range {
 
 	uint length() =>
 		end - start;
+
+	bool isEmpty() =>
+		length == 0;
 
 	Range opSlice(uint low, uint high) =>
 		Range(start + low, start + high);
@@ -219,6 +223,9 @@ immutable struct LineAndCharacterGetter {
 		Pos nextLinePos = line == lineToPos.length - 1 ? maxPos : lineToPos[line + 1] - 1;
 		return sourceText[pos .. nextLinePos];
 	}
+
+	size_t lastLine() scope =>
+		isEmpty(lineToPos) ? 0 : lineToPos.length - 1;
 
 	LineAndCharacterRange opIndex(in Range range) scope =>
 		LineAndCharacterRange(this[range.start, PosKind.startOfRange], this[range.end, PosKind.endOfRange]);

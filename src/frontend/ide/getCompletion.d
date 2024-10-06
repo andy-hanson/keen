@@ -2,6 +2,7 @@ module frontend.ide.getCompletion;
 
 @safe @nogc pure nothrow:
 
+import document.document : docCommentString;
 import frontend.check.inferringType : isTypeMatchPossibleForCompletions;
 import frontend.ide.position : ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position;
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
@@ -106,7 +107,7 @@ CompletionItem completionForCalledDecl(
 		makeStringWithWriter(alloc, (scope ref Writer writer) {
 			writeCalledDecl(writer, showCtx, WriteKind.unquoted, typeContainer, a);
 		}),
-		a.docComment);
+		docCommentString(showCtx.fileContentGetters, a.docComment));
 
 Opt!Type firstParamType(in CalledDecl a) =>
 	a.matchIn!(Opt!Type)(
