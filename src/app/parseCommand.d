@@ -364,8 +364,6 @@ Opt!PrintKind parsePrintKind(in CString a, in CString[] args) {
 	}
 
 	switch (stringOfCString(a)) {
-		case "tokens":
-			return expectEmptyArgs(PrintKind(PrintKind.Tokens()));
 		case "ast":
 			return expectEmptyArgs(PrintKind(PrintKind.Ast()));
 		case "model":
@@ -374,37 +372,52 @@ Opt!PrintKind parsePrintKind(in CString a, in CString[] args) {
 			return expectEmptyArgs(PrintKind(PrintKind.ConcreteModel()));
 		case "low-model":
 			return expectEmptyArgs(PrintKind(PrintKind.LowModel()));
-		case "folding-ranges":
-			return expectEmptyArgs(PrintKind(PrintKind.FoldingRanges()));
-		case "inlay-hints":
-			return expectEmptyArgs(PrintKind(PrintKind.InlayHints()));
 		default:
-			Opt!(PrintKind.Ide.Kind) kind = ideKind(stringOfCString(a));
-			return has(kind)
-				? expectLineAndColumn((in LineAndColumn lc) => PrintKind(PrintKind.Ide(force(kind), lc)))
-				: none!PrintKind;
+			Opt!(PrintKind.IdeAtPos.Kind) kindAtPos = ideAtPosKind(stringOfCString(a));
+			if (has(kindAtPos))
+				return expectLineAndColumn((in LineAndColumn lc) => PrintKind(PrintKind.IdeAtPos(force(kindAtPos), lc)));
+			else {
+				Opt!(PrintKind.IdeWholeFile.Kind) kindWholeFile = ideWholeFileKind(stringOfCString(a));
+				return has(kindWholeFile)
+					? expectEmptyArgs(PrintKind(PrintKind.IdeWholeFile(force(kindWholeFile))))
+					: none!PrintKind;
+			}
 	}
 }
-Opt!(PrintKind.Ide.Kind) ideKind(in string a) {
+Opt!(PrintKind.IdeAtPos.Kind) ideAtPosKind(in string a) {
 	switch (a) {
 		case "completion":
-			return some(PrintKind.Ide.Kind.completion);
+			return some(PrintKind.IdeAtPos.Kind.completion);
 		case "definition":
-			return some(PrintKind.Ide.Kind.definition);
+			return some(PrintKind.IdeAtPos.Kind.definition);
 		case "document-highlight":
-			return some(PrintKind.Ide.Kind.documentHighlight);
+			return some(PrintKind.IdeAtPos.Kind.documentHighlight);
 		case "hover":
-			return some(PrintKind.Ide.Kind.hover);
+			return some(PrintKind.IdeAtPos.Kind.hover);
 		case "references":
-			return some(PrintKind.Ide.Kind.references);
+			return some(PrintKind.IdeAtPos.Kind.references);
 		case "rename":
-			return some(PrintKind.Ide.Kind.rename);
+			return some(PrintKind.IdeAtPos.Kind.rename);
 		case "signature-help":
-			return some(PrintKind.Ide.Kind.signatureHelp);
+			return some(PrintKind.IdeAtPos.Kind.signatureHelp);
 		case "type-definition":
-			return some(PrintKind.Ide.Kind.typeDefinition);
+			return some(PrintKind.IdeAtPos.Kind.typeDefinition);
 		default:
-			return none!(PrintKind.Ide.Kind);
+			return none!(PrintKind.IdeAtPos.Kind);
+	}
+}
+Opt!(PrintKind.IdeWholeFile.Kind) ideWholeFileKind(in string a) {
+	switch (a) {
+		case "code-lenses":
+			return some(PrintKind.IdeWholeFile.Kind.codeLenses);
+		case "folding-ranges":
+			return some(PrintKind.IdeWholeFile.Kind.foldingRanges);
+		case "inlay-hints":
+			return some(PrintKind.IdeWholeFile.Kind.inlayHints);
+		case "tokens":
+			return some(PrintKind.IdeWholeFile.Kind.tokens);
+		default:
+			return none!(PrintKind.IdeWholeFile.Kind);
 	}
 }
 
@@ -810,6 +823,7 @@ string commandDescription(CommandName name) {
 				"\ncrow print concrete-model PATH" ~
 				"\ncrow print low-model PATH" ~
 				"\n" ~
+				"\ncrow print code-lenses PATH" ~
 				"\ncrow print definition PATH LINE:COLUMN" ~
 				"\ncrow print document-highlight PATH LINE:COLUMN" ~
 				"\ncrow print folding-ranges PATH" ~

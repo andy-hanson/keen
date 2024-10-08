@@ -218,17 +218,24 @@ immutable struct LineAndCharacterGetter {
 		return LineAndCharacter(line, character);
 	}
 
-	private string getLineText(uint line) return scope {
-		Pos pos = lineToPos[line];
-		Pos nextLinePos = line == lineToPos.length - 1 ? maxPos : lineToPos[line + 1] - 1;
-		return sourceText[pos .. nextLinePos];
-	}
+	private string getLineText(uint line) return scope =>
+		sourceText[lineToPos[line] .. nextLinePos(this, line)];
 
 	size_t lastLine() scope =>
 		isEmpty(lineToPos) ? 0 : lineToPos.length - 1;
 
 	LineAndCharacterRange opIndex(in Range range) scope =>
 		LineAndCharacterRange(this[range.start, PosKind.startOfRange], this[range.end, PosKind.endOfRange]);
+}
+
+private Pos nextLinePos(in LineAndCharacterGetter a, uint line) =>
+	line == a.lineToPos.length - 1 ? a.maxPos : a.lineToPos[line + 1] - 1;
+
+LineAndCharacterRange rangeToEndOfLine(in LineAndCharacterGetter a, Pos start) {
+	LineAndCharacter lc = a[start, PosKind.startOfRange];
+	Pos next = nextLinePos(a, lc.line);
+	assert(next > start);
+	return LineAndCharacterRange(lc, LineAndCharacter(lc.line, lc.character + (next - 1 - start)));
 }
 
 immutable struct LineAndColumnGetter {

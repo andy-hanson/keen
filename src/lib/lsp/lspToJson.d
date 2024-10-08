@@ -6,6 +6,9 @@ import frontend.ide.getTokens : getTokensLegend;
 import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes :
 	BuildJsScriptResult,
+	CodeLensResolved,
+	CodeLensUnresolved,
+	Command,
 	CompletionItem,
 	CompletionList,
 	DocumentHighlight,
@@ -15,6 +18,7 @@ import lib.lsp.lspTypes :
 	Hover,
 	InitializeResult,
 	InlayHint,
+	InlayHintKind,
 	InlayHintResult,
 	LspDiagnostic,
 	LspOutAction,
@@ -91,6 +95,11 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 	a.match!Json(
 		(BuildJsScriptResult x) =>
 			jsonObject(alloc, [field!"diagnostics"(x.diagnostics), optionalField!"script"(x.script)]),
+		(CodeLensResolved x) =>
+			jsonOfCodeLensResolved(alloc, x),
+		(CodeLensUnresolved[] xs) =>
+			jsonList(map(alloc, xs, (ref CodeLensUnresolved x) =>
+				jsonOfCodeLensUnresolved(alloc, x))),
 		(CompletionList x) =>
 			jsonOfCompletionList(alloc, x),
 		(DocumentHighlightResult x) =>
@@ -137,6 +146,8 @@ Json jsonOfWrite(ref Alloc alloc, Write a) =>
 Json initializeCapabilities(ref Alloc alloc) =>
 	jsonObject(alloc, [
 		field!"textDocumentSync"(2), // incremental
+		field!"codeLensProvider"(jsonObject(alloc, [
+			field!"resolveProvider"(true)])),
 		field!"completionProvider"(jsonObject(alloc, [
 			field!"triggerCharacters"(jsonList(alloc, [jsonString(".")]))])),
 		field!"definitionProvider"(jsonObject([])),
@@ -165,6 +176,18 @@ public Json jsonOfHover(ref Alloc alloc, in Opt!Hover a) =>
 Json jsonOfHover(ref Alloc alloc, in Hover a) =>
 	jsonObject(alloc, [field!"contents"(jsonOfMarkupContent(alloc, a.contents))]);
 
+Json jsonOfCodeLensUnresolved(ref Alloc alloc, ref CodeLensUnresolved a) =>
+	jsonObject(alloc, [
+		field!"range"(jsonOfLineAndCharacterRange(alloc, a.range)),
+		field!"data"(stringOfUri(alloc, a.data))]);
+public Json jsonOfCodeLensResolved(ref Alloc alloc, ref CodeLensResolved a) =>
+	jsonObject(alloc, [
+		field!"range"(jsonOfLineAndCharacterRange(alloc, a.range)),
+		field!"command"(jsonOfCommand(alloc, a.command))]);
+Json jsonOfCommand(ref Alloc alloc, ref Command a) =>
+	jsonObject(alloc, [
+		field!"title"(a.title)]);
+
 public Json jsonOfCompletionList(ref Alloc alloc, in CompletionList a) =>
 	jsonObject(alloc, [
 		field!"items"(jsonList(map(alloc, a.items, (ref CompletionItem x) =>
@@ -190,7 +213,7 @@ Json jsonOfInlayHint(ref Alloc alloc, in LineAndCharacterGetter lcg, ref InlayHi
 	jsonObject(alloc, [
 		field!"position"(jsonOfLineAndCharacter(alloc, lcg[a.position, PosKind.startOfRange])),
 		field!"label"(a.label),
-		field!"kind"(uint(a.kind)),
+		optionalField!"kind"(a.kind != InlayHintKind.none, () => Json(uint(a.kind))),
 		field!"paddingLeft"(a.paddingLeft),
 		field!"paddingRight"(a.paddingRight)]);
 

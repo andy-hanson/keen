@@ -1998,7 +1998,7 @@ immutable struct ProgramWithMain {
 	UriAndDiagnostic[] mainFunDiagnostics() return scope =>
 		mainFunAndDiagnostics.diagnostics;
 	Module* mainModule() return scope =>
-		mustGet(program.allModules, mainUri);
+		moduleAtUri(program, mainUri);
 	ref Config mainConfig() return scope =>
 		*mainModule.config;
 }

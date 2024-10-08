@@ -163,7 +163,36 @@ void eachReferenceForTarget(in Program program, Uri curUri, in Target target, in
 	referencesForTarget(program, curUri, target, cb);
 }
 
+enum IsImportOrExport { import_, export_ }
+void eachImport(in Program program, in FunDecl* a, in void delegate(Uri, IsImportOrExport, ImportOrExportAst*) @safe @nogc pure nothrow cb) {
+	foreach (immutable Module* module_; program.allModules) {
+		foreach (ref ImportOrExport x; module_.imports)
+			eachImportInner(*module_, IsImportOrExport.import_, x, a, cb);
+		foreach (ref ImportOrExport x; module_.reExports)
+			eachImportInner(*module_, IsImportOrExport.export_, x, a, cb);
+	}
+}
+
 private:
+
+void eachImportInner(
+	in Module importingModule,
+	IsImportOrExport kind,
+	ref ImportOrExport import_,
+	in FunDecl* fun,
+	in void delegate(Uri, IsImportOrExport, ImportOrExportAst*) @safe @nogc pure nothrow cb,
+) {
+	assert(fun.visibility != Visibility.private_);
+	if (import_.modulePtr.uri == fun.moduleUri) {
+		Opt!(NameReferents*) refs = import_.imported[fun.name];
+		if (has(refs)) {
+			assert(contains(force(refs).funs, fun));
+			if (has(import_.source)) {
+				cb(importingModule.uri, kind, force(import_.source));
+			}
+		}
+	}
+}
 
 void referencesForTarget(in Program program, Uri curUri, in Target a, in ReferenceCb cb) =>
 	a.matchWithPointers!void(
@@ -556,7 +585,7 @@ void eachTypeInCondition(in Condition condition, in ConditionAst ast, in TypeCb 
 		});
 }
 
-void referencesForFunDecl(in Program program, FunDecl* decl, in ReferenceCb cb) {
+public void referencesForFunDecl(in Program program, FunDecl* decl, in ReferenceCb cb) {
 	referencesForFunDecls(program, [decl], cb);
 }
 

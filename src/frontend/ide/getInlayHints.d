@@ -7,11 +7,24 @@ import lib.lsp.lspTypes : InlayHint, InlayHintKind;
 import model.ast : DestructureAst;
 import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
-	Destructure, eachDescendentExprIncluding, Expr, ExprRef, funBodyExprRef, FunDecl, LetExpr, Local, Module, Type;
+	bestCasePurity,
+	Destructure,
+	eachDescendentExprIncluding,
+	Expr,
+	ExprRef,
+	funBodyExprRef,
+	FunDecl,
+	LetExpr,
+	Local,
+	Module,
+	paramsArray,
+	Purity,
+	Type;
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : buildArray, Builder;
-import util.opt : has;
+import util.opt : has, none;
 import util.writer : makeStringWithWriter, Writer;
+import util.util : stringOfEnum;
 
 InlayHint[] getInlayHints(ref Alloc alloc, in ShowModelCtx showCtx, in Module module_) =>
 	buildArray!InlayHint(alloc, (scope ref Builder!InlayHint out_) {
@@ -22,6 +35,17 @@ InlayHint[] getInlayHints(ref Alloc alloc, in ShowModelCtx showCtx, in Module mo
 private:
 
 void getInlayHintsForFun(ref Alloc alloc, scope ref Builder!InlayHint out_, in ShowModelCtx showCtx, ref FunDecl fun) {
+	foreach (ref Destructure param; paramsArray(fun.params)) {
+		Purity purity = bestCasePurity(param.type);
+		if (purity != Purity.data)
+			out_ ~= InlayHint(
+				param.range.end,
+				stringOfEnum(purity),
+				InlayHintKind.none,
+				paddingLeft: true,
+				paddingRight: false);
+	}
+
 	if (fun.body_.isA!Expr)
 		eachDescendentExprIncluding(showCtx.commonTypes, funBodyExprRef(&fun), (ExprRef x) {
 			// TODO: show inlay hints on other things (e.g. variable in a 'match') -----------------------------------------

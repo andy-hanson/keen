@@ -16,7 +16,7 @@ import frontend.frontendCompile :
 	programWithMainFromProgram;
 import document.document : documentModules;
 import frontend.getDiagnosticSeverity : getDiagnosticSeverity;
-import frontend.ide.syntaxTranslate : syntaxTranslate;
+import frontend.ide.getCodeLenses : resolveCodeLens, resolvedCodeLenses, unresolvedCodeLenses;
 import frontend.ide.getCompletion : getCompletionForPosition;
 import frontend.ide.getDefinition : getDefinitionForPosition, getTypeDefinitionForPosition;
 import frontend.ide.getFoldingRanges : foldingRangesOfAst;
@@ -51,12 +51,14 @@ import frontend.storage :
 	setFileBytes,
 	Storage,
 	TextFileContent;
+import frontend.ide.syntaxTranslate : syntaxTranslate;
 import interpret.bytecode : ByteCode;
 import interpret.extern_ : Extern, ExternPointersForAllLibraries, WriteError;
 import interpret.fakeExtern : withFakeExtern, WriteCb;
 import interpret.generateBytecode : generateBytecode;
 import interpret.runBytecode : runBytecode;
 import lib.lsp.lspToJson :
+	jsonOfCodeLensResolved,
 	jsonOfCompletionList,
 	jsonOfDocumentHighlight,
 	jsonOfFoldingRanges,
@@ -69,6 +71,10 @@ import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	BuildJsScriptResult,
 	CancelRequestParams,
+	CodeLensParams,
+	CodeLensResolved,
+	CodeLensUnresolved,
+	Command,
 	CompletionList,
 	CompletionParams,
 	DefinitionParams,
@@ -149,12 +155,12 @@ import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.col.mutArr : clearAndDoNotFree, MutArr, push;
 import util.exitCode : ExitCode, ExitCodeOrSignal, Signal;
 import util.integralValues : initIntegralValues;
-import util.json : field, Json, jsonNull, jsonObject;
+import util.json : field, Json, jsonList, jsonNull, jsonObject;
 import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.perf : Perf;
-import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndRange, UriLineAndColumn;
+import util.sourceRange : LineAndCharacter, LineAndCharacterRange, LineAndColumn, Range, toLineAndCharacter, UriAndRange, UriLineAndColumn;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
@@ -287,6 +293,10 @@ private Opt!LspOutResult handleLspRequest(
 	a.params.matchImpure!(Opt!LspOutResult)(
 		(in BuildJsScriptParams _) =>
 			respondWithProgram(perf, alloc, server, a),
+		(in CodeLensParams _) =>
+			respondWithProgram(perf, alloc, server, a),
+		(in CodeLensUnresolved _) =>
+			respondWithProgram(perf, alloc, server, a),
 		(in CompletionParams _) =>
 			respondWithProgram(perf, alloc, server, a),
 		(in DefinitionParams _) =>
@@ -354,6 +364,10 @@ private LspOutResult handleLspRequestWithProgram(
 				optIf(!hasFatalDiagnostics(pwm), () =>
 					buildToJsScript(alloc, server, pwm, JsTarget.browser, none!Symbol).js)));
 		},
+		(in CodeLensParams x) =>
+			LspOutResult(unresolvedCodeLenses(alloc, program, server.lineAndCharacterGetters[x.textDocument.uri], x)),
+		(in CodeLensUnresolved x) =>
+			LspOutResult(resolveCodeLens(alloc, program, getShowDiagCtx(server, program), x)),
 		(in CompletionParams x) {
 			Opt!CompletionList res = getCompletionForProgram(alloc, server, program, x);
 			return has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null());
@@ -753,17 +767,6 @@ private DiagsAndResultJson printForAst(ref Alloc alloc, ref Server server, Uri u
 		stringOfParseDiagnostics(alloc, getShowCtx(server), uri, ast.parseDiagnostics),
 		result);
 
-DiagsAndResultJson printTokens(ref Alloc alloc, ref Server server, in SemanticTokensParams params) {
-	Uri uri = params.textDocument.uri;
-	CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
-	return printForAst(alloc, server, uri, file.ast, jsonOfDecodedTokens(alloc, tokensOfAst(alloc, *file)));
-}
-
-DiagsAndResultJson printFoldingRanges(ref Alloc alloc, ref Server server, in FoldingRangeParams params) {
-	Uri uri = params.textDocument.uri;
-	CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
-	return printForAst(alloc, server, uri, file.ast, jsonOfFoldingRanges(alloc, foldingRangesOfAst(alloc, *file)));
-}
 
 DiagsAndResultJson printAst(scope ref Perf perf, ref Alloc alloc, ref Server server, Uri uri) {
 	CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
@@ -805,12 +808,11 @@ Json jsonOfLowModel(
 	jsonOfLowProgram(alloc, lineAndColumnGetters, buildToLowProgram(perf, alloc, server, versionInfo, program));
 
 immutable struct PrintKind {
-	immutable struct Tokens {}
 	immutable struct Ast {}
 	immutable struct Model {}
 	immutable struct ConcreteModel {}
 	immutable struct LowModel {}
-	immutable struct Ide {
+	immutable struct IdeAtPos {
 		enum Kind {
 			completion,
 			definition,
@@ -824,64 +826,89 @@ immutable struct PrintKind {
 		Kind kind;
 		LineAndColumn lineAndColumn;
 	}
-	immutable struct FoldingRanges {}
-	immutable struct InlayHints {}
+	immutable struct IdeWholeFile {
+		enum Kind {
+			codeLenses,
+			foldingRanges,
+			inlayHints,
+			tokens,
+		}
+		Kind kind;
+	}
 
-	mixin Union!(Tokens, Ast, Model, ConcreteModel, LowModel, Ide, FoldingRanges, InlayHints);
+	mixin Union!(Ast, Model, ConcreteModel, LowModel, IdeAtPos, IdeWholeFile);
 }
 
-Json jsonForPrintIde(
+Json jsonForPrintIdeAtPos(
 	scope ref Perf perf,
 	ref Alloc alloc,
 	ref Server server,
 	ref Program program,
 	in UriLineAndColumn where,
-	PrintKind.Ide.Kind kind,
+	PrintKind.IdeAtPos.Kind kind,
 ) {
 	TextDocumentPositionParams params = TextDocumentPositionParams(
 		TextDocumentIdentifier(where.uri),
 		toLineAndCharacter(server.lineAndColumnGetters[where.uri], where.pos));
 	Json locations(UriAndRange[] xs) => jsonOfReferences(alloc, server.lineAndCharacterGetters, xs);
 	final switch (kind) {
-		case PrintKind.Ide.Kind.completion:
+		case PrintKind.IdeAtPos.Kind.completion:
 			Opt!CompletionList res = getCompletionForProgram(alloc, server, program, CompletionParams(params));
 			return has(res)
 				? jsonOfCompletionList(alloc, force(res))
 				: jsonNull;
-		case PrintKind.Ide.Kind.definition:
+		case PrintKind.IdeAtPos.Kind.definition:
 			return locations(getDefinitionForProgram(alloc, server, program, DefinitionParams(params)));
-		case PrintKind.Ide.Kind.documentHighlight:
+		case PrintKind.IdeAtPos.Kind.documentHighlight:
 			Opt!DocumentHighlightResult res = getDocumentHighlightsForProgram(
 				alloc, server, program, DocumentHighlightParams(params));
 			return has(res)
 				? jsonOfDocumentHighlight(alloc, server.lineAndCharacterGetters[where.uri], force(res))
 				: jsonNull;
-		case PrintKind.Ide.Kind.hover:
+		case PrintKind.IdeAtPos.Kind.hover:
 			return jsonOfHover(alloc, getHoverForProgram(alloc, server, program, HoverParams(params)));
-		case PrintKind.Ide.Kind.rename:
+		case PrintKind.IdeAtPos.Kind.rename:
 			Opt!WorkspaceEdit rename = getRenameForProgram(alloc, server, program, RenameParams(params, "new-name"));
 			return jsonOfRename(alloc, server.lineAndCharacterGetters, rename);
-		case PrintKind.Ide.Kind.references:
+		case PrintKind.IdeAtPos.Kind.references:
 			return locations(getReferencesForProgram(alloc, server, program, ReferenceParams(params)));
-		case PrintKind.Ide.Kind.signatureHelp:
+		case PrintKind.IdeAtPos.Kind.signatureHelp:
 			Opt!SignatureHelp res = getSignatureHelpForProgram(alloc, server, program, SignatureHelpParams(params));
 			return has(res) ? jsonOfSignatureHelp(alloc, force(res)) : jsonNull;
-		case PrintKind.Ide.Kind.typeDefinition:
+		case PrintKind.IdeAtPos.Kind.typeDefinition:
 			return locations(getTypeDefinitionForProgram(alloc, server, program, TypeDefinitionParams(params)));
 	}
 }
 
-Json jsonForInlayHints(
+Json jsonForPrintIdeWholeFile(
 	scope ref Perf perf,
 	ref Alloc alloc,
 	ref Server server,
 	ref Program program,
-	Uri uri
-) =>
-	jsonOfInlayHintResult(
-		alloc,
-		server.lineAndCharacterGetters,
-		getInlayHintsForProgram(alloc, server, program, InlayHintParams(TextDocumentIdentifier(uri))));
+	in Uri uri,
+	PrintKind.IdeWholeFile.Kind kind,
+) {
+	final switch (kind) {
+		case PrintKind.IdeWholeFile.Kind.codeLenses:
+			return jsonList(map(
+				alloc,
+				resolvedCodeLenses(
+					alloc, program, getShowDiagCtx(server, program),
+					CodeLensParams(TextDocumentIdentifier(uri))),
+				(ref CodeLensResolved x) => jsonOfCodeLensResolved(alloc, x)));
+		case PrintKind.IdeWholeFile.Kind.foldingRanges:
+			CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
+			return jsonOfFoldingRanges(alloc, foldingRangesOfAst(alloc, *file));
+		case PrintKind.IdeWholeFile.Kind.inlayHints:
+			return jsonOfInlayHintResult(
+				alloc,
+				server.lineAndCharacterGetters,
+				getInlayHintsForProgram(alloc, server, program, InlayHintParams(TextDocumentIdentifier(uri))));
+		case PrintKind.IdeWholeFile.Kind.tokens:
+			CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
+			return jsonOfDecodedTokens(alloc, tokensOfAst(alloc, *file));
+	}
+}
 
 LowProgram buildToLowProgram(
 	scope ref Perf perf,
@@ -1000,6 +1027,8 @@ LspDiagnosticSeverity toLspDiagnosticSeverity(DiagnosticSeverity a) {
 
 LspOutAction initializedAction(ref Alloc alloc, ref Server server) {
 	return LspOutAction(newArray!LspOutMessage(alloc, [
+		register("codeLens/resolve"),
+		register("textDocument/codeLens"),
 		register("textDocument/completion"),
 		register("textDocument/definition"),
 		register("textDocument/documentHighlight"),

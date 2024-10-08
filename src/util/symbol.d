@@ -600,6 +600,8 @@ immutable string[] specialSymbols = [
 	// from LSP
 	"activeParameter",
 	"activeSignature",
+	"codeLensProvider",
+	"command",
 	"completionProvider",
 	"contentChanges",
 	"definitionProvider",
@@ -616,6 +618,7 @@ immutable string[] specialSymbols = [
 	"parameters",
 	"referencesProvider",
 	"renameProvider",
+	"resolveProvider",
 	"semanticTokensProvider",
 	"signatureHelpProvider",
 	"signatures",

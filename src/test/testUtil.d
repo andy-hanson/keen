@@ -33,7 +33,7 @@ import util.symbol : addExtension, Extension, symbol, symbolOfString;
 import util.unicode : FileContent;
 import util.uri : concatUriAndPath, getExtension, isAncestor, mustParseUri, parsePath, Uri, UrisInfo;
 import util.util : ptrTrustMe;
-import util.writer : debugLogWithWriter, Writer;
+import util.writer : debugLogWithWriter, Writer, writeWithCommas;
 
 struct Test {
 	@safe @nogc nothrow:
@@ -180,6 +180,14 @@ void assertEqual(T)(
 				writer ~= x;
 		},
 		cbDescribe);
+}
+
+void assertEqual(in uint[] actual, in uint[] expected) {
+	assertEqual(actual, expected, (scope ref Writer writer, in uint[] xs) {
+		writer ~= '(';
+		writeWithCommas!uint(writer, xs);
+		writer ~= ')';
+	});
 }
 
 void withAstTest(

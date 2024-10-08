@@ -73,16 +73,14 @@ import lib.server :
 	getProgramForMain,
 	getProgramForRoots,
 	handleLspMessage,
-	jsonForInlayHints,
-	jsonForPrintIde,
+	jsonForPrintIdeAtPos,
+	jsonForPrintIdeWholeFile,
 	jsonOfConcreteModel,
 	jsonOfLowModel,
 	jsonOfModel,
 	perfStats,
 	printAst,
-	printFoldingRanges,
 	PrintKind,
-	printTokens,
 	Server,
 	ServerSettings,
 	setFile,
@@ -416,11 +414,6 @@ CString[] getAllArgs(ref Alloc alloc, in Server server, in CommandKind.Run run) 
 ExitCodeOrSignal doPrint(scope ref Perf perf, ref Alloc alloc, ref Server server, in CommandKind.Print command) {
 	Uri mainUri = command.mainUri;
 	return command.kind.matchImpure!ExitCodeOrSignal(
-		(in PrintKind.Tokens) {
-			loadSingleFile(perf, server, mainUri);
-			return printDiagsAndJson(
-				alloc, printTokens(alloc, server, SemanticTokensParams(TextDocumentIdentifier(mainUri))));
-		},
 		(in PrintKind.Ast) {
 			loadSingleFile(perf, server, mainUri);
 			return printDiagsAndJson(alloc, printAst(perf, alloc, server, mainUri));
@@ -440,18 +433,13 @@ ExitCodeOrSignal doPrint(scope ref Perf perf, ref Alloc alloc, ref Server server
 					perf, alloc, server, server.lineAndColumnGetters,
 					versionInfoForInterpret(getOS(), VersionOptions()),
 					program))),
-		(in PrintKind.Ide x) =>
+		(in PrintKind.IdeAtPos x) =>
 			withProgramForRoots(perf, alloc, server, [mainUri], (ref Program program) =>
-				printJson(alloc, jsonForPrintIde(
+				printJson(alloc, jsonForPrintIdeAtPos(
 					perf, alloc, server, program, UriLineAndColumn(mainUri, x.lineAndColumn), x.kind))),
-		(in PrintKind.FoldingRanges x) {
-			loadSingleFile(perf, server, mainUri);
-			return printDiagsAndJson(
-				alloc, printFoldingRanges(alloc, server, FoldingRangeParams(TextDocumentIdentifier(mainUri))));
-		},
-		(in PrintKind.InlayHints x) =>
+		(in PrintKind.IdeWholeFile x) =>
 			withProgramForRoots(perf, alloc, server, [mainUri], (ref Program program) =>
-				printJson(alloc, jsonForInlayHints(perf, alloc, server, program, mainUri))));
+				printJson(alloc, jsonForPrintIdeWholeFile(perf, alloc, server, program, mainUri, x.kind))));
 }
 
 ExitCodeOrSignal buildAndRun(
