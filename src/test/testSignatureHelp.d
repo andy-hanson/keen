@@ -2,7 +2,6 @@ module test.testSignatureHelp;
 
 @safe @nogc pure nothrow:
 
-import app.parseCommand : parseLineAndColumn;
 import frontend.ide.getPosition : getPosition, GetPositionKind;
 import frontend.ide.getSignatureHelp : getSignatureHelpForPosition;
 import frontend.ide.position : Position;
@@ -10,11 +9,10 @@ import frontend.showModel : ShowModelCtx;
 import lib.lsp.lspToJson : jsonOfSignatureHelp;
 import lib.lsp.lspTypes : SignatureHelp;
 import model.model : Module, Program;
-import test.testUtil : assertEqual, Test, testWithCrowAndJsonFiles, withIdeTest;
+import test.testUtil : ideTestAtPositions, Test, testWithCrowAndJsonFiles;
 import util.json : Json;
 import util.opt : force, Opt;
-import util.sourceRange : LineAndColumn, Pos;
-import util.symbol : cStringOfSymbol;
+import util.sourceRange : Pos;
 import util.uri : Uri;
 
 void testSignatureHelp(ref Test test) {
@@ -31,13 +29,9 @@ void testSignatureHelp(ref Test test) {
 private:
 
 void singleTest(ref Test test, Uri uri, in string crow, in Json json) {
-	withIdeTest(test, uri, crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
-		foreach (Json.ObjectField field; json.as!(Json.Object)) {
-			LineAndColumn where = force(parseLineAndColumn(cStringOfSymbol(test.alloc, field.key)));
-			Pos pos = ctx.lineAndColumnGetters[module_.uri][where];
-			Opt!Position position = getPosition(program, module_, crow, pos, GetPositionKind.after);
-			Opt!SignatureHelp res = getSignatureHelpForPosition(test.alloc, ctx, force(position));
-			assertEqual(jsonOfSignatureHelp(test.alloc, force(res)), field.value);
-		}
+	ideTestAtPositions(test, uri, crow, json, (in ShowModelCtx ctx, in Program program, in Module* module_, Pos pos) {
+		Opt!Position position = getPosition(program, module_, crow, pos, GetPositionKind.after);
+		Opt!SignatureHelp res = getSignatureHelpForPosition(test.alloc, ctx, force(position));
+		return jsonOfSignatureHelp(test.alloc, force(res));
 	});
 }

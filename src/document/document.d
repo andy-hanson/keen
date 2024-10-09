@@ -47,13 +47,12 @@ import util.json :
 	optionalArrayField,
 	optionalFlagField,
 	optionalField,
-	optionalStringField,
 	jsonList,
 	jsonString,
 	kindField;
-import util.opt : force, has, none, Opt, optIf, some;
+import util.opt : force, has, none, Opt, some;
 import util.sourceRange : compareUriAndRange, UriAndRange;
-import util.string : isWhitespace, SmallString;
+import util.string : isWhitespace;
 import util.symbol : Symbol, symbol;
 import util.uri : stringOfUri, Uri;
 import util.util : ptrTrustMe, stringOfEnum;

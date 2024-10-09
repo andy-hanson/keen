@@ -7,17 +7,7 @@ import util.cell : Cell, cellGet, cellSet;
 import util.col.array : isEmpty;
 import util.conv : safeIntFromUint;
 import util.sourceRange : Pos, Range;
-import util.string :
-	CString,
-	cString,
-	cStringIsEmpty,
-	isWhitespace,
-	MutCString,
-	SmallString,
-	smallString,
-	stringOfRange,
-	tryTakeChar,
-	tryTakeChars;
+import util.string : CString, cString, cStringIsEmpty, isWhitespace, MutCString, tryTakeChar, tryTakeChars;
 import util.util : castNonScope_ref;
 
 // Takes beginning of range; end is the current ptr

@@ -11,6 +11,7 @@ import test.testFakeExtern : testFakeExtern;
 import test.testFoldingRanges : testFoldingRanges;
 import test.testHashTable : testHashTable;
 import test.testHover : testHover;
+import test.testImplementation : testImplementation;
 import test.testInlayHints : testInlayHints;
 import test.testIntegralValues : testIntegralValues;
 import test.testInterpreter : testInterpreter;
@@ -73,6 +74,7 @@ immutable NameAndTest[] allTests = [
 	NameAndTest("folding-ranges", &testFoldingRanges),
 	NameAndTest("hash-table", &testHashTable),
 	NameAndTest("hover", &testHover),
+	NameAndTest("implementation", &testImplementation),
 	NameAndTest("inlay-hints", &testInlayHints),
 	NameAndTest("integral-values", &testIntegralValues),
 	NameAndTest("interpreter", &testInterpreter),

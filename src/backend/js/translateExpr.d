@@ -2,7 +2,7 @@ module backend.js.translateExpr;
 
 @safe @nogc pure nothrow:
 
-import backend.js.allUsed : allUsed, AnyDecl, bodyIsInlined, FunOrTest, isAsyncCall, isAsyncFun, tryEvalConstantBool;
+import backend.js.allUsed : allUsed, bodyIsInlined, FunOrTest, isAsyncCall, isAsyncFun, tryEvalConstantBool;
 import backend.js.jsAst :
 	exprFunBody,
 	exprStatement,
@@ -95,6 +95,7 @@ import backend.js.translateModuleCtx :
 import frontend.storage : FileContentGetters;
 import model.constant : asBool, asInt64, asNat64, Constant;
 import model.model :
+	AnyDecl,
 	arrayElementType,
 	AssertOrForbidExpr,
 	asTuple,

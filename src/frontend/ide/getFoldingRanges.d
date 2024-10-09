@@ -10,9 +10,7 @@ import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.conv : safeToUint;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, some, someMut;
-import util.sourceRange : LineAndCharacterGetter, LineAndCharacterRange, Pos, Range;
-import util.util : stringOfEnum;
-import util.writer : debugLogWithWriter, Writer; // -----------------------------------------------------------------------------------------
+import util.sourceRange : LineAndCharacterGetter, LineAndCharacterRange, Range;
 
 FoldingRange[] foldingRangesOfAst(ref Alloc alloc, in CrowFileInfo file) {
 	scope Ctx ctx = Ctx(&alloc, file.content.lineAndCharacterGetter);

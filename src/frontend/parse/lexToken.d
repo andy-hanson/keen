@@ -8,13 +8,12 @@ import model.ast : HighPrecisionFloat, LiteralFloatAst, LiteralIntegral;
 import util.conv : mulWithOverflow, safeToLong, Sign, toLongWithOverflow;
 import util.integralValues : IntegralValue;
 import util.opt : force, has, none, Opt, optOrDefault, some;
-import util.sourceRange : Pos, Range;
+import util.sourceRange : Pos;
 import util.string :
 	CString,
 	decodeHexDigit,
 	isDecimalDigit,
 	MutCString,
-	SmallString,
 	startsWith,
 	startsWithThenWhitespace,
 	stringOfRange,

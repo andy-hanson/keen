@@ -154,6 +154,7 @@ Json initializeCapabilities(ref Alloc alloc) =>
 		field!"documentHighlightProvider"(jsonObject([])),
 		field!"foldingRangeProvider"(jsonObject([])),
 		field!"hoverProvider"(jsonObject([])),
+		field!"implementationProvider"(jsonObject([])),
 		field!"inlayHintProvider"(jsonObject([])),
 		field!"referencesProvider"(jsonObject([])),
 		field!"renameProvider"(jsonObject([])),

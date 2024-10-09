@@ -23,7 +23,6 @@ import model.parseDiag : ParseDiag;
 import util.col.array : contains;
 import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
 import util.sourceRange : Pos, Range;
-import util.string : emptySmallString, SmallString;
 import util.symbol : Symbol, symbol;
 
 bool peekToken(ref Lexer lexer, Token expected) =>

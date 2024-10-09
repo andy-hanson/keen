@@ -78,7 +78,6 @@ import util.json :
 	jsonObject,
 	optionalArrayField,
 	optionalField,
-	optionalStringField,
 	Json,
 	jsonInt,
 	jsonList,

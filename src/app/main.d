@@ -48,7 +48,6 @@ import interpret.extern_ : Extern;
 import lib.lsp.lspParse : parseLspInMessage;
 import lib.lsp.lspToJson : jsonOfLspOutMessage;
 import lib.lsp.lspTypes :
-	FoldingRangeParams,
 	LspInMessage,
 	LspInNotification,
 	LspOutAction,
@@ -56,8 +55,6 @@ import lib.lsp.lspTypes :
 	LspOutNotification,
 	ReadFileResultParams,
 	ReadFileResultType,
-	SemanticTokensParams,
-	TextDocumentIdentifier,
 	UnknownUris;
 import lib.server :
 	allUnknownUris,

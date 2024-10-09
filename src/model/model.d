@@ -61,7 +61,7 @@ import util.integralValues : IntegralValue;
 import util.late : Late, lateGet, lateIsSet, lateSet, lateSetOverwrite;
 import util.opt : force, has, none, Opt, optEqual, optIf, optOr, optOrDefault, some;
 import util.sourceRange : combineRanges, UriAndRange, Pos, Range;
-import util.string : emptySmallString, SmallString;
+import util.string : SmallString;
 import util.symbol : enumOfSymbol, Symbol, symbol, symbolOfEnum;
 import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, SymbolSetBuilder;
 import util.union_ : IndexType, TaggedUnion, Union;
@@ -1287,6 +1287,9 @@ immutable struct FunDeclSource {
 
 		ref StructBody.Variant variantBody() return scope =>
 			variant.body_.as!(StructBody.Variant);
+
+		size_t signatureIndex() scope =>
+			mustHaveIndexOfPointer(variantBody.methods, method);
 	}
 
 	mixin Union!(
@@ -1748,6 +1751,68 @@ immutable struct Module {
 }
 Uri getModuleUri(in Module* a) =>
 	a.uri;
+
+// Excludes derived decls, e.g. FunDecl that is a record field getter
+void eachDecl(in Module a, in void delegate(AnyDecl) @safe @nogc pure nothrow cb) {
+	foreach (ref StructAlias x; a.aliases)
+		cb(AnyDecl(&x));
+	foreach (ref StructDecl x; a.structs)
+		cb(AnyDecl(&x));
+	foreach (ref VarDecl x; a.vars)
+		cb(AnyDecl(&x));
+	foreach (ref SpecDecl x; a.specs)
+		cb(AnyDecl(&x));
+	foreach (ref FunDecl x; a.funs)
+		if (x.source.isA!(FunDeclSource.Ast))
+			cb(AnyDecl(&x));
+	foreach (ref Test x; a.tests)
+		cb(AnyDecl(&x));
+}
+
+immutable struct AnyDecl {
+	@safe @nogc pure nothrow:
+
+	// WARN: We'll never consider a StructAlias as 'used', only the underlying StructDecl.
+	// An inlined function is not considered used, just its return type
+	mixin TaggedUnion!(FunDecl*, SpecDecl*, StructAlias*, StructDecl*, Test*, VarDecl*);
+
+	Uri moduleUri() scope =>
+		matchIn!Uri(
+			(in FunDecl x) => x.moduleUri,
+			(in SpecDecl x) => x.moduleUri,
+			(in StructAlias x) => x.moduleUri,
+			(in StructDecl x) => x.moduleUri,
+			(in Test x) => x.moduleUri,
+			(in VarDecl x) => x.moduleUri);
+
+	Symbol name() scope =>
+		matchIn!Symbol(
+			(in FunDecl x) => x.name,
+			(in SpecDecl x) => x.name,
+			(in StructAlias x) => x.name,
+			(in StructDecl x) => x.name,
+			(in Test x) => x.name,
+			(in VarDecl x) => x.name);
+
+	UriAndRange range() scope =>
+		matchIn!UriAndRange(
+			(in FunDecl x) => x.range,
+			(in SpecDecl x) => x.range,
+			(in StructAlias x) => x.range,
+			(in StructDecl x) => x.range,
+			(in Test x) => x.range,
+			(in VarDecl x) => x.range);
+
+	Visibility visibility() scope =>
+		matchIn!Visibility(
+			(in FunDecl x) => x.visibility,
+			(in SpecDecl x) => x.visibility,
+			(in StructAlias x) => x.visibility,
+			(in StructDecl x) => x.visibility,
+			// Treat as public since 'run-all-tests' runs tests from other modules
+			(in Test x) => Visibility.public_,
+			(in VarDecl x) => x.visibility);
+}
 
 void eachImportOrReExport(in Module a, in void delegate(ref ImportOrExport) @safe @nogc pure nothrow cb) {
 	foreach (ref ImportOrExport x; a.imports)

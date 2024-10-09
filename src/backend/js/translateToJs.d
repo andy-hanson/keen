@@ -5,7 +5,6 @@ module backend.js.translateToJs;
 import backend.js.allUsed :
 	AllUsed,
 	allUsed,
-	AnyDecl,
 	eachNameReferent,
 	eachStructAliasInImports,
 	isModuleUsed,
@@ -77,9 +76,9 @@ import backend.js.translateModuleCtx :
 	translateStructReference;
 import backend.js.writeJsAst : writeJsModuleAst, writeJsScriptAst;
 import frontend.showModel : ShowTypeCtx;
-import frontend.storage : FileContentGetters, LineAndCharacterGetters;
 import model.ast : ImportOrExportAstKind, PathOrRelPath;
 import model.model :
+	AnyDecl,
 	allExterns,
 	BuildTarget,
 	BuiltinType,

@@ -394,6 +394,8 @@ Opt!(PrintKind.IdeAtPos.Kind) ideAtPosKind(in string a) {
 			return some(PrintKind.IdeAtPos.Kind.documentHighlight);
 		case "hover":
 			return some(PrintKind.IdeAtPos.Kind.hover);
+		case "implementation":
+			return some(PrintKind.IdeAtPos.Kind.implementation);
 		case "references":
 			return some(PrintKind.IdeAtPos.Kind.references);
 		case "rename":

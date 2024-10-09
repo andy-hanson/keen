@@ -4,6 +4,7 @@ module test.testUtil;
 
 import std.meta : AliasSeq, staticMap;
 
+import app.parseCommand : parseLineAndColumn;
 import frontend.showModel : ShowCtx, ShowModelCtx, ShowOptions;
 import frontend.storage : CrowFileInfo, FileContentGetters, FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
 import interpret.bytecode : ByteCode, ByteCodeIndex, Operation;
@@ -28,8 +29,9 @@ import util.json : Json, writeJsonPretty;
 import util.jsonParse : mustParseJson;
 import util.opt : force, has, none, Opt;
 import util.perf : Perf;
+import util.sourceRange : LineAndColumn, Pos;
 import util.string : CString, CStringAndLength, stringOfCString;
-import util.symbol : addExtension, Extension, symbol, symbolOfString;
+import util.symbol : addExtension, cStringOfSymbol, Extension, symbol, symbolOfString;
 import util.unicode : FileContent;
 import util.uri : concatUriAndPath, getExtension, isAncestor, mustParseUri, parsePath, Uri, UrisInfo;
 import util.util : ptrTrustMe;
@@ -210,6 +212,29 @@ void withIdeTest(
 		setupTestServer(test, alloc, server, uri, content);
 		Program program = getProgramForAll(test.perf, alloc, server);
 		cb(getShowDiagCtx(server, program), program, mustGet(program.allModules, uri));
+	});
+}
+
+// Given a Json file where keys are "line:column", run a test at each position.
+void ideTestAtPositions(
+	ref Test test,
+	Uri uri,
+	in string crow,
+	in Json json,
+	in Json delegate(in ShowModelCtx, in Program, in Module*, Pos) @safe @nogc pure nothrow cb,
+) {
+	withIdeTest(test, uri, crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
+		foreach (Json.ObjectField field; json.as!(Json.Object)) {
+			LineAndColumn where = force(parseLineAndColumn(cStringOfSymbol(test.alloc, field.key)));
+			Json res = cb(ctx, program, module_, ctx.lineAndColumnGetters[module_.uri][where]);
+			assertEqual(res, field.value, (scope ref Writer writer) {
+				writer ~= "For ";
+				writer ~= uri;
+				writer ~= " ";
+				writer ~= where;
+				writer ~= ":\n";
+			});
+		}
 	});
 }
 

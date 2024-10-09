@@ -2,12 +2,12 @@ module backend.js.translateModuleCtx;
 
 @safe @nogc pure nothrow:
 
-import backend.js.allUsed : AllUsed, allUsed, AnyDecl;
+import backend.js.allUsed : AllUsed, allUsed;
 import backend.js.jsAst : genIdentifier, JsDecl, JsDeclKind, JsExpr, JsName;
 import backend.js.sourceMap : Source;
 import frontend.showModel : ShowCtx;
-import frontend.storage : FileContentGetters, LineAndCharacterGetters;
 import model.model :
+	AnyDecl,
 	CommonTypes,
 	FunDecl,
 	FunDeclSource,

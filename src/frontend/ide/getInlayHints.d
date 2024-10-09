@@ -14,6 +14,7 @@ import model.model :
 	ExprRef,
 	funBodyExprRef,
 	FunDecl,
+	FunDeclSource,
 	LetExpr,
 	Local,
 	Module,
@@ -29,7 +30,8 @@ import util.util : stringOfEnum;
 InlayHint[] getInlayHints(ref Alloc alloc, in ShowModelCtx showCtx, in Module module_) =>
 	buildArray!InlayHint(alloc, (scope ref Builder!InlayHint out_) {
 		foreach (ref FunDecl x; module_.funs)
-			getInlayHintsForFun(alloc, out_, showCtx, x);
+			if (x.source.isA!(FunDeclSource.Ast))
+				getInlayHintsForFun(alloc, out_, showCtx, x);
 	});
 
 private:

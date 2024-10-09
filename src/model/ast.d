@@ -10,7 +10,7 @@ import util.conv : safeToUint;
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
-import util.sourceRange : combineRanges, Pos, Range, rangeOfStartAndLength, UriAndRange;
+import util.sourceRange : combineRanges, Pos, Range, rangeOfStartAndLength;
 import util.symbol : Symbol, symbol, symbolSize;
 import util.union_ : TaggedUnion, Union;
 import util.uri : Path, pathLength, RelPath, relPathLength;

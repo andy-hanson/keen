@@ -24,6 +24,7 @@ import util.uri :
 	parseUriWithCwd,
 	Path,
 	relativePath,
+	relativePathForUri,
 	RelPath,
 	stringOfFilePath,
 	stringOfUri,
@@ -165,4 +166,9 @@ void testRelativePath(ref Test test) {
 	assert(isAncestor(parsePath("a"), parsePath("a/c")));
 	assertEqual(relativePath(parsePath("a/b"), parsePath("a/c")), RelPath(0, parsePath("c")));
 	assertEqual(relativePath(parsePath("a/b"), parsePath("c/d")), RelPath(1, parsePath("c/d")));
+
+	Uri a = mustParseUri("http://foo.com/x/y");
+	Uri b = mustParseUri("http://foo.com/x/z");
+	assertEqual(force(relativePathForUri(a, b)), RelPath(0, parsePath("z")));
+	assert(!has(relativePathForUri(a, mustParseUri("https://foo.com/x/z"))));
 }

@@ -67,7 +67,7 @@ import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.perf : Perf, PerfMeasure, withMeasure;
 import util.sourceRange : Pos, Range;
-import util.string : CString, emptySmallString, SmallString, stringOfCString;
+import util.string : CString, stringOfCString;
 import util.symbol : Symbol;
 import util.util : castNonScope_ref, ptrTrustMe;
 

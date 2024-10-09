@@ -5,6 +5,7 @@ module backend.js.allUsed;
 import backend.js.jsAst : SyncOrAsync;
 import model.constant : Constant;
 import model.model :
+	AnyDecl,
 	asExtern,
 	AssertOrForbidExpr,
 	AutoFun,
@@ -81,7 +82,6 @@ import model.model :
 	RecordFieldPointerExpr,
 	SeqExpr,
 	Signature,
-	SpecDecl,
 	SpecInst,
 	StructAlias,
 	StructBody,
@@ -97,10 +97,8 @@ import model.model :
 	TypedExpr,
 	TypeParamIndex,
 	UnionMember,
-	VarDecl,
 	VariantAndMethodImpls,
-	variantMethodCaller,
-	Visibility;
+	variantMethodCaller;
 import util.alloc.alloc : Alloc;
 import util.col.array : exists, zipPointers;
 import util.col.hashTable : existsInHashTable;
@@ -112,58 +110,12 @@ import util.col.mutSet : mayAddToMutSet, MutSet;
 import util.col.set : moveToSet, Set;
 import util.hash : HashCode, hashPointers;
 import util.opt : force, has, none, Opt, optIf, some;
-import util.sourceRange : UriAndRange;
 import util.symbol : Symbol;
 import util.symbolSet : SymbolSet;
 import util.union_ : TaggedUnion;
 import util.uri : Uri;
 import util.util : ptrTrustMe;
 import versionInfo : isVersion, VersionInfo, VersionFun;
-
-immutable struct AnyDecl {
-	@safe @nogc pure nothrow:
-
-	// WARN: We'll never consider a StructAlias as 'used', only the underlying StructDecl.
-	// An inlined function is not considered used, just its return type
-	mixin TaggedUnion!(FunDecl*, SpecDecl*, StructAlias*, StructDecl*, Test*, VarDecl*);
-
-	Uri moduleUri() scope =>
-		matchIn!Uri(
-			(in FunDecl x) => x.moduleUri,
-			(in SpecDecl x) => x.moduleUri,
-			(in StructAlias x) => x.moduleUri,
-			(in StructDecl x) => x.moduleUri,
-			(in Test x) => x.moduleUri,
-			(in VarDecl x) => x.moduleUri);
-
-	Symbol name() scope =>
-		matchIn!Symbol(
-			(in FunDecl x) => x.name,
-			(in SpecDecl x) => x.name,
-			(in StructAlias x) => x.name,
-			(in StructDecl x) => x.name,
-			(in Test x) => x.name,
-			(in VarDecl x) => x.name);
-
-	UriAndRange range() scope =>
-		matchIn!UriAndRange(
-			(in FunDecl x) => x.range,
-			(in SpecDecl x) => x.range,
-			(in StructAlias x) => x.range,
-			(in StructDecl x) => x.range,
-			(in Test x) => x.range,
-			(in VarDecl x) => x.range);
-
-	Visibility visibility() scope =>
-		matchIn!Visibility(
-			(in FunDecl x) => x.visibility,
-			(in SpecDecl x) => x.visibility,
-			(in StructAlias x) => x.visibility,
-			(in StructDecl x) => x.visibility,
-			// Treat as public since 'run-all-tests' runs tests from other modules
-			(in Test x) => Visibility.public_,
-			(in VarDecl x) => x.visibility);
-}
 
 immutable struct FunOrTest {
 	@safe @nogc pure nothrow:

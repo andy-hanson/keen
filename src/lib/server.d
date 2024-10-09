@@ -21,6 +21,7 @@ import frontend.ide.getCompletion : getCompletionForPosition;
 import frontend.ide.getDefinition : getDefinitionForPosition, getTypeDefinitionForPosition;
 import frontend.ide.getFoldingRanges : foldingRangesOfAst;
 import frontend.ide.getHover : getHover;
+import frontend.ide.getImplementation : getImplementationForPosition;
 import frontend.ide.getInlayHints : getInlayHints;
 import frontend.ide.getPosition : getPosition, GetPositionKind;
 import frontend.ide.getRename : getRenameForPosition;
@@ -74,7 +75,6 @@ import lib.lsp.lspTypes :
 	CodeLensParams,
 	CodeLensResolved,
 	CodeLensUnresolved,
-	Command,
 	CompletionList,
 	CompletionParams,
 	DefinitionParams,
@@ -88,6 +88,7 @@ import lib.lsp.lspTypes :
 	FoldingRangeParams,
 	Hover,
 	HoverParams,
+	ImplementationParams,
 	InitializedParams,
 	InitializeParams,
 	InitializeResult,
@@ -160,7 +161,7 @@ import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.perf : Perf;
-import util.sourceRange : LineAndCharacter, LineAndCharacterRange, LineAndColumn, Range, toLineAndCharacter, UriAndRange, UriLineAndColumn;
+import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndRange, UriLineAndColumn;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
@@ -307,6 +308,8 @@ private Opt!LspOutResult handleLspRequest(
 			some(LspOutResult(foldingRangesOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument.uri)))),
 		(in HoverParams _) =>
 			respondWithProgram(perf, alloc, server, a),
+		(in ImplementationParams _) =>
+			respondWithProgram(perf, alloc, server, a),
 		(in InitializeParams x) {
 			server.lspState.supportsUnknownUris = x.initializationOptions.unknownUris;
 			return some(LspOutResult(InitializeResult()));
@@ -382,6 +385,8 @@ private LspOutResult handleLspRequestWithProgram(
 			assert(false),
 		(in HoverParams x) =>
 			LspOutResult(getHoverForProgram(alloc, server, program, x)),
+		(in ImplementationParams x) =>
+			LspOutResult(getImplementationForProgram(alloc, server, program, x)),
 		(in InitializeParams _) =>
 			assert(false),
 		(in InlayHintParams x) =>
@@ -639,6 +644,16 @@ private UriAndRange[] getDefinitionForProgram(
 	return has(position) ? getDefinitionForPosition(alloc, program.commonTypes, force(position)) : [];
 }
 
+private UriAndRange[] getImplementationForProgram(
+	ref Alloc alloc,
+	in Server server,
+	in Program program,
+	in ImplementationParams params,
+) {
+	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
+	return has(position) ? getImplementationForPosition(alloc, program, force(position)) : [];
+}
+
 private UriAndRange[] getTypeDefinitionForProgram(
 	ref Alloc alloc,
 	in Server server,
@@ -818,6 +833,7 @@ immutable struct PrintKind {
 			definition,
 			documentHighlight,
 			hover,
+			implementation,
 			references,
 			rename,
 			signatureHelp,
@@ -867,6 +883,8 @@ Json jsonForPrintIdeAtPos(
 				: jsonNull;
 		case PrintKind.IdeAtPos.Kind.hover:
 			return jsonOfHover(alloc, getHoverForProgram(alloc, server, program, HoverParams(params)));
+		case PrintKind.IdeAtPos.Kind.implementation:
+			return locations(getImplementationForProgram(alloc, server, program, ImplementationParams(params)));
 		case PrintKind.IdeAtPos.Kind.rename:
 			Opt!WorkspaceEdit rename = getRenameForProgram(alloc, server, program, RenameParams(params, "new-name"));
 			return jsonOfRename(alloc, server.lineAndCharacterGetters, rename);
@@ -1034,6 +1052,7 @@ LspOutAction initializedAction(ref Alloc alloc, ref Server server) {
 		register("textDocument/documentHighlight"),
 		register("textDocument/foldingRange"),
 		register("textDocument/hover"),
+		register("textDocument/implementation"),
 		register("textDocument/inlayHint"),
 		register("textDocument/rename"),
 		register("textDocument/references"),

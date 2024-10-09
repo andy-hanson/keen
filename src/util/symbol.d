@@ -611,6 +611,7 @@ immutable string[] specialSymbols = [
 	"endLine",
 	"foldingRangeProvider",
 	"hoverProvider",
+	"implementationProvider",
 	"initializationOptions",
 	"inlayHintProvider",
 	"paddingLeft",

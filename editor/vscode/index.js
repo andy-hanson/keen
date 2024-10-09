@@ -4,9 +4,10 @@ If editing this file, run 'make install-vscode-extension' for the changes to tak
 */
 
 const childProcess = require("child_process")
+const path = require("path")
 /** @typedef {import("vscode").ExtensionContext} ExtensionContext */
 /** @typedef {import("vscode").TextDocument} TextDocument */
-const { Uri, workspace } = require("vscode")
+const { FileType, Uri, workspace } = require("vscode")
 /** @typedef {import("vscode-languageclient").LanguageClientOptions} LanguageClientOptions */
 /** @typedef {import("vscode-languageclient/lib/node/main.js").ServerOptions} ServerOptions */
 const { LanguageClient } = require("vscode-languageclient/lib/node/main.js")
@@ -61,22 +62,56 @@ const logError = message => {
 
 /** @type {function({unknownUris: ReadonlyArray<string>}): void} */
 const onUnknownUris = ({unknownUris}) => {
-	for (const uri of unknownUris) {
-		workspace.fs.readFile(Uri.parse(uri))
-			.then(bytes => {
-				const content = uri.endsWith(".crow") || uri.endsWith(".json")
-					? new TextDecoder().decode(bytes)
-					: "" // Content of these files doesn't matter for frontend
-				client.sendNotification("custom/readFileResult", {uri, type: "ok", content})
+	for (const uri of unknownUris)
+		readFileAndNotify(uri)
+}
+
+const listedDirs = new Set()
+
+const listFilesRecursive = dir => {
+	if (!listedDirs.has(dir)) {
+		listedDirs.add(dir)
+		workspace.fs.readDirectory(Uri.parse(dir))
+			.then(files => {
+				for (const [name, type] of files) {
+					const fileUri = `${dir}/${name}`
+					switch (type) {
+						case FileType.File:
+							if (isRelevantFile(name))
+								readFileAndNotify(fileUri)
+							break
+						case FileType.Directory:
+							listFilesRecursive(fileUri)
+							break
+					}
+				}
 			})
 			.catch(error => {
-				const isNotFound = error.code === "FileNotFound"
-				if (!isNotFound)
-					logError(`Error reading file: ${JSON.stringify({uri, error})}`)
-				client.sendNotification("custom/readFileResult", {uri, type: isNotFound ? "notFound" : "error"})
+				logError(`Error reading directory: ${JSON.stringify(dir, error)}`)
 			})
 	}
 }
+
+/** @type {function(string): void} */
+const readFileAndNotify = uri =>
+	workspace.fs.readFile(Uri.parse(uri))
+		.then(bytes => {
+			const content = isRelevantFile(uri)
+				? new TextDecoder().decode(bytes)
+				: "" // Content of these files doesn't matter for frontend
+			client.sendNotification("custom/readFileResult", {uri, type: "ok", content})
+			if (uri.endsWith("/crow-config.json"))
+				listFilesRecursive(path.dirname(uri))
+		})
+		.catch(error => {
+			const isNotFound = error.code === "FileNotFound"
+			if (!isNotFound)
+				logError(`Error reading file: ${JSON.stringify({uri, error})}`)
+			client.sendNotification("custom/readFileResult", {uri, type: isNotFound ? "notFound" : "error"})
+		})
+
+const isRelevantFile = name =>
+	name.endsWith(".crow") || name.endsWith(".json")
 
 /** @type {function(): Thenable<void> | undefined} */
 exports.deactivate = () =>

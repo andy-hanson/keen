@@ -345,33 +345,6 @@ private void writeTypeParams(scope ref Writer writer, in ShowTypeCtx ctx, in Typ
 	}
 }
 
-void writeDestructureName(
-	scope ref Writer writer,
-	in ShowTypeCtx ctx,
-	in TypeContainer typeContainer,
-	in Destructure a,
-	in Opt!Type instantiated,
-) {
-	Type type = has(instantiated) ? force(instantiated) : a.type;
-	a.matchIn!void(
-		(in Destructure.Ignore) {
-			writer ~= "_ ";
-			writeTypeUnquoted(writer, ctx, TypeWithContainer(type, typeContainer));
-		},
-		(in Local x) {
-			writer ~= x.name;
-		},
-		(in Destructure.Split x) {
-			writer ~= '(';
-			// TODO: dup code in writeDestructure -------------------------------------------------------------------------------------
-			writeWithCommasZip!(Destructure, Type)(
-				writer, x.parts, type.as!(StructInst*).typeArgs, (in Destructure part, in Type partType) {
-					writeDestructureName(writer, ctx, typeContainer, part, some(partType));
-				});
-			writer ~= ')';
-		});
-}
-
 private void writeDestructure(
 	scope ref Writer writer,
 	in ShowTypeCtx ctx,

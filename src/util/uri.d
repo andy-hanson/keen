@@ -660,9 +660,9 @@ RelPath relativePath(Path from, Path to) {
 	return RelPath(nParents, pathFromAncestor(cellGet(ancestor), to));
 }
 
-Opt!RelPath relativePathForUri(Uri from, Uri to) { // TODO: UNIT TEST --------------------------------------------------------------------
+Opt!RelPath relativePathForUri(Uri from, Uri to) {
 	RelPath res = relativePath(from.pathIncludingScheme, to.pathIncludingScheme);
-	return optIf(res.nParents != countComponents(from), () => res);
+	return optIf(res.nParents != countComponents(from.pathIncludingScheme) - 1, () => res);
 }
 
 private:

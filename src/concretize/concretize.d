@@ -22,7 +22,6 @@ import concretize.concretizeCtx :
 import concretize.gatherInfo : getYieldingFuns;
 import concretize.generate : generateCallLambda, generateCallVariantMethod;
 import frontend.showModel : ShowCtx;
-import frontend.storage : FileContentGetters;
 import model.concreteModel :
 	ConcreteCommonFuns,
 	ConcreteFun,

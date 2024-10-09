@@ -42,6 +42,7 @@ import model.ast :
 	TypedAst,
 	WithAst;
 import model.model :
+	AnyDecl,
 	AssertOrForbidExpr,
 	BogusCallExpr,
 	BogusExpr,
@@ -164,12 +165,13 @@ void eachReferenceForTarget(in Program program, Uri curUri, in Target target, in
 }
 
 enum IsImportOrExport { import_, export_ }
-void eachImport(in Program program, in FunDecl* a, in void delegate(Uri, IsImportOrExport, ImportOrExportAst*) @safe @nogc pure nothrow cb) {
+void eachImport(in Program program, in AnyDecl decl, in void delegate(Uri, IsImportOrExport, ImportOrExportAst*) @safe @nogc pure nothrow cb) {
+	assert(decl.visibility != Visibility.private_);
 	foreach (immutable Module* module_; program.allModules) {
 		foreach (ref ImportOrExport x; module_.imports)
-			eachImportInner(*module_, IsImportOrExport.import_, x, a, cb);
+			eachImportInner(*module_, IsImportOrExport.import_, x, decl, cb);
 		foreach (ref ImportOrExport x; module_.reExports)
-			eachImportInner(*module_, IsImportOrExport.export_, x, a, cb);
+			eachImportInner(*module_, IsImportOrExport.export_, x, decl, cb);
 	}
 }
 
@@ -179,18 +181,14 @@ void eachImportInner(
 	in Module importingModule,
 	IsImportOrExport kind,
 	ref ImportOrExport import_,
-	in FunDecl* fun,
+	in AnyDecl decl,
 	in void delegate(Uri, IsImportOrExport, ImportOrExportAst*) @safe @nogc pure nothrow cb,
 ) {
-	assert(fun.visibility != Visibility.private_);
-	if (import_.modulePtr.uri == fun.moduleUri) {
-		Opt!(NameReferents*) refs = import_.imported[fun.name];
-		if (has(refs)) {
-			assert(contains(force(refs).funs, fun));
-			if (has(import_.source)) {
-				cb(importingModule.uri, kind, force(import_.source));
-			}
-		}
+	assert(decl.visibility != Visibility.private_);
+	if (import_.modulePtr.uri == decl.moduleUri) {
+		Opt!(NameReferents*) refs = import_.imported[decl.name];
+		if (has(refs) && has(import_.source))
+			cb(importingModule.uri, kind, force(import_.source));
 	}
 }
 
@@ -585,7 +583,7 @@ void eachTypeInCondition(in Condition condition, in ConditionAst ast, in TypeCb 
 		});
 }
 
-public void referencesForFunDecl(in Program program, FunDecl* decl, in ReferenceCb cb) {
+void referencesForFunDecl(in Program program, FunDecl* decl, in ReferenceCb cb) {
 	referencesForFunDecls(program, [decl], cb);
 }
 

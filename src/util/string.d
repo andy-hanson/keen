@@ -13,8 +13,6 @@ import util.util : castNonScope_ref;
 
 alias SmallString = SmallArray!(immutable char);
 alias smallString = small!(immutable char);
-SmallString emptySmallString() =>
-	emptySmallArray!(immutable char);
 
 // Like 'immutable char*' but guaranteed to have a terminating '\0'
 // (Preferred to `string` as it is 8 bytes instead of 16)

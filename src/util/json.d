@@ -109,9 +109,6 @@ Json.ObjectField optionalArrayField(string name, T)(
 	optionalField!name(!isEmpty(array), () =>
 		jsonList(map!(Json, const T)(alloc, array, (ref const T x) => cb(x))));
 
-Json.ObjectField optionalStringField(string name)(ref Alloc alloc, in string value) =>
-	optionalField!name(!isEmpty(value), () => jsonString(alloc, value));
-
 Json.ObjectField kindField(string kindName)() =>
 	.kindField(kindName);
 Json.ObjectField kindField(string kindName) =>

@@ -49,6 +49,7 @@ immutable struct LspInRequestParams {
 		DocumentHighlightParams,
 		FoldingRangeParams,
 		HoverParams,
+		ImplementationParams,
 		InitializeParams,
 		InlayHintParams,
 		ReferenceParams,
@@ -97,7 +98,7 @@ immutable struct LspOutResult {
 		SignatureHelp,
 		SyntaxTranslateResult,
 		UnloadedUris,
-		UriAndRange[], // for definition or references
+		UriAndRange[], // for definition, implementation, or references
 		Opt!WorkspaceEdit, // for rename
 		Null,
 	);
@@ -219,8 +220,11 @@ immutable struct CompletionItem {
 	string documentation;
 }
 
-
 immutable struct DefinitionParams {
+	TextDocumentPositionParams params;
+}
+
+immutable struct ImplementationParams {
 	TextDocumentPositionParams params;
 }
 
@@ -390,3 +394,5 @@ immutable struct FoldingRange {
 	Opt!FoldingRangeKind kind;
 }
 enum FoldingRangeKind { comment, imports, region }
+
+// TODO: ORGANIZE THIS FILE -------------------------------------------------------------------------------------------------------------
