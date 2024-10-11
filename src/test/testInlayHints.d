@@ -6,18 +6,17 @@ import frontend.ide.getInlayHints : getInlayHints;
 import frontend.showModel : ShowModelCtx;
 import lib.lsp.lspToJson : jsonOfInlayHints;
 import model.model : Module, Program;
-import test.testUtil : assertEqual, Test, testWithCrowAndJsonFiles, withIdeTest;
+import test.testUtil : assertEqual, CrowJsonTest, Test, testWithCrowAndJsonFiles, withIdeTest;
 import util.alloc.alloc : Alloc;
 import util.json : Json;
-import util.uri : Uri;
 import util.writer : Writer;
 
 void testInlayHints(ref Test test) {
-	testWithCrowAndJsonFiles!("inlay-hints", ["basic"])(test, (Uri uri, in string crow, in Json json) {
-		withIdeTest(test, uri, crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
-			assertEqual(inlayResult(test.alloc, ctx, *module_), json, (scope ref Writer writer) {
+	testWithCrowAndJsonFiles!("inlay-hints", ["basic"])(test, (in CrowJsonTest testData) {
+		withIdeTest(test, testData.uri, testData.crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
+			assertEqual(inlayResult(test.alloc, ctx, *module_), testData.json, (scope ref Writer writer) {
 				writer ~= "For ";
-				writer ~= uri;
+				writer ~= testData.uri;
 				writer ~= ":\n";
 			});
 		});

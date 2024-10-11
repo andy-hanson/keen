@@ -173,7 +173,6 @@ struct TwoStackArraysBuilder(T) {
 	StackArrayBuilder!T* inner;
 	size_t nFirst;
 
-	// TODO: it would be nice to do 'out_.a ~= x' instead -----------------------------------------------------------------------
 	void writeFirst(T value) {
 		inner.insertAt(nFirst, value);
 		nFirst++;

@@ -4,8 +4,7 @@ module util.string;
 
 import util.alloc.alloc : Alloc;
 import util.comparison : compareArrays, compareChar, Comparison;
-import util.col.array :
-	append, arrayOfRange, arraysEqual, copyArray, emptySmallArray, endPtr, isEmpty, small, SmallArray;
+import util.col.array : append, arrayOfRange, arraysEqual, copyArray, endPtr, isEmpty, small, SmallArray;
 import util.conv : safeToUint;
 import util.hash : HashCode, hashString;
 import util.opt : force, none, Opt, some;

@@ -9,28 +9,21 @@ import frontend.showModel : ShowModelCtx;
 import lib.lsp.lspToJson : jsonOfCompletionList;
 import lib.lsp.lspTypes : CompletionList;
 import model.model : Module, Program;
-import test.testUtil : Test, ideTestAtPositions, testWithCrowAndJsonFiles;
-import util.json : Json;
+import test.testUtil : CrowJsonTest, Test, ideTestAtPositions, testWithCrowAndJsonFiles;
 import util.opt : force, Opt;
 import util.sourceRange : Pos;
-import util.uri : Uri;
 
 void testCompletion(ref Test test) {
-	testWithCrowAndJsonFiles!(
-		"completion",
-		["after-dot"],
-	)(
-		test,
-		(Uri uri, in string crow, in Json json) {
-			singleTest(test, uri, crow, json);
-		});
+	testWithCrowAndJsonFiles!("completion", ["after-dot"])(test, (in CrowJsonTest x) {
+		singleTest(test, x);
+	});
 }
 
 private:
 
-void singleTest(ref Test test, Uri uri, in string crow, in Json json) {
-	ideTestAtPositions(test, uri, crow, json, (in ShowModelCtx ctx, in Program program, in Module* module_, Pos pos) {
-		Opt!Position position = getPosition(program, module_, crow, pos, GetPositionKind.after);
+void singleTest(ref Test test, in CrowJsonTest testData) {
+	ideTestAtPositions(test, testData, (in ShowModelCtx ctx, in Program program, in Module* module_, Pos pos) {
+		Opt!Position position = getPosition(program, module_, testData.crow, pos, GetPositionKind.after);
 		Opt!CompletionList res = getCompletionForPosition(test.alloc, ctx, force(position));
 		return jsonOfCompletionList(test.alloc, force(res));
 	});

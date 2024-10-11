@@ -6,6 +6,7 @@ import app.fileSystem : printCb;
 import test.testAllInsts : testAllInsts;
 import test.testAlloc : testAlloc;
 import test.testApplyFn : testApplyFn;
+import test.testCodeLens : testCodeLens;
 import test.testCompletion : testCompletion;
 import test.testFakeExtern : testFakeExtern;
 import test.testFoldingRanges : testFoldingRanges;
@@ -19,6 +20,7 @@ import test.testJson : testJson;
 import test.testMap : testMap;
 import test.testMemory : testMemory;
 import test.testMutMultiMap : testMutMultiMap;
+import test.testReferences : testReferences;
 import test.testServer : testServer;
 import test.testSignatureHelp : testSignatureHelp;
 import test.testSortUtil : testSortUtil;
@@ -69,6 +71,7 @@ immutable NameAndTest[] allTests = [
 	NameAndTest("alloc", &testAlloc),
 	NameAndTest("all-insts", &testAllInsts),
 	NameAndTest("apply-fn", &testApplyFn),
+	NameAndTest("code-lens", &testCodeLens),
 	NameAndTest("completion", &testCompletion),
 	NameAndTest("fake-extern", &testFakeExtern),
 	NameAndTest("folding-ranges", &testFoldingRanges),
@@ -82,6 +85,7 @@ immutable NameAndTest[] allTests = [
 	NameAndTest("map", &testMap),
 	NameAndTest("memory", &testMemory),
 	NameAndTest("mut-multi-map", &testMutMultiMap),
+	NameAndTest("references", &testReferences),
 	NameAndTest("server", &testServer),
 	NameAndTest("signature-help", &testSignatureHelp),
 	NameAndTest("sort-util", &testSortUtil),

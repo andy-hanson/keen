@@ -7,7 +7,6 @@ import lib.server : getProgramForMain, Server, setFile, setFileAssumeUtf8, showD
 import model.diag : ReadFileDiag;
 import model.model : BuildTarget;
 import test.testUtil : assertEqual, defaultIncludeResult, setupTestServer, Test, withTestServer;
-import util.alloc.alloc : Alloc;
 import util.col.array : concatenate;
 import util.uri : concatUriAndPath, parsePath, mustParseUri, Uri;
 
@@ -21,13 +20,13 @@ void testServer(ref Test test) {
 private:
 
 void testCircularImportFixed(ref Test test) {
-	withTestServer(test, (ref Alloc alloc, ref Server server) {
+	withTestServer(test, (ref Server server) {
 		Uri uriA = mustParseUri("test:///a.crow");
 		Uri uriB = mustParseUri("test:///b.crow");
-		setupTestServer(test, alloc, server, uriA, "");
+		setupTestServer(test, server, uriA, "");
 
 		string showDiags() =>
-			showDiagnostics(alloc, server, getProgramForMain(test.perf, alloc, server, uriA, [BuildTarget.native]));
+			showDiagnostics(test.alloc, server, getProgramForMain(test.perf, test.alloc, server, uriA, [BuildTarget.native]));
 
 		assertEqual(showDiags(), expectedDiags1);
 
@@ -46,12 +45,12 @@ void testCircularImportFixed(ref Test test) {
 }
 
 void testFileNotFoundThenAdded(ref Test test) {
-	withTestServer(test, (ref Alloc alloc, ref Server server) {
+	withTestServer(test, (ref Server server) {
 		Uri uriA = mustParseUri("test:///a.crow");
 		Uri uriB = mustParseUri("test:///b.crow");
-		setupTestServer(test, alloc, server, uriA, "import\n\t./b\n\nmain void()\n\tinfo log hello");
+		setupTestServer(test, server, uriA, "import\n\t./b\n\nmain void()\n\tinfo log hello");
 		string showDiags() =>
-			showDiagnostics(alloc, server, getProgramForMain(test.perf, alloc, server, uriA, [BuildTarget.native]));
+			showDiagnostics(test.alloc, server, getProgramForMain(test.perf, test.alloc, server, uriA, [BuildTarget.native]));
 
 		string bDoesNotExist = "test:///a.crow 2:5-2:8 Imported file test:///b.crow does not exist.\n" ~
 			"test:///b.crow 1:1-1:1 This file does not exist.";
@@ -66,17 +65,17 @@ void testFileNotFoundThenAdded(ref Test test) {
 }
 
 void testFileImportNotFound(ref Test test) {
-	withTestServer(test, (ref Alloc alloc, ref Server server) {
+	withTestServer(test, (ref Server server) {
 		Uri uriA = mustParseUri("test:///a.crow");
 		Uri uriB = mustParseUri("test:///b.txt");
 		Uri uriB2 = mustParseUri("test:///b2.txt");
 		setFileAssumeUtf8(test.perf, server, uriB, "hello");
 
 		string showDiags() =>
-			showDiagnostics(alloc, server, getProgramForMain(test.perf, alloc, server, uriA, [BuildTarget.native]));
+			showDiagnostics(test.alloc, server, getProgramForMain(test.perf, test.alloc, server, uriA, [BuildTarget.native]));
 
 		string original = "import\n\t./b.txt as b string\n\nmain void()\n\t()";
-		setupTestServer(test, alloc, server, uriA, original);
+		setupTestServer(test, server, uriA, original);
 		assertEqual(showDiags(), "");
 
 		setFileAssumeUtf8(test.perf, server, uriA, "import\n\t./b2.txt as string\n\nmain void()\n\t()");
@@ -89,18 +88,18 @@ void testFileImportNotFound(ref Test test) {
 }
 
 void testChangeBootstrap(ref Test test) {
-	withTestServer(test, (ref Alloc alloc, ref Server server) {
+	withTestServer(test, (ref Server server) {
 		Uri uriA = mustParseUri("test:///a.crow");
-		setupTestServer(test, alloc, server, uriA, "main void()\n\t()");
+		setupTestServer(test, server, uriA, "main void()\n\t()");
 		string showDiags() =>
-			showDiagnostics(alloc, server, getProgramForMain(test.perf, alloc, server, uriA, [BuildTarget.native]));
+			showDiagnostics(test.alloc, server, getProgramForMain(test.perf, test.alloc, server, uriA, [BuildTarget.native]));
 
 		assertEqual(showDiags(), "");
 
 		string bootstrapPath = "crow/private/bootstrap.crow";
 		Uri bootstrap = concatUriAndPath(server.includeDir, parsePath(bootstrapPath));
 		string defaultBootstrap = defaultIncludeResult(bootstrapPath);
-		setFileAssumeUtf8(test.perf, server, bootstrap, concatenate(alloc, defaultBootstrap, "junk"));
+		setFileAssumeUtf8(test.perf, server, bootstrap, concatenate(test.alloc, defaultBootstrap, "junk"));
 		assertEqual(showDiags(),
 			"test:///include/crow/private/bootstrap.crow 386:5-386:5 Unexpected end of file.\n" ~
 			"test:///include/crow/private/bootstrap.crow 386:5-386:5 Expected '('.");

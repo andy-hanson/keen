@@ -6,7 +6,8 @@ import std.meta : AliasSeq, staticMap;
 
 import app.parseCommand : parseLineAndColumn;
 import frontend.showModel : ShowCtx, ShowModelCtx, ShowOptions;
-import frontend.storage : CrowFileInfo, FileContentGetters, FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
+import frontend.storage :
+	CrowFileInfo, FileContentGetters, FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
 import interpret.bytecode : ByteCode, ByteCodeIndex, Operation;
 import interpret.debugInfo : showDataArr;
 import interpret.stacks : dataEnd, returnTempAsArrReverse, Stacks;
@@ -20,11 +21,11 @@ import lib.server :
 	setFile,
 	setFileAssumeUtf8;
 import model.diag : ReadFileDiag;
-import model.model : Module, Program;
-import util.alloc.alloc : Alloc, allocateElements, AllocKind, MetaAlloc, newAlloc, withTempAlloc, word;
+import model.model : Module, moduleAtUri, Program;
+import util.alloc.alloc : Alloc, allocateElements, AllocKind, MetaAlloc, newAlloc, word;
+import util.alloc.stackAlloc : withMapToStackArray;
 import util.col.array :
 	arraysEqual, arrayOfRange, arraysCorrespond, endPtr, indexOf, isEmpty, makeArray, map, mapCompileTime;
-import util.col.hashTable : mustGet;
 import util.json : Json, writeJsonPretty;
 import util.jsonParse : mustParseJson;
 import util.opt : force, has, none, Opt;
@@ -34,7 +35,7 @@ import util.string : CString, CStringAndLength, stringOfCString;
 import util.symbol : addExtension, cStringOfSymbol, Extension, symbol, symbolOfString;
 import util.unicode : FileContent;
 import util.uri : concatUriAndPath, getExtension, isAncestor, mustParseUri, parsePath, Uri, UrisInfo;
-import util.util : ptrTrustMe;
+import util.util : castNonScope, castNonScope_ref, ptrTrustMe;
 import util.writer : debugLogWithWriter, Writer, writeWithCommas;
 
 struct Test {
@@ -125,24 +126,44 @@ pure:
 
 @trusted void testWithCrowAndJsonFiles(string dirName, string[] names)(
 	ref Test test,
-	in void delegate(Uri uri, in string crow, in Json json) @safe @nogc pure nothrow cb
+	in void delegate(in CrowJsonTest) @safe @nogc pure nothrow cb
 ) {
-	CrowJsonTest[names.length] tests = mapCompileTime!(names.length, CrowJsonTest, names, importCrowTest!dirName);
-	foreach (CrowJsonTest x; tests)
-		cb(
-			mustParseUri("magic:") / addExtension(symbolOfString(x.name), Extension.crow),
-			x.crow,
-			mustParseJson(test.alloc, CString(x.json)));
+	withCrowAndJsonFiles!(dirName, names)(test, (in CrowJsonTest[] tests) {
+		foreach (CrowJsonTest x; tests)
+			cb(x);
+	});
 }
-private template importCrowTest(string dirName) {
-	CrowJsonTest importCrowTest(string name)() =>
-		CrowJsonTest(name, import(dirName ~ "/" ~ name ~ ".crow"), import(dirName ~ "/" ~ name ~ ".json"));
+void withCrowAndJsonFiles(string dirName, string[] names)(
+	ref Test test,
+	in void delegate(in CrowJsonTest[]) @safe @nogc pure nothrow cb,
+) {
+	CrowJsonTestStatic[names.length] tests =
+		mapCompileTime!(names.length, CrowJsonTestStatic, names, importCrowTest!dirName);
+	withMapToStackArray!(void, CrowJsonTest, CrowJsonTestStatic)(
+		tests,
+		(ref CrowJsonTestStatic x) =>
+			CrowJsonTest(
+				mustParseUri("test:") / symbolOfString(dirName) / addExtension(symbolOfString(x.name), Extension.crow),
+				x.crow,
+				mustParseJson(test.alloc, (() @trusted => CString(x.json))())),
+		(scope CrowJsonTest[] x) => cb(x));
 }
 
-private immutable struct CrowJsonTest {
+immutable struct CrowJsonTest {
+	Uri uri;
+	string crow;
+	Json json;
+}
+
+private immutable struct CrowJsonTestStatic {
 	string name;
 	string crow;
 	immutable char* json;
+}
+
+private template importCrowTest(string dirName) {
+	CrowJsonTestStatic importCrowTest(string name)() =>
+		CrowJsonTestStatic(name, import(dirName ~ "/" ~ name ~ ".crow"), import(dirName ~ "/" ~ name ~ ".json"));
 }
 
 void assertEqual(T)(
@@ -208,63 +229,87 @@ void withIdeTest(
 	in string content,
 	in void delegate(in ShowModelCtx, in Program, in Module*) @safe @nogc pure nothrow cb,
 ) {
-	withTestServer(test, (ref Alloc alloc, ref Server server) {
-		setupTestServer(test, alloc, server, uri, content);
-		Program program = getProgramForAll(test.perf, alloc, server);
-		cb(getShowDiagCtx(server, program), program, mustGet(program.allModules, uri));
+	withTestServer(test, (ref Server server) {
+		setupTestServer(test, server, uri, content);
+		Program program = getProgramForAll(test.perf, test.alloc, server);
+		cb(getShowDiagCtx(server, program), program, moduleAtUri(program, uri));
+	});
+}
+
+immutable struct UriAndContent {
+	Uri uri;
+	string content;
+}
+void withIdeTestMultipleFiles(
+	ref Test test,
+	in UriAndContent[] files,
+	in void delegate(in ShowModelCtx, in Program) @safe @nogc pure nothrow cb,
+) {
+	withTestServer(test, (ref Server server) {
+		setupTestServer(test, server, files);
+		Program program = getProgramForAll(test.perf, test.alloc, server);
+		cb(getShowDiagCtx(server, program), program);
 	});
 }
 
 // Given a Json file where keys are "line:column", run a test at each position.
 void ideTestAtPositions(
 	ref Test test,
-	Uri uri,
-	in string crow,
-	in Json json,
+	in CrowJsonTest testData,
 	in Json delegate(in ShowModelCtx, in Program, in Module*, Pos) @safe @nogc pure nothrow cb,
 ) {
-	withIdeTest(test, uri, crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
-		foreach (Json.ObjectField field; json.as!(Json.Object)) {
-			LineAndColumn where = force(parseLineAndColumn(cStringOfSymbol(test.alloc, field.key)));
-			Json res = cb(ctx, program, module_, ctx.lineAndColumnGetters[module_.uri][where]);
-			assertEqual(res, field.value, (scope ref Writer writer) {
-				writer ~= "For ";
-				writer ~= uri;
-				writer ~= " ";
-				writer ~= where;
-				writer ~= ":\n";
-			});
-		}
+	withIdeTest(test, testData.uri, testData.crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
+		testAtPositions(test, testData.uri, testData.json, (LineAndColumn where) =>
+			cb(ctx, program, module_, ctx.lineAndColumnGetters[module_.uri][where]));
 	});
 }
 
-void withTestServer(
+void testAtPositions(
 	ref Test test,
-	in void delegate(ref Alloc, ref Server) @safe @nogc pure nothrow cb,
+	Uri uri,
+	in Json json,
+	in Json delegate(LineAndColumn) @safe @nogc pure nothrow cb,
 ) {
-	withTempAlloc!void(test.metaAlloc, (ref Alloc alloc) @trusted {
-		scope Server server = Server((size_t sizeWords, size_t _) =>
-			allocateElements!word(alloc, sizeWords));
-		setServerSettings(&server, ServerSettings(
-			includeDir: mustParseUri("test:///include"),
-			cwd: mustParseUri("test:///"),
-			showOptions: ShowOptions(color: false)));
-		return cb(alloc, server);
-	});
+	foreach (Json.ObjectField field; json.as!(Json.Object)) {
+		LineAndColumn where = force(parseLineAndColumn(cStringOfSymbol(test.alloc, field.key)));
+		Json res = cb(where);
+		assertEqual(res, field.value, (scope ref Writer writer) {
+			writer ~= "For ";
+			writer ~= uri;
+			writer ~= " ";
+			writer ~= where;
+			writer ~= ":\n";
+		});
+	}
 }
 
-void setupTestServer(ref Test test, ref Alloc alloc, ref Server server, Uri mainUri, in string mainContent) {
-	assert(getExtension(mainUri) == Extension.crow);
-	setFileAssumeUtf8(test.perf, server, mainUri, mainContent);
-	Uri[] testUris = map(alloc, testIncludePaths, (ref immutable string path) =>
+void withTestServer(ref Test test, in void delegate(ref Server) @safe @nogc pure nothrow cb) {
+	scope Server server = Server((size_t sizeWords, size_t _) =>
+		allocateElements!word(test.alloc, sizeWords));
+	setServerSettings(ptrTrustMe(server), ServerSettings(
+		includeDir: mustParseUri("test:///include"),
+		cwd: mustParseUri("test:///"),
+		showOptions: ShowOptions(color: false)));
+	return cb(castNonScope_ref(server));
+}
+
+void setupTestServer(ref Test test, ref Server server, Uri mainUri, in string mainContent) {
+	setupTestServer(test, server, [UriAndContent(mainUri, castNonScope(mainContent))]);
+}
+void setupTestServer(ref Test test, ref Server server, in UriAndContent[] files) {
+	foreach (UriAndContent file; files) {
+		assert(getExtension(file.uri) == Extension.crow);
+		setFileAssumeUtf8(test.perf, server, file.uri, file.content);
+	}
+	Uri[] testUris = map(test.alloc, testIncludePaths, (ref immutable string path) =>
 		concatUriAndPath(server.includeDir, parsePath(path)));
 	while (true) {
-		Uri[] unknowns = allUnknownUris(alloc, server);
+		Uri[] unknowns = allUnknownUris(test.alloc, server);
 		if (isEmpty(unknowns))
 			break;
 		else
 			foreach (Uri unknown; unknowns)
-				setFile(test.perf, server, unknown, defaultFileResult(alloc, server, testUris, unknown));
+				setFile(test.perf, server, unknown, defaultFileResult(test.alloc, server, testUris, unknown));
 	}
 }
 

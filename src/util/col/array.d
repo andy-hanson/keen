@@ -596,6 +596,29 @@ void zipIfSizeEq(T, U)(in T[] a, in U[] b, in void delegate(ref T, ref U) @safe 
 		zip(a, b, cb);
 }
 
+void zipIfSizeEqFilterFirst(T, U)(
+	in T[] a,
+	in U[] b,
+	in bool delegate(in T) @safe @nogc pure nothrow cbFilter,
+	in void delegate(in T, in U) @safe @nogc pure nothrow cbZip,
+) {
+	size_t count = 0;
+	foreach (ref const T x; a) {
+		if (cbFilter(x))
+			count++;
+	}
+	if (count == b.length) {
+		size_t i = 0;
+		foreach (ref const T x; a) {
+			if (cbFilter(x)) {
+				cbZip(x, b[i]);
+				i++;
+			}
+		}
+		assert(i == count);
+	}
+}
+
 void zipPointers(T, U)(T[] a, U[] b, in void delegate(T*, U*) @safe @nogc pure nothrow cb) {
 	assert(sizeEq(a, b));
 	foreach (size_t i; 0 .. a.length)

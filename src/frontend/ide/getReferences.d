@@ -123,11 +123,12 @@ import model.model :
 	TypedExpr,
 	UnionMember,
 	VarDecl,
+	VariantAndMethodImpls,
 	variantMethodCaller,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
-import util.col.array : allSame, contains, fold, isEmpty, only, zip, zipIfSizeEq;
+import util.col.array : allSame, contains, fold, isEmpty, only, zip, zipIfSizeEq, zipIfSizeEqFilterFirst;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.col.tempSet : mustAdd, TempSet, tryAdd, withTempSet;
 import util.opt : force, has, none, Opt, optIf, some;
@@ -389,9 +390,24 @@ void eachTypeInSpec(in SpecDecl a, in TypeCb cb) {
 void eachTypeInStruct(ref CommonTypes commonTypes, in StructDecl a, in TypeCb cb) =>
 	a.source.matchIn!void(
 		(in StructDeclAst x) {
+			eachTypeInStructModifiers(a.variants, x.modifiers, cb);
 			eachTypeInStructBody(commonTypes, a.body_, x, x.body_, cb);
 		},
 		(in StructDeclSource.Bogus) {});
+void eachTypeInStructModifiers(
+	in VariantAndMethodImpls[] variants,
+	in ModifierAst[] modifiers,
+	in TypeCb cb,
+) {
+	zipIfSizeEqFilterFirst!(ModifierAst, VariantAndMethodImpls)(
+		modifiers,
+		variants,
+		(in ModifierAst mod) =>
+			mod.isA!(ModifierAst.Keyword) && mod.as!(ModifierAst.Keyword).keyword == ModifierKeyword.variantMember,
+		(in ModifierAst mod, in VariantAndMethodImpls x) {
+			cb(Type(x.variant), force(mod.as!(ModifierAst.Keyword).typeArg));
+		});
+}
 void eachTypeInStructBody(
 	ref CommonTypes commonTypes,
 	in StructBody body_,

@@ -9,14 +9,13 @@ import frontend.ide.position : Position;
 import frontend.showModel : ShowModelCtx;
 import lib.lsp.lspTypes : Hover;
 import model.model : Module, Program;
-import test.testUtil : assertEqual, Test, testWithCrowAndJsonFiles, withIdeTest;
+import test.testUtil : assertEqual, CrowJsonTest, Test, testWithCrowAndJsonFiles, withIdeTest;
 import util.alloc.alloc : Alloc;
 import util.col.array : arraysEqual, isEmpty;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.conv : safeToUint;
 import util.json : field, Json, jsonList, jsonObject, optionalArrayField;
 import util.opt : force, has, Opt, optIf;
-import util.uri : Uri;
 import util.sourceRange :
 	jsonOfLineAndCharacterRange,
 	jsonOfUriAndLineAndCharacterRange,
@@ -26,16 +25,16 @@ import util.sourceRange :
 	UriAndRange;
 
 void testHover(ref Test test) {
-	testWithCrowAndJsonFiles!("hover", ["basic", "function"])(test, (Uri uri, in string crow, in Json json) {
-		hoverTest(test, uri, crow, json);
+	testWithCrowAndJsonFiles!("hover", ["basic", "function"])(test, (in CrowJsonTest x) {
+		hoverTest(test, x);
 	});
 }
 
 private:
 
-void hoverTest(ref Test test, Uri uri, in string crow, in Json expected) { // inline ----------------------------------------------------------
-	withIdeTest(test, uri, crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
-		assertEqual(hoverResult(test.alloc, crow, ctx, program, module_), expected);
+void hoverTest(ref Test test, in CrowJsonTest testData) { // inline ---------------------------------------------------------------------------
+	withIdeTest(test, testData.uri, testData.crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
+		assertEqual(hoverResult(test.alloc, testData.crow, ctx, program, module_), testData.json);
 	});
 }
 
