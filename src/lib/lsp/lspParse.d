@@ -15,6 +15,7 @@ import lib.lsp.lspTypes :
 	DidCloseTextDocumentParams,
 	DidOpenTextDocumentParams,
 	DidSaveTextDocumentParams,
+	ExecuteCommandParams,
 	ExitParams,
 	FoldingRangeParams,
 	HoverParams,
@@ -28,6 +29,7 @@ import lib.lsp.lspTypes :
 	LspInNotification,
 	LspInRequest,
 	LspInRequestParams,
+	LspInResponse,
 	ReadFileResultParams,
 	ReadFileResultType,
 	ReferenceParams,
@@ -49,7 +51,7 @@ import util.col.array : map;
 import util.json : get, hasKey, Json;
 import util.jsonParse : asUint;
 import util.opt : none, Opt, optIf, some;
-import util.sourceRange : LineAndCharacter, LineAndCharacterRange;
+import util.sourceRange : LineAndCharacter, LineAndCharacterRange, uriAndPosOfJson, UriAndPos;
 import util.uri : mustParseUri, Uri;
 import util.util : enumOfString;
 
@@ -59,6 +61,9 @@ LspInMessage parseLspInMessage(ref Alloc alloc, in Json message) {
 		LspInMessage(LspInNotification(res));
 	LspInMessage request(T)(T res) =>
 		LspInMessage(LspInRequest(asUint(get!"id"(message)), LspInRequestParams(res)));
+
+	if (hasKey!"result"(message))
+		return LspInMessage(LspInResponse());
 
 	Json params = get!"params"(message);
 	switch (get!"method"(message).as!string) {
@@ -133,6 +138,8 @@ LspInMessage parseLspInMessage(ref Alloc alloc, in Json message) {
 			return request(SignatureHelpParams(parseTextDocumentPositionParams(alloc, params)));
 		case "textDocument/typeDefinition":
 			return request(TypeDefinitionParams(parseTextDocumentPositionParams(alloc, params)));
+		case "workspace/executeCommand":
+			return request(parseExecuteCommandParams(alloc, params));
 		default:
 			assert(false);
 	}
@@ -197,3 +204,13 @@ alias parsePosition = parseLineAndCharacter;
 
 LineAndCharacter parseLineAndCharacter(in Json a) =>
 	LineAndCharacter(asUint(get!"line"(a)), asUint(get!"character"(a)));
+
+ExecuteCommandParams parseExecuteCommandParams(ref Alloc alloc, in Json params) {
+	Json[] arguments = get!"arguments"(params).as!(Json[]);
+	final switch (get!"command"(params).as!string) {
+		case "run-test":
+			return ExecuteCommandParams(parseRunTest(alloc, arguments[0]));
+	}
+}
+ExecuteCommandParams.RunTest parseRunTest(ref Alloc alloc, in Json a) =>
+	ExecuteCommandParams.RunTest(uriAndPosOfJson(a));

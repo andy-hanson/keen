@@ -95,6 +95,12 @@ bool isEmpty(T, K, alias getKey)(in MutHashTable!(T, K, getKey) a) =>
 size_t size(T, K, alias getKey)(in MutHashTable!(T, K, getKey) a) =>
 	a.size_;
 
+void clear(T, K, alias getKey)(scope ref MutHashTable!(T, K, getKey) a) { // TODO: UNIT TEST- ----------------------------------------------
+	foreach (ref MutOpt!T value; a.values)
+		overwriteMemory(&value, noneMut!T);
+	a.size_ = 0;
+}
+
 ref inout(T) mustGet(T, K, alias getKey)(ref inout MutHashTable!(T, K, getKey) a, in K key) =>
 	force(a.values[mustGetIndex(a, key)]);
 

@@ -7,7 +7,7 @@ module lib.lsp.lspTypes;
 import util.exitCode : ExitCode;
 import util.col.multiMap : MultiMap;
 import util.opt : Opt;
-import util.sourceRange : LineAndCharacter, LineAndCharacterRange, Pos, Range, UriAndRange;
+import util.sourceRange : LineAndCharacter, LineAndCharacterRange, Pos, Range, UriAndPos, UriAndRange;
 import util.string : SmallString;
 import util.union_ : Union;
 import util.uri : Uri;
@@ -19,7 +19,7 @@ import util.uri : Uri;
 alias Position = LineAndCharacter;
 
 immutable struct LspInMessage {
-	mixin Union!(LspInNotification, LspInRequest);
+	mixin Union!(LspInNotification, LspInRequest, LspInResponse);
 }
 
 immutable struct LspInNotification {
@@ -47,6 +47,7 @@ immutable struct LspInRequestParams {
 		CompletionParams,
 		DefinitionParams,
 		DocumentHighlightParams,
+		ExecuteCommandParams,
 		FoldingRangeParams,
 		HoverParams,
 		ImplementationParams,
@@ -62,6 +63,9 @@ immutable struct LspInRequestParams {
 		TypeDefinitionParams,
 		UnloadedUrisParams);
 }
+immutable struct LspInResponse {
+	// Nothing here for now since we don't need the response
+}
 
 immutable struct LspOutAction {
 	LspOutMessage[] outMessages;
@@ -69,7 +73,7 @@ immutable struct LspOutAction {
 }
 
 immutable struct LspOutMessage {
-	mixin Union!(LspOutNotification, LspOutResponse);
+	mixin Union!(LspOutNotification, LspOutRequest, LspOutResponse);
 }
 immutable struct LspOutNotification {
 	mixin Union!(
@@ -77,6 +81,16 @@ immutable struct LspOutNotification {
 		RegisterCapability,
 		UnknownUris);
 }
+immutable struct LspOutRequest {
+	uint id;
+	LspOutRequestParams params;
+}
+immutable struct LspOutRequestParams {
+	mixin Union!(CodeLensRefresh);
+}
+immutable struct CodeLensRefresh {}
+
+
 immutable struct LspOutResponse {
 	uint id;
 	LspOutResult result;
@@ -205,6 +219,17 @@ immutable struct CodeLensResolved {
 }
 immutable struct Command {
 	string title;
+	Opt!string tooltip;
+	// This also determines 'command'.
+	// Arguments must be represented as an array.
+	Opt!ExecuteCommandParams arguments;
+}
+
+immutable struct ExecuteCommandParams {
+	immutable struct RunTest {
+		UriAndPos where;
+	}
+	mixin Union!(RunTest);
 }
 
 immutable struct CompletionParams {

@@ -73,6 +73,7 @@ import lib.lsp.lspTypes :
 	BuildJsScriptResult,
 	CancelRequestParams,
 	CodeLensParams,
+	CodeLensRefresh,
 	CodeLensResolved,
 	CodeLensUnresolved,
 	CompletionList,
@@ -84,6 +85,7 @@ import lib.lsp.lspTypes :
 	DidSaveTextDocumentParams,
 	DocumentHighlightParams,
 	DocumentHighlightResult,
+	ExecuteCommandParams,
 	ExitParams,
 	FoldingRangeParams,
 	Hover,
@@ -100,9 +102,12 @@ import lib.lsp.lspTypes :
 	LspInNotification,
 	LspInRequest,
 	LspInRequestParams,
+	LspInResponse,
 	LspOutAction,
 	LspOutMessage,
 	LspOutNotification,
+	LspOutRequest,
+	LspOutRequestParams,
 	LspOutResponse,
 	LspOutResult,
 	Pipe,
@@ -147,21 +152,24 @@ import model.model :
 	moduleAtUri,
 	Program,
 	ProgramWithMain,
-	ProgramWithOptMain;
+	ProgramWithOptMain,
+	Test;
 import model.parseDiag : ParseDiag;
 import util.alloc.alloc : Alloc, AllocKind, FetchMemoryCb, freeElements, MetaAlloc, newAlloc, withTempAllocImpure;
 import util.alloc.stackAlloc : ensureStackAllocInitialized;
-import util.col.array : concatenate, contains, map, mapOp, newArray;
-import util.col.arrayBuilder : add, ArrayBuilder, finish;
+import util.cell : Cell, cellGet, cellSet;
+import util.col.array : concatenate, contains, map, mapOp, mustFindPointer, newArray;
+import util.col.arrayBuilder : add, addAll, ArrayBuilder, finish;
 import util.col.mutArr : clearAndDoNotFree, MutArr, push;
+import util.col.mutMap : clear, MutMap, setInMap;
 import util.exitCode : ExitCode, ExitCodeOrSignal, Signal;
 import util.integralValues : initIntegralValues;
 import util.json : field, Json, jsonList, jsonNull, jsonObject;
 import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
-import util.opt : force, has, none, Opt, optIf, some;
+import util.opt : force, has, none, MutOpt, Opt, optIf, some, someMut;
 import util.perf : Perf;
-import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndRange, UriLineAndColumn;
+import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndPos, UriAndRange, UriLineAndColumn;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
@@ -206,14 +214,12 @@ LspOutAction handleLspMessage(scope ref Perf perf, ref Alloc alloc, ref Server s
 	message.matchImpure!LspOutAction(
 		(in LspInNotification x) =>
 			handleLspNotification(perf, alloc, server, x),
-		(in LspInRequest x) {
-			Opt!LspOutResult response = handleLspRequest(perf, alloc, server, x);
-			return LspOutAction(
-				has(response) ? newArray!LspOutMessage(alloc, [messageForResponse(x, force(response))]) : [],
-				none!ExitCode);
-		});
+		(in LspInRequest x) =>
+			handleLspRequest(perf, alloc, server, x),
+		(in LspInResponse _) =>
+			LspOutAction());
 
-private LspOutMessage messageForResponse(in LspInRequest request, LspOutResult result) =>
+private pure LspOutMessage messageForResponse(in LspInRequest request, LspOutResult result) => // move? ------------------------------------
 	LspOutMessage(LspOutResponse(request.id, result));
 
 private LspOutAction handleLspNotification(
@@ -274,68 +280,80 @@ private LspOutAction handleFileChanged(scope ref Perf perf, ref Alloc alloc, ref
 		case FilesState.allLoaded:
 			Program program = getProgramForAll(perf, alloc, server);
 			ArrayBuilder!LspOutMessage messages;
-			foreach (LspInRequest request; server.lspState.pendingRequests)
-				add(alloc, messages, messageForResponse(
-					request,
-					handleLspRequestWithProgram(perf, alloc, server, program, request.params)));
+			Cell!(Opt!ExitCode) exitCode;
+			foreach (LspInRequest request; server.lspState.pendingRequests) {
+				LspOutAction action = handleLspRequestWithProgram(perf, alloc, server, program, request);
+				addAll(alloc, messages, action.outMessages);
+				if (has(action.exitCode)) {
+					cellSet(exitCode, action.exitCode);
+					break;
+				}
+			}
 			clearAndDoNotFree(server.lspState.pendingRequests);
 			notifyDiagnostics(perf, alloc, messages, server, program);
-			return LspOutAction(finish(alloc, messages), none!ExitCode);
+			return LspOutAction(finish(alloc, messages), cellGet(exitCode));
 	}
 }
 
 // Only returns 'none' if not all files are loaded
-private Opt!LspOutResult handleLspRequest(
+private LspOutAction handleLspRequest(
 	scope ref Perf perf,
 	ref Alloc alloc,
 	ref Server server,
-	in LspInRequest a,
+	in LspInRequest request,
 ) =>
-	a.params.matchImpure!(Opt!LspOutResult)(
+	request.params.matchImpure!LspOutAction(
 		(in BuildJsScriptParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in CodeLensParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in CodeLensUnresolved _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in CompletionParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in DefinitionParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in DocumentHighlightParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
+		(in ExecuteCommandParams _) =>
+			respondWithProgram(perf, alloc, server, request),
 		(in FoldingRangeParams x) =>
-			some(LspOutResult(foldingRangesOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument.uri)))),
+			singleResponse(alloc, request, LspOutResult(foldingRangesOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument.uri)))),
 		(in HoverParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in ImplementationParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in InitializeParams x) {
 			server.lspState.supportsUnknownUris = x.initializationOptions.unknownUris;
-			return some(LspOutResult(InitializeResult()));
+			return singleResponse(alloc, request, LspOutResult(InitializeResult()));
 		},
 		(in InlayHintParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in ReferenceParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in RenameParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in RunParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in SemanticTokensParams x) =>
-			some(LspOutResult(tokensOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument.uri)))),
+			singleResponse(alloc, request, LspOutResult(tokensOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument.uri)))),
 		(in ShutdownParams _) =>
-			some(LspOutResult(LspOutResult.Null())),
+			singleResponse(alloc, request, LspOutResult(LspOutResult.Null())),
 		(in SignatureHelpParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in SyntaxTranslateParams x) =>
-			some(LspOutResult(syntaxTranslate(alloc, x))),
+			singleResponse(alloc, request, LspOutResult(syntaxTranslate(alloc, x))),
 		(in TypeDefinitionParams _) =>
-			respondWithProgram(perf, alloc, server, a),
+			respondWithProgram(perf, alloc, server, request),
 		(in UnloadedUrisParams _) =>
-			some(LspOutResult(UnloadedUris(allUnloadedUris(alloc, server)))));
+			singleResponse(alloc, request, LspOutResult(UnloadedUris(allUnloadedUris(alloc, server)))));
 
-private Opt!LspOutResult respondWithProgram(
+private pure LspOutAction singleResponse(ref Alloc alloc, in LspInRequest request, LspOutResult response) => // move? ---------------------
+	LspOutAction(
+		newArray!LspOutMessage(alloc, [messageForResponse(request, response)]),
+		none!ExitCode);
+
+private LspOutAction respondWithProgram(
 	scope ref Perf perf,
 	ref Alloc alloc,
 	ref Server server,
@@ -343,59 +361,61 @@ private Opt!LspOutResult respondWithProgram(
 ) {
 	if (filesState(server) == FilesState.allLoaded) {
 		Program program = getProgramForAll(perf, alloc, server);
-		return some(handleLspRequestWithProgram(perf, alloc, server, program, request.params));
+		return handleLspRequestWithProgram(perf, alloc, server, program, request);
 	} else {
 		push(server.lspState.stateAlloc, server.lspState.pendingRequests, request);
-		return none!LspOutResult;
+		return LspOutAction();
 	}
 }
 
-private LspOutResult handleLspRequestWithProgram(
+private LspOutAction handleLspRequestWithProgram(
 	scope ref Perf perf,
 	ref Alloc alloc,
 	ref Server server,
 	ref Program program,
-	in LspInRequestParams a,
+	in LspInRequest request,
 ) {
 	ProgramWithMain programWithMain(Uri main, BuildTarget target) =>
 		programWithMainFromProgram(perf, alloc, server.frontend, program, main, [target]);
-	return a.matchImpure!LspOutResult(
+	return request.params.matchImpure!LspOutAction(
 		(in BuildJsScriptParams x) {
 			ProgramWithMain pwm = programWithMain(x.uri, BuildTarget.js);
-			return LspOutResult(BuildJsScriptResult(
+			return singleResponse(alloc, request, LspOutResult(BuildJsScriptResult(
 				showDiagnostics(alloc, server, pwm, x.diagnosticsOnlyForUris),
 				optIf(!hasFatalDiagnostics(pwm), () =>
-					buildToJsScript(alloc, server, pwm, JsTarget.browser, none!Symbol).js)));
+					buildToJsScript(alloc, server, pwm, JsTarget.browser, none!Symbol).js))));
 		},
 		(in CodeLensParams x) =>
-			LspOutResult(unresolvedCodeLenses(alloc, program, server.lineAndCharacterGetters[x.textDocument.uri], x)),
+			singleResponse(alloc, request, LspOutResult(unresolvedCodeLenses(alloc, program, server.lineAndCharacterGetters[x.textDocument.uri], x))),
 		(in CodeLensUnresolved x) =>
-			LspOutResult(resolveCodeLens(alloc, program, getShowDiagCtx(server, program), x)),
+			singleResponse(alloc, request, LspOutResult(resolveCodeLens(alloc, program, getShowDiagCtx(server, program), server.lspState.testStates, x))),
 		(in CompletionParams x) {
 			Opt!CompletionList res = getCompletionForProgram(alloc, server, program, x);
-			return has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null());
+			return singleResponse(alloc, request, has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
 		},
 		(in DefinitionParams x) =>
-			LspOutResult(getDefinitionForProgram(alloc, server, program, x)),
+			singleResponse(alloc, request, LspOutResult(getDefinitionForProgram(alloc, server, program, x))),
 		(in DocumentHighlightParams x) {
 			Opt!DocumentHighlightResult res = getDocumentHighlightsForProgram(alloc, server, program, x);
-			return has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null());
+			return singleResponse(alloc, request, has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
 		},
+		(in ExecuteCommandParams x) =>
+			executeCommand(alloc, server, program, request, x),
 		(in FoldingRangeParams x) =>
 			assert(false),
 		(in HoverParams x) =>
-			LspOutResult(getHoverForProgram(alloc, server, program, x)),
+			singleResponse(alloc, request, LspOutResult(getHoverForProgram(alloc, server, program, x))),
 		(in ImplementationParams x) =>
-			LspOutResult(getImplementationForProgram(alloc, server, program, x)),
+			singleResponse(alloc, request, LspOutResult(getImplementationForProgram(alloc, server, program, x))),
 		(in InitializeParams _) =>
 			assert(false),
 		(in InlayHintParams x) =>
-			LspOutResult(getInlayHintsForProgram(alloc, server, program, x)),
+			singleResponse(alloc, request, LspOutResult(getInlayHintsForProgram(alloc, server, program, x))),
 		(in ReferenceParams x) =>
-			LspOutResult(getReferencesForProgram(alloc, server, program, x)),
+			singleResponse(alloc, request, LspOutResult(getReferencesForProgram(alloc, server, program, x))),
 		(in RenameParams x) {
 			Opt!WorkspaceEdit res = getRenameForProgram(alloc, server, program, x);
-			return has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null());
+			return singleResponse(alloc, request, has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
 		},
 		(in RunParams x) {
 			ArrayBuilder!Write writes;
@@ -408,7 +428,7 @@ private LspOutResult handleLspRequestWithProgram(
 			ExitCode asExitCode = exitCode.match!ExitCode(
 				(ExitCode x) => x,
 				(Signal _) => ExitCode.error);
-			return LspOutResult(RunResult(asExitCode, finish(alloc, writes)));
+			return singleResponse(alloc, request, LspOutResult(RunResult(asExitCode, finish(alloc, writes))));
 		},
 		(in SemanticTokensParams _) =>
 			assert(false),
@@ -416,15 +436,37 @@ private LspOutResult handleLspRequestWithProgram(
 			assert(false),
 		(in SignatureHelpParams x) {
 			Opt!SignatureHelp res = getSignatureHelpForProgram(alloc, server, program, x);
-			return has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null());
+			return singleResponse(alloc, request, has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
 		},
 		(in SyntaxTranslateParams x) =>
 			assert(false),
 		(in TypeDefinitionParams x) =>
-			LspOutResult(getTypeDefinitionForProgram(alloc, server, program, x)),
+			singleResponse(alloc, request, LspOutResult(getTypeDefinitionForProgram(alloc, server, program, x))),
 		(in UnloadedUrisParams _) =>
 			assert(false));
 }
+
+// TODO: move these down to the 'pure:' section ---------------------------------------------------------------------------------------
+pure void contentChanged(scope ref Server server) {
+	clear(server.lspState.testStates);
+}
+
+pure LspOutAction executeCommand(ref Alloc alloc, ref Server server, ref Program program, in LspInRequest request, in ExecuteCommandParams params) =>
+	params.matchIn!LspOutAction(
+		(in ExecuteCommandParams.RunTest x) {
+			Test* test = findTest(program, x.where);
+			// TODO: actually run the test ......................................................................................
+			setInMap(
+				server.lspState.stateAlloc, server.lspState.testStates, test,
+				RunResult(ExitCode.ok, []));
+			return LspOutAction(
+				newArray!LspOutMessage(alloc, [
+					messageForResponse(request, LspOutResult(LspOutResult.Null())),
+					LspOutMessage(LspOutRequest(1, LspOutRequestParams(CodeLensRefresh())))]));
+		});
+
+pure Test* findTest(in Program program, in UriAndPos a) => // move ?--------------------------------------------------------------------------
+	mustFindPointer!Test(moduleAtUri(program, a.uri).tests, (ref Test x) => x.range.start == a.pos);
 
 private ExitCodeOrSignal runFromLsp(
 	scope ref Perf perf,
@@ -526,10 +568,12 @@ private struct LspState {
 	bool supportsUnknownUris;
 	Uri[] urisWithDiagnostics;
 	MutArr!LspInRequest pendingRequests;
+	TestStates testStates; // TODO: we need to clear this whenever there is a code edit! ------------------------------------------
 
 	ref inout(Alloc) stateAlloc() return scope inout =>
 		*stateAllocPtr;
 }
+alias TestStates = MutMap!(Test*, RunResult);
 
 Json version_(ref Alloc alloc, in Server server, FilePath thisExecutable) {
 	version (Debug) {
@@ -578,12 +622,15 @@ private string dCompilerName() {
 }
 
 void setFile(scope ref Perf perf, ref Server server, Uri uri, in ReadFileResult result) {
+	contentChanged(server);
 	onFileChanged(perf, server.frontend, uri, setFile(perf, server.storage, uri, result));
 }
 void setFileAssumeUtf8(scope ref Perf perf, ref Server server, Uri uri, in string result) {
+	contentChanged(server);
 	onFileChanged(perf, server.frontend, uri, FileInfoOrDiag(setFileAssumeUtf8(perf, server.storage, uri, result)));
 }
 void setFile(scope ref Perf perf, ref Server server, Uri uri, in ubyte[] result) {
+	contentChanged(server);
 	onFileChanged(perf, server.frontend, uri, FileInfoOrDiag(setFileBytes(perf, server.storage, uri, result)));
 }
 void setFile(scope ref Perf perf, ref Server server, Uri uri, ReadFileDiag diag) {
@@ -591,6 +638,7 @@ void setFile(scope ref Perf perf, ref Server server, Uri uri, ReadFileDiag diag)
 }
 
 void changeFile(scope ref Perf perf, ref Server server, Uri uri, in TextDocumentContentChangeEvent[] changes) {
+	contentChanged(server);
 	onFileChanged(perf, server.frontend, uri, FileInfoOrDiag(changeFile(perf, server.storage, uri, changes)));
 }
 
@@ -914,6 +962,7 @@ Json jsonForPrintIdeWholeFile(
 				alloc,
 				resolvedCodeLenses(
 					alloc, program, getShowDiagCtx(server, program),
+					server.lspState.testStates,
 					CodeLensParams(TextDocumentIdentifier(uri))),
 				(ref CodeLensResolved x) => jsonOfCodeLensResolved(alloc, x)));
 		case PrintKind.IdeWholeFile.Kind.foldingRanges:
@@ -1061,6 +1110,7 @@ LspOutAction initializedAction(ref Alloc alloc, ref Server server) {
 		register("textDocument/semanticTokens/full"),
 		register("textDocument/signatureHelp"),
 		register("textDocument/typeDefinition"),
+		register("workspace/executeCommand"),
 	]));
 }
 

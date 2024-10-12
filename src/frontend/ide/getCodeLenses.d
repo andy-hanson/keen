@@ -4,30 +4,35 @@ module frontend.ide.getCodeLenses;
 
 import frontend.ide.getReferences : eachImport, UriAndName;
 import frontend.showModel : ShowTypeCtx;
-import lib.lsp.lspTypes : CodeLensParams, CodeLensResolved, CodeLensUnresolved, Command;
+import lib.lsp.lspTypes :
+	CodeLensParams, CodeLensResolved, CodeLensUnresolved, Command, ExecuteCommandParams, Pipe, RunResult, Write;
+import lib.server : TestStates; // TODO: CIRCULAR IMPORT ---------------------------------------------------------------------------
 import model.model : AnyDecl, eachDecl, IsImportOrExport, Module, moduleAtUri, Program, Test, Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
-import util.col.array : isEmpty, map;
+import util.col.array : every, isEmpty, map;
 import util.col.arrayBuilder : buildArray, Builder;
+import util.exitCode : ExitCode;
 import util.late : Late, lateGet, lateSet;
-import util.opt : force, has, Opt;
-import util.sourceRange : LineAndCharacterGetter, Pos, rangeToEndOfLine;
+import util.opt : force, has, Opt, optIf, some;
+import util.sourceRange : LineAndCharacterGetter, Pos, rangeToEndOfLine, UriAndPos;
 import util.union_ : Union;
 import util.uri : relativePathForUri, RelPath, Uri;
-import util.writer : makeStringWithWriter, Writer, writeWithCommas;
+import util.util : stringOfEnum;
+import util.writer : makeStringWithWriter, Writer, writeWithCommas, writeWithNewlines;
 
 CodeLensResolved[] resolvedCodeLenses(
 	ref Alloc alloc,
 	in Program program,
 	in ShowTypeCtx showCtx,
+	in TestStates testStates,
 	in CodeLensParams params,
 ) =>
 	map(
 		alloc,
 		unresolvedCodeLenses(alloc, program, showCtx.lineAndCharacterGetters[params.textDocument.uri], params),
 		(ref CodeLensUnresolved x) =>
-			resolveCodeLens(alloc, program, showCtx, x));
+			resolveCodeLens(alloc, program, showCtx, testStates, x));
 
 CodeLensUnresolved[] unresolvedCodeLenses(
 	ref Alloc alloc,
@@ -39,7 +44,7 @@ CodeLensUnresolved[] unresolvedCodeLenses(
 	Module* module_ = moduleAtUri(program, uri);
 	return buildArray!CodeLensUnresolved(alloc, (scope ref Builder!CodeLensUnresolved out_) {
 		eachDecl(*module_, (AnyDecl x) {
-			if (!x.isA!(Test*) && x.visibility != Visibility.private_)
+			if (x.visibility != Visibility.private_)
 				out_ ~= CodeLensUnresolved(rangeToEndOfLine(lcg, x.range.start), uri);
 		});
 	});
@@ -49,29 +54,66 @@ CodeLensResolved resolveCodeLens(
 	ref Alloc alloc,
 	in Program program,
 	in ShowTypeCtx showCtx,
+	in TestStates testStates,
 	in CodeLensUnresolved codeLens,
 ) {
 	Uri uri = codeLens.data;
 	AnyDecl decl = declAtPos(*moduleAtUri(program, uri), showCtx.lineAndCharacterGetters[uri][codeLens.range].start);
 	assert(decl.visibility != Visibility.private_);
 
-	string message = makeStringWithWriter(alloc, (scope ref Writer writer) {
-		withImportsAndReExportsOf(program, decl, maxUris: 4, cb: (in UrisOrCount imports, in UrisOrCount reExports) {
-			writeUrisOrCount(writer, "Used", uri, imports);
-			if (!isEmpty(reExports)) {
-				if (!isEmpty(imports)) writer ~= "; ";
-				writeUrisOrCount(writer, "Exported", uri, reExports);
-			}
-			if (isEmpty(imports) && isEmpty(reExports)) {
-				writer ~= "Used only locally";
-			}
+	if (decl.isA!(Test*)) {
+		Opt!RunResult optResult = testStates[decl.as!(Test*)];
+		Command command = () {
+			if (has(optResult)) {
+				RunResult result = force(optResult);
+				return Command(
+					result.exitCode == ExitCode.ok ? "Passed" : "Failed",
+					tooltipForRunResult(alloc, result));
+			} else
+				return Command(
+					"Run test",
+					arguments: some(ExecuteCommandParams(ExecuteCommandParams.RunTest(UriAndPos(uri, decl.range.start)))));
+		}();
+		return CodeLensResolved(codeLens.range, command);
+	} else {
+		string message = makeStringWithWriter(alloc, (scope ref Writer writer) {
+			withImportsAndReExportsOf(program, decl, maxUris: 4, cb: (in UrisOrCount imports, in UrisOrCount reExports) {
+				writeUrisOrCount(writer, "Used", uri, imports);
+				if (!isEmpty(reExports)) {
+					if (!isEmpty(imports)) writer ~= "; ";
+					writeUrisOrCount(writer, "Exported", uri, reExports);
+				}
+				if (isEmpty(imports) && isEmpty(reExports)) {
+					writer ~= "Used only locally";
+				}
+			});
 		});
-	});
-	// To find the entity again: Find it at codeLens.data.uri and codeLens.range.start
-	return CodeLensResolved(codeLens.range, Command(message));
+		// To find the entity again: Find it at codeLens.data.uri and codeLens.range.start
+		return CodeLensResolved(codeLens.range, Command(message));
+	}
 }
 
 private:
+
+Opt!string tooltipForRunResult(ref Alloc alloc, RunResult result) => // TODO: UNIT TEST ----------------------------------------------
+	optIf(result.exitCode != ExitCode.ok || !isEmpty(result.writes), () =>
+		makeStringWithWriter(alloc, (scope ref Writer writer) {
+			if (every!Write(result.writes, (in Write x) => x.pipe == Pipe.stdout))
+				writeWithNewlines!Write(writer, result.writes, (in Write x) {
+					writer ~= x.text;
+				});
+			else
+				writeWithNewlines!Write(writer, result.writes, (in Write x) {
+					writer ~= stringOfEnum(x.pipe);
+					writer ~= ": ";
+					writer ~= x.text;
+				});
+			
+			if (result.exitCode != ExitCode.ok) {
+				writer ~= "\nexit code: ";
+				writer ~= result.exitCode.value;
+			}
+		}));
 
 immutable struct UrisOrCount {
 	mixin Union!(Uri[], size_t);

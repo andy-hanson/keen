@@ -5,6 +5,7 @@ module util.col.mutMap;
 import util.alloc.alloc : Alloc;
 import util.col.hashTable :
 	addOrChange,
+	clear,
 	deleteWhere,
 	getOrAdd,
 	getOrAddAndDidAdd,
@@ -96,6 +97,9 @@ bool isEmpty(K, V)(in MutMap!(K, V) a) =>
 
 size_t size(K, V)(in MutMap!(K, V) a) =>
 	.size(a.inner);
+
+void clear(K, V)(scope ref MutMap!(K, V) a) =>
+	.clear(a.inner);
 
 ref inout(V) mustGet(K, V)(ref inout MutMap!(K, V) a, in K key) =>
 	.mustGet(a.inner, key).value;

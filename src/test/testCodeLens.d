@@ -5,10 +5,11 @@ module test.testCodeLens;
 import frontend.ide.getCodeLenses : resolvedCodeLenses;
 import frontend.showModel : ShowModelCtx;
 import lib.lsp.lspToJson : jsonOfCodeLensResolved;
-import lib.lsp.lspTypes : CodeLensParams, CodeLensResolved, TextDocumentIdentifier;
-import model.model : Program;
+import lib.lsp.lspTypes : CodeLensParams, CodeLensResolved, RunResult, TextDocumentIdentifier;
+import model.model : Program, ModelTest = Test; // TODO: I should give the Test in test.d a different name! --------------------------
 import test.testUtil : assertEqual, CrowJsonTest, Test, UriAndContent, withCrowAndJsonFiles, withIdeTestMultipleFiles;
 import util.col.array : map;
+import util.col.mutMap : MutMap;
 import util.json : jsonList;
 import util.writer : Writer;
 
@@ -29,7 +30,9 @@ void singleTest(ref Test test, in ShowModelCtx ctx, in Program program, in CrowJ
 	assertEqual(
 		jsonList(map(
 			test.alloc,
-			resolvedCodeLenses(test.alloc, program, ctx, CodeLensParams(TextDocumentIdentifier(testData.uri))),
+			resolvedCodeLenses(
+				test.alloc, program, ctx, MutMap!(ModelTest*, RunResult)(),
+				CodeLensParams(TextDocumentIdentifier(testData.uri))),
 			(ref CodeLensResolved x) => jsonOfCodeLensResolved(test.alloc, x))),
 		testData.json,
 		(scope ref Writer writer) {

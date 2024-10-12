@@ -175,7 +175,7 @@ void assertEqual(T)(
 	if (actual != expected) {
 		debugLogWithWriter((scope ref Writer writer) {
 			if (cbDescribe) cbDescribe(writer);
-			writer ~= "Actual: ";
+			writer ~= "Actual:   ";
 			cbShow(writer, actual);
 			writer ~= "\nExpected: ";
 			cbShow(writer, expected);

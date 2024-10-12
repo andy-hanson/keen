@@ -6,6 +6,7 @@ import frontend.ide.getTokens : getTokensLegend;
 import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes :
 	BuildJsScriptResult,
+	CodeLensRefresh,
 	CodeLensResolved,
 	CodeLensUnresolved,
 	Command,
@@ -13,6 +14,7 @@ import lib.lsp.lspTypes :
 	CompletionList,
 	DocumentHighlight,
 	DocumentHighlightResult,
+	ExecuteCommandParams,
 	FoldingRange,
 	FoldingRangeKind,
 	Hover,
@@ -24,6 +26,7 @@ import lib.lsp.lspTypes :
 	LspOutAction,
 	LspOutMessage,
 	LspOutNotification,
+	LspOutRequest,
 	LspOutResponse,
 	LspOutResult,
 	MarkupContent,
@@ -49,6 +52,7 @@ import util.opt : force, has, Opt;
 import util.sourceRange :
 	jsonOfLineAndCharacter,
 	jsonOfLineAndCharacterRange,
+	jsonOfUriAndPos,
 	jsonOfUriAndLineAndCharacterRange,
 	LineAndCharacterGetter,
 	Pos,
@@ -68,12 +72,21 @@ Json jsonOfLspOutMessage(ref Alloc alloc, in LineAndCharacterGetters lcg, ref Ls
 	a.match!Json(
 		(LspOutNotification x) =>
 			jsonOfLspOutNotification(alloc, lcg, x),
+		(LspOutRequest x) =>
+			jsonOfLspOutRequest(alloc, x),
 		(LspOutResponse x) =>
 			jsonObject(alloc, [
 				field!"id"(x.id),
 				field!"result"(jsonOfLspOutResult(alloc, lcg, x.result))]));
 
 private:
+
+Json jsonOfLspOutRequest(ref Alloc alloc, in LspOutRequest a) =>
+	a.params.matchIn!Json(
+		(in CodeLensRefresh x) =>
+			jsonObject(alloc, [
+				field!"id"(a.id),
+				field!"method"("workspace/codeLens/refresh")]));
 
 Json jsonOfLspOutNotification(ref Alloc alloc, in LineAndCharacterGetters lcg, ref LspOutNotification a) {
 	Json res(string method, Json params) =>
@@ -152,6 +165,8 @@ Json initializeCapabilities(ref Alloc alloc) =>
 			field!"triggerCharacters"(jsonList(alloc, [jsonString(".")]))])),
 		field!"definitionProvider"(jsonObject([])),
 		field!"documentHighlightProvider"(jsonObject([])),
+		field!"executeCommandProvider"(jsonObject(alloc, [
+			field!"commands"(jsonList(alloc, [jsonString("run-test")]))])),
 		field!"foldingRangeProvider"(jsonObject([])),
 		field!"hoverProvider"(jsonObject([])),
 		field!"implementationProvider"(jsonObject([])),
@@ -186,8 +201,17 @@ public Json jsonOfCodeLensResolved(ref Alloc alloc, ref CodeLensResolved a) =>
 		field!"range"(jsonOfLineAndCharacterRange(alloc, a.range)),
 		field!"command"(jsonOfCommand(alloc, a.command))]);
 Json jsonOfCommand(ref Alloc alloc, ref Command a) =>
-	jsonObject(alloc, [
-		field!"title"(a.title)]);
+	has(a.arguments)
+		? force(a.arguments).matchIn!Json(
+			(in ExecuteCommandParams.RunTest x) =>
+				jsonObject(alloc, [
+					field!"title"(a.title),
+					optionalField!"tooltip"(a.tooltip),
+					field!"command"("run-test"),
+					field!"arguments"(jsonList(alloc, [jsonOfUriAndPos(alloc, x.where)]))]))
+		: jsonObject(alloc, [
+			field!"title"(a.title),
+			optionalField!"tooltip"(a.tooltip)]);
 
 public Json jsonOfCompletionList(ref Alloc alloc, in CompletionList a) =>
 	jsonObject(alloc, [
