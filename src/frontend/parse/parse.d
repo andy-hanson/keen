@@ -366,7 +366,7 @@ FileAst parseFileInner(ref Lexer lexer) {
 			TokenAndData x = takeNextToken(lexer);
 			assert(x.token == Token.region);
 			add(lexer.alloc, regions, rangeOf(lexer, x.asRegion));
-		} else 
+		} else
 			parseSpecOrStructOrFunOrTest(lexer, specs, structAliases, structs, funs, tests, vars, docComment);
 	}
 

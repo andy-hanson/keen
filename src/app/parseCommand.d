@@ -375,7 +375,8 @@ Opt!PrintKind parsePrintKind(in CString a, in CString[] args) {
 		default:
 			Opt!(PrintKind.IdeAtPos.Kind) kindAtPos = ideAtPosKind(stringOfCString(a));
 			if (has(kindAtPos))
-				return expectLineAndColumn((in LineAndColumn lc) => PrintKind(PrintKind.IdeAtPos(force(kindAtPos), lc)));
+				return expectLineAndColumn((in LineAndColumn lc) =>
+					PrintKind(PrintKind.IdeAtPos(force(kindAtPos), lc)));
 			else {
 				Opt!(PrintKind.IdeWholeFile.Kind) kindWholeFile = ideWholeFileKind(stringOfCString(a));
 				return has(kindWholeFile)

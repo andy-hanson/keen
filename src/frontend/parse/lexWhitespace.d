@@ -15,7 +15,7 @@ alias AddDiag = void delegate(CString, ParseDiag) @safe @nogc pure nothrow;
 // The argument is the start of the comment. (The source ptr will have been advanced to the end of the comment.)
 private alias CbComment = void delegate(CString) @safe @nogc pure nothrow;
 
-immutable struct CStringRange { // used? ------------------------------------------------------------------------------------------
+immutable struct CStringRange {
 	@safe @nogc pure nothrow:
 	CString start;
 	CString end;

@@ -619,7 +619,7 @@ private string showDiagnosticsCommon(
 ) =>
 	stringOfDiagnostics(alloc, getShowDiagCtx(server, program.program), program, onlyForUris);
 
-Json documentModules(ref Alloc alloc, in Server server, in Program program, in Uri[] uris) =>
+Json document(ref Alloc alloc, in Server server, in Program program, in Uri[] uris) =>
 	documentModules(alloc, program, getShowDiagCtx(server, program), uris);
 
 private Opt!CompletionList getCompletionForProgram(

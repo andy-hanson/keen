@@ -65,7 +65,7 @@ import lib.server :
 	buildToJsScript,
 	buildToLowProgram,
 	DiagsAndResultJson,
-	documentModules,
+	document,
 	filesState,
 	getProgramForMain,
 	getProgramForRoots,
@@ -189,7 +189,7 @@ bool inAssert;
 
 	while (true) {
 		// TODO: get this from specified trace level
-		bool logLsp = true; // --------------------------------------------------------------------------------------------------
+		bool logLsp = false;
 		//TODO: track perf for each message/response
 		Opt!ExitCode stop = withNullPerf!(Opt!ExitCode, (scope ref Perf perf) =>
 			withTempAllocImpure!(Opt!ExitCode)(server.metaAlloc, (ref Alloc alloc) =>
@@ -338,7 +338,7 @@ ExitCodeOrSignal go(
 				hasAnyDiagnostics(program) ? ExitCodeOrSignal.error : ExitCodeOrSignal(print("OK"))),
 		(in CommandKind.Document x) =>
 			withProgramForRoots(perf, alloc, server, x.rootUris, (ref Program program) =>
-				printJson(alloc, documentModules(alloc, server, program, x.rootUris))),
+				printJson(alloc, document(alloc, server, program, x.rootUris))),
 		(in CommandKind.Help x) {
 			print(x.helpText);
 			return ExitCodeOrSignal(x.exitCode);

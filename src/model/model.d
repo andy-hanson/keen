@@ -3047,7 +3047,7 @@ Opt!T findDirectChildExpr(T)(
 		(LiteralStringLikeExpr _) =>
 			none!T,
 		(LocalGetExpr x) {
-			assert(a.type == x.local.type || x.local.type.isBogus);
+			assert(a.type == x.local.type || a.type.isBogus || x.local.type.isBogus);
 			return none!T;
 		},
 		(LocalPointerExpr _) =>

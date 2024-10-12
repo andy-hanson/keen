@@ -44,7 +44,7 @@ const struct ShowCtx {
 	@safe @nogc pure nothrow:
 
 	LineAndColumnGetters lineAndColumnGetters;
-	FileContentGetters fileContentGetters; // TODO: these both just wrap a Storage*, so maybe they should be the same type ------------------------
+	FileContentGetters fileContentGetters;
 	UrisInfo urisInfo;
 	ShowOptions options;
 

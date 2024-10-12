@@ -1,21 +1,22 @@
 import
-	crow/col/sorted-list # TODO: this should probably be in std ----------------------------------------------------------------------
+	crow/col/sorted-list
 	crow/experimental/observable
 	crow/io/duration
 	crow/js
 	crow/js/dom
-	./mixer
 	./note
+	./util
 
-# TODO: 'mixer' argument should just be a 'current-time' interface -----------------------------------------------------------
-show-tracks node(mixer mixer, obs tracks-including-current observable) summon, trusted, js extern
+show-tracks node(
+	cur-time duration mut(),
+	obs tracks-including-current observable,
+) summon, trusted, js extern
 	canvas = "canvas" create-node
 	context = canvas.as-js call-property "getContext", "2d"::string
 	(window-size | obs) now-and-subscribe shared (window-size, tracks) =>
 		canvas-size dimensions = window-size.width * 0.9, window-size.height * 0.5
-		canvas.as-js["width"] := canvas-size width
-		canvas.as-js["height"] := canvas-size height
-		context.cast render-tracks canvas-size, tracks, mixer.cur-time
+		canvas.canvas-size := canvas-size
+		context.cast render-tracks canvas-size, tracks, cur-time[]
 	canvas
 
 fill-rect-instrument void(a context2d, rect rect, instrument instrument) js extern
@@ -37,7 +38,12 @@ fill-rect-instrument void(a context2d, rect rect, instrument instrument) js exte
 	height float = "window".js-global["innerHeight"] cast
 	width, height
 
-render-tracks void(context context2d, canvas-size dimensions, tracks tracks-including-current, cur-time duration) trusted, js extern
+render-tracks void(
+	context context2d,
+	canvas-size dimensions,
+	tracks tracks-including-current,
+	cur-time duration,
+) trusted, js extern
 	total-length = tracks total-length cur-time round-up-to 5.seconds
 	note-scale = tracks note-scale
 	context.fill-style := "grey"
@@ -50,10 +56,10 @@ render-tracks void(context context2d, canvas-size dimensions, tracks tracks-incl
 
 -round-up-to duration(a duration, b duration)
 	a.seconds round-up-to b.seconds seconds
-# TODO:MOVE ---------------------------------------------------------------------------------------------------------
 -round-up-to float(a float, b float)
 	assert b > 0 : b invalid-divisor
 	(a / b).round-up * b
+
 invalid-divisor record(value float) exception variant-member
 show string(_ invalid-divisor)
 	"Float divisor must be positive"
@@ -73,21 +79,6 @@ test
 	else
 		base
 
-dimensions record(width float, height float) by-val
-show string(a dimensions)
-	"{a width} × {a height}"
-rect record(top-left dimensions, size dimensions) by-val
-left float(a rect)
-	a.top-left width
-top float(a rect)
-	a.top-left height
-width float(a rect)
-	a.size width
-height float(a rect)
-	a.size height
-show string(a rect)
-	"({a left}, {a top}) {a size}" 
-
 note-rect rect(
 	start duration,
 	a track-note,
@@ -101,13 +92,3 @@ note-rect rect(
 	y-scale float = canvas-size.height / (note-scale.max + 1 - note-scale.min).to
 	y float = canvas-size.height - (a.note + 1 - note-scale.min).to * y-scale
 	(x, y), (width, y-scale)
-
-context2d extern
-
-set-fill-style void(a context2d, style string) trusted, js extern
-	a.as-js["fillStyle"] := style
-
-fill-rect void(a context2d, r rect) js extern
-	a fill-rect r.left, r.top, r.width, r.height
-fill-rect void(a context2d, x float, y float, width float, height float) trusted, js extern
-	_ = a.as-js call-property "fillRect", x, y, width, height

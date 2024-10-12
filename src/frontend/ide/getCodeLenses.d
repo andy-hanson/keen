@@ -17,7 +17,12 @@ import util.sourceRange : LineAndCharacterGetter, Pos, rangeToEndOfLine;
 import util.uri : relativePathForUri, RelPath, Uri;
 import util.writer : makeStringWithWriter, Writer, writeWithCommas;
 
-CodeLensResolved[] resolvedCodeLenses(ref Alloc alloc, in Program program, in ShowTypeCtx showCtx, in CodeLensParams params) =>
+CodeLensResolved[] resolvedCodeLenses(
+	ref Alloc alloc,
+	in Program program,
+	in ShowTypeCtx showCtx,
+	in CodeLensParams params,
+) =>
 	map(
 		alloc,
 		unresolvedCodeLenses(alloc, program, showCtx.lineAndCharacterGetters[params.textDocument.uri], params),
@@ -36,7 +41,7 @@ CodeLensUnresolved[] unresolvedCodeLenses(
 		eachDecl(*module_, (AnyDecl x) {
 			if (!x.isA!(Test*) && x.visibility != Visibility.private_)
 				out_ ~= CodeLensUnresolved(rangeToEndOfLine(lcg, x.range.start), uri);
-		});				
+		});
 	});
 }
 
@@ -53,11 +58,11 @@ CodeLensResolved resolveCodeLens(
 	string message = makeStringWithWriter(alloc, (scope ref Writer writer) {
 		withImportsAndReExportsOf!void(program, decl, (in Uri[] imports, in Uri[] reExports) {
 			if (imports.length > 4) {
-				writer ~= "Imported by ";
+				writer ~= "Used by ";
 				writer ~= imports.length;
 				writer ~= " other modules";
 			} else if (!isEmpty(imports)) {
-				writer ~= "Imported by ";
+				writer ~= "Used by ";
 				writeRelativeUris(writer, decl.moduleUri, imports);
 			}
 

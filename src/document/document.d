@@ -160,7 +160,9 @@ DocExport documentStructDecl(ref Ctx ctx, in StructDecl a) {
 		(in BuiltinType _) =>
 			jsonObject(ctx.alloc, [kindField!"builtin", variantsField]),
 		(in StructBody.Enum x) =>
-			jsonObject(ctx.alloc, [kindField!"enum", field!"members"(jsonOfEnumMembers(ctx.alloc, x.members)), variantsField]),
+			jsonObject(ctx.alloc, [
+				kindField!"enum",
+				field!"members"(jsonOfEnumMembers(ctx.alloc, x.members)), variantsField]),
 		(in StructBody.Extern x) =>
 			jsonObject(ctx.alloc, [
 				kindField!"extern",
@@ -170,7 +172,9 @@ DocExport documentStructDecl(ref Ctx ctx, in StructDecl a) {
 						field!"alignment"(size.alignmentBytes)])),
 				variantsField]),
 		(in StructBody.Flags x) =>
-			jsonObject(ctx.alloc, [kindField!"flags", field!"members"(jsonOfEnumMembers(ctx.alloc, x.members)), variantsField]),
+			jsonObject(ctx.alloc, [
+				kindField!"flags",
+				field!"members"(jsonOfEnumMembers(ctx.alloc, x.members)), variantsField]),
 		(in StructBody.Record x) =>
 			documentRecord(ctx, a, x, variantsField),
 		(in StructBody.Union x) =>

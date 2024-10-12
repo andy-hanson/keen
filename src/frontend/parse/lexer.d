@@ -159,7 +159,9 @@ void skipNewlinesIgnoreIndentation(ref Lexer lexer, uint indentLevel) {
 				continue;
 			case Token.EOF:
 				if (indentLevel != 0)
-					cellSet(lexer.nextToken, TokenAndData(Token.newlineDedent, DocCommentAndExtraDedents(CStringRange.empty, 0)));
+					cellSet(
+						lexer.nextToken,
+						TokenAndData(Token.newlineDedent, DocCommentAndExtraDedents(CStringRange.empty, 0)));
 				lexer.curIndent = 0;
 				return;
 			default:

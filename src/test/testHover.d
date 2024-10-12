@@ -25,18 +25,14 @@ import util.sourceRange :
 	UriAndRange;
 
 void testHover(ref Test test) {
-	testWithCrowAndJsonFiles!("hover", ["basic", "function"])(test, (in CrowJsonTest x) {
-		hoverTest(test, x);
+	testWithCrowAndJsonFiles!("hover", ["basic", "function"])(test, (in CrowJsonTest testData) {
+		withIdeTest(test, testData.uri, testData.crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
+			assertEqual(hoverResult(test.alloc, testData.crow, ctx, program, module_), testData.json);
+		});
 	});
 }
 
 private:
-
-void hoverTest(ref Test test, in CrowJsonTest testData) { // inline ---------------------------------------------------------------------------
-	withIdeTest(test, testData.uri, testData.crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
-		assertEqual(hoverResult(test.alloc, testData.crow, ctx, program, module_), testData.json);
-	});
-}
 
 struct InfoAtPos {
 	@safe @nogc pure nothrow:

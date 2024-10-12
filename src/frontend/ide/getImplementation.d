@@ -27,7 +27,11 @@ UriAndRange[] getImplementationForPosition(ref Alloc alloc, in Program program, 
 
 private:
 
-void getImplementationForVariantMethod(scope ref Builder!UriAndRange out_, in Program program, in PositionKind.VariantMethod method) {
+void getImplementationForVariantMethod(
+	scope ref Builder!UriAndRange out_,
+	in Program program,
+	in PositionKind.VariantMethod method,
+) {
 	size_t signatureIndex = method.signatureIndex;
 	foreach (ref immutable Module* module_; program.allModules) {
 		foreach (ref StructDecl struct_; module_.structs) {

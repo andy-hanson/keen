@@ -15,8 +15,10 @@ import model.model :
 	funBodyExprRef,
 	FunDecl,
 	FunDeclSource,
+	LambdaExpr,
 	LetExpr,
 	Local,
+	MatchUnionExpr,
 	Module,
 	paramsArray,
 	Purity,
@@ -37,24 +39,27 @@ InlayHint[] getInlayHints(ref Alloc alloc, in ShowModelCtx showCtx, in Module mo
 private:
 
 void getInlayHintsForFun(ref Alloc alloc, scope ref Builder!InlayHint out_, in ShowModelCtx showCtx, ref FunDecl fun) {
-	foreach (ref Destructure param; paramsArray(fun.params)) {
-		Purity purity = bestCasePurity(param.type);
-		if (purity != Purity.data)
-			out_ ~= InlayHint(
-				param.range.end,
-				stringOfEnum(purity),
-				InlayHintKind.none,
-				paddingLeft: true,
-				paddingRight: false);
-	}
-
+	scope TypeContainer typeContainer = TypeContainer(&fun);
+	foreach (ref Destructure param; paramsArray(fun.params))
+		getInlayHintsForDestructure(alloc, out_, showCtx, typeContainer, param);
 	if (fun.body_.isA!Expr)
-		eachDescendentExprIncluding(showCtx.commonTypes, funBodyExprRef(&fun), (ExprRef x) {
-			// TODO: show inlay hints on other things (e.g. variable in a 'match') -----------------------------------------
-			if (x.expr.kind.isA!(LetExpr*)) {
-				getInlayHintsForDestructure(alloc, out_, showCtx, TypeContainer(&fun), x.expr.kind.as!(LetExpr*).destructure);
-			}
+		eachDescendentExprIncluding(showCtx.commonTypes, funBodyExprRef(&fun), (ExprRef expr) {
+			eachDestructureAtExprForInlay(*expr.expr, (Destructure destructure) {
+				getInlayHintsForDestructure(alloc, out_, showCtx, typeContainer, destructure);
+			});
 		});
+}
+
+void eachDestructureAtExprForInlay(in Expr a, in void delegate(Destructure) @safe @nogc pure nothrow cb) {
+	if (a.kind.isA!(LambdaExpr*))
+		cb(a.kind.as!(LambdaExpr*).param);
+	else if (a.kind.isA!(LetExpr*))
+		cb(a.kind.as!(LetExpr*).destructure);
+	// Ignore MatchVariantExpr, since the type is explicit
+	else if (a.kind.isA!(MatchUnionExpr*)) {
+		foreach (MatchUnionExpr.Case case_; a.kind.as!(MatchUnionExpr*).cases)
+			cb(case_.destructure);
+	}
 }
 
 void getInlayHintsForDestructure(
@@ -63,13 +68,10 @@ void getInlayHintsForDestructure(
 	in ShowModelCtx showCtx,
 	in TypeContainer typeContainer,
 	in Destructure a,
-) =>
+) {
 	a.matchIn!void(
-		(in Destructure.Ignore x) {
-			// todo ---------------------------------------------------------------------------------------------------------
-		},
+		(in Destructure.Ignore x) {},
 		(in Local x) {
-			// todo -------------------------------------------------------------------------------------------------------
 			if (x.source.isA!(DestructureAst.Single*)) {
 				DestructureAst.Single* ast = x.source.as!(DestructureAst.Single*);
 				if (!has(ast.type)) {
@@ -82,8 +84,18 @@ void getInlayHintsForDestructure(
 						paddingLeft: true,
 						paddingRight: false);
 				}
+				Purity purity = bestCasePurity(x.type);
+				if (purity != Purity.data)
+					out_ ~= InlayHint(
+						ast.range.end,
+						stringOfEnum(purity),
+						InlayHintKind.none,
+						paddingLeft: true,
+						paddingRight: false);
 			}
 		},
 		(in Destructure.Split x) {
-			// todo -------------------------------------------------------------------------------------------------------
+			foreach (Destructure part; x.parts)
+				getInlayHintsForDestructure(alloc, out_, showCtx, typeContainer, part);
 		});
+}

@@ -8,7 +8,8 @@ import frontend.ide.position : Position;
 import frontend.showModel : ShowModelCtx;
 import lib.lsp.lspToJson : jsonOfReferences;
 import model.model : moduleAtUri, Program;
-import test.testUtil : CrowJsonTest, Test, testAtPositions, UriAndContent, withCrowAndJsonFiles, withIdeTestMultipleFiles;
+import test.testUtil :
+	CrowJsonTest, Test, testAtPositions, UriAndContent, withCrowAndJsonFiles, withIdeTestMultipleFiles;
 import util.col.array : map;
 import util.json : jsonNull;
 import util.opt : force, has, Opt;
@@ -30,7 +31,8 @@ private:
 void singleTest(ref Test test, in ShowModelCtx ctx, in Program program, in CrowJsonTest testData) {
 	testAtPositions(test, testData.uri, testData.json, (LineAndColumn where) {
 		Pos pos = ctx.lineAndColumnGetters[testData.uri][where];
-		Opt!Position position = getPosition(program, moduleAtUri(program, testData.uri), testData.crow, pos, GetPositionKind.exact);
+		Opt!Position position = getPosition(
+			program, moduleAtUri(program, testData.uri), testData.crow, pos, GetPositionKind.exact);
 		return has(position)
 			? jsonOfReferences(
 				test.alloc,

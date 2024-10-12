@@ -394,5 +394,3 @@ immutable struct FoldingRange {
 	Opt!FoldingRangeKind kind;
 }
 enum FoldingRangeKind { comment, imports, region }
-
-// TODO: ORGANIZE THIS FILE -------------------------------------------------------------------------------------------------------------

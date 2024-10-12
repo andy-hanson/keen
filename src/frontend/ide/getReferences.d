@@ -166,7 +166,11 @@ void eachReferenceForTarget(in Program program, Uri curUri, in Target target, in
 }
 
 enum IsImportOrExport { import_, export_ }
-void eachImport(in Program program, in AnyDecl decl, in void delegate(Uri, IsImportOrExport, ImportOrExportAst*) @safe @nogc pure nothrow cb) {
+void eachImport(
+	in Program program,
+	in AnyDecl decl,
+	in void delegate(Uri, IsImportOrExport, ImportOrExportAst*) @safe @nogc pure nothrow cb,
+) {
 	assert(decl.visibility != Visibility.private_);
 	foreach (immutable Module* module_; program.allModules) {
 		foreach (ref ImportOrExport x; module_.imports)
