@@ -6,7 +6,7 @@ import util.col.array : arrayOfRange, endPtr;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, finish;
 import util.memory : initMemory, overwriteMemory;
 import util.opt : force, has, none, Opt, some;
-import util.util : ptrTrustMe, roundUp;
+import util.util : roundUp;
 
 private ulong[0x20000] stackArrayStorage = void;
 private bool isBuildingStackArray;
@@ -154,35 +154,6 @@ struct StackArrayBuilder(T) {
 	}
 }
 
-Out withBuild2StackArrays(Out, Elem)(
-	in void delegate(scope ref TwoStackArraysBuilder!Elem) @safe @nogc pure nothrow cbBuild,
-	in Out delegate(in Elem[], in Elem[]) @safe @nogc pure nothrow cb,
-) {
-	size_t nFirst;
-	return withBuildStackArray!(Out, Elem)(
-		(ref StackArrayBuilder!Elem inner) {
-			TwoStackArraysBuilder!Elem out_ = TwoStackArraysBuilder!Elem(ptrTrustMe(inner));
-			cbBuild(out_);
-			nFirst = out_.nFirst;
-		},
-		(scope Elem[] res) =>
-			cb(res[0 .. nFirst], res[nFirst .. $]));
-}
-
-struct TwoStackArraysBuilder(T) {
-	StackArrayBuilder!T* inner;
-	size_t nFirst;
-
-	void writeFirst(T value) {
-		inner.insertAt(nFirst, value);
-		nFirst++;
-	}
-
-	void writeSecond(T value) {
-		(*inner) ~= value;
-	}
-}
-
 @trusted pure Out withMaxStackArray(Out, Elem)(
 	size_t maxSize,
 	in Out delegate(scope ref MaxStackArray!Elem) @safe @nogc pure nothrow cb,
@@ -230,7 +201,7 @@ struct MaxStackArray(T) {
 		cur--;
 	}
 
-	@trusted T[] soFar() =>
+	@trusted inout(T[]) soFar() inout =>
 		arrayOfRange(begin, cur);
 
 	T[] finish() =>

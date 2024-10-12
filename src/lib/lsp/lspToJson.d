@@ -127,8 +127,8 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 				Json(stringOfUri(alloc, x))))]),
 		(UriAndRange[] x) =>
 			jsonOfReferences(alloc, lcgs, x),
-		(Opt!WorkspaceEdit x) =>
-			jsonOfRename(alloc, lcgs, x),
+		(WorkspaceEdit x) =>
+			jsonOfWorkspaceEdit(alloc, lcgs, x),
 		(LspOutResult.Null) =>
 			jsonNull);
 
@@ -222,18 +222,13 @@ public Json jsonOfReferences(ref Alloc alloc, in LineAndCharacterGetters lcg, in
 	jsonList!UriAndRange(alloc, references, (in UriAndRange x) =>
 		jsonOfUriAndLineAndCharacterRange(alloc, lcg[x]));
 
-public Json jsonOfRename(ref Alloc alloc, in LineAndCharacterGetters lcg, in Opt!WorkspaceEdit a) =>
-	has(a)
-		? jsonOfWorkspaceEdit(alloc, lcg, force(a))
-		: jsonNull;
-
 Json jsonOfDiagnostic(ref Alloc alloc, in LineAndCharacterGetter lcg, LspDiagnostic a) =>
 	jsonObject(alloc, [
 		field!"range"(jsonOfLineAndCharacterRange(alloc, lcg[a.range])),
 		field!"severity"(cast(uint) a.severity),
 		field!"message"(a.message)]);
 
-Json jsonOfWorkspaceEdit(ref Alloc alloc, in LineAndCharacterGetters lcg, in WorkspaceEdit a) =>
+public Json jsonOfWorkspaceEdit(ref Alloc alloc, in LineAndCharacterGetters lcg, in WorkspaceEdit a) =>
 	jsonObject(alloc, [field!"changes"(jsonOfWorkspaceEditChanges(alloc, lcg, a.changes))]);
 
 Json jsonOfWorkspaceEditChanges(ref Alloc alloc, in LineAndCharacterGetters lcg, in MultiMap!(Uri, TextEdit) a) =>

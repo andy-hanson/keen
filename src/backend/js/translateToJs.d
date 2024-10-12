@@ -223,7 +223,7 @@ ModulePaths modulePaths(ref Alloc alloc, in ProgramWithMain program) {
 	return ModulePaths(moveToMap(alloc, res));
 }
 Uri findCommonMainDirectory(Module* main) =>
-	withTempSet!(Uri, Module*)(0x100, (scope ref TempSet!(Module*) globalImports) @safe {
+	withTempSet!(Uri, Module*)(0x100, (scope ref TempSet!(Module*) globalImports) {
 		fillGlobalImportModules(globalImports, main);
 
 		// First: Find the common URI for all modules accessible from 'main' through relative imports.

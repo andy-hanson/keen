@@ -1814,11 +1814,20 @@ immutable struct AnyDecl {
 			(in VarDecl x) => x.visibility);
 }
 
+enum IsImportOrExport { import_, export_ }
 void eachImportOrReExport(in Module a, in void delegate(ref ImportOrExport) @safe @nogc pure nothrow cb) {
+	eachImportOrReExport(a, (IsImportOrExport _, ref ImportOrExport x) {
+		cb(x);
+	});
+}
+void eachImportOrReExport(
+	in Module a,
+	in void delegate(IsImportOrExport, ref ImportOrExport) @safe @nogc pure nothrow cb,
+) {
 	foreach (ref ImportOrExport x; a.imports)
-		cb(x);
+		cb(IsImportOrExport.import_, x);
 	foreach (ref ImportOrExport x; a.reExports)
-		cb(x);
+		cb(IsImportOrExport.export_, x);
 }
 
 immutable struct ImportOrExport {

@@ -2,18 +2,18 @@ module frontend.ide.getCodeLenses;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.getReferences : eachImport, IsImportOrExport;
+import frontend.ide.getReferences : eachImport, UriAndName;
 import frontend.showModel : ShowTypeCtx;
 import lib.lsp.lspTypes : CodeLensParams, CodeLensResolved, CodeLensUnresolved, Command;
-import model.ast : ImportOrExportAst;
-import model.model : AnyDecl, eachDecl, Module, moduleAtUri, Program, Test, Visibility;
+import model.model : AnyDecl, eachDecl, IsImportOrExport, Module, moduleAtUri, Program, Test, Visibility;
 import util.alloc.alloc : Alloc;
-import util.alloc.stackAlloc : TwoStackArraysBuilder, withBuild2StackArrays;
+import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array : isEmpty, map;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.late : Late, lateGet, lateSet;
 import util.opt : force, has, Opt;
 import util.sourceRange : LineAndCharacterGetter, Pos, rangeToEndOfLine;
+import util.union_ : Union;
 import util.uri : relativePathForUri, RelPath, Uri;
 import util.writer : makeStringWithWriter, Writer, writeWithCommas;
 
@@ -56,20 +56,11 @@ CodeLensResolved resolveCodeLens(
 	assert(decl.visibility != Visibility.private_);
 
 	string message = makeStringWithWriter(alloc, (scope ref Writer writer) {
-		withImportsAndReExportsOf!void(program, decl, (in Uri[] imports, in Uri[] reExports) {
-			if (imports.length > 4) {
-				writer ~= "Used by ";
-				writer ~= imports.length;
-				writer ~= " other modules";
-			} else if (!isEmpty(imports)) {
-				writer ~= "Used by ";
-				writeRelativeUris(writer, decl.moduleUri, imports);
-			}
-
+		withImportsAndReExportsOf(program, decl, maxUris: 4, cb: (in UrisOrCount imports, in UrisOrCount reExports) {
+			writeUrisOrCount(writer, "Used", uri, imports);
 			if (!isEmpty(reExports)) {
 				if (!isEmpty(imports)) writer ~= "; ";
-				writer ~= "Exported by ";
-				writeRelativeUris(writer, decl.moduleUri, reExports);
+				writeUrisOrCount(writer, "Exported", uri, reExports);
 			}
 			if (isEmpty(imports) && isEmpty(reExports)) {
 				writer ~= "Used only locally";
@@ -82,6 +73,30 @@ CodeLensResolved resolveCodeLens(
 
 private:
 
+immutable struct UrisOrCount {
+	mixin Union!(Uri[], size_t);
+}
+bool isEmpty(in UrisOrCount a) =>
+	a.matchIn!bool(
+		(in Uri[] xs) =>
+			isEmpty(xs),
+		(in size_t x) =>
+			x == 0);
+void writeUrisOrCount(scope ref Writer writer, in string verb, Uri fromUri, in UrisOrCount a) {
+	if (!isEmpty(a)) {
+		writer ~= verb;
+		writer ~= " by ";
+		a.matchIn!void(
+			(in Uri[] uris) {
+				writeRelativeUris(writer, fromUri, uris);
+			},
+			(in size_t count) {
+				writer ~= count;
+				writer ~= " other modules";
+			});
+	}
+}
+
 void writeRelativeUris(scope ref Writer writer, Uri from, in Uri[] uris) {
 	writeWithCommas!Uri(writer, uris, (in Uri uri) {
 		Opt!RelPath rel = relativePathForUri(from, uri);
@@ -92,21 +107,35 @@ void writeRelativeUris(scope ref Writer writer, Uri from, in Uri[] uris) {
 	});
 }
 
-Out withImportsAndReExportsOf(Out)(
+void withImportsAndReExportsOf(
 	in Program program,
 	in AnyDecl decl,
-	in Out delegate(in Uri[], in Uri[]) @safe @nogc pure nothrow cb,
+	size_t maxUris,
+	in void delegate(in UrisOrCount, in UrisOrCount) @safe @nogc pure nothrow cb,
 ) =>
-	withBuild2StackArrays!(Out, Uri)(
-		(scope ref TwoStackArraysBuilder!Uri out_) {
-			eachImport(program, decl, (Uri uri, IsImportOrExport x, ImportOrExportAst*) {
-				if (x == IsImportOrExport.import_)
-					out_.writeFirst(uri);
-				else
-					out_.writeSecond(uri);
+	withMaxStackArray!(void, Uri)(maxUris, (scope ref MaxStackArray!Uri imports) {
+		withMaxStackArray!(void, Uri)(maxUris, (scope ref MaxStackArray!Uri exports) {
+			size_t countImports;
+			size_t countExports;
+			void addUri(scope ref MaxStackArray!Uri uris, ref size_t count, Uri uri) {
+				count++;
+				if (!uris.isFull) uris ~= uri;
+			}
+			eachImport(program, UriAndName(decl.moduleUri, decl.name), (Uri uri, IsImportOrExport x) {
+				final switch (x) {
+					case IsImportOrExport.import_:
+						addUri(imports, countImports, uri);
+						break;
+					case IsImportOrExport.export_:
+						addUri(exports, countExports, uri);
+						break;
+				}
 			});
-		},
-		cb);
+			UrisOrCount result(size_t count, ref const MaxStackArray!Uri uris) =>
+				count > maxUris ? UrisOrCount(maxUris) : UrisOrCount(uris.soFar);
+			cb(result(countImports, imports), result(countExports, exports));
+		});
+	});
 
 AnyDecl declAtPos(in Module module_, Pos pos) {
 	Late!AnyDecl res;

@@ -66,8 +66,8 @@ import lib.lsp.lspToJson :
 	jsonOfHover,
 	jsonOfInlayHintResult,
 	jsonOfReferences,
-	jsonOfRename,
-	jsonOfSignatureHelp;
+	jsonOfSignatureHelp,
+	jsonOfWorkspaceEdit;
 import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	BuildJsScriptResult,
@@ -393,8 +393,10 @@ private LspOutResult handleLspRequestWithProgram(
 			LspOutResult(getInlayHintsForProgram(alloc, server, program, x)),
 		(in ReferenceParams x) =>
 			LspOutResult(getReferencesForProgram(alloc, server, program, x)),
-		(in RenameParams x) =>
-			LspOutResult(getRenameForProgram(alloc, server, program, x)),
+		(in RenameParams x) {
+			Opt!WorkspaceEdit res = getRenameForProgram(alloc, server, program, x);
+			return has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null());
+		},
 		(in RunParams x) {
 			ArrayBuilder!Write writes;
 			ProgramWithMain pwm = programWithMain(x.uri, BuildTarget.native);
@@ -887,7 +889,7 @@ Json jsonForPrintIdeAtPos(
 			return locations(getImplementationForProgram(alloc, server, program, ImplementationParams(params)));
 		case PrintKind.IdeAtPos.Kind.rename:
 			Opt!WorkspaceEdit rename = getRenameForProgram(alloc, server, program, RenameParams(params, "new-name"));
-			return jsonOfRename(alloc, server.lineAndCharacterGetters, rename);
+			return has(rename) ? jsonOfWorkspaceEdit(alloc, server.lineAndCharacterGetters, force(rename)) : jsonNull;
 		case PrintKind.IdeAtPos.Kind.references:
 			return locations(getReferencesForProgram(alloc, server, program, ReferenceParams(params)));
 		case PrintKind.IdeAtPos.Kind.signatureHelp:

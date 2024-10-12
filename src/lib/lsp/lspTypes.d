@@ -99,7 +99,7 @@ immutable struct LspOutResult {
 		SyntaxTranslateResult,
 		UnloadedUris,
 		UriAndRange[], // for definition, implementation, or references
-		Opt!WorkspaceEdit, // for rename
+		WorkspaceEdit, // for rename
 		Null,
 	);
 }

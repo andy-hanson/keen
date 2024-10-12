@@ -42,7 +42,6 @@ import model.ast :
 	TypedAst,
 	WithAst;
 import model.model :
-	AnyDecl,
 	AssertOrForbidExpr,
 	BogusCallExpr,
 	BogusExpr,
@@ -78,6 +77,7 @@ import model.model :
 	IfExpr,
 	ImportOrExport,
 	IntegralType,
+	IsImportOrExport,
 	LambdaExpr,
 	LetExpr,
 	LiteralExpr,
@@ -142,10 +142,15 @@ Opt!DocumentHighlightResult getDocumentHighlightsForPosition(ref Alloc alloc, in
 		DocumentHighlightResult(
 			pos.module_.uri,
 			buildArray!DocumentHighlight(alloc, (scope ref Builder!DocumentHighlight res) {
-				eachReferenceForTarget(program, pos.module_.uri, force(target), (in UriAndRange x) {
-					if (x.uri == pos.module_.uri)
-						res ~= DocumentHighlight(x.range, DocumentHighlightKind.Read);
-				});
+				eachReferenceForTarget(
+					program,
+					pos.module_.uri,
+					force(target),
+					IncludeImports.include,
+					(in UriAndRange x) {
+						if (x.uri == pos.module_.uri)
+							res ~= DocumentHighlight(x.range, DocumentHighlightKind.Read);
+					});
 			})));
 }
 
@@ -153,49 +158,74 @@ UriAndRange[] getReferencesForPosition(ref Alloc alloc, in Program program, in P
 	Opt!Target target = targetForPosition(program.commonTypes, pos.kind);
 	return has(target)
 		? buildArray!UriAndRange(alloc, (scope ref Builder!UriAndRange res) {
-			eachReferenceForTarget(program, pos.module_.uri, force(target), (in UriAndRange x) {
+			eachReferenceForTarget(program, pos.module_.uri, force(target), IncludeImports.exclude, (in UriAndRange x) {
 				res ~= x;
 			});
 		})
 		: [];
 }
 
-void eachReferenceForTarget(in Program program, Uri curUri, in Target target, in ReferenceCb cb) {
+enum IncludeImports { exclude, include }
+void eachReferenceForTarget(
+	in Program program,
+	Uri curUri,
+	in Target target,
+	IncludeImports includeImports,
+	in ReferenceCb cb,
+) {
+	Opt!UriAndName importable = asUriAndName(target);
+	if (has(importable)) {
+		eachNamedImport(
+			program,
+			moduleAtUri(program, force(importable).moduleUri),
+			force(importable).name,
+			(UriAndRange where, IsImportOrExport _) {
+				cb(where);
+			});
+	}
 	definitionForTarget(curUri, target, cb);
 	referencesForTarget(program, curUri, target, cb);
 }
 
-enum IsImportOrExport { import_, export_ }
-void eachImport(
-	in Program program,
-	in AnyDecl decl,
-	in void delegate(Uri, IsImportOrExport, ImportOrExportAst*) @safe @nogc pure nothrow cb,
-) {
-	assert(decl.visibility != Visibility.private_);
-	foreach (immutable Module* module_; program.allModules) {
-		foreach (ref ImportOrExport x; module_.imports)
-			eachImportInner(*module_, IsImportOrExport.import_, x, decl, cb);
-		foreach (ref ImportOrExport x; module_.reExports)
-			eachImportInner(*module_, IsImportOrExport.export_, x, decl, cb);
-	}
+immutable struct UriAndName {
+	Uri moduleUri;
+	Symbol name;
 }
+private Opt!UriAndName asUriAndName(Target a) =>
+	a.matchIn!(Opt!UriAndName)(
+		(in EnumOrFlagsMember x) =>
+			some(UriAndName(x.moduleUri, x.name)),
+		(in FunDecl x) =>
+			some(UriAndName(x.moduleUri, x.name)),
+		(in PositionKind.ImportedName x) =>
+			none!UriAndName, // this would be redundant
+		(in PositionKind.LocalPosition x) =>
+			none!UriAndName,
+		(in Target.Loop _) =>
+			none!UriAndName,
+		(in Module _) =>
+			none!UriAndName,
+		(in RecordField x) =>
+			some(UriAndName(x.moduleUri, x.name)),
+		(in SpecDecl x) =>
+			some(UriAndName(x.moduleUri, x.name)),
+		(in PositionKind.SpecSig x) =>
+			none!UriAndName,
+		(in StructAlias x) =>
+			some(UriAndName(x.moduleUri, x.name)),
+		(in StructDecl x) =>
+			some(UriAndName(x.moduleUri, x.name)),
+		(in PositionKind.TypeParamWithContainer x) =>
+			none!UriAndName,
+		(in UnionMember x) =>
+			some(UriAndName(x.moduleUri, x.name)),
+		(in VarDecl x) =>
+			some(UriAndName(x.moduleUri, x.name)),
+		(in PositionKind.VariantMethod x) =>
+			some(UriAndName(x.variant.moduleUri, x.method.name)));
+
 
 private:
-
-void eachImportInner(
-	in Module importingModule,
-	IsImportOrExport kind,
-	ref ImportOrExport import_,
-	in AnyDecl decl,
-	in void delegate(Uri, IsImportOrExport, ImportOrExportAst*) @safe @nogc pure nothrow cb,
-) {
-	assert(decl.visibility != Visibility.private_);
-	if (import_.modulePtr.uri == decl.moduleUri) {
-		Opt!(NameReferents*) refs = import_.imported[decl.name];
-		if (has(refs) && has(import_.source))
-			cb(importingModule.uri, kind, force(import_.source));
-	}
-}
 
 void referencesForTarget(in Program program, Uri curUri, in Target a, in ReferenceCb cb) =>
 	a.matchWithPointers!void(
@@ -256,7 +286,9 @@ void referencesForStructAlias(in Program program, in StructAlias* a, in Referenc
 }
 
 void referencesForImportedName(in Program program, in PositionKind.ImportedName a, in ReferenceCb cb) {
-	eachImportForName(program, a.exportingModule, a.name, cb);
+	eachNamedImport(program, a.exportingModule, a.name, (UriAndRange where, IsImportOrExport _) {
+		cb(where);
+	});
 	if (has(a.referents)) {
 		NameReferents nr = *force(a.referents);
 		if (has(nr.structOrAlias))
@@ -273,19 +305,36 @@ void referencesForImportedName(in Program program, in PositionKind.ImportedName 
 	}
 }
 
-void eachImportForName(in Program program, in Module* exportingModule, Symbol name, in ReferenceCb cb) {
-	eachModuleReferencing(program, exportingModule, (in Module importingModule, in ImportOrExport x) {
-		eachImportForName(importingModule, x, name, cb);
-	});
+alias ImportCb = void delegate(UriAndRange, IsImportOrExport) @safe @nogc pure nothrow;
+void eachNamedImport(in Program program, in Module* exportingModule, Symbol name, in ImportCb cb) {
+	eachModuleReferencing(
+		program,
+		exportingModule,
+		(in Module importingModule, IsImportOrExport kind, in ImportOrExport import_) {
+			if (!import_.isStd) {
+				ImportOrExportAst* source = force(import_.source);
+				if (source.kind.isA!(NameAndRange[]))
+					foreach (NameAndRange x; source.kind.as!(NameAndRange[]))
+						if (x.name == name)
+							cb(UriAndRange(importingModule.uri, x.range), kind);
+			}
+		});
 }
-void eachImportForName(in Module importingModule, in ImportOrExport a, Symbol name, in ReferenceCb cb) {
-	if (!a.isStd) {
-		ImportOrExportAst* source = force(a.source);
-		if (source.kind.isA!(NameAndRange[]))
-			foreach (NameAndRange x; source.kind.as!(NameAndRange[]))
-				if (x.name == name)
-					cb(UriAndRange(importingModule.uri, x.range));
-	}
+
+// Unlike 'eachNamedImport', this works for unn-named imports; so it doe snot pass a location to the callback.
+public void eachImport(
+	in Program program,
+	in UriAndName imported,
+	in void delegate(Uri, IsImportOrExport) @safe @nogc pure nothrow cb,
+) {
+	eachModuleReferencing(
+		program,
+		moduleAtUri(program, imported.moduleUri),
+		(in Module importingModule, IsImportOrExport kind, in ImportOrExport import_) {
+			Opt!(NameReferents*) refs = import_.imported[imported.name];
+			if (has(refs))
+				cb(importingModule.uri, kind);
+		});
 }
 
 void referencesForLocal(in Program program, Uri curUri, in PositionKind.LocalPosition a, in ReferenceCb cb) {
@@ -808,7 +857,7 @@ void eachTypeInType(in Type a, in TypeAst ast, in TypeCb cb) {
 }
 
 void referencesForModule(in Program program, in Module* target, in ReferenceCb cb) {
-	eachModuleReferencing(program, target, (in Module importer, in ImportOrExport ie) {
+	eachModuleReferencing(program, target, (in Module importer, IsImportOrExport _, in ImportOrExport ie) {
 		if (!ie.isStd)
 			cb(UriAndRange(importer.uri, force(ie.source).pathRange));
 	});
@@ -822,7 +871,7 @@ void eachModuleThatMayReference(
 ) {
 	cb(*containingModule);
 	if (visibility != Visibility.private_)
-		eachModuleReferencing(program, containingModule, (in Module x, in ImportOrExport _) {
+		eachModuleReferencing(program, containingModule, (in Module x, IsImportOrExport _, in ImportOrExport _2) {
 			cb(x);
 		});
 }
@@ -830,13 +879,13 @@ void eachModuleThatMayReference(
 void eachModuleReferencing(
 	in Program program,
 	in Module* exportingModule,
-	in void delegate(in Module, in ImportOrExport) @safe @nogc pure nothrow cb,
+	in void delegate(in Module, IsImportOrExport, in ImportOrExport) @safe @nogc pure nothrow cb,
 ) =>
 	withExportersSet!void(program, exportingModule, (in TempSet!(Module*) exporters) {
 		foreach (immutable Module* importingModule; program.allModules) {
-			eachImportOrReExport(*importingModule, (ref ImportOrExport x) {
+			eachImportOrReExport(*importingModule, (IsImportOrExport kind, ref ImportOrExport x) {
 				if (x.modulePtr in exporters)
-					cb(*importingModule, x);
+					cb(*importingModule, kind, x);
 			});
 		}
 	});
