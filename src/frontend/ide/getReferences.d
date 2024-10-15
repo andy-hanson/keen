@@ -4,7 +4,7 @@ module frontend.ide.getReferences;
 
 import frontend.ide.getDefinition : definitionForTarget;
 import frontend.ide.getTarget : Target, targetForPosition;
-import frontend.ide.ideUtil : eachFunSpec, eachSpecParent, eachTypeComponent, eachPackedTypeArg, ReferenceCb, TypeCb;
+import frontend.ide.ideUtil : compareUriAndRangeAlphabetically, eachFunSpec, eachSpecParent, eachTypeComponent, eachPackedTypeArg, ReferenceCb, TypeCb;
 import frontend.ide.position : ExprContainer, Position, PositionKind;
 import lib.lsp.lspTypes : DocumentHighlight, DocumentHighlightKind, DocumentHighlightResult;
 import model.ast :
@@ -129,7 +129,7 @@ import model.model :
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array : allSame, contains, fold, isEmpty, only, zip, zipIfSizeEq, zipIfSizeEqFilterFirst;
-import util.col.arrayBuilder : buildArray, Builder;
+import util.col.arrayBuilder : buildArray, Builder, buildSortedArray;
 import util.col.tempSet : mustAdd, TempSet, tryAdd, withTempSet;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.sourceRange : Range, UriAndRange;
@@ -157,7 +157,7 @@ Opt!DocumentHighlightResult getDocumentHighlightsForPosition(ref Alloc alloc, in
 UriAndRange[] getReferencesForPosition(ref Alloc alloc, in Program program, in Position pos) {
 	Opt!Target target = targetForPosition(program.commonTypes, pos.kind);
 	return has(target)
-		? buildArray!UriAndRange(alloc, (scope ref Builder!UriAndRange res) {
+		? buildSortedArray!(UriAndRange, compareUriAndRangeAlphabetically)(alloc, (scope ref Builder!UriAndRange res) {
 			eachReferenceForTarget(program, pos.module_.uri, force(target), IncludeImports.exclude, (in UriAndRange x) {
 				res ~= x;
 			});

@@ -64,6 +64,7 @@ version (Windows) {
 
 import backend.writeToC : PathAndArgs;
 import frontend.storage : ReadFileResult;
+import lib.lsp.lspTypes : Pipe;
 import model.diag : ReadFileDiag;
 import model.lowModel : ExternLibrary, ExternLibraries;
 import util.alloc.alloc : Alloc, allocateElements;
@@ -156,6 +157,18 @@ private FILE* fileForPipe(OutPipe pipe) {
 				return posixStderr;
 		}
 	}
+}
+
+@trusted void writeStringNoNewline(Pipe pipe, in string a) {
+	OutPipe out_ = () {
+		final switch (pipe) { // TODO: do I really need a separate OutPipe enum? -------------------------------------------------
+			case Pipe.stderr:
+				return OutPipe.stderr;						
+			case Pipe.stdout: 
+				return OutPipe.stdout;
+		}
+	}();
+	writeString(out_, a);
 }
 
 private @system void writeString(OutPipe pipe, in string a) {
@@ -257,6 +270,29 @@ private ExitCode removeEmptyDirectory(FilePath dirPath) {
 private ExitCode removeAllInDirectory(FilePath dirPath) =>
 	eachFileInDirectory(dirPath, okIfNotExists: true, cb: (FilePath path) =>
 		removeFileOrDirectoryIfExists(path));
+
+ExitCode eachFileInDirectoryRecursive(
+	FilePath dirPath,
+	in ExitCode delegate(FilePath) @safe @nogc nothrow cb,
+) =>
+	eachFileInDirectory(dirPath, okIfNotExists: false, cb: (FilePath path) {
+		final switch (pathKind(path)) {
+			case PathKind.other:
+				return ExitCode.ok;
+			case PathKind.doesNotExist:
+			case PathKind.error:
+				return printErrorCb((scope ref Writer writer) {
+					writer ~= "Error accessing path ";
+					writer ~= path;
+					writer ~= ": ";
+					writeLastError(writer);
+				});
+			case PathKind.file:
+				return cb(path);
+			case PathKind.directory:
+				return eachFileInDirectoryRecursive(path, cb);
+		}
+	});
 
 private @trusted ExitCode eachFileInDirectory(
 	FilePath dirPath,

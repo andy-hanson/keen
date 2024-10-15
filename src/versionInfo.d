@@ -3,6 +3,7 @@ module versionInfo;
 @safe @nogc nothrow: // not pure
 
 enum OS {
+	none, // No capabilities in particular
 	linux,
 	nodeJs,
 	web,

@@ -662,6 +662,8 @@ void getExprHover(
 				if (has(builtin)) {
 					writer ~= () {
 						final switch (force(builtin)) {
+							case BuiltinExtern.fake:
+								return "run with '--fake-extern', or when running tests in an IDE";
 							case BuiltinExtern.DbgHelp:
 							case BuiltinExtern.windows:
 							case BuiltinExtern.ucrtbase:

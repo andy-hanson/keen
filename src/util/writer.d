@@ -289,7 +289,7 @@ void writeFloatLiteralForC(scope ref Writer writer, double a) {
 	}
 }
 
-private void writeNat(scope ref Writer writer, ulong n, ulong base = 10, uint minDigits = 1) {
+void writeNat(scope ref Writer writer, ulong n, ulong base = 10, uint minDigits = 1) {
 	assert(minDigits != 0);
 	if (n >= base || minDigits > 1)
 		writeNat(writer, n / base, base, max(minDigits - 1, 1));

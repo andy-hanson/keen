@@ -140,6 +140,8 @@ immutable struct Uri {
 	HashCode hash() =>
 		path.hash();
 
+	uint asUintForHash() =>
+		path.asUintForTaggedUnion;
 	uint asUintForTaggedUnion() =>
 		path.asUintForTaggedUnion;
 	static Uri fromUintForTaggedUnion(uint a) =>

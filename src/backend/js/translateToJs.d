@@ -3,6 +3,7 @@ module backend.js.translateToJs;
 @safe @nogc pure nothrow:
 
 import backend.js.allUsed :
+	actualMainFun,
 	AllUsed,
 	allUsed,
 	eachNameReferent,
@@ -105,6 +106,7 @@ import model.model :
 	StructBody,
 	StructDecl,
 	Test,
+	TestSelector,
 	UnionMember,
 	VarDecl,
 	VariantAndMethodImpls,
@@ -141,8 +143,8 @@ import util.uri :
 	relativePath,
 	resolvePath,
 	Uri;
-import util.util : castNonScope_ref, min, ptrTrustMe, typeAs;
-import versionInfo : JsTarget, VersionInfo, versionInfoForBuildToJS;
+import util.util : castNonScope_ref, min, ptrTrustMe, todo, typeAs;
+import versionInfo : JsTarget, OS, VersionInfo, versionInfoForBuildToJS;
 
 JsAndMap translateToJsScript(
 	ref Alloc alloc,
@@ -168,9 +170,9 @@ JsModules translateToJsModules(
 		ModulePaths modulePaths = modulePaths(alloc, program);
 		// None for unused modules
 		MutMap!(Module*, Opt!JsModuleAst) done;
-		doTranslateModule(ctx, modulePaths, done, program.mainModule);
+		todo!void("-----------------------------------------------------------------------------"); //doTranslateModule(ctx, modulePaths, done, program.mainModule);
 		return JsModules(
-			modulePaths.jsPath(program.mainUri),
+			modulePaths.jsPath(todo!Uri("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ")),//program.mainUri),
 			getOutputFiles(alloc, showCtx, modulePaths, done, jsTarget));
 	});
 
@@ -202,7 +204,7 @@ Out withTranslateProgram(Out)(
 }
 
 ModulePaths modulePaths(ref Alloc alloc, in ProgramWithMain program) {
-	Module* main = program.mainModule;
+	Module* main = todo!(Module*)("88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888"); //program.mainModule;
 	Uri mainCommon = findCommonMainDirectory(main);
 	MutMap!(Uri, Path) res;
 	void recur(in Module x, Opt!Path fromPath, PathOrRelPath pr) @safe @nogc nothrow {
@@ -322,7 +324,7 @@ JsModuleAst translateModule(ref TranslateProgramCtx ctx, in ModulePaths modulePa
 			}
 		});
 	});
-	bool isMain = a.uri == ctx.programWithMainPtr.mainFun.fun.decl.moduleUri;
+	bool isMain = todo!bool("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII");//a.uri == ctx.programWithMainPtr.mainUri;
 	JsStatement[] statements = isMain
 		? callMain(moduleCtx)
 		: [];
@@ -359,9 +361,11 @@ bool isVariantOrTuple(in TranslateProgramCtx ctx, in AnyDecl a) =>
 		isTuple(ctx.commonTypes, a.as!(StructDecl*)));
 
 JsStatement[] callMain(ref TranslateModuleCtx ctx) {
-	FunDecl* main = ctx.ctx.programWithMainPtr.mainFun.fun.decl;
+	FunDecl* main = actualMainFun(*ctx.ctx.programWithMainPtr);
 	Source source = funSource(ctx, main);
 	JsExpr mainRef = translateFunReference(ctx, source, main);
+	JsStatement[] callPlain() =>
+		newArray(ctx.alloc, [exprStatement(genCallSync(ctx.alloc, source, mainRef, []))]);
 	return ctx.ctx.programWithMainPtr.mainFun.matchIn!(JsStatement[])(
 		(in MainFun.Nat64OfArgs) {
 			JsName exitCode = JsName.specialLocal(symbol!"exitCode");
@@ -423,7 +427,9 @@ JsStatement[] callMain(ref TranslateModuleCtx ctx) {
 			}
 		},
 		(in MainFun.Void) =>
-			newArray(ctx.alloc, [exprStatement(genCallSync(ctx.alloc, source, mainRef, []))]));
+			callPlain(),
+		(in TestSelector x) =>
+			callPlain());
 }
 
 ModuleExportMangledNames moduleExportMangledNames(ref Alloc alloc, in Program program, in AllUsed used) {

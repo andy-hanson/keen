@@ -80,6 +80,7 @@ import model.model :
 	Local,
 	paramsArray,
 	Program,
+	ProgramWithMain,
 	Purity,
 	RecordField,
 	SpecInst,
@@ -169,7 +170,7 @@ struct ConcretizeCtx {
 
 	Alloc* allocPtr;
 	immutable VersionInfo versionInfo;
-	immutable Program* programPtr;
+	immutable ProgramWithMain* programWithMainPtr;
 	FileContentGetters fileContentGetters; // For 'assert' or 'forbid' messages and file imports
 	SymbolSet allExterns;
 	Late!(ConcreteFun*) createErrorFunction_;
@@ -203,7 +204,7 @@ struct ConcretizeCtx {
 		*allocPtr;
 
 	ref Program program() return scope const =>
-		*programPtr;
+		programWithMainPtr.program;
 	ref CommonTypes commonTypes() return scope const =>
 		program.commonTypes;
 	ConcreteFun* equalNat64Function() return scope const =>
@@ -497,7 +498,7 @@ ConcreteFunBody bodyForAllTests(ref ConcretizeCtx ctx, ConcreteType returnType) 
 		mustBeByVal(returnType),
 		buildArray!Constant(ctx.alloc, (scope ref Builder!Constant out_) {
 			size_t testIndex = 0;
-			eachTest(ctx.program, ctx.allExterns, (Test* test) {
+			eachTest(ctx.program, ctx.allExterns, ctx.programWithMainPtr.testSelector, (Test* test) {
 				out_ ~= Constant(Constant.FunPointer(concreteFunForTest(ctx, test, testIndex++)));
 			});
 		})))));
@@ -513,12 +514,12 @@ ConcreteFun* concreteFunForTest(ref ConcretizeCtx ctx, Test* test, size_t testIn
 	return res;
 }
 
-public ConcreteFun* concreteFunForWrapMain(ref ConcretizeCtx ctx, StructInst* modelStringArray, FunInst* modelMain) {
-	ConcreteType stringArrayType = getConcreteType_forStructInst(ctx, modelStringArray, emptySmallArray!ConcreteType);
+public ConcreteFun* concreteFunForWrapMain(ref ConcretizeCtx ctx, FunInst* modelMain) {
+	ConcreteType stringArrayType = getConcreteType_forStructInst(ctx, ctx.commonTypes.stringArray, emptySmallArray!ConcreteType);
 	ConcreteFun* innerMain = getNonTemplateConcreteFun(ctx, modelMain);
 	/*
 	This is like:
-		wrapped-main nat^(_ string[])
+		wrapped-main nat(_ string[])
 			real-main
 			0
 	*/
@@ -909,6 +910,7 @@ TypeSize getBuiltinStructSize(BuiltinType kind, in VersionInfo version_) {
 						// Keep in sync with 'catch point size' comment in writeToC_boilerplate_posix.c
 						return TypeSize(0x40, 8);
 					case OS.nodeJs:
+					case OS.none:
 					case OS.web:
 						// Always interpreted
 						assert(false);

@@ -93,6 +93,9 @@ HashCode hashPointerAndTaggedPointersX2(T, U, V)(in T* pointer, in U[] taggedPoi
 	return hasher.finish();
 }
 
+HashCode hashUints(uint a, uint b) =>
+	HashCode(fmix64((ulong(a) << 32) | b));
+
 HashCode hashUlong(ulong a) =>
 	HashCode(fmix64(a));
 

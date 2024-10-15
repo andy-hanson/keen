@@ -4,10 +4,10 @@ module lib.lsp.lspTypes;
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/
 
-import util.exitCode : ExitCode;
-import util.col.multiMap : MultiMap;
+import util.exitCode : ExitCode, ExitCodeOrSignal;
+import util.col.map : KeyValuePair;
 import util.opt : Opt;
-import util.sourceRange : LineAndCharacter, LineAndCharacterRange, Pos, Range, UriAndPos, UriAndRange;
+import util.sourceRange : LineAndCharacter, LineAndCharacterRange, Pos, Range, UriAndPos, UriAndLine, UriAndRange;
 import util.string : SmallString;
 import util.union_ : Union;
 import util.uri : Uri;
@@ -171,7 +171,7 @@ immutable struct RunParams {
 	Opt!(Uri[]) diagnosticsOnlyForUris;
 }
 immutable struct RunResult {
-	ExitCode exitCode;
+	ExitCodeOrSignal exit;
 	Write[] writes;
 }
 immutable struct Write {
@@ -227,7 +227,7 @@ immutable struct Command {
 
 immutable struct ExecuteCommandParams {
 	immutable struct RunTest {
-		UriAndPos where;
+		UriAndLine where;
 	}
 	mixin Union!(RunTest);
 }
@@ -353,7 +353,7 @@ immutable struct TextDocumentIdentifier {
 }
 
 immutable struct WorkspaceEdit {
-	MultiMap!(Uri, TextEdit) changes;
+	KeyValuePair!(Uri, TextEdit[])[] changes;
 }
 
 immutable struct TextEdit {

@@ -67,7 +67,7 @@ import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, Sy
 import util.union_ : IndexType, TaggedUnion, Union;
 import util.uri : RelPath, Uri;
 import util.util : enumConvertOrAssert, max, min, stringOfEnum;
-import versionInfo : VersionFun;
+import versionInfo : OS, VersionFun;
 
 alias Purity = immutable Purity_;
 private enum Purity_ : ubyte {
@@ -1916,6 +1916,7 @@ immutable struct CommonFuns {
 	FunInst* mark;
 	FunInst* newJsonFromPairs;
 	FunInst* runFiber;
+	FunInst* runAllTests;
 	FunInst* rtMain;
 	FunInst* throwImpl;
 	FunInst* equalNat64;
@@ -1956,6 +1957,7 @@ immutable struct CommonTypes {
 	StructInst* char8ConstPointer;
 	StructInst* char32Array;
 	StructInst* nat8Array;
+	StructInst* stringArray;
 	StructDecl* option;
 	StructDecl* pointerConst;
 	StructDecl* pointerMut;
@@ -2065,20 +2067,28 @@ immutable struct ProgramWithMain {
 	Program program;
 	MainFunAndDiagnostics mainFunAndDiagnostics;
 
-	Uri mainUri() scope =>
-		mainFun.fun.decl.moduleUri;
 	MainFun mainFun() return scope =>
 		mainFunAndDiagnostics.mainFun;
 	UriAndDiagnostic[] mainFunDiagnostics() return scope =>
 		mainFunAndDiagnostics.diagnostics;
-	Module* mainModule() return scope =>
-		moduleAtUri(program, mainUri);
 	ref Config mainConfig() return scope =>
-		*mainModule.config;
+		*mainFun.mainConfig(program);
+	TestSelector testSelector() =>
+		mainFun.testSelector(program);
 }
 
-private enum _BuildTarget { js, native }
-alias BuildTarget = immutable _BuildTarget;
+// TODO: isn't this basically just OS?
+immutable struct BuildTarget {
+	@safe @nogc pure nothrow:
+	immutable struct Js {}
+	immutable struct Native { OS os; }
+	mixin Union!(Js, Native);
+
+	static BuildTarget js() =>
+		BuildTarget(Js());
+	static BuildTarget native(OS os) =>
+		BuildTarget(Native(os));
+}
 
 // All 'extern's to compile with for the given target
 SymbolSet allExterns(in ProgramWithMain program, BuildTarget target) =>
@@ -2086,28 +2096,38 @@ SymbolSet allExterns(in ProgramWithMain program, BuildTarget target) =>
 SymbolSet allExternsForMainConfig(in Config mainConfig, Opt!BuildTarget target) =>
 	buildSymbolSet((scope ref SymbolSetBuilder out_) {
 		if (has(target)) {
-			final switch (force(target)) {
-				case BuildTarget.js:
+			force(target).match!void(
+				(BuildTarget.Js) {
 					out_ ~= symbol!"js";
-					break;
-				case BuildTarget.native:
-					version (Windows)
-						out_ ~= [
-							symbolOfEnum(BuiltinExtern.DbgHelp),
-							symbolOfEnum(BuiltinExtern.ucrtbase),
-							symbolOfEnum(BuiltinExtern.windows),
-						];
-					else
-						out_ ~= [
-							symbolOfEnum(BuiltinExtern.linux),
-							symbolOfEnum(BuiltinExtern.posix),
-							symbolOfEnum(BuiltinExtern.pthread),
-							symbolOfEnum(BuiltinExtern.sodium),
-							symbolOfEnum(BuiltinExtern.unwind),
-						];
+				},
+				(BuildTarget.Native x) {
+					final switch (x.os) {
+						case OS.nodeJs:
+						case OS.web:
+							assert(false);
+						case OS.none:
+							out_ ~= symbol!"fake";
+							break;
+						case OS.linux:
+							out_ ~= [
+								symbolOfEnum(BuiltinExtern.linux),
+								symbolOfEnum(BuiltinExtern.posix),
+								symbolOfEnum(BuiltinExtern.pthread),
+								symbolOfEnum(BuiltinExtern.sodium),
+								symbolOfEnum(BuiltinExtern.unwind),
+							];
+							break;
+						case OS.windows:
+							out_ ~= [
+								symbolOfEnum(BuiltinExtern.DbgHelp),
+								symbolOfEnum(BuiltinExtern.ucrtbase),
+								symbolOfEnum(BuiltinExtern.windows),
+							];
+							break;
+					}
+					// TODO: OS.none should not have access to all of libc. Only certain functions, which should have their own 'extern' name
 					out_ ~= [symbolOfEnum(BuiltinExtern.libc), symbolOfEnum(BuiltinExtern.native)];
-					break;
-			}
+				});
 		}
 		foreach (Symbol name, Opt!Uri uri; mainConfig.extern_)
 			if (has(uri))
@@ -2141,19 +2161,104 @@ immutable struct MainFun {
 	immutable struct Nat64OfArgs {
 		FunInst* fun;
 	}
-
 	immutable struct Void {
-		// Needed to wrap it to the Nat64OfArgs signature
-		StructInst* stringArray;
 		FunInst* fun;
 	}
 
-	mixin Union!(Nat64OfArgs, Void);
+	mixin Union!(Nat64OfArgs, Void, TestSelector);
 
-	FunInst* fun() return scope =>
-		match!(FunInst*)(
-			(Nat64OfArgs x) => x.fun,
-			(Void x) => x.fun);
+	UriAndRange rangeForDiag() scope =>
+		matchIn!UriAndRange(
+			(in Nat64OfArgs x) =>
+				x.fun.decl.range,
+			(in Void x) =>
+				x.fun.decl.range,
+			(in TestSelector test) =>
+				test.matchIn!UriAndRange(
+					(in TestSelector.All x) =>
+						// We don't get diagnostics for this
+						assert(false),
+					(in Config x) =>
+						UriAndRange.topOfFile(force(x.configUri)),
+					(in Uri x) =>
+						UriAndRange.topOfFile(x),
+					(in Test x) =>
+						x.range));
+
+	Opt!Uri uriForTempPath() scope =>
+		matchIn!(Opt!Uri)(
+			(in Nat64OfArgs x) =>
+				some(x.fun.decl.moduleUri),
+			(in Void x) =>
+				some(x.fun.decl.moduleUri),
+			(in TestSelector test) =>
+				test.matchIn!(Opt!Uri)(
+					(in TestSelector.All) =>
+						none!Uri,
+					(in Config x) =>
+						some(force(x.configUri)),
+					(in Uri x) =>
+						some(x),
+					(in Test x) =>
+						some(x.moduleUri)));
+
+	SymbolSet requiredExterns() scope =>
+		matchIn!SymbolSet(
+			(in Nat64OfArgs x) =>
+				x.fun.decl.externs,
+			(in Void x) =>
+				x.fun.decl.externs,
+			(in TestSelector x) =>
+				x.matchIn!SymbolSet(
+					(in TestSelector.All) =>
+						emptySymbolSet,
+					(in Config _) =>
+						emptySymbolSet,
+					(in Uri _) =>
+						emptySymbolSet,
+					(in Test x) =>
+						x.externs));
+	
+	Config* mainConfig(return scope ref Program program) return scope {
+		Config* configFor(Uri uri) =>
+			moduleAtUri(program, uri).config;
+		return match!(Config*)(
+			(Nat64OfArgs x) =>
+				configFor(x.fun.decl.moduleUri),
+			(Void x) =>
+				configFor(x.fun.decl.moduleUri),
+			(TestSelector test) =>
+				test.matchWithPointers!(Config*)(
+					(TestSelector.All x) =>
+						x.mainConfig,
+					(Config* x) =>
+						x,
+					(Uri x) =>
+						configFor(x),
+					(Test* x) =>
+						configFor(x.moduleUri)));
+	}
+
+	TestSelector testSelector(ref Program program) =>
+		matchIn!TestSelector(
+			(in Nat64OfArgs _) =>
+				TestSelector.all(mainConfig(program)),
+			(in Void _) =>
+				TestSelector.all(mainConfig(program)),
+			(in TestSelector x) =>
+				x);
+}
+
+immutable struct TestSelector {
+	@safe @nogc pure nothrow:
+	immutable struct All {
+		Config* mainConfig;
+	}
+	// All tests, tests in a particular config, tests in a single file, or a single test
+	mixin Union!(All, Config*, Uri, Test*);
+
+	static TestSelector all(Config* mainConfig) =>
+		TestSelector(All(mainConfig));
 }
 
 bool hasAnyDiagnostics(in ProgramWithMain a) =>
@@ -2174,6 +2279,8 @@ immutable struct Program {
 	ref CommonTypes commonTypes() return scope =>
 		*commonTypesPtr;
 }
+Config* configAtUri(in Program program, Uri uri) =>
+	mustGet(program.allConfigs, uri);
 Module* moduleAtUri(in Program program, Uri uri) =>
 	mustGet(program.allModules, uri);
 
@@ -2210,12 +2317,33 @@ private bool existsDiagnostic(in Program a, in bool delegate(in UriAndDiagnostic
 		exists!Diagnostic(module_.diagnostics, (in Diagnostic x) =>
 			cb(UriAndDiagnostic(module_.uri, x))));
 
-void eachTest(ref Program program, in SymbolSet allExterns, in void delegate(Test*) @safe @nogc pure nothrow cb) {
-	foreach (immutable Module* m; program.allModules) {
-		foreach (ref Test x; m.tests)
-			if (allExterns.containsAll(x.externs))
-				cb(&x);
-	}
+void eachTest(ref Program program, in SymbolSet allExterns, TestSelector testSelector, in void delegate(Test*) @safe @nogc pure nothrow cb) {
+	testSelector.matchWithPointers!void(
+		(TestSelector.All) {
+			foreach (immutable Module* m; program.allModules) {
+				foreach (ref Test x; m.tests)
+					if (allExterns.containsAll(x.externs))
+						cb(&x);
+			}
+		},
+		(Config* config) {
+			foreach (immutable Module* m; program.allModules)
+				if (m.config == config)
+					foreach (ref Test x; m.tests)
+						if (allExterns.containsAll(x.externs))
+							cb(&x);
+
+		},
+		// TODO: There should be a TestSelector that is limited to a particular crow-config .............................................
+		(Uri uri) {
+			foreach (ref Test x; moduleAtUri(program, uri).tests)
+				if (allExterns.containsAll(x.externs))
+					cb(&x);
+		},
+		(Test* x) {
+			assert(allExterns.containsAll(x.externs));
+			cb(x);
+		});
 }
 
 immutable struct Config {
@@ -2628,6 +2756,7 @@ Opt!BuiltinExtern asBuiltinExtern(Symbol a) =>
 	enumOfSymbol!BuiltinExtern(a);
 immutable enum BuiltinExtern {
 	DbgHelp,
+	fake,
 	js,
 	libc,
 	linux,

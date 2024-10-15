@@ -43,6 +43,15 @@ T[] buildArray(T)(ref Alloc alloc, in void delegate(scope ref Builder!T) @safe @
 	cb(res);
 	return finish(res);
 }
+T[] buildSortedArray(T, alias compare)(
+	ref Alloc alloc,
+	in void delegate(scope ref Builder!T) @safe @nogc pure nothrow cb
+) {
+	Builder!T res = Builder!T(&alloc);
+	cb(res);
+	arrayBuilderSort!(T, compare)(res);
+	return finish(res);
+}
 
 SmallArray!T buildSmallArray(T)(ref Alloc alloc, in void delegate(scope ref Builder!T) @safe @nogc pure nothrow cb) {
 	Builder!T res = Builder!T(&alloc);

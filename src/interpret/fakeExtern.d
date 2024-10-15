@@ -2,6 +2,10 @@ module interpret.fakeExtern;
 
 @safe @nogc nothrow: // not pure
 
+version (WebAssembly) {} else {
+	import core.sys.posix.time : clock_gettime, clockid_t, CLOCK_MONOTONIC, timespec;
+}
+
 import lib.lsp.lspTypes : Pipe;
 import interpret.bytecode : Operation;
 import interpret.extern_ :
@@ -31,7 +35,7 @@ import util.symbol : Symbol, symbol;
 import util.util : debugLog, todo;
 import util.writer : withStackWriterImpure, Writer;
 
-alias WriteCb = void delegate(Pipe, in string);
+alias WriteCb = void delegate(Pipe, in string) @safe @nogc nothrow;
 
 WriteCb unreachableWriteCb() =>
 	(Pipe _, in string _1) => assert(false);
@@ -99,8 +103,9 @@ Opt!ExternPointersForAllLibraries getAllFakeExternFuns(
 		size_t nElems = cast(size_t) args[0];
 		size_t sizeofElem = cast(size_t) args[1];
 		dataPush(stacks, cast(ulong) allocateZeroedBytes(alloc, safeMul(nElems, sizeofElem)).ptr);
-	} else if (ptr == &clockGetTime) {
-		todo!void("needed?");
+	} else if (ptr == &fakeMonotimeNsec) {
+		assert(args.length == 0);
+		dataPush(stacks, fakeMonotimeNsec());
 	} else if (ptr == &free) {
 		assert(args.length == 1);
 	} else if (ptr == &malloc) {
@@ -112,7 +117,7 @@ Opt!ExternPointersForAllLibraries getAllFakeExternFuns(
 	} else if (ptr == &memset) {
 		assert(args.length == 3);
 		dataPush(stacks, cast(ulong) memset(cast(ubyte*) args[0], cast(ubyte) args[1], cast(size_t) args[2]));
-	} else if (ptr == &write) {
+	} else if (ptr == &writeFake) {
 		assert(args.length == 3);
 		int fd = cast(int) args[0];
 		immutable char* buf = cast(immutable char*) args[1];
@@ -120,13 +125,23 @@ Opt!ExternPointersForAllLibraries getAllFakeExternFuns(
 		assert(fd == 1 || fd == 2);
 		Pipe pipe = fd == 1 ? Pipe.stdout : Pipe.stderr;
 		writeCb(pipe, buf[0 .. nBytes]);
-		dataPush(stacks, nBytes);
 	} else {
 		dataPush(stacks, args);
 		syntheticCallWithStacks(stacks, cast(Operation*) ptr);
 		// Result remains on stack
 	}
 	saveStacks(stacks);
+}
+
+@system ulong fakeMonotimeNsec() {
+	version (WebAssembly) {
+		TODO();
+	} else {
+		timespec time;
+		int err = clock_gettime(CLOCK_MONOTONIC, &time);
+		assert(err == 0);
+		return time.tv_sec * 1000000000 + time.tv_nsec;
+	}
 }
 
 pure:
@@ -146,28 +161,28 @@ ExternPointersForLibrary fakeExternFunsForLibrary(
 	});
 
 Opt!FunPointer getFakeExternFun(Symbol libraryName, Symbol name) {
-	if (libraryName != symbol!"posix" && libraryName != symbol!"libc")
+	if (libraryName != symbol!"posix" && libraryName != symbol!"libc" && libraryName != symbol!"fake")
 		return none!FunPointer;
 	switch (name.value) {
 		case symbol!"abort".value:
 			return some(FunPointer(&abort));
 		case symbol!"calloc".value:
 			return some(FunPointer(&calloc));
-		case symbol!"clock_gettime".value:
-			return some(FunPointer(&clockGetTime));
+		case symbol!"fake-monotime-nsec".value:
+			return some(FunPointer(&fakeMonotimeNsec));
 		case symbol!"free".value:
 			return some(FunPointer(&free));
 		case symbol!"nanosleep".value:
 			return some(FunPointer(&nanosleep));
 		case symbol!"malloc".value:
 			return some(FunPointer(&malloc));
-		case symbol!"memcpy".value:
+		case symbol!"memcpy".value: // TODO: maybe these should be compiler intrinsics instead (and have a nicer interface)
 		case symbol!"memmove".value:
 			return some(FunPointer(&memmove));
 		case symbol!"memset".value:
 			return some(FunPointer(&memset));
-		case symbol!"write".value:
-			return some(FunPointer(&write));
+		case symbol!"write-fake".value:
+			return some(FunPointer(&writeFake));
 		default:
 			return none!FunPointer;
 	}
@@ -177,15 +192,12 @@ Opt!FunPointer getFakeExternFun(Symbol libraryName, Symbol name) {
 void free() { assert(false); }
 void calloc() { assert(false); }
 void malloc() { assert(false); }
-void write() { assert(false); }
+void writeFake() { assert(false); }
 
 void abort() {
 	debugLog("program aborted");
 	assert(false);
 }
-
-int clockGetTime(int, const(void*)) =>
-	todo!int("");
 
 int nanosleep(const(void*), void*) =>
 	todo!int("!");

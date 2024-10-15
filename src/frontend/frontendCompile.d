@@ -6,7 +6,7 @@ import frontend.check.check : BootstrapCheck, check, checkBootstrap, UriAndAst, 
 import frontend.check.checkCtx : CommonModule, CommonUris;
 import frontend.check.getCommonFuns : getCommonFuns, getMainFunAndDiagnostics;
 import frontend.check.instantiate : getAllFutureAndMutArrayImpls, InstantiateCtx;
-import frontend.lang : crowConfigBaseName;
+import frontend.lang : crowConfigBaseName, MainKind;
 import frontend.allInsts : AllInsts, freeInstantiationsForModule, perfStats;
 import frontend.storage :
 	CrowConfigFileInfo,
@@ -18,13 +18,13 @@ import frontend.storage :
 	filesState,
 	FileType,
 	fileType,
+	LineAndCharacterGetters,
 	markUnknownIfNotExist,
 	OtherFileInfo,
 	Storage;
 import model.ast : FileAst, fileAstForDiag, ImportOrExportAst, ImportOrExportAstKind, NameAndRange;
 import model.diag : Diag, ReadFileDiag, ReadFileDiag_;
 import model.model :
-	allExternsForMainConfig,
 	BuildTarget,
 	CommonFunsAndDiagnostics,
 	CommonTypes,
@@ -53,7 +53,6 @@ import util.col.array :
 	map,
 	mustFindPointer,
 	MutSmallArray,
-	optOnly,
 	small,
 	SmallArray;
 import util.col.exactSizeArrayBuilder : buildArrayExact, ExactSizeArrayBuilder;
@@ -169,11 +168,11 @@ ProgramWithMain makeProgramWithMain(
 	scope ref Perf perf,
 	ref Alloc alloc,
 	ref Frontend a,
-	Uri mainUri,
+	in MainKind main,
 	in BuildTarget[] targets,
 ) {
-	Program program = makeProgram(perf, alloc, a, [mainUri]);
-	return programWithMainFromProgram(perf, alloc, a, program, mainUri, targets);
+	Program program = makeProgram(perf, alloc, a);
+	return programWithMainFromProgram(perf, alloc, a, program, main, targets);
 }
 
 ProgramWithMain programWithMainFromProgram(
@@ -181,7 +180,7 @@ ProgramWithMain programWithMainFromProgram(
 	ref Alloc alloc,
 	ref Frontend a,
 	ref Program program,
-	Uri mainUri,
+	in MainKind main,
 	in BuildTarget[] targets,
 ) =>
 	ProgramWithMain(
@@ -189,10 +188,9 @@ ProgramWithMain programWithMainFromProgram(
 		getMainFunAndDiagnostics(
 			alloc,
 			InstantiateCtx(ptrTrustMe(perf), ptrTrustMe(a.allInsts)),
-			program, mainUri,
-			allExternsForMainConfig(*moduleAtUri(program, mainUri).config, optOnly(targets))));
+			program, LineAndCharacterGetters(a.storagePtr), main, targets));
 
-Program makeProgram(scope ref Perf perf, ref Alloc alloc, ref Frontend a, in Uri[] roots) {
+Program makeProgram(scope ref Perf perf, ref Alloc alloc, ref Frontend a) {
 	assert(filesState(a.storage) == FilesState.allLoaded);
 	EnumMap!(CommonModule, Module*) commonModules = enumMapMapValues!(CommonModule, Module*, CrowFile*)(
 		a.commonFiles, (const CrowFile* x) => x.mustHaveModule);
@@ -575,6 +573,7 @@ CommonUris commonUris(Uri includeDir) {
 	Uri includeCrow = includeDir / symbol!"crow";
 	Uri col = includeCrow / symbol!"col";
 	Uri private_ = includeCrow / symbol!"private";
+	Uri testUtil = includeCrow / symbol!"test-util";
 	return enumMapMapValues!(CommonModule, Uri, Uri)(CommonUris([
 		private_ / symbol!"bootstrap",
 		private_ / symbol!"alloc",
@@ -588,11 +587,12 @@ CommonUris commonUris(Uri includeDir) {
 		includeCrow / symbol!"misc",
 		col / symbol!"mut-array",
 		private_ / symbol!"number-low-level",
+		private_ / symbol!"runtime",
+		private_ / symbol!"rt-main",
 		includeCrow / symbol!"std",
 		includeCrow / symbol!"string",
 		private_ / symbol!"symbol-low-level",
-		private_ / symbol!"runtime",
-		private_ / symbol!"rt-main",
+		testUtil / symbol!"test-runner",
 	]), (Uri x) => addExtension(x, Extension.crow));
 }
 

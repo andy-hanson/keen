@@ -57,6 +57,7 @@ CommonTypes* getCommonTypes(
 	StructDecl* pointerConst = getDecl(ctx, symbol!"const-pointer", 1);
 	IntegralTypes integrals = IntegralTypes(makeEnumMap!IntegralType((IntegralType type) =>
 		nonTemplate(ctx, symbolOfEnum(type))));
+	StructInst* string_ = nonTemplate(ctx, symbol!"string");
 	return allocate(alloc, CommonTypes(
 		bool_: nonTemplate(ctx, symbol!"bool"),
 		char8: char8,
@@ -69,7 +70,7 @@ CommonTypes* getCommonTypes(
 		future: getDecl(ctx, symbol!"future", 1),
 		integrals: integrals,
 		jsAny: nonTemplate(ctx, symbol!"js-any"),
-		string_: nonTemplate(ctx, symbol!"string"),
+		string_: string_,
 		symbol: symbolType,
 		symbolArray: instantiate1(ctx, array, symbolType),
 		void_: void_,
@@ -78,6 +79,7 @@ CommonTypes* getCommonTypes(
 		char8ConstPointer: instantiate1(ctx, pointerConst, char8),
 		char32Array: instantiate1(ctx, array, char32),
 		nat8Array: instantiate1(ctx, array, integrals.nat8),
+		stringArray: instantiate1(ctx, array, string_),
 		option: getDecl(ctx, symbol!"option", 1),
 		pointerConst: pointerConst,
 		pointerMut: getDecl(ctx, symbol!"mut-pointer", 1),

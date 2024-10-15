@@ -7,6 +7,7 @@ import util.comparison : compareOr, compareUint, Comparison;
 import util.col.array : isEmpty;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.conv : safeToUint;
+import util.hash : HashCode, hashUints;
 import util.json : field, get, Json, jsonObject;
 import util.string : CString, MutCString, stringOfRange;
 import util.unicode : byteIndexOfCharacterIndex, characterIndexOfByteIndex;
@@ -155,15 +156,23 @@ immutable struct LineAndCharacterRange {
 	LineAndCharacter end;
 }
 
+immutable struct UriAndLine {
+	@safe @nogc pure nothrow:
+	Uri uri;
+	uint line;
+
+	HashCode hash() scope =>
+		hashUints(uri.asUintForHash, line);
+}
+Json jsonOfUriAndLine(ref Alloc alloc, in UriAndLine a) =>
+	jsonObject(alloc, [field!"uri"(stringOfUri(alloc, a.uri)), field!"line"(a.line)]);
+UriAndLine uriAndLineOfJson(in Json a) =>
+	UriAndLine(mustParseUri(get!"uri"(a).as!string), safeToUint(get!"line"(a).as!double));
+
 immutable struct UriAndLineAndCharacterRange {
 	Uri uri;
 	LineAndCharacterRange range;
-}
-
-Json jsonOfUriAndPos(ref Alloc alloc, in UriAndPos a) =>
-	jsonObject(alloc, [field!"uri"(stringOfUri(alloc, a.uri)), field!"pos"(a.pos)]);
-UriAndPos uriAndPosOfJson(in Json a) =>
-	UriAndPos(mustParseUri(get!"uri"(a).as!string), cast(uint) get!"pos"(a).as!double);
+};
 
 Json jsonOfUriAndLineAndCharacterRange(ref Alloc alloc, in UriAndLineAndCharacterRange a) =>
 	jsonObject(alloc, [

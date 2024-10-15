@@ -2,7 +2,7 @@ module app.command;
 
 @safe @nogc pure nothrow:
 
-import frontend.lang : CCompileOptions, JitOptions;
+import frontend.lang : CCompileOptions, JitOptions, MainKind;
 import lib.server : PrintKind;
 import model.model : BuildTarget;
 import util.alloc.alloc : Alloc;
@@ -11,7 +11,7 @@ import util.string : CString;
 import util.exitCode : ExitCode;
 import util.union_ : Union;
 import util.uri : FilePath, Uri;
-import versionInfo : VersionOptions;
+import versionInfo : OS, VersionOptions;
 
 immutable struct Command {
 	CommandKind kind;
@@ -44,18 +44,16 @@ immutable struct CommandKind {
 		PrintKind kind;
 		Uri mainUri;
 	}
-	immutable struct Run {
-		Uri mainUri;
+	immutable struct Run { // Also covers 'test', rename? ----------------------------------------------------------------------
+		MainKind main;
 		RunOptions options;
-		// Does not include executable path
-		CString[] programArgs;
 	}
-	immutable struct Test {
+	immutable struct SelfTest {
 		CString[] names;
 	}
 	immutable struct Version {}
 
-	mixin Union!(Build, Check, Document, Help, Lsp, Print, Run, Test, Version);
+	mixin Union!(Build, Check, Document, Help, Lsp, Print, Run, SelfTest, Version);
 }
 
 immutable struct RunOptions {
@@ -64,6 +62,7 @@ immutable struct RunOptions {
 		CCompileOptions compileOptions;
 	}
 	immutable struct Interpret {
+		bool fakeExtern;
 		VersionOptions version_;
 	}
 	immutable struct NodeJs {}
@@ -86,16 +85,16 @@ immutable struct SingleBuildOutput {
 	FilePath path;
 }
 
-BuildTarget[] targetsForBuild(ref Alloc alloc, in CommandKind.Build x) =>
+BuildTarget[] targetsForBuild(ref Alloc alloc, OS os, in CommandKind.Build x) =>
 	buildArray!BuildTarget(alloc, (scope ref Builder!BuildTarget out_) {
 		foreach (SingleBuildOutput output; x.options.out_)
-			addIfNotContains!BuildTarget(out_, targetForBuildOutput(output.kind));
+			addIfNotContains!BuildTarget(out_, targetForBuildOutput(os, output.kind));
 	});
-private BuildTarget targetForBuildOutput(SingleBuildOutput.Kind a) {
+private BuildTarget targetForBuildOutput(OS os, SingleBuildOutput.Kind a) {
 	final switch (a) {
 		case SingleBuildOutput.Kind.c:
 		case SingleBuildOutput.Kind.executable:
-			return BuildTarget.native;
+			return BuildTarget.native(os);
 		case SingleBuildOutput.Kind.jsScript:
 		case SingleBuildOutput.Kind.jsModules:
 		case SingleBuildOutput.Kind.nodeJsScript:

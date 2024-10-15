@@ -29,6 +29,7 @@ import frontend.ide.getReferences : getDocumentHighlightsForPosition, getReferen
 import frontend.ide.getSignatureHelp : getSignatureHelpForPosition;
 import frontend.ide.getTokens : jsonOfDecodedTokens, tokensOfAst;
 import frontend.ide.position : Position;
+import frontend.lang : MainKind;
 import frontend.showDiag :
 	sortedDiagnostics, stringOfDiag, stringOfDiagnostics, stringOfParseDiagnostics, UriAndDiagnostics;
 import frontend.showModel : ShowCtx, ShowDiagCtx, ShowOptions;
@@ -153,7 +154,8 @@ import model.model :
 	Program,
 	ProgramWithMain,
 	ProgramWithOptMain,
-	Test;
+	Test,
+	TestSelector;
 import model.parseDiag : ParseDiag;
 import util.alloc.alloc : Alloc, AllocKind, FetchMemoryCb, freeElements, MetaAlloc, newAlloc, withTempAllocImpure;
 import util.alloc.stackAlloc : ensureStackAllocInitialized;
@@ -162,14 +164,14 @@ import util.col.array : concatenate, contains, map, mapOp, mustFindPointer, newA
 import util.col.arrayBuilder : add, addAll, ArrayBuilder, finish;
 import util.col.mutArr : clearAndDoNotFree, MutArr, push;
 import util.col.mutMap : clear, MutMap, setInMap;
-import util.exitCode : ExitCode, ExitCodeOrSignal, Signal;
+import util.exitCode : asExitCode, ExitCode, ExitCodeOrSignal, Signal;
 import util.integralValues : initIntegralValues;
 import util.json : field, Json, jsonList, jsonNull, jsonObject;
 import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
 import util.opt : force, has, none, MutOpt, Opt, optIf, some, someMut;
 import util.perf : Perf;
-import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndPos, UriAndRange, UriLineAndColumn;
+import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndLine, UriAndPos, UriAndRange, UriLineAndColumn;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
@@ -183,14 +185,15 @@ ExitCodeOrSignal buildAndInterpret(
 	in Extern extern_,
 	in WriteError writeError,
 	ref ProgramWithMain program,
-	VersionOptions version_,
+	OS os,
+	VersionOptions version_, // TODO: should this and OS be in the same parameter? --------------------------------------------------------
 	in Opt!(Uri[]) diagnosticsOnlyForUris,
 	in CString[] allArgs,
 ) {
 	assert(filesState(server) == FilesState.allLoaded);
 	return withTempAllocImpure!ExitCodeOrSignal(server.metaAlloc, AllocKind.buildToLowProgram, (ref Alloc buildAlloc) {
 		LowProgram lowProgram = buildToLowProgram(
-			perf, buildAlloc, server, versionInfoForInterpret(getOS(), version_), program);
+			perf, buildAlloc, server, versionInfoForInterpret(os, version_), program);
 		Opt!ExternPointersForAllLibraries externPointers =
 			extern_.loadExternPointers(lowProgram.externLibraries, writeError);
 		if (has(externPointers))
@@ -278,7 +281,7 @@ private LspOutAction handleFileChanged(scope ref Perf perf, ref Alloc alloc, ref
 		case FilesState.hasLoading:
 			return LspOutAction([]);
 		case FilesState.allLoaded:
-			Program program = getProgramForAll(perf, alloc, server);
+			Program program = getProgram(perf, alloc, server);
 			ArrayBuilder!LspOutMessage messages;
 			Cell!(Opt!ExitCode) exitCode;
 			foreach (LspInRequest request; server.lspState.pendingRequests) {
@@ -360,7 +363,7 @@ private LspOutAction respondWithProgram(
 	in LspInRequest request,
 ) {
 	if (filesState(server) == FilesState.allLoaded) {
-		Program program = getProgramForAll(perf, alloc, server);
+		Program program = getProgram(perf, alloc, server);
 		return handleLspRequestWithProgram(perf, alloc, server, program, request);
 	} else {
 		push(server.lspState.stateAlloc, server.lspState.pendingRequests, request);
@@ -375,11 +378,11 @@ private LspOutAction handleLspRequestWithProgram(
 	ref Program program,
 	in LspInRequest request,
 ) {
-	ProgramWithMain programWithMain(Uri main, BuildTarget target) =>
+	ProgramWithMain programWithMain(MainKind main, BuildTarget target) =>
 		programWithMainFromProgram(perf, alloc, server.frontend, program, main, [target]);
 	return request.params.matchImpure!LspOutAction(
 		(in BuildJsScriptParams x) {
-			ProgramWithMain pwm = programWithMain(x.uri, BuildTarget.js);
+			ProgramWithMain pwm = programWithMain(MainKind.fun(x.uri, []), BuildTarget.js);
 			return singleResponse(alloc, request, LspOutResult(BuildJsScriptResult(
 				showDiagnostics(alloc, server, pwm, x.diagnosticsOnlyForUris),
 				optIf(!hasFatalDiagnostics(pwm), () =>
@@ -400,7 +403,7 @@ private LspOutAction handleLspRequestWithProgram(
 			return singleResponse(alloc, request, has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
 		},
 		(in ExecuteCommandParams x) =>
-			executeCommand(alloc, server, program, request, x),
+			executeCommand(perf, alloc, server, program, request, x),
 		(in FoldingRangeParams x) =>
 			assert(false),
 		(in HoverParams x) =>
@@ -419,16 +422,13 @@ private LspOutAction handleLspRequestWithProgram(
 		},
 		(in RunParams x) {
 			ArrayBuilder!Write writes;
-			ProgramWithMain pwm = programWithMain(x.uri, BuildTarget.native);
-			ExitCodeOrSignal exitCode = runFromLsp(
+			ProgramWithMain pwm = programWithMain(MainKind.fun(x.uri, []), BuildTarget.native(OS.none));
+			ExitCodeOrSignal exit = runFromLsp(
 				perf, alloc, server, pwm, x.diagnosticsOnlyForUris,
 				(Pipe pipe, in string x) {
 					add(alloc, writes, Write(pipe, copyString(alloc, x)));
 				});
-			ExitCode asExitCode = exitCode.match!ExitCode(
-				(ExitCode x) => x,
-				(Signal _) => ExitCode.error);
-			return singleResponse(alloc, request, LspOutResult(RunResult(asExitCode, finish(alloc, writes))));
+			return singleResponse(alloc, request, LspOutResult(RunResult(exit, finish(alloc, writes))));
 		},
 		(in SemanticTokensParams _) =>
 			assert(false),
@@ -451,22 +451,24 @@ pure void contentChanged(scope ref Server server) {
 	clear(server.lspState.testStates);
 }
 
-pure LspOutAction executeCommand(ref Alloc alloc, ref Server server, ref Program program, in LspInRequest request, in ExecuteCommandParams params) =>
-	params.matchIn!LspOutAction(
+LspOutAction executeCommand(scope ref Perf perf, ref Alloc alloc, ref Server server, ref Program program, in LspInRequest request, in ExecuteCommandParams params) =>
+	params.matchImpure!LspOutAction(
 		(in ExecuteCommandParams.RunTest x) {
-			Test* test = findTest(program, x.where);
-			// TODO: actually run the test ......................................................................................
+			ProgramWithMain pwm = programWithMainFromProgram(
+				perf, alloc, server.frontend, program,
+				MainKind.testsAtUri(all: false, x.where.uri, some(x.where.line)), [BuildTarget.native(OS.none)]);
+			ArrayBuilder!Write writes;
+			ExitCodeOrSignal exit = runFromLsp(perf, alloc, server, pwm, none!(Uri[]), (Pipe pipe, in string text) {
+				add(server.lspState.stateAlloc, writes, Write(pipe, copyString(alloc, text)));
+			});
 			setInMap(
-				server.lspState.stateAlloc, server.lspState.testStates, test,
-				RunResult(ExitCode.ok, []));
+				server.lspState.stateAlloc, server.lspState.testStates, x.where,
+				RunResult(exit, finish(server.lspState.stateAlloc, writes)));
 			return LspOutAction(
 				newArray!LspOutMessage(alloc, [
 					messageForResponse(request, LspOutResult(LspOutResult.Null())),
 					LspOutMessage(LspOutRequest(1, LspOutRequestParams(CodeLensRefresh())))]));
 		});
-
-pure Test* findTest(in Program program, in UriAndPos a) => // move ?--------------------------------------------------------------------------
-	mustFindPointer!Test(moduleAtUri(program, a.uri).tests, (ref Test x) => x.range.start == a.pos);
 
 private ExitCodeOrSignal runFromLsp(
 	scope ref Perf perf,
@@ -475,18 +477,25 @@ private ExitCodeOrSignal runFromLsp(
 	ref ProgramWithMain program,
 	in Opt!(Uri[]) diagnosticsOnlyForUris,
 	in WriteCb writeCb,
+) =>
+	withFakeExtern(alloc, writeCb, (scope ref Extern extern_) =>
+		runFromLspInner(perf, alloc, server, program, diagnosticsOnlyForUris, writeCb, extern_));
+private ExitCodeOrSignal runFromLspInner( // TODO: inilne this one .................................................................................
+	scope ref Perf perf,
+	ref Alloc alloc,
+	ref Server server,
+	ref ProgramWithMain program,
+	in Opt!(Uri[]) diagnosticsOnlyForUris,
+	in WriteCb writeCb,
+	scope ref Extern extern_,
 ) {
-	// TODO: use an arena so anything allocated during interpretation is cleaned up.
-	// Or just have interpreter free things.
 	CString[1] allArgs = [cString!"/usr/bin/fakeExecutable"];
-	return withFakeExtern(alloc, writeCb, (scope ref Extern extern_) {
-		if (hasAnyDiagnostics(program))
-			writeCb(Pipe.stderr, showDiagnostics(alloc, server, program, diagnosticsOnlyForUris));
-		return hasFatalDiagnostics(program) ? ExitCodeOrSignal.error : buildAndInterpret(
-			perf, server, extern_,
-			(in string x) { writeCb(Pipe.stderr, x); },
-			program, VersionOptions(isSingleThreaded: true, stackTraceEnabled: true), diagnosticsOnlyForUris, allArgs);
-	});
+	if (hasAnyDiagnostics(program))
+		writeCb(Pipe.stderr, showDiagnostics(alloc, server, program, diagnosticsOnlyForUris));
+	return hasFatalDiagnostics(program) ? ExitCodeOrSignal.error : buildAndInterpret(
+		perf, server, extern_,
+		(in string x) { writeCb(Pipe.stderr, x); },
+		program, OS.none, VersionOptions(isSingleThreaded: true, stackTraceEnabled: true), diagnosticsOnlyForUris, allArgs);
 }
 
 private __gshared Server serverStorage = void;
@@ -573,7 +582,7 @@ private struct LspState {
 	ref inout(Alloc) stateAlloc() return scope inout =>
 		*stateAllocPtr;
 }
-alias TestStates = MutMap!(Test*, RunResult);
+alias TestStates = MutMap!(UriAndLine, RunResult);
 
 Json version_(ref Alloc alloc, in Server server, FilePath thisExecutable) {
 	version (Debug) {
@@ -784,23 +793,17 @@ private InlayHintResult getInlayHintsForProgram(
 			getShowDiagCtx(server, program, forceNoColor: true),
 			*moduleAtUri(program, params.textDocument.uri)));
 
-private Program getProgram(scope ref Perf perf, ref Alloc alloc, ref Server server, in Uri[] roots) =>
-	makeProgram(perf, alloc, server.frontend, roots);
+Program getProgram(scope ref Perf perf, ref Alloc alloc, ref Server server) =>
+	makeProgram(perf, alloc, server.frontend);
 
 ProgramWithMain getProgramForMain(
 	scope ref Perf perf,
 	ref Alloc alloc,
 	ref Server server,
-	Uri mainUri,
+	in MainKind main,
 	in BuildTarget[] targets,
 ) =>
-	makeProgramWithMain(perf, alloc, server.frontend, mainUri, targets);
-
-Program getProgramForRoots(scope ref Perf perf, ref Alloc alloc, ref Server server, in Uri[] roots) =>
-	getProgram(perf, alloc, server, roots);
-
-Program getProgramForAll(scope ref Perf perf, ref Alloc alloc, ref Server server) =>
-	getProgram(perf, alloc, server, allKnownGoodCrowUris(alloc, server.storage));
+	makeProgramWithMain(perf, alloc, server.frontend, main, targets);
 
 private Opt!Position serverGetPosition(
 	in Server server,

@@ -29,6 +29,9 @@ pure ExitCodeOrSignal exitCodeCombine(ExitCodeOrSignal a, ExitCode b) =>
 
 ExitCode okAnd(ExitCode a, in ExitCode delegate() @safe @nogc nothrow cb) =>
 	a == ExitCode.ok ? cb() : a;
+ExitCode okAnd(ExitCode a, in ExitCode delegate() @safe @nogc nothrow cb, in ExitCode delegate() @safe @nogc nothrow cb2) => //rename
+	okAnd(a, () =>
+		okAnd(cb(), cb2));
 
 ExitCodeOrSignal okAnd(ExitCodeOrSignal a, in ExitCodeOrSignal delegate() @safe @nogc nothrow cb) =>
 	a.isA!ExitCode && a.as!ExitCode == ExitCode.ok ? cb() : a;
@@ -82,3 +85,13 @@ immutable struct Signal {
 	static Signal fromUintForTaggedUnion(uint a) =>
 		Signal(cast(int) a);
 }
+
+pure bool isOk(in ExitCodeOrSignal a) =>
+	a.asExitCode == ExitCode.ok;
+
+pure ExitCode asExitCode(in ExitCodeOrSignal a) =>
+	a.match!ExitCode(
+		(ExitCode x) =>
+			x,
+		(Signal _) =>
+			ExitCode.error);

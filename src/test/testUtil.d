@@ -13,7 +13,7 @@ import interpret.debugInfo : showDataArr;
 import interpret.stacks : dataEnd, returnTempAsArrReverse, Stacks;
 import lib.server :
 	allUnknownUris,
-	getProgramForAll,
+	getProgram,
 	getShowDiagCtx,
 	Server,
 	ServerSettings,
@@ -231,7 +231,7 @@ void withIdeTest(
 ) {
 	withTestServer(test, (ref Server server) {
 		setupTestServer(test, server, uri, content);
-		Program program = getProgramForAll(test.perf, test.alloc, server);
+		Program program = getProgram(test.perf, test.alloc, server);
 		cb(getShowDiagCtx(server, program), program, moduleAtUri(program, uri));
 	});
 }
@@ -247,7 +247,7 @@ void withIdeTestMultipleFiles(
 ) {
 	withTestServer(test, (ref Server server) {
 		setupTestServer(test, server, files);
-		Program program = getProgramForAll(test.perf, test.alloc, server);
+		Program program = getProgram(test.perf, test.alloc, server);
 		cb(getShowDiagCtx(server, program), program);
 	});
 }
@@ -405,6 +405,7 @@ alias testIncludePathsSeq = AliasSeq!(
 	"crow/string.crow",
 	"crow/symbol.crow",
 	"crow/test-util.crow",
+	"crow/test-util/test-runner.crow",
 	"crow/tuple.crow",
 	"crow/version.crow",
 	"system/errno.crow",

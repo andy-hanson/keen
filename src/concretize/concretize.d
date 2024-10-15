@@ -34,7 +34,8 @@ import model.concreteModel :
 	ConcreteStructSource,
 	ConcreteType,
 	mustBeByVal;
-import model.model : allExterns, BuildTarget, BuiltinFun, CommonFuns, FunBody, MainFun, ProgramWithMain, StructBody;
+import model.model :
+	allExterns, BuildTarget, BuiltinFun, CommonFuns, FunBody, MainFun, ProgramWithMain, StructBody, Test, TestSelector;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mustHaveIndexOfPointer, small;
 import util.col.arrayBuilder : asTemporaryArray, finish;
@@ -42,7 +43,7 @@ import util.col.mutArr : asTemporaryArray, MutArr, push;
 import util.col.mutMap : mustGet;
 import util.late : late, lateSet;
 import util.perf : Perf, PerfMeasure, withMeasure;
-import util.util : castNonScope_ref, ptrTrustMe;
+import util.util : castNonScope_ref, ptrTrustMe, todo;
 import versionInfo : VersionInfo;
 
 ConcreteProgram concretize(
@@ -69,9 +70,9 @@ ConcreteProgram concretizeInner(
 	ConcretizeCtx ctx = ConcretizeCtx(
 		allocPtr,
 		versionInfo,
-		ptrTrustMe(program.program),
+		ptrTrustMe(program),
 		castNonScope_ref(showCtx.fileContentGetters),
-		allExterns(program, BuildTarget.native));
+		allExterns(program, BuildTarget.native(versionInfo.os)));
 	CommonFuns commonFuns = program.program.commonFuns;
 	lateSet(ctx.createErrorFunction_, getNonTemplateConcreteFun(ctx, commonFuns.createError));
 	lateSet(ctx.equalNat64Function_, getNonTemplateConcreteFun(ctx, commonFuns.equalNat64));
@@ -87,7 +88,7 @@ ConcreteProgram concretizeInner(
 		runFiber: getNonTemplateConcreteFun(ctx, commonFuns.runFiber),
 		rtMain: getNonTemplateConcreteFun(ctx, commonFuns.rtMain),
 		throwImpl: getNonTemplateConcreteFun(ctx, commonFuns.throwImpl),
-		userMain: concretizeMainFun(ctx, program.mainFun),
+		userMain: concretizeMainFun(ctx, commonFuns, program.mainFun),
 		gcRoot: getNonTemplateConcreteFun(ctx, commonFuns.gcRoot),
 		setGcRoot: getNonTemplateConcreteFun(ctx, commonFuns.setGcRoot),
 		popGcRoot: getNonTemplateConcreteFun(ctx, commonFuns.popGcRoot));
@@ -119,12 +120,14 @@ ConcreteProgram concretizeInner(
 	return res;
 }
 
-ConcreteFun* concretizeMainFun(ref ConcretizeCtx ctx, MainFun main) =>
+ConcreteFun* concretizeMainFun(ref ConcretizeCtx ctx, ref CommonFuns commonFuns, MainFun main) =>
 	main.match!(ConcreteFun*)(
 		(MainFun.Nat64OfArgs x) =>
 			getNonTemplateConcreteFun(ctx, x.fun),
 		(MainFun.Void x) =>
-			concreteFunForWrapMain(ctx, x.stringArray, x.fun));
+			concreteFunForWrapMain(ctx, x.fun),
+		(TestSelector x) =>
+			concreteFunForWrapMain(ctx, commonFuns.runAllTests));
 
 void finishLambdas(ref ConcretizeCtx ctx) {
 	foreach (ConcreteStruct* struct_, MutArr!ConcreteLambdaImpl impls; ctx.lambdaStructToImpls) {

@@ -22,21 +22,21 @@ debug-dmd: bin/crow-dmd
 test: unit-test crow-unit-tests test-extern-library end-to-end-test
 
 unit-test: bin/crow-debug
-	./bin/crow-debug test
+	./bin/crow-debug self-test
 
 crow-unit-tests: crow-unit-tests-interpreter crow-unit-tests-jit crow-unit-tests-aot crow-unit-tests-node-js
 crow-unit-tests-interpreter: bin/crow
-	bin/crow test/crow-unit-tests.crow
+	bin/crow test include/crow-config.json
 crow-unit-tests-jit: bin/crow
 ifdef JIT
-	bin/crow run test/crow-unit-tests.crow --jit
-	# TODO: bin/crow run test/crow-unit-tests.crow --jit --optimize
+	bin/crow test include/crow-config.json --jit
+	# TODO: test with '--optimize' too
 endif
 crow-unit-tests-aot: bin/crow
-	bin/crow run test/crow-unit-tests.crow --aot
-	bin/crow run test/crow-unit-tests.crow --aot --optimize
+	bin/crow test include/crow-config.json --aot
+	bin/crow test include/crow-config.json --aot --optimize
 crow-unit-tests-node-js: bin/crow
-	bin/crow run test/crow-unit-tests.crow --node-js
+	bin/crow test include/crow-config.json --node-js
 
 test-extern-library: bin/crow bin/libexample.so
 	bin/crow test/test-extern-library/main.crow

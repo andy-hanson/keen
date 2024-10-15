@@ -19,9 +19,15 @@ import model.ast :
 import model.model : FunDecl, FunDeclSource, SpecInst, SpecDecl, StructInst, Type, TypeParamIndex;
 import util.col.array : arrayOfSingle, count, firstZip, isEmpty, only, only2;
 import util.col.sortUtil : eachSorted, sortedIter;
+import util.comparison : compareOr, Comparison;
 import util.opt : force, has, none, Opt, optOr, some;
-import util.sourceRange : Pos, UriAndRange;
+import util.sourceRange : compareRange, Pos, UriAndRange;
+import util.uri : compareUriAlphabetically;
 import util.util : ptrTrustMe;
+
+Comparison compareUriAndRangeAlphabetically(in UriAndRange a, in UriAndRange b) =>
+	compareOr(compareUriAlphabetically(a.uri, b.uri), () =>
+		compareRange(a.range, b.range));
 
 void walkAstInOrder(
 	Ctx,

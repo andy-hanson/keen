@@ -2,6 +2,7 @@ module test.testServer;
 
 @safe @nogc pure nothrow:
 
+import frontend.lang : MainKind;
 import frontend.storage : ReadFileResult;
 import lib.server : getProgramForMain, Server, setFile, setFileAssumeUtf8, showDiagnostics;
 import model.diag : ReadFileDiag;
@@ -9,6 +10,7 @@ import model.model : BuildTarget;
 import test.testUtil : assertEqual, defaultIncludeResult, setupTestServer, Test, withTestServer;
 import util.col.array : concatenate;
 import util.uri : concatUriAndPath, parsePath, mustParseUri, Uri;
+import versionInfo : OS;
 
 void testServer(ref Test test) {
 	testCircularImportFixed(test);
@@ -27,7 +29,7 @@ void testCircularImportFixed(ref Test test) {
 
 		string showDiags() =>
 			showDiagnostics(
-				test.alloc, server, getProgramForMain(test.perf, test.alloc, server, uriA, [BuildTarget.native]));
+				test.alloc, server, getProgramForMain(test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
 
 		assertEqual(showDiags(), expectedDiags1);
 
@@ -52,7 +54,7 @@ void testFileNotFoundThenAdded(ref Test test) {
 		setupTestServer(test, server, uriA, "import\n\t./b\n\nmain void()\n\tinfo log hello");
 		string showDiags() =>
 			showDiagnostics(
-				test.alloc, server, getProgramForMain(test.perf, test.alloc, server, uriA, [BuildTarget.native]));
+				test.alloc, server, getProgramForMain(test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
 
 		string bDoesNotExist = "test:///a.crow 2:5-2:8 Imported file test:///b.crow does not exist.\n" ~
 			"test:///b.crow 1:1-1:1 This file does not exist.";
@@ -75,7 +77,7 @@ void testFileImportNotFound(ref Test test) {
 
 		string showDiags() =>
 			showDiagnostics(
-				test.alloc, server, getProgramForMain(test.perf, test.alloc, server, uriA, [BuildTarget.native]));
+				test.alloc, server, getProgramForMain(test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
 
 		string original = "import\n\t./b.txt as b string\n\nmain void()\n\t()";
 		setupTestServer(test, server, uriA, original);
@@ -96,7 +98,7 @@ void testChangeBootstrap(ref Test test) {
 		setupTestServer(test, server, uriA, "main void()\n\t()");
 		string showDiags() =>
 			showDiagnostics(
-				test.alloc, server, getProgramForMain(test.perf, test.alloc, server, uriA, [BuildTarget.native]));
+				test.alloc, server, getProgramForMain(test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
 
 		assertEqual(showDiags(), "");
 

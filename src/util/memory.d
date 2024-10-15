@@ -3,6 +3,9 @@ module util.memory;
 @safe @nogc pure nothrow:
 
 import util.alloc.alloc : Alloc, allocateUninitialized;
+version (WebAssembly) {} else {
+	import core.stdc.string : stdMemcpy = memcpy, stdMemmove = memmove, stdMemset = memset;
+}
 
 @trusted void initMemory(T)(T* ptr, const T value) {
 	*(cast(byte[T.sizeof]*) ptr) = *(cast(const byte[T.sizeof]*) &value);
@@ -11,24 +14,35 @@ import util.alloc.alloc : Alloc, allocateUninitialized;
 	*(cast(byte[T.sizeof]*) ptr) = *(cast(const byte[T.sizeof]*) &value);
 }
 
-@system ubyte* memcpy(return scope ubyte* dest, scope const ubyte* src, size_t length) =>
-	memmove(dest, src, length);
+@system ubyte* memcpy(return scope ubyte* dest, scope const ubyte* src, size_t length) {
+	version (WebAssembly) {
+		return memmove(dest, src, length);
+	} else {
+		return cast(ubyte*) stdMemcpy(dest, src, length);
+	}
+}
 
 @system ubyte* memmove(return scope ubyte* dest, scope const ubyte* src, size_t length) {
-	if (dest < src) {
-		foreach (size_t i; 0 .. length)
-			dest[i] = src[i];
-	} else {
-		foreach_reverse (size_t i; 0 .. length)
-			dest[i] = src[i];
-	}
-	return dest;
+	version (WebAssembly) {
+		if (dest < src) {
+			foreach (size_t i; 0 .. length)
+				dest[i] = src[i];
+		} else {
+			foreach_reverse (size_t i; 0 .. length)
+				dest[i] = src[i];
+		}
+		return dest;
+	} else
+		return cast(ubyte*) stdMemmove(dest, src, length);
 }
 
 @system ubyte* memset(return scope ubyte* dest, ubyte value, size_t length) {
-	foreach (size_t i; 0 .. length)
-		dest[i] = value;
-	return dest;
+	version (WebAssembly) {
+		foreach (size_t i; 0 .. length)
+			dest[i] = value;
+		return dest;
+	} else
+		return cast(ubyte*) stdMemset(dest, value, length);
 }
 
 void overwriteMemory(T)(T* ptr, T value) {

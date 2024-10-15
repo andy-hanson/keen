@@ -42,11 +42,3 @@ private MultiMap!(K, V) toMultiMap(K, V)(ref Alloc alloc, ref MutMap!(K, ArrayBu
 	MultiMap!(K, V)(
 		mapToMap!(K, V[], ArrayBuilder!(immutable V))(alloc, builder, (ref ArrayBuilder!(immutable V) arr) =>
 			finish!V(alloc, arr)));
-
-Out[] mapToArray(Out, K, V)(
-	ref Alloc alloc,
-	in MultiMap!(K, V) a,
-	in Out delegate(immutable K, immutable V[]) @safe @nogc pure nothrow cb,
-) =>
-	.mapToArray!(Out, K, V[])(alloc, a.inner, (immutable K k, ref immutable V[] v) =>
-		cb(k, v));

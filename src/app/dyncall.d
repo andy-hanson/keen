@@ -40,7 +40,7 @@ import util.writer : withStackWriterCString, withStackWriterImpure, withStackWri
 
 @trusted ExitCodeOrSignal withRealExtern(
 	ref Alloc alloc,
-	in ExitCodeOrSignal delegate(in Extern) @safe @nogc nothrow cb,
+	in ExitCodeOrSignal delegate(scope ref Extern) @safe @nogc nothrow cb,
 ) {
 	Late!DebugNames debugNames = late!DebugNames;
 	scope Extern extern_ = Extern(

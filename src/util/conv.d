@@ -26,6 +26,11 @@ uint safeToUint(ulong a) {
 	assert(isUint(a));
 	return cast(uint) a;
 }
+uint safeToUint(double a) {
+	assert(a % 1 == 0);
+	assert(a >= 0);
+	return safeToUint(cast(ulong) a);
+}
 
 long safeToLong(ulong a) {
 	assert(a <= long.max);

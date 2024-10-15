@@ -65,6 +65,7 @@ import model.model :
 	LoopBreakExpr,
 	LoopContinueExpr,
 	LoopWhileOrUntilExpr,
+	MainFun,
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
@@ -90,6 +91,7 @@ import model.model :
 	StructOrAlias,
 	Test,
 	testBodyExprRef,
+	TestSelector,
 	ThrowExpr,
 	TryExpr,
 	TryLetExpr,
@@ -114,7 +116,7 @@ import util.symbol : Symbol;
 import util.symbolSet : SymbolSet;
 import util.union_ : TaggedUnion;
 import util.uri : Uri;
-import util.util : ptrTrustMe;
+import util.util : ptrTrustMe, todo;
 import versionInfo : isVersion, VersionInfo, VersionFun;
 
 immutable struct FunOrTest {
@@ -184,8 +186,8 @@ SyncOrAsync isAsyncCall(in AllUsed a, in FunOrTest caller, in Called called) =>
 				: SyncOrAsync.sync);
 
 AllUsed allUsed(ref Alloc alloc, ref ProgramWithMain program, VersionInfo version_, SymbolSet allExterns) {
-	AllUsedBuilder res = AllUsedBuilder(ptrTrustMe(alloc), ptrTrustMe(program.program), version_, allExterns);
-	trackAllUsedInFun(res, program.mainFun.fun.decl.moduleUri, program.mainFun.fun.decl, FunUse.noInline);
+	AllUsedBuilder res = AllUsedBuilder(ptrTrustMe(alloc), ptrTrustMe(program.program), program.testSelector, version_, allExterns);
+	trackAllUsedInMain(res, program);
 
 	// Add used aliases
 	foreach (Uri moduleUri, ref MutSet!AnyDecl used; res.usedByModule) {
@@ -362,6 +364,7 @@ struct AllUsedBuilder {
 
 	Alloc* allocPtr;
 	immutable Program* program;
+	immutable TestSelector testSelector;
 	immutable VersionInfo version_;
 	immutable SymbolSet allExterns;
 	MutMap!(Uri, MutSet!AnyDecl) usedByModule;
@@ -446,6 +449,20 @@ void trackAllUsedInStructBody(ref AllUsedBuilder res, Uri from, in StructBody a)
 		(StructBody.Variant) {});
 }
 
+void trackAllUsedInMain(ref AllUsedBuilder res, ref ProgramWithMain a) {
+	FunDecl* fun = actualMainFun(a);
+	trackAllUsedInFun(res, fun.moduleUri, fun, FunUse.noInline);
+}
+
+public FunDecl* actualMainFun(ref ProgramWithMain a) => // TODO:NAME? -------------------------------------------------------------------
+	a.mainFun.matchIn!(FunDecl*)(
+		(in MainFun.Nat64OfArgs x) =>
+			x.fun.decl,
+		(in MainFun.Void x) =>
+			x.fun.decl,
+		(in TestSelector _) =>
+			a.program.commonFuns.runAllTests.decl);
+
 enum FunUse { regular, noInline }
 void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use) {
 	// An inlined function isn't considered 'used', but its type is
@@ -490,7 +507,7 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 			},
 			(BuiltinFun x) {
 				if (x.isA!(BuiltinFun.AllTests)) {
-					eachTest(*res.program, res.allExterns, (Test* test) {
+					eachTest(*res.program, res.allExterns, res.testSelector, (Test* test) {
 						trackAllUsedInTest(res, from, test);
 					});
 				} else if (x.isA!(BuiltinFun.CallLambda))

@@ -7,13 +7,19 @@ import frontend.check.funsForStruct : funDeclWithBody;
 import frontend.check.getCommonTypes : bogusStructDecl;
 import frontend.check.inferringType : typesAreCorrespondingStructInsts;
 import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateStructNeverDelay;
+import frontend.lang : MainKind;
+import frontend.storage : LineAndCharacterGetters;
 import model.ast : ModifierAst, NameAndRange, VarDeclAst, TypeAst;
 import model.diag : Diag, UriAndDiagnostic;
 import model.model :
+	allExternsForMainConfig,
 	assertNonVariadic,
+	BuildTarget,
 	CommonFuns,
 	CommonFunsAndDiagnostics,
 	CommonTypes,
+	Config,
+	configAtUri,
 	Destructure,
 	emptySpecImpls,
 	emptyTypeArgs,
@@ -39,6 +45,8 @@ import model.model :
 	StructInst,
 	StructOrAlias,
 	StructDecl,
+	Test,
+	TestSelector,
 	Type,
 	TypeParamIndex,
 	TypeParams,
@@ -48,17 +56,17 @@ import model.model :
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.col.array :
-	arraysCorrespond, copyArray, emptySmallArray, findIndex, isEmpty, map, sizeEq, small;
+	arraysCorrespond, copyArray, emptySmallArray, findIndex, findPointer, isEmpty, map, optOnly, sizeEq, small;
 import util.col.arrayBuilder : add, ArrayBuilder, smallFinish;
 import util.col.enumMap : EnumMap, enumMapMapValues;
 import util.late : late, Late, lateGet, lateIsSet, lateSet;
 import util.memory : allocate;
 import util.opt : force, has, none, MutOpt, Opt, some, someMut;
-import util.sourceRange : Range, UriAndRange;
+import util.sourceRange : LineAndCharacterGetter, PosKind, Range, UriAndRange;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet, symbolSetDifference;
 import util.uri : Uri;
-import util.util : castNonScope_ref;
+import util.util : castNonScope_ref, todo;
 
 CommonFunsAndDiagnostics getCommonFuns(
 	ref Alloc alloc,
@@ -157,6 +165,7 @@ CommonFunsAndDiagnostics getCommonFuns(
 		newJsonFromPairs: instantiateNonTemplateFun(ctx, getFunDecl(
 			alloc, diagsBuilder, *modules[CommonModule.json], symbol!"new",
 			TypeParamsAndSig(emptyTypeParams, jsonType, ParamsShort(&newJsonPairsParams), countSpecs: 0))),
+		runAllTests: getFun(CommonModule.testRunner, symbol!"run-all-tests", Type(commonTypes.void_), []),
 		runFiber: getFun(
 			CommonModule.runtime, symbol!"run-fiber",
 			Type(commonTypes.void_),
@@ -195,21 +204,43 @@ MainFunAndDiagnostics getMainFunAndDiagnostics(
 	ref Alloc alloc,
 	InstantiateCtx ctx,
 	ref Program program,
-	Uri mainUri,
-	SymbolSet allExterns,
+	in LineAndCharacterGetters lcgs,
+	in MainKind kind,
+	in BuildTarget[] targets,
 ) {
 	ArrayBuilder!UriAndDiagnostic diagsBuilder;
 	ref CommonTypes commonTypes() => program.commonTypes;
-	Type stringArrayType = Type(instantiateStructNeverDelay(ctx, commonTypes.array, [Type(commonTypes.string_)]));
-	MainFun res = getMainFun(
-		alloc, ctx, diagsBuilder, *moduleAtUri(program, mainUri),
-		Type(commonTypes.integrals.nat64), stringArrayType, Type(commonTypes.void_));
-	SymbolSet mainExterns = res.fun.decl.externs;
-	if (!allExterns.containsAll(mainExterns))
+	MainFun res = kind.matchIn!MainFun(
+		(in MainKind.MainFunction x) =>
+			getMainFun(alloc, ctx, diagsBuilder, *moduleAtUri(program, x.uri), commonTypes),
+		(in MainKind.TestsInConfig x) {
+			Config* config = configAtUri(program, x.configUri);
+			return MainFun(x.all ? TestSelector.all(config) : TestSelector(config));
+		},
+		(in MainKind.TestsAtUri x) =>
+			MainFun(has(x.line)
+				? testAtLine(alloc, diagsBuilder, program, lcgs, x.crowUri, force(x.line))
+				: x.all
+				? TestSelector.all(moduleAtUri(program, x.crowUri).config)
+				: TestSelector(x.crowUri)));
+	SymbolSet availableExterns = allExternsForMainConfig(*res.mainConfig(program), optOnly(targets));
+	if (!availableExterns.containsAll(res.requiredExterns))
 		add(alloc, diagsBuilder, UriAndDiagnostic(
-			res.fun.decl.range,
-			Diag(Diag.MainMissingExterns(symbolSetDifference(alloc, mainExterns, allExterns)))));
+			res.rangeForDiag,
+			Diag(Diag.MainMissingExterns(symbolSetDifference(alloc, res.requiredExterns, availableExterns)))));
 	return MainFunAndDiagnostics(res, smallFinish(alloc, diagsBuilder));
+}
+
+TestSelector testAtLine(ref Alloc alloc, scope ref ArrayBuilder!UriAndDiagnostic diagsBuilder, in Program program, in LineAndCharacterGetters lcgs, Uri uri, uint line) {
+	Module* module_ = moduleAtUri(program, uri);
+	LineAndCharacterGetter lcg = lcgs[uri];
+	Opt!(Test*) test = findPointer!Test(module_.tests, (in Test x) => lcg[x.range.range.start, PosKind.startOfRange].line == line);
+	if (has(test))
+		return TestSelector(force(test));
+	else {
+		todo!void("DIAG"); // ----------------------------------------------------------------------------------------------------------
+		return TestSelector(uri);
+	}
 }
 
 Destructure makeParam(ref Alloc alloc, ParamShort param) =>
@@ -368,19 +399,17 @@ MainFun getMainFun(
 	InstantiateCtx ctx,
 	scope ref ArrayBuilder!UriAndDiagnostic diagsBuilder,
 	ref Module mainModule,
-	Type nat64Type,
-	Type stringArrayType,
-	Type voidType,
+	ref CommonTypes commonTypes,
 ) {
-	scope ParamShort[] argsParamsInner = [param!"args"(stringArrayType)];
+	scope ParamShort[] argsParamsInner = [param!"args"(Type(commonTypes.stringArray))];
 	ParamsShort argsParams = ParamsShort(small!ParamShort(castNonScope_ref(argsParamsInner)));
 	FunDeclAndSigIndex decl = getFunDeclMulti(alloc, diagsBuilder, mainModule, symbol!"main", [
-		TypeParamsAndSig(emptyTypeParams, voidType, ParamsShort(emptySmallArray!ParamShort), countSpecs: 0),
-		TypeParamsAndSig(emptyTypeParams, nat64Type, argsParams, countSpecs: 0)]);
+		TypeParamsAndSig(emptyTypeParams, Type(commonTypes.void_), ParamsShort(emptySmallArray!ParamShort), countSpecs: 0),
+		TypeParamsAndSig(emptyTypeParams, Type(commonTypes.integrals.nat64), argsParams, countSpecs: 0)]);
 	FunInst* inst = instantiateNonTemplateFun(ctx, decl.decl);
 	final switch (decl.sigIndex) {
 		case 0:
-			return MainFun(MainFun.Void(stringArrayType.as!(StructInst*), inst));
+			return MainFun(MainFun.Void(inst));
 		case 1:
 			return MainFun(MainFun.Nat64OfArgs(inst));
 	}

@@ -1298,7 +1298,7 @@ JsExpr translateEnumOrFlagsFunction(
 
 JsExpr translateAllTests(ref TranslateModuleCtx ctx, in Source source) =>
 	genArray(source, buildArray!JsExpr(ctx.alloc, (scope ref Builder!JsExpr out_) {
-		eachTest(ctx.program, ctx.allExterns, (Test* test) {
+		eachTest(ctx.program, ctx.allExterns, ctx.ctx.programWithMainPtr.testSelector, (Test* test) {
 			out_ ~= translateTestReference(ctx, source, test);
 		});
 	}));

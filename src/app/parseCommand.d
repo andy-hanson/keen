@@ -3,7 +3,8 @@ module app.parseCommand;
 @safe @nogc pure nothrow:
 
 import app.command : BuildOptions, Command, CommandKind, CommandOptions, RunOptions, SingleBuildOutput;
-import frontend.lang : CCompileOptions, CVersion, JitOptions, OptimizationLevel;
+import frontend.lang : CCompileOptions, CVersion, JitOptions, MainKind, OptimizationLevel;
+import frontend.storage : fileType, FileType; // TODO: move these? ------------------------------------------------------------------
 import frontend.parse.lexToken : NatAndOverflow, takeNat;
 import lib.server : PrintKind;
 import util.alloc.alloc : Alloc;
@@ -37,7 +38,7 @@ import util.uri :
 	toUri,
 	Uri,
 	uriIsFile;
-import util.util : castNonScope, enumEach, optEnumOfString, stringOfEnum, typeAs;
+import util.util : castNonScope, enumEach, optEnumOfString, stringOfEnum, todo, typeAs;
 import util.writer : makeStringWithWriter, writeNewline, writeQuotedString, Writer, writeWithCommasAndAnd;
 import versionInfo : OS, VersionOptions;
 
@@ -46,10 +47,11 @@ Command parseCommand(ref Alloc alloc, FilePath cwd, OS os, CString[] args) {
 	if (endsWith(arg0, ".crow"))
 		return Command(
 			CommandKind(CommandKind.Run(
-				parseUriWithCwd(cwd, arg0), RunOptions(RunOptions.Interpret(VersionOptions.default_)), args[1 .. $])),
+				MainKind.fun(parseUriWithCwd(cwd, arg0), args[1 .. $]),
+				RunOptions(RunOptions.Interpret(fakeExtern: false, version_: VersionOptions.default_)))),
 			CommandOptions()) ;
 	else {
-		Opt!CommandName optName = optEnumOfString!CommandName(arg0);
+		Opt!CommandName optName = commandName(arg0);
 		return has(optName)
 			? parseCommandFromName(alloc, cwd, os, force(optName), args[1 .. $])
 			: Command(
@@ -99,8 +101,13 @@ enum CommandName {
 	lsp,
 	print,
 	run,
+	selfTest,
 	test,
 	version_,
+}
+Opt!CommandName commandName(in string a) {
+	Opt!CommandName res = optEnumOfString!CommandName(a);
+	return has(res) ? res : a == "self-test" ? some(CommandName.selfTest) : res;
 }
 
 // We always combine this with the commandName, so no need to include it here
@@ -271,15 +278,22 @@ CommandKind parseCommandKind(
 		case CommandName.print:
 			return parsePrintCommand(alloc, cwd, diags, args);
 		case CommandName.run:
-			RunOptions options = parseRunOptions(alloc, os, diags, args.parts);
+			RunOptions options = parseRunOptions(alloc, os, diags, args.parts, allowAll: false).runOptions;
 			return CommandKind(CommandKind.Run(
-				parseMainUri(alloc, cwd, diags, args.beforeFirstPart),
-				options,
-				optOrDefault!(CString[])(castNonScope(args.afterDashDash), () => typeAs!(CString[])([]))));
-		case CommandName.test:
+				MainKind.fun(
+					parseMainUri(alloc, cwd, diags, args.beforeFirstPart),
+					optOrDefault!(CString[])(castNonScope(args.afterDashDash), () => typeAs!(CString[])([]))),
+				options));
+		case CommandName.selfTest:
 			expectEmptyParts(diags, args.parts);
 			expectEmptyAfterDashDash(diags, args.afterDashDash);
-			return CommandKind(CommandKind.Test(copyArray(alloc, args.beforeFirstPart)));
+			return CommandKind(CommandKind.SelfTest(copyArray(alloc, args.beforeFirstPart)));
+		case CommandName.test:
+			RunOptionsAndAll options = parseRunOptions(alloc, os, diags, args.parts, allowAll: true);
+			expectEmptyAfterDashDash(diags, args.afterDashDash);
+			return CommandKind(CommandKind.Run(
+				parseMainKindForTest(alloc, cwd, diags, args.beforeFirstPart, options.all),
+				options.runOptions));
 		case CommandName.version_:
 			expectAllEmpty(diags, args);
 			return CommandKind(CommandKind.Version());
@@ -310,10 +324,41 @@ public Extension defaultExecutableExtension(OS os) {
 		case OS.linux:
 			return Extension.none;
 		case OS.nodeJs:
+		case OS.none:
 		case OS.web:
 			assert(false);
 		case OS.windows:
 			return Extension.exe;
+	}
+}
+
+MainKind parseMainKindForTest(ref Alloc alloc, FilePath cwd, scope ref Diags diags, in CString[] args, bool all) {
+	Opt!uint line = args.length == 2
+		? parseLine(args[1])
+		: none!uint;
+
+	if (args.length == 2 && !has(line))
+		todo!void("DIAG"); // ------------------------------------------------------------------------------------------------------------------
+
+	if (args.length != 1 && args.length != 2) {
+		diags ~= Diag(Diag.NeedsSinglePath(args.length));
+		return MainKind.testsAtUri(false, Uri.empty, none!uint); // dummy return value
+	} else {
+		string argStr = stringOfCString(args[0]);
+		Uri uri = parseUriWithCwd(cwd, argStr);
+		final switch (fileType(uri)) {
+			case FileType.crow:
+				if (all && has(line))
+					todo!void("DIAG"); // ------------------------------------------------------------------------------------------
+				return MainKind.testsAtUri(all, uri, line);
+			case FileType.crowConfig:
+				if (has(line))
+					todo!void("DIAG"); // -------------------------------------------------------------------------------------------------
+				return MainKind.testsInConfig(all, uri);
+			case FileType.other:
+				todo!void("DIAG"); // -----------------------------------------------------------------------------------------------------
+				return MainKind.testsAtUri(false, Uri.empty, none!uint); // dummy return value
+		}
 	}
 }
 
@@ -429,22 +474,24 @@ public Opt!LineAndColumn parseLineAndColumn(in CString a) {
 	Opt!uint line = convertFrom1Indexed(tryTakeNat(ptr));
 	bool colon = tryTakeChar(ptr, ':');
 	Opt!uint column = convertFrom1Indexed(tryTakeNat(ptr));
-	return has(line) && colon && has(column) && *ptr == '\0'
-		? some(LineAndColumn(force(line), force(column)))
-		: none!LineAndColumn;
+	return optIf(has(line) && colon && has(column) && *ptr == '\0', () =>
+		LineAndColumn(force(line), force(column)));
+}
+Opt!uint parseLine(in CString a) {
+	MutCString ptr = a;
+	Opt!uint line = convertFrom1Indexed(tryTakeNat(ptr));
+	return *ptr == '\0' ? line : none!uint;
 }
 
 Opt!uint convertFrom1Indexed(in Opt!uint a) =>
-	has(a) && force(a) != 0
-		? some(force(a) - 1)
-		: none!uint;
+	optIf(has(a) && force(a) != 0, () =>
+		force(a) - 1);
 
 Opt!uint tryTakeNat(ref MutCString ptr) {
 	if (isDecimalDigit(*ptr)) {
 		NatAndOverflow res = takeNat(ptr, 10);
-		return !res.overflow && isUint(res.value)
-			? some(safeToUint(res.value))
-			: none!uint;
+		return optIf(!res.overflow && isUint(res.value), () =>
+			safeToUint(res.value));
 	} else
 		return none!uint;
 }
@@ -457,23 +504,35 @@ CommandKind parseBuildCommand(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 		parseBuildOptions(alloc, cwd, diags, os, args.parts, main)));
 }
 
-RunOptions parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, in ArgsPart[] argParts) {
+immutable struct RunOptionsAndAll {
+	RunOptions runOptions;
+	bool all;
+}
+RunOptionsAndAll parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, in ArgsPart[] argParts, bool allowAll) {
 	bool noStackTrace = false;
 	bool aot = false;
 	bool jit = false;
 	bool nodeJs = false;
 	bool optimize = false;
 	bool singleThreaded = false;
+	bool all = false;
+	bool fakeExtern = false;
 	foreach (ArgsPart part; argParts) {
 		expectFlag(diags, part);
 		switch (stringOfCString(part.tag)) {
-			case "--no-stack-trace":
-				if (noStackTrace) diags ~= Diag(Diag.DuplicatePart(part.tag));
-				noStackTrace = true;
+			case "--all":
+				if (allowAll)
+					all = true;
+				else
+					diags ~= Diag(Diag.UnexpectedPart(part.tag));
 				break;
 			case "--aot":
 				if (aot) diags ~= Diag(Diag.DuplicatePart(part.tag));
 				aot = true;
+				break;
+			case "--fake-extern":
+				if (fakeExtern) diags ~= Diag(Diag.DuplicatePart(part.tag));
+				fakeExtern = true;
 				break;
 			case "--jit":
 				if (jit) diags ~= Diag(Diag.DuplicatePart(part.tag));
@@ -482,6 +541,10 @@ RunOptions parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, in Arg
 			case "--node-js":
 				if (nodeJs) diags ~= Diag(Diag.DuplicatePart(part.tag));
 				nodeJs = true;
+				break;
+			case "--no-stack-trace":
+				if (noStackTrace) diags ~= Diag(Diag.DuplicatePart(part.tag));
+				noStackTrace = true;
 				break;
 			case "--optimize":
 				if (optimize) diags ~= Diag(Diag.DuplicatePart(part.tag));
@@ -496,6 +559,10 @@ RunOptions parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, in Arg
 		}
 	}
 
+	if (fakeExtern && (aot || jit || nodeJs))
+		todo!void("DIAG: --fake-extern only works with interpreter"); // ---------------------------------------------------
+	if (fakeExtern && singleThreaded)
+		todo!void("REDUNDANT"); // -000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 	if ((uint(aot) + jit + nodeJs) > 1)
 		diags ~= Diag(Diag.RunKindIncompatible(aot: aot, jit: jit, nodeJs: nodeJs));
 	if (!aot && !jit && optimize)
@@ -504,8 +571,8 @@ RunOptions parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, in Arg
 		diags ~= Diag(Diag.RunArgNotSupportedInNodeJs(
 			singleThreaded ? "--single-threaded" : optimize ? "--optimize" : "--no-stack-trace"));
 
-	VersionOptions version_ = VersionOptions(isSingleThreaded: singleThreaded, stackTraceEnabled: !noStackTrace);
-	return aot
+	VersionOptions version_ = VersionOptions(isSingleThreaded: fakeExtern || singleThreaded, stackTraceEnabled: !noStackTrace);
+	RunOptions res = aot
 		? RunOptions(RunOptions.Aot(
 			version_,
 			CCompileOptions(optimize ? OptimizationLevel.o2 : OptimizationLevel.none, CVersion.c11)))
@@ -513,7 +580,8 @@ RunOptions parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, in Arg
 		? RunOptions(RunOptions.Jit(version_, optimize ? JitOptions(OptimizationLevel.o2) : JitOptions()))
 		: nodeJs
 		? RunOptions(RunOptions.NodeJs())
-		: RunOptions(RunOptions.Interpret(version_));
+		: RunOptions(RunOptions.Interpret(fakeExtern, version_));
+	return RunOptionsAndAll(res, all);
 }
 
 void expectFlag(scope ref Diags diags, ArgsPart part) {
@@ -752,10 +820,11 @@ bool isInternalCommand(CommandName name) {
 		case CommandName.document:
 		case CommandName.lsp:
 		case CommandName.run:
+		case CommandName.test:
 		case CommandName.version_:
 			return false;
 		case CommandName.print:
-		case CommandName.test:
+		case CommandName.selfTest:
 			return true;
 	}
 }
@@ -796,8 +865,10 @@ string describeCommandOptions(CommandName name) {
 			return "[kind] PATH [LINE:COLUMN]";
 		case CommandName.run:
 			return "PATH [--aot] [--optimize] -- [program-args]";
-		case CommandName.test:
+		case CommandName.selfTest:
 			return "[name]";
+		case CommandName.test:
+			return "PATH [line number] [--all]";
 		case CommandName.version_:
 			return "";
 	}
@@ -845,9 +916,14 @@ string commandDescription(CommandName name) {
 				"\n\t--optimize : Use with '--aot'. Enables optimizations." ~
 				buildRunCommonOptions ~
 				"\nWith no options, 'crow run foo.crow' is equivalent to 'crow foo.crow'.";
-		case CommandName.test:
-			return "Internal command to run unit tests." ~
+		case CommandName.selfTest:
+			return "Runs the 'crow' executable's internal tests." ~
 				"\nIt optionally takes the name of the test suite to run (see 'test.d' for a list).";
+		case CommandName.test:
+			return "Runs tests at PATH." ~
+				"\nIf PATH is a 'crow-config' file, runs all tests in all '.crow' files in its directory." ~
+				"\nIf PATH is a file, runs tests in that file. You can also specify the line number of a 'test' keyword to run only that test." ~
+				"\nIf '--all' is specified, runs all tests in reachable files, including library tests.";
 		case CommandName.version_:
 			return "Prints information about the version of 'crow'.\nNo options.";
 	}

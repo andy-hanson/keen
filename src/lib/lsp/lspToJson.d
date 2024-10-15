@@ -45,14 +45,14 @@ import lib.lsp.lspTypes :
 	Write;
 import util.alloc.alloc : Alloc;
 import util.col.array : map;
-import util.col.multiMap : mapToArray, MultiMap;
-import util.exitCode : ExitCode;
+import util.col.map : KeyValuePair;
+import util.exitCode : ExitCode, Signal;
 import util.json : field, Json, jsonBool, jsonList, jsonNull, jsonObject, jsonString, optionalField;
 import util.opt : force, has, Opt;
 import util.sourceRange :
 	jsonOfLineAndCharacter,
 	jsonOfLineAndCharacterRange,
-	jsonOfUriAndPos,
+	jsonOfUriAndLine,
 	jsonOfUriAndLineAndCharacterRange,
 	LineAndCharacterGetter,
 	Pos,
@@ -147,7 +147,11 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 
 Json jsonOfRunResult(ref Alloc alloc, in RunResult a) =>
 	jsonObject(alloc, [
-		field!"exitCode"(a.exitCode.value),
+		field!"exit"(a.exit.match!Json(
+			(ExitCode x) =>
+				jsonObject(alloc, [field!"exit-code"(x.value)]),
+			(Signal x) =>
+				jsonObject(alloc, [field!"signal"(x.signal)]))),
 		field!"writes"(jsonList(map(alloc, a.writes, (ref Write x) =>
 			jsonOfWrite(alloc, x))))]);
 
@@ -208,7 +212,7 @@ Json jsonOfCommand(ref Alloc alloc, ref Command a) =>
 					field!"title"(a.title),
 					optionalField!"tooltip"(a.tooltip),
 					field!"command"("run-test"),
-					field!"arguments"(jsonList(alloc, [jsonOfUriAndPos(alloc, x.where)]))]))
+					field!"arguments"(jsonList(alloc, [jsonOfUriAndLine(alloc, x.where)]))]))
 		: jsonObject(alloc, [
 			field!"title"(a.title),
 			optionalField!"tooltip"(a.tooltip)]);
@@ -255,9 +259,9 @@ Json jsonOfDiagnostic(ref Alloc alloc, in LineAndCharacterGetter lcg, LspDiagnos
 public Json jsonOfWorkspaceEdit(ref Alloc alloc, in LineAndCharacterGetters lcg, in WorkspaceEdit a) =>
 	jsonObject(alloc, [field!"changes"(jsonOfWorkspaceEditChanges(alloc, lcg, a.changes))]);
 
-Json jsonOfWorkspaceEditChanges(ref Alloc alloc, in LineAndCharacterGetters lcg, in MultiMap!(Uri, TextEdit) a) =>
-	Json(mapToArray!(Json.ObjectField, Uri, TextEdit)(alloc, a, (Uri uri, immutable TextEdit[] changes) =>
-		Json.ObjectField(symbolOfUri(uri), jsonOfTextEdits(alloc, lcg[uri], changes))));
+Json jsonOfWorkspaceEditChanges(ref Alloc alloc, in LineAndCharacterGetters lcg, in KeyValuePair!(Uri, TextEdit[])[] a) =>
+	Json(map(alloc, a, (ref const KeyValuePair!(Uri, TextEdit[]) x) =>
+		Json.ObjectField(symbolOfUri(x.key), jsonOfTextEdits(alloc, lcg[x.key], x.value))));
 
 Json jsonOfTextEdits(ref Alloc alloc, in LineAndCharacterGetter lcg, in TextEdit[] a) =>
 	jsonList(map!(Json, TextEdit)(alloc, a, (ref TextEdit x) =>

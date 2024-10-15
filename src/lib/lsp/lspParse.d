@@ -51,7 +51,7 @@ import util.col.array : map;
 import util.json : get, hasKey, Json;
 import util.jsonParse : asUint;
 import util.opt : none, Opt, optIf, some;
-import util.sourceRange : LineAndCharacter, LineAndCharacterRange, uriAndPosOfJson, UriAndPos;
+import util.sourceRange : LineAndCharacter, LineAndCharacterRange, uriAndLineOfJson, UriAndPos;
 import util.uri : mustParseUri, Uri;
 import util.util : enumOfString;
 
@@ -213,4 +213,4 @@ ExecuteCommandParams parseExecuteCommandParams(ref Alloc alloc, in Json params) 
 	}
 }
 ExecuteCommandParams.RunTest parseRunTest(ref Alloc alloc, in Json a) =>
-	ExecuteCommandParams.RunTest(uriAndPosOfJson(a));
+	ExecuteCommandParams.RunTest(uriAndLineOfJson(a));
