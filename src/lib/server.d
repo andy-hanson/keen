@@ -65,7 +65,7 @@ import lib.lsp.lspToJson :
 	jsonOfDocumentHighlight,
 	jsonOfFoldingRanges,
 	jsonOfHover,
-	jsonOfInlayHintResult,
+	jsonOfInlayHints,
 	jsonOfReferences,
 	jsonOfSignatureHelp,
 	jsonOfWorkspaceEdit;
@@ -95,8 +95,8 @@ import lib.lsp.lspTypes :
 	InitializedParams,
 	InitializeParams,
 	InitializeResult,
+	InlayHint,
 	InlayHintParams,
-	InlayHintResult,
 	LspDiagnostic,
 	LspDiagnosticSeverity,
 	LspInMessage,
@@ -780,18 +780,18 @@ private Opt!Hover getHoverForProgram(
 		getHover(alloc, getShowDiagCtx(server, program, forceNoColor: true), force(position)));
 }
 
-private InlayHintResult getInlayHintsForProgram(
+private InlayHint[] getInlayHintsForProgram(
 	ref Alloc alloc,
 	in Server server,
 	in Program program,
 	in InlayHintParams params,
 ) =>
-	InlayHintResult(
-		params.textDocument.uri,
-		getInlayHints(
-			alloc,
-			getShowDiagCtx(server, program, forceNoColor: true),
-			*moduleAtUri(program, params.textDocument.uri)));
+	getInlayHints(
+		alloc,
+		program,
+		getShowDiagCtx(server, program, forceNoColor: true),
+		server.lspState.testStates,
+		*moduleAtUri(program, params.textDocument.uri));
 
 Program getProgram(scope ref Perf perf, ref Alloc alloc, ref Server server) =>
 	makeProgram(perf, alloc, server.frontend);
@@ -972,9 +972,8 @@ Json jsonForPrintIdeWholeFile(
 			CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
 			return jsonOfFoldingRanges(alloc, foldingRangesOfAst(alloc, *file));
 		case PrintKind.IdeWholeFile.Kind.inlayHints:
-			return jsonOfInlayHintResult(
+			return jsonOfInlayHints(
 				alloc,
-				server.lineAndCharacterGetters,
 				getInlayHintsForProgram(alloc, server, program, InlayHintParams(TextDocumentIdentifier(uri))));
 		case PrintKind.IdeWholeFile.Kind.tokens:
 			CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);

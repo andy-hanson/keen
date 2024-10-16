@@ -90,9 +90,11 @@ Json.ObjectField optionalField(string name)(bool isPresent, in Json delegate() @
 	field!name(isPresent ? cb() : jsonNull);
 
 Json.ObjectField optionalField(string name)(in Opt!uint a) =>
-	optionalField!(name, uint)(a, (in uint x) => Json(x));
+	field!name(has(a) ? Json(force(a)) : jsonNull);
 Json.ObjectField optionalField(string name)(in Opt!string a) =>
-	optionalField!(name, string)(a, (in string x) => jsonString(x));
+	field!name(has(a) ? jsonString(force(a)) : jsonNull);
+Json.ObjectField optionalField(string name, T)(Opt!T a, in Json delegate(T) @safe @nogc pure nothrow cb) =>
+	field!name(has(a) ? cb(force(a)) : jsonNull);
 Json.ObjectField optionalField(string name, T)(in Opt!T a, in Json delegate(in T) @safe @nogc pure nothrow cb) =>
 	field!name(has(a) ? cb(force(a)) : jsonNull);
 

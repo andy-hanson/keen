@@ -2,13 +2,17 @@ module frontend.ide.getInlayHints;
 
 @safe @nogc pure nothrow:
 
+import frontend.ide.getCodeLenses : isEmpty, UrisOrCount, withImportsAndReExportsOf, writeUrisOrCount;
 import frontend.showModel : ShowModelCtx, writeTypeUnquoted;
-import lib.lsp.lspTypes : InlayHint, InlayHintKind;
+import lib.lsp.lspTypes : Command, ExecuteCommandParams, InlayHint, InlayHintKind, InlayHintLabel, InlayHintLabelPart, RunResult;
+import lib.server : TestStates; // TODO: CIRCULAR IMPORT ---------------------------------------------------------------------------
 import model.ast : DestructureAst;
 import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
+	AnyDecl,
 	bestCasePurity,
 	Destructure,
+	eachDecl,
 	eachDescendentExprIncluding,
 	Expr,
 	ExprRef,
@@ -21,29 +25,75 @@ import model.model :
 	MatchUnionExpr,
 	Module,
 	paramsArray,
+	Program,
 	Purity,
-	Type;
+	Test,
+	Type,
+	Visibility;
 import util.alloc.alloc : Alloc;
-import util.col.arrayBuilder : buildArray, Builder;
-import util.opt : has, none;
-import util.writer : makeStringWithWriter, Writer;
+import util.col.array : isEmpty, newArray;
+import util.col.arrayBuilder : buildSortedArray, Builder;
+import util.comparison : Comparison;
+import util.exitCode : isOk;
+import util.opt : force, has, none, Opt, some;
+import util.sourceRange : compareLineAndCharacter, endOfLine, LineAndCharacter, lineOfPos, Pos, PosKind, UriAndLine, UriAndPos;
+import util.uri : Uri;
 import util.util : stringOfEnum;
+import util.writer : makeStringWithWriter, Writer;
 
-InlayHint[] getInlayHints(ref Alloc alloc, in ShowModelCtx showCtx, in Module module_) =>
-	buildArray!InlayHint(alloc, (scope ref Builder!InlayHint out_) {
-		foreach (ref FunDecl x; module_.funs)
-			if (x.source.isA!(FunDeclSource.Ast))
-				getInlayHintsForFun(alloc, out_, showCtx, x);
+InlayHint[] getInlayHints(ref Alloc alloc, in Program program, in ShowModelCtx showCtx, in TestStates testStates, in Module module_) =>
+	buildSortedArray!(InlayHint, compareInlayHints)(alloc, (scope ref Builder!InlayHint out_) {
+		eachDecl(module_, (AnyDecl x) {
+			if (x.visibility != Visibility.private_)
+				getInlayHintsForDecl(alloc, out_, program, showCtx, testStates, x);
+		});
 	});
 
 private:
 
-void getInlayHintsForFun(ref Alloc alloc, scope ref Builder!InlayHint out_, in ShowModelCtx showCtx, ref FunDecl fun) {
-	scope TypeContainer typeContainer = TypeContainer(&fun);
+Comparison compareInlayHints(in InlayHint a, in InlayHint b) =>
+	compareLineAndCharacter(a.position, b.position);
+
+void getInlayHintsForDecl(
+	ref Alloc alloc,
+	scope ref Builder!InlayHint out_,
+	in Program program,
+	in ShowModelCtx showCtx,
+	in TestStates testStates,
+	AnyDecl decl,
+) {
+	Uri uri = decl.moduleUri;
+	withImportsAndReExportsOf(program, decl, maxUris: 4, cb: (in UrisOrCount imports, in UrisOrCount reExports) {
+		if (!isEmpty(imports) || !isEmpty(reExports)) {
+			string message = makeStringWithWriter(alloc, (scope ref Writer writer) {
+				writeUrisOrCount(writer, "Exported by", uri, reExports);
+				if (!isEmpty(imports)) {
+					if (!isEmpty(reExports)) writer ~= "; ";
+					writeUrisOrCount(writer, "Used by", uri, imports);
+				}
+			});
+			import util.writer : debugLogWithWriter; // --------------------------------------------------------------------------------
+			debugLogWithWriter((scope ref Writer writer) {
+				writer ~= "Adding an inlay hint for a decl ";
+				writer ~= decl.name;
+			});
+			out_ ~= InlayHint(endOfLineForDecl(showCtx, decl), InlayHintLabel(message), InlayHintKind.none, paddingLeft: true, paddingRight: false);
+		}
+	});
+
+	if (decl.isA!(FunDecl*))
+		getInlayHintsForFun(alloc, out_, showCtx, decl.as!(FunDecl*));
+	else if (decl.isA!(Test*) && false) // 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+		getInlayHintsForTest(alloc, out_, showCtx, testStates, decl.as!(Test*));
+}
+
+void getInlayHintsForFun(ref Alloc alloc, scope ref Builder!InlayHint out_, in ShowModelCtx showCtx, FunDecl* fun) {
+	if (!fun.source.isA!(FunDeclSource.Ast)) return;
+	scope TypeContainer typeContainer = TypeContainer(fun);
 	foreach (ref Destructure param; paramsArray(fun.params))
 		getInlayHintsForDestructure(alloc, out_, showCtx, typeContainer, param);
 	if (fun.body_.isA!Expr)
-		eachDescendentExprIncluding(showCtx.commonTypes, funBodyExprRef(&fun), (ExprRef expr) {
+		eachDescendentExprIncluding(showCtx.commonTypes, funBodyExprRef(fun), (ExprRef expr) {
 			eachDestructureAtExprForInlay(*expr.expr, (Destructure destructure) {
 				getInlayHintsForDestructure(alloc, out_, showCtx, typeContainer, destructure);
 			});
@@ -69,6 +119,8 @@ void getInlayHintsForDestructure(
 	in TypeContainer typeContainer,
 	in Destructure a,
 ) {
+	LineAndCharacter toLineAndCharacter(Pos pos) =>
+		showCtx.lineAndCharacterGetters[typeContainer.moduleUri][pos, PosKind.startOfRange];
 	a.matchIn!void(
 		(in Destructure.Ignore x) {},
 		(in Local x) {
@@ -76,10 +128,10 @@ void getInlayHintsForDestructure(
 				DestructureAst.Single* ast = x.source.as!(DestructureAst.Single*);
 				if (!has(ast.type)) {
 					out_ ~= InlayHint(
-						ast.name.range.end,
-						makeStringWithWriter(alloc, (scope ref Writer writer) {
+						toLineAndCharacter(ast.name.range.end),
+						InlayHintLabel(makeStringWithWriter(alloc, (scope ref Writer writer) {
 							writeTypeUnquoted(writer, showCtx, TypeWithContainer(x.type, typeContainer));
-						}),
+						})),
 						InlayHintKind.Type,
 						paddingLeft: true,
 						paddingRight: false);
@@ -87,8 +139,8 @@ void getInlayHintsForDestructure(
 				Purity purity = bestCasePurity(x.type);
 				if (purity != Purity.data)
 					out_ ~= InlayHint(
-						ast.range.end,
-						stringOfEnum(purity),
+						toLineAndCharacter(ast.range.end),
+						InlayHintLabel(stringOfEnum(purity)),
 						InlayHintKind.none,
 						paddingLeft: true,
 						paddingRight: false);
@@ -99,3 +151,33 @@ void getInlayHintsForDestructure(
 				getInlayHintsForDestructure(alloc, out_, showCtx, typeContainer, part);
 		});
 }
+
+LineAndCharacter endOfLineForDecl(in ShowModelCtx showCtx, in AnyDecl decl) =>
+	endOfLine(showCtx.lineAndCharacterGetters[decl.moduleUri], decl.range.range.start);
+
+void getInlayHintsForTest(
+	ref Alloc alloc,
+	scope ref Builder!InlayHint out_,
+	in ShowModelCtx showCtx,
+	in TestStates testStates,
+	in Test* test,
+) {
+	Uri uri = test.moduleUri;
+	UriAndLine where = UriAndLine(uri, lineOfPos(showCtx.lineAndCharacterGetters[uri], test.range.start));
+	Opt!RunResult optResult = testStates[where];
+	InlayHintLabel label = has(optResult)
+		? labelForTestResult(force(optResult))
+		: labelForRunTest(alloc, where);
+	out_ ~= InlayHint(endOfLineForDecl(showCtx, AnyDecl(test)), label, InlayHintKind.none, paddingLeft: true, paddingRight: false);
+}
+
+InlayHintLabel labelForTestResult(RunResult a) =>
+	InlayHintLabel(isOk(a.exit) ? "OK" : "Test failed");
+
+InlayHintLabel labelForRunTest(ref Alloc alloc, UriAndLine where) =>
+	InlayHintLabel(newArray(alloc, [
+		InlayHintLabelPart(
+			"Run test",
+			/*command: some(Command(
+				arguments: some(ExecuteCommandParams(ExecuteCommandParams.RunTest(where)))))*/
+		)]));

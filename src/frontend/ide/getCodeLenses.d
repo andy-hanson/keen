@@ -40,6 +40,7 @@ CodeLensUnresolved[] unresolvedCodeLenses(
 	in LineAndCharacterGetter lcg,
 	in CodeLensParams params,
 ) {
+	return [];
 	Uri uri = params.textDocument.uri;
 	Module* module_ = moduleAtUri(program, uri);
 	return buildArray!CodeLensUnresolved(alloc, (scope ref Builder!CodeLensUnresolved out_) {
@@ -69,11 +70,12 @@ CodeLensResolved resolveCodeLens(
 			if (has(optResult)) {
 				RunResult result = force(optResult);
 				return Command(
-					isOk(result.exit) ? "Passed" : "Failed",
+					some(isOk(result.exit) ? "Passed" : "Failed"),
 					tooltipForRunResult(alloc, result));
 			} else
 				return Command(
-					"Run test",
+					some("Run test"),
+					tooltip: some("this is a dummy tooltip to test if they even work"), // --------------------------------------------
 					arguments: some(ExecuteCommandParams(ExecuteCommandParams.RunTest(uriAndLine))));
 		}();
 		return CodeLensResolved(codeLens.range, command);
@@ -82,7 +84,7 @@ CodeLensResolved resolveCodeLens(
 			withImportsAndReExportsOf(program, decl, maxUris: 4, cb: (in UrisOrCount imports, in UrisOrCount reExports) {
 				writeUrisOrCount(writer, "Exported by ", uri, reExports);
 				if (!isEmpty(imports)) {
-					if (!isEmpty(imports)) writer ~= "; ";
+					if (!isEmpty(reExports)) writer ~= "; ";
 					writeUrisOrCount(writer, "Used by ", uri, imports);
 				}
 				if (isEmpty(imports) && isEmpty(reExports))
@@ -90,7 +92,7 @@ CodeLensResolved resolveCodeLens(
 			});
 		});
 		// To find the entity again: Find it at codeLens.data.uri and codeLens.range.start
-		return CodeLensResolved(codeLens.range, Command(message));
+		return CodeLensResolved(codeLens.range, Command(some(message)));
 	}
 }
 
@@ -123,16 +125,16 @@ Opt!string tooltipForRunResult(ref Alloc alloc, RunResult result) => // TODO: UN
 			}
 		}));
 
-immutable struct UrisOrCount {
+public immutable struct UrisOrCount {
 	mixin Union!(Uri[], size_t);
 }
-bool isEmpty(in UrisOrCount a) =>
+public bool isEmpty(in UrisOrCount a) =>
 	a.matchIn!bool(
 		(in Uri[] xs) =>
 			isEmpty(xs),
 		(in size_t x) =>
 			x == 0);
-void writeUrisOrCount(scope ref Writer writer, in string description, Uri fromUri, in UrisOrCount a) {
+public void writeUrisOrCount(scope ref Writer writer, in string description, Uri fromUri, in UrisOrCount a) {
 	if (!isEmpty(a)) {
 		writer ~= description;
 		a.matchIn!void(
@@ -156,7 +158,7 @@ void writeRelativeUris(scope ref Writer writer, Uri from, in Uri[] uris) {
 	});
 }
 
-void withImportsAndReExportsOf(
+public void withImportsAndReExportsOf(
 	in Program program,
 	in AnyDecl decl,
 	size_t maxUris,

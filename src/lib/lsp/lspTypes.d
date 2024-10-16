@@ -88,7 +88,7 @@ immutable struct LspOutRequest {
 immutable struct LspOutRequestParams {
 	mixin Union!(CodeLensRefresh);
 }
-immutable struct CodeLensRefresh {}
+immutable struct CodeLensRefresh {} // TODO: RM (use inlay hints) ---------------------------------------------------------------------------
 
 
 immutable struct LspOutResponse {
@@ -105,7 +105,7 @@ immutable struct LspOutResult {
 		DocumentHighlightResult,
 		FoldingRange[],
 		InitializeResult,
-		InlayHintResult,
+		InlayHint[],
 		Opt!Hover,
 		RunResult,
 		SemanticTokens,
@@ -203,22 +203,22 @@ immutable struct InitializedParams {}
 
 immutable struct ShutdownParams {}
 
-immutable struct CodeLensParams {
+immutable struct CodeLensParams { // TODO: RM (use inlay hints) ---------------------------------------------------------------------------
 	TextDocumentIdentifier textDocument;
 }
 // LSP has these as a single type 'CodeLens'
-immutable struct CodeLensUnresolved {
+immutable struct CodeLensUnresolved { // TODO: RM (use inlay hints) ---------------------------------------------------------------------------
 	LineAndCharacterRange range;
 	// This could be any type. I need the URI to combine with the range to see what it was a code lens for.
 	Uri data;
 }
 
-immutable struct CodeLensResolved {
+immutable struct CodeLensResolved { // TODO: RM (use inlay hints) ---------------------------------------------------------------------------
 	LineAndCharacterRange range;
 	Command command;
 }
 immutable struct Command {
-	string title;
+	Opt!string title; // Optional in inlay hint????????????????????????????????????????????????????????????????????????????????
 	Opt!string tooltip;
 	// This also determines 'command'.
 	// Arguments must be represented as an array.
@@ -396,19 +396,23 @@ immutable struct InlayHintParams {
 	TextDocumentIdentifier textDocument;
 	LineAndCharacterRange range;
 }
-// JSON output is just an array, but we need the URI to help translate it
-immutable struct InlayHintResult {
-	Uri uri;
-	InlayHint[] hints;
-}
 immutable struct InlayHint {
-	Pos position;
-	string label;
+	LineAndCharacter position;
+	InlayHintLabel label;
 	InlayHintKind kind;
 	bool paddingLeft;
 	bool paddingRight;
 }
 enum InlayHintKind { none = 0, Type = 1, Parameter = 2 }
+
+immutable struct InlayHintLabel {
+	mixin Union!(string, InlayHintLabelPart[]);
+}
+immutable struct InlayHintLabelPart {
+	string value;
+	Opt!string tooltip;
+	Opt!Command command;
+}
 
 immutable struct FoldingRangeParams {
 	TextDocumentIdentifier textDocument;

@@ -21,7 +21,8 @@ import lib.lsp.lspTypes :
 	InitializeResult,
 	InlayHint,
 	InlayHintKind,
-	InlayHintResult,
+	InlayHintLabel,
+	InlayHintLabelPart,
 	LspDiagnostic,
 	LspOutAction,
 	LspOutMessage,
@@ -65,7 +66,7 @@ Json jsonOfLspOutAction(ref Alloc alloc, in LineAndCharacterGetters lcg, in LspO
 	jsonObject(alloc, [
 		field!"messages"(jsonList(map(alloc, a.outMessages, (ref LspOutMessage x) =>
 			jsonOfLspOutMessage(alloc, lcg, x)))),
-		optionalField!("exitCode", ExitCode)(a.exitCode, (in ExitCode x) =>
+		optionalField!("exitCode", ExitCode)(a.exitCode, (ExitCode x) =>
 			Json(x.value))]);
 
 Json jsonOfLspOutMessage(ref Alloc alloc, in LineAndCharacterGetters lcg, ref LspOutMessage a) =>
@@ -104,7 +105,7 @@ Json jsonOfLspOutNotification(ref Alloc alloc, in LineAndCharacterGetters lcg, r
 					Json(stringOfUri(alloc, x))))])));
 }
 
-Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref LspOutResult a) =>
+Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref LspOutResult a) => // TODO: remove lcgs parameter????????
 	a.match!Json(
 		(BuildJsScriptResult x) =>
 			jsonObject(alloc, [field!"diagnostics"(x.diagnostics), optionalField!"script"(x.script)]),
@@ -121,8 +122,8 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 			jsonOfFoldingRanges(alloc, x),
 		(InitializeResult _) =>
 			jsonObject(alloc, [field!"capabilities"(initializeCapabilities(alloc))]),
-		(InlayHintResult x) =>
-			jsonOfInlayHintResult(alloc, lcgs, x),
+		(InlayHint[] x) =>
+			jsonOfInlayHints(alloc, x),
 		(Opt!Hover x) =>
 			jsonOfHover(alloc, x),
 		(RunResult x) =>
@@ -209,12 +210,12 @@ Json jsonOfCommand(ref Alloc alloc, ref Command a) =>
 		? force(a.arguments).matchIn!Json(
 			(in ExecuteCommandParams.RunTest x) =>
 				jsonObject(alloc, [
-					field!"title"(a.title),
+					optionalField!"title"(a.title),
 					optionalField!"tooltip"(a.tooltip),
 					field!"command"("run-test"),
 					field!"arguments"(jsonList(alloc, [jsonOfUriAndLine(alloc, x.where)]))]))
 		: jsonObject(alloc, [
-			field!"title"(a.title),
+			optionalField!"title"(a.title),
 			optionalField!"tooltip"(a.tooltip)]);
 
 public Json jsonOfCompletionList(ref Alloc alloc, in CompletionList a) =>
@@ -233,18 +234,29 @@ public Json jsonOfDocumentHighlight(ref Alloc alloc, in LineAndCharacterGetter l
 			field!"range"(jsonOfLineAndCharacterRange(alloc, lcg[x.range])),
 			field!"kind"(uint(x.kind))]));
 
-public Json jsonOfInlayHintResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, in InlayHintResult a) =>
-	jsonOfInlayHints(alloc, lcgs[a.uri], a.hints);
-public Json jsonOfInlayHints(ref Alloc alloc, in LineAndCharacterGetter lcg, in InlayHint[] a) =>
+public Json jsonOfInlayHints(ref Alloc alloc, in InlayHint[] a) =>
 	jsonList(map(alloc, a, (ref InlayHint x) =>
-		jsonOfInlayHint(alloc, lcg, x)));
-Json jsonOfInlayHint(ref Alloc alloc, in LineAndCharacterGetter lcg, ref InlayHint a) =>
+		jsonOfInlayHint(alloc, x)));
+Json jsonOfInlayHint(ref Alloc alloc, ref InlayHint a) =>
 	jsonObject(alloc, [
-		field!"position"(jsonOfLineAndCharacter(alloc, lcg[a.position, PosKind.startOfRange])),
-		field!"label"(a.label),
+		field!"position"(jsonOfLineAndCharacter(alloc, a.position)),
+		field!"label"(jsonOfInlayHintLabel(alloc, a.label)),
 		optionalField!"kind"(a.kind != InlayHintKind.none, () => Json(uint(a.kind))),
 		field!"paddingLeft"(a.paddingLeft),
 		field!"paddingRight"(a.paddingRight)]);
+Json jsonOfInlayHintLabel(ref Alloc alloc, ref InlayHintLabel a) =>
+	a.match!Json(
+		(string x) =>
+			jsonString(x),
+		(InlayHintLabelPart[] xs) =>
+			jsonList(map(alloc, xs, (ref InlayHintLabelPart x) =>
+				jsonOfInlayHintLabelPart(alloc, x))));
+Json jsonOfInlayHintLabelPart(ref Alloc alloc, ref InlayHintLabelPart a) =>
+	jsonObject(alloc, [
+		field!"value"(a.value),
+		optionalField!"tooltip"(a.tooltip),
+		optionalField!("command", Command)(a.command, (Command x) =>
+			jsonOfCommand(alloc, x))]);
 
 public Json jsonOfReferences(ref Alloc alloc, in LineAndCharacterGetters lcg, in UriAndRange[] references) =>
 	jsonList!UriAndRange(alloc, references, (in UriAndRange x) =>
@@ -303,4 +315,4 @@ Json jsonOfFoldingRange(ref Alloc alloc, in FoldingRange a) =>
 	jsonObject(alloc, [
 		field!"startLine"(a.startLine),
 		field!"endLine"(a.endLine),
-		optionalField!("kind", FoldingRangeKind)(a.kind, (in FoldingRangeKind x) => jsonString(stringOfEnum(x)))]);
+		optionalField!("kind", FoldingRangeKind)(a.kind, (FoldingRangeKind x) => jsonString(stringOfEnum(x)))]);

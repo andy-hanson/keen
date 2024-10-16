@@ -166,7 +166,7 @@ DocExport documentStructDecl(ref Ctx ctx, in StructDecl a) {
 		(in StructBody.Extern x) =>
 			jsonObject(ctx.alloc, [
 				kindField!"extern",
-				optionalField!("size", TypeSize)(x.size, (in TypeSize size) =>
+				optionalField!("size", TypeSize)(x.size, (TypeSize size) =>
 					jsonObject(ctx.alloc, [
 						field!"size"(size.sizeBytes),
 						field!"alignment"(size.alignmentBytes)])),
