@@ -45,7 +45,6 @@ immutable struct LspInRequestParams {
 	mixin Union!(
 		BuildJsScriptParams,
 		CodeLensParams,
-		CodeLensUnresolved,
 		CompletionParams,
 		DefinitionParams,
 		DocumentHighlightParams,
@@ -101,8 +100,7 @@ immutable struct LspOutResult {
 	immutable struct Null {}
 	mixin Union!(
 		BuildJsScriptResult,
-		CodeLensResolved,
-		CodeLensUnresolved[],
+		CodeLens[],
 		CompletionList,
 		DocumentHighlightResult,
 		FoldingRange[],
@@ -206,17 +204,11 @@ immutable struct InitializedParams {}
 
 immutable struct ShutdownParams {}
 
-immutable struct CodeLensParams { // TODO: RM (use inlay hints) ---------------------------------------------------------------------------
+immutable struct CodeLensParams {
 	TextDocumentIdentifier textDocument;
 }
-// LSP has these as a single type 'CodeLens'
-immutable struct CodeLensUnresolved { // TODO: RM (use inlay hints) ---------------------------------------------------------------------------
-	LineAndCharacterRange range;
-	// This could be any type. I need the URI to combine with the range to see what it was a code lens for.
-	Uri data;
-}
 
-immutable struct CodeLensResolved { // TODO: RM (use inlay hints) ---------------------------------------------------------------------------
+immutable struct CodeLens {
 	LineAndCharacterRange range;
 	Command command;
 }

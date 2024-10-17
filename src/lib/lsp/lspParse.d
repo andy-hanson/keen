@@ -5,7 +5,7 @@ module lib.lsp.lspParse;
 import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	CancelRequestParams,
-	CodeLensUnresolved,
+	CodeLens,
 	CodeLensParams,
 	CompletionParams,
 	DocumentHighlightParams,
@@ -100,15 +100,6 @@ LspInMessage parseLspInMessage(ref Alloc alloc, in Json message) {
 			return notification(InitializedParams());
 		case "shutdown":
 			return request(ShutdownParams());
-		case "codeLens/resolve":
-			return request(CodeLensUnresolved(
-				parseLineAndCharacterRange(get!"range"(params)),
-				mustParseUri(get!"data"(params).as!string)));
-		//---------------------------------------------------------------------------------------------------------------------------
-		//case "inlayHint/resolve":
-		//	return request(InlayHint(
-		//		parseLineAndCharacter(get!"position"(a)),
-		//		parseInlayHintData(get!"data"(a))));
 		case "textDocument/codeLens":
 			return request(CodeLensParams(parseTextDocumentIdentifier(get!"textDocument"(params))));
 		case "textDocument/completion":

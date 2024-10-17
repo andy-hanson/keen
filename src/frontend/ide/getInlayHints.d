@@ -2,7 +2,7 @@ module frontend.ide.getInlayHints;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.getCodeLenses : isEmpty, tooltipForRunResult, UrisOrCount, withImportsAndReExportsOf, writeUrisOrCount;
+import frontend.ide.getCodeLenses : ImportsAndReExports, isEmpty, tooltipForRunResult, UrisOrCount, withImportsAndReExportsOf, writeUrisOrCount;
 import frontend.showModel : ShowModelCtx, writeTypeUnquoted;
 import lib.lsp.lspTypes :
 	Command,
@@ -74,13 +74,13 @@ void getInlayHintsForDecl(
 	AnyDecl decl,
 ) {
 	Uri uri = decl.moduleUri;
-	withImportsAndReExportsOf(program, decl, maxUris: 4, cb: (in UrisOrCount imports, in UrisOrCount reExports) {
-		if (!isEmpty(imports) || !isEmpty(reExports)) {
+	withImportsAndReExportsOf!void(program, decl, maxUris: 4, cb: (in ImportsAndReExports x) {
+		if (!isEmpty(x)) {
 			string message = makeStringWithWriter(alloc, (scope ref Writer writer) {
-				writeUrisOrCount(writer, "Exported by", uri, reExports);
-				if (!isEmpty(imports)) {
-					if (!isEmpty(reExports)) writer ~= "; ";
-					writeUrisOrCount(writer, "Used by", uri, imports);
+				writeUrisOrCount(writer, "Exported by", uri, x.reExports); // TODO: there is some pretty similar code in getCodeLenses
+				if (!isEmpty(x.imports)) {
+					if (!isEmpty(x.reExports)) writer ~= "; ";
+					writeUrisOrCount(writer, "Used by", uri, x.imports);
 				}
 			});
 			out_ ~= InlayHint(endOfLineForDecl(showCtx, decl), InlayHintLabel(message), InlayHintKind.none, paddingLeft: true);

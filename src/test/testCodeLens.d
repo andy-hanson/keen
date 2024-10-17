@@ -2,10 +2,10 @@ module test.testCodeLens;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.getCodeLenses : resolvedCodeLenses;
+import frontend.ide.getCodeLenses : getCodeLenses;
 import frontend.showModel : ShowModelCtx;
-import lib.lsp.lspToJson : jsonOfCodeLensResolved;
-import lib.lsp.lspTypes : CodeLensParams, CodeLensResolved, RunResult, TextDocumentIdentifier;
+import lib.lsp.lspToJson : jsonOfCodeLenses;
+import lib.lsp.lspTypes : CodeLens, CodeLensParams, RunResult, TextDocumentIdentifier;
 import model.model : Program;
 import test.testUtil : assertEqual, CrowJsonTest, Test, UriAndContent, withCrowAndJsonFiles, withIdeTestMultipleFiles;
 import util.col.array : map;
@@ -15,8 +15,7 @@ import util.sourceRange : UriAndLine;
 import util.writer : Writer;
 
 void testCodeLens(ref Test test) {
-	return; // -------------------------------------------------------------------------------------------------------------------------
-	withCrowAndJsonFiles!("code-lens", ["a"])(test, (in CrowJsonTest[] tests) {
+	withCrowAndJsonFiles!("code-lens", ["a", "b"])(test, (in CrowJsonTest[] tests) {
 		UriAndContent[] files = map(test.alloc, tests, (ref CrowJsonTest x) =>
 			UriAndContent(x.uri, x.crow));
 		withIdeTestMultipleFiles(test, files, (in ShowModelCtx ctx, in Program program) {
@@ -30,12 +29,7 @@ private:
 
 void singleTest(ref Test test, in ShowModelCtx ctx, in Program program, in CrowJsonTest testData) {
 	assertEqual(
-		jsonList(map(
-			test.alloc,
-			resolvedCodeLenses(
-				test.alloc, program, ctx, MutMap!(UriAndLine, RunResult)(),
-				CodeLensParams(TextDocumentIdentifier(testData.uri))),
-			(ref CodeLensResolved x) => jsonOfCodeLensResolved(test.alloc, x))),
+		jsonOfCodeLenses(test.alloc, getCodeLenses(test.alloc, program, ctx, CodeLensParams(TextDocumentIdentifier(testData.uri)))),
 		testData.json,
 		(scope ref Writer writer) {
 			writer ~= "For ";

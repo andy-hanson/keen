@@ -16,7 +16,7 @@ import frontend.frontendCompile :
 	programWithMainFromProgram;
 import document.document : documentModules;
 import frontend.getDiagnosticSeverity : getDiagnosticSeverity;
-import frontend.ide.getCodeLenses : resolveCodeLens, resolvedCodeLenses, unresolvedCodeLenses;
+import frontend.ide.getCodeLenses : getCodeLenses;
 import frontend.ide.getCompletion : getCompletionForPosition;
 import frontend.ide.getDefinition : getDefinitionForPosition, getTypeDefinitionForPosition;
 import frontend.ide.getFoldingRanges : foldingRangesOfAst;
@@ -60,7 +60,7 @@ import interpret.fakeExtern : withFakeExtern, WriteCb;
 import interpret.generateBytecode : generateBytecode;
 import interpret.runBytecode : runBytecode;
 import lib.lsp.lspToJson :
-	jsonOfCodeLensResolved,
+	jsonOfCodeLenses,
 	jsonOfCompletionList,
 	jsonOfDocumentHighlight,
 	jsonOfFoldingRanges,
@@ -73,9 +73,8 @@ import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	BuildJsScriptResult,
 	CancelRequestParams,
+	CodeLens,
 	CodeLensParams,
-	CodeLensResolved,
-	CodeLensUnresolved,
 	CompletionList,
 	CompletionParams,
 	DefinitionParams,
@@ -310,8 +309,6 @@ private LspOutAction handleLspRequest(
 			respondWithProgram(perf, alloc, server, request),
 		(in CodeLensParams _) =>
 			respondWithProgram(perf, alloc, server, request),
-		(in CodeLensUnresolved _) =>
-			respondWithProgram(perf, alloc, server, request),
 		(in CompletionParams _) =>
 			respondWithProgram(perf, alloc, server, request),
 		(in DefinitionParams _) =>
@@ -389,9 +386,7 @@ private LspOutAction handleLspRequestWithProgram(
 					buildToJsScript(alloc, server, pwm, JsTarget.browser, none!Symbol).js))));
 		},
 		(in CodeLensParams x) =>
-			singleResponse(alloc, request, LspOutResult(unresolvedCodeLenses(alloc, program, server.lineAndCharacterGetters[x.textDocument.uri], x))),
-		(in CodeLensUnresolved x) =>
-			singleResponse(alloc, request, LspOutResult(resolveCodeLens(alloc, program, getShowDiagCtx(server, program), server.lspState.testStates, x))),
+			singleResponse(alloc, request, LspOutResult(getCodeLenses(alloc, program, getShowDiagCtx(server, program), x))),
 		(in CompletionParams x) {
 			Opt!CompletionList res = getCompletionForProgram(alloc, server, program, x);
 			return singleResponse(alloc, request, has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
@@ -957,13 +952,7 @@ Json jsonForPrintIdeWholeFile(
 ) {
 	final switch (kind) {
 		case PrintKind.IdeWholeFile.Kind.codeLenses:
-			return jsonList(map(
-				alloc,
-				resolvedCodeLenses(
-					alloc, program, getShowDiagCtx(server, program),
-					server.lspState.testStates,
-					CodeLensParams(TextDocumentIdentifier(uri))),
-				(ref CodeLensResolved x) => jsonOfCodeLensResolved(alloc, x)));
+			return jsonOfCodeLenses(alloc, getCodeLenses(alloc, program, getShowDiagCtx(server, program), CodeLensParams(TextDocumentIdentifier(uri))));
 		case PrintKind.IdeWholeFile.Kind.foldingRanges:
 			CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
 			return jsonOfFoldingRanges(alloc, foldingRangesOfAst(alloc, *file));
@@ -1094,8 +1083,6 @@ LspDiagnosticSeverity toLspDiagnosticSeverity(DiagnosticSeverity a) {
 
 LspOutAction initializedAction(ref Alloc alloc, ref Server server) {
 	return LspOutAction(newArray!LspOutMessage(alloc, [
-		register("codeLens/resolve"),
-		// register("inlayHint/resolve"), --------------------------------------------------------------------------------------
 		register("textDocument/codeLens"),
 		register("textDocument/completion"),
 		register("textDocument/definition"),

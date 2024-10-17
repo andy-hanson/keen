@@ -6,9 +6,8 @@ import frontend.ide.getTokens : getTokensLegend;
 import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes :
 	BuildJsScriptResult,
-	CodeLensRefresh,
-	CodeLensResolved,
-	CodeLensUnresolved,
+	CodeLens,
+	CodeLensRefresh, // TODO:KILL -00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 	Command,
 	CompletionItem,
 	CompletionList,
@@ -116,11 +115,8 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 	a.match!Json(
 		(BuildJsScriptResult x) =>
 			jsonObject(alloc, [field!"diagnostics"(x.diagnostics), optionalField!"script"(x.script)]),
-		(CodeLensResolved x) =>
-			jsonOfCodeLensResolved(alloc, x),
-		(CodeLensUnresolved[] xs) =>
-			jsonList(map(alloc, xs, (ref CodeLensUnresolved x) =>
-				jsonOfCodeLensUnresolved(alloc, x))),
+		(CodeLens[] xs) =>
+			jsonOfCodeLenses(alloc, xs),
 		(CompletionList x) =>
 			jsonOfCompletionList(alloc, x),
 		(DocumentHighlightResult x) =>
@@ -173,8 +169,7 @@ Json jsonOfWrite(ref Alloc alloc, Write a) =>
 Json initializeCapabilities(ref Alloc alloc) =>
 	jsonObject(alloc, [
 		field!"textDocumentSync"(2), // incremental
-		field!"codeLensProvider"(jsonObject(alloc, [
-			field!"resolveProvider"(true)])),
+		field!"codeLensProvider"(jsonObject(alloc, [])),
 		field!"completionProvider"(jsonObject(alloc, [
 			field!"triggerCharacters"(jsonList(alloc, [jsonString(".")]))])),
 		field!"definitionProvider"(jsonObject([])),
@@ -185,7 +180,6 @@ Json initializeCapabilities(ref Alloc alloc) =>
 		field!"hoverProvider"(jsonObject([])),
 		field!"implementationProvider"(jsonObject([])),
 		field!"inlayHintProvider"(jsonObject(alloc, [])),
-			//field!"resolveProvider"(true)])), -0-----------------------------------------------------------------------------------
 		field!"referencesProvider"(jsonObject([])),
 		field!"renameProvider"(jsonObject([])),
 		field!"semanticTokensProvider"(jsonObject(alloc, [
@@ -207,11 +201,10 @@ public Json jsonOfHover(ref Alloc alloc, in Opt!Hover a) =>
 Json jsonOfHover(ref Alloc alloc, in Hover a) =>
 	jsonObject(alloc, [field!"contents"(jsonOfMarkupContent(alloc, a.contents))]);
 
-Json jsonOfCodeLensUnresolved(ref Alloc alloc, ref CodeLensUnresolved a) =>
-	jsonObject(alloc, [
-		field!"range"(jsonOfLineAndCharacterRange(alloc, a.range)),
-		field!"data"(stringOfUri(alloc, a.data))]);
-public Json jsonOfCodeLensResolved(ref Alloc alloc, ref CodeLensResolved a) =>
+public Json jsonOfCodeLenses(ref Alloc alloc, in CodeLens[] a) =>
+	jsonList(map(alloc, a, (ref CodeLens x) =>
+		jsonOfCodeLens(alloc, x)));
+Json jsonOfCodeLens(ref Alloc alloc, ref CodeLens a) =>
 	jsonObject(alloc, [
 		field!"range"(jsonOfLineAndCharacterRange(alloc, a.range)),
 		field!"command"(jsonOfCommand(alloc, a.command))]);

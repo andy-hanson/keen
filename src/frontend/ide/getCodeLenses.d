@@ -2,12 +2,12 @@ module frontend.ide.getCodeLenses;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.getReferences : eachImport, UriAndName;
+import frontend.ide.getReferences : eachImport, eachModuleReferencing, UriAndName;
 import frontend.showModel : ShowTypeCtx;
 import lib.lsp.lspTypes :
-	CodeLensParams, CodeLensResolved, CodeLensUnresolved, Command, ExecuteCommandParams, Pipe, RunResult, Write;
+	CodeLens, CodeLensParams, Command, ExecuteCommandParams, Pipe, RunResult, Write;
 import lib.server : TestStates; // TODO: CIRCULAR IMPORT ---------------------------------------------------------------------------
-import model.model : AnyDecl, eachDecl, IsImportOrExport, Module, moduleAtUri, Program, Test, Visibility;
+import model.model : AnyDecl, eachDecl, ImportOrExport, IsImportOrExport, Module, moduleAtUri, Program, Test, Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array : every, isEmpty, map;
@@ -15,42 +15,42 @@ import util.col.arrayBuilder : buildArray, Builder;
 import util.exitCode : ExitCode, isOk, Signal;
 import util.late : Late, lateGet, lateSet;
 import util.opt : force, has, Opt, optIf, some;
-import util.sourceRange : LineAndCharacterGetter, Pos, rangeToEndOfLine, UriAndLine, UriAndPos;
+import util.sourceRange : LineAndCharacter, LineAndCharacterGetter, LineAndCharacterRange, Pos, rangeToEndOfLine, UriAndLine, UriAndPos;
 import util.union_ : Union;
 import util.uri : relativePathForUri, RelPath, Uri;
-import util.util : stringOfEnum;
+import util.util : ptrTrustMe, stringOfEnum;
 import util.writer : makeStringWithWriter, Writer, writeWithCommas, writeWithNewlines;
 
-CodeLensResolved[] resolvedCodeLenses(
+CodeLens[] getCodeLenses(
 	ref Alloc alloc,
 	in Program program,
-	in ShowTypeCtx showCtx,
-	in TestStates testStates,
-	in CodeLensParams params,
-) =>
-	map(
-		alloc,
-		unresolvedCodeLenses(alloc, program, showCtx.lineAndCharacterGetters[params.textDocument.uri], params),
-		(ref CodeLensUnresolved x) =>
-			resolveCodeLens(alloc, program, showCtx, testStates, x));
-
-CodeLensUnresolved[] unresolvedCodeLenses(
-	ref Alloc alloc,
-	in Program program,
-	in LineAndCharacterGetter lcg,
+	in ShowTypeCtx showCtx, // TODO: UNUSED -----------------------------------------------------------------------------------
 	in CodeLensParams params,
 ) {
-	return [];
 	Uri uri = params.textDocument.uri;
 	Module* module_ = moduleAtUri(program, uri);
-	return buildArray!CodeLensUnresolved(alloc, (scope ref Builder!CodeLensUnresolved out_) {
-		eachDecl(*module_, (AnyDecl x) {
-			if (x.visibility != Visibility.private_)
-				out_ ~= CodeLensUnresolved(rangeToEndOfLine(lcg, x.range.start), uri);
-		});
+	return buildArray!CodeLens(alloc, (scope ref Builder!CodeLens out_) {
+		withImportsAndReExportsOfModule!void(
+			program,
+			module_,
+			4,
+			(in ImportsAndReExports x) {
+				if (!isEmpty(x)) {
+					string message = makeStringWithWriter(alloc, (scope ref Writer writer) {
+						writeUrisOrCount(writer, "Module re-exported by ", uri, x.reExports);
+						if (!isEmpty(x.imports)) {
+							if (!isEmpty(x.reExports)) writer ~= "; ";
+							writeUrisOrCount(writer, "Module used by ", uri, x.imports);
+						}
+					});
+					// TODO: we could have a tooltip for the full set ...
+					out_ ~= CodeLens(LineAndCharacterRange(LineAndCharacter(0, 0), LineAndCharacter(0, 0)), Command(message));
+				}
+			});
 	});
 }
 
+/*
 CodeLensResolved resolveCodeLens(
 	ref Alloc alloc,
 	in Program program,
@@ -95,6 +95,7 @@ CodeLensResolved resolveCodeLens(
 		return CodeLensResolved(codeLens.range, Command(message));
 	}
 }
+*/
 
 private:
 
@@ -134,6 +135,7 @@ public bool isEmpty(in UrisOrCount a) =>
 			isEmpty(xs),
 		(in size_t x) =>
 			x == 0);
+// TODO: If this is used in an InlayHint, we could make the file references clickable. -----------------------------------------------
 public void writeUrisOrCount(scope ref Writer writer, in string description, Uri fromUri, in UrisOrCount a) {
 	if (!isEmpty(a)) {
 		writer ~= description;
@@ -158,40 +160,80 @@ void writeRelativeUris(scope ref Writer writer, Uri from, in Uri[] uris) {
 	});
 }
 
-public void withImportsAndReExportsOf(
+Out withImportsAndReExportsOfModule(Out)(
+	in Program program,
+	in Module* module_,
+	size_t maxUris,
+	in Out delegate(in ImportsAndReExports) @safe @nogc pure nothrow cb,
+) =>
+	withBuildImportsAndReExports!Out(
+		maxUris,
+		(scope ref ImportsAndReExportsBuilder out_) {
+			eachModuleReferencing(program, module_, (in Module x, IsImportOrExport kind, in ImportOrExport _) {
+				add(out_, x.uri, kind);
+			});
+		},
+		cb);
+
+public immutable struct ImportsAndReExports {
+	UrisOrCount imports;
+	UrisOrCount reExports;	
+}
+public bool isEmpty(in ImportsAndReExports a) =>
+	isEmpty(a.imports) && isEmpty(a.reExports);
+
+public Out withImportsAndReExportsOf(Out)(
 	in Program program,
 	in AnyDecl decl,
 	size_t maxUris,
-	in void delegate(in UrisOrCount, in UrisOrCount) @safe @nogc pure nothrow cb,
+	in Out delegate(in ImportsAndReExports) @safe @nogc pure nothrow cb,
 ) {
-	if (decl.visibility == Visibility.private_)
-		cb(UrisOrCount(0), UrisOrCount(0));
-	else {
-		withMaxStackArray!(void, Uri)(maxUris, (scope ref MaxStackArray!Uri imports) {
-			withMaxStackArray!(void, Uri)(maxUris, (scope ref MaxStackArray!Uri exports) {
-				size_t countImports;
-				size_t countExports;
-				void addUri(scope ref MaxStackArray!Uri uris, ref size_t count, Uri uri) {
-					count++;
-					if (!uris.isFull) uris ~= uri;
-				}
-				eachImport(program, UriAndName(decl.moduleUri, decl.name), (Uri uri, IsImportOrExport x) {
-					final switch (x) {
-						case IsImportOrExport.import_:
-							addUri(imports, countImports, uri);
-							break;
-						case IsImportOrExport.export_:
-							addUri(exports, countExports, uri);
-							break;
-					}
+	withBuildImportsAndReExports!Out(
+		maxUris,
+		(scope ref ImportsAndReExportsBuilder out_) {
+			if (decl.visibility != Visibility.private_)
+				eachImport(program, UriAndName(decl.moduleUri, decl.name), (Uri uri, IsImportOrExport kind) {
+					add(out_, uri, kind);
 				});
-				UrisOrCount result(size_t count, ref const MaxStackArray!Uri uris) =>
-					count > maxUris ? UrisOrCount(maxUris) : UrisOrCount(uris.soFar);
-				cb(result(countImports, imports), result(countExports, exports));
-			});
-		});
-	}
+		},
+		cb);
 }
+
+void withBuildImportsAndReExports(Out)(
+	size_t maxUris,
+	in void delegate(scope ref ImportsAndReExportsBuilder) @safe @nogc pure nothrow cbBuild,
+	in Out delegate(in ImportsAndReExports) @safe @nogc pure nothrow cb,
+) =>
+	withMaxStackArray!(Out, Uri)(maxUris, (scope ref MaxStackArray!Uri imports) =>
+		withMaxStackArray!(Out, Uri)(maxUris, (scope ref MaxStackArray!Uri exports) {
+			scope ImportsAndReExportsBuilder builder = ImportsAndReExportsBuilder(ptrTrustMe(imports), ptrTrustMe(exports));
+			cbBuild(builder);
+			return cb(ImportsAndReExports(
+				toUrisOrCount(maxUris, builder.countImports, *builder.imports),
+				toUrisOrCount(maxUris, builder.countExports, *builder.exports)));
+		}));
+
+struct ImportsAndReExportsBuilder {
+	MaxStackArray!Uri* imports;
+	MaxStackArray!Uri* exports;
+	size_t countImports;
+	size_t countExports;
+}
+void add(scope ref ImportsAndReExportsBuilder a, Uri uri, IsImportOrExport kind) {
+	final switch (kind) {
+		case IsImportOrExport.import_:
+			a.countImports++;
+			if (!a.imports.isFull) *a.imports ~= uri;
+			break;
+		case IsImportOrExport.export_:
+			a.countExports++;
+			if (!a.exports.isFull) *a.exports ~= uri;
+			break;
+	}
+}	
+
+UrisOrCount toUrisOrCount(size_t maxUris, size_t count, ref const MaxStackArray!Uri uris) =>
+	count > maxUris ? UrisOrCount(count) : UrisOrCount(uris.soFar);
 
 AnyDecl declAtPos(in Module module_, Pos pos) {
 	Late!AnyDecl res;

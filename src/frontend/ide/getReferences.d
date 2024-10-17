@@ -876,7 +876,7 @@ void eachModuleThatMayReference(
 		});
 }
 
-void eachModuleReferencing(
+public void eachModuleReferencing( // TODO: maybe move these common functions to a different file (ideUtil?) -------------------------------
 	in Program program,
 	in Module* exportingModule,
 	in void delegate(in Module, IsImportOrExport, in ImportOrExport) @safe @nogc pure nothrow cb,
