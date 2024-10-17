@@ -112,6 +112,7 @@ import model.model :
 	VariantAndMethodImpls,
 	Visibility;
 import util.alloc.alloc : Alloc;
+import util.cell : Cell, cellGet, cellSet;
 import util.col.array :
 	emptySmallArray, isEmpty, map, mapOp, newArray, newSmallArray, SmallArray, zipPointers;
 import util.col.arrayBuilder : add, addAll, ArrayBuilder, buildArray, Builder, finish;
@@ -129,6 +130,8 @@ import util.symbol : compareSymbolsAlphabetically, Symbol, symbol;
 import util.symbolSet : SymbolSet;
 import util.union_ : Union;
 import util.uri :
+	asFilePath,
+	commonAncestor,
 	countComponents,
 	FilePermissions,
 	firstNComponents,
@@ -154,7 +157,7 @@ JsAndMap translateToJsScript(
 	Opt!Symbol sourceMapName,
 ) =>
 	withTranslateProgram(alloc, program, showCtx, jsTarget, true, (ref TranslateProgramCtx ctx) =>
-		writeJsScriptAst(alloc, showCtx, modulePaths(alloc, program), translateProgramToScript(ctx), sourceMapName));
+		writeJsScriptAst(alloc, showCtx, modulePaths(alloc, program.program), translateProgramToScript(ctx), sourceMapName));
 
 immutable struct JsModules {
 	Path mainJs;
@@ -167,7 +170,7 @@ JsModules translateToJsModules(
 	JsTarget jsTarget,
 ) =>
 	withTranslateProgram(alloc, program, showCtx, jsTarget, false, (ref TranslateProgramCtx ctx) {
-		ModulePaths modulePaths = modulePaths(alloc, program);
+		ModulePaths modulePaths = modulePaths(alloc, program.program);
 		// None for unused modules
 		MutMap!(Module*, Opt!JsModuleAst) done;
 		todo!void("-----------------------------------------------------------------------------"); //doTranslateModule(ctx, modulePaths, done, program.mainModule);
@@ -203,7 +206,33 @@ Out withTranslateProgram(Out)(
 	return cb(ctx);
 }
 
-ModulePaths modulePaths(ref Alloc alloc, in ProgramWithMain program) {
+ModulePaths modulePaths(ref Alloc alloc, in Program program) {
+	Opt!Uri commonAncestor = getCommonAncestor(program);
+	MutMap!(Uri, Path) res;
+	foreach (ref immutable Module* module_; program.allModules)
+		mustAdd(
+			alloc, res, module_.uri,
+			has(commonAncestor)
+				? pathFromAncestor(force(commonAncestor), module_.uri)
+				: asFilePath(module_.uri).path);
+	return ModulePaths(moveToMap(alloc, res));
+}
+Opt!Uri getCommonAncestor(in Program program) {
+	Cell!(Opt!Uri) res;
+	foreach (ref immutable Module* module_; program.allModules) {
+		if (has(cellGet(res))) {
+			Opt!Uri next = commonAncestor(force(cellGet(res)), module_.uri);
+			if (!has(next))
+				return none!Uri;
+			cellSet(res, next);
+		} else {
+			cellSet(res, some(module_.uri));
+		}
+	}
+	return cellGet(res);
+}
+
+ModulePaths modulePathsOLD(ref Alloc alloc, in ProgramWithMain program) {
 	Module* main = todo!(Module*)("88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888"); //program.mainModule;
 	Uri mainCommon = findCommonMainDirectory(main);
 	MutMap!(Uri, Path) res;

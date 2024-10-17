@@ -96,13 +96,17 @@ Operation.Fn fnForUnaryMath(BuiltinUnaryMath a) {
 Operation.Fn fnForBinaryMath(BuiltinBinaryMath a) {
 	final switch (a) {
 		case BuiltinBinaryMath.atan2Float32:
-			return &binaryFloat32s!((float a, float b) => atan2f(a, b));
+			return &binaryFloat32s!atan2f;
 		case BuiltinBinaryMath.atan2Float64:
-			return &binaryFloat64s!((double a, double b) => atan2(a, b));
+			return &binaryFloat64s!atan2;
+		case BuiltinBinaryMath.fmodFloat32:
+			return &binaryFloat32s!fmodf;
+		case BuiltinBinaryMath.fmodFloat64:
+			return &binaryFloat64s!fmod;
 		case BuiltinBinaryMath.unsafePowFloat32:
-			return &binaryFloat32s!((float a, float b) => powf(a, b));
+			return &binaryFloat32s!powf;
 		case BuiltinBinaryMath.unsafePowFloat64:
-			return &binaryFloat64s!((double a, double b) => pow(a, b));
+			return &binaryFloat64s!pow;
 	}
 }
 
@@ -227,6 +231,8 @@ extern(C) {
 	float coshf(float x);
 	double floor(float x);
 	float floorf(float x);
+	double fmod(double x, double y);
+	float fmodf(double x, double y);
 	double log(double x);
 	double logf(float x);
 	double pow(double x, double y);

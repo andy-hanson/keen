@@ -23,6 +23,7 @@ import lib.lsp.lspTypes :
 	InlayHintKind,
 	InlayHintLabel,
 	InlayHintLabelPart,
+	InlayHintRefresh,
 	LspDiagnostic,
 	LspOutAction,
 	LspOutMessage,
@@ -46,6 +47,7 @@ import lib.lsp.lspTypes :
 	Write;
 import util.alloc.alloc : Alloc;
 import util.col.array : map;
+import util.col.arrayBuilder : buildArray, Builder;
 import util.col.map : KeyValuePair;
 import util.exitCode : ExitCode, Signal;
 import util.json : field, Json, jsonBool, jsonList, jsonNull, jsonObject, jsonString, optionalField;
@@ -59,6 +61,7 @@ import util.sourceRange :
 	Pos,
 	PosKind,
 	UriAndRange;
+import util.symbol : symbol;
 import util.uri : stringOfUri, symbolOfUri, Uri;
 import util.util : stringOfEnum;
 
@@ -66,7 +69,7 @@ Json jsonOfLspOutAction(ref Alloc alloc, in LineAndCharacterGetters lcg, in LspO
 	jsonObject(alloc, [
 		field!"messages"(jsonList(map(alloc, a.outMessages, (ref LspOutMessage x) =>
 			jsonOfLspOutMessage(alloc, lcg, x)))),
-		optionalField!("exitCode", ExitCode)(a.exitCode, (ExitCode x) =>
+		optionalField!("exit-code", ExitCode)(a.exitCode, (ExitCode x) =>
 			Json(x.value))]);
 
 Json jsonOfLspOutMessage(ref Alloc alloc, in LineAndCharacterGetters lcg, ref LspOutMessage a) =>
@@ -87,7 +90,11 @@ Json jsonOfLspOutRequest(ref Alloc alloc, in LspOutRequest a) =>
 		(in CodeLensRefresh x) =>
 			jsonObject(alloc, [
 				field!"id"(a.id),
-				field!"method"("workspace/codeLens/refresh")]));
+				field!"method"("workspace/codeLens/refresh")]),
+		(in InlayHintRefresh x) =>
+			jsonObject(alloc, [
+				field!"id"(a.id),
+				field!"method"("workspace/inlayHint/refresh")]));
 
 Json jsonOfLspOutNotification(ref Alloc alloc, in LineAndCharacterGetters lcg, ref LspOutNotification a) {
 	Json res(string method, Json params) =>
@@ -122,6 +129,8 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 			jsonOfFoldingRanges(alloc, x),
 		(InitializeResult _) =>
 			jsonObject(alloc, [field!"capabilities"(initializeCapabilities(alloc))]),
+		(InlayHint x) =>
+			jsonOfInlayHint(alloc, x),
 		(InlayHint[] x) =>
 			jsonOfInlayHints(alloc, x),
 		(Opt!Hover x) =>
@@ -175,7 +184,8 @@ Json initializeCapabilities(ref Alloc alloc) =>
 		field!"foldingRangeProvider"(jsonObject([])),
 		field!"hoverProvider"(jsonObject([])),
 		field!"implementationProvider"(jsonObject([])),
-		field!"inlayHintProvider"(jsonObject([])),
+		field!"inlayHintProvider"(jsonObject(alloc, [])),
+			//field!"resolveProvider"(true)])), -0-----------------------------------------------------------------------------------
 		field!"referencesProvider"(jsonObject([])),
 		field!"renameProvider"(jsonObject([])),
 		field!"semanticTokensProvider"(jsonObject(alloc, [
@@ -210,12 +220,12 @@ Json jsonOfCommand(ref Alloc alloc, ref Command a) =>
 		? force(a.arguments).matchIn!Json(
 			(in ExecuteCommandParams.RunTest x) =>
 				jsonObject(alloc, [
-					optionalField!"title"(a.title),
+					field!"title"(a.title),
 					optionalField!"tooltip"(a.tooltip),
 					field!"command"("run-test"),
 					field!"arguments"(jsonList(alloc, [jsonOfUriAndLine(alloc, x.where)]))]))
 		: jsonObject(alloc, [
-			optionalField!"title"(a.title),
+			field!"title"(a.title),
 			optionalField!"tooltip"(a.tooltip)]);
 
 public Json jsonOfCompletionList(ref Alloc alloc, in CompletionList a) =>
@@ -238,12 +248,27 @@ public Json jsonOfInlayHints(ref Alloc alloc, in InlayHint[] a) =>
 	jsonList(map(alloc, a, (ref InlayHint x) =>
 		jsonOfInlayHint(alloc, x)));
 Json jsonOfInlayHint(ref Alloc alloc, ref InlayHint a) =>
+	// I'm making extra sure the optional fields are not present ----------------------------------------------------------------------------
+	jsonObject(buildArray!(Json.ObjectField)(alloc, (scope ref Builder!(Json.ObjectField) out_) {
+		out_ ~= Json.ObjectField(symbol!"position", jsonOfLineAndCharacter(alloc, a.position));
+		out_ ~= Json.ObjectField(symbol!"label", jsonOfInlayHintLabel(alloc, a.label));
+		if (a.paddingLeft)
+			out_ ~= Json.ObjectField(symbol!"paddingLeft", jsonBool(true));
+		if (a.paddingRight)
+			assert(false); // -----------------------------------------------------------------------------------------------
+		//if (has(a.data))
+		//	out_ ~= Json.ObjectField(symbol!"data", jsonString(stringOfUri(alloc, force(a.data))));----------------------------------
+	}));
+	/*
 	jsonObject(alloc, [
 		field!"position"(jsonOfLineAndCharacter(alloc, a.position)),
-		field!"label"(jsonOfInlayHintLabel(alloc, a.label)),
+		optionalField!("label", InlayHintLabel)(a.label, (InlayHintLabel x) => jsonOfInlayHintLabel(alloc, x)),
 		optionalField!"kind"(a.kind != InlayHintKind.none, () => Json(uint(a.kind))),
 		field!"paddingLeft"(a.paddingLeft),
-		field!"paddingRight"(a.paddingRight)]);
+		field!"paddingRight"(a.paddingRight),
+		optionalField!("data", Uri)(a.data, (Uri x) => jsonString(stringOfUri(alloc, x)))]);
+	*/
+
 Json jsonOfInlayHintLabel(ref Alloc alloc, ref InlayHintLabel a) =>
 	a.match!Json(
 		(string x) =>
@@ -252,11 +277,19 @@ Json jsonOfInlayHintLabel(ref Alloc alloc, ref InlayHintLabel a) =>
 			jsonList(map(alloc, xs, (ref InlayHintLabelPart x) =>
 				jsonOfInlayHintLabelPart(alloc, x))));
 Json jsonOfInlayHintLabelPart(ref Alloc alloc, ref InlayHintLabelPart a) =>
+	// I'm making extra sure the optional fields are not present ----------------------------------------------------------------------------
+	jsonObject(buildArray!(Json.ObjectField)(alloc, (scope ref Builder!(Json.ObjectField) out_) {
+		out_ ~= Json.ObjectField(symbol!"value", jsonString(a.value));
+		if (has(a.tooltip)) out_ ~= Json.ObjectField(symbol!"tooltip", jsonString(force(a.tooltip)));
+		if (has(a.command)) out_ ~= Json.ObjectField(symbol!"command", jsonOfCommand(alloc, force(a.command)));
+	}));
+	/*
 	jsonObject(alloc, [
 		field!"value"(a.value),
 		optionalField!"tooltip"(a.tooltip),
 		optionalField!("command", Command)(a.command, (Command x) =>
 			jsonOfCommand(alloc, x))]);
+	*/
 
 public Json jsonOfReferences(ref Alloc alloc, in LineAndCharacterGetters lcg, in UriAndRange[] references) =>
 	jsonList!UriAndRange(alloc, references, (in UriAndRange x) =>

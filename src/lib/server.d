@@ -74,7 +74,6 @@ import lib.lsp.lspTypes :
 	BuildJsScriptResult,
 	CancelRequestParams,
 	CodeLensParams,
-	CodeLensRefresh,
 	CodeLensResolved,
 	CodeLensUnresolved,
 	CompletionList,
@@ -97,6 +96,7 @@ import lib.lsp.lspTypes :
 	InitializeResult,
 	InlayHint,
 	InlayHintParams,
+	InlayHintRefresh,
 	LspDiagnostic,
 	LspDiagnosticSeverity,
 	LspInMessage,
@@ -412,6 +412,8 @@ private LspOutAction handleLspRequestWithProgram(
 			singleResponse(alloc, request, LspOutResult(getImplementationForProgram(alloc, server, program, x))),
 		(in InitializeParams _) =>
 			assert(false),
+		//(in InlayHintUnresolved x) =>
+		//	singleResponse(alloc, request, LspOutResult(resolveInlayHint(alloc, program, getShowDiagCtx(server, program), server.lspState.testStates, x))),
 		(in InlayHintParams x) =>
 			singleResponse(alloc, request, LspOutResult(getInlayHintsForProgram(alloc, server, program, x))),
 		(in ReferenceParams x) =>
@@ -423,6 +425,8 @@ private LspOutAction handleLspRequestWithProgram(
 		(in RunParams x) {
 			ArrayBuilder!Write writes;
 			ProgramWithMain pwm = programWithMain(MainKind.fun(x.uri, []), BuildTarget.native(OS.none));
+			if (hasAnyDiagnostics(pwm))
+				add(alloc, writes, Write(Pipe.stderr, showDiagnostics(alloc, server, pwm, x.diagnosticsOnlyForUris)));
 			ExitCodeOrSignal exit = runFromLsp(
 				perf, alloc, server, pwm, x.diagnosticsOnlyForUris,
 				(Pipe pipe, in string x) {
@@ -467,7 +471,7 @@ LspOutAction executeCommand(scope ref Perf perf, ref Alloc alloc, ref Server ser
 			return LspOutAction(
 				newArray!LspOutMessage(alloc, [
 					messageForResponse(request, LspOutResult(LspOutResult.Null())),
-					LspOutMessage(LspOutRequest(1, LspOutRequestParams(CodeLensRefresh())))]));
+					LspOutMessage(LspOutRequest(1, LspOutRequestParams(InlayHintRefresh())))]));
 		});
 
 private ExitCodeOrSignal runFromLsp(
@@ -478,25 +482,17 @@ private ExitCodeOrSignal runFromLsp(
 	in Opt!(Uri[]) diagnosticsOnlyForUris,
 	in WriteCb writeCb,
 ) =>
-	withFakeExtern(alloc, writeCb, (scope ref Extern extern_) =>
-		runFromLspInner(perf, alloc, server, program, diagnosticsOnlyForUris, writeCb, extern_));
-private ExitCodeOrSignal runFromLspInner( // TODO: inilne this one .................................................................................
-	scope ref Perf perf,
-	ref Alloc alloc,
-	ref Server server,
-	ref ProgramWithMain program,
-	in Opt!(Uri[]) diagnosticsOnlyForUris,
-	in WriteCb writeCb,
-	scope ref Extern extern_,
-) {
-	CString[1] allArgs = [cString!"/usr/bin/fakeExecutable"];
-	if (hasAnyDiagnostics(program))
-		writeCb(Pipe.stderr, showDiagnostics(alloc, server, program, diagnosticsOnlyForUris));
-	return hasFatalDiagnostics(program) ? ExitCodeOrSignal.error : buildAndInterpret(
-		perf, server, extern_,
-		(in string x) { writeCb(Pipe.stderr, x); },
-		program, OS.none, VersionOptions(isSingleThreaded: true, stackTraceEnabled: true), diagnosticsOnlyForUris, allArgs);
-}
+	withFakeExtern(alloc, writeCb, (scope ref Extern extern_) {
+		CString[1] allArgs = [cString!"/usr/bin/fakeExecutable"];
+		if (hasFatalDiagnostics(program)) {
+			writeCb(Pipe.stderr, "Can't run due to compile errors");
+			return ExitCodeOrSignal.error;
+		} else
+			return buildAndInterpret(
+				perf, server, extern_,
+				(in string x) { writeCb(Pipe.stderr, x); },
+				program, OS.none, VersionOptions(isSingleThreaded: true, stackTraceEnabled: true), diagnosticsOnlyForUris, allArgs);
+	});
 
 private __gshared Server serverStorage = void;
 
@@ -1099,6 +1095,7 @@ LspDiagnosticSeverity toLspDiagnosticSeverity(DiagnosticSeverity a) {
 LspOutAction initializedAction(ref Alloc alloc, ref Server server) {
 	return LspOutAction(newArray!LspOutMessage(alloc, [
 		register("codeLens/resolve"),
+		// register("inlayHint/resolve"), --------------------------------------------------------------------------------------
 		register("textDocument/codeLens"),
 		register("textDocument/completion"),
 		register("textDocument/definition"),

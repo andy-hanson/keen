@@ -29,4 +29,5 @@ void testInlayHints(ref Test test) {
 private:
 
 Json inlayResult(ref Alloc alloc, in Program program, in ShowModelCtx ctx, in Module module_) =>
+	// TODO: we have to resolve them too --------------------------------------------------------------------------------------------
 	jsonOfInlayHints(alloc, getInlayHints(alloc, program, ctx, MutMap!(UriAndLine, RunResult)(), module_)); // inline????????????????/

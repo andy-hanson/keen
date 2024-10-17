@@ -34,6 +34,9 @@ import util.opt : has, none, Opt, optOrDefault, some;
 import util.symbol : Symbol, symbol;
 import util.util : debugLog, todo;
 import util.writer : withStackWriterImpure, Writer;
+version (WebAssembly) {
+	import util.wasm : getTimeNanos;
+}
 
 alias WriteCb = void delegate(Pipe, in string) @safe @nogc nothrow;
 
@@ -135,7 +138,7 @@ Opt!ExternPointersForAllLibraries getAllFakeExternFuns(
 
 @system ulong fakeMonotimeNsec() {
 	version (WebAssembly) {
-		TODO();
+		return getTimeNanos();
 	} else {
 		timespec time;
 		int err = clock_gettime(CLOCK_MONOTONIC, &time);

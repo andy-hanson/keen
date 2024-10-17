@@ -598,7 +598,9 @@ LowType binaryMathType(BuiltinBinaryMath kind) {
 	final switch (kind) {
 		case BuiltinBinaryMath.atan2Float32:
 		case BuiltinBinaryMath.unsafePowFloat32:
+		case BuiltinBinaryMath.fmodFloat32:
 			return float32Type;
+		case BuiltinBinaryMath.fmodFloat64:
 		case BuiltinBinaryMath.atan2Float64:
 		case BuiltinBinaryMath.unsafePowFloat64:
 			return float64Type;

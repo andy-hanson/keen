@@ -4,11 +4,13 @@ module lib.lsp.lspTypes;
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/
 
+import util.alloc.alloc : Alloc;
 import util.exitCode : ExitCode, ExitCodeOrSignal;
+import util.col.array : map;
 import util.col.map : KeyValuePair;
-import util.opt : Opt;
+import util.opt : force, has, Opt, optIf;
 import util.sourceRange : LineAndCharacter, LineAndCharacterRange, Pos, Range, UriAndPos, UriAndLine, UriAndRange;
-import util.string : SmallString;
+import util.string : copyString, SmallString;
 import util.union_ : Union;
 import util.uri : Uri;
 
@@ -86,10 +88,10 @@ immutable struct LspOutRequest {
 	LspOutRequestParams params;
 }
 immutable struct LspOutRequestParams {
-	mixin Union!(CodeLensRefresh);
+	mixin Union!(CodeLensRefresh, InlayHintRefresh);
 }
 immutable struct CodeLensRefresh {} // TODO: RM (use inlay hints) ---------------------------------------------------------------------------
-
+immutable struct InlayHintRefresh {}
 
 immutable struct LspOutResponse {
 	uint id;
@@ -105,6 +107,7 @@ immutable struct LspOutResult {
 		DocumentHighlightResult,
 		FoldingRange[],
 		InitializeResult,
+		InlayHint,
 		InlayHint[],
 		Opt!Hover,
 		RunResult,
@@ -218,12 +221,17 @@ immutable struct CodeLensResolved { // TODO: RM (use inlay hints) --------------
 	Command command;
 }
 immutable struct Command {
-	Opt!string title; // Optional in inlay hint????????????????????????????????????????????????????????????????????????????????
+	string title;
 	Opt!string tooltip;
 	// This also determines 'command'.
 	// Arguments must be represented as an array.
 	Opt!ExecuteCommandParams arguments;
 }
+private Command copyCommand(ref Alloc alloc, in Command a) =>
+	Command(
+		copyString(alloc, a.title),
+		optIf(has(a.tooltip), () => copyString(alloc, force(a.tooltip))),
+		optIf(has(a.arguments), () => copyExecuteCommandParams(alloc, force(a.arguments))));
 
 immutable struct ExecuteCommandParams {
 	immutable struct RunTest {
@@ -231,6 +239,10 @@ immutable struct ExecuteCommandParams {
 	}
 	mixin Union!(RunTest);
 }
+private ExecuteCommandParams copyExecuteCommandParams(ref Alloc alloc, in ExecuteCommandParams a) =>
+	a.matchIn!ExecuteCommandParams(
+		(in ExecuteCommandParams.RunTest) =>
+			a);
 
 immutable struct CompletionParams {
 	TextDocumentPositionParams params;
@@ -396,6 +408,23 @@ immutable struct InlayHintParams {
 	TextDocumentIdentifier textDocument;
 	LineAndCharacterRange range;
 }
+
+/*
+immutable struct InlayHintData { // ----------------------------------------------------------------------------------------------------
+	@safe @nogc pure nothrow:
+	immutable struct Purity {}
+	immutable struct Test { Uri uri; }
+	immutable struct Type {}
+	immutable struct Uses {}
+	mixin Union!(Purity, Test, Type, Uses);
+
+	static Purity purity() =>
+		InlayHintData(Purity());
+	static Test test(Uri uri) =>
+		InlayHintData(Test(uri));
+	static Type type() =>
+		InlayHintData(Type());
+}*/
 immutable struct InlayHint {
 	LineAndCharacter position;
 	InlayHintLabel label;
@@ -403,16 +432,36 @@ immutable struct InlayHint {
 	bool paddingLeft;
 	bool paddingRight;
 }
+//InlayHint copyInlayHint(ref Alloc alloc, in InlayHint x) => // TODO: RM --------------------------------------------------------------
+//	InlayHint(
+//		x.position,
+//		copyInlayHintLabel(alloc, x.label),
+//		x.kind,
+//		x.paddingLeft,
+//		x.paddingRight,
+//		x.data);
 enum InlayHintKind { none = 0, Type = 1, Parameter = 2 }
 
 immutable struct InlayHintLabel {
 	mixin Union!(string, InlayHintLabelPart[]);
 }
+private InlayHintLabel copyInlayHintLabel(ref Alloc alloc, in InlayHintLabel a) =>
+	a.matchIn!InlayHintLabel(
+		(in string x) =>
+			InlayHintLabel(copyString(alloc, x)),
+		(in InlayHintLabelPart[] xs) =>
+			InlayHintLabel(map(alloc, xs, (ref InlayHintLabelPart x) =>
+				copyInlayHintLabelPart(alloc, x))));
 immutable struct InlayHintLabelPart {
 	string value;
 	Opt!string tooltip;
 	Opt!Command command;
 }
+private InlayHintLabelPart copyInlayHintLabelPart(ref Alloc alloc, in InlayHintLabelPart a) =>
+	InlayHintLabelPart(
+		copyString(alloc, a.value),
+		optIf(has(a.tooltip), () => copyString(alloc, force(a.tooltip))),
+		optIf(has(a.command), () => copyCommand(alloc, force(a.command))));
 
 immutable struct FoldingRangeParams {
 	TextDocumentIdentifier textDocument;

@@ -25,7 +25,7 @@ immutable struct CommandOptions {
 
 immutable struct CommandKind {
 	immutable struct Build {
-		Uri mainUri;
+		MainKind main;
 		BuildOptions options;
 	}
 	immutable struct Check {

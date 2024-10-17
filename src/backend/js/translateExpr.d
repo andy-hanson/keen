@@ -1777,6 +1777,8 @@ JsExpr translateBuiltinBinaryMath(
 ) {
 	JsExpr atan2() =>
 		callMath(ctx.alloc, source, symbol!"atan2", [left, right]);
+	JsExpr mod() =>
+		genBinary(ctx.alloc, source, JsBinaryExpr.Kind.modulo, left, right);
 	JsExpr pow() =>
 		callMath(ctx.alloc, source, symbol!"pow", [left, right]);
 	final switch (kind) {
@@ -1784,6 +1786,10 @@ JsExpr translateBuiltinBinaryMath(
 			return toFloat32(ctx.alloc, source, atan2());
 		case BuiltinBinaryMath.atan2Float64:
 			return atan2();
+		case BuiltinBinaryMath.fmodFloat32:
+			return toFloat32(ctx.alloc, source, mod());
+		case BuiltinBinaryMath.fmodFloat64:
+			return mod();
 		case BuiltinBinaryMath.unsafePowFloat32:
 			return toFloat32(ctx.alloc, source, pow());
 		case BuiltinBinaryMath.unsafePowFloat64:

@@ -1227,6 +1227,9 @@ enum BuiltinBinaryLazy {
 enum BuiltinBinaryMath {
 	atan2Float32,
 	atan2Float64,
+	// Note: Like the C 'fmod' function, this is not a true modulo; it keeps negative numbers negative
+	fmodFloat32,
+	fmodFloat64,
 	unsafePowFloat32,
 	unsafePowFloat64,
 }

@@ -2,9 +2,16 @@ module frontend.ide.getInlayHints;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.getCodeLenses : isEmpty, UrisOrCount, withImportsAndReExportsOf, writeUrisOrCount;
+import frontend.ide.getCodeLenses : isEmpty, tooltipForRunResult, UrisOrCount, withImportsAndReExportsOf, writeUrisOrCount;
 import frontend.showModel : ShowModelCtx, writeTypeUnquoted;
-import lib.lsp.lspTypes : Command, ExecuteCommandParams, InlayHint, InlayHintKind, InlayHintLabel, InlayHintLabelPart, RunResult;
+import lib.lsp.lspTypes :
+	Command,
+	ExecuteCommandParams,
+	InlayHint,
+	InlayHintKind,
+	InlayHintLabel,
+	InlayHintLabelPart,
+	RunResult;
 import lib.server : TestStates; // TODO: CIRCULAR IMPORT ---------------------------------------------------------------------------
 import model.ast : DestructureAst;
 import model.diag : TypeContainer, TypeWithContainer;
@@ -44,10 +51,14 @@ import util.writer : makeStringWithWriter, Writer;
 InlayHint[] getInlayHints(ref Alloc alloc, in Program program, in ShowModelCtx showCtx, in TestStates testStates, in Module module_) =>
 	buildSortedArray!(InlayHint, compareInlayHints)(alloc, (scope ref Builder!InlayHint out_) {
 		eachDecl(module_, (AnyDecl x) {
-			if (x.visibility != Visibility.private_)
-				getInlayHintsForDecl(alloc, out_, program, showCtx, testStates, x);
+			getInlayHintsForDecl(alloc, out_, program, showCtx, testStates, x);
 		});
 	});
+
+//InlayHint resolveInlayHint(ref Alloc alloc, in Program program, in ShowModelCtx showCtx, in TestStates testStates, in InlayHint unresolved) => // KILL
+//	has(unresolved.data)
+//		? resolveInlayHintForTest(alloc, showCtx, testStates, unresolved)
+//		: copyInlayHint(alloc, unresolved);
 
 private:
 
@@ -72,18 +83,13 @@ void getInlayHintsForDecl(
 					writeUrisOrCount(writer, "Used by", uri, imports);
 				}
 			});
-			import util.writer : debugLogWithWriter; // --------------------------------------------------------------------------------
-			debugLogWithWriter((scope ref Writer writer) {
-				writer ~= "Adding an inlay hint for a decl ";
-				writer ~= decl.name;
-			});
-			out_ ~= InlayHint(endOfLineForDecl(showCtx, decl), InlayHintLabel(message), InlayHintKind.none, paddingLeft: true, paddingRight: false);
+			out_ ~= InlayHint(endOfLineForDecl(showCtx, decl), InlayHintLabel(message), InlayHintKind.none, paddingLeft: true);
 		}
 	});
 
 	if (decl.isA!(FunDecl*))
 		getInlayHintsForFun(alloc, out_, showCtx, decl.as!(FunDecl*));
-	else if (decl.isA!(Test*) && false) // 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+	else if (decl.isA!(Test*))
 		getInlayHintsForTest(alloc, out_, showCtx, testStates, decl.as!(Test*));
 }
 
@@ -133,8 +139,7 @@ void getInlayHintsForDestructure(
 							writeTypeUnquoted(writer, showCtx, TypeWithContainer(x.type, typeContainer));
 						})),
 						InlayHintKind.Type,
-						paddingLeft: true,
-						paddingRight: false);
+						paddingLeft: true);
 				}
 				Purity purity = bestCasePurity(x.type);
 				if (purity != Purity.data)
@@ -142,8 +147,7 @@ void getInlayHintsForDestructure(
 						toLineAndCharacter(ast.range.end),
 						InlayHintLabel(stringOfEnum(purity)),
 						InlayHintKind.none,
-						paddingLeft: true,
-						paddingRight: false);
+						paddingLeft: true);
 			}
 		},
 		(in Destructure.Split x) {
@@ -165,19 +169,30 @@ void getInlayHintsForTest(
 	Uri uri = test.moduleUri;
 	UriAndLine where = UriAndLine(uri, lineOfPos(showCtx.lineAndCharacterGetters[uri], test.range.start));
 	Opt!RunResult optResult = testStates[where];
-	InlayHintLabel label = has(optResult)
-		? labelForTestResult(force(optResult))
-		: labelForRunTest(alloc, where);
-	out_ ~= InlayHint(endOfLineForDecl(showCtx, AnyDecl(test)), label, InlayHintKind.none, paddingLeft: true, paddingRight: false);
+	LineAndCharacter position = endOfLineForDecl(showCtx, AnyDecl(test));
+	if (has(optResult)) {
+		out_ ~= InlayHint(position, labelForTestResult(alloc, force(optResult)), paddingLeft: true);
+	} else {
+		out_ ~= InlayHint(position, labelForRunTest(alloc, where), paddingLeft: true);
+	}
 }
 
-InlayHintLabel labelForTestResult(RunResult a) =>
-	InlayHintLabel(isOk(a.exit) ? "OK" : "Test failed");
+//InlayHint resolveInlayHintForTest(ref Alloc alloc, in ShowModelCtx showCtx, in TestStates testStates, in InlayHint unresolved) {
+//	UriAndLine where = UriAndLine(force(unresolved.data), unresolved.position.line);
+//	Opt!RunResult optResult = testStates[where];
+//	assert(!has(optResult));
+//	return InlayHint(unresolved.position, some(labelForRunTest(alloc, where)), paddingLeft: true);
+//}
+
+InlayHintLabel labelForTestResult(ref Alloc alloc, RunResult a) =>
+	InlayHintLabel(newArray(alloc, [
+		InlayHintLabelPart(
+			isOk(a.exit) ? "OK" : "Test failed",
+			tooltip: tooltipForRunResult(alloc, a))]));
 
 InlayHintLabel labelForRunTest(ref Alloc alloc, UriAndLine where) =>
 	InlayHintLabel(newArray(alloc, [
 		InlayHintLabelPart(
 			"Run test",
-			/*command: some(Command(
-				arguments: some(ExecuteCommandParams(ExecuteCommandParams.RunTest(where)))))*/
+			command: some(Command(arguments: some(ExecuteCommandParams(ExecuteCommandParams.RunTest(where))))),
 		)]));

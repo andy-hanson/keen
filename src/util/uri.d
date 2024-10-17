@@ -36,7 +36,7 @@ import util.symbol :
 	symbolSize,
 	toLowerCase,
 	writeExtension;
-import util.util : todo, typeAs;
+import util.util : min, todo, typeAs;
 import util.writer : digitChar, makeStringWithWriter, withStackWriter, withStackWriterImpureCString, withWriter, Writer;
 
 T withCStringOfFilePath(T)(FilePath path, in T delegate(in CString) @safe @nogc nothrow cb) =>
@@ -234,10 +234,12 @@ FilePath parentOrEmpty(FilePath a) =>
 Path parentOrEmpty(Path a) =>
 	optOrDefault!Path(parent(a), () => a);
 
-Uri firstNComponents(Uri uri, size_t n) {
-	size_t count = countComponents(uri);
+Uri firstNComponents(Uri a, size_t n) =>
+	Uri(firstNComponents(a.path, n));
+Path firstNComponents(Path a, size_t n) {
+	size_t count = countComponents(a);
 	assert(count >= n);
-	Uri res = applyNTimes!Uri(uri, count - n, (Uri x) => force(parent(x)));
+	Path res = applyNTimes!Path(a, count - n, (Path x) => force(parent(x)));
 	assert(countComponents(res) == n);
 	return res;
 }
@@ -642,6 +644,23 @@ Path pathFromAncestor(Path a, Path b) {
 	return parent == a
 		? rootPath(baseName(b), PathInfo())
 		: pathFromAncestor(a, parent) / baseName(b);
+}
+
+Opt!Uri commonAncestor(Uri a, Uri b) {
+	Opt!Path res = commonAncestor(a.path, b.path);
+	return optIf(has(res), () => Uri(force(res)));
+}
+private Opt!Path commonAncestor(Path a, Path b) {
+	size_t minCount = min(countComponents(a), countComponents(b));
+	return commonAncestorRecur(firstNComponents(a, minCount), firstNComponents(b, minCount));
+}
+private Opt!Path commonAncestorRecur(Path a, Path b) {
+	assert(countComponents(a) == countComponents(b));
+	return a == b
+		? some(a)
+		: has(parent(a))
+		? commonAncestorRecur(force(parent(a)), force(parent(b)))
+		: none!Path;
 }
 
 Path prefixPathComponent(Symbol first, Path rest) =>

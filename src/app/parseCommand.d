@@ -498,10 +498,7 @@ Opt!uint tryTakeNat(ref MutCString ptr) {
 
 CommandKind parseBuildCommand(ref Alloc alloc, FilePath cwd, scope ref Diags diags, OS os, in SplitArgs args) {
 	expectEmptyAfterDashDash(diags, args.afterDashDash);
-	Uri main = parseMainUri(alloc, cwd, diags, args.beforeFirstPart);
-	return CommandKind(CommandKind.Build(
-		main,
-		parseBuildOptions(alloc, cwd, diags, os, args.parts, main)));
+	return CommandKind(parseBuildOptions(alloc, cwd, diags, os, args.beforeFirstPart, args.parts)); // TODO: just inline that here????
 }
 
 immutable struct RunOptionsAndAll {
@@ -589,19 +586,24 @@ void expectFlag(scope ref Diags diags, ArgsPart part) {
 		diags ~= Diag(Diag.UnexpectedPartArgs(part));
 }
 
-BuildOptions parseBuildOptions(
+immutable struct BuildOptionsAndTest {
+	BuildOptions options;
+	bool test;
+}
+CommandKind.Build parseBuildOptions(
 	ref Alloc alloc,
 	FilePath cwd,
 	scope ref Diags diags,
 	OS os,
+	in CString[] beforeFirstPart,
 	in ArgsPart[] argParts,
-	Uri mainUri,
 ) {
 	SingleBuildOutput[] out_;
 	bool optimize = false;
 	bool c99 = false;
 	bool noStackTrace = false;
 	bool singleThreaded = false;
+	bool test; // TODO: DOCUMENT ME ------------------------------------------------------------------------------------------------------
 	foreach (ArgsPart part; argParts) {
 		switch (stringOfCString(part.tag)) {
 			case "--c99":
@@ -631,23 +633,30 @@ BuildOptions parseBuildOptions(
 					diags ~= Diag(Diag.DuplicatePart(part.tag));
 				singleThreaded = true;
 				break;
+			case "--test":
+				expectFlag(diags, part);
+				// TODO: detect duplicate -----------------------------------------------------------------------------------------------
+				test = true;
+				break;
 			default:
 				diags ~= Diag(Diag.UnexpectedPart(part.tag));
 		}
 	}
 
+	MainKind main = test
+		? parseMainKindForTest(alloc, cwd, diags, beforeFirstPart, all: false) // TODO: support '--all'. Warn if '--test' is not passed
+		: MainKind.fun(parseMainUri(alloc, cwd, diags, beforeFirstPart), []);
 	SingleBuildOutput[] resOut = !isEmpty(out_)
 		? out_
 		: newArray(alloc, [
-			SingleBuildOutput(SingleBuildOutput.Kind.executable, defaultExecutablePath(
-				uriIsFile(mainUri) ? asFilePath(mainUri) : cwd / symbol!"main",
-				os))]);
-	return BuildOptions(
+			SingleBuildOutput(SingleBuildOutput.Kind.executable, defaultExecutablePathForMain(main, cwd, os))]);
+	BuildOptions options = BuildOptions(
 		VersionOptions(isSingleThreaded: singleThreaded, stackTraceEnabled: !noStackTrace),
 		resOut,
 		CCompileOptions(
 			optimize ? OptimizationLevel.o2 : OptimizationLevel.none,
 			c99 ? CVersion.c99 : CVersion.c11));
+	return CommandKind.Build(main, options);
 }
 
 SingleBuildOutput[] parseBuildOut(ref Alloc alloc, FilePath cwd, OS os, scope ref Diags diags, ArgsPart part) {
@@ -719,6 +728,10 @@ FilePath parseFilePathWithCwdOrDiag(scope ref Diags diags, FilePath cwd, in CStr
 		return cwd / symbol!"bogus";
 	});
 
+FilePath defaultExecutablePathForMain(MainKind main, FilePath cwd, OS os) =>
+	defaultExecutablePath(
+		uriIsFile(main.mainUriForAllArgs) ? asFilePath(main.mainUriForAllArgs) : cwd / symbol!"main",
+		os);
 public FilePath defaultExecutablePath(FilePath base, OS os) =>
 	alterExtension(base, defaultExecutableExtension(os));
 

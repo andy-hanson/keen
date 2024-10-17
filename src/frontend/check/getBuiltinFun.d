@@ -338,6 +338,8 @@ FunBody inner(
 				: failUnary);
 		case symbol!"false".value:
 			return FunBody(BuiltinFun(constantBool(false)));
+		case symbol!"fmod".value:
+			return binaryMath(BuiltinBinaryMath.fmodFloat32, BuiltinBinaryMath.fmodFloat64);
 		case symbol!"from-bits".value:
 			return unary(
 				isFloat32(rt) && isNat32(p0)

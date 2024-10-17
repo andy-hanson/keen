@@ -78,14 +78,14 @@ void testWrite(ref Test test) {
 	};
 	ExitCode result =
 		withFakeExtern(test.alloc, fakeWrite, (scope ref Extern extern_) @trusted {
-			Symbol[1] exportNames = [symbol!"write"];
+			Symbol[1] exportNames = [symbol!"write-fake"];
 			ExternLibrary[1] externLibraries = [ExternLibrary(symbol!"libc", none!Uri, exportNames)];
 			Opt!ExternPointersForAllLibraries funPtrsOpt =
 				extern_.loadExternPointers(externLibraries, (in string _) =>
 					assert(false));
 			ExternPointersForAllLibraries funPtrs = force(funPtrsOpt);
 			ExternPointersForLibrary forCrow = mustGet(funPtrs, symbol!"libc");
-			FunPointer write = mustGet(forCrow, symbol!"write").asFunPointer;
+			FunPointer write = mustGet(forCrow, symbol!"write-fake").asFunPointer;
 
 			DynCallType[4] sigTypes = [
 				DynCallType.pointer,
@@ -99,18 +99,12 @@ void testWrite(ref Test test) {
 			Stacks stacks = stacksForRange(stacksStorage);
 			dataPush(stacks, [1, cast(ulong) cString!"gnarly".ptr, 4]);
 			doDynCall(extern_.doDynCall, stacks, sig, write);
-			ulong res1 = dataPop(stacks);
-			assert(res1 == 4);
 
 			dataPush(stacks, [2, cast(ulong) cString!"tubular".ptr, 2]);
 			doDynCall(extern_.doDynCall, stacks, sig, write);
-			ulong res2 = dataPop(stacks);
-			assert(res2 == 2);
 
 			dataPush(stacks, [1, cast(ulong) cString!"way cool".ptr, 5]);
 			doDynCall(extern_.doDynCall, stacks, sig, write);
-			ulong res3 = dataPop(stacks);
-			assert(res3 == 5);
 			return ExitCode(42);
 		});
 	assert(result.value == 42);

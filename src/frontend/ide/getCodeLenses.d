@@ -70,11 +70,11 @@ CodeLensResolved resolveCodeLens(
 			if (has(optResult)) {
 				RunResult result = force(optResult);
 				return Command(
-					some(isOk(result.exit) ? "Passed" : "Failed"),
+					isOk(result.exit) ? "Passed" : "Failed",
 					tooltipForRunResult(alloc, result));
 			} else
 				return Command(
-					some("Run test"),
+					"Run test",
 					tooltip: some("this is a dummy tooltip to test if they even work"), // --------------------------------------------
 					arguments: some(ExecuteCommandParams(ExecuteCommandParams.RunTest(uriAndLine))));
 		}();
@@ -92,13 +92,13 @@ CodeLensResolved resolveCodeLens(
 			});
 		});
 		// To find the entity again: Find it at codeLens.data.uri and codeLens.range.start
-		return CodeLensResolved(codeLens.range, Command(some(message)));
+		return CodeLensResolved(codeLens.range, Command(message));
 	}
 }
 
 private:
 
-Opt!string tooltipForRunResult(ref Alloc alloc, RunResult result) => // TODO: UNIT TEST ----------------------------------------------
+public Opt!string tooltipForRunResult(ref Alloc alloc, RunResult result) => // TODO: UNIT TEST ----------------------------------------------
 	optIf(isOk(result.exit) || !isEmpty(result.writes), () =>
 		makeStringWithWriter(alloc, (scope ref Writer writer) {
 			if (every!Write(result.writes, (in Write x) => x.pipe == Pipe.stdout))
@@ -163,30 +163,35 @@ public void withImportsAndReExportsOf(
 	in AnyDecl decl,
 	size_t maxUris,
 	in void delegate(in UrisOrCount, in UrisOrCount) @safe @nogc pure nothrow cb,
-) =>
-	withMaxStackArray!(void, Uri)(maxUris, (scope ref MaxStackArray!Uri imports) {
-		withMaxStackArray!(void, Uri)(maxUris, (scope ref MaxStackArray!Uri exports) {
-			size_t countImports;
-			size_t countExports;
-			void addUri(scope ref MaxStackArray!Uri uris, ref size_t count, Uri uri) {
-				count++;
-				if (!uris.isFull) uris ~= uri;
-			}
-			eachImport(program, UriAndName(decl.moduleUri, decl.name), (Uri uri, IsImportOrExport x) {
-				final switch (x) {
-					case IsImportOrExport.import_:
-						addUri(imports, countImports, uri);
-						break;
-					case IsImportOrExport.export_:
-						addUri(exports, countExports, uri);
-						break;
+) {
+	if (decl.visibility == Visibility.private_)
+		cb(UrisOrCount(0), UrisOrCount(0));
+	else {
+		withMaxStackArray!(void, Uri)(maxUris, (scope ref MaxStackArray!Uri imports) {
+			withMaxStackArray!(void, Uri)(maxUris, (scope ref MaxStackArray!Uri exports) {
+				size_t countImports;
+				size_t countExports;
+				void addUri(scope ref MaxStackArray!Uri uris, ref size_t count, Uri uri) {
+					count++;
+					if (!uris.isFull) uris ~= uri;
 				}
+				eachImport(program, UriAndName(decl.moduleUri, decl.name), (Uri uri, IsImportOrExport x) {
+					final switch (x) {
+						case IsImportOrExport.import_:
+							addUri(imports, countImports, uri);
+							break;
+						case IsImportOrExport.export_:
+							addUri(exports, countExports, uri);
+							break;
+					}
+				});
+				UrisOrCount result(size_t count, ref const MaxStackArray!Uri uris) =>
+					count > maxUris ? UrisOrCount(maxUris) : UrisOrCount(uris.soFar);
+				cb(result(countImports, imports), result(countExports, exports));
 			});
-			UrisOrCount result(size_t count, ref const MaxStackArray!Uri uris) =>
-				count > maxUris ? UrisOrCount(maxUris) : UrisOrCount(uris.soFar);
-			cb(result(countImports, imports), result(countExports, exports));
 		});
-	});
+	}
+}
 
 AnyDecl declAtPos(in Module module_, Pos pos) {
 	Late!AnyDecl res;

@@ -384,7 +384,7 @@ ExitCodeOrSignal go(
 	command.matchImpure!ExitCodeOrSignal(
 		(in CommandKind.Build x) =>
 			withProgramForMain(
-				perf, alloc, server, MainKind.fun(x.mainUri, []), targetsForBuild(alloc, getOS(), x), (ref ProgramWithMain program) =>
+				perf, alloc, server, x.main, targetsForBuild(alloc, getOS(), x), (ref ProgramWithMain program) =>
 					buildAllOutputs(perf, alloc, server, cwd, x.options, program)),
 		(in CommandKind.Check x) =>
 			withProgramForRoots(perf, alloc, server, x.rootUris, (ref Program program) =>

@@ -6,8 +6,8 @@ import
 	crow/js/util: cast-option, json-parse, json-stringify
 	./decode-tokens: decode-tokens
 	./lsp-types:
-		diagnostic, line-and-character, new, run-result, stderr, stdout, to, to-js, token,
-		tokens-legend, write
+		diagnostic, exit-code, line-and-character, new, run-result, stderr, stdout, to, to-js,
+		token, tokens-legend, write
 	./util/DataView-util: DataView, new, read-c-string, view-c-string, wasm32, write-c-string
 	./util/util: fetch-js-object
 
@@ -41,10 +41,12 @@ change-file diagnostic[](a crow-server, uri uri, text string) summon, trusted, j
 	a get-diagnostics uri, response
 
 mark-unknown-files-not-found void(a crow-server) summon, trusted, js extern
+	info log "BEFORE UNLOADED URIS: {" " join a.get-unloaded-uris}"
 	for uri : a get-unloaded-uris
 		assert uri ends-with "/crow-config.json"
 		params js-any = ("uri", uri.as-js), ("type", "notFound")
 		_ = a.lsp-server handle-message ("custom/readFileResult" make-message params)
+	info log "AFTER UNLOADED URIS: {" " join a.get-unloaded-uris}"
 	assert a.get-unloaded-uris is-empty
 
 -get-diagnostics diagnostic[](a crow-server, uri uri, response response) trusted, js extern
@@ -118,7 +120,7 @@ run-js run-result(a crow-server, main-uri uri) trusted, js extern
 			1
 	else
 		1
-	writes.move-to, exit
+	writes.move-to, exit.exit-code
 
 -show-exception string(a exception-and-backtrace) unsafe, js extern
 	if x ?= a.exception.threw-non-exception
@@ -178,6 +180,8 @@ region LSP server
 		res["{key}f"] := value
 	res["round"] := (&round)::(float function(x float)) as-js
 	res["roundf"] := (&round)::(float32 function(x float32)) as-js
+	res["fmod"] := (&fmod)::(float function(x float, y float)) as-js
+	res["fmodf"] := (&fmodf)::(float32 function(x float32, y float32)) as-js
 	res["__assert"] := (&__assert)::(void function(
 		a crow-lsp-server,
 		asserted view-c-string,
@@ -187,6 +191,12 @@ region LSP server
 	res
 -partial js-any(fn js-any, arg js-any) unsafe, js extern
 	fn call-property "bind", null::js-any, arg
+
+-fmodf float32(a float32, b float32) unsafe, js extern
+	a.to fmod b.to to
+-fmod float(a float, b float) unsafe, js extern
+	# Crow's % handles negative numbers differently than fmod, but JS's % is the same
+	"""(x, y) => x % y""".eval call a, b cast
 
 -get-time-nanos nat() summon, trusted, js extern
 	msec float = "performance".js-global call-property "now" cast
@@ -284,7 +294,7 @@ region LSP server
 	response-str wasm32 = a.wasm.handleLspMessage call a.server, (a write-parameters message) cast
 	response = a.view read-c-string response-str json-parse
 	messages js-any[] = response["messages"] cast
-	exit-code js-any = response["exitCode"] cast
+	exit-code js-any = response["exit-code"] cast
 	messages, unless exit-code == null
 		exit-code.cast::float.to,
 

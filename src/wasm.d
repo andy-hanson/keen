@@ -12,6 +12,7 @@ import util.perf : Perf, PerfMeasure, PerfMeasureResult, PerfResult, perfResult,
 import util.string : CString;
 import util.uri : mustParseUri;
 import util.util : cStringOfEnum;
+import util.wasm : getTimeNanos, perfLogMeasure, perfLogFinish;
 
 version (WebAssembly) {} else { static assert(false); }
 
@@ -76,11 +77,6 @@ alias FetchMemoryCbImpure = ulong[] delegate(size_t sizeWords, size_t timesCalle
 			return jsonToCString(resultAlloc, outputJson);
 		})).ptr;
 }
-
-// Not really pure, but JS doesn't know that
-extern(C) pure ulong getTimeNanos();
-extern(C) void perfLogMeasure(scope immutable char* name, uint count, ulong nanoseconds, uint bytesAllocated);
-extern(C) void perfLogFinish(scope immutable char* name, ulong totalNanoseconds);
 
 private:
 

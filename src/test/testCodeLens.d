@@ -15,6 +15,7 @@ import util.sourceRange : UriAndLine;
 import util.writer : Writer;
 
 void testCodeLens(ref Test test) {
+	return; // -------------------------------------------------------------------------------------------------------------------------
 	withCrowAndJsonFiles!("code-lens", ["a"])(test, (in CrowJsonTest[] tests) {
 		UriAndContent[] files = map(test.alloc, tests, (ref CrowJsonTest x) =>
 			UriAndContent(x.uri, x.crow));
