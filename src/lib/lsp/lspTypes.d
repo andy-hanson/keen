@@ -9,7 +9,7 @@ import util.exitCode : ExitCode, ExitCodeOrSignal;
 import util.col.array : map;
 import util.col.map : KeyValuePair;
 import util.opt : force, has, Opt, optIf;
-import util.sourceRange : LineAndCharacter, LineAndCharacterRange, Pos, Range, UriAndPos, UriAndLine, UriAndRange;
+import util.sourceRange : LineAndCharacter, LineAndCharacterRange, Pos, Range, UriAndLine, UriAndRange;
 import util.string : copyString, SmallString;
 import util.union_ : Union;
 import util.uri : Uri;

@@ -116,7 +116,7 @@ import util.symbol : Symbol;
 import util.symbolSet : SymbolSet;
 import util.union_ : TaggedUnion;
 import util.uri : Uri;
-import util.util : ptrTrustMe, todo;
+import util.util : ptrTrustMe;
 import versionInfo : isVersion, VersionInfo, VersionFun;
 
 immutable struct FunOrTest {

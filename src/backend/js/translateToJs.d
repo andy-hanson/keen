@@ -77,14 +77,13 @@ import backend.js.translateModuleCtx :
 	translateStructReference;
 import backend.js.writeJsAst : writeJsModuleAst, writeJsScriptAst;
 import frontend.showModel : ShowTypeCtx;
-import model.ast : ImportOrExportAstKind, PathOrRelPath;
+import model.ast : ImportOrExportAstKind;
 import model.model :
 	AnyDecl,
 	allExterns,
 	BuildTarget,
 	BuiltinType,
 	Called,
-	eachImportOrReExport,
 	EnumOrFlagsMember,
 	FunDecl,
 	FunDeclSource,
@@ -122,7 +121,6 @@ import util.col.mutArr : MutArr, push;
 import util.col.mutMap : addOrChange, deleteWhere, getOrAdd, moveToMap, mustAdd, mustDelete, mustGet, MutMap;
 import util.col.set : Set;
 import util.col.sortUtil : sortInPlace;
-import util.col.tempSet : mustAdd, TempSet, tryAdd, withTempSet;
 import util.conv : safeToUshort;
 import util.memory : allocate;
 import util.opt : force, has, MutOpt, none, Opt, optIf, optFromMut, some, someMut;
@@ -132,22 +130,16 @@ import util.union_ : Union;
 import util.uri :
 	asFilePath,
 	commonAncestor,
-	countComponents,
 	FilePermissions,
-	firstNComponents,
-	isAncestor,
-	parent,
 	parsePath,
 	Path,
 	PathAndContent,
 	pathFromAncestor,
-	prefixPathComponent,
 	RelPath,
 	relativePath,
-	resolvePath,
 	Uri;
-import util.util : castNonScope_ref, min, ptrTrustMe, todo, typeAs;
-import versionInfo : JsTarget, OS, VersionInfo, versionInfoForBuildToJS;
+import util.util : castNonScope_ref, ptrTrustMe, todo, typeAs;
+import versionInfo : JsTarget, VersionInfo, versionInfoForBuildToJS;
 
 JsAndMap translateToJsScript(
 	ref Alloc alloc,
@@ -230,78 +222,6 @@ Opt!Uri getCommonAncestor(in Program program) {
 		}
 	}
 	return cellGet(res);
-}
-
-ModulePaths modulePathsOLD(ref Alloc alloc, in ProgramWithMain program) {
-	Module* main = todo!(Module*)("88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888"); //program.mainModule;
-	Uri mainCommon = findCommonMainDirectory(main);
-	MutMap!(Uri, Path) res;
-	void recur(in Module x, Opt!Path fromPath, PathOrRelPath pr) @safe @nogc nothrow {
-		if (x.uri !in res) {
-			Path path = pr.match!Path(
-				(Path x) => x,
-				(RelPath x) => force(resolvePath(force(parent(force(fromPath))), x)));
-			mustAdd(alloc, res, x.uri, path);
-			eachImportOrReExport(x, (ref ImportOrExport im) @safe nothrow {
-				recur(
-					im.module_,
-					some(path),
-					has(im.source) ? force(im.source).path : PathOrRelPath(parsePath("crow/std")));
-			});
-		}
-	}
-	recur(*main, none!Path, PathOrRelPath(prefixPathComponent(symbol!"main", pathFromAncestor(mainCommon, main.uri))));
-	return ModulePaths(moveToMap(alloc, res));
-}
-Uri findCommonMainDirectory(Module* main) =>
-	withTempSet!(Uri, Module*)(0x100, (scope ref TempSet!(Module*) globalImports) {
-		fillGlobalImportModules(globalImports, main);
-
-		// First: Find the common URI for all modules accessible from 'main' through relative imports.
-		size_t minComponents = countComponents(main.uri);
-		eachRelativeImportModule(main, (Module* x) {
-			if (x !in globalImports)
-				minComponents = min(minComponents, countComponents(x.uri));
-		});
-
-		assert(minComponents > 0);
-		Uri res = firstNComponents(main.uri, minComponents - 1);
-		eachRelativeImportModule(main, (Module* x) {
-			if (x !in globalImports)
-				assert(isAncestor(res, x.uri));
-		});
-		return res;
-	});
-
-void fillGlobalImportModules(scope ref TempSet!(Module*) res, Module* main) {
-	withTempSet!(void, Module*)(0x100, (scope ref TempSet!(Module*) seen) {
-		void recur(Module* a, bool inGlobal) @safe @nogc nothrow {
-			if (tryAdd(seen, a)) {
-				if (inGlobal)
-					mustAdd(res, a);
-				eachImportOrReExport(*a, (ref ImportOrExport x) @safe nothrow {
-					recur(x.modulePtr, inGlobal || !x.isRelativeImport);
-				});
-			}
-		}
-		recur(main, false);
-	});
-}
-
-void eachRelativeImportModule(Module* main, in void delegate(Module*) @safe @nogc pure nothrow cb) {
-	withTempSet!(void, Module*)(0x100, (scope ref TempSet!(Module*) seen) {
-		void recur(Module* x) @safe @nogc nothrow {
-			if (tryAdd(seen, x)) {
-				cb(x);
-				eachImportOrReExport(*x, (ref ImportOrExport im) @safe nothrow {
-					if (im.isRelativeImport) {
-						recur(im.modulePtr);
-					}
-				});
-			}
-		}
-		recur(main);
-	});
 }
 
 PathAndContent[] getOutputFiles(

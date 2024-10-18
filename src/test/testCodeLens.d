@@ -5,13 +5,10 @@ module test.testCodeLens;
 import frontend.ide.getCodeLenses : getCodeLenses;
 import frontend.showModel : ShowModelCtx;
 import lib.lsp.lspToJson : jsonOfCodeLenses;
-import lib.lsp.lspTypes : CodeLens, CodeLensParams, RunResult, TextDocumentIdentifier;
+import lib.lsp.lspTypes : CodeLensParams, TextDocumentIdentifier;
 import model.model : Program;
 import test.testUtil : assertEqual, CrowJsonTest, Test, UriAndContent, withCrowAndJsonFiles, withIdeTestMultipleFiles;
 import util.col.array : map;
-import util.col.mutMap : MutMap;
-import util.json : jsonList;
-import util.sourceRange : UriAndLine;
 import util.writer : Writer;
 
 void testCodeLens(ref Test test) {

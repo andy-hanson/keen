@@ -231,18 +231,6 @@ MainFunAndDiagnostics getMainFunAndDiagnostics(
 	return MainFunAndDiagnostics(res, smallFinish(alloc, diagsBuilder));
 }
 
-TestSelector testAtLine(ref Alloc alloc, scope ref ArrayBuilder!UriAndDiagnostic diagsBuilder, in Program program, in LineAndCharacterGetters lcgs, Uri uri, uint line) {
-	Module* module_ = moduleAtUri(program, uri);
-	LineAndCharacterGetter lcg = lcgs[uri];
-	Opt!(Test*) test = findPointer!Test(module_.tests, (in Test x) => lcg[x.range.range.start, PosKind.startOfRange].line == line);
-	if (has(test))
-		return TestSelector(force(test));
-	else {
-		todo!void("DIAG"); // ----------------------------------------------------------------------------------------------------------
-		return TestSelector(uri);
-	}
-}
-
 Destructure makeParam(ref Alloc alloc, ParamShort param) =>
 	Destructure(allocate(alloc, Local(
 		LocalSource(allocate(alloc, LocalSource.Generated(param.name))), LocalMutability.immutable_, param.type)));
@@ -260,6 +248,18 @@ ParamShort param(string name)(Type type) =>
 	ParamShort(symbol!name, type);
 
 private:
+
+TestSelector testAtLine(ref Alloc alloc, scope ref ArrayBuilder!UriAndDiagnostic diagsBuilder, in Program program, in LineAndCharacterGetters lcgs, Uri uri, uint line) {
+	Module* module_ = moduleAtUri(program, uri);
+	LineAndCharacterGetter lcg = lcgs[uri];
+	Opt!(Test*) test = findPointer!Test(module_.tests, (in Test x) => lcg[x.range.range.start, PosKind.startOfRange].line == line);
+	if (has(test))
+		return TestSelector(force(test));
+	else {
+		todo!void("DIAG"); // ----------------------------------------------------------------------------------------------------------
+		return TestSelector(uri);
+	}
+}
 
 immutable NameAndRange[2] twoTypeParamsArray = [NameAndRange(0, symbol!"r"), NameAndRange(0, symbol!"p")];
 TypeParams twoTypeParams() => TypeParams(twoTypeParamsArray);

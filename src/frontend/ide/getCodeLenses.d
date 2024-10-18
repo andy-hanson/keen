@@ -4,18 +4,15 @@ module frontend.ide.getCodeLenses;
 
 import frontend.ide.getReferences : eachImport, eachModuleReferencing, UriAndName;
 import frontend.showModel : ShowTypeCtx;
-import lib.lsp.lspTypes :
-	CodeLens, CodeLensParams, Command, ExecuteCommandParams, Pipe, RunResult, Write;
-import lib.server : TestStates; // TODO: CIRCULAR IMPORT ---------------------------------------------------------------------------
-import model.model : AnyDecl, eachDecl, ImportOrExport, IsImportOrExport, Module, moduleAtUri, Program, Test, Visibility;
+import lib.lsp.lspTypes : CodeLens, CodeLensParams, Command, Pipe, RunResult, Write;
+import model.model : AnyDecl, ImportOrExport, IsImportOrExport, Module, moduleAtUri, Program, Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
-import util.col.array : every, isEmpty, map;
+import util.col.array : every, isEmpty;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.exitCode : ExitCode, isOk, Signal;
-import util.late : Late, lateGet, lateSet;
-import util.opt : force, has, Opt, optIf, some;
-import util.sourceRange : LineAndCharacter, LineAndCharacterGetter, LineAndCharacterRange, Pos, rangeToEndOfLine, UriAndLine, UriAndPos;
+import util.opt : force, has, Opt, optIf;
+import util.sourceRange : LineAndCharacter, LineAndCharacterRange;
 import util.union_ : Union;
 import util.uri : relativePathForUri, RelPath, Uri;
 import util.util : ptrTrustMe, stringOfEnum;
@@ -50,53 +47,6 @@ CodeLens[] getCodeLenses(
 	});
 }
 
-/*
-CodeLensResolved resolveCodeLens(
-	ref Alloc alloc,
-	in Program program,
-	in ShowTypeCtx showCtx,
-	in TestStates testStates,
-	in CodeLensUnresolved codeLens,
-) {
-	Uri uri = codeLens.data;
-	uint line = codeLens.range.start.line;
-	UriAndLine uriAndLine = UriAndLine(uri, line);
-	AnyDecl decl = declAtPos(*moduleAtUri(program, uri), showCtx.lineAndCharacterGetters[uri][codeLens.range].start);
-	assert(decl.visibility != Visibility.private_);
-
-	if (decl.isA!(Test*)) {
-		Opt!RunResult optResult = testStates[uriAndLine];
-		Command command = () {
-			if (has(optResult)) {
-				RunResult result = force(optResult);
-				return Command(
-					isOk(result.exit) ? "Passed" : "Failed",
-					tooltipForRunResult(alloc, result));
-			} else
-				return Command(
-					"Run test",
-					tooltip: some("this is a dummy tooltip to test if they even work"), // --------------------------------------------
-					arguments: some(ExecuteCommandParams(ExecuteCommandParams.RunTest(uriAndLine))));
-		}();
-		return CodeLensResolved(codeLens.range, command);
-	} else {
-		string message = makeStringWithWriter(alloc, (scope ref Writer writer) {
-			withImportsAndReExportsOf(program, decl, maxUris: 4, cb: (in UrisOrCount imports, in UrisOrCount reExports) {
-				writeUrisOrCount(writer, "Exported by ", uri, reExports);
-				if (!isEmpty(imports)) {
-					if (!isEmpty(reExports)) writer ~= "; ";
-					writeUrisOrCount(writer, "Used by ", uri, imports);
-				}
-				if (isEmpty(imports) && isEmpty(reExports))
-					writer ~= "Used only locally";
-			});
-		});
-		// To find the entity again: Find it at codeLens.data.uri and codeLens.range.start
-		return CodeLensResolved(codeLens.range, Command(message));
-	}
-}
-*/
-
 private:
 
 public Opt!string tooltipForRunResult(ref Alloc alloc, RunResult result) => // TODO: UNIT TEST ----------------------------------------------
@@ -126,7 +76,7 @@ public Opt!string tooltipForRunResult(ref Alloc alloc, RunResult result) => // T
 			}
 		}));
 
-public immutable struct UrisOrCount {
+immutable struct UrisOrCount {
 	mixin Union!(Uri[], size_t);
 }
 public bool isEmpty(in UrisOrCount a) =>
@@ -234,12 +184,3 @@ void add(scope ref ImportsAndReExportsBuilder a, Uri uri, IsImportOrExport kind)
 
 UrisOrCount toUrisOrCount(size_t maxUris, size_t count, ref const MaxStackArray!Uri uris) =>
 	count > maxUris ? UrisOrCount(count) : UrisOrCount(uris.soFar);
-
-AnyDecl declAtPos(in Module module_, Pos pos) {
-	Late!AnyDecl res;
-	eachDecl(module_, (AnyDecl x) {
-		if (x.range.start == pos)
-			lateSet(res, x);
-	});
-	return lateGet(res);
-}

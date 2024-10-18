@@ -586,10 +586,6 @@ void expectFlag(scope ref Diags diags, ArgsPart part) {
 		diags ~= Diag(Diag.UnexpectedPartArgs(part));
 }
 
-immutable struct BuildOptionsAndTest {
-	BuildOptions options;
-	bool test;
-}
 CommandKind.Build parseBuildOptions(
 	ref Alloc alloc,
 	FilePath cwd,

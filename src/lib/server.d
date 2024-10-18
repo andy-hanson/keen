@@ -34,7 +34,6 @@ import frontend.showDiag :
 	sortedDiagnostics, stringOfDiag, stringOfDiagnostics, stringOfParseDiagnostics, UriAndDiagnostics;
 import frontend.showModel : ShowCtx, ShowDiagCtx, ShowOptions;
 import frontend.storage :
-	allKnownGoodCrowUris,
 	allStorageUris,
 	allUrisWithFileDiag,
 	changeFile,
@@ -73,7 +72,6 @@ import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	BuildJsScriptResult,
 	CancelRequestParams,
-	CodeLens,
 	CodeLensParams,
 	CompletionList,
 	CompletionParams,
@@ -101,7 +99,6 @@ import lib.lsp.lspTypes :
 	LspInMessage,
 	LspInNotification,
 	LspInRequest,
-	LspInRequestParams,
 	LspInResponse,
 	LspOutAction,
 	LspOutMessage,
@@ -152,31 +149,29 @@ import model.model :
 	moduleAtUri,
 	Program,
 	ProgramWithMain,
-	ProgramWithOptMain,
-	Test,
-	TestSelector;
+	ProgramWithOptMain;
 import model.parseDiag : ParseDiag;
 import util.alloc.alloc : Alloc, AllocKind, FetchMemoryCb, freeElements, MetaAlloc, newAlloc, withTempAllocImpure;
 import util.alloc.stackAlloc : ensureStackAllocInitialized;
 import util.cell : Cell, cellGet, cellSet;
-import util.col.array : concatenate, contains, map, mapOp, mustFindPointer, newArray;
+import util.col.array : concatenate, contains, map, mapOp, newArray;
 import util.col.arrayBuilder : add, addAll, ArrayBuilder, finish;
 import util.col.mutArr : clearAndDoNotFree, MutArr, push;
 import util.col.mutMap : clear, MutMap, setInMap;
-import util.exitCode : asExitCode, ExitCode, ExitCodeOrSignal, Signal;
+import util.exitCode : ExitCode, ExitCodeOrSignal;
 import util.integralValues : initIntegralValues;
-import util.json : field, Json, jsonList, jsonNull, jsonObject;
+import util.json : field, Json, jsonNull, jsonObject;
 import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
-import util.opt : force, has, none, MutOpt, Opt, optIf, some, someMut;
+import util.opt : force, has, none, Opt, optIf, some;
 import util.perf : Perf;
-import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndLine, UriAndPos, UriAndRange, UriLineAndColumn;
+import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndLine, UriAndRange, UriLineAndColumn;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
 import util.union_ : Union;
 import util.util : castNonScope, castNonScope_ref;
-import versionInfo : getOS, JsTarget, OS, VersionInfo, versionInfoForBuildToC, versionInfoForInterpret, VersionOptions;
+import versionInfo : JsTarget, OS, VersionInfo, versionInfoForBuildToC, versionInfoForInterpret, VersionOptions;
 
 ExitCodeOrSignal buildAndInterpret(
 	scope ref Perf perf,
@@ -445,12 +440,7 @@ private LspOutAction handleLspRequestWithProgram(
 			assert(false));
 }
 
-// TODO: move these down to the 'pure:' section ---------------------------------------------------------------------------------------
-pure void contentChanged(scope ref Server server) {
-	clear(server.lspState.testStates);
-}
-
-LspOutAction executeCommand(scope ref Perf perf, ref Alloc alloc, ref Server server, ref Program program, in LspInRequest request, in ExecuteCommandParams params) =>
+private LspOutAction executeCommand(scope ref Perf perf, ref Alloc alloc, ref Server server, ref Program program, in LspInRequest request, in ExecuteCommandParams params) =>
 	params.matchImpure!LspOutAction(
 		(in ExecuteCommandParams.RunTest x) {
 			ProgramWithMain pwm = programWithMainFromProgram(
@@ -619,6 +609,10 @@ private string dCompilerName() {
 	} else {
 		static assert(false);
 	}
+}
+
+private void contentChanged(scope ref Server server) {
+	clear(server.lspState.testStates);
 }
 
 void setFile(scope ref Perf perf, ref Server server, Uri uri, in ReadFileResult result) {

@@ -4,7 +4,7 @@ module util.col.multiMap;
 
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
-import util.col.map : Map, mapToArray, values;
+import util.col.map : Map, values;
 import util.col.mutMap : getOrAdd, mapToMap, MutMap, MutMapValues;
 import util.opt : force, has, Opt;
 

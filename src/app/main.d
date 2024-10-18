@@ -125,8 +125,8 @@ import util.uri :
 	toUri,
 	Uri,
 	uriIsFile;
-import util.util : debugLog, todo;
-import util.writer : debugLogWithWriter, makeStringWithWriter, writeNat, Writer;
+import util.util : debugLog;
+import util.writer : makeStringWithWriter, writeNat, Writer;
 import versionInfo : getOS, JsTarget, OS, versionInfoForInterpret, versionInfoForJIT, VersionOptions;
 
 @system extern(C) int main(int argc, immutable char** argv) {
@@ -197,7 +197,7 @@ bool inAssert;
 
 	while (true) {
 		// TODO: get this from specified trace level
-		bool logLsp = true; // ---------------------------------------------------------------------------------------------------------------------
+		bool logLsp = false;
 		//TODO: track perf for each message/response
 		Opt!ExitCode stop = withNullPerf!(Opt!ExitCode, (scope ref Perf perf) =>
 			withTempAllocImpure!(Opt!ExitCode)(server.metaAlloc, (ref Alloc alloc) =>
@@ -236,11 +236,6 @@ bool isUnknownUris(in LspOutMessage a) =>
 @trusted LspInMessage lspRead(ref Alloc alloc, bool logLsp) {
 	char[0x10000] buffer = void;
 	CString line0 = readLineFromStdin(buffer);
-	if (logLsp && false) // This is pretty verbose, it's just the header, I think I could remove? -----------------------------------------
-		printErrorCbWithTime((scope ref Writer writer) @trusted {
-			writer ~= "LSP header in: ";
-			writer ~= line0;
-		});
 	CString stripped = mustStripPrefix(line0, "Content-Length: ");
 	uint contentLength = mustParseUint(stripped);
 	assert(contentLength < buffer.length);

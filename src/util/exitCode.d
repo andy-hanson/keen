@@ -88,8 +88,7 @@ immutable struct Signal {
 
 pure bool isOk(in ExitCodeOrSignal a) =>
 	a.asExitCode == ExitCode.ok;
-
-pure ExitCode asExitCode(in ExitCodeOrSignal a) =>
+private pure ExitCode asExitCode(in ExitCodeOrSignal a) =>
 	a.match!ExitCode(
 		(ExitCode x) =>
 			x,

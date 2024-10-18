@@ -5,7 +5,6 @@ module lib.lsp.lspParse;
 import lib.lsp.lspTypes :
 	BuildJsScriptParams,
 	CancelRequestParams,
-	CodeLens,
 	CodeLensParams,
 	CompletionParams,
 	DocumentHighlightParams,
@@ -54,7 +53,7 @@ import util.col.array : map;
 import util.json : get, hasKey, Json;
 import util.jsonParse : asUint;
 import util.opt : none, Opt, optIf, some;
-import util.sourceRange : LineAndCharacter, LineAndCharacterRange, uriAndLineOfJson, UriAndPos;
+import util.sourceRange : LineAndCharacter, LineAndCharacterRange, uriAndLineOfJson;
 import util.uri : mustParseUri, Uri;
 import util.util : enumOfString;
 

@@ -35,7 +35,7 @@ import model.concreteModel :
 	ConcreteType,
 	mustBeByVal;
 import model.model :
-	allExterns, BuildTarget, BuiltinFun, CommonFuns, FunBody, MainFun, ProgramWithMain, StructBody, Test, TestSelector;
+	allExterns, BuildTarget, BuiltinFun, CommonFuns, FunBody, MainFun, ProgramWithMain, StructBody, TestSelector;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mustHaveIndexOfPointer, small;
 import util.col.arrayBuilder : asTemporaryArray, finish;
@@ -43,7 +43,7 @@ import util.col.mutArr : asTemporaryArray, MutArr, push;
 import util.col.mutMap : mustGet;
 import util.late : late, lateSet;
 import util.perf : Perf, PerfMeasure, withMeasure;
-import util.util : castNonScope_ref, ptrTrustMe, todo;
+import util.util : castNonScope_ref, ptrTrustMe;
 import versionInfo : VersionInfo;
 
 ConcreteProgram concretize(

@@ -8,7 +8,7 @@ import util.col.array : isEmpty;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.conv : safeToUint;
 import util.hash : HashCode, hashUints;
-import util.json : field, get, Json, jsonList, jsonObject;
+import util.json : field, get, Json, jsonObject;
 import util.string : CString, MutCString, stringOfRange;
 import util.unicode : byteIndexOfCharacterIndex, characterIndexOfByteIndex;
 import util.uri : compareUriAlphabetically, mustParseUri, stringOfUri, Uri;
@@ -245,14 +245,12 @@ immutable struct LineAndCharacterGetter {
 private Pos nextLinePos(in LineAndCharacterGetter a, uint line) =>
 	line == a.lineToPos.length - 1 ? a.maxPos : a.lineToPos[line + 1] - 1;
 
-LineAndCharacterRange rangeToEndOfLine(in LineAndCharacterGetter a, Pos start) {
+LineAndCharacter endOfLine(in LineAndCharacterGetter a, Pos start) {
 	LineAndCharacter lc = a[start, PosKind.startOfRange];
 	Pos next = nextLinePos(a, lc.line);
 	assert(next > start);
-	return LineAndCharacterRange(lc, LineAndCharacter(lc.line, lc.character + (next - start)));
+	return LineAndCharacter(lc.line, lc.character + (next - start));
 }
-LineAndCharacter endOfLine(in LineAndCharacterGetter a, Pos start) =>
-	rangeToEndOfLine(a, start).end;
 uint lineOfPos(in LineAndCharacterGetter a, Pos pos) =>
 	a[pos, PosKind.startOfRange].line;
 

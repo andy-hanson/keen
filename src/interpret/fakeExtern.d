@@ -3,7 +3,7 @@ module interpret.fakeExtern;
 @safe @nogc nothrow: // not pure
 
 version (WebAssembly) {} else {
-	import core.sys.posix.time : clock_gettime, clockid_t, CLOCK_MONOTONIC, timespec;
+	import core.sys.posix.time : clock_gettime, CLOCK_MONOTONIC, timespec;
 }
 
 import lib.lsp.lspTypes : Pipe;
@@ -143,7 +143,7 @@ Opt!ExternPointersForAllLibraries getAllFakeExternFuns(
 		timespec time;
 		int err = clock_gettime(CLOCK_MONOTONIC, &time);
 		assert(err == 0);
-		return time.tv_sec * 1000000000 + time.tv_nsec;
+		return time.tv_sec * 1_000_000_000 + time.tv_nsec;
 	}
 }
 

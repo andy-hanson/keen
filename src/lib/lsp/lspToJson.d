@@ -7,7 +7,7 @@ import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes :
 	BuildJsScriptResult,
 	CodeLens,
-	CodeLensRefresh, // TODO:KILL -00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+	CodeLensRefresh,
 	Command,
 	CompletionItem,
 	CompletionList,
@@ -58,7 +58,6 @@ import util.sourceRange :
 	jsonOfUriAndLineAndCharacterRange,
 	LineAndCharacterGetter,
 	Pos,
-	PosKind,
 	UriAndRange;
 import util.symbol : symbol;
 import util.uri : stringOfUri, symbolOfUri, Uri;

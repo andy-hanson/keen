@@ -261,13 +261,6 @@ Uri[] allStorageUris(ref Alloc alloc, in Storage a) =>
 			res ~= uri;
 	});
 
-Uri[] allKnownGoodCrowUris(ref Alloc alloc, scope ref Storage a) =>
-	buildArray!Uri(alloc, (scope ref Builder!Uri res) {
-		foreach (Uri uri; keys(a.successes))
-			if (fileType(uri) == FileType.crow)
-				res ~= uri;
-	});
-
 Uri[] allUrisWithFileDiag(ref Alloc alloc, in Storage a, in ReadFileDiag[] searchDiags) =>
 	buildArray!Uri(alloc, (scope ref Builder!Uri res) {
 		foreach (Uri uri, ReadFileDiag diag; a.diags)

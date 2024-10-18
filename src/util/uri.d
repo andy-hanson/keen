@@ -234,9 +234,9 @@ FilePath parentOrEmpty(FilePath a) =>
 Path parentOrEmpty(Path a) =>
 	optOrDefault!Path(parent(a), () => a);
 
-Uri firstNComponents(Uri a, size_t n) =>
+private Uri firstNComponents(Uri a, size_t n) =>
 	Uri(firstNComponents(a.path, n));
-Path firstNComponents(Path a, size_t n) {
+private Path firstNComponents(Path a, size_t n) {
 	size_t count = countComponents(a);
 	assert(count >= n);
 	Path res = applyNTimes!Path(a, count - n, (Path x) => force(parent(x)));
@@ -356,7 +356,7 @@ Opt!Uri resolveUri(Uri base, RelPath relPath) {
 	return optIf(has(res), () => Uri(force(res)));
 }
 
-Opt!Path resolvePath(Path base, RelPath relPath) {
+private Opt!Path resolvePath(Path base, RelPath relPath) {
 	if (relPath.nParents == 0)
 		return some(concatPaths(base, relPath.path));
 	else {
@@ -662,10 +662,6 @@ private Opt!Path commonAncestorRecur(Path a, Path b) {
 		? commonAncestorRecur(force(parent(a)), force(parent(b)))
 		: none!Path;
 }
-
-Path prefixPathComponent(Symbol first, Path rest) =>
-	withComponents(rest, (in Symbol[] components) =>
-		descendentPath(rootPath(first, PathInfo()), components));
 
 RelPath relativePath(Path from, Path to) {
 	ushort nParents = 0;

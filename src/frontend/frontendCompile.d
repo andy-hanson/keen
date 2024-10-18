@@ -33,7 +33,6 @@ import model.model :
 	getConfigUri,
 	getModuleUri,
 	Module,
-	moduleAtUri,
 	OtherTypes,
 	Program,
 	ProgramWithMain,
