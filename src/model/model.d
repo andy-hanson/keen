@@ -2695,7 +2695,7 @@ string defaultAssertOrForbidMessage(
 			PrefixAndRange(
 				a.isForbid ? "Forbidden option is non-empty: " : "Asserted option is empty: ",
 				unpack.option.range));
-	return concatenate(alloc, x.prefix, content.getSourceText(curUri, x.range));
+	return concatenate(alloc, x.prefix, content[UriAndRange(curUri, x.range)]);
 }
 
 immutable struct BogusExpr {}

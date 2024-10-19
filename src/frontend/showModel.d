@@ -43,8 +43,8 @@ import util.writer :
 const struct ShowCtx {
 	@safe @nogc pure nothrow:
 
-	LineAndColumnGetters lineAndColumnGetters;
-	FileContentGetters fileContentGetters;
+	LineAndColumnGetters lineAndColumnGetters; // TODO: this should just be on the Program -------------------------------------
+	FileContentGetters fileContentGetters; // TODO: this should just be on the Program -------------------------------------
 	UrisInfo urisInfo;
 	ShowOptions options;
 

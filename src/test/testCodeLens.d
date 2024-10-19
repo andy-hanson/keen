@@ -7,30 +7,14 @@ import frontend.showModel : ShowModelCtx;
 import lib.lsp.lspToJson : jsonOfCodeLenses;
 import lib.lsp.lspTypes : CodeLensParams, TextDocumentIdentifier;
 import model.model : Program;
-import test.testUtil : assertEqual, CrowJsonTest, Test, UriAndContent, withCrowAndJsonFiles, withIdeTestMultipleFiles;
-import util.col.array : map;
-import util.writer : Writer;
+import test.testUtil : ideTestWithCrowAndJsonFiles, Test;
+import util.uri : Uri;
 
 void testCodeLens(ref Test test) {
-	withCrowAndJsonFiles!("code-lens", ["a", "b"])(test, (in CrowJsonTest[] tests) {
-		UriAndContent[] files = map(test.alloc, tests, (ref CrowJsonTest x) =>
-			UriAndContent(x.uri, x.crow));
-		withIdeTestMultipleFiles(test, files, (in ShowModelCtx ctx, in Program program) {
-			foreach (CrowJsonTest x; tests)
-				singleTest(test, ctx, program, x);
-		});
-	});
-}
-
-private:
-
-void singleTest(ref Test test, in ShowModelCtx ctx, in Program program, in CrowJsonTest testData) {
-	assertEqual(
-		jsonOfCodeLenses(test.alloc, getCodeLenses(test.alloc, program, ctx, CodeLensParams(TextDocumentIdentifier(testData.uri)))),
-		testData.json,
-		(scope ref Writer writer) {
-			writer ~= "For ";
-			writer ~= testData.uri;
-			writer ~= ":\n";
-		});
+	ideTestWithCrowAndJsonFiles!("code-lens", ["a", "b"])(
+		test,
+		(in ShowModelCtx ctx, in Program program, Uri uri) =>
+			jsonOfCodeLenses(
+				test.alloc,
+				getCodeLenses(test.alloc, program, ctx, CodeLensParams(TextDocumentIdentifier(uri)))));
 }

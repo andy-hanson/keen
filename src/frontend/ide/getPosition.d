@@ -13,6 +13,8 @@ import frontend.ide.position :
 	PositionKind,
 	VisibilityContainer;
 import frontend.parse.lexWhitespace : walkBackwardsForPosition;
+import frontend.showModel : ShowModelCtx;
+import lib.lsp.lspTypes : TextDocumentPositionParams;
 import model.ast :
 	ArrowAccessAst,
 	AssertOrForbidAst,
@@ -105,6 +107,7 @@ import model.model :
 	MatchUnionExpr,
 	MatchVariantExpr,
 	Module,
+	moduleAtUri,
 	Params,
 	Program,
 	RecordFieldPointerExpr,
@@ -151,16 +154,18 @@ enum GetPositionKind {
 	// The cursor may be to the right of the thing; used for speculative requests such as completions.
 	after,
 }
-Opt!Position getPosition(ref Program program, Module* module_, string sourceText, Pos pos, GetPositionKind posKind) {
+Opt!Position getPosition(ref Program program, in ShowModelCtx showCtx, TextDocumentPositionParams where, GetPositionKind posKind) {
+	Pos pos = showCtx.lineAndCharacterGetters[where];
 	Pos posAdjusted = () {
 		final switch (posKind) {
 			case GetPositionKind.exact:
 				return pos;
 			case GetPositionKind.after:
-				return walkBackwardsForPosition(sourceText, pos);
+				return walkBackwardsForPosition(showCtx.fileContentGetters[where.textDocument.uri], pos);
 		}
 	}();
 	Ctx ctx = Ctx(program.commonTypesPtr);
+	Module* module_ = moduleAtUri(program, where.textDocument.uri);
 	Opt!PositionKind kind = getPositionKind(ctx, *module_, posAdjusted, posKind);
 	return optIf(has(kind), () => Position(module_, force(kind)));
 }

@@ -11,6 +11,7 @@ import lib.lsp.lspTypes :
 	InlayHintKind,
 	InlayHintLabel,
 	InlayHintLabelPart,
+	InlayHintParams,
 	RunResult;
 import lib.server : TestStates; // TODO: CIRCULAR IMPORT ---------------------------------------------------------------------------
 import model.ast : DestructureAst, ImportOrExportAst, ImportOrExportAstKind;
@@ -32,6 +33,7 @@ import model.model :
 	Local,
 	MatchUnionExpr,
 	Module,
+	moduleAtUri,
 	NameReferents,
 	paramsArray,
 	Program,
@@ -52,12 +54,14 @@ import util.uri : Uri;
 import util.util : stringOfEnum;
 import util.writer : makeStringWithWriter, writeWithCommas, Writer;
 
-InlayHint[] getInlayHints(ref Alloc alloc, in Program program, in ShowModelCtx showCtx, in TestStates testStates, in Module module_) =>
+InlayHint[] getInlayHints(ref Alloc alloc, in Program program, in ShowModelCtx showCtx, in TestStates testStates, InlayHintParams params) =>
 	buildSortedArray!(InlayHint, compareInlayHints)(alloc, (scope ref Builder!InlayHint out_) {
+		Uri uri = params.textDocument.uri;
+		Module* module_ = moduleAtUri(program, uri);
 		foreach (ImportOrExport x; module_.imports)
 			if (has(x.source))
-				getInlayHintsForImport(alloc, out_, showCtx.lineAndCharacterGetters[module_.uri], force(x.source), x);
-		eachDecl(module_, (AnyDecl x) {
+				getInlayHintsForImport(alloc, out_, showCtx.lineAndCharacterGetters[uri], force(x.source), x);
+		eachDecl(*module_, (AnyDecl x) {
 			getInlayHintsForDecl(alloc, out_, program, showCtx, testStates, x);
 		});
 	});

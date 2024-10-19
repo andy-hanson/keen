@@ -57,7 +57,7 @@ string finish(SourceMapBuilder a, in FileContentGetters files, in ModulePaths mo
 		field!"sources"(jsonList!Uri(a.alloc, sources, (in Uri source) =>
 			jsonString(stringOfPath(a.alloc, modulePaths.crowPath(source))))),
 		field!"sourcesContent"(jsonList!Uri(a.alloc, sources, (in Uri source) =>
-			jsonString(files.getSourceText(source)))),
+			jsonString(files[source]))),
 		field!"names"(jsonList!Symbol(a.alloc, moveToArray(a.alloc, a.names), (in Symbol name) =>
 			jsonString(name))),
 		field!"mappings"(finish(a.mappings))]));

@@ -145,7 +145,6 @@ import model.model :
 	BuildTarget,
 	hasAnyDiagnostics,
 	hasFatalDiagnostics,
-	Module,
 	moduleAtUri,
 	Program,
 	ProgramWithMain,
@@ -776,7 +775,7 @@ private InlayHint[] getInlayHintsForProgram(
 		program,
 		getShowDiagCtx(server, program, forceNoColor: true),
 		server.lspState.testStates,
-		*moduleAtUri(program, params.textDocument.uri));
+		params);
 
 Program getProgram(scope ref Perf perf, ref Alloc alloc, ref Server server) =>
 	makeProgram(perf, alloc, server.frontend);
@@ -795,20 +794,10 @@ private Opt!Position serverGetPosition(
 	ref Program program,
 	in TextDocumentPositionParams where,
 	GetPositionKind kind,
-) {
-	Opt!(immutable Module*) module_ = program.allModules[where.textDocument.uri];
-	return has(module_)
-		? getPosition(
-			program,
-			force(module_),
-			getSourceText(server, where.textDocument.uri),
-			server.lineAndCharacterGetters[where],
-			kind)
+) =>
+	where.textDocument.uri in program.allModules
+		? getPosition(program, getShowDiagCtx(server, program), where, kind)
 		: none!Position;
-}
-
-private string getSourceText(in Server server, in Uri uri) =>
-	server.fileContentGetters.getSourceText(uri);
 
 struct DiagsAndResultJson {
 	string diagnostics;

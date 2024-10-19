@@ -9,7 +9,7 @@ import util.exitCode : ExitCode, ExitCodeOrSignal;
 import util.col.array : map;
 import util.col.map : KeyValuePair;
 import util.opt : force, has, Opt, optIf;
-import util.sourceRange : LineAndCharacter, LineAndCharacterRange, Pos, Range, UriAndLine, UriAndRange;
+import util.sourceRange : LineAndCharacter, LineAndCharacterRange, Pos, Range, UriAndLine, UriAndRange, UriLineAndCharacter;
 import util.string : copyString, SmallString;
 import util.union_ : Union;
 import util.uri : Uri;
@@ -302,7 +302,7 @@ immutable struct TextDocumentContentChangeEvent {
 	string text;
 }
 
-immutable struct TextDocumentPositionParams {
+immutable struct TextDocumentPositionParams { // TODO: maybe just make this alias UriLineAndCharacter? But have to remember to parse it like this ----------------------------
 	TextDocumentIdentifier textDocument;
 	Position position;
 }
@@ -352,7 +352,7 @@ immutable struct SemanticTokensParams {
 	TextDocumentIdentifier textDocument;
 }
 
-immutable struct TextDocumentIdentifier {
+immutable struct TextDocumentIdentifier { // Maybe this should just be an alias? (But be sure to parse the json right -----------)
 	Uri uri;
 }
 

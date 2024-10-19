@@ -4,6 +4,7 @@ module test.testHashTable;
 
 import test.testUtil : assertEqual, Test;
 import util.col.hashTable :
+clear,
 	deleteWhere,
 	getOrAddAndDidAdd,
 	HashTable,
@@ -48,6 +49,11 @@ void testHashTable(scope ref Test test) {
 	HashTable!(uint, uint, getKey) b = moveToImmutable!(uint, uint, getKey)(a);
 	assertKeys(a, []);
 	assertKeys(b, [3, 5]);
+
+	mustAdd!(uint, uint, getKey)(test.alloc, a, 1);
+	assertKeys(a, [1]);
+	clear(a);
+	assertKeys(a, []);
 }
 
 private:

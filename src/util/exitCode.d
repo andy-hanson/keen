@@ -29,7 +29,11 @@ pure ExitCodeOrSignal exitCodeCombine(ExitCodeOrSignal a, ExitCode b) =>
 
 ExitCode okAnd(ExitCode a, in ExitCode delegate() @safe @nogc nothrow cb) =>
 	a == ExitCode.ok ? cb() : a;
-ExitCode okAnd(ExitCode a, in ExitCode delegate() @safe @nogc nothrow cb, in ExitCode delegate() @safe @nogc nothrow cb2) => //rename
+ExitCode okAnd(
+	ExitCode a,
+	in ExitCode delegate() @safe @nogc nothrow cb,
+	in ExitCode delegate() @safe @nogc nothrow cb2,
+) =>
 	okAnd(a, () =>
 		okAnd(cb(), cb2));
 

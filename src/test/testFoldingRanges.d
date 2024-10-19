@@ -5,12 +5,9 @@ module test.testFoldingRanges;
 import frontend.ide.getFoldingRanges : foldingRangesOfAst;
 import frontend.storage : CrowFileInfo;
 import lib.lsp.lspToJson : jsonOfFoldingRanges;
-import test.testUtil : assertEqual, CrowJsonTest, Test, testWithCrowAndJsonFiles, withAstTest;
+import test.testUtil : Test, withAstTests;
 
 void testFoldingRanges(ref Test test) {
-	testWithCrowAndJsonFiles!("folding-ranges", ["basic"])(test, (in CrowJsonTest testData) {
-		withAstTest(test, testData.uri, testData.crow, (in CrowFileInfo file) {
-			assertEqual(jsonOfFoldingRanges(test.alloc, foldingRangesOfAst(test.alloc, file)), testData.json);
-		});
-	});
+	withAstTests!("folding-ranges", ["basic"])(test, (in CrowFileInfo file) =>
+		jsonOfFoldingRanges(test.alloc, foldingRangesOfAst(test.alloc, file)));
 }

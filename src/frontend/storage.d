@@ -293,12 +293,10 @@ const struct FileContentGetters {
 		return has(res) ? some(force(res).value) : none!FileInfo;
 	}
 
-	string getSourceText(Uri uri) scope =>
+	string opIndex(Uri uri) scope =>
 		force(getFileInfo(uri)).as!(CrowFileInfo*).content.asString;
-	string getSourceText(Uri uri, Range range) scope =>
-		getSourceText(uri)[range.start .. range.end];
 	string opIndex(in UriAndRange x) scope =>
-		x.range.isEmpty ? "" : getSourceText(x.uri, x.range);
+		x.range.isEmpty ? "" : this[x.uri][x.range.start .. x.range.end];
 }
 
 const struct LineAndCharacterGetters {

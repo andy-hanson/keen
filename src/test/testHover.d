@@ -7,29 +7,28 @@ import frontend.ide.getHover : getHover;
 import frontend.ide.getPosition : getPosition, GetPositionKind;
 import frontend.ide.position : Position;
 import frontend.showModel : ShowModelCtx;
-import lib.lsp.lspTypes : Hover;
-import model.model : Module, Program;
-import test.testUtil : assertEqual, CrowJsonTest, Test, testWithCrowAndJsonFiles, withIdeTest;
+import lib.lsp.lspTypes : Hover, TextDocumentIdentifier, TextDocumentPositionParams;
+import model.model : Program;
+import test.testUtil : ideTestWithCrowAndJsonFiles, Test;
 import util.alloc.alloc : Alloc;
 import util.col.array : arraysEqual, isEmpty;
 import util.col.arrayBuilder : buildArray, Builder;
-import util.conv : safeToUint;
 import util.json : field, Json, jsonList, jsonObject, optionalArrayField;
 import util.opt : force, has, Opt, optIf;
 import util.sourceRange :
+	endOfFile,
 	jsonOfLineAndCharacterRange,
 	jsonOfUriAndLineAndCharacterRange,
 	LineAndCharacterGetter,
 	Pos,
+	PosKind,
 	Range,
 	UriAndRange;
+import util.uri : Uri;
 
 void testHover(ref Test test) {
-	testWithCrowAndJsonFiles!("hover", ["basic", "function"])(test, (in CrowJsonTest testData) {
-		withIdeTest(test, testData.uri, testData.crow, (in ShowModelCtx ctx, in Program program, in Module* module_) {
-			assertEqual(hoverResult(test.alloc, testData.crow, ctx, program, module_), testData.json);
-		});
-	});
+	ideTestWithCrowAndJsonFiles!("hover", ["basic", "function"])(test, (in ShowModelCtx ctx, in Program program, Uri uri) =>
+		hoverResult(test.alloc, ctx, program, uri));
 }
 
 private:
@@ -48,13 +47,12 @@ struct InfoAtPos {
 		hover == b.hover && arraysEqual(definition, b.definition) && arraysEqual(typeDefinition, b.typeDefinition);
 }
 
-Json hoverResult(ref Alloc alloc, in string content, in ShowModelCtx ctx, in Program program, in Module* mainModule) =>
+Json hoverResult(ref Alloc alloc, in ShowModelCtx ctx, in Program program, Uri uri) =>
 	jsonList(buildArray!Json(alloc, (scope ref Builder!Json res) {
-		// We combine ranges that have the same info.
+		// Combine ranges that have the same info
 		Pos curRangeStart = 0;
 		InfoAtPos curInfo = InfoAtPos("", [], []);
-
-		LineAndCharacterGetter lcg = ctx.lineAndCharacterGetters[mainModule.uri];
+		LineAndCharacterGetter lcg = ctx.lineAndCharacterGetters[uri];
 
 		void endRange(Pos end) {
 			if (!curInfo.isEmpty)
@@ -69,9 +67,8 @@ Json hoverResult(ref Alloc alloc, in string content, in ShowModelCtx ctx, in Pro
 				]);
 		}
 
-		Pos endOfFile = safeToUint(content.length);
-		foreach (Pos pos; 0 .. endOfFile + 1) {
-			Opt!Position position = getPosition(program, mainModule, content, pos, GetPositionKind.exact);
+		foreach (Pos pos; 0 .. endOfFile(lcg) + 1) {
+			Opt!Position position = getPosition(program, ctx, TextDocumentPositionParams(TextDocumentIdentifier(uri), lcg[pos, PosKind.startOfRange]), GetPositionKind.exact);
 			Opt!Hover hover = optIf(has(position), () => getHover(alloc, ctx, force(position)));
 			InfoAtPos here = InfoAtPos(
 				has(hover) ? force(hover).contents.value : "",
@@ -83,5 +80,5 @@ Json hoverResult(ref Alloc alloc, in string content, in ShowModelCtx ctx, in Pro
 				curInfo = here;
 			}
 		}
-		endRange(endOfFile);
+		endRange(endOfFile(lcg));
 	}));

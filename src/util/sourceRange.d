@@ -122,6 +122,11 @@ private immutable struct LineAndColumnRange {
 	}
 }
 
+immutable struct UriLineAndCharacter {
+	Uri uri;
+	LineAndCharacter pos;
+}
+
 immutable struct UriLineAndColumn {
 	Uri uri;
 	LineAndColumn pos;
@@ -241,6 +246,9 @@ immutable struct LineAndCharacterGetter {
 	LineAndCharacterRange opIndex(in Range range) scope =>
 		LineAndCharacterRange(this[range.start, PosKind.startOfRange], this[range.end, PosKind.endOfRange]);
 }
+
+Pos endOfFile(in LineAndCharacterGetter a) =>
+	safeToUint(a.sourceText.length);
 
 private Pos nextLinePos(in LineAndCharacterGetter a, uint line) =>
 	line == a.lineToPos.length - 1 ? a.maxPos : a.lineToPos[line + 1] - 1;
