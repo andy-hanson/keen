@@ -618,7 +618,6 @@ immutable string[] specialSymbols = [
 	"initializationOptions",
 	"inlayHintProvider",
 	"paddingLeft",
-	"paddingRight",
 	"parameters",
 	"referencesProvider",
 	"renameProvider",

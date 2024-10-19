@@ -30,7 +30,8 @@ void testCircularImportFixed(ref Test test) {
 		string showDiags() =>
 			showDiagnostics(
 				test.alloc, server,
-				getProgramForMain(test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
+				getProgramForMain(
+					test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
 
 		assertEqual(showDiags(), expectedDiags1);
 
@@ -56,7 +57,8 @@ void testFileNotFoundThenAdded(ref Test test) {
 		string showDiags() =>
 			showDiagnostics(
 				test.alloc, server,
-				getProgramForMain(test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
+				getProgramForMain(
+					test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
 
 		string bDoesNotExist = "test:///a.crow 2:5-2:8 Imported file test:///b.crow does not exist.\n" ~
 			"test:///b.crow 1:1-1:1 This file does not exist.";
@@ -80,7 +82,8 @@ void testFileImportNotFound(ref Test test) {
 		string showDiags() =>
 			showDiagnostics(
 				test.alloc, server,
-				getProgramForMain(test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
+				getProgramForMain(
+					test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
 
 		string original = "import\n\t./b.txt as b string\n\nmain void()\n\t()";
 		setupTestServer(test, server, uriA, original);
@@ -102,7 +105,8 @@ void testChangeBootstrap(ref Test test) {
 		string showDiags() =>
 			showDiagnostics(
 				test.alloc, server,
-				getProgramForMain(test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
+				getProgramForMain(
+					test.perf, test.alloc, server, MainKind.fun(uriA, []), [BuildTarget.native(OS.none)]));
 
 		assertEqual(showDiags(), "");
 

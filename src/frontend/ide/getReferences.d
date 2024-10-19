@@ -331,9 +331,11 @@ public void eachImport(
 		program,
 		moduleAtUri(program, imported.moduleUri),
 		(in Module importingModule, IsImportOrExport kind, in ImportOrExport import_) {
-			Opt!(NameReferents*) refs = import_.imported[imported.name];
-			if (has(refs))
-				cb(importingModule.uri, kind);
+			if (import_.hasImported) {
+				Opt!(NameReferents*) refs = import_.imported[imported.name];
+				if (has(refs))
+					cb(importingModule.uri, kind);
+			}
 		});
 }
 

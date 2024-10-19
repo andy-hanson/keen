@@ -2128,7 +2128,6 @@ SymbolSet allExternsForMainConfig(in Config mainConfig, Opt!BuildTarget target) 
 							];
 							break;
 					}
-					// TODO: OS.none should not have access to all of libc. Only certain functions, which should have their own 'extern' name
 					out_ ~= [symbolOfEnum(BuiltinExtern.libc), symbolOfEnum(BuiltinExtern.native)];
 				});
 		}
@@ -2221,7 +2220,7 @@ immutable struct MainFun {
 						emptySymbolSet,
 					(in Test x) =>
 						x.externs));
-	
+
 	Config* mainConfig(return scope ref Program program) return scope {
 		Config* configFor(Uri uri) =>
 			moduleAtUri(program, uri).config;
@@ -2320,7 +2319,12 @@ private bool existsDiagnostic(in Program a, in bool delegate(in UriAndDiagnostic
 		exists!Diagnostic(module_.diagnostics, (in Diagnostic x) =>
 			cb(UriAndDiagnostic(module_.uri, x))));
 
-void eachTest(ref Program program, in SymbolSet allExterns, TestSelector testSelector, in void delegate(Test*) @safe @nogc pure nothrow cb) {
+void eachTest(
+	ref Program program,
+	SymbolSet allExterns,
+	TestSelector testSelector,
+	in void delegate(Test*) @safe @nogc pure nothrow cb,
+) {
 	testSelector.matchWithPointers!void(
 		(TestSelector.All) {
 			foreach (immutable Module* m; program.allModules) {
@@ -2337,7 +2341,6 @@ void eachTest(ref Program program, in SymbolSet allExterns, TestSelector testSel
 							cb(&x);
 
 		},
-		// TODO: There should be a TestSelector that is limited to a particular crow-config .............................................
 		(Uri uri) {
 			foreach (ref Test x; moduleAtUri(program, uri).tests)
 				if (allExterns.containsAll(x.externs))

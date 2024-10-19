@@ -18,13 +18,8 @@ import util.uri : relativePathForUri, RelPath, Uri;
 import util.util : ptrTrustMe, stringOfEnum;
 import util.writer : makeStringWithWriter, Writer, writeWithCommas, writeWithNewlines;
 
-CodeLens[] getCodeLenses(
-	ref Alloc alloc,
-	in Program program,
-	in ShowTypeCtx showCtx, // TODO: UNUSED -----------------------------------------------------------------------------------
-	in CodeLensParams params,
-) {
-	Uri uri = params.textDocument.uri;
+CodeLens[] getCodeLenses(ref Alloc alloc, in Program program, in CodeLensParams params) {
+	Uri uri = params.textDocument;
 	Module* module_ = moduleAtUri(program, uri);
 	return buildArray!CodeLens(alloc, (scope ref Builder!CodeLens out_) {
 		withImportsAndReExportsOfModule!void(
@@ -40,7 +35,7 @@ CodeLens[] getCodeLenses(
 							writeUrisOrCount(writer, "Module used by ", uri, x.imports);
 						}
 					});
-					// TODO: we could have a tooltip for the full set ...
+					// TODO: we could have a tooltip for the full set .................................................................................
 					out_ ~= CodeLens(LineAndCharacterRange(LineAndCharacter(0, 0), LineAndCharacter(0, 0)), Command(message));
 				}
 			});

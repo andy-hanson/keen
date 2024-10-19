@@ -18,6 +18,8 @@ import util.uri : Uri;
 // For output types, they also use Range instead of LineAndCharacterRange. Use LineAndColumnGetters to convert.
 // (This makes it easier to use a LineAndColumnRange instead for text output.)
 
+alias TextDocumentIdentifier = Uri;
+alias TextDocumentPositionParams = UriLineAndCharacter;
 alias Position = LineAndCharacter;
 
 immutable struct LspInMessage {
@@ -302,11 +304,6 @@ immutable struct TextDocumentContentChangeEvent {
 	string text;
 }
 
-immutable struct TextDocumentPositionParams { // TODO: maybe just make this alias UriLineAndCharacter? But have to remember to parse it like this ----------------------------
-	TextDocumentIdentifier textDocument;
-	Position position;
-}
-
 immutable struct LspDiagnostic {
 	Range range;
 	LspDiagnosticSeverity severity;
@@ -350,10 +347,6 @@ enum DocumentHighlightKind {
 
 immutable struct SemanticTokensParams {
 	TextDocumentIdentifier textDocument;
-}
-
-immutable struct TextDocumentIdentifier { // Maybe this should just be an alias? (But be sure to parse the json right -----------)
-	Uri uri;
 }
 
 immutable struct WorkspaceEdit {
@@ -401,37 +394,12 @@ immutable struct InlayHintParams {
 	LineAndCharacterRange range;
 }
 
-/*
-immutable struct InlayHintData { // ----------------------------------------------------------------------------------------------------
-	@safe @nogc pure nothrow:
-	immutable struct Purity {}
-	immutable struct Test { Uri uri; }
-	immutable struct Type {}
-	immutable struct Uses {}
-	mixin Union!(Purity, Test, Type, Uses);
-
-	static Purity purity() =>
-		InlayHintData(Purity());
-	static Test test(Uri uri) =>
-		InlayHintData(Test(uri));
-	static Type type() =>
-		InlayHintData(Type());
-}*/
 immutable struct InlayHint {
 	LineAndCharacter position;
 	InlayHintLabel label;
 	InlayHintKind kind;
 	bool paddingLeft;
-	bool paddingRight;
 }
-//InlayHint copyInlayHint(ref Alloc alloc, in InlayHint x) => // TODO: RM --------------------------------------------------------------
-//	InlayHint(
-//		x.position,
-//		copyInlayHintLabel(alloc, x.label),
-//		x.kind,
-//		x.paddingLeft,
-//		x.paddingRight,
-//		x.data);
 enum InlayHintKind { none = 0, Type = 1, Parameter = 2 }
 
 immutable struct InlayHintLabel {

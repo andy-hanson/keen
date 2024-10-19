@@ -176,15 +176,6 @@ TextDocumentPositionParams parseTextDocumentPositionParams(ref Alloc alloc, in J
 		parseTextDocumentIdentifier(get!"textDocument"(a)),
 		parsePosition(get!"position"(a)));
 
-//InlayHint parseInlayHint(ref Alloc alloc, in Json a) => ------------------------------------------------------------------------------
-//	// this is used for resolve, so we only need all of this if there is no 'data'. If there is 'data' we resolve again
-//	InlayHint(
-//		parseLineAndCharacter(get!"position"(a)),
-//		label: optIf(hasKey!"label"(a), () => parseInlayHintLabel(alloc, get!"label"(a))),
-//		kind: hasKey!"kind"(a) ? parseInlayHintKind(get!"kind"(a)) : InlayHintKind.none,
-//		paddingLeft: hasKey!"paddingLeft"(a) && get!"paddingLeft"(a).as!bool,
-//		paddingRight: hasKey!"paddingRight"(a) && get!"paddingRight"(a).as!bool,
-//		data: optIf(hasKey!"data"(a), () => mustParseUri(get!"data"(a).as!string)));
 InlayHintKind parseInlayHintKind(in Json a) {
 	final switch (cast(uint) a.as!double) {
 		case InlayHintKind.Type:
@@ -193,23 +184,6 @@ InlayHintKind parseInlayHintKind(in Json a) {
 			return InlayHintKind.Parameter;
 	}
 }
-/*
-InlayHintLabel parseInlayHintLabel(ref Alloc alloc, in Json a) =>
-	a.isA!string ? InlayHintLabel(a.as!string) :
-	map(alloc, a.as!(Json[]), (ref Json x) =>
-		parseInlayHintLabelPart(alloc, x));
-InlayHintLabelPart parseInlayHintLabelPart(ref Alloc alloc, in Json a) =>
-	InlayHintLabelPart(
-		get!"value"(a).as!string,
-		optIf(hasKey!"tooltip"(a), () => get!"tooltip"(a).as!string),
-		optIf(hasKey!"command"(a), () => parseCommand(get!"command"(a))));
-
-Command parseCommand(ref Alloc alloc, in Json a) =>
-	Command(
-		get!"title"(a).as!string,
-		optIf(hasKey!"tooltip"(a), () => get!"tooltip"(a).as!string), // TODO: DUP CODE -------------------------------------------------
-		optIf(hasKey!""))
-*/
 
 InlayHintParams parseInlayHintParams(ref Alloc alloc, in Json a) =>
 	InlayHintParams(
@@ -217,7 +191,7 @@ InlayHintParams parseInlayHintParams(ref Alloc alloc, in Json a) =>
 		parseLineAndCharacterRange(get!"range"(a)));
 
 TextDocumentIdentifier parseTextDocumentIdentifier(in Json a) =>
-	TextDocumentIdentifier(parseUriProperty(a));
+	parseUriProperty(a);
 
 Uri parseUriProperty(in Json a) =>
 	mustParseUri(get!"uri"(a).as!string);

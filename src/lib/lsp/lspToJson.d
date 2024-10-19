@@ -246,20 +246,7 @@ Json jsonOfInlayHint(ref Alloc alloc, ref InlayHint a) =>
 		out_ ~= Json.ObjectField(symbol!"label", jsonOfInlayHintLabel(alloc, a.label));
 		if (a.paddingLeft)
 			out_ ~= Json.ObjectField(symbol!"paddingLeft", jsonBool(true));
-		if (a.paddingRight)
-			assert(false); // -----------------------------------------------------------------------------------------------
-		//if (has(a.data))
-		//	out_ ~= Json.ObjectField(symbol!"data", jsonString(stringOfUri(alloc, force(a.data))));----------------------------------
 	}));
-	/*
-	jsonObject(alloc, [
-		field!"position"(jsonOfLineAndCharacter(alloc, a.position)),
-		optionalField!("label", InlayHintLabel)(a.label, (InlayHintLabel x) => jsonOfInlayHintLabel(alloc, x)),
-		optionalField!"kind"(a.kind != InlayHintKind.none, () => Json(uint(a.kind))),
-		field!"paddingLeft"(a.paddingLeft),
-		field!"paddingRight"(a.paddingRight),
-		optionalField!("data", Uri)(a.data, (Uri x) => jsonString(stringOfUri(alloc, x)))]);
-	*/
 
 Json jsonOfInlayHintLabel(ref Alloc alloc, ref InlayHintLabel a) =>
 	a.match!Json(
@@ -275,13 +262,6 @@ Json jsonOfInlayHintLabelPart(ref Alloc alloc, ref InlayHintLabelPart a) =>
 		if (has(a.tooltip)) out_ ~= Json.ObjectField(symbol!"tooltip", jsonString(force(a.tooltip)));
 		if (has(a.command)) out_ ~= Json.ObjectField(symbol!"command", jsonOfCommand(alloc, force(a.command)));
 	}));
-	/*
-	jsonObject(alloc, [
-		field!"value"(a.value),
-		optionalField!"tooltip"(a.tooltip),
-		optionalField!("command", Command)(a.command, (Command x) =>
-			jsonOfCommand(alloc, x))]);
-	*/
 
 public Json jsonOfReferences(ref Alloc alloc, in LineAndCharacterGetters lcg, in UriAndRange[] references) =>
 	jsonList!UriAndRange(alloc, references, (in UriAndRange x) =>

@@ -41,7 +41,7 @@ immutable struct MainKind {
 				x.configUri,
 			(in TestsAtUri x) =>
 				x.crowUri);
-	
+
 	CString[] programArgs() return scope =>
 		match!(CString[])(
 			(MainFunction x) =>

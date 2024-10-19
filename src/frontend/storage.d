@@ -5,7 +5,7 @@ module frontend.storage;
 import frontend.config : parseConfig;
 import frontend.lang : crowConfigBaseName;
 import frontend.parse.parse : parseFile;
-import lib.lsp.lspTypes : TextDocumentContentChangeEvent, TextDocumentPositionParams;
+import lib.lsp.lspTypes : TextDocumentContentChangeEvent;
 import model.ast : FileAst, fileAstForDiag;
 import model.diag : Diag, ReadFileDiag;
 import model.model : Config, configForDiag;
@@ -34,6 +34,7 @@ import util.sourceRange :
 	Range,
 	UriAndPos,
 	UriAndRange,
+	UriLineAndCharacter,
 	UriAndLineAndCharacterRange,
 	UriLineAndColumn,
 	UriLineAndColumnRange;
@@ -309,8 +310,8 @@ const struct LineAndCharacterGetters {
 		return has(res) ? force(res).value.asTextFile.lineAndCharacterGetter : LineAndCharacterGetter.empty;
 	}
 
-	Pos opIndex(in TextDocumentPositionParams x) scope =>
-		this[x.textDocument.uri][x.position];
+	Pos opIndex(in UriLineAndCharacter x) scope =>
+		this[x.uri][x.pos];
 
 	UriAndLineAndCharacterRange opIndex(in UriAndRange x) scope =>
 		UriAndLineAndCharacterRange(x.uri, this[x.uri][x.range]);

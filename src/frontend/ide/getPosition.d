@@ -161,11 +161,11 @@ Opt!Position getPosition(ref Program program, in ShowModelCtx showCtx, TextDocum
 			case GetPositionKind.exact:
 				return pos;
 			case GetPositionKind.after:
-				return walkBackwardsForPosition(showCtx.fileContentGetters[where.textDocument.uri], pos);
+				return walkBackwardsForPosition(showCtx.fileContentGetters[where.uri], pos);
 		}
 	}();
 	Ctx ctx = Ctx(program.commonTypesPtr);
-	Module* module_ = moduleAtUri(program, where.textDocument.uri);
+	Module* module_ = moduleAtUri(program, where.uri);
 	Opt!PositionKind kind = getPositionKind(ctx, *module_, posAdjusted, posKind);
 	return optIf(has(kind), () => Position(module_, force(kind)));
 }

@@ -6,24 +6,26 @@ import app.fileSystem : printCb;
 import test.testAllInsts : testAllInsts;
 import test.testAlloc : testAlloc;
 import test.testApplyFn : testApplyFn;
-import test.testCodeLens : testCodeLens;
-import test.testCompletion : testCompletion;
 import test.testFakeExtern : testFakeExtern;
-import test.testFoldingRanges : testFoldingRanges;
 import test.testHashTable : testHashTable;
-import test.testHover : testHover;
-import test.testImplementation : testImplementation;
-import test.testInlayHints : testInlayHints;
+import test.testIde :
+	testCodeLens,
+	testCompletion,
+	testFoldingRanges,
+	testHover,
+	testImplementation,
+	testInlayHints,
+	testReferences,
+	testRename,
+	testSignatureHelp,
+	testTokens;
 import test.testIntegralValues : testIntegralValues;
 import test.testInterpreter : testInterpreter;
 import test.testJson : testJson;
 import test.testMap : testMap;
 import test.testMemory : testMemory;
 import test.testMutMultiMap : testMutMultiMap;
-import test.testRename : testRename;
-import test.testReferences : testReferences;
 import test.testServer : testServer;
-import test.testSignatureHelp : testSignatureHelp;
 import test.testSortUtil : testSortUtil;
 import test.testSourceMap : testSourceMap;
 import test.testSourceRange : testSourceRange;
@@ -32,7 +34,6 @@ import test.testStackAlloc : testStackAlloc;
 import test.testSymbol : testSymbol;
 import test.testSymbolSet : testSymbolSet;
 import test.testSyntaxTranslate : testSyntaxTranslate;
-import test.testTokens : testTokens;
 import test.testUnicode : testUnicode;
 import test.testUri : testUri;
 import test.testUtil : Test;

@@ -4,7 +4,6 @@ module test.testUtil;
 
 import std.meta : AliasSeq, staticMap;
 
-import app.parseCommand : parseLineAndColumn;
 import frontend.showModel : ShowCtx, ShowModelCtx, ShowOptions;
 import frontend.storage :
 	CrowFileInfo, FileContentGetters, FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
@@ -125,39 +124,6 @@ private void withShowDiagCtxForTestImpl(alias cb)(scope ref Test test, in Storag
 
 pure:
 
-private void withCrowAndJsonFiles(string dirName, string[] names)(
-	ref Test test,
-	in void delegate(in CrowJsonTest[]) @safe @nogc pure nothrow cb,
-) {
-	CrowJsonTestStatic[names.length] tests =
-		mapCompileTime!(names.length, CrowJsonTestStatic, names, importCrowTest!dirName);
-	withMapToStackArray!(void, CrowJsonTest, CrowJsonTestStatic)(
-		tests,
-		(ref CrowJsonTestStatic x) =>
-			CrowJsonTest(
-				mustParseUri("test:") / symbolOfString(dirName) / addExtension(symbolOfString(x.name), Extension.crow),
-				x.crow,
-				mustParseJson(test.alloc, (() @trusted => CString(x.json))())),
-		(scope CrowJsonTest[] x) => cb(x));
-}
-
-private immutable struct CrowJsonTest {
-	Uri uri;
-	string crow;
-	Json json;
-}
-
-private immutable struct CrowJsonTestStatic {
-	string name;
-	string crow;
-	immutable char* json;
-}
-
-private template importCrowTest(string dirName) {
-	CrowJsonTestStatic importCrowTest(string name)() =>
-		CrowJsonTestStatic(name, import(dirName ~ "/" ~ name ~ ".crow"), import(dirName ~ "/" ~ name ~ ".json"));
-}
-
 void assertEqual(T)(
 	in T actual,
 	in T expected,
@@ -205,85 +171,6 @@ void assertEqual(in uint[] actual, in uint[] expected) {
 	});
 }
 
-void withAstTests(string dir, string[] fileNames)(
-	ref Test test,
-	in Json delegate(in CrowFileInfo) @safe @nogc pure nothrow cb,
-) {
-	withCrowAndJsonFiles!(dir, fileNames)(test, (in CrowJsonTest[] tests) {
-		foreach (CrowJsonTest testData; tests)
-			withAstTest(test, testData.uri, testData.crow, (in CrowFileInfo file) {
-				assertEqual(cb(file), testData.json);
-			});
-	});
-}
-
-private void withAstTest(
-	ref Test test,
-	Uri uri,
-	in string content,
-	in void delegate(in CrowFileInfo) @safe @nogc pure nothrow cb,
-) {
-	Storage storage = Storage(test.metaAlloc);
-	return cb(*setFileAssumeUtf8(test.perf, storage, uri, content).as!(CrowFileInfo*));
-}
-
-void withIdeTestsAtPositions(string dir, string[] fileNames)(
-	ref Test test,
-	in Json delegate(in ShowModelCtx, in Program, in TextDocumentPositionParams) @safe @nogc pure nothrow cb,
-) {
-	withIdeTestsForCrowAndJsonFiles!(dir, fileNames)(test, (in ShowModelCtx ctx, in Program program, in CrowJsonTest[] tests) {
-		foreach (CrowJsonTest x; tests)
-			testAtPositions(test, x.uri, x.json, (LineAndColumn where) =>
-				cb(ctx, program, TextDocumentPositionParams(TextDocumentIdentifier(x.uri), toLineAndCharacter(ctx.lineAndColumnGetters[x.uri], where))));
-	});
-}
-
-void ideTestWithCrowAndJsonFiles(string dir, string[] fileNames)(
-	ref Test test,
-	in Json delegate(in ShowModelCtx, in Program, Uri) @safe @nogc pure nothrow cb,
-) {
-	withIdeTestsForCrowAndJsonFiles!(dir, fileNames)(test, (in ShowModelCtx ctx, in Program program, in CrowJsonTest[] tests) {
-		foreach (CrowJsonTest x; tests)
-			assertEqual(cb(ctx, program, x.uri), x.json, (scope ref Writer writer) {
-				writer ~= "For ";
-				writer ~= x.uri;
-				writer ~= ":\n";
-			});
-	});
-}
-
-private void withIdeTestsForCrowAndJsonFiles(string dir, string[] fileNames)(
-	ref Test test,
-	in void delegate(in ShowModelCtx, in Program, in CrowJsonTest[]) @safe @nogc pure nothrow cb,
-) {
-	withCrowAndJsonFiles!(dir, fileNames)(test, (in CrowJsonTest[] tests) {
-		withTestServer(test, (ref Server server) {
-			setupTestServer(test, server, tests);
-			Program program = getProgram(test.perf, test.alloc, server);
-			cb(getShowDiagCtx(server, program), program, tests);
-		});
-	});
-}
-
-private void testAtPositions(
-	ref Test test,
-	Uri uri,
-	in Json json,
-	in Json delegate(LineAndColumn) @safe @nogc pure nothrow cb,
-) {
-	foreach (Json.ObjectField field; json.as!(Json.Object)) {
-		LineAndColumn where = force(parseLineAndColumn(cStringOfSymbol(test.alloc, field.key)));
-		Json res = cb(where);
-		assertEqual(res, field.value, (scope ref Writer writer) {
-			writer ~= "For ";
-			writer ~= uri;
-			writer ~= " ";
-			writer ~= where;
-			writer ~= ":\n";
-		});
-	}
-}
-
 void withTestServer(ref Test test, in void delegate(ref Server) @safe @nogc pure nothrow cb) {
 	scope Server server = Server((size_t sizeWords, size_t _) =>
 		allocateElements!word(test.alloc, sizeWords));
@@ -294,11 +181,15 @@ void withTestServer(ref Test test, in void delegate(ref Server) @safe @nogc pure
 	return cb(castNonScope_ref(server));
 }
 
-void setupTestServer(ref Test test, ref Server server, Uri mainUri, in string mainContent) {
-	setupTestServer(test, server, [CrowJsonTest(mainUri, castNonScope(mainContent), jsonNull)]);
+immutable struct UriAndContent {
+	Uri uri;
+	string crow;
 }
-void setupTestServer(ref Test test, ref Server server, in CrowJsonTest[] files) {
-	foreach (CrowJsonTest file; files) {
+void setupTestServer(ref Test test, ref Server server, Uri mainUri, in string mainContent) {
+	setupTestServer(test, server, [UriAndContent(mainUri, castNonScope(mainContent))]);
+}
+void setupTestServer(ref Test test, ref Server server, in UriAndContent[] files) {
+	foreach (UriAndContent file; files) {
 		assert(getExtension(file.uri) == Extension.crow);
 		setFileAssumeUtf8(test.perf, server, file.uri, file.crow);
 	}

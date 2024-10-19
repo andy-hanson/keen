@@ -179,7 +179,7 @@ ExitCodeOrSignal buildAndInterpret(
 	in WriteError writeError,
 	ref ProgramWithMain program,
 	OS os,
-	VersionOptions version_, // TODO: should this and OS be in the same parameter? --------------------------------------------------------
+	VersionOptions version_,
 	in Opt!(Uri[]) diagnosticsOnlyForUris,
 	in CString[] allArgs,
 ) {
@@ -215,9 +215,6 @@ LspOutAction handleLspMessage(scope ref Perf perf, ref Alloc alloc, ref Server s
 		(in LspInResponse _) =>
 			LspOutAction());
 
-private pure LspOutMessage messageForResponse(in LspInRequest request, LspOutResult result) => // move? ------------------------------------
-	LspOutMessage(LspOutResponse(request.id, result));
-
 private LspOutAction handleLspNotification(
 	scope ref Perf perf,
 	ref Alloc alloc,
@@ -231,8 +228,8 @@ private LspOutAction handleLspNotification(
 			return LspOutAction([]);
 		},
 		(in DidChangeTextDocumentParams x) {
-			changeFile(perf, server, x.textDocument.uri, x.contentChanges);
-			return handleFileChanged(perf, alloc, server, x.textDocument.uri);
+			changeFile(perf, server, x.textDocument, x.contentChanges);
+			return handleFileChanged(perf, alloc, server, x.textDocument);
 		},
 		(in DidCloseTextDocumentParams x) =>
 			LspOutAction([]),
@@ -297,55 +294,63 @@ private LspOutAction handleLspRequest(
 	ref Alloc alloc,
 	ref Server server,
 	in LspInRequest request,
-) =>
-	request.params.matchImpure!LspOutAction(
+) {
+	LspOutAction respond(LspOutResult x) =>
+		singleResponse(alloc, request, x);
+	LspOutAction needProgram() =>
+		respondWithProgram(perf, alloc, server, request);
+	return request.params.matchImpure!LspOutAction(
 		(in BuildJsScriptParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in CodeLensParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in CompletionParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in DefinitionParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in DocumentHighlightParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in ExecuteCommandParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in FoldingRangeParams x) =>
-			singleResponse(alloc, request, LspOutResult(foldingRangesOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument.uri)))),
+			respond(LspOutResult(foldingRangesOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument)))),
 		(in HoverParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in ImplementationParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in InitializeParams x) {
 			server.lspState.supportsUnknownUris = x.initializationOptions.unknownUris;
-			return singleResponse(alloc, request, LspOutResult(InitializeResult()));
+			return respond(LspOutResult(InitializeResult()));
 		},
 		(in InlayHintParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in ReferenceParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in RenameParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in RunParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in SemanticTokensParams x) =>
-			singleResponse(alloc, request, LspOutResult(tokensOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument.uri)))),
+			respond(LspOutResult(tokensOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument)))),
 		(in ShutdownParams _) =>
-			singleResponse(alloc, request, LspOutResult(LspOutResult.Null())),
+			respond(LspOutResult(LspOutResult.Null())),
 		(in SignatureHelpParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in SyntaxTranslateParams x) =>
-			singleResponse(alloc, request, LspOutResult(syntaxTranslate(alloc, x))),
+			respond(LspOutResult(syntaxTranslate(alloc, x))),
 		(in TypeDefinitionParams _) =>
-			respondWithProgram(perf, alloc, server, request),
+			needProgram(),
 		(in UnloadedUrisParams _) =>
-			singleResponse(alloc, request, LspOutResult(UnloadedUris(allUnloadedUris(alloc, server)))));
+			respond(LspOutResult(UnloadedUris(allUnloadedUris(alloc, server)))));
+}
 
-private pure LspOutAction singleResponse(ref Alloc alloc, in LspInRequest request, LspOutResult response) => // move? ---------------------
+private pure LspOutAction singleResponse(ref Alloc alloc, in LspInRequest request, LspOutResult response) =>
 	LspOutAction(
 		newArray!LspOutMessage(alloc, [messageForResponse(request, response)]),
 		none!ExitCode);
+
+private pure LspOutMessage messageForResponse(in LspInRequest request, LspOutResult result) => // move? ------------------------------------
+	LspOutMessage(LspOutResponse(request.id, result));
 
 private LspOutAction respondWithProgram(
 	scope ref Perf perf,
@@ -371,45 +376,45 @@ private LspOutAction handleLspRequestWithProgram(
 ) {
 	ProgramWithMain programWithMain(MainKind main, BuildTarget target) =>
 		programWithMainFromProgram(perf, alloc, server.frontend, program, main, [target]);
+	LspOutAction respond(LspOutResult x) =>
+		singleResponse(alloc, request, x);
 	return request.params.matchImpure!LspOutAction(
 		(in BuildJsScriptParams x) {
 			ProgramWithMain pwm = programWithMain(MainKind.fun(x.uri, []), BuildTarget.js);
-			return singleResponse(alloc, request, LspOutResult(BuildJsScriptResult(
+			return respond(LspOutResult(BuildJsScriptResult(
 				showDiagnostics(alloc, server, pwm, x.diagnosticsOnlyForUris),
 				optIf(!hasFatalDiagnostics(pwm), () =>
 					buildToJsScript(alloc, server, pwm, JsTarget.browser, none!Symbol).js))));
 		},
 		(in CodeLensParams x) =>
-			singleResponse(alloc, request, LspOutResult(getCodeLenses(alloc, program, getShowDiagCtx(server, program), x))),
+			respond(LspOutResult(getCodeLenses(alloc, program, x))),
 		(in CompletionParams x) {
 			Opt!CompletionList res = getCompletionForProgram(alloc, server, program, x);
-			return singleResponse(alloc, request, has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
+			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
 		},
 		(in DefinitionParams x) =>
-			singleResponse(alloc, request, LspOutResult(getDefinitionForProgram(alloc, server, program, x))),
+			respond(LspOutResult(getDefinitionForProgram(alloc, server, program, x))),
 		(in DocumentHighlightParams x) {
 			Opt!DocumentHighlightResult res = getDocumentHighlightsForProgram(alloc, server, program, x);
-			return singleResponse(alloc, request, has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
+			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
 		},
 		(in ExecuteCommandParams x) =>
 			executeCommand(perf, alloc, server, program, request, x),
 		(in FoldingRangeParams x) =>
 			assert(false),
 		(in HoverParams x) =>
-			singleResponse(alloc, request, LspOutResult(getHoverForProgram(alloc, server, program, x))),
+			respond(LspOutResult(getHoverForProgram(alloc, server, program, x))),
 		(in ImplementationParams x) =>
-			singleResponse(alloc, request, LspOutResult(getImplementationForProgram(alloc, server, program, x))),
+			respond(LspOutResult(getImplementationForProgram(alloc, server, program, x))),
 		(in InitializeParams _) =>
 			assert(false),
-		//(in InlayHintUnresolved x) =>
-		//	singleResponse(alloc, request, LspOutResult(resolveInlayHint(alloc, program, getShowDiagCtx(server, program), server.lspState.testStates, x))),
 		(in InlayHintParams x) =>
-			singleResponse(alloc, request, LspOutResult(getInlayHintsForProgram(alloc, server, program, x))),
+			respond(LspOutResult(getInlayHintsForProgram(alloc, server, program, x))),
 		(in ReferenceParams x) =>
-			singleResponse(alloc, request, LspOutResult(getReferencesForProgram(alloc, server, program, x))),
+			respond(LspOutResult(getReferencesForProgram(alloc, server, program, x))),
 		(in RenameParams x) {
 			Opt!WorkspaceEdit res = getRenameForProgram(alloc, server, program, x);
-			return singleResponse(alloc, request, has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
+			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
 		},
 		(in RunParams x) {
 			ArrayBuilder!Write writes;
@@ -421,7 +426,7 @@ private LspOutAction handleLspRequestWithProgram(
 				(Pipe pipe, in string x) {
 					add(alloc, writes, Write(pipe, copyString(alloc, x)));
 				});
-			return singleResponse(alloc, request, LspOutResult(RunResult(exit, finish(alloc, writes))));
+			return respond(LspOutResult(RunResult(exit, finish(alloc, writes))));
 		},
 		(in SemanticTokensParams _) =>
 			assert(false),
@@ -429,17 +434,24 @@ private LspOutAction handleLspRequestWithProgram(
 			assert(false),
 		(in SignatureHelpParams x) {
 			Opt!SignatureHelp res = getSignatureHelpForProgram(alloc, server, program, x);
-			return singleResponse(alloc, request, has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
+			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
 		},
 		(in SyntaxTranslateParams x) =>
 			assert(false),
 		(in TypeDefinitionParams x) =>
-			singleResponse(alloc, request, LspOutResult(getTypeDefinitionForProgram(alloc, server, program, x))),
+			respond(LspOutResult(getTypeDefinitionForProgram(alloc, server, program, x))),
 		(in UnloadedUrisParams _) =>
 			assert(false));
 }
 
-private LspOutAction executeCommand(scope ref Perf perf, ref Alloc alloc, ref Server server, ref Program program, in LspInRequest request, in ExecuteCommandParams params) =>
+private LspOutAction executeCommand(
+	scope ref Perf perf,
+	ref Alloc alloc,
+	ref Server server,
+	ref Program program,
+	in LspInRequest request,
+	in ExecuteCommandParams params,
+) =>
 	params.matchImpure!LspOutAction(
 		(in ExecuteCommandParams.RunTest x) {
 			ProgramWithMain pwm = programWithMainFromProgram(
@@ -475,7 +487,9 @@ private ExitCodeOrSignal runFromLsp(
 			return buildAndInterpret(
 				perf, server, extern_,
 				(in string x) { writeCb(Pipe.stderr, x); },
-				program, OS.none, VersionOptions(isSingleThreaded: true, stackTraceEnabled: true), diagnosticsOnlyForUris, allArgs);
+				program, OS.none,
+				VersionOptions(isSingleThreaded: true, stackTraceEnabled: true),
+				diagnosticsOnlyForUris, allArgs);
 	});
 
 private __gshared Server serverStorage = void;
@@ -557,7 +571,7 @@ private struct LspState {
 	bool supportsUnknownUris;
 	Uri[] urisWithDiagnostics;
 	MutArr!LspInRequest pendingRequests;
-	TestStates testStates; // TODO: we need to clear this whenever there is a code edit! ------------------------------------------
+	TestStates testStates;
 
 	ref inout(Alloc) stateAlloc() return scope inout =>
 		*stateAllocPtr;
@@ -795,7 +809,7 @@ private Opt!Position serverGetPosition(
 	in TextDocumentPositionParams where,
 	GetPositionKind kind,
 ) =>
-	where.textDocument.uri in program.allModules
+	where.uri in program.allModules
 		? getPosition(program, getShowDiagCtx(server, program), where, kind)
 		: none!Position;
 
@@ -891,7 +905,7 @@ Json jsonForPrintIdeAtPos(
 	PrintKind.IdeAtPos.Kind kind,
 ) {
 	TextDocumentPositionParams params = TextDocumentPositionParams(
-		TextDocumentIdentifier(where.uri),
+		where.uri,
 		toLineAndCharacter(server.lineAndColumnGetters[where.uri], where.pos));
 	Json locations(UriAndRange[] xs) => jsonOfReferences(alloc, server.lineAndCharacterGetters, xs);
 	final switch (kind) {
@@ -935,14 +949,14 @@ Json jsonForPrintIdeWholeFile(
 ) {
 	final switch (kind) {
 		case PrintKind.IdeWholeFile.Kind.codeLenses:
-			return jsonOfCodeLenses(alloc, getCodeLenses(alloc, program, getShowDiagCtx(server, program), CodeLensParams(TextDocumentIdentifier(uri))));
+			return jsonOfCodeLenses(alloc, getCodeLenses(alloc, program, CodeLensParams(uri)));
 		case PrintKind.IdeWholeFile.Kind.foldingRanges:
 			CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
 			return jsonOfFoldingRanges(alloc, foldingRangesOfAst(alloc, *file));
 		case PrintKind.IdeWholeFile.Kind.inlayHints:
 			return jsonOfInlayHints(
 				alloc,
-				getInlayHintsForProgram(alloc, server, program, InlayHintParams(TextDocumentIdentifier(uri))));
+				getInlayHintsForProgram(alloc, server, program, InlayHintParams(uri)));
 		case PrintKind.IdeWholeFile.Kind.tokens:
 			CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
 			return jsonOfDecodedTokens(alloc, tokensOfAst(alloc, *file));

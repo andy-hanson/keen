@@ -56,7 +56,7 @@ import util.writer : makeStringWithWriter, writeWithCommas, Writer;
 
 InlayHint[] getInlayHints(ref Alloc alloc, in Program program, in ShowModelCtx showCtx, in TestStates testStates, InlayHintParams params) =>
 	buildSortedArray!(InlayHint, compareInlayHints)(alloc, (scope ref Builder!InlayHint out_) {
-		Uri uri = params.textDocument.uri;
+		Uri uri = params.textDocument;
 		Module* module_ = moduleAtUri(program, uri);
 		foreach (ImportOrExport x; module_.imports)
 			if (has(x.source))
