@@ -5,6 +5,7 @@ module frontend.ide.getRename;
 import frontend.ide.getTarget : Target, targetForPosition;
 import frontend.ide.position : Position;
 import frontend.ide.getReferences : eachReferenceForTarget, IncludeImports;
+import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes : TextEdit, WorkspaceEdit;
 import model.model : Program;
 import util.alloc.alloc : Alloc;
@@ -13,11 +14,11 @@ import util.col.map : KeyValuePair;
 import util.col.mutMap : getOrAdd, MutMap;
 import util.comparison : Comparison;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : compareRange, UriAndRange;
+import util.sourceRange : compareLineAndCharacterRange, UriAndLineAndCharacterRange, UriAndRange;
 import util.string : copyString;
 import util.uri : compareUriNaturally, Uri;
 
-Opt!WorkspaceEdit getRenameForPosition(ref Alloc alloc, in Program program, in Position pos, in string newName) {
+Opt!WorkspaceEdit getRenameForPosition(ref Alloc alloc, in Program program, in LineAndCharacterGetters lcgs, in Position pos, in string newName) {
 	Opt!Target target = targetForPosition(program.commonTypes, pos);
 	return has(target)
 		? some(WorkspaceEdit(buildGroupedAndSorted!(Uri, TextEdit, compareUriNaturally, compareTextEdit)(
@@ -25,7 +26,8 @@ Opt!WorkspaceEdit getRenameForPosition(ref Alloc alloc, in Program program, in P
 			(scope ref GroupedSortedBuilder!(Uri, TextEdit) out_) {
 				string newNameOut = copyString(alloc, newName);
 				eachReferenceForTarget(program, pos.module_.uri, force(target), IncludeImports.include, (in UriAndRange x) {
-					out_.add(x.uri, TextEdit(x.range, newNameOut));
+					UriAndLineAndCharacterRange range = lcgs[x];
+					out_.add(range.uri, TextEdit(range.range, newNameOut));
 				});
 			})))
 		: none!WorkspaceEdit;
@@ -34,7 +36,7 @@ Opt!WorkspaceEdit getRenameForPosition(ref Alloc alloc, in Program program, in P
 private:
 
 Comparison compareTextEdit(in TextEdit a, in TextEdit b) =>
-	compareRange(a.range, b.range);
+	compareLineAndCharacterRange(a.range, b.range);
 
 // TOOD: MOVE -------------------------------------------------------------------------------------------------------------------------
 immutable(KeyValuePair!(Key, Value[]))[] buildGroupedAndSorted(Key, Value, alias compareKey, alias compareValue)(

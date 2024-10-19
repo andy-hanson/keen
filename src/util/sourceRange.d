@@ -105,7 +105,7 @@ immutable struct LineAndCharacter {
 		writer ~= character;
 	}
 }
-Comparison compareLineAndCharacter(LineAndCharacter a, LineAndCharacter b) =>
+Comparison compareLineAndCharacter(in LineAndCharacter a, in LineAndCharacter b) =>
 	compareOr(compareUint(a.line, b.line), () =>
 		compareUint(a.character, b.character));
 
@@ -121,6 +121,9 @@ private immutable struct LineAndColumnRange {
 		writer ~= end;
 	}
 }
+Comparison compareLineAndCharacterRange(in LineAndCharacterRange a, in LineAndCharacterRange b) =>
+	compareOr(compareLineAndCharacter(a.start, b.start), () =>
+		compareLineAndCharacter(a.end, b.end));
 
 immutable struct UriLineAndCharacter {
 	Uri uri;

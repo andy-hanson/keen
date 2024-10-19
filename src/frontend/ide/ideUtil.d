@@ -21,13 +21,13 @@ import util.col.array : arrayOfSingle, count, firstZip, isEmpty, only, only2;
 import util.col.sortUtil : eachSorted, sortedIter;
 import util.comparison : compareOr, Comparison;
 import util.opt : force, has, none, Opt, optOr, some;
-import util.sourceRange : compareRange, Pos, UriAndRange;
+import util.sourceRange : compareLineAndCharacterRange, Pos, UriAndLineAndCharacterRange, UriAndRange;
 import util.uri : compareUriNaturally;
 import util.util : ptrTrustMe;
 
-Comparison compareUriAndRangeNaturally(in UriAndRange a, in UriAndRange b) =>
+Comparison compareUriAndLineAndCharacterRangeNaturally(in UriAndLineAndCharacterRange a, in UriAndLineAndCharacterRange b) =>
 	compareOr(compareUriNaturally(a.uri, b.uri), () =>
-		compareRange(a.range, b.range));
+		compareLineAndCharacterRange(a.range, b.range));
 
 void walkAstInOrder(
 	Ctx,

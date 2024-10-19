@@ -163,7 +163,7 @@ import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.perf : Perf;
-import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndLine, UriAndRange, UriLineAndColumn;
+import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndLine, UriAndLineAndCharacterRange, UriLineAndColumn;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
@@ -690,34 +690,34 @@ private Opt!CompletionList getCompletionForProgram(
 		: none!CompletionList;
 }
 
-private UriAndRange[] getDefinitionForProgram(
+private UriAndLineAndCharacterRange[] getDefinitionForProgram(
 	ref Alloc alloc,
 	in Server server,
 	in Program program,
 	in DefinitionParams params,
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
-	return has(position) ? getDefinitionForPosition(alloc, program.commonTypes, force(position)) : [];
+	return has(position) ? getDefinitionForPosition(alloc, program.commonTypes, server.lineAndCharacterGetters, force(position)) : [];
 }
 
-private UriAndRange[] getImplementationForProgram(
+private UriAndLineAndCharacterRange[] getImplementationForProgram(
 	ref Alloc alloc,
 	in Server server,
 	in Program program,
 	in ImplementationParams params,
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
-	return has(position) ? getImplementationForPosition(alloc, program, force(position)) : [];
+	return has(position) ? getImplementationForPosition(alloc, program, server.lineAndCharacterGetters, force(position)) : [];
 }
 
-private UriAndRange[] getTypeDefinitionForProgram(
+private UriAndLineAndCharacterRange[] getTypeDefinitionForProgram(
 	ref Alloc alloc,
 	in Server server,
 	in Program program,
 	in TypeDefinitionParams params,
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.textDocumentAndPosition, GetPositionKind.exact);
-	return has(position) ? getTypeDefinitionForPosition(alloc, program.commonTypes, force(position)) : [];
+	return has(position) ? getTypeDefinitionForPosition(alloc, program.commonTypes, server.lineAndCharacterGetters, force(position)) : [];
 }
 
 private Opt!DocumentHighlightResult getDocumentHighlightsForProgram(
@@ -728,18 +728,18 @@ private Opt!DocumentHighlightResult getDocumentHighlightsForProgram(
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
 	return has(position)
-		? getDocumentHighlightsForPosition(alloc, program, force(position))
+		? getDocumentHighlightsForPosition(alloc, program, server.lineAndCharacterGetters, force(position))
 		: none!DocumentHighlightResult;
 }
 
-private UriAndRange[] getReferencesForProgram(
+private UriAndLineAndCharacterRange[] getReferencesForProgram(
 	ref Alloc alloc,
 	scope ref Server server,
 	in Program program,
 	in ReferenceParams params,
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
-	return has(position) ? getReferencesForPosition(alloc, program, force(position)) : [];
+	return has(position) ? getReferencesForPosition(alloc, program, server.lineAndCharacterGetters, force(position)) : [];
 }
 
 private Opt!WorkspaceEdit getRenameForProgram(
@@ -750,7 +750,7 @@ private Opt!WorkspaceEdit getRenameForProgram(
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.textDocumentAndPosition, GetPositionKind.exact);
 	return has(position)
-		? getRenameForPosition(alloc, program, force(position), params.newName)
+		? getRenameForPosition(alloc, program, server.lineAndCharacterGetters, force(position), params.newName)
 		: none!WorkspaceEdit;
 }
 
@@ -906,28 +906,25 @@ Json jsonForPrintIdeAtPos(
 	TextDocumentPositionParams params = TextDocumentPositionParams(
 		where.uri,
 		toLineAndCharacter(server.lineAndColumnGetters[where.uri], where.pos));
-	Json locations(UriAndRange[] xs) => jsonOfReferences(alloc, server.lineAndCharacterGetters, xs);
+	Json locations(UriAndLineAndCharacterRange[] xs) =>
+		jsonOfReferences(alloc, xs);
 	final switch (kind) {
 		case PrintKind.IdeAtPos.Kind.completion:
 			Opt!CompletionList res = getCompletionForProgram(alloc, server, program, CompletionParams(params));
-			return has(res)
-				? jsonOfCompletionList(alloc, force(res))
-				: jsonNull;
+			return has(res) ? jsonOfCompletionList(alloc, force(res)) : jsonNull;
 		case PrintKind.IdeAtPos.Kind.definition:
 			return locations(getDefinitionForProgram(alloc, server, program, DefinitionParams(params)));
 		case PrintKind.IdeAtPos.Kind.documentHighlight:
 			Opt!DocumentHighlightResult res = getDocumentHighlightsForProgram(
 				alloc, server, program, DocumentHighlightParams(params));
-			return has(res)
-				? jsonOfDocumentHighlight(alloc, server.lineAndCharacterGetters[where.uri], force(res))
-				: jsonNull;
+			return has(res) ? jsonOfDocumentHighlight(alloc, force(res)) : jsonNull;
 		case PrintKind.IdeAtPos.Kind.hover:
 			return jsonOfHover(alloc, getHoverForProgram(alloc, server, program, HoverParams(params)));
 		case PrintKind.IdeAtPos.Kind.implementation:
 			return locations(getImplementationForProgram(alloc, server, program, ImplementationParams(params)));
 		case PrintKind.IdeAtPos.Kind.rename:
 			Opt!WorkspaceEdit rename = getRenameForProgram(alloc, server, program, RenameParams(params, "new-name"));
-			return has(rename) ? jsonOfWorkspaceEdit(alloc, server.lineAndCharacterGetters, force(rename)) : jsonNull;
+			return has(rename) ? jsonOfWorkspaceEdit(alloc, force(rename)) : jsonNull;
 		case PrintKind.IdeAtPos.Kind.references:
 			return locations(getReferencesForProgram(alloc, server, program, ReferenceParams(params)));
 		case PrintKind.IdeAtPos.Kind.signatureHelp:
@@ -1057,7 +1054,7 @@ void notifyDiagnostics(
 	foreach (ref UriAndDiagnostics ud; all)
 		add(alloc, out_, notification(PublishDiagnosticsParams(ud.uri, map(alloc, ud.diagnostics, (ref Diagnostic x) =>
 			LspDiagnostic(
-				x.range,
+				server.lineAndCharacterGetters[ud.uri][x.range],
 				toLspDiagnosticSeverity(getDiagnosticSeverity(x.kind)),
 				stringOfDiag(alloc, ctx, x.kind))))));
 }

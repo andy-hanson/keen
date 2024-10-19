@@ -4,8 +4,9 @@ module frontend.ide.getReferences;
 
 import frontend.ide.getDefinition : definitionForTarget;
 import frontend.ide.getTarget : Target, targetForPosition;
-import frontend.ide.ideUtil : compareUriAndRangeNaturally, eachFunSpec, eachSpecParent, eachTypeComponent, eachPackedTypeArg, ReferenceCb, TypeCb;
+import frontend.ide.ideUtil : compareUriAndLineAndCharacterRangeNaturally, eachFunSpec, eachSpecParent, eachTypeComponent, eachPackedTypeArg, ReferenceCb, TypeCb;
 import frontend.ide.position : ExprContainer, Position, PositionKind;
+import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes : DocumentHighlight, DocumentHighlightKind, DocumentHighlightResult;
 import model.ast :
 	AssertOrForbidAst,
@@ -132,11 +133,11 @@ import util.col.array : allSame, contains, fold, isEmpty, only, zip, zipIfSizeEq
 import util.col.arrayBuilder : buildArray, Builder, buildSortedArray;
 import util.col.tempSet : mustAdd, TempSet, tryAdd, withTempSet;
 import util.opt : force, has, none, Opt, optIf, some;
-import util.sourceRange : Range, UriAndRange;
+import util.sourceRange : Range, UriAndLineAndCharacterRange, UriAndRange;
 import util.symbol : Symbol;
 import util.uri : Uri;
 
-Opt!DocumentHighlightResult getDocumentHighlightsForPosition(ref Alloc alloc, in Program program, in Position pos) {
+Opt!DocumentHighlightResult getDocumentHighlightsForPosition(ref Alloc alloc, in Program program, in LineAndCharacterGetters lcgs, in Position pos) {
 	Opt!Target target = targetForPosition(program.commonTypes, pos);
 	return optIf(has(target), () =>
 		DocumentHighlightResult(
@@ -149,17 +150,17 @@ Opt!DocumentHighlightResult getDocumentHighlightsForPosition(ref Alloc alloc, in
 					IncludeImports.include,
 					(in UriAndRange x) {
 						if (x.uri == pos.module_.uri)
-							res ~= DocumentHighlight(x.range, DocumentHighlightKind.Read);
+							res ~= DocumentHighlight(lcgs[x].range, DocumentHighlightKind.Read);
 					});
 			})));
 }
 
-UriAndRange[] getReferencesForPosition(ref Alloc alloc, in Program program, in Position pos) {
+UriAndLineAndCharacterRange[] getReferencesForPosition(ref Alloc alloc, in Program program, in LineAndCharacterGetters lcgs, in Position pos) {
 	Opt!Target target = targetForPosition(program.commonTypes, pos);
 	return has(target)
-		? buildSortedArray!(UriAndRange, compareUriAndRangeNaturally)(alloc, (scope ref Builder!UriAndRange res) {
+		? buildSortedArray!(UriAndLineAndCharacterRange, compareUriAndLineAndCharacterRangeNaturally)(alloc, (scope ref Builder!UriAndLineAndCharacterRange res) {
 			eachReferenceForTarget(program, pos.module_.uri, force(target), IncludeImports.exclude, (in UriAndRange x) {
-				res ~= x;
+				res ~= lcgs[x];
 			});
 		})
 		: [];

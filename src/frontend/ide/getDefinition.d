@@ -5,6 +5,7 @@ module frontend.ide.getDefinition;
 import frontend.ide.getTarget : Target, targetForPosition;
 import frontend.ide.ideUtil : ReferenceCb;
 import frontend.ide.position : Position, PositionKind;
+import frontend.storage : LineAndCharacterGetters;
 import model.ast : ExprAst, LoopAst;
 import model.diag : TypeContainer;
 import model.model :
@@ -25,28 +26,28 @@ import model.model :
 	VarDecl,
 	UnionMember;
 import util.alloc.alloc : Alloc;
-import util.col.array : newArray, only;
+import util.col.array : only;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.opt : force, has, Opt;
-import util.sourceRange : UriAndRange;
+import util.sourceRange : UriAndLineAndCharacterRange, UriAndRange;
 import util.uri : Uri;
-import util.util : castNonScope_ref, typeAs;
+import util.util : castNonScope_ref;
 
-UriAndRange[] getDefinitionForPosition(ref Alloc alloc, in CommonTypes commonTypes, in Position pos) {
+UriAndLineAndCharacterRange[] getDefinitionForPosition(ref Alloc alloc, in CommonTypes commonTypes, in LineAndCharacterGetters lcgs, in Position pos) {
 	Opt!Target target = targetForPosition(commonTypes, pos);
 	return has(target)
-		? buildArray!UriAndRange(alloc, (scope ref Builder!UriAndRange res) {
-			definitionForTarget(pos.module_.uri, force(target), (in UriAndRange x) { res ~= x; });
+		? buildArray!UriAndLineAndCharacterRange(alloc, (scope ref Builder!UriAndLineAndCharacterRange res) {
+			definitionForTarget(pos.module_.uri, force(target), (in UriAndRange x) { res ~= lcgs[x]; });
 		})
 		: [];
 }
 
-UriAndRange[] getTypeDefinitionForPosition(ref Alloc alloc, in CommonTypes commonTypes, in Position pos) {
-	Opt!Target target = targetForPosition(commonTypes, pos);
-	return has(target)
-		? typeDefinitionForTarget(alloc, force(target))
-		: [];
-}
+UriAndLineAndCharacterRange[] getTypeDefinitionForPosition(ref Alloc alloc, in CommonTypes commonTypes, in LineAndCharacterGetters lcgs, in Position pos) =>
+	buildArray!UriAndLineAndCharacterRange(alloc, (scope ref Builder!UriAndLineAndCharacterRange res) {
+		Opt!Target target = targetForPosition(commonTypes, pos);
+		if (has(target))
+			typeDefinitionForTarget(force(target), (in UriAndRange x) { res ~= lcgs[x]; });
+	});
 
 private:
 
@@ -115,71 +116,86 @@ void definitionForImportedName(in PositionKind.ImportedName a, in ReferenceCb cb
 	}
 }
 
-UriAndRange[] typeDefinitionForTarget(ref Alloc alloc, in Target a) =>
-	castNonScope_ref(a).matchWithPointers!(UriAndRange[])(
-		(EnumOrFlagsMember* x) =>
-			definitionForStruct(alloc, *x.containingEnum),
-		(FunDecl* x) =>
-			typeDefinitionForFunDecl(alloc, x),
+void typeDefinitionForTarget(in Target a, in ReferenceCb cb) {
+	castNonScope_ref(a).matchWithPointers!void(
+		(EnumOrFlagsMember* x) {
+			definitionForStruct(*x.containingEnum, cb);
+		},
+		(FunDecl* x) {
+			typeDefinitionForFunDecl(x, cb);
+		},
 		(PositionKind.ImportedName x) {
 			if (has(x.referents)) {
 				NameReferents* refs = force(x.referents);
-				return has(refs.structOrAlias)
-					? typeDefinitionForStructOrAlias(alloc, force(refs.structOrAlias))
-					: refs.funs.length == 1
-					? typeDefinitionForFunDecl(alloc, only(refs.funs))
-					: [];
-			} else
-				return typeAs!(UriAndRange[])([]);
+				if (has(refs.structOrAlias))
+					typeDefinitionForStructOrAlias(force(refs.structOrAlias), cb);
+				else if (refs.funs.length == 1)
+					typeDefinitionForFunDecl(only(refs.funs), cb);
+			}
 		},
-		(PositionKind.LocalPosition x) =>
-			definitionForType(alloc, x.container.toTypeContainer, x.local.type),
-		(Target.Loop x) =>
-			definitionForType(alloc, x.container.toTypeContainer, x.loop.type),
-		(Module* x) =>
-			typeAs!(UriAndRange[])([]),
-		(RecordField* x) =>
-			definitionForType(alloc, TypeContainer(x.containingRecord), x.type),
-		(SpecDecl* x) =>
-			typeAs!(UriAndRange[])([]),
-		(PositionKind.SpecSig x) =>
-			definitionForType(alloc, TypeContainer(x.spec), x.sig.returnType),
-		(StructAlias* x) =>
-			typeDefinitionForStructAlias(alloc, *x),
-		(StructDecl* x) =>
-			definitionForStruct(alloc, *x),
-		(PositionKind.TypeParamWithContainer x) =>
-			newArray(alloc, [typeParamWithContainerRange(x)]),
-		(UnionMember* x) =>
-			x.hasValue
-				? definitionForType(alloc, TypeContainer(x.containingUnion), x.type)
-				: [],
-		(VarDecl* x) =>
-			definitionForType(alloc, TypeContainer(x), x.type),
-		(PositionKind.VariantMethod x) =>
-			definitionForType(alloc, TypeContainer(x.variant), x.method.returnType));
+		(PositionKind.LocalPosition x) {
+			definitionForType(x.container.toTypeContainer, x.local.type, cb);
+		},
+		(Target.Loop x) {
+			definitionForType(x.container.toTypeContainer, x.loop.type, cb);
+		},
+		(Module* x) {},
+		(RecordField* x) {
+			definitionForType(TypeContainer(x.containingRecord), x.type, cb);
+		},
+		(SpecDecl* x) {},
+		(PositionKind.SpecSig x) {
+			definitionForType(TypeContainer(x.spec), x.sig.returnType, cb);
+		},
+		(StructAlias* x) {
+			typeDefinitionForStructAlias(*x, cb);
+		},
+		(StructDecl* x) {
+			definitionForStruct(*x, cb);
+		},
+		(PositionKind.TypeParamWithContainer x) {
+			cb(typeParamWithContainerRange(x));
+		},
+		(UnionMember* x) {
+			if (x.hasValue)
+				definitionForType(TypeContainer(x.containingUnion), x.type, cb);
+		},
+		(VarDecl* x) {
+			definitionForType(TypeContainer(x), x.type, cb);
+		},
+		(PositionKind.VariantMethod x) {
+			definitionForType(TypeContainer(x.variant), x.method.returnType, cb);
+		});
+}
 
-UriAndRange[] typeDefinitionForStructOrAlias(ref Alloc alloc, in StructOrAlias a) =>
-	a.matchIn!(UriAndRange[])(
-		(in StructAlias x) =>
-			typeDefinitionForStructAlias(alloc, x),
-		(in StructDecl x) =>
-			definitionForStruct(alloc, x));
+void typeDefinitionForStructOrAlias(in StructOrAlias a, in ReferenceCb cb) {
+	a.matchIn!void(
+		(in StructAlias x) {
+			typeDefinitionForStructAlias(x, cb);
+		},
+		(in StructDecl x) {
+			definitionForStruct(x, cb);
+		});
+}
 
-UriAndRange[] typeDefinitionForStructAlias(ref Alloc alloc, in StructAlias a) =>
-	definitionForStruct(alloc, *a.target.decl);
+void typeDefinitionForStructAlias(in StructAlias a, in ReferenceCb cb) {
+	definitionForStruct(*a.target.decl, cb);
+}
 
-UriAndRange[] definitionForStruct(ref Alloc alloc, in StructDecl a) =>
-	newArray(alloc, [a.nameRange]);
+void definitionForStruct(in StructDecl a, in ReferenceCb cb) {
+	cb(a.nameRange);
+}
 
-UriAndRange[] typeDefinitionForFunDecl(ref Alloc alloc, in FunDecl* a) =>
-	definitionForType(alloc, TypeContainer(a), a.returnType);
+void typeDefinitionForFunDecl(in FunDecl* a, in ReferenceCb cb) {
+	definitionForType(TypeContainer(a), a.returnType, cb);
+}
 
-UriAndRange[] definitionForType(ref Alloc alloc, in TypeContainer typeContainer, in Type a) =>
-	a.matchIn!(UriAndRange[])(
-		(in Type.Bogus) =>
-			typeAs!(UriAndRange[])([]),
-		(in TypeParamIndex x) =>
-			newArray(alloc, [typeParamWithContainerRange(PositionKind.TypeParamWithContainer(x, typeContainer))]),
-		(in StructInst x) =>
-			definitionForStruct(alloc, *x.decl));
+void definitionForType(in TypeContainer typeContainer, in Type a, in ReferenceCb cb) =>
+	a.matchIn!void(
+		(in Type.Bogus) {},
+		(in TypeParamIndex x) {
+			cb(typeParamWithContainerRange(PositionKind.TypeParamWithContainer(x, typeContainer)));
+		},
+		(in StructInst x) {
+			definitionForStruct(*x.decl, cb);
+		});

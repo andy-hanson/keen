@@ -220,9 +220,8 @@ Opt!ExitCode handleOneMessageIn(scope ref Perf perf, ref Alloc alloc, ref Server
 				debugLog("Server will load unknown URIs itself (since client does not support them)");
 				foreach (Uri uri; outMessage.as!LspOutNotification.as!UnknownUris.unknownUris)
 					enqueue(alloc, bufferedMessages, LspInMessage(LspInNotification(readFileLocally(alloc, uri))));
-			} else {
-				lspWrite(alloc, jsonOfLspOutMessage(alloc, server.lineAndCharacterGetters, outMessage), logLsp);
-			}
+			} else
+				lspWrite(alloc, jsonOfLspOutMessage(alloc, outMessage), logLsp);
 		}
 		if (has(action.exitCode))
 			return action.exitCode;

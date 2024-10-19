@@ -79,7 +79,7 @@ public bool isEmpty(in UrisOrCount a) =>
 			isEmpty(xs),
 		(in size_t x) =>
 			x == 0);
-public void writeUrisOrCount(scope ref Writer writer, in string description, Uri fromUri, in UrisOrCount a) { // TODO: just move to where it's used
+void writeUrisOrCount(scope ref Writer writer, in string description, Uri fromUri, in UrisOrCount a) {
 	if (!isEmpty(a)) {
 		writer ~= description;
 		a.matchIn!void(

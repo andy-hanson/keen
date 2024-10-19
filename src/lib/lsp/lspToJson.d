@@ -3,7 +3,6 @@ module lib.lsp.lspToJson;
 @safe @nogc pure nothrow:
 
 import frontend.ide.getTokens : getTokensLegend;
-import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes :
 	BuildJsScriptResult,
 	CodeLens,
@@ -54,30 +53,29 @@ import util.sourceRange :
 	jsonOfLineAndCharacterRange,
 	jsonOfUriAndLine,
 	jsonOfUriAndLineAndCharacterRange,
-	LineAndCharacterGetter,
 	Pos,
-	UriAndRange;
+	UriAndLineAndCharacterRange;
 import util.symbol : symbol;
 import util.uri : stringOfUri, symbolOfUri, Uri;
 import util.util : stringOfEnum;
 
-Json jsonOfLspOutAction(ref Alloc alloc, in LineAndCharacterGetters lcg, in LspOutAction a) =>
+Json jsonOfLspOutAction(ref Alloc alloc, in LspOutAction a) =>
 	jsonObject(alloc, [
 		field!"messages"(jsonList(map(alloc, a.outMessages, (ref LspOutMessage x) =>
-			jsonOfLspOutMessage(alloc, lcg, x)))),
+			jsonOfLspOutMessage(alloc, x)))),
 		optionalField!("exit-code", ExitCode)(a.exitCode, (ExitCode x) =>
 			Json(x.value))]);
 
-Json jsonOfLspOutMessage(ref Alloc alloc, in LineAndCharacterGetters lcg, ref LspOutMessage a) =>
+Json jsonOfLspOutMessage(ref Alloc alloc, ref LspOutMessage a) =>
 	a.match!Json(
 		(LspOutNotification x) =>
-			jsonOfLspOutNotification(alloc, lcg, x),
+			jsonOfLspOutNotification(alloc, x),
 		(LspOutRequest x) =>
 			jsonOfLspOutRequest(alloc, x),
 		(LspOutResponse x) =>
 			jsonObject(alloc, [
 				field!"id"(x.id),
-				field!"result"(jsonOfLspOutResult(alloc, lcg, x.result))]));
+				field!"result"(jsonOfLspOutResult(alloc, x.result))]));
 
 private:
 
@@ -88,12 +86,12 @@ Json jsonOfLspOutRequest(ref Alloc alloc, in LspOutRequest a) =>
 				field!"id"(a.id),
 				field!"method"("workspace/inlayHint/refresh")]));
 
-Json jsonOfLspOutNotification(ref Alloc alloc, in LineAndCharacterGetters lcg, ref LspOutNotification a) {
+Json jsonOfLspOutNotification(ref Alloc alloc, ref LspOutNotification a) {
 	Json res(string method, Json params) =>
 		jsonObject(alloc, [field!"method"(method), field!"params"(params)]);
 	return a.match!Json(
 		(PublishDiagnosticsParams x) =>
-			res("textDocument/publishDiagnostics", jsonOfPublishDiagnosticsParams(alloc, lcg[x.uri], x)),
+			res("textDocument/publishDiagnostics", jsonOfPublishDiagnosticsParams(alloc, x)),
 		(RegisterCapability x) =>
 			res("client/registerCapability", jsonObject(alloc, [
 				field!"id"(x.id),
@@ -104,7 +102,7 @@ Json jsonOfLspOutNotification(ref Alloc alloc, in LineAndCharacterGetters lcg, r
 					Json(stringOfUri(alloc, x))))])));
 }
 
-Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref LspOutResult a) => // TODO: remove lcgs parameter????????
+Json jsonOfLspOutResult(ref Alloc alloc, ref LspOutResult a) =>
 	a.match!Json(
 		(BuildJsScriptResult x) =>
 			jsonObject(alloc, [field!"diagnostics"(x.diagnostics), optionalField!"script"(x.script)]),
@@ -113,7 +111,7 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 		(CompletionList x) =>
 			jsonOfCompletionList(alloc, x),
 		(DocumentHighlightResult x) =>
-			jsonOfDocumentHighlight(alloc, lcgs[x.uri], x),
+			jsonOfDocumentHighlight(alloc, x),
 		(FoldingRange[] x) =>
 			jsonOfFoldingRanges(alloc, x),
 		(InitializeResult _) =>
@@ -137,10 +135,10 @@ Json jsonOfLspOutResult(ref Alloc alloc, in LineAndCharacterGetters lcgs, ref Ls
 		(UnloadedUris x) =>
 			jsonObject(alloc, [field!"unloadedUris"(jsonList!Uri(alloc, x.unloadedUris, (in Uri x) =>
 				Json(stringOfUri(alloc, x))))]),
-		(UriAndRange[] x) =>
-			jsonOfReferences(alloc, lcgs, x),
+		(UriAndLineAndCharacterRange[] x) =>
+			jsonOfReferences(alloc, x),
 		(WorkspaceEdit x) =>
-			jsonOfWorkspaceEdit(alloc, lcgs, x),
+			jsonOfWorkspaceEdit(alloc, x),
 		(LspOutResult.Null) =>
 			jsonNull);
 
@@ -182,11 +180,11 @@ Json initializeCapabilities(ref Alloc alloc) =>
 			field!"triggerCharacters"(jsonList(alloc, [jsonString(",")]))])),
 		field!"typeDefinitionProvider"(jsonObject([]))]);
 
-Json jsonOfPublishDiagnosticsParams(ref Alloc alloc, in LineAndCharacterGetter lcg, in PublishDiagnosticsParams a) =>
+Json jsonOfPublishDiagnosticsParams(ref Alloc alloc, in PublishDiagnosticsParams a) =>
 	jsonObject(alloc, [
 		field!"uri"(stringOfUri(alloc, a.uri)),
 		field!"diagnostics"(jsonList(map(alloc, a.diagnostics, (ref LspDiagnostic x) =>
-			jsonOfDiagnostic(alloc, lcg, x))))]);
+			jsonOfDiagnostic(alloc, x))))]);
 
 public Json jsonOfHover(ref Alloc alloc, in Opt!Hover a) =>
 	has(a) ? jsonOfHover(alloc, force(a)) : jsonNull;
@@ -224,10 +222,10 @@ Json jsonOfCompletionItem(ref Alloc alloc, ref CompletionItem a) =>
 		field!"detail"(a.detail),
 		field!"documentation"(a.documentation)]);
 
-public Json jsonOfDocumentHighlight(ref Alloc alloc, in LineAndCharacterGetter lcg, in DocumentHighlightResult a) =>
+public Json jsonOfDocumentHighlight(ref Alloc alloc, in DocumentHighlightResult a) =>
 	jsonList!DocumentHighlight(alloc, a.highlights, (in DocumentHighlight x) =>
 		jsonObject(alloc, [
-			field!"range"(jsonOfLineAndCharacterRange(alloc, lcg[x.range])),
+			field!"range"(jsonOfLineAndCharacterRange(alloc, x.range)),
 			field!"kind"(uint(x.kind))]));
 
 public Json jsonOfInlayHints(ref Alloc alloc, in InlayHint[] a) =>
@@ -258,30 +256,30 @@ Json jsonOfInlayHintLabelPart(ref Alloc alloc, ref InlayHintLabelPart a) =>
 		if (has(a.command)) out_ ~= Json.ObjectField(symbol!"command", jsonOfCommand(alloc, force(a.command)));
 	}));
 
-public Json jsonOfReferences(ref Alloc alloc, in LineAndCharacterGetters lcg, in UriAndRange[] references) =>
-	jsonList!UriAndRange(alloc, references, (in UriAndRange x) =>
-		jsonOfUriAndLineAndCharacterRange(alloc, lcg[x]));
+public Json jsonOfReferences(ref Alloc alloc, in UriAndLineAndCharacterRange[] references) =>
+	jsonList!UriAndLineAndCharacterRange(alloc, references, (in UriAndLineAndCharacterRange x) =>
+		jsonOfUriAndLineAndCharacterRange(alloc, x));
 
-Json jsonOfDiagnostic(ref Alloc alloc, in LineAndCharacterGetter lcg, LspDiagnostic a) =>
+Json jsonOfDiagnostic(ref Alloc alloc, LspDiagnostic a) =>
 	jsonObject(alloc, [
-		field!"range"(jsonOfLineAndCharacterRange(alloc, lcg[a.range])),
+		field!"range"(jsonOfLineAndCharacterRange(alloc, a.range)),
 		field!"severity"(cast(uint) a.severity),
 		field!"message"(a.message)]);
 
-public Json jsonOfWorkspaceEdit(ref Alloc alloc, in LineAndCharacterGetters lcg, in WorkspaceEdit a) =>
-	jsonObject(alloc, [field!"changes"(jsonOfWorkspaceEditChanges(alloc, lcg, a.changes))]);
+public Json jsonOfWorkspaceEdit(ref Alloc alloc, in WorkspaceEdit a) =>
+	jsonObject(alloc, [field!"changes"(jsonOfWorkspaceEditChanges(alloc, a.changes))]);
 
-Json jsonOfWorkspaceEditChanges(ref Alloc alloc, in LineAndCharacterGetters lcg, in KeyValuePair!(Uri, TextEdit[])[] a) =>
+Json jsonOfWorkspaceEditChanges(ref Alloc alloc, in KeyValuePair!(Uri, TextEdit[])[] a) =>
 	Json(map(alloc, a, (ref const KeyValuePair!(Uri, TextEdit[]) x) =>
-		Json.ObjectField(symbolOfUri(x.key), jsonOfTextEdits(alloc, lcg[x.key], x.value))));
+		Json.ObjectField(symbolOfUri(x.key), jsonOfTextEdits(alloc, x.value))));
 
-Json jsonOfTextEdits(ref Alloc alloc, in LineAndCharacterGetter lcg, in TextEdit[] a) =>
+Json jsonOfTextEdits(ref Alloc alloc, in TextEdit[] a) =>
 	jsonList(map!(Json, TextEdit)(alloc, a, (ref TextEdit x) =>
-		jsonOfTextEdit(alloc, lcg, x)));
+		jsonOfTextEdit(alloc, x)));
 
-Json jsonOfTextEdit(ref Alloc alloc, in LineAndCharacterGetter lcg, ref TextEdit a) =>
+Json jsonOfTextEdit(ref Alloc alloc, ref TextEdit a) =>
 	jsonObject(alloc, [
-		field!"range"(jsonOfLineAndCharacterRange(alloc, lcg[a.range])),
+		field!"range"(jsonOfLineAndCharacterRange(alloc, a.range)),
 		field!"newText"(a.newText)]);
 
 Json jsonOfMarkupContent(ref Alloc alloc, in MarkupContent a) =>

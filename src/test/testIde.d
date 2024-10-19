@@ -183,9 +183,9 @@ void testRename(ref Test test) {
 		(in ShowModelCtx ctx, in Program program, in UriLineAndCharacter where) {
 			Opt!Position position = getPosition(program, ctx, where, GetPositionKind.exact);
 			Opt!WorkspaceEdit rename = has(position)
-				? getRenameForPosition(test.alloc, program, force(position), "new-name")
+				? getRenameForPosition(test.alloc, program, ctx.lineAndCharacterGetters, force(position), "new-name")
 				: none!WorkspaceEdit;
-			return has(rename) ? jsonOfWorkspaceEdit(test.alloc, ctx.lineAndCharacterGetters, force(rename)) : jsonNull;
+			return has(rename) ? jsonOfWorkspaceEdit(test.alloc, force(rename)) : jsonNull;
 		});
 }
 

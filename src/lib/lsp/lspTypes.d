@@ -4,7 +4,6 @@ module lib.lsp.lspTypes;
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/
 
-import util.alloc.alloc : Alloc;
 import util.exitCode : ExitCode, ExitCodeOrSignal;
 import util.col.map : KeyValuePair;
 import util.opt : Opt;
@@ -14,7 +13,6 @@ import util.sourceRange :
 	Pos,
 	Range,
 	UriAndLine,
-	UriAndRange,
 	UriLineAndCharacter,
 	UriAndLineAndCharacterRange;
 import util.string : SmallString;
@@ -122,7 +120,7 @@ immutable struct LspOutResult {
 		SignatureHelp,
 		SyntaxTranslateResult,
 		UnloadedUris,
-		UriAndRange[], // for definition, implementation, or references
+		UriAndLineAndCharacterRange[], // for definition, implementation, or references
 		WorkspaceEdit, // for rename
 		Null,
 	);
@@ -303,7 +301,7 @@ immutable struct TextDocumentContentChangeEvent {
 }
 
 immutable struct LspDiagnostic {
-	Range range;
+	LineAndCharacterRange range;
 	LspDiagnosticSeverity severity;
 	string message;
 }
@@ -334,7 +332,7 @@ immutable struct DocumentHighlightResult {
 	DocumentHighlight[] highlights;
 }
 immutable struct DocumentHighlight {
-	Range range;
+	LineAndCharacterRange range;
 	DocumentHighlightKind kind;
 }
 enum DocumentHighlightKind {
@@ -352,7 +350,7 @@ immutable struct WorkspaceEdit {
 }
 
 immutable struct TextEdit {
-	Range range;
+	LineAndCharacterRange range;
 	string newText;
 }
 
