@@ -3,7 +3,6 @@ module frontend.ide.getCodeLenses;
 @safe @nogc pure nothrow:
 
 import frontend.ide.getReferences : eachImport, eachModuleReferencing, UriAndName;
-import frontend.showModel : ShowTypeCtx;
 import lib.lsp.lspTypes : CodeLens, CodeLensParams, Command, Pipe, RunResult, Write;
 import model.model : AnyDecl, ImportOrExport, IsImportOrExport, Module, moduleAtUri, Program, Visibility;
 import util.alloc.alloc : Alloc;
@@ -12,7 +11,7 @@ import util.col.array : every, isEmpty;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.exitCode : ExitCode, isOk, Signal;
 import util.opt : force, has, Opt, optIf;
-import util.sourceRange : LineAndCharacter, LineAndCharacterRange;
+import util.sourceRange : LineAndCharacterRange;
 import util.union_ : Union;
 import util.uri : relativePathForUri, RelPath, Uri;
 import util.util : ptrTrustMe, stringOfEnum;
@@ -36,7 +35,7 @@ CodeLens[] getCodeLenses(ref Alloc alloc, in Program program, in CodeLensParams 
 						}
 					});
 					// TODO: we could have a tooltip for the full set .................................................................................
-					out_ ~= CodeLens(LineAndCharacterRange(LineAndCharacter(0, 0), LineAndCharacter(0, 0)), Command(message));
+					out_ ~= CodeLens(LineAndCharacterRange.topOfFile, Command(message));
 				}
 			});
 	});
@@ -71,7 +70,7 @@ public Opt!string tooltipForRunResult(ref Alloc alloc, RunResult result) => // T
 			}
 		}));
 
-immutable struct UrisOrCount {
+public immutable struct UrisOrCount {
 	mixin Union!(Uri[], size_t);
 }
 public bool isEmpty(in UrisOrCount a) =>
@@ -80,8 +79,7 @@ public bool isEmpty(in UrisOrCount a) =>
 			isEmpty(xs),
 		(in size_t x) =>
 			x == 0);
-// TODO: If this is used in an InlayHint, we could make the file references clickable. -----------------------------------------------
-public void writeUrisOrCount(scope ref Writer writer, in string description, Uri fromUri, in UrisOrCount a) {
+public void writeUrisOrCount(scope ref Writer writer, in string description, Uri fromUri, in UrisOrCount a) { // TODO: just move to where it's used
 	if (!isEmpty(a)) {
 		writer ~= description;
 		a.matchIn!void(

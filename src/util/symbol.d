@@ -14,7 +14,7 @@ import util.conv : safeToUint;
 import util.hash : HashCode, hashUlong;
 import util.opt : force, has, Opt, optOrDefault, none, some;
 import util.string :
-	compareStringsAlphabetically, copyString, CString, isDecimalDigit, SmallString, smallString, stringsEqual;
+	compareStringsNaturally, copyString, CString, isDecimalDigit, SmallString, smallString, stringsEqual;
 import util.unicode : mustUnicodeDecode;
 import util.util : assertNormalEnum, castImmutable, optEnumOfString, stringOfEnum, stripUnderscore;
 import util.writer : makeStringWithWriter, withStackWriter, withWriter, writeEscapedChar, Writer;
@@ -108,10 +108,10 @@ private @system string asLongSymbol_impure(Symbol a) {
 
 pure:
 
-Comparison compareSymbolsAlphabetically(in Symbol a, in Symbol b) =>
+Comparison compareSymbolsNaturally(in Symbol a, in Symbol b) =>
 	withStringOfSymbol(a, (in string sa) =>
 		withStringOfSymbol(b, (in string sb) =>
-			compareStringsAlphabetically(sa, sb)));
+			compareStringsNaturally(sa, sb)));
 
 Symbol addExtension(Symbol a, Extension extension) {
 	assert(extension != Extension.other);
@@ -617,6 +617,7 @@ immutable string[] specialSymbols = [
 	"implementationProvider",
 	"initializationOptions",
 	"inlayHintProvider",
+	"location",
 	"paddingLeft",
 	"parameters",
 	"referencesProvider",
@@ -689,8 +690,8 @@ immutable string[] specialSymbols = [
 	"content",
 	"contents",
 	"continue",
-	"countAllocs",
-	"countBlocks",
+	"count-allocs",
+	"count-blocks",
 	"count-ones",
 	"c-string-of-symbol",
 	"DbgHelp",
@@ -768,7 +769,6 @@ immutable string[] specialSymbols = [
 	"is-less",
 	"isNaN",
 	"is-signed",
-	"is-wasm",
 	"jump-to-catch",
 	"js-global",
 	"keyword",

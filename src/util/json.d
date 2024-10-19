@@ -3,12 +3,13 @@ module util.json;
 @safe @nogc pure nothrow:
 
 import util.alloc.alloc : Alloc;
-import util.col.array : arraysEqual, concatenateIn, copyArray, every, exists, find, isEmpty, map, newArray, SmallArray;
+import util.col.array : arraysEqual, every, exists, find, isEmpty, map, mapOp, newArray, SmallArray;
+import util.col.arrayBuilder : buildArray, Builder;
 import util.col.fullIndexMap : FullIndexMap;
 import util.col.hashTable : HashTable, withSortedKeys;
 import util.col.map : KeyValuePair;
 import util.comparison : Comparison;
-import util.opt : force, has, Opt;
+import util.opt : force, has, none, Opt, optIf, some;
 import util.string : copyString, CString, stringsEqual, stringOfCString;
 import util.symbol : Symbol, symbol, writeQuotedSymbol;
 import util.union_ : Union;
@@ -72,13 +73,19 @@ bool hasKey(string key)(in Json a) =>
 
 Json jsonObject(return scope Json.ObjectField[] fields) =>
 	Json(fields);
-Json jsonObject(ref Alloc alloc, in Json.ObjectField[] fields) =>
-	jsonObject(copyArray(alloc, fields));
+Json jsonObject(ref Alloc alloc, in Opt!(Json.ObjectField)[] fields) =>
+	jsonObject(mapOp!(Json.ObjectField, Opt!(Json.ObjectField))(alloc, fields, (ref Opt!(Json.ObjectField) field) =>
+		optIf(has(field), () => force(field))));
 
-// TODO: should be possible to concatenate in the caller (assuming array sizes are compile-time constants).
-// But a D bug prevents this: https://issues.dlang.org/show_bug.cgi?id=1654
-Json jsonObject(ref Alloc alloc, in Json.ObjectField[] fields1, in Json.ObjectField[] fields2) =>
-	jsonObject(alloc, concatenateIn!(Json.ObjectField)(alloc, fields1, fields2));
+Json jsonObject(ref Alloc alloc, in Opt!(Json.ObjectField)[] fields1, in Opt!(Json.ObjectField)[] fields2) =>
+	jsonObject(buildArray!(Json.ObjectField)(alloc, (scope ref Builder!(Json.ObjectField) out_) {
+		foreach (Opt!(Json.ObjectField) x; fields1)
+			if (has(x))
+				out_ ~= force(x);
+		foreach (Opt!(Json.ObjectField) x; fields2)
+			if (has(x))
+				out_ ~= force(x);
+	}));
 
 Json jsonBool(bool b) =>
 	Json(b);
@@ -86,24 +93,26 @@ Json jsonBool(bool b) =>
 Json jsonNull() =>
 	Json(Json.Null());
 
-Json.ObjectField optionalField(string name)(bool isPresent, in Json delegate() @safe @nogc pure nothrow cb) =>
-	field!name(isPresent ? cb() : jsonNull);
+Opt!(Json.ObjectField) optionalField(string name)(bool isPresent, in Json delegate() @safe @nogc pure nothrow cb) =>
+	isPresent ? field!name(cb()) : none!(Json.ObjectField);
 
-Json.ObjectField optionalField(string name)(in Opt!uint a) =>
-	field!name(has(a) ? Json(force(a)) : jsonNull);
-Json.ObjectField optionalField(string name)(in Opt!string a) =>
-	field!name(has(a) ? jsonString(force(a)) : jsonNull);
-Json.ObjectField optionalField(string name, T)(Opt!T a, in Json delegate(T) @safe @nogc pure nothrow cb) =>
-	field!name(has(a) ? cb(force(a)) : jsonNull);
-Json.ObjectField optionalField(string name, T)(in Opt!T a, in Json delegate(in T) @safe @nogc pure nothrow cb) =>
-	field!name(has(a) ? cb(force(a)) : jsonNull);
+Opt!(Json.ObjectField) optionalField(string name)(in Opt!uint a) =>
+	optionalField!(name, uint)(a, (uint x) => Json(force(a)));
+Opt!(Json.ObjectField) optionalField(string name)(in Opt!ulong a) =>
+	optionalField!(name, ulong)(a, (ulong x) => Json(force(a)));
+Opt!(Json.ObjectField) optionalField(string name)(in Opt!string a) =>
+	optionalField!(name, string)(a, (string x) => jsonString(force(a)));
+Opt!(Json.ObjectField) optionalField(string name, T)(Opt!T a, in Json delegate(T) @safe @nogc pure nothrow cb) =>
+	has(a) ? field!name(cb(force(a))) : none!(Json.ObjectField);
+Opt!(Json.ObjectField) optionalField(string name, T)(in Opt!T a, in Json delegate(in T) @safe @nogc pure nothrow cb) =>
+	has(a) ? field!name(cb(force(a))) : none!(Json.ObjectField);
 
-Json.ObjectField optionalFlagField(string name)(bool value) =>
-	field!name(value ? jsonBool(true) : jsonNull);
+Opt!(Json.ObjectField) optionalFlagField(string name)(bool value) =>
+	optionalField!name(value, () => jsonBool(true));
 
-Json.ObjectField optionalArrayField(string name)(Json[] array) =>
+Opt!(Json.ObjectField) optionalArrayField(string name)(Json[] array) =>
 	optionalField!name(!isEmpty(array), () => jsonList(array));
-Json.ObjectField optionalArrayField(string name, T)(
+Opt!(Json.ObjectField) optionalArrayField(string name, T)(
 	ref Alloc alloc,
 	in T[] array,
 	in Json delegate(in T) @safe @nogc pure nothrow cb,
@@ -111,9 +120,9 @@ Json.ObjectField optionalArrayField(string name, T)(
 	optionalField!name(!isEmpty(array), () =>
 		jsonList(map!(Json, const T)(alloc, array, (ref const T x) => cb(x))));
 
-Json.ObjectField kindField(string kindName)() =>
+Opt!(Json.ObjectField) kindField(string kindName)() =>
 	.kindField(kindName);
-Json.ObjectField kindField(string kindName) =>
+Opt!(Json.ObjectField) kindField(string kindName) =>
 	field!"kind"(kindName);
 
 Json jsonList(Json[] xs) =>
@@ -154,17 +163,17 @@ Json jsonString(Symbol a) =>
 Json jsonString(string a)() =>
 	jsonString(a);
 
-Json.ObjectField field(string name)(return scope Json value) =>
-	Json.ObjectField(symbol!name, value);
-Json.ObjectField field(string name)(double value) =>
+Opt!(Json.ObjectField) field(string name)(return scope Json value) =>
+	some(Json.ObjectField(symbol!name, value));
+Opt!(Json.ObjectField) field(string name)(double value) =>
 	field!name(Json(value));
-Json.ObjectField field(string name)(bool value) =>
+Opt!(Json.ObjectField) field(string name)(bool value) =>
 	field!name(Json(value));
-Json.ObjectField field(string name)(CString value) =>
+Opt!(Json.ObjectField) field(string name)(CString value) =>
 	field!name(stringOfCString(value));
-Json.ObjectField field(string name)(string value) =>
+Opt!(Json.ObjectField) field(string name)(string value) =>
 	field!name(Json(value));
-Json.ObjectField field(string name)(Symbol value) =>
+Opt!(Json.ObjectField) field(string name)(Symbol value) =>
 	field!name(Json(value));
 
 CString jsonToCString(ref Alloc alloc, in Json a) =>

@@ -96,7 +96,7 @@ import util.json :
 	kindField;
 import util.opt : force, has, none, Opt, some;
 import util.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetter, Range, UriAndRange;
-import util.symbol : compareSymbolsAlphabetically, Symbol, symbol;
+import util.symbol : compareSymbolsNaturally, Symbol, symbol;
 import util.symbolSet : SymbolSet;
 import util.uri : stringOfUri;
 import util.util : ptrTrustMe, stringOfEnum;
@@ -139,7 +139,7 @@ Json jsonOfImportOrExport(ref Alloc alloc, in Ctx ctx, in ImportOrExport a) =>
 		optionalField!"names"(a.hasImported, () =>
 			jsonListOfKeys!(NameReferents*, Symbol, nameFromNameReferentsPointer)(
 				alloc, a.imported,
-				(in Symbol x, in Symbol y) => compareSymbolsAlphabetically(x, y),
+				(in Symbol x, in Symbol y) => compareSymbolsNaturally(x, y),
 				(in Symbol x) => jsonString(x)))]);
 
 const struct Ctx {
@@ -148,7 +148,8 @@ const struct Ctx {
 }
 
 Json jsonOfStructDecl(ref Alloc alloc, in Ctx ctx, in StructDecl a) =>
-	jsonObject(alloc,
+	jsonObject(
+		alloc,
 		commonDeclFields(alloc, ctx, a.visibility, a.name, a.typeParams),
 		[
 			optionalField!"purity"(a.purity != Purity.data, () => jsonString(stringOfEnum(a.purity))),
@@ -199,7 +200,7 @@ Json jsonOfTest(ref Alloc alloc, in Ctx ctx, in Test a) =>
 	jsonObject(alloc, [
 		field!"body"(jsonOfExpr(alloc, ctx, a.body_))]);
 
-Json.ObjectField[3] commonDeclFields(
+Opt!(Json.ObjectField)[3] commonDeclFields(
 	ref Alloc alloc,
 	in Ctx ctx,
 	Visibility visibility,

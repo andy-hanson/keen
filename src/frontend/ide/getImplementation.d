@@ -12,7 +12,7 @@ import util.opt : force, has, Opt;
 import util.sourceRange : UriAndRange;
 
 UriAndRange[] getImplementationForPosition(ref Alloc alloc, in Program program, in Position pos) {
-	Opt!Target optTarget = targetForPosition(program.commonTypes, pos.kind);
+	Opt!Target optTarget = targetForPosition(program.commonTypes, pos);
 	if (has(optTarget)) {
 		Target target = force(optTarget);
 		return buildArray!UriAndRange(alloc, (scope ref Builder!UriAndRange res) {

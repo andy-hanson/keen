@@ -2,7 +2,8 @@ module frontend.ide.getTarget;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.position : ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, PositionKind;
+import frontend.ide.position :
+	ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind;
 import model.diag : TypeWithContainer;
 import model.model :
 	AutoFun,
@@ -65,8 +66,8 @@ immutable struct Target {
 	);
 }
 
-Opt!Target targetForPosition(in CommonTypes commonTypes, PositionKind pos) =>
-	pos.matchWithPointers!(Opt!Target)(
+Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
+	pos.kind.matchWithPointers!(Opt!Target)(
 		(EnumOrFlagsMember* x) =>
 			some(Target(x)),
 		(ExpressionPosition x) =>
@@ -95,6 +96,8 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, PositionKind pos) =>
 			none!Target,
 		(PositionKind.ModifierExtern) =>
 			none!Target,
+		(PositionKind.ModulePosition) =>
+			some(Target(pos.module_)),
 		(RecordField* x) =>
 			some(Target(x)),
 		(PositionKind.RecordFieldMutability) =>

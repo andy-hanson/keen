@@ -4,35 +4,20 @@ module test.testUtil;
 
 import std.meta : AliasSeq, staticMap;
 
-import frontend.showModel : ShowCtx, ShowModelCtx, ShowOptions;
-import frontend.storage :
-	CrowFileInfo, FileContentGetters, FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
+import frontend.showModel : ShowCtx, ShowOptions;
+import frontend.storage : FileContentGetters, FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
 import interpret.bytecode : ByteCode, ByteCodeIndex, Operation;
 import interpret.debugInfo : showDataArr;
 import interpret.stacks : dataEnd, returnTempAsArrReverse, Stacks;
-import lib.lsp.lspTypes : TextDocumentIdentifier, TextDocumentPositionParams;
-import lib.server :
-	allUnknownUris,
-	getProgram,
-	getShowDiagCtx,
-	Server,
-	ServerSettings,
-	setServerSettings,
-	setFile,
-	setFileAssumeUtf8;
+import lib.server : allUnknownUris, Server, ServerSettings, setServerSettings, setFile, setFileAssumeUtf8;
 import model.diag : ReadFileDiag;
-import model.model : Program;
 import util.alloc.alloc : Alloc, allocateElements, AllocKind, MetaAlloc, newAlloc, word;
-import util.alloc.stackAlloc : withMapToStackArray;
-import util.col.array :
-	arraysEqual, arrayOfRange, arraysCorrespond, endPtr, indexOf, isEmpty, makeArray, map, mapCompileTime;
-import util.json : Json, jsonNull, writeJsonPretty;
-import util.jsonParse : mustParseJson;
+import util.col.array : arraysEqual, arrayOfRange, arraysCorrespond, endPtr, indexOf, isEmpty, makeArray, map;
+import util.json : Json, writeJsonPretty;
 import util.opt : force, has, none, Opt;
 import util.perf : Perf;
-import util.sourceRange : LineAndColumn, toLineAndCharacter;
 import util.string : CString, CStringAndLength, stringOfCString;
-import util.symbol : addExtension, cStringOfSymbol, Extension, symbol, symbolOfString;
+import util.symbol : Extension, symbol;
 import util.unicode : FileContent;
 import util.uri : concatUriAndPath, getExtension, isAncestor, mustParseUri, parsePath, Uri, UrisInfo;
 import util.util : castNonScope, castNonScope_ref, ptrTrustMe;

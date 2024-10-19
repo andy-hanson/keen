@@ -12,7 +12,7 @@ import util.conv : uintOfUshorts, ushortsOfUint, safeToUshort;
 import util.hash : HashCode;
 import util.opt : has, force, none, Opt, optIf, optOrDefault, some;
 import util.string :
-	compareStringsAlphabetically,
+	compareStringsNaturally,
 	CString,
 	decodeHexDigit,
 	done,
@@ -245,6 +245,8 @@ private Path firstNComponents(Path a, size_t n) {
 }
 
 // Removes an existing extension and adds a new one.
+Uri alterExtension(Uri a, Extension newExtension) =>
+	Uri(alterExtension(a.path, newExtension));
 FilePath alterExtension(FilePath a, Extension newExtension) =>
 	FilePath(alterExtension(a.path, newExtension));
 private Path alterExtension(Path a, Extension newExtension) =>
@@ -615,10 +617,10 @@ private bool looksLikeUri(in string a) =>
 private bool containsSubstring(in string a, in string b) =>
 	a.length >= b.length && (a[0 .. b.length] == b || containsSubstring(a[1 .. $], b));
 
-@trusted Comparison compareUriAlphabetically(Uri a, Uri b) =>
+@trusted Comparison compareUriNaturally(Uri a, Uri b) =>
 	withStringOfUri(a, (in string aStr) =>
 		withStringOfUri(b, (in string bStr) =>
-			compareStringsAlphabetically(aStr, bStr)));
+			compareStringsNaturally(aStr, bStr)));
 
 immutable struct UrisInfo {
 	Opt!Uri cwd;

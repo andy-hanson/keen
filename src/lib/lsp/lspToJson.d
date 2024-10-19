@@ -7,7 +7,6 @@ import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes :
 	BuildJsScriptResult,
 	CodeLens,
-	CodeLensRefresh,
 	Command,
 	CompletionItem,
 	CompletionList,
@@ -19,7 +18,6 @@ import lib.lsp.lspTypes :
 	Hover,
 	InitializeResult,
 	InlayHint,
-	InlayHintKind,
 	InlayHintLabel,
 	InlayHintLabelPart,
 	InlayHintRefresh,
@@ -85,10 +83,6 @@ private:
 
 Json jsonOfLspOutRequest(ref Alloc alloc, in LspOutRequest a) =>
 	a.params.matchIn!Json(
-		(in CodeLensRefresh x) =>
-			jsonObject(alloc, [
-				field!"id"(a.id),
-				field!"method"("workspace/codeLens/refresh")]),
 		(in InlayHintRefresh x) =>
 			jsonObject(alloc, [
 				field!"id"(a.id),
@@ -260,6 +254,7 @@ Json jsonOfInlayHintLabelPart(ref Alloc alloc, ref InlayHintLabelPart a) =>
 	jsonObject(buildArray!(Json.ObjectField)(alloc, (scope ref Builder!(Json.ObjectField) out_) {
 		out_ ~= Json.ObjectField(symbol!"value", jsonString(a.value));
 		if (has(a.tooltip)) out_ ~= Json.ObjectField(symbol!"tooltip", jsonString(force(a.tooltip)));
+		if (has(a.location)) out_ ~= Json.ObjectField(symbol!"location", jsonOfUriAndLineAndCharacterRange(alloc, force(a.location)));
 		if (has(a.command)) out_ ~= Json.ObjectField(symbol!"command", jsonOfCommand(alloc, force(a.command)));
 	}));
 

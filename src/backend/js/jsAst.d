@@ -10,7 +10,7 @@ import util.comparison : compareEnum, Comparison, compareOptions, compareOr, com
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : none, Opt, some;
-import util.symbol : compareSymbolsAlphabetically, Symbol, symbolOfString;
+import util.symbol : compareSymbolsNaturally, Symbol, symbolOfString;
 import util.union_ : Union;
 import util.uri : RelPath, Uri;
 
@@ -52,7 +52,7 @@ immutable struct JsName {
 Comparison compareJsName(JsName a, JsName b) =>
 	compareOr(
 		compareEnum(a.kind, b.kind),
-		() => compareSymbolsAlphabetically(a.crowName, b.crowName),
+		() => compareSymbolsNaturally(a.crowName, b.crowName),
 		() => compareOptions!ushort(a.mangleIndex, b.mangleIndex, (in ushort x, in ushort y) => compareUint(x, y)));
 
 immutable struct JsMemberName {

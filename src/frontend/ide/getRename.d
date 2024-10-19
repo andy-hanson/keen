@@ -15,12 +15,12 @@ import util.comparison : Comparison;
 import util.opt : force, has, none, Opt, some;
 import util.sourceRange : compareRange, UriAndRange;
 import util.string : copyString;
-import util.uri : compareUriAlphabetically, Uri;
+import util.uri : compareUriNaturally, Uri;
 
 Opt!WorkspaceEdit getRenameForPosition(ref Alloc alloc, in Program program, in Position pos, in string newName) {
-	Opt!Target target = targetForPosition(program.commonTypes, pos.kind);
+	Opt!Target target = targetForPosition(program.commonTypes, pos);
 	return has(target)
-		? some(WorkspaceEdit(buildGroupedAndSorted!(Uri, TextEdit, compareUriAlphabetically, compareTextEdit)(
+		? some(WorkspaceEdit(buildGroupedAndSorted!(Uri, TextEdit, compareUriNaturally, compareTextEdit)(
 			alloc,
 			(scope ref GroupedSortedBuilder!(Uri, TextEdit) out_) {
 				string newNameOut = copyString(alloc, newName);

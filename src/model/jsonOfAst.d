@@ -118,7 +118,7 @@ const struct Ctx {
 	LineAndColumnGetter lineAndColumnGetter;
 }
 
-Json.ObjectField optionalRangeField(string name)(ref Alloc alloc, in Ctx ctx, in Range a) =>
+Opt!(Json.ObjectField) optionalRangeField(string name)(ref Alloc alloc, in Ctx ctx, in Range a) =>
 	optionalField!name(!a.isEmpty, () => jsonOfRange(alloc, ctx, a));
 
 Json jsonOfRange(ref Alloc alloc, in Ctx ctx, in Range a) =>
@@ -162,8 +162,9 @@ Json jsonOfSpecDeclAst(ref Alloc alloc, in Ctx ctx, in SpecDeclAst a) =>
 		maybeTypeParams(alloc, ctx, a.typeParams),
 		field!"sigs"(jsonOfSignatureAsts(alloc, ctx, a.sigs))]);
 
-Json.ObjectField visibilityField(Opt!Visibility a) =>
-	optionalField!("visibility", Visibility)(a, (in Visibility x) => jsonString(stringOfEnum(x)));
+Opt!(Json.ObjectField) visibilityField(Opt!Visibility a) =>
+	optionalField!("visibility", Visibility)(a, (in Visibility x) =>
+		jsonString(stringOfEnum(x)));
 
 Json jsonOfSignatureAsts(ref Alloc alloc, in Ctx ctx, in SignatureAst[] a) =>
 	jsonList!SignatureAst(alloc, a, (in SignatureAst x) =>
@@ -284,7 +285,7 @@ Json jsonOfRecordOrUnionMember(ref Alloc alloc, in Ctx ctx, in RecordOrUnionMemb
 		optionalField!("type", TypeAst)(a.type, (in TypeAst x) =>
 			jsonOfTypeAst(alloc, ctx, x))]);
 
-Json.ObjectField maybeTypeParams(ref Alloc alloc, in Ctx ctx, in NameAndRange[] typeParams) =>
+Opt!(Json.ObjectField) maybeTypeParams(ref Alloc alloc, in Ctx ctx, in NameAndRange[] typeParams) =>
 	optionalArrayField!("type-params", NameAndRange)(alloc, typeParams, (in NameAndRange x) =>
 		jsonOfNameAndRange(alloc, ctx, x));
 

@@ -61,7 +61,7 @@ import util.sourceRange :
 	UriLineAndCharacter;
 import util.string : CString;
 import util.symbol : cStringOfSymbol, Extension, symbolOfString;
-import util.uri : addExtension, mustParseUri, Uri;
+import util.uri : addExtension, alterExtension, mustParseUri, Uri;
 import util.writer : Writer;
 
 void testCodeLens(ref Test test) {
@@ -215,7 +215,11 @@ void withAstTests(string dir, string[] fileNames)(
 	withCrowAndJsonFiles!(dir, fileNames)(test, (in CrowJsonTest[] tests) {
 		foreach (CrowJsonTest testData; tests)
 			withAstTest(test, testData.uri, testData.crow, (in CrowFileInfo file) {
-				assertEqual(cb(file), testData.json);
+				assertEqual(cb(file), testData.json, cbDescribe: (scope ref Writer writer) {
+					writer ~= "For ";
+					writer ~= testData.jsonUri;
+					writer ~= ":\n";
+				});
 			});
 	});
 }
@@ -255,7 +259,7 @@ void ideTestWithCrowAndJsonFiles(string dir, string[] fileNames)(
 			foreach (CrowJsonTest x; tests)
 				assertEqual(cb(ctx, program, x.uri), x.json, (scope ref Writer writer) {
 					writer ~= "For ";
-					writer ~= x.uri;
+					writer ~= x.jsonUri;
 					writer ~= ":\n";
 				});
 		});
@@ -316,9 +320,13 @@ private void withCrowAndJsonFiles(string dirName, string[] names)(
 }
 
 private immutable struct CrowJsonTest {
+	@safe @nogc pure nothrow:
 	Uri uri;
 	string crow;
 	Json json;
+
+	Uri jsonUri() scope =>
+		alterExtension(uri, Extension.json);
 }
 
 private immutable struct CrowJsonTestStatic {

@@ -31,6 +31,7 @@ import test.testSourceMap : testSourceMap;
 import test.testSourceRange : testSourceRange;
 import test.testStack : testStack;
 import test.testStackAlloc : testStackAlloc;
+import test.testString : testString;
 import test.testSymbol : testSymbol;
 import test.testSymbolSet : testSymbolSet;
 import test.testSyntaxTranslate : testSyntaxTranslate;
@@ -96,6 +97,7 @@ immutable NameAndTest[] allTests = [
 	NameAndTest("source-range", &testSourceRange),
 	NameAndTest("stack", &testStack),
 	NameAndTest("stack-alloc", &testStackAlloc),
+	NameAndTest("string", &testString),
 	NameAndTest("symbol", &testSymbol),
 	NameAndTest("symbol-set", &testSymbolSet),
 	NameAndTest("syntax-translate", &testSyntaxTranslate),

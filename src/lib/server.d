@@ -123,7 +123,6 @@ import lib.lsp.lspTypes :
 	SignatureHelpParams,
 	SyntaxTranslateParams,
 	TextDocumentContentChangeEvent,
-	TextDocumentIdentifier,
 	TextDocumentPositionParams,
 	TypeDefinitionParams,
 	UnloadedUris,
@@ -349,7 +348,7 @@ private pure LspOutAction singleResponse(ref Alloc alloc, in LspInRequest reques
 		newArray!LspOutMessage(alloc, [messageForResponse(request, response)]),
 		none!ExitCode);
 
-private pure LspOutMessage messageForResponse(in LspInRequest request, LspOutResult result) => // move? ------------------------------------
+private pure LspOutMessage messageForResponse(in LspInRequest request, LspOutResult result) =>
 	LspOutMessage(LspOutResponse(request.id, result));
 
 private LspOutAction respondWithProgram(

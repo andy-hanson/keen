@@ -124,7 +124,7 @@ import util.col.sortUtil : sortInPlace;
 import util.conv : safeToUshort;
 import util.memory : allocate;
 import util.opt : force, has, MutOpt, none, Opt, optIf, optFromMut, some, someMut;
-import util.symbol : compareSymbolsAlphabetically, Symbol, symbol;
+import util.symbol : compareSymbolsNaturally, Symbol, symbol;
 import util.symbolSet : SymbolSet;
 import util.union_ : Union;
 import util.uri :
@@ -528,7 +528,7 @@ JsImport[] translateReExports(ref TranslateProgramCtx ctx, in ModulePaths module
 			JsName[] names = buildArray(ctx.alloc, (scope ref Builder!JsName out_) {
 				withSortedKeys!(void, NameReferents*, Symbol, nameFromNameReferentsPointer)(
 					x.imported,
-					(in Symbol x, in Symbol y) => compareSymbolsAlphabetically(x, y),
+					(in Symbol x, in Symbol y) => compareSymbolsNaturally(x, y),
 					(in Symbol[] names) {
 						foreach (Symbol name; names) {
 							eachNameReferent(*mustGet(x.imported, name), (AnyDecl decl) {

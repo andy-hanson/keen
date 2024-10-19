@@ -2,7 +2,7 @@ module frontend.ide.getInlayHints;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.getCodeLenses : ImportsAndReExports, isEmpty, tooltipForRunResult, withImportsAndReExportsOf, writeUrisOrCount;
+import frontend.ide.getCodeLenses : ImportsAndReExports, isEmpty, tooltipForRunResult, UrisOrCount, withImportsAndReExportsOf;
 import frontend.showModel : ShowModelCtx, writeTypeUnquoted;
 import lib.lsp.lspTypes :
 	Command,
@@ -43,14 +43,23 @@ import model.model :
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : StackArrayBuilder, withBuildStackArray;
 import util.col.array : isEmpty, newArray;
-import util.col.arrayBuilder : buildSortedArray, Builder;
+import util.col.arrayBuilder : buildArray, buildSortedArray, Builder;
 import util.col.sortUtil : sortInPlace;
 import util.comparison : Comparison;
 import util.exitCode : isOk;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : compareLineAndCharacter, endOfLine, LineAndCharacter, LineAndCharacterGetter, lineOfPos, Pos, PosKind, UriAndLine;
-import util.symbol : compareSymbolsAlphabetically, Symbol;
-import util.uri : Uri;
+import util.sourceRange :
+	compareLineAndCharacter,
+	endOfLine,
+	LineAndCharacter,
+	LineAndCharacterGetter,
+	lineOfPos,
+	Pos,
+	PosKind,
+	UriAndLine,
+	UriAndLineAndCharacterRange;
+import util.symbol : compareSymbolsNaturally, stringOfSymbol, Symbol;
+import util.uri : baseName, Uri;
 import util.util : stringOfEnum;
 import util.writer : makeStringWithWriter, writeWithCommas, Writer;
 
@@ -80,7 +89,7 @@ void getInlayHintsForImport(ref Alloc alloc, scope ref Builder!InlayHint out_, i
 			},
 			(scope Symbol[] names) {
 				// TODO: be sure to test this! ---------------------------------------------------------------------------------
-				sortInPlace!(Symbol, compareSymbolsAlphabetically)(names);
+				sortInPlace!(Symbol, compareSymbolsNaturally)(names);
 				string showNames = makeStringWithWriter(alloc, (scope ref Writer writer) {
 					writeWithCommas!Symbol(writer, names);
 				});
@@ -110,14 +119,13 @@ void getInlayHintsForDecl(
 	LineAndCharacterGetter lcg = showCtx.lineAndCharacterGetters[uri];
 	withImportsAndReExportsOf!void(program, decl, maxUris: 4, cb: (in ImportsAndReExports x) {
 		if (!isEmpty(x)) {
-			string message = makeStringWithWriter(alloc, (scope ref Writer writer) {
-				writeUrisOrCount(writer, "Exported by", uri, x.reExports); // TODO: there is some pretty similar code in getCodeLenses
-				if (!isEmpty(x.imports)) {
-					if (!isEmpty(x.reExports)) writer ~= "; ";
-					writeUrisOrCount(writer, "Used by", uri, x.imports);
-				}
+			InlayHintLabelPart[] parts = buildArray!InlayHintLabelPart(alloc, (scope ref Builder!InlayHintLabelPart out_) {
+				if (!isEmpty(x.reExports))
+					writeUrisOrCountLabelParts(alloc, out_, "Exported by ", x.reExports);
+				if (!isEmpty(x.imports))
+					writeUrisOrCountLabelParts(alloc, out_, isEmpty(x.reExports) ? "Used by " : "; Used by ", x.imports);
 			});
-			out_ ~= InlayHint(endOfLineForDecl(lcg, decl), InlayHintLabel(message), paddingLeft: true);
+			out_ ~= InlayHint(endOfLineForDecl(lcg, decl), InlayHintLabel(parts), paddingLeft: true);
 		}
 	});
 
@@ -125,6 +133,30 @@ void getInlayHintsForDecl(
 		getInlayHintsForFun(alloc, out_, showCtx, decl.as!(FunDecl*));
 	else if (decl.isA!(Test*))
 		getInlayHintsForTest(alloc, out_, lcg, testStates, decl.as!(Test*));
+}
+
+void writeUrisOrCountLabelParts(ref Alloc alloc, scope ref Builder!InlayHintLabelPart out_, string description, in UrisOrCount a) {
+	a.matchIn!void(
+		(in Uri[] uris) {
+			out_ ~= InlayHintLabelPart(description);
+			bool first = true;
+			foreach (Uri uri; uris) {
+				if (first)
+					first = false;
+				else
+					out_ ~= InlayHintLabelPart(", ");
+				out_ ~= InlayHintLabelPart(
+					stringOfSymbol(alloc, baseName(uri)),
+					location: some(UriAndLineAndCharacterRange.topOfFile(uri)));
+			}
+		},
+		(in size_t count) {
+			out_ ~= InlayHintLabelPart(makeStringWithWriter(alloc, (scope ref Writer writer) {
+				writer ~= description;
+				writer ~= count;
+				writer ~= " other modules";
+			}));
+		});
 }
 
 void getInlayHintsForFun(ref Alloc alloc, scope ref Builder!InlayHint out_, in ShowModelCtx showCtx, FunDecl* fun) {

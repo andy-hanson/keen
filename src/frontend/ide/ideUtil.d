@@ -22,11 +22,11 @@ import util.col.sortUtil : eachSorted, sortedIter;
 import util.comparison : compareOr, Comparison;
 import util.opt : force, has, none, Opt, optOr, some;
 import util.sourceRange : compareRange, Pos, UriAndRange;
-import util.uri : compareUriAlphabetically;
+import util.uri : compareUriNaturally;
 import util.util : ptrTrustMe;
 
-Comparison compareUriAndRangeAlphabetically(in UriAndRange a, in UriAndRange b) =>
-	compareOr(compareUriAlphabetically(a.uri, b.uri), () =>
+Comparison compareUriAndRangeNaturally(in UriAndRange a, in UriAndRange b) =>
+	compareOr(compareUriNaturally(a.uri, b.uri), () =>
 		compareRange(a.range, b.range));
 
 void walkAstInOrder(

@@ -68,7 +68,7 @@ import util.col.hashTable : withSortedKeys;
 import util.conv : safeToUint;
 import util.opt : force, has, Opt;
 import util.sourceRange : PosKind;
-import util.symbol : compareSymbolsAlphabetically, Symbol;
+import util.symbol : compareSymbolsNaturally, Symbol;
 import util.uri : Uri;
 import util.util : stringOfEnum;
 import util.writer : makeStringWithWriter, writeNewline, writeQuotedChar, writeQuotedString, Writer, writeWithCommas;
@@ -97,10 +97,11 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 			writer ~= "Import module ";
 			writeFile(writer, ctx, x.module_.uri);
 			if (x.import_.hasImported && force(x.import_.source).kind.isA!(ImportOrExportAstKind.ModuleWhole)) {
+				// TODO: is this still necessary? _--------------------------------------------------------------------------------
 				writer ~= "(using: ";
 				withSortedKeys!(void, NameReferents*, Symbol, nameFromNameReferentsPointer)(
 					x.import_.imported,
-					(in Symbol x, in Symbol y) => compareSymbolsAlphabetically(x, y),
+					(in Symbol x, in Symbol y) => compareSymbolsNaturally(x, y),
 					(in Symbol[] names) {
 						writeWithCommas!Symbol(writer, names, (in Symbol name) { writer ~= name; });
 					});
@@ -246,6 +247,10 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 			writer ~= "Function comes from external library ";
 			writeName(writer, ctx, x.libraryName);
 			writer ~= '.';
+		},
+		(PositionKind.ModulePosition) {
+			writer ~= "Module ";
+			writer ~= pos.module_.uri;
 		},
 		(RecordField* x) {
 			writer ~= "Record field ";

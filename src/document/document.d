@@ -122,7 +122,7 @@ DocExport documentExport(
 			jsonObject(ctx.alloc, [field!"name"(x.name)])),
 		field!"value"(value)]));
 
-Json.ObjectField docCommentField(ref Ctx ctx, in UriAndRange docComment) =>
+Opt!(Json.ObjectField) docCommentField(ref Ctx ctx, in UriAndRange docComment) =>
 	optionalField!"doc"(!docComment.range.isEmpty, () =>
 		jsonString(docCommentString(ctx.fileContentGetters, docComment)));
 
@@ -151,7 +151,7 @@ DocExport documentStructAlias(ref Ctx ctx, in StructAlias a) =>
 		field!"target"(documentStructInst(ctx, a.typeParams, *a.target))]));
 
 DocExport documentStructDecl(ref Ctx ctx, in StructDecl a) {
-	Json.ObjectField variantsField = optionalArrayField!("variants", VariantAndMethodImpls)(
+	Opt!(Json.ObjectField) variantsField = optionalArrayField!("variants", VariantAndMethodImpls)(
 		ctx.alloc, a.variants, (in VariantAndMethodImpls x) =>
 			documentStructInst(ctx, a.typeParams, *x.variant));
 	return documentExport(ctx, a.range, a.name, a.docComment, a.typeParams, a.body_.matchIn!Json(
@@ -187,7 +187,7 @@ Json jsonOfEnumMembers(ref Alloc alloc, in EnumOrFlagsMember[] members) =>
 	jsonList!EnumOrFlagsMember(alloc, members, (in EnumOrFlagsMember member) =>
 		jsonString(member.name));
 
-Json documentRecord(ref Ctx ctx, in StructDecl decl, in StructBody.Record a, Json.ObjectField variantsField) =>
+Json documentRecord(ref Ctx ctx, in StructDecl decl, in StructBody.Record a, Opt!(Json.ObjectField) variantsField) =>
 	jsonObject(ctx.alloc, [
 		kindField!"record",
 		maybePurity(ctx.alloc, decl),
@@ -198,7 +198,7 @@ Json documentRecord(ref Ctx ctx, in StructDecl decl, in StructBody.Record a, Jso
 				documentRecordField(ctx, decl.typeParams, field)))),
 		variantsField]);
 
-Json.ObjectField maybePurity(ref Alloc alloc, in StructDecl decl) =>
+Opt!(Json.ObjectField) maybePurity(ref Alloc alloc, in StructDecl decl) =>
 	optionalField!"purity"(decl.purity != Purity.data, () => jsonString(stringOfEnum(decl.purity)));
 
 bool hasNonPublicFields(in StructBody.Record a) =>
@@ -212,7 +212,7 @@ bool hasNonPublicFields(in StructBody.Record a) =>
 		}
 	});
 
-Json documentUnion(ref Ctx ctx, in StructDecl decl, in StructBody.Union a, Json.ObjectField variantsField) =>
+Json documentUnion(ref Ctx ctx, in StructDecl decl, in StructBody.Union a, Opt!(Json.ObjectField) variantsField) =>
 	jsonObject(ctx.alloc, [
 		kindField!"union",
 		maybePurity(ctx.alloc, decl),
@@ -220,7 +220,7 @@ Json documentUnion(ref Ctx ctx, in StructDecl decl, in StructBody.Union a, Json.
 			documentUnionMember(ctx, decl.typeParams, member))),
 		variantsField]);
 
-Json documentVariant(ref Alloc alloc, in StructDecl decl, in StructBody.Variant a, Json.ObjectField variantsField) =>
+Json documentVariant(ref Alloc alloc, in StructDecl decl, in StructBody.Variant a, Opt!(Json.ObjectField) variantsField) =>
 	jsonObject(alloc, [kindField!"variant", maybePurity(alloc, decl), variantsField]);
 
 Opt!Json documentRecordField(ref Ctx ctx, in TypeParams typeParams, in RecordField a) {
@@ -294,7 +294,7 @@ Json[] documentSpecs(ref Ctx ctx, in FunDecl a) =>
 Json jsonOfSpecialSpec(ref Ctx ctx, Symbol name) =>
 	jsonObject(ctx.alloc, [kindField!"special", field!"name"(name)]);
 
-Json.ObjectField documentParams(ref Ctx ctx, in TypeParams typeParams, in Params params) =>
+Opt!(Json.ObjectField) documentParams(ref Ctx ctx, in TypeParams typeParams, in Params params) =>
 	field!"params"(documentParamDestructures(ctx, typeParams, paramsArray(params)));
 
 Json documentParamDestructures(ref Ctx ctx, in TypeParams typeParams, in Destructure[] a) =>

@@ -181,6 +181,7 @@ immutable struct PositionKind {
 	immutable struct ModifierExtern {
 		Symbol libraryName;
 	}
+	immutable struct ModulePosition {}
 	immutable struct RecordFieldMutability {
 		Opt!Visibility visibility;
 	}
@@ -216,6 +217,7 @@ immutable struct PositionKind {
 		MatchVariantCase,
 		Modifier,
 		ModifierExtern,
+		ModulePosition,
 		RecordField*,
 		RecordFieldMutability,
 		SpecDecl*,

@@ -8,7 +8,6 @@ import lib.lsp.lspTypes :
 	CodeLensParams,
 	CompletionParams,
 	DocumentHighlightParams,
-	InlayHint,
 	SyntaxTranslateParams,
 	DefinitionParams,
 	DidChangeTextDocumentParams,
@@ -23,8 +22,6 @@ import lib.lsp.lspTypes :
 	InitializationOptions,
 	InitializeParams,
 	InitializedParams,
-	InlayHintKind,
-	InlayHintLabel,
 	InlayHintParams,
 	Language,
 	LspInMessage,
@@ -175,15 +172,6 @@ TextDocumentPositionParams parseTextDocumentPositionParams(ref Alloc alloc, in J
 	TextDocumentPositionParams(
 		parseTextDocumentIdentifier(get!"textDocument"(a)),
 		parsePosition(get!"position"(a)));
-
-InlayHintKind parseInlayHintKind(in Json a) {
-	final switch (cast(uint) a.as!double) {
-		case InlayHintKind.Type:
-			return InlayHintKind.Type;
-		case InlayHintKind.Parameter:
-			return InlayHintKind.Parameter;
-	}
-}
 
 InlayHintParams parseInlayHintParams(ref Alloc alloc, in Json a) =>
 	InlayHintParams(

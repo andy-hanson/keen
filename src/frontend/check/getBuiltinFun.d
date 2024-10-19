@@ -727,8 +727,6 @@ Opt!VersionFun versionFunFromSymbol(Symbol name) {
 			return some(VersionFun.isSingleThreaded);
 		case symbol!"is-stack-trace-enabled".value:
 			return some(VersionFun.isStackTraceEnabled);
-		case symbol!"is-wasm".value:
-			return some(VersionFun.isWasm);
 		default:
 			return none!VersionFun;
 	}

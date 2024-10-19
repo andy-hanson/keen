@@ -68,7 +68,7 @@ import util.comparison : Comparison;
 import util.opt : force, has, none, Opt, some;
 import util.sourceRange : compareRange;
 import util.symbol : Symbol, symbol;
-import util.uri : baseName, compareUriAlphabetically, Uri;
+import util.uri : baseName, compareUriNaturally, Uri;
 import util.util : stringOfEnum, max;
 import util.writer :
 	makeStringWithWriter,
@@ -142,7 +142,7 @@ UriAndDiagnostics[] sortedDiagnostics(ref Alloc alloc, in ProgramWithOptMain pro
 private:
 
 Comparison compareUriAndDiagnosticsByUri(in UriAndDiagnostics a, in UriAndDiagnostics b) =>
-	compareUriAlphabetically(a.uri, b.uri);
+	compareUriNaturally(a.uri, b.uri);
 
 Comparison compareDiagnostic(in Diagnostic a, in Diagnostic b) =>
 	compareRange(a.range, b.range);

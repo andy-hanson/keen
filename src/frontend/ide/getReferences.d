@@ -4,7 +4,7 @@ module frontend.ide.getReferences;
 
 import frontend.ide.getDefinition : definitionForTarget;
 import frontend.ide.getTarget : Target, targetForPosition;
-import frontend.ide.ideUtil : compareUriAndRangeAlphabetically, eachFunSpec, eachSpecParent, eachTypeComponent, eachPackedTypeArg, ReferenceCb, TypeCb;
+import frontend.ide.ideUtil : compareUriAndRangeNaturally, eachFunSpec, eachSpecParent, eachTypeComponent, eachPackedTypeArg, ReferenceCb, TypeCb;
 import frontend.ide.position : ExprContainer, Position, PositionKind;
 import lib.lsp.lspTypes : DocumentHighlight, DocumentHighlightKind, DocumentHighlightResult;
 import model.ast :
@@ -137,7 +137,7 @@ import util.symbol : Symbol;
 import util.uri : Uri;
 
 Opt!DocumentHighlightResult getDocumentHighlightsForPosition(ref Alloc alloc, in Program program, in Position pos) {
-	Opt!Target target = targetForPosition(program.commonTypes, pos.kind);
+	Opt!Target target = targetForPosition(program.commonTypes, pos);
 	return optIf(has(target), () =>
 		DocumentHighlightResult(
 			pos.module_.uri,
@@ -155,9 +155,9 @@ Opt!DocumentHighlightResult getDocumentHighlightsForPosition(ref Alloc alloc, in
 }
 
 UriAndRange[] getReferencesForPosition(ref Alloc alloc, in Program program, in Position pos) {
-	Opt!Target target = targetForPosition(program.commonTypes, pos.kind);
+	Opt!Target target = targetForPosition(program.commonTypes, pos);
 	return has(target)
-		? buildSortedArray!(UriAndRange, compareUriAndRangeAlphabetically)(alloc, (scope ref Builder!UriAndRange res) {
+		? buildSortedArray!(UriAndRange, compareUriAndRangeNaturally)(alloc, (scope ref Builder!UriAndRange res) {
 			eachReferenceForTarget(program, pos.module_.uri, force(target), IncludeImports.exclude, (in UriAndRange x) {
 				res ~= x;
 			});

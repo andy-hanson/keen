@@ -11,7 +11,7 @@ import util.hash : HashCode, hashUints;
 import util.json : field, get, Json, jsonObject;
 import util.string : CString, MutCString, stringOfRange;
 import util.unicode : byteIndexOfCharacterIndex, characterIndexOfByteIndex;
-import util.uri : compareUriAlphabetically, mustParseUri, stringOfUri, Uri;
+import util.uri : compareUriNaturally, mustParseUri, stringOfUri, Uri;
 import util.writer : Writer;
 
 // This is a byte offset into a file. (It should generally point to the *start* of a UTF8 character.)
@@ -85,7 +85,7 @@ immutable struct UriAndRange {
 }
 
 Comparison compareUriAndRange(in UriAndRange a, in UriAndRange b) {
-	Comparison cmpUri = compareUriAlphabetically(a.uri, b.uri);
+	Comparison cmpUri = compareUriNaturally(a.uri, b.uri);
 	return cmpUri != Comparison.equal ? cmpUri : compareRange(a.range, b.range);
 }
 
@@ -157,8 +157,12 @@ immutable struct LineAndColumn {
 }
 
 immutable struct LineAndCharacterRange {
+	@safe @nogc pure nothrow:
 	LineAndCharacter start;
 	LineAndCharacter end;
+
+	static LineAndCharacterRange topOfFile() =>
+		LineAndCharacterRange(LineAndCharacter(0, 0), LineAndCharacter(0, 0));
 }
 
 immutable struct UriAndLine {
@@ -175,8 +179,12 @@ UriAndLine uriAndLineOfJson(in Json a) =>
 	UriAndLine(mustParseUri(get!"uri"(a).as!string), safeToUint(get!"line"(a).as!double));
 
 immutable struct UriAndLineAndCharacterRange {
+	@safe @nogc pure nothrow:
 	Uri uri;
 	LineAndCharacterRange range;
+
+	static UriAndLineAndCharacterRange topOfFile(Uri uri) =>
+		UriAndLineAndCharacterRange(uri, LineAndCharacterRange.topOfFile);
 };
 
 Json jsonOfUriAndLineAndCharacterRange(ref Alloc alloc, in UriAndLineAndCharacterRange a) =>

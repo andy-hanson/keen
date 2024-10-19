@@ -12,7 +12,7 @@ import util.uri :
 	alterExtensionWithHex,
 	asFilePath,
 	baseName,
-	compareUriAlphabetically,
+	compareUriNaturally,
 	FilePath,
 	getExtension,
 	isAncestor,
@@ -48,8 +48,8 @@ void testBasic(ref Test test) {
 	verifyUri(test, a, ["file://", "a"]);
 	Uri b = mustParseUri("file:///b");
 	verifyUri(test, b, ["file://", "b"]);
-	assert(compareUriAlphabetically(a, a) == Comparison.equal);
-	assert(compareUriAlphabetically(a, b) == Comparison.less);
+	assert(compareUriNaturally(a, a) == Comparison.equal);
+	assert(compareUriNaturally(a, b) == Comparison.less);
 
 	assertEqual(stringOfUri(test.alloc, a), "file:///a");
 

@@ -210,7 +210,9 @@ Opt!PositionKind getPositionKind(in Ctx ctx, ref Module module_, Pos pos, GetPos
 		() => firstPointer!(PositionKind, Test)(module_.tests, (Test* x) =>
 			hasPos(x.ast.range, pos)
 				? positionInTest(ctx, x, *x.ast, pos, posKind)
-				: none!PositionKind));
+				: none!PositionKind),
+		// It's important to have a definition at position 0, because inlay hints for "Used by" have that is their location.
+		() => optIf(pos == 0, () => PositionKind(PositionKind.ModulePosition())));
 
 Opt!PositionKind positionInFun(in Ctx ctx, FunDecl* a, in FunDeclAst* ast, Pos pos, GetPositionKind posKind) =>
 	optOr!PositionKind(

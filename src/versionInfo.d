@@ -70,7 +70,6 @@ enum VersionFun {
 	isJit,
 	isSingleThreaded,
 	isStackTraceEnabled,
-	isWasm,
 }
 
 bool isVersion(in VersionInfo a, VersionFun fun) {
@@ -86,20 +85,8 @@ bool isVersion(in VersionInfo a, VersionFun fun) {
 		case VersionFun.isJit:
 			return a.isJit;
 		case VersionFun.isSingleThreaded:
-			return isWasm || a.options.isSingleThreaded;
-		case VersionFun.isWasm:
-			return isWasm;
+			return a.options.isSingleThreaded;
 		case VersionFun.isStackTraceEnabled:
 			return a.options.stackTraceEnabled;
-	}
-}
-
-private:
-
-bool isWasm() {
-	version (WebAssembly) {
-		return true;
-	} else {
-		return false;
 	}
 }

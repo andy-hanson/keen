@@ -3,7 +3,7 @@ module util.string;
 @safe @nogc pure nothrow:
 
 import util.alloc.alloc : Alloc;
-import util.comparison : compareArrays, compareChar, Comparison;
+import util.comparison : compareArrays, compareChar, compareOr, compareSizeT, Comparison;
 import util.col.array : append, arrayOfRange, arraysEqual, copyArray, endPtr, isEmpty, small, SmallArray;
 import util.conv : safeToUint;
 import util.hash : HashCode, hashString;
@@ -124,8 +124,61 @@ string copyString(ref Alloc alloc, in string a) =>
 		cb(*p);
 }
 
-@trusted Comparison compareStringsAlphabetically(in string a, in string b) =>
+@trusted Comparison compareStringsNaturally(in string a, in string b) =>
+	compareOr(
+		compareStringsNaturallyPass(a, b, caseSensitive: false),
+		() => compareStringsNaturallyPass(a, b, caseSensitive: true),
+		() => compareStringsUtf8Order(a, b));
+private Comparison compareStringsNaturallyPass(in string a, in string b, bool caseSensitive) {
+	if (isEmpty(a))
+		return isEmpty(b) ? Comparison.equal : Comparison.less;
+	else if (isEmpty(b))
+		return Comparison.greater;
+	else if (!isLetterOrDigit(a[0]))
+		return compareStringsNaturallyPass(a[1 .. $], b, caseSensitive);
+	else if (!isLetterOrDigit(b[0]))
+		return compareStringsNaturallyPass(a, b[1 .. $], caseSensitive);
+	else if (isDecimalDigit(a[0])) {
+		if (isDecimalDigit(b[0])) {
+			string[2] na = takeNumberFromFront(a);
+			string[2] nb = takeNumberFromFront(b);
+			return compareOr(
+				compareNumberStrings(na[0], nb[0]),
+				() => compareStringsNaturallyPass(na[1], nb[1], caseSensitive));
+		} else
+			return Comparison.less;
+	} else if (isDecimalDigit(b[0]))
+		return Comparison.greater;
+	else
+		return compareOr(
+			compareChars(a[0], b[0], caseSensitive),
+			() => compareStringsNaturallyPass(a[1 .. $], b[1 .. $], caseSensitive));
+}
+private Comparison compareChars(char a, char b, bool caseSensitive) =>
+	caseSensitive
+		? compareChar(a, b)
+		: compareChar(toLower(a), toLower(b));
+private char toLower(char a) =>
+	isUpperCaseLetter(a) ? cast(char) ('a' + (a - 'A')) : a;
+private Comparison compareStringsUtf8Order(in string a, in string b) =>
 	compareArrays!char(a, b, (in char x, in char y) => compareChar(x, y));
+private Comparison compareNumberStrings(in string a, in string b) {
+	string a2 = stripLeadingZeroes(a);
+	string b2 = stripLeadingZeroes(b);
+	return compareOr(
+		compareSizeT(a2.length, b2.length),
+		() => compareStringsUtf8Order(a2, b2));
+}
+private string[2] takeNumberFromFront(return string a) {
+	size_t i = 0;
+	while (i < a.length && isDecimalDigit(a[i]))
+		i++;
+	return [a[0 .. i], a[i .. $]];
+}
+private string stripLeadingZeroes(return string a) =>
+	isEmpty(a) || a[0] != '0'
+		? a
+		: stripLeadingZeroes(a[1 .. $]);
 
 char takeChar(scope ref MutCString ptr) {
 	char res = *ptr;
@@ -202,14 +255,18 @@ bool isWhitespace(char a) {
 	}
 }
 
+bool isAsciiIdentifierChar(dchar a) =>
+	isLetterOrDigit(a) || a == '_';
+private bool isLetterOrDigit(dchar a) =>
+	isLetter(a) || isDecimalDigit(a);
+private bool isLetter(dchar a) =>
+	isLowerCaseLetter(a) || isUpperCaseLetter(a);
+private bool isLowerCaseLetter(dchar a) =>
+	'a' <= a && a <= 'z';
+private bool isUpperCaseLetter(dchar a) =>
+	'A' <= a && a <= 'Z';
 bool isDecimalDigit(dchar c) =>
 	'0' <= c && c <= '9';
-
-bool isAsciiIdentifierChar(dchar a) =>
-	('a' <= a && a <= 'z') ||
-	('A' <= a && a <= 'Z') ||
-	isDecimalDigit(a) ||
-	a == '_';
 
 Opt!ubyte decodeHexDigit(char a) =>
 	isDecimalDigit(a)

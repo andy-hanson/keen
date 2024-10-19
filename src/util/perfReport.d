@@ -14,11 +14,10 @@ import util.alloc.alloc :
 import util.col.arrayBuilder : buildArray, Builder, arrayBuilderSort;
 import util.col.array : map;
 import util.col.enumMap : EnumMap;
-import util.col.exactSizeArrayBuilder : buildArrayExact, ExactSizeArrayBuilder;
 import util.col.map : KeyValuePair;
 import util.comparison : compareUlong, oppositeComparison;
-import util.json : field, Json, jsonObject;
-import util.opt : force, has, none, Opt, some;
+import util.json : field, Json, jsonObject, optionalField;
+import util.opt : none, Opt, some;
 import util.perf : Perf, PerfMeasure, PerfMeasureResult, PerfResult, perfResult;
 import util.symbol : symbolOfEnum;
 import util.writer : makeStringWithWriter, Writer;
@@ -83,18 +82,13 @@ Json showMemory(ref Alloc alloc, in MemorySummary a) =>
 	showMemoryCommon(alloc, none!size_t, a);
 
 Json showMemoryCommon(ref Alloc alloc, Opt!size_t countAllocs, in MemorySummary a) =>
-	Json(buildArrayExact!(Json.ObjectField)(
-		alloc,
-		has(countAllocs) ? 6 : 5,
-		(scope ref ExactSizeArrayBuilder!(Json.ObjectField) res) {
-			res ~= field!"total"(showMemoryAmount(alloc, totalBytes(a)));
-			res ~= field!"used"(showMemoryAmount(alloc, a.usedBytes));
-			res ~= field!"free"(showMemoryAmount(alloc, a.freeBytes));
-			res ~= field!"overhead"(showMemoryAmount(alloc, a.overheadBytes));
-			res ~= field!"countBlocks"(a.countBlocks);
-			if (has(countAllocs))
-				res ~= field!"countAllocs"(force(countAllocs));
-		}));
+	jsonObject(alloc, [
+		field!"total"(showMemoryAmount(alloc, totalBytes(a))),
+		field!"used"(showMemoryAmount(alloc, a.usedBytes)),
+		field!"free"(showMemoryAmount(alloc, a.freeBytes)),
+		field!"overhead"(showMemoryAmount(alloc, a.overheadBytes)),
+		field!"count-blocks"(a.countBlocks),
+		optionalField!"count-allocs"(countAllocs)]);
 
 string showMemoryAmount(ref Alloc alloc, size_t bytes) =>
 	makeStringWithWriter(alloc, (scope ref Writer writer) {

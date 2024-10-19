@@ -52,6 +52,7 @@ Comparison compareArrays(T)(in T[] a, in T[] b, in Comparer!T cb) {
 }
 
 alias compareChar = compareT!char;
+alias compareSizeT = compareT!size_t;
 alias compareUint = compareT!uint;
 alias compareUlong = compareT!ulong;
 

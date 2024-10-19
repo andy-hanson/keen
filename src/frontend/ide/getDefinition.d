@@ -33,7 +33,7 @@ import util.uri : Uri;
 import util.util : castNonScope_ref, typeAs;
 
 UriAndRange[] getDefinitionForPosition(ref Alloc alloc, in CommonTypes commonTypes, in Position pos) {
-	Opt!Target target = targetForPosition(commonTypes, pos.kind);
+	Opt!Target target = targetForPosition(commonTypes, pos);
 	return has(target)
 		? buildArray!UriAndRange(alloc, (scope ref Builder!UriAndRange res) {
 			definitionForTarget(pos.module_.uri, force(target), (in UriAndRange x) { res ~= x; });
@@ -42,7 +42,7 @@ UriAndRange[] getDefinitionForPosition(ref Alloc alloc, in CommonTypes commonTyp
 }
 
 UriAndRange[] getTypeDefinitionForPosition(ref Alloc alloc, in CommonTypes commonTypes, in Position pos) {
-	Opt!Target target = targetForPosition(commonTypes, pos.kind);
+	Opt!Target target = targetForPosition(commonTypes, pos);
 	return has(target)
 		? typeDefinitionForTarget(alloc, force(target))
 		: [];
