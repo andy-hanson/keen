@@ -5,7 +5,7 @@ module model.model;
 @safe @nogc pure nothrow:
 
 import frontend.getDiagnosticSeverity : getDiagnosticSeverity;
-import frontend.storage : FileContentGetters;
+import frontend.storage : FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters;
 import model.ast :
 	AssertOrForbidAst,
 	CaseAst,
@@ -2272,10 +2272,14 @@ immutable struct Program {
 	@safe @nogc pure nothrow:
 	HashTable!(immutable Config*, Uri, getConfigUri) allConfigs;
 	HashTable!(immutable Module*, Uri, getModuleUri) allModules;
+	FileContentGetters fileContentGetters;
+	LineAndColumnGetters lineAndColumnGetters;
 	CommonFunsAndDiagnostics commonFunsAndDiagnostics;
 	CommonTypes* commonTypesPtr;
 	OtherTypes otherTypes;
 
+	LineAndCharacterGetters lineAndCharacterGetters() return scope =>
+		lineAndColumnGetters.lineAndCharacterGetters;
 	ref CommonFuns commonFuns() return =>
 		commonFunsAndDiagnostics.commonFuns;
 	ref CommonTypes commonTypes() return scope =>

@@ -43,10 +43,9 @@ import lib.lsp.lspTypes :
 	Write;
 import util.alloc.alloc : Alloc;
 import util.col.array : map;
-import util.col.arrayBuilder : buildArray, Builder;
 import util.col.map : KeyValuePair;
 import util.exitCode : ExitCode, Signal;
-import util.json : field, Json, jsonBool, jsonList, jsonNull, jsonObject, jsonString, optionalField;
+import util.json : field, Json, jsonBool, jsonList, jsonNull, jsonObject, jsonString, optionalField, optionalFlagField;
 import util.opt : force, has, Opt;
 import util.sourceRange :
 	jsonOfLineAndCharacter,
@@ -55,7 +54,6 @@ import util.sourceRange :
 	jsonOfUriAndLineAndCharacterRange,
 	Pos,
 	UriAndLineAndCharacterRange;
-import util.symbol : symbol;
 import util.uri : stringOfUri, symbolOfUri, Uri;
 import util.util : stringOfEnum;
 
@@ -232,13 +230,10 @@ public Json jsonOfInlayHints(ref Alloc alloc, in InlayHint[] a) =>
 	jsonList(map(alloc, a, (ref InlayHint x) =>
 		jsonOfInlayHint(alloc, x)));
 Json jsonOfInlayHint(ref Alloc alloc, ref InlayHint a) =>
-	// I'm making extra sure the optional fields are not present ----------------------------------------------------------------------------
-	jsonObject(buildArray!(Json.ObjectField)(alloc, (scope ref Builder!(Json.ObjectField) out_) {
-		out_ ~= Json.ObjectField(symbol!"position", jsonOfLineAndCharacter(alloc, a.position));
-		out_ ~= Json.ObjectField(symbol!"label", jsonOfInlayHintLabel(alloc, a.label));
-		if (a.paddingLeft)
-			out_ ~= Json.ObjectField(symbol!"paddingLeft", jsonBool(true));
-	}));
+	jsonObject(alloc, [
+		field!"position"(jsonOfLineAndCharacter(alloc, a.position)),
+		field!"label"(jsonOfInlayHintLabel(alloc, a.label)),
+		optionalFlagField!"paddingLeft"(a.paddingLeft)]);
 
 Json jsonOfInlayHintLabel(ref Alloc alloc, ref InlayHintLabel a) =>
 	a.match!Json(
@@ -248,13 +243,13 @@ Json jsonOfInlayHintLabel(ref Alloc alloc, ref InlayHintLabel a) =>
 			jsonList(map(alloc, xs, (ref InlayHintLabelPart x) =>
 				jsonOfInlayHintLabelPart(alloc, x))));
 Json jsonOfInlayHintLabelPart(ref Alloc alloc, ref InlayHintLabelPart a) =>
-	// I'm making extra sure the optional fields are not present ----------------------------------------------------------------------------
-	jsonObject(buildArray!(Json.ObjectField)(alloc, (scope ref Builder!(Json.ObjectField) out_) {
-		out_ ~= Json.ObjectField(symbol!"value", jsonString(a.value));
-		if (has(a.tooltip)) out_ ~= Json.ObjectField(symbol!"tooltip", jsonString(force(a.tooltip)));
-		if (has(a.location)) out_ ~= Json.ObjectField(symbol!"location", jsonOfUriAndLineAndCharacterRange(alloc, force(a.location)));
-		if (has(a.command)) out_ ~= Json.ObjectField(symbol!"command", jsonOfCommand(alloc, force(a.command)));
-	}));
+	jsonObject(alloc, [
+		field!"value"(a.value),
+		optionalField!"tooltip"(a.tooltip),
+		optionalField!("location", UriAndLineAndCharacterRange)(a.location, (in UriAndLineAndCharacterRange x) =>
+			jsonOfUriAndLineAndCharacterRange(alloc, x)),
+		optionalField!("command", Command)(a.command, (Command x) =>
+			jsonOfCommand(alloc, x))]);
 
 public Json jsonOfReferences(ref Alloc alloc, in UriAndLineAndCharacterRange[] references) =>
 	jsonList!UriAndLineAndCharacterRange(alloc, references, (in UriAndLineAndCharacterRange x) =>

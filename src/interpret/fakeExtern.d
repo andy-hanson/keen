@@ -179,7 +179,7 @@ Opt!FunPointer getFakeExternFun(Symbol libraryName, Symbol name) {
 			return some(FunPointer(&nanosleep));
 		case symbol!"malloc".value:
 			return some(FunPointer(&malloc));
-		case symbol!"memcpy".value: // TODO: maybe these should be compiler intrinsics instead (and have a nicer interface)
+		case symbol!"memcpy".value:
 		case symbol!"memmove".value:
 			return some(FunPointer(&memmove));
 		case symbol!"memset".value:

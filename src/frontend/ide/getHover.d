@@ -16,8 +16,7 @@ import frontend.showModel :
 	writeTypeUnquoted,
 	writeVisibility;
 import lib.lsp.lspTypes : Hover, MarkupContent, MarkupKind;
-import model.ast :
-	AssertOrForbidAst, ConditionAst, ExprAst, ExprAstKind, IfAst, ImportOrExportAstKind, MatchAst, ModifierKeyword;
+import model.ast : AssertOrForbidAst, ConditionAst, ExprAst, ExprAstKind, IfAst, MatchAst, ModifierKeyword;
 import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
 	asBuiltinExtern,
@@ -41,7 +40,6 @@ import model.model :
 	LambdaExpr,
 	Local,
 	LoopWhileOrUntilExpr,
-	nameFromNameReferentsPointer,
 	NameReferents,
 	MatchEnumExpr,
 	MatchIntegralExpr,
@@ -64,14 +62,13 @@ import model.model :
 	VariantKind;
 import util.alloc.alloc : Alloc;
 import util.col.array : only;
-import util.col.hashTable : withSortedKeys;
 import util.conv : safeToUint;
 import util.opt : force, has, Opt;
 import util.sourceRange : PosKind;
-import util.symbol : compareSymbolsNaturally, Symbol;
+import util.symbol : Symbol;
 import util.uri : Uri;
 import util.util : stringOfEnum;
-import util.writer : makeStringWithWriter, writeNewline, writeQuotedChar, writeQuotedString, Writer, writeWithCommas;
+import util.writer : makeStringWithWriter, writeNewline, writeQuotedChar, writeQuotedString, Writer;
 
 Hover getHover(ref Alloc alloc, in ShowModelCtx ctx, in Position pos) =>
 	Hover(MarkupContent(MarkupKind.plaintext, makeStringWithWriter(alloc, (scope ref Writer writer) {
@@ -96,17 +93,6 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 		(PositionKind.ImportedModule x) {
 			writer ~= "Import module ";
 			writeFile(writer, ctx, x.module_.uri);
-			if (x.import_.hasImported && force(x.import_.source).kind.isA!(ImportOrExportAstKind.ModuleWhole)) {
-				// TODO: is this still necessary? _--------------------------------------------------------------------------------
-				writer ~= "(using: ";
-				withSortedKeys!(void, NameReferents*, Symbol, nameFromNameReferentsPointer)(
-					x.import_.imported,
-					(in Symbol x, in Symbol y) => compareSymbolsNaturally(x, y),
-					(in Symbol[] names) {
-						writeWithCommas!Symbol(writer, names, (in Symbol name) { writer ~= name; });
-					});
-				writer ~= ')';
-			}
 		},
 		(PositionKind.ImportedName x) {
 			getImportedNameHover(writer, ctx, x);

@@ -5,16 +5,15 @@ module frontend.ide.getDefinition;
 import frontend.ide.getTarget : Target, targetForPosition;
 import frontend.ide.ideUtil : ReferenceCb;
 import frontend.ide.position : Position, PositionKind;
-import frontend.storage : LineAndCharacterGetters;
 import model.ast : ExprAst, LoopAst;
 import model.diag : TypeContainer;
 import model.model :
-	CommonTypes,
 	EnumOrFlagsMember,
 	FunDecl,
 	localMustHaveNameRange,
 	Module,
 	NameReferents,
+	Program,
 	RecordField,
 	SpecDecl,
 	StructAlias,
@@ -33,20 +32,24 @@ import util.sourceRange : UriAndLineAndCharacterRange, UriAndRange;
 import util.uri : Uri;
 import util.util : castNonScope_ref;
 
-UriAndLineAndCharacterRange[] getDefinitionForPosition(ref Alloc alloc, in CommonTypes commonTypes, in LineAndCharacterGetters lcgs, in Position pos) {
-	Opt!Target target = targetForPosition(commonTypes, pos);
+UriAndLineAndCharacterRange[] getDefinitionForPosition(ref Alloc alloc, in Program program, in Position pos) {
+	Opt!Target target = targetForPosition(program.commonTypes, pos);
 	return has(target)
 		? buildArray!UriAndLineAndCharacterRange(alloc, (scope ref Builder!UriAndLineAndCharacterRange res) {
-			definitionForTarget(pos.module_.uri, force(target), (in UriAndRange x) { res ~= lcgs[x]; });
+			definitionForTarget(pos.module_.uri, force(target), (in UriAndRange x) {
+				res ~= program.lineAndCharacterGetters[x];
+			});
 		})
 		: [];
 }
 
-UriAndLineAndCharacterRange[] getTypeDefinitionForPosition(ref Alloc alloc, in CommonTypes commonTypes, in LineAndCharacterGetters lcgs, in Position pos) =>
+UriAndLineAndCharacterRange[] getTypeDefinitionForPosition(ref Alloc alloc, in Program program, in Position pos) =>
 	buildArray!UriAndLineAndCharacterRange(alloc, (scope ref Builder!UriAndLineAndCharacterRange res) {
-		Opt!Target target = targetForPosition(commonTypes, pos);
+		Opt!Target target = targetForPosition(program.commonTypes, pos);
 		if (has(target))
-			typeDefinitionForTarget(force(target), (in UriAndRange x) { res ~= lcgs[x]; });
+			typeDefinitionForTarget(force(target), (in UriAndRange x) {
+				res ~= program.lineAndCharacterGetters[x];
+			});
 	});
 
 private:

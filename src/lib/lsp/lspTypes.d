@@ -6,6 +6,7 @@ module lib.lsp.lspTypes;
 
 import util.exitCode : ExitCode, ExitCodeOrSignal;
 import util.col.map : KeyValuePair;
+import util.col.mutMap : MutMap;
 import util.opt : Opt;
 import util.sourceRange :
 	LineAndCharacter,
@@ -178,6 +179,9 @@ immutable struct RunParams {
 	Uri uri;
 	Opt!(Uri[]) diagnosticsOnlyForUris;
 }
+
+alias TestStates = MutMap!(UriAndLine, RunResult);
+// Response to "custom/run"
 immutable struct RunResult {
 	ExitCodeOrSignal exit;
 	Write[] writes;
@@ -217,6 +221,7 @@ immutable struct CodeLensParams {
 
 immutable struct CodeLens {
 	LineAndCharacterRange range;
+	// WARN: The documentation says this is a Command, but it doesn't seem to support a 'tooltip' when on a CodeLens.
 	Command command;
 }
 immutable struct Command {

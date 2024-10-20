@@ -122,6 +122,7 @@ import lib.lsp.lspTypes :
 	SignatureHelp,
 	SignatureHelpParams,
 	SyntaxTranslateParams,
+	TestStates,
 	TextDocumentContentChangeEvent,
 	TextDocumentPositionParams,
 	TypeDefinitionParams,
@@ -155,7 +156,7 @@ import util.cell : Cell, cellGet, cellSet;
 import util.col.array : concatenate, contains, map, mapOp, newArray;
 import util.col.arrayBuilder : add, addAll, ArrayBuilder, finish;
 import util.col.mutArr : clearAndDoNotFree, MutArr, push;
-import util.col.mutMap : clear, MutMap, setInMap;
+import util.col.mutMap : clear, setInMap;
 import util.exitCode : ExitCode, ExitCodeOrSignal;
 import util.integralValues : initIntegralValues;
 import util.json : field, Json, jsonNull, jsonObject;
@@ -163,7 +164,7 @@ import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.perf : Perf;
-import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndLine, UriAndLineAndCharacterRange, UriLineAndColumn;
+import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndLineAndCharacterRange, UriLineAndColumn;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
@@ -575,7 +576,6 @@ private struct LspState {
 	ref inout(Alloc) stateAlloc() return scope inout =>
 		*stateAllocPtr;
 }
-alias TestStates = MutMap!(UriAndLine, RunResult);
 
 Json version_(ref Alloc alloc, in Server server, FilePath thisExecutable) {
 	version (Debug) {
@@ -697,7 +697,7 @@ private UriAndLineAndCharacterRange[] getDefinitionForProgram(
 	in DefinitionParams params,
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
-	return has(position) ? getDefinitionForPosition(alloc, program.commonTypes, server.lineAndCharacterGetters, force(position)) : [];
+	return has(position) ? getDefinitionForPosition(alloc, program, force(position)) : [];
 }
 
 private UriAndLineAndCharacterRange[] getImplementationForProgram(
@@ -707,7 +707,7 @@ private UriAndLineAndCharacterRange[] getImplementationForProgram(
 	in ImplementationParams params,
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
-	return has(position) ? getImplementationForPosition(alloc, program, server.lineAndCharacterGetters, force(position)) : [];
+	return has(position) ? getImplementationForPosition(alloc, program, force(position)) : [];
 }
 
 private UriAndLineAndCharacterRange[] getTypeDefinitionForProgram(
@@ -717,7 +717,7 @@ private UriAndLineAndCharacterRange[] getTypeDefinitionForProgram(
 	in TypeDefinitionParams params,
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.textDocumentAndPosition, GetPositionKind.exact);
-	return has(position) ? getTypeDefinitionForPosition(alloc, program.commonTypes, server.lineAndCharacterGetters, force(position)) : [];
+	return has(position) ? getTypeDefinitionForPosition(alloc, program, force(position)) : [];
 }
 
 private Opt!DocumentHighlightResult getDocumentHighlightsForProgram(
@@ -728,7 +728,7 @@ private Opt!DocumentHighlightResult getDocumentHighlightsForProgram(
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
 	return has(position)
-		? getDocumentHighlightsForPosition(alloc, program, server.lineAndCharacterGetters, force(position))
+		? getDocumentHighlightsForPosition(alloc, program, force(position))
 		: none!DocumentHighlightResult;
 }
 
@@ -739,7 +739,7 @@ private UriAndLineAndCharacterRange[] getReferencesForProgram(
 	in ReferenceParams params,
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
-	return has(position) ? getReferencesForPosition(alloc, program, server.lineAndCharacterGetters, force(position)) : [];
+	return has(position) ? getReferencesForPosition(alloc, program, force(position)) : [];
 }
 
 private Opt!WorkspaceEdit getRenameForProgram(
@@ -750,7 +750,7 @@ private Opt!WorkspaceEdit getRenameForProgram(
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.textDocumentAndPosition, GetPositionKind.exact);
 	return has(position)
-		? getRenameForPosition(alloc, program, server.lineAndCharacterGetters, force(position), params.newName)
+		? getRenameForPosition(alloc, program, force(position), params.newName)
 		: none!WorkspaceEdit;
 }
 
@@ -809,7 +809,7 @@ private Opt!Position serverGetPosition(
 	GetPositionKind kind,
 ) =>
 	where.uri in program.allModules
-		? getPosition(program, getShowDiagCtx(server, program), where, kind)
+		? getPosition(program, where, kind)
 		: none!Position;
 
 struct DiagsAndResultJson {
@@ -844,23 +844,21 @@ Json jsonOfConcreteModel(
 	scope ref Perf perf,
 	ref Alloc alloc,
 	ref Server server,
-	in LineAndColumnGetters lineAndColumnGetters,
 	in VersionInfo versionInfo,
 	ref ProgramWithMain program,
 ) =>
 	jsonOfConcreteProgram(
-		alloc, lineAndColumnGetters,
+		alloc, server.lineAndColumnGetters,
 		concretize(perf, alloc, getShowDiagCtx(server, program.program), versionInfo, program));
 
 Json jsonOfLowModel(
 	scope ref Perf perf,
 	ref Alloc alloc,
 	ref Server server,
-	in LineAndColumnGetters lineAndColumnGetters,
 	in VersionInfo versionInfo,
 	ref ProgramWithMain program,
 ) =>
-	jsonOfLowProgram(alloc, lineAndColumnGetters, buildToLowProgram(perf, alloc, server, versionInfo, program));
+	jsonOfLowProgram(alloc, server.lineAndColumnGetters, buildToLowProgram(perf, alloc, server, versionInfo, program));
 
 immutable struct PrintKind {
 	immutable struct Ast {}

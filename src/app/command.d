@@ -44,7 +44,7 @@ immutable struct CommandKind {
 		PrintKind kind;
 		Uri mainUri;
 	}
-	immutable struct Run { // Also covers 'test', rename? ----------------------------------------------------------------------
+	immutable struct Run {
 		MainKind main;
 		RunOptions options;
 	}

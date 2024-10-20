@@ -8,7 +8,6 @@ import frontend.check.getCommonTypes : bogusStructDecl;
 import frontend.check.inferringType : typesAreCorrespondingStructInsts;
 import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateStructNeverDelay;
 import frontend.lang : MainKind;
-import frontend.storage : LineAndCharacterGetters;
 import model.ast : ModifierAst, NameAndRange, VarDeclAst, TypeAst;
 import model.diag : Diag, UriAndDiagnostic;
 import model.model :
@@ -204,7 +203,6 @@ MainFunAndDiagnostics getMainFunAndDiagnostics(
 	ref Alloc alloc,
 	InstantiateCtx ctx,
 	ref Program program,
-	in LineAndCharacterGetters lcgs,
 	in MainKind kind,
 	in BuildTarget[] targets,
 ) {
@@ -219,7 +217,7 @@ MainFunAndDiagnostics getMainFunAndDiagnostics(
 		},
 		(in MainKind.TestsAtUri x) =>
 			MainFun(has(x.line)
-				? testAtLine(alloc, diagsBuilder, program, lcgs, x.crowUri, force(x.line))
+				? testAtLine(alloc, diagsBuilder, program, x.crowUri, force(x.line))
 				: x.all
 				? TestSelector.all(moduleAtUri(program, x.crowUri).config)
 				: TestSelector(x.crowUri)));
@@ -249,9 +247,9 @@ ParamShort param(string name)(Type type) =>
 
 private:
 
-TestSelector testAtLine(ref Alloc alloc, scope ref ArrayBuilder!UriAndDiagnostic diagsBuilder, in Program program, in LineAndCharacterGetters lcgs, Uri uri, uint line) {
+TestSelector testAtLine(ref Alloc alloc, scope ref ArrayBuilder!UriAndDiagnostic diagsBuilder, in Program program, Uri uri, uint line) {
 	Module* module_ = moduleAtUri(program, uri);
-	LineAndCharacterGetter lcg = lcgs[uri];
+	LineAndCharacterGetter lcg = program.lineAndCharacterGetters[uri];
 	Opt!(Test*) test = findPointer!Test(module_.tests, (in Test x) => lcg[x.range.range.start, PosKind.startOfRange].line == line);
 	if (has(test))
 		return TestSelector(force(test));

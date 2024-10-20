@@ -57,7 +57,7 @@ import util.sourceRange :
 	Range,
 	toLineAndCharacter,
 	UriAndLine,
-	UriAndRange,
+	UriAndLineAndCharacterRange,
 	UriLineAndCharacter;
 import util.string : CString;
 import util.symbol : cStringOfSymbol, Extension, symbolOfString;
@@ -75,7 +75,7 @@ void testCompletion(ref Test test) {
 	withIdeTestsAtPositions!("completion", ["after-dot"])(
 		test,
 		(in ShowModelCtx ctx, in Program program, in UriLineAndCharacter where) {
-			Opt!Position position = getPosition(program, ctx, where, GetPositionKind.after);
+			Opt!Position position = getPosition(program, where, GetPositionKind.after);
 			Opt!CompletionList res = getCompletionForPosition(test.alloc, ctx, force(position));
 			return jsonOfCompletionList(test.alloc, force(res));
 		});
@@ -96,8 +96,8 @@ private struct InfoAtPos {
 	@safe @nogc pure nothrow:
 
 	string hover;
-	UriAndRange[] definition;
-	UriAndRange[] typeDefinition;
+	UriAndLineAndCharacterRange[] definition;
+	UriAndLineAndCharacterRange[] typeDefinition;
 
 	bool isEmpty() scope =>
 		.isEmpty(hover) && .isEmpty(definition) && .isEmpty(typeDefinition);
@@ -117,22 +117,23 @@ private Json hoverResult(ref Alloc alloc, in ShowModelCtx ctx, in Program progra
 				res ~= jsonObject(alloc, [
 					field!"range"(jsonOfLineAndCharacterRange(alloc, lcg[Range(curRangeStart, end)])),
 					field!"hover"(curInfo.hover),
-					optionalArrayField!("definition", UriAndRange)(alloc, curInfo.definition, (in UriAndRange x) =>
-						jsonOfUriAndLineAndCharacterRange(alloc, ctx.lineAndCharacterGetters[x])),
-					optionalArrayField!("type-definition", UriAndRange)(
-						alloc, curInfo.typeDefinition, (in UriAndRange x) =>
-							jsonOfUriAndLineAndCharacterRange(alloc, ctx.lineAndCharacterGetters[x])),
+					optionalArrayField!("definition", UriAndLineAndCharacterRange)(
+						alloc, curInfo.definition, (in UriAndLineAndCharacterRange x) =>
+							jsonOfUriAndLineAndCharacterRange(alloc, x)),
+					optionalArrayField!("type-definition", UriAndLineAndCharacterRange)(
+						alloc, curInfo.typeDefinition, (in UriAndLineAndCharacterRange x) =>
+							jsonOfUriAndLineAndCharacterRange(alloc, x)),
 				]);
 		}
 
 		foreach (Pos pos; 0 .. endOfFile(lcg) + 1) {
 			Opt!Position position = getPosition(
-				program, ctx, UriLineAndCharacter(uri, lcg[pos, PosKind.startOfRange]), GetPositionKind.exact);
+				program, UriLineAndCharacter(uri, lcg[pos, PosKind.startOfRange]), GetPositionKind.exact);
 			Opt!Hover hover = optIf(has(position), () => getHover(alloc, ctx, force(position)));
 			InfoAtPos here = InfoAtPos(
 				has(hover) ? force(hover).contents.value : "",
-				has(position) ? getDefinitionForPosition(alloc, program.commonTypes, force(position)) : [],
-				has(position) ? getTypeDefinitionForPosition(alloc, program.commonTypes, force(position)) : []);
+				has(position) ? getDefinitionForPosition(alloc, program, force(position)) : [],
+				has(position) ? getTypeDefinitionForPosition(alloc, program, force(position)) : []);
 			if (here != curInfo) {
 				endRange(pos);
 				curRangeStart = pos;
@@ -146,9 +147,8 @@ void testImplementation(ref Test test) {
 	withIdeTestsAtPositions!("implementation", ["a"])(
 		test,
 		(in ShowModelCtx ctx, in Program program, in UriLineAndCharacter where) {
-			Opt!Position position = getPosition(program, ctx, where, GetPositionKind.exact);
-			UriAndRange[] res = getImplementationForPosition(test.alloc, program, force(position));
-			return jsonOfReferences(test.alloc, ctx.lineAndCharacterGetters, res);
+			Opt!Position position = getPosition(program, where, GetPositionKind.exact);
+			return jsonOfReferences(test.alloc, getImplementationForPosition(test.alloc, program, force(position)));
 		});
 }
 
@@ -167,12 +167,9 @@ void testReferences(ref Test test) {
 	withIdeTestsAtPositions!("references", ["variant"])(
 		test,
 		(in ShowModelCtx ctx, in Program program, in UriLineAndCharacter where) {
-			Opt!Position position = getPosition(program, ctx, where, GetPositionKind.exact);
+			Opt!Position position = getPosition(program, where, GetPositionKind.exact);
 			return has(position)
-				? jsonOfReferences(
-					test.alloc,
-					ctx.lineAndCharacterGetters,
-					getReferencesForPosition(test.alloc, program, force(position)))
+				? jsonOfReferences(test.alloc, getReferencesForPosition(test.alloc, program, force(position)))
 				: jsonNull;
 		});
 }
@@ -181,9 +178,9 @@ void testRename(ref Test test) {
 	withIdeTestsAtPositions!("rename", ["a", "b"])(
 		test,
 		(in ShowModelCtx ctx, in Program program, in UriLineAndCharacter where) {
-			Opt!Position position = getPosition(program, ctx, where, GetPositionKind.exact);
+			Opt!Position position = getPosition(program, where, GetPositionKind.exact);
 			Opt!WorkspaceEdit rename = has(position)
-				? getRenameForPosition(test.alloc, program, ctx.lineAndCharacterGetters, force(position), "new-name")
+				? getRenameForPosition(test.alloc, program, force(position), "new-name")
 				: none!WorkspaceEdit;
 			return has(rename) ? jsonOfWorkspaceEdit(test.alloc, force(rename)) : jsonNull;
 		});
@@ -193,7 +190,7 @@ void testSignatureHelp(ref Test test) {
 	withIdeTestsAtPositions!("signature-help", ["after-comma", "overloads"])(
 		test,
 		(in ShowModelCtx ctx, in Program program, in UriLineAndCharacter where) {
-			Opt!Position position = getPosition(program, ctx, where, GetPositionKind.after);
+			Opt!Position position = getPosition(program, where, GetPositionKind.after);
 			Opt!SignatureHelp res = has(position)
 				? getSignatureHelpForPosition(test.alloc, ctx, force(position))
 				: none!SignatureHelp;

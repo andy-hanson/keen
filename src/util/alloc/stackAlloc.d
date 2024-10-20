@@ -181,6 +181,7 @@ struct MaxStackArray(T) {
 	}
 
 	@trusted void opOpAssign(string op : "~")(T value) {
+		assert(!isFull);
 		initMemory(cur, value);
 		cur++;
 		assert(cur <= end);
@@ -199,6 +200,14 @@ struct MaxStackArray(T) {
 	@trusted void mustPop() {
 		assert(cur > begin);
 		cur--;
+	}
+
+	@trusted void pushLeft(T value) {
+		assert(!isFull);
+		for (T* ptr = cur; ptr > begin; ptr--)
+			overwriteMemory(ptr, *(ptr - 1));
+		cur++;
+		overwriteMemory(begin, value);
 	}
 
 	@trusted inout(T[]) soFar() inout =>

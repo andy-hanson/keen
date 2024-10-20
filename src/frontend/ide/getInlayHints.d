@@ -2,8 +2,9 @@ module frontend.ide.getInlayHints;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.getCodeLenses : ImportsAndReExports, isEmpty, tooltipForRunResult, UrisOrCount, withImportsAndReExportsOf;
+import frontend.ide.importReferences : ImportsAndReExports, isEmpty, withImportsAndReExportsOf;
 import frontend.showModel : ShowModelCtx, writeTypeUnquoted;
+import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes :
 	Command,
 	ExecuteCommandParams,
@@ -12,8 +13,10 @@ import lib.lsp.lspTypes :
 	InlayHintLabel,
 	InlayHintLabelPart,
 	InlayHintParams,
-	RunResult;
-import lib.server : TestStates; // TODO: CIRCULAR IMPORT ---------------------------------------------------------------------------
+	Pipe,
+	RunResult,
+	TestStates,
+	Write;
 import model.ast : DestructureAst, ImportOrExportAst, ImportOrExportAstKind;
 import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
@@ -42,12 +45,13 @@ import model.model :
 	Type;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : StackArrayBuilder, withBuildStackArray;
-import util.col.array : isEmpty, newArray;
+import util.col.array : every, isEmpty, newArray;
 import util.col.arrayBuilder : buildArray, buildSortedArray, Builder;
+import util.col.hashTable : mustGet;
 import util.col.sortUtil : sortInPlace;
 import util.comparison : Comparison;
-import util.exitCode : isOk;
-import util.opt : force, has, none, Opt, some;
+import util.exitCode : ExitCode, isOk, Signal;
+import util.opt : force, has, none, Opt, optIf, some;
 import util.sourceRange :
 	compareLineAndCharacter,
 	endOfLine,
@@ -57,19 +61,26 @@ import util.sourceRange :
 	Pos,
 	PosKind,
 	UriAndLine,
-	UriAndLineAndCharacterRange;
+	UriAndLineAndCharacterRange,
+	UriAndRange;
 import util.symbol : compareSymbolsNaturally, stringOfSymbol, Symbol;
 import util.uri : baseName, Uri;
 import util.util : stringOfEnum;
-import util.writer : makeStringWithWriter, writeWithCommas, Writer;
+import util.writer : makeStringWithWriter, writeWithCommas, Writer, writeWithNewlines;
 
-InlayHint[] getInlayHints(ref Alloc alloc, in Program program, in ShowModelCtx showCtx, in TestStates testStates, InlayHintParams params) =>
+InlayHint[] getInlayHints(
+	ref Alloc alloc,
+	in Program program,
+	in ShowModelCtx showCtx,
+	in TestStates testStates,
+	InlayHintParams params,
+) =>
 	buildSortedArray!(InlayHint, compareInlayHints)(alloc, (scope ref Builder!InlayHint out_) {
 		Uri uri = params.textDocument;
 		Module* module_ = moduleAtUri(program, uri);
 		foreach (ImportOrExport x; module_.imports)
 			if (has(x.source))
-				getInlayHintsForImport(alloc, out_, showCtx.lineAndCharacterGetters[uri], force(x.source), x);
+				getInlayHintsForImport(alloc, out_, showCtx.lineAndCharacterGetters, uri, force(x.source), x);
 		eachDecl(*module_, (AnyDecl x) {
 			getInlayHintsForDecl(alloc, out_, program, showCtx, testStates, x);
 		});
@@ -80,7 +91,14 @@ private:
 Comparison compareInlayHints(in InlayHint a, in InlayHint b) =>
 	compareLineAndCharacter(a.position, b.position);
 
-void getInlayHintsForImport(ref Alloc alloc, scope ref Builder!InlayHint out_, in LineAndCharacterGetter lcg, ImportOrExportAst* ast, ImportOrExport a) {
+void getInlayHintsForImport(
+	ref Alloc alloc,
+	scope ref Builder!InlayHint out_,
+	in LineAndCharacterGetters lcgs,
+	Uri importerUri,
+	ImportOrExportAst* ast,
+	ImportOrExport a,
+) {
 	if (ast.kind.isA!(ImportOrExportAstKind.ModuleWhole)) {
 		InlayHintLabel label = withBuildStackArray!(InlayHintLabel, Symbol)(
 			(ref StackArrayBuilder!Symbol out_) {
@@ -88,24 +106,43 @@ void getInlayHintsForImport(ref Alloc alloc, scope ref Builder!InlayHint out_, i
 					out_ ~= x.name;
 			},
 			(scope Symbol[] names) {
-				// TODO: be sure to test this! ---------------------------------------------------------------------------------
 				sortInPlace!(Symbol, compareSymbolsNaturally)(names);
-				string showNames = makeStringWithWriter(alloc, (scope ref Writer writer) {
-					writeWithCommas!Symbol(writer, names);
-				});
-				return names.length > 5
-					? InlayHintLabel(newArray(alloc, [
-						InlayHintLabelPart(
+				return InlayHintLabel(buildArray!InlayHintLabelPart(alloc, (scope ref Builder!InlayHintLabelPart out_) {
+					if (names.length > 5)
+						out_ ~= InlayHintLabelPart(
 							value: makeStringWithWriter(alloc, (scope ref Writer writer) {
 								writer ~= names.length;
 								writer ~= " imported names";
 							}),
-							tooltip: some(showNames))]))
-					: InlayHintLabel(showNames);
+							tooltip: some(makeStringWithWriter(alloc, (scope ref Writer writer) {
+								writeWithCommas!Symbol(writer, names);
+							})));
+					else
+						writeImportedNameLabelParts(alloc, out_, lcgs, a, names);
+				}));
 			});
-		out_ ~= InlayHint(endOfLine(lcg, ast.range.start), label, paddingLeft: true);
+		out_ ~= InlayHint(endOfLine(lcgs[importerUri], ast.range.start), label, paddingLeft: true);
 	}
 }
+
+void writeImportedNameLabelParts(
+	ref Alloc alloc,
+	scope ref Builder!InlayHintLabelPart out_,
+	in LineAndCharacterGetters lcgs,
+	in ImportOrExport a,
+	in Symbol[] names,
+) {
+	writeInlayPartsWithCommas!Symbol(out_, names, (in Symbol name) =>
+		InlayHintLabelPart(
+			stringOfSymbol(alloc, name),
+			location: some(lcgs[mainLocationForNameReferents(*mustGet(a.imported, name))])));
+}
+UriAndRange mainLocationForNameReferents(in NameReferents a) =>
+	has(a.structOrAlias)
+		? force(a.structOrAlias).nameRange
+		: has(a.spec)
+		? force(a.spec).nameRange
+		: a.funs[0].nameRange;
 
 void getInlayHintsForDecl(
 	ref Alloc alloc,
@@ -117,14 +154,17 @@ void getInlayHintsForDecl(
 ) {
 	Uri uri = decl.moduleUri;
 	LineAndCharacterGetter lcg = showCtx.lineAndCharacterGetters[uri];
-	withImportsAndReExportsOf!void(program, decl, maxUris: 4, cb: (in ImportsAndReExports x) {
+	withImportsAndReExportsOf!void(program, decl, (in ImportsAndReExports x) {
 		if (!isEmpty(x)) {
-			InlayHintLabelPart[] parts = buildArray!InlayHintLabelPart(alloc, (scope ref Builder!InlayHintLabelPart out_) {
-				if (!isEmpty(x.reExports))
-					writeUrisOrCountLabelParts(alloc, out_, "Exported by ", x.reExports);
-				if (!isEmpty(x.imports))
-					writeUrisOrCountLabelParts(alloc, out_, isEmpty(x.reExports) ? "Used by " : "; Used by ", x.imports);
-			});
+			size_t maxUris = 3;
+			InlayHintLabelPart[] parts =
+				buildArray!InlayHintLabelPart(alloc, (scope ref Builder!InlayHintLabelPart out_) {
+					if (!isEmpty(x.reExports))
+						writeUrisOrCountLabelParts(alloc, out_, "Exported by ", x.reExports, maxUris);
+					if (!isEmpty(x.imports))
+						writeUrisOrCountLabelParts(
+							alloc, out_, isEmpty(x.reExports) ? "Used by " : "; Used by ", x.imports, maxUris);
+				});
 			out_ ~= InlayHint(endOfLineForDecl(lcg, decl), InlayHintLabel(parts), paddingLeft: true);
 		}
 	});
@@ -135,28 +175,47 @@ void getInlayHintsForDecl(
 		getInlayHintsForTest(alloc, out_, lcg, testStates, decl.as!(Test*));
 }
 
-void writeUrisOrCountLabelParts(ref Alloc alloc, scope ref Builder!InlayHintLabelPart out_, string description, in UrisOrCount a) {
-	a.matchIn!void(
-		(in Uri[] uris) {
-			out_ ~= InlayHintLabelPart(description);
-			bool first = true;
-			foreach (Uri uri; uris) {
-				if (first)
-					first = false;
-				else
-					out_ ~= InlayHintLabelPart(", ");
-				out_ ~= InlayHintLabelPart(
-					stringOfSymbol(alloc, baseName(uri)),
-					location: some(UriAndLineAndCharacterRange.topOfFile(uri)));
-			}
-		},
-		(in size_t count) {
-			out_ ~= InlayHintLabelPart(makeStringWithWriter(alloc, (scope ref Writer writer) {
+void writeUrisOrCountLabelParts(
+	ref Alloc alloc,
+	scope ref Builder!InlayHintLabelPart out_,
+	string description,
+	in Uri[] uris,
+	size_t maxUris,
+) {
+	if (uris.length > maxUris)
+		out_ ~= InlayHintLabelPart(
+			makeStringWithWriter(alloc, (scope ref Writer writer) {
 				writer ~= description;
-				writer ~= count;
+				writer ~= uris.length;
 				writer ~= " other modules";
-			}));
-		});
+			}),
+			tooltip: some(makeStringWithWriter(alloc, (scope ref Writer writer) {
+				writeWithCommas!Uri(writer, uris, (in Uri x) {
+					writer ~= baseName(x);
+				});
+			})));
+	else {
+		out_ ~= InlayHintLabelPart(description);
+		writeInlayPartsWithCommas!Uri(out_, uris, (in Uri uri) =>
+			InlayHintLabelPart(
+				stringOfSymbol(alloc, baseName(uri)),
+				location: some(UriAndLineAndCharacterRange.topOfFile(uri))));
+	}
+}
+
+void writeInlayPartsWithCommas(T)(
+	scope ref Builder!InlayHintLabelPart out_,
+	in T[] values,
+	in InlayHintLabelPart delegate(in T) @safe @nogc pure nothrow cb,
+) {
+	bool first = true;
+	foreach (ref const T x; values) {
+		if (first)
+			first = false;
+		else
+			out_ ~= InlayHintLabelPart(", ");
+		out_ ~= cb(x);
+	}
 }
 
 void getInlayHintsForFun(ref Alloc alloc, scope ref Builder!InlayHint out_, in ShowModelCtx showCtx, FunDecl* fun) {
@@ -243,13 +302,6 @@ void getInlayHintsForTest(
 	}
 }
 
-//InlayHint resolveInlayHintForTest(ref Alloc alloc, in ShowModelCtx showCtx, in TestStates testStates, in InlayHint unresolved) {
-//	UriAndLine where = UriAndLine(force(unresolved.data), unresolved.position.line);
-//	Opt!RunResult optResult = testStates[where];
-//	assert(!has(optResult));
-//	return InlayHint(unresolved.position, some(labelForRunTest(alloc, where)), paddingLeft: true);
-//}
-
 InlayHintLabel labelForTestResult(ref Alloc alloc, RunResult a) =>
 	InlayHintLabel(newArray(alloc, [
 		InlayHintLabelPart(
@@ -262,3 +314,30 @@ InlayHintLabel labelForRunTest(ref Alloc alloc, UriAndLine where) =>
 			"Run test",
 			command: some(Command(arguments: some(ExecuteCommandParams(ExecuteCommandParams.RunTest(where))))),
 		)]));
+
+Opt!string tooltipForRunResult(ref Alloc alloc, RunResult result) =>
+	optIf(isOk(result.exit) || !isEmpty(result.writes), () =>
+		makeStringWithWriter(alloc, (scope ref Writer writer) {
+			if (every!Write(result.writes, (in Write x) => x.pipe == Pipe.stdout))
+				writeWithNewlines!Write(writer, result.writes, (in Write x) {
+					writer ~= x.text;
+				});
+			else
+				writeWithNewlines!Write(writer, result.writes, (in Write x) {
+					writer ~= stringOfEnum(x.pipe);
+					writer ~= ": ";
+					writer ~= x.text;
+				});
+
+			if (!isOk(result.exit)) {
+				result.exit.match!void(
+					(ExitCode x) {
+						writer ~= "\nExit code ";
+						writer ~= x.value;
+					},
+					(Signal x) {
+						writer ~= "\nExited with signal ";
+						writer ~= x.signal;
+					});
+			}
+		}));

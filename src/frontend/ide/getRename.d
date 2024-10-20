@@ -5,7 +5,6 @@ module frontend.ide.getRename;
 import frontend.ide.getTarget : Target, targetForPosition;
 import frontend.ide.position : Position;
 import frontend.ide.getReferences : eachReferenceForTarget, IncludeImports;
-import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes : TextEdit, WorkspaceEdit;
 import model.model : Program;
 import util.alloc.alloc : Alloc;
@@ -18,17 +17,19 @@ import util.sourceRange : compareLineAndCharacterRange, UriAndLineAndCharacterRa
 import util.string : copyString;
 import util.uri : compareUriNaturally, Uri;
 
-Opt!WorkspaceEdit getRenameForPosition(ref Alloc alloc, in Program program, in LineAndCharacterGetters lcgs, in Position pos, in string newName) {
+Opt!WorkspaceEdit getRenameForPosition(ref Alloc alloc, in Program program, in Position pos, in string newName) {
 	Opt!Target target = targetForPosition(program.commonTypes, pos);
 	return has(target)
 		? some(WorkspaceEdit(buildGroupedAndSorted!(Uri, TextEdit, compareUriNaturally, compareTextEdit)(
 			alloc,
 			(scope ref GroupedSortedBuilder!(Uri, TextEdit) out_) {
 				string newNameOut = copyString(alloc, newName);
-				eachReferenceForTarget(program, pos.module_.uri, force(target), IncludeImports.include, (in UriAndRange x) {
-					UriAndLineAndCharacterRange range = lcgs[x];
-					out_.add(range.uri, TextEdit(range.range, newNameOut));
-				});
+				eachReferenceForTarget(
+					program, pos.module_.uri, force(target), IncludeImports.include,
+					(in UriAndRange x) {
+						UriAndLineAndCharacterRange range = program.lineAndCharacterGetters[x];
+						out_.add(range.uri, TextEdit(range.range, newNameOut));
+					});
 			})))
 		: none!WorkspaceEdit;
 }
@@ -38,8 +39,7 @@ private:
 Comparison compareTextEdit(in TextEdit a, in TextEdit b) =>
 	compareLineAndCharacterRange(a.range, b.range);
 
-// TOOD: MOVE -------------------------------------------------------------------------------------------------------------------------
-immutable(KeyValuePair!(Key, Value[]))[] buildGroupedAndSorted(Key, Value, alias compareKey, alias compareValue)(
+immutable(KeyValuePair!(Key, Value[]))[] buildGroupedAndSorted(Key, Value, alias compareKey, alias compareValue)( // TODO: unit test
 	ref Alloc alloc,
 	in void delegate(scope ref GroupedSortedBuilder!(Key, Value)) @safe @nogc pure nothrow cb,
 ) {

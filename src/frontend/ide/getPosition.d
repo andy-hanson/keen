@@ -13,7 +13,6 @@ import frontend.ide.position :
 	PositionKind,
 	VisibilityContainer;
 import frontend.parse.lexWhitespace : walkBackwardsForPosition;
-import frontend.showModel : ShowModelCtx;
 import lib.lsp.lspTypes : TextDocumentPositionParams;
 import model.ast :
 	ArrowAccessAst,
@@ -154,14 +153,14 @@ enum GetPositionKind {
 	// The cursor may be to the right of the thing; used for speculative requests such as completions.
 	after,
 }
-Opt!Position getPosition(ref Program program, in ShowModelCtx showCtx, TextDocumentPositionParams where, GetPositionKind posKind) {
-	Pos pos = showCtx.lineAndCharacterGetters[where];
+Opt!Position getPosition(ref Program program, TextDocumentPositionParams where, GetPositionKind posKind) {
+	Pos pos = program.lineAndCharacterGetters[where];
 	Pos posAdjusted = () {
 		final switch (posKind) {
 			case GetPositionKind.exact:
 				return pos;
 			case GetPositionKind.after:
-				return walkBackwardsForPosition(showCtx.fileContentGetters[where.uri], pos);
+				return walkBackwardsForPosition(program.fileContentGetters[where.uri], pos);
 		}
 	}();
 	Ctx ctx = Ctx(program.commonTypesPtr);
@@ -211,7 +210,7 @@ Opt!PositionKind getPositionKind(in Ctx ctx, ref Module module_, Pos pos, GetPos
 			hasPos(x.ast.range, pos)
 				? positionInTest(ctx, x, *x.ast, pos, posKind)
 				: none!PositionKind),
-		// It's important to have a definition at position 0, because inlay hints for "Used by" have that is their location.
+		// We need a definition at position 0, because inlay hints for "Used by" have that as their location.
 		() => optIf(pos == 0, () => PositionKind(PositionKind.ModulePosition())));
 
 Opt!PositionKind positionInFun(in Ctx ctx, FunDecl* a, in FunDeclAst* ast, Pos pos, GetPositionKind posKind) =>

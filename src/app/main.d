@@ -481,15 +481,11 @@ ExitCodeOrSignal doPrint(scope ref Perf perf, ref Alloc alloc, ref Server server
 		(in PrintKind.ConcreteModel) =>
 			withProgramForMain(perf, alloc, server, MainKind.fun(mainUri, []), [], (ref ProgramWithMain program) =>
 				printJson(alloc, jsonOfConcreteModel(
-					perf, alloc, server, server.lineAndColumnGetters,
-					versionInfoForInterpret(getOS(), VersionOptions()),
-					program))),
+					perf, alloc, server, versionInfoForInterpret(getOS(), VersionOptions()), program))),
 		(in PrintKind.LowModel) =>
 			withProgramForMain(perf, alloc, server, MainKind.fun(mainUri, []), [], (ref ProgramWithMain program) =>
 				printJson(alloc, jsonOfLowModel(
-					perf, alloc, server, server.lineAndColumnGetters,
-					versionInfoForInterpret(getOS(), VersionOptions()),
-					program))),
+					perf, alloc, server, versionInfoForInterpret(getOS(), VersionOptions()), program))),
 		(in PrintKind.IdeAtPos x) =>
 			withProgramForRoots(perf, alloc, server, [mainUri], (ref Program program) =>
 				printJson(alloc, jsonForPrintIdeAtPos(

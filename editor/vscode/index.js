@@ -92,8 +92,14 @@ const listFilesRecursive = dir => {
 	}
 }
 
+/** @type {Set<string>} */
+const didRead = new Set()
+
 /** @type {function(string): void} */
-const readFileAndNotify = uri =>
+const readFileAndNotify = uri => {
+	if (didRead.has(uri)) return
+	didRead.add(uri)
+
 	workspace.fs.readFile(Uri.parse(uri))
 		.then(bytes => {
 			const content = isRelevantFile(uri)
@@ -109,6 +115,7 @@ const readFileAndNotify = uri =>
 				logError(`Error reading file: ${JSON.stringify({uri, error})}`)
 			client.sendNotification("custom/readFileResult", {uri, type: isNotFound ? "notFound" : "error"})
 		})
+}
 
 const isRelevantFile = name =>
 	name.endsWith(".crow") || name.endsWith(".json")

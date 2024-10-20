@@ -25,7 +25,10 @@ import util.sourceRange : compareLineAndCharacterRange, Pos, UriAndLineAndCharac
 import util.uri : compareUriNaturally;
 import util.util : ptrTrustMe;
 
-Comparison compareUriAndLineAndCharacterRangeNaturally(in UriAndLineAndCharacterRange a, in UriAndLineAndCharacterRange b) =>
+Comparison compareUriAndLineAndCharacterRangeNaturally(
+	in UriAndLineAndCharacterRange a,
+	in UriAndLineAndCharacterRange b,
+) =>
 	compareOr(compareUriNaturally(a.uri, b.uri), () =>
 		compareLineAndCharacterRange(a.range, b.range));
 
