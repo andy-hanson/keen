@@ -906,6 +906,11 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			});
 			writer ~= " which is not provided.";
 		},
+		(in Diag.MainTestMissing x) {
+			writer ~= "There is no 'test' keyword on line ";
+			writer ~= x.expectedLine + 1;
+			writer ~= '.';
+		},
 		(in Diag.MatchCaseDuplicate x) {
 			writer ~= "Duplicate branch ";
 			x.kind.matchIn!void(

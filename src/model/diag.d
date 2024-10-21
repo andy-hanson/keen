@@ -383,6 +383,9 @@ immutable struct Diag {
 	immutable struct MainMissingExterns {
 		Symbol[] missing;
 	}
+	immutable struct MainTestMissing {
+		uint expectedLine;
+	}
 	immutable struct MatchCaseDuplicate {
 		immutable struct Kind {
 			mixin Union!(Symbol, string, ulong, long);
@@ -722,6 +725,7 @@ immutable struct Diag {
 		LoopDisallowedBody,
 		LoopWithoutBreak,
 		MainMissingExterns,
+		MainTestMissing,
 		MatchCaseDuplicate,
 		MatchCaseForType,
 		MatchCaseNameDoesNotMatch,

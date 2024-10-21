@@ -8,9 +8,7 @@ import frontend.ide.getReferences : eachReferenceForTarget, IncludeImports;
 import lib.lsp.lspTypes : TextEdit, WorkspaceEdit;
 import model.model : Program;
 import util.alloc.alloc : Alloc;
-import util.col.arrayBuilder : add, ArrayBuilder, arrayBuilderSort, Builder, buildSortedArray, finish;
-import util.col.map : KeyValuePair;
-import util.col.mutMap : getOrAdd, MutMap;
+import util.col.arrayBuilder : add, buildGroupedAndSorted, GroupedSortedBuilder;
 import util.comparison : Comparison;
 import util.opt : force, has, none, Opt, some;
 import util.sourceRange : compareLineAndCharacterRange, UriAndLineAndCharacterRange, UriAndRange;
@@ -38,31 +36,3 @@ private:
 
 Comparison compareTextEdit(in TextEdit a, in TextEdit b) =>
 	compareLineAndCharacterRange(a.range, b.range);
-
-immutable(KeyValuePair!(Key, Value[]))[] buildGroupedAndSorted(Key, Value, alias compareKey, alias compareValue)( // TODO: unit test
-	ref Alloc alloc,
-	in void delegate(scope ref GroupedSortedBuilder!(Key, Value)) @safe @nogc pure nothrow cb,
-) {
-	GroupedSortedBuilder!(Key, Value) builder = GroupedSortedBuilder!(Key, Value)(&alloc);
-	cb(builder);
-	return buildSortedArray!(immutable(KeyValuePair!(Key, Value[])), compareByKey!(compareKey, Key, Value[]))(
-		alloc,
-		(scope ref Builder!(immutable(KeyValuePair!(Key, Value[]))) out_) {
-			foreach (Key key, ref ArrayBuilder!Value values; builder.map) {
-				arrayBuilderSort!(Value, compareValue)(values);
-				out_ ~= immutable KeyValuePair!(Key, Value[])(key, finish(alloc, values));
-			}
-		});
-}
-
-Comparison compareByKey(alias compareKey, Key, Value)(in KeyValuePair!(Key, Value) a, in KeyValuePair!(Key, Value) b) =>
-	compareKey(a.key, b.key);
-
-struct GroupedSortedBuilder(Key, Value) {
-	Alloc* allocPtr;
-	MutMap!(Key, ArrayBuilder!Value) map;
-
-	void add(Key key, Value value) {
-		.add(*allocPtr, getOrAdd(*allocPtr, map, key, () => ArrayBuilder!Value()), value);
-	}
-}

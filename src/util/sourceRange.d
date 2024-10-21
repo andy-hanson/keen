@@ -188,7 +188,7 @@ immutable struct UriAndLineAndCharacterRange {
 
 	static UriAndLineAndCharacterRange topOfFile(Uri uri) =>
 		UriAndLineAndCharacterRange(uri, LineAndCharacterRange.topOfFile);
-};
+}
 
 Json jsonOfUriAndLineAndCharacterRange(ref Alloc alloc, in UriAndLineAndCharacterRange a) =>
 	jsonObject(alloc, [
@@ -261,8 +261,13 @@ immutable struct LineAndCharacterGetter {
 Pos endOfFile(in LineAndCharacterGetter a) =>
 	safeToUint(a.sourceText.length);
 
+private Pos startOfLinePos(in LineAndCharacterGetter a, uint line) =>
+	line >= a.lineToPos.length - 1 ? a.maxPos : a.lineToPos[line];
 private Pos nextLinePos(in LineAndCharacterGetter a, uint line) =>
-	line == a.lineToPos.length - 1 ? a.maxPos : a.lineToPos[line + 1] - 1;
+	line >= a.lineToPos.length - 1 ? a.maxPos : a.lineToPos[line + 1] - 1;
+
+Range rangeOfLine(in LineAndCharacterGetter a, uint line) =>
+	Range(startOfLinePos(a, line), nextLinePos(a, line));
 
 LineAndCharacter endOfLine(in LineAndCharacterGetter a, Pos start) {
 	LineAndCharacter lc = a[start, PosKind.startOfRange];

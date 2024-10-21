@@ -72,6 +72,8 @@ immutable struct RunOptions {
 	}
 	mixin Union!(Aot, Interpret, Jit, NodeJs);
 }
+bool isFakeExtern(in RunOptions a) =>
+	a.isA!(RunOptions.Interpret) && a.as!(RunOptions.Interpret).fakeExtern;
 
 immutable struct BuildOptions {
 	VersionOptions version_;

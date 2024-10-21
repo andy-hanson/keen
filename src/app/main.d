@@ -12,7 +12,7 @@ version (Windows) {
 }
 
 import app.backtrace : writeBacktrace;
-import app.command : BuildOptions, Command, CommandKind, RunOptions, SingleBuildOutput, targetsForBuild;
+import app.command : BuildOptions, Command, CommandKind, isFakeExtern, RunOptions, SingleBuildOutput, targetsForBuild;
 import app.dyncall : withRealExtern;
 import app.fileSystem :
 	cleanupCompile,
@@ -34,8 +34,7 @@ import app.fileSystem :
 	withTempPath,
 	writeFile,
 	writeFilesToDir,
-	writeStringNoNewline,
-	writeToStdoutAndFlush;
+	writeStringNoNewline;
 import app.parseCommand : defaultExecutableExtension, defaultExecutablePath, parseCommand;
 version (GccJitAvailable) {
 	import backend.jit : jitAndRun;
@@ -197,7 +196,7 @@ bool inAssert;
 
 	while (true) {
 		// TODO: get this from specified trace level
-		bool logLsp = true; // -------------------------------------------------------------------------------------------------
+		bool logLsp = false;
 		//TODO: track perf for each message/response
 		Opt!ExitCode stop = withNullPerf!(Opt!ExitCode, (scope ref Perf perf) =>
 			withTempAllocImpure!(Opt!ExitCode)(server.metaAlloc, (ref Alloc alloc) =>
@@ -263,7 +262,7 @@ bool isUnknownUris(in LspOutMessage a) =>
 		writer ~= "\r\n\r\n";
 		writer ~= contentJson;
 	});
-	writeToStdoutAndFlush(message);
+	writeStringNoNewline(Pipe.stdout, message);
 	if (logLsp) {
 		printErrorCbWithTime((scope ref Writer writer) {
 			writer ~= "LSP out:";
@@ -408,18 +407,19 @@ ExitCodeOrSignal go(
 			})));
 
 ExitCodeOrSignal run(scope ref Perf perf, ref Alloc alloc, ref Server server, FilePath cwd, in CommandKind.Run run) {
-	OS os = run.options.isA!(RunOptions.Interpret) && run.options.as!(RunOptions.Interpret).fakeExtern ? OS.none : getOS();
+	OS os = isFakeExtern(run.options) ? OS.none : getOS();
 	return withProgramForMain(perf, alloc, server, run.main, [BuildTarget.native(os)], (ref ProgramWithMain program) =>
 		run.options.matchImpure!ExitCodeOrSignal(
 			(in RunOptions.Aot x) @safe =>
 				buildAndRun(perf, alloc, server, cwd, program, run.main.programArgs, x),
 			(in RunOptions.Interpret x) =>
-				withRealOrFakeExtern(x.fakeExtern, *newAlloc(AllocKind.extern_, server.metaAlloc), (scope ref Extern extern_) =>
-					buildAndInterpret(
-						perf, server, extern_,
-						(in string x) { printError(x); },
-						program, os, x.version_, none!(Uri[]),
-						getAllArgs(alloc, server, run.main))),
+				withRealOrFakeExtern(
+					x.fakeExtern, *newAlloc(AllocKind.extern_, server.metaAlloc), (scope ref Extern extern_) =>
+						buildAndInterpret(
+							perf, server, extern_,
+							(in string x) { printError(x); },
+							program, os, x.version_, none!(Uri[]),
+							getAllArgs(alloc, server, run.main))),
 			(in RunOptions.Jit options) {
 				version (GccJitAvailable)
 					return ExitCodeOrSignal(jitAndRun(
@@ -466,7 +466,7 @@ FilePath getCrowIncludeDir(FilePath thisExecutable) {
 }
 
 CString[] getAllArgs(ref Alloc alloc, in Server server, in MainKind main) =>
-	prepend!CString(alloc, cStringOfUriPreferRelative(alloc, server.urisInfo, main.mainUriForAllArgs), main.programArgs);
+	prepend(alloc, cStringOfUriPreferRelative(alloc, server.urisInfo, main.mainUriForAllArgs), main.programArgs);
 
 ExitCodeOrSignal doPrint(scope ref Perf perf, ref Alloc alloc, ref Server server, in CommandKind.Print command) {
 	Uri mainUri = command.mainUri;
@@ -657,7 +657,7 @@ ExitCodeOrSignal withProgramForMain(
 				? ExitCodeOrSignal(printError("Stopping due to compile errors."))
 				: cb(program);
 		});
-ExitCodeOrSignal withProgramForRoots( // TODO: maybe this could just be a MainKind? --------------------------------------------------------------
+ExitCodeOrSignal withProgramForRoots(
 	scope ref Perf perf,
 	ref Alloc alloc,
 	ref Server server,

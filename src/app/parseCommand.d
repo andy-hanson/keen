@@ -3,8 +3,7 @@ module app.parseCommand;
 @safe @nogc pure nothrow:
 
 import app.command : BuildOptions, Command, CommandKind, CommandOptions, RunOptions, SingleBuildOutput;
-import frontend.lang : CCompileOptions, CVersion, JitOptions, MainKind, OptimizationLevel;
-import frontend.storage : fileType, FileType; // TODO: move these? ------------------------------------------------------------------
+import frontend.lang : CCompileOptions, CVersion, FileType, fileType, JitOptions, MainKind, OptimizationLevel;
 import frontend.parse.lexToken : NatAndOverflow, takeNat;
 import lib.server : PrintKind;
 import util.alloc.alloc : Alloc;
@@ -38,7 +37,7 @@ import util.uri :
 	toUri,
 	Uri,
 	uriIsFile;
-import util.util : castNonScope, enumEach, optEnumOfString, stringOfEnum, todo, typeAs;
+import util.util : castNonScope, enumEach, optEnumOfString, stringOfEnum, typeAs;
 import util.writer : makeStringWithWriter, writeNewline, writeQuotedString, Writer, writeWithCommasAndAnd;
 import versionInfo : OS, VersionOptions;
 
@@ -118,10 +117,15 @@ immutable struct Diag {
 	immutable struct BuildOutBadPrefix { string prefix; }
 	immutable struct DuplicatePart { CString tag; }
 	immutable struct ExpectedCrowUri { string actual; }
+	immutable struct ExpectedNat { string actual; }
 	immutable struct ExpectedPaths { Opt!CString tag; }
 	immutable struct NeedsSinglePath { size_t actual; }
 	immutable struct ParseFilePath { CString actual; }
 	immutable struct PrintKind {}
+	immutable struct RedundantPart {
+		CString redundantTag;
+		CString otherTag; // This causes the redundantTag to be redundant
+	}
 	immutable struct UnexpectedPart { CString tag; }
 	immutable struct UnexpectedPartArgs { ArgsPart part; }
 	immutable struct UnexpectedBefore { CString arg; }
@@ -134,22 +138,26 @@ immutable struct Diag {
 		bool nodeJs;
 	}
 	immutable struct RunOptimizeNeedsAotOrJit {}
+	immutable struct TestLineNumberInvalid {}
 
 	mixin Union!(
 		BuildOutBadFileExtension,
 		BuildOutBadPrefix,
 		DuplicatePart,
 		ExpectedCrowUri,
+		ExpectedNat,
 		ExpectedPaths,
 		NeedsSinglePath,
 		ParseFilePath,
 		PrintKind,
+		RedundantPart,
 		UnexpectedPart,
 		UnexpectedPartArgs,
 		UnexpectedBefore,
 		RunArgNotSupportedInNodeJs,
 		RunKindIncompatible,
-		RunOptimizeNeedsAotOrJit);
+		RunOptimizeNeedsAotOrJit,
+		TestLineNumberInvalid);
 }
 alias Diags = Builder!Diag;
 
@@ -172,6 +180,11 @@ void writeDiag(scope ref Writer writer, in Diag a) {
 		},
 		(in Diag.ExpectedCrowUri x) {
 			writer ~= "Expected path to a '.crow' file, instead got ";
+			writeQuotedString(writer, x.actual);
+			writer ~= '.';
+		},
+		(in Diag.ExpectedNat x) {
+			writer ~= "Expected argument to be a natural number, instead got ";
 			writeQuotedString(writer, x.actual);
 			writer ~= '.';
 		},
@@ -199,6 +212,14 @@ void writeDiag(scope ref Writer writer, in Diag a) {
 		},
 		(in Diag.PrintKind) {
 			writer ~= "Not a valid print command.";
+		},
+		(in Diag.RedundantPart x) {
+			writer ~= "'";
+			writer ~= x.redundantTag;
+			writer ~= " is redundant given ";
+			writer ~= "'";
+			writer ~= x.otherTag;
+			writer ~= "'.";
 		},
 		(in Diag.UnexpectedPart x) {
 			writer ~= "Unexpected argument ";
@@ -240,6 +261,9 @@ void writeDiag(scope ref Writer writer, in Diag a) {
 		},
 		(in Diag.RunOptimizeNeedsAotOrJit) {
 			writer ~= "'--optimize' must be combined with '--aot' or '--jit'.";
+		},
+		(in Diag.TestLineNumberInvalid) {
+			writer ~= "Specifying a test line number only works when there is a single test file.";
 		});
 }
 
@@ -338,7 +362,7 @@ MainKind parseMainKindForTest(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 		: none!uint;
 
 	if (args.length == 2 && !has(line))
-		todo!void("DIAG"); // ------------------------------------------------------------------------------------------------------------------
+		diags ~= Diag(Diag.ExpectedNat(stringOfCString(args[1])));
 
 	if (args.length != 1 && args.length != 2) {
 		diags ~= Diag(Diag.NeedsSinglePath(args.length));
@@ -349,14 +373,14 @@ MainKind parseMainKindForTest(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 		final switch (fileType(uri)) {
 			case FileType.crow:
 				if (all && has(line))
-					todo!void("DIAG"); // ------------------------------------------------------------------------------------------
+					diags ~= Diag(Diag.TestLineNumberInvalid());
 				return MainKind.testsAtUri(all, uri, line);
 			case FileType.crowConfig:
 				if (has(line))
-					todo!void("DIAG"); // -------------------------------------------------------------------------------------------------
+					diags ~= Diag(Diag.TestLineNumberInvalid());
 				return MainKind.testsInConfig(all, uri);
 			case FileType.other:
-				todo!void("DIAG"); // -----------------------------------------------------------------------------------------------------
+				diags ~= Diag(Diag.ExpectedCrowUri(argStr));
 				return MainKind.testsAtUri(false, Uri.empty, none!uint); // dummy return value
 		}
 	}
@@ -498,7 +522,68 @@ Opt!uint tryTakeNat(ref MutCString ptr) {
 
 CommandKind parseBuildCommand(ref Alloc alloc, FilePath cwd, scope ref Diags diags, OS os, in SplitArgs args) {
 	expectEmptyAfterDashDash(diags, args.afterDashDash);
-	return CommandKind(parseBuildOptions(alloc, cwd, diags, os, args.beforeFirstPart, args.parts)); // TODO: just inline that here????
+	SingleBuildOutput[] out_;
+	bool optimize = false;
+	bool c99 = false;
+	bool noStackTrace = false;
+	bool singleThreaded = false;
+	bool test = false;
+	bool all = false;
+
+	foreach (ArgsPart part; args.parts) {
+		void setFlag(ref bool flag) {
+			expectFlag(diags, part);
+			if (flag)
+				diags ~= Diag(Diag.DuplicatePart(part.tag));
+			flag = true;
+		}
+		switch (stringOfCString(part.tag)) {
+			case "--c99":
+				setFlag(c99);
+				break;
+			case "--no-stack-trace":
+				setFlag(noStackTrace);
+				break;
+			case "--out":
+				if (!isEmpty(out_))
+					diags ~= Diag(Diag.DuplicatePart(part.tag));
+				else
+					out_ = parseBuildOut(alloc, cwd, os, diags, part);
+				break;
+			case "--optimize":
+				setFlag(optimize);
+				break;
+			case "--single-threaded":
+				setFlag(singleThreaded);
+				break;
+			case "--test":
+				setFlag(test);
+				break;
+			case "--all":
+				setFlag(all);
+				break;
+			default:
+				diags ~= Diag(Diag.UnexpectedPart(part.tag));
+		}
+	}
+
+	if (all && !test)
+		diags ~= Diag(Diag.UnexpectedPart(cString!"--all"));
+
+	MainKind main = test
+		? parseMainKindForTest(alloc, cwd, diags, args.beforeFirstPart, all: all)
+		: MainKind.fun(parseMainUri(alloc, cwd, diags, args.beforeFirstPart), []);
+	SingleBuildOutput[] resOut = !isEmpty(out_)
+		? out_
+		: newArray(alloc, [
+			SingleBuildOutput(SingleBuildOutput.Kind.executable, defaultExecutablePathForMain(main, cwd, os))]);
+	BuildOptions options = BuildOptions(
+		VersionOptions(isSingleThreaded: singleThreaded, stackTraceEnabled: !noStackTrace),
+		resOut,
+		CCompileOptions(
+			optimize ? OptimizationLevel.o2 : OptimizationLevel.none,
+			c99 ? CVersion.c99 : CVersion.c11));
+	return CommandKind(CommandKind.Build(main, options));
 }
 
 immutable struct RunOptionsAndAll {
@@ -515,41 +600,39 @@ RunOptionsAndAll parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, 
 	bool all = false;
 	bool fakeExtern = false;
 	foreach (ArgsPart part; argParts) {
-		expectFlag(diags, part);
+		void setFlag(ref bool flag) {
+			expectFlag(diags, part);
+			if (flag)
+				diags ~= Diag(Diag.DuplicatePart(part.tag));
+			flag = true;
+		}
 		switch (stringOfCString(part.tag)) {
 			case "--all":
 				if (allowAll)
-					all = true;
+					setFlag(all);
 				else
 					diags ~= Diag(Diag.UnexpectedPart(part.tag));
 				break;
 			case "--aot":
-				if (aot) diags ~= Diag(Diag.DuplicatePart(part.tag));
-				aot = true;
+				setFlag(aot);
 				break;
 			case "--fake-extern":
-				if (fakeExtern) diags ~= Diag(Diag.DuplicatePart(part.tag));
-				fakeExtern = true;
+				setFlag(fakeExtern);
 				break;
 			case "--jit":
-				if (jit) diags ~= Diag(Diag.DuplicatePart(part.tag));
-				jit = true;
+				setFlag(jit);
 				break;
 			case "--node-js":
-				if (nodeJs) diags ~= Diag(Diag.DuplicatePart(part.tag));
-				nodeJs = true;
+				setFlag(nodeJs);
 				break;
 			case "--no-stack-trace":
-				if (noStackTrace) diags ~= Diag(Diag.DuplicatePart(part.tag));
-				noStackTrace = true;
+				setFlag(noStackTrace);
 				break;
 			case "--optimize":
-				if (optimize) diags ~= Diag(Diag.DuplicatePart(part.tag));
-				optimize = true;
+				setFlag(optimize);
 				break;
 			case "--single-threaded":
-				if (singleThreaded) diags ~= Diag(Diag.DuplicatePart(part.tag));
-				singleThreaded = true;
+				setFlag(singleThreaded);
 				break;
 			default:
 				diags ~= Diag(Diag.UnexpectedPart(part.tag));
@@ -557,9 +640,9 @@ RunOptionsAndAll parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, 
 	}
 
 	if (fakeExtern && (aot || jit || nodeJs))
-		todo!void("DIAG: --fake-extern only works with interpreter"); // ---------------------------------------------------
+		diags ~= Diag(Diag.UnexpectedPart(cString!"--fake-extern"));
 	if (fakeExtern && singleThreaded)
-		todo!void("REDUNDANT"); // -000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+		diags ~= Diag(Diag.RedundantPart(cString!"--single-threaded", cString!"--fake-extern"));
 	if ((uint(aot) + jit + nodeJs) > 1)
 		diags ~= Diag(Diag.RunKindIncompatible(aot: aot, jit: jit, nodeJs: nodeJs));
 	if (!aot && !jit && optimize)
@@ -568,7 +651,9 @@ RunOptionsAndAll parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, 
 		diags ~= Diag(Diag.RunArgNotSupportedInNodeJs(
 			singleThreaded ? "--single-threaded" : optimize ? "--optimize" : "--no-stack-trace"));
 
-	VersionOptions version_ = VersionOptions(isSingleThreaded: fakeExtern || singleThreaded, stackTraceEnabled: !noStackTrace);
+	VersionOptions version_ = VersionOptions(
+		isSingleThreaded: fakeExtern || singleThreaded,
+		stackTraceEnabled: !noStackTrace);
 	RunOptions res = aot
 		? RunOptions(RunOptions.Aot(
 			version_,
@@ -584,75 +669,6 @@ RunOptionsAndAll parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, 
 void expectFlag(scope ref Diags diags, ArgsPart part) {
 	if (!isEmpty(part.args))
 		diags ~= Diag(Diag.UnexpectedPartArgs(part));
-}
-
-CommandKind.Build parseBuildOptions(
-	ref Alloc alloc,
-	FilePath cwd,
-	scope ref Diags diags,
-	OS os,
-	in CString[] beforeFirstPart,
-	in ArgsPart[] argParts,
-) {
-	SingleBuildOutput[] out_;
-	bool optimize = false;
-	bool c99 = false;
-	bool noStackTrace = false;
-	bool singleThreaded = false;
-	bool test; // TODO: DOCUMENT ME ------------------------------------------------------------------------------------------------------
-	foreach (ArgsPart part; argParts) {
-		switch (stringOfCString(part.tag)) {
-			case "--c99":
-				if (c99)
-					diags ~= Diag(Diag.DuplicatePart(part.tag));
-				c99 = true;
-				break;
-			case "--no-stack-trace":
-				if (noStackTrace) diags ~= Diag(Diag.DuplicatePart(part.tag));
-				noStackTrace = true;
-				break;
-			case "--out":
-				if (!isEmpty(out_))
-					diags ~= Diag(Diag.DuplicatePart(part.tag));
-				else
-					out_ = parseBuildOut(alloc, cwd, os, diags, part);
-				break;
-			case "--optimize":
-				expectFlag(diags, part);
-				if (optimize)
-					diags ~= Diag(Diag.DuplicatePart(part.tag));
-				optimize = true;
-				break;
-			case "--single-threaded":
-				expectFlag(diags, part);
-				if (singleThreaded)
-					diags ~= Diag(Diag.DuplicatePart(part.tag));
-				singleThreaded = true;
-				break;
-			case "--test":
-				expectFlag(diags, part);
-				// TODO: detect duplicate -----------------------------------------------------------------------------------------------
-				test = true;
-				break;
-			default:
-				diags ~= Diag(Diag.UnexpectedPart(part.tag));
-		}
-	}
-
-	MainKind main = test
-		? parseMainKindForTest(alloc, cwd, diags, beforeFirstPart, all: false) // TODO: support '--all'. Warn if '--test' is not passed
-		: MainKind.fun(parseMainUri(alloc, cwd, diags, beforeFirstPart), []);
-	SingleBuildOutput[] resOut = !isEmpty(out_)
-		? out_
-		: newArray(alloc, [
-			SingleBuildOutput(SingleBuildOutput.Kind.executable, defaultExecutablePathForMain(main, cwd, os))]);
-	BuildOptions options = BuildOptions(
-		VersionOptions(isSingleThreaded: singleThreaded, stackTraceEnabled: !noStackTrace),
-		resOut,
-		CCompileOptions(
-			optimize ? OptimizationLevel.o2 : OptimizationLevel.none,
-			c99 ? CVersion.c99 : CVersion.c11));
-	return CommandKind.Build(main, options);
 }
 
 SingleBuildOutput[] parseBuildOut(ref Alloc alloc, FilePath cwd, OS os, scope ref Diags diags, ArgsPart part) {
@@ -891,6 +907,8 @@ string commandDescription(CommandName name) {
 				"\n\t--out : Output path. Defaults to the input path with the extension changed." ~
 				"\n\t\tIf this has a '.c' extension, it will output C source code instead." ~
 				"\n\t--optimize : Enables optimizations." ~
+				"\n\t--test: Ignore the 'main' function and compile a program that runs tests." ~
+				"\n\t\t--all: Works with '--test'. Runs all tests in all included files." ~
 				"\n\t--c99 : Compile to C99. (Default is C11 which is less verbose.)" ~
 				buildRunCommonOptions;
 		case CommandName.check:
@@ -930,8 +948,10 @@ string commandDescription(CommandName name) {
 				"\nIt optionally takes the name of the test suite to run (see 'test.d' for a list).";
 		case CommandName.test:
 			return "Runs tests at PATH." ~
-				"\nIf PATH is a 'crow-config' file, runs all tests in all '.crow' files in its directory." ~
-				"\nIf PATH is a file, runs tests in that file. You can also specify the line number of a 'test' keyword to run only that test." ~
+				"\nIf PATH is a 'crow-config' file, searches its directory (recursively) for '.crow' files"~
+					" that would have it as their config." ~
+				"\nIf PATH is a file, runs tests in that file." ~
+				"\nYou can also specify the line number of a 'test' keyword to run only that test." ~
 				"\nIf '--all' is specified, runs all tests in reachable files, including library tests.";
 		case CommandName.version_:
 			return "Prints information about the version of 'crow'.\nNo options.";

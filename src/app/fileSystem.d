@@ -99,8 +99,6 @@ import util.uri :
 import util.util : castImmutable, castNonScope_ref, todo, typeAs;
 import util.writer : withStackWriterImpure, withStackWriterImpureCString, Writer, writeWithSeparatorAndFilter;
 
-private enum OutPipe { stdout = 1, stderr = 2 }
-
 private FILE* stdin() {
 	version (Windows) {
 		return __acrt_iob_func(0);
@@ -121,7 +119,7 @@ private FILE* stdin() {
 }
 
 @trusted ExitCode print(in string a) {
-	writeLn(OutPipe.stdout, a);
+	writeLn(Pipe.stdout, a);
 	return ExitCode.ok;
 }
 
@@ -129,56 +127,51 @@ ExitCode printCb(in void delegate(scope ref Writer writer) @safe @nogc pure noth
 	withStackWriterImpure(cb, (in string x) => print(x));
 
 @trusted ExitCode printError(in string a) {
-	writeLn(OutPipe.stderr, a);
+	writeLn(Pipe.stderr, a);
 	return ExitCode.error;
 }
 
 ExitCode printErrorCb(in void delegate(scope ref Writer writer) @safe @nogc nothrow cb) =>
 	withStackWriterImpure(cb, (in string x) => printError(x));
 
-// Unlike 'print' this does *not* add a newline.
-@system void writeToStdoutAndFlush(in string a) {
-	writeString(OutPipe.stdout, a);
-	flush(OutPipe.stdout);
-}
-
-private void flush(OutPipe pipe) {
+private void flush(Pipe pipe) {
 	fflush(fileForPipe(pipe));
 }
 
-private FILE* fileForPipe(OutPipe pipe) {
+private FILE* fileForPipe(Pipe pipe) {
 	version (Windows) {
-		return __acrt_iob_func(pipe);
+		return __acrt_iob_func(pipeNumber(pipe));
 	} else {
 		final switch (pipe) {
-			case OutPipe.stdout:
+			case Pipe.stdout:
 				return posixStdout;
-			case OutPipe.stderr:
+			case Pipe.stderr:
 				return posixStderr;
 		}
 	}
 }
-
-@trusted void writeStringNoNewline(Pipe pipe, in string a) {
-	OutPipe out_ = () {
-		final switch (pipe) { // TODO: do I really need a separate OutPipe enum? -------------------------------------------------
-			case Pipe.stderr:
-				return OutPipe.stderr;						
-			case Pipe.stdout: 
-				return OutPipe.stdout;
-		}
-	}();
-	writeString(out_, a);
+private int pipeNumber(Pipe pipe) {
+	final switch (pipe) {
+		case Pipe.stdout:
+			return 1;
+		case Pipe.stderr:
+			return 2;
+	}
 }
 
-private @system void writeString(OutPipe pipe, in string a) {
+@trusted void writeStringNoNewline(Pipe pipe, in string a) {
+	writeStringNoNewlineNoFlush(pipe, a);
+	flush(pipe);
+}
+
+private @system void writeStringNoNewlineNoFlush(Pipe pipe, in string a) {
 	version (Windows) {
 		SetConsoleOutputCP(CP_UTF8);
 		HANDLE console = GetStdHandle(() {
 			final switch (pipe) {
-				case OutPipe.stdout:
+				case Pipe.stdout:
 					return STD_OUTPUT_HANDLE;
-				case OutPipe.stderr:
+				case Pipe.stderr:
 					return STD_ERROR_HANDLE;
 			}
 		}());
@@ -187,14 +180,13 @@ private @system void writeString(OutPipe pipe, in string a) {
 		assert(ok == 1);
 		assert(written == a.length);
 	} else {
-		write(pipe, a.ptr, safeToUint(a.length));
+		write(pipeNumber(pipe), a.ptr, safeToUint(a.length));
 	}
 }
 
-private @system void writeLn(OutPipe pipe, in string a) {
-	writeString(pipe, a);
-	writeString(pipe, "\n");
-	flush(pipe);
+private @system void writeLn(Pipe pipe, in string a) {
+	writeStringNoNewlineNoFlush(pipe, a);
+	writeStringNoNewline(pipe, "\n");
 }
 
 // Equivalent to 'rm -rf path'

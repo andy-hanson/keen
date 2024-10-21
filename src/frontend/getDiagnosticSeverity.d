@@ -127,6 +127,8 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.warning,
 		(in Diag.MainMissingExterns) =>
 			DiagnosticSeverity.commonMissing,
+		(in Diag.MainTestMissing) =>
+			DiagnosticSeverity.commonMissing,
 		(in Diag.MatchCaseDuplicate) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.MatchCaseForType) =>

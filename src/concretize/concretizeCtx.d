@@ -515,7 +515,8 @@ ConcreteFun* concreteFunForTest(ref ConcretizeCtx ctx, Test* test, size_t testIn
 }
 
 public ConcreteFun* concreteFunForWrapMain(ref ConcretizeCtx ctx, FunInst* modelMain) {
-	ConcreteType stringArrayType = getConcreteType_forStructInst(ctx, ctx.commonTypes.stringArray, emptySmallArray!ConcreteType);
+	ConcreteType stringArrayType = getConcreteType_forStructInst(
+		ctx, ctx.commonTypes.stringArray, emptySmallArray!ConcreteType);
 	ConcreteFun* innerMain = getNonTemplateConcreteFun(ctx, modelMain);
 	/*
 	This is like:

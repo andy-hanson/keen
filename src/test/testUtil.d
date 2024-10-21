@@ -4,8 +4,9 @@ module test.testUtil;
 
 import std.meta : AliasSeq, staticMap;
 
+import frontend.lang : FileType, fileType;
 import frontend.showModel : ShowCtx, ShowOptions;
-import frontend.storage : FileContentGetters, FileType, fileType, LineAndColumnGetters, ReadFileResult, Storage;
+import frontend.storage : FileContentGetters, LineAndColumnGetters, ReadFileResult, Storage;
 import interpret.bytecode : ByteCode, ByteCodeIndex, Operation;
 import interpret.debugInfo : showDataArr;
 import interpret.stacks : dataEnd, returnTempAsArrReverse, Stacks;

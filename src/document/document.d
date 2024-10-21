@@ -220,7 +220,12 @@ Json documentUnion(ref Ctx ctx, in StructDecl decl, in StructBody.Union a, Opt!(
 			documentUnionMember(ctx, decl.typeParams, member))),
 		variantsField]);
 
-Json documentVariant(ref Alloc alloc, in StructDecl decl, in StructBody.Variant a, Opt!(Json.ObjectField) variantsField) =>
+Json documentVariant(
+	ref Alloc alloc,
+	in StructDecl decl,
+	in StructBody.Variant a,
+	Opt!(Json.ObjectField) variantsField,
+) =>
 	jsonObject(alloc, [kindField!"variant", maybePurity(alloc, decl), variantsField]);
 
 Opt!Json documentRecordField(ref Ctx ctx, in TypeParams typeParams, in RecordField a) {

@@ -61,11 +61,11 @@ import util.col.enumMap : EnumMap, enumMapMapValues;
 import util.late : late, Late, lateGet, lateIsSet, lateSet;
 import util.memory : allocate;
 import util.opt : force, has, none, MutOpt, Opt, some, someMut;
-import util.sourceRange : LineAndCharacterGetter, PosKind, Range, UriAndRange;
+import util.sourceRange : LineAndCharacterGetter, PosKind, Range, rangeOfLine, UriAndRange;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet, symbolSetDifference;
 import util.uri : Uri;
-import util.util : castNonScope_ref, todo;
+import util.util : castNonScope_ref;
 
 CommonFunsAndDiagnostics getCommonFuns(
 	ref Alloc alloc,
@@ -247,14 +247,23 @@ ParamShort param(string name)(Type type) =>
 
 private:
 
-TestSelector testAtLine(ref Alloc alloc, scope ref ArrayBuilder!UriAndDiagnostic diagsBuilder, in Program program, Uri uri, uint line) {
+TestSelector testAtLine(
+	ref Alloc alloc,
+	scope ref ArrayBuilder!UriAndDiagnostic diagsBuilder,
+	in Program program,
+	Uri uri,
+	uint line,
+) {
 	Module* module_ = moduleAtUri(program, uri);
 	LineAndCharacterGetter lcg = program.lineAndCharacterGetters[uri];
-	Opt!(Test*) test = findPointer!Test(module_.tests, (in Test x) => lcg[x.range.range.start, PosKind.startOfRange].line == line);
+	Opt!(Test*) test = findPointer!Test(module_.tests, (in Test x) =>
+		lcg[x.range.range.start, PosKind.startOfRange].line == line);
 	if (has(test))
 		return TestSelector(force(test));
 	else {
-		todo!void("DIAG"); // ----------------------------------------------------------------------------------------------------------
+		add(alloc, diagsBuilder, UriAndDiagnostic(
+			UriAndRange(uri, rangeOfLine(lcg, line)),
+			Diag(Diag.MainTestMissing(line))));
 		return TestSelector(uri);
 	}
 }
@@ -402,7 +411,8 @@ MainFun getMainFun(
 	scope ParamShort[] argsParamsInner = [param!"args"(Type(commonTypes.stringArray))];
 	ParamsShort argsParams = ParamsShort(small!ParamShort(castNonScope_ref(argsParamsInner)));
 	FunDeclAndSigIndex decl = getFunDeclMulti(alloc, diagsBuilder, mainModule, symbol!"main", [
-		TypeParamsAndSig(emptyTypeParams, Type(commonTypes.void_), ParamsShort(emptySmallArray!ParamShort), countSpecs: 0),
+		TypeParamsAndSig(
+			emptyTypeParams, Type(commonTypes.void_), ParamsShort(emptySmallArray!ParamShort), countSpecs: 0),
 		TypeParamsAndSig(emptyTypeParams, Type(commonTypes.integrals.nat64), argsParams, countSpecs: 0)]);
 	FunInst* inst = instantiateNonTemplateFun(ctx, decl.decl);
 	final switch (decl.sigIndex) {

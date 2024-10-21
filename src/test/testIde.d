@@ -221,7 +221,7 @@ void withAstTests(string dir, string[] fileNames)(
 	});
 }
 
-private void withAstTest(
+void withAstTest(
 	ref Test test,
 	Uri uri,
 	in string content,
@@ -262,7 +262,7 @@ void ideTestWithCrowAndJsonFiles(string dir, string[] fileNames)(
 		});
 }
 
-private void withIdeTestsForCrowAndJsonFiles(string dir, string[] fileNames)(
+void withIdeTestsForCrowAndJsonFiles(string dir, string[] fileNames)(
 	ref Test test,
 	in void delegate(in ShowModelCtx, in Program, in CrowJsonTest[]) @safe @nogc pure nothrow cb,
 ) {
@@ -281,7 +281,7 @@ private void withIdeTestsForCrowAndJsonFiles(string dir, string[] fileNames)(
 	});
 }
 
-private void testAtPositions(
+void testAtPositions(
 	ref Test test,
 	Uri uri,
 	in Json json,
@@ -300,7 +300,7 @@ private void testAtPositions(
 	}
 }
 
-private void withCrowAndJsonFiles(string dirName, string[] names)(
+void withCrowAndJsonFiles(string dirName, string[] names)(
 	ref Test test,
 	in void delegate(in CrowJsonTest[]) @safe @nogc pure nothrow cb,
 ) {
@@ -316,7 +316,7 @@ private void withCrowAndJsonFiles(string dirName, string[] names)(
 		(scope CrowJsonTest[] x) => cb(x));
 }
 
-private immutable struct CrowJsonTest {
+immutable struct CrowJsonTest {
 	@safe @nogc pure nothrow:
 	Uri uri;
 	string crow;
@@ -326,13 +326,13 @@ private immutable struct CrowJsonTest {
 		alterExtension(uri, Extension.json);
 }
 
-private immutable struct CrowJsonTestStatic {
+immutable struct CrowJsonTestStatic {
 	string name;
 	string crow;
 	immutable char* json;
 }
 
-private template importCrowTest(string dirName) {
+template importCrowTest(string dirName) {
 	CrowJsonTestStatic importCrowTest(string name)() =>
 		CrowJsonTestStatic(name, import(dirName ~ "/" ~ name ~ ".crow"), import(dirName ~ "/" ~ name ~ ".json"));
 }

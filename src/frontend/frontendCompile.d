@@ -6,7 +6,7 @@ import frontend.check.check : BootstrapCheck, check, checkBootstrap, UriAndAst, 
 import frontend.check.checkCtx : CommonModule, CommonUris;
 import frontend.check.getCommonFuns : getCommonFuns, getMainFunAndDiagnostics;
 import frontend.check.instantiate : getAllFutureAndMutArrayImpls, InstantiateCtx;
-import frontend.lang : crowConfigBaseName, MainKind;
+import frontend.lang : crowConfigBaseName, FileType, fileType, MainKind;
 import frontend.allInsts : AllInsts, freeInstantiationsForModule, perfStats;
 import frontend.storage :
 	CrowConfigFileInfo,
@@ -17,8 +17,6 @@ import frontend.storage :
 	fileOrDiag,
 	FilesState,
 	filesState,
-	FileType,
-	fileType,
 	LineAndColumnGetters,
 	markUnknownIfNotExist,
 	OtherFileInfo,

@@ -2280,7 +2280,7 @@ immutable struct Program {
 
 	LineAndCharacterGetters lineAndCharacterGetters() return scope =>
 		lineAndColumnGetters.lineAndCharacterGetters;
-	ref CommonFuns commonFuns() return =>
+	ref CommonFuns commonFuns() scope return =>
 		commonFunsAndDiagnostics.commonFuns;
 	ref CommonTypes commonTypes() return scope =>
 		*commonTypesPtr;

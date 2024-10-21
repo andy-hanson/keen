@@ -6,6 +6,7 @@ import app.fileSystem : printCb;
 import test.testAllInsts : testAllInsts;
 import test.testAlloc : testAlloc;
 import test.testApplyFn : testApplyFn;
+import test.testArrayBuilder : testArrayBuilder;
 import test.testFakeExtern : testFakeExtern;
 import test.testHashTable : testHashTable;
 import test.testIde :
@@ -74,6 +75,7 @@ immutable NameAndTest[] allTests = [
 	NameAndTest("alloc", &testAlloc),
 	NameAndTest("all-insts", &testAllInsts),
 	NameAndTest("apply-fn", &testApplyFn),
+	NameAndTest("array-builder", &testArrayBuilder),
 	NameAndTest("code-lens", &testCodeLens),
 	NameAndTest("completion", &testCompletion),
 	NameAndTest("fake-extern", &testFakeExtern),

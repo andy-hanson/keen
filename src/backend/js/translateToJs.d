@@ -94,6 +94,7 @@ import model.model :
 	isTuple,
 	MainFun,
 	Module,
+	moduleAtUri,
 	nameFromNameReferentsPointer,
 	NameReferents,
 	Program,
@@ -138,7 +139,7 @@ import util.uri :
 	RelPath,
 	relativePath,
 	Uri;
-import util.util : castNonScope_ref, ptrTrustMe, todo, typeAs;
+import util.util : castNonScope_ref, ptrTrustMe, typeAs;
 import versionInfo : JsTarget, VersionInfo, versionInfoForBuildToJS;
 
 JsAndMap translateToJsScript(
@@ -149,7 +150,8 @@ JsAndMap translateToJsScript(
 	Opt!Symbol sourceMapName,
 ) =>
 	withTranslateProgram(alloc, program, showCtx, jsTarget, true, (ref TranslateProgramCtx ctx) =>
-		writeJsScriptAst(alloc, showCtx, modulePaths(alloc, program.program), translateProgramToScript(ctx), sourceMapName));
+		writeJsScriptAst(
+			alloc, showCtx, modulePaths(alloc, program.program), translateProgramToScript(ctx), sourceMapName));
 
 immutable struct JsModules {
 	Path mainJs;
@@ -165,9 +167,9 @@ JsModules translateToJsModules(
 		ModulePaths modulePaths = modulePaths(alloc, program.program);
 		// None for unused modules
 		MutMap!(Module*, Opt!JsModuleAst) done;
-		todo!void("-----------------------------------------------------------------------------"); //doTranslateModule(ctx, modulePaths, done, program.mainModule);
+		doTranslateModule(ctx, modulePaths, done, mainModule(program));
 		return JsModules(
-			modulePaths.jsPath(todo!Uri("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ")),//program.mainUri),
+			modulePaths.jsPath(mainUri(program)),
 			getOutputFiles(alloc, showCtx, modulePaths, done, jsTarget));
 	});
 
@@ -273,7 +275,7 @@ JsModuleAst translateModule(ref TranslateProgramCtx ctx, in ModulePaths modulePa
 			}
 		});
 	});
-	bool isMain = todo!bool("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII");//a.uri == ctx.programWithMainPtr.mainUri;
+	bool isMain = a.uri == mainUri(*ctx.programWithMainPtr);
 	JsStatement[] statements = isMain
 		? callMain(moduleCtx)
 		: [];
@@ -281,6 +283,11 @@ JsModuleAst translateModule(ref TranslateProgramCtx ctx, in ModulePaths modulePa
 		isMain && !moduleCtx.isBrowser ? Shebang.node : Shebang.none,
 		a.uri, imports, reExports, decls, statements);
 }
+
+Module* mainModule(ref ProgramWithMain a) =>
+	moduleAtUri(a.program, mainUri(a));
+Uri mainUri(in ProgramWithMain a) =>
+	actualMainFun(a).moduleUri;
 
 JsScriptAst translateProgramToScript(ref TranslateProgramCtx ctx) {
 	TranslateModuleCtx moduleCtx = TranslateModuleCtx(

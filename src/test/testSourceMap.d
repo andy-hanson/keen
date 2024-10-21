@@ -3,7 +3,8 @@ module test.testSourceMap;
 @safe @nogc pure nothrow:
 
 import backend.js.sourceMap : finish, ModulePaths, SingleSourceMapping, Source, SourceMapBuilder, writeBase64VLQ;
-import frontend.storage : FileContentGetters, FileType, fileType, setFileAssumeUtf8, Storage;
+import frontend.lang : FileType, fileType;
+import frontend.storage : FileContentGetters, setFileAssumeUtf8, Storage;
 import test.testUtil : assertEqual, Test;
 import util.col.map : KeyValuePair, newMap;
 import util.sourceRange : LineAndCharacter;

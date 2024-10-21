@@ -4,9 +4,9 @@ module frontend.lang;
 
 import util.opt : Opt;
 import util.string : CString;
-import util.symbol : Symbol, symbol;
+import util.symbol : Extension, Symbol, symbol;
 import util.union_ : Union;
-import util.uri : Uri;
+import util.uri : baseName, getExtension, Uri;
 import util.util : typeAs;
 
 // This is the 'request' to which MainFun is the response
@@ -71,3 +71,19 @@ enum OptimizationLevel {
 }
 
 size_t maxSpecDepth() => 8;
+
+enum FileType {
+	crow,
+	crowConfig,
+	other,
+}
+FileType fileType(Uri uri) {
+	switch (getExtension(uri)) {
+		case Extension.crow:
+			return FileType.crow;
+		case Extension.json:
+			return baseName(uri) == crowConfigBaseName ? FileType.crowConfig : FileType.other;
+		default:
+			return FileType.other;
+	}
+}

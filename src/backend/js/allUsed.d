@@ -186,7 +186,8 @@ SyncOrAsync isAsyncCall(in AllUsed a, in FunOrTest caller, in Called called) =>
 				: SyncOrAsync.sync);
 
 AllUsed allUsed(ref Alloc alloc, ref ProgramWithMain program, VersionInfo version_, SymbolSet allExterns) {
-	AllUsedBuilder res = AllUsedBuilder(ptrTrustMe(alloc), ptrTrustMe(program.program), program.testSelector, version_, allExterns);
+	AllUsedBuilder res = AllUsedBuilder(
+		ptrTrustMe(alloc), ptrTrustMe(program.program), program.testSelector, version_, allExterns);
 	trackAllUsedInMain(res, program);
 
 	// Add used aliases
@@ -454,7 +455,7 @@ void trackAllUsedInMain(ref AllUsedBuilder res, ref ProgramWithMain a) {
 	trackAllUsedInFun(res, fun.moduleUri, fun, FunUse.noInline);
 }
 
-public FunDecl* actualMainFun(ref ProgramWithMain a) => // TODO:NAME? -------------------------------------------------------------------
+public FunDecl* actualMainFun(ref ProgramWithMain a) =>
 	a.mainFun.matchIn!(FunDecl*)(
 		(in MainFun.Nat64OfArgs x) =>
 			x.fun.decl,

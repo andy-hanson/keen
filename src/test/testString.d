@@ -21,7 +21,7 @@ private:
 
 void assertLess(in string a, in string b) {
 	assertComparisonInner(a, b, Comparison.less);
-	assertComparisonInner(b, a, Comparison.greater);
+	assertComparisonInner(a: b, b: a, Comparison.greater);
 }
 
 void assertComparisonInner(in string a, in string b, Comparison expected) {
