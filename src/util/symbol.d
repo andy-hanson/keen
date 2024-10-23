@@ -552,6 +552,7 @@ immutable string[] specialSymbols = [
 	"reference-equal",
 	"reference-kind",
 	"reference-from-pointer",
+	"references",
 	"replace",
 	"rethrow-current-exception",
 	"round-down",

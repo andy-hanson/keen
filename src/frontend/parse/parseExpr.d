@@ -20,7 +20,6 @@ import frontend.parse.lexer :
 	rangeForCurToken,
 	skipUntilNewlineNoDiag,
 	StringPart,
-	takeClosingBraceThenStringPart,
 	takeInitialStringPart,
 	takeNextToken,
 	takeNextTokenMayContinueOntoNextLine,
@@ -31,6 +30,7 @@ import frontend.parse.lexer :
 	tryTakeNewlineThenElifOrElse,
 	tryTakeNewlineThenElse;
 import frontend.parse.lexToken : isNewlineToken;
+import frontend.parse.parseString : parseString;
 import frontend.parse.parseType :
 	parseDestructureNoRequireParens, parseDestructureRequireParens, parseTypeForTypedExpr, tryParseTypeArgForExpr;
 import frontend.parse.parseUtil :
@@ -54,6 +54,7 @@ import model.ast :
 	AssignmentAst,
 	AssignmentCallAst,
 	BogusAst,
+	bogusExpr,
 	CallAst,
 	CallNamedAst,
 	CaseAst,
@@ -70,11 +71,9 @@ import model.ast :
 	ForAst,
 	IdentifierAst,
 	IfAst,
-	InterpolatedAst,
 	LambdaAst,
 	LetAst,
 	LiteralIntegralAndRange,
-	LiteralStringAst,
 	LoopAst,
 	LoopBreakAst,
 	LoopContinueAst,
@@ -95,7 +94,7 @@ import model.ast :
 	WithAst;
 import model.parseDiag : ParseDiag;
 import util.alloc.alloc : Alloc;
-import util.col.array : emptySmallArray, isEmpty, newArray, newSmallArray, only2, SmallArray;
+import util.col.array : emptySmallArray, newArray, newSmallArray, only2, SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, arrayBuilderIsEmpty, buildArray, buildSmallArray, Builder, finish;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some, some;
@@ -109,9 +108,6 @@ ExprAst parseFunExprBody(ref Lexer lexer) =>
 		: emptyAst(lexer);
 
 private:
-
-ExprAst bogusExpr(in Range range) =>
-	ExprAst(range, ExprAstKind(BogusAst()));
 
 enum AllowedBlock { no, yes }
 
@@ -236,6 +232,7 @@ bool isExpressionStartToken(in TokenAndData a) {
 		case Token.nameAfterBang:
 		case Token.nameBang:
 		case Token.parenLeft:
+		case Token.quoteBar:
 		case Token.quoteDouble:
 		case Token.quoteDouble3:
 		case Token.shared_:
@@ -588,7 +585,7 @@ CaseMemberAst parseStringLiteralForMatchCase(ref Lexer lexer) {
 	if (takeOrAddDiagExpectedToken(lexer, Token.quoteDouble, ParseDiag.Expected.Kind.matchCase)) {
 		StringPart part = takeInitialStringPart(lexer, QuoteKind.quoteDouble);
 		final switch (part.after) {
-			case StringPart.After.quote:
+			case StringPart.After.done:
 				break;
 			case StringPart.After.lbrace:
 				addDiag(lexer, range(lexer, start), ParseDiag(ParseDiag.MatchCaseInterpolated()));
@@ -919,17 +916,7 @@ ExprAst parseExprBeforeCall(ref Lexer lexer, AllowedBlock allowedBlock) {
 			}
 		case Token.quoteDouble:
 		case Token.quoteDouble3:
-			QuoteKind quoteKind = token.token == Token.quoteDouble ? QuoteKind.quoteDouble : QuoteKind.quoteDouble3;
-			StringPart part = takeInitialStringPart(lexer, quoteKind);
-			ExprAst quoted = () {
-				final switch (part.after) {
-					case StringPart.After.quote:
-						return ExprAst(range(lexer, start), ExprAstKind(LiteralStringAst(part.text)));
-					case StringPart.After.lbrace:
-						return takeInterpolated(lexer, start, part, quoteKind);
-				}
-			}();
-			return tryParseDotsAndSubscripts(lexer, quoted);
+			return tryParseDotsAndSubscripts(lexer, parseString(lexer, start, token.token == Token.quoteDouble ? QuoteKind.quoteDouble : QuoteKind.quoteDouble3));
 		case Token.bang:
 			ExprAst inner = parseExprBeforeCall(lexer, AllowedBlock.no);
 			return ExprAst(
@@ -1035,34 +1022,6 @@ ExprAst handleName(ref Lexer lexer, Pos start, NameAndRange name) {
 		? ExprAst(range(lexer, start), ExprAstKind(
 			CallAst(CallAst.Style.single, name, emptySmallArray!ExprAst, typeArg)))
 		: tryParseDotsAndSubscripts(lexer, ExprAst(range(lexer, start), ExprAstKind(IdentifierAst(name.name))));
-}
-
-ExprAst takeInterpolated(ref Lexer lexer, Pos start, StringPart firstPart, QuoteKind quoteKind) {
-	ExprAst[] parts = buildArray!ExprAst(lexer.alloc, (scope ref Builder!ExprAst res) {
-		if (!isEmpty(firstPart.text))
-			res ~= ExprAst(firstPart.range, ExprAstKind(LiteralStringAst(firstPart.text)));
-		while (true) {
-			res ~= () {
-				if (peekToken(lexer, Token.braceRight)) {
-					Pos pos = curPos(lexer);
-					Range range = Range(pos - 1, pos + 1);
-					addDiag(lexer, range, ParseDiag(ParseDiag.MissingExpression()));
-					return bogusExpr(range);
-				} else
-					return parseExprNoBlock(lexer);
-			}();
-			StringPart part = takeClosingBraceThenStringPart(lexer, quoteKind);
-			if (!isEmpty(part.text))
-				res ~= ExprAst(part.range, ExprAstKind(LiteralStringAst(part.text)));
-			final switch (part.after) {
-				case StringPart.After.quote:
-					return;
-				case StringPart.After.lbrace:
-					continue;
-			}
-		}
-	});
-	return ExprAst(range(lexer, start), ExprAstKind(InterpolatedAst(parts)));
 }
 
 ExprAst parseExprNoBlock(ref Lexer lexer) =>

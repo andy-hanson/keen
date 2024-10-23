@@ -5,9 +5,11 @@ module frontend.ide.position;
 import model.ast : ModifierKeyword, NameAndRange;
 import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
+	AnyDecl,
 	BogusCallExpr,
 	CallExpr,
 	CallOptionExpr,
+	DocCommentReference,
 	emptySpecs,
 	EnumOrFlagsMember,
 	ExprRef,
@@ -93,7 +95,22 @@ immutable struct LocalContainer {
 		toTypeContainer.typeParams;
 }
 
-immutable struct VisibilityContainer {
+LocalContainer assertLocalContainer(AnyDecl a) =>
+	a.matchWithPointers!LocalContainer(
+		(FunDecl* x) =>
+			LocalContainer(x),
+		(SpecDecl* x) =>
+			LocalContainer(x),
+		(StructAlias*) =>
+			assert(false),
+		(StructDecl* x) =>
+			LocalContainer(x),
+		(Test* x) =>
+			LocalContainer(x),
+		(VarDecl* x) =>
+			assert(false));
+
+immutable struct VisibilityContainer { // is this just AnyDecl? --------------------------------------------------------------
 	@safe @nogc pure nothrow:
 
 	mixin TaggedUnion!(FunDecl*, RecordField*, SpecDecl*, StructAlias*, StructDecl*, VarDecl*);
@@ -118,6 +135,10 @@ immutable struct VisibilityContainer {
 }
 
 immutable struct PositionKind {
+	immutable struct DocRef { // Name -------------------------------------------------------------------------------------
+		AnyDecl container;
+		DocCommentReference ref_;
+	}
 	immutable struct ImportedModule {
 		@safe @nogc pure nothrow:
 		ImportOrExport* import_;
@@ -203,6 +224,7 @@ immutable struct PositionKind {
 	}
 
 	mixin Union!(
+		DocRef,
 		EnumOrFlagsMember*,
 		ExpressionPosition,
 		FunDecl*,

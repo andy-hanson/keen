@@ -5,7 +5,7 @@ module model.ast;
 import model.model : FunKind, stringOfVarKindLowerCase, VariantKind, VarKind, Visibility;
 import model.parseDiag : ParseDiag, ParseDiagnostic;
 import util.alloc.alloc : Alloc;
-import util.col.array : arrayOfSingle, exists, isEmpty, newArray, newSmallArray, sizeEq, SmallArray;
+import util.col.array : arrayOfSingle, emptySmallArray, exists, isEmpty, newArray, newSmallArray, sizeEq, SmallArray;
 import util.conv : safeToUint;
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
@@ -914,6 +914,9 @@ immutable struct ExprAst {
 }
 static assert(ExprAst.sizeof <= 6 * ulong.sizeof);
 
+ExprAst bogusExpr(in Range range) =>
+	ExprAst(range, ExprAstKind(BogusAst()));
+
 immutable struct ParamsAst {
 	immutable struct Varargs {
 		DestructureAst param;
@@ -931,7 +934,7 @@ DestructureAst[] paramsArray(return scope ParamsAst a) =>
 immutable struct SignatureAst {
 	@safe @nogc pure nothrow:
 
-	Range docComment;
+	DocCommentAst docComment;
 	Range range;
 	Symbol name;
 	TypeAst returnType;
@@ -946,7 +949,7 @@ immutable struct SignatureAst {
 immutable struct StructAliasAst {
 	@safe @nogc pure nothrow:
 
-	Range docComment;
+	DocCommentAst docComment;
 	Range range;
 	Opt!Visibility visibility_;
 	NameAndRange name;
@@ -1099,7 +1102,7 @@ immutable struct RecordOrUnionMemberAst {
 immutable struct StructDeclAst {
 	@safe @nogc pure nothrow:
 
-	Range docComment;
+	DocCommentAst docComment;
 	// Range starts at the visibility
 	Range range;
 	Opt!Visibility visibility_;
@@ -1137,8 +1140,8 @@ private string keywordForStructBody(in StructBodyAst a) =>
 immutable struct SpecDeclAst {
 	@safe @nogc pure nothrow:
 
+	DocCommentAst docComment;
 	Range range;
-	Range docComment;
 	Opt!Visibility visibility_;
 	NameAndRange name;
 	SmallArray!NameAndRange typeParams;
@@ -1157,8 +1160,8 @@ immutable struct SpecDeclAst {
 immutable struct FunDeclAst {
 	@safe @nogc pure nothrow:
 
+	DocCommentAst docComment;
 	Range range;
-	Range docComment;
 	Opt!Visibility visibility_;
 	NameAndRange name;
 	SmallArray!NameAndRange typeParams;
@@ -1224,6 +1227,7 @@ string stringOfModifierKeyword(ModifierKeyword a) {
 immutable struct TestAst {
 	@safe @nogc pure nothrow:
 
+	DocCommentAst docComment;
 	Range range;
 	SmallArray!ModifierAst modifiers;
 	ExprAst body_; // EmptyAst if missing
@@ -1236,8 +1240,8 @@ immutable struct TestAst {
 immutable struct VarDeclAst {
 	@safe @nogc pure nothrow:
 
+	DocCommentAst docComment;
 	Range range;
-	Range docComment;
 	Opt!Visibility visibility_;
 	NameAndRange name;
 	SmallArray!NameAndRange typeParams; // This will be a compile error
@@ -1292,9 +1296,33 @@ immutable struct ImportsOrExportsAst {
 	SmallArray!ImportOrExportAst paths;
 }
 
+immutable struct DocCommentAst {
+	@safe @nogc pure nothrow:
+	Opt!(DocCommentContent*) content; // TODO: make this private. Code should treat this as present but with empty range and references.
+
+	static DocCommentAst empty() =>
+		DocCommentAst(none!(DocCommentContent*));
+
+	bool isEmpty() scope =>
+		!has(content);
+
+	Opt!Range range() scope =>
+		optIf(has(content), () =>
+			force(content).range);
+	
+	SmallArray!TypeAst references() return scope =>
+		has(content)
+			? force(content).references
+			: emptySmallArray!TypeAst;
+}
+immutable struct DocCommentContent {
+	Range range;
+	SmallArray!TypeAst references;
+}
+
 immutable struct FileAst {
 	SmallArray!ParseDiagnostic parseDiagnostics;
-	Range docComment;
+	DocCommentAst docComment;
 	bool noStd;
 	Opt!ImportsOrExportsAst imports;
 	Opt!ImportsOrExportsAst reExports;
@@ -1310,7 +1338,7 @@ immutable struct FileAst {
 
 private FileAst fileAstForDiags(SmallArray!ParseDiagnostic diags) =>
 	// Make sure the dummy AST doesn't have implicit imports
-	FileAst(diags, Range.empty, noStd: true);
+	FileAst(diags, noStd: true);
 
 FileAst fileAstForDiag(ref Alloc alloc, ParseDiag diag) =>
 	fileAstForDiags(newSmallArray(alloc, [ParseDiagnostic(Range.empty, diag)]));

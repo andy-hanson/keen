@@ -77,6 +77,9 @@ Hover getHover(ref Alloc alloc, in ShowModelCtx ctx, in Position pos) =>
 
 void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 	pos.kind.matchWithPointers!void(
+		(PositionKind.DocRef x) {
+			writer ~= "TODO: hover for DocRef"; // -000-0-0-0-0-0-0-0-0-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0
+		},
 		(EnumOrFlagsMember* x) {
 			writer ~= x.containingEnum.body_.isA!(StructBody.Enum*) ? "Enum " : "Flags ";
 			writer ~= " member ";

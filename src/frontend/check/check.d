@@ -32,6 +32,7 @@ import frontend.check.typeFromAst :
 	AliasAllowed, checkTypeParams, specFromAst, typeFromAst, typeFromAstNoTypeParamsNeverDelay;
 import frontend.lang : maxSpecDepth;
 import model.ast :
+	DocCommentAst,
 	FileAst,
 	ModifierAst,
 	ModifierKeyword,
@@ -42,30 +43,41 @@ import model.ast :
 	SpecDeclAst,
 	SpecUseAst,
 	StructAliasAst,
+	TypeAst,
 	VarDeclAst;
 import model.diag : DeclKind, Diag, Diagnostic, TypeContainer;
 import model.model :
+	AnyDecl,
 	BuiltinSpec,
 	CommonTypes,
 	Config,
+	Destructure,
+	DocCommentReference,
+	DocCommentReferences,
+	emptyTypeParams,
 	ExportVisibility,
 	FunDecl,
 	importCanSee,
 	ImportedReferents,
 	ImportOrExport,
+	Local,
 	Module,
 	nameFromNameReferents,
 	nameFromNameReferentsPointer,
 	NameReferents,
+	paramsArray,
 	SpecDecl,
 	SpecDeclBody,
 	Signature,
 	SpecInst,
 	StructAlias,
+	StructBody,
 	StructDecl,
 	StructInst,
 	StructOrAlias,
+	Test,
 	Type,
+	TypeParamIndex,
 	TypeParams,
 	VarDecl,
 	VarKind,
@@ -79,9 +91,11 @@ import util.col.array :
 	filter,
 	first,
 	isEmpty,
+	map,
 	mapOp,
 	mapPointers,
 	mapWithResultPointer,
+	minBy,
 	newArray,
 	only,
 	small,
@@ -93,7 +107,7 @@ import util.col.hashTable :
 	buildHashTable, getPointer, HashTable, insertOrUpdate, mayAdd, moveToImmutable, MutHashTable;
 import util.col.mutArr : mustPop, mutArrIsEmpty;
 import util.memory : allocate;
-import util.opt : force, has, none, Opt, someMut, some;
+import util.opt : force, has, none, Opt, optIf, optOrDefault, someMut, some;
 import util.perf : Perf, PerfMeasure, withMeasure;
 import util.sourceRange : Range, UriAndRange;
 import util.symbol : Symbol, symbol;
@@ -101,7 +115,7 @@ import util.symbolSet : SymbolSet;
 import util.unicode : FileContent;
 import util.union_ : TaggedUnion;
 import util.uri : Path, RelPath, Uri;
-import util.util : enumConvert, ptrTrustMe;
+import util.util : enumConvert, ptrTrustMe, typeAs;
 
 immutable struct UriAndAst {
 	Uri uri;
@@ -419,6 +433,10 @@ Module* checkWorkerAfterCommonTypes(
 		importsAndReExports.fileExports,
 		ast.funs,
 		ast.tests);
+	checkDocComments(
+		ctx, commonTypes,
+		structsAndAliasesMap, specsMap, funsAndMap.funsMap,
+		structAliases, structs, specs, vars, funsAndMap.funs, funsAndMap.tests);
 	checkForUnused(ctx, structAliases, structs, specs, funsAndMap.funs);
 	SmallArray!ImportOrExport imports = finishImports(ctx);
 	return allocate(ctx.alloc, Module(
@@ -434,7 +452,8 @@ Module* checkWorkerAfterCommonTypes(
 		small!SpecDecl(specs),
 		funsAndMap.funs,
 		funsAndMap.tests,
-		getAllExports(ctx, importsAndReExports.moduleReExports, structsAndAliasesMap, specsMap, funsAndMap.funsMap)));
+		getAllExports(ctx, importsAndReExports.moduleReExports, structsAndAliasesMap, specsMap, funsAndMap.funsMap),
+		checkDocCommentReferences(ctx, commonTypes, structsAndAliasesMap, specsMap, funsAndMap.funsMap, ast.docComment, emptyTypeParams, [])));
 }
 
 HashTable!(NameReferents, Symbol, nameFromNameReferents) getAllExports(
@@ -696,3 +715,91 @@ bool hasVisibility(in NameReferents a, ExportVisibility visibility) =>
 	(has(a.spec) && importCanSee(visibility, force(a.spec).visibility)) ||
 	exists(a.funs, (in FunDecl* x) =>
 		importCanSee(visibility, x.visibility));
+
+// TODO: MOVE?
+void checkDocComments(
+	ref CheckCtx ctx,
+	ref CommonTypes commonTypes,
+	in StructsAndAliasesMap structsAndAliasesMap,
+	in SpecsMap specsMap,
+	in FunsMap funsMap,
+	StructAlias[] structAliases,
+	StructDecl[] structs,
+	SpecDecl[] specs,
+	VarDecl[] vars,
+	FunDecl[] funs,
+	Test[] tests,
+) {
+	DocCommentReferences checkRefs(DocCommentAst ast, TypeParams typeParams, Destructure[] params) =>
+		checkDocCommentReferences(ctx, commonTypes, structsAndAliasesMap, specsMap, funsMap, ast, typeParams, params);
+	DocCommentReferences checkRefsForDecl(AnyDecl decl) =>
+		checkRefs(decl.docCommentAst, decl.typeParams, decl.isA!(FunDecl*) ? paramsArray(decl.as!(FunDecl*).params) : []);
+	DocCommentReferences checkRefsForSig(TypeParams typeParams, ref Signature sig) =>
+		checkRefs(sig.docCommentAst, typeParams, sig.params);
+
+	foreach (ref StructAlias x; structAliases)
+		x.docCommentReferences = checkRefsForDecl(AnyDecl(&x));
+	foreach (ref StructDecl struct_; structs) {
+		struct_.docCommentReferences = checkRefsForDecl(AnyDecl(&struct_));
+		if (struct_.body_.isA!(StructBody.Variant))
+			foreach (ref Signature sig; struct_.body_.as!(StructBody.Variant).methods)
+				sig.docCommentReferences = checkRefsForSig(struct_.typeParams, sig);
+	}
+	foreach (ref SpecDecl spec; specs) {
+		spec.docCommentReferences = checkRefsForDecl(AnyDecl(&spec));
+		foreach (ref Signature sig; spec.sigs)
+			sig.docCommentReferences = checkRefsForSig(spec.typeParams, sig);
+	}
+	foreach (ref VarDecl x; vars)
+		x.docCommentReferences = checkRefsForDecl(AnyDecl(&x));
+	foreach (ref FunDecl x; funs)
+		x.docCommentReferences = checkRefsForDecl(AnyDecl(&x));
+	foreach (ref Test x; tests)
+		x.docCommentReferences = checkRefsForDecl(AnyDecl(&x));
+}
+
+DocCommentReferences checkDocCommentReferences(
+	ref CheckCtx ctx,
+	ref CommonTypes commonTypes,
+	in StructsAndAliasesMap structsAndAliasesMap,
+	in SpecsMap specsMap,
+	in FunsMap funsMap,
+	DocCommentAst ast,
+	TypeParams typeParams,
+	Destructure[] params,
+) =>
+	map!(DocCommentReference, TypeAst)(ctx.alloc, ast.references, (ref TypeAst x) {
+		if (x.isA!(NameAndRange)) {
+			// TODO: rewrite using optOr --------------------------------------------------------------------------------------
+			NameAndRange name = x.as!(NameAndRange);
+			foreach (Destructure param; params) {
+				if (param.isA!(Local*)) {
+					Local* local = param.as!(Local*);
+					if (local.name == name.name)
+						return DocCommentReference(local);
+				}
+			}
+
+			Opt!StructOrAlias sa = structsAndAliasesMap[name.name];
+			if (has(sa))
+				return force(sa).matchWithPointers!DocCommentReference(
+					(StructAlias* x) =>
+						DocCommentReference(x),
+					(StructDecl* x) =>
+						DocCommentReference(x));
+			Opt!(SpecDecl*) spec = specsMap[name.name];
+			if (has(spec)) return DocCommentReference(force(spec));
+
+			immutable FunDecl*[] funs = optOrDefault!(immutable FunDecl*[])(funsMap[name.name], () => typeAs!(immutable FunDecl*[])([]));
+			if (!isEmpty(funs))
+				return DocCommentReference(minBy!(immutable FunDecl*)(funs, (in FunDecl* x) => x.range.start));
+		}
+		Type type = typeFromAst(ctx, commonTypes, structsAndAliasesMap, x, typeParams, noDelayStructInsts, AliasAllowed.yes);
+		return type.matchWithPointers!DocCommentReference(
+			(Type.Bogus) =>
+				DocCommentReference(DocCommentReference.Bogus()),
+			(TypeParamIndex x) =>
+				DocCommentReference(x),
+			(StructInst* x) =>
+				DocCommentReference(x.decl));
+	});

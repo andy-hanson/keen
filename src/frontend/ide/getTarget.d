@@ -3,8 +3,8 @@ module frontend.ide.getTarget;
 @safe @nogc pure nothrow:
 
 import frontend.ide.position :
-	ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind;
-import model.diag : TypeWithContainer;
+	assertLocalContainer, ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind;
+import model.diag : assertTypeContainer, TypeWithContainer;
 import model.model :
 	AutoFun,
 	BogusCallExpr,
@@ -16,6 +16,7 @@ import model.model :
 	CallOptionExpr,
 	CommonTypes,
 	Destructure,
+	DocCommentReference,
 	EnumOrFlagsFunction,
 	EnumOrFlagsMember,
 	Expr,
@@ -26,6 +27,7 @@ import model.model :
 	FunDeclSource,
 	FunInst,
 	FunPointerExpr,
+	Local,
 	Module,
 	mustUnwrapOptionType,
 	RecordField,
@@ -68,6 +70,22 @@ immutable struct Target {
 
 Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 	pos.kind.matchWithPointers!(Opt!Target)(
+		(PositionKind.DocRef docRef) =>
+			docRef.ref_.matchWithPointers!(Opt!Target)(
+				(DocCommentReference.Bogus) =>
+					none!Target,
+				(FunDecl* x) =>
+					some(Target(x)),
+				(Local* x) =>
+					some(Target(PositionKind.LocalPosition(assertLocalContainer(docRef.container), x))),
+				(StructAlias* x) =>
+					some(Target(x)),
+				(StructDecl* x) =>
+					some(Target(x)),
+				(SpecDecl* x) =>
+					some(Target(x)),
+				(TypeParamIndex x) =>
+					some(Target(PositionKind.TypeParamWithContainer(x, assertTypeContainer(docRef.container))))),
 		(EnumOrFlagsMember* x) =>
 			some(Target(x)),
 		(ExpressionPosition x) =>

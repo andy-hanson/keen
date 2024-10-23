@@ -154,7 +154,7 @@ void skipNewlinesIgnoreIndentation(ref Lexer lexer, uint indentLevel) {
 		switch (getPeekToken(lexer)) {
 			case Token.newlineDedent:
 			case Token.newlineIndent:
-			case Token.newlineSameIndent:
+			case Token.newlineSameIndent: // TODO: just use isNewlineToken? ---------------------------------------------------------------
 				takeNextToken(lexer);
 				continue;
 			case Token.EOF:
@@ -185,6 +185,7 @@ TokenAndData takeNextToken(ref Lexer lexer) {
 				dc.extraDedents == 0 ? Token.newlineSameIndent : Token.newlineDedent,
 				DocCommentAndExtraDedents(dc.docComment, dc.extraDedents == 0 ? 0 : dc.extraDedents - 1)));
 			break;
+		case Token.quoteBar:
 		case Token.quoteDouble:
 		case Token.quoteDouble3:
 			cellSet(lexer.nextToken, plainToken(Token.quotedText));
@@ -207,7 +208,7 @@ private void readNextToken(ref Lexer lexer) {
 		addDiagFromPointer(lexer, start, x));
 	lexer.nextTokenPos = posAtPtr(lexer);
 	cellSet(lexer.nextToken, lexToken(
-		lexer.ptr, lexer.indentKind, lexer.curIndent, (CString start, ParseDiag x) =>
+		lexer.ptr, lexer.indentKind, cellGet(lexer.nextToken).token, lexer.curIndent, (CString start, ParseDiag x) =>
 			addDiagFromPointer(lexer, start, x)));
 }
 
@@ -224,7 +225,7 @@ StringPart takeClosingBraceThenStringPart(ref Lexer lexer, QuoteKind quoteKind) 
 		Pos start = posAtPtr(lexer);
 		addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.closeInterpolated)));
 		skipUntilNewlineNoDiag(lexer);
-		return StringPart(Range(start, posAtPtr(lexer)), "", StringPart.After.quote);
+		return StringPart(Range(start, posAtPtr(lexer)), "", StringPart.After.done);
 	} else
 		return takeStringPartCommon(lexer, quoteKind);
 }

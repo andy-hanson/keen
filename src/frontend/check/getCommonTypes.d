@@ -8,6 +8,7 @@ import model.ast : NameAndRange;
 import model.diag : Diag, Diagnostic;
 import model.model :
 	CommonTypes,
+	emptyDocCommentReferences,
 	emptyTypeArgs,
 	FunKind,
 	IntegralType,
@@ -212,5 +213,6 @@ public StructDecl* bogusStructDecl(ref Alloc alloc, Symbol name, size_t nTypePar
 		isSummon: false,
 		Purity.data,
 		false,
+		late(emptyDocCommentReferences),
 		late(emptySmallArray!VariantAndMethodImpls),
 		late(StructBody(StructBody.Bogus()))));

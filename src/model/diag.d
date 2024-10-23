@@ -4,6 +4,7 @@ module model.diag;
 
 import model.ast : ModifierKeyword;
 import model.model :
+	AnyDecl,
 	AutoFun,
 	BuiltinSpec,
 	Called,
@@ -808,7 +809,7 @@ immutable struct TypeWithContainer {
 immutable struct TypeContainer {
 	@safe @nogc pure nothrow:
 
-	mixin TaggedUnion!(FunDecl*, SpecDecl*, StructAlias*, StructDecl*, Test*, VarDecl*);
+	mixin TaggedUnion!(FunDecl*, SpecDecl*, StructAlias*, StructDecl*, Test*, VarDecl*); // TODO: this is identical to AnyDecl. Just use that?
 
 	Uri moduleUri() scope =>
 		matchIn!Uri(
@@ -840,3 +841,11 @@ immutable struct TypeContainer {
 			(in VarDecl x) =>
 				x.typeParams);
 }
+TypeContainer assertTypeContainer(AnyDecl a) => // this will be unnecessary ---------------------------------------------------------
+	a.matchWithPointers!TypeContainer(
+		(FunDecl* x) => TypeContainer(x),
+		(SpecDecl* x) => TypeContainer(x),
+		(StructAlias* x) => TypeContainer(x),
+		(StructDecl* x) => TypeContainer(x),
+		(Test* x) => TypeContainer(x),
+		(VarDecl* x) => TypeContainer(x));

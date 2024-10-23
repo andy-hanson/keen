@@ -1739,6 +1739,8 @@ string describeTokenForUnexpected(Token token) {
 			return "Unexpected '?.'.";
 		case Token.questionEqual:
 			return "Unexpected '?='.";
+		case Token.quoteBar:
+			return "Unexpected '|'.";
 		case Token.quoteDouble:
 			return "Unexpected '\"'.";
 		case Token.quoteDouble3:

@@ -8,7 +8,7 @@ import frontend.check.getCommonTypes : bogusStructDecl;
 import frontend.check.inferringType : typesAreCorrespondingStructInsts;
 import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateStructNeverDelay;
 import frontend.lang : MainKind;
-import model.ast : ModifierAst, NameAndRange, VarDeclAst, TypeAst;
+import model.ast : DocCommentAst, ModifierAst, NameAndRange, VarDeclAst, TypeAst;
 import model.diag : Diag, UriAndDiagnostic;
 import model.model :
 	allExternsForMainConfig,
@@ -379,7 +379,7 @@ VarDecl* getVarDecl(
 			UriAndRange(module_.uri, Range.empty),
 			Diag(Diag.CommonVarMissing(kind, name))));
 		VarDeclAst* ast = allocate(alloc, VarDeclAst(
-			Range.empty,
+			DocCommentAst.empty,
 			Range.empty,
 			none!Visibility,
 			NameAndRange(0, name),

@@ -61,6 +61,7 @@ import model.ast :
 	WithAst;
 import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
+	AnyDecl,
 	AssertOrForbidExpr,
 	BogusCallExpr,
 	BogusExpr,
@@ -73,6 +74,8 @@ import model.model :
 	CommonTypes,
 	Condition,
 	Destructure,
+	DocComment,
+	DocCommentReference,
 	EnumOrFlagsMember,
 	Expr,
 	ExprRef,
@@ -187,34 +190,31 @@ Opt!PositionKind getPositionKind(in Ctx ctx, ref Module module_, Pos pos, GetPos
 		positionInImportsOrExports(module_.imports, pos),
 		() => positionInImportsOrExports(module_.reExports, pos),
 		() => firstPointer!(PositionKind, StructAlias)(module_.aliases, (StructAlias* x) =>
-			hasPos(x.range.range, pos)
-				? positionInAlias(x, pos)
-				: none!PositionKind),
+			positionInAlias(x, pos)),
 		() => firstPointer!(PositionKind, StructDecl)(module_.structs, (StructDecl* x) =>
-			hasPos(x.range.range, pos)
-				? positionInStruct(ctx, x, pos)
-				: none!PositionKind),
+			positionInStruct(ctx, x, pos)),
 		() => firstPointer!(PositionKind, VarDecl)(module_.vars, (VarDecl* x) =>
-			hasPos(x.range.range, pos)
-				? positionInVar(x, pos)
-				: none!PositionKind),
+			positionInVar(x, pos)),
 		() => firstPointer!(PositionKind, SpecDecl)(module_.specs, (SpecDecl* x) =>
-			hasPos(x.range.range, pos)
-				? positionInSpec(x, pos)
-				: none!PositionKind),
+			positionInSpec(x, pos)),
 		() => firstPointer!(PositionKind, FunDecl)(module_.funs, (FunDecl* x) =>
 			x.source.isA!(FunDeclSource.Ast)
 				? positionInFun(ctx, x, x.source.as!(FunDeclSource.Ast).ast, pos, posKind)
 				: none!PositionKind),
 		() => firstPointer!(PositionKind, Test)(module_.tests, (Test* x) =>
-			hasPos(x.ast.range, pos)
-				? positionInTest(ctx, x, *x.ast, pos, posKind)
-				: none!PositionKind),
+			positionInTest(ctx, x, *x.ast, pos, posKind)),
 		// We need a definition at position 0, because inlay hints for "Used by" have that as their location.
 		() => optIf(pos == 0, () => PositionKind(PositionKind.ModulePosition())));
 
+Opt!PositionKind positionInDocComment(AnyDecl a, Pos pos) {
+	Opt!size_t index = findIndex!TypeAst(a.docComment.ast.references, (in TypeAst x) =>
+		hasPos(x.range, pos));
+	return optIf(has(index), () =>
+		PositionKind(PositionKind.DocRef(a, a.docComment.references[force(index)])));
+}
+
 Opt!PositionKind positionInFun(in Ctx ctx, FunDecl* a, in FunDeclAst* ast, Pos pos, GetPositionKind posKind) =>
-	optOr!PositionKind(
+	positionInDecl(AnyDecl(a), pos, () => optOr!PositionKind(
 		positionInVisibility(VisibilityContainer(a), ast.visibility, pos),
 		() => optIf(hasPos(ast.name.range, pos), () => PositionKind(a)),
 		() => positionInTypeParams(TypeContainer(a), ast.typeParams, pos),
@@ -223,7 +223,7 @@ Opt!PositionKind positionInFun(in Ctx ctx, FunDecl* a, in FunDeclAst* ast, Pos p
 		() => positionInModifiers(TypeContainer(a), some(a.specs), ast.modifiers, pos),
 		() => a.body_.isA!Expr
 			? positionInExpr(ctx, ExprContainer(a), funBodyExprRef(a), pos, posKind)
-			: none!PositionKind);
+			: none!PositionKind));
 
 Opt!PositionKind positionInTest(ref Ctx ctx, Test* a, in TestAst ast, Pos pos, GetPositionKind posKind) =>
 	optOr!PositionKind(
@@ -343,21 +343,26 @@ Opt!PositionKind positionInImportedNames(
 		optIf(hasPos(x.range, pos), () =>
 			PositionKind(PositionKind.ImportedName(module_, x.name, imported[x.name]))));
 
-Opt!PositionKind positionInVar(VarDecl* a, Pos pos) =>
+Opt!PositionKind positionInDecl(AnyDecl a, Pos pos, in Opt!PositionKind delegate() @safe @nogc pure nothrow cb) =>
 	optOr!PositionKind(
+		positionInDocComment(a, pos),
+		() => hasPos(a.range.range, pos) ? cb() : none!PositionKind);
+
+Opt!PositionKind positionInVar(VarDecl* a, Pos pos) =>
+	positionInDecl(AnyDecl(a), pos, () => optOr!PositionKind(
 		positionInVisibility(VisibilityContainer(a), a.ast.visibility, pos),
 		() => optIf(hasPos(a.nameRange.range, pos), () => PositionKind(a)),
 		() => optIf(hasPos(a.ast.keywordRange, pos), () =>
 			PositionKind(PositionKind.Keyword(enumConvert!(PositionKind.Keyword.Kind)(a.kind)))),
-		() => positionInType(TypeContainer(a), a.type, a.ast.type, pos));
+		() => positionInType(TypeContainer(a), a.type, a.ast.type, pos)));
 
 Opt!PositionKind positionInAlias(StructAlias* a, Pos pos) =>
-	optOr!PositionKind(
-		positionInVisibility(VisibilityContainer(a), a.ast.visibility, pos),
+	positionInDecl(AnyDecl(a), pos, () => optOr!PositionKind(
+		positionInVisibility(VisibilityContainer(a), a.ast.visibility, pos), // TODO: positionInDecl should handle this and name too
 		() => optIf(hasPos(a.nameRange.range, pos), () => PositionKind(a)),
 		() => optIf(hasPos(a.ast.keywordRange, pos), () =>
 			PositionKind(PositionKind.Keyword(PositionKind.Keyword.Kind.alias_))),
-		() => positionInType(TypeContainer(a), Type(a.target), a.ast.target, pos));
+		() => positionInType(TypeContainer(a), Type(a.target), a.ast.target, pos)));
 
 Opt!PositionKind positionInStruct(in Ctx ctx, StructDecl* a, Pos pos) =>
 	a.source.matchIn!(Opt!PositionKind)(
@@ -367,14 +372,14 @@ Opt!PositionKind positionInStruct(in Ctx ctx, StructDecl* a, Pos pos) =>
 			none!PositionKind);
 
 Opt!PositionKind positionInStruct(in Ctx ctx, StructDecl* a, in StructDeclAst ast, Pos pos) =>
-	optOr!PositionKind(
+	positionInDecl(AnyDecl(a), pos, () => optOr!PositionKind(
 		positionInVisibility(VisibilityContainer(a), ast.visibility, pos),
 		() => optIf(hasPos(a.nameRange.range, pos), () => PositionKind(a)),
 		() => optIf(hasPos(ast.keywordRange, pos), () =>
 			PositionKind(PositionKind.Keyword(keywordKindForStructBody(ast.body_)))),
 		() => positionInTypeParams(TypeContainer(a), ast.typeParams, pos),
 		() => positionInModifiers(TypeContainer(a), none!Specs, ast.modifiers, pos),
-		() => positionInStructBody(ctx, a, a.body_, ast.body_, pos));
+		() => positionInStructBody(ctx, a, a.body_, ast.body_, pos)));
 
 PositionKind.Keyword.Kind keywordKindForStructBody(in StructBodyAst a) =>
 	a.matchIn!(PositionKind.Keyword.Kind)(
@@ -405,14 +410,14 @@ Opt!PositionKind positionInTypeParams(TypeContainer container, in NameAndRange[]
 }
 
 Opt!PositionKind positionInSpec(SpecDecl* a, Pos pos) =>
-	optOr!PositionKind(
+	positionInDecl(AnyDecl(a), pos, () => optOr!PositionKind(
 		positionInVisibility(VisibilityContainer(a), a.ast.visibility, pos),
 		() => optIf(hasPos(a.ast.name.range, pos), () => PositionKind(a)),
 		() => positionInTypeParams(TypeContainer(a), a.ast.typeParams, pos),
 		() => optIf(hasPos(a.ast.keywordRange, pos), () =>
 			PositionKind(PositionKind.Keyword(PositionKind.Keyword.Kind.spec))),
 		() => positionInModifiers(TypeContainer(a), some(a.parents), a.ast.modifiers, pos),
-		() => positionInSignatures(SpecOrVariant(a), a.sigs, a.ast.sigs, pos));
+		() => positionInSignatures(SpecOrVariant(a), a.sigs, a.ast.sigs, pos)));
 
 immutable struct SpecOrVariant { mixin TaggedUnion!(SpecDecl*, StructDecl*); }
 TypeContainer toTypeContainer(SpecOrVariant a) =>
@@ -444,6 +449,7 @@ Opt!PositionKind positionInSignature(
 ) =>
 	hasPos(ast.range, pos)
 		? optOr!PositionKind(
+			// TODO: PositionInDocComment ... but this isn't an AnyDecl ------------------------------------------------------------
 			optIf(hasPos(ast.nameAndRange.range, pos), () =>
 				toPositionKind(container, sig)),
 			() => positionInType(toTypeContainer(container), sig.returnType, ast.returnType, pos),

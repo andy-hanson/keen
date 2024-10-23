@@ -18,6 +18,7 @@ import frontend.parse.lexer :
 	TokenAndData;
 import frontend.parse.parseExpr : parseFunExprBody, parseSingleStatementLine;
 import frontend.parse.parseImport : parseImportsOrExports;
+import frontend.parse.parseString : tryTakeDocComment;
 import frontend.parse.parseType :
 	parseModifiers, parseParams, parseType, parseTypeArgForVarDecl, tryParseParams, tryTakeVisibility;
 import frontend.parse.parseUtil :
@@ -31,11 +32,11 @@ import frontend.parse.parseUtil :
 	takeNameAndRange,
 	takeNameOrOperator,
 	takeNewlineOrDedent,
-	takeNewline_topLevel,
 	takeOrAddDiagExpectedToken,
 	tryTakeLiteralIntegral,
 	tryTakeToken;
 import model.ast :
+	DocCommentAst,
 	EnumOrFlagsMemberAst,
 	ExprAst,
 	FieldMutabilityAst,
@@ -60,7 +61,6 @@ import model.ast :
 import model.model : TypeParams, VariantKind, VarKind, Visibility;
 import model.parseDiag : ParseDiag, ParseDiagnostic;
 import util.alloc.alloc : Alloc;
-import util.cell : Cell, cellGet, cellSet;
 import util.col.array : contains, emptySmallArray, SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, buildSmallArray, Builder, smallFinish;
 import util.memory : allocate;
@@ -69,7 +69,7 @@ import util.perf : Perf, PerfMeasure, withMeasure;
 import util.sourceRange : Pos, Range;
 import util.string : CString, stringOfCString;
 import util.symbol : Symbol;
-import util.util : castNonScope_ref, ptrTrustMe;
+import util.util : castNonScope_ref, ptrTrustMe, stringOfEnum, todo;
 
 FileAst parseFile(scope ref Perf perf, ref Alloc alloc, in CString source) =>
 	withMeasure!(FileAst, () {
@@ -113,8 +113,7 @@ SmallArray!T parseIndentedLines(T)(ref Lexer lexer, in T delegate() @safe @nogc 
 
 SmallArray!SignatureAst parseIndentedSigs(ref Lexer lexer) =>
 	parseIndentedLines!SignatureAst(lexer, () {
-		// TODO: get doc comment
-		Range docComment = Range.empty;
+		DocCommentAst docComment = tryTakeDocComment(lexer);
 		Pos start = curPos(lexer);
 		NameAndRange name = takeNameOrOperator(lexer);
 		assert(name.start == start);
@@ -164,7 +163,7 @@ Opt!FieldMutabilityAst parseFieldMutability(ref Lexer lexer) {
 
 FunDeclAst parseFun(
 	ref Lexer lexer,
-	Range docComment,
+	DocCommentAst docComment,
 	Opt!Visibility visibility,
 	Pos start,
 	NameAndRange name,
@@ -175,7 +174,7 @@ FunDeclAst parseFun(
 	SmallArray!ModifierAst modifiers = parseModifiers(lexer);
 	ExprAst body_ = parseFunExprBody(lexer);
 	return FunDeclAst(
-		range(lexer, start), docComment, visibility, name, typeParams, returnType, params, modifiers, body_);
+		docComment, range(lexer, start), visibility, name, typeParams, returnType, params, modifiers, body_);
 }
 
 void parseSpecOrStructOrFunOrTest(
@@ -186,13 +185,13 @@ void parseSpecOrStructOrFunOrTest(
 	scope ref ArrayBuilder!FunDeclAst funs,
 	scope ref ArrayBuilder!TestAst tests,
 	scope ref ArrayBuilder!VarDeclAst vars,
-	Range docComment,
+	DocCommentAst docComment,
 ) {
 	Pos start = curPos(lexer);
 	if (tryTakeToken(lexer, Token.test)) {
 		SmallArray!ModifierAst modifiers = parseModifiers(lexer);
 		ExprAst body_ = parseFunExprBody(lexer);
-		add(lexer.alloc, tests, TestAst(range(lexer, start), modifiers, body_));
+		add(lexer.alloc, tests, TestAst(docComment, range(lexer, start), modifiers, body_));
 	} else
 		parseSpecOrStructOrFun(lexer, specs, structAliases, structs, funs, vars, docComment);
 }
@@ -204,7 +203,7 @@ void parseSpecOrStructOrFun(
 	scope ref ArrayBuilder!StructDeclAst structs,
 	scope ref ArrayBuilder!FunDeclAst funs,
 	scope ref ArrayBuilder!VarDeclAst varDecls,
-	Range docComment,
+	DocCommentAst docComment,
 ) {
 	Pos start = curPos(lexer);
 	Opt!Visibility visibility = tryTakeVisibility(lexer);
@@ -268,7 +267,7 @@ void parseSpecOrStructOrFun(
 			SmallArray!ModifierAst modifiers = parseModifiers(lexer);
 			SmallArray!SignatureAst sigs = parseIndentedSigs(lexer);
 			add(lexer.alloc, specs, SpecDeclAst(
-				range(lexer, start), docComment, visibility, name, typeParams, keywordPos, modifiers, sigs));
+				docComment, range(lexer, start), visibility, name, typeParams, keywordPos, modifiers, sigs));
 			break;
 		case Token.thread_local:
 			Pos pos = curPos(lexer);
@@ -318,7 +317,7 @@ Opt!(LiteralIntegralAndRange*) parseIntegral(ref Lexer lexer) {
 VarDeclAst parseVarDecl(
 	ref Lexer lexer,
 	Pos start,
-	Range docComment,
+	DocCommentAst docComment,
 	Opt!Visibility visibility,
 	NameAndRange name,
 	SmallArray!NameAndRange typeParams,
@@ -327,21 +326,18 @@ VarDeclAst parseVarDecl(
 ) {
 	TypeAst type = parseTypeArgForVarDecl(lexer);
 	SmallArray!ModifierAst modifiers = parseModifiers(lexer);
-	return VarDeclAst(range(lexer, start), docComment, visibility, name, typeParams, kindPos, kind, type, modifiers);
+	return VarDeclAst(docComment, range(lexer, start), visibility, name, typeParams, kindPos, kind, type, modifiers);
 }
 
 FileAst parseFileInner(ref Lexer lexer) {
-	Range moduleDocComment = takeNewline_topLevel(lexer);
-	Cell!(Opt!Range) firstDocComment = Cell!(Opt!Range)(some(Range.empty));
+	skipBlankLines(lexer);
+	DocCommentAst moduleDocComment = tryTakeDocComment(lexer);
+	skipBlankLines(lexer);
 	bool noStd = tryTakeToken(lexer, Token.noStd);
-	if (noStd)
-		cellSet(firstDocComment, some(takeNewline_topLevel(lexer)));
+	skipBlankLines(lexer);
 	Opt!ImportsOrExportsAst imports = parseImportsOrExports(lexer, Token.import_);
-	if (has(imports))
-		cellSet(firstDocComment, some(takeNewline_topLevel(lexer)));
+	skipBlankLines(lexer);
 	Opt!ImportsOrExportsAst exports = parseImportsOrExports(lexer, Token.export_);
-	if (has(exports))
-		cellSet(firstDocComment, some(takeNewline_topLevel(lexer)));
 
 	ArrayBuilder!Range regions;
 	ArrayBuilder!SpecDeclAst specs;
@@ -352,17 +348,14 @@ FileAst parseFileInner(ref Lexer lexer) {
 	ArrayBuilder!VarDeclAst vars;
 
 	while (!tryTakeToken(lexer, Token.EOF)) {
-		Range docComment = () {
-			if (has(cellGet(firstDocComment))) {
-				Range res = force(cellGet(firstDocComment));
-				cellSet(firstDocComment, none!Range);
-				return res;
-			} else
-				return takeNewline_topLevel(lexer);
-		}();
-		if (tryTakeToken(lexer, Token.EOF))
+		skipBlankLines(lexer);
+		DocCommentAst docComment = tryTakeDocComment(lexer);
+		skipBlankLines(lexer);
+		if (tryTakeToken(lexer, Token.EOF)) {
+			if (!docComment.isEmpty) todo!void("DIAG: useless doc comment"); // ------------------------------------------------------
 			break;
-		else if (peekToken(lexer, Token.region)) {
+		}
+		if (peekToken(lexer, Token.region)) {
 			TokenAndData x = takeNextToken(lexer);
 			assert(x.token == Token.region);
 			add(lexer.alloc, regions, rangeOf(lexer, x.asRegion));
@@ -383,4 +376,8 @@ FileAst parseFileInner(ref Lexer lexer) {
 		smallFinish(lexer.alloc, funs),
 		smallFinish(lexer.alloc, tests),
 		smallFinish(lexer.alloc, vars));
+}
+
+void skipBlankLines(scope ref Lexer lexer) {
+	while (tryTakeToken(lexer, Token.newlineSameIndent)) {}
 }

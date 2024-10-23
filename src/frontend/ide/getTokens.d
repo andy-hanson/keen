@@ -22,6 +22,8 @@ import model.ast :
 	ConditionAst,
 	DestructureAst,
 	DoAst,
+	DocCommentAst,
+	DocCommentContent,
 	EmptyAst,
 	EnumOrFlagsMemberAst,
 	ExprAst,
@@ -297,6 +299,7 @@ void addImportTokens(scope ref Ctx ctx, in ImportsOrExportsAst a) {
 }
 
 void addSpecTokens(scope ref Ctx ctx, in SpecDeclAst a) {
+	addDocCommentTokens(ctx, a.docComment);
 	declare(ctx.tokens, TokenType.interface_, a.name.range);
 	addTypeParamsTokens(ctx, a.typeParams);
 	addModifierTokens(ctx, a.modifiers);
@@ -305,6 +308,7 @@ void addSpecTokens(scope ref Ctx ctx, in SpecDeclAst a) {
 }
 
 void addSignatureTokens(scope ref Ctx ctx, in SignatureAst a) {
+	addDocCommentTokens(ctx, a.docComment);
 	declare(ctx.tokens, TokenType.function_, a.nameRange);
 	addSigReturnTypeAndParamsTokens(ctx, a.returnType, a.params);
 }
@@ -359,12 +363,14 @@ void addTypeParamsTokens(scope ref Ctx ctx, in NameAndRange[] a) {
 }
 
 void addStructAliasTokens(scope ref Ctx ctx, in StructAliasAst a) {
+	addDocCommentTokens(ctx, a.docComment);
 	declare(ctx.tokens, TokenType.type, a.name.range);
 	addTypeParamsTokens(ctx, a.typeParams);
 	addTypeTokens(ctx, a.target);
 }
 
 void addStructTokens(scope ref Ctx ctx, in StructDeclAst a) {
+	addDocCommentTokens(ctx, a.docComment);
 	declare(ctx.tokens, TokenType.type, a.name.range);
 	addTypeParamsTokens(ctx, a.typeParams);
 	a.body_.matchIn!void(
@@ -442,6 +448,7 @@ void addEnumOrFlagsTokens(
 }
 
 void addVarDeclTokens(scope ref Ctx ctx, in VarDeclAst a) {
+	addDocCommentTokens(ctx, a.docComment);
 	declare(ctx.tokens, TokenType.variable, a.name.range);
 	addTypeParamsTokens(ctx, a.typeParams);
 	addTypeTokens(ctx, a.type);
@@ -449,6 +456,7 @@ void addVarDeclTokens(scope ref Ctx ctx, in VarDeclAst a) {
 }
 
 void addFunTokens(scope ref Ctx ctx, in FunDeclAst a) {
+	addDocCommentTokens(ctx, a.docComment);
 	declare(ctx.tokens, TokenType.function_, a.name.range);
 	addTypeParamsTokens(ctx, a.typeParams);
 	addSigReturnTypeAndParamsTokens(ctx, a.returnType, a.params);
@@ -456,7 +464,22 @@ void addFunTokens(scope ref Ctx ctx, in FunDeclAst a) {
 	addExprTokens(ctx, a.body_);
 }
 
+//MOVE------------------------------------------------------------------------------------------------------------------------------
+void addDocCommentTokens(scope ref Ctx ctx, in DocCommentAst a) {
+	if (!a.isEmpty) {
+		DocCommentContent* content = force(a.content);
+		Pos pos = content.range.start;
+		foreach (TypeAst x; content.references) {
+			reference(ctx.tokens, TokenType.comment, Range(pos, x.range.start));
+			addTypeTokens(ctx, x);
+			pos = x.range.end;
+		}
+		reference(ctx.tokens, TokenType.comment, Range(pos, content.range.end));
+	}
+}
+
 void addTestTokens(scope ref Ctx ctx, in TestAst a) {
+	addDocCommentTokens(ctx, a.docComment);
 	addExprTokens(ctx, a.body_);
 }
 

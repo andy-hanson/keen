@@ -12,6 +12,7 @@ import model.ast :
 	CaseMemberAst,
 	ConditionAst,
 	DestructureAst,
+	DocCommentAst,
 	EnumOrFlagsMemberAst,
 	ExprAst,
 	FileAst,
@@ -66,7 +67,7 @@ import util.symbol : enumOfSymbol, Symbol, symbol, symbolOfEnum;
 import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, SymbolSetBuilder;
 import util.union_ : IndexType, TaggedUnion, Union;
 import util.uri : RelPath, Uri;
-import util.util : enumConvertOrAssert, max, min, stringOfEnum;
+import util.util : enumConvertOrAssert, max, min, stringOfEnum, todo;
 import versionInfo : OS, VersionFun;
 
 alias Purity = immutable Purity_;
@@ -320,6 +321,7 @@ immutable struct Signature {
 	SignatureAst* ast;
 	Type returnType;
 	SmallArray!Destructure params;
+	Late!DocCommentReferences lateDocCommentReferences;
 
 	Symbol name() scope =>
 		ast.name;
@@ -327,8 +329,15 @@ immutable struct Signature {
 		UriAndRange(moduleUri, ast.range);
 	UriAndRange nameRange() scope =>
 		UriAndRange(moduleUri, ast.nameAndRange.range);
-	UriAndRange docComment() scope =>
-		UriAndRange(moduleUri, ast.docComment);
+	DocCommentAst docCommentAst() scope =>
+		ast.docComment;
+	DocComment docComment() return scope =>
+		DocComment(docCommentAst, docCommentReferences);
+	DocCommentReferences docCommentReferences() return scope =>
+		lateGet(lateDocCommentReferences);
+	void docCommentReferences(DocCommentReferences value) {
+		lateSet(lateDocCommentReferences, value);
+	}
 }
 
 immutable struct TypeParamsAndSig {
@@ -577,10 +586,13 @@ immutable struct StructAlias {
 	StructAliasAst* ast;
 	Uri moduleUri;
 	Visibility visibility;
+	private Late!DocCommentReferences lateDocCommentReferences;
 	private Late!(StructInst*) target_;
 
-	UriAndRange docComment() return scope =>
-		UriAndRange(moduleUri, ast.docComment);
+	DocCommentAst docCommentAst() return scope =>
+		ast.docComment;
+	DocComment docComment() return scope =>
+		DocComment(docCommentAst, docCommentReferences);
 
 	Symbol name() scope =>
 		ast.name.name;
@@ -591,6 +603,12 @@ immutable struct StructAlias {
 		UriAndRange(moduleUri, ast.range);
 	UriAndRange nameRange() scope =>
 		UriAndRange(moduleUri, ast.nameRange);
+
+	DocCommentReferences docCommentReferences() return scope =>
+		lateGet(lateDocCommentReferences);
+	void docCommentReferences(DocCommentReferences value) {
+		lateSet(lateDocCommentReferences, value);
+	}
 
 	StructInst* target() return scope =>
 		lateGet(target_);
@@ -633,7 +651,8 @@ immutable struct StructDecl {
 	// Note: purity on the decl does not take type args into account
 	Purity purity;
 	bool purityIsForced;
-	private Late!(SmallArray!VariantAndMethodImpls) variants_;
+	private Late!DocCommentReferences lateDocCommentReferences;
+	private Late!(SmallArray!VariantAndMethodImpls) lateVariants;
 	private Late!StructBody lateBody;
 
 	bool bodyIsSet() =>
@@ -644,10 +663,16 @@ immutable struct StructDecl {
 	Linkage linkage() scope =>
 		has(extern_) && force(extern_) != symbolSet(symbol!"js") ? Linkage.extern_ : Linkage.internal;
 
+	DocCommentReferences docCommentReferences() return scope =>
+		lateGet(lateDocCommentReferences);
+	void docCommentReferences(DocCommentReferences value) {
+		lateSet(lateDocCommentReferences, value);
+	}
+
 	SmallArray!VariantAndMethodImpls variants() return scope =>
-		lateGet(variants_);
+		lateGet(lateVariants);
 	void variants(SmallArray!VariantAndMethodImpls value) =>
-		lateSet(variants_, value);
+		lateSet(lateVariants, value);
 
 	ref StructBody body_() return scope =>
 		lateGet(lateBody);
@@ -656,12 +681,14 @@ immutable struct StructDecl {
 		lateSet(lateBody, value);
 	}
 
-	UriAndRange docComment() return scope =>
-		UriAndRange(moduleUri, source.match!Range(
+	DocCommentAst docCommentAst() return scope =>
+		source.match!DocCommentAst(
 			(ref StructDeclAst x) =>
 				x.docComment,
 			(ref StructDeclSource.Bogus) =>
-				Range.empty));
+				DocCommentAst.empty);
+	DocComment docComment() return scope =>
+		DocComment(docCommentAst, docCommentReferences);
 	TypeParams typeParams() return scope =>
 		source.match!TypeParams(
 			(ref StructDeclAst x) =>
@@ -767,14 +794,23 @@ immutable struct SpecDecl {
 	Uri moduleUri;
 	SpecDeclAst* ast;
 	Visibility visibility;
+	private Late!DocCommentReferences lateDocCommentReferences;
 	private Late!SpecDeclBody lateBody;
 
-	UriAndRange docComment() return scope =>
-		UriAndRange(moduleUri, ast.docComment);
+	DocCommentAst docCommentAst() return scope =>
+		ast.docComment;
+	DocComment docComment() return scope =>
+		DocComment(docCommentAst, docCommentReferences);
 	Symbol name() scope =>
 		ast.name.name;
 	TypeParams typeParams() return scope =>
 		ast.typeParams;
+
+	DocCommentReferences docCommentReferences() return scope =>
+		lateGet(lateDocCommentReferences);
+	void docCommentReferences(DocCommentReferences value) {
+		lateSet(lateDocCommentReferences, value);
+	}
 
 	bool bodyIsSet() scope =>
 		lateIsSet(lateBody);
@@ -1368,11 +1404,29 @@ immutable struct FunDeclSource {
 			(in VariantMethod x) =>
 				UriAndRange(x.variant.moduleUri, x.method.ast.nameRange));
 
-	UriAndRange docComment() scope =>
+	DocCommentAst docCommentAst() scope =>
 		isA!Ast
-			? UriAndRange(as!Ast.moduleUri, as!Ast.ast.docComment)
-			: UriAndRange.empty;
+			? as!Ast.ast.docComment
+			: DocCommentAst.empty;
 }
+
+//move -----------------------------------------------------------------------------------------------------------------------------------
+immutable struct DocComment {
+	@safe @nogc pure nothrow:
+	DocCommentAst ast;
+	DocCommentReferences references;
+
+	bool isEmpty() scope =>
+		ast.isEmpty;
+}
+
+immutable struct DocCommentReference { // move? ----------------------------------------------------------------------------------
+	immutable struct Bogus {}
+	mixin Union!(Bogus, FunDecl*, Local*, StructAlias*, StructDecl*, SpecDecl*, TypeParamIndex);
+}
+alias DocCommentReferences = SmallArray!DocCommentReference;
+DocCommentReferences emptyDocCommentReferences() =>
+	emptySmallArray!DocCommentReference;
 
 immutable struct FunDecl {
 	@safe @nogc pure nothrow:
@@ -1385,7 +1439,14 @@ immutable struct FunDecl {
 	FunFlags flags;
 	SymbolSet externs;
 	Specs specs;
+	private Late!DocCommentReferences lateDocCommentReferences;
 	private Late!FunBody lateBody;
+
+	DocCommentReferences docCommentReferences() return scope =>
+		lateGet(lateDocCommentReferences);
+	void docCommentReferences(DocCommentReferences value) {
+		lateSet(lateDocCommentReferences, value);
+	}
 
 	ref FunBody body_() return scope =>
 		lateGet(lateBody);
@@ -1423,8 +1484,10 @@ immutable struct FunDecl {
 		source.range;
 	UriAndRange nameRange() scope =>
 		source.nameRange;
-	UriAndRange docComment() scope =>
-		source.docComment;
+	DocCommentAst docCommentAst() scope =>
+		source.docCommentAst;
+	DocComment docComment() return scope =>
+		DocComment(docCommentAst, docCommentReferences);
 
 	Linkage linkage() scope =>
 		body_.isA!(FunBody.Extern) ? Linkage.extern_ : Linkage.internal;
@@ -1478,6 +1541,18 @@ immutable struct Test {
 	FunFlags flags;
 	SymbolSet externs;
 	Expr body_;
+	private Late!DocCommentReferences lateDocCommentReferences;
+
+	DocCommentAst docCommentAst() =>
+		ast.docComment;
+	DocComment docComment() =>
+		DocComment(docCommentAst, docCommentReferences);
+
+	DocCommentReferences docCommentReferences() return scope =>
+		lateGet(lateDocCommentReferences);
+	void docCommentReferences(DocCommentReferences value) {
+		lateSet(lateDocCommentReferences, value);
+	}
 
 	UriAndRange range() scope =>
 		UriAndRange(moduleUri, ast.range);
@@ -1571,6 +1646,11 @@ immutable struct CalledDecl {
 
 	mixin TaggedUnion!(FunDecl*, CalledSpecSig);
 
+	Uri moduleUri() scope =>
+		matchIn!Uri(
+			(in FunDecl x) => x.moduleUri,
+			(in CalledSpecSig x) => x.specInst.decl.moduleUri);
+
 	Symbol name() scope =>
 		matchIn!Symbol(
 			(in FunDecl f) => f.name,
@@ -1593,8 +1673,8 @@ immutable struct CalledDecl {
 			(in CalledSpecSig x) =>
 				x.arity);
 
-	UriAndRange docComment() scope =>
-		match!UriAndRange(
+	DocComment docComment() scope =>
+		match!DocComment(
 			(ref FunDecl x) =>
 				x.docComment,
 			(CalledSpecSig x) =>
@@ -1713,9 +1793,19 @@ immutable struct VarDecl {
 	Visibility visibility;
 	Type type;
 	Opt!Symbol externLibraryName;
+	private Late!DocCommentReferences lateDocCommentReferences;
 
-	UriAndRange docComment() return scope =>
-		UriAndRange(moduleUri, ast.docComment);
+	DocCommentAst docCommentAst() return scope =>
+		ast.docComment;
+	DocComment docComment() return scope =>
+		DocComment(docCommentAst, docCommentReferences);
+
+	DocCommentReferences docCommentReferences() return scope =>
+		lateGet(lateDocCommentReferences);
+	void docCommentReferences(DocCommentReferences value) {
+		lateSet(lateDocCommentReferences, value);
+	}
+
 	Symbol name() scope =>
 		ast.name.name;
 	TypeParams typeParams() return scope =>
@@ -1746,11 +1836,14 @@ immutable struct Module {
 	SmallArray!Test tests;
 	// Includes both internal and public exports.
 	HashTable!(NameReferents, Symbol, nameFromNameReferents) exports;
+	DocCommentReferences docCommentReferences;
 
 	UriAndRange range() scope =>
 		UriAndRange.topOfFile(uri);
-	UriAndRange docComment() scope =>
-		UriAndRange(uri, ast.docComment);
+	DocCommentAst docCommentAst() scope =>
+		ast.docComment;
+	DocComment docComment() return scope =>
+		DocComment(docCommentAst, docCommentReferences);
 }
 Uri getModuleUri(in Module* a) =>
 	a.uri;
@@ -1805,6 +1898,51 @@ immutable struct AnyDecl {
 			(in StructDecl x) => x.range,
 			(in Test x) => x.range,
 			(in VarDecl x) => x.range);
+
+	DocCommentAst docCommentAst() =>
+		match!DocCommentAst(
+			(ref FunDecl x) =>
+				x.docCommentAst,
+			(ref SpecDecl x) =>
+				x.docCommentAst,
+			(ref StructAlias x) =>
+				x.docCommentAst,
+			(ref StructDecl x) =>
+				x.docCommentAst,
+			(ref Test x) =>
+				x.docCommentAst,
+			(ref VarDecl x) =>
+				x.docCommentAst);
+
+	DocComment docComment() =>
+		match!DocComment(
+			(ref FunDecl x) =>
+				x.docComment,
+			(ref SpecDecl x) =>
+				x.docComment,
+			(ref StructAlias x) =>
+				x.docComment,
+			(ref StructDecl x) =>
+				x.docComment,
+			(ref Test x) =>
+				x.docComment,
+			(ref VarDecl x) =>
+				x.docComment);
+
+	TypeParams typeParams() scope =>
+		matchIn!TypeParams(
+			(in FunDecl x) =>
+				x.typeParams,
+			(in SpecDecl x) =>
+				x.typeParams,
+			(in StructAlias x) =>
+				emptyTypeParams,
+			(in StructDecl x) =>
+				x.typeParams,
+			(in Test x) =>
+				emptyTypeParams,
+			(in VarDecl x) =>
+				x.typeParams);
 
 	Visibility visibility() scope =>
 		matchIn!Visibility(

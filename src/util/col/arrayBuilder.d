@@ -22,7 +22,7 @@ struct Builder(T) {
 	ref Alloc alloc() return scope =>
 		*allocPtr;
 
-	void opOpAssign(string op)(in T x) scope if (op == "~") {
+	void opOpAssign(string op)(T x) scope if (op == "~") {
 		add!T(alloc, inner, x);
 	}
 	void opOpAssign(string op)(in T[] xs) scope if (op == "~") {

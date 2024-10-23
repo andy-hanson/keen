@@ -16,6 +16,8 @@ import model.ast :
 	ConditionAst,
 	DestructureAst,
 	DoAst,
+	DocCommentAst,
+	DocCommentContent,
 	EmptyAst,
 	EnumOrFlagsMemberAst,
 	ExprAst,
@@ -93,7 +95,7 @@ import util.writer : makeStringWithWriter;
 Json jsonOfAst(ref Alloc alloc, in LineAndColumnGetter lineAndColumnGetter, in FileAst ast) {
 	Ctx ctx = Ctx(lineAndColumnGetter);
 	return jsonObject(alloc, [
-		optionalRangeField!"doc"(alloc, ctx, ast.docComment),
+		docCommentField(alloc, ctx, ast.docComment),
 		optionalField!("imports", ImportsOrExportsAst)(ast.imports, (in ImportsOrExportsAst x) =>
 			jsonOfImportsOrExports(alloc, ctx, x)),
 		optionalField!("exports", ImportsOrExportsAst)(ast.reExports, (in ImportsOrExportsAst x) =>
@@ -118,8 +120,13 @@ const struct Ctx {
 	LineAndColumnGetter lineAndColumnGetter;
 }
 
-Opt!(Json.ObjectField) optionalRangeField(string name)(ref Alloc alloc, in Ctx ctx, in Range a) =>
-	optionalField!name(!a.isEmpty, () => jsonOfRange(alloc, ctx, a));
+Opt!(Json.ObjectField) docCommentField(ref Alloc alloc, in Ctx ctx, in DocCommentAst a) =>
+	optionalField!("doc", DocCommentContent*)(a.content, (in DocCommentContent* x) =>
+		jsonOfDocCommentContent(alloc, ctx, *x));
+Json jsonOfDocCommentContent(ref Alloc alloc, in Ctx ctx, in DocCommentContent a) =>
+	jsonObject(alloc, [
+		field!"range"(jsonOfRange(alloc, ctx, a.range)),
+		field!"references"(jsonOfTypeAsts(alloc, ctx, a.references))]);
 
 Json jsonOfRange(ref Alloc alloc, in Ctx ctx, in Range a) =>
 	jsonOfLineAndColumnRange(alloc, ctx.lineAndColumnGetter[a]);
@@ -155,7 +162,7 @@ Json pathOrRelPathToJson(ref Alloc alloc, in PathOrRelPath a) =>
 Json jsonOfSpecDeclAst(ref Alloc alloc, in Ctx ctx, in SpecDeclAst a) =>
 	jsonObject(alloc, [
 		field!"range"(jsonOfRange(alloc, ctx, a.range)),
-		optionalRangeField!"doc"(alloc, ctx, a.docComment),
+		docCommentField(alloc, ctx, a.docComment),
 		visibilityField(a.visibility_),
 		field!"name"(jsonOfNameAndRange(alloc, ctx, a.name)),
 		field!"modifiers"(jsonOfModifiers(alloc, ctx, a.modifiers)),
@@ -172,7 +179,7 @@ Json jsonOfSignatureAsts(ref Alloc alloc, in Ctx ctx, in SignatureAst[] a) =>
 Json jsonOfSignatureAst(ref Alloc alloc, in Ctx ctx, in SignatureAst a) =>
 	jsonObject(alloc, [
 		field!"range"(jsonOfRange(alloc, ctx, a.range)),
-		optionalRangeField!"doc"(alloc, ctx, a.docComment),
+		docCommentField(alloc, ctx, a.docComment),
 		field!"name"(a.name),
 		field!"return-type"(jsonOfTypeAst(alloc, ctx, a.returnType)),
 		field!"params"(jsonOfParamsAst(alloc, ctx, a.params))]);
@@ -180,7 +187,7 @@ Json jsonOfSignatureAst(ref Alloc alloc, in Ctx ctx, in SignatureAst a) =>
 Json jsonOfStructAliasAst(ref Alloc alloc, in Ctx ctx, in StructAliasAst a) =>
 	jsonObject(alloc, [
 		field!"range"(jsonOfRange(alloc, ctx, a.range)),
-		optionalRangeField!"doc"(alloc, ctx, a.docComment),
+		docCommentField(alloc, ctx, a.docComment),
 		visibilityField(a.visibility_),
 		field!"name"(jsonOfNameAndRange(alloc, ctx, a.name)),
 		maybeTypeParams(alloc, ctx, a.typeParams),
@@ -235,7 +242,7 @@ Json jsonOfLiteralIntegral(ref Alloc alloc, in LiteralIntegral a) =>
 Json jsonOfStructDeclAst(ref Alloc alloc, in Ctx ctx, in StructDeclAst a) =>
 	jsonObject(alloc, [
 		field!"range"(jsonOfRange(alloc, ctx, a.range)),
-		optionalRangeField!"doc"(alloc, ctx, a.docComment),
+		docCommentField(alloc, ctx, a.docComment),
 		visibilityField(a.visibility_),
 		maybeTypeParams(alloc, ctx, a.typeParams),
 		field!"modifiers"(jsonOfModifiers(alloc, ctx, a.modifiers)),
@@ -291,7 +298,7 @@ Opt!(Json.ObjectField) maybeTypeParams(ref Alloc alloc, in Ctx ctx, in NameAndRa
 
 Json jsonOfFunDeclAst(ref Alloc alloc, in Ctx ctx, in FunDeclAst a) =>
 	jsonObject(alloc, [
-		optionalRangeField!"doc"(alloc, ctx, a.docComment),
+		docCommentField(alloc, ctx, a.docComment),
 		visibilityField(a.visibility_),
 		field!"range"(jsonOfRange(alloc, ctx, a.range)),
 		field!"name"(jsonOfNameAndRange(alloc, ctx, a.name)),
@@ -627,7 +634,7 @@ Json jsonOfCaseMemberAst(ref Alloc alloc, in Ctx ctx, in CaseMemberAst a) =>
 Json jsonOfVarDeclAst(ref Alloc alloc, in Ctx ctx, in VarDeclAst a) =>
 	jsonObject(alloc, [
 		field!"range"(jsonOfRange(alloc, ctx, a.range)),
-		optionalRangeField!"doc"(alloc, ctx, a.docComment),
+		docCommentField(alloc, ctx, a.docComment),
 		visibilityField(a.visibility_),
 		field!"name"(jsonOfNameAndRange(alloc, ctx, a.name)),
 		maybeTypeParams(alloc, ctx, a.typeParams),

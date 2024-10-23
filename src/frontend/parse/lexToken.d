@@ -148,7 +148,7 @@ enum Token {
 	enum_, // 'enum'
 	equal, // '='
 	extern_, // 'extern'
-	EOF, // end of file
+	EOF, // end of file (Why don't I just call it that then? -----------------------------------------------------------------------------)
 	export_, // 'export'
 	finally_, // 'finally'
 	flags, // 'flags'
@@ -192,6 +192,7 @@ enum Token {
 	questionDot, // '?.'
 	questionBracket, // '?['
 	questionEqual, // '?='
+	quoteBar, // '|', only if this is the first non-whitespace on its line. Otherwise that will be an operator.
 	quoteDouble, // '"'
 	quoteDouble3, // '"""'
 	quotedText, // Fake token to be the peek after the '"'
@@ -252,7 +253,7 @@ TokenAndData lexInitialToken(ref MutCString ptr, IndentKind indentKind, ref uint
 Advances 'ptr' to lex a single token.
 Possibly writes to 'data' depending on the kind of token returned.
 */
-TokenAndData lexToken(ref MutCString ptr, IndentKind indentKind, ref uint curIndent, in AddDiag addDiag) {
+TokenAndData lexToken(ref MutCString ptr, IndentKind indentKind, Token prevToken, ref uint curIndent, in AddDiag addDiag) {
 	if (*ptr == '\0')
 		return newlineToken(ptr, Token.EOF, indentKind, curIndent, addDiag);
 
@@ -317,7 +318,9 @@ TokenAndData lexToken(ref MutCString ptr, IndentKind indentKind, ref uint curInd
 				? takeNumberAfterSign(ptr, some(Sign.plus))
 				: operatorToken(ptr, symbol!"+");
 		case '|':
-			return operatorToken(ptr, tryTakeChar(ptr, '|') ? symbol!"||" : symbol!"|");
+			return isNewlineToken(prevToken)
+				? plainToken(Token.quoteBar)
+				: operatorToken(ptr, tryTakeChar(ptr, '|') ? symbol!"||" : symbol!"|");
 		case ':':
 			return tryTakeChar(ptr, '=')
 				? plainToken(Token.colonEqual)
@@ -490,7 +493,7 @@ TokenAndData newlineToken(
 	ref uint curIndent,
 	in AddDiag addDiag,
 ) {
-	DocCommentAndIndentDelta x = skipBlankLinesAndGetIndentDelta(ptr, indentKind, curIndent, addDiag);
+	DocCommentAndIndentDelta x = skipBlankLinesAndGetIndentDelta(ptr, indentKind, curIndent, addDiag); // TODO: get rid of this stuff. Doc comment is its own token now.
 	Token token = x.indentDelta == 0 ? newlineOrEOF : x.indentDelta < 0 ? Token.newlineDedent : Token.newlineIndent;
 	uint extraDedents = token == Token.newlineDedent ? -x.indentDelta - 1 : 0;
 	return TokenAndData(token, DocCommentAndExtraDedents(x.docComment, extraDedents));

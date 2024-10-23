@@ -4,11 +4,12 @@ module document.document;
 
 import frontend.showModel : ShowModelCtx;
 import frontend.storage : FileContentGetters;
-import model.ast : NameAndRange;
+import model.ast : DocCommentAst, NameAndRange;
 import model.concreteModel : TypeSize;
 import model.model :
 	BuiltinType,
 	Destructure,
+	DocComment,
 	EnumOrFlagsMember,
 	FunBody,
 	FunDecl,
@@ -51,11 +52,11 @@ import util.json :
 	jsonString,
 	kindField;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : compareUriAndRange, UriAndRange;
+import util.sourceRange : compareUriAndRange, Range, UriAndRange;
 import util.string : isWhitespace;
 import util.symbol : Symbol, symbol;
 import util.uri : stringOfUri, Uri;
-import util.util : ptrTrustMe, stringOfEnum;
+import util.util : ptrTrustMe, stringOfEnum, todo;
 
 Json documentModules(ref Alloc alloc, in Program program, in ShowModelCtx showCtx, in Uri[] moduleUris) {
 	Ctx ctx = Ctx(ptrTrustMe(alloc), showCtx.fileContentGetters);
@@ -96,7 +97,7 @@ Json documentModule(ref Ctx ctx, in Program program, in Module a) {
 	});
 	return jsonObject(ctx.alloc, [
 		field!"uri"(stringOfUri(ctx.alloc, a.uri)),
-		docCommentField(ctx, a.docComment),
+		docCommentField(ctx, a.uri, a.docComment),
 		field!"exports"(jsonList!DocExport(ctx.alloc, exports, (in DocExport x) => x.json))]);
 }
 
@@ -111,23 +112,31 @@ DocExport documentExport(
 	ref Ctx ctx,
 	UriAndRange range,
 	Symbol name,
-	in UriAndRange docComment,
+	in DocComment docComment,
 	in TypeParams typeParams,
 	Json value,
 ) =>
 	DocExport(range, jsonObject(ctx.alloc, [
 		field!"name"(name),
-		docCommentField(ctx, docComment),
+		docCommentField(ctx, range.uri, docComment),
 		optionalArrayField!("type-params", NameAndRange)(ctx.alloc, typeParams, (in NameAndRange x) =>
 			jsonObject(ctx.alloc, [field!"name"(x.name)])),
 		field!"value"(value)]));
 
-Opt!(Json.ObjectField) docCommentField(ref Ctx ctx, in UriAndRange docComment) =>
-	optionalField!"doc"(!docComment.range.isEmpty, () =>
-		jsonString(docCommentString(ctx.fileContentGetters, docComment)));
+Opt!(Json.ObjectField) docCommentField(ref Ctx ctx, Uri uri, in DocComment docComment) =>
+	optionalField!"doc"(!docComment.isEmpty, () =>
+		jsonString(docCommentString(ctx.fileContentGetters, uri, docComment)));
 
-public string docCommentString(in FileContentGetters a, in UriAndRange docComment) =>
-	stripDocComment(a[docComment]);
+public string docCommentString(in FileContentGetters fileContents, Uri uri, in DocComment a) {
+	if (a.isEmpty)
+		return "";
+	else {
+		Range range = force(a.ast.range);
+		string text = fileContents[UriAndRange(uri, range)];
+		// TODO: remove the '|' from the comment! ---------------------------------------------------------------------------------
+		return text;
+	}
+}
 string stripDocComment(string a) {
 	while (!isEmpty(a) && isWhitespaceOrHash(a[0]))
 		a = a[1 .. $];
@@ -226,7 +235,7 @@ Json documentVariant(
 	in StructBody.Variant a,
 	Opt!(Json.ObjectField) variantsField,
 ) =>
-	jsonObject(alloc, [kindField!"variant", maybePurity(alloc, decl), variantsField]);
+	jsonObject(alloc, [kindField!"variant", maybePurity(alloc, decl), variantsField]); // TODO: document the methods! ------------------------
 
 Opt!Json documentRecordField(ref Ctx ctx, in TypeParams typeParams, in RecordField a) {
 	final switch (a.visibility) {
@@ -257,7 +266,7 @@ DocExport documentSpec(ref Ctx ctx, in SpecDecl a) =>
 
 Json documentSpecDeclSig(ref Ctx ctx, in TypeParams typeParams, in Signature a) =>
 	jsonObject(ctx.alloc, [
-		docCommentField(ctx, a.docComment),
+		docCommentField(ctx, a.moduleUri, a.docComment),
 		field!"name"(a.name),
 		field!"return-type"(documentTypeRef(ctx, typeParams, a.returnType)),
 		field!"params"(documentParamDestructures(ctx, typeParams, a.params))]);

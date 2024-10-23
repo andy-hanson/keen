@@ -21,6 +21,7 @@ import frontend.check.typeFromAst :
 	AliasAllowed, checkDestructure, checkTypeParams, DestructureKind, getSpecFromCommonModule, specFromAst, typeFromAst;
 import model.ast :
 	DestructureAst,
+	DocCommentAst,
 	EmptyAst,
 	FunDeclAst,
 	ImportFileType,
@@ -34,9 +35,13 @@ import model.ast :
 	TypeAst;
 import model.diag : DeclKind, Diag, TypeContainer;
 import model.model :
+	AnyDecl,
 	AutoFun,
 	CommonTypes,
 	Destructure,
+	DocCommentReference,
+	DocCommentReferences,
+	emptyDocCommentReferences,
 	emptySpecs,
 	Expr,
 	FunBody,
@@ -47,14 +52,18 @@ import model.model :
 	isLinkageAlwaysCompatible,
 	Linkage,
 	linkageRange,
+	Local,
 	Params,
+	paramsArray,
 	RecordField,
 	SpecDecl,
 	Signature,
 	SpecInst,
+	StructAlias,
 	StructBody,
 	StructDecl,
 	StructInst,
+	StructOrAlias,
 	Test,
 	Type,
 	TypeParamIndex,
@@ -72,6 +81,7 @@ import util.col.array :
 	mapOp,
 	mapPointers,
 	mapWithResultPointer,
+	minBy,
 	mustFind,
 	only,
 	small,
@@ -87,7 +97,7 @@ import util.string : CStringAndLength;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, SymbolSetBuilder;
 import util.unicode : unicodeValidate;
-import util.util : optEnumConvert;
+import util.util : optEnumConvert, typeAs;
 
 FunsAndMap checkFuns(
 	ref CheckCtx ctx,
