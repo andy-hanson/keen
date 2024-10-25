@@ -15,6 +15,7 @@ immutable struct ParseDiagnostic {
 
 immutable struct ParseDiag {
 	@safe @nogc pure nothrow:
+	immutable struct DocCommentUnused {}
 	immutable struct Expected {
 		enum Kind {
 			as,
@@ -62,7 +63,7 @@ immutable struct ParseDiag {
 		string actual;
 	}
 	immutable struct MatchCaseInterpolated {}
-	immutable struct MissingExpression {}
+	immutable struct MissingInterpolated {}
 	immutable struct NeedsBlockCtx {
 		enum Kind {
 			do_,
@@ -95,6 +96,7 @@ immutable struct ParseDiag {
 	}
 
 	mixin Union!(
+		DocCommentUnused,
 		Expected,
 		FileNotUtf8,
 		ImportFileTypeNotSupported,
@@ -103,7 +105,7 @@ immutable struct ParseDiag {
 		IndentWrongCharacter,
 		InvalidStringEscape,
 		MatchCaseInterpolated,
-		MissingExpression,
+		MissingInterpolated,
 		NeedsBlockCtx,
 		ReadFileDiag,
 		TrailingComma,

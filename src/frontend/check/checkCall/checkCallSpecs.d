@@ -11,7 +11,7 @@ import frontend.check.instantiate :
 	InstantiateCtx, instantiateFun, instantiateSpecInst, noDelaySpecInsts;
 import frontend.check.maps : FunsMap;
 import frontend.lang : maxSpecDepth;
-import model.diag : Diag, TypeContainer;
+import model.diag : Diag;
 import model.model :
 	BuiltinSpec,
 	Called,
@@ -35,7 +35,8 @@ import model.model :
 	Specs,
 	StructInst,
 	Type,
-	TypeArgs;
+	TypeArgs,
+	TypeContainer;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withExactStackArray, withMapOrNoneToStackArray, withMaxStackArray;
 import util.cell : Cell, cellGet, cellSet;

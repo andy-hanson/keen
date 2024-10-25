@@ -494,7 +494,7 @@ private ExitCodeOrSignal runFromLsp(
 
 private __gshared Server serverStorage = void;
 
-@system Server* setupServer(FetchMemoryCb fetch) {
+@system Server* setupServer(return scope FetchMemoryCb fetch) {
 	ensureStackAllocInitialized();
 	Server* server = &serverStorage;
 	server.__ctor(fetch);

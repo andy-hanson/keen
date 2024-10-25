@@ -753,17 +753,3 @@ void reverseInPlace(T)(scope T[] a) {
 		overwriteMemory(&a[j], temp);
 	}
 }
-
-T minBy(T)(T[] a, in uint delegate(in T) @safe @nogc pure nothrow cb) {
-	assert(!isEmpty(a));
-	size_t resIndex = 0;
-	uint best = cb(a[resIndex]);
-	foreach (size_t i; 1 .. a.length) {
-		uint here = cb(a[i]);
-		if (here < best) {
-			resIndex = i;
-			best = here;
-		}
-	}
-	return a[resIndex];
-}

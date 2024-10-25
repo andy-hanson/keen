@@ -31,9 +31,7 @@ import model.diag :
 	DiagnosticSeverity,
 	ExpectedForDiag,
 	ReadFileDiag,
-	TypeContainer,
 	DeclKind,
-	TypeWithContainer,
 	UriAndDiagnostic;
 import model.model :
 	arityMatches,
@@ -56,7 +54,9 @@ import model.model :
 	StructDecl,
 	StructInst,
 	Type,
+	TypeContainer,
 	TypeParamsAndSig,
+	TypeWithContainer,
 	UnionMember;
 import model.parseDiag : ParseDiag, ParseDiagnostic;
 import util.alloc.alloc : Alloc;
@@ -186,6 +186,9 @@ void writeUnusedDiag(scope ref Writer writer, in ShowCtx ctx, in Diag.Unused a) 
 
 void writeParseDiag(scope ref Writer writer, in ShowCtx ctx, in ParseDiag d) {
 	d.matchIn!void(
+		(in ParseDiag.DocCommentUnused) {
+			writer ~= "Doc comment must appear at top of module or before a declaration.";
+		},
 		(in ParseDiag.Expected x) {
 			writer ~= showParseDiagExpected(x.kind);
 		},
@@ -219,8 +222,8 @@ void writeParseDiag(scope ref Writer writer, in ShowCtx ctx, in ParseDiag d) {
 		(in ParseDiag.MatchCaseInterpolated) {
 			writer ~= "'match' only works with literal strings, not interpolated strings.";
 		},
-		(in ParseDiag.MissingExpression x) {
-			writer ~= "Expected an expression here.";
+		(in ParseDiag.MissingInterpolated x) {
+			writer ~= "Expected something inside of the '{}'.";
 		},
 		(in ParseDiag.NeedsBlockCtx x) {
 			if (x.kind == ParseDiag.NeedsBlockCtx.Kind.lambda)

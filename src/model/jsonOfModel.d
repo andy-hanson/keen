@@ -5,6 +5,7 @@ module model.jsonOfModel;
 import model.ast : ImportOrExportAst, NameAndRange;
 import model.jsonOfConstant : jsonOfConstant;
 import model.model :
+	AnyDecl,
 	AssertOrForbidExpr,
 	AutoFun,
 	BogusCallExpr,
@@ -21,7 +22,8 @@ import model.model :
 	ClosureSetExpr,
 	Condition,
 	Destructure,
-	emptyTypeParams,
+	DocComment,
+	DocCommentReference,
 	EnumOrFlagsFunction,
 	Expr,
 	ExprAndType,
@@ -62,6 +64,7 @@ import model.model :
 	Purity,
 	SeqExpr,
 	SpecDecl,
+	StructAlias,
 	Signature,
 	SpecInst,
 	StructDecl,
@@ -76,10 +79,8 @@ import model.model :
 	Type,
 	TypedExpr,
 	TypeParamIndex,
-	TypeParams,
 	VarDecl,
-	VariableRef,
-	Visibility;
+	VariableRef;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mapOp;
 import util.col.arrayBuilder : buildArray, Builder;
@@ -105,23 +106,51 @@ Json jsonOfModule(ref Alloc alloc, in LineAndColumnGetter lcg, in Module a) {
 	Ctx ctx = Ctx(ptrTrustMe(a), lcg);
 	return jsonObject(alloc, [
 		field!"uri"(stringOfUri(alloc, a.uri)),
+		docCommentField(alloc, ctx, a.docComment),
 		optionalArrayField!("imports", ImportOrExport)(alloc, a.imports, (in ImportOrExport x) =>
 			jsonOfImportOrExport(alloc, ctx, x)),
 		optionalArrayField!("re-exports", ImportOrExport)(alloc, a.reExports, (in ImportOrExport x) =>
 			jsonOfImportOrExport(alloc, ctx, x)),
-		optionalArrayField!("structs", StructDecl)(alloc, a.structs, (in StructDecl x) =>
+		optionalArrayField!("aliases", StructAlias)(alloc, a.aliases, (ref StructAlias x) =>
+			jsonOfStructAlias(alloc, ctx, x)),
+		optionalArrayField!("structs", StructDecl)(alloc, a.structs, (ref StructDecl x) =>
 			jsonOfStructDecl(alloc, ctx, x)),
-		optionalArrayField!("vars", VarDecl)(alloc, a.vars, (in VarDecl x) =>
+		optionalArrayField!("vars", VarDecl)(alloc, a.vars, (ref VarDecl x) =>
 			jsonOfVarDecl(alloc, ctx, x)),
-		optionalArrayField!("specs", SpecDecl)(alloc, a.specs, (in SpecDecl x) =>
+		optionalArrayField!("specs", SpecDecl)(alloc, a.specs, (ref SpecDecl x) =>
 			jsonOfSpecDecl(alloc, ctx, x)),
-		optionalArrayField!("funs", FunDecl)(alloc, a.funs, (in FunDecl x) =>
+		optionalArrayField!("funs", FunDecl)(alloc, a.funs, (ref FunDecl x) =>
 			jsonOfFunDecl(alloc, ctx, x)),
-		optionalArrayField!("tests", Test)(alloc, a.tests, (in Test x) =>
+		optionalArrayField!("tests", Test)(alloc, a.tests, (ref Test x) =>
 			jsonOfTest(alloc, ctx, x))]);
 }
 
 private:
+
+Opt!(Json.ObjectField) docCommentField(ref Alloc alloc, in Ctx ctx, in DocComment a) =>
+	optionalField!"doc"(!a.isEmpty, () =>
+		jsonObject(alloc, [
+			field!"range"(jsonOfLineAndColumnRange(alloc, ctx.lineAndColumnGetter[force(a.ast.range)])),
+			optionalArrayField!("references", DocCommentReference)(alloc, a.references, (in DocCommentReference x) =>
+				jsonOfDocCommentReference(alloc, ctx, x))]));
+Json jsonOfDocCommentReference(ref Alloc alloc, in Ctx ctx, in DocCommentReference a) =>
+	a.matchIn!Json(
+		(in DocCommentReference.Bogus) =>
+			jsonString("bogus"),
+		(in CalledSpecSig x) =>
+			jsonOfCalledSpecSig(alloc, ctx, x),
+		(in FunDecl x) =>
+			jsonObject(alloc, [kindField!"fun", field!"name"(x.name)]),
+		(in Local x) =>
+			jsonObject(alloc, [kindField!"local", field!"name"(x.name)]),
+		(in StructAlias x) =>
+			jsonObject(alloc, [kindField!"alias", field!"name"(x.name)]),
+		(in StructDecl x) =>
+			jsonObject(alloc, [kindField!"struct", field!"name"(x.name)]),
+		(in SpecDecl x) =>
+			jsonObject(alloc, [kindField!"spec", field!"name"(x.name)]),
+		(in TypeParamIndex x) =>
+			jsonObject(alloc, [kindField!"type-param", field!"index"(x.index)]));
 
 Json jsonOfUriAndRange(ref Alloc alloc, in Ctx ctx, in UriAndRange range) =>
 	jsonObject(alloc, [
@@ -147,28 +176,34 @@ const struct Ctx {
 	LineAndColumnGetter lineAndColumnGetter;
 }
 
-Json jsonOfStructDecl(ref Alloc alloc, in Ctx ctx, in StructDecl a) =>
+Json jsonOfStructAlias(ref Alloc alloc, in Ctx ctx, ref StructAlias a) =>
 	jsonObject(
 		alloc,
-		commonDeclFields(alloc, ctx, a.visibility, a.name, a.typeParams),
+		commonDeclFields(alloc, ctx, AnyDecl(&a)),
+		[field!"target"(jsonOfStructInst(alloc, ctx, *a.target))]);
+
+Json jsonOfStructDecl(ref Alloc alloc, in Ctx ctx, ref StructDecl a) =>
+	jsonObject(
+		alloc,
+		commonDeclFields(alloc, ctx, AnyDecl(&a)),
 		[
 			optionalField!"purity"(a.purity != Purity.data, () => jsonString(stringOfEnum(a.purity))),
 			optionalFlagField!"forced"(a.purityIsForced),
 		]);
 
-Json jsonOfVarDecl(ref Alloc alloc, in Ctx ctx, in VarDecl a) =>
+Json jsonOfVarDecl(ref Alloc alloc, in Ctx ctx, ref VarDecl a) =>
 	jsonObject(alloc,
-		commonDeclFields(alloc, ctx, a.visibility, a.name, emptyTypeParams),
+		commonDeclFields(alloc, ctx, AnyDecl(&a)),
 		[
 			field!"var-kind"(stringOfEnum(a.kind)),
 			field!"type"(jsonOfType(alloc, ctx, a.type)),
 			optionalField!("library-name", Symbol)(a.externLibraryName, (in Symbol x) => jsonString(x)),
 		]);
 
-Json jsonOfSpecDecl(ref Alloc alloc, in Ctx ctx, in SpecDecl a) =>
+Json jsonOfSpecDecl(ref Alloc alloc, in Ctx ctx, ref SpecDecl a) =>
 	jsonObject(
 		alloc,
-		commonDeclFields(alloc, ctx, a.visibility, a.name, a.typeParams),
+		commonDeclFields(alloc, ctx, AnyDecl(&a)),
 		[
 			optionalField!("builtin", BuiltinSpec)(a.builtin, (in BuiltinSpec x) => jsonString(stringOfEnum(x))),
 				field!"parents"(jsonList!(SpecInst*)(alloc, a.parents, (in SpecInst* x) =>
@@ -179,38 +214,36 @@ Json jsonOfSpecDecl(ref Alloc alloc, in Ctx ctx, in SpecDecl a) =>
 
 Json jsonOfSpecDeclSig(ref Alloc alloc, in Ctx ctx, in Signature a) =>
 	jsonObject(alloc, [
+		docCommentField(alloc, ctx, a.docComment),
 		field!"where"(jsonOfLineAndColumnRange(alloc, ctx.lineAndColumnGetter[a.range.range])),
 		field!"name"(a.name),
 		field!"return-type"(jsonOfType(alloc, ctx, a.returnType)),
 		field!"params"(jsonOfDestructures(alloc, ctx, a.params))]);
 
-Json jsonOfFunDecl(ref Alloc alloc, in Ctx ctx, in FunDecl a) =>
+Json jsonOfFunDecl(ref Alloc alloc, in Ctx ctx, ref FunDecl a) =>
 	jsonObject(
 		alloc,
-		commonDeclFields(alloc, ctx, a.visibility, a.name, a.typeParams),
+		commonDeclFields(alloc, ctx, AnyDecl(&a)),
 		[
 			field!"flags"(funFlags(alloc, a.flags)),
 			field!"return-type"(jsonOfType(alloc, ctx, a.returnType)),
 			field!"params"(jsonOfParams(alloc, ctx, a.params)),
-			optionalArrayField!"specs"(alloc, a.specs, (in SpecInst* x) => jsonOfSpecInst(alloc, ctx, *x)),
+			optionalArrayField!"specs"(alloc, a.specs, (ref SpecInst* x) =>
+				jsonOfSpecInst(alloc, ctx, *x)),
 			field!"body"(jsonOfFunBody(alloc, ctx, a.body_)),
 		]);
 
 Json jsonOfTest(ref Alloc alloc, in Ctx ctx, in Test a) =>
 	jsonObject(alloc, [
+		docCommentField(alloc, ctx, a.docComment),
 		field!"body"(jsonOfExpr(alloc, ctx, a.body_))]);
 
-Opt!(Json.ObjectField)[3] commonDeclFields(
-	ref Alloc alloc,
-	in Ctx ctx,
-	Visibility visibility,
-	Symbol name,
-	in TypeParams typeParams,
-) =>
+Opt!(Json.ObjectField)[4] commonDeclFields(ref Alloc alloc, in Ctx ctx, in AnyDecl decl) =>
 	[
-		field!"visibility"(stringOfVisibility(visibility)),
-		field!"name"(name),
-		optionalArrayField!("type-params", NameAndRange)(alloc, typeParams, (in NameAndRange x) =>
+		docCommentField(alloc, ctx, decl.docComment),
+		field!"visibility"(stringOfVisibility(decl.visibility)),
+		field!"name"(decl.name),
+		optionalArrayField!("type-params", NameAndRange)(alloc, decl.typeParams, (in NameAndRange x) =>
 			jsonOfTypeParam(alloc, x)),
 	];
 

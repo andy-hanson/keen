@@ -5,7 +5,7 @@ module frontend.showModel;
 import frontend.check.typeFromAst : typeSyntaxKind;
 import frontend.storage : FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters;
 import model.ast : NameAndRange;
-import model.diag : Diag, TypeContainer, TypeWithContainer;
+import model.diag : Diag;
 import model.model :
 	Called,
 	CalledDecl,
@@ -27,9 +27,11 @@ import model.model :
 	stringOfVisibility,
 	StructInst,
 	Type,
+	TypeContainer,
 	TypeParamIndex,
 	TypeParams,
 	TypeParamsAndSig,
+	TypeWithContainer,
 	Visibility;
 import util.col.array : isEmpty, only, only2, sizeEq;
 import util.opt : force, has, none, Opt, some;
@@ -89,7 +91,7 @@ void writeCalled(
 			writeFunInst(writer, ctx, writeKind, typeContainer, x);
 		},
 		(in CalledSpecSig x) {
-			writeCalledSpecSig(writer, ctx, writeKind, typeContainer, x, () {}, () {});
+			writeCalledSpecSig(writer, ctx, writeKind, typeContainer, x);
 		});
 }
 
@@ -139,6 +141,16 @@ void writeCalleds(scope ref Writer writer, in ShowTypeCtx ctx, in TypeContainer 
 		writeNewline(writer, 1);
 		writeCalled(writer, ctx, WriteKind.unquoted, typeContainer, x);
 	}
+}
+
+void writeCalledSpecSig(
+	scope ref Writer writer,
+	in ShowTypeCtx ctx,
+	WriteKind writeKind,
+	in TypeContainer typeContainer,
+	in CalledSpecSig x,
+) {
+	writeCalledSpecSig(writer, ctx, writeKind, typeContainer, x, () {}, () {});
 }
 
 private void writeCalledSpecSig(

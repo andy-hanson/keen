@@ -4,13 +4,11 @@ module model.diag;
 
 import model.ast : ModifierKeyword;
 import model.model :
-	AnyDecl,
 	AutoFun,
 	BuiltinSpec,
 	Called,
 	CalledDecl,
 	Destructure,
-	emptyTypeParams,
 	EnumOrFlagsMember,
 	FloatType,
 	FunDecl,
@@ -24,15 +22,13 @@ import model.model :
 	ReturnAndParamTypes,
 	SpecDecl,
 	Signature,
-	StructAlias,
 	StructDecl,
 	StructInst,
-	Test,
 	Type,
-	TypeParams,
+	TypeContainer,
 	TypeParamsAndSig,
+	TypeWithContainer,
 	UnionMember,
-	VarDecl,
 	VariableRef,
 	VarKind,
 	Visibility;
@@ -458,6 +454,7 @@ immutable struct Diag {
 	immutable struct MutFieldNotAllowed {}
 	immutable struct NameNotFound {
 		enum Kind {
+			docCommentReference,
 			function_,
 			spec,
 			type,
@@ -799,53 +796,3 @@ immutable struct ExpectedForDiag {
 	immutable struct Loop {}
 	mixin Union!(Choices, Infer, Loop);
 }
-
-immutable struct TypeWithContainer {
-	Type type;
-	TypeContainer container;
-}
-
-// Since a type parameter is represented as its index, we need a context to know where to find it.
-immutable struct TypeContainer {
-	@safe @nogc pure nothrow:
-
-	mixin TaggedUnion!(FunDecl*, SpecDecl*, StructAlias*, StructDecl*, Test*, VarDecl*); // TODO: this is identical to AnyDecl. Just use that?
-
-	Uri moduleUri() scope =>
-		matchIn!Uri(
-			(in FunDecl x) =>
-				x.moduleUri,
-			(in SpecDecl x) =>
-				x.moduleUri,
-			(in StructAlias x) =>
-				x.moduleUri,
-			(in StructDecl x) =>
-				x.moduleUri,
-			(in Test x) =>
-				x.moduleUri,
-			(in VarDecl x) =>
-				x.moduleUri);
-
-	TypeParams typeParams() scope =>
-		matchIn!TypeParams(
-			(in FunDecl x) =>
-				x.typeParams,
-			(in SpecDecl x) =>
-				x.typeParams,
-			(in StructAlias x) =>
-				emptyTypeParams,
-			(in StructDecl x) =>
-				x.typeParams,
-			(in Test x) =>
-				emptyTypeParams,
-			(in VarDecl x) =>
-				x.typeParams);
-}
-TypeContainer assertTypeContainer(AnyDecl a) => // this will be unnecessary ---------------------------------------------------------
-	a.matchWithPointers!TypeContainer(
-		(FunDecl* x) => TypeContainer(x),
-		(SpecDecl* x) => TypeContainer(x),
-		(StructAlias* x) => TypeContainer(x),
-		(StructDecl* x) => TypeContainer(x),
-		(Test* x) => TypeContainer(x),
-		(VarDecl* x) => TypeContainer(x));

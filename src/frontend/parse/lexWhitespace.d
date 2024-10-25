@@ -353,8 +353,10 @@ void skipRestOfBlockComment(ref MutCString ptr, in AddDiag addDiag) {
 		while (tryTakeChar(ptr, '\t') || tryTakeChar(ptr, ' ')) {}
 		if (tryTakeTripleHashThenNewline(ptr))
 			break;
-		else if (*ptr == '\0')
+		else if (*ptr == '\0') {
 			addDiag(ptr, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.blockCommentEnd)));
+			break;
+		}
 		skipRestOfLineAndNewline(ptr);
 	}
 }

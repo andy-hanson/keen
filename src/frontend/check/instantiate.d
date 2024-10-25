@@ -125,9 +125,18 @@ void instantiateStructTypes(InstantiateCtx ctx, StructInst* inst, scope MayDelay
 StructInst* instantiateStructWithOwnTypeParams(InstantiateCtx ctx, StructDecl* decl) =>
 	withStackArray(
 		decl.typeParams.length,
-		(size_t i) => Type(TypeParamIndex(safeToUint(i))),
+		(size_t i) =>
+			Type(TypeParamIndex(safeToUint(i))),
 		(scope Type[] typeArgs) =>
 			instantiateStructNeverDelay(ctx, decl, typeArgs));
+
+SpecInst* instantiateSpecWithOwnTypeParams(InstantiateCtx ctx, SpecDecl* decl) =>
+	withStackArray(
+		decl.typeParams.length,
+		(size_t i) =>
+			Type(TypeParamIndex(safeToUint(i))),
+		(scope Type[] typeArgs) =>
+			instantiateSpec(ctx, decl, typeArgs));
 
 StructInst* instantiateStruct(
 	InstantiateCtx ctx,

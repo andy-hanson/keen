@@ -95,7 +95,7 @@ import model.lowModel : ExternLibraries;
 version (Test) {
 	import test.test : test;
 }
-import util.alloc.alloc : Alloc, AllocKind, newAlloc, withTempAllocImpure, word;
+import util.alloc.alloc : Alloc, AllocKind, FetchMemoryCb, newAlloc, withTempAllocImpure, word;
 import util.col.array : find, isEmpty, prepend;
 import util.col.mutQueue : enqueue, isEmpty, mustDequeue, MutQueue;
 import util.exitCode : eachUntilError, ExitCode, exitCodeCombine, ExitCodeOrSignal, okAnd, Signal;
@@ -124,7 +124,7 @@ import util.uri :
 	toUri,
 	Uri,
 	uriIsFile;
-import util.util : debugLog;
+import util.util : castNonScope_ref, debugLog;
 import util.writer : makeStringWithWriter, writeNat, Writer;
 import versionInfo : getOS, JsTarget, OS, versionInfoForInterpret, versionInfoForJIT, VersionOptions;
 
@@ -132,8 +132,15 @@ import versionInfo : getOS, JsTarget, OS, versionInfoForInterpret, versionInfoFo
 	ulong function() @safe @nogc pure nothrow getTimeNanosPure =
 		cast(ulong function() @safe @nogc pure nothrow) &getTimeNanos;
 	scope Perf perf = Perf(() => getTimeNanosPure());
-	Server* server = setupServer((size_t sizeWords, size_t _) =>
-		(cast(word*) pureMalloc(sizeWords * word.sizeof))[0 .. sizeWords]);
+	size_t totalAllocatedWords = 0;
+	scope FetchMemoryCb fetchCb = (size_t sizeWords, size_t _) {
+		totalAllocatedWords += sizeWords;
+		if (totalAllocatedWords > 0x40000000) {
+			assert(false, "Exceeded 8GB total allocated");
+		}
+		return (cast(word*) pureMalloc(sizeWords * word.sizeof))[0 .. sizeWords];
+	};
+	Server* server = setupServer(castNonScope_ref!FetchMemoryCb(fetchCb));
 	FilePath cwd = getCwd();
 	FilePath thisExecutable = getPathToThisExecutable();
 	setServerSettings(server, ServerSettings(
@@ -196,7 +203,7 @@ bool inAssert;
 
 	while (true) {
 		// TODO: get this from specified trace level
-		bool logLsp = false;
+		bool logLsp = true; // ------------------------------------------------------------------------------------------------------
 		//TODO: track perf for each message/response
 		Opt!ExitCode stop = withNullPerf!(Opt!ExitCode, (scope ref Perf perf) =>
 			withTempAllocImpure!(Opt!ExitCode)(server.metaAlloc, (ref Alloc alloc) =>

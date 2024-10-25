@@ -18,7 +18,6 @@ import lib.lsp.lspTypes :
 	TestStates,
 	Write;
 import model.ast : DestructureAst, ImportOrExportAst, ImportOrExportAstKind;
-import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
 	AnyDecl,
 	bestCasePurity,
@@ -42,7 +41,9 @@ import model.model :
 	Program,
 	Purity,
 	Test,
-	Type;
+	Type,
+	TypeContainer,
+	TypeWithContainer;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : StackArrayBuilder, withBuildStackArray;
 import util.col.array : every, isEmpty, newArray;

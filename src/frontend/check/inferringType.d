@@ -7,7 +7,7 @@ import frontend.check.instantiate : InstantiateCtx, instantiateStructNeverDelay;
 import frontend.showModel : ShowCtx, ShowTypeCtx, ShowOptions, writeTypeUnquoted;
 import frontend.storage : FileContentGetters, LineAndColumnGetters;
 import model.ast : ExprAst;
-import model.diag : Diag, ExpectedForDiag, TypeContainer, TypeWithContainer;
+import model.diag : Diag, ExpectedForDiag;
 import model.model :
 	BogusExpr,
 	BogusWrongTypeExpr,
@@ -21,7 +21,9 @@ import model.model :
 	StructDecl,
 	StructInst,
 	Type,
-	TypeParamIndex;
+	TypeContainer,
+	TypeParamIndex,
+	TypeWithContainer;
 import util.alloc.stackAlloc :
 	MaxStackArray, withMapOrNoneToStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell, cellGet, cellSet;

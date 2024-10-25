@@ -2,11 +2,12 @@ module frontend.ide.getHover;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.position : ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind;
+import frontend.ide.position : ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind, typeContainerFor;
 import frontend.showModel :
 	ShowModelCtx,
 	writeCalled,
 	writeCalledDecl,
+	writeCalledSpecSig,
 	writeFile,
 	writeFunDecl,
 	WriteKind,
@@ -17,22 +18,25 @@ import frontend.showModel :
 	writeVisibility;
 import lib.lsp.lspTypes : Hover, MarkupContent, MarkupKind;
 import model.ast : AssertOrForbidAst, ConditionAst, ExprAst, ExprAstKind, IfAst, MatchAst, ModifierKeyword;
-import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
+	AnyDecl,
 	asBuiltinExtern,
 	AssertOrForbidExpr,
 	BogusCallExpr,
 	BuiltinExtern,
 	BuiltinType,
+	CalledSpecSig,
 	CallExpr,
 	CallOptionExpr,
 	CharType,
 	Condition,
+	DocCommentReference,
 	EnumOrFlagsMember,
 	Expr,
 	ExprKind,
 	ExprRef,
 	ExternExpr,
+	forbidModule,
 	FunDecl,
 	FunPointerExpr,
 	IntegralType,
@@ -56,7 +60,9 @@ import model.model :
 	Test,
 	TryExpr,
 	Type,
+	TypeContainer,
 	TypeParamIndex,
+	TypeWithContainer,
 	UnionMember,
 	VarDecl,
 	VariantKind;
@@ -78,7 +84,7 @@ Hover getHover(ref Alloc alloc, in ShowModelCtx ctx, in Position pos) =>
 void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 	pos.kind.matchWithPointers!void(
 		(PositionKind.DocRef x) {
-			writer ~= "TODO: hover for DocRef"; // -000-0-0-0-0-0-0-0-0-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0=-0
+			hoverForDocRef(writer, ctx, x);
 		},
 		(EnumOrFlagsMember* x) {
 			writer ~= x.containingEnum.body_.isA!(StructBody.Enum*) ? "Enum " : "Flags ";
@@ -283,7 +289,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 			x.type.matchIn!void(
 				(in Type.Bogus) {},
 				(in TypeParamIndex p) {
-					hoverTypeParam(writer, ctx, x.container, p);
+					hoverTypeParam(writer, ctx, forbidModule(x.container), p);
 				},
 				(in StructInst i) {
 					writeStructDeclHover(writer, ctx, *i.decl);
@@ -334,6 +340,44 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 		});
 
 private:
+
+void hoverForDocRef(scope ref Writer writer, in ShowModelCtx ctx, PositionKind.DocRef a) {
+	a.ref_.matchWithPointers!void(
+		(DocCommentReference.Bogus) {},
+		(CalledSpecSig x) {
+			writer ~= "References ";
+			writeCalledSpecSig(writer, ctx, WriteKind.quoted, typeContainerFor(a.container), x);
+		},
+		(FunDecl* x) {
+			writer ~= "References function ";
+			writeFunDecl(writer, ctx, WriteKind.unquoted, x);
+		},
+		(Local* x) {
+			writer ~= "References parameter ";
+			writeName(writer, ctx, x.name);
+			writer ~= '.';
+		},
+		(StructAlias* x) {
+			writer ~= "References alias ";
+			writeName(writer, ctx, x.name);
+			writer ~= '.';
+		},
+		(StructDecl* x) {
+			writer ~= "References type ";
+			writeName(writer, ctx, x.name);
+			writer ~= '.';
+		},
+		(SpecDecl* x) {
+			writer ~= "References spec ";
+			writeName(writer, ctx, x.name);
+			writer ~= '.';
+		},
+		(TypeParamIndex x) {
+			writer ~= "References type parameter ";
+			writeName(writer, ctx, typeContainerFor(a.container).typeParams[x.index].name);
+			writer ~= '.';
+		});
+}
 
 void writeStructAliasHover(scope ref Writer writer, in ShowModelCtx ctx, in StructAlias* a) {
 	writer ~= "Alias for ";
@@ -407,7 +451,7 @@ void getImportedNameHover(scope ref Writer writer, in ShowModelCtx ctx, in Posit
 void hoverTypeParam(
 	scope ref Writer writer,
 	in ShowModelCtx ctx,
-	in TypeContainer typeContainer,
+	in AnyDecl typeContainer,
 	in TypeParamIndex index,
 ) {
 	writer ~= "Type parameter ";

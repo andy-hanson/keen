@@ -64,6 +64,8 @@ import model.model :
 	CommonTypes,
 	Condition,
 	Destructure,
+	DocComment,
+	DocCommentReference,
 	eachDescendentExprExcluding,
 	eachDescendentExprIncluding,
 	EnumOrFlagsMember,
@@ -127,6 +129,7 @@ import model.model :
 	TryLetExpr,
 	Type,
 	TypedExpr,
+	TypeParamIndex,
 	UnionMember,
 	VarDecl,
 	VariantAndMethodImpls,
@@ -283,12 +286,18 @@ void referencesForTarget(in Program program, Uri curUri, in Target a, in Referen
 		});
 
 void referencesForStructAlias(in Program program, in StructAlias* a, in ReferenceCb cb) {
-	eachTypeInProgram(program, a.visibility, a.moduleUri, (in Module module_, in Type t, in TypeAst ast) {
-		if (t.isA!(StructInst*) &&
-			t.as!(StructInst*) == a.target &&
-			ast.isA!NameAndRange && ast.as!NameAndRange.name == a.name)
-			cb(UriAndRange(module_.uri, ast.range));
-	});
+	eachTypeInProgram(
+		program, a.visibility, a.moduleUri,
+		(in Module module_, in NameAndRange ast, in DocCommentReference ref_) {
+			if (ref_.isA!(StructAlias*) && ref_.as!(StructAlias*) == a)
+				cb(UriAndRange(module_.uri, ast.range));
+		},
+		(in Module module_, in Type t, in TypeAst ast) {
+			if (t.isA!(StructInst*) &&
+				t.as!(StructInst*) == a.target &&
+				ast.isA!NameAndRange && ast.as!NameAndRange.name == a.name)
+				cb(UriAndRange(module_.uri, ast.range));
+		});
 }
 
 void referencesForImportedName(in Program program, in PositionKind.ImportedName a, in ReferenceCb cb) {
@@ -323,12 +332,17 @@ void referencesForLocal(in Program program, Uri curUri, in PositionKind.LocalPos
 			none!ContainerAndBody,
 		(StructDecl*) =>
 			none!ContainerAndBody);
-	if (has(body_))
+	if (has(body_)) {
+		eachDocCommentReference(force(body_).container.docComment, (ref NameAndRange ast, ref DocCommentReference ref_) {
+			if (ref_.isA!(Local*) && ref_.as!(Local*) == a.local)
+				cb(UriAndRange(curUri, ast.range));
+		});
 		eachDescendentExprIncluding(program.commonTypes, force(body_).body_, (ExprRef x) {
 			Opt!(Local*) itsLocal = exprLocalReference(x.expr.kind);
 			if (has(itsLocal) && force(itsLocal) == a.local && !x.expr.ast.kind.isA!AssignmentCallAst)
 				cb(UriAndRange(force(body_).container.moduleUri, x.expr.range));
 		});
+	}
 }
 immutable struct ContainerAndBody {
 	ExprContainer container;
@@ -359,6 +373,10 @@ void referencesForTypeParam(
 	in PositionKind.TypeParamWithContainer a,
 	in ReferenceCb refCb,
 ) {
+	eachDocCommentReference(a.container.docComment, (ref NameAndRange ast, ref DocCommentReference ref_) {
+		if (ref_.isA!TypeParamIndex && ref_.as!TypeParamIndex == a.typeParam)
+			refCb(UriAndRange(curUri, ast.range));
+	});
 	scope TypeCb typeCb = (in Type type, in TypeAst ast) {
 		if (type == Type(a.typeParam))
 			refCb(UriAndRange(curUri, ast.range));
@@ -636,10 +654,54 @@ void referencesForFunDecls(in Program program, in FunDecl*[] decls, in Reference
 			greatestVisibility(a, b.visibility));
 		assert(allSame!(Uri, FunDecl*)(decls, (in FunDecl* x) => x.moduleUri));
 		Module* itsModule = moduleAtUri(program, decls[0].moduleUri);
-		eachExprThatMayReference(program, maxVisibility, itsModule, (in Module module_, ExprRef x) {
-			eachFunReferenceAtExpr(module_, x, decls, cb);
-		});
+		eachExprThatMayReference(
+			program, maxVisibility, itsModule,
+			(in Module module_, in NameAndRange ast, in DocCommentReference ref_) {
+				if (ref_.isA!(FunDecl*) && contains(decls, ref_.as!(FunDecl*)))
+					cb(UriAndRange(module_.uri, ast.range));
+			},
+			(in Module module_, ExprRef x) {
+				eachFunReferenceAtExpr(module_, x, decls, cb);
+			});
 	}
+}
+
+alias CbDocCommentReference = void delegate(in Module, in NameAndRange, in DocCommentReference) @safe @nogc pure nothrow;
+void eachDocCommentReference(in Module module_, in CbDocCommentReference cb) {
+	eachDocComment(module_, (DocComment x) {
+		eachDocCommentReference(x, (ref NameAndRange ast, ref DocCommentReference ref_) {
+			cb(module_, ast, ref_);
+		});
+	});
+}
+
+void eachDocCommentReference(in DocComment a, in void delegate(ref NameAndRange, ref DocCommentReference) @safe @nogc pure nothrow cb) {
+	zip!(NameAndRange, DocCommentReference)(a.ast.references, a.references, cb);
+}
+
+void eachDocComment(in Module module_, in void delegate(DocComment) @safe @nogc pure nothrow cb) {
+	cb(module_.docComment);
+	foreach (StructAlias x; module_.aliases)
+		cb(x.docComment);
+	foreach (StructDecl x; module_.structs) {
+		cb(x.docComment);
+		// TODO: match on body, handle record,union, enum, flags members doc comments -----------------------------------------------------
+		if (x.body_.isA!(StructBody.Variant)) {
+			foreach (Signature sig; x.body_.as!(StructBody.Variant).methods)
+				cb(sig.docComment);
+		}
+	}
+	foreach (VarDecl x; module_.vars)
+		cb(x.docComment);
+	foreach (SpecDecl x; module_.specs) {
+		cb(x.docComment);
+		foreach (Signature sig; x.sigs)
+			cb(sig.docComment);
+	}
+	foreach (FunDecl x; module_.funs)
+		cb(x.docComment);
+	foreach (Test x; module_.tests)
+		cb(x.docComment);
 }
 
 void eachFunReferenceAtExpr(in Module module_, in ExprRef x, in FunDecl*[] decls, in ReferenceCb cb) {
@@ -667,9 +729,11 @@ void eachExprThatMayReference(
 	in Program program,
 	Visibility visibility,
 	Module* module_,
+	in CbDocCommentReference cbDocCommentReference,
 	in void delegate(in Module, ExprRef) @safe @nogc pure nothrow cb,
 ) {
 	eachModuleThatMayReference(program, visibility, module_, (in Module module_) {
+		eachDocCommentReference(module_, cbDocCommentReference);
 		foreach (ref FunDecl fun; module_.funs)
 			if (fun.body_.isA!Expr)
 				eachDescendentExprIncluding(program.commonTypes, funBodyExprRef(&fun), (ExprRef x) {
@@ -697,13 +761,18 @@ void eachModuleThatMayReference(
 
 void referencesForSpecSig(in Program program, in PositionKind.SpecSig a, in ReferenceCb cb) {
 	Module* itsModule = moduleAtUri(program, a.spec.moduleUri);
-	eachExprThatMayReference(program, a.spec.visibility, itsModule, (in Module module_, ExprRef x) {
-		Opt!Called called = getCalledAtExpr(x.expr.kind);
-		if (has(called) &&
-			force(called).isA!(CalledSpecSig) &&
-			force(called).as!(CalledSpecSig).nonInstantiatedSig == a.sig)
-			cb(UriAndRange(module_.uri, callNameRange(*x.expr.ast)));
-	});
+	eachExprThatMayReference(
+		program, a.spec.visibility, itsModule,
+		(in Module module_, in NameAndRange ast, in DocCommentReference x) {
+			// TODO -----------------------------------------------------------------------------------------------------------
+		},
+		(in Module module_, ExprRef x) {
+			Opt!Called called = getCalledAtExpr(x.expr.kind);
+			if (has(called) &&
+				force(called).isA!(CalledSpecSig) &&
+				force(called).as!(CalledSpecSig).nonInstantiatedSig == a.sig)
+				cb(UriAndRange(module_.uri, callNameRange(*x.expr.ast)));
+		});
 }
 
 void referencesForRecordField(in Program program, in RecordField field, in ReferenceCb cb) {
@@ -717,16 +786,21 @@ void referencesForEnumOrFlagsMember(in Program program, in EnumOrFlagsMember* me
 	Module* declaringModule = moduleAtUri(program, enum_.moduleUri);
 	FunDecl* ctor = mustFindFunNamed(declaringModule, member.name, (in FunDecl fun) =>
 		fun.body_.isA!(FunBody.CreateEnumOrFlags) && fun.body_.as!(FunBody.CreateEnumOrFlags).member == member);
-	eachExprThatMayReference(program, member.visibility, declaringModule, (in Module m, ExprRef x) {
-		if (x.expr.kind.isA!(MatchEnumExpr*)) {
-			MatchEnumExpr* matchEnum = x.expr.kind.as!(MatchEnumExpr*);
-			if (matchEnum.enum_ == enum_)
-				foreach (size_t caseIndex, MatchEnumExpr.Case case_; matchEnum.cases)
-					if (case_.member == member)
-						cb(UriAndRange(m.uri, caseNameRange(*x.expr, caseIndex)));
-		} else
-			eachFunReferenceAtExpr(m, x, [ctor], cb);
-	});
+	eachExprThatMayReference(
+		program, member.visibility, declaringModule,
+		(in Module module_, in NameAndRange ast, in DocCommentReference x) {
+			// TODO -----------------------------------------------------------------------------------------------------------
+		},
+		(in Module m, ExprRef x) {
+			if (x.expr.kind.isA!(MatchEnumExpr*)) {
+				MatchEnumExpr* matchEnum = x.expr.kind.as!(MatchEnumExpr*);
+				if (matchEnum.enum_ == enum_)
+					foreach (size_t caseIndex, MatchEnumExpr.Case case_; matchEnum.cases)
+						if (case_.member == member)
+							cb(UriAndRange(m.uri, caseNameRange(*x.expr, caseIndex)));
+			} else
+				eachFunReferenceAtExpr(m, x, [ctor], cb);
+		});
 }
 
 void referencesForUnionMember(in Program program, in UnionMember* member, in ReferenceCb cb) {
@@ -734,18 +808,27 @@ void referencesForUnionMember(in Program program, in UnionMember* member, in Ref
 	Module* declaringModule = moduleAtUri(program, union_.moduleUri);
 	FunDecl* ctor = mustFindFunNamed(declaringModule, member.name, (in FunDecl fun) =>
 		fun.body_.isA!(FunBody.CreateUnion) && fun.body_.as!(FunBody.CreateUnion).member == member);
-	eachExprThatMayReference(program, member.visibility, declaringModule, (in Module m, ExprRef x) {
-		if (x.expr.kind.isA!(MatchUnionExpr*)) {
-			MatchUnionExpr* matchUnion = x.expr.kind.as!(MatchUnionExpr*);
-			if (matchUnion.union_.decl == union_) {
-				foreach (size_t caseIndex, ref MatchUnionExpr.Case case_; matchUnion.cases) {
-					if (case_.member == member)
-						cb(UriAndRange(m.uri, caseNameRange(*x.expr, caseIndex)));
+	FunDecl* getter = mustFindFunNamed(declaringModule, member.name, (in FunDecl fun) =>
+		fun.body_.isA!(FunBody.UnionMemberGet) && fun.body_.as!(FunBody.UnionMemberGet).member == member);
+	FunDecl*[2] funs = [ctor, getter];
+	eachExprThatMayReference(
+		program, member.visibility, declaringModule,
+		(in Module module_, in NameAndRange ast, in DocCommentReference x) {
+			if (x.isA!(FunDecl*) && contains(funs, x.as!(FunDecl*)))
+				cb(UriAndRange(module_.uri, ast.range));
+		},
+		(in Module m, ExprRef x) {
+			if (x.expr.kind.isA!(MatchUnionExpr*)) {
+				MatchUnionExpr* matchUnion = x.expr.kind.as!(MatchUnionExpr*);
+				if (matchUnion.union_.decl == union_) {
+					foreach (size_t caseIndex, ref MatchUnionExpr.Case case_; matchUnion.cases) {
+						if (case_.member == member)
+							cb(UriAndRange(m.uri, caseNameRange(*x.expr, caseIndex)));
+					}
 				}
-			}
-		} else
-			eachFunReferenceAtExpr(m, x, [ctor], cb);
-	});
+			} else
+				eachFunReferenceAtExpr(m, x, funs, cb);
+		});
 }
 
 void referencesForVarDecl(in Program program, in VarDecl* a, in ReferenceCb cb) {
@@ -802,6 +885,10 @@ bool isRecordFieldFunction(in FunBody a) =>
 
 void referencesForSpecDecl(in Program program, in SpecDecl* a, in ReferenceCb refCb) {
 	eachModuleThatMayReference(program, a.visibility, moduleAtUri(program, a.moduleUri), (in Module module_) {
+		eachDocCommentReference(module_, (in Module module_, in NameAndRange ast, in DocCommentReference ref_) {
+			if (ref_.isA!(SpecDecl*) && ref_.as!(SpecDecl*) == a)
+				refCb(UriAndRange(module_.uri, ast.range));
+		});
 		scope void delegate(SpecInst*, in SpecUseAst) @safe @nogc pure nothrow cb = (spec, ast) {
 			if (spec.decl == a)
 				refCb(UriAndRange(module_.uri, ast.range));
@@ -814,19 +901,29 @@ void referencesForSpecDecl(in Program program, in SpecDecl* a, in ReferenceCb re
 }
 
 void referencesForStructDecl(in Program program, in StructDecl* a, in ReferenceCb cb) {
-	eachTypeInProgram(program, a.visibility, a.moduleUri, (in Module module_, in Type type, in TypeAst ast) {
-		if (type.isA!(StructInst*) && type.as!(StructInst*).decl == a)
-			cb(UriAndRange(module_.uri, ast.nameRangeOrRange));
-	});
+	eachTypeInProgram(
+		program,
+		a.visibility,
+		a.moduleUri,
+		(in Module module_, in NameAndRange ast, in DocCommentReference ref_) {
+			if (ref_.isA!(StructDecl*) && ref_.as!(StructDecl*) == a)
+				cb(UriAndRange(module_.uri, ast.range));
+		},
+		(in Module module_, in Type type, in TypeAst ast) {
+			if (type.isA!(StructInst*) && type.as!(StructInst*).decl == a)
+				cb(UriAndRange(module_.uri, ast.nameRangeOrRange));
+		});
 }
 
 void eachTypeInProgram(
 	in Program program,
 	Visibility visibility,
 	Uri moduleUri,
+	in CbDocCommentReference cbDocCommentReference,
 	in void delegate(in Module, in Type, in TypeAst) @safe @nogc pure nothrow cb,
 ) {
 	eachModuleThatMayReference(program, visibility, moduleAtUri(program, moduleUri), (in Module module_) {
+		eachDocCommentReference(module_, cbDocCommentReference);
 		eachTypeInModule(program.commonTypes, module_, (in Type type, in TypeAst ast) {
 			eachTypeInType(type, ast, (in Type typeInner, in TypeAst astInner) {
 				cb(module_, typeInner, astInner);

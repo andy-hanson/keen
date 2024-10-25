@@ -3,8 +3,7 @@ module frontend.ide.getTarget;
 @safe @nogc pure nothrow:
 
 import frontend.ide.position :
-	assertLocalContainer, ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind;
-import model.diag : assertTypeContainer, TypeWithContainer;
+	assertLocalContainer, ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind, typeContainerFor;
 import model.model :
 	AutoFun,
 	BogusCallExpr,
@@ -22,6 +21,7 @@ import model.model :
 	Expr,
 	ExprRef,
 	ExternExpr,
+	forbidModule,
 	FunBody,
 	FunDecl,
 	FunDeclSource,
@@ -37,6 +37,7 @@ import model.model :
 	StructInst,
 	Test,
 	TypeParamIndex,
+	TypeWithContainer,
 	UnionMember,
 	VarDecl;
 import util.col.array : only;
@@ -74,6 +75,8 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 			docRef.ref_.matchWithPointers!(Opt!Target)(
 				(DocCommentReference.Bogus) =>
 					none!Target,
+				(CalledSpecSig x) =>
+					some(calledSpecSigTarget(x)),
 				(FunDecl* x) =>
 					some(Target(x)),
 				(Local* x) =>
@@ -85,7 +88,7 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 				(SpecDecl* x) =>
 					some(Target(x)),
 				(TypeParamIndex x) =>
-					some(Target(PositionKind.TypeParamWithContainer(x, assertTypeContainer(docRef.container))))),
+					some(Target(PositionKind.TypeParamWithContainer(x, forbidModule(typeContainerFor(docRef.container)))))),
 		(EnumOrFlagsMember* x) =>
 			some(Target(x)),
 		(ExpressionPosition x) =>
@@ -137,7 +140,7 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 				(Bogus) =>
 					none!Target,
 				(TypeParamIndex p) =>
-					some(Target(PositionKind.TypeParamWithContainer(p, x.container))),
+					some(Target(PositionKind.TypeParamWithContainer(p, forbidModule(x.container)))),
 				(StructInst* x) =>
 					some(Target(x.decl))),
 		(PositionKind.TypeParamWithContainer x) =>

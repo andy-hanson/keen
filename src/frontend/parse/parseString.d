@@ -5,9 +5,8 @@ module frontend.parse.parseString;
 import frontend.parse.parseExpr : parseExprNoBlock; // TODO: CIRCULAR DEPENDENCY =--=-----------------------------------------------
 import frontend.parse.lexer :
 	addDiag, curPos, Lexer, QuoteKind, range, StringPart, takeClosingBraceThenStringPart, takeInitialStringPart, Token;
-import frontend.parse.parseType : parseType;
-import frontend.parse.parseUtil : peekToken, tryTakeToken;
-import model.ast : DocCommentAst, DocCommentContent, ExprAst, ExprAstKind, InterpolatedAst, LiteralStringAst, TypeAst;
+import frontend.parse.parseUtil : peekToken, skipBlankLines, takeNameOrOperator, tryTakeToken;
+import model.ast : DocCommentAst, DocCommentContent, ExprAst, ExprAstKind, InterpolatedAst, LiteralStringAst, NameAndRange;
 import model.parseDiag : ParseDiag;
 import util.col.array : isEmpty;
 import util.col.arrayBuilder : add, ArrayBuilder, finish, smallFinish;
@@ -16,24 +15,27 @@ import util.opt : some;
 import util.sourceRange : Pos, Range;
 
 DocCommentAst tryTakeDocComment(ref Lexer lexer) {
+	skipBlankLines(lexer);
 	Pos start = curPos(lexer);
 	if (!tryTakeToken(lexer, Token.quoteBar)) return DocCommentAst.empty;
 
-	ArrayBuilder!TypeAst references;
+	ArrayBuilder!NameAndRange references;
 	DocCommentAst done() =>
 		DocCommentAst(some(allocate(lexer.alloc, DocCommentContent(
 			range(lexer, start),
 			smallFinish(lexer.alloc, references)))));
-	return takeInterpolatedCb!DocCommentAst(
+	DocCommentAst res = takeInterpolatedCb!DocCommentAst(
 		lexer, start, QuoteKind.quoteBar,
-		cbSingle: (StringPart _) =>
+		cbSingle: (StringPart _) => // TODO: this means the StringPart is allocated but not used -- find a way to turn off allocatino?
 			done(),
 		cbInterpolation: () {
-			add(lexer.alloc, references, parseType(lexer));
+			add(lexer.alloc, references, takeNameOrOperator(lexer));
 		},
 		cbString: (StringPart _) {},
 		cbFinish: () =>
 			done());
+	skipBlankLines(lexer);
+	return res;
 }
 
 ExprAst parseString(ref Lexer lexer, Pos start, QuoteKind quoteKind) {
@@ -48,7 +50,7 @@ ExprAst parseString(ref Lexer lexer, Pos start, QuoteKind quoteKind) {
 		cbString: (StringPart part) {
 			add(lexer.alloc, parts, ExprAst(part.range, ExprAstKind(LiteralStringAst(part.text))));
 		},
-		cbFinish: () => 
+		cbFinish: () =>
 			ExprAst(range(lexer, start), ExprAstKind(InterpolatedAst(finish(lexer.alloc, parts)))));
 }
 
@@ -74,7 +76,7 @@ Out takeInterpolatedCb(Out)(
 				if (peekToken(lexer, Token.braceRight)) {
 					Pos pos = curPos(lexer);
 					Range range = Range(pos - 1, pos + 1);
-					addDiag(lexer, range, ParseDiag(ParseDiag.MissingExpression())); // TODO: update diag for doc comment case ........
+					addDiag(lexer, range, ParseDiag(ParseDiag.MissingInterpolated()));
 				} else
 					cbInterpolation();
 				StringPart part = takeClosingBraceThenStringPart(lexer, quoteKind);

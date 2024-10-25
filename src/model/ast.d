@@ -1086,6 +1086,7 @@ immutable struct EnumOrFlagsMemberAst {
 immutable struct RecordOrUnionMemberAst {
 	@safe @nogc pure nothrow:
 
+	DocCommentAst docComment;
 	Range range;
 	Opt!Visibility visibility_;
 	NameAndRange name;
@@ -1298,7 +1299,7 @@ immutable struct ImportsOrExportsAst {
 
 immutable struct DocCommentAst {
 	@safe @nogc pure nothrow:
-	Opt!(DocCommentContent*) content; // TODO: make this private. Code should treat this as present but with empty range and references.
+	private Opt!(DocCommentContent*) content;
 
 	static DocCommentAst empty() =>
 		DocCommentAst(none!(DocCommentContent*));
@@ -1309,15 +1310,15 @@ immutable struct DocCommentAst {
 	Opt!Range range() scope =>
 		optIf(has(content), () =>
 			force(content).range);
-	
-	SmallArray!TypeAst references() return scope =>
+
+	SmallArray!NameAndRange references() return scope =>
 		has(content)
 			? force(content).references
-			: emptySmallArray!TypeAst;
+			: emptySmallArray!NameAndRange;
 }
 immutable struct DocCommentContent {
 	Range range;
-	SmallArray!TypeAst references;
+	SmallArray!NameAndRange references;
 }
 
 immutable struct FileAst {

@@ -182,6 +182,10 @@ bool peekNameOrOperator(ref Lexer lexer) {
 	return has(res);
 }
 
+void skipBlankLines(scope ref Lexer lexer) {
+	while (tryTakeToken(lexer, Token.newlineSameIndent)) {}
+}
+
 private immutable Token[] endOfLineTokens =
 	[Token.newlineDedent, Token.newlineIndent, Token.newlineSameIndent, Token.EOF];
 

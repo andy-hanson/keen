@@ -256,6 +256,8 @@ private:
 
 DiagnosticSeverity parseDiagSeverity(in ParseDiag a) =>
 	a.matchIn!DiagnosticSeverity(
+		(in ParseDiag.DocCommentUnused) =>
+			DiagnosticSeverity.unusedCode,
 		(in ParseDiag.Expected) =>
 			DiagnosticSeverity.parseError,
 		(in ParseDiag.FileNotUtf8) =>
@@ -272,7 +274,7 @@ DiagnosticSeverity parseDiagSeverity(in ParseDiag a) =>
 			DiagnosticSeverity.warning,
 		(in ParseDiag.MatchCaseInterpolated) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.MissingExpression) =>
+		(in ParseDiag.MissingInterpolated) =>
 			DiagnosticSeverity.parseError,
 		(in ParseDiag.NeedsBlockCtx) =>
 			DiagnosticSeverity.parseError,

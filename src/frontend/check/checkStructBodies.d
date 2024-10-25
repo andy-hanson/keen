@@ -33,7 +33,7 @@ import model.ast :
 	TypeAst,
 	VisibilityAndRange;
 import model.concreteModel : TypeSize;
-import model.diag : Diag, DeclKind, TypeContainer;
+import model.diag : Diag, DeclKind;
 import model.model :
 	BuiltinType,
 	ByValOrRef,
@@ -71,6 +71,7 @@ import model.model :
 	StructDeclSource,
 	StructInst,
 	Type,
+	TypeContainer,
 	TypeParamIndex,
 	TypeParams,
 	UnionMember,

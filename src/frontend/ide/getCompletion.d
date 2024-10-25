@@ -7,7 +7,6 @@ import frontend.check.inferringType : isTypeMatchPossibleForCompletions;
 import frontend.ide.position : ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position;
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : CompletionItem, CompletionList;
-import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
 	BogusCallExpr,
 	CalledDecl,
@@ -26,7 +25,9 @@ import model.model :
 	Params,
 	SpecInst,
 	StructInst,
-	Type;
+	Type,
+	TypeContainer,
+	TypeWithContainer;
 import util.alloc.alloc : Alloc;
 import util.col.array : isEmpty;
 import util.col.arrayBuilder : buildArray, Builder;

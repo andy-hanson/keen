@@ -10,6 +10,7 @@ import util.opt : force, has, none, Opt, optIf;
 import util.sourceRange : Pos, Range, rangeOfStartAndLength;
 import util.string : CString, decodeHexDigit, MutCString, stringOfRange, takeChar, tryTakeChars;
 import util.unicode : safeToChar, tryUnicodeEncode;
+import util.util : castNonScope_ref;
 
 immutable struct StringPart {
 	Range range;
@@ -66,7 +67,16 @@ StringPart takeStringPart(
 			case '\n':
 				final switch (quoteKind) {
 					case QuoteKind.quoteBar:
-						return finishHere(StringPart.After.done);
+						MutCString ptr2 = ptr;
+						while (*ptr2 == '\n' || *ptr2 == '\r' || *ptr2 == ' ' || *ptr2 == '\t') ptr2++;
+						if (*ptr2 == '|') {
+							ptr2++;
+							if (*ptr2 == ' ') ptr2++;
+							ptr = castNonScope_ref(ptr2);
+							res ~= '\n';
+							break;
+						} else
+							return finishHere(StringPart.After.done);
 					case QuoteKind.quoteDouble:
 						addDiag(start, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.quoteDouble)));
 						return finishHere(StringPart.After.done);

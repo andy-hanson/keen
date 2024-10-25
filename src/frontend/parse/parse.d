@@ -3,6 +3,7 @@ module frontend.parse.parse;
 @safe @nogc pure nothrow:
 
 import frontend.parse.lexer :
+	addDiag,
 	addDiagUnexpectedCurToken,
 	createLexer,
 	curPos,
@@ -26,6 +27,7 @@ import frontend.parse.parseUtil :
 	NewlineOrDedent,
 	peekEndOfLine,
 	peekToken,
+	skipBlankLines,
 	takeDedent,
 	takeIndentOrFailGeneric,
 	takeName,
@@ -69,7 +71,7 @@ import util.perf : Perf, PerfMeasure, withMeasure;
 import util.sourceRange : Pos, Range;
 import util.string : CString, stringOfCString;
 import util.symbol : Symbol;
-import util.util : castNonScope_ref, ptrTrustMe, stringOfEnum, todo;
+import util.util : castNonScope_ref, ptrTrustMe;
 
 FileAst parseFile(scope ref Perf perf, ref Alloc alloc, in CString source) =>
 	withMeasure!(FileAst, () {
@@ -140,12 +142,13 @@ SmallArray!EnumOrFlagsMemberAst parseEnumOrFlagsMembers(ref Lexer lexer) =>
 
 SmallArray!RecordOrUnionMemberAst parseRecordOrUnionMembers(ref Lexer lexer) =>
 	parseIndentedLines!RecordOrUnionMemberAst(lexer, () {
+		DocCommentAst docComment = tryTakeDocComment(lexer);
 		Pos start = curPos(lexer);
 		Opt!Visibility visibility = tryTakeVisibility(lexer);
 		NameAndRange name = takeNameAndRange(lexer);
 		Opt!FieldMutabilityAst mutability = parseFieldMutability(lexer);
 		Opt!TypeAst type = peekEndOfLine(lexer) ? none!TypeAst : some(parseType(lexer));
-		return RecordOrUnionMemberAst(range(lexer, start), visibility, name, mutability, type);
+		return RecordOrUnionMemberAst(docComment, range(lexer, start), visibility, name, mutability, type);
 	});
 
 Opt!FieldMutabilityAst parseFieldMutability(ref Lexer lexer) {
@@ -330,9 +333,7 @@ VarDeclAst parseVarDecl(
 }
 
 FileAst parseFileInner(ref Lexer lexer) {
-	skipBlankLines(lexer);
 	DocCommentAst moduleDocComment = tryTakeDocComment(lexer);
-	skipBlankLines(lexer);
 	bool noStd = tryTakeToken(lexer, Token.noStd);
 	skipBlankLines(lexer);
 	Opt!ImportsOrExportsAst imports = parseImportsOrExports(lexer, Token.import_);
@@ -347,12 +348,26 @@ FileAst parseFileInner(ref Lexer lexer) {
 	ArrayBuilder!TestAst tests;
 	ArrayBuilder!VarDeclAst vars;
 
+	bool first = true;
+	bool tookModuleDocComment = false;
 	while (!tryTakeToken(lexer, Token.EOF)) {
-		skipBlankLines(lexer);
-		DocCommentAst docComment = tryTakeDocComment(lexer);
-		skipBlankLines(lexer);
+		DocCommentAst docComment = () {
+			DocCommentAst here = tryTakeDocComment(lexer);
+			if (first) {
+				// If the file starts with a doc comment and then a decl, attach the doc comment to the decl, not the module.
+				first = false;
+				if (!moduleDocComment.isEmpty && here.isEmpty && !noStd && !has(imports) && !has(exports)) {
+					tookModuleDocComment = true;
+					return moduleDocComment;
+				} else
+					return here;
+			} else {
+				return here;
+			}
+		}();
 		if (tryTakeToken(lexer, Token.EOF)) {
-			if (!docComment.isEmpty) todo!void("DIAG: useless doc comment"); // ------------------------------------------------------
+			if (!docComment.isEmpty)
+				addDiag(lexer, force(docComment.range), ParseDiag(ParseDiag.DocCommentUnused()));
 			break;
 		}
 		if (peekToken(lexer, Token.region)) {
@@ -365,7 +380,7 @@ FileAst parseFileInner(ref Lexer lexer) {
 
 	return FileAst(
 		finishDiagnostics(lexer),
-		moduleDocComment,
+		tookModuleDocComment ? DocCommentAst.empty : moduleDocComment,
 		noStd,
 		imports,
 		exports,
@@ -376,8 +391,4 @@ FileAst parseFileInner(ref Lexer lexer) {
 		smallFinish(lexer.alloc, funs),
 		smallFinish(lexer.alloc, tests),
 		smallFinish(lexer.alloc, vars));
-}
-
-void skipBlankLines(scope ref Lexer lexer) {
-	while (tryTakeToken(lexer, Token.newlineSameIndent)) {}
 }

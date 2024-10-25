@@ -38,7 +38,7 @@ import frontend.check.inferringType :
 import frontend.check.instantiate : InstantiateCtx, makeOptionIfNotAlready, makeOptionType;
 import frontend.check.typeFromAst : getNTypeArgsForDiagnostic, tryUnpackOptionType, unpackTupleIfNeeded;
 import model.ast : CallAst, CallNamedAst, DestructureAst, ExprAst, LambdaAst, NameAndRange;
-import model.diag : Diag, TypeContainer;
+import model.diag : Diag;
 import model.model :
 	BogusCallExpr,
 	Called,
@@ -58,7 +58,8 @@ import model.model :
 	ReturnAndParamTypes,
 	Signature,
 	SpecInst,
-	Type;
+	Type,
+	TypeContainer;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array :

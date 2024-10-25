@@ -3,12 +3,12 @@ module frontend.ide.position;
 @safe @nogc pure nothrow:
 
 import model.ast : ModifierKeyword, NameAndRange;
-import model.diag : TypeContainer, TypeWithContainer;
 import model.model :
 	AnyDecl,
 	BogusCallExpr,
 	CallExpr,
 	CallOptionExpr,
+	DocComment,
 	DocCommentReference,
 	emptySpecs,
 	EnumOrFlagsMember,
@@ -31,7 +31,10 @@ import model.model :
 	StructDecl,
 	StructInst,
 	Test,
+	toTypeContainer,
+	TypeContainer,
 	TypeParamIndex,
+	TypeWithContainer,
 	UnionMember,
 	VarDecl,
 	Visibility;
@@ -70,6 +73,13 @@ immutable struct ExprContainer {
 				x.specs,
 			(ref Test _) =>
 				emptySpecs);
+	
+	DocComment docComment() return scope =>
+		match!DocComment(
+			(ref FunDecl x) =>
+				x.docComment,
+			(ref Test x) =>
+				x.docComment);
 }
 
 immutable struct LocalContainer {
@@ -95,6 +105,16 @@ immutable struct LocalContainer {
 		toTypeContainer.typeParams;
 }
 
+LocalContainer assertLocalContainer(DocCommentHaver a) =>
+	a.matchWithPointers!LocalContainer(
+		(AnyDecl x) =>
+			assertLocalContainer(x),
+		(Module* x) =>
+			assert(false),
+		(PositionKind.SpecSig x) =>
+			LocalContainer(x.spec),
+		(PositionKind.VariantMethod x) =>
+			LocalContainer(x.variant));
 LocalContainer assertLocalContainer(AnyDecl a) =>
 	a.matchWithPointers!LocalContainer(
 		(FunDecl* x) =>
@@ -134,9 +154,37 @@ immutable struct VisibilityContainer { // is this just AnyDecl? ----------------
 			(in VarDecl x) => x.visibility);
 }
 
+immutable struct DocCommentHaver { // TODO: rename to 'DocCommentContainer' -------------------------------------------------------------
+	@safe @nogc pure nothrow:
+	mixin Union!(AnyDecl, Module*, PositionKind.SpecSig, PositionKind.VariantMethod); // TODO: remember to test all of these! Also add recordfield, unionmember, enumorflagsmember --------------------------------
+
+	DocComment docComment() =>
+		matchWithPointers!DocComment(
+			(AnyDecl x) =>
+				x.docComment,
+			(Module* x) =>
+				x.docComment,
+			(PositionKind.SpecSig x) =>
+				x.sig.docComment,
+			(PositionKind.VariantMethod x) =>
+				x.method.docComment);
+}
+
+// WARN: typeContainerFor(a).docComment is not always a.docComment
+TypeContainer typeContainerFor(DocCommentHaver a) =>
+	a.matchWithPointers!TypeContainer(
+		(AnyDecl x) =>
+			toTypeContainer(x),
+		(Module* x) =>
+			TypeContainer(x),
+		(PositionKind.SpecSig x) =>
+			TypeContainer(x.spec),
+		(PositionKind.VariantMethod x) =>
+			TypeContainer(x.variant));
+
 immutable struct PositionKind {
 	immutable struct DocRef { // Name -------------------------------------------------------------------------------------
-		AnyDecl container;
+		DocCommentHaver container;
 		DocCommentReference ref_;
 	}
 	immutable struct ImportedModule {
@@ -216,7 +264,8 @@ immutable struct PositionKind {
 	}
 	immutable struct TypeParamWithContainer {
 		TypeParamIndex typeParam;
-		TypeContainer container;
+		// Since this is never on a Module, use AnyDecl instead of TypeContainer
+		AnyDecl container;
 	}
 	alias VariantMethod = FunDeclSource.VariantMethod;
 	immutable struct VisibilityMark {

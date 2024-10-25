@@ -7,9 +7,19 @@ import frontend.check.instantiate : InstantiateCtx, noDelayStructInsts;
 import frontend.check.maps : FunsMap, SpecsMap, StructsAndAliasesMap;
 import frontend.check.typeFromAst : AliasAllowed, typeFromAst;
 import model.ast : ExprAst, TypeAst;
-import model.diag : Diag, TypeContainer, TypeWithContainer;
+import model.diag : Diag;
 import model.model :
-	CommonTypes, FunFlags, LambdaExpr, Local, Mutability, Specs, Type, TypeParams, VariableRef;
+	CommonTypes,
+	FunFlags,
+	LambdaExpr,
+	Local,
+	Mutability,
+	Specs,
+	Type,
+	TypeContainer,
+	TypeParams,
+	TypeWithContainer,
+	VariableRef;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray;
 import util.cell : Cell, cellGet, cellSet;

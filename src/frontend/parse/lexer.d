@@ -128,7 +128,9 @@ Range range(in Lexer lexer, Pos start) =>
 	Range(start, posOf(lexer, lexer.prevTokenEnd));
 
 Range rangeForCurToken(in Lexer lexer, Pos start) =>
-	Range(start, posAtPtr(lexer));
+	isNewlineToken(getPeekToken(lexer))
+		? Range(start, start)
+		: Range(start, posAtPtr(lexer));
 
 void skipUntilNewlineNoDiag(ref Lexer lexer) {
 	if (!isNewlineToken(getPeekToken(lexer))) {

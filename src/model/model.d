@@ -67,7 +67,7 @@ import util.symbol : enumOfSymbol, Symbol, symbol, symbolOfEnum;
 import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, SymbolSetBuilder;
 import util.union_ : IndexType, TaggedUnion, Union;
 import util.uri : RelPath, Uri;
-import util.util : enumConvertOrAssert, max, min, stringOfEnum, todo;
+import util.util : enumConvertOrAssert, max, min, stringOfEnum;
 import versionInfo : OS, VersionFun;
 
 alias Purity = immutable Purity_;
@@ -317,7 +317,7 @@ bool arityMatches(Arity sigArity, size_t nArgs) =>
 immutable struct Signature {
 	@safe @nogc pure nothrow:
 
-	Uri moduleUri;
+	Uri moduleUri; // TODO: If we're spending space on the uri, we might as well store a pointer to the SpecDecl* or StructDecl* that contains this!
 	SignatureAst* ast;
 	Type returnType;
 	SmallArray!Destructure params;
@@ -359,6 +359,13 @@ immutable struct RecordOrUnionMemberSource {
 	@safe @nogc pure nothrow:
 	mixin TaggedUnion!(DestructureAst.Single*, RecordOrUnionMemberAst*);
 
+	DocCommentAst docComment() scope =>
+		match!DocCommentAst(
+			(ref DestructureAst.Single) =>
+				DocCommentAst.empty,
+			(ref RecordOrUnionMemberAst x) =>
+				x.docComment);
+
 	Symbol name() scope =>
 		matchIn!Symbol(
 			(in DestructureAst.Single x) =>
@@ -389,6 +396,7 @@ immutable struct RecordField {
 	Visibility visibility;
 	Opt!Visibility mutability;
 	Type type;
+	private Late!DocCommentReferences lateDocCommentReferences;
 
 	Uri moduleUri() scope =>
 		containingRecord.moduleUri;
@@ -398,6 +406,16 @@ immutable struct RecordField {
 		source.range;
 	UriAndRange nameRange() scope =>
 		UriAndRange(moduleUri, source.nameRange);
+
+	DocCommentAst docCommentAst() return scope =>
+		source.docComment;
+	DocComment docComment() return scope =>
+		DocComment(docCommentAst, docCommentReferences);
+	DocCommentReferences docCommentReferences() return scope =>
+		lateGet(lateDocCommentReferences);
+	void docCommentReferences(DocCommentReferences value) {
+		lateSet(lateDocCommentReferences, value);
+	}
 }
 
 immutable struct UnionMember {
@@ -406,6 +424,7 @@ immutable struct UnionMember {
 	RecordOrUnionMemberSource source;
 	StructDecl* containingUnion;
 	Type type; // This will be 'void' if no type is specified
+	private Late!DocCommentReferences lateDocCommentReferences;
 
 	bool hasValue() =>
 		!isVoid(type);
@@ -421,6 +440,16 @@ immutable struct UnionMember {
 		source.range;
 	UriAndRange nameRange() scope =>
 		UriAndRange(moduleUri, source.nameRange);
+
+	DocCommentAst docCommentAst() return scope =>
+		source.docComment;
+	DocComment docComment() return scope =>
+		DocComment(docCommentAst, docCommentReferences);
+	DocCommentReferences docCommentReferences() return scope =>
+		lateGet(lateDocCommentReferences);
+	void docCommentReferences(DocCommentReferences value) {
+		lateSet(lateDocCommentReferences, value);
+	}
 }
 
 alias ByValOrRef = immutable ByValOrRef_;
@@ -1410,24 +1439,6 @@ immutable struct FunDeclSource {
 			: DocCommentAst.empty;
 }
 
-//move -----------------------------------------------------------------------------------------------------------------------------------
-immutable struct DocComment {
-	@safe @nogc pure nothrow:
-	DocCommentAst ast;
-	DocCommentReferences references;
-
-	bool isEmpty() scope =>
-		ast.isEmpty;
-}
-
-immutable struct DocCommentReference { // move? ----------------------------------------------------------------------------------
-	immutable struct Bogus {}
-	mixin Union!(Bogus, FunDecl*, Local*, StructAlias*, StructDecl*, SpecDecl*, TypeParamIndex);
-}
-alias DocCommentReferences = SmallArray!DocCommentReference;
-DocCommentReferences emptyDocCommentReferences() =>
-	emptySmallArray!DocCommentReference;
-
 immutable struct FunDecl {
 	@safe @nogc pure nothrow:
 
@@ -1543,9 +1554,9 @@ immutable struct Test {
 	Expr body_;
 	private Late!DocCommentReferences lateDocCommentReferences;
 
-	DocCommentAst docCommentAst() =>
+	DocCommentAst docCommentAst() return scope =>
 		ast.docComment;
-	DocComment docComment() =>
+	DocComment docComment() return scope =>
 		DocComment(docCommentAst, docCommentReferences);
 
 	DocCommentReferences docCommentReferences() return scope =>
@@ -1650,6 +1661,13 @@ immutable struct CalledDecl {
 		matchIn!Uri(
 			(in FunDecl x) => x.moduleUri,
 			(in CalledSpecSig x) => x.specInst.decl.moduleUri);
+
+	UriAndRange range() =>
+		matchIn!UriAndRange(
+			(in FunDecl x) =>
+				x.range,
+			(in CalledSpecSig x) =>
+				x.nonInstantiatedSig.range);
 
 	Symbol name() scope =>
 		matchIn!Symbol(
@@ -1914,7 +1932,7 @@ immutable struct AnyDecl {
 			(ref VarDecl x) =>
 				x.docCommentAst);
 
-	DocComment docComment() =>
+	DocComment docComment() return scope =>
 		match!DocComment(
 			(ref FunDecl x) =>
 				x.docComment,
@@ -1928,6 +1946,21 @@ immutable struct AnyDecl {
 				x.docComment,
 			(ref VarDecl x) =>
 				x.docComment);
+
+	Specs specs() scope =>
+		match!Specs(
+			(ref FunDecl x) =>
+				x.specs,
+			(ref SpecDecl x) =>
+				x.parents,
+			(ref StructAlias _) =>
+				emptySpecs,
+			(ref StructDecl _) =>
+				emptySpecs,
+			(ref Test _) =>
+				emptySpecs,
+			(ref VarDecl _) =>
+				emptySpecs);
 
 	TypeParams typeParams() scope =>
 		matchIn!TypeParams(
@@ -1954,6 +1987,87 @@ immutable struct AnyDecl {
 			(in Test x) => Visibility.public_,
 			(in VarDecl x) => x.visibility);
 }
+
+immutable struct TypeWithContainer {
+	Type type;
+	TypeContainer container;
+}
+
+// Since a type parameter is represented as its index, we need a context to know where to find it.
+// This is like AnyDecl, but also includes 'Module' which can have types in its doc comment.
+immutable struct TypeContainer {
+	@safe @nogc pure nothrow:
+
+	mixin TaggedUnion!(FunDecl*, Module*, SpecDecl*, StructAlias*, StructDecl*, Test*, VarDecl*);
+
+	Uri moduleUri() scope =>
+		matchIn!Uri(
+			(in FunDecl x) =>
+				x.moduleUri,
+			(in Module x) =>
+				x.uri,
+			(in SpecDecl x) =>
+				x.moduleUri,
+			(in StructAlias x) =>
+				x.moduleUri,
+			(in StructDecl x) =>
+				x.moduleUri,
+			(in Test x) =>
+				x.moduleUri,
+			(in VarDecl x) =>
+				x.moduleUri);
+
+	TypeParams typeParams() scope =>
+		matchIn!TypeParams(
+			(in FunDecl x) =>
+				x.typeParams,
+			(in Module x) =>
+				emptyTypeParams,
+			(in SpecDecl x) =>
+				x.typeParams,
+			(in StructAlias x) =>
+				emptyTypeParams,
+			(in StructDecl x) =>
+				x.typeParams,
+			(in Test x) =>
+				emptyTypeParams,
+			(in VarDecl x) =>
+				x.typeParams);
+
+	DocComment docComment() return scope =>
+		matchIn!DocComment(
+			(in FunDecl x) =>
+				x.docComment,
+			(in Module x) =>
+				x.docComment,
+			(in SpecDecl x) =>
+				x.docComment,
+			(in StructAlias x) =>
+				x.docComment,
+			(in StructDecl x) =>
+				x.docComment,
+			(in Test x) =>
+				x.docComment,
+			(in VarDecl x) =>
+				x.docComment);
+}
+AnyDecl forbidModule(TypeContainer a) =>
+	a.matchWithPointers!AnyDecl(
+		(FunDecl* x) => AnyDecl(x),
+		(Module*) => assert(false),
+		(SpecDecl* x) => AnyDecl(x),
+		(StructAlias* x) => AnyDecl(x),
+		(StructDecl* x) => AnyDecl(x),
+		(Test* x) => AnyDecl(x),
+		(VarDecl* x) => AnyDecl(x));
+TypeContainer toTypeContainer(AnyDecl a) =>
+	a.matchWithPointers!TypeContainer(
+		(FunDecl* x) => TypeContainer(x),
+		(SpecDecl* x) => TypeContainer(x),
+		(StructAlias* x) => TypeContainer(x),
+		(StructDecl* x) => TypeContainer(x),
+		(Test* x) => TypeContainer(x),
+		(VarDecl* x) => TypeContainer(x));
 
 enum IsImportOrExport { import_, export_ }
 void eachImportOrReExport(in Module a, in void delegate(ref ImportOrExport) @safe @nogc pure nothrow cb) {
@@ -2704,6 +2818,23 @@ void eachLocal(Destructure a, in void delegate(Local*) @safe @nogc pure nothrow 
 				eachLocal(part, cb);
 		});
 }
+
+immutable struct DocComment {
+	@safe @nogc pure nothrow:
+	DocCommentAst ast;
+	DocCommentReferences references;
+
+	bool isEmpty() scope =>
+		ast.isEmpty;
+}
+
+immutable struct DocCommentReference {
+	immutable struct Bogus {}
+	mixin TaggedUnion!(Bogus, CalledSpecSig, FunDecl*, Local*, StructAlias*, StructDecl*, SpecDecl*, TypeParamIndex);
+}
+alias DocCommentReferences = SmallArray!DocCommentReference;
+DocCommentReferences emptyDocCommentReferences() =>
+	emptySmallArray!DocCommentReference;
 
 immutable struct Expr {
 	@safe @nogc pure nothrow:

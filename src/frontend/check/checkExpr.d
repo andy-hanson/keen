@@ -113,7 +113,7 @@ import model.ast :
 	TypedAst,
 	WithAst;
 import model.constant : Constant;
-import model.diag : Diag, TypeContainer, TypeWithContainer;
+import model.diag : Diag;
 import model.model :
 	asExtern,
 	AssertOrForbidExpr,
@@ -193,7 +193,9 @@ import model.model :
 	TryLetExpr,
 	toMutability,
 	Type,
+	TypeContainer,
 	TypedExpr,
+	TypeWithContainer,
 	UnionMember,
 	VariableRef,
 	VariantAndMethodImpls,

@@ -117,9 +117,14 @@ Opt!(Json.ObjectField) optionalArrayField(string name, T)(
 	in T[] array,
 	in Json delegate(in T) @safe @nogc pure nothrow cb,
 ) =>
+	optionalArrayField!(name, T)(alloc, array, (ref T x) => cb(x));
+Opt!(Json.ObjectField) optionalArrayField(string name, T)(
+	ref Alloc alloc,
+	in T[] array,
+	in Json delegate(ref const T) @safe @nogc pure nothrow cb,
+) =>
 	optionalField!name(!isEmpty(array), () =>
-		jsonList(map!(Json, const T)(alloc, array, (ref const T x) => cb(x))));
-
+		jsonList(map!(Json, const T)(alloc, array, cb)));
 Opt!(Json.ObjectField) kindField(string kindName)() =>
 	.kindField(kindName);
 Opt!(Json.ObjectField) kindField(string kindName) =>

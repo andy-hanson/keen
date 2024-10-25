@@ -7,7 +7,6 @@ import frontend.ide.position : ExpressionPosition, ExpressionPositionKind, ExprK
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : ParameterInformation, SignatureHelp, SignatureInformation;
 import model.ast : CallAst, ExprAstKind;
-import model.diag : TypeContainer;
 import model.model :
 	Arity,
 	BogusCallExpr,
@@ -17,7 +16,8 @@ import model.model :
 	CallOptionExpr,
 	ExternExpr,
 	FunDecl,
-	FunPointerExpr;
+	FunPointerExpr,
+	TypeContainer;
 import util.alloc.alloc : Alloc;
 import util.col.array : map;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, finish, newExactSizeArrayBuilder;

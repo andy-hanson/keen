@@ -13,7 +13,7 @@ import frontend.check.instantiate :
 import frontend.check.maps : SpecsMap, StructsAndAliasesMap;
 import model.ast :
 	DestructureAst, NameAndRange, ParamsAst, SpecUseAst, symbolForTypeAstMap, symbolForTypeAstSuffix, TypeAst;
-import model.diag : Diag, TypeContainer, TypeWithContainer;
+import model.diag : Diag;
 import model.model :
 	asTuple,
 	CommonTypes,
@@ -34,6 +34,8 @@ import model.model :
 	StructOrAlias,
 	Type,
 	TypeArgs,
+	TypeContainer,
+	TypeWithContainer,
 	TypeParamIndex,
 	TypeParams;
 import util.alloc.stackAlloc : withMapOrNoneToStackArray, withMapToStackArray;
@@ -92,10 +94,12 @@ Opt!StructOrAlias structOrAliasFromName(
 	Symbol name,
 	Range range,
 	in StructsAndAliasesMap structsAndAliasesMap,
+	bool noDiag = false,
 ) =>
 	tryFindT!StructOrAlias(
 		ctx, name, range, structsAndAliasesMap[name],
-		Diag.DuplicateImports.Kind.type, Diag.NameNotFound.Kind.type,
+		Diag.DuplicateImports.Kind.type,
+		optIf(!noDiag, () => Diag.NameNotFound.Kind.type),
 		(in NameReferents x) => x.structOrAlias);
 
 Type makeTupleType(
@@ -399,14 +403,14 @@ Opt!(SpecDecl*) getSpecFromCommonModule(
 		return none!(SpecDecl*);
 }
 
-private Opt!(SpecDecl*) tryFindSpec(ref CheckCtx ctx, NameAndRange name, in SpecsMap specsMap) =>
+Opt!(SpecDecl*) tryFindSpec(ref CheckCtx ctx, NameAndRange name, in SpecsMap specsMap, bool noDiag = false) =>
 	tryFindT!(SpecDecl*)(
 		ctx,
 		name.name,
 		name.range,
 		specsMap[name.name],
 		Diag.DuplicateImports.Kind.spec,
-		Diag.NameNotFound.Kind.spec,
+		optIf(!noDiag, () => Diag.NameNotFound.Kind.spec),
 		(in NameReferents x) => x.spec);
 
 Opt!Type typeFromDestructure(
@@ -558,7 +562,7 @@ Opt!T tryFindT(T)(
 	in Range range,
 	Opt!T fromThisModule,
 	Diag.DuplicateImports.Kind duplicateImportKind,
-	Diag.NameNotFound.Kind nameNotFoundKind,
+	Opt!(Diag.NameNotFound.Kind) nameNotFoundKind,
 	in Opt!T delegate(in NameReferents) @safe @nogc pure nothrow getFromNameReferents,
 ) {
 	Cell!(Opt!T) res = Cell!(Opt!T)(fromThisModule);
@@ -575,7 +579,7 @@ Opt!T tryFindT(T)(
 	Opt!T ret = cellGet(res);
 	if (has(ret))
 		markUsed(ctx, force(ret));
-	else
-		addDiag(ctx, range, Diag(Diag.NameNotFound(nameNotFoundKind, name)));
+	else if (has(nameNotFoundKind))
+		addDiag(ctx, range, Diag(Diag.NameNotFound(force(nameNotFoundKind), name)));
 	return ret;
 }

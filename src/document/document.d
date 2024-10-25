@@ -4,7 +4,7 @@ module document.document;
 
 import frontend.showModel : ShowModelCtx;
 import frontend.storage : FileContentGetters;
-import model.ast : DocCommentAst, NameAndRange;
+import model.ast : NameAndRange;
 import model.concreteModel : TypeSize;
 import model.model :
 	BuiltinType,
@@ -52,11 +52,11 @@ import util.json :
 	jsonString,
 	kindField;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : compareUriAndRange, Range, UriAndRange;
+import util.sourceRange : compareUriAndRange, UriAndRange;
 import util.string : isWhitespace;
 import util.symbol : Symbol, symbol;
 import util.uri : stringOfUri, Uri;
-import util.util : ptrTrustMe, stringOfEnum, todo;
+import util.util : ptrTrustMe, stringOfEnum;
 
 Json documentModules(ref Alloc alloc, in Program program, in ShowModelCtx showCtx, in Uri[] moduleUris) {
 	Ctx ctx = Ctx(ptrTrustMe(alloc), showCtx.fileContentGetters);
@@ -127,25 +127,19 @@ Opt!(Json.ObjectField) docCommentField(ref Ctx ctx, Uri uri, in DocComment docCo
 	optionalField!"doc"(!docComment.isEmpty, () =>
 		jsonString(docCommentString(ctx.fileContentGetters, uri, docComment)));
 
-public string docCommentString(in FileContentGetters fileContents, Uri uri, in DocComment a) {
-	if (a.isEmpty)
-		return "";
-	else {
-		Range range = force(a.ast.range);
-		string text = fileContents[UriAndRange(uri, range)];
-		// TODO: remove the '|' from the comment! ---------------------------------------------------------------------------------
-		return text;
-	}
-}
+public string docCommentString(in FileContentGetters fileContents, Uri uri, in DocComment a) =>
+	a.isEmpty
+		? ""
+		: stripDocComment(fileContents[UriAndRange(uri, force(a.ast.range))]);
 string stripDocComment(string a) {
-	while (!isEmpty(a) && isWhitespaceOrHash(a[0]))
+	while (!isEmpty(a) && isWhitespaceOrBar(a[0]))
 		a = a[1 .. $];
-	while (!isEmpty(a) && isWhitespaceOrHash(a[$ - 1]))
+	while (!isEmpty(a) && isWhitespaceOrBar(a[$ - 1]))
 		a = a[0 .. $ - 1];
 	return a;
 }
-bool isWhitespaceOrHash(char a) =>
-	isWhitespace(a) || a == '#';
+bool isWhitespaceOrBar(char a) =>
+	isWhitespace(a) || a == '|';
 
 DocExport documentStructOrAlias(ref Ctx ctx, in StructOrAlias a) =>
 	a.matchIn!DocExport(

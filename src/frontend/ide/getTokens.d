@@ -23,7 +23,6 @@ import model.ast :
 	DestructureAst,
 	DoAst,
 	DocCommentAst,
-	DocCommentContent,
 	EmptyAst,
 	EnumOrFlagsMemberAst,
 	ExprAst,
@@ -92,6 +91,7 @@ import util.util : stringOfEnum;
 
 SemanticTokens tokensOfAst(ref Alloc alloc, in CrowFileInfo file) {
 	scope Ctx ctx = Ctx(TokensBuilder(file.content.content, &alloc, file.content.lineAndCharacterGetter));
+	addDocCommentTokens(ctx, file.ast.docComment);
 	walkAstInOrder!(
 		Ctx,
 		addImportTokens,
@@ -410,6 +410,7 @@ void addRecordOrUnionTokens(
 		addParamsTokens(ctx, force(params));
 	addModifierTokens(ctx, a.modifiers);
 	foreach (ref RecordOrUnionMemberAst x; members) {
+		addDocCommentTokens(ctx, x.docComment);
 		declare(ctx.tokens, memberTokenType, x.name.range);
 		if (has(x.type))
 			addTypeTokens(ctx, force(x.type));
@@ -467,14 +468,14 @@ void addFunTokens(scope ref Ctx ctx, in FunDeclAst a) {
 //MOVE------------------------------------------------------------------------------------------------------------------------------
 void addDocCommentTokens(scope ref Ctx ctx, in DocCommentAst a) {
 	if (!a.isEmpty) {
-		DocCommentContent* content = force(a.content);
-		Pos pos = content.range.start;
-		foreach (TypeAst x; content.references) {
+		Range range = force(a.range);
+		Pos pos = range.start;
+		foreach (TypeAst x; a.references) {
 			reference(ctx.tokens, TokenType.comment, Range(pos, x.range.start));
-			addTypeTokens(ctx, x);
+			reference(ctx.tokens, TokenType.variable, x.range);
 			pos = x.range.end;
 		}
-		reference(ctx.tokens, TokenType.comment, Range(pos, content.range.end));
+		reference(ctx.tokens, TokenType.comment, Range(pos, range.end));
 	}
 }
 

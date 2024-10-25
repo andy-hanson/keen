@@ -17,7 +17,6 @@ import model.ast :
 	DestructureAst,
 	DoAst,
 	DocCommentAst,
-	DocCommentContent,
 	EmptyAst,
 	EnumOrFlagsMemberAst,
 	ExprAst,
@@ -85,7 +84,7 @@ import util.json :
 	jsonList,
 	jsonString,
 	kindField;
-import util.opt : Opt;
+import util.opt : force, Opt;
 import util.sourceRange : jsonOfLineAndColumn, jsonOfLineAndColumnRange, LineAndColumnGetter, Pos, PosKind, Range;
 import util.union_ : Union;
 import util.uri : Path, RelPath, stringOfPath;
@@ -121,12 +120,10 @@ const struct Ctx {
 }
 
 Opt!(Json.ObjectField) docCommentField(ref Alloc alloc, in Ctx ctx, in DocCommentAst a) =>
-	optionalField!("doc", DocCommentContent*)(a.content, (in DocCommentContent* x) =>
-		jsonOfDocCommentContent(alloc, ctx, *x));
-Json jsonOfDocCommentContent(ref Alloc alloc, in Ctx ctx, in DocCommentContent a) =>
-	jsonObject(alloc, [
-		field!"range"(jsonOfRange(alloc, ctx, a.range)),
-		field!"references"(jsonOfTypeAsts(alloc, ctx, a.references))]);
+	optionalField!"doc"(!a.isEmpty, () =>
+		jsonObject(alloc, [
+			field!"range"(jsonOfRange(alloc, ctx, force(a.range))),
+			field!"references"(jsonOfNameAndRangeArray(alloc, ctx, a.references))]));
 
 Json jsonOfRange(ref Alloc alloc, in Ctx ctx, in Range a) =>
 	jsonOfLineAndColumnRange(alloc, ctx.lineAndColumnGetter[a]);

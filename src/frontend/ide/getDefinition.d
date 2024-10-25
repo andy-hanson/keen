@@ -6,9 +6,9 @@ import frontend.ide.getTarget : Target, targetForPosition;
 import frontend.ide.ideUtil : ReferenceCb;
 import frontend.ide.position : Position, PositionKind;
 import model.ast : ExprAst, LoopAst;
-import model.diag : TypeContainer;
 import model.model :
 	EnumOrFlagsMember,
+	forbidModule,
 	FunDecl,
 	localMustHaveNameRange,
 	Module,
@@ -21,6 +21,7 @@ import model.model :
 	StructInst,
 	StructOrAlias,
 	Type,
+	TypeContainer,
 	TypeParamIndex,
 	VarDecl,
 	UnionMember;
@@ -197,7 +198,7 @@ void definitionForType(in TypeContainer typeContainer, in Type a, in ReferenceCb
 	a.matchIn!void(
 		(in Type.Bogus) {},
 		(in TypeParamIndex x) {
-			cb(typeParamWithContainerRange(PositionKind.TypeParamWithContainer(x, typeContainer)));
+			cb(typeParamWithContainerRange(PositionKind.TypeParamWithContainer(x, forbidModule(typeContainer))));
 		},
 		(in StructInst x) {
 			definitionForStruct(*x.decl, cb);
