@@ -86,7 +86,6 @@ import model.model :
 	Called,
 	EnumOrFlagsMember,
 	FunDecl,
-	FunDeclSource,
 	getAllFlagsValue,
 	hasFatalDiagnostics,
 	ImportOrExport,
@@ -609,7 +608,7 @@ JsDecl translateStructDecl(ref TranslateModuleCtx ctx, StructDecl* a) {
 
 		foreach (ref VariantAndMethodImpls v; a.variants)
 			zipPointers(v.variantDeclMethods, v.methodImpls, (Signature* sig, Opt!Called* impl) {
-				out_ ~= variantMethodImpl(ctx, FunDeclSource.VariantMethod(v.variant.decl, sig), *impl);
+				out_ ~= variantMethodImpl(ctx, sig, *impl);
 			});
 	});
 	return makeDecl(ctx, AnyDecl(a), JsDeclKind(JsClassDecl(optFromMut!(JsExpr*)(extends), members)));

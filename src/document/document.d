@@ -261,6 +261,7 @@ DocExport documentSpec(ref Ctx ctx, in SpecDecl a) =>
 Json documentSpecDeclSig(ref Ctx ctx, in TypeParams typeParams, in Signature a) =>
 	jsonObject(ctx.alloc, [
 		docCommentField(ctx, a.moduleUri, a.docComment),
+		field!"container"(a.container.name),
 		field!"name"(a.name),
 		field!"return-type"(documentTypeRef(ctx, typeParams, a.returnType)),
 		field!"params"(documentParamDestructures(ctx, typeParams, a.params))]);

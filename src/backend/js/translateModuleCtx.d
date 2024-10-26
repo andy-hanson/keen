@@ -10,10 +10,10 @@ import model.model :
 	AnyDecl,
 	CommonTypes,
 	FunDecl,
-	FunDeclSource,
 	Local,
 	Program,
 	ProgramWithMain,
+	Signature,
 	SpecDecl,
 	StructAlias,
 	StructDecl,
@@ -89,8 +89,8 @@ Source structSource(in TranslateModuleCtx ctx, in StructDecl* a) =>
 	declSource(ctx, AnyDecl(a));
 Source testSource(in TranslateModuleCtx ctx, in Test* a) =>
 	declSource(ctx, AnyDecl(a));
-Source variantMethodSource(in TranslateModuleCtx ctx, in FunDeclSource.VariantMethod a) =>
-	sourceAtRange(ctx, a.method.range, a.method.name);
+Source variantMethodSource(in TranslateModuleCtx ctx, in Signature a) =>
+	sourceAtRange(ctx, a.range, a.name);
 
 // This will be empty whne compiling to a bundle.
 immutable struct ModuleExportMangledNames {

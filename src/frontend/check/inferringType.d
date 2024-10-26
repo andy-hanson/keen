@@ -376,10 +376,10 @@ private @trusted void setToType(ref Expected expected, Type type) {
 		(TypeParamIndex x) { expected = x; },
 		(StructInst* x) { expected = x; });
 }
-void setToBogus(ref Expected expected) {
+private void setToBogus(ref Expected expected) {
 	expected = Type.Bogus();
 }
-private void setToBogusIfInferring(ref Expected expected) {
+void setToBogusIfInferring(ref Expected expected) {
 	expected.matchCombineType!void(
 		(Expected.Infer) {
 			setToBogus(expected);

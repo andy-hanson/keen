@@ -29,7 +29,7 @@ import frontend.check.inferringType :
 	inferTypeArgsFromLambdaParameterType,
 	matchExpectedVsReturnTypeNoDiagnostic,
 	nonInferring,
-	setToBogus,
+	setToBogusIfInferring,
 	SingleInferringType,
 	tryGetInferred,
 	TypeAndContext,
@@ -313,7 +313,7 @@ private Expr checkCallSpecialCbN(
 			if (isEmpty(candidates))
 				return bogus(expected, source);
 			else {
-				setToBogus(expected);
+				setToBogusIfInferring(expected);
 				return Expr(source, ExprKind(BogusCallExpr(
 					candidates,
 					exprsAndTypes(ctx.alloc, args, failure.argTypes))));

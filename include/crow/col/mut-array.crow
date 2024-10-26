@@ -1,6 +1,6 @@
 no-std
 import
-	../bool: &&, bool, not
+	../bool: &&, bool, not, true
 	../compare: !=, <, <=, >
 	../fun-util: subscript
 	../js: as-js, call, call-property, cast, eval, js-cast, set-subscript, subscript
@@ -20,14 +20,11 @@ import
 		size-hint, slice-out-of-order, subscript
 	./mut-slice:
 		begin-pointer, cast-immutable, cast-mutable, clear-memory, end-pointer, gc-safe-mut-slice,
-		mut-slice, new, set-subscript, size, subscript, temp-as-array, to
+		mut-slice, new, set-subscript, size, subscript, temp-as-array
 
-###
-Mutable array type that can change in size.
-This is represented as a reference to a `mut-slice` with extra capacity.
-Appending (or removing) elements to the end is amortized O(1),
-but appending (or removing) from the beginning is always O(N).
-###
+| Mutable array type that can change in size.
+| Appending (or removing) elements to the end is amortized O(1),
+| but appending (or removing) from the beginning is always O(N).
 +mut-array[t] builtin mut
 
 -as-mut-array-impl[t] t mut-array-impl(a t mut[]) builtin, bare, native extern
@@ -44,6 +41,10 @@ but appending (or removing) from the beginning is always O(N).
 	a.as-mut-array-impl backing
 -set-backing[t] void(a t mut[], value t mut-slice) bare, unsafe, native extern
 	a.as-mut-array-impl.backing := value
+
+| {true} if `{a}.{size} == 0`.
++is-empty[t] bool(a t mut[]) bare
+	a.size == 0
 
 +size[t] nat64(a t mut[]) bare
 	trusted if extern native
@@ -72,34 +73,13 @@ but appending (or removing) from the beginning is always O(N).
 	else
 		todo
 
-# True if they are identical.
+| {true} if {a} and {b} are the exact same reference.
+| This is O(1) as it does not need to look at the elements.
 +==[t] bool(a t mut[], b t mut[]) bare
 	# TODO: this should be generated for all mut by-ref records
 	trusted a reference-equal b
 
-###
-Pointer to the first element.
-Equivalent to `a.temp-as-mut-slice.begin-pointer`.
-###
-+begin-pointer[t] t mut*(a t mut[]) bare, unsafe, native extern
-	a.temp-as-mut-slice begin-pointer
-
-###
-Pointer to one past the last element.
-Equivalent to `a.temp-as-mut-slice.end-pointer`.
-###
-+end-pointer[t] t mut*(a t mut[]) bare, unsafe, native extern
-	a.temp-as-mut-slice end-pointer
-
-is-at-capacity[t] bool(a t mut[]) bare, unsafe, native extern
-	a.capacity == a.size
-
-capacity[t] nat64(a t mut[]) bare, unsafe, native extern
-	a.backing size
-
-###
-Creates a new list with the given elements.
-###
+| Creates a new {mut-array} with the given elements.
 +new[t] t mut[](...a t[]) trusted
 	# A spread argument is always a new array
 	if extern native
@@ -109,14 +89,18 @@ Creates a new list with the given elements.
 	else
 		todo
 
+| Copy elements to a new {mut-array}.
 +to[t] t mut[](a t[])
 	res t mut[] = ()
 	res ~~= a
 	res
 
+| Removes all elements. This is O(1).
 +clear[t] void(a t mut[]) bare, trusted
 	a reduce-size-to 0
 
+| Removes all elements with index >= {new-size}.
+| This is O(1).
 +reduce-size-to[t] void(a t mut[], new-size nat64) bare
 	assert new-size <= a.size
 	trusted if extern native
@@ -127,26 +111,21 @@ Creates a new list with the given elements.
 	else
 		todo
 
-###
-Copies the array.
-Writes to the original won't affect the copy.
-###
+| Copies elements to a new {mut-array}.
 +copy[t] t mut[](a t mut[])
 	if trusted extern js
 		trusted a.as-js call-property "slice" cast
 	else
 		a.begin slice a.end
 
-###
-Copies a `mut-array` to an `array`.
-Writes to the `mut-array` won't affect the `array`.
-###
+| Copies elements to a new {array}.
+| The result is immutable and won't be affected by future writes to {a}.
 +to[t] t[](a t mut[])
 	a.copy move-to
 
-###
-'move-to' is like 'to' but sets the input to empty.
-###
+| This is like {to} but sets the input to empty.
+| This allows safely returning an immutable result but avoids needing to copy elements.
+| This os O(1) normally. In JS it is likely O(n).
 +move-to[t] t[](a t mut[]) bare
 	trusted a.move-to cast-immutable
 +move-to[t] t mut-slice(a t mut[]) bare
@@ -172,6 +151,8 @@ Writes to the `mut-array` won't affect the `array`.
 	else
 		todo
 
+| Swap the contents of two arrays.
+| This is O(1) normally. In JS it is likely O(n).
 +swap[t] void(a t mut[], b t mut[])
 	trusted if extern native
 		a-backing = a backing
@@ -196,56 +177,13 @@ Writes to the `mut-array` won't affect the `array`.
 -check-index[t] void(a t mut[], index nat64) bare
 	assert index < a.size : index index-too-big a.size
 
-###
-Returns a `mut-slice` of all elements currently in the `mut-array`.
-
-Since a `mut-array` may re-allocate its underlying buffer,
-it's unsafe to use this after the size of `a` changes.
-###
-+temp-as-mut-slice[t] t mut-slice(a t mut[]) bare, unsafe
-	if extern native
-		a.backing[0 .. a.size]
-	elif extern js
-		a js-cast
-	else
-		todo
-
-###
-Converts to an `array`.
-"Temp" because it's UB if the result is used after `a` is written to.
-###
-+temp-as-array[t] t[](a t mut[]) bare, unsafe
-	a.temp-as-mut-slice temp-as-array
-
-# True iff `a.size == 0`.
-+is-empty[t] bool(a t mut[]) bare
-	a.size == 0
-
-###
-Removes the first `n` elements and returns them as an array.
-This is O(1) in native code since it simply gives up the memory.
-Throws if `n > a.size`.
-###
-+pop-n-from-start[t] t[](a t mut[], n nat64)
-	assert n <= a.size : n index-too-big a.size
-	trusted if extern native
-		res t[] = a.backing[0 .. n] to
-		a.backing := a.backing[n .. end]
-		a.size := a.size - n
-		res
-	elif extern js
-		a.as-js call-property "splice", 0::float64, n.to::float64 cast
-	else
-		todo
-
 +peek[t] t?(a t mut[])
 	guard a !is-empty
 	a[end - 1],
 
-###
-Removes the last element and returns it.
-Returns `none` if `a` is empty.
-###
+| Removes the last element and returns it.
+| This is O(1).
+| Returns an empty option if `{a} {is-empty}`.
 +pop[t] t?(a t mut[]) bare
 	guard a !is-empty
 	if trusted extern native
@@ -259,21 +197,50 @@ Returns `none` if `a` is empty.
 	else
 		todo
 
-###
-Pops `n` times, discarding the result.
-Throws if `n > a.size`.
-###
-+pop-n[t] void(a t mut[], n nat64)
+| Removes the first element and returns it.
+| This is O(1) normaly. In JS it is likely O({a} {size}).
+| Returns an empty option if `{a} {is-empty}`.
++pop-left[t] t?(a t mut[]) bare
+	unless a is-empty
+		(a pop-n-left 1)[0],
+
+| Removes the last {n} elements and returns them as an array.
+| This is O(1) normally. In JS it is likely O({n}).
+| The result is guaranteed to be of size {n}.
+| Throws {index-too-big} if there are not at least {n} elements.
++pop-n[t] t[](a t mut[], n nat64) bare
 	assert n <= a.size : n index-too-big a.size
+	new-size = a.size - n
 	trusted if extern native
-		new-size = a.size - n
-		a.backing[new-size .. a.size] clear-memory
+		res t[] = a.backing[new-size .. a.size] cast-immutable
+		a.backing := a.backing[0 .. new-size]
 		a.size := new-size
+		res
 	elif extern js
-		a.as-js["length"] := (a.size - n).to::float64
+		res t[] = a.temp-as-array[new-size .. a.size]
+		a.as-js["length"] := new-size.to::float64
+		res
 	else
 		todo
 
+| Removes the first {n} elements and returns them as an array.
+| This is normally O(1). In JS it is likely O({a} {size}).
+| The result is guaranteed to be of size {n}.
+| Throws {index-too-big} if there are not at least {n} elements.
++pop-n-left[t] t[](a t mut[], n nat64) bare
+	assert n <= a.size : n index-too-big a.size
+	trusted if extern native
+		res t[] = a.backing[0 .. n] cast-immutable
+		a.backing := a.backing[n .. end]
+		a.size := a.size - n
+		res
+	elif extern js
+		a.as-js call-property "splice", 0::float64, n.to::float64 cast
+	else
+		todo
+
+| Push a value onto the beginning of the array.
+| This is O(n).
 +prepend=[t] void(a t mut[], value t)
 	trusted if extern native
 		a ensure-room-for-one-more
@@ -285,7 +252,7 @@ Throws if `n > a.size`.
 	else
 		todo
 
-# Push a value onto the end of the list.
+| Push a value onto the end of the array.
 +~=[t] void(a t mut[], value t)
 	trusted if extern native
 		a ensure-room-for-one-more
@@ -297,7 +264,7 @@ Throws if `n > a.size`.
 	else
 		todo
 
-# Push multiple values onto the end of the list.
+| Push multiple values onto the end of the array.
 +~~=[t, col] void(a t mut[], values col) (col, t) iterate
 	for x : values
 		a ~= x
@@ -312,11 +279,9 @@ Throws if `n > a.size`.
 	a.begin-pointer mem-copy old-begin.as-const, a.size
 	a.backing[a.size + 1 .. end] clear-memory
 
-###
-For performance, hint that the list will eventually reach 'eventual-size'.
-This has no observable effect.
-###
-hint-size[t] void(a t mut[], eventual-size nat64)
+| For performance, hint that the array will eventually reach {eventual-size}.
+| This has no observable effect. There is no unsafety if the array grows bigger than {eventual-size}.
+~hint-size[t] void(a t mut[], eventual-size nat64)
 	if trusted extern native
 		a ensure-capacity-exact eventual-size
 
@@ -327,48 +292,21 @@ hint-size[t] void(a t mut[], eventual-size nat64)
 	if trusted a.capacity < min-capacity
 		a increase-capacity-to min-capacity
 
-###
-Removes `a[index]`, replaces it with the last value, and returns the old `a[index]`.
-If `a[index]` is the last value, simply pops it.
-This is more efficient than `a remove-at index`,
-which has to shift all values past `index` to the left.
-Throws if `index >= a.size`.
-###
-remove-unordered-at[t] t(a t mut[], index nat64) bare
+| Removes `{a}[{index}]`, replaces it with the last value, and returns the old `a[index]`.
+| If `a[index]` is the last value, simply pops it.
+| This is more efficient than `a remove-at index`,
+| which has to shift all values past `index` to the left.
+| Throws if `index >= a.size`.
+~remove-unordered-at[t] t(a t mut[], index nat64) bare
 	res = a[index]
 	replacement = a pop!
 	unless index == a.size
 		a[index] := replacement
 	res
 
-# Create a new `mut-array` full of `gc-safe-value`.
-+gc-safe-mut-array[t] t mut[](size nat64) unsafe
-	size.gc-safe-mut-slice.cast-immutable to
-
-###
-Pushes `n` of `gc-safe-value` to the mut-array.
-This can be useful to prepare the array for being written by low-level code.
-Unsafe for the same reason as `gc-safe-value`.
-###
-+push-gc-safe-values[t] void(a t mut[], n nat64) unsafe
-	if extern native
-		new-size = a.size + n
-		a ensure-capacity-exact new-size
-		a.size := new-size
-		ptr = a.end-pointer - n
-		ptr mem-clear n
-	else
-		new-size = a.size + n
-		while a.size != new-size
-			a ~= gc-safe-value
-
-###
-Sets `a[index] := value`,
-but first shifts all elements from `index` onwards to the right to make room.
-Increases the size by 1.
-This is O(a.size - index) due to having to move other elements.
-Throws if `index > a.size`.
-###
+| The new contents of {a} will be `a[0 .. index] ~~ (value,) ~~ a[index .. end]`.
+| So, `{a}[{index}]` will be {value}.
+| This is O(a.size - index) due to having to move a[index .. end] to the right by 1.
 +insert-at[t] void(a t mut[], index nat64, value t)
 	assert index <= a.size : index index-too-big a.size
 	trusted if extern native
@@ -382,13 +320,9 @@ Throws if `index > a.size`.
 	else
 		todo
 
-###
-Removes `a[index]`, and shifts all values from `index` onwards to the left to fill the hole.
-Returns the old `a[index]`.
-Decreases the size by 1.
-This is O(a.size - index) due to having to move other elements.
-Throws if `index >= a.size`.
-###
+| The new contents of {a} will be `a[0 .. index] ~~ a[index + 1 .. end]`.
+| Returns the old `a[index]` which will have been removed.
+| This is O(a.size - index) due to having to shift `a[index + 1 .. end]` to the left by 1.
 +remove-at[t] t(a t mut[], index nat64)
 	a check-index index
 	res = a[index]
@@ -403,19 +337,81 @@ Throws if `index >= a.size`.
 
 region mutating iteration
 
-# TODO: what happens if data accessed during filtering?
-###
-Removes every element `x` where `!f[x]`.
-This can be written as `a.filter := f`.
-###
+| Replaces every element `x` with `{f}[x]`.
+| WARN: During the map, `a` will appear to be empty and pushes to it won't affect the result.
++map=[t] void(a t mut[], f t mut(elem t))
+	temp t mut[] = a move-to
+	i mut nat64 = 0
+	while i < temp.size
+		temp[i] := f[temp[i]]
+		i +:= 1
+	a swap temp
+
+| Removes every element `x` where `!{f}[x]`.
+| WARN: During the filter, `a` will appear to be empty and pushes to it won't affect the result.
 +filter=[t] void(a t mut[], f bool mut(elem t))
-	# TOOD: this is unsafe if 'f' accesses to the list. Make it a 'fun' instead?
+	temp t mut[] = a move-to
 	out mut nat64 = 0
-	for x : a
+	i mut nat64 = 0
+	while i < temp.size
+		x = temp[i]
 		if f[x]
-			a[out] := x
+			temp[out] := x
 			out +:= 1
-	a reduce-size-to out
+		i +:= 1
+	temp reduce-size-to out
+	a swap temp
+
+region unsafe
+
+| Create a new array full of {gc-safe-value}.
++gc-safe-mut-array[t] t mut[](size nat64) unsafe
+	size.gc-safe-mut-slice.cast-immutable to
+
+| Pushes {n} of {gc-safe-value} to the mut-array.
+| This can be useful to prepare the array for being written by low-level code.
++push-gc-safe-values[t] void(a t mut[], n nat64) unsafe
+	if extern native
+		new-size = a.size + n
+		a ensure-capacity-exact new-size
+		a.size := new-size
+		ptr = a.end-pointer - n
+		ptr mem-clear n
+	else
+		new-size = a.size + n
+		while a.size != new-size
+			a ~= gc-safe-value
+
+| Pointer to the first element.
+| Equivalent to `{a}.{temp-as-mut-slice} {begin-pointer}`.
++begin-pointer[t] t mut*(a t mut[]) bare, unsafe, native extern
+	a.temp-as-mut-slice begin-pointer
+
+| Pointer to one past the last element.
+| Equivalent to `{a}.{temp-as-mut-slice} {end-pointer}`.
++end-pointer[t] t mut*(a t mut[]) bare, unsafe, native extern
+	a.temp-as-mut-slice end-pointer
+
+| Returns a {mut-slice} of all elements currently in the `mut-array`.
+| WARN: The result is temporary. It's undefined behavior to modify {a} while the result of this function is still in use.
+~temp-as-mut-slice[t] t mut-slice(a t mut[]) bare, unsafe
+	if extern native
+		a.backing[0 .. a.size]
+	elif extern js
+		a js-cast
+	else
+		todo
+
+| WARN: The result is temporary. It's undefined behavior to modify {a} while the result of this function is still in use.
+~temp-as-array[t] t[](a t mut[]) bare, unsafe
+	a.temp-as-mut-slice temp-as-array
+
+is-at-capacity[t] bool(a t mut[]) bare, unsafe, native extern
+	a.capacity == a.size
+
+capacity[t] nat64(a t mut[]) bare, unsafe, native extern
+	a.backing size
+
 
 region spec impls (see collection.crow)
 

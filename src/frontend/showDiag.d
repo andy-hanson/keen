@@ -454,6 +454,11 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				(in Diag.AutoFunError.Bare) {
 					writer ~= "Automatic 'to json' can't be 'bare'.";
 				},
+				(in Diag.AutoFunError.SpecCorrupt x) {
+					writer ~= "Spec ";
+					writeName(writer, ctx, x.specName);
+					writer ~= " does not have the expected content.";
+				},
 				(in Diag.AutoFunError.SpecFromWrongModule) {
 					writer ~= "Spec for automatic function comes from unexpected module.";
 				},

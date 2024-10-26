@@ -576,7 +576,7 @@ void addFunsForVariant(
 ) {
 	foreach (ref Signature sig; variant.methods)
 		funsBuilder ~= funDeclWithBody(
-			FunDeclSource(FunDeclSource.VariantMethod(struct_, &sig)),
+			FunDeclSource(&sig),
 			struct_.visibility,
 			sig.name,
 			sig.returnType,

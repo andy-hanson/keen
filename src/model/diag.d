@@ -116,6 +116,7 @@ immutable struct Diag {
 
 	immutable struct AutoFunError {
 		immutable struct Bare {}
+		immutable struct SpecCorrupt { Symbol specName; }
 		immutable struct SpecFromWrongModule {}
 		immutable struct TypeNotFullyVisible {}
 		immutable struct WrongName {}
@@ -129,6 +130,7 @@ immutable struct Diag {
 		}
 		mixin Union!(
 			Bare,
+			SpecCorrupt,
 			SpecFromWrongModule,
 			TypeNotFullyVisible,
 			WrongName,

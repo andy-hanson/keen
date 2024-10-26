@@ -134,7 +134,6 @@ import model.model :
 	FinallyExpr,
 	FunBody,
 	FunDecl,
-	FunDeclSource,
 	FunInst,
 	FunKind,
 	FunPointerExpr,
@@ -312,13 +311,9 @@ JsDecl translateFunDecl(ref TranslateModuleCtx ctx, FunDecl* a) {
 	return makeDecl(ctx, AnyDecl(a), JsDeclKind(fun));
 }
 
-JsClassMember variantMethodImpl(
-	ref TranslateModuleCtx ctx,
-	FunDeclSource.VariantMethod variantMethod,
-	in Opt!Called optImpl,
-) {
-	Source source = variantMethodSource(ctx, variantMethod);
-	Symbol name = variantMethod.method.name;
+JsClassMember variantMethodImpl(ref TranslateModuleCtx ctx, Signature* variantMethod, in Opt!Called optImpl) {
+	Source source = variantMethodSource(ctx, *variantMethod);
+	Symbol name = variantMethod.name;
 	FunDecl* caller = variantMethodCaller(ctx.program, variantMethod);
 	SyncOrAsync async = has(optImpl) ? isAsyncCall(ctx.allUsed, caller, force(optImpl)) : SyncOrAsync.sync;
 	if (has(optImpl) && isInlined(force(optImpl))) {

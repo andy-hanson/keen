@@ -51,10 +51,11 @@ import model.model :
 	MatchUnionExpr,
 	MatchVariantExpr,
 	RecordField,
-	StructAlias,
-	StructBody,
+	Signature,
 	SpecDecl,
 	stringOfVarKindUpperCase,
+	StructAlias,
+	StructBody,
 	StructDecl,
 	StructInst,
 	Test,
@@ -266,11 +267,26 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 		(SpecDecl* x) {
 			writeSpecDeclHover(writer, ctx, *x);
 		},
-		(PositionKind.SpecSig x) {
-			writer ~= "Spec ";
-			writeName(writer, ctx, x.spec.name);
-			writer ~= " signature ";
-			writeName(writer, ctx, x.sig.name);
+		(Signature* sig) {
+			sig.container.matchIn!void(
+				(in SpecDecl x) {
+					writer ~= "Spec ";
+					writeName(writer, ctx, x.name);
+					writer ~= " signature ";
+				},
+				(in StructDecl x) {
+					writer ~= () {
+						final switch (x.body_.as!(StructBody.Variant).kind) {
+							case VariantKind.interface_:
+								return "Interface";
+							case VariantKind.variant:
+								return "Variant";
+						}
+					}();
+					writeName(writer, ctx, x.name);
+					writer ~= " method ";	
+				});
+			writeName(writer, ctx, sig.name);
 		},
 		(PositionKind.SpecUse x) {
 			writer ~= "Spec ";
@@ -316,20 +332,6 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 			writeName(writer, ctx, x.name);
 			writer ~= " :: ";
 			writeTypeUnquoted(writer, ctx, TypeWithContainer(x.type, TypeContainer(x)));
-		},
-		(PositionKind.VariantMethod x) {
-			writer ~= () {
-				final switch (x.variantBody.kind) {
-					case VariantKind.interface_:
-						return "Interface";
-					case VariantKind.variant:
-						return "Variant";
-				}
-			}();
-			writer ~= ' ';
-			writeName(writer, ctx, x.variant.name);
-			writer ~= " method ";
-			writeName(writer, ctx, x.method.name);
 		},
 		(PositionKind.VisibilityMark x) {
 			writer ~= "Marks ";

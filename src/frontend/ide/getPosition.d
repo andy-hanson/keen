@@ -4,6 +4,7 @@ module frontend.ide.getPosition;
 
 import frontend.ide.ideUtil : findInPackedTypeArgs, eachTypeComponent, specsMatch;
 import frontend.ide.position :
+	asLocalContainer,
 	DocCommentHaver,
 	ExpressionPosition,
 	ExpressionPositionKind,
@@ -63,6 +64,7 @@ import model.ast :
 import model.model :
 	AnyDecl,
 	AssertOrForbidExpr,
+	asTypeContainer,
 	BogusCallExpr,
 	BogusExpr,
 	BogusWrongTypeExpr,
@@ -147,7 +149,6 @@ import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
 import util.conv : safeToUint;
 import util.opt : force, has, none, Opt, optIf, optOr, optOr, optOrDefault, some;
 import util.sourceRange : combineRanges, Pos, Range;
-import util.union_ : TaggedUnion, Union;
 import util.util : enumConvert;
 
 enum GetPositionKind {
@@ -418,48 +419,20 @@ Opt!PositionKind positionInSpec(SpecDecl* a, Pos pos) =>
 		() => optIf(hasPos(a.ast.keywordRange, pos), () =>
 			PositionKind(PositionKind.Keyword(PositionKind.Keyword.Kind.spec))),
 		() => positionInModifiers(TypeContainer(a), some(a.parents), a.ast.modifiers, pos),
-		() => positionInSignatures(SpecOrVariant(a), a.sigs, a.ast.sigs, pos)));
+		() => positionInSignatures(a.sigs, a.ast.sigs, pos)));
 
-immutable struct SpecOrVariant { mixin TaggedUnion!(SpecDecl*, StructDecl*); }
-DocCommentHaver signatureDocCommentHaver(SpecOrVariant a, Signature* sig) =>
-	a.matchWithPointers!DocCommentHaver(
-		(SpecDecl* x) =>
-			DocCommentHaver(PositionKind.SpecSig(x, sig)),
-		(StructDecl* x) =>
-			DocCommentHaver(PositionKind.VariantMethod(x, sig)));
-TypeContainer toTypeContainer(SpecOrVariant a) =>
-	toLocalContainer(a).toTypeContainer;
-LocalContainer toLocalContainer(SpecOrVariant a) =>
-	a.matchWithPointers!LocalContainer(
-		(SpecDecl* x) => LocalContainer(x),
-		(StructDecl* x) => LocalContainer(x));
-PositionKind toPositionKind(SpecOrVariant a, Signature* sig) =>
-	a.matchWithPointers!PositionKind(
-		(SpecDecl* x) => PositionKind(PositionKind.SpecSig(x, sig)),
-		(StructDecl* x) => PositionKind(PositionKind.VariantMethod(x, sig)));
-
-Opt!PositionKind positionInSignatures(
-	SpecOrVariant container,
-	Signature[] signatures,
-	SignatureAst[] signatureAsts,
-	Pos pos,
-) =>
+Opt!PositionKind positionInSignatures(Signature[] signatures, SignatureAst[] signatureAsts, Pos pos) =>
 	firstZipPointerFirst!(PositionKind, Signature, SignatureAst)(
 		signatures, signatureAsts, (Signature* sig, SignatureAst sigAst) =>
-			positionInSignature(container, sig, sigAst, pos));
+			positionInSignature(sig, sigAst, pos));
 
-Opt!PositionKind positionInSignature(
-	SpecOrVariant container,
-	Signature* sig,
-	in SignatureAst ast,
-	Pos pos,
-) =>
+Opt!PositionKind positionInSignature(Signature* sig, in SignatureAst ast, Pos pos) =>
 	optOr!PositionKind(
-		positionInDocComment(signatureDocCommentHaver(container, sig), pos),
+		positionInDocComment(DocCommentHaver(sig), pos),
 		() => optIf(hasPos(ast.nameAndRange.range, pos), () =>
-			toPositionKind(container, sig)),
-		() => positionInType(toTypeContainer(container), sig.returnType, ast.returnType, pos),
-		() => positionInParams(toLocalContainer(container), Params(sig.params), ast.params, pos));
+			PositionKind(sig)),
+		() => positionInType(asTypeContainer(sig.container), sig.returnType, ast.returnType, pos),
+		() => positionInParams(asLocalContainer(sig.container), Params(sig.params), ast.params, pos));
 
 Opt!PositionKind positionInStructBody(
 	in Ctx ctx,
@@ -510,7 +483,7 @@ Opt!PositionKind positionInStructBody(
 				cbMutabilityPosition: (UnionMember*) =>
 					none!PositionKind),
 		(StructBody.Variant x) =>
-			positionInSignatures(SpecOrVariant(decl), x.methods, ast.as!(StructBodyAst.Variant).methods, pos));
+			positionInSignatures(x.methods, ast.as!(StructBodyAst.Variant).methods, pos));
 
 Opt!PositionKind positionInRecordOrUnionBody(Member)(
 	in Ctx ctx,

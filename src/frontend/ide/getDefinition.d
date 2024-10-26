@@ -7,6 +7,7 @@ import frontend.ide.ideUtil : ReferenceCb;
 import frontend.ide.position : Position, PositionKind;
 import model.ast : ExprAst, LoopAst;
 import model.model :
+	asTypeContainer,
 	EnumOrFlagsMember,
 	forbidModule,
 	FunDecl,
@@ -15,6 +16,7 @@ import model.model :
 	NameReferents,
 	Program,
 	RecordField,
+	Signature,
 	SpecDecl,
 	StructAlias,
 	StructDecl,
@@ -83,8 +85,8 @@ public void definitionForTarget(Uri curUri, in Target a, in ReferenceCb cb) =>
 		(in SpecDecl x) {
 			cb(x.nameRange);
 		},
-		(in PositionKind.SpecSig x) {
-			cb(x.sig.nameRange);
+		(in Signature x) {
+			cb(x.nameRange);
 		},
 		(in StructAlias x) {
 			cb(x.nameRange);
@@ -100,9 +102,6 @@ public void definitionForTarget(Uri curUri, in Target a, in ReferenceCb cb) =>
 		},
 		(in VarDecl x) {
 			cb(x.nameRange);
-		},
-		(in PositionKind.VariantMethod x) {
-			cb(x.method.nameRange);
 		});
 
 UriAndRange typeParamWithContainerRange(in PositionKind.TypeParamWithContainer a) =>
@@ -148,8 +147,8 @@ void typeDefinitionForTarget(in Target a, in ReferenceCb cb) {
 			definitionForType(TypeContainer(x.containingRecord), x.type, cb);
 		},
 		(SpecDecl* x) {},
-		(PositionKind.SpecSig x) {
-			definitionForType(TypeContainer(x.spec), x.sig.returnType, cb);
+		(Signature* x) {
+			definitionForType(asTypeContainer(x.container), x.returnType, cb);
 		},
 		(StructAlias* x) {
 			typeDefinitionForStructAlias(*x, cb);
@@ -166,9 +165,6 @@ void typeDefinitionForTarget(in Target a, in ReferenceCb cb) {
 		},
 		(VarDecl* x) {
 			definitionForType(TypeContainer(x), x.type, cb);
-		},
-		(PositionKind.VariantMethod x) {
-			definitionForType(TypeContainer(x.variant), x.method.returnType, cb);
 		});
 }
 

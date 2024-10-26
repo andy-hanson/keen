@@ -313,11 +313,43 @@ bool arityMatches(Arity sigArity, size_t nArgs) =>
 		(Arity.Varargs) =>
 			true);
 
+immutable struct SignatureContainer {
+	@safe @nogc pure nothrow:
+	mixin TaggedUnion!(SpecDecl*, StructDecl*);
+
+	Uri moduleUri() scope =>
+		matchIn!Uri(
+			(in SpecDecl x) =>
+				x.moduleUri,
+			(in StructDecl x) =>
+				x.moduleUri);
+
+	Symbol name() scope =>
+		matchIn!Symbol(
+			(in SpecDecl x) =>
+				x.name,
+			(in StructDecl x) =>
+				x.name);
+
+	TypeParams typeParams() =>
+		match!TypeParams(
+			(ref SpecDecl x) =>
+				x.typeParams,
+			(ref StructDecl x) =>
+				x.typeParams);
+}
+TypeContainer asTypeContainer(SignatureContainer a) =>
+	a.matchWithPointers!TypeContainer(
+		(SpecDecl* x) =>
+			TypeContainer(x),
+		(StructDecl* x) =>
+			TypeContainer(x));
+
 // Function signature without a body. Used in a spec or variant.
 immutable struct Signature {
 	@safe @nogc pure nothrow:
 
-	Uri moduleUri; // TODO: If we're spending space on the uri, we might as well store a pointer to the SpecDecl* or StructDecl* that contains this!
+	SignatureContainer container;
 	SignatureAst* ast;
 	Type returnType;
 	SmallArray!Destructure params;
@@ -325,6 +357,8 @@ immutable struct Signature {
 
 	Symbol name() scope =>
 		ast.name;
+	Uri moduleUri() scope =>
+		container.moduleUri;
 	UriAndRange range() scope =>
 		UriAndRange(moduleUri, ast.range);
 	UriAndRange nameRange() scope =>
@@ -339,6 +373,12 @@ immutable struct Signature {
 		lateSet(lateDocCommentReferences, value);
 	}
 }
+size_t signatureIndex(in Signature* a) scope =>
+	a.container.matchIn!size_t(
+		(in SpecDecl spec) =>
+			mustHaveIndexOfPointer(spec.sigs, a),
+		(in StructDecl variant) =>
+			mustHaveIndexOfPointer(variant.body_.as!(StructBody.Variant).methods, a));
 
 immutable struct TypeParamsAndSig {
 	TypeParams typeParams;
@@ -1348,17 +1388,6 @@ immutable struct FunDeclSource {
 		Uri moduleUri; // This is the importing module, not imported
 		ImportOrExportAst* ast;
 	}
-	immutable struct VariantMethod {
-		@safe @nogc pure nothrow:
-		StructDecl* variant;
-		Signature* method;
-
-		ref StructBody.Variant variantBody() return scope =>
-			variant.body_.as!(StructBody.Variant);
-
-		size_t signatureIndex() scope =>
-			mustHaveIndexOfPointer(variantBody.methods, method);
-	}
 
 	mixin Union!(
 		Bogus,
@@ -1366,10 +1395,11 @@ immutable struct FunDeclSource {
 		EnumOrFlagsMember*,
 		FileImport,
 		RecordField*,
+		// This is for a variant method
+		Signature*,
 		StructDecl*,
 		UnionMember*,
-		VarDecl*,
-		VariantMethod);
+		VarDecl*);
 
 	Uri moduleUri() scope =>
 		matchIn!Uri(
@@ -1383,14 +1413,14 @@ immutable struct FunDeclSource {
 				x.moduleUri,
 			(in RecordField x) =>
 				x.moduleUri,
+			(in Signature x) =>
+				x.moduleUri,
 			(in StructDecl x) =>
 				x.moduleUri,
 			(in UnionMember x) =>
 				x.moduleUri,
 			(in VarDecl x) =>
-				x.moduleUri,
-			(in VariantMethod x) =>
-				x.variant.moduleUri);
+				x.moduleUri);
 
 	UriAndRange range() scope =>
 		matchIn!UriAndRange(
@@ -1404,14 +1434,14 @@ immutable struct FunDeclSource {
 				UriAndRange(x.moduleUri, x.ast.range),
 			(in RecordField x) =>
 				UriAndRange(x.moduleUri, x.range),
+			(in Signature x) =>
+				x.range,
 			(in StructDecl x) =>
 				x.range,
 			(in UnionMember x) =>
 				UriAndRange(x.moduleUri, x.range),
 			(in VarDecl x) =>
-				x.range,
-			(in VariantMethod x) =>
-				UriAndRange(x.variant.moduleUri, x.method.ast.range));
+				x.range);
 	UriAndRange nameRange() scope =>
 		matchIn!UriAndRange(
 			(in FunDeclSource.Bogus x) =>
@@ -1424,14 +1454,14 @@ immutable struct FunDeclSource {
 				UriAndRange(x.moduleUri, x.ast.range),
 			(in RecordField x) =>
 				x.nameRange,
+			(in Signature x) =>
+				x.nameRange,
 			(in StructDecl x) =>
 				x.nameRange,
 			(in UnionMember x) =>
 				x.nameRange,
 			(in VarDecl x) =>
-				x.nameRange,
-			(in VariantMethod x) =>
-				UriAndRange(x.variant.moduleUri, x.method.ast.nameRange));
+				x.nameRange);
 
 	DocCommentAst docCommentAst() scope =>
 		isA!Ast
@@ -1479,14 +1509,14 @@ immutable struct FunDecl {
 				emptySmallArray!NameAndRange,
 			(ref RecordField x) =>
 				x.containingRecord.typeParams,
+			(ref Signature x) =>
+				x.container.typeParams,
 			(ref StructDecl x) =>
 				x.typeParams,
 			(ref UnionMember x) =>
 				x.containingUnion.typeParams,
 			(ref VarDecl x) =>
-				x.typeParams,
-			(FunDeclSource.VariantMethod x) =>
-				x.variant.typeParams);
+				x.typeParams);
 
 	Uri moduleUri() scope =>
 		source.moduleUri;
@@ -3421,7 +3451,7 @@ Opt!T findDirectChildExpr(T)(
 		(BogusWrongTypeExpr x) =>
 			cb(x.inner),
 		(CallExpr x) {
-			assert(a.type == x.called.returnType);
+			assert(a.type == x.called.returnType || a.type.isBogus || x.called.returnType.isBogus);
 			if (x.called.isVariadic) {
 				Type argType = arrayElementType(only(x.called.paramTypes));
 				return firstPointer!(T, Expr)(x.args, (Expr* e) => cb(ExprRef(e, argType)));
@@ -3536,10 +3566,10 @@ FunDecl* variantMemberGetter(FunDecl[] funs, in StructDecl* struct_, in VariantA
 		fun.body_.isA!(FunBody.VariantMemberGet) &&
 		only(paramsArray(fun.params)).type == Type(x.variant) &&
 		fun.source.as!(StructDecl*) == struct_);
-FunDecl* variantMethodCaller(ref Program program, FunDeclSource.VariantMethod a) =>
-	mustFindFunNamed(moduleAtUri(program, a.variant.moduleUri), a.method.name, (in FunDecl fun) =>
-		fun.source.isA!(FunDeclSource.VariantMethod) &&
-		fun.source.as!(FunDeclSource.VariantMethod).method == a.method);
+FunDecl* variantMethodCaller(ref Program program, in Signature* a) =>
+	mustFindFunNamed(moduleAtUri(program, a.moduleUri), a.name, (in FunDecl fun) =>
+		fun.source.isA!(Signature*) &&
+		fun.source.as!(Signature*) == a);
 
 FunDecl* mustFindFunNamed(in Module* module_, Symbol name, in bool delegate(in FunDecl) @safe @nogc pure nothrow cb) =>
 	mustFindFunNamed(module_.funs, name, cb);

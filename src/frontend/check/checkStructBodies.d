@@ -35,6 +35,7 @@ import model.ast :
 import model.concreteModel : TypeSize;
 import model.diag : Diag, DeclKind;
 import model.model :
+	asTypeContainer,
 	BuiltinType,
 	ByValOrRef,
 	Called,
@@ -66,6 +67,7 @@ import model.model :
 	RecordFlags,
 	ReturnAndParamTypes,
 	Signature,
+	SignatureContainer,
 	StructBody,
 	StructDecl,
 	StructDeclSource,
@@ -171,7 +173,7 @@ void checkStructBodies(
 			(StructBodyAst.Variant x) {
 				checkOnlyCommonModifiers(ctx, DeclKind.variant, ast.modifiers);
 				return StructBody(StructBody.Variant(x.kind, checkSignatures(
-					ctx, commonTypes, structsAndAliasesMap, TypeContainer(struct_), ast.typeParams, x.methods,
+					ctx, commonTypes, structsAndAliasesMap, SignatureContainer(struct_), ast.typeParams, x.methods,
 					someMut(ptrTrustMe(delayStructInsts)))));
 			});
 	});
@@ -181,14 +183,14 @@ SmallArray!Signature checkSignatures(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	in StructsAndAliasesMap structsAndAliasesMap,
-	TypeContainer typeContainer,
+	SignatureContainer container,
 	TypeParams typeParams,
 	SmallArray!SignatureAst asts,
 	MayDelayStructInsts delayStructInsts,
 ) =>
 	mapPointers!(Signature, SignatureAst)(ctx.alloc, asts, (SignatureAst* x) {
 		ReturnTypeAndParams rp = checkReturnTypeAndParams(
-			ctx, commonTypes, typeContainer, x.returnType, x.params,
+			ctx, commonTypes, asTypeContainer(container), x.returnType, x.params,
 			typeParams, structsAndAliasesMap, delayStructInsts);
 		Destructure[] params = rp.params.matchWithPointers!(Destructure[])(
 			(Destructure[] x) =>
@@ -197,7 +199,7 @@ SmallArray!Signature checkSignatures(
 				addDiag(ctx, x.param.range, Diag(Diag.SpecSigCantBeVariadic()));
 				return arrayOfSingle(&x.param);
 			});
-		return Signature(ctx.curUri, x, rp.returnType, small!Destructure(params));
+		return Signature(container, x, rp.returnType, small!Destructure(params));
 	});
 
 private SmallArray!VariantAndMethodImpls checkVariantMembersInitial(

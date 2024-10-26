@@ -218,8 +218,10 @@ private Opt!UriAndName asUriAndName(Target a) =>
 			some(UriAndName(x.moduleUri, x.name)),
 		(in SpecDecl x) =>
 			some(UriAndName(x.moduleUri, x.name)),
-		(in PositionKind.SpecSig x) =>
-			none!UriAndName,
+		(in Signature x) =>
+			// A spec signature can't be imported, only a variant method (through its calling function)
+			optIf(x.container.isA!(StructDecl*), () =>
+				UriAndName(x.moduleUri, x.name)),
 		(in StructAlias x) =>
 			some(UriAndName(x.moduleUri, x.name)),
 		(in StructDecl x) =>
@@ -229,10 +231,7 @@ private Opt!UriAndName asUriAndName(Target a) =>
 		(in UnionMember x) =>
 			some(UriAndName(x.moduleUri, x.name)),
 		(in VarDecl x) =>
-			some(UriAndName(x.moduleUri, x.name)),
-		(in PositionKind.VariantMethod x) =>
-			some(UriAndName(x.variant.moduleUri, x.method.name)));
-
+			some(UriAndName(x.moduleUri, x.name)));
 
 private:
 
@@ -262,8 +261,8 @@ void referencesForTarget(in Program program, Uri curUri, in Target a, in Referen
 		(SpecDecl* x) {
 			referencesForSpecDecl(program, x, cb);
 		},
-		(PositionKind.SpecSig x) {
-			referencesForSpecSig(program, x, cb);
+		(Signature* x) {
+			referencesForSignature(program, x, cb);
 		},
 		(StructAlias* x) {
 			referencesForStructAlias(program, x, cb);
@@ -279,10 +278,6 @@ void referencesForTarget(in Program program, Uri curUri, in Target a, in Referen
 		},
 		(VarDecl* x) {
 			referencesForVarDecl(program, x, cb);
-		},
-		(PositionKind.VariantMethod x) {
-			referencesForFunDecl(program, variantMethodCaller(program, x), cb);
-			// TODO: Also find all structs that implement the variant and their implementations for this sig.
 		});
 
 void referencesForStructAlias(in Program program, in StructAlias* a, in ReferenceCb cb) {
@@ -759,19 +754,26 @@ void eachModuleThatMayReference(
 		});
 }
 
-void referencesForSpecSig(in Program program, in PositionKind.SpecSig a, in ReferenceCb cb) {
-	Module* itsModule = moduleAtUri(program, a.spec.moduleUri);
-	eachExprThatMayReference(
-		program, a.spec.visibility, itsModule,
-		(in Module module_, in NameAndRange ast, in DocCommentReference x) {
-			// TODO -----------------------------------------------------------------------------------------------------------
+void referencesForSignature(in Program program, in Signature* a, in ReferenceCb cb) {
+	a.container.match!void(
+		(ref SpecDecl spec) {
+			eachExprThatMayReference(
+				program, spec.visibility, moduleAtUri(program, a.moduleUri),
+				(in Module module_, in NameAndRange ast, in DocCommentReference x) {
+					// TODO -----------------------------------------------------------------------------------------------------------
+				},
+				(in Module module_, ExprRef x) {
+					Opt!Called optCalled = getCalledAtExpr(x.expr.kind);
+					if (has(optCalled)) {
+						Called called = force(optCalled);
+						if (called.isA!(CalledSpecSig) && called.as!(CalledSpecSig).nonInstantiatedSig == a)
+							cb(UriAndRange(module_.uri, callNameRange(*x.expr.ast)));
+					}
+				});
 		},
-		(in Module module_, ExprRef x) {
-			Opt!Called called = getCalledAtExpr(x.expr.kind);
-			if (has(called) &&
-				force(called).isA!(CalledSpecSig) &&
-				force(called).as!(CalledSpecSig).nonInstantiatedSig == a.sig)
-				cb(UriAndRange(module_.uri, callNameRange(*x.expr.ast)));
+		(ref StructDecl variant) {
+			referencesForFunDecl(program, variantMethodCaller(program, a), cb);
+			// TODO: Also find all structs that implement the variant and their implementations for this sig.
 		});
 }
 
@@ -808,28 +810,35 @@ void referencesForUnionMember(in Program program, in UnionMember* member, in Ref
 	Module* declaringModule = moduleAtUri(program, union_.moduleUri);
 	FunDecl* ctor = mustFindFunNamed(declaringModule, member.name, (in FunDecl fun) =>
 		fun.body_.isA!(FunBody.CreateUnion) && fun.body_.as!(FunBody.CreateUnion).member == member);
-	FunDecl* getter = mustFindFunNamed(declaringModule, member.name, (in FunDecl fun) =>
-		fun.body_.isA!(FunBody.UnionMemberGet) && fun.body_.as!(FunBody.UnionMemberGet).member == member);
-	FunDecl*[2] funs = [ctor, getter];
-	eachExprThatMayReference(
-		program, member.visibility, declaringModule,
-		(in Module module_, in NameAndRange ast, in DocCommentReference x) {
-			if (x.isA!(FunDecl*) && contains(funs, x.as!(FunDecl*)))
-				cb(UriAndRange(module_.uri, ast.range));
-		},
-		(in Module m, ExprRef x) {
-			if (x.expr.kind.isA!(MatchUnionExpr*)) {
-				MatchUnionExpr* matchUnion = x.expr.kind.as!(MatchUnionExpr*);
-				if (matchUnion.union_.decl == union_) {
-					foreach (size_t caseIndex, ref MatchUnionExpr.Case case_; matchUnion.cases) {
-						if (case_.member == member)
-							cb(UriAndRange(m.uri, caseNameRange(*x.expr, caseIndex)));
+	Opt!(FunDecl*) getter = optIf(member.hasValue, () =>
+		mustFindFunNamed(declaringModule, member.name, (in FunDecl fun) =>
+			fun.body_.isA!(FunBody.UnionMemberGet) && fun.body_.as!(FunBody.UnionMemberGet).member == member));
+	withFuns!(immutable FunDecl*)(ctor, getter, (in FunDecl*[] funs) {
+		eachExprThatMayReference(
+			program, member.visibility, declaringModule,
+			(in Module module_, in NameAndRange ast, in DocCommentReference x) {
+				if (x.isA!(FunDecl*) && contains(funs, x.as!(FunDecl*)))
+					cb(UriAndRange(module_.uri, ast.range));
+			},
+			(in Module m, ExprRef x) {
+				if (x.expr.kind.isA!(MatchUnionExpr*)) {
+					MatchUnionExpr* matchUnion = x.expr.kind.as!(MatchUnionExpr*);
+					if (matchUnion.union_.decl == union_) {
+						foreach (size_t caseIndex, ref MatchUnionExpr.Case case_; matchUnion.cases) {
+							if (case_.member == member)
+								cb(UriAndRange(m.uri, caseNameRange(*x.expr, caseIndex)));
+						}
 					}
-				}
-			} else
-				eachFunReferenceAtExpr(m, x, funs, cb);
-		});
+				} else
+					eachFunReferenceAtExpr(m, x, funs, cb);
+			});
+	});
 }
+
+void withFuns(T)(T a, Opt!T b, in void delegate(in T[]) @safe @nogc pure nothrow cb) => // TODO: better name --------------------------
+	has(b)
+		? cb([a, force(b)])
+		: cb([a]);
 
 void referencesForVarDecl(in Program program, in VarDecl* a, in ReferenceCb cb) {
 	// Find references to get/set

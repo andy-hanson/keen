@@ -615,6 +615,8 @@ FunBody checkAutoFunWithSpec(
 		addDiag(ctx, fun.nameRange.range, Diag(x));
 		return FunBody(FunBody.Bogus());
 	}
+	if (spec.sigs.length != 1)
+		return diag(Diag.AutoFunError(Diag.AutoFunError.SpecCorrupt(spec.name)));
 	Signature* sig = &only(spec.sigs);
 	Opt!Type paramType = getAutoFunParamType(fun, countParams);
 	return !has(paramType)

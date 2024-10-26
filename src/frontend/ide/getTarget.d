@@ -24,13 +24,13 @@ import model.model :
 	forbidModule,
 	FunBody,
 	FunDecl,
-	FunDeclSource,
 	FunInst,
 	FunPointerExpr,
 	Local,
 	Module,
 	mustUnwrapOptionType,
 	RecordField,
+	Signature,
 	SpecDecl,
 	StructAlias,
 	StructDecl,
@@ -59,14 +59,12 @@ immutable struct Target {
 		Module*,
 		RecordField*,
 		SpecDecl*,
-		PositionKind.SpecSig,
+		Signature*,
 		StructAlias*,
 		StructDecl*,
 		PositionKind.TypeParamWithContainer,
 		UnionMember*,
-		VarDecl*,
-		PositionKind.VariantMethod,
-	);
+		VarDecl*);
 }
 
 Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
@@ -125,7 +123,7 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 			none!Target,
 		(SpecDecl* x) =>
 			some(Target(x)),
-		(PositionKind.SpecSig x) =>
+		(Signature* x) =>
 			some(Target(x)),
 		(PositionKind.SpecUse x) =>
 			some(Target(x.spec.decl)),
@@ -148,8 +146,6 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 		(UnionMember* x) =>
 			some(Target(x)),
 		(VarDecl* x) =>
-			some(Target(x)),
-		(PositionKind.VariantMethod x) =>
 			some(Target(x)),
 		(PositionKind.VisibilityMark) =>
 			none!Target);
@@ -194,8 +190,8 @@ Opt!Target calledTarget(in CommonTypes commonTypes, ref Called a) =>
 		(CalledSpecSig x) =>
 			some(calledSpecSigTarget(x)));
 
-Target calledSpecSigTarget(CalledSpecSig a) =>
-	Target(PositionKind.SpecSig(a.specInst.decl, a.nonInstantiatedSig));
+Target calledSpecSigTarget(CalledSpecSig a) => //inline? --------------------------------------------------------------------------
+	Target(a.nonInstantiatedSig);
 
 Target funDeclTarget(in CommonTypes commonTypes, FunDecl* a) =>
 	a.body_.match!Target(
@@ -244,7 +240,7 @@ Target funDeclTarget(in CommonTypes commonTypes, FunDecl* a) =>
 		(FunBody.VariantMemberGet) =>
 			Target(mustUnwrapOptionType(commonTypes, a.returnType).as!(StructInst*).decl),
 		(FunBody.VariantMethod x) =>
-			Target(a.source.as!(FunDeclSource.VariantMethod)),
+			Target(x.method),
 		(FunBody.VarSet x) =>
 			Target(x.var));
 

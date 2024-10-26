@@ -45,7 +45,6 @@ import model.model :
 	FunBody,
 	funBodyExprRef,
 	FunDecl,
-	FunDeclSource,
 	FunInst,
 	FunKind,
 	FunPointerExpr,
@@ -417,9 +416,7 @@ void trackAllUsedInStruct(ref AllUsedBuilder res, Uri from, StructDecl* a) {
 				if (has(*impl))
 					trackAllUsedInCalled(
 						res, a.moduleUri,
-						FunOrTest(variantMethodCaller(
-							*res.program,
-							FunDeclSource.VariantMethod(x.variant.decl, method))),
+						FunOrTest(variantMethodCaller(*res.program, method)),
 						force(*impl), FunUse.regular);
 			});
 		}

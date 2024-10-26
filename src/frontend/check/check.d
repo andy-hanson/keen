@@ -15,6 +15,7 @@ import frontend.check.checkCtx :
 	finishDiagnostics,
 	finishImports,
 	ImportAndReExportModules,
+	markUsed,
 	visibilityFromExplicitTopLevel;
 import frontend.check.checkStructBodies :
 	checkSignatures, checkStructBodies, checkStructsInitial, modifierTypeArgInvalid;
@@ -74,6 +75,7 @@ import model.model :
 	SpecDecl,
 	SpecDeclBody,
 	Signature,
+	SignatureContainer,
 	SpecInst,
 	Specs,
 	StructAlias,
@@ -83,7 +85,7 @@ import model.model :
 	StructOrAlias,
 	Test,
 	Type,
-	TypeContainer,
+	TypeParamIndex,
 	TypeParams,
 	UnionMember,
 	VarDecl,
@@ -113,7 +115,7 @@ import util.col.hashTable :
 	buildHashTable, getPointer, HashTable, insertOrUpdate, mayAdd, moveToImmutable, MutHashTable;
 import util.col.mutArr : mustPop, mutArrIsEmpty;
 import util.comparison : Comparison;
-import util.conv : safeToUshort;
+import util.conv : safeToUshort, safeToUint;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, someMut, some;
 import util.perf : Perf, PerfMeasure, withMeasure;
@@ -190,7 +192,7 @@ SpecDeclBody checkSpecDeclBody(
 	ref CommonTypes commonTypes,
 	in StructsAndAliasesMap structsAndAliasesMap,
 	in SpecsMap specsMap,
-	TypeContainer typeContainer,
+	SpecDecl* spec,
 	TypeParams typeParams,
 	ref DelaySpecInsts delaySpecInsts,
 	ref SpecDeclAst ast,
@@ -201,7 +203,7 @@ SpecDeclBody checkSpecDeclBody(
 		? getBuiltinSpec(ctx, ast.nameRange, ast.name.name)
 		: none!BuiltinSpec;
 	SmallArray!Signature sigs = checkSignatures(
-		ctx, commonTypes, structsAndAliasesMap, typeContainer, typeParams, ast.sigs, noDelayStructInsts);
+		ctx, commonTypes, structsAndAliasesMap, SignatureContainer(spec), typeParams, ast.sigs, noDelayStructInsts);
 	return SpecDeclBody(builtin, small!(immutable SpecInst*)(modifiers.parents), sigs);
 }
 
@@ -229,7 +231,7 @@ void checkSpecBodies(
 	zipPointers!(SpecDeclAst, SpecDecl)(asts, specs, (SpecDeclAst* ast, SpecDecl* spec) {
 		spec.body_ = checkSpecDeclBody(
 			ctx, commonTypes, structsAndAliasesMap, specsMap,
-			TypeContainer(spec), ast.typeParams, delaySpecInsts, *ast);
+			spec, ast.typeParams, delaySpecInsts, *ast);
 	});
 
 	foreach (ref SpecDecl decl; specs)
@@ -445,10 +447,10 @@ Module* checkWorkerAfterCommonTypes(
 		ctx, commonTypes,
 		structsAndAliasesMap, specsMap, funsAndMap.funsMap,
 		structAliases, structs, specs, vars, funsAndMap.funs, funsAndMap.tests);
-	checkForUnused(ctx, structAliases, structs, specs, funsAndMap.funs);
-	SmallArray!ImportOrExport imports = finishImports(ctx);
 	DocCommentReferences moduleDocCommentReferences = checkDocCommentReferences(
 		ctx, commonTypes, structsAndAliasesMap, specsMap, funsAndMap.funsMap, ast.docComment, emptyTypeParams, none!(SpecDecl*), emptySpecs, []);
+	SmallArray!ImportOrExport imports = finishImports(ctx);
+	checkForUnused(ctx, structAliases, structs, specs, funsAndMap.funs);
 	return allocate(ctx.alloc, Module(
 		uri,
 		config,
@@ -800,7 +802,12 @@ DocCommentReferences checkDocCommentReferences(
 	Destructure[] params,
 ) =>
 	map!(DocCommentReference, NameAndRange)(ctx.alloc, ast.references, (ref NameAndRange name) {
-		// TODO: rewrite using optOr --------------------------------------------------------------------------------------
+		// TODO: rewrite using optOr ----------------------------------------------------------------------------------------------
+		foreach (size_t index, NameAndRange typeParam; typeParams) {
+			if (typeParam.name == name.name)
+				return DocCommentReference(TypeParamIndex(safeToUint(index)));
+		}
+
 		foreach (Destructure param; params) {
 			if (param.isA!(Local*)) {
 				Local* local = param.as!(Local*);
@@ -831,8 +838,10 @@ DocCommentReferences checkDocCommentReferences(
 		Opt!CalledDecl called = firstFunInScope(ctx, funsMap, specs, name.name);
 		if (has(called))
 			return force(called).matchWithPointers!DocCommentReference(
-				(FunDecl* x) =>
-					DocCommentReference(x),
+				(FunDecl* x) {
+					markUsed(ctx, x);
+					return DocCommentReference(x);
+				},
 				(CalledSpecSig x) =>
 					DocCommentReference(x));
 		else {

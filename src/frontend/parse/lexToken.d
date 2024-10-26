@@ -13,6 +13,7 @@ import util.string :
 	CString,
 	decodeHexDigit,
 	isDecimalDigit,
+	isWhitespace,
 	MutCString,
 	startsWith,
 	startsWithThenWhitespace,
@@ -318,7 +319,7 @@ TokenAndData lexToken(ref MutCString ptr, IndentKind indentKind, Token prevToken
 				? takeNumberAfterSign(ptr, some(Sign.plus))
 				: operatorToken(ptr, symbol!"+");
 		case '|':
-			return isNewlineToken(prevToken)
+			return isNewlineToken(prevToken) && isWhitespace(*ptr)
 				? plainToken(Token.quoteBar)
 				: operatorToken(ptr, tryTakeChar(ptr, '|') ? symbol!"||" : symbol!"|");
 		case ':':

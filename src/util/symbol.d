@@ -518,6 +518,7 @@ immutable string[] specialSymbols = [
 	"concrete-model",
 	"console",
 	"const-pointer",
+	"container",
 	"crow-config.json",
 	"cur-catch-point",
 	"cur-thrown",
