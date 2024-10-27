@@ -60,16 +60,16 @@ size_t utf16Length(in string utf8) {
 }
 
 void mustUnicodeEncode(ref Builder!(immutable char) builder, in dchar[] a) {
-	bool ok = tryUnicodeEncode(builder, a);
+	bool ok = tryUnicodeEncode(a, (char x) { builder ~= x; });
 	assert(ok);
 }
 void mustUnicodeEncode(ref Builder!(immutable char) builder, in dchar a) {
-	bool ok = tryUnicodeEncode(builder, a);
+	bool ok = tryUnicodeEncode(a, (char x) { builder ~= x; });
 	assert(ok);
 }
 
-bool tryUnicodeEncode(scope ref Builder!(immutable char) res, in dchar[] a) =>
-	every(a, (in dchar x) => tryUnicodeEncode(res, x));
+bool tryUnicodeEncode(in dchar[] a, in void delegate(char) @safe @nogc pure nothrow cb) =>
+	every(a, (in dchar x) => tryUnicodeEncode(x, cb));
 
 void mustUnicodeDecode(in string utf8, in void delegate(dchar) @safe @nogc pure nothrow cb) {
 	StringIter iter = StringIter(utf8);
@@ -185,31 +185,28 @@ uint mask(uint i) =>
 		? (1 << 21) - 1
 		: assert(false);
 
-bool tryUnicodeEncode(scope ref Builder!(immutable char) res, dchar a) {
+bool tryUnicodeEncode(dchar a, in void delegate(char) @safe @nogc pure nothrow cbChar) {
 	if (a < 0x80) {
-		res ~= safeToChar(a);
+		cbChar(safeToChar(a));
 		return true;
 	} else if (a < 0x800) {
-		res ~= [0b1100_0000 | safeToChar(a >> 6), topBit | a.last6Bits];
+		cbChar(0b1100_0000 | safeToChar(a >> 6));
+		cbChar(topBit | a.last6Bits);
 		return true;
 	} else if (a < 0x10000) {
 		if (0xd800 <= a && a < 0xe000)
 			return false;
 		else {
-			res ~= [
-				safeToChar(0b1110_0000 | (a >> 12)),
-				safeToChar(topBit | (a >> 6).last6Bits),
-				safeToChar(topBit | a.last6Bits),
-			];
+			cbChar(safeToChar(0b1110_0000 | (a >> 12)));
+			cbChar(safeToChar(topBit | (a >> 6).last6Bits));
+			cbChar(safeToChar(topBit | a.last6Bits));
 			return true;
 		}
 	} else if (a < 0x110000) {
-		res ~= [
-			safeToChar(0b1111_0000 | (a >> 18)),
-			safeToChar(topBit | (a >> 12).last6Bits),
-			safeToChar(topBit | (a >> 6).last6Bits),
-			safeToChar(topBit | a.last6Bits)
-		];
+		cbChar(safeToChar(0b1111_0000 | (a >> 18)));
+		cbChar(safeToChar(topBit | (a >> 12).last6Bits));
+		cbChar(safeToChar(topBit | (a >> 6).last6Bits));
+		cbChar(safeToChar(topBit | a.last6Bits));
 		return true;
 	} else
 		return false;

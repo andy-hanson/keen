@@ -355,7 +355,8 @@ FileAst parseFileInner(ref Lexer lexer) {
 		DocCommentAst docComment = () {
 			DocCommentAst here = tryTakeDocComment(lexer);
 			if (first) {
-				// If the file starts with a doc comment and then a decl, attach the doc comment to the decl, not the module.
+				// If the file starts with a doc comment and then a decl,
+				// attach the doc comment to the decl, not the module.
 				first = false;
 				if (!moduleDocComment.isEmpty && here.isEmpty && !noStd && !has(imports) && !has(exports)) {
 					tookModuleDocComment = true;

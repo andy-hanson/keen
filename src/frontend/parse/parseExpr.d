@@ -916,7 +916,10 @@ ExprAst parseExprBeforeCall(ref Lexer lexer, AllowedBlock allowedBlock) {
 			}
 		case Token.quoteDouble:
 		case Token.quoteDouble3:
-			return tryParseDotsAndSubscripts(lexer, parseString(lexer, start, token.token == Token.quoteDouble ? QuoteKind.quoteDouble : QuoteKind.quoteDouble3));
+			QuoteKind quoteKind = token.token == Token.quoteDouble ? QuoteKind.quoteDouble : QuoteKind.quoteDouble3;
+			return tryParseDotsAndSubscripts(
+				lexer,
+				parseString(lexer, start, quoteKind, () => parseExprNoBlock(lexer)));
 		case Token.bang:
 			ExprAst inner = parseExprBeforeCall(lexer, AllowedBlock.no);
 			return ExprAst(

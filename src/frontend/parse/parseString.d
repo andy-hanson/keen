@@ -2,11 +2,11 @@ module frontend.parse.parseString;
 
 @safe @nogc pure nothrow:
 
-import frontend.parse.parseExpr : parseExprNoBlock; // TODO: CIRCULAR DEPENDENCY =--=-----------------------------------------------
 import frontend.parse.lexer :
 	addDiag, curPos, Lexer, QuoteKind, range, StringPart, takeClosingBraceThenStringPart, takeInitialStringPart, Token;
 import frontend.parse.parseUtil : peekToken, skipBlankLines, takeNameOrOperator, tryTakeToken;
-import model.ast : DocCommentAst, DocCommentContent, ExprAst, ExprAstKind, InterpolatedAst, LiteralStringAst, NameAndRange;
+import model.ast :
+	DocCommentAst, DocCommentContent, ExprAst, ExprAstKind, InterpolatedAst, LiteralStringAst, NameAndRange;
 import model.parseDiag : ParseDiag;
 import util.col.array : isEmpty;
 import util.col.arrayBuilder : add, ArrayBuilder, finish, smallFinish;
@@ -26,7 +26,7 @@ DocCommentAst tryTakeDocComment(ref Lexer lexer) {
 			smallFinish(lexer.alloc, references)))));
 	DocCommentAst res = takeInterpolatedCb!DocCommentAst(
 		lexer, start, QuoteKind.quoteBar,
-		cbSingle: (StringPart _) => // TODO: this means the StringPart is allocated but not used -- find a way to turn off allocatino?
+		cbSingle: (StringPart _) =>
 			done(),
 		cbInterpolation: () {
 			add(lexer.alloc, references, takeNameOrOperator(lexer));
@@ -38,14 +38,19 @@ DocCommentAst tryTakeDocComment(ref Lexer lexer) {
 	return res;
 }
 
-ExprAst parseString(ref Lexer lexer, Pos start, QuoteKind quoteKind) {
+ExprAst parseString(
+	ref Lexer lexer,
+	Pos start,
+	QuoteKind quoteKind,
+	in ExprAst delegate() @safe @nogc pure nothrow cbInterpolated,
+) {
 	ArrayBuilder!ExprAst parts;
 	return takeInterpolatedCb!ExprAst(
 		lexer, start, quoteKind,
 		cbSingle: (StringPart part) =>
 			ExprAst(range(lexer, start), ExprAstKind(LiteralStringAst(part.text))),
 		cbInterpolation: () {
-			add(lexer.alloc, parts, parseExprNoBlock(lexer));
+			add(lexer.alloc, parts, cbInterpolated());
 		},
 		cbString: (StringPart part) {
 			add(lexer.alloc, parts, ExprAst(part.range, ExprAstKind(LiteralStringAst(part.text))));

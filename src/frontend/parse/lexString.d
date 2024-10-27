@@ -5,7 +5,7 @@ module frontend.parse.lexString;
 import frontend.parse.lexWhitespace : AddDiag;
 import model.parseDiag : ParseDiag;
 import util.alloc.alloc : Alloc;
-import util.col.arrayBuilder : Builder, finish;
+import util.col.arrayBuilder : add, ArrayBuilder, Builder, finish;
 import util.opt : force, has, none, Opt, optIf;
 import util.sourceRange : Pos, Range, rangeOfStartAndLength;
 import util.string : CString, decodeHexDigit, MutCString, stringOfRange, takeChar, tryTakeChars;
@@ -18,6 +18,11 @@ immutable struct StringPart {
 	After after;
 
 	enum After { done, lbrace }
+}
+
+immutable struct StringRange {
+	Range range;
+	StringPart.After after;
 }
 
 enum QuoteKind {
@@ -33,18 +38,41 @@ StringPart takeStringPart(
 	QuoteKind quoteKind,
 	in AddDiag addDiag,
 ) {
+	ArrayBuilder!char res;
+	StringRange range = takeStringRange(ptr, startPos, quoteKind, (char x) {
+		// To save space, don't collect strings for doc comments.
+		if (quoteKind != QuoteKind.quoteBar)
+			add(alloc, res, x);
+	}, addDiag);
+	return StringPart(range.range, finish(alloc, res), range.after);
+}
+
+StringRange takeStringRange(
+	return scope ref MutCString ptr,
+	Pos startPos,
+	QuoteKind quoteKind,
+	in AddDiag addDiag,
+) =>
+	takeStringRange(ptr, startPos, quoteKind, (char _) {}, addDiag);
+
+private StringRange takeStringRange(
+	return scope ref MutCString ptr,
+	Pos startPos,
+	QuoteKind quoteKind,
+	in void delegate(char) @safe @nogc pure nothrow cbChar,
+	in AddDiag addDiag,
+) {
 	CString partStart = ptr;
-	Builder!(immutable char) res = Builder!(immutable char)(&alloc);
 	while (true) {
 		CString start = ptr;
-		StringPart finishHere(StringPart.After after) =>
-			StringPart(rangeOfStartAndLength(startPos, start - partStart), finish(res), after);
+		StringRange finishHere(StringPart.After after) =>
+			StringRange(rangeOfStartAndLength(startPos, start - partStart), after);
 		switch (*ptr) {
 			case '"':
 				ptr++;
 				final switch (quoteKind) {
 					case QuoteKind.quoteBar:
-						res ~= '"';
+						cbChar('"');
 						break;
 					case QuoteKind.quoteDouble:
 						return finishHere(StringPart.After.done);
@@ -52,7 +80,7 @@ StringPart takeStringPart(
 						if (tryTakeChars(ptr, "\"\""))
 							return finishHere(StringPart.After.done);
 						else
-							res ~= '"';
+							cbChar('"');
 						break;
 				}
 				break;
@@ -61,7 +89,7 @@ StringPart takeStringPart(
 				return finishHere(StringPart.After.lbrace);
 			case '\\':
 				ptr++;
-				takeStringEscape(res, start, ptr, addDiag);
+				takeStringEscape(start, ptr, cbChar, addDiag);
 				break;
 			case '\r':
 			case '\n':
@@ -73,7 +101,7 @@ StringPart takeStringPart(
 							ptr2++;
 							if (*ptr2 == ' ') ptr2++;
 							ptr = castNonScope_ref(ptr2);
-							res ~= '\n';
+							cbChar('\n');
 							break;
 						} else
 							return finishHere(StringPart.After.done);
@@ -81,7 +109,7 @@ StringPart takeStringPart(
 						addDiag(start, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.quoteDouble)));
 						return finishHere(StringPart.After.done);
 					case QuoteKind.quoteDouble3:
-						res ~= takeChar(ptr);
+						cbChar(takeChar(ptr));
 						break;
 				}
 				break;
@@ -98,7 +126,7 @@ StringPart takeStringPart(
 				}
 				return finishHere(StringPart.After.done);
 			default:
-				res ~= takeChar(ptr);
+				cbChar(takeChar(ptr));
 		}
 	}
 }
@@ -106,52 +134,52 @@ StringPart takeStringPart(
 private:
 
 void takeStringEscape(
-	scope ref Builder!(immutable char) res,
 	in CString start,
 	scope ref MutCString ptr,
+	in void delegate(char) @safe @nogc pure nothrow cbChar,
 	in AddDiag addDiag,
 ) {
 	switch (takeChar(ptr)) {
 		case '\\':
-			res ~= '\\';
+			cbChar('\\');
 			break;
 		case '{':
-			res ~= '{';
+			cbChar('{');
 			break;
 		case '0':
-			res ~= '\0';
+			cbChar('\0');
 			break;
 		case '"':
-			res ~= '"';
+			cbChar('"');
 			break;
 		case 'n':
-			res ~= '\n';
+			cbChar('\n');
 			break;
 		case 'r':
-			res ~= '\r';
+			cbChar('\r');
 			break;
 		case 't':
-			res ~= '\t';
+			cbChar('\t');
 			break;
 		case 'u':
-			takeUnicodeEscape(res, start, ptr, addDiag, 2);
+			takeUnicodeEscape(start, ptr, cbChar, addDiag, 2);
 			break;
 		case 'U':
-			takeUnicodeEscape(res, start, ptr, addDiag, 4);
+			takeUnicodeEscape(start, ptr, cbChar, addDiag, 4);
 			break;
 		case 'x':
-			takeUnicodeEscape(res, start, ptr, addDiag, 1);
+			takeUnicodeEscape(start, ptr, cbChar, addDiag, 1);
 			break;
 		default:
-			stringEscapeError(res, start, ptr, addDiag);
+			stringEscapeError(start, ptr, cbChar, addDiag);
 			break;
 	}
 }
 
 void takeUnicodeEscape(
-	scope ref Builder!(immutable char) res,
 	in CString start,
 	scope ref MutCString ptr,
+	in void delegate(char) @safe @nogc pure nothrow cbChar,
 	in AddDiag addDiag,
 	size_t nBytes,
 ) {
@@ -161,23 +189,24 @@ void takeUnicodeEscape(
 		if (has(c))
 			fullChar = (fullChar << 8) | force(c);
 		else {
-			stringEscapeError(res, start, ptr, addDiag);
+			stringEscapeError(start, ptr, cbChar, addDiag);
 			return;
 		}
 	}
 
-	if (!tryUnicodeEncode(res, fullChar))
-		stringEscapeError(res, start, ptr, addDiag);
+	if (!tryUnicodeEncode(fullChar, cbChar))
+		stringEscapeError(start, ptr, cbChar, addDiag);
 }
 
 void stringEscapeError(
-	scope ref Builder!(immutable char) res,
 	in CString start,
 	in CString ptr,
+	in void delegate(char) @safe @nogc pure nothrow cbChar,
 	in AddDiag addDiag,
 ) {
 	addDiag(start, ParseDiag(ParseDiag.InvalidStringEscape(stringOfRange(start, ptr))));
-	res ~= "�";
+	foreach (char x; "�")
+		cbChar(x);
 }
 
 Opt!char takeCharEscape(scope ref MutCString ptr) {

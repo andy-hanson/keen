@@ -156,7 +156,7 @@ void skipNewlinesIgnoreIndentation(ref Lexer lexer, uint indentLevel) {
 		switch (getPeekToken(lexer)) {
 			case Token.newlineDedent:
 			case Token.newlineIndent:
-			case Token.newlineSameIndent: // TODO: just use isNewlineToken? ---------------------------------------------------------------
+			case Token.newlineSameIndent:
 				takeNextToken(lexer);
 				continue;
 			case Token.EOF:
