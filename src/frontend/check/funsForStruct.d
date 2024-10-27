@@ -57,7 +57,7 @@ size_t countFunsForStructs(in CommonTypes commonTypes, in StructDecl[] structs) 
 	sum!StructDecl(structs, (in StructDecl x) => countFunsForStruct(commonTypes, x));
 
 private size_t countFunsForStruct(in CommonTypes commonTypes, in StructDecl a) =>
-	countFunsForVariants(a) + a.body_.matchIn!size_t(
+	countFunsForVariantMembers(a) + a.body_.matchIn!size_t(
 		(in StructBody.Bogus) =>
 			0,
 		(in BuiltinType _) =>
@@ -83,7 +83,7 @@ private size_t countFunsForStruct(in CommonTypes commonTypes, in StructDecl a) =
 			x.members.length + count!UnionMember(x.members, (in UnionMember x) => !isVoid(x.type)),
 		(in StructBody.Variant x) =>
 			x.methods.length);
-private size_t countFunsForVariants(in StructDecl a) =>
+private size_t countFunsForVariantMembers(in StructDecl a) =>
 	sum!VariantAndMethodImpls(a.variants, (in VariantAndMethodImpls x) {
 		size_t res = a.body_.isA!(StructBody.Record) ? 2 : 1;
 		final switch (x.variant.decl.body_.as!(StructBody.Variant).kind) {
@@ -125,10 +125,10 @@ void addFunsForStruct(
 		(StructBody.Variant x) {
 			addFunsForVariant(ctx, funsBuilder, commonTypes, struct_, x);
 		});
-	addFunsForVariants(ctx, funsBuilder, commonTypes, struct_);
+	addFunsForVariantMembers(ctx, funsBuilder, commonTypes, struct_);
 }
 
-private void addFunsForVariants(
+private void addFunsForVariantMembers(
 	ref CheckCtx ctx,
 	scope ref ExactSizeArrayBuilder!FunDecl funsBuilder,
 	ref CommonTypes commonTypes,

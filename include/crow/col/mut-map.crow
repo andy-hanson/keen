@@ -15,58 +15,46 @@ import
 	./collection: build-options, fill, find, find-index, for-loop, n-of, size-hint
 	./map: ==, ~=, build, map, new
 	./mut-array:
-		~=, copy, filter=, is-at-capacity, is-empty, iterate, map=, mut-array, new,
+		~=, copy, filter=, is-at-capacity, is-empty, iterate, map=, move-to, mut-array, new,
 		remove-unordered-at, set-subscript, size, subscript
 	./mut-slice:
 		~=, begin, build, iterate, is-empty, map=, mut-slice, new, next, set-next, set-subscript, size,
 		subscript
 	../symbol: symbol, to
 
-###
-Mutable unordered map.
-
-Unordered means that iteration functions like `each` reach each entry in arbitrary order.
-###
+| Mutable unordered map.
 +mut-map[k, v] record mut
 	-entries mut (k, v) entry mut-slice
 	-total-size mut nat64
 
 -entry[k, v] union(none, one (k, v), many (k, v) mut[]) mut
 
-###
-New map containing the given pairs.
-
-Later pairs overwrite earlier pairs with the same key.
-###
+| New map containing the given pairs.
+| Later pairs overwrite earlier pairs with the same key.
 +new[k, v] v mut[k](...a (k, v)[]) k key
 	a to
 
-###
-New empty map with space for about `capacity` entries.
-This can have a small performance benefit if you know that much space will be needed.
-
-Since hash conflicts are possible,
-this makes no guarantees about whether more allocations will be needed.
-###
+| New empty map with space for approximately {capacity} entries.
+| This can have a small performance benefit if you know that much space will be needed.
+|
+| Since hash conflicts are possible,
+| this makes no guarantees about whether more allocations will be needed.
 -mut-map-with-capacity[k, v] v mut[k](capacity nat64) k key
 	# TODO: should not need type annotation
 	(capacity n-of none)::((k, v) entry mut-slice), 0
 
-###
-Convert a list of pairs to a map.
-
-Later pairs overwrite earlier pairs with the same key.
-###
+| Convert a list of pairs to a map.
+| Later pairs overwrite earlier pairs with the same key.
 +to[k, v] v mut[k](a (k, v)[]) k key
 	for x : a; x
 +to[k, v] v[k](a v mut[k]) k key
 	for x : a; x
 
-# Copy pairs to a list.
+| Copy pairs to an array.
 +to[k, v] (k, v)[](a v mut[k]) k key
 	for x : a; x
 
-# Copy pairs to a list and clear the map.
+| Copy pairs to an array and clear the map.
 +move-to[k, v] (k, v)[](a v mut[k]) k key
 	res (k, v)[] = a to
 	a clear
@@ -81,7 +69,7 @@ Later pairs overwrite earlier pairs with the same key.
 	a.total-size := 0
 	res
 
-# Copy pairs to a new map.
+| Copy pairs to a new {mut-map}.
 +copy[k, v] v mut[k](a v mut[k]) k key
 	entries (k, v) entry mut-slice = for entry : a entries
 		match entry
@@ -103,19 +91,16 @@ test
 	a verify "(6 -> 6) (1 -> 1) [2 -> 2, 5 -> 5]"
 	b verify "_ (1 -> 1) [2 -> 2, 5 -> 5]"
 
-# `true` iff `a.size == 0`.
+| {true} if `{a}.{size} == 0`.
 +is-empty[k, v] bool(a v mut[k]) k key
 	a.size == 0
 
-# Number of unique keys in the map.
+| Number of pairs in the map.
 +size[k, v] nat64(a v mut[k]) k key
 	a total-size
 
-###
-Gets the value associated with a key.
-
-Returns an empty option if the key is not in the map.
-###
+| Gets the value associated with a key.
+| Returns an empty option if `{key} !{in} {a}`.
 +subscript[k, v] v?(a v mut[k], key k) k key
 	guard a !is-empty
 	match a.entries[key.hash % a.entries.size]
@@ -127,24 +112,22 @@ Returns an empty option if the key is not in the map.
 		if (_, v) ?= m find (k, _) => k == key
 			v,
 
-# `true` iff the key is in the map.
+| {true} if some pair in the map has the {key}.
 +in[k, v] bool(key k, a v mut[k]) k key
 	!a[key].is-empty
 
-###
-Sets the key to the given value, so that `a[key]` will return `value`.
-
-If the key is already in the map, this overwrites the previous value.
-###
+| Sets the key to the given value, so that `{a}[{key}]` will return {value}.
+| If `{key} {in} {a}`, this overwrites the previous value.
 +set-subscript[k, v] void(a v mut[k], key k, value v) k key
 	_ = a update key, (value,)
 
-# Remove all keys, leaving the map empty.
+| Removes all pairs, leaving the map empty.
 +clear[k, v] void(a v mut[k]) k key
 	a.entries fill none
 	a.total-size := 0
 
-# Set the contents of `a` to the contents of `b` and vice versa.
+| Set the contents of {a} to the contents of {b} and vice versa.
+| This is O(1).
 +swap[k, v] void(a v mut[k], b v mut[k]) k key
 	temp-entries = a entries
 	a.entries := b entries
@@ -153,23 +136,21 @@ If the key is already in the map, this overwrites the previous value.
 	a.total-size := b total-size
 	b.total-size := temp-size
 
-###
-If the key was in the map, remove it and return the old value.
-
-Returns an empty option if the key was not in the map.
-###
+| If `{key} {in} {a}`, removes it and returns the associated value.
+| Returns an empty option if `{key} !{in} {a}`.
 +remove[k, v] v?(a v mut[k], key k) k key
 	a update key, ()
 
+| Ensures that a key is the map.
+| If `{key} {in} {a}`, does nothing and returns the associated value.
+| If `{key} !{in} {a}`, sets the value to `{get-value}[]` and returns that.
 +ensure[k, v] v(a v mut[k], key k, get-value v mut()) k key
 	a[key] ?? do
 		value = get-value[]
 		a[key] := value
 		value
-+ensure[k, v] v(a v mut[k], key k) k key, v new
-	a ensure key, () => ()
 
-# Returns the old value (if it exists).
+| Returns the old value (if it exists).
 -update[k, v] v?(a v mut[k], key k, new-value v?) k key
 	if a.entries is-empty
 		if value ?= new-value
@@ -229,16 +210,15 @@ Returns an empty option if the key was not in the map.
 					a.total-size +:= 1
 				()
 
-# This is the same as calling `a[b a] := b b`.
+| This is the same as calling `{a}[{key}] := {value}`.
+| Prefer to write it that way instead.
 +~=[k, v] void(a v mut[k], (key k, value v)) k key
 	a[key] := value
 
-# This is the same as calling `a ~= x` for every `x` in `b`.
 +~~=[k, v] void(a v mut[k], pairs (k, v)[]) k key
-	for pair : pairs
-		a ~= pair
+	for pair : pairs; a ~= pair
 
-# Called when we're about to allocate a bigger bucket -- maybe we should expand the table instead
+| Called when we're about to allocate a bigger bucket -- maybe we should expand the table instead.
 -should-expand[k, v] bool(a v mut[k])
 	a.total-size >= a.entries.size
 
@@ -286,6 +266,7 @@ test
 
 | Calls {f} on every key and value, and replaces the value with the new value returned by {f}.
 | Does not modify keys.
+| WARN: During the iteration, {a} will appear empty and modifications will be ignored.
 +map-values=[k, v] void(a v mut[k], f v mut(key k, value v)) k key
 	temp v mut[k] = a move-to
 	temp.entries map= entry =>
@@ -307,9 +288,11 @@ test
 
 region spec impls (see collection.crow)
 
-# Calls `f` for every key and value in the map.
+| Calls {f} for every key and value in the map.
+| WARN: During the iteration, {a} will appear empty and modifications will be ignored.
 +iterate[k, v] bool(a v mut[k], f bool mut(key k, value v)) k key
-	a.entries iterate entry =>
+	temp v mut[k] = a move-to
+	res = temp.entries iterate entry =>
 		match entry
 		as none
 			false
@@ -317,6 +300,16 @@ region spec impls (see collection.crow)
 			f[x]
 		as many m
 			m iterate f
+	a swap temp
+	res
+test
+	a string mut[nat64] = (0, "zero"), (1, "one")
+	calls (nat64, string) mut[] = ()
+	for pair : a
+		assert a remove 0 is-empty
+		a[1] := "REPLACED"
+		calls ~= pair
+	calls.move-to::(nat64, string)[] is ((0, "zero"), (1, "one"))
 
 +build[k, v] v mut[k](a build-options, f void mut(out v mut[k])) k key
 	res v mut[k] = a.size-hint mut-map-with-capacity
@@ -348,9 +341,7 @@ test
 	a[5] is ()
 	a[6] is ("6",)
 	a.size is 1
-	# TODO: a.arr is ((6, "6"),)
-	(for k, _ : a; k)::nat64[] is (6,)
-	(for _, v : a; v)::string[] is ("6",)
+	a.to::(nat64, string)[] is ((6, "6"),)
 
 	a verify "(6 -> 6)"
 

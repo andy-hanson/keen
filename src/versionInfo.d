@@ -42,13 +42,13 @@ immutable struct VersionInfo {
 }
 
 VersionInfo versionInfoForInterpret(OS os, VersionOptions options) =>
-	VersionInfo(os: os, isInterpreted: true, isJit: false, options: options);
+	VersionInfo(os: os, isInterpreted: true, options: options);
 
 VersionInfo versionInfoForJIT(OS os, VersionOptions options) =>
-	VersionInfo(os: os, isInterpreted: false, isJit: true, options: options);
+	VersionInfo(os: os, isInterpreted: false, options: options);
 
 VersionInfo versionInfoForBuildToC(OS os, VersionOptions options) =>
-	VersionInfo(os: os, isInterpreted: false, isJit: false, options: options);
+	VersionInfo(os: os, isInterpreted: false, options: options);
 
 VersionInfo versionInfoForBuildToJS(JsTarget target) {
 	OS jsOs = () {
@@ -59,7 +59,7 @@ VersionInfo versionInfoForBuildToJS(JsTarget target) {
 				return OS.nodeJs;
 		}
 	}();
-	return VersionInfo(jsOs, versionOptionsForJs(), isInterpreted: false, isJit: false);
+	return VersionInfo(jsOs, versionOptionsForJs(), isInterpreted: false);
 }
 private VersionOptions versionOptionsForJs() =>
 	VersionOptions(isSingleThreaded: true, stackTraceEnabled: true);
@@ -67,7 +67,6 @@ private VersionOptions versionOptionsForJs() =>
 enum VersionFun {
 	isBigEndian,
 	isInterpreted,
-	isJit,
 	isSingleThreaded,
 	isStackTraceEnabled,
 }
@@ -82,8 +81,6 @@ bool isVersion(in VersionInfo a, VersionFun fun) {
 			}
 		case VersionFun.isInterpreted:
 			return a.isInterpreted;
-		case VersionFun.isJit:
-			return a.isJit;
 		case VersionFun.isSingleThreaded:
 			return a.options.isSingleThreaded;
 		case VersionFun.isStackTraceEnabled:

@@ -47,43 +47,39 @@ export
 	})
 	""".eval call array, begin.to::float64, size.to::float64 cast
 
-# True if they are identical.
+| {true} if {a} and {b} are the exact same reference.
+| This is O(1) as it does not need to look at the elements.
 +==[t] bool(a t mut-slice, b t mut-slice) bare, trusted
 	a.cast-immutable array-reference-equal b.cast-immutable
 
-###
-Creates a new `mut-slice` with the given elements.
-###
+| Creates a new {mut-slice} with the given elements.
 +new[t] t mut-slice(...a t[]) bare, trusted
 	# A spread argument is always a new array
 	a cast-mutable
 
-# Get a `mut-slice` from a pointer and range of indices.
+| Slice from `{a}[{indices} {low}]` (inclusive) to `{a}[{indices} {high}]` (exclusive).
+| This is O(1) because it does not copy anything.
 +subscript[t] t mut-slice(a t mut*, indices nat64 range) bare, unsafe, native extern
 	a.as-const[indices] cast-mutable
 
-###
-Copies the array elements to a new `mut-slice`.
-
-This is O(n).
-###
+| Copies the array elements to a new `mut-slice`.
+| This is O({a} {size}).
 +to[t] t mut-slice(a t[]) trusted
 	# Not using a 'for' loop because the compiler may think it may yield (due to the virtual call)
 	res t mut-slice = a.size gc-safe-mut-slice
 	res copy-from a
 	res
 
-###
-Copies the elements to an immutable array.
-
-This is O(n).
-
-There is no `move-to` for `mut-slice` since there might be slices that still refer to its elements.
-###
+| Copies the elements to an immutable array.
+| This is O({a} {size}).
+|
+| There is no `move-to` function for `mut-slice`,
+| since its pointer and size are immutable and so it can't be made empty.
 +to[t] t[](a t mut-slice) trusted
 	for x : a; x
 
-# Creates a `mut-slice` from a range of pointers.
+| Creates a slice from `{a} {low}` (inclusive) to `{a} {high}` (exclusive).
+| This is O(1) because it does not copy anything.
 +as-mut-slice[t] t mut-slice(a t mut* range) bare, unsafe, native extern
 	assert a.low <= a.high
 	(a.high - a.low) new-mut-slice a.low
@@ -91,30 +87,26 @@ There is no `move-to` for `mut-slice` since there might be slices that still ref
 +pointers[t] t mut* range(a t mut-slice) bare, unsafe, native extern
 	a.begin-pointer .. a.end-pointer
 
-# Number of elements.
+| Number of elements.
 +size[t] nat64(a t mut-slice) bare
 	a mut-slice-size
 
-# `true` iff `a.size == 0`.
+| {true} if `{a}.{size} == 0`.
 +is-empty[t] bool(a t mut-slice) bare
 	a.size == 0
 
-# Pointer to the beginning of the `mut-slice`.
+| Pointer to the first element of the `mut-slice`.
+| WARN: Not a valid pointer if `{a} {is-empty}`.
 +begin-pointer[t] t mut*(a t mut-slice) bare, unsafe, native extern
 	a mut-slice-pointer
 
-###
-Pointer to the end of the `mut-slice`.
-This is one past the last valid pointer.
-###
+| Pointer to the end of the `mut-slice`.
+| This is one past the last valid pointer.
 +end-pointer[t] t mut*(a t mut-slice) bare, unsafe, native extern
 	a.begin-pointer + a.size
 
-###
-Copies the elements to a new `mut-slice`.
-
-This is O(n).
-###
+| Copies the elements to a new `mut-slice`.
+| This is O({a} {size}).
 +copy[t] t mut-slice(a t mut-slice)
 	for x : a; x
 
@@ -145,20 +137,20 @@ This is O(n).
 	else
 		todo
 
-###
-Copies elements from `source` to `dest`.
-Throws if `dest` and `source` are not the same size.
-###
 +set-subscript[t] void(dest t mut-slice, range nat64 range, source t[]) bare
 	dest[range] copy-from source
 +set-subscript[t] void(dest t mut-slice, range nat64 range, source t mut-slice) bare
-	dest[range] := trusted source temp-as-array
+	dest[range] copy-from source
 +set-subscript[t] void(dest t mut-slice, range range-relative-to-end, source t[]) bare
-	dest[range to-range dest.size] := source
+	dest[range to-range dest.size] copy-from source
 +set-subscript[t] void(dest t mut-slice, range range-relative-to-end, source t mut-slice) bare
-	dest[range] := trusted source temp-as-array
+	dest[range to-range dest.size] copy-from source
 
--copy-from[t] void(dest t mut-slice, source t[]) bare
+| Overwrites {dest} with the contents of {source}.
+| {dest} and {source} must be the same size.
++copy-from[t] void(dest t mut-slice, source t mut-slice) bare
+	dest copy-from trusted source temp-as-array
++copy-from[t] void(dest t mut-slice, source t[]) bare
 	assert dest.size == source.size
 	trusted if extern native
 		dest.begin-pointer mem-move source.begin-pointer, source.size
@@ -168,45 +160,13 @@ Throws if `dest` and `source` are not the same size.
 			dest[i] := source[i]
 			i +:= 1
 
+| Swaps the values at `{a}[{i}]` and `{a}[{j}]`.
 +swap[t] void(a t mut-slice, i nat64, j nat64) bare
 	temp = a[i]
 	a[i] := a[j]
 	a[j] := temp
 
-###
-Allocates a `mut-slice` full of GC-safe values. See `gc-safe-value`.
-If you just want to create a `mut-slice`, use a `for` loop instead.
-
-Keep exceptions in mind: Don't store a reference to the result until it's initialized,
-since initialization code might throw an exception.
-
-This is used by collections like `mut[]` that need some excess capacity that will be GC-safe.
-###
-+gc-safe-mut-slice[t] t mut-slice(size nat64) unsafe
-	if extern native
-		(size.allocate::t mut*)[0 .. size]
-	elif extern js
-		# Array(size).fill(null)
-		array = "Array".js-global call size.to::float64 call-property "fill", gc-safe-value::t
-		array js-mut-slice 0, size
-	else
-		todo
-
-###
-Sets every element to `gc-safe-value`.
-See `gc-safe-mut-slice` for why this is unsafe.
-###
-+clear-memory[t] void(a t mut-slice) bare, unsafe
-	if extern native
-		a.begin-pointer mem-clear a.size
-	elif extern js
-		i mut nat64 = 0
-		until i == a.size
-			a[i] := gc-safe-value
-			i +:= 1
-	else
-		todo
-
+| {true} if {a} contains {value}.
 +in[t] bool(value t, a t mut-slice) bare, t equal, trusted
 	cur mut nat64 = 0
 	loop
@@ -218,10 +178,45 @@ See `gc-safe-mut-slice` for why this is unsafe.
 			cur +:= 1
 			continue
 
-###
-Unsafe cast a mut-slice to an array.
-It must never be written to again.
-###
+| Overwrites each element `x` with `{f}[x]`.
++map=[t] void(a t mut-slice, f t mut(x t))
+	for i : 0::nat64 .. a.size
+		a[i] := f[a[i]]
+
+region unsafe
+
+| Allocates a `mut-slice` full of {gc-safe-value}.
+| There are usually better ways of creating a mut-slice, such as a `for` over a range.
+|
+| Keep exceptions in mind: Don't store a reference to the result until it's initialized,
+| since initialization code might throw an exception.
+|
+| This is used by collections like `mut[]` that need some excess capacity that will be GC-safe.
++gc-safe-mut-slice[t] t mut-slice(size nat64) unsafe
+	if extern native
+		(size.allocate::t mut*)[0 .. size]
+	elif extern js
+		# Array(size).fill(null)
+		array = "Array".js-global call size.to::float64 call-property "fill", gc-safe-value::t
+		array js-mut-slice 0, size
+	else
+		todo
+
+| Sets every element to {gc-safe-value}.
++clear-memory[t] void(a t mut-slice) bare, unsafe
+	if extern native
+		a.begin-pointer mem-clear a.size
+	elif extern js
+		i mut nat64 = 0
+		until i == a.size
+			a[i] := gc-safe-value
+			i +:= 1
+	else
+		todo
+
+| Unsafe cast to an immutable array.
+| This is O(1).
+| WARN: It's undefined behavior if {a} is ever written to again.
 +cast-immutable[t] t[](a t mut-slice) bare, unsafe
 	if extern native
 		a.size new-array a.begin-pointer.as-const
@@ -238,21 +233,12 @@ It must never be written to again.
 	else
 		todo
 
-###
-Unsafe cast to immutable array.
-
-This is O(1).
-
-Unsafe because an array is expected to be fully immutable (meaning: no mutable references exist),
-so this value must only be used temporarily.
-###
-+temp-as-array[t] t[](a t mut-slice) bare, unsafe
+~temp-as-array[t] t[](a t mut-slice) bare, unsafe
 	a cast-immutable
 
-###
-Casts elements to a different type.
-If the element type is different, adjusts the size so that the number of bytes is the same.
-###
+| Casts elements to a different type.
+| This is O(1).
+| If the element type is different, adjusts the size so that the number of bytes is the same.
 +cast-mut-slice[out, in] out mut-slice(a in mut-slice) bare, unsafe, native extern
 	assert size-of@in != 0 && size-of@out != 0
 	size-bytes = a.size * size-of@in
@@ -260,10 +246,6 @@ If the element type is different, adjusts the size so that the number of bytes i
 	size-out = size-bytes / size-of@out
 	# TODO: shouldn't need parentheses
 	(a.begin-pointer.pointer-cast::out mut*)[0 .. size-out]
-
-+map=[t] void(a t mut-slice, f t mut(x t))
-	for i : 0::nat64 .. a.size
-		a[i] := f[a[i]]
 
 region spec impls (see collection.crow)
 

@@ -442,6 +442,7 @@ void addEnumOrFlagsTokens(
 		addParamsTokens(ctx, force(params));
 	addModifierTokens(ctx, a.modifiers);
 	foreach (ref EnumOrFlagsMemberAst member; members) {
+		addDocCommentTokens(ctx, member.docComment);
 		declare(ctx.tokens, TokenType.enumMember, member.nameRange);
 		if (has(member.value))
 			numberLiteral(ctx.tokens, force(member.value).range);

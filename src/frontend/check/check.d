@@ -58,9 +58,11 @@ import model.model :
 	Destructure,
 	DocCommentReference,
 	DocCommentReferences,
+	EnumOrFlagsMember,
 	emptySpecs,
 	emptyTypeParams,
 	ExportVisibility,
+	firstLocal,
 	FunDecl,
 	importCanSee,
 	ImportedReferents,
@@ -117,7 +119,7 @@ import util.col.mutArr : mustPop, mutArrIsEmpty;
 import util.comparison : Comparison;
 import util.conv : safeToUshort, safeToUint;
 import util.memory : allocate;
-import util.opt : force, has, none, Opt, someMut, some;
+import util.opt : force, has, none, Opt, optIf, someMut, some;
 import util.perf : Perf, PerfMeasure, withMeasure;
 import util.sourceRange : compareUriAndRange, Range, UriAndRange;
 import util.symbol : Symbol, symbol;
@@ -748,6 +750,8 @@ void checkDocComments(
 		checkRefs(decl.docCommentAst, decl.typeParams, none!(SpecDecl*), decl.specs, decl.isA!(FunDecl*) ? paramsArray(decl.as!(FunDecl*).params) : []);
 	DocCommentReferences checkRefsForSig(TypeParams typeParams, Opt!(SpecDecl*) curSpec, Specs specs, ref Signature sig) =>
 		checkRefs(sig.docCommentAst, typeParams, curSpec, specs, sig.params);
+	DocCommentReferences checkRefsForStruct(DocCommentAst ast, ref StructDecl struct_) =>
+		checkRefs(ast, struct_.typeParams, none!(SpecDecl*), emptySpecs, []);
 
 	foreach (ref StructAlias x; structAliases)
 		x.docCommentReferences = checkRefsForDecl(AnyDecl(&x));
@@ -757,19 +761,21 @@ void checkDocComments(
 			(StructBody.Bogus) {},
 			(BuiltinType _) {},
 			(ref StructBody.Enum x) {
-				// TODO: doc comments on enum / flags members -------------------------------------------------------------------------
+				foreach (ref EnumOrFlagsMember member; x.members)
+					member.docCommentReferences = checkRefsForStruct(member.docCommentAst, struct_);
 			},
 			(StructBody.Extern) {},
 			(StructBody.Flags x) {
-				// TODO: doc comments on enum / flags members -------------------------------------------------------------------------
+				foreach (ref EnumOrFlagsMember member; x.members)
+					member.docCommentReferences = checkRefsForStruct(member.docCommentAst, struct_);
 			},
 			(StructBody.Record x) {
-				foreach (RecordField field; x.fields)
-					field.docCommentReferences = checkRefs(field.docCommentAst, struct_.typeParams, none!(SpecDecl*), emptySpecs, []);
+				foreach (ref RecordField field; x.fields)
+					field.docCommentReferences = checkRefsForStruct(field.docCommentAst, struct_);
 			},
 			(ref StructBody.Union x) {
-				foreach (UnionMember member; x.members)
-					member.docCommentReferences = checkRefs(member.docCommentAst, struct_.typeParams, none!(SpecDecl*), emptySpecs, []);
+				foreach (ref UnionMember member; x.members)
+					member.docCommentReferences = checkRefsForStruct(member.docCommentAst, struct_);
 			},
 			(StructBody.Variant x) {
 				foreach (ref Signature sig; x.methods)
@@ -809,11 +815,10 @@ DocCommentReferences checkDocCommentReferences(
 		}
 
 		foreach (Destructure param; params) {
-			if (param.isA!(Local*)) {
-				Local* local = param.as!(Local*);
-				if (local.name == name.name)
-					return DocCommentReference(local);
-			}
+			Opt!DocCommentReference res = firstLocal!DocCommentReference(param, (Local* local) =>
+				optIf(local.name == name.name, () => DocCommentReference(local)));
+			if (has(res))
+				return force(res);
 		}
 
 		Opt!StructOrAlias sa = structOrAliasFromName(ctx, name.name, name.range, structsAndAliasesMap, noDiag: true);

@@ -110,10 +110,16 @@ LocalContainer assertLocalContainer(DocCommentHaver a) =>
 	a.matchWithPointers!LocalContainer(
 		(AnyDecl x) =>
 			assertLocalContainer(x),
-		(Module* x) =>
+		(EnumOrFlagsMember*) =>
+			assert(false),
+		(Module*) =>
+			assert(false),
+		(RecordField*) =>
 			assert(false),
 		(Signature* x) =>
-			asLocalContainer(x.container));
+			asLocalContainer(x.container),
+		(UnionMember*) =>
+			assert(false));
 LocalContainer assertLocalContainer(AnyDecl a) =>
 	a.matchWithPointers!LocalContainer(
 		(FunDecl* x) =>
@@ -161,15 +167,21 @@ immutable struct VisibilityContainer { // is this just AnyDecl? ----------------
 
 immutable struct DocCommentHaver { // TODO: rename to 'DocCommentContainer' -------------------------------------------------------------
 	@safe @nogc pure nothrow:
-	mixin Union!(AnyDecl, Module*, Signature*); // TODO: remember to test all of these! Also add recordfield, unionmember, enumorflagsmember --------------------------------
+	mixin Union!(AnyDecl, EnumOrFlagsMember*, Module*, RecordField*, Signature*, UnionMember*); // TODO: remember to test all of these! Also add recordfield, unionmember, enumorflagsmember --------------------------------
 
 	DocComment docComment() =>
 		matchWithPointers!DocComment(
 			(AnyDecl x) =>
 				x.docComment,
+			(EnumOrFlagsMember* x) =>
+				x.docComment,
 			(Module* x) =>
 				x.docComment,
+			(RecordField* x) =>
+				x.docComment,
 			(Signature* x) =>
+				x.docComment,
+			(UnionMember* x) =>
 				x.docComment);
 }
 
@@ -178,10 +190,16 @@ TypeContainer typeContainerFor(DocCommentHaver a) =>
 	a.matchWithPointers!TypeContainer(
 		(AnyDecl x) =>
 			toTypeContainer(x),
+		(EnumOrFlagsMember* x) =>
+			TypeContainer(x.containingEnum),
 		(Module* x) =>
 			TypeContainer(x),
+		(RecordField* x) =>
+			TypeContainer(x.containingRecord),
 		(Signature* x) =>
-			asTypeContainer(x.container));
+			asTypeContainer(x.container),
+		(UnionMember* x) =>
+			TypeContainer(x.containingUnion));
 
 immutable struct PositionKind {
 	immutable struct DocRef { // Name -------------------------------------------------------------------------------------

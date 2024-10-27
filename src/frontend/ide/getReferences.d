@@ -680,11 +680,28 @@ void eachDocComment(in Module module_, in void delegate(DocComment) @safe @nogc 
 		cb(x.docComment);
 	foreach (StructDecl x; module_.structs) {
 		cb(x.docComment);
-		// TODO: match on body, handle record,union, enum, flags members doc comments -----------------------------------------------------
-		if (x.body_.isA!(StructBody.Variant)) {
-			foreach (Signature sig; x.body_.as!(StructBody.Variant).methods)
-				cb(sig.docComment);
-		}
+		x.body_.match!void(
+			(StructBody.Bogus) {},
+			(BuiltinType _) {},
+			(ref StructBody.Enum) {
+				// TODO: ENUM MEMBERS --------------------------------------------------------------------------------------------
+			},
+			(StructBody.Extern) {},
+			(StructBody.Flags) {
+				// TODO: ENUM MEMBERS --------------------------------------------------------------------------------------------
+			},
+			(StructBody.Record record) {
+				foreach (ref RecordField field; record.fields)
+					cb(field.docComment);
+			},
+			(ref StructBody.Union union_) {
+				foreach (ref UnionMember member; union_.members)
+					cb(member.docComment);
+			},
+			(StructBody.Variant variant) {
+				foreach (Signature method; variant.methods)
+					cb(method.docComment);
+			});
 	}
 	foreach (VarDecl x; module_.vars)
 		cb(x.docComment);

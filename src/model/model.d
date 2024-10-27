@@ -37,6 +37,7 @@ import model.parseDiag : ParseDiagnostic;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	arrayOfSingle,
+	arraysCorrespond,
 	concatenate,
 	emptySmallArray,
 	every,
@@ -510,6 +511,12 @@ immutable struct EnumMemberSource {
 	@safe @nogc pure nothrow:
 	mixin TaggedUnion!(EnumOrFlagsMemberAst*, DestructureAst.Single*);
 
+	DocCommentAst docComment() return scope =>
+		match!DocCommentAst(
+			(ref EnumOrFlagsMemberAst x) =>
+				x.docComment,
+			(ref DestructureAst.Single x) =>
+				DocCommentAst.empty);
 	Symbol name() scope =>
 		matchIn!Symbol(
 			(in EnumOrFlagsMemberAst x) => x.name,
@@ -530,6 +537,17 @@ immutable struct EnumOrFlagsMember {
 	EnumMemberSource source;
 	StructDecl* containingEnum;
 	IntegralValue value;
+	private Late!DocCommentReferences lateDocCommentReferences;
+
+	DocCommentAst docCommentAst() return scope =>
+		source.docComment;
+	DocComment docComment() return scope =>
+		DocComment(docCommentAst, docCommentReferences);
+	DocCommentReferences docCommentReferences() return scope =>
+		lateGet(lateDocCommentReferences);
+	void docCommentReferences(DocCommentReferences value) {
+		lateSet(lateDocCommentReferences, value);
+	}
 
 	size_t memberIndex() =>
 		mustHaveIndexOfPointer(containingEnum.body_.as!(StructBody.Enum*).members, &this);
@@ -2838,16 +2856,21 @@ immutable struct Destructure {
 				x.destructuredType);
 }
 void eachLocal(Destructure a, in void delegate(Local*) @safe @nogc pure nothrow cb) {
-	a.matchWithPointers!void(
-		(Destructure.Ignore*) {},
-		(Local* x) {
-			cb(x);
-		},
-		(Destructure.Split* x) {
-			foreach (Destructure part; x.parts)
-				eachLocal(part, cb);
-		});
+	Opt!bool res = firstLocal!bool(a, (Local* x) {
+		cb(x);
+		return none!bool;
+	});
+	assert(!has(res));
 }
+Opt!Out firstLocal(Out)(Destructure a, in Opt!Out delegate(Local*) @safe @nogc pure nothrow cb) =>
+	a.matchWithPointers!(Opt!Out)(
+		(Destructure.Ignore*) =>
+			none!Out,
+		(Local* x) =>
+			cb(x),
+		(Destructure.Split* x) =>
+			first!(Out, Destructure)(x.parts, (Destructure part) =>
+				firstLocal!Out(part, cb)));
 
 immutable struct DocComment {
 	@safe @nogc pure nothrow:
@@ -3451,7 +3474,7 @@ Opt!T findDirectChildExpr(T)(
 		(BogusWrongTypeExpr x) =>
 			cb(x.inner),
 		(CallExpr x) {
-			assert(a.type == x.called.returnType || a.type.isBogus || x.called.returnType.isBogus);
+			assert(typesCompatible(a.type, x.called.returnType));
 			if (x.called.isVariadic) {
 				Type argType = arrayElementType(only(x.called.paramTypes));
 				return firstPointer!(T, Expr)(x.args, (Expr* e) => cb(ExprRef(e, argType)));
@@ -3494,7 +3517,7 @@ Opt!T findDirectChildExpr(T)(
 		(LiteralStringLikeExpr _) =>
 			none!T,
 		(LocalGetExpr x) {
-			assert(a.type == x.local.type || a.type.isBogus || x.local.type.isBogus);
+			assert(typesCompatible(a.type, x.local.type));
 			return none!T;
 		},
 		(LocalPointerExpr _) =>
@@ -3560,6 +3583,13 @@ Opt!T findDirectChildExpr(T)(
 		(TypedExpr* x) =>
 			cb(sameType(&x.inner)));
 }
+private bool typesCompatible(in Type a, in Type b) =>
+	a == b || a.isBogus || b.isBogus || (
+		a.isA!(StructInst*) && b.isA!(StructInst*) && a.as!(StructInst*).decl == b.as!(StructInst*).decl &&
+		arraysCorrespond!(Type, Type)(
+			a.as!(StructInst*).typeArgs,
+			b.as!(StructInst*).typeArgs,
+			(ref Type x, ref Type y) => typesCompatible(x, y)));
 
 FunDecl* variantMemberGetter(FunDecl[] funs, in StructDecl* struct_, in VariantAndMethodImpls x) =>
 	mustFindFunNamed(funs, struct_.name, (in FunDecl fun) =>

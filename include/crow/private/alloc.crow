@@ -18,15 +18,15 @@ import
 	./range-low-level: .., high, low, range
 	./thread-utils: acquire, barrier, init, lock, release, wait-barrier, uninit
 
-# Called by the compiler.
+| Called by the compiler.
 ~gc-root gc-root mut*() unsafe, native extern
 	must-cur-fiber gc-root
 
-# Called by the compiler. 'value' is allocated on the stack and passed here by pointer.
+| Called by the compiler. {value} is allocated on the stack and passed here by pointer.
 ~set-gc-root void(value gc-root mut*) unsafe, native extern
 	must-cur-fiber.gc-root := value
 
-# Called by the compiler.
+| Called by the compiler.
 ~pop-gc-root void() unsafe, native extern
 	fiber = must-cur-fiber
 	fiber.gc-root := fiber.gc-root->next
@@ -44,7 +44,7 @@ import
 ) bare, unsafe, native extern
 	a.round-down-to-word .. (a + size-bytes).round-up-to-word
 
-# Returns true if the range is GC-allocated memory and was not already marked
+| Returns true if the range is GC-allocated memory and was not already marked
 mark bool(
 	ctx mark-ctx,
 	pointer-any any-const-pointer,
@@ -85,13 +85,11 @@ mark-range bool(start bool mut*, end bool mut*) bare, unsafe, native extern
 		cur +:= 1
 	marked-anything
 
-###
-Normally this is used by the compiler to provide function pointer for a 'gc-root'.
-Available as a regular function for debugging.
-
-This is only defined for record or union types.
-For a pointer type, it uses 'mark-visit' directly instead.
-###
+| Normally this is used by the compiler to provide function pointer for a 'gc-root'.
+| Available as a regular function for debugging.
+|
+| This is only defined for record or union types.
+| For a pointer type, it uses 'mark-visit' directly instead.
 ~mark-root[t] void(mark-ctx mark-ctx, pointer void*) builtin, bare, unsafe
 
 ~mark-visit[t] void(mark-ctx mark-ctx, value t) builtin, bare, unsafe
@@ -103,12 +101,12 @@ gc record by-val, mut
 	-context-head mut gc-ctx?
 	needs-gc -mut bool
 	-size-words mut nat64
-	# 'mark-cur' and 'data-cur' run in parallel
-	# mark-end must be `mark-begin + size-words` and similar for data-end
+	| `{mark-cur} - {mark-begin}` and `{data-cur} - {data-begin}` should always be the same.
+	| mark-end must be `mark-begin + size-words` and similar for data-end
 	-mark-begin bool mut*
 	-mark-cur mut bool mut*
 	-mark-end mut bool mut*
-	# We allocate data in increments of nat64
+	| We allocate data in increments of nat64
 	-data-begin nat64 mut*
 	-data-cur mut nat64 mut*
 	-data-end mut nat64 mut*
@@ -119,9 +117,9 @@ gc record by-val, mut
 	words-used nat64
 	words-free nat64
 
-# Super unsafe
-# WARN: Unfortunately this doesn't prevent the original allocation in new-gc,
-# just forbids us to use it
+| WARN: Super unsafe
+| WARN: Unfortunately this doesn't prevent the original allocation in new-gc,
+| just forbids us to use it.
 +set-hard-limit void(gc gc mut*, size-words nat64) bare, unsafe, native extern
 	# TODO: get a lock
 	gc.as-const validate-gc
@@ -133,7 +131,7 @@ gc record by-val, mut
 	gc->data-end := gc->data-begin + size-words
 	gc.as-const validate-gc
 
-# WARN: this locks up the GC for a long time
+| WARN: this locks up the GC for a long time.
 +get-stats gc-stats(gc gc mut*) bare, unsafe, native extern
 	gc.lk acquire
 	gc.as-const validate-gc
@@ -179,15 +177,13 @@ init void(a gc mut*, n-threads nat64) bare, unsafe, native extern
 	a.lk init
 	a.barrier init n-threads
 
-###
-This must be called like so:
-* All threads run 'gc-begin'.
-* It will return 'true' for one thread.
-	- That thread can call 'gc-add-root' many times.
-	- Then it should call 'gc-complete'.
-* All threads run 'gc-end' that makes them wait for the end.
-###
-gc-begin bool(gc gc mut*) bare, unsafe, native extern
+| This must be called like so:
+| * All threads run 'gc-begin'.
+| * It will return 'true' for one thread.
+|	- That thread can call 'gc-add-root' many times.
+|	- Then it should call 'gc-complete'.
+| All threads run 'gc-end' that makes them wait for the end.
+~gc-begin bool(gc gc mut*) bare, unsafe, native extern
 	gc->needs-gc hard-assert
 	res = gc.barrier wait-barrier
 	if res
@@ -195,12 +191,12 @@ gc-begin bool(gc gc mut*) bare, unsafe, native extern
 		_ = gc->mark-begin mem-clear gc->size-words
 	res
 
-# See comment on 'gc-begin'
-gc-add-root[t] void(gc gc mut*, root t) bare, unsafe, native extern
+| See comment on 'gc-begin'
+~gc-add-root[t] void(gc gc mut*, root t) bare, unsafe, native extern
 	(gc->size-words, gc->mark-begin, gc->data-begin) mark-visit root
 
-# See comment on 'garbage-collection-begin'
-gc-complete void(gc gc mut*) bare, unsafe, native extern
+| See comment on 'garbage-collection-begin'
+~gc-complete void(gc gc mut*) bare, unsafe, native extern
 	prev-mark-cur = gc->mark-cur
 	gc->mark-cur := gc->mark-begin
 	gc->data-cur := gc->data-begin
@@ -210,8 +206,8 @@ gc-complete void(gc gc mut*) bare, unsafe, native extern
 	gc.as-const validate-gc
 	gc->needs-gc := false
 
-# See comment on 'garbage-collection-begin'
-gc-end void(gc gc mut*) bare, unsafe, native extern
+| See comment on 'garbage-collection-begin'
+~gc-end void(gc gc mut*) bare, unsafe, native extern
 	_ = gc.barrier wait-barrier
 
 -clear-free-mem void(
@@ -230,10 +226,8 @@ gc-end void(gc gc mut*) bare, unsafe, native extern
 		word +:= 1
 	assert word == data-end
 
-###
-GC info specific to a ctx.
-Currently they all share the common GC and must take a lock every time they allocate.
-###
+| GC info specific to a ctx.
+| Currently they all share the common GC and must take a lock every time they allocate.
 gc-ctx record by-val, mut
 	-gc gc mut*
 
@@ -324,7 +318,7 @@ gc-alloc any-mut-pointer(gc gc-ctx, size nat64) bare, native extern
 		# TODO: throw an exception on OOM
 		todo
 
-# Called by the compiler
+| Called by the compiler
 allocate any-mut-pointer(size-bytes nat64) unsafe, native extern
 	get-gc-ctx gc-alloc size-bytes
 

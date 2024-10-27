@@ -721,8 +721,6 @@ Opt!VersionFun versionFunFromSymbol(Symbol name) {
 			return some(VersionFun.isBigEndian);
 		case symbol!"is-interpreted".value:
 			return some(VersionFun.isInterpreted);
-		case symbol!"is-jit".value:
-			return some(VersionFun.isJit);
 		case symbol!"is-single-threaded".value:
 			return some(VersionFun.isSingleThreaded);
 		case symbol!"is-stack-trace-enabled".value:

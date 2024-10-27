@@ -1073,6 +1073,7 @@ static assert(StructBodyAst.sizeof <= 24);
 immutable struct EnumOrFlagsMemberAst {
 	@safe @nogc pure nothrow:
 
+	DocCommentAst docComment;
 	Range range;
 	Symbol name;
 	Opt!LiteralIntegralAndRange value;

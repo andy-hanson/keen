@@ -536,12 +536,13 @@ Opt!PositionKind positionInRecordOrUnionMember(Member)(
 	in Opt!PositionKind delegate(Member*) @safe @nogc pure nothrow cbMutabilityPosition,
 ) =>
 	optOr!PositionKind(
+		positionInDocComment(DocCommentHaver(member), pos),
 		() {
 			Opt!VisibilityContainer container = cbVisibilityContainer(member);
 			return has(container)
 				? positionInVisibility(force(container), memberAst.visibility, pos)
 				: none!PositionKind;
-		}(),
+		},
 		() => optIf(hasPos(memberAst.name.range, pos), () => cbMemberPosition(member)),
 		() => has(memberAst.mutability) && hasPos(force(memberAst.mutability).range, pos)
 			? cbMutabilityPosition(member)
@@ -567,7 +568,12 @@ Opt!PositionKind positionInEnumOrFlagsBody(
 				optIf(hasPos(param.range, pos), () => PositionKind(member)))
 		: firstZipPointerFirst!(PositionKind, EnumOrFlagsMember, EnumOrFlagsMemberAst)(
 			members, memberAsts, (EnumOrFlagsMember* member, EnumOrFlagsMemberAst memberAst) =>
-				optIf(hasPos(memberAst.nameRange, pos), () => PositionKind(member)));
+				positionInEnumOrFlagsMember(member, memberAst, pos));
+
+Opt!PositionKind positionInEnumOrFlagsMember(EnumOrFlagsMember* member, EnumOrFlagsMemberAst ast, Pos pos) =>
+	optOr!PositionKind(
+		positionInDocComment(DocCommentHaver(member), pos),
+		() => optIf(hasPos(ast.nameRange, pos), () => PositionKind(member)));
 
 Opt!PositionKind positionInExpr(ref Ctx ctx, ExprContainer container, ExprRef a, Pos pos, GetPositionKind posKind) {
 	ExprCtx exprCtx = ExprCtx(ctx.commonTypesPtr, container);

@@ -126,6 +126,7 @@ SmallArray!SignatureAst parseIndentedSigs(ref Lexer lexer) =>
 
 SmallArray!EnumOrFlagsMemberAst parseEnumOrFlagsMembers(ref Lexer lexer) =>
 	parseIndentedLines!EnumOrFlagsMemberAst(lexer, () {
+		DocCommentAst docComment = tryTakeDocComment(lexer);
 		Pos start = curPos(lexer);
 		Symbol name = takeName(lexer);
 		Opt!LiteralIntegralAndRange value = () {
@@ -137,7 +138,7 @@ SmallArray!EnumOrFlagsMemberAst parseEnumOrFlagsMembers(ref Lexer lexer) =>
 			} else
 				return none!LiteralIntegralAndRange;
 		}();
-		return EnumOrFlagsMemberAst(range(lexer, start), name, value);
+		return EnumOrFlagsMemberAst(docComment, range(lexer, start), name, value);
 	});
 
 SmallArray!RecordOrUnionMemberAst parseRecordOrUnionMembers(ref Lexer lexer) =>
