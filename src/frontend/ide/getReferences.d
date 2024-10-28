@@ -649,6 +649,13 @@ void referencesForFunDecls(in Program program, in FunDecl*[] decls, in Reference
 	if (!isEmpty(decls)) {
 		Visibility maxVisibility = fold(Visibility.private_, decls, (Visibility a, in FunDecl* b) =>
 			greatestVisibility(a, b.visibility));
+		import util.writer : debugLogWithWriter, Writer, writeWithCommas; // 999999999999999999999999999999999999999999999999
+		debugLogWithWriter((scope ref Writer writer) {
+			writer ~= "uris are: ";
+			writeWithCommas!(FunDecl*)(writer, decls, (in FunDecl* decl) {
+				writer ~= decl.moduleUri;
+			});
+		});
 		assert(allSame!(Uri, FunDecl*)(decls, (in FunDecl* x) => x.moduleUri));
 		Module* itsModule = moduleAtUri(program, decls[0].moduleUri);
 		eachExprThatMayReference(
