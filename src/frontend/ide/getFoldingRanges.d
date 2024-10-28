@@ -5,7 +5,8 @@ module frontend.ide.getFoldingRanges;
 import frontend.ide.ideUtil : walkAstInOrder;
 import frontend.storage : CrowFileInfo;
 import lib.lsp.lspTypes : FoldingRange, FoldingRangeKind;
-import model.ast : DocCommentAst, FunDeclAst, ImportsOrExportsAst, SpecDeclAst, StructAliasAst, StructDeclAst, TestAst, VarDeclAst;
+import model.ast :
+	DocCommentAst, FunDeclAst, ImportsOrExportsAst, SpecDeclAst, StructAliasAst, StructDeclAst, TestAst, VarDeclAst;
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.conv : safeToUint;
@@ -15,7 +16,6 @@ import util.sourceRange : LineAndCharacterGetter, LineAndCharacterRange, Range;
 FoldingRange[] foldingRangesOfAst(ref Alloc alloc, in CrowFileInfo file) {
 	scope Ctx ctx = Ctx(&alloc, file.content.lineAndCharacterGetter);
 	addRangesForRegions(ctx, file.ast.regions);
-	// TODO: this should also handle true comments. But we dont' store those in the AST ... we could store `Range[] comments;` though ......................
 	walkAstInOrder!(
 		Ctx,
 		addRangesForImports,

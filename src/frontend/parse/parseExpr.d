@@ -173,7 +173,7 @@ bool isExpressionStartToken(in TokenAndData a) {
 		case Token.enum_:
 		case Token.equal:
 		case Token.export_:
-		case Token.EOF:
+		case Token.endOfFile:
 		case Token.flags:
 		case Token.forceCtx:
 		case Token.forceShared:

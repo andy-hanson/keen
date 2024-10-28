@@ -191,6 +191,15 @@ T optOrDefault(T)(Opt!T a, in T delegate() @safe @nogc pure nothrow cb) =>
 		? force(a)
 		: cb();
 
+T optOrDefault(T)(
+	Opt!T a,
+	in Opt!T delegate() @safe @nogc pure nothrow b,
+	in Opt!T delegate() @safe @nogc pure nothrow c,
+	in Opt!T delegate() @safe @nogc pure nothrow d,
+	in T delegate() @safe @nogc pure nothrow e,
+) =>
+	optOrDefault!T(optOr!T(a, b, c, d), e);
+
 bool optEqual(T)(in ConstOpt!T a, in ConstOpt!T b) =>
 	has(a)
 		? has(b) && force(a) == force(b)

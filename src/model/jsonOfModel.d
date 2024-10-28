@@ -25,6 +25,7 @@ import model.model :
 	DocComment,
 	DocCommentReference,
 	EnumOrFlagsFunction,
+	EnumOrFlagsMember,
 	Expr,
 	ExprAndType,
 	ExprKind,
@@ -60,6 +61,7 @@ import model.model :
 	nameFromNameReferentsPointer,
 	NameReferents,
 	Params,
+	RecordField,
 	RecordFieldPointerExpr,
 	Purity,
 	SeqExpr,
@@ -79,6 +81,7 @@ import model.model :
 	Type,
 	TypedExpr,
 	TypeParamIndex,
+	UnionMember,
 	VarDecl,
 	VariableRef;
 import util.alloc.alloc : Alloc;
@@ -139,10 +142,16 @@ Json jsonOfDocCommentReference(ref Alloc alloc, in Ctx ctx, in DocCommentReferen
 			jsonString("bogus"),
 		(in CalledSpecSig x) =>
 			jsonOfCalledSpecSig(alloc, ctx, x),
+		(in EnumOrFlagsMember x) =>
+			jsonObject(alloc, [kindField!"enum-member", field!"name"(x.name)]),
 		(in FunDecl x) =>
 			jsonObject(alloc, [kindField!"fun", field!"name"(x.name)]),
 		(in Local x) =>
 			jsonObject(alloc, [kindField!"local", field!"name"(x.name)]),
+		(in RecordField x) =>
+			jsonObject(alloc, [kindField!"record-field", field!"name"(x.name)]),
+		(in Signature x) =>
+			jsonObject(alloc, [kindField!"signature", field!"name"(x.name)]),
 		(in StructAlias x) =>
 			jsonObject(alloc, [kindField!"alias", field!"name"(x.name)]),
 		(in StructDecl x) =>
@@ -150,7 +159,11 @@ Json jsonOfDocCommentReference(ref Alloc alloc, in Ctx ctx, in DocCommentReferen
 		(in SpecDecl x) =>
 			jsonObject(alloc, [kindField!"spec", field!"name"(x.name)]),
 		(in TypeParamIndex x) =>
-			jsonObject(alloc, [kindField!"type-param", field!"index"(x.index)]));
+			jsonObject(alloc, [kindField!"type-param", field!"index"(x.index)]),
+		(in UnionMember x) =>
+			jsonObject(alloc, [kindField!"union-member", field!"name"(x.name)]),
+		(in VarDecl x) =>
+			jsonObject(alloc, [kindField!"var", field!"name"(x.name)]));
 
 Json jsonOfUriAndRange(ref Alloc alloc, in Ctx ctx, in UriAndRange range) =>
 	jsonObject(alloc, [

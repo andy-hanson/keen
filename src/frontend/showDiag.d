@@ -1675,7 +1675,7 @@ string describeTokenForUnexpected(Token token) {
 			return "Unexpected '='.";
 		case Token.extern_:
 			return "Unexpected keyword 'extern'.";
-		case Token.EOF:
+		case Token.endOfFile:
 			return "Unexpected end of file.";
 		case Token.finally_:
 			return "Unexpected keyword 'finally'.";

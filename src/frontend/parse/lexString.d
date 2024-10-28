@@ -5,7 +5,7 @@ module frontend.parse.lexString;
 import frontend.parse.lexWhitespace : AddDiag;
 import model.parseDiag : ParseDiag;
 import util.alloc.alloc : Alloc;
-import util.col.arrayBuilder : add, ArrayBuilder, Builder, finish;
+import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.opt : force, has, none, Opt, optIf;
 import util.sourceRange : Pos, Range, rangeOfStartAndLength;
 import util.string : CString, decodeHexDigit, MutCString, stringOfRange, takeChar, tryTakeChars;
@@ -18,11 +18,6 @@ immutable struct StringPart {
 	After after;
 
 	enum After { done, lbrace }
-}
-
-immutable struct StringRange {
-	Range range;
-	StringPart.After after;
 }
 
 enum QuoteKind {
@@ -47,14 +42,10 @@ StringPart takeStringPart(
 	return StringPart(range.range, finish(alloc, res), range.after);
 }
 
-StringRange takeStringRange(
-	return scope ref MutCString ptr,
-	Pos startPos,
-	QuoteKind quoteKind,
-	in AddDiag addDiag,
-) =>
-	takeStringRange(ptr, startPos, quoteKind, (char _) {}, addDiag);
-
+private immutable struct StringRange {
+	Range range;
+	StringPart.After after;
+}
 private StringRange takeStringRange(
 	return scope ref MutCString ptr,
 	Pos startPos,

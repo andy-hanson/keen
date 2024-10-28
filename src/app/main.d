@@ -203,7 +203,7 @@ bool inAssert;
 
 	while (true) {
 		// TODO: get this from specified trace level
-		bool logLsp = true; // ------------------------------------------------------------------------------------------------------
+		bool logLsp = false;
 		//TODO: track perf for each message/response
 		Opt!ExitCode stop = withNullPerf!(Opt!ExitCode, (scope ref Perf perf) =>
 			withTempAllocImpure!(Opt!ExitCode)(server.metaAlloc, (ref Alloc alloc) =>

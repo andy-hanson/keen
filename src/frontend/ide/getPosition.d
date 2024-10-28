@@ -5,7 +5,7 @@ module frontend.ide.getPosition;
 import frontend.ide.ideUtil : findInPackedTypeArgs, eachTypeComponent, specsMatch;
 import frontend.ide.position :
 	asLocalContainer,
-	DocCommentHaver,
+	DocCommentContainer,
 	ExpressionPosition,
 	ExpressionPositionKind,
 	ExprContainer,
@@ -188,7 +188,7 @@ const struct Ctx {
 
 Opt!PositionKind getPositionKind(in Ctx ctx, Module* module_, Pos pos, GetPositionKind posKind) =>
 	optOr!PositionKind(
-		positionInDocComment(DocCommentHaver(module_), pos),
+		positionInDocComment(DocCommentContainer(module_), pos),
 		() => positionInImportsOrExports(module_.imports, pos),
 		() => positionInImportsOrExports(module_.reExports, pos),
 		() => firstPointer!(PositionKind, StructAlias)(module_.aliases, (StructAlias* x) =>
@@ -208,7 +208,7 @@ Opt!PositionKind getPositionKind(in Ctx ctx, Module* module_, Pos pos, GetPositi
 		// We need a definition at position 0, because inlay hints for "Used by" have that as their location.
 		() => optIf(pos == 0, () => PositionKind(PositionKind.ModulePosition())));
 
-Opt!PositionKind positionInDocComment(DocCommentHaver a, Pos pos) {
+Opt!PositionKind positionInDocComment(DocCommentContainer a, Pos pos) {
 	Opt!size_t index = findIndex!NameAndRange(a.docComment.ast.references, (in NameAndRange x) =>
 		hasPos(x.range, pos));
 	return optIf(has(index), () =>
@@ -347,7 +347,7 @@ Opt!PositionKind positionInImportedNames(
 
 Opt!PositionKind positionInDecl(AnyDecl a, Pos pos, in Opt!PositionKind delegate() @safe @nogc pure nothrow cb) =>
 	optOr!PositionKind(
-		positionInDocComment(DocCommentHaver(a), pos),
+		positionInDocComment(DocCommentContainer(a), pos),
 		() => hasPos(a.range.range, pos) ? cb() : none!PositionKind);
 
 Opt!PositionKind positionInVar(VarDecl* a, Pos pos) =>
@@ -360,7 +360,7 @@ Opt!PositionKind positionInVar(VarDecl* a, Pos pos) =>
 
 Opt!PositionKind positionInAlias(StructAlias* a, Pos pos) =>
 	positionInDecl(AnyDecl(a), pos, () => optOr!PositionKind(
-		positionInVisibility(VisibilityContainer(a), a.ast.visibility, pos), // TODO: positionInDecl should handle this and name too
+		positionInVisibility(VisibilityContainer(a), a.ast.visibility, pos),
 		() => optIf(hasPos(a.nameRange.range, pos), () => PositionKind(a)),
 		() => optIf(hasPos(a.ast.keywordRange, pos), () =>
 			PositionKind(PositionKind.Keyword(PositionKind.Keyword.Kind.alias_))),
@@ -428,7 +428,7 @@ Opt!PositionKind positionInSignatures(Signature[] signatures, SignatureAst[] sig
 
 Opt!PositionKind positionInSignature(Signature* sig, in SignatureAst ast, Pos pos) =>
 	optOr!PositionKind(
-		positionInDocComment(DocCommentHaver(sig), pos),
+		positionInDocComment(DocCommentContainer(sig), pos),
 		() => optIf(hasPos(ast.nameAndRange.range, pos), () =>
 			PositionKind(sig)),
 		() => positionInType(asTypeContainer(sig.container), sig.returnType, ast.returnType, pos),
@@ -536,7 +536,7 @@ Opt!PositionKind positionInRecordOrUnionMember(Member)(
 	in Opt!PositionKind delegate(Member*) @safe @nogc pure nothrow cbMutabilityPosition,
 ) =>
 	optOr!PositionKind(
-		positionInDocComment(DocCommentHaver(member), pos),
+		positionInDocComment(DocCommentContainer(member), pos),
 		() {
 			Opt!VisibilityContainer container = cbVisibilityContainer(member);
 			return has(container)
@@ -572,7 +572,7 @@ Opt!PositionKind positionInEnumOrFlagsBody(
 
 Opt!PositionKind positionInEnumOrFlagsMember(EnumOrFlagsMember* member, EnumOrFlagsMemberAst ast, Pos pos) =>
 	optOr!PositionKind(
-		positionInDocComment(DocCommentHaver(member), pos),
+		positionInDocComment(DocCommentContainer(member), pos),
 		() => optIf(hasPos(ast.nameRange, pos), () => PositionKind(member)));
 
 Opt!PositionKind positionInExpr(ref Ctx ctx, ExprContainer container, ExprRef a, Pos pos, GetPositionKind posKind) {

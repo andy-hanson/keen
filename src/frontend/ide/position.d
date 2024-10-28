@@ -74,7 +74,7 @@ immutable struct ExprContainer {
 				x.specs,
 			(ref Test _) =>
 				emptySpecs);
-	
+
 	DocComment docComment() return scope =>
 		match!DocComment(
 			(ref FunDecl x) =>
@@ -106,7 +106,7 @@ immutable struct LocalContainer {
 		toTypeContainer.typeParams;
 }
 
-LocalContainer assertLocalContainer(DocCommentHaver a) =>
+LocalContainer assertLocalContainer(DocCommentContainer a) =>
 	a.matchWithPointers!LocalContainer(
 		(AnyDecl x) =>
 			assertLocalContainer(x),
@@ -141,7 +141,7 @@ LocalContainer asLocalContainer(SignatureContainer a) =>
 		(StructDecl* x) =>
 			LocalContainer(x));
 
-immutable struct VisibilityContainer { // is this just AnyDecl? --------------------------------------------------------------
+immutable struct VisibilityContainer {
 	@safe @nogc pure nothrow:
 
 	mixin TaggedUnion!(FunDecl*, RecordField*, SpecDecl*, StructAlias*, StructDecl*, VarDecl*);
@@ -165,9 +165,9 @@ immutable struct VisibilityContainer { // is this just AnyDecl? ----------------
 			(in VarDecl x) => x.visibility);
 }
 
-immutable struct DocCommentHaver { // TODO: rename to 'DocCommentContainer' -------------------------------------------------------------
+immutable struct DocCommentContainer {
 	@safe @nogc pure nothrow:
-	mixin Union!(AnyDecl, EnumOrFlagsMember*, Module*, RecordField*, Signature*, UnionMember*); // TODO: remember to test all of these! Also add recordfield, unionmember, enumorflagsmember --------------------------------
+	mixin Union!(AnyDecl, EnumOrFlagsMember*, Module*, RecordField*, Signature*, UnionMember*);
 
 	DocComment docComment() =>
 		matchWithPointers!DocComment(
@@ -186,7 +186,7 @@ immutable struct DocCommentHaver { // TODO: rename to 'DocCommentContainer' ----
 }
 
 // WARN: typeContainerFor(a).docComment is not always a.docComment
-TypeContainer typeContainerFor(DocCommentHaver a) =>
+TypeContainer typeContainerFor(DocCommentContainer a) =>
 	a.matchWithPointers!TypeContainer(
 		(AnyDecl x) =>
 			toTypeContainer(x),
@@ -202,8 +202,8 @@ TypeContainer typeContainerFor(DocCommentHaver a) =>
 			TypeContainer(x.containingUnion));
 
 immutable struct PositionKind {
-	immutable struct DocRef { // Name -------------------------------------------------------------------------------------
-		DocCommentHaver container;
+	immutable struct DocRef {
+		DocCommentContainer container;
 		DocCommentReference ref_;
 	}
 	immutable struct ImportedModule {

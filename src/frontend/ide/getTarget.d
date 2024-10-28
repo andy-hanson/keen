@@ -3,7 +3,14 @@ module frontend.ide.getTarget;
 @safe @nogc pure nothrow:
 
 import frontend.ide.position :
-	assertLocalContainer, ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind, typeContainerFor;
+	assertLocalContainer,
+	ExprContainer,
+	ExpressionPosition,
+	ExpressionPositionKind,
+	ExprKeyword,
+	Position,
+	PositionKind,
+	typeContainerFor;
 import model.model :
 	AutoFun,
 	BogusCallExpr,
@@ -74,11 +81,17 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 				(DocCommentReference.Bogus) =>
 					none!Target,
 				(CalledSpecSig x) =>
-					some(calledSpecSigTarget(x)),
+					some(Target(x.nonInstantiatedSig)),
+				(EnumOrFlagsMember* x) =>
+					some(Target(x)),
 				(FunDecl* x) =>
 					some(Target(x)),
 				(Local* x) =>
 					some(Target(PositionKind.LocalPosition(assertLocalContainer(docRef.container), x))),
+				(RecordField* x) =>
+					some(Target(x)),
+				(Signature* x) =>
+					some(Target(x)),
 				(StructAlias* x) =>
 					some(Target(x)),
 				(StructDecl* x) =>
@@ -86,7 +99,13 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 				(SpecDecl* x) =>
 					some(Target(x)),
 				(TypeParamIndex x) =>
-					some(Target(PositionKind.TypeParamWithContainer(x, forbidModule(typeContainerFor(docRef.container)))))),
+					some(Target(PositionKind.TypeParamWithContainer(
+						x,
+						forbidModule(typeContainerFor(docRef.container))))),
+				(UnionMember* x) =>
+					some(Target(x)),
+				(VarDecl* x) =>
+					some(Target(x))),
 		(EnumOrFlagsMember* x) =>
 			some(Target(x)),
 		(ExpressionPosition x) =>
@@ -179,7 +198,7 @@ Target calledDeclTarget(in CommonTypes commonTypes, ref CalledDecl a) =>
 		(FunDecl* x) =>
 			funDeclTarget(commonTypes, x),
 		(CalledSpecSig x) =>
-			calledSpecSigTarget(x));
+			Target(x.nonInstantiatedSig));
 
 Opt!Target calledTarget(in CommonTypes commonTypes, ref Called a) =>
 	a.match!(Opt!Target)(
@@ -188,10 +207,7 @@ Opt!Target calledTarget(in CommonTypes commonTypes, ref Called a) =>
 		(ref FunInst funInst) =>
 			some(funDeclTarget(commonTypes, funInst.decl)),
 		(CalledSpecSig x) =>
-			some(calledSpecSigTarget(x)));
-
-Target calledSpecSigTarget(CalledSpecSig a) => //inline? --------------------------------------------------------------------------
-	Target(a.nonInstantiatedSig);
+			some(Target(x.nonInstantiatedSig)));
 
 Target funDeclTarget(in CommonTypes commonTypes, FunDecl* a) =>
 	a.body_.match!Target(

@@ -3,7 +3,6 @@ module frontend.parse.lexWhitespace;
 @safe @nogc pure nothrow:
 
 import model.parseDiag : ParseDiag;
-import util.cell : Cell, cellGet, cellSet;
 import util.col.array : isEmpty;
 import util.conv : safeIntFromUint;
 import util.sourceRange : Pos, Range;
@@ -128,18 +127,12 @@ void skipSpacesAndComments(ref MutCString ptr, in CbComment cbComment, in AddDia
 	}
 }
 
-immutable struct DocCommentAndIndentDelta {
-	CStringRange docComment;
-	int indentDelta;
-}
-
-DocCommentAndIndentDelta skipBlankLinesAndGetIndentDelta(
+int skipBlankLinesAndGetIndentDelta(
 	ref MutCString ptr,
 	IndentKind indentKind,
 	ref uint curIndent,
 	in AddDiag addDiag,
 ) {
-	Cell!CStringRange docComment = Cell!CStringRange(CStringRange.empty);
 	while (true) {
 		MutCString start = ptr;
 		uint newIndent;
@@ -149,9 +142,7 @@ DocCommentAndIndentDelta skipBlankLinesAndGetIndentDelta(
 				start = ptr;
 				newIndent = takeIndentAmountAfterNewline(ptr, indentKind, addDiag);
 			},
-			cbComment: (CString start) {
-				cellSet(docComment, CStringRange(start, ptr));
-			},
+			cbComment: (CString _) {},
 			addDiag: addDiag);
 
 		if (*ptr == '\0')
@@ -166,7 +157,7 @@ DocCommentAndIndentDelta skipBlankLinesAndGetIndentDelta(
 			continue;
 		} else {
 			curIndent = newIndent;
-			return DocCommentAndIndentDelta(cellGet(docComment), delta);
+			return delta;
 		}
 	}
 }

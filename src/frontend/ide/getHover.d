@@ -2,7 +2,8 @@ module frontend.ide.getHover;
 
 @safe @nogc pure nothrow:
 
-import frontend.ide.position : ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind, typeContainerFor;
+import frontend.ide.position :
+	ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind, typeContainerFor;
 import frontend.showModel :
 	ShowModelCtx,
 	writeCalled,
@@ -53,6 +54,7 @@ import model.model :
 	RecordField,
 	Signature,
 	SpecDecl,
+	stringOfVarKindLowerCase,
 	stringOfVarKindUpperCase,
 	StructAlias,
 	StructBody,
@@ -284,7 +286,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 						}
 					}();
 					writeName(writer, ctx, x.name);
-					writer ~= " method ";	
+					writer ~= " method ";
 				});
 			writeName(writer, ctx, sig.name);
 		},
@@ -350,12 +352,40 @@ void hoverForDocRef(scope ref Writer writer, in ShowModelCtx ctx, PositionKind.D
 			writer ~= "References ";
 			writeCalledSpecSig(writer, ctx, WriteKind.quoted, typeContainerFor(a.container), x);
 		},
+		(EnumOrFlagsMember* x) {
+			writer ~= "References ";
+			writer ~= x.containingEnum.body_.isA!(StructBody.Enum*)
+				? "enum"
+				: x.containingEnum.body_.isA!(StructBody.Flags)
+				? "flags"
+				: assert(false);
+			writeName(writer, ctx, x.containingEnum.name);
+			writer ~= " member ";
+			writeName(writer, ctx, x.name);
+			writer ~= '.';
+		},
 		(FunDecl* x) {
 			writer ~= "References function ";
 			writeFunDecl(writer, ctx, WriteKind.unquoted, x);
 		},
 		(Local* x) {
 			writer ~= "References parameter ";
+			writeName(writer, ctx, x.name);
+			writer ~= '.';
+		},
+		(RecordField* x) {
+			writer ~= "References record ";
+			writeName(writer, ctx, x.containingRecord.name);
+			writer ~= " field ";
+			writeName(writer, ctx, x.name);
+			writer ~= '.';
+		},
+		(Signature* x) {
+			writer ~= "References ";
+			writer ~= x.container.matchIn!string(
+				(in SpecDecl _) => "spec signature",
+				(in StructDecl _) => "variant method");
+			writer ~= ' ';
 			writeName(writer, ctx, x.name);
 			writer ~= '.';
 		},
@@ -377,6 +407,20 @@ void hoverForDocRef(scope ref Writer writer, in ShowModelCtx ctx, PositionKind.D
 		(TypeParamIndex x) {
 			writer ~= "References type parameter ";
 			writeName(writer, ctx, typeContainerFor(a.container).typeParams[x.index].name);
+			writer ~= '.';
+		},
+		(UnionMember* x) {
+			writer ~= "References union ";
+			writeName(writer, ctx, x.containingUnion.name);
+			writer ~= " member ";
+			writeName(writer, ctx, x.name);
+			writer ~= '.';
+		},
+		(VarDecl* x) {
+			writer ~= "References ";
+			writer ~= stringOfVarKindLowerCase(x.kind);
+			writer ~= ' ';
+			writeName(writer, ctx, x.name);
 			writer ~= '.';
 		});
 }

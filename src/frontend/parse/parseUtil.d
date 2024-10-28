@@ -187,7 +187,7 @@ void skipBlankLines(scope ref Lexer lexer) {
 }
 
 private immutable Token[] endOfLineTokens =
-	[Token.newlineDedent, Token.newlineIndent, Token.newlineSameIndent, Token.EOF];
+	[Token.newlineDedent, Token.newlineIndent, Token.newlineSameIndent, Token.endOfFile];
 
 bool peekEndOfLine(ref Lexer lexer) =>
 	peekToken(lexer, endOfLineTokens);
@@ -207,7 +207,7 @@ enum NewlineOrDedent {
 NewlineOrDedent takeNewlineOrDedent(ref Lexer lexer) {
 	if (tryTakeToken(lexer, Token.newlineSameIndent))
 		return NewlineOrDedent.newline;
-	else if (tryTakeToken(lexer, [Token.newlineDedent, Token.EOF]))
+	else if (tryTakeToken(lexer, [Token.newlineDedent, Token.endOfFile]))
 		return NewlineOrDedent.dedent;
 	else {
 		addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.newlineOrDedent)));
@@ -229,7 +229,7 @@ private NewlineOrDedent skipToNextNewlineOrDedent(ref Lexer lexer, uint dedentsN
 				if (dedentsNeeded == 0)
 					return NewlineOrDedent.newline;
 				break;
-			case Token.EOF:
+			case Token.endOfFile:
 				assert(dedentsNeeded == 0);
 				return NewlineOrDedent.newline;
 			case Token.newlineIndent:

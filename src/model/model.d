@@ -2883,7 +2883,20 @@ immutable struct DocComment {
 
 immutable struct DocCommentReference {
 	immutable struct Bogus {}
-	mixin TaggedUnion!(Bogus, CalledSpecSig, FunDecl*, Local*, StructAlias*, StructDecl*, SpecDecl*, TypeParamIndex);
+	mixin Union!(
+		Bogus,
+		CalledSpecSig,
+		EnumOrFlagsMember*,
+		FunDecl*,
+		Local*,
+		RecordField*,
+		Signature*,
+		StructAlias*,
+		StructDecl*,
+		SpecDecl*,
+		TypeParamIndex,
+		UnionMember*,
+		VarDecl*);
 }
 alias DocCommentReferences = SmallArray!DocCommentReference;
 DocCommentReferences emptyDocCommentReferences() =>

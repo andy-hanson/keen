@@ -183,7 +183,7 @@ DocExport documentStructDecl(ref Ctx ctx, in StructDecl a) {
 		(in StructBody.Union x) =>
 			documentUnion(ctx, a, x, variantsField),
 		(in StructBody.Variant x) =>
-			documentVariant(ctx.alloc, a, x, variantsField)));
+			documentVariant(ctx, a, x, variantsField)));
 }
 
 Json jsonOfEnumMembers(ref Alloc alloc, in EnumOrFlagsMember[] members) =>
@@ -224,12 +224,16 @@ Json documentUnion(ref Ctx ctx, in StructDecl decl, in StructBody.Union a, Opt!(
 		variantsField]);
 
 Json documentVariant(
-	ref Alloc alloc,
+	ref Ctx ctx,
 	in StructDecl decl,
 	in StructBody.Variant a,
 	Opt!(Json.ObjectField) variantsField,
 ) =>
-	jsonObject(alloc, [kindField!"variant", maybePurity(alloc, decl), variantsField]); // TODO: document the methods! ------------------------
+	jsonObject(ctx.alloc, [
+		kindField!"variant",
+		maybePurity(ctx.alloc, decl),
+		variantsField,
+		field!"methods"(documentSignatures(ctx, decl.typeParams, a.methods))]);
 
 Opt!Json documentRecordField(ref Ctx ctx, in TypeParams typeParams, in RecordField a) {
 	final switch (a.visibility) {
@@ -255,10 +259,13 @@ DocExport documentSpec(ref Ctx ctx, in SpecDecl a) =>
 		optionalFlagField!"builtin"(has(a.builtin)),
 		field!"parents"(jsonList(map(ctx.alloc, a.parents, (ref immutable SpecInst* x) =>
 			documentSpecInst(ctx, a.typeParams, *x)))),
-		field!"sigs"(jsonList!Signature(ctx.alloc, a.sigs, (in Signature sig) =>
-			documentSpecDeclSig(ctx, a.typeParams, sig)))]));
+		field!"sigs"(documentSignatures(ctx, a.typeParams, a.sigs))]));
 
-Json documentSpecDeclSig(ref Ctx ctx, in TypeParams typeParams, in Signature a) =>
+Json documentSignatures(ref Ctx ctx, in TypeParams typeParams, in Signature[] a) =>
+	jsonList!Signature(ctx.alloc, a, (in Signature x) =>
+			documentSignature(ctx, typeParams, x));
+
+Json documentSignature(ref Ctx ctx, in TypeParams typeParams, in Signature a) =>
 	jsonObject(ctx.alloc, [
 		docCommentField(ctx, a.moduleUri, a.docComment),
 		field!"container"(a.container.name),

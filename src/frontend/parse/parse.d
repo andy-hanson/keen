@@ -88,7 +88,7 @@ ExprAndDiags parseSingleLineExpression(ref Alloc alloc, in CString source) {
 	Lexer lexer = createLexer(ptrTrustMe(alloc), castNonScope_ref(source));
 	mustTakeToken(lexer, Token.newlineSameIndent);
 	ExprAst expr = parseSingleStatementLine(lexer);
-	takeOrAddDiagExpectedToken(lexer, Token.EOF, ParseDiag.Expected.Kind.endOfLine);
+	takeOrAddDiagExpectedToken(lexer, Token.endOfFile, ParseDiag.Expected.Kind.endOfLine);
 	return ExprAndDiags(expr, finishDiagnostics(lexer));
 }
 
@@ -351,7 +351,7 @@ FileAst parseFileInner(ref Lexer lexer) {
 
 	bool first = true;
 	bool tookModuleDocComment = false;
-	while (!tryTakeToken(lexer, Token.EOF)) {
+	while (!tryTakeToken(lexer, Token.endOfFile)) {
 		DocCommentAst docComment = () {
 			DocCommentAst here = tryTakeDocComment(lexer);
 			if (first) {
@@ -367,7 +367,7 @@ FileAst parseFileInner(ref Lexer lexer) {
 				return here;
 			}
 		}();
-		if (tryTakeToken(lexer, Token.EOF)) {
+		if (tryTakeToken(lexer, Token.endOfFile)) {
 			if (!docComment.isEmpty)
 				addDiag(lexer, force(docComment.range), ParseDiag(ParseDiag.DocCommentUnused()));
 			break;

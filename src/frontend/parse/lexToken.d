@@ -3,7 +3,7 @@ module frontend.parse.lexToken;
 @safe @nogc pure nothrow:
 
 import frontend.parse.lexWhitespace :
-	AddDiag, CStringRange, DocCommentAndIndentDelta, IndentKind, skipBlankLinesAndGetIndentDelta, skipUntilNewline;
+	AddDiag, CStringRange, IndentKind, skipBlankLinesAndGetIndentDelta, skipUntilNewline;
 import model.ast : HighPrecisionFloat, LiteralFloatAst, LiteralIntegral;
 import util.conv : mulWithOverflow, safeToLong, Sign, toLongWithOverflow;
 import util.integralValues : IntegralValue;
@@ -25,8 +25,7 @@ import util.string :
 import util.symbol : appendEquals, Symbol, symbol, symbolOfString;
 import util.unicode : isUtf8InitialOrContinueCode, mustTakeOneUnicodeChar;
 
-immutable struct DocCommentAndExtraDedents {
-	CStringRange docComment;
+immutable struct ExtraDedents {
 	uint extraDedents;
 }
 
@@ -37,8 +36,8 @@ immutable struct TokenAndData {
 	private:
 	union {
 		Symbol symbol = void; // For Token.name or Token.operator
-		// For Token.newline or Token.EOF. WARN: The string is temporary.
-		DocCommentAndExtraDedents docComment = void;
+		// For Token.newline or Token.EOF
+		ExtraDedents extraDedents = void;
 		LiteralFloatAst literalFloat = void; // for Token.literalFloat
 		LiteralIntegral literalIntegral = void; // for Token.literalIntegral
 		dchar unexpectedCharacter = void;
@@ -59,10 +58,10 @@ immutable struct TokenAndData {
 		token = t;
 		symbol = s;
 	}
-	this(Token t, DocCommentAndExtraDedents d) {
+	this(Token t, ExtraDedents d) {
 		assert(isNewlineToken(t));
 		token = t;
-		docComment = d;
+		extraDedents = d;
 	}
 	this(Token t, LiteralFloatAst l) {
 		assert(t == Token.literalFloat);
@@ -92,9 +91,9 @@ immutable struct TokenAndData {
 		assert(isSymbol);
 		return symbol;
 	}
-	@trusted DocCommentAndExtraDedents asDocComment() {
+	@trusted uint asExtraDedents() {
 		assert(isNewlineToken(token));
-		return docComment;
+		return extraDedents.extraDedents;
 	}
 	@trusted LiteralFloatAst asLiteralFloat() {
 		assert(token == Token.literalFloat);
@@ -149,7 +148,7 @@ enum Token {
 	enum_, // 'enum'
 	equal, // '='
 	extern_, // 'extern'
-	EOF, // end of file (Why don't I just call it that then? -----------------------------------------------------------------------------)
+	endOfFile,
 	export_, // 'export'
 	finally_, // 'finally'
 	flags, // 'flags'
@@ -224,7 +223,7 @@ enum Token {
 
 bool isNewlineToken(Token a) {
 	switch (a) {
-		case Token.EOF:
+		case Token.endOfFile:
 		case Token.newlineDedent:
 		case Token.newlineIndent:
 		case Token.newlineSameIndent:
@@ -254,9 +253,15 @@ TokenAndData lexInitialToken(ref MutCString ptr, IndentKind indentKind, ref uint
 Advances 'ptr' to lex a single token.
 Possibly writes to 'data' depending on the kind of token returned.
 */
-TokenAndData lexToken(ref MutCString ptr, IndentKind indentKind, Token prevToken, ref uint curIndent, in AddDiag addDiag) {
+TokenAndData lexToken(
+	ref MutCString ptr,
+	IndentKind indentKind,
+	Token prevToken,
+	ref uint curIndent,
+	in AddDiag addDiag,
+) {
 	if (*ptr == '\0')
-		return newlineToken(ptr, Token.EOF, indentKind, curIndent, addDiag);
+		return newlineToken(ptr, Token.endOfFile, indentKind, curIndent, addDiag);
 
 	CString start = ptr;
 	char c = takeChar(ptr);
@@ -494,10 +499,9 @@ TokenAndData newlineToken(
 	ref uint curIndent,
 	in AddDiag addDiag,
 ) {
-	DocCommentAndIndentDelta x = skipBlankLinesAndGetIndentDelta(ptr, indentKind, curIndent, addDiag); // TODO: get rid of this stuff. Doc comment is its own token now.
-	Token token = x.indentDelta == 0 ? newlineOrEOF : x.indentDelta < 0 ? Token.newlineDedent : Token.newlineIndent;
-	uint extraDedents = token == Token.newlineDedent ? -x.indentDelta - 1 : 0;
-	return TokenAndData(token, DocCommentAndExtraDedents(x.docComment, extraDedents));
+	int delta = skipBlankLinesAndGetIndentDelta(ptr, indentKind, curIndent, addDiag);
+	Token token = delta == 0 ? newlineOrEOF : delta < 0 ? Token.newlineDedent : Token.newlineIndent;
+	return TokenAndData(token, ExtraDedents(token == Token.newlineDedent ? -delta - 1 : 0));
 }
 
 TokenAndData operatorToken(scope ref MutCString ptr, Symbol a) =>

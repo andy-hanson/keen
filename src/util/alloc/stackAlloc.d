@@ -72,6 +72,11 @@ private Out withRestoreStack_impure(Out)(in Out delegate() @safe @nogc pure noth
 	return res;
 }
 
+void withStackArray(T)(T a, Opt!T b, in void delegate(in T[]) @safe @nogc pure nothrow cb) =>
+	has(b)
+		? cb([a, force(b)])
+		: cb([a]);
+
 // WARN: Since the size is unknown until 'cbBuild' finishes,
 // you can't do anything else with the stack during it.
 @trusted pure Out withBuildStackArray(Out, Elem)(

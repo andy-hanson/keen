@@ -136,7 +136,7 @@ import model.model :
 	variantMethodCaller,
 	Visibility;
 import util.alloc.alloc : Alloc;
-import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
+import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray, withStackArray;
 import util.col.array : allSame, contains, fold, isEmpty, only, zip, zipIfSizeEq, zipIfSizeEqFilterFirst;
 import util.col.arrayBuilder : buildArray, Builder, buildSortedArray;
 import util.opt : force, has, none, Opt, optIf, some;
@@ -328,10 +328,12 @@ void referencesForLocal(in Program program, Uri curUri, in PositionKind.LocalPos
 		(StructDecl*) =>
 			none!ContainerAndBody);
 	if (has(body_)) {
-		eachDocCommentReference(force(body_).container.docComment, (ref NameAndRange ast, ref DocCommentReference ref_) {
-			if (ref_.isA!(Local*) && ref_.as!(Local*) == a.local)
-				cb(UriAndRange(curUri, ast.range));
-		});
+		eachDocCommentReference(
+			force(body_).container.docComment,
+			(ref NameAndRange ast, ref DocCommentReference ref_) {
+				if (ref_.isA!(Local*) && ref_.as!(Local*) == a.local)
+					cb(UriAndRange(curUri, ast.range));
+			});
 		eachDescendentExprIncluding(program.commonTypes, force(body_).body_, (ExprRef x) {
 			Opt!(Local*) itsLocal = exprLocalReference(x.expr.kind);
 			if (has(itsLocal) && force(itsLocal) == a.local && !x.expr.ast.kind.isA!AssignmentCallAst)
@@ -661,7 +663,11 @@ void referencesForFunDecls(in Program program, in FunDecl*[] decls, in Reference
 	}
 }
 
-alias CbDocCommentReference = void delegate(in Module, in NameAndRange, in DocCommentReference) @safe @nogc pure nothrow;
+alias CbDocCommentReference = void delegate(
+	in Module,
+	in NameAndRange,
+	in DocCommentReference,
+) @safe @nogc pure nothrow;
 void eachDocCommentReference(in Module module_, in CbDocCommentReference cb) {
 	eachDocComment(module_, (DocComment x) {
 		eachDocCommentReference(x, (ref NameAndRange ast, ref DocCommentReference ref_) {
@@ -670,7 +676,10 @@ void eachDocCommentReference(in Module module_, in CbDocCommentReference cb) {
 	});
 }
 
-void eachDocCommentReference(in DocComment a, in void delegate(ref NameAndRange, ref DocCommentReference) @safe @nogc pure nothrow cb) {
+void eachDocCommentReference(
+	in DocComment a,
+	in void delegate(ref NameAndRange, ref DocCommentReference) @safe @nogc pure nothrow cb,
+) {
 	zip!(NameAndRange, DocCommentReference)(a.ast.references, a.references, cb);
 }
 
@@ -683,12 +692,14 @@ void eachDocComment(in Module module_, in void delegate(DocComment) @safe @nogc 
 		x.body_.match!void(
 			(StructBody.Bogus) {},
 			(BuiltinType _) {},
-			(ref StructBody.Enum) {
-				// TODO: ENUM MEMBERS --------------------------------------------------------------------------------------------
+			(ref StructBody.Enum enum_) {
+				foreach (EnumOrFlagsMember member; enum_.members)
+					cb(member.docComment);
 			},
 			(StructBody.Extern) {},
-			(StructBody.Flags) {
-				// TODO: ENUM MEMBERS --------------------------------------------------------------------------------------------
+			(StructBody.Flags flags) {
+				foreach (EnumOrFlagsMember member; flags.members)
+					cb(member.docComment);
 			},
 			(StructBody.Record record) {
 				foreach (ref RecordField field; record.fields)
@@ -777,7 +788,8 @@ void referencesForSignature(in Program program, in Signature* a, in ReferenceCb 
 			eachExprThatMayReference(
 				program, spec.visibility, moduleAtUri(program, a.moduleUri),
 				(in Module module_, in NameAndRange ast, in DocCommentReference x) {
-					// TODO -----------------------------------------------------------------------------------------------------------
+					if (x.isA!(Signature*) && x.as!(Signature*) == a)
+						cb(UriAndRange(module_.uri, ast.range));
 				},
 				(in Module module_, ExprRef x) {
 					Opt!Called optCalled = getCalledAtExpr(x.expr.kind);
@@ -808,7 +820,8 @@ void referencesForEnumOrFlagsMember(in Program program, in EnumOrFlagsMember* me
 	eachExprThatMayReference(
 		program, member.visibility, declaringModule,
 		(in Module module_, in NameAndRange ast, in DocCommentReference x) {
-			// TODO -----------------------------------------------------------------------------------------------------------
+			if (x.isA!(EnumOrFlagsMember*) && x.as!(EnumOrFlagsMember*) == member)
+				cb(UriAndRange(module_.uri, ast.range));;
 		},
 		(in Module m, ExprRef x) {
 			if (x.expr.kind.isA!(MatchEnumExpr*)) {
@@ -830,7 +843,7 @@ void referencesForUnionMember(in Program program, in UnionMember* member, in Ref
 	Opt!(FunDecl*) getter = optIf(member.hasValue, () =>
 		mustFindFunNamed(declaringModule, member.name, (in FunDecl fun) =>
 			fun.body_.isA!(FunBody.UnionMemberGet) && fun.body_.as!(FunBody.UnionMemberGet).member == member));
-	withFuns!(immutable FunDecl*)(ctor, getter, (in FunDecl*[] funs) {
+	withStackArray!(immutable FunDecl*)(ctor, getter, (in FunDecl*[] funs) {
 		eachExprThatMayReference(
 			program, member.visibility, declaringModule,
 			(in Module module_, in NameAndRange ast, in DocCommentReference x) {
@@ -851,11 +864,6 @@ void referencesForUnionMember(in Program program, in UnionMember* member, in Ref
 			});
 	});
 }
-
-void withFuns(T)(T a, Opt!T b, in void delegate(in T[]) @safe @nogc pure nothrow cb) => // TODO: better name --------------------------
-	has(b)
-		? cb([a, force(b)])
-		: cb([a]);
 
 void referencesForVarDecl(in Program program, in VarDecl* a, in ReferenceCb cb) {
 	// Find references to get/set

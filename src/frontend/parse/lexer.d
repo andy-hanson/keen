@@ -4,7 +4,7 @@ module frontend.parse.lexer;
 
 import frontend.parse.lexString : takeStringPart;
 import frontend.parse.lexToken :
-	DocCommentAndExtraDedents,
+	ExtraDedents,
 	isNewlineToken,
 	lexInitialToken,
 	lexToken,
@@ -159,11 +159,9 @@ void skipNewlinesIgnoreIndentation(ref Lexer lexer, uint indentLevel) {
 			case Token.newlineSameIndent:
 				takeNextToken(lexer);
 				continue;
-			case Token.EOF:
+			case Token.endOfFile:
 				if (indentLevel != 0)
-					cellSet(
-						lexer.nextToken,
-						TokenAndData(Token.newlineDedent, DocCommentAndExtraDedents(CStringRange.empty, 0)));
+					cellSet(lexer.nextToken, TokenAndData(Token.newlineDedent, ExtraDedents(0)));
 				lexer.curIndent = 0;
 				return;
 			default:
@@ -182,10 +180,10 @@ TokenAndData takeNextToken(ref Lexer lexer) {
 	TokenAndData res = cellGet(lexer.nextToken);
 	switch (res.token) {
 		case Token.newlineDedent:
-			DocCommentAndExtraDedents dc = res.asDocComment();
+			uint extraDedents = res.asExtraDedents;
 			cellSet(lexer.nextToken, TokenAndData(
-				dc.extraDedents == 0 ? Token.newlineSameIndent : Token.newlineDedent,
-				DocCommentAndExtraDedents(dc.docComment, dc.extraDedents == 0 ? 0 : dc.extraDedents - 1)));
+				extraDedents == 0 ? Token.newlineSameIndent : Token.newlineDedent,
+				ExtraDedents(extraDedents == 0 ? 0 : extraDedents - 1)));
 			break;
 		case Token.quoteBar:
 		case Token.quoteDouble:

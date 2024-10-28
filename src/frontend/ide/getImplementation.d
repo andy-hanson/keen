@@ -26,12 +26,18 @@ private:
 
 void implementationForTarget(in Program program, Uri uri, in Target target, in ReferenceCb cb) {
 	if (target.isA!(Signature*) && target.as!(Signature*).container.isA!(StructDecl*))
-		implementationForVariantMethod(program, target.as!(Signature*).container.as!(StructDecl*), target.as!(Signature*), cb);
+		implementationForVariantMethod(
+			program, target.as!(Signature*).container.as!(StructDecl*), target.as!(Signature*), cb);
 	else
 		definitionForTarget(uri, target, cb);
 }
 
-void implementationForVariantMethod(in Program program, in StructDecl* variant, in Signature* method, in ReferenceCb cb) {
+void implementationForVariantMethod(
+	in Program program,
+	in StructDecl* variant,
+	in Signature* method,
+	in ReferenceCb cb,
+) {
 	size_t sigIndex = signatureIndex(method);
 	foreach (ref immutable Module* module_; program.allModules) {
 		foreach (ref StructDecl struct_; module_.structs) {

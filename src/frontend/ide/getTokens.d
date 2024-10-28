@@ -282,6 +282,19 @@ void stringLiteral(scope ref TokensBuilder a, in Range range) {
 	reference(a, TokenType.string, range);
 }
 
+void addDocCommentTokens(scope ref Ctx ctx, in DocCommentAst a) {
+	if (!a.isEmpty) {
+		Range range = force(a.range);
+		Pos pos = range.start;
+		foreach (TypeAst x; a.references) {
+			reference(ctx.tokens, TokenType.comment, Range(pos, x.range.start));
+			reference(ctx.tokens, TokenType.variable, x.range);
+			pos = x.range.end;
+		}
+		reference(ctx.tokens, TokenType.comment, Range(pos, range.end));
+	}
+}
+
 void addImportTokens(scope ref Ctx ctx, in ImportsOrExportsAst a) {
 	foreach (ref ImportOrExportAst x; a.paths) {
 		reference(ctx.tokens, TokenType.namespace, x.pathRange);
@@ -464,20 +477,6 @@ void addFunTokens(scope ref Ctx ctx, in FunDeclAst a) {
 	addSigReturnTypeAndParamsTokens(ctx, a.returnType, a.params);
 	addModifierTokens(ctx, a.modifiers);
 	addExprTokens(ctx, a.body_);
-}
-
-//MOVE------------------------------------------------------------------------------------------------------------------------------
-void addDocCommentTokens(scope ref Ctx ctx, in DocCommentAst a) {
-	if (!a.isEmpty) {
-		Range range = force(a.range);
-		Pos pos = range.start;
-		foreach (TypeAst x; a.references) {
-			reference(ctx.tokens, TokenType.comment, Range(pos, x.range.start));
-			reference(ctx.tokens, TokenType.variable, x.range);
-			pos = x.range.end;
-		}
-		reference(ctx.tokens, TokenType.comment, Range(pos, range.end));
-	}
 }
 
 void addTestTokens(scope ref Ctx ctx, in TestAst a) {
