@@ -65,7 +65,6 @@ enum CommonModule {
 	boolLowLevel,
 	compare,
 	exceptionLowLevel,
-	funUtil,
 	futureLowLevel,
 	js,
 	json,

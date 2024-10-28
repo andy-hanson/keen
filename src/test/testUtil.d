@@ -244,7 +244,6 @@ alias testIncludePathsSeq = AliasSeq!(
 	"crow/enum-util.crow",
 	"crow/exception.crow",
 	"crow/flags-util.crow",
-	"crow/fun-util.crow",
 	"crow/hash.crow",
 	"crow/io/print.crow",
 	"crow/io/private/time-low-level.crow",

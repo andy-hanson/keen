@@ -580,7 +580,6 @@ CommonUris commonUris(Uri includeDir) {
 		private_ / symbol!"bool-low-level",
 		includeCrow / symbol!"compare",
 		private_ / symbol!"exception-low-level",
-		includeCrow / symbol!"fun-util",
 		private_ / symbol!"future-low-level",
 		includeCrow / symbol!"js",
 		includeCrow / symbol!"json",

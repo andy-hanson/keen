@@ -738,7 +738,6 @@ immutable string[] specialSymbols = [
 	"fun-kind",
 	"fun-name",
 	"fun-pointers",
-	"fun-util",
 	"funInsts",
 	"fun-mut",
 	"fun-pointer",

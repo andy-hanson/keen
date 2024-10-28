@@ -148,7 +148,7 @@ CommonFunsAndDiagnostics getCommonFuns(
 		createError: getFun(
 			CommonModule.exceptionLowLevel, symbol!"error", Type(commonTypes.exception), [param!"a"(stringType)]),
 		lambdaSubscript: getLambdaSubscriptFuns(
-			alloc, commonTypes, *modules[CommonModule.funUtil]),
+			alloc, commonTypes, *modules[CommonModule.misc]),
 		sharedOfMutLambda: getFunDeclInner(
 			*modules[CommonModule.runtime],
 			symbol!"shared-of-mut-lambda",
@@ -276,10 +276,10 @@ Type typeParam1() => Type(TypeParamIndex(1));
 immutable(EnumMap!(FunKind, FunDecl*)) getLambdaSubscriptFuns(
 	ref Alloc alloc,
 	in CommonTypes commonTypes,
-	in Module funUtil,
+	in Module misc,
 ) {
 	EnumMap!(FunKind, MutOpt!(FunDecl*)) res;
-	foreach (FunDecl* x; getFuns(funUtil, symbol!"subscript")) {
+	foreach (FunDecl* x; getFuns(misc, symbol!"subscript")) {
 		// TODO: check the type more thoroughly
 		FunKind funKind = firstArgFunKind(commonTypes, x);
 		assert(!has(res[funKind]));
