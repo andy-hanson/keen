@@ -6,6 +6,7 @@ import concretize.allConstantsBuilder : finishAllConstants;
 import concretize.checkConcreteModel : checkConcreteProgram, ConcreteCommonTypes;
 import concretize.concretizeCtx :
 	boolType,
+	char8Type,
 	concreteFunForWrapMain,
 	ConcreteLambdaImpl,
 	ConcreteVariantMemberAndMethodImpls,
@@ -13,6 +14,7 @@ import concretize.concretizeCtx :
 	deferredFillRecordAndUnionBodies,
 	exceptionType,
 	finishConcreteVars,
+	getConcreteFun,
 	getNonTemplateConcreteFun,
 	getVar,
 	nat64Type,
@@ -35,10 +37,11 @@ import model.concreteModel :
 	ConcreteType,
 	mustBeByVal;
 import model.model :
-	allExterns, BuildTarget, BuiltinFun, CommonFuns, FunBody, MainFun, ProgramWithMain, StructBody, TestSelector;
+	allExterns, BuildTarget, BuiltinFun, CommonFuns, FunBody, FunInst, IntegralType, MainFun, ProgramWithMain, StructBody, TestSelector;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mustHaveIndexOfPointer, small;
 import util.col.arrayBuilder : asTemporaryArray, finish;
+import util.col.enumMap : EnumMap, enumMapMapValues;
 import util.col.mutArr : asTemporaryArray, MutArr, push;
 import util.col.mutMap : mustGet;
 import util.late : late, lateSet;
@@ -75,9 +78,13 @@ ConcreteProgram concretizeInner(
 		allExterns(program, BuildTarget.native(versionInfo.os)));
 	CommonFuns commonFuns = program.program.commonFuns;
 	lateSet(ctx.createErrorFunction_, getNonTemplateConcreteFun(ctx, commonFuns.createError));
-	lateSet(ctx.equalNat64Function_, getNonTemplateConcreteFun(ctx, commonFuns.equalNat64));
-	lateSet(ctx.lessNat64Function_, getNonTemplateConcreteFun(ctx, commonFuns.lessNat64));
+	lateSet!(EnumMap!(IntegralType, ConcreteFun*))(ctx.equalIntegralFunctions_, enumMapMapValues(commonFuns.equalIntegralFunctions, (const FunInst* x) =>
+		getNonTemplateConcreteFun(ctx, x)));
+	lateSet(ctx.equalSymbolFunction_, getConcreteFun(ctx, commonFuns.equalConstPointers, [char8Type(ctx)], []));
+	lateSet(ctx.lessIntegralFunctions_, enumMapMapValues(commonFuns.lessIntegralFunctions, (const FunInst* x) =>
+		getNonTemplateConcreteFun(ctx, x)));
 	lateSet(ctx.newJsonFromPairsFunction_, getNonTemplateConcreteFun(ctx, commonFuns.newJsonFromPairs));
+	lateSet(ctx.toJsonFromStringFunction_, getNonTemplateConcreteFun(ctx, commonFuns.toJsonFromString));
 	ConcreteCommonFuns concreteCommonFuns = ConcreteCommonFuns(
 		alloc: getNonTemplateConcreteFun(ctx, commonFuns.allocate),
 		curCatchPoint: getNonTemplateConcreteFun(ctx, commonFuns.curCatchPoint),

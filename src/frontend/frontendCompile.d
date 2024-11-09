@@ -586,6 +586,7 @@ CommonUris commonUris(Uri includeDir) {
 		includeCrow / symbol!"misc",
 		col / symbol!"mut-array",
 		private_ / symbol!"number-low-level",
+		includeCrow / symbol!"pointer",
 		private_ / symbol!"runtime",
 		private_ / symbol!"rt-main",
 		includeCrow / symbol!"std",

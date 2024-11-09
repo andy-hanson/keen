@@ -488,18 +488,20 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 			(AutoFun x) {
 				final switch (x.kind) {
 					case AutoFun.Kind.equals:
-						break;
+					case AutoFun.Kind.enumOrFlagsMembers:
+					case AutoFun.Kind.enumOrFlagsToIntegral:
+					case AutoFun.Kind.enumToSymbol:
 					case AutoFun.Kind.compare:
-						usedReturnType();
+					case AutoFun.Kind.symbolToOptEnum:
 						break;
 					case AutoFun.Kind.toJson:
-						usedReturnType();
 						trackAllUsedInCalled(
 							res, a.moduleUri, FunOrTest(a),
 							Called(res.program.commonFuns.newJsonFromPairs),
 							FunUse.regular);
 						break;
 				}
+				usedReturnType();
 				foreach (Called called; x.members)
 					trackAllUsedInCalled(res, a.moduleUri, FunOrTest(a), called, FunUse.regular);
 			},

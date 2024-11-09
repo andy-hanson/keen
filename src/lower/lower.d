@@ -29,8 +29,8 @@ import lower.lowExprHelpers :
 	genConstantNat64,
 	genDrop,
 	genEnumEq,
-	genEnumIntersect,
-	genEnumUnion,
+	genFlagsIntersect,
+	genFlagsUnion,
 	genFalse,
 	genFunPointer,
 	genIdentifier,
@@ -1063,6 +1063,8 @@ LowExpr getLowExpr(
 	return expr.kind.match!LowExpr(
 		(ConcreteExprKind.Call x) =>
 			getCallExpr(ctx, locals, exprPos, type, range, x.called, x.args),
+		(ConcreteExprKind.Cast x) =>
+			getLowExpr(ctx, locals, type, *x.inner, exprPos),
 		(Constant x) =>
 			regular(LowExprKind(x)),
 		(ConcreteExprKind.CreateArray x) =>
@@ -1297,9 +1299,9 @@ LowExpr getRecordFieldSet(
 				ctx.alloc, range, getRecord, fieldIndex, getLowExpr(ctx, locals, value, ExprPos.nonTail))));
 
 LowExpr genFlagsNegate(ref Alloc alloc, UriAndRange range, ulong allValue, LowExpr a) =>
-	genEnumIntersect(alloc, range, genBitwiseNegate(alloc, range, a), genConstantIntegral(a.type, range, allValue));
+	genFlagsIntersect(alloc, range, genBitwiseNegate(alloc, range, a), genConstantIntegral(a.type, range, allValue));
 
-LowExpr genEnumOrFlagsFunction(
+LowExpr genEnumOrFlagsFunction( // rename -- these are only flags functions now ------------------------------------------------------------------
 	ref GetLowExprCtx ctx,
 	in Locals locals,
 	LowType type,
@@ -1310,21 +1312,19 @@ LowExpr genEnumOrFlagsFunction(
 	LowExpr arg0() => getLowExpr(ctx, locals, args[0], ExprPos.nonTail);
 	LowExpr arg1() => getLowExpr(ctx, locals, args[1], ExprPos.nonTail);
 	final switch (a) {
-		case EnumOrFlagsFunction.equal:
+		case EnumOrFlagsFunction.in_:
 			assert(args.length == 2);
-			return genEnumEq(ctx.alloc, range, arg0(), arg1());
+			// `a in b` ==> `x = a; x & b == x`
+			return genLetTempConstNoGcRoot(ctx, range, arg0, (LowExpr getA) =>
+				genEnumEq(ctx.alloc, range, genFlagsIntersect(ctx.alloc, range, getA, arg1), getA));
 		case EnumOrFlagsFunction.intersect:
 			assert(args.length == 2);
-			return genEnumIntersect(ctx.alloc, range, arg0(), arg1());
+			return genFlagsIntersect(ctx.alloc, range, arg0(), arg1());
 		case EnumOrFlagsFunction.none:
 			return genConstantIntegral(type, range, 0);
-		case EnumOrFlagsFunction.toIntegral:
-			assert(args.length == 1);
-			return arg0();
 		case EnumOrFlagsFunction.union_:
 			assert(args.length == 2);
-			return genEnumUnion(ctx.alloc, range, arg0(), arg1());
-		case EnumOrFlagsFunction.members: // In concretize, this was translated to a constant
+			return genFlagsUnion(ctx.alloc, range, arg0(), arg1());
 		case EnumOrFlagsFunction.negate: // This becomes a ConcreteFunBody.FlagsFn
 			assert(false);
 	}

@@ -68,7 +68,7 @@ import util.symbol : enumOfSymbol, Symbol, symbol, symbolOfEnum;
 import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, SymbolSetBuilder;
 import util.union_ : IndexType, TaggedUnion, Union;
 import util.uri : RelPath, Uri;
-import util.util : enumConvertOrAssert, max, min, stringOfEnum;
+import util.util : enumConvertOrAssert, max, min, optEnumConvert, stringOfEnum;
 import versionInfo : OS, VersionFun;
 
 alias Purity = immutable Purity_;
@@ -201,12 +201,20 @@ bool isSymbol(in Type a) =>
 bool isVoid(in Type a) =>
 	isBuiltinType(a, BuiltinType.void_);
 
+Opt!IntegralType asIntegralType(in Type a) {
+	Opt!BuiltinType builtin = asBuiltinType(a);
+	return has(builtin) ? optEnumConvert!IntegralType(force(builtin)) : none!IntegralType;
+}
+
 private bool isBuiltinType(in Type a, BuiltinType builtin) =>
 	a.isA!(StructInst*) && isBuiltinType(*a.as!(StructInst*), builtin);
 private bool isBuiltinType(in StructInst a, BuiltinType builtin) =>
 	isBuiltinType(*a.decl, builtin);
 private bool isBuiltinType(in StructDecl a, BuiltinType builtin) =>
 	a.body_.isA!BuiltinType && a.body_.as!BuiltinType == builtin;
+private Opt!BuiltinType asBuiltinType(in Type a) =>
+	optIf(a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!BuiltinType, () =>
+		a.as!(StructInst*).decl.body_.as!BuiltinType);
 
 Type arrayElementType(Type type) {
 	assert(isArray(type));
@@ -219,7 +227,9 @@ Type mustUnwrapOptionType(in CommonTypes commonTypes, Type a) {
 }
 
 bool isOptionType(in CommonTypes commonTypes, in Type a) =>
-	a.isA!(StructInst*) && a.as!(StructInst*).decl == commonTypes.option;
+	a.isA!(StructInst*) && isOptionType(commonTypes, a.as!(StructInst*).decl);
+bool isOptionType(in CommonTypes commonTypes, in StructDecl* a) =>
+	a == commonTypes.option;
 
 bool isFunPointer(in Type a) =>
 	isBuiltinType(a, BuiltinType.funPointer);
@@ -282,6 +292,8 @@ immutable struct Params {
 			(in Params.Varargs) =>
 				Arity(Arity.Varargs()));
 }
+bool isEmpty(in Params a) =>
+	isEmpty(a.arity);
 
 SmallArray!Destructure paramsArray(return scope Params a) =>
 	a.matchWithPointers!(SmallArray!Destructure)(
@@ -306,8 +318,14 @@ immutable struct Arity {
 	bool isVariadic() scope =>
 		isA!Varargs;
 }
+bool isEmpty(in Arity a) =>
+	a.match!bool(
+		(uint nParams) =>
+			nParams == 0,
+		(Arity.Varargs) =>
+			false);
 
-bool arityMatches(Arity sigArity, size_t nArgs) =>
+bool arityMatches(in Arity sigArity, size_t nArgs) =>
 	sigArity.match!bool(
 		(uint nParams) =>
 			nParams == nArgs,
@@ -967,13 +985,11 @@ immutable struct SpecInstBody {
 	SmallArray!ReturnAndParamTypes sigTypes;
 }
 
-enum EnumOrFlagsFunction {
-	equal,
+enum EnumOrFlagsFunction { // TODO: RENAME --------------------------------------------------------------------------------------------
+	in_, // AKA subset
 	intersect, // flags only
-	members,
 	negate, // flags only
 	none, // flags only
-	toIntegral,
 	union_, // flags only
 }
 
@@ -998,7 +1014,7 @@ string stringOfVarKindLowerCase(VarKind a) {
 }
 
 immutable struct AutoFun {
-	enum Kind { compare, equals, toJson }
+	enum Kind { compare, enumOrFlagsMembers, enumOrFlagsToIntegral, enumToSymbol, equals, symbolToOptEnum, toJson }
 	Kind kind;
 	Called[] members; // e.g., '<=>' implementations for each record/union member
 }
@@ -1068,6 +1084,9 @@ immutable struct FunBody {
 		VariantMemberGet,
 		VariantMethod,
 		VarSet);
+
+	static FunBody bogus() =>
+		FunBody(Bogus());
 
 	bool isGenerated() scope =>
 		!isA!Bogus && !isA!AutoFun && !isA!BuiltinFun && !isA!Expr && !isA!Extern && !isA!FileImport;
@@ -2218,12 +2237,14 @@ immutable struct CommonFuns {
 	FunDecl* sharedOfMutLambda;
 	FunInst* mark;
 	FunInst* newJsonFromPairs;
+	FunInst* toJsonFromString;
 	FunInst* runFiber;
 	FunInst* runAllTests;
 	FunInst* rtMain;
 	FunInst* throwImpl;
-	FunInst* equalNat64;
-	FunInst* lessNat64;
+	EnumMap!(IntegralType, FunInst*) equalIntegralFunctions;
+	FunDecl* equalConstPointers;
+	EnumMap!(IntegralType, FunInst*) lessIntegralFunctions;
 	FunInst* rethrowCurrentException;
 
 	FunInst* gcRoot;

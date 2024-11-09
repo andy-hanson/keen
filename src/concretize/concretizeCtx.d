@@ -11,7 +11,6 @@ import concretize.concretizeExpr :
 	ensureVariantMember,
 	withConcretizeExprCtx;
 import concretize.generate :
-	bodyForEnumOrFlagsMembers,
 	concretizeAutoFun,
 	fieldIndexFromField,
 	genConstant,
@@ -28,6 +27,7 @@ import concretize.generate :
 	unwrapOptionType;
 import frontend.storage : FileContentGetters;
 import model.concreteModel :
+	arrayElementType,
 	ConcreteExpr,
 	ConcreteExprKind,
 	ConcreteField,
@@ -112,6 +112,7 @@ import util.col.array :
 	small,
 	SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder;
+import util.col.enumMap : EnumMap, makeEnumMap;
 import util.col.hashTable : getOrAdd, getOrAddAndDidAdd, moveToArray, MutHashTable;
 import util.col.map : mustGet;
 import util.col.mutArr : filterUnordered, MutArr, mutArrIsEmpty, push;
@@ -123,7 +124,7 @@ import util.opt : force, has, none, Opt, optOrDefault;
 import util.sourceRange : UriAndRange;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : SymbolSet;
-import util.util : enumConvert, max, roundUp, typeAs;
+import util.util : castImmutable, enumConvert, max, roundUp, typeAs;
 import versionInfo : OS, VersionInfo;
 
 private alias TypeArgsScope = SmallArray!ConcreteType;
@@ -174,9 +175,11 @@ struct ConcretizeCtx {
 	FileContentGetters fileContentGetters; // For 'assert' or 'forbid' messages and file imports
 	SymbolSet allExterns;
 	Late!(ConcreteFun*) createErrorFunction_;
-	Late!(ConcreteFun*) equalNat64Function_;
-	Late!(ConcreteFun*) lessNat64Function_;
+	Late!(EnumMap!(IntegralType, ConcreteFun*)) equalIntegralFunctions_;
+	Late!(ConcreteFun*) equalSymbolFunction_;
+	Late!(EnumMap!(IntegralType, ConcreteFun*)) lessIntegralFunctions_;
 	Late!(ConcreteFun*) newJsonFromPairsFunction_;
+	Late!(ConcreteFun*) toJsonFromStringFunction_;
 	AllConstantsBuilder allConstants;
 	MutHashTable!(ConcreteStruct*, ConcreteStructSource.Inst, getStructKey) nonLambdaConcreteStructs;
 	ArrayBuilder!(ConcreteStruct*) allConcreteStructs;
@@ -196,7 +199,7 @@ struct ConcretizeCtx {
 	Late!ConcreteType _char32ArrayType;
 	Late!ConcreteType _exceptionType;
 	Late!ConcreteType _voidType;
-	Late!ConcreteType _nat64Type;
+	Late!(EnumMap!(IntegralType, ConcreteType)) _integralTypes;
 	Late!ConcreteType _ctxType;
 	Late!ConcreteType _symbolType;
 
@@ -207,12 +210,20 @@ struct ConcretizeCtx {
 		programWithMainPtr.program;
 	ref CommonTypes commonTypes() return scope const =>
 		program.commonTypes;
+	ref immutable(EnumMap!(IntegralType, ConcreteFun*)) equalIntegralFunctions() return scope const =>
+		lateGet(equalIntegralFunctions_);
 	ConcreteFun* equalNat64Function() return scope const =>
-		lateGet(equalNat64Function_);
+		equalIntegralFunctions[IntegralType.nat64];
+	ConcreteFun* equalSymbolFunction() return scope const =>
+		lateGet(equalSymbolFunction_);
+	ref immutable(EnumMap!(IntegralType, ConcreteFun*)) lessIntegralFunctions() return scope const =>
+		lateGet(lessIntegralFunctions_);
 	ConcreteFun* lessNat64Function() return scope const =>
-		lateGet(lessNat64Function_);
+		lessIntegralFunctions[IntegralType.nat64];
 	ConcreteFun* newJsonFromPairsFunction() return scope const =>
 		lateGet(newJsonFromPairsFunction_);
+	ConcreteFun* toJsonFromStringFunction() return scope const =>
+		lateGet(toJsonFromStringFunction_);
 	ConcreteFun* createErrorFunction() return scope const =>
 		lateGet(createErrorFunction_);
 }
@@ -261,6 +272,9 @@ ConcreteType voidType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._voidType, () =>
 		getConcreteType_forStructInst(a, a.commonTypes.void_, emptySmallArray!ConcreteType));
 
+ConcreteType char8Type(ref ConcretizeCtx a) =>
+	arrayElementType(char8ArrayType(a));
+
 ConcreteType char8ArrayType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._char8ArrayType, () =>
 		getConcreteType_forStructInst(a, a.commonTypes.char8Array, emptySmallArray!ConcreteType));
@@ -272,9 +286,14 @@ ConcreteType char32ArrayType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._char32ArrayType, () =>
 		getConcreteType_forStructInst(a, a.commonTypes.char32Array, emptySmallArray!ConcreteType));
 
+ref immutable(EnumMap!(IntegralType, ConcreteType)) integralTypes(ref ConcretizeCtx a) =>
+	lazilySet!(EnumMap!(IntegralType, ConcreteType))(a._integralTypes, () =>
+		// TODO: castImmutable should not be needed ------------------------------------------------------------------------------------
+		castImmutable(makeEnumMap!(IntegralType, ConcreteType)((IntegralType x) =>
+			getConcreteType_forStructInst(a, a.commonTypes.integrals[x], emptySmallArray!ConcreteType))));
+
 ConcreteType nat64Type(ref ConcretizeCtx a) =>
-	lazilySet!ConcreteType(a._nat64Type, () =>
-		getConcreteType_forStructInst(a, a.commonTypes.integrals.nat64, emptySmallArray!ConcreteType));
+	integralTypes(a)[IntegralType.nat64];
 
 ConcreteType exceptionType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._exceptionType, () =>
@@ -762,14 +781,11 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 					return ConcreteFunBody(ConcreteFunBody.FlagsFn(
 						getAllFlagsValue(mustBeByVal(cf.returnType)),
 						x));
-				case EnumOrFlagsFunction.equal:
+				case EnumOrFlagsFunction.in_:
 				case EnumOrFlagsFunction.intersect:
 				case EnumOrFlagsFunction.none:
-				case EnumOrFlagsFunction.toIntegral:
 				case EnumOrFlagsFunction.union_:
 					return ConcreteFunBody(x);
-				case EnumOrFlagsFunction.members:
-					return bodyForEnumOrFlagsMembers(ctx, cf.returnType);
 			}
 		},
 		(Expr x) =>

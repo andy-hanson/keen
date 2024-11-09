@@ -211,6 +211,10 @@ Json jsonOfConcreteExprKind(ref Alloc alloc, in Ctx ctx, in ConcreteExprKind a) 
 				kindField!"call",
 				field!"called"(jsonOfConcreteFunRef(alloc, *x.called)),
 				field!"args"(jsonOfConcreteExprs(alloc, ctx, x.args))]),
+		(in ConcreteExprKind.Cast x) =>
+			jsonObject(alloc, [
+				kindField!"cast",
+				field!"inner"(jsonOfConcreteExpr(alloc, ctx, *x.inner))]),
 		(in Constant x) =>
 			jsonObject(alloc, [
 				kindField!"constant",

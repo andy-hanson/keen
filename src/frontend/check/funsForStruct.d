@@ -9,7 +9,6 @@ import frontend.check.instantiate :
 	InstantiateCtx,
 	instantiateStructWithOwnTypeParams,
 	instantiateStructNeverDelay,
-	makeArrayType,
 	makeConstPointerType,
 	makeMutPointerType,
 	makeOptionType;
@@ -20,7 +19,6 @@ import model.model :
 	CommonTypes,
 	Destructure,
 	DestructureIgnoreSource,
-	IntegralType,
 	isVoid,
 	EnumOrFlagsFunction,
 	EnumOrFlagsMember,
@@ -63,13 +61,13 @@ private size_t countFunsForStruct(in CommonTypes commonTypes, in StructDecl a) =
 		(in BuiltinType _) =>
 			0,
 		(in StructBody.Enum x) =>
-			// 'enum-members', 'to', '==', and a constructor for each member
-			3 + x.members.length,
+			// constructor for each member
+			x.members.length,
 		(in StructBody.Extern x) =>
 			size_t(has(x.size) ? 1 : 0),
 		(in StructBody.Flags x) =>
-			// 'flags-members', 'to', '==', 'new', '~', '&', '|', and a constructor for each member
-			7 + x.members.length,
+			// 'new', '~', '&', '|', 'in', and a constructor for each member
+			5 + x.members.length,
 		(in StructBody.Record x) {
 			size_t forGetSet = sum!RecordField(x.fields, (in RecordField field) =>
 				1 + has(field.mutability));
@@ -272,9 +270,6 @@ void addFunsForEnum(
 	ref StructBody.Enum enum_,
 ) {
 	StructInst* inst = instantiateNonTemplateStructDeclNeverDelay(ctx.instantiateCtx, struct_);
-	funsBuilder ~= enumOrFlagsMembersFunction(ctx, commonTypes, inst, symbol!"enum-members");
-	funsBuilder ~= enumOrFlagsToIntegralFunction(ctx.alloc, commonTypes, enum_.storage, inst);
-	funsBuilder ~= enumOrFlagsEqualsFunction(ctx.alloc, commonTypes, inst);
 	foreach (ref EnumOrFlagsMember member; enum_.members)
 		funsBuilder ~= enumOrFlagsConstructor(ctx.alloc, struct_.visibility, inst, &member);
 }
@@ -287,10 +282,6 @@ void addFunsForFlags(
 	ref StructBody.Flags flags,
 ) {
 	StructInst* inst = instantiateNonTemplateStructDeclNeverDelay(ctx.instantiateCtx, struct_);
-	funsBuilder ~= enumOrFlagsMembersFunction(ctx, commonTypes, inst, symbol!"flags-members");
-	funsBuilder ~= enumOrFlagsToIntegralFunction(ctx.alloc, commonTypes, flags.storage, inst);
-	funsBuilder ~= enumOrFlagsEqualsFunction(ctx.alloc, commonTypes, inst);
-
 	FunDecl make(Symbol name, Type returnType, in ParamShort[] params, EnumOrFlagsFunction fun) =>
 		funForStruct(
 			struct_,
@@ -304,6 +295,7 @@ void addFunsForFlags(
 	funsBuilder ~= make(symbol!"~", type, [param!"a"(type)], EnumOrFlagsFunction.negate);
 	funsBuilder ~= make(symbol!"|", type, [param!"a"(type), param!"b"(type)], EnumOrFlagsFunction.union_);
 	funsBuilder ~= make(symbol!"&", type, [param!"a"(type), param!"b"(type)], EnumOrFlagsFunction.intersect);
+	funsBuilder ~= make(symbol!"in", Type(commonTypes.bool_), [param!"a"(type), param!"b"(type)], EnumOrFlagsFunction.in_);
 
 	foreach (ref EnumOrFlagsMember member; flags.members)
 		funsBuilder ~= enumOrFlagsConstructor(ctx.alloc, struct_.visibility, inst, &member);
@@ -319,42 +311,6 @@ FunDecl enumOrFlagsConstructor(ref Alloc alloc, Visibility visibility, StructIns
 		FunFlags.generatedBare.withSummon(enum_.decl.isSummon),
 		enum_.decl.externSet,
 		FunBody(FunBody.CreateEnumOrFlags(member)));
-
-FunDecl enumOrFlagsMembersFunction(ref CheckCtx ctx, ref CommonTypes commonTypes, StructInst* enum_, Symbol name) =>
-	funForStruct(
-		enum_.decl,
-		name,
-		Type(makeArrayType(
-			ctx.instantiateCtx, commonTypes,
-			Type(instantiateStructNeverDelay(
-				ctx.instantiateCtx, commonTypes.pair,
-				[Type(commonTypes.symbol), Type(enum_)])))),
-		Params.empty,
-		FunFlags.generatedBare,
-		FunBody(EnumOrFlagsFunction.members));
-
-FunDecl enumOrFlagsEqualsFunction(ref Alloc alloc, ref CommonTypes commonTypes, StructInst* enum_) =>
-	funForStruct(
-		enum_.decl,
-		symbol!"==",
-		Type(commonTypes.bool_),
-		makeParams(alloc, [param!"a"(Type(enum_)), param!"b"(Type(enum_))]),
-		FunFlags.generatedBare,
-		FunBody(EnumOrFlagsFunction.equal));
-
-FunDecl enumOrFlagsToIntegralFunction(
-	ref Alloc alloc,
-	ref CommonTypes commonTypes,
-	IntegralType storageType,
-	StructInst* inst,
-) =>
-	funForStruct(
-		inst.decl,
-		symbol!"to",
-		Type(commonTypes.integrals[storageType]),
-		makeParams(alloc, [param!"a"(Type(inst))]),
-		FunFlags.generatedBare.withOkIfUnused(),
-		FunBody(EnumOrFlagsFunction.toIntegral));
 
 void addFunsForRecord(
 	ref CheckCtx ctx,

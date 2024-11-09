@@ -100,6 +100,18 @@ Out enumConvertOrAssert(Out, In)(In a) {
 	}
 }
 
+Opt!Out optEnumConvert(Out, In)(In a) {
+	switch (a) {
+		static foreach (string member; __traits(allMembers, In)) {
+			static if (__traits(hasMember, Out, member)) {
+				case __traits(getMember, In, member):
+					return some(__traits(getMember, Out, member));
+			}
+		}
+		default:
+			return none!Out;
+	}
+}
 Out optEnumConvert(Out, In)(In a, in Out delegate() @safe @nogc pure nothrow default_) {
 	switch (a) {
 		static foreach (string member; __traits(allMembers, In)) {

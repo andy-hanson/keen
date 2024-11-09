@@ -137,14 +137,8 @@ private ModifierKeyword newVisibility(Visibility a) {
 	}
 }
 
-private Opt!ModifierKeyword tryGetModifierKeyword(Token a) {
-	bool ok = true;
-	ModifierKeyword res = optEnumConvert!(ModifierKeyword, Token)(a, () {
-		ok = false;
-		return ModifierKeyword.bare;
-	});
-	return optIf(ok, () => res);
-}
+private Opt!ModifierKeyword tryGetModifierKeyword(Token a) => // inline? -----------------------------------------------------------------------
+	optEnumConvert!(ModifierKeyword, Token)(a);
 
 TypeAst parseTypeForTypedExpr(ref Lexer lexer) =>
 	parseTypeSuffixesNonName(lexer, parseTypeBeforeSuffixes(lexer, ParenthesesNecessary.necessary));

@@ -88,7 +88,7 @@ FunBody inner(
 
 	FunBody fail() {
 		addDiag(ctx, range, Diag(Diag.BuiltinUnsupported(Diag.BuiltinUnsupported.Kind.function_, name)));
-		return FunBody(FunBody.Bogus());
+		return FunBody.bogus;
 	}
 	FunBody constant(bool returnTypeOk, Constant value) =>
 		returnTypeOk ? FunBody(BuiltinFun(value)) : fail();

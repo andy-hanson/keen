@@ -143,6 +143,8 @@ DocCommentReferences checkDocCommentReferences(
 		checkDocCommentReference(
 			ctx, commonTypes, structsAndAliasesMap, specsMap, funsMap, typeParams, specs, name));
 
+private:
+
 DocCommentReference checkDocCommentReference(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
@@ -170,8 +172,6 @@ DocCommentReference checkDocCommentReference(
 			return DocCommentReference(DocCommentReference.Bogus());
 		});
 }
-
-private:
 
 Opt!DocCommentReference referenceTypeParam(NameAndRange[] typeParams, Symbol name) =>
 	firstWithIndex!(DocCommentReference, NameAndRange)(typeParams, (size_t index, NameAndRange x) =>

@@ -16,7 +16,8 @@ import model.concreteModel :
 	isVoid,
 	mustBeByVal,
 	pointeeType,
-	ReferenceKind;
+	ReferenceKind,
+	sizeOrPointerSizeBytes;
 import model.constant : Constant;
 import model.model : BuiltinType, isCharOrIntegral;
 import model.showLowModel : writeConcreteType;
@@ -58,6 +59,10 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 			zip(x.called.params, x.args, (ref ConcreteLocal param, ref ConcreteExpr arg) {
 				checkExpr(ctx, param.type, arg);
 			});
+		},
+		(in ConcreteExprKind.Cast x) {
+			assert(sizeOrPointerSizeBytes(type) == sizeOrPointerSizeBytes(x.inner.type));
+			checkExpr(ctx, x.inner.type, *x.inner);
 		},
 		(in Constant) {},
 		(in ConcreteExprKind.CreateArray x) {

@@ -29,6 +29,7 @@ import model.model :
 	FunFlags,
 	FunInst,
 	FunKind,
+	IntegralType,
 	Local,
 	LocalMutability,
 	LocalSource,
@@ -57,7 +58,7 @@ import util.alloc.alloc : Alloc;
 import util.col.array :
 	arraysCorrespond, copyArray, emptySmallArray, findIndex, findPointer, isEmpty, map, optOnly, sizeEq, small;
 import util.col.arrayBuilder : add, ArrayBuilder, smallFinish;
-import util.col.enumMap : EnumMap, enumMapMapValues;
+import util.col.enumMap : EnumMap, enumMapMapValues, makeEnumMap;
 import util.late : late, Late, lateGet, lateIsSet, lateSet;
 import util.memory : allocate;
 import util.opt : force, has, none, MutOpt, Opt, some, someMut;
@@ -125,6 +126,8 @@ CommonFunsAndDiagnostics getCommonFuns(
 	Type catchPoint = getType(CommonModule.bootstrap, symbol!"catch-point");
 	Type catchPointConstPointer = instantiateType(commonTypes.pointerConst, [catchPoint]);
 
+	Type tConstPointer = instantiateType(commonTypes.pointerConst, [typeParam0]);
+
 	Type gcRoot = getType(CommonModule.bootstrap, symbol!"gc-root");
 	Type gcRootMutPointer = instantiateType(commonTypes.pointerMut, [gcRoot]);
 
@@ -164,6 +167,7 @@ CommonFunsAndDiagnostics getCommonFuns(
 		newJsonFromPairs: instantiateNonTemplateFun(ctx, getFunDecl(
 			alloc, diagsBuilder, *modules[CommonModule.json], symbol!"new",
 			TypeParamsAndSig(emptyTypeParams, jsonType, ParamsShort(&newJsonPairsParams), countSpecs: 0))),
+		toJsonFromString: getFun(CommonModule.json, symbol!"to", jsonType, [param!"a"(stringType)]),
 		runAllTests: getFun(CommonModule.testRunner, symbol!"run-all-tests", Type(commonTypes.void_), []),
 		runFiber: getFun(
 			CommonModule.runtime, symbol!"run-fiber",
@@ -183,13 +187,25 @@ CommonFunsAndDiagnostics getCommonFuns(
 			symbol!"throw-impl",
 			voidType,
 			[param!"a"(Type(commonTypes.exception))]),
-		equalNat64: getFun(
-			CommonModule.numberLowLevel,
+		equalIntegralFunctions: makeEnumMap!(IntegralType, FunInst*)((IntegralType type) =>
+			getFun(
+				CommonModule.numberLowLevel,
+				symbol!"==",
+				boolType,
+				[param!"a"(Type(commonTypes.integrals[type])), param!"b"(Type(commonTypes.integrals[type]))])),
+		equalConstPointers: getFunDeclInner(
+			*modules[CommonModule.pointer],
 			symbol!"==",
+			oneTypeParam,
 			boolType,
-			[param!"a"(nat64Type), param!"b"(nat64Type)]),
-		lessNat64: getFun(
-			CommonModule.numberLowLevel, symbol!"is-less", boolType, [param!"a"(nat64Type), param!"b"(nat64Type)]),
+			[param!"a"(tConstPointer), param!"b"(tConstPointer)],
+			countSpecs: 0),
+		lessIntegralFunctions: makeEnumMap!(IntegralType, FunInst*)((IntegralType type) =>
+			getFun(
+				CommonModule.numberLowLevel,
+				symbol!"is-less",
+				boolType,
+				[param!"a"(Type(commonTypes.integrals[type])), param!"b"(Type(commonTypes.integrals[type]))])),
 		rethrowCurrentException: getFun(
 			CommonModule.exceptionLowLevel, symbol!"rethrow-current-exception", voidType, []),
 		gcRoot: getFun(CommonModule.alloc, symbol!"gc-root", gcRootMutPointer, []),
@@ -267,6 +283,9 @@ TestSelector testAtLine(
 		return TestSelector(uri);
 	}
 }
+
+immutable NameAndRange[1] oneTypeParamArray = [NameAndRange(0, symbol!"t")];
+TypeParams oneTypeParam() => TypeParams(oneTypeParamArray);
 
 immutable NameAndRange[2] twoTypeParamsArray = [NameAndRange(0, symbol!"r"), NameAndRange(0, symbol!"p")];
 TypeParams twoTypeParams() => TypeParams(twoTypeParamsArray);
@@ -458,7 +477,7 @@ FunDeclAndSigIndex getFunDeclMulti(
 			FunFlags.generatedBare,
 			emptySymbolSet,
 			[],
-			FunBody(FunBody.Bogus())));
+			FunBody.bogus));
 		add(alloc, diagsBuilder, UriAndDiagnostic(
 			UriAndRange(module_.uri, Range.empty),
 			Diag(Diag.CommonFunMissing(decl, map(alloc, expectedSigs, (ref TypeParamsAndSig sig) =>

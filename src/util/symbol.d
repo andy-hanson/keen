@@ -259,7 +259,7 @@ string stringOfSymbol(ref Alloc alloc, Symbol a) =>
 			writer ~= a;
 		});
 
-private Out withStringOfSymbol(Out)(Symbol a, in Out delegate(in string) @safe @nogc pure nothrow cb) =>
+Out withStringOfSymbol(Out)(Symbol a, in Out delegate(in string) @safe @nogc pure nothrow cb) =>
 	isLongSymbol(a)
 		? cb(asLongSymbol(a))
 		: withBuildStackArray!(Out, char)(

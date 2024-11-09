@@ -26,6 +26,7 @@ import frontend.showModel :
 	writeVisibility;
 import model.ast : ModifierKeyword, stringOfModifierKeyword;
 import model.diag :
+	AutoFunName,
 	Diagnostic,
 	Diag,
 	DiagnosticSeverity,
@@ -35,7 +36,6 @@ import model.diag :
 	UriAndDiagnostic;
 import model.model :
 	arityMatches,
-	AutoFun,
 	bestCasePurity,
 	BuiltinType,
 	CalledDecl,
@@ -471,11 +471,13 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				(in Diag.AutoFunError.WrongParams p) {
 					writer ~= () {
 						final switch (p.kind) {
-							case AutoFun.Kind.compare:
+							case AutoFunName.compare:
 								return "'<=>' must take two parameters of the same type.";
-							case AutoFun.Kind.equals:
+							case AutoFunName.equals:
 								return "'==' must take two parameters of the same type.";
-							case AutoFun.Kind.toJson:
+							case AutoFunName.members:
+								return "'members' must take no parameters.";
+							case AutoFunName.to:
 								return "'to' must take a single parameter.";
 						}
 					}();
@@ -490,12 +492,14 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				(in Diag.AutoFunError.WrongReturnType p) {
 					writer ~= () {
 						final switch (p.kind) {
-							case AutoFun.Kind.compare:
+							case AutoFunName.compare:
 								return "'<=>' must return 'comparison'.";
-							case AutoFun.Kind.equals:
+							case AutoFunName.equals:
 								return "'==' must return 'bool'.";
-							case AutoFun.Kind.toJson:
-								return "'to' must return 'json'.";
+							case AutoFunName.members:
+								return "'members' must return an array of an 'enum' or 'flags' type.";
+							case AutoFunName.to:
+								return "'to' must return 'json' or 'symbol'."; // TODO: no longer accurate, can return 'e?' where 'e' is an enum ....................
 						}
 					}();
 				});

@@ -6,10 +6,12 @@ import model.constant : Constant;
 import model.model :
 	BuiltinFun,
 	BuiltinType,
+	CommonTypes,
 	EnumOrFlagsFunction,
 	Expr,
 	FunDecl,
 	IntegralType,
+	isOptionType,
 	isString,
 	isTuple,
 	Local,
@@ -214,6 +216,13 @@ ConcreteType arrayElementType(ConcreteType arrayType) {
 	assert(isArrayOrMutArray(*mustBeByVal(arrayType)));
 	return only(mustBeByVal(arrayType).source.as!(ConcreteStructSource.Inst).typeArgs);
 }
+private bool isOption(in CommonTypes commonTypes, in ConcreteStruct a) =>
+	a.source.isA!(ConcreteStructSource.Inst) && isOptionType(commonTypes, a.source.as!(ConcreteStructSource.Inst).decl);
+
+ConcreteType unwrapOptionType(in CommonTypes commonTypes, ConcreteType optionType) {
+	assert(isOption(commonTypes, *mustBeByVal(optionType)));
+	return only(mustBeByVal(optionType).source.as!(ConcreteStructSource.Inst).typeArgs);
+}
 bool isCatchPoint(in ConcreteStruct a) =>
 	a.specialKind == ConcreteStruct.SpecialKind.catchPoint;
 bool isFiber(in ConcreteStruct a) =>
@@ -411,6 +420,11 @@ immutable struct ConcreteExprKind {
 		SmallArray!ConcreteExpr args;
 	}
 
+	// Cast between different types with the same size.
+	immutable struct Cast { // TODO: this is only used for enum to integral. Make that Special instead? ---------------------------
+		ConcreteExpr* inner;
+	}
+
 	immutable struct CreateArray {
 		@safe @nogc pure nothrow:
 		ConcreteExpr[] args;
@@ -575,6 +589,7 @@ immutable struct ConcreteExprKind {
 
 	mixin Union!(
 		Call,
+		Cast,
 		Constant,
 		CreateArray,
 		CreateRecord,
@@ -672,6 +687,8 @@ bool existsDirectChildExpr(ref ConcreteExpr a, in bool delegate(ref ConcreteExpr
 	a.kind.matchWithPointers!bool(
 		(ConcreteExprKind.Call x) =>
 			exists!ConcreteExpr(x.args, cb),
+		(ConcreteExprKind.Cast x) =>
+			cb(*x.inner),
 		(Constant x) =>
 			false,
 		(ConcreteExprKind.CreateArray x) =>

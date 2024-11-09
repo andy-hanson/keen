@@ -71,6 +71,7 @@ enum CommonModule {
 	misc,
 	mutArray,
 	numberLowLevel,
+	pointer,
 	runtime,
 	runtimeMain,
 	std,

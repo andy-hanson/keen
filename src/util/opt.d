@@ -209,3 +209,4 @@ Opt!T flattenOption(T)(Opt!(Opt!T) a) =>
 	has(a)
 		? force(a)
 		: none!T;
+

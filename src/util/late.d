@@ -9,7 +9,7 @@ struct MutLate(T) {
 	private MutOpt!T value_;
 }
 
-inout(T) lateGet(T)(ref inout MutLate!T a) =>
+ref inout(T) lateGet(T)(ref inout MutLate!T a) =>
 	force(a.value_);
 
 void lateSet(T)(ref MutLate!T a, T value) {
@@ -37,7 +37,7 @@ bool lateIsSet(T)(ref Late!T a) =>
 
 @trusted void lateSet(T)(ref Late!T a, T value) {
 	assert(!lateIsSet(a));
-	initMemory(&a.value_, some(value));
+	initMemory(&a.value_, some!T(value));
 }
 
 // TODO: we shouldn't do this

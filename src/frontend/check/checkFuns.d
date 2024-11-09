@@ -2,23 +2,18 @@ module frontend.check.checkFuns;
 
 @safe @nogc pure nothrow:
 
-import frontend.check.checkCall.checkCallSpecs : checkSpecSingleSigIgnoreParents;
+import frontend.check.checkAutoFun : checkAutoFun;
 import frontend.check.checkCtx :
-	addDiag,
-	addDiagAssertSameUri,
-	CheckCtx,
-	checkNoTypeParams,
-	CommonModule,
-	visibilityFromExplicitTopLevel;
+	addDiag, addDiagAssertSameUri, CheckCtx, checkNoTypeParams, visibilityFromExplicitTopLevel;
 import frontend.check.checkExpr : checkExternNameOrBogus, checkFunctionBody, checkTestBody;
 import frontend.check.checkStructBodies : checkVariantMethodImpls, modifierTypeArgInvalid;
 import frontend.check.getBuiltinFun : getBuiltinFun;
 import frontend.check.maps :
 	funDeclsName, FunsAndMap, FunsMap, ImportOrExportFile, SpecsMap, StructsAndAliasesMap;
 import frontend.check.funsForStruct : addFunsForStruct, addFunsForVar, countFunsForStructs, countFunsForVars;
-import frontend.check.instantiate : MayDelayStructInsts, instantiateSpec, noDelaySpecInsts, noDelayStructInsts;
+import frontend.check.instantiate : MayDelayStructInsts, noDelaySpecInsts, noDelayStructInsts;
 import frontend.check.typeFromAst :
-	AliasAllowed, checkDestructure, checkTypeParams, DestructureKind, getSpecFromCommonModule, specFromAst, typeFromAst;
+	AliasAllowed, checkDestructure, checkTypeParams, DestructureKind, specFromAst, typeFromAst;
 import model.ast :
 	DestructureAst,
 	EmptyAst,
@@ -34,7 +29,6 @@ import model.ast :
 	TypeAst;
 import model.diag : DeclKind, Diag;
 import model.model :
-	AutoFun,
 	CommonTypes,
 	Destructure,
 	emptySpecs,
@@ -44,15 +38,12 @@ import model.model :
 	FunDeclSource,
 	FunFlags,
 	ImportFileContent,
+	isEmpty,
 	isLinkageAlwaysCompatible,
 	Linkage,
 	linkageRange,
 	Params,
-	RecordField,
-	SpecDecl,
-	Signature,
 	SpecInst,
-	StructBody,
 	StructDecl,
 	StructInst,
 	Test,
@@ -66,10 +57,7 @@ import model.parseDiag : ParseDiag;
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array :
-	allSame,
-	every,
 	isEmpty,
-	map,
 	mapOp,
 	mapPointers,
 	mapWithResultPointer,
@@ -342,7 +330,7 @@ FunBody checkExternBody(ref CheckCtx ctx, FunDecl* fun) {
 		return FunBody(FunBody.Extern(force(single)));
 	else {
 		addDiag(ctx, fun.nameRange.range, Diag(Diag.ExternBodyMultiple()));
-		return FunBody(FunBody.Bogus());
+		return FunBody.bogus;
 	}
 }
 
@@ -553,112 +541,10 @@ void checkFunsWithAsts(
 	zipPointers!(FunDecl, FunDeclAst)(funsWithAsts, asts, (FunDecl* fun, FunDeclAst* funAst) {
 		if (!fun.bodyIsSet)
 			fun.body_ = funAst.body_.kind.isA!EmptyAst
-				? checkAutoFun(ctx, specsMap, funsMap, fun)
+				? checkAutoFun(ctx, commonTypes, specsMap, funsMap, fun)
 				: fun.returnType.isBogus
-				? FunBody(FunBody.Bogus())
+				? FunBody.bogus
 				: FunBody(checkFunctionBody(
 					ctx, structsAndAliasesMap, commonTypes, specsMap, funsMap, fun, &funAst.body_));
 	});
 }
-
-FunBody checkAutoFun(ref CheckCtx ctx, in SpecsMap specsMap, in FunsMap funsMap, FunDecl* fun) {
-	switch (fun.name.value) {
-		case symbol!"==".value:
-			Opt!(SpecDecl*) spec = getSpecFromCommonModule(
-				ctx, specsMap, fun.nameRange.range, symbol!"equal", CommonModule.compare);
-			return has(spec)
-				? checkAutoFunWithSpec(
-					ctx, funsMap, fun, AutoFun.Kind.equals, force(spec),
-					returnTypeOk: none!bool,
-					countParams: 2,
-					allowBare: true)
-				: FunBody(FunBody.Bogus());
-		case symbol!"<=>".value:
-			Opt!(SpecDecl*) spec = getSpecFromCommonModule(
-				ctx, specsMap, fun.nameRange.range, symbol!"compare", CommonModule.compare);
-			return has(spec)
-				? checkAutoFunWithSpec(
-					ctx, funsMap, fun, AutoFun.Kind.compare, force(spec),
-					returnTypeOk: none!bool,
-					countParams: 2,
-					allowBare: true)
-				: FunBody(FunBody.Bogus());
-		case symbol!"to".value:
-			Opt!(SpecDecl*) spec = getSpecFromCommonModule(
-				ctx, specsMap, fun.nameRange.range, symbol!"to", CommonModule.misc);
-			return has(spec)
-				? checkAutoFunWithSpec(
-					ctx, funsMap, fun, AutoFun.Kind.toJson, force(spec),
-					returnTypeOk: some(isJson(ctx, fun.returnType)),
-					countParams: 1,
-					allowBare: false,
-					extraTypeArg: some(fun.returnType))
-				: FunBody(FunBody.Bogus());
-		default:
-			addDiag(ctx, fun.nameRange.range, Diag(Diag.AutoFunError(Diag.AutoFunError.WrongName())));
-			return FunBody(FunBody.Bogus());
-	}
-}
-
-FunBody checkAutoFunWithSpec(
-	ref CheckCtx ctx,
-	in FunsMap funsMap,
-	FunDecl* fun,
-	AutoFun.Kind funKind,
-	SpecDecl* spec,
-	Opt!bool returnTypeOk, // if none, use sig
-	size_t countParams,
-	bool allowBare,
-	Opt!Type extraTypeArg = none!Type,
-) {
-	FunBody diag(Diag.AutoFunError x) {
-		addDiag(ctx, fun.nameRange.range, Diag(x));
-		return FunBody(FunBody.Bogus());
-	}
-	if (spec.sigs.length != 1)
-		return diag(Diag.AutoFunError(Diag.AutoFunError.SpecCorrupt(spec.name)));
-	Signature* sig = &only(spec.sigs);
-	Opt!Type paramType = getAutoFunParamType(fun, countParams);
-	return !has(paramType)
-		? diag(Diag.AutoFunError(Diag.AutoFunError.WrongParams(funKind)))
-		: !optOrDefault!bool(returnTypeOk, () => fun.returnType == sig.returnType)
-		? diag(Diag.AutoFunError(Diag.AutoFunError.WrongReturnType(funKind)))
-		: !isRecordOrUnion(force(paramType))
-		? diag(Diag.AutoFunError(Diag.AutoFunError.WrongParamType()))
-		: !isFullyVisible(ctx, force(paramType))
-		? diag(Diag.AutoFunError(Diag.AutoFunError.TypeNotFullyVisible()))
-		: !allowBare && fun.flags.bare
-		? diag(Diag.AutoFunError(Diag.AutoFunError.Bare()))
-		: FunBody(AutoFun(funKind, map(ctx.alloc, force(paramType).as!(StructInst*).instantiatedTypes, (ref Type type) {
-			SpecInst* inst = has(extraTypeArg)
-				? instantiateSpec(ctx.instantiateCtx, spec, [force(extraTypeArg), type])
-				: instantiateSpec(ctx.instantiateCtx, spec, [type]);
-			return checkSpecSingleSigIgnoreParents(ctx, funsMap, fun, inst);
-		})));
-}
-
-Opt!Type getAutoFunParamType(FunDecl* fun, size_t countParams) =>
-	fun.params.matchIn!(Opt!Type)(
-		(in Destructure[] params) =>
-			params.length == countParams && allSame!(Type, Destructure)(params, (in Destructure x) => x.type)
-				? some(params[0].type)
-				: none!Type,
-		(in Params.Varargs) =>
-			none!Type);
-
-bool isRecordOrUnion(in Type a) =>
-	a.isA!(StructInst*) && (
-		a.as!(StructInst*).decl.body_.isA!(StructBody.Record) || a.as!(StructInst*).decl.body_.isA!(StructBody.Union*));
-
-bool isFullyVisible(in CheckCtx ctx, in Type a) {
-	StructDecl* decl = a.as!(StructInst*).decl;
-	return decl.moduleUri == ctx.curUri ||
-		decl.body_.isA!(StructBody.Union*) ||
-		every!RecordField(decl.body_.as!(StructBody.Record).fields, (in RecordField x) =>
-			x.visibility == decl.visibility);
-}
-
-bool isJson(in CheckCtx ctx, in Type a) =>
-	a.isA!(StructInst*) &&
-	a.as!(StructInst*).decl.moduleUri == ctx.commonUris[CommonModule.json] &&
-	a.as!(StructInst*).decl.name == symbol!"json";

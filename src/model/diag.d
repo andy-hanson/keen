@@ -4,7 +4,6 @@ module model.diag;
 
 import model.ast : ModifierKeyword;
 import model.model :
-	AutoFun,
 	BuiltinSpec,
 	Called,
 	CalledDecl,
@@ -121,12 +120,12 @@ immutable struct Diag {
 		immutable struct TypeNotFullyVisible {}
 		immutable struct WrongName {}
 		immutable struct WrongParams {
-			AutoFun.Kind kind;
+			AutoFunName kind;
 		}
 		immutable struct WrongParamType {}
 		immutable struct WrongParamTypeEnumOrFlags {}
 		immutable struct WrongReturnType {
-			AutoFun.Kind kind;
+			AutoFunName kind;
 		}
 		mixin Union!(
 			Bare,
@@ -788,6 +787,8 @@ immutable struct Diag {
 		WithHasElse,
 		WrongNumberTypeArgs);
 }
+
+enum AutoFunName { compare, equals, members, to }
 
 immutable struct ExpectedForDiag {
 	immutable struct Choices {

@@ -343,10 +343,7 @@ JsExpr genArrowFunction(
 	in JsDestructure[] params,
 	JsExpr body_,
 ) =>
-	genArrowFunction(
-		source, async,
-		JsParams(newSmallArray(alloc, params)),
-		JsExprOrBlockStatement(allocate(alloc, body_)));
+	genArrowFunction(source, async, JsParams(newSmallArray(alloc, params)), exprFunBody(alloc, body_));
 JsExpr genArrowFunction(
 	ref Alloc alloc,
 	in Source source,
@@ -488,6 +485,8 @@ JsExpr genTypeof(ref Alloc alloc, in Source source, JsExpr arg) =>
 	genUnary(alloc, source, JsUnaryExpr.Kind.typeof_, arg);
 JsExpr genEqEqEq(ref Alloc alloc, in Source source, JsExpr a, JsExpr b) =>
 	genBinary(alloc, source, JsBinaryExpr.Kind.eqEqEq, a, b);
+JsExpr genLess(ref Alloc alloc, in Source source, JsExpr a, JsExpr b) =>
+	genBinary(alloc, source, JsBinaryExpr.Kind.less, a, b);
 JsStatement genTryCatch(
 	ref Alloc alloc,
 	in Source source,

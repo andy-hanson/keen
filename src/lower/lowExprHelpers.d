@@ -186,12 +186,12 @@ LowExpr genEnumEq(ref Alloc alloc, UriAndRange range, LowExpr a, LowExpr b) {
 LowExpr genBitwiseNegate(ref Alloc alloc, UriAndRange range, LowExpr a) =>
 	genUnary(alloc, a.type, range, bitwiseNegateForType(a.type.as!PrimitiveType), a);
 
-LowExpr genEnumIntersect(ref Alloc alloc, UriAndRange range, LowExpr a, LowExpr b) {
+LowExpr genFlagsIntersect(ref Alloc alloc, UriAndRange range, LowExpr a, LowExpr b) {
 	assert(a.type.as!PrimitiveType == b.type.as!PrimitiveType);
 	return genBinary(alloc, a.type, range, intersectForType(a.type.as!PrimitiveType), a, b);
 }
 
-LowExpr genEnumUnion(ref Alloc alloc, UriAndRange range, LowExpr a, LowExpr b) {
+LowExpr genFlagsUnion(ref Alloc alloc, UriAndRange range, LowExpr a, LowExpr b) {
 	assert(a.type.as!PrimitiveType == b.type.as!PrimitiveType);
 	return genBinary(alloc, a.type, range, unionForType(a.type.as!PrimitiveType), a, b);
 }

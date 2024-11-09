@@ -25,6 +25,7 @@ import backend.js.jsAst :
 	genCallPropertySync,
 	genCallSync,
 	genConst,
+	genEqEqEq,
 	genField,
 	genGlobal,
 	genIdentifier,
@@ -42,7 +43,6 @@ import backend.js.jsAst :
 	genReturn,
 	genStaticMethod,
 	genString,
-	genStringFromSymbol,
 	genThis,
 	genThrow,
 	JsBinaryExpr,
@@ -63,7 +63,7 @@ import backend.js.jsAst :
 	Shebang,
 	SyncOrAsync;
 import backend.js.sourceMap : JsAndMap, ModulePaths, Source;
-import backend.js.translateExpr : genAssertType, genNewPair, translateFunDecl, translateTest, variantMethodImpl;
+import backend.js.translateExpr : genAssertType, translateFunDecl, translateTest, variantMethodImpl;
 import backend.js.translateModuleCtx :
 	aliasSource,
 	funSource,
@@ -124,7 +124,7 @@ import util.col.sortUtil : sortInPlace;
 import util.conv : safeToUshort;
 import util.memory : allocate;
 import util.opt : force, has, MutOpt, none, Opt, optIf, optFromMut, some, someMut;
-import util.symbol : compareSymbolsNaturally, Symbol, symbol;
+import util.symbol : compareSymbolsNaturally, stringOfSymbol, Symbol, symbol;
 import util.symbolSet : SymbolSet;
 import util.union_ : Union;
 import util.uri :
@@ -663,37 +663,38 @@ void translateEnumDecl(
 ) {
 	/*
 	class E {
-		constructor(value) {
+		constructor(name, value) {
+			this.name = name
 			this.value = value
 		}
-		static x = new this(0n)
-		static _members = [new_pair("x", this.x)]
+		static x = new this("x", 0n)
+		static _members = [this.x]
 	}
 	*/
+	JsName name = JsName.specialLocal(symbol!"name");
 	JsName value = JsName.specialLocal(symbol!"value");
-	out_ ~= genConstructor(ctx.alloc, source, [JsDestructure(value)], super_, [
+	out_ ~= genConstructor(ctx.alloc, source, [JsDestructure(name), JsDestructure(value)], super_, [
+		genAssignToThis(ctx.alloc, source, JsMemberName.special(symbol!"name"), genIdentifier(source, name)),
 		genAssignToThis(ctx.alloc, source, JsMemberName.special(symbol!"value"), genIdentifier(source, value))]);
 	foreach (ref EnumOrFlagsMember member; a.members)
 		out_ ~= genField(
 			source,
 			JsClassMember.Static.static_,
 			JsMemberName.enumMember(member.name),
-			genNew(ctx.alloc, source, genThis(source), [genInteger(source, isSigned(a.storage), member.value)]));
+			genNew(ctx.alloc, source, genThis(source), [
+				genString(source, stringOfSymbol(ctx.alloc, member.name)),
+				genInteger(source, isSigned(a.storage), member.value)]));
 	out_ ~= enumOrFlagsMembers(ctx, source, a.members);
 }
 JsStatement genAssignToThis(ref Alloc alloc, Source source, JsMemberName name, JsExpr value) =>
 	genAssign(alloc, source, genPropertyAccess(alloc, source, genThis(source), name), value);
-JsClassMember enumOrFlagsMembers(ref TranslateModuleCtx ctx, in Source source, in EnumOrFlagsMember[] members) =>
+JsClassMember enumOrFlagsMembers(ref TranslateModuleCtx ctx, in Source source, in EnumOrFlagsMember[] members) => // TODO: this should now be unnecessary
 	genField(
 		source,
 		JsClassMember.Static.static_,
 		JsMemberName.special(symbol!"members"),
 		genArray(source, map(ctx.alloc, members, (ref EnumOrFlagsMember member) =>
-			genNewPair(
-				ctx,
-				source,
-				genStringFromSymbol(source, member.name),
-				genPropertyAccess(ctx.alloc, source, genThis(source), JsMemberName.enumMember(member.name))))));
+			genPropertyAccess(ctx.alloc, source, genThis(source), JsMemberName.enumMember(member.name)))));
 
 void translateFlagsDecl(
 	ref TranslateModuleCtx ctx,
@@ -711,7 +712,7 @@ void translateFlagsDecl(
 		static x = new this(1n)
 		static y = new this(2n)
 		static _none = new this(0n)
-		static _members = [new_pair("x", this.x), new_pair("y", this.y)]
+		static _members = [this.x, this.y]
 
 		_intersect(b) {
 			return new F(this._value & b._value)
@@ -721,6 +722,9 @@ void translateFlagsDecl(
 		}
 		_negate() {
 			return new F(~this._value & 3n)
+		}
+		_in(b) {
+			return this._value & b._value == this._value
 		}
 	}
 	*/
@@ -745,6 +749,7 @@ void translateFlagsDecl(
 	out_ ~= intersectOrUnionMethod(
 		ctx, source, struct_, JsMemberName.special(symbol!"union"), JsBinaryExpr.Kind.bitwiseOr);
 	out_ ~= negateMethod(ctx, source, struct_, getAllFlagsValue(a));
+	out_ ~= flagsInMethod(ctx, source, struct_);
 }
 JsClassMember intersectOrUnionMethod(
 	ref TranslateModuleCtx ctx,
@@ -779,6 +784,14 @@ JsClassMember negateMethod(ref TranslateModuleCtx ctx, in Source source, in Stru
 				source,
 				genBitwiseNot(ctx.alloc, source, getValue(ctx.alloc, genThis(source))),
 				genIntegerUnsigned(source, allFlagsValue))]));
+JsClassMember flagsInMethod(ref TranslateModuleCtx ctx, in Source source, in StructDecl* struct_) {
+	JsName b = JsName.specialLocal(symbol!"b");
+	JsExpr thisValue = getValue(ctx.alloc, genThis(source));
+	JsExpr bValue = getValue(ctx.alloc, genIdentifier(source, b));
+	return genInstanceMethod(
+		ctx.alloc, source, SyncOrAsync.sync, JsMemberName.special(symbol!"in"), [JsDestructure(b)],
+		genEqEqEq(ctx.alloc, source, genBitwiseAnd(ctx.alloc, source, thisValue, bValue), thisValue));
+}
 JsExpr getValue(ref Alloc alloc, JsExpr arg) =>
 	genPropertyAccess(alloc, arg.source, arg, JsMemberName.special(symbol!"value"));
 
