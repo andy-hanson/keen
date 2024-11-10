@@ -334,6 +334,8 @@ JsExpr genAnd(ref Alloc alloc, in Source source, JsExpr arg0, JsExpr arg1) =>
 	genBinary(alloc, source, JsBinaryExpr.Kind.and, arg0, arg1);
 JsExpr genArray(in Source source, JsExpr[] elements) =>
 	JsExpr(source, JsExprKind(JsArrayExpr(elements)));
+JsExpr genArray(ref Alloc alloc, in Source source, in JsExpr[] elements) =>
+	genArray(source, newArray(alloc, elements));
 JsExpr genArrowFunction(in Source source, SyncOrAsync async, JsParams params, JsExprOrBlockStatement body_) =>
 	JsExpr(source, JsExprKind(JsArrowFunction(async, params, body_)));
 JsExpr genArrowFunction(

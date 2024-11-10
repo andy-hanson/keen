@@ -575,6 +575,7 @@ CommonUris commonUris(Uri includeDir) {
 	Uri private_ = includeCrow / symbol!"private";
 	Uri testUtil = includeCrow / symbol!"test-util";
 	return enumMapMapValues!(CommonModule, Uri, Uri)(CommonUris([
+		col / symbol!"array",
 		private_ / symbol!"bootstrap",
 		private_ / symbol!"alloc",
 		private_ / symbol!"bool-low-level",

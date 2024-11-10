@@ -3,6 +3,7 @@ module concretize.concretizeCtx;
 @safe @nogc pure nothrow:
 
 import concretize.allConstantsBuilder : AllConstantsBuilder, getConstantArray, getConstantCString, getConstantSymbol;
+import concretize.concretizeAutoFun : concretizeAutoFun;
 import concretize.concretizeExpr :
 	concretizeBogus,
 	concretizeBogusKind,
@@ -11,7 +12,6 @@ import concretize.concretizeExpr :
 	ensureVariantMember,
 	withConcretizeExprCtx;
 import concretize.generate :
-	concretizeAutoFun,
 	fieldIndexFromField,
 	genConstant,
 	genCreateRecord,
@@ -61,8 +61,8 @@ import model.model :
 	CommonTypes,
 	Destructure,
 	eachTest,
-	EnumOrFlagsFunction,
 	Expr,
+	FlagsFunction,
 	FunBody,
 	FunDecl,
 	FunInst,
@@ -180,6 +180,7 @@ struct ConcretizeCtx {
 	Late!(EnumMap!(IntegralType, ConcreteFun*)) lessIntegralFunctions_;
 	Late!(ConcreteFun*) newJsonFromPairsFunction_;
 	Late!(ConcreteFun*) toJsonFromStringFunction_;
+	Late!(ConcreteFun*) concatSymbolArrayFunction_;
 	AllConstantsBuilder allConstants;
 	MutHashTable!(ConcreteStruct*, ConcreteStructSource.Inst, getStructKey) nonLambdaConcreteStructs;
 	ArrayBuilder!(ConcreteStruct*) allConcreteStructs;
@@ -224,6 +225,8 @@ struct ConcretizeCtx {
 		lateGet(newJsonFromPairsFunction_);
 	ConcreteFun* toJsonFromStringFunction() return scope const =>
 		lateGet(toJsonFromStringFunction_);
+	ConcreteFun* concatSymbolArrayFunction() return scope const =>
+		lateGet(concatSymbolArrayFunction_);
 	ConcreteFun* createErrorFunction() return scope const =>
 		lateGet(createErrorFunction_);
 }
@@ -291,6 +294,8 @@ ref immutable(EnumMap!(IntegralType, ConcreteType)) integralTypes(ref Concretize
 		// TODO: castImmutable should not be needed ------------------------------------------------------------------------------------
 		castImmutable(makeEnumMap!(IntegralType, ConcreteType)((IntegralType x) =>
 			getConcreteType_forStructInst(a, a.commonTypes.integrals[x], emptySmallArray!ConcreteType))));
+ConcreteType integralType(ref ConcretizeCtx a, IntegralType type) =>
+	integralTypes(a)[type];
 
 ConcreteType nat64Type(ref ConcretizeCtx a) =>
 	integralTypes(a)[IntegralType.nat64];
@@ -775,25 +780,16 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 		(FunBody.CreateVariant x) =>
 			createUnionBody(ctx.alloc, cf, ensureVariantMember(
 				ctx, cf.returnType, isEmpty(concreteParams) ? voidType(ctx) : only(concreteParams).type)),
-		(EnumOrFlagsFunction x) {
-			final switch (x) {
-				case EnumOrFlagsFunction.negate:
-					return ConcreteFunBody(ConcreteFunBody.FlagsFn(
-						getAllFlagsValue(mustBeByVal(cf.returnType)),
-						x));
-				case EnumOrFlagsFunction.in_:
-				case EnumOrFlagsFunction.intersect:
-				case EnumOrFlagsFunction.none:
-				case EnumOrFlagsFunction.union_:
-					return ConcreteFunBody(x);
-			}
-		},
 		(Expr x) =>
 			ConcreteFunBody(concretizeFunBody(ctx, cf, params, x)),
 		(FunBody.Extern x) =>
 			ConcreteFunBody(ConcreteFunBody.Extern(x.libraryName)),
 		(FunBody.FileImport x) =>
 			ConcreteFunBody(concretizeFileImport(ctx, cf, x)),
+		(FlagsFunction x) =>
+			ConcreteFunBody(ConcreteFunBody.FlagsFn(
+				x == FlagsFunction.negate ? getAllFlagsValue(mustBeByVal(cf.returnType)) : 0,
+				x)),
 		(FunBody.RecordFieldCall x) =>
 			genRecordFieldCall(ctx, cf, x),
 		(FunBody.RecordFieldGet x) =>

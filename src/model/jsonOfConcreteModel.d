@@ -22,7 +22,7 @@ import model.concreteModel :
 	returnType;
 import model.constant : Constant;
 import model.jsonOfConstant : jsonOfConstant;
-import model.model : EnumOrFlagsFunction, Local;
+import model.model : Local;
 import util.alloc.alloc : Alloc;
 import util.integralValues : IntegralValue, IntegralValues;
 import util.json :
@@ -151,10 +151,6 @@ Json jsonOfConcreteFunBody(ref Alloc alloc, in Ctx ctx, in ConcreteFunBody a) =>
 	a.matchIn!Json(
 		(in ConcreteFunBody.Builtin x) =>
 			jsonOfConcreteFunBodyBuiltin(alloc, x),
-		(in EnumOrFlagsFunction x) =>
-			jsonObject(alloc, [
-				kindField!"enum-or-flags-fun",
-				field!"fn"(stringOfEnum(x))]),
 		(in ConcreteFunBody.Extern) =>
 			jsonString!"extern",
 		(in ConcreteExpr x) =>
@@ -323,6 +319,12 @@ Json jsonOfConcreteExprKind(ref Alloc alloc, in Ctx ctx, in ConcreteExprKind a) 
 				kindField!"seq",
 				field!"first"(jsonOfConcreteExpr(alloc, ctx, x.first)),
 				field!"then"(jsonOfConcreteExpr(alloc, ctx, x.then))]),
+		(in ConcreteExprKind.SpecialBinary x) =>
+			jsonObject(alloc, [
+				kindField!"binary",
+				field!"fn"(stringOfEnum(x.fn)),
+				field!"args"(jsonList!ConcreteExpr(alloc, x.args, (in ConcreteExpr arg) =>
+					jsonOfConcreteExpr(alloc, ctx, arg)))]),
 		(in ConcreteExprKind.Throw x) =>
 			jsonObject(alloc, [
 				kindField!"throw",

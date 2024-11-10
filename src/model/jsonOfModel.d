@@ -24,7 +24,6 @@ import model.model :
 	Destructure,
 	DocComment,
 	DocCommentReference,
-	EnumOrFlagsFunction,
 	EnumOrFlagsMember,
 	Expr,
 	ExprAndType,
@@ -32,6 +31,7 @@ import model.model :
 	ExprRef,
 	ExternExpr,
 	FinallyExpr,
+	FlagsFunction,
 	FunBody,
 	FunDecl,
 	FunFlags,
@@ -325,10 +325,6 @@ Json jsonOfFunBody(ref Alloc alloc, in Ctx ctx, in FunBody a) =>
 			jsonObject(alloc, [kindField!"create-union", field!"member"(x.member.name)]),
 		(in FunBody.CreateVariant x) =>
 			jsonObject(alloc, [kindField!"create-variant"]),
-		(in EnumOrFlagsFunction x) =>
-			jsonObject(alloc, [
-				kindField!"enum-or-flags-fun",
-				field!"fn"(stringOfEnum(x))]),
 		(in Expr x) =>
 			jsonOfExpr(alloc, ctx, x),
 		(in FunBody.Extern x) =>
@@ -337,6 +333,10 @@ Json jsonOfFunBody(ref Alloc alloc, in Ctx ctx, in FunBody a) =>
 				field!"library-name"(x.libraryName)]),
 		(in FunBody.FileImport x) =>
 			jsonObject(alloc, [kindField!"file-import"]),
+		(in FlagsFunction x) =>
+			jsonObject(alloc, [
+				kindField!"flags-fun",
+				field!"fn"(stringOfEnum(x))]),
 		(in FunBody.RecordFieldCall x) =>
 			jsonObject(alloc, [
 				kindField!"field-call",

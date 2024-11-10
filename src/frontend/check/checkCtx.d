@@ -60,6 +60,7 @@ struct CheckCtx {
 }
 
 enum CommonModule {
+	array,
 	bootstrap,
 	alloc,
 	boolLowLevel,

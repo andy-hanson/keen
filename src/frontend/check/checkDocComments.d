@@ -22,7 +22,7 @@ import model.model :
 	DocCommentReferences,
 	EnumOrFlagsMember,
 	emptySpecs,
-	EnumOrFlagsFunction,
+	FlagsFunction,
 	Expr,
 	firstLocal,
 	FunBody,
@@ -231,14 +231,14 @@ DocCommentReference docCommentReferenceForFunDecl(FunDecl* a) {
 			returnStruct(),
 		(FunBody.CreateVariant) =>
 			returnStruct(),
-		(EnumOrFlagsFunction _) =>
-			fun,
 		(Expr _) =>
 			fun,
 		(FunBody.Extern _) =>
 			fun,
 		(FunBody.FileImport _) =>
 			fun,
+		(FlagsFunction _) =>
+			returnStruct(),
 		(FunBody.RecordFieldCall x) =>
 			DocCommentReference(x.field),
 		(FunBody.RecordFieldGet x) =>

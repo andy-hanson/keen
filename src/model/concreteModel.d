@@ -4,11 +4,12 @@ module model.concreteModel;
 
 import model.constant : Constant;
 import model.model :
+	BuiltinBinary,
 	BuiltinFun,
 	BuiltinType,
 	CommonTypes,
-	EnumOrFlagsFunction,
 	Expr,
+	FlagsFunction,
 	FunDecl,
 	IntegralType,
 	isOptionType,
@@ -291,15 +292,15 @@ immutable struct ConcreteFunBody {
 	immutable struct Extern {
 		Symbol libraryName;
 	}
-	immutable struct FlagsFn {
+	immutable struct FlagsFn { // TODO: I could get rid of this ... just Cast to integral and use the appropriate integral function (see genLessIntegral)
 		ulong allValue;
-		EnumOrFlagsFunction fn;
+		FlagsFunction fn;
 	}
 	immutable struct VarGet { ConcreteVar* var; }
 	immutable struct VarSet { ConcreteVar* var; }
 	immutable struct Deferred {} // Should only be used temporarily
 
-	mixin Union!(Builtin, EnumOrFlagsFunction, Extern, ConcreteExpr, FlagsFn, VarGet, VarSet, Deferred);
+	mixin Union!(Builtin, Extern, ConcreteExpr, FlagsFn, VarGet, VarSet, Deferred);
 }
 
 immutable struct ConcreteFunSource {
@@ -421,7 +422,7 @@ immutable struct ConcreteExprKind {
 	}
 
 	// Cast between different types with the same size.
-	immutable struct Cast { // TODO: this is only used for enum to integral. Make that Special instead? ---------------------------
+	immutable struct Cast {
 		ConcreteExpr* inner;
 	}
 
@@ -557,6 +558,15 @@ immutable struct ConcreteExprKind {
 		ConcreteExpr then;
 	}
 
+	immutable struct SpecialBinary {
+		@safe @nogc pure nothrow:
+		BuiltinBinary fn;
+		ConcreteExpr[2]* argsPtr;
+
+		ref ConcreteExpr[2] args() return scope =>
+			*argsPtr;
+	}
+
 	immutable struct Throw {
 		// a `c-string`
 		ConcreteExpr thrown;
@@ -611,6 +621,7 @@ immutable struct ConcreteExprKind {
 		RecordFieldPointer,
 		RecordFieldSet*,
 		Seq*,
+		SpecialBinary,
 		Throw*,
 		Try*,
 		TryLet*,
@@ -739,6 +750,8 @@ bool existsDirectChildExpr(ref ConcreteExpr a, in bool delegate(ref ConcreteExpr
 			cb(x.record) || cb(x.value),
 		(ConcreteExprKind.Seq* x) =>
 			cb(x.first) || cb(x.then),
+		(ConcreteExprKind.SpecialBinary x) =>
+			exists!ConcreteExpr(x.args, cb),
 		(ConcreteExprKind.Throw* x) =>
 			cb(x.thrown),
 		(ConcreteExprKind.Try* x) =>

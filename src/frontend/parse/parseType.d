@@ -107,7 +107,8 @@ private ModifierAst parseModifier(ref Lexer lexer) {
 }
 
 private Opt!ModifierKeyword tryTakeModifierKeyword(ref Lexer lexer) {
-	Opt!ModifierKeyword res = tryTakeTokenCb!ModifierKeyword(lexer, (TokenAndData x) => tryGetModifierKeyword(x.token));
+	Opt!ModifierKeyword res = tryTakeTokenCb!ModifierKeyword(lexer, (TokenAndData x) =>
+		optEnumConvert!(ModifierKeyword, Token)(x.token));
 	if (has(res))
 		return res;
 	else if (lookaheadNewVisibility(lexer)) {
@@ -136,9 +137,6 @@ private ModifierKeyword newVisibility(Visibility a) {
 			return ModifierKeyword.newPublic;
 	}
 }
-
-private Opt!ModifierKeyword tryGetModifierKeyword(Token a) => // inline? -----------------------------------------------------------------------
-	optEnumConvert!(ModifierKeyword, Token)(a);
 
 TypeAst parseTypeForTypedExpr(ref Lexer lexer) =>
 	parseTypeSuffixesNonName(lexer, parseTypeBeforeSuffixes(lexer, ParenthesesNecessary.necessary));

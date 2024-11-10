@@ -175,6 +175,12 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 			checkExpr(ctx, ctx.types.void_, x.first);
 			checkExpr(ctx, type, x.then);
 		},
+		(in ConcreteExprKind.SpecialBinary x) {
+			// TODO: type depending on the BuiltinFun ............................................................................
+			foreach (ConcreteExpr arg; x.args) {
+				checkExpr(ctx, arg.type, arg);				
+			}
+		},
 		(in ConcreteExprKind.Throw x) {
 			checkExpr(ctx, ctx.types.exception, x.thrown);
 		},

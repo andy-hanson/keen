@@ -5,7 +5,7 @@ module concretize.gatherInfo;
 import model.concreteModel :
 	ConcreteCommonFuns, ConcreteExpr, ConcreteExprKind, ConcreteFun, ConcreteFunBody, existsDirectChildExpr;
 import model.constant : Constant;
-import model.model : BuiltinBinary, BuiltinFun, EnumOrFlagsFunction;
+import model.model : BuiltinBinary, BuiltinFun;
 import util.alloc.alloc : Alloc, withTempAlloc;
 import util.col.array : mustFind;
 import util.col.mutArr : mustPop, MutArr, mutArrIsEmpty, push;
@@ -66,7 +66,6 @@ CalledBy buildCalledBy(ref Alloc alloc, in immutable ConcreteFun*[] allConcreteF
 			(ConcreteFunBody.Builtin x) {
 				assert(!x.kind.isA!(BuiltinFun.CallLambda));
 			},
-			(EnumOrFlagsFunction _) {},
 			(ConcreteFunBody.Extern) {},
 			(ConcreteExpr x) {
 				if (!x.kind.isA!Constant)

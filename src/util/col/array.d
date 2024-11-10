@@ -727,9 +727,21 @@ Out mapReduce(Out, In)(
 	in Out delegate(ref In) @safe @nogc pure nothrow cbMap,
 	in Out delegate(Out, Out) @safe @nogc pure nothrow cbReduce,
 ) {
+	assert(!isEmpty(in_));
 	Out recur(Out acc, size_t i) =>
 		i == in_.length ? acc : recur(cbReduce(acc, cbMap(in_[i])), i + 1);
 	return recur(cbMap(in_[0]), 1);
+}
+
+Out mapReduceReverse(Out, In)(
+	in In[] in_,
+	in Out delegate(ref In) @safe @nogc pure nothrow cbMap,
+	in Out delegate(Out, Out) @safe @nogc pure nothrow cbReduce,
+) {
+	assert(!isEmpty(in_));
+	Out recur(Out acc, size_t i) =>
+		i == 0 ? acc : recur(cbReduce(acc, cbMap(in_[i - 1])), i - 1);
+	return recur(cbMap(in_[$ - 1]), in_.length - 1);
 }
 
 N maxBy(N, T)(N start, in T[] a, in N delegate(in T) @safe @nogc pure nothrow cb) =>

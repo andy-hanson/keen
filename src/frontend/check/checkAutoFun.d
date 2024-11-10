@@ -79,6 +79,8 @@ FunBody checkAutoFun(ref CheckCtx ctx, in CommonTypes commonTypes, in SpecsMap s
 					return checkAutoFunEnumOrFlagsToIntegral(ctx, fun, force(returnedIntegral), paramType);
 				} else if (fun.returnType == Type(commonTypes.symbol) && isEnum(paramType)) {
 					return checkAutoFunEnumToSymbol(ctx, fun, paramType);
+				} else if (isArray(fun.returnType) && isSymbol(arrayElementType(fun.returnType)) && isFlags(paramType)) {
+					return checkAutoFunFlagsToSymbolArray(ctx, fun, paramType);
 				} else {
 					Opt!(SpecDecl*) spec = getSpecFromCommonModule(
 						ctx, specsMap, fun.nameRange.range, symbol!"to", CommonModule.misc);
@@ -141,6 +143,15 @@ FunBody checkAutoFunEnumToSymbol(ref CheckCtx ctx, FunDecl* fun, Type paramType)
 	}
 }
 
+FunBody checkAutoFunFlagsToSymbolArray(ref CheckCtx ctx, FunDecl* fun, Type paramType) {
+	Opt!(Diag.AutoFunError) diag = checkForAutoFunError(ctx, fun, AutoFunName.to, some(paramType), allowBare: false);
+	if (has(diag)) { // TODO: identical code in checkAutoFunEnumToSymbol -------------------------------------------------------------------------------
+		addDiag(ctx, fun.nameRange.range, Diag(force(diag)));
+		return FunBody.bogus;
+	} else
+		return FunBody(AutoFun(AutoFun.Kind.flagsToSymbolArray, []));
+}
+
 bool isEnum(in Type a) =>
 	a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!(StructBody.Enum*);
 bool isFlags(in Type a) =>
@@ -195,7 +206,13 @@ FunBody checkAutoFunWithSpec(
 		})));
 }
 
-Opt!(Diag.AutoFunError) checkForAutoFunError(in CheckCtx ctx, FunDecl* fun, AutoFunName funName, in Opt!Type paramType, bool allowBare) =>
+Opt!(Diag.AutoFunError) checkForAutoFunError(
+	in CheckCtx ctx,
+	FunDecl* fun,
+	AutoFunName funName,
+	in Opt!Type paramType,
+	bool allowBare,
+) =>
 	!has(paramType)
 		? some(Diag.AutoFunError(Diag.AutoFunError.WrongParams(funName)))
 		: !isFullyVisible(ctx, force(paramType))
@@ -214,9 +231,11 @@ Opt!Type getAutoFunParamType(FunDecl* fun, uint countParams) =>
 			none!Type);
 
 bool isEnumFlagsRecordOrUnion(in Type a) =>
-	isEnumOrFlags(a) || ( // TODO:NEATER ----------------------------------------------------------------------------------------------------------
-	a.isA!(StructInst*) && (
-		a.as!(StructInst*).decl.body_.isA!(StructBody.Record) || a.as!(StructInst*).decl.body_.isA!(StructBody.Union*)));
+	isEnumOrFlags(a) || isRecordOrUnion(a);
+bool isRecordOrUnion(in Type a) =>
+	a.isA!(StructInst*) && isRecordOrUnion(a.as!(StructInst*).decl.body_);
+bool isRecordOrUnion(in StructBody a) =>
+	a.isA!(StructBody.Record) || a.isA!(StructBody.Union*);
 
 bool isFullyVisible(in CheckCtx ctx, in Type a) {
 	StructDecl* decl = a.as!(StructInst*).decl;

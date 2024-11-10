@@ -35,13 +35,13 @@ import model.model :
 	eachSpecSigAndImpl,
 	eachLocal,
 	eachTest,
-	EnumOrFlagsFunction,
 	evalExternCondition,
 	Expr,
 	ExprRef,
 	ExternCondition,
 	ExternExpr,
 	FinallyExpr,
+	FlagsFunction,
 	FunBody,
 	funBodyExprRef,
 	FunDecl,
@@ -491,6 +491,7 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 					case AutoFun.Kind.enumOrFlagsMembers:
 					case AutoFun.Kind.enumOrFlagsToIntegral:
 					case AutoFun.Kind.enumToSymbol:
+					case AutoFun.Kind.flagsToSymbolArray:
 					case AutoFun.Kind.compare:
 					case AutoFun.Kind.symbolToOptEnum:
 						break;
@@ -529,9 +530,6 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 				usedReturnType();
 			},
 			(FunBody.CreateVariant) {},
-			(EnumOrFlagsFunction _) {
-				usedReturnType();
-			},
 			(Expr _) {
 				trackAllUsedInExprRef(res, FunOrTest(a), funBodyExprRef(a));
 			},
@@ -539,6 +537,9 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 				assert(false);
 			},
 			(FunBody.FileImport _) {},
+			(FlagsFunction _) {
+				usedReturnType();
+			},
 			(FunBody.RecordFieldCall) {
 				usedTuple(res, from, a.arity.as!uint - 1);
 			},

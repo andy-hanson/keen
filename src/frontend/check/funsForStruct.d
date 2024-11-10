@@ -20,8 +20,8 @@ import model.model :
 	Destructure,
 	DestructureIgnoreSource,
 	isVoid,
-	EnumOrFlagsFunction,
 	EnumOrFlagsMember,
+	FlagsFunction,
 	FunBody,
 	FunDecl,
 	FunDeclSource,
@@ -282,7 +282,7 @@ void addFunsForFlags(
 	ref StructBody.Flags flags,
 ) {
 	StructInst* inst = instantiateNonTemplateStructDeclNeverDelay(ctx.instantiateCtx, struct_);
-	FunDecl make(Symbol name, Type returnType, in ParamShort[] params, EnumOrFlagsFunction fun) =>
+	FunDecl make(Symbol name, Type returnType, in ParamShort[] params, FlagsFunction fun) =>
 		funForStruct(
 			struct_,
 			name,
@@ -291,11 +291,11 @@ void addFunsForFlags(
 			FunFlags.generatedBare,
 			FunBody(fun));
 	Type type = Type(inst);
-	funsBuilder ~= make(symbol!"new", type, [], EnumOrFlagsFunction.none);
-	funsBuilder ~= make(symbol!"~", type, [param!"a"(type)], EnumOrFlagsFunction.negate);
-	funsBuilder ~= make(symbol!"|", type, [param!"a"(type), param!"b"(type)], EnumOrFlagsFunction.union_);
-	funsBuilder ~= make(symbol!"&", type, [param!"a"(type), param!"b"(type)], EnumOrFlagsFunction.intersect);
-	funsBuilder ~= make(symbol!"in", Type(commonTypes.bool_), [param!"a"(type), param!"b"(type)], EnumOrFlagsFunction.in_);
+	funsBuilder ~= make(symbol!"new", type, [], FlagsFunction.none);
+	funsBuilder ~= make(symbol!"~", type, [param!"a"(type)], FlagsFunction.negate);
+	funsBuilder ~= make(symbol!"|", type, [param!"a"(type), param!"b"(type)], FlagsFunction.union_);
+	funsBuilder ~= make(symbol!"&", type, [param!"a"(type), param!"b"(type)], FlagsFunction.intersect);
+	funsBuilder ~= make(symbol!"in", Type(commonTypes.bool_), [param!"a"(type), param!"b"(type)], FlagsFunction.in_);
 
 	foreach (ref EnumOrFlagsMember member; flags.members)
 		funsBuilder ~= enumOrFlagsConstructor(ctx.alloc, struct_.visibility, inst, &member);

@@ -127,6 +127,7 @@ CommonFunsAndDiagnostics getCommonFuns(
 	Type catchPointConstPointer = instantiateType(commonTypes.pointerConst, [catchPoint]);
 
 	Type tConstPointer = instantiateType(commonTypes.pointerConst, [typeParam0]);
+	Type tArray = instantiateType(commonTypes.array, [typeParam0]);
 
 	Type gcRoot = getType(CommonModule.bootstrap, symbol!"gc-root");
 	Type gcRootMutPointer = instantiateType(commonTypes.pointerMut, [gcRoot]);
@@ -208,6 +209,13 @@ CommonFunsAndDiagnostics getCommonFuns(
 				[param!"a"(Type(commonTypes.integrals[type])), param!"b"(Type(commonTypes.integrals[type]))])),
 		rethrowCurrentException: getFun(
 			CommonModule.exceptionLowLevel, symbol!"rethrow-current-exception", voidType, []),
+		concatArrays: getFunDeclInner(
+			*modules[CommonModule.array],
+			symbol!"~~",
+			oneTypeParam,
+			tArray,
+			[param!"a"(tArray), param!"b"(tArray)],
+			countSpecs: 0),
 		gcRoot: getFun(CommonModule.alloc, symbol!"gc-root", gcRootMutPointer, []),
 		setGcRoot: getFun(CommonModule.alloc, symbol!"set-gc-root", voidType, [
 			param!"value"(gcRootMutPointer)]),

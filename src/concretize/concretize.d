@@ -37,7 +37,17 @@ import model.concreteModel :
 	ConcreteType,
 	mustBeByVal;
 import model.model :
-	allExterns, BuildTarget, BuiltinFun, CommonFuns, FunBody, FunInst, IntegralType, MainFun, ProgramWithMain, StructBody, TestSelector;
+	allExterns,
+	BuildTarget,
+	BuiltinFun,
+	CommonFuns,
+	FunBody,
+	FunInst,
+	IntegralType,
+	MainFun,
+	ProgramWithMain,
+	StructBody,
+	TestSelector;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mustHaveIndexOfPointer, small;
 import util.col.arrayBuilder : asTemporaryArray, finish;
@@ -78,13 +88,16 @@ ConcreteProgram concretizeInner(
 		allExterns(program, BuildTarget.native(versionInfo.os)));
 	CommonFuns commonFuns = program.program.commonFuns;
 	lateSet(ctx.createErrorFunction_, getNonTemplateConcreteFun(ctx, commonFuns.createError));
-	lateSet!(EnumMap!(IntegralType, ConcreteFun*))(ctx.equalIntegralFunctions_, enumMapMapValues(commonFuns.equalIntegralFunctions, (const FunInst* x) =>
-		getNonTemplateConcreteFun(ctx, x)));
+	lateSet!(EnumMap!(IntegralType, ConcreteFun*))(
+		ctx.equalIntegralFunctions_,
+		enumMapMapValues(commonFuns.equalIntegralFunctions, (const FunInst* x) =>
+			getNonTemplateConcreteFun(ctx, x)));
 	lateSet(ctx.equalSymbolFunction_, getConcreteFun(ctx, commonFuns.equalConstPointers, [char8Type(ctx)], []));
-	lateSet(ctx.lessIntegralFunctions_, enumMapMapValues(commonFuns.lessIntegralFunctions, (const FunInst* x) =>
+	lateSet(ctx.lessIntegralFunctions_, enumMapMapValues(commonFuns.lessIntegralFunctions, (const FunInst* x) => // Why even do this? Just use e.g. BuiltinBinary.lessInt8
 		getNonTemplateConcreteFun(ctx, x)));
 	lateSet(ctx.newJsonFromPairsFunction_, getNonTemplateConcreteFun(ctx, commonFuns.newJsonFromPairs));
 	lateSet(ctx.toJsonFromStringFunction_, getNonTemplateConcreteFun(ctx, commonFuns.toJsonFromString));
+	lateSet(ctx.concatSymbolArrayFunction_, getConcreteFun(ctx, commonFuns.concatArrays, [symbolType(ctx)], []));
 	ConcreteCommonFuns concreteCommonFuns = ConcreteCommonFuns(
 		alloc: getNonTemplateConcreteFun(ctx, commonFuns.allocate),
 		curCatchPoint: getNonTemplateConcreteFun(ctx, commonFuns.curCatchPoint),

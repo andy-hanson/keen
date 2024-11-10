@@ -126,12 +126,12 @@ import model.model :
 	eachLocal,
 	eachSpecInFunIncludingParents,
 	eachTest,
-	EnumOrFlagsFunction,
 	EnumOrFlagsMember,
 	Expr,
 	ExprAndType,
 	ExternExpr,
 	FinallyExpr,
+	FlagsFunction,
 	FunBody,
 	FunDecl,
 	FunInst,
@@ -441,6 +441,8 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 					translateEqualRecord(ctx, source, auto_, fields, param(0), param(1)),
 				(in UnionMember[] members) =>
 					translateEqualUnion(ctx, source, auto_, members, param(0), param(1)));
+		case AutoFun.Kind.flagsToSymbolArray:
+			return exprFunBody(ctx.alloc, flagsToSymbolArray(ctx.ctx, source, struct_, param(0)));
 		case AutoFun.Kind.symbolToOptEnum:
 			assert(params.length == 1);
 			return todo!JsExprOrBlockStatement("SYMBOL TO ENUM"); // ----------------------------------------------------------------------
@@ -455,6 +457,28 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 				(in UnionMember[] members) =>
 					translateUnionToJson(ctx, source, auto_, members, param(0)));
 	}
+}
+
+JsExpr flagsToSymbolArray(ref TranslateModuleCtx ctx, in Source source, StructDecl* flagsStruct, JsExpr param) {
+	JsExpr getFlagsType = translateStructReference(ctx, source, flagsStruct);
+	JsExpr emptyArray = genArray(source, []);
+	// (F.x.in(a) ? ["x"] : []).concat(F.y.in(a) ? ["y"] : [])
+	return mapReduce!(JsExpr, EnumOrFlagsMember)(
+		flagsStruct.body_.as!(StructBody.Flags).members,
+		(ref EnumOrFlagsMember member) =>
+			genTernary(
+				ctx.alloc,
+				source,
+				genCallPropertySync(
+					ctx.alloc,
+					source,
+					genPropertyAccess(ctx.alloc, source, getFlagsType, JsMemberName.enumMember(member.name)),
+					JsMemberName.special(symbol!"in"),
+					[param]),
+				genArray(ctx.alloc, source, [genStringFromSymbol(source, member.name)]),
+				emptyArray),
+		(JsExpr x, JsExpr y) =>
+			genCallPropertySync(ctx.alloc, source, x, JsMemberName.noPrefix(symbol!"concat"), [y]));
 }
 
 JsExprOrBlockStatement matchEnumFlagsRecordOrUnion(
@@ -1177,14 +1201,14 @@ ExprResult translateInlineCall(
 		},
 		(in FunBody.CreateVariant) =>
 			expr(onlyArg()),
-		(in EnumOrFlagsFunction x) =>
-			expr(translateEnumOrFlagsFunction(ctx, source, returnType, paramTypes, x, nArgs, getArg)),
 		(in Expr _) =>
 			assert(false),
 		(in FunBody.Extern) =>
 			assert(false),
 		(in FunBody.FileImport) =>
 			assert(false),
+		(in FlagsFunction x) =>
+			expr(translateFlagsFunction(ctx, source, returnType, paramTypes, x, nArgs, getArg)),
 		(in FunBody.RecordFieldCall x) {
 			assert(nArgs >= 1);
 			return expr(genCallAwait(
@@ -1318,12 +1342,12 @@ ExprResult translateCallBuiltin(
 			return expr(genBool(source, isVersion(ctx.ctx.version_, x)));
 		});
 }
-JsExpr translateEnumOrFlagsFunction(
+JsExpr translateFlagsFunction(
 	ref TranslateExprCtx ctx,
 	in Source source,
 	Type returnType,
 	in Type[] paramTypes,
-	EnumOrFlagsFunction a,
+	FlagsFunction a,
 	size_t nArgs,
 	in JsExpr delegate(size_t) @safe @nogc pure nothrow getArg,
 ) {
@@ -1340,15 +1364,15 @@ JsExpr translateEnumOrFlagsFunction(
 			translateStructReference(ctx, source, enumOrFlags.as!(StructInst*).decl),
 			JsMemberName.special(name));
 	final switch (a) {
-		case EnumOrFlagsFunction.in_:
+		case FlagsFunction.in_:
 			return call(symbol!"in");
-		case EnumOrFlagsFunction.intersect:
+		case FlagsFunction.intersect:
 			return call(symbol!"intersect");
-		case EnumOrFlagsFunction.negate:
+		case FlagsFunction.negate:
 			return call(symbol!"negate");
-		case EnumOrFlagsFunction.none:
+		case FlagsFunction.none:
 			return staticProperty(returnType, symbol!"none");
-		case EnumOrFlagsFunction.union_:
+		case FlagsFunction.union_:
 			return call(symbol!"union");
 	}
 }

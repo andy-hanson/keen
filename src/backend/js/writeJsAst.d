@@ -817,11 +817,17 @@ void writeExpr(scope ref Output writer, uint indent, in JsExpr a, ExprPos pos = 
 			writer ~= ']';
 		},
 		(in JsTernaryExpr x) {
-			writeArg(x.condition, pos);
+			if (pos.isNonFirstStatement)
+				writer ~= ';';
+			if (pos.isCalled)
+				writer ~= '(';
+			writeArg(x.condition);
 			writer ~= " ? ";
 			writeArg(x.then);
 			writer ~= " : ";
 			writeArg(x.else_);
+			if (pos.isCalled)
+				writer ~= ')';
 		},
 		(in JsThisExpr x) {
 			writer ~= "this";

@@ -23,11 +23,11 @@ import model.model :
 	CommonTypes,
 	Destructure,
 	DocCommentReference,
-	EnumOrFlagsFunction,
 	EnumOrFlagsMember,
 	Expr,
 	ExprRef,
 	ExternExpr,
+	FlagsFunction,
 	forbidModule,
 	FunBody,
 	FunDecl,
@@ -232,8 +232,6 @@ Target funDeclTarget(in CommonTypes commonTypes, FunDecl* a) =>
 			returnTypeTarget(a),
 		(FunBody.CreateVariant x) =>
 			Target(only(a.params.as!(Destructure[])).type.as!(StructInst*).decl),
-		(EnumOrFlagsFunction x) =>
-			returnTypeTarget(a),
 		(Expr _) =>
 			Target(a),
 		(FunBody.Extern) =>
@@ -241,6 +239,8 @@ Target funDeclTarget(in CommonTypes commonTypes, FunDecl* a) =>
 		(FunBody.FileImport) =>
 			// TODO: Target for a file showing all imports
 			Target(a),
+		(FlagsFunction x) =>
+			returnTypeTarget(a),
 		(FunBody.RecordFieldCall x) =>
 			Target(x.field),
 		(FunBody.RecordFieldGet x) =>

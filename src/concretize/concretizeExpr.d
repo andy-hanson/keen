@@ -101,7 +101,6 @@ import model.model :
 	Condition,
 	defaultAssertOrForbidMessage,
 	Destructure,
-	EnumOrFlagsFunction,
 	Expr,
 	ExprAndType,
 	ExternExpr,
@@ -272,7 +271,7 @@ ConcreteType type(in LocalOrConstant a) =>
 		(in TypedConstant x) =>
 			x.type);
 
-ConcreteType getConcreteType(ref ConcretizeExprCtx ctx, Type t) =>
+public ConcreteType getConcreteType(ref ConcretizeExprCtx ctx, Type t) =>
 	getConcreteType_fromConcretizeCtx(ctx.concretizeCtx, t, typeScope(ctx));
 
 TypeArgsScope typeScope(ref const ConcretizeExprCtx ctx) =>
@@ -1327,7 +1326,6 @@ Opt!Constant tryEvalConstant(
 			} else
 				return none!Constant;
 		},
-		(in EnumOrFlagsFunction _) => none!Constant,
 		(in ConcreteFunBody.Extern) => none!Constant,
 		(in ConcreteExpr x) =>
 			x.kind.isA!Constant

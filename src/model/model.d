@@ -985,12 +985,12 @@ immutable struct SpecInstBody {
 	SmallArray!ReturnAndParamTypes sigTypes;
 }
 
-enum EnumOrFlagsFunction { // TODO: RENAME --------------------------------------------------------------------------------------------
-	in_, // AKA subset
-	intersect, // flags only
-	negate, // flags only
-	none, // flags only
-	union_, // flags only
+enum FlagsFunction {
+	in_,
+	intersect, // &
+	negate, // ~
+	none,
+	union_, // |
 }
 
 enum VarKind { global, threadLocal }
@@ -1014,7 +1014,16 @@ string stringOfVarKindLowerCase(VarKind a) {
 }
 
 immutable struct AutoFun {
-	enum Kind { compare, enumOrFlagsMembers, enumOrFlagsToIntegral, enumToSymbol, equals, symbolToOptEnum, toJson }
+	enum Kind {
+		compare,
+		enumOrFlagsMembers,
+		enumOrFlagsToIntegral,
+		enumToSymbol,
+		equals,
+		flagsToSymbolArray,
+		symbolToOptEnum,
+		toJson
+	}
 	Kind kind;
 	Called[] members; // e.g., '<=>' implementations for each record/union member
 }
@@ -1071,10 +1080,10 @@ immutable struct FunBody {
 		CreateRecordAndConvertToVariant,
 		CreateUnion,
 		CreateVariant,
-		EnumOrFlagsFunction,
 		Expr,
 		Extern,
 		FileImport,
+		FlagsFunction,
 		RecordFieldCall,
 		RecordFieldGet,
 		RecordFieldPointer,
@@ -2246,6 +2255,7 @@ immutable struct CommonFuns {
 	FunDecl* equalConstPointers;
 	EnumMap!(IntegralType, FunInst*) lessIntegralFunctions;
 	FunInst* rethrowCurrentException;
+	FunDecl* concatArrays;
 
 	FunInst* gcRoot;
 	FunInst* setGcRoot;
