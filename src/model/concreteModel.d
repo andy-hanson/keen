@@ -7,6 +7,7 @@ import model.model :
 	BuiltinFun,
 	BuiltinType,
 	CommonTypes,
+	EnumOrFlagsMember,
 	Expr,
 	FunDecl,
 	IntegralType,
@@ -16,6 +17,8 @@ import model.model :
 	Local,
 	Params,
 	Purity,
+	mustBeEnumOrFlags,
+	StructBody,
 	StructDecl,
 	Test,
 	VarDecl;
@@ -111,6 +114,13 @@ ConcreteStruct* mustBeByVal(ConcreteType a) {
 	assert(a.reference == ReferenceKind.byVal);
 	return a.struct_;
 }
+
+EnumOrFlagsMember[] mustBeEnumOrFlags(ConcreteType a) =>
+	mustBeEnumOrFlags(*mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl);
+EnumOrFlagsMember[] mustBeEnum(ConcreteType a) =>
+	mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Enum*).members;
+ref StructBody.Flags mustBeFlags(ConcreteType a) =>
+	mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Flags);
 
 immutable struct ConcreteStructInfo {
 	ConcreteStructBody body_;

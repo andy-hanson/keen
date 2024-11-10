@@ -828,6 +828,9 @@ immutable struct StructDecl {
 		!isEmpty(typeParams);
 }
 
+EnumOrFlagsMember[] mustBeEnumOrFlags(in StructDecl a) =>
+	a.body_.isA!(StructBody.Enum*) ? a.body_.as!(StructBody.Enum*).members : a.body_.as!(StructBody.Flags).members;
+
 immutable struct VariantAndMethodImpls {
 	@safe @nogc pure nothrow:
 
@@ -1024,7 +1027,7 @@ immutable struct AutoFun {
 		enumToSymbol,
 		equals,
 		flagsToSymbolArray,
-		symbolToOptEnum,
+		symbolToOptEnumOrFlags,
 		toJson
 	}
 	Kind kind;
@@ -2249,7 +2252,6 @@ immutable struct CommonFuns {
 	FunDecl* sharedOfMutLambda;
 	FunInst* mark;
 	FunInst* newJsonFromPairs;
-	FunInst* toJsonFromString;
 	FunInst* runFiber;
 	FunInst* runAllTests;
 	FunInst* rtMain;

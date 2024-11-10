@@ -20,7 +20,10 @@ import model.model :
 	IntegralType,
 	isArray,
 	isEmpty,
+	isOptionType,
 	isSymbol,
+	Local,
+	mustUnwrapOptionType,
 	Params,
 	RecordField,
 	SpecDecl,
@@ -31,11 +34,16 @@ import model.model :
 	StructInst,
 	Type;
 import util.col.array : allSame, every, isEmpty, map, only;
-import util.opt : force, has, none, Opt, optIf, optOr, optOrDefault, some;
+import util.opt : force, has, none, Opt, optOrDefault, some;
 import util.symbol : symbol;
-import util.util : todo; // ------------------------------------------------------------------------------------------------------------
 
-FunBody checkAutoFun(ref CheckCtx ctx, in CommonTypes commonTypes, in SpecsMap specsMap, in FunsMap funsMap, FunDecl* fun) {
+FunBody checkAutoFun(
+	ref CheckCtx ctx,
+	in CommonTypes commonTypes,
+	in SpecsMap specsMap,
+	in FunsMap funsMap,
+	FunDecl* fun,
+) {
 	FunBody wrong(Diag.AutoFunError diag) {
 		addDiag(ctx, fun.nameRange.range, Diag(diag));
 		return FunBody.bogus;
@@ -49,59 +57,64 @@ FunBody checkAutoFun(ref CheckCtx ctx, in CommonTypes commonTypes, in SpecsMap s
 		case symbol!"==".value:
 			Opt!(SpecDecl*) spec = getSpecFromCommonModule(
 				ctx, specsMap, fun.nameRange.range, symbol!"equal", CommonModule.compare);
-			return has(spec)
-				? checkAutoFunWithSpec( // TODO: this redundantly checks param type ---------------------------------------------
-					ctx, funsMap, fun, AutoFunName.equals, AutoFun.Kind.equals, force(spec),
+			Opt!Type paramType = getAutoFunParamType(ctx, AutoFunName.equals, fun, countParams: 2);
+			return has(spec) && has(paramType)
+				? checkAutoFunWithSpec(
+					ctx, funsMap, fun, force(paramType), AutoFunName.equals, AutoFun.Kind.equals, force(spec),
 					returnTypeOk: none!bool,
-					countParams: 2,
-					allowBare: true)
+					countParams: 2)
 				: FunBody.bogus;
 		case symbol!"<=>".value:
-			Opt!Type optParamType = getAutoFunParamType(fun, countParams: 2);
 			Opt!(SpecDecl*) spec = getSpecFromCommonModule(
 				ctx, specsMap, fun.nameRange.range, symbol!"compare", CommonModule.compare);
-			return has(spec)
-				? checkAutoFunWithSpec( // TODO: this redundantly checks param type ---------------------------------------------
-					ctx, funsMap, fun, AutoFunName.compare, AutoFun.Kind.compare, force(spec),
+			Opt!Type paramType = getAutoFunParamType(ctx, AutoFunName.compare, fun, countParams: 2);
+			return has(spec) && has(paramType)
+				? checkAutoFunWithSpec(
+					ctx, funsMap, fun, force(paramType), AutoFunName.compare, AutoFun.Kind.compare, force(spec),
 					returnTypeOk: none!bool,
-					countParams: 2,
-					allowBare: true)
+					countParams: 2)
 				: FunBody.bogus;
 		case symbol!"to".value:
-			Opt!Type optParamType = getAutoFunParamType(fun, countParams: 1);
+			Opt!Type optParamType = getAutoFunParamType(ctx, AutoFunName.to, fun, countParams: 1);
 			if (has(optParamType)) {
 				Type paramType = force(optParamType);
-				Opt!Type returnedOption = asOptionType(commonTypes, fun.returnType);
 				Opt!IntegralType returnedIntegral = asIntegralType(fun.returnType);
-				if (has(returnedOption) && isEnum(force(returnedOption)) && isSymbol(paramType)) {
-					return FunBody(AutoFun(AutoFun.Kind.symbolToOptEnum, []));
+				if (isEnumOrFlagsOption(commonTypes, fun.returnType) && isSymbol(paramType)) {
+					return FunBody(AutoFun(AutoFun.Kind.symbolToOptEnumOrFlags, []));
 				} else if (has(returnedIntegral) && isEnumOrFlags(paramType)) {
-					return checkAutoFunEnumOrFlagsToIntegral(ctx, fun, force(returnedIntegral), paramType);
-				} else if (fun.returnType == Type(commonTypes.symbol) && isEnum(paramType)) {
-					return checkAutoFunEnumToSymbol(ctx, fun, paramType);
-				} else if (isArray(fun.returnType) && isSymbol(arrayElementType(fun.returnType)) && isFlags(paramType)) {
-					return checkAutoFunFlagsToSymbolArray(ctx, fun, paramType);
-				} else {
+					return force(returnedIntegral) != asEnumOrFlags(paramType).storage
+						? wrong(Diag.AutoFunError(Diag.AutoFunError.EnumOrFlagsToWrongStorage(
+							enumOrFlagsType: paramType.as!(StructInst*).decl,
+							actualStorageType: asEnumOrFlags(paramType).storage,
+							expectedStorageType: force(returnedIntegral),
+						)))
+						: FunBody(AutoFun(AutoFun.Kind.enumOrFlagsToIntegral, []));
+				} else if (fun.returnType == Type(commonTypes.symbol) && isEnum(paramType))
+					return FunBody(AutoFun(AutoFun.Kind.enumToSymbol, []));
+				else if (isSymbolArray(fun.returnType) && isFlags(paramType))
+					return checkAutoFunNotBare(ctx, fun)
+						? FunBody(AutoFun(AutoFun.Kind.flagsToSymbolArray, []))
+						: FunBody.bogus;
+				else {
 					Opt!(SpecDecl*) spec = getSpecFromCommonModule(
 						ctx, specsMap, fun.nameRange.range, symbol!"to", CommonModule.misc);
-					return has(spec)
-						? checkAutoFunWithSpec( // TODO: this redundantly checks the param type =========================================
-							ctx, funsMap, fun, AutoFunName.to, AutoFun.Kind.toJson, force(spec),
+					return has(spec) && checkAutoFunNotBare(ctx, fun)
+						? checkAutoFunWithSpec(
+							ctx, funsMap, fun, paramType, AutoFunName.to, AutoFun.Kind.toJson, force(spec),
 							returnTypeOk: some(isJson(ctx, fun.returnType)),
 							countParams: 1,
-							allowBare: false,
 							extraTypeArg: some(fun.returnType))
 						: FunBody.bogus;
 				}
 			} else
-				return wrongParams(AutoFunName.to);
+				return FunBody.bogus;
 		case symbol!"members".value:
 			if (!isEmpty(fun.params))
 				return wrongParams(AutoFunName.members);
-			else if (isArray(fun.returnType) && isEnumOrFlags(arrayElementType(fun.returnType)))
-				return FunBody(AutoFun(AutoFun.Kind.enumOrFlagsMembers, []));
-			else
+			else if (!isEnumOrFlagsArray(fun.returnType))
 				return wrongReturnType();
+			else
+				return FunBody(AutoFun(AutoFun.Kind.enumOrFlagsMembers, []));
 		default:
 			addDiag(ctx, fun.nameRange.range, Diag(Diag.AutoFunError(Diag.AutoFunError.WrongName())));
 			return FunBody.bogus;
@@ -110,47 +123,12 @@ FunBody checkAutoFun(ref CheckCtx ctx, in CommonTypes commonTypes, in SpecsMap s
 
 private:
 
-Opt!Type asOptionType(in CommonTypes commonTypes, in Type a) { // TODO: doesn' this exist somewhere else already?????????????????????????
-	if (a.isA!(StructInst*)) {
-		StructInst* inst = a.as!(StructInst*);
-		return optIf(inst.decl == commonTypes.option, () => only(inst.typeArgs));
-	} else
-		return none!Type;
-}
-
-FunBody checkAutoFunEnumOrFlagsToIntegral(ref CheckCtx ctx, FunDecl* fun, IntegralType returnType, Type paramType) {
-	Opt!(Diag.AutoFunError) diag = checkForAutoFunError(ctx, fun, AutoFunName.to, some(paramType), allowBare: true); // TODO: dup code. ....
-	if (has(diag)) {
-		addDiag(ctx, fun.nameRange.range, Diag(force(diag)));
-		return FunBody.bogus;
-	} else if (returnType != asEnumOrFlags(paramType).storage) {
-		todo!void("DIAG: enum to integral does not match storage type");
-		return FunBody.bogus;
-	} else
-		return FunBody(AutoFun(AutoFun.Kind.enumOrFlagsToIntegral, []));
-}
-
-FunBody checkAutoFunEnumToSymbol(ref CheckCtx ctx, FunDecl* fun, Type paramType) {
-	Opt!(Diag.AutoFunError) diag = checkForAutoFunError(ctx, fun, AutoFunName.to, some(paramType), allowBare: true);
-	if (has(diag)) {
-		addDiag(ctx, fun.nameRange.range, Diag(force(diag)));
-		return FunBody.bogus;
-	} else {
-		if (!isEnum(only(fun.params.as!(Destructure[])).type)) {
-			todo!void("DIAG: 'to symbol' only works for enum"); // ---------------------------------------------------------------
-		}
-		return FunBody(AutoFun(AutoFun.Kind.enumToSymbol, []));
-	}
-}
-
-FunBody checkAutoFunFlagsToSymbolArray(ref CheckCtx ctx, FunDecl* fun, Type paramType) {
-	Opt!(Diag.AutoFunError) diag = checkForAutoFunError(ctx, fun, AutoFunName.to, some(paramType), allowBare: false);
-	if (has(diag)) { // TODO: identical code in checkAutoFunEnumToSymbol -------------------------------------------------------------------------------
-		addDiag(ctx, fun.nameRange.range, Diag(force(diag)));
-		return FunBody.bogus;
-	} else
-		return FunBody(AutoFun(AutoFun.Kind.flagsToSymbolArray, []));
-}
+bool isEnumOrFlagsArray(in Type a) =>
+	isArray(a) && isEnumOrFlags(arrayElementType(a));
+bool isSymbolArray(in Type a) =>
+	isArray(a) && isSymbol(arrayElementType(a));
+bool isEnumOrFlagsOption(in CommonTypes commonTypes, in Type a) =>
+	isOptionType(commonTypes, a) && isEnumOrFlags(mustUnwrapOptionType(commonTypes, a));
 
 bool isEnum(in Type a) =>
 	a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!(StructBody.Enum*);
@@ -173,12 +151,12 @@ FunBody checkAutoFunWithSpec(
 	ref CheckCtx ctx,
 	in FunsMap funsMap,
 	FunDecl* fun,
+	Type paramType,
 	AutoFunName funName,
 	AutoFun.Kind funKind,
 	SpecDecl* spec,
 	Opt!bool returnTypeOk, // if none, use sig
 	uint countParams,
-	bool allowBare,
 	Opt!Type extraTypeArg = none!Type,
 ) {
 	FunBody diag(Diag.AutoFunError x) {
@@ -188,17 +166,13 @@ FunBody checkAutoFunWithSpec(
 	if (spec.sigs.length != 1)
 		return diag(Diag.AutoFunError(Diag.AutoFunError.SpecCorrupt(spec.name)));
 	Signature* sig = &only(spec.sigs);
-	Opt!Type paramType = getAutoFunParamType(fun, countParams);
-	Opt!(Diag.AutoFunError) err = optOr!(Diag.AutoFunError)(
-		checkForAutoFunError(ctx, fun, funName, paramType, allowBare),
-		() => !optOrDefault!bool(returnTypeOk, () => fun.returnType == sig.returnType)
-			? some(Diag.AutoFunError(Diag.AutoFunError.WrongReturnType(funName)))
-			: !isEnumFlagsRecordOrUnion(force(paramType))
-			? some(Diag.AutoFunError(Diag.AutoFunError.WrongParamType()))
-			: none!(Diag.AutoFunError));
-	return has(err)
-		? diag(force(err))
-		: FunBody(AutoFun(funKind, map(ctx.alloc, force(paramType).as!(StructInst*).instantiatedTypes, (ref Type type) {
+
+	if (!isEnumFlagsRecordOrUnion(paramType))
+		return diag(Diag.AutoFunError(Diag.AutoFunError.WrongParamType()));
+	else if (!optOrDefault!bool(returnTypeOk, () => fun.returnType == sig.returnType))
+		return diag(Diag.AutoFunError(Diag.AutoFunError.WrongReturnType(funName)));
+	else
+		return FunBody(AutoFun(funKind, map(ctx.alloc, paramType.as!(StructInst*).instantiatedTypes, (ref Type type) {
 			SpecInst* inst = has(extraTypeArg)
 				? instantiateSpec(ctx.instantiateCtx, spec, [force(extraTypeArg), type])
 				: instantiateSpec(ctx.instantiateCtx, spec, [type]);
@@ -206,29 +180,34 @@ FunBody checkAutoFunWithSpec(
 		})));
 }
 
-Opt!(Diag.AutoFunError) checkForAutoFunError(
-	in CheckCtx ctx,
-	FunDecl* fun,
-	AutoFunName funName,
-	in Opt!Type paramType,
-	bool allowBare,
-) =>
-	!has(paramType)
-		? some(Diag.AutoFunError(Diag.AutoFunError.WrongParams(funName)))
-		: !isFullyVisible(ctx, force(paramType))
-		? some(Diag.AutoFunError(Diag.AutoFunError.TypeNotFullyVisible()))
-		: !allowBare && fun.flags.bare
-		? some(Diag.AutoFunError(Diag.AutoFunError.Bare()))
-		: none!(Diag.AutoFunError);
+bool checkAutoFunNotBare(ref CheckCtx ctx, FunDecl* fun) {
+	if (fun.flags.bare) {
+		addDiag(ctx, fun.nameRange.range, Diag(Diag.AutoFunError(Diag.AutoFunError.Bare())));
+		return false;
+	} else
+		return true;
+}
 
-Opt!Type getAutoFunParamType(FunDecl* fun, uint countParams) =>
-	fun.params.matchIn!(Opt!Type)(
+Opt!Type getAutoFunParamType(ref CheckCtx ctx, AutoFunName funName, FunDecl* fun, uint countParams) {
+	Opt!Type res = fun.params.matchIn!(Opt!Type)(
 		(in Destructure[] params) =>
 			params.length == countParams && allSame!(Type, Destructure)(params, (in Destructure x) => x.type)
 				? some(params[0].type)
 				: none!Type,
 		(in Params.Varargs) =>
 			none!Type);
+	if (!has(res)) {
+		addDiag(ctx, fun.nameRange.range, Diag(Diag.AutoFunError(Diag.AutoFunError.WrongParams(funName))));
+		return none!Type;
+	} else if (!isFullyVisible(ctx, force(res))) {
+		addDiag(ctx, fun.nameRange.range, Diag(Diag.AutoFunError(Diag.AutoFunError.TypeNotFullyVisible())));
+		return none!Type;
+	} else if (!every!Destructure(fun.params.as!(Destructure[]), (in Destructure x) => x.isA!(Local*))) {
+		addDiag(ctx, fun.nameRange.range, Diag(Diag.AutoFunError(Diag.AutoFunError.ParamNotSimple())));
+		return none!Type;
+	} else
+		return res;
+}
 
 bool isEnumFlagsRecordOrUnion(in Type a) =>
 	isEnumOrFlags(a) || isRecordOrUnion(a);
@@ -243,7 +222,7 @@ bool isFullyVisible(in CheckCtx ctx, in Type a) {
 		(in StructBody.Bogus) =>
 			true,
 		(in BuiltinType _) =>
-			false,
+			true,
 		(in StructBody.Enum) =>
 			true,
 		(in StructBody.Extern) =>

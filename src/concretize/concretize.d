@@ -96,8 +96,6 @@ ConcreteProgram concretizeInner(
 	lateSet(ctx.lessIntegralFunctions_, enumMapMapValues(commonFuns.lessIntegralFunctions, (const FunInst* x) => // Why even do this? Just use e.g. BuiltinBinary.lessInt8
 		getNonTemplateConcreteFun(ctx, x)));
 	lateSet(ctx.newJsonFromPairsFunction_, getNonTemplateConcreteFun(ctx, commonFuns.newJsonFromPairs));
-	lateSet(ctx.toJsonFromStringFunction_, getNonTemplateConcreteFun(ctx, commonFuns.toJsonFromString));
-	lateSet(ctx.concatSymbolArrayFunction_, getConcreteFun(ctx, commonFuns.concatArrays, [symbolType(ctx)], []));
 	ConcreteCommonFuns concreteCommonFuns = ConcreteCommonFuns(
 		alloc: getNonTemplateConcreteFun(ctx, commonFuns.allocate),
 		curCatchPoint: getNonTemplateConcreteFun(ctx, commonFuns.curCatchPoint),

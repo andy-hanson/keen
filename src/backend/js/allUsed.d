@@ -493,7 +493,7 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 					case AutoFun.Kind.enumToSymbol:
 					case AutoFun.Kind.flagsToSymbolArray:
 					case AutoFun.Kind.compare:
-					case AutoFun.Kind.symbolToOptEnum:
+					case AutoFun.Kind.symbolToOptEnumOrFlags:
 						break;
 					case AutoFun.Kind.toJson:
 						trackAllUsedInCalled(

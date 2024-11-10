@@ -1017,14 +1017,14 @@ ShowDiagCtx getShowDiagCtx(
 ) =>
 	ShowDiagCtx(getShowCtx(server, forceNoColor: forceNoColor), program.commonTypesPtr);
 
-private:
-
 ShowCtx getShowCtx(return scope ref const Server server, bool forceNoColor = false) =>
 	ShowCtx(
 		server.lineAndColumnGetters,
 		server.fileContentGetters,
 		server.urisInfo,
 		forceNoColor ? server.showOptions.withoutColor : server.showOptions);
+
+private:
 
 LspOutMessage notification(T)(T a) =>
 	LspOutMessage(LspOutNotification(a));

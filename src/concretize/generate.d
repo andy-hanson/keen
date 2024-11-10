@@ -31,13 +31,15 @@ import model.concreteModel :
 	ConcreteStructSource,
 	ConcreteType,
 	isVoid,
+	mustBeEnum,
 	mustBeByVal,
 	unwrapOptionType;
 import model.constant : Constant, constantBool, constantZero;
-import model.model : Called, FunBody, RecordField, StructBody;
+import model.model : Called, EnumOrFlagsMember, FunBody, RecordField, StructBody;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	isEmpty,
+	map,
 	mapPointers,
 	mapPointersWithIndex,
 	mapWithIndex,
@@ -48,7 +50,7 @@ import util.col.array :
 	SmallArray;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.conv : safeToUint;
-import util.integralValues : IntegralValue, integralValuesRange;
+import util.integralValues : IntegralValue, IntegralValues, integralValuesRange, mapToIntegralValues;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, some;
 import util.sourceRange : UriAndRange;
@@ -145,7 +147,7 @@ ConcreteExpr genLet(
 ConcreteExpr genDrop(ref ConcretizeCtx ctx, in UriAndRange range, ConcreteExpr inner) =>
 	ConcreteExpr(voidType(ctx), range, ConcreteExprKind(allocate(ctx.alloc, ConcreteExprKind.Drop(inner))));
 
-ConcreteExpr genIdentifier(in UriAndRange range, ConcreteLocal* local) => // I should call this genLocalGet ------------------------------
+ConcreteExpr genLocalGet(in UriAndRange range, ConcreteLocal* local) =>
 	ConcreteExpr(local.type, range, ConcreteExprKind(ConcreteExprKind.LocalGet(local)));
 
 ConcreteExpr genLocalPointer(ConcreteType type, in UriAndRange range, ConcreteLocal* local) =>
@@ -244,6 +246,35 @@ ConcreteFunBody generateCallVariantMethod(
 			}));
 }
 
+ConcreteExpr genMatchEnumOrIntegral(
+	ref Alloc alloc,
+	ConcreteType type,
+	UriAndRange range,
+	ConcreteExpr matched,
+	in ConcreteExpr delegate(ref EnumOrFlagsMember) @safe @nogc pure nothrow cb,
+) {
+	EnumOrFlagsMember[] members = mustBeEnum(matched.type);
+	return genMatchEnumOrIntegral(
+		alloc,
+		type,
+		range,
+		matched,
+		mapToIntegralValues!EnumOrFlagsMember(members, (ref EnumOrFlagsMember x) => x.value),
+		map(alloc, members, cb));
+}
+
+ConcreteExpr genMatchEnumOrIntegral(
+	ref Alloc alloc,
+	ConcreteType type,
+	UriAndRange range,
+	ConcreteExpr matched,
+	IntegralValues caseValues,
+	ConcreteExpr[] cases,
+	Opt!(ConcreteExpr*) else_ = none!(ConcreteExpr*),
+) =>
+	ConcreteExpr(type, range, ConcreteExprKind(allocate(alloc,
+		ConcreteExprKind.MatchEnumOrIntegral(matched, caseValues, cases, else_))));
+
 ConcreteExpr genMatchUnion(
 	ref ConcretizeCtx ctx,
 	ConcreteType returnType,
@@ -260,7 +291,7 @@ ConcreteExpr genMatchUnion(
 				ConcreteLocal* local = allocate(ctx.alloc, ConcreteLocal(
 					ConcreteLocalSource(ConcreteLocalSource.Generated(ConcreteLocalSource.Generated.member)),
 					memberType));
-				return ConcreteExprKind.MatchUnion.Case(some(local), cb(memberIndex, genIdentifier(range, local)));
+				return ConcreteExprKind.MatchUnion.Case(some(local), cb(memberIndex, genLocalGet(range, local)));
 			}),
 		none!(ConcreteExpr*)))));
 
@@ -281,10 +312,6 @@ ConcreteExprKind genThrowStringKind(ref ConcretizeCtx ctx, UriAndRange range, st
 
 ConcreteExpr genStringLiteral(ref ConcretizeCtx ctx, UriAndRange range, in string value) =>
 	ConcreteExpr(char8ArrayType(ctx), range, genStringLiteralKind(ctx, range, value));
-
-ConcreteExpr genStringLiteralForSymbol(ref ConcretizeCtx ctx, UriAndRange range, Symbol value) =>
-	withStringOfSymbol(value, (in string x) =>
-		genStringLiteral(ctx, range, x));
 
 ConcreteExprKind genStringLiteralKind(ref ConcretizeCtx ctx, UriAndRange range, in string value) =>
 	genChar8Array(ctx, range, value).kind;

@@ -454,6 +454,17 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				(in Diag.AutoFunError.Bare) {
 					writer ~= "Automatic 'to json' can't be 'bare'.";
 				},
+				(in Diag.AutoFunError.EnumOrFlagsToWrongStorage x) {
+					writer ~= "Type ";
+					writeName(writer, ctx, x.enumOrFlagsType.name);
+					writer ~= " has storage type ";
+					writeName(writer, ctx, stringOfEnum(x.actualStorageType));
+					writer ~= ", not ";
+					writeName(writer, ctx, stringOfEnum(x.expectedStorageType));
+				},
+				(in Diag.AutoFunError.ParamNotSimple) {
+					writer ~= "An auto fun must have simple parameters (not ignored or destructured).";
+				},
 				(in Diag.AutoFunError.SpecCorrupt x) {
 					writer ~= "Spec ";
 					writeName(writer, ctx, x.specName);

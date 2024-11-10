@@ -159,6 +159,7 @@ import model.model :
 	MatchStringLikeExpr,
 	MatchUnionExpr,
 	MatchVariantExpr,
+	mustBeEnumOrFlags,
 	mustUnwrapOptionType,
 	Params,
 	paramsArray,
@@ -416,7 +417,9 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 			assert(params.length == 2);
 			return matchEnumFlagsRecordOrUnion(
 				struct_,
-				(in EnumOrFlagsMember[] members) =>
+				(in StructBody.Enum) =>
+					translateCompareEnumOrFlags(ctx, source, returnStruct, param(0), param(1)),
+				(in StructBody.Flags) =>
 					translateCompareEnumOrFlags(ctx, source, returnStruct, param(0), param(1)),
 				(in RecordField[] fields) =>
 					translateCompareRecord(ctx, source, auto_, returnStruct, fields, param(0), param(1)),
@@ -435,7 +438,9 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 			assert(params.length == 2);
 			return matchEnumFlagsRecordOrUnion(
 				struct_,
-				(in EnumOrFlagsMember[]) =>
+				(in StructBody.Enum) =>
+					translateEqualEnumOrFlags(ctx, source, *struct_, param(0), param(1)),
+				(in StructBody.Flags) =>
 					translateEqualEnumOrFlags(ctx, source, *struct_, param(0), param(1)),
 				(in RecordField[] fields) =>
 					translateEqualRecord(ctx, source, auto_, fields, param(0), param(1)),
@@ -443,15 +448,20 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 					translateEqualUnion(ctx, source, auto_, members, param(0), param(1)));
 		case AutoFun.Kind.flagsToSymbolArray:
 			return exprFunBody(ctx.alloc, flagsToSymbolArray(ctx.ctx, source, struct_, param(0)));
-		case AutoFun.Kind.symbolToOptEnum:
+		case AutoFun.Kind.symbolToOptEnumOrFlags:
 			assert(params.length == 1);
-			return todo!JsExprOrBlockStatement("SYMBOL TO ENUM"); // ----------------------------------------------------------------------
+			return symbolToOptEnumOrFlags(
+				ctx, source, fun.returnType,
+				mustBeEnumOrFlags(*mustUnwrapOptionType(ctx.commonTypes, fun.returnType).as!(StructInst*).decl),
+				param(0));
 		case AutoFun.Kind.toJson:
 			assert(params.length == 1);
 			return matchEnumFlagsRecordOrUnion(
 				struct_,
-				(in EnumOrFlagsMember[]) =>
-					translateEnumOrFlagsToJson(ctx, source, param(0)),
+				(in StructBody.Enum) =>
+					translateEnumToJson(ctx, source, param(0)),
+				(in StructBody.Flags) =>
+					translateFlagsToJson(ctx, source, struct_, param(0)),
 				(in RecordField[] fields) =>
 					translateRecordToJson(ctx, source, auto_, fields, param(0)),
 				(in UnionMember[] members) =>
@@ -459,7 +469,36 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 	}
 }
 
-JsExpr flagsToSymbolArray(ref TranslateModuleCtx ctx, in Source source, StructDecl* flagsStruct, JsExpr param) {
+JsExprOrBlockStatement symbolToOptEnumOrFlags(ref TranslateExprCtx ctx, in Source source, Type optionType, in EnumOrFlagsMember[] members, JsExpr param) =>
+	JsExprOrBlockStatement(genBlockStatement(ctx.alloc, [
+		genSwitch(
+			source,
+			allocate(ctx.alloc, param),
+			map(ctx.alloc, members, (ref EnumOrFlagsMember member) =>
+				JsSwitchStatement.Case(
+					genStringFromSymbol(source, member.name),
+					genBlockReturn(ctx.alloc, genOptionSome(ctx, source, optionType, translateEnumValue(ctx.ctx, source, member))))),
+			genBlockReturn(ctx.alloc, genOptionNone(ctx, source, optionType)))]));
+
+JsBlockStatement genBlockReturn(ref Alloc alloc, JsExpr expr) =>
+	genBlockStatement(alloc, [genReturn(alloc, expr.source, expr)]);
+
+// TODO: translateAutoFun should be its own module -----------------------------------------------------------------------------------
+JsExprOrBlockStatement translateFlagsToJson(ref TranslateExprCtx ctx, in Source source, StructDecl* flagsStruct, JsExpr param) =>
+	exprFunBody(ctx.alloc, genJsonOfArray(ctx.ctx, source, flagsToArray(ctx.ctx, source, flagsStruct, param, (ref EnumOrFlagsMember member) =>
+		genJsonOfString(ctx.ctx, source, genStringFromSymbol(source, member.name)))));
+
+JsExpr flagsToSymbolArray(ref TranslateModuleCtx ctx, in Source source, StructDecl* flagsStruct, JsExpr param) =>
+	flagsToArray(ctx, source, flagsStruct, param, (ref EnumOrFlagsMember member) =>
+		genStringFromSymbol(source, member.name));
+
+JsExpr flagsToArray(
+	ref TranslateModuleCtx ctx,
+	in Source source,
+	StructDecl* flagsStruct,
+	JsExpr param,
+	in JsExpr delegate(ref EnumOrFlagsMember) @safe @nogc pure nothrow cb,
+) {
 	JsExpr getFlagsType = translateStructReference(ctx, source, flagsStruct);
 	JsExpr emptyArray = genArray(source, []);
 	// (F.x.in(a) ? ["x"] : []).concat(F.y.in(a) ? ["y"] : [])
@@ -475,7 +514,7 @@ JsExpr flagsToSymbolArray(ref TranslateModuleCtx ctx, in Source source, StructDe
 					genPropertyAccess(ctx.alloc, source, getFlagsType, JsMemberName.enumMember(member.name)),
 					JsMemberName.special(symbol!"in"),
 					[param]),
-				genArray(ctx.alloc, source, [genStringFromSymbol(source, member.name)]),
+				genArray(ctx.alloc, source, [cb(member)]),
 				emptyArray),
 		(JsExpr x, JsExpr y) =>
 			genCallPropertySync(ctx.alloc, source, x, JsMemberName.noPrefix(symbol!"concat"), [y]));
@@ -483,7 +522,8 @@ JsExpr flagsToSymbolArray(ref TranslateModuleCtx ctx, in Source source, StructDe
 
 JsExprOrBlockStatement matchEnumFlagsRecordOrUnion(
 	in StructDecl* struct_,
-	in JsExprOrBlockStatement delegate(in EnumOrFlagsMember[]) @safe @nogc pure nothrow cbEnumOrFlags,
+	in JsExprOrBlockStatement delegate(in StructBody.Enum) @safe @nogc pure nothrow cbEnum,
+	in JsExprOrBlockStatement delegate(in StructBody.Flags) @safe @nogc pure nothrow cbFlags,
 	in JsExprOrBlockStatement delegate(in RecordField[]) @safe @nogc pure nothrow cbRecord,
 	in JsExprOrBlockStatement delegate(in UnionMember[]) @safe @nogc pure nothrow cbUnion,
 ) =>
@@ -492,12 +532,10 @@ JsExprOrBlockStatement matchEnumFlagsRecordOrUnion(
 			assert(false),
 		(in BuiltinType _) =>
 			assert(false),
-		(in StructBody.Enum x) =>
-			cbEnumOrFlags(x.members),
+		cbEnum,
 		(in StructBody.Extern) =>
 			assert(false),
-		(in StructBody.Flags x) =>
-			cbEnumOrFlags(x.members),
+		cbFlags,
 		(in StructBody.Record x) =>
 			cbRecord(x.fields),
 		(in StructBody.Union x) =>
@@ -711,7 +749,7 @@ SyncOrAsync isCurFunAsync(in TranslateExprCtx ctx) =>
 SyncOrAsync isAsyncCall(in TranslateExprCtx ctx, in Called called) =>
 	isAsyncCall(ctx.ctx.allUsed, ctx.curFun, called);
 
-JsExprOrBlockStatement translateEnumOrFlagsToJson(ref TranslateExprCtx ctx, in Source source, JsExpr p0) =>
+JsExprOrBlockStatement translateEnumToJson(ref TranslateExprCtx ctx, in Source source, JsExpr p0) =>
 	exprFunBody(ctx.alloc, genJsonOfString(ctx.ctx, source, getEnumName(ctx.alloc, source, p0)));
 
 JsExprOrBlockStatement translateRecordToJson(
@@ -756,8 +794,13 @@ JsExpr genNewJson(ref TranslateModuleCtx ctx, in Source source, JsExpr[] pairs) 
 			ctx.alloc,
 			translateFunReference(ctx, source, ctx.program.commonFuns.newJsonFromPairs.decl)),
 		pairs);
+JsExpr genJsonOfArray(ref TranslateModuleCtx ctx, in Source source, JsExpr array) =>
+	genCallPropertySync(ctx.alloc, source, translateStructReference(ctx, source, jsonType(ctx)), JsMemberName.unionConstructor(symbol!"array"), [array]);
 JsExpr genJsonOfString(ref TranslateModuleCtx ctx, in Source source, JsExpr string_) =>
-	genCallSync(ctx.alloc, source, translateFunReference(ctx, source, ctx.program.commonFuns.toJsonFromString.decl), [string_]);
+	genCallPropertySync(ctx.alloc, source, translateStructReference(ctx, source, jsonType(ctx)), JsMemberName.unionConstructor(symbol!"string"), [string_]);
+StructDecl* jsonType(in TranslateModuleCtx ctx) =>
+	ctx.program.commonFuns.newJsonFromPairs.returnType.as!(StructInst*).decl;
+
 JsExpr genTuple(
 	ref TranslateExprCtx ctx,
 	in Source source,
@@ -2238,7 +2281,7 @@ ExprResult translateMatchEnum(
 			ctx.alloc, a.cases,
 			(size_t caseIndex, ref MatchEnumExpr.Case case_) =>
 				JsSwitchStatement.Case(
-					translateEnumValue(ctx.ctx, exprSource(ctx, caseNameRange(expr, caseIndex)), case_.member),
+					translateEnumValue(ctx.ctx, exprSource(ctx, caseNameRange(expr, caseIndex)), *case_.member),
 					translateExprToSwitchBlockStatement(ctx, case_.then, type))),
 		translateSwitchDefault(ctx, source, a.else_, type, "Invalid enum value")));
 
@@ -2412,7 +2455,7 @@ JsBlockStatement translateSwitchDefault(
 		? translateExprToSwitchBlockStatement(ctx, force(else_), type)
 		: genBlockStatement(ctx.alloc, [genThrowJsError(ctx.alloc, source, error)]);
 
-JsExpr translateEnumValue(ref TranslateModuleCtx ctx, in Source source, EnumOrFlagsMember* a) =>
+JsExpr translateEnumValue(ref TranslateModuleCtx ctx, in Source source, in EnumOrFlagsMember a) =>
 	genPropertyAccess(
 		ctx.alloc, source,
 		translateStructReference(ctx, source, a.containingEnum),

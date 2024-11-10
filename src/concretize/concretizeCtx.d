@@ -16,7 +16,7 @@ import concretize.generate :
 	genConstant,
 	genCreateRecord,
 	genCreateUnion,
-	genIdentifier,
+	genLocalGet,
 	genRecordFieldCall,
 	genRecordFieldGet,
 	genRecordFieldPointer,
@@ -58,6 +58,7 @@ import model.model :
 	AutoFun,
 	BuiltinFun,
 	BuiltinType,
+	CommonFuns,
 	CommonTypes,
 	Destructure,
 	eachTest,
@@ -123,7 +124,7 @@ import util.opt : force, has, none, Opt, optOrDefault;
 import util.sourceRange : UriAndRange;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : SymbolSet;
-import util.util : castImmutable, enumConvert, max, roundUp, typeAs;
+import util.util : enumConvert, max, roundUp, typeAs;
 import versionInfo : OS, VersionInfo;
 
 private alias TypeArgsScope = SmallArray!ConcreteType;
@@ -178,8 +179,6 @@ struct ConcretizeCtx {
 	Late!(ConcreteFun*) equalSymbolFunction_;
 	Late!(EnumMap!(IntegralType, ConcreteFun*)) lessIntegralFunctions_;
 	Late!(ConcreteFun*) newJsonFromPairsFunction_;
-	Late!(ConcreteFun*) toJsonFromStringFunction_;
-	Late!(ConcreteFun*) concatSymbolArrayFunction_;
 	AllConstantsBuilder allConstants;
 	MutHashTable!(ConcreteStruct*, ConcreteStructSource.Inst, getStructKey) nonLambdaConcreteStructs;
 	ArrayBuilder!(ConcreteStruct*) allConcreteStructs;
@@ -201,6 +200,7 @@ struct ConcretizeCtx {
 	Late!ConcreteType _voidType;
 	Late!(EnumMap!(IntegralType, ConcreteType)) _integralTypes;
 	Late!ConcreteType _ctxType;
+	Late!ConcreteType _stringType;
 	Late!ConcreteType _symbolType;
 
 	ref Alloc alloc() return scope =>
@@ -208,6 +208,8 @@ struct ConcretizeCtx {
 
 	ref Program program() return scope const =>
 		programWithMainPtr.program;
+	ref CommonFuns commonFuns() return scope const =>
+		program.commonFuns;
 	ref CommonTypes commonTypes() return scope const =>
 		program.commonTypes;
 	ref immutable(EnumMap!(IntegralType, ConcreteFun*)) equalIntegralFunctions() return scope const =>
@@ -222,10 +224,6 @@ struct ConcretizeCtx {
 		lessIntegralFunctions[IntegralType.nat64];
 	ConcreteFun* newJsonFromPairsFunction() return scope const =>
 		lateGet(newJsonFromPairsFunction_);
-	ConcreteFun* toJsonFromStringFunction() return scope const =>
-		lateGet(toJsonFromStringFunction_);
-	ConcreteFun* concatSymbolArrayFunction() return scope const =>
-		lateGet(concatSymbolArrayFunction_);
 	ConcreteFun* createErrorFunction() return scope const =>
 		lateGet(createErrorFunction_);
 }
@@ -263,7 +261,7 @@ private ConcreteType bogusType(ref ConcretizeCtx a) =>
 		res.defaultReferenceKind = ReferenceKind.byVal;
 		res.typeSize = TypeSize(0, 1);
 		res.fieldOffsets = typeAs!(immutable uint[])([]);
-		return ConcreteType(ReferenceKind.byVal, res);
+		return ConcreteType.byVal(res);
 	});
 
 ConcreteType boolType(ref ConcretizeCtx a) =>
@@ -288,11 +286,10 @@ ConcreteType char32ArrayType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._char32ArrayType, () =>
 		getConcreteType_forStructInst(a, a.commonTypes.char32Array, emptySmallArray!ConcreteType));
 
-ref immutable(EnumMap!(IntegralType, ConcreteType)) integralTypes(ref ConcretizeCtx a) =>
+private ref immutable(EnumMap!(IntegralType, ConcreteType)) integralTypes(ref ConcretizeCtx a) =>
 	lazilySet!(EnumMap!(IntegralType, ConcreteType))(a._integralTypes, () =>
-		// TODO: castImmutable should not be needed ------------------------------------------------------------------------------------
-		castImmutable(makeEnumMap!(IntegralType, ConcreteType)((IntegralType x) =>
-			getConcreteType_forStructInst(a, a.commonTypes.integrals[x], emptySmallArray!ConcreteType))));
+		makeEnumMap!(IntegralType, ConcreteType)((IntegralType x) =>
+			getConcreteType_forStructInst(a, a.commonTypes.integrals[x], emptySmallArray!ConcreteType)));
 ConcreteType integralType(ref ConcretizeCtx a, IntegralType type) =>
 	integralTypes(a)[type];
 
@@ -302,6 +299,10 @@ ConcreteType nat64Type(ref ConcretizeCtx a) =>
 ConcreteType exceptionType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._exceptionType, () =>
 		getConcreteType_forStructInst(a, a.commonTypes.exception, emptySmallArray!ConcreteType));
+
+ConcreteType stringType(ref ConcretizeCtx a) =>
+	lazilySet!ConcreteType(a._stringType, () =>
+		getConcreteType_forStructInst(a, a.commonTypes.string_, emptySmallArray!ConcreteType));
 
 ConcreteType symbolType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._symbolType, () =>
@@ -792,21 +793,21 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 		(FunBody.RecordFieldGet x) =>
 			ConcreteFunBody(genRecordFieldGet(
 				cf.returnType, cf.range,
-				allocate(ctx.alloc, genIdentifier(cf.range, onlyPointer(cf.params))),
+				allocate(ctx.alloc, genLocalGet(cf.range, onlyPointer(cf.params))),
 				fieldIndexFromField(only(cf.params).type, x.field))),
 		(FunBody.RecordFieldPointer x) =>
 			ConcreteFunBody(genRecordFieldPointer(
 				cf.returnType, cf.range,
-				allocate(ctx.alloc, genIdentifier(cf.range, onlyPointer(cf.params))),
+				allocate(ctx.alloc, genLocalGet(cf.range, onlyPointer(cf.params))),
 				fieldIndexFromField(pointeeType(only(cf.params).type), x.field))),
 		(FunBody.RecordFieldSet x) {
 			assert(cf.params.length == 2);
 			return ConcreteFunBody(genRecordFieldSet(
 				ctx,
 				cf.range,
-				genIdentifier(cf.range, &cf.params[0]),
+				genLocalGet(cf.range, &cf.params[0]),
 				fieldIndexFromField(pointeeTypeIfIsPointer(cf.params[0].type), x.field),
-				genIdentifier(cf.range, &cf.params[1])));
+				genLocalGet(cf.range, &cf.params[1])));
 		},
 		(FunBody.UnionMemberGet x) =>
 			genUnionMemberGet(ctx, cf, unionMemberIndex(only(concreteParams).type, x.member)),
@@ -837,13 +838,13 @@ ConcreteExpr genCreateRecordFromParams(
 	ConcreteLocal[] params,
 ) =>
 	genCreateRecord(recordType, range, mapPointers(alloc, params, (ConcreteLocal* param) =>
-		genIdentifier(range, param)));
+		genLocalGet(range, param)));
 
 ConcreteFunBody createUnionBody(ref Alloc alloc, ConcreteFun* cf, size_t memberIndex) =>
 	isEmpty(cf.params)
 		? ConcreteFunBody(genConstantUnionEmptyMemberType(alloc, cf.returnType, cf.range, memberIndex))
 		: ConcreteFunBody(genCreateUnion(
-			alloc, cf.returnType, cf.range, memberIndex, genIdentifier(cf.range, onlyPointer(cf.params))));
+			alloc, cf.returnType, cf.range, memberIndex, genLocalGet(cf.range, onlyPointer(cf.params))));
 
 ConcreteExpr genConstantUnionEmptyMemberType(
 	ref Alloc alloc,

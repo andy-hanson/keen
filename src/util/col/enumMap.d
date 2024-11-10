@@ -46,7 +46,12 @@ struct EnumMap(E, V) {
 	}
 }
 
-EnumMap!(E, V) makeEnumMap(E, V)(in V delegate(E) @safe @nogc pure nothrow cb) {
+immutable(EnumMap!(E, V)) makeEnumMap(E, V)(in V delegate(E) @safe @nogc pure nothrow cb) {
+	V getAt(E e)() => cb(e);
+	return EnumMap!(E, V)([staticMap!(getAt, EnumMembers!E)]);
+}
+
+EnumMap!(E, V) makeEnumMap_mut(E, V)(in V delegate(E) @safe @nogc pure nothrow cb) {
 	V getAt(E e)() => cb(e);
 	return EnumMap!(E, V)([staticMap!(getAt, EnumMembers!E)]);
 }
@@ -63,5 +68,5 @@ Opt!E enumMapFindKey(E, V)(in EnumMap!(E, V) a, in bool delegate(in V) @safe @no
 	in EnumMap!(E, VIn) a,
 	in VOut delegate(const VIn) @safe @nogc pure nothrow cb,
 ) =>
-	makeEnumMap!(E, VOut)((E e) =>
+	makeEnumMap_mut!(E, VOut)((E e) =>
 		cb(a[e]));

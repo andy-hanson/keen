@@ -11,10 +11,11 @@ import model.concreteModel :
 	PointerTypeAndConstantsConcrete;
 import model.constant : Constant, constantZero;
 import util.alloc.alloc : Alloc;
-import util.col.array : arraysEqual, fillArray, findIndex, isEmpty, only;
+import util.col.array : arraysEqual, fillArray, findIndex, isEmpty, map, only;
 import util.col.mutArr : asTemporaryArray, moveToArray, MutArr, mutArrSize, push;
 import util.col.mutMap : getOrAdd, mapToArray, MutMap, size, values;
 import util.conv : safeToUint;
+import util.integralValues : IntegralValue;
 import util.memory : initMemory;
 import util.opt : force, has, Opt;
 import util.string : copyToCString, CString;
@@ -125,6 +126,12 @@ private Constant.CString getConstantCStringInner(ref Alloc alloc, ref AllConstan
 			push(alloc, allConstants.cStringValues, copyToCString(alloc, value));
 			return Constant.CString(index);
 		});
+
+Constant getConstantString(ref Alloc alloc, ref AllConstantsBuilder allConstants, ConcreteStruct* stringStruct, Symbol value) =>
+	getConstantArray(
+		alloc, allConstants, stringStruct,
+		map(alloc, cast(immutable ubyte[]) stringOfSymbol(alloc, value), (ref immutable ubyte x) =>
+			Constant(IntegralValue(x))));
 
 Constant getConstantSymbol(ref Alloc alloc, ref AllConstantsBuilder allConstants, Symbol value) =>
 	Constant(getOrAdd!(Symbol, Constant.CString)(alloc, allConstants.symbols, value, () =>

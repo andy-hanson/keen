@@ -115,6 +115,12 @@ immutable struct Diag {
 
 	immutable struct AutoFunError {
 		immutable struct Bare {}
+		immutable struct EnumOrFlagsToWrongStorage {
+			StructDecl* enumOrFlagsType;
+			IntegralType actualStorageType;
+			IntegralType expectedStorageType;
+		}
+		immutable struct ParamNotSimple {}
 		immutable struct SpecCorrupt { Symbol specName; }
 		immutable struct SpecFromWrongModule {}
 		immutable struct TypeNotFullyVisible {}
@@ -129,6 +135,8 @@ immutable struct Diag {
 		}
 		mixin Union!(
 			Bare,
+			EnumOrFlagsToWrongStorage,
+			ParamNotSimple,
 			SpecCorrupt,
 			SpecFromWrongModule,
 			TypeNotFullyVisible,

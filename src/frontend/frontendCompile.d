@@ -55,7 +55,7 @@ import util.col.array :
 	SmallArray;
 import util.col.exactSizeArrayBuilder : buildArrayExact, ExactSizeArrayBuilder;
 import util.col.hashTable : getOrAdd, HashTable, mapPreservingKeys, moveToImmutable, mustGet, MutHashTable;
-import util.col.enumMap : EnumMap, enumMapMapValues, makeEnumMap;
+import util.col.enumMap : EnumMap, enumMapMapValues, makeEnumMap_mut;
 import util.col.mutMaxSet : clear, mayDelete, mustAdd, MutMaxSet, popArbitrary;
 import util.col.mutSet : mayAddToMutSet, MutSet, mutSetMayDelete;
 import util.json : field, Json, jsonObject;
@@ -113,7 +113,7 @@ Frontend* initFrontend(MetaAlloc* metaAlloc, Storage* storage, Uri crowIncludeDi
 		initMemory(res, Frontend(
 			metaAlloc, alloc, storage, crowIncludeDir,
 			commonUris(crowIncludeDir),
-			makeEnumMap!(CommonModule, CrowFile*)((CommonModule _) => null),
+			makeEnumMap_mut!(CommonModule, CrowFile*)((CommonModule _) => null),
 			AllInsts(newAlloc(AllocKind.allInsts, metaAlloc))));
 		res.commonFiles = enumMapMapValues!(CommonModule, CrowFile*, Uri)(res.commonUris, (Uri uri) =>
 			ensureCrowFile(*res, uri));

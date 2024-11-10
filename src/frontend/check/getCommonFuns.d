@@ -116,6 +116,7 @@ CommonFunsAndDiagnostics getCommonFuns(
 	Type cStringConstPointerType = instantiateType(commonTypes.pointerConst, [cStringType]);
 	Type mainPointerType = instantiateType(commonTypes.funPointerStruct, [nat64Type, stringArrayType]);
 	Type jsonType = getType(CommonModule.json, symbol!"json");
+	Type jsonArrayType = instantiateType(arrayDecl, [jsonType]);
 
 	Type rSharedOfP = instantiateType(commonTypes.funStructs[FunKind.shared_], [typeParam0, typeParam1]);
 	Type rMutOfP = instantiateType(commonTypes.funStructs[FunKind.mut], [typeParam0, typeParam1]);
@@ -168,7 +169,6 @@ CommonFunsAndDiagnostics getCommonFuns(
 		newJsonFromPairs: instantiateNonTemplateFun(ctx, getFunDecl(
 			alloc, diagsBuilder, *modules[CommonModule.json], symbol!"new",
 			TypeParamsAndSig(emptyTypeParams, jsonType, ParamsShort(&newJsonPairsParams), countSpecs: 0))),
-		toJsonFromString: getFun(CommonModule.json, symbol!"to", jsonType, [param!"a"(stringType)]),
 		runAllTests: getFun(CommonModule.testRunner, symbol!"run-all-tests", Type(commonTypes.void_), []),
 		runFiber: getFun(
 			CommonModule.runtime, symbol!"run-fiber",

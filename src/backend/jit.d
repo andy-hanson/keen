@@ -149,11 +149,12 @@ import util.writer : debugLogWithWriter, withWriter, Writer;
 @trusted ExitCode jitAndRun(
 	scope ref Perf perf,
 	ref Alloc alloc,
+	in ShowCtx showCtx,
 	in LowProgram program,
 	in JitOptions options,
 	in CString[] allArgs,
 ) {
-	GccProgram gccProgram = getGccProgram(perf, alloc, program, options);
+	GccProgram gccProgram = getGccProgram(perf, alloc, showCtx, program, options);
 
 	//TODO: perf measure this?
 	AssertFieldOffsetsType assertFieldOffsets = cast(AssertFieldOffsetsType)
@@ -197,7 +198,7 @@ struct GccProgram {
 	immutable gcc_jit_result* result;
 }
 
-GccProgram getGccProgram(scope ref Perf perf, ref Alloc alloc, in LowProgram program, in JitOptions options) {
+GccProgram getGccProgram(scope ref Perf perf, ref Alloc alloc, in ShowCtx showCtx, in LowProgram program, in JitOptions options) {
 	gcc_jit_context* ctx = gcc_jit_context_acquire();
 	assert(ctx != null);
 
@@ -218,7 +219,7 @@ GccProgram getGccProgram(scope ref Perf perf, ref Alloc alloc, in LowProgram pro
 	});
 
 	withMeasure!(void, () {
-		buildGccProgram(alloc, *ctx, program);
+		buildGccProgram(alloc, showCtx, *ctx, program);
 	})(perf, alloc, PerfMeasure.gccCreateProgram);
 
 	assert(gcc_jit_context_get_first_error(*ctx) == null);
@@ -238,7 +239,7 @@ extern(C) {
 	alias MainType = immutable int function(int, immutable char**) @nogc nothrow;
 }
 
-void buildGccProgram(ref Alloc alloc, ref gcc_jit_context ctx, in LowProgram program) {
+void buildGccProgram(ref Alloc alloc, in ShowCtx showCtx, ref gcc_jit_context ctx, in LowProgram program) {
 	scope MangledNames mangledNames = buildMangledNames(alloc, program);
 	GccTypes gccTypes = getGccTypes(alloc, ctx, program, mangledNames);
 
@@ -316,7 +317,7 @@ void buildGccProgram(ref Alloc alloc, ref gcc_jit_context ctx, in LowProgram pro
 					debugLogWithWriter((scope ref Writer writer) {
 						writer ~= "Stub ";
 						writer ~= funIndex.index;
-						writeFunSig(writer, todo!ShowCtx("!"), program, fun);
+						writeFunSig(writer, showCtx, program, fun);
 					});
 					gcc_jit_block_end_with_return(exprCtx.curBlock, null, arbitraryValue(exprCtx, expr.expr.type));
 				} else {
@@ -1378,10 +1379,16 @@ ExprResult constantToGcc(ref ExprCtx ctx, ExprEmit emit, LowType type, in Consta
 					gcc_jit_context_new_rvalue_from_long(ctx.gcc, ctx.nat64Type, arrSize));
 			});
 		},
-		(in Constant.CString it) =>
-			emitSimpleNoSideEffects(ctx, emit, gcc_jit_context_new_string_literal(
-				ctx.gcc,
-				ctx.program.allConstants.cStrings[it.index].ptr)),
+		(in Constant.CString x) =>
+			emitSimpleNoSideEffects(
+				ctx, emit, 
+				// Cast to non-const since we don't use that
+				gcc_jit_context_new_cast(
+					ctx.gcc, null,
+					gcc_jit_context_new_string_literal(
+						ctx.gcc,
+						ctx.program.allConstants.cStrings[x.index].ptr),
+					getGccType(ctx.types, type))),
 		(in Constant.Float it) =>
 			emitSimpleNoSideEffects(
 				ctx,

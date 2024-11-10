@@ -39,10 +39,11 @@ import concretize.generate :
 	genDoAndContinue,
 	genDropAnd,
 	genError,
-	genIdentifier,
 	genLet,
+	genLocalGet,
 	genLocalPointer,
 	genLoop,
+	genMatchEnumOrIntegral,
 	genNone,
 	genOr,
 	genStringLiteral,
@@ -378,7 +379,7 @@ ConcreteExpr concretizeBuiltinBinaryLazy(
 			ConcreteType optionType = getConcreteType(ctx, called.paramTypes[0]);
 			assert(unwrapOptionType(ctx.concretizeCtx, optionType) == type);
 			return genIfOption(
-				ctx.alloc, range, arg0(optionType), RootLocalAndExpr(some(local), genIdentifier(range, local)), arg1);
+				ctx.alloc, range, arg0(optionType), RootLocalAndExpr(some(local), genLocalGet(range, local)), arg1);
 	}
 }
 
@@ -403,7 +404,7 @@ ConcreteExpr concretizeCallOption(
 	assert(a.restArgs.length + 1 == called.params.length);
 	SmallArray!ConcreteExpr allArgs = mapWithFirst!(ConcreteExpr, Expr)(
 		ctx.alloc,
-		genIdentifier(range, local),
+		genLocalGet(range, local),
 		a.restArgs,
 		(size_t i, ref Expr x) => concretizeExpr(ctx, called.params[i + 1].type, locals, x));
 	ConcreteExpr call = genCallNoAllocArgs(range, called, allArgs);
@@ -741,7 +742,7 @@ RootLocalAndExpr concretizeWithDestructure(
 					ConcreteExpr then = cb(addLocal(locals, local, LocalOrConstant(referenceLocal)));
 					return genLet(
 						ctx.alloc, type, range, referenceLocal,
-						genReferenceCreate(ctx.concretizeCtx, referenceType, range, genIdentifier(range, rootLocal)),
+						genReferenceCreate(ctx.concretizeCtx, referenceType, range, genLocalGet(range, rootLocal)),
 						then);
 				} else
 					return cb(addLocal(locals, local, LocalOrConstant(rootLocal)));
@@ -770,7 +771,7 @@ ConcreteExpr concretizeWithDestructureSplit(
 	in ConcreteExpr delegate(in Locals) @safe @nogc pure nothrow cb,
 ) =>
 	concretizeWithDestructurePartsRecur(
-		ctx, type, locals, allocate(ctx.alloc, genIdentifier(range, destructured)), split.parts, 0, cb);
+		ctx, type, locals, allocate(ctx.alloc, genLocalGet(range, destructured)), split.parts, 0, cb);
 ConcreteExpr concretizeWithDestructurePartsRecur(
 	ref ConcretizeExprCtx ctx,
 	ConcreteType type,
@@ -872,7 +873,7 @@ ConcreteExpr concretizeLocalGet(
 	LocalOrConstant concrete = castNonScope_ref(getLocal(locals, local));
 	return concrete.matchWithPointers!ConcreteExpr(
 		(ConcreteLocal* x) {
-			ConcreteExpr get = genIdentifier(range, x);
+			ConcreteExpr get = genLocalGet(range, x);
 			return isBogus(x.type)
 				? concretizeBogus(ctx, type, range)
 				: local.isAllocated
@@ -893,7 +894,7 @@ ConcreteExpr concretizePtrToLocal(
 	castNonScope_ref(getLocal(locals, a.local)).matchWithPointers!ConcreteExpr(
 		(ConcreteLocal* local) =>
 			a.local.isAllocated
-				? genRecordFieldPointer(type, range, allocate(ctx.alloc, genIdentifier(range, local)), 0)
+				? genRecordFieldPointer(type, range, allocate(ctx.alloc, genLocalGet(range, local)), 0)
 				: genLocalPointer(type, range, local),
 		(TypedConstant x) =>
 			//TODO: what if pointee is a reference?
@@ -910,7 +911,7 @@ ConcreteExpr concretizeLocalSet(
 	ConcreteType valueType = a.local.isAllocated ? getReferencedType(ctx.concretizeCtx, local.type) : local.type;
 	ConcreteExpr value = concretizeExpr(ctx, valueType, locals, *a.value);
 	return a.local.isAllocated
-		? genReferenceWrite(ctx.concretizeCtx, range, genIdentifier(range, local), value)
+		? genReferenceWrite(ctx.concretizeCtx, range, genLocalGet(range, local), value)
 		: genLocalSet(ctx.concretizeCtx, range, local, value);
 }
 
@@ -1018,8 +1019,7 @@ ConcreteExpr concretizeMatchEnum(
 			mustFind!(MatchEnumExpr.Case)(a.cases, (ref MatchEnumExpr.Case x) => x.member.value == value).then));
 	Opt!(ConcreteExpr*) else_ = optIf(has(a.else_), () =>
 		allocate(ctx.alloc, concretizeExpr(ctx, type, locals, force(a.else_))));
-	return ConcreteExpr(type, range, ConcreteExprKind(allocate(ctx.alloc,
-		ConcreteExprKind.MatchEnumOrIntegral(matched, values, cases, else_))));
+	return genMatchEnumOrIntegral(ctx.alloc, type, range, matched, values, cases, else_);
 }
 
 ConcreteExpr concretizeMatchIntegral(
@@ -1038,8 +1038,7 @@ ConcreteExpr concretizeMatchIntegral(
 			ctx, type, locals,
 			mustFind!(MatchIntegralExpr.Case)(a.cases, (ref MatchIntegralExpr.Case x) => x.value == value).then));
 	Opt!(ConcreteExpr*) else_ = some(allocate(ctx.alloc, concretizeExpr(ctx, type, locals, a.else_)));
-	return ConcreteExpr(type, range, ConcreteExprKind(allocate(ctx.alloc,
-		ConcreteExprKind.MatchEnumOrIntegral(matched, values, cases, else_))));
+	return genMatchEnumOrIntegral(ctx.alloc, type, range, matched, values, cases, else_);
 }
 
 ConcreteExpr concretizeMatchStringLike(
@@ -1141,8 +1140,8 @@ ConcreteExpr concretizeVariableRefForClosure(
 		(Local* x) =>
 			getLocal(locals, x).matchWithPointers!ConcreteExpr(
 				(ConcreteLocal* local) =>
-					// If it's a Cell, leave it that way
-					genIdentifier(range, local),
+					// If it's a ref, leave it that way
+					genLocalGet(range, local),
 				(TypedConstant constant) =>
 					genConstant(constant.type, range, constant.value)),
 		(ClosureRef x) =>
