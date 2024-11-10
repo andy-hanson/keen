@@ -215,9 +215,9 @@ Json jsonOfEnumOrFlagsMember(ref Alloc alloc, in Ctx ctx, in EnumOrFlagsMemberAs
 Json jsonOfLiteralFloatAst(ref Alloc alloc, in LiteralFloatAst a) =>
 	jsonObject(alloc, [
 		kindField!"float",
-		// Convert to a string to avoid lossing long -> double conversion
+		// Convert to a string to avoid losing long -> double conversion
 		field!"long"(makeStringWithWriter(alloc, a.value.longValue)),
-		field!"exponent"(a.value.exponent),
+		field!"exponent"(makeStringWithWriter(alloc, a.value.exponent)),
 		field!"overflow"(a.overflow)]);
 
 Json jsonOfLiteralStringAst(ref Alloc alloc, in LiteralStringAst a) =>
@@ -234,7 +234,9 @@ Json jsonOfLiteralIntegral(ref Alloc alloc, in LiteralIntegral a) =>
 	jsonObject(alloc, [
 		field!"is-signed"(a.isSigned),
 		field!"overflow"(a.overflow),
-		field!"value"(a.value.value)]);
+		field!"value"(a.isSigned
+			? makeStringWithWriter(alloc, a.value.asSigned)
+			: makeStringWithWriter(alloc, a.value.asUnsigned))]);
 
 Json jsonOfStructDeclAst(ref Alloc alloc, in Ctx ctx, in StructDeclAst a) =>
 	jsonObject(alloc, [

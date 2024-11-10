@@ -227,12 +227,13 @@ import util.integralValues : IntegralValue;
 import util.memory : allocate, overwriteMemory;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, optIf, optOrDefault, someMut, some;
 import util.sourceRange : Range;
-import util.string : smallString;
+import util.string : CString, smallString;
 import util.symbol : prependSet, prependSetDeref, stringOfSymbol, Symbol, symbol;
 import util.symbolSet : buildSymbolSet, SymbolSet, SymbolSetBuilder;
 import util.unicode : decodeAsSingleUnicodeChar;
 import util.union_ : Union;
 import util.util : castImmutable, castNonScope_ref, ptrTrustMe;
+import util.writer : withStackWriterCString, Writer;
 
 Expr checkFunctionBody(
 	ref CheckCtx checkCtx,
@@ -834,10 +835,7 @@ double toDouble(HighPrecisionFloat a) {
 	version (WebAssembly) {
 		return a.longValue * powerOf10(a.exponent);
 	} else {
-		import core.stdc.stdio : sscanf;
-		import util.string : CString;
-		import util.writer : withStackWriterCString, Writer;
-		return withStackWriterCString!(0x100, double)(
+		double res = withStackWriterCString!(0x100, double)(
 			(scope ref Writer writer) {
 				writer ~= a.longValue;
 				writer ~= "e";
@@ -845,11 +843,15 @@ double toDouble(HighPrecisionFloat a) {
 			},
 			(in CString s) @trusted {
 				double res;
-				(cast(void function(scope const char*, scope const char*, double*) @system @nogc pure nothrow) &sscanf)(
-					s.ptr, "%lf", &res);
+				sscanf(s.ptr, "%lf", &res);
 				return res;
 			});
+		return res;
 	}
+}
+
+version (WebAssembly) {} else {
+	extern(C) int sscanf(scope const char*, scope const char*, double*) @system @nogc pure nothrow;
 }
 
 immutable IntegralType[4] natTypes = [IntegralType.nat8, IntegralType.nat16, IntegralType.nat32, IntegralType.nat64];
