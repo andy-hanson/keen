@@ -22,6 +22,7 @@ import model.concreteModel :
 	returnType;
 import model.constant : Constant;
 import model.jsonOfConstant : jsonOfConstant;
+import model.jsonOfModel : jsonOfBuiltin;
 import model.model : Local;
 import util.alloc.alloc : Alloc;
 import util.integralValues : IntegralValue, IntegralValues;
@@ -155,11 +156,6 @@ Json jsonOfConcreteFunBody(ref Alloc alloc, in Ctx ctx, in ConcreteFunBody a) =>
 			jsonString!"extern",
 		(in ConcreteExpr x) =>
 			jsonOfConcreteExpr(alloc, ctx, x),
-		(in ConcreteFunBody.FlagsFn x) =>
-			jsonObject(alloc, [
-				kindField!"flags-fn",
-				field!"all"(x.allValue),
-				field!"name"(stringOfEnum(x.fn))]),
 		(in ConcreteFunBody.VarGet) =>
 			jsonString!"var-get",
 		(in ConcreteFunBody.VarSet) =>
@@ -202,6 +198,12 @@ Json jsonOfConcreteExprs(ref Alloc alloc, in Ctx ctx, in ConcreteExpr[] a) =>
 
 Json jsonOfConcreteExprKind(ref Alloc alloc, in Ctx ctx, in ConcreteExprKind a) =>
 	a.matchIn!Json(
+		(in ConcreteExprKind.Builtin x) =>
+			jsonObject(alloc, [
+				kindField!"builtin",
+				field!"fun"(jsonOfBuiltin(alloc, x.fun)),
+				field!"args"(jsonList!ConcreteExpr(alloc, x.args, (in ConcreteExpr arg) =>
+					jsonOfConcreteExpr(alloc, ctx, arg)))]),
 		(in ConcreteExprKind.Call x) =>
 			jsonObject(alloc, [
 				kindField!"call",
@@ -319,12 +321,6 @@ Json jsonOfConcreteExprKind(ref Alloc alloc, in Ctx ctx, in ConcreteExprKind a) 
 				kindField!"seq",
 				field!"first"(jsonOfConcreteExpr(alloc, ctx, x.first)),
 				field!"then"(jsonOfConcreteExpr(alloc, ctx, x.then))]),
-		(in ConcreteExprKind.SpecialBinary x) =>
-			jsonObject(alloc, [
-				kindField!"binary",
-				field!"fn"(stringOfEnum(x.fn)),
-				field!"args"(jsonList!ConcreteExpr(alloc, x.args, (in ConcreteExpr arg) =>
-					jsonOfConcreteExpr(alloc, ctx, arg)))]),
 		(in ConcreteExprKind.Throw x) =>
 			jsonObject(alloc, [
 				kindField!"throw",

@@ -1331,7 +1331,6 @@ Opt!Constant tryEvalConstant(
 			x.kind.isA!Constant
 				? some(x.kind.as!Constant)
 				: none!Constant,
-		(in ConcreteFunBody.FlagsFn) => none!Constant,
 		(in ConcreteFunBody.VarGet) => none!Constant,
 		(in ConcreteFunBody.VarSet) => none!Constant,
 		(in ConcreteFunBody.Deferred) => none!Constant);

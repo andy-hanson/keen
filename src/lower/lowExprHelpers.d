@@ -147,7 +147,7 @@ private LowExpr genConstantBool(UriAndRange range, bool value) =>
 LowExpr genConstantNat64(UriAndRange range, ulong value) =>
 	genConstantIntegral(nat64Type, range, value);
 
-LowExpr genConstantIntegral(LowType type, UriAndRange range, ulong value) =>
+private LowExpr genConstantIntegral(LowType type, UriAndRange range, ulong value) =>
 	LowExpr(type, range, LowExprKind(Constant(IntegralValue(value))));
 
 private LowExpr genNull(LowType type, UriAndRange range) =>
@@ -177,132 +177,6 @@ LowExpr genPointerEqual(ref Alloc alloc, UriAndRange range, LowExpr a, LowExpr b
 
 LowExpr genPointerEqualNull(ref Alloc alloc, UriAndRange range, LowExpr a) =>
 	genPointerEqual(alloc, range, a, genNull(a.type, range));
-
-LowExpr genEnumEq(ref Alloc alloc, UriAndRange range, LowExpr a, LowExpr b) {
-	assert(a.type.as!PrimitiveType == b.type.as!PrimitiveType);
-	return genBinary(alloc, boolType, range, eqForType(a.type.as!PrimitiveType), a, b);
-}
-
-LowExpr genBitwiseNegate(ref Alloc alloc, UriAndRange range, LowExpr a) =>
-	genUnary(alloc, a.type, range, bitwiseNegateForType(a.type.as!PrimitiveType), a);
-
-LowExpr genFlagsIntersect(ref Alloc alloc, UriAndRange range, LowExpr a, LowExpr b) {
-	assert(a.type.as!PrimitiveType == b.type.as!PrimitiveType);
-	return genBinary(alloc, a.type, range, intersectForType(a.type.as!PrimitiveType), a, b);
-}
-
-LowExpr genFlagsUnion(ref Alloc alloc, UriAndRange range, LowExpr a, LowExpr b) {
-	assert(a.type.as!PrimitiveType == b.type.as!PrimitiveType);
-	return genBinary(alloc, a.type, range, unionForType(a.type.as!PrimitiveType), a, b);
-}
-
-private BuiltinUnary bitwiseNegateForType(PrimitiveType a) {
-	final switch (a) {
-		case PrimitiveType.bool_:
-		case PrimitiveType.char8:
-		case PrimitiveType.char32:
-		case PrimitiveType.float32:
-		case PrimitiveType.float64:
-		case PrimitiveType.void_:
-		case PrimitiveType.int8:
-		case PrimitiveType.int16:
-		case PrimitiveType.int32:
-		case PrimitiveType.int64:
-			assert(false);
-		case PrimitiveType.nat8:
-			return BuiltinUnary.bitwiseNotNat8;
-		case PrimitiveType.nat16:
-			return BuiltinUnary.bitwiseNotNat16;
-		case PrimitiveType.nat32:
-			return BuiltinUnary.bitwiseNotNat32;
-		case PrimitiveType.nat64:
-			return BuiltinUnary.bitwiseNotNat64;
-	}
-}
-
-private BuiltinBinary eqForType(PrimitiveType a) {
-	final switch (a) {
-		case PrimitiveType.bool_:
-		case PrimitiveType.char8:
-		case PrimitiveType.char32:
-		case PrimitiveType.float32:
-		case PrimitiveType.float64:
-		case PrimitiveType.void_:
-			assert(false);
-		case PrimitiveType.int8:
-			return BuiltinBinary.eqInt8;
-		case PrimitiveType.int16:
-			return BuiltinBinary.eqInt16;
-		case PrimitiveType.int32:
-			return BuiltinBinary.eqInt32;
-		case PrimitiveType.int64:
-			return BuiltinBinary.eqInt64;
-		case PrimitiveType.nat8:
-			return BuiltinBinary.eqNat8;
-		case PrimitiveType.nat16:
-			return BuiltinBinary.eqNat16;
-		case PrimitiveType.nat32:
-			return BuiltinBinary.eqNat32;
-		case PrimitiveType.nat64:
-			return BuiltinBinary.eqNat64;
-	}
-}
-
-private BuiltinBinary intersectForType(PrimitiveType a) {
-	final switch (a) {
-		case PrimitiveType.bool_:
-		case PrimitiveType.char8:
-		case PrimitiveType.char32:
-		case PrimitiveType.float32:
-		case PrimitiveType.float64:
-		case PrimitiveType.void_:
-			assert(false);
-		case PrimitiveType.int8:
-			return BuiltinBinary.bitwiseAndInt8;
-		case PrimitiveType.int16:
-			return BuiltinBinary.bitwiseAndInt16;
-		case PrimitiveType.int32:
-			return BuiltinBinary.bitwiseAndInt32;
-		case PrimitiveType.int64:
-			return BuiltinBinary.bitwiseAndInt64;
-		case PrimitiveType.nat8:
-			return BuiltinBinary.bitwiseAndNat8;
-		case PrimitiveType.nat16:
-			return BuiltinBinary.bitwiseAndNat16;
-		case PrimitiveType.nat32:
-			return BuiltinBinary.bitwiseAndNat32;
-		case PrimitiveType.nat64:
-			return BuiltinBinary.bitwiseAndNat64;
-	}
-}
-
-private BuiltinBinary unionForType(PrimitiveType a) {
-	final switch (a) {
-		case PrimitiveType.bool_:
-		case PrimitiveType.char8:
-		case PrimitiveType.char32:
-		case PrimitiveType.float32:
-		case PrimitiveType.float64:
-		case PrimitiveType.void_:
-			assert(false);
-		case PrimitiveType.int8:
-			return BuiltinBinary.bitwiseOrInt8;
-		case PrimitiveType.int16:
-			return BuiltinBinary.bitwiseOrInt16;
-		case PrimitiveType.int32:
-			return BuiltinBinary.bitwiseOrInt32;
-		case PrimitiveType.int64:
-			return BuiltinBinary.bitwiseOrInt64;
-		case PrimitiveType.nat8:
-			return BuiltinBinary.bitwiseOrNat8;
-		case PrimitiveType.nat16:
-			return BuiltinBinary.bitwiseOrNat16;
-		case PrimitiveType.nat32:
-			return BuiltinBinary.bitwiseOrNat32;
-		case PrimitiveType.nat64:
-			return BuiltinBinary.bitwiseOrNat64;
-	}
-}
 
 LowExpr genPointerCast(ref Alloc alloc, LowType type, UriAndRange range, LowExpr inner) =>
 	LowExpr(type, range, LowExprKind(allocate(alloc, LowExprKind.PointerCast(inner))));

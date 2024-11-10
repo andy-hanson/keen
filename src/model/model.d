@@ -618,9 +618,12 @@ Symbol nameOfEnumOrFlagsMember(in EnumOrFlagsMember* a) =>
 Symbol nameOfUnionMember(in UnionMember* a) =>
 	a.name;
 
-ulong getAllFlagsValue(in StructBody.Flags body_) =>
-	fold!(ulong, EnumOrFlagsMember)(0, body_.members, (ulong a, in EnumOrFlagsMember b) =>
-		a | b.value.asUnsigned());
+IntegralValue getAllFlagsValue(in StructBody.Flags body_) =>
+	fold!(IntegralValue, EnumOrFlagsMember)(
+		IntegralValue(0),
+		body_.members,
+		(IntegralValue a, in EnumOrFlagsMember b) =>
+			a | b.value);
 
 enum VariantKind { interface_, variant }
 

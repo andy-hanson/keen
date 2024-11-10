@@ -71,7 +71,6 @@ CalledBy buildCalledBy(ref Alloc alloc, in immutable ConcreteFun*[] allConcreteF
 				if (!x.kind.isA!Constant)
 					buildCalledByRecur(alloc, res, fun, x);
 			},
-			(ConcreteFunBody.FlagsFn) {},
 			(ConcreteFunBody.VarGet) {},
 			(ConcreteFunBody.VarSet) {},
 			(ConcreteFunBody.Deferred) => assert(false));

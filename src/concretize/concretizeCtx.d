@@ -3,7 +3,7 @@ module concretize.concretizeCtx;
 @safe @nogc pure nothrow:
 
 import concretize.allConstantsBuilder : AllConstantsBuilder, getConstantArray, getConstantCString, getConstantSymbol;
-import concretize.concretizeAutoFun : concretizeAutoFun;
+import concretize.concretizeAutoFun : concretizeAutoFun, concretizeFlagsFunction;
 import concretize.concretizeExpr :
 	concretizeBogus,
 	concretizeBogusKind,
@@ -66,7 +66,6 @@ import model.model :
 	FunBody,
 	FunDecl,
 	FunInst,
-	getAllFlagsValue,
 	ImportFileContent,
 	IntegralType,
 	isArrayOrMutSlice,
@@ -787,9 +786,7 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 		(FunBody.FileImport x) =>
 			ConcreteFunBody(concretizeFileImport(ctx, cf, x)),
 		(FlagsFunction x) =>
-			ConcreteFunBody(ConcreteFunBody.FlagsFn(
-				x == FlagsFunction.negate ? getAllFlagsValue(mustBeByVal(cf.returnType)) : 0,
-				x)),
+			ConcreteFunBody(concretizeFlagsFunction(ctx, cf, x)),
 		(FunBody.RecordFieldCall x) =>
 			genRecordFieldCall(ctx, cf, x),
 		(FunBody.RecordFieldGet x) =>
@@ -878,9 +875,6 @@ Constant constantOfBytes(ref ConcretizeCtx ctx, ConcreteType arrayType, in ubyte
 public ConcreteVar* getVar(ref ConcretizeCtx ctx, VarDecl* decl) =>
 	getOrAdd!(immutable ConcreteVar*, immutable VarDecl*, getVarKey)(ctx.alloc, ctx.concreteVarLookup, decl, () =>
 		allocate(ctx.alloc, ConcreteVar(decl, getConcreteType(ctx, decl.type, emptySmallArray!ConcreteType))));
-
-ulong getAllFlagsValue(ConcreteStruct* a) =>
-	getAllFlagsValue(a.source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Flags));
 
 TypeSize getBuiltinStructSize(BuiltinType kind, in VersionInfo version_) {
 	final switch (kind) {

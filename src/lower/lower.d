@@ -21,16 +21,11 @@ import lower.lowExprHelpers :
 	genAddPointer,
 	genBinary,
 	genBinaryMath,
-	genBitwiseNegate,
 	genCallFunPointerNoGcRoots,
 	genCallNoGcRoots,
 	genCreateRecordNoGcRoots,
-	genConstantIntegral,
 	genConstantNat64,
 	genDrop,
-	genEnumEq,
-	genFlagsIntersect,
-	genFlagsUnion,
 	genFalse,
 	genFunPointer,
 	genIdentifier,
@@ -138,7 +133,6 @@ import model.model :
 	BuiltinUnary,
 	BuiltinUnaryMath,
 	ConfigExternUris,
-	FlagsFunction,
 	IntegralType,
 	JsFun,
 	Local,
@@ -556,8 +550,6 @@ AllLowFuns getAllLowFuns(
 			},
 			(ConcreteExpr x) =>
 				some(addLowFun(alloc, lowFunCauses, LowFunCause(fun))),
-			(ConcreteFunBody.FlagsFn) =>
-				none!LowFunIndex,
 			(ConcreteFunBody.VarGet x) =>
 				none!LowFunIndex,
 			(ConcreteFunBody.VarSet) =>
@@ -1059,6 +1051,19 @@ LowExpr getLowExpr(
 	LowExpr regular(LowExprKind x) =>
 		handleExprPos(ctx, exprPos, LowExpr(type, range, x));
 	return expr.kind.match!LowExpr(
+		(ref ConcreteExprKind.Builtin x) {
+			if (x.fun.isA!BuiltinUnary)
+				return genUnary(
+					ctx.alloc, type, range, x.fun.as!BuiltinUnary,
+					getLowExpr(ctx, locals, x.args[0], ExprPos.nonTail));
+			else if (x.fun.isA!BuiltinBinary)
+				return genBinary(
+					ctx.alloc, type, range, x.fun.as!BuiltinBinary,
+					getLowExpr(ctx, locals, x.args[0], ExprPos.nonTail),
+					getLowExpr(ctx, locals, x.args[1], ExprPos.nonTail));
+			else
+				assert(false);
+		},
 		(ConcreteExprKind.Call x) =>
 			getCallExpr(ctx, locals, exprPos, type, range, x.called, x.args),
 		(ConcreteExprKind.Cast x) =>
@@ -1121,10 +1126,6 @@ LowExpr getLowExpr(
 				ctx.alloc, range,
 				getLowExpr(ctx, locals, x.first, ExprPos.nonTail),
 				getLowExpr(ctx, locals, x.then, exprPos)),
-		(ConcreteExprKind.SpecialBinary x) =>
-			LowExpr(type, range, LowExprKind(LowExprKind.SpecialBinary(x.fn, allocate!(LowExpr[2])(ctx.alloc, [
-				getLowExpr(ctx, locals, x.args[0], ExprPos.nonTail),
-				getLowExpr(ctx, locals, x.args[1], ExprPos.nonTail)])))),
 		(ref ConcreteExprKind.Throw x) =>
 			getThrowExpr(ctx, locals, range, type, x, exprPos),
 		(ref ConcreteExprKind.Try x) =>
@@ -1259,8 +1260,6 @@ LowExpr getCallSpecial(
 			assert(false),
 		(ConcreteExpr x) =>
 			LowExpr(type, range, LowExprKind(x.kind.as!Constant)),
-		(ConcreteFunBody.FlagsFn x) =>
-			genFlagsFunction(ctx, locals, type, range, x.fn, x.allValue, args),
 		(ConcreteFunBody.VarGet x) =>
 			genVarGet(type, range, mustGet(ctx.varIndices, x.var)),
 		(ConcreteFunBody.VarSet x) =>
@@ -1287,39 +1286,6 @@ LowExpr getRecordFieldSet(
 		(ExprPos inner, LowExpr getRecord) =>
 			handleExprPos(ctx, inner, genRecordFieldSetNoGcRoot(
 				ctx.alloc, range, getRecord, fieldIndex, getLowExpr(ctx, locals, value, ExprPos.nonTail))));
-
-LowExpr genFlagsFunction(
-	ref GetLowExprCtx ctx,
-	in Locals locals,
-	LowType type,
-	in UriAndRange range,
-	FlagsFunction a,
-	ulong allValue,
-	in ConcreteExpr[] args,
-) {
-	LowExpr arg0() => getLowExpr(ctx, locals, args[0], ExprPos.nonTail);
-	LowExpr arg1() => getLowExpr(ctx, locals, args[1], ExprPos.nonTail);
-	final switch (a) {
-		case FlagsFunction.in_:
-			assert(args.length == 2);
-			// `a in b` ==> `x = a; x & b == x`
-			return genLetTempConstNoGcRoot(ctx, range, arg0, (LowExpr getA) =>
-				genEnumEq(ctx.alloc, range, genFlagsIntersect(ctx.alloc, range, getA, arg1), getA));
-		case FlagsFunction.intersect:
-			assert(args.length == 2);
-			return genFlagsIntersect(ctx.alloc, range, arg0(), arg1());
-		case FlagsFunction.none:
-			return genConstantIntegral(type, range, 0);
-		case FlagsFunction.union_:
-			assert(args.length == 2);
-			return genFlagsUnion(ctx.alloc, range, arg0(), arg1());
-		case FlagsFunction.negate:
-			return genFlagsIntersect(
-				ctx.alloc, range,
-				genBitwiseNegate(ctx.alloc, range, arg0()),
-				genConstantIntegral(type, range, allValue));
-	}
-}
 
 LowExpr callFunPointer(
 	ref GetLowExprCtx ctx,

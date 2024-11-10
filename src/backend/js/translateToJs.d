@@ -122,6 +122,7 @@ import util.col.mutMap : addOrChange, deleteWhere, getOrAdd, moveToMap, mustAdd,
 import util.col.set : Set;
 import util.col.sortUtil : sortInPlace;
 import util.conv : safeToUshort;
+import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, MutOpt, none, Opt, optIf, optFromMut, some, someMut;
 import util.symbol : compareSymbolsNaturally, stringOfSymbol, Symbol, symbol;
@@ -771,7 +772,7 @@ JsClassMember intersectOrUnionMethod(
 				getValue(ctx.alloc, genThis(source)),
 				getValue(ctx.alloc, genIdentifier(source, b)))]));
 }
-JsClassMember negateMethod(ref TranslateModuleCtx ctx, in Source source, in StructDecl* struct_, ulong allFlagsValue) =>
+JsClassMember negateMethod(ref TranslateModuleCtx ctx, in Source source, in StructDecl* struct_, IntegralValue allFlagsValue) =>
 	genInstanceMethod(
 		ctx.alloc,
 		source,
@@ -783,7 +784,7 @@ JsClassMember negateMethod(ref TranslateModuleCtx ctx, in Source source, in Stru
 				ctx.alloc,
 				source,
 				genBitwiseNot(ctx.alloc, source, getValue(ctx.alloc, genThis(source))),
-				genIntegerUnsigned(source, allFlagsValue))]));
+				genIntegerUnsigned(source, allFlagsValue.asUnsigned))]));
 JsClassMember flagsInMethod(ref TranslateModuleCtx ctx, in Source source, in StructDecl* struct_) {
 	JsName b = JsName.specialLocal(symbol!"b");
 	JsExpr thisValue = getValue(ctx.alloc, genThis(source));

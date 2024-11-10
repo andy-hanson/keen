@@ -3,7 +3,8 @@ module concretize.concretizeAutoFun;
 @safe @nogc pure nothrow:
 
 import concretize.allConstantsBuilder : getConstantArray;
-import concretize.concretizeCtx : boolType, ConcretizeCtx, constantSymbol, getConcreteType, integralType, integralTypes, symbolType;
+import concretize.concretizeCtx :
+	boolType, ConcretizeCtx, constantSymbol, getConcreteType, integralType, symbolType, withConcretizeExprCtx;
 import concretize.concretizeExpr : concretizeBogus, ConcretizeExprCtx, getConcreteFunFromCalled, getConcreteType;
 import concretize.generate :
 	genAnd,
@@ -39,7 +40,8 @@ import model.concreteModel :
 	mustBeByVal,
 	unwrapOptionType;
 import model.constant : Constant;
-import model.model : AutoFun, BuiltinBinary, Called, EnumOrFlagsMember, IntegralType, RecordField, StructBody, UnionMember;
+import model.model :
+	AutoFun, BuiltinBinary, BuiltinFun, BuiltinUnary, Called, EnumOrFlagsMember, FlagsFunction, getAllFlagsValue, IntegralType, RecordField, StructBody, UnionMember;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	allSame,
@@ -128,7 +130,52 @@ ConcreteExpr concretizeAutoFun(ref ConcretizeExprCtx ctx, ref AutoFun a) {
 	}
 }
 
+ConcreteExpr concretizeFlagsFunction(ref ConcretizeCtx ctx, ConcreteFun* cf, FlagsFunction fn) {
+	UriAndRange range = cf.range;
+	ConcreteExpr param0() =>
+		genParamGet(range, &cf.params[0]);
+	ConcreteExpr param1() =>
+		genParamGet(range, &cf.params[1]);
+	ConcreteExpr castParam0(IntegralType storage) =>
+		genCastIntegral(ctx, range, storage, param0);
+	ConcreteExpr castParam1(IntegralType storage) =>
+		genCastIntegral(ctx, range, storage, param1);
+	ConcreteExpr castToFlags(ConcreteExpr x) =>
+		genCast(ctx.alloc, cf.returnType, range, x);
+	return withConcretizeExprCtx(ctx, cf, (ref ConcretizeExprCtx exprCtx) {
+		final switch (fn) {
+			case FlagsFunction.in_:
+				// (x & y) == x
+				IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
+				ConcreteExpr p0 = castParam0(storage);
+				return genEqualIntegral(
+					ctx, range, storage,
+					genIntersectIntegral(ctx, range, storage, p0, castParam1(storage)),
+					p0);
+			case FlagsFunction.intersect:
+				IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
+				return castToFlags(genIntersectIntegral(ctx, range, storage, castParam0(storage), castParam1(storage)));
+			case FlagsFunction.negate:
+				IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
+				return castToFlags(
+					genIntersectIntegral(
+						ctx, range, storage,
+						genNegateIntegral(ctx, range, storage, castParam0(storage)),
+						genConstantIntegral(integralType(ctx, storage), range, getAllFlagsValue(mustBeFlags(cf.returnType)))));
+			case FlagsFunction.none:
+				IntegralType storage = integralTypeFromFlagsType(cf.returnType);
+				return castToFlags(genConstantIntegral(integralType(ctx, storage), range, IntegralValue(0)));
+			case FlagsFunction.union_:
+				IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
+				return castToFlags(genUnionIntegral(ctx, range, storage, castParam0(storage), castParam1(storage)));
+		}
+	});
+}
+
 private:
+
+IntegralType integralTypeFromFlagsType(in ConcreteType a) =>
+	mustBeByVal(a).body_.as!(ConcreteStructBody.Flags).storage;
 
 SmallArray!EnumOrFlagsMember enumOrFlagsMembers(ConcreteType type) {
 	StructBody body_ = mustBeByVal(type).source.as!(ConcreteStructSource.Inst).decl.body_;
@@ -145,8 +192,16 @@ ConcreteExpr genLessIntegral(ref ConcretizeCtx ctx, UriAndRange range, IntegralT
 	genCall(ctx.alloc, range, ctx.lessIntegralFunctions[type], [arg0, arg1]);
 
 ConcreteExpr genIntersectIntegral(ref ConcretizeCtx ctx, UriAndRange range, IntegralType type, ConcreteExpr arg0, ConcreteExpr arg1) =>
-	ConcreteExpr(integralType(ctx, type), range, ConcreteExprKind(
-		ConcreteExprKind.SpecialBinary(builtinBinaryIntersectIntegral(type), allocate!(ConcreteExpr[2])(ctx.alloc, [arg0, arg1]))));
+	genBuiltin(ctx.alloc, integralType(ctx, type), range, BuiltinFun(builtinBinaryIntersectIntegral(type)), [arg0, arg1]);
+
+ConcreteExpr genUnionIntegral(ref ConcretizeCtx ctx, UriAndRange range, IntegralType type, ConcreteExpr arg0, ConcreteExpr arg1) =>
+	genBuiltin(ctx.alloc, integralType(ctx, type), range, BuiltinFun(builtinBinaryUnionIntegral(type)), [arg0, arg1]);
+
+ConcreteExpr genNegateIntegral(ref ConcretizeCtx ctx, UriAndRange range, IntegralType type, ConcreteExpr arg) =>
+	genBuiltin(ctx.alloc, integralType(ctx, type), range, BuiltinFun(builtinUnaryNegateIntegral(type)), [arg]);
+
+ConcreteExpr genBuiltin(ref Alloc alloc, ConcreteType type, UriAndRange range, BuiltinFun fun, in ConcreteExpr[] args) =>
+	ConcreteExpr(type, range, ConcreteExprKind(allocate(alloc, ConcreteExprKind.Builtin(fun, newSmallArray(alloc, args)))));
 
 BuiltinBinary builtinBinaryIntersectIntegral(IntegralType type) {
 	final switch (type) {
@@ -166,6 +221,45 @@ BuiltinBinary builtinBinaryIntersectIntegral(IntegralType type) {
 			return BuiltinBinary.bitwiseAndNat32;
 		case IntegralType.nat64:
 			return BuiltinBinary.bitwiseAndNat64;
+	}
+}
+
+BuiltinBinary builtinBinaryUnionIntegral(IntegralType type) {
+	final switch (type) {
+		case IntegralType.int8:
+			return BuiltinBinary.bitwiseOrInt8;
+		case IntegralType.int16:
+			return BuiltinBinary.bitwiseOrInt16;
+		case IntegralType.int32:
+			return BuiltinBinary.bitwiseOrInt32;
+		case IntegralType.int64:
+			return BuiltinBinary.bitwiseOrInt64;
+		case IntegralType.nat8:
+			return BuiltinBinary.bitwiseOrNat8;
+		case IntegralType.nat16:
+			return BuiltinBinary.bitwiseOrNat16;
+		case IntegralType.nat32:
+			return BuiltinBinary.bitwiseOrNat32;
+		case IntegralType.nat64:
+			return BuiltinBinary.bitwiseOrNat64;
+	}
+}
+
+BuiltinUnary builtinUnaryNegateIntegral(IntegralType type) {
+	final switch (type) {
+		case IntegralType.int8:
+		case IntegralType.int16:
+		case IntegralType.int32:
+		case IntegralType.int64:
+			assert(false);
+		case IntegralType.nat8:
+			return BuiltinUnary.bitwiseNotNat8;
+		case IntegralType.nat16:
+			return BuiltinUnary.bitwiseNotNat16;
+		case IntegralType.nat32:
+			return BuiltinUnary.bitwiseNotNat32;
+		case IntegralType.nat64:
+			return BuiltinUnary.bitwiseNotNat64;
 	}
 }
 
@@ -206,8 +300,8 @@ ConcreteExpr concretizeFlagsToSymbolArray(ref ConcretizeExprCtx ctx) {
 	// (a & x == 0 ? () : ("x",)) ~~ (a & y == 0 ? () : ("y",))
 	UriAndRange range = ctx.curFun.range;
 	ConcreteLocal* param = &only(ctx.curFun.params);
-	EnumOrFlagsMember[] members = mustBeFlags(param.type);
-	IntegralType storage = mustBeByVal(param.type).body_.as!(ConcreteStructBody.Flags).storage;
+	EnumOrFlagsMember[] members = mustBeFlags(param.type).members;
+	IntegralType storage = integralTypeFromFlagsType(param.type);
 	ConcreteType storageType = integralType(ctx.concretizeCtx, storage);
 	ConcreteExpr value = genCastIntegral(ctx.concretizeCtx, range, storage, genParamGet(ctx.curFun.range, param));
 	ConcreteType arrayType = ctx.curFun.returnType;
@@ -249,8 +343,8 @@ private ConcreteExpr autoFunMatchEnum(ref ConcretizeExprCtx ctx, in ConcreteExpr
 
 private EnumOrFlagsMember[] mustBeEnum(ConcreteType a) =>
 	mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Enum*).members;
-private EnumOrFlagsMember[] mustBeFlags(ConcreteType a) =>
-	mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Flags).members;
+private ref StructBody.Flags mustBeFlags(ConcreteType a) =>
+	mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Flags);
 
 private ConcreteExpr concretizeSymbolToOptEnum(ref ConcretizeExprCtx ctx) {
 	UriAndRange range = ctx.curFun.range;

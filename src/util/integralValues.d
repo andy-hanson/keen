@@ -24,6 +24,9 @@ immutable struct IntegralValue {
 		cast(long) value;
 	ulong asUnsigned() =>
 		value;
+
+	IntegralValue opBinary(string op : "|")(IntegralValue b) =>
+		IntegralValue(value | b.value);
 }
 
 // Set of IntegralValue, in sorted order with no repeats.

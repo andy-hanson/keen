@@ -499,7 +499,11 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 							case AutoFunName.members:
 								return "'members' must return an array of an 'enum' or 'flags' type.";
 							case AutoFunName.to:
-								return "'to' must return 'json' or 'symbol'."; // TODO: no longer accurate, can return 'e?' where 'e' is an enum ....................
+								return "'to' must be one of:\n" ~
+									"\t'to json(a t)' where 't' is a enum, flags, record, or union type\n" ~
+									"\t'to symbol(a e)' where 'e' is an enum type\n" ~
+									"\t'to e?(a symbol)' where 'e' is an enum or flags type\n" ~
+									"\t'to symbol[](a f)' where 'f' is a flags type\n";
 						}
 					}();
 				});

@@ -3,6 +3,7 @@ module model.jsonOfModel;
 @safe @nogc pure nothrow:
 
 import model.ast : ImportOrExportAst, NameAndRange;
+import model.constant : Constant;
 import model.jsonOfConstant : jsonOfConstant;
 import model.model :
 	AnyDecl,
@@ -11,8 +12,15 @@ import model.model :
 	BogusCallExpr,
 	BogusExpr,
 	BogusWrongTypeExpr,
+	Builtin4ary,
+	BuiltinBinary,
+	BuiltinBinaryLazy,
+	BuiltinBinaryMath,
 	BuiltinFun,
 	BuiltinSpec,
+	BuiltinTernary,
+	BuiltinUnary,
+	BuiltinUnaryMath,
 	Called,
 	CalledDecl,
 	CalledSpecSig,
@@ -39,6 +47,7 @@ import model.model :
 	FunPointerExpr,
 	IfExpr,
 	ImportOrExport,
+	JsFun,
 	LambdaExpr,
 	LetExpr,
 	LiteralExpr,
@@ -104,6 +113,7 @@ import util.symbol : compareSymbolsNaturally, Symbol, symbol;
 import util.symbolSet : SymbolSet;
 import util.uri : stringOfUri;
 import util.util : ptrTrustMe, stringOfEnum;
+import versionInfo : VersionFun;
 
 Json jsonOfModule(ref Alloc alloc, in LineAndColumnGetter lcg, in Module a) {
 	Ctx ctx = Ctx(ptrTrustMe(a), lcg);
@@ -127,6 +137,55 @@ Json jsonOfModule(ref Alloc alloc, in LineAndColumnGetter lcg, in Module a) {
 		optionalArrayField!("tests", Test)(alloc, a.tests, (ref Test x) =>
 			jsonOfTest(alloc, ctx, x))]);
 }
+
+Json jsonOfBuiltin(ref Alloc alloc, in BuiltinFun a) =>
+	a.matchIn!Json(
+		(in BuiltinFun.AllTests) =>
+			jsonString!"all-tests",
+		(in BuiltinUnary x) =>
+			jsonString(stringOfEnum(x)),
+		(in BuiltinUnaryMath x) =>
+			jsonString(stringOfEnum(x)),
+		(in BuiltinBinary x) =>
+			jsonString(stringOfEnum(x)),
+		(in BuiltinBinaryLazy x) =>
+			jsonString(stringOfEnum(x)),
+		(in BuiltinBinaryMath x) =>
+			jsonString(stringOfEnum(x)),
+		(in BuiltinTernary x) =>
+			jsonString(stringOfEnum(x)),
+		(in Builtin4ary x) =>
+			jsonString(stringOfEnum(x)),
+		(in BuiltinFun.CallLambda) =>
+			jsonString!"call-lambda",
+		(in BuiltinFun.CallFunPointer x) =>
+			jsonString!"call-fun-pointer",
+		(in Constant x) =>
+			jsonOfConstant(alloc, x),
+		(in BuiltinFun.GcSafeValue) =>
+			jsonString!"gc-safe-value",
+		(in BuiltinFun.Init x) {
+			final switch (x.kind) {
+				case BuiltinFun.Init.Kind.global:
+					return jsonString!"init-global";
+				case BuiltinFun.Init.Kind.perThread:
+					return jsonString!"init-per-thread";
+			}
+		},
+		(in JsFun x) =>
+			jsonString(stringOfEnum(x)),
+		(in BuiltinFun.MarkRoot) =>
+			jsonString!"mark-root",
+		(in BuiltinFun.MarkVisit) =>
+			jsonString!"mark-visit",
+		(in BuiltinFun.PointerCast) =>
+			jsonString!"pointer-cast",
+		(in BuiltinFun.SizeOf) =>
+			jsonString!"size-of",
+		(in BuiltinFun.StaticSymbols) =>
+			jsonString!"static-symbols",
+		(in VersionFun x) =>
+			jsonString(stringOfEnum(x)));
 
 private:
 
@@ -311,8 +370,8 @@ Json jsonOfFunBody(ref Alloc alloc, in Ctx ctx, in FunBody a) =>
 			jsonString!"bogus" ,
 		(in AutoFun _) =>
 			jsonString!"auto",
-		(in BuiltinFun _) =>
-			jsonString!"builtin" ,
+		(in BuiltinFun x) =>
+			jsonOfBuiltin(alloc, x),
 		(in FunBody.CreateEnumOrFlags x) =>
 			jsonObject(alloc, [kindField!"create-enum", field!"member"(x.member.name)]),
 		(in FunBody.CreateExtern) =>

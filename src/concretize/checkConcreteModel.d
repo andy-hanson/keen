@@ -54,6 +54,12 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 	assert(!isBogus(type) || expr.kind.isA!(ConcreteExprKind.Throw*));
 	checkType(ctx, type, expr.type);
 	expr.kind.matchIn!void(
+		(in ConcreteExprKind.Builtin x) {
+			// TODO: type depending on the BuiltinFun ............................................................................
+			foreach (ConcreteExpr arg; x.args) {
+				checkExpr(ctx, arg.type, arg);				
+			}
+		},
 		(in ConcreteExprKind.Call x) {
 			checkType(ctx, type, x.called.returnType);
 			zip(x.called.params, x.args, (ref ConcreteLocal param, ref ConcreteExpr arg) {
@@ -174,12 +180,6 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 		(in ConcreteExprKind.Seq x) {
 			checkExpr(ctx, ctx.types.void_, x.first);
 			checkExpr(ctx, type, x.then);
-		},
-		(in ConcreteExprKind.SpecialBinary x) {
-			// TODO: type depending on the BuiltinFun ............................................................................
-			foreach (ConcreteExpr arg; x.args) {
-				checkExpr(ctx, arg.type, arg);				
-			}
 		},
 		(in ConcreteExprKind.Throw x) {
 			checkExpr(ctx, ctx.types.exception, x.thrown);
