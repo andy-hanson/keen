@@ -541,41 +541,41 @@ ExpectBinary binaryExpected(
 		case BuiltinBinary.wrapMulNat64:
 		case BuiltinBinary.wrapSubNat64:
 			return expect(nat64Type, nat64Type, nat64Type);
-		case BuiltinBinary.eqChar8:
+		case BuiltinBinary.equalChar8:
 			return expect(boolType, char8Type, char8Type);
-		case BuiltinBinary.eqChar32:
+		case BuiltinBinary.equalChar32:
 			return expect(boolType, char32Type, char32Type);
-		case BuiltinBinary.eqFloat32:
+		case BuiltinBinary.equalFloat32:
 		case BuiltinBinary.lessFloat32:
 			return expect(boolType, float32Type, float32Type);
-		case BuiltinBinary.eqFloat64:
+		case BuiltinBinary.equalFloat64:
 		case BuiltinBinary.lessFloat64:
 			return expect(boolType, float64Type, float64Type);
-		case BuiltinBinary.eqInt8:
+		case BuiltinBinary.equalInt8:
 		case BuiltinBinary.lessInt8:
 			return expect(boolType, int8Type, int8Type);
-		case BuiltinBinary.eqInt16:
+		case BuiltinBinary.equalInt16:
 		case BuiltinBinary.lessInt16:
 			return expect(boolType, int16Type, int16Type);
-		case BuiltinBinary.eqInt32:
+		case BuiltinBinary.equalInt32:
 		case BuiltinBinary.lessInt32:
 			return expect(boolType, int32Type, int32Type);
-		case BuiltinBinary.eqInt64:
+		case BuiltinBinary.equalInt64:
 		case BuiltinBinary.lessInt64:
 			return expect(boolType, int64Type, int64Type);
-		case BuiltinBinary.eqNat8:
+		case BuiltinBinary.equalNat8:
 		case BuiltinBinary.lessNat8:
 			return expect(boolType, nat8Type, nat8Type);
-		case BuiltinBinary.eqNat16:
+		case BuiltinBinary.equalNat16:
 		case BuiltinBinary.lessNat16:
 			return expect(boolType, nat16Type, nat16Type);
-		case BuiltinBinary.eqNat32:
+		case BuiltinBinary.equalNat32:
 		case BuiltinBinary.lessNat32:
 			return expect(boolType, nat32Type, nat32Type);
-		case BuiltinBinary.eqNat64:
+		case BuiltinBinary.equalNat64:
 		case BuiltinBinary.lessNat64:
 			return expect(boolType, nat64Type, nat64Type);
-		case BuiltinBinary.eqPointer:
+		case BuiltinBinary.equalPointer:
 		case BuiltinBinary.lessPointer:
 		case BuiltinBinary.referenceEqual:
 			assert(arg0Type == arg1Type);

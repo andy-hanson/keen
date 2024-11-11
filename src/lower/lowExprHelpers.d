@@ -173,7 +173,7 @@ LowExpr genWrapMulNat64(ref Alloc alloc, UriAndRange range, LowExpr left, LowExp
 	genBinary(alloc, nat64Type, range, BuiltinBinary.wrapMulNat64, left, right);
 
 LowExpr genPointerEqual(ref Alloc alloc, UriAndRange range, LowExpr a, LowExpr b) =>
-	genBinary(alloc, boolType, range, BuiltinBinary.eqPointer, a, b);
+	genBinary(alloc, boolType, range, BuiltinBinary.equalPointer, a, b);
 
 LowExpr genPointerEqualNull(ref Alloc alloc, UriAndRange range, LowExpr a) =>
 	genPointerEqual(alloc, range, a, genNull(a.type, range));

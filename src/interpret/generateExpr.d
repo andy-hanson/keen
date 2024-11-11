@@ -1129,29 +1129,29 @@ void generateSpecialBinary(
 		case BuiltinBinary.bitwiseXorNat64:
 			fn(&fnBitwiseXor);
 			break;
-		case BuiltinBinary.eqFloat32:
+		case BuiltinBinary.equalFloat32:
 			fn(&fnEqFloat32);
 			break;
-		case BuiltinBinary.eqFloat64:
+		case BuiltinBinary.equalFloat64:
 			fn(&fnEqFloat64);
 			break;
-		case BuiltinBinary.eqChar8:
-		case BuiltinBinary.eqInt8:
-		case BuiltinBinary.eqNat8:
+		case BuiltinBinary.equalChar8:
+		case BuiltinBinary.equalInt8:
+		case BuiltinBinary.equalNat8:
 			fn(&fnEq8Bit);
 			break;
-		case BuiltinBinary.eqInt16:
-		case BuiltinBinary.eqNat16:
+		case BuiltinBinary.equalInt16:
+		case BuiltinBinary.equalNat16:
 			fn(&fnEq16Bit);
 			break;
-		case BuiltinBinary.eqChar32:
-		case BuiltinBinary.eqInt32:
-		case BuiltinBinary.eqNat32:
+		case BuiltinBinary.equalChar32:
+		case BuiltinBinary.equalInt32:
+		case BuiltinBinary.equalNat32:
 			fn(&fnEq32Bit);
 			break;
-		case BuiltinBinary.eqInt64:
-		case BuiltinBinary.eqNat64:
-		case BuiltinBinary.eqPointer:
+		case BuiltinBinary.equalInt64:
+		case BuiltinBinary.equalNat64:
+		case BuiltinBinary.equalPointer:
 		case BuiltinBinary.referenceEqual:
 			fn(&fnEq64Bit);
 			break;

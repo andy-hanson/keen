@@ -689,7 +689,7 @@ void translateEnumDecl(
 }
 JsStatement genAssignToThis(ref Alloc alloc, Source source, JsMemberName name, JsExpr value) =>
 	genAssign(alloc, source, genPropertyAccess(alloc, source, genThis(source), name), value);
-JsClassMember enumOrFlagsMembers(ref TranslateModuleCtx ctx, in Source source, in EnumOrFlagsMember[] members) => // TODO: this should now be unnecessary
+JsClassMember enumOrFlagsMembers(ref TranslateModuleCtx ctx, in Source source, in EnumOrFlagsMember[] members) =>
 	genField(
 		source,
 		JsClassMember.Static.static_,
@@ -772,7 +772,12 @@ JsClassMember intersectOrUnionMethod(
 				getValue(ctx.alloc, genThis(source)),
 				getValue(ctx.alloc, genIdentifier(source, b)))]));
 }
-JsClassMember negateMethod(ref TranslateModuleCtx ctx, in Source source, in StructDecl* struct_, IntegralValue allFlagsValue) =>
+JsClassMember negateMethod(
+	ref TranslateModuleCtx ctx,
+	in Source source,
+	in StructDecl* struct_,
+	IntegralValue allFlagsValue,
+) =>
 	genInstanceMethod(
 		ctx.alloc,
 		source,

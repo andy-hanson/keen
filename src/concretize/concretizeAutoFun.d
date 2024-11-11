@@ -17,22 +17,29 @@ import concretize.generate :
 	genAnd,
 	genCall,
 	genCallVariadic,
+	genConstantSome,
 	genCreateRecord,
 	genCreateUnion,
 	genConstant,
 	genConstantIntegral,
 	genConstantSymbol,
+	genEqualIntegral,
 	genEqualNat64,
+	genEqualPointer,
 	genIf,
+	genIntersectIntegral,
+	genLessIntegral,
+	genLessNat64,
 	genLocalGet,
 	genMatchEnumOrIntegral,
 	genMatchUnion,
+	genNegateIntegral,
 	genNone,
 	genParamGet,
 	genRecordFieldGet,
-	genSome,
 	genTrue,
 	genUnionAs,
+	genUnionIntegral,
 	genUnionKind;
 import model.concreteModel :
 	arrayElementType,
@@ -52,7 +59,15 @@ import model.concreteModel :
 	unwrapOptionType;
 import model.constant : Constant;
 import model.model :
-	AutoFun, BuiltinBinary, BuiltinFun, BuiltinUnary, Called, EnumOrFlagsMember, FlagsFunction, getAllFlagsValue, IntegralType, RecordField, StructBody, UnionMember;
+	AutoFun,
+	Called,
+	EnumOrFlagsMember,
+	FlagsFunction,
+	getAllFlagsValue,
+	IntegralType,
+	RecordField,
+	StructBody,
+	UnionMember;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	allSame,
@@ -63,7 +78,6 @@ import util.col.array :
 	mapReduce,
 	mapZipWithIndex,
 	newArray,
-	newSmallArray,
 	only,
 	sizeEq,
 	sizeEq3,
@@ -102,8 +116,10 @@ ConcreteExpr concretizeAutoFun(ref ConcretizeExprCtx ctx, ref AutoFun a) {
 				(ConcreteStructBody.Union x) =>
 					concretizeCompareUnion(ctx, x.members, a.members));
 		case AutoFun.Kind.enumOrFlagsMembers:
-			Constant[] elements = map(ctx.alloc, enumOrFlagsMembers(arrayElementType(ctx.curFun.returnType)), (ref EnumOrFlagsMember member) =>
-				Constant(member.value));
+			Constant[] elements = map(
+				ctx.alloc,
+				enumOrFlagsMembers(arrayElementType(ctx.curFun.returnType)),
+				(ref EnumOrFlagsMember member) => Constant(member.value));
 			Constant res = getConstantArray(ctx.alloc, ctx.allConstants, mustBeByVal(ctx.curFun.returnType), elements);
 			return ConcreteExpr(ctx.curFun.returnType, range, ConcreteExprKind(res));
 		case AutoFun.Kind.enumOrFlagsToIntegral:
@@ -205,118 +221,6 @@ ConcreteExpr concretizeEqualEnumOrFlags(
 		genCastIntegral(ctx, range, storage, arg0),
 		genCastIntegral(ctx, range, storage, arg1));
 
-ConcreteExpr genEqualIntegral(
-	ref ConcretizeCtx ctx,
-	UriAndRange range,
-	IntegralType type,
-	ConcreteExpr arg0,
-	ConcreteExpr arg1,
-) =>
-	genCall(ctx.alloc, range, ctx.equalIntegralFunctions[type], [arg0, arg1]);
-
-ConcreteExpr genLessIntegral(
-	ref ConcretizeCtx ctx,
-	UriAndRange range,
-	IntegralType type,
-	ConcreteExpr arg0,
-	ConcreteExpr arg1,
-) =>
-	genCall(ctx.alloc, range, ctx.lessIntegralFunctions[type], [arg0, arg1]);
-
-ConcreteExpr genIntersectIntegral(
-	ref ConcretizeCtx ctx,
-	UriAndRange range,
-	IntegralType type,
-	ConcreteExpr arg0,
-	ConcreteExpr arg1,
-) =>
-	genBuiltin(
-		ctx.alloc, integralType(ctx, type), range,
-		BuiltinFun(builtinBinaryIntersectIntegral(type)),
-		[arg0, arg1]);
-
-ConcreteExpr genUnionIntegral(
-	ref ConcretizeCtx ctx,
-	UriAndRange range,
-	IntegralType type,
-	ConcreteExpr arg0,
-	ConcreteExpr arg1,
-) =>
-	genBuiltin(ctx.alloc, integralType(ctx, type), range, BuiltinFun(builtinBinaryUnionIntegral(type)), [arg0, arg1]);
-
-ConcreteExpr genNegateIntegral(ref ConcretizeCtx ctx, UriAndRange range, IntegralType type, ConcreteExpr arg) =>
-	genBuiltin(ctx.alloc, integralType(ctx, type), range, BuiltinFun(builtinUnaryNegateIntegral(type)), [arg]);
-
-ConcreteExpr genBuiltin(
-	ref Alloc alloc,
-	ConcreteType type,
-	UriAndRange range,
-	BuiltinFun fun,
-	in ConcreteExpr[] args,
-) =>
-	ConcreteExpr(type, range, ConcreteExprKind(allocate(alloc,
-		ConcreteExprKind.Builtin(fun, newSmallArray(alloc, args)))));
-
-BuiltinBinary builtinBinaryIntersectIntegral(IntegralType type) {
-	final switch (type) {
-		case IntegralType.int8:
-			return BuiltinBinary.bitwiseAndInt8;
-		case IntegralType.int16:
-			return BuiltinBinary.bitwiseAndInt16;
-		case IntegralType.int32:
-			return BuiltinBinary.bitwiseAndInt32;
-		case IntegralType.int64:
-			return BuiltinBinary.bitwiseAndInt64;
-		case IntegralType.nat8:
-			return BuiltinBinary.bitwiseAndNat8;
-		case IntegralType.nat16:
-			return BuiltinBinary.bitwiseAndNat16;
-		case IntegralType.nat32:
-			return BuiltinBinary.bitwiseAndNat32;
-		case IntegralType.nat64:
-			return BuiltinBinary.bitwiseAndNat64;
-	}
-}
-
-BuiltinBinary builtinBinaryUnionIntegral(IntegralType type) {
-	final switch (type) {
-		case IntegralType.int8:
-			return BuiltinBinary.bitwiseOrInt8;
-		case IntegralType.int16:
-			return BuiltinBinary.bitwiseOrInt16;
-		case IntegralType.int32:
-			return BuiltinBinary.bitwiseOrInt32;
-		case IntegralType.int64:
-			return BuiltinBinary.bitwiseOrInt64;
-		case IntegralType.nat8:
-			return BuiltinBinary.bitwiseOrNat8;
-		case IntegralType.nat16:
-			return BuiltinBinary.bitwiseOrNat16;
-		case IntegralType.nat32:
-			return BuiltinBinary.bitwiseOrNat32;
-		case IntegralType.nat64:
-			return BuiltinBinary.bitwiseOrNat64;
-	}
-}
-
-BuiltinUnary builtinUnaryNegateIntegral(IntegralType type) {
-	final switch (type) {
-		case IntegralType.int8:
-		case IntegralType.int16:
-		case IntegralType.int32:
-		case IntegralType.int64:
-			assert(false);
-		case IntegralType.nat8:
-			return BuiltinUnary.bitwiseNotNat8;
-		case IntegralType.nat16:
-			return BuiltinUnary.bitwiseNotNat16;
-		case IntegralType.nat32:
-			return BuiltinUnary.bitwiseNotNat32;
-		case IntegralType.nat64:
-			return BuiltinUnary.bitwiseNotNat64;
-	}
-}
-
 private ConcreteExpr genCompareIntegral(
 	ref ConcretizeCtx ctx,
 	ConcreteType comparisonType,
@@ -344,7 +248,10 @@ private ConcreteExpr genCast(ref Alloc alloc, ConcreteType type, UriAndRange ran
 
 private ConcreteExpr concretizeEnumToJson(ref ConcretizeExprCtx ctx) =>
 	autoFunMatchEnum(ctx, (ref EnumOrFlagsMember x) =>
-		genConstant(ctx.curFun.returnType, ctx.curFun.range, constantJsonString(ctx.concretizeCtx, ctx.curFun.returnType, x.name)));
+		genConstant(
+			ctx.curFun.returnType,
+			ctx.curFun.range,
+			constantJsonString(ctx.concretizeCtx, ctx.curFun.returnType, x.name)));
 
 private ConcreteExpr concretizeEnumToSymbol(ref ConcretizeExprCtx ctx) =>
 	autoFunMatchEnum(ctx, (ref EnumOrFlagsMember x) =>
@@ -367,7 +274,9 @@ Constant constantJsonString(ref ConcretizeCtx ctx, ConcreteType jsonType, Symbol
 	size_t memberIndex = 3;
 	ConcreteType string_ = stringType(ctx);
 	assert(members[memberIndex] == string_);
-	return Constant(allocate(ctx.alloc, Constant.Union(memberIndex, getConstantString(ctx.alloc, ctx.allConstants, mustBeByVal(string_), value))));
+	return Constant(allocate(ctx.alloc, Constant.Union(
+		memberIndex,
+		getConstantString(ctx.alloc, ctx.allConstants, mustBeByVal(string_), value))));
 }
 
 ConcreteExpr concretizeFlagsToSymbolArray(ref ConcretizeExprCtx ctx) =>
@@ -387,7 +296,9 @@ ConcreteExpr concretizeFlagsToArray(
 	ConcreteType storageType = integralType(ctx.concretizeCtx, storage);
 	ConcreteExpr value = genCastIntegral(ctx.concretizeCtx, range, storage, genParamGet(ctx.curFun.range, param));
 	ConcreteStruct* arrayStruct = mustBeByVal(arrayType);
-	ConcreteExpr emptyArray = genConstant(arrayType, range, getConstantArray(ctx.alloc, ctx.allConstants, arrayStruct, []));
+	ConcreteExpr emptyArray = genConstant(
+		arrayType, range,
+		getConstantArray(ctx.alloc, ctx.allConstants, arrayStruct, []));
 	return isEmpty(members)
 		? emptyArray
 		: mapReduce!(ConcreteExpr, EnumOrFlagsMember)(
@@ -413,7 +324,10 @@ ConcreteExpr concretizeFlagsToArray(
 
 ConcreteExpr genConcatArray(ref ConcretizeCtx ctx, UriAndRange range, ConcreteExpr a, ConcreteExpr b) {
 	assert(a.type == b.type);
-	return genCall(ctx.alloc, range, getConcreteFun(ctx, ctx.commonFuns.concatArrays, [arrayElementType(a.type)], []), [a, b]);
+	return genCall(
+		ctx.alloc, range,
+		getConcreteFun(ctx, ctx.commonFuns.concatArrays, [arrayElementType(a.type)], []),
+		[a, b]);
 }
 
 private ConcreteExpr autoFunMatchEnum(
@@ -437,11 +351,9 @@ private ConcreteExpr concretizeSymbolToOptEnumOrFlags(ref ConcretizeExprCtx ctx)
 		mustBeEnumOrFlags(enumType),
 		(ConcreteExpr else_, ref EnumOrFlagsMember member) {
 			// a == "foo" ? (foo,) : <<else>>
-			ConcreteExpr eq = genCall(ctx.alloc, range, ctx.concretizeCtx.equalSymbolFunction, [
-				paramGet,
-				symbolForEnumMember(ctx.concretizeCtx, symbolType, range, member)]);
-			ConcreteExpr enumValue = genConstant(enumType, range, Constant(member.value));
-			ConcreteExpr someEnumValue = genSome(ctx.concretizeCtx, optionType, range, enumValue); // TODO: this could also be a constant
+			ConcreteExpr eq = genEqualPointer(
+				ctx.concretizeCtx, range, paramGet, symbolForEnumMember(ctx.concretizeCtx, symbolType, range, member));
+			ConcreteExpr someEnumValue = genConstantSome(ctx.concretizeCtx, optionType, range, Constant(member.value));
 			return genIf(ctx.alloc, range, eq, someEnumValue, else_);
 		});
 }
@@ -530,12 +442,12 @@ ConcreteExpr concretizeCompareUnion(
 		return genIf(
 			ctx.alloc,
 			range,
-			genCall(ctx.alloc, range, ctx.concretizeCtx.lessNat64Function, [p0Kind, p1Kind]),
+			genLessNat64(ctx.concretizeCtx, range, p0Kind, p1Kind),
 			genComparisonLess(ctx.curFun.returnType, range),
 			genIf(
 				ctx.alloc,
 				range,
-				genCall(ctx.alloc, range, ctx.concretizeCtx.lessNat64Function, [p1Kind, p0Kind]),
+				genLessNat64(ctx.concretizeCtx, range, p1Kind, p0Kind),
 				genComparisonGreater(ctx.curFun.returnType, range),
 				matchUnionsSameKind(ctx, range, p0, p1, members, memberCompares)));
 	}

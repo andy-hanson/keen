@@ -127,7 +127,12 @@ private Constant.CString getConstantCStringInner(ref Alloc alloc, ref AllConstan
 			return Constant.CString(index);
 		});
 
-Constant getConstantString(ref Alloc alloc, ref AllConstantsBuilder allConstants, ConcreteStruct* stringStruct, Symbol value) =>
+Constant getConstantString(
+	ref Alloc alloc,
+	ref AllConstantsBuilder allConstants,
+	ConcreteStruct* stringStruct,
+	Symbol value,
+) =>
 	getConstantArray(
 		alloc, allConstants, stringStruct,
 		map(alloc, cast(immutable ubyte[]) stringOfSymbol(alloc, value), (ref immutable ubyte x) =>

@@ -1336,7 +1336,7 @@ Opt!Constant tryEvalConstant(
 
 Opt!Constant tryEvalConstantBinary(BuiltinBinary fn, Constant arg0, Constant arg1) {
 	switch (fn) {
-		case BuiltinBinary.eqNat64:
+		case BuiltinBinary.equalNat64:
 			return some(constantBool(asNat64(arg0) == asNat64(arg1)));
 		default:
 			return none!Constant;

@@ -236,6 +236,8 @@ bool isCatchPoint(in ConcreteStruct a) =>
 	a.specialKind == ConcreteStruct.SpecialKind.catchPoint;
 bool isFiber(in ConcreteStruct a) =>
 	a.specialKind == ConcreteStruct.SpecialKind.fiber;
+bool isPointer(ConcreteType a) =>
+	a.reference == ReferenceKind.byVal && isPointer(*a.struct_);
 private bool isPointer(in ConcreteStruct a) =>
 	a.specialKind == ConcreteStruct.SpecialKind.pointer;
 ConcreteType pointeeType(ConcreteType pointerType) {
@@ -243,7 +245,7 @@ ConcreteType pointeeType(ConcreteType pointerType) {
 	return only(mustBeByVal(pointerType).source.as!(ConcreteStructSource.Inst).typeArgs);
 }
 ConcreteType pointeeTypeIfIsPointer(ConcreteType a) =>
-	isPointer(*a.struct_)
+	isPointer(a)
 		? pointeeType(a)
 		: a;
 private bool isBogus(in ConcreteStruct a) =>

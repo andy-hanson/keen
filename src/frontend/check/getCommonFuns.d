@@ -29,7 +29,6 @@ import model.model :
 	FunFlags,
 	FunInst,
 	FunKind,
-	IntegralType,
 	Local,
 	LocalMutability,
 	LocalSource,
@@ -58,7 +57,7 @@ import util.alloc.alloc : Alloc;
 import util.col.array :
 	arraysCorrespond, copyArray, emptySmallArray, findIndex, findPointer, isEmpty, map, optOnly, sizeEq, small;
 import util.col.arrayBuilder : add, ArrayBuilder, smallFinish;
-import util.col.enumMap : EnumMap, enumMapMapValues, makeEnumMap;
+import util.col.enumMap : EnumMap, enumMapMapValues;
 import util.late : late, Late, lateGet, lateIsSet, lateSet;
 import util.memory : allocate;
 import util.opt : force, has, none, MutOpt, Opt, some, someMut;
@@ -188,12 +187,6 @@ CommonFunsAndDiagnostics getCommonFuns(
 			symbol!"throw-impl",
 			voidType,
 			[param!"a"(Type(commonTypes.exception))]),
-		equalIntegralFunctions: makeEnumMap!(IntegralType, FunInst*)((IntegralType type) =>
-			getFun(
-				CommonModule.numberLowLevel,
-				symbol!"==",
-				boolType,
-				[param!"a"(Type(commonTypes.integrals[type])), param!"b"(Type(commonTypes.integrals[type]))])),
 		equalConstPointers: getFunDeclInner(
 			*modules[CommonModule.pointer],
 			symbol!"==",
@@ -201,12 +194,6 @@ CommonFunsAndDiagnostics getCommonFuns(
 			boolType,
 			[param!"a"(tConstPointer), param!"b"(tConstPointer)],
 			countSpecs: 0),
-		lessIntegralFunctions: makeEnumMap!(IntegralType, FunInst*)((IntegralType type) =>
-			getFun(
-				CommonModule.numberLowLevel,
-				symbol!"is-less",
-				boolType,
-				[param!"a"(Type(commonTypes.integrals[type])), param!"b"(Type(commonTypes.integrals[type]))])),
 		rethrowCurrentException: getFun(
 			CommonModule.exceptionLowLevel, symbol!"rethrow-current-exception", voidType, []),
 		concatArrays: getFunDeclInner(

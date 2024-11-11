@@ -165,19 +165,19 @@ FunBody inner(
 				? FunBody(BuiltinFun(JsFun.eqEqEq))
 				: binary(
 					p0 != p1 ? failBinary :
-					isChar8(p0) ? BuiltinBinary.eqChar8 :
-					isChar32(p0) ? BuiltinBinary.eqChar32 :
-					isNat8(p0) ? BuiltinBinary.eqNat8 :
-					isNat16(p0) ? BuiltinBinary.eqNat16 :
-					isNat32(p0) ? BuiltinBinary.eqNat32 :
-					isNat64(p0) ? BuiltinBinary.eqNat64 :
-					isInt8(p0) ? BuiltinBinary.eqInt8 :
-					isInt16(p0) ? BuiltinBinary.eqInt16 :
-					isInt32(p0) ? BuiltinBinary.eqInt32 :
-					isInt64(p0) ? BuiltinBinary.eqInt64 :
-					isFloat32(p0) ? BuiltinBinary.eqFloat32 :
-					isFloat64(p0) ? BuiltinBinary.eqFloat64 :
-					isPointerConstOrMut(p0) ? BuiltinBinary.eqPointer :
+					isChar8(p0) ? BuiltinBinary.equalChar8 :
+					isChar32(p0) ? BuiltinBinary.equalChar32 :
+					isNat8(p0) ? BuiltinBinary.equalNat8 :
+					isNat16(p0) ? BuiltinBinary.equalNat16 :
+					isNat32(p0) ? BuiltinBinary.equalNat32 :
+					isNat64(p0) ? BuiltinBinary.equalNat64 :
+					isInt8(p0) ? BuiltinBinary.equalInt8 :
+					isInt16(p0) ? BuiltinBinary.equalInt16 :
+					isInt32(p0) ? BuiltinBinary.equalInt32 :
+					isInt64(p0) ? BuiltinBinary.equalInt64 :
+					isFloat32(p0) ? BuiltinBinary.equalFloat32 :
+					isFloat64(p0) ? BuiltinBinary.equalFloat64 :
+					isPointerConstOrMut(p0) ? BuiltinBinary.equalPointer :
 					failBinary);
 		case symbol!"<".value:
 			return isBool(rt) && arity == 2 && isJsAny(p0) && isJsAny(p1)

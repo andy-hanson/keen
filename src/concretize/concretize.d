@@ -17,7 +17,7 @@ import concretize.concretizeCtx :
 	getConcreteFun,
 	getNonTemplateConcreteFun,
 	getVar,
-	nat64Type,
+	integralTypes,
 	symbolType,
 	symbolArrayType,
 	voidType;
@@ -42,8 +42,6 @@ import model.model :
 	BuiltinFun,
 	CommonFuns,
 	FunBody,
-	FunInst,
-	IntegralType,
 	MainFun,
 	ProgramWithMain,
 	StructBody,
@@ -51,7 +49,6 @@ import model.model :
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mustHaveIndexOfPointer, small;
 import util.col.arrayBuilder : asTemporaryArray, finish;
-import util.col.enumMap : EnumMap, enumMapMapValues;
 import util.col.mutArr : asTemporaryArray, MutArr, push;
 import util.col.mutMap : mustGet;
 import util.late : late, lateSet;
@@ -88,13 +85,6 @@ ConcreteProgram concretizeInner(
 		allExterns(program, BuildTarget.native(versionInfo.os)));
 	CommonFuns commonFuns = program.program.commonFuns;
 	lateSet(ctx.createErrorFunction_, getNonTemplateConcreteFun(ctx, commonFuns.createError));
-	lateSet!(EnumMap!(IntegralType, ConcreteFun*))(
-		ctx.equalIntegralFunctions_,
-		enumMapMapValues(commonFuns.equalIntegralFunctions, (const FunInst* x) =>
-			getNonTemplateConcreteFun(ctx, x)));
-	lateSet(ctx.equalSymbolFunction_, getConcreteFun(ctx, commonFuns.equalConstPointers, [char8Type(ctx)], []));
-	lateSet(ctx.lessIntegralFunctions_, enumMapMapValues(commonFuns.lessIntegralFunctions, (const FunInst* x) => // Why even do this? Just use e.g. BuiltinBinary.lessInt8
-		getNonTemplateConcreteFun(ctx, x)));
 	lateSet(ctx.newJsonFromPairsFunction_, getNonTemplateConcreteFun(ctx, commonFuns.newJsonFromPairs));
 	ConcreteCommonFuns concreteCommonFuns = ConcreteCommonFuns(
 		alloc: getNonTemplateConcreteFun(ctx, commonFuns.allocate),
@@ -131,7 +121,7 @@ ConcreteProgram concretizeInner(
 		ConcreteCommonTypes(
 			bool_: boolType(ctx),
 			exception: exceptionType(ctx),
-			nat64: nat64Type(ctx),
+			integralTypes: integralTypes(ctx),
 			symbol: symbolType(ctx),
 			void_: voidType(ctx)),
 		res);

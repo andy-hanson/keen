@@ -175,9 +175,6 @@ struct ConcretizeCtx {
 	FileContentGetters fileContentGetters; // For 'assert' or 'forbid' messages and file imports
 	SymbolSet allExterns;
 	Late!(ConcreteFun*) createErrorFunction_;
-	Late!(EnumMap!(IntegralType, ConcreteFun*)) equalIntegralFunctions_;
-	Late!(ConcreteFun*) equalSymbolFunction_;
-	Late!(EnumMap!(IntegralType, ConcreteFun*)) lessIntegralFunctions_;
 	Late!(ConcreteFun*) newJsonFromPairsFunction_;
 	AllConstantsBuilder allConstants;
 	MutHashTable!(ConcreteStruct*, ConcreteStructSource.Inst, getStructKey) nonLambdaConcreteStructs;
@@ -212,16 +209,6 @@ struct ConcretizeCtx {
 		program.commonFuns;
 	ref CommonTypes commonTypes() return scope const =>
 		program.commonTypes;
-	ref immutable(EnumMap!(IntegralType, ConcreteFun*)) equalIntegralFunctions() return scope const =>
-		lateGet(equalIntegralFunctions_);
-	ConcreteFun* equalNat64Function() return scope const =>
-		equalIntegralFunctions[IntegralType.nat64];
-	ConcreteFun* equalSymbolFunction() return scope const =>
-		lateGet(equalSymbolFunction_);
-	ref immutable(EnumMap!(IntegralType, ConcreteFun*)) lessIntegralFunctions() return scope const =>
-		lateGet(lessIntegralFunctions_);
-	ConcreteFun* lessNat64Function() return scope const =>
-		lessIntegralFunctions[IntegralType.nat64];
 	ConcreteFun* newJsonFromPairsFunction() return scope const =>
 		lateGet(newJsonFromPairsFunction_);
 	ConcreteFun* createErrorFunction() return scope const =>
@@ -286,7 +273,7 @@ ConcreteType char32ArrayType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._char32ArrayType, () =>
 		getConcreteType_forStructInst(a, a.commonTypes.char32Array, emptySmallArray!ConcreteType));
 
-private ref immutable(EnumMap!(IntegralType, ConcreteType)) integralTypes(ref ConcretizeCtx a) =>
+ref immutable(EnumMap!(IntegralType, ConcreteType)) integralTypes(ref ConcretizeCtx a) =>
 	lazilySet!(EnumMap!(IntegralType, ConcreteType))(a._integralTypes, () =>
 		makeEnumMap!(IntegralType, ConcreteType)((IntegralType x) =>
 			getConcreteType_forStructInst(a, a.commonTypes.integrals[x], emptySmallArray!ConcreteType)));

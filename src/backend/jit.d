@@ -198,7 +198,13 @@ struct GccProgram {
 	immutable gcc_jit_result* result;
 }
 
-GccProgram getGccProgram(scope ref Perf perf, ref Alloc alloc, in ShowCtx showCtx, in LowProgram program, in JitOptions options) {
+GccProgram getGccProgram(
+	scope ref Perf perf,
+	ref Alloc alloc,
+	in ShowCtx showCtx,
+	in LowProgram program,
+	in JitOptions options,
+) {
 	gcc_jit_context* ctx = gcc_jit_context_acquire();
 	assert(ctx != null);
 
@@ -1381,7 +1387,7 @@ ExprResult constantToGcc(ref ExprCtx ctx, ExprEmit emit, LowType type, in Consta
 		},
 		(in Constant.CString x) =>
 			emitSimpleNoSideEffects(
-				ctx, emit, 
+				ctx, emit,
 				// Cast to non-const since we don't use that
 				gcc_jit_context_new_cast(
 					ctx.gcc, null,
@@ -1672,19 +1678,19 @@ ExprResult binaryToGcc(
 		case BuiltinBinary.bitwiseXorNat32:
 		case BuiltinBinary.bitwiseXorNat64:
 			return operator(gcc_jit_binary_op.GCC_JIT_BINARY_OP_BITWISE_XOR);
-		case BuiltinBinary.eqChar8:
-		case BuiltinBinary.eqChar32:
-		case BuiltinBinary.eqFloat32:
-		case BuiltinBinary.eqFloat64:
-		case BuiltinBinary.eqInt8:
-		case BuiltinBinary.eqInt16:
-		case BuiltinBinary.eqInt32:
-		case BuiltinBinary.eqInt64:
-		case BuiltinBinary.eqNat8:
-		case BuiltinBinary.eqNat16:
-		case BuiltinBinary.eqNat32:
-		case BuiltinBinary.eqNat64:
-		case BuiltinBinary.eqPointer:
+		case BuiltinBinary.equalChar8:
+		case BuiltinBinary.equalChar32:
+		case BuiltinBinary.equalFloat32:
+		case BuiltinBinary.equalFloat64:
+		case BuiltinBinary.equalInt8:
+		case BuiltinBinary.equalInt16:
+		case BuiltinBinary.equalInt32:
+		case BuiltinBinary.equalInt64:
+		case BuiltinBinary.equalNat8:
+		case BuiltinBinary.equalNat16:
+		case BuiltinBinary.equalNat32:
+		case BuiltinBinary.equalNat64:
+		case BuiltinBinary.equalPointer:
 		case BuiltinBinary.referenceEqual:
 			return comparison(gcc_jit_comparison.GCC_JIT_COMPARISON_EQ);
 		case BuiltinBinary.lessChar8:

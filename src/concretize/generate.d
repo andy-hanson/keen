@@ -14,6 +14,7 @@ import concretize.concretizeCtx :
 	constantSymbol,
 	getConcreteFun,
 	getReferencedType,
+	integralType,
 	nat64Type,
 	symbolType,
 	voidType;
@@ -35,7 +36,8 @@ import model.concreteModel :
 	mustBeByVal,
 	unwrapOptionType;
 import model.constant : Constant, constantBool, constantZero;
-import model.model : Called, EnumOrFlagsMember, FunBody, RecordField, StructBody;
+import model.model :
+	BuiltinBinary, BuiltinFun, BuiltinUnary, Called, EnumOrFlagsMember, FunBody, IntegralType, RecordField, StructBody;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	isEmpty,
@@ -45,6 +47,7 @@ import util.col.array :
 	mapWithIndex,
 	mustHaveIndexOfPointer,
 	newArray,
+	newSmallArray,
 	only,
 	small,
 	SmallArray;
@@ -55,7 +58,7 @@ import util.memory : allocate;
 import util.opt : force, has, none, Opt, some;
 import util.sourceRange : UriAndRange;
 import util.string : bytesOfString;
-import util.symbol : Symbol, withStringOfSymbol;
+import util.symbol : Symbol;
 import util.unicode : mustUnicodeDecode;
 
 ConcreteExpr genConstant(ConcreteType type, UriAndRange range, Constant value) =>
@@ -119,6 +122,10 @@ ConcreteExpr genCreateUnion(
 ConcreteExpr genSome(ref ConcretizeCtx ctx, ConcreteType optionType, in UriAndRange range, ConcreteExpr arg) {
 	assertIsOptionType(ctx, optionType);
 	return genCreateUnion(ctx.alloc, optionType, range, 1, arg);
+}
+ConcreteExpr genConstantSome(ref ConcretizeCtx ctx, ConcreteType optionType, in UriAndRange range, Constant inner) {
+	assertIsOptionType(ctx, optionType);
+	return genConstant(optionType, range, Constant(allocate(ctx.alloc, Constant.Union(1, inner))));
 }
 ConcreteExpr genNone(ref ConcretizeCtx ctx, ConcreteType optionType, in UriAndRange range) {
 	assertIsOptionType(ctx, optionType);
@@ -204,7 +211,9 @@ ConcreteExpr genConstantNat64(ref ConcretizeCtx ctx, in UriAndRange range, ulong
 	genConstant(nat64Type(ctx), range, Constant(IntegralValue(value)));
 
 ConcreteExpr genEqualNat64(ref ConcretizeCtx ctx, in UriAndRange range, ConcreteExpr left, ConcreteExpr right) =>
-	genCall(ctx.alloc, range, ctx.equalNat64Function, [left, right]);
+	genEqualIntegral(ctx, range, IntegralType.nat64, left, right);
+ConcreteExpr genLessNat64(ref ConcretizeCtx ctx, in UriAndRange range, ConcreteExpr left, ConcreteExpr right) =>
+	genLessIntegral(ctx, range, IntegralType.nat64, left, right);
 
 ConcreteFunBody generateCallLambda(
 	ref ConcretizeCtx ctx,
@@ -389,4 +398,158 @@ ConcreteExpr genReferenceRead(ref ConcretizeCtx ctx, in UriAndRange range, Concr
 ConcreteExpr genReferenceWrite(ref ConcretizeCtx ctx, UriAndRange range, ConcreteExpr reference, ConcreteExpr value) {
 	getReferencedType(ctx, reference.type); // assert that it's a reference type
 	return genRecordFieldSet(ctx, range, reference, 0, value);
+}
+
+ConcreteExpr genEqualPointer(ref ConcretizeCtx ctx, UriAndRange range, ConcreteExpr a, ConcreteExpr b) =>
+	genBuiltin(ctx.alloc, boolType(ctx), range, BuiltinFun(BuiltinBinary.equalPointer), [a, b]);
+
+ConcreteExpr genEqualIntegral(
+	ref ConcretizeCtx ctx,
+	UriAndRange range,
+	IntegralType type,
+	ConcreteExpr a,
+	ConcreteExpr b,
+) =>
+	genBuiltin(ctx.alloc, boolType(ctx), range, BuiltinFun(builtinBinaryEqualIntegral(type)), [a, b]);
+
+ConcreteExpr genLessIntegral(
+	ref ConcretizeCtx ctx,
+	UriAndRange range,
+	IntegralType type,
+	ConcreteExpr a,
+	ConcreteExpr b,
+) =>
+	genBuiltin(ctx.alloc, boolType(ctx), range, BuiltinFun(builtinBinaryLessIntegral(type)), [a, b]);
+
+ConcreteExpr genIntersectIntegral(
+	ref ConcretizeCtx ctx,
+	UriAndRange range,
+	IntegralType type,
+	ConcreteExpr a,
+	ConcreteExpr b,
+) =>
+	genBuiltin(ctx.alloc, integralType(ctx, type), range, BuiltinFun(builtinBinaryIntersectIntegral(type)), [a, b]);
+
+ConcreteExpr genUnionIntegral(
+	ref ConcretizeCtx ctx,
+	UriAndRange range,
+	IntegralType type,
+	ConcreteExpr a,
+	ConcreteExpr b,
+) =>
+	genBuiltin(ctx.alloc, integralType(ctx, type), range, BuiltinFun(builtinBinaryUnionIntegral(type)), [a, b]);
+
+ConcreteExpr genNegateIntegral(ref ConcretizeCtx ctx, UriAndRange range, IntegralType type, ConcreteExpr a) =>
+	genBuiltin(ctx.alloc, integralType(ctx, type), range, BuiltinFun(builtinUnaryNegateIntegral(type)), [a]);
+
+private ConcreteExpr genBuiltin(
+	ref Alloc alloc,
+	ConcreteType type,
+	UriAndRange range,
+	BuiltinFun fun,
+	in ConcreteExpr[] args,
+) =>
+	ConcreteExpr(type, range, ConcreteExprKind(allocate(alloc,
+		ConcreteExprKind.Builtin(fun, newSmallArray(alloc, args)))));
+
+private BuiltinBinary builtinBinaryEqualIntegral(IntegralType type) {
+	final switch (type) {
+		case IntegralType.int8:
+			return BuiltinBinary.equalInt8;
+		case IntegralType.int16:
+			return BuiltinBinary.equalInt16;
+		case IntegralType.int32:
+			return BuiltinBinary.equalInt32;
+		case IntegralType.int64:
+			return BuiltinBinary.equalInt64;
+		case IntegralType.nat8:
+			return BuiltinBinary.equalNat8;
+		case IntegralType.nat16:
+			return BuiltinBinary.equalNat16;
+		case IntegralType.nat32:
+			return BuiltinBinary.equalNat32;
+		case IntegralType.nat64:
+			return BuiltinBinary.equalNat64;
+	}
+}
+
+private BuiltinBinary builtinBinaryLessIntegral(IntegralType type) {
+	final switch (type) {
+		case IntegralType.int8:
+			return BuiltinBinary.lessInt8;
+		case IntegralType.int16:
+			return BuiltinBinary.lessInt16;
+		case IntegralType.int32:
+			return BuiltinBinary.lessInt32;
+		case IntegralType.int64:
+			return BuiltinBinary.lessInt64;
+		case IntegralType.nat8:
+			return BuiltinBinary.lessNat8;
+		case IntegralType.nat16:
+			return BuiltinBinary.lessNat16;
+		case IntegralType.nat32:
+			return BuiltinBinary.lessNat32;
+		case IntegralType.nat64:
+			return BuiltinBinary.lessNat64;
+	}
+}
+
+private BuiltinBinary builtinBinaryIntersectIntegral(IntegralType type) {
+	final switch (type) {
+		case IntegralType.int8:
+			return BuiltinBinary.bitwiseAndInt8;
+		case IntegralType.int16:
+			return BuiltinBinary.bitwiseAndInt16;
+		case IntegralType.int32:
+			return BuiltinBinary.bitwiseAndInt32;
+		case IntegralType.int64:
+			return BuiltinBinary.bitwiseAndInt64;
+		case IntegralType.nat8:
+			return BuiltinBinary.bitwiseAndNat8;
+		case IntegralType.nat16:
+			return BuiltinBinary.bitwiseAndNat16;
+		case IntegralType.nat32:
+			return BuiltinBinary.bitwiseAndNat32;
+		case IntegralType.nat64:
+			return BuiltinBinary.bitwiseAndNat64;
+	}
+}
+
+private BuiltinBinary builtinBinaryUnionIntegral(IntegralType type) {
+	final switch (type) {
+		case IntegralType.int8:
+			return BuiltinBinary.bitwiseOrInt8;
+		case IntegralType.int16:
+			return BuiltinBinary.bitwiseOrInt16;
+		case IntegralType.int32:
+			return BuiltinBinary.bitwiseOrInt32;
+		case IntegralType.int64:
+			return BuiltinBinary.bitwiseOrInt64;
+		case IntegralType.nat8:
+			return BuiltinBinary.bitwiseOrNat8;
+		case IntegralType.nat16:
+			return BuiltinBinary.bitwiseOrNat16;
+		case IntegralType.nat32:
+			return BuiltinBinary.bitwiseOrNat32;
+		case IntegralType.nat64:
+			return BuiltinBinary.bitwiseOrNat64;
+	}
+}
+
+private BuiltinUnary builtinUnaryNegateIntegral(IntegralType type) {
+	final switch (type) {
+		case IntegralType.int8:
+		case IntegralType.int16:
+		case IntegralType.int32:
+		case IntegralType.int64:
+			assert(false);
+		case IntegralType.nat8:
+			return BuiltinUnary.bitwiseNotNat8;
+		case IntegralType.nat16:
+			return BuiltinUnary.bitwiseNotNat16;
+		case IntegralType.nat32:
+			return BuiltinUnary.bitwiseNotNat32;
+		case IntegralType.nat64:
+			return BuiltinUnary.bitwiseNotNat64;
+	}
 }

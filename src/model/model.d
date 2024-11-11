@@ -1287,19 +1287,19 @@ enum BuiltinBinary {
 	bitwiseXorNat16,
 	bitwiseXorNat32,
 	bitwiseXorNat64,
-	eqChar8,
-	eqChar32,
-	eqFloat32,
-	eqFloat64,
-	eqInt8,
-	eqInt16,
-	eqInt32,
-	eqInt64,
-	eqNat8,
-	eqNat16,
-	eqNat32,
-	eqNat64,
-	eqPointer,
+	equalChar8,
+	equalChar32,
+	equalFloat32,
+	equalFloat64,
+	equalInt8,
+	equalInt16,
+	equalInt32,
+	equalInt64,
+	equalNat8,
+	equalNat16,
+	equalNat32,
+	equalNat64,
+	equalPointer,
 	lessChar8,
 	lessFloat32,
 	lessFloat64,
@@ -2256,9 +2256,7 @@ immutable struct CommonFuns {
 	FunInst* runAllTests;
 	FunInst* rtMain;
 	FunInst* throwImpl;
-	EnumMap!(IntegralType, FunInst*) equalIntegralFunctions;
 	FunDecl* equalConstPointers;
-	EnumMap!(IntegralType, FunInst*) lessIntegralFunctions;
 	FunInst* rethrowCurrentException;
 	FunDecl* concatArrays;
 
