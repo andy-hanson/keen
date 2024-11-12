@@ -10,7 +10,7 @@ import util.comparison : compareEnum, Comparison, compareOptions, compareOr, com
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : none, Opt, some;
-import util.symbol : compareSymbolsNaturally, Symbol, symbolOfString;
+import util.symbol : compareSymbolsNaturally, Symbol, symbol, symbolOfString;
 import util.union_ : Union;
 import util.uri : RelPath, Uri;
 
@@ -588,3 +588,10 @@ JsClassMember genInstanceMethod(
 	genInstanceMethod(alloc, source, async, name, params, genBlockStatement(alloc, [genReturn(alloc, source, body_)]));
 JsClassMember genField(in Source source, JsClassMember.Static static_, JsMemberName name, JsExpr value) =>
 	JsClassMember(source, static_, name, JsClassMemberKind(value));
+
+JsStatement genThrowJsError(ref Alloc alloc, in Source source, string message) =>
+	genThrow(alloc, source, genNew(alloc, source, genGlobal(source, symbol!"Error"), [genString(source, message)]));
+JsStatement genThrowBogus(ref Alloc alloc, in Source source) =>
+	genThrowJsError(alloc, source, "Reached compile error");
+JsExpr genThrowBogusExpr(ref Alloc alloc, in Source source) =>
+	genIife(alloc, source, SyncOrAsync.sync, genBlockStatement(alloc, [genThrowBogus(alloc, source)]));

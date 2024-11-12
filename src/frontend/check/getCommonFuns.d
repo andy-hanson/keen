@@ -115,7 +115,6 @@ CommonFunsAndDiagnostics getCommonFuns(
 	Type cStringConstPointerType = instantiateType(commonTypes.pointerConst, [cStringType]);
 	Type mainPointerType = instantiateType(commonTypes.funPointerStruct, [nat64Type, stringArrayType]);
 	Type jsonType = getType(CommonModule.json, symbol!"json");
-	Type jsonArrayType = instantiateType(arrayDecl, [jsonType]);
 
 	Type rSharedOfP = instantiateType(commonTypes.funStructs[FunKind.shared_], [typeParam0, typeParam1]);
 	Type rMutOfP = instantiateType(commonTypes.funStructs[FunKind.mut], [typeParam0, typeParam1]);

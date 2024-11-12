@@ -225,6 +225,8 @@ private void eachNameReferentInImports(in Module module_, in void delegate(AnyDe
 	});
 }
 
+bool isInlined(in Called a) =>
+	a.isA!(FunInst*) && bodyIsInlined(*a.as!(FunInst*).decl);
 bool bodyIsInlined(in FunDecl a) =>
 	!bodyIsNotInlined(a.body_);
 private bool bodyIsNotInlined(in FunBody a) =>

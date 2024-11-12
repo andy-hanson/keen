@@ -217,6 +217,8 @@ bool isRecordOrUnion(in StructBody a) =>
 	a.isA!(StructBody.Record) || a.isA!(StructBody.Union*);
 
 bool isFullyVisible(in CheckCtx ctx, in Type a) {
+	if (!a.isA!(StructInst*))
+		return false;
 	StructDecl* decl = a.as!(StructInst*).decl;
 	return decl.moduleUri == ctx.curUri || decl.body_.matchIn!bool(
 		(in StructBody.Bogus) =>

@@ -108,7 +108,7 @@ CompletionItem completionForCalledDecl(
 		makeStringWithWriter(alloc, (scope ref Writer writer) {
 			writeCalledDecl(writer, showCtx, WriteKind.unquoted, typeContainer, a);
 		}),
-		docCommentString(showCtx.fileContentGetters, a.moduleUri, a.docComment));
+		docCommentString(alloc, showCtx.fileContentGetters, a.moduleUri, a.docComment));
 
 Opt!Type firstParamType(in CalledDecl a) =>
 	a.matchIn!(Opt!Type)(

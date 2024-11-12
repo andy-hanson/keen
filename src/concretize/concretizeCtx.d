@@ -27,7 +27,6 @@ import concretize.generate :
 	unwrapOptionType;
 import frontend.storage : FileContentGetters;
 import model.concreteModel :
-	arrayElementType,
 	ConcreteExpr,
 	ConcreteExprKind,
 	ConcreteField,
@@ -258,9 +257,6 @@ ConcreteType boolType(ref ConcretizeCtx a) =>
 ConcreteType voidType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._voidType, () =>
 		getConcreteType_forStructInst(a, a.commonTypes.void_, emptySmallArray!ConcreteType));
-
-ConcreteType char8Type(ref ConcretizeCtx a) =>
-	arrayElementType(char8ArrayType(a));
 
 ConcreteType char8ArrayType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._char8ArrayType, () =>

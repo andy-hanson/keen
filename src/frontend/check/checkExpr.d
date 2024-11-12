@@ -843,7 +843,7 @@ double toDouble(HighPrecisionFloat a) {
 			},
 			(in CString s) @trusted {
 				double res;
-				sscanf(s.ptr, "%lf", &res);
+				cast(void) sscanf(s.ptr, "%lf", &res);
 				return res;
 			});
 		return res;
@@ -2261,14 +2261,14 @@ Expr checkTryLet(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TryLet
 	Destructure destructure = checkDestructure2(ctx, &ast.destructure, value.type, DestructureKind.local);
 	Opt!(MatchVariantExpr.Case) catch_ = checkMatchVariantCase(
 		ctx, locals, ctx.commonTypes.exception, &ast.catchMember, &ast.catch_, expected);
+	if (!has(catch_)) return bogus(expected, source);
 	Expr then = checkExprWithDestructure(ctx, locals, destructure, &ast.then, expected);
-	return has(catch_)
-		? Expr(source, ExprKind(allocate(ctx.alloc, TryLetExpr(destructure, value.expr, force(catch_), then))))
-		: Expr(source, ExprKind(allocate(ctx.alloc, LetExpr(destructure, value.expr, then))));
+	return Expr(source, ExprKind(allocate(ctx.alloc, TryLetExpr(destructure, value.expr, force(catch_), then))));
 }
 
 Expr checkTyped(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TypedAst* ast, ref Expected expected) {
 	Type type = typeFromAst2(ctx, ast.type);
+	if (type.isBogus) return bogus(expected, source);
 	Opt!Type inferred = tryGetNonInferringType(ctx.instantiateCtx, expected);
 	// If inferred != type, we'll fail in 'check'
 	if (has(inferred) && force(inferred) == type)

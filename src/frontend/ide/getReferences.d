@@ -821,7 +821,7 @@ void referencesForEnumOrFlagsMember(in Program program, in EnumOrFlagsMember* me
 		program, member.visibility, declaringModule,
 		(in Module module_, in NameAndRange ast, in DocCommentReference x) {
 			if (x.isA!(EnumOrFlagsMember*) && x.as!(EnumOrFlagsMember*) == member)
-				cb(UriAndRange(module_.uri, ast.range));;
+				cb(UriAndRange(module_.uri, ast.range));
 		},
 		(in Module m, ExprRef x) {
 			if (x.expr.kind.isA!(MatchEnumExpr*)) {

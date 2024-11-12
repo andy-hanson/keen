@@ -39,7 +39,7 @@ import util.col.enumMap : EnumMap;
 import util.conv : safeToSizeT;
 import util.integralValues : IntegralValues, singleIntegralValue;
 import util.opt : force, has;
-import util.util : castNonScope_ref, debugLog, ptrTrustMe, stringOfEnum;
+import util.util : castNonScope_ref, ptrTrustMe, stringOfEnum;
 import util.writer : debugLogWithWriter, Writer;
 import versionInfo : VersionFun;
 

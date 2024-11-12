@@ -57,6 +57,7 @@ import util.string : isWhitespace;
 import util.symbol : Symbol, symbol;
 import util.uri : stringOfUri, Uri;
 import util.util : ptrTrustMe, stringOfEnum;
+import util.writer : makeStringWithWriter, Writer;
 
 Json documentModules(ref Alloc alloc, in Program program, in ShowModelCtx showCtx, in Uri[] moduleUris) {
 	Ctx ctx = Ctx(ptrTrustMe(alloc), showCtx.fileContentGetters);
@@ -125,19 +126,27 @@ DocExport documentExport(
 
 Opt!(Json.ObjectField) docCommentField(ref Ctx ctx, Uri uri, in DocComment docComment) =>
 	optionalField!"doc"(!docComment.isEmpty, () =>
-		jsonString(docCommentString(ctx.fileContentGetters, uri, docComment)));
+		jsonString(docCommentString(ctx.alloc, ctx.fileContentGetters, uri, docComment)));
 
-public string docCommentString(in FileContentGetters fileContents, Uri uri, in DocComment a) =>
+public string docCommentString(ref Alloc alloc, in FileContentGetters fileContents, Uri uri, in DocComment a) =>
 	a.isEmpty
 		? ""
-		: stripDocComment(fileContents[UriAndRange(uri, force(a.ast.range))]);
-string stripDocComment(string a) {
-	while (!isEmpty(a) && isWhitespaceOrBar(a[0]))
-		a = a[1 .. $];
-	while (!isEmpty(a) && isWhitespaceOrBar(a[$ - 1]))
-		a = a[0 .. $ - 1];
-	return a;
-}
+		: stripDocComment(alloc, fileContents[UriAndRange(uri, force(a.ast.range))]);
+string stripDocComment(ref Alloc alloc, string a) =>
+	makeStringWithWriter(alloc, (scope ref Writer writer) {
+		while (!isEmpty(a)) {
+			while (!isEmpty(a) && isWhitespaceOrBar(a[0]))
+				a = a[1 .. $];
+			while (!isEmpty(a) && a[0] != '\n') {
+				writer ~= a[0];
+				a = a[1 .. $];
+			}
+			if (!isEmpty(a) && a[0] == '\n') {
+				writer ~= '\n';
+				a = a[1 .. $];
+			}
+		}
+	});
 bool isWhitespaceOrBar(char a) =>
 	isWhitespace(a) || a == '|';
 

@@ -221,7 +221,7 @@ ConcreteExpr concretizeEqualEnumOrFlags(
 		genCastIntegral(ctx, range, storage, arg0),
 		genCastIntegral(ctx, range, storage, arg1));
 
-private ConcreteExpr genCompareIntegral(
+ConcreteExpr genCompareIntegral(
 	ref ConcretizeCtx ctx,
 	ConcreteType comparisonType,
 	UriAndRange range,
@@ -240,20 +240,20 @@ private ConcreteExpr genCompareIntegral(
 			genComparisonGreater(comparisonType, range),
 			genComparisonEqual(comparisonType, range)));
 
-private ConcreteExpr genCastIntegral(ref ConcretizeCtx ctx, UriAndRange range, IntegralType type, ConcreteExpr arg) =>
+ConcreteExpr genCastIntegral(ref ConcretizeCtx ctx, UriAndRange range, IntegralType type, ConcreteExpr arg) =>
 	genCast(ctx.alloc, integralType(ctx, type), range, arg);
 
-private ConcreteExpr genCast(ref Alloc alloc, ConcreteType type, UriAndRange range, ConcreteExpr arg) =>
+ConcreteExpr genCast(ref Alloc alloc, ConcreteType type, UriAndRange range, ConcreteExpr arg) =>
 	ConcreteExpr(type, range, ConcreteExprKind(ConcreteExprKind.Cast(allocate(alloc, arg))));
 
-private ConcreteExpr concretizeEnumToJson(ref ConcretizeExprCtx ctx) =>
+ConcreteExpr concretizeEnumToJson(ref ConcretizeExprCtx ctx) =>
 	autoFunMatchEnum(ctx, (ref EnumOrFlagsMember x) =>
 		genConstant(
 			ctx.curFun.returnType,
 			ctx.curFun.range,
 			constantJsonString(ctx.concretizeCtx, ctx.curFun.returnType, x.name)));
 
-private ConcreteExpr concretizeEnumToSymbol(ref ConcretizeExprCtx ctx) =>
+ConcreteExpr concretizeEnumToSymbol(ref ConcretizeExprCtx ctx) =>
 	autoFunMatchEnum(ctx, (ref EnumOrFlagsMember x) =>
 		symbolForEnumMember(ctx.concretizeCtx, ctx.curFun.returnType, ctx.curFun.range, x));
 
@@ -330,7 +330,7 @@ ConcreteExpr genConcatArray(ref ConcretizeCtx ctx, UriAndRange range, ConcreteEx
 		[a, b]);
 }
 
-private ConcreteExpr autoFunMatchEnum(
+ConcreteExpr autoFunMatchEnum(
 	ref ConcretizeExprCtx ctx,
 	in ConcreteExpr delegate(ref EnumOrFlagsMember) @safe @nogc pure nothrow cb,
 ) =>
@@ -339,7 +339,7 @@ private ConcreteExpr autoFunMatchEnum(
 		genParamGet(ctx.curFun.range, &only(ctx.curFun.params)),
 		cb);
 
-private ConcreteExpr concretizeSymbolToOptEnumOrFlags(ref ConcretizeExprCtx ctx) {
+ConcreteExpr concretizeSymbolToOptEnumOrFlags(ref ConcretizeExprCtx ctx) {
 	UriAndRange range = ctx.curFun.range;
 	ConcreteType optionType = ctx.curFun.returnType;
 	ConcreteType enumType = unwrapOptionType(ctx.concretizeCtx.commonTypes, optionType);
@@ -358,7 +358,7 @@ private ConcreteExpr concretizeSymbolToOptEnumOrFlags(ref ConcretizeExprCtx ctx)
 		});
 }
 
-private ConcreteExpr symbolForEnumMember(
+ConcreteExpr symbolForEnumMember(
 	ref ConcretizeCtx ctx,
 	ConcreteType symbolType,
 	UriAndRange range,

@@ -110,7 +110,7 @@ SignatureInformation signatureInformation(
 	});
 	return SignatureInformation(
 		signature,
-		smallString(docCommentString(showCtx.fileContentGetters, a.moduleUri, a.docComment)),
+		smallString(docCommentString(alloc, showCtx.fileContentGetters, a.moduleUri, a.docComment)),
 		finish(parameters),
 		activeParameter: activeParameter);
 }

@@ -108,7 +108,7 @@ import util.perf : disablePerf, isEnabled, Perf, PerfMeasure, withMeasureNoAlloc
 import util.perfReport : perfReport;
 import util.sourceRange : UriLineAndColumn;
 import util.string : CString, mustStripPrefix, MutCString;
-import util.symbol : Extension, symbol;
+import util.symbol : Extension, Symbol, symbol;
 import util.unicode : FileContent;
 import util.uri :
 	addExtension,
