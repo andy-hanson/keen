@@ -9,6 +9,7 @@ import concretize.concretizeExpr :
 	concretizeBogusKind,
 	ConcretizeExprCtx,
 	concretizeFunBody,
+	getConcreteFunFromCalled,
 	ensureVariantMember,
 	withConcretizeExprCtx;
 import concretize.generate :
@@ -57,6 +58,7 @@ import model.model :
 	AutoFun,
 	BuiltinFun,
 	BuiltinType,
+	Called,
 	CommonFuns,
 	CommonTypes,
 	Destructure,
@@ -91,6 +93,7 @@ import model.model :
 	TypeParamIndex,
 	UnionMember,
 	VarDecl,
+	VariantMemberAndMethodImpls,
 	worsePurity;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapToStackArray;
@@ -114,7 +117,7 @@ import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder;
 import util.col.enumMap : EnumMap, makeEnumMap;
 import util.col.hashTable : getOrAdd, getOrAddAndDidAdd, moveToArray, MutHashTable;
 import util.col.map : mustGet;
-import util.col.mutArr : filterUnordered, MutArr, mutArrIsEmpty, push;
+import util.col.mutArr : filterUnordered, mapToMutArr, MutArr, mutArrIsEmpty, push;
 import util.col.mutMap : getOrAddAndDidAdd, mustAdd, MutMap, ValueAndDidAdd;
 import util.integralValues : IntegralValue;
 import util.late : Late, late, lateGet, lateSet, lazilySet;
@@ -660,14 +663,26 @@ void initializeConcreteStruct(
 			else
 				push(ctx.alloc, ctx.deferredTypeSize, res);
 		},
-		(StructBody.Variant) {
+		(StructBody.Variant x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
 			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Union()), false);
 			// Always defer since we need to wait to know all variant members
 			push(ctx.alloc, ctx.deferredTypeSize, res);
-			mustAdd(ctx.alloc, ctx.variantStructToMembers, res, MutArr!ConcreteVariantMemberAndMethodImpls());
+			mustAdd(ctx.alloc, ctx.variantStructToMembers, res, mapToMutArr!(ConcreteVariantMemberAndMethodImpls, VariantMemberAndMethodImpls)(
+				ctx.alloc,
+				x.listedMembers,
+				(ref VariantMemberAndMethodImpls member) @safe {
+					ConcreteType memberType = getConcreteType_forStructInst(ctx, member.member, typeArgsScope);
+					ConcreteVariantMemberAndMethodImpls res = ConcreteVariantMemberAndMethodImpls(memberType);
+					res.methodImpls = variantMethodImplsInner(ctx, member.methodImpls, typeArgsScope);
+					return res;
+				}));
 		});
 }
+
+SmallArray!(Opt!(ConcreteFun*)) variantMethodImplsInner(ref ConcretizeCtx ctx, in SmallArray!(Opt!Called) methodImpls, in TypeArgsScope typeArgs) =>
+	map!(Opt!(ConcreteFun*), Opt!Called)(ctx.alloc, methodImpls, (ref Opt!Called x) =>
+		has(x) ? getConcreteFunFromCalled(ctx, typeArgs, SpecsScope(), force(x)) : none!(ConcreteFun*));
 
 void initializeConcreteStructForBuiltin(ref ConcretizeCtx ctx, ConcreteStruct* struct_, BuiltinType type) {
 	struct_.defaultReferenceKind = ReferenceKind.byVal;

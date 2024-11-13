@@ -187,6 +187,11 @@ DestructureAst parseDestructureNoRequireParens(ref Lexer lexer) {
 		return first;
 }
 
+SmallArray!TypeAst tryParseVariantTypes(ref Lexer lexer) =>
+	tryTakeToken(lexer, Token.parenLeft)
+		? parseTypesWithCommasThenClosingParen(lexer)
+		: emptySmallArray!TypeAst;
+
 Opt!ParamsAst tryParseParams(ref Lexer lexer) =>
 	peekToken(lexer, Token.parenLeft)
 		? some(parseParams(lexer))

@@ -1063,12 +1063,13 @@ immutable struct StructBodyAst {
 	}
 	immutable struct Variant {
 		VariantKind kind;
+		SmallArray!TypeAst types;
 		SmallArray!SignatureAst methods;
 	}
 
 	mixin .Union!(Builtin, Enum, Extern, Flags, Record, Union, Variant);
 }
-static assert(StructBodyAst.sizeof <= 24);
+//static assert(StructBodyAst.sizeof <= 24); ------------------------------------------------------------------------------------------------
 
 immutable struct EnumOrFlagsMemberAst {
 	@safe @nogc pure nothrow:

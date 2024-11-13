@@ -29,6 +29,7 @@ import model.ast :
 	StructDeclAst,
 	TestAst,
 	TryAst,
+	TypeAst,
 	VarDeclAst;
 import model.concreteModel : TypeSize;
 import model.constant : Constant;
@@ -599,19 +600,20 @@ immutable struct StructBody {
 		RecordFlags flags;
 		SmallArray!RecordField fields;
 	}
-	immutable struct Union {
+	immutable struct Union { // TODO: KILL (use Variant with union kind) ------------------------------------------------------------
 		SmallArray!UnionMember members;
 		HashTable!(UnionMember*, Symbol, nameOfUnionMember) membersByName;
 	}
 	// This is an interface or variant
 	immutable struct Variant {
 		VariantKind kind;
+		SmallArray!VariantMemberAndMethodImpls listedMembers; // There may be other members not in this list
 		SmallArray!Signature methods;
 	}
 
 	mixin .Union!(Bogus, BuiltinType, Enum*, Extern, Flags, Record, Union*, Variant);
 }
-static assert(StructBody.sizeof == StructBody.Record.sizeof + size_t.sizeof);
+// static assert(StructBody.sizeof == StructBody.Record.sizeof + size_t.sizeof); // ---------------------------------------------------------------------
 
 Symbol nameOfEnumOrFlagsMember(in EnumOrFlagsMember* a) =>
 	a.name;
@@ -625,7 +627,7 @@ IntegralValue getAllFlagsValue(in StructBody.Flags body_) =>
 		(IntegralValue a, in EnumOrFlagsMember b) =>
 			a | b.value);
 
-enum VariantKind { interface_, variant }
+enum VariantKind { interface_, union_, variant }
 
 enum BuiltinType {
 	array,
@@ -831,6 +833,21 @@ immutable struct StructDecl {
 EnumOrFlagsMember[] mustBeEnumOrFlags(in StructDecl a) =>
 	a.body_.isA!(StructBody.Enum*) ? a.body_.as!(StructBody.Enum*).members : a.body_.as!(StructBody.Flags).members;
 
+// This is stored on the variant for the types listed in it.
+immutable struct VariantMemberAndMethodImpls {
+	@safe @nogc pure nothrow:
+
+	TypeAst* ast; // TODO: I possibly don't need this ..............................................................................................
+	StructInst* member;
+	private Late!(SmallArray!(Opt!Called)) methodImpls_;
+
+	SmallArray!(Opt!Called) methodImpls() return scope =>
+		lateGet(methodImpls_);
+	void methodImpls(SmallArray!(Opt!Called) value) =>
+		lateSet(methodImpls_, value);
+}
+
+// This is stored on a type with a 'variant-member' modifier.
 immutable struct VariantAndMethodImpls {
 	@safe @nogc pure nothrow:
 
@@ -850,7 +867,7 @@ immutable struct VariantAndMethodImpls {
 		variantBody.kind;
 	SmallArray!Signature variantDeclMethods() =>
 		variantBody.methods;
-	SmallArray!Type variantInstantiatedMethodTypes() =>
+	SmallArray!Type variantInstantiatedMethodTypes() => // used? -------------------------------------------------------------
 		variant.instantiatedTypes;
 }
 

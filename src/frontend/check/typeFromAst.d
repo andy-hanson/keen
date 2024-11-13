@@ -48,7 +48,7 @@ import util.sourceRange : combineRanges, Range;
 import util.symbol : Symbol, symbol;
 import util.util : castNonScope_ref, ptrTrustMe;
 
-enum AliasAllowed { differentModule, yes }
+enum AliasAllowed { never, differentModule, yes } // TODO: 'never' is unused ----------------------------------------------------------
 
 private Type instStructFromAst(
 	ref CheckCtx ctx,
@@ -77,11 +77,22 @@ private Type instStructFromAst(
 			? sOrA.matchWithPointers!Type(
 				(StructAlias* a) {
 					assert(isEmpty(force(typeArgs)));
-					if (aliasAllowed == AliasAllowed.differentModule && a.moduleUri == ctx.curUri) {
+					bool ok = () {
+						final switch (aliasAllowed) {
+							case AliasAllowed.never:
+								return false;
+							case AliasAllowed.differentModule:
+								return a.moduleUri != ctx.curUri;
+							case AliasAllowed.yes:
+								return true;
+						}
+					}();
+					if (ok)
+						return Type(a.target);
+					else {
 						addDiag(ctx, suffixRange, Diag(Diag.AliasNotAllowed()));
 						return Type.bogus;
-					} else
-						return Type(a.target);
+					}
 				},
 				(StructDecl* decl) =>
 					Type(instantiateStruct(ctx.instantiateCtx, decl, force(typeArgs), delayStructInsts)))

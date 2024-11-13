@@ -40,6 +40,7 @@ import model.model :
 	VarDecl,
 	VariantAndMethodImpls,
 	VariantKind,
+	VariantMemberAndMethodImpls,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withStackArray;
@@ -80,17 +81,22 @@ private size_t countFunsForStruct(in CommonTypes commonTypes, in StructDecl a) =
 			// A constructor and getter for each member
 			x.members.length + count!UnionMember(x.members, (in UnionMember x) => !isVoid(x.type)),
 		(in StructBody.Variant x) =>
-			x.methods.length);
+			x.methods.length + sum!VariantMemberAndMethodImpls(x.listedMembers, (in VariantMemberAndMethodImpls member) =>
+				countFunsForVariantMember(x, *member.member.decl)));
 private size_t countFunsForVariantMembers(in StructDecl a) =>
-	sum!VariantAndMethodImpls(a.variants, (in VariantAndMethodImpls x) {
-		size_t res = a.body_.isA!(StructBody.Record) ? 2 : 1;
-		final switch (x.variant.decl.body_.as!(StructBody.Variant).kind) {
-			case VariantKind.interface_:
-				return res;
-			case VariantKind.variant:
-				return res + 1;
-		}
-	});
+	sum!VariantAndMethodImpls(a.variants, (in VariantAndMethodImpls x) =>
+		countFunsForVariantMember(x.variant.decl.body_.as!(StructBody.Variant), a));
+private size_t countFunsForVariantMember(in StructBody.Variant variant, in StructDecl member) {
+	// Records will also have a named constructor returning the variant
+	size_t res = member.body_.isA!(StructBody.Record) ? 2 : 1;
+	final switch (variant.kind) {
+		case VariantKind.interface_:
+			return res;
+		case VariantKind.union_:
+		case VariantKind.variant:
+			return res + 1;
+	}
+}
 
 size_t countFunsForVars(in VarDecl[] vars) =>
 	vars.length * 2;
@@ -132,40 +138,56 @@ private void addFunsForVariantMembers(
 	ref CommonTypes commonTypes,
 	StructDecl* struct_,
 ) {
-	StructInst* memberType = instantiateStructWithOwnTypeParams(ctx.instantiateCtx, struct_);
 	foreach (VariantAndMethodImpls vm; struct_.variants) {
-		StructInst* variant = vm.variant;
-		// Convert from the type to a variant
+		addFunsForVariantMember(
+			ctx, funsBuilder, commonTypes,
+			sourceStruct: struct_,
+			variant: vm.variant,
+			memberType: instantiateStructWithOwnTypeParams(ctx.instantiateCtx, struct_));
+	}
+}
+
+private void addFunsForVariantMember(
+	ref CheckCtx ctx,
+	scope ref ExactSizeArrayBuilder!FunDecl funsBuilder,
+	ref CommonTypes commonTypes,
+	StructDecl* sourceStruct,
+	StructInst* variant,
+	StructInst* memberType,
+) {
+	VariantKind variantKind = variant.decl.body_.as!(StructBody.Variant).kind;
+	StructDecl* member = memberType.decl;
+	// Convert from the type to a variant
+	funsBuilder ~= funForStruct(
+		sourceStruct,
+		symbol!"to",
+		Type(variant),
+		makeParams(ctx.alloc, [param!"a"(Type(memberType))]),
+		FunFlags.generatedBare,
+		FunBody(FunBody.CreateVariant()));
+	if (member.body_.isA!(StructBody.Record)) {
+		ref StructBody.Record record() => member.body_.as!(StructBody.Record);
 		funsBuilder ~= funForStruct(
-			struct_,
-			symbol!"to",
+			sourceStruct,
+			member.name,
 			Type(variant),
-			makeParams(ctx.alloc, [param!"a"(Type(memberType))]),
-			FunFlags.generatedBare,
-			FunBody(FunBody.CreateVariant()));
-		if (struct_.body_.isA!(StructBody.Record)) {
-			ref StructBody.Record record() => struct_.body_.as!(StructBody.Record);
+			recordConstructorParams(ctx.alloc, record),
+			recordIsAlwaysByVal(record) ? FunFlags.generatedBare : FunFlags.generated,
+			FunBody(FunBody.CreateRecordAndConvertToVariant(memberType)));
+	}
+	final switch (variantKind) {
+		case VariantKind.interface_:
+			break;
+		case VariantKind.union_:
+		case VariantKind.variant:
 			funsBuilder ~= funForStruct(
-				struct_,
-				struct_.name,
-				Type(variant),
-				recordConstructorParams(ctx.alloc, record),
-				recordIsAlwaysByVal(record) ? FunFlags.generatedBare : FunFlags.generated,
-				FunBody(FunBody.CreateRecordAndConvertToVariant(memberType)));
-		}
-		final switch (vm.variantKind) {
-			case VariantKind.interface_:
-				break;
-			case VariantKind.variant:
-				funsBuilder ~= funForStruct(
-					struct_,
-					struct_.name,
-					Type(makeOptionType(ctx.instantiateCtx, commonTypes, Type(memberType))),
-					makeParams(ctx.alloc, [param!"a"(Type(variant))]),
-					FunFlags.generatedBare,
-					FunBody(FunBody.VariantMemberGet()));
-				break;
-		}
+				sourceStruct,
+				member.name,
+				Type(makeOptionType(ctx.instantiateCtx, commonTypes, Type(memberType))),
+				makeParams(ctx.alloc, [param!"a"(Type(variant))]),
+				FunFlags.generatedBare,
+				FunBody(FunBody.VariantMemberGet()));
+			break;
 	}
 }
 
@@ -530,6 +552,13 @@ void addFunsForVariant(
 	StructDecl* struct_,
 	ref StructBody.Variant variant,
 ) {
+	StructInst* variantInst = instantiateStructWithOwnTypeParams(ctx.instantiateCtx, struct_);
+
+	foreach (ref VariantMemberAndMethodImpls x; variant.listedMembers)
+		addFunsForVariantMember(
+			ctx, funsBuilder, commonTypes,
+			sourceStruct: struct_, variant: variantInst, memberType: x.member);
+
 	foreach (ref Signature sig; variant.methods)
 		funsBuilder ~= funDeclWithBody(
 			FunDeclSource(&sig),
@@ -540,7 +569,7 @@ void addFunsForVariant(
 				Destructure(allocate(ctx.alloc, Destructure.Ignore(
 					DestructureIgnoreSource(struct_),
 					sig.ast.range.start,
-					Type(instantiateStructWithOwnTypeParams(ctx.instantiateCtx, struct_))))),
+					Type(variantInst)))),
 				sig.params)),
 			FunFlags.generated.withSummon(struct_.isSummon),
 			struct_.externSet,

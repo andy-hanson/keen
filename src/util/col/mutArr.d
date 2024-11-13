@@ -3,7 +3,7 @@ module util.col.mutArr;
 @safe @nogc pure nothrow:
 
 import util.alloc.alloc : Alloc, allocateElements, freeElements;
-import util.col.array : findIndex;
+import util.col.array : findIndex, map;
 import util.memory : copyToFrom, initMemory;
 import util.opt : optOrDefault;
 
@@ -39,6 +39,9 @@ struct MutArr(T) {
 		return 0;
 	}
 }
+
+MutArr!Out mapToMutArr(Out, In)(ref Alloc alloc, in In[] inputs, in Out delegate(ref In) @safe @nogc pure nothrow cb) =>
+	MutArr!Out(map!(Out, In)(alloc, inputs, cb), inputs.length);
 
 void clearAndDoNotFree(T)(ref MutArr!T a) {
 	a.size_ = 0;

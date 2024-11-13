@@ -281,6 +281,8 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 						final switch (x.body_.as!(StructBody.Variant).kind) {
 							case VariantKind.interface_:
 								return "Interface";
+							case VariantKind.union_:
+								return "Union";
 							case VariantKind.variant:
 								return "Variant";
 						}
@@ -447,9 +449,11 @@ void writeStructDeclHover(scope ref Writer writer, in ShowModelCtx ctx, in Struc
 		(in StructBody.Union) =>
 			"Union type ",
 		(in StructBody.Variant x) {
-			final switch (x.kind) {
+			final switch (x.kind) { // TODO: DUP CODE (search "Union" string) -------------------------------------------------------
 				case VariantKind.interface_:
 					return "Interface type";
+				case VariantKind.union_:
+					return "Union type";
 				case VariantKind.variant:
 					return "Variant type";
 			}

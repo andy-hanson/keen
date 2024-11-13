@@ -1806,6 +1806,7 @@ string describeTokenForUnexpected(Token token) {
 			// This is ParseDiag.UnexpectedCharacter instead
 			assert(false);
 		case Token.union_:
+		case Token.union2:
 			return "Unexpected keyword 'union'.";
 		case Token.unless:
 			return "Unexpected keyword 'unless'.";

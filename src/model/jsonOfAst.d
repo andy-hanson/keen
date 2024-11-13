@@ -264,6 +264,7 @@ Json jsonOfStructBodyAst(ref Alloc alloc, in Ctx ctx, in StructBodyAst a) =>
 		(in StructBodyAst.Variant x) =>
 			jsonObject(alloc, [
 				field!"kind"(stringOfEnum(x.kind)),
+				field!"types"(jsonOfTypeAsts(alloc, ctx, x.types)),
 				field!"methods"(jsonOfSignatureAsts(alloc, ctx, x.methods))]));
 
 Json jsonOfRecordOrUnion(

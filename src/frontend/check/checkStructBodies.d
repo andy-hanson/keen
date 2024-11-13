@@ -78,6 +78,7 @@ import model.model :
 	TypeParams,
 	UnionMember,
 	VariantAndMethodImpls,
+	VariantMemberAndMethodImpls,
 	Visibility;
 import util.alloc.stackAlloc : withStackArray;
 import util.col.array :
@@ -101,7 +102,7 @@ import util.opt : force, has, MutOpt, none, noneMut, Opt, optFromMut, optIf, som
 import util.sourceRange : Range;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet, symbolSet;
-import util.util : enumConvertOrAssert, isMultipleOf, ptrTrustMe;
+import util.util : enumConvertOrAssert, isMultipleOf, ptrTrustMe, todo;
 
 void modifierTypeArgInvalid(ref CheckCtx ctx, in ModifierAst.Keyword modifier) {
 	if (has(modifier.typeArg)) {
@@ -172,9 +173,11 @@ void checkStructBodies(
 			},
 			(StructBodyAst.Variant x) {
 				checkOnlyCommonModifiers(ctx, DeclKind.variant, ast.modifiers);
-				return StructBody(StructBody.Variant(x.kind, checkSignatures(
+				SmallArray!VariantMemberAndMethodImpls listedMembers = checkVariantListedMembersInitial(ctx, commonTypes, structsAndAliasesMap, delayStructInsts, struct_, x);
+				SmallArray!Signature sigs = checkSignatures(
 					ctx, commonTypes, structsAndAliasesMap, SignatureContainer(struct_), ast.typeParams, x.methods,
-					someMut(ptrTrustMe(delayStructInsts)))));
+					someMut(ptrTrustMe(delayStructInsts)));
+				return StructBody(StructBody.Variant(x.kind, listedMembers, sigs));
 			});
 	});
 }
@@ -202,7 +205,25 @@ SmallArray!Signature checkSignatures(
 		return Signature(container, x, rp.returnType, small!Destructure(params));
 	});
 
-private SmallArray!VariantAndMethodImpls checkVariantMembersInitial(
+private SmallArray!VariantMemberAndMethodImpls checkVariantListedMembersInitial(
+	ref CheckCtx ctx,
+	ref CommonTypes commonTypes,
+	ref StructsAndAliasesMap structsAndAliasesMap,
+	scope ref DelayStructInsts delayStructInsts,
+	StructDecl* variant_,
+	ref StructBodyAst.Variant ast,
+) =>
+	mapOpPointers!(VariantMemberAndMethodImpls, TypeAst)(ctx.alloc, ast.types, (TypeAst* typeAst) {
+		Type type = typeFromAst(ctx, commonTypes, structsAndAliasesMap, *typeAst, variant_.typeParams, someMut(ptrTrustMe(delayStructInsts)), AliasAllowed.yes);
+		if (type.isA!(StructInst*)) {
+			return some(VariantMemberAndMethodImpls(typeAst, type.as!(StructInst*)));
+		} else {
+			if (!type.isBogus) todo!void("DIAG: Type parameter not allowed as a variant member"); // -----------------------------------------------------------------
+			return none!VariantMemberAndMethodImpls;
+		}
+	});
+
+private SmallArray!VariantAndMethodImpls checkVariantMembersInitial( // TODO: this is confusingly named. This checks 'variant-member' modifiers on a type.
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
@@ -262,51 +283,66 @@ private Opt!VariantAndMethodImpls getVariantMemberTypeFromModifier(
 
 void checkVariantMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap funsMap, StructDecl[] structs) {
 	foreach (ref StructDecl struct_; structs) {
+		if (struct_.body_.isA!(StructBody.Variant)) {
+			foreach (ref VariantMemberAndMethodImpls x; struct_.body_.as!(StructBody.Variant).listedMembers) {
+				// TODO: test purity -----------------------------------------------------------------------------------------------------------------------
+				x.methodImpls = checkMethodImplsForVariant(
+					ctx, commonTypes, funsMap,
+					TypeContainer(&struct_), x.member, x.ast.range,
+					instantiateStructWithOwnTypeParams(ctx.instantiateCtx, &struct_),
+					struct_.body_.as!(StructBody.Variant).methods);
+			}
+		}
+
 		foreach (ref VariantAndMethodImpls variant; struct_.variants) {
-			Type variantMemberType = Type(instantiateStructWithOwnTypeParams(ctx.instantiateCtx, &struct_));
+			StructInst* memberType = instantiateStructWithOwnTypeParams(ctx.instantiateCtx, &struct_);
 			if (!isPurityAlwaysCompatible(referencer: variant.variant.purityRange, referenced: struct_.purity))
 				addDiag(ctx, variant.ast.range, Diag(Diag.PurityWorseThanVariant(&struct_, variant.variant)));
-			checkMethodImplsForVariant(ctx, commonTypes, funsMap, &struct_, variantMemberType, variant);
+			variant.methodImpls = checkMethodImplsForVariant(
+				ctx, commonTypes, funsMap, TypeContainer(&struct_), memberType, variant.ast.range, variant.variant, variant.variantDeclMethods);
 		}
 	}
 }
 
 private:
 
-void checkMethodImplsForVariant(
+SmallArray!(Opt!Called) checkMethodImplsForVariant(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	FunsMap funsMap,
-	StructDecl* struct_,
-	Type variantMemberType,
-	ref VariantAndMethodImpls variant,
+	TypeContainer typeContainer,
+	StructInst* memberType,
+	Range diagRange,
+	StructInst* variant,
+	SmallArray!Signature methodDecls,
 ) {
+	StructDecl* member = memberType.decl;
 	size_t typeIndex;
-	Type nextType() => variant.variantInstantiatedMethodTypes[typeIndex++];
-	variant.methodImpls = map!(Opt!Called, Signature)(ctx.alloc, variant.variantDeclMethods, (ref Signature sig) =>
+	Type nextType() => variant.instantiatedTypes[typeIndex++];
+	SmallArray!(Opt!Called) res = map!(Opt!Called, Signature)(ctx.alloc, methodDecls, (ref Signature sig) =>
 		withStackArray(
 			sig.params.length + 2,
-			(size_t i) => i == 1 ? variantMemberType : nextType(),
+			(size_t i) => i == 1 ? Type(memberType) : nextType(),
 			(scope Type[] types) {
 				Opt!Called called = findFunctionForReturnAndParamTypes(
-					ctx, commonTypes, TypeContainer(struct_),
+					ctx, commonTypes, typeContainer,
 					funsInNonExprScope(ctx, funsMap),
-					FunFlags.none.withSummon(struct_.isSummon),
-					struct_.externSet,
+					FunFlags.none.withSummon(member.isSummon),
+					member.externSet,
 					LocalsInfo(),
 					sig.name,
-					variant.ast.range,
+					diagRange,
 					none!Type,
 					ReturnAndParamTypes(small!Type(types)),
 					() => false);
 				if (has(called) &&
 					force(called).isA!(FunInst*) &&
-					force(called).as!(FunInst*).decl.visibility < struct_.visibility)
-					addDiag(ctx, variant.ast.range, Diag(
-						Diag.VariantMethodImplVisibility(struct_, variant.variant, force(called).as!(FunInst*))));
+					force(called).as!(FunInst*).decl.visibility < member.visibility)
+					addDiag(ctx, diagRange, Diag(Diag.VariantMethodImplVisibility(member, variant, force(called).as!(FunInst*))));
 				return called;
 			}));
-	assert(typeIndex == variant.variantInstantiatedMethodTypes.length);
+	assert(typeIndex == variant.instantiatedTypes.length);
+	return res;
 }
 
 StructBody.Extern checkExtern(ref CheckCtx ctx, in StructDeclAst declAst, in StructBodyAst.Extern bodyAst) {

@@ -21,6 +21,7 @@ import concretize.concretizeCtx :
 	specsScopeForFun,
 	typeArgsScopeForFun,
 	TypeArgsScope,
+	variantMethodImplsInner,
 	voidType,
 	withConcreteTypes;
 import concretize.constantsOrExprs : asConstantsOrExprs, ConstantsOrExprs;
@@ -421,6 +422,7 @@ ConstantsOrExprs asConstantsOrExprsIf(ref Alloc alloc, bool mayBeConstants, Conc
 		? asConstantsOrExprs(alloc, exprs)
 		: ConstantsOrExprs(exprs);
 
+// TODO: this doesn't really belong in concretizeExpr either -------------------------------------------------------------------------
 public Opt!(ConcreteFun*) getConcreteFunFromCalled(ref ConcretizeExprCtx ctx, Called called) =>
 	getConcreteFunFromCalled(ctx.concretizeCtx, typeScope(ctx), specsScope(ctx), called);
 public Opt!(ConcreteFun*) getConcreteFunFromCalled(
@@ -637,6 +639,7 @@ size_t nextLambdaImplIdInner(ref Alloc alloc, ConcreteLambdaImpl impl, ref MutAr
 	return res;
 }
 
+// TODO: this doesn't really belong in concretizeExpr ............................................................................... put near variantMethodImplsInner?
 public size_t ensureVariantMember(
 	ref ConcretizeCtx ctx,
 	ConcreteType variantType,
@@ -651,7 +654,7 @@ public size_t ensureVariantMember(
 			x.methodImpls = variantMethodImpls(ctx, variantType, memberType);
 		});
 
-SmallArray!(Opt!(ConcreteFun*)) variantMethodImpls(
+SmallArray!(Opt!(ConcreteFun*)) variantMethodImpls( // NOTE: This is only for types with 'variant-member', not variant listed types.
 	ref ConcretizeCtx ctx,
 	ConcreteType variantType,
 	ConcreteType memberType,
@@ -661,8 +664,7 @@ SmallArray!(Opt!(ConcreteFun*)) variantMethodImpls(
 	VariantAndMethodImpls variantMember = mustFindOnly!VariantAndMethodImpls(
 		memberSource.decl.variants, (ref VariantAndMethodImpls x) =>
 			x.variant.decl == variantSource.decl);
-	return map!(Opt!(ConcreteFun*), Opt!Called)(ctx.alloc, variantMember.methodImpls, (ref Opt!Called x) =>
-		has(x) ? getConcreteFunFromCalled(ctx, memberSource.typeArgs, SpecsScope(), force(x)) : none!(ConcreteFun*));
+	return variantMethodImplsInner(ctx, variantMember.methodImpls, memberSource.typeArgs);
 }
 
 alias Locals = StackMap!(Local*, LocalOrConstant);
