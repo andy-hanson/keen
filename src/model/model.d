@@ -892,6 +892,7 @@ immutable struct StructInst {
 	// For a Union, this is the member types (Bogus for members with no type).
 	// For a Variant, these are the ReturnAndParamTypes for each method, concatenated.
 	// Otherwise this is empty.
+	// TODO: I'm not sure we really need this? This is used in concretize, but we have the type args at that point so no real need for this ..................................
 	private Late!(SmallArray!Type) lateInstantiatedTypes;
 
 	SmallArray!Type instantiatedTypes() return scope =>
@@ -3344,7 +3345,7 @@ immutable struct MatchStringLikeExpr {
 	Expr else_;
 }
 
-immutable struct MatchUnionExpr {
+immutable struct MatchUnionExpr { // kill -------------------------------------------------------------------------------------------
 	@safe @nogc pure nothrow:
 
 	immutable struct Case {
@@ -3378,7 +3379,7 @@ immutable struct MatchVariantExpr {
 
 	ExprAndType matched;
 	SmallArray!Case cases;
-	Expr else_;
+	Opt!Expr else_; // TODO: it would probably save space to make this a pointer (as well as 'matched', then make MatchVariantExpr by value) ---------------------------------------------------------------
 
 	StructInst* variant() return scope =>
 		matched.type.as!(StructInst*);
@@ -3628,7 +3629,7 @@ Opt!T findDirectChildExpr(T)(
 			optOr!T(
 				cb(toRef(&x.matched)),
 				() => directChildInMatchVariantCases(x.cases),
-				() => cb(sameType(&x.else_))),
+				() => has(x.else_) ? cb(sameType(&force(x.else_))) : none!T),
 		(RecordFieldPointerExpr* x) =>
 			cb(toRef(&x.target)),
 		(SeqExpr* x) =>

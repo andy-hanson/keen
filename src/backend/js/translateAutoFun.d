@@ -25,7 +25,7 @@ import backend.js.jsAst :
 	genEqEqEq,
 	genIdentifier,
 	genIf,
-	genIn,
+	genInstanceof,
 	genLess,
 	genNew,
 	genNotEqEq,
@@ -65,7 +65,9 @@ import model.model :
 	StructDecl,
 	StructInst,
 	Type,
-	UnionMember;
+	UnionMember,
+	VariantKind,
+	VariantMemberAndMethodImpls;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	foldRange,
@@ -99,7 +101,7 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 					translateCompareEnumOrFlags(ctx, source, returnStruct, param(0), param(1)),
 				(in RecordField[] fields) =>
 					translateCompareRecord(ctx, source, auto_, returnStruct, fields, param(0), param(1)),
-				(in UnionMember[] members) =>
+				(in VariantMemberAndMethodImpls[] members) =>
 					translateCompareUnion(ctx, source, auto_, returnStruct, members, param(0), param(1)));
 		case AutoFun.Kind.enumOrFlagsMembers:
 			StructDecl* enumStruct = arrayElementType(fun.returnType).as!(StructInst*).decl;
@@ -122,7 +124,7 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 					translateEqualEnumOrFlags(ctx, source, *struct_, param(0), param(1)),
 				(in RecordField[] fields) =>
 					translateEqualRecord(ctx, source, auto_, fields, param(0), param(1)),
-				(in UnionMember[] members) =>
+				(in VariantMemberAndMethodImpls[] members) =>
 					translateEqualUnion(ctx, source, auto_, members, param(0), param(1)));
 		case AutoFun.Kind.flagsToSymbolArray:
 			return exprFunBody(ctx.alloc, flagsToSymbolArray(ctx.ctx, source, struct_, param(0)));
@@ -142,7 +144,7 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 					translateFlagsToJson(ctx, source, struct_, param(0)),
 				(in RecordField[] fields) =>
 					translateRecordToJson(ctx, source, auto_, fields, param(0)),
-				(in UnionMember[] members) =>
+				(in VariantMemberAndMethodImpls[] members) =>
 					translateUnionToJson(ctx, source, auto_, members, param(0)));
 	}
 }
@@ -221,7 +223,7 @@ JsExprOrBlockStatement matchEnumFlagsRecordOrUnion(
 	in JsExprOrBlockStatement delegate(in StructBody.Enum) @safe @nogc pure nothrow cbEnum,
 	in JsExprOrBlockStatement delegate(in StructBody.Flags) @safe @nogc pure nothrow cbFlags,
 	in JsExprOrBlockStatement delegate(in RecordField[]) @safe @nogc pure nothrow cbRecord,
-	in JsExprOrBlockStatement delegate(in UnionMember[]) @safe @nogc pure nothrow cbUnion,
+	in JsExprOrBlockStatement delegate(in VariantMemberAndMethodImpls[]) @safe @nogc pure nothrow cbUnion,
 ) =>
 	struct_.body_.matchIn!JsExprOrBlockStatement(
 		(in StructBody.Bogus) =>
@@ -234,10 +236,12 @@ JsExprOrBlockStatement matchEnumFlagsRecordOrUnion(
 		cbFlags,
 		(in StructBody.Record x) =>
 			cbRecord(x.fields),
-		(in StructBody.Union x) =>
-			cbUnion(x.members),
-		(in StructBody.Variant) =>
-			assert(false));
+		(in StructBody.Union) =>
+			assert(false),
+		(in StructBody.Variant x) {
+			assert(x.kind == VariantKind.union_);
+			return cbUnion(x.listedMembers);
+		});
 
 JsExpr genCompareLess(ref TranslateModuleCtx ctx, in Source source, StructDecl* comparison) =>
 	genGetEnumMember(ctx, source, comparison, symbol!"less");
@@ -300,7 +304,7 @@ JsExprOrBlockStatement translateCompareUnion(
 	in Source source,
 	in AutoFun auto_,
 	StructDecl* comparison,
-	in UnionMember[] members,
+	in VariantMemberAndMethodImpls[] members,
 	JsExpr p0,
 	JsExpr p1,
 ) =>
@@ -317,28 +321,31 @@ JsExprOrBlockStatement translateCompareUnion(
 	else
 		throw
 	*/
-	matchUnionMembers(ctx, source, members, p0, (size_t memberIndex, ref UnionMember member) {
+	matchUnionMembers(ctx, source, members, p0, (size_t memberIndex, ref VariantMemberAndMethodImpls member) {
 		JsExpr comparisonRef = translateStructReference(ctx.ctx, source, comparison);
 		JsExpr greater = genPropertyAccess(ctx.alloc, source, comparisonRef, JsMemberName.enumMember(symbol!"greater"));
 		JsExpr less = genPropertyAccess(ctx.alloc, source, comparisonRef, JsMemberName.enumMember(symbol!"less"));
-		JsExpr then = genCallCompareProperty(
-			ctx, source, auto_.members[memberIndex], p0, p1, JsMemberName.unionMember(member.name));
+		JsExpr then = makeCall(ctx, source, auto_.members[memberIndex], [p0, p1]);
 		JsExpr else_ = memberIndex == 0
 			? less
 			: genTernary(
 				ctx.alloc,
 				source,
-				combineWithOr!UnionMember(ctx.alloc, source, members[0 .. memberIndex], (ref UnionMember x) =>
-					genIn(ctx.alloc, source, JsMemberName.unionMember(x.name), p1)),
+				combineWithOr!VariantMemberAndMethodImpls(ctx.alloc, source, members[0 .. memberIndex], (ref VariantMemberAndMethodImpls member) =>
+					genIsVariantMember(ctx, source, p1, member)),
 				greater, less);
 		return genReturn(
 			ctx.alloc,
 			source,
 			genTernary(
 				ctx.alloc, source,
-				genIn(ctx.alloc, source, JsMemberName.unionMember(member.name), p1),
+				genIsVariantMember(ctx, source, p1, member),
 				then, else_));
 	});
+
+JsExpr genIsVariantMember(ref TranslateExprCtx ctx, in Source source, JsExpr a, in VariantMemberAndMethodImpls member) =>
+	genInstanceof(ctx.alloc, source, a, translateStructReference(ctx.ctx, source, member.member.decl));
+
 JsExpr combineWithOr(T)(
 	ref Alloc alloc,
 	in Source source,
@@ -412,17 +419,16 @@ JsExprOrBlockStatement translateEqualUnion(
 	ref TranslateExprCtx ctx,
 	in Source source,
 	in AutoFun auto_,
-	in UnionMember[] members,
+	in VariantMemberAndMethodImpls[] members,
 	JsExpr p0,
 	JsExpr p1,
 ) =>
-	matchUnionMembers(ctx, source, members, p0, (size_t memberIndex, ref UnionMember member) =>
+	matchUnionMembers(ctx, source, members, p0, (size_t memberIndex, ref VariantMemberAndMethodImpls member) =>
 		genReturn(ctx.alloc, source, genAnd(
 			ctx.alloc,
 			source,
-			genIn(ctx.alloc, source, JsMemberName.unionMember(member.name), p1),
-			genCallCompareProperty(
-				ctx, source, auto_.members[memberIndex], p0, p1, JsMemberName.unionMember(member.name)))));
+			genIsVariantMember(ctx, source, p1, member),
+			makeCall(ctx, source, auto_.members[memberIndex], [p0, p1]))));
 JsExpr genCallCompareProperty(
 	ref TranslateExprCtx ctx,
 	in Source source,
@@ -438,19 +444,19 @@ JsExpr genCallCompareProperty(
 JsExprOrBlockStatement matchUnionMembers(
 	ref TranslateExprCtx ctx,
 	in Source source,
-	in UnionMember[] members,
+	in VariantMemberAndMethodImpls[] members,
 	JsExpr p0,
-	in JsStatement delegate(size_t, ref UnionMember) @safe @nogc pure nothrow cbCase,
+	in JsStatement delegate(size_t, ref VariantMemberAndMethodImpls) @safe @nogc pure nothrow cbCase,
 ) =>
 	JsExprOrBlockStatement(genBlockStatement(ctx.alloc, [
-		foldReverseWithIndex!(JsStatement, UnionMember)(
+		foldReverseWithIndex!(JsStatement, VariantMemberAndMethodImpls)(
 			genThrowJsError(ctx.alloc, source, "Invalid union value"),
 			members,
-			(JsStatement else_, size_t index, ref UnionMember member) =>
+			(JsStatement else_, size_t index, ref VariantMemberAndMethodImpls member) =>
 				genIf(
 					ctx.alloc,
 					source,
-					genIn(ctx.alloc, source, JsMemberName.unionMember(member.name), p0),
+					genIsVariantMember(ctx, source, p0, member),
 					cbCase(index, member), else_))]));
 
 JsExprOrBlockStatement translateEnumToJson(ref TranslateExprCtx ctx, in Source source, JsExpr p0) =>
@@ -477,19 +483,18 @@ JsExprOrBlockStatement translateUnionToJson(
 	ref TranslateExprCtx ctx,
 	in Source source,
 	in AutoFun auto_,
-	in UnionMember[] members,
+	in VariantMemberAndMethodImpls[] members,
 	JsExpr p0,
 ) =>
-	matchUnionMembers(ctx, source, members, p0, (size_t memberIndex, ref UnionMember member) =>
-		// return new_json(new_pair("foo", toJson(a.foo)))
+	matchUnionMembers(ctx, source, members, p0, (size_t memberIndex, ref VariantMemberAndMethodImpls member) =>
+		// return new_json(new_pair("foo", toJson(a)))
 		genReturn(ctx.alloc, source,
 			genNewJson(ctx.ctx, source, newArray(ctx.alloc, [
 				genNewPair(
 					ctx.ctx,
 					source,
-					genStringFromSymbol(source, member.name),
-					makeCall(ctx, source, auto_.members[memberIndex], [
-						genPropertyAccess(ctx.alloc, source, p0, JsMemberName.unionMember(member.name))]))]))));
+					genStringFromSymbol(source, member.member.decl.name),
+					makeCall(ctx, source, auto_.members[memberIndex], [p0]))]))));
 JsExpr genNewPair(ref TranslateModuleCtx ctx, in Source source, JsExpr a, JsExpr b) =>
 	genNew(ctx.alloc, source, translateStructReference(ctx, source, ctx.commonTypes.pair), [a, b]);
 JsExpr genNewJson(ref TranslateModuleCtx ctx, in Source source, JsExpr[] pairs) =>

@@ -177,7 +177,7 @@ private PurityRange combinedPurityRange(Purity declPurity, in Type[] typeArgs) =
 	fold!(PurityRange, Type)(PurityRange(declPurity, declPurity), typeArgs, (PurityRange cur, in Type typeArg) =>
 		combinePurityRange(cur, purityRange(typeArg)));
 
-private StructInst* instantiateStructInst(
+StructInst* instantiateStructInst(
 	InstantiateCtx ctx,
 	ref StructInst structInst,
 	in TypeArgs typeArgs,

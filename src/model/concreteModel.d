@@ -57,6 +57,8 @@ immutable struct ConcreteStructBody {
 		// This may be empty for a lambda type with no implementations.
 		Late!(SmallArray!ConcreteType) members_;
 
+		bool hasMembers() scope => // used? -----------------------------------------------------------------------------------
+			lateIsSet(members_); 
 		SmallArray!ConcreteType members() return scope =>
 			lateGet(members_);
 		void members(SmallArray!ConcreteType value) {

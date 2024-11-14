@@ -144,6 +144,7 @@ import model.model :
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapOrNoneToStackArray;
 import util.col.array :
+	indexOf,
 	isEmpty,
 	map,
 	mapWithFirst,
@@ -644,15 +645,45 @@ public size_t ensureVariantMember(
 	ref ConcretizeCtx ctx,
 	ConcreteType variantType,
 	ConcreteType memberType,
-) =>
-	findIndexOrPush!ConcreteVariantMemberAndMethodImpls(
-		ctx.alloc,
-		mustGet(ctx.variantStructToMembers, mustBeByVal(variantType)),
-		(in ConcreteVariantMemberAndMethodImpls member) => member.memberType == memberType,
-		() => ConcreteVariantMemberAndMethodImpls(memberType),
-		(ref ConcreteVariantMemberAndMethodImpls x) {
-			x.methodImpls = variantMethodImpls(ctx, variantType, memberType);
+) {
+	ref ConcreteStructBody.Union body_() => mustBeByVal(variantType).body_.as!(ConcreteStructBody.Union);
+	import util.writer : debugLogWithWriter;
+	return body_.hasMembers
+		? force(indexOf!ConcreteType(body_.members, memberType))
+		: findIndexOrPush!ConcreteVariantMemberAndMethodImpls(
+			ctx.alloc,
+			mustGet(ctx.variantStructToMembers, mustBeByVal(variantType)),
+			(in ConcreteVariantMemberAndMethodImpls member) => member.memberType == memberType,
+			() => ConcreteVariantMemberAndMethodImpls(memberType),
+			(ref ConcreteVariantMemberAndMethodImpls x) {
+				x.methodImpls = variantMethodImpls(ctx, variantType, memberType);
+			});
+}
+
+import util.writer : Writer, writeWithCommas;//0999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
+import util.util : stringOfEnum;
+public void writeConcreteType(scope ref Writer writer, in ConcreteType a) {
+	writer ~= stringOfEnum(a.reference);
+	writer ~= " ";
+	writeConcreteStruct(writer, *a.struct_);
+}
+void writeConcreteStruct(scope ref Writer writer, in ConcreteStruct a) {
+	a.source.matchIn!void(
+		(in ConcreteStructSource.Bogus) {
+			writer ~= "BOGUS";
+		},
+		(in ConcreteStructSource.Inst x) {
+			writer ~= x.decl.name;
+			writer ~= '<';
+			writeWithCommas!ConcreteType(writer, x.typeArgs, (in ConcreteType y) {
+				writeConcreteType(writer, y);
+			});
+			writer ~= '>';
+		},
+		(in ConcreteStructSource.Lambda) {
+			writer ~= "some lambda idk";
 		});
+}
 
 SmallArray!(Opt!(ConcreteFun*)) variantMethodImpls( // NOTE: This is only for types with 'variant-member', not variant listed types.
 	ref ConcretizeCtx ctx,
@@ -1095,9 +1126,9 @@ ConcreteExpr concretizeMatchVariant(
 	if (isEmpty(a.cases)) return concretizeBogus(ctx, type, range);
 	ConcreteExpr matched = concretizeExpr(ctx, locals, a.matched);
 	ValuesAndCases vc = concretizeMatchVariantCases(ctx, type, range, locals, matched.type, a.cases);
-	ConcreteExpr* else_ = allocate(ctx.alloc, concretizeExpr(ctx, type, locals, a.else_));
+	Opt!(ConcreteExpr*) else_ = optIf(has(a.else_), () => allocate(ctx.alloc, concretizeExpr(ctx, type, locals, force(a.else_))));
 	return ConcreteExpr(type, range, ConcreteExprKind(
-		allocate(ctx.alloc, ConcreteExprKind.MatchUnion(matched, vc.values, vc.cases, some(else_)))));
+		allocate(ctx.alloc, ConcreteExprKind.MatchUnion(matched, vc.values, vc.cases, else_))));
 }
 
 immutable struct ValuesAndCases {

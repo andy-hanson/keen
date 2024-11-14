@@ -57,7 +57,7 @@ import frontend.check.inferringType :
 	withExpectOption,
 	withInfer;
 import frontend.check.instantiate :
-	instantiateSpec, instantiateStructNeverDelay, instantiateStructWithOwnTypeParams, noDelayStructInsts;
+	instantiateSpec, instantiateStructInst, instantiateStructNeverDelay, instantiateStructWithOwnTypeParams, noDelayStructInsts;
 import frontend.check.maps : FunsMap, SpecsMap, StructsAndAliasesMap;
 import frontend.check.typeFromAst :
 	checkDestructure,
@@ -199,7 +199,8 @@ import model.model :
 	UnionMember,
 	VariableRef,
 	VariantAndMethodImpls,
-	VariantKind;
+	VariantKind,
+	VariantMemberAndMethodImpls;
 import util.alloc.stackAlloc : MaxStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell;
 import util.col.array :
@@ -225,14 +226,14 @@ import util.col.tempSet : TempSet, tryAdd, withTempSet;
 import util.conv : powerOf10, safeToUshort, toLongWithOverflow;
 import util.integralValues : IntegralValue;
 import util.memory : allocate, overwriteMemory;
-import util.opt : force, has, MutOpt, none, noneMut, Opt, optIf, optOrDefault, someMut, some;
+import util.opt : force, has, MutOpt, none, noneMut, Opt, optIf, optOr, optOrDefault, someMut, some;
 import util.sourceRange : Range;
 import util.string : CString, smallString;
 import util.symbol : prependSet, prependSetDeref, stringOfSymbol, Symbol, symbol;
 import util.symbolSet : buildSymbolSet, SymbolSet, SymbolSetBuilder;
 import util.unicode : decodeAsSingleUnicodeChar;
 import util.union_ : Union;
-import util.util : castImmutable, castNonScope_ref, ptrTrustMe;
+import util.util : castImmutable, castNonScope_ref, ptrTrustMe, todo;
 import util.writer : withStackWriterCString, Writer;
 
 Expr checkFunctionBody(
@@ -1575,9 +1576,19 @@ Expr checkMatch(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ref Mat
 		(ref StructBody.Union x) =>
 			checkMatchUnion(ctx, locals, source, ast, expected, matched, x, inst),
 		(StructBody.Variant x) =>
-			x.kind == VariantKind.variant
+			canMatchVariant(x.kind)
 				? checkMatchVariant(ctx, locals, source, ast, expected, matched, inst)
 				: notMatchable());
+}
+
+bool canMatchVariant(VariantKind a) {
+	final switch (a) {
+		case VariantKind.interface_:
+			return false;
+		case VariantKind.union_:
+		case VariantKind.variant:
+			return true;
+	}
 }
 
 Expr checkMatchEnum(
@@ -1601,7 +1612,7 @@ Expr checkMatchEnum(
 		(SmallArray!(MatchEnumExpr.Case) cases, Opt!Expr else_) =>
 			Expr(source, ExprKind(allocate(ctx.alloc, MatchEnumExpr(matched, cases, else_)))));
 
-Expr checkMatchUnion(
+Expr checkMatchUnion( // kill -----------------------------------------------------------------------------------------------
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
@@ -1624,6 +1635,22 @@ Expr checkMatchUnion(
 			return Expr(source, ExprKind(allocate(ctx.alloc, MatchUnionExpr(matched, cases, elsePtr))));
 		});
 
+/*
+Expr checkMatchUnion2( // rename --------------------------------------------------------------------------------------------------------
+	ref ExprCtx ctx,
+	ref LocalsInfo locals,
+	ExprAst* source,
+	ref MatchAst ast,
+	ref Expected expected,
+	ref ExprAndType matched,
+	StructInst* matchedVariant,
+) {
+	checkMatchEnumOrUnion!(MatchVariantExpr.Case)(
+		ctx, locals, source, ast, expected, matchedVariant.decl, matchedVariant.decl.body_.as!(StructBody.Variant).listedMembers,
+		
+}
+*/
+
 Expr checkMatchVariant(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
@@ -1634,7 +1661,24 @@ Expr checkMatchVariant(
 	StructInst* matchedVariant,
 ) {
 	SmallArray!(MatchVariantExpr.Case) cases = checkMatchVariantCases(ctx, locals, matchedVariant, ast.cases, expected);
-	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.variant);
+	StructBody.Variant body_() => matchedVariant.decl.body_.as!(StructBody.Variant);
+	bool isUnion = () {
+		final switch (body_.kind) {
+			case VariantKind.interface_:
+				assert(false);
+			case VariantKind.union_:
+				return true;
+			case VariantKind.variant:
+				return false;
+		}
+	}();
+	Opt!Expr else_ = isUnion && cases.length == body_.listedMembers.length
+		? () {
+			if (has(ast.else_))
+				todo!void("Unnecessary 'else' when all cases were handled"); // 000000000000000000000000000000000000000000000000000
+			return none!Expr;
+		}() :
+		some(checkMatchElseRequired(ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.variant));
 	return Expr(source, ExprKind(allocate(ctx.alloc, MatchVariantExpr(matched, cases, else_))));
 }
 
@@ -1691,7 +1735,7 @@ immutable struct CaseResult {
 	Destructure destructure;
 	Expr expr;
 }
-CaseResult checkMatchUnionOrVariantCase(Member)(
+CaseResult checkMatchUnionOrVariantCase(Member)( // TODO: RENAME? _0000000000000000000000000000000000000000000000000000000000000000000000000000
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	Member* member,
@@ -1726,12 +1770,19 @@ Opt!(StructInst*) getVariantMemberFromName(
 	return has(op)
 		? force(op).matchWithPointers!(Opt!(StructInst*))(
 			(StructAlias* x) =>
-				some(x.target),
+				some(x.target), // TODO: wait. It's not validating it in this case??????????????????????????????????????????????????????
 			(StructDecl* decl) {
-				Opt!InstantiatedVariantMemberOrBogus res =
-					first!(InstantiatedVariantMemberOrBogus, VariantAndMethodImpls)(
+				Opt!InstantiatedVariantMemberOrBogus res = optOr!InstantiatedVariantMemberOrBogus(
+					first!(InstantiatedVariantMemberOrBogus, VariantMemberAndMethodImpls)(
+						matchedVariant.decl.body_.as!(StructBody.Variant).listedMembers,
+						(VariantMemberAndMethodImpls x) {
+							return optIf(x.member.decl == decl, () =>
+								InstantiatedVariantMemberOrBogus(
+									instantiateStructInst(ctx.instantiateCtx, *x.member, matchedVariant.typeArgs, noDelayStructInsts)));
+						}),
+					() => first!(InstantiatedVariantMemberOrBogus, VariantAndMethodImpls)(
 						decl.variants, (VariantAndMethodImpls variant) =>
-							compareVariant(ctx, nameRange, decl, variant.variant, matchedVariant, expectedMemberType));
+							compareVariant(ctx, nameRange, decl, variant.variant, matchedVariant, expectedMemberType)));
 				if (has(res))
 					return force(res).matchWithPointers!(Opt!(StructInst*))(
 						(StructInst* x) => some(x),
@@ -2062,7 +2113,7 @@ Opt!string stringFromCaseAst(ref ExprCtx ctx, CaseMemberAst ast) =>
 		(CaseMemberAst.Bogus) =>
 			none!string);
 
-Expr checkMatchEnumOrUnion(Case, Member, MembersByName)(
+Expr checkMatchEnumOrUnion(Case, Member, MembersByName)( // TODO: RENAME? --------------------------------------------------------
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,

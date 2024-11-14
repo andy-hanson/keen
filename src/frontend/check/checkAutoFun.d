@@ -5,7 +5,7 @@ module frontend.check.checkAutoFun;
 import frontend.check.checkCall.checkCallSpecs : checkSpecSingleSigIgnoreParents;
 import frontend.check.checkCtx : addDiag, CheckCtx, CommonModule;
 import frontend.check.maps : FunsMap, SpecsMap;
-import frontend.check.instantiate : instantiateSpec;
+import frontend.check.instantiate : instantiateSpec, instantiateStructInst, noDelayStructInsts;
 import frontend.check.typeFromAst : getSpecFromCommonModule;
 import model.diag : AutoFunName, Diag;
 import model.model :
@@ -13,6 +13,7 @@ import model.model :
 	asIntegralType,
 	AutoFun,
 	BuiltinType,
+	Called,
 	CommonTypes,
 	Destructure,
 	FunBody,
@@ -32,10 +33,13 @@ import model.model :
 	StructBody,
 	StructDecl,
 	StructInst,
-	Type;
+	Type,
+	VariantKind,
+	VariantMemberAndMethodImpls;
 import util.col.array : allSame, every, isEmpty, map, only;
 import util.opt : force, has, none, Opt, optOrDefault, some;
 import util.symbol : symbol;
+import util.util : typeAs;
 
 FunBody checkAutoFun(
 	ref CheckCtx ctx,
@@ -171,14 +175,36 @@ FunBody checkAutoFunWithSpec(
 		return diag(Diag.AutoFunError(Diag.AutoFunError.WrongParamType()));
 	else if (!optOrDefault!bool(returnTypeOk, () => fun.returnType == sig.returnType))
 		return diag(Diag.AutoFunError(Diag.AutoFunError.WrongReturnType(funName)));
-	else
-		return FunBody(AutoFun(funKind, map(ctx.alloc, paramType.as!(StructInst*).instantiatedTypes, (ref Type type) {
-			SpecInst* inst = has(extraTypeArg)
+	else {
+		Called checkSpecSigForContainedType(Type type) => // TODO: SHORTER NAME ----------------------------------------------------------------------
+			checkSpecSingleSigIgnoreParents(ctx, funsMap, fun, has(extraTypeArg)
 				? instantiateSpec(ctx.instantiateCtx, spec, [force(extraTypeArg), type])
-				: instantiateSpec(ctx.instantiateCtx, spec, [type]);
-			return checkSpecSingleSigIgnoreParents(ctx, funsMap, fun, inst);
-		})));
+				: instantiateSpec(ctx.instantiateCtx, spec, [type]));
+		StructInst* paramInst = paramType.as!(StructInst*);
+		Called[] members = paramInst.decl.body_.match!(Called[])(
+			(StructBody.Bogus) =>
+				assert(false),
+			(BuiltinType _) =>
+				assert(false),
+			(ref StructBody.Enum) =>
+				typeAs!(Called[])([]),
+			(StructBody.Extern) =>
+				assert(false),
+			(StructBody.Flags) =>
+				typeAs!(Called[])([]),
+			(StructBody.Record) =>
+				map(ctx.alloc, paramInst.instantiatedTypes, (ref Type type) =>
+					checkSpecSigForContainedType(type)),
+			(ref StructBody.Union) =>
+				map(ctx.alloc, paramInst.instantiatedTypes, (ref Type type) =>
+					checkSpecSigForContainedType(type)),
+			(StructBody.Variant v) =>
+				map(ctx.alloc, v.listedMembers, (ref VariantMemberAndMethodImpls m) =>
+					checkSpecSigForContainedType(Type(instantiateStructInst(ctx.instantiateCtx, *m.member, paramInst.typeArgs, noDelayStructInsts)))));
+		return FunBody(AutoFun(funKind, members));
+	}
 }
+
 
 bool checkAutoFunNotBare(ref CheckCtx ctx, FunDecl* fun) {
 	if (fun.flags.bare) {
@@ -214,7 +240,9 @@ bool isEnumFlagsRecordOrUnion(in Type a) =>
 bool isRecordOrUnion(in Type a) =>
 	a.isA!(StructInst*) && isRecordOrUnion(a.as!(StructInst*).decl.body_);
 bool isRecordOrUnion(in StructBody a) =>
-	a.isA!(StructBody.Record) || a.isA!(StructBody.Union*);
+	a.isA!(StructBody.Record) || a.isA!(StructBody.Union*) || isUnion(a);
+bool isUnion(in StructBody a) =>
+	a.isA!(StructBody.Variant) && a.as!(StructBody.Variant).kind == VariantKind.union_;
 
 bool isFullyVisible(in CheckCtx ctx, in Type a) {
 	if (!a.isA!(StructInst*))
@@ -236,8 +264,8 @@ bool isFullyVisible(in CheckCtx ctx, in Type a) {
 				x.visibility == decl.visibility),
 		(in StructBody.Union) =>
 			true,
-		(in StructBody.Variant) =>
-			false);
+		(in StructBody.Variant x) =>
+			x.kind == VariantKind.union_);
 }
 
 bool isJson(in CheckCtx ctx, in Type a) =>

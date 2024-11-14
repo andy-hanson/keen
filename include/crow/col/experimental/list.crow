@@ -14,7 +14,8 @@ import
 -l1[t] record(node (t[], t l2) node) by-val
 -l2[t] record(node (t array2d, t l3) node) by-val
 -l3[t] record(nodes t array3d) by-val
--node[leaf, lower] union(leaf leaf, branch (leaf, lower) branch)
+-node[leaf, lower] union2(leaf leaf-node, (leaf, lower) branch)
+-leaf-node[leaf] record(leaf leaf)
 | {left}, {down}, and {right} should all be non-empty.
 | (Else, this layer should be a leaf.)
 -branch[leaf, lower] record(left leaf, down lower, right leaf) by-ref
@@ -23,15 +24,15 @@ import
 
 -list-reference-equal[t] bool(a t list, b t list) unsafe
 	match a.root node
-	as leaf la
+	as leaf-node la
 		match b.root node
-		as leaf lb
-			la array-reference-equal lb
+		as leaf-node lb
+			la.leaf array-reference-equal lb.leaf
 		as branch _
 			false
 	as branch ba
 		match b.root node
-		as leaf _
+		as leaf-node _
 			false
 		as branch bb
 			ba reference-equal bb
@@ -40,7 +41,7 @@ import
 	-inner t array-builder
 +build[t] t list(a build-options, f void mut(out t list-builder))
 	inner t[] = a build out => f[out,]
-	(inner.leaf,),
+	((inner,)::(t[] leaf-node).to,),
 +~=[t] void(a t list-builder, value t)
 	a.inner ~= value
 +~~=[t] void(a t list-builder, values t list)
@@ -54,15 +55,15 @@ import
 
 -iterate-l1[t] bool(a t l1, f bool mut(chunk t[]))
 	match a node
-	as leaf l
-		f[l]
+	as leaf-node l
+		f[l leaf]
 	as branch b
 		f[b left] || b.down iterate-l2 f || f[b right]
 
 -iterate-l2[t] bool(a t l2, f bool mut(chunk t[]))
 	match a node
-	as leaf l
-		l.arrays iterate f
+	as leaf-node l
+		l.leaf.arrays iterate f
 	as branch b
 		b.left.arrays iterate f || b.down iterate-l3 f || b.right.arrays iterate f
 
@@ -122,7 +123,7 @@ import
 	total-size
 
 -new[leaf, lower] (leaf, lower) node() leaf new
-	() leaf
+	((),) to
 
 -new[t] t l2()
 	(),
@@ -131,8 +132,8 @@ import
 
 -is-empty[t] bool(a t l2)
 	match a node
-	as leaf xs
-		xs is-empty
+	as leaf-node xs
+		xs.leaf is-empty
 	as branch _
 		false
 
@@ -141,14 +142,14 @@ import
 
 -depth[t] nat64(a t list)
 	match a.root.node
-	as leaf _
+	as leaf-node _
 		0
 	as branch b
 		b.down depth-l2
 
 -depth-l2[t] nat64(a t l2)
 	match a node
-	as leaf _
+	as leaf-node _
 		1
 	as branch b
 		b.down depth-l3
@@ -158,15 +159,15 @@ import
 
 -as-branch[leaf, lower] (leaf, lower) branch(a (leaf, lower) node) bare
 	match a
-	as leaf _
+	as leaf-node _
 		unreachable
 	as branch b
 		b
 
 -try-as-l1-leaf[t] t[]?(a t list) bare
 	match a.root node
-	as leaf xs
-		xs,
+	as leaf-node xs
+		xs.leaf,
 	as branch _
 		()
 
@@ -175,7 +176,7 @@ import
 
 -try-get-l2[t] t l2?(a t list) bare
 	match a.root node
-	as leaf _
+	as leaf-node _
 		()
 	as branch b
 		b.down,
@@ -202,7 +203,7 @@ import
 | Convert an array to a list.
 | This is O(1).
 +to[t] t list(a t[])
-	l t l1 = a.leaf,
+	l t l1 = ((a,)::(t[] leaf-node)).to,
 	l,
 
 +to[t] t list(a t?)
@@ -228,8 +229,8 @@ import
 | This is O(1).
 +is-empty[t] bool(a t list) bare
 	match a.root node
-	as leaf xs
-		xs is-empty
+	as leaf-node xs
+		xs.leaf is-empty
 	as branch _
 		false
 
@@ -268,17 +269,17 @@ import
 	cat-left-node-lower lower mut(left lower, right lower),
 ) leaf concatenate, leaf size-bytes, lower new
 	match l
-	as leaf xs
-		xs cat-left-array-level r, cat-left-array-lower
+	as leaf-node xs
+		xs.leaf cat-left-array-level r, cat-left-array-lower
 	as branch bl
 		match r
-		as leaf _
+		as leaf-node _
 			# 'r' should be bigger
 			unreachable
 		as branch br
 			down1 = cat-left-array-lower[bl.right ~~ br.left, br.down]
 			down2 = cat-left-node-lower[bl.down, down1]
-			(bl.left, down2, br.right) branch
+			(bl.left, down2, br.right) to
 
 | {l} is bigger; add {r} to right.
 -cat-right-node-level[leaf, lower] (leaf, lower) node(
@@ -288,17 +289,17 @@ import
 	cat-right-node-lower lower mut(left lower, right lower),
 ) leaf concatenate, leaf size-bytes, lower new
 	match r
-	as leaf xs
-		l cat-right-array-level xs, cat-right-array-lower
+	as leaf-node xs
+		l cat-right-array-level xs.leaf, cat-right-array-lower
 	as branch br
 		match l
-		as leaf _
+		as leaf-node _
 			# 'l' should be bigger
 			unreachable
 		as branch bl
 			down1 = cat-right-array-lower[bl.down, bl.right ~~ br.left]
 			down2 = cat-right-node-lower[down1, br.down]
-			(bl.left, down2, br.right) branch
+			(bl.left, down2, br.right) to
 
 | {r} is bigger
 -cat-left-array-level[leaf, lower] (leaf, lower) node(
@@ -307,16 +308,16 @@ import
 	cat-left-lower lower mut(left leaf, right lower),
 ) leaf concatenate, leaf size-bytes, lower new
 	match r
-	as leaf xs
-		if l.size-bytes + xs.size-bytes <= max-leaf-bytes
-			l ~~ xs leaf
+	as leaf-node xs
+		if l.size-bytes + xs.leaf.size-bytes <= max-leaf-bytes
+			(l ~~ xs.leaf,) to
 		else
-			(l, (), xs) branch
+			(l, (), xs.leaf) to
 	as branch br
 		if l.size-bytes + br.left.size-bytes <= max-leaf-bytes
-			(l ~~ br.left, br.down, br.right) branch
+			(l ~~ br.left, br.down, br.right) to
 		else
-			(l, cat-left-lower[br.left, br.down], br.right) branch
+			(l, cat-left-lower[br.left, br.down], br.right) to
 
 -cat-right-array-level[leaf, lower] (leaf, lower) node(
 	l (leaf, lower) node,
@@ -324,16 +325,16 @@ import
 	cat-right-lower lower mut(left lower, right leaf),
 ) leaf concatenate, leaf size-bytes, lower new
 	match l
-	as leaf xs
-		if xs.size-bytes + r.size-bytes <= max-leaf-bytes
-			xs ~~ r leaf
+	as leaf-node xs
+		if xs.leaf.size-bytes + r.size-bytes <= max-leaf-bytes
+			(xs.leaf ~~ r,) to
 		else
-			(xs, (), r) branch
+			(xs.leaf, (), r) to
 	as branch br
 		if br.right.size-bytes + r.size-bytes <= max-leaf-bytes
-			(br.left, br.down, br.right ~~ r) branch
+			(br.left, br.down, br.right ~~ r) to
 		else
-			(br.left, cat-right-lower[br.down, br.right], r) branch
+			(br.left, cat-right-lower[br.down, br.right], r) to
 
 -cat-left-node-l1[t] t l1(l t l1, r t l1)
 	node = l.node cat-left-node-level r.node,
@@ -496,8 +497,8 @@ region spec impls (see collection.crow)
 	a.nodes total-size
 -total-size[leaf, lower] nat64(a (leaf, lower) node) leaf total-size, lower total-size, bare
 	match a
-	as leaf xs
-		xs total-size
+	as leaf-node xs
+		xs.leaf total-size
 	as branch b
 		b.left.total-size + b.down.total-size + b.right.total-size
 -next-index-2d[t] nat64(a t list-iterator, i t array-2d-iterator) bare
@@ -508,15 +509,15 @@ region spec impls (see collection.crow)
 
 +begin[t] t list-iterator(a t list) bare
 	match a.root node
-	as leaf xs
-		a, xs, 0, l1-leaf
+	as leaf-node xs
+		a, xs.leaf, 0, l1-leaf
 	as branch b
 		a, b.left, 0, l1-left
 
 +end[t] t list-iterator(a t list) bare
 	match a.root node
-	as leaf xs
-		a, xs, xs.size, l1-leaf
+	as leaf-node xs
+		a, xs.leaf, xs.leaf.size, l1-leaf
 	as branch b
 		a, b.right, b.right.size, l1-right
 
@@ -629,11 +630,11 @@ region spec impls (see collection.crow)
 
 -next-to-l2-left[t] (t, t list-iterator)?(a t list-iterator) bare
 	match a.list.get-l2 node
-	as leaf xs
-		if xs is-empty
+	as leaf-node xs
+		if xs.leaf is-empty
 			a next-to-l1-right
 		else
-			a next-set-chunk xs[0], xs.begin.l2-leaf
+			a next-set-chunk xs.leaf[0], xs.leaf.begin.l2-leaf
 	as branch b
 		a next-set-chunk b.left[0], b.left.begin.l2-left
 
@@ -647,11 +648,11 @@ region spec impls (see collection.crow)
 
 -prev-to-l2-right[t] (t list-iterator, t)?(a t list-iterator) bare
 	match a.list.get-l2 node
-	as leaf xs
-		if xs is-empty
+	as leaf-node xs
+		if xs.leaf is-empty
 			a prev-to-l1-left
 		else
-			a prev-set-chunk xs[end - 1], xs.end.l2-leaf
+			a prev-set-chunk xs.leaf[end - 1], xs.leaf.end.l2-leaf
 	as branch b
 		a prev-set-chunk b.right[end - 1], b.right.end.l2-right
 
@@ -698,7 +699,7 @@ region spec impls (see collection.crow)
 					branch = a.list get-l2-branch
 					branch.left make-l2 branch.down, bi.slice-left
 				else
-					(bi.slice-left.leaf,)
+					((bi.slice-left,).to,)
 				a.slice-right-cur-chunk make-l1 l2, b.slice-left-cur-chunk
 		as l3 bi
 			assert a-side == left : slice-right-to-left
@@ -715,7 +716,7 @@ region spec impls (see collection.crow)
 					l2 = ai.slice-right make-l2 branch.down, branch.right
 					a.slice-right-cur-chunk make-l1 l2, b.slice-left-cur-chunk
 				else
-					down t l2 = ai.slice-right.leaf,
+					down t l2 = (ai.slice-right,).to,
 					a.slice-right-cur-chunk make-l1 down, b.slice-left-cur-chunk
 		as l2 bi
 			match a-side <=> b-side
@@ -768,7 +769,7 @@ region spec impls (see collection.crow)
 	assert trusted bi.arrays.arrays array-reference-equal arrays.arrays
 	match ai.index-2d <=> bi.index-2d
 	as less
-		l2 t l2 = arrays[ai.index-2d + 1 .. bi.index-2d].leaf,
+		l2 t l2 = (arrays[ai.index-2d + 1 .. bi.index-2d],).to,
 		a.slice-right-cur-chunk make-l1 l2, b.slice-left-cur-chunk
 	as equal
 		a slice-same-array1d b
@@ -807,30 +808,30 @@ region spec impls (see collection.crow)
 	right leaf,
 ) leaf concatenate, leaf is-empty, (lower, leaf) level
 	if down is-empty
-		left ~~ right leaf
+		(left ~~ right,) to
 	else
 		if left is-empty
 			if right is-empty
 				pair0 = down pop-left
 				if pair0.b is-empty
-					pair0.a leaf
+					(pair0.a,) to
 				else
 					pair1 = pair0.b pop-right
-					(pair0.a, pair1.a, pair1.b) branch
+					(pair0.a, pair1.a, pair1.b) to
 			else
 				down-left, down-down = down pop-left
 				if down-down is-empty
-					down-left ~~ right leaf
+					(down-left ~~ right,) to
 				else
-					(down-left, down-down, right) branch
+					(down-left, down-down, right) to
 		elif right is-empty
 			down-down, down-right = down pop-right
 			if down-down is-empty
-				left ~~ down-right leaf
+				(left ~~ down-right,) to
 			else
-				(left, down-down, down-right) branch
+				(left, down-down, down-right) to
 		else
-			(left, down, right) branch
+			(left, down, right) to
 
 -make-l1[t] t list(left t[], down t l2, right t[])
 	l1 t l1 = (left make-level-generic down, right),
@@ -841,37 +842,37 @@ region spec impls (see collection.crow)
 
 -pop-left[t] (t[], t l2)(a t l2)
 	match a node
-	as leaf xs
-		xs[0], (xs[1 .. end].leaf,)
+	as leaf-node xs
+		xs.leaf[0], ((xs.leaf[1 .. end],).to,)
 	as branch b
 		bl t array2d = b left
 		popped = bl[0]
 		forbid b.left.arrays is-empty
 		rest t l2 = if b.left.arrays.size == 1
 			if b.down is-empty
-				b.right.leaf,
+				(b.right,).to,
 			else
 				left, cur = b.down pop-left
-				(left, cur, b.right).branch,
+				(left, cur, b.right).to,
 		else
-			(b.left[1 .. end], b.down, b.right).branch,
+			(b.left[1 .. end], b.down, b.right).to,
 		popped, rest
 
 -pop-right[t] (t l2, t[])(a t l2)
 	match a node
-	as leaf xs
-		(xs[0 .. end - 1].leaf,), xs[end - 1]
+	as leaf-node xs
+		((xs.leaf[0 .. end - 1],).to,), xs.leaf[end - 1]
 	as branch b
 		popped t[] = b.right[end - 1]
 		forbid b.right.arrays is-empty
 		rest t l2 = if b.right.arrays.size == 1
 			if b.down is-empty
-				b.left.leaf,
+				(b.left,).to,
 			else
 				cur, right = b.down pop-right
-				(b.left, cur, right).branch,
+				(b.left, cur, right).to,
 		else
-			(b.left, b.down, b.right[0 .. end - 1]).branch,
+			(b.left, b.down, b.right[0 .. end - 1]).to,
 		rest, popped
 
 -pop-left[t] (t array2d, t l3)(a t l3)
@@ -992,8 +993,8 @@ region test
 	a.nodes dbg
 -dbg-node[leaf, lower] string(a (leaf, lower) node) leaf dbg, lower dbg
 	match a
-	as leaf l
-		l dbg
+	as leaf-node l
+		l.leaf dbg
 	as branch b
 		"({b.left dbg} {b.down dbg} {b.right dbg})"
 -dbg[t] string(a t[]) t show
@@ -1008,8 +1009,8 @@ region test
 
 -check-structure[t] nat64(a t l1)
 	match a node
-	as leaf xs
-		xs size
+	as leaf-node xs
+		xs.leaf size
 	as branch b
 		forbid b.left is-empty
 		forbid b.right is-empty
@@ -1017,8 +1018,8 @@ region test
 
 -check-structure[t] nat64(a t l2)
 	match a node
-	as leaf xs
-		xs check-structure
+	as leaf-node xs
+		xs.leaf check-structure
 	as branch b
 		b.left.check-structure + b.down.nodes.check-structure + b.right.check-structure
 

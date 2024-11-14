@@ -538,6 +538,7 @@ immutable string[] specialSymbols = [
 	"is-interpreted",
 	"is-single-threaded",
 	"is-stack-trace-enabled",
+	"listed-members",
 	"local-pointer",
 	"loop-continue",
 	"mutAllocated",

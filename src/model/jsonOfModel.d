@@ -19,6 +19,7 @@ import model.model :
 	BuiltinFun,
 	BuiltinSpec,
 	BuiltinTernary,
+	BuiltinType,
 	BuiltinUnary,
 	BuiltinUnaryMath,
 	Called,
@@ -78,6 +79,7 @@ import model.model :
 	StructAlias,
 	Signature,
 	SpecInst,
+	StructBody,
 	StructDecl,
 	StructInst,
 	stringOfVisibility,
@@ -92,7 +94,8 @@ import model.model :
 	TypeParamIndex,
 	UnionMember,
 	VarDecl,
-	VariableRef;
+	VariableRef,
+	VariantMemberAndMethodImpls;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mapOp;
 import util.col.arrayBuilder : buildArray, Builder;
@@ -261,7 +264,37 @@ Json jsonOfStructDecl(ref Alloc alloc, in Ctx ctx, ref StructDecl a) =>
 		[
 			optionalField!"purity"(a.purity != Purity.data, () => jsonString(stringOfEnum(a.purity))),
 			optionalFlagField!"forced"(a.purityIsForced),
+			field!"body"(jsonOfStructBody(alloc, ctx, a.body_))
 		]);
+
+Json jsonOfStructBody(ref Alloc alloc, in Ctx ctx, ref StructBody a) =>
+	a.match!Json(
+		(StructBody.Bogus) =>
+			jsonString("bogus"),
+		(BuiltinType x) =>
+			jsonString(stringOfEnum(x)),
+		(ref StructBody.Enum x) =>
+			jsonString("enum"), // TODO: MORE DETAIL ------------------------------------------------------------------------
+		(StructBody.Extern x) =>
+			jsonString("extern"), // TODO: MORE DETAIL ------------------------------------------------------------------------
+		(StructBody.Flags x) =>
+			jsonString("flags"), // TODO: MORE DETAIL ------------------------------------------------------------------------
+		(StructBody.Record x) =>
+			jsonString("record"), // TODO: MORE DETAIL ------------------------------------------------------------------------
+		(ref StructBody.Union x) =>
+			jsonString("union"), // TODO: MORE DETAIL ------------------------------------------------------------------------
+		(StructBody.Variant x) =>
+			jsonObject(alloc, [
+				kindField!"variant",
+				field!"kind"(stringOfEnum(x.kind)),
+				field!"listed-members"(jsonList!VariantMemberAndMethodImpls(alloc, x.listedMembers, (in VariantMemberAndMethodImpls m) =>
+					jsonOfVariantMember(alloc, ctx, m))),
+				field!"methods"(jsonOfSignatures(alloc, ctx, x.methods))]));
+		
+Json jsonOfVariantMember(ref Alloc alloc, in Ctx ctx, in VariantMemberAndMethodImpls x) =>
+	jsonObject(alloc, [
+		field!"member"(jsonOfStructInst(alloc, ctx, *x.member))]);
+		// field!"method-impls"(jsonOfMethodImpls(alloc, ctx, x.methodImpls)) ----------------------------------------------
 
 Json jsonOfVarDecl(ref Alloc alloc, in Ctx ctx, ref VarDecl a) =>
 	jsonObject(alloc,
@@ -278,13 +311,16 @@ Json jsonOfSpecDecl(ref Alloc alloc, in Ctx ctx, ref SpecDecl a) =>
 		commonDeclFields(alloc, ctx, AnyDecl(&a)),
 		[
 			optionalField!("builtin", BuiltinSpec)(a.builtin, (in BuiltinSpec x) => jsonString(stringOfEnum(x))),
-				field!"parents"(jsonList!(SpecInst*)(alloc, a.parents, (in SpecInst* x) =>
-					jsonOfSpecInst(alloc, ctx, *x))),
-				field!"sigs"(jsonList!Signature(alloc, a.sigs, (in Signature x) =>
-					jsonOfSpecDeclSig(alloc, ctx, x)))
+			field!"parents"(jsonList!(SpecInst*)(alloc, a.parents, (in SpecInst* x) =>
+				jsonOfSpecInst(alloc, ctx, *x))),
+			field!"sigs"(jsonOfSignatures(alloc, ctx, a.sigs)),
 		]);
 
-Json jsonOfSpecDeclSig(ref Alloc alloc, in Ctx ctx, in Signature a) =>
+Json jsonOfSignatures(ref Alloc alloc, in Ctx ctx, in Signature[] a) =>
+	jsonList!Signature(alloc, a, (in Signature x) =>
+		jsonOfSignature(alloc, ctx, x));
+
+Json jsonOfSignature(ref Alloc alloc, in Ctx ctx, in Signature a) =>
 	jsonObject(alloc, [
 		docCommentField(alloc, ctx, a.docComment),
 		field!"where"(jsonOfLineAndColumnRange(alloc, ctx.lineAndColumnGetter[a.range.range])),
@@ -613,7 +649,7 @@ Json jsonOfExprKind(ref Alloc alloc, in Ctx ctx, in ExprKind a) =>
 				kindField!"match-variant",
 				field!"matched"(jsonOfExprAndType(alloc, ctx, x.matched)),
 				field!"cases"(jsonOfMatchVariantCases(alloc, ctx, x.cases)),
-				field!"else"(jsonOfExpr(alloc, ctx, x.else_))]),
+				optionalField!("else", Expr)(x.else_, (in Expr y) => jsonOfExpr(alloc, ctx, y))]),
 		(in RecordFieldPointerExpr x) =>
 			jsonObject(alloc, [
 				kindField!"field-pointer",

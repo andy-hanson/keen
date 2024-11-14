@@ -11,7 +11,8 @@ import concretize.concretizeExpr :
 	concretizeFunBody,
 	getConcreteFunFromCalled,
 	ensureVariantMember,
-	withConcretizeExprCtx;
+	withConcretizeExprCtx,
+	writeConcreteType;
 import concretize.generate :
 	fieldIndexFromField,
 	genConstant,
@@ -93,6 +94,7 @@ import model.model :
 	TypeParamIndex,
 	UnionMember,
 	VarDecl,
+	VariantKind,
 	VariantMemberAndMethodImpls,
 	worsePurity;
 import util.alloc.alloc : Alloc;
@@ -117,8 +119,8 @@ import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder;
 import util.col.enumMap : EnumMap, makeEnumMap;
 import util.col.hashTable : getOrAdd, getOrAddAndDidAdd, moveToArray, MutHashTable;
 import util.col.map : mustGet;
-import util.col.mutArr : filterUnordered, mapToMutArr, MutArr, mutArrIsEmpty, push;
-import util.col.mutMap : getOrAddAndDidAdd, mustAdd, MutMap, ValueAndDidAdd;
+import util.col.mutArr : asTemporaryArray, filterUnordered, mapToMutArr, MutArr, mutArrIsEmpty, push;
+import util.col.mutMap : getOrAddAndDidAdd, mustAdd, mustGet, MutMap, ValueAndDidAdd;
 import util.integralValues : IntegralValue;
 import util.late : Late, late, lateGet, lateSet, lazilySet;
 import util.memory : allocate;
@@ -126,7 +128,7 @@ import util.opt : force, has, none, Opt, optOrDefault;
 import util.sourceRange : UriAndRange;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : SymbolSet;
-import util.util : enumConvert, max, roundUp, typeAs;
+import util.util : enumConvert, max, roundUp, todo, typeAs;
 import versionInfo : OS, VersionInfo;
 
 private alias TypeArgsScope = SmallArray!ConcreteType;
@@ -392,7 +394,7 @@ private ConcreteType getConcreteType_forStructInst(
 					return res;
 				});
 		if (res.didAdd) {
-			initializeConcreteStruct(ctx, *inst, res.value, typeArgsScope);
+			initializeConcreteStruct(ctx, *inst, res.value, typeArgsScope, small!ConcreteType(typeArgs));
 			if (isLambdaType(*decl))
 				mustAdd(ctx.alloc, ctx.lambdaStructToImpls, res.value, MutArr!ConcreteLambdaImpl());
 		}
@@ -614,6 +616,8 @@ void initializeConcreteStruct(
 	in StructInst inst,
 	ConcreteStruct* res,
 	in TypeArgsScope typeArgsScope,
+	// TODO: this is confusing. We get 'typeArgs' by applying 'typeArgsScope' to the 'typeArgs' of the struct ..........................
+	in SmallArray!ConcreteType typeArgs,
 ) {
 	inst.decl.body_.match!void(
 		(StructBody.Bogus) {
@@ -666,18 +670,41 @@ void initializeConcreteStruct(
 		(StructBody.Variant x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
 			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Union()), false);
-			// Always defer since we need to wait to know all variant members
+			// Always defer since we need to wait to know all variant members (TODO: we could do it up front for unions ... sometimes ..............)
 			push(ctx.alloc, ctx.deferredTypeSize, res);
 			mustAdd(ctx.alloc, ctx.variantStructToMembers, res, mapToMutArr!(ConcreteVariantMemberAndMethodImpls, VariantMemberAndMethodImpls)(
 				ctx.alloc,
 				x.listedMembers,
-				(ref VariantMemberAndMethodImpls member) @safe {
-					ConcreteType memberType = getConcreteType_forStructInst(ctx, member.member, typeArgsScope);
+				(ref VariantMemberAndMethodImpls member) {
+					import util.writer : debugLogWithWriter, Writer; // -00000000000000000000000000000000000000000000000000000000
+					//debugLogWithWriter((scope ref Writer writer) {
+					//	writer ~= "in init for member ";
+					//	writer ~= member.member.decl.name;
+					//	writer ~= ", typeArgsScope.length is ";
+					//	writer ~= typeArgsScope.length;
+					//	writer ~= ", typeArgs.length is ";
+					//	writer ~= typeArgs.length;
+					//});
+					ConcreteType memberType = getConcreteType_forStructInst(ctx, member.member, typeArgs);
+					//debugLogWithWriter((scope ref Writer writer) {
+					//	writer ~= "in init, memberType is ";
+					//	writeConcreteType(writer, memberType);
+					//});
 					ConcreteVariantMemberAndMethodImpls res = ConcreteVariantMemberAndMethodImpls(memberType);
-					res.methodImpls = variantMethodImplsInner(ctx, member.methodImpls, typeArgsScope);
+					res.methodImpls = variantMethodImplsInner(ctx, member.methodImpls, typeArgs); // TODO: is this the right type args? 
 					return res;
 				}));
+			if (x.kind == VariantKind.union_)
+				// TODO: this still leaves 'variantStructToMembers' around, because we need it for 'ensureVariantMember'. Could that be smarter?
+				// (But we do need to worry about method impls too)
+				finishVariantMembers(ctx, res, mustGet(ctx.variantStructToMembers, res));
 		});
+}
+
+public void finishVariantMembers(ref ConcretizeCtx ctx, ConcreteStruct* variant, ref MutArr!ConcreteVariantMemberAndMethodImpls x) {
+	variant.body_.as!(ConcreteStructBody.Union).members =
+		small!ConcreteType(map(ctx.alloc, asTemporaryArray(x), (ref ConcreteVariantMemberAndMethodImpls x) =>
+			x.memberType));
 }
 
 SmallArray!(Opt!(ConcreteFun*)) variantMethodImplsInner(ref ConcretizeCtx ctx, in SmallArray!(Opt!Called) methodImpls, in TypeArgsScope typeArgs) =>

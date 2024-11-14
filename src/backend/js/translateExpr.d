@@ -957,7 +957,7 @@ ExprResult translateMatchVariant(
 	withTemp(ctx, symbol!"matched", a.matched, pos, (JsName matched, scope ExprPos inner) =>
 		translateMatchVariant(
 			ctx, source, matched, expr, a.cases,
-			translateExprToBlockStatement(ctx, a.else_, type),
+			translateSwitchDefault(ctx, source, a.else_, type, "Invalid union value"),
 			type, inner));
 ExprResult translateMatchVariant(
 	ref TranslateExprCtx ctx,
@@ -983,7 +983,7 @@ immutable struct MatchUnionOrVariantCase {
 	JsExpr isMatch;
 	JsExpr destructured;
 }
-ExprResult translateMatchUnionOrVariant(Case)(
+ExprResult translateMatchUnionOrVariant(Case)( // TODO: there's now only one kind of thing, at least rename, probably inline ----------
 	ref TranslateExprCtx ctx,
 	in Source source,
 	JsName matched,

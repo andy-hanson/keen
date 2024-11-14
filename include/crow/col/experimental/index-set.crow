@@ -5,7 +5,7 @@ import
 	../../bool: &&, bool, false, true
 	../../compare: <, <=, >, >=, equal, min
 	../../exception: unreachable
-	../../misc: ==, subscript, void
+	../../misc: subscript, void
 	../../number: ==, <=>, +, -, *, /, %, max-value, nat64, new
 	../../option: ??, new, option
 	../../pointer: const-pointer
@@ -20,11 +20,13 @@ import
 	-capacity nat64
 	-root node
 
--node union(inner inner-node, leaf leaf-node, empty)
+-node union2(inner-node, leaf-node, empty)
 # TODO: could save space by having separate types for inner node of inner nodes
 # and inner node of leaf-node?
 -inner-node record(a node, b node, c node, d node) by-ref
 -leaf-node record(a nat64, b nat64, c nat64, d nat64) by-ref
+-empty record # TODO: just use 'void'? -------------------------------------------------------------------------------------------
+-== bool(a empty, b empty) bare # TODO: this is silly, the auto fun should treat them as equal without needing help ......................
 
 -subscript nat64(a leaf-node, n nat64)
 	a.values[n]
@@ -55,9 +57,9 @@ import
 	a.capacity == 0
 -is-empty bool(a node)
 	match a
-	as inner _
+	as inner-node _
 		false
-	as leaf _
+	as leaf-node _
 		false
 	as empty
 		true
@@ -67,9 +69,9 @@ import
 	0 size-recur a.root
 -size-recur nat64(acc nat64, a node)
 	match a
-	as inner i
+	as inner-node i
 		acc size-recur i.a size-recur i.b size-recur i.c size-recur i.d
-	as leaf l
+	as leaf-node l
 		acc + l.a.count-ones + l.b.count-ones + l.c.count-ones + l.d.count-ones
 	as empty
 		acc
@@ -84,7 +86,7 @@ import
 -in bool(index nat64, a node, n nat64)
 	assert index < n
 	match a
-	as inner i
+	as inner-node i
 		assert n > bits-in-leaf-node
 		half = n / 2
 		quarter = half / 2
@@ -99,7 +101,7 @@ import
 				index2 in i.c, quarter
 			else
 				index2 - quarter in i.d, quarter
-	as leaf l
+	as leaf-node l
 		assert n == bits-in-leaf-node
 		l[index word-index] has-bit index.bit-index
 	as empty
@@ -110,9 +112,9 @@ import
 
 -quadruple-capacity index-set(a index-set)
 	if a.capacity == 0
-		bits-in-leaf-node, empty-leaf-node.leaf
+		bits-in-leaf-node, empty-leaf-node.to
 	else
-		a.capacity * 4, (a.root, empty, empty, empty).inner
+		a.capacity * 4, (a.root, empty, empty, empty)::inner-node.to
 
 -empty-inner-node inner-node()
 	empty, empty, empty, empty
@@ -127,38 +129,38 @@ import
 -try-add node?(a node, index nat64, n nat64)
 	assert index < n
 	match a
-	as inner i
+	as inner-node i
 		assert n > bits-in-leaf-node
 		half = n / 2
 		quarter = half / 2
 		if index < half
 			if index < quarter
 				if res ?= i.a try-add index, quarter
-					(i with-a res).inner,
+					(i with-a res).to,
 			else
 				if res ?= i.b try-add index - quarter, quarter
-					(i with-b res).inner,
+					(i with-b res).to,
 		else
 			index2 = index - half
 			if index2 < quarter
 				if res ?= i.c try-add index2, quarter
-					(i with-c res).inner,
+					(i with-c res).to,
 			else
 				if res ?= i.d try-add index2 - quarter, quarter
-					(i with-d res).inner,
-	as leaf l
+					(i with-d res).to,
+	as leaf-node l
 		assert n == bits-in-leaf-node
 		word-index = index word-index
 		bit-index = index bit-index
 		word = l[word-index]
 		new-word = word add-bit bit-index
 		unless new-word == word
-			(l update-leaf word-index, new-word).leaf,
+			(l update-leaf word-index, new-word).to,
 	as empty
 		new-node = if n == bits-in-leaf-node
-			empty-leaf-node leaf
+			empty-leaf-node to
 		else
-			empty-inner-node inner
+			empty-inner-node to
 		new-node try-add index, n
 
 + ~~ index-set(a index-set, indices nat64[])
@@ -177,7 +179,7 @@ import
 -try-remove node?(a node, index nat64, n nat64)
 	assert index < n
 	match a
-	as inner i
+	as inner-node i
 		assert n > bits-in-leaf-node
 		half = n / 2
 		quarter = half / 2
@@ -200,8 +202,8 @@ import
 			if new-node is-all-empty
 				empty,
 			else
-				new-node.inner,
-	as leaf l
+				new-node.to,
+	as leaf-node l
 		assert n == bits-in-leaf-node
 		word-index = index word-index
 		bit-index = index bit-index
@@ -211,21 +213,21 @@ import
 			if new-word == 0
 				empty,
 			else
-				(l update-leaf word-index, new-word).leaf,
+				(l update-leaf word-index, new-word).to,
 	as empty
 		()
 -simplify-after-remove-or-filter index-set(node node, capacity nat64)
 	match node
-	as inner i
+	as inner-node i
 		if i.b is-empty && i.c is-empty && i.d is-empty
 			forbid i.a is-empty
 			i.a simplify-after-remove-or-filter capacity / 4
 		else
-			capacity, i.inner
-	as leaf l
+			capacity, i.to
+	as leaf-node l
 		assert capacity == bits-in-leaf-node
 		forbid l.a == 0 && l.b == 0 && l.c == 0 && l.d == 0
-		capacity, l.leaf
+		capacity, l.to
 	as empty
 		0, empty
 
@@ -282,7 +284,7 @@ intersect index-set(a index-set, b index-set)
 -count-range nat64(a node, n nat64, low nat64, len nat64)
 	if low <= n
 		match a
-		as inner i
+		as inner-node i
 			assert n > bits-in-leaf-node
 			half = n / 2
 			quarter = half / 2
@@ -294,7 +296,7 @@ intersect index-set(a index-set, b index-set)
 			cc = i.c count-range quarter, (low wrap-sub half), len
 			cd = i.d count-range quarter, (low wrap-sub three-quarters), len
 			ca + cb + cc + cd
-		as leaf l
+		as leaf-node l
 			assert n == bits-in-leaf-node
 			high = low + len min (bits-in-leaf-node - 1)
 			low-word-index = low word-index
@@ -339,7 +341,7 @@ intersect index-set(a index-set, b index-set)
 		a
 -filter-less-recur node(a node, n nat64, limit nat64)
 	match a
-	as inner i
+	as inner-node i
 		assert n > bits-in-leaf-node
 		half = n / 2
 		quarter = half / 2
@@ -351,14 +353,14 @@ intersect index-set(a index-set, b index-set)
 		if new-node is-all-empty
 			empty
 		else
-			new-node inner
-	as leaf l
+			new-node to
+	as leaf-node l
 		assert n == bits-in-leaf-node
 		new-a = l.a filter-less-word limit, 0
 		new-b = l.b filter-less-word limit, 0x40
 		new-c = l.c filter-less-word limit, 0x80
 		new-d = l.d filter-less-word limit, 0xc0
-		(new-a, new-b, new-c, new-d) leaf
+		(new-a, new-b, new-c, new-d)::leaf-node to
 	as empty
 		empty
 -filter-less-recur node(a node, n nat64, limit nat64, offset nat64)
@@ -391,7 +393,7 @@ region spec impls (see collection.crow)
 | {offset}: how much to add to indices in this node
 -iterate-recur bool(node node, offset nat64, n nat64, f bool mut(elem nat64))
 	match node
-	as inner i
+	as inner-node i
 		half = n / 2
 		quarter = half / 2
 		three-quarters = half + quarter
@@ -403,7 +405,7 @@ region spec impls (see collection.crow)
 			true
 		else
 			i.d iterate-recur offset + three-quarters, quarter, f
-	as leaf l
+	as leaf-node l
 		word-index mut nat64 = 0
 		l.values iterate value =>
 			bit-index-offset = offset + word-index * 64
@@ -428,9 +430,9 @@ region test
 	a.root dbg
 -dbg string(a node)
 	match a
-	as inner i
+	as inner-node i
 		"({i.a dbg} {i.b dbg} {i.c dbg} {i.d dbg})"
-	as leaf l
+	as leaf-node l
 		"[{l.a to-hex} {l.b to-hex} {l.c to-hex} {l.d to-hex}]"
 	as empty
 		"_"

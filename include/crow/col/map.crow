@@ -31,10 +31,11 @@ import
 		if bv ?= b[k]
 			bv == v
 
--node[k, v] union(inner-node (k, v) node[], leaf-node (k, v)[])
+-node[k, v] union2((k, v) inner-node, (k, v)[])
+-inner-node[k, v] record(nodes (k, v) node[])
 
 -empty-leaf-node[k, v] (k, v) node() bare
-	() leaf-node
+	()::(k, v)[] to
 
 -low-bits nat64(a nat64)
 	a & 0b111
@@ -57,7 +58,7 @@ empty-map[k, v] v[k]() bare
 | Later pairs overwrite earlier pairs with the same key.
 +to[k, v] v[k](a (k, v)[]) k key
 	if a.size <= 4 && a !has-duplicate-keys
-		a.leaf-node,
+		a.to,
 	else
 		res mut v[k] = empty-leaf-node::((k, v) node),
 		for x : a
@@ -89,8 +90,8 @@ empty-map[k, v] v[k]() bare
 	match a
 	as inner-node _
 		false
-	as leaf-node l
-		l is-empty
+	as array x
+		x is-empty
 
 | Number of pairs.
 +size[k, v] nat64(a v[k]) k key
@@ -99,10 +100,10 @@ empty-map[k, v] v[k]() bare
 	match a
 	as inner-node i
 		acc mut nat64 = 0
-		for child : i
+		for child : i nodes
 			acc +:= child size
 		acc
-	as leaf-node l
+	as array l
 		l size
 
 | Gets the value associated with a key.
@@ -114,12 +115,12 @@ empty-map[k, v] v[k]() bare
 		match cur
 		as inner-node i
 			which = remaining-hash low-bits
-			guard which < i.size : break
-			cur := i[which]
+			guard which < i.nodes.size : break
+			cur := i.nodes[which]
 			remaining-hash >>:= inner-node-n-bits
 			continue
-		as leaf-node l
-			break for k, v : l
+		as array xs
+			break for k, v : xs
 				if k == key
 					break v
 
@@ -153,7 +154,9 @@ empty-map[k, v] v[k]() bare
 	for _, v : a
 		v
 
-~got-or-added[k, v] union(got v, added (v[k], v))
+~got-or-added[k, v] union2(v got, (k, v) added)
+~got[t] record(value t)
+~added[k, v] record(map v[k], value v)
 
 | If {key} is already in {a}, returns {got} with the old value.
 | Else, adds a new pair `{key}, {get-value}[]` and return {added}.
@@ -164,9 +167,9 @@ empty-map[k, v] v[k]() bare
 		else
 			no-change
 	if v ?= res old-value
-		v got
+		(v,)::(v got) to
 	else
-		((res.new-node!,), res.new-value!) added
+		((res.new-node!,), res.new-value!)::((k, v) added) to
 
 | Removes {key} and its associated value.
 | If `{key} !in {a}`, returns {a} unmodified.
@@ -191,7 +194,10 @@ empty-map[k, v] v[k]() bare
 	old-value v?
 	new-value v?
 
--get-or-update-action[v] union(no-change, remove, insert v)
+-get-or-update-action[v] union2(no-change, remove, v insert)
+-no-change record
+-remove record
+-insert[t] record(value t)
 -get-or-update[k, v] (k, v) get-or-update-result(
 	a v[k],
 	key k,
@@ -201,8 +207,8 @@ empty-map[k, v] v[k]() bare
 	match a root
 	as inner-node _
 		a.root get-or-update-recur key, hash, 0, f
-	as leaf-node l
-		l get-or-update-leaf key, hash, 0, f
+	as array x
+		x get-or-update-leaf key, hash, 0, f
 
 -get-or-update-recur[k, v] (k, v) get-or-update-result(
 	a (k, v) node,
@@ -214,11 +220,11 @@ empty-map[k, v] v[k]() bare
 	match a
 	as inner-node i
 		which = remaining-hash low-bits
-		if which < i.size
+		if which < i.nodes.size
 			next-hash = remaining-hash >> 3
-			child-res = i[which] get-or-update-recur key, next-hash, hash-shift + 3, f
+			child-res = i.nodes[which] get-or-update-recur key, next-hash, hash-shift + 3, f
 			if node ?= child-res new-node
-				new-inner = i update-child which, node
+				new-inner = i.nodes update-child which, node
 				(new-inner,), child-res.old-value, child-res.new-value
 			else
 				child-res
@@ -229,11 +235,11 @@ empty-map[k, v] v[k]() bare
 			as remove
 				(), (), ()
 			as insert ins
-				new-leaf = ((key, ins),) leaf-node
-				new-node = i update-at-with-default which, new-leaf, empty-leaf-node inner-node
-				(new-node,), (), (ins,)
-	as leaf-node l
-		l get-or-update-leaf key, remaining-hash, hash-shift, f
+				new-leaf (k, v) node = ((key, ins.value),) to
+				new-node = i.nodes update-at-with-default which, new-leaf, empty-leaf-node inner-node
+				(new-node,), (), (ins.value,)
+	as array x
+		x get-or-update-leaf key, remaining-hash, hash-shift, f
 
 | Unlike for {update-at}, {index} doesn't need to be a valid index.
 | If `{index} > {a}.{size}`, entries between the and of {a} and the new entries will be {default}.
@@ -272,8 +278,8 @@ empty-map[k, v] v[k]() bare
 		total-size := match child-index == which ? new-child : child
 		as inner-node _
 			leaf-max-size + 1
-		as leaf-node l
-			total-size + l.size
+		as array x
+			total-size + x.size
 	if total-size <= leaf-max-size
 		# TODO: if only one non-empty leaf, don't copy..
 		pairs (k, v)[] = with out : total-size build
@@ -281,10 +287,10 @@ empty-map[k, v] v[k]() bare
 				match child-index == which ? new-child : child
 				as inner-node _
 					unreachable
-				as leaf-node l
-					out ~~= l
+				as array x
+					out ~~= x
 		assert pairs.size == total-size
-		pairs.leaf-node,
+		pairs.to,
 
 -find-only-non-empty-child[k, v] (k, v) node?(children (k, v) node[])
 	first-non-empty-index = children find-index! x => x !node-is-empty
@@ -304,10 +310,10 @@ empty-map[k, v] v[k]() bare
 		as no-change
 			(), (old-value,), ()
 		as remove
-			((a remove-at index leaf-node),), (old-value,), ()
+			((a remove-at index to),), (old-value,), ()
 		as insert ins
-			new-node (k, v) node = a update-at index, (key, ins) leaf-node
-			(new-node,), (old-value,), (ins,)
+			new-node (k, v) node = a update-at index, (key, ins.value) to
+			(new-node,), (old-value,), (ins.value,)
 	else
 		match f[]
 		as no-change
@@ -322,10 +328,10 @@ empty-map[k, v] v[k]() bare
 					todo
 				# If we get here, it's guaranteed that we don't need to recursively create leaves.
 				# Just group by hash.
-				a new-inner-node key, ins, remaining-hash, hash-shift
+				a new-inner-node key, ins.value, remaining-hash, hash-shift
 			else
-				a ~ (key, ins) leaf-node
-			(new-node,), (), (ins,)
+				a ~ (key, ins.value) to
+			(new-node,), (), (ins.value,)
 
 -new-inner-node[k, v] (k, v) node(a (k, v)[], key k, value v, hash nat64, hash-shift nat64) k key
 	key-hash = hash low-bits
@@ -335,14 +341,14 @@ empty-map[k, v] v[k]() bare
 	trusted
 		res (k, v) node mut-slice = max-hash + 1 n-of empty-leaf-node
 		# TODO: avoid allocating the same leaf twice...
-		res[key-hash] := ((key, value),).leaf-node
+		res[key-hash] := ((key, value),) to
 		for k, v : a
 			x = k.hash >> hash-shift low-bits
 			res[x] := match res[x]
 			as inner-node _
 				unreachable
-			as leaf-node l
-				l ~ (k, v) leaf-node
+			as array xs
+				xs ~ (k, v) to
 		res.cast-immutable inner-node
 
 region spec impls (see collection.crow)
@@ -352,10 +358,10 @@ region spec impls (see collection.crow)
 -iterate-recur[k, v] bool(a (k, v) node, f bool mut(key k, value v))
 	match a
 	as inner-node i
-		i iterate child =>
+		i.nodes iterate child =>
 			child iterate-recur f
-	as leaf-node l
-		l iterate f
+	as array x
+		x iterate f
 
 +map-builder[k, v] record mut
 	-inner (k, v) array-builder
@@ -368,12 +374,12 @@ dbg[k, v] string(a v[k]) k show, v show
 	a.root dbg ""
 -dbg[k, v] string(a (k, v) node, path string) k show, v show
 	match a
-	as inner-node node
-		parts string[][] = for index, child : node with-index
+	as inner-node i
+		parts string[][] = for index, child : i.nodes with-index
 			unless child node-is-empty
 				(child dbg "{path}{index}"),
 		" " join parts.flatten
-	as leaf-node l
-		parts string[] = for k, v : l
+	as array x
+		parts string[] = for k, v : x
 			"{k} -> {v}"
 		"{path}[{", " join parts}]"

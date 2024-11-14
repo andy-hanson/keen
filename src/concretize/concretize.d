@@ -13,6 +13,7 @@ import concretize.concretizeCtx :
 	deferredFillRecordAndUnionBodies,
 	exceptionType,
 	finishConcreteVars,
+	finishVariantMembers,
 	getNonTemplateConcreteFun,
 	getVar,
 	integralTypes,
@@ -159,10 +160,10 @@ void finishLambdas(ref ConcretizeCtx ctx) {
 }
 
 void finishVariants(ref ConcretizeCtx ctx) {
-	foreach (ConcreteStruct* variant, MutArr!ConcreteVariantMemberAndMethodImpls x; ctx.variantStructToMembers)
-		variant.body_.as!(ConcreteStructBody.Union).members =
-			small!ConcreteType(map(ctx.alloc, asTemporaryArray(x), (ref ConcreteVariantMemberAndMethodImpls x) =>
-				x.memberType));
+	foreach (ConcreteStruct* variant, MutArr!ConcreteVariantMemberAndMethodImpls x; ctx.variantStructToMembers) {
+		if (!variant.body_.as!(ConcreteStructBody.Union).hasMembers) // It will already be set for a 'union' (TODO: should it even be in 'variantStructToMembers' then?)
+			finishVariantMembers(ctx, variant, x);
+	}
 
 	foreach (ConcreteFun* fun; ctx.deferredVariantMethods) {
 		ConcreteStruct* variant = mustBeByVal(fun.params[0].type);
