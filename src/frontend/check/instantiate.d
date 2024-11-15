@@ -195,7 +195,7 @@ StructInst* makeOptionType(InstantiateCtx ctx, ref CommonTypes commonTypes, Type
 	instantiateStructNeverDelay(ctx, commonTypes.option, [innerType]);
 
 Type makeOptionIfNotAlready(InstantiateCtx ctx, ref CommonTypes commonTypes, Type a) =>
-	isOptionType(commonTypes, a) ? a : Type(makeOptionType(ctx, commonTypes, a));
+	isOptionType(a) ? a : Type(makeOptionType(ctx, commonTypes, a));
 
 StructInst* makeConstPointerType(InstantiateCtx ctx, ref CommonTypes commonTypes, Type pointeeType) =>
 	instantiateStructNeverDelay(ctx, commonTypes.pointerConst, [pointeeType]);

@@ -20,7 +20,6 @@ import model.model :
 	CalledSpecSig,
 	CallExpr,
 	CallOptionExpr,
-	CommonTypes,
 	Destructure,
 	DocCommentReference,
 	EnumOrFlagsMember,
@@ -72,7 +71,7 @@ immutable struct Target {
 		VarDecl*);
 }
 
-Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
+Opt!Target targetForPosition(Position pos) =>
 	pos.kind.matchWithPointers!(Opt!Target)(
 		(PositionKind.DocRef docRef) =>
 			docRef.ref_.matchWithPointers!(Opt!Target)(
@@ -105,7 +104,7 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 		(EnumOrFlagsMember* x) =>
 			some(Target(x)),
 		(ExpressionPosition x) =>
-			exprTarget(commonTypes, x),
+			exprTarget(x),
 		(FunDecl* x) =>
 			some(Target(x)),
 		(PositionKind.ImportedModule x) =>
@@ -163,21 +162,21 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 
 private:
 
-Opt!Target exprTarget(in CommonTypes commonTypes, ExpressionPosition a) =>
+Opt!Target exprTarget(ExpressionPosition a) =>
 	a.kind.match!(Opt!Target)(
 		(BogusCallExpr x) =>
 			optIf(x.candidates.length == 1, () =>
-				calledDeclTarget(commonTypes, only(x.candidates))),
+				calledDeclTarget(only(x.candidates))),
 		(CallExpr x) =>
-			calledTarget(commonTypes, x.called),
+			calledTarget(x.called),
 		(CallOptionExpr x) =>
-			calledTarget(commonTypes, x.called),
+			calledTarget(x.called),
 		(ExprKeyword x) =>
 			none!Target,
 		(ExternExpr _) =>
 			none!Target,
 		(FunPointerExpr x) =>
-			calledTarget(commonTypes, x.called),
+			calledTarget(x.called),
 		(ExpressionPositionKind.Literal) =>
 			none!Target,
 		(ExpressionPositionKind.LocalRef x) =>
@@ -185,23 +184,23 @@ Opt!Target exprTarget(in CommonTypes commonTypes, ExpressionPosition a) =>
 		(ExpressionPositionKind.LoopKeyword x) =>
 			some(Target(Target.Loop(a.container, x.loop))));
 
-Target calledDeclTarget(in CommonTypes commonTypes, ref CalledDecl a) =>
+Target calledDeclTarget(ref CalledDecl a) =>
 	a.matchWithPointers!Target(
 		(FunDecl* x) =>
-			funDeclTarget(commonTypes, x),
+			funDeclTarget(x),
 		(CalledSpecSig x) =>
 			Target(x.nonInstantiatedSig));
 
-Opt!Target calledTarget(in CommonTypes commonTypes, ref Called a) =>
+Opt!Target calledTarget(ref Called a) =>
 	a.match!(Opt!Target)(
 		(ref Called.Bogus) =>
 			none!Target,
 		(ref FunInst funInst) =>
-			some(funDeclTarget(commonTypes, funInst.decl)),
+			some(funDeclTarget(funInst.decl)),
 		(CalledSpecSig x) =>
 			some(Target(x.nonInstantiatedSig)));
 
-Target funDeclTarget(in CommonTypes commonTypes, FunDecl* a) =>
+Target funDeclTarget(FunDecl* a) =>
 	a.body_.match!Target(
 		(FunBody.Bogus) =>
 			Target(a),
@@ -241,7 +240,7 @@ Target funDeclTarget(in CommonTypes commonTypes, FunDecl* a) =>
 		(FunBody.VarGet x) =>
 			Target(x.var),
 		(FunBody.VariantMemberGet) =>
-			Target(mustUnwrapOptionType(commonTypes, a.returnType).as!(StructInst*).decl),
+			Target(mustUnwrapOptionType(a.returnType).as!(StructInst*).decl),
 		(FunBody.VariantMethod x) =>
 			Target(x.method),
 		(FunBody.VarSet x) =>

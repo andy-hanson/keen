@@ -15,7 +15,7 @@ import util.uri : Uri;
 
 UriAndLineAndCharacterRange[] getImplementationForPosition(ref Alloc alloc, in Program program, in Position pos) =>
 	buildArray!UriAndLineAndCharacterRange(alloc, (scope ref Builder!UriAndLineAndCharacterRange res) {
-		Opt!Target optTarget = targetForPosition(program.commonTypes, pos);
+		Opt!Target optTarget = targetForPosition(pos);
 		if (has(optTarget))
 			implementationForTarget(program, pos.module_.uri, force(optTarget), (in UriAndRange x) {
 				res ~= program.lineAndCharacterGetters[x];

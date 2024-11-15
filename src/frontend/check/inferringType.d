@@ -659,6 +659,7 @@ immutable struct FunType {
 Opt!FunType getFunType(in CommonTypes commonTypes, Type a) {
 	if (a.isA!(StructInst*)) {
 		StructInst* structInst = a.as!(StructInst*);
+		// TODO: functions could be a BuiltinType too so we wouldn't need commonTypes here? _-----------------------------------------------
 		Opt!FunKind kind = enumMapFindKey!(FunKind, StructDecl*)(commonTypes.funStructs, (in StructDecl* x) =>
 			x == structInst.decl);
 		return has(kind)

@@ -69,6 +69,7 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
+	MatchVariantCase,
 	MatchVariantExpr,
 	Module,
 	moduleAtUri,
@@ -565,7 +566,7 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 				// Needs the unwrapped option type for 'instanceof',
 				// and the option type to return 'option.some' or 'option.none'
 				usedReturnType();
-				trackAllUsedInType(res, from, mustUnwrapOptionType(res.commonTypes, a.returnType));
+				trackAllUsedInType(res, from, mustUnwrapOptionType(a.returnType));
 			},
 			(FunBody.VariantMethod) {},
 			(FunBody.VarSet x) {
@@ -729,10 +730,10 @@ void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, ExprRef a)
 	}
 }
 
-void trackAllUsedInMatchVariantCases(ref AllUsedBuilder res, Uri from, in MatchVariantExpr.Case[] cases) {
-	foreach (MatchVariantExpr.Case case_; cases)
+void trackAllUsedInMatchVariantCases(ref AllUsedBuilder res, Uri from, in MatchVariantCase[] cases) {
+	foreach (MatchVariantCase case_; cases)
 		trackAllUsedInMatchVariantCase(res, from, case_);
 }
-void trackAllUsedInMatchVariantCase(ref AllUsedBuilder res, Uri from, in MatchVariantExpr.Case case_) {
+void trackAllUsedInMatchVariantCase(ref AllUsedBuilder res, Uri from, in MatchVariantCase case_) {
 	trackAllUsedInStruct(res, from, case_.member.decl);
 }

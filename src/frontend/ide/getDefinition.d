@@ -35,7 +35,7 @@ import util.uri : Uri;
 import util.util : castNonScope_ref;
 
 UriAndLineAndCharacterRange[] getDefinitionForPosition(ref Alloc alloc, in Program program, in Position pos) {
-	Opt!Target target = targetForPosition(program.commonTypes, pos);
+	Opt!Target target = targetForPosition(pos);
 	return has(target)
 		? buildArray!UriAndLineAndCharacterRange(alloc, (scope ref Builder!UriAndLineAndCharacterRange res) {
 			definitionForTarget(pos.module_.uri, force(target), (in UriAndRange x) {
@@ -47,7 +47,7 @@ UriAndLineAndCharacterRange[] getDefinitionForPosition(ref Alloc alloc, in Progr
 
 UriAndLineAndCharacterRange[] getTypeDefinitionForPosition(ref Alloc alloc, in Program program, in Position pos) =>
 	buildArray!UriAndLineAndCharacterRange(alloc, (scope ref Builder!UriAndLineAndCharacterRange res) {
-		Opt!Target target = targetForPosition(program.commonTypes, pos);
+		Opt!Target target = targetForPosition(pos);
 		if (has(target))
 			typeDefinitionForTarget(force(target), (in UriAndRange x) {
 				res ~= program.lineAndCharacterGetters[x];

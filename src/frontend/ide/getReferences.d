@@ -101,6 +101,7 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
+	MatchVariantCase,
 	MatchVariantExpr,
 	Module,
 	moduleAtUri,
@@ -143,7 +144,7 @@ import util.symbol : Symbol;
 import util.uri : Uri;
 
 Opt!DocumentHighlightResult getDocumentHighlightsForPosition(ref Alloc alloc, in Program program, in Position pos) {
-	Opt!Target target = targetForPosition(program.commonTypes, pos);
+	Opt!Target target = targetForPosition(pos);
 	return optIf(has(target), () =>
 		DocumentHighlightResult(
 			pos.module_.uri,
@@ -163,7 +164,7 @@ Opt!DocumentHighlightResult getDocumentHighlightsForPosition(ref Alloc alloc, in
 }
 
 UriAndLineAndCharacterRange[] getReferencesForPosition(ref Alloc alloc, in Program program, in Position pos) {
-	Opt!Target target = targetForPosition(program.commonTypes, pos);
+	Opt!Target target = targetForPosition(pos);
 	return has(target)
 		? buildSortedArray!(UriAndLineAndCharacterRange, compareUriAndLineAndCharacterRangeNaturally)(
 			alloc, (scope ref Builder!UriAndLineAndCharacterRange res) {
@@ -584,18 +585,17 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 		(in MatchIntegralExpr _) {},
 		(in MatchStringLikeExpr _) {},
 		(in MatchVariantExpr x) {
-			eachTypeInMatchUnionOrVariant!(MatchVariantExpr.Case)(x.cases, astKind.as!MatchAst.cases, cb);
+			eachTypeInMatchUnionOrVariant!MatchVariantCase(x.cases, astKind.as!MatchAst.cases, cb);
 		},
 		(in RecordFieldPointerExpr _) {},
 		(in SeqExpr _) {},
 		(in ThrowExpr _) {},
 		(in TrustedExpr _) {},
 		(in TryExpr x) {
-			eachTypeInMatchUnionOrVariant!(MatchVariantExpr.Case)(x.catches, astKind.as!(TryAst).catches, cb);
+			eachTypeInMatchUnionOrVariant!MatchVariantCase(x.catches, astKind.as!(TryAst).catches, cb);
 		},
 		(in TryLetExpr x) {
-			eachTypeInMatchUnionOrVariantCase!(MatchVariantExpr.Case)(
-				x.catch_, astKind.as!(TryLetAst*).catchMember, cb);
+			eachTypeInMatchUnionOrVariantCase!MatchVariantCase(x.catch_, astKind.as!(TryLetAst*).catchMember, cb);
 		},
 		(in TypedExpr x) =>
 			cb(a.type, astKind.as!(TypedAst*).type));

@@ -131,7 +131,7 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 			assert(params.length == 1);
 			return symbolToOptEnumOrFlags(
 				ctx, source, fun.returnType,
-				mustBeEnumOrFlags(*mustUnwrapOptionType(ctx.commonTypes, fun.returnType).as!(StructInst*).decl),
+				mustBeEnumOrFlags(*mustUnwrapOptionType(fun.returnType).as!(StructInst*).decl),
 				param(0));
 		case AutoFun.Kind.toJson:
 			assert(params.length == 1);

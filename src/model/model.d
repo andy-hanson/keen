@@ -228,16 +228,15 @@ Type arrayElementType(Type type) {
 	return only(type.as!(StructInst*).typeArgs);
 }
 
-Type mustUnwrapOptionType(in CommonTypes commonTypes, Type a) {
-	assert(isOptionType(commonTypes, a));
+Type mustUnwrapOptionType(Type a) {
+	assert(isOptionType(a));
 	return only(a.as!(StructInst*).typeArgs);
 }
 
-// TODO: this no longer needs CommonTypes ------------------------------------------------------------------------------------------
-bool isOptionType(in CommonTypes commonTypes, in Type a) =>
-	a.isA!(StructInst*) && isOptionType(commonTypes, a.as!(StructInst*).decl);
-bool isOptionType(in CommonTypes commonTypes, in StructDecl* a) =>
-	a == commonTypes.option;
+bool isOptionType(in Type a) =>
+	isBuiltinType(a, BuiltinType.option);
+bool isOptionType(in StructDecl* a) =>
+	isBuiltinType(*a, BuiltinType.option);
 
 bool isFunPointer(in Type a) =>
 	isBuiltinType(a, BuiltinType.funPointer);
@@ -814,7 +813,7 @@ EnumOrFlagsMember[] mustBeEnumOrFlags(in StructDecl a) =>
 immutable struct VariantMemberAndMethodImpls {
 	@safe @nogc pure nothrow:
 
-	TypeAst* ast; // TODO: I possibly don't need this ..............................................................................................
+	TypeAst* ast; // TODO: I possibly don't need this  ..............................................................................................
 	StructInst* member;
 	private Late!(SmallArray!(Opt!Called)) methodImpls_;
 
@@ -846,8 +845,6 @@ immutable struct VariantAndMethodImpls {
 		variantBody.kind;
 	SmallArray!Signature variantDeclMethods() =>
 		variantBody.methods;
-	SmallArray!Type variantInstantiatedMethodTypes() => // used? -------------------------------------------------------------
-		variant.instantiatedTypes;
 }
 
 immutable struct StructDeclSource {
@@ -3311,24 +3308,22 @@ immutable struct MatchStringLikeExpr {
 immutable struct MatchVariantExpr {
 	@safe @nogc pure nothrow:
 
-	immutable struct Case {
-		@safe @nogc pure nothrow:
-
-		Destructure destructure;
-		Expr then;
-
-		StructInst* member() return scope =>
-			destructure.type.as!(StructInst*);
-	}
-
 	ExprAndType matched;
-	SmallArray!Case cases;
-	Opt!Expr else_; // TODO: it would probably save space to make this a pointer (as well as 'matched', then make MatchVariantExpr by value) ---------------------------------------------------------------
+	SmallArray!MatchVariantCase cases;
+	Opt!(Expr*) else_;
 
 	StructInst* variant() return scope =>
 		matched.type.as!(StructInst*);
 	StructBody.Variant variantBody() return scope =>
 		variant.decl.body_.as!(StructBody.Variant);
+}
+immutable struct MatchVariantCase {
+	@safe @nogc pure nothrow:
+	Destructure destructure;
+	Expr then;
+
+	StructInst* member() return scope =>
+		destructure.type.as!(StructInst*);
 }
 
 immutable struct RecordFieldPointerExpr {
@@ -3361,13 +3356,13 @@ immutable struct TrustedExpr {
 
 immutable struct TryExpr {
 	Expr tried;
-	SmallArray!(MatchVariantExpr.Case) catches;
+	SmallArray!MatchVariantCase catches;
 }
 
 immutable struct TryLetExpr {
 	Destructure destructure;
 	Expr value;
-	MatchVariantExpr.Case catch_;
+	MatchVariantCase catch_;
 	Expr then;
 }
 
@@ -3468,8 +3463,8 @@ Opt!T findDirectChildExpr(T)(
 				ExprRef(x, boolType),
 			(Condition.UnpackOption* x) =>
 				toRef(&x.option));
-	Opt!T directChildInMatchVariantCases(MatchVariantExpr.Case[] cases) =>
-		firstPointer!(T, MatchVariantExpr.Case)(cases, (MatchVariantExpr.Case* x) =>
+	Opt!T directChildInMatchVariantCases(MatchVariantCase[] cases) =>
+		firstPointer!(T, MatchVariantCase)(cases, (MatchVariantCase* x) =>
 			cb(sameType(&x.then)));
 
 	return a.expr.kind.matchWithPointers!(Opt!T)(
@@ -3569,7 +3564,7 @@ Opt!T findDirectChildExpr(T)(
 			optOr!T(
 				cb(toRef(&x.matched)),
 				() => directChildInMatchVariantCases(x.cases),
-				() => has(x.else_) ? cb(sameType(&force(x.else_))) : none!T),
+				() => has(x.else_) ? cb(sameType(force(x.else_))) : none!T),
 		(RecordFieldPointerExpr* x) =>
 			cb(toRef(&x.target)),
 		(SeqExpr* x) =>

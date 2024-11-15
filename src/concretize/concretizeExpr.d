@@ -127,6 +127,7 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
+	MatchVariantCase,
 	MatchVariantExpr,
 	Purity,
 	RecordFieldPointerExpr,
@@ -1077,7 +1078,7 @@ ConcreteExpr concretizeMatchVariant(
 	if (isEmpty(a.cases)) return concretizeBogus(ctx, type, range);
 	ConcreteExpr matched = concretizeExpr(ctx, locals, a.matched);
 	ValuesAndCases vc = concretizeMatchVariantCases(ctx, type, range, locals, matched.type, a.cases);
-	Opt!(ConcreteExpr*) else_ = optIf(has(a.else_), () => allocate(ctx.alloc, concretizeExpr(ctx, type, locals, force(a.else_))));
+	Opt!(ConcreteExpr*) else_ = optIf(has(a.else_), () => allocate(ctx.alloc, concretizeExpr(ctx, type, locals, *force(a.else_))));
 	return ConcreteExpr(type, range, ConcreteExprKind(
 		allocate(ctx.alloc, ConcreteExprKind.MatchUnion(matched, vc.values, vc.cases, else_))));
 }
@@ -1092,12 +1093,12 @@ ValuesAndCases concretizeMatchVariantCases(
 	in UriAndRange range,
 	in Locals locals,
 	ConcreteType variantType,
-	in MatchVariantExpr.Case[] cases,
+	in MatchVariantCase[] cases,
 ) {
-	IntegralValues values = mapToIntegralValues!(MatchVariantExpr.Case)(cases, (ref MatchVariantExpr.Case x) =>
+	IntegralValues values = mapToIntegralValues!MatchVariantCase(cases, (ref MatchVariantCase x) =>
 		memberIndexForMatchVariantCase(ctx, variantType, x));
 	SmallArray!(ConcreteExprKind.MatchUnion.Case) concreteCases = map(ctx.alloc, values, (ref IntegralValue value) {
-		MatchVariantExpr.Case* case_ = mustFindPointer!(MatchVariantExpr.Case)(cases, (ref MatchVariantExpr.Case x) =>
+		MatchVariantCase* case_ = mustFindPointer!MatchVariantCase(cases, (ref MatchVariantCase x) =>
 			memberIndexForMatchVariantCase(ctx, variantType, x) == value);
 		return toMatchUnionCase(concretizeExprWithDestructure(ctx, type, range, locals, case_.destructure, case_.then));
 	});
@@ -1110,7 +1111,7 @@ ConcreteExprKind.MatchUnion.Case toMatchUnionCase(RootLocalAndExpr x) =>
 IntegralValue memberIndexForMatchVariantCase(
 	ref ConcretizeExprCtx ctx,
 	ConcreteType variantType,
-	ref MatchVariantExpr.Case a,
+	ref MatchVariantCase a,
 ) =>
 	IntegralValue(ensureVariantMember(ctx.concretizeCtx, variantType, getConcreteType(ctx, a.destructure.type)));
 

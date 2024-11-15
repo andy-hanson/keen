@@ -14,7 +14,6 @@ import model.model :
 	AutoFun,
 	BuiltinType,
 	Called,
-	CommonTypes,
 	Destructure,
 	FunBody,
 	FunDecl,
@@ -40,13 +39,7 @@ import util.opt : force, has, none, Opt, optOrDefault, some;
 import util.symbol : symbol;
 import util.util : typeAs;
 
-FunBody checkAutoFun(
-	ref CheckCtx ctx,
-	in CommonTypes commonTypes,
-	in SpecsMap specsMap,
-	in FunsMap funsMap,
-	FunDecl* fun,
-) {
+FunBody checkAutoFun(ref CheckCtx ctx, in SpecsMap specsMap, in FunsMap funsMap, FunDecl* fun) {
 	FunBody wrong(Diag.AutoFunError diag) {
 		addDiag(ctx, fun.nameRange.range, Diag(diag));
 		return FunBody.bogus;
@@ -82,7 +75,7 @@ FunBody checkAutoFun(
 			if (has(optParamType)) {
 				Type paramType = force(optParamType);
 				Opt!IntegralType returnedIntegral = asIntegralType(fun.returnType);
-				if (isEnumOrFlagsOption(commonTypes, fun.returnType) && isSymbol(paramType)) {
+				if (isEnumOrFlagsOption(fun.returnType) && isSymbol(paramType)) {
 					return FunBody(AutoFun(AutoFun.Kind.symbolToOptEnumOrFlags, []));
 				} else if (has(returnedIntegral) && isEnumOrFlags(paramType)) {
 					return force(returnedIntegral) != asEnumOrFlags(paramType).storage
@@ -92,7 +85,7 @@ FunBody checkAutoFun(
 							expectedStorageType: force(returnedIntegral),
 						)))
 						: FunBody(AutoFun(AutoFun.Kind.enumOrFlagsToIntegral, []));
-				} else if (fun.returnType == Type(commonTypes.symbol) && isEnum(paramType))
+				} else if (isSymbol(fun.returnType) && isEnum(paramType))
 					return FunBody(AutoFun(AutoFun.Kind.enumToSymbol, []));
 				else if (isSymbolArray(fun.returnType) && isFlags(paramType))
 					return checkAutoFunNotBare(ctx, fun)
@@ -130,8 +123,8 @@ bool isEnumOrFlagsArray(in Type a) =>
 	isArray(a) && isEnumOrFlags(arrayElementType(a));
 bool isSymbolArray(in Type a) =>
 	isArray(a) && isSymbol(arrayElementType(a));
-bool isEnumOrFlagsOption(in CommonTypes commonTypes, in Type a) =>
-	isOptionType(commonTypes, a) && isEnumOrFlags(mustUnwrapOptionType(commonTypes, a));
+bool isEnumOrFlagsOption(in Type a) =>
+	isOptionType(a) && isEnumOrFlags(mustUnwrapOptionType(a));
 
 bool isEnum(in Type a) =>
 	a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!(StructBody.Enum*);

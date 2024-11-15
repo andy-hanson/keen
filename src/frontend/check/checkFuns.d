@@ -201,7 +201,7 @@ FunDecl[] checkFunsInitial(
 				if (flagsAndSpecs.isBuiltin) {
 					if (hasBody)
 						addDiag(ctx, funAst.nameRange, Diag(Diag.BuiltinFunCantHaveBody()));
-					fun.body_ = getBuiltinFun(ctx, commonTypes, fun);
+					fun.body_ = getBuiltinFun(ctx, fun);
 				}
 				else if (!hasBody && !flagsAndSpecs.externs.isEmpty)
 					fun.body_ = checkExternBody(ctx, fun);
@@ -541,7 +541,7 @@ void checkFunsWithAsts(
 	zipPointers!(FunDecl, FunDeclAst)(funsWithAsts, asts, (FunDecl* fun, FunDeclAst* funAst) {
 		if (!fun.bodyIsSet)
 			fun.body_ = funAst.body_.kind.isA!EmptyAst
-				? checkAutoFun(ctx, commonTypes, specsMap, funsMap, fun)
+				? checkAutoFun(ctx, specsMap, funsMap, fun)
 				: fun.returnType.isBogus
 				? FunBody.bogus
 				: FunBody(checkFunctionBody(

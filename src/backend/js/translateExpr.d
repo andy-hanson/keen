@@ -144,6 +144,7 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
+	MatchVariantCase,
 	MatchVariantExpr,
 	Params,
 	paramsArray,
@@ -950,7 +951,7 @@ ExprResult translateMatchVariant(
 	withTemp(ctx, symbol!"matched", a.matched, pos, (JsName matched, scope ExprPos inner) =>
 		translateMatchVariant(
 			ctx, source, matched, expr, a.variantBody.kind, a.cases,
-			translateSwitchDefault(ctx, source, a.else_, type, "Invalid union value"),
+			translateSwitchDefault(ctx, source, optIf(has(a.else_), () => *force(a.else_)), type, "Invalid union value"),
 			type, inner));
 ExprResult translateMatchVariant(
 	ref TranslateExprCtx ctx,
@@ -958,14 +959,14 @@ ExprResult translateMatchVariant(
 	JsName matched,
 	in Expr expr,
 	VariantKind kind,
-	MatchVariantExpr.Case[] cases,
+	MatchVariantCase[] cases,
 	JsBlockStatement else_,
 	Type type,
 	scope ExprPos pos,
 ) =>
-	translateMatchUnionOrVariant!(MatchVariantExpr.Case)(
+	translateMatchUnionOrVariant!MatchVariantCase(
 		ctx, source, matched, expr, cases, type, pos, else_,
-		(ref MatchVariantExpr.Case case_, in Source caseSource) {
+		(ref MatchVariantCase case_, in Source caseSource) {
 			JsExpr matchedExpr = genIdentifier(source, matched);
 			if (kind == VariantKind.union_) // ternary ----------------------------------------------------------------------------
 				return MatchUnionOrVariantCase(

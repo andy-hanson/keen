@@ -106,6 +106,7 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
+	MatchVariantCase,
 	MatchVariantExpr,
 	Module,
 	moduleAtUri,
@@ -878,16 +879,16 @@ Opt!PositionKind positionAtMatchVariant(
 
 Opt!PositionKind positionAtMatchVariantCases(
 	ref ExprCtx ctx,
-	in MatchVariantExpr.Case[] cases,
+	in MatchVariantCase[] cases,
 	in CaseAst[] caseAsts,
 	Pos pos,
 ) =>
-	firstZipIfSizeEq!(PositionKind, MatchVariantExpr.Case, CaseAst)(
+	firstZipIfSizeEq!(PositionKind, MatchVariantCase, CaseAst)(
 		cases, caseAsts,
-		(MatchVariantExpr.Case case_, CaseAst caseAst) =>
+		(MatchVariantCase case_, CaseAst caseAst) =>
 			positionAtMatchVariantCase(ctx, case_, caseAst, pos));
 
-Opt!PositionKind positionAtMatchVariantCase(ref ExprCtx ctx, MatchVariantExpr.Case case_, CaseAst ast, Pos pos) =>
+Opt!PositionKind positionAtMatchVariantCase(ref ExprCtx ctx, MatchVariantCase case_, CaseAst ast, Pos pos) =>
 	optOr!PositionKind(
 		optIf(hasPos(ast.keywordAndMemberNameRange, pos), () =>
 			PositionKind(PositionKind.MatchVariantCase(ctx.container, case_.member))),

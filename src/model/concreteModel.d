@@ -226,11 +226,11 @@ ConcreteType arrayElementType(ConcreteType arrayType) {
 	assert(isArrayOrMutArray(*mustBeByVal(arrayType)));
 	return only(mustBeByVal(arrayType).source.as!(ConcreteStructSource.Inst).typeArgs);
 }
-private bool isOption(in CommonTypes commonTypes, in ConcreteStruct a) =>
-	a.source.isA!(ConcreteStructSource.Inst) && isOptionType(commonTypes, a.source.as!(ConcreteStructSource.Inst).decl);
+private bool isOption(in ConcreteStruct a) =>
+	a.source.isA!(ConcreteStructSource.Inst) && isOptionType(a.source.as!(ConcreteStructSource.Inst).decl);
 
-ConcreteType unwrapOptionType(in CommonTypes commonTypes, ConcreteType optionType) {
-	assert(isOption(commonTypes, *mustBeByVal(optionType)));
+ConcreteType unwrapOptionType(ConcreteType optionType) {
+	assert(isOption(*mustBeByVal(optionType)));
 	return only(mustBeByVal(optionType).source.as!(ConcreteStructSource.Inst).typeArgs);
 }
 bool isCatchPoint(in ConcreteStruct a) =>

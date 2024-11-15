@@ -172,6 +172,7 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
+	MatchVariantCase,
 	MatchVariantExpr,
 	Mutability,
 	paramsArray,
@@ -1617,7 +1618,7 @@ Expr checkMatchVariant(
 	ref ExprAndType matched,
 	StructInst* matchedVariant,
 ) {
-	SmallArray!(MatchVariantExpr.Case) cases = checkMatchVariantCases(ctx, locals, matchedVariant, ast.cases, expected);
+	SmallArray!MatchVariantCase cases = checkMatchVariantCases(ctx, locals, matchedVariant, ast.cases, expected);
 	StructBody.Variant body_() => matchedVariant.decl.body_.as!(StructBody.Variant);
 	bool isUnion = () {
 		final switch (body_.kind) {
@@ -1629,27 +1630,27 @@ Expr checkMatchVariant(
 				return false;
 		}
 	}();
-	Opt!Expr else_ = isUnion && cases.length == body_.listedMembers.length
+	Opt!(Expr*) else_ = isUnion && cases.length == body_.listedMembers.length
 		? () {
 			if (has(ast.else_))
 				todo!void("Unnecessary 'else' when all cases were handled"); // 000000000000000000000000000000000000000000000000000
-			return none!Expr;
+			return none!(Expr*);
 		}() :
-		some(checkMatchElseRequired(ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.variant));
+		some(allocate(ctx.alloc, checkMatchElseRequired(ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.variant)));
 	return Expr(source, ExprKind(allocate(ctx.alloc, MatchVariantExpr(matched, cases, else_))));
 }
 
-SmallArray!(MatchVariantExpr.Case) checkMatchVariantCases(
+SmallArray!MatchVariantCase checkMatchVariantCases(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	StructInst* matchedVariant,
 	SmallArray!CaseAst caseAsts,
 	ref Expected expected,
 ) =>
-	withTempSet!(SmallArray!(MatchVariantExpr.Case), StructInst*)(
+	withTempSet!(SmallArray!MatchVariantCase, StructInst*)(
 		caseAsts.length, (scope ref TempSet!(StructInst*) seen) =>
-			mapOpPointers!(MatchVariantExpr.Case, CaseAst)(ctx.alloc, caseAsts, (CaseAst* caseAst) {
-				Opt!(MatchVariantExpr.Case) res = checkMatchVariantCase(
+			mapOpPointers!(MatchVariantCase, CaseAst)(ctx.alloc, caseAsts, (CaseAst* caseAst) {
+				Opt!MatchVariantCase res = checkMatchVariantCase(
 					ctx, locals, matchedVariant, &caseAst.member, &caseAst.then, expected);
 				if (has(res)) {
 					if (tryAdd(seen, force(res).member))
@@ -1657,13 +1658,13 @@ SmallArray!(MatchVariantExpr.Case) checkMatchVariantCases(
 					else {
 						addDiag2(ctx, caseAst.member.nameRange, Diag(
 							Diag.MatchCaseDuplicate(Diag.MatchCaseDuplicate.Kind(force(res).member.decl.name))));
-						return none!(MatchVariantExpr.Case);
+						return none!MatchVariantCase;
 					}
 				} else
-					return none!(MatchVariantExpr.Case);
+					return none!MatchVariantCase;
 			}));
 
-Opt!(MatchVariantExpr.Case) checkMatchVariantCase(
+Opt!MatchVariantCase checkMatchVariantCase(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	StructInst* matchedVariant,
@@ -1683,9 +1684,9 @@ Opt!(MatchVariantExpr.Case) checkMatchVariantCase(
 		CaseResult result = checkMatchUnionOrVariantCase!StructInst(
 			ctx, locals, force(optMember), Type(force(optMember)), memberAst, thenAst, expected);
 		return optIf(!result.destructure.type.isBogus, () =>
-			MatchVariantExpr.Case(result.destructure, result.expr));
+			MatchVariantCase(result.destructure, result.expr));
  	} else
-		return none!(MatchVariantExpr.Case);
+		return none!MatchVariantCase;
 }
 
 immutable struct CaseResult {
@@ -2257,7 +2258,7 @@ Expr checkTry(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TryAst as
 		return bogus(expected, source);
 	} else {
 		Expr body_ = checkExpr(ctx, locals, ast.tried, expected);
-		SmallArray!(MatchVariantExpr.Case) catches = checkMatchVariantCases(
+		SmallArray!MatchVariantCase catches = checkMatchVariantCases(
 			ctx, locals, ctx.commonTypes.exception, ast.catches, expected);
 		return Expr(source, ExprKind(allocate(ctx.alloc, TryExpr(body_, catches))));
 	}
@@ -2266,7 +2267,7 @@ Expr checkTry(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TryAst as
 Expr checkTryLet(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TryLetAst* ast, ref Expected expected) {
 	ExprAndType value = checkAndExpectOrInfer(ctx, locals, &ast.value, typeFromDestructure(ctx, ast.destructure));
 	Destructure destructure = checkDestructure2(ctx, &ast.destructure, value.type, DestructureKind.local);
-	Opt!(MatchVariantExpr.Case) catch_ = checkMatchVariantCase(
+	Opt!MatchVariantCase catch_ = checkMatchVariantCase(
 		ctx, locals, ctx.commonTypes.exception, &ast.catchMember, &ast.catch_, expected);
 	if (!has(catch_)) return bogus(expected, source);
 	Expr then = checkExprWithDestructure(ctx, locals, destructure, &ast.then, expected);

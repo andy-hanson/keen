@@ -16,7 +16,7 @@ import util.string : copyString;
 import util.uri : compareUriNaturally, Uri;
 
 Opt!WorkspaceEdit getRenameForPosition(ref Alloc alloc, in Program program, in Position pos, in string newName) {
-	Opt!Target target = targetForPosition(program.commonTypes, pos);
+	Opt!Target target = targetForPosition(pos);
 	return has(target)
 		? some(WorkspaceEdit(buildGroupedAndSorted!(Uri, TextEdit, compareUriNaturally, compareTextEdit)(
 			alloc,

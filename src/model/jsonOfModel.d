@@ -65,6 +65,7 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
+	MatchVariantCase,
 	MatchVariantExpr,
 	Module,
 	nameFromNameReferentsPointer,
@@ -634,7 +635,7 @@ Json jsonOfExprKind(ref Alloc alloc, in Ctx ctx, in ExprKind a) =>
 				kindField!"match-variant",
 				field!"matched"(jsonOfExprAndType(alloc, ctx, x.matched)),
 				field!"cases"(jsonOfMatchVariantCases(alloc, ctx, x.cases)),
-				optionalField!("else", Expr)(x.else_, (in Expr y) => jsonOfExpr(alloc, ctx, y))]),
+				optionalField!("else", Expr*)(x.else_, (in Expr* y) => jsonOfExpr(alloc, ctx, *y))]),
 		(in RecordFieldPointerExpr x) =>
 			jsonObject(alloc, [
 				kindField!"field-pointer",
@@ -751,11 +752,11 @@ Json jsonOfCalledSpecSig(ref Alloc alloc, in Ctx ctx, in CalledSpecSig a) =>
 		field!"spec"(a.specInst.decl.name),
 		field!"name"(a.name)]);
 
-Json jsonOfMatchVariantCases(ref Alloc alloc, in Ctx ctx, in MatchVariantExpr.Case[] cases) =>
-	jsonList!(MatchVariantExpr.Case)(alloc, cases, (in MatchVariantExpr.Case x) =>
+Json jsonOfMatchVariantCases(ref Alloc alloc, in Ctx ctx, in MatchVariantCase[] cases) =>
+	jsonList!(MatchVariantCase)(alloc, cases, (in MatchVariantCase x) =>
 		jsonOfMatchVariantCase(alloc, ctx, x));
 
-Json jsonOfMatchVariantCase(ref Alloc alloc, in Ctx ctx, in MatchVariantExpr.Case a) =>
+Json jsonOfMatchVariantCase(ref Alloc alloc, in Ctx ctx, in MatchVariantCase a) =>
 	jsonObject(alloc, [
 		field!"member"(a.member.decl.name),
 		field!"destructure"(jsonOfDestructure(alloc, ctx, a.destructure)),

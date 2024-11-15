@@ -343,7 +343,7 @@ ConcreteExpr autoFunMatchEnum(
 ConcreteExpr concretizeSymbolToOptEnumOrFlags(ref ConcretizeExprCtx ctx) {
 	UriAndRange range = ctx.curFun.range;
 	ConcreteType optionType = ctx.curFun.returnType;
-	ConcreteType enumType = unwrapOptionType(ctx.concretizeCtx.commonTypes, optionType);
+	ConcreteType enumType = unwrapOptionType(optionType);
 	ConcreteLocal* param = &only(ctx.curFun.params);
 	ConcreteType symbolType = param.type;
 	ConcreteExpr paramGet = genParamGet(range, param);

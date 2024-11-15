@@ -15,7 +15,6 @@ import model.model :
 	BuiltinUnary,
 	BuiltinUnaryMath,
 	BuiltinTernary,
-	CommonTypes,
 	Destructure,
 	FunBody,
 	FunDecl,
@@ -58,10 +57,10 @@ import util.sourceRange : Range;
 import util.symbol : Symbol, symbol;
 import versionInfo : VersionFun;
 
-FunBody getBuiltinFun(ref CheckCtx ctx, in CommonTypes commonTypes, FunDecl* fun) {
+FunBody getBuiltinFun(ref CheckCtx ctx, FunDecl* fun) {
 	Destructure[] params = paramsArray(fun.params);
 	return inner(
-		ctx, commonTypes, fun.nameRange.range, fun.name, fun.returnType, params.length,
+		ctx, fun.nameRange.range, fun.name, fun.returnType, params.length,
 		params.length >= 1 ? params[0].type : Type.bogus,
 		params.length >= 2 ? params[1].type : Type.bogus,
 		params.length >= 3 ? params[2].type : Type.bogus,
@@ -72,7 +71,6 @@ private:
 
 FunBody inner(
 	ref CheckCtx ctx,
-	in CommonTypes commonTypes,
 	in Range range,
 	Symbol name,
 	Type rt,
@@ -189,11 +187,11 @@ FunBody inner(
 			return binaryLazy(
 				isBool(rt) && isBool(p0) && isBool(p1)
 				? BuiltinBinaryLazy.boolOr
-				: isOptionType(commonTypes, rt) && isOptionType(commonTypes, p0) && isOptionType(commonTypes, p1)
+				: isOptionType(rt) && isOptionType(p0) && isOptionType(p1)
 				? BuiltinBinaryLazy.optionOr
 				: failBinaryLazy);
 		case symbol!"??".value:
-			return binaryLazy(isOptionType(commonTypes, p0) ? BuiltinBinaryLazy.optionQuestion2 : failBinaryLazy);
+			return binaryLazy(isOptionType(p0) ? BuiltinBinaryLazy.optionQuestion2 : failBinaryLazy);
 		case symbol!"&".value:
 			return binary(isInt8(rt)
 				? BuiltinBinary.bitwiseAndInt8
@@ -398,7 +396,7 @@ FunBody inner(
 		case symbol!"nan".value:
 			return constant(isFloat32Or64(rt), Constant(Constant.Float(double.nan)));
 		case symbol!"new".value:
-			return isOptionType(commonTypes, rt) ?
+			return isOptionType(rt) ?
 				arity == 0
 					? FunBody(BuiltinFun(BuiltinFun.NewEmptyOption()))
 					: arity == 1 && isTypeParam0(p0)

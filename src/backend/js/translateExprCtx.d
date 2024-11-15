@@ -475,7 +475,7 @@ ExprResult translateInlineCall(
 		(in FunBody.VariantMemberGet) {
 			assert(!bodyIsInlined(*called));
 			JsExpr arg = onlyArg();
-			StructInst* member = mustUnwrapOptionType(ctx.commonTypes, returnType).as!(StructInst*);
+			StructInst* member = mustUnwrapOptionType(returnType).as!(StructInst*);
 			StructDecl* variant = only(paramTypes).as!(StructInst*).decl;
 			if (variant.body_.as!(StructBody.Variant).kind == VariantKind.union_) { // ternary ------------------------------000000000000
 				return expr(genTernary(
