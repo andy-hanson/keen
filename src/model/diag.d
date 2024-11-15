@@ -35,7 +35,7 @@ import util.col.array : SmallArray;
 import util.opt : force, Opt;
 import util.sourceRange : Range, UriAndRange;
 import util.symbol : Symbol;
-import util.union_ : TaggedUnion, Union;
+import util.union_ : Union;
 import util.uri : RelPath, Uri;
 
 // In the CLI, we omit diagnostics if there are other more severe ones.

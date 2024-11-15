@@ -86,7 +86,6 @@ import util.json :
 	kindField;
 import util.opt : force, Opt;
 import util.sourceRange : jsonOfLineAndColumn, jsonOfLineAndColumnRange, LineAndColumnGetter, Pos, PosKind, Range;
-import util.union_ : Union;
 import util.uri : Path, RelPath, stringOfPath;
 import util.util : stringOfEnum;
 import util.writer : makeStringWithWriter;

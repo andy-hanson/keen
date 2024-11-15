@@ -80,7 +80,6 @@ import util.col.array :
 import util.col.arrayBuilder : add, ArrayBuilder;
 import util.memory : allocate;
 import util.symbol : Symbol, symbol;
-import util.union_ : Union;
 
 JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, in AutoFun auto_) {
 	Source source = funSource(ctx.ctx, fun);

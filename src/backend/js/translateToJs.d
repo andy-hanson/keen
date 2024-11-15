@@ -129,7 +129,6 @@ import util.memory : allocate;
 import util.opt : force, has, MutOpt, none, Opt, optIf, optFromMut, some, someMut;
 import util.symbol : compareSymbolsNaturally, stringOfSymbol, Symbol, symbol;
 import util.symbolSet : SymbolSet;
-import util.union_ : Union;
 import util.uri :
 	asFilePath,
 	commonAncestor,

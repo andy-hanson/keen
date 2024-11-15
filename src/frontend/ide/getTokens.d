@@ -403,9 +403,9 @@ void addStructTokens(scope ref Ctx ctx, in StructDeclAst a) {
 			addRecordTokens(ctx, a, x.params, x.fields, TokenType.property);
 		},
 		(in StructBodyAst.Variant x) {
-			addModifierTokens(ctx, a.modifiers);
 			foreach (ref TypeAst type; x.types)
 				addTypeTokens(ctx, type);
+			addModifierTokens(ctx, a.modifiers);
 			foreach (ref SignatureAst sig; x.methods)
 				addSignatureTokens(ctx, sig);
 		});

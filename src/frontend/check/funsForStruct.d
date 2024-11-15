@@ -19,7 +19,6 @@ import model.model :
 	CommonTypes,
 	Destructure,
 	DestructureIgnoreSource,
-	isVoid,
 	EnumOrFlagsMember,
 	FlagsFunction,
 	FunBody,
@@ -43,7 +42,7 @@ import model.model :
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withStackArray;
-import util.col.array : count, isEmpty, map, mapWithFirst, prepend, small, sum;
+import util.col.array : isEmpty, map, mapWithFirst, prepend, small, sum;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder;
 import util.conv : safeToUint;
 import util.memory : allocate;

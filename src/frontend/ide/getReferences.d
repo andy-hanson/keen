@@ -134,7 +134,7 @@ import model.model :
 	variantMethodCaller,
 	Visibility;
 import util.alloc.alloc : Alloc;
-import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray, withStackArray;
+import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array : allSame, contains, fold, isEmpty, only, zip, zipIfSizeEq, zipIfSizeEqFilterFirst;
 import util.col.arrayBuilder : buildArray, Builder, buildSortedArray;
 import util.opt : force, has, none, Opt, optIf, some;
