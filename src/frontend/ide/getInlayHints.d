@@ -33,7 +33,6 @@ import model.model :
 	LambdaExpr,
 	LetExpr,
 	Local,
-	MatchUnionExpr,
 	Module,
 	moduleAtUri,
 	NameReferents,
@@ -238,10 +237,6 @@ void eachDestructureAtExprForInlay(in Expr a, in void delegate(Destructure) @saf
 	else if (a.kind.isA!(LetExpr*))
 		cb(a.kind.as!(LetExpr*).destructure);
 	// Ignore MatchVariantExpr, since the type is explicit
-	else if (a.kind.isA!(MatchUnionExpr*)) {
-		foreach (MatchUnionExpr.Case case_; a.kind.as!(MatchUnionExpr*).cases)
-			cb(case_.destructure);
-	}
 }
 
 void getInlayHintsForDestructure(

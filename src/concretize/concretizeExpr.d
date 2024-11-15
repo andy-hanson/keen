@@ -127,7 +127,6 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchUnionExpr,
 	MatchVariantExpr,
 	Purity,
 	RecordFieldPointerExpr,
@@ -1068,28 +1067,6 @@ ConcreteExpr concretizeMatchStringLike(
 		ConcreteExprKind.MatchStringLike(matched, force(equals), cases, concretizeExpr(ctx, type, locals, a.else_)))));
 }
 
-ConcreteExpr concretizeMatchUnion(
-	ref ConcretizeExprCtx ctx,
-	ConcreteType type,
-	in UriAndRange range,
-	in Locals locals,
-	ref MatchUnionExpr a,
-) {
-	if (isEmpty(a.cases)) return concretizeBogus(ctx, type, range);
-	ConcreteExpr matched = concretizeExpr(ctx, locals, a.matched);
-	IntegralValues values = mapToIntegralValues!(MatchUnionExpr.Case)(a.cases, (ref MatchUnionExpr.Case x) =>
-		IntegralValue(x.member.memberIndex));
-	SmallArray!(ConcreteExprKind.MatchUnion.Case) cases = map(ctx.alloc, values, (ref IntegralValue value) {
-		MatchUnionExpr.Case case_ = mustFind!(MatchUnionExpr.Case)(a.cases, (ref MatchUnionExpr.Case x) =>
-			IntegralValue(x.member.memberIndex) == value);
-		return toMatchUnionCase(concretizeExprWithDestructure(ctx, type, range, locals, case_.destructure, case_.then));
-	});
-	Opt!(ConcreteExpr*) else_ = optIf(has(a.else_), () =>
-		allocate(ctx.alloc, concretizeExpr(ctx, type, locals, *force(a.else_))));
-	return ConcreteExpr(type, range, ConcreteExprKind(
-		allocate(ctx.alloc, ConcreteExprKind.MatchUnion(matched, values, cases, else_))));
-}
-
 ConcreteExpr concretizeMatchVariant(
 	ref ConcretizeExprCtx ctx,
 	ConcreteType type,
@@ -1263,8 +1240,6 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 			concretizeMatchIntegral(ctx, type, range, locals, *x),
 		(MatchStringLikeExpr* x) =>
 			concretizeMatchStringLike(ctx, type, range, locals, *x),
-		(MatchUnionExpr* x) =>
-			concretizeMatchUnion(ctx, type, range, locals, *x),
 		(MatchVariantExpr* x) =>
 			concretizeMatchVariant(ctx, type, range, locals, *x),
 		(RecordFieldPointerExpr* x) =>

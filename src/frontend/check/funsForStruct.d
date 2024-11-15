@@ -36,7 +36,6 @@ import model.model :
 	StructInst,
 	Type,
 	TypeParamIndex,
-	UnionMember,
 	VarDecl,
 	VariantAndMethodImpls,
 	VariantKind,
@@ -77,9 +76,6 @@ private size_t countFunsForStruct(in CommonTypes commonTypes, in StructDecl a) =
 			// byVal has get/set for pointer too
 			return 1 + forGetSet * (recordIsAlwaysByVal(x) ? 2 : 1) + forCall;
 		},
-		(in StructBody.Union x) =>
-			// A constructor and getter for each member
-			x.members.length + count!UnionMember(x.members, (in UnionMember x) => !isVoid(x.type)),
 		(in StructBody.Variant x) =>
 			x.methods.length + sum!VariantMemberAndMethodImpls(x.listedMembers, (in VariantMemberAndMethodImpls member) =>
 				countFunsForVariantMember(x, *member.member.decl)));
@@ -122,9 +118,6 @@ void addFunsForStruct(
 		},
 		(StructBody.Record x) {
 			addFunsForRecord(ctx, funsBuilder, commonTypes, struct_, x);
-		},
-		(ref StructBody.Union x) {
-			addFunsForUnion(ctx, funsBuilder, commonTypes, struct_, x);
 		},
 		(StructBody.Variant x) {
 			addFunsForVariant(ctx, funsBuilder, commonTypes, struct_, x);
@@ -508,40 +501,6 @@ Symbol symbolForParam(size_t index) {
 		case 7: return symbol!"param7";
 		case 8: return symbol!"param8";
 		case 9: return symbol!"param9";
-	}
-}
-
-void addFunsForUnion(
-	ref CheckCtx ctx,
-	scope ref ExactSizeArrayBuilder!FunDecl funsBuilder,
-	ref CommonTypes commonTypes,
-	StructDecl* struct_,
-	ref StructBody.Union union_,
-) {
-	Type unionType = instantiateStructWithTypeArgsFromParams(ctx, struct_);
-	foreach (ref UnionMember member; union_.members) {
-		bool voidMember = isVoid(member.type);
-		funsBuilder ~= funDeclWithBody(
-			FunDeclSource(&member),
-			struct_.visibility,
-			member.name,
-			unionType,
-			voidMember ? Params([]) : makeParams(ctx.alloc, [param!"a"(member.type)]),
-			FunFlags.generatedBare.withSummon(struct_.isSummon),
-			struct_.externSet,
-			[],
-			FunBody(FunBody.CreateUnion(&member)));
-		if (!voidMember)
-			funsBuilder ~= funDeclWithBody(
-				FunDeclSource(&member),
-				struct_.visibility,
-				member.name,
-				Type(makeOptionType(ctx.instantiateCtx, commonTypes, member.type)),
-				makeParams(ctx.alloc, [param!"a"(unionType)]),
-				FunFlags.generatedBare.withSummon(struct_.isSummon),
-				struct_.externSet,
-				[],
-				FunBody(FunBody.UnionMemberGet(&member)));
 	}
 }
 

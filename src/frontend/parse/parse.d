@@ -279,18 +279,13 @@ void parseSpecOrStructOrFun(
 			add(lexer.alloc, varDecls, parseVarDecl(
 				lexer, start, docComment, visibility, name, typeParams, pos, VarKind.threadLocal));
 			break;
-		case Token.union_:
-			mustTakeToken(lexer, Token.union_);
-			Opt!ParamsAst params = tryParseParams(lexer);
-			addStruct(() => StructBodyAst(StructBodyAst.Union(params, parseRecordOrUnionMembers(lexer))));
-			break;
 		case Token.interface_:
-		case Token.union2:
+		case Token.union_:
 		case Token.variant:
 			mustTakeToken(lexer, token);
 			SmallArray!TypeAst types = tryParseVariantTypes(lexer);
 			addStruct(() => StructBodyAst(StructBodyAst.Variant(
-				token == Token.variant ? VariantKind.variant : token == Token.union2 ? VariantKind.union_ : VariantKind.interface_, // TODO: just convert enum to enum
+				token == Token.variant ? VariantKind.variant : token == Token.union_ ? VariantKind.union_ : VariantKind.interface_, // TODO: just convert enum to enum
 				types,
 				parseIndentedSigs(lexer))));
 			break;

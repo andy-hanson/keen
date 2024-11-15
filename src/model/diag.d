@@ -27,7 +27,6 @@ import model.model :
 	TypeContainer,
 	TypeParamsAndSig,
 	TypeWithContainer,
-	UnionMember,
 	VariableRef,
 	VarKind,
 	Visibility;
@@ -94,7 +93,6 @@ enum DeclKind {
 	spec,
 	test,
 	threadLocal,
-	union_,
 	variant,
 }
 
@@ -404,16 +402,13 @@ immutable struct Diag {
 	}
 	immutable struct MatchCaseNameDoesNotMatch {
 		Symbol actual;
-		StructDecl* enumOrUnion;
+		StructDecl* enum_;
 	}
 	immutable struct MatchCaseNoValueForEnumOrSymbol {
 		Opt!(StructDecl*) enum_;
 	}
 	immutable struct MatchCaseShouldUseIgnore {
-		immutable struct Member {
-			mixin TaggedUnion!(StructInst*, UnionMember*);
-		}
-		Member member;
+		StructInst* member;
 	}
 	// For an enum/union this would be 'MatchUnhandledCases'
 	immutable struct MatchNeedsElse {
@@ -423,8 +418,8 @@ immutable struct Diag {
 	immutable struct MatchOnNonMatchable {
 		TypeWithContainer type;
 	}
-	immutable struct MatchUnhandledCases {
-		mixin Union!(immutable EnumOrFlagsMember*[], immutable UnionMember*[]);
+	immutable struct MatchUnhandledCases { // TODO: this should have a version for a union! ----------------------------------------
+		mixin Union!(immutable EnumOrFlagsMember*[]);
 	}
 	immutable struct MatchUnnecessaryElse {}
 	immutable struct MatchVariantCantInferTypeArgs {
@@ -613,7 +608,7 @@ immutable struct Diag {
 		Kind kind;
 	}
 	immutable struct UnsupportedSyntax {
-		enum Reason { enumMemberMutability, enumMemberType, unionMemberMutability, unionMemberVisibility }
+		enum Reason { enumMemberMutability, enumMemberType }
 		Reason reason;
 	}
 	immutable struct Unused {

@@ -101,7 +101,6 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchUnionExpr,
 	MatchVariantExpr,
 	Module,
 	moduleAtUri,
@@ -130,7 +129,6 @@ import model.model :
 	Type,
 	TypedExpr,
 	TypeParamIndex,
-	UnionMember,
 	VarDecl,
 	VariantAndMethodImpls,
 	variantMethodCaller,
@@ -228,8 +226,6 @@ private Opt!UriAndName asUriAndName(Target a) =>
 			some(UriAndName(x.moduleUri, x.name)),
 		(in PositionKind.TypeParamWithContainer x) =>
 			none!UriAndName,
-		(in UnionMember x) =>
-			some(UriAndName(x.moduleUri, x.name)),
 		(in VarDecl x) =>
 			some(UriAndName(x.moduleUri, x.name)));
 
@@ -272,9 +268,6 @@ void referencesForTarget(in Program program, Uri curUri, in Target a, in Referen
 		},
 		(PositionKind.TypeParamWithContainer x) {
 			referencesForTypeParam(program.commonTypes, curUri, x, cb);
-		},
-		(UnionMember* x) {
-			referencesForUnionMember(program, x, cb);
 		},
 		(VarDecl* x) {
 			referencesForVarDecl(program, x, cb);
@@ -471,10 +464,6 @@ void eachTypeInStructBody(
 			eachTypeInRecordOrUnion!RecordField(
 				x.fields, ast.as!(StructBodyAst.Record).params, ast.as!(StructBodyAst.Record).fields, cb);
 		},
-		(in StructBody.Union x) {
-			eachTypeInRecordOrUnion!UnionMember(
-				x.members, ast.as!(StructBodyAst.Union).params, ast.as!(StructBodyAst.Union).members, cb);
-		},
 		(in StructBody.Variant) {});
 }
 void eachTypeInEnumOrFlags(ref CommonTypes commonTypes, in StructDeclAst struct_, IntegralType storage, in TypeCb cb) {
@@ -485,7 +474,7 @@ void eachTypeInEnumOrFlags(ref CommonTypes commonTypes, in StructDeclAst struct_
 				cb(Type(commonTypes.integrals[storage]), force(keyword.typeArg));
 		}
 }
-void eachTypeInRecordOrUnion(Member)(
+void eachTypeInRecordOrUnion(Member)( // this is now record only ----------------------------------------------------------------
 	in Member[] members,
 	in Opt!ParamsAst params,
 	in RecordOrUnionMemberAst[] asts,
@@ -594,9 +583,6 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 		(in MatchEnumExpr _) {},
 		(in MatchIntegralExpr _) {},
 		(in MatchStringLikeExpr _) {},
-		(in MatchUnionExpr x) {
-			eachTypeInMatchUnionOrVariant!(MatchUnionExpr.Case)(x.cases, astKind.as!MatchAst.cases, cb);
-		},
 		(in MatchVariantExpr x) {
 			eachTypeInMatchUnionOrVariant!(MatchVariantExpr.Case)(x.cases, astKind.as!MatchAst.cases, cb);
 		},
@@ -615,13 +601,13 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 			cb(a.type, astKind.as!(TypedAst*).type));
 }
 
-void eachTypeInMatchUnionOrVariant(Case)(in Case[] cases, in CaseAst[] caseAsts, in TypeCb cb) {
+void eachTypeInMatchUnionOrVariant(Case)(in Case[] cases, in CaseAst[] caseAsts, in TypeCb cb) { // rename ----------------------------
 	zipIfSizeEq!(Case, CaseAst)(cases, caseAsts, (ref Case case_, ref CaseAst caseAst) {
 		eachTypeInMatchUnionOrVariantCase(case_, caseAst.member, cb);
 	});
 }
 
-void eachTypeInMatchUnionOrVariantCase(Case)(in Case case_, in CaseMemberAst memberAst, in TypeCb cb) {
+void eachTypeInMatchUnionOrVariantCase(Case)(in Case case_, in CaseMemberAst memberAst, in TypeCb cb) {  // rename ----------------------------
 	memberAst.matchIn!void(
 			(in CaseMemberAst.Name x) {
 				if (has(x.destructure)) {
@@ -704,10 +690,6 @@ void eachDocComment(in Module module_, in void delegate(DocComment) @safe @nogc 
 			(StructBody.Record record) {
 				foreach (ref RecordField field; record.fields)
 					cb(field.docComment);
-			},
-			(ref StructBody.Union union_) {
-				foreach (ref UnionMember member; union_.members)
-					cb(member.docComment);
 			},
 			(StructBody.Variant variant) {
 				foreach (Signature method; variant.methods)
@@ -833,36 +815,6 @@ void referencesForEnumOrFlagsMember(in Program program, in EnumOrFlagsMember* me
 			} else
 				eachFunReferenceAtExpr(m, x, [ctor], cb);
 		});
-}
-
-void referencesForUnionMember(in Program program, in UnionMember* member, in ReferenceCb cb) {
-	StructDecl* union_ = member.containingUnion;
-	Module* declaringModule = moduleAtUri(program, union_.moduleUri);
-	FunDecl* ctor = mustFindFunNamed(declaringModule, member.name, (in FunDecl fun) =>
-		fun.body_.isA!(FunBody.CreateUnion) && fun.body_.as!(FunBody.CreateUnion).member == member);
-	Opt!(FunDecl*) getter = optIf(member.hasValue, () =>
-		mustFindFunNamed(declaringModule, member.name, (in FunDecl fun) =>
-			fun.body_.isA!(FunBody.UnionMemberGet) && fun.body_.as!(FunBody.UnionMemberGet).member == member));
-	withStackArray!(immutable FunDecl*)(ctor, getter, (in FunDecl*[] funs) {
-		eachExprThatMayReference(
-			program, member.visibility, declaringModule,
-			(in Module module_, in NameAndRange ast, in DocCommentReference x) {
-				if (x.isA!(FunDecl*) && contains(funs, x.as!(FunDecl*)))
-					cb(UriAndRange(module_.uri, ast.range));
-			},
-			(in Module m, ExprRef x) {
-				if (x.expr.kind.isA!(MatchUnionExpr*)) {
-					MatchUnionExpr* matchUnion = x.expr.kind.as!(MatchUnionExpr*);
-					if (matchUnion.union_.decl == union_) {
-						foreach (size_t caseIndex, ref MatchUnionExpr.Case case_; matchUnion.cases) {
-							if (case_.member == member)
-								cb(UriAndRange(m.uri, caseNameRange(*x.expr, caseIndex)));
-						}
-					}
-				} else
-					eachFunReferenceAtExpr(m, x, funs, cb);
-			});
-	});
 }
 
 void referencesForVarDecl(in Program program, in VarDecl* a, in ReferenceCb cb) {

@@ -41,7 +41,6 @@ import model.model :
 	Test,
 	TypeParamIndex,
 	TypeParams,
-	UnionMember,
 	VarDecl;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array : first, firstWithIndex, map;
@@ -96,10 +95,6 @@ void checkDocComments(
 			(StructBody.Record x) {
 				foreach (ref RecordField field; x.fields)
 					field.docCommentReferences = checkRefsForStruct(struct_, field.docCommentAst);
-			},
-			(ref StructBody.Union x) {
-				foreach (ref UnionMember member; x.members)
-					member.docCommentReferences = checkRefsForStruct(struct_, member.docCommentAst);
 			},
 			(StructBody.Variant x) {
 				foreach (ref Signature sig; x.methods)
@@ -227,8 +222,6 @@ DocCommentReference docCommentReferenceForFunDecl(FunDecl* a) {
 			returnStruct(),
 		(FunBody.CreateRecordAndConvertToVariant x) =>
 			DocCommentReference(x.member.decl),
-		(FunBody.CreateUnion) =>
-			returnStruct(),
 		(FunBody.CreateVariant) =>
 			returnStruct(),
 		(Expr _) =>
@@ -247,8 +240,6 @@ DocCommentReference docCommentReferenceForFunDecl(FunDecl* a) {
 			DocCommentReference(x.field),
 		(FunBody.RecordFieldSet x) =>
 			DocCommentReference(x.field),
-		(FunBody.UnionMemberGet x) =>
-			DocCommentReference(x.member),
 		(FunBody.VarGet x) =>
 			DocCommentReference(x.var),
 		(FunBody.VariantMemberGet x) =>

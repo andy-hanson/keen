@@ -36,7 +36,6 @@ import model.model :
 	TypeContainer,
 	TypeParamIndex,
 	TypeWithContainer,
-	UnionMember,
 	VarDecl,
 	Visibility;
 import util.integralValues : IntegralValue;
@@ -117,9 +116,7 @@ LocalContainer assertLocalContainer(DocCommentContainer a) =>
 		(RecordField*) =>
 			assert(false),
 		(Signature* x) =>
-			asLocalContainer(x.container),
-		(UnionMember*) =>
-			assert(false));
+			asLocalContainer(x.container));
 LocalContainer assertLocalContainer(AnyDecl a) =>
 	a.matchWithPointers!LocalContainer(
 		(FunDecl* x) =>
@@ -167,7 +164,7 @@ immutable struct VisibilityContainer {
 
 immutable struct DocCommentContainer {
 	@safe @nogc pure nothrow:
-	mixin Union!(AnyDecl, EnumOrFlagsMember*, Module*, RecordField*, Signature*, UnionMember*);
+	mixin Union!(AnyDecl, EnumOrFlagsMember*, Module*, RecordField*, Signature*);
 
 	DocComment docComment() =>
 		matchWithPointers!DocComment(
@@ -180,8 +177,6 @@ immutable struct DocCommentContainer {
 			(RecordField* x) =>
 				x.docComment,
 			(Signature* x) =>
-				x.docComment,
-			(UnionMember* x) =>
 				x.docComment);
 }
 
@@ -197,9 +192,7 @@ TypeContainer typeContainerFor(DocCommentContainer a) =>
 		(RecordField* x) =>
 			TypeContainer(x.containingRecord),
 		(Signature* x) =>
-			asTypeContainer(x.container),
-		(UnionMember* x) =>
-			TypeContainer(x.containingUnion));
+			asTypeContainer(x.container));
 
 immutable struct PositionKind {
 	immutable struct DocRef {
@@ -234,8 +227,7 @@ immutable struct PositionKind {
 			spec,
 			threadLocal,
 			underscore,
-			union_,
-			variant,
+			variant, // or 'union' or 'interface'
 			variantMember,
 		}
 		Kind kind;
@@ -254,9 +246,6 @@ immutable struct PositionKind {
 	immutable struct MatchStringLikeCase {
 		TypeWithContainer type;
 		string value;
-	}
-	immutable struct MatchUnionCase {
-		UnionMember* member;
 	}
 	immutable struct MatchVariantCase {
 		ExprContainer container;
@@ -298,7 +287,6 @@ immutable struct PositionKind {
 		MatchEnumCase,
 		MatchIntegralCase,
 		MatchStringLikeCase,
-		MatchUnionCase,
 		MatchVariantCase,
 		Modifier,
 		ModifierExtern,
@@ -313,7 +301,6 @@ immutable struct PositionKind {
 		Test*,
 		TypeWithContainer,
 		TypeParamWithContainer,
-		UnionMember*,
 		VarDecl*,
 		VisibilityMark);
 }

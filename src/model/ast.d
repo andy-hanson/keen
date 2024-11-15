@@ -1057,17 +1057,13 @@ immutable struct StructBodyAst {
 		Opt!ParamsAst params;
 		SmallArray!RecordOrUnionMemberAst fields;
 	}
-	immutable struct Union {
-		Opt!ParamsAst params;
-		SmallArray!RecordOrUnionMemberAst members;
-	}
 	immutable struct Variant {
 		VariantKind kind;
 		SmallArray!TypeAst types;
 		SmallArray!SignatureAst methods;
 	}
 
-	mixin .Union!(Builtin, Enum, Extern, Flags, Record, Union, Variant);
+	mixin .Union!(Builtin, Enum, Extern, Flags, Record, Variant);
 }
 //static assert(StructBodyAst.sizeof <= 24); ------------------------------------------------------------------------------------------------
 
@@ -1085,7 +1081,7 @@ immutable struct EnumOrFlagsMemberAst {
 		nameAndRange.range;
 }
 
-immutable struct RecordOrUnionMemberAst {
+immutable struct RecordOrUnionMemberAst { // RENAME -- now only for record --------------------------------------------------------------
 	@safe @nogc pure nothrow:
 
 	DocCommentAst docComment;
@@ -1135,10 +1131,8 @@ private string keywordForStructBody(in StructBodyAst a) =>
 			"flags",
 		(in StructBodyAst.Record) =>
 			"record",
-		(in StructBodyAst.Union) =>
-			"union",
-		(in StructBodyAst.Variant) =>
-			"variant");
+		(in StructBodyAst.Variant x) =>
+			stringOfEnum(x.kind));
 
 immutable struct SpecDeclAst {
 	@safe @nogc pure nothrow:

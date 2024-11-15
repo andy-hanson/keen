@@ -25,8 +25,7 @@ import model.model :
 	Type,
 	TypeContainer,
 	TypeParamIndex,
-	VarDecl,
-	UnionMember;
+	VarDecl;
 import util.alloc.alloc : Alloc;
 import util.col.array : only;
 import util.col.arrayBuilder : buildArray, Builder;
@@ -97,9 +96,6 @@ public void definitionForTarget(Uri curUri, in Target a, in ReferenceCb cb) =>
 		(in PositionKind.TypeParamWithContainer x) {
 			cb(typeParamWithContainerRange(x));
 		},
-		(in UnionMember x) {
-			cb(x.nameRange);
-		},
 		(in VarDecl x) {
 			cb(x.nameRange);
 		});
@@ -158,10 +154,6 @@ void typeDefinitionForTarget(in Target a, in ReferenceCb cb) {
 		},
 		(PositionKind.TypeParamWithContainer x) {
 			cb(typeParamWithContainerRange(x));
-		},
-		(UnionMember* x) {
-			if (x.hasValue)
-				definitionForType(TypeContainer(x.containingUnion), x.type, cb);
 		},
 		(VarDecl* x) {
 			definitionForType(TypeContainer(x), x.type, cb);

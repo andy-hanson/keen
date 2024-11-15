@@ -194,9 +194,6 @@ FunBody checkAutoFunWithSpec(
 			(StructBody.Record) =>
 				map(ctx.alloc, paramInst.instantiatedTypes, (ref Type type) =>
 					checkSpecSigForContainedType(type)),
-			(ref StructBody.Union) =>
-				map(ctx.alloc, paramInst.instantiatedTypes, (ref Type type) =>
-					checkSpecSigForContainedType(type)),
 			(StructBody.Variant v) =>
 				map(ctx.alloc, v.listedMembers, (ref VariantMemberAndMethodImpls m) =>
 					checkSpecSigForContainedType(Type(instantiateStructInst(ctx.instantiateCtx, *m.member, paramInst.typeArgs, noDelayStructInsts)))));
@@ -239,7 +236,7 @@ bool isEnumFlagsRecordOrUnion(in Type a) =>
 bool isRecordOrUnion(in Type a) =>
 	a.isA!(StructInst*) && isRecordOrUnion(a.as!(StructInst*).decl.body_);
 bool isRecordOrUnion(in StructBody a) =>
-	a.isA!(StructBody.Record) || a.isA!(StructBody.Union*) || isUnion(a);
+	a.isA!(StructBody.Record) || isUnion(a);
 bool isUnion(in StructBody a) =>
 	a.isA!(StructBody.Variant) && a.as!(StructBody.Variant).kind == VariantKind.union_;
 
@@ -261,8 +258,6 @@ bool isFullyVisible(in CheckCtx ctx, in Type a) {
 		(in StructBody.Record record) =>
 			every!RecordField(record.fields, (in RecordField x) =>
 				x.visibility == decl.visibility),
-		(in StructBody.Union) =>
-			true,
 		(in StructBody.Variant x) =>
 			x.kind == VariantKind.union_);
 }

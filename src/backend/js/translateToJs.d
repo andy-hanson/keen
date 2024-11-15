@@ -599,9 +599,6 @@ JsDecl translateStructDecl(ref TranslateModuleCtx ctx, StructDecl* a) {
 			(StructBody.Record x) {
 				translateRecordDecl(ctx, source, out_, super_, x);
 			},
-			(ref StructBody.Union x) {
-				assert(false); // translateUnionDecl(ctx, source, out_, super_, x); -------------------------------------------------
-			},
 			(StructBody.Variant x) {
 				if (x.kind == VariantKind.union_)
 					translateUnionDecl(ctx, source, out_, super_, x);

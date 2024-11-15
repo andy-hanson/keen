@@ -91,7 +91,6 @@ import model.model :
 	Test,
 	Type,
 	TypeParamIndex,
-	UnionMember,
 	VarDecl,
 	VariantKind,
 	VariantMemberAndMethodImpls,
@@ -658,17 +657,6 @@ void initializeConcreteStruct(
 			res.info = info;
 			setConcreteStructRecordSizeOrDefer(ctx, res);
 		},
-		(ref StructBody.Union u) {
-			res.defaultReferenceKind = ReferenceKind.byVal;
-			SmallArray!ConcreteType members = mapZip!(ConcreteType, UnionMember, Type)(
-				ctx.alloc, u.members, inst.instantiatedTypes, (ref UnionMember x, ref Type type) =>
-					getConcreteType(ctx, type, typeArgsScope));
-			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Union(late(members))), false);
-			if (canGetUnionSize(members))
-				res.typeSize = unionSize(members);
-			else
-				push(ctx.alloc, ctx.deferredTypeSize, res);
-		},
 		(StructBody.Variant x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
 			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Union()), false);
@@ -820,8 +808,6 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 					ctx.alloc, cf.returnType, cf.range, memberIndex,
 					genCreateRecordFromParams(ctx.alloc, memberType, cf.range, concreteParams)));
 		},
-		(FunBody.CreateUnion x) =>
-			createUnionBody(ctx.alloc, cf, x.member.memberIndex),
 		(FunBody.CreateVariant x) =>
 			createUnionBody(ctx.alloc, cf, ensureVariantMember(
 				ctx, cf.returnType, isEmpty(concreteParams) ? voidType(ctx) : only(concreteParams).type)),
@@ -854,8 +840,6 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 				fieldIndexFromField(pointeeTypeIfIsPointer(cf.params[0].type), x.field),
 				genLocalGet(cf.range, &cf.params[1])));
 		},
-		(FunBody.UnionMemberGet x) =>
-			genUnionMemberGet(ctx, cf, unionMemberIndex(only(concreteParams).type, x.member)),
 		(FunBody.VarGet x) =>
 			ConcreteFunBody(ConcreteFunBody.VarGet(getVar(ctx, x.var))),
 		(FunBody.VariantMemberGet x) =>
@@ -871,10 +855,6 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 			ConcreteFunBody(ConcreteFunBody.VarSet(getVar(ctx, x.var))));
 	cf.overwriteBody(body_);
 }
-size_t unionMemberIndex(ConcreteType union_, UnionMember* member) =>
-	mustHaveIndexOfPointer(
-		mustBeByVal(union_).source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Union*).members,
-		member);
 
 ConcreteExpr genCreateRecordFromParams(
 	ref Alloc alloc,

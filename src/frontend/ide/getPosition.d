@@ -106,7 +106,6 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchUnionExpr,
 	MatchVariantExpr,
 	Module,
 	moduleAtUri,
@@ -133,7 +132,6 @@ import model.model :
 	TypedExpr,
 	TypeParamIndex,
 	TypeWithContainer,
-	UnionMember,
 	VarDecl;
 import model.model : paramsArray, StructDeclSource;
 import util.col.array :
@@ -395,8 +393,6 @@ PositionKind.Keyword.Kind keywordKindForStructBody(in StructBodyAst a) =>
 			PositionKind.Keyword.Kind.flags,
 		(in StructBodyAst.Record) =>
 			PositionKind.Keyword.Kind.record,
-		(in StructBodyAst.Union) =>
-			PositionKind.Keyword.Kind.union_,
 		(in StructBodyAst.Variant) =>
 			PositionKind.Keyword.Kind.variant);
 
@@ -470,22 +466,10 @@ Opt!PositionKind positionInStructBody(
 					some(VisibilityContainer(field)),
 				cbMutabilityPosition: (RecordField* field) =>
 					some(PositionKind(PositionKind.RecordFieldMutability(field.mutability)))),
-		(ref StructBody.Union x) =>
-			positionInRecordOrUnionBody!UnionMember(
-				ctx, decl, x.members,
-				ast.as!(StructBodyAst.Union).params,
-				ast.as!(StructBodyAst.Union).members,
-				pos,
-				cbMemberPosition: (UnionMember* member) =>
-					PositionKind(member),
-				cbVisibilityContainer: (UnionMember*) =>
-					none!VisibilityContainer,
-				cbMutabilityPosition: (UnionMember*) =>
-					none!PositionKind),
 		(StructBody.Variant x) =>
 			positionInSignatures(x.methods, ast.as!(StructBodyAst.Variant).methods, pos));
 
-Opt!PositionKind positionInRecordOrUnionBody(Member)(
+Opt!PositionKind positionInRecordOrUnionBody(Member)( // this is now record only -----------------------------------------
 	in Ctx ctx,
 	StructDecl* decl,
 	in Member[] members,
@@ -738,8 +722,6 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, ref Loops loops, ExprRef a, Pos
 			positionAtMatchIntegral(ctx, a, x, ast.kind.as!MatchAst, pos),
 		(ref MatchStringLikeExpr x) =>
 			positionAtMatchStringLike(ctx, a, x, ast.kind.as!MatchAst, pos),
-		(ref MatchUnionExpr x) =>
-			positionAtMatchUnion(ctx, a, x, ast.kind.as!MatchAst, pos),
 		(ref MatchVariantExpr x) =>
 			positionAtMatchVariant(ctx, a, x, ast.kind.as!MatchAst, pos),
 		(ref RecordFieldPointerExpr x) =>
@@ -882,20 +864,6 @@ Opt!PositionKind positionAtMatchStringLike(
 					PositionKind(PositionKind.MatchStringLikeCase(
 						TypeWithContainer(a.matched.type, ctx.container.toTypeContainer),
 						case_.value)))));
-
-Opt!PositionKind positionAtMatchUnion(ref ExprCtx ctx, ExprRef expr, ref MatchUnionExpr a, ref MatchAst ast, Pos pos) =>
-	optOr!PositionKind(
-		positionAtMatchKeyword(ctx, expr, ast, pos),
-		() => firstZipIfSizeEq!(PositionKind, MatchUnionExpr.Case, CaseAst)(
-			a.cases, ast.cases,
-			(MatchUnionExpr.Case case_, CaseAst caseAst) =>
-				positionAtMatchUnionCase(ctx, case_, caseAst, pos)));
-
-Opt!PositionKind positionAtMatchUnionCase(ref ExprCtx ctx, MatchUnionExpr.Case case_, CaseAst ast, Pos pos) =>
-	optOr!PositionKind(
-		optIf(hasPos(ast.keywordAndMemberNameRange, pos), () =>
-			PositionKind(PositionKind.MatchUnionCase(case_.member))),
-		() => positionInMatchCaseDestructure(ctx, case_.destructure, ast.member, pos));
 
 Opt!PositionKind positionAtMatchVariant(
 	ref ExprCtx ctx,

@@ -65,7 +65,6 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchUnionExpr,
 	MatchVariantExpr,
 	Module,
 	nameFromNameReferentsPointer,
@@ -92,7 +91,6 @@ import model.model :
 	Type,
 	TypedExpr,
 	TypeParamIndex,
-	UnionMember,
 	VarDecl,
 	VariableRef,
 	VariantMemberAndMethodImpls;
@@ -226,8 +224,6 @@ Json jsonOfDocCommentReference(ref Alloc alloc, in Ctx ctx, in DocCommentReferen
 			jsonObject(alloc, [kindField!"spec", field!"name"(x.name)]),
 		(in TypeParamIndex x) =>
 			jsonObject(alloc, [kindField!"type-param", field!"index"(x.index)]),
-		(in UnionMember x) =>
-			jsonObject(alloc, [kindField!"union-member", field!"name"(x.name)]),
 		(in VarDecl x) =>
 			jsonObject(alloc, [kindField!"var", field!"name"(x.name)]));
 
@@ -285,8 +281,6 @@ Json jsonOfStructBody(ref Alloc alloc, in Ctx ctx, ref StructBody a) =>
 			jsonString("flags"), // TODO: MORE DETAIL ------------------------------------------------------------------------
 		(StructBody.Record x) =>
 			jsonString("record"), // TODO: MORE DETAIL ------------------------------------------------------------------------
-		(ref StructBody.Union x) =>
-			jsonString("union"), // TODO: MORE DETAIL ------------------------------------------------------------------------
 		(StructBody.Variant x) =>
 			jsonObject(alloc, [
 				kindField!"variant",
@@ -420,8 +414,6 @@ Json jsonOfFunBody(ref Alloc alloc, in Ctx ctx, in FunBody a) =>
 			jsonString!"new-record",
 		(in FunBody.CreateRecordAndConvertToVariant x) =>
 			jsonObject(alloc, [kindField!"create-record-to-variant", field!"member"(x.member.decl.name)]),
-		(in FunBody.CreateUnion x) =>
-			jsonObject(alloc, [kindField!"create-union", field!"member"(x.member.name)]),
 		(in FunBody.CreateVariant x) =>
 			jsonObject(alloc, [kindField!"create-variant"]),
 		(in Expr x) =>
@@ -452,10 +444,6 @@ Json jsonOfFunBody(ref Alloc alloc, in Ctx ctx, in FunBody a) =>
 			jsonObject(alloc, [
 				kindField!"field-set",
 				field!"field"(x.field.name)]),
-		(in FunBody.UnionMemberGet x) =>
-			jsonObject(alloc, [
-				kindField!"member-get",
-				field!"member"(x.member.name)]),
 		(in FunBody.VarGet) =>
 			jsonString!"var-get",
 		(in FunBody.VariantMemberGet x) =>
@@ -641,13 +629,6 @@ Json jsonOfExprKind(ref Alloc alloc, in Ctx ctx, in ExprKind a) =>
 						field!"value"(case_.value),
 						field!"then"(jsonOfExpr(alloc, ctx, case_.then))])))),
 				field!"else"(jsonOfExpr(alloc, ctx, x.else_))]),
-		(in MatchUnionExpr x) =>
-			jsonObject(alloc, [
-				kindField!"match-union",
-				field!"matched"(jsonOfExprAndType(alloc, ctx, x.matched)),
-				field!"cases"(jsonList!(MatchUnionExpr.Case)(alloc, x.cases, (in MatchUnionExpr.Case case_) =>
-					jsonOfMatchUnionCase(alloc, ctx, case_))),
-				optionalField!("else", Expr*)(x.else_, (in Expr* y) => jsonOfExpr(alloc, ctx, *y))]),
 		(in MatchVariantExpr x) =>
 			jsonObject(alloc, [
 				kindField!"match-variant",
@@ -712,11 +693,6 @@ Json jsonOfDestructureSplit(ref Alloc alloc, in Ctx ctx, in Destructure.Split a)
 		kindField!"split",
 		field!"type"(jsonOfType(alloc, ctx, a.destructuredType)),
 		field!"parts"(jsonOfDestructures(alloc, ctx, a.parts))]);
-
-Json jsonOfMatchUnionCase(ref Alloc alloc, in Ctx ctx, in MatchUnionExpr.Case a) =>
-	jsonObject(alloc, [
-		field!"destructure"(jsonOfDestructure(alloc, ctx, a.destructure)),
-		field!"then"(jsonOfExpr(alloc, ctx, a.then))]);
 
 Json jsonOfLocal(ref Alloc alloc, in Ctx ctx, in Local a) =>
 	jsonObject(alloc, [

@@ -32,8 +32,7 @@ import model.model :
 	StructInst,
 	Type,
 	TypeArgs,
-	TypeParamIndex,
-	UnionMember;
+	TypeParamIndex;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapToStackArray, withStackArray;
 import util.col.array : emptySmallArray, fold, map, small, SmallArray, sum;
@@ -108,9 +107,6 @@ void instantiateStructTypes(InstantiateCtx ctx, StructInst* inst, scope MayDelay
 		(StructBody.Record r) =>
 			map!(Type, RecordField)(ctx.alloc, r.fields, (ref RecordField field) =>
 				instantiateType(ctx, field.type, typeArgs, delayStructInsts)),
-		(ref StructBody.Union u) =>
-			map!(Type, UnionMember)(ctx.alloc, u.members, (ref UnionMember member) =>
-				instantiateType(ctx, member.type, typeArgs, delayStructInsts)),
 		(StructBody.Variant x) =>
 			buildSmallArrayExact!Type(
 				ctx.alloc,

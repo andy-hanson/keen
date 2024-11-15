@@ -146,7 +146,6 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchUnionExpr,
 	MatchVariantExpr,
 	Params,
 	paramsArray,
@@ -565,8 +564,6 @@ ExprResult translateExpr(ref TranslateExprCtx ctx, ref Expr a, Type type, scope 
 			translateMatchIntegral(ctx, source, x, type, pos),
 		(ref MatchStringLikeExpr x) =>
 			translateMatchStringLike(ctx, source, x, type, pos),
-		(ref MatchUnionExpr x) =>
-			translateMatchUnion(ctx, source, a, x, type, pos),
 		(ref MatchVariantExpr x) =>
 			translateMatchVariant(ctx, source, a, x, type, pos),
 		(ref RecordFieldPointerExpr x) =>
@@ -944,32 +941,6 @@ ExprResult translateMatchStringLike(
 				translateExprToSwitchBlockStatement(ctx, case_.then, type))),
 		translateExprToSwitchBlockStatement(ctx, a.else_, type)));
 
-ExprResult translateMatchUnion(
-	ref TranslateExprCtx ctx,
-	in Source source,
-	in Expr expr,
-	ref MatchUnionExpr a,
-	Type type,
-	scope ExprPos pos,
-) =>
-	withTemp(ctx, symbol!"matched", a.matched, pos, (JsName matched, scope ExprPos inner) =>
-		translateMatchUnionOrVariant!(MatchUnionExpr.Case)(
-			ctx, source, matched, expr, a.cases, type, inner,
-			translateSwitchDefault(
-				ctx, source,
-				has(a.else_) ? some(*force(a.else_)) : none!Expr,
-				type, "Invalid union value"),
-			(ref MatchUnionExpr.Case case_, in Source caseSource) =>
-				MatchUnionOrVariantCase(
-					genIn(
-						ctx.alloc, caseSource,
-						JsMemberName.unionMember(case_.member.name),
-						genIdentifier(source, matched)),
-					genPropertyAccess(
-						ctx.alloc, source,
-						genIdentifier(source, matched),
-						JsMemberName.unionMember(case_.member.name)))));
-
 ExprResult translateMatchVariant(
 	ref TranslateExprCtx ctx,
 	in Source source,
@@ -1010,7 +981,7 @@ ExprResult translateMatchVariant(
 					matchedExpr);
 		});
 
-immutable struct MatchUnionOrVariantCase {
+immutable struct MatchUnionOrVariantCase { // rename ------------------------------------------------------------------------
 	JsExpr isMatch;
 	JsExpr destructured;
 }

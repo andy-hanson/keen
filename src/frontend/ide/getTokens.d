@@ -400,10 +400,7 @@ void addStructTokens(scope ref Ctx ctx, in StructDeclAst a) {
 			addEnumOrFlagsTokens(ctx, a, x.params, x.members);
 		},
 		(in StructBodyAst.Record x) {
-			addRecordOrUnionTokens(ctx, a, x.params, x.fields, TokenType.property);
-		},
-		(in StructBodyAst.Union x) {
-			addRecordOrUnionTokens(ctx, a, x.params, x.members, TokenType.enumMember);
+			addRecordTokens(ctx, a, x.params, x.fields, TokenType.property);
 		},
 		(in StructBodyAst.Variant x) {
 			addModifierTokens(ctx, a.modifiers);
@@ -414,7 +411,7 @@ void addStructTokens(scope ref Ctx ctx, in StructDeclAst a) {
 		});
 }
 
-void addRecordOrUnionTokens(
+void addRecordTokens(
 	scope ref Ctx ctx,
 	in StructDeclAst a,
 	in Opt!ParamsAst params,

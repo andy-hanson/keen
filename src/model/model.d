@@ -485,40 +485,6 @@ immutable struct RecordField {
 	}
 }
 
-immutable struct UnionMember {
-	@safe @nogc pure nothrow:
-
-	RecordOrUnionMemberSource source;
-	StructDecl* containingUnion;
-	Type type; // This will be 'void' if no type is specified
-	private Late!DocCommentReferences lateDocCommentReferences;
-
-	bool hasValue() =>
-		!isVoid(type);
-	size_t memberIndex() =>
-		mustHaveIndexOfPointer(containingUnion.body_.as!(StructBody.Union*).members, &this);
-	Uri moduleUri() scope =>
-		containingUnion.moduleUri;
-	Visibility visibility() scope =>
-		containingUnion.visibility;
-	Symbol name() scope =>
-		source.name;
-	Range range() scope =>
-		source.range;
-	UriAndRange nameRange() scope =>
-		UriAndRange(moduleUri, source.nameRange);
-
-	DocCommentAst docCommentAst() return scope =>
-		source.docComment;
-	DocComment docComment() return scope =>
-		DocComment(docCommentAst, docCommentReferences);
-	DocCommentReferences docCommentReferences() return scope =>
-		lateGet(lateDocCommentReferences);
-	void docCommentReferences(DocCommentReferences value) {
-		lateSet(lateDocCommentReferences, value);
-	}
-}
-
 alias ByValOrRef = immutable ByValOrRef_;
 private enum ByValOrRef_ : ubyte {
 	byVal,
@@ -607,10 +573,6 @@ immutable struct StructBody {
 		RecordFlags flags;
 		SmallArray!RecordField fields;
 	}
-	immutable struct Union { // TODO: KILL (use Variant with union kind) ------------------------------------------------------------
-		SmallArray!UnionMember members;
-		HashTable!(UnionMember*, Symbol, nameOfUnionMember) membersByName;
-	}
 	// This is an interface or variant
 	immutable struct Variant {
 		VariantKind kind;
@@ -618,7 +580,7 @@ immutable struct StructBody {
 		SmallArray!Signature methods;
 	}
 
-	mixin .Union!(Bogus, BuiltinType, Enum*, Extern, Flags, Record, Union*, Variant);
+	mixin .Union!(Bogus, BuiltinType, Enum*, Extern, Flags, Record, Variant);
 }
 // static assert(StructBody.sizeof == StructBody.Record.sizeof + size_t.sizeof); // ---------------------------------------------------------------------
 
@@ -631,8 +593,7 @@ VariantMemberAndMethodImpls[] asUnion(ref StructBody.Variant a) {
 
 Symbol nameOfEnumOrFlagsMember(in EnumOrFlagsMember* a) =>
 	a.name;
-Symbol nameOfUnionMember(in UnionMember* a) =>
-	a.name;
+	
 
 IntegralValue getAllFlagsValue(in StructBody.Flags body_) =>
 	fold!(IntegralValue, EnumOrFlagsMember)(
@@ -1081,9 +1042,6 @@ immutable struct FunBody {
 	immutable struct CreateRecordAndConvertToVariant {
 		StructInst* member; // This is the record type and the variant member type
 	}
-	immutable struct CreateUnion { // kill -----------------------------------------------------------------------------------
-		UnionMember* member;
-	}
 	immutable struct CreateVariant {}
 	immutable struct Extern {
 		Symbol libraryName;
@@ -1104,9 +1062,6 @@ immutable struct FunBody {
 	immutable struct RecordFieldSet {
 		RecordField* field;
 	}
-	immutable struct UnionMemberGet { // kill ---------------------------------------------------------------------------------
-		UnionMember* member;
-	}
 	immutable struct VarGet { VarDecl* var; }
 	immutable struct VariantMemberGet {}
 	immutable struct VariantMethod { Signature* method; }
@@ -1120,7 +1075,6 @@ immutable struct FunBody {
 		CreateExtern,
 		CreateRecord,
 		CreateRecordAndConvertToVariant,
-		CreateUnion,
 		CreateVariant,
 		Expr,
 		Extern,
@@ -1130,7 +1084,6 @@ immutable struct FunBody {
 		RecordFieldGet,
 		RecordFieldPointer,
 		RecordFieldSet,
-		UnionMemberGet,
 		VarGet,
 		VariantMemberGet,
 		VariantMethod,
@@ -1490,7 +1443,6 @@ immutable struct FunDeclSource {
 		// This is for a variant method
 		Signature*,
 		StructDecl*,
-		UnionMember*,
 		VarDecl*);
 
 	Uri moduleUri() scope =>
@@ -1508,8 +1460,6 @@ immutable struct FunDeclSource {
 			(in Signature x) =>
 				x.moduleUri,
 			(in StructDecl x) =>
-				x.moduleUri,
-			(in UnionMember x) =>
 				x.moduleUri,
 			(in VarDecl x) =>
 				x.moduleUri);
@@ -1530,8 +1480,6 @@ immutable struct FunDeclSource {
 				x.range,
 			(in StructDecl x) =>
 				x.range,
-			(in UnionMember x) =>
-				UriAndRange(x.moduleUri, x.range),
 			(in VarDecl x) =>
 				x.range);
 	UriAndRange nameRange() scope =>
@@ -1549,8 +1497,6 @@ immutable struct FunDeclSource {
 			(in Signature x) =>
 				x.nameRange,
 			(in StructDecl x) =>
-				x.nameRange,
-			(in UnionMember x) =>
 				x.nameRange,
 			(in VarDecl x) =>
 				x.nameRange);
@@ -1605,8 +1551,6 @@ immutable struct FunDecl {
 				x.container.typeParams,
 			(ref StructDecl x) =>
 				x.typeParams,
-			(ref UnionMember x) =>
-				x.containingUnion.typeParams,
 			(ref VarDecl x) =>
 				x.typeParams);
 
@@ -2969,7 +2913,6 @@ immutable struct DocCommentReference {
 		StructDecl*,
 		SpecDecl*,
 		TypeParamIndex,
-		UnionMember*,
 		VarDecl*);
 }
 alias DocCommentReferences = SmallArray!DocCommentReference;
@@ -3013,7 +2956,6 @@ immutable struct ExprKind {
 		MatchEnumExpr*,
 		MatchIntegralExpr*,
 		MatchStringLikeExpr*,
-		MatchUnionExpr*,
 		MatchVariantExpr*,
 		RecordFieldPointerExpr*,
 		SeqExpr*,
@@ -3324,7 +3266,6 @@ immutable struct MatchEnumExpr {
 Range caseNameRange(in Expr matchExpr, size_t caseIndex) {
 	assert(
 		matchExpr.kind.isA!(MatchEnumExpr*) ||
-		matchExpr.kind.isA!(MatchUnionExpr*) ||
 		matchExpr.kind.isA!(MatchVariantExpr*) ||
 		matchExpr.kind.isA!(TryExpr*));
 	SmallArray!CaseAst cases = matchExpr.ast.kind.isA!TryAst
@@ -3365,25 +3306,6 @@ immutable struct MatchStringLikeExpr {
 	Called equals; // == function for the type
 	SmallArray!Case cases;
 	Expr else_;
-}
-
-immutable struct MatchUnionExpr { // kill -------------------------------------------------------------------------------------------
-	@safe @nogc pure nothrow:
-
-	immutable struct Case {
-		UnionMember* member;
-		Destructure destructure;
-		Expr then;
-	}
-
-	ExprAndType matched;
-	SmallArray!Case cases;
-	Opt!(Expr*) else_;
-
-	StructInst* union_() =>
-		matched.type.as!(StructInst*);
-	UnionMember[] unionMembers() =>
-		union_.decl.body_.as!(StructBody.Union*).members;
 }
 
 immutable struct MatchVariantExpr {
@@ -3643,12 +3565,6 @@ Opt!T findDirectChildExpr(T)(
 				() => firstPointer!(T, MatchStringLikeExpr.Case)(x.cases, (MatchStringLikeExpr.Case* y) =>
 					cb(sameType(&y.then))),
 				() => cb(sameType(&x.else_))),
-		(MatchUnionExpr* x) =>
-			optOr!T(
-				cb(toRef(&x.matched)),
-				() => firstPointer!(T, MatchUnionExpr.Case)(x.cases, (MatchUnionExpr.Case* case_) =>
-					cb(sameType(&case_.then))),
-				() => has(x.else_) ? cb(sameType(force(x.else_))) : none!T),
 		(MatchVariantExpr* x) =>
 			optOr!T(
 				cb(toRef(&x.matched)),

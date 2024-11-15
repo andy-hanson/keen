@@ -49,7 +49,6 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchUnionExpr,
 	MatchVariantExpr,
 	RecordField,
 	Signature,
@@ -66,7 +65,6 @@ import model.model :
 	TypeContainer,
 	TypeParamIndex,
 	TypeWithContainer,
-	UnionMember,
 	VarDecl,
 	VariantKind;
 import util.alloc.alloc : Alloc;
@@ -134,9 +132,8 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 						return "Declares a mutable thread-local variable.";
 					case PositionKind.Keyword.Kind.underscore:
 						return "Ignores the value.";
-					case PositionKind.Keyword.Kind.union_:
-						return "Declares a type where a value will be one of the listed choices.";
 					case PositionKind.Keyword.Kind.variant:
+						// Improve description ... and have this depend on whether the keyword is actually variant / union / interface -----
 						return "Declares a union-like type with an unlimited set of members, " ~
 							"created by 'variant-member' declarations.";
 					case PositionKind.Keyword.Kind.variantMember:
@@ -178,12 +175,6 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 			writeQuotedString(writer, x.value);
 			writer ~= " :: ";
 			writeTypeUnquoted(writer, ctx, x.type);
-		},
-		(PositionKind.MatchUnionCase x) {
-			writer ~= "Handler for union ";
-			writeName(writer, ctx, x.member.containingUnion.name);
-			writer ~= " member ";
-			writeName(writer, ctx, x.member.name);
 		},
 		(PositionKind.MatchVariantCase x) {
 			writer ~= "Handler for type ";
@@ -318,18 +309,6 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 		(PositionKind.TypeParamWithContainer x) {
 			hoverTypeParam(writer, ctx, x.container, x.typeParam);
 		},
-		(UnionMember* x) {
-			writer ~= "Union member ";
-			writer ~= x.containingUnion.name;
-			writer ~= '.';
-			writer ~= x.name;
-			if (x.type == Type(ctx.commonTypes.void_))
-				writer ~= " (no associated value)";
-			else {
-				writer ~= " :: ";
-				writeTypeUnquoted(writer, ctx, TypeWithContainer(x.type, TypeContainer(x.containingUnion)));
-			}
-		},
 		(VarDecl* x) {
 			writer ~= stringOfVarKindUpperCase(x.kind);
 			writer ~= " variable ";
@@ -411,13 +390,6 @@ void hoverForDocRef(scope ref Writer writer, in ShowModelCtx ctx, PositionKind.D
 			writeName(writer, ctx, typeContainerFor(a.container).typeParams[x.index].name);
 			writer ~= '.';
 		},
-		(UnionMember* x) {
-			writer ~= "References union ";
-			writeName(writer, ctx, x.containingUnion.name);
-			writer ~= " member ";
-			writeName(writer, ctx, x.name);
-			writer ~= '.';
-		},
 		(VarDecl* x) {
 			writer ~= "References ";
 			writer ~= stringOfVarKindLowerCase(x.kind);
@@ -446,8 +418,6 @@ void writeStructDeclHover(scope ref Writer writer, in ShowModelCtx ctx, in Struc
 			"Flags type ",
 		(in StructBody.Record) =>
 			"Record type ",
-		(in StructBody.Union) =>
-			"Union type ",
 		(in StructBody.Variant x) {
 			final switch (x.kind) { // TODO: DUP CODE (search "Union" string) -------------------------------------------------------
 				case VariantKind.interface_:
@@ -677,8 +647,6 @@ void getMatchHover(
 		final switch (info.kind) {
 			case MatchInfo.Kind.enum_:
 				return "Evaluates the branch with the selected member of the enum";
-			case MatchInfo.Kind.union_:
-				return "Evaluates the branch with the selected member of the union";
 			case MatchInfo.Kind.variant:
 				return "Evaluates the branch with the selected member of the variant";
 			case MatchInfo.Kind.other:
@@ -692,7 +660,7 @@ void getMatchHover(
 		: ".";
 }
 immutable struct MatchInfo {
-	enum Kind { enum_, union_, variant, other }
+	enum Kind { enum_, variant, other } // TODO: maybe I should have some internal name that means unionOrVariantOrInterface. 'iuv'?
 	Kind kind;
 	Type matchedType;
 }
@@ -703,8 +671,6 @@ MatchInfo getMatchInfo(ExprKind a) =>
 		? MatchInfo(MatchInfo.Kind.other, a.as!(MatchIntegralExpr*).matched.type)
 		: a.isA!(MatchStringLikeExpr*)
 		? MatchInfo(MatchInfo.Kind.other, a.as!(MatchStringLikeExpr*).matched.type)
-		: a.isA!(MatchUnionExpr*)
-		? MatchInfo(MatchInfo.Kind.union_, a.as!(MatchUnionExpr*).matched.type)
 		: a.isA!(MatchVariantExpr*)
 		? MatchInfo(MatchInfo.Kind.variant, a.as!(MatchVariantExpr*).matched.type)
 		: assert(false);

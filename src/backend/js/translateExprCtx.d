@@ -442,13 +442,6 @@ ExprResult translateInlineCall(
 			expr(createRecord(returnStruct)),
 		(in FunBody.CreateRecordAndConvertToVariant x) =>
 			expr(createVariant(ctx, source, returnStruct, createRecord(x.member.decl), x.member.decl.name)),
-		(in FunBody.CreateUnion x) {
-			JsExpr member = genPropertyAccess(
-				ctx.alloc, source, returnTypeRef,
-				JsMemberName.unionConstructor(x.member.name));
-			assert(nArgs == 0 || nArgs == 1);
-			return expr(nArgs == 0 ? member : genCallSync(ctx.alloc, source, member, [getArg(0)]));
-		},
 		(in FunBody.CreateVariant x) =>
 			expr(createVariant(ctx, source, returnStruct, onlyArg(), only(paramTypes).as!(StructInst*).decl.name)),
 		(in Expr _) =>
@@ -477,18 +470,6 @@ ExprResult translateInlineCall(
 			assert(nArgs == 2);
 			return forceStatement(ctx, pos, genAssign(ctx.alloc, source, recordField(x.field), getArg(1)));
 		},
-		(in FunBody.UnionMemberGet x) =>
-			withTemp(ctx, symbol!"member", onlyArg(), pos, (JsName member, scope ExprPos inner) {
-				JsMemberName memberName = JsMemberName.unionMember(x.member.name);
-				return forceExpr(ctx.alloc, inner, returnType, genTernary(
-					ctx.alloc,
-					source,
-					genIn(ctx.alloc, source, memberName, genIdentifier(source, member)),
-					genOptionSome(
-						ctx.alloc, source,
-						genPropertyAccess(ctx.alloc, source, genIdentifier(source, member), memberName)),
-					genOptionNone(source)));
-			}),
 		(in FunBody.VarGet x) =>
 			expr(translateVarReference(ctx.ctx, source, x.var)),
 		(in FunBody.VariantMemberGet) {

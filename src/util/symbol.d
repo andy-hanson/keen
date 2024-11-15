@@ -572,7 +572,6 @@ immutable string[] specialSymbols = [
 	"symbol-low-level",
 	"to-mut-pointer",
 	"trust-as-string",
-	"union2", // -0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 	"unsafe-bit-shift-left",
 	"unsafe-bit-shift-right",
 	"variant",

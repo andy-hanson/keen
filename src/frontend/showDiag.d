@@ -56,8 +56,7 @@ import model.model :
 	Type,
 	TypeContainer,
 	TypeParamsAndSig,
-	TypeWithContainer,
-	UnionMember;
+	TypeWithContainer;
 import model.parseDiag : ParseDiag, ParseDiagnostic;
 import util.alloc.alloc : Alloc;
 import util.col.array : contains, exists, isEmpty, only;
@@ -653,7 +652,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 						return "Type";
 					case Diag.DuplicateDeclaration.Kind.typeParam:
 						return "Type parameter";
-					case Diag.DuplicateDeclaration.Kind.unionMember:
+					case Diag.DuplicateDeclaration.Kind.unionMember: // still used? ------------------------------------------------------
 						return "Union member";
 				}
 			}();
@@ -967,22 +966,16 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			}();
 		},
 		(in Diag.MatchCaseNameDoesNotMatch x) {
-			bool isEnum = x.enumOrUnion.body_.isA!(StructBody.Enum*);
-			writer ~= (isEnum ? "Enum " : "Union ");
-			writeName(writer, ctx, x.enumOrUnion.name);
+			bool isEnum = x.enum_.body_.isA!(StructBody.Enum*);
+			writer ~= "Enum ";
+			writeName(writer, ctx, x.enum_.name);
 			writer ~= " has no member ";
 			writer ~= x.actual;
 			writer ~= ".\nThis should be one of: ";
-			if (isEnum) {
-				writeWithCommas!EnumOrFlagsMember(
-					writer, x.enumOrUnion.body_.as!(StructBody.Enum*).members, (in EnumOrFlagsMember member) {
-						writeName(writer, ctx, member.name);
-					});
-			} else
-				writeWithCommas!UnionMember(
-					writer, x.enumOrUnion.body_.as!(StructBody.Union*).members, (in UnionMember member) {
-						writeName(writer, ctx, member.name);
-					});
+			writeWithCommas!EnumOrFlagsMember(
+				writer, x.enum_.body_.as!(StructBody.Enum*).members, (in EnumOrFlagsMember member) {
+					writeName(writer, ctx, member.name);
+				});
 		},
 		(in Diag.MatchCaseNoValueForEnumOrSymbol x) {
 			writer ~= "Matching on ";
@@ -994,16 +987,9 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= ", so case should not expect a value.";
 		},
 		(in Diag.MatchCaseShouldUseIgnore x) {
-			x.member.matchIn!void(
-				(in StructInst x) {
-					writer ~= "Variant member ";
-					writeName(writer, ctx, x.decl.name);
-				},
-				(in UnionMember x) {
-					writer ~= "Union member ";
-					writeName(writer, ctx, x.name);
-				});
-			writer ~= " declares a value, so it should be explicitly ignored using ";
+			writer ~= "Variant member type ";
+			writeName(writer, ctx, x.member.decl.name);
+			writer ~= " is non-empty, so it should be explicitly ignored using ";
 			writeName(writer, ctx, symbol!"_");
 			writer ~= '.';
 		},
@@ -1021,8 +1007,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in Diag.MatchUnhandledCases x) {
 			writer ~= "'match' is missing ";
 			size_t length = x.matchIn!size_t(
-				(in EnumOrFlagsMember*[] xs) => xs.length,
-				(in UnionMember*[] xs) => xs.length);
+				(in EnumOrFlagsMember*[] xs) => xs.length);
 			writer ~= (length == 1 ? "case" : "cases:");
 			writer ~= ' ';
 			x.matchIn!void(
@@ -1030,7 +1015,8 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					writeWithCommas!(EnumOrFlagsMember*)(writer, members, (in EnumOrFlagsMember* member) {
 						writeName(writer, ctx, member.name);
 					});
-				},
+				});
+				/* ------------------------------------------------------------------------------------------------------------------------
 				(in UnionMember*[] members) {
 					writeWithCommas!(UnionMember*)(writer, members, (in UnionMember* member) {
 						writeName(writer, ctx, member.name);
@@ -1043,6 +1029,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 						}
 					});
 				});
+				*/
 		},
 		(in Diag.MatchUnnecessaryElse x) {
 			writer ~= "'match' handles every case, so the 'else' is unused.";
@@ -1373,11 +1360,6 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 						return "An enum member can't be 'mut'.";
 					case Diag.UnsupportedSyntax.Reason.enumMemberType:
 						return "An enum member can't specify a type.";
-					case Diag.UnsupportedSyntax.Reason.unionMemberMutability:
-						return "A union member can't be 'mut'.";
-					case Diag.UnsupportedSyntax.Reason.unionMemberVisibility:
-						return "Can't specify visibility here; " ~
-							"a union member always has the same visibility as the union.";
 				}
 			}();
 		},
@@ -1502,12 +1484,10 @@ DeclKind declKindOfStruct(StructDecl* a) =>
 			DeclKind.flags,
 		(in StructBody.Record) =>
 			DeclKind.record,
-		(in StructBody.Union) =>
-			DeclKind.union_,
 		(in StructBody.Variant) =>
 			DeclKind.variant);
 
-enum MemberKind { enumMember, flagsMember, recordField, unionMember }
+enum MemberKind { enumMember, flagsMember, recordField }
 MemberKind memberKindOfStruct(StructDecl* a) =>
 	a.body_.matchIn!MemberKind(
 		(in StructBody.Bogus) =>
@@ -1522,8 +1502,6 @@ MemberKind memberKindOfStruct(StructDecl* a) =>
 			MemberKind.flagsMember,
 		(in StructBody.Record) =>
 			MemberKind.recordField,
-		(in StructBody.Union) =>
-			MemberKind.unionMember,
 		(in StructBody.Variant) =>
 			assert(false));
 
@@ -1553,10 +1531,8 @@ string aOrAnDeclKind(DeclKind a) {
 			return "A test";
 		case DeclKind.threadLocal:
 			return "A thread-local variable";
-		case DeclKind.union_:
-			return "A union type";
 		case DeclKind.variant:
-			return "An interface or variant type";
+			return "An interface, union, or variant type";
 	}
 }
 
@@ -1568,8 +1544,6 @@ string aOrAnMemberKind(MemberKind a) {
 			return "A flags member";
 		case MemberKind.recordField:
 			return "A record field";
-		case MemberKind.unionMember:
-			return "A union member";
 	}
 }
 
@@ -1806,7 +1780,6 @@ string describeTokenForUnexpected(Token token) {
 			// This is ParseDiag.UnexpectedCharacter instead
 			assert(false);
 		case Token.union_:
-		case Token.union2:
 			return "Unexpected keyword 'union'.";
 		case Token.unless:
 			return "Unexpected keyword 'unless'.";

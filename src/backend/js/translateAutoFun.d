@@ -236,8 +236,6 @@ JsExprOrBlockStatement matchEnumFlagsRecordOrUnion(
 		cbFlags,
 		(in StructBody.Record x) =>
 			cbRecord(x.fields),
-		(in StructBody.Union) =>
-			assert(false),
 		(in StructBody.Variant x) {
 			assert(x.kind == VariantKind.union_);
 			return cbUnion(x.listedMembers);

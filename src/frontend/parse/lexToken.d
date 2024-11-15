@@ -212,7 +212,6 @@ enum Token {
 	unexpectedCharacter, // Any unexpected character
 	underscore, // '_'
 	union_, // 'union'
-	union2, // 'union2' -------------------------------------------------------------------------------------------------------------
 	unless, // 'unless'
 	unsafe, // 'unsafe'
 	until, // 'until'
@@ -623,8 +622,6 @@ Token tokenForSymbol(Symbol a) {
 			return Token.unless;
 		case symbol!"union".value:
 			return Token.union_;
-		case symbol!"union2".value:
-			return Token.union2;
 		case symbol!"unsafe".value:
 			return Token.unsafe;
 		case symbol!"until".value:

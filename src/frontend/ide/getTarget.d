@@ -45,7 +45,6 @@ import model.model :
 	Test,
 	TypeParamIndex,
 	TypeWithContainer,
-	UnionMember,
 	VarDecl;
 import util.col.array : only;
 import util.opt : none, Opt, optIf, some;
@@ -70,7 +69,6 @@ immutable struct Target {
 		StructAlias*,
 		StructDecl*,
 		PositionKind.TypeParamWithContainer,
-		UnionMember*,
 		VarDecl*);
 }
 
@@ -102,8 +100,6 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 					some(Target(PositionKind.TypeParamWithContainer(
 						x,
 						forbidModule(typeContainerFor(docRef.container))))),
-				(UnionMember* x) =>
-					some(Target(x)),
 				(VarDecl* x) =>
 					some(Target(x))),
 		(EnumOrFlagsMember* x) =>
@@ -126,8 +122,6 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 			none!Target,
 		(PositionKind.MatchStringLikeCase x) =>
 			none!Target,
-		(PositionKind.MatchUnionCase x) =>
-			some(Target(x.member)),
 		(PositionKind.MatchVariantCase x) =>
 			some(Target(x.member.decl)),
 		(PositionKind.Modifier) =>
@@ -161,8 +155,6 @@ Opt!Target targetForPosition(in CommonTypes commonTypes, Position pos) =>
 				(StructInst* x) =>
 					some(Target(x.decl))),
 		(PositionKind.TypeParamWithContainer x) =>
-			some(Target(x)),
-		(UnionMember* x) =>
 			some(Target(x)),
 		(VarDecl* x) =>
 			some(Target(x)),
@@ -227,9 +219,6 @@ Target funDeclTarget(in CommonTypes commonTypes, FunDecl* a) =>
 			returnTypeTarget(a),
 		(FunBody.CreateRecordAndConvertToVariant x) =>
 			Target(x.member.decl),
-		(FunBody.CreateUnion) =>
-			// TODO: goto the particular union member
-			returnTypeTarget(a),
 		(FunBody.CreateVariant x) =>
 			Target(only(a.params.as!(Destructure[])).type.as!(StructInst*).decl),
 		(Expr _) =>
@@ -249,8 +238,6 @@ Target funDeclTarget(in CommonTypes commonTypes, FunDecl* a) =>
 			Target(x.field),
 		(FunBody.RecordFieldSet x) =>
 			Target(x.field),
-		(FunBody.UnionMemberGet x) =>
-			Target(x.member),
 		(FunBody.VarGet x) =>
 			Target(x.var),
 		(FunBody.VariantMemberGet) =>

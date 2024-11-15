@@ -58,7 +58,6 @@ import model.model :
 	maxValue,
 	minValue,
 	nameOfEnumOrFlagsMember,
-	nameOfUnionMember,
 	Params,
 	Purity,
 	purityRange,
@@ -76,7 +75,6 @@ import model.model :
 	TypeContainer,
 	TypeParamIndex,
 	TypeParams,
-	UnionMember,
 	VariantAndMethodImpls,
 	VariantMemberAndMethodImpls,
 	Visibility;
@@ -167,10 +165,6 @@ void checkStructBodies(
 			(StructBodyAst.Record x) =>
 				StructBody(checkRecord(
 					ctx, commonTypes, structsAndAliasesMap, struct_, ast.modifiers, x, delayStructInsts)),
-			(StructBodyAst.Union x) {
-				checkOnlyCommonModifiers(ctx, DeclKind.union_, ast.modifiers);
-				return checkUnion(ctx, commonTypes, structsAndAliasesMap, struct_, ast.range, x, delayStructInsts);
-			},
 			(StructBodyAst.Variant x) {
 				checkOnlyCommonModifiers(ctx, DeclKind.variant, ast.modifiers);
 				SmallArray!VariantMemberAndMethodImpls listedMembers = checkVariantListedMembersInitial(ctx, commonTypes, structsAndAliasesMap, delayStructInsts, struct_, x);
@@ -484,7 +478,6 @@ Purity defaultPurity(DeclKind a) {
 		case DeclKind.enum_:
 		case DeclKind.flags:
 		case DeclKind.record:
-		case DeclKind.union_:
 		case DeclKind.variant:
 			return Purity.data;
 		case DeclKind.extern_:
@@ -512,8 +505,6 @@ DeclKind getDeclKind(in StructBodyAst a) =>
 			DeclKind.flags,
 		(in StructBodyAst.Record) =>
 			DeclKind.record,
-		(in StructBodyAst.Union) =>
-			DeclKind.union_,
 		(in StructBodyAst.Variant) =>
 			DeclKind.variant);
 
@@ -767,34 +758,6 @@ StructBody.Record checkRecord(
 	return StructBody.Record(flags, fields);
 }
 
-StructBody checkUnion( // kill ---------------------------------------------------------------------------------------------------
-	ref CheckCtx ctx,
-	ref CommonTypes commonTypes,
-	ref StructsAndAliasesMap structsAndAliasesMap,
-	StructDecl* struct_,
-	Range range,
-	ref StructBodyAst.Union ast,
-	scope ref DelayStructInsts delayStructInsts,
-) {
-	final switch (struct_.linkage) {
-		case Linkage.internal:
-			break;
-		case Linkage.extern_:
-			addDiag(ctx, range, Diag(Diag.ExternUnion()));
-	}
-	SmallArray!UnionMember members = checkRecordOrUnionMembers!UnionMember(
-		ctx, struct_, ast.params, ast.members, Diag.DuplicateDeclaration.Kind.unionMember,
-		(RecordOrUnionMemberAstCommon memberAst) =>
-			checkUnionMember(ctx, commonTypes, structsAndAliasesMap, delayStructInsts, struct_, memberAst));
-	HashTable!(UnionMember*, Symbol, nameOfUnionMember) membersByName =
-		makeHashTable!(UnionMember, Symbol, nameOfUnionMember)(ctx.alloc, members, (UnionMember* duplicateMember) {
-			// Diag already added in checkRecordOrUnionMembers
-		});
-	if (isEmpty(members))
-		addDiag(ctx, range, Diag(Diag.EmptyEnumOrUnion()));
-	return StructBody(allocate(ctx.alloc, StructBody.Union(members, membersByName)));
-}
-
 // Shared in common between DestructureAst.Single and RecordOrUnionMemberAst
 struct RecordOrUnionMemberAstCommon {
 	RecordOrUnionMemberSource source;
@@ -806,7 +769,7 @@ struct RecordOrUnionMemberAstCommon {
 
 alias CbCheckMember(Member) = Member delegate(RecordOrUnionMemberAstCommon) @safe @nogc pure nothrow;
 
-SmallArray!Member checkRecordOrUnionMembers(Member)(
+SmallArray!Member checkRecordOrUnionMembers(Member)( // TODO: this will only be for record now? -----------------------------
 	ref CheckCtx ctx,
 	StructDecl* struct_,
 	Opt!ParamsAst params,
@@ -921,29 +884,6 @@ RecordField checkRecordField(
 			Diag.VisibilityWarning.Kind(Diag.VisibilityWarning.Kind.FieldMutability(name))))
 		: none!Visibility;
 	return RecordField(ast.source, record, visibility, mutability, memberType);
-}
-
-UnionMember checkUnionMember(
-	ref CheckCtx ctx,
-	ref CommonTypes commonTypes,
-	ref StructsAndAliasesMap structsAndAliasesMap,
-	scope ref DelayStructInsts delayStructInsts,
-	StructDecl* struct_,
-	RecordOrUnionMemberAstCommon ast,
-) {
-	Type type = has(ast.type)
-		? typeFromAst(
-			ctx, commonTypes, structsAndAliasesMap,
-			force(ast.type), struct_.typeParams, someMut(ptrTrustMe(delayStructInsts)), AliasAllowed.yes)
-		: Type(commonTypes.void_);
-	checkReferenceLinkageAndPurity(ctx, struct_, ast.name.range, type);
-	if (has(ast.mutability))
-		addDiag(ctx, force(ast.mutability).range, Diag(
-			Diag.UnsupportedSyntax(Diag.UnsupportedSyntax.Reason.unionMemberMutability)));
-	if (has(ast.visibility))
-		addDiag(ctx, force(ast.visibility).range, Diag(
-			Diag.UnsupportedSyntax(Diag.UnsupportedSyntax.Reason.unionMemberVisibility)));
-	return UnionMember(ast.source, struct_, type);
 }
 
 IntegralType checkEnumOrFlagsModifiers(

@@ -258,29 +258,21 @@ Json jsonOfStructBodyAst(ref Alloc alloc, in Ctx ctx, in StructBodyAst a) =>
 		(in StructBodyAst.Flags e) =>
 			jsonOfEnumOrFlags(alloc, ctx, "flags", e.params, e.members),
 		(in StructBodyAst.Record a) =>
-			jsonOfRecordOrUnion(alloc, ctx, "record", a.params, a.fields),
-		(in StructBodyAst.Union a) =>
-			jsonOfRecordOrUnion(alloc, ctx, "union", a.params, a.members),
+			jsonOfRecordAst(alloc, ctx, a),
 		(in StructBodyAst.Variant x) =>
 			jsonObject(alloc, [
 				field!"kind"(stringOfEnum(x.kind)),
 				field!"types"(jsonOfTypeAsts(alloc, ctx, x.types)),
 				field!"methods"(jsonOfSignatureAsts(alloc, ctx, x.methods))]));
 
-Json jsonOfRecordOrUnion(
-	ref Alloc alloc,
-	in Ctx ctx,
-	string kind,
-	in Opt!ParamsAst params,
-	in RecordOrUnionMemberAst[] members,
-) =>
+Json jsonOfRecordAst(ref Alloc alloc, in Ctx ctx, in StructBodyAst.Record a) =>
 	jsonObject(alloc, [
-		kindField(kind),
-		optionalField!("params", ParamsAst)(params, (in ParamsAst x) => jsonOfParamsAst(alloc, ctx, x)),
-		field!"members"(jsonList!RecordOrUnionMemberAst(alloc, members, (in RecordOrUnionMemberAst x) =>
-			jsonOfRecordOrUnionMember(alloc, ctx, x)))]);
+		kindField!"record",
+		optionalField!("params", ParamsAst)(a.params, (in ParamsAst x) => jsonOfParamsAst(alloc, ctx, x)),
+		field!"fields"(jsonList!RecordOrUnionMemberAst(alloc, a.fields, (in RecordOrUnionMemberAst x) =>
+			jsonOfRecordField(alloc, ctx, x)))]);
 
-Json jsonOfRecordOrUnionMember(ref Alloc alloc, in Ctx ctx, in RecordOrUnionMemberAst a) =>
+Json jsonOfRecordField(ref Alloc alloc, in Ctx ctx, in RecordOrUnionMemberAst a) =>
 	jsonObject(alloc, [
 		field!"range"(jsonOfRange(alloc, ctx, a.range)),
 		visibilityField(a.visibility_),

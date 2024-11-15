@@ -69,7 +69,6 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchUnionExpr,
 	MatchVariantExpr,
 	Module,
 	moduleAtUri,
@@ -98,7 +97,6 @@ import model.model :
 	Type,
 	TypedExpr,
 	TypeParamIndex,
-	UnionMember,
 	VariantAndMethodImpls,
 	VariantKind,
 	VariantMemberAndMethodImpls,
@@ -453,10 +451,6 @@ void trackAllUsedInStructBody(ref AllUsedBuilder res, Uri from, in StructBody a)
 			foreach (RecordField field; record.fields)
 				trackAllUsedInType(res, from, field.type);
 		},
-		(ref StructBody.Union x) {
-			foreach (UnionMember member; x.members)
-				trackAllUsedInType(res, from, member.type);
-		},
 		(StructBody.Variant x) {
 			if (x.kind == VariantKind.union_) {
 				foreach (VariantMemberAndMethodImpls member; x.listedMembers)
@@ -545,9 +539,6 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 				usedReturnType();
 				trackAllUsedInStruct(res, from, x.member.decl);
 			},
-			(FunBody.CreateUnion) {
-				usedReturnType();
-			},
 			(FunBody.CreateVariant) {
 				usedReturnType();
 			},
@@ -567,9 +558,6 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 			(FunBody.RecordFieldGet) {},
 			(FunBody.RecordFieldPointer) { assert(false); },
 			(FunBody.RecordFieldSet) {},
-			(FunBody.UnionMemberGet) {
-				usedReturnType();
-			},
 			(FunBody.VarGet x) {
 				cast(void) addDecl(res, from, AnyDecl(x.var));
 			},
@@ -723,9 +711,6 @@ void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, ExprRef a)
 			},
 			(ref MatchIntegralExpr _) {},
 			(ref MatchStringLikeExpr _) {},
-			(ref MatchUnionExpr x) {
-				trackAllUsedInStruct(res, from, x.union_.decl);
-			},
 			(ref MatchVariantExpr x) {
 				trackAllUsedInMatchVariantCases(res, from, x.cases);
 			},

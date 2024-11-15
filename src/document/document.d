@@ -32,7 +32,6 @@ import model.model :
 	Type,
 	TypeParamIndex,
 	TypeParams,
-	UnionMember,
 	VarDecl,
 	VariantAndMethodImpls,
 	VarKind,
@@ -189,8 +188,6 @@ DocExport documentStructDecl(ref Ctx ctx, in StructDecl a) {
 				field!"members"(jsonOfEnumMembers(ctx.alloc, x.members)), variantsField]),
 		(in StructBody.Record x) =>
 			documentRecord(ctx, a, x, variantsField),
-		(in StructBody.Union x) =>
-			documentUnion(ctx, a, x, variantsField),
 		(in StructBody.Variant x) =>
 			documentVariant(ctx, a, x, variantsField)));
 }
@@ -224,14 +221,6 @@ bool hasNonPublicFields(in StructBody.Record a) =>
 		}
 	});
 
-Json documentUnion(ref Ctx ctx, in StructDecl decl, in StructBody.Union a, Opt!(Json.ObjectField) variantsField) =>
-	jsonObject(ctx.alloc, [
-		kindField!"union",
-		maybePurity(ctx.alloc, decl),
-		field!"members"(jsonList!UnionMember(ctx.alloc, a.members, (in UnionMember member) =>
-			documentUnionMember(ctx, decl.typeParams, member))),
-		variantsField]);
-
 Json documentVariant(
 	ref Ctx ctx,
 	in StructDecl decl,
@@ -256,11 +245,6 @@ Opt!Json documentRecordField(ref Ctx ctx, in TypeParams typeParams, in RecordFie
 				optionalFlagField!"mut"(has(a.mutability) && force(a.mutability) == Visibility.public_)]));
 	}
 }
-
-Json documentUnionMember(ref Ctx ctx, in TypeParams typeParams, in UnionMember a) =>
-	jsonObject(ctx.alloc, [
-		field!"name"(a.name),
-		field!"type"(documentTypeRef(ctx, typeParams, a.type))]);
 
 DocExport documentSpec(ref Ctx ctx, in SpecDecl a) =>
 	documentExport(ctx, a.range, a.name, a.docComment, a.typeParams, jsonObject(ctx.alloc, [

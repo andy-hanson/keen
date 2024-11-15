@@ -172,7 +172,6 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchUnionExpr,
 	MatchVariantExpr,
 	Mutability,
 	paramsArray,
@@ -196,7 +195,6 @@ import model.model :
 	TypeContainer,
 	TypedExpr,
 	TypeWithContainer,
-	UnionMember,
 	VariableRef,
 	VariantAndMethodImpls,
 	VariantKind,
@@ -1573,8 +1571,6 @@ Expr checkMatch(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ref Mat
 				? checkMatchStringLike(ctx, locals, source, ast, expected, matched, force(stringLike))
 				: notMatchable();
 		},
-		(ref StructBody.Union x) =>
-			checkMatchUnion(ctx, locals, source, ast, expected, matched, x, inst),
 		(StructBody.Variant x) =>
 			canMatchVariant(x.kind)
 				? checkMatchVariant(ctx, locals, source, ast, expected, matched, inst)
@@ -1611,45 +1607,6 @@ Expr checkMatchEnum(
 		},
 		(SmallArray!(MatchEnumExpr.Case) cases, Opt!Expr else_) =>
 			Expr(source, ExprKind(allocate(ctx.alloc, MatchEnumExpr(matched, cases, else_)))));
-
-Expr checkMatchUnion( // kill -----------------------------------------------------------------------------------------------
-	ref ExprCtx ctx,
-	ref LocalsInfo locals,
-	ExprAst* source,
-	ref MatchAst ast,
-	ref Expected expected,
-	ref ExprAndType matched,
-	in StructBody.Union body_,
-	StructInst* matchedUnion,
-) =>
-	checkMatchEnumOrUnion!(MatchUnionExpr.Case)(
-		ctx, locals, source, ast, expected, matchedUnion.decl, body_.members, body_.membersByName,
-		(size_t memberIndex, UnionMember* member, CaseAst* caseAst, CaseMemberAst.Name*) {
-			CaseResult result = checkMatchUnionOrVariantCase!UnionMember(
-				ctx, locals, member, matchedUnion.instantiatedTypes[memberIndex],
-				&caseAst.member, &caseAst.then, expected);
-			return MatchUnionExpr.Case(member, result.destructure, result.expr);
-		},
-		(SmallArray!(MatchUnionExpr.Case) cases, Opt!Expr else_) {
-			Opt!(Expr*) elsePtr = optIf(has(else_), () => allocate(ctx.alloc, force(else_)));
-			return Expr(source, ExprKind(allocate(ctx.alloc, MatchUnionExpr(matched, cases, elsePtr))));
-		});
-
-/*
-Expr checkMatchUnion2( // rename --------------------------------------------------------------------------------------------------------
-	ref ExprCtx ctx,
-	ref LocalsInfo locals,
-	ExprAst* source,
-	ref MatchAst ast,
-	ref Expected expected,
-	ref ExprAndType matched,
-	StructInst* matchedVariant,
-) {
-	checkMatchEnumOrUnion!(MatchVariantExpr.Case)(
-		ctx, locals, source, ast, expected, matchedVariant.decl, matchedVariant.decl.body_.as!(StructBody.Variant).listedMembers,
-		
-}
-*/
 
 Expr checkMatchVariant(
 	ref ExprCtx ctx,
@@ -1750,8 +1707,7 @@ CaseResult checkMatchUnionOrVariantCase(Member)( // TODO: RENAME? _0000000000000
 			return checkDestructure2(ctx, &force(destructureAst), memberType, DestructureKind.local);
 		else {
 			if (!isEmptyType(memberType))
-				addDiag2(ctx, memberAst.nameRange, Diag(
-					Diag.MatchCaseShouldUseIgnore(Diag.MatchCaseShouldUseIgnore.Member(member))));
+				addDiag2(ctx, memberAst.nameRange, Diag(Diag.MatchCaseShouldUseIgnore(member)));
 			return Destructure(allocate(ctx.alloc, Destructure.Ignore(
 				DestructureIgnoreSource(memberAst), memberAst.nameRange.start, memberType)));
 		}

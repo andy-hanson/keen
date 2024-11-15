@@ -208,7 +208,6 @@ bool isExpressionStartToken(in TokenAndData a) {
 		case Token.thread_local:
 		case Token.unexpectedCharacter:
 		case Token.union_:
-		case Token.union2:
 		case Token.unsafe:
 		case Token.variant:
 		case Token.variantMember:
