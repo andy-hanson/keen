@@ -94,12 +94,9 @@ bool isVoid(in ConcreteType a) =>
 	a.struct_.body_.isA!(ConcreteStructBody.Builtin*) &&
 	a.struct_.body_.as!(ConcreteStructBody.Builtin*).kind == BuiltinType.void_;
 bool isEmptyType(in ConcreteType a) =>
-	// TODO: Shouldn't depend on this ...
-	a.struct_.infoIsSet && (
-		isVoid(a) || (
-			a.reference == ReferenceKind.byVal &&
-			a.struct_.body_.isA!(ConcreteStructBody.Record) &&
-			isEmpty(a.struct_.body_.as!(ConcreteStructBody.Record).fields)));
+	a.reference == ReferenceKind.byVal && isEmptyStruct(*a.struct_);
+bool isEmptyStruct(in ConcreteStruct a) =>
+	a.typeSize.sizeBytes == 0;
 
 alias ReferenceKind = immutable ReferenceKind_;
 private enum ReferenceKind_ { byVal, byRef }
@@ -200,6 +197,8 @@ immutable struct ConcreteStruct {
 	bool isSelfMutable() scope =>
 		info.isSelfMutable;
 
+	bool typeSizeIsSet() scope =>
+		lateIsSet(typeSize_);
 	TypeSize typeSize() scope =>
 		lateGet(typeSize_);
 	void typeSize(TypeSize value) {
@@ -298,8 +297,16 @@ immutable struct ConcreteLocal {
 
 immutable struct ConcreteFunBody {
 	immutable struct Builtin {
+		@safe @nogc pure nothrow:
+
 		BuiltinFun kind;
 		ConcreteType[] typeArgs;
+
+		this(BuiltinFun k, ConcreteType[] ta) {
+			kind = k;
+			typeArgs = ta;
+			assert(!kind.isA!(BuiltinFun.NewEmptyOption)); // TODO: be more restrictive about what's allowed here -----------------------
+		}
 	}
 	immutable struct Extern {
 		Symbol libraryName;

@@ -397,6 +397,14 @@ FunBody inner(
 			return arity == 1 && isNat64(rt) && isMutSlice(p0) ? unary(BuiltinUnary.arraySize) : fail();
 		case symbol!"nan".value:
 			return constant(isFloat32Or64(rt), Constant(Constant.Float(double.nan)));
+		case symbol!"new".value:
+			return isOptionType(commonTypes, rt) ?
+				arity == 0
+					? FunBody(BuiltinFun(BuiltinFun.NewEmptyOption()))
+					: arity == 1 && isTypeParam0(p0)
+					? FunBody(BuiltinFun(BuiltinFun.NewNonEmptyOption()))
+					: fail()
+				: fail();
 		case symbol!"new-array".value:
 			return isArray(rt) && isNat64(p0) && isPointerConst(p1)
 				? binary(BuiltinBinary.newArray)

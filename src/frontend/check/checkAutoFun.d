@@ -29,7 +29,6 @@ import model.model :
 	RecordField,
 	SpecDecl,
 	Signature,
-	SpecInst,
 	StructBody,
 	StructDecl,
 	StructInst,

@@ -81,6 +81,7 @@ import model.ast : ImportOrExportAstKind;
 import model.model :
 	AnyDecl,
 	allExterns,
+	asUnion,
 	BuildTarget,
 	BuiltinType,
 	Called,
@@ -106,9 +107,10 @@ import model.model :
 	StructDecl,
 	Test,
 	TestSelector,
-	UnionMember,
 	VarDecl,
 	VariantAndMethodImpls,
+	VariantKind,
+	VariantMemberAndMethodImpls,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
@@ -598,9 +600,11 @@ JsDecl translateStructDecl(ref TranslateModuleCtx ctx, StructDecl* a) {
 				translateRecordDecl(ctx, source, out_, super_, x);
 			},
 			(ref StructBody.Union x) {
-				translateUnionDecl(ctx, source, out_, super_, x);
+				assert(false); // translateUnionDecl(ctx, source, out_, super_, x); -------------------------------------------------
 			},
-			(StructBody.Variant) {
+			(StructBody.Variant x) {
+				if (x.kind == VariantKind.union_)
+					translateUnionDecl(ctx, source, out_, super_, x);
 				if (a == ctx.commonTypes.exception.decl) {
 					extends = someMut(allocate(ctx.alloc, genGlobal(source, symbol!"Error")));
 					translateExceptionClass(ctx, source, out_);
@@ -836,16 +840,18 @@ void translateUnionDecl(
 	in Source source,
 	scope ref Builder!JsClassMember out_,
 	Opt!Super super_,
-	in StructBody.Union a,
+	in StructBody.Variant a,
 ) {
 	/*
 	class U {
 		constructor(arg) {
 			Object.assign(this, arg)
 		}
-		static foo = new this({foo:null})
+		static foo(value) {
+			return new this({ foo: value })
+		}
 		static bar(value) {
-			return new this({bar:value})
+			return new this({ bar: value })
 		}
 	}
 	*/
@@ -858,13 +864,13 @@ void translateUnionDecl(
 			JsMemberName.noPrefix(symbol!"assign"),
 			[genThis(source), genIdentifier(source, arg)]))]);
 
-	foreach (ref UnionMember member; a.members) {
+	foreach (ref VariantMemberAndMethodImpls member; asUnion(a)) {
 		out_ ~= () {
-			if (member.hasValue) {
+			if (true) { // TODO: remove the other branch ----------------------------------------------------------------------------------------
 				JsName value = JsName.specialLocal(symbol!"value");
 				JsParams params = JsParams(newSmallArray!JsDestructure(ctx.alloc, [JsDestructure(value)]));
 				ArrayBuilder!JsStatement out_;
-				genAssertType(out_, ctx, source, member.type, genIdentifier(source, value));
+				genAssertType(out_, ctx, source, *member.member, genIdentifier(source, value));
 				add(ctx.alloc, out_, genReturn(
 					ctx.alloc,
 					source,
@@ -888,6 +894,8 @@ void translateUnionDecl(
 						genObject(ctx.alloc, source, JsMemberName.unionMember(member.name), genNull(source))]));
 		}();
 	}
+
+	// TODO: this will need to include the methods too? Or maybe those just compile to functions that do the match ---------------------
 }
 
 JsClassMember genConstructor(

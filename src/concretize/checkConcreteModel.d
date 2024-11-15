@@ -92,7 +92,12 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 			assert(sizeOrPointerSizeBytes(type) == sizeOrPointerSizeBytes(x.inner.type));
 			checkExpr(ctx, x.inner.type, *x.inner);
 		},
-		(in Constant) {},
+		(in Constant x) {
+			if (x.isA!(Constant.Record)) {
+				assert(mustBeByVal(type).body_.isA!(ConcreteStructBody.Record));
+			}
+			// TODO: MORE CHECKS --------------------------------------------------------------------------------------------
+		},
 		(in ConcreteExprKind.CreateArray x) {
 			// TODO: validate 'type' is an array type and 'args' are elements
 			foreach (ConcreteExpr arg; x.args)
@@ -279,6 +284,12 @@ void checkBuiltin(ref Ctx ctx, in ConcreteType type, in ConcreteExprKind.Builtin
 			assert(false);
 		},
 		(BuiltinFun.MarkVisit) {
+			assert(false);
+		},
+		(BuiltinFun.NewEmptyOption) {
+			assert(false);
+		},
+		(BuiltinFun.NewNonEmptyOption) {
 			assert(false);
 		},
 		(BuiltinFun.PointerCast) {

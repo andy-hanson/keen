@@ -15,13 +15,13 @@ import
 		gc, gc-root, gc-add-root, gc-begin, gc-complete, gc-end, init, needs-gc, mutator-begin,
 		mutator-end, uninit
 	./bootstrap:
-		change-exclusion, cur-exclusion, cur-fiber, delay-until-time, done, fiber, fiber-state,
-		hard-assert, hard-unreachable, must-cur-fiber, new, queued, queued-initial, running,
-		set-cur-exclusion, set-cur-fiber, set-state, stack, stack-pointer, state,
-		symbol, yield-request
+		add-awaiting-fiber, add-to-queue, await-future, change-exclusion, cur-exclusion, cur-fiber,
+		delay-until-time, done, fiber, fiber-state, future, hard-assert, hard-unreachable, init,
+		must-cur-fiber, new, new-exclusion, queued, queued-initial, running, set-cur-exclusion,
+		set-cur-fiber, set-state, stack, stack-pointer, state, symbol, timestamp, to, yield-request
 	./fiber-queue:
-		add-gc-roots, destroy, enqueue-fiber, enqueue-timed-fiber, exclusion,
-		fiber-queue, init, pop-task, release-exclusion, slow-is-empty, uninit
+		add-gc-roots, destroy, enqueue-fiber, enqueue-timed-fiber, exclusion, fiber-queue,
+		first-task-time, init, no-immediate, pop-task, release-exclusion, slow-is-empty, uninit
 	./thread-utils:
 		acquire, broadcast, condition, decrement, destroy-condition, get-and-increment,
 		get-sequence, increment-and-get, init, init-global-lock, lock, release, thread-safe-counter,
@@ -150,7 +150,7 @@ destroy void(a global-ctx mut*) bare, unsafe, native extern
 -fiber-func void(fiber fiber) force-ctx, unsafe, native extern
 	cur-fiber := fiber,
 	gc-root == null hard-assert
-	func = fiber.state queued-initial ?? hard-unreachable
+	func void mut() = (fiber.state queued-initial ?? hard-unreachable) init
 	fiber.state := running
 	# It will 'mutator-end' every time it yields and 'mutator-begin' upon resuming
 	get-global-ctx.gc mutator-begin
@@ -199,12 +199,12 @@ destroy void(a global-ctx mut*) bare, unsafe, native extern
 		as fiber x
 			gctx run-fiber x
 			continue
-		as gc
+		as do-gc
 			gctx.may-be-work-to-do broadcast
 			gctx do-gc
 			continue
-		as wait-for-task wait-until-time
-			gctx.may-be-work-to-do wait-on wait-until-time, last-checked
+		as wait-for-task x
+			gctx.may-be-work-to-do wait-on x.wait-until-time, last-checked
 			gctx.n-waiting-threads decrement
 			continue
 		as shut-down
@@ -216,7 +216,7 @@ destroy void(a global-ctx mut*) bare, unsafe, native extern
 | The caller should do something to ensure the fiber will eventually be resumed.
 ~yield-this-fiber void(request yield-request) unsafe, native extern
 	fiber = must-cur-fiber
-	fiber.state := request yield-request
+	fiber.state := request to
 	mutator-end
 	&fiber.stack-pointer switch-fiber *thread-base-stack-pointer
 	get-global-ctx.gc mutator-begin
@@ -242,14 +242,14 @@ destroy void(a global-ctx mut*) bare, unsafe, native extern
 	match state yield-request ?? hard-unreachable
 	as add-to-queue
 		gctx enqueue-fiber fiber
-	as await-future future, add-awaiting-fiber
-		unless add-awaiting-fiber[future, fiber]
+	as await-future x
+		unless x.add-awaiting-fiber[x.future, fiber]
 			gctx enqueue-fiber fiber
-	as change-exclusion new-exclusion
-		fiber.cur-exclusion := new-exclusion
+	as change-exclusion x
+		fiber.cur-exclusion := x.new-exclusion
 		gctx enqueue-fiber fiber
-	as delay-until-time timestamp
-		gctx enqueue-timed-fiber timestamp, fiber
+	as delay-until-time x
+		gctx enqueue-timed-fiber x.timestamp, fiber
 	as done
 		fiber.state := done
 
@@ -267,34 +267,32 @@ destroy void(a global-ctx mut*) bare, unsafe, native extern
 	gctx.as-const.fiber-queue.slow-is-empty hard-assert
 	gctx.fiber-queue-lock release
 
--what-to-do union mut
-	fiber fiber
-	gc
-	| No task to do now, but wait on {may-be-work-to-do}.
-	| Timestamp is time of the first first timed task, if any.
-	wait-for-task timestamp?
-	# No task to do now or ever, so shut down.
-	shut-down
+-what-to-do union2(fiber, do-gc, wait-for-task, shut-down) mut
+-do-gc record
+| No task to do now, but wait on {may-be-work-to-do}.
+| Timestamp is time of the first first timed task, if any.
+-wait-for-task record(wait-until-time timestamp?) by-val
+-shut-down record
 
 -decide-what-to-do what-to-do(gctx global-ctx mut*) bare, summon, unsafe, native extern
 	cur-time = get-monotime-nsec
 	gctx.fiber-queue-lock acquire
 
 	res = if gctx.gc->needs-gc
-		gc
+		do-gc
 	else
 		match gctx.fiber-queue pop-task cur-time
-		as popped x
-			x fiber
-		as no-immediate first-task-time
+		as fiber x
+			x to
+		as no-immediate x
 			n-waiting = gctx.n-waiting-threads increment-and-get
-			if (n-waiting == gctx->n-threads && first-task-time is-empty) || gctx->is-shut-down
+			if (n-waiting == gctx->n-threads && x.first-task-time is-empty) || gctx->is-shut-down
 				# Can't possibly be any more tasks:
 				# No timed tasks, no threads doing work to add tasks.
 				gctx->is-shut-down := true
 				shut-down
 			else
-				first-task-time wait-for-task
+				x.first-task-time wait-for-task
 
 	gctx.fiber-queue-lock release
 	res

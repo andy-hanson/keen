@@ -11,8 +11,7 @@ import concretize.concretizeExpr :
 	concretizeFunBody,
 	getConcreteFunFromCalled,
 	ensureVariantMember,
-	withConcretizeExprCtx,
-	writeConcreteType;
+	withConcretizeExprCtx;
 import concretize.generate :
 	fieldIndexFromField,
 	genConstant,
@@ -128,7 +127,7 @@ import util.opt : force, has, none, Opt, optOrDefault;
 import util.sourceRange : UriAndRange;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : SymbolSet;
-import util.util : enumConvert, max, roundUp, todo, typeAs;
+import util.util : enumConvert, max, roundUp, typeAs;
 import versionInfo : OS, VersionInfo;
 
 private alias TypeArgsScope = SmallArray!ConcreteType;
@@ -553,6 +552,9 @@ public ConcreteFun* concreteFunForWrapMain(ref ConcretizeCtx ctx, FunInst* model
 	return res;
 }
 
+ConcreteExpr constantVoid(ref ConcretizeCtx ctx, in UriAndRange range) =>
+	ConcreteExpr(voidType(ctx), range, ConcreteExprKind(constantZero));
+
 bool canGetUnionSize(in ConcreteType[] members) =>
 	every!ConcreteType(members, (in ConcreteType type) =>
 		hasSizeOrPointerSizeBytes(type));
@@ -624,7 +626,7 @@ void initializeConcreteStruct(
 			assert(false);
 		},
 		(BuiltinType x) {
-			initializeConcreteStructForBuiltin(ctx, res, x);
+			initializeConcreteStructForBuiltin(ctx, res, typeArgs, x);
 		},
 		(ref StructBody.Enum x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
@@ -711,14 +713,26 @@ SmallArray!(Opt!(ConcreteFun*)) variantMethodImplsInner(ref ConcretizeCtx ctx, i
 	map!(Opt!(ConcreteFun*), Opt!Called)(ctx.alloc, methodImpls, (ref Opt!Called x) =>
 		has(x) ? getConcreteFunFromCalled(ctx, typeArgs, SpecsScope(), force(x)) : none!(ConcreteFun*));
 
-void initializeConcreteStructForBuiltin(ref ConcretizeCtx ctx, ConcreteStruct* struct_, BuiltinType type) {
+void initializeConcreteStructForBuiltin(ref ConcretizeCtx ctx, ConcreteStruct* struct_, in SmallArray!ConcreteType typeArgs, BuiltinType type) {
 	struct_.defaultReferenceKind = ReferenceKind.byVal;
-	if (type != BuiltinType.lambda) { // Lambda types handled in 'finishLambdas'
-		struct_.info = ConcreteStructInfo(
-			ConcreteStructBody(allocate(ctx.alloc, ConcreteStructBody.Builtin(
-				type, struct_.source.as!(ConcreteStructSource.Inst).typeArgs))),
-			false);
-		struct_.typeSize = getBuiltinStructSize(type, ctx.versionInfo);
+	switch (type) {
+		case BuiltinType.lambda:
+			// Lambda types handled in 'finishLambdas'
+			break;
+		case BuiltinType.option:
+			struct_.info = ConcreteStructInfo(
+				ConcreteStructBody(ConcreteStructBody.Union(
+					late(newSmallArray!ConcreteType(ctx.alloc, [voidType(ctx), only(typeArgs)])))),
+				isSelfMutable: false);
+			push(ctx.alloc, ctx.deferredTypeSize, struct_);
+			break;
+		default:
+			struct_.info = ConcreteStructInfo(
+				ConcreteStructBody(allocate(ctx.alloc, ConcreteStructBody.Builtin(
+					type, struct_.source.as!(ConcreteStructSource.Inst).typeArgs))),
+				isSelfMutable: false);
+			struct_.typeSize = getBuiltinStructSize(type, ctx.versionInfo);
+			break;
 	}
 }
 
@@ -779,8 +793,15 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 			withConcretizeExprCtx(ctx, cf, (ref ConcretizeExprCtx exprCtx) =>
 				ConcreteFunBody(concretizeAutoFun(exprCtx, x))),
 		(BuiltinFun x) =>
+			// TODO: break out to a fn ----------------------------------------------------------------------------------------------------
 			x.isA!(BuiltinFun.AllTests)
 				? bodyForAllTests(ctx, cf.returnType)
+				: x.isA!(BuiltinFun.NewEmptyOption)
+				? ConcreteFunBody(ConcreteExpr(cf.returnType, cf.range, ConcreteExprKind(
+					allocate(ctx.alloc, ConcreteExprKind.CreateUnion(0, constantVoid(ctx, cf.range)))))) // TODO: use a helper fn?
+				: x.isA!(BuiltinFun.NewNonEmptyOption)
+				? ConcreteFunBody(ConcreteExpr(cf.returnType, cf.range, ConcreteExprKind(
+					allocate(ctx.alloc, ConcreteExprKind.CreateUnion(1, genLocalGet(cf.range, &only(concreteParams))))))) // TODO: use a helper fn
 				: ConcreteFunBody(ConcreteFunBody.Builtin(x, cf.source.as!ConcreteFunKey.typeArgs)),
 		(FunBody.CreateEnumOrFlags x) =>
 			ConcreteFunBody(genConstant(cf.returnType, cf.range, Constant(IntegralValue(x.member.value.value)))),
@@ -788,8 +809,7 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 			ConcreteFunBody(genConstant(cf.returnType, cf.range, constantZero)),
 		(FunBody.CreateRecord) =>
 			isEmpty(concreteParams)
-				? ConcreteFunBody(genConstant(
-					cf.returnType, cf.range, Constant(Constant.Record(emptySmallArray!Constant))))
+				? ConcreteFunBody(genConstant(cf.returnType, cf.range, constantZero()))
 				: ConcreteFunBody(genCreateRecordFromParams(ctx.alloc, cf.returnType, cf.range, concreteParams)),
 		(FunBody.CreateRecordAndConvertToVariant x) {
 			ConcreteType memberType = getConcreteType(ctx, Type(x.member), cf.source.as!ConcreteFunKey.typeArgs);
@@ -927,6 +947,7 @@ TypeSize getBuiltinStructSize(BuiltinType kind, in VersionInfo version_) {
 			return TypeSize(8, 8);
 		case BuiltinType.future: // Replaced by 'future-impl'
 		case BuiltinType.lambda: // Replaced by variants
+		case BuiltinType.option: // Replaced by a Union type
 		case BuiltinType.mutArray: // Replaced by 'mut-array-impl'
 			assert(false);
 		case BuiltinType.array:

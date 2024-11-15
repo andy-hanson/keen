@@ -31,6 +31,7 @@ import backend.js.jsAst :
 	genIntegerUnsigned,
 	genNew,
 	genNot,
+	genNotNot,
 	genNull,
 	genNumber,
 	genOr,
@@ -93,11 +94,13 @@ import model.model :
 	mustUnwrapOptionType,
 	RecordField,
 	SpecInst,
+	StructBody,
 	StructDecl,
 	StructInst,
 	Test,
 	Type,
-	TypeParamIndex;
+	TypeParamIndex,
+	VariantKind;
 import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, isEmpty, makeArray, map, newArray, only;
 import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder, finish;
@@ -220,24 +223,17 @@ ExprResult forceStatement(ref Alloc alloc, SyncOrAsync curFunAsync, scope ExprPo
 
 JsExpr translateLocalGet(in Source source, in Local* local) =>
 	genIdentifier(source, localName(*local));
-
 JsExpr genOptionHas(ref Alloc alloc, in Source source, JsExpr option) =>
-	genIn(alloc, source, JsMemberName.unionMember(symbol!"some"), option);
+	// !!option.length
+	genNotNot(alloc, source, genPropertyAccess(alloc, source, option, JsMemberName.noPrefix(symbol!"length")));
 JsExpr genOptionForce(ref Alloc alloc, in Source source, JsExpr option) =>
-	genPropertyAccess(alloc, source, option, JsMemberName.unionMember(symbol!"some"));
-JsExpr genOptionSome(ref TranslateExprCtx ctx, in Source source, Type option, JsExpr arg) =>
-	genCallPropertySync(
-		ctx.alloc,
-		source,
-		translateStructReference(ctx, source, option.as!(StructInst*).decl),
-		JsMemberName.unionConstructor(symbol!"some"),
-		[arg]);
-JsExpr genOptionNone(ref TranslateExprCtx ctx, in Source source, Type option) =>
-	genPropertyAccess(
-		ctx.alloc,
-		source,
-		translateStructReference(ctx, source, option.as!(StructInst*).decl),
-		JsMemberName.unionConstructor(symbol!"none"));
+	// option[0]
+	genPropertyAccessComputed(alloc, source, option, genNumber(source, 0));
+JsExpr genOptionSome(ref Alloc alloc, in Source source, JsExpr arg) =>
+	// [option]
+	genArray(alloc, source, [arg]);
+JsExpr genOptionNone(in Source source) =>
+	genArray(source, []);
 
 JsExpr translateEnumValue(ref TranslateModuleCtx ctx, in Source source, in EnumOrFlagsMember a) =>
 	genPropertyAccess(
@@ -413,6 +409,8 @@ ExprResult translateInlineCall(
 	size_t nArgs,
 	in JsExpr delegate(size_t) @safe @nogc pure nothrow getArg,
 ) {
+	StructDecl* returnStruct() =>
+		returnType.as!(StructInst*).decl;
 	ExprResult expr(JsExpr value) =>
 		forceExpr(ctx.alloc, pos, returnType, value);
 	JsExpr onlyArg() {
@@ -423,10 +421,10 @@ ExprResult translateInlineCall(
 		assert(nArgs >= skip);
 		return makeArray(ctx.alloc, nArgs - skip, (size_t i) => getArg(i + skip));
 	}
-	ExprResult createRecord(StructInst* record) =>
-		expr(genNew(ctx.alloc, source, translateStructReference(ctx, source, record.decl), args()));
+	JsExpr createRecord(StructDecl* record) =>
+		genNew(ctx.alloc, source, translateStructReference(ctx, source, record), args());
 	JsExpr returnTypeRef() =>
-		translateStructReference(ctx, source, returnType.as!(StructInst*).decl);
+		translateStructReference(ctx, source, returnStruct);
 	JsExpr recordField(RecordField* field) =>
 		genPropertyAccess(ctx.alloc, source, getArg(0), JsMemberName.recordField(field.name));
 	return called.body_.matchIn!ExprResult(
@@ -441,9 +439,9 @@ ExprResult translateInlineCall(
 		(in FunBody.CreateExtern) =>
 			assert(false),
 		(in FunBody.CreateRecord) =>
-			createRecord(returnType.as!(StructInst*)),
+			expr(createRecord(returnStruct)),
 		(in FunBody.CreateRecordAndConvertToVariant x) =>
-			createRecord(x.member),
+			expr(createVariant(ctx, source, returnStruct, createRecord(x.member.decl), x.member.decl.name)),
 		(in FunBody.CreateUnion x) {
 			JsExpr member = genPropertyAccess(
 				ctx.alloc, source, returnTypeRef,
@@ -451,8 +449,8 @@ ExprResult translateInlineCall(
 			assert(nArgs == 0 || nArgs == 1);
 			return expr(nArgs == 0 ? member : genCallSync(ctx.alloc, source, member, [getArg(0)]));
 		},
-		(in FunBody.CreateVariant) =>
-			expr(onlyArg()),
+		(in FunBody.CreateVariant x) =>
+			expr(createVariant(ctx, source, returnStruct, onlyArg(), only(paramTypes).as!(StructInst*).decl.name)),
 		(in Expr _) =>
 			assert(false),
 		(in FunBody.Extern) =>
@@ -487,22 +485,33 @@ ExprResult translateInlineCall(
 					source,
 					genIn(ctx.alloc, source, memberName, genIdentifier(source, member)),
 					genOptionSome(
-						ctx, source, returnType,
+						ctx.alloc, source,
 						genPropertyAccess(ctx.alloc, source, genIdentifier(source, member), memberName)),
-					genOptionNone(ctx, source, returnType)));
+					genOptionNone(source)));
 			}),
 		(in FunBody.VarGet x) =>
 			expr(translateVarReference(ctx.ctx, source, x.var)),
 		(in FunBody.VariantMemberGet) {
 			assert(!bodyIsInlined(*called));
 			JsExpr arg = onlyArg();
-			StructDecl* variant = mustUnwrapOptionType(ctx.commonTypes, returnType).as!(StructInst*).decl;
-			// x instanceof Foo ? Option.some(x) : Option.none
-			return expr(genTernary(ctx.alloc,
-				source,
-				genInstanceof(ctx.alloc, source, arg, translateStructReference(ctx, source, variant)),
-				genOptionSome(ctx, source, returnType, arg),
-				genOptionNone(ctx, source, returnType)));
+			StructInst* member = mustUnwrapOptionType(ctx.commonTypes, returnType).as!(StructInst*);
+			StructDecl* variant = only(paramTypes).as!(StructInst*).decl;
+			if (variant.body_.as!(StructBody.Variant).kind == VariantKind.union_) { // ternary ------------------------------000000000000
+				return expr(genTernary(
+					ctx.alloc,
+					source,
+					genIsUnionMember(ctx.alloc, source, arg, member),
+					genOptionSome(ctx.alloc, source, genForceUnionMember(ctx.alloc, source, arg, member)),
+					genOptionNone(source)));
+			} else {
+				// x instanceof Foo ? Option.some(x) : Option.none
+				return expr(genTernary(
+					ctx.alloc,
+					source,
+					genInstanceof(ctx.alloc, source, arg, translateStructReference(ctx, source, member.decl)),
+					genOptionSome(ctx.alloc, source, arg),
+					genOptionNone(source)));
+			}
 		},
 		(in FunBody.VariantMethod x) =>
 			expr(genCall(
@@ -516,6 +525,16 @@ ExprResult translateInlineCall(
 			forceStatement(
 				ctx, pos,
 				genAssign(ctx.alloc, source, translateVarReference(ctx.ctx, source, x.var), onlyArg())));
+}
+
+private JsExpr createVariant(ref TranslateExprCtx ctx, in Source source, StructDecl* variant, JsExpr arg, Symbol memberName) {
+	if (variant.body_.as!(StructBody.Variant).kind == VariantKind.union_) {
+		JsExpr member = genPropertyAccess(
+			ctx.alloc, source, translateStructReference(ctx, source, variant),
+			JsMemberName.unionConstructor(memberName));
+		return genCallSync(ctx.alloc, source, member, [arg]);
+	} else
+		return arg;
 }
 
 private ExprResult translateCallBuiltin(
@@ -583,6 +602,14 @@ private ExprResult translateCallBuiltin(
 			assert(false),
 		(in BuiltinFun.MarkVisit) =>
 			assert(false),
+		(in BuiltinFun.NewEmptyOption) {
+			assert(nArgs == 0);
+			return expr(genOptionNone(source));
+		},
+		(in BuiltinFun.NewNonEmptyOption) {
+			assert(nArgs == 1);
+			return expr(genOptionSome(ctx.alloc, source, getArg(0)));
+		},
 		(in BuiltinFun.PointerCast) =>
 			assert(false),
 		(in BuiltinFun.SizeOf) =>
@@ -1133,7 +1160,7 @@ private ExprResult translateBuiltinBinaryLazy(
 			return forceExpr(ctx.alloc, pos, type, genOr(ctx.alloc, source, left, right));
 		case BuiltinBinaryLazy.optionOr:
 			// const option = x
-			// return "some" in option ? option : right
+			// return option.length ? option : right
 			return withTemp(ctx, symbol!"option", left, pos, (JsName option, scope ExprPos inner) =>
 				forceExpr(ctx.alloc, inner, type, genTernary(
 					ctx.alloc,
@@ -1143,7 +1170,7 @@ private ExprResult translateBuiltinBinaryLazy(
 					right)));
 		case BuiltinBinaryLazy.optionQuestion2:
 			// const option = left
-			// return "some" in option ? option.some : right
+			// return option.length ? option.some : right
 			return withTemp(ctx, symbol!"option", left, pos, (JsName option, scope ExprPos inner) =>
 				forceExpr(ctx.alloc, inner, type, genTernary(
 					ctx.alloc,
@@ -1263,3 +1290,9 @@ private ExprResult translateCallJsFun(
 
 ExprResult translateToBogus(ref Alloc alloc, in Source source, scope ExprPos pos) =>
 	forceStatement(alloc, SyncOrAsync.sync, pos, genThrowBogus(alloc, source));
+
+//TODO:MOVE?  -----------------------------------------------------------------------------------------------------------------------
+public JsExpr genIsUnionMember(ref Alloc alloc, in Source source, JsExpr a, StructInst* member) =>
+	genIn(alloc, source, JsMemberName.unionMember(member.decl.name), a);
+public JsExpr genForceUnionMember(ref Alloc alloc, in Source source, JsExpr a, StructInst* member) =>
+	genPropertyAccess(alloc, source, a, JsMemberName.unionMember(member.decl.name));

@@ -21,7 +21,7 @@ import model.lowModel :
 	PrimitiveType;
 import model.typeLayout : typeSizeBytes;
 import util.alloc.alloc : Alloc;
-import util.col.array : mapWithIndex, newArray, small, SmallArray;
+import util.col.array : foldReverse, mapWithIndex, newArray, small, SmallArray;
 import util.conv : safeToUint;
 import util.integralValues : IntegralValue, integralValuesRange;
 import util.memory : allocate;
@@ -122,6 +122,13 @@ LowExpr genFunPointer(LowType type, UriAndRange range, LowFunIndex fun) =>
 LowExpr genDrop(ref Alloc alloc, UriAndRange range, LowExpr a) =>
 	a.type == voidType ? a : genUnary(alloc, voidType, range, BuiltinUnary.drop, a);
 
+LowExpr genDropThen(ref Alloc alloc, UriAndRange range, LowExpr a, LowExpr b) =>
+	genSeq(alloc, range, genDrop(alloc, range, a), b);
+
+LowExpr genDropAllThen(ref Alloc alloc, UriAndRange range, LowExpr[] args, LowExpr after) =>
+	foldReverse!(LowExpr, LowExpr)(after, args, (LowExpr acc, ref LowExpr arg) =>
+		genDropThen(alloc, range, arg, acc));
+
 private LowExpr genDerefGcOrRawPointer(ref Alloc alloc, UriAndRange range, LowExpr ptr) =>
 	genUnary(alloc, asPointee(ptr.type), range, BuiltinUnary.deref, ptr);
 
@@ -183,8 +190,10 @@ LowExpr genPointerCast(ref Alloc alloc, LowType type, UriAndRange range, LowExpr
 
 LowExpr genCreateRecordNoGcRoots(ref Alloc alloc, LowType type, UriAndRange range, in LowExpr[] args) =>
 	genCreateRecordNoGcRoots(type, range, newArray(alloc, args));
-LowExpr genCreateRecordNoGcRoots(LowType type, UriAndRange range, LowExpr[] args) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.CreateRecord(args)));
+LowExpr genCreateRecordNoGcRoots(LowType type, UriAndRange range, LowExpr[] args) {
+	assert(type.isA!(LowRecord*));
+	return LowExpr(type, range, LowExprKind(LowExprKind.CreateRecord(args)));
+}
 
 LowExpr genRecordFieldGet(ref Alloc alloc, LowType type, in UriAndRange range, LowExpr record, size_t fieldIndex) =>
 	LowExpr(type, range, LowExprKind(LowExprKind.RecordFieldGet(allocate(alloc, record), fieldIndex)));

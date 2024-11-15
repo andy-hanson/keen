@@ -5,7 +5,7 @@ import
 	../option: ??, new
 	../pointer: mut-pointer
 	../result: fail, new, ok, result, to, value
-	./bootstrap: awaiting-future, fiber, future, hard-unreachable, queued, set-state, state
+	./bootstrap: awaiting-future, fiber, future, hard-unreachable, next-fiber, queued, set-state, state
 	./exception-low-level: exception-and-backtrace, rethrow
 	./runtime: enqueue-fiber, get-global-ctx
 	./thread-utils: acquire, init, lock, release, uninit
@@ -13,16 +13,13 @@ import
 ~future-impl[t] record by-ref, force-shared
 	-lk mut lock
 	-state mut t future-state
--future-state[t] union mut
-	| The future is not resolved and nothing is awaiting it yet.
-	empty
-	| The future is not resolved, and fibers are waiting on it.
-	| Fibers are stored in a linked list. The next fiber in is 'fiber.state.awaiting-future'.
-	awaited-by fiber
-	| The future completed successfully.
-	resolved t
-	| The future completed with an exception.
-	rejected exception-and-backtrace
+-future-state[t] union2(empty, awaited-by, t resolved, exception-and-backtrace) mut
+| The future is not resolved and nothing is awaiting it yet.
+-empty record
+| The future is not resolved, and fibers are waiting on it.
+| Fibers are stored in a linked list. The next fiber in is 'fiber.state.awaiting-future'.
+-awaited-by record(first fiber) by-val, mut
+-resolved[t] record(value t)
 
 ~as-future-impl[t] t future-impl(a t future) builtin, bare, native extern
 ~as-future[t] t future(a t future-impl) builtin, bare, native extern
@@ -36,12 +33,12 @@ import
 		fiber.state := () awaiting-future
 		true
 	as awaited-by x
-		fiber.state := (x,) awaiting-future
+		fiber.state := (x.first,) awaiting-future
 		a.state := fiber awaited-by
 		true
 	as resolved _
 		false
-	as rejected _
+	as exception-and-backtrace _
 		false
 	&a.lk release
 	res
@@ -51,7 +48,7 @@ import
 ~resolved[t] t future-impl(value t) unsafe, native extern
 	value.resolved new-future-impl
 ~rejected[t] t future-impl(err exception-and-backtrace) unsafe, native extern
-	err.rejected new-future-impl
+	err.to new-future-impl
 
 -new-future-impl[t] t future-impl(state t future-state) unsafe, native extern
 	res t future-impl = uninit, state
@@ -65,7 +62,7 @@ import
 	a resolve-or-reject value.resolved
 
 ~reject[t] void(a t future-impl, error exception-and-backtrace) unsafe, native extern
-	a resolve-or-reject error.rejected
+	a resolve-or-reject error.to
 
 ~is-completed[t] bool(a t future-impl)
 	match a state
@@ -75,7 +72,7 @@ import
 		false
 	as resolved _
 		true
-	as rejected _
+	as exception-and-backtrace _
 		true
 
 -resolve-or-reject[t] void(a t future-impl, new-state t future-state) bare, unsafe, native extern
@@ -86,10 +83,10 @@ import
 	match old-state
 	as empty
 		()
-	as awaited-by fiber
-		cur mut = fiber
+	as awaited-by x
+		cur mut = x first
 		loop
-			opt-next = cur.state awaiting-future ?? hard-unreachable
+			opt-next = (cur.state awaiting-future ?? hard-unreachable) next-fiber
 			cur.state := queued
 			get-global-ctx enqueue-fiber cur
 			if next ?= opt-next
@@ -99,7 +96,7 @@ import
 				break
 	as resolved _
 		hard-unreachable
-	as rejected _
+	as exception-and-backtrace _
 		hard-unreachable
 
 ~must-get-result[t] t(a t future-impl) bare, unsafe, native extern
@@ -118,8 +115,8 @@ import
 	as awaited-by _
 		hard-unreachable
 	as resolved x
-		(x,)::(t ok) to
-	as rejected x
+		(x.value,)::(t ok) to
+	as exception-and-backtrace x
 		(x,)::(exception-and-backtrace fail) to
 	a.lock release
 	res

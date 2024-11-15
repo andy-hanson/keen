@@ -424,7 +424,13 @@ immutable struct LowExprKind {
 	}
 
 	immutable struct CreateRecord {
+		@safe @nogc pure nothrow:
 		LowExpr[] args;
+
+		this(LowExpr[] a) {
+			args = a;
+			assert(!isEmpty(args));
+		}
 	}
 
 	immutable struct CreateUnion {

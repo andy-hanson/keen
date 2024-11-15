@@ -38,7 +38,7 @@ import concretize.generate :
 	genCreateRecord,
 	genCreateUnion,
 	genDoAndContinue,
-	genDropAnd,
+	genDropThen,
 	genError,
 	genLet,
 	genLocalGet,
@@ -647,7 +647,6 @@ public size_t ensureVariantMember(
 	ConcreteType memberType,
 ) {
 	ref ConcreteStructBody.Union body_() => mustBeByVal(variantType).body_.as!(ConcreteStructBody.Union);
-	import util.writer : debugLogWithWriter;
 	return body_.hasMembers
 		? force(indexOf!ConcreteType(body_.members, memberType))
 		: findIndexOrPush!ConcreteVariantMemberAndMethodImpls(
@@ -658,31 +657,6 @@ public size_t ensureVariantMember(
 			(ref ConcreteVariantMemberAndMethodImpls x) {
 				x.methodImpls = variantMethodImpls(ctx, variantType, memberType);
 			});
-}
-
-import util.writer : Writer, writeWithCommas;//0999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
-import util.util : stringOfEnum;
-public void writeConcreteType(scope ref Writer writer, in ConcreteType a) {
-	writer ~= stringOfEnum(a.reference);
-	writer ~= " ";
-	writeConcreteStruct(writer, *a.struct_);
-}
-void writeConcreteStruct(scope ref Writer writer, in ConcreteStruct a) {
-	a.source.matchIn!void(
-		(in ConcreteStructSource.Bogus) {
-			writer ~= "BOGUS";
-		},
-		(in ConcreteStructSource.Inst x) {
-			writer ~= x.decl.name;
-			writer ~= '<';
-			writeWithCommas!ConcreteType(writer, x.typeArgs, (in ConcreteType y) {
-				writeConcreteType(writer, y);
-			});
-			writer ~= '>';
-		},
-		(in ConcreteStructSource.Lambda) {
-			writer ~= "some lambda idk";
-		});
 }
 
 SmallArray!(Opt!(ConcreteFun*)) variantMethodImpls( // NOTE: This is only for types with 'variant-member', not variant listed types.
@@ -747,7 +721,7 @@ ConcreteExpr concretizeWithDestructureAndLet(
 		? genLet(ctx.alloc, type, range, force(then.rootLocal), value, then.expr)
 		: value.kind.isA!Constant
 		? then.expr
-		: genDropAnd(ctx.concretizeCtx, range, value, then.expr);
+		: genDropThen(ctx.concretizeCtx, range, value, then.expr);
 }
 
 RootLocalAndExpr concretizeWithDestructure(
@@ -1349,7 +1323,7 @@ Opt!Constant tryEvalConstant(
 				return tryEvalConstantUnary(x.kind.as!BuiltinUnary, only(args));
 			} else if (x.kind.isA!(BuiltinFun.SizeOf)) {
 				assert(isEmpty(args));
-				return isEmptyType(only(fn.source.as!ConcreteFunKey.typeArgs))
+				return isKnownEmptyType(only(fn.source.as!ConcreteFunKey.typeArgs))
 					? some(constantZero())
 					: none!Constant;
 			} else if (x.kind.isA!(BuiltinFun.GcSafeValue)) {
@@ -1366,6 +1340,9 @@ Opt!Constant tryEvalConstant(
 		(in ConcreteFunBody.VarGet) => none!Constant,
 		(in ConcreteFunBody.VarSet) => none!Constant,
 		(in ConcreteFunBody.Deferred) => none!Constant);
+
+bool isKnownEmptyType(in ConcreteType a) =>
+	a.struct_.typeSizeIsSet && isEmptyType(a);
 
 Opt!Constant tryEvalConstantBinary(BuiltinBinary fn, Constant arg0, Constant arg1) {
 	switch (fn) {

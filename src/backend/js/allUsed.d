@@ -51,6 +51,7 @@ import model.model :
 	getCalledAtExpr,
 	IfExpr,
 	ImportOrExport,
+	isBuiltinType,
 	JsFun,
 	LambdaExpr,
 	LetExpr,
@@ -99,6 +100,8 @@ import model.model :
 	TypeParamIndex,
 	UnionMember,
 	VariantAndMethodImpls,
+	VariantKind,
+	VariantMemberAndMethodImpls,
 	variantMethodCaller;
 import util.alloc.alloc : Alloc;
 import util.col.array : exists, zipPointers;
@@ -276,6 +279,10 @@ private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 			assert(false),
 		(in BuiltinFun.MarkVisit) =>
 			assert(false),
+		(in BuiltinFun.NewEmptyOption) =>
+			true,
+		(in BuiltinFun.NewNonEmptyOption) =>
+			true,
 		(in BuiltinFun.PointerCast) =>
 			assert(false),
 		(in BuiltinFun.SizeOf) =>
@@ -395,6 +402,10 @@ immutable struct FunAndSpecSig {
 }
 
 bool addDecl(ref AllUsedBuilder res, Uri from, AnyDecl used) {
+	if (used.isA!(StructDecl*) && used.as!(StructDecl*).body_.isA!BuiltinType) {
+		assert(false); // 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+	}
+
 	MutSet!AnyDecl* perModule = &getOrAdd(res.alloc, res.usedByModule, from, () => MutSet!AnyDecl());
 	return mayAddToMutSet(res.alloc, *perModule, used) && mayAddToMutSet(res.alloc, res.usedDecls, used);
 }
@@ -410,7 +421,7 @@ void trackAllUsedInType(ref AllUsedBuilder res, Uri from, Type a) {
 		});
 }
 void trackAllUsedInStruct(ref AllUsedBuilder res, Uri from, StructDecl* a) {
-	if (addDecl(res, from, AnyDecl(a))) {
+	if (!isBuiltinType(*a) && addDecl(res, from, AnyDecl(a))) {
 		trackAllUsedInStructBody(res, a.moduleUri, a.body_);
 		foreach (VariantAndMethodImpls x; a.variants) {
 			trackAllUsedInStruct(res, a.moduleUri, x.variant.decl);
@@ -446,7 +457,12 @@ void trackAllUsedInStructBody(ref AllUsedBuilder res, Uri from, in StructBody a)
 			foreach (UnionMember member; x.members)
 				trackAllUsedInType(res, from, member.type);
 		},
-		(StructBody.Variant) {});
+		(StructBody.Variant x) {
+			if (x.kind == VariantKind.union_) {
+				foreach (VariantMemberAndMethodImpls member; x.listedMembers)
+					trackAllUsedInStruct(res, from, member.member.decl);
+			}
+		});
 }
 
 void trackAllUsedInMain(ref AllUsedBuilder res, ref ProgramWithMain a) {
@@ -526,12 +542,15 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 				usedReturnType();
 			},
 			(FunBody.CreateRecordAndConvertToVariant x) {
+				usedReturnType();
 				trackAllUsedInStruct(res, from, x.member.decl);
 			},
 			(FunBody.CreateUnion) {
 				usedReturnType();
 			},
-			(FunBody.CreateVariant) {},
+			(FunBody.CreateVariant) {
+				usedReturnType();
+			},
 			(Expr _) {
 				trackAllUsedInExprRef(res, FunOrTest(a), funBodyExprRef(a));
 			},

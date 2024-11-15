@@ -59,6 +59,7 @@ import model.concreteModel :
 	unwrapOptionType;
 import model.constant : Constant;
 import model.model :
+	asUnion,
 	AutoFun,
 	Called,
 	EnumOrFlagsMember,
@@ -67,7 +68,7 @@ import model.model :
 	IntegralType,
 	RecordField,
 	StructBody,
-	UnionMember;
+	VariantMemberAndMethodImpls;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	allSame,
@@ -517,7 +518,7 @@ ConcreteExpr concretizeUnionToJson(
 	in Called[] memberToJson,
 ) {
 	UriAndRange range = ctx.curFun.range;
-	UnionMember[] members = unionMembersForNames(only(ctx.curFun.params).type);
+	VariantMemberAndMethodImpls[] members = unionMembersForNames(only(ctx.curFun.params).type);
 	assert(sizeEq3(memberTypes, memberToJson, members));
 	ConcreteExpr getParam = genParamGet(range, &only(ctx.curFun.params));
 	return genNewJson(ctx.concretizeCtx, range, [
@@ -525,7 +526,7 @@ ConcreteExpr concretizeUnionToJson(
 			ctx.concretizeCtx, symbolJsonTupleType(ctx.concretizeCtx), range, memberTypes, getParam,
 			(size_t memberIndex, ConcreteExpr getMember) =>
 				genSymbolJsonTuple(
-					ctx.concretizeCtx, range, members[memberIndex].name,
+					ctx.concretizeCtx, range, members[memberIndex].member.decl.name,
 					concretizeAndCall(ctx, memberToJson[memberIndex], range, [getMember])))]);
 }
 
@@ -534,8 +535,8 @@ ref StructBody body_(ConcreteType a) =>
 // Discards concrete type info, so used only for names
 RecordField[] recordFieldsForNames(ConcreteType a) =>
 	body_(a).as!(StructBody.Record).fields;
-UnionMember[] unionMembersForNames(ConcreteType a) =>
-	body_(a).as!(StructBody.Union*).members;
+VariantMemberAndMethodImpls[] unionMembersForNames(ConcreteType a) =>
+	asUnion(body_(a));
 
 ConcreteExpr concretizeAndCall(
 	ref ConcretizeExprCtx ctx,

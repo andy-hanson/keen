@@ -767,7 +767,7 @@ StructBody.Record checkRecord(
 	return StructBody.Record(flags, fields);
 }
 
-StructBody checkUnion(
+StructBody checkUnion( // kill ---------------------------------------------------------------------------------------------------
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
@@ -1144,6 +1144,8 @@ BuiltinType getBuiltinType(scope ref CheckCtx ctx, StructDecl* struct_) {
 			return BuiltinType.pointerConst;
 		case symbol!"mut-pointer".value:
 			return BuiltinType.pointerMut;
+		case symbol!"option".value:
+			return BuiltinType.option;
 		case symbol!"string".value:
 			return BuiltinType.string_;
 		case symbol!"symbol".value:

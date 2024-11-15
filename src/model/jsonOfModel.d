@@ -181,6 +181,10 @@ Json jsonOfBuiltin(ref Alloc alloc, in BuiltinFun a) =>
 			jsonString!"mark-root",
 		(in BuiltinFun.MarkVisit) =>
 			jsonString!"mark-visit",
+		(in BuiltinFun.NewEmptyOption) =>
+			jsonString!"new-empty-option",
+		(in BuiltinFun.NewNonEmptyOption) =>
+			jsonString!"new-non-empty-option",
 		(in BuiltinFun.PointerCast) =>
 			jsonString!"pointer-cast",
 		(in BuiltinFun.SizeOf) =>

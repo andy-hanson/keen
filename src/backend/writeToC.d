@@ -16,7 +16,7 @@ import backend.builtinMath : builtinForBinaryMath, builtinForUnaryMath;
 import backend.writeTypes : TypeWriters, writeTypes;
 import frontend.lang : CCompileOptions, CVersion, OptimizationLevel;
 import frontend.showModel : ShowCtx;
-import model.concreteModel : ConcreteStruct, ConcreteStructBody, TypeSize;
+import model.concreteModel : ConcreteStruct, ConcreteStructBody, isEmptyStruct, TypeSize;
 import model.constant : Constant;
 import model.lowModel :
 	AllConstantsLow,
@@ -561,8 +561,6 @@ void writeStructEnd(ref Writer writer) {
 	writer ~= "\n};\n";
 }
 
-bool isEmptyType(in ConcreteStruct a) =>
-	a.typeSize.sizeBytes == 0;
 bool isEmptyType(in Ctx ctx, in LowType a) =>
 	sizeOfType(ctx.program, a).sizeBytes == 0;
 bool isEmptyType(in FunBodyCtx ctx, in LowType a) =>
@@ -659,7 +657,7 @@ void staticAssertStructSize(scope ref Writer writer, scope ref Ctx ctx, in LowTy
 void writeStructs(ref Alloc alloc, scope ref Writer writer, scope ref Ctx ctx) {
 	scope TypeWriters writers = TypeWriters(
 		(ConcreteStruct* x) {
-			if (!isEmptyType(*x))
+			if (!isEmptyStruct(*x))
 				declareStruct(writer, ctx, x);
 		},
 		(ConcreteStruct* source, in Opt!TypeSize typeSize) {

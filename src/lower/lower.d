@@ -26,6 +26,8 @@ import lower.lowExprHelpers :
 	genCreateRecordNoGcRoots,
 	genConstantNat64,
 	genDrop,
+	genDropAllThen,
+	genDropThen,
 	genFalse,
 	genFunPointer,
 	genIdentifier,
@@ -78,6 +80,7 @@ import model.concreteModel :
 	ConcreteType,
 	ConcreteVar,
 	existsDirectChildExpr,
+	isEmptyStruct,
 	mustBeByVal,
 	name,
 	PointerTypeAndConstantsConcrete,
@@ -94,6 +97,7 @@ import model.lowModel :
 	ExternLibrary,
 	isPrimitiveType,
 	isTuple,
+	isVoid,
 	LowCommonTypes,
 	LowExpr,
 	LowExprKind,
@@ -300,6 +304,7 @@ GetLowTypeCtx getAllLowTypes(ref Alloc alloc, in ConcreteProgram program) {
 	ArrayBuilder!LowUnion unionsBuilder;
 	Map!(immutable ConcreteStruct*, immutable uint) indices =
 		makeMapFromKeysOptional!(ConcreteStruct*, uint)(alloc, program.allStructs, (immutable ConcreteStruct* source) =>
+			isEmptyStruct(*source) ? none!uint :
 			source.body_.matchIn!(Opt!uint)(
 				(in ConcreteStructBody.Builtin x) {
 					switch (x.kind) {
@@ -402,6 +407,9 @@ PrimitiveType typeOfIntegralType(IntegralType a) =>
 	enumConvert!PrimitiveType(a);
 
 LowType lowTypeFromConcreteStruct(ref GetLowTypeCtx ctx, in ConcreteStruct* struct_) {
+	if (isEmptyStruct(*struct_))
+		return voidType;
+
 	uint lowIndex() => mustGet(ctx.lowIndices, struct_);
 	LowType record() => LowType(&ctx.allTypes.allRecords[LowRecordIndex(lowIndex)]);
 	return struct_.body_.matchIn!LowType(
@@ -434,6 +442,7 @@ LowType lowTypeFromConcreteStruct(ref GetLowTypeCtx ctx, in ConcreteStruct* stru
 					return record();
 				case BuiltinType.future: // Concretize replaces this with 'future-impl'
 				case BuiltinType.lambda: // Lambda is compiled away by concretize
+				case BuiltinType.option: // Concretize replaces this with a Union type
 				case BuiltinType.mutArray: // Concretize replaces this with 'mut-array-impl'
 					assert(false);
 				case BuiltinType.jsAny:
@@ -1114,8 +1123,12 @@ LowExpr getLowExpr(
 		(ref ConcreteExprKind.MatchUnion x) =>
 			getMatchUnionExpr(ctx, locals, exprPos, type, range, x),
 		(ConcreteExprKind.RecordFieldGet x) =>
-			handleExprPos(ctx, exprPos, genRecordFieldGet(
-				ctx.alloc, type, range, getLowExpr(ctx, locals, *x.record, ExprPos.nonTail), x.fieldIndex)),
+			handleExprPos(
+				ctx, exprPos,
+				isEmptyType(ctx.allTypes, type)
+					? genDropThen(ctx.alloc, range, getLowExpr(ctx, locals, *x.record, exprPos), genZeroed(type, range))
+					: genRecordFieldGet(
+						ctx.alloc, type, range, getLowExpr(ctx, locals, *x.record, ExprPos.nonTail), x.fieldIndex)),
 		(ConcreteExprKind.RecordFieldPointer x) =>
 			handleExprPos(ctx, exprPos, genRecordFieldPointer(
 				ctx.alloc, type, range, getLowExpr(ctx, locals, *x.record, ExprPos.nonTail), x.fieldIndex)),
@@ -1153,7 +1166,7 @@ LowExpr getAllocateExpr(
 LowExpr getAllocExpr(ref GetLowExprCtx ctx, ExprPos exprPos, LowType type, UriAndRange range, LowExpr arg) {
 	if (isEmptyType(ctx.allTypes, arg.type))
 		return handleExprPos(ctx, exprPos, mayHaveSideEffects(arg)
-			? genSeq(ctx.alloc, range, genDrop(ctx.alloc, range, arg), genZeroed(type, range))
+			? genDropThen(ctx.alloc, range, arg, genZeroed(type, range))
 			: genZeroed(type, range));
 	else {
 		LowExpr ptr = getAllocateExpr(ctx, range, type, genSizeOf(ctx.allTypes, range, arg.type));
@@ -1414,6 +1427,10 @@ LowExpr getCallBuiltinExpr(
 		(BuiltinFun.MarkVisit) =>
 			// Handled in getAllLowFuns
 			assert(false),
+		(BuiltinFun.NewEmptyOption) =>
+			assert(false),
+		(BuiltinFun.NewNonEmptyOption) =>
+			assert(false),
 		(BuiltinFun.PointerCast) {
 			assert(args.length == 1);
 			return genPointerCast(ctx.alloc, type, range, getArg0);
@@ -1447,7 +1464,7 @@ LowExpr maybeOptimizeSpecialBinary(
 		case BuiltinBinary.addPointerAndNat64:
 			return isEmptyType(ctx.allTypes, asNonGcPointee(arg0.type))
 				? genLetTempConstNoGcRoot(ctx, range, arg0, (LowExpr getA) =>
-					genSeq(ctx.alloc, range, genDrop(ctx.alloc, range, arg1), getA))
+					genDropThen(ctx.alloc, range, arg1, getA))
 				: unopt();
 		case BuiltinBinary.unsafeDivNat64:
 			if (arg1.kind.isA!Constant) {
@@ -1520,10 +1537,12 @@ LowExpr getCreateRecordExpr(
 	withPushAllGcRoots(ctx, locals, range, exprPos, isYieldingCall: false, a.args, (ExprPos innerPos, LowExpr[] args) {
 		bool alloc = type.isA!(LowType.PointerGc);
 		LowType recordType = alloc ? asGcPointee(type) : type;
-		LowExpr record = genCreateRecordNoGcRoots(recordType, range, args);
+		LowExpr record = isVoid(type)
+			? genDropAllThen(ctx.alloc, range, args, genZeroed(type, range))
+			: genCreateRecordNoGcRoots(recordType, range, args);
 		return alloc
-			? getAllocExpr(ctx, exprPos, type, range, record)
-			: handleExprPos(ctx, exprPos, record);
+			? getAllocExpr(ctx, innerPos, type, range, record)
+			: handleExprPos(ctx, innerPos, record);
 	});
 
 LowExpr genLet(

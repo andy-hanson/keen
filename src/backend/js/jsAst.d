@@ -446,6 +446,8 @@ JsExpr genIntegerUnsigned(in Source source, ulong value) =>
 	genInteger(source, false, IntegralValue(value));
 JsExpr genNot(ref Alloc alloc, in Source source, JsExpr arg) =>
 	genUnary(alloc, source, JsUnaryExpr.Kind.not, arg);
+JsExpr genNotNot(ref Alloc alloc, in Source source, JsExpr arg) =>
+	genNot(alloc, source, genNot(alloc, source, arg));
 JsExpr genNotEqEq(ref Alloc alloc, in Source source, JsExpr left, JsExpr right) =>
 	genBinary(alloc, source, JsBinaryExpr.Kind.notEqEq, left, right);
 JsExpr genNull(in Source source) =>

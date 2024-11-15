@@ -68,6 +68,8 @@ import backend.js.translateExprCtx :
 	forceExpr,
 	forceStatement,
 	forceStatements,
+	genForceUnionMember,
+	genIsUnionMember,
 	genOptionForce,
 	genOptionHas,
 	genOptionNone,
@@ -164,6 +166,7 @@ import model.model :
 	Type,
 	TypedExpr,
 	TypeParamIndex,
+	VariantKind,
 	variantMethodCaller;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapToStackArray;
@@ -208,20 +211,40 @@ void genAssertType(
 		(in Type.Bogus) {},
 		(in TypeParamIndex _) {},
 		(in StructInst x) {
-			Opt!JsExpr notOk = x.decl.body_.isA!BuiltinType
-				? genIsNotBuiltinType(ctx, source, x.decl.body_.as!BuiltinType, get)
-				: optIf(!x.decl.body_.isA!(StructBody.Extern) && !x.decl.body_.isA!(StructBody.Variant), () =>
-					genNot(
-						ctx.alloc, source,
-						genInstanceof(ctx.alloc, source, get, translateStructReference(ctx, source, x.decl))));
-			if (has(notOk))
-				add(ctx.alloc, out_, genIf(
-					ctx.alloc,
-					source,
-					force(notOk),
-					genThrowJsError(ctx.alloc, source, "Value did not have expected type")));
+			genAssertType(out_, ctx, source, x, get);
 		});
 }
+void genAssertType(
+	scope ref ArrayBuilder!JsStatement out_,
+	ref TranslateModuleCtx ctx,
+	in Source source,
+	in StructInst a,
+	JsExpr get,
+) {
+	Opt!JsExpr notOk = a.decl.body_.isA!BuiltinType
+		? genIsNotBuiltinType(ctx, source, a.decl.body_.as!BuiltinType, get)
+		: optIf(!a.decl.body_.isA!(StructBody.Extern) && !isVariantOrInterface(a.decl.body_), () =>
+			genNot(
+				ctx.alloc, source,
+				genInstanceof(ctx.alloc, source, get, translateStructReference(ctx, source, a.decl))));
+	if (has(notOk))
+		add(ctx.alloc, out_, genIf(
+			ctx.alloc,
+			source,
+			force(notOk),
+			genThrowJsError(ctx.alloc, source, "Value did not have expected type")));
+}
+private bool isVariantOrInterface(in StructBody a) =>
+	a.isA!(StructBody.Variant) && () {
+		final switch (a.as!(StructBody.Variant).kind) {
+			case VariantKind.union_:
+				return false;
+			case VariantKind.interface_:
+			case VariantKind.variant:
+				return true;
+		}
+	}();
+
 private Opt!JsExpr genIsNotBuiltinType(ref TranslateModuleCtx ctx, in Source source, BuiltinType type, JsExpr get) {
 	Opt!JsExpr instanceof(Symbol expected) =>
 		some(genNot(ctx.alloc, source, genInstanceof(ctx.alloc, source, get, genGlobal(source, expected))));
@@ -231,6 +254,7 @@ private Opt!JsExpr genIsNotBuiltinType(ref TranslateModuleCtx ctx, in Source sou
 		case BuiltinType.array:
 		case BuiltinType.mutArray:
 		case BuiltinType.mutSlice: // mutSlice might use a Proxy, but that is still instanceof Array
+		case BuiltinType.option:
 			return instanceof(symbol!"Array");
 		case BuiltinType.bool_:
 			return typeof_("boolean");
@@ -617,13 +641,13 @@ ExprResult translateCallOption(
 			translateCallCommon(ctx, source, a.called, [forceIt], a.restArgs, callPos));
 		JsExpr then = a.called.returnType == type
 			? call
-			: genOptionSome(ctx, source, type, call);
+			: genOptionSome(ctx.alloc, source, call);
 		return forceExpr(ctx, inner, type, genTernary(
 			ctx.alloc,
 			source,
 			genOptionHas(ctx.alloc, source, genIdentifier(source, option)),
 			then,
-			genOptionNone(ctx, source, type)));
+			genOptionNone(source)));
 	});
 ExprResult translateCallCommon(
 	ref TranslateExprCtx ctx,
@@ -956,7 +980,7 @@ ExprResult translateMatchVariant(
 ) =>
 	withTemp(ctx, symbol!"matched", a.matched, pos, (JsName matched, scope ExprPos inner) =>
 		translateMatchVariant(
-			ctx, source, matched, expr, a.cases,
+			ctx, source, matched, expr, a.variantBody.kind, a.cases,
 			translateSwitchDefault(ctx, source, a.else_, type, "Invalid union value"),
 			type, inner));
 ExprResult translateMatchVariant(
@@ -964,6 +988,7 @@ ExprResult translateMatchVariant(
 	in Source source,
 	JsName matched,
 	in Expr expr,
+	VariantKind kind,
 	MatchVariantExpr.Case[] cases,
 	JsBlockStatement else_,
 	Type type,
@@ -971,13 +996,19 @@ ExprResult translateMatchVariant(
 ) =>
 	translateMatchUnionOrVariant!(MatchVariantExpr.Case)(
 		ctx, source, matched, expr, cases, type, pos, else_,
-		(ref MatchVariantExpr.Case case_, in Source caseSource) =>
-			MatchUnionOrVariantCase(
-				genInstanceof(
-					ctx.alloc, source,
-					genIdentifier(source, matched),
-					translateStructReference(ctx, source, case_.member.decl)),
-				genIdentifier(source, matched)));
+		(ref MatchVariantExpr.Case case_, in Source caseSource) {
+			JsExpr matchedExpr = genIdentifier(source, matched);
+			if (kind == VariantKind.union_) // ternary ----------------------------------------------------------------------------
+				return MatchUnionOrVariantCase(
+					genIsUnionMember(ctx.alloc, source, matchedExpr, case_.member),
+					genForceUnionMember(ctx.alloc, source, matchedExpr, case_.member));
+			else
+				return MatchUnionOrVariantCase(
+					genInstanceof(
+						ctx.alloc, source, matchedExpr,
+						translateStructReference(ctx, source, case_.member.decl)),
+					matchedExpr);
+		});
 
 immutable struct MatchUnionOrVariantCase {
 	JsExpr isMatch;
@@ -1071,7 +1102,7 @@ ExprResult translateTry(
 		exceptionName,
 		translateToBlockStatement(ctx.alloc, (scope ExprPos inner) =>
 			translateMatchVariant(
-				ctx, source, exceptionName, expr, a.catches,
+				ctx, source, exceptionName, expr, VariantKind.variant, a.catches,
 				genBlockStatement(ctx.alloc, [genThrow(ctx.alloc, source, genIdentifier(source, exceptionName))]),
 				type, inner))));
 }

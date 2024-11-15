@@ -137,7 +137,9 @@ immutable struct Type {
 }
 
 bool isEmptyType(in Type a) =>
-	isVoid(a) || isEmptyRecord(*a.as!(StructInst*).decl);
+	a.isA!(StructInst*) && isEmptyType(*a.as!(StructInst*));
+bool isEmptyType(in StructInst a) =>
+	isVoid(*a.decl) || isEmptyRecord(*a.decl);
 private bool isEmptyRecord(in StructDecl a) =>
 	a.body_.isA!(StructBody.Record) && isEmpty(a.body_.as!(StructBody.Record).fields);
 
@@ -201,6 +203,8 @@ bool isSymbol(in Type a) =>
 	isBuiltinType(a, BuiltinType.symbol);
 bool isVoid(in Type a) =>
 	isBuiltinType(a, BuiltinType.void_);
+bool isVoid(in StructDecl a) =>
+	isBuiltinType(a, BuiltinType.void_);
 
 Opt!IntegralType asIntegralType(in Type a) {
 	Opt!BuiltinType builtin = asBuiltinType(a);
@@ -211,6 +215,8 @@ private bool isBuiltinType(in Type a, BuiltinType builtin) =>
 	a.isA!(StructInst*) && isBuiltinType(*a.as!(StructInst*), builtin);
 private bool isBuiltinType(in StructInst a, BuiltinType builtin) =>
 	isBuiltinType(*a.decl, builtin);
+bool isBuiltinType(in StructDecl a) =>
+	a.body_.isA!BuiltinType;
 private bool isBuiltinType(in StructDecl a, BuiltinType builtin) =>
 	a.body_.isA!BuiltinType && a.body_.as!BuiltinType == builtin;
 private Opt!BuiltinType asBuiltinType(in Type a) =>
@@ -227,6 +233,7 @@ Type mustUnwrapOptionType(in CommonTypes commonTypes, Type a) {
 	return only(a.as!(StructInst*).typeArgs);
 }
 
+// TODO: this no longer needs CommonTypes ------------------------------------------------------------------------------------------
 bool isOptionType(in CommonTypes commonTypes, in Type a) =>
 	a.isA!(StructInst*) && isOptionType(commonTypes, a.as!(StructInst*).decl);
 bool isOptionType(in CommonTypes commonTypes, in StructDecl* a) =>
@@ -615,6 +622,13 @@ immutable struct StructBody {
 }
 // static assert(StructBody.sizeof == StructBody.Record.sizeof + size_t.sizeof); // ---------------------------------------------------------------------
 
+VariantMemberAndMethodImpls[] asUnion(ref StructBody a) =>
+	asUnion(a.as!(StructBody.Variant));
+VariantMemberAndMethodImpls[] asUnion(ref StructBody.Variant a) {
+	assert(a.kind == VariantKind.union_);
+	return a.listedMembers;
+}
+
 Symbol nameOfEnumOrFlagsMember(in EnumOrFlagsMember* a) =>
 	a.name;
 Symbol nameOfUnionMember(in UnionMember* a) =>
@@ -651,6 +665,7 @@ enum BuiltinType {
 	nat16,
 	nat32,
 	nat64,
+	option,
 	pointerConst,
 	pointerMut,
 	string_,
@@ -681,6 +696,7 @@ bool isCharOrIntegral(BuiltinType a) {
 		case BuiltinType.lambda:
 		case BuiltinType.mutArray:
 		case BuiltinType.mutSlice:
+		case BuiltinType.option:
 		case BuiltinType.pointerConst:
 		case BuiltinType.pointerMut:
 		case BuiltinType.string_:
@@ -841,6 +857,8 @@ immutable struct VariantMemberAndMethodImpls {
 	StructInst* member;
 	private Late!(SmallArray!(Opt!Called)) methodImpls_;
 
+	Symbol name() scope =>
+		member.decl.name;
 	SmallArray!(Opt!Called) methodImpls() return scope =>
 		lateGet(methodImpls_);
 	void methodImpls(SmallArray!(Opt!Called) value) =>
@@ -1063,7 +1081,7 @@ immutable struct FunBody {
 	immutable struct CreateRecordAndConvertToVariant {
 		StructInst* member; // This is the record type and the variant member type
 	}
-	immutable struct CreateUnion {
+	immutable struct CreateUnion { // kill -----------------------------------------------------------------------------------
 		UnionMember* member;
 	}
 	immutable struct CreateVariant {}
@@ -1086,7 +1104,7 @@ immutable struct FunBody {
 	immutable struct RecordFieldSet {
 		RecordField* field;
 	}
-	immutable struct UnionMemberGet {
+	immutable struct UnionMemberGet { // kill ---------------------------------------------------------------------------------
 		UnionMember* member;
 	}
 	immutable struct VarGet { VarDecl* var; }
@@ -1155,6 +1173,8 @@ immutable struct BuiltinFun {
 	}
 	immutable struct MarkRoot {}
 	immutable struct MarkVisit {}
+	immutable struct NewEmptyOption {}
+	immutable struct NewNonEmptyOption {}
 	immutable struct PointerCast {}
 	immutable struct SizeOf {}
 	immutable struct StaticSymbols {}
@@ -1176,6 +1196,8 @@ immutable struct BuiltinFun {
 		JsFun,
 		MarkRoot,
 		MarkVisit,
+		NewEmptyOption,
+		NewNonEmptyOption,
 		PointerCast,
 		SizeOf,
 		StaticSymbols,
@@ -3383,6 +3405,8 @@ immutable struct MatchVariantExpr {
 
 	StructInst* variant() return scope =>
 		matched.type.as!(StructInst*);
+	StructBody.Variant variantBody() return scope =>
+		variant.decl.body_.as!(StructBody.Variant);
 }
 
 immutable struct RecordFieldPointerExpr {
