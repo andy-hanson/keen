@@ -69,7 +69,7 @@ import util.symbol : enumOfSymbol, Symbol, symbol, symbolOfEnum;
 import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, SymbolSetBuilder;
 import util.union_ : IndexType, TaggedUnion, Union;
 import util.uri : RelPath, Uri;
-import util.util : enumConvertOrAssert, max, min, optEnumConvert, stringOfEnum;
+import util.util : enumConvertOrAssert, max, min, optEnumConvert, stringOfEnum, todo;
 import versionInfo : OS, VersionFun;
 
 alias Purity = immutable Purity_;
@@ -861,10 +861,19 @@ immutable struct StructInst {
 
 	StructDecl* decl;
 	TypeArgs typeArgs;
-	// TODO: given success with instantiatedTypes, maybe I should transition these to being lazy too? (but beware infinite loops) -----------------------------------
-	// these are inferred from declAndArgs:
-	LinkageRange linkageRange;
-	PurityRange purityRange;
+
+	LinkageRange linkageRange() scope =>
+		fold!(LinkageRange, Type)(
+			LinkageRange(decl.linkage, decl.linkage),
+			typeArgs,
+			(LinkageRange cur, in Type typeArg) => combineLinkageRange(cur, .linkageRange(typeArg)));
+
+	PurityRange purityRange() scope =>
+		fold!(PurityRange, Type)(
+			PurityRange(decl.purity, decl.purity),
+			typeArgs,
+			(PurityRange cur, in Type typeArg) =>
+				combinePurityRange(cur, .purityRange(typeArg)));
 }
 
 bool isDefinitelyByRef(in StructInst a) {

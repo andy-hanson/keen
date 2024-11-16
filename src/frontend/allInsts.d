@@ -56,16 +56,9 @@ Json perfStats(ref Alloc alloc, in AllInsts a) =>
 		field!"refKeys"(countKeys(a.referencedBy)),
 		field!"refPairs"(countPairs(a.referencedBy))]);
 
-ValueAndDidAdd!(StructInst*) getOrAddStructInst(
-	ref AllInsts a,
-	StructDecl* decl,
-	in TypeArgs typeArgs,
-	in LinkageRange delegate() @safe @nogc pure nothrow cbLinkageRange,
-	in PurityRange delegate() @safe @nogc pure nothrow cbPurityRange,
-) =>
+ValueAndDidAdd!(StructInst*) getOrAddStructInst(ref AllInsts a, StructDecl* decl, in TypeArgs typeArgs) =>
 	getOrAddAndDidAdd!(StructInst*, StructArgs, getStructArgs)(a.alloc, a.structInsts, StructArgs(decl, typeArgs), () {
-		StructInst* res = allocate(a.alloc, StructInst(
-			decl, copyArray!Type(a.alloc, typeArgs), cbLinkageRange(), cbPurityRange()));
+		StructInst* res = allocate(a.alloc, StructInst(decl, copyArray!Type(a.alloc, typeArgs)));
 		addEachReferenced(a, res);
 		return res;
 	});

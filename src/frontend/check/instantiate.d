@@ -115,10 +115,7 @@ StructInst* instantiateStruct(
 	scope MayDelayStructInsts delayStructInsts,
 ) =>
 	withMeasure!(StructInst*, () {
-		ValueAndDidAdd!(StructInst*) res = getOrAddStructInst(
-			ctx.allInsts, decl, typeArgs,
-			() => combinedLinkageRange(decl.linkage, typeArgs),
-			() => combinedPurityRange(decl.purity, typeArgs));
+		ValueAndDidAdd!(StructInst*) res = getOrAddStructInst(ctx.allInsts, decl, typeArgs);
 		if (res.didAdd) {
 			if (decl.bodyIsSet) {
 			} else {
@@ -129,22 +126,6 @@ StructInst* instantiateStruct(
 		}
 		return res.value;
 	})(ctx.perf, ctx.alloc, PerfMeasure.instantiateStruct);
-
-private LinkageRange combinedLinkageRange(Linkage declLinkage, in Type[] typeArgs) {
-	final switch (declLinkage) {
-		case Linkage.internal:
-			return LinkageRange(Linkage.internal, Linkage.internal);
-		case Linkage.extern_:
-			return fold!(LinkageRange, Type)(
-				LinkageRange(Linkage.extern_, Linkage.extern_),
-				typeArgs,
-				(LinkageRange cur, in Type typeArg) => combineLinkageRange(cur, linkageRange(typeArg)));
-	}
-}
-
-private PurityRange combinedPurityRange(Purity declPurity, in Type[] typeArgs) =>
-	fold!(PurityRange, Type)(PurityRange(declPurity, declPurity), typeArgs, (PurityRange cur, in Type typeArg) =>
-		combinePurityRange(cur, purityRange(typeArg)));
 
 StructInst* instantiateStructInst(
 	InstantiateCtx ctx,

@@ -183,10 +183,7 @@ ExpectedReferences referenced(ref Alloc alloc, return scope AnyDeclOrInst a, in 
 	ExpectedReferences(a, newArray(alloc, b));
 
 ValueAndDidAdd!(StructInst*) getStruct(ref AllInsts a, StructDecl* decl, in Type[] typeArgs) =>
-	getOrAddStructInst(
-		a, decl, small!Type(typeArgs),
-		() => LinkageRange(Linkage.internal, Linkage.internal),
-		() => PurityRange(Purity.data, Purity.data));
+	getOrAddStructInst(a, decl, small!Type(typeArgs));
 
 T mustDidAdd(T)(ValueAndDidAdd!T a) {
 	assert(a.didAdd);
