@@ -615,7 +615,7 @@ void initializeConcreteStruct(
 	ref ConcretizeCtx ctx,
 	in StructInst inst,
 	ConcreteStruct* res,
-	in TypeArgsScope typeArgsScope,
+	in TypeArgsScope typeArgsScope, // TODO: I think we should never use this. Always use typeArgs which is fully instantiatde!
 	// TODO: this is confusing. We get 'typeArgs' by applying 'typeArgsScope' to the 'typeArgs' of the struct ..........................
 	in SmallArray!ConcreteType typeArgs,
 ) {
@@ -645,13 +645,11 @@ void initializeConcreteStruct(
 			// don't set 'defaultReferenceKind' until the end, unless explicit
 			if (has(r.flags.forcedByValOrRef))
 				res.defaultReferenceKind = enumConvert!ReferenceKind(force(r.flags.forcedByValOrRef));
-
-			SmallArray!ConcreteField fields = mapZip!(ConcreteField, RecordField, Type)(
-				ctx.alloc, r.fields, inst.instantiatedTypes, (ref RecordField f, ref Type type) =>
-					ConcreteField(
-						f.name,
-						has(f.mutability) ? ConcreteMutability.mutable : ConcreteMutability.const_,
-						getConcreteType(ctx, type, typeArgsScope)));
+			SmallArray!ConcreteField fields = map!(ConcreteField, RecordField)(ctx.alloc, r.fields, (ref RecordField f) =>
+				ConcreteField(
+					f.name,
+					has(f.mutability) ? ConcreteMutability.mutable : ConcreteMutability.const_,
+					getConcreteType(ctx, f.type, typeArgs)));
 			ConcreteStructInfo info = getConcreteStructInfoForFields(fields);
 			res.info = info;
 			setConcreteStructRecordSizeOrDefer(ctx, res);

@@ -13,7 +13,7 @@ import frontend.check.checkCtx :
 	visibilityFromExplicitTopLevel;
 import frontend.check.checkFuns : checkReturnTypeAndParams, getExternsFromModifier, ReturnTypeAndParams;
 import frontend.check.exprCtx : LocalsInfo;
-import frontend.check.instantiate : DelayStructInsts, instantiateStructWithOwnTypeParams, MayDelayStructInsts;
+import frontend.check.instantiate : DelayStructInsts, instantiateStructWithOwnTypeParams, instantiateTypeNoDelay, MayDelayStructInsts;
 import frontend.check.maps : FunsMap, StructsAndAliasesMap;
 import frontend.check.typeFromAst : AliasAllowed, checkTypeParams, typeFromAst;
 import model.ast :
@@ -311,12 +311,15 @@ SmallArray!(Opt!Called) checkMethodImplsForVariant(
 	SmallArray!Signature methodDecls,
 ) {
 	StructDecl* member = memberType.decl;
-	size_t typeIndex;
-	Type nextType() => variant.instantiatedTypes[typeIndex++];
-	SmallArray!(Opt!Called) res = map!(Opt!Called, Signature)(ctx.alloc, methodDecls, (ref Signature sig) =>
+	return map!(Opt!Called, Signature)(ctx.alloc, methodDecls, (ref Signature sig) =>
 		withStackArray(
 			sig.params.length + 2,
-			(size_t i) => i == 1 ? Type(memberType) : nextType(),
+			(size_t i) =>
+				i == 0
+					? instantiateTypeNoDelay(ctx.instantiateCtx, sig.returnType, variant.typeArgs)
+					: i == 1
+					? Type(memberType)
+					: instantiateTypeNoDelay(ctx.instantiateCtx, sig.params[i - 2].type, variant.typeArgs),
 			(scope Type[] types) {
 				Opt!Called called = findFunctionForReturnAndParamTypes(
 					ctx, commonTypes, typeContainer,
@@ -335,8 +338,6 @@ SmallArray!(Opt!Called) checkMethodImplsForVariant(
 					addDiag(ctx, diagRange, Diag(Diag.VariantMethodImplVisibility(member, variant, force(called).as!(FunInst*))));
 				return called;
 			}));
-	assert(typeIndex == variant.instantiatedTypes.length);
-	return res;
 }
 
 StructBody.Extern checkExtern(ref CheckCtx ctx, in StructDeclAst declAst, in StructBodyAst.Extern bodyAst) {

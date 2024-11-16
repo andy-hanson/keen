@@ -28,7 +28,7 @@ import frontend.check.maps :
 	structOrAliasName,
 	StructsAndAliasesMap;
 import frontend.check.instantiate :
-	DelaySpecInsts, DelayStructInsts, InstantiateCtx, instantiateSpecBody, instantiateStructTypes, noDelayStructInsts;
+	DelaySpecInsts, DelayStructInsts, InstantiateCtx, instantiateSpecBody, noDelayStructInsts;
 import frontend.check.typeFromAst :
 	AliasAllowed, checkTypeParams, specFromAst, typeFromAst, typeFromAstNoTypeParamsNeverDelay;
 import frontend.lang : maxSpecDepth;
@@ -405,8 +405,9 @@ Module* checkWorkerAfterCommonTypes(
 ) {
 	checkStructBodies(ctx, commonTypes, structsAndAliasesMap, delayStructInsts, structs, ast.structs);
 
-	while (!mutArrIsEmpty(delayStructInsts))
-		instantiateStructTypes(ctx.instantiateCtx, mustPop(delayStructInsts), someMut(ptrTrustMe(delayStructInsts)));
+	// gues we don't need to delay any more !-----------------------------------------------------------------------------------------------
+	//while (!mutArrIsEmpty(delayStructInsts))
+	//	instantiateStructTypes(ctx.instantiateCtx, mustPop(delayStructInsts), someMut(ptrTrustMe(delayStructInsts)));
 
 	VarDecl[] vars = mapPointers(ctx.alloc, ast.vars, (VarDeclAst* ast) =>
 		checkVarDecl(ctx, commonTypes, structsAndAliasesMap, ast));

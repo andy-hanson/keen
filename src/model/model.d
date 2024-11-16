@@ -861,22 +861,10 @@ immutable struct StructInst {
 
 	StructDecl* decl;
 	TypeArgs typeArgs;
+	// TODO: given success with instantiatedTypes, maybe I should transition these to being lazy too? (but beware infinite loops) -----------------------------------
 	// these are inferred from declAndArgs:
 	LinkageRange linkageRange;
 	PurityRange purityRange;
-	// For a Record, this is the field types.
-	// For a Union, this is the member types (Bogus for members with no type).
-	// For a Variant, these are the ReturnAndParamTypes for each method, concatenated.
-	// Otherwise this is empty.
-	// TODO: I'm not sure we really need this? This is used in concretize, but we have the type args at that point so no real need for this ..................................
-	private Late!(SmallArray!Type) lateInstantiatedTypes;
-
-	SmallArray!Type instantiatedTypes() return scope =>
-		lateGet(lateInstantiatedTypes);
-
-	void instantiatedTypes(SmallArray!Type value) {
-		lateSet(lateInstantiatedTypes, value);
-	}
 }
 
 bool isDefinitelyByRef(in StructInst a) {

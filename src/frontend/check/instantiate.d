@@ -82,7 +82,7 @@ private Type instantiateType(
 		(StructInst* x) =>
 			Type(instantiateStructInst(ctx, *x, typeArgs, delayStructInsts)));
 
-private Type instantiateTypeNoDelay(InstantiateCtx ctx, Type type, in TypeArgs typeArgs) =>
+Type instantiateTypeNoDelay(InstantiateCtx ctx, Type type, in TypeArgs typeArgs) =>
 	instantiateType(ctx, type, typeArgs, noDelayStructInsts);
 
 FunInst* instantiateFun(InstantiateCtx ctx, FunDecl* decl, in TypeArgs typeArgs, in SpecImpls specImpls) =>
@@ -90,32 +90,6 @@ FunInst* instantiateFun(InstantiateCtx ctx, FunDecl* decl, in TypeArgs typeArgs,
 		getOrAddFunInst(ctx.allInsts, decl, typeArgs, specImpls, () =>
 			instantiateReturnAndParamTypes(ctx, decl.returnType, paramsArray(decl.params), typeArgs))
 	)(ctx.perf, ctx.alloc, PerfMeasure.instantiateFun);
-
-void instantiateStructTypes(InstantiateCtx ctx, StructInst* inst, scope MayDelayStructInsts delayStructInsts) {
-	TypeArgs typeArgs = inst.typeArgs;
-	inst.instantiatedTypes = inst.decl.body_.match!(SmallArray!Type)(
-		(StructBody.Bogus) =>
-			emptySmallArray!Type,
-		(BuiltinType _) =>
-			emptySmallArray!Type,
-		(ref StructBody.Enum e) =>
-			emptySmallArray!Type,
-		(StructBody.Extern e) =>
-			emptySmallArray!Type,
-		(StructBody.Flags f) =>
-			emptySmallArray!Type,
-		(StructBody.Record r) =>
-			map!(Type, RecordField)(ctx.alloc, r.fields, (ref RecordField field) =>
-				instantiateType(ctx, field.type, typeArgs, delayStructInsts)),
-		(StructBody.Variant x) =>
-			buildSmallArrayExact!Type(
-				ctx.alloc,
-				sum!Signature(x.methods, (in Signature sig) => 1 + sig.params.length),
-				(scope ref ExactSizeArrayBuilder!Type out_) {
-					foreach (ref Signature sig; x.methods)
-						instantiateReturnAndParamTypes(out_, ctx, sig.returnType, sig.params, typeArgs);
-				}));
-}
 
 // Given a struct decl 'foo[t]', returns a 't foo'
 StructInst* instantiateStructWithOwnTypeParams(InstantiateCtx ctx, StructDecl* decl) =>
@@ -146,12 +120,11 @@ StructInst* instantiateStruct(
 			() => combinedLinkageRange(decl.linkage, typeArgs),
 			() => combinedPurityRange(decl.purity, typeArgs));
 		if (res.didAdd) {
-			if (decl.bodyIsSet)
-				instantiateStructTypes(ctx, res.value, delayStructInsts);
-			else {
+			if (decl.bodyIsSet) {
+			} else {
 				// We should only need to do this in the initial phase of settings struct bodies,
 				// which is when delayedStructInst is set.
-				push(*force(delayStructInsts), res.value);
+				//push(*force(delayStructInsts), res.value); // Hmmm. ..................................................................................
 			}
 		}
 		return res.value;

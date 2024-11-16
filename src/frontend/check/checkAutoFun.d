@@ -5,7 +5,7 @@ module frontend.check.checkAutoFun;
 import frontend.check.checkCall.checkCallSpecs : checkSpecSingleSigIgnoreParents;
 import frontend.check.checkCtx : addDiag, CheckCtx, CommonModule;
 import frontend.check.maps : FunsMap, SpecsMap;
-import frontend.check.instantiate : instantiateSpec, instantiateStructInst, noDelayStructInsts;
+import frontend.check.instantiate : instantiateSpec, instantiateStructInst, instantiateTypeNoDelay, noDelayStructInsts;
 import frontend.check.typeFromAst : getSpecFromCommonModule;
 import model.diag : AutoFunName, Diag;
 import model.model :
@@ -168,11 +168,13 @@ FunBody checkAutoFunWithSpec(
 	else if (!optOrDefault!bool(returnTypeOk, () => fun.returnType == sig.returnType))
 		return diag(Diag.AutoFunError(Diag.AutoFunError.WrongReturnType(funName)));
 	else {
-		Called checkSpecSigForContainedType(Type type) => // TODO: SHORTER NAME ----------------------------------------------------------------------
-			checkSpecSingleSigIgnoreParents(ctx, funsMap, fun, has(extraTypeArg)
-				? instantiateSpec(ctx.instantiateCtx, spec, [force(extraTypeArg), type])
-				: instantiateSpec(ctx.instantiateCtx, spec, [type]));
 		StructInst* paramInst = paramType.as!(StructInst*);
+		Called checkSpecSigForContainedType(Type declType) {// TODO: SHORTER NAME ----------------------------------------------------------------------
+			Type instType = instantiateTypeNoDelay(ctx.instantiateCtx, declType, paramInst.typeArgs);
+			return checkSpecSingleSigIgnoreParents(ctx, funsMap, fun, has(extraTypeArg)
+				? instantiateSpec(ctx.instantiateCtx, spec, [force(extraTypeArg), instType])
+				: instantiateSpec(ctx.instantiateCtx, spec, [instType]));
+		}
 		Called[] members = paramInst.decl.body_.match!(Called[])(
 			(StructBody.Bogus) =>
 				assert(false),
@@ -184,12 +186,12 @@ FunBody checkAutoFunWithSpec(
 				assert(false),
 			(StructBody.Flags) =>
 				typeAs!(Called[])([]),
-			(StructBody.Record) =>
-				map(ctx.alloc, paramInst.instantiatedTypes, (ref Type type) =>
-					checkSpecSigForContainedType(type)),
+			(StructBody.Record x) =>
+				map(ctx.alloc, x.fields, (ref RecordField field) =>
+					checkSpecSigForContainedType(field.type)),
 			(StructBody.Variant v) =>
 				map(ctx.alloc, v.listedMembers, (ref VariantMemberAndMethodImpls m) =>
-					checkSpecSigForContainedType(Type(instantiateStructInst(ctx.instantiateCtx, *m.member, paramInst.typeArgs, noDelayStructInsts)))));
+					checkSpecSigForContainedType(Type(m.member))));
 		return FunBody(AutoFun(funKind, members));
 	}
 }
