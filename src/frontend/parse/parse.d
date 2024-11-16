@@ -51,7 +51,7 @@ import model.ast :
 	ModifierAst,
 	NameAndRange,
 	ParamsAst,
-	RecordOrUnionMemberAst,
+	RecordFieldAst,
 	SpecDeclAst,
 	SignatureAst,
 	StructAliasAst,
@@ -141,15 +141,15 @@ SmallArray!EnumOrFlagsMemberAst parseEnumOrFlagsMembers(ref Lexer lexer) =>
 		return EnumOrFlagsMemberAst(docComment, range(lexer, start), name, value);
 	});
 
-SmallArray!RecordOrUnionMemberAst parseRecordOrUnionMembers(ref Lexer lexer) =>
-	parseIndentedLines!RecordOrUnionMemberAst(lexer, () {
+SmallArray!RecordFieldAst parseRecordOrUnionMembers(ref Lexer lexer) =>
+	parseIndentedLines!RecordFieldAst(lexer, () {
 		DocCommentAst docComment = tryTakeDocComment(lexer);
 		Pos start = curPos(lexer);
 		Opt!Visibility visibility = tryTakeVisibility(lexer);
 		NameAndRange name = takeNameAndRange(lexer);
 		Opt!FieldMutabilityAst mutability = parseFieldMutability(lexer);
 		Opt!TypeAst type = peekEndOfLine(lexer) ? none!TypeAst : some(parseType(lexer));
-		return RecordOrUnionMemberAst(docComment, range(lexer, start), visibility, name, mutability, type);
+		return RecordFieldAst(docComment, range(lexer, start), visibility, name, mutability, type);
 	});
 
 Opt!FieldMutabilityAst parseFieldMutability(ref Lexer lexer) {

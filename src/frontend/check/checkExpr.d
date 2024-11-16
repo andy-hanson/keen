@@ -1645,8 +1645,7 @@ Expr checkMatchVariant(
 						}
 					}))))));
 		} else
-			return some(allocate(ctx.alloc, checkMatchElseRequired(ctx, locals, source, ast, expected, () =>
-				Diag(Diag.MatchNeedsElse(Diag.MatchNeedsElse.Kind.variant)))));
+			return some(allocate(ctx.alloc, checkMatchElseRequired(ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.variant)));
 	}();
 	return Expr(source, ExprKind(allocate(ctx.alloc, MatchVariantExpr(matched, cases, else_))));
 }
@@ -1863,7 +1862,7 @@ Expr checkMatchChar(
 				} else
 					return none!(MatchIntegralExpr.Case);
 			}));
-	Expr else_ = checkMatchElseNotRequired(ctx, locals, source, ast, expected);
+	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.integral);
 	return Expr(source, ExprKind(allocate(ctx.alloc,
 		MatchIntegralExpr(MatchIntegralExpr.Kind(charType), matched, cases, else_))));
 }
@@ -1930,7 +1929,7 @@ Expr checkMatchIntegral(
 				} else
 					return none!(MatchIntegralExpr.Case);
 			}));
-	Expr else_ = checkMatchElseNotRequired(ctx, locals, source, ast, expected);
+	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.integral);
 	return Expr(source, ExprKind(allocate(ctx.alloc,
 		MatchIntegralExpr(MatchIntegralExpr.Kind(integralType), matched, cases, else_))));
 }
@@ -1990,10 +1989,19 @@ Expr checkMatchStringLike(
 				} else
 					return none!(MatchStringLikeExpr.Case);
 			}));
-	Expr else_ = checkMatchElseNotRequired(ctx, locals, source, ast, expected);
+	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.stringLike);
 	return Expr(source, ExprKind(allocate(ctx.alloc, MatchStringLikeExpr(kind, matched, equals, cases, else_))));
 }
 
+Expr checkMatchElseRequired(
+	ref ExprCtx ctx,
+	ref LocalsInfo locals,
+	ExprAst* source,
+	ref MatchAst ast,
+	ref Expected expected,
+	Diag.MatchNeedsElse.Kind kind,
+) =>
+	checkMatchElseRequired(ctx, locals, source, ast, expected, () => Diag(Diag.MatchNeedsElse(kind)));
 Expr checkMatchElseRequired(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,

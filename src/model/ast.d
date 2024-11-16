@@ -1055,7 +1055,7 @@ immutable struct StructBodyAst {
 	}
 	immutable struct Record {
 		Opt!ParamsAst params;
-		SmallArray!RecordOrUnionMemberAst fields;
+		SmallArray!RecordFieldAst fields;
 	}
 	immutable struct Variant {
 		VariantKind kind;
@@ -1081,7 +1081,7 @@ immutable struct EnumOrFlagsMemberAst {
 		nameAndRange.range;
 }
 
-immutable struct RecordOrUnionMemberAst { // RENAME -- now only for record --------------------------------------------------------------
+immutable struct RecordFieldAst {
 	@safe @nogc pure nothrow:
 
 	DocCommentAst docComment;

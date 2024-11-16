@@ -994,10 +994,18 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= '.';
 		},
 		(in Diag.MatchNeedsElse x) {
-			final switch (x.kind) {
-				case Diag.MatchNeedsElse.Kind.variant:
-					writer ~= "Match on a 'variant' must have an explicit 'else'.";
-			}
+			writer ~= "A 'match' on ";
+			writer ~= () {
+				final switch (x.kind) {
+					case Diag.MatchNeedsElse.Kind.integral:
+						return "an integral ";
+					case Diag.MatchNeedsElse.Kind.stringLike:
+						return "a string or symbol";
+					case Diag.MatchNeedsElse.Kind.variant:
+						return "a variant ";
+				}
+			}();
+			writer ~= " must have an explicit 'else'.";
 		},
 		(in Diag.MatchOnNonMatchable x) {
 			writer ~= "Can only match on enum, union, variant, integral, symbol, string, or character type, not ";

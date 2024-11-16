@@ -25,7 +25,7 @@ import model.ast :
 	ModifierKeyword,
 	NameAndRange,
 	ParamsAst,
-	RecordOrUnionMemberAst,
+	RecordFieldAst,
 	SignatureAst,
 	SpecUseAst,
 	StructBodyAst,
@@ -735,9 +735,9 @@ StructBody.Record checkRecord(
 	if (externForcesByVal && has(modifiers.byValOrRef))
 		addDiag(ctx, force(modifiers.byValOrRef).keywordRange, Diag(Diag.ExternRecordImplicitlyByVal(struct_)));
 
-	SmallArray!RecordField fields = checkRecordOrUnionMembers!RecordField(
+	SmallArray!RecordField fields = checkRecordFields(
 		ctx, struct_, ast.params, ast.fields, Diag.DuplicateDeclaration.Kind.recordField,
-		(RecordOrUnionMemberAstCommon fieldAst) =>
+		(RecordFieldAstCommon fieldAst) =>
 			checkRecordField(ctx, commonTypes, structsAndAliasesMap, struct_, fieldAst));
 	RecordFlags flags = RecordFlags(
 		newVisibility: recordNewVisibility(ctx, struct_, fields, modifiers),
@@ -747,8 +747,8 @@ StructBody.Record checkRecord(
 	return StructBody.Record(flags, fields);
 }
 
-// Shared in common between DestructureAst.Single and RecordOrUnionMemberAst
-struct RecordOrUnionMemberAstCommon {
+// Shared in common between DestructureAst.Single and RecordFieldAst
+struct RecordFieldAstCommon {
 	RecordOrUnionMemberSource source;
 	Opt!VisibilityAndRange visibility;
 	NameAndRange name;
@@ -756,47 +756,47 @@ struct RecordOrUnionMemberAstCommon {
 	Opt!TypeAst type;
 }
 
-alias CbCheckMember(Member) = Member delegate(RecordOrUnionMemberAstCommon) @safe @nogc pure nothrow;
+alias CbCheckField = RecordField delegate(RecordFieldAstCommon) @safe @nogc pure nothrow;
 
-SmallArray!Member checkRecordOrUnionMembers(Member)( // TODO: this will only be for record now? -----------------------------
+SmallArray!RecordField checkRecordFields( // TODO: this will only be for record now? -----------------------------------------------
 	ref CheckCtx ctx,
 	StructDecl* struct_,
 	Opt!ParamsAst params,
-	SmallArray!RecordOrUnionMemberAst memberAsts,
+	SmallArray!RecordFieldAst memberAsts,
 	Diag.DuplicateDeclaration.Kind duplicateDeclarationKind,
-	in CbCheckMember!Member cbCheckMember,
+	in CbCheckField cbCheckField, // don't need a cb any more ?----------------------------------------------------
 ) {
 	if (has(params) && !isEmpty(memberAsts))
 		addDiag(ctx, struct_.nameRange.range, Diag(
 			Diag.StructParamsSyntaxError(struct_, Diag.StructParamsSyntaxError.Reason.hasParamsAndFields)));
-	SmallArray!Member res = has(params)
-		? recordOrUnionMembersFromParams!Member(ctx, struct_, force(params), cbCheckMember)
-		: mapPointers!(Member, RecordOrUnionMemberAst)(
-			ctx.alloc, memberAsts, (RecordOrUnionMemberAst* x) =>
-				cbCheckMember(RecordOrUnionMemberAstCommon(
+	SmallArray!RecordField res = has(params)
+		? recordFieldsFromParams(ctx, struct_, force(params), cbCheckField)
+		: mapPointers!(RecordField, RecordFieldAst)(
+			ctx.alloc, memberAsts, (RecordFieldAst* x) =>
+				cbCheckField(RecordFieldAstCommon(
 					RecordOrUnionMemberSource(x), x.visibility, x.name, x.mutability, x.type)));
-	eachPair!Member(res, (in Member a, in Member b) {
+	eachPair!RecordField(res, (in RecordField a, in RecordField b) {
 		if (a.name == b.name)
 			addDiag(ctx, b.range, Diag(Diag.DuplicateDeclaration(duplicateDeclarationKind, a.name)));
 	});
 	return res;
 }
 
-SmallArray!Member recordOrUnionMembersFromParams(Member)(
+SmallArray!RecordField recordFieldsFromParams(
 	ref CheckCtx ctx,
 	StructDecl* struct_,
 	ParamsAst ast,
-	in CbCheckMember!Member cbCheckMember,
+	in CbCheckField cbCheckField,
 ) =>
-	ast.match!(SmallArray!Member)(
+	ast.match!(SmallArray!RecordField)(
 		(DestructureAst[] destructures) =>
-			mapOpPointers!(Member, DestructureAst)(
+			mapOpPointers!(RecordField, DestructureAst)(
 				ctx.alloc, small!DestructureAst(destructures), (DestructureAst* param) =>
-					recordOrUnionMemberFromParam!Member(ctx, struct_, param, cbCheckMember)),
+					recordFieldFromParam(ctx, struct_, param, cbCheckField)),
 		(ref ParamsAst.Varargs x) {
 			addDiag(ctx, x.param.range, Diag(
 				Diag.StructParamsSyntaxError(struct_, Diag.StructParamsSyntaxError.Reason.variadic)));
-			return emptySmallArray!Member;
+			return emptySmallArray!RecordField;
 		});
 
 Opt!EnumOrFlagsMember enumMemberFromParam(
@@ -823,15 +823,15 @@ Opt!EnumOrFlagsMember enumMemberFromParam(
 	}
 }
 
-Opt!Member recordOrUnionMemberFromParam(Member)(
+Opt!RecordField recordFieldFromParam(
 	ref CheckCtx ctx,
 	StructDecl* struct_,
 	DestructureAst* ast,
-	in CbCheckMember!Member cbCheckMember,
+	in CbCheckField cbCheckField, // shouldn't need a cb -------------------------------------------------------------
 ) {
 	if (ast.isA!(DestructureAst.Single)) {
 		DestructureAst.Single* single = &ast.as!(DestructureAst.Single)();
-		return some(cbCheckMember(RecordOrUnionMemberAstCommon(
+		return some(cbCheckField(RecordFieldAstCommon(
 			RecordOrUnionMemberSource(single),
 			none!VisibilityAndRange,
 			single.name,
@@ -840,7 +840,7 @@ Opt!Member recordOrUnionMemberFromParam(Member)(
 	} else {
 		addDiag(ctx, ast.range, Diag(
 			Diag.StructParamsSyntaxError(struct_, Diag.StructParamsSyntaxError.Reason.destructure)));
-		return none!Member;
+		return none!RecordField;
 	}
 }
 
@@ -849,7 +849,7 @@ RecordField checkRecordField(
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* record,
-	RecordOrUnionMemberAstCommon ast,
+	RecordFieldAstCommon ast,
 ) {
 	Symbol name = ast.name.name;
 	Type memberType = has(ast.type)

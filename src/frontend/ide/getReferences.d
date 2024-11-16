@@ -39,7 +39,7 @@ import model.ast :
 	NameAndRange,
 	ParamsAst,
 	paramsArray,
-	RecordOrUnionMemberAst,
+	RecordFieldAst,
 	SpecUseAst,
 	StructBodyAst,
 	StructDeclAst,
@@ -493,7 +493,7 @@ void eachTypeInRecord(in StructBody.Record a, in StructBodyAst.Record ast, in Ty
 				});
 		}
 	} else
-		zip!(RecordField, RecordOrUnionMemberAst)(a.fields, ast.fields, (ref RecordField field, ref RecordOrUnionMemberAst ast) {
+		zip!(RecordField, RecordFieldAst)(a.fields, ast.fields, (ref RecordField field, ref RecordFieldAst ast) {
 			if (has(ast.type))
 				cb(field.type, force(ast.type));
 		});

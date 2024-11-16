@@ -52,7 +52,7 @@ import model.ast :
 	ParenthesizedAst,
 	PathOrRelPath,
 	PtrAst,
-	RecordOrUnionMemberAst,
+	RecordFieldAst,
 	SeqAst,
 	SharedAst,
 	SpecDeclAst,
@@ -268,10 +268,10 @@ Json jsonOfRecordAst(ref Alloc alloc, in Ctx ctx, in StructBodyAst.Record a) =>
 	jsonObject(alloc, [
 		kindField!"record",
 		optionalField!("params", ParamsAst)(a.params, (in ParamsAst x) => jsonOfParamsAst(alloc, ctx, x)),
-		field!"fields"(jsonList!RecordOrUnionMemberAst(alloc, a.fields, (in RecordOrUnionMemberAst x) =>
+		field!"fields"(jsonList!RecordFieldAst(alloc, a.fields, (in RecordFieldAst x) =>
 			jsonOfRecordField(alloc, ctx, x)))]);
 
-Json jsonOfRecordField(ref Alloc alloc, in Ctx ctx, in RecordOrUnionMemberAst a) =>
+Json jsonOfRecordField(ref Alloc alloc, in Ctx ctx, in RecordFieldAst a) =>
 	jsonObject(alloc, [
 		field!"range"(jsonOfRange(alloc, ctx, a.range)),
 		visibilityField(a.visibility_),

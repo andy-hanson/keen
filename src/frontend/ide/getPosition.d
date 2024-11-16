@@ -47,7 +47,7 @@ import model.ast :
 	paramsArray,
 	ParamsAst,
 	PtrAst,
-	RecordOrUnionMemberAst,
+	RecordFieldAst,
 	SignatureAst,
 	SpecUseAst,
 	StructBodyAst,
@@ -483,7 +483,7 @@ Opt!PositionKind positionInRecordOrUnionBody(Member)( // this is now record only
 	StructDecl* decl,
 	in Member[] members,
 	Opt!ParamsAst paramsAst,
-	SmallArray!RecordOrUnionMemberAst memberAsts,
+	SmallArray!RecordFieldAst memberAsts,
 	Pos pos,
 	in PositionKind delegate(Member*) @safe @nogc pure nothrow cbMemberPosition,
 	in Opt!VisibilityContainer delegate(Member*) @safe @nogc pure nothrow cbVisibilityContainer,
@@ -496,8 +496,8 @@ Opt!PositionKind positionInRecordOrUnionBody(Member)( // this is now record only
 			members, force(paramsAst).as!(DestructureAst[]), (Member* member, DestructureAst param) =>
 				positionInRecordOrUnionMemberParameter!Member(
 					decl, member, param.as!(DestructureAst.Single), pos, cbMemberPosition, cbMutabilityPosition))
-		: firstZipPointerFirst!(PositionKind, Member, RecordOrUnionMemberAst)(
-			members, memberAsts, (Member* member, RecordOrUnionMemberAst memberAst) =>
+		: firstZipPointerFirst!(PositionKind, Member, RecordFieldAst)(
+			members, memberAsts, (Member* member, RecordFieldAst memberAst) =>
 				positionInRecordOrUnionMember!Member(
 					decl, member, memberAst, pos, cbMemberPosition, cbVisibilityContainer, cbMutabilityPosition));
 
@@ -522,7 +522,7 @@ Opt!PositionKind positionInRecordOrUnionMemberParameter(Member)(
 Opt!PositionKind positionInRecordOrUnionMember(Member)(
 	StructDecl* decl,
 	Member* member,
-	in RecordOrUnionMemberAst memberAst,
+	in RecordFieldAst memberAst,
 	Pos pos,
 	in PositionKind delegate(Member*) @safe @nogc pure nothrow cbMemberPosition,
 	in Opt!VisibilityContainer delegate(Member*) @safe @nogc pure nothrow cbVisibilityContainer,

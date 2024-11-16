@@ -52,7 +52,7 @@ import model.ast :
 	ParamsAst,
 	ParenthesizedAst,
 	PtrAst,
-	RecordOrUnionMemberAst,
+	RecordFieldAst,
 	SeqAst,
 	SharedAst,
 	SpecDeclAst,
@@ -415,13 +415,13 @@ void addRecordTokens(
 	scope ref Ctx ctx,
 	in StructDeclAst a,
 	in Opt!ParamsAst params,
-	in RecordOrUnionMemberAst[] members,
+	in RecordFieldAst[] members,
 	TokenType memberTokenType,
 ) {
 	if (has(params))
 		addParamsTokens(ctx, force(params));
 	addModifierTokens(ctx, a.modifiers);
-	foreach (ref RecordOrUnionMemberAst x; members) {
+	foreach (ref RecordFieldAst x; members) {
 		addDocCommentTokens(ctx, x.docComment);
 		declare(ctx.tokens, memberTokenType, x.name.range);
 		if (has(x.type))

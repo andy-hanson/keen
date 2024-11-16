@@ -22,7 +22,7 @@ import model.ast :
 	MatchAst,
 	ModifierAst,
 	NameAndRange,
-	RecordOrUnionMemberAst,
+	RecordFieldAst,
 	SpecDeclAst,
 	SignatureAst,
 	StructAliasAst,
@@ -420,36 +420,36 @@ immutable struct ParamShort {
 	Type type;
 }
 
-immutable struct RecordOrUnionMemberSource {
+immutable struct RecordOrUnionMemberSource { // rename -======================================================================
 	@safe @nogc pure nothrow:
-	mixin TaggedUnion!(DestructureAst.Single*, RecordOrUnionMemberAst*);
+	mixin TaggedUnion!(DestructureAst.Single*, RecordFieldAst*);
 
 	DocCommentAst docComment() scope =>
 		match!DocCommentAst(
 			(ref DestructureAst.Single) =>
 				DocCommentAst.empty,
-			(ref RecordOrUnionMemberAst x) =>
+			(ref RecordFieldAst x) =>
 				x.docComment);
 
 	Symbol name() scope =>
 		matchIn!Symbol(
 			(in DestructureAst.Single x) =>
 				x.name.name,
-			(in RecordOrUnionMemberAst x) =>
+			(in RecordFieldAst x) =>
 				x.name.name);
 
 	Range range() scope =>
 		matchIn!Range(
 			(in DestructureAst.Single x) =>
 				x.range,
-			(in RecordOrUnionMemberAst x) =>
+			(in RecordFieldAst x) =>
 				x.range);
 
 	Range nameRange() scope =>
 		matchIn!Range(
 			(in DestructureAst.Single x) =>
 				x.nameRange,
-			(in RecordOrUnionMemberAst x) =>
+			(in RecordFieldAst x) =>
 				x.nameRange);
 }
 
