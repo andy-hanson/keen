@@ -13,7 +13,7 @@ import frontend.check.checkCtx :
 	visibilityFromExplicitTopLevel;
 import frontend.check.checkFuns : checkReturnTypeAndParams, getExternsFromModifier, ReturnTypeAndParams;
 import frontend.check.exprCtx : LocalsInfo;
-import frontend.check.instantiate : DelayStructInsts, instantiateStructWithOwnTypeParams, instantiateTypeNoDelay, MayDelayStructInsts;
+import frontend.check.instantiate : instantiateStructWithOwnTypeParams, instantiateType;
 import frontend.check.maps : FunsMap, StructsAndAliasesMap;
 import frontend.check.typeFromAst : AliasAllowed, checkTypeParams, typeFromAst;
 import model.ast :
@@ -132,13 +132,11 @@ void checkStructBodies(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
-	scope ref DelayStructInsts delayStructInsts,
 	ref StructDecl[] structs,
 	in StructDeclAst[] asts,
 ) {
 	zipPtrFirst!(StructDecl, StructDeclAst)(structs, asts, (StructDecl* struct_, ref StructDeclAst ast) {
-		struct_.variants = checkVariantMembersInitial(
-			ctx, commonTypes, structsAndAliasesMap, delayStructInsts, struct_, ast);
+		struct_.variants = checkVariantMembersInitial(ctx, commonTypes, structsAndAliasesMap, struct_, ast);
 		struct_.body_ = ast.body_.match!StructBody(
 			(StructBodyAst.Builtin) {
 				checkOnlyCommonModifiers(ctx, DeclKind.builtin, ast.modifiers);
@@ -147,31 +145,25 @@ void checkStructBodies(
 			(StructBodyAst.Enum x) {
 				checkNoTypeParams(ctx, ast.typeParams, DeclKind.enum_);
 				IntegralType storage = checkEnumOrFlagsModifiers(
-					ctx, commonTypes, structsAndAliasesMap, delayStructInsts, struct_, DeclKind.enum_, ast.modifiers,
-					isFlags: false);
-				return checkEnum(
-					ctx, commonTypes, structsAndAliasesMap, delayStructInsts, struct_, ast.range, x, storage);
+					ctx, commonTypes, structsAndAliasesMap, struct_, DeclKind.enum_, ast.modifiers, isFlags: false);
+				return checkEnum(ctx, commonTypes, structsAndAliasesMap, struct_, ast.range, x, storage);
 			},
 			(StructBodyAst.Extern x) =>
 				StructBody(checkExtern(ctx, ast, x)),
 			(StructBodyAst.Flags x) {
 				checkNoTypeParams(ctx, ast.typeParams, DeclKind.flags);
 				IntegralType storage = checkEnumOrFlagsModifiers(
-					ctx, commonTypes, structsAndAliasesMap, delayStructInsts, struct_, DeclKind.flags, ast.modifiers,
-					isFlags: false);
-				return StructBody(checkFlags(
-					ctx, commonTypes, structsAndAliasesMap, delayStructInsts, struct_, ast.range, x, storage));
+					ctx, commonTypes, structsAndAliasesMap, struct_, DeclKind.flags, ast.modifiers, isFlags: false);
+				return StructBody(checkFlags(ctx, commonTypes, structsAndAliasesMap, struct_, ast.range, x, storage));
 			},
 			(StructBodyAst.Record x) =>
-				StructBody(checkRecord(
-					ctx, commonTypes, structsAndAliasesMap, struct_, ast.modifiers, x, delayStructInsts)),
+				StructBody(checkRecord(ctx, commonTypes, structsAndAliasesMap, struct_, ast.modifiers, x)),
 			(StructBodyAst.Variant x) {
 				checkOnlyCommonModifiers(ctx, DeclKind.variant, ast.modifiers);
-				SmallArray!VariantMemberAndMethodImpls listedMembers = checkVariantListedMembersInitial(ctx, commonTypes, structsAndAliasesMap, delayStructInsts, struct_, x);
+				SmallArray!VariantMemberAndMethodImpls listedMembers = checkVariantListedMembersInitial(ctx, commonTypes, structsAndAliasesMap, struct_, x);
 				SmallArray!Signature sigs = checkSignatures(
-					ctx, commonTypes, structsAndAliasesMap, SignatureContainer(struct_), ast.typeParams, x.methods,
-					someMut(ptrTrustMe(delayStructInsts)));
-				return StructBody(StructBody.Variant(x.kind, listedMembers, sigs));
+					ctx, commonTypes, structsAndAliasesMap, SignatureContainer(struct_), ast.typeParams, x.methods);
+				return StructBody(StructBody.Variant(x.kind, allocate(ctx.alloc, StructBody.Variant.MembersAndMethods(listedMembers, sigs))));
 			});
 	});
 }
@@ -183,12 +175,11 @@ SmallArray!Signature checkSignatures(
 	SignatureContainer container,
 	TypeParams typeParams,
 	SmallArray!SignatureAst asts,
-	MayDelayStructInsts delayStructInsts,
 ) =>
 	mapPointers!(Signature, SignatureAst)(ctx.alloc, asts, (SignatureAst* x) {
 		ReturnTypeAndParams rp = checkReturnTypeAndParams(
 			ctx, commonTypes, asTypeContainer(container), x.returnType, x.params,
-			typeParams, structsAndAliasesMap, delayStructInsts);
+			typeParams, structsAndAliasesMap);
 		Destructure[] params = rp.params.matchWithPointers!(Destructure[])(
 			(Destructure[] x) =>
 				x,
@@ -203,12 +194,11 @@ private SmallArray!VariantMemberAndMethodImpls checkVariantListedMembersInitial(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
-	scope ref DelayStructInsts delayStructInsts,
 	StructDecl* variant_,
 	ref StructBodyAst.Variant ast,
 ) =>
 	mapOpPointers!(VariantMemberAndMethodImpls, TypeAst)(ctx.alloc, ast.types, (TypeAst* typeAst) {
-		Type type = typeFromAst(ctx, commonTypes, structsAndAliasesMap, *typeAst, variant_.typeParams, someMut(ptrTrustMe(delayStructInsts)), AliasAllowed.yes);
+		Type type = typeFromAst(ctx, commonTypes, structsAndAliasesMap, *typeAst, variant_.typeParams, AliasAllowed.yes);
 		if (type.isA!(StructInst*)) {
 			return some(VariantMemberAndMethodImpls(typeAst, type.as!(StructInst*)));
 		} else {
@@ -221,14 +211,13 @@ private SmallArray!VariantAndMethodImpls checkVariantMembersInitial( // TODO: th
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
-	scope ref DelayStructInsts delayStructInsts,
 	StructDecl* struct_,
 	ref StructDeclAst ast,
 ) =>
 	mapOpPointersWithSoFar!(VariantAndMethodImpls, ModifierAst)(
 		ctx.alloc, ast.modifiers, (ModifierAst* mod, in VariantAndMethodImpls[] soFar) {
 			Opt!VariantAndMethodImpls res = getVariantMemberTypeFromModifier(
-				ctx, commonTypes, structsAndAliasesMap, delayStructInsts, struct_, mod);
+				ctx, commonTypes, structsAndAliasesMap, struct_, mod);
 			if (has(res)) {
 				if (struct_.isTemplate) {
 					addDiag(ctx, mod.range, Diag(Diag.VariantMemberIsTemplate(struct_)));
@@ -247,7 +236,6 @@ private Opt!VariantAndMethodImpls getVariantMemberTypeFromModifier(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
-	scope ref DelayStructInsts delayStructInsts,
 	StructDecl* struct_,
 	ModifierAst* mod,
 ) {
@@ -256,8 +244,7 @@ private Opt!VariantAndMethodImpls getVariantMemberTypeFromModifier(
 		if (kw.keyword == ModifierKeyword.variantMember) {
 			if (has(kw.typeArg)) {
 				Type type = typeFromAst(
-					ctx, commonTypes, structsAndAliasesMap,
-					force(kw.typeArg), struct_.typeParams, someMut(ptrTrustMe(delayStructInsts)), AliasAllowed.yes);
+					ctx, commonTypes, structsAndAliasesMap, force(kw.typeArg), struct_.typeParams, AliasAllowed.yes);
 				if (type.isA!(StructInst*) && type.as!(StructInst*).decl.body_.isA!(StructBody.Variant))
 					return some(VariantAndMethodImpls(kw, type.as!(StructInst*)));
 				else {
@@ -316,10 +303,10 @@ SmallArray!(Opt!Called) checkMethodImplsForVariant(
 			sig.params.length + 2,
 			(size_t i) =>
 				i == 0
-					? instantiateTypeNoDelay(ctx.instantiateCtx, sig.returnType, variant.typeArgs)
+					? instantiateType(ctx.instantiateCtx, sig.returnType, variant.typeArgs)
 					: i == 1
 					? Type(memberType)
-					: instantiateTypeNoDelay(ctx.instantiateCtx, sig.params[i - 2].type, variant.typeArgs),
+					: instantiateType(ctx.instantiateCtx, sig.params[i - 2].type, variant.typeArgs),
 			(scope Type[] types) {
 				Opt!Called called = findFunctionForReturnAndParamTypes(
 					ctx, commonTypes, typeContainer,
@@ -550,14 +537,13 @@ StructBody checkEnum(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
-	scope ref DelayStructInsts delayStructInsts,
 	StructDecl* struct_,
 	in Range range,
 	in StructBodyAst.Enum e,
 	IntegralType storage,
 ) {
 	EnumOrFlagsMembers members = checkEnumOrFlagsMembers(
-		ctx, commonTypes, structsAndAliasesMap, delayStructInsts,
+		ctx, commonTypes, structsAndAliasesMap,
 		struct_, range, e.params, e.members, Diag.DuplicateDeclaration.Kind.enumMember, storage,
 		(Opt!IntegralValue lastValue) =>
 			has(lastValue)
@@ -574,14 +560,13 @@ StructBody.Flags checkFlags(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
-	scope ref DelayStructInsts delayStructInsts,
 	StructDecl* struct_,
 	in Range range,
 	in StructBodyAst.Flags f,
 	IntegralType storage,
 ) =>
 	StructBody.Flags(storage, checkEnumOrFlagsMembers(
-		ctx, commonTypes, structsAndAliasesMap, delayStructInsts,
+		ctx, commonTypes, structsAndAliasesMap,
 		struct_, range, f.params, f.members, Diag.DuplicateDeclaration.Kind.flagsMember, storage,
 		(Opt!IntegralValue lastValue) =>
 			has(lastValue)
@@ -605,7 +590,6 @@ EnumOrFlagsMembers checkEnumOrFlagsMembers(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
-	scope ref DelayStructInsts delayStructInsts,
 	StructDecl* struct_,
 	in Range range,
 	in Opt!ParamsAst paramsAst,
@@ -735,7 +719,6 @@ StructBody.Record checkRecord(
 	StructDecl* struct_,
 	ModifierAst[] modifierAsts,
 	ref StructBodyAst.Record ast,
-	scope ref DelayStructInsts delayStructInsts,
 ) {
 	RecordModifiers modifiers = accumulateRecordModifiers(ctx, modifierAsts);
 	bool externForcesByVal = struct_.linkage != Linkage.internal && struct_.externSet != symbolSet(symbol!"js");
@@ -750,7 +733,7 @@ StructBody.Record checkRecord(
 	SmallArray!RecordField fields = checkRecordOrUnionMembers!RecordField(
 		ctx, struct_, ast.params, ast.fields, Diag.DuplicateDeclaration.Kind.recordField,
 		(RecordOrUnionMemberAstCommon fieldAst) =>
-			checkRecordField(ctx, commonTypes, structsAndAliasesMap, delayStructInsts, struct_, fieldAst));
+			checkRecordField(ctx, commonTypes, structsAndAliasesMap, struct_, fieldAst));
 	RecordFlags flags = RecordFlags(
 		newVisibility: recordNewVisibility(ctx, struct_, fields, modifiers),
 		nominal: has(modifiers.nominal),
@@ -860,15 +843,12 @@ RecordField checkRecordField(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
-	scope ref DelayStructInsts delayStructInsts,
 	StructDecl* record,
 	RecordOrUnionMemberAstCommon ast,
 ) {
 	Symbol name = ast.name.name;
 	Type memberType = has(ast.type)
-		? typeFromAst(
-			ctx, commonTypes, structsAndAliasesMap, force(ast.type),
-			record.typeParams, someMut(ptrTrustMe(delayStructInsts)), AliasAllowed.yes)
+		? typeFromAst(ctx, commonTypes, structsAndAliasesMap, force(ast.type), record.typeParams, AliasAllowed.yes)
 		: () {
 			addDiag(ctx, ast.name.range, Diag(Diag.RecordFieldNeedsType(name)));
 			return Type.bogus;
@@ -891,7 +871,6 @@ IntegralType checkEnumOrFlagsModifiers(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
-	scope ref DelayStructInsts delayStructInsts,
 	StructDecl* struct_,
 	DeclKind declKind,
 	ModifierAst[] modifiers,
@@ -920,8 +899,7 @@ IntegralType checkEnumOrFlagsModifiers(
 		ModifierAst.Keyword* x = force(storage);
 		if (has(x.typeArg)) {
 			Type type = typeFromAst(
-				ctx, commonTypes, structsAndAliasesMap,
-				force(x.typeArg), emptyTypeParams, someMut(ptrTrustMe(delayStructInsts)), AliasAllowed.yes);
+				ctx, commonTypes, structsAndAliasesMap, force(x.typeArg), emptyTypeParams, AliasAllowed.yes);
 			IntegralType res = getEnumTypeFromType(ctx, struct_, force(x.typeArg).range, commonTypes, type);
 			if (isFlags && isSigned(res))
 				addDiag(ctx, x.keywordRange, Diag(Diag.FlagsSigned()));

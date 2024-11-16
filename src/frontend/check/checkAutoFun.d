@@ -5,7 +5,7 @@ module frontend.check.checkAutoFun;
 import frontend.check.checkCall.checkCallSpecs : checkSpecSingleSigIgnoreParents;
 import frontend.check.checkCtx : addDiag, CheckCtx, CommonModule;
 import frontend.check.maps : FunsMap, SpecsMap;
-import frontend.check.instantiate : instantiateSpec, instantiateStructInst, instantiateTypeNoDelay, noDelayStructInsts;
+import frontend.check.instantiate : instantiateSpec, instantiateStructInst, instantiateType;
 import frontend.check.typeFromAst : getSpecFromCommonModule;
 import model.diag : AutoFunName, Diag;
 import model.model :
@@ -170,7 +170,7 @@ FunBody checkAutoFunWithSpec(
 	else {
 		StructInst* paramInst = paramType.as!(StructInst*);
 		Called checkSpecSigForContainedType(Type declType) {// TODO: SHORTER NAME ----------------------------------------------------------------------
-			Type instType = instantiateTypeNoDelay(ctx.instantiateCtx, declType, paramInst.typeArgs);
+			Type instType = instantiateType(ctx.instantiateCtx, declType, paramInst.typeArgs);
 			return checkSpecSingleSigIgnoreParents(ctx, funsMap, fun, has(extraTypeArg)
 				? instantiateSpec(ctx.instantiateCtx, spec, [force(extraTypeArg), instType])
 				: instantiateSpec(ctx.instantiateCtx, spec, [instType]));

@@ -63,27 +63,15 @@ alias DelaySpecInsts = MutArrWithAlloc!(SpecInst*);
 alias MayDelaySpecInsts = MutOpt!(DelaySpecInsts*); // delayed due to 'parents' referencing other specs
 MayDelaySpecInsts noDelaySpecInsts() =>
 	noneMut!(DelaySpecInsts*);
-alias DelayStructInsts = MutArrWithAlloc!(StructInst*);
-alias MayDelayStructInsts = MutOpt!(DelayStructInsts*);
-MayDelayStructInsts noDelayStructInsts() =>
-	noneMut!(DelayStructInsts*);
 
-private Type instantiateType(
-	InstantiateCtx ctx,
-	Type type,
-	in TypeArgs typeArgs,
-	scope MayDelayStructInsts delayStructInsts,
-) =>
+Type instantiateType(InstantiateCtx ctx, Type type, in TypeArgs typeArgs) =>
 	type.matchWithPointers!Type(
 		(Type.Bogus _) =>
 			Type.bogus,
 		(TypeParamIndex x) =>
 			typeArgs[x.index],
 		(StructInst* x) =>
-			Type(instantiateStructInst(ctx, *x, typeArgs, delayStructInsts)));
-
-Type instantiateTypeNoDelay(InstantiateCtx ctx, Type type, in TypeArgs typeArgs) =>
-	instantiateType(ctx, type, typeArgs, noDelayStructInsts);
+			Type(instantiateStructInst(ctx, *x, typeArgs)));
 
 FunInst* instantiateFun(InstantiateCtx ctx, FunDecl* decl, in TypeArgs typeArgs, in SpecImpls specImpls) =>
 	withMeasure!(FunInst*, () =>
@@ -98,7 +86,7 @@ StructInst* instantiateStructWithOwnTypeParams(InstantiateCtx ctx, StructDecl* d
 		(size_t i) =>
 			Type(TypeParamIndex(safeToUint(i))),
 		(scope Type[] typeArgs) =>
-			instantiateStructNeverDelay(ctx, decl, typeArgs));
+			instantiateStruct(ctx, decl, typeArgs));
 
 SpecInst* instantiateSpecWithOwnTypeParams(InstantiateCtx ctx, SpecDecl* decl) =>
 	withStackArray(
@@ -108,54 +96,35 @@ SpecInst* instantiateSpecWithOwnTypeParams(InstantiateCtx ctx, SpecDecl* decl) =
 		(scope Type[] typeArgs) =>
 			instantiateSpec(ctx, decl, typeArgs));
 
-StructInst* instantiateStruct(
-	InstantiateCtx ctx,
-	StructDecl* decl,
-	in TypeArgs typeArgs,
-	scope MayDelayStructInsts delayStructInsts,
-) =>
+StructInst* instantiateStruct(InstantiateCtx ctx, StructDecl* decl, in Type[] typeArgs) =>
+	instantiateStruct(ctx, decl, small!Type(typeArgs));
+StructInst* instantiateStruct(InstantiateCtx ctx, StructDecl* decl, in TypeArgs typeArgs) =>
 	withMeasure!(StructInst*, () {
-		ValueAndDidAdd!(StructInst*) res = getOrAddStructInst(ctx.allInsts, decl, typeArgs);
-		if (res.didAdd) {
-			if (decl.bodyIsSet) {
-			} else {
-				// We should only need to do this in the initial phase of settings struct bodies,
-				// which is when delayedStructInst is set.
-				//push(*force(delayStructInsts), res.value); // Hmmm. ..................................................................................
-			}
-		}
+		ValueAndDidAdd!(StructInst*) res = getOrAddStructInst(ctx.allInsts, decl, typeArgs); // TODO: don't need ValueAndDidAdd , just value
 		return res.value;
 	})(ctx.perf, ctx.alloc, PerfMeasure.instantiateStruct);
 
-StructInst* instantiateStructInst(
-	InstantiateCtx ctx,
-	ref StructInst structInst,
-	in TypeArgs typeArgs,
-	scope MayDelayStructInsts delayStructInsts,
-) =>
+StructInst* instantiateStructInst(InstantiateCtx ctx, ref StructInst structInst, in TypeArgs typeArgs) =>
 	withMapToStackArray!(StructInst*, Type, Type)(
 		structInst.typeArgs,
-		(ref Type x) => instantiateType(ctx, x, typeArgs, delayStructInsts),
+		(ref Type x) => instantiateType(ctx, x, typeArgs),
 		(scope Type[] itsTypeArgs) =>
-			instantiateStruct(ctx, structInst.decl, small!Type(itsTypeArgs), delayStructInsts));
-
-StructInst* instantiateStructNeverDelay(InstantiateCtx ctx, StructDecl* decl, in Type[] typeArgs) =>
-	instantiateStruct(ctx, decl, small!Type(typeArgs), noDelayStructInsts);
+			instantiateStruct(ctx, structInst.decl, small!Type(itsTypeArgs)));
 
 StructInst* makeArrayType(InstantiateCtx ctx, ref CommonTypes commonTypes, Type elementType) =>
-	instantiateStructNeverDelay(ctx, commonTypes.array, [elementType]);
+	instantiateStruct(ctx, commonTypes.array, [elementType]);
 
 StructInst* makeOptionType(InstantiateCtx ctx, ref CommonTypes commonTypes, Type innerType) =>
-	instantiateStructNeverDelay(ctx, commonTypes.option, [innerType]);
+	instantiateStruct(ctx, commonTypes.option, [innerType]);
 
 Type makeOptionIfNotAlready(InstantiateCtx ctx, ref CommonTypes commonTypes, Type a) =>
 	isOptionType(a) ? a : Type(makeOptionType(ctx, commonTypes, a));
 
 StructInst* makeConstPointerType(InstantiateCtx ctx, ref CommonTypes commonTypes, Type pointeeType) =>
-	instantiateStructNeverDelay(ctx, commonTypes.pointerConst, [pointeeType]);
+	instantiateStruct(ctx, commonTypes.pointerConst, [pointeeType]);
 
 StructInst* makeMutPointerType(InstantiateCtx ctx, ref CommonTypes commonTypes, Type pointeeType) =>
-	instantiateStructNeverDelay(ctx, commonTypes.pointerMut, [pointeeType]);
+	instantiateStruct(ctx, commonTypes.pointerMut, [pointeeType]);
 
 SpecInst* instantiateSpec(InstantiateCtx ctx, SpecDecl* decl, in Type[] typeArgs) =>
 	instantiateSpec(ctx, decl, small!Type(typeArgs), noneMut!(DelaySpecInsts*));
@@ -193,7 +162,7 @@ SpecInst* instantiateSpecInst(
 ) =>
 	withMapToStackArray!(SpecInst*, Type, Type)(
 		specInst.typeArgs,
-		(ref Type x) => instantiateType(ctx, x, typeArgs, noDelayStructInsts),
+		(ref Type x) => instantiateType(ctx, x, typeArgs),
 		(scope Type[] itsTypeArgs) => instantiateSpec(ctx, specInst.decl, small!Type(itsTypeArgs), delaySpecInsts));
 
 Map!(StructInst*, StructInst*) getAllFutureAndMutArrayImpls(
@@ -204,8 +173,8 @@ Map!(StructInst*, StructInst*) getAllFutureAndMutArrayImpls(
 ) =>
 	.getAllFutureAndMutArrayImpls(
 		alloc, ctx.allInsts,
-		(TypeArgs typeArgs) => instantiateStructNeverDelay(ctx, futureImpl, typeArgs),
-		(TypeArgs typeArgs) => instantiateStructNeverDelay(ctx, mutArrayImpl, typeArgs));
+		(TypeArgs typeArgs) => instantiateStruct(ctx, futureImpl, typeArgs),
+		(TypeArgs typeArgs) => instantiateStruct(ctx, mutArrayImpl, typeArgs));
 
 private:
 
@@ -228,7 +197,7 @@ void instantiateReturnAndParamTypes(
 	Destructure[] declParams,
 	in TypeArgs typeArgs,
 ) {
-	out_ ~= instantiateTypeNoDelay(ctx, declReturnType, typeArgs);
+	out_ ~= instantiateType(ctx, declReturnType, typeArgs);
 	foreach (ref Destructure param; declParams)
-		out_ ~= instantiateTypeNoDelay(ctx, param.type, typeArgs);
+		out_ ~= instantiateType(ctx, param.type, typeArgs);
 }

@@ -574,14 +574,24 @@ immutable struct StructBody {
 	}
 	// This is an interface or variant
 	immutable struct Variant {
+		@safe @nogc pure nothrow:
+
 		VariantKind kind;
-		SmallArray!VariantMemberAndMethodImpls listedMembers; // There may be other members not in this list
-		SmallArray!Signature methods;
+		immutable struct MembersAndMethods {
+			SmallArray!VariantMemberAndMethodImpls listedMembers; // There may be other members not in this list
+			SmallArray!Signature methods;	
+		}
+		private MembersAndMethods* membersAndMethods;
+
+		SmallArray!VariantMemberAndMethodImpls listedMembers() return scope =>
+			membersAndMethods.listedMembers;
+		SmallArray!Signature methods() return scope =>
+			membersAndMethods.methods;
 	}
 
 	mixin .Union!(Bogus, BuiltinType, Enum*, Extern, Flags, Record, Variant);
 }
-// static assert(StructBody.sizeof == StructBody.Record.sizeof + size_t.sizeof); // ---------------------------------------------------------------------
+static assert(StructBody.sizeof == StructBody.Record.sizeof + size_t.sizeof);
 
 VariantMemberAndMethodImpls[] asUnion(ref StructBody a) =>
 	asUnion(a.as!(StructBody.Variant));

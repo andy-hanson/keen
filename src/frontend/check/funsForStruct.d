@@ -8,7 +8,7 @@ import frontend.check.inferringType : FunType, getFunType;
 import frontend.check.instantiate :
 	InstantiateCtx,
 	instantiateStructWithOwnTypeParams,
-	instantiateStructNeverDelay,
+	instantiateStruct,
 	makeConstPointerType,
 	makeMutPointerType,
 	makeOptionType;
@@ -265,13 +265,13 @@ FunDecl newExtern(InstantiateCtx ctx, StructDecl* struct_) =>
 	funForStruct(
 		struct_,
 		symbol!"new",
-		Type(instantiateNonTemplateStructDeclNeverDelay(ctx, struct_)),
+		Type(instantiateNonTemplateStructDecl(ctx, struct_)),
 		Params([]),
 		FunFlags.generatedBareUnsafe,
 		FunBody(FunBody.CreateExtern()));
 
-StructInst* instantiateNonTemplateStructDeclNeverDelay(InstantiateCtx ctx, StructDecl* structDecl) =>
-	instantiateStructNeverDelay(ctx, structDecl, []);
+StructInst* instantiateNonTemplateStructDecl(InstantiateCtx ctx, StructDecl* structDecl) =>
+	instantiateStruct(ctx, structDecl, []);
 
 bool recordIsAlwaysByVal(in StructBody.Record record) =>
 	isEmpty(record.fields) || optEqual!ByValOrRef(record.flags.forcedByValOrRef, some(ByValOrRef.byVal));
@@ -283,7 +283,7 @@ void addFunsForEnum(
 	StructDecl* struct_,
 	ref StructBody.Enum enum_,
 ) {
-	StructInst* inst = instantiateNonTemplateStructDeclNeverDelay(ctx.instantiateCtx, struct_);
+	StructInst* inst = instantiateNonTemplateStructDecl(ctx.instantiateCtx, struct_);
 	foreach (ref EnumOrFlagsMember member; enum_.members)
 		funsBuilder ~= enumOrFlagsConstructor(ctx.alloc, struct_.visibility, inst, &member);
 }
@@ -295,7 +295,7 @@ void addFunsForFlags(
 	StructDecl* struct_,
 	ref StructBody.Flags flags,
 ) {
-	StructInst* inst = instantiateNonTemplateStructDeclNeverDelay(ctx.instantiateCtx, struct_);
+	StructInst* inst = instantiateNonTemplateStructDecl(ctx.instantiateCtx, struct_);
 	FunDecl make(Symbol name, Type returnType, in ParamShort[] params, FlagsFunction fun) =>
 		funForStruct(
 			struct_,
@@ -344,7 +344,7 @@ Type instantiateStructWithTypeArgsFromParams(ref CheckCtx ctx, StructDecl* struc
 	withStackArray!(Type, Type)(
 		struct_.typeParams.length,
 		(size_t i) => Type(TypeParamIndex(safeToUint(i))),
-		(scope Type[] typeArgs) => Type(instantiateStructNeverDelay(ctx.instantiateCtx, struct_, typeArgs)));
+		(scope Type[] typeArgs) => Type(instantiateStruct(ctx.instantiateCtx, struct_, typeArgs)));
 
 void addFunsForRecordConstructor(
 	ref CheckCtx ctx,

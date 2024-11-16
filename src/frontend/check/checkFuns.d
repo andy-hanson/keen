@@ -11,7 +11,7 @@ import frontend.check.getBuiltinFun : getBuiltinFun;
 import frontend.check.maps :
 	funDeclsName, FunsAndMap, FunsMap, ImportOrExportFile, SpecsMap, StructsAndAliasesMap;
 import frontend.check.funsForStruct : addFunsForStruct, addFunsForVar, countFunsForStructs, countFunsForVars;
-import frontend.check.instantiate : MayDelayStructInsts, noDelaySpecInsts, noDelayStructInsts;
+import frontend.check.instantiate : noDelaySpecInsts;
 import frontend.check.typeFromAst :
 	AliasAllowed, checkDestructure, checkTypeParams, DestructureKind, specFromAst, typeFromAst;
 import model.ast :
@@ -115,12 +115,11 @@ ReturnTypeAndParams checkReturnTypeAndParams(
 	in ParamsAst paramsAst,
 	TypeParams typeParams,
 	in StructsAndAliasesMap structsAndAliasesMap,
-	MayDelayStructInsts delayStructInsts
 ) =>
 	ReturnTypeAndParams(
 		typeFromAst(
-			ctx, commonTypes, structsAndAliasesMap, returnTypeAst, typeParams, delayStructInsts, AliasAllowed.yes),
-		checkParams(ctx, commonTypes, typeContainer, paramsAst, structsAndAliasesMap, typeParams, delayStructInsts));
+			ctx, commonTypes, structsAndAliasesMap, returnTypeAst, typeParams, AliasAllowed.yes),
+		checkParams(ctx, commonTypes, typeContainer, paramsAst, structsAndAliasesMap, typeParams));
 
 SymbolSet getExternsFromModifier(ref CheckCtx ctx, in ModifierAst.Keyword modifier, bool required) {
 	assert(modifier.keyword == ModifierKeyword.extern_);
@@ -183,8 +182,7 @@ FunDecl[] checkFunsInitial(
 					funAst.returnType,
 					funAst.params,
 					funAst.typeParams,
-					structsAndAliasesMap,
-					noDelayStructInsts);
+					structsAndAliasesMap);
 				bool hasBody = !funAst.body_.kind.isA!EmptyAst;
 				FunModifiers flagsAndSpecs = checkFunModifiers(
 					ctx, commonTypes, structsAndAliasesMap, specsMap,
@@ -224,18 +222,17 @@ Params checkParams(
 	in ParamsAst ast,
 	in StructsAndAliasesMap structsAndAliasesMap,
 	TypeParams typeParamsScope,
-	MayDelayStructInsts delayStructInsts,
 ) =>
 	ast.matchWithPointers!Params(
 		(DestructureAst[] asts) =>
 			Params(mapPointers!(Destructure, DestructureAst)(ctx.alloc, asts, (DestructureAst* ast) =>
 				checkDestructure(
-					ctx, commonTypes, structsAndAliasesMap, typeContainer, typeParamsScope, delayStructInsts,
+					ctx, commonTypes, structsAndAliasesMap, typeContainer, typeParamsScope,
 					ast, none!Type, DestructureKind.param))),
 		(ParamsAst.Varargs* varargs) {
 			Destructure param = checkDestructure(
 				ctx, commonTypes, structsAndAliasesMap, typeContainer, typeParamsScope,
-				delayStructInsts, &varargs.param, none!Type, DestructureKind.param);
+				&varargs.param, none!Type, DestructureKind.param);
 			Opt!Type elementType = param.type.matchIn!(Opt!Type)(
 				(in Type.Bogus _) =>
 					some(Type.bogus),

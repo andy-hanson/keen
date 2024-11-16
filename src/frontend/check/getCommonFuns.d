@@ -6,7 +6,7 @@ import frontend.check.checkCtx : CommonModule;
 import frontend.check.funsForStruct : funDeclWithBody;
 import frontend.check.getCommonTypes : bogusStructDecl;
 import frontend.check.inferringType : typesAreCorrespondingStructInsts;
-import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateStructNeverDelay;
+import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateStruct;
 import frontend.lang : MainKind;
 import model.ast : DocCommentAst, ModifierAst, NameAndRange, VarDeclAst, TypeAst;
 import model.diag : Diag, UriAndDiagnostic;
@@ -78,7 +78,7 @@ CommonFunsAndDiagnostics getCommonFuns(
 	Type getType(CommonModule module_, Symbol name) =>
 		getNonTemplateType(alloc, ctx, diagsBuilder, *modules[module_], name);
 	Type instantiateType(StructDecl* decl, in Type[] typeArgs) =>
-		Type(instantiateStructNeverDelay(ctx, decl, typeArgs));
+		Type(instantiateStruct(ctx, decl, typeArgs));
 	FunDecl* getFunDeclInner(
 		ref Module module_,
 		Symbol name,
@@ -320,7 +320,7 @@ Type getNonTemplateType(
 ) {
 	StructDecl* decl = getStructDeclOrAddDiag(alloc, diagsBuilder, module_, name, 0);
 	assert(!decl.isTemplate);
-	return Type(instantiateStructNeverDelay(ctx, decl, []));
+	return Type(instantiateStruct(ctx, decl, []));
 }
 
 StructDecl* getStructDeclOrAddDiag(

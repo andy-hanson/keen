@@ -3,7 +3,7 @@ module frontend.check.exprCtx;
 @safe @nogc pure nothrow:
 
 import frontend.check.checkCtx : addDiag, CheckCtx;
-import frontend.check.instantiate : InstantiateCtx, noDelayStructInsts;
+import frontend.check.instantiate : InstantiateCtx;
 import frontend.check.maps : FunsMap, SpecsMap, StructsAndAliasesMap;
 import frontend.check.typeFromAst : AliasAllowed, typeFromAst;
 import model.ast : ExprAst, TypeAst;
@@ -185,5 +185,4 @@ void addDiag2(ref ExprCtx ctx, in ExprAst* source, Diag diag) {
 
 immutable(Type) typeFromAst2(ref ExprCtx ctx, in TypeAst ast) =>
 	typeFromAst(
-		ctx.checkCtx, ctx.commonTypes, ctx.structsAndAliasesMap,
-		ast, ctx.outermostFunTypeParams, noDelayStructInsts, AliasAllowed.yes);
+		ctx.checkCtx, ctx.commonTypes, ctx.structsAndAliasesMap, ast, ctx.outermostFunTypeParams, AliasAllowed.yes);

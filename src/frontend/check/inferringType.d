@@ -3,7 +3,7 @@ module frontend.check.inferringType;
 @safe @nogc pure nothrow:
 
 import frontend.check.exprCtx : addDiag2, ExprCtx, typeWithContainer;
-import frontend.check.instantiate : InstantiateCtx, instantiateStructNeverDelay;
+import frontend.check.instantiate : InstantiateCtx, instantiateStruct;
 import frontend.showModel : ShowCtx, ShowTypeCtx, ShowOptions, writeTypeUnquoted;
 import frontend.storage : FileContentGetters, LineAndColumnGetters;
 import model.ast : ExprAst;
@@ -212,7 +212,7 @@ ExprAndOptionType withExpectOption(
 	in Expr delegate(ref Expected) @safe @nogc pure nothrow cb,
 ) {
 	Type[1] typeArgs = [Type(TypeParamIndex(0))];
-	Type optionT = instantiateStructNeverDelay(instantiateCtx, commonTypes.option, small!Type(typeArgs));
+	Type optionT = instantiateStruct(instantiateCtx, commonTypes.option, small!Type(typeArgs));
 	SingleInferringType[1] inferringTypes = [SingleInferringType()];
 	TypeAndContext[1] expectedTypes = [TypeAndContext(optionT, TypeContext(small!SingleInferringType(inferringTypes)))];
 	Expected expected = Expected(expectedTypes);
@@ -640,7 +640,7 @@ Opt!Type tryGetNonInferringType(InstantiateCtx ctx, const TypeAndContext a) =>
 			withMapOrNoneToStackArray!(Type, Type, Type)(
 				i.typeArgs,
 				(ref Type x) => tryGetNonInferringType(ctx, const TypeAndContext(x, a.context)),
-				(scope Type[] newTypeArgs) => Type(instantiateStructNeverDelay(ctx, i.decl, newTypeArgs))));
+				(scope Type[] newTypeArgs) => Type(instantiateStruct(ctx, i.decl, newTypeArgs))));
 
 immutable struct FunType {
 	@safe @nogc pure nothrow:
@@ -688,7 +688,7 @@ Type applyInferred(InstantiateCtx ctx, in TypeAndContext a) =>
 			withMapToStackArray!(Type, Type, Type)(
 				i.typeArgs,
 				(ref Type x) => applyInferred(ctx, const TypeAndContext(x, a.context)),
-				(scope Type[] newTypeArgs) => Type(instantiateStructNeverDelay(ctx, i.decl, newTypeArgs))));
+				(scope Type[] newTypeArgs) => Type(instantiateStruct(ctx, i.decl, newTypeArgs))));
 
 /*
 Tries to find a way for 'a' and 'b' to be the same type.

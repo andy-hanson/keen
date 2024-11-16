@@ -27,10 +27,9 @@ import frontend.check.maps :
 	SpecsMap,
 	structOrAliasName,
 	StructsAndAliasesMap;
-import frontend.check.instantiate :
-	DelaySpecInsts, DelayStructInsts, InstantiateCtx, instantiateSpecBody, noDelayStructInsts;
+import frontend.check.instantiate : DelaySpecInsts, InstantiateCtx, instantiateSpecBody;
 import frontend.check.typeFromAst :
-	AliasAllowed, checkTypeParams, specFromAst, typeFromAst, typeFromAstNoTypeParamsNeverDelay;
+	AliasAllowed, checkTypeParams, specFromAst, typeFromAst, typeFromAstNoTypeParams;
 import frontend.lang : maxSpecDepth;
 import model.ast :
 	FileAst,
@@ -133,12 +132,8 @@ BootstrapCheck checkBootstrap(
 ) =>
 	checkWorker(
 		alloc, perf, allInsts, commonUris, [], uriAndAst,
-		(ref CheckCtx ctx,
-		in StructsAndAliasesMap structsAndAliasesMap,
-		scope ref DelayStructInsts delayedStructInsts) =>
-			getCommonTypes(
-				ctx.alloc, ctx.curUri, ctx.instantiateCtx, ctx.diagnosticsBuilder,
-				structsAndAliasesMap, delayedStructInsts));
+		(ref CheckCtx ctx, in StructsAndAliasesMap structsAndAliasesMap) =>
+			getCommonTypes(ctx.alloc, ctx.curUri, ctx.instantiateCtx, ctx.diagnosticsBuilder, structsAndAliasesMap));
 
 Module* check(
 	scope ref Perf perf,
@@ -151,7 +146,7 @@ Module* check(
 ) =>
 	checkWorker(
 		alloc, perf, allInsts, commonUris, imports, uriAndAst,
-		(ref CheckCtx _, in StructsAndAliasesMap _2, scope ref DelayStructInsts _3) => commonTypes,
+		(ref CheckCtx _, in StructsAndAliasesMap _2) => commonTypes,
 	).module_;
 
 private:
@@ -184,7 +179,7 @@ SpecDeclBody checkSpecDeclBody(
 		? getBuiltinSpec(ctx, ast.nameRange, ast.name.name)
 		: none!BuiltinSpec;
 	SmallArray!Signature sigs = checkSignatures(
-		ctx, commonTypes, structsAndAliasesMap, SignatureContainer(spec), typeParams, ast.sigs, noDelayStructInsts);
+		ctx, commonTypes, structsAndAliasesMap, SignatureContainer(spec), typeParams, ast.sigs);
 	return SpecDeclBody(builtin, small!(immutable SpecInst*)(modifiers.parents), sigs);
 }
 
@@ -254,13 +249,10 @@ void checkStructAliasTargets(
 	in StructsAndAliasesMap structsAndAliasesMap,
 	StructAlias[] aliases,
 	in StructAliasAst[] asts,
-	scope ref DelayStructInsts delayStructInsts,
 ) {
 	zip!(StructAlias, StructAliasAst)(aliases, asts, (ref StructAlias structAlias, ref StructAliasAst ast) {
 		Type type = typeFromAst(
-			ctx, commonTypes, structsAndAliasesMap,
-			ast.target, ast.typeParams, someMut(ptrTrustMe(delayStructInsts)),
-			AliasAllowed.differentModule);
+			ctx, commonTypes, structsAndAliasesMap, ast.target, ast.typeParams, AliasAllowed.differentModule);
 		assert(type.isA!(StructInst*) || type.isBogus); // since type aliases can't have type parameters
 		structAlias.target = type.isA!(StructInst*)
 			? type.as!(StructInst*)
@@ -293,7 +285,7 @@ VarDecl checkVarDecl(
 		ast,
 		ctx.curUri,
 		visibilityFromExplicitTopLevel(ast.visibility),
-		typeFromAstNoTypeParamsNeverDelay(ctx, commonTypes, structsAndAliasesMap, ast.type),
+		typeFromAstNoTypeParams(ctx, commonTypes, structsAndAliasesMap, ast.type),
 		checkVarModifiers(ctx, ast.kind, ast.modifiers));
 }
 
@@ -397,17 +389,12 @@ Module* checkWorkerAfterCommonTypes(
 	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructAlias[] structAliases,
 	StructDecl[] structs,
-	scope ref DelayStructInsts delayStructInsts,
 	Uri uri,
 	Config* config,
 	ref ImportsAndReExports importsAndReExports,
 	FileAst* ast,
 ) {
-	checkStructBodies(ctx, commonTypes, structsAndAliasesMap, delayStructInsts, structs, ast.structs);
-
-	// gues we don't need to delay any more !-----------------------------------------------------------------------------------------------
-	//while (!mutArrIsEmpty(delayStructInsts))
-	//	instantiateStructTypes(ctx.instantiateCtx, mustPop(delayStructInsts), someMut(ptrTrustMe(delayStructInsts)));
+	checkStructBodies(ctx, commonTypes, structsAndAliasesMap, structs, ast.structs);
 
 	VarDecl[] vars = mapPointers(ctx.alloc, ast.vars, (VarDeclAst* ast) =>
 		checkVarDecl(ctx, commonTypes, structsAndAliasesMap, ast));
@@ -531,11 +518,7 @@ BootstrapCheck checkWorker(
 	in CommonUris commonUris,
 	in ResolvedImport[] resolvedImports,
 	ref UriAndAst uriAndAst,
-	in CommonTypes* delegate(
-		ref CheckCtx,
-		in StructsAndAliasesMap,
-		scope ref DelayStructInsts,
-	) @safe @nogc pure nothrow getCommonTypes,
+	in CommonTypes* delegate(ref CheckCtx, in StructsAndAliasesMap) @safe @nogc pure nothrow getCommonTypes,
 ) =>
 	withMeasure!(BootstrapCheck, () {
 		ArrayBuilder!Diagnostic diagsBuilder;
@@ -556,21 +539,9 @@ BootstrapCheck checkWorker(
 		StructAlias[] structAliases = checkStructAliasesInitial(ctx, ast.structAliases);
 		StructsAndAliasesMap structsAndAliasesMap = buildStructsAndAliasesMap(ctx, structs, structAliases);
 
-		// We need to create StructInsts when filling in struct bodies.
-		// But when creating a StructInst, we usually want to fill in its body.
-		// In case the decl body isn't available yet,
-		// we'll delay creating the StructInst body, which isn't needed until expr checking.
-		DelayStructInsts delayStructInsts = DelayStructInsts(ctx.allocPtr);
+		CommonTypes* commonTypes = getCommonTypes(ctx, structsAndAliasesMap);
 
-		CommonTypes* commonTypes = getCommonTypes(ctx, structsAndAliasesMap, delayStructInsts);
-
-		checkStructAliasTargets(
-			ctx,
-			*commonTypes,
-			structsAndAliasesMap,
-			structAliases,
-			ast.structAliases,
-			delayStructInsts);
+		checkStructAliasTargets(ctx, *commonTypes, structsAndAliasesMap, structAliases, ast.structAliases);
 
 		Module* res = checkWorkerAfterCommonTypes(
 			ctx,
@@ -578,7 +549,6 @@ BootstrapCheck checkWorker(
 			structsAndAliasesMap,
 			structAliases,
 			structs,
-			delayStructInsts,
 			uriAndAst.uri,
 			uriAndAst.config,
 			importsAndReExports,

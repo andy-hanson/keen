@@ -2,7 +2,7 @@ module frontend.check.getCommonTypes;
 
 @safe @nogc pure nothrow:
 
-import frontend.check.instantiate : DelayStructInsts, InstantiateCtx, instantiateStruct;
+import frontend.check.instantiate : InstantiateCtx, instantiateStruct;
 import frontend.check.maps : StructsAndAliasesMap;
 import model.ast : NameAndRange;
 import model.diag : Diag, Diagnostic;
@@ -42,14 +42,12 @@ CommonTypes* getCommonTypes(
 	InstantiateCtx instantiateCtx,
 	scope ref ArrayBuilder!Diagnostic diagnosticsBuilder,
 	in StructsAndAliasesMap structsAndAliasesMap,
-	scope ref DelayStructInsts delayedStructInsts,
 ) {
 	CommonTypesCtx ctx = CommonTypesCtx(
 		ptrTrustMe(alloc),
 		instantiateCtx,
 		ptrTrustMe(diagnosticsBuilder),
-		ptrTrustMe(structsAndAliasesMap),
-		ptrTrustMe(delayedStructInsts));
+		ptrTrustMe(structsAndAliasesMap));
 	StructInst* char8 = nonTemplate(ctx, symbol!"char8");
 	StructInst* char32 = nonTemplate(ctx, symbol!"char32");
 	StructInst* symbolType = nonTemplate(ctx, symbol!"symbol");
@@ -112,7 +110,6 @@ struct CommonTypesCtx {
 	InstantiateCtx instantiateCtx;
 	ArrayBuilder!Diagnostic* diagnosticsBuilderPtr;
 	StructsAndAliasesMap* structsAndAliasesMapPtr;
-	DelayStructInsts* delayedStructInstsPtr;
 
 	ref Alloc alloc() =>
 		*allocPtr;
@@ -120,8 +117,6 @@ struct CommonTypesCtx {
 		*diagnosticsBuilderPtr;
 	ref StructsAndAliasesMap structsAndAliasesMap() =>
 		*structsAndAliasesMapPtr;
-	ref DelayStructInsts delayedStructInsts() =>
-		*delayedStructInstsPtr;
 }
 
 void addDiagMissing(ref CommonTypesCtx ctx, Symbol name) {
@@ -139,20 +134,18 @@ StructDecl* getDecl(ref CommonTypesCtx ctx, Symbol name, size_t nTypeParameters)
 }
 
 StructInst* nonTemplate(ref CommonTypesCtx ctx, Symbol name) {
-	Opt!(StructInst*) res =
-		getCommonNonTemplateType(ctx.instantiateCtx, ctx.structsAndAliasesMap, name, ctx.delayedStructInsts);
+	Opt!(StructInst*) res = getCommonNonTemplateType(ctx.instantiateCtx, ctx.structsAndAliasesMap, name);
 	if (has(res))
 		return force(res);
 	else {
 		addDiagMissing(ctx, name);
-		return instantiateNonTemplateStructDecl(
-			ctx.instantiateCtx, ctx.delayedStructInsts, bogusStructDecl(ctx.alloc, name, 0));
+		return instantiateNonTemplateStructDecl(ctx.instantiateCtx, bogusStructDecl(ctx.alloc, name, 0));
 	}
 }
 
 StructInst* instantiate1(ref CommonTypesCtx ctx, StructDecl* decl, StructInst* typeArg) {
-	Type[1] typeArgs = [Type(typeArg)];
-	return instantiateStruct(ctx.instantiateCtx, decl, small!Type(typeArgs), someMut(ctx.delayedStructInstsPtr));
+	Type[1] typeArgs = [Type(typeArg)]; // can I inline this? ------------------------------------------------------------------------
+	return instantiateStruct(ctx.instantiateCtx, decl, small!Type(typeArgs));
 }
 
 Opt!(StructDecl*) getCommonTemplateType(
@@ -173,33 +166,23 @@ Opt!(StructInst*) getCommonNonTemplateType(
 	InstantiateCtx ctx,
 	in StructsAndAliasesMap structsAndAliasesMap,
 	Symbol name,
-	scope ref DelayStructInsts delayedStructInsts,
 ) {
 	Opt!StructOrAlias opStructOrAlias = structsAndAliasesMap[name];
-	return has(opStructOrAlias)
-		? some(instantiateNonTemplateStructOrAlias(ctx, delayedStructInsts, force(opStructOrAlias)))
-		: none!(StructInst*);
+	return optIf(has(opStructOrAlias), () =>
+		instantiateNonTemplateStructOrAlias(ctx, force(opStructOrAlias)));
 }
 
-StructInst* instantiateNonTemplateStructOrAlias(
-	InstantiateCtx ctx,
-	scope ref DelayStructInsts delayedStructInsts,
-	StructOrAlias structOrAlias,
-) {
+StructInst* instantiateNonTemplateStructOrAlias(InstantiateCtx ctx, StructOrAlias structOrAlias) {
 	assert(isEmpty(structOrAlias.typeParams));
 	return structOrAlias.matchWithPointers!(StructInst*)(
 		(StructAlias* x) =>
 			x.target,
 		(StructDecl* x) =>
-			instantiateNonTemplateStructDecl(ctx, delayedStructInsts, x));
+			instantiateNonTemplateStructDecl(ctx, x));
 }
 
-StructInst* instantiateNonTemplateStructDecl(
-	InstantiateCtx ctx,
-	scope ref DelayStructInsts delayedStructInsts,
-	StructDecl* structDecl,
-) =>
-	instantiateStruct(ctx, structDecl, emptyTypeArgs, someMut(ptrTrustMe(delayedStructInsts)));
+StructInst* instantiateNonTemplateStructDecl(InstantiateCtx ctx, StructDecl* structDecl) =>
+	instantiateStruct(ctx, structDecl, emptyTypeArgs);
 
 public StructDecl* bogusStructDecl(ref Alloc alloc, Symbol name, size_t nTypeParameters) =>
 	allocate(alloc, StructDecl(

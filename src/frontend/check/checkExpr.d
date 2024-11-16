@@ -57,7 +57,7 @@ import frontend.check.inferringType :
 	withExpectOption,
 	withInfer;
 import frontend.check.instantiate :
-	instantiateSpec, instantiateStructInst, instantiateStructNeverDelay, instantiateStructWithOwnTypeParams, noDelayStructInsts;
+	instantiateSpec, instantiateStruct, instantiateStructInst, instantiateStructWithOwnTypeParams;
 import frontend.check.maps : FunsMap, SpecsMap, StructsAndAliasesMap;
 import frontend.check.typeFromAst :
 	checkDestructure,
@@ -1055,7 +1055,7 @@ Opt!Expr checkWithLocal(
 		 localNode.isUsed[LocalAccessKind.setThroughClosure])) {
 		// TODO: Better way than overwriteMemory?
 		overwriteMemory(&local.mutability, LocalMutability(LocalMutability.MutableAllocated(
-			instantiateStructNeverDelay(ctx.instantiateCtx, ctx.commonTypes.reference, [local.type]))));
+			instantiateStruct(ctx.instantiateCtx, ctx.commonTypes.reference, [local.type]))));
 	}
 	addUnusedLocalDiags(ctx, local, localNode);
 	return res;
@@ -1265,7 +1265,7 @@ Expr checkFunPointerInner(
 	else {
 		Called called = force(optCalled);
 		Type paramType = makeTupleType(ctx.checkCtx, ctx.commonTypes, called.paramTypes, () => source.range);
-		StructInst* structInst = instantiateStructNeverDelay(
+		StructInst* structInst = instantiateStruct(
 			ctx.instantiateCtx, ctx.commonTypes.funPointerStruct, [called.returnType, paramType]);
 		if (symbol!"js" !in ctx.externs && !isBareForFunctionPointer(called))
 			addDiag2(ctx, source, Diag(Diag.FunPointerNotBare()));
@@ -1333,7 +1333,7 @@ Expr checkShared(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, Shared
 
 	LambdaAndReturnType res = checkLambdaInner(
 		ctx, locals, &ast.inner, &inner.param, &inner.body_, expected,
-		some(instantiateStructNeverDelay(
+		some(instantiateStruct(
 			ctx.instantiateCtx, ctx.commonTypes.funStructs[FunKind.mut], et.funType.structInst.typeArgs)),
 		et.instantiatedParamType,
 		et.funType.returnType,
@@ -1427,8 +1427,7 @@ LambdaAndReturnType checkLambdaInner(
 				returnTypeContext,
 				(ref Expected returnTypeInferrer) =>
 					checkExprWithDestructure(ctx, bodyLocals, param, bodyAst, returnTypeInferrer));
-			StructInst* instFunStruct = instantiateStructNeverDelay(
-				ctx.instantiateCtx, funStruct, [bodyAndType.b, param.type]);
+			StructInst* instFunStruct = instantiateStruct(ctx.instantiateCtx, funStruct, [bodyAndType.b, param.type]);
 			lambda.fillLate(
 				body_: bodyAndType.a,
 				closure: small!VariableRef(
@@ -1447,12 +1446,12 @@ LambdaAndReturnType checkLambdaInner(
 
 Opt!Type typeFromDestructure(ref ExprCtx ctx, in DestructureAst ast) =>
 	.typeFromDestructure(
-		ctx.checkCtx, ctx.commonTypes, ast, ctx.structsAndAliasesMap, ctx.outermostFunTypeParams, noDelayStructInsts);
+		ctx.checkCtx, ctx.commonTypes, ast, ctx.structsAndAliasesMap, ctx.outermostFunTypeParams);
 
 Destructure checkDestructure2(ref ExprCtx ctx, DestructureAst* ast, Type type, DestructureKind kind) =>
 	.checkDestructure(
 		ctx.checkCtx, ctx.commonTypes, ctx.structsAndAliasesMap, ctx.typeContainer, ctx.outermostFunTypeParams,
-		noDelayStructInsts, ast, some(type), kind);
+		ast, some(type), kind);
 
 Expr checkLet(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, LetAst* ast, ref Expected expected) {
 	ExprAndType value = checkAndExpectOrInfer(ctx, locals, &ast.value, typeFromDestructure(ctx, ast.destructure));
@@ -1735,7 +1734,7 @@ Opt!(StructInst*) getVariantMemberFromName(
 						(VariantMemberAndMethodImpls x) {
 							return optIf(x.member.decl == decl, () =>
 								InstantiatedVariantMemberOrBogus(
-									instantiateStructInst(ctx.instantiateCtx, *x.member, matchedVariant.typeArgs, noDelayStructInsts)));
+									instantiateStructInst(ctx.instantiateCtx, *x.member, matchedVariant.typeArgs)));
 						}),
 					() => first!(InstantiatedVariantMemberOrBogus, VariantAndMethodImpls)(
 						decl.variants, (VariantAndMethodImpls variant) =>
@@ -1799,7 +1798,7 @@ Opt!InstantiatedVariantMemberOrBogus compareVariant(
 						return InstantiatedVariantMemberOrBogus(InstantiatedVariantMemberOrBogus.Bogus());
 					} else
 						return InstantiatedVariantMemberOrBogus(
-							instantiateStructNeverDelay(ctx.instantiateCtx, member, small!Type(inferredTypes)));
+							instantiateStruct(ctx.instantiateCtx, member, small!Type(inferredTypes)));
 				});
 		});
 	});
