@@ -5,7 +5,6 @@ module document.document;
 import frontend.showModel : ShowModelCtx;
 import frontend.storage : FileContentGetters;
 import model.ast : NameAndRange;
-import model.concreteModel : TypeSize;
 import model.model :
 	BuiltinType,
 	Destructure,
@@ -32,6 +31,7 @@ import model.model :
 	Type,
 	TypeParamIndex,
 	TypeParams,
+	TypeSize,
 	VarDecl,
 	VariantAndMethodImpls,
 	VarKind,

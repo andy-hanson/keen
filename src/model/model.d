@@ -31,7 +31,6 @@ import model.ast :
 	TryAst,
 	TypeAst,
 	VarDeclAst;
-import model.concreteModel : TypeSize;
 import model.constant : Constant;
 import model.diag : Diag, Diagnostic, isFatal, UriAndDiagnostic;
 import model.parseDiag : ParseDiagnostic;
@@ -579,7 +578,7 @@ immutable struct StructBody {
 		VariantKind kind;
 		immutable struct MembersAndMethods {
 			SmallArray!VariantMemberAndMethodImpls listedMembers; // There may be other members not in this list
-			SmallArray!Signature methods;	
+			SmallArray!Signature methods;
 		}
 		private MembersAndMethods* membersAndMethods;
 
@@ -602,7 +601,6 @@ VariantMemberAndMethodImpls[] asUnion(ref StructBody.Variant a) {
 
 Symbol nameOfEnumOrFlagsMember(in EnumOrFlagsMember* a) =>
 	a.name;
-	
 
 IntegralValue getAllFlagsValue(in StructBody.Flags body_) =>
 	fold!(IntegralValue, EnumOrFlagsMember)(
@@ -674,6 +672,11 @@ bool isCharOrIntegral(BuiltinType a) {
 		case BuiltinType.void_:
 			return false;
 	}
+}
+
+immutable struct TypeSize {
+	uint sizeBytes;
+	uint alignmentBytes;
 }
 
 immutable struct StructAlias {
@@ -823,7 +826,6 @@ EnumOrFlagsMember[] mustBeEnumOrFlags(in StructDecl a) =>
 immutable struct VariantMemberAndMethodImpls {
 	@safe @nogc pure nothrow:
 
-	TypeAst* ast; // TODO: I possibly don't need this  ..............................................................................................
 	StructInst* member;
 	private Late!(SmallArray!(Opt!Called)) methodImpls_;
 

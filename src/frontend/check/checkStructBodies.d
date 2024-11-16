@@ -32,7 +32,6 @@ import model.ast :
 	StructDeclAst,
 	TypeAst,
 	VisibilityAndRange;
-import model.concreteModel : TypeSize;
 import model.diag : Diag, DeclKind;
 import model.model :
 	asTypeContainer,
@@ -75,6 +74,7 @@ import model.model :
 	TypeContainer,
 	TypeParamIndex,
 	TypeParams,
+	TypeSize,
 	VariantAndMethodImpls,
 	VariantMemberAndMethodImpls,
 	Visibility;
@@ -90,8 +90,10 @@ import util.col.array :
 	mapOpPointers,
 	mapOpPointersWithSoFar,
 	mapPointers,
+	sizeEq,
 	small,
 	SmallArray,
+	zip,
 	zipPtrFirst;
 import util.col.hashTable : HashTable, makeHashTable;
 import util.integralValues : IntegralValue;
@@ -197,10 +199,10 @@ private SmallArray!VariantMemberAndMethodImpls checkVariantListedMembersInitial(
 	StructDecl* variant_,
 	ref StructBodyAst.Variant ast,
 ) =>
-	mapOpPointers!(VariantMemberAndMethodImpls, TypeAst)(ctx.alloc, ast.types, (TypeAst* typeAst) {
+	mapOpPointers!(VariantMemberAndMethodImpls, TypeAst)(ctx.alloc, ast.types, (TypeAst* typeAst) { // don't need pointers ------------------
 		Type type = typeFromAst(ctx, commonTypes, structsAndAliasesMap, *typeAst, variant_.typeParams, AliasAllowed.yes);
 		if (type.isA!(StructInst*)) {
-			return some(VariantMemberAndMethodImpls(typeAst, type.as!(StructInst*)));
+			return some(VariantMemberAndMethodImpls(type.as!(StructInst*)));
 		} else {
 			if (!type.isBogus) todo!void("DIAG: Type parameter not allowed as a variant member"); // -----------------------------------------------------------------
 			return none!VariantMemberAndMethodImpls;
@@ -265,11 +267,14 @@ private Opt!VariantAndMethodImpls getVariantMemberTypeFromModifier(
 void checkVariantMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap funsMap, StructDecl[] structs) {
 	foreach (ref StructDecl struct_; structs) {
 		if (struct_.body_.isA!(StructBody.Variant)) {
-			foreach (ref VariantMemberAndMethodImpls x; struct_.body_.as!(StructBody.Variant).listedMembers) {
-				// TODO: test purity -----------------------------------------------------------------------------------------------------------------------
+			VariantMemberAndMethodImpls[] members = struct_.body_.as!(StructBody.Variant).listedMembers;
+			TypeAst[] memberAsts = struct_.source.as!(StructDeclAst*).body_.as!(StructBodyAst.Variant).types;
+			foreach (size_t i, ref VariantMemberAndMethodImpls x; members) {
+				// TODO: test purity (maybe move that into checkMethodImplsForVariant) -----------------------------------------------------------------------------------------------------------------------
 				x.methodImpls = checkMethodImplsForVariant(
 					ctx, commonTypes, funsMap,
-					TypeContainer(&struct_), x.member, x.ast.range,
+					TypeContainer(&struct_), x.member,
+					sizeEq(members, memberAsts) ? memberAsts[i].range : struct_.nameRange.range,
 					instantiateStructWithOwnTypeParams(ctx.instantiateCtx, &struct_),
 					struct_.body_.as!(StructBody.Variant).methods);
 			}

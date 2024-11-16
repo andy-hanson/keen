@@ -16,7 +16,7 @@ import backend.builtinMath : builtinForBinaryMath, builtinForUnaryMath;
 import backend.writeTypes : TypeWriters, writeTypes;
 import frontend.lang : CCompileOptions, CVersion, OptimizationLevel;
 import frontend.showModel : ShowCtx;
-import model.concreteModel : ConcreteStruct, ConcreteStructBody, isEmptyStruct, TypeSize;
+import model.concreteModel : ConcreteStruct, ConcreteStructBody, isEmptyStruct;
 import model.constant : Constant;
 import model.lowModel :
 	AllConstantsLow,
@@ -52,7 +52,7 @@ import model.lowModel :
 	PointerTypeAndConstantsLow,
 	PrimitiveType,
 	UpdateParam;
-import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinTernary, BuiltinType, BuiltinUnary;
+import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinTernary, BuiltinType, BuiltinUnary, TypeSize;
 import model.showLowModel : writeFunSig;
 import model.typeLayout : sizeOfType, typeSizeBytes;
 import util.alloc.alloc : Alloc, TempAlloc;

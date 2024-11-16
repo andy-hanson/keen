@@ -541,6 +541,7 @@ immutable string[] specialSymbols = [
 	"listed-members",
 	"local-pointer",
 	"loop-continue",
+	"method-impls",
 	"mutAllocated",
 	"mut-slice-pointer",
 	"mut-slice-size",

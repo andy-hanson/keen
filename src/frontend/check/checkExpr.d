@@ -1629,13 +1629,25 @@ Expr checkMatchVariant(
 				return false;
 		}
 	}();
-	Opt!(Expr*) else_ = isUnion && cases.length == body_.listedMembers.length
-		? () {
-			if (has(ast.else_))
-				todo!void("Unnecessary 'else' when all cases were handled"); // 000000000000000000000000000000000000000000000000000
-			return none!(Expr*);
-		}() :
-		some(allocate(ctx.alloc, checkMatchElseRequired(ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.variant)));
+	Opt!(Expr*) else_ = () {
+		if (isUnion) {
+			if (cases.length == body_.listedMembers.length) {
+				if (has(ast.else_))
+					todo!void("Unnecessary 'else' when all cases were handled"); // 000000000000000000000000000000000000000000000000000
+				return none!(Expr*);
+			} else
+				return some(allocate(ctx.alloc, checkMatchElseRequired(ctx, locals, source, ast, expected, () =>
+					Diag(Diag.MatchUnhandledCases(buildArray!(immutable StructInst*)(ctx.alloc, (scope ref Builder!(immutable StructInst*) out_) {
+						foreach (VariantMemberAndMethodImpls member; body_.listedMembers) {
+							StructInst* memberInst = instantiateStructInst(ctx.instantiateCtx, *member.member, matchedVariant.typeArgs);
+							if (!exists!MatchVariantCase(cases, (in MatchVariantCase case_) => case_.member == memberInst))
+								out_ ~= memberInst;
+						}
+					}))))));
+		} else
+			return some(allocate(ctx.alloc, checkMatchElseRequired(ctx, locals, source, ast, expected, () =>
+				Diag(Diag.MatchNeedsElse(Diag.MatchNeedsElse.Kind.variant)))));
+	}();
 	return Expr(source, ExprKind(allocate(ctx.alloc, MatchVariantExpr(matched, cases, else_))));
 }
 
@@ -1988,12 +2000,12 @@ Expr checkMatchElseRequired(
 	ExprAst* source,
 	ref MatchAst ast,
 	ref Expected expected,
-	Diag.MatchNeedsElse.Kind kind,
+	in Diag delegate() @safe @nogc pure nothrow cbDiag,
 ) {
 	if (has(ast.else_))
 		return checkExpr(ctx, locals, &force(ast.else_).expr, expected);
 	else {
-		addDiag2(ctx, ast.keywordRange(source), Diag(Diag.MatchNeedsElse(kind)));
+		addDiag2(ctx, ast.keywordRange(source), cbDiag());
 		return bogus(expected, source);
 	}
 }

@@ -51,8 +51,7 @@ import model.concreteModel :
 	pointeeTypeIfIsPointer,
 	purity,
 	ReferenceKind,
-	sizeOrPointerSizeBytes,
-	TypeSize;
+	sizeOrPointerSizeBytes;
 import model.constant : Constant, constantZero;
 import model.model :
 	AutoFun,
@@ -91,6 +90,7 @@ import model.model :
 	Test,
 	Type,
 	TypeParamIndex,
+	TypeSize,
 	VarDecl,
 	VariantKind,
 	VariantMemberAndMethodImpls,

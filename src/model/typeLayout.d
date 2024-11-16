@@ -3,7 +3,6 @@ module model.typeLayout;
 @safe @nogc pure nothrow:
 
 import interpret.bytecode : stackEntrySize;
-import model.concreteModel : TypeSize;
 import model.lowModel :
 	AllLowTypes,
 	LowExternType,
@@ -16,6 +15,7 @@ import model.lowModel :
 	LowUnion,
 	PrimitiveType,
 	typeSize;
+import model.model : TypeSize;
 import util.col.array : every, map;
 import util.opt : none, Opt, some;
 import util.util : divRoundUp, isMultipleOf;

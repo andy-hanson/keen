@@ -2,7 +2,7 @@ module backend.writeTypes;
 
 @safe @nogc pure nothrow:
 
-import model.concreteModel : ConcreteStruct, TypeSize;
+import model.concreteModel : ConcreteStruct;
 import model.lowModel :
 	LowExternType,
 	LowField,
@@ -17,6 +17,7 @@ import model.lowModel :
 	LowUnionIndex,
 	PrimitiveType,
 	typeSize;
+import model.model : TypeSize;
 import util.alloc.alloc : Alloc;
 import util.col.array : every;
 import util.col.fullIndexMap : FullIndexMap, fullIndexMapEachPointer, makeFullIndexMap_mut;

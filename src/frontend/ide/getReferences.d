@@ -132,6 +132,7 @@ import model.model :
 	TypeParamIndex,
 	VarDecl,
 	VariantAndMethodImpls,
+	VariantMemberAndMethodImpls,
 	variantMethodCaller,
 	Visibility;
 import util.alloc.alloc : Alloc;
@@ -417,10 +418,13 @@ void eachTypeInSpec(in SpecDecl a, in TypeCb cb) {
 	eachSpecParent(a, (SpecInst* parent, in SpecUseAst ast) {
 		eachPackedTypeArg(parent.typeArgs, ast.typeArg, cb);
 	});
-	foreach (ref Signature sig; a.sigs) {
-		cb(sig.returnType, sig.ast.returnType);
-		eachTypeInParams(Params(sig.params), sig.ast.params, cb);
-	}
+	foreach (ref Signature sig; a.sigs)
+		eachTypeInSignature(sig, cb);
+}
+
+void eachTypeInSignature(ref Signature a, in TypeCb cb) {
+	cb(a.returnType, a.ast.returnType);
+	eachTypeInParams(Params(a.params), a.ast.params, cb);
 }
 
 void eachTypeInStruct(ref CommonTypes commonTypes, in StructDecl a, in TypeCb cb) =>
@@ -462,10 +466,11 @@ void eachTypeInStructBody(
 			eachTypeInEnumOrFlags(commonTypes, structAst, x.storage, cb);
 		},
 		(in StructBody.Record x) {
-			eachTypeInRecordOrUnion!RecordField(
-				x.fields, ast.as!(StructBodyAst.Record).params, ast.as!(StructBodyAst.Record).fields, cb);
+			eachTypeInRecord(x, ast.as!(StructBodyAst.Record), cb);
 		},
-		(in StructBody.Variant) {});
+		(in StructBody.Variant x) {
+			eachTypeInVariant(x, ast.as!(StructBodyAst.Variant), cb);
+		});
 }
 void eachTypeInEnumOrFlags(ref CommonTypes commonTypes, in StructDeclAst struct_, IntegralType storage, in TypeCb cb) {
 	foreach (ref ModifierAst modifier; struct_.modifiers)
@@ -475,26 +480,31 @@ void eachTypeInEnumOrFlags(ref CommonTypes commonTypes, in StructDeclAst struct_
 				cb(Type(commonTypes.integrals[storage]), force(keyword.typeArg));
 		}
 }
-void eachTypeInRecordOrUnion(Member)( // this is now record only ----------------------------------------------------------------
-	in Member[] members,
-	in Opt!ParamsAst params,
-	in RecordOrUnionMemberAst[] asts,
-	in TypeCb cb,
-) {
-	if (has(params))
-		zip!(Member, DestructureAst)(
-			members, force(params).as!(DestructureAst[]), (ref Member member, ref DestructureAst ast) {
-				if (ast.isA!(DestructureAst.Single)) {
-					Opt!(TypeAst*) typeAst = ast.as!(DestructureAst.Single).type;
-					if (has(typeAst))
-						cb(member.type, *force(typeAst));
-				}
-			});
-	else
-		zip!(Member, RecordOrUnionMemberAst)(members, asts, (ref Member member, ref RecordOrUnionMemberAst ast) {
+void eachTypeInRecord(in StructBody.Record a, in StructBodyAst.Record ast, in TypeCb cb) {
+	if (has(ast.params)) {
+		if (force(ast.params).isA!(DestructureAst[])) {
+			zip!(RecordField, DestructureAst)(
+				a.fields, force(ast.params).as!(DestructureAst[]), (ref RecordField field, ref DestructureAst ast) {
+					if (ast.isA!(DestructureAst.Single)) {
+						Opt!(TypeAst*) typeAst = ast.as!(DestructureAst.Single).type;
+						if (has(typeAst))
+							cb(field.type, *force(typeAst));
+					}
+				});
+		}
+	} else
+		zip!(RecordField, RecordOrUnionMemberAst)(a.fields, ast.fields, (ref RecordField field, ref RecordOrUnionMemberAst ast) {
 			if (has(ast.type))
-				cb(member.type, force(ast.type));
+				cb(field.type, force(ast.type));
 		});
+}
+void eachTypeInVariant(in StructBody.Variant a, in StructBodyAst.Variant ast, in TypeCb cb) {
+	zipIfSizeEq!(VariantMemberAndMethodImpls, TypeAst)(
+		a.listedMembers, ast.types, (ref VariantMemberAndMethodImpls member, ref TypeAst ast) {
+			cb(Type(member.member), ast);
+		});
+	foreach (Signature method; a.methods)
+		eachTypeInSignature(method, cb);
 }
 
 void eachTypeInParams(in Params a, in ParamsAst asts, in TypeCb cb) {

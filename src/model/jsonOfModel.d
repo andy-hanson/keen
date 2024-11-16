@@ -22,6 +22,7 @@ import model.model :
 	BuiltinType,
 	BuiltinUnary,
 	BuiltinUnaryMath,
+	ByValOrRef,
 	Called,
 	CalledDecl,
 	CalledSpecSig,
@@ -48,6 +49,7 @@ import model.model :
 	FunPointerExpr,
 	IfExpr,
 	ImportOrExport,
+	IntegralType,
 	JsFun,
 	LambdaExpr,
 	LetExpr,
@@ -74,6 +76,7 @@ import model.model :
 	RecordField,
 	RecordFieldPointerExpr,
 	Purity,
+	RecordFlags,
 	SeqExpr,
 	SpecDecl,
 	StructAlias,
@@ -92,9 +95,12 @@ import model.model :
 	Type,
 	TypedExpr,
 	TypeParamIndex,
+	TypeSize,
 	VarDecl,
 	VariableRef,
-	VariantMemberAndMethodImpls;
+	VariantAndMethodImpls,
+	VariantMemberAndMethodImpls,
+	Visibility;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mapOp;
 import util.col.arrayBuilder : buildArray, Builder;
@@ -103,6 +109,7 @@ import util.json :
 	Json,
 	jsonList,
 	jsonListOfKeys,
+	jsonNull,
 	jsonObject,
 	jsonString,
 	optionalArrayField,
@@ -197,10 +204,12 @@ private:
 
 Opt!(Json.ObjectField) docCommentField(ref Alloc alloc, in Ctx ctx, in DocComment a) =>
 	optionalField!"doc"(!a.isEmpty, () =>
-		jsonObject(alloc, [
-			field!"range"(jsonOfLineAndColumnRange(alloc, ctx.lineAndColumnGetter[force(a.ast.range)])),
-			optionalArrayField!("references", DocCommentReference)(alloc, a.references, (in DocCommentReference x) =>
-				jsonOfDocCommentReference(alloc, ctx, x))]));
+		jsonOfDocComment(alloc, ctx, a));
+Json jsonOfDocComment(ref Alloc alloc, in Ctx ctx, in DocComment a) =>
+	jsonObject(alloc, [
+		field!"range"(jsonOfLineAndColumnRange(alloc, ctx.lineAndColumnGetter[force(a.ast.range)])),
+		optionalArrayField!("references", DocCommentReference)(alloc, a.references, (in DocCommentReference x) =>
+			jsonOfDocCommentReference(alloc, ctx, x))]);
 Json jsonOfDocCommentReference(ref Alloc alloc, in Ctx ctx, in DocCommentReference a) =>
 	a.matchIn!Json(
 		(in DocCommentReference.Bogus) =>
@@ -265,8 +274,9 @@ Json jsonOfStructDecl(ref Alloc alloc, in Ctx ctx, ref StructDecl a) =>
 		[
 			optionalField!"purity"(a.purity != Purity.data, () => jsonString(stringOfEnum(a.purity))),
 			optionalFlagField!"forced"(a.purityIsForced),
-			field!"body"(jsonOfStructBody(alloc, ctx, a.body_))
-		]);
+			field!"body"(jsonOfStructBody(alloc, ctx, a.body_)),
+			field!"variants"(jsonList!VariantAndMethodImpls(alloc, a.variants, (in VariantAndMethodImpls x) =>
+				jsonOfVariantMember(alloc, ctx, x)))]);
 
 Json jsonOfStructBody(ref Alloc alloc, in Ctx ctx, ref StructBody a) =>
 	a.match!Json(
@@ -275,25 +285,87 @@ Json jsonOfStructBody(ref Alloc alloc, in Ctx ctx, ref StructBody a) =>
 		(BuiltinType x) =>
 			jsonString(stringOfEnum(x)),
 		(ref StructBody.Enum x) =>
-			jsonString("enum"), // TODO: MORE DETAIL ------------------------------------------------------------------------
+			jsonOfEnumOrFlags(alloc, ctx, "enum", x.storage, x.members),
 		(StructBody.Extern x) =>
-			jsonString("extern"), // TODO: MORE DETAIL ------------------------------------------------------------------------
-		(StructBody.Flags x) =>
-			jsonString("flags"), // TODO: MORE DETAIL ------------------------------------------------------------------------
-		(StructBody.Record x) =>
-			jsonString("record"), // TODO: MORE DETAIL ------------------------------------------------------------------------
-		(StructBody.Variant x) =>
 			jsonObject(alloc, [
-				kindField!"variant",
-				field!"kind"(stringOfEnum(x.kind)),
-				field!"listed-members"(jsonList!VariantMemberAndMethodImpls(alloc, x.listedMembers, (in VariantMemberAndMethodImpls m) =>
-					jsonOfVariantMember(alloc, ctx, m))),
-				field!"methods"(jsonOfSignatures(alloc, ctx, x.methods))]));
-		
-Json jsonOfVariantMember(ref Alloc alloc, in Ctx ctx, in VariantMemberAndMethodImpls x) =>
+				kindField!"extern",
+				optionalField!("size", TypeSize)(x.size, (TypeSize size) =>
+					jsonOfTypeSize(alloc, size))]),
+		(StructBody.Flags x) =>
+			jsonOfEnumOrFlags(alloc, ctx, "flags", x.storage, x.members),
+		(StructBody.Record x) =>
+			jsonOfRecord(alloc, ctx, x),
+		(StructBody.Variant x) =>
+			jsonOfVariant(alloc, ctx, x));
+
+Json jsonOfEnumOrFlags(
+	ref Alloc alloc,
+	in Ctx ctx,
+	string kind,
+	IntegralType storage,
+	in EnumOrFlagsMember[] members,
+) =>
 	jsonObject(alloc, [
-		field!"member"(jsonOfStructInst(alloc, ctx, *x.member))]);
-		// field!"method-impls"(jsonOfMethodImpls(alloc, ctx, x.methodImpls)) ----------------------------------------------
+		kindField(kind),
+		field!"storage"(stringOfEnum(storage)),
+		field!"members"(jsonList!EnumOrFlagsMember(alloc, members, (in EnumOrFlagsMember x) =>
+			jsonOfEnumOrFlagsMember(alloc, ctx, x)))]);
+
+Json jsonOfEnumOrFlagsMember(ref Alloc alloc, in Ctx ctx, in EnumOrFlagsMember a) =>
+	jsonObject(alloc, [
+		docCommentField(alloc, ctx, a.docComment),
+		field!"value"(a.value.asUnsigned)]);
+
+Json jsonOfTypeSize(ref Alloc alloc, in TypeSize a) =>
+	jsonObject(alloc, [
+		field!"size"(a.sizeBytes),
+		field!"align"(a.alignmentBytes)]);
+
+Json jsonOfRecord(ref Alloc alloc, in Ctx ctx, in StructBody.Record a) =>
+	jsonObject(alloc, [
+		kindField!"record",
+		field!"flags"(jsonOfRecordFlags(alloc, ctx, a.flags)),
+		field!"fields"(jsonList!RecordField(alloc, a.fields, (in RecordField x) =>
+			jsonOfRecordField(alloc, ctx, x)))]);
+
+Json jsonOfRecordFlags(ref Alloc alloc, in Ctx ctx, in RecordFlags a) =>
+	jsonObject(alloc, [
+		field!"new"(stringOfVisibility(a.newVisibility)),
+		optionalFlagField!"nominal"(a.nominal),
+		optionalFlagField!"packed"(a.packed),
+		optionalField!("forced", ByValOrRef)(a.forcedByValOrRef, (in ByValOrRef x) =>
+			jsonString(stringOfEnum(x)))]);
+
+Json jsonOfRecordField(ref Alloc alloc, in Ctx ctx, in RecordField a) =>
+	jsonObject(alloc, [
+		docCommentField(alloc, ctx, a.docComment),
+		field!"visibility"(stringOfVisibility(a.visibility)),
+		optionalField!("mut", Visibility)(a.mutability, (in Visibility x) =>
+			jsonString(stringOfVisibility(x))),
+		field!"type"(jsonOfType(alloc, ctx, a.type))]);
+
+Json jsonOfVariant(ref Alloc alloc, in Ctx ctx, in StructBody.Variant a) =>
+	jsonObject(alloc, [
+		kindField!"variant",
+		field!"kind"(stringOfEnum(a.kind)),
+		field!"listed-members"(
+			jsonList!VariantMemberAndMethodImpls(alloc, a.listedMembers, (in VariantMemberAndMethodImpls m) =>
+				jsonOfVariantMember(alloc, ctx, m))),
+		field!"methods"(jsonOfSignatures(alloc, ctx, a.methods))]);
+
+Json jsonOfVariantMember(ref Alloc alloc, in Ctx ctx, in VariantMemberAndMethodImpls a) =>
+	jsonObject(alloc, [
+		field!"member"(jsonOfStructInst(alloc, ctx, *a.member)),
+		field!"method-impls"(jsonOfMethodImpls(alloc, ctx, a.methodImpls))]);
+
+Json jsonOfVariantMember(ref Alloc alloc, in Ctx ctx, in VariantAndMethodImpls a) =>
+	jsonObject(alloc, [
+		field!"variant"(jsonOfStructInst(alloc, ctx, *a.variant)),
+		field!"method-impls"(jsonOfMethodImpls(alloc, ctx, a.methodImpls))]);
+
+Json jsonOfMethodImpls(ref Alloc alloc, in Ctx ctx, in Opt!Called[] methodImpls) =>
+	jsonList!(Opt!Called)(alloc, methodImpls, (in Opt!Called x) =>
+		has(x) ? jsonOfCalled(alloc, ctx, force(x)) : jsonNull);
 
 Json jsonOfVarDecl(ref Alloc alloc, in Ctx ctx, ref VarDecl a) =>
 	jsonObject(alloc,

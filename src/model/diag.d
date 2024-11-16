@@ -412,14 +412,14 @@ immutable struct Diag {
 	}
 	// For an enum/union this would be 'MatchUnhandledCases'
 	immutable struct MatchNeedsElse {
-		enum Kind { variant }
+		enum Kind { variant } // 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 		Kind kind;
 	}
 	immutable struct MatchOnNonMatchable {
 		TypeWithContainer type;
 	}
 	immutable struct MatchUnhandledCases { // TODO: this should have a version for a union! ----------------------------------------
-		mixin Union!(immutable EnumOrFlagsMember*[]);
+		mixin Union!(immutable EnumOrFlagsMember*[], immutable StructInst*[]);
 	}
 	immutable struct MatchUnnecessaryElse {}
 	immutable struct MatchVariantCantInferTypeArgs {

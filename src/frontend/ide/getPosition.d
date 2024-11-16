@@ -133,7 +133,8 @@ import model.model :
 	TypedExpr,
 	TypeParamIndex,
 	TypeWithContainer,
-	VarDecl;
+	VarDecl,
+	VariantMemberAndMethodImpls;
 import model.model : paramsArray, StructDeclSource;
 import util.col.array :
 	findIndex,
@@ -468,7 +469,14 @@ Opt!PositionKind positionInStructBody(
 				cbMutabilityPosition: (RecordField* field) =>
 					some(PositionKind(PositionKind.RecordFieldMutability(field.mutability)))),
 		(StructBody.Variant x) =>
-			positionInSignatures(x.methods, ast.as!(StructBodyAst.Variant).methods, pos));
+			positionInVariant(decl, x, ast.as!(StructBodyAst.Variant), pos));
+
+Opt!PositionKind positionInVariant(StructDecl* decl, StructBody.Variant a, in StructBodyAst.Variant ast, Pos pos) =>
+	optOr!PositionKind(
+		firstZipIfSizeEq!(PositionKind, TypeAst, VariantMemberAndMethodImpls)(
+			ast.types, a.listedMembers, (TypeAst typeAst, VariantMemberAndMethodImpls x) =>
+				positionInType(TypeContainer(decl), Type(x.member), typeAst, pos)),
+		() => positionInSignatures(a.methods, ast.methods, pos));
 
 Opt!PositionKind positionInRecordOrUnionBody(Member)( // this is now record only -----------------------------------------
 	in Ctx ctx,

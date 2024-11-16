@@ -21,6 +21,7 @@ import model.model :
 	StructBody,
 	StructDecl,
 	Test,
+	TypeSize,
 	VarDecl;
 import util.col.array : arraysEqual, exists, isEmpty, only, SmallArray;
 import util.col.set : Set;
@@ -100,11 +101,6 @@ bool isEmptyStruct(in ConcreteStruct a) =>
 
 alias ReferenceKind = immutable ReferenceKind_;
 private enum ReferenceKind_ { byVal, byRef }
-
-immutable struct TypeSize {
-	uint sizeBytes;
-	uint alignmentBytes;
-}
 
 Purity purity(ConcreteType a) =>
 	a.struct_.purity;

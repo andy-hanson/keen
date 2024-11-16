@@ -11,8 +11,7 @@ import model.concreteModel :
 	isArrayOrMutArray,
 	isFiber,
 	isTuple,
-	name,
-	TypeSize;
+	name;
 import model.constant : Constant;
 import model.model :
 	Builtin4ary,
@@ -24,7 +23,8 @@ import model.model :
 	BuiltinBinaryMath,
 	BuiltinTernary,
 	Local,
-	StructBody;
+	StructBody,
+	TypeSize;
 import util.col.array : isEmpty, SmallArray;
 import util.col.map : Map;
 import util.col.fullIndexMap : FullIndexMap, indexOfPointer;

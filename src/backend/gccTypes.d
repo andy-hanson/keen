@@ -40,7 +40,7 @@ import backend.libgccjit :
 	gcc_jit_types;
 import backend.mangle : MangledNames, writeStructMangledName;
 import backend.writeTypes : TypeWriters, writeTypes;
-import model.concreteModel : ConcreteStruct, TypeSize;
+import model.concreteModel : ConcreteStruct;
 import model.lowModel :
 	AllLowTypes,
 	debugName,
@@ -58,6 +58,7 @@ import model.lowModel :
 	LowUnionIndex,
 	PrimitiveType,
 	typeSize;
+import model.model : TypeSize;
 import util.alloc.alloc : Alloc;
 import util.col.array : isEmpty, map, mapWithIndex, zip;
 import util.col.enumMap : EnumMap, makeEnumMap;

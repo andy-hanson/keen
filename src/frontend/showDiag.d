@@ -1007,7 +1007,8 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in Diag.MatchUnhandledCases x) {
 			writer ~= "'match' is missing ";
 			size_t length = x.matchIn!size_t(
-				(in EnumOrFlagsMember*[] xs) => xs.length);
+				(in EnumOrFlagsMember*[] xs) => xs.length,
+				(in StructInst*[] xs) => xs.length);
 			writer ~= (length == 1 ? "case" : "cases:");
 			writer ~= ' ';
 			x.matchIn!void(
@@ -1015,21 +1016,13 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					writeWithCommas!(EnumOrFlagsMember*)(writer, members, (in EnumOrFlagsMember* member) {
 						writeName(writer, ctx, member.name);
 					});
-				});
-				/* ------------------------------------------------------------------------------------------------------------------------
-				(in UnionMember*[] members) {
-					writeWithCommas!(UnionMember*)(writer, members, (in UnionMember* member) {
-						writeName(writer, ctx, member.name);
-						if (member.type != Type(ctx.commonTypes.void_)) {
-							writer ~= " (of type ";
-							writeTypeQuoted(writer, ctx, TypeWithContainer(
-								member.type,
-								TypeContainer(member.containingUnion)));
-							writer ~= ")";
-						}
+				},
+				(in StructInst*[] members) {
+					writeWithCommas!(StructInst*)(writer, members, (in StructInst* member) {
+						writeName(writer, ctx, member.decl.name);
 					});
 				});
-				*/
+			writer ~= '.';
 		},
 		(in Diag.MatchUnnecessaryElse x) {
 			writer ~= "'match' handles every case, so the 'else' is unused.";
