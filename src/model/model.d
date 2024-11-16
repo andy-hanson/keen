@@ -420,7 +420,7 @@ immutable struct ParamShort {
 	Type type;
 }
 
-immutable struct RecordOrUnionMemberSource { // rename -======================================================================
+immutable struct RecordFieldSource {
 	@safe @nogc pure nothrow:
 	mixin TaggedUnion!(DestructureAst.Single*, RecordFieldAst*);
 
@@ -456,7 +456,7 @@ immutable struct RecordOrUnionMemberSource { // rename -========================
 immutable struct RecordField {
 	@safe @nogc pure nothrow:
 
-	RecordOrUnionMemberSource source;
+	RecordFieldSource source;
 	StructDecl* containingRecord;
 	Visibility visibility;
 	Opt!Visibility mutability;

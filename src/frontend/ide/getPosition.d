@@ -501,7 +501,7 @@ Opt!PositionKind positionInRecordOrUnionBody(Member)( // this is now record only
 				positionInRecordOrUnionMember!Member(
 					decl, member, memberAst, pos, cbMemberPosition, cbVisibilityContainer, cbMutabilityPosition));
 
-Opt!PositionKind positionInRecordOrUnionMemberParameter(Member)(
+Opt!PositionKind positionInRecordOrUnionMemberParameter(Member)( // rename --------------------------------------------------------------
 	StructDecl* decl,
 	Member* member,
 	in DestructureAst.Single param,
@@ -519,7 +519,7 @@ Opt!PositionKind positionInRecordOrUnionMemberParameter(Member)(
 			? positionInType(TypeContainer(decl), member.type, *force(param.type), pos)
 			: none!PositionKind);
 
-Opt!PositionKind positionInRecordOrUnionMember(Member)(
+Opt!PositionKind positionInRecordOrUnionMember(Member)( // rename --------------------------------------------------------------------
 	StructDecl* decl,
 	Member* member,
 	in RecordFieldAst memberAst,

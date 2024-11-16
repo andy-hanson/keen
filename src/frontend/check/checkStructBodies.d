@@ -61,7 +61,7 @@ import model.model :
 	Purity,
 	purityRange,
 	RecordField,
-	RecordOrUnionMemberSource,
+	RecordFieldSource,
 	RecordFlags,
 	ReturnAndParamTypes,
 	Signature,
@@ -736,9 +736,8 @@ StructBody.Record checkRecord(
 		addDiag(ctx, force(modifiers.byValOrRef).keywordRange, Diag(Diag.ExternRecordImplicitlyByVal(struct_)));
 
 	SmallArray!RecordField fields = checkRecordFields(
-		ctx, struct_, ast.params, ast.fields, Diag.DuplicateDeclaration.Kind.recordField,
-		(RecordFieldAstCommon fieldAst) =>
-			checkRecordField(ctx, commonTypes, structsAndAliasesMap, struct_, fieldAst));
+		ctx, commonTypes, structsAndAliasesMap,
+		struct_, ast);
 	RecordFlags flags = RecordFlags(
 		newVisibility: recordNewVisibility(ctx, struct_, fields, modifiers),
 		nominal: has(modifiers.nominal),
@@ -747,52 +746,42 @@ StructBody.Record checkRecord(
 	return StructBody.Record(flags, fields);
 }
 
-// Shared in common between DestructureAst.Single and RecordFieldAst
-struct RecordFieldAstCommon {
-	RecordOrUnionMemberSource source;
-	Opt!VisibilityAndRange visibility;
-	NameAndRange name;
-	Opt!FieldMutabilityAst mutability;
-	Opt!TypeAst type;
-}
-
-alias CbCheckField = RecordField delegate(RecordFieldAstCommon) @safe @nogc pure nothrow;
-
-SmallArray!RecordField checkRecordFields( // TODO: this will only be for record now? -----------------------------------------------
+SmallArray!RecordField checkRecordFields(
 	ref CheckCtx ctx,
+	ref CommonTypes commonTypes,
+	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* struct_,
-	Opt!ParamsAst params,
-	SmallArray!RecordFieldAst memberAsts,
-	Diag.DuplicateDeclaration.Kind duplicateDeclarationKind,
-	in CbCheckField cbCheckField, // don't need a cb any more ?----------------------------------------------------
+	ref StructBodyAst.Record ast,
 ) {
-	if (has(params) && !isEmpty(memberAsts))
+	if (has(ast.params) && !isEmpty(ast.fields))
 		addDiag(ctx, struct_.nameRange.range, Diag(
 			Diag.StructParamsSyntaxError(struct_, Diag.StructParamsSyntaxError.Reason.hasParamsAndFields)));
-	SmallArray!RecordField res = has(params)
-		? recordFieldsFromParams(ctx, struct_, force(params), cbCheckField)
+	SmallArray!RecordField res = has(ast.params)
+		? recordFieldsFromParams(ctx, commonTypes, structsAndAliasesMap, struct_, force(ast.params))
 		: mapPointers!(RecordField, RecordFieldAst)(
-			ctx.alloc, memberAsts, (RecordFieldAst* x) =>
-				cbCheckField(RecordFieldAstCommon(
-					RecordOrUnionMemberSource(x), x.visibility, x.name, x.mutability, x.type)));
+			ctx.alloc, ast.fields, (RecordFieldAst* x) =>
+				checkRecordField(
+					ctx, commonTypes, structsAndAliasesMap, struct_,
+					RecordFieldSource(x), x.visibility, x.name, x.mutability, x.type));
 	eachPair!RecordField(res, (in RecordField a, in RecordField b) {
 		if (a.name == b.name)
-			addDiag(ctx, b.range, Diag(Diag.DuplicateDeclaration(duplicateDeclarationKind, a.name)));
+			addDiag(ctx, b.range, Diag(Diag.DuplicateDeclaration(Diag.DuplicateDeclaration.Kind.recordField, a.name)));
 	});
 	return res;
 }
 
 SmallArray!RecordField recordFieldsFromParams(
 	ref CheckCtx ctx,
+	ref CommonTypes commonTypes,
+	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* struct_,
 	ParamsAst ast,
-	in CbCheckField cbCheckField,
 ) =>
 	ast.match!(SmallArray!RecordField)(
 		(DestructureAst[] destructures) =>
 			mapOpPointers!(RecordField, DestructureAst)(
 				ctx.alloc, small!DestructureAst(destructures), (DestructureAst* param) =>
-					recordFieldFromParam(ctx, struct_, param, cbCheckField)),
+					recordFieldFromParam(ctx, commonTypes, structsAndAliasesMap, struct_, param)),
 		(ref ParamsAst.Varargs x) {
 			addDiag(ctx, x.param.range, Diag(
 				Diag.StructParamsSyntaxError(struct_, Diag.StructParamsSyntaxError.Reason.variadic)));
@@ -825,51 +814,57 @@ Opt!EnumOrFlagsMember enumMemberFromParam(
 
 Opt!RecordField recordFieldFromParam(
 	ref CheckCtx ctx,
-	StructDecl* struct_,
+	ref CommonTypes commonTypes,
+	ref StructsAndAliasesMap structsAndAliasesMap,
+	StructDecl* record,
 	DestructureAst* ast,
-	in CbCheckField cbCheckField, // shouldn't need a cb -------------------------------------------------------------
 ) {
 	if (ast.isA!(DestructureAst.Single)) {
 		DestructureAst.Single* single = &ast.as!(DestructureAst.Single)();
-		return some(cbCheckField(RecordFieldAstCommon(
-			RecordOrUnionMemberSource(single),
+		return some(checkRecordField(
+			ctx, commonTypes, structsAndAliasesMap, record,
+			RecordFieldSource(single),
 			none!VisibilityAndRange,
 			single.name,
 			has(single.mut) ? some(FieldMutabilityAst(force(single.mut), none!Visibility)) : none!FieldMutabilityAst,
-			has(single.type) ? some(*force(single.type)) : none!TypeAst)));
+			has(single.type) ? some(*force(single.type)) : none!TypeAst));
 	} else {
 		addDiag(ctx, ast.range, Diag(
-			Diag.StructParamsSyntaxError(struct_, Diag.StructParamsSyntaxError.Reason.destructure)));
+			Diag.StructParamsSyntaxError(record, Diag.StructParamsSyntaxError.Reason.destructure)));
 		return none!RecordField;
 	}
 }
 
+// Shared in common between DestructureAst.Single and RecordFieldAst
 RecordField checkRecordField(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* record,
-	RecordFieldAstCommon ast,
+	RecordFieldSource source,
+	Opt!VisibilityAndRange visibilityAst,
+	NameAndRange name,
+	Opt!FieldMutabilityAst mutabilityAst,
+	Opt!TypeAst typeAst,
 ) {
-	Symbol name = ast.name.name;
-	Type memberType = has(ast.type)
-		? typeFromAst(ctx, commonTypes, structsAndAliasesMap, force(ast.type), record.typeParams, AliasAllowed.yes)
+	Type memberType = has(typeAst)
+		? typeFromAst(ctx, commonTypes, structsAndAliasesMap, force(typeAst), record.typeParams, AliasAllowed.yes)
 		: () {
-			addDiag(ctx, ast.name.range, Diag(Diag.RecordFieldNeedsType(name)));
+			addDiag(ctx, name.range, Diag(Diag.RecordFieldNeedsType(name.name)));
 			return Type.bogus;
 		}();
-	checkReferenceLinkageAndPurity(ctx, record, ast.source.range, memberType);
+	checkReferenceLinkageAndPurity(ctx, record, source.range, memberType);
 
-	if (has(ast.mutability) && record.purity != Purity.mut && !record.purityIsForced)
-		addDiag(ctx, force(ast.mutability).range, Diag(Diag.MutFieldNotAllowed()));
-	Visibility visibility = visibilityFromDefaultWithDiag(ctx, record.visibility, ast.visibility,
-		Diag.VisibilityWarning.Kind(Diag.VisibilityWarning.Kind.Field(record, name)));
-	Opt!Visibility mutability = has(ast.mutability)
+	if (has(mutabilityAst) && record.purity != Purity.mut && !record.purityIsForced)
+		addDiag(ctx, force(mutabilityAst).range, Diag(Diag.MutFieldNotAllowed()));
+	Visibility visibility = visibilityFromDefaultWithDiag(ctx, record.visibility, visibilityAst,
+		Diag.VisibilityWarning.Kind(Diag.VisibilityWarning.Kind.Field(record, name.name)));
+	Opt!Visibility mutability = has(mutabilityAst)
 		? some(visibilityFromDefaultWithDiag(
-			ctx, visibility, force(ast.mutability).visibility,
-			Diag.VisibilityWarning.Kind(Diag.VisibilityWarning.Kind.FieldMutability(name))))
+			ctx, visibility, force(mutabilityAst).visibility,
+			Diag.VisibilityWarning.Kind(Diag.VisibilityWarning.Kind.FieldMutability(name.name))))
 		: none!Visibility;
-	return RecordField(ast.source, record, visibility, mutability, memberType);
+	return RecordField(source, record, visibility, mutability, memberType);
 }
 
 IntegralType checkEnumOrFlagsModifiers(

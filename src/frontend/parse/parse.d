@@ -286,8 +286,7 @@ void parseSpecOrStructOrFun(
 			SmallArray!TypeAst types = tryParseVariantTypes(lexer);
 			addStruct(() => StructBodyAst(StructBodyAst.Variant(
 				token == Token.variant ? VariantKind.variant : token == Token.union_ ? VariantKind.union_ : VariantKind.interface_, // TODO: just convert enum to enum
-				types,
-				parseIndentedSigs(lexer))));
+				allocate(lexer.alloc, StructBodyAst.Variant.TypesAndMethods(types, parseIndentedSigs(lexer))))));
 			break;
 		default:
 			add(lexer.alloc, funs, parseFun(lexer, docComment, visibility, start, name, typeParams));

@@ -1058,14 +1058,23 @@ immutable struct StructBodyAst {
 		SmallArray!RecordFieldAst fields;
 	}
 	immutable struct Variant {
+		@safe @nogc pure nothrow:
 		VariantKind kind;
-		SmallArray!TypeAst types;
-		SmallArray!SignatureAst methods;
+		immutable struct TypesAndMethods {
+			SmallArray!TypeAst types;
+			SmallArray!SignatureAst methods;
+		}
+		private TypesAndMethods* typesAndMethods;
+
+		SmallArray!TypeAst types() return scope =>
+			typesAndMethods.types;
+		SmallArray!SignatureAst methods() return scope =>
+			typesAndMethods.methods;
 	}
 
 	mixin .Union!(Builtin, Enum, Extern, Flags, Record, Variant);
 }
-//static assert(StructBodyAst.sizeof <= 24); ------------------------------------------------------------------------------------------------
+static assert(StructBodyAst.sizeof <= 24);
 
 immutable struct EnumOrFlagsMemberAst {
 	@safe @nogc pure nothrow:
