@@ -100,7 +100,7 @@ import model.model :
 	Test,
 	Type,
 	TypeParamIndex,
-	VariantKind;
+	SumTypeKind;
 import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, isEmpty, makeArray, map, newArray, only;
 import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder, finish;
@@ -440,10 +440,10 @@ ExprResult translateInlineCall(
 			assert(false),
 		(in FunBody.CreateRecord) =>
 			expr(createRecord(returnStruct)),
-		(in FunBody.CreateRecordAndConvertToVariant x) =>
-			expr(createVariant(ctx, source, returnStruct, createRecord(x.member.decl), x.member.decl.name)),
-		(in FunBody.CreateVariant x) =>
-			expr(createVariant(ctx, source, returnStruct, onlyArg(), only(paramTypes).as!(StructInst*).decl.name)),
+		(in FunBody.CreateRecordAndConvertToSumType x) =>
+			expr(createSumType(ctx, source, returnStruct, createRecord(x.member.decl), x.member.decl.name)),
+		(in FunBody.CreateSumType x) =>
+			expr(createSumType(ctx, source, returnStruct, onlyArg(), only(paramTypes).as!(StructInst*).decl.name)),
 		(in Expr _) =>
 			assert(false),
 		(in FunBody.Extern) =>
@@ -452,6 +452,14 @@ ExprResult translateInlineCall(
 			assert(false),
 		(in FlagsFunction x) =>
 			expr(translateFlagsFunction(ctx, source, returnType, paramTypes, x, nArgs, getArg)),
+		(in FunBody.Method x) =>
+			expr(genCall(
+				ctx.alloc,
+				source,
+				isAsyncFun(ctx.ctx.allUsed, called),
+				allocate(ctx.alloc, genPropertyAccess(
+					ctx.alloc, source, getArg(0), JsMemberName.variantMethod(x.method.name))),
+				args(skip: 1))),
 		(in FunBody.RecordFieldCall x) {
 			assert(nArgs >= 1);
 			return expr(genCallAwait(
@@ -470,46 +478,36 @@ ExprResult translateInlineCall(
 			assert(nArgs == 2);
 			return forceStatement(ctx, pos, genAssign(ctx.alloc, source, recordField(x.field), getArg(1)));
 		},
-		(in FunBody.VarGet x) =>
-			expr(translateVarReference(ctx.ctx, source, x.var)),
-		(in FunBody.VariantMemberGet) {
+		(in FunBody.SumTypeMemberGet) {
 			assert(!bodyIsInlined(*called));
 			JsExpr arg = onlyArg();
 			StructInst* member = mustUnwrapOptionType(returnType).as!(StructInst*);
 			StructDecl* variant = only(paramTypes).as!(StructInst*).decl;
-			if (variant.body_.as!(StructBody.Variant).kind == VariantKind.union_) { // ternary ------------------------------000000000000
-				return expr(genTernary(
+			return variant.body_.as!(StructBody.SumType).kind == SumTypeKind.union_
+				? expr(genTernary(
 					ctx.alloc,
 					source,
 					genIsUnionMember(ctx.alloc, source, arg, member),
 					genOptionSome(ctx.alloc, source, genForceUnionMember(ctx.alloc, source, arg, member)),
-					genOptionNone(source)));
-			} else {
+					genOptionNone(source)))
 				// x instanceof Foo ? Option.some(x) : Option.none
-				return expr(genTernary(
+				: expr(genTernary(
 					ctx.alloc,
 					source,
 					genInstanceof(ctx.alloc, source, arg, translateStructReference(ctx, source, member.decl)),
 					genOptionSome(ctx.alloc, source, arg),
 					genOptionNone(source)));
-			}
 		},
-		(in FunBody.VariantMethod x) =>
-			expr(genCall(
-				ctx.alloc,
-				source,
-				isAsyncFun(ctx.ctx.allUsed, called),
-				allocate(ctx.alloc, genPropertyAccess(
-					ctx.alloc, source, getArg(0), JsMemberName.variantMethod(x.method.name))),
-				args(skip: 1))),
+		(in FunBody.VarGet x) =>
+			expr(translateVarReference(ctx.ctx, source, x.var)),
 		(in FunBody.VarSet x) =>
 			forceStatement(
 				ctx, pos,
 				genAssign(ctx.alloc, source, translateVarReference(ctx.ctx, source, x.var), onlyArg())));
 }
 
-private JsExpr createVariant(ref TranslateExprCtx ctx, in Source source, StructDecl* variant, JsExpr arg, Symbol memberName) {
-	if (variant.body_.as!(StructBody.Variant).kind == VariantKind.union_) {
+private JsExpr createSumType(ref TranslateExprCtx ctx, in Source source, StructDecl* variant, JsExpr arg, Symbol memberName) {
+	if (variant.body_.as!(StructBody.SumType).kind == SumTypeKind.union_) {
 		JsExpr member = genPropertyAccess(
 			ctx.alloc, source, translateStructReference(ctx, source, variant),
 			JsMemberName.unionConstructor(memberName));

@@ -1012,6 +1012,17 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeTypeQuoted(writer, ctx, x.type);
 			writer ~= '.';
 		},
+		(in Diag.MatchSumTypeCantInferTypeArgs x) {
+			writer ~= "Can't infer type arguments of ";
+			writer ~= x.member.name;
+		},
+		(in Diag.MatchSumTypeNoMember x) {
+			writer ~= "Type ";
+			writeName(writer, ctx, x.nonMember.name);
+			writer ~= " is not a member of variant ";
+			writeTypeQuoted(writer, ctx, x.variant);
+			writer ~= '.';
+		},
 		(in Diag.MatchUnhandledCases x) {
 			writer ~= "'match' is missing ";
 			size_t length = x.matchIn!size_t(
@@ -1034,17 +1045,6 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in Diag.MatchUnnecessaryElse x) {
 			writer ~= "'match' handles every case, so the 'else' is unused.";
-		},
-		(in Diag.MatchVariantCantInferTypeArgs x) {
-			writer ~= "Can't infer type arguments of ";
-			writer ~= x.member.name;
-		},
-		(in Diag.MatchVariantNoMember x) {
-			writer ~= "Type ";
-			writeName(writer, ctx, x.nonMember.name);
-			writer ~= " is not a member of variant ";
-			writeTypeQuoted(writer, ctx, x.variant);
-			writer ~= '.';
 		},
 		(in Diag.ModifierConflict x) {
 			writeModifier(writer, ctx, x.curModifier);
@@ -1491,7 +1491,7 @@ DeclKind declKindOfStruct(StructDecl* a) =>
 			DeclKind.flags,
 		(in StructBody.Record) =>
 			DeclKind.record,
-		(in StructBody.Variant) =>
+		(in StructBody.SumType) =>
 			DeclKind.variant);
 
 enum MemberKind { enumMember, flagsMember, recordField }
@@ -1509,7 +1509,7 @@ MemberKind memberKindOfStruct(StructDecl* a) =>
 			MemberKind.flagsMember,
 		(in StructBody.Record) =>
 			MemberKind.recordField,
-		(in StructBody.Variant) =>
+		(in StructBody.SumType) =>
 			assert(false));
 
 string aOrAnDeclKind(DeclKind a) {

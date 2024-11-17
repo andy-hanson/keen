@@ -402,7 +402,7 @@ void addStructTokens(scope ref Ctx ctx, in StructDeclAst a) {
 		(in StructBodyAst.Record x) {
 			addRecordTokens(ctx, a, x.params, x.fields, TokenType.property);
 		},
-		(in StructBodyAst.Variant x) {
+		(in StructBodyAst.SumType x) {
 			foreach (ref TypeAst type; x.types)
 				addTypeTokens(ctx, type);
 			addModifierTokens(ctx, a.modifiers);

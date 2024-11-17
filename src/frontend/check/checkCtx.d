@@ -18,9 +18,9 @@ import model.model :
 	StructAlias,
 	StructDecl,
 	StructOrAlias,
+	SumTypeMembership,
+	sumTypeMemberGetter,
 	TypeParams,
-	VariantAndMethodImpls,
-	variantMemberGetter,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.col.array : exists, isEmpty, mustFind, SmallArray;
@@ -110,9 +110,9 @@ void checkForUnused(ref CheckCtx ctx, StructAlias[] aliases, StructDecl[] struct
 		checkUnusedDecl(&alias_, () => false);
 	foreach (ref StructDecl struct_; structs)
 		checkUnusedDecl(&struct_, () =>
-			// Even if the struct is not used as a type, it's used if it's accessed as a variant member
-			exists!VariantAndMethodImpls(struct_.variants, (in VariantAndMethodImpls x) =>
-				isUsed(ctx.used, variantMemberGetter(funs, &struct_, x))));
+			// Even if the struct is not used as a type, it's used if it's accessed as a sumtype member
+			exists!SumTypeMembership(struct_.sumTypeMemberships, (in SumTypeMembership x) =>
+				isUsed(ctx.used, sumTypeMemberGetter(funs, &struct_, x))));
 	foreach (ref SpecDecl spec; specs)
 		checkUnusedDecl(&spec, () => false);
 	foreach (ref FunDecl fun; funs)

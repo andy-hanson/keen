@@ -69,8 +69,9 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchVariantCase,
-	MatchVariantExpr,
+	MatchSumTypeCase,
+	MatchSumTypeExpr,
+	methodCaller,
 	Module,
 	moduleAtUri,
 	mustUnwrapOptionType,
@@ -89,6 +90,9 @@ import model.model :
 	StructDecl,
 	StructInst,
 	StructOrAlias,
+	SumTypeMembership,
+	SumTypeKind,
+	SumTypeMemberAndMethodImpls,
 	Test,
 	testBodyExprRef,
 	TestSelector,
@@ -97,11 +101,7 @@ import model.model :
 	TryLetExpr,
 	Type,
 	TypedExpr,
-	TypeParamIndex,
-	VariantAndMethodImpls,
-	VariantKind,
-	VariantMemberAndMethodImpls,
-	variantMethodCaller;
+	TypeParamIndex;
 import util.alloc.alloc : Alloc;
 import util.col.array : exists, zipPointers;
 import util.col.hashTable : existsInHashTable;
@@ -235,7 +235,7 @@ private bool bodyIsNotInlined(in FunBody a) =>
 	a.isA!AutoFun ||
 	a.isA!Expr ||
 	a.isA!(FunBody.FileImport) ||
-	a.isA!(FunBody.VariantMemberGet) ||
+	a.isA!(FunBody.SumTypeMemberGet) ||
 	(a.isA!BuiltinFun && !isInlinedBuiltinFun(a.as!BuiltinFun));
 private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 	a.matchIn!bool(
@@ -422,13 +422,13 @@ void trackAllUsedInType(ref AllUsedBuilder res, Uri from, Type a) {
 void trackAllUsedInStruct(ref AllUsedBuilder res, Uri from, StructDecl* a) {
 	if (!isBuiltinType(*a) && addDecl(res, from, AnyDecl(a))) {
 		trackAllUsedInStructBody(res, a.moduleUri, a.body_);
-		foreach (VariantAndMethodImpls x; a.variants) {
-			trackAllUsedInStruct(res, a.moduleUri, x.variant.decl);
-			zipPointers(x.variantDeclMethods, x.methodImpls, (Signature* method, Opt!Called* impl) {
+		foreach (SumTypeMembership x; a.sumTypeMemberships) {
+			trackAllUsedInStruct(res, a.moduleUri, x.sumType.decl);
+			zipPointers(x.sumTypeDeclMethods, x.methodImpls, (Signature* method, Opt!Called* impl) {
 				if (has(*impl))
 					trackAllUsedInCalled(
 						res, a.moduleUri,
-						FunOrTest(variantMethodCaller(*res.program, method)),
+						FunOrTest(methodCaller(*res.program, method)),
 						force(*impl), FunUse.regular);
 			});
 		}
@@ -452,9 +452,9 @@ void trackAllUsedInStructBody(ref AllUsedBuilder res, Uri from, in StructBody a)
 			foreach (RecordField field; record.fields)
 				trackAllUsedInType(res, from, field.type);
 		},
-		(StructBody.Variant x) {
-			if (x.kind == VariantKind.union_) {
-				foreach (VariantMemberAndMethodImpls member; x.listedMembers)
+		(StructBody.SumType x) {
+			if (x.kind == SumTypeKind.union_) {
+				foreach (SumTypeMemberAndMethodImpls member; x.listedMembers)
 					trackAllUsedInStruct(res, from, member.member.decl);
 			}
 		});
@@ -536,11 +536,11 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 			(FunBody.CreateRecord) {
 				usedReturnType();
 			},
-			(FunBody.CreateRecordAndConvertToVariant x) {
+			(FunBody.CreateRecordAndConvertToSumType x) {
 				usedReturnType();
 				trackAllUsedInStruct(res, from, x.member.decl);
 			},
-			(FunBody.CreateVariant) {
+			(FunBody.CreateSumType) {
 				usedReturnType();
 			},
 			(Expr _) {
@@ -553,22 +553,22 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 			(FlagsFunction _) {
 				usedReturnType();
 			},
+			(FunBody.Method) {},
 			(FunBody.RecordFieldCall) {
 				usedTuple(res, from, a.arity.as!uint - 1);
 			},
 			(FunBody.RecordFieldGet) {},
 			(FunBody.RecordFieldPointer) { assert(false); },
 			(FunBody.RecordFieldSet) {},
-			(FunBody.VarGet x) {
-				cast(void) addDecl(res, from, AnyDecl(x.var));
-			},
-			(FunBody.VariantMemberGet) {
+			(FunBody.SumTypeMemberGet) {
 				// Needs the unwrapped option type for 'instanceof',
 				// and the option type to return 'option.some' or 'option.none'
 				usedReturnType();
 				trackAllUsedInType(res, from, mustUnwrapOptionType(a.returnType));
 			},
-			(FunBody.VariantMethod) {},
+			(FunBody.VarGet x) {
+				cast(void) addDecl(res, from, AnyDecl(x.var));
+			},
 			(FunBody.VarSet x) {
 				cast(void) addDecl(res, from, AnyDecl(x.var));
 			});
@@ -712,28 +712,28 @@ void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, ExprRef a)
 			},
 			(ref MatchIntegralExpr _) {},
 			(ref MatchStringLikeExpr _) {},
-			(ref MatchVariantExpr x) {
-				trackAllUsedInMatchVariantCases(res, from, x.cases);
+			(ref MatchSumTypeExpr x) {
+				trackAllUsedInMatchSumTypeCases(res, from, x.cases);
 			},
 			(ref RecordFieldPointerExpr _) {},
 			(ref SeqExpr _) {},
 			(ref ThrowExpr _) {},
 			(ref TrustedExpr) {},
 			(ref TryExpr x) {
-				trackAllUsedInMatchVariantCases(res, from, x.catches);
+				trackAllUsedInMatchSumTypeCases(res, from, x.catches);
 			},
 			(ref TryLetExpr x) {
-				trackAllUsedInMatchVariantCase(res, from, x.catch_);
+				trackAllUsedInMatchSumTypeCase(res, from, x.catch_);
 			},
 			(ref TypedExpr _) {});
 		trackChildren();
 	}
 }
 
-void trackAllUsedInMatchVariantCases(ref AllUsedBuilder res, Uri from, in MatchVariantCase[] cases) {
-	foreach (MatchVariantCase case_; cases)
-		trackAllUsedInMatchVariantCase(res, from, case_);
+void trackAllUsedInMatchSumTypeCases(ref AllUsedBuilder res, Uri from, in MatchSumTypeCase[] cases) {
+	foreach (MatchSumTypeCase case_; cases)
+		trackAllUsedInMatchSumTypeCase(res, from, case_);
 }
-void trackAllUsedInMatchVariantCase(ref AllUsedBuilder res, Uri from, in MatchVariantCase case_) {
+void trackAllUsedInMatchSumTypeCase(ref AllUsedBuilder res, Uri from, in MatchSumTypeCase case_) {
 	trackAllUsedInStruct(res, from, case_.member.decl);
 }

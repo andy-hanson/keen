@@ -21,7 +21,7 @@ import concretize.concretizeCtx :
 	specsScopeForFun,
 	typeArgsScopeForFun,
 	TypeArgsScope,
-	variantMethodImplsInner,
+	sumTypeMethodImplsInner,
 	voidType,
 	withConcreteTypes;
 import concretize.constantsOrExprs : asConstantsOrExprs, ConstantsOrExprs;
@@ -127,12 +127,13 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchVariantCase,
-	MatchVariantExpr,
+	MatchSumTypeCase,
+	MatchSumTypeExpr,
 	Purity,
 	RecordFieldPointerExpr,
 	SeqExpr,
 	SpecInst,
+	StructDecl,
 	ThrowExpr,
 	TrustedExpr,
 	TryExpr,
@@ -140,7 +141,7 @@ import model.model :
 	Type,
 	TypedExpr,
 	VariableRef,
-	VariantAndMethodImpls;
+	SumTypeMembership;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapOrNoneToStackArray;
 import util.col.array :
@@ -641,35 +642,31 @@ size_t nextLambdaImplIdInner(ref Alloc alloc, ConcreteLambdaImpl impl, ref MutAr
 }
 
 // TODO: this doesn't really belong in concretizeExpr ............................................................................... put near variantMethodImplsInner?
-public size_t ensureVariantMember(
+public size_t ensureVariantMember( // rename -- ensureSumTypeMember --------------------------------------------------------------------------
 	ref ConcretizeCtx ctx,
-	ConcreteType variantType,
+	ConcreteType sumType,
 	ConcreteType memberType,
 ) {
-	ref ConcreteStructBody.Union body_() => mustBeByVal(variantType).body_.as!(ConcreteStructBody.Union);
+	ref ConcreteStructBody.Union body_() => mustBeByVal(sumType).body_.as!(ConcreteStructBody.Union);
 	return body_.hasMembers
 		? force(indexOf!ConcreteType(body_.members, memberType))
 		: findIndexOrPush!ConcreteVariantMemberAndMethodImpls(
 			ctx.alloc,
-			mustGet(ctx.variantStructToMembers, mustBeByVal(variantType)),
+			mustGet(ctx.variantStructToMembers, mustBeByVal(sumType)),
 			(in ConcreteVariantMemberAndMethodImpls member) => member.memberType == memberType,
 			() => ConcreteVariantMemberAndMethodImpls(memberType),
 			(ref ConcreteVariantMemberAndMethodImpls x) {
-				x.methodImpls = variantMethodImpls(ctx, variantType, memberType);
+				x.methodImpls = sumTypeMembershipMethodImpls(ctx, sumType, memberType);
 			});
 }
 
-SmallArray!(Opt!(ConcreteFun*)) variantMethodImpls( // NOTE: This is only for types with 'variant-member', not variant listed types.
-	ref ConcretizeCtx ctx,
-	ConcreteType variantType,
-	ConcreteType memberType,
-) {
-	ConcreteStructSource.Inst variantSource = mustBeByVal(variantType).source.as!(ConcreteStructSource.Inst);
+SmallArray!(Opt!(ConcreteFun*)) sumTypeMembershipMethodImpls(ref ConcretizeCtx ctx, ConcreteType sumType, ConcreteType memberType) {
+	StructDecl* sumTypeDecl = mustBeByVal(sumType).source.as!(ConcreteStructSource.Inst).decl;
 	ConcreteStructSource.Inst memberSource = memberType.struct_.source.as!(ConcreteStructSource.Inst);
-	VariantAndMethodImpls variantMember = mustFindOnly!VariantAndMethodImpls(
-		memberSource.decl.variants, (ref VariantAndMethodImpls x) =>
-			x.variant.decl == variantSource.decl);
-	return variantMethodImplsInner(ctx, variantMember.methodImpls, memberSource.typeArgs);
+	SumTypeMembership membership = mustFindOnly!SumTypeMembership(
+		memberSource.decl.sumTypeMemberships, (ref SumTypeMembership x) =>
+			x.sumType.decl == sumTypeDecl);
+	return sumTypeMethodImplsInner(ctx, membership.methodImpls, memberSource.typeArgs);
 }
 
 alias Locals = StackMap!(Local*, LocalOrConstant);
@@ -1068,16 +1065,16 @@ ConcreteExpr concretizeMatchStringLike(
 		ConcreteExprKind.MatchStringLike(matched, force(equals), cases, concretizeExpr(ctx, type, locals, a.else_)))));
 }
 
-ConcreteExpr concretizeMatchVariant(
+ConcreteExpr concretizeMatchSumType(
 	ref ConcretizeExprCtx ctx,
 	ConcreteType type,
 	in UriAndRange range,
 	in Locals locals,
-	ref MatchVariantExpr a,
+	ref MatchSumTypeExpr a,
 ) {
 	if (isEmpty(a.cases)) return concretizeBogus(ctx, type, range);
 	ConcreteExpr matched = concretizeExpr(ctx, locals, a.matched);
-	ValuesAndCases vc = concretizeMatchVariantCases(ctx, type, range, locals, matched.type, a.cases);
+	ValuesAndCases vc = concretizeMatchSumTypeCases(ctx, type, range, locals, matched.type, a.cases);
 	Opt!(ConcreteExpr*) else_ = optIf(has(a.else_), () => allocate(ctx.alloc, concretizeExpr(ctx, type, locals, *force(a.else_))));
 	return ConcreteExpr(type, range, ConcreteExprKind(
 		allocate(ctx.alloc, ConcreteExprKind.MatchUnion(matched, vc.values, vc.cases, else_))));
@@ -1087,19 +1084,19 @@ immutable struct ValuesAndCases {
 	IntegralValues values;
 	SmallArray!(ConcreteExprKind.MatchUnion.Case) cases;
 }
-ValuesAndCases concretizeMatchVariantCases(
+ValuesAndCases concretizeMatchSumTypeCases(
 	ref ConcretizeExprCtx ctx,
 	ConcreteType type,
 	in UriAndRange range,
 	in Locals locals,
 	ConcreteType variantType,
-	in MatchVariantCase[] cases,
+	in MatchSumTypeCase[] cases,
 ) {
-	IntegralValues values = mapToIntegralValues!MatchVariantCase(cases, (ref MatchVariantCase x) =>
-		memberIndexForMatchVariantCase(ctx, variantType, x));
+	IntegralValues values = mapToIntegralValues!MatchSumTypeCase(cases, (ref MatchSumTypeCase x) =>
+		memberIndexForMatchSumTypeCase(ctx, variantType, x));
 	SmallArray!(ConcreteExprKind.MatchUnion.Case) concreteCases = map(ctx.alloc, values, (ref IntegralValue value) {
-		MatchVariantCase* case_ = mustFindPointer!MatchVariantCase(cases, (ref MatchVariantCase x) =>
-			memberIndexForMatchVariantCase(ctx, variantType, x) == value);
+		MatchSumTypeCase* case_ = mustFindPointer!MatchSumTypeCase(cases, (ref MatchSumTypeCase x) =>
+			memberIndexForMatchSumTypeCase(ctx, variantType, x) == value);
 		return toMatchUnionCase(concretizeExprWithDestructure(ctx, type, range, locals, case_.destructure, case_.then));
 	});
 	return ValuesAndCases(values, concreteCases);
@@ -1108,10 +1105,10 @@ ValuesAndCases concretizeMatchVariantCases(
 ConcreteExprKind.MatchUnion.Case toMatchUnionCase(RootLocalAndExpr x) =>
 	ConcreteExprKind.MatchUnion.Case(x.rootLocal, x.expr);
 
-IntegralValue memberIndexForMatchVariantCase(
+IntegralValue memberIndexForMatchSumTypeCase(
 	ref ConcretizeExprCtx ctx,
 	ConcreteType variantType,
-	ref MatchVariantCase a,
+	ref MatchSumTypeCase a,
 ) =>
 	IntegralValue(ensureVariantMember(ctx.concretizeCtx, variantType, getConcreteType(ctx, a.destructure.type)));
 
@@ -1241,8 +1238,8 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 			concretizeMatchIntegral(ctx, type, range, locals, *x),
 		(MatchStringLikeExpr* x) =>
 			concretizeMatchStringLike(ctx, type, range, locals, *x),
-		(MatchVariantExpr* x) =>
-			concretizeMatchVariant(ctx, type, range, locals, *x),
+		(MatchSumTypeExpr* x) =>
+			concretizeMatchSumType(ctx, type, range, locals, *x),
 		(RecordFieldPointerExpr* x) =>
 			genRecordFieldPointer(
 				type, range, allocate(ctx.alloc, concretizeExpr(ctx, locals, x.target)), x.fieldIndex),
@@ -1357,7 +1354,7 @@ ConcreteExpr concretizeTry(
 	ref TryExpr a,
 ) {
 	ConcreteExpr tried = concretizeExpr(ctx, type, locals, a.tried);
-	ValuesAndCases vc = concretizeMatchVariantCases(
+	ValuesAndCases vc = concretizeMatchSumTypeCases(
 		ctx, type, range, locals, exceptionType(ctx.concretizeCtx), a.catches);
 	return ConcreteExpr(type, range, ConcreteExprKind(allocate(ctx.alloc,
 		ConcreteExprKind.Try(tried, vc.values, vc.cases))));
@@ -1380,7 +1377,7 @@ ConcreteExpr concretizeTryLet(
 	*/
 	ConcreteType localType = getConcreteType(ctx, a.destructure.type);
 	ConcreteExpr value = concretizeExpr(ctx, localType, locals, a.value);
-	IntegralValue catchMemberIndex = memberIndexForMatchVariantCase(ctx, exceptionType(ctx.concretizeCtx), a.catch_);
+	IntegralValue catchMemberIndex = memberIndexForMatchSumTypeCase(ctx, exceptionType(ctx.concretizeCtx), a.catch_);
 	ConcreteExprKind.MatchUnion.Case catchExpr = toMatchUnionCase(
 		concretizeExprWithDestructure(ctx, type, range, locals, a.catch_.destructure, a.catch_.then));
 	RootLocalAndExpr then = concretizeExprWithDestructure(

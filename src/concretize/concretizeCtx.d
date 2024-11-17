@@ -92,8 +92,8 @@ import model.model :
 	TypeParamIndex,
 	TypeSize,
 	VarDecl,
-	VariantKind,
-	VariantMemberAndMethodImpls,
+	SumTypeKind,
+	SumTypeMemberAndMethodImpls,
 	worsePurity;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapToStackArray;
@@ -187,7 +187,7 @@ struct ConcretizeCtx {
 
 	// Index in the MutArr!ConcreteLambdaImpl is the fun ID
 	MutMap!(ConcreteStruct*, MutArr!ConcreteLambdaImpl) lambdaStructToImpls;
-	MutMap!(ConcreteStruct*, MutArr!ConcreteVariantMemberAndMethodImpls) variantStructToMembers;
+	MutMap!(ConcreteStruct*, MutArr!ConcreteVariantMemberAndMethodImpls) variantStructToMembers; // TODO: RENAME (used for all sumTypes) -
 	Late!ConcreteType _bogusType;
 	Late!ConcreteType _boolType;
 	Late!ConcreteType _char8ArrayType;
@@ -653,15 +653,15 @@ void initializeConcreteStruct(
 			res.info = info;
 			setConcreteStructRecordSizeOrDefer(ctx, res);
 		},
-		(StructBody.Variant x) {
+		(StructBody.SumType x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
 			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Union()), false);
 			// Always defer since we need to wait to know all variant members (TODO: we could do it up front for unions ... sometimes ..............)
 			push(ctx.alloc, ctx.deferredTypeSize, res);
-			mustAdd(ctx.alloc, ctx.variantStructToMembers, res, mapToMutArr!(ConcreteVariantMemberAndMethodImpls, VariantMemberAndMethodImpls)(
+			mustAdd(ctx.alloc, ctx.variantStructToMembers, res, mapToMutArr!(ConcreteVariantMemberAndMethodImpls, SumTypeMemberAndMethodImpls)(
 				ctx.alloc,
 				x.listedMembers,
-				(ref VariantMemberAndMethodImpls member) {
+				(ref SumTypeMemberAndMethodImpls member) {
 					import util.writer : debugLogWithWriter, Writer; // -00000000000000000000000000000000000000000000000000000000
 					//debugLogWithWriter((scope ref Writer writer) {
 					//	writer ~= "in init for member ";
@@ -677,10 +677,10 @@ void initializeConcreteStruct(
 					//	writeConcreteType(writer, memberType);
 					//});
 					ConcreteVariantMemberAndMethodImpls res = ConcreteVariantMemberAndMethodImpls(memberType);
-					res.methodImpls = variantMethodImplsInner(ctx, member.methodImpls, typeArgs); // TODO: is this the right type args? 
+					res.methodImpls = sumTypeMethodImplsInner(ctx, member.methodImpls, typeArgs); // TODO: is this the right type args? 
 					return res;
 				}));
-			if (x.kind == VariantKind.union_)
+			if (x.kind == SumTypeKind.union_)
 				// TODO: this still leaves 'variantStructToMembers' around, because we need it for 'ensureVariantMember'. Could that be smarter?
 				// (But we do need to worry about method impls too)
 				finishVariantMembers(ctx, res, mustGet(ctx.variantStructToMembers, res));
@@ -693,7 +693,7 @@ public void finishVariantMembers(ref ConcretizeCtx ctx, ConcreteStruct* variant,
 			x.memberType));
 }
 
-SmallArray!(Opt!(ConcreteFun*)) variantMethodImplsInner(ref ConcretizeCtx ctx, in SmallArray!(Opt!Called) methodImpls, in TypeArgsScope typeArgs) =>
+SmallArray!(Opt!(ConcreteFun*)) sumTypeMethodImplsInner(ref ConcretizeCtx ctx, in SmallArray!(Opt!Called) methodImpls, in TypeArgsScope typeArgs) =>
 	map!(Opt!(ConcreteFun*), Opt!Called)(ctx.alloc, methodImpls, (ref Opt!Called x) =>
 		has(x) ? getConcreteFunFromCalled(ctx, typeArgs, SpecsScope(), force(x)) : none!(ConcreteFun*));
 
@@ -795,7 +795,7 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 			isEmpty(concreteParams)
 				? ConcreteFunBody(genConstant(cf.returnType, cf.range, constantZero()))
 				: ConcreteFunBody(genCreateRecordFromParams(ctx.alloc, cf.returnType, cf.range, concreteParams)),
-		(FunBody.CreateRecordAndConvertToVariant x) {
+		(FunBody.CreateRecordAndConvertToSumType x) {
 			ConcreteType memberType = getConcreteType(ctx, Type(x.member), cf.source.as!ConcreteFunKey.typeArgs);
 			size_t memberIndex = ensureVariantMember(ctx, cf.returnType, memberType);
 			return isEmpty(concreteParams)
@@ -804,7 +804,7 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 					ctx.alloc, cf.returnType, cf.range, memberIndex,
 					genCreateRecordFromParams(ctx.alloc, memberType, cf.range, concreteParams)));
 		},
-		(FunBody.CreateVariant x) =>
+		(FunBody.CreateSumType x) =>
 			createUnionBody(ctx.alloc, cf, ensureVariantMember(
 				ctx, cf.returnType, isEmpty(concreteParams) ? voidType(ctx) : only(concreteParams).type)),
 		(Expr x) =>
@@ -815,6 +815,10 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 			ConcreteFunBody(concretizeFileImport(ctx, cf, x)),
 		(FlagsFunction x) =>
 			ConcreteFunBody(concretizeFlagsFunction(ctx, cf, x)),
+		(FunBody.Method x) {
+			push(ctx.alloc, ctx.deferredVariantMethods, cf);
+			return ConcreteFunBody(ConcreteFunBody.Deferred());
+		},
 		(FunBody.RecordFieldCall x) =>
 			genRecordFieldCall(ctx, cf, x),
 		(FunBody.RecordFieldGet x) =>
@@ -836,17 +840,13 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 				fieldIndexFromField(pointeeTypeIfIsPointer(cf.params[0].type), x.field),
 				genLocalGet(cf.range, &cf.params[1])));
 		},
-		(FunBody.VarGet x) =>
-			ConcreteFunBody(ConcreteFunBody.VarGet(getVar(ctx, x.var))),
-		(FunBody.VariantMemberGet x) =>
+		(FunBody.SumTypeMemberGet x) =>
 			genUnionMemberGet(
 				ctx, cf,
 				ensureVariantMember(
 					ctx, only(concreteParams).type, unwrapOptionType(ctx, cf.returnType))),
-		(FunBody.VariantMethod x) {
-			push(ctx.alloc, ctx.deferredVariantMethods, cf);
-			return ConcreteFunBody(ConcreteFunBody.Deferred());
-		},
+		(FunBody.VarGet x) =>
+			ConcreteFunBody(ConcreteFunBody.VarGet(getVar(ctx, x.var))),
 		(FunBody.VarSet x) =>
 			ConcreteFunBody(ConcreteFunBody.VarSet(getVar(ctx, x.var))));
 	cf.overwriteBody(body_);

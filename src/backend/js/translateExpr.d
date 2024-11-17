@@ -144,8 +144,9 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchVariantCase,
-	MatchVariantExpr,
+	MatchSumTypeCase,
+	MatchSumTypeExpr,
+	methodCaller,
 	Params,
 	paramsArray,
 	paramTypeAt,
@@ -164,8 +165,7 @@ import model.model :
 	Type,
 	TypedExpr,
 	TypeParamIndex,
-	VariantKind,
-	variantMethodCaller;
+	SumTypeKind;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapToStackArray;
 import util.col.array :
@@ -233,12 +233,12 @@ void genAssertType(
 			genThrowJsError(ctx.alloc, source, "Value did not have expected type")));
 }
 private bool isVariantOrInterface(in StructBody a) =>
-	a.isA!(StructBody.Variant) && () {
-		final switch (a.as!(StructBody.Variant).kind) {
-			case VariantKind.union_:
+	a.isA!(StructBody.SumType) && () {
+		final switch (a.as!(StructBody.SumType).kind) {
+			case SumTypeKind.union_:
 				return false;
-			case VariantKind.interface_:
-			case VariantKind.variant:
+			case SumTypeKind.interface_:
+			case SumTypeKind.variant:
 				return true;
 		}
 	}();
@@ -305,10 +305,10 @@ JsDecl translateFunDecl(ref TranslateModuleCtx ctx, FunDecl* a) {
 	return makeDecl(ctx, AnyDecl(a), JsDeclKind(fun));
 }
 
-JsClassMember variantMethodImpl(ref TranslateModuleCtx ctx, Signature* variantMethod, in Opt!Called optImpl) {
+JsClassMember variantMethodImpl(ref TranslateModuleCtx ctx, Signature* variantMethod, in Opt!Called optImpl) { // rename -------------
 	Source source = variantMethodSource(ctx, *variantMethod);
 	Symbol name = variantMethod.name;
-	FunDecl* caller = variantMethodCaller(ctx.program, variantMethod);
+	FunDecl* caller = methodCaller(ctx.program, variantMethod);
 	SyncOrAsync async = has(optImpl) ? isAsyncCall(ctx.allUsed, caller, force(optImpl)) : SyncOrAsync.sync;
 	if (has(optImpl) && isInlined(force(optImpl))) {
 		Called impl = force(optImpl);
@@ -563,8 +563,8 @@ ExprResult translateExpr(ref TranslateExprCtx ctx, ref Expr a, Type type, scope 
 			translateMatchIntegral(ctx, source, x, type, pos),
 		(ref MatchStringLikeExpr x) =>
 			translateMatchStringLike(ctx, source, x, type, pos),
-		(ref MatchVariantExpr x) =>
-			translateMatchVariant(ctx, source, a, x, type, pos),
+		(ref MatchSumTypeExpr x) =>
+			translateMatchSumType(ctx, source, a, x, type, pos),
 		(ref RecordFieldPointerExpr x) =>
 			assert(false),
 		(ref SeqExpr x) =>
@@ -940,35 +940,35 @@ ExprResult translateMatchStringLike(
 				translateExprToSwitchBlockStatement(ctx, case_.then, type))),
 		translateExprToSwitchBlockStatement(ctx, a.else_, type)));
 
-ExprResult translateMatchVariant(
+ExprResult translateMatchSumType(
 	ref TranslateExprCtx ctx,
 	in Source source,
 	in Expr expr,
-	ref MatchVariantExpr a,
+	ref MatchSumTypeExpr a,
 	Type type,
 	scope ExprPos pos,
 ) =>
 	withTemp(ctx, symbol!"matched", a.matched, pos, (JsName matched, scope ExprPos inner) =>
-		translateMatchVariant(
-			ctx, source, matched, expr, a.variantBody.kind, a.cases,
+		translateMatchSumType(
+			ctx, source, matched, expr, a.sumTypeBody.kind, a.cases,
 			translateSwitchDefault(ctx, source, optIf(has(a.else_), () => *force(a.else_)), type, "Invalid union value"),
 			type, inner));
-ExprResult translateMatchVariant(
+ExprResult translateMatchSumType(
 	ref TranslateExprCtx ctx,
 	in Source source,
 	JsName matched,
 	in Expr expr,
-	VariantKind kind,
-	MatchVariantCase[] cases,
+	SumTypeKind kind,
+	MatchSumTypeCase[] cases,
 	JsBlockStatement else_,
 	Type type,
 	scope ExprPos pos,
 ) =>
-	translateMatchUnionOrVariant!MatchVariantCase(
+	translateMatchUnionOrVariant!MatchSumTypeCase(
 		ctx, source, matched, expr, cases, type, pos, else_,
-		(ref MatchVariantCase case_, in Source caseSource) {
+		(ref MatchSumTypeCase case_, in Source caseSource) {
 			JsExpr matchedExpr = genIdentifier(source, matched);
-			if (kind == VariantKind.union_) // ternary ----------------------------------------------------------------------------
+			if (kind == SumTypeKind.union_) // ternary ----------------------------------------------------------------------------
 				return MatchUnionOrVariantCase(
 					genIsUnionMember(ctx.alloc, source, matchedExpr, case_.member),
 					genForceUnionMember(ctx.alloc, source, matchedExpr, case_.member));
@@ -1071,8 +1071,8 @@ ExprResult translateTry(
 		translateExprToBlockStatement(ctx, a.tried, type),
 		exceptionName,
 		translateToBlockStatement(ctx.alloc, (scope ExprPos inner) =>
-			translateMatchVariant(
-				ctx, source, exceptionName, expr, VariantKind.variant, a.catches,
+			translateMatchSumType(
+				ctx, source, exceptionName, expr, SumTypeKind.variant, a.catches,
 				genBlockStatement(ctx.alloc, [genThrow(ctx.alloc, source, genIdentifier(source, exceptionName))]),
 				type, inner))));
 }

@@ -33,7 +33,7 @@ import model.model :
 	TypeParams,
 	TypeSize,
 	VarDecl,
-	VariantAndMethodImpls,
+	SumTypeMembership,
 	VarKind,
 	Visibility;
 import util.alloc.alloc : Alloc;
@@ -162,18 +162,19 @@ DocExport documentStructAlias(ref Ctx ctx, in StructAlias a) =>
 		field!"target"(documentStructInst(ctx, a.typeParams, *a.target))]));
 
 DocExport documentStructDecl(ref Ctx ctx, in StructDecl a) {
-	Opt!(Json.ObjectField) variantsField = optionalArrayField!("variants", VariantAndMethodImpls)(
-		ctx.alloc, a.variants, (in VariantAndMethodImpls x) =>
-			documentStructInst(ctx, a.typeParams, *x.variant));
+	Opt!(Json.ObjectField) memberships = optionalArrayField!("memberships", SumTypeMembership)(
+		ctx.alloc, a.sumTypeMemberships, (in SumTypeMembership x) =>
+			documentStructInst(ctx, a.typeParams, *x.sumType));
 	return documentExport(ctx, a.range, a.name, a.docComment, a.typeParams, a.body_.matchIn!Json(
 		(in StructBody.Bogus) =>
 			assert(false),
 		(in BuiltinType _) =>
-			jsonObject(ctx.alloc, [kindField!"builtin", variantsField]),
+			jsonObject(ctx.alloc, [kindField!"builtin", memberships]),
 		(in StructBody.Enum x) =>
 			jsonObject(ctx.alloc, [
 				kindField!"enum",
-				field!"members"(jsonOfEnumMembers(ctx.alloc, x.members)), variantsField]),
+				memberships,
+				field!"members"(jsonOfEnumMembers(ctx.alloc, x.members))]),
 		(in StructBody.Extern x) =>
 			jsonObject(ctx.alloc, [
 				kindField!"extern",
@@ -181,31 +182,32 @@ DocExport documentStructDecl(ref Ctx ctx, in StructDecl a) {
 					jsonObject(ctx.alloc, [
 						field!"size"(size.sizeBytes),
 						field!"alignment"(size.alignmentBytes)])),
-				variantsField]),
+				memberships]),
 		(in StructBody.Flags x) =>
 			jsonObject(ctx.alloc, [
 				kindField!"flags",
-				field!"members"(jsonOfEnumMembers(ctx.alloc, x.members)), variantsField]),
+				memberships,
+				field!"members"(jsonOfEnumMembers(ctx.alloc, x.members))]),
 		(in StructBody.Record x) =>
-			documentRecord(ctx, a, x, variantsField),
-		(in StructBody.Variant x) =>
-			documentVariant(ctx, a, x, variantsField)));
+			documentRecord(ctx, a, x, memberships),
+		(in StructBody.SumType x) =>
+			documentVariant(ctx, a, x, memberships)));
 }
 
 Json jsonOfEnumMembers(ref Alloc alloc, in EnumOrFlagsMember[] members) =>
 	jsonList!EnumOrFlagsMember(alloc, members, (in EnumOrFlagsMember member) =>
 		jsonString(member.name));
 
-Json documentRecord(ref Ctx ctx, in StructDecl decl, in StructBody.Record a, Opt!(Json.ObjectField) variantsField) =>
+Json documentRecord(ref Ctx ctx, in StructDecl decl, in StructBody.Record a, Opt!(Json.ObjectField) memberships) =>
 	jsonObject(ctx.alloc, [
 		kindField!"record",
 		maybePurity(ctx.alloc, decl),
 		optionalFlagField!"has-non-public-fields"(hasNonPublicFields(a)),
 		optionalFlagField!"nominal"(a.flags.nominal),
+		memberships,
 		field!"fields"(jsonList(
 			mapOp!(Json, RecordField)(ctx.alloc, a.fields, (ref RecordField field) =>
-				documentRecordField(ctx, decl.typeParams, field)))),
-		variantsField]);
+				documentRecordField(ctx, decl.typeParams, field))))]);
 
 Opt!(Json.ObjectField) maybePurity(ref Alloc alloc, in StructDecl decl) =>
 	optionalField!"purity"(decl.purity != Purity.data, () => jsonString(stringOfEnum(decl.purity)));
@@ -221,16 +223,11 @@ bool hasNonPublicFields(in StructBody.Record a) =>
 		}
 	});
 
-Json documentVariant(
-	ref Ctx ctx,
-	in StructDecl decl,
-	in StructBody.Variant a,
-	Opt!(Json.ObjectField) variantsField,
-) =>
+Json documentVariant(ref Ctx ctx, in StructDecl decl, in StructBody.SumType a, Opt!(Json.ObjectField) memberships) =>
 	jsonObject(ctx.alloc, [
 		kindField!"variant",
 		maybePurity(ctx.alloc, decl),
-		variantsField,
+		memberships,
 		field!"methods"(documentSignatures(ctx, decl.typeParams, a.methods))]);
 
 Opt!Json documentRecordField(ref Ctx ctx, in TypeParams typeParams, in RecordField a) {

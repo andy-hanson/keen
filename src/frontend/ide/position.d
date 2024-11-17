@@ -247,7 +247,7 @@ immutable struct PositionKind {
 		TypeWithContainer type;
 		string value;
 	}
-	immutable struct MatchVariantCase {
+	immutable struct MatchSumTypeCase {
 		ExprContainer container;
 		StructInst* member;
 	}
@@ -287,7 +287,7 @@ immutable struct PositionKind {
 		MatchEnumCase,
 		MatchIntegralCase,
 		MatchStringLikeCase,
-		MatchVariantCase,
+		MatchSumTypeCase,
 		Modifier,
 		ModifierExtern,
 		ModulePosition,

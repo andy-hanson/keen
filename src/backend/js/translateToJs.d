@@ -108,9 +108,9 @@ import model.model :
 	Test,
 	TestSelector,
 	VarDecl,
-	VariantAndMethodImpls,
-	VariantKind,
-	VariantMemberAndMethodImpls,
+	SumTypeMembership,
+	SumTypeKind,
+	SumTypeMemberAndMethodImpls,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
@@ -314,7 +314,7 @@ JsScriptAst translateProgramToScript(ref TranslateProgramCtx ctx) {
 }
 bool isVariantOrTuple(in TranslateProgramCtx ctx, in AnyDecl a) =>
 	a.isA!(StructDecl*) && (
-		a.as!(StructDecl*).body_.isA!(StructBody.Variant) ||
+		a.as!(StructDecl*).body_.isA!(StructBody.SumType) ||
 		isTuple(ctx.commonTypes, a.as!(StructDecl*)));
 
 JsStatement[] callMain(ref TranslateModuleCtx ctx) {
@@ -578,9 +578,9 @@ JsDecl translateStructDecl(ref TranslateModuleCtx ctx, StructDecl* a) {
 	// However, it's important to inherit from Error so it can set the stack trace.
 	MutOpt!(JsExpr*) extends;
 	JsClassMember[] members = buildArray!JsClassMember(ctx.alloc, (scope ref Builder!JsClassMember out_) {
-		foreach (ref VariantAndMethodImpls v; a.variants) {
-			if (v.variant == ctx.commonTypes.exception)
-				extends = someMut(allocate(ctx.alloc, translateStructReference(ctx, source, v.variant.decl)));
+		foreach (ref SumTypeMembership v; a.sumTypeMemberships) {
+			if (v.sumType == ctx.commonTypes.exception)
+				extends = someMut(allocate(ctx.alloc, translateStructReference(ctx, source, v.sumType.decl)));
 		}
 		Opt!Super super_ = optIf(has(extends), () => Super(emptySmallArray!JsExpr, callFinishConstructor: true));
 
@@ -598,8 +598,8 @@ JsDecl translateStructDecl(ref TranslateModuleCtx ctx, StructDecl* a) {
 			(StructBody.Record x) {
 				translateRecordDecl(ctx, source, out_, super_, x);
 			},
-			(StructBody.Variant x) {
-				if (x.kind == VariantKind.union_)
+			(StructBody.SumType x) {
+				if (x.kind == SumTypeKind.union_)
 					translateUnionDecl(ctx, source, out_, super_, x);
 				if (a == ctx.commonTypes.exception.decl) {
 					extends = someMut(allocate(ctx.alloc, genGlobal(source, symbol!"Error")));
@@ -607,8 +607,8 @@ JsDecl translateStructDecl(ref TranslateModuleCtx ctx, StructDecl* a) {
 				}
 			});
 
-		foreach (ref VariantAndMethodImpls v; a.variants)
-			zipPointers(v.variantDeclMethods, v.methodImpls, (Signature* sig, Opt!Called* impl) {
+		foreach (ref SumTypeMembership v; a.sumTypeMemberships)
+			zipPointers(v.sumTypeDeclMethods, v.methodImpls, (Signature* sig, Opt!Called* impl) {
 				out_ ~= variantMethodImpl(ctx, sig, *impl);
 			});
 	});
@@ -836,7 +836,7 @@ void translateUnionDecl(
 	in Source source,
 	scope ref Builder!JsClassMember out_,
 	Opt!Super super_,
-	in StructBody.Variant a,
+	in StructBody.SumType a,
 ) {
 	/*
 	class U {
@@ -860,7 +860,7 @@ void translateUnionDecl(
 			JsMemberName.noPrefix(symbol!"assign"),
 			[genThis(source), genIdentifier(source, arg)]))]);
 
-	foreach (ref VariantMemberAndMethodImpls member; asUnion(a)) {
+	foreach (ref SumTypeMemberAndMethodImpls member; asUnion(a)) {
 		out_ ~= () {
 			if (true) { // TODO: remove the other branch ----------------------------------------------------------------------------------------
 				JsName value = JsName.specialLocal(symbol!"value");

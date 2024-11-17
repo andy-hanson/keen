@@ -402,7 +402,7 @@ size_t signatureIndex(in Signature* a) scope =>
 		(in SpecDecl spec) =>
 			mustHaveIndexOfPointer(spec.sigs, a),
 		(in StructDecl variant) =>
-			mustHaveIndexOfPointer(variant.body_.as!(StructBody.Variant).methods, a));
+			mustHaveIndexOfPointer(variant.body_.as!(StructBody.SumType).methods, a));
 
 immutable struct TypeParamsAndSig {
 	TypeParams typeParams;
@@ -570,31 +570,31 @@ immutable struct StructBody {
 		RecordFlags flags;
 		SmallArray!RecordField fields;
 	}
-	// This is an interface or variant
-	immutable struct Variant {
+	// 'interface', 'union', or 'variant'
+	immutable struct SumType {
 		@safe @nogc pure nothrow:
 
-		VariantKind kind;
+		SumTypeKind kind;
 		immutable struct MembersAndMethods {
-			SmallArray!VariantMemberAndMethodImpls listedMembers; // There may be other members not in this list
+			SmallArray!SumTypeMemberAndMethodImpls listedMembers; // There may be other members not in this list
 			SmallArray!Signature methods;
 		}
 		private MembersAndMethods* membersAndMethods;
 
-		SmallArray!VariantMemberAndMethodImpls listedMembers() return scope =>
+		SmallArray!SumTypeMemberAndMethodImpls listedMembers() return scope =>
 			membersAndMethods.listedMembers;
 		SmallArray!Signature methods() return scope =>
 			membersAndMethods.methods;
 	}
 
-	mixin .Union!(Bogus, BuiltinType, Enum*, Extern, Flags, Record, Variant);
+	mixin .Union!(Bogus, BuiltinType, Enum*, Extern, Flags, Record, SumType);
 }
 static assert(StructBody.sizeof == StructBody.Record.sizeof + size_t.sizeof);
 
-VariantMemberAndMethodImpls[] asUnion(ref StructBody a) =>
-	asUnion(a.as!(StructBody.Variant));
-VariantMemberAndMethodImpls[] asUnion(ref StructBody.Variant a) {
-	assert(a.kind == VariantKind.union_);
+SumTypeMemberAndMethodImpls[] asUnion(ref StructBody a) =>
+	asUnion(a.as!(StructBody.SumType));
+SumTypeMemberAndMethodImpls[] asUnion(ref StructBody.SumType a) {
+	assert(a.kind == SumTypeKind.union_);
 	return a.listedMembers;
 }
 
@@ -608,7 +608,7 @@ IntegralValue getAllFlagsValue(in StructBody.Flags body_) =>
 		(IntegralValue a, in EnumOrFlagsMember b) =>
 			a | b.value);
 
-enum VariantKind { interface_, union_, variant }
+enum SumTypeKind { interface_, union_, variant }
 
 enum BuiltinType {
 	array,
@@ -750,7 +750,7 @@ immutable struct StructDecl {
 	Purity purity;
 	bool purityIsForced;
 	private Late!DocCommentReferences lateDocCommentReferences;
-	private Late!(SmallArray!VariantAndMethodImpls) lateVariants;
+	private Late!(SmallArray!SumTypeMembership) lateSumTypeMemberships;
 	private Late!StructBody lateBody;
 
 	bool bodyIsSet() =>
@@ -767,10 +767,10 @@ immutable struct StructDecl {
 		lateSet(lateDocCommentReferences, value);
 	}
 
-	SmallArray!VariantAndMethodImpls variants() return scope =>
-		lateGet(lateVariants);
-	void variants(SmallArray!VariantAndMethodImpls value) =>
-		lateSet(lateVariants, value);
+	SmallArray!SumTypeMembership sumTypeMemberships() return scope =>
+		lateGet(lateSumTypeMemberships);
+	void sumTypeMemberships(SmallArray!SumTypeMembership value) =>
+		lateSet(lateSumTypeMemberships, value);
 
 	ref StructBody body_() return scope =>
 		lateGet(lateBody);
@@ -821,8 +821,8 @@ immutable struct StructDecl {
 EnumOrFlagsMember[] mustBeEnumOrFlags(in StructDecl a) =>
 	a.body_.isA!(StructBody.Enum*) ? a.body_.as!(StructBody.Enum*).members : a.body_.as!(StructBody.Flags).members;
 
-// This is stored on the variant for the types listed in it.
-immutable struct VariantMemberAndMethodImpls {
+// This is stored on the SumType for the types listed in it.
+immutable struct SumTypeMemberAndMethodImpls {
 	@safe @nogc pure nothrow:
 
 	StructInst* member;
@@ -836,12 +836,12 @@ immutable struct VariantMemberAndMethodImpls {
 		lateSet(methodImpls_, value);
 }
 
-// This is stored on a type with a 'variant-member' modifier.
-immutable struct VariantAndMethodImpls {
+// This is stored on a type with a 'variant-member' modifier. (TODO: CHANGE THAT MODIFIER _----------------------------------------)
+immutable struct SumTypeMembership {
 	@safe @nogc pure nothrow:
 
 	ModifierAst.Keyword* ast;
-	StructInst* variant;
+	StructInst* sumType;
 	private Late!(SmallArray!(Opt!Called)) methodImpls_;
 
 	SmallArray!(Opt!Called) methodImpls() return scope =>
@@ -849,13 +849,13 @@ immutable struct VariantAndMethodImpls {
 	void methodImpls(SmallArray!(Opt!Called) value) =>
 		lateSet(methodImpls_, value);
 
-	ref StructBody.Variant variantBody() return scope =>
-		variant.decl.body_.as!(StructBody.Variant);
+	ref StructBody.SumType sumTypeBody() return scope =>
+		sumType.decl.body_.as!(StructBody.SumType);
 
-	VariantKind variantKind() scope =>
-		variantBody.kind;
-	SmallArray!Signature variantDeclMethods() =>
-		variantBody.methods;
+	SumTypeKind sumTypeKind() scope =>
+		sumTypeBody.kind;
+	SmallArray!Signature sumTypeDeclMethods() =>
+		sumTypeBody.methods;
 }
 
 immutable struct StructDeclSource {
@@ -1044,16 +1044,17 @@ immutable struct FunBody {
 	}
 	immutable struct CreateExtern {}
 	immutable struct CreateRecord {}
-	immutable struct CreateRecordAndConvertToVariant {
-		StructInst* member; // This is the record type and the variant member type
+	immutable struct CreateRecordAndConvertToSumType {
+		StructInst* member; // This is the sumType member type, and the record type
 	}
-	immutable struct CreateVariant {}
+	immutable struct CreateSumType {}
 	immutable struct Extern {
 		Symbol libraryName;
 	}
 	immutable struct FileImport {
 		ImportFileContent content;
 	}
+	immutable struct Method { Signature* method; }
 	immutable struct RecordFieldCall {
 		RecordField* field;
 		FunKind funKind;
@@ -1067,9 +1068,8 @@ immutable struct FunBody {
 	immutable struct RecordFieldSet {
 		RecordField* field;
 	}
+	immutable struct SumTypeMemberGet {}
 	immutable struct VarGet { VarDecl* var; }
-	immutable struct VariantMemberGet {}
-	immutable struct VariantMethod { Signature* method; }
 	immutable struct VarSet { VarDecl* var; }
 
 	mixin Union!(
@@ -1079,19 +1079,19 @@ immutable struct FunBody {
 		CreateEnumOrFlags,
 		CreateExtern,
 		CreateRecord,
-		CreateRecordAndConvertToVariant,
-		CreateVariant,
+		CreateRecordAndConvertToSumType,
+		CreateSumType,
 		Expr,
 		Extern,
 		FileImport,
 		FlagsFunction,
+		Method,
 		RecordFieldCall,
 		RecordFieldGet,
 		RecordFieldPointer,
 		RecordFieldSet,
+		SumTypeMemberGet,
 		VarGet,
-		VariantMemberGet,
-		VariantMethod,
 		VarSet);
 
 	static FunBody bogus() =>
@@ -2961,7 +2961,7 @@ immutable struct ExprKind {
 		MatchEnumExpr*,
 		MatchIntegralExpr*,
 		MatchStringLikeExpr*,
-		MatchVariantExpr*,
+		MatchSumTypeExpr*,
 		RecordFieldPointerExpr*,
 		SeqExpr*,
 		ThrowExpr*,
@@ -3271,7 +3271,7 @@ immutable struct MatchEnumExpr {
 Range caseNameRange(in Expr matchExpr, size_t caseIndex) {
 	assert(
 		matchExpr.kind.isA!(MatchEnumExpr*) ||
-		matchExpr.kind.isA!(MatchVariantExpr*) ||
+		matchExpr.kind.isA!(MatchSumTypeExpr*) ||
 		matchExpr.kind.isA!(TryExpr*));
 	SmallArray!CaseAst cases = matchExpr.ast.kind.isA!TryAst
 		? matchExpr.ast.kind.as!TryAst.catches
@@ -3313,19 +3313,19 @@ immutable struct MatchStringLikeExpr {
 	Expr else_;
 }
 
-immutable struct MatchVariantExpr {
+immutable struct MatchSumTypeExpr {
 	@safe @nogc pure nothrow:
 
 	ExprAndType matched;
-	SmallArray!MatchVariantCase cases;
+	SmallArray!MatchSumTypeCase cases;
 	Opt!(Expr*) else_;
 
-	StructInst* variant() return scope =>
+	StructInst* sumType() return scope =>
 		matched.type.as!(StructInst*);
-	StructBody.Variant variantBody() return scope =>
-		variant.decl.body_.as!(StructBody.Variant);
+	StructBody.SumType sumTypeBody() return scope =>
+		sumType.decl.body_.as!(StructBody.SumType);
 }
-immutable struct MatchVariantCase {
+immutable struct MatchSumTypeCase {
 	@safe @nogc pure nothrow:
 	Destructure destructure;
 	Expr then;
@@ -3364,13 +3364,13 @@ immutable struct TrustedExpr {
 
 immutable struct TryExpr {
 	Expr tried;
-	SmallArray!MatchVariantCase catches;
+	SmallArray!MatchSumTypeCase catches;
 }
 
 immutable struct TryLetExpr {
 	Destructure destructure;
 	Expr value;
-	MatchVariantCase catch_;
+	MatchSumTypeCase catch_;
 	Expr then;
 }
 
@@ -3471,8 +3471,8 @@ Opt!T findDirectChildExpr(T)(
 				ExprRef(x, boolType),
 			(Condition.UnpackOption* x) =>
 				toRef(&x.option));
-	Opt!T directChildInMatchVariantCases(MatchVariantCase[] cases) =>
-		firstPointer!(T, MatchVariantCase)(cases, (MatchVariantCase* x) =>
+	Opt!T directChildInMatchSumTypeCases(MatchSumTypeCase[] cases) =>
+		firstPointer!(T, MatchSumTypeCase)(cases, (MatchSumTypeCase* x) =>
 			cb(sameType(&x.then)));
 
 	return a.expr.kind.matchWithPointers!(Opt!T)(
@@ -3568,10 +3568,10 @@ Opt!T findDirectChildExpr(T)(
 				() => firstPointer!(T, MatchStringLikeExpr.Case)(x.cases, (MatchStringLikeExpr.Case* y) =>
 					cb(sameType(&y.then))),
 				() => cb(sameType(&x.else_))),
-		(MatchVariantExpr* x) =>
+		(MatchSumTypeExpr* x) =>
 			optOr!T(
 				cb(toRef(&x.matched)),
-				() => directChildInMatchVariantCases(x.cases),
+				() => directChildInMatchSumTypeCases(x.cases),
 				() => has(x.else_) ? cb(sameType(force(x.else_))) : none!T),
 		(RecordFieldPointerExpr* x) =>
 			cb(toRef(&x.target)),
@@ -3582,7 +3582,7 @@ Opt!T findDirectChildExpr(T)(
 		(TrustedExpr* x) =>
 			cb(sameType(&x.inner)),
 		(TryExpr* x) =>
-			optOr!T(cb(sameType(&x.tried)), () => directChildInMatchVariantCases(x.catches)),
+			optOr!T(cb(sameType(&x.tried)), () => directChildInMatchSumTypeCases(x.catches)),
 		(TryLetExpr* x) =>
 			optOr!T(
 				cb(ExprRef(&x.value, x.destructure.type)),
@@ -3599,12 +3599,12 @@ private bool typesCompatible(in Type a, in Type b) =>
 			b.as!(StructInst*).typeArgs,
 			(ref Type x, ref Type y) => typesCompatible(x, y)));
 
-FunDecl* variantMemberGetter(FunDecl[] funs, in StructDecl* struct_, in VariantAndMethodImpls x) =>
+FunDecl* sumTypeMemberGetter(FunDecl[] funs, in StructDecl* struct_, in SumTypeMembership x) =>
 	mustFindFunNamed(funs, struct_.name, (in FunDecl fun) =>
-		fun.body_.isA!(FunBody.VariantMemberGet) &&
-		only(paramsArray(fun.params)).type == Type(x.variant) &&
+		fun.body_.isA!(FunBody.SumTypeMemberGet) &&
+		only(paramsArray(fun.params)).type == Type(x.sumType) &&
 		fun.source.as!(StructDecl*) == struct_);
-FunDecl* variantMethodCaller(ref Program program, in Signature* a) =>
+FunDecl* methodCaller(ref Program program, in Signature* a) =>
 	mustFindFunNamed(moduleAtUri(program, a.moduleUri), a.name, (in FunDecl fun) =>
 		fun.source.isA!(Signature*) &&
 		fun.source.as!(Signature*) == a);

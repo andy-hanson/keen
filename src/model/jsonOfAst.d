@@ -258,7 +258,7 @@ Json jsonOfStructBodyAst(ref Alloc alloc, in Ctx ctx, in StructBodyAst a) =>
 			jsonOfEnumOrFlags(alloc, ctx, "flags", e.params, e.members),
 		(in StructBodyAst.Record a) =>
 			jsonOfRecordAst(alloc, ctx, a),
-		(in StructBodyAst.Variant x) =>
+		(in StructBodyAst.SumType x) =>
 			jsonObject(alloc, [
 				field!"kind"(stringOfEnum(x.kind)),
 				field!"types"(jsonOfTypeAsts(alloc, ctx, x.types)),

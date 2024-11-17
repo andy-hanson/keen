@@ -236,7 +236,7 @@ void eachDestructureAtExprForInlay(in Expr a, in void delegate(Destructure) @saf
 		cb(a.kind.as!(LambdaExpr*).param);
 	else if (a.kind.isA!(LetExpr*))
 		cb(a.kind.as!(LetExpr*).destructure);
-	// Ignore MatchVariantExpr, since the type is explicit
+	// Ignore MatchSumTypeExpr, since the type is explicit
 }
 
 void getInlayHintsForDestructure(

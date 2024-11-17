@@ -49,7 +49,7 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchVariantExpr,
+	MatchSumTypeExpr,
 	RecordField,
 	Signature,
 	SpecDecl,
@@ -66,7 +66,7 @@ import model.model :
 	TypeParamIndex,
 	TypeWithContainer,
 	VarDecl,
-	VariantKind;
+	SumTypeKind;
 import util.alloc.alloc : Alloc;
 import util.col.array : only;
 import util.conv : safeToUint;
@@ -176,7 +176,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 			writer ~= " :: ";
 			writeTypeUnquoted(writer, ctx, x.type);
 		},
-		(PositionKind.MatchVariantCase x) {
+		(PositionKind.MatchSumTypeCase x) {
 			writer ~= "Handler for type ";
 			writeTypeQuoted(writer, ctx, TypeWithContainer(Type(x.member), x.container.toTypeContainer));
 		},
@@ -269,12 +269,12 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 				},
 				(in StructDecl x) {
 					writer ~= () {
-						final switch (x.body_.as!(StructBody.Variant).kind) {
-							case VariantKind.interface_:
+						final switch (x.body_.as!(StructBody.SumType).kind) {
+							case SumTypeKind.interface_:
 								return "Interface";
-							case VariantKind.union_:
+							case SumTypeKind.union_:
 								return "Union";
-							case VariantKind.variant:
+							case SumTypeKind.variant:
 								return "Variant";
 						}
 					}();
@@ -418,13 +418,13 @@ void writeStructDeclHover(scope ref Writer writer, in ShowModelCtx ctx, in Struc
 			"Flags type ",
 		(in StructBody.Record) =>
 			"Record type ",
-		(in StructBody.Variant x) {
+		(in StructBody.SumType x) {
 			final switch (x.kind) { // TODO: DUP CODE (search "Union" string) -------------------------------------------------------
-				case VariantKind.interface_:
+				case SumTypeKind.interface_:
 					return "Interface type";
-				case VariantKind.union_:
+				case SumTypeKind.union_:
 					return "Union type";
-				case VariantKind.variant:
+				case SumTypeKind.variant:
 					return "Variant type";
 			}
 		});
@@ -647,8 +647,8 @@ void getMatchHover(
 		final switch (info.kind) {
 			case MatchInfo.Kind.enum_:
 				return "Evaluates the branch with the selected member of the enum";
-			case MatchInfo.Kind.variant:
-				return "Evaluates the branch with the selected member of the variant";
+			case MatchInfo.Kind.sumType:
+				return "Evaluates the branch with the selected member of the variant"; // TODO: what if it's a union or interface?
 			case MatchInfo.Kind.other:
 				return "Evaluates the branch with a matching value";
 		}
@@ -660,7 +660,7 @@ void getMatchHover(
 		: ".";
 }
 immutable struct MatchInfo {
-	enum Kind { enum_, variant, other } // TODO: maybe I should have some internal name that means unionOrVariantOrInterface. 'iuv'?
+	enum Kind { enum_, sumType, other }
 	Kind kind;
 	Type matchedType;
 }
@@ -671,8 +671,8 @@ MatchInfo getMatchInfo(ExprKind a) =>
 		? MatchInfo(MatchInfo.Kind.other, a.as!(MatchIntegralExpr*).matched.type)
 		: a.isA!(MatchStringLikeExpr*)
 		? MatchInfo(MatchInfo.Kind.other, a.as!(MatchStringLikeExpr*).matched.type)
-		: a.isA!(MatchVariantExpr*)
-		? MatchInfo(MatchInfo.Kind.variant, a.as!(MatchVariantExpr*).matched.type)
+		: a.isA!(MatchSumTypeExpr*)
+		? MatchInfo(MatchInfo.Kind.sumType, a.as!(MatchSumTypeExpr*).matched.type)
 		: assert(false);
 
 void getExprHover(

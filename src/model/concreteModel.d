@@ -50,7 +50,7 @@ immutable struct ConcreteStructBody {
 	immutable struct Record {
 		SmallArray!ConcreteField fields;
 	}
-	// Lambdas and all StructBody.Variant kinds compile to this
+	// Lambdas and all StructBody.SumType kinds compile to this
 	immutable struct Union {
 		@safe @nogc pure nothrow:
 		// In the concrete model we identify members by index, so don't care about their names.

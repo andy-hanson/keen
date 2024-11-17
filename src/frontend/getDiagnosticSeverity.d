@@ -143,14 +143,14 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.MatchOnNonMatchable) =>
 			DiagnosticSeverity.checkError,
+		(in Diag.MatchSumTypeCantInferTypeArgs) =>
+			DiagnosticSeverity.checkError,
+		(in Diag.MatchSumTypeNoMember) =>
+			DiagnosticSeverity.checkError,
 		(in Diag.MatchUnhandledCases) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.MatchUnnecessaryElse) =>
 			DiagnosticSeverity.unusedCode,
-		(in Diag.MatchVariantCantInferTypeArgs) =>
-			DiagnosticSeverity.checkError,
-		(in Diag.MatchVariantNoMember) =>
-			DiagnosticSeverity.checkError,
 		(in Diag.ModifierConflict) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.ModifierDuplicate) =>

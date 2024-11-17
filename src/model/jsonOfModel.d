@@ -67,8 +67,8 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchVariantCase,
-	MatchVariantExpr,
+	MatchSumTypeCase,
+	MatchSumTypeExpr,
 	Module,
 	nameFromNameReferentsPointer,
 	NameReferents,
@@ -98,8 +98,8 @@ import model.model :
 	TypeSize,
 	VarDecl,
 	VariableRef,
-	VariantAndMethodImpls,
-	VariantMemberAndMethodImpls,
+	SumTypeMembership,
+	SumTypeMemberAndMethodImpls,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mapOp;
@@ -275,8 +275,8 @@ Json jsonOfStructDecl(ref Alloc alloc, in Ctx ctx, ref StructDecl a) =>
 			optionalField!"purity"(a.purity != Purity.data, () => jsonString(stringOfEnum(a.purity))),
 			optionalFlagField!"forced"(a.purityIsForced),
 			field!"body"(jsonOfStructBody(alloc, ctx, a.body_)),
-			field!"variants"(jsonList!VariantAndMethodImpls(alloc, a.variants, (in VariantAndMethodImpls x) =>
-				jsonOfVariantMember(alloc, ctx, x)))]);
+			field!"variants"(jsonList!SumTypeMembership(alloc, a.sumTypeMemberships, (in SumTypeMembership x) =>
+				jsonOfSumTypeMembership(alloc, ctx, x)))]);
 
 Json jsonOfStructBody(ref Alloc alloc, in Ctx ctx, ref StructBody a) =>
 	a.match!Json(
@@ -295,7 +295,7 @@ Json jsonOfStructBody(ref Alloc alloc, in Ctx ctx, ref StructBody a) =>
 			jsonOfEnumOrFlags(alloc, ctx, "flags", x.storage, x.members),
 		(StructBody.Record x) =>
 			jsonOfRecord(alloc, ctx, x),
-		(StructBody.Variant x) =>
+		(StructBody.SumType x) =>
 			jsonOfVariant(alloc, ctx, x));
 
 Json jsonOfEnumOrFlags(
@@ -344,23 +344,23 @@ Json jsonOfRecordField(ref Alloc alloc, in Ctx ctx, in RecordField a) =>
 			jsonString(stringOfVisibility(x))),
 		field!"type"(jsonOfType(alloc, ctx, a.type))]);
 
-Json jsonOfVariant(ref Alloc alloc, in Ctx ctx, in StructBody.Variant a) =>
+Json jsonOfVariant(ref Alloc alloc, in Ctx ctx, in StructBody.SumType a) =>
 	jsonObject(alloc, [
 		kindField!"variant",
 		field!"kind"(stringOfEnum(a.kind)),
 		field!"listed-members"(
-			jsonList!VariantMemberAndMethodImpls(alloc, a.listedMembers, (in VariantMemberAndMethodImpls m) =>
+			jsonList!SumTypeMemberAndMethodImpls(alloc, a.listedMembers, (in SumTypeMemberAndMethodImpls m) =>
 				jsonOfVariantMember(alloc, ctx, m))),
 		field!"methods"(jsonOfSignatures(alloc, ctx, a.methods))]);
 
-Json jsonOfVariantMember(ref Alloc alloc, in Ctx ctx, in VariantMemberAndMethodImpls a) =>
+Json jsonOfVariantMember(ref Alloc alloc, in Ctx ctx, in SumTypeMemberAndMethodImpls a) =>
 	jsonObject(alloc, [
 		field!"member"(jsonOfStructInst(alloc, ctx, *a.member)),
 		field!"method-impls"(jsonOfMethodImpls(alloc, ctx, a.methodImpls))]);
 
-Json jsonOfVariantMember(ref Alloc alloc, in Ctx ctx, in VariantAndMethodImpls a) =>
+Json jsonOfSumTypeMembership(ref Alloc alloc, in Ctx ctx, in SumTypeMembership a) =>
 	jsonObject(alloc, [
-		field!"variant"(jsonOfStructInst(alloc, ctx, *a.variant)),
+		field!"variant"(jsonOfStructInst(alloc, ctx, *a.sumType)),
 		field!"method-impls"(jsonOfMethodImpls(alloc, ctx, a.methodImpls))]);
 
 Json jsonOfMethodImpls(ref Alloc alloc, in Ctx ctx, in Opt!Called[] methodImpls) =>
@@ -485,10 +485,10 @@ Json jsonOfFunBody(ref Alloc alloc, in Ctx ctx, in FunBody a) =>
 			jsonString!"new-extern",
 		(in FunBody.CreateRecord) =>
 			jsonString!"new-record",
-		(in FunBody.CreateRecordAndConvertToVariant x) =>
-			jsonObject(alloc, [kindField!"create-record-to-variant", field!"member"(x.member.decl.name)]),
-		(in FunBody.CreateVariant x) =>
-			jsonObject(alloc, [kindField!"create-variant"]),
+		(in FunBody.CreateRecordAndConvertToSumType x) =>
+			jsonObject(alloc, [kindField!"create-record-to-sum-type", field!"member"(x.member.decl.name)]),
+		(in FunBody.CreateSumType x) =>
+			jsonObject(alloc, [kindField!"create-sum-type"]),
 		(in Expr x) =>
 			jsonOfExpr(alloc, ctx, x),
 		(in FunBody.Extern x) =>
@@ -501,6 +501,8 @@ Json jsonOfFunBody(ref Alloc alloc, in Ctx ctx, in FunBody a) =>
 			jsonObject(alloc, [
 				kindField!"flags-fun",
 				field!"fn"(stringOfEnum(x))]),
+		(in FunBody.Method x) =>
+			jsonObject(alloc, [kindField!"call-method", field!"method"(x.method.name)]),
 		(in FunBody.RecordFieldCall x) =>
 			jsonObject(alloc, [
 				kindField!"field-call",
@@ -517,12 +519,10 @@ Json jsonOfFunBody(ref Alloc alloc, in Ctx ctx, in FunBody a) =>
 			jsonObject(alloc, [
 				kindField!"field-set",
 				field!"field"(x.field.name)]),
+		(in FunBody.SumTypeMemberGet x) =>
+			jsonObject(alloc, [kindField!"sum-type-member-get"]),
 		(in FunBody.VarGet) =>
 			jsonString!"var-get",
-		(in FunBody.VariantMemberGet x) =>
-			jsonObject(alloc, [kindField!"variant-member-get"]),
-		(in FunBody.VariantMethod x) =>
-			jsonObject(alloc, [kindField!"variant-method", field!"method"(x.method.name)]),
 		(in FunBody.VarSet) =>
 			jsonString!"var-set");
 
@@ -702,11 +702,11 @@ Json jsonOfExprKind(ref Alloc alloc, in Ctx ctx, in ExprKind a) =>
 						field!"value"(case_.value),
 						field!"then"(jsonOfExpr(alloc, ctx, case_.then))])))),
 				field!"else"(jsonOfExpr(alloc, ctx, x.else_))]),
-		(in MatchVariantExpr x) =>
+		(in MatchSumTypeExpr x) =>
 			jsonObject(alloc, [
 				kindField!"match-variant",
 				field!"matched"(jsonOfExprAndType(alloc, ctx, x.matched)),
-				field!"cases"(jsonOfMatchVariantCases(alloc, ctx, x.cases)),
+				field!"cases"(jsonOfMatchSumTypeCases(alloc, ctx, x.cases)),
 				optionalField!("else", Expr*)(x.else_, (in Expr* y) => jsonOfExpr(alloc, ctx, *y))]),
 		(in RecordFieldPointerExpr x) =>
 			jsonObject(alloc, [
@@ -730,13 +730,13 @@ Json jsonOfExprKind(ref Alloc alloc, in Ctx ctx, in ExprKind a) =>
 			jsonObject(alloc, [
 				kindField!"try",
 				field!"tried"(jsonOfExpr(alloc, ctx, a.tried)),
-				field!"catches"(jsonOfMatchVariantCases(alloc, ctx, a.catches))]),
+				field!"catches"(jsonOfMatchSumTypeCases(alloc, ctx, a.catches))]),
 		(in TryLetExpr a) =>
 			jsonObject(alloc, [
 				kindField!"try-let",
 				field!"destructure"(jsonOfDestructure(alloc, ctx, a.destructure)),
 				field!"value"(jsonOfExpr(alloc, ctx, a.value)),
-				field!"catch"(jsonOfMatchVariantCase(alloc, ctx, a.catch_)),
+				field!"catch"(jsonOfMatchSumTypeCase(alloc, ctx, a.catch_)),
 				field!"then"(jsonOfExpr(alloc, ctx, a.then))]),
 		(in TypedExpr a) =>
 			jsonObject(alloc, [
@@ -824,11 +824,11 @@ Json jsonOfCalledSpecSig(ref Alloc alloc, in Ctx ctx, in CalledSpecSig a) =>
 		field!"spec"(a.specInst.decl.name),
 		field!"name"(a.name)]);
 
-Json jsonOfMatchVariantCases(ref Alloc alloc, in Ctx ctx, in MatchVariantCase[] cases) =>
-	jsonList!(MatchVariantCase)(alloc, cases, (in MatchVariantCase x) =>
-		jsonOfMatchVariantCase(alloc, ctx, x));
+Json jsonOfMatchSumTypeCases(ref Alloc alloc, in Ctx ctx, in MatchSumTypeCase[] cases) =>
+	jsonList!(MatchSumTypeCase)(alloc, cases, (in MatchSumTypeCase x) =>
+		jsonOfMatchSumTypeCase(alloc, ctx, x));
 
-Json jsonOfMatchVariantCase(ref Alloc alloc, in Ctx ctx, in MatchVariantCase a) =>
+Json jsonOfMatchSumTypeCase(ref Alloc alloc, in Ctx ctx, in MatchSumTypeCase a) =>
 	jsonObject(alloc, [
 		field!"member"(a.member.decl.name),
 		field!"destructure"(jsonOfDestructure(alloc, ctx, a.destructure)),

@@ -101,8 +101,9 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchVariantCase,
-	MatchVariantExpr,
+	MatchSumTypeCase,
+	MatchSumTypeExpr,
+	methodCaller,
 	Module,
 	moduleAtUri,
 	mustFindFunNamed,
@@ -131,9 +132,8 @@ import model.model :
 	TypedExpr,
 	TypeParamIndex,
 	VarDecl,
-	VariantAndMethodImpls,
-	VariantMemberAndMethodImpls,
-	variantMethodCaller,
+	SumTypeMembership,
+	SumTypeMemberAndMethodImpls,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
@@ -430,22 +430,22 @@ void eachTypeInSignature(ref Signature a, in TypeCb cb) {
 void eachTypeInStruct(ref CommonTypes commonTypes, in StructDecl a, in TypeCb cb) =>
 	a.source.matchIn!void(
 		(in StructDeclAst x) {
-			eachTypeInStructModifiers(a.variants, x.modifiers, cb);
+			eachTypeInStructModifiers(a.sumTypeMemberships, x.modifiers, cb);
 			eachTypeInStructBody(commonTypes, a.body_, x, x.body_, cb);
 		},
 		(in StructDeclSource.Bogus) {});
 void eachTypeInStructModifiers(
-	in VariantAndMethodImpls[] variants,
+	in SumTypeMembership[] variants,
 	in ModifierAst[] modifiers,
 	in TypeCb cb,
 ) {
-	zipIfSizeEqFilterFirst!(ModifierAst, VariantAndMethodImpls)(
+	zipIfSizeEqFilterFirst!(ModifierAst, SumTypeMembership)(
 		modifiers,
 		variants,
 		(in ModifierAst mod) =>
 			mod.isA!(ModifierAst.Keyword) && mod.as!(ModifierAst.Keyword).keyword == ModifierKeyword.variantMember,
-		(in ModifierAst mod, in VariantAndMethodImpls x) {
-			cb(Type(x.variant), force(mod.as!(ModifierAst.Keyword).typeArg));
+		(in ModifierAst mod, in SumTypeMembership x) {
+			cb(Type(x.sumType), force(mod.as!(ModifierAst.Keyword).typeArg));
 		});
 }
 void eachTypeInStructBody(
@@ -468,8 +468,8 @@ void eachTypeInStructBody(
 		(in StructBody.Record x) {
 			eachTypeInRecord(x, ast.as!(StructBodyAst.Record), cb);
 		},
-		(in StructBody.Variant x) {
-			eachTypeInVariant(x, ast.as!(StructBodyAst.Variant), cb);
+		(in StructBody.SumType x) {
+			eachTypeInVariant(x, ast.as!(StructBodyAst.SumType), cb);
 		});
 }
 void eachTypeInEnumOrFlags(ref CommonTypes commonTypes, in StructDeclAst struct_, IntegralType storage, in TypeCb cb) {
@@ -498,9 +498,9 @@ void eachTypeInRecord(in StructBody.Record a, in StructBodyAst.Record ast, in Ty
 				cb(field.type, force(ast.type));
 		});
 }
-void eachTypeInVariant(in StructBody.Variant a, in StructBodyAst.Variant ast, in TypeCb cb) {
-	zipIfSizeEq!(VariantMemberAndMethodImpls, TypeAst)(
-		a.listedMembers, ast.types, (ref VariantMemberAndMethodImpls member, ref TypeAst ast) {
+void eachTypeInVariant(in StructBody.SumType a, in StructBodyAst.SumType ast, in TypeCb cb) {
+	zipIfSizeEq!(SumTypeMemberAndMethodImpls, TypeAst)(
+		a.listedMembers, ast.types, (ref SumTypeMemberAndMethodImpls member, ref TypeAst ast) {
 			cb(Type(member.member), ast);
 		});
 	foreach (Signature method; a.methods)
@@ -594,30 +594,30 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 		(in MatchEnumExpr _) {},
 		(in MatchIntegralExpr _) {},
 		(in MatchStringLikeExpr _) {},
-		(in MatchVariantExpr x) {
-			eachTypeInMatchVariant(x.cases, astKind.as!MatchAst.cases, cb);
+		(in MatchSumTypeExpr x) {
+			eachTypeInMatchSumType(x.cases, astKind.as!MatchAst.cases, cb);
 		},
 		(in RecordFieldPointerExpr _) {},
 		(in SeqExpr _) {},
 		(in ThrowExpr _) {},
 		(in TrustedExpr _) {},
 		(in TryExpr x) {
-			eachTypeInMatchVariant(x.catches, astKind.as!(TryAst).catches, cb);
+			eachTypeInMatchSumType(x.catches, astKind.as!(TryAst).catches, cb);
 		},
 		(in TryLetExpr x) {
-			eachTypeInMatchVariantCase(x.catch_, astKind.as!(TryLetAst*).catchMember, cb);
+			eachTypeInMatchSumTypeCase(x.catch_, astKind.as!(TryLetAst*).catchMember, cb);
 		},
 		(in TypedExpr x) =>
 			cb(a.type, astKind.as!(TypedAst*).type));
 }
 
-void eachTypeInMatchVariant(in MatchVariantCase[] cases, in CaseAst[] caseAsts, in TypeCb cb) {
-	zipIfSizeEq!(MatchVariantCase, CaseAst)(cases, caseAsts, (ref MatchVariantCase case_, ref CaseAst caseAst) {
-		eachTypeInMatchVariantCase(case_, caseAst.member, cb);
+void eachTypeInMatchSumType(in MatchSumTypeCase[] cases, in CaseAst[] caseAsts, in TypeCb cb) {
+	zipIfSizeEq!(MatchSumTypeCase, CaseAst)(cases, caseAsts, (ref MatchSumTypeCase case_, ref CaseAst caseAst) {
+		eachTypeInMatchSumTypeCase(case_, caseAst.member, cb);
 	});
 }
 
-void eachTypeInMatchVariantCase(in MatchVariantCase case_, in CaseMemberAst memberAst, in TypeCb cb) {
+void eachTypeInMatchSumTypeCase(in MatchSumTypeCase case_, in CaseMemberAst memberAst, in TypeCb cb) {
 	memberAst.matchIn!void(
 			(in CaseMemberAst.Name x) {
 				if (has(x.destructure)) {
@@ -701,7 +701,7 @@ void eachDocComment(in Module module_, in void delegate(DocComment) @safe @nogc 
 				foreach (ref RecordField field; record.fields)
 					cb(field.docComment);
 			},
-			(StructBody.Variant variant) {
+			(StructBody.SumType variant) {
 				foreach (Signature method; variant.methods)
 					cb(method.docComment);
 			});
@@ -793,7 +793,7 @@ void referencesForSignature(in Program program, in Signature* a, in ReferenceCb 
 				});
 		},
 		(ref StructDecl variant) {
-			referencesForFunDecl(program, variantMethodCaller(program, a), cb);
+			referencesForFunDecl(program, methodCaller(program, a), cb);
 			// TODO: Also find all structs that implement the variant and their implementations for this sig.
 		});
 }

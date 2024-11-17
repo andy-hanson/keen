@@ -66,7 +66,7 @@ import model.ast :
 	TestAst,
 	TypeAst,
 	VarDeclAst;
-import model.model : TypeParams, VariantKind, VarKind, Visibility;
+import model.model : SumTypeKind, TypeParams, VarKind, Visibility;
 import model.parseDiag : ParseDiag, ParseDiagnostic;
 import util.alloc.alloc : Alloc;
 import util.col.array : contains, emptySmallArray, SmallArray;
@@ -290,21 +290,21 @@ void parseSpecOrStructOrFun(
 		case Token.variant:
 			mustTakeToken(lexer, token);
 			SmallArray!TypeAst types = tryParseVariantTypes(lexer);
-			VariantKind kind = () {
+			SumTypeKind kind = () {
 				switch (token) {
 					case Token.interface_:
-						return VariantKind.interface_;
+						return SumTypeKind.interface_;
 					case Token.union_:
-						return VariantKind.union_;
+						return SumTypeKind.union_;
 					case Token.variant:
-						return VariantKind.variant;
+						return SumTypeKind.variant;
 					default:
 						assert(false);
 				}
 			}();
-			addStruct(() => StructBodyAst(StructBodyAst.Variant(
+			addStruct(() => StructBodyAst(StructBodyAst.SumType(
 				kind,
-				allocate(lexer.alloc, StructBodyAst.Variant.TypesAndMethods(types, parseIndentedSigs(lexer))))));
+				allocate(lexer.alloc, StructBodyAst.SumType.TypesAndMethods(types, parseIndentedSigs(lexer))))));
 			break;
 		default:
 			add(lexer.alloc, funs, parseFun(lexer, docComment, visibility, start, name, typeParams));

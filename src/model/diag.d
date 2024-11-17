@@ -417,17 +417,17 @@ immutable struct Diag {
 	immutable struct MatchOnNonMatchable {
 		TypeWithContainer type;
 	}
+	immutable struct MatchSumTypeCantInferTypeArgs {
+		StructDecl* member;
+	}
+	immutable struct MatchSumTypeNoMember {
+		TypeWithContainer variant;
+		StructDecl* nonMember;
+	}
 	immutable struct MatchUnhandledCases {
 		mixin Union!(immutable EnumOrFlagsMember*[], immutable StructInst*[]);
 	}
 	immutable struct MatchUnnecessaryElse {}
-	immutable struct MatchVariantCantInferTypeArgs {
-		StructDecl* member;
-	}
-	immutable struct MatchVariantNoMember {
-		TypeWithContainer variant;
-		StructDecl* nonMember;
-	}
 
 	immutable struct ModifierConflict {
 		ModifierKeyword prevModifier;
@@ -736,10 +736,10 @@ immutable struct Diag {
 		MatchCaseShouldUseIgnore,
 		MatchNeedsElse,
 		MatchOnNonMatchable,
+		MatchSumTypeCantInferTypeArgs,
+		MatchSumTypeNoMember,
 		MatchUnhandledCases,
 		MatchUnnecessaryElse,
-		MatchVariantCantInferTypeArgs,
-		MatchVariantNoMember,
 		ModifierConflict,
 		ModifierDuplicate,
 		ModifierInvalid,

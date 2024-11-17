@@ -2,7 +2,7 @@ module model.ast;
 
 @safe @nogc pure nothrow:
 
-import model.model : FunKind, stringOfVarKindLowerCase, VariantKind, VarKind, Visibility;
+import model.model : FunKind, stringOfVarKindLowerCase, SumTypeKind, VarKind, Visibility;
 import model.parseDiag : ParseDiag, ParseDiagnostic;
 import util.alloc.alloc : Alloc;
 import util.col.array : arrayOfSingle, emptySmallArray, exists, isEmpty, newArray, newSmallArray, sizeEq, SmallArray;
@@ -1057,9 +1057,9 @@ immutable struct StructBodyAst {
 		Opt!ParamsAst params;
 		SmallArray!RecordFieldAst fields;
 	}
-	immutable struct Variant {
+	immutable struct SumType {
 		@safe @nogc pure nothrow:
-		VariantKind kind;
+		SumTypeKind kind;
 		immutable struct TypesAndMethods {
 			SmallArray!TypeAst types;
 			SmallArray!SignatureAst methods;
@@ -1072,7 +1072,7 @@ immutable struct StructBodyAst {
 			typesAndMethods.methods;
 	}
 
-	mixin .Union!(Builtin, Enum, Extern, Flags, Record, Variant);
+	mixin .Union!(Builtin, Enum, Extern, Flags, Record, SumType);
 }
 static assert(StructBodyAst.sizeof <= 24);
 
@@ -1140,7 +1140,7 @@ private string keywordForStructBody(in StructBodyAst a) =>
 			"flags",
 		(in StructBodyAst.Record) =>
 			"record",
-		(in StructBodyAst.Variant x) =>
+		(in StructBodyAst.SumType x) =>
 			stringOfEnum(x.kind));
 
 immutable struct SpecDeclAst {

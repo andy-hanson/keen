@@ -21,7 +21,7 @@ import model.model :
 	StructInst,
 	StructOrAlias,
 	Type,
-	VariantAndMethodImpls,
+	SumTypeMembership,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, isEmpty, makeArray, small;
@@ -197,5 +197,5 @@ public StructDecl* bogusStructDecl(ref Alloc alloc, Symbol name, size_t nTypePar
 		Purity.data,
 		false,
 		late(emptyDocCommentReferences),
-		late(emptySmallArray!VariantAndMethodImpls),
+		late(emptySmallArray!SumTypeMembership),
 		late(StructBody(StructBody.Bogus()))));

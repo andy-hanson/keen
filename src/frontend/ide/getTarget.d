@@ -121,7 +121,7 @@ Opt!Target targetForPosition(Position pos) =>
 			none!Target,
 		(PositionKind.MatchStringLikeCase x) =>
 			none!Target,
-		(PositionKind.MatchVariantCase x) =>
+		(PositionKind.MatchSumTypeCase x) =>
 			some(Target(x.member.decl)),
 		(PositionKind.Modifier) =>
 			none!Target,
@@ -216,9 +216,9 @@ Target funDeclTarget(FunDecl* a) =>
 			returnTypeTarget(a),
 		(FunBody.CreateRecord) =>
 			returnTypeTarget(a),
-		(FunBody.CreateRecordAndConvertToVariant x) =>
+		(FunBody.CreateRecordAndConvertToSumType x) =>
 			Target(x.member.decl),
-		(FunBody.CreateVariant x) =>
+		(FunBody.CreateSumType x) =>
 			Target(only(a.params.as!(Destructure[])).type.as!(StructInst*).decl),
 		(Expr _) =>
 			Target(a),
@@ -229,6 +229,8 @@ Target funDeclTarget(FunDecl* a) =>
 			Target(a),
 		(FlagsFunction x) =>
 			returnTypeTarget(a),
+		(FunBody.Method x) =>
+			Target(x.method),
 		(FunBody.RecordFieldCall x) =>
 			Target(x.field),
 		(FunBody.RecordFieldGet x) =>
@@ -237,12 +239,10 @@ Target funDeclTarget(FunDecl* a) =>
 			Target(x.field),
 		(FunBody.RecordFieldSet x) =>
 			Target(x.field),
+		(FunBody.SumTypeMemberGet) =>
+			Target(mustUnwrapOptionType(a.returnType).as!(StructInst*).decl),
 		(FunBody.VarGet x) =>
 			Target(x.var),
-		(FunBody.VariantMemberGet) =>
-			Target(mustUnwrapOptionType(a.returnType).as!(StructInst*).decl),
-		(FunBody.VariantMethod x) =>
-			Target(x.method),
 		(FunBody.VarSet x) =>
 			Target(x.var));
 

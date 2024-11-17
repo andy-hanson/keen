@@ -172,8 +172,8 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchVariantCase,
-	MatchVariantExpr,
+	MatchSumTypeCase,
+	MatchSumTypeExpr,
 	Mutability,
 	paramsArray,
 	Purity,
@@ -197,9 +197,9 @@ import model.model :
 	TypedExpr,
 	TypeWithContainer,
 	VariableRef,
-	VariantAndMethodImpls,
-	VariantKind,
-	VariantMemberAndMethodImpls;
+	SumTypeMembership,
+	SumTypeKind,
+	SumTypeMemberAndMethodImpls;
 import util.alloc.stackAlloc : MaxStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell;
 import util.col.array :
@@ -1571,18 +1571,18 @@ Expr checkMatch(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ref Mat
 				? checkMatchStringLike(ctx, locals, source, ast, expected, matched, force(stringLike))
 				: notMatchable();
 		},
-		(StructBody.Variant x) =>
-			canMatchVariant(x.kind)
-				? checkMatchVariant(ctx, locals, source, ast, expected, matched, inst)
+		(StructBody.SumType x) =>
+			canMatchSumType(x.kind)
+				? checkMatchSumType(ctx, locals, source, ast, expected, matched, inst)
 				: notMatchable());
 }
 
-bool canMatchVariant(VariantKind a) {
+bool canMatchSumType(SumTypeKind a) {
 	final switch (a) {
-		case VariantKind.interface_:
+		case SumTypeKind.interface_:
 			return false;
-		case VariantKind.union_:
-		case VariantKind.variant:
+		case SumTypeKind.union_:
+		case SumTypeKind.variant:
 			return true;
 	}
 }
@@ -1608,7 +1608,7 @@ Expr checkMatchEnum(
 		(SmallArray!(MatchEnumExpr.Case) cases, Opt!Expr else_) =>
 			Expr(source, ExprKind(allocate(ctx.alloc, MatchEnumExpr(matched, cases, else_)))));
 
-Expr checkMatchVariant(
+Expr checkMatchSumType(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
@@ -1617,15 +1617,15 @@ Expr checkMatchVariant(
 	ref ExprAndType matched,
 	StructInst* matchedVariant,
 ) {
-	SmallArray!MatchVariantCase cases = checkMatchVariantCases(ctx, locals, matchedVariant, ast.cases, expected);
-	StructBody.Variant body_() => matchedVariant.decl.body_.as!(StructBody.Variant);
+	SmallArray!MatchSumTypeCase cases = checkMatchSumTypeCases(ctx, locals, matchedVariant, ast.cases, expected);
+	StructBody.SumType body_() => matchedVariant.decl.body_.as!(StructBody.SumType);
 	bool isUnion = () {
 		final switch (body_.kind) {
-			case VariantKind.interface_:
+			case SumTypeKind.interface_:
 				assert(false);
-			case VariantKind.union_:
+			case SumTypeKind.union_:
 				return true;
-			case VariantKind.variant:
+			case SumTypeKind.variant:
 				return false;
 		}
 	}();
@@ -1638,29 +1638,29 @@ Expr checkMatchVariant(
 			} else
 				return some(allocate(ctx.alloc, checkMatchElseRequired(ctx, locals, source, ast, expected, () =>
 					Diag(Diag.MatchUnhandledCases(buildArray!(immutable StructInst*)(ctx.alloc, (scope ref Builder!(immutable StructInst*) out_) {
-						foreach (VariantMemberAndMethodImpls member; body_.listedMembers) {
+						foreach (SumTypeMemberAndMethodImpls member; body_.listedMembers) {
 							StructInst* memberInst = instantiateStructInst(ctx.instantiateCtx, *member.member, matchedVariant.typeArgs);
-							if (!exists!MatchVariantCase(cases, (in MatchVariantCase case_) => case_.member == memberInst))
+							if (!exists!MatchSumTypeCase(cases, (in MatchSumTypeCase case_) => case_.member == memberInst))
 								out_ ~= memberInst;
 						}
 					}))))));
 		} else
 			return some(allocate(ctx.alloc, checkMatchElseRequired(ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.variant)));
 	}();
-	return Expr(source, ExprKind(allocate(ctx.alloc, MatchVariantExpr(matched, cases, else_))));
+	return Expr(source, ExprKind(allocate(ctx.alloc, MatchSumTypeExpr(matched, cases, else_))));
 }
 
-SmallArray!MatchVariantCase checkMatchVariantCases(
+SmallArray!MatchSumTypeCase checkMatchSumTypeCases(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	StructInst* matchedVariant,
 	SmallArray!CaseAst caseAsts,
 	ref Expected expected,
 ) =>
-	withTempSet!(SmallArray!MatchVariantCase, StructInst*)(
+	withTempSet!(SmallArray!MatchSumTypeCase, StructInst*)(
 		caseAsts.length, (scope ref TempSet!(StructInst*) seen) =>
-			mapOpPointers!(MatchVariantCase, CaseAst)(ctx.alloc, caseAsts, (CaseAst* caseAst) {
-				Opt!MatchVariantCase res = checkMatchVariantCase(
+			mapOpPointers!(MatchSumTypeCase, CaseAst)(ctx.alloc, caseAsts, (CaseAst* caseAst) {
+				Opt!MatchSumTypeCase res = checkMatchSumTypeCase(
 					ctx, locals, matchedVariant, &caseAst.member, &caseAst.then, expected);
 				if (has(res)) {
 					if (tryAdd(seen, force(res).member))
@@ -1668,13 +1668,13 @@ SmallArray!MatchVariantCase checkMatchVariantCases(
 					else {
 						addDiag2(ctx, caseAst.member.nameRange, Diag(
 							Diag.MatchCaseDuplicate(Diag.MatchCaseDuplicate.Kind(force(res).member.decl.name))));
-						return none!MatchVariantCase;
+						return none!MatchSumTypeCase;
 					}
 				} else
-					return none!MatchVariantCase;
+					return none!MatchSumTypeCase;
 			}));
 
-Opt!MatchVariantCase checkMatchVariantCase(
+Opt!MatchSumTypeCase checkMatchSumTypeCase(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	StructInst* matchedVariant,
@@ -1694,9 +1694,9 @@ Opt!MatchVariantCase checkMatchVariantCase(
 		CaseResult result = checkMatchUnionOrVariantCase!StructInst(
 			ctx, locals, force(optMember), Type(force(optMember)), memberAst, thenAst, expected);
 		return optIf(!result.destructure.type.isBogus, () =>
-			MatchVariantCase(result.destructure, result.expr));
+			MatchSumTypeCase(result.destructure, result.expr));
  	} else
-		return none!MatchVariantCase;
+		return none!MatchSumTypeCase;
 }
 
 immutable struct CaseResult {
@@ -1740,23 +1740,23 @@ Opt!(StructInst*) getVariantMemberFromName(
 				some(x.target), // TODO: wait. It's not validating it in this case??????????????????????????????????????????????????????
 			(StructDecl* decl) {
 				Opt!InstantiatedVariantMemberOrBogus res = optOr!InstantiatedVariantMemberOrBogus(
-					first!(InstantiatedVariantMemberOrBogus, VariantMemberAndMethodImpls)(
-						matchedVariant.decl.body_.as!(StructBody.Variant).listedMembers,
-						(VariantMemberAndMethodImpls x) {
+					first!(InstantiatedVariantMemberOrBogus, SumTypeMemberAndMethodImpls)(
+						matchedVariant.decl.body_.as!(StructBody.SumType).listedMembers,
+						(SumTypeMemberAndMethodImpls x) {
 							return optIf(x.member.decl == decl, () =>
 								InstantiatedVariantMemberOrBogus(
 									instantiateStructInst(ctx.instantiateCtx, *x.member, matchedVariant.typeArgs)));
 						}),
-					() => first!(InstantiatedVariantMemberOrBogus, VariantAndMethodImpls)(
-						decl.variants, (VariantAndMethodImpls variant) =>
-							compareVariant(ctx, nameRange, decl, variant.variant, matchedVariant, expectedMemberType)));
+					() => first!(InstantiatedVariantMemberOrBogus, SumTypeMembership)(
+						decl.sumTypeMemberships, (SumTypeMembership x) =>
+							compareVariant(ctx, nameRange, decl, x.sumType, matchedVariant, expectedMemberType)));
 				if (has(res))
 					return force(res).matchWithPointers!(Opt!(StructInst*))(
 						(StructInst* x) => some(x),
 						(InstantiatedVariantMemberOrBogus.Bogus) => none!(StructInst*));
 				else {
 					addDiag2(ctx, nameRange, Diag(
-						Diag.MatchVariantNoMember(typeWithContainer(ctx, Type(matchedVariant)), decl)));
+						Diag.MatchSumTypeNoMember(typeWithContainer(ctx, Type(matchedVariant)), decl)));
 					return none!(StructInst*);
 				}
 			})
@@ -1769,7 +1769,7 @@ immutable struct InstantiatedVariantMemberOrBogus {
 }
 
 // Returns instantiated member type if the declared variant matches the actual
-Opt!InstantiatedVariantMemberOrBogus compareVariant(
+Opt!InstantiatedVariantMemberOrBogus compareVariant( // TODO: this takes any sumtype, so rename this fn and some of its parameters ----------------------------------------
 	ref ExprCtx ctx,
 	Range range,
 	StructDecl* member,
@@ -1805,7 +1805,7 @@ Opt!InstantiatedVariantMemberOrBogus compareVariant(
 					}),
 				(scope Type[] inferredTypes) {
 					if (anyNotInferred) {
-						addDiag2(ctx, range, Diag(Diag.MatchVariantCantInferTypeArgs(member)));
+						addDiag2(ctx, range, Diag(Diag.MatchSumTypeCantInferTypeArgs(member)));
 						return InstantiatedVariantMemberOrBogus(InstantiatedVariantMemberOrBogus.Bogus());
 					} else
 						return InstantiatedVariantMemberOrBogus(
@@ -2252,7 +2252,7 @@ Expr checkTry(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TryAst as
 		return bogus(expected, source);
 	} else {
 		Expr body_ = checkExpr(ctx, locals, ast.tried, expected);
-		SmallArray!MatchVariantCase catches = checkMatchVariantCases(
+		SmallArray!MatchSumTypeCase catches = checkMatchSumTypeCases(
 			ctx, locals, ctx.commonTypes.exception, ast.catches, expected);
 		return Expr(source, ExprKind(allocate(ctx.alloc, TryExpr(body_, catches))));
 	}
@@ -2261,7 +2261,7 @@ Expr checkTry(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TryAst as
 Expr checkTryLet(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TryLetAst* ast, ref Expected expected) {
 	ExprAndType value = checkAndExpectOrInfer(ctx, locals, &ast.value, typeFromDestructure(ctx, ast.destructure));
 	Destructure destructure = checkDestructure2(ctx, &ast.destructure, value.type, DestructureKind.local);
-	Opt!MatchVariantCase catch_ = checkMatchVariantCase(
+	Opt!MatchSumTypeCase catch_ = checkMatchSumTypeCase(
 		ctx, locals, ctx.commonTypes.exception, &ast.catchMember, &ast.catch_, expected);
 	if (!has(catch_)) return bogus(expected, source);
 	Expr then = checkExprWithDestructure(ctx, locals, destructure, &ast.then, expected);

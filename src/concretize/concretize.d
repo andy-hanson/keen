@@ -168,8 +168,8 @@ void finishVariants(ref ConcretizeCtx ctx) {
 	foreach (ConcreteFun* fun; ctx.deferredVariantMethods) {
 		ConcreteStruct* variant = mustBeByVal(fun.params[0].type);
 		size_t methodIndex = mustHaveIndexOfPointer(
-			variant.source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Variant).methods,
-			fun.source.as!ConcreteFunKey.decl.body_.as!(FunBody.VariantMethod).method);
+			variant.source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.SumType).methods,
+			fun.source.as!ConcreteFunKey.decl.body_.as!(FunBody.Method).method);
 		MutArr!ConcreteVariantMemberAndMethodImpls impls = mustGet(ctx.variantStructToMembers, variant);
 		fun.overwriteBody(generateCallVariantMethod(ctx, fun, variant, asTemporaryArray(impls), methodIndex));
 	}

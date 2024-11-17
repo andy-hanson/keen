@@ -36,9 +36,9 @@ import model.model :
 	Type,
 	TypeParamIndex,
 	VarDecl,
-	VariantAndMethodImpls,
-	VariantKind,
-	VariantMemberAndMethodImpls,
+	SumTypeMembership,
+	SumTypeKind,
+	SumTypeMemberAndMethodImpls,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withStackArray;
@@ -54,7 +54,7 @@ size_t countFunsForStructs(in CommonTypes commonTypes, in StructDecl[] structs) 
 	sum!StructDecl(structs, (in StructDecl x) => countFunsForStruct(commonTypes, x));
 
 private size_t countFunsForStruct(in CommonTypes commonTypes, in StructDecl a) =>
-	countFunsForVariantMembers(a) + a.body_.matchIn!size_t(
+	countFunsForSumTypeMemberships(a) + a.body_.matchIn!size_t(
 		(in StructBody.Bogus) =>
 			0,
 		(in BuiltinType _) =>
@@ -75,23 +75,16 @@ private size_t countFunsForStruct(in CommonTypes commonTypes, in StructDecl a) =
 			// byVal has get/set for pointer too
 			return 1 + forGetSet * (recordIsAlwaysByVal(x) ? 2 : 1) + forCall;
 		},
-		(in StructBody.Variant x) =>
-			x.methods.length + sum!VariantMemberAndMethodImpls(x.listedMembers, (in VariantMemberAndMethodImpls member) =>
-				countFunsForVariantMember(x, *member.member.decl)));
-private size_t countFunsForVariantMembers(in StructDecl a) =>
-	sum!VariantAndMethodImpls(a.variants, (in VariantAndMethodImpls x) =>
-		countFunsForVariantMember(x.variant.decl.body_.as!(StructBody.Variant), a));
-private size_t countFunsForVariantMember(in StructBody.Variant variant, in StructDecl member) {
-	// Records will also have a named constructor returning the variant
-	size_t res = member.body_.isA!(StructBody.Record) ? 2 : 1;
-	final switch (variant.kind) {
-		case VariantKind.interface_:
-			return res;
-		case VariantKind.union_:
-		case VariantKind.variant:
-			return res + 1;
-	}
-}
+		(in StructBody.SumType x) =>
+			x.methods.length + sum!SumTypeMemberAndMethodImpls(x.listedMembers, (in SumTypeMemberAndMethodImpls member) =>
+				countFunsForSumTypeMember(x, *member.member.decl)));
+private size_t countFunsForSumTypeMemberships(in StructDecl a) =>
+	sum!SumTypeMembership(a.sumTypeMemberships, (in SumTypeMembership x) =>
+		countFunsForSumTypeMember(x.sumTypeBody, a));
+private size_t countFunsForSumTypeMember(in StructBody.SumType sumType, in StructDecl member) =>
+	// Records will also have a named constructor returning the sumType.
+	// Non-interface sumTypes will have a function to (optionally) convert to the member type
+	1 + (member.body_.isA!(StructBody.Record) ? 1 : 0) + (sumType.kind == SumTypeKind.interface_ ? 0 : 1);
 
 size_t countFunsForVars(in VarDecl[] vars) =>
 	vars.length * 2;
@@ -118,23 +111,23 @@ void addFunsForStruct(
 		(StructBody.Record x) {
 			addFunsForRecord(ctx, funsBuilder, commonTypes, struct_, x);
 		},
-		(StructBody.Variant x) {
+		(StructBody.SumType x) {
 			addFunsForVariant(ctx, funsBuilder, commonTypes, struct_, x);
 		});
-	addFunsForVariantMembers(ctx, funsBuilder, commonTypes, struct_);
+	addFunsForSumTypeMemberships(ctx, funsBuilder, commonTypes, struct_);
 }
 
-private void addFunsForVariantMembers(
+private void addFunsForSumTypeMemberships(
 	ref CheckCtx ctx,
 	scope ref ExactSizeArrayBuilder!FunDecl funsBuilder,
 	ref CommonTypes commonTypes,
 	StructDecl* struct_,
 ) {
-	foreach (VariantAndMethodImpls vm; struct_.variants) {
+	foreach (SumTypeMembership x; struct_.sumTypeMemberships) {
 		addFunsForVariantMember(
 			ctx, funsBuilder, commonTypes,
 			sourceStruct: struct_,
-			variant: vm.variant,
+			variant: x.sumType,
 			memberType: instantiateStructWithOwnTypeParams(ctx.instantiateCtx, struct_));
 	}
 }
@@ -147,7 +140,7 @@ private void addFunsForVariantMember(
 	StructInst* variant,
 	StructInst* memberType,
 ) {
-	VariantKind variantKind = variant.decl.body_.as!(StructBody.Variant).kind;
+	SumTypeKind variantKind = variant.decl.body_.as!(StructBody.SumType).kind;
 	StructDecl* member = memberType.decl;
 	// Convert from the type to a variant
 	funsBuilder ~= funForStruct(
@@ -156,7 +149,7 @@ private void addFunsForVariantMember(
 		Type(variant),
 		makeParams(ctx.alloc, [param!"a"(Type(memberType))]),
 		FunFlags.generatedBare,
-		FunBody(FunBody.CreateVariant()));
+		FunBody(FunBody.CreateSumType()));
 	if (member.body_.isA!(StructBody.Record)) {
 		ref StructBody.Record record() => member.body_.as!(StructBody.Record);
 		funsBuilder ~= funForStruct(
@@ -165,20 +158,20 @@ private void addFunsForVariantMember(
 			Type(variant),
 			recordConstructorParams(ctx.alloc, record),
 			recordIsAlwaysByVal(record) ? FunFlags.generatedBare : FunFlags.generated,
-			FunBody(FunBody.CreateRecordAndConvertToVariant(memberType)));
+			FunBody(FunBody.CreateRecordAndConvertToSumType(memberType)));
 	}
 	final switch (variantKind) {
-		case VariantKind.interface_:
+		case SumTypeKind.interface_:
 			break;
-		case VariantKind.union_:
-		case VariantKind.variant:
+		case SumTypeKind.union_:
+		case SumTypeKind.variant:
 			funsBuilder ~= funForStruct(
 				sourceStruct,
 				member.name,
 				Type(makeOptionType(ctx.instantiateCtx, commonTypes, Type(memberType))),
 				makeParams(ctx.alloc, [param!"a"(Type(variant))]),
 				FunFlags.generatedBare,
-				FunBody(FunBody.VariantMemberGet()));
+				FunBody(FunBody.SumTypeMemberGet()));
 			break;
 	}
 }
@@ -508,11 +501,11 @@ void addFunsForVariant(
 	scope ref ExactSizeArrayBuilder!FunDecl funsBuilder,
 	ref CommonTypes commonTypes,
 	StructDecl* struct_,
-	ref StructBody.Variant variant,
+	ref StructBody.SumType variant,
 ) {
 	StructInst* variantInst = instantiateStructWithOwnTypeParams(ctx.instantiateCtx, struct_);
 
-	foreach (ref VariantMemberAndMethodImpls x; variant.listedMembers)
+	foreach (ref SumTypeMemberAndMethodImpls x; variant.listedMembers)
 		addFunsForVariantMember(
 			ctx, funsBuilder, commonTypes,
 			sourceStruct: struct_, variant: variantInst, memberType: x.member);
@@ -532,5 +525,5 @@ void addFunsForVariant(
 			FunFlags.generated.withSummon(struct_.isSummon),
 			struct_.externSet,
 			[],
-			FunBody(FunBody.VariantMethod(&sig)));
+			FunBody(FunBody.Method(&sig)));
 }

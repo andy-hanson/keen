@@ -68,7 +68,7 @@ import model.model :
 	IntegralType,
 	RecordField,
 	StructBody,
-	VariantMemberAndMethodImpls;
+	SumTypeMemberAndMethodImpls;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	allSame,
@@ -518,7 +518,7 @@ ConcreteExpr concretizeUnionToJson(
 	in Called[] memberToJson,
 ) {
 	UriAndRange range = ctx.curFun.range;
-	VariantMemberAndMethodImpls[] members = unionMembersForNames(only(ctx.curFun.params).type);
+	SumTypeMemberAndMethodImpls[] members = unionMembersForNames(only(ctx.curFun.params).type);
 	assert(sizeEq3(memberTypes, memberToJson, members));
 	ConcreteExpr getParam = genParamGet(range, &only(ctx.curFun.params));
 	return genNewJson(ctx.concretizeCtx, range, [
@@ -535,7 +535,7 @@ ref StructBody body_(ConcreteType a) =>
 // Discards concrete type info, so used only for names
 RecordField[] recordFieldsForNames(ConcreteType a) =>
 	body_(a).as!(StructBody.Record).fields;
-VariantMemberAndMethodImpls[] unionMembersForNames(ConcreteType a) =>
+SumTypeMemberAndMethodImpls[] unionMembersForNames(ConcreteType a) =>
 	asUnion(body_(a));
 
 ConcreteExpr concretizeAndCall(

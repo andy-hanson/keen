@@ -6,7 +6,7 @@ import frontend.ide.getDefinition : definitionForTarget;
 import frontend.ide.getTarget : Target, targetForPosition;
 import frontend.ide.ideUtil : ReferenceCb;
 import frontend.ide.position : Position;
-import model.model : Called, FunInst, Module, Program, Signature, signatureIndex, StructDecl, VariantAndMethodImpls;
+import model.model : Called, FunInst, Module, Program, Signature, signatureIndex, StructDecl, SumTypeMembership;
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.opt : force, has, Opt;
@@ -26,23 +26,17 @@ private:
 
 void implementationForTarget(in Program program, Uri uri, in Target target, in ReferenceCb cb) {
 	if (target.isA!(Signature*) && target.as!(Signature*).container.isA!(StructDecl*))
-		implementationForVariantMethod(
-			program, target.as!(Signature*).container.as!(StructDecl*), target.as!(Signature*), cb);
+		implementationForMethod(program, target.as!(Signature*).container.as!(StructDecl*), target.as!(Signature*), cb);
 	else
 		definitionForTarget(uri, target, cb);
 }
 
-void implementationForVariantMethod(
-	in Program program,
-	in StructDecl* variant,
-	in Signature* method,
-	in ReferenceCb cb,
-) {
+void implementationForMethod(in Program program, in StructDecl* sumType, in Signature* method, in ReferenceCb cb) {
 	size_t sigIndex = signatureIndex(method);
 	foreach (ref immutable Module* module_; program.allModules) {
 		foreach (ref StructDecl struct_; module_.structs) {
-			foreach (VariantAndMethodImpls v; struct_.variants) {
-				if (v.variant.decl == variant) {
+			foreach (SumTypeMembership v; struct_.sumTypeMemberships) {
+				if (v.sumType.decl == sumType) {
 					Opt!Called called = v.methodImpls[sigIndex];
 					if (has(called) && force(called).isA!(FunInst*))
 						cb(force(called).as!(FunInst*).decl.nameRange);

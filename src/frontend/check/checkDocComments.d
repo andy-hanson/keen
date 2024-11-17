@@ -96,7 +96,7 @@ void checkDocComments(
 				foreach (ref RecordField field; x.fields)
 					field.docCommentReferences = checkRefsForStruct(struct_, field.docCommentAst);
 			},
-			(StructBody.Variant x) {
+			(StructBody.SumType x) {
 				foreach (ref Signature sig; x.methods)
 					sig.docCommentReferences = map!(DocCommentReference, NameAndRange)(
 						ctx.alloc, sig.docCommentAst.references, (ref NameAndRange ast) =>
@@ -220,9 +220,9 @@ DocCommentReference docCommentReferenceForFunDecl(FunDecl* a) {
 			returnStruct(),
 		(FunBody.CreateRecord) =>
 			returnStruct(),
-		(FunBody.CreateRecordAndConvertToVariant x) =>
+		(FunBody.CreateRecordAndConvertToSumType x) =>
 			DocCommentReference(x.member.decl),
-		(FunBody.CreateVariant) =>
+		(FunBody.CreateSumType) =>
 			returnStruct(),
 		(Expr _) =>
 			fun,
@@ -232,6 +232,8 @@ DocCommentReference docCommentReferenceForFunDecl(FunDecl* a) {
 			fun,
 		(FlagsFunction _) =>
 			returnStruct(),
+		(FunBody.Method x) =>
+			DocCommentReference(x.method),
 		(FunBody.RecordFieldCall x) =>
 			DocCommentReference(x.field),
 		(FunBody.RecordFieldGet x) =>
@@ -240,12 +242,10 @@ DocCommentReference docCommentReferenceForFunDecl(FunDecl* a) {
 			DocCommentReference(x.field),
 		(FunBody.RecordFieldSet x) =>
 			DocCommentReference(x.field),
+		(FunBody.SumTypeMemberGet x) =>
+			returnStruct(),
 		(FunBody.VarGet x) =>
 			DocCommentReference(x.var),
-		(FunBody.VariantMemberGet x) =>
-			returnStruct(),
-		(FunBody.VariantMethod x) =>
-			DocCommentReference(x.method),
 		(FunBody.VarSet x) =>
 			DocCommentReference(x.var));
 }

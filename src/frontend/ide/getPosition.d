@@ -106,8 +106,8 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
-	MatchVariantCase,
-	MatchVariantExpr,
+	MatchSumTypeCase,
+	MatchSumTypeExpr,
 	Module,
 	moduleAtUri,
 	Params,
@@ -134,7 +134,7 @@ import model.model :
 	TypeParamIndex,
 	TypeWithContainer,
 	VarDecl,
-	VariantMemberAndMethodImpls;
+	SumTypeMemberAndMethodImpls;
 import model.model : paramsArray, StructDeclSource;
 import util.col.array : findIndex, first, firstPointer, firstZip, firstZipIfSizeEq, firstZipPointerFirst, isEmpty;
 import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
@@ -387,7 +387,7 @@ PositionKind.Keyword.Kind keywordKindForStructBody(in StructBodyAst a) =>
 			PositionKind.Keyword.Kind.flags,
 		(in StructBodyAst.Record) =>
 			PositionKind.Keyword.Kind.record,
-		(in StructBodyAst.Variant) =>
+		(in StructBodyAst.SumType) =>
 			PositionKind.Keyword.Kind.variant);
 
 Opt!PositionKind positionInVisibility(VisibilityContainer a, in Opt!VisibilityAndRange visibility, Pos pos) =>
@@ -450,13 +450,13 @@ Opt!PositionKind positionInStructBody(
 				pos),
 		(StructBody.Record x) =>
 			positionInRecord(ctx, decl, x.fields, ast.as!(StructBodyAst.Record), pos),
-		(StructBody.Variant x) =>
-			positionInVariant(decl, x, ast.as!(StructBodyAst.Variant), pos));
+		(StructBody.SumType x) =>
+			positionInVariant(decl, x, ast.as!(StructBodyAst.SumType), pos));
 
-Opt!PositionKind positionInVariant(StructDecl* decl, StructBody.Variant a, in StructBodyAst.Variant ast, Pos pos) =>
+Opt!PositionKind positionInVariant(StructDecl* decl, StructBody.SumType a, in StructBodyAst.SumType ast, Pos pos) =>
 	optOr!PositionKind(
-		firstZipIfSizeEq!(PositionKind, TypeAst, VariantMemberAndMethodImpls)(
-			ast.types, a.listedMembers, (TypeAst typeAst, VariantMemberAndMethodImpls x) =>
+		firstZipIfSizeEq!(PositionKind, TypeAst, SumTypeMemberAndMethodImpls)(
+			ast.types, a.listedMembers, (TypeAst typeAst, SumTypeMemberAndMethodImpls x) =>
 				positionInType(TypeContainer(decl), Type(x.member), typeAst, pos)),
 		() => positionInSignatures(a.methods, ast.methods, pos));
 
@@ -692,8 +692,8 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, ref Loops loops, ExprRef a, Pos
 			positionAtMatchIntegral(ctx, a, x, ast.kind.as!MatchAst, pos),
 		(ref MatchStringLikeExpr x) =>
 			positionAtMatchStringLike(ctx, a, x, ast.kind.as!MatchAst, pos),
-		(ref MatchVariantExpr x) =>
-			positionAtMatchVariant(ctx, a, x, ast.kind.as!MatchAst, pos),
+		(ref MatchSumTypeExpr x) =>
+			positionAtMatchSumType(ctx, a, x, ast.kind.as!MatchAst, pos),
 		(ref RecordFieldPointerExpr x) =>
 			keywordAt(ast.kind.as!(PtrAst*).keywordRange(ast), ExprKeyword.ampersand),
 		(ref SeqExpr x) =>
@@ -835,32 +835,32 @@ Opt!PositionKind positionAtMatchStringLike(
 						TypeWithContainer(a.matched.type, ctx.container.toTypeContainer),
 						case_.value)))));
 
-Opt!PositionKind positionAtMatchVariant(
+Opt!PositionKind positionAtMatchSumType(
 	ref ExprCtx ctx,
 	ExprRef expr,
-	ref MatchVariantExpr a,
+	ref MatchSumTypeExpr a,
 	in MatchAst ast,
 	Pos pos,
 ) =>
 	optOr!PositionKind(
 		positionAtMatchKeyword(ctx, expr, ast, pos),
-		() => positionAtMatchVariantCases(ctx, a.cases, ast.cases, pos));
+		() => positionAtMatchSumTypeCases(ctx, a.cases, ast.cases, pos));
 
-Opt!PositionKind positionAtMatchVariantCases(
+Opt!PositionKind positionAtMatchSumTypeCases(
 	ref ExprCtx ctx,
-	in MatchVariantCase[] cases,
+	in MatchSumTypeCase[] cases,
 	in CaseAst[] caseAsts,
 	Pos pos,
 ) =>
-	firstZipIfSizeEq!(PositionKind, MatchVariantCase, CaseAst)(
+	firstZipIfSizeEq!(PositionKind, MatchSumTypeCase, CaseAst)(
 		cases, caseAsts,
-		(MatchVariantCase case_, CaseAst caseAst) =>
-			positionAtMatchVariantCase(ctx, case_, caseAst, pos));
+		(MatchSumTypeCase case_, CaseAst caseAst) =>
+			positionAtMatchSumTypeCase(ctx, case_, caseAst, pos));
 
-Opt!PositionKind positionAtMatchVariantCase(ref ExprCtx ctx, MatchVariantCase case_, CaseAst ast, Pos pos) =>
+Opt!PositionKind positionAtMatchSumTypeCase(ref ExprCtx ctx, MatchSumTypeCase case_, CaseAst ast, Pos pos) =>
 	optOr!PositionKind(
 		optIf(hasPos(ast.keywordAndMemberNameRange, pos), () =>
-			PositionKind(PositionKind.MatchVariantCase(ctx.container, case_.member))),
+			PositionKind(PositionKind.MatchSumTypeCase(ctx.container, case_.member))),
 		() => positionInMatchCaseDestructure(ctx, case_.destructure, ast.member, pos));
 
 Opt!PositionKind positionInMatchCaseDestructure(
@@ -884,7 +884,7 @@ Opt!PositionKind positionAtTry(in ExprCtx ctx, ExprRef expr, ref TryExpr a, TryA
 	optOr!PositionKind(
 		optIf(hasPos(ast.tryKeywordRange(expr.expr.ast), pos), () =>
 			PositionKind(ExpressionPosition(ctx.container, expr, ExpressionPositionKind(ExprKeyword.try_)))),
-		() => positionAtMatchVariantCases(ctx, a.catches, ast.catches, pos));
+		() => positionAtMatchSumTypeCases(ctx, a.catches, ast.catches, pos));
 
 Opt!PositionKind positionAtTryLet(in ExprCtx ctx, ExprRef expr, ref TryLetExpr a, TryLetAst* ast, Pos pos) =>
 	optOr!PositionKind(
@@ -892,7 +892,7 @@ Opt!PositionKind positionAtTryLet(in ExprCtx ctx, ExprRef expr, ref TryLetExpr a
 			PositionKind(ExpressionPosition(ctx.container, expr, ExpressionPositionKind(ExprKeyword.try_)))),
 		() => positionInDestructure(ctx, a.destructure, ast.destructure, pos),
 		() => optIf(hasPos(combineRanges(ast.catchKeywordRange, ast.catchMember.nameRange), pos), () =>
-			PositionKind(PositionKind.MatchVariantCase(ctx.container, a.catch_.member))),
+			PositionKind(PositionKind.MatchSumTypeCase(ctx.container, a.catch_.member))),
 		() => positionInMatchCaseDestructure(ctx, a.catch_.destructure, ast.catchMember, pos));
 
 Opt!PositionKind positionInType(TypeContainer container, Type type, in TypeAst ast, Pos pos) =>

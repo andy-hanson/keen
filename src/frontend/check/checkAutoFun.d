@@ -32,8 +32,8 @@ import model.model :
 	StructDecl,
 	StructInst,
 	Type,
-	VariantKind,
-	VariantMemberAndMethodImpls;
+	SumTypeKind,
+	SumTypeMemberAndMethodImpls;
 import util.col.array : allSame, every, isEmpty, map, only;
 import util.opt : force, has, none, Opt, optOrDefault, some;
 import util.symbol : symbol;
@@ -189,8 +189,8 @@ FunBody checkAutoFunWithSpec(
 			(StructBody.Record x) =>
 				map(ctx.alloc, x.fields, (ref RecordField field) =>
 					checkSpecSigForContainedType(field.type)),
-			(StructBody.Variant v) =>
-				map(ctx.alloc, v.listedMembers, (ref VariantMemberAndMethodImpls m) =>
+			(StructBody.SumType v) =>
+				map(ctx.alloc, v.listedMembers, (ref SumTypeMemberAndMethodImpls m) =>
 					checkSpecSigForContainedType(Type(m.member))));
 		return FunBody(AutoFun(funKind, members));
 	}
@@ -233,7 +233,7 @@ bool isRecordOrUnion(in Type a) =>
 bool isRecordOrUnion(in StructBody a) =>
 	a.isA!(StructBody.Record) || isUnion(a);
 bool isUnion(in StructBody a) =>
-	a.isA!(StructBody.Variant) && a.as!(StructBody.Variant).kind == VariantKind.union_;
+	a.isA!(StructBody.SumType) && a.as!(StructBody.SumType).kind == SumTypeKind.union_;
 
 bool isFullyVisible(in CheckCtx ctx, in Type a) {
 	if (!a.isA!(StructInst*))
@@ -253,8 +253,8 @@ bool isFullyVisible(in CheckCtx ctx, in Type a) {
 		(in StructBody.Record record) =>
 			every!RecordField(record.fields, (in RecordField x) =>
 				x.visibility == decl.visibility),
-		(in StructBody.Variant x) =>
-			x.kind == VariantKind.union_);
+		(in StructBody.SumType x) =>
+			x.kind == SumTypeKind.union_);
 }
 
 bool isJson(in CheckCtx ctx, in Type a) =>
