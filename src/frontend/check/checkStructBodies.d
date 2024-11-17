@@ -219,7 +219,7 @@ private SmallArray!SumTypeMemberAndMethodImpls checkVariantListedMembersInitial(
 			});
 	else {
 		if (!isEmpty(ast.types))
-			addDiag(ctx, combineRanges(ast.types[0].range, ast.types[$ - 1].range), Diag(Diag.VariantListedMembersNonUnion()));
+			addDiag(ctx, combineRanges(ast.types[0].range, ast.types[$ - 1].range), Diag(Diag.SumTypeListedMembersNonUnion()));
 		return emptySmallArray!SumTypeMemberAndMethodImpls;
 	}
 }
@@ -237,12 +237,11 @@ private SmallArray!SumTypeMembership checkSumTypeMembershipsInitial(
 				ctx, commonTypes, structsAndAliasesMap, struct_, mod);
 			if (has(res)) {
 				if (struct_.isTemplate) {
-					addDiag(ctx, mod.range, Diag(Diag.VariantMemberIsTemplate(struct_)));
+					addDiag(ctx, mod.range, Diag(Diag.CaseInvalidMemberType(Diag.CaseInvalidMemberType.Reason.isTemplate, struct_)));
 					return none!SumTypeMembership;
 				}
-				if (exists!SumTypeMembership(soFar, (in SumTypeMembership x) =>
-					x.sumType.decl == force(res).sumType.decl)) {
-					addDiag(ctx, mod.range, Diag(Diag.VariantMemberMultiple(struct_, force(res).sumType.decl)));
+				if (exists!SumTypeMembership(soFar, (in SumTypeMembership x) => x.sumType.decl == force(res).sumType.decl)) {
+					addDiag(ctx, mod.range, Diag(Diag.CaseDuplicate(struct_, force(res).sumType.decl)));
 					return none!SumTypeMembership;
 				}
 			}
@@ -258,19 +257,19 @@ private Opt!SumTypeMembership getVariantMemberTypeFromModifier(
 ) {
 	if (mod.isA!(ModifierAst.Keyword)) {
 		ModifierAst.Keyword* kw = &mod.as!(ModifierAst.Keyword)();
-		if (kw.keyword == ModifierKeyword.variantMember) {
+		if (kw.keyword == ModifierKeyword.case_) {
 			if (has(kw.typeArg)) {
 				Type type = typeFromAst(
 					ctx, commonTypes, structsAndAliasesMap, force(kw.typeArg), struct_.typeParams, AliasAllowed.yes);
-				if (type.isA!(StructInst*) && type.as!(StructInst*).decl.body_.isA!(StructBody.SumType))
+				if (type.isA!(StructInst*) && isInterfaceOrVariant(type))
 					return some(SumTypeMembership(kw, type.as!(StructInst*)));
 				else {
 					if (!type.isBogus)
-						addDiag(ctx, kw.range, Diag(Diag.VariantMemberOfNonVariant(struct_, type)));
+						addDiag(ctx, kw.range, Diag(Diag.CaseInvalidSumType(struct_, type)));
 					return none!SumTypeMembership;
 				}
 			} else {
-				addDiag(ctx, kw.range, Diag(Diag.VariantMemberMissingVariant()));
+				addDiag(ctx, kw.range, Diag(Diag.CaseMissingType()));
 				return none!SumTypeMembership;
 			}
 		} else
@@ -279,7 +278,20 @@ private Opt!SumTypeMembership getVariantMemberTypeFromModifier(
 		return none!SumTypeMembership;
 }
 
-void checkVariantMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap funsMap, StructDecl[] structs) {
+private bool isInterfaceOrVariant(in Type a) =>
+	a.isA!(StructInst*) && isInterfaceOrVariant(a.as!(StructInst*).decl.body_);
+private bool isInterfaceOrVariant(in StructBody a) =>
+	a.isA!(StructBody.SumType) && () {
+		final switch (a.as!(StructBody.SumType).kind) {
+			case SumTypeKind.interface_:
+			case SumTypeKind.variant:
+				return true;
+			case SumTypeKind.union_:
+				return false;
+		}
+	}();
+
+void checkMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap funsMap, StructDecl[] structs) {
 	foreach (ref StructDecl struct_; structs) {
 		if (struct_.body_.isA!(StructBody.SumType)) {
 			SumTypeMemberAndMethodImpls[] members = struct_.body_.as!(StructBody.SumType).listedMembers;
@@ -342,7 +354,7 @@ SmallArray!(Opt!Called) checkMethodImplsForVariant(
 				if (has(called) &&
 					force(called).isA!(FunInst*) &&
 					force(called).as!(FunInst*).decl.visibility < member.visibility)
-					addDiag(ctx, diagRange, Diag(Diag.VariantMethodImplVisibility(member, variant, force(called).as!(FunInst*))));
+					addDiag(ctx, diagRange, Diag(Diag.MethodImplVisibility(member, variant, force(called).as!(FunInst*))));
 				return called;
 			}));
 }
@@ -462,7 +474,7 @@ StructModifierAsts accumulateStructModifiers(ref CheckCtx ctx, ModifierAst[] mod
 	foreach (ref ModifierAst modifier; modifiers) {
 		if (isCommonModifier(modifier)) {
 			ModifierAst.Keyword* kw = &modifier.as!(ModifierAst.Keyword)();
-			if (kw.keyword != ModifierKeyword.variantMember)
+			if (kw.keyword != ModifierKeyword.case_)
 				accumulateModifier(
 					ctx,
 					kw.keyword == ModifierKeyword.extern_
@@ -545,11 +557,16 @@ void checkOnlyCommonModifiers(ref CheckCtx ctx, DeclKind declKind, in ModifierAs
 
 bool isCommonModifier(in ModifierAst a) =>
 	a.matchIn!bool(
-		(in ModifierAst.Keyword x) =>
-			x.keyword == ModifierKeyword.extern_ ||
-			x.keyword == ModifierKeyword.summon ||
-			x.keyword == ModifierKeyword.variantMember ||
-			has(purityAndForcedFromModifier(x.keyword)),
+		(in ModifierAst.Keyword x) {
+			switch (x.keyword) {
+				case ModifierKeyword.case_:
+				case ModifierKeyword.extern_:
+				case ModifierKeyword.summon:
+					return true;
+				default:
+					return has(purityAndForcedFromModifier(x.keyword));
+			}
+		},
 		(in SpecUseAst _) =>
 			false);
 

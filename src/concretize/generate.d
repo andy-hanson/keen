@@ -230,7 +230,7 @@ ConcreteFunBody generateCallLambda(
 			genCall(ctx.alloc, range, impls[i].impl, [closure, arg])));
 }
 
-ConcreteFunBody generateCallVariantMethod(
+ConcreteFunBody generateCallMethod(
 	ref ConcretizeCtx ctx,
 	ConcreteFun* fun,
 	ConcreteStruct* variant,

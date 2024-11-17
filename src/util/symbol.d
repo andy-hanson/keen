@@ -576,7 +576,6 @@ immutable string[] specialSymbols = [
 	"unsafe-bit-shift-left",
 	"unsafe-bit-shift-right",
 	"variant",
-	"variant-member",
 
 	// from perf
 	"buildToLowProgram",
@@ -597,9 +596,6 @@ immutable string[] specialSymbols = [
 
 	// from compile
 	"vc140.pdb",
-
-	// From JSON output
-	"variant-members",
 
 	// from LSP
 	"activeParameter",

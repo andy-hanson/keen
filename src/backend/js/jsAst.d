@@ -57,7 +57,7 @@ Comparison compareJsName(JsName a, JsName b) =>
 
 immutable struct JsMemberName {
 	@safe @nogc pure nothrow:
-	enum Kind { none, enumMember, recordField, special, unionConstructor, unionMember, variantMethod }
+	enum Kind { none, enumMember, recordField, special, sumTypeMethod, unionConstructor, unionMember }
 	Kind kind;
 	Symbol crowName;
 
@@ -69,12 +69,12 @@ immutable struct JsMemberName {
 		JsMemberName(Kind.recordField, name);
 	static JsMemberName special(Symbol name) =>
 		JsMemberName(Kind.special, name);
+	static JsMemberName sumTypeMethod(Symbol name) =>
+		JsMemberName(Kind.sumTypeMethod, name);
 	static JsMemberName unionConstructor(Symbol name) =>
 		JsMemberName(Kind.unionConstructor, name);
 	static JsMemberName unionMember(Symbol name) =>
 		JsMemberName(Kind.unionMember, name);
-	static JsMemberName variantMethod(Symbol name) =>
-		JsMemberName(Kind.variantMethod, name);
 }
 
 immutable struct JsImport {

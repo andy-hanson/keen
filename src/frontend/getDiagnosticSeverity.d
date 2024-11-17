@@ -29,6 +29,14 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.warning,
 		(in Diag.CantCall) =>
 			DiagnosticSeverity.checkError,
+		(in Diag.CaseDuplicate) =>
+			DiagnosticSeverity.checkError,
+		(in Diag.CaseInvalidMemberType) =>
+			DiagnosticSeverity.checkError,
+		(in Diag.CaseInvalidSumType) =>
+			DiagnosticSeverity.checkError,
+		(in Diag.CaseMissingType) =>
+			DiagnosticSeverity.checkError,
 		(in Diag.CharLiteralMustBeOneChar) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.CommonFunDuplicate) =>
@@ -151,6 +159,8 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.MatchUnnecessaryElse) =>
 			DiagnosticSeverity.unusedCode,
+		(in Diag.MethodImplVisibility) =>
+			DiagnosticSeverity.warning,
 		(in Diag.ModifierConflict) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.ModifierDuplicate) =>
@@ -213,6 +223,8 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.StructParamsSyntaxError) =>
 			DiagnosticSeverity.parseError,
+		(in Diag.SumTypeListedMembersNonUnion) =>
+			DiagnosticSeverity.checkError,
 		(in Diag.TestMissingBody) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.TrustedUnnecessary) =>
@@ -237,18 +249,6 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.unusedCode,
 		(in Diag.VarargsParamMustBeArray) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.VariantListedMembersNonUnion) =>
-			DiagnosticSeverity.checkError,
-		(in Diag.VariantMemberIsTemplate) =>
-			DiagnosticSeverity.checkError,
-		(in Diag.VariantMemberMissingVariant) =>
-			DiagnosticSeverity.checkError,
-		(in Diag.VariantMemberMultiple) =>
-			DiagnosticSeverity.checkError,
-		(in Diag.VariantMemberOfNonVariant) =>
-			DiagnosticSeverity.checkError,
-		(in Diag.VariantMethodImplVisibility) =>
-			DiagnosticSeverity.warning,
 		(in Diag.VisibilityWarning) =>
 			DiagnosticSeverity.unusedCode,
 		(in Diag.WithHasElse) =>

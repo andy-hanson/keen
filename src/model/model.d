@@ -836,7 +836,7 @@ immutable struct SumTypeMemberAndMethodImpls {
 		lateSet(methodImpls_, value);
 }
 
-// This is stored on a type with a 'variant-member' modifier. (TODO: CHANGE THAT MODIFIER _----------------------------------------)
+// This is stored on a type with a 'case' modifier.
 immutable struct SumTypeMembership {
 	@safe @nogc pure nothrow:
 

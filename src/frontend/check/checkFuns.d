@@ -6,7 +6,7 @@ import frontend.check.checkAutoFun : checkAutoFun;
 import frontend.check.checkCtx :
 	addDiag, addDiagAssertSameUri, CheckCtx, checkNoTypeParams, visibilityFromExplicitTopLevel;
 import frontend.check.checkExpr : checkExternNameOrBogus, checkFunctionBody, checkTestBody;
-import frontend.check.checkStructBodies : checkVariantMethodImpls, modifierTypeArgInvalid;
+import frontend.check.checkStructBodies : checkMethodImpls, modifierTypeArgInvalid;
 import frontend.check.getBuiltinFun : getBuiltinFun;
 import frontend.check.maps :
 	funDeclsName, FunsAndMap, FunsMap, ImportOrExportFile, SpecsMap, StructsAndAliasesMap;
@@ -93,7 +93,7 @@ FunsAndMap checkFuns(
 	FunDecl[] funs = checkFunsInitial(
 		ctx, commonTypes, specsMap, structs, structsAndAliasesMap, vars, fileImports, fileExports, asts);
 	FunsMap funsMap = buildFunsMap(ctx.alloc, funs);
-	checkVariantMethodImpls(ctx, commonTypes, funsMap, structs);
+	checkMethodImpls(ctx, commonTypes, funsMap, structs);
 	checkFunsWithAsts(ctx, commonTypes, structsAndAliasesMap, specsMap, funsMap, funs[0 .. asts.length], asts);
 	foreach (size_t i, ref ImportOrExportFile f; fileImports)
 		setFileImportFunctionBody(ctx, &funs[asts.length + i], f);

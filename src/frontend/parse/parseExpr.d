@@ -160,6 +160,7 @@ bool isExpressionStartToken(in TokenAndData a) {
 		case Token.bracketRight:
 		case Token.byRef:
 		case Token.byVal:
+		case Token.case_:
 		case Token.catch_:
 		case Token.colon:
 		case Token.colon2:
@@ -210,7 +211,6 @@ bool isExpressionStartToken(in TokenAndData a) {
 		case Token.union_:
 		case Token.unsafe:
 		case Token.variant:
-		case Token.variantMember:
 			return false;
 		case Token.assert_:
 		case Token.bang:

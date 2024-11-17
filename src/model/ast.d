@@ -1018,6 +1018,7 @@ enum ModifierKeyword : ubyte {
 	builtin,
 	byRef,
 	byVal,
+	case_,
 	data,
 	// It's a compile error to have extern without a library name,
 	// so those will usually be a Extern instead
@@ -1036,7 +1037,6 @@ enum ModifierKeyword : ubyte {
 	summon,
 	trusted,
 	unsafe,
-	variantMember,
 }
 
 immutable struct StructBodyAst {
@@ -1193,6 +1193,8 @@ string stringOfModifierKeyword(ModifierKeyword a) {
 			return "by-ref";
 		case ModifierKeyword.byVal:
 			return "by-val";
+		case ModifierKeyword.case_:
+			return "case";
 		case ModifierKeyword.data:
 			return "data";
 		case ModifierKeyword.extern_:
@@ -1225,8 +1227,6 @@ string stringOfModifierKeyword(ModifierKeyword a) {
 			return "trusted";
 		case ModifierKeyword.unsafe:
 			return "unsafe";
-		case ModifierKeyword.variantMember:
-			return "variant-member";
 	}
 }
 

@@ -594,6 +594,29 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			if (x.reason == Diag.CantCall.Reason.unsafe)
 				writer ~= "\n(Consider putting the call in a 'trusted' expression.)";
 		},
+		(in Diag.CaseDuplicate x) {
+			writer ~= "Type ";
+			writeName(writer, ctx, x.member.name);
+			writer ~= " can't be declared a case of ";
+			writeName(writer, ctx, x.sumType.name);
+			writer ~= " multiple times.";
+		},
+		(in Diag.CaseInvalidMemberType x) {
+			writeName(writer, ctx, x.member.name);
+			writer ~= " can't be a 'case' because ";
+			final switch (x.reason) {
+				case Diag.CaseInvalidMemberType.Reason.isTemplate:
+					writer ~= "it is a template.";
+			}
+		},
+		(in Diag.CaseInvalidSumType x) {
+			writer ~= "'case' requires an 'interface' or 'variant' type, not ";
+			writeTypeUnquoted(writer, ctx, TypeWithContainer(x.actual, TypeContainer(x.member)));
+			writer ~= '.';
+		},
+		(in Diag.CaseMissingType x) {
+			writer ~= "'case' needs a type argument. It should be an 'interface' or 'variant' type.";
+		},
 		(in Diag.CharLiteralMustBeOneChar) {
 			writer ~= "Value of 'char' type must be a single character";
 		},
@@ -1046,6 +1069,15 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in Diag.MatchUnnecessaryElse x) {
 			writer ~= "'match' handles every case, so the 'else' is unused.";
 		},
+		(in Diag.MethodImplVisibility x) {
+			writer ~= "A method of  ";
+			writeTypeQuoted(writer, ctx, TypeWithContainer(Type(x.sumType), TypeContainer(x.member)));
+			writer ~= " is implemented by ";
+			writeFunInst(writer, ctx, WriteKind.quoted, TypeContainer(x.member), *x.methodImpl);
+			writer ~= ", but it is less visible than ";
+			writeName(writer, ctx, x.member.name);
+			writer ~= '.';
+		},
 		(in Diag.ModifierConflict x) {
 			writeModifier(writer, ctx, x.curModifier);
 			writer ~= " conflicts with ";
@@ -1280,6 +1312,9 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					break;
 			}
 		},
+		(in Diag.SumTypeListedMembersNonUnion) {
+			writer ~= "Only 'union' types support listing member types.";
+		},
 		(in Diag.TestMissingBody) {
 			writer ~= "This test needs a body.";
 		},
@@ -1373,36 +1408,6 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in Diag.VarargsParamMustBeArray) {
 			writer ~= "Variadic parameter must be an ";
 			writeName(writer, ctx, symbol!"array");
-			writer ~= '.';
-		},
-		(in Diag.VariantListedMembersNonUnion) {
-			writer ~= "Only 'union' types support listing member types.";
-		},
-		(in Diag.VariantMemberIsTemplate x) {
-			writeName(writer, ctx, x.member.name);
-			writer ~= " can't be a 'variant-member' because it is a template.";
-		},
-		(in Diag.VariantMemberMissingVariant x) {
-			writer ~= "'variant-member' needs a variant.";
-		},
-		(in Diag.VariantMemberMultiple x) {
-			writer ~= "Type ";
-			writeName(writer, ctx, x.member.name);
-			writer ~= " can't declare itself a member of the same variant ";
-			writeName(writer, ctx, x.variant.name);
-			writer ~= " multiple times.";
-		},
-		(in Diag.VariantMemberOfNonVariant x) {
-			writer ~= "Not a variant: ";
-			writeTypeUnquoted(writer, ctx, TypeWithContainer(x.actual, TypeContainer(x.member)));
-		},
-		(in Diag.VariantMethodImplVisibility x) {
-			writer ~= "A method of variant ";
-			writeTypeQuoted(writer, ctx, TypeWithContainer(Type(x.variant), TypeContainer(x.member)));
-			writer ~= " is implemented by ";
-			writeFunInst(writer, ctx, WriteKind.quoted, TypeContainer(x.member), *x.methodImpl);
-			writer ~= ", but it is less visible than ";
-			writeName(writer, ctx, x.member.name);
 			writer ~= '.';
 		},
 		(in Diag.VisibilityWarning x) {
@@ -1643,6 +1648,8 @@ string describeTokenForUnexpected(Token token) {
 			return "Unexpected keyword 'by-ref'.";
 		case Token.byVal:
 			return "Unexpected keyword 'by-val'.";
+		case Token.case_:
+			return "Unexpected keyword 'case'.";
 		case Token.catch_:
 			return "Unexpected keyword 'catch'.";
 		case Token.colon:
@@ -1796,8 +1803,6 @@ string describeTokenForUnexpected(Token token) {
 			return "Unexpected keyword 'until'.";
 		case Token.variant:
 			return "Unexpected keyword 'variant'.";
-		case Token.variantMember:
-			return "Unexpected keyword 'variant-member'.";
 		case Token.while_:
 			return "Unexpected keyword 'while'.";
 		case Token.with_:

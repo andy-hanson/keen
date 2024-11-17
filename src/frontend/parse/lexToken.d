@@ -133,6 +133,7 @@ enum Token {
 	bracketRight, // ']'
 	byRef,
 	byVal,
+	case_, // 'case'
 	catch_, // 'catch'
 	colon, // ':'
 	colon2, // '::'
@@ -216,7 +217,6 @@ enum Token {
 	unsafe, // 'unsafe'
 	until, // 'until'
 	variant, // 'variant'
-	variantMember, // 'variant-member'
 	while_, // 'while'
 	with_, // 'with'
 }
@@ -538,6 +538,8 @@ Token tokenForSymbol(Symbol a) {
 			return Token.byRef;
 		case symbol!"by-val".value:
 			return Token.byVal;
+		case symbol!"case".value:
+			return Token.case_;
 		case symbol!"catch".value:
 			return Token.catch_;
 		case symbol!"class".value:
@@ -628,8 +630,6 @@ Token tokenForSymbol(Symbol a) {
 			return Token.until;
 		case symbol!"variant".value:
 			return Token.variant;
-		case symbol!"variant-member".value:
-			return Token.variantMember;
 		case symbol!"while".value:
 			return Token.while_;
 		case symbol!"with".value:

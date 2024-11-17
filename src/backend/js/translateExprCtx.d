@@ -458,7 +458,7 @@ ExprResult translateInlineCall(
 				source,
 				isAsyncFun(ctx.ctx.allUsed, called),
 				allocate(ctx.alloc, genPropertyAccess(
-					ctx.alloc, source, getArg(0), JsMemberName.variantMethod(x.method.name))),
+					ctx.alloc, source, getArg(0), JsMemberName.sumTypeMethod(x.method.name))),
 				args(skip: 1))),
 		(in FunBody.RecordFieldCall x) {
 			assert(nArgs >= 1);

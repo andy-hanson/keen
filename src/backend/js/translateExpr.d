@@ -94,10 +94,10 @@ import backend.js.translateModuleCtx :
 	funSource,
 	localName,
 	makeDecl,
+	methodSource,
 	sourceAtRange,
 	testSource,
-	TranslateModuleCtx,
-	variantMethodSource;
+	TranslateModuleCtx;
 import model.model :
 	AnyDecl,
 	AssertOrForbidExpr,
@@ -305,10 +305,10 @@ JsDecl translateFunDecl(ref TranslateModuleCtx ctx, FunDecl* a) {
 	return makeDecl(ctx, AnyDecl(a), JsDeclKind(fun));
 }
 
-JsClassMember variantMethodImpl(ref TranslateModuleCtx ctx, Signature* variantMethod, in Opt!Called optImpl) { // rename -------------
-	Source source = variantMethodSource(ctx, *variantMethod);
-	Symbol name = variantMethod.name;
-	FunDecl* caller = methodCaller(ctx.program, variantMethod);
+JsClassMember methodImpl(ref TranslateModuleCtx ctx, Signature* method, in Opt!Called optImpl) {
+	Source source = methodSource(ctx, *method);
+	Symbol name = method.name;
+	FunDecl* caller = methodCaller(ctx.program, method);
 	SyncOrAsync async = has(optImpl) ? isAsyncCall(ctx.allUsed, caller, force(optImpl)) : SyncOrAsync.sync;
 	if (has(optImpl) && isInlined(force(optImpl))) {
 		Called impl = force(optImpl);
@@ -317,7 +317,7 @@ JsClassMember variantMethodImpl(ref TranslateModuleCtx ctx, Signature* variantMe
 		return genInstanceMethod(
 			source,
 			async,
-			JsMemberName.variantMethod(name),
+			JsMemberName.sumTypeMethod(name),
 			translateFunParams(exprCtx, *decl, omitFirst: true),
 			translateToBlockStatement(ctx.alloc, (scope ExprPos pos) =>
 				translateInlineCall(
@@ -331,7 +331,7 @@ JsClassMember variantMethodImpl(ref TranslateModuleCtx ctx, Signature* variantMe
 		return genInstanceMethod(
 			source,
 			async,
-			JsMemberName.variantMethod(name),
+			JsMemberName.sumTypeMethod(name),
 			JsParams(emptySmallArray!JsDestructure, some(JsDestructure(args))),
 			genBlockStatement(ctx.alloc, [
 				has(optImpl)

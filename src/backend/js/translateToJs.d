@@ -63,7 +63,7 @@ import backend.js.jsAst :
 	Shebang,
 	SyncOrAsync;
 import backend.js.sourceMap : JsAndMap, ModulePaths, Source;
-import backend.js.translateExpr : genAssertType, translateFunDecl, translateTest, variantMethodImpl;
+import backend.js.translateExpr : genAssertType, methodImpl, translateFunDecl, translateTest;
 import backend.js.translateModuleCtx :
 	aliasSource,
 	funSource,
@@ -609,7 +609,7 @@ JsDecl translateStructDecl(ref TranslateModuleCtx ctx, StructDecl* a) {
 
 		foreach (ref SumTypeMembership v; a.sumTypeMemberships)
 			zipPointers(v.sumTypeDeclMethods, v.methodImpls, (Signature* sig, Opt!Called* impl) {
-				out_ ~= variantMethodImpl(ctx, sig, *impl);
+				out_ ~= methodImpl(ctx, sig, *impl);
 			});
 	});
 	return makeDecl(ctx, AnyDecl(a), JsDeclKind(JsClassDecl(optFromMut!(JsExpr*)(extends), members)));
@@ -631,7 +631,7 @@ void translateExceptionClass(ref TranslateModuleCtx ctx, in Source source, scope
 	}
 	*/
 	JsExpr this_ = genThis(source);
-	JsExpr callDescribe = genCallPropertySync(ctx.alloc, source, this_, JsMemberName.variantMethod(symbol!"show"), []);
+	JsExpr callDescribe = genCallPropertySync(ctx.alloc, source, this_, JsMemberName.sumTypeMethod(symbol!"show"), []);
 	JsExpr this_message = genPropertyAccess(ctx.alloc, source, this_, messageName);
 	JsExpr this_stack = genPropertyAccess(ctx.alloc, source, this_, JsMemberName.noPrefix(symbol!"stack"));
 	out_ ~= genInstanceMethod(

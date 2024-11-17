@@ -135,7 +135,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 					case PositionKind.Keyword.Kind.variant:
 						// Improve description ... and have this depend on whether the keyword is actually variant / union / interface -----
 						return "Declares a union-like type with an unlimited set of members, " ~
-							"created by 'variant-member' declarations.";
+							"created by 'case' declarations.";
 					case PositionKind.Keyword.Kind.variantMember:
 						return "Adds a member to an interface or variant type.";
 				}
@@ -193,6 +193,9 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 					case ModifierKeyword.byVal:
 						return "This type is stored by-value.\n" ~
 							"This avoids allocation but each place this value is used has its own copy of the content.";
+					case ModifierKeyword.case_:
+						return "This type can be used as a member of the variant. " ~
+							"It must implement the variant's methods, if any.";
 					case ModifierKeyword.data:
 						return "The type is completely immutable.";
 					case ModifierKeyword.extern_:
@@ -226,9 +229,6 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 						return "This function is not unsafe, but can do unsafe things internally.";
 					case ModifierKeyword.unsafe:
 						return "This function can only be called by 'trusted' or 'unsafe' functions.";
-					case ModifierKeyword.variantMember:
-						return "This type can be used as a member of the variant. " ~
-							"It must implement the variant's methods, if any.";
 				}
 			}();
 		},

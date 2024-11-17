@@ -296,12 +296,12 @@ string memberNamePrefix(JsMemberName.Kind a) {
 			return "f_";
 		case JsMemberName.Kind.special:
 			return "s_";
+		case JsMemberName.Kind.sumTypeMethod:
+			return "v_"; // change? --------------------------------------------------------------------------------------------------
 		case JsMemberName.Kind.unionConstructor:
 			return "uc_";
 		case JsMemberName.Kind.unionMember:
 			return "um_";
-		case JsMemberName.Kind.variantMethod:
-			return "v_";
 	}
 }
 

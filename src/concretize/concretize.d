@@ -21,7 +21,7 @@ import concretize.concretizeCtx :
 	symbolArrayType,
 	voidType;
 import concretize.gatherInfo : getYieldingFuns;
-import concretize.generate : generateCallLambda, generateCallVariantMethod;
+import concretize.generate : generateCallLambda, generateCallMethod;
 import frontend.showModel : ShowCtx;
 import model.concreteModel :
 	ConcreteCommonFuns,
@@ -165,12 +165,12 @@ void finishVariants(ref ConcretizeCtx ctx) {
 			finishVariantMembers(ctx, variant, x);
 	}
 
-	foreach (ConcreteFun* fun; ctx.deferredVariantMethods) {
+	foreach (ConcreteFun* fun; ctx.deferredMethods) {
 		ConcreteStruct* variant = mustBeByVal(fun.params[0].type);
 		size_t methodIndex = mustHaveIndexOfPointer(
 			variant.source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.SumType).methods,
 			fun.source.as!ConcreteFunKey.decl.body_.as!(FunBody.Method).method);
 		MutArr!ConcreteVariantMemberAndMethodImpls impls = mustGet(ctx.variantStructToMembers, variant);
-		fun.overwriteBody(generateCallVariantMethod(ctx, fun, variant, asTemporaryArray(impls), methodIndex));
+		fun.overwriteBody(generateCallMethod(ctx, fun, variant, asTemporaryArray(impls), methodIndex));
 	}
 }

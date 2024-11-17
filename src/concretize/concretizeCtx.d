@@ -182,7 +182,7 @@ struct ConcretizeCtx {
 	MutHashTable!(immutable ConcreteVar*, immutable VarDecl*, getVarKey) concreteVarLookup;
 	MutHashTable!(ConcreteFun*, ConcreteFunKey, getFunKey) nonLambdaConcreteFuns;
 	MutArr!(ConcreteStruct*) deferredTypeSize;
-	MutArr!(ConcreteFun*) deferredVariantMethods;
+	MutArr!(ConcreteFun*) deferredMethods;
 	ArrayBuilder!(ConcreteFun*) allConcreteFuns;
 
 	// Index in the MutArr!ConcreteLambdaImpl is the fun ID
@@ -816,7 +816,7 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 		(FlagsFunction x) =>
 			ConcreteFunBody(concretizeFlagsFunction(ctx, cf, x)),
 		(FunBody.Method x) {
-			push(ctx.alloc, ctx.deferredVariantMethods, cf);
+			push(ctx.alloc, ctx.deferredMethods, cf);
 			return ConcreteFunBody(ConcreteFunBody.Deferred());
 		},
 		(FunBody.RecordFieldCall x) =>

@@ -178,7 +178,7 @@ create-crow-text node(props crow-text-props) trusted, js extern
 	a walk-to a.lines.last-position
 	a end-line
 	assert a.container-stack.size == 1
-	a.container-stack[0].all! move-to
+	a.container-stack[0].all-container!.nodes move-to
 
 -node-builder record mut
 	lines line[]
@@ -187,14 +187,14 @@ create-crow-text node(props crow-text-props) trusted, js extern
 	container-stack container mut-stack
 	diag-index mut nat
 -new node-builder(diagnostics diagnostic[], text string)
-	(for x : text split "\n"; x to), diagnostics, (0, 0), (().all,), 0
+	(for x : text split "\n"; x to), diagnostics, (0, 0), (().all-container,), 0
 
 -pop-container void(a node-builder) js extern
 	popped = a.container-stack.pop!
 	child node = match popped
-	as line x
-		"line" create-div x.move-to
-	as diag x
+	as line-container x
+		"line" create-div x.nodes.move-to
+	as diag-container x
 		x.message create-diag-span x.children.move-to
 	else
 		throw unreachable
@@ -204,7 +204,7 @@ create-crow-text node(props crow-text-props) trusted, js extern
 	last-container.children ~= child
 
 -start-line void(a node-builder)
-	a.container-stack ~= () line
+	a.container-stack ~= () line-container
 -end-line void(a node-builder) js extern
 	until a.container-stack.peek! is-line
 		a pop-container
@@ -215,7 +215,7 @@ create-crow-text node(props crow-text-props) trusted, js extern
 
 -finish-text void(a node-builder) js extern
 	last = a.container-stack.peek!
-	if text ?= last text
+	if text ?= last text-container
 		_ = a.container-stack.pop!
 		new-last = a.container-stack.peek!
 		# text can't contain other nodes
@@ -233,13 +233,13 @@ create-crow-text node(props crow-text-props) trusted, js extern
 			# Ignore nested diags
 			unless a.container-stack.peek!.is-diag
 				a finish-text
-				a.container-stack ~= ((), end, message) diag
+				a.container-stack ~= ((), end, message)::diag-container to
 			a.diag-index +:= 1
 			true
 
 -should-stop-diag bool(a node-builder)
 	last-container = a.container-stack.peek!
-	if x ?= last-container.diag
+	if x ?= last-container.diag-container
 		x.end <= a.pos
 
 -maybe-stop-diag void(a node-builder) js extern
@@ -284,11 +284,9 @@ create-crow-text node(props crow-text-props) trusted, js extern
 -create-diag-span node(message string, children node[]) js extern
 	"diagnostic" create-span (("data-tooltip", message),), children
 
--container union mut
-	all node mut[]
-	line node mut[]
-	diag diag-container
-	text text-container
+-container union(all-container, line-container, diag-container, text-container) mut
+-all-container record(nodes node mut[]) mut
+-line-container record(nodes node mut[]) mut
 -diag-container record mut
 	children node mut[]
 	end line-and-character
@@ -296,22 +294,23 @@ create-crow-text node(props crow-text-props) trusted, js extern
 -text-container record mut
 	text string
 
+# TODO: make this a language intrinsic somehow? ------------------------------------------------------------------------------
 -is-line bool(a container)
-	a.line !is-empty
+	a.line-container !is-empty
 -is-diag bool(a container)
-	a.diag !is-empty
+	a.diag-container !is-empty
 -is-text bool(a container)
-	a.text !is-empty
+	a.text-container !is-empty
 
 -children node mut[](a container)
 	match a
-	as all x
-		x
-	as line x
-		x
-	as diag x
-		x.children
-	as text _
+	as all-container x
+		x nodes
+	as line-container x
+		x nodes
+	as diag-container x
+		x children
+	as text-container _
 		throw unreachable
 
 line alias

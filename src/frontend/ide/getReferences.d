@@ -443,7 +443,7 @@ void eachTypeInStructModifiers(
 		modifiers,
 		variants,
 		(in ModifierAst mod) =>
-			mod.isA!(ModifierAst.Keyword) && mod.as!(ModifierAst.Keyword).keyword == ModifierKeyword.variantMember,
+			mod.isA!(ModifierAst.Keyword) && mod.as!(ModifierAst.Keyword).keyword == ModifierKeyword.case_,
 		(in ModifierAst mod, in SumTypeMembership x) {
 			cb(Type(x.sumType), force(mod.as!(ModifierAst.Keyword).typeArg));
 		});

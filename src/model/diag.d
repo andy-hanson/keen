@@ -206,6 +206,20 @@ immutable struct Diag {
 		Reason reason;
 		FunDecl* callee;
 	}
+	immutable struct CaseDuplicate {
+		StructDecl* member;
+		StructDecl* sumType;
+	}
+	immutable struct CaseInvalidMemberType {
+		enum Reason { isTemplate }
+		Reason reason;
+		StructDecl* member;
+	}
+	immutable struct CaseInvalidSumType {
+		StructDecl* member;
+		Type actual;
+	}
+	immutable struct CaseMissingType {}
 
 	immutable struct CharLiteralMustBeOneChar {}
 	immutable struct CommonFunDuplicate {
@@ -563,6 +577,7 @@ immutable struct Diag {
 		Reason reason;
 	}
 	immutable struct StorageMissingType {}
+	immutable struct SumTypeListedMembersNonUnion {}
 	immutable struct TestMissingBody {}
 	immutable struct TrustedUnnecessary {
 		enum Reason {
@@ -630,22 +645,12 @@ immutable struct Diag {
 		Kind kind;
 	}
 	immutable struct VarargsParamMustBeArray {}
-	immutable struct VariantListedMembersNonUnion {}
 	immutable struct VariantMemberIsTemplate {
 		StructDecl* member;
 	}
-	immutable struct VariantMemberMissingVariant {}
-	immutable struct VariantMemberMultiple {
+	immutable struct MethodImplVisibility {
 		StructDecl* member;
-		StructDecl* variant;
-	}
-	immutable struct VariantMemberOfNonVariant {
-		StructDecl* member;
-		Type actual;
-	}
-	immutable struct VariantMethodImplVisibility {
-		StructDecl* member;
-		StructInst* variant;
+		StructInst* sumType;
 		FunInst* methodImpl;
 	}
 	// We don't have any warning at the top-level even though '~' is redundant. This is only within a record.
@@ -679,6 +684,10 @@ immutable struct Diag {
 		CallNoMatch,
 		CallShouldUseSyntax,
 		CantCall,
+		CaseDuplicate,
+		CaseInvalidMemberType,
+		CaseInvalidSumType,
+		CaseMissingType,
 		CharLiteralMustBeOneChar,
 		CommonFunDuplicate,
 		CommonFunMissing,
@@ -740,6 +749,7 @@ immutable struct Diag {
 		MatchSumTypeNoMember,
 		MatchUnhandledCases,
 		MatchUnnecessaryElse,
+		MethodImplVisibility,
 		ModifierConflict,
 		ModifierDuplicate,
 		ModifierInvalid,
@@ -771,6 +781,7 @@ immutable struct Diag {
 		StringLiteralInvalid,
 		StorageMissingType,
 		StructParamsSyntaxError,
+		SumTypeListedMembersNonUnion,
 		TestMissingBody,
 		TrustedUnnecessary,
 		TupleTooBig,
@@ -783,12 +794,6 @@ immutable struct Diag {
 		UnsupportedSyntax,
 		Unused,
 		VarargsParamMustBeArray,
-		VariantListedMembersNonUnion,
-		VariantMemberIsTemplate,
-		VariantMemberMissingVariant,
-		VariantMemberMultiple,
-		VariantMemberOfNonVariant,
-		VariantMethodImplVisibility,
 		VisibilityWarning,
 		WithHasElse,
 		WrongNumberTypeArgs);
