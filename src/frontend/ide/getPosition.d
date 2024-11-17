@@ -136,15 +136,7 @@ import model.model :
 	VarDecl,
 	VariantMemberAndMethodImpls;
 import model.model : paramsArray, StructDeclSource;
-import util.col.array :
-	findIndex,
-	first,
-	firstPointer,
-	firstZip,
-	firstZipIfSizeEq,
-	firstZipPointerFirst,
-	isEmpty,
-	SmallArray;
+import util.col.array : findIndex, first, firstPointer, firstZip, firstZipIfSizeEq, firstZipPointerFirst, isEmpty;
 import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
 import util.conv : safeToUint;
 import util.opt : force, has, none, Opt, optIf, optOr, optOr, optOrDefault, some;
@@ -457,17 +449,7 @@ Opt!PositionKind positionInStructBody(
 				ast.as!(StructBodyAst.Flags).params, ast.as!(StructBodyAst.Flags).members,
 				pos),
 		(StructBody.Record x) =>
-			positionInRecordOrUnionBody!RecordField(
-				ctx, decl, x.fields,
-				ast.as!(StructBodyAst.Record).params,
-				ast.as!(StructBodyAst.Record).fields,
-				pos,
-				cbMemberPosition: (RecordField* field) =>
-					PositionKind(field),
-				cbVisibilityContainer: (RecordField* field) =>
-					some(VisibilityContainer(field)),
-				cbMutabilityPosition: (RecordField* field) =>
-					some(PositionKind(PositionKind.RecordFieldMutability(field.mutability)))),
+			positionInRecord(ctx, decl, x.fields, ast.as!(StructBodyAst.Record), pos),
 		(StructBody.Variant x) =>
 			positionInVariant(decl, x, ast.as!(StructBodyAst.Variant), pos));
 
@@ -478,70 +460,49 @@ Opt!PositionKind positionInVariant(StructDecl* decl, StructBody.Variant a, in St
 				positionInType(TypeContainer(decl), Type(x.member), typeAst, pos)),
 		() => positionInSignatures(a.methods, ast.methods, pos));
 
-Opt!PositionKind positionInRecordOrUnionBody(Member)( // this is now record only -----------------------------------------
+Opt!PositionKind positionInRecord(
 	in Ctx ctx,
 	StructDecl* decl,
-	in Member[] members,
-	Opt!ParamsAst paramsAst,
-	SmallArray!RecordFieldAst memberAsts,
+	in RecordField[] members,
+	ref StructBodyAst.Record ast,
 	Pos pos,
-	in PositionKind delegate(Member*) @safe @nogc pure nothrow cbMemberPosition,
-	in Opt!VisibilityContainer delegate(Member*) @safe @nogc pure nothrow cbVisibilityContainer,
-	in Opt!PositionKind delegate(Member*) @safe @nogc pure nothrow cbMutabilityPosition,
 ) =>
 	isEmpty(members)
 		? none!PositionKind
-		: has(paramsAst)
-		? firstZipPointerFirst!(PositionKind, Member, DestructureAst)(
-			members, force(paramsAst).as!(DestructureAst[]), (Member* member, DestructureAst param) =>
-				positionInRecordOrUnionMemberParameter!Member(
-					decl, member, param.as!(DestructureAst.Single), pos, cbMemberPosition, cbMutabilityPosition))
-		: firstZipPointerFirst!(PositionKind, Member, RecordFieldAst)(
-			members, memberAsts, (Member* member, RecordFieldAst memberAst) =>
-				positionInRecordOrUnionMember!Member(
-					decl, member, memberAst, pos, cbMemberPosition, cbVisibilityContainer, cbMutabilityPosition));
+		: has(ast.params)
+		? firstZipPointerFirst!(PositionKind, RecordField, DestructureAst)(
+			members, force(ast.params).as!(DestructureAst[]), (RecordField* field, DestructureAst param) =>
+				positionInRecordFieldParameter(decl, field, param.as!(DestructureAst.Single), pos))
+		: firstZipPointerFirst!(PositionKind, RecordField, RecordFieldAst)(
+			members, ast.fields, (RecordField* field, RecordFieldAst fieldAst) =>
+				positionInRecordField(decl, field, fieldAst, pos));
 
-Opt!PositionKind positionInRecordOrUnionMemberParameter(Member)( // rename --------------------------------------------------------------
+Opt!PositionKind positionInRecordFieldParameter(
 	StructDecl* decl,
-	Member* member,
+	RecordField* field,
 	in DestructureAst.Single param,
 	Pos pos,
-	in PositionKind delegate(Member*) @safe @nogc pure nothrow cbMemberPosition,
-	in Opt!PositionKind delegate(Member*) @safe @nogc pure nothrow cbMutabilityPosition,
 ) =>
 	optOr!PositionKind(
-		optIf(hasPos(param.name.range, pos), () => cbMemberPosition(member)),
+		optIf(hasPos(param.name.range, pos), () => PositionKind(field)),
 		() {
 			Opt!Range mutRange = param.mutRange;
-			return has(mutRange) && hasPos(force(mutRange), pos) ? cbMutabilityPosition(member) : none!PositionKind;
+			return optIf(has(mutRange) && hasPos(force(mutRange), pos), () =>
+				PositionKind(PositionKind.RecordFieldMutability(field.mutability)));
 		},
 		() => has(param.type)
-			? positionInType(TypeContainer(decl), member.type, *force(param.type), pos)
+			? positionInType(TypeContainer(decl), field.type, *force(param.type), pos)
 			: none!PositionKind);
 
-Opt!PositionKind positionInRecordOrUnionMember(Member)( // rename --------------------------------------------------------------------
-	StructDecl* decl,
-	Member* member,
-	in RecordFieldAst memberAst,
-	Pos pos,
-	in PositionKind delegate(Member*) @safe @nogc pure nothrow cbMemberPosition,
-	in Opt!VisibilityContainer delegate(Member*) @safe @nogc pure nothrow cbVisibilityContainer,
-	in Opt!PositionKind delegate(Member*) @safe @nogc pure nothrow cbMutabilityPosition,
-) =>
+Opt!PositionKind positionInRecordField(StructDecl* decl, RecordField* field, in RecordFieldAst memberAst, Pos pos) =>
 	optOr!PositionKind(
-		positionInDocComment(DocCommentContainer(member), pos),
-		() {
-			Opt!VisibilityContainer container = cbVisibilityContainer(member);
-			return has(container)
-				? positionInVisibility(force(container), memberAst.visibility, pos)
-				: none!PositionKind;
-		},
-		() => optIf(hasPos(memberAst.name.range, pos), () => cbMemberPosition(member)),
-		() => has(memberAst.mutability) && hasPos(force(memberAst.mutability).range, pos)
-			? cbMutabilityPosition(member)
-			: none!PositionKind,
+		positionInDocComment(DocCommentContainer(field), pos),
+		() => positionInVisibility(VisibilityContainer(field), memberAst.visibility, pos),
+		() => optIf(hasPos(memberAst.name.range, pos), () => PositionKind(field)),
+		() => optIf(has(memberAst.mutability) && hasPos(force(memberAst.mutability).range, pos), () =>
+			PositionKind(PositionKind.RecordFieldMutability(field.mutability))),
 		() => has(memberAst.type)
-			? positionInType(TypeContainer(decl), member.type, force(memberAst.type), pos)
+			? positionInType(TypeContainer(decl), field.type, force(memberAst.type), pos)
 			: none!PositionKind);
 
 Opt!PositionKind positionInEnumOrFlagsBody(

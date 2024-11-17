@@ -5,29 +5,18 @@ module frontend.check.instantiate;
 import frontend.allInsts :
 	getAllFutureAndMutArrayImpls, getOrAddFunInst, getOrAddSpecInst, getOrAddStructInst, AllInsts;
 import model.model :
-	BuiltinType,
 	CommonTypes,
 	Destructure,
-	combineLinkageRange,
-	combinePurityRange,
 	FunDecl,
 	FunInst,
 	isOptionType,
-	Linkage,
-	LinkageRange,
-	linkageRange,
 	paramsArray,
-	Purity,
-	PurityRange,
-	purityRange,
-	RecordField,
 	ReturnAndParamTypes,
 	SpecDecl,
 	Signature,
 	SpecImpls,
 	SpecInst,
 	SpecInstBody,
-	StructBody,
 	StructDecl,
 	StructInst,
 	Type,
@@ -35,7 +24,7 @@ import model.model :
 	TypeParamIndex;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapToStackArray, withStackArray;
-import util.col.array : emptySmallArray, fold, map, small, SmallArray, sum;
+import util.col.array : map, small;
 import util.col.exactSizeArrayBuilder : buildSmallArrayExact, ExactSizeArrayBuilder;
 import util.col.hashTable : ValueAndDidAdd;
 import util.col.map : Map;

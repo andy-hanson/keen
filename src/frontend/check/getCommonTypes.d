@@ -29,7 +29,7 @@ import util.col.arrayBuilder : add, ArrayBuilder;
 import util.col.enumMap : EnumMap, makeEnumMap;
 import util.late : late;
 import util.memory : allocate;
-import util.opt : force, has, none, Opt, optIf, someMut, some;
+import util.opt : force, has, none, Opt, optIf;
 import util.sourceRange : Range;
 import util.symbol : Symbol, symbol, symbolOfEnum;
 import util.symbolSet : SymbolSet;

@@ -2018,31 +2018,6 @@ Expr checkMatchElseRequired(
 	}
 }
 
-Expr checkMatchElseNotRequired(
-	ref ExprCtx ctx,
-	ref LocalsInfo locals,
-	ExprAst* source,
-	ref MatchAst ast,
-	ref Expected expected,
-) =>
-	checkExprOrEmptyNew(
-		ctx, locals, source,
-		optIf(has(ast.else_), () => &force(ast.else_).expr),
-		ast.keywordRange(source),
-		expected);
-
-Expr checkExprOrEmptyNew(
-	ref ExprCtx ctx,
-	ref LocalsInfo locals,
-	ExprAst* parent,
-	Opt!(ExprAst*) ast,
-	Range emptyNewRange,
-	ref Expected expected,
-) =>
-	has(ast)
-		? checkExpr(ctx, locals, force(ast), expected)
-		: checkEmptyNew(ctx, locals, parent, emptyNewRange, expected);
-
 Out withExternFromCondition(Out)(
 	ref ExprCtx ctx,
 	in Condition condition,

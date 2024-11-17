@@ -595,29 +595,29 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 		(in MatchIntegralExpr _) {},
 		(in MatchStringLikeExpr _) {},
 		(in MatchVariantExpr x) {
-			eachTypeInMatchUnionOrVariant!MatchVariantCase(x.cases, astKind.as!MatchAst.cases, cb);
+			eachTypeInMatchVariant(x.cases, astKind.as!MatchAst.cases, cb);
 		},
 		(in RecordFieldPointerExpr _) {},
 		(in SeqExpr _) {},
 		(in ThrowExpr _) {},
 		(in TrustedExpr _) {},
 		(in TryExpr x) {
-			eachTypeInMatchUnionOrVariant!MatchVariantCase(x.catches, astKind.as!(TryAst).catches, cb);
+			eachTypeInMatchVariant(x.catches, astKind.as!(TryAst).catches, cb);
 		},
 		(in TryLetExpr x) {
-			eachTypeInMatchUnionOrVariantCase!MatchVariantCase(x.catch_, astKind.as!(TryLetAst*).catchMember, cb);
+			eachTypeInMatchVariantCase(x.catch_, astKind.as!(TryLetAst*).catchMember, cb);
 		},
 		(in TypedExpr x) =>
 			cb(a.type, astKind.as!(TypedAst*).type));
 }
 
-void eachTypeInMatchUnionOrVariant(Case)(in Case[] cases, in CaseAst[] caseAsts, in TypeCb cb) { // rename ----------------------------
-	zipIfSizeEq!(Case, CaseAst)(cases, caseAsts, (ref Case case_, ref CaseAst caseAst) {
-		eachTypeInMatchUnionOrVariantCase(case_, caseAst.member, cb);
+void eachTypeInMatchVariant(in MatchVariantCase[] cases, in CaseAst[] caseAsts, in TypeCb cb) {
+	zipIfSizeEq!(MatchVariantCase, CaseAst)(cases, caseAsts, (ref MatchVariantCase case_, ref CaseAst caseAst) {
+		eachTypeInMatchVariantCase(case_, caseAst.member, cb);
 	});
 }
 
-void eachTypeInMatchUnionOrVariantCase(Case)(in Case case_, in CaseMemberAst memberAst, in TypeCb cb) {  // rename ----------------------------
+void eachTypeInMatchVariantCase(in MatchVariantCase case_, in CaseMemberAst memberAst, in TypeCb cb) {
 	memberAst.matchIn!void(
 			(in CaseMemberAst.Name x) {
 				if (has(x.destructure)) {

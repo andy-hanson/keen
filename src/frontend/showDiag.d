@@ -652,7 +652,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 						return "Type";
 					case Diag.DuplicateDeclaration.Kind.typeParam:
 						return "Type parameter";
-					case Diag.DuplicateDeclaration.Kind.unionMember: // still used? ------------------------------------------------------
+					case Diag.DuplicateDeclaration.Kind.unionMember:
 						return "Union member";
 				}
 			}();

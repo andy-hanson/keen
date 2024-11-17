@@ -105,7 +105,6 @@ import util.col.array :
 	isEmpty,
 	map,
 	mapPointers,
-	mapZip,
 	maxBy,
 	newSmallArray,
 	only,

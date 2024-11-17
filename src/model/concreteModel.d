@@ -6,7 +6,6 @@ import model.constant : Constant;
 import model.model :
 	BuiltinFun,
 	BuiltinType,
-	CommonTypes,
 	EnumOrFlagsMember,
 	Expr,
 	FunDecl,
@@ -58,7 +57,7 @@ immutable struct ConcreteStructBody {
 		// This may be empty for a lambda type with no implementations.
 		Late!(SmallArray!ConcreteType) members_;
 
-		bool hasMembers() scope => // used? -----------------------------------------------------------------------------------
+		bool hasMembers() scope =>
 			lateIsSet(members_);
 		SmallArray!ConcreteType members() return scope =>
 			lateGet(members_);

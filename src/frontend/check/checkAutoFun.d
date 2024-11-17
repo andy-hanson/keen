@@ -5,7 +5,7 @@ module frontend.check.checkAutoFun;
 import frontend.check.checkCall.checkCallSpecs : checkSpecSingleSigIgnoreParents;
 import frontend.check.checkCtx : addDiag, CheckCtx, CommonModule;
 import frontend.check.maps : FunsMap, SpecsMap;
-import frontend.check.instantiate : instantiateSpec, instantiateStructInst, instantiateType;
+import frontend.check.instantiate : instantiateSpec, instantiateType;
 import frontend.check.typeFromAst : getSpecFromCommonModule;
 import model.diag : AutoFunName, Diag;
 import model.model :

@@ -21,7 +21,13 @@ import frontend.parse.parseExpr : parseFunExprBody, parseSingleStatementLine;
 import frontend.parse.parseImport : parseImportsOrExports;
 import frontend.parse.parseString : tryTakeDocComment;
 import frontend.parse.parseType :
-	parseModifiers, parseParams, parseType, parseTypeArgForVarDecl, tryParseParams, tryParseVariantTypes, tryTakeVisibility;
+	parseModifiers,
+	parseParams,
+	parseType,
+	parseTypeArgForVarDecl,
+	tryParseParams,
+	tryParseVariantTypes,
+	tryTakeVisibility;
 import frontend.parse.parseUtil :
 	addDiagExpected,
 	NewlineOrDedent,
@@ -284,8 +290,20 @@ void parseSpecOrStructOrFun(
 		case Token.variant:
 			mustTakeToken(lexer, token);
 			SmallArray!TypeAst types = tryParseVariantTypes(lexer);
+			VariantKind kind = () {
+				switch (token) {
+					case Token.interface_:
+						return VariantKind.interface_;
+					case Token.union_:
+						return VariantKind.union_;
+					case Token.variant:
+						return VariantKind.variant;
+					default:
+						assert(false);
+				}
+			}();
 			addStruct(() => StructBodyAst(StructBodyAst.Variant(
-				token == Token.variant ? VariantKind.variant : token == Token.union_ ? VariantKind.union_ : VariantKind.interface_, // TODO: just convert enum to enum
+				kind,
 				allocate(lexer.alloc, StructBodyAst.Variant.TypesAndMethods(types, parseIndentedSigs(lexer))))));
 			break;
 		default:

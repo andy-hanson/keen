@@ -29,7 +29,6 @@ import model.ast :
 	StructDeclAst,
 	TestAst,
 	TryAst,
-	TypeAst,
 	VarDeclAst;
 import model.constant : Constant;
 import model.diag : Diag, Diagnostic, isFatal, UriAndDiagnostic;
@@ -68,7 +67,7 @@ import util.symbol : enumOfSymbol, Symbol, symbol, symbolOfEnum;
 import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, SymbolSetBuilder;
 import util.union_ : IndexType, TaggedUnion, Union;
 import util.uri : RelPath, Uri;
-import util.util : enumConvertOrAssert, max, min, optEnumConvert, stringOfEnum, todo;
+import util.util : enumConvertOrAssert, max, min, optEnumConvert, stringOfEnum;
 import versionInfo : OS, VersionFun;
 
 alias Purity = immutable Purity_;
@@ -87,7 +86,7 @@ immutable struct PurityRange {
 	Purity worstCase;
 }
 
-PurityRange combinePurityRange(PurityRange a, PurityRange b) =>
+private PurityRange combinePurityRange(PurityRange a, PurityRange b) =>
 	immutable PurityRange(worsePurity(a.bestCase, b.bestCase), worsePurity(a.worstCase, b.worstCase));
 
 bool isPurityAlwaysCompatible(Purity referencer, PurityRange referenced) =>
@@ -720,12 +719,12 @@ immutable struct StructAlias {
 enum Linkage : ubyte { internal, extern_ }
 
 // Range of possible linkage
-immutable struct LinkageRange {
+private immutable struct LinkageRange {
 	Linkage leastStrict;
 	Linkage mostStrict;
 }
 
-LinkageRange combineLinkageRange(LinkageRange referencer, LinkageRange referenced) =>
+private LinkageRange combineLinkageRange(LinkageRange referencer, LinkageRange referenced) =>
 	LinkageRange(
 		lessStrictLinkage(referencer.leastStrict, referenced.leastStrict),
 		lessStrictLinkage(referencer.mostStrict, referenced.mostStrict));

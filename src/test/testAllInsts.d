@@ -15,11 +15,8 @@ import model.ast : NameAndRange;
 import model.model :
 	emptyTypeArgs,
 	FunInst,
-	Linkage,
-	LinkageRange,
 	Module,
 	Purity,
-	PurityRange,
 	SpecInst,
 	StructDecl,
 	StructDeclSource,

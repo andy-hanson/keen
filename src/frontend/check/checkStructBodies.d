@@ -94,7 +94,6 @@ import util.col.array :
 	sizeEq,
 	small,
 	SmallArray,
-	zip,
 	zipPtrFirst;
 import util.col.hashTable : HashTable, makeHashTable;
 import util.integralValues : IntegralValue;
@@ -103,7 +102,7 @@ import util.opt : force, has, MutOpt, none, noneMut, Opt, optFromMut, optIf, som
 import util.sourceRange : combineRanges, Range;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet, symbolSet;
-import util.util : enumConvertOrAssert, isMultipleOf, ptrTrustMe, todo;
+import util.util : enumConvertOrAssert, isMultipleOf;
 
 void modifierTypeArgInvalid(ref CheckCtx ctx, in ModifierAst.Keyword modifier) {
 	if (has(modifier.typeArg)) {
