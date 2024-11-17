@@ -59,7 +59,7 @@ immutable struct ConcreteStructBody {
 		Late!(SmallArray!ConcreteType) members_;
 
 		bool hasMembers() scope => // used? -----------------------------------------------------------------------------------
-			lateIsSet(members_); 
+			lateIsSet(members_);
 		SmallArray!ConcreteType members() return scope =>
 			lateGet(members_);
 		void members(SmallArray!ConcreteType value) {
@@ -293,16 +293,8 @@ immutable struct ConcreteLocal {
 
 immutable struct ConcreteFunBody {
 	immutable struct Builtin {
-		@safe @nogc pure nothrow:
-
 		BuiltinFun kind;
 		ConcreteType[] typeArgs;
-
-		this(BuiltinFun k, ConcreteType[] ta) {
-			kind = k;
-			typeArgs = ta;
-			assert(!kind.isA!(BuiltinFun.NewEmptyOption)); // TODO: be more restrictive about what's allowed here -----------------------
-		}
 	}
 	immutable struct Extern {
 		Symbol libraryName;

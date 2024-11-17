@@ -161,7 +161,7 @@ void finishLambdas(ref ConcretizeCtx ctx) {
 
 void finishVariants(ref ConcretizeCtx ctx) {
 	foreach (ConcreteStruct* variant, MutArr!ConcreteVariantMemberAndMethodImpls x; ctx.variantStructToMembers) {
-		if (!variant.body_.as!(ConcreteStructBody.Union).hasMembers) // It will already be set for a 'union' (TODO: should it even be in 'variantStructToMembers' then?)
+		if (!variant.body_.as!(ConcreteStructBody.Union).hasMembers) // It will already be set for a 'union'
 			finishVariantMembers(ctx, variant, x);
 	}
 

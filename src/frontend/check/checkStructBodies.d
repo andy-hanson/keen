@@ -76,6 +76,7 @@ import model.model :
 	TypeParams,
 	TypeSize,
 	VariantAndMethodImpls,
+	VariantKind,
 	VariantMemberAndMethodImpls,
 	Visibility;
 import util.alloc.stackAlloc : withStackArray;
@@ -99,7 +100,7 @@ import util.col.hashTable : HashTable, makeHashTable;
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, optFromMut, optIf, some, someMut;
-import util.sourceRange : Range;
+import util.sourceRange : combineRanges, Range;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet, symbolSet;
 import util.util : enumConvertOrAssert, isMultipleOf, ptrTrustMe, todo;
@@ -198,16 +199,31 @@ private SmallArray!VariantMemberAndMethodImpls checkVariantListedMembersInitial(
 	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* variant_,
 	ref StructBodyAst.Variant ast,
-) =>
-	mapOpPointers!(VariantMemberAndMethodImpls, TypeAst)(ctx.alloc, ast.types, (TypeAst* typeAst) { // don't need pointers ------------------
-		Type type = typeFromAst(ctx, commonTypes, structsAndAliasesMap, *typeAst, variant_.typeParams, AliasAllowed.yes);
-		if (type.isA!(StructInst*)) {
-			return some(VariantMemberAndMethodImpls(type.as!(StructInst*)));
-		} else {
-			if (!type.isBogus) todo!void("DIAG: Type parameter not allowed as a variant member"); // -----------------------------------------------------------------
-			return none!VariantMemberAndMethodImpls;
-		}
-	});
+) {
+	if (ast.kind == VariantKind.union_)
+		return mapOpPointersWithSoFar!(VariantMemberAndMethodImpls, TypeAst)(
+			ctx.alloc, ast.types,
+			(TypeAst* typeAst, in VariantMemberAndMethodImpls[] soFar) {
+				Type type = typeFromAst(ctx, commonTypes, structsAndAliasesMap, *typeAst, variant_.typeParams, AliasAllowed.yes);
+				if (type.isA!(StructInst*)) {
+					StructInst* member = type.as!(StructInst*);
+					if (exists!VariantMemberAndMethodImpls(soFar, (in VariantMemberAndMethodImpls x) => x.member.decl == member.decl)) {
+						addDiag(ctx, typeAst.range, Diag(Diag.DuplicateDeclaration(Diag.DuplicateDeclaration.Kind.unionMember, member.decl.name)));
+						return none!VariantMemberAndMethodImpls;
+					} else
+						return some(VariantMemberAndMethodImpls(member));
+				} else {
+					if (!type.isBogus)
+						addDiag(ctx, typeAst.range, Diag(Diag.UnionMemberTypeParameter()));
+					return none!VariantMemberAndMethodImpls;
+				}
+			});
+	else {
+		if (!isEmpty(ast.types))
+			addDiag(ctx, combineRanges(ast.types[0].range, ast.types[$ - 1].range), Diag(Diag.VariantListedMembersNonUnion()));
+		return emptySmallArray!VariantMemberAndMethodImpls;
+	}
+}
 
 private SmallArray!VariantAndMethodImpls checkVariantMembersInitial( // TODO: this is confusingly named. This checks 'variant-member' modifiers on a type.
 	ref CheckCtx ctx,

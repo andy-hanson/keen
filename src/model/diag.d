@@ -606,6 +606,7 @@ immutable struct Diag {
 		}
 		Kind kind;
 	}
+	immutable struct UnionMemberTypeParameter {}
 	immutable struct UnsupportedSyntax {
 		enum Reason { enumMemberMutability, enumMemberType }
 		Reason reason;
@@ -629,6 +630,7 @@ immutable struct Diag {
 		Kind kind;
 	}
 	immutable struct VarargsParamMustBeArray {}
+	immutable struct VariantListedMembersNonUnion {}
 	immutable struct VariantMemberIsTemplate {
 		StructDecl* member;
 	}
@@ -777,9 +779,11 @@ immutable struct Diag {
 		TypeParamCantHaveTypeArgs,
 		TypeParamsUnsupported,
 		TypeShouldUseSyntax,
+		UnionMemberTypeParameter,
 		UnsupportedSyntax,
 		Unused,
 		VarargsParamMustBeArray,
+		VariantListedMembersNonUnion,
 		VariantMemberIsTemplate,
 		VariantMemberMissingVariant,
 		VariantMemberMultiple,

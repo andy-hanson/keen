@@ -1354,6 +1354,9 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				}
 			}();
 		},
+		(in Diag.UnionMemberTypeParameter) {
+			writer ~= "A type parameter can't be a union member.";
+		},
 		(in Diag.UnsupportedSyntax x) {
 			writer ~= () {
 				final switch (x.reason) {
@@ -1371,6 +1374,9 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= "Variadic parameter must be an ";
 			writeName(writer, ctx, symbol!"array");
 			writer ~= '.';
+		},
+		(in Diag.VariantListedMembersNonUnion) {
+			writer ~= "Only 'union' types support listing member types.";
 		},
 		(in Diag.VariantMemberIsTemplate x) {
 			writeName(writer, ctx, x.member.name);

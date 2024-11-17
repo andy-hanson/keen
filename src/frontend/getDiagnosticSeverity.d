@@ -229,11 +229,15 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.TypeShouldUseSyntax) =>
 			DiagnosticSeverity.warning,
+		(in Diag.UnionMemberTypeParameter) =>
+			DiagnosticSeverity.checkError,
 		(in Diag.UnsupportedSyntax) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.Unused) =>
 			DiagnosticSeverity.unusedCode,
 		(in Diag.VarargsParamMustBeArray) =>
+			DiagnosticSeverity.checkError,
+		(in Diag.VariantListedMembersNonUnion) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.VariantMemberIsTemplate) =>
 			DiagnosticSeverity.checkError,
