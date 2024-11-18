@@ -122,6 +122,7 @@ import model.model :
 	Signature,
 	StructAlias,
 	StructDecl,
+	SumTypeKind,
 	Test,
 	testBodyExprRef,
 	ThrowExpr,
@@ -387,8 +388,8 @@ PositionKind.Keyword.Kind keywordKindForStructBody(in StructBodyAst a) =>
 			PositionKind.Keyword.Kind.flags,
 		(in StructBodyAst.Record) =>
 			PositionKind.Keyword.Kind.record,
-		(in StructBodyAst.SumType) =>
-			PositionKind.Keyword.Kind.variant);
+		(in StructBodyAst.SumType x) =>
+			enumConvert!(PositionKind.Keyword.Kind, SumTypeKind)(x.kind));
 
 Opt!PositionKind positionInVisibility(VisibilityContainer a, in Opt!VisibilityAndRange visibility, Pos pos) =>
 	has(visibility) && hasPos(force(visibility).range, pos)

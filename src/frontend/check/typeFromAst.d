@@ -42,7 +42,7 @@ import util.sourceRange : combineRanges, Range;
 import util.symbol : Symbol, symbol;
 import util.util : castNonScope_ref, ptrTrustMe;
 
-enum AliasAllowed { never, differentModule, yes } // TODO: 'never' is unused ----------------------------------------------------------
+enum AliasAllowed { differentModule, yes }
 
 private Type instStructFromAst(
 	ref CheckCtx ctx,
@@ -71,8 +71,6 @@ private Type instStructFromAst(
 					assert(isEmpty(force(typeArgs)));
 					bool ok = () {
 						final switch (aliasAllowed) {
-							case AliasAllowed.never:
-								return false;
 							case AliasAllowed.differentModule:
 								return a.moduleUri != ctx.curUri;
 							case AliasAllowed.yes:

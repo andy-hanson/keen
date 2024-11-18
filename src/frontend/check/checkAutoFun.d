@@ -169,7 +169,7 @@ FunBody checkAutoFunWithSpec(
 		return diag(Diag.AutoFunError(Diag.AutoFunError.WrongReturnType(funName)));
 	else {
 		StructInst* paramInst = paramType.as!(StructInst*);
-		Called checkSpecSigForContainedType(Type declType) {// TODO: SHORTER NAME ----------------------------------------------------------------------
+		Called checkSpecForComponent(Type declType) {
 			Type instType = instantiateType(ctx.instantiateCtx, declType, paramInst.typeArgs);
 			return checkSpecSingleSigIgnoreParents(ctx, funsMap, fun, has(extraTypeArg)
 				? instantiateSpec(ctx.instantiateCtx, spec, [force(extraTypeArg), instType])
@@ -188,10 +188,10 @@ FunBody checkAutoFunWithSpec(
 				typeAs!(Called[])([]),
 			(StructBody.Record x) =>
 				map(ctx.alloc, x.fields, (ref RecordField field) =>
-					checkSpecSigForContainedType(field.type)),
+					checkSpecForComponent(field.type)),
 			(StructBody.SumType v) =>
 				map(ctx.alloc, v.listedMembers, (ref SumTypeMemberAndMethodImpls m) =>
-					checkSpecSigForContainedType(Type(m.member))));
+					checkSpecForComponent(Type(m.member))));
 		return FunBody(AutoFun(funKind, members));
 	}
 }

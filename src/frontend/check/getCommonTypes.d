@@ -144,7 +144,7 @@ StructInst* nonTemplate(ref CommonTypesCtx ctx, Symbol name) {
 }
 
 StructInst* instantiate1(ref CommonTypesCtx ctx, StructDecl* decl, StructInst* typeArg) {
-	Type[1] typeArgs = [Type(typeArg)]; // can I inline this? ------------------------------------------------------------------------
+	Type[1] typeArgs = [Type(typeArg)];
 	return instantiateStruct(ctx.instantiateCtx, decl, small!Type(typeArgs));
 }
 

@@ -88,10 +88,9 @@ SpecInst* instantiateSpecWithOwnTypeParams(InstantiateCtx ctx, SpecDecl* decl) =
 StructInst* instantiateStruct(InstantiateCtx ctx, StructDecl* decl, in Type[] typeArgs) =>
 	instantiateStruct(ctx, decl, small!Type(typeArgs));
 StructInst* instantiateStruct(InstantiateCtx ctx, StructDecl* decl, in TypeArgs typeArgs) =>
-	withMeasure!(StructInst*, () {
-		ValueAndDidAdd!(StructInst*) res = getOrAddStructInst(ctx.allInsts, decl, typeArgs); // TODO: don't need ValueAndDidAdd , just value
-		return res.value;
-	})(ctx.perf, ctx.alloc, PerfMeasure.instantiateStruct);
+	withMeasure!(StructInst*, () =>
+		getOrAddStructInst(ctx.allInsts, decl, typeArgs).value
+	)(ctx.perf, ctx.alloc, PerfMeasure.instantiateStruct);
 
 StructInst* instantiateStructInst(InstantiateCtx ctx, ref StructInst structInst, in TypeArgs typeArgs) =>
 	withMapToStackArray!(StructInst*, Type, Type)(

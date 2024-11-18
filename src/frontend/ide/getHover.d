@@ -6,6 +6,7 @@ import frontend.ide.position :
 	ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind, typeContainerFor;
 import frontend.showModel :
 	ShowModelCtx,
+	showSumTypeKindUpperCase,
 	writeCalled,
 	writeCalledDecl,
 	writeCalledSpecSig,
@@ -122,6 +123,9 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 						return "Declares a type that can have any combination of flags (this would be an 'enum' in C)";
 					case PositionKind.Keyword.Kind.global:
 						return "Declares a mutable global variable (shared between all threads).";
+					case PositionKind.Keyword.Kind.interface_:
+						return "An 'interface' is just like a 'variant', " ~
+							"but does not support 'match' or conversion to case types.";
 					case PositionKind.Keyword.Kind.localMut:
 						return "Makes this a mutable variable.";
 					case PositionKind.Keyword.Kind.record:
@@ -132,12 +136,11 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 						return "Declares a mutable thread-local variable.";
 					case PositionKind.Keyword.Kind.underscore:
 						return "Ignores the value.";
+					case PositionKind.Keyword.Kind.union_:
+						return "A union can be one of several listed case types.";
 					case PositionKind.Keyword.Kind.variant:
-						// Improve description ... and have this depend on whether the keyword is actually variant / union / interface -----
-						return "Declares a union-like type with an unlimited set of members, " ~
-							"created by 'case' declarations.";
-					case PositionKind.Keyword.Kind.variantMember:
-						return "Adds a member to an interface or variant type.";
+						return "Declares a union-like type with an extensible set of case types, " ~
+							"created by 'case' declarations on the types.";
 				}
 			}();
 		},
@@ -194,8 +197,8 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 						return "This type is stored by-value.\n" ~
 							"This avoids allocation but each place this value is used has its own copy of the content.";
 					case ModifierKeyword.case_:
-						return "This type can be used as a member of the variant. " ~
-							"It must implement the variant's methods, if any.";
+						return "Adds a case type to an interface or variant type. " ~
+							"The case type must implement the interface/variant type's methods, if any.";
 					case ModifierKeyword.data:
 						return "The type is completely immutable.";
 					case ModifierKeyword.extern_:
@@ -268,16 +271,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 					writer ~= " signature ";
 				},
 				(in StructDecl x) {
-					writer ~= () {
-						final switch (x.body_.as!(StructBody.SumType).kind) {
-							case SumTypeKind.interface_:
-								return "Interface";
-							case SumTypeKind.union_:
-								return "Union";
-							case SumTypeKind.variant:
-								return "Variant";
-						}
-					}();
+					writer ~= showSumTypeKindUpperCase(x.body_.as!(StructBody.SumType).kind);
 					writeName(writer, ctx, x.name);
 					writer ~= " method ";
 				});
@@ -419,14 +413,8 @@ void writeStructDeclHover(scope ref Writer writer, in ShowModelCtx ctx, in Struc
 		(in StructBody.Record) =>
 			"Record type ",
 		(in StructBody.SumType x) {
-			final switch (x.kind) { // TODO: DUP CODE (search "Union" string) -------------------------------------------------------
-				case SumTypeKind.interface_:
-					return "Interface type";
-				case SumTypeKind.union_:
-					return "Union type";
-				case SumTypeKind.variant:
-					return "Variant type";
-			}
+			writer ~= showSumTypeKindUpperCase(x.kind);
+			return " type ";
 		});
 	writeName(writer, ctx, a.name);
 }
@@ -641,26 +629,24 @@ void getMatchHover(
 ) {
 	MatchInfo info = getMatchInfo(a.expr.kind);
 	writer ~= "Match on ";
-	writeTypeQuoted(writer, ctx, TypeWithContainer(info.matchedType, typeContainer));
-	writer ~= "\n";
 	writer ~= () {
 		final switch (info.kind) {
 			case MatchInfo.Kind.enum_:
-				return "Evaluates the branch with the selected member of the enum";
-			case MatchInfo.Kind.sumType:
-				return "Evaluates the branch with the selected member of the variant"; // TODO: what if it's a union or interface?
-			case MatchInfo.Kind.other:
-				return "Evaluates the branch with a matching value";
+				return "enum ";
+			case MatchInfo.Kind.integral:
+			case MatchInfo.Kind.stringLike:
+				return "";
+			case MatchInfo.Kind.union_:
+				return "union ";
+			case MatchInfo.Kind.variant:
+				return "variant ";
 		}
 	}();
-	writer ~= has(a.expr.ast.kind.as!MatchAst.else_)
-		? ", or the 'else' branch if none matched."
-		: info.kind == MatchInfo.Kind.other
-		? ", or '()' if none matched."
-		: ".";
+	writeTypeQuoted(writer, ctx, TypeWithContainer(info.matchedType, typeContainer));
+	writer ~= '.';
 }
 immutable struct MatchInfo {
-	enum Kind { enum_, sumType, other }
+	enum Kind { enum_, integral, stringLike, union_, variant }
 	Kind kind;
 	Type matchedType;
 }
@@ -668,11 +654,13 @@ MatchInfo getMatchInfo(ExprKind a) =>
 	a.isA!(MatchEnumExpr*)
 		? MatchInfo(MatchInfo.Kind.enum_, a.as!(MatchEnumExpr*).matched.type)
 		: a.isA!(MatchIntegralExpr*)
-		? MatchInfo(MatchInfo.Kind.other, a.as!(MatchIntegralExpr*).matched.type)
+		? MatchInfo(MatchInfo.Kind.integral, a.as!(MatchIntegralExpr*).matched.type)
 		: a.isA!(MatchStringLikeExpr*)
-		? MatchInfo(MatchInfo.Kind.other, a.as!(MatchStringLikeExpr*).matched.type)
+		? MatchInfo(MatchInfo.Kind.stringLike, a.as!(MatchStringLikeExpr*).matched.type)
 		: a.isA!(MatchSumTypeExpr*)
-		? MatchInfo(MatchInfo.Kind.sumType, a.as!(MatchSumTypeExpr*).matched.type)
+		? MatchInfo(
+			a.as!(MatchSumTypeExpr*).isUnion ? MatchInfo.Kind.union_ : MatchInfo.Kind.variant,
+			a.as!(MatchSumTypeExpr*).matched.type)
 		: assert(false);
 
 void getExprHover(

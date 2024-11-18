@@ -441,7 +441,9 @@ LowType lowTypeFromConcreteStruct(ref GetLowTypeCtx ctx, in ConcreteStruct* stru
 				case BuiltinType.mutSlice:
 					return record();
 				case BuiltinType.future: // Concretize replaces this with 'future-impl'
-				case BuiltinType.lambda: // Lambda is compiled away by concretize
+				case BuiltinType.lambdaData:
+				case BuiltinType.lambdaMut:
+				case BuiltinType.lambdaShared: // Concretize replaces this with a Union type
 				case BuiltinType.option: // Concretize replaces this with a Union type
 				case BuiltinType.mutArray: // Concretize replaces this with 'mut-array-impl'
 					assert(false);

@@ -52,7 +52,7 @@ import model.lowModel :
 	PointerTypeAndConstantsLow,
 	PrimitiveType,
 	UpdateParam;
-import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinTernary, BuiltinType, BuiltinUnary, TypeSize;
+import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinTernary, BuiltinType, BuiltinUnary, isLambda, TypeSize;
 import model.showLowModel : writeFunSig;
 import model.typeLayout : sizeOfType, typeSizeBytes;
 import util.alloc.alloc : Alloc, TempAlloc;
@@ -590,7 +590,7 @@ bool canUseAnonymousUnions(in Ctx ctx) =>
 
 void writeUnion(scope ref Writer writer, scope ref Ctx ctx, in LowUnion a) {
 	bool isBuiltin = a.source.body_.isA!(ConcreteStructBody.Builtin*);
-	if (isBuiltin) assert(a.source.body_.as!(ConcreteStructBody.Builtin*).kind == BuiltinType.lambda);
+	if (isBuiltin) assert(isLambda(a.source.body_.as!(ConcreteStructBody.Builtin*).kind));
 
 	if (isBuiltin || exists!LowType(a.members, (in LowType member) => !isEmptyType(ctx, member))) {
 		if (canUseAnonymousUnions(ctx)) {

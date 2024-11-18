@@ -280,7 +280,9 @@ private Opt!JsExpr genIsNotBuiltinType(ref TranslateModuleCtx ctx, in Source sou
 			return instanceof(symbol!"Promise");
 		case BuiltinType.jsAny:
 			return none!JsExpr;
-		case BuiltinType.lambda:
+		case BuiltinType.lambdaData:
+		case BuiltinType.lambdaShared:
+		case BuiltinType.lambdaMut:
 			return typeof_("function");
 		case BuiltinType.string_:
 		case BuiltinType.symbol:
@@ -950,7 +952,7 @@ ExprResult translateMatchSumType(
 ) =>
 	withTemp(ctx, symbol!"matched", a.matched, pos, (JsName matched, scope ExprPos inner) =>
 		translateMatchSumType(
-			ctx, source, matched, expr, a.sumTypeBody.kind, a.cases,
+			ctx, source, matched, expr, a.isUnion, a.cases,
 			translateSwitchDefault(ctx, source, optIf(has(a.else_), () => *force(a.else_)), type, "Invalid union value"),
 			type, inner));
 ExprResult translateMatchSumType(
@@ -958,7 +960,7 @@ ExprResult translateMatchSumType(
 	in Source source,
 	JsName matched,
 	in Expr expr,
-	SumTypeKind kind,
+	bool isUnion,
 	MatchSumTypeCase[] cases,
 	JsBlockStatement else_,
 	Type type,
@@ -968,7 +970,7 @@ ExprResult translateMatchSumType(
 		ctx, source, matched, expr, cases, type, pos, else_,
 		(ref MatchSumTypeCase case_, in Source caseSource) {
 			JsExpr matchedExpr = genIdentifier(source, matched);
-			if (kind == SumTypeKind.union_) // ternary ----------------------------------------------------------------------------
+			if (isUnion) // ternary ----------------------------------------------------------------------------
 				return MatchUnionOrVariantCase(
 					genIsUnionMember(ctx.alloc, source, matchedExpr, case_.member),
 					genForceUnionMember(ctx.alloc, source, matchedExpr, case_.member));
@@ -1072,7 +1074,7 @@ ExprResult translateTry(
 		exceptionName,
 		translateToBlockStatement(ctx.alloc, (scope ExprPos inner) =>
 			translateMatchSumType(
-				ctx, source, exceptionName, expr, SumTypeKind.variant, a.catches,
+				ctx, source, exceptionName, expr, isUnion: false, a.catches,
 				genBlockStatement(ctx.alloc, [genThrow(ctx.alloc, source, genIdentifier(source, exceptionName))]),
 				type, inner))));
 }

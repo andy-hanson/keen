@@ -7,6 +7,7 @@ import frontend.parse.lexer : Token;
 import frontend.showModel :
 	ShowCtx,
 	ShowDiagCtx,
+	showSumTypeKindUpperCase,
 	writeCalledDecls,
 	writeCalleds,
 	writeFunDecl,
@@ -1067,10 +1068,10 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= '.';
 		},
 		(in Diag.MatchUnnecessaryElse x) {
-			writer ~= "'match' handles every case, so the 'else' is unused.";
+			writer ~= "The 'match' handles every possible case, so the 'else' is unused.";
 		},
 		(in Diag.MethodImplVisibility x) {
-			writer ~= "A method of  ";
+			writer ~= "A method of ";
 			writeTypeQuoted(writer, ctx, TypeWithContainer(Type(x.sumType), TypeContainer(x.member)));
 			writer ~= " is implemented by ";
 			writeFunInst(writer, ctx, WriteKind.quoted, TypeContainer(x.member), *x.methodImpl);
@@ -1177,15 +1178,16 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writePurity(writer, ctx, bestCasePurity(x.child));
 			writer ~= '.';
 		},
-		(in Diag.PurityWorseThanVariant x) {
-			writer ~= "Variant ";
-			writeTypeQuoted(writer, ctx, TypeWithContainer(Type(x.variant), TypeContainer(x.member)));
+		(in Diag.PurityWorseThanSumType x) {
+			writer ~= showSumTypeKindUpperCase(x.sumType.decl.body_.as!(StructBody.SumType).kind);
+			writer ~= ' ';
+			writeName(writer, ctx, x.sumType.decl.name);
 			writer ~= " has purity ";
-			writePurity(writer, ctx, x.variant.purityRange.bestCase);
-			writer ~= ", but member ";
-			writeName(writer, ctx, x.member.name);
+			writePurity(writer, ctx, x.sumType.purityRange.bestCase);
+			writer ~= ", but case ";
+			writeName(writer, ctx, x.case_.name);
 			writer ~= " has purity ";
-			writePurity(writer, ctx, x.member.purity);
+			writePurity(writer, ctx, x.case_.purity);
 			writer ~= '.';
 		},
 		(in Diag.RecordFieldNeedsType x) {

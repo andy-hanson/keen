@@ -662,9 +662,7 @@ ContinueOrAbort inferCandidateTypeArgsFromLambdaParameter(
 				TypeAndContext paramType = getCandidateExpectedParameterType(
 					ctx.instantiateCtx, candidate, argIndex);
 				inferTypeArgsFromLambdaParameterType(
-					ctx.instantiateCtx, ctx.commonTypes,
-					paramType.type, typeContextForCandidate(candidate),
-					lambdaParamType);
+					ctx.instantiateCtx, paramType.type, typeContextForCandidate(candidate), lambdaParamType);
 			}
 			return ContinueOrAbort.continue_;
 		}

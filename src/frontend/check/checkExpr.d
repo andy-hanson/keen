@@ -134,6 +134,7 @@ import model.model :
 	DestructureIgnoreSource,
 	emptySpecs,
 	emptyTypeParams,
+	EnumMember,
 	EnumOrFlagsMember,
 	Expr,
 	ExprAndType,
@@ -175,6 +176,7 @@ import model.model :
 	MatchSumTypeCase,
 	MatchSumTypeExpr,
 	Mutability,
+	nameOfEnumOrFlagsMember,
 	paramsArray,
 	Purity,
 	purityRange,
@@ -221,6 +223,7 @@ import util.col.array :
 import util.col.arrayBuilder : buildArray, Builder;
 import util.col.enumMap : EnumMap, makeEnumMap;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, newExactSizeArrayBuilder, smallFinish;
+import util.col.hashTable : HashTable;
 import util.col.tempSet : TempSet, tryAdd, withTempSet;
 import util.conv : powerOf10, safeToUshort, toLongWithOverflow;
 import util.integralValues : IntegralValue;
@@ -1597,16 +1600,61 @@ Expr checkMatchEnum(
 	StructDecl* matchedEnum,
 	in StructBody.Enum body_,
 ) =>
-	checkMatchEnumOrUnion!(MatchEnumExpr.Case)(
-		ctx, locals, source, ast, expected, matchedEnum, body_.members, body_.membersByName,
-		(size_t memberIndex, EnumOrFlagsMember* member, CaseAst* caseAst, CaseMemberAst.Name* name) {
-			if (has(name.destructure))
-				addDiag2(ctx, force(name.destructure).range, Diag(
-					Diag.MatchCaseNoValueForEnumOrSymbol(some(matchedEnum))));
-			return MatchEnumExpr.Case(member, checkExpr(ctx, locals, &caseAst.then, expected));
-		},
-		(SmallArray!(MatchEnumExpr.Case) cases, Opt!Expr else_) =>
-			Expr(source, ExprKind(allocate(ctx.alloc, MatchEnumExpr(matched, cases, else_)))));
+	withStackArray!(Expr, bool)(body_.members.length, (size_t _) => false, (scope bool[] seen) {
+		bool hasCaseDiag = false;
+		ExactSizeArrayBuilder!(MatchEnumExpr.Case) cases = newExactSizeArrayBuilder!(MatchEnumExpr.Case)(
+			ctx.alloc, ast.cases.length);
+		foreach (ref CaseAst caseAst; ast.cases) {
+			Opt!(CaseMemberAst.Name*) asName = nameFromCaseMemberAst(ctx, &caseAst.member);
+			Opt!Symbol name = optIf(has(asName), () => force(asName).name.name);
+			Opt!(EnumMember*) optMember = has(name) ? body_.membersByName[force(name)] : none!(EnumMember*);
+			if (has(optMember)) {
+				EnumMember* member = force(optMember);
+				size_t index = mustHaveIndexOfPointer(body_.members, member);
+				if (seen[index]) {
+					hasCaseDiag = true;
+					addDiag2(ctx, caseAst.member.nameRange, Diag(
+						Diag.MatchCaseDuplicate(Diag.MatchCaseDuplicate.Kind(force(name)))));
+				} else {
+					seen[index] = true;
+					CaseMemberAst.Name* nameAst = force(asName);
+					if (has(nameAst.destructure))
+						addDiag2(ctx, force(nameAst.destructure).range, Diag(
+							Diag.MatchCaseNoValueForEnumOrSymbol(some(matchedEnum))));
+					cases ~= MatchEnumExpr.Case(member, checkExpr(ctx, locals, &caseAst.then, expected));
+				}
+			} else {
+				hasCaseDiag = true;
+				if (has(name))
+					addDiag2(ctx, caseAst.member.nameRange, Diag(
+						Diag.MatchCaseNameDoesNotMatch(force(name), matchedEnum)));
+			}
+		}
+		if (hasCaseDiag) return bogus(expected, source);
+
+		Opt!Expr else_ = () {
+				if (every(seen)) {
+					if (has(ast.else_))
+						addDiag2(ctx, force(ast.else_).keywordRange, Diag(Diag.MatchUnnecessaryElse()));
+					return none!Expr;
+				} else {
+					if (has(ast.else_))
+						return some(checkExpr(ctx, locals, &force(ast.else_).expr, expected));
+					else {
+						immutable EnumMember*[] unhandledCases = buildArray!(immutable EnumMember*)(
+							ctx.alloc, (scope ref Builder!(immutable EnumMember*) out_) {
+								zipPtrFirst(body_.members, seen, (EnumMember* member, ref bool seenIt) {
+									if (!seenIt)
+										out_ ~= member;
+								});
+							});
+						addDiag2(ctx, ast.keywordRange(source), Diag(Diag.MatchUnhandledCases(unhandledCases)));
+						return some(bogus(expected, source));
+					}
+				}
+		}();
+		return Expr(source, ExprKind(allocate(ctx.alloc, MatchEnumExpr(matched, smallFinish(cases), else_))));
+	});
 
 Expr checkMatchSumType(
 	ref ExprCtx ctx,
@@ -1615,10 +1663,10 @@ Expr checkMatchSumType(
 	ref MatchAst ast,
 	ref Expected expected,
 	ref ExprAndType matched,
-	StructInst* matchedVariant,
+	StructInst* sumType,
 ) {
-	SmallArray!MatchSumTypeCase cases = checkMatchSumTypeCases(ctx, locals, matchedVariant, ast.cases, expected);
-	StructBody.SumType body_() => matchedVariant.decl.body_.as!(StructBody.SumType);
+	SmallArray!MatchSumTypeCase cases = checkMatchSumTypeCases(ctx, locals, sumType, ast.cases, expected);
+	StructBody.SumType body_() => sumType.decl.body_.as!(StructBody.SumType);
 	bool isUnion = () {
 		final switch (body_.kind) {
 			case SumTypeKind.interface_:
@@ -1633,22 +1681,30 @@ Expr checkMatchSumType(
 		if (isUnion) {
 			if (cases.length == body_.listedMembers.length) {
 				if (has(ast.else_))
-					todo!void("Unnecessary 'else' when all cases were handled"); // 000000000000000000000000000000000000000000000000000
+					addDiag2(ctx, force(ast.else_).keywordRange, Diag(Diag.MatchUnnecessaryElse()));
 				return none!(Expr*);
 			} else
 				return some(allocate(ctx.alloc, checkMatchElseRequired(ctx, locals, source, ast, expected, () =>
-					Diag(Diag.MatchUnhandledCases(buildArray!(immutable StructInst*)(ctx.alloc, (scope ref Builder!(immutable StructInst*) out_) {
-						foreach (SumTypeMemberAndMethodImpls member; body_.listedMembers) {
-							StructInst* memberInst = instantiateStructInst(ctx.instantiateCtx, *member.member, matchedVariant.typeArgs);
-							if (!exists!MatchSumTypeCase(cases, (in MatchSumTypeCase case_) => case_.member == memberInst))
-								out_ ~= memberInst;
-						}
-					}))))));
+					Diag(Diag.MatchUnhandledCases(listMissingUnionCases(ctx, sumType, body_, cases))))));
 		} else
-			return some(allocate(ctx.alloc, checkMatchElseRequired(ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.variant)));
+			return some(allocate(ctx.alloc, checkMatchElseRequired(
+				ctx, locals, source, ast, expected, Diag.MatchNeedsElse.Kind.variant)));
 	}();
 	return Expr(source, ExprKind(allocate(ctx.alloc, MatchSumTypeExpr(matched, cases, else_))));
 }
+immutable(StructInst*[]) listMissingUnionCases(
+	ref ExprCtx ctx,
+	StructInst* sumType,
+	StructBody.SumType body_,
+	in MatchSumTypeCase[] cases,
+) =>
+	buildArray!(immutable StructInst*)(ctx.alloc, (scope ref Builder!(immutable StructInst*) out_) {
+		foreach (SumTypeMemberAndMethodImpls member; body_.listedMembers) {
+			StructInst* memberInst = instantiateStructInst(ctx.instantiateCtx, *member.member, sumType.typeArgs);
+			if (!exists!MatchSumTypeCase(cases, (in MatchSumTypeCase case_) => case_.member == memberInst))
+				out_ ~= memberInst;
+		}
+	});
 
 SmallArray!MatchSumTypeCase checkMatchSumTypeCases(
 	ref ExprCtx ctx,
@@ -1684,119 +1740,113 @@ Opt!MatchSumTypeCase checkMatchSumTypeCase(
 ) {
 	Opt!(CaseMemberAst.Name*) asName = nameFromCaseMemberAst(ctx, memberAst);
 	Opt!Symbol name = optIf(has(asName), () => force(asName).name.name);
-	Opt!(StructInst*) optMember = has(name)
-		? getVariantMemberFromName(ctx, matchedVariant, force(name), memberAst.nameRange, () =>
+	Opt!(StructInst*) optCaseType = has(name)
+		? getSumTypeCaseFromName(ctx, matchedVariant, force(name), memberAst.nameRange, () =>
 			has(asName) && has(force(asName).destructure)
 				? typeFromDestructure(ctx, force(force(asName).destructure))
 				: none!Type)
 		: none!(StructInst*);
-	if (has(optMember)) {
-		CaseResult result = checkMatchUnionOrVariantCase!StructInst(
-			ctx, locals, force(optMember), Type(force(optMember)), memberAst, thenAst, expected);
-		return optIf(!result.destructure.type.isBogus, () =>
-			MatchSumTypeCase(result.destructure, result.expr));
- 	} else
-		return none!MatchSumTypeCase;
-}
+	if (!has(optCaseType)) return none!MatchSumTypeCase;
+	StructInst* caseType = force(optCaseType);
 
-immutable struct CaseResult {
-	Destructure destructure;
-	Expr expr;
-}
-CaseResult checkMatchUnionOrVariantCase(Member)( // TODO: RENAME? _0000000000000000000000000000000000000000000000000000000000000000000000000000
-	ref ExprCtx ctx,
-	ref LocalsInfo locals,
-	Member* member,
-	Type memberType,
-	CaseMemberAst* memberAst,
-	ExprAst* thenAst,
-	ref Expected expected,
-) {
 	ref Opt!DestructureAst destructureAst() => memberAst.as!(CaseMemberAst.Name).destructure;
 	Destructure destructure = () {
 		if (has(destructureAst))
-			return checkDestructure2(ctx, &force(destructureAst), memberType, DestructureKind.local);
+			return checkDestructure2(ctx, &force(destructureAst), Type(caseType), DestructureKind.local);
 		else {
-			if (!isEmptyType(memberType))
-				addDiag2(ctx, memberAst.nameRange, Diag(Diag.MatchCaseShouldUseIgnore(member)));
+			if (!isEmptyType(*caseType))
+				addDiag2(ctx, memberAst.nameRange, Diag(Diag.MatchCaseShouldUseIgnore(caseType)));
 			return Destructure(allocate(ctx.alloc, Destructure.Ignore(
-				DestructureIgnoreSource(memberAst), memberAst.nameRange.start, memberType)));
+				DestructureIgnoreSource(memberAst), memberAst.nameRange.start, Type(caseType))));
 		}
 	}();
-	return CaseResult(destructure, checkExprWithDestructure(ctx, locals, destructure, thenAst, expected));
+	return optIf(!destructure.type.isBogus, () =>
+		MatchSumTypeCase(destructure, checkExprWithDestructure(ctx, locals, destructure, thenAst, expected)));
 }
 
-Opt!(StructInst*) getVariantMemberFromName(
+Opt!(StructInst*) getSumTypeCaseFromName(
 	ref ExprCtx ctx,
-	StructInst* matchedVariant,
+	StructInst* sumType,
 	Symbol name,
 	Range nameRange,
 	in Opt!Type delegate() @safe @nogc pure nothrow expectedMemberType,
 ) {
+	SumTypeMemberAndMethodImpls[] listedMembers = sumType.decl.body_.as!(StructBody.SumType).listedMembers;
 	Opt!StructOrAlias op = structOrAliasFromName(ctx.checkCtx, name, nameRange, ctx.structsAndAliasesMap);
-	return has(op)
-		? force(op).matchWithPointers!(Opt!(StructInst*))(
-			(StructAlias* x) =>
-				some(x.target), // TODO: wait. It's not validating it in this case??????????????????????????????????????????????????????
-			(StructDecl* decl) {
-				Opt!InstantiatedVariantMemberOrBogus res = optOr!InstantiatedVariantMemberOrBogus(
-					first!(InstantiatedVariantMemberOrBogus, SumTypeMemberAndMethodImpls)(
-						matchedVariant.decl.body_.as!(StructBody.SumType).listedMembers,
-						(SumTypeMemberAndMethodImpls x) {
-							return optIf(x.member.decl == decl, () =>
-								InstantiatedVariantMemberOrBogus(
-									instantiateStructInst(ctx.instantiateCtx, *x.member, matchedVariant.typeArgs)));
-						}),
-					() => first!(InstantiatedVariantMemberOrBogus, SumTypeMembership)(
-						decl.sumTypeMemberships, (SumTypeMembership x) =>
-							compareVariant(ctx, nameRange, decl, x.sumType, matchedVariant, expectedMemberType)));
-				if (has(res))
-					return force(res).matchWithPointers!(Opt!(StructInst*))(
-						(StructInst* x) => some(x),
-						(InstantiatedVariantMemberOrBogus.Bogus) => none!(StructInst*));
-				else {
-					addDiag2(ctx, nameRange, Diag(
-						Diag.MatchSumTypeNoMember(typeWithContainer(ctx, Type(matchedVariant)), decl)));
-					return none!(StructInst*);
-				}
-			})
-		: none!(StructInst*);
+	if (!has(op)) return none!(StructInst*);
+	return force(op).matchWithPointers!(Opt!(StructInst*))(
+		(StructAlias* x) {
+			StructInst* target = x.target;
+			bool isListed = exists!SumTypeMemberAndMethodImpls(listedMembers, (in SumTypeMemberAndMethodImpls x) =>
+				x.member == target);
+			bool hasMembership = exists!SumTypeMembership(target.decl.sumTypeMemberships, (in SumTypeMembership x) =>
+				x.sumType == sumType);
+			if (isListed || hasMembership)
+				return some(target);
+			else {
+				addDiag2(ctx, nameRange, Diag(
+					Diag.MatchSumTypeNoMember(typeWithContainer(ctx, Type(sumType)), target.decl)));
+				return none!(StructInst*);
+			}
+		},
+		(StructDecl* decl) {
+			Opt!InstantiatedSumTypeCaseOrBogus res = optOr!InstantiatedSumTypeCaseOrBogus(
+				first!(InstantiatedSumTypeCaseOrBogus, SumTypeMemberAndMethodImpls)(
+					listedMembers,
+					(SumTypeMemberAndMethodImpls x) {
+						return optIf(x.member.decl == decl, () =>
+							InstantiatedSumTypeCaseOrBogus(
+								instantiateStructInst(ctx.instantiateCtx, *x.member, sumType.typeArgs)));
+					}),
+				() => first!(InstantiatedSumTypeCaseOrBogus, SumTypeMembership)(
+					decl.sumTypeMemberships, (SumTypeMembership x) =>
+						compareSumTypes(ctx, nameRange, decl, x.sumType, sumType, expectedMemberType)));
+			if (has(res))
+				return force(res).matchWithPointers!(Opt!(StructInst*))(
+					(StructInst* x) => some(x),
+					(InstantiatedSumTypeCaseOrBogus.Bogus) => none!(StructInst*));
+			else {
+				addDiag2(ctx, nameRange, Diag(
+					Diag.MatchSumTypeNoMember(typeWithContainer(ctx, Type(sumType)), decl)));
+				return none!(StructInst*);
+			}
+		});
 }
 
-immutable struct InstantiatedVariantMemberOrBogus {
+immutable struct InstantiatedSumTypeCaseOrBogus {
 	immutable struct Bogus {}
 	mixin Union!(StructInst*, Bogus);
 }
 
-// Returns instantiated member type if the declared variant matches the actual
-Opt!InstantiatedVariantMemberOrBogus compareVariant( // TODO: this takes any sumtype, so rename this fn and some of its parameters ----------------------------------------
+// Returns instantiated case type if the declared sumType matches the actual
+Opt!InstantiatedSumTypeCaseOrBogus compareSumTypes(
 	ref ExprCtx ctx,
 	Range range,
-	StructDecl* member,
-	StructInst* declaredVariant,
-	StructInst* actualVariant,
-	in Opt!Type delegate() @safe @nogc pure nothrow expectedMemberType,
+	StructDecl* case_,
+	StructInst* declaredSumType,
+	StructInst* actualSumType,
+	in Opt!Type delegate() @safe @nogc pure nothrow expectedCaseType,
 ) =>
-	declaredVariant.decl != actualVariant.decl ? none!InstantiatedVariantMemberOrBogus :
-	withInferringTypes(member.typeParams.length, (scope SingleInferringType[] inferringTypes) {
+	declaredSumType.decl != actualSumType.decl ? none!InstantiatedSumTypeCaseOrBogus :
+	withInferringTypes(case_.typeParams.length, (scope SingleInferringType[] inferringTypes) {
 		TypeContext inferringContext = TypeContext(small!SingleInferringType(inferringTypes));
-		TypeAndContext inferringDeclaredVariant = TypeAndContext(Type(declaredVariant), inferringContext);
-		return optIf(matchTypes(ctx.instantiateCtx, inferringDeclaredVariant, nonInferring(Type(actualVariant))), () {
+		TypeAndContext inferringDeclaredSumType = TypeAndContext(Type(declaredSumType), inferringContext);
+		return optIf(matchTypes(ctx.instantiateCtx, inferringDeclaredSumType, nonInferring(Type(actualSumType))), () {
 			if (!every!SingleInferringType(inferringTypes, (in SingleInferringType x) => has(tryGetInferred(x)))) {
-				Opt!Type t = expectedMemberType();
+				Opt!Type t = expectedCaseType();
 				if (has(t)) {
 					// Ignore result, just using this for inference
 					matchTypes(
 						ctx.instantiateCtx,
 						TypeAndContext(
-							Type(instantiateStructWithOwnTypeParams(ctx.instantiateCtx, member)),
+							Type(instantiateStructWithOwnTypeParams(ctx.instantiateCtx, case_)),
 							inferringContext),
 						nonInferring(force(t)));
 				}
 			}
 
 			bool anyNotInferred;
-			return withMapToStackArray!(InstantiatedVariantMemberOrBogus, Type, SingleInferringType)(
+			return withMapToStackArray!(InstantiatedSumTypeCaseOrBogus, Type, SingleInferringType)(
 				inferringTypes,
 				(ref SingleInferringType x) =>
 					optOrDefault!Type(tryGetInferred(x), () {
@@ -1805,11 +1855,11 @@ Opt!InstantiatedVariantMemberOrBogus compareVariant( // TODO: this takes any sum
 					}),
 				(scope Type[] inferredTypes) {
 					if (anyNotInferred) {
-						addDiag2(ctx, range, Diag(Diag.MatchSumTypeCantInferTypeArgs(member)));
-						return InstantiatedVariantMemberOrBogus(InstantiatedVariantMemberOrBogus.Bogus());
+						addDiag2(ctx, range, Diag(Diag.MatchSumTypeCantInferTypeArgs(case_)));
+						return InstantiatedSumTypeCaseOrBogus(InstantiatedSumTypeCaseOrBogus.Bogus());
 					} else
-						return InstantiatedVariantMemberOrBogus(
-							instantiateStruct(ctx.instantiateCtx, member, small!Type(inferredTypes)));
+						return InstantiatedSumTypeCaseOrBogus(
+							instantiateStruct(ctx.instantiateCtx, case_, small!Type(inferredTypes)));
 				});
 		});
 	});
@@ -2063,68 +2113,6 @@ Opt!string stringFromCaseAst(ref ExprCtx ctx, CaseMemberAst ast) =>
 			some(x.value),
 		(CaseMemberAst.Bogus) =>
 			none!string);
-
-Expr checkMatchEnumOrUnion(Case, Member, MembersByName)( // TODO: RENAME? --------------------------------------------------------
-	ref ExprCtx ctx,
-	ref LocalsInfo locals,
-	ExprAst* source,
-	ref MatchAst ast,
-	ref Expected expected,
-	StructDecl* matchedEnumOrUnion,
-	Member[] members,
-	MembersByName membersByName,
-	in Case delegate(size_t, Member*, CaseAst*, CaseMemberAst.Name*) @safe @nogc pure nothrow cbCase,
-	in Expr delegate(SmallArray!Case, Opt!Expr) @safe @nogc pure nothrow cbFinish,
-) =>
-	withStackArray!(Expr, bool)(members.length, (size_t _) => false, (scope bool[] seen) {
-		bool hasCaseDiag = false;
-		ExactSizeArrayBuilder!Case cases = newExactSizeArrayBuilder!Case(ctx.alloc, ast.cases.length);
-		foreach (ref CaseAst caseAst; ast.cases) {
-			Opt!(CaseMemberAst.Name*) asName = nameFromCaseMemberAst(ctx, &caseAst.member);
-			Opt!Symbol name = optIf(has(asName), () => force(asName).name.name);
-			Opt!(Member*) optMember = has(name) ? membersByName[force(name)] : none!(Member*);
-			if (has(optMember)) {
-				Member* member = force(optMember);
-				size_t index = mustHaveIndexOfPointer(members, member);
-				if (seen[index]) {
-					hasCaseDiag = true;
-					addDiag2(ctx, caseAst.member.nameRange, Diag(
-						Diag.MatchCaseDuplicate(Diag.MatchCaseDuplicate.Kind(force(name)))));
-				} else {
-					seen[index] = true;
-					cases ~= cbCase(index, member, &caseAst, force(asName));
-				}
-			} else {
-				hasCaseDiag = true;
-				if (has(name))
-					addDiag2(ctx, caseAst.member.nameRange, Diag(
-						Diag.MatchCaseNameDoesNotMatch(force(name), matchedEnumOrUnion)));
-			}
-		}
-		return hasCaseDiag
-			? bogus(expected, source)
-			: cbFinish(smallFinish(cases), () {
-				if (every(seen)) {
-					if (has(ast.else_))
-						addDiag2(ctx, force(ast.else_).keywordRange, Diag(Diag.MatchUnnecessaryElse()));
-					return none!Expr;
-				} else {
-					if (has(ast.else_))
-						return some(checkExpr(ctx, locals, &force(ast.else_).expr, expected));
-					else {
-						immutable Member*[] unhandledCases = buildArray!(immutable Member*)(
-							ctx.alloc, (scope ref Builder!(immutable Member*) out_) {
-								zipPtrFirst!(Member, bool)(members, seen, (Member* member, ref bool seenIt) {
-									if (!seenIt)
-										out_ ~= member;
-								});
-							});
-						addDiag2(ctx, ast.keywordRange(source), Diag(Diag.MatchUnhandledCases(unhandledCases)));
-						return some(bogus(expected, source));
-					}
-				}
-			}());
-	});
 
 Opt!(CaseMemberAst.Name*) nameFromCaseMemberAst(ref ExprCtx ctx, CaseMemberAst* ast) {
 	Opt!(CaseMemberAst.Name*) res = ast.isA!(CaseMemberAst.Name)

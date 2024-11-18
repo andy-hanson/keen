@@ -138,7 +138,8 @@ void checkStructBodies(
 	in StructDeclAst[] asts,
 ) {
 	zipPtrFirst!(StructDecl, StructDeclAst)(structs, asts, (StructDecl* struct_, ref StructDeclAst ast) {
-		struct_.sumTypeMemberships = checkSumTypeMembershipsInitial(ctx, commonTypes, structsAndAliasesMap, struct_, ast);
+		struct_.sumTypeMemberships = checkSumTypeMembershipsInitial(
+			ctx, commonTypes, structsAndAliasesMap, struct_, ast);
 		struct_.body_ = ast.body_.match!StructBody(
 			(StructBodyAst.Builtin) {
 				checkOnlyCommonModifiers(ctx, DeclKind.builtin, ast.modifiers);
@@ -162,10 +163,13 @@ void checkStructBodies(
 				StructBody(checkRecord(ctx, commonTypes, structsAndAliasesMap, struct_, ast.modifiers, x)),
 			(StructBodyAst.SumType x) {
 				checkOnlyCommonModifiers(ctx, DeclKind.variant, ast.modifiers);
-				SmallArray!SumTypeMemberAndMethodImpls listedMembers = checkVariantListedMembersInitial(ctx, commonTypes, structsAndAliasesMap, struct_, x);
+				SmallArray!SumTypeMemberAndMethodImpls listedMembers = checkVariantListedMembersInitial(
+					ctx, commonTypes, structsAndAliasesMap, struct_, x);
 				SmallArray!Signature sigs = checkSignatures(
 					ctx, commonTypes, structsAndAliasesMap, SignatureContainer(struct_), ast.typeParams, x.methods);
-				return StructBody(StructBody.SumType(x.kind, allocate(ctx.alloc, StructBody.SumType.MembersAndMethods(listedMembers, sigs))));
+				return StructBody(StructBody.SumType(
+					x.kind,
+					allocate(ctx.alloc, StructBody.SumType.MembersAndMethods(listedMembers, sigs))));
 			});
 	});
 }
@@ -203,11 +207,14 @@ private SmallArray!SumTypeMemberAndMethodImpls checkVariantListedMembersInitial(
 		return mapOpPointersWithSoFar!(SumTypeMemberAndMethodImpls, TypeAst)(
 			ctx.alloc, ast.types,
 			(TypeAst* typeAst, in SumTypeMemberAndMethodImpls[] soFar) {
-				Type type = typeFromAst(ctx, commonTypes, structsAndAliasesMap, *typeAst, variant_.typeParams, AliasAllowed.yes);
+				Type type = typeFromAst(
+					ctx, commonTypes, structsAndAliasesMap, *typeAst, variant_.typeParams, AliasAllowed.yes);
 				if (type.isA!(StructInst*)) {
 					StructInst* member = type.as!(StructInst*);
-					if (exists!SumTypeMemberAndMethodImpls(soFar, (in SumTypeMemberAndMethodImpls x) => x.member.decl == member.decl)) {
-						addDiag(ctx, typeAst.range, Diag(Diag.DuplicateDeclaration(Diag.DuplicateDeclaration.Kind.unionMember, member.decl.name)));
+					if (exists!SumTypeMemberAndMethodImpls(soFar, (in SumTypeMemberAndMethodImpls x) =>
+							x.member.decl == member.decl)) {
+						addDiag(ctx, typeAst.range, Diag(
+							Diag.DuplicateDeclaration(Diag.DuplicateDeclaration.Kind.unionMember, member.decl.name)));
 						return none!SumTypeMemberAndMethodImpls;
 					} else
 						return some(SumTypeMemberAndMethodImpls(member));
@@ -219,7 +226,8 @@ private SmallArray!SumTypeMemberAndMethodImpls checkVariantListedMembersInitial(
 			});
 	else {
 		if (!isEmpty(ast.types))
-			addDiag(ctx, combineRanges(ast.types[0].range, ast.types[$ - 1].range), Diag(Diag.SumTypeListedMembersNonUnion()));
+			addDiag(ctx, combineRanges(ast.types[0].range, ast.types[$ - 1].range), Diag(
+				Diag.SumTypeListedMembersNonUnion()));
 		return emptySmallArray!SumTypeMemberAndMethodImpls;
 	}
 }
@@ -237,10 +245,12 @@ private SmallArray!SumTypeMembership checkSumTypeMembershipsInitial(
 				ctx, commonTypes, structsAndAliasesMap, struct_, mod);
 			if (has(res)) {
 				if (struct_.isTemplate) {
-					addDiag(ctx, mod.range, Diag(Diag.CaseInvalidMemberType(Diag.CaseInvalidMemberType.Reason.isTemplate, struct_)));
+					addDiag(ctx, mod.range, Diag(
+						Diag.CaseInvalidMemberType(Diag.CaseInvalidMemberType.Reason.isTemplate, struct_)));
 					return none!SumTypeMembership;
 				}
-				if (exists!SumTypeMembership(soFar, (in SumTypeMembership x) => x.sumType.decl == force(res).sumType.decl)) {
+				if (exists!SumTypeMembership(soFar, (in SumTypeMembership x) =>
+						x.sumType.decl == force(res).sumType.decl)) {
 					addDiag(ctx, mod.range, Diag(Diag.CaseDuplicate(struct_, force(res).sumType.decl)));
 					return none!SumTypeMembership;
 				}
@@ -297,7 +307,6 @@ void checkMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap fun
 			SumTypeMemberAndMethodImpls[] members = struct_.body_.as!(StructBody.SumType).listedMembers;
 			TypeAst[] memberAsts = struct_.source.as!(StructDeclAst*).body_.as!(StructBodyAst.SumType).types;
 			foreach (size_t i, ref SumTypeMemberAndMethodImpls x; members) {
-				// TODO: test purity (maybe move that into checkMethodImplsForVariant) -----------------------------------------------------------------------------------------------------------------------
 				x.methodImpls = checkMethodImplsForVariant(
 					ctx, commonTypes, funsMap,
 					TypeContainer(&struct_), x.member,
@@ -309,10 +318,9 @@ void checkMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap fun
 
 		foreach (ref SumTypeMembership x; struct_.sumTypeMemberships) {
 			StructInst* memberType = instantiateStructWithOwnTypeParams(ctx.instantiateCtx, &struct_);
-			if (!isPurityAlwaysCompatible(referencer: x.sumType.purityRange, referenced: struct_.purity))
-				addDiag(ctx, x.ast.range, Diag(Diag.PurityWorseThanVariant(&struct_, x.sumType)));
 			x.methodImpls = checkMethodImplsForVariant(
-				ctx, commonTypes, funsMap, TypeContainer(&struct_), memberType, x.ast.range, x.sumType, x.sumTypeDeclMethods);
+				ctx, commonTypes, funsMap, TypeContainer(&struct_),
+				memberType, x.ast.range, x.sumType, x.sumTypeDeclMethods);
 		}
 	}
 }
@@ -326,19 +334,25 @@ SmallArray!(Opt!Called) checkMethodImplsForVariant(
 	TypeContainer typeContainer,
 	StructInst* memberType,
 	Range diagRange,
-	StructInst* variant,
+	StructInst* sumType,
 	SmallArray!Signature methodDecls,
 ) {
 	StructDecl* member = memberType.decl;
+	// Use the best case for the member type, because:
+	// * Union cases have the same type parameters as the union.
+	// * Interface or variant cases can't be templates anyway.
+	if (!isPurityAlwaysCompatible(referencer: sumType.purityRange, referenced: memberType.purityRange.bestCase))
+		addDiag(ctx, diagRange, Diag(Diag.PurityWorseThanSumType(case_: member, sumType: sumType)));
+
 	return map!(Opt!Called, Signature)(ctx.alloc, methodDecls, (ref Signature sig) =>
 		withStackArray(
 			sig.params.length + 2,
 			(size_t i) =>
 				i == 0
-					? instantiateType(ctx.instantiateCtx, sig.returnType, variant.typeArgs)
+					? instantiateType(ctx.instantiateCtx, sig.returnType, sumType.typeArgs)
 					: i == 1
 					? Type(memberType)
-					: instantiateType(ctx.instantiateCtx, sig.params[i - 2].type, variant.typeArgs),
+					: instantiateType(ctx.instantiateCtx, sig.params[i - 2].type, sumType.typeArgs),
 			(scope Type[] types) {
 				Opt!Called called = findFunctionForReturnAndParamTypes(
 					ctx, commonTypes, typeContainer,
@@ -354,7 +368,8 @@ SmallArray!(Opt!Called) checkMethodImplsForVariant(
 				if (has(called) &&
 					force(called).isA!(FunInst*) &&
 					force(called).as!(FunInst*).decl.visibility < member.visibility)
-					addDiag(ctx, diagRange, Diag(Diag.MethodImplVisibility(member, variant, force(called).as!(FunInst*))));
+					addDiag(ctx, diagRange, Diag(
+						Diag.MethodImplVisibility(member, sumType, force(called).as!(FunInst*))));
 				return called;
 			}));
 }
@@ -1060,9 +1075,11 @@ BuiltinType getBuiltinType(scope ref CheckCtx ctx, StructDecl* struct_) {
 		case symbol!"float64".value:
 			return BuiltinType.float64;
 		case symbol!"fun-data".value:
+			return BuiltinType.lambdaData;
 		case symbol!"fun-shared".value:
+			return BuiltinType.lambdaShared;
 		case symbol!"fun-mut".value:
-			return BuiltinType.lambda;
+			return BuiltinType.lambdaMut;
 		case symbol!"fun-pointer".value:
 			return BuiltinType.funPointer;
 		case symbol!"future".value:

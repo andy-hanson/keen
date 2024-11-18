@@ -239,9 +239,9 @@ bool isOptionType(in StructDecl* a) =>
 bool isFunPointer(in Type a) =>
 	isBuiltinType(a, BuiltinType.funPointer);
 bool isLambdaType(in Type a) =>
-	isBuiltinType(a, BuiltinType.lambda);
+	a.isA!(StructInst*) && isLambdaType(*a.as!(StructInst*).decl);
 bool isLambdaType(in StructDecl a) =>
-	isBuiltinType(a, BuiltinType.lambda);
+	a.body_.isA!BuiltinType && isLambda(a.body_.as!BuiltinType);
 
 bool isPointerConstOrMut(in Type a) =>
 	isPointerConst(a) || isPointerMut(a);
@@ -520,6 +520,7 @@ immutable struct EnumMemberSource {
 			(in DestructureAst.Single x) => x.nameRange);
 }
 
+alias EnumMember = EnumOrFlagsMember;
 immutable struct EnumOrFlagsMember {
 	@safe @nogc pure nothrow:
 
@@ -625,7 +626,9 @@ enum BuiltinType {
 	int32,
 	int64,
 	jsAny,
-	lambda, // 'data', 'shared', or 'mut' lambda type. Not 'function'.
+	lambdaData,
+	lambdaMut,
+	lambdaShared,
 	mutArray,
 	mutSlice,
 	nat8,
@@ -660,7 +663,9 @@ bool isCharOrIntegral(BuiltinType a) {
 		case BuiltinType.future:
 		case BuiltinType.funPointer:
 		case BuiltinType.jsAny:
-		case BuiltinType.lambda:
+		case BuiltinType.lambdaData:
+		case BuiltinType.lambdaShared:
+		case BuiltinType.lambdaMut:
 		case BuiltinType.mutArray:
 		case BuiltinType.mutSlice:
 		case BuiltinType.option:
@@ -669,6 +674,16 @@ bool isCharOrIntegral(BuiltinType a) {
 		case BuiltinType.string_:
 		case BuiltinType.symbol:
 		case BuiltinType.void_:
+			return false;
+	}
+}
+bool isLambda(BuiltinType a) {
+	switch (a) {
+		case BuiltinType.lambdaData:
+		case BuiltinType.lambdaMut:
+		case BuiltinType.lambdaShared:
+			return true;
+		default:
 			return false;
 	}
 }
@@ -2223,6 +2238,20 @@ enum FunKind {
 	mut,
 	function_,
 }
+Opt!FunKind funKindFromBuiltinType(BuiltinType a) {
+	switch (a) {
+		case BuiltinType.lambdaData:
+			return some(FunKind.data);
+		case BuiltinType.lambdaShared:
+			return some(FunKind.shared_);
+		case BuiltinType.lambdaMut:
+			return some(FunKind.mut);
+		case BuiltinType.funPointer:
+			return some(FunKind.function_);
+		default:
+			return none!FunKind;
+	}
+}
 
 immutable struct CommonFunsAndDiagnostics {
 	CommonFuns commonFuns;
@@ -3324,6 +3353,16 @@ immutable struct MatchSumTypeExpr {
 		matched.type.as!(StructInst*);
 	StructBody.SumType sumTypeBody() return scope =>
 		sumType.decl.body_.as!(StructBody.SumType);
+	bool isUnion() {
+		final switch (sumTypeBody.kind) {
+			case SumTypeKind.interface_:
+				assert(false);
+			case SumTypeKind.union_:
+				return true;
+			case SumTypeKind.variant:
+				return false;
+		}
+	}
 }
 immutable struct MatchSumTypeCase {
 	@safe @nogc pure nothrow:

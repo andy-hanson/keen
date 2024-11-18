@@ -195,7 +195,7 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.PurityWorseThanParent) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.PurityWorseThanVariant) =>
+		(in Diag.PurityWorseThanSumType) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.RecordFieldNeedsType) =>
 			DiagnosticSeverity.checkError,

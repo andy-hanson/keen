@@ -700,7 +700,9 @@ SmallArray!(Opt!(ConcreteFun*)) sumTypeMethodImplsInner(ref ConcretizeCtx ctx, i
 void initializeConcreteStructForBuiltin(ref ConcretizeCtx ctx, ConcreteStruct* struct_, in SmallArray!ConcreteType typeArgs, BuiltinType type) {
 	struct_.defaultReferenceKind = ReferenceKind.byVal;
 	switch (type) {
-		case BuiltinType.lambda:
+		case BuiltinType.lambdaData:
+		case BuiltinType.lambdaMut:
+		case BuiltinType.lambdaShared:
 			// Lambda types handled in 'finishLambdas'
 			break;
 		case BuiltinType.option:
@@ -922,7 +924,9 @@ TypeSize getBuiltinStructSize(BuiltinType kind, in VersionInfo version_) {
 		case BuiltinType.symbol:
 			return TypeSize(8, 8);
 		case BuiltinType.future: // Replaced by 'future-impl'
-		case BuiltinType.lambda: // Replaced by variants
+		case BuiltinType.lambdaData:
+		case BuiltinType.lambdaMut:
+		case BuiltinType.lambdaShared: // Replaced by variants
 		case BuiltinType.option: // Replaced by a Union type
 		case BuiltinType.mutArray: // Replaced by 'mut-array-impl'
 			assert(false);

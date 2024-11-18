@@ -25,7 +25,9 @@ import model.model :
 	ReturnAndParamTypes,
 	SpecInst,
 	stringOfVisibility,
+	StructBody,
 	StructInst,
+	SumTypeKind,
 	Type,
 	TypeContainer,
 	TypeParamIndex,
@@ -614,4 +616,15 @@ private void writeFileNoResetWriter(scope ref Writer writer, in ShowCtx ctx, Uri
 
 void writeVisibility(scope ref Writer writer, in ShowCtx ctx, Visibility a) {
 	writer ~= stringOfVisibility(a);
+}
+
+string showSumTypeKindUpperCase(SumTypeKind a) {
+	final switch (a) {
+		case SumTypeKind.interface_:
+			return "Interface";
+		case SumTypeKind.union_:
+			return "Union";
+		case SumTypeKind.variant:
+			return "Variant";
+	}
 }

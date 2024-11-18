@@ -503,9 +503,9 @@ immutable struct Diag {
 		StructDecl* parent;
 		Type child;
 	}
-	immutable struct PurityWorseThanVariant {
-		StructDecl* member;
-		StructInst* variant;
+	immutable struct PurityWorseThanSumType {
+		StructDecl* case_;
+		StructInst* sumType;
 	}
 	immutable struct RecordFieldNeedsType {
 		Symbol fieldName;
@@ -767,7 +767,7 @@ immutable struct Diag {
 		PointerMutToConst,
 		PointerUnsupported,
 		PurityWorseThanParent,
-		PurityWorseThanVariant,
+		PurityWorseThanSumType,
 		RecordFieldNeedsType,
 		SharedArgIsNotLambda,
 		SharedLambdaTypeIsNotShared,

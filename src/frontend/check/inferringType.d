@@ -11,12 +11,14 @@ import model.diag : Diag, ExpectedForDiag;
 import model.model :
 	BogusExpr,
 	BogusWrongTypeExpr,
+	BuiltinType,
 	CommonTypes,
 	Expr,
 	ExprAndType,
 	ExprKind,
 	ExprRef,
 	FunKind,
+	funKindFromBuiltinType,
 	LoopExpr,
 	StructDecl,
 	StructInst,
@@ -46,7 +48,7 @@ import util.col.array :
 import util.col.arrayBuilder : add, ArrayBuilder, arrayBuilderIsEmpty, asTemporaryArray, finish;
 import util.col.enumMap : enumMapFindKey;
 import util.memory : allocate;
-import util.opt : has, force, MutOpt, none, noneMut, Opt, optOrDefault, some, someInout, someMut;
+import util.opt : has, force, MutOpt, none, noneMut, Opt, optIf, optOrDefault, some, someInout, someMut;
 import util.union_ : TaggedUnion;
 import util.uri : UrisInfo;
 import util.util : castNonScope_ref;
@@ -464,7 +466,7 @@ private Opt!FunType getExpectedFunType(ref ExprCtx ctx, ExprAst* source, TypeAnd
 		? tryGetInferred(choice.context, choice.type.as!TypeParamIndex)
 		: some(choice.type);
 	if (has(t))
-		return getFunType(ctx.commonTypes, force(t));
+		return getFunType(force(t));
 	else {
 		addDiag2(ctx, source, Diag(Diag.LambdaCantInferParamType()));
 		return none!FunType;
@@ -656,15 +658,15 @@ immutable struct FunType {
 		only2(structInst.typeArgs)[1];
 }
 
-Opt!FunType getFunType(in CommonTypes commonTypes, Type a) {
+Opt!FunType getFunType(Type a) {
 	if (a.isA!(StructInst*)) {
 		StructInst* structInst = a.as!(StructInst*);
-		// TODO: functions could be a BuiltinType too so we wouldn't need commonTypes here? _-----------------------------------------------
-		Opt!FunKind kind = enumMapFindKey!(FunKind, StructDecl*)(commonTypes.funStructs, (in StructDecl* x) =>
-			x == structInst.decl);
-		return has(kind)
-			? some(FunType(force(kind), structInst))
-			: none!FunType;
+		if (structInst.decl.body_.isA!BuiltinType) {
+			BuiltinType x = structInst.decl.body_.as!BuiltinType;
+			Opt!FunKind kind = funKindFromBuiltinType(x);
+			return optIf(has(kind), () => FunType(force(kind), structInst));
+		} else
+			return none!FunType;
 	} else
 		return none!FunType;
 }
@@ -754,12 +756,11 @@ bool matchTypes_TypeParamB(InstantiateCtx ctx, TypeAndContext a, TypeParamIndex 
 
 public void inferTypeArgsFromLambdaParameterType(
 	InstantiateCtx ctx,
-	in CommonTypes commonTypes,
 	Type a,
 	scope TypeContext aContext,
 	Type lambdaParameterType,
 ) {
-	Opt!FunType funType = getFunType(commonTypes, a);
+	Opt!FunType funType = getFunType(a);
 	if (has(funType))
 		inferTypeArgsFrom(ctx, force(funType).paramType, aContext, nonInferring(lambdaParameterType));
 }

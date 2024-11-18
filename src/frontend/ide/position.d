@@ -222,13 +222,14 @@ immutable struct PositionKind {
 			extern_,
 			flags,
 			global,
+			interface_,
 			localMut,
 			record,
 			spec,
 			threadLocal,
 			underscore,
-			variant, // or 'union' or 'interface'
-			variantMember,
+			union_,
+			variant,
 		}
 		Kind kind;
 	}

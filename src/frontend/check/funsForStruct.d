@@ -50,10 +50,10 @@ import util.opt : force, has, Opt, optEqual, some;
 import util.symbol : prependSet, prependSetDeref, Symbol, symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet, symbolSet;
 
-size_t countFunsForStructs(in CommonTypes commonTypes, in StructDecl[] structs) =>
-	sum!StructDecl(structs, (in StructDecl x) => countFunsForStruct(commonTypes, x));
+size_t countFunsForStructs(in StructDecl[] structs) =>
+	sum!StructDecl(structs, (in StructDecl x) => countFunsForStruct(x));
 
-private size_t countFunsForStruct(in CommonTypes commonTypes, in StructDecl a) =>
+private size_t countFunsForStruct(in StructDecl a) =>
 	countFunsForSumTypeMemberships(a) + a.body_.matchIn!size_t(
 		(in StructBody.Bogus) =>
 			0,
@@ -71,12 +71,13 @@ private size_t countFunsForStruct(in CommonTypes commonTypes, in StructDecl a) =
 			size_t forGetSet = sum!RecordField(x.fields, (in RecordField field) =>
 				1 + has(field.mutability));
 			size_t forCall = sum!RecordField(x.fields, (in RecordField field) =>
-				fieldHasCaller(commonTypes, field.type));
+				fieldHasCaller(field.type));
 			// byVal has get/set for pointer too
 			return 1 + forGetSet * (recordIsAlwaysByVal(x) ? 2 : 1) + forCall;
 		},
 		(in StructBody.SumType x) =>
-			x.methods.length + sum!SumTypeMemberAndMethodImpls(x.listedMembers, (in SumTypeMemberAndMethodImpls member) =>
+			x.methods.length +
+			sum!SumTypeMemberAndMethodImpls(x.listedMembers, (in SumTypeMemberAndMethodImpls member) =>
 				countFunsForSumTypeMember(x, *member.member.decl)));
 private size_t countFunsForSumTypeMemberships(in StructDecl a) =>
 	sum!SumTypeMembership(a.sumTypeMemberships, (in SumTypeMembership x) =>
@@ -440,10 +441,8 @@ void addFunsForRecordField(
 	}
 }
 
-bool fieldHasCaller(in CommonTypes commonTypes, Type fieldType) {
-	Opt!FunType optFunType = getFunType(commonTypes, fieldType);
-	return has(optFunType);
-}
+bool fieldHasCaller(Type fieldType) =>
+	has(getFunType(fieldType));
 
 void maybeAddFieldCaller(
 	ref CheckCtx ctx,
@@ -453,7 +452,7 @@ void maybeAddFieldCaller(
 	Type recordType,
 	RecordField* field,
 ) {
-	Opt!FunType optFunType = getFunType(commonTypes, field.type);
+	Opt!FunType optFunType = getFunType(field.type);
 	if (has(optFunType)) {
 		FunType funType = force(optFunType);
 		Params params = paramsForFieldCaller(ctx.alloc, commonTypes, recordType, funType.paramType);
