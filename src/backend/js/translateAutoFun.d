@@ -23,6 +23,7 @@ import backend.js.jsAst :
 	genBool,
 	genCallAwait,
 	genCallPropertySync,
+	genCallSync,
 	genConst,
 	genEqEqEq,
 	genIdentifier,
@@ -80,6 +81,7 @@ import util.col.array :
 import util.col.arrayBuilder : add, ArrayBuilder;
 import util.memory : allocate;
 import util.symbol : Symbol, symbol;
+import util.util : todo;
 
 JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, in AutoFun auto_) {
 	Source source = funSource(ctx.ctx, fun);
@@ -505,11 +507,13 @@ JsExpr genNewJson(ref TranslateModuleCtx ctx, in Source source, JsExpr[] pairs) 
 			translateFunReference(ctx, source, ctx.program.commonFuns.newJsonFromPairs.decl)),
 		pairs);
 JsExpr genJsonOfArray(ref TranslateModuleCtx ctx, in Source source, JsExpr array) =>
-	genCallPropertySync(
+	genCallSync(
 		ctx.alloc, source,
-		translateStructReference(ctx, source, jsonType(ctx)),
-		JsMemberName.unionConstructor(symbol!"array"),
-		[array]);
+		translateFunReference(ctx, source, ctx.program.commonFuns.toJsonFromTArray),
+		[
+			translateFunReference(ctx, source, ctx.program.commonFuns.toJsonFromJson.decl),
+			array,
+		]);
 JsExpr genJsonOfString(ref TranslateModuleCtx ctx, in Source source, JsExpr string_) =>
 	genCallPropertySync(
 		ctx.alloc, source,

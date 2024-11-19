@@ -66,8 +66,7 @@ import model.model :
 	TypeContainer,
 	TypeParamIndex,
 	TypeWithContainer,
-	VarDecl,
-	SumTypeKind;
+	VarDecl;
 import util.alloc.alloc : Alloc;
 import util.col.array : only;
 import util.conv : safeToUint;

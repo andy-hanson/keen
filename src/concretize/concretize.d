@@ -13,10 +13,12 @@ import concretize.concretizeCtx :
 	deferredFillRecordAndUnionBodies,
 	exceptionType,
 	finishConcreteVars,
-	finishVariantMembers,
+	finishSumTypeMembers,
+	getConcreteFun,
 	getNonTemplateConcreteFun,
 	getVar,
 	integralTypes,
+	jsonType,
 	symbolType,
 	symbolArrayType,
 	voidType;
@@ -85,6 +87,7 @@ ConcreteProgram concretizeInner(
 	CommonFuns commonFuns = program.program.commonFuns;
 	lateSet(ctx.createErrorFunction_, getNonTemplateConcreteFun(ctx, commonFuns.createError));
 	lateSet(ctx.newJsonFromPairsFunction_, getNonTemplateConcreteFun(ctx, commonFuns.newJsonFromPairs));
+	lateSet(ctx.toJsonFromJsonArrayFunction_, getConcreteFun(ctx, commonFuns.toJsonFromTArray, [jsonType(ctx)], [getNonTemplateConcreteFun(ctx, commonFuns.toJsonFromJson)]));
 	ConcreteCommonFuns concreteCommonFuns = ConcreteCommonFuns(
 		alloc: getNonTemplateConcreteFun(ctx, commonFuns.allocate),
 		curCatchPoint: getNonTemplateConcreteFun(ctx, commonFuns.curCatchPoint),
@@ -162,7 +165,7 @@ void finishLambdas(ref ConcretizeCtx ctx) {
 void finishVariants(ref ConcretizeCtx ctx) {
 	foreach (ConcreteStruct* variant, MutArr!ConcreteVariantMemberAndMethodImpls x; ctx.variantStructToMembers) {
 		if (!variant.body_.as!(ConcreteStructBody.Union).hasMembers) // It will already be set for a 'union'
-			finishVariantMembers(ctx, variant, x);
+			finishSumTypeMembers(ctx, variant, x);
 	}
 
 	foreach (ConcreteFun* fun; ctx.deferredMethods) {

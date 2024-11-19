@@ -25,7 +25,6 @@ import model.model :
 	ReturnAndParamTypes,
 	SpecInst,
 	stringOfVisibility,
-	StructBody,
 	StructInst,
 	SumTypeKind,
 	Type,

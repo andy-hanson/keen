@@ -23,18 +23,22 @@ import
 	./tuple: a, b, new
 
 | JSON data.
-+json union(null, bool, float64, string, json[], json[symbol])
++json union(null, bool, float64, string, json-array, json-object)
++json-array record(elements json[]) by-val
++== bool(a json-array, b json-array)
++json-object record(fields json[symbol]) by-val
++== bool(a json-object, b json-object)
+
 +== bool(a json, b json)
 
 +null record
 +== bool(a null, b null)
 
 +new json(...pairs (symbol, json)[])
-	pairs.to::json[symbol] to
+	pairs.to json-object
 
-# -----------------------------------------------------------------------------------------------------------------------------------
-#+to json(a json)
-#	a
++to json(a json)
+	a
 +to json(a char8)
 	a.to::string to
 +to json(a char32)
@@ -60,20 +64,20 @@ import
 +to json(a symbol)
 	a.to::string to
 +to[t] json(a t[]) (json, t) to
-	(for x : a; x to)::json[] to
+	(for x : a; x to) json-array
 +to[t] json(a t mut[]) (json, t) to
-	(for x : a; x to)::json[] to
+	(for x : a; x to) json-array
 +to[t] json(a t set) (json, t) to, t key
-	(for x : a; x to)::json[] to
+	(for x : a; x to) json-array
 +to[k, v] json(a v[k]) k key, (symbol, k) to, (json, v) to
-	(for k, v : a; k.to, v.to)::json[symbol] to
+	(for k, v : a; k.to, v.to) json-object
 to json(a index-set)
-	(for x : a; x to)::json[] to
+	(for x : a; x to) json-array
 +to[t] json(a t?) (json, t) to
 	if x ?= a
-		(x.to,)::json[] to
+		(x.to,) json-array
 +to[t, u] json(a (t, u)) (json, t) to, (json, u) to
-	(a.a to, a.b to)::json[] to
+	(a.a to, a.b to) json-array
 +to json(a comparison)
 +to[t, u] json(a (t, u) result) (json, t) to, (json, u) to
 	match a
@@ -94,12 +98,12 @@ to json(a index-set)
 | Most code does not care about this distinction.
 | If you do, you can test `if obj ?= {a} object` or `if {key} in a`.
 +subscript json(a json, key symbol)
-	a.map?[key] ?? null
+	a.json-object?.fields?[key] ?? null
 
 | {true} if {a} is an object and {key} is one of its keys.
 +in bool(key symbol, a json)
-	if obj ?= a map
-		key in obj
+	if obj ?= a json-object
+		key in obj.fields
 
 | `a bool-or-null` is like `a bool`, but treats {null} as {false}.
 +bool-or-null bool?(a json)
@@ -107,13 +111,13 @@ to json(a index-set)
 
 | `a array-or-null` is like `a array`, but treats {null} as an empty array.
 +array-or-null json[]?(a json)
-	a == null ? (), : a array
+	a == null ? (), : a.json-array?.elements
 
 +json json grammar()
 	spaces ~~ json-inner ~~ spaces
 -json-inner json grammar()
 	with : lazy
-		(json-object map x => x to) / (json-array map x => x to) / json-primitive
+		(json-object map x => x to) / (json-array map x => x json-array) / json-primitive
 -json-object json[symbol] grammar()
 	quoted-symbol symbol grammar = quoted-string map s => s.to
 	pair (symbol, json) grammar = quoted-symbol ~~ spaces ~~ ":" ~~ spaces ~~ json
@@ -127,7 +131,7 @@ to json(a index-set)
 	(quoted-string map x => x.to) / (float map x => x.to) / literal
 
 +to[t] t[](a json) (t, json) to
-	for x : a array!
+	for x : a.json-array! elements
 		x to
 
 +to nat64(a json) bare
@@ -144,11 +148,11 @@ to json(a index-set)
 		"{f}"
 	as string s
 		s quote
-	as array xs
-		parts = "," join for x : xs; "{x}"
+	as json-array xs
+		parts = "," join for x : xs.elements; "{x}"
 		"[{parts}]"
-	as map o
-		parts = "," join for k, v : o
+	as json-object o
+		parts = "," join for k, v : o fields
 			"{k.to quote}:{v}"
 		"\{{parts}}"
 
@@ -163,11 +167,11 @@ to json(a index-set)
 		x as-js
 	as string x
 		x as-js
-	as array xs
-		(for x : xs; x to)::js-any[] as-js
-	as map x
+	as json-array xs
+		(for x : xs.elements; x to)::js-any[] as-js
+	as json-object x
 		res = "Object".js-global call-new
-		for key, value : x
+		for key, value : x fields
 			res[key to] := value
 		res
 

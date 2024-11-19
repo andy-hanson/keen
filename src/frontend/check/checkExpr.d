@@ -135,7 +135,6 @@ import model.model :
 	emptySpecs,
 	emptyTypeParams,
 	EnumMember,
-	EnumOrFlagsMember,
 	Expr,
 	ExprAndType,
 	ExprKind,
@@ -176,7 +175,6 @@ import model.model :
 	MatchSumTypeCase,
 	MatchSumTypeExpr,
 	Mutability,
-	nameOfEnumOrFlagsMember,
 	paramsArray,
 	Purity,
 	purityRange,
@@ -223,7 +221,6 @@ import util.col.array :
 import util.col.arrayBuilder : buildArray, Builder;
 import util.col.enumMap : EnumMap, makeEnumMap;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, newExactSizeArrayBuilder, smallFinish;
-import util.col.hashTable : HashTable;
 import util.col.tempSet : TempSet, tryAdd, withTempSet;
 import util.conv : powerOf10, safeToUshort, toLongWithOverflow;
 import util.integralValues : IntegralValue;
@@ -235,7 +232,7 @@ import util.symbol : prependSet, prependSetDeref, stringOfSymbol, Symbol, symbol
 import util.symbolSet : buildSymbolSet, SymbolSet, SymbolSetBuilder;
 import util.unicode : decodeAsSingleUnicodeChar;
 import util.union_ : Union;
-import util.util : castImmutable, castNonScope_ref, ptrTrustMe, todo;
+import util.util : castImmutable, castNonScope_ref, ptrTrustMe;
 import util.writer : withStackWriterCString, Writer;
 
 Expr checkFunctionBody(

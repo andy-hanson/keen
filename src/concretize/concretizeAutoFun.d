@@ -259,16 +259,12 @@ ConcreteExpr concretizeEnumToSymbol(ref ConcretizeExprCtx ctx) =>
 		symbolForEnumMember(ctx.concretizeCtx, ctx.curFun.returnType, ctx.curFun.range, x));
 
 ConcreteExpr concretizeFlagsToJson(ref ConcretizeExprCtx ctx) {
-	ConcreteType json = ctx.curFun.returnType;
-	ConcreteType[] members = mustBeByVal(json).body_.as!(ConcreteStructBody.Union).members;
-	size_t memberIndex = 4;
-	ConcreteType jsonArrayType = members[memberIndex];
-	assert(isArrayOrMutArray(*mustBeByVal(jsonArrayType)));
-	return genCreateUnion(ctx.alloc, ctx.curFun.returnType, ctx.curFun.range, memberIndex,
+	ConcreteFun* to = ctx.concretizeCtx.toJsonFromJsonArrayFunction;
+	ConcreteType jsonArrayType = only(to.params).type;
+	return genCall(ctx.alloc, ctx.curFun.range, to, [
 		concretizeFlagsToArray(ctx, jsonArrayType, (ref EnumOrFlagsMember member) =>
-			constantJsonString(ctx.concretizeCtx, ctx.curFun.returnType, member.name)));
+			constantJsonString(ctx.concretizeCtx, ctx.curFun.returnType, member.name))]);
 }
-
 
 Constant constantJsonString(ref ConcretizeCtx ctx, ConcreteType jsonType, Symbol value) {
 	ConcreteType[] members = mustBeByVal(jsonType).body_.as!(ConcreteStructBody.Union).members;

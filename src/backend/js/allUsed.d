@@ -509,10 +509,9 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 					case AutoFun.Kind.symbolToOptEnumOrFlags:
 						break;
 					case AutoFun.Kind.toJson:
-						trackAllUsedInCalled(
-							res, a.moduleUri, FunOrTest(a),
-							Called(res.program.commonFuns.newJsonFromPairs),
-							FunUse.regular);
+						trackAllUsedInFun(res, a.moduleUri, res.program.commonFuns.toJsonFromTArray, FunUse.regular);
+						foreach (FunInst* f; [res.program.commonFuns.toJsonFromJson, res.program.commonFuns.newJsonFromPairs])
+							trackAllUsedInCalled(res, a.moduleUri, FunOrTest(a), Called(f), FunUse.regular);
 						break;
 				}
 				usedReturnType();

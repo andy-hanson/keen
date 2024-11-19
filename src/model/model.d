@@ -2269,6 +2269,8 @@ immutable struct CommonFuns {
 	EnumMap!(FunKind, FunDecl*) lambdaSubscript;
 	FunDecl* sharedOfMutLambda;
 	FunInst* mark;
+	FunInst* toJsonFromJson;
+	FunDecl* toJsonFromTArray;
 	FunInst* newJsonFromPairs;
 	FunInst* runFiber;
 	FunInst* runAllTests;

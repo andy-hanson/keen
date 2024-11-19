@@ -52,7 +52,7 @@ import model.lowModel :
 	PointerTypeAndConstantsLow,
 	PrimitiveType,
 	UpdateParam;
-import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinTernary, BuiltinType, BuiltinUnary, isLambda, TypeSize;
+import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinTernary, BuiltinUnary, isLambda, TypeSize;
 import model.showLowModel : writeFunSig;
 import model.typeLayout : sizeOfType, typeSizeBytes;
 import util.alloc.alloc : Alloc, TempAlloc;

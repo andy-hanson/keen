@@ -5,24 +5,20 @@ module concretize.concretizeCtx;
 import concretize.allConstantsBuilder : AllConstantsBuilder, getConstantArray, getConstantCString, getConstantSymbol;
 import concretize.concretizeAutoFun : concretizeAutoFun, concretizeFlagsFunction;
 import concretize.concretizeExpr :
-	concretizeBogus,
-	concretizeBogusKind,
-	ConcretizeExprCtx,
-	concretizeFunBody,
-	getConcreteFunFromCalled,
-	ensureVariantMember,
-	withConcretizeExprCtx;
+	concretizeBogus, concretizeBogusKind, ConcretizeExprCtx, concretizeFunBody, withConcretizeExprCtx;
 import concretize.generate :
 	fieldIndexFromField,
 	genConstant,
 	genCreateRecord,
 	genCreateUnion,
 	genLocalGet,
+	genNone,
 	genRecordFieldCall,
 	genRecordFieldGet,
 	genRecordFieldPointer,
 	genRecordFieldSet,
 	genSeq,
+	genSome,
 	genStringLiteralKind,
 	genUnionMemberGet,
 	unwrapOptionType;
@@ -58,6 +54,7 @@ import model.model :
 	BuiltinFun,
 	BuiltinType,
 	Called,
+	CalledSpecSig,
 	CommonFuns,
 	CommonTypes,
 	Destructure,
@@ -94,18 +91,21 @@ import model.model :
 	VarDecl,
 	SumTypeKind,
 	SumTypeMemberAndMethodImpls,
+	SumTypeMembership,
 	worsePurity;
 import util.alloc.alloc : Alloc;
-import util.alloc.stackAlloc : withMapToStackArray;
+import util.alloc.stackAlloc : withMapOrNoneToStackArray, withMapToStackArray;
 import util.col.array :
 	emptySmallArray,
 	every,
 	exists,
 	fold,
+	indexOf,
 	isEmpty,
 	map,
 	mapPointers,
 	maxBy,
+	mustFindOnly,
 	newSmallArray,
 	only,
 	onlyPointer,
@@ -115,12 +115,12 @@ import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder;
 import util.col.enumMap : EnumMap, makeEnumMap;
 import util.col.hashTable : getOrAdd, getOrAddAndDidAdd, moveToArray, MutHashTable;
 import util.col.map : mustGet;
-import util.col.mutArr : asTemporaryArray, filterUnordered, mapToMutArr, MutArr, mutArrIsEmpty, push;
+import util.col.mutArr : asTemporaryArray, filterUnordered, findIndexOrPush, mapToMutArr, MutArr, mutArrIsEmpty, push;
 import util.col.mutMap : getOrAddAndDidAdd, mustAdd, mustGet, MutMap, ValueAndDidAdd;
 import util.integralValues : IntegralValue;
 import util.late : Late, late, lateGet, lateSet, lazilySet;
 import util.memory : allocate;
-import util.opt : force, has, none, Opt, optOrDefault;
+import util.opt : force, has, none, Opt, optOrDefault, some;
 import util.sourceRange : UriAndRange;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : SymbolSet;
@@ -176,6 +176,7 @@ struct ConcretizeCtx {
 	SymbolSet allExterns;
 	Late!(ConcreteFun*) createErrorFunction_;
 	Late!(ConcreteFun*) newJsonFromPairsFunction_;
+	Late!(ConcreteFun*) toJsonFromJsonArrayFunction_;
 	AllConstantsBuilder allConstants;
 	MutHashTable!(ConcreteStruct*, ConcreteStructSource.Inst, getStructKey) nonLambdaConcreteStructs;
 	ArrayBuilder!(ConcreteStruct*) allConcreteStructs;
@@ -211,6 +212,8 @@ struct ConcretizeCtx {
 		program.commonTypes;
 	ConcreteFun* newJsonFromPairsFunction() return scope const =>
 		lateGet(newJsonFromPairsFunction_);
+	ConcreteFun* toJsonFromJsonArrayFunction() return scope const =>
+		lateGet(toJsonFromJsonArrayFunction_);
 	ConcreteFun* createErrorFunction() return scope const =>
 		lateGet(createErrorFunction_);
 }
@@ -220,7 +223,7 @@ immutable struct ConcreteLambdaImpl {
 	ConcreteFun* impl;
 }
 
-immutable struct ConcreteVariantMemberAndMethodImpls {
+immutable struct ConcreteVariantMemberAndMethodImpls { // rename -----------------------------------------------------------
 	@safe @nogc pure nothrow:
 
 	ConcreteType memberType;
@@ -254,6 +257,9 @@ private ConcreteType bogusType(ref ConcretizeCtx a) =>
 ConcreteType boolType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._boolType, () =>
 		getConcreteType_forStructInst(a, a.commonTypes.bool_, emptySmallArray!ConcreteType));
+
+ConcreteType jsonType(ref ConcretizeCtx a) =>
+	a.newJsonFromPairsFunction.returnType;
 
 ConcreteType voidType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._voidType, () =>
@@ -390,7 +396,7 @@ private ConcreteType getConcreteType_forStructInst(
 					return res;
 				});
 		if (res.didAdd) {
-			initializeConcreteStruct(ctx, *inst, res.value, typeArgsScope, small!ConcreteType(typeArgs));
+			initializeConcreteStruct(ctx, *inst, res.value, small!ConcreteType(typeArgs));
 			if (isLambdaType(*decl))
 				mustAdd(ctx.alloc, ctx.lambdaStructToImpls, res.value, MutArr!ConcreteLambdaImpl());
 		}
@@ -463,7 +469,57 @@ private void setConcreteStructRecordSize(ref Alloc alloc, ConcreteStruct* a) {
 	a.fieldOffsets = size.fieldOffsets;
 }
 
+Opt!(ConcreteFun*) getConcreteFunFromCalled(
+	ref ConcretizeCtx ctx,
+	in TypeArgsScope typeScope,
+	in SpecsScope specsScope,
+	Called called,
+) =>
+	called.matchWithPointers!(Opt!(ConcreteFun*))(
+		(Called.Bogus*) =>
+			none!(ConcreteFun*),
+		(FunInst* funInst) =>
+			getConcreteFunFromFunInst(ctx, typeScope, specsScope, funInst),
+		(CalledSpecSig specSig) =>
+			some(getSpecSigImplementation(ctx, typeScope, specsScope, specSig)));
+
 private:
+
+Opt!(ConcreteFun*) getConcreteFunFromFunInst(
+	ref ConcretizeCtx ctx,
+	in TypeArgsScope typeScope,
+	in SpecsScope specsScope,
+	FunInst* funInst,
+) =>
+	withMapOrNoneToStackArray!(ConcreteFun*, immutable ConcreteFun*, Called)(
+		funInst.specImpls,
+		(ref Called x) => getConcreteFunFromCalled(ctx, typeScope, specsScope, x),
+		(scope immutable ConcreteFun*[] specImpls) =>
+			withConcreteTypes(ctx, funInst.typeArgs, typeScope, (scope ConcreteType[] typeArgs) =>
+				getConcreteFun(ctx, funInst.decl, typeArgs, specImpls)));
+
+ConcreteFun* getSpecSigImplementation(
+	in ConcretizeCtx ctx,
+	in TypeArgsScope typeScope,
+	in SpecsScope specsScope,
+	CalledSpecSig specSig,
+) {
+	size_t index = 0;
+	foreach (SpecInst* x; specsScope.specs)
+		if (searchSpecSigIndexRecur(index, x, specSig.specInst))
+			return specsScope.specImpls[index + specSig.sigIndex];
+	assert(false);
+}
+bool searchSpecSigIndexRecur(ref size_t index, in SpecInst* inst, in SpecInst* search) {
+	foreach (SpecInst* parent; inst.parents) {
+		if (searchSpecSigIndexRecur(index, parent, search))
+			return true;
+	}
+	if (inst == search)
+		return true;
+	index += inst.decl.sigs.length;
+	return false;
+}
 
 ConcreteFun* getConcreteFunFromKey(ref ConcretizeCtx ctx, ConcreteFunKey key) {
 	TypeArgsScope typeScope = key.typeArgs;
@@ -614,8 +670,6 @@ void initializeConcreteStruct(
 	ref ConcretizeCtx ctx,
 	in StructInst inst,
 	ConcreteStruct* res,
-	in TypeArgsScope typeArgsScope, // TODO: I think we should never use this. Always use typeArgs which is fully instantiatde!
-	// TODO: this is confusing. We get 'typeArgs' by applying 'typeArgsScope' to the 'typeArgs' of the struct ..........................
 	in SmallArray!ConcreteType typeArgs,
 ) {
 	inst.decl.body_.match!void(
@@ -656,48 +710,72 @@ void initializeConcreteStruct(
 		(StructBody.SumType x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
 			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Union()), false);
-			// Always defer since we need to wait to know all variant members (TODO: we could do it up front for unions ... sometimes ..............)
 			push(ctx.alloc, ctx.deferredTypeSize, res);
 			mustAdd(ctx.alloc, ctx.variantStructToMembers, res, mapToMutArr!(ConcreteVariantMemberAndMethodImpls, SumTypeMemberAndMethodImpls)(
 				ctx.alloc,
 				x.listedMembers,
 				(ref SumTypeMemberAndMethodImpls member) {
-					import util.writer : debugLogWithWriter, Writer; // -00000000000000000000000000000000000000000000000000000000
-					//debugLogWithWriter((scope ref Writer writer) {
-					//	writer ~= "in init for member ";
-					//	writer ~= member.member.decl.name;
-					//	writer ~= ", typeArgsScope.length is ";
-					//	writer ~= typeArgsScope.length;
-					//	writer ~= ", typeArgs.length is ";
-					//	writer ~= typeArgs.length;
-					//});
 					ConcreteType memberType = getConcreteType_forStructInst(ctx, member.member, typeArgs);
-					//debugLogWithWriter((scope ref Writer writer) {
-					//	writer ~= "in init, memberType is ";
-					//	writeConcreteType(writer, memberType);
-					//});
 					ConcreteVariantMemberAndMethodImpls res = ConcreteVariantMemberAndMethodImpls(memberType);
-					res.methodImpls = sumTypeMethodImplsInner(ctx, member.methodImpls, typeArgs); // TODO: is this the right type args? 
+					res.methodImpls = sumTypeMethodImplsCommon(ctx, member.methodImpls, typeArgs);
 					return res;
 				}));
 			if (x.kind == SumTypeKind.union_)
-				// TODO: this still leaves 'variantStructToMembers' around, because we need it for 'ensureVariantMember'. Could that be smarter?
-				// (But we do need to worry about method impls too)
-				finishVariantMembers(ctx, res, mustGet(ctx.variantStructToMembers, res));
+				finishSumTypeMembers(ctx, res, mustGet(ctx.variantStructToMembers, res));
 		});
 }
 
-public void finishVariantMembers(ref ConcretizeCtx ctx, ConcreteStruct* variant, ref MutArr!ConcreteVariantMemberAndMethodImpls x) {
+public size_t ensureSumTypeCase(ref ConcretizeCtx ctx, ConcreteType sumType, ConcreteType caseType) {
+	ref ConcreteStructBody.Union body_() => mustBeByVal(sumType).body_.as!(ConcreteStructBody.Union);
+	return body_.hasMembers
+		? force(indexOf!ConcreteType(body_.members, caseType))
+		: findIndexOrPush!ConcreteVariantMemberAndMethodImpls(
+			ctx.alloc,
+			mustGet(ctx.variantStructToMembers, mustBeByVal(sumType)),
+			(in ConcreteVariantMemberAndMethodImpls member) => member.memberType == caseType,
+			() => ConcreteVariantMemberAndMethodImpls(caseType),
+			(ref ConcreteVariantMemberAndMethodImpls x) {
+				x.methodImpls = sumTypeMembershipMethodImpls(ctx, sumType, caseType);
+			});
+}
+
+public void finishSumTypeMembers(
+	ref ConcretizeCtx ctx,
+	ConcreteStruct* variant,
+	ref MutArr!ConcreteVariantMemberAndMethodImpls x,
+) {
 	variant.body_.as!(ConcreteStructBody.Union).members =
 		small!ConcreteType(map(ctx.alloc, asTemporaryArray(x), (ref ConcreteVariantMemberAndMethodImpls x) =>
 			x.memberType));
 }
 
-SmallArray!(Opt!(ConcreteFun*)) sumTypeMethodImplsInner(ref ConcretizeCtx ctx, in SmallArray!(Opt!Called) methodImpls, in TypeArgsScope typeArgs) =>
+SmallArray!(Opt!(ConcreteFun*)) sumTypeMembershipMethodImpls(
+	ref ConcretizeCtx ctx,
+	ConcreteType sumType,
+	ConcreteType memberType,
+) {
+	StructDecl* sumTypeDecl = mustBeByVal(sumType).source.as!(ConcreteStructSource.Inst).decl;
+	ConcreteStructSource.Inst memberSource = memberType.struct_.source.as!(ConcreteStructSource.Inst);
+	SumTypeMembership membership = mustFindOnly!SumTypeMembership(
+		memberSource.decl.sumTypeMemberships, (ref SumTypeMembership x) =>
+			x.sumType.decl == sumTypeDecl);
+	return sumTypeMethodImplsCommon(ctx, membership.methodImpls, memberSource.typeArgs);
+}
+
+SmallArray!(Opt!(ConcreteFun*)) sumTypeMethodImplsCommon(
+	ref ConcretizeCtx ctx,
+	in SmallArray!(Opt!Called) methodImpls,
+	in TypeArgsScope typeArgs,
+) =>
 	map!(Opt!(ConcreteFun*), Opt!Called)(ctx.alloc, methodImpls, (ref Opt!Called x) =>
 		has(x) ? getConcreteFunFromCalled(ctx, typeArgs, SpecsScope(), force(x)) : none!(ConcreteFun*));
 
-void initializeConcreteStructForBuiltin(ref ConcretizeCtx ctx, ConcreteStruct* struct_, in SmallArray!ConcreteType typeArgs, BuiltinType type) {
+void initializeConcreteStructForBuiltin(
+	ref ConcretizeCtx ctx,
+	ConcreteStruct* struct_,
+	in SmallArray!ConcreteType typeArgs,
+	BuiltinType type,
+) {
 	struct_.defaultReferenceKind = ReferenceKind.byVal;
 	switch (type) {
 		case BuiltinType.lambdaData:
@@ -779,16 +857,7 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 			withConcretizeExprCtx(ctx, cf, (ref ConcretizeExprCtx exprCtx) =>
 				ConcreteFunBody(concretizeAutoFun(exprCtx, x))),
 		(BuiltinFun x) =>
-			// TODO: break out to a fn ----------------------------------------------------------------------------------------------------
-			x.isA!(BuiltinFun.AllTests)
-				? bodyForAllTests(ctx, cf.returnType)
-				: x.isA!(BuiltinFun.NewEmptyOption)
-				? ConcreteFunBody(ConcreteExpr(cf.returnType, cf.range, ConcreteExprKind(
-					allocate(ctx.alloc, ConcreteExprKind.CreateUnion(0, constantVoid(ctx, cf.range)))))) // TODO: use a helper fn?
-				: x.isA!(BuiltinFun.NewNonEmptyOption)
-				? ConcreteFunBody(ConcreteExpr(cf.returnType, cf.range, ConcreteExprKind(
-					allocate(ctx.alloc, ConcreteExprKind.CreateUnion(1, genLocalGet(cf.range, &only(concreteParams))))))) // TODO: use a helper fn
-				: ConcreteFunBody(ConcreteFunBody.Builtin(x, cf.source.as!ConcreteFunKey.typeArgs)),
+			concretizeBuiltinFun(ctx, cf, concreteParams, x),
 		(FunBody.CreateEnumOrFlags x) =>
 			ConcreteFunBody(genConstant(cf.returnType, cf.range, Constant(IntegralValue(x.member.value.value)))),
 		(FunBody.CreateExtern) =>
@@ -799,7 +868,7 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 				: ConcreteFunBody(genCreateRecordFromParams(ctx.alloc, cf.returnType, cf.range, concreteParams)),
 		(FunBody.CreateRecordAndConvertToSumType x) {
 			ConcreteType memberType = getConcreteType(ctx, Type(x.member), cf.source.as!ConcreteFunKey.typeArgs);
-			size_t memberIndex = ensureVariantMember(ctx, cf.returnType, memberType);
+			size_t memberIndex = ensureSumTypeCase(ctx, cf.returnType, memberType);
 			return isEmpty(concreteParams)
 				? ConcreteFunBody(genConstantUnionEmptyMemberType(ctx.alloc, cf.returnType, cf.range, memberIndex))
 				: ConcreteFunBody(genCreateUnion(
@@ -807,7 +876,7 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 					genCreateRecordFromParams(ctx.alloc, memberType, cf.range, concreteParams)));
 		},
 		(FunBody.CreateSumType x) =>
-			createUnionBody(ctx.alloc, cf, ensureVariantMember(
+			createUnionBody(ctx.alloc, cf, ensureSumTypeCase(
 				ctx, cf.returnType, isEmpty(concreteParams) ? voidType(ctx) : only(concreteParams).type)),
 		(Expr x) =>
 			ConcreteFunBody(concretizeFunBody(ctx, cf, params, x)),
@@ -845,14 +914,27 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, in Destructure[] params, Concr
 		(FunBody.SumTypeMemberGet x) =>
 			genUnionMemberGet(
 				ctx, cf,
-				ensureVariantMember(
-					ctx, only(concreteParams).type, unwrapOptionType(ctx, cf.returnType))),
+				ensureSumTypeCase(ctx, only(concreteParams).type, unwrapOptionType(ctx, cf.returnType))),
 		(FunBody.VarGet x) =>
 			ConcreteFunBody(ConcreteFunBody.VarGet(getVar(ctx, x.var))),
 		(FunBody.VarSet x) =>
 			ConcreteFunBody(ConcreteFunBody.VarSet(getVar(ctx, x.var))));
 	cf.overwriteBody(body_);
 }
+
+ConcreteFunBody concretizeBuiltinFun(
+	ref ConcretizeCtx ctx,
+	ConcreteFun* cf,
+	ConcreteLocal[] concreteParams,
+	BuiltinFun a,
+) =>
+	a.isA!(BuiltinFun.AllTests)
+		? bodyForAllTests(ctx, cf.returnType)
+		: a.isA!(BuiltinFun.NewEmptyOption)
+		? ConcreteFunBody(genNone(ctx, cf.returnType, cf.range))
+		: a.isA!(BuiltinFun.NewNonEmptyOption)
+		? ConcreteFunBody(genSome(ctx, cf.returnType, cf.range, genLocalGet(cf.range, &only(concreteParams))))
+		: ConcreteFunBody(ConcreteFunBody.Builtin(a, cf.source.as!ConcreteFunKey.typeArgs));
 
 ConcreteExpr genCreateRecordFromParams(
 	ref Alloc alloc,

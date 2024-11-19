@@ -6,7 +6,7 @@ import frontend.check.checkCtx : CommonModule;
 import frontend.check.funsForStruct : funDeclWithBody;
 import frontend.check.getCommonTypes : bogusStructDecl;
 import frontend.check.inferringType : typesAreCorrespondingStructInsts;
-import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateStruct;
+import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateFunB, instantiateStruct;
 import frontend.lang : MainKind;
 import model.ast : DocCommentAst, ModifierAst, NameAndRange, VarDeclAst, TypeAst;
 import model.diag : Diag, UriAndDiagnostic;
@@ -14,6 +14,7 @@ import model.model :
 	allExternsForMainConfig,
 	assertNonVariadic,
 	BuildTarget,
+	Called,
 	CommonFuns,
 	CommonFunsAndDiagnostics,
 	CommonTypes,
@@ -139,6 +140,10 @@ CommonFunsAndDiagnostics getCommonFuns(
 
 	ParamsShort.Variadic newJsonPairsParams = ParamsShort.Variadic(
 		param!"pairs"(symbolJsonTupleArray), symbolJsonTuple);
+
+	ParamShort[1] tArrayParam = [param!"a"(tArray)];
+	scope ParamsShort tArrayParams = ParamsShort(tArrayParam);
+
 	CommonFuns commonFuns = CommonFuns(
 		jsAwait: getFun(CommonModule.js,symbol!"await", jsAny, [param!"a"(jsAny)]),
 		curCatchPoint: getFun(CommonModule.exceptionLowLevel, symbol!"cur-catch-point", catchPointConstPointer, []),
@@ -164,6 +169,11 @@ CommonFunsAndDiagnostics getCommonFuns(
 			symbol!"mark",
 			boolType,
 			[param!"ctx"(markCtxType), param!"pointer"(nat8ConstPointerType), param!"size-bytes"(nat64Type)]),
+		toJsonFromJson: getFun(CommonModule.json, symbol!"to", jsonType, [param!"a"(jsonType)]),
+		toJsonFromTArray: getFunDecl(
+			alloc, diagsBuilder, *modules[CommonModule.json],
+			symbol!"to",
+			TypeParamsAndSig(oneTypeParam, jsonType, tArrayParams, countSpecs: 1)),
 		newJsonFromPairs: instantiateNonTemplateFun(ctx, getFunDecl(
 			alloc, diagsBuilder, *modules[CommonModule.json], symbol!"new",
 			TypeParamsAndSig(emptyTypeParams, jsonType, ParamsShort(&newJsonPairsParams), countSpecs: 0))),

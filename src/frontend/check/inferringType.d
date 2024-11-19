@@ -46,7 +46,6 @@ import util.col.array :
 	zip,
 	zipEvery;
 import util.col.arrayBuilder : add, ArrayBuilder, arrayBuilderIsEmpty, asTemporaryArray, finish;
-import util.col.enumMap : enumMapFindKey;
 import util.memory : allocate;
 import util.opt : has, force, MutOpt, none, noneMut, Opt, optIf, optOrDefault, some, someInout, someMut;
 import util.union_ : TaggedUnion;

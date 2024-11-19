@@ -7,21 +7,21 @@ import concretize.concretizeCtx :
 	boolType,
 	ConcreteLambdaImpl,
 	concreteTypeFromClosure,
-	ConcreteVariantMemberAndMethodImpls,
 	ConcretizeCtx,
 	concretizeLambdaParams,
 	constantCString,
 	constantSymbol,
+	ensureSumTypeCase,
 	exceptionType,
-	getConcreteType_fromConcretizeCtx = getConcreteType,
-	getConcreteFunForLambda,
 	getConcreteFun,
+	getConcreteFunForLambda,
+	getConcreteFunFromCalled,
+	getConcreteType_fromConcretizeCtx = getConcreteType,
 	getReferencedType,
 	SpecsScope,
 	specsScopeForFun,
 	typeArgsScopeForFun,
 	TypeArgsScope,
-	sumTypeMethodImplsInner,
 	voidType,
 	withConcreteTypes;
 import concretize.constantsOrExprs : asConstantsOrExprs, ConstantsOrExprs;
@@ -133,25 +133,21 @@ import model.model :
 	RecordFieldPointerExpr,
 	SeqExpr,
 	SpecInst,
-	StructDecl,
 	ThrowExpr,
 	TrustedExpr,
 	TryExpr,
 	TryLetExpr,
 	Type,
 	TypedExpr,
-	VariableRef,
-	SumTypeMembership;
+	VariableRef;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapOrNoneToStackArray;
 import util.col.array :
-	indexOf,
 	isEmpty,
 	map,
 	mapWithFirst,
 	mapZip,
 	mustFind,
-	mustFindOnly,
 	mustFindPointer,
 	newArray,
 	newSmallArray,
@@ -160,7 +156,7 @@ import util.col.array :
 	sizeEq,
 	small,
 	SmallArray;
-import util.col.mutArr : findIndexOrPush, MutArr, mutArrSize, push;
+import util.col.mutArr : MutArr, mutArrSize, push;
 import util.col.mutMap : mustGet;
 import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
 import util.integralValues : IntegralValue, IntegralValues, integralValuesRange, mapToIntegralValues;
@@ -424,58 +420,8 @@ ConstantsOrExprs asConstantsOrExprsIf(ref Alloc alloc, bool mayBeConstants, Conc
 		? asConstantsOrExprs(alloc, exprs)
 		: ConstantsOrExprs(exprs);
 
-// TODO: this doesn't really belong in concretizeExpr either -------------------------------------------------------------------------
 public Opt!(ConcreteFun*) getConcreteFunFromCalled(ref ConcretizeExprCtx ctx, Called called) =>
-	getConcreteFunFromCalled(ctx.concretizeCtx, typeScope(ctx), specsScope(ctx), called);
-public Opt!(ConcreteFun*) getConcreteFunFromCalled(
-	ref ConcretizeCtx ctx,
-	in TypeArgsScope typeScope,
-	in SpecsScope specsScope,
-	Called called,
-) =>
-	called.matchWithPointers!(Opt!(ConcreteFun*))(
-		(Called.Bogus*) =>
-			none!(ConcreteFun*),
-		(FunInst* funInst) =>
-			getConcreteFunFromFunInst(ctx, typeScope, specsScope, funInst),
-		(CalledSpecSig specSig) =>
-			some(getSpecSigImplementation(ctx, typeScope, specsScope, specSig)));
-
-ConcreteFun* getSpecSigImplementation(
-	in ConcretizeCtx ctx,
-	in TypeArgsScope typeScope,
-	in SpecsScope specsScope,
-	CalledSpecSig specSig,
-) {
-	size_t index = 0;
-	foreach (SpecInst* x; specsScope.specs)
-		if (searchSpecSigIndexRecur(index, x, specSig.specInst))
-			return specsScope.specImpls[index + specSig.sigIndex];
-	assert(false);
-}
-bool searchSpecSigIndexRecur(ref size_t index, in SpecInst* inst, in SpecInst* search) {
-	foreach (SpecInst* parent; inst.parents) {
-		if (searchSpecSigIndexRecur(index, parent, search))
-			return true;
-	}
-	if (inst == search)
-		return true;
-	index += inst.decl.sigs.length;
-	return false;
-}
-
-Opt!(ConcreteFun*) getConcreteFunFromFunInst(
-	ref ConcretizeCtx ctx,
-	in TypeArgsScope typeScope,
-	in SpecsScope specsScope,
-	FunInst* funInst,
-) =>
-	withMapOrNoneToStackArray!(ConcreteFun*, immutable ConcreteFun*, Called)(
-		funInst.specImpls,
-		(ref Called x) => getConcreteFunFromCalled(ctx, typeScope, specsScope, x),
-		(scope immutable ConcreteFun*[] specImpls) =>
-			withConcreteTypes(ctx, funInst.typeArgs, typeScope, (scope ConcreteType[] typeArgs) =>
-				getConcreteFun(ctx, funInst.decl, typeArgs, specImpls)));
+	.getConcreteFunFromCalled(ctx.concretizeCtx, typeScope(ctx), specsScope(ctx), called);
 
 ConcreteExpr concretizeClosureGet(
 	ref ConcretizeExprCtx ctx,
@@ -639,34 +585,6 @@ size_t nextLambdaImplIdInner(ref Alloc alloc, ConcreteLambdaImpl impl, ref MutAr
 	size_t res = mutArrSize(impls);
 	push(alloc, impls, impl);
 	return res;
-}
-
-// TODO: this doesn't really belong in concretizeExpr ............................................................................... put near variantMethodImplsInner?
-public size_t ensureVariantMember( // rename -- ensureSumTypeMember --------------------------------------------------------------------------
-	ref ConcretizeCtx ctx,
-	ConcreteType sumType,
-	ConcreteType memberType,
-) {
-	ref ConcreteStructBody.Union body_() => mustBeByVal(sumType).body_.as!(ConcreteStructBody.Union);
-	return body_.hasMembers
-		? force(indexOf!ConcreteType(body_.members, memberType))
-		: findIndexOrPush!ConcreteVariantMemberAndMethodImpls(
-			ctx.alloc,
-			mustGet(ctx.variantStructToMembers, mustBeByVal(sumType)),
-			(in ConcreteVariantMemberAndMethodImpls member) => member.memberType == memberType,
-			() => ConcreteVariantMemberAndMethodImpls(memberType),
-			(ref ConcreteVariantMemberAndMethodImpls x) {
-				x.methodImpls = sumTypeMembershipMethodImpls(ctx, sumType, memberType);
-			});
-}
-
-SmallArray!(Opt!(ConcreteFun*)) sumTypeMembershipMethodImpls(ref ConcretizeCtx ctx, ConcreteType sumType, ConcreteType memberType) {
-	StructDecl* sumTypeDecl = mustBeByVal(sumType).source.as!(ConcreteStructSource.Inst).decl;
-	ConcreteStructSource.Inst memberSource = memberType.struct_.source.as!(ConcreteStructSource.Inst);
-	SumTypeMembership membership = mustFindOnly!SumTypeMembership(
-		memberSource.decl.sumTypeMemberships, (ref SumTypeMembership x) =>
-			x.sumType.decl == sumTypeDecl);
-	return sumTypeMethodImplsInner(ctx, membership.methodImpls, memberSource.typeArgs);
 }
 
 alias Locals = StackMap!(Local*, LocalOrConstant);
@@ -1075,7 +993,8 @@ ConcreteExpr concretizeMatchSumType(
 	if (isEmpty(a.cases)) return concretizeBogus(ctx, type, range);
 	ConcreteExpr matched = concretizeExpr(ctx, locals, a.matched);
 	ValuesAndCases vc = concretizeMatchSumTypeCases(ctx, type, range, locals, matched.type, a.cases);
-	Opt!(ConcreteExpr*) else_ = optIf(has(a.else_), () => allocate(ctx.alloc, concretizeExpr(ctx, type, locals, *force(a.else_))));
+	Opt!(ConcreteExpr*) else_ = optIf(has(a.else_), () =>
+		allocate(ctx.alloc, concretizeExpr(ctx, type, locals, *force(a.else_))));
 	return ConcreteExpr(type, range, ConcreteExprKind(
 		allocate(ctx.alloc, ConcreteExprKind.MatchUnion(matched, vc.values, vc.cases, else_))));
 }
@@ -1110,7 +1029,7 @@ IntegralValue memberIndexForMatchSumTypeCase(
 	ConcreteType variantType,
 	ref MatchSumTypeCase a,
 ) =>
-	IntegralValue(ensureVariantMember(ctx.concretizeCtx, variantType, getConcreteType(ctx, a.destructure.type)));
+	IntegralValue(ensureSumTypeCase(ctx.concretizeCtx, variantType, getConcreteType(ctx, a.destructure.type)));
 
 ConcreteExpr concretizeVariableRefForClosure(
 	ref ConcretizeExprCtx ctx,
