@@ -120,14 +120,17 @@ import util.uri : Uri;
 import util.util : ptrTrustMe;
 import versionInfo : isVersion, VersionInfo, VersionFun;
 
-immutable struct FunOrTest {
+immutable struct FunOrTest { // rename? ---------------------------------------------------------------------------------------------------
 	@safe @nogc pure nothrow:
-	mixin TaggedUnion!(FunDecl*, Test*);
+	// Signature* is for a method (TODO: we could use the caller function?)
+	mixin TaggedUnion!(FunDecl*, Signature*, Test*);
 
 	Uri moduleUri() scope =>
 		matchIn!Uri(
 			(in FunDecl x) =>
 				x.moduleUri,
+			(in Signature x) =>
+				assert(false),
 			(in Test x) =>
 				x.moduleUri);
 
@@ -135,6 +138,8 @@ immutable struct FunOrTest {
 		matchIn!Symbol(
 			(in FunDecl x) =>
 				x.name,
+			(in Signature x) =>
+				assert(false),
 			(in Test x) =>
 				x.name);
 }
@@ -230,13 +235,14 @@ private void eachNameReferentInImports(in Module module_, in void delegate(AnyDe
 bool isInlined(in Called a) =>
 	a.isA!(FunInst*) && bodyIsInlined(*a.as!(FunInst*).decl);
 bool bodyIsInlined(in FunDecl a) =>
-	!bodyIsNotInlined(a.body_);
-private bool bodyIsNotInlined(in FunBody a) =>
-	a.isA!AutoFun ||
-	a.isA!Expr ||
-	a.isA!(FunBody.FileImport) ||
-	a.isA!(FunBody.SumTypeMemberGet) ||
-	(a.isA!BuiltinFun && !isInlinedBuiltinFun(a.as!BuiltinFun));
+	!bodyIsNotInlined(a);
+private bool bodyIsNotInlined(in FunDecl a) =>
+	a.body_.isA!AutoFun ||
+	a.body_.isA!Expr ||
+	a.body_.isA!(FunBody.FileImport) ||
+	a.body_.isA!(FunBody.SumTypeMemberGet) ||
+	//(a.body_.isA!(FunBody.Method) && a.body_.as!(FunBody.Method).sumType(a).kind == SumTypeKind.union_) ||-----------------------
+	(a.body_.isA!BuiltinFun && !isInlinedBuiltinFun(a.body_.as!BuiltinFun));
 private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 	a.matchIn!bool(
 		(in BuiltinFun.AllTests) =>
@@ -552,7 +558,17 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 			(FlagsFunction _) {
 				usedReturnType();
 			},
-			(FunBody.Method) {},
+			(FunBody.Method x) {
+				StructBody.SumType sumType = x.sumType(*a);
+				size_t methodIndex = x.methodIndex(*a);
+				if (sumType.kind == SumTypeKind.union_) {
+					foreach (ref SumTypeMemberAndMethodImpls case_; sumType.listedMembers) {
+						Opt!Called impl = case_.methodImpls[methodIndex];
+						if (has(impl))
+							trackAllUsedInCalled(res, a.moduleUri, FunOrTest(a), force(impl), FunUse.regular);
+					}
+				}
+			},
 			(FunBody.RecordFieldCall) {
 				usedTuple(res, from, a.arity.as!uint - 1);
 			},
@@ -616,6 +632,9 @@ void trackAllUsedInCalledFunInst(
 	caller.matchWithPointers!void(
 		(FunDecl* x) {
 			add(res.alloc, res.funToCallers, calledDecl, x);
+		},
+		(Signature*) {
+			assert(false);
 		},
 		(Test*) {
 			// Do nothing for tests since they are all assumed async anyway

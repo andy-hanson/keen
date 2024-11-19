@@ -8,6 +8,7 @@ import backend.js.allUsed :
 	allUsed,
 	eachNameReferent,
 	eachStructAliasInImports,
+	FunOrTest,
 	isModuleUsed,
 	isUsedAnywhere,
 	isUsedInModule;
@@ -35,7 +36,6 @@ import backend.js.jsAst :
 	genIntegerUnsigned,
 	genNew,
 	genNotEqEq,
-	genNull,
 	genNumber,
 	genObject,
 	genPlus,
@@ -45,6 +45,7 @@ import backend.js.jsAst :
 	genString,
 	genThis,
 	genThrow,
+	genThrowBogus,
 	JsBinaryExpr,
 	JsBlockStatement,
 	JsClassDecl,
@@ -63,7 +64,9 @@ import backend.js.jsAst :
 	Shebang,
 	SyncOrAsync;
 import backend.js.sourceMap : JsAndMap, ModulePaths, Source;
+import backend.js.translateAutoFun : matchUnionMembers; // TODO: MOVE IT? ------------------------------------------------------------
 import backend.js.translateExpr : genAssertType, methodImpl, translateFunDecl, translateTest;
+import backend.js.translateExprCtx : genForceUnionMember, makeCallNoInlineWithSpread;
 import backend.js.translateModuleCtx :
 	aliasSource,
 	funSource,
@@ -849,6 +852,16 @@ void translateUnionDecl(
 		static bar(value) {
 			return new this({ bar: value })
 		}
+
+		m_method(...args) {
+			if ("foo" in this) {
+				return foo_method(this.foo)
+			} else if ("bar" in this) {
+				return bar_method(this.bar)
+			} else {
+				throw new Error("Invalid union value")
+			}
+		}
 	}
 	*/
 	JsName arg = JsName.specialLocal(symbol!"arg");
@@ -862,36 +875,49 @@ void translateUnionDecl(
 
 	foreach (ref SumTypeMemberAndMethodImpls member; asUnion(a)) {
 		out_ ~= () {
-			if (true) { // TODO: remove the other branch ----------------------------------------------------------------------------------------
-				JsName value = JsName.specialLocal(symbol!"value");
-				JsParams params = JsParams(newSmallArray!JsDestructure(ctx.alloc, [JsDestructure(value)]));
-				ArrayBuilder!JsStatement out_;
-				genAssertType(out_, ctx, source, *member.member, genIdentifier(source, value));
-				add(ctx.alloc, out_, genReturn(
-					ctx.alloc,
-					source,
-					genNew(ctx.alloc, source, genThis(source), [
-						genObject(
-							ctx.alloc, source,
-							JsMemberName.unionMember(member.name),
-							genIdentifier(source, value))])));
-				return genStaticMethod(
-					source,
-					SyncOrAsync.sync,
-					JsMemberName.unionConstructor(member.name),
-					params,
-					genBlockStatement(ctx.alloc, finish(ctx.alloc, out_)));
-			} else
-				return genField(
-					source,
-					JsClassMember.Static.static_,
-					JsMemberName.unionConstructor(member.name),
-					genNew(ctx.alloc, source, genThis(source), [
-						genObject(ctx.alloc, source, JsMemberName.unionMember(member.name), genNull(source))]));
+			JsName value = JsName.specialLocal(symbol!"value");
+			JsParams params = JsParams(newSmallArray!JsDestructure(ctx.alloc, [JsDestructure(value)]));
+			ArrayBuilder!JsStatement out_;
+			genAssertType(out_, ctx, source, *member.member, genIdentifier(source, value));
+			add(ctx.alloc, out_, genReturn(
+				ctx.alloc,
+				source,
+				genNew(ctx.alloc, source, genThis(source), [
+					genObject(
+						ctx.alloc, source,
+						JsMemberName.unionMember(member.name),
+						genIdentifier(source, value))])));
+			return genStaticMethod(
+				source,
+				SyncOrAsync.sync,
+				JsMemberName.unionConstructor(member.name),
+				params,
+				genBlockStatement(ctx.alloc, finish(ctx.alloc, out_)));
 		}();
 	}
 
-	// TODO: this will need to include the methods too? Or maybe those just compile to functions that do the match ---------------------
+	foreach (size_t methodIndex, ref Signature method; a.methods) {
+		JsName args = JsName.local(symbol!"args");
+		out_ ~= genInstanceMethod(source, SyncOrAsync.sync, JsMemberName.sumTypeMethod(method.name),
+			JsParams(emptySmallArray!JsDestructure, some!JsDestructure(JsDestructure(args))),
+			matchUnionMembers(ctx.alloc, source, asUnion(a), genThis(source), (size_t i, ref SumTypeMemberAndMethodImpls case_) {
+				Opt!Called called = case_.methodImpls[methodIndex];
+				if (has(called)) {
+					return genReturn(
+						ctx.alloc, source,
+						makeCallNoInlineWithSpread(
+							ctx, source, SyncOrAsync.sync, FunOrTest(&method),
+							force(called),
+							(scope ref Builder!JsExpr out_) {
+								out_ ~= genForceUnionMember(ctx.alloc, source, genThis(source), case_.member);
+							},
+							genIdentifier(source, args)));
+				} else {
+					return genThrowBogus(ctx.alloc, source);
+				}
+			}));
+	}
+
 }
 
 JsClassMember genConstructor(

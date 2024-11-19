@@ -95,7 +95,7 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 		(in Constant x) {
 			if (x.isA!(Constant.Record)) {
 				assert(mustBeByVal(type).body_.isA!(ConcreteStructBody.Record));
-			} 
+			}
 			// TODO: More checks
 		},
 		(in ConcreteExprKind.CreateArray x) {

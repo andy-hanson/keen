@@ -4,7 +4,6 @@ module util.col.enumMap;
 
 import std.meta : staticMap;
 import std.traits : EnumMembers;
-import util.opt : none, Opt, some;
 import util.util : assertNormalEnum;
 
 struct EnumMap(E, V) {
@@ -54,14 +53,6 @@ immutable(EnumMap!(E, V)) makeEnumMap(E, V)(in V delegate(E) @safe @nogc pure no
 EnumMap!(E, V) makeEnumMap_mut(E, V)(in V delegate(E) @safe @nogc pure nothrow cb) {
 	V getAt(E e)() => cb(e);
 	return EnumMap!(E, V)([staticMap!(getAt, EnumMembers!E)]);
-}
-
-Opt!E enumMapFindKey(E, V)(in EnumMap!(E, V) a, in bool delegate(in V) @safe @nogc pure nothrow cb) {
-	foreach (E e; cast(E) 0 .. cast(E) a.size) {
-		if (cb(a[e]))
-			return some(e);
-	}
-	return none!E;
 }
 
 @trusted EnumMap!(E, VOut) enumMapMapValues(E, VOut, VIn)(

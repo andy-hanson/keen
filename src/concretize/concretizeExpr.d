@@ -22,8 +22,7 @@ import concretize.concretizeCtx :
 	specsScopeForFun,
 	typeArgsScopeForFun,
 	TypeArgsScope,
-	voidType,
-	withConcreteTypes;
+	voidType;
 import concretize.constantsOrExprs : asConstantsOrExprs, ConstantsOrExprs;
 import concretize.generate :
 	genAnd,
@@ -93,7 +92,6 @@ import model.model :
 	BuiltinFun,
 	BuiltinUnary,
 	Called,
-	CalledSpecSig,
 	CallExpr,
 	CallOptionExpr,
 	ClosureGetExpr,
@@ -132,7 +130,6 @@ import model.model :
 	Purity,
 	RecordFieldPointerExpr,
 	SeqExpr,
-	SpecInst,
 	ThrowExpr,
 	TrustedExpr,
 	TryExpr,
@@ -141,7 +138,6 @@ import model.model :
 	TypedExpr,
 	VariableRef;
 import util.alloc.alloc : Alloc;
-import util.alloc.stackAlloc : withMapOrNoneToStackArray;
 import util.col.array :
 	isEmpty,
 	map,

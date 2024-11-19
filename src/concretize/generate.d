@@ -8,7 +8,7 @@ import concretize.concretizeCtx :
 	char8ArrayType,
 	char32ArrayType,
 	ConcreteLambdaImpl,
-	ConcreteVariantMemberAndMethodImpls,
+	ConcreteSumTypeCase,
 	ConcretizeCtx,
 	constantOfBytes,
 	constantSymbol,
@@ -233,19 +233,19 @@ ConcreteFunBody generateCallLambda(
 ConcreteFunBody generateCallMethod(
 	ref ConcretizeCtx ctx,
 	ConcreteFun* fun,
-	ConcreteStruct* variant,
-	in ConcreteVariantMemberAndMethodImpls[] impls,
+	ConcreteStruct* sumType,
+	in ConcreteSumTypeCase[] cases,
 	size_t methodIndex,
 ) {
 	UriAndRange range = fun.range;
-	SmallArray!ConcreteType members = variant.body_.as!(ConcreteStructBody.Union).members;
+	SmallArray!ConcreteType members = sumType.body_.as!(ConcreteStructBody.Union).members;
 	return isEmpty(members)
-		? ConcreteFunBody(genThrowString(ctx, fun.returnType, range, "Called method of empty variant"))
+		? ConcreteFunBody(genThrowString(ctx, fun.returnType, range, "Called method of empty interface"))
 		: ConcreteFunBody(genMatchUnion(
 			ctx, fun.returnType, range, members,
 			genParamGet(range, &fun.params[0]),
 			(size_t i, ConcreteExpr member) {
-				Opt!(ConcreteFun*) impl = impls[i].methodImpls[methodIndex];
+				Opt!(ConcreteFun*) impl = cases[i].methodImpls[methodIndex];
 				return has(impl)
 					? genCallNoAllocArgs(
 						range, force(impl),

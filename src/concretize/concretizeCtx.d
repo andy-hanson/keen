@@ -188,7 +188,7 @@ struct ConcretizeCtx {
 
 	// Index in the MutArr!ConcreteLambdaImpl is the fun ID
 	MutMap!(ConcreteStruct*, MutArr!ConcreteLambdaImpl) lambdaStructToImpls;
-	MutMap!(ConcreteStruct*, MutArr!ConcreteVariantMemberAndMethodImpls) variantStructToMembers; // TODO: RENAME (used for all sumTypes) -
+	MutMap!(ConcreteStruct*, MutArr!ConcreteSumTypeCase) sumTypeToCases;
 	Late!ConcreteType _bogusType;
 	Late!ConcreteType _boolType;
 	Late!ConcreteType _char8ArrayType;
@@ -223,7 +223,7 @@ immutable struct ConcreteLambdaImpl {
 	ConcreteFun* impl;
 }
 
-immutable struct ConcreteVariantMemberAndMethodImpls { // rename -----------------------------------------------------------
+immutable struct ConcreteSumTypeCase {
 	@safe @nogc pure nothrow:
 
 	ConcreteType memberType;
@@ -417,7 +417,7 @@ ConcreteType getConcreteType(ref ConcretizeCtx ctx, Type t, in TypeArgsScope typ
 		(StructInst* i) =>
 			getConcreteType_forStructInst(ctx, i, typeArgsScope));
 
-T withConcreteTypes(T)(
+private T withConcreteTypes(T)(
 	ref ConcretizeCtx ctx,
 	in Type[] types,
 	in TypeArgsScope typeArgsScope,
@@ -605,9 +605,6 @@ public ConcreteFun* concreteFunForWrapMain(ref ConcretizeCtx ctx, FunInst* model
 	return res;
 }
 
-ConcreteExpr constantVoid(ref ConcretizeCtx ctx, in UriAndRange range) =>
-	ConcreteExpr(voidType(ctx), range, ConcreteExprKind(constantZero));
-
 bool canGetUnionSize(in ConcreteType[] members) =>
 	every!ConcreteType(members, (in ConcreteType type) =>
 		hasSizeOrPointerSizeBytes(type));
@@ -698,7 +695,7 @@ void initializeConcreteStruct(
 			// don't set 'defaultReferenceKind' until the end, unless explicit
 			if (has(r.flags.forcedByValOrRef))
 				res.defaultReferenceKind = enumConvert!ReferenceKind(force(r.flags.forcedByValOrRef));
-			SmallArray!ConcreteField fields = map!(ConcreteField, RecordField)(ctx.alloc, r.fields, (ref RecordField f) =>
+			SmallArray!ConcreteField fields = map(ctx.alloc, r.fields, (ref RecordField f) =>
 				ConcreteField(
 					f.name,
 					has(f.mutability) ? ConcreteMutability.mutable : ConcreteMutability.const_,
@@ -711,17 +708,19 @@ void initializeConcreteStruct(
 			res.defaultReferenceKind = ReferenceKind.byVal;
 			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Union()), false);
 			push(ctx.alloc, ctx.deferredTypeSize, res);
-			mustAdd(ctx.alloc, ctx.variantStructToMembers, res, mapToMutArr!(ConcreteVariantMemberAndMethodImpls, SumTypeMemberAndMethodImpls)(
-				ctx.alloc,
-				x.listedMembers,
-				(ref SumTypeMemberAndMethodImpls member) {
-					ConcreteType memberType = getConcreteType_forStructInst(ctx, member.member, typeArgs);
-					ConcreteVariantMemberAndMethodImpls res = ConcreteVariantMemberAndMethodImpls(memberType);
-					res.methodImpls = sumTypeMethodImplsCommon(ctx, member.methodImpls, typeArgs);
-					return res;
-				}));
+			mustAdd(
+				ctx.alloc, ctx.sumTypeToCases, res,
+				mapToMutArr!(ConcreteSumTypeCase, SumTypeMemberAndMethodImpls)(
+					ctx.alloc,
+					x.listedMembers,
+					(ref SumTypeMemberAndMethodImpls member) {
+						ConcreteType memberType = getConcreteType_forStructInst(ctx, member.member, typeArgs);
+						ConcreteSumTypeCase res = ConcreteSumTypeCase(memberType);
+						res.methodImpls = sumTypeMethodImplsCommon(ctx, member.methodImpls, typeArgs);
+						return res;
+					}));
 			if (x.kind == SumTypeKind.union_)
-				finishSumTypeMembers(ctx, res, mustGet(ctx.variantStructToMembers, res));
+				finishSumTypeCases(ctx, res, mustGet(ctx.sumTypeToCases, res));
 		});
 }
 
@@ -729,23 +728,23 @@ public size_t ensureSumTypeCase(ref ConcretizeCtx ctx, ConcreteType sumType, Con
 	ref ConcreteStructBody.Union body_() => mustBeByVal(sumType).body_.as!(ConcreteStructBody.Union);
 	return body_.hasMembers
 		? force(indexOf!ConcreteType(body_.members, caseType))
-		: findIndexOrPush!ConcreteVariantMemberAndMethodImpls(
+		: findIndexOrPush!ConcreteSumTypeCase(
 			ctx.alloc,
-			mustGet(ctx.variantStructToMembers, mustBeByVal(sumType)),
-			(in ConcreteVariantMemberAndMethodImpls member) => member.memberType == caseType,
-			() => ConcreteVariantMemberAndMethodImpls(caseType),
-			(ref ConcreteVariantMemberAndMethodImpls x) {
+			mustGet(ctx.sumTypeToCases, mustBeByVal(sumType)),
+			(in ConcreteSumTypeCase member) => member.memberType == caseType,
+			() => ConcreteSumTypeCase(caseType),
+			(ref ConcreteSumTypeCase x) {
 				x.methodImpls = sumTypeMembershipMethodImpls(ctx, sumType, caseType);
 			});
 }
 
-public void finishSumTypeMembers(
+public void finishSumTypeCases(
 	ref ConcretizeCtx ctx,
 	ConcreteStruct* variant,
-	ref MutArr!ConcreteVariantMemberAndMethodImpls x,
+	ref MutArr!ConcreteSumTypeCase x,
 ) {
 	variant.body_.as!(ConcreteStructBody.Union).members =
-		small!ConcreteType(map(ctx.alloc, asTemporaryArray(x), (ref ConcreteVariantMemberAndMethodImpls x) =>
+		small!ConcreteType(map(ctx.alloc, asTemporaryArray(x), (ref ConcreteSumTypeCase x) =>
 			x.memberType));
 }
 

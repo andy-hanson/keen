@@ -93,6 +93,7 @@ import model.model :
 	Local,
 	mustUnwrapOptionType,
 	RecordField,
+	Signature,
 	SpecInst,
 	StructBody,
 	StructDecl,
@@ -155,8 +156,12 @@ immutable struct ExprResult {
 
 private SyncOrAsync isCurFunAsync(in TranslateExprCtx ctx) =>
 	ctx.curFun.matchWithPointers!SyncOrAsync(
-		(FunDecl* x) => isAsyncFun(ctx.ctx.allUsed, x),
-		(Test*) => SyncOrAsync.async);
+		(FunDecl* x) =>
+			isAsyncFun(ctx.ctx.allUsed, x),
+		(Signature* x) =>
+			assert(false),
+		(Test*) =>
+			SyncOrAsync.async);
 SyncOrAsync isAsyncCall(in TranslateExprCtx ctx, in Called called) =>
 	isAsyncCall(ctx.ctx.allUsed, ctx.curFun, called);
 
@@ -399,6 +404,8 @@ private size_t findSigIndex(in FunDecl curFun, in CalledSpecSig called) {
 	return res;
 }
 
+// TODO: why is this in translateExprCtx? ----------------------------------------------------------------------------------------
+// TODO: this is poorly named. It's also used for non-inline calls --------------------------------------------------------------------------------------------------
 ExprResult translateInlineCall(
 	ref TranslateExprCtx ctx,
 	in Source source,

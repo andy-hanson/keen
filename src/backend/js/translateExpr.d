@@ -402,7 +402,16 @@ void translateSpecsToParams(scope ref Builder!JsDestructure out_, in FunDecl a) 
 
 JsExprOrBlockStatement translateFunBody(ref TranslateExprCtx ctx, FunDecl* fun) {
 	Source source = funSource(ctx.ctx, fun);
-	if (fun.body_.isA!(FunBody.FileImport))
+	if (fun.body_.isA!AutoFun)
+		return translateAutoFun(ctx, fun, fun.body_.as!AutoFun);
+	else if (fun.body_.isA!Expr)
+		return JsExprOrBlockStatement(JsBlockStatement(
+			translateToStatements(ctx.alloc, (scope ref ArrayBuilder!JsStatement out_, scope ExprPos pos) {
+				foreach (ref Destructure param; paramsArray(fun.params))
+					genAssertTypesForDestructure(out_, ctx.ctx, source, param);
+				return translateExpr(ctx, fun.body_.as!Expr, fun.returnType, pos);
+			})));
+	else if (fun.body_.isA!(FunBody.FileImport))
 		return fun.body_.as!(FunBody.FileImport).content.match!JsExprOrBlockStatement(
 			(immutable ubyte[] bytes) =>
 				exprFunBody(ctx.alloc, genArray(source, map(ctx.alloc, bytes, (ref immutable ubyte x) =>
@@ -412,26 +421,15 @@ JsExprOrBlockStatement translateFunBody(ref TranslateExprCtx ctx, FunDecl* fun) 
 			(ImportFileContent.Bogus) =>
 				JsExprOrBlockStatement(genBlockStatement(ctx.alloc, [genThrowBogus(ctx.alloc, source)])));
 	else {
-		if (fun.body_.isA!AutoFun)
-			return translateAutoFun(ctx, fun, fun.body_.as!AutoFun);
-		else if (fun.body_.isA!Expr)
-			return JsExprOrBlockStatement(JsBlockStatement(
-				translateToStatements(ctx.alloc, (scope ref ArrayBuilder!JsStatement out_, scope ExprPos pos) {
-					foreach (ref Destructure param; paramsArray(fun.params))
-						genAssertTypesForDestructure(out_, ctx.ctx, source, param);
-					return translateExpr(ctx, fun.body_.as!Expr, fun.returnType, pos);
-				})));
-		else {
-			Destructure[] params = fun.params.as!(Destructure[]);
-			return translateToExprOrBlockStatement(ctx.alloc, (scope ExprPos pos) =>
-				withMapToStackArray!(ExprResult, Type, Destructure)(
-					params,
-					(ref Destructure x) => x.type,
-					(scope Type[] paramTypes) =>
-						translateInlineCall(
-							ctx, source, fun.returnType, pos, fun, paramTypes, params.length,
-							(size_t i) => translateLocalGet(source, params[i].as!(Local*)))));
-		}
+		Destructure[] params = fun.params.as!(Destructure[]);
+		return translateToExprOrBlockStatement(ctx.alloc, (scope ExprPos pos) =>
+			withMapToStackArray!(ExprResult, Type, Destructure)(
+				params,
+				(ref Destructure x) => x.type,
+				(scope Type[] paramTypes) =>
+					translateInlineCall(
+						ctx, source, fun.returnType, pos, fun, paramTypes, params.length,
+						(size_t i) => translateLocalGet(source, params[i].as!(Local*)))));
 	}
 }
 

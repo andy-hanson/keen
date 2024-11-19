@@ -6,7 +6,7 @@ import frontend.check.checkCtx : CommonModule;
 import frontend.check.funsForStruct : funDeclWithBody;
 import frontend.check.getCommonTypes : bogusStructDecl;
 import frontend.check.inferringType : typesAreCorrespondingStructInsts;
-import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateFunB, instantiateStruct;
+import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateStruct;
 import frontend.lang : MainKind;
 import model.ast : DocCommentAst, ModifierAst, NameAndRange, VarDeclAst, TypeAst;
 import model.diag : Diag, UriAndDiagnostic;
@@ -14,7 +14,6 @@ import model.model :
 	allExternsForMainConfig,
 	assertNonVariadic,
 	BuildTarget,
-	Called,
 	CommonFuns,
 	CommonFunsAndDiagnostics,
 	CommonTypes,

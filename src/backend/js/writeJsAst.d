@@ -297,7 +297,7 @@ string memberNamePrefix(JsMemberName.Kind a) {
 		case JsMemberName.Kind.special:
 			return "s_";
 		case JsMemberName.Kind.sumTypeMethod:
-			return "v_"; // change? --------------------------------------------------------------------------------------------------
+			return "m_";
 		case JsMemberName.Kind.unionConstructor:
 			return "uc_";
 		case JsMemberName.Kind.unionMember:

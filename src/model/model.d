@@ -1069,7 +1069,17 @@ immutable struct FunBody {
 	immutable struct FileImport {
 		ImportFileContent content;
 	}
-	immutable struct Method { Signature* method; }
+	immutable struct Method {
+		@safe @nogc pure nothrow:
+		Signature* method;	
+
+		ref StructBody.SumType sumType(in FunDecl fun) scope {
+			assert(fun.body_.as!(FunBody.Method) == this);
+			return fun.params.as!(Destructure[])[0].type.as!(StructInst*).decl.body_.as!(StructBody.SumType);
+		}
+		size_t methodIndex(in FunDecl fun) scope =>
+			mustHaveIndexOfPointer(sumType(fun).methods, method);
+	}
 	immutable struct RecordFieldCall {
 		RecordField* field;
 		FunKind funKind;

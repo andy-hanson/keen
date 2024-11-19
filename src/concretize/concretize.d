@@ -8,12 +8,12 @@ import concretize.concretizeCtx :
 	boolType,
 	concreteFunForWrapMain,
 	ConcreteLambdaImpl,
-	ConcreteVariantMemberAndMethodImpls,
+	ConcreteSumTypeCase,
 	ConcretizeCtx,
 	deferredFillRecordAndUnionBodies,
 	exceptionType,
 	finishConcreteVars,
-	finishSumTypeMembers,
+	finishSumTypeCases,
 	getConcreteFun,
 	getNonTemplateConcreteFun,
 	getVar,
@@ -87,7 +87,12 @@ ConcreteProgram concretizeInner(
 	CommonFuns commonFuns = program.program.commonFuns;
 	lateSet(ctx.createErrorFunction_, getNonTemplateConcreteFun(ctx, commonFuns.createError));
 	lateSet(ctx.newJsonFromPairsFunction_, getNonTemplateConcreteFun(ctx, commonFuns.newJsonFromPairs));
-	lateSet(ctx.toJsonFromJsonArrayFunction_, getConcreteFun(ctx, commonFuns.toJsonFromTArray, [jsonType(ctx)], [getNonTemplateConcreteFun(ctx, commonFuns.toJsonFromJson)]));
+	lateSet(
+		ctx.toJsonFromJsonArrayFunction_,
+		getConcreteFun(
+			ctx, commonFuns.toJsonFromTArray,
+			[jsonType(ctx)],
+			[getNonTemplateConcreteFun(ctx, commonFuns.toJsonFromJson)]));
 	ConcreteCommonFuns concreteCommonFuns = ConcreteCommonFuns(
 		alloc: getNonTemplateConcreteFun(ctx, commonFuns.allocate),
 		curCatchPoint: getNonTemplateConcreteFun(ctx, commonFuns.curCatchPoint),
@@ -141,10 +146,10 @@ ConcreteFun* concretizeMainFun(ref ConcretizeCtx ctx, ref CommonFuns commonFuns,
 
 void finishLambdas(ref ConcretizeCtx ctx) {
 	foreach (ConcreteStruct* struct_, MutArr!ConcreteLambdaImpl impls; ctx.lambdaStructToImpls) {
-		ConcreteType[] memberTypes = map(ctx.alloc, asTemporaryArray(impls), (ref ConcreteLambdaImpl x) =>
+		ConcreteType[] caseTypes = map(ctx.alloc, asTemporaryArray(impls), (ref ConcreteLambdaImpl x) =>
 			x.closureType);
 		struct_.info = ConcreteStructInfo(
-			body_: ConcreteStructBody(ConcreteStructBody.Union(late(small!ConcreteType(memberTypes)))),
+			body_: ConcreteStructBody(ConcreteStructBody.Union(late(small!ConcreteType(caseTypes)))),
 			isSelfMutable: false);
 		push(ctx.alloc, ctx.deferredTypeSize, struct_);
 	}
@@ -163,17 +168,17 @@ void finishLambdas(ref ConcretizeCtx ctx) {
 }
 
 void finishVariants(ref ConcretizeCtx ctx) {
-	foreach (ConcreteStruct* variant, MutArr!ConcreteVariantMemberAndMethodImpls x; ctx.variantStructToMembers) {
-		if (!variant.body_.as!(ConcreteStructBody.Union).hasMembers) // It will already be set for a 'union'
-			finishSumTypeMembers(ctx, variant, x);
+	foreach (ConcreteStruct* sumType, MutArr!ConcreteSumTypeCase x; ctx.sumTypeToCases) {
+		if (!sumType.body_.as!(ConcreteStructBody.Union).hasMembers) // It will already be set for a 'union'
+			finishSumTypeCases(ctx, sumType, x);
 	}
 
 	foreach (ConcreteFun* fun; ctx.deferredMethods) {
-		ConcreteStruct* variant = mustBeByVal(fun.params[0].type);
+		ConcreteStruct* sumType = mustBeByVal(fun.params[0].type);
 		size_t methodIndex = mustHaveIndexOfPointer(
-			variant.source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.SumType).methods,
+			sumType.source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.SumType).methods,
 			fun.source.as!ConcreteFunKey.decl.body_.as!(FunBody.Method).method);
-		MutArr!ConcreteVariantMemberAndMethodImpls impls = mustGet(ctx.variantStructToMembers, variant);
-		fun.overwriteBody(generateCallMethod(ctx, fun, variant, asTemporaryArray(impls), methodIndex));
+		MutArr!ConcreteSumTypeCase impls = mustGet(ctx.sumTypeToCases, sumType);
+		fun.overwriteBody(generateCallMethod(ctx, fun, sumType, asTemporaryArray(impls), methodIndex));
 	}
 }

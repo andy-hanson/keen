@@ -5,7 +5,6 @@ module frontend.check.instantiate;
 import frontend.allInsts :
 	getAllFutureAndMutArrayImpls, getOrAddFunInst, getOrAddSpecInst, getOrAddStructInst, AllInsts;
 import model.model :
-	Called,
 	CommonTypes,
 	Destructure,
 	FunDecl,
@@ -63,8 +62,6 @@ Type instantiateType(InstantiateCtx ctx, Type type, in TypeArgs typeArgs) =>
 		(StructInst* x) =>
 			Type(instantiateStructInst(ctx, *x, typeArgs)));
 
-FunInst* instantiateFunB(InstantiateCtx ctx, FunDecl* decl, in Type[] typeArgs, in Called[] specImpls) => // name ----------------
-	instantiateFun(ctx, decl, small!Type(typeArgs), small!Called(specImpls));
 FunInst* instantiateFun(InstantiateCtx ctx, FunDecl* decl, in TypeArgs typeArgs, in SpecImpls specImpls) =>
 	withMeasure!(FunInst*, () =>
 		getOrAddFunInst(ctx.allInsts, decl, typeArgs, specImpls, () =>
