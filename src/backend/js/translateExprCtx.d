@@ -24,13 +24,11 @@ import backend.js.jsAst :
 	genEqEqEq,
 	genGlobal,
 	genIdentifier,
-	genIn,
 	genInstanceof,
 	genIntegerSigned,
 	genIntegerUnsigned,
 	genNew,
 	genNot,
-	genNotNot,
 	genNull,
 	genNumber,
 	genOr,
@@ -100,7 +98,6 @@ import model.model :
 	Local,
 	mustUnwrapOptionType,
 	RecordField,
-	Signature,
 	SpecInst,
 	StructBody,
 	StructDecl,
@@ -165,8 +162,6 @@ private SyncOrAsync isCurFunAsync(in TranslateExprCtx ctx) =>
 	ctx.curFun.matchWithPointers!SyncOrAsync(
 		(FunDecl* x) =>
 			isAsyncFun(ctx.ctx.allUsed, x),
-		(Signature* x) =>
-			assert(false),
 		(Test*) =>
 			SyncOrAsync.async);
 SyncOrAsync isAsyncCall(in TranslateExprCtx ctx, in Called called) =>

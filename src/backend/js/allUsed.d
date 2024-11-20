@@ -121,16 +121,14 @@ import util.uri : Uri;
 import util.util : ptrTrustMe;
 import versionInfo : isVersion, VersionInfo, VersionFun;
 
-immutable struct FunOrTest { // rename? ---------------------------------------------------------------------------------------------------
+immutable struct FunOrTest {
 	@safe @nogc pure nothrow:
-	mixin TaggedUnion!(FunDecl*, Signature*, Test*);
+	mixin TaggedUnion!(FunDecl*, Test*);
 
 	Uri moduleUri() scope =>
 		matchIn!Uri(
 			(in FunDecl x) =>
 				x.moduleUri,
-			(in Signature x) =>
-				assert(false),
 			(in Test x) =>
 				x.moduleUri);
 
@@ -138,8 +136,6 @@ immutable struct FunOrTest { // rename? ----------------------------------------
 		matchIn!Symbol(
 			(in FunDecl x) =>
 				x.name,
-			(in Signature x) =>
-				assert(false),
 			(in Test x) =>
 				x.name);
 }
@@ -628,9 +624,6 @@ void trackAllUsedInCalledFunInst(
 	caller.matchWithPointers!void(
 		(FunDecl* x) {
 			add(res.alloc, res.funToCallers, calledDecl, x);
-		},
-		(Signature*) {
-			assert(false);
 		},
 		(Test*) {
 			// Do nothing for tests since they are all assumed async anyway

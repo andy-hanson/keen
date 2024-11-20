@@ -69,15 +69,17 @@ Opt!(TypeAst*) tryParseTypeArgForExpr(ref Lexer lexer) =>
 		? some(allocate(lexer.alloc, parseTypeForTypedExpr(lexer)))
 		: none!(TypeAst*);
 
-private SmallArray!TypeAst parseTypesWithCommasThenClosingParen(ref Lexer lexer) =>
+private SmallArray!TypeAst parseTypesWithCommasThenClosingParen(ref Lexer lexer, Opt!uint indentLevel) =>
 	buildSmallArray(lexer.alloc, (scope ref Builder!TypeAst out_) {
-		parseTypesWithCommasThenClosingParen(lexer, out_);
+		parseTypesWithCommasThenClosingParen(lexer, out_, indentLevel);
 	});
 
-private void parseTypesWithCommasThenClosingParen(ref Lexer lexer, scope ref Builder!TypeAst res) {
+private void parseTypesWithCommasThenClosingParen(ref Lexer lexer, scope ref Builder!TypeAst res, Opt!uint indentLevel) {
 	if (!tryTakeToken(lexer, Token.parenRight)) {
 		do {
+			if (has(indentLevel)) skipNewlinesIgnoreIndentation(lexer, force(indentLevel));
 			res ~= parseType(lexer);
+			if (has(indentLevel)) skipNewlinesIgnoreIndentation(lexer, force(indentLevel));
 		} while (tryTakeToken(lexer, Token.comma));
 		takeOrAddDiagExpectedToken(lexer, Token.parenRight, ParseDiag.Expected.Kind.closingParen);
 	}
@@ -187,10 +189,12 @@ DestructureAst parseDestructureNoRequireParens(ref Lexer lexer) {
 		return first;
 }
 
-SmallArray!TypeAst tryParseVariantTypes(ref Lexer lexer) =>
-	tryTakeToken(lexer, Token.parenLeft)
-		? parseTypesWithCommasThenClosingParen(lexer)
+SmallArray!TypeAst tryParseSumTypeListedTypes(ref Lexer lexer) {
+	uint indentLevel = getCurIndent(lexer);
+	return tryTakeToken(lexer, Token.parenLeft)
+		? parseTypesWithCommasThenClosingParen(lexer, some(indentLevel))
 		: emptySmallArray!TypeAst;
+}
 
 Opt!ParamsAst tryParseParams(ref Lexer lexer) =>
 	peekToken(lexer, Token.parenLeft)
@@ -246,7 +250,7 @@ TypeAst parseTypeBeforeSuffixes(ref Lexer lexer, ParenthesesNecessary parens) {
 }
 
 TypeAst parseTupleType(ref Lexer lexer, Pos start, ParenthesesNecessary parens) {
-	SmallArray!TypeAst args = parseTypesWithCommasThenClosingParen(lexer);
+	SmallArray!TypeAst args = parseTypesWithCommasThenClosingParen(lexer, none!uint);
 	switch (args.length) {
 		case 0:
 			Range range = range(lexer, start);

@@ -26,7 +26,7 @@ import frontend.parse.parseType :
 	parseType,
 	parseTypeArgForVarDecl,
 	tryParseParams,
-	tryParseVariantTypes,
+	tryParseSumTypeListedTypes,
 	tryTakeVisibility;
 import frontend.parse.parseUtil :
 	addDiagExpected,
@@ -289,7 +289,7 @@ void parseSpecOrStructOrFun(
 		case Token.union_:
 		case Token.variant:
 			mustTakeToken(lexer, token);
-			SmallArray!TypeAst types = tryParseVariantTypes(lexer);
+			SmallArray!TypeAst types = tryParseSumTypeListedTypes(lexer);
 			SumTypeKind kind = () {
 				switch (token) {
 					case Token.interface_:

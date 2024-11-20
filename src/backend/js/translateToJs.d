@@ -95,6 +95,7 @@ import model.model :
 	isSigned,
 	isTuple,
 	MainFun,
+	methodCaller,
 	Module,
 	moduleAtUri,
 	nameFromNameReferentsPointer,
@@ -908,7 +909,7 @@ void translateUnionDecl(
 						? genReturn(
 							ctx.alloc, source,
 							makeCallNoInlineWithSpread(
-								ctx, source, SyncOrAsync.sync, FunOrTest(&method),
+								ctx, source, SyncOrAsync.sync, FunOrTest(methodCaller(ctx.program, &method)),
 								force(called),
 								(scope ref Builder!JsExpr out_) {
 									out_ ~= genForceUnionMember(ctx.alloc, source, genThis(source), case_.member);

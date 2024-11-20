@@ -40,8 +40,7 @@ import backend.js.jsAst :
 	JsName,
 	JsStatement,
 	JsSwitchStatement;
-import backend.js.jsAstUtil :
-	genForceUnionMember, genIsUnionMember, genOptionNone, genOptionSome, genThrowJsError, matchUnionMembers;
+import backend.js.jsAstUtil : genForceUnionMember, genIsUnionMember, genOptionNone, genOptionSome, matchUnionMembers;
 import backend.js.sourceMap : Source;
 import backend.js.translateModuleCtx :
 	funSource,
@@ -63,18 +62,10 @@ import model.model :
 	StructBody,
 	StructDecl,
 	StructInst,
-	Type,
 	SumTypeKind,
 	SumTypeMemberAndMethodImpls;
 import util.alloc.alloc : Alloc;
-import util.col.array :
-	foldRange,
-	foldReverseWithIndex,
-	isEmpty,
-	map,
-	mapReduce,
-	mapWithIndex,
-	newArray;
+import util.col.array : foldRange, isEmpty, map, mapReduce, mapWithIndex, newArray;
 import util.col.arrayBuilder : add, ArrayBuilder;
 import util.memory : allocate;
 import util.symbol : Symbol, symbol;
