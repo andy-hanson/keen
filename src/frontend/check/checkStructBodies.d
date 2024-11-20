@@ -367,7 +367,8 @@ SmallArray!(Opt!Called) checkMethodImplsForVariant(
 					() => false);
 				if (has(called) &&
 					force(called).isA!(FunInst*) &&
-					force(called).as!(FunInst*).decl.visibility < leastVisibility(sumType.decl.visibility, member.visibility))
+					force(called).as!(FunInst*).decl.visibility <
+						leastVisibility(sumType.decl.visibility, member.visibility))
 					addDiag(ctx, diagRange, Diag(
 						Diag.MethodImplVisibility(member, sumType, force(called).as!(FunInst*))));
 				return called;

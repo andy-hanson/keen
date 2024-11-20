@@ -24,7 +24,6 @@ import backend.js.jsAst :
 	genEqEqEq,
 	genGlobal,
 	genIdentifier,
-	genIife,
 	genIn,
 	genInstanceof,
 	genIntegerSigned,
@@ -40,8 +39,6 @@ import backend.js.jsAst :
 	genReturn,
 	genString,
 	genTernary,
-	genThrowBogus,
-	genThrowBogusExpr,
 	genTimes,
 	genUnary,
 	genUndefined,
@@ -55,6 +52,16 @@ import backend.js.jsAst :
 	JsStatement,
 	JsUnaryExpr,
 	SyncOrAsync;
+import backend.js.jsAstUtil :
+	genForceUnionMember,
+	genIife,
+	genIsUnionMember,
+	genOptionForce,
+	genOptionHas,
+	genOptionNone,
+	genOptionSome,
+	genThrowBogus,
+	genThrowBogusExpr;
 import backend.js.sourceMap : Source;
 import backend.js.translateModuleCtx :
 	localName,
@@ -228,17 +235,6 @@ ExprResult forceStatement(ref Alloc alloc, SyncOrAsync curFunAsync, scope ExprPo
 
 JsExpr translateLocalGet(in Source source, in Local* local) =>
 	genIdentifier(source, localName(*local));
-JsExpr genOptionHas(ref Alloc alloc, in Source source, JsExpr option) =>
-	// !!option.length
-	genNotNot(alloc, source, genPropertyAccess(alloc, source, option, JsMemberName.noPrefix(symbol!"length")));
-JsExpr genOptionForce(ref Alloc alloc, in Source source, JsExpr option) =>
-	// option[0]
-	genPropertyAccessComputed(alloc, source, option, genNumber(source, 0));
-JsExpr genOptionSome(ref Alloc alloc, in Source source, JsExpr arg) =>
-	// [option]
-	genArray(alloc, source, [arg]);
-JsExpr genOptionNone(in Source source) =>
-	genArray(source, []);
 
 JsExpr translateEnumValue(ref TranslateModuleCtx ctx, in Source source, in EnumOrFlagsMember a) =>
 	genPropertyAccess(
@@ -262,7 +258,7 @@ ExprResult withTemp(
 JsExpr makeCall(ref TranslateExprCtx ctx, in Source source, Called called, in JsExpr[] args) =>
 	isInlined(called)
 		? translateToExpr((scope ExprPos pos) =>
-			translateInlineCall(
+			translateCallInline(
 				ctx,
 				source,
 				called.returnType,
@@ -404,9 +400,8 @@ private size_t findSigIndex(in FunDecl curFun, in CalledSpecSig called) {
 	return res;
 }
 
-// TODO: why is this in translateExprCtx? ----------------------------------------------------------------------------------------
-// TODO: this is poorly named. It's also used for non-inline calls --------------------------------------------------------------------------------------------------
-ExprResult translateInlineCall(
+// This is also used for non-inlined functions to generate the body
+ExprResult translateCallInline(
 	ref TranslateExprCtx ctx,
 	in Source source,
 	Type returnType,
@@ -513,7 +508,13 @@ ExprResult translateInlineCall(
 				genAssign(ctx.alloc, source, translateVarReference(ctx.ctx, source, x.var), onlyArg())));
 }
 
-private JsExpr createSumType(ref TranslateExprCtx ctx, in Source source, StructDecl* variant, JsExpr arg, Symbol memberName) {
+private JsExpr createSumType(
+	ref TranslateExprCtx ctx,
+	in Source source,
+	StructDecl* variant,
+	JsExpr arg,
+	Symbol memberName,
+) {
 	if (variant.body_.as!(StructBody.SumType).kind == SumTypeKind.union_) {
 		JsExpr member = genPropertyAccess(
 			ctx.alloc, source, translateStructReference(ctx, source, variant),
@@ -1276,9 +1277,3 @@ private ExprResult translateCallJsFun(
 
 ExprResult translateToBogus(ref Alloc alloc, in Source source, scope ExprPos pos) =>
 	forceStatement(alloc, SyncOrAsync.sync, pos, genThrowBogus(alloc, source));
-
-//TODO:MOVE?  -----------------------------------------------------------------------------------------------------------------------
-public JsExpr genIsUnionMember(ref Alloc alloc, in Source source, JsExpr a, StructInst* member) =>
-	genIn(alloc, source, JsMemberName.unionMember(member.decl.name), a);
-public JsExpr genForceUnionMember(ref Alloc alloc, in Source source, JsExpr a, StructInst* member) =>
-	genPropertyAccess(alloc, source, a, JsMemberName.unionMember(member.decl.name));

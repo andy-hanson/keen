@@ -1071,7 +1071,7 @@ immutable struct FunBody {
 	}
 	immutable struct Method {
 		@safe @nogc pure nothrow:
-		Signature* method;	
+		Signature* method;
 
 		ref StructBody.SumType sumType(in FunDecl fun) scope {
 			assert(fun.body_.as!(FunBody.Method) == this);

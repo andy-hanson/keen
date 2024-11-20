@@ -32,9 +32,6 @@ import backend.js.jsAst :
 	genTernary,
 	genThis,
 	genThrow,
-	genThrowBogus,
-	genThrowBogusExpr,
-	genThrowJsError,
 	genTryCatch,
 	genTryFinally,
 	genTypeof,
@@ -58,6 +55,16 @@ import backend.js.jsAst :
 	JsSwitchStatement,
 	JsVarDecl,
 	SyncOrAsync;
+import backend.js.jsAstUtil :
+	genForceUnionMember,
+	genIsUnionMember,
+	genOptionForce,
+	genOptionHas,
+	genOptionNone,
+	genOptionSome,
+	genThrowBogus,
+	genThrowBogusExpr,
+	genThrowJsError;
 import backend.js.sourceMap : Source;
 import backend.js.translateAutoFun : translateAutoFun;
 import backend.js.translateExprCtx :
@@ -66,12 +73,6 @@ import backend.js.translateExprCtx :
 	forceExpr,
 	forceStatement,
 	forceStatements,
-	genForceUnionMember,
-	genIsUnionMember,
-	genOptionForce,
-	genOptionHas,
-	genOptionNone,
-	genOptionSome,
 	makeCall,
 	makeCallNoInline,
 	makeCallNoInlineWithSpread,
@@ -82,7 +83,7 @@ import backend.js.translateExprCtx :
 	translateEnumValue,
 	TranslateExprCtx,
 	translateFunToExpr,
-	translateInlineCall,
+	translateCallInline,
 	translateLocalGet,
 	translateStructReference,
 	translateToBlockStatement,
@@ -322,7 +323,7 @@ JsClassMember methodImpl(ref TranslateModuleCtx ctx, Signature* method, in Opt!C
 			JsMemberName.sumTypeMethod(name),
 			translateFunParams(exprCtx, *decl, omitFirst: true),
 			translateToBlockStatement(ctx.alloc, (scope ExprPos pos) =>
-				translateInlineCall(
+				translateCallInline(
 					exprCtx, source, impl.returnType, pos, decl, impl.paramTypes, impl.arity.as!uint, (size_t i) =>
 						i == 0
 							? genThis(source)
@@ -427,7 +428,7 @@ JsExprOrBlockStatement translateFunBody(ref TranslateExprCtx ctx, FunDecl* fun) 
 				params,
 				(ref Destructure x) => x.type,
 				(scope Type[] paramTypes) =>
-					translateInlineCall(
+					translateCallInline(
 						ctx, source, fun.returnType, pos, fun, paramTypes, params.length,
 						(size_t i) => translateLocalGet(source, params[i].as!(Local*)))));
 	}
@@ -654,7 +655,7 @@ ExprResult translateCallCommon(
 	scope ExprPos pos,
 ) =>
 	isInlined(called)
-		? translateInlineCall(
+		? translateCallInline(
 			ctx,
 			source,
 			called.returnType,
@@ -951,7 +952,8 @@ ExprResult translateMatchSumType(
 	withTemp(ctx, symbol!"matched", a.matched, pos, (JsName matched, scope ExprPos inner) =>
 		translateMatchSumType(
 			ctx, source, matched, expr, a.isUnion, a.cases,
-			translateSwitchDefault(ctx, source, optIf(has(a.else_), () => *force(a.else_)), type, "Invalid union value"),
+			translateSwitchDefault(
+				ctx, source, optIf(has(a.else_), () => *force(a.else_)), type, "Invalid union value"),
 			type, inner));
 ExprResult translateMatchSumType(
 	ref TranslateExprCtx ctx,
@@ -960,55 +962,29 @@ ExprResult translateMatchSumType(
 	in Expr expr,
 	bool isUnion,
 	MatchSumTypeCase[] cases,
-	JsBlockStatement else_,
-	Type type,
-	scope ExprPos pos,
-) =>
-	translateMatchUnionOrVariant!MatchSumTypeCase(
-		ctx, source, matched, expr, cases, type, pos, else_,
-		(ref MatchSumTypeCase case_, in Source caseSource) {
-			JsExpr matchedExpr = genIdentifier(source, matched);
-			if (isUnion) // ternary ----------------------------------------------------------------------------
-				return MatchUnionOrVariantCase(
-					genIsUnionMember(ctx.alloc, source, matchedExpr, case_.member),
-					genForceUnionMember(ctx.alloc, source, matchedExpr, case_.member));
-			else
-				return MatchUnionOrVariantCase(
-					genInstanceof(
-						ctx.alloc, source, matchedExpr,
-						translateStructReference(ctx, source, case_.member.decl)),
-					matchedExpr);
-		});
-
-immutable struct MatchUnionOrVariantCase { // rename ------------------------------------------------------------------------
-	JsExpr isMatch;
-	JsExpr destructured;
-}
-ExprResult translateMatchUnionOrVariant(Case)( // TODO: there's now only one kind of thing, at least rename, probably inline ----------
-	ref TranslateExprCtx ctx,
-	in Source source,
-	JsName matched,
-	in Expr expr,
-	Case[] cases,
-	Type type,
-	scope ExprPos pos,
 	JsBlockStatement default_,
-	in MatchUnionOrVariantCase delegate(ref Case, in Source) @safe @nogc pure nothrow cbCase,
+	Type type,
+	scope ExprPos pos,
 ) =>
 	forceStatement(
 		ctx, pos,
-		foldReverseWithIndex!(JsStatement, Case)(
+		foldReverseWithIndex!(JsStatement, MatchSumTypeCase)(
 			JsStatement(source, JsStatementKind(default_)),
 			cases,
-			(JsStatement else_, size_t caseIndex, ref Case case_) {
-				MatchUnionOrVariantCase x = cbCase(case_, exprSource(ctx, caseNameRange(expr, caseIndex)));
-				return genIf(
-					ctx.alloc,
-					source,
-					x.isMatch,
-					translateToStatement(ctx.alloc, source, (scope ExprPos pos) =>
-						translateLetLike(ctx, source, case_.destructure, x.destructured, case_.then, type, pos)),
-					else_);
+			(JsStatement else_, size_t caseIndex, ref MatchSumTypeCase case_) {
+				Source caseSource = exprSource(ctx, caseNameRange(expr, caseIndex));
+				JsExpr matchedExpr = genIdentifier(source, matched);
+				JsExpr isMatch = isUnion
+					? genIsUnionMember(ctx.alloc, source, matchedExpr, case_.member)
+					: genInstanceof(
+							ctx.alloc, source, matchedExpr,
+							translateStructReference(ctx, source, case_.member.decl));
+				JsExpr destructured = isUnion
+					? genForceUnionMember(ctx.alloc, source, matchedExpr, case_.member)
+					: matchedExpr;
+				JsStatement then = translateToStatement(ctx.alloc, source, (scope ExprPos pos) =>
+					translateLetLike(ctx, source, case_.destructure, destructured, case_.then, type, pos));
+				return genIf(ctx.alloc, source, isMatch, then, else_);
 			}));
 
 ExprResult withTemp(
@@ -1018,7 +994,7 @@ ExprResult withTemp(
 	scope ExprPos pos,
 	in ExprResult delegate(JsName temp, scope ExprPos inner) @safe @nogc pure nothrow cb,
 ) =>
-	withTemp(ctx, name, translateExprToExpr(ctx, value), pos, cb);
+	withTemp(ctx, name, translateExprToExpr(ctx, value), pos ,cb);
 
 JsExpr genNewError(ref TranslateExprCtx ctx, in Source source, string message) =>
 	makeCall(ctx, source, Called(ctx.ctx.program.commonFuns.createError), [genString(source, message)]);

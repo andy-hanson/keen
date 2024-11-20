@@ -3,6 +3,7 @@ module backend.js.jsAst;
 @safe @nogc pure nothrow:
 
 import backend.js.sourceMap : Source;
+import model.model : StructInst, SumTypeMemberAndMethodImpls;
 import util.alloc.alloc : Alloc;
 import util.col.array : newArray, newSmallArray, SmallArray;
 import util.col.map : KeyValuePair;
@@ -429,11 +430,6 @@ JsStatement genIf(ref Alloc alloc, in Source source, JsExpr cond, JsStatement th
 	JsStatement(source, JsStatementKind(allocate(alloc, JsIfStatement(cond, then))));
 JsStatement genIf(ref Alloc alloc, in Source source, JsExpr cond, JsStatement then, JsStatement else_) =>
 	JsStatement(source, JsStatementKind(allocate(alloc, JsIfStatement(cond, then, some(else_)))));
-JsExpr genIife(ref Alloc alloc, in Source source, SyncOrAsync async, JsBlockStatement body_) =>
-	genCall(
-		alloc, source, async,
-		allocate(alloc, genArrowFunction(source, async, JsParams(), JsExprOrBlockStatement(body_))),
-		[]);
 JsExpr genIn(ref Alloc alloc, in Source source, JsMemberName arg0, JsExpr arg1) =>
 	genBinary(alloc, source, JsBinaryExpr.Kind.in_, genStringFromMemberName(source, arg0), arg1);
 JsExpr genInstanceof(ref Alloc alloc, in Source source, JsExpr arg0, JsExpr arg1) =>
@@ -590,10 +586,3 @@ JsClassMember genInstanceMethod(
 	genInstanceMethod(alloc, source, async, name, params, genBlockStatement(alloc, [genReturn(alloc, source, body_)]));
 JsClassMember genField(in Source source, JsClassMember.Static static_, JsMemberName name, JsExpr value) =>
 	JsClassMember(source, static_, name, JsClassMemberKind(value));
-
-JsStatement genThrowJsError(ref Alloc alloc, in Source source, string message) =>
-	genThrow(alloc, source, genNew(alloc, source, genGlobal(source, symbol!"Error"), [genString(source, message)]));
-JsStatement genThrowBogus(ref Alloc alloc, in Source source) =>
-	genThrowJsError(alloc, source, "Reached compile error");
-JsExpr genThrowBogusExpr(ref Alloc alloc, in Source source) =>
-	genIife(alloc, source, SyncOrAsync.sync, genBlockStatement(alloc, [genThrowBogus(alloc, source)]));

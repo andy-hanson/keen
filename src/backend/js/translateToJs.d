@@ -45,7 +45,6 @@ import backend.js.jsAst :
 	genString,
 	genThis,
 	genThrow,
-	genThrowBogus,
 	JsBinaryExpr,
 	JsBlockStatement,
 	JsClassDecl,
@@ -63,10 +62,10 @@ import backend.js.jsAst :
 	JsStatement,
 	Shebang,
 	SyncOrAsync;
+import backend.js.jsAstUtil : genForceUnionMember, genThrowBogus, matchUnionMembers;
 import backend.js.sourceMap : JsAndMap, ModulePaths, Source;
-import backend.js.translateAutoFun : matchUnionMembers; // TODO: MOVE IT? ------------------------------------------------------------
 import backend.js.translateExpr : genAssertType, methodImpl, translateFunDecl, translateTest;
-import backend.js.translateExprCtx : genForceUnionMember, makeCallNoInlineWithSpread;
+import backend.js.translateExprCtx : makeCallNoInlineWithSpread;
 import backend.js.translateModuleCtx :
 	aliasSource,
 	funSource,
@@ -898,24 +897,25 @@ void translateUnionDecl(
 
 	foreach (size_t methodIndex, ref Signature method; a.methods) {
 		JsName args = JsName.local(symbol!"args");
-		out_ ~= genInstanceMethod(source, SyncOrAsync.sync, JsMemberName.sumTypeMethod(method.name),
+		out_ ~= genInstanceMethod(
+			source, SyncOrAsync.sync, JsMemberName.sumTypeMethod(method.name),
 			JsParams(emptySmallArray!JsDestructure, some!JsDestructure(JsDestructure(args))),
-			matchUnionMembers(ctx.alloc, source, asUnion(a), genThis(source), (size_t i, ref SumTypeMemberAndMethodImpls case_) {
-				Opt!Called called = case_.methodImpls[methodIndex];
-				if (has(called)) {
-					return genReturn(
-						ctx.alloc, source,
-						makeCallNoInlineWithSpread(
-							ctx, source, SyncOrAsync.sync, FunOrTest(&method),
-							force(called),
-							(scope ref Builder!JsExpr out_) {
-								out_ ~= genForceUnionMember(ctx.alloc, source, genThis(source), case_.member);
-							},
-							genIdentifier(source, args)));
-				} else {
-					return genThrowBogus(ctx.alloc, source);
-				}
-			}));
+			matchUnionMembers(
+				ctx.alloc, source, asUnion(a), genThis(source),
+				(size_t i, ref SumTypeMemberAndMethodImpls case_) {
+					Opt!Called called = case_.methodImpls[methodIndex];
+					return has(called)
+						? genReturn(
+							ctx.alloc, source,
+							makeCallNoInlineWithSpread(
+								ctx, source, SyncOrAsync.sync, FunOrTest(&method),
+								force(called),
+								(scope ref Builder!JsExpr out_) {
+									out_ ~= genForceUnionMember(ctx.alloc, source, genThis(source), case_.member);
+								},
+								genIdentifier(source, args)))
+						: genThrowBogus(ctx.alloc, source);
+				}));
 	}
 
 }

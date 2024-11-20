@@ -27,6 +27,7 @@ import model.model :
 	CallExpr,
 	ClosureGetExpr,
 	ClosureSetExpr,
+	CommonFuns,
 	CommonTypes,
 	Condition,
 	Destructure,
@@ -122,7 +123,6 @@ import versionInfo : isVersion, VersionInfo, VersionFun;
 
 immutable struct FunOrTest { // rename? ---------------------------------------------------------------------------------------------------
 	@safe @nogc pure nothrow:
-	// Signature* is for a method (TODO: we could use the caller function?)
 	mixin TaggedUnion!(FunDecl*, Signature*, Test*);
 
 	Uri moduleUri() scope =>
@@ -241,7 +241,6 @@ private bool bodyIsNotInlined(in FunDecl a) =>
 	a.body_.isA!Expr ||
 	a.body_.isA!(FunBody.FileImport) ||
 	a.body_.isA!(FunBody.SumTypeMemberGet) ||
-	//(a.body_.isA!(FunBody.Method) && a.body_.as!(FunBody.Method).sumType(a).kind == SumTypeKind.union_) ||-----------------------
 	(a.body_.isA!BuiltinFun && !isInlinedBuiltinFun(a.body_.as!BuiltinFun));
 private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 	a.matchIn!bool(
@@ -407,10 +406,6 @@ immutable struct FunAndSpecSig {
 }
 
 bool addDecl(ref AllUsedBuilder res, Uri from, AnyDecl used) {
-	if (used.isA!(StructDecl*) && used.as!(StructDecl*).body_.isA!BuiltinType) {
-		assert(false); // 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-	}
-
 	MutSet!AnyDecl* perModule = &getOrAdd(res.alloc, res.usedByModule, from, () => MutSet!AnyDecl());
 	return mayAddToMutSet(res.alloc, *perModule, used) && mayAddToMutSet(res.alloc, res.usedDecls, used);
 }
@@ -515,8 +510,9 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 					case AutoFun.Kind.symbolToOptEnumOrFlags:
 						break;
 					case AutoFun.Kind.toJson:
-						trackAllUsedInFun(res, a.moduleUri, res.program.commonFuns.toJsonFromTArray, FunUse.regular);
-						foreach (FunInst* f; [res.program.commonFuns.toJsonFromJson, res.program.commonFuns.newJsonFromPairs])
+						ref CommonFuns commonFuns() => res.program.commonFuns;
+						trackAllUsedInFun(res, a.moduleUri, commonFuns.toJsonFromTArray, FunUse.regular);
+						foreach (FunInst* f; [commonFuns.toJsonFromJson, commonFuns.newJsonFromPairs])
 							trackAllUsedInCalled(res, a.moduleUri, FunOrTest(a), Called(f), FunUse.regular);
 						break;
 				}
