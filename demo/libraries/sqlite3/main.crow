@@ -1,5 +1,4 @@
 import
-	crow/c-types: c-int
 	./headers
 
 +db record force-shared
@@ -29,27 +28,41 @@ import
 +size nat64(_ query)
 	0
 
-+iterate bool(a query, f bool mut(row string[symbol])) summon, (native, sqlite3) extern
-	trusted
-		error-message mut c-string = null
-		ctx mut callback-ctx = f,
-		ctx-ptr callback-ctx mut* = &ctx
-		err = a.db.raw sqlite3_exec a.query.to, &callback, ctx-ptr.pointer-cast, &error-message
-		# TODO: if err == SQLITE_ABORT, callback returned non-0
-		if err != SQLITE_OK
-			error-string string = error-message to
-			error-message.as-mut.pointer-cast sqlite3_free
-			throw "ERROR {err}: {error-string}" error
++iterate bool(a query, f bool mut(row string[symbol])) summon, trusted, (native, sqlite3) extern
+	stmt mut sqlite3_stmt mut* = null
+	tail mut c-string = null
+	a.db.raw sqlite3_prepare_v3 a.query.to, a.query.size-char8s.to,
+		0, &stmt, &tail check-sqlite3-error
+	finally stmt.sqlite3_finalize check-sqlite3-error
+	assert *tail == "\0"
+	n-columns = stmt sqlite3_column_count
+	loop
+		step-result = stmt sqlite3_step
+		match step-result
+		as SQLITE_ROW
+			row string[symbol] = for i : 0::nat32 .. n-columns
+				key = stmt sqlite3_column_name i
+				value = stmt sqlite3_column_text i
+				key.to::string.to, value.to
+			if f[row]
+				break
+			else
+				continue
+		as SQLITE_DONE
+			break
+		else
+			throw step-result sqlite-error
 
--callback-ctx record by-val, mut
-	cb-row bool mut(row string[symbol])
+# TODO: this is needed because of looping over a range .......................................................................
+-+ nat32(a nat32, b nat64)
+	a + b.to
+# TODO: this is needed because of looping over a range .......................................................................
+-- nat64(a nat32, b nat32)
+	(a - b).to
 
--callback c-int(
-	ctx-pointer any-mut-pointer,
-	argc c-int,
-	argv c-string*,
-	col-name c-string*,
-) summon, unsafe, native extern
-	row string[symbol] = for i : 0::nat64 .. argc.to
-		col-name[i].to::string.to, argv[i].to
-	(ctx-pointer.as-const.pointer-cast::callback-ctx*)->cb-row[row] ? 1 : 0
++sqlite-error record(code sqlite3-result) exception case
++show string(a sqlite-error)
+	"SQLite error {a code}"
+
+-check-sqlite3-error void(err sqlite3-result)
+	assert err == SQLITE_OK : err sqlite-error

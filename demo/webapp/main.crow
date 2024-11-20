@@ -4,7 +4,7 @@ import
 	crow/io/net/http-types
 	crow/io/print: out, print
 	crow/io/stdin: read-stdin
-	crow/parse: nat, parse
+	crow/parse: nat, parse, parse-error
 	./db
 	./index.html as index-html string
 	./index.js as index-js string
@@ -33,7 +33,7 @@ main void() summon, (libc, lmdb, native, posix, sodium) extern
 			(("posts", db.list-posts.to),)::json http-ok
 		as "/user-name"
 			user = req.query["user"] ?? ""
-			assert user-id ?= nat parse user ok : "Bad user" http-bad-query
+			try user-id = nat parse user catch parse-error _ : throw "Bad user" http-bad-query
 			db user-name user-id http-ok
 		as "/users"
 			(("users", db.list-users.to),)::json http-ok
@@ -44,10 +44,10 @@ main void() summon, (libc, lmdb, native, posix, sodium) extern
 		as "/register"
 			args register-args = req.body-json to
 			match db register-user args
-			as register-user-success user-id
-				(("user", user-id.to),)::json http-ok
-			as bad-user-name message
-				throw "Bad user name: {message}" http-bad-query
+			as register-user-success x
+				(("user", x.user.to),)::json http-ok
+			as bad-user-name x
+				throw "Bad user name: {x reason}" http-bad-query
 			as user-already-exists
 				throw "User already exists" http-bad-query
 		as "/login"
@@ -66,4 +66,7 @@ main void() summon, (libc, lmdb, native, posix, sodium) extern
 -get-login-cookie user-cookie(req http-request)
 	cookies = req parse-cookies
 	assert cookie ?= cookies["login"] : "Missing login cookie" http-forbidden
-	user-cookie parse cookie ok ?? throw "Error parsing 'login' cookie" http-forbidden
+	try
+		user-cookie parse cookie
+	catch parse-error _
+		throw "Error parsing 'login' cookie" http-forbidden

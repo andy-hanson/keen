@@ -74,7 +74,11 @@ private SmallArray!TypeAst parseTypesWithCommasThenClosingParen(ref Lexer lexer,
 		parseTypesWithCommasThenClosingParen(lexer, out_, indentLevel);
 	});
 
-private void parseTypesWithCommasThenClosingParen(ref Lexer lexer, scope ref Builder!TypeAst res, Opt!uint indentLevel) {
+private void parseTypesWithCommasThenClosingParen(
+	ref Lexer lexer,
+	scope ref Builder!TypeAst res,
+	Opt!uint indentLevel,
+) {
 	if (!tryTakeToken(lexer, Token.parenRight)) {
 		do {
 			if (has(indentLevel)) skipNewlinesIgnoreIndentation(lexer, force(indentLevel));
