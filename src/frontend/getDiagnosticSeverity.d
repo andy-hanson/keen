@@ -81,9 +81,9 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.ExternRecordImplicitlyByVal) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ExternTypeError) =>
+		(in Diag.ExternSumType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ExternUnion) =>
+		(in Diag.ExternTypeError) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.FlagsSigned) =>
 			DiagnosticSeverity.checkError,
@@ -141,7 +141,7 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.MatchCaseForType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.MatchCaseNameDoesNotMatch) =>
+		(in Diag.MatchCaseNameNotInEnum) =>
 			DiagnosticSeverity.checkError,
 		(in Diag.MatchCaseNoValueForEnumOrSymbol) =>
 			DiagnosticSeverity.checkError,

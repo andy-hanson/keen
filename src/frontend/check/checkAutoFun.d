@@ -20,6 +20,8 @@ import model.model :
 	IntegralType,
 	isArray,
 	isEmpty,
+	isEnum,
+	isFlags,
 	isOptionType,
 	isSymbol,
 	Local,
@@ -75,8 +77,13 @@ FunBody checkAutoFun(ref CheckCtx ctx, in SpecsMap specsMap, in FunsMap funsMap,
 			if (has(optParamType)) {
 				Type paramType = force(optParamType);
 				Opt!IntegralType returnedIntegral = asIntegralType(fun.returnType);
-				if (isEnumOrFlagsOption(fun.returnType) && isSymbol(paramType)) {
+				Opt!IntegralType paramIntegral = asIntegralType(paramType);
+				if (isEnumOrFlagsOption(fun.returnType) && isSymbol(paramType))
 					return FunBody(AutoFun(AutoFun.Kind.symbolToOptEnumOrFlags, []));
+				else if (isEnumOrFlagsOption(fun.returnType) &&
+						has(paramIntegral) &&
+						force(paramIntegral) == asEnumOrFlags(mustUnwrapOptionType(fun.returnType)).storage) {
+					return FunBody(AutoFun(AutoFun.Kind.integralToOptEnumOrFlags));
 				} else if (has(returnedIntegral) && isEnumOrFlags(paramType)) {
 					return force(returnedIntegral) != asEnumOrFlags(paramType).storage
 						? wrong(Diag.AutoFunError(Diag.AutoFunError.EnumOrFlagsToWrongStorage(
@@ -126,10 +133,6 @@ bool isSymbolArray(in Type a) =>
 bool isEnumOrFlagsOption(in Type a) =>
 	isOptionType(a) && isEnumOrFlags(mustUnwrapOptionType(a));
 
-bool isEnum(in Type a) =>
-	a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!(StructBody.Enum*);
-bool isFlags(in Type a) =>
-	a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!(StructBody.Flags);
 bool isEnumOrFlags(in Type a) =>
 	isEnum(a) || isFlags(a);
 StructBody.Flags asEnumOrFlags(in Type a) {

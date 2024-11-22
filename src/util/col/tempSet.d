@@ -50,3 +50,18 @@ void mustAdd(T)(scope ref TempSet!T a, T value) {
 		TempSet!Elem set = TempSet!Elem(0, storage);
 		return cb(set);
 	});
+
+void eachUnique(Key, In)(
+	in In[] xs,
+	in Key delegate(in In) @safe @nogc pure nothrow cbKey,
+	in void delegate(in Key) @safe @nogc pure nothrow cb,
+) {
+	withTempSet(xs.length, (scope ref TempSet!Key seen) {
+		foreach (ref const In x; xs) {
+			Key key = cbKey(x);
+			if (tryAdd(seen, key)) {
+				cb(key);
+			}
+		}
+	});
+}

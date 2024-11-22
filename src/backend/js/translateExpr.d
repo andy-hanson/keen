@@ -975,10 +975,10 @@ ExprResult translateMatchSumType(
 				Source caseSource = exprSource(ctx, caseNameRange(expr, caseIndex));
 				JsExpr matchedExpr = genIdentifier(source, matched);
 				JsExpr isMatch = isUnion
-					? genIsUnionMember(ctx.alloc, source, matchedExpr, case_.member)
+					? genIsUnionMember(ctx.alloc, caseSource, matchedExpr, case_.member)
 					: genInstanceof(
-							ctx.alloc, source, matchedExpr,
-							translateStructReference(ctx, source, case_.member.decl));
+							ctx.alloc, caseSource, matchedExpr,
+							translateStructReference(ctx, caseSource, case_.member.decl));
 				JsExpr destructured = isUnion
 					? genForceUnionMember(ctx.alloc, source, matchedExpr, case_.member)
 					: matchedExpr;

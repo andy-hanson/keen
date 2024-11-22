@@ -677,7 +677,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					case Diag.DuplicateDeclaration.Kind.typeParam:
 						return "Type parameter";
 					case Diag.DuplicateDeclaration.Kind.unionMember:
-						return "Union member";
+						return "Union case";
 				}
 			}();
 			writer ~= " name ";
@@ -761,6 +761,9 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeName(writer, ctx, x.struct_.name);
 			writer ~= " is implicitly 'by-val'.";
 		},
+		(in Diag.ExternSumType) {
+			writer ~= "An 'interface', 'union', or 'variant' can't be 'extern'.";
+		},
 		(in Diag.ExternTypeError x) {
 			writer ~= () {
 				final switch (x.reason) {
@@ -772,9 +775,6 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 						return "Type size is too big.";
 				}
 			}();
-		},
-		(in Diag.ExternUnion) {
-			writer ~= "A union can't be 'extern'.";
 		},
 		(in Diag.FlagsSigned) {
 			writer ~= "A 'flags' type can't use a signed storage type.";
@@ -989,8 +989,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				}
 			}();
 		},
-		(in Diag.MatchCaseNameDoesNotMatch x) {
-			bool isEnum = x.enum_.body_.isA!(StructBody.Enum*);
+		(in Diag.MatchCaseNameNotInEnum x) {
 			writer ~= "Enum ";
 			writeName(writer, ctx, x.enum_.name);
 			writer ~= " has no member ";
@@ -1032,7 +1031,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= " must have an explicit 'else'.";
 		},
 		(in Diag.MatchOnNonMatchable x) {
-			writer ~= "Can only match on enum, union, variant, integral, symbol, string, or character type, not ";
+			writer ~= "Can only match on an enum, union, variant, integral, symbol, string, or character type, not ";
 			writeTypeQuoted(writer, ctx, x.type);
 			writer ~= '.';
 		},
@@ -1043,7 +1042,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in Diag.MatchSumTypeNoMember x) {
 			writer ~= "Type ";
 			writeName(writer, ctx, x.nonMember.name);
-			writer ~= " is not a member of variant ";
+			writer ~= " is not a case of ";
 			writeTypeQuoted(writer, ctx, x.variant);
 			writer ~= '.';
 		},
@@ -1531,12 +1530,14 @@ string aOrAnDeclKind(DeclKind a) {
 			return "An extern type";
 		case DeclKind.externFunction:
 			return "An extern function";
+		case DeclKind.flags:
+			return "A flags type";
 		case DeclKind.function_:
 			return "A function";
 		case DeclKind.global:
 			return "A global variable";
-		case DeclKind.flags:
-			return "A flags type";
+		case DeclKind.interface_:
+			return "An interface type";
 		case DeclKind.record:
 			return "A record type";
 		case DeclKind.spec:
@@ -1545,8 +1546,10 @@ string aOrAnDeclKind(DeclKind a) {
 			return "A test";
 		case DeclKind.threadLocal:
 			return "A thread-local variable";
+		case DeclKind.union_:
+			return "A union type";
 		case DeclKind.variant:
-			return "An interface, union, or variant type";
+			return "A variant type";
 	}
 }
 

@@ -141,6 +141,11 @@ bool isEmptyType(in StructInst a) =>
 private bool isEmptyRecord(in StructDecl a) =>
 	a.body_.isA!(StructBody.Record) && isEmpty(a.body_.as!(StructBody.Record).fields);
 
+bool isEnum(in Type a) =>
+	a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!(StructBody.Enum*);
+bool isFlags(in Type a) =>
+	a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!(StructBody.Flags);
+
 bool isArray(in Type a) =>
 	isBuiltinType(a, BuiltinType.array);
 bool isMutArray(in Type a) =>
@@ -539,8 +544,10 @@ immutable struct EnumOrFlagsMember {
 		lateSet(lateDocCommentReferences, value);
 	}
 
-	size_t memberIndex() =>
-		mustHaveIndexOfPointer(containingEnum.body_.as!(StructBody.Enum*).members, &this);
+	IntegralType storage() scope =>
+		containingEnum.body_.isA!(StructBody.Enum*)
+			? containingEnum.body_.as!(StructBody.Enum*).storage
+			: containingEnum.body_.as!(StructBody.Flags).storage;
 	Uri moduleUri() scope =>
 		containingEnum.moduleUri;
 	Visibility visibility() scope =>
@@ -822,12 +829,11 @@ immutable struct StructDecl {
 			(in StructDeclSource.Bogus) =>
 				Range.empty));
 
+	UriAndRange keywordRange() scope =>
+		UriAndRange(moduleUri, source.keywordRange);
+
 	UriAndRange nameRange() scope =>
-		UriAndRange(moduleUri, source.matchIn!Range(
-			(in StructDeclAst x) =>
-				x.nameRange,
-			(in StructDeclSource.Bogus) =>
-				Range.empty));
+		UriAndRange(moduleUri, source.nameRange);
 
 	bool isTemplate() scope =>
 		!isEmpty(typeParams);
@@ -874,11 +880,26 @@ immutable struct SumTypeMembership {
 }
 
 immutable struct StructDeclSource {
+	@safe @nogc pure nothrow:
 	immutable struct Bogus {
 		Symbol name;
 		TypeParams typeParams;
 	}
 	mixin TaggedUnion!(StructDeclAst*, Bogus*);
+
+	Range keywordRange() scope =>
+		matchIn!Range(
+			(in StructDeclAst x) =>
+				x.keywordRange,
+			(in StructDeclSource.Bogus) =>
+				Range.empty);
+
+	Range nameRange() scope =>
+		matchIn!Range(
+			(in StructDeclAst x) =>
+				x.nameRange,
+			(in StructDeclSource.Bogus) =>
+				Range.empty);
 }
 
 // The StructInst and its contents are allocated using the AllInsts alloc.
@@ -1044,6 +1065,7 @@ immutable struct AutoFun {
 		enumToSymbol,
 		equals,
 		flagsToSymbolArray,
+		integralToOptEnumOrFlags,
 		symbolToOptEnumOrFlags,
 		toJson
 	}

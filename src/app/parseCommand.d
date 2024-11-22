@@ -460,7 +460,7 @@ Opt!(PrintKind.IdeAtPos.Kind) ideAtPosKind(in string a) {
 			return some(PrintKind.IdeAtPos.Kind.completion);
 		case "definition":
 			return some(PrintKind.IdeAtPos.Kind.definition);
-		case "document-highlight":
+		case "document-highlights":
 			return some(PrintKind.IdeAtPos.Kind.documentHighlight);
 		case "hover":
 			return some(PrintKind.IdeAtPos.Kind.hover);
@@ -926,7 +926,7 @@ string commandDescription(CommandName name) {
 				"\n" ~
 				"\ncrow print code-lenses PATH" ~
 				"\ncrow print definition PATH LINE:COLUMN" ~
-				"\ncrow print document-highlight PATH LINE:COLUMN" ~
+				"\ncrow print document-highlights PATH LINE:COLUMN" ~
 				"\ncrow print folding-ranges PATH" ~
 				"\ncrow print hover PATH LINE:COLUMN" ~
 				"\ncrow print inlay-hints PATH" ~

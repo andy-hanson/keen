@@ -137,8 +137,9 @@ import model.model :
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
-import util.col.array : allSame, contains, fold, isEmpty, only, zip, zipIfSizeEq, zipIfSizeEqFilterFirst;
+import util.col.array : contains, fold, isEmpty, only, zip, zipIfSizeEq, zipIfSizeEqFilterFirst;
 import util.col.arrayBuilder : buildArray, Builder, buildSortedArray;
+import util.col.tempSet : eachUnique;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.sourceRange : Range, UriAndLineAndCharacterRange, UriAndRange;
 import util.symbol : Symbol;
@@ -643,19 +644,20 @@ void referencesForFunDecl(in Program program, FunDecl* decl, in ReferenceCb cb) 
 
 void referencesForFunDecls(in Program program, in FunDecl*[] decls, in ReferenceCb cb) {
 	if (!isEmpty(decls)) {
-		Visibility maxVisibility = fold(Visibility.private_, decls, (Visibility a, in FunDecl* b) =>
-			greatestVisibility(a, b.visibility));
-		assert(allSame!(Uri, FunDecl*)(decls, (in FunDecl* x) => x.moduleUri));
-		Module* itsModule = moduleAtUri(program, decls[0].moduleUri);
-		eachExprThatMayReference(
-			program, maxVisibility, itsModule,
-			(in Module module_, in NameAndRange ast, in DocCommentReference ref_) {
-				if (ref_.isA!(FunDecl*) && contains(decls, ref_.as!(FunDecl*)))
-					cb(UriAndRange(module_.uri, ast.range));
-			},
-			(in Module module_, ExprRef x) {
-				eachFunReferenceAtExpr(module_, x, decls, cb);
-			});
+		eachUnique!(Uri, FunDecl*)(decls, (in FunDecl* x) => x.moduleUri, (in Uri itsModuleUri) {
+			Module* itsModule = moduleAtUri(program, itsModuleUri);
+			Visibility maxVisibility = fold(Visibility.private_, decls, (Visibility a, in FunDecl* b) =>
+				b.moduleUri == itsModuleUri ? greatestVisibility(a, b.visibility) : a);
+			eachExprThatMayReference(
+				program, maxVisibility, itsModule,
+				(in Module module_, in NameAndRange ast, in DocCommentReference ref_) {
+					if (ref_.isA!(FunDecl*) && contains(decls, ref_.as!(FunDecl*)))
+						cb(UriAndRange(module_.uri, ast.range));
+				},
+				(in Module module_, ExprRef x) {
+					eachFunReferenceAtExpr(module_, x, decls, cb);
+				});
+		});
 	}
 }
 
@@ -735,6 +737,9 @@ Range callNameRange(in ExprAst a) {
 		? kind.as!CallAst.funName.range
 		: kind.isA!(ForAst*)
 		? kind.as!(ForAst*).forKeywordRange(a)
+		: kind.isA!IfAst
+		// This only happens for implicit 'else ()'
+		? kind.as!IfAst.firstKeywordRange
 		: kind.isA!(WithAst*)
 		? kind.as!(WithAst*).withKeywordRange(a)
 		: a.range;
@@ -743,11 +748,11 @@ Range callNameRange(in ExprAst a) {
 void eachExprThatMayReference(
 	in Program program,
 	Visibility visibility,
-	Module* module_,
+	Module* exportingModule,
 	in CbDocCommentReference cbDocCommentReference,
 	in void delegate(in Module, ExprRef) @safe @nogc pure nothrow cb,
 ) {
-	eachModuleThatMayReference(program, visibility, module_, (in Module module_) {
+	eachModuleThatMayReference(program, visibility, exportingModule, (in Module module_) {
 		eachDocCommentReference(module_, cbDocCommentReference);
 		foreach (ref FunDecl fun; module_.funs)
 			if (fun.body_.isA!Expr)

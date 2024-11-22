@@ -1624,7 +1624,7 @@ Expr checkMatchEnum(
 				hasCaseDiag = true;
 				if (has(name))
 					addDiag2(ctx, caseAst.member.nameRange, Diag(
-						Diag.MatchCaseNameDoesNotMatch(force(name), matchedEnum)));
+						Diag.MatchCaseNameNotInEnum(force(name), matchedEnum)));
 			}
 		}
 		if (hasCaseDiag) return bogus(expected, source);

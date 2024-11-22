@@ -36,6 +36,7 @@ import concretize.generate :
 	genNone,
 	genParamGet,
 	genRecordFieldGet,
+	genSome,
 	genTrue,
 	genUnionAs,
 	genUnionIntegral,
@@ -51,6 +52,7 @@ import model.concreteModel :
 	ConcreteStructBody,
 	ConcreteStructSource,
 	ConcreteType,
+	isFlags,
 	mustBeEnumOrFlags,
 	mustBeFlags,
 	mustBeByVal,
@@ -138,6 +140,10 @@ ConcreteExpr concretizeAutoFun(ref ConcretizeExprCtx ctx, ref AutoFun a) {
 					concretizeEqualUnion(ctx, x.members, a.members));
 		case AutoFun.Kind.flagsToSymbolArray:
 			return concretizeFlagsToSymbolArray(ctx);
+		case AutoFun.Kind.integralToOptEnumOrFlags:
+			return concretizeIntegralToOptEnumOrFlags(ctx);
+		case AutoFun.Kind.symbolToOptEnumOrFlags:
+			return concretizeSymbolToOptEnumOrFlags(ctx);
 		case AutoFun.Kind.toJson:
 			return handleEnumFlagsRecordOrUnion(
 				only(ctx.curFun.params).type,
@@ -149,8 +155,6 @@ ConcreteExpr concretizeAutoFun(ref ConcretizeExprCtx ctx, ref AutoFun a) {
 					concretizeRecordToJson(ctx, x.fields, a.members),
 				(ConcreteStructBody.Union x) =>
 					concretizeUnionToJson(ctx, x.members, a.members));
-		case AutoFun.Kind.symbolToOptEnumOrFlags:
-			return concretizeSymbolToOptEnumOrFlags(ctx);
 	}
 }
 
@@ -171,23 +175,18 @@ ConcreteExpr concretizeFlagsFunction(ref ConcretizeCtx ctx, ConcreteFun* cf, Fla
 			case FlagsFunction.in_:
 				// (x & y) == x
 				IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
-				ConcreteExpr p0 = castParam0(storage);
-				return genEqualIntegral(
-					ctx, range, storage,
-					genIntersectIntegral(ctx, range, storage, p0, castParam1(storage)),
-					p0);
+				return genFlagsIn(ctx, range, storage, castParam0(storage), castParam1(storage));
 			case FlagsFunction.intersect:
 				IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
 				return castToFlags(genIntersectIntegral(ctx, range, storage, castParam0(storage), castParam1(storage)));
 			case FlagsFunction.negate:
+				// ~x & all
 				IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
 				return castToFlags(
 					genIntersectIntegral(
 						ctx, range, storage,
 						genNegateIntegral(ctx, range, storage, castParam0(storage)),
-						genConstantIntegral(
-							integralType(ctx, storage), range,
-							getAllFlagsValue(mustBeFlags(cf.returnType)))));
+						getAllFlagsExpr(ctx, range, cf.returnType)));
 			case FlagsFunction.none:
 				IntegralType storage = integralTypeFromFlagsType(cf.returnType);
 				return castToFlags(genConstantIntegral(integralType(ctx, storage), range, IntegralValue(0)));
@@ -199,6 +198,24 @@ ConcreteExpr concretizeFlagsFunction(ref ConcretizeCtx ctx, ConcreteFun* cf, Fla
 }
 
 private:
+
+ConcreteExpr getAllFlagsExpr(ref ConcretizeCtx ctx, UriAndRange range, ConcreteType flagsType) =>
+	genConstantIntegral(
+		integralType(ctx, integralTypeFromFlagsType(flagsType)),
+		range,
+		getAllFlagsValue(mustBeFlags(flagsType)));
+
+// WARN: p0 is used twice, so it should be a param get (or other expression that has no side effect)
+ConcreteExpr genFlagsIn(
+	ref ConcretizeCtx ctx,
+	UriAndRange range,
+	IntegralType storage,
+	ConcreteExpr p0,
+	ConcreteExpr p1,
+) {
+	assert(p0.type == p1.type);
+	return genEqualIntegral(ctx, range, storage, genIntersectIntegral(ctx, range, storage, p0, p1), p0);
+}
 
 IntegralType integralTypeFromFlagsType(in ConcreteType a) =>
 	mustBeByVal(a).body_.as!(ConcreteStructBody.Flags).storage;
@@ -334,24 +351,62 @@ ConcreteExpr autoFunMatchEnum(
 		genParamGet(ctx.curFun.range, &only(ctx.curFun.params)),
 		cb);
 
-ConcreteExpr concretizeSymbolToOptEnumOrFlags(ref ConcretizeExprCtx ctx) {
+ConcreteExpr concretizeIntegralToOptEnumOrFlags(ref ConcretizeExprCtx ctx) =>
+	isFlags(unwrapOptionType(ctx.curFun.returnType))
+		? concretizeIntegralToOptFlags(ctx)
+		: concretizeConvertToOptEnumOrFlags(
+			ctx, (UriAndRange range, ConcreteExpr paramGet, ref EnumOrFlagsMember member) =>
+				genEqualIntegral(
+					ctx.concretizeCtx, range, member.storage,
+					paramGet,
+					integralForEnumMember(ctx.concretizeCtx, range, member)));
+
+ConcreteExpr concretizeIntegralToOptFlags(ref ConcretizeExprCtx ctx) {
+	UriAndRange range = ctx.curFun.range;
+	ConcreteType optionType = ctx.curFun.returnType;
+	ConcreteType flagsType = unwrapOptionType(optionType);
+	IntegralType storage = integralTypeFromFlagsType(flagsType);
+	ConcreteExpr paramGet = genParamGet(range, &only(ctx.curFun.params));
+	// a in all ? some(a) : none
+	return genIf(
+		ctx.alloc,
+		range,
+		genFlagsIn(ctx.concretizeCtx, range, storage, paramGet, getAllFlagsExpr(ctx.concretizeCtx, range, flagsType)),
+		genSome(ctx.concretizeCtx, optionType, range, genCast(ctx.alloc, flagsType, range, paramGet)),
+		genNone(ctx.concretizeCtx, optionType, range));
+}
+
+ConcreteExpr concretizeSymbolToOptEnumOrFlags(ref ConcretizeExprCtx ctx) =>
+	concretizeConvertToOptEnumOrFlags(ctx, (UriAndRange range, ConcreteExpr paramGet, ref EnumOrFlagsMember member) =>
+		genEqualPointer(
+			ctx.concretizeCtx, range, paramGet,
+			symbolForEnumMember(ctx.concretizeCtx, paramGet.type, range, member)));
+
+ConcreteExpr concretizeConvertToOptEnumOrFlags(
+	ref ConcretizeExprCtx ctx,
+	in ConcreteExpr delegate(UriAndRange, ConcreteExpr, ref EnumOrFlagsMember) @safe @nogc pure nothrow cbTest,
+) {
 	UriAndRange range = ctx.curFun.range;
 	ConcreteType optionType = ctx.curFun.returnType;
 	ConcreteType enumType = unwrapOptionType(optionType);
-	ConcreteLocal* param = &only(ctx.curFun.params);
-	ConcreteType symbolType = param.type;
-	ConcreteExpr paramGet = genParamGet(range, param);
+	ConcreteExpr paramGet = genParamGet(range, &only(ctx.curFun.params));
 	return foldReverse!(ConcreteExpr, EnumOrFlagsMember)(
 		genNone(ctx.concretizeCtx, optionType, range),
 		mustBeEnumOrFlags(enumType),
 		(ConcreteExpr else_, ref EnumOrFlagsMember member) {
 			// a == "foo" ? (foo,) : <<else>>
-			ConcreteExpr eq = genEqualPointer(
-				ctx.concretizeCtx, range, paramGet, symbolForEnumMember(ctx.concretizeCtx, symbolType, range, member));
+			ConcreteExpr eq = cbTest(range, paramGet, member);
 			ConcreteExpr someEnumValue = genConstantSome(ctx.concretizeCtx, optionType, range, Constant(member.value));
 			return genIf(ctx.alloc, range, eq, someEnumValue, else_);
 		});
 }
+
+ConcreteExpr integralForEnumMember(
+	ref ConcretizeCtx ctx,
+	UriAndRange range,
+	in EnumOrFlagsMember member,
+) =>
+	genConstantIntegral(integralType(ctx, member.storage), range, member.value);
 
 ConcreteExpr symbolForEnumMember(
 	ref ConcretizeCtx ctx,

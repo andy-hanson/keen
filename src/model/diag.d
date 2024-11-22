@@ -86,13 +86,15 @@ enum DeclKind {
 	enum_,
 	extern_,
 	externFunction,
+	flags,
 	function_,
 	global,
-	flags,
+	interface_,
 	record,
 	spec,
 	test,
 	threadLocal,
+	union_,
 	variant,
 }
 
@@ -309,7 +311,7 @@ immutable struct Diag {
 		enum Reason { alignmentIsDefault, badAlignment, tooBig }
 		Reason reason;
 	}
-	immutable struct ExternUnion {}
+	immutable struct ExternSumType {}
 	immutable struct FlagsSigned {}
 	immutable struct FunctionWithSignatureNotFound {
 		Symbol name;
@@ -414,7 +416,7 @@ immutable struct Diag {
 		enum Kind { enumOrUnion, numeric, stringLike }
 		Kind kind;
 	}
-	immutable struct MatchCaseNameDoesNotMatch {
+	immutable struct MatchCaseNameNotInEnum {
 		Symbol actual;
 		StructDecl* enum_;
 	}
@@ -710,8 +712,8 @@ immutable struct Diag {
 		ExternHasUnnecessaryLibraryName,
 		ExternMissingLibraryName,
 		ExternRecordImplicitlyByVal,
+		ExternSumType,
 		ExternTypeError,
-		ExternUnion,
 		FlagsSigned,
 		FunctionWithSignatureNotFound,
 		FunPointerExprMustBeName,
@@ -740,7 +742,7 @@ immutable struct Diag {
 		MainTestMissing,
 		MatchCaseDuplicate,
 		MatchCaseForType,
-		MatchCaseNameDoesNotMatch,
+		MatchCaseNameNotInEnum,
 		MatchCaseNoValueForEnumOrSymbol,
 		MatchCaseShouldUseIgnore,
 		MatchNeedsElse,

@@ -10,6 +10,7 @@ import backend.js.jsAst :
 	genGlobal,
 	genIf,
 	genIn,
+	genInteger,
 	genNew,
 	genNotNot,
 	genNumber,
@@ -25,7 +26,7 @@ import backend.js.jsAst :
 	JsStatement,
 	SyncOrAsync;
 import backend.js.sourceMap : Source;
-import model.model : StructInst, SumTypeMemberAndMethodImpls;
+import model.model : EnumOrFlagsMember, isSigned, StructInst, SumTypeMemberAndMethodImpls;
 import util.alloc.alloc : Alloc;
 import util.col.array : foldReverseWithIndex;
 import util.memory : allocate;
@@ -79,3 +80,6 @@ JsExpr genOptionSome(ref Alloc alloc, in Source source, JsExpr arg) =>
 	genArray(alloc, source, [arg]);
 JsExpr genOptionNone(in Source source) =>
 	genArray(source, []);
+
+JsExpr genEnumIntegralValue(in Source source, ref EnumOrFlagsMember member) =>
+	genInteger(source, isSigned(member.storage), member.value);

@@ -102,7 +102,7 @@ import util.opt : force, has, MutOpt, none, noneMut, Opt, optFromMut, optIf, som
 import util.sourceRange : combineRanges, Range;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet, symbolSet;
-import util.util : enumConvertOrAssert, isMultipleOf;
+import util.util : enumConvert, enumConvertOrAssert, optEnumConvert, isMultipleOf;
 
 void modifierTypeArgInvalid(ref CheckCtx ctx, in ModifierAst.Keyword modifier) {
 	if (has(modifier.typeArg)) {
@@ -161,17 +161,27 @@ void checkStructBodies(
 			},
 			(StructBodyAst.Record x) =>
 				StructBody(checkRecord(ctx, commonTypes, structsAndAliasesMap, struct_, ast.modifiers, x)),
-			(StructBodyAst.SumType x) {
-				checkOnlyCommonModifiers(ctx, DeclKind.variant, ast.modifiers);
-				SmallArray!SumTypeMemberAndMethodImpls listedMembers = checkVariantListedMembersInitial(
-					ctx, commonTypes, structsAndAliasesMap, struct_, x);
-				SmallArray!Signature sigs = checkSignatures(
-					ctx, commonTypes, structsAndAliasesMap, SignatureContainer(struct_), ast.typeParams, x.methods);
-				return StructBody(StructBody.SumType(
-					x.kind,
-					allocate(ctx.alloc, StructBody.SumType.MembersAndMethods(listedMembers, sigs))));
-			});
+			(StructBodyAst.SumType x) =>
+				StructBody(checkSumType(ctx, commonTypes, structsAndAliasesMap, struct_, ast, x)));
 	});
+}
+
+private StructBody.SumType checkSumType(
+	ref CheckCtx ctx,
+	ref CommonTypes commonTypes,
+	ref StructsAndAliasesMap structsAndAliasesMap,
+	StructDecl* struct_,
+	ref StructDeclAst ast,
+	StructBodyAst.SumType astBody,
+) {
+	checkOnlyCommonModifiers(ctx, declKindForSumType(astBody.kind), ast.modifiers);
+	SmallArray!SumTypeMemberAndMethodImpls listedMembers = checkSumTypeListedMembersInitial(
+		ctx, commonTypes, structsAndAliasesMap, struct_, astBody);
+	SmallArray!Signature sigs = checkSignatures(
+		ctx, commonTypes, structsAndAliasesMap, SignatureContainer(struct_), ast.typeParams, astBody.methods);
+	return StructBody.SumType(
+		astBody.kind,
+		allocate(ctx.alloc, StructBody.SumType.MembersAndMethods(listedMembers, sigs)));
 }
 
 SmallArray!Signature checkSignatures(
@@ -196,14 +206,16 @@ SmallArray!Signature checkSignatures(
 		return Signature(container, x, rp.returnType, small!Destructure(params));
 	});
 
-private SmallArray!SumTypeMemberAndMethodImpls checkVariantListedMembersInitial(
+private SmallArray!SumTypeMemberAndMethodImpls checkSumTypeListedMembersInitial(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* variant_,
 	ref StructBodyAst.SumType ast,
 ) {
-	if (ast.kind == SumTypeKind.union_)
+	if (ast.kind == SumTypeKind.union_) {
+		if (isEmpty(ast.types))
+			addDiag(ctx, variant_.keywordRange.range, Diag(Diag.EmptyEnumOrUnion()));
 		return mapOpPointersWithSoFar!(SumTypeMemberAndMethodImpls, TypeAst)(
 			ctx.alloc, ast.types,
 			(TypeAst* typeAst, in SumTypeMemberAndMethodImpls[] soFar) {
@@ -224,7 +236,7 @@ private SmallArray!SumTypeMemberAndMethodImpls checkVariantListedMembersInitial(
 					return none!SumTypeMemberAndMethodImpls;
 				}
 			});
-	else {
+	} else {
 		if (!isEmpty(ast.types))
 			addDiag(ctx, combineRanges(ast.types[0].range, ast.types[$ - 1].range), Diag(
 				Diag.SumTypeListedMembersNonUnion()));
@@ -241,7 +253,7 @@ private SmallArray!SumTypeMembership checkSumTypeMembershipsInitial(
 ) =>
 	mapOpPointersWithSoFar!(SumTypeMembership, ModifierAst)(
 		ctx.alloc, ast.modifiers, (ModifierAst* mod, in SumTypeMembership[] soFar) {
-			Opt!SumTypeMembership res = getVariantMemberTypeFromModifier(
+			Opt!SumTypeMembership res = sumTypeMembershipFromModifier(
 				ctx, commonTypes, structsAndAliasesMap, struct_, mod);
 			if (has(res)) {
 				if (struct_.isTemplate) {
@@ -258,7 +270,7 @@ private SmallArray!SumTypeMembership checkSumTypeMembershipsInitial(
 			return res;
 		});
 
-private Opt!SumTypeMembership getVariantMemberTypeFromModifier(
+private Opt!SumTypeMembership sumTypeMembershipFromModifier(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
@@ -307,7 +319,7 @@ void checkMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap fun
 			SumTypeMemberAndMethodImpls[] members = struct_.body_.as!(StructBody.SumType).listedMembers;
 			TypeAst[] memberAsts = struct_.source.as!(StructDeclAst*).body_.as!(StructBodyAst.SumType).types;
 			foreach (size_t i, ref SumTypeMemberAndMethodImpls x; members) {
-				x.methodImpls = checkMethodImplsForVariant(
+				x.methodImpls = checkMethodImplsForCase(
 					ctx, commonTypes, funsMap,
 					TypeContainer(&struct_), x.member,
 					sizeEq(members, memberAsts) ? memberAsts[i].range : struct_.nameRange.range,
@@ -318,7 +330,7 @@ void checkMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap fun
 
 		foreach (ref SumTypeMembership x; struct_.sumTypeMemberships) {
 			StructInst* memberType = instantiateStructWithOwnTypeParams(ctx.instantiateCtx, &struct_);
-			x.methodImpls = checkMethodImplsForVariant(
+			x.methodImpls = checkMethodImplsForCase(
 				ctx, commonTypes, funsMap, TypeContainer(&struct_),
 				memberType, x.ast.range, x.sumType, x.sumTypeDeclMethods);
 		}
@@ -327,7 +339,7 @@ void checkMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap fun
 
 private:
 
-SmallArray!(Opt!Called) checkMethodImplsForVariant(
+SmallArray!(Opt!Called) checkMethodImplsForCase(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	FunsMap funsMap,
@@ -449,11 +461,16 @@ StructModifiers getStructModifiers(ref CheckCtx ctx, DeclKind declKind, Modifier
 		Opt!SymbolSet defaultExtern = declKind == DeclKind.extern_ ? some(emptySymbolSet) : none!SymbolSet;
 		if (has(accum.extern_)) {
 			ModifierAst.Keyword keyword = *force(accum.extern_);
-			SymbolSet set = getExternsFromModifier(ctx, keyword, required: false);
-			if (has(defaultExtern))
-				addDiag(ctx, keyword.keywordRange, Diag(
-					Diag.ModifierRedundantDueToDeclKind(keyword.keyword, declKind)));
-			return some(set);
+			if (isSumType(declKind)) {
+				addDiag(ctx, keyword.keywordRange, Diag(Diag.ExternSumType()));
+				return defaultExtern;
+			} else {
+				SymbolSet set = getExternsFromModifier(ctx, keyword, required: false);
+				if (has(defaultExtern))
+					addDiag(ctx, keyword.keywordRange, Diag(
+						Diag.ModifierRedundantDueToDeclKind(keyword.keyword, declKind)));
+				return some(set);
+			}
 		} else
 			return defaultExtern;
 	}();
@@ -508,12 +525,20 @@ StructModifierAsts accumulateStructModifiers(ref CheckCtx ctx, ModifierAst[] mod
 		purityAndForced: optFromMut!(ModifierAst.Keyword*)(purityAndForced));
 }
 
+DeclKind declKindForSumType(SumTypeKind a) =>
+	enumConvert!(DeclKind, SumTypeKind)(a);
+
+bool isSumType(DeclKind a) =>
+	has(optEnumConvert!(SumTypeKind, DeclKind)(a));
+
 Purity defaultPurity(DeclKind a) {
 	final switch (a) {
 		case DeclKind.builtin:
 		case DeclKind.enum_:
 		case DeclKind.flags:
+		case DeclKind.interface_:
 		case DeclKind.record:
+		case DeclKind.union_:
 		case DeclKind.variant:
 			return Purity.data;
 		case DeclKind.extern_:
@@ -541,8 +566,8 @@ DeclKind getDeclKind(in StructBodyAst a) =>
 			DeclKind.flags,
 		(in StructBodyAst.Record) =>
 			DeclKind.record,
-		(in StructBodyAst.SumType) =>
-			DeclKind.variant);
+		(in StructBodyAst.SumType x) =>
+			declKindForSumType(x.kind));
 
 Opt!PurityAndForced purityAndForcedFromModifier(ModifierKeyword a) {
 	switch (a) {

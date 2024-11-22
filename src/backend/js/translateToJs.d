@@ -32,7 +32,6 @@ import backend.js.jsAst :
 	genIdentifier,
 	genIf,
 	genInstanceMethod,
-	genInteger,
 	genIntegerUnsigned,
 	genNew,
 	genNotEqEq,
@@ -62,7 +61,7 @@ import backend.js.jsAst :
 	JsStatement,
 	Shebang,
 	SyncOrAsync;
-import backend.js.jsAstUtil : genForceUnionMember, genThrowBogus, matchUnionMembers;
+import backend.js.jsAstUtil : genEnumIntegralValue, genForceUnionMember, genThrowBogus, matchUnionMembers;
 import backend.js.sourceMap : JsAndMap, ModulePaths, Source;
 import backend.js.translateExpr : genAssertType, methodImpl, translateFunDecl, translateTest;
 import backend.js.translateExprCtx : makeCallNoInlineWithSpread;
@@ -92,7 +91,6 @@ import model.model :
 	getAllFlagsValue,
 	hasFatalDiagnostics,
 	ImportOrExport,
-	isSigned,
 	isTuple,
 	MainFun,
 	methodCaller,
@@ -687,7 +685,7 @@ void translateEnumDecl(
 			JsMemberName.enumMember(member.name),
 			genNew(ctx.alloc, source, genThis(source), [
 				genString(source, stringOfSymbol(ctx.alloc, member.name)),
-				genInteger(source, isSigned(a.storage), member.value)]));
+				genEnumIntegralValue(source, member)]));
 	out_ ~= enumOrFlagsMembers(ctx, source, a.members);
 }
 JsStatement genAssignToThis(ref Alloc alloc, Source source, JsMemberName name, JsExpr value) =>

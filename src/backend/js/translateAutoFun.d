@@ -15,6 +15,7 @@ import backend.js.jsAst :
 	exprFunBody,
 	genAnd,
 	genArray,
+	genBitwiseAnd,
 	genBlockStatement,
 	genBool,
 	genCallAwait,
@@ -24,6 +25,7 @@ import backend.js.jsAst :
 	genEqEqEq,
 	genIdentifier,
 	genIf,
+	genIntegerUnsigned,
 	genLess,
 	genNew,
 	genNotEqEq,
@@ -40,7 +42,8 @@ import backend.js.jsAst :
 	JsName,
 	JsStatement,
 	JsSwitchStatement;
-import backend.js.jsAstUtil : genForceUnionMember, genIsUnionMember, genOptionNone, genOptionSome, matchUnionMembers;
+import backend.js.jsAstUtil :
+	genEnumIntegralValue, genForceUnionMember, genIsUnionMember, genOptionNone, genOptionSome, matchUnionMembers;
 import backend.js.sourceMap : Source;
 import backend.js.translateModuleCtx :
 	funSource,
@@ -55,6 +58,8 @@ import model.model :
 	Destructure,
 	EnumOrFlagsMember,
 	FunDecl,
+	getAllFlagsValue,
+	isFlags,
 	Local,
 	mustBeEnumOrFlags,
 	mustUnwrapOptionType,
@@ -63,7 +68,8 @@ import model.model :
 	StructDecl,
 	StructInst,
 	SumTypeKind,
-	SumTypeMemberAndMethodImpls;
+	SumTypeMemberAndMethodImpls,
+	Type;
 import util.alloc.alloc : Alloc;
 import util.col.array : foldRange, isEmpty, map, mapReduce, mapWithIndex, newArray;
 import util.col.arrayBuilder : add, ArrayBuilder;
@@ -116,10 +122,12 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 					translateEqualUnion(ctx, source, auto_, members, param(0), param(1)));
 		case AutoFun.Kind.flagsToSymbolArray:
 			return exprFunBody(ctx.alloc, flagsToSymbolArray(ctx.ctx, source, struct_, param(0)));
+		case AutoFun.Kind.integralToOptEnumOrFlags:
+			assert(params.length == 1);
+			return integralToOptEnumOrFlags(ctx, source, param(0));
 		case AutoFun.Kind.symbolToOptEnumOrFlags:
 			assert(params.length == 1);
-			return symbolToOptEnumOrFlags(
-				ctx, source, mustBeEnumOrFlags(*mustUnwrapOptionType(fun.returnType).as!(StructInst*).decl), param(0));
+			return symbolToOptEnumOrFlags(ctx, source, param(0));
 		case AutoFun.Kind.toJson:
 			assert(params.length == 1);
 			return matchEnumFlagsRecordOrUnion(
@@ -137,23 +145,49 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 
 private:
 
-JsExprOrBlockStatement symbolToOptEnumOrFlags(
+JsExprOrBlockStatement integralToOptEnumOrFlags(ref TranslateExprCtx ctx, in Source source, JsExpr param) {
+	Type enumOrFlags = mustUnwrapOptionType(ctx.curFun.as!(FunDecl*).returnType);
+	return isFlags(enumOrFlags)
+		? integralToOptFlags(ctx, source, param, enumOrFlags.as!(StructInst*).decl)
+		: convertToOptEnumOrFlagsCommon(ctx, source, param, (ref EnumOrFlagsMember member) =>
+			genEnumIntegralValue(source, member));
+}
+
+JsExprOrBlockStatement integralToOptFlags(ref TranslateExprCtx ctx, in Source source, JsExpr param, StructDecl* flags) {
+	// a & all === a ? [new F(a)] : []
+	JsExpr all = genIntegerUnsigned(source, getAllFlagsValue(flags.body_.as!(StructBody.Flags)).asUnsigned);
+	JsExpr newFlags = genNew(ctx.alloc, source, translateStructReference(ctx.ctx, source, flags), [param]);
+	return exprFunBody(ctx.alloc, genTernary(
+		ctx.alloc, source,
+		genEqEqEq(ctx.alloc, source, genBitwiseAnd(ctx.alloc, source, param, all), param),
+		genOptionSome(ctx.alloc, source, newFlags),
+		genOptionNone(source)));
+}
+
+JsExprOrBlockStatement symbolToOptEnumOrFlags(ref TranslateExprCtx ctx, in Source source, JsExpr param) =>
+	convertToOptEnumOrFlagsCommon(ctx, source, param, (ref EnumOrFlagsMember member) =>
+		genStringFromSymbol(source, member.name));
+
+JsExprOrBlockStatement convertToOptEnumOrFlagsCommon(
 	ref TranslateExprCtx ctx,
 	in Source source,
-	in EnumOrFlagsMember[] members,
 	JsExpr param,
-) =>
-	JsExprOrBlockStatement(genBlockStatement(ctx.alloc, [
+	in JsExpr delegate(ref EnumOrFlagsMember) @safe @nogc pure nothrow cbCaseKey,
+) {
+	EnumOrFlagsMember[] members = mustBeEnumOrFlags(
+		*mustUnwrapOptionType(ctx.curFun.as!(FunDecl*).returnType).as!(StructInst*).decl);
+	return JsExprOrBlockStatement(genBlockStatement(ctx.alloc, [
 		genSwitch(
 			source,
 			allocate(ctx.alloc, param),
 			map(ctx.alloc, members, (ref EnumOrFlagsMember member) =>
 				JsSwitchStatement.Case(
-					genStringFromSymbol(source, member.name),
+					cbCaseKey(member),
 					genBlockReturn(
 						ctx.alloc,
 						genOptionSome(ctx.alloc, source, translateEnumValue(ctx.ctx, source, member))))),
 			genBlockReturn(ctx.alloc, genOptionNone(source)))]));
+}
 
 JsBlockStatement genBlockReturn(ref Alloc alloc, JsExpr expr) =>
 	genBlockStatement(alloc, [genReturn(alloc, expr.source, expr)]);

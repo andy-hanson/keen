@@ -97,6 +97,10 @@ bool isEmptyType(in ConcreteType a) =>
 	a.reference == ReferenceKind.byVal && isEmptyStruct(*a.struct_);
 bool isEmptyStruct(in ConcreteStruct a) =>
 	a.typeSize.sizeBytes == 0;
+bool isFlags(in ConcreteType a) =>
+	a.reference == ReferenceKind.byVal && isFlags(*a.struct_);
+bool isFlags(in ConcreteStruct a) =>
+	a.body_.isA!(ConcreteStructBody.Flags);
 
 alias ReferenceKind = immutable ReferenceKind_;
 private enum ReferenceKind_ { byVal, byRef }

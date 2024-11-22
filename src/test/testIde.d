@@ -164,7 +164,7 @@ void testInlayHints(ref Test test) {
 }
 
 void testReferences(ref Test test) {
-	withIdeTestsAtPositions!("references", ["variant"])(
+	withIdeTestsAtPositions!("references", ["doc-comments", "variant"])(
 		test,
 		(in ShowModelCtx ctx, in Program program, in UriLineAndCharacter where) {
 			Opt!Position position = getPosition(program, where, GetPositionKind.exact);
