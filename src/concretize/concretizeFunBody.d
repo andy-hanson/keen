@@ -35,6 +35,7 @@ import concretize.generate :
 	genUnionMemberGet,
 	unwrapOptionType;
 import model.concreteModel :
+	CallConcreteExpr,
 	ConcreteExpr,
 	ConcreteExprKind,
 	ConcreteFun,
@@ -155,7 +156,7 @@ ConcreteFun* concreteFunForWrapMain(ref ConcretizeCtx ctx, FunInst* modelMain) {
 	ConcreteType nat64 = nat64Type(ctx);
 	UriAndRange range = modelMain.decl.range;
 	ConcreteExpr callMain = ConcreteExpr(voidType(ctx), range, ConcreteExprKind(
-		ConcreteExprKind.Call(innerMain, emptySmallArray!ConcreteExpr)));
+		CallConcreteExpr(innerMain, emptySmallArray!ConcreteExpr)));
 	ConcreteExpr zero = ConcreteExpr(nat64, range, ConcreteExprKind(constantZero));
 	ConcreteExpr body_ = genSeq(ctx.alloc, range, callMain, zero);
 	ConcreteFun* res = allocate(ctx.alloc, ConcreteFun(

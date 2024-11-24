@@ -424,219 +424,219 @@ immutable struct ConcreteExpr {
 }
 
 immutable struct ConcreteExprKind {
-	immutable struct Builtin {
-		BuiltinFun fun;
-		SmallArray!ConcreteExpr args;
-	}
-
-	immutable struct Call {
-		ConcreteFun* called;
-		SmallArray!ConcreteExpr args;
-	}
-
-	// Cast between different types with the same size.
-	immutable struct Cast {
-		ConcreteExpr* inner;
-	}
-
-	immutable struct CreateArray {
-		@safe @nogc pure nothrow:
-		ConcreteExpr[] args;
-		this(ConcreteExpr[] a) {
-			args = a;
-			assert(!isEmpty(args));
-		}
-	}
-
-	immutable struct CreateRecord {
-		@safe @nogc pure nothrow:
-		ConcreteExpr[] args;
-		this(ConcreteExpr[] a) {
-			args = a;
-			assert(!isEmpty(args));
-		}
-	}
-
-	immutable struct CreateUnion {
-		size_t memberIndex;
-		ConcreteExpr arg;
-	}
-
-	immutable struct Drop {
-		ConcreteExpr arg;
-	}
-
-	immutable struct Finally {
-		ConcreteExpr right;
-		ConcreteExpr below;
-	}
-
-	immutable struct If {
-		ConcreteExpr cond;
-		ConcreteExpr then;
-		ConcreteExpr else_;
-	}
-
-	immutable struct Let {
-		ConcreteLocal* local;
-		ConcreteExpr value;
-		ConcreteExpr then;
-	}
-
-	immutable struct LocalGet {
-		ConcreteLocal* local;
-	}
-	immutable struct LocalPointer {
-		ConcreteLocal* local;
-	}
-	immutable struct LocalSet {
-		ConcreteLocal* local;
-		ConcreteExpr value;
-	}
-
-	immutable struct Loop {
-		ConcreteExpr body_;
-	}
-	immutable struct LoopBreak {
-		ConcreteExpr value;
-	}
-	immutable struct LoopContinue {}
-
-	immutable struct MatchEnumOrIntegral {
-		@safe @nogc pure nothrow:
-		ConcreteExpr matched;
-		IntegralValues caseValues;
-		SmallArray!ConcreteExpr caseExprs;
-		Opt!(ConcreteExpr*) else_;
-
-		this(ConcreteExpr m, IntegralValues cv, ConcreteExpr[] ce, Opt!(ConcreteExpr*) e) {
-			matched = m; caseValues = cv; caseExprs = ce; else_ = e;
-			assert(caseExprs.length == caseValues.length);
-			assert(!isEmpty(caseExprs));
-		}
-	}
-
-	immutable struct MatchStringLike {
-		immutable struct Case {
-			ConcreteExpr value;
-			ConcreteExpr then;
-		}
-
-		ConcreteExpr matched;
-		ConcreteFun* equals;
-		SmallArray!Case cases;
-		ConcreteExpr else_;
-	}
-
-	immutable struct MatchUnion {
-		@safe @nogc pure nothrow:
-
-		immutable struct Case {
-			Opt!(ConcreteLocal*) local;
-			ConcreteExpr then;
-		}
-
-		ConcreteExpr matched;
-		IntegralValues memberIndices;
-		SmallArray!Case cases;
-		Opt!(ConcreteExpr*) else_;
-
-		this(ConcreteExpr m, IntegralValues mi, SmallArray!Case c, Opt!(ConcreteExpr*) e) {
-			matched = m;
-			memberIndices = mi;
-			cases = c;
-			else_ = e;
-			assert(!isEmpty(cases));
-		}
-	}
-
-	immutable struct RecordFieldGet {
-		ConcreteExpr* record; // May be by-value or by-ref
-		size_t fieldIndex;
-	}
-
-	immutable struct RecordFieldPointer {
-		ConcreteExpr* record;
-		size_t fieldIndex;
-	}
-
-	immutable struct RecordFieldSet {
-		ConcreteExpr record; // May be by-value or by-ref
-		size_t fieldIndex;
-		ConcreteExpr value;
-	}
-
-	immutable struct Seq {
-		ConcreteExpr first;
-		ConcreteExpr then;
-	}
-
-	immutable struct Throw {
-		// a `c-string`
-		ConcreteExpr thrown;
-	}
-
-	immutable struct Try {
-		ConcreteExpr tried;
-		IntegralValues exceptionMemberIndices;
-		SmallArray!(MatchUnion.Case) catchCases;
-	}
-
-	immutable struct TryLet {
-		Opt!(ConcreteLocal*) local;
-		ConcreteExpr value;
-		IntegralValue exceptionMemberIndex;
-		MatchUnion.Case catch_;
-		ConcreteExpr then;
-	}
-
-	// Unsafe internal operation for casting a union to a member. Does not check the kind!
-	immutable struct UnionAs {
-		ConcreteExpr* union_;
-		uint memberIndex;
-	}
-
-	// Internal operation for getting the 'kind' of a union. (This is the member index.)
-	immutable struct UnionKind {
-		ConcreteExpr* union_;
-	}
-
 	mixin Union!(
-		Builtin*,
-		Call,
-		Cast,
+		BuiltinConcreteExpr*,
+		CallConcreteExpr,
+		CastConcreteExpr,
 		Constant,
-		CreateArray,
-		CreateRecord,
-		CreateUnion*,
-		Drop*,
-		Finally*,
-		If*,
-		Let*,
-		LocalGet,
-		LocalPointer,
-		LocalSet*,
-		Loop*,
-		LoopBreak*,
-		LoopContinue,
-		MatchEnumOrIntegral*,
-		MatchStringLike*,
-		MatchUnion*,
-		RecordFieldGet,
-		RecordFieldPointer,
-		RecordFieldSet*,
-		Seq*,
-		Throw*,
-		Try*,
-		TryLet*,
-		UnionAs,
-		UnionKind);
+		CreateArrayConcreteExpr,
+		CreateRecordConcreteExpr,
+		CreateUnionConcreteExpr*,
+		DropConcreteExpr*,
+		FinallyConcreteExpr*,
+		IfConcreteExpr*,
+		LetConcreteExpr*,
+		LocalGetConcreteExpr,
+		LocalPointerConcreteExpr,
+		LocalSetConcreteExpr*,
+		LoopConcreteExpr*,
+		LoopBreakConcreteExpr*,
+		LoopContinueConcreteExpr,
+		MatchEnumOrIntegralConcreteExpr*,
+		MatchStringLikeConcreteExpr*,
+		MatchUnionConcreteExpr*,
+		RecordFieldGetConcreteExpr,
+		RecordFieldPointerConcreteExpr,
+		RecordFieldSetConcreteExpr*,
+		SeqConcreteExpr*,
+		ThrowConcreteExpr*,
+		TryConcreteExpr*,
+		TryLetConcreteExpr*,
+		UnionAsConcreteExpr,
+		UnionKindConcreteExpr);
 }
 version (WebAssembly) {} else {
-	static assert(ConcreteExprKind.sizeof == ConcreteExprKind.Call.sizeof + ulong.sizeof);
+	static assert(ConcreteExprKind.sizeof == CallConcreteExpr.sizeof + ulong.sizeof);
 }
 
-ConcreteType returnType(ConcreteExprKind.Call a) =>
+immutable struct BuiltinConcreteExpr {
+	BuiltinFun fun;
+	SmallArray!ConcreteExpr args;
+}
+
+immutable struct CallConcreteExpr {
+	ConcreteFun* called;
+	SmallArray!ConcreteExpr args;
+}
+
+// Cast between different types with the same size.
+immutable struct CastConcreteExpr {
+	ConcreteExpr* inner;
+}
+
+immutable struct CreateArrayConcreteExpr {
+	@safe @nogc pure nothrow:
+	ConcreteExpr[] args;
+	this(ConcreteExpr[] a) {
+		args = a;
+		assert(!isEmpty(args));
+	}
+}
+
+immutable struct CreateRecordConcreteExpr {
+	@safe @nogc pure nothrow:
+	ConcreteExpr[] args;
+	this(ConcreteExpr[] a) {
+		args = a;
+		assert(!isEmpty(args));
+	}
+}
+
+immutable struct CreateUnionConcreteExpr {
+	size_t memberIndex;
+	ConcreteExpr arg;
+}
+
+immutable struct DropConcreteExpr {
+	ConcreteExpr arg;
+}
+
+immutable struct FinallyConcreteExpr {
+	ConcreteExpr right;
+	ConcreteExpr below;
+}
+
+immutable struct IfConcreteExpr {
+	ConcreteExpr cond;
+	ConcreteExpr then;
+	ConcreteExpr else_;
+}
+
+immutable struct LetConcreteExpr {
+	ConcreteLocal* local;
+	ConcreteExpr value;
+	ConcreteExpr then;
+}
+
+immutable struct LocalGetConcreteExpr {
+	ConcreteLocal* local;
+}
+immutable struct LocalPointerConcreteExpr {
+	ConcreteLocal* local;
+}
+immutable struct LocalSetConcreteExpr {
+	ConcreteLocal* local;
+	ConcreteExpr value;
+}
+
+immutable struct LoopConcreteExpr {
+	ConcreteExpr body_;
+}
+immutable struct LoopBreakConcreteExpr {
+	ConcreteExpr value;
+}
+immutable struct LoopContinueConcreteExpr {}
+
+immutable struct MatchEnumOrIntegralConcreteExpr {
+	@safe @nogc pure nothrow:
+	ConcreteExpr matched;
+	IntegralValues caseValues;
+	SmallArray!ConcreteExpr caseExprs;
+	Opt!(ConcreteExpr*) else_;
+
+	this(ConcreteExpr m, IntegralValues cv, ConcreteExpr[] ce, Opt!(ConcreteExpr*) e) {
+		matched = m; caseValues = cv; caseExprs = ce; else_ = e;
+		assert(caseExprs.length == caseValues.length);
+		assert(!isEmpty(caseExprs));
+	}
+}
+
+immutable struct MatchStringLikeConcreteExpr {
+	immutable struct Case {
+		ConcreteExpr value;
+		ConcreteExpr then;
+	}
+
+	ConcreteExpr matched;
+	ConcreteFun* equals;
+	SmallArray!Case cases;
+	ConcreteExpr else_;
+}
+
+immutable struct MatchUnionConcreteExpr {
+	@safe @nogc pure nothrow:
+
+	immutable struct Case {
+		Opt!(ConcreteLocal*) local;
+		ConcreteExpr then;
+	}
+
+	ConcreteExpr matched;
+	IntegralValues memberIndices;
+	SmallArray!Case cases;
+	Opt!(ConcreteExpr*) else_;
+
+	this(ConcreteExpr m, IntegralValues mi, SmallArray!Case c, Opt!(ConcreteExpr*) e) {
+		matched = m;
+		memberIndices = mi;
+		cases = c;
+		else_ = e;
+		assert(!isEmpty(cases));
+	}
+}
+
+immutable struct RecordFieldGetConcreteExpr {
+	ConcreteExpr* record; // May be by-value or by-ref
+	size_t fieldIndex;
+}
+
+immutable struct RecordFieldPointerConcreteExpr {
+	ConcreteExpr* record;
+	size_t fieldIndex;
+}
+
+immutable struct RecordFieldSetConcreteExpr {
+	ConcreteExpr record; // May be by-value or by-ref
+	size_t fieldIndex;
+	ConcreteExpr value;
+}
+
+immutable struct SeqConcreteExpr {
+	ConcreteExpr first;
+	ConcreteExpr then;
+}
+
+immutable struct ThrowConcreteExpr {
+	// a `c-string`
+	ConcreteExpr thrown;
+}
+
+immutable struct TryConcreteExpr {
+	ConcreteExpr tried;
+	IntegralValues exceptionMemberIndices;
+	SmallArray!(MatchUnionConcreteExpr.Case) catchCases;
+}
+
+immutable struct TryLetConcreteExpr {
+	Opt!(ConcreteLocal*) local;
+	ConcreteExpr value;
+	IntegralValue exceptionMemberIndex;
+	MatchUnionConcreteExpr.Case catch_;
+	ConcreteExpr then;
+}
+
+// Unsafe internal operation for casting a union to a member. Does not check the kind!
+immutable struct UnionAsConcreteExpr {
+	ConcreteExpr* union_;
+	uint memberIndex;
+}
+
+// Internal operation for getting the 'kind' of a union. (This is the member index.)
+immutable struct UnionKindConcreteExpr {
+	ConcreteExpr* union_;
+}
+
+ConcreteType returnType(CallConcreteExpr a) =>
 	a.called.returnType;
 
 immutable struct ArrTypeAndConstantsConcrete {
@@ -700,71 +700,71 @@ immutable struct ConcreteCommonFuns {
 
 bool existsDirectChildExpr(ref ConcreteExpr a, in bool delegate(ref ConcreteExpr) @safe @nogc pure nothrow cb) =>
 	a.kind.matchWithPointers!bool(
-		(ConcreteExprKind.Builtin* x) =>
+		(BuiltinConcreteExpr* x) =>
 			exists!ConcreteExpr(x.args, cb),
-		(ConcreteExprKind.Call x) =>
+		(CallConcreteExpr x) =>
 			exists!ConcreteExpr(x.args, cb),
-		(ConcreteExprKind.Cast x) =>
+		(CastConcreteExpr x) =>
 			cb(*x.inner),
 		(Constant x) =>
 			false,
-		(ConcreteExprKind.CreateArray x) =>
+		(CreateArrayConcreteExpr x) =>
 			exists!ConcreteExpr(x.args, cb),
-		(ConcreteExprKind.CreateRecord x) =>
+		(CreateRecordConcreteExpr x) =>
 			exists!ConcreteExpr(x.args, cb),
-		(ConcreteExprKind.CreateUnion* x) =>
+		(CreateUnionConcreteExpr* x) =>
 			cb(x.arg),
-		(ConcreteExprKind.Drop* x) =>
+		(DropConcreteExpr* x) =>
 			cb(x.arg),
-		(ConcreteExprKind.Finally* x) =>
+		(FinallyConcreteExpr* x) =>
 			cb(x.right) || cb(x.below),
-		(ConcreteExprKind.If* x) =>
+		(IfConcreteExpr* x) =>
 			cb(x.cond) || cb(x.then) || cb(x.else_),
-		(ConcreteExprKind.Let* x) =>
+		(LetConcreteExpr* x) =>
 			cb(x.value) || cb(x.then),
-		(ConcreteExprKind.LocalGet) =>
+		(LocalGetConcreteExpr) =>
 			false,
-		(ConcreteExprKind.LocalPointer) =>
+		(LocalPointerConcreteExpr) =>
 			false,
-		(ConcreteExprKind.LocalSet* x) =>
+		(LocalSetConcreteExpr* x) =>
 			cb(x.value),
-		(ConcreteExprKind.Loop* x) =>
+		(LoopConcreteExpr* x) =>
 			cb(x.body_),
-		(ConcreteExprKind.LoopBreak* x) =>
+		(LoopBreakConcreteExpr* x) =>
 			cb(x.value),
-		(ConcreteExprKind.LoopContinue) =>
+		(LoopContinueConcreteExpr) =>
 			false,
-		(ConcreteExprKind.MatchEnumOrIntegral* x) =>
+		(MatchEnumOrIntegralConcreteExpr* x) =>
 			cb(x.matched) ||
 			exists!ConcreteExpr(x.caseExprs, cb) ||
 			(has(x.else_) && cb(*force(x.else_))),
-		(ConcreteExprKind.MatchStringLike* x) =>
+		(MatchStringLikeConcreteExpr* x) =>
 			cb(x.matched) ||
-			exists!(ConcreteExprKind.MatchStringLike.Case)(x.cases, (ref ConcreteExprKind.MatchStringLike.Case case_) =>
+			exists!(MatchStringLikeConcreteExpr.Case)(x.cases, (ref MatchStringLikeConcreteExpr.Case case_) =>
 				cb(case_.value) || cb(case_.then)) ||
 			cb(x.else_),
-		(ConcreteExprKind.MatchUnion* x) =>
+		(MatchUnionConcreteExpr* x) =>
 			cb(x.matched) ||
-			exists!(ConcreteExprKind.MatchUnion.Case)(x.cases, (ref ConcreteExprKind.MatchUnion.Case case_) =>
+			exists!(MatchUnionConcreteExpr.Case)(x.cases, (ref MatchUnionConcreteExpr.Case case_) =>
 				cb(case_.then)) ||
 			(has(x.else_) && cb(*force(x.else_))),
-		(ConcreteExprKind.RecordFieldGet x) =>
+		(RecordFieldGetConcreteExpr x) =>
 			cb(*x.record),
-		(ConcreteExprKind.RecordFieldPointer x) =>
+		(RecordFieldPointerConcreteExpr x) =>
 			cb(*x.record),
-		(ConcreteExprKind.RecordFieldSet* x) =>
+		(RecordFieldSetConcreteExpr* x) =>
 			cb(x.record) || cb(x.value),
-		(ConcreteExprKind.Seq* x) =>
+		(SeqConcreteExpr* x) =>
 			cb(x.first) || cb(x.then),
-		(ConcreteExprKind.Throw* x) =>
+		(ThrowConcreteExpr* x) =>
 			cb(x.thrown),
-		(ConcreteExprKind.Try* x) =>
+		(TryConcreteExpr* x) =>
 			cb(x.tried) ||
-			exists!(ConcreteExprKind.MatchUnion.Case)(x.catchCases, (ref ConcreteExprKind.MatchUnion.Case case_) =>
+			exists!(MatchUnionConcreteExpr.Case)(x.catchCases, (ref MatchUnionConcreteExpr.Case case_) =>
 				cb(case_.then)),
-		(ConcreteExprKind.TryLet* x) =>
+		(TryLetConcreteExpr* x) =>
 			cb(x.value) || cb(x.catch_.then) || cb(x.then),
-		(ConcreteExprKind.UnionAs x) =>
+		(UnionAsConcreteExpr x) =>
 			cb(*x.union_),
-		(ConcreteExprKind.UnionKind x) =>
+		(UnionKindConcreteExpr x) =>
 			cb(*x.union_));

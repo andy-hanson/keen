@@ -43,6 +43,7 @@ import concretize.generate :
 	genUnionKind;
 import model.concreteModel :
 	arrayElementType,
+	CastConcreteExpr,
 	ConcreteExpr,
 	ConcreteExprKind,
 	ConcreteField,
@@ -260,7 +261,7 @@ ConcreteExpr genCastIntegral(ref ConcretizeCtx ctx, UriAndRange range, IntegralT
 	genCast(ctx.alloc, integralType(ctx, type), range, arg);
 
 ConcreteExpr genCast(ref Alloc alloc, ConcreteType type, UriAndRange range, ConcreteExpr arg) =>
-	ConcreteExpr(type, range, ConcreteExprKind(ConcreteExprKind.Cast(allocate(alloc, arg))));
+	ConcreteExpr(type, range, ConcreteExprKind(CastConcreteExpr(allocate(alloc, arg))));
 
 ConcreteExpr concretizeEnumToJson(ref ConcretizeExprCtx ctx) =>
 	autoFunMatchEnum(ctx, (ref EnumOrFlagsMember x) =>

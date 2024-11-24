@@ -3,7 +3,7 @@ module concretize.gatherInfo;
 @safe @nogc pure nothrow:
 
 import model.concreteModel :
-	ConcreteCommonFuns, ConcreteExpr, ConcreteExprKind, ConcreteFun, ConcreteFunBody, existsDirectChildExpr;
+	CallConcreteExpr, ConcreteCommonFuns, ConcreteExpr, ConcreteFun, ConcreteFunBody, existsDirectChildExpr;
 import model.constant : Constant;
 import model.model : BuiltinBinary, BuiltinFun;
 import util.alloc.alloc : Alloc, withTempAlloc;
@@ -78,8 +78,8 @@ CalledBy buildCalledBy(ref Alloc alloc, in immutable ConcreteFun*[] allConcreteF
 }
 
 void buildCalledByRecur(ref Alloc alloc, ref CalledBy res, ConcreteFun* f, ref ConcreteExpr expr) {
-	if (expr.kind.isA!(ConcreteExprKind.Call))
-		add(alloc, res, expr.kind.as!(ConcreteExprKind.Call).called, f);
+	if (expr.kind.isA!(CallConcreteExpr))
+		add(alloc, res, expr.kind.as!(CallConcreteExpr).called, f);
 	existsDirectChildExpr(expr, (ref ConcreteExpr child) {
 		buildCalledByRecur(alloc, res, f, child);
 		return false;
