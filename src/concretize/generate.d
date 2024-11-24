@@ -10,7 +10,6 @@ import concretize.concretizeCtx :
 	ConcreteLambdaImpl,
 	ConcreteSumTypeCase,
 	ConcretizeCtx,
-	constantOfBytes,
 	constantSymbol,
 	getConcreteFun,
 	getReferencedType,
@@ -18,7 +17,6 @@ import concretize.concretizeCtx :
 	nat64Type,
 	symbolType,
 	voidType;
-import concretize.concretizeExpr : concretizeBogus, ConcretizeExprCtx;
 import model.concreteModel :
 	ConcreteExpr,
 	ConcreteExprKind,
@@ -90,8 +88,8 @@ ConcreteExpr genIf(
 ) =>
 	ConcreteExpr(then.type, range, ConcreteExprKind(allocate(alloc, ConcreteExprKind.If(cond, then, else_))));
 
-ConcreteExpr genLoop(ref ConcretizeExprCtx ctx, ConcreteType type, in UriAndRange range, ConcreteExpr body_) =>
-	ConcreteExpr(type, range, ConcreteExprKind(allocate(ctx.alloc, ConcreteExprKind.Loop(body_))));
+ConcreteExpr genLoop(ref Alloc alloc, ConcreteType type, in UriAndRange range, ConcreteExpr body_) =>
+	ConcreteExpr(type, range, ConcreteExprKind(allocate(alloc, ConcreteExprKind.Loop(body_))));
 
 ConcreteExpr genDoAndContinue(ref Alloc alloc, ConcreteType type, in UriAndRange range, ConcreteExpr a) =>
 	genSeq(alloc, range, a, genContinue(type, range));
@@ -251,7 +249,7 @@ ConcreteFunBody generateCallMethod(
 						range, force(impl),
 						mapPointersWithIndex(ctx.alloc, fun.params, (size_t paramIndex, ConcreteLocal* param) =>
 							paramIndex == 0 ? member : genParamGet(range, param)))
-					: concretizeBogus(ctx, fun.returnType, range);
+					: genBogus(ctx, fun.returnType, range);
 			}));
 }
 
@@ -307,6 +305,11 @@ ConcreteExpr genMatchUnion(
 ConcreteExpr genThrow(ref Alloc alloc, ConcreteType type, UriAndRange range, ConcreteExpr thrown) =>
 	ConcreteExpr(type, range, genThrowKind(alloc, thrown));
 
+ConcreteExpr genBogus(ref ConcretizeCtx ctx, ConcreteType type, UriAndRange range) =>
+	ConcreteExpr(type, range, genBogusKind(ctx, range));
+ConcreteExprKind genBogusKind(ref ConcretizeCtx ctx, in UriAndRange range) =>
+	genThrowStringKind(ctx, range, "Reached compile error");
+
 private ConcreteExprKind genThrowKind(ref Alloc alloc, ConcreteExpr thrown) =>
 	ConcreteExprKind(allocate(alloc, ConcreteExprKind.Throw(thrown)));
 
@@ -328,6 +331,13 @@ ConcreteExprKind genStringLiteralKind(ref ConcretizeCtx ctx, UriAndRange range, 
 ConcreteExpr genChar8Array(ref ConcretizeCtx ctx, in UriAndRange range, in string value) {
 	ConcreteType type = char8ArrayType(ctx);
 	return genConstant(type, range, constantOfBytes(ctx, type, bytesOfString(value)));
+}
+
+Constant constantOfBytes(ref ConcretizeCtx ctx, ConcreteType arrayType, in ubyte[] bytes) {
+	//TODO:PERF creating a Constant per byte is expensive
+	Constant[] elements = map!(Constant, const ubyte)(ctx.alloc, bytes, (ref const ubyte a) =>
+		Constant(IntegralValue(a)));
+	return getConstantArray(ctx.alloc, ctx.allConstants, mustBeByVal(arrayType), elements);
 }
 
 ConcreteExpr genChar32Array(ref ConcretizeCtx ctx, in UriAndRange range, in string value) {

@@ -5,11 +5,12 @@ module frontend.check.exprCtx;
 import frontend.check.checkCtx : addDiag, CheckCtx;
 import frontend.check.instantiate : InstantiateCtx;
 import frontend.check.maps : FunsMap, SpecsMap, StructsAndAliasesMap;
-import frontend.check.typeFromAst : AliasAllowed, typeFromAst;
-import model.ast : ExprAst, TypeAst;
+import frontend.check.typeFromAst : AliasAllowed, checkDestructure, DestructureKind, typeFromAst, typeFromDestructure;
+import model.ast : DestructureAst, ExprAst, TypeAst;
 import model.diag : Diag;
 import model.model :
 	CommonTypes,
+	Destructure,
 	FunFlags,
 	LambdaExpr,
 	Local,
@@ -182,6 +183,15 @@ void addDiag2(ref ExprCtx ctx, in Range range, Diag diag) {
 void addDiag2(ref ExprCtx ctx, in ExprAst* source, Diag diag) {
 	addDiag2(ctx, source.range, diag);
 }
+
+Opt!Type typeFromDestructure2(ref ExprCtx ctx, in DestructureAst ast) =>
+	.typeFromDestructure(
+		ctx.checkCtx, ctx.commonTypes, ast, ctx.structsAndAliasesMap, ctx.outermostFunTypeParams);
+
+Destructure checkDestructure2(ref ExprCtx ctx, DestructureAst* ast, Type type, DestructureKind kind) =>
+	.checkDestructure(
+		ctx.checkCtx, ctx.commonTypes, ctx.structsAndAliasesMap, ctx.typeContainer, ctx.outermostFunTypeParams,
+		ast, some(type), kind);
 
 immutable(Type) typeFromAst2(ref ExprCtx ctx, in TypeAst ast) =>
 	typeFromAst(

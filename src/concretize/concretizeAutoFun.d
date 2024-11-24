@@ -10,11 +10,11 @@ import concretize.concretizeCtx :
 	getConcreteType,
 	integralType,
 	stringType,
-	symbolType,
-	withConcretizeExprCtx;
-import concretize.concretizeExpr : concretizeBogus, ConcretizeExprCtx, getConcreteFunFromCalled, getConcreteType;
+	symbolType;
+import concretize.concretizeExpr : ConcretizeExprCtx, getConcreteFunFromCalled, getConcreteType, withConcretizeExprCtx;
 import concretize.generate :
 	genAnd,
+	genBogus,
 	genCall,
 	genCallVariadic,
 	genConstantSome,
@@ -596,7 +596,7 @@ ConcreteExpr concretizeAndCall(
 	Opt!(ConcreteFun*) fun = getConcreteFunFromCalled(ctx, called);
 	return has(fun)
 		? genCall(ctx.alloc, range, force(fun), args)
-		: concretizeBogus(ctx.concretizeCtx, getConcreteType(ctx, called.returnType), range);
+		: genBogus(ctx.concretizeCtx, getConcreteType(ctx, called.returnType), range);
 }
 
 ConcreteExpr genNewJson(ref ConcretizeCtx ctx, UriAndRange range, in ConcreteExpr[] elements) =>

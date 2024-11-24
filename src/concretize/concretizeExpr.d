@@ -26,6 +26,7 @@ import concretize.concretizeCtx :
 import concretize.constantsOrExprs : asConstantsOrExprs, ConstantsOrExprs;
 import concretize.generate :
 	genAnd,
+	genBogus,
 	genBreak,
 	genCall,
 	genCallNoAllocArgs,
@@ -54,7 +55,6 @@ import concretize.generate :
 	genReferenceCreate, genReferenceRead, genReferenceWrite,
 	genSome,
 	genThrow,
-	genThrowStringKind,
 	genVoid,
 	unwrapOptionType;
 import model.concreteModel :
@@ -65,6 +65,7 @@ import model.concreteModel :
 	ConcreteFun,
 	ConcreteFunBody,
 	ConcreteFunKey,
+	ConcreteFunSource,
 	ConcreteLocal,
 	ConcreteLocalSource,
 	ConcreteMutability,
@@ -127,6 +128,7 @@ import model.model :
 	MatchStringLikeExpr,
 	MatchSumTypeCase,
 	MatchSumTypeExpr,
+	paramsArray,
 	Purity,
 	RecordFieldPointerExpr,
 	SeqExpr,
@@ -165,14 +167,26 @@ import util.uri : Uri;
 import util.util : castNonScope_ref, ptrTrustMe;
 import versionInfo : isVersion, VersionFun, VersionInfo;
 
-ConcreteExpr concretizeFunBody(ref ConcretizeCtx ctx, ConcreteFun* cf, in Destructure[] params, ref Expr e) =>
-	withConcretizeExprCtx(ctx, cf, (ref ConcretizeExprCtx exprCtx) =>
-		withStackMap!(ConcreteExpr, Local*, LocalOrConstant)((ref Locals locals) {
-			// Ignore closure param, which is never destructured.
-			ConcreteLocal[] paramsToDestructure =
-				cf.params[params.length + 1 == cf.params.length ? 1 : 0 .. $];
-			return concretizeWithParamDestructures(exprCtx, cf.returnType, locals, params, paramsToDestructure, e);
-		}));
+ConcreteExpr concretizeFunBody(ref ConcretizeCtx ctx, ConcreteFun* cf, ref Expr e) =>
+	withParams(cf, (in Destructure[] params) =>
+		withConcretizeExprCtx(ctx, cf, (ref ConcretizeExprCtx exprCtx) =>
+			withStackMap!(ConcreteExpr, Local*, LocalOrConstant)((ref Locals locals) {
+				// Ignore closure param, which is never destructured.
+				ConcreteLocal[] paramsToDestructure =
+					cf.params[params.length + 1 == cf.params.length ? 1 : 0 .. $];
+				return concretizeWithParamDestructures(exprCtx, cf.returnType, locals, params, paramsToDestructure, e);
+			})));
+
+private Out withParams(Out)(ConcreteFun* cf, in Out delegate(in Destructure[]) @safe @nogc pure nothrow cb) =>
+	cf.source.match!Out(
+		(ConcreteFunKey x) =>
+			cb(paramsArray(x.decl.params)),
+		(ref ConcreteFunSource.Lambda x) =>
+			cb([x.param]),
+		(ref ConcreteFunSource.Test x) =>
+			cb([]),
+		(ref ConcreteFunSource.WrapMain x) =>
+			assert(false));
 
 Out withConcretizeExprCtx(Out)(
 	ref ConcretizeCtx ctx,
@@ -183,14 +197,10 @@ Out withConcretizeExprCtx(Out)(
 	return cb(exprCtx);
 }
 
-ConcreteExpr concretizeBogus(ref ConcretizeExprCtx ctx, ConcreteType type, UriAndRange range) =>
-	concretizeBogus(ctx.concretizeCtx, type, range);
-ConcreteExpr concretizeBogus(ref ConcretizeCtx ctx, ConcreteType type, UriAndRange range) =>
-	ConcreteExpr(type, range, concretizeBogusKind(ctx, range));
-ConcreteExprKind concretizeBogusKind(ref ConcretizeCtx ctx, in UriAndRange range) =>
-	genThrowStringKind(ctx, range, "Reached compile error");
-
 private:
+
+ConcreteExpr concretizeBogus(ref ConcretizeExprCtx ctx, ConcreteType type, UriAndRange range) =>
+	genBogus(ctx.concretizeCtx, type, range);
 
 ConcreteExpr concretizeWithParamDestructures(
 	ref ConcretizeExprCtx ctx,
@@ -864,7 +874,8 @@ ConcreteExpr concretizeLoopWhileOrUntil(
 			ConcreteExprKind.If if_ = expr.isUntil
 				? ConcreteExprKind.If(condition, break_, doAndContinue)
 				: ConcreteExprKind.If(condition, doAndContinue, break_);
-			return genLoop(ctx, type, range, ConcreteExpr(type, range, ConcreteExprKind(allocate(ctx.alloc, if_))));
+			return genLoop(ctx.alloc, type, range, ConcreteExpr(
+				type, range, ConcreteExprKind(allocate(ctx.alloc, if_))));
 		},
 		(ref Condition.UnpackOption unpack) {
 			IfOptionBranches branches = () {
@@ -906,7 +917,7 @@ ConcreteExpr concretizeLoopWhileOrUntil(
 						breakWith(concretizeExpr(ctx, type, locals, expr.after)));
 				}
 			}();
-			return genLoop(ctx, type, range, genIfOption(
+			return genLoop(ctx.alloc, type, range, genIfOption(
 				ctx.alloc, range,
 				concretizeExpr(ctx, locals, unpack.option),
 				RootLocalAndExpr(branches.rootLocal, branches.some),
@@ -1140,7 +1151,7 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 		(LocalSetExpr x) =>
 			concretizeLocalSet(ctx, type, range, locals, x),
 		(LoopExpr* x) =>
-			genLoop(ctx, type, range, concretizeExpr(ctx, type, locals, x.body_)),
+			genLoop(ctx.alloc, type, range, concretizeExpr(ctx, type, locals, x.body_)),
 		(LoopBreakExpr* x) =>
 			genBreak(ctx.alloc, range, concretizeExpr(ctx, type, locals, x.value)),
 		(LoopContinueExpr) =>

@@ -12,6 +12,7 @@ import frontend.check.checkCtx :
 	visibilityFromDefaultWithDiag,
 	visibilityFromExplicitTopLevel;
 import frontend.check.checkFuns : checkReturnTypeAndParams, getExternsFromModifier, ReturnTypeAndParams;
+import frontend.check.checkUtil : checkLiteralIntegralValue;
 import frontend.check.exprCtx : LocalsInfo;
 import frontend.check.instantiate : instantiateStructWithOwnTypeParams, instantiateType;
 import frontend.check.maps : FunsMap, StructsAndAliasesMap;
@@ -421,7 +422,7 @@ Opt!TypeSize getExternTypeSize(ref CheckCtx ctx, in StructDeclAst declAst, in St
 }
 
 uint getSizeValue(ref CheckCtx ctx, in LiteralIntegralAndRange ast) =>
-	cast(uint) checkLiteralIntegral(ctx, IntegralType.nat32, ast).asUnsigned;
+	cast(uint) checkLiteralIntegralValue(ctx, IntegralType.nat32, ast).asUnsigned;
 
 bool isValidAlignment(uint alignment) {
 	switch (alignment) {
@@ -689,7 +690,7 @@ EnumOrFlagsMembers checkEnumOrFlagsMembers(
 	scope CbEnumValue cbValue = (Range range, Opt!LiteralIntegralAndRange literal) {
 		IntegralValue value = () {
 			if (has(literal))
-				return checkLiteralIntegral(ctx, storage, force(literal));
+				return checkLiteralIntegralValue(ctx, storage, force(literal));
 			else {
 				ValueAndOverflow valueAndOverflow = cbGetNextValue(optIf!IntegralValue(has(lastValue), () =>
 					IntegralValue(force(lastValue))));
@@ -719,17 +720,6 @@ EnumOrFlagsMembers checkEnumOrFlagsMembers(
 	});
 	return EnumOrFlagsMembers(members, membersByName);
 }
-
-public IntegralValue checkLiteralIntegral(ref CheckCtx ctx, IntegralType type, LiteralIntegralAndRange ast) {
-	if (ast.literal.overflow || literalNatOrIntOverflows(type, ast.literal.isSigned, ast.literal.value))
-		addDiag(ctx, ast.range, Diag(Diag.LiteralOverflow(type)));
-	return ast.literal.value;
-}
-
-bool literalNatOrIntOverflows(IntegralType type, bool isSigned, IntegralValue value) =>
-	isSigned
-		? (value.asSigned < minValue(type) || (value.asSigned > 0 && value.asSigned > maxValue(type)))
-		: value.asUnsigned > maxValue(type);
 
 alias CbEnumValue = IntegralValue delegate(Range range, Opt!LiteralIntegralAndRange) @safe @nogc pure nothrow;
 

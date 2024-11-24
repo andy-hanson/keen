@@ -16,8 +16,7 @@ import frontend.check.checkCall.candidates :
 	withCandidates;
 import frontend.check.checkCall.checkCallSpecs : ArgsKind, checkCalled, checkCallSpecs;
 import frontend.check.checkCtx : addDiag, CheckCtx;
-import frontend.check.checkExpr : checkCanDoUnsafe, checkExpr, checkLambda, typeFromDestructure;
-import frontend.check.exprCtx : addDiag2, ExprCtx, LocalsInfo, typeFromAst2;
+import frontend.check.exprCtx : addDiag2, checkCanDoUnsafe, ExprCtx, LocalsInfo, typeFromAst2, typeFromDestructure2;
 import frontend.check.inferringType :
 	bogus,
 	check,
@@ -93,11 +92,17 @@ import util.symbolSet : SymbolSet;
 import util.union_ : Union;
 import util.util : typeAs;
 
-Expr checkCall(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ref CallAst ast, ref Expected expected) {
+Expr checkCall(alias checkExpr)(
+	ref ExprCtx ctx,
+	ref LocalsInfo locals,
+	ExprAst* source,
+	ref CallAst ast,
+	ref Expected expected,
+) {
 	checkCallShouldUseSyntax(ctx, ast);
 	return ast.style == CallAst.Style.questionSubscript || ast.style == CallAst.Style.questionDot
-		? checkOptionCall(ctx, locals, source, ast, expected)
-		: checkCallCommon(
+		? checkOptionCall!checkExpr(ctx, locals, source, ast, expected)
+		: checkCallCommon!checkExpr(
 			ctx, expected, source, locals,
 			// Show diags at the function name and not at the whole call ast
 			ast.nameRange(source),
@@ -107,14 +112,14 @@ Expr checkCall(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ref Call
 			(in CalledDecl _) => true);
 }
 
-Expr checkCallNamed(
+Expr checkCallNamed(alias checkExpr)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
 	ref CallNamedAst ast,
 	ref Expected expected,
 ) =>
-	checkCallCommon(
+	checkCallCommon!checkExpr(
 		ctx, expected, source, locals, source.range, symbol!"new", none!Type, ast.args,
 		(in CalledDecl x) => parameterNamesAre(x, ast.names));
 
@@ -132,7 +137,7 @@ private bool parameterNamesAre(in CalledDecl a, in NameAndRange[] names) {
 		x.isA!(Local*) && x.as!(Local*).name == name.name);
 }
 
-Expr checkCallSpecial(
+Expr checkCallSpecial(alias checkExpr)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
@@ -141,11 +146,11 @@ Expr checkCallSpecial(
 	in ExprAst[] args,
 	ref Expected expected,
 ) =>
-	checkCallCommon(
+	checkCallCommon!checkExpr(
 		ctx, expected, source, locals, range, funName, none!Type, newArray(ctx.alloc, args),
 		(in CalledDecl _) => true);
 
-private Expr checkCallCommon(
+private Expr checkCallCommon(alias checkExpr)(
 	ref ExprCtx ctx,
 	ref Expected expected,
 	ExprAst* source,
@@ -174,7 +179,7 @@ private Expr checkCallCommon(
 					ctx, candidates, argIdx, arg
 				) == ContinueOrAbort.continue_));
 
-Expr checkCallArgAndLambda(
+Expr checkCallArgAndLambda(alias checkExpr, alias checkLambda)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
@@ -194,7 +199,7 @@ Expr checkCallArgAndLambda(
 		(scope ref Candidate[] candidates) =>
 			inferCandidateTypeArgsFromLambdaParameter(ctx, candidates, 1, *paramAst) == ContinueOrAbort.continue_);
 
-Expr checkCallArgAnd2Lambdas(
+Expr checkCallArgAnd2Lambdas(alias checkExpr, alias checkLambda)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
@@ -360,9 +365,16 @@ private CallInnerResult checkCallCb(
 				: CallInnerResult(CallInnerResult.Failure(emptySmallArray!Type)));
 }
 
-Expr checkCallIdentifier(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, Symbol name, ref Expected expected) {
-	checkCallIdentifierShouldUseSyntax(ctx, source.range, name);
-	return checkCallSpecial(ctx, locals, source, source.range, name, [], expected);
+Expr checkCallIdentifier(alias checkExpr)(
+	ref ExprCtx ctx,
+	ref LocalsInfo locals,
+	ExprAst* source,
+	Symbol name,
+	ref Expected expected,
+) {
+	if (name == symbol!"new")
+		addDiag2(ctx, source.range, Diag(Diag.CallShouldUseSyntax(0, Diag.CallShouldUseSyntax.Kind.new_)));
+	return checkCallSpecial!checkExpr(ctx, locals, source, source.range, name, [], expected);
 }
 
 Opt!Called findFunctionForReturnAndParamTypes(
@@ -406,7 +418,7 @@ Opt!Called findFunctionForReturnAndParamTypes(
 
 private:
 
-Expr checkOptionCall(
+Expr checkOptionCall(alias checkExpr)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
@@ -530,11 +542,6 @@ CallInnerResult checkCallInner(
 				() => checkCanDoUnsafe(ctx)));
 	});
 
-void checkCallIdentifierShouldUseSyntax(ref ExprCtx ctx, Range range, Symbol name) {
-	if (name == symbol!"new")
-		addDiag2(ctx, range, Diag(Diag.CallShouldUseSyntax(0, Diag.CallShouldUseSyntax.Kind.new_)));
-}
-
 void checkCallShouldUseSyntax(ref ExprCtx ctx, in CallAst ast) {
 	switch (ast.style) {
 		case CallAst.Style.dot:
@@ -652,7 +659,7 @@ ContinueOrAbort inferCandidateTypeArgsFromLambdaParameter(
 ) {
 	// TODO: this means we may do 'typeFromDestructure' twice, once here and once when checking,
 	// leading to duplicate diagnostics
-	Opt!Type optLambdaParamType = typeFromDestructure(ctx, paramAst);
+	Opt!Type optLambdaParamType = typeFromDestructure2(ctx, paramAst);
 	if (has(optLambdaParamType)) {
 		Type lambdaParamType = force(optLambdaParamType);
 		if (lambdaParamType.isBogus)

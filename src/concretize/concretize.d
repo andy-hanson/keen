@@ -6,7 +6,6 @@ import concretize.allConstantsBuilder : finishAllConstants;
 import concretize.checkConcreteModel : checkConcreteProgram, ConcreteCommonTypes;
 import concretize.concretizeCtx :
 	boolType,
-	concreteFunForWrapMain,
 	ConcreteLambdaImpl,
 	ConcreteSumTypeCase,
 	ConcretizeCtx,
@@ -16,12 +15,12 @@ import concretize.concretizeCtx :
 	finishSumTypeCases,
 	getConcreteFun,
 	getNonTemplateConcreteFun,
-	getVar,
 	integralTypes,
 	jsonType,
 	symbolType,
 	symbolArrayType,
 	voidType;
+import concretize.concretizeFunBody : concreteFunForWrapMain, fillInConcreteFunBody, getVar;
 import concretize.gatherInfo : getYieldingFuns;
 import concretize.generate : generateCallLambda, generateCallMethod;
 import frontend.showModel : ShowCtx;
@@ -83,7 +82,8 @@ ConcreteProgram concretizeInner(
 		versionInfo,
 		ptrTrustMe(program),
 		castNonScope_ref(showCtx.fileContentGetters),
-		allExterns(program, BuildTarget.native(versionInfo.os)));
+		allExterns(program, BuildTarget.native(versionInfo.os)),
+		&fillInConcreteFunBody);
 	CommonFuns commonFuns = program.program.commonFuns;
 	lateSet(ctx.createErrorFunction_, getNonTemplateConcreteFun(ctx, commonFuns.createError));
 	lateSet(ctx.newJsonFromPairsFunction_, getNonTemplateConcreteFun(ctx, commonFuns.newJsonFromPairs));

@@ -6,6 +6,7 @@ import model.constant : Constant;
 import model.model :
 	BuiltinFun,
 	BuiltinType,
+	Destructure,
 	EnumOrFlagsMember,
 	Expr,
 	FunDecl,
@@ -312,6 +313,7 @@ immutable struct ConcreteFunBody {
 immutable struct ConcreteFunSource {
 	immutable struct Lambda {
 		ConcreteFun* containingFun;
+		Destructure param;
 		Expr* bodyExpr;
 		size_t index; // nth lambda in the containing function
 	}
