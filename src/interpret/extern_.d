@@ -92,6 +92,12 @@ immutable struct DynCallSig {
 
 	SmallArray!DynCallType returnTypeAndParameterTypes;
 
+	@system static DynCallSig fromOperation(Operation a) =>
+		DynCallSig(SmallArray!DynCallType.fromTagged(a.ulong_));
+
+	@trusted Operation toOperation() =>
+		Operation(returnTypeAndParameterTypes.asTaggable);
+
 	DynCallType returnType() scope =>
 		returnTypeAndParameterTypes[0];
 

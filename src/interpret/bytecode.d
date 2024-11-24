@@ -2,7 +2,6 @@ module interpret.bytecode;
 
 @safe @nogc nothrow: // not pure
 
-import interpret.extern_ : DynCallSig, FunPointer;
 import model.lowModel : LowFunIndex;
 import model.model : VarKind;
 import util.col.map : Map;
@@ -23,16 +22,14 @@ immutable struct Operation {
 	this(Operation* a) { operationPtr = a; }
 	this(long a) { long_ = a; }
 	this(ulong a) { ulong_ = a; }
-	this(DynCallSig a) { sig = a; }
-	this(FunPointer a) { funPointer = a; }
+	this(immutable void* a) { voidPtr = a; }
 
 	union {
 		Fn fn;
 		Operation* operationPtr;
 		long long_;
 		ulong ulong_;
-		DynCallSig sig;
-		FunPointer funPointer;
+		void* voidPtr;
 	}
 }
 static assert(Operation.sizeof == ulong.sizeof);
@@ -59,7 +56,7 @@ immutable struct ByteCode {
 		operations.sources;
 }
 
-alias FunPointerToOperationPointer = Map!(FunPointer, immutable Operation*);
+alias FunPointerToOperationPointer = Map!(immutable void*, immutable Operation*);
 
 immutable struct Operations {
 	Operation[] byteCode;
@@ -86,6 +83,10 @@ immutable struct StackOffsetBytes {
 }
 
 immutable struct ByteCodeIndex {
+	size_t index;
+}
+
+immutable struct TextIndex {
 	size_t index;
 }
 

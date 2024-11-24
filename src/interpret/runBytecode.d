@@ -115,7 +115,7 @@ T withInterpreter(T)(
 	in T delegate() @nogc nothrow cb,
 ) {
 	InterpreterDebugInfo debugInfo = InterpreterDebugInfo(
-		ptrTrustMe(printCtx), ptrTrustMe(lowProgram), ptrTrustMe(byteCode));
+		ptrTrustMe(printCtx), ptrTrustMe(lowProgram), ptrTrustMe(byteCode), operationOpStopInterpretation);
 	setGlobals(InterpreterGlobals(
 		ptrTrustMe(debugInfo),
 		castNonScope_ref(byteCode).funPointerToOperationPointer,
@@ -195,7 +195,7 @@ private void opBreakInner(Stacks stacks, Operation* cur) {
 	setNext(stacks, cur);
 }
 
-immutable Operation[8] operationOpStopInterpretation = [
+private immutable Operation[8] operationOpStopInterpretation = [
 	Operation(&opStopInterpretation),
 	Operation(&opStopInterpretation),
 	Operation(&opStopInterpretation),
@@ -256,7 +256,7 @@ private void opSwitchFiberInitialInner(ref Stacks stacks, ref Operation* cur) {
 
 	returnPush(stacks, null); // Should not ever be popped, but better 'null' than something arbitrary
 	dataPush(stacks, fiber);
-	cur = mustGet(globals.funPointerToOperationPointer, FunPointer.fromUlong(func));
+	cur = mustGet(globals.funPointerToOperationPointer, FunPointer.fromUlong(func).pointer);
 }
 
 alias opSwitchFiber = operation!opSwitchFiberInner;
@@ -408,9 +408,9 @@ private void opCallInner(ref Stacks stacks, ref Operation* cur) {
 
 alias opCallFunPointer = operation!opCallFunPointerInner;
 private void opCallFunPointerInner(ref Stacks stacks, ref Operation* cur) {
-	DynCallSig sig = readOperation(cur).sig;
+	DynCallSig sig = DynCallSig.fromOperation(readOperation(cur));
 	FunPointer funPtr = FunPointer(cast(immutable void*) dataRemove(stacks, countParameterEntries(sig)));
-	Opt!(Operation*) operationPtr = globals.funPointerToOperationPointer[funPtr];
+	Opt!(Operation*) operationPtr = globals.funPointerToOperationPointer[funPtr.pointer];
 	if (has(operationPtr)) {
 		returnPush(stacks, cur);
 		cur = force(operationPtr);
@@ -421,8 +421,8 @@ private void opCallFunPointerInner(ref Stacks stacks, ref Operation* cur) {
 alias opCallFunPointerExtern = operation!opCallFunPointerExternInner;
 private void opCallFunPointerExternInner(ref Stacks stacks, ref Operation* cur) {
 	assert(FunPointer.sizeof <= ulong.sizeof);
-	FunPointer funPtr = readOperation(cur).funPointer;
-	DynCallSig sig = readOperation(cur).sig;
+	FunPointer funPtr = FunPointer(readOperation(cur).voidPtr);
+	DynCallSig sig = DynCallSig.fromOperation(readOperation(cur));
 	doDynCall(globals.doDynCall, stacks, sig, funPtr);
 }
 

@@ -2,6 +2,7 @@ module interpret.generateText;
 
 @safe @nogc pure nothrow:
 
+import interpret.bytecode : TextIndex;
 import interpret.funToReferences : FunToReferences, registerTextReference;
 import model.constant : Constant;
 import model.lowModel :
@@ -70,10 +71,6 @@ VarsInfo generateVarsInfo(ref Alloc alloc, in LowProgram program) {
 			}
 		});
 	return VarsInfo(offsetsInWords, curWords);
-}
-
-immutable struct TextIndex {
-	size_t index;
 }
 
 struct TextAndInfo {

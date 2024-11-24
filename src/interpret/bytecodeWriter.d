@@ -144,12 +144,12 @@ void writeCallFunPointer(
 
 void writeCallFunPointerExtern(scope ref ByteCodeWriter writer, ByteCodeSource source, FunPointer fun, DynCallSig sig) {
 	pushOperationFn(writer, source, &opCallFunPointerExtern);
-	pushOperation(writer, source, Operation(fun));
+	pushOperation(writer, source, Operation(fun.pointer));
 	writeCallFunPointerCommon(writer, source, sig);
 }
 
 private void writeCallFunPointerCommon(scope ref ByteCodeWriter writer, ByteCodeSource source, DynCallSig sig) {
-	pushOperation(writer, source, Operation(sig));
+	pushOperation(writer, source, sig.toOperation);
 	writer.nextStackEntry -= countParameterEntries(sig);
 	writer.nextStackEntry += sizeWords(sig.returnType);
 }

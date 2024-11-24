@@ -2,9 +2,8 @@ module interpret.funToReferences;
 
 @safe @nogc pure nothrow:
 
-import interpret.bytecode : ByteCodeIndex;
+import interpret.bytecode : ByteCodeIndex, TextIndex;
 import interpret.extern_ : DynCallSig;
-import interpret.generateText : TextIndex;
 import model.lowModel : LowFunIndex, LowFunPointerTypeIndex;
 import util.alloc.alloc : TempAlloc;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;

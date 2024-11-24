@@ -149,7 +149,7 @@ private Opt!SymbolSet tryGetExternsFromTypeArg(ref CheckCtx ctx, in TypeAst arg)
 		return none!SymbolSet;
 }
 
-Symbol checkExternNameOrBogus(ref CheckCtx ctx, NameAndRange name, SymbolSet enclosingExterns) =>
+private Symbol checkExternNameOrBogus(ref CheckCtx ctx, NameAndRange name, SymbolSet enclosingExterns) =>
 	optOrDefault!Symbol(checkExternName(ctx, name, enclosingExterns), () => symbol!"bogus");
 Opt!Symbol checkExternName(ref CheckCtx ctx, NameAndRange name, SymbolSet enclosingExterns) {
 	Symbol res = name.name;

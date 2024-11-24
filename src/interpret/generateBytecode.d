@@ -3,7 +3,7 @@ module interpret.generateBytecode;
 @safe @nogc pure nothrow:
 
 import interpret.bytecode :
-	ByteCode, ByteCodeIndex, ByteCodeSource, FunPointerToOperationPointer, Operation, Operations;
+	ByteCode, ByteCodeIndex, ByteCodeSource, FunPointerToOperationPointer, Operation, Operations, TextIndex;
 import interpret.bytecodeWriter :
 	ByteCodeWriter,
 	fillDelayedCall,
@@ -36,8 +36,7 @@ import interpret.funToReferences :
 	FunToReferences,
 	initFunToReferences;
 import interpret.generateExpr : generateFunFromExpr, maxGlobalsSizeWords;
-import interpret.generateText :
-	generateText, generateVarsInfo, TextAndInfo, TextIndex, TextInfo, VarsInfo;
+import interpret.generateText : generateText, generateVarsInfo, TextAndInfo, TextInfo, VarsInfo;
 import interpret.runBytecode : maxThreadLocalsSizeWords;
 import model.concreteModel : name;
 import model.lowModel :
@@ -167,9 +166,9 @@ SyntheticFunPointers makeSyntheticFunPointers(
 	FunToFunPointer funToFunPointer = zipToMap!(LowFunIndex, FunPointer, FunPointerInputs, FunPointer)(
 		alloc, inputs, funPtrs, (ref FunPointerInputs inputs, ref FunPointer funPtr) =>
 			immutable KeyValuePair!(LowFunIndex, FunPointer)(inputs.funIndex, funPtr));
-	FunPointerToOperationPointer funToOp = zipToMap!(FunPointer, Operation*, FunPointerInputs, FunPointer)(
+	FunPointerToOperationPointer funToOp = zipToMap!(immutable void*, Operation*, FunPointerInputs, FunPointer)(
 		alloc, inputs, funPtrs, (ref FunPointerInputs inputs, ref FunPointer funPtr) =>
-			immutable KeyValuePair!(FunPointer, immutable Operation*)(funPtr, inputs.operationPtr));
+			immutable KeyValuePair!(immutable void*, immutable Operation*)(funPtr.pointer, inputs.operationPtr));
 	return SyntheticFunPointers(funToFunPointer, funToOp);
 }
 

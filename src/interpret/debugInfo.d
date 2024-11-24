@@ -5,7 +5,6 @@ module interpret.debugInfo;
 import frontend.showModel : ShowCtx, writeUriAndPos;
 import frontend.storage : LineAndColumnGetters;
 import interpret.bytecode : ByteCode, ByteCodeIndex, ByteCodeSource, Operation;
-import interpret.runBytecode : operationOpStopInterpretation;
 import interpret.stacks : returnTempAsArrReverse, Stacks;
 import model.concreteModel : ConcreteFun;
 import model.lowModel : LowFunIndex, LowFunSource, LowProgram;
@@ -25,6 +24,7 @@ struct InterpreterDebugInfo {
 	ShowCtx* showDiagPtr;
 	LowProgram* lowProgramPtr;
 	ByteCode* byteCodePtr;
+	Operation[] operationOpStopInterpretation;
 
 	ref inout(ShowCtx) showDiag() return scope inout =>
 		*showDiagPtr;
@@ -232,7 +232,7 @@ Opt!ByteCodeSource byteCodeSourceAtByteCodePtr(in InterpreterDebugInfo a, in Ope
 }
 
 @trusted Opt!ByteCodeIndex byteCodeIndexOfPtr(in InterpreterDebugInfo a, in Operation* ptr) {
-	if (isPointerInRange(operationOpStopInterpretation, ptr))
+	if (isPointerInRange(a.operationOpStopInterpretation, ptr))
 		return none!ByteCodeIndex;
 	else {
 		size_t index = ptr - a.byteCode.byteCode.ptr;
