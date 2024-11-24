@@ -4,9 +4,11 @@ module frontend.check.checkCtx;
 
 import frontend.check.instantiate : InstantiateCtx;
 import model.ast : ImportOrExportAstKind, NameAndRange, typeParamsRange, VisibilityAndRange;
-import model.diag : DeclKind, Diag, Diagnostic;
 import model.model :
 	Config,
+	DeclKind,
+	Diag,
+	Diagnostic,
 	ExportVisibility,
 	FunDecl,
 	importCanSee,

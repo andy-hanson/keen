@@ -3,6 +3,7 @@ module frontend.check.funsForStruct;
 @safe @nogc pure nothrow:
 
 import frontend.check.checkCtx : CheckCtx;
+import frontend.check.checkUtil : funDeclWithBody;
 import frontend.check.getCommonFuns : makeParam, makeParams, param;
 import frontend.check.inferringType : FunType, getFunType;
 import frontend.check.instantiate :
@@ -29,7 +30,6 @@ import model.model :
 	ParamShort,
 	RecordField,
 	Signature,
-	SpecInst,
 	StructBody,
 	StructDecl,
 	StructInst,
@@ -42,7 +42,7 @@ import model.model :
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withStackArray;
-import util.col.array : isEmpty, map, mapWithFirst, prepend, small, sum;
+import util.col.array : isEmpty, map, mapWithFirst, prepend, sum;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder;
 import util.conv : safeToUint;
 import util.memory : allocate;
@@ -202,23 +202,6 @@ void addFunsForVar(
 		FunFlags.generatedBareUnsafe,
 		extern_,
 		FunBody(FunBody.VarSet(var)));
-}
-
-FunDecl funDeclWithBody(
-	FunDeclSource source,
-	Visibility visibility,
-	Symbol name,
-	Type returnType,
-	Params params,
-	FunFlags flags,
-	SymbolSet extern_,
-	immutable(SpecInst*)[] specInsts,
-	FunBody body_,
-) {
-	FunDecl res = FunDecl(
-		source, visibility, name, returnType, params, flags, extern_, small!(immutable SpecInst*)(specInsts));
-	res.body_ = body_;
-	return res;
 }
 
 private:

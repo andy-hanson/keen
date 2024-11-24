@@ -2,7 +2,7 @@ module frontend.getDiagnosticSeverity;
 
 @safe @nogc pure nothrow:
 
-import model.diag : Diag, DiagnosticSeverity, ReadFileDiag;
+import model.model : Diag, DiagnosticSeverity, ReadFileDiag;
 import model.parseDiag : ParseDiag;
 
 DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>

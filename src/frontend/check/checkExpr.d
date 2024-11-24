@@ -16,8 +16,8 @@ import frontend.check.checkCall.checkCall :
 	findFunctionForReturnAndParamTypes;
 import frontend.check.checkCall.checkCallSpecs :
 	checkSpecSingleSigIgnoreParents2, isPurityAlwaysCompatibleConsideringSpecs, isShared;
-import frontend.check.checkCtx : addDiag, CheckCtx, CommonModule;
-import frontend.check.checkUtil : checkLiteralIntegralValue;
+import frontend.check.checkCtx : CheckCtx, CommonModule;
+import frontend.check.checkUtil : checkExternName, checkLiteralIntegralValue;
 import frontend.check.exprCtx :
 	addDiag2,
 	checkCanDoUnsafe,
@@ -113,7 +113,6 @@ import model.ast :
 	TypedAst,
 	WithAst;
 import model.constant : Constant;
-import model.diag : Diag;
 import model.model :
 	asExtern,
 	AssertOrForbidExpr,
@@ -132,6 +131,7 @@ import model.model :
 	Condition,
 	Destructure,
 	DestructureIgnoreSource,
+	Diag,
 	emptySpecs,
 	emptyTypeParams,
 	EnumMember,
@@ -151,7 +151,6 @@ import model.model :
 	IfExpr,
 	IntegralType,
 	IntegralTypes,
-	isBuiltinExtern,
 	isDefinitelyByRef,
 	isEmptyType,
 	isSigned,
@@ -289,19 +288,7 @@ Expr checkTestBody(
 	return checkAndExpect(castNonScope_ref(exprCtx), locals, ast, Type(commonTypes.void_));
 }
 
-Symbol checkExternNameOrBogus(ref CheckCtx ctx, NameAndRange name, SymbolSet enclosingExterns) =>
-	optOrDefault!Symbol(checkExternName(ctx, name, enclosingExterns), () => symbol!"bogus");
-private Opt!Symbol checkExternName(ref CheckCtx ctx, NameAndRange name, SymbolSet enclosingExterns) {
-	Symbol res = name.name;
-	if (isBuiltinExtern(res) || res in ctx.config.extern_) {
-		if (res in enclosingExterns)
-			addDiag(ctx, name.range, Diag(Diag.ExternRedundant(res)));
-		return some(res);
-	} else {
-		addDiag(ctx, name.range, Diag(Diag.ExternInvalidName(res)));
-		return none!Symbol;
-	}
-}
+private:
 
 Expr checkExpr(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* ast, ref Expected expected) =>
 	ast.kind.matchWithPointers!Expr(
@@ -376,8 +363,6 @@ Expr checkExpr(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* ast, ref Expecte
 			checkTyped(ctx, locals, ast, a, expected),
 		(WithAst* a) =>
 			checkWith(ctx, locals, ast, a, expected));
-
-private:
 
 Expr checkWithParamDestructures(
 	ref ExprCtx ctx,

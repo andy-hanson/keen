@@ -7,9 +7,8 @@ import frontend.lang : FileType, fileType;
 import frontend.parse.parse : parseFile;
 import lib.lsp.lspTypes : TextDocumentContentChangeEvent;
 import model.ast : FileAst, fileAstForDiag;
-import model.diag : Diag, ReadFileDiag;
-import model.model : Config, configForDiag;
-import model.parseDiag : ParseDiag;
+import model.model : Config, configForDiag, Diag;
+import model.parseDiag : ParseDiag, ReadFileDiag;
 import util.alloc.alloc :
 	Alloc,
 	AllocAndValue,

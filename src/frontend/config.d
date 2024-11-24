@@ -2,8 +2,7 @@ module frontend.config;
 
 @safe @nogc pure nothrow:
 
-import model.diag : Diag, Diagnostic;
-import model.model : Config, ConfigExternUris, configForDiag, ConfigImportUris;
+import model.model : Config, ConfigExternUris, configForDiag, ConfigImportUris, Diag, Diagnostic;
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : ArrayBuilder, finish;
 import util.col.array : fold;

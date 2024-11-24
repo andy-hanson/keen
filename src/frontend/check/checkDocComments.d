@@ -8,7 +8,6 @@ import frontend.check.maps : FunsMap, SpecsMap, StructsAndAliasesMap;
 import frontend.check.instantiate : instantiateSpecWithOwnTypeParams;
 import frontend.check.typeFromAst : structOrAliasFromName, tryFindSpec;
 import model.ast : DocCommentAst, NameAndRange;
-import model.diag : Diag;
 import model.model :
 	AnyDecl,
 	AutoFun,
@@ -18,6 +17,7 @@ import model.model :
 	CalledSpecSig,
 	CommonTypes,
 	Destructure,
+	Diag,
 	DocCommentReference,
 	DocCommentReferences,
 	EnumOrFlagsMember,

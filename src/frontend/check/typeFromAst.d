@@ -7,12 +7,12 @@ import frontend.check.instantiate : instantiateSpec, instantiateStruct, MayDelay
 import frontend.check.maps : SpecsMap, StructsAndAliasesMap;
 import model.ast :
 	DestructureAst, NameAndRange, ParamsAst, SpecUseAst, symbolForTypeAstMap, symbolForTypeAstSuffix, TypeAst;
-import model.diag : Diag;
 import model.model :
 	asTuple,
 	CommonTypes,
 	Destructure,
 	DestructureIgnoreSource,
+	Diag,
 	emptyTypeParams,
 	ExportVisibility,
 	importCanSee,

@@ -134,7 +134,6 @@ import lib.lsp.lspTypes :
 import lower.lower : lower;
 import model.ast : fileAstForDiag, FileAst;
 import model.concreteModel : ConcreteProgram;
-import model.diag : Diagnostic, DiagnosticSeverity, ReadFileDiag;
 import model.jsonOfAst : jsonOfAst;
 import model.jsonOfConcreteModel : jsonOfConcreteProgram;
 import model.jsonOfLowModel : jsonOfLowProgram;
@@ -143,13 +142,15 @@ import model.lowModel : ExternLibraries, LowProgram;
 import model.model :
 	asProgramWithOptMain,
 	BuildTarget,
+	Diagnostic,
+	DiagnosticSeverity,
 	hasAnyDiagnostics,
 	hasFatalDiagnostics,
 	moduleAtUri,
 	Program,
 	ProgramWithMain,
 	ProgramWithOptMain;
-import model.parseDiag : ParseDiag;
+import model.parseDiag : ParseDiag, ReadFileDiag;
 import util.alloc.alloc : Alloc, AllocKind, FetchMemoryCb, freeElements, MetaAlloc, newAlloc, withTempAllocImpure;
 import util.alloc.stackAlloc : ensureStackAllocInitialized;
 import util.cell : Cell, cellGet, cellSet;

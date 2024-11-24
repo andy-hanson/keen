@@ -4,7 +4,7 @@ module frontend.check.check;
 
 import frontend.allInsts : AllInsts;
 import frontend.check.checkDocComments : checkDocCommentReferences, checkDocComments;
-import frontend.check.checkFuns : checkFuns, getExternsFromModifier;
+import frontend.check.checkFuns : checkFuns;
 import frontend.check.checkCtx :
 	addDiag,
 	addDiagAssertSameUri,
@@ -18,6 +18,7 @@ import frontend.check.checkCtx :
 	visibilityFromExplicitTopLevel;
 import frontend.check.checkStructBodies :
 	checkSignatures, checkStructBodies, checkStructsInitial, modifierTypeArgInvalid;
+import frontend.check.checkUtil : getExternsFromModifier;
 import frontend.check.getCommonTypes : getCommonTypes;
 import frontend.check.maps :
 	FunsAndMap,
@@ -43,11 +44,13 @@ import model.ast :
 	SpecUseAst,
 	StructAliasAst,
 	VarDeclAst;
-import model.diag : DeclKind, Diag, Diagnostic;
 import model.model :
 	BuiltinSpec,
 	CommonTypes,
 	Config,
+	DeclKind,
+	Diag,
+	Diagnostic,
 	DocCommentReferences,
 	emptySpecs,
 	emptyTypeParams,

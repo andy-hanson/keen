@@ -4,7 +4,6 @@ module frontend.check.getBuiltinFun;
 
 import frontend.check.checkCtx : addDiag, CheckCtx;
 import model.constant : Constant, constantBool, constantZero;
-import model.diag : Diag;
 import model.model :
 	arrayElementType,
 	Builtin4ary,
@@ -16,6 +15,7 @@ import model.model :
 	BuiltinUnaryMath,
 	BuiltinTernary,
 	Destructure,
+	Diag,
 	FunBody,
 	FunDecl,
 	isArray,

@@ -7,14 +7,15 @@ import frontend.check.checkCtx : addDiag, CheckCtx, CommonModule;
 import frontend.check.maps : FunsMap, SpecsMap;
 import frontend.check.instantiate : instantiateSpec, instantiateType;
 import frontend.check.typeFromAst : getSpecFromCommonModule;
-import model.diag : AutoFunName, Diag;
 import model.model :
 	arrayElementType,
 	asIntegralType,
 	AutoFun,
+	AutoFunName,
 	BuiltinType,
 	Called,
 	Destructure,
+	Diag,
 	FunBody,
 	FunDecl,
 	IntegralType,

@@ -7,12 +7,13 @@ import frontend.check.instantiate : InstantiateCtx, instantiateStruct;
 import frontend.showModel : ShowCtx, ShowTypeCtx, ShowOptions, writeTypeUnquoted;
 import frontend.storage : FileContentGetters, LineAndColumnGetters;
 import model.ast : ExprAst;
-import model.diag : Diag, ExpectedForDiag;
 import model.model :
 	BogusExpr,
 	BogusWrongTypeExpr,
 	BuiltinType,
 	CommonTypes,
+	Diag,
+	ExpectedForDiag,
 	Expr,
 	ExprAndType,
 	ExprKind,

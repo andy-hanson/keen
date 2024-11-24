@@ -3,10 +3,17 @@ module model.parseDiag;
 @safe @nogc pure nothrow:
 
 import frontend.parse.lexer : Token;
-import model.diag : ReadFileDiag;
 import util.sourceRange : Range;
 import util.symbol : Symbol;
 import util.union_ : Union;
+
+enum ReadFileDiag_ {
+	unknown, // We've just encountered the file and haven't notified the environment.
+	loading, // We've notified the environment that we want this file, but haven't received a response.
+	notFound, // The file is known to not exist.
+	error, // There was some error trying read the file.
+}
+alias ReadFileDiag = immutable ReadFileDiag_;
 
 immutable struct ParseDiagnostic {
 	Range range;

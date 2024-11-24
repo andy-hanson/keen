@@ -7,10 +7,10 @@ import frontend.check.instantiate : InstantiateCtx;
 import frontend.check.maps : FunsMap, SpecsMap, StructsAndAliasesMap;
 import frontend.check.typeFromAst : AliasAllowed, checkDestructure, DestructureKind, typeFromAst, typeFromDestructure;
 import model.ast : DestructureAst, ExprAst, TypeAst;
-import model.diag : Diag;
 import model.model :
 	CommonTypes,
 	Destructure,
+	Diag,
 	FunFlags,
 	LambdaExpr,
 	Local,

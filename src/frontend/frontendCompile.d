@@ -22,12 +22,12 @@ import frontend.storage :
 	OtherFileInfo,
 	Storage;
 import model.ast : FileAst, fileAstForDiag, ImportOrExportAst, ImportOrExportAstKind, NameAndRange;
-import model.diag : Diag, ReadFileDiag, ReadFileDiag_;
 import model.model :
 	BuildTarget,
 	CommonFunsAndDiagnostics,
 	CommonTypes,
 	Config,
+	Diag,
 	emptyConfig,
 	getConfigUri,
 	getModuleUri,
@@ -36,7 +36,7 @@ import model.model :
 	Program,
 	ProgramWithMain,
 	StructDecl;
-import model.parseDiag : ParseDiag;
+import model.parseDiag : ParseDiag, ReadFileDiag, ReadFileDiag_;
 import util.alloc.alloc :
 	Alloc, AllocAndValue, allocateUninitialized, AllocKind, freeAllocAndValue, MetaAlloc, newAlloc, withAlloc;
 import util.col.arrayBuilder : asTemporaryArray, Builder, smallFinish;

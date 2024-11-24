@@ -319,7 +319,7 @@ ConcreteExpr genError(ref ConcretizeCtx ctx, UriAndRange range, string message) 
 private ConcreteExpr genThrowString(ref ConcretizeCtx ctx, ConcreteType type, UriAndRange range, string message) =>
 	genThrow(ctx.alloc, type, range, genError(ctx, range, message));
 
-ConcreteExprKind genThrowStringKind(ref ConcretizeCtx ctx, UriAndRange range, string message) =>
+private ConcreteExprKind genThrowStringKind(ref ConcretizeCtx ctx, UriAndRange range, string message) =>
 	genThrowKind(ctx.alloc, genError(ctx, range, message));
 
 ConcreteExpr genStringLiteral(ref ConcretizeCtx ctx, UriAndRange range, in string value) =>

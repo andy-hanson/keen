@@ -11,7 +11,6 @@ import frontend.check.instantiate :
 	InstantiateCtx, instantiateFun, instantiateSpecInst, noDelaySpecInsts;
 import frontend.check.maps : FunsMap;
 import frontend.lang : maxSpecDepth;
-import model.diag : Diag;
 import model.model :
 	BuiltinSpec,
 	Called,
@@ -19,6 +18,7 @@ import model.model :
 	CalledSpecSig,
 	CommonTypes,
 	countSigs,
+	Diag,
 	FunDecl,
 	FunDeclAndTypeArgs,
 	FunInst,

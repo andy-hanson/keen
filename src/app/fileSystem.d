@@ -65,8 +65,8 @@ version (Windows) {
 import backend.writeToC : PathAndArgs;
 import frontend.storage : ReadFileResult;
 import lib.lsp.lspTypes : Pipe;
-import model.diag : ReadFileDiag;
 import model.lowModel : ExternLibrary, ExternLibraries;
+import model.parseDiag : ReadFileDiag;
 import util.alloc.alloc : Alloc, allocateElements;
 import util.alloc.stackAlloc :
 	StackArrayBuilder, withBuildStackArrayImpure, withConcatImpure, withExactStackArrayImpure;

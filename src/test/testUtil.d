@@ -11,7 +11,7 @@ import interpret.bytecode : ByteCode, ByteCodeIndex, Operation;
 import interpret.debugInfo : showDataArr;
 import interpret.stacks : dataEnd, returnTempAsArrReverse, Stacks;
 import lib.server : allUnknownUris, Server, ServerSettings, setServerSettings, setFile, setFileAssumeUtf8;
-import model.diag : ReadFileDiag;
+import model.parseDiag : ReadFileDiag;
 import util.alloc.alloc : Alloc, allocateElements, AllocKind, MetaAlloc, newAlloc, word;
 import util.col.array : arraysEqual, arrayOfRange, arraysCorrespond, endPtr, indexOf, isEmpty, makeArray, map;
 import util.json : Json, writeJsonPretty;

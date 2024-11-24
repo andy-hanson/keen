@@ -90,9 +90,9 @@ import lib.server :
 	setupServer,
 	showDiagnostics,
 	version_;
-import model.diag : ReadFileDiag;
-import model.model : BuildTarget, hasAnyDiagnostics, hasFatalDiagnostics, Program, ProgramWithMain;
 import model.lowModel : ExternLibraries;
+import model.model : BuildTarget, hasAnyDiagnostics, hasFatalDiagnostics, Program, ProgramWithMain;
+import model.parseDiag : ReadFileDiag;
 version (Test) {
 	import test.test : test;
 }

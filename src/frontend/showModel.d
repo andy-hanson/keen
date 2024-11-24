@@ -5,13 +5,13 @@ module frontend.showModel;
 import frontend.check.typeFromAst : typeSyntaxKind;
 import frontend.storage : FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters;
 import model.ast : NameAndRange;
-import model.diag : Diag;
 import model.model :
 	Called,
 	CalledDecl,
 	CalledSpecSig,
 	CommonTypes,
 	Destructure,
+	Diag,
 	FunDecl,
 	FunDeclAndTypeArgs,
 	FunInst,

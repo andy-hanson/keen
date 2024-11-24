@@ -26,22 +26,19 @@ import frontend.showModel :
 	writeUriAndRange,
 	writeVisibility;
 import model.ast : ModifierKeyword, stringOfModifierKeyword;
-import model.diag :
-	AutoFunName,
-	Diagnostic,
-	Diag,
-	DiagnosticSeverity,
-	ExpectedForDiag,
-	ReadFileDiag,
-	DeclKind,
-	UriAndDiagnostic;
 import model.model :
 	arityMatches,
+	AutoFunName,
 	bestCasePurity,
 	BuiltinType,
 	CalledDecl,
+	DeclKind,
+	Diag,
+	Diagnostic,
+	DiagnosticSeverity,
 	eachDiagnostic,
 	EnumOrFlagsMember,
+	ExpectedForDiag,
 	FunDeclAndTypeArgs,
 	Local,
 	maxValue,
@@ -57,8 +54,9 @@ import model.model :
 	Type,
 	TypeContainer,
 	TypeParamsAndSig,
-	TypeWithContainer;
-import model.parseDiag : ParseDiag, ParseDiagnostic;
+	TypeWithContainer,
+	UriAndDiagnostic;
+import model.parseDiag : ParseDiag, ParseDiagnostic, ReadFileDiag;
 import util.alloc.alloc : Alloc;
 import util.col.array : contains, exists, isEmpty, only;
 import util.col.arrayBuilder : arrayBuilderSort, buildArray, Builder;

@@ -3,13 +3,12 @@ module frontend.check.getCommonFuns;
 @safe @nogc pure nothrow:
 
 import frontend.check.checkCtx : CommonModule;
-import frontend.check.funsForStruct : funDeclWithBody;
+import frontend.check.checkUtil : funDeclWithBody;
 import frontend.check.getCommonTypes : bogusStructDecl;
 import frontend.check.inferringType : typesAreCorrespondingStructInsts;
 import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateStruct;
 import frontend.lang : MainKind;
 import model.ast : DocCommentAst, ModifierAst, NameAndRange, VarDeclAst, TypeAst;
-import model.diag : Diag, UriAndDiagnostic;
 import model.model :
 	allExternsForMainConfig,
 	assertNonVariadic,
@@ -20,6 +19,7 @@ import model.model :
 	Config,
 	configAtUri,
 	Destructure,
+	Diag,
 	emptySpecImpls,
 	emptyTypeArgs,
 	emptyTypeParams,
@@ -50,6 +50,7 @@ import model.model :
 	TypeParamIndex,
 	TypeParams,
 	TypeParamsAndSig,
+	UriAndDiagnostic,
 	VarDecl,
 	VarKind,
 	Visibility;

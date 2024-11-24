@@ -11,8 +11,8 @@ import frontend.check.checkCtx :
 	checkNoTypeParams,
 	visibilityFromDefaultWithDiag,
 	visibilityFromExplicitTopLevel;
-import frontend.check.checkFuns : checkReturnTypeAndParams, getExternsFromModifier, ReturnTypeAndParams;
-import frontend.check.checkUtil : checkLiteralIntegralValue;
+import frontend.check.checkUtil :
+	checkLiteralIntegralValue, checkReturnTypeAndParams, getExternsFromModifier, ReturnTypeAndParams;
 import frontend.check.exprCtx : LocalsInfo;
 import frontend.check.instantiate : instantiateStructWithOwnTypeParams, instantiateType;
 import frontend.check.maps : FunsMap, StructsAndAliasesMap;
@@ -33,14 +33,15 @@ import model.ast :
 	StructDeclAst,
 	TypeAst,
 	VisibilityAndRange;
-import model.diag : Diag, DeclKind;
 import model.model :
 	asTypeContainer,
 	BuiltinType,
 	ByValOrRef,
 	Called,
 	CommonTypes,
+	DeclKind,
 	Destructure,
+	Diag,
 	emptyTypeParams,
 	EnumOrFlagsMember,
 	EnumMemberSource,
@@ -56,7 +57,6 @@ import model.model :
 	Linkage,
 	linkageRange,
 	maxValue,
-	minValue,
 	nameOfEnumOrFlagsMember,
 	Params,
 	Purity,

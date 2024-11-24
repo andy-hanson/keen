@@ -5,32 +5,22 @@ module frontend.check.checkFuns;
 import frontend.check.checkAutoFun : checkAutoFun;
 import frontend.check.checkCtx :
 	addDiag, addDiagAssertSameUri, CheckCtx, checkNoTypeParams, visibilityFromExplicitTopLevel;
-import frontend.check.checkExpr : checkExternNameOrBogus, checkFunctionBody, checkTestBody;
+import frontend.check.checkExpr : checkFunctionBody, checkTestBody;
 import frontend.check.checkStructBodies : checkMethodImpls, modifierTypeArgInvalid;
+import frontend.check.checkUtil : checkReturnTypeAndParams, getExternsFromModifier, ReturnTypeAndParams;
 import frontend.check.getBuiltinFun : getBuiltinFun;
 import frontend.check.maps :
 	funDeclsName, FunsAndMap, FunsMap, ImportOrExportFile, SpecsMap, StructsAndAliasesMap;
 import frontend.check.funsForStruct : addFunsForStruct, addFunsForVar, countFunsForStructs, countFunsForVars;
 import frontend.check.instantiate : noDelaySpecInsts;
-import frontend.check.typeFromAst :
-	AliasAllowed, checkDestructure, checkTypeParams, DestructureKind, specFromAst, typeFromAst;
+import frontend.check.typeFromAst : checkTypeParams, specFromAst;
 import model.ast :
-	DestructureAst,
-	EmptyAst,
-	FunDeclAst,
-	ImportFileType,
-	ModifierAst,
-	ModifierKeyword,
-	ImportOrExportAstKind,
-	NameAndRange,
-	ParamsAst,
-	SpecUseAst,
-	TestAst,
-	TypeAst;
-import model.diag : DeclKind, Diag;
+	EmptyAst, FunDeclAst, ImportFileType, ModifierAst, ModifierKeyword, ImportOrExportAstKind, SpecUseAst, TestAst;
 import model.model :
 	CommonTypes,
+	DeclKind,
 	Destructure,
+	Diag,
 	emptySpecs,
 	Expr,
 	FunBody,
@@ -45,36 +35,25 @@ import model.model :
 	Params,
 	SpecInst,
 	StructDecl,
-	StructInst,
 	Test,
 	Type,
 	TypeContainer,
-	TypeParamIndex,
 	TypeParams,
 	VarDecl,
 	Visibility;
 import model.parseDiag : ParseDiag;
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
-import util.col.array :
-	isEmpty,
-	mapOp,
-	mapPointers,
-	mapWithResultPointer,
-	mustFind,
-	only,
-	small,
-	SmallArray,
-	zipPointers;
+import util.col.array : isEmpty, mapOp, mapWithResultPointer, mustFind, small, SmallArray, zipPointers;
 import util.col.arrayBuilder : add, ArrayBuilder, asTemporaryArray, finish;
 import util.col.exactSizeArrayBuilder : buildArrayExact, ExactSizeArrayBuilder, pushUninitialized;
 import util.col.hashTable : insertOrUpdate, mapAndMovePreservingKeys, MutHashTable;
-import util.memory : allocate, initMemory;
-import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
+import util.memory : initMemory;
+import util.opt : force, has, none, Opt, some;
 import util.sourceRange : Range;
 import util.string : CStringAndLength;
-import util.symbol : Symbol, symbol;
-import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, SymbolSetBuilder;
+import util.symbol : Symbol;
+import util.symbolSet : emptySymbolSet, SymbolSet;
 import util.unicode : unicodeValidate;
 import util.util : optEnumConvert;
 
@@ -103,55 +82,7 @@ FunsAndMap checkFuns(
 		small!FunDecl(funs), checkTests(ctx, commonTypes, structsAndAliasesMap, specsMap, funsMap, testAsts), funsMap);
 }
 
-immutable struct ReturnTypeAndParams {
-	Type returnType;
-	Params params;
-}
-ReturnTypeAndParams checkReturnTypeAndParams(
-	ref CheckCtx ctx,
-	ref CommonTypes commonTypes,
-	TypeContainer typeContainer,
-	in TypeAst returnTypeAst,
-	in ParamsAst paramsAst,
-	TypeParams typeParams,
-	in StructsAndAliasesMap structsAndAliasesMap,
-) =>
-	ReturnTypeAndParams(
-		typeFromAst(
-			ctx, commonTypes, structsAndAliasesMap, returnTypeAst, typeParams, AliasAllowed.yes),
-		checkParams(ctx, commonTypes, typeContainer, paramsAst, structsAndAliasesMap, typeParams));
-
-SymbolSet getExternsFromModifier(ref CheckCtx ctx, in ModifierAst.Keyword modifier, bool required) {
-	assert(modifier.keyword == ModifierKeyword.extern_);
-	if (has(modifier.typeArg))
-		return optOrDefault!SymbolSet(tryGetExternsFromTypeArg(ctx, force(modifier.typeArg)), () =>
-			required ? symbolSet(symbol!"bogus") : emptySymbolSet);
-	else if (required) {
-		addDiag(ctx, modifier.keywordRange, Diag(Diag.ExternMissingLibraryName()));
-		return symbolSet(symbol!"bogus");
-	} else
-		return emptySymbolSet;
-}
-
 private:
-
-Opt!SymbolSet tryGetExternsFromTypeArg(ref CheckCtx ctx, in TypeAst arg) {
-	if (arg.isA!NameAndRange) {
-		return some(symbolSet(checkExternNameOrBogus(ctx, arg.as!NameAndRange, emptySymbolSet)));
-	} else if (arg.isA!(TypeAst.Tuple*)) {
-		bool ok = true;
-		SymbolSet res = buildSymbolSet((scope ref SymbolSetBuilder out_) {
-			foreach (TypeAst member; arg.as!(TypeAst.Tuple*).members) {
-				if (member.isA!NameAndRange)
-					out_ ~= checkExternNameOrBogus(ctx, member.as!NameAndRange, emptySymbolSet);
-				else
-					ok = false;
-			}
-		});
-		return optIf(ok, () => res);
-	} else
-		return none!SymbolSet;
-}
 
 FunDecl[] checkFunsInitial(
 	ref CheckCtx ctx,
@@ -209,39 +140,6 @@ FunDecl[] checkFunsInitial(
 				addFunsForStruct(ctx, funsBuilder, commonTypes, &struct_);
 			foreach (ref VarDecl var; vars)
 				addFunsForVar(ctx, funsBuilder, commonTypes, &var);
-		});
-
-Params checkParams(
-	ref CheckCtx ctx,
-	ref CommonTypes commonTypes,
-	TypeContainer typeContainer,
-	in ParamsAst ast,
-	in StructsAndAliasesMap structsAndAliasesMap,
-	TypeParams typeParamsScope,
-) =>
-	ast.matchWithPointers!Params(
-		(DestructureAst[] asts) =>
-			Params(mapPointers!(Destructure, DestructureAst)(ctx.alloc, asts, (DestructureAst* ast) =>
-				checkDestructure(
-					ctx, commonTypes, structsAndAliasesMap, typeContainer, typeParamsScope,
-					ast, none!Type, DestructureKind.param))),
-		(ParamsAst.Varargs* varargs) {
-			Destructure param = checkDestructure(
-				ctx, commonTypes, structsAndAliasesMap, typeContainer, typeParamsScope,
-				&varargs.param, none!Type, DestructureKind.param);
-			Opt!Type elementType = param.type.matchIn!(Opt!Type)(
-				(in Type.Bogus _) =>
-					some(Type.bogus),
-				(in TypeParamIndex _) =>
-					none!Type,
-				(in StructInst x) =>
-					x.decl == commonTypes.array
-					? some(only(x.typeArgs))
-					: none!Type);
-			if (!has(elementType))
-				addDiag(ctx, varargs.param.range, Diag(Diag.VarargsParamMustBeArray()));
-			return Params(allocate(ctx.alloc,
-				Params.Varargs(param, has(elementType) ? force(elementType) : Type.bogus)));
 		});
 
 void setFileImportFunctionBody(ref CheckCtx ctx, FunDecl* fun, in ImportOrExportFile a) {

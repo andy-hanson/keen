@@ -5,9 +5,10 @@ module frontend.check.getCommonTypes;
 import frontend.check.instantiate : InstantiateCtx, instantiateStruct;
 import frontend.check.maps : StructsAndAliasesMap;
 import model.ast : NameAndRange;
-import model.diag : Diag, Diagnostic;
 import model.model :
 	CommonTypes,
+	Diag,
+	Diagnostic,
 	emptyDocCommentReferences,
 	emptyTypeArgs,
 	FunKind,
