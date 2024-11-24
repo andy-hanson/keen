@@ -143,7 +143,7 @@ bool isSignedInteger(PrimitiveType a) =>
 immutable struct LowType {
 	@safe @nogc pure nothrow:
 
-	// Warn: Do not construct directly, use 'getPointerGc' from 'lower.d'
+	// Warn: Do not construct directly, use 'getPointerGc' from 'lowerUtil.d'
 	immutable struct PointerGc {
 		@safe @nogc pure nothrow:
 		LowType* pointee;
@@ -153,7 +153,7 @@ immutable struct LowType {
 		@system static PointerGc fromPointerForTaggedUnion(void* a) =>
 			PointerGc(cast(LowType*) a);
 	}
-	// Warn: Do not construct directly, use 'getPointerConst' from 'lower.d'
+	// Warn: Do not construct directly, use 'getPointerConst' from 'lowerUtil.d'
 	immutable struct PointerConst {
 		@safe @nogc pure nothrow:
 		LowType* pointee;
@@ -163,7 +163,7 @@ immutable struct LowType {
 		@system static PointerConst fromPointerForTaggedUnion(void* a) =>
 			PointerConst(cast(LowType*) a);
 	}
-	// Warn: Do not construct directly, use 'getPointerMut' from 'lower.d'
+	// Warn: Do not construct directly, use 'getPointerMut' from 'lowerUtil.d'
 	immutable struct PointerMut {
 		@safe @nogc pure nothrow:
 		LowType* pointee;

@@ -27,7 +27,7 @@ import model.lowModel :
 	LowUnionIndex,
 	PrimitiveType;
 import model.model : BuiltinUnary;
-import lower.lower : addLowFun, GetLowTypeCtx, getPointerConst, LowFunCause;
+import lower.lowerUtil : addLowFun, GetLowTypeCtx, getPointerConst, LowFunCause;
 import lower.lowExprHelpers :
 	boolType,
 	genAddPointer,
