@@ -74,7 +74,7 @@ import model.ast :
 	TypeAst,
 	VarDeclAst;
 import model.model : SumTypeKind, TypeParams, VarKind, Visibility;
-import model.parseDiag : ParseDiag, ParseDiagnostic;
+import model.parseDiag : ParseDiag, ParseDiagDocCommentUnused, ParseDiagExpected, ParseDiagnostic;
 import util.alloc.alloc : Alloc;
 import util.col.array : contains, emptySmallArray, SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, buildSmallArray, Builder, smallFinish;
@@ -101,7 +101,7 @@ ExprAndDiags parseSingleLineExpression(ref Alloc alloc, in CString source) {
 	Lexer lexer = createLexer(ptrTrustMe(alloc), castNonScope_ref(source));
 	mustTakeToken(lexer, Token.newlineSameIndent);
 	ExprAst expr = parseSingleStatementLine(lexer);
-	takeOrAddDiagExpectedToken(lexer, Token.endOfFile, ParseDiag.Expected.Kind.endOfLine);
+	takeOrAddDiagExpectedToken(lexer, Token.endOfFile, ParseDiagExpected.Kind.endOfLine);
 	return ExprAndDiags(expr, finishDiagnostics(lexer));
 }
 
@@ -113,7 +113,7 @@ TypeParams parseTypeParams(ref Lexer lexer) =>
 			do {
 				res ~= takeNameAndRange(lexer);
 			} while (tryTakeToken(lexer, Token.comma));
-			takeOrAddDiagExpectedToken(lexer, Token.bracketRight, ParseDiag.Expected.Kind.closingBracket);
+			takeOrAddDiagExpectedToken(lexer, Token.bracketRight, ParseDiagExpected.Kind.closingBracket);
 		})
 		: emptySmallArray!NameAndRange;
 
@@ -146,7 +146,7 @@ SmallArray!EnumOrFlagsMemberAst parseEnumOrFlagsMembers(ref Lexer lexer) =>
 			if (tryTakeToken(lexer, Token.equal)) {
 				Opt!LiteralIntegralAndRange res = tryTakeLiteralIntegral(lexer);
 				if (!has(res))
-					addDiagExpected(lexer, ParseDiag.Expected.Kind.literalIntegral);
+					addDiagExpected(lexer, ParseDiagExpected.Kind.literalIntegral);
 				return res;
 			} else
 				return none!LiteralIntegralAndRange;
@@ -325,7 +325,7 @@ ExternTypeAst parseExternType(ref Lexer lexer) {
 		Opt!(LiteralIntegralAndRange*) alignment = has(size) && tryTakeToken(lexer, Token.comma)
 			? parseIntegral(lexer)
 			: none!(LiteralIntegralAndRange*);
-		takeOrAddDiagExpectedToken(lexer, Token.parenRight, ParseDiag.Expected.Kind.closingParen);
+		takeOrAddDiagExpectedToken(lexer, Token.parenRight, ParseDiagExpected.Kind.closingParen);
 		return ExternTypeAst(size, alignment);
 	} else
 		return ExternTypeAst(none!(LiteralIntegralAndRange*), none!(LiteralIntegralAndRange*));
@@ -333,7 +333,7 @@ ExternTypeAst parseExternType(ref Lexer lexer) {
 Opt!(LiteralIntegralAndRange*) parseIntegral(ref Lexer lexer) {
 	Pos start = curPos(lexer);
 	Opt!LiteralIntegral res = takeOrAddDiagExpectedToken!LiteralIntegral(
-		lexer, ParseDiag.Expected.Kind.literalIntegral, (TokenAndData x) =>
+		lexer, ParseDiagExpected.Kind.literalIntegral, (TokenAndData x) =>
 			optIf(x.token == Token.literalIntegral, () => x.asLiteralIntegral));
 	return has(res)
 		? some(allocate(lexer.alloc, LiteralIntegralAndRange(range(lexer, start), force(res))))
@@ -391,7 +391,7 @@ FileAst parseFileInner(ref Lexer lexer) {
 		}();
 		if (tryTakeToken(lexer, Token.endOfFile)) {
 			if (!docComment.isEmpty)
-				addDiag(lexer, force(docComment.range), ParseDiag(ParseDiag.DocCommentUnused()));
+				addDiag(lexer, force(docComment.range), ParseDiag(ParseDiagDocCommentUnused()));
 			break;
 		}
 		if (peekToken(lexer, Token.region)) {

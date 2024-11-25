@@ -22,105 +22,105 @@ immutable struct ParseDiagnostic {
 
 immutable struct ParseDiag {
 	@safe @nogc pure nothrow:
-	immutable struct DocCommentUnused {}
-	immutable struct Expected {
-		enum Kind {
-			as,
-			blockCommentEnd,
-			catch_,
-			closeInterpolated,
-			closingBracket,
-			closingParen,
-			colon,
-			comma,
-			dedent,
-			endOfLine,
-			equals,
-			indent,
-			lambdaArrow,
-			less,
-			literalIntegral,
-			literalNat,
-			matchCase,
-			name,
-			namedArgument,
-			nameOrOperator,
-			newline,
-			newlineOrDedent,
-			openParen,
-			questionEqual,
-			quoteDouble,
-			quoteDouble3,
-			slash,
-			typeArgsEnd,
-		}
-		Kind kind;
-	}
-	immutable struct FileNotUtf8 {}
-	immutable struct ImportFileTypeNotSupported {}
-	immutable struct IndentNotDivisible {
-		uint nSpaces;
-		uint nSpacesPerIndent;
-	}
-	immutable struct IndentTooMuch {}
-	immutable struct IndentWrongCharacter {
-		bool expectedTabs;
-	}
-	immutable struct InvalidStringEscape {
-		string actual;
-	}
-	immutable struct MatchCaseInterpolated {}
-	immutable struct MissingInterpolated {}
-	immutable struct NeedsBlockCtx {
-		enum Kind {
-			do_,
-			for_,
-			if_,
-			match,
-			lambda,
-			loop,
-			shared_,
-			throw_,
-			trusted,
-			try_,
-			unless,
-			with_,
-		}
-		Kind kind;
-	}
-	immutable struct TrailingComma {}
-	immutable struct TypeEmptyParens {}
-	immutable struct TypeTrailingMut {}
-	immutable struct TypeUnnecessaryParens {}
-	immutable struct UnexpectedCharacter {
-		dchar character;
-	}
-	immutable struct UnexpectedOperator {
-		Symbol operator;
-	}
-	immutable struct UnexpectedToken {
-		Token token;
-	}
-
 	mixin Union!(
-		DocCommentUnused,
-		Expected,
-		FileNotUtf8,
-		ImportFileTypeNotSupported,
-		IndentNotDivisible,
-		IndentTooMuch,
-		IndentWrongCharacter,
-		InvalidStringEscape,
-		MatchCaseInterpolated,
-		MissingInterpolated,
-		NeedsBlockCtx,
+		ParseDiagDocCommentUnused,
+		ParseDiagExpected,
+		ParseDiagFileNotUtf8,
+		ParseDiagImportFileTypeNotSupported,
+		ParseDiagIndentNotDivisible,
+		ParseDiagIndentTooMuch,
+		ParseDiagIndentWrongCharacter,
+		ParseDiagInvalidStringEscape,
+		ParseDiagMatchCaseInterpolated,
+		ParseDiagMissingInterpolated,
+		ParseDiagNeedsBlockCtx,
 		ReadFileDiag,
-		TrailingComma,
-		TypeEmptyParens,
-		TypeTrailingMut,
-		TypeUnnecessaryParens,
-		UnexpectedCharacter,
-		UnexpectedOperator,
-		UnexpectedToken);
+		ParseDiagTrailingComma,
+		ParseDiagTypeEmptyParens,
+		ParseDiagTypeTrailingMut,
+		ParseDiagTypeUnnecessaryParens,
+		ParseDiagUnexpectedCharacter,
+		ParseDiagUnexpectedOperator,
+		ParseDiagUnexpectedToken);
 }
 static assert(ParseDiag.sizeof <= 32);
+
+immutable struct ParseDiagDocCommentUnused {}
+immutable struct ParseDiagExpected {
+	enum Kind {
+		as,
+		blockCommentEnd,
+		catch_,
+		closeInterpolated,
+		closingBracket,
+		closingParen,
+		colon,
+		comma,
+		dedent,
+		endOfLine,
+		equals,
+		indent,
+		lambdaArrow,
+		less,
+		literalIntegral,
+		literalNat,
+		matchCase,
+		name,
+		namedArgument,
+		nameOrOperator,
+		newline,
+		newlineOrDedent,
+		openParen,
+		questionEqual,
+		quoteDouble,
+		quoteDouble3,
+		slash,
+		typeArgsEnd,
+	}
+	Kind kind;
+}
+immutable struct ParseDiagFileNotUtf8 {}
+immutable struct ParseDiagImportFileTypeNotSupported {}
+immutable struct ParseDiagIndentNotDivisible {
+	uint nSpaces;
+	uint nSpacesPerIndent;
+}
+immutable struct ParseDiagIndentTooMuch {}
+immutable struct ParseDiagIndentWrongCharacter {
+	bool expectedTabs;
+}
+immutable struct ParseDiagInvalidStringEscape {
+	string actual;
+}
+immutable struct ParseDiagMatchCaseInterpolated {}
+immutable struct ParseDiagMissingInterpolated {}
+immutable struct ParseDiagNeedsBlockCtx {
+	enum Kind {
+		do_,
+		for_,
+		if_,
+		match,
+		lambda,
+		loop,
+		shared_,
+		throw_,
+		trusted,
+		try_,
+		unless,
+		with_,
+	}
+	Kind kind;
+}
+immutable struct ParseDiagTrailingComma {}
+immutable struct ParseDiagTypeEmptyParens {}
+immutable struct ParseDiagTypeTrailingMut {}
+immutable struct ParseDiagTypeUnnecessaryParens {}
+immutable struct ParseDiagUnexpectedCharacter {
+	dchar character;
+}
+immutable struct ParseDiagUnexpectedOperator {
+	Symbol operator;
+}
+immutable struct ParseDiagUnexpectedToken {
+	Token token;
+}

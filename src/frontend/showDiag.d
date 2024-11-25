@@ -26,37 +26,8 @@ import frontend.showModel :
 	writeUriAndRange,
 	writeVisibility;
 import model.ast : ModifierKeyword, stringOfModifierKeyword;
-import model.model :
-	arityMatches,
-	AutoFunName,
-	bestCasePurity,
-	BuiltinType,
-	CalledDecl,
-	DeclKind,
-	Diag,
-	Diagnostic,
-	DiagnosticSeverity,
-	eachDiagnostic,
-	EnumOrFlagsMember,
-	ExpectedForDiag,
-	FunDeclAndTypeArgs,
-	Local,
-	maxValue,
-	minValue,
-	nTypeParams,
-	Params,
-	ProgramWithOptMain,
-	SpecDecl,
-	Signature,
-	StructBody,
-	StructDecl,
-	StructInst,
-	Type,
-	TypeContainer,
-	TypeParamsAndSig,
-	TypeWithContainer,
-	UriAndDiagnostic;
-import model.parseDiag : ParseDiag, ParseDiagnostic, ReadFileDiag;
+import model.model;
+import model.parseDiag;
 import util.alloc.alloc : Alloc;
 import util.col.array : contains, exists, isEmpty, only;
 import util.col.arrayBuilder : arrayBuilderSort, buildArray, Builder;
@@ -153,9 +124,9 @@ DiagnosticSeverity maxDiagnosticSeverity(in ProgramWithOptMain a) {
 	return res;
 }
 
-void writeUnusedDiag(scope ref Writer writer, in ShowCtx ctx, in Diag.Unused a) {
+void writeUnusedDiag(scope ref Writer writer, in ShowCtx ctx, in DiagUnused a) {
 	a.kind.matchIn!void(
-		(in Diag.Unused.Kind.Import x) {
+		(in DiagUnused.Kind.Import x) {
 			if (has(x.importedName)) {
 				writer ~= "Imported name ";
 				writeName(writer, ctx, force(x.importedName));
@@ -165,7 +136,7 @@ void writeUnusedDiag(scope ref Writer writer, in ShowCtx ctx, in Diag.Unused a) 
 			}
 			writer ~= " is unused.";
 		},
-		(in Diag.Unused.Kind.Local x) {
+		(in DiagUnused.Kind.Local x) {
 			writer ~= "Local ";
 			writeName(writer, ctx, x.local.name);
 			writer ~= !x.local.isMutable
@@ -176,7 +147,7 @@ void writeUnusedDiag(scope ref Writer writer, in ShowCtx ctx, in Diag.Unused a) 
 				? " is assigned to but unused"
 				: " is unused.";
 		},
-		(in Diag.Unused.Kind.PrivateDecl x) {
+		(in DiagUnused.Kind.PrivateDecl x) {
 			writeName(writer, ctx, x.name);
 			writer ~= " is unused.";
 		});
@@ -184,47 +155,47 @@ void writeUnusedDiag(scope ref Writer writer, in ShowCtx ctx, in Diag.Unused a) 
 
 void writeParseDiag(scope ref Writer writer, in ShowCtx ctx, in ParseDiag d) {
 	d.matchIn!void(
-		(in ParseDiag.DocCommentUnused) {
+		(in ParseDiagDocCommentUnused) {
 			writer ~= "Doc comment must appear at top of module or before a declaration.";
 		},
-		(in ParseDiag.Expected x) {
+		(in ParseDiagExpected x) {
 			writer ~= showParseDiagExpected(x.kind);
 		},
-		(in ParseDiag.FileNotUtf8) {
+		(in ParseDiagFileNotUtf8) {
 			writer ~= "File is not encoded as UTF-8 or has encoding errors.";
 		},
-		(in ParseDiag.ImportFileTypeNotSupported) {
+		(in ParseDiagImportFileTypeNotSupported) {
 			writer ~= "Import file type not allowed; the only supported types are 'nat8 array' and 'string'.";
 		},
-		(in ParseDiag.IndentNotDivisible d) {
+		(in ParseDiagIndentNotDivisible d) {
 			writer ~= "Expected indentation by ";
 			writer ~= d.nSpacesPerIndent;
 			writer ~= " spaces per level, but got ";
 			writer ~= d.nSpaces;
 			writer ~= " which is not divisible.";
 		},
-		(in ParseDiag.IndentTooMuch x) {
+		(in ParseDiagIndentTooMuch x) {
 			writer ~= "Indented too far.";
 		},
-		(in ParseDiag.IndentWrongCharacter d) {
+		(in ParseDiagIndentWrongCharacter d) {
 			writer ~= "Expected indentation by ";
 			writer ~= d.expectedTabs ? "tabs" : "spaces";
 			writer ~= " (based on first indented line), but here there is a ";
 			writer ~= d.expectedTabs ? "space" : "tab.";
 		},
-		(in ParseDiag.InvalidStringEscape x) {
+		(in ParseDiagInvalidStringEscape x) {
 			writer ~= "Invalid escape sequence '";
 			writer ~= x.actual;
 			writer ~= "'.";
 		},
-		(in ParseDiag.MatchCaseInterpolated) {
+		(in ParseDiagMatchCaseInterpolated) {
 			writer ~= "'match' only works with literal strings, not interpolated strings.";
 		},
-		(in ParseDiag.MissingInterpolated x) {
+		(in ParseDiagMissingInterpolated x) {
 			writer ~= "Expected something inside of the '{}'.";
 		},
-		(in ParseDiag.NeedsBlockCtx x) {
-			if (x.kind == ParseDiag.NeedsBlockCtx.Kind.lambda)
+		(in ParseDiagNeedsBlockCtx x) {
+			if (x.kind == ParseDiagNeedsBlockCtx.Kind.lambda)
 				writer ~= "Lambda";
 			else {
 				writer ~= '\'';
@@ -236,92 +207,92 @@ void writeParseDiag(scope ref Writer writer, in ShowCtx ctx, in ParseDiag d) {
 		(in ReadFileDiag x) {
 			showReadFileDiag(writer, ctx, x, none!Uri);
 		},
-		(in ParseDiag.TrailingComma) {
+		(in ParseDiagTrailingComma) {
 			writer ~= "Remove this trailing comma.";
 		},
-		(in ParseDiag.TypeEmptyParens) {
+		(in ParseDiagTypeEmptyParens) {
 			writer ~= "'()' is not a type. Did you mean 'void'?";
 		},
-		(in ParseDiag.TypeTrailingMut) {
+		(in ParseDiagTypeTrailingMut) {
 			writer ~= "To make something mutable, put 'mut' after its name, not after its type.";
 		},
-		(in ParseDiag.TypeUnnecessaryParens) {
+		(in ParseDiagTypeUnnecessaryParens) {
 			writer ~= "Parentheses are unnecessary.";
 		},
-		(in ParseDiag.UnexpectedCharacter x) {
+		(in ParseDiagUnexpectedCharacter x) {
 			writer ~= "Unexpected character ";
 			writeQuotedChar(writer, x.character);
 			writer ~= " (U+";
 			writeHex(writer, x.character, minDigits: 4);
 			writer ~= ").";
 		},
-		(in ParseDiag.UnexpectedOperator x) {
+		(in ParseDiagUnexpectedOperator x) {
 			writer ~= "Unexpected '";
 			writer ~= x.operator;
 			writer ~= "'.";
 		},
-		(in ParseDiag.UnexpectedToken u) {
+		(in ParseDiagUnexpectedToken u) {
 			writer ~= describeTokenForUnexpected(u.token);
 		});
 }
 
-string showParseDiagExpected(ParseDiag.Expected.Kind kind) {
+string showParseDiagExpected(ParseDiagExpected.Kind kind) {
 	final switch (kind) {
-		case ParseDiag.Expected.Kind.as:
+		case ParseDiagExpected.Kind.as:
 			return "Expected 'as'.";
-		case ParseDiag.Expected.Kind.blockCommentEnd:
+		case ParseDiagExpected.Kind.blockCommentEnd:
 			return "Expected '###' (then a newline).";
-		case ParseDiag.Expected.Kind.catch_:
+		case ParseDiagExpected.Kind.catch_:
 			return "Expected 'catch'.";
-		case ParseDiag.Expected.Kind.closeInterpolated:
+		case ParseDiagExpected.Kind.closeInterpolated:
 			return "Expected '}'.";
-		case ParseDiag.Expected.Kind.closingBracket:
+		case ParseDiagExpected.Kind.closingBracket:
 			return "Expected ']'.";
-		case ParseDiag.Expected.Kind.closingParen:
+		case ParseDiagExpected.Kind.closingParen:
 			return "Expected ')'.";
-		case ParseDiag.Expected.Kind.colon:
+		case ParseDiagExpected.Kind.colon:
 			return "Expected ':'.";
-		case ParseDiag.Expected.Kind.comma:
+		case ParseDiagExpected.Kind.comma:
 			return "Expected ','.";
-		case ParseDiag.Expected.Kind.dedent:
+		case ParseDiagExpected.Kind.dedent:
 			return "Expected a dedent.";
-		case ParseDiag.Expected.Kind.endOfLine:
+		case ParseDiagExpected.Kind.endOfLine:
 			return "Expected end of line.";
-		case ParseDiag.Expected.Kind.equals:
+		case ParseDiagExpected.Kind.equals:
 			return "Expected '='.";
-		case ParseDiag.Expected.Kind.indent:
+		case ParseDiagExpected.Kind.indent:
 			return "Expected an indent.";
-		case ParseDiag.Expected.Kind.lambdaArrow:
+		case ParseDiagExpected.Kind.lambdaArrow:
 			return "Expected ' =>' after lambda parameters.";
-		case ParseDiag.Expected.Kind.less:
+		case ParseDiagExpected.Kind.less:
 			return "Expected '<'.";
-		case ParseDiag.Expected.Kind.literalIntegral:
+		case ParseDiagExpected.Kind.literalIntegral:
 			return "Expected an integer.";
-		case ParseDiag.Expected.Kind.literalNat:
+		case ParseDiagExpected.Kind.literalNat:
 			return "Expected a natural number.";
-		case ParseDiag.Expected.Kind.matchCase:
+		case ParseDiagExpected.Kind.matchCase:
 			return "A branch of a 'match' must be an identifier, number literal, or string literal.";
-		case ParseDiag.Expected.Kind.name:
+		case ParseDiagExpected.Kind.name:
 			return "Expected a name (non-operator).";
-		case ParseDiag.Expected.Kind.namedArgument:
+		case ParseDiagExpected.Kind.namedArgument:
 			return "Expected another named argument.";
-		case ParseDiag.Expected.Kind.nameOrOperator:
+		case ParseDiagExpected.Kind.nameOrOperator:
 			return "Expected a name or operator.";
-		case ParseDiag.Expected.Kind.newline:
+		case ParseDiagExpected.Kind.newline:
 			return "Expected a newline.";
-		case ParseDiag.Expected.Kind.newlineOrDedent:
+		case ParseDiagExpected.Kind.newlineOrDedent:
 			return "Expected a newline or dedent.";
-		case ParseDiag.Expected.Kind.openParen:
+		case ParseDiagExpected.Kind.openParen:
 			return "Expected '('.";
-		case ParseDiag.Expected.Kind.questionEqual:
+		case ParseDiagExpected.Kind.questionEqual:
 			return "Expected '?='.";
-		case ParseDiag.Expected.Kind.quoteDouble:
+		case ParseDiagExpected.Kind.quoteDouble:
 			return "Expected '\"'.";
-		case ParseDiag.Expected.Kind.quoteDouble3:
+		case ParseDiagExpected.Kind.quoteDouble3:
 			return "Expected '\"\"\"'.";
-		case ParseDiag.Expected.Kind.slash:
+		case ParseDiagExpected.Kind.slash:
 			return "Expected '/'.";
-		case ParseDiag.Expected.Kind.typeArgsEnd:
+		case ParseDiagExpected.Kind.typeArgsEnd:
 			return "Expected '>'.";
 	}
 }
@@ -370,7 +341,7 @@ void writeSpecTrace(
 	}
 }
 
-void writeCallNoMatch(scope ref Writer writer, in ShowDiagCtx ctx, in Diag.CallNoMatch d) {
+void writeCallNoMatch(scope ref Writer writer, in ShowDiagCtx ctx, in DiagCallNoMatch d) {
 	bool someCandidateHasCorrectNTypeArgs =
 		d.actualNTypeArgs == 0 ||
 		exists!CalledDecl(d.allCandidates, (in CalledDecl c) =>
@@ -438,21 +409,21 @@ void writeCallNoMatch(scope ref Writer writer, in ShowDiagCtx ctx, in Diag.CallN
 
 void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 	diag.matchIn!void(
-		(in Diag.AliasNotAllowed) {
+		(in DiagAliasNotAllowed) {
 			writer ~= "An alias is not allowed to reference another alias in the same module.";
 		},
-		(in Diag.AssertOrForbidMessageIsThrow) {
+		(in DiagAssertOrForbidMessageIsThrow) {
 			writer ~= "The expression after the ':' for an assert or forbid is always thrown; it doesn't need 'throw'.";
 		},
-		(in Diag.AssignmentNotAllowed) {
+		(in DiagAssignmentNotAllowed) {
 			writer ~= "Can't assign to this kind of expression.";
 		},
-		(in Diag.AutoFunError x) {
+		(in DiagAutoFunError x) {
 			x.matchIn!void(
-				(in Diag.AutoFunError.Bare) {
+				(in DiagAutoFunError.Bare) {
 					writer ~= "Automatic 'to json' can't be 'bare'.";
 				},
-				(in Diag.AutoFunError.EnumOrFlagsToWrongStorage x) {
+				(in DiagAutoFunError.EnumOrFlagsToWrongStorage x) {
 					writer ~= "Type ";
 					writeName(writer, ctx, x.enumOrFlagsType.name);
 					writer ~= " has storage type ";
@@ -460,24 +431,24 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					writer ~= ", not ";
 					writeName(writer, ctx, stringOfEnum(x.expectedStorageType));
 				},
-				(in Diag.AutoFunError.ParamNotSimple) {
+				(in DiagAutoFunError.ParamNotSimple) {
 					writer ~= "An auto fun must have simple parameters (not ignored or destructured).";
 				},
-				(in Diag.AutoFunError.SpecCorrupt x) {
+				(in DiagAutoFunError.SpecCorrupt x) {
 					writer ~= "Spec ";
 					writeName(writer, ctx, x.specName);
 					writer ~= " does not have the expected content.";
 				},
-				(in Diag.AutoFunError.SpecFromWrongModule) {
+				(in DiagAutoFunError.SpecFromWrongModule) {
 					writer ~= "Spec for automatic function comes from unexpected module.";
 				},
-				(in Diag.AutoFunError.TypeNotFullyVisible) {
+				(in DiagAutoFunError.TypeNotFullyVisible) {
 					writer ~= "This function can't be automatic because the type is not fully visible in this context.";
 				},
-				(in Diag.AutoFunError.WrongName) {
+				(in DiagAutoFunError.WrongName) {
 					writer ~= "Function needs a body. (An automatic function must be named '==', '<=>', or 'to'.)";
 				},
-				(in Diag.AutoFunError.WrongParams p) {
+				(in DiagAutoFunError.WrongParams p) {
 					writer ~= () {
 						final switch (p.kind) {
 							case AutoFunName.compare:
@@ -491,14 +462,14 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 						}
 					}();
 				},
-				(in Diag.AutoFunError.WrongParamType p) {
+				(in DiagAutoFunError.WrongParamType p) {
 					writer ~= "An automatic function parameter must be a ";
 					writeKeyword(writer, ctx, symbol!"record");
 					writer ~= " or ";
 					writeKeyword(writer, ctx, symbol!"union");
 					writer ~= " type.";
 				},
-				(in Diag.AutoFunError.WrongReturnType p) {
+				(in DiagAutoFunError.WrongReturnType p) {
 					writer ~= () {
 						final switch (p.kind) {
 							case AutoFunName.compare:
@@ -517,42 +488,42 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					}();
 				});
 		},
-		(in Diag.BuiltinFunCantHaveBody x) {
+		(in DiagBuiltinFunCantHaveBody x) {
 			writer ~= "A 'builtin' function can't have a body.";
 		},
-		(in Diag.BuiltinUnsupported x) {
+		(in DiagBuiltinUnsupported x) {
 			writer ~= "Crow does not implement a builtin ";
 			writer ~= stringOfEnum(x.kind);
 			writer ~= " named ";
 			writeName(writer, ctx, x.name);
 			writer ~= '.';
 		},
-		(in Diag.CallMissingExtern x) {
+		(in DiagCallMissingExtern x) {
 			writer ~= "Function ";
 			writeFunDecl(writer, ctx, WriteKind.quoted, x.callee);
 			writer ~= " requires extern ";
 			writeName(writer, ctx, x.missingExtern);
 			writer ~= ", but that is not in scope.";
 		},
-		(in Diag.CallMultipleMatches x) {
+		(in DiagCallMultipleMatches x) {
 			writer ~= "Cannot choose an overload of ";
 			writeName(writer, ctx, x.funName);
 			writer ~= ". Multiple functions match:";
 			writeCalledDecls(writer, ctx, x.typeContainer, x.matches);
 		},
-		(in Diag.CallNoMatch x) {
+		(in DiagCallNoMatch x) {
 			writeCallNoMatch(writer, ctx, x);
 		},
-		(in Diag.CallShouldUseSyntax x) {
+		(in DiagCallShouldUseSyntax x) {
 			writer ~= () {
 				final switch (x.kind) {
-					case Diag.CallShouldUseSyntax.Kind.for_break:
+					case DiagCallShouldUseSyntax.Kind.for_break:
 						return "Prefer to write a 'for' loop instead of calling 'for-break'.";
-					case Diag.CallShouldUseSyntax.Kind.force:
+					case DiagCallShouldUseSyntax.Kind.force:
 						return "Prefer to write 'x!' instead of 'x.force'.";
-					case Diag.CallShouldUseSyntax.Kind.for_loop:
+					case DiagCallShouldUseSyntax.Kind.for_loop:
 						return "Prefer to write a 'for' loop instead of calling 'for-loop'.";
-					case Diag.CallShouldUseSyntax.Kind.new_:
+					case DiagCallShouldUseSyntax.Kind.new_:
 						switch (x.arity) {
 							case 0:
 								return "Prefer to write '()' instead of 'new'.";
@@ -561,90 +532,90 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 							default:
 								return "Prefer to write 'x, y' instead of 'x new y'.";
 						}
-					case Diag.CallShouldUseSyntax.Kind.not:
+					case DiagCallShouldUseSyntax.Kind.not:
 						return "Prefer to write '!x' instead of 'x.not'";
-					case Diag.CallShouldUseSyntax.Kind.set_subscript:
+					case DiagCallShouldUseSyntax.Kind.set_subscript:
 						return "Prefer to write 'x[i] := y' instead of 'x set-subscript i, y'.";
-					case Diag.CallShouldUseSyntax.Kind.subscript:
+					case DiagCallShouldUseSyntax.Kind.subscript:
 						return "Prefer to write 'x[i]' instead of 'x subscript i'.";
-					case Diag.CallShouldUseSyntax.Kind.with_block:
+					case DiagCallShouldUseSyntax.Kind.with_block:
 						return "Prefer to write a 'with' block instead of calling 'with-block'.";
 				}
 			}();
 		},
-		(in Diag.CantCall x) {
+		(in DiagCantCall x) {
 			writer ~= () {
 				final switch (x.reason) {
-					case Diag.CantCall.Reason.nonBare:
+					case DiagCantCall.Reason.nonBare:
 						return "A 'bare' function can't call non-'bare' function";
-					case Diag.CantCall.Reason.summon:
+					case DiagCantCall.Reason.summon:
 						return "A non-'summon' function can't call 'summon' function";
-					case Diag.CantCall.Reason.summonInDataLambda:
+					case DiagCantCall.Reason.summonInDataLambda:
 						return "Can't call a 'summon' function from inside a 'data' lambda.";
-					case Diag.CantCall.Reason.unsafe:
+					case DiagCantCall.Reason.unsafe:
 						return "A non-'unsafe' function can't call 'unsafe' function";
-					case Diag.CantCall.Reason.variadicFromBare:
+					case DiagCantCall.Reason.variadicFromBare:
 						return "A 'bare' function can't call variadic function";
 				}
 			}();
 			writer ~= ' ';
 			writeFunDecl(writer, ctx, WriteKind.quoted, x.callee);
 			writer ~= '.';
-			if (x.reason == Diag.CantCall.Reason.unsafe)
+			if (x.reason == DiagCantCall.Reason.unsafe)
 				writer ~= "\n(Consider putting the call in a 'trusted' expression.)";
 		},
-		(in Diag.CaseDuplicate x) {
+		(in DiagCaseDuplicate x) {
 			writer ~= "Type ";
 			writeName(writer, ctx, x.member.name);
 			writer ~= " can't be declared a case of ";
 			writeName(writer, ctx, x.sumType.name);
 			writer ~= " multiple times.";
 		},
-		(in Diag.CaseInvalidMemberType x) {
+		(in DiagCaseInvalidMemberType x) {
 			writeName(writer, ctx, x.member.name);
 			writer ~= " can't be a 'case' because ";
 			final switch (x.reason) {
-				case Diag.CaseInvalidMemberType.Reason.isTemplate:
+				case DiagCaseInvalidMemberType.Reason.isTemplate:
 					writer ~= "it is a template.";
 			}
 		},
-		(in Diag.CaseInvalidSumType x) {
+		(in DiagCaseInvalidSumType x) {
 			writer ~= "'case' requires an 'interface' or 'variant' type, not ";
 			writeTypeUnquoted(writer, ctx, TypeWithContainer(x.actual, TypeContainer(x.member)));
 			writer ~= '.';
 		},
-		(in Diag.CaseMissingType x) {
+		(in DiagCaseMissingType x) {
 			writer ~= "'case' needs a type argument. It should be an 'interface' or 'variant' type.";
 		},
-		(in Diag.CharLiteralMustBeOneChar) {
+		(in DiagCharLiteralMustBeOneChar) {
 			writer ~= "Value of 'char' type must be a single character";
 		},
-		(in Diag.CommonFunDuplicate x) {
+		(in DiagCommonFunDuplicate x) {
 			writer ~= "Module contains multiple valid ";
 			writeName(writer, ctx, x.name);
 			writer ~= " functions.";
 		},
-		(in Diag.CommonFunMissing x) {
+		(in DiagCommonFunMissing x) {
 			writer ~= "Module should have a function:\n\t";
 			writeWithSeparator!TypeParamsAndSig(writer, x.sigChoices, "\nOr:\n\t", (in TypeParamsAndSig sig) {
 				writeSigSimple(writer, ctx, TypeContainer(x.dummyForContext), x.dummyForContext.name, sig);
 			});
 		},
-		(in Diag.CommonTypeMissing x) {
+		(in DiagCommonTypeMissing x) {
 			writer ~= "Expected to find a type named ";
 			writeName(writer, ctx, x.name);
 			writer ~= " in this module.";
 		},
-		(in Diag.CommonVarMissing x) {
+		(in DiagCommonVarMissing x) {
 			writer ~= "Expected to find a ";
 			writer ~= stringOfEnum(x.varKind);
 			writer ~= " named ";
 			writeName(writer, ctx, x.name);
 			writer ~= " in this module.";
 		},
-		(in Diag.DestructureTypeMismatch x) {
+		(in DiagDestructureTypeMismatch x) {
 			x.expected.matchIn!void(
-				(in Diag.DestructureTypeMismatch.Expected.Tuple t) {
+				(in DiagDestructureTypeMismatch.Expected.Tuple t) {
 					writer ~= "Expected a tuple with ";
 					writer ~= t.size;
 					writer ~= " elements, but got ";
@@ -657,24 +628,24 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeTypeQuoted(writer, ctx, x.actual);
 			writer ~= '.';
 		},
-		(in Diag.DuplicateDeclaration x) {
+		(in DiagDuplicateDeclaration x) {
 			writer ~= () {
 				final switch (x.kind) {
-					case Diag.DuplicateDeclaration.Kind.enumMember:
+					case DiagDuplicateDeclaration.Kind.enumMember:
 						return "Enum member";
-					case Diag.DuplicateDeclaration.Kind.flagsMember:
+					case DiagDuplicateDeclaration.Kind.flagsMember:
 						return "Flags member";
-					case Diag.DuplicateDeclaration.Kind.paramOrLocal:
+					case DiagDuplicateDeclaration.Kind.paramOrLocal:
 						return "Local";
-					case Diag.DuplicateDeclaration.Kind.recordField:
+					case DiagDuplicateDeclaration.Kind.recordField:
 						return "Record field";
-					case Diag.DuplicateDeclaration.Kind.spec:
+					case DiagDuplicateDeclaration.Kind.spec:
 						return "Spec";
-					case Diag.DuplicateDeclaration.Kind.structOrAlias:
+					case DiagDuplicateDeclaration.Kind.structOrAlias:
 						return "Type";
-					case Diag.DuplicateDeclaration.Kind.typeParam:
+					case DiagDuplicateDeclaration.Kind.typeParam:
 						return "Type parameter";
-					case Diag.DuplicateDeclaration.Kind.unionMember:
+					case DiagDuplicateDeclaration.Kind.unionMember:
 						return "Union case";
 				}
 			}();
@@ -682,13 +653,13 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeName(writer, ctx, x.name);
 			writer ~= " is already used.";
 		},
-		(in Diag.DuplicateExports x) {
+		(in DiagDuplicateExports x) {
 			writer ~= "There are multiple exported ";
 			writer ~= () {
 				final switch (x.kind) {
-					case Diag.DuplicateExports.Kind.spec:
+					case DiagDuplicateExports.Kind.spec:
 						return "specs";
-					case Diag.DuplicateExports.Kind.type:
+					case DiagDuplicateExports.Kind.type:
 						return "types";
 				}
 			}();
@@ -696,25 +667,25 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeName(writer, ctx, x.name);
 			writer ~= '.';
 		},
-		(in Diag.DuplicateImportName x) {
+		(in DiagDuplicateImportName x) {
 			writeName(writer, ctx, x.name);
 			writer ~= " is imported twice from the same module.";
 		},
-		(in Diag.DuplicateImports x) {
+		(in DiagDuplicateImports x) {
 			//TODO: use x.kind
 			writer ~= "The symbol ";
 			writeName(writer, ctx, x.name);
 			writer ~= " appears in multiple modules.";
 		},
-		(in Diag.EmptyEnumOrUnion x) {
+		(in DiagEmptyEnumOrUnion x) {
 			writer ~= "An enum or union type must have at least one member.";
 		},
-		(in Diag.EnumBackingTypeInvalid x) {
+		(in DiagEnumBackingTypeInvalid x) {
 			writer ~= "Type ";
 			writeTypeQuoted(writer, ctx, TypeWithContainer(x.actual, TypeContainer(x.enum_)));
 			writer ~= " cannot be used to back an enum.";
 		},
-		(in Diag.EnumDuplicateValue x) {
+		(in DiagEnumDuplicateValue x) {
 			writer ~= "Duplicate enum value ";
 			if (x.signed)
 				writer ~= x.value;
@@ -722,7 +693,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				writer ~= cast(ulong) x.value;
 			writer ~= '.';
 		},
-		(in Diag.ExpectedTypeIsNotALambda x) {
+		(in DiagExpectedTypeIsNotALambda x) {
 			if (has(x.expectedType)) {
 				writer ~= "The expected type at the lambda is ";
 				writeTypeQuoted(writer, ctx, force(x.expectedType));
@@ -730,54 +701,54 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			} else
 				writer ~= "There is no expected type at this location; lambdas need an expected type.";
 		},
-		(in Diag.ExternBodyMultiple x) {
+		(in DiagExternBodyMultiple x) {
 			writer ~= "This function has multiple 'extern' modifiers, so it's ambiguous which to use for the body.";
 		},
-		(in Diag.ExternInvalidName x) {
+		(in DiagExternInvalidName x) {
 			writeName(writer, ctx, x.name);
 			writer ~= " is not a builtin extern name and is not configured in 'crow-config.json'";
 		},
-		(in Diag.ExternIsUnsafe x) {
+		(in DiagExternIsUnsafe x) {
 			writer ~= "An 'extern' expression can only appear in an 'unsafe' or 'trusted' context.";
 		},
-		(in Diag.ExternRedundant x) {
+		(in DiagExternRedundant x) {
 			writer ~= "Extern ";
 			writeName(writer, ctx, x.name);
 			writer ~= " is already in scope, so this expression is always 'true'.";
 		},
-		(in Diag.ExternFunVariadic) {
+		(in DiagExternFunVariadic) {
 			writer ~= "An 'extern' function can't be variadic.";
 		},
-		(in Diag.ExternHasUnnecessaryLibraryName) {
+		(in DiagExternHasUnnecessaryLibraryName) {
 			writer ~= "'extern' for a type does not need the library name.";
 		},
-		(in Diag.ExternMissingLibraryName) {
+		(in DiagExternMissingLibraryName) {
 			writer ~= "Expected 'extern' to be preceded by the library name.";
 		},
-		(in Diag.ExternRecordImplicitlyByVal x) {
+		(in DiagExternRecordImplicitlyByVal x) {
 			writer ~= "'extern' record ";
 			writeName(writer, ctx, x.struct_.name);
 			writer ~= " is implicitly 'by-val'.";
 		},
-		(in Diag.ExternSumType) {
+		(in DiagExternSumType) {
 			writer ~= "An 'interface', 'union', or 'variant' can't be 'extern'.";
 		},
-		(in Diag.ExternTypeError x) {
+		(in DiagExternTypeError x) {
 			writer ~= () {
 				final switch (x.reason) {
-					case Diag.ExternTypeError.Reason.alignmentIsDefault:
+					case DiagExternTypeError.Reason.alignmentIsDefault:
 						return "Alignment value is the default and can be omitted.";
-					case Diag.ExternTypeError.Reason.badAlignment:
+					case DiagExternTypeError.Reason.badAlignment:
 						return "Alignment must be 1, 2, 4, or 8.";
-					case Diag.ExternTypeError.Reason.tooBig:
+					case DiagExternTypeError.Reason.tooBig:
 						return "Type size is too big.";
 				}
 			}();
 		},
-		(in Diag.FlagsSigned) {
+		(in DiagFlagsSigned) {
 			writer ~= "A 'flags' type can't use a signed storage type.";
 		},
-		(in Diag.FunctionWithSignatureNotFound x) {
+		(in DiagFunctionWithSignatureNotFound x) {
 			writer ~= "Could not find a function '";
 			writer ~= x.name;
 			writer ~= ' ';
@@ -789,21 +760,21 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			});
 			writer ~= ")'.";
 		},
-		(in Diag.FunPointerExprMustBeName) {
+		(in DiagFunPointerExprMustBeName) {
 			writer ~= "Function pointer expression must be a plain identifier ('&f').";
 		},
-		(in Diag.FunPointerNotBare) {
+		(in DiagFunPointerNotBare) {
 			writer ~= "The target of a function pointer must be a 'bare' function.";
 		},
-		(in Diag.IfThrow) {
+		(in DiagIfThrow) {
 			writer ~= "Instead of throwing from a conditional expression, use 'assert' or 'forbid'.";
 		},
-		(in Diag.ImportFileDiag x) {
+		(in DiagImportFile x) {
 			x.matchIn!void(
-				(in Diag.ImportFileDiag.CantImportCrowAsText y) {
+				(in DiagImportFile.CantImportCrowAsText y) {
 					writer ~= "Can't import a '.crow' file as content.";
 				},
-				(in Diag.ImportFileDiag.CircularImport y) {
+				(in DiagImportFile.CircularImport y) {
 					writer ~= "This is part of a circular import:";
 					foreach (Uri uri; y.cycle) {
 						writeNewline(writer, 1);
@@ -813,34 +784,34 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					writeNewline(writer, 1);
 					writeUri(writer, ctx, y.cycle[0]);
 				},
-				(in Diag.ImportFileDiag.LibraryNotConfigured x) {
+				(in DiagImportFile.LibraryNotConfigured x) {
 					writer ~= "Library ";
 					writeName(writer, ctx, x.libraryName);
 					writer ~= " is not configured.";
 					writeNewline(writer, 0);
 					writer ~= "It must be added to \"include\" in 'crow-config.json'.";
 				},
-				(in Diag.ImportFileDiag.ReadError y) {
+				(in DiagImportFile.ReadError y) {
 					showReadFileDiag(writer, ctx, y.diag, some(y.uri));
 				},
-				(in Diag.ImportFileDiag.RelativeImportReachesPastRoot y) {
+				(in DiagImportFile.RelativeImportReachesPastRoot y) {
 					writer ~= "Relative path ";
 					writer ~= y.imported;
 					writer ~= " reaches above the root directory.";
 				});
 		},
-		(in Diag.ImportRefersToNothing x) {
+		(in DiagImportRefersToNothing x) {
 			writer ~= "Imported name ";
 			writeName(writer, ctx, x.name);
 			writer ~= " does not refer to anything.";
 		},
-		(in Diag.LambdaCantBeFunctionPointer x) {
+		(in DiagLambdaCantBeFunctionPointer x) {
 			writer ~= "A function pointer can't be implemented by a lambda. Write a function and use '&f' instead.";
 		},
-		(in Diag.LambdaCantInferParamType x) {
+		(in DiagLambdaCantInferParamType x) {
 			writer ~= "Can't infer the lambda parameter's type.";
 		},
-		(in Diag.LambdaClosurePurity x) {
+		(in DiagLambdaClosurePurity x) {
 			writer ~= "Can't access ";
 			writeName(writer, ctx, x.localName);
 			writer ~= " in a ";
@@ -858,13 +829,13 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			}
 			writer ~= '.';
 		},
-		(in Diag.LambdaMultipleMatch x) {
+		(in DiagLambdaMultipleMatch x) {
 			writer ~= "Multiple lambda types are possible:";
 			writeTypesOnLines(writer, ctx, x.choices);
 			writeNewline(writer, 0);
 			writer ~= "Consider explicitly typing the lambda's parameter.";
 		},
-		(in Diag.LambdaNotExpected x) {
+		(in DiagLambdaNotExpected x) {
 			if (x.expected.isA!(ExpectedForDiag.Infer))
 				writer ~= "Lambda expression needs an expected type.";
 			else {
@@ -873,14 +844,14 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				writeExpected(writer, ctx, x.expected, ExpectedKind.lambda);
 			}
 		},
-		(in Diag.LambdaTypeMissingParamType) {
+		(in DiagLambdaTypeMissingParamType) {
 			writer ~= "Function type needs parameter types. " ~
 				"(It is parsed a as a destructure, so it needs both parameter names and types.)";
 		},
-		(in Diag.LambdaTypeVariadic) {
+		(in DiagLambdaTypeVariadic) {
 			writer ~= "A function type can't be variadic; only a function can.";
 		},
-		(in Diag.LinkageWorseThanContainingFun x) {
+		(in DiagLinkageWorseThanContainingFun x) {
 			writer ~= "'extern' function ";
 			writeName(writer, ctx, x.containingFun.name);
 			if (has(x.param)) {
@@ -894,26 +865,26 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeTypeQuoted(writer, ctx, TypeWithContainer(x.referencedType, TypeContainer(x.containingFun)));
 			writer ~= '.';
 		},
-		(in Diag.LinkageWorseThanContainingType x) {
+		(in DiagLinkageWorseThanContainingType x) {
 			writer ~= "Extern type ";
 			writeName(writer, ctx, x.containingType.name);
 			writer ~= " can't reference non-extern type ";
 			writeTypeQuoted(writer, ctx, TypeWithContainer(x.referencedType, TypeContainer(x.containingType)));
 			writer ~= '.';
 		},
-		(in Diag.LiteralFloatAccuracy x) {
+		(in DiagLiteralFloatAccuracy x) {
 			writer ~= "Literal of type '";
 			writeName(writer, ctx, stringOfEnum(x.type));
 			writer ~= "' will be rounded to ";
 			writeFloatLiteral(writer, x.actual, infinity: "infinity", nan: "NaN");
 		},
-		(in Diag.LiteralMultipleMatch x) {
+		(in DiagLiteralMultipleMatch x) {
 			writer ~= "Multiple possible types for literal expression: ";
 			writeWithCommas!(StructInst*)(writer, x.types, (in StructInst* type) {
 				writeStructInst(writer, ctx, x.typeContainer, *type);
 			});
 		},
-		(in Diag.LiteralNotExpected x) {
+		(in DiagLiteralNotExpected x) {
 			if (x.expected.isA!(ExpectedForDiag.Infer))
 				writer ~= "Literal expression needs an expected type.";
 			else {
@@ -922,7 +893,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				writeExpected(writer, ctx, x.expected, ExpectedKind.lambda);
 			}
 		},
-		(in Diag.LiteralOverflow x) {
+		(in DiagLiteralOverflow x) {
 			writer ~= "A value of type ";
 			writeName(writer, ctx, stringOfEnum(x.type));
 			writer ~= " must be from ";
@@ -931,35 +902,35 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= maxValue(x.type);
 			writer ~= '.';
 		},
-		(in Diag.LocalIgnoredButMutable) {
+		(in DiagLocalIgnoredButMutable) {
 			writer ~= "Unnecessary 'mut' on ignored local variable.";
 		},
-		(in Diag.LocalNotMutable x) {
+		(in DiagLocalNotMutable x) {
 			writer ~= "Local variable ";
 			writeName(writer, ctx, x.local.name);
 			writer ~= " was not marked 'mut'.";
 		},
-		(in Diag.LoopDisallowedBody x) {
+		(in DiagLoopDisallowedBody x) {
 			writer ~= "Loop body cannot be a ";
 			writeName(writer, ctx, stringOfEnum(x.kind));
 			writer ~= " expression";
 		},
-		(in Diag.LoopWithoutBreak) {
+		(in DiagLoopWithoutBreak) {
 			writer ~= "'loop' has no 'break'.";
 		},
-		(in Diag.MainMissingExterns x) {
+		(in DiagMainMissingExterns x) {
 			writer ~= "'main' function depends on extern ";
 			writeWithCommas!Symbol(writer, x.missing, (in Symbol x) {
 				writeName(writer, ctx, x);
 			});
 			writer ~= " which is not provided.";
 		},
-		(in Diag.MainTestMissing x) {
+		(in DiagMainTestMissing x) {
 			writer ~= "There is no 'test' keyword on line ";
 			writer ~= x.expectedLine + 1;
 			writer ~= '.';
 		},
-		(in Diag.MatchCaseDuplicate x) {
+		(in DiagMatchCaseDuplicate x) {
 			writer ~= "Duplicate branch ";
 			x.kind.matchIn!void(
 				(in Symbol x) {
@@ -975,19 +946,19 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					writer ~= x;
 				});
 		},
-		(in Diag.MatchCaseForType x) {
+		(in DiagMatchCaseForType x) {
 			writer ~= () {
 				final switch (x.kind) {
-					case Diag.MatchCaseForType.Kind.enumOrUnion:
+					case DiagMatchCaseForType.Kind.enumOrUnion:
 						return "To match an enum or union, branches must use identifiers.";
-					case Diag.MatchCaseForType.Kind.numeric:
+					case DiagMatchCaseForType.Kind.numeric:
 						return "To match a number, branches must use number literals.";
-					case Diag.MatchCaseForType.Kind.stringLike:
+					case DiagMatchCaseForType.Kind.stringLike:
 						return "To match a string-like type, branches must use identifiers or string literals.";
 				}
 			}();
 		},
-		(in Diag.MatchCaseNameNotInEnum x) {
+		(in DiagMatchCaseNameNotInEnum x) {
 			writer ~= "Enum ";
 			writeName(writer, ctx, x.enum_.name);
 			writer ~= " has no member ";
@@ -998,7 +969,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					writeName(writer, ctx, member.name);
 				});
 		},
-		(in Diag.MatchCaseNoValueForEnumOrSymbol x) {
+		(in DiagMatchCaseNoValueForEnumOrSymbol x) {
 			writer ~= "Matching on ";
 			if (has(x.enum_)) {
 				writer ~= "enum ";
@@ -1007,44 +978,44 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				writeName(writer, ctx, symbol!"symbol");
 			writer ~= ", so case should not expect a value.";
 		},
-		(in Diag.MatchCaseShouldUseIgnore x) {
+		(in DiagMatchCaseShouldUseIgnore x) {
 			writer ~= "Variant member type ";
 			writeName(writer, ctx, x.member.decl.name);
 			writer ~= " is non-empty, so it should be explicitly ignored using ";
 			writeName(writer, ctx, symbol!"_");
 			writer ~= '.';
 		},
-		(in Diag.MatchNeedsElse x) {
+		(in DiagMatchNeedsElse x) {
 			writer ~= "A 'match' on ";
 			writer ~= () {
 				final switch (x.kind) {
-					case Diag.MatchNeedsElse.Kind.integral:
+					case DiagMatchNeedsElse.Kind.integral:
 						return "an integral ";
-					case Diag.MatchNeedsElse.Kind.stringLike:
+					case DiagMatchNeedsElse.Kind.stringLike:
 						return "a string or symbol";
-					case Diag.MatchNeedsElse.Kind.variant:
+					case DiagMatchNeedsElse.Kind.variant:
 						return "a variant ";
 				}
 			}();
 			writer ~= " must have an explicit 'else'.";
 		},
-		(in Diag.MatchOnNonMatchable x) {
+		(in DiagMatchOnNonMatchable x) {
 			writer ~= "Can only match on an enum, union, variant, integral, symbol, string, or character type, not ";
 			writeTypeQuoted(writer, ctx, x.type);
 			writer ~= '.';
 		},
-		(in Diag.MatchSumTypeCantInferTypeArgs x) {
+		(in DiagMatchSumTypeCantInferTypeArgs x) {
 			writer ~= "Can't infer type arguments of ";
 			writer ~= x.member.name;
 		},
-		(in Diag.MatchSumTypeNoMember x) {
+		(in DiagMatchSumTypeNoMember x) {
 			writer ~= "Type ";
 			writeName(writer, ctx, x.nonMember.name);
 			writer ~= " is not a case of ";
 			writeTypeQuoted(writer, ctx, x.variant);
 			writer ~= '.';
 		},
-		(in Diag.MatchUnhandledCases x) {
+		(in DiagMatchUnhandledCases x) {
 			writer ~= "'match' is missing ";
 			size_t length = x.matchIn!size_t(
 				(in EnumOrFlagsMember*[] xs) => xs.length,
@@ -1064,10 +1035,10 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				});
 			writer ~= '.';
 		},
-		(in Diag.MatchUnnecessaryElse x) {
+		(in DiagMatchUnnecessaryElse x) {
 			writer ~= "The 'match' handles every possible case, so the 'else' is unused.";
 		},
-		(in Diag.MethodImplVisibility x) {
+		(in DiagMethodImplVisibility x) {
 			writer ~= "A method of ";
 			writeTypeQuoted(writer, ctx, TypeWithContainer(Type(x.sumType), TypeContainer(x.member)));
 			writer ~= " is implemented by ";
@@ -1076,18 +1047,18 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeName(writer, ctx, x.member.name);
 			writer ~= '.';
 		},
-		(in Diag.ModifierConflict x) {
+		(in DiagModifierConflict x) {
 			writeModifier(writer, ctx, x.curModifier);
 			writer ~= " conflicts with ";
 			writeModifier(writer, ctx, x.prevModifier);
 			writer ~= '.';
 		},
-		(in Diag.ModifierDuplicate x) {
+		(in DiagModifierDuplicate x) {
 			writer ~= "Redundant ";
 			writeModifier(writer, ctx, x.modifier);
 			writer ~= '.';
 		},
-		(in Diag.ModifierInvalid x) {
+		(in DiagModifierInvalid x) {
 			writer ~= aOrAnDeclKind(x.declKind);
 			writer ~= " can't be ";
 			writeModifier(writer, ctx, x.modifier);
@@ -1095,76 +1066,76 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			if (x.declKind == DeclKind.test && x.modifier == ModifierKeyword.unsafe)
 				writer ~= " Did you mean 'trusted'?";
 		},
-		(in Diag.ModifierRedundantDueToDeclKind x) {
+		(in DiagModifierRedundantDueToDeclKind x) {
 			writer ~= aOrAnDeclKind(x.declKind);
 			writer ~= " is already ";
 			writeModifier(writer, ctx, x.modifier);
 			writer ~= " by default.";
 		},
-		(in Diag.ModifierRedundantDueToModifier x) {
+		(in DiagModifierRedundantDueToModifier x) {
 			writeModifier(writer, ctx, x.redundantModifier);
 			writer ~= " is redundant given ";
 			writeModifier(writer, ctx, x.modifier);
 			writer ~= '.';
 		},
-		(in Diag.ModifierTypeArgInvalid x) {
+		(in DiagModifierTypeArgInvalid x) {
 			writeModifier(writer, ctx, x.modifier);
 			writer ~= " does not take a type argument in this context.";
 		},
-		(in Diag.MutFieldNotAllowed) {
+		(in DiagMutFieldNotAllowed) {
 			writer ~= "This field is 'mut', so the record must be 'mut'.";
 		},
-		(in Diag.NameNotFound x) {
+		(in DiagNameNotFound x) {
 			writer ~= "There is no ";
 			writer ~= stringOfEnum(x.kind);
 			writer ~= " in scope named ";
 			writeName(writer, ctx, x.name);
 			writer ~= '.';
 		},
-		(in Diag.NeedsExpectedType x) {
+		(in DiagNeedsExpectedType x) {
 			writer ~= '\'';
 			writer ~= stringOfEnum(x.kind);
 			writer ~= "' expression needs an expected type.";
 		},
-		(in Diag.ParamMissingType) {
+		(in DiagParamMissingType) {
 			writer ~= "This parameter needs a type.";
 		},
-		(in Diag.ParamMutable) {
+		(in DiagParamMutable) {
 			writer ~= "A parameter can't be mutable.";
 		},
 		(in ParseDiag x) {
 			writeParseDiag(writer, ctx, x);
 		},
-		(in Diag.PointerIsNative) {
+		(in DiagPointerIsNative) {
 			writer ~= "Can only get a pointer in an 'extern native' context.";
 		},
-		(in Diag.PointerIsUnsafe) {
+		(in DiagPointerIsUnsafe) {
 			writer ~= "Can only get a pointer in an 'unsafe' or 'trusted' context.";
 		},
-		(in Diag.PointerMutToConst x) {
+		(in DiagPointerMutToConst x) {
 			writer ~= () {
 				final switch (x.kind) {
-					case Diag.PointerMutToConst.Kind.fieldOfByRef:
+					case DiagPointerMutToConst.Kind.fieldOfByRef:
 						return "Can't get a 'mut' pointer to a non-'mut' field.";
-					case Diag.PointerMutToConst.Kind.fieldOfByVal:
+					case DiagPointerMutToConst.Kind.fieldOfByVal:
 						return "Can't get a 'mut' field pointer from a non-'mut' record pointer.";
-					case Diag.PointerMutToConst.Kind.local:
+					case DiagPointerMutToConst.Kind.local:
 						return "Can't get a 'mut' pointer to a non-'mut' local.";
 				}
 			}();
 		},
-		(in Diag.PointerUnsupported x) {
+		(in DiagPointerUnsupported x) {
 			final switch (x.reason) {
-				case Diag.PointerUnsupported.Reason.other:
+				case DiagPointerUnsupported.Reason.other:
 					writer ~= "Can't get a pointer to this kind of expression.";
 					break;
-				case Diag.PointerUnsupported.Reason.recordNotByRef:
+				case DiagPointerUnsupported.Reason.recordNotByRef:
 					writer ~= "To get a pointer to a record field, " ~
 						"the record must be 'by-ref' or a pointer to a 'by-val' record.";
 					break;
 			}
 		},
-		(in Diag.PurityWorseThanParent x) {
+		(in DiagPurityWorseThanParent x) {
 			writer ~= "Type ";
 			writeName(writer, ctx, x.parent.name);
 			writer ~= " has purity ";
@@ -1175,7 +1146,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writePurity(writer, ctx, bestCasePurity(x.child));
 			writer ~= '.';
 		},
-		(in Diag.PurityWorseThanSumType x) {
+		(in DiagPurityWorseThanSumType x) {
 			writer ~= showSumTypeKindUpperCase(x.sumType.decl.body_.as!(StructBody.SumType).kind);
 			writer ~= ' ';
 			writeName(writer, ctx, x.sumType.decl.name);
@@ -1187,21 +1158,21 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writePurity(writer, ctx, x.case_.purity);
 			writer ~= '.';
 		},
-		(in Diag.RecordFieldNeedsType x) {
+		(in DiagRecordFieldNeedsType x) {
 			writer ~= "Record field ";
 			writeName(writer, ctx, x.fieldName);
 			writer ~= " needs a type.";
 		},
-		(in Diag.SharedArgIsNotLambda) {
+		(in DiagSharedArgIsNotLambda) {
 			writer ~= "Argument to 'shared' must be a lambda expression.";
 		},
-		(in Diag.SharedLambdaTypeIsNotShared x) {
+		(in DiagSharedLambdaTypeIsNotShared x) {
 			writer ~= "'shared' lambda needs a 'shared' ";
 			writer ~= () {
 				final switch (x.kind) {
-					case Diag.SharedLambdaTypeIsNotShared.Kind.paramType:
+					case DiagSharedLambdaTypeIsNotShared.Kind.paramType:
 						return "parameter";
-					case Diag.SharedLambdaTypeIsNotShared.Kind.returnType:
+					case DiagSharedLambdaTypeIsNotShared.Kind.returnType:
 						return "return";
 				}
 			}();
@@ -1209,22 +1180,22 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeTypeQuoted(writer, ctx, x.actual);
 			writer ~= '.';
 		},
-		(in Diag.SharedLambdaUnused x) {
+		(in DiagSharedLambdaUnused x) {
 			writer ~= "The lambda does not have anything 'mut' in its closure, so it does not need 'shared'.";
 		},
-		(in Diag.SharedNotExpected x) {
+		(in DiagSharedNotExpected x) {
 			writer ~= () {
 				final switch (x.reason) {
-					case Diag.SharedNotExpected.Reason.notShared:
+					case DiagSharedNotExpected.Reason.notShared:
 						return "Expected type is a lambda, but it is not 'shared'.";
 				}
 			}();
 			writer ~= '\n';
 			writeExpected(writer, ctx, x.expected, ExpectedKind.lambda);
 		},
-		(in Diag.SpecMatchError x) {
+		(in DiagSpecMatchError x) {
 			x.reason.matchIn!void(
-				(in Diag.SpecMatchError.Reason.MultipleMatches y) {
+				(in DiagSpecMatchError.Reason.MultipleMatches y) {
 					writer ~= "Multiple implementations found for spec signature ";
 					writeName(writer, ctx, y.sigName);
 					writer ~= ':';
@@ -1234,19 +1205,19 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= "Calling:";
 			writeSpecTrace(writer, ctx, x.outermostTypeContainer, x.trace);
 		},
-		(in Diag.SpecNoMatch x) {
+		(in DiagSpecNoMatch x) {
 			x.reason.matchIn!void(
-				(in Diag.SpecNoMatch.Reason.BuiltinNotSatisfied y) {
+				(in DiagSpecNoMatch.Reason.BuiltinNotSatisfied y) {
 					writeTypeQuoted(writer, ctx, TypeWithContainer(y.type, x.outermostTypeContainer));
 					writer ~= " is not '";
 					writer ~= stringOfEnum(y.kind);
 					writer ~= "'.";
 				},
-				(in Diag.SpecNoMatch.Reason.CantInferTypeArguments y) {
+				(in DiagSpecNoMatch.Reason.CantInferTypeArguments y) {
 					writer ~= "Can't infer type arguments to ";
 					writeFunDecl(writer, ctx, WriteKind.quoted, y.fun);
 				},
-				(in Diag.SpecNoMatch.Reason.SpecImplNotFound y) {
+				(in DiagSpecNoMatch.Reason.SpecImplNotFound y) {
 					writer ~= "No implementation was found for spec signature ";
 					Signature* sig = y.sigDecl;
 					writeSig(
@@ -1254,7 +1225,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 						Params(sig.params), some(y.sigType));
 					writer ~= '.';
 				},
-				(in Diag.SpecNoMatch.Reason.TooDeep _) {
+				(in DiagSpecNoMatch.Reason.TooDeep _) {
 					writer ~= "Spec instantiation is too deep.";
 				});
 			if (!isEmpty(x.trace)) {
@@ -1263,7 +1234,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				writeSpecTrace(writer, ctx, x.outermostTypeContainer, x.trace);
 			}
 		},
-		(in Diag.SpecRecursion x) {
+		(in DiagSpecRecursion x) {
 			writer ~= "Spec's parents tree is too deep.";
 			writeNewline(writer, 1);
 			writer ~= "Trace: ";
@@ -1271,154 +1242,154 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				writeName(writer, ctx, spec.name);
 			});
 		},
-		(in Diag.SpecSigCantBeVariadic x) {
+		(in DiagSpecSigCantBeVariadic x) {
 			writer ~= "A spec signature can't be variadic.";
 		},
-		(in Diag.SpecUseInvalid x) {
+		(in DiagSpecUseInvalid x) {
 			writer ~= aOrAnDeclKind(x.declKind);
 			writer ~= " can't have specs.";
 		},
-		(in Diag.StringLiteralInvalid x) {
+		(in DiagStringLiteralInvalid x) {
 			writer ~= () {
 				final switch (x.reason) {
-					case Diag.StringLiteralInvalid.Reason.cStringContainsNul:
+					case DiagStringLiteralInvalid.Reason.cStringContainsNul:
 						return "'c-string' literal can't contain '\\0'.";
-					case Diag.StringLiteralInvalid.Reason.notExternJs:
+					case DiagStringLiteralInvalid.Reason.notExternJs:
 						return "Cant' create a 'js-any' value without 'js extern'.";
-					case Diag.StringLiteralInvalid.Reason.stringContainsNul:
+					case DiagStringLiteralInvalid.Reason.stringContainsNul:
 						return "'string' literal can't contain '\\0'.";
-					case Diag.StringLiteralInvalid.Reason.symbolContainsNul:
+					case DiagStringLiteralInvalid.Reason.symbolContainsNul:
 						return "'symbol' literal can't contain '\\0'.";
 				}
 			}();
 		},
-		(in Diag.StorageMissingType) {
+		(in DiagStorageMissingType) {
 			writer ~= "'storage' needs a type.";
 		},
-		(in Diag.StructParamsSyntaxError x) {
+		(in DiagStructParamsSyntaxError x) {
 			final switch (x.reason) {
-				case Diag.StructParamsSyntaxError.Reason.hasParamsAndFields:
+				case DiagStructParamsSyntaxError.Reason.hasParamsAndFields:
 					writer ~= aOrAnDeclKind(declKindOfStruct(x.struct_));
 					writer ~= " can't have both parameter-style and indented fields.";
 					break;
-				case Diag.StructParamsSyntaxError.Reason.destructure:
+				case DiagStructParamsSyntaxError.Reason.destructure:
 					writer ~= aOrAnMemberKind(memberKindOfStruct(x.struct_));
 					writer ~= " can't use destructuring.";
 					break;
-				case Diag.StructParamsSyntaxError.Reason.variadic:
+				case DiagStructParamsSyntaxError.Reason.variadic:
 					writer ~= aOrAnMemberKind(memberKindOfStruct(x.struct_));
 					writer ~= " can't be variadic.";
 					break;
 			}
 		},
-		(in Diag.SumTypeListedMembersNonUnion) {
+		(in DiagSumTypeListedMembersNonUnion) {
 			writer ~= "Only 'union' types support listing member types.";
 		},
-		(in Diag.TestMissingBody) {
+		(in DiagTestMissingBody) {
 			writer ~= "This test needs a body.";
 		},
-		(in Diag.TrustedUnnecessary x) {
+		(in DiagTrustedUnnecessary x) {
 			writer ~= () {
 				final switch (x.reason) {
-					case Diag.TrustedUnnecessary.Reason.inTrusted:
+					case DiagTrustedUnnecessary.Reason.inTrusted:
 						return "'trusted' expression is redundant inside another 'trusted' expression.";
-					case Diag.TrustedUnnecessary.Reason.inUnsafeFunction:
+					case DiagTrustedUnnecessary.Reason.inUnsafeFunction:
 						return "'trusted' expression is redundant inside an 'unsafe' function.";
-					case Diag.TrustedUnnecessary.Reason.unused:
+					case DiagTrustedUnnecessary.Reason.unused:
 						return "There is no unsafe code in this expression; you could remove 'trusted'.";
 				}
 			}();
 		},
-		(in Diag.TupleTooBig x) {
+		(in DiagTupleTooBig x) {
 			writer ~= "This tuple has ";
 			writer ~= x.actual;
 			writer ~= " elements; the maximum allowed is ";
 			writer ~= x.maxAllowed;
 		},
-		(in Diag.TypeAnnotationUnnecessary x) {
+		(in DiagTypeAnnotationUnnecessary x) {
 			writer ~= "Type annotation is unnecessary; type ";
 			writeTypeQuoted(writer, ctx, x.type);
 			writer ~= " was already inferred.";
 		},
-		(in Diag.TypeConflict x) {
+		(in DiagTypeConflict x) {
 			writeExpected(writer, ctx, x.expected, ExpectedKind.generic);
 			writeNewline(writer, 0);
 			writer ~= "Actual: ";
 			writeTypeQuoted(writer, ctx, x.actual);
 			writer ~= '.';
 		},
-		(in Diag.TypeParamCantHaveTypeArgs) {
+		(in DiagTypeParamCantHaveTypeArgs) {
 			writer ~= "Can't provide type arguments to a type parameter.";
 		},
-		(in Diag.TypeParamsUnsupported x) {
+		(in DiagTypeParamsUnsupported x) {
 			writer ~= aOrAnDeclKind(x.declKind);
 			writer ~= " can't have type parameters.";
 		},
-		(in Diag.TypeShouldUseSyntax x) {
+		(in DiagTypeShouldUseSyntax x) {
 			writer ~= () {
 				final switch (x.kind) {
-					case Diag.TypeShouldUseSyntax.Kind.array:
+					case DiagTypeShouldUseSyntax.Kind.array:
 						return "Prefer to write 't[]' instead of 't array'.";
-					case Diag.TypeShouldUseSyntax.Kind.funData:
+					case DiagTypeShouldUseSyntax.Kind.funData:
 						return "Prefer to write 'r data(x p)' instead of '(r, p) fun-data'.";
-					case Diag.TypeShouldUseSyntax.Kind.funMut:
+					case DiagTypeShouldUseSyntax.Kind.funMut:
 						return "Prefer to write 'r mut(x p)' instead of '(r, p) fun-mut'.";
-					case Diag.TypeShouldUseSyntax.Kind.funPointer:
+					case DiagTypeShouldUseSyntax.Kind.funPointer:
 						return "Prefer to writer 'r function(x p)' instead of '(r, p) fun-pointer'.";
-					case Diag.TypeShouldUseSyntax.Kind.funShared:
+					case DiagTypeShouldUseSyntax.Kind.funShared:
 						return "Prefer to write 'r shared(x p)' instead of '(r, p) fun-shared'.";
-					case Diag.TypeShouldUseSyntax.Kind.map:
+					case DiagTypeShouldUseSyntax.Kind.map:
 						return "Prefer to write 'v[k]' instead of '(k, v) map'.";
-					case Diag.TypeShouldUseSyntax.Kind.mutArray:
+					case DiagTypeShouldUseSyntax.Kind.mutArray:
 						return "Prefer to write 't mut[]' instead of 't mut-array'.";
-					case Diag.TypeShouldUseSyntax.Kind.mutMap:
+					case DiagTypeShouldUseSyntax.Kind.mutMap:
 						return "Prefer to write 'v mut[k]' instead of '(k, v) mut-map'.";
-					case Diag.TypeShouldUseSyntax.Kind.mutPointer:
+					case DiagTypeShouldUseSyntax.Kind.mutPointer:
 						return "Prefer to write 't mut*' instead of 't mut-pointer'.";
-					case Diag.TypeShouldUseSyntax.Kind.opt:
+					case DiagTypeShouldUseSyntax.Kind.opt:
 						return "Prefer to write 't?' instead of 't option'.";
-					case Diag.TypeShouldUseSyntax.Kind.pointer:
+					case DiagTypeShouldUseSyntax.Kind.pointer:
 						return "Prefer to write 't*' instead of 't const-pointer'.";
-					case Diag.TypeShouldUseSyntax.Kind.sharedArray:
+					case DiagTypeShouldUseSyntax.Kind.sharedArray:
 						return "Prefer to write 't shared[]' instead of 't shared-array'.";
-					case Diag.TypeShouldUseSyntax.Kind.sharedMap:
+					case DiagTypeShouldUseSyntax.Kind.sharedMap:
 						return "Prefer to write 'v shared[k]' instead of '(k, v) shared-map'.";
-					case Diag.TypeShouldUseSyntax.Kind.tuple:
+					case DiagTypeShouldUseSyntax.Kind.tuple:
 						return "Prefer to write '(t, u)' instead of '(t, u) tuple2'.";
 				}
 			}();
 		},
-		(in Diag.UnionMemberTypeParameter) {
+		(in DiagUnionMemberTypeParameter) {
 			writer ~= "A type parameter can't be a union member.";
 		},
-		(in Diag.UnsupportedSyntax x) {
+		(in DiagUnsupportedSyntax x) {
 			writer ~= () {
 				final switch (x.reason) {
-					case Diag.UnsupportedSyntax.Reason.enumMemberMutability:
+					case DiagUnsupportedSyntax.Reason.enumMemberMutability:
 						return "An enum member can't be 'mut'.";
-					case Diag.UnsupportedSyntax.Reason.enumMemberType:
+					case DiagUnsupportedSyntax.Reason.enumMemberType:
 						return "An enum member can't specify a type.";
 				}
 			}();
 		},
-		(in Diag.Unused x) {
+		(in DiagUnused x) {
 			writeUnusedDiag(writer, ctx, x);
 		},
-		(in Diag.VarargsParamMustBeArray) {
+		(in DiagVarargsParamMustBeArray) {
 			writer ~= "Variadic parameter must be an ";
 			writeName(writer, ctx, symbol!"array");
 			writer ~= '.';
 		},
-		(in Diag.VisibilityWarning x) {
+		(in DiagVisibilityWarning x) {
 			writeVisibilityWarning(writer, ctx, x);
 		},
-		(in Diag.WithHasElse) {
+		(in DiagWithHasElse) {
 			writeKeyword(writer, ctx, "with");
 			writer ~= " statement can't have ";
 			writeKeyword(writer, ctx, "else");
 			writer ~= '.';
 		},
-		(in Diag.WrongNumberTypeArgs x) {
+		(in DiagWrongNumberTypeArgs x) {
 			writeName(writer, ctx, x.name);
 			writer ~= " expected to get ";
 			writer ~= x.nExpectedTypeArgs;
@@ -1460,12 +1431,12 @@ void writeExpected(scope ref Writer writer, in ShowDiagCtx ctx, in ExpectedForDi
 				writeTypesOnLines(writer, ctx, choices);
 			}
 		},
-		(in ExpectedForDiag.Infer) {
+		(in ExpectedForDiagInfer) {
 			writer ~= "This location has no expected ";
 			writeType();
 			writer ~= '.';
 		},
-		(in ExpectedForDiag.Loop) {
+		(in ExpectedForDiagLoop) {
 			writer ~= "Expected a loop 'break' or 'continue'.";
 		});
 }
@@ -1562,10 +1533,10 @@ string aOrAnMemberKind(MemberKind a) {
 	}
 }
 
-void writeVisibilityWarning(scope ref Writer writer, in ShowDiagCtx ctx, in Diag.VisibilityWarning a) {
+void writeVisibilityWarning(scope ref Writer writer, in ShowDiagCtx ctx, in DiagVisibilityWarning a) {
 	if (a.actualVisibility > a.defaultVisibility) {
 		a.kind.matchIn!void(
-			(in Diag.VisibilityWarning.Kind.Field x) {
+			(in DiagVisibilityWarning.Kind.Field x) {
 				writer ~= "Field ";
 				writeName(writer, ctx, x.fieldName);
 				writer ~= " should not be more visible than record ";
@@ -1574,7 +1545,7 @@ void writeVisibilityWarning(scope ref Writer writer, in ShowDiagCtx ctx, in Diag
 				writeVisibility(writer, ctx, a.defaultVisibility);
 				writer ~= '.';
 			},
-			(in Diag.VisibilityWarning.Kind.FieldMutability x) {
+			(in DiagVisibilityWarning.Kind.FieldMutability x) {
 				writer ~= "Field ";
 				writeName(writer, ctx, x.fieldName);
 				writer ~= " can't have ";
@@ -1582,7 +1553,7 @@ void writeVisibilityWarning(scope ref Writer writer, in ShowDiagCtx ctx, in Diag
 				writer ~= " mutability when the field itself is ";
 				writeVisibility(writer, ctx, a.defaultVisibility);
 			},
-			(in Diag.VisibilityWarning.Kind.New x) {
+			(in DiagVisibilityWarning.Kind.New x) {
 				writeName(writer, ctx, symbol!"new");
 				writer ~= " function for record ";
 				writeName(writer, ctx, x.record.name);
@@ -1593,21 +1564,21 @@ void writeVisibilityWarning(scope ref Writer writer, in ShowDiagCtx ctx, in Diag
 	} else {
 		assert(a.actualVisibility == a.defaultVisibility);
 		a.kind.matchIn!void(
-			(in Diag.VisibilityWarning.Kind.Field x) {
+			(in DiagVisibilityWarning.Kind.Field x) {
 				writer ~= "Fields of record ";
 				writeName(writer, ctx, x.record.name);
 				writer ~= " are already ";
 				writeVisibility(writer, ctx, a.defaultVisibility);
 				writer ~= " by default.";
 			},
-			(in Diag.VisibilityWarning.Kind.FieldMutability x) {
+			(in DiagVisibilityWarning.Kind.FieldMutability x) {
 				writer ~= "Field ";
 				writeName(writer, ctx, x.fieldName);
 				writer ~= " mutability would already be ";
 				writeVisibility(writer, ctx, a.defaultVisibility);
 				writer ~= " by default.";
 			},
-			(in Diag.VisibilityWarning.Kind.New x) {
+			(in DiagVisibilityWarning.Kind.New x) {
 				writer ~= "The 'new' function for ";
 				writeName(writer, ctx, x.record.name);
 				writer ~= " is already ";
@@ -1794,7 +1765,7 @@ string describeTokenForUnexpected(Token token) {
 		case Token.underscore:
 			return "Unexpected '_'.";
 		case Token.unexpectedCharacter:
-			// This is ParseDiag.UnexpectedCharacter instead
+			// This is ParseDiagUnexpectedCharacter instead
 			assert(false);
 		case Token.union_:
 			return "Unexpected keyword 'union'.";

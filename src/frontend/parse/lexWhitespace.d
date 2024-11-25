@@ -2,7 +2,8 @@ module frontend.parse.lexWhitespace;
 
 @safe @nogc pure nothrow:
 
-import model.parseDiag : ParseDiag;
+import model.parseDiag :
+	ParseDiag, ParseDiagExpected, ParseDiagIndentNotDivisible, ParseDiagIndentTooMuch, ParseDiagIndentWrongCharacter;
 import util.col.array : isEmpty;
 import util.conv : safeIntFromUint;
 import util.sourceRange : Pos, Range;
@@ -152,7 +153,7 @@ int skipBlankLinesAndGetIndentDelta(
 		// If we got here, we're looking at a non-empty line (or EOF)
 		int delta = safeIntFromUint(newIndent) - safeIntFromUint(curIndent);
 		if (delta > 1) {
-			addDiag(start, ParseDiag(ParseDiag.IndentTooMuch()));
+			addDiag(start, ParseDiag(ParseDiagIndentTooMuch()));
 			skipRestOfLineAndNewline(ptr);
 			continue;
 		} else {
@@ -296,7 +297,7 @@ uint takeIndentAmountAfterNewline(ref MutCString ptr, IndentKind indentKind, in 
 			if (*ptr == ' ') {
 				CString startSpaces = ptr;
 				while (*ptr == ' ') ptr++;
-				addDiag(startSpaces, ParseDiag(ParseDiag.IndentWrongCharacter(true)));
+				addDiag(startSpaces, ParseDiag(ParseDiagIndentWrongCharacter(true)));
 			}
 			return ptr - begin;
 		case IndentKind.spaces2:
@@ -315,12 +316,12 @@ uint takeIndentAmountAfterNewlineSpaces(ref MutCString ptr, uint nSpacesPerInden
 	if (*ptr == '\t') {
 		CString startTabs = ptr;
 		while (*ptr == '\t') ptr++;
-		addDiag(startTabs, ParseDiag(ParseDiag.IndentWrongCharacter(false)));
+		addDiag(startTabs, ParseDiag(ParseDiagIndentWrongCharacter(false)));
 	}
 	uint nSpaces = ptr - begin;
 	uint res = nSpaces / nSpacesPerIndent;
 	if (res * nSpacesPerIndent != nSpaces)
-		addDiag(begin, ParseDiag(ParseDiag.IndentNotDivisible(nSpaces, nSpacesPerIndent)));
+		addDiag(begin, ParseDiag(ParseDiagIndentNotDivisible(nSpaces, nSpacesPerIndent)));
 	return res;
 }
 
@@ -345,7 +346,7 @@ void skipRestOfBlockComment(ref MutCString ptr, in AddDiag addDiag) {
 		if (tryTakeTripleHashThenNewline(ptr))
 			break;
 		else if (*ptr == '\0') {
-			addDiag(ptr, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.blockCommentEnd)));
+			addDiag(ptr, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.blockCommentEnd)));
 			break;
 		}
 		skipRestOfLineAndNewline(ptr);

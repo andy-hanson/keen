@@ -9,6 +9,9 @@ import model.model :
 	DeclKind,
 	Diag,
 	Diagnostic,
+	DiagUnused,
+	DiagVisibilityWarning,
+	DiagTypeParamsUnsupported,
 	ExportVisibility,
 	FunDecl,
 	importCanSee,
@@ -106,7 +109,7 @@ void checkForUnused(ref CheckCtx ctx, StructAlias[] aliases, StructDecl[] struct
 	void checkUnusedDecl(T)(T* decl, in bool delegate() @safe @nogc pure nothrow cbAltIsUsed) {
 		if (decl.visibility == Visibility.private_ && !(isUsed(ctx.used, decl) || cbAltIsUsed()))
 			addDiagAssertSameUri(ctx, decl.nameRange, Diag(
-				Diag.Unused(Diag.Unused.Kind(Diag.Unused.Kind.PrivateDecl(decl.name)))));
+				DiagUnused(DiagUnused.Kind(DiagUnused.Kind.PrivateDecl(decl.name)))));
 	}
 	foreach (ref StructAlias alias_; aliases)
 		checkUnusedDecl(&alias_, () => false);
@@ -130,7 +133,7 @@ SmallArray!ImportOrExport finishImports(ref CheckCtx ctx) {
 		}
 
 		void addDiagUnused(Range range, Opt!Symbol name) {
-			addDiag(ctx, range, Diag(Diag.Unused(Diag.Unused.Kind(Diag.Unused.Kind.Import(import_.modulePtr, name)))));
+			addDiag(ctx, range, Diag(DiagUnused(DiagUnused.Kind(DiagUnused.Kind.Import(import_.modulePtr, name)))));
 		}
 		force(import_.source).kind.match!void(
 			(ImportWholeModuleAst x) {
@@ -221,14 +224,14 @@ Visibility visibilityFromDefaultWithDiag(
 	scope ref CheckCtx ctx,
 	Visibility default_,
 	in Opt!VisibilityAndRange explicit,
-	Diag.VisibilityWarning.Kind kind,
+	DiagVisibilityWarning.Kind kind,
 ) {
 	if (has(explicit)) {
 		Visibility actual = force(explicit).visibility;
 		if (actual < default_)
 			return actual;
 		else {
-			addDiag(ctx, force(explicit).range, Diag(Diag.VisibilityWarning(kind, default_, actual)));
+			addDiag(ctx, force(explicit).range, Diag(DiagVisibilityWarning(kind, default_, actual)));
 			return default_;
 		}
 	} else
@@ -242,5 +245,5 @@ Visibility visibilityFromExplicitTopLevel(Opt!VisibilityAndRange a) =>
 
 void checkNoTypeParams(ref CheckCtx ctx, in TypeParams typeParams, DeclKind declKind) {
 	if (!isEmpty(typeParams))
-		addDiag(ctx, typeParamsRange(typeParams), Diag(Diag.TypeParamsUnsupported(declKind)));
+		addDiag(ctx, typeParamsRange(typeParams), Diag(DiagTypeParamsUnsupported(declKind)));
 }

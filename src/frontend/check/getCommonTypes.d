@@ -8,6 +8,7 @@ import model.ast : NameAndRange;
 import model.model :
 	CommonTypes,
 	Diag,
+	DiagCommonTypeMissing,
 	Diagnostic,
 	emptyDocCommentReferences,
 	emptyTypeArgs,
@@ -121,7 +122,7 @@ struct CommonTypesCtx {
 }
 
 void addDiagMissing(ref CommonTypesCtx ctx, Symbol name) {
-	add(ctx.alloc, ctx.diagnosticsBuilder, Diagnostic(Range.empty, Diag(Diag.CommonTypeMissing(name))));
+	add(ctx.alloc, ctx.diagnosticsBuilder, Diagnostic(Range.empty, Diag(DiagCommonTypeMissing(name))));
 }
 
 StructDecl* getDecl(ref CommonTypesCtx ctx, Symbol name, size_t nTypeParameters) {

@@ -8,7 +8,7 @@ import frontend.parse.parse : parseFile;
 import lib.lsp.lspTypes : TextDocumentContentChangeEvent;
 import model.ast : FileAst, fileAstForDiag;
 import model.model : Config, configForDiag, Diag;
-import model.parseDiag : ParseDiag, ReadFileDiag;
+import model.parseDiag : ParseDiag, ParseDiagFileNotUtf8, ReadFileDiag;
 import util.alloc.alloc :
 	Alloc,
 	AllocAndValue,
@@ -195,13 +195,13 @@ private AllocAndValue!FileInfo initFileInfo(
 					textFileContent(),
 					has(cString)
 						? parseFile(perf, alloc, force(cString))
-						: fileAstForDiag(alloc, ParseDiag(ParseDiag.FileNotUtf8())))));
+						: fileAstForDiag(alloc, ParseDiag(ParseDiagFileNotUtf8())))));
 			case FileType.crowConfig:
 				return FileInfo(allocate(alloc, CrowConfigFileInfo(
 					textFileContent(),
 					has(cString)
 						? parseConfig(alloc, uri, force(cString))
-						: configForDiag(alloc, uri, Diag(ParseDiag(ParseDiag.FileNotUtf8()))))));
+						: configForDiag(alloc, uri, Diag(ParseDiag(ParseDiagFileNotUtf8()))))));
 			case FileType.other:
 				return FileInfo(allocate(alloc, OtherFileInfo(content)));
 		}

@@ -47,6 +47,10 @@ import model.model :
 	CommonTypes,
 	Destructure,
 	Diag,
+	DiagCallMultipleMatches,
+	DiagCallNoMatch,
+	DiagCallShouldUseSyntax,
+	DiagFunctionWithSignatureNotFound,
 	Expr,
 	ExprAndType,
 	ExprKind,
@@ -373,7 +377,7 @@ Expr checkCallIdentifier(alias checkExpr)(
 	ref Expected expected,
 ) {
 	if (name == symbol!"new")
-		addDiag2(ctx, source.range, Diag(Diag.CallShouldUseSyntax(0, Diag.CallShouldUseSyntax.Kind.new_)));
+		addDiag2(ctx, source.range, Diag(DiagCallShouldUseSyntax(0, DiagCallShouldUseSyntax.Kind.new_)));
 	return checkCallSpecial!checkExpr(ctx, locals, source, source.range, name, [], expected);
 }
 
@@ -403,10 +407,10 @@ Opt!Called findFunctionForReturnAndParamTypes(
 			if (candidates.length != 1) {
 				// TODO: If there is a function with the name, at least indicate that in the diag
 				addDiag(ctx, diagRange, candidates.length == 0
-					? Diag(Diag.FunctionWithSignatureNotFound(
+					? Diag(DiagFunctionWithSignatureNotFound(
 						name, typeContainer,
 						ReturnAndParamTypes(copyArray!Type(ctx.alloc, returnAndParamTypes.returnAndParamTypes))))
-					: Diag(Diag.CallMultipleMatches(name, typeContainer,
+					: Diag(DiagCallMultipleMatches(name, typeContainer,
 						map(ctx.alloc, candidates, (ref Candidate x) => x.called))));
 				return none!Called;
 			} else
@@ -523,7 +527,7 @@ CallInnerResult checkCallInner(
 			SmallArray!Type allocatedArgTypes = newSmallArray(ctx.alloc, actualArgTypes);
 			if (isEmpty(candidates)) {
 				CalledDecl[] allCandidates = getAllCandidatesAsCalledDecls(ctx, funName);
-				addDiag2(ctx, diagRange, Diag(Diag.CallNoMatch(
+				addDiag2(ctx, diagRange, Diag(DiagCallNoMatch(
 					ctx.typeContainer,
 					funName,
 					getExpectedForDiag(ctx, expected),
@@ -533,7 +537,7 @@ CallInnerResult checkCallInner(
 					allCandidates)));
 			} else
 				addDiag2(ctx, diagRange, Diag(
-					Diag.CallMultipleMatches(funName, ctx.typeContainer, candidatesForDiag(ctx.alloc, candidates))));
+					DiagCallMultipleMatches(funName, ctx.typeContainer, candidatesForDiag(ctx.alloc, candidates))));
 			return CallInnerResult(CallInnerResult.Failure(allocatedArgTypes));
 		} else
 			return CallInnerResult(checkCallAfterChoosingOverload(
@@ -546,35 +550,35 @@ void checkCallShouldUseSyntax(ref ExprCtx ctx, in CallAst ast) {
 	switch (ast.style) {
 		case CallAst.Style.dot:
 		case CallAst.Style.infix:
-			Opt!(Diag.CallShouldUseSyntax.Kind) kind = shouldUseSyntaxKind(ast);
+			Opt!(DiagCallShouldUseSyntax.Kind) kind = shouldUseSyntaxKind(ast);
 			if (has(kind))
-				addDiag2(ctx, ast.funName.range, Diag(Diag.CallShouldUseSyntax(ast.args.length, force(kind))));
+				addDiag2(ctx, ast.funName.range, Diag(DiagCallShouldUseSyntax(ast.args.length, force(kind))));
 			break;
 		default:
 			break;
 	}
 }
 
-Opt!(Diag.CallShouldUseSyntax.Kind) shouldUseSyntaxKind(in CallAst ast) {
+Opt!(DiagCallShouldUseSyntax.Kind) shouldUseSyntaxKind(in CallAst ast) {
 	switch (ast.funName.name.value) {
 		case symbol!"for-break".value:
-			return optIf(secondArgIsLambda(ast), () => Diag.CallShouldUseSyntax.Kind.for_break);
+			return optIf(secondArgIsLambda(ast), () => DiagCallShouldUseSyntax.Kind.for_break);
 		case symbol!"force".value:
-			return some(Diag.CallShouldUseSyntax.Kind.force);
+			return some(DiagCallShouldUseSyntax.Kind.force);
 		case symbol!"for-loop".value:
-			return optIf(secondArgIsLambda(ast), () => Diag.CallShouldUseSyntax.Kind.for_loop);
+			return optIf(secondArgIsLambda(ast), () => DiagCallShouldUseSyntax.Kind.for_loop);
 		case symbol!"new".value:
-			return some(Diag.CallShouldUseSyntax.Kind.new_);
+			return some(DiagCallShouldUseSyntax.Kind.new_);
 		case symbol!"not".value:
-			return some(Diag.CallShouldUseSyntax.Kind.not);
+			return some(DiagCallShouldUseSyntax.Kind.not);
 		case symbol!"set-subscript".value:
-			return some(Diag.CallShouldUseSyntax.Kind.set_subscript);
+			return some(DiagCallShouldUseSyntax.Kind.set_subscript);
 		case symbol!"subscript".value:
-			return some(Diag.CallShouldUseSyntax.Kind.subscript);
+			return some(DiagCallShouldUseSyntax.Kind.subscript);
 		case symbol!"with-block".value:
-			return optIf(secondArgIsLambda(ast), () => Diag.CallShouldUseSyntax.Kind.with_block);
+			return optIf(secondArgIsLambda(ast), () => DiagCallShouldUseSyntax.Kind.with_block);
 		default:
-			return none!(Diag.CallShouldUseSyntax.Kind);
+			return none!(DiagCallShouldUseSyntax.Kind);
 	}
 }
 bool secondArgIsLambda(in CallAst ast) =>

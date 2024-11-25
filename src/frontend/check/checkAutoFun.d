@@ -16,6 +16,7 @@ import model.model :
 	Called,
 	Destructure,
 	Diag,
+	DiagAutoFunError,
 	FunBody,
 	FunDecl,
 	IntegralType,
@@ -43,14 +44,14 @@ import util.symbol : symbol;
 import util.util : typeAs;
 
 FunBody checkAutoFun(ref CheckCtx ctx, in SpecsMap specsMap, in FunsMap funsMap, FunDecl* fun) {
-	FunBody wrong(Diag.AutoFunError diag) {
+	FunBody wrong(DiagAutoFunError diag) {
 		addDiag(ctx, fun.nameRange.range, Diag(diag));
 		return FunBody.bogus;
 	}
 	FunBody wrongParams(AutoFunName kind) =>
-		wrong(Diag.AutoFunError(Diag.AutoFunError.WrongParams(kind)));
+		wrong(DiagAutoFunError(DiagAutoFunError.WrongParams(kind)));
 	FunBody wrongReturnType() =>
-		wrong(Diag.AutoFunError(Diag.AutoFunError.WrongReturnType()));
+		wrong(DiagAutoFunError(DiagAutoFunError.WrongReturnType()));
 
 	switch (fun.name.value) {
 		case symbol!"==".value:
@@ -87,7 +88,7 @@ FunBody checkAutoFun(ref CheckCtx ctx, in SpecsMap specsMap, in FunsMap funsMap,
 					return FunBody(AutoFun(AutoFun.Kind.integralToOptEnumOrFlags));
 				} else if (has(returnedIntegral) && isEnumOrFlags(paramType)) {
 					return force(returnedIntegral) != asEnumOrFlags(paramType).storage
-						? wrong(Diag.AutoFunError(Diag.AutoFunError.EnumOrFlagsToWrongStorage(
+						? wrong(DiagAutoFunError(DiagAutoFunError.EnumOrFlagsToWrongStorage(
 							enumOrFlagsType: paramType.as!(StructInst*).decl,
 							actualStorageType: asEnumOrFlags(paramType).storage,
 							expectedStorageType: force(returnedIntegral),
@@ -120,7 +121,7 @@ FunBody checkAutoFun(ref CheckCtx ctx, in SpecsMap specsMap, in FunsMap funsMap,
 			else
 				return FunBody(AutoFun(AutoFun.Kind.enumOrFlagsMembers, []));
 		default:
-			addDiag(ctx, fun.nameRange.range, Diag(Diag.AutoFunError(Diag.AutoFunError.WrongName())));
+			addDiag(ctx, fun.nameRange.range, Diag(DiagAutoFunError(DiagAutoFunError.WrongName())));
 			return FunBody.bogus;
 	}
 }
@@ -159,18 +160,18 @@ FunBody checkAutoFunWithSpec(
 	uint countParams,
 	Opt!Type extraTypeArg = none!Type,
 ) {
-	FunBody diag(Diag.AutoFunError x) {
+	FunBody diag(DiagAutoFunError x) {
 		addDiag(ctx, fun.nameRange.range, Diag(x));
 		return FunBody.bogus;
 	}
 	if (spec.sigs.length != 1)
-		return diag(Diag.AutoFunError(Diag.AutoFunError.SpecCorrupt(spec.name)));
+		return diag(DiagAutoFunError(DiagAutoFunError.SpecCorrupt(spec.name)));
 	Signature* sig = &only(spec.sigs);
 
 	if (!isEnumFlagsRecordOrUnion(paramType))
-		return diag(Diag.AutoFunError(Diag.AutoFunError.WrongParamType()));
+		return diag(DiagAutoFunError(DiagAutoFunError.WrongParamType()));
 	else if (!optOrDefault!bool(returnTypeOk, () => fun.returnType == sig.returnType))
-		return diag(Diag.AutoFunError(Diag.AutoFunError.WrongReturnType(funName)));
+		return diag(DiagAutoFunError(DiagAutoFunError.WrongReturnType(funName)));
 	else {
 		StructInst* paramInst = paramType.as!(StructInst*);
 		Called checkSpecForComponent(Type declType) {
@@ -203,7 +204,7 @@ FunBody checkAutoFunWithSpec(
 
 bool checkAutoFunNotBare(ref CheckCtx ctx, FunDecl* fun) {
 	if (fun.flags.bare) {
-		addDiag(ctx, fun.nameRange.range, Diag(Diag.AutoFunError(Diag.AutoFunError.Bare())));
+		addDiag(ctx, fun.nameRange.range, Diag(DiagAutoFunError(DiagAutoFunError.Bare())));
 		return false;
 	} else
 		return true;
@@ -218,13 +219,13 @@ Opt!Type getAutoFunParamType(ref CheckCtx ctx, AutoFunName funName, FunDecl* fun
 		(in Params.Varargs) =>
 			none!Type);
 	if (!has(res)) {
-		addDiag(ctx, fun.nameRange.range, Diag(Diag.AutoFunError(Diag.AutoFunError.WrongParams(funName))));
+		addDiag(ctx, fun.nameRange.range, Diag(DiagAutoFunError(DiagAutoFunError.WrongParams(funName))));
 		return none!Type;
 	} else if (!isFullyVisible(ctx, force(res))) {
-		addDiag(ctx, fun.nameRange.range, Diag(Diag.AutoFunError(Diag.AutoFunError.TypeNotFullyVisible())));
+		addDiag(ctx, fun.nameRange.range, Diag(DiagAutoFunError(DiagAutoFunError.TypeNotFullyVisible())));
 		return none!Type;
 	} else if (!every!Destructure(fun.params.as!(Destructure[]), (in Destructure x) => x.isA!(Local*))) {
-		addDiag(ctx, fun.nameRange.range, Diag(Diag.AutoFunError(Diag.AutoFunError.ParamNotSimple())));
+		addDiag(ctx, fun.nameRange.range, Diag(DiagAutoFunError(DiagAutoFunError.ParamNotSimple())));
 		return none!Type;
 	} else
 		return res;

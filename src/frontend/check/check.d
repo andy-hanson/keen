@@ -52,6 +52,17 @@ import model.model :
 	Config,
 	DeclKind,
 	Diag,
+	DiagBuiltinUnsupported,
+	DiagDuplicateDeclaration,
+	DiagDuplicateExports,
+	DiagDuplicateImportName,
+	DiagExternBodyMultiple,
+	DiagImportFile,
+	DiagImportRefersToNothing,
+	DiagModifierDuplicate,
+	DiagModifierInvalid,
+	DiagSpecRecursion,
+	DiagSpecUseInvalid,
 	Diagnostic,
 	DocCommentReferences,
 	emptySpecs,
@@ -120,7 +131,7 @@ immutable struct UriAndAst {
 
 immutable struct ResolvedImport {
 	// FileContent is for a file import
-	mixin TaggedUnion!(Module*, FileContent*, Diag.ImportFileDiag*);
+	mixin TaggedUnion!(Module*, FileContent*, DiagImportFile*);
 }
 
 immutable struct BootstrapCheck {
@@ -163,7 +174,7 @@ Opt!BuiltinSpec getBuiltinSpec(ref CheckCtx ctx, in Range range, Symbol name) {
 		case symbol!"shared".value:
 			return some(BuiltinSpec.shared_);
 		default:
-			addDiag(ctx, range, Diag(Diag.BuiltinUnsupported(Diag.BuiltinUnsupported.Kind.spec, name)));
+			addDiag(ctx, range, Diag(DiagBuiltinUnsupported(DiagBuiltinUnsupported.Kind.spec, name)));
 			return none!BuiltinSpec;
 	}
 }
@@ -225,7 +236,7 @@ void checkSpecBodies(
 void detectAndFixSpecRecursion(ref CheckCtx ctx, SpecDecl* decl) =>
 	withMaxStackArray(maxSpecDepth, (scope ref MaxStackArray!(immutable SpecDecl*) trace) {
 		if (recurDetectSpecRecursion(decl, trace)) {
-			addDiagAssertSameUri(ctx, decl.range, Diag(Diag.SpecRecursion(newArray(ctx.alloc, trace.finish))));
+			addDiagAssertSameUri(ctx, decl.range, Diag(DiagSpecRecursion(newArray(ctx.alloc, trace.finish))));
 			decl.overwriteParentsToEmpty();
 		}
 	});
@@ -269,7 +280,7 @@ StructsAndAliasesMap buildStructsAndAliasesMap(ref CheckCtx ctx, StructDecl[] st
 	MutHashTable!(StructOrAlias, Symbol, structOrAliasName) builder;
 	void add(StructOrAlias sa) {
 		addToDeclsMap!StructOrAlias(
-			ctx, builder, sa, Diag.DuplicateDeclaration.Kind.structOrAlias, (in StructOrAlias x) =>
+			ctx, builder, sa, DiagDuplicateDeclaration.Kind.structOrAlias, (in StructOrAlias x) =>
 				x.nameRange);
 	}
 	foreach (ref StructDecl decl; structs)
@@ -302,7 +313,7 @@ Opt!Symbol checkVarModifiers(ref CheckCtx ctx, VarKind kind, in ModifierAst[] mo
 				if (x.keyword == ModifierKeyword.extern_) {
 					SymbolSet names = getExternsFromModifier(ctx, x, required: true);
 					if (has(cellGet(externLibraryName)))
-						addDiag(ctx, x.keywordRange, Diag(Diag.ModifierDuplicate(ModifierKeyword.extern_)));
+						addDiag(ctx, x.keywordRange, Diag(DiagModifierDuplicate(ModifierKeyword.extern_)));
 					else {
 						Opt!Symbol name = names.asSingle;
 						if (has(name)) {
@@ -312,17 +323,17 @@ Opt!Symbol checkVarModifiers(ref CheckCtx ctx, VarKind kind, in ModifierAst[] mo
 									break;
 								case VarKind.threadLocal:
 									addDiag(ctx, x.keywordRange, Diag(
-										Diag.ModifierInvalid(ModifierKeyword.extern_, DeclKind.threadLocal)));
+										DiagModifierInvalid(ModifierKeyword.extern_, DeclKind.threadLocal)));
 									break;
 							}
 						} else
-							addDiag(ctx, x.range, Diag(Diag.ExternBodyMultiple()));
+							addDiag(ctx, x.range, Diag(DiagExternBodyMultiple()));
 					}
 				} else
-					addDiag(ctx, x.keywordRange, Diag(Diag.ModifierInvalid(x.keyword, declKind(kind))));
+					addDiag(ctx, x.keywordRange, Diag(DiagModifierInvalid(x.keyword, declKind(kind))));
 			},
 			(in SpecUseAst x) {
-				addDiag(ctx, x.range, Diag(Diag.SpecUseInvalid(declKind(kind))));
+				addDiag(ctx, x.range, Diag(DiagSpecUseInvalid(declKind(kind))));
 			});
 	return cellGet(externLibraryName);
 }
@@ -334,11 +345,11 @@ void addToDeclsMap(T, alias getName)(
 	ref CheckCtx ctx,
 	scope ref MutHashTable!(T, Symbol, getName) builder,
 	T added,
-	Diag.DuplicateDeclaration.Kind kind,
+	DiagDuplicateDeclaration.Kind kind,
 	in UriAndRange delegate(in T) @safe @nogc pure nothrow cbNameRange,
 ) {
 	if (!mayAdd(ctx.alloc, builder, added))
-		addDiagAssertSameUri(ctx, cbNameRange(added), Diag(Diag.DuplicateDeclaration(kind, getName(added))));
+		addDiagAssertSameUri(ctx, cbNameRange(added), Diag(DiagDuplicateDeclaration(kind, getName(added))));
 }
 
 immutable struct SpecFlagsAndParents {
@@ -362,12 +373,12 @@ SpecFlagsAndParents checkSpecModifiers(
 				switch (x.keyword) {
 					case ModifierKeyword.builtin:
 						if (builtin)
-							addDiag(ctx, x.keywordRange, Diag(Diag.ModifierDuplicate(x.keyword)));
+							addDiag(ctx, x.keywordRange, Diag(DiagModifierDuplicate(x.keyword)));
 						modifierTypeArgInvalid(ctx, x);
 						builtin = true;
 						break;
 					default:
-						addDiag(ctx, x.keywordRange, Diag(Diag.ModifierInvalid(x.keyword, DeclKind.spec)));
+						addDiag(ctx, x.keywordRange, Diag(DiagModifierInvalid(x.keyword, DeclKind.spec)));
 						break;
 				}
 				return none!(SpecInst*);
@@ -383,7 +394,7 @@ SpecsMap buildSpecsMap(ref CheckCtx ctx, SpecDecl[] specs) {
 	MutHashTable!(immutable SpecDecl*, Symbol, specDeclName) builder;
 	foreach (ref SpecDecl spec; specs)
 		addToDeclsMap!(immutable SpecDecl*)(
-			ctx, builder, &spec, Diag.DuplicateDeclaration.Kind.spec, (in SpecDecl* x) =>
+			ctx, builder, &spec, DiagDuplicateDeclaration.Kind.spec, (in SpecDecl* x) =>
 				x.nameRange);
 	return moveToImmutable(builder);
 }
@@ -459,13 +470,13 @@ HashTable!(NameReferents, Symbol, nameFromNameReferents) getAllExports(
 			toAdd.name,
 			() => toAdd,
 			(ref NameReferents prev) {
-				Opt!(Diag.DuplicateExports.Kind) kind = has(prev.structOrAlias) && has(toAdd.structOrAlias)
-					? some(Diag.DuplicateExports.Kind.type)
+				Opt!(DiagDuplicateExports.Kind) kind = has(prev.structOrAlias) && has(toAdd.structOrAlias)
+					? some(DiagDuplicateExports.Kind.type)
 					: has(prev.spec) && has(toAdd.spec)
-					? some(Diag.DuplicateExports.Kind.spec)
-					: none!(Diag.DuplicateExports.Kind);
+					? some(DiagDuplicateExports.Kind.spec)
+					: none!(DiagDuplicateExports.Kind);
 				if (has(kind))
-					addDiag(ctx, range(), Diag(Diag.DuplicateExports(force(kind), nameFromNameReferents(toAdd))));
+					addDiag(ctx, range(), Diag(DiagDuplicateExports(force(kind), nameFromNameReferents(toAdd))));
 				return NameReferents(
 					has(prev.structOrAlias) ? prev.structOrAlias : toAdd.structOrAlias,
 					has(prev.spec) ? prev.spec : toAdd.spec,
@@ -621,7 +632,7 @@ ImportsOrReExports checkImportsOrReExports(
 			(FileContent*) {
 				assert(false);
 			},
-			(Diag.ImportFileDiag* x) {
+			(DiagImportFile* x) {
 				add(alloc, diagsBuilder, Diagnostic(has(source) ? force(source).pathRange : Range.empty, Diag(x)));
 			});
 	}
@@ -649,7 +660,7 @@ ImportsOrReExports checkImportsOrReExports(
 						(FileContent* x) {
 							add(alloc, fileImports, ImportOrExportFile(&importAst, x));
 						},
-						(Diag.ImportFileDiag* x) {
+						(DiagImportFile* x) {
 							add(alloc, diagsBuilder, Diagnostic(importAst.pathRange, Diag(x)));
 						});
 				});
@@ -674,9 +685,9 @@ ImportedReferents checkNamedImports(
 			Opt!(NameReferents*) referents = getPointer!(NameReferents, Symbol, nameFromNameReferents)(
 				module_.exports, name.name);
 			if (!has(referents) || !hasVisibility(*force(referents), importVisibility))
-				add(alloc, diagsBuilder, Diagnostic(name.range, Diag(Diag.ImportRefersToNothing(name.name))));
+				add(alloc, diagsBuilder, Diagnostic(name.range, Diag(DiagImportRefersToNothing(name.name))));
 			else if (!mayAdd(alloc, res, force(referents)))
-				add(alloc, diagsBuilder, Diagnostic(name.range, Diag(Diag.DuplicateImportName(name.name))));
+				add(alloc, diagsBuilder, Diagnostic(name.range, Diag(DiagDuplicateImportName(name.name))));
 		}
 	});
 

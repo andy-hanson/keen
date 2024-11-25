@@ -11,45 +11,45 @@ import util.util : typeAs;
 
 // This is the 'request' to which MainFun is the response
 immutable struct MainKind {
-	immutable struct MainFunction {
-		Uri uri;
-		// Does not include executable path
-		CString[] programArgs;
-	}
-	immutable struct TestsInConfig { bool all; Uri configUri; }
-	immutable struct TestsAtUri {
-		bool all;
-		Uri crowUri;
-		Opt!uint line;
-	}
-	mixin Union!(MainFunction, TestsInConfig, TestsAtUri);
+	mixin Union!(MainKindMainFunction, MainKindTestsInConfig, MainKindTestsAtUri);
 
 	@safe @nogc pure nothrow:
 
 	static MainKind fun(Uri mainUri, CString[] args) =>
-		MainKind(MainFunction(mainUri, args));
+		MainKind(MainKindMainFunction(mainUri, args));
 	static MainKind testsInConfig(bool all, Uri configUri) =>
-		MainKind(TestsInConfig(all, configUri));
+		MainKind(MainKindTestsInConfig(all, configUri));
 	static MainKind testsAtUri(bool all, Uri uri, Opt!uint line) =>
-		MainKind(TestsAtUri(all, uri, line));
+		MainKind(MainKindTestsAtUri(all, uri, line));
 
 	Uri mainUriForAllArgs() scope =>
 		matchIn!Uri(
-			(in MainFunction x) =>
+			(in MainKindMainFunction x) =>
 				x.uri,
-			(in TestsInConfig x) =>
+			(in MainKindTestsInConfig x) =>
 				x.configUri,
-			(in TestsAtUri x) =>
+			(in MainKindTestsAtUri x) =>
 				x.crowUri);
 
 	CString[] programArgs() return scope =>
 		match!(CString[])(
-			(MainFunction x) =>
+			(MainKindMainFunction x) =>
 				x.programArgs,
-			(TestsInConfig _) =>
+			(MainKindTestsInConfig _) =>
 				typeAs!(CString[])([]),
-			(TestsAtUri _) =>
+			(MainKindTestsAtUri _) =>
 				typeAs!(CString[])([]));
+}
+immutable struct MainKindMainFunction {
+	Uri uri;
+	// Does not include executable path
+	CString[] programArgs;
+}
+immutable struct MainKindTestsInConfig { bool all; Uri configUri; }
+immutable struct MainKindTestsAtUri {
+	bool all;
+	Uri crowUri;
+	Opt!uint line;
 }
 
 Symbol crowConfigBaseName() => symbol!"crow-config.json";

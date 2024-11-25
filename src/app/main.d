@@ -61,7 +61,7 @@ version (GccJitAvailable) {
 import backend.js.sourceMap : JsAndMap;
 import backend.js.translateToJs : JsModules;
 import backend.writeToC : PathAndArgs, WriteToCParams;
-import frontend.lang : CCompileOptions, MainKind;
+import frontend.lang : CCompileOptions, MainKind, MainKindMainFunction, MainKindTestsAtUri, MainKindTestsInConfig;
 import frontend.showModel : ShowOptions;
 import frontend.storage : FilesState;
 import interpret.extern_ : Extern;
@@ -300,13 +300,13 @@ bool isUnknownUris(in LspOutMessage a) =>
 
 ExitCode loadAllFilesForMain(scope ref Perf perf, ref Server server, in MainKind main) =>
 	main.matchImpure!ExitCode(
-		(in MainKind.MainFunction x) {
+		(in MainKindMainFunction x) {
 			loadAllFiles(perf, server, [x.uri]);
 			return ExitCode.ok;
 		},
-		(in MainKind.TestsInConfig x) =>
+		(in MainKindTestsInConfig x) =>
 			loadAllFilesForConfig(perf, server, x.configUri),
-		(in MainKind.TestsAtUri x) {
+		(in MainKindTestsAtUri x) {
 			loadAllFiles(perf, server, [x.crowUri]);
 			return ExitCode.ok;
 		});

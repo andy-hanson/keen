@@ -7,7 +7,7 @@ import frontend.check.checkUtil : funDeclWithBody;
 import frontend.check.getCommonTypes : bogusStructDecl;
 import frontend.check.inferringType : typesAreCorrespondingStructInsts;
 import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateStruct;
-import frontend.lang : MainKind;
+import frontend.lang : MainKind, MainKindMainFunction, MainKindTestsAtUri, MainKindTestsInConfig;
 import model.ast : BogusTypeAst, DocCommentAst, ModifierAst, NameAndRange, VarDeclAst, TypeAst;
 import model.model :
 	allExternsForMainConfig,
@@ -20,6 +20,12 @@ import model.model :
 	configAtUri,
 	Destructure,
 	Diag,
+	DiagCommonFunDuplicate,
+	DiagCommonFunMissing,
+	DiagCommonTypeMissing,
+	DiagCommonVarMissing,
+	DiagMainMissingExterns,
+	DiagMainTestMissing,
 	emptySpecImpls,
 	emptyTypeArgs,
 	emptyTypeParams,
@@ -229,13 +235,13 @@ MainFunAndDiagnostics getMainFunAndDiagnostics(
 	ArrayBuilder!UriAndDiagnostic diagsBuilder;
 	ref CommonTypes commonTypes() => program.commonTypes;
 	MainFun res = kind.matchIn!MainFun(
-		(in MainKind.MainFunction x) =>
+		(in MainKindMainFunction x) =>
 			getMainFun(alloc, ctx, diagsBuilder, *moduleAtUri(program, x.uri), commonTypes),
-		(in MainKind.TestsInConfig x) {
+		(in MainKindTestsInConfig x) {
 			Config* config = configAtUri(program, x.configUri);
 			return MainFun(x.all ? TestSelector.all(config) : TestSelector(config));
 		},
-		(in MainKind.TestsAtUri x) =>
+		(in MainKindTestsAtUri x) =>
 			MainFun(has(x.line)
 				? testAtLine(alloc, diagsBuilder, program, x.crowUri, force(x.line))
 				: x.all
@@ -245,7 +251,7 @@ MainFunAndDiagnostics getMainFunAndDiagnostics(
 	if (!availableExterns.containsAll(res.requiredExterns))
 		add(alloc, diagsBuilder, UriAndDiagnostic(
 			res.rangeForDiag,
-			Diag(Diag.MainMissingExterns(symbolSetDifference(alloc, res.requiredExterns, availableExterns)))));
+			Diag(DiagMainMissingExterns(symbolSetDifference(alloc, res.requiredExterns, availableExterns)))));
 	return MainFunAndDiagnostics(res, smallFinish(alloc, diagsBuilder));
 }
 
@@ -283,7 +289,7 @@ TestSelector testAtLine(
 	else {
 		add(alloc, diagsBuilder, UriAndDiagnostic(
 			UriAndRange(uri, rangeOfLine(lcg, line)),
-			Diag(Diag.MainTestMissing(line))));
+			Diag(DiagMainTestMissing(line))));
 		return TestSelector(uri);
 	}
 }
@@ -346,7 +352,7 @@ StructDecl* getStructDeclOrAddDiag(
 	else {
 		add(alloc, diagsBuilder, UriAndDiagnostic(
 			UriAndRange(module_.uri, Range.empty),
-			Diag(Diag.CommonTypeMissing(name))));
+			Diag(DiagCommonTypeMissing(name))));
 		return bogusStructDecl(alloc, name, nTypeParams);
 	}
 }
@@ -400,7 +406,7 @@ VarDecl* getVarDecl(
 	else {
 		add(alloc, diagsBuilder, UriAndDiagnostic(
 			UriAndRange(module_.uri, Range.empty),
-			Diag(Diag.CommonVarMissing(kind, name))));
+			Diag(DiagCommonVarMissing(kind, name))));
 		VarDeclAst* ast = allocate(alloc, VarDeclAst(
 			DocCommentAst.empty,
 			Range.empty,
@@ -464,7 +470,7 @@ FunDeclAndSigIndex getFunDeclMulti(
 			signatureMatchesTemplate(*x, sig));
 		if (has(index)) {
 			if (lateIsSet(res))
-				add(alloc, diagsBuilder, UriAndDiagnostic(x.range, Diag(Diag.CommonFunDuplicate(name))));
+				add(alloc, diagsBuilder, UriAndDiagnostic(x.range, Diag(DiagCommonFunDuplicate(name))));
 			else
 				lateSet(res, FunDeclAndSigIndex(x, force(index)));
 		}
@@ -484,7 +490,7 @@ FunDeclAndSigIndex getFunDeclMulti(
 			FunBody.bogus));
 		add(alloc, diagsBuilder, UriAndDiagnostic(
 			UriAndRange(module_.uri, Range.empty),
-			Diag(Diag.CommonFunMissing(decl, map(alloc, expectedSigs, (ref TypeParamsAndSig sig) =>
+			Diag(DiagCommonFunMissing(decl, map(alloc, expectedSigs, (ref TypeParamsAndSig sig) =>
 				TypeParamsAndSig(
 					TypeParams(copyArray(alloc, sig.typeParams)),
 					sig.returnType,

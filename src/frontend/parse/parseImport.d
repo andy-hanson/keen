@@ -27,7 +27,8 @@ import model.ast :
 	PathOrRelPath,
 	SuffixNameTypeAst,
 	TypeAst;
-import model.parseDiag : ParseDiag;
+import model.parseDiag :
+	ParseDiag, ParseDiagExpected, ParseDiagImportFileTypeNotSupported, ParseDiagTrailingComma;
 import util.col.array : emptySmallArray, small, SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.conv : safeToUshort;
@@ -67,10 +68,10 @@ SmallArray!ImportOrExportAst parseImportLines(ref Lexer lexer) {
 PathOrRelPath parseImportPath(ref Lexer lexer) {
 	Opt!ushort nParents = () {
 		if (tryTakeToken(lexer, Token.dot)) {
-			takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiag.Expected.Kind.slash);
+			takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiagExpected.Kind.slash);
 			return some!ushort(0);
 		} else if (tryTakeOperator(lexer, symbol!"..")) {
-			takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiag.Expected.Kind.slash);
+			takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiagExpected.Kind.slash);
 			return some(safeToUshort(takeDotDotSlashes(lexer, 1)));
 		} else
 			return none!ushort;
@@ -81,7 +82,7 @@ PathOrRelPath parseImportPath(ref Lexer lexer) {
 
 size_t takeDotDotSlashes(ref Lexer lexer, size_t acc) {
 	if (tryTakeOperator(lexer, symbol!"..")) {
-		takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiag.Expected.Kind.slash);
+		takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiagExpected.Kind.slash);
 		return takeDotDotSlashes(lexer, acc + 1);
 	} else
 		return acc;
@@ -121,7 +122,7 @@ ImportFileType toImportFileTypeOrDiag(ref Lexer lexer, in TypeAst type) {
 	if (has(fileType))
 		return force(fileType);
 	else {
-		addDiag(lexer, type.range, ParseDiag(ParseDiag.ImportFileTypeNotSupported()));
+		addDiag(lexer, type.range, ParseDiag(ParseDiagImportFileTypeNotSupported()));
 		return ImportFileType.string;
 	}
 }
@@ -151,8 +152,7 @@ ImportOrExportAstKind parseIndentedImportNames(ref Lexer lexer, Pos start) {
 		final switch (takeNewlineOrDedent(lexer)) {
 			case NewlineOrDedent.newline:
 				if (!has(trailingComma))
-					addDiag(lexer, range(lexer, start), ParseDiag(
-						ParseDiag.Expected(ParseDiag.Expected.Kind.comma)));
+					addDiag(lexer, range(lexer, start), ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.comma)));
 				continue;
 			case NewlineOrDedent.dedent:
 				addDiagIfTrailingComma(lexer, trailingComma);
@@ -169,7 +169,7 @@ NameAndRange[] parseSingleImportNamesOnSingleLine(ref Lexer lexer) {
 
 void addDiagIfTrailingComma(ref Lexer lexer, in Opt!Range trailingComma) {
 	if (has(trailingComma))
-		addDiag(lexer, force(trailingComma), ParseDiag(ParseDiag.TrailingComma()));
+		addDiag(lexer, force(trailingComma), ParseDiag(ParseDiagTrailingComma()));
 }
 
 // Returns position of trailing comma

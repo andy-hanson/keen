@@ -7,7 +7,7 @@ import frontend.parse.lexer :
 import frontend.parse.parseUtil : peekToken, skipBlankLines, takeNameOrOperator, tryTakeToken;
 import model.ast :
 	DocCommentAst, DocCommentContent, ExprAst, ExprAstKind, InterpolatedAst, LiteralStringAst, NameAndRange;
-import model.parseDiag : ParseDiag;
+import model.parseDiag : ParseDiag, ParseDiagMissingInterpolated;
 import util.col.array : isEmpty;
 import util.col.arrayBuilder : add, ArrayBuilder, finish, smallFinish;
 import util.memory : allocate;
@@ -81,7 +81,7 @@ Out takeInterpolatedCb(Out)(
 				if (peekToken(lexer, Token.braceRight)) {
 					Pos pos = curPos(lexer);
 					Range range = Range(pos - 1, pos + 1);
-					addDiag(lexer, range, ParseDiag(ParseDiag.MissingInterpolated()));
+					addDiag(lexer, range, ParseDiag(ParseDiagMissingInterpolated()));
 				} else
 					cbInterpolation();
 				StringPart part = takeClosingBraceThenStringPart(lexer, quoteKind);

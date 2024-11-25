@@ -3,7 +3,7 @@ module frontend.parse.lexString;
 @safe @nogc pure nothrow:
 
 import frontend.parse.lexWhitespace : AddDiag;
-import model.parseDiag : ParseDiag;
+import model.parseDiag : ParseDiag, ParseDiagExpected, ParseDiagInvalidStringEscape;
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.opt : force, has, none, Opt, optIf;
@@ -97,7 +97,7 @@ private StringRange takeStringRange(
 						} else
 							return finishHere(StringPart.After.done);
 					case QuoteKind.quoteDouble:
-						addDiag(start, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.quoteDouble)));
+						addDiag(start, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.quoteDouble)));
 						return finishHere(StringPart.After.done);
 					case QuoteKind.quoteDouble3:
 						cbChar(takeChar(ptr));
@@ -109,10 +109,10 @@ private StringRange takeStringRange(
 					case QuoteKind.quoteBar:
 						break;
 					case QuoteKind.quoteDouble:
-						addDiag(start, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.quoteDouble)));
+						addDiag(start, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.quoteDouble)));
 						break;
 					case QuoteKind.quoteDouble3:
-						addDiag(start, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.quoteDouble3)));
+						addDiag(start, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.quoteDouble3)));
 						break;
 				}
 				return finishHere(StringPart.After.done);
@@ -195,7 +195,7 @@ void stringEscapeError(
 	in void delegate(char) @safe @nogc pure nothrow cbChar,
 	in AddDiag addDiag,
 ) {
-	addDiag(start, ParseDiag(ParseDiag.InvalidStringEscape(stringOfRange(start, ptr))));
+	addDiag(start, ParseDiag(ParseDiagInvalidStringEscape(stringOfRange(start, ptr))));
 	foreach (char x; "�")
 		cbChar(x);
 }

@@ -28,6 +28,7 @@ import model.model :
 	CommonTypes,
 	Config,
 	Diag,
+	DiagImportFile,
 	emptyConfig,
 	getConfigUri,
 	getModuleUri,
@@ -347,8 +348,8 @@ Uri[] fixCircularImportsRecur(ref Frontend a, ref Builder!Uri cycleBuilder, Crow
 		? smallFinish(cycleBuilder)
 		: fixCircularImportsRecur(a, cycleBuilder, next);
 	force(file.resolvedImports)[importIndex] = MostlyResolvedImport(
-		allocate(a.alloc, Diag.ImportFileDiag(
-			Diag.ImportFileDiag.CircularImport(small!Uri(rotateToFirst!Uri(a.alloc, cycle, file.uri))))));
+		allocate(a.alloc, DiagImportFile(
+			DiagImportFile.CircularImport(small!Uri(rotateToFirst!Uri(a.alloc, cycle, file.uri))))));
 	mutSetMayDelete(next.referencedBy, file);
 	addToWorkableIfSo(a, file);
 	return cycle;
@@ -433,10 +434,10 @@ MutOpt!(MutSmallArray!Uri) clearResolvedImports(CrowFile* file) {
 bool hasCircularImport(in MostlyResolvedImport[] a) =>
 	exists!MostlyResolvedImport(a, (in MostlyResolvedImport x) => isCircularImport(x));
 bool isCircularImport(in MostlyResolvedImport a) =>
-	a.isA!(Diag.ImportFileDiag*) && a.asConst!(Diag.ImportFileDiag*).isA!(Diag.ImportFileDiag.CircularImport);
+	a.isA!(DiagImportFile*) && a.asConst!(DiagImportFile*).isA!(DiagImportFile.CircularImport);
 MutOpt!(MutSmallArray!Uri) asCircularImport(MostlyResolvedImport a) =>
 	isCircularImport(a)
-		? someMut!(MutSmallArray!Uri)(a.as!(Diag.ImportFileDiag*).as!(Diag.ImportFileDiag.CircularImport).cycle)
+		? someMut!(MutSmallArray!Uri)(a.as!(DiagImportFile*).as!(DiagImportFile.CircularImport).cycle)
 		: noneMut!(MutSmallArray!Uri);
 
 void addToWorkableIfSo(ref Frontend a, CrowFile* file) {
@@ -459,9 +460,9 @@ bool isImportWorkable(in MostlyResolvedImport a) =>
 			x.hasModule,
 		(const OtherFile* x) =>
 			has(x.content),
-		(Diag.ImportFileDiag* x) {
-			if (x.isA!(Diag.ImportFileDiag.ReadError)) {
-				Diag.ImportFileDiag.ReadError read = x.as!(Diag.ImportFileDiag.ReadError);
+		(DiagImportFile* x) {
+			if (x.isA!(DiagImportFile.ReadError)) {
+				DiagImportFile.ReadError read = x.as!(DiagImportFile.ReadError);
 				// Unknown/loading files still have a CrowFile*, Config*, or OtherFile*
 				assert(!isUnknownOrLoading(read.diag));
 			}
@@ -534,17 +535,17 @@ ResolvedImport[] fullyResolveImports(ref Frontend a, in MostlyResolvedImport[] i
 		x.matchConst!ResolvedImport(
 			(const CrowFile* x) =>
 				x.astOrDiag.isA!ReadFileDiag_
-					? ResolvedImport(allocate(a.alloc, Diag.ImportFileDiag(
-						Diag.ImportFileDiag.ReadError(x.uri, x.astOrDiag.asConst!ReadFileDiag_))))
+					? ResolvedImport(allocate(a.alloc, DiagImportFile(
+						DiagImportFile.ReadError(x.uri, x.astOrDiag.asConst!ReadFileDiag_))))
 					: ResolvedImport(x.mustHaveModule),
 			(const OtherFile* file) =>
 				fileOrDiag(a.storage, file.uri).match!ResolvedImport(
 					(FileInfo _) =>
 						ResolvedImport(force(file.content)),
 					(ReadFileDiag diag) =>
-						ResolvedImport(allocate(a.alloc, Diag.ImportFileDiag(
-							Diag.ImportFileDiag.ReadError(file.uri, diag))))),
-			(Diag.ImportFileDiag* x) =>
+						ResolvedImport(allocate(a.alloc, DiagImportFile(
+							DiagImportFile.ReadError(file.uri, diag))))),
+			(DiagImportFile* x) =>
 				ResolvedImport(x)));
 
 MutOpt!(Config*) tryFindConfig(ref Storage storage, Uri configDir) =>
@@ -598,12 +599,12 @@ CommonUris commonUris(Uri includeDir) {
 }
 
 immutable struct UriOrDiag {
-	mixin TaggedUnion!(Uri, Diag.ImportFileDiag*);
+	mixin TaggedUnion!(Uri, DiagImportFile*);
 }
 
 struct MostlyResolvedImport {
 	// For unknown/loading file, this will still be a CrowFile* or OtherFile*
-	mixin TaggedUnion!(CrowFile*, OtherFile*, Diag.ImportFileDiag*);
+	mixin TaggedUnion!(CrowFile*, OtherFile*, DiagImportFile*);
 }
 
 MutOpt!(MutSet!(CrowFile*)*) getReferencedBy(ref MostlyResolvedImport import_) =>
@@ -612,7 +613,7 @@ MutOpt!(MutSet!(CrowFile*)*) getReferencedBy(ref MostlyResolvedImport import_) =
 			someMut(&x.referencedBy),
 		(OtherFile* x) =>
 			someMut(&x.referencedBy),
-		(Diag.ImportFileDiag*) =>
+		(DiagImportFile*) =>
 			noneMut!(MutSet!(CrowFile*)*));
 @trusted ConstOpt!(MutSet!(CrowFile*)*) getReferencedBy(ref const MostlyResolvedImport import_) =>
 	getReferencedBy(cast(MostlyResolvedImport) import_);
@@ -630,16 +631,16 @@ MostlyResolvedImport tryResolveImport(ref Frontend a, in Config config, Uri from
 					? UriOrDiag(has(fr.rest)
 						? concatUriAndPath(force(fromConfig), force(fr.rest))
 						: force(fromConfig))
-					: UriOrDiag(allocate(a.alloc, Diag.ImportFileDiag(
-						Diag.ImportFileDiag.LibraryNotConfigured(libraryName))));
+					: UriOrDiag(allocate(a.alloc, DiagImportFile(
+						DiagImportFile.LibraryNotConfigured(libraryName))));
 			}
 		},
 		(in RelPath relPath) {
 			Opt!Uri rel = resolveUri(parentOrEmpty(fromUri), relPath);
 			return has(rel)
 				? UriOrDiag(force(rel))
-				: UriOrDiag(allocate(a.alloc, Diag.ImportFileDiag(
-					Diag.ImportFileDiag.RelativeImportReachesPastRoot(relPath))));
+				: UriOrDiag(allocate(a.alloc, DiagImportFile(
+					DiagImportFile.RelativeImportReachesPastRoot(relPath))));
 		});
 	return base.matchWithPointers!MostlyResolvedImport(
 		(Uri uri) {
@@ -652,10 +653,10 @@ MostlyResolvedImport tryResolveImport(ref Frontend a, in Config config, Uri from
 					crowFile(),
 				(ref ImportFileAst) =>
 					fileType(uri) == FileType.crow
-						? MostlyResolvedImport(allocate(a.alloc, Diag.ImportFileDiag(
-							Diag.ImportFileDiag.CantImportCrowAsText())))
+						? MostlyResolvedImport(allocate(a.alloc, DiagImportFile(
+							DiagImportFile.CantImportCrowAsText())))
 						: MostlyResolvedImport(ensureOtherFile(a, uri)));
 		},
-		(Diag.ImportFileDiag* x) =>
+		(DiagImportFile* x) =>
 			MostlyResolvedImport(x));
 }

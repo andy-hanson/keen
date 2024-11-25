@@ -27,6 +27,21 @@ import model.model :
 	Destructure,
 	DestructureIgnoreSource,
 	Diag,
+	DiagAliasNotAllowed,
+	DiagAutoFunError,
+	DiagDestructureTypeMismatch,
+	DiagDuplicateDeclaration,
+	DiagDuplicateImports,
+	DiagLambdaTypeMissingParamType,
+	DiagLambdaTypeVariadic,
+	DiagLocalIgnoredButMutable,
+	DiagNameNotFound,
+	DiagParamMissingType,
+	DiagParamMutable,
+	DiagTupleTooBig,
+	DiagTypeParamCantHaveTypeArgs,
+	DiagTypeShouldUseSyntax,
+	DiagWrongNumberTypeArgs,
 	emptyTypeParams,
 	ExportVisibility,
 	importCanSee,
@@ -94,7 +109,7 @@ private Type instStructFromAst(
 					if (ok)
 						return Type(a.target);
 					else {
-						addDiag(ctx, suffixRange, Diag(Diag.AliasNotAllowed()));
+						addDiag(ctx, suffixRange, Diag(DiagAliasNotAllowed()));
 						return Type.bogus;
 					}
 				},
@@ -113,8 +128,8 @@ Opt!StructOrAlias structOrAliasFromName(
 ) =>
 	tryFindT!StructOrAlias(
 		ctx, name, range, structsAndAliasesMap[name],
-		Diag.DuplicateImports.Kind.type,
-		optIf(!noDiag, () => Diag.NameNotFound.Kind.type),
+		DiagDuplicateImports.Kind.type,
+		optIf(!noDiag, () => DiagNameNotFound.Kind.type),
 		(in NameReferents x) => x.structOrAlias);
 
 Type makeTupleType(
@@ -132,7 +147,7 @@ Type makeTupleType(
 		if (has(decl))
 			return Type(instantiateStruct(ctx.instantiateCtx, force(decl), args));
 		else {
-			addDiag(ctx, cbDiagRange(), Diag(Diag.TupleTooBig(args.length, commonTypes.maxTupleSize)));
+			addDiag(ctx, cbDiagRange(), Diag(DiagTupleTooBig(args.length, commonTypes.maxTupleSize)));
 			return Type.bogus;
 		}
 	}
@@ -162,7 +177,7 @@ private Opt!TypeArgs getTypeArgsIfNumberMatches(
 	if (res.length == nExpectedTypeArgs)
 		return some(small!Type(res));
 	else {
-		addDiag(ctx, range, Diag(Diag.WrongNumberTypeArgs(name, nExpectedTypeArgs, res.length)));
+		addDiag(ctx, range, Diag(DiagWrongNumberTypeArgs(name, nExpectedTypeArgs, res.length)));
 		return none!TypeArgs;
 	}
 }
@@ -190,7 +205,7 @@ size_t getNTypeArgsForDiagnostic(in CommonTypes commonTypes, in Opt!Type explici
 void checkTypeParams(ref CheckCtx ctx, in NameAndRange[] asts) {
 	eachPair!NameAndRange(asts, (in NameAndRange x, in NameAndRange y) {
 		if (x.name == y.name)
-			addDiag(ctx, y.range, Diag(Diag.DuplicateDeclaration(Diag.DuplicateDeclaration.Kind.typeParam, y.name)));
+			addDiag(ctx, y.range, Diag(DiagDuplicateDeclaration(DiagDuplicateDeclaration.Kind.typeParam, y.name)));
 	});
 }
 
@@ -232,12 +247,12 @@ Type typeFromAst(
 					aliasAllowed);
 		},
 		(ref SuffixNameTypeAst x) {
-			Opt!(Diag.TypeShouldUseSyntax.Kind) optSyntax = typeSyntaxKind(x.name.name);
+			Opt!(DiagTypeShouldUseSyntax.Kind) optSyntax = typeSyntaxKind(x.name.name);
 			if (has(optSyntax))
-				addDiag(ctx, x.suffixRange, Diag(Diag.TypeShouldUseSyntax(force(optSyntax))));
+				addDiag(ctx, x.suffixRange, Diag(DiagTypeShouldUseSyntax(force(optSyntax))));
 			Opt!TypeParamIndex typeParam = findTypeParam(typeParamsScope, x.name.name);
 			if (has(typeParam)) {
-				addDiag(ctx, x.suffixRange, Diag(Diag.TypeParamCantHaveTypeArgs()));
+				addDiag(ctx, x.suffixRange, Diag(DiagTypeParamCantHaveTypeArgs()));
 				return Type(force(typeParam));
 			} else
 				return instStructFromAst(
@@ -300,34 +315,34 @@ private Opt!TypeParamIndex findTypeParam(in TypeParams typeParamsScope, Symbol n
 	return has(res) ? some(TypeParamIndex(safeToUint(force(res)))) : none!TypeParamIndex;
 }
 
-Opt!(Diag.TypeShouldUseSyntax.Kind) typeSyntaxKind(Symbol a) {
+Opt!(DiagTypeShouldUseSyntax.Kind) typeSyntaxKind(Symbol a) {
 	switch (a.value) {
 		case symbol!"array".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.array);
+			return some(DiagTypeShouldUseSyntax.Kind.array);
 		case symbol!"fun-data".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.funData);
+			return some(DiagTypeShouldUseSyntax.Kind.funData);
 		case symbol!"fun-mut".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.funMut);
+			return some(DiagTypeShouldUseSyntax.Kind.funMut);
 		case symbol!"fun-pointer".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.funPointer);
+			return some(DiagTypeShouldUseSyntax.Kind.funPointer);
 		case symbol!"fun-shared".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.funShared);
+			return some(DiagTypeShouldUseSyntax.Kind.funShared);
 		case symbol!"const-pointer".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.pointer);
+			return some(DiagTypeShouldUseSyntax.Kind.pointer);
 		case symbol!"map".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.map);
+			return some(DiagTypeShouldUseSyntax.Kind.map);
 		case symbol!"mut-array".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.mutArray);
+			return some(DiagTypeShouldUseSyntax.Kind.mutArray);
 		case symbol!"mut-map".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.mutMap);
+			return some(DiagTypeShouldUseSyntax.Kind.mutMap);
 		case symbol!"mut-pointer".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.mutPointer);
+			return some(DiagTypeShouldUseSyntax.Kind.mutPointer);
 		case symbol!"option".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.opt);
+			return some(DiagTypeShouldUseSyntax.Kind.opt);
 		case symbol!"shared-array".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.sharedArray);
+			return some(DiagTypeShouldUseSyntax.Kind.sharedArray);
 		case symbol!"shared-map".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.sharedMap);
+			return some(DiagTypeShouldUseSyntax.Kind.sharedMap);
 		case symbol!"tuple2".value:
 		case symbol!"tuple3".value:
 		case symbol!"tuple4".value:
@@ -336,9 +351,9 @@ Opt!(Diag.TypeShouldUseSyntax.Kind) typeSyntaxKind(Symbol a) {
 		case symbol!"tuple7".value:
 		case symbol!"tuple8".value:
 		case symbol!"tuple9".value:
-			return some(Diag.TypeShouldUseSyntax.Kind.tuple);
+			return some(DiagTypeShouldUseSyntax.Kind.tuple);
 		default:
-			return none!(Diag.TypeShouldUseSyntax.Kind);
+			return none!(DiagTypeShouldUseSyntax.Kind);
 	}
 }
 
@@ -357,11 +372,11 @@ private Type typeFromFunAst(
 			Opt!Type res = typeFromDestructures(
 				ctx, commonTypes, structsAndAliasesMap, typeParamsScope, params);
 			if (!has(res))
-				addDiag(ctx, ast.paramsRange, Diag(Diag.LambdaTypeMissingParamType()));
+				addDiag(ctx, ast.paramsRange, Diag(DiagLambdaTypeMissingParamType()));
 			return optOrDefault!Type(res, () => Type.bogus);
 		},
 		(in VarargsAst x) {
-			addDiag(ctx, x.param.range, Diag(Diag.LambdaTypeVariadic()));
+			addDiag(ctx, x.param.range, Diag(DiagLambdaTypeVariadic()));
 			return Type.bogus;
 		});
 	Type[2] typeArgs = [returnType, paramType];
@@ -399,7 +414,7 @@ Opt!(SpecDecl*) getSpecFromCommonModule(
 	Opt!(SpecDecl*) spec = tryFindSpec(ctx, NameAndRange(diagRange.start, name), specsMap);
 	if (has(spec)) {
 		if (force(spec).moduleUri != ctx.commonUris[expectedModule]) {
-			addDiag(ctx, diagRange, Diag(Diag.AutoFunError(Diag.AutoFunError.SpecFromWrongModule())));
+			addDiag(ctx, diagRange, Diag(DiagAutoFunError(DiagAutoFunError.SpecFromWrongModule())));
 			return none!(SpecDecl*);
 		} else
 			return spec;
@@ -413,8 +428,8 @@ Opt!(SpecDecl*) tryFindSpec(ref CheckCtx ctx, NameAndRange name, in SpecsMap spe
 		name.name,
 		name.range,
 		specsMap[name.name],
-		Diag.DuplicateImports.Kind.spec,
-		optIf(!noDiag, () => Diag.NameNotFound.Kind.spec),
+		DiagDuplicateImports.Kind.spec,
+		optIf(!noDiag, () => DiagNameNotFound.Kind.spec),
 		(in NameReferents x) => x.spec);
 
 Opt!Type typeFromDestructure(
@@ -468,14 +483,14 @@ Destructure checkDestructure(
 		if (has(declaredType)) {
 			if (has(destructuredType) && force(destructuredType) != force(declaredType))
 				addDiag(ctx, ast.range, Diag(
-					Diag.DestructureTypeMismatch(
-						Diag.DestructureTypeMismatch.Expected(typeWithContainer(force(declaredType))),
+					DiagDestructureTypeMismatch(
+						DiagDestructureTypeMismatch.Expected(typeWithContainer(force(declaredType))),
 						typeWithContainer(force(destructuredType)))));
 			return force(declaredType);
 		} else if (has(destructuredType))
 			return force(destructuredType);
 		else {
-			addDiag(ctx, ast.range, Diag(Diag.ParamMissingType()));
+			addDiag(ctx, ast.range, Diag(DiagParamMissingType()));
 			return Type.bogus;
 		}
 	}
@@ -488,14 +503,14 @@ Destructure checkDestructure(
 			Type type = getType(declaredType);
 			if (x.name.name == symbol!"_") {
 				if (has(x.mut))
-					addDiag(ctx, ast.range, Diag(Diag.LocalIgnoredButMutable()));
+					addDiag(ctx, ast.range, Diag(DiagLocalIgnoredButMutable()));
 				return Destructure(allocate(ctx.alloc, Destructure.Ignore(
 					DestructureIgnoreSource(&ast.as!(SingleDestructureAst)()), x.name.start, type)));
 			} else {
 				LocalMutability mutability = () {
 					if (has(x.mut) && kind == DestructureKind.param) {
 						Opt!Range mutRange = x.mutRange;
-						addDiag(ctx, force(mutRange), Diag(Diag.ParamMutable()));
+						addDiag(ctx, force(mutRange), Diag(DiagParamMutable()));
 						return LocalMutability.immutable_;
 					} else
 						return has(x.mut) ? LocalMutability.mutableOnStack : LocalMutability.immutable_;
@@ -523,9 +538,9 @@ Destructure checkDestructure(
 									part, some(fieldType), kind)))));
 				else {
 					addDiag(ctx, ast.range, Diag(
-						Diag.DestructureTypeMismatch(
-							Diag.DestructureTypeMismatch.Expected(
-								Diag.DestructureTypeMismatch.Expected.Tuple(partAsts.length)),
+						DiagDestructureTypeMismatch(
+							DiagDestructureTypeMismatch.Expected(
+								DiagDestructureTypeMismatch.Expected.Tuple(partAsts.length)),
 							typeWithContainer(tupleType))));
 					return Destructure(allocate(ctx.alloc, Destructure.Split(
 						tupleType,
@@ -558,8 +573,8 @@ Opt!T tryFindT(T)(
 	Symbol name,
 	in Range range,
 	Opt!T fromThisModule,
-	Diag.DuplicateImports.Kind duplicateImportKind,
-	Opt!(Diag.NameNotFound.Kind) nameNotFoundKind,
+	DiagDuplicateImports.Kind duplicateImportKind,
+	Opt!(DiagNameNotFound.Kind) nameNotFoundKind,
 	in Opt!T delegate(in NameReferents) @safe @nogc pure nothrow getFromNameReferents,
 ) {
 	Cell!(Opt!T) res = Cell!(Opt!T)(fromThisModule);
@@ -568,7 +583,7 @@ Opt!T tryFindT(T)(
 		if (has(got) && importCanSee(visibility, force(got).visibility)) {
 			if (has(cellGet(res)))
 				// TODO: include both modules in the diag
-				addDiag(ctx, range, Diag(Diag.DuplicateImports(duplicateImportKind, name)));
+				addDiag(ctx, range, Diag(DiagDuplicateImports(duplicateImportKind, name)));
 			else
 				cellSet(res, got);
 		}
@@ -577,6 +592,6 @@ Opt!T tryFindT(T)(
 	if (has(ret))
 		markUsed(ctx, force(ret));
 	else if (has(nameNotFoundKind))
-		addDiag(ctx, range, Diag(Diag.NameNotFound(force(nameNotFoundKind), name)));
+		addDiag(ctx, range, Diag(DiagNameNotFound(force(nameNotFoundKind), name)));
 	return ret;
 }

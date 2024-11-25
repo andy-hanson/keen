@@ -12,6 +12,7 @@ import model.model :
 	CommonTypes,
 	Destructure,
 	Diag,
+	DiagTypeShouldUseSyntax,
 	FunDecl,
 	FunDeclAndTypeArgs,
 	FunInst,
@@ -407,36 +408,36 @@ void writeStructInst(scope ref Writer writer, in ShowTypeCtx ctx, in TypeContain
 	}
 
 	Symbol name = s.decl.name;
-	Opt!(Diag.TypeShouldUseSyntax.Kind) kind = typeSyntaxKind(name);
+	Opt!(DiagTypeShouldUseSyntax.Kind) kind = typeSyntaxKind(name);
 	if (has(kind)) {
 		final switch (force(kind)) {
-			case Diag.TypeShouldUseSyntax.Kind.array:
+			case DiagTypeShouldUseSyntax.Kind.array:
 				return suffix("[]");
-			case Diag.TypeShouldUseSyntax.Kind.map:
+			case DiagTypeShouldUseSyntax.Kind.map:
 				return map("");
-			case Diag.TypeShouldUseSyntax.Kind.funData:
+			case DiagTypeShouldUseSyntax.Kind.funData:
 				return fun(FunKind.data);
-			case Diag.TypeShouldUseSyntax.Kind.funMut:
+			case DiagTypeShouldUseSyntax.Kind.funMut:
 				return fun(FunKind.mut);
-			case Diag.TypeShouldUseSyntax.Kind.funPointer:
+			case DiagTypeShouldUseSyntax.Kind.funPointer:
 				return fun(FunKind.function_);
-			case Diag.TypeShouldUseSyntax.Kind.funShared:
+			case DiagTypeShouldUseSyntax.Kind.funShared:
 				return fun(FunKind.shared_);
-			case Diag.TypeShouldUseSyntax.Kind.mutArray:
+			case DiagTypeShouldUseSyntax.Kind.mutArray:
 				return suffix(" mut[]");
-			case Diag.TypeShouldUseSyntax.Kind.mutMap:
+			case DiagTypeShouldUseSyntax.Kind.mutMap:
 				return map(" mut");
-			case Diag.TypeShouldUseSyntax.Kind.mutPointer:
+			case DiagTypeShouldUseSyntax.Kind.mutPointer:
 				return suffix(" mut*");
-			case Diag.TypeShouldUseSyntax.Kind.opt:
+			case DiagTypeShouldUseSyntax.Kind.opt:
 				return suffix("?");
-			case Diag.TypeShouldUseSyntax.Kind.pointer:
+			case DiagTypeShouldUseSyntax.Kind.pointer:
 				return suffix("*");
-			case Diag.TypeShouldUseSyntax.Kind.sharedArray:
+			case DiagTypeShouldUseSyntax.Kind.sharedArray:
 				return suffix(" shared[]");
-			case Diag.TypeShouldUseSyntax.Kind.sharedMap:
+			case DiagTypeShouldUseSyntax.Kind.sharedMap:
 				return map(" shared");
-			case Diag.TypeShouldUseSyntax.Kind.tuple:
+			case DiagTypeShouldUseSyntax.Kind.tuple:
 				return writeTupleType(writer, ctx, typeContainer, s.typeArgs);
 		}
 	} else {

@@ -29,6 +29,17 @@ import model.model :
 	DeclKind,
 	Destructure,
 	Diag,
+	DiagBuiltinFunCantHaveBody,
+	DiagExternBodyMultiple,
+	DiagExternFunVariadic,
+	DiagLinkageWorseThanContainingFun,
+	DiagModifierConflict,
+	DiagModifierDuplicate,
+	DiagModifierRedundantDueToDeclKind,
+	DiagModifierRedundantDueToModifier,
+	DiagModifierInvalid,
+	DiagSpecUseInvalid,
+	DiagTestMissingBody,
 	emptySpecs,
 	Expr,
 	FunBody,
@@ -49,7 +60,7 @@ import model.model :
 	TypeParams,
 	VarDecl,
 	Visibility;
-import model.parseDiag : ParseDiag;
+import model.parseDiag : ParseDiag, ParseDiagFileNotUtf8;
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array : isEmpty, mapOp, mapWithResultPointer, mustFind, small, SmallArray, zipPointers;
@@ -133,7 +144,7 @@ FunDecl[] checkFunsInitial(
 					flagsAndSpecs.specs));
 				if (flagsAndSpecs.isBuiltin) {
 					if (hasBody)
-						addDiag(ctx, funAst.nameRange, Diag(Diag.BuiltinFunCantHaveBody()));
+						addDiag(ctx, funAst.nameRange, Diag(DiagBuiltinFunCantHaveBody()));
 					fun.body_ = getBuiltinFun(ctx, fun);
 				}
 				else if (!hasBody && !flagsAndSpecs.externs.isEmpty)
@@ -164,7 +175,7 @@ FunBody getFileImportFunctionBody(ref CheckCtx ctx, Range range, in ImportOrExpo
 				if (has(x))
 					return ImportFileContent(force(x).asString);
 				else {
-					addDiag(ctx, range, Diag(ParseDiag(ParseDiag.FileNotUtf8())));
+					addDiag(ctx, range, Diag(ParseDiag(ParseDiagFileNotUtf8())));
 					return ImportFileContent("");
 				}
 		}
@@ -208,27 +219,27 @@ FunBody checkExternBody(ref CheckCtx ctx, FunDecl* fun) {
 			fun.source.as!(FunDeclSource.Ast).ast.modifiers,
 			(ref ModifierAst x) => x.isA!SpecUseAst,
 		).range;
-		addDiag(ctx, range, Diag(Diag.SpecUseInvalid(DeclKind.externFunction)));
+		addDiag(ctx, range, Diag(DiagSpecUseInvalid(DeclKind.externFunction)));
 	}
 
 	if (!isLinkageAlwaysCompatible(funLinkage, linkageRange(fun.returnType)))
 		addDiagAssertSameUri(ctx, fun.range, Diag(
-			Diag.LinkageWorseThanContainingFun(fun, fun.returnType, none!(Destructure*))));
+			DiagLinkageWorseThanContainingFun(fun, fun.returnType, none!(Destructure*))));
 	fun.params.match!void(
 		(Destructure[] params) {
 			foreach (ref Destructure param; params)
 				if (!isLinkageAlwaysCompatible(funLinkage, linkageRange(param.type)))
-					addDiag(ctx, param.range, Diag(Diag.LinkageWorseThanContainingFun(fun, param.type, some(&param))));
+					addDiag(ctx, param.range, Diag(DiagLinkageWorseThanContainingFun(fun, param.type, some(&param))));
 		},
 		(ref Params.Varargs x) {
-			addDiag(ctx, x.param.range, Diag(Diag.ExternFunVariadic()));
+			addDiag(ctx, x.param.range, Diag(DiagExternFunVariadic()));
 		});
 
 	Opt!Symbol single = fun.externs.asSingle;
 	if (has(single))
 		return FunBody(FunBody.Extern(force(single)));
 	else {
-		addDiag(ctx, fun.nameRange.range, Diag(Diag.ExternBodyMultiple()));
+		addDiag(ctx, fun.nameRange.range, Diag(DiagExternBodyMultiple()));
 		return FunBody.bogus;
 	}
 }
@@ -285,13 +296,13 @@ FunModifiers checkFunModifiers(
 						if (cellGet(externs).isEmpty)
 							cellSet(externs, getExternsFromModifier(ctx, x, required: true));
 						else
-							addDiag(ctx, x.range, Diag(Diag.ModifierDuplicate(ModifierKeyword.extern_)));
+							addDiag(ctx, x.range, Diag(DiagModifierDuplicate(ModifierKeyword.extern_)));
 					} else {
 						CollectedFunFlags flag = tryGetFunFlag(x.keyword);
 						if (flag == CollectedFunFlags.none)
-							addDiag(ctx, x.keywordRange, Diag(Diag.ModifierInvalid(x.keyword, DeclKind.function_)));
+							addDiag(ctx, x.keywordRange, Diag(DiagModifierInvalid(x.keyword, DeclKind.function_)));
 						if (allFlags & flag)
-							addDiag(ctx, x.keywordRange, Diag(Diag.ModifierDuplicate(x.keyword)));
+							addDiag(ctx, x.keywordRange, Diag(DiagModifierDuplicate(x.keyword)));
 						modifierTypeArgInvalid(ctx, x);
 						allFlags |= flag;
 					}
@@ -317,7 +328,7 @@ FunModifiers checkFunModifiers(
 	small!Test(mapWithResultPointer!(Test, TestAst)(ctx.alloc, testAsts, (TestAst* ast, Test* out_) {
 		TestModifiers modifiers = checkTestModifiers(ctx, *ast);
 		if (ast.body_.kind.isA!EmptyAst)
-			addDiag(ctx, ast.range, Diag(Diag.TestMissingBody()));
+			addDiag(ctx, ast.range, Diag(DiagTestMissingBody()));
 		Expr body_ = checkTestBody(
 			ctx, structsAndAliasesMap, commonTypes, specsMap, funsMap,
 			TypeContainer(out_), modifiers.flags, modifiers.externs, &ast.body_);
@@ -342,12 +353,12 @@ TestModifiers checkTestModifiers(ref CheckCtx ctx, in TestAst ast) {
 					if (cellGet(externs).isEmpty)
 						cellSet(externs, getExternsFromModifier(ctx, x, required: true));
 					else
-						addDiag(ctx, x.range, Diag(Diag.ModifierDuplicate(ModifierKeyword.extern_)));
+						addDiag(ctx, x.range, Diag(DiagModifierDuplicate(ModifierKeyword.extern_)));
 				} else
-					addDiag(ctx, x.keywordRange, Diag(Diag.ModifierInvalid(x.keyword, DeclKind.test)));
+					addDiag(ctx, x.keywordRange, Diag(DiagModifierInvalid(x.keyword, DeclKind.test)));
 			},
 			(in SpecUseAst x) {
-				addDiag(ctx, x.range, Diag(Diag.SpecUseInvalid(DeclKind.test)));
+				addDiag(ctx, x.range, Diag(DiagSpecUseInvalid(DeclKind.test)));
 			});
 	}
 	return TestModifiers(
@@ -382,7 +393,7 @@ CollectedFunFlags tryGetFunFlag(ModifierKeyword kind) =>
 
 FunFlags checkFunFlags(ref CheckCtx ctx, in Range range, CollectedFunFlags flags, bool isExternBody, bool isTest) {
 	void warnRedundant(ModifierKeyword modifier, ModifierKeyword redundantModifier) {
-		addDiag(ctx, range, Diag(Diag.ModifierRedundantDueToModifier(modifier, redundantModifier)));
+		addDiag(ctx, range, Diag(DiagModifierRedundantDueToModifier(modifier, redundantModifier)));
 	}
 
 	bool builtin = (flags & CollectedFunFlags.builtin) != 0;
@@ -415,12 +426,12 @@ FunFlags checkFunFlags(ref CheckCtx ctx, in Range range, CollectedFunFlags flags
 	if (implicitUnsafe && explicitUnsafe)
 		warnRedundant(bodyModifier(), ModifierKeyword.unsafe);
 	if (explicitUnsafe && trusted)
-		addDiag(ctx, range, Diag(Diag.ModifierConflict(ModifierKeyword.unsafe, ModifierKeyword.trusted)));
+		addDiag(ctx, range, Diag(DiagModifierConflict(ModifierKeyword.unsafe, ModifierKeyword.trusted)));
 
 	if (pure_ && summon)
-		addDiag(ctx, range, Diag(Diag.ModifierConflict(ModifierKeyword.pure_, ModifierKeyword.summon)));
+		addDiag(ctx, range, Diag(DiagModifierConflict(ModifierKeyword.pure_, ModifierKeyword.summon)));
 	else if (pure_ && !isExternBody)
-		addDiag(ctx, range, Diag(Diag.ModifierRedundantDueToDeclKind(ModifierKeyword.pure_, DeclKind.function_)));
+		addDiag(ctx, range, Diag(DiagModifierRedundantDueToDeclKind(ModifierKeyword.pure_, DeclKind.function_)));
 	else if (summon && isExternBody)
 		warnRedundant(ModifierKeyword.extern_, ModifierKeyword.summon);
 

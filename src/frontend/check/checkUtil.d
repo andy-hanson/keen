@@ -19,6 +19,11 @@ import model.model :
 	CommonTypes,
 	Destructure,
 	Diag,
+	DiagExternInvalidName,
+	DiagExternMissingLibraryName,
+	DiagExternRedundant,
+	DiagLiteralOverflow,
+	DiagVarargsParamMustBeArray,
 	FunBody,
 	FunDecl,
 	FunDeclSource,
@@ -61,7 +66,7 @@ FunDecl funDeclWithBody(
 
 IntegralValue checkLiteralIntegralValue(ref CheckCtx ctx, IntegralType type, LiteralIntegralAndRange ast) {
 	if (ast.literal.overflow || literalNatOrIntOverflows(type, ast.literal.isSigned, ast.literal.value))
-		addDiag(ctx, ast.range, Diag(Diag.LiteralOverflow(type)));
+		addDiag(ctx, ast.range, Diag(DiagLiteralOverflow(type)));
 	return ast.literal.value;
 }
 
@@ -116,7 +121,7 @@ private Params checkParams(
 					? some(only(x.typeArgs))
 					: none!Type);
 			if (!has(elementType))
-				addDiag(ctx, varargs.param.range, Diag(Diag.VarargsParamMustBeArray()));
+				addDiag(ctx, varargs.param.range, Diag(DiagVarargsParamMustBeArray()));
 			return Params(allocate(ctx.alloc,
 				Params.Varargs(param, has(elementType) ? force(elementType) : Type.bogus)));
 		});
@@ -127,7 +132,7 @@ SymbolSet getExternsFromModifier(ref CheckCtx ctx, in ModifierKeywordAst modifie
 		return optOrDefault!SymbolSet(tryGetExternsFromTypeArg(ctx, force(modifier.typeArg)), () =>
 			required ? symbolSet(symbol!"bogus") : emptySymbolSet);
 	else if (required) {
-		addDiag(ctx, modifier.keywordRange, Diag(Diag.ExternMissingLibraryName()));
+		addDiag(ctx, modifier.keywordRange, Diag(DiagExternMissingLibraryName()));
 		return symbolSet(symbol!"bogus");
 	} else
 		return emptySymbolSet;
@@ -157,10 +162,10 @@ Opt!Symbol checkExternName(ref CheckCtx ctx, NameAndRange name, SymbolSet enclos
 	Symbol res = name.name;
 	if (isBuiltinExtern(res) || res in ctx.config.extern_) {
 		if (res in enclosingExterns)
-			addDiag(ctx, name.range, Diag(Diag.ExternRedundant(res)));
+			addDiag(ctx, name.range, Diag(DiagExternRedundant(res)));
 		return some(res);
 	} else {
-		addDiag(ctx, name.range, Diag(Diag.ExternInvalidName(res)));
+		addDiag(ctx, name.range, Diag(DiagExternInvalidName(res)));
 		return none!Symbol;
 	}
 }

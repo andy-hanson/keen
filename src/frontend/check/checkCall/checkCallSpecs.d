@@ -19,6 +19,10 @@ import model.model :
 	CommonTypes,
 	countSigs,
 	Diag,
+	DiagCallMissingExtern,
+	DiagCantCall,
+	DiagSpecMatchError,
+	DiagSpecNoMatch,
 	FunDecl,
 	FunDeclAndTypeArgs,
 	FunInst,
@@ -100,7 +104,7 @@ Called checkSpecSingleSigIgnoreParents2(
 	CheckSpecsCtx checkSpecsCtx = CheckSpecsCtx(ctx.allocPtr, ctx.instantiateCtx, castNonScope_ref(funsInScope));
 	return withRealTrace!Called(ctx, caller, diagRange, (scope RealTrace* trace) =>
 		withExactStackArray!(Called, Called)(countSigs(*spec), (scope ref SpecImpls specImpls) {
-			Opt!(Diag.SpecNoMatch) diag = checkSpecImplInner!(RealTrace*)(specImpls, checkSpecsCtx, trace, *spec);
+			Opt!(DiagSpecNoMatch) diag = checkSpecImplInner!(RealTrace*)(specImpls, checkSpecsCtx, trace, *spec);
 			assert(spec.sigTypes.length == 1);
 			if (has(diag)) {
 				addDiag(ctx, diagRange, Diag(force(diag)));
@@ -159,7 +163,7 @@ bool checkCallExterns(ref CheckCtx ctx, Range diagRange, FunDecl* called, Symbol
 	if (!ok) {
 		foreach (Symbol x; called.externs)
 			if (x !in externs)
-				addDiag(ctx, diagRange, Diag(Diag.CallMissingExtern(called, x)));
+				addDiag(ctx, diagRange, Diag(DiagCallMissingExtern(called, x)));
 	}
 	return ok;
 }
@@ -173,18 +177,18 @@ void checkCallFlags(
 	ArgsKind argsKind,
 	in bool delegate() @safe @nogc pure nothrow canDoUnsafe,
 ) {
-	void diag(Diag.CantCall.Reason reason) {
-		addDiag(ctx, diagRange, Diag(Diag.CantCall(reason, called)));
+	void diag(DiagCantCall.Reason reason) {
+		addDiag(ctx, diagRange, Diag(DiagCantCall(reason, called)));
 	}
 	if (!called.flags.bare && caller.bare && !called.flags.forceCtx && !isInLambda(locals))
 		// TODO: need to explain this better in the case where 'bare' is due to the lambda
-		diag(Diag.CantCall.Reason.nonBare);
+		diag(DiagCantCall.Reason.nonBare);
 	if (called.flags.summon && (!caller.summon || isInDataLambda(locals)))
-		diag(!caller.summon ? Diag.CantCall.Reason.summon : Diag.CantCall.Reason.summonInDataLambda);
+		diag(!caller.summon ? DiagCantCall.Reason.summon : DiagCantCall.Reason.summonInDataLambda);
 	if (called.flags.safety == FunFlags.Safety.unsafe && !canDoUnsafe())
-		diag(Diag.CantCall.Reason.unsafe);
+		diag(DiagCantCall.Reason.unsafe);
 	if (called.isVariadic && argsKind == ArgsKind.nonEmpty && caller.bare)
-		diag(Diag.CantCall.Reason.variadicFromBare);
+		diag(DiagCantCall.Reason.variadicFromBare);
 }
 
 Called checkCallSpecsWithRealTrace(
@@ -199,7 +203,7 @@ Called checkCallSpecsWithRealTrace(
 	return withRealTrace!Called(ctx, typeContainer, range, (scope RealTrace* trace) =>
 		getCalledFromCandidateAfterTypeChecks!(RealTrace*)(checkSpecsCtx, candidate, trace).match!Called(
 			(Called x) => x,
-			(Diag.SpecNoMatch x) {
+			(DiagSpecNoMatch x) {
 				addDiag(ctx, range, Diag(x));
 				return candidateBogusCalled(ctx.alloc, ctx.instantiateCtx, commonTypes, candidate);
 			}));
@@ -234,7 +238,7 @@ struct DummyTrace {
 struct RealTrace {
 	@safe @nogc pure nothrow:
 
-	alias NoMatch = Diag.SpecNoMatch;
+	alias NoMatch = DiagSpecNoMatch;
 	alias Result = SpecResult!NoMatch;
 	CheckCtx* ctx;
 	TypeContainer typeContainer;
@@ -273,18 +277,18 @@ T withTrace(T)(
 	return res;
 }
 
-void specMatchError(ref CheckSpecsCtx ctx, scope DummyTrace, Diag.SpecMatchError.Reason) {
+void specMatchError(ref CheckSpecsCtx ctx, scope DummyTrace, DiagSpecMatchError.Reason) {
 	ctx.hasErrors = true;
 }
-void specMatchError(ref CheckSpecsCtx ctx, scope RealTrace* a, Diag.SpecMatchError.Reason reason) {
+void specMatchError(ref CheckSpecsCtx ctx, scope RealTrace* a, DiagSpecMatchError.Reason reason) {
 	ctx.hasErrors = true;
-	addDiag(*a.ctx, a.range, Diag(Diag.SpecMatchError(a.typeContainer, reason, newArray(a.ctx.alloc, a.trace.soFar))));
+	addDiag(*a.ctx, a.range, Diag(DiagSpecMatchError(a.typeContainer, reason, newArray(a.ctx.alloc, a.trace.soFar))));
 }
 
-DummyTrace.NoMatch specNoMatch(scope DummyTrace, Diag.SpecNoMatch.Reason) =>
+DummyTrace.NoMatch specNoMatch(scope DummyTrace, DiagSpecNoMatch.Reason) =>
 	DummyTrace.NoMatch();
-RealTrace.NoMatch specNoMatch(scope RealTrace* a, Diag.SpecNoMatch.Reason reason) =>
-	Diag.SpecNoMatch(a.typeContainer, reason, newArray(a.ctx.alloc, a.trace.soFar));
+RealTrace.NoMatch specNoMatch(scope RealTrace* a, DiagSpecNoMatch.Reason reason) =>
+	DiagSpecNoMatch(a.typeContainer, reason, newArray(a.ctx.alloc, a.trace.soFar));
 bool isFull(DummyTrace trace) {
 	assert(trace.depth <= maxSpecDepth);
 	return trace.depth == maxSpecDepth;
@@ -301,8 +305,8 @@ Trace.Result checkCandidate(Trace)(
 ) =>
 	testCandidateForSpecSig(ctx.instantiateCtx, candidate, sigType, TypeContext.nonInferring)
 		? getCalledFromCandidateAfterTypeChecks(ctx, candidate, trace)
-		: Trace.Result(specNoMatch(trace, Diag.SpecNoMatch.Reason(
-			Diag.SpecNoMatch.Reason.SpecImplNotFound(sigDecl, sigType))));
+		: Trace.Result(specNoMatch(trace, DiagSpecNoMatch.Reason(
+			DiagSpecNoMatch.Reason.SpecImplNotFound(sigDecl, sigType))));
 
 Trace.Result getCalledFromCandidateAfterTypeChecks(Trace)(
 	ref CheckSpecsCtx ctx,
@@ -317,7 +321,7 @@ Trace.Result getCalledFromCandidateAfterTypeChecks(Trace)(
 			candidate.called.matchWithPointers!(Trace.Result)(
 				(FunDecl* f) =>
 					isFull(trace)
-						? Trace.Result(specNoMatch(trace, Diag.SpecNoMatch.Reason(Diag.SpecNoMatch.Reason.TooDeep())))
+						? Trace.Result(specNoMatch(trace, DiagSpecNoMatch.Reason(DiagSpecNoMatch.Reason.TooDeep())))
 						: withExactStackArray!(Trace.Result, Called)(countSpecSigs(*f), (scope ref SpecImpls out_) {
 							Opt!(Trace.NoMatch) diag = checkSpecImpls!Trace(
 								out_, ctx, f, small!Type(candidateTypeArgs), trace);
@@ -331,8 +335,8 @@ Trace.Result getCalledFromCandidateAfterTypeChecks(Trace)(
 				(CalledSpecSig s) =>
 					Trace.Result(Called(s))),
 		() =>
-			Trace.Result(specNoMatch(trace, Diag.SpecNoMatch.Reason(
-				Diag.SpecNoMatch.Reason.CantInferTypeArguments(candidate.called.as!(FunDecl*))))));
+			Trace.Result(specNoMatch(trace, DiagSpecNoMatch.Reason(
+				DiagSpecNoMatch.Reason.CantInferTypeArguments(candidate.called.as!(FunDecl*))))));
 
 size_t countSpecSigs(in FunDecl a) =>
 	sum(a.specs, (in SpecInst* x) =>
@@ -340,7 +344,7 @@ size_t countSpecSigs(in FunDecl a) =>
 
 bool deeper(DummyTrace.NoMatch, DummyTrace.NoMatch) =>
 	false;
-bool deeper(Diag.SpecNoMatch a, Diag.SpecNoMatch b) =>
+bool deeper(DiagSpecNoMatch a, DiagSpecNoMatch b) =>
 	a.trace.length > b.trace.length;
 
 void addMultipleMatch(ref CheckSpecsCtx, DummyTrace, ref bool b, Called) {
@@ -384,14 +388,14 @@ Trace.Result findSpecSigImplementation(Trace)(
 	if (has(cellGet(res))) {
 		if (hasMultipleMatches(trace, multipleMatches)) {
 			addMultipleMatch(ctx, trace, multipleMatches, force(cellGet(res)));
-			specMatchError(ctx, trace, Diag.SpecMatchError.Reason(Diag.SpecMatchError.Reason.MultipleMatches(
+			specMatchError(ctx, trace, DiagSpecMatchError.Reason(DiagSpecMatchError.Reason.MultipleMatches(
 				sigDecl.name, finishMultipleMatches(ctx, trace, multipleMatches))));
 		}
 		return Trace.Result(force(cellGet(res)));
 	} else
 		return Trace.Result(has(cellGet(deepestNoMatch))
 			? force(cellGet(deepestNoMatch))
-			: specNoMatch(trace, Diag.SpecNoMatch.Reason(Diag.SpecNoMatch.Reason.SpecImplNotFound(sigDecl, sigType))));
+			: specNoMatch(trace, DiagSpecNoMatch.Reason(DiagSpecNoMatch.Reason.SpecImplNotFound(sigDecl, sigType))));
 }
 
 bool checkBuiltinSpec(ref CheckSpecsCtx ctx, BuiltinSpec kind, Type typeArg) {
@@ -461,8 +465,8 @@ Opt!(Trace.NoMatch) checkSpecImplInner(Trace)(
 	TypeArgs typeArgs = specInstInstantiated.typeArgs;
 	return optOr!(Trace.NoMatch)(
 		optIf(has(decl.builtin) && !checkBuiltinSpec(ctx, force(decl.builtin), only(typeArgs)),
-			() => specNoMatch(trace, Diag.SpecNoMatch.Reason(
-				Diag.SpecNoMatch.Reason.BuiltinNotSatisfied(force(decl.builtin), only(typeArgs))))),
+			() => specNoMatch(trace, DiagSpecNoMatch.Reason(
+				DiagSpecNoMatch.Reason.BuiltinNotSatisfied(force(decl.builtin), only(typeArgs))))),
 		() => first!(Trace.NoMatch, immutable SpecInst*)(
 			specInstInstantiated.parents, (SpecInst* parent) =>
 				checkSpecImplInner!Trace(res, ctx, trace, *parent)),

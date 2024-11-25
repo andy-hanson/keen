@@ -17,7 +17,13 @@ import frontend.parse.lexToken :
 	plainToken;
 import frontend.parse.lexWhitespace :
 	CStringRange, detectIndentKind, IndentKind, mayContinueOntoNextLine, skipSpacesAndComments, skipUntilNewline;
-import model.parseDiag : ParseDiag, ParseDiagnostic;
+import model.parseDiag :
+	ParseDiag,
+	ParseDiagExpected,
+	ParseDiagUnexpectedCharacter,
+	ParseDiagUnexpectedOperator,
+	ParseDiagUnexpectedToken,
+	ParseDiagnostic;
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array : SmallArray;
@@ -114,11 +120,11 @@ void addDiagUnexpectedCurToken(ref Lexer lexer, Pos start, in TokenAndData token
 	ParseDiag diag = () @trusted {
 		switch (token.token) {
 			case Token.unexpectedCharacter:
-				return ParseDiag(ParseDiag.UnexpectedCharacter(token.asUnexpectedCharacter));
+				return ParseDiag(ParseDiagUnexpectedCharacter(token.asUnexpectedCharacter));
 			case Token.operator:
-				return ParseDiag(ParseDiag.UnexpectedOperator(token.asSymbol));
+				return ParseDiag(ParseDiagUnexpectedOperator(token.asSymbol));
 			default:
-				return ParseDiag(ParseDiag.UnexpectedToken(token.token));
+				return ParseDiag(ParseDiagUnexpectedToken(token.token));
 		}
 	}();
 	addDiag(lexer, rangeForCurToken(lexer, start), diag);
@@ -223,7 +229,7 @@ private Range range(in Lexer lexer, CString begin) =>
 StringPart takeClosingBraceThenStringPart(ref Lexer lexer, QuoteKind quoteKind) {
 	if (getPeekToken(lexer) != Token.braceRight) {
 		Pos start = posAtPtr(lexer);
-		addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.closeInterpolated)));
+		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.closeInterpolated)));
 		skipUntilNewlineNoDiag(lexer);
 		return StringPart(Range(start, posAtPtr(lexer)), "", StringPart.After.done);
 	} else

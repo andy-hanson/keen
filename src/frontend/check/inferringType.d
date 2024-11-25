@@ -13,6 +13,12 @@ import model.model :
 	BuiltinType,
 	CommonTypes,
 	Diag,
+	DiagLambdaCantInferParamType,
+	DiagLambdaMultipleMatch,
+	DiagLambdaNotExpected,
+	DiagLiteralMultipleMatch,
+	DiagLiteralNotExpected,
+	DiagTypeConflict,
 	ExpectedForDiag,
 	Expr,
 	ExprAndType,
@@ -365,10 +371,10 @@ Opt!size_t findExpectedStructForLiteral(
 	});
 
 	if (ambiguous || !has(cellGet(rslt))) {
-		addDiag2(ctx, source, Diag(Diag.LiteralNotExpected(getExpectedForDiag(ctx, expected))));
+		addDiag2(ctx, source, Diag(DiagLiteralNotExpected(getExpectedForDiag(ctx, expected))));
 		return none!size_t;
 	} else if (!arrayBuilderIsEmpty(multiple)) {
-		addDiag2(ctx, source, Diag(Diag.LiteralMultipleMatch(ctx.typeContainer, finish(ctx.alloc, multiple))));
+		addDiag2(ctx, source, Diag(DiagLiteralMultipleMatch(ctx.typeContainer, finish(ctx.alloc, multiple))));
 		return none!size_t;
 	} else
 		return cellGet(rslt);
@@ -454,11 +460,11 @@ MutOpt!ExpectedLambdaType getExpectedLambda(
 	if (anyDiag) {
 		if (!arrayBuilderIsEmpty(multiple))
 			addDiag2(ctx, source, Diag(
-				Diag.LambdaMultipleMatch(ExpectedForDiag.Choices(finish(ctx.alloc, multiple), ctx.typeContainer))));
+				DiagLambdaMultipleMatch(ExpectedForDiag.Choices(finish(ctx.alloc, multiple), ctx.typeContainer))));
 		return noneMut!ExpectedLambdaType;
 	} else {
 		if (!has(cellGet(res)))
-			addDiag2(ctx, source, Diag(Diag.LambdaNotExpected(getExpectedForDiag(ctx, expected))));
+			addDiag2(ctx, source, Diag(DiagLambdaNotExpected(getExpectedForDiag(ctx, expected))));
 		return cellGet(res);
 	}
 }
@@ -470,7 +476,7 @@ private Opt!FunType getExpectedFunType(ref ExprCtx ctx, ExprAst* source, TypeAnd
 	if (has(t))
 		return getFunType(force(t));
 	else {
-		addDiag2(ctx, source, Diag(Diag.LambdaCantInferParamType()));
+		addDiag2(ctx, source, Diag(DiagLambdaCantInferParamType()));
 		return none!FunType;
 	}
 }
@@ -492,7 +498,7 @@ private Opt!Type getExpectedParamTypeFromFunType(
 	else if (has(declaredParamType))
 		return some(force(declaredParamType));
 	else {
-		addDiag2(ctx, source, Diag(Diag.LambdaCantInferParamType()));
+		addDiag2(ctx, source, Diag(DiagLambdaCantInferParamType()));
 		anyDiag = true;
 		return none!Type;
 	}
@@ -591,7 +597,7 @@ private ExprAndType check(ref ExprCtx ctx, ref Expected expected, ExprAndType a)
 		return a;
 	else {
 		addDiag2(ctx, a.expr.range, Diag(
-			Diag.TypeConflict(getExpectedForDiag(ctx, expected), typeWithContainer(ctx, a.type))));
+			DiagTypeConflict(getExpectedForDiag(ctx, expected), typeWithContainer(ctx, a.type))));
 		setToBogusIfInferring(expected);
 		return ExprAndType(
 			Expr(a.expr.ast, ExprKind(BogusWrongTypeExpr(ExprRef(allocate(ctx.alloc, a.expr), a.type)))),

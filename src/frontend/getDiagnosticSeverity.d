@@ -2,299 +2,299 @@ module frontend.getDiagnosticSeverity;
 
 @safe @nogc pure nothrow:
 
-import model.model : Diag, DiagnosticSeverity, ReadFileDiag;
-import model.parseDiag : ParseDiag;
+import model.model;
+import model.parseDiag;
 
 DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 	a.matchIn!DiagnosticSeverity(
-		(in Diag.AliasNotAllowed) =>
+		(in DiagAliasNotAllowed) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.AssertOrForbidMessageIsThrow) =>
+		(in DiagAssertOrForbidMessageIsThrow) =>
 			DiagnosticSeverity.warning,
-		(in Diag.AssignmentNotAllowed) =>
+		(in DiagAssignmentNotAllowed) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.AutoFunError) =>
+		(in DiagAutoFunError) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.BuiltinFunCantHaveBody) =>
+		(in DiagBuiltinFunCantHaveBody) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.BuiltinUnsupported) =>
+		(in DiagBuiltinUnsupported) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.CallMissingExtern) =>
+		(in DiagCallMissingExtern) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.CallMultipleMatches) =>
+		(in DiagCallMultipleMatches) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.CallNoMatch) =>
+		(in DiagCallNoMatch) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.CallShouldUseSyntax) =>
+		(in DiagCallShouldUseSyntax) =>
 			DiagnosticSeverity.warning,
-		(in Diag.CantCall) =>
+		(in DiagCantCall) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.CaseDuplicate) =>
+		(in DiagCaseDuplicate) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.CaseInvalidMemberType) =>
+		(in DiagCaseInvalidMemberType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.CaseInvalidSumType) =>
+		(in DiagCaseInvalidSumType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.CaseMissingType) =>
+		(in DiagCaseMissingType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.CharLiteralMustBeOneChar) =>
+		(in DiagCharLiteralMustBeOneChar) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.CommonFunDuplicate) =>
+		(in DiagCommonFunDuplicate) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.CommonFunMissing) =>
+		(in DiagCommonFunMissing) =>
 			DiagnosticSeverity.commonMissing,
-		(in Diag.CommonTypeMissing) =>
+		(in DiagCommonTypeMissing) =>
 			DiagnosticSeverity.commonMissing,
-		(in Diag.CommonVarMissing) =>
+		(in DiagCommonVarMissing) =>
 			DiagnosticSeverity.commonMissing,
-		(in Diag.DestructureTypeMismatch) =>
+		(in DiagDestructureTypeMismatch) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.DuplicateDeclaration) =>
+		(in DiagDuplicateDeclaration) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.DuplicateExports) =>
+		(in DiagDuplicateExports) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.DuplicateImportName) =>
+		(in DiagDuplicateImportName) =>
 			DiagnosticSeverity.warning,
-		(in Diag.DuplicateImports) =>
+		(in DiagDuplicateImports) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.EmptyEnumOrUnion) =>
+		(in DiagEmptyEnumOrUnion) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.EnumBackingTypeInvalid) =>
+		(in DiagEnumBackingTypeInvalid) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.EnumDuplicateValue) =>
+		(in DiagEnumDuplicateValue) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ExpectedTypeIsNotALambda) =>
+		(in DiagExpectedTypeIsNotALambda) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ExternBodyMultiple) =>
+		(in DiagExternBodyMultiple) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ExternInvalidName) =>
+		(in DiagExternInvalidName) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ExternIsUnsafe) =>
+		(in DiagExternIsUnsafe) =>
 			DiagnosticSeverity.warning,
-		(in Diag.ExternRedundant) =>
+		(in DiagExternRedundant) =>
 			DiagnosticSeverity.warning,
-		(in Diag.ExternFunVariadic) =>
+		(in DiagExternFunVariadic) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ExternHasUnnecessaryLibraryName) =>
+		(in DiagExternHasUnnecessaryLibraryName) =>
 			DiagnosticSeverity.warning,
-		(in Diag.ExternMissingLibraryName) =>
+		(in DiagExternMissingLibraryName) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ExternRecordImplicitlyByVal) =>
+		(in DiagExternRecordImplicitlyByVal) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ExternSumType) =>
+		(in DiagExternSumType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ExternTypeError) =>
+		(in DiagExternTypeError) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.FlagsSigned) =>
+		(in DiagFlagsSigned) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.FunctionWithSignatureNotFound) =>
+		(in DiagFunctionWithSignatureNotFound) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.FunPointerExprMustBeName) =>
+		(in DiagFunPointerExprMustBeName) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.FunPointerNotBare) =>
+		(in DiagFunPointerNotBare) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.IfThrow) =>
+		(in DiagIfThrow) =>
 			DiagnosticSeverity.warning,
-		(in Diag.ImportFileDiag) =>
+		(in DiagImportFileDiag) =>
 			DiagnosticSeverity.importError,
-		(in Diag.ImportRefersToNothing) =>
+		(in DiagImportRefersToNothing) =>
 			DiagnosticSeverity.nameNotFound,
-		(in Diag.LambdaCantBeFunctionPointer) =>
+		(in DiagLambdaCantBeFunctionPointer) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LambdaCantInferParamType) =>
+		(in DiagLambdaCantInferParamType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LambdaClosurePurity) =>
+		(in DiagLambdaClosurePurity) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LambdaMultipleMatch) =>
+		(in DiagLambdaMultipleMatch) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LambdaNotExpected) =>
+		(in DiagLambdaNotExpected) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LambdaTypeMissingParamType) =>
+		(in DiagLambdaTypeMissingParamType) =>
 			DiagnosticSeverity.parseError,
-		(in Diag.LambdaTypeVariadic) =>
+		(in DiagLambdaTypeVariadic) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LinkageWorseThanContainingFun) =>
+		(in DiagLinkageWorseThanContainingFun) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LinkageWorseThanContainingType) =>
+		(in DiagLinkageWorseThanContainingType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LiteralFloatAccuracy) =>
+		(in DiagLiteralFloatAccuracy) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LiteralMultipleMatch) =>
+		(in DiagLiteralMultipleMatch) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LiteralNotExpected) =>
+		(in DiagLiteralNotExpected) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LiteralOverflow) =>
+		(in DiagLiteralOverflow) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LocalIgnoredButMutable) =>
+		(in DiagLocalIgnoredButMutable) =>
 			DiagnosticSeverity.warning,
-		(in Diag.LocalNotMutable) =>
+		(in DiagLocalNotMutable) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LoopDisallowedBody) =>
+		(in DiagLoopDisallowedBody) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.LoopWithoutBreak) =>
+		(in DiagLoopWithoutBreak) =>
 			DiagnosticSeverity.warning,
-		(in Diag.MainMissingExterns) =>
+		(in DiagMainMissingExterns) =>
 			DiagnosticSeverity.commonMissing,
-		(in Diag.MainTestMissing) =>
+		(in DiagMainTestMissing) =>
 			DiagnosticSeverity.commonMissing,
-		(in Diag.MatchCaseDuplicate) =>
+		(in DiagMatchCaseDuplicate) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.MatchCaseForType) =>
+		(in DiagMatchCaseForType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.MatchCaseNameNotInEnum) =>
+		(in DiagMatchCaseNameNotInEnum) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.MatchCaseNoValueForEnumOrSymbol) =>
+		(in DiagMatchCaseNoValueForEnumOrSymbol) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.MatchCaseShouldUseIgnore) =>
+		(in DiagMatchCaseShouldUseIgnore) =>
 			DiagnosticSeverity.warning,
-		(in Diag.MatchNeedsElse) =>
+		(in DiagMatchNeedsElse) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.MatchOnNonMatchable) =>
+		(in DiagMatchOnNonMatchable) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.MatchSumTypeCantInferTypeArgs) =>
+		(in DiagMatchSumTypeCantInferTypeArgs) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.MatchSumTypeNoMember) =>
+		(in DiagMatchSumTypeNoMember) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.MatchUnhandledCases) =>
+		(in DiagMatchUnhandledCases) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.MatchUnnecessaryElse) =>
+		(in DiagMatchUnnecessaryElse) =>
 			DiagnosticSeverity.unusedCode,
-		(in Diag.MethodImplVisibility) =>
+		(in DiagMethodImplVisibility) =>
 			DiagnosticSeverity.warning,
-		(in Diag.ModifierConflict) =>
+		(in DiagModifierConflict) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ModifierDuplicate) =>
+		(in DiagModifierDuplicate) =>
 			DiagnosticSeverity.warning,
-		(in Diag.ModifierInvalid) =>
+		(in DiagModifierInvalid) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ModifierRedundantDueToDeclKind) =>
+		(in DiagModifierRedundantDueToDeclKind) =>
 			DiagnosticSeverity.warning,
-		(in Diag.ModifierRedundantDueToModifier) =>
+		(in DiagModifierRedundantDueToModifier) =>
 			DiagnosticSeverity.warning,
-		(in Diag.ModifierTypeArgInvalid) =>
+		(in DiagModifierTypeArgInvalid) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.MutFieldNotAllowed) =>
+		(in DiagMutFieldNotAllowed) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.NameNotFound) =>
+		(in DiagNameNotFound) =>
 			DiagnosticSeverity.nameNotFound,
-		(in Diag.NeedsExpectedType) =>
+		(in DiagNeedsExpectedType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ParamMissingType) =>
+		(in DiagParamMissingType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.ParamMutable) =>
+		(in DiagParamMutable) =>
 			DiagnosticSeverity.checkError,
 		(in ParseDiag x) =>
 			parseDiagSeverity(x),
-		(in Diag.PointerIsNative) =>
+		(in DiagPointerIsNative) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.PointerIsUnsafe) =>
+		(in DiagPointerIsUnsafe) =>
 			DiagnosticSeverity.warning,
-		(in Diag.PointerMutToConst) =>
+		(in DiagPointerMutToConst) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.PointerUnsupported) =>
+		(in DiagPointerUnsupported) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.PurityWorseThanParent) =>
+		(in DiagPurityWorseThanParent) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.PurityWorseThanSumType) =>
+		(in DiagPurityWorseThanSumType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.RecordFieldNeedsType) =>
+		(in DiagRecordFieldNeedsType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.SharedArgIsNotLambda) =>
+		(in DiagSharedArgIsNotLambda) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.SharedLambdaTypeIsNotShared) =>
+		(in DiagSharedLambdaTypeIsNotShared) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.SharedLambdaUnused) =>
+		(in DiagSharedLambdaUnused) =>
 			DiagnosticSeverity.unusedCode,
-		(in Diag.SharedNotExpected) =>
+		(in DiagSharedNotExpected) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.SpecMatchError) =>
+		(in DiagSpecMatchError) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.SpecNoMatch) =>
+		(in DiagSpecNoMatch) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.SpecRecursion) =>
+		(in DiagSpecRecursion) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.SpecSigCantBeVariadic) =>
+		(in DiagSpecSigCantBeVariadic) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.SpecUseInvalid) =>
+		(in DiagSpecUseInvalid) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.StringLiteralInvalid) =>
+		(in DiagStringLiteralInvalid) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.StorageMissingType) =>
+		(in DiagStorageMissingType) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.StructParamsSyntaxError) =>
+		(in DiagStructParamsSyntaxError) =>
 			DiagnosticSeverity.parseError,
-		(in Diag.SumTypeListedMembersNonUnion) =>
+		(in DiagSumTypeListedMembersNonUnion) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.TestMissingBody) =>
+		(in DiagTestMissingBody) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.TrustedUnnecessary) =>
+		(in DiagTrustedUnnecessary) =>
 			DiagnosticSeverity.warning,
-		(in Diag.TupleTooBig) =>
+		(in DiagTupleTooBig) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.TypeAnnotationUnnecessary) =>
+		(in DiagTypeAnnotationUnnecessary) =>
 			DiagnosticSeverity.warning,
-		(in Diag.TypeConflict) =>
+		(in DiagTypeConflict) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.TypeParamCantHaveTypeArgs) =>
+		(in DiagTypeParamCantHaveTypeArgs) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.TypeParamsUnsupported) =>
+		(in DiagTypeParamsUnsupported) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.TypeShouldUseSyntax) =>
+		(in DiagTypeShouldUseSyntax) =>
 			DiagnosticSeverity.warning,
-		(in Diag.UnionMemberTypeParameter) =>
+		(in DiagUnionMemberTypeParameter) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.UnsupportedSyntax) =>
+		(in DiagUnsupportedSyntax) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.Unused) =>
+		(in DiagUnused) =>
 			DiagnosticSeverity.unusedCode,
-		(in Diag.VarargsParamMustBeArray) =>
+		(in DiagVarargsParamMustBeArray) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.VisibilityWarning) =>
+		(in DiagVisibilityWarning) =>
 			DiagnosticSeverity.unusedCode,
-		(in Diag.WithHasElse) =>
+		(in DiagWithHasElse) =>
 			DiagnosticSeverity.checkError,
-		(in Diag.WrongNumberTypeArgs) =>
+		(in DiagWrongNumberTypeArgs) =>
 			DiagnosticSeverity.checkError);
 
 private:
 
 DiagnosticSeverity parseDiagSeverity(in ParseDiag a) =>
 	a.matchIn!DiagnosticSeverity(
-		(in ParseDiag.DocCommentUnused) =>
+		(in ParseDiagDocCommentUnused) =>
 			DiagnosticSeverity.unusedCode,
-		(in ParseDiag.Expected) =>
+		(in ParseDiagExpected) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.FileNotUtf8) =>
+		(in ParseDiagFileNotUtf8) =>
 			DiagnosticSeverity.importError,
-		(in ParseDiag.ImportFileTypeNotSupported) =>
+		(in ParseDiagImportFileTypeNotSupported) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.IndentNotDivisible) =>
+		(in ParseDiagIndentNotDivisible) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.IndentTooMuch) =>
+		(in ParseDiagIndentTooMuch) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.IndentWrongCharacter) =>
+		(in ParseDiagIndentWrongCharacter) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.InvalidStringEscape) =>
+		(in ParseDiagInvalidStringEscape) =>
 			DiagnosticSeverity.warning,
-		(in ParseDiag.MatchCaseInterpolated) =>
+		(in ParseDiagMatchCaseInterpolated) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.MissingInterpolated) =>
+		(in ParseDiagMissingInterpolated) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.NeedsBlockCtx) =>
+		(in ParseDiagNeedsBlockCtx) =>
 			DiagnosticSeverity.parseError,
 		(in ReadFileDiag _) =>
 			DiagnosticSeverity.importError,
-		(in ParseDiag.TrailingComma) =>
+		(in ParseDiagTrailingComma) =>
 			DiagnosticSeverity.warning,
-		(in ParseDiag.TypeEmptyParens) =>
+		(in ParseDiagTypeEmptyParens) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.TypeTrailingMut) =>
+		(in ParseDiagTypeTrailingMut) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.TypeUnnecessaryParens) =>
+		(in ParseDiagTypeUnnecessaryParens) =>
 			DiagnosticSeverity.warning,
-		(in ParseDiag.UnexpectedCharacter) =>
+		(in ParseDiagUnexpectedCharacter) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.UnexpectedOperator) =>
+		(in ParseDiagUnexpectedOperator) =>
 			DiagnosticSeverity.parseError,
-		(in ParseDiag.UnexpectedToken) =>
+		(in ParseDiagUnexpectedToken) =>
 			DiagnosticSeverity.parseError);

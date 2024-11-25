@@ -18,7 +18,7 @@ import frontend.parse.lexer :
 	TokenAndData;
 import frontend.parse.lexToken : isSymbolToken;
 import model.ast : LiteralIntegral, LiteralIntegralAndRange, NameAndRange;
-import model.parseDiag : ParseDiag;
+import model.parseDiag : ParseDiag, ParseDiagExpected;
 import util.col.array : contains;
 import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
 import util.sourceRange : Pos, Range;
@@ -64,49 +64,49 @@ Opt!T tryTakeTokenCb(T)(ref Lexer lexer, in Opt!T delegate(TokenAndData) @safe @
 	return res;
 }
 
-bool takeOrAddDiagExpectedTokenAndSkipRestOfLine(ref Lexer lexer, Token token, ParseDiag.Expected.Kind kind) {
+bool takeOrAddDiagExpectedTokenAndSkipRestOfLine(ref Lexer lexer, Token token, ParseDiagExpected.Kind kind) {
 	bool res = takeOrAddDiagExpectedToken(lexer, token, kind);
 	if (!res)
 		skipUntilNewlineNoDiag(lexer);
 	return res;
 }
-bool takeOrAddDiagExpectedToken(ref Lexer lexer, Token token, ParseDiag.Expected.Kind kind) {
+bool takeOrAddDiagExpectedToken(ref Lexer lexer, Token token, ParseDiagExpected.Kind kind) {
 	bool res = tryTakeToken(lexer, token);
 	if (!res)
-		addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(kind)));
+		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(kind)));
 	return res;
 }
-bool takeOrAddDiagExpectedTokenAndMayContinueOntoNextLine(ref Lexer lexer, Token token, ParseDiag.Expected.Kind kind) {
+bool takeOrAddDiagExpectedTokenAndMayContinueOntoNextLine(ref Lexer lexer, Token token, ParseDiagExpected.Kind kind) {
 	bool res = tryTakeTokenAndMayContinueOntoNextLine(lexer, token);
 	if (!res)
-		addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(kind)));
+		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(kind)));
 	return res;
 }
-bool takeOrAddDiagExpectedToken(ref Lexer lexer, in Token[] tokens, ParseDiag.Expected.Kind kind) {
+bool takeOrAddDiagExpectedToken(ref Lexer lexer, in Token[] tokens, ParseDiagExpected.Kind kind) {
 	bool res = tryTakeToken(lexer, tokens);
 	if (!res)
-		addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(kind)));
+		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(kind)));
 	return res;
 }
 Opt!T takeOrAddDiagExpectedToken(T)(
 	ref Lexer lexer,
-	ParseDiag.Expected.Kind kind,
+	ParseDiagExpected.Kind kind,
 	in Opt!T delegate(TokenAndData) @safe @nogc pure nothrow cb,
 ) {
 	Opt!T res = tryTakeTokenCb!T(lexer, cb);
 	if (!has(res))
-		addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(kind)));
+		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(kind)));
 	return res;
 }
 
-void addDiagExpected(ref Lexer lexer, ParseDiag.Expected.Kind kind) {
-	addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(kind)));
+void addDiagExpected(ref Lexer lexer, ParseDiagExpected.Kind kind) {
+	addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(kind)));
 }
 
-bool takeOrAddDiagExpectedOperator(ref Lexer lexer, Symbol operator, ParseDiag.Expected.Kind kind) {
+bool takeOrAddDiagExpectedOperator(ref Lexer lexer, Symbol operator, ParseDiagExpected.Kind kind) {
 	bool res = tryTakeOperator(lexer, operator);
 	if (!res)
-		addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(kind)));
+		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(kind)));
 	return res;
 }
 
@@ -141,7 +141,7 @@ Opt!NameAndRange tryTakeNameAndRangeOrDiag(ref Lexer lexer) {
 	Pos start = curPos(lexer);
 	Opt!NameAndRange res = tryTakeNameAndRange(lexer);
 	if (!has(res))
-		addDiag(lexer, rangeForCurToken(lexer, start), ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.name)));
+		addDiag(lexer, rangeForCurToken(lexer, start), ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.name)));
 	return res;
 }
 
@@ -167,7 +167,7 @@ NameAndRange takeNameOrOperator(ref Lexer lexer) {
 		return NameAndRange(start, force(res));
 	else {
 		addDiag(lexer, rangeForCurToken(lexer, start), ParseDiag(
-			ParseDiag.Expected(ParseDiag.Expected.Kind.nameOrOperator)));
+			ParseDiagExpected(ParseDiagExpected.Kind.nameOrOperator)));
 		return NameAndRange(start, symbol!"");
 	}
 }
@@ -194,7 +194,7 @@ bool peekEndOfLine(ref Lexer lexer) =>
 
 void takeDedent(ref Lexer lexer) {
 	if (!tryTakeToken(lexer, Token.newlineDedent)) {
-		addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.dedent)));
+		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.dedent)));
 		while (skipToNextNewlineOrDedent(lexer) != NewlineOrDedent.dedent) {}
 	}
 }
@@ -210,7 +210,7 @@ NewlineOrDedent takeNewlineOrDedent(ref Lexer lexer) {
 	else if (tryTakeToken(lexer, [Token.newlineDedent, Token.endOfFile]))
 		return NewlineOrDedent.dedent;
 	else {
-		addDiagAtChar(lexer, ParseDiag(ParseDiag.Expected(ParseDiag.Expected.Kind.newlineOrDedent)));
+		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.newlineOrDedent)));
 		return skipToNextNewlineOrDedent(lexer);
 	}
 }
@@ -251,8 +251,7 @@ T takeIndentOrFailGeneric(T)(
 		return cbIndent();
 	else {
 		Range range = rangeForCurToken(lexer, start);
-		addDiag(lexer, range, ParseDiag(
-			ParseDiag.Expected(ParseDiag.Expected.Kind.indent)));
+		addDiag(lexer, range, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.indent)));
 		return cbFail(range);
 	}
 }

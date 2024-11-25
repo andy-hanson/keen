@@ -11,6 +11,7 @@ import model.model :
 	CommonTypes,
 	Destructure,
 	Diag,
+	DiagTrustedUnnecessary,
 	FunFlags,
 	LambdaExpr,
 	Local,
@@ -133,13 +134,13 @@ TypeWithContainer typeWithContainer(ref const ExprCtx ctx, Type a) =>
 	TypeWithContainer(a, ctx.typeContainer);
 
 T withTrusted(T)(ref ExprCtx ctx, ExprAst* source, in T delegate() @safe @nogc pure nothrow cb) {
-	Opt!(Diag.TrustedUnnecessary.Reason) reason = ctx.outermostFunFlags.safety != FunFlags.Safety.safe
-		? some(Diag.TrustedUnnecessary.Reason.inUnsafeFunction)
+	Opt!(DiagTrustedUnnecessary.Reason) reason = ctx.outermostFunFlags.safety != FunFlags.Safety.safe
+		? some(DiagTrustedUnnecessary.Reason.inUnsafeFunction)
 		: ctx.isInTrusted
-		? some(Diag.TrustedUnnecessary.Reason.inTrusted)
-		: none!(Diag.TrustedUnnecessary.Reason);
+		? some(DiagTrustedUnnecessary.Reason.inTrusted)
+		: none!(DiagTrustedUnnecessary.Reason);
 	if(has(reason)) {
-		addDiag2(ctx, trustedKeywordRange(source), Diag(Diag.TrustedUnnecessary(force(reason))));
+		addDiag2(ctx, trustedKeywordRange(source), Diag(DiagTrustedUnnecessary(force(reason))));
 		return cb();
 	} else {
 		ctx.isInTrusted = true;
@@ -147,7 +148,7 @@ T withTrusted(T)(ref ExprCtx ctx, ExprAst* source, in T delegate() @safe @nogc p
 		ctx.isInTrusted = false;
 		if (!ctx.usedTrusted)
 			addDiag2(ctx, trustedKeywordRange(source), Diag(
-				Diag.TrustedUnnecessary(Diag.TrustedUnnecessary.Reason.unused)));
+				DiagTrustedUnnecessary(DiagTrustedUnnecessary.Reason.unused)));
 		ctx.usedTrusted = false;
 		return res;
 	}
