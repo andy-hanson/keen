@@ -64,154 +64,161 @@ private Opt!VisibilityAndRange getVisibilityAndRange(Pos pos, Opt!Visibility vis
 immutable struct TypeAst {
 	@safe @nogc pure nothrow:
 
-	immutable struct Bogus {
-		Range range;
-	}
-
-	immutable struct Fun {
-		@safe @nogc pure nothrow:
-
-		TypeAst returnType;
-		Pos kindPos;
-		FunKind kind;
-		Range paramsRange;
-		ParamsAst params;
-
-		Range range() scope =>
-			combineRanges(returnType.range, paramsRange);
-		Range kindRange() scope =>
-			rangeOfStartAndLength(kindPos, stringOfEnum(kind).length);
-	}
-
-	immutable struct Map {
-		@safe @nogc pure nothrow:
-		enum Kind {
-			data,
-			mut,
-			shared_,
-		}
-		Kind kind;
-		// They are actually written v[k] at the use, but applied as (k, v)
-		TypeAst[2] kv;
-		TypeAst k() return scope =>
-			kv[0];
-		TypeAst v() return scope =>
-			kv[1];
-
-		Range range() scope =>
-			Range(v.range.start, safeToUint(k.range.end + "]".length));
-	}
-
-	immutable struct SuffixName {
-		@safe @nogc pure nothrow:
-		TypeAst left;
-		NameAndRange name;
-
-		Range range() scope =>
-			combineRanges(left.range, suffixRange);
-		Range suffixRange() scope =>
-			name.range;
-	}
-
-	immutable struct SuffixSpecial {
-		@safe @nogc pure nothrow:
-		enum Kind : ubyte {
-			array,
-			mutArray,
-			mutPtr,
-			option,
-			ptr,
-			sharedArray,
-		}
-		TypeAst left;
-		Pos suffixPos;
-		Kind kind;
-
-		Range range() scope =>
-			Range(left.range.start, suffixEnd);
-		Range suffixRange() scope =>
-			Range(suffixPos, suffixEnd);
-		private Pos suffixEnd() scope =>
-			suffixPos + suffixLength(kind);
-	}
-
-	immutable struct Tuple {
-		@safe @nogc pure nothrow:
-
-		Range range;
-		SmallArray!TypeAst members;
-
-		this(Range r, TypeAst[] ms) {
-			range = r;
-			members = ms;
-			assert(members.length >= 2);
-		}
-	}
-
-	mixin Union!(Bogus, Fun*, Map*, NameAndRange, SuffixName*, SuffixSpecial*, Tuple*);
+	mixin Union!(
+		BogusTypeAst,
+		FunTypeAst*,
+		MapTypeAst*,
+		NameAndRange,
+		SuffixNameTypeAst*,
+		SuffixSpecialTypeAst*,
+		TupleTypeAst*);
 
 	Range range() scope =>
 		matchIn!Range(
-			(in TypeAst.Bogus x) => x.range,
-			(in TypeAst.Fun x) => x.range,
-			(in TypeAst.Map x) => x.range,
+			(in BogusTypeAst x) => x.range,
+			(in FunTypeAst x) => x.range,
+			(in MapTypeAst x) => x.range,
 			(in NameAndRange x) => x.range,
-			(in TypeAst.SuffixName x) => x.range,
-			(in TypeAst.SuffixSpecial x) => x.range,
-			(in TypeAst.Tuple x) => x.range);
+			(in SuffixNameTypeAst x) => x.range,
+			(in SuffixSpecialTypeAst x) => x.range,
+			(in TupleTypeAst x) => x.range);
 	Range nameRangeOrRange() scope =>
 		matchIn!Range(
-			(in TypeAst.Bogus x) => x.range,
-			(in TypeAst.Fun x) => x.kindRange,
-			(in TypeAst.Map x) => x.range,
+			(in BogusTypeAst x) => x.range,
+			(in FunTypeAst x) => x.kindRange,
+			(in MapTypeAst x) => x.range,
 			(in NameAndRange x) => x.range,
-			(in TypeAst.SuffixName x) => x.suffixRange,
-			(in TypeAst.SuffixSpecial x) => x.suffixRange,
-			(in TypeAst.Tuple x) => x.range);
+			(in SuffixNameTypeAst x) => x.suffixRange,
+			(in SuffixSpecialTypeAst x) => x.suffixRange,
+			(in TupleTypeAst x) => x.range);
 }
 static assert(TypeAst.sizeof == size_t.sizeof + NameAndRange.sizeof);
 
-private uint suffixLength(TypeAst.SuffixSpecial.Kind a) {
+immutable struct BogusTypeAst {
+	Range range;
+}
+
+immutable struct FunTypeAst {
+	@safe @nogc pure nothrow:
+
+	TypeAst returnType;
+	Pos kindPos;
+	FunKind kind;
+	Range paramsRange;
+	ParamsAst params;
+
+	Range range() scope =>
+		combineRanges(returnType.range, paramsRange);
+	Range kindRange() scope =>
+		rangeOfStartAndLength(kindPos, stringOfEnum(kind).length);
+}
+
+immutable struct MapTypeAst {
+	@safe @nogc pure nothrow:
+	enum Kind {
+		data,
+		mut,
+		shared_,
+	}
+	Kind kind;
+	// They are actually written v[k] at the use, but applied as (k, v)
+	TypeAst[2] kv;
+	TypeAst k() return scope =>
+		kv[0];
+	TypeAst v() return scope =>
+		kv[1];
+
+	Range range() scope =>
+		Range(v.range.start, safeToUint(k.range.end + "]".length));
+}
+
+immutable struct SuffixNameTypeAst {
+	@safe @nogc pure nothrow:
+	TypeAst left;
+	NameAndRange name;
+
+	Range range() scope =>
+		combineRanges(left.range, suffixRange);
+	Range suffixRange() scope =>
+		name.range;
+}
+
+immutable struct SuffixSpecialTypeAst {
+	@safe @nogc pure nothrow:
+	enum Kind : ubyte {
+		array,
+		mutArray,
+		mutPtr,
+		option,
+		ptr,
+		sharedArray,
+	}
+	TypeAst left;
+	Pos suffixPos;
+	Kind kind;
+
+	Range range() scope =>
+		Range(left.range.start, suffixEnd);
+	Range suffixRange() scope =>
+		Range(suffixPos, suffixEnd);
+	private Pos suffixEnd() scope =>
+		suffixPos + suffixLength(kind);
+}
+
+immutable struct TupleTypeAst {
+	@safe @nogc pure nothrow:
+
+	Range range;
+	SmallArray!TypeAst members;
+
+	this(Range r, TypeAst[] ms) {
+		range = r;
+		members = ms;
+		assert(members.length >= 2);
+	}
+}
+
+private uint suffixLength(SuffixSpecialTypeAst.Kind a) {
 	final switch (a) {
-		case TypeAst.SuffixSpecial.Kind.array:
+		case SuffixSpecialTypeAst.Kind.array:
 			return cast(uint) "[]".length;
-		case TypeAst.SuffixSpecial.Kind.option:
+		case SuffixSpecialTypeAst.Kind.option:
 			return cast(uint) "?".length;
-		case TypeAst.SuffixSpecial.Kind.mutArray:
+		case SuffixSpecialTypeAst.Kind.mutArray:
 			return cast(uint) "mut[]".length;
-		case TypeAst.SuffixSpecial.Kind.mutPtr:
+		case SuffixSpecialTypeAst.Kind.mutPtr:
 			return cast(uint) "mut*".length;
-		case TypeAst.SuffixSpecial.Kind.ptr:
+		case SuffixSpecialTypeAst.Kind.ptr:
 			return cast(uint) "*".length;
-		case TypeAst.SuffixSpecial.Kind.sharedArray:
+		case SuffixSpecialTypeAst.Kind.sharedArray:
 			return cast(uint) "shared[]".length;
 	}
 }
 
-Symbol symbolForTypeAstMap(TypeAst.Map.Kind a) {
+Symbol symbolForTypeAstMap(MapTypeAst.Kind a) {
 	final switch (a) {
-		case TypeAst.Map.Kind.data:
+		case MapTypeAst.Kind.data:
 			return symbol!"map";
-		case TypeAst.Map.Kind.mut:
+		case MapTypeAst.Kind.mut:
 			return symbol!"mut-map";
-		case TypeAst.Map.Kind.shared_:
+		case MapTypeAst.Kind.shared_:
 			return symbol!"shared-map";
 	}
 }
 
-Symbol symbolForTypeAstSuffix(TypeAst.SuffixSpecial.Kind a) {
+Symbol symbolForTypeAstSuffix(SuffixSpecialTypeAst.Kind a) {
 	final switch (a) {
-		case TypeAst.SuffixSpecial.Kind.array:
+		case SuffixSpecialTypeAst.Kind.array:
 			return symbol!"array";
-		case TypeAst.SuffixSpecial.Kind.mutArray:
+		case SuffixSpecialTypeAst.Kind.mutArray:
 			return symbol!"mut-array";
-		case TypeAst.SuffixSpecial.Kind.mutPtr:
+		case SuffixSpecialTypeAst.Kind.mutPtr:
 			return symbol!"mut-pointer";
-		case TypeAst.SuffixSpecial.Kind.option:
+		case SuffixSpecialTypeAst.Kind.option:
 			return symbol!"option";
-		case TypeAst.SuffixSpecial.Kind.ptr:
+		case SuffixSpecialTypeAst.Kind.ptr:
 			return symbol!"const-pointer";
-		case TypeAst.SuffixSpecial.Kind.sharedArray:
+		case SuffixSpecialTypeAst.Kind.sharedArray:
 			return symbol!"shared-array";
 	}
 }
@@ -398,25 +405,25 @@ immutable struct IdentifierAst {
 
 immutable struct ConditionAst {
 	@safe @nogc pure nothrow:
-	immutable struct UnpackOption {
-		@safe @nogc pure nothrow:
-		DestructureAst destructure;
-		Pos questionEqualsPos;
-		ExprAst* option;
-
-		Range range() scope =>
-			combineRanges(destructure.range, option.range);
-		Range questionEqualsRange() scope =>
-			rangeOfStartAndLength(questionEqualsPos, "?=".length);
-	}
-	mixin TaggedUnion!(ExprAst*, UnpackOption*);
+	mixin TaggedUnion!(ExprAst*, UnpackOptionAst*);
 
 	Range range() scope =>
 		matchIn!Range(
 			(in ExprAst x) =>
 				x.range,
-			(in UnpackOption x) =>
+			(in UnpackOptionAst x) =>
 				x.range);
+}
+immutable struct UnpackOptionAst {
+	@safe @nogc pure nothrow:
+	DestructureAst destructure;
+	Pos questionEqualsPos;
+	ExprAst* option;
+
+	Range range() scope =>
+		combineRanges(destructure.range, option.range);
+	Range questionEqualsRange() scope =>
+		rangeOfStartAndLength(questionEqualsPos, "?=".length);
 }
 
 immutable struct IfAst {
@@ -587,52 +594,52 @@ immutable struct LambdaAst {
 immutable struct DestructureAst {
 	@safe @nogc pure nothrow:
 
-	immutable struct Single {
-		@safe @nogc pure nothrow:
-		NameAndRange name; // Name may be '_', meaning ignore and don't create a local
-		Opt!Pos mut; // position of 'mut' keyword if it exists
-		Opt!(TypeAst*) type;
-
-		Range range() scope =>
-			Range(name.start, (
-				has(type)
-				? force(type).range
-				: optOrDefault!Range(mutRange, () => name.range)
-			).end);
-		Range nameRange() scope =>
-			name.range;
-		Opt!Range mutRange() scope =>
-			has(mut)
-				? some(Range(force(mut), force(mut) + safeToUint("mut".length)))
-				: none!Range;
-	}
-	// `()` is a destructure matching only void values
-	immutable struct Void {
-		Range range;
-	}
-	mixin Union!(Single, Void, DestructureAst[]);
+	mixin Union!(SingleDestructureAst, VoidDestructureAst, DestructureAst[]);
 
 	Pos pos() scope =>
 		matchIn!Pos(
-			(in DestructureAst.Single x) =>
+			(in SingleDestructureAst x) =>
 				x.name.start,
-			(in DestructureAst.Void x) =>
+			(in VoidDestructureAst x) =>
 				x.range.start,
 			(in DestructureAst[] parts) =>
 				parts[0].pos);
 
 	Range range() scope =>
 		matchIn!Range(
-			(in DestructureAst.Single x) {
+			(in SingleDestructureAst x) {
 				Range name = x.name.range;
 				return has(x.type)
 					? Range(name.start, force(x.type).range.end)
 					: name;
 			},
-			(in DestructureAst.Void x) =>
+			(in VoidDestructureAst x) =>
 				x.range,
 			(in DestructureAst[] parts) =>
 				Range(parts[0].range.start, parts[$ - 1].range.end));
+}
+immutable struct SingleDestructureAst {
+	@safe @nogc pure nothrow:
+	NameAndRange name; // Name may be '_', meaning ignore and don't create a local
+	Opt!Pos mut; // position of 'mut' keyword if it exists
+	Opt!(TypeAst*) type;
+
+	Range range() scope =>
+		Range(name.start, (
+			has(type)
+			? force(type).range
+			: optOrDefault!Range(mutRange, () => name.range)
+		).end);
+	Range nameRange() scope =>
+		name.range;
+	Opt!Range mutRange() scope =>
+		has(mut)
+			? some(Range(force(mut), force(mut) + safeToUint("mut".length)))
+			: none!Range;
+}
+// `()` is a destructure matching only void values
+immutable struct VoidDestructureAst {
+	Range range;
 }
 
 immutable struct LetAst {
@@ -730,27 +737,28 @@ immutable struct CaseAst {
 
 immutable struct CaseMemberAst {
 	@safe @nogc pure nothrow:
-	immutable struct Bogus {
-		Range range;
-	}
-	immutable struct Name {
-		NameAndRange name;
-		Opt!DestructureAst destructure;
-	}
-	immutable struct String {
-		Range range;
-		string value;
-	}
 
-	mixin Union!(Name, LiteralIntegralAndRange, String, Bogus);
+	mixin Union!(AsNameAst, LiteralIntegralAndRange, AsStringAst, AsBogusAst);
 	Range nameRange() scope =>
 		matchIn!Range(
-			(in Name x) => x.name.range,
+			(in AsNameAst x) => x.name.range,
 			(in LiteralIntegralAndRange x) => x.range,
-			(in String x) => x.range,
-			(in CaseMemberAst.Bogus x) => x.range);
+			(in AsStringAst x) => x.range,
+			(in AsBogusAst x) => x.range);
 }
-static assert(CaseMemberAst.sizeof == roundUp(CaseMemberAst.Name.sizeof, 8) + ulong.sizeof);
+static assert(CaseMemberAst.sizeof == roundUp(AsNameAst.sizeof, 8) + ulong.sizeof);
+
+immutable struct AsBogusAst {
+	Range range;
+}
+immutable struct AsNameAst {
+	NameAndRange name;
+	Opt!DestructureAst destructure;
+}
+immutable struct AsStringAst {
+	Range range;
+	string value;
+}
 
 immutable struct MatchElseAst {
 	@safe @nogc pure nothrow:
@@ -918,17 +926,17 @@ ExprAst bogusExpr(in Range range) =>
 	ExprAst(range, ExprAstKind(BogusAst()));
 
 immutable struct ParamsAst {
-	immutable struct Varargs {
-		DestructureAst param;
-	}
-	mixin TaggedUnion!(SmallArray!DestructureAst, Varargs*);
+	mixin TaggedUnion!(SmallArray!DestructureAst, VarargsAst*);
+}
+immutable struct VarargsAst {
+	DestructureAst param;
 }
 
 DestructureAst[] paramsArray(return scope ParamsAst a) =>
 	a.matchWithPointers!(DestructureAst[])(
 		(DestructureAst[] x) =>
 			x,
-		(ParamsAst.Varargs* x) =>
+		(VarargsAst* x) =>
 			arrayOfSingle(&x.param));
 
 immutable struct SignatureAst {
@@ -975,29 +983,29 @@ Range typeParamsRange(in SmallArray!NameAndRange typeParams) {
 immutable struct ModifierAst {
 	@safe @nogc pure nothrow:
 
-	immutable struct Keyword {
-		@safe @nogc pure nothrow:
-
-		Opt!TypeAst typeArg;
-		Pos keywordPos;
-		ModifierKeyword keyword;
-
-		Range range() scope =>
-			has(typeArg)
-				? combineRanges(force(typeArg).range, keywordRange)
-				: keywordRange;
-		Range keywordRange() scope =>
-			rangeOfStartAndLength(keywordPos, stringOfModifierKeyword(keyword).length);
-	}
-
-	mixin Union!(Keyword, SpecUseAst);
+	mixin Union!(ModifierKeywordAst, SpecUseAst);
 
 	Range range() scope =>
 		matchIn!Range(
-			(in Keyword x) =>
+			(in ModifierKeywordAst x) =>
 				x.range,
 			(in SpecUseAst x) =>
 				x.range);
+}
+
+immutable struct ModifierKeywordAst {
+	@safe @nogc pure nothrow:
+
+	Opt!TypeAst typeArg;
+	Pos keywordPos;
+	ModifierKeyword keyword;
+
+	Range range() scope =>
+		has(typeArg)
+			? combineRanges(force(typeArg).range, keywordRange)
+			: keywordRange;
+	Range keywordRange() scope =>
+		rangeOfStartAndLength(keywordPos, stringOfModifierKeyword(keyword).length);
 }
 
 immutable struct SpecUseAst {
@@ -1040,41 +1048,42 @@ enum ModifierKeyword : ubyte {
 }
 
 immutable struct StructBodyAst {
-	immutable struct Builtin {}
-	immutable struct Enum {
-		Opt!ParamsAst params;
-		SmallArray!EnumOrFlagsMemberAst members;
-	}
-	immutable struct Extern {
-		Opt!(LiteralIntegralAndRange*) size;
-		Opt!(LiteralIntegralAndRange*) alignment;
-	}
-	immutable struct Flags {
-		Opt!ParamsAst params;
-		SmallArray!EnumOrFlagsMemberAst members;
-	}
-	immutable struct Record {
-		Opt!ParamsAst params;
-		SmallArray!RecordFieldAst fields;
-	}
-	immutable struct SumType {
-		@safe @nogc pure nothrow:
-		SumTypeKind kind;
-		immutable struct TypesAndMethods {
-			SmallArray!TypeAst types;
-			SmallArray!SignatureAst methods;
-		}
-		private TypesAndMethods* typesAndMethods;
-
-		SmallArray!TypeAst types() return scope =>
-			typesAndMethods.types;
-		SmallArray!SignatureAst methods() return scope =>
-			typesAndMethods.methods;
-	}
-
-	mixin .Union!(Builtin, Enum, Extern, Flags, Record, SumType);
+	mixin .Union!(BuiltinTypeAst, EnumAst, ExternTypeAst, FlagsAst, RecordAst, SumTypeAst);
 }
 static assert(StructBodyAst.sizeof <= 24);
+
+
+immutable struct BuiltinTypeAst {}
+immutable struct EnumAst {
+	Opt!ParamsAst params;
+	SmallArray!EnumOrFlagsMemberAst members;
+}
+immutable struct ExternTypeAst {
+	Opt!(LiteralIntegralAndRange*) size;
+	Opt!(LiteralIntegralAndRange*) alignment;
+}
+immutable struct FlagsAst {
+	Opt!ParamsAst params;
+	SmallArray!EnumOrFlagsMemberAst members;
+}
+immutable struct RecordAst {
+	Opt!ParamsAst params;
+	SmallArray!RecordFieldAst fields;
+}
+immutable struct SumTypeAst {
+	@safe @nogc pure nothrow:
+	SumTypeKind kind;
+	immutable struct TypesAndMethods {
+		SmallArray!TypeAst types;
+		SmallArray!SignatureAst methods;
+	}
+	private TypesAndMethods* typesAndMethods;
+
+	SmallArray!TypeAst types() return scope =>
+		typesAndMethods.types;
+	SmallArray!SignatureAst methods() return scope =>
+		typesAndMethods.methods;
+}
 
 immutable struct EnumOrFlagsMemberAst {
 	@safe @nogc pure nothrow:
@@ -1130,17 +1139,17 @@ immutable struct StructDeclAst {
 
 private string keywordForStructBody(in StructBodyAst a) =>
 	a.matchIn!string(
-		(in StructBodyAst.Builtin) =>
+		(in BuiltinAst) =>
 			"builtin",
-		(in StructBodyAst.Enum) =>
+		(in EnumAst) =>
 			"enum",
-		(in StructBodyAst.Extern) =>
+		(in ExternTypeAst) =>
 			"extern",
-		(in StructBodyAst.Flags) =>
+		(in FlagsAst) =>
 			"flags",
-		(in StructBodyAst.Record) =>
+		(in RecordAst) =>
 			"record",
-		(in StructBodyAst.SumType x) =>
+		(in SumTypeAst x) =>
 			stringOfEnum(x.kind));
 
 immutable struct SpecDeclAst {
@@ -1286,13 +1295,13 @@ private size_t pathOrRelPathLength(in PathOrRelPath a) =>
 			relPathLength(x));
 
 immutable struct ImportOrExportAstKind {
-	immutable struct ModuleWhole {}
-	immutable struct File {
-		NameAndRange name;
-		TypeAst typeAst;
-		ImportFileType type;
-	}
-	mixin TaggedUnion!(ModuleWhole, SmallArray!NameAndRange, File*);
+	mixin TaggedUnion!(ImportWholeModuleAst, SmallArray!NameAndRange, ImportFileAst*);
+}
+immutable struct ImportWholeModuleAst {}
+immutable struct ImportFileAst {
+	NameAndRange name;
+	TypeAst typeAst;
+	ImportFileType type;
 }
 
 enum ImportFileType { nat8Array, string }

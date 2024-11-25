@@ -16,9 +16,12 @@ import frontend.ide.importReferences : eachModuleReferencing, eachNamedImport, r
 import frontend.ide.position : ExprContainer, Position, PositionKind;
 import lib.lsp.lspTypes : DocumentHighlight, DocumentHighlightKind, DocumentHighlightResult;
 import model.ast :
+	AsBogusAst,
+	AsNameAst,
 	AssertOrForbidAst,
 	AssignmentAst,
 	AssignmentCallAst,
+	AsStringAst,
 	CallAst,
 	CaseAst,
 	CaseMemberAst,
@@ -36,17 +39,23 @@ import model.ast :
 	MatchAst,
 	ModifierAst,
 	ModifierKeyword,
+	ModifierKeywordAst,
 	NameAndRange,
 	ParamsAst,
 	paramsArray,
+	RecordAst,
 	RecordFieldAst,
+	SingleDestructureAst,
 	SpecUseAst,
 	StructBodyAst,
 	StructDeclAst,
+	SumTypeAst,
 	TryAst,
 	TryLetAst,
 	TypeAst,
 	TypedAst,
+	UnpackOptionAst,
+	VoidDestructureAst,
 	WithAst;
 import model.model :
 	AssertOrForbidExpr,
@@ -444,9 +453,9 @@ void eachTypeInStructModifiers(
 		modifiers,
 		variants,
 		(in ModifierAst mod) =>
-			mod.isA!(ModifierAst.Keyword) && mod.as!(ModifierAst.Keyword).keyword == ModifierKeyword.case_,
+			mod.isA!ModifierKeywordAst && mod.as!ModifierKeywordAst.keyword == ModifierKeyword.case_,
 		(in ModifierAst mod, in SumTypeMembership x) {
-			cb(Type(x.sumType), force(mod.as!(ModifierAst.Keyword).typeArg));
+			cb(Type(x.sumType), force(mod.as!ModifierKeywordAst.typeArg));
 		});
 }
 void eachTypeInStructBody(
@@ -467,27 +476,27 @@ void eachTypeInStructBody(
 			eachTypeInEnumOrFlags(commonTypes, structAst, x.storage, cb);
 		},
 		(in StructBody.Record x) {
-			eachTypeInRecord(x, ast.as!(StructBodyAst.Record), cb);
+			eachTypeInRecord(x, ast.as!RecordAst, cb);
 		},
 		(in StructBody.SumType x) {
-			eachTypeInVariant(x, ast.as!(StructBodyAst.SumType), cb);
+			eachTypeInVariant(x, ast.as!SumTypeAst, cb);
 		});
 }
 void eachTypeInEnumOrFlags(ref CommonTypes commonTypes, in StructDeclAst struct_, IntegralType storage, in TypeCb cb) {
 	foreach (ref ModifierAst modifier; struct_.modifiers)
-		if (modifier.isA!(ModifierAst.Keyword)) {
-			ModifierAst.Keyword keyword = modifier.as!(ModifierAst.Keyword);
+		if (modifier.isA!(ModifierKeywordAst)) {
+			ModifierKeywordAst keyword = modifier.as!(ModifierKeywordAst);
 			if (keyword.keyword == ModifierKeyword.storage && has(keyword.typeArg))
 				cb(Type(commonTypes.integrals[storage]), force(keyword.typeArg));
 		}
 }
-void eachTypeInRecord(in StructBody.Record a, in StructBodyAst.Record ast, in TypeCb cb) {
+void eachTypeInRecord(in StructBody.Record a, in RecordAst ast, in TypeCb cb) {
 	if (has(ast.params)) {
 		if (force(ast.params).isA!(DestructureAst[])) {
 			zip!(RecordField, DestructureAst)(
 				a.fields, force(ast.params).as!(DestructureAst[]), (ref RecordField field, ref DestructureAst ast) {
-					if (ast.isA!(DestructureAst.Single)) {
-						Opt!(TypeAst*) typeAst = ast.as!(DestructureAst.Single).type;
+					if (ast.isA!(SingleDestructureAst)) {
+						Opt!(TypeAst*) typeAst = ast.as!(SingleDestructureAst).type;
 						if (has(typeAst))
 							cb(field.type, *force(typeAst));
 					}
@@ -499,7 +508,7 @@ void eachTypeInRecord(in StructBody.Record a, in StructBodyAst.Record ast, in Ty
 				cb(field.type, force(ast.type));
 		});
 }
-void eachTypeInVariant(in StructBody.SumType a, in StructBodyAst.SumType ast, in TypeCb cb) {
+void eachTypeInVariant(in StructBody.SumType a, in SumTypeAst ast, in TypeCb cb) {
 	zipIfSizeEq!(SumTypeMemberAndMethodImpls, TypeAst)(
 		a.listedMembers, ast.types, (ref SumTypeMemberAndMethodImpls member, ref TypeAst ast) {
 			cb(Type(member.member), ast);
@@ -516,14 +525,14 @@ void eachTypeInParams(in Params a, in ParamsAst asts, in TypeCb cb) {
 
 void eachTypeInDestructure(in Destructure a, in DestructureAst ast, in TypeCb cb) {
 	void handleSingle(in Type type) {
-		Opt!(TypeAst*) typeAst = ast.as!(DestructureAst.Single).type;
+		Opt!(TypeAst*) typeAst = ast.as!(SingleDestructureAst).type;
 		if (has(typeAst))
 			cb(type, *force(typeAst));
 	}
 
 	a.matchIn!void(
 		(in Destructure.Ignore x) {
-			if (!ast.isA!(DestructureAst.Void))
+			if (!ast.isA!(VoidDestructureAst))
 				handleSingle(x.type);
 		},
 		(in Local x) {
@@ -620,21 +629,21 @@ void eachTypeInMatchSumType(in MatchSumTypeCase[] cases, in CaseAst[] caseAsts, 
 
 void eachTypeInMatchSumTypeCase(in MatchSumTypeCase case_, in CaseMemberAst memberAst, in TypeCb cb) {
 	memberAst.matchIn!void(
-			(in CaseMemberAst.Name x) {
+			(in AsNameAst x) {
 				if (has(x.destructure)) {
 					eachTypeInDestructure(case_.destructure, force(x.destructure), cb);
 				}
 			},
 			(in LiteralIntegralAndRange _) {},
-			(in CaseMemberAst.String _) {},
-			(in CaseMemberAst.Bogus) {});
+			(in AsStringAst _) {},
+			(in AsBogusAst _) {});
 }
 
 void eachTypeInCondition(in Condition condition, in ConditionAst ast, in TypeCb cb) {
 	condition.matchIn!void(
 		(in Expr _) {},
 		(in Condition.UnpackOption x) {
-			eachTypeInDestructure(x.destructure, ast.as!(ConditionAst.UnpackOption*).destructure, cb);
+			eachTypeInDestructure(x.destructure, ast.as!(UnpackOptionAst*).destructure, cb);
 		});
 }
 

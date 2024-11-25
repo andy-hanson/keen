@@ -18,20 +18,29 @@ import frontend.check.instantiate : instantiateStructWithOwnTypeParams, instanti
 import frontend.check.maps : FunsMap, StructsAndAliasesMap;
 import frontend.check.typeFromAst : AliasAllowed, checkTypeParams, typeFromAst;
 import model.ast :
+	BuiltinTypeAst,
 	DestructureAst,
 	EnumOrFlagsMemberAst,
+	EnumAst,
+	ExternTypeAst,
 	FieldMutabilityAst,
+	FlagsAst,
 	LiteralIntegralAndRange,
 	ModifierAst,
 	ModifierKeyword,
+	ModifierKeywordAst,
 	NameAndRange,
 	ParamsAst,
 	RecordFieldAst,
+	RecordAst,
 	SignatureAst,
+	SingleDestructureAst,
 	SpecUseAst,
 	StructBodyAst,
 	StructDeclAst,
+	SumTypeAst,
 	TypeAst,
+	VarargsAst,
 	VisibilityAndRange;
 import model.model :
 	asTypeContainer,
@@ -105,13 +114,13 @@ import util.symbol : Symbol, symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet, symbolSet;
 import util.util : enumConvert, enumConvertOrAssert, optEnumConvert, isMultipleOf;
 
-void modifierTypeArgInvalid(ref CheckCtx ctx, in ModifierAst.Keyword modifier) {
+void modifierTypeArgInvalid(ref CheckCtx ctx, in ModifierKeywordAst modifier) {
 	if (has(modifier.typeArg)) {
 		addDiag(ctx, modifier.range, Diag(Diag.ModifierTypeArgInvalid(modifier.keyword)));
 	}
 }
-void modifierTypeArgInvalid(ref CheckCtx ctx, in MutOpt!(ModifierAst.Keyword*)[] modifiers) {
-	foreach (const MutOpt!(ModifierAst.Keyword*) modifier; modifiers)
+void modifierTypeArgInvalid(ref CheckCtx ctx, in MutOpt!(ModifierKeywordAst*)[] modifiers) {
+	foreach (const MutOpt!(ModifierKeywordAst*) modifier; modifiers)
 		if (has(modifier))
 			modifierTypeArgInvalid(ctx, *force(modifier));
 }
@@ -142,27 +151,27 @@ void checkStructBodies(
 		struct_.sumTypeMemberships = checkSumTypeMembershipsInitial(
 			ctx, commonTypes, structsAndAliasesMap, struct_, ast);
 		struct_.body_ = ast.body_.match!StructBody(
-			(StructBodyAst.Builtin) {
+			(BuiltinTypeAst _) {
 				checkOnlyCommonModifiers(ctx, DeclKind.builtin, ast.modifiers);
 				return StructBody(getBuiltinType(ctx, struct_));
 			},
-			(StructBodyAst.Enum x) {
+			(EnumAst x) {
 				checkNoTypeParams(ctx, ast.typeParams, DeclKind.enum_);
 				IntegralType storage = checkEnumOrFlagsModifiers(
 					ctx, commonTypes, structsAndAliasesMap, struct_, DeclKind.enum_, ast.modifiers, isFlags: false);
 				return checkEnum(ctx, commonTypes, structsAndAliasesMap, struct_, ast.range, x, storage);
 			},
-			(StructBodyAst.Extern x) =>
+			(ExternTypeAst x) =>
 				StructBody(checkExtern(ctx, ast, x)),
-			(StructBodyAst.Flags x) {
+			(FlagsAst x) {
 				checkNoTypeParams(ctx, ast.typeParams, DeclKind.flags);
 				IntegralType storage = checkEnumOrFlagsModifiers(
 					ctx, commonTypes, structsAndAliasesMap, struct_, DeclKind.flags, ast.modifiers, isFlags: false);
 				return StructBody(checkFlags(ctx, commonTypes, structsAndAliasesMap, struct_, ast.range, x, storage));
 			},
-			(StructBodyAst.Record x) =>
+			(RecordAst x) =>
 				StructBody(checkRecord(ctx, commonTypes, structsAndAliasesMap, struct_, ast.modifiers, x)),
-			(StructBodyAst.SumType x) =>
+			(SumTypeAst x) =>
 				StructBody(checkSumType(ctx, commonTypes, structsAndAliasesMap, struct_, ast, x)));
 	});
 }
@@ -173,7 +182,7 @@ private StructBody.SumType checkSumType(
 	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* struct_,
 	ref StructDeclAst ast,
-	StructBodyAst.SumType astBody,
+	SumTypeAst astBody,
 ) {
 	checkOnlyCommonModifiers(ctx, declKindForSumType(astBody.kind), ast.modifiers);
 	SmallArray!SumTypeMemberAndMethodImpls listedMembers = checkSumTypeListedMembersInitial(
@@ -212,7 +221,7 @@ private SmallArray!SumTypeMemberAndMethodImpls checkSumTypeListedMembersInitial(
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* variant_,
-	ref StructBodyAst.SumType ast,
+	ref SumTypeAst ast,
 ) {
 	if (ast.kind == SumTypeKind.union_) {
 		if (isEmpty(ast.types))
@@ -278,8 +287,8 @@ private Opt!SumTypeMembership sumTypeMembershipFromModifier(
 	StructDecl* struct_,
 	ModifierAst* mod,
 ) {
-	if (mod.isA!(ModifierAst.Keyword)) {
-		ModifierAst.Keyword* kw = &mod.as!(ModifierAst.Keyword)();
+	if (mod.isA!(ModifierKeywordAst)) {
+		ModifierKeywordAst* kw = &mod.as!(ModifierKeywordAst)();
 		if (kw.keyword == ModifierKeyword.case_) {
 			if (has(kw.typeArg)) {
 				Type type = typeFromAst(
@@ -318,7 +327,7 @@ void checkMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap fun
 	foreach (ref StructDecl struct_; structs) {
 		if (struct_.body_.isA!(StructBody.SumType)) {
 			SumTypeMemberAndMethodImpls[] members = struct_.body_.as!(StructBody.SumType).listedMembers;
-			TypeAst[] memberAsts = struct_.source.as!(StructDeclAst*).body_.as!(StructBodyAst.SumType).types;
+			TypeAst[] memberAsts = struct_.source.as!(StructDeclAst*).body_.as!SumTypeAst.types;
 			foreach (size_t i, ref SumTypeMemberAndMethodImpls x; members) {
 				x.methodImpls = checkMethodImplsForCase(
 					ctx, commonTypes, funsMap,
@@ -388,13 +397,13 @@ SmallArray!(Opt!Called) checkMethodImplsForCase(
 			}));
 }
 
-StructBody.Extern checkExtern(ref CheckCtx ctx, in StructDeclAst declAst, in StructBodyAst.Extern bodyAst) {
+StructBody.Extern checkExtern(ref CheckCtx ctx, in StructDeclAst declAst, in ExternTypeAst bodyAst) {
 	checkNoTypeParams(ctx, declAst.typeParams, DeclKind.extern_);
 	checkOnlyCommonModifiers(ctx, DeclKind.extern_, declAst.modifiers);
 	return StructBody.Extern(getExternTypeSize(ctx, declAst, bodyAst));
 }
 
-Opt!TypeSize getExternTypeSize(ref CheckCtx ctx, in StructDeclAst declAst, in StructBodyAst.Extern bodyAst) {
+Opt!TypeSize getExternTypeSize(ref CheckCtx ctx, in StructDeclAst declAst, in ExternTypeAst bodyAst) {
 	if (has(bodyAst.size)) {
 		uint size = getSizeValue(ctx, *force(bodyAst.size));
 		uint default_ = defaultAlignment(size);
@@ -461,7 +470,7 @@ StructModifiers getStructModifiers(ref CheckCtx ctx, DeclKind declKind, Modifier
 	Opt!SymbolSet extern_ = () {
 		Opt!SymbolSet defaultExtern = declKind == DeclKind.extern_ ? some(emptySymbolSet) : none!SymbolSet;
 		if (has(accum.extern_)) {
-			ModifierAst.Keyword keyword = *force(accum.extern_);
+			ModifierKeywordAst keyword = *force(accum.extern_);
 			if (isSumType(declKind)) {
 				addDiag(ctx, keyword.keywordRange, Diag(Diag.ExternSumType()));
 				return defaultExtern;
@@ -483,7 +492,7 @@ StructModifiers getStructModifiers(ref CheckCtx ctx, DeclKind declKind, Modifier
 	PurityAndForced purity = () {
 		Purity defaultPurity = defaultPurity(declKind);
 		if (has(accum.purityAndForced)) {
-			ModifierAst.Keyword keyword = *force(accum.purityAndForced);
+			ModifierKeywordAst keyword = *force(accum.purityAndForced);
 			Opt!PurityAndForced opt = purityAndForcedFromModifier(keyword.keyword);
 			PurityAndForced pf = force(opt);
 			if (pf.purity == defaultPurity)
@@ -497,17 +506,17 @@ StructModifiers getStructModifiers(ref CheckCtx ctx, DeclKind declKind, Modifier
 }
 
 immutable struct StructModifierAsts {
-	Opt!(ModifierAst.Keyword*) extern_;
-	Opt!(ModifierAst.Keyword*) summon;
-	Opt!(ModifierAst.Keyword*) purityAndForced;
+	Opt!(ModifierKeywordAst*) extern_;
+	Opt!(ModifierKeywordAst*) summon;
+	Opt!(ModifierKeywordAst*) purityAndForced;
 }
 StructModifierAsts accumulateStructModifiers(ref CheckCtx ctx, ModifierAst[] modifiers) {
-	MutOpt!(ModifierAst.Keyword*) extern_;
-	MutOpt!(ModifierAst.Keyword*) summon;
-	MutOpt!(ModifierAst.Keyword*) purityAndForced;
+	MutOpt!(ModifierKeywordAst*) extern_;
+	MutOpt!(ModifierKeywordAst*) summon;
+	MutOpt!(ModifierKeywordAst*) purityAndForced;
 	foreach (ref ModifierAst modifier; modifiers) {
 		if (isCommonModifier(modifier)) {
-			ModifierAst.Keyword* kw = &modifier.as!(ModifierAst.Keyword)();
+			ModifierKeywordAst* kw = &modifier.as!(ModifierKeywordAst)();
 			if (kw.keyword != ModifierKeyword.case_)
 				accumulateModifier(
 					ctx,
@@ -521,9 +530,9 @@ StructModifierAsts accumulateStructModifiers(ref CheckCtx ctx, ModifierAst[] mod
 	}
 	modifierTypeArgInvalid(ctx, [purityAndForced]);
 	return StructModifierAsts(
-		extern_: optFromMut!(ModifierAst.Keyword*)(extern_),
-		summon: optFromMut!(ModifierAst.Keyword*)(summon),
-		purityAndForced: optFromMut!(ModifierAst.Keyword*)(purityAndForced));
+		extern_: optFromMut!(ModifierKeywordAst*)(extern_),
+		summon: optFromMut!(ModifierKeywordAst*)(summon),
+		purityAndForced: optFromMut!(ModifierKeywordAst*)(purityAndForced));
 }
 
 DeclKind declKindForSumType(SumTypeKind a) =>
@@ -557,17 +566,17 @@ Purity defaultPurity(DeclKind a) {
 
 DeclKind getDeclKind(in StructBodyAst a) =>
 	a.matchIn!DeclKind(
-		(in StructBodyAst.Builtin) =>
+		(in BuiltinAst) =>
 			DeclKind.builtin,
-		(in StructBodyAst.Enum) =>
+		(in EnumAst) =>
 			DeclKind.enum_,
-		(in StructBodyAst.Extern) =>
+		(in ExternTypeAst) =>
 			DeclKind.extern_,
-		(in StructBodyAst.Flags) =>
+		(in FlagsAst) =>
 			DeclKind.flags,
-		(in StructBodyAst.Record) =>
+		(in RecordAst) =>
 			DeclKind.record,
-		(in StructBodyAst.SumType x) =>
+		(in SumTypeAst x) =>
 			declKindForSumType(x.kind));
 
 Opt!PurityAndForced purityAndForcedFromModifier(ModifierKeyword a) {
@@ -589,7 +598,7 @@ void checkOnlyCommonModifiers(ref CheckCtx ctx, DeclKind declKind, in ModifierAs
 	foreach (ref ModifierAst modifier; modifiers)
 		if (!isCommonModifier(modifier))
 			addDiag(ctx, modifier.range, modifier.matchIn!Diag(
-				(in ModifierAst.Keyword x) =>
+				(in ModifierKeywordAst x) =>
 					x.keyword == ModifierKeyword.byVal
 						? Diag(Diag.ModifierRedundantDueToDeclKind(x.keyword, declKind))
 						: Diag(Diag.ModifierInvalid(x.keyword, declKind)),
@@ -599,7 +608,7 @@ void checkOnlyCommonModifiers(ref CheckCtx ctx, DeclKind declKind, in ModifierAs
 
 bool isCommonModifier(in ModifierAst a) =>
 	a.matchIn!bool(
-		(in ModifierAst.Keyword x) {
+		(in ModifierKeywordAst x) {
 			switch (x.keyword) {
 				case ModifierKeyword.case_:
 				case ModifierKeyword.extern_:
@@ -618,7 +627,7 @@ StructBody checkEnum(
 	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* struct_,
 	in Range range,
-	in StructBodyAst.Enum e,
+	in EnumAst e,
 	IntegralType storage,
 ) {
 	EnumOrFlagsMembers members = checkEnumOrFlagsMembers(
@@ -641,12 +650,12 @@ StructBody.Flags checkFlags(
 	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* struct_,
 	in Range range,
-	in StructBodyAst.Flags f,
+	in FlagsAst ast,
 	IntegralType storage,
 ) =>
 	StructBody.Flags(storage, checkEnumOrFlagsMembers(
 		ctx, commonTypes, structsAndAliasesMap,
-		struct_, range, f.params, f.members, Diag.DuplicateDeclaration.Kind.flagsMember, storage,
+		struct_, range, ast.params, ast.members, Diag.DuplicateDeclaration.Kind.flagsMember, storage,
 		(Opt!IntegralValue lastValue) =>
 			has(lastValue)
 				? ValueAndOverflow(
@@ -734,7 +743,7 @@ SmallArray!EnumOrFlagsMember enumOrFlagsMembersFromParams(
 			mapOpPointers!(EnumOrFlagsMember, DestructureAst)(
 				ctx.alloc, small!DestructureAst(destructures), (DestructureAst* x) =>
 					enumMemberFromParam(ctx, enumOrFlags, x, cbValue(x.range, none!LiteralIntegralAndRange))),
-		(ref ParamsAst.Varargs x) {
+		(ref VarargsAst x) {
 			addDiag(ctx, x.param.range, Diag(
 				Diag.StructParamsSyntaxError(enumOrFlags, Diag.StructParamsSyntaxError.Reason.variadic)));
 			return emptySmallArray!EnumOrFlagsMember;
@@ -786,7 +795,7 @@ StructBody.Record checkRecord(
 	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* struct_,
 	ModifierAst[] modifierAsts,
-	ref StructBodyAst.Record ast,
+	ref RecordAst ast,
 ) {
 	RecordModifiers modifiers = accumulateRecordModifiers(ctx, modifierAsts);
 	bool externForcesByVal = struct_.linkage != Linkage.internal && struct_.externSet != symbolSet(symbol!"js");
@@ -814,7 +823,7 @@ SmallArray!RecordField checkRecordFields(
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* struct_,
-	ref StructBodyAst.Record ast,
+	ref RecordAst ast,
 ) {
 	if (has(ast.params) && !isEmpty(ast.fields))
 		addDiag(ctx, struct_.nameRange.range, Diag(
@@ -845,7 +854,7 @@ SmallArray!RecordField recordFieldsFromParams(
 			mapOpPointers!(RecordField, DestructureAst)(
 				ctx.alloc, small!DestructureAst(destructures), (DestructureAst* param) =>
 					recordFieldFromParam(ctx, commonTypes, structsAndAliasesMap, struct_, param)),
-		(ref ParamsAst.Varargs x) {
+		(ref VarargsAst x) {
 			addDiag(ctx, x.param.range, Diag(
 				Diag.StructParamsSyntaxError(struct_, Diag.StructParamsSyntaxError.Reason.variadic)));
 			return emptySmallArray!RecordField;
@@ -857,8 +866,8 @@ Opt!EnumOrFlagsMember enumMemberFromParam(
 	DestructureAst* ast,
 	IntegralValue value,
 ) {
-	if (ast.isA!(DestructureAst.Single)) {
-		DestructureAst.Single* single = &ast.as!(DestructureAst.Single)();
+	if (ast.isA!(SingleDestructureAst)) {
+		SingleDestructureAst* single = &ast.as!(SingleDestructureAst)();
 		if (has(single.mut)) {
 			Opt!Range mutRange = single.mutRange;
 			addDiag(ctx, force(mutRange), Diag(
@@ -882,8 +891,8 @@ Opt!RecordField recordFieldFromParam(
 	StructDecl* record,
 	DestructureAst* ast,
 ) {
-	if (ast.isA!(DestructureAst.Single)) {
-		DestructureAst.Single* single = &ast.as!(DestructureAst.Single)();
+	if (ast.isA!(SingleDestructureAst)) {
+		SingleDestructureAst* single = &ast.as!(SingleDestructureAst)();
 		return some(checkRecordField(
 			ctx, commonTypes, structsAndAliasesMap, record,
 			RecordFieldSource(single),
@@ -898,7 +907,7 @@ Opt!RecordField recordFieldFromParam(
 	}
 }
 
-// Shared in common between DestructureAst.Single and RecordFieldAst
+// Shared in common between SingleDestructureAst and RecordFieldAst
 RecordField checkRecordField(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
@@ -939,11 +948,11 @@ IntegralType checkEnumOrFlagsModifiers(
 	ModifierAst[] modifiers,
 	bool isFlags,
 ) {
-	MutOpt!(ModifierAst.Keyword*) storage;
+	MutOpt!(ModifierKeywordAst*) storage;
 	foreach (ref ModifierAst modifier; modifiers) {
 		if (!isCommonModifier(modifier)) {
-			if (modifier.isA!(ModifierAst.Keyword)) {
-				ModifierAst.Keyword* x = &modifier.as!(ModifierAst.Keyword)();
+			if (modifier.isA!(ModifierKeywordAst)) {
+				ModifierKeywordAst* x = &modifier.as!(ModifierKeywordAst)();
 				if (x.keyword == ModifierKeyword.storage) {
 					if (has(storage))
 						addDiag(ctx, x.keywordRange, Diag(Diag.ModifierDuplicate(ModifierKeyword.storage)));
@@ -959,7 +968,7 @@ IntegralType checkEnumOrFlagsModifiers(
 	}
 
 	if (has(storage)) {
-		ModifierAst.Keyword* x = force(storage);
+		ModifierKeywordAst* x = force(storage);
 		if (has(x.typeArg)) {
 			Type type = typeFromAst(
 				ctx, commonTypes, structsAndAliasesMap, force(x.typeArg), emptyTypeParams, AliasAllowed.yes);
@@ -976,13 +985,13 @@ IntegralType checkEnumOrFlagsModifiers(
 }
 
 immutable struct RecordModifiers {
-	Opt!(ModifierAst.Keyword*) byValOrRef;
-	Opt!(ModifierAst.Keyword*) newVisibility;
-	Opt!(ModifierAst.Keyword*) nominal;
-	Opt!(ModifierAst.Keyword*) packed;
+	Opt!(ModifierKeywordAst*) byValOrRef;
+	Opt!(ModifierKeywordAst*) newVisibility;
+	Opt!(ModifierKeywordAst*) nominal;
+	Opt!(ModifierKeywordAst*) packed;
 }
 
-void accumulateModifier(ref CheckCtx ctx, ref MutOpt!(ModifierAst.Keyword*) old, ModifierAst.Keyword* new_) {
+void accumulateModifier(ref CheckCtx ctx, ref MutOpt!(ModifierKeywordAst*) old, ModifierKeywordAst* new_) {
 	if (has(old)) {
 		ModifierKeyword oldKeyword = force(old).keyword;
 		addDiag(ctx, new_.keywordRange, new_.keyword == oldKeyword
@@ -993,14 +1002,14 @@ void accumulateModifier(ref CheckCtx ctx, ref MutOpt!(ModifierAst.Keyword*) old,
 }
 
 RecordModifiers accumulateRecordModifiers(ref CheckCtx ctx, ModifierAst[] modifiers) {
-	MutOpt!(ModifierAst.Keyword*) byValOrRef;
-	MutOpt!(ModifierAst.Keyword*) newVisibility;
-	MutOpt!(ModifierAst.Keyword*) nominal;
-	MutOpt!(ModifierAst.Keyword*) packed;
+	MutOpt!(ModifierKeywordAst*) byValOrRef;
+	MutOpt!(ModifierKeywordAst*) newVisibility;
+	MutOpt!(ModifierKeywordAst*) nominal;
+	MutOpt!(ModifierKeywordAst*) packed;
 
 	foreach (ref ModifierAst modifier; modifiers) {
-		if (modifier.isA!(ModifierAst.Keyword)) {
-			ModifierAst.Keyword* x = &modifier.as!(ModifierAst.Keyword)();
+		if (modifier.isA!(ModifierKeywordAst)) {
+			ModifierKeywordAst* x = &modifier.as!(ModifierKeywordAst)();
 			switch (x.keyword) {
 				case ModifierKeyword.byRef:
 				case ModifierKeyword.byVal:
@@ -1027,10 +1036,10 @@ RecordModifiers accumulateRecordModifiers(ref CheckCtx ctx, ModifierAst[] modifi
 	}
 	modifierTypeArgInvalid(ctx, [byValOrRef, newVisibility, nominal, packed]);
 	return RecordModifiers(
-		byValOrRef: optFromMut!(ModifierAst.Keyword*)(byValOrRef),
-		newVisibility: optFromMut!(ModifierAst.Keyword*)(newVisibility),
-		nominal: optFromMut!(ModifierAst.Keyword*)(nominal),
-		packed: optFromMut!(ModifierAst.Keyword*)(packed));
+		byValOrRef: optFromMut!(ModifierKeywordAst*)(byValOrRef),
+		newVisibility: optFromMut!(ModifierKeywordAst*)(newVisibility),
+		nominal: optFromMut!(ModifierKeywordAst*)(nominal),
+		packed: optFromMut!(ModifierKeywordAst*)(packed));
 }
 
 void checkReferenceLinkageAndPurity(ref CheckCtx ctx, StructDecl* struct_, in Range range, Type referencedType) {

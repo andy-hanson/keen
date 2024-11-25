@@ -44,11 +44,16 @@ import frontend.parse.parseUtil :
 	tryTakeLiteralIntegral,
 	tryTakeToken;
 import model.ast :
+	BogusTypeAst,
+	BuiltinTypeAst,
 	DocCommentAst,
+	EnumAst,
 	EnumOrFlagsMemberAst,
 	ExprAst,
+	ExternTypeAst,
 	FieldMutabilityAst,
 	FileAst,
+	FlagsAst,
 	FunDeclAst,
 	ModifierAst,
 	ImportsOrExportsAst,
@@ -57,12 +62,14 @@ import model.ast :
 	ModifierAst,
 	NameAndRange,
 	ParamsAst,
+	RecordAst,
 	RecordFieldAst,
 	SpecDeclAst,
 	SignatureAst,
 	StructAliasAst,
 	StructBodyAst,
 	StructDeclAst,
+	SumTypeAst,
 	TestAst,
 	TypeAst,
 	VarDeclAst;
@@ -238,28 +245,28 @@ void parseSpecOrStructOrFun(
 					takeDedent(lexer);
 					return res;
 				},
-				(in Range range) => TypeAst(TypeAst.Bogus(range)));
+				(in Range range) => TypeAst(BogusTypeAst(range)));
 			add(lexer.alloc, structAliases, StructAliasAst(
 				docComment, range(lexer, start), visibility, name, typeParams, keywordPos, target));
 			break;
 		case Token.builtin:
 			mustTakeToken(lexer, Token.builtin);
-			addStruct(() => StructBodyAst(StructBodyAst.Builtin()));
+			addStruct(() => StructBodyAst(BuiltinTypeAst()));
 			break;
 		case Token.enum_:
 			mustTakeToken(lexer, Token.enum_);
 			Opt!ParamsAst params = tryParseParams(lexer);
-			addStruct(() => StructBodyAst(StructBodyAst.Enum(params, parseEnumOrFlagsMembers(lexer))));
+			addStruct(() => StructBodyAst(EnumAst(params, parseEnumOrFlagsMembers(lexer))));
 			break;
 		case Token.extern_:
 			mustTakeToken(lexer, Token.extern_);
-			StructBodyAst.Extern body_ = parseExternType(lexer);
+			ExternTypeAst body_ = parseExternType(lexer);
 			addStruct(() => StructBodyAst(body_));
 			break;
 		case Token.flags:
 			mustTakeToken(lexer, Token.flags);
 			Opt!ParamsAst params = tryParseParams(lexer);
-			addStruct(() => StructBodyAst(StructBodyAst.Flags(params, parseEnumOrFlagsMembers(lexer))));
+			addStruct(() => StructBodyAst(FlagsAst(params, parseEnumOrFlagsMembers(lexer))));
 			break;
 		case Token.global:
 			Pos pos = curPos(lexer);
@@ -270,7 +277,7 @@ void parseSpecOrStructOrFun(
 		case Token.record:
 			mustTakeToken(lexer, Token.record);
 			Opt!ParamsAst params = tryParseParams(lexer);
-			addStruct(() => StructBodyAst(StructBodyAst.Record(params, parseRecordOrUnionMembers(lexer))));
+			addStruct(() => StructBodyAst(RecordAst(params, parseRecordOrUnionMembers(lexer))));
 			break;
 		case Token.spec:
 			mustTakeToken(lexer, Token.spec);
@@ -302,9 +309,9 @@ void parseSpecOrStructOrFun(
 						assert(false);
 				}
 			}();
-			addStruct(() => StructBodyAst(StructBodyAst.SumType(
+			addStruct(() => StructBodyAst(SumTypeAst(
 				kind,
-				allocate(lexer.alloc, StructBodyAst.SumType.TypesAndMethods(types, parseIndentedSigs(lexer))))));
+				allocate(lexer.alloc, SumTypeAst.TypesAndMethods(types, parseIndentedSigs(lexer))))));
 			break;
 		default:
 			add(lexer.alloc, funs, parseFun(lexer, docComment, visibility, start, name, typeParams));
@@ -312,16 +319,16 @@ void parseSpecOrStructOrFun(
 	}
 }
 
-StructBodyAst.Extern parseExternType(ref Lexer lexer) {
+ExternTypeAst parseExternType(ref Lexer lexer) {
 	if (tryTakeToken(lexer, Token.parenLeft)) {
 		Opt!(LiteralIntegralAndRange*) size = parseIntegral(lexer);
 		Opt!(LiteralIntegralAndRange*) alignment = has(size) && tryTakeToken(lexer, Token.comma)
 			? parseIntegral(lexer)
 			: none!(LiteralIntegralAndRange*);
 		takeOrAddDiagExpectedToken(lexer, Token.parenRight, ParseDiag.Expected.Kind.closingParen);
-		return StructBodyAst.Extern(size, alignment);
+		return ExternTypeAst(size, alignment);
 	} else
-		return StructBodyAst.Extern(none!(LiteralIntegralAndRange*), none!(LiteralIntegralAndRange*));
+		return ExternTypeAst(none!(LiteralIntegralAndRange*), none!(LiteralIntegralAndRange*));
 }
 Opt!(LiteralIntegralAndRange*) parseIntegral(ref Lexer lexer) {
 	Pos start = curPos(lexer);

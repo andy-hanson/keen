@@ -16,7 +16,6 @@ import backend.js.jsAst :
 	JsClassMethod,
 	JsContinueStatement,
 	JsDecl,
-	JsDeclKind,
 	JsDefaultDestructure,
 	JsDestructure,
 	JsExpr,
@@ -51,6 +50,7 @@ import backend.js.jsAst :
 	JsUnaryExpr,
 	JsVarDecl,
 	JsWhileStatement,
+	LetDeclKind,
 	Shebang,
 	SyncOrAsync;
 import backend.js.sourceMap : finish, JsAndMap, ModulePaths, SingleSourceMapping, Source, SourceMapBuilder;
@@ -389,7 +389,7 @@ void writeDecl(scope ref Output writer, in ShowTypeCtx showCtx, in JsDecl decl, 
 			writer ~= " = ";
 			writeExpr(writer, 0, x);
 		},
-		(in JsDeclKind.Let) {
+		(in LetDeclKind) {
 			writer ~= "let ";
 			writeJsName(writer, decl.name);
 		});

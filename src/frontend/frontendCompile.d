@@ -21,7 +21,7 @@ import frontend.storage :
 	markUnknownIfNotExist,
 	OtherFileInfo,
 	Storage;
-import model.ast : FileAst, fileAstForDiag, ImportOrExportAst, ImportOrExportAstKind, NameAndRange;
+import model.ast : FileAst, fileAstForDiag, ImportFileAst, ImportOrExportAst, ImportWholeModuleAst, NameAndRange;
 import model.model :
 	BuildTarget,
 	CommonFunsAndDiagnostics,
@@ -646,11 +646,11 @@ MostlyResolvedImport tryResolveImport(ref Frontend a, in Config config, Uri from
 			MostlyResolvedImport crowFile() =>
 				MostlyResolvedImport(ensureCrowFile(a, addExtension(uri, Extension.crow)));
 			return ast.kind.match!MostlyResolvedImport(
-				(ImportOrExportAstKind.ModuleWhole) =>
+				(ImportWholeModuleAst _) =>
 					crowFile(),
 				(NameAndRange[]) =>
 					crowFile(),
-				(ref ImportOrExportAstKind.File) =>
+				(ref ImportFileAst) =>
 					fileType(uri) == FileType.crow
 						? MostlyResolvedImport(allocate(a.alloc, Diag.ImportFileDiag(
 							Diag.ImportFileDiag.CantImportCrowAsText())))

@@ -3,7 +3,7 @@ module frontend.check.checkCtx;
 @safe @nogc pure nothrow:
 
 import frontend.check.instantiate : InstantiateCtx;
-import model.ast : ImportOrExportAstKind, NameAndRange, typeParamsRange, VisibilityAndRange;
+import model.ast : ImportFileAst, ImportWholeModuleAst, NameAndRange, typeParamsRange, VisibilityAndRange;
 import model.model :
 	Config,
 	DeclKind,
@@ -133,7 +133,7 @@ SmallArray!ImportOrExport finishImports(ref CheckCtx ctx) {
 			addDiag(ctx, range, Diag(Diag.Unused(Diag.Unused.Kind(Diag.Unused.Kind.Import(import_.modulePtr, name)))));
 		}
 		force(import_.source).kind.match!void(
-			(ImportOrExportAstKind.ModuleWhole x) {
+			(ImportWholeModuleAst x) {
 				import_.imported = collectImported(ctx, import_);
 				if (isEmpty(import_.imported))
 					addDiagUnused(force(import_.source).pathRange, none!Symbol);
@@ -145,7 +145,7 @@ SmallArray!ImportOrExport finishImports(ref CheckCtx ctx) {
 							mustFind!NameAndRange(names, (ref NameAndRange nr) => nr.name == x.name).range,
 							some(x.name));
 			},
-			(ref ImportOrExportAstKind.File) {
+			(ref ImportFileAst _) {
 				assert(false);
 			});
 	}
@@ -188,11 +188,11 @@ void eachImportAndReExport(
 			if (has(x)) cb(import_.importVisibility, force(x));
 		} else {
 			Opt!(NameReferents*) res = force(import_.source).kind.match!(Opt!(NameReferents*))(
-				(ImportOrExportAstKind.ModuleWhole) =>
+				(ImportWholeModuleAst) =>
 					getPointer!(NameReferents, Symbol, nameFromNameReferents)(import_.modulePtr.exports, name),
 				(NameAndRange[]) =>
 					import_.imported[name],
-				(ref ImportOrExportAstKind.File) =>
+				(ref ImportFileAst _) =>
 					assert(false));
 			if (has(res))
 				cb(import_.importVisibility, *force(res));

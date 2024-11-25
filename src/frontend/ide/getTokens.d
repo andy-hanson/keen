@@ -11,10 +11,15 @@ import frontend.storage : CrowFileInfo;
 import lib.lsp.lspTypes : SemanticTokens;
 import model.ast :
 	ArrowAccessAst,
+	AsBogusAst,
+	AsNameAst,
 	AssertOrForbidAst,
 	AssignmentAst,
 	AssignmentCallAst,
+	AsStringAst,
 	BogusAst,
+	BogusTypeAst,
+	BuiltinTypeAst,
 	CallAst,
 	CallNamedAst,
 	CaseAst,
@@ -24,17 +29,23 @@ import model.ast :
 	DoAst,
 	DocCommentAst,
 	EmptyAst,
+	EnumAst,
 	EnumOrFlagsMemberAst,
 	ExprAst,
 	ExternAst,
+	ExternTypeAst,
 	FinallyAst,
+	FlagsAst,
 	ForAst,
 	FunDeclAst,
+	FunTypeAst,
+	ImportFileAst,
+	ImportWholeModuleAst,
 	ModifierAst,
+	ModifierKeywordAst,
 	IdentifierAst,
 	IfAst,
 	ImportOrExportAst,
-	ImportOrExportAstKind,
 	ImportsOrExportsAst,
 	InterpolatedAst,
 	LambdaAst,
@@ -47,28 +58,37 @@ import model.ast :
 	LoopBreakAst,
 	LoopContinueAst,
 	LoopWhileOrUntilAst,
+	MapTypeAst,
 	MatchAst,
 	NameAndRange,
 	ParamsAst,
 	ParenthesizedAst,
 	PtrAst,
+	RecordAst,
 	RecordFieldAst,
 	SeqAst,
 	SharedAst,
-	SpecDeclAst,
 	SignatureAst,
+	SingleDestructureAst,
+	SpecDeclAst,
 	SpecUseAst,
 	StructAliasAst,
-	StructBodyAst,
 	StructDeclAst,
+	SuffixNameTypeAst,
+	SuffixSpecialTypeAst,
+	SumTypeAst,
 	TestAst,
 	ThrowAst,
 	TrustedAst,
 	TryAst,
 	TryLetAst,
+	TupleTypeAst,
 	TypeAst,
 	TypedAst,
+	UnpackOptionAst,
+	VarargsAst,
 	VarDeclAst,
+	VoidDestructureAst,
 	WithAst;
 import util.alloc.alloc : Alloc;
 import util.col.array : newArray, only, zip;
@@ -299,12 +319,12 @@ void addImportTokens(scope ref Ctx ctx, in ImportsOrExportsAst a) {
 	foreach (ref ImportOrExportAst x; a.paths) {
 		reference(ctx.tokens, TokenType.namespace, x.pathRange);
 		x.kind.matchIn!void(
-			(in ImportOrExportAstKind.ModuleWhole) {},
+			(in ImportWholeModuleAst _) {},
 			(in NameAndRange[] names) {
 				foreach (NameAndRange name; names)
 					reference(ctx.tokens, TokenType.variable, name.range);
 			},
-			(in ImportOrExportAstKind.File x) {
+			(in ImportFileAst x) {
 				declare(ctx.tokens, TokenType.variable, x.name.range);
 				addTypeTokens(ctx, x.typeAst);
 			});
@@ -337,34 +357,34 @@ void addParamsTokens(scope ref Ctx ctx, in ParamsAst params) {
 			foreach (ref DestructureAst param; regular)
 				addDestructureTokens(ctx, param);
 		},
-		(in ParamsAst.Varargs) {
-			addDestructureTokens(ctx, params.as!(ParamsAst.Varargs*).param);
+		(in VarargsAst _) {
+			addDestructureTokens(ctx, params.as!(VarargsAst*).param);
 		});
 }
 
 void addTypeTokens(scope ref Ctx ctx, in TypeAst a) {
 	a.matchIn!void(
-		(in TypeAst.Bogus) {},
-		(in TypeAst.Fun x) {
+		(in BogusTypeAst _) {},
+		(in FunTypeAst x) {
 			addTypeTokens(ctx, x.returnType);
 			addParamsTokens(ctx, x.params);
 		},
-		(in TypeAst.Map x) {
+		(in MapTypeAst x) {
 			addTypeTokens(ctx, x.v);
 			addTypeTokens(ctx, x.k);
 		},
 		(in NameAndRange x) {
 			reference(ctx.tokens, TokenType.type, x.range);
 		},
-		(in TypeAst.SuffixName x) {
+		(in SuffixNameTypeAst x) {
 			addTypeTokens(ctx, x.left);
 			reference(ctx.tokens, TokenType.type, x.name.range);
 		},
-		(in TypeAst.SuffixSpecial x) {
+		(in SuffixSpecialTypeAst x) {
 			addTypeTokens(ctx, x.left);
 			declare(ctx.tokens, TokenType.type, x.suffixRange);
 		},
-		(in TypeAst.Tuple x) {
+		(in TupleTypeAst x) {
 			foreach (TypeAst t; x.members)
 				addTypeTokens(ctx, t);
 		});
@@ -387,22 +407,22 @@ void addStructTokens(scope ref Ctx ctx, in StructDeclAst a) {
 	declare(ctx.tokens, TokenType.type, a.name.range);
 	addTypeParamsTokens(ctx, a.typeParams);
 	a.body_.matchIn!void(
-		(in StructBodyAst.Builtin) {
+		(in BuiltinTypeAst _) {
 			addModifierTokens(ctx, a.modifiers);
 		},
-		(in StructBodyAst.Enum x) {
+		(in EnumAst x) {
 			addEnumOrFlagsTokens(ctx, a, x.params, x.members);
 		},
-		(in StructBodyAst.Extern) {
+		(in ExternTypeAst) {
 			addModifierTokens(ctx, a.modifiers);
 		},
-		(in StructBodyAst.Flags x) {
+		(in FlagsAst x) {
 			addEnumOrFlagsTokens(ctx, a, x.params, x.members);
 		},
-		(in StructBodyAst.Record x) {
+		(in RecordAst x) {
 			addRecordTokens(ctx, a, x.params, x.fields, TokenType.property);
 		},
-		(in StructBodyAst.SumType x) {
+		(in SumTypeAst x) {
 			foreach (ref TypeAst type; x.types)
 				addTypeTokens(ctx, type);
 			addModifierTokens(ctx, a.modifiers);
@@ -432,7 +452,7 @@ void addRecordTokens(
 void addModifierTokens(scope ref Ctx ctx, in ModifierAst[] a) {
 	foreach (ref ModifierAst mod; a) {
 		mod.matchIn!void(
-			(in ModifierAst.Keyword x) {
+			(in ModifierKeywordAst x) {
 				if (has(x.typeArg))
 					addTypeTokens(ctx, force(x.typeArg));
 			},
@@ -674,7 +694,7 @@ void addCaseTokens(scope ref Ctx ctx, in CaseAst a) {
 
 void addCaseMemberTokens(scope ref Ctx ctx, in CaseMemberAst a) {
 	a.matchIn!void(
-		(in CaseMemberAst.Name x) {
+		(in AsNameAst x) {
 			reference(ctx.tokens, TokenType.enumMember, x.name.range);
 			if (has(x.destructure))
 				addDestructureTokens(ctx, force(x.destructure));
@@ -682,10 +702,10 @@ void addCaseMemberTokens(scope ref Ctx ctx, in CaseMemberAst a) {
 		(in LiteralIntegralAndRange x) {
 			numberLiteral(ctx.tokens, x.range);
 		},
-		(in CaseMemberAst.String x) {
+		(in AsStringAst x) {
 			stringLiteral(ctx.tokens, x.range);
 		},
-		(in CaseMemberAst.Bogus) {});
+		(in AsBogusAst) {});
 }
 
 void addConditionTokens(scope ref Ctx ctx, in ConditionAst a) {
@@ -693,7 +713,7 @@ void addConditionTokens(scope ref Ctx ctx, in ConditionAst a) {
 		(in ExprAst x) {
 			addExprTokens(ctx, x);
 		},
-		(in ConditionAst.UnpackOption x) {
+		(in UnpackOptionAst x) {
 			addDestructureTokens(ctx, x.destructure);
 			addExprTokens(ctx, *x.option);
 		});
@@ -701,7 +721,7 @@ void addConditionTokens(scope ref Ctx ctx, in ConditionAst a) {
 
 void addDestructureTokens(scope ref Ctx ctx, in DestructureAst a) {
 	a.matchIn!void(
-		(in DestructureAst.Single x) {
+		(in SingleDestructureAst x) {
 			declare(
 				ctx.tokens,
 				x.name.name == symbol!"_" ? TokenType.comment : TokenType.parameter,
@@ -710,7 +730,7 @@ void addDestructureTokens(scope ref Ctx ctx, in DestructureAst a) {
 			if (has(x.type))
 				addTypeTokens(ctx, *force(x.type));
 		},
-		(in DestructureAst.Void x) {
+		(in VoidDestructureAst x) {
 			keyword(ctx.tokens, a.range);
 		},
 		(in DestructureAst[] xs) {

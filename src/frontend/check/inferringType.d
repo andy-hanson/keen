@@ -35,12 +35,14 @@ import util.col.array :
 	emptyMutSmallArray,
 	indexOf,
 	isEmpty,
+	Many,
 	map,
 	mapStatic,
 	MutSmallArray,
 	newArray,
-	NoneOneOrMany,
+	None,
 	noneOneOrMany,
+	One,
 	only,
 	only2,
 	small,
@@ -555,11 +557,11 @@ bool matchExpectedVsReturnTypeNoDiagnostic(
 			noneOneOrMany!TypeAndContext(choices, (in TypeAndContext x) =>
 				isTypeMatchPossible(x, candidateReturnType)
 			).matchIn!bool(
-				(in NoneOneOrMany.None) =>
+				(in None _) =>
 					false,
-				(in NoneOneOrMany.One x) =>
+				(in One x) =>
 					matchTypes(ctx, candidateReturnType, choices[x.index]),
-				(in NoneOneOrMany.Many) =>
+				(in Many _) =>
 					// Else don't infer any type args; multiple candidates and multiple possible return types.
 					true),
 		(const LoopInfo*) =>

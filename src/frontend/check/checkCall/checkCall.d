@@ -36,7 +36,7 @@ import frontend.check.inferringType :
 	withExpectCandidates;
 import frontend.check.instantiate : InstantiateCtx, makeOptionIfNotAlready, makeOptionType;
 import frontend.check.typeFromAst : getNTypeArgsForDiagnostic, tryUnpackOptionType, unpackTupleIfNeeded;
-import model.ast : CallAst, CallNamedAst, DestructureAst, ExprAst, LambdaAst, NameAndRange;
+import model.ast : CallAst, CallNamedAst, DestructureAst, ExprAst, LambdaAst, NameAndRange, VoidDestructureAst;
 import model.model :
 	BogusCallExpr,
 	Called,
@@ -229,7 +229,7 @@ Expr checkCallArgAnd2Lambdas(alias checkExpr, alias checkLambda)(
 		cbBeforeCheck: (scope ref Candidate[] candidates) =>
 			inferCandidateTypeArgsFromLambdaParameter(ctx, candidates, 1, *paramAst) == ContinueOrAbort.continue_);
 
-private immutable DestructureAst voidDestructure = DestructureAst(DestructureAst.Void(Range.empty));
+private immutable DestructureAst voidDestructure = DestructureAst(VoidDestructureAst(Range.empty));
 
 Expr checkCallSpecialCb1(
 	ref ExprCtx ctx,

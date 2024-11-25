@@ -10,8 +10,6 @@ import model.ast :
 	AssertOrForbidAst,
 	CaseAst,
 	CaseMemberAst,
-	ConditionAst,
-	DestructureAst,
 	DocCommentAst,
 	EnumOrFlagsMemberAst,
 	ExprAst,
@@ -20,17 +18,20 @@ import model.ast :
 	IfAst,
 	ImportOrExportAst,
 	MatchAst,
-	ModifierAst,
 	ModifierKeyword,
+	ModifierKeywordAst,
 	NameAndRange,
 	RecordFieldAst,
+	SingleDestructureAst,
 	SpecDeclAst,
 	SignatureAst,
 	StructAliasAst,
 	StructDeclAst,
 	TestAst,
 	TryAst,
-	VarDeclAst;
+	UnpackOptionAst,
+	VarDeclAst,
+	VoidDestructureAst;
 import model.constant : Constant;
 import model.parseDiag : ParseDiag, ParseDiagnostic, ReadFileDiag;
 import util.alloc.alloc : Alloc;
@@ -426,32 +427,32 @@ immutable struct ParamShort {
 
 immutable struct RecordFieldSource {
 	@safe @nogc pure nothrow:
-	mixin TaggedUnion!(DestructureAst.Single*, RecordFieldAst*);
+	mixin TaggedUnion!(SingleDestructureAst*, RecordFieldAst*);
 
 	DocCommentAst docComment() scope =>
 		match!DocCommentAst(
-			(ref DestructureAst.Single) =>
+			(ref SingleDestructureAst) =>
 				DocCommentAst.empty,
 			(ref RecordFieldAst x) =>
 				x.docComment);
 
 	Symbol name() scope =>
 		matchIn!Symbol(
-			(in DestructureAst.Single x) =>
+			(in SingleDestructureAst x) =>
 				x.name.name,
 			(in RecordFieldAst x) =>
 				x.name.name);
 
 	Range range() scope =>
 		matchIn!Range(
-			(in DestructureAst.Single x) =>
+			(in SingleDestructureAst x) =>
 				x.range,
 			(in RecordFieldAst x) =>
 				x.range);
 
 	Range nameRange() scope =>
 		matchIn!Range(
-			(in DestructureAst.Single x) =>
+			(in SingleDestructureAst x) =>
 				x.nameRange,
 			(in RecordFieldAst x) =>
 				x.nameRange);
@@ -503,26 +504,26 @@ static assert(RecordFlags.sizeof == uint.sizeof);
 
 immutable struct EnumMemberSource {
 	@safe @nogc pure nothrow:
-	mixin TaggedUnion!(EnumOrFlagsMemberAst*, DestructureAst.Single*);
+	mixin TaggedUnion!(EnumOrFlagsMemberAst*, SingleDestructureAst*);
 
 	DocCommentAst docComment() return scope =>
 		match!DocCommentAst(
 			(ref EnumOrFlagsMemberAst x) =>
 				x.docComment,
-			(ref DestructureAst.Single x) =>
+			(ref SingleDestructureAst x) =>
 				DocCommentAst.empty);
 	Symbol name() scope =>
 		matchIn!Symbol(
 			(in EnumOrFlagsMemberAst x) => x.name,
-			(in DestructureAst.Single x) => x.name.name);
+			(in SingleDestructureAst x) => x.name.name);
 	Range range() scope =>
 		matchIn!Range(
 			(in EnumOrFlagsMemberAst x) => x.range,
-			(in DestructureAst.Single x) => x.range);
+			(in SingleDestructureAst x) => x.range);
 	Range nameRange() scope =>
 		matchIn!Range(
 			(in EnumOrFlagsMemberAst x) => x.nameRange,
-			(in DestructureAst.Single x) => x.nameRange);
+			(in SingleDestructureAst x) => x.nameRange);
 }
 
 alias EnumMember = EnumOrFlagsMember;
@@ -861,7 +862,7 @@ immutable struct SumTypeMemberAndMethodImpls {
 immutable struct SumTypeMembership {
 	@safe @nogc pure nothrow:
 
-	ModifierAst.Keyword* ast;
+	ModifierKeywordAst* ast;
 	StructInst* sumType;
 	private Late!(SmallArray!(Opt!Called)) methodImpls_;
 
@@ -2759,7 +2760,7 @@ alias ConfigExternUris = Map!(Symbol, Opt!Uri);
 
 immutable struct LocalSource {
 	immutable struct Generated { Symbol name; }
-	mixin TaggedUnion!(DestructureAst.Single*, Generated*);
+	mixin TaggedUnion!(SingleDestructureAst*, Generated*);
 }
 
 immutable struct Local {
@@ -2771,7 +2772,7 @@ immutable struct Local {
 
 	Symbol name() scope =>
 		source.matchIn!Symbol(
-			(in DestructureAst.Single x) =>
+			(in SingleDestructureAst x) =>
 				x.name.name,
 			(in LocalSource.Generated x) =>
 				x.name);
@@ -2796,10 +2797,10 @@ immutable struct Local {
 }
 
 Range localMustHaveNameRange(in Local a) =>
-	a.source.as!(DestructureAst.Single*).nameRange;
+	a.source.as!(SingleDestructureAst*).nameRange;
 
 private Range localMustHaveRange(in Local a) =>
-	a.source.as!(DestructureAst.Single*).range;
+	a.source.as!(SingleDestructureAst*).range;
 
 immutable struct LocalMutability {
 	@safe @nogc pure nothrow:
@@ -2888,7 +2889,7 @@ immutable struct VariableRef {
 }
 
 immutable struct DestructureIgnoreSource {
-	mixin Union!(CaseMemberAst*, StructDecl*, DestructureAst.Single*, DestructureAst.Void*);
+	mixin Union!(CaseMemberAst*, StructDecl*, SingleDestructureAst*, VoidDestructureAst*);
 }
 
 immutable struct Destructure {
@@ -3117,7 +3118,7 @@ string defaultAssertOrForbidMessage(
 			PrefixAndRange(
 				a.isForbid ? "Forbidden expression is true: " : "Asserted expression is false: ",
 				expr.ast.kind.as!AssertOrForbidAst.condition.range),
-		(ref ConditionAst.UnpackOption unpack) =>
+		(ref UnpackOptionAst unpack) =>
 			PrefixAndRange(
 				a.isForbid ? "Forbidden option is non-empty: " : "Asserted option is empty: ",
 				unpack.option.range));
@@ -3254,7 +3255,7 @@ immutable struct LambdaExpr {
 	// But if it is from the `else`, this function will return true.
 	bool isIgnore() scope =>
 		param.isA!(Destructure.Ignore*) &&
-		param.as!(Destructure.Ignore*).source.isA!(DestructureAst.Void*);
+		param.as!(Destructure.Ignore*).source.isA!(VoidDestructureAst*);
 }
 
 immutable struct LetExpr {

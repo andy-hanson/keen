@@ -69,9 +69,12 @@ import frontend.check.typeFromAst :
 	unpackTuple;
 import model.ast :
 	ArrowAccessAst,
+	AsBogusAst,
+	AsNameAst,
 	AssertOrForbidAst,
 	AssignmentAst,
 	AssignmentCallAst,
+	AsStringAst,
 	BogusAst,
 	CallAst,
 	CallNamedAst,
@@ -111,6 +114,7 @@ import model.ast :
 	TryLetAst,
 	TypeAst,
 	TypedAst,
+	UnpackOptionAst,
 	WithAst;
 import model.constant : Constant;
 import model.model :
@@ -455,13 +459,13 @@ Condition checkCondition(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source
 	ast.matchWithPointers!Condition(
 		(ExprAst* x) =>
 			Condition(allocate(ctx.alloc, checkAndExpect(ctx, locals, x, Type(ctx.commonTypes.bool_)))),
-		(ConditionAst.UnpackOption* x) =>
+		(UnpackOptionAst* x) =>
 			Condition(allocate(ctx.alloc, checkUnpackOption(ctx, locals, source, x))));
 Condition.UnpackOption checkUnpackOption(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
-	ConditionAst.UnpackOption* condAst,
+	UnpackOptionAst* condAst,
 ) {
 	ExprAndOptionType res = withExpectOption(ctx.instantiateCtx, ctx.commonTypes, (ref Expected expected) =>
 		checkExpr(ctx, locals, condAst.option, expected));
@@ -1582,7 +1586,7 @@ Expr checkMatchEnum(
 		ExactSizeArrayBuilder!(MatchEnumExpr.Case) cases = newExactSizeArrayBuilder!(MatchEnumExpr.Case)(
 			ctx.alloc, ast.cases.length);
 		foreach (ref CaseAst caseAst; ast.cases) {
-			Opt!(CaseMemberAst.Name*) asName = nameFromCaseMemberAst(ctx, &caseAst.member);
+			Opt!(AsNameAst*) asName = nameFromCaseMemberAst(ctx, &caseAst.member);
 			Opt!Symbol name = optIf(has(asName), () => force(asName).name.name);
 			Opt!(EnumMember*) optMember = has(name) ? body_.membersByName[force(name)] : none!(EnumMember*);
 			if (has(optMember)) {
@@ -1594,7 +1598,7 @@ Expr checkMatchEnum(
 						Diag.MatchCaseDuplicate(Diag.MatchCaseDuplicate.Kind(force(name)))));
 				} else {
 					seen[index] = true;
-					CaseMemberAst.Name* nameAst = force(asName);
+					AsNameAst* nameAst = force(asName);
 					if (has(nameAst.destructure))
 						addDiag2(ctx, force(nameAst.destructure).range, Diag(
 							Diag.MatchCaseNoValueForEnumOrSymbol(some(matchedEnum))));
@@ -1715,7 +1719,7 @@ Opt!MatchSumTypeCase checkMatchSumTypeCase(
 	ExprAst* thenAst,
 	ref Expected expected,
 ) {
-	Opt!(CaseMemberAst.Name*) asName = nameFromCaseMemberAst(ctx, memberAst);
+	Opt!(AsNameAst*) asName = nameFromCaseMemberAst(ctx, memberAst);
 	Opt!Symbol name = optIf(has(asName), () => force(asName).name.name);
 	Opt!(StructInst*) optCaseType = has(name)
 		? getSumTypeCaseFromName(ctx, matchedVariant, force(name), memberAst.nameRange, () =>
@@ -1726,7 +1730,7 @@ Opt!MatchSumTypeCase checkMatchSumTypeCase(
 	if (!has(optCaseType)) return none!MatchSumTypeCase;
 	StructInst* caseType = force(optCaseType);
 
-	ref Opt!DestructureAst destructureAst() => memberAst.as!(CaseMemberAst.Name).destructure;
+	ref Opt!DestructureAst destructureAst() => memberAst.as!(AsNameAst).destructure;
 	Destructure destructure = () {
 		if (has(destructureAst))
 			return checkDestructure2(ctx, &force(destructureAst), Type(caseType), DestructureKind.local);
@@ -1930,17 +1934,17 @@ Expr checkMatchIntegral(
 		ast.cases.length, (scope ref TempSet!IntegralValue seen) =>
 			mapOpPointers!(MatchIntegralExpr.Case, CaseAst)(ctx.alloc, ast.cases, (CaseAst* caseAst) {
 				Opt!IntegralValue optValue = caseAst.member.match!(Opt!IntegralValue)(
-					(CaseMemberAst.Name x) {
+					(AsNameAst x) {
 						addDiag2(ctx, x.name.range, Diag(Diag.MatchCaseForType(Diag.MatchCaseForType.Kind.numeric)));
 						return none!IntegralValue;
 					},
 					(LiteralIntegralAndRange x) =>
 						some(checkLiteralIntegralValue(ctx.checkCtx, integralType, x)),
-					(CaseMemberAst.String x) {
+					(AsStringAst x) {
 						addDiag2(ctx, x.range, Diag(Diag.MatchCaseForType(Diag.MatchCaseForType.Kind.numeric)));
 						return none!IntegralValue;
 					},
-					(CaseMemberAst.Bogus) =>
+					(AsBogusAst) =>
 						none!IntegralValue);
 				if (has(optValue)) {
 					IntegralValue value = force(optValue);
@@ -2076,7 +2080,7 @@ Expr checkExprWithOptDestructureOrEmptyNew(
 
 Opt!string stringFromCaseAst(ref ExprCtx ctx, CaseMemberAst ast) =>
 	ast.match!(Opt!string)(
-		(CaseMemberAst.Name x) {
+		(AsNameAst x) {
 			if (has(x.destructure))
 				addDiag2(ctx, force(x.destructure).range, Diag(
 					Diag.MatchCaseNoValueForEnumOrSymbol(none!(StructDecl*))));
@@ -2086,15 +2090,15 @@ Opt!string stringFromCaseAst(ref ExprCtx ctx, CaseMemberAst ast) =>
 			addDiag2(ctx, x.range, Diag(Diag.MatchCaseForType(Diag.MatchCaseForType.Kind.stringLike)));
 			return none!string;
 		},
-		(CaseMemberAst.String x) =>
+		(AsStringAst x) =>
 			some(x.value),
-		(CaseMemberAst.Bogus) =>
+		(AsBogusAst) =>
 			none!string);
 
-Opt!(CaseMemberAst.Name*) nameFromCaseMemberAst(ref ExprCtx ctx, CaseMemberAst* ast) {
-	Opt!(CaseMemberAst.Name*) res = ast.isA!(CaseMemberAst.Name)
-		? some(&ast.as!(CaseMemberAst.Name)())
-		: none!(CaseMemberAst.Name*);
+Opt!(AsNameAst*) nameFromCaseMemberAst(ref ExprCtx ctx, CaseMemberAst* ast) {
+	Opt!(AsNameAst*) res = ast.isA!(AsNameAst)
+		? some(&ast.as!(AsNameAst)())
+		: none!(AsNameAst*);
 	if (!has(res))
 		addDiag2(ctx, ast.nameRange, Diag(Diag.MatchCaseForType(Diag.MatchCaseForType.Kind.enumOrUnion)));
 	return res;

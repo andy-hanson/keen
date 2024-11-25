@@ -25,13 +25,12 @@ import util.writer :
 immutable struct Json {
 	@safe @nogc pure nothrow:
 
-	immutable struct Null {}
 	alias List = immutable Json[];
 	alias ObjectField = immutable KeyValuePair!(Symbol, Json);
 	alias Object = immutable ObjectField[];
 	// string and Symbol cases should be treated as equivalent.
 	mixin Union!(
-		Null,
+		JsonNull,
 		bool,
 		double,
 		string,
@@ -42,8 +41,8 @@ immutable struct Json {
 	// Distinguishes CString / string / Symbol. Use only for tests.
 	bool opEquals(in Json b) scope =>
 		matchIn!bool(
-			(in Null _) =>
-				b.isA!Null,
+			(in JsonNull _) =>
+				b.isA!JsonNull,
 			(in bool x) =>
 				b.isA!bool && b.as!bool == x,
 			(in double x) =>
@@ -61,6 +60,7 @@ immutable struct Json {
 		writeJson(writer, this);
 	}
 }
+immutable struct JsonNull {}
 
 Json get(string key)(in Json a) {
 	Opt!(Json.ObjectField) pair = find!(Json.ObjectField)(a.as!(Json.Object), (in Json.ObjectField pair) =>
@@ -91,7 +91,7 @@ Json jsonBool(bool b) =>
 	Json(b);
 
 Json jsonNull() =>
-	Json(Json.Null());
+	Json(JsonNull());
 
 Opt!(Json.ObjectField) optionalField(string name)(bool isPresent, in Json delegate() @safe @nogc pure nothrow cb) =>
 	isPresent ? field!name(cb()) : none!(Json.ObjectField);
@@ -193,7 +193,7 @@ string jsonToString(ref Alloc alloc, in Json a) =>
 
 private void writeJson(ref Writer writer, in Json a) =>
 	a.matchIn!void(
-		(in Json.Null _) {
+		(in JsonNull _) {
 			writer ~= "null";
 		},
 		(in bool x) {

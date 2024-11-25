@@ -8,7 +8,7 @@ import frontend.check.getCommonTypes : bogusStructDecl;
 import frontend.check.inferringType : typesAreCorrespondingStructInsts;
 import frontend.check.instantiate : InstantiateCtx, instantiateFun, instantiateStruct;
 import frontend.lang : MainKind;
-import model.ast : DocCommentAst, ModifierAst, NameAndRange, VarDeclAst, TypeAst;
+import model.ast : BogusTypeAst, DocCommentAst, ModifierAst, NameAndRange, VarDeclAst, TypeAst;
 import model.model :
 	allExternsForMainConfig,
 	assertNonVariadic,
@@ -409,7 +409,7 @@ VarDecl* getVarDecl(
 			emptySmallArray!NameAndRange,
 			0,
 			kind,
-			TypeAst(TypeAst.Bogus(Range.empty)),
+			TypeAst(BogusTypeAst(Range.empty)),
 			emptySmallArray!ModifierAst));
 		return allocate(alloc, VarDecl(ast, module_.uri, Visibility.public_, Type.bogus, none!Symbol));
 	}

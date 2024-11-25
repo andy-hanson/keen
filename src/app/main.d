@@ -12,7 +12,26 @@ version (Windows) {
 }
 
 import app.backtrace : writeBacktrace;
-import app.command : BuildOptions, Command, CommandKind, isFakeExtern, RunOptions, SingleBuildOutput, targetsForBuild;
+import app.command :
+	AotRunOptions,
+	BuildCommand,
+	BuildOptions,
+	CheckCommand,
+	Command,
+	CommandKind,
+	DocumentCommand,
+	HelpCommand,
+	InterpretRunOptions,
+	isFakeExtern,
+	JitRunOptions,
+	LspCommand,
+	NodeJsRunOptions,
+	PrintCommand,
+	RunCommand,
+	SelfTestCommand,
+	SingleBuildOutput,
+	targetsForBuild,
+	VersionCommand;
 import app.dyncall : withRealExtern;
 import app.fileSystem :
 	cleanupCompile,
@@ -383,44 +402,44 @@ ExitCodeOrSignal go(
 	in CommandKind command,
 ) =>
 	command.matchImpure!ExitCodeOrSignal(
-		(in CommandKind.Build x) =>
+		(in BuildCommand x) =>
 			withProgramForMain(
 				perf, alloc, server, x.main, targetsForBuild(alloc, getOS(), x), (ref ProgramWithMain program) =>
 					buildAllOutputs(perf, alloc, server, cwd, x.options, program)),
-		(in CommandKind.Check x) =>
+		(in CheckCommand x) =>
 			withProgramForRoots(perf, alloc, server, x.rootUris, (ref Program program) =>
 				hasAnyDiagnostics(program) ? ExitCodeOrSignal.error : ExitCodeOrSignal(print("OK"))),
-		(in CommandKind.Document x) =>
+		(in DocumentCommand x) =>
 			withProgramForRoots(perf, alloc, server, x.rootUris, (ref Program program) =>
 				printJson(alloc, document(alloc, server, program, x.rootUris))),
-		(in CommandKind.Help x) {
+		(in HelpCommand x) {
 			print(x.helpText);
 			return ExitCodeOrSignal(x.exitCode);
 		},
-		(in CommandKind.Lsp) =>
+		(in LspCommand _) =>
 			ExitCodeOrSignal(runLsp(server, thisExecutable)),
-		(in CommandKind.Print x) =>
+		(in PrintCommand x) =>
 			doPrint(perf, alloc, server, x),
-		(in CommandKind.Run x) =>
+		(in RunCommand x) =>
 			run(perf, alloc, server, cwd, x),
-		(in CommandKind.SelfTest x) {
+		(in SelfTestCommand x) {
 			version (Test)
 				return ExitCodeOrSignal(test(server.metaAlloc, x.names));
 			else
 				return ExitCodeOrSignal(printError("Did not compile with tests"));
 		},
-		(in CommandKind.Version) =>
+		(in VersionCommand _) =>
 			ExitCodeOrSignal(printCb((scope ref Writer writer) {
 				writeJsonPretty(writer, version_(alloc, server, thisExecutable), 0);
 			})));
 
-ExitCodeOrSignal run(scope ref Perf perf, ref Alloc alloc, ref Server server, FilePath cwd, in CommandKind.Run run) {
+ExitCodeOrSignal run(scope ref Perf perf, ref Alloc alloc, ref Server server, FilePath cwd, in RunCommand run) {
 	OS os = isFakeExtern(run.options) ? OS.none : getOS();
 	return withProgramForMain(perf, alloc, server, run.main, [BuildTarget.native(os)], (ref ProgramWithMain program) =>
 		run.options.matchImpure!ExitCodeOrSignal(
-			(in RunOptions.Aot x) @safe =>
+			(in AotRunOptions x) =>
 				buildAndRun(perf, alloc, server, cwd, program, run.main.programArgs, x),
-			(in RunOptions.Interpret x) =>
+			(in InterpretRunOptions x) =>
 				withRealOrFakeExtern(
 					x.fakeExtern, *newAlloc(AllocKind.extern_, server.metaAlloc), (scope ref Extern extern_) =>
 						buildAndInterpret(
@@ -428,7 +447,7 @@ ExitCodeOrSignal run(scope ref Perf perf, ref Alloc alloc, ref Server server, Fi
 							(in string x) { printError(x); },
 							program, os, x.version_, none!(Uri[]),
 							getAllArgs(alloc, server, run.main))),
-			(in RunOptions.Jit options) {
+			(in JitRunOptions options) {
 				version (GccJitAvailable)
 					return ExitCodeOrSignal(jitAndRun(
 						perf,
@@ -440,7 +459,7 @@ ExitCodeOrSignal run(scope ref Perf perf, ref Alloc alloc, ref Server server, Fi
 				else
 					return ExitCodeOrSignal(printError("This build does not support '--jit'"));
 			},
-			(in RunOptions.NodeJs) =>
+			(in NodeJsRunOptions) =>
 				buildAndRunNodeJs(perf, alloc, server, cwd, program, run.main.programArgs)));
 }
 
@@ -477,7 +496,7 @@ FilePath getCrowIncludeDir(FilePath thisExecutable) {
 CString[] getAllArgs(ref Alloc alloc, in Server server, in MainKind main) =>
 	prepend(alloc, cStringOfUriPreferRelative(alloc, server.urisInfo, main.mainUriForAllArgs), main.programArgs);
 
-ExitCodeOrSignal doPrint(scope ref Perf perf, ref Alloc alloc, ref Server server, in CommandKind.Print command) {
+ExitCodeOrSignal doPrint(scope ref Perf perf, ref Alloc alloc, ref Server server, in PrintCommand command) {
 	Uri mainUri = command.mainUri;
 	return command.kind.matchImpure!ExitCodeOrSignal(
 		(in PrintKind.Ast) {
@@ -511,7 +530,7 @@ ExitCodeOrSignal buildAndRun(
 	FilePath cwd,
 	ref ProgramWithMain program,
 	in CString[] programArgs,
-	in RunOptions.Aot options,
+	in AotRunOptions options,
 ) {
 	Uri tempBase = tempBasePath(program, cwd);
 	return withTempPath(tempBase, Extension.c, (FilePath cPath) =>

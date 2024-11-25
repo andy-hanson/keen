@@ -2,7 +2,26 @@ module app.parseCommand;
 
 @safe @nogc pure nothrow:
 
-import app.command : BuildOptions, Command, CommandKind, CommandOptions, RunOptions, SingleBuildOutput;
+import app.command :
+	AotRunOptions,
+	BuildCommand,
+	BuildOptions,
+	CheckCommand,
+	Command,
+	CommandKind,
+	CommandOptions,
+	DocumentCommand,
+	HelpCommand,
+	InterpretRunOptions,
+	JitRunOptions,
+	LspCommand,
+	NodeJsRunOptions,
+	PrintCommand,
+	RunCommand,
+	RunOptions,
+	SelfTestCommand,
+	SingleBuildOutput,
+	VersionCommand;
 import frontend.lang : CCompileOptions, CVersion, FileType, fileType, JitOptions, MainKind, OptimizationLevel;
 import frontend.parse.lexToken : NatAndOverflow, takeNat;
 import lib.server : PrintKind;
@@ -45,16 +64,16 @@ Command parseCommand(ref Alloc alloc, FilePath cwd, OS os, CString[] args) {
 	string arg0 = isEmpty(args) ? "" : stringOfCString(args[0]);
 	if (endsWith(arg0, ".crow"))
 		return Command(
-			CommandKind(CommandKind.Run(
+			CommandKind(RunCommand(
 				MainKind.fun(parseUriWithCwd(cwd, arg0), args[1 .. $]),
-				RunOptions(RunOptions.Interpret(fakeExtern: false, version_: VersionOptions.default_)))),
+				RunOptions(InterpretRunOptions(fakeExtern: false, version_: VersionOptions.default_)))),
 			CommandOptions()) ;
 	else {
 		Opt!CommandName optName = commandName(arg0);
 		return has(optName)
 			? parseCommandFromName(alloc, cwd, os, force(optName), args[1 .. $])
 			: Command(
-				CommandKind(CommandKind.Help(
+				CommandKind(HelpCommand(
 					helpAllText(alloc),
 					!isEmpty(args) && (args[0] == "help" || args[0] == "--help") ? ExitCode.ok : ExitCode.error)),
 				CommandOptions(perf: false));
@@ -67,7 +86,7 @@ Command parseCommandFromName(ref Alloc alloc, FilePath cwd, OS os, CommandName n
 	SplitArgsAndOptions split = splitArgs(alloc, args);
 	if (split.help)
 		return Command(
-			CommandKind(CommandKind.Help(helpForCommand(alloc, name), ExitCode.ok)),
+			CommandKind(HelpCommand(helpForCommand(alloc, name), ExitCode.ok)),
 			split.options);
 	else {
 		Diags diagsBuilder = Diags(&alloc);
@@ -85,13 +104,13 @@ Command parseCommandFromName(ref Alloc alloc, FilePath cwd, OS os, CommandName n
 				writeNewline(writer, 0);
 				writeHelpForCommand(writer, name);
 			});
-			return Command(CommandKind(CommandKind.Help(help, ExitCode.error)), split.options);
+			return Command(CommandKind(HelpCommand(help, ExitCode.error)), split.options);
 		}
 	}
 }
 
 CommandKind dummyCommand() =>
-	CommandKind(CommandKind.Help("This should not appear", ExitCode.error));
+	CommandKind(HelpCommand("This should not appear", ExitCode.error));
 
 enum CommandName {
 	build,
@@ -111,35 +130,6 @@ Opt!CommandName commandName(in string a) {
 
 // We always combine this with the commandName, so no need to include it here
 immutable struct Diag {
-	immutable struct BuildOutBadFileExtension {
-		Extension executableExtension;
-	}
-	immutable struct BuildOutBadPrefix { string prefix; }
-	immutable struct DuplicatePart { CString tag; }
-	immutable struct ExpectedCrowUri { string actual; }
-	immutable struct ExpectedNat { string actual; }
-	immutable struct ExpectedPaths { Opt!CString tag; }
-	immutable struct NeedsSinglePath { size_t actual; }
-	immutable struct ParseFilePath { CString actual; }
-	immutable struct PrintKind {}
-	immutable struct RedundantPart {
-		CString redundantTag;
-		CString otherTag; // This causes the redundantTag to be redundant
-	}
-	immutable struct UnexpectedPart { CString tag; }
-	immutable struct UnexpectedPartArgs { ArgsPart part; }
-	immutable struct UnexpectedBefore { CString arg; }
-	immutable struct RunArgNotSupportedInNodeJs {
-		string arg;
-	}
-	immutable struct RunKindIncompatible {
-		bool aot;
-		bool jit;
-		bool nodeJs;
-	}
-	immutable struct RunOptimizeNeedsAotOrJit {}
-	immutable struct TestLineNumberInvalid {}
-
 	mixin Union!(
 		BuildOutBadFileExtension,
 		BuildOutBadPrefix,
@@ -149,46 +139,75 @@ immutable struct Diag {
 		ExpectedPaths,
 		NeedsSinglePath,
 		ParseFilePath,
-		PrintKind,
+		PrintKindInvalid,
 		RedundantPart,
-		UnexpectedPart,
-		UnexpectedPartArgs,
-		UnexpectedBefore,
 		RunArgNotSupportedInNodeJs,
 		RunKindIncompatible,
 		RunOptimizeNeedsAotOrJit,
-		TestLineNumberInvalid);
+		TestLineNumberInvalid,
+		UnexpectedPart,
+		UnexpectedPartArgs,
+		UnexpectedBefore);
 }
 alias Diags = Builder!Diag;
 
+immutable struct BuildOutBadFileExtension {
+	Extension executableExtension;
+}
+immutable struct BuildOutBadPrefix { string prefix; }
+immutable struct DuplicatePart { CString tag; }
+immutable struct ExpectedCrowUri { string actual; }
+immutable struct ExpectedNat { string actual; }
+immutable struct ExpectedPaths { Opt!CString tag; }
+immutable struct NeedsSinglePath { size_t actual; }
+immutable struct ParseFilePath { CString actual; }
+immutable struct PrintKindInvalid {}
+immutable struct RedundantPart {
+	CString redundantTag;
+	CString otherTag; // This causes the redundantTag to be redundant
+}
+immutable struct RunArgNotSupportedInNodeJs {
+	string arg;
+}
+immutable struct RunKindIncompatible {
+	bool aot;
+	bool jit;
+	bool nodeJs;
+}
+immutable struct RunOptimizeNeedsAotOrJit {}
+immutable struct TestLineNumberInvalid {}
+immutable struct UnexpectedPart { CString tag; }
+immutable struct UnexpectedPartArgs { ArgsPart part; }
+immutable struct UnexpectedBefore { CString arg; }
+
 void writeDiag(scope ref Writer writer, in Diag a) {
 	a.matchIn!void(
-		(in Diag.BuildOutBadFileExtension x) {
+		(in BuildOutBadFileExtension x) {
 			writer ~= "Build output must be a '.c', '.js', or ";
 			writeExtension(writer, x.executableExtension);
 			writer ~= " file.";
 		},
-		(in Diag.BuildOutBadPrefix x) {
+		(in BuildOutBadPrefix x) {
 			writer ~= "Unrecognized output prefix ";
 			writeQuotedString(writer, x.prefix);
 			writer ~= ". An output can start with 'js:' or 'node-js:'.";
 		},
-		(in Diag.DuplicatePart x) {
+		(in DuplicatePart x) {
 			writer ~= "Argument ";
 			writeQuotedString(writer, x.tag);
 			writer ~= " appears twice.";
 		},
-		(in Diag.ExpectedCrowUri x) {
+		(in ExpectedCrowUri x) {
 			writer ~= "Expected path to a '.crow' file, instead got ";
 			writeQuotedString(writer, x.actual);
 			writer ~= '.';
 		},
-		(in Diag.ExpectedNat x) {
+		(in ExpectedNat x) {
 			writer ~= "Expected argument to be a natural number, instead got ";
 			writeQuotedString(writer, x.actual);
 			writer ~= '.';
 		},
-		(in Diag.ExpectedPaths x) {
+		(in ExpectedPaths x) {
 			if (has(x.tag)) {
 				writer ~= "Argument ";
 				writeQuotedString(writer, force(x.tag));
@@ -196,7 +215,7 @@ void writeDiag(scope ref Writer writer, in Diag a) {
 			} else
 				writer ~= "This command expects a list of paths.";
 		},
-		(in Diag.NeedsSinglePath x) {
+		(in NeedsSinglePath x) {
 			if (x.actual == 0)
 				writer ~= "This command needs a path.";
 			else {
@@ -205,15 +224,15 @@ void writeDiag(scope ref Writer writer, in Diag a) {
 				writer ~= '.';
 			}
 		},
-		(in Diag.ParseFilePath x) {
+		(in ParseFilePath x) {
 			writer ~= "Not a valid file path: ";
 			writeQuotedString(writer, x.actual);
 			writer ~= '.';
 		},
-		(in Diag.PrintKind) {
+		(in PrintKindInvalid) {
 			writer ~= "Not a valid print command.";
 		},
-		(in Diag.RedundantPart x) {
+		(in RedundantPart x) {
 			writer ~= "'";
 			writer ~= x.redundantTag;
 			writer ~= " is redundant given ";
@@ -221,29 +240,12 @@ void writeDiag(scope ref Writer writer, in Diag a) {
 			writer ~= x.otherTag;
 			writer ~= "'.";
 		},
-		(in Diag.UnexpectedPart x) {
-			writer ~= "Unexpected argument ";
-			writeQuotedString(writer, x.tag);
-			writer ~= '.';
-		},
-		(in Diag.UnexpectedPartArgs x) {
-			writer ~= "Argument ";
-			writeQuotedString(writer, x.part.tag);
-			writer ~= " is a flag and should not have any values (starting with ";
-			writeQuotedString(writer, x.part.args[0]);
-			writer ~= ".";
-		},
-		(in Diag.UnexpectedBefore x) {
-			writer ~= "*Unexpected un-named argument ";
-			writeQuotedString(writer, x.arg);
-			writer ~= '.';
-		},
-		(in Diag.RunArgNotSupportedInNodeJs x) {
+		(in RunArgNotSupportedInNodeJs x) {
 			writer ~= "Running with node.js does not support the '";
 			writer ~= x.arg;
 			writer ~= "' option.";
 		},
-		(in Diag.RunKindIncompatible x) {
+		(in RunKindIncompatible x) {
 			writer ~= "Can not specify both ";
 			withBuildStackArray!(void, string)(
 				(ref StackArrayBuilder!string out_) {
@@ -259,11 +261,28 @@ void writeDiag(scope ref Writer writer, in Diag a) {
 					});
 				});
 		},
-		(in Diag.RunOptimizeNeedsAotOrJit) {
+		(in RunOptimizeNeedsAotOrJit) {
 			writer ~= "'--optimize' must be combined with '--aot' or '--jit'.";
 		},
-		(in Diag.TestLineNumberInvalid) {
+		(in TestLineNumberInvalid) {
 			writer ~= "Specifying a test line number only works when there is a single test file.";
+		},
+		(in UnexpectedPart x) {
+			writer ~= "Unexpected argument ";
+			writeQuotedString(writer, x.tag);
+			writer ~= '.';
+		},
+		(in UnexpectedPartArgs x) {
+			writer ~= "Argument ";
+			writeQuotedString(writer, x.part.tag);
+			writer ~= " is a flag and should not have any values (starting with ";
+			writeQuotedString(writer, x.part.args[0]);
+			writer ~= ".";
+		},
+		(in UnexpectedBefore x) {
+			writer ~= "*Unexpected un-named argument ";
+			writeQuotedString(writer, x.arg);
+			writer ~= '.';
 		});
 }
 
@@ -291,19 +310,19 @@ CommandKind parseCommandKind(
 		case CommandName.check:
 			expectEmptyParts(diags, args.parts);
 			expectEmptyAfterDashDash(diags, args.afterDashDash);
-			return CommandKind(CommandKind.Check(parseRootUris(alloc, cwd, diags, args.beforeFirstPart)));
+			return CommandKind(CheckCommand(parseRootUris(alloc, cwd, diags, args.beforeFirstPart)));
 		case CommandName.document:
 			expectEmptyParts(diags, args.parts);
 			expectEmptyAfterDashDash(diags, args.afterDashDash);
-			return CommandKind(CommandKind.Document(parseRootUris(alloc, cwd, diags, args.beforeFirstPart)));
+			return CommandKind(DocumentCommand(parseRootUris(alloc, cwd, diags, args.beforeFirstPart)));
 		case CommandName.lsp:
 			expectAllEmpty(diags, args);
-			return CommandKind(CommandKind.Lsp());
+			return CommandKind(LspCommand());
 		case CommandName.print:
 			return parsePrintCommand(alloc, cwd, diags, args);
 		case CommandName.run:
 			RunOptions options = parseRunOptions(alloc, os, diags, args.parts, allowAll: false).runOptions;
-			return CommandKind(CommandKind.Run(
+			return CommandKind(RunCommand(
 				MainKind.fun(
 					parseMainUri(alloc, cwd, diags, args.beforeFirstPart),
 					optOrDefault!(CString[])(castNonScope(args.afterDashDash), () => typeAs!(CString[])([]))),
@@ -311,16 +330,16 @@ CommandKind parseCommandKind(
 		case CommandName.selfTest:
 			expectEmptyParts(diags, args.parts);
 			expectEmptyAfterDashDash(diags, args.afterDashDash);
-			return CommandKind(CommandKind.SelfTest(copyArray(alloc, args.beforeFirstPart)));
+			return CommandKind(SelfTestCommand(copyArray(alloc, args.beforeFirstPart)));
 		case CommandName.test:
 			RunOptionsAndAll options = parseRunOptions(alloc, os, diags, args.parts, allowAll: true);
 			expectEmptyAfterDashDash(diags, args.afterDashDash);
-			return CommandKind(CommandKind.Run(
+			return CommandKind(RunCommand(
 				parseMainKindForTest(alloc, cwd, diags, args.beforeFirstPart, options.all),
 				options.runOptions));
 		case CommandName.version_:
 			expectAllEmpty(diags, args);
-			return CommandKind(CommandKind.Version());
+			return CommandKind(VersionCommand());
 	}
 }
 
@@ -332,15 +351,15 @@ void expectAllEmpty(scope ref Diags diags, in SplitArgs args) {
 
 void expectEmptyBefore(scope ref Diags diags, in CString[] before) {
 	if (!isEmpty(before))
-		diags ~= Diag(Diag.UnexpectedBefore(before[0]));
+		diags ~= Diag(UnexpectedBefore(before[0]));
 }
 void expectEmptyParts(scope ref Diags diags, in ArgsPart[] parts) {
 	foreach (ArgsPart part; parts)
-		diags ~= Diag(Diag.UnexpectedPart(part.tag));
+		diags ~= Diag(UnexpectedPart(part.tag));
 }
 void expectEmptyAfterDashDash(scope ref Diags diags, in Opt!(CString[]) after) {
 	if (has(after))
-		diags ~= Diag(Diag.UnexpectedPart(cString!"--"));
+		diags ~= Diag(UnexpectedPart(cString!"--"));
 }
 
 public Extension defaultExecutableExtension(OS os) {
@@ -362,10 +381,10 @@ MainKind parseMainKindForTest(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 		: none!uint;
 
 	if (args.length == 2 && !has(line))
-		diags ~= Diag(Diag.ExpectedNat(stringOfCString(args[1])));
+		diags ~= Diag(ExpectedNat(stringOfCString(args[1])));
 
 	if (args.length != 1 && args.length != 2) {
-		diags ~= Diag(Diag.NeedsSinglePath(args.length));
+		diags ~= Diag(NeedsSinglePath(args.length));
 		return MainKind.testsAtUri(false, Uri.empty, none!uint); // dummy return value
 	} else {
 		string argStr = stringOfCString(args[0]);
@@ -373,14 +392,14 @@ MainKind parseMainKindForTest(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 		final switch (fileType(uri)) {
 			case FileType.crow:
 				if (all && has(line))
-					diags ~= Diag(Diag.TestLineNumberInvalid());
+					diags ~= Diag(TestLineNumberInvalid());
 				return MainKind.testsAtUri(all, uri, line);
 			case FileType.crowConfig:
 				if (has(line))
-					diags ~= Diag(Diag.TestLineNumberInvalid());
+					diags ~= Diag(TestLineNumberInvalid());
 				return MainKind.testsInConfig(all, uri);
 			case FileType.other:
-				diags ~= Diag(Diag.ExpectedCrowUri(argStr));
+				diags ~= Diag(ExpectedCrowUri(argStr));
 				return MainKind.testsAtUri(false, Uri.empty, none!uint); // dummy return value
 		}
 	}
@@ -388,7 +407,7 @@ MainKind parseMainKindForTest(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 
 Uri parseMainUri(ref Alloc alloc, FilePath cwd, scope ref Diags diags, in CString[] args) {
 	if (args.length != 1) {
-		diags ~= Diag(Diag.NeedsSinglePath(args.length));
+		diags ~= Diag(NeedsSinglePath(args.length));
 		return toUri(cwd); // dummy return value
 	} else
 		return parseCrowUri(alloc, cwd, diags, only(args));
@@ -398,13 +417,13 @@ Uri parseCrowUri(ref Alloc alloc, FilePath cwd, scope ref Diags diags, CString a
 	string argStr = stringOfCString(arg);
 	Uri uri = parseUriWithCwd(cwd, argStr);
 	if (getExtension(uri) != Extension.crow)
-		diags ~= Diag(Diag.ExpectedCrowUri(argStr));
+		diags ~= Diag(ExpectedCrowUri(argStr));
 	return uri;
 }
 
 Uri[] parseRootUris(ref Alloc alloc, FilePath cwd, scope ref Diags diags, in CString[] args) {
 	if (isEmpty(args))
-		diags ~= Diag(Diag.ExpectedPaths(none!CString));
+		diags ~= Diag(ExpectedPaths(none!CString));
 	return map(alloc, args, (ref CString arg) =>
 		parseCrowUri(alloc, cwd, diags, arg));
 }
@@ -416,9 +435,9 @@ CommandKind parsePrintCommand(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 		? parsePrintKind(args.beforeFirstPart[0], args.beforeFirstPart[2 .. $])
 		: none!PrintKind;
 	if (has(kind))
-		return CommandKind(CommandKind.Print(force(kind), parseCrowUri(alloc, cwd, diags, args.beforeFirstPart[1])));
+		return CommandKind(PrintCommand(force(kind), parseCrowUri(alloc, cwd, diags, args.beforeFirstPart[1])));
 	else {
-		diags ~= Diag(Diag.PrintKind());
+		diags ~= Diag(PrintKindInvalid());
 		return dummyCommand;
 	}
 }
@@ -534,7 +553,7 @@ CommandKind parseBuildCommand(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 		void setFlag(ref bool flag) {
 			expectFlag(diags, part);
 			if (flag)
-				diags ~= Diag(Diag.DuplicatePart(part.tag));
+				diags ~= Diag(DuplicatePart(part.tag));
 			flag = true;
 		}
 		switch (stringOfCString(part.tag)) {
@@ -546,7 +565,7 @@ CommandKind parseBuildCommand(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 				break;
 			case "--out":
 				if (!isEmpty(out_))
-					diags ~= Diag(Diag.DuplicatePart(part.tag));
+					diags ~= Diag(DuplicatePart(part.tag));
 				else
 					out_ = parseBuildOut(alloc, cwd, os, diags, part);
 				break;
@@ -563,12 +582,12 @@ CommandKind parseBuildCommand(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 				setFlag(all);
 				break;
 			default:
-				diags ~= Diag(Diag.UnexpectedPart(part.tag));
+				diags ~= Diag(UnexpectedPart(part.tag));
 		}
 	}
 
 	if (all && !test)
-		diags ~= Diag(Diag.UnexpectedPart(cString!"--all"));
+		diags ~= Diag(UnexpectedPart(cString!"--all"));
 
 	MainKind main = test
 		? parseMainKindForTest(alloc, cwd, diags, args.beforeFirstPart, all: all)
@@ -583,7 +602,7 @@ CommandKind parseBuildCommand(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 		CCompileOptions(
 			optimize ? OptimizationLevel.o2 : OptimizationLevel.none,
 			c99 ? CVersion.c99 : CVersion.c11));
-	return CommandKind(CommandKind.Build(main, options));
+	return CommandKind(BuildCommand(main, options));
 }
 
 immutable struct RunOptionsAndAll {
@@ -603,7 +622,7 @@ RunOptionsAndAll parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, 
 		void setFlag(ref bool flag) {
 			expectFlag(diags, part);
 			if (flag)
-				diags ~= Diag(Diag.DuplicatePart(part.tag));
+				diags ~= Diag(DuplicatePart(part.tag));
 			flag = true;
 		}
 		switch (stringOfCString(part.tag)) {
@@ -611,7 +630,7 @@ RunOptionsAndAll parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, 
 				if (allowAll)
 					setFlag(all);
 				else
-					diags ~= Diag(Diag.UnexpectedPart(part.tag));
+					diags ~= Diag(UnexpectedPart(part.tag));
 				break;
 			case "--aot":
 				setFlag(aot);
@@ -635,45 +654,45 @@ RunOptionsAndAll parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, 
 				setFlag(singleThreaded);
 				break;
 			default:
-				diags ~= Diag(Diag.UnexpectedPart(part.tag));
+				diags ~= Diag(UnexpectedPart(part.tag));
 		}
 	}
 
 	if (fakeExtern && (aot || jit || nodeJs))
-		diags ~= Diag(Diag.UnexpectedPart(cString!"--fake-extern"));
+		diags ~= Diag(UnexpectedPart(cString!"--fake-extern"));
 	if (fakeExtern && singleThreaded)
-		diags ~= Diag(Diag.RedundantPart(cString!"--single-threaded", cString!"--fake-extern"));
+		diags ~= Diag(RedundantPart(cString!"--single-threaded", cString!"--fake-extern"));
 	if ((uint(aot) + jit + nodeJs) > 1)
-		diags ~= Diag(Diag.RunKindIncompatible(aot: aot, jit: jit, nodeJs: nodeJs));
+		diags ~= Diag(RunKindIncompatible(aot: aot, jit: jit, nodeJs: nodeJs));
 	if (!aot && !jit && optimize)
-		diags ~= Diag(Diag.RunOptimizeNeedsAotOrJit());
+		diags ~= Diag(RunOptimizeNeedsAotOrJit());
 	if (nodeJs && (singleThreaded || optimize || noStackTrace))
-		diags ~= Diag(Diag.RunArgNotSupportedInNodeJs(
+		diags ~= Diag(RunArgNotSupportedInNodeJs(
 			singleThreaded ? "--single-threaded" : optimize ? "--optimize" : "--no-stack-trace"));
 
 	VersionOptions version_ = VersionOptions(
 		isSingleThreaded: fakeExtern || singleThreaded,
 		stackTraceEnabled: !noStackTrace);
 	RunOptions res = aot
-		? RunOptions(RunOptions.Aot(
+		? RunOptions(AotRunOptions(
 			version_,
 			CCompileOptions(optimize ? OptimizationLevel.o2 : OptimizationLevel.none, CVersion.c11)))
 		: jit
-		? RunOptions(RunOptions.Jit(version_, optimize ? JitOptions(OptimizationLevel.o2) : JitOptions()))
+		? RunOptions(JitRunOptions(version_, optimize ? JitOptions(OptimizationLevel.o2) : JitOptions()))
 		: nodeJs
-		? RunOptions(RunOptions.NodeJs())
-		: RunOptions(RunOptions.Interpret(fakeExtern, version_));
+		? RunOptions(NodeJsRunOptions())
+		: RunOptions(InterpretRunOptions(fakeExtern, version_));
 	return RunOptionsAndAll(res, all);
 }
 
 void expectFlag(scope ref Diags diags, ArgsPart part) {
 	if (!isEmpty(part.args))
-		diags ~= Diag(Diag.UnexpectedPartArgs(part));
+		diags ~= Diag(UnexpectedPartArgs(part));
 }
 
 SingleBuildOutput[] parseBuildOut(ref Alloc alloc, FilePath cwd, OS os, scope ref Diags diags, ArgsPart part) {
 	if (isEmpty(part.args))
-		diags ~= Diag(Diag.ExpectedPaths(some(part.tag)));
+		diags ~= Diag(ExpectedPaths(some(part.tag)));
 	return buildArray!SingleBuildOutput(alloc, (scope ref Builder!SingleBuildOutput out_) {
 		foreach (CString arg; part.args) {
 			Opt!SingleBuildOutput output = parseSingleBuildOut(cwd, os, diags, arg);
@@ -692,7 +711,7 @@ Opt!SingleBuildOutput parseSingleBuildOut(FilePath cwd, OS os, scope ref Diags d
 		if (has(kind))
 			return some(SingleBuildOutput(force(kind), path));
 		else {
-			diags ~= Diag(Diag.BuildOutBadPrefix(pr.prefix));
+			diags ~= Diag(BuildOutBadPrefix(pr.prefix));
 			return none!SingleBuildOutput;
 		}
 	} else {
@@ -701,7 +720,7 @@ Opt!SingleBuildOutput parseSingleBuildOut(FilePath cwd, OS os, scope ref Diags d
 		if (has(kind))
 			return some(SingleBuildOutput(force(kind), path));
 		else {
-			diags ~= Diag(Diag.BuildOutBadFileExtension(defaultExecutableExtension(os)));
+			diags ~= Diag(BuildOutBadFileExtension(defaultExecutableExtension(os)));
 			return none!SingleBuildOutput;
 		}
 	}
@@ -733,10 +752,9 @@ Opt!(SingleBuildOutput.Kind) buildKindFromExtension(Extension extension, OS os) 
 	}
 }
 
-
 FilePath parseFilePathWithCwdOrDiag(scope ref Diags diags, FilePath cwd, in CString arg) =>
 	optOrDefault!FilePath(parseFilePathWithCwd(cwd, arg), () {
-		diags ~= Diag(Diag.ParseFilePath(arg));
+		diags ~= Diag(ParseFilePath(arg));
 		return cwd / symbol!"bogus";
 	});
 

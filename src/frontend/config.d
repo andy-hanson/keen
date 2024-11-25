@@ -8,7 +8,7 @@ import util.col.arrayBuilder : ArrayBuilder, finish;
 import util.col.array : fold;
 import util.col.map : Map;
 import util.col.mapBuilder : finishMap, MapBuilder, tryAddToMap;
-import util.json : Json;
+import util.json : Json, JsonNull;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.jsonParse : parseJson;
 import util.string : CString;
@@ -78,7 +78,7 @@ ConfigExternUris parseExtern(
 	in Json json,
 ) =>
 	parseSymbolMap!(Opt!Uri)(alloc, diags, json, (in Json value) =>
-		optIf(!value.isA!(Json.Null), () =>
+		optIf(!value.isA!(JsonNull), () =>
 			parseUriOrBogus(dirContainingConfig, diags, value)));
 
 Uri parseUriOrBogus(Uri dirContainingConfig, scope ref ArrayBuilder!Diagnostic diags, in Json value) {

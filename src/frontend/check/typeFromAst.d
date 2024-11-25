@@ -6,7 +6,21 @@ import frontend.check.checkCtx : addDiag, CheckCtx, CommonModule, eachImportAndR
 import frontend.check.instantiate : instantiateSpec, instantiateStruct, MayDelaySpecInsts;
 import frontend.check.maps : SpecsMap, StructsAndAliasesMap;
 import model.ast :
-	DestructureAst, NameAndRange, ParamsAst, SpecUseAst, symbolForTypeAstMap, symbolForTypeAstSuffix, TypeAst;
+	BogusTypeAst,
+	DestructureAst,
+	FunTypeAst,
+	MapTypeAst,
+	NameAndRange,
+	SingleDestructureAst,
+	SpecUseAst,
+	SuffixNameTypeAst,
+	SuffixSpecialTypeAst,
+	symbolForTypeAstMap,
+	symbolForTypeAstSuffix,
+	TupleTypeAst,
+	TypeAst,
+	VarargsAst,
+	VoidDestructureAst;
 import model.model :
 	asTuple,
 	CommonTypes,
@@ -197,11 +211,11 @@ Type typeFromAst(
 	AliasAllowed aliasAllowed,
 ) =>
 	ast.match!Type(
-		(TypeAst.Bogus) =>
+		(BogusTypeAst _) =>
 			Type.bogus,
-		(ref TypeAst.Fun x) =>
+		(ref FunTypeAst x) =>
 			typeFromFunAst(ctx, commonTypes, x, structsAndAliasesMap, typeParamsScope, aliasAllowed),
-		(ref TypeAst.Map x) =>
+		(ref MapTypeAst x) =>
 			typeFromMapAst(ctx, commonTypes, x, structsAndAliasesMap, typeParamsScope, aliasAllowed),
 		(NameAndRange name) {
 			Opt!TypeParamIndex typeParam = findTypeParam(typeParamsScope, name.name);
@@ -217,7 +231,7 @@ Type typeFromAst(
 					typeParamsScope,
 					aliasAllowed);
 		},
-		(ref TypeAst.SuffixName x) {
+		(ref SuffixNameTypeAst x) {
 			Opt!(Diag.TypeShouldUseSyntax.Kind) optSyntax = typeSyntaxKind(x.name.name);
 			if (has(optSyntax))
 				addDiag(ctx, x.suffixRange, Diag(Diag.TypeShouldUseSyntax(force(optSyntax))));
@@ -236,7 +250,7 @@ Type typeFromAst(
 					typeParamsScope,
 					aliasAllowed);
 		},
-		(ref TypeAst.SuffixSpecial x) =>
+		(ref SuffixSpecialTypeAst x) =>
 			instStructFromAst(
 				ctx,
 				commonTypes,
@@ -246,7 +260,7 @@ Type typeFromAst(
 				structsAndAliasesMap,
 				typeParamsScope,
 				aliasAllowed),
-		(ref TypeAst.Tuple x) =>
+		(ref TupleTypeAst x) =>
 			withMapToStackArray!(Type, Type, TypeAst)(
 				x.members,
 				(ref TypeAst member) =>
@@ -331,7 +345,7 @@ Opt!(Diag.TypeShouldUseSyntax.Kind) typeSyntaxKind(Symbol a) {
 private Type typeFromFunAst(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
-	in TypeAst.Fun ast,
+	in FunTypeAst ast,
 	in StructsAndAliasesMap structsAndAliasesMap,
 	in TypeParams typeParamsScope,
 	AliasAllowed aliasAllowed,
@@ -346,7 +360,7 @@ private Type typeFromFunAst(
 				addDiag(ctx, ast.paramsRange, Diag(Diag.LambdaTypeMissingParamType()));
 			return optOrDefault!Type(res, () => Type.bogus);
 		},
-		(in ParamsAst.Varargs x) {
+		(in VarargsAst x) {
 			addDiag(ctx, x.param.range, Diag(Diag.LambdaTypeVariadic()));
 			return Type.bogus;
 		});
@@ -357,12 +371,12 @@ private Type typeFromFunAst(
 private Type typeFromMapAst(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
-	in TypeAst.Map ast,
+	in MapTypeAst ast,
 	in StructsAndAliasesMap structsAndAliasesMap,
 	in TypeParams typeParamsScope,
 	AliasAllowed aliasAllowed,
 ) {
-	TypeAst.Tuple tuple = TypeAst.Tuple(Range.empty, castNonScope_ref(ast.kv));
+	TupleTypeAst tuple = TupleTypeAst(Range.empty, castNonScope_ref(ast.kv));
 	TypeAst typeArg = TypeAst(&tuple);
 	return instStructFromAst(
 		ctx,
@@ -411,12 +425,12 @@ Opt!Type typeFromDestructure(
 	in TypeParams typeParamsScope,
 ) =>
 	ast.matchIn!(Opt!Type)(
-		(in DestructureAst.Single x) =>
+		(in SingleDestructureAst x) =>
 			has(x.type)
 				? some(typeFromAst(
 					ctx, commonTypes, structsAndAliasesMap, *force(x.type), typeParamsScope, AliasAllowed.yes))
 				: none!Type,
-		(in DestructureAst.Void) =>
+		(in VoidDestructureAst) =>
 			some(Type(commonTypes.void_)),
 		(in DestructureAst[] parts) =>
 			typeFromDestructures(ctx, commonTypes, structsAndAliasesMap, typeParamsScope, parts));
@@ -466,7 +480,7 @@ Destructure checkDestructure(
 		}
 	}
 	return ast.match!Destructure(
-		(DestructureAst.Single x) {
+		(SingleDestructureAst x) {
 			Opt!Type declaredType = has(x.type)
 				? some(typeFromAst(
 					ctx, commonTypes, structsAndAliasesMap, *force(x.type), typeParamsScope, AliasAllowed.yes))
@@ -476,7 +490,7 @@ Destructure checkDestructure(
 				if (has(x.mut))
 					addDiag(ctx, ast.range, Diag(Diag.LocalIgnoredButMutable()));
 				return Destructure(allocate(ctx.alloc, Destructure.Ignore(
-					DestructureIgnoreSource(&ast.as!(DestructureAst.Single)()), x.name.start, type)));
+					DestructureIgnoreSource(&ast.as!(SingleDestructureAst)()), x.name.start, type)));
 			} else {
 				LocalMutability mutability = () {
 					if (has(x.mut) && kind == DestructureKind.param) {
@@ -487,13 +501,13 @@ Destructure checkDestructure(
 						return has(x.mut) ? LocalMutability.mutableOnStack : LocalMutability.immutable_;
 				}();
 				return Destructure(allocate(ctx.alloc,
-					Local(LocalSource(&ast.as!(DestructureAst.Single)()), mutability, type)));
+					Local(LocalSource(&ast.as!(SingleDestructureAst)()), mutability, type)));
 			}
 		},
-		(DestructureAst.Void x) {
+		(VoidDestructureAst x) {
 			Type type = getType(some(Type(commonTypes.void_)));
 			return Destructure(allocate(ctx.alloc, Destructure.Ignore(
-				DestructureIgnoreSource(&ast.as!(DestructureAst.Void)()), x.range.start, type)));
+				DestructureIgnoreSource(&ast.as!(VoidDestructureAst)()), x.range.start, type)));
 		},
 		(DestructureAst[] partAsts) {
 			if (has(destructuredType)) {

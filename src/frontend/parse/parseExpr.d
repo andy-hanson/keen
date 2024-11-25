@@ -48,6 +48,9 @@ import frontend.parse.parseUtil :
 	tryTakeToken,
 	tryTakeTokenAndMayContinueOntoNextLine;
 import model.ast :
+	AsBogusAst,
+	AsNameAst,
+	AsStringAst,
 	ArrowAccessAst,
 	AssertOrForbidAst,
 	AssertOrForbidThrownAst,
@@ -85,12 +88,15 @@ import model.ast :
 	PtrAst,
 	SeqAst,
 	SharedAst,
+	SingleDestructureAst,
 	ThrowAst,
 	TrustedAst,
 	TryAst,
 	TryLetAst,
 	TypeAst,
 	TypedAst,
+	UnpackOptionAst,
+	VoidDestructureAst,
 	WithAst;
 import model.parseDiag : ParseDiag;
 import util.alloc.alloc : Alloc;
@@ -573,7 +579,7 @@ CaseMemberAst parseCaseMember(ref Lexer lexer) {
 		Opt!DestructureAst destructure = peekEndOfLine(lexer) || peekToken(lexer, Token.colon)
 			? none!DestructureAst
 			: some(parseDestructureNoRequireParens(lexer));
-		return CaseMemberAst(CaseMemberAst.Name(force(name), destructure));
+		return CaseMemberAst(AsNameAst(force(name), destructure));
 	} else {
 		Opt!LiteralIntegralAndRange number = tryTakeLiteralIntegral(lexer);
 		return has(number) ? CaseMemberAst(force(number)) : parseStringLiteralForMatchCase(lexer);
@@ -591,10 +597,10 @@ CaseMemberAst parseStringLiteralForMatchCase(ref Lexer lexer) {
 				addDiag(lexer, range(lexer, start), ParseDiag(ParseDiag.MatchCaseInterpolated()));
 				break;
 		}
-		return CaseMemberAst(CaseMemberAst.String(range(lexer, start), part.text));
+		return CaseMemberAst(AsStringAst(range(lexer, start), part.text));
 	} else {
 		skipUntilNewlineNoDiag(lexer);
-		return CaseMemberAst(CaseMemberAst.Bogus(rangeForCurToken(lexer, start)));
+		return CaseMemberAst(AsBogusAst(rangeForCurToken(lexer, start)));
 	}
 }
 
@@ -610,7 +616,7 @@ ConditionAst parseCondition(ref Lexer lexer, AllowedBlock allowedBlock) {
 		takeOrAddDiagExpectedToken(lexer, Token.questionEqual, ParseDiag.Expected.Kind.questionEqual);
 		ExprAst option = parseExprNoBlock(lexer);
 		return ConditionAst(allocate(lexer.alloc,
-			ConditionAst.UnpackOption(lhs, questionEqualPos, allocate(lexer.alloc, option))));
+			UnpackOptionAst(lhs, questionEqualPos, allocate(lexer.alloc, option))));
 	} else
 		return ConditionAst(allocate(lexer.alloc, parseExprAndAllCalls(lexer, allowedBlock)));
 }
@@ -811,7 +817,7 @@ DestructureAndEndTokenPos parseForThenOrWithParameter(
 ) {
 	Pos pos = curPos(lexer);
 	if (tryTakeToken(lexer, endToken))
-		return DestructureAndEndTokenPos(DestructureAst(DestructureAst.Void(range(lexer, pos))), pos);
+		return DestructureAndEndTokenPos(DestructureAst(VoidDestructureAst(range(lexer, pos))), pos);
 	else {
 		DestructureAst res = parseDestructureNoRequireParens(lexer);
 		Pos endTokenPos = curPos(lexer);
@@ -829,7 +835,7 @@ ExprAst parseLambdaAfterNameAndArrow(
 ) =>
 	parseLambdaAfterArrow(
 		lexer, start, allowedBlock,
-		DestructureAst(DestructureAst.Single(NameAndRange(start, paramName), none!Pos, none!(TypeAst*))),
+		DestructureAst(SingleDestructureAst(NameAndRange(start, paramName), none!Pos, none!(TypeAst*))),
 		arrowPos);
 
 ExprAst parseLambdaAfterArrow(

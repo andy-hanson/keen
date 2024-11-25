@@ -17,7 +17,7 @@ import lib.lsp.lspTypes :
 	RunResult,
 	TestStates,
 	Write;
-import model.ast : DestructureAst, ImportOrExportAst, ImportOrExportAstKind;
+import model.ast : ImportOrExportAst, ImportWholeModuleAst, SingleDestructureAst;
 import model.model :
 	AnyDecl,
 	bestCasePurity,
@@ -99,7 +99,7 @@ void getInlayHintsForImport(
 	ImportOrExportAst* ast,
 	ImportOrExport a,
 ) {
-	if (ast.kind.isA!(ImportOrExportAstKind.ModuleWhole)) {
+	if (ast.kind.isA!ImportWholeModuleAst) {
 		InlayHintLabel label = withBuildStackArray!(InlayHintLabel, Symbol)(
 			(ref StackArrayBuilder!Symbol out_) {
 				foreach (ref immutable NameReferents* x; a.imported)
@@ -251,8 +251,8 @@ void getInlayHintsForDestructure(
 	a.matchIn!void(
 		(in Destructure.Ignore x) {},
 		(in Local x) {
-			if (x.source.isA!(DestructureAst.Single*)) {
-				DestructureAst.Single* ast = x.source.as!(DestructureAst.Single*);
+			if (x.source.isA!(SingleDestructureAst*)) {
+				SingleDestructureAst* ast = x.source.as!(SingleDestructureAst*);
 				if (!has(ast.type)) {
 					out_ ~= InlayHint(
 						toLineAndCharacter(ast.name.range.end),

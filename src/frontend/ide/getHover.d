@@ -19,7 +19,7 @@ import frontend.showModel :
 	writeTypeUnquoted,
 	writeVisibility;
 import lib.lsp.lspTypes : Hover, MarkupContent, MarkupKind;
-import model.ast : AssertOrForbidAst, ConditionAst, ExprAst, ExprAstKind, IfAst, MatchAst, ModifierKeyword;
+import model.ast : AssertOrForbidAst, ExprAst, ExprAstKind, IfAst, MatchAst, ModifierKeyword, UnpackOptionAst;
 import model.model :
 	AnyDecl,
 	asBuiltinExtern,
@@ -526,7 +526,7 @@ void getExprKeywordHover(
 			IfAst ifAst = astKind.as!IfAst;
 			bool isUnpackOption = ifAst.condition.matchIn!bool(
 				(in ExprAst _) => false,
-				(in ConditionAst.UnpackOption) => true);
+				(in UnpackOptionAst _) => true);
 			final switch (ifAst.kind) {
 				case IfAst.Kind.guardWithColon:
 				case IfAst.Kind.guardWithoutColon:

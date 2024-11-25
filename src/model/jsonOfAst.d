@@ -4,11 +4,16 @@ module model.jsonOfAst;
 
 import model.ast :
 	ArrowAccessAst,
+	AsBogusAst,
+	AsNameAst,
+	AsStringAst,
 	AssertOrForbidAst,
 	AssertOrForbidThrownAst,
 	AssignmentAst,
 	AssignmentCallAst,
 	BogusAst,
+	BogusTypeAst,
+	BuiltinTypeAst,
 	CallAst,
 	CallNamedAst,
 	CaseAst,
@@ -18,21 +23,26 @@ import model.ast :
 	DoAst,
 	DocCommentAst,
 	EmptyAst,
+	EnumAst,
 	EnumOrFlagsMemberAst,
 	ExprAst,
 	ExprAstKind,
 	ExternAst,
+	ExternTypeAst,
 	FieldMutabilityAst,
 	FileAst,
 	FinallyAst,
+	FlagsAst,
 	ForAst,
 	FunDeclAst,
+	FunTypeAst,
 	ModifierAst,
 	IdentifierAst,
 	IfAst,
+	ImportFileAst,
 	ImportOrExportAst,
-	ImportOrExportAstKind,
 	ImportsOrExportsAst,
+	ImportWholeModuleAst,
 	InterpolatedAst,
 	LambdaAst,
 	LetAst,
@@ -44,32 +54,43 @@ import model.ast :
 	LoopBreakAst,
 	LoopContinueAst,
 	LoopWhileOrUntilAst,
+	MapTypeAst,
 	MatchAst,
 	MatchElseAst,
 	ModifierAst,
+	ModifierKeywordAst,
 	NameAndRange,
 	ParamsAst,
 	ParenthesizedAst,
 	PathOrRelPath,
 	PtrAst,
+	RecordAst,
 	RecordFieldAst,
 	SeqAst,
 	SharedAst,
 	SpecDeclAst,
 	SignatureAst,
+	SingleDestructureAst,
 	SpecUseAst,
 	StructAliasAst,
 	StructBodyAst,
 	StructDeclAst,
+	SumTypeAst,
 	stringOfModifierKeyword,
+	SuffixNameTypeAst,
+	SuffixSpecialTypeAst,
 	symbolForTypeAstSuffix,
 	ThrowAst,
 	TrustedAst,
 	TryAst,
 	TryLetAst,
+	TupleTypeAst,
 	TypeAst,
 	TypedAst,
+	UnpackOptionAst,
+	VarargsAst,
 	VarDeclAst,
+	VoidDestructureAst,
 	WithAst;
 import model.model : Visibility;
 import util.alloc.alloc : Alloc;
@@ -137,11 +158,11 @@ Json jsonOfImportOrExportAst(ref Alloc alloc, in Ctx ctx, in ImportOrExportAst a
 	jsonObject(alloc, [
 		field!"path"(pathOrRelPathToJson(alloc, a.path)),
 		field!"import-kind"(a.kind.matchIn!Json(
-			(in ImportOrExportAstKind.ModuleWhole) =>
+			(in ImportWholeModuleAst _) =>
 				jsonString!"whole",
 			(in NameAndRange[] names) =>
 				jsonObject(alloc, [field!"names"(jsonOfNameAndRangeArray(alloc, ctx, names))]),
-			(in ImportOrExportAstKind.File f) =>
+			(in ImportFileAst f) =>
 				jsonObject(alloc, [
 					field!"name"(jsonOfNameAndRange(alloc, ctx, f.name)),
 					field!"file-type"(stringOfEnum(f.type))])))]);
@@ -248,23 +269,23 @@ Json jsonOfStructDeclAst(ref Alloc alloc, in Ctx ctx, in StructDeclAst a) =>
 
 Json jsonOfStructBodyAst(ref Alloc alloc, in Ctx ctx, in StructBodyAst a) =>
 	a.matchIn!Json(
-		(in StructBodyAst.Builtin) =>
+		(in BuiltinTypeAst) =>
 			jsonString!"builtin" ,
-		(in StructBodyAst.Enum e) =>
+		(in EnumAst e) =>
 			jsonOfEnumOrFlags(alloc, ctx, "enum", e.params, e.members),
-		(in StructBodyAst.Extern) =>
+		(in ExternTypeAst) =>
 			jsonString!"extern",
-		(in StructBodyAst.Flags e) =>
+		(in FlagsAst e) =>
 			jsonOfEnumOrFlags(alloc, ctx, "flags", e.params, e.members),
-		(in StructBodyAst.Record a) =>
+		(in RecordAst a) =>
 			jsonOfRecordAst(alloc, ctx, a),
-		(in StructBodyAst.SumType x) =>
+		(in SumTypeAst x) =>
 			jsonObject(alloc, [
 				field!"kind"(stringOfEnum(x.kind)),
 				field!"types"(jsonOfTypeAsts(alloc, ctx, x.types)),
 				field!"methods"(jsonOfSignatureAsts(alloc, ctx, x.methods))]));
 
-Json jsonOfRecordAst(ref Alloc alloc, in Ctx ctx, in StructBodyAst.Record a) =>
+Json jsonOfRecordAst(ref Alloc alloc, in Ctx ctx, in RecordAst a) =>
 	jsonObject(alloc, [
 		kindField!"record",
 		optionalField!("params", ParamsAst)(a.params, (in ParamsAst x) => jsonOfParamsAst(alloc, ctx, x)),
@@ -303,7 +324,7 @@ Json jsonOfParamsAst(ref Alloc alloc, in Ctx ctx, in ParamsAst a) =>
 	a.matchIn!Json(
 		(in DestructureAst[] params) =>
 			jsonOfDestructureAsts(alloc, ctx, params),
-		(in ParamsAst.Varargs v) =>
+		(in VarargsAst v) =>
 			jsonObject(alloc, [
 				kindField!"varargs",
 				field!"param"(jsonOfDestructureAst(alloc, ctx, v.param))]));
@@ -315,7 +336,7 @@ Json jsonOfModifiers(ref Alloc alloc, in Ctx ctx, in ModifierAst[] modifiers) =>
 
 Json jsonOfModifierAst(ref Alloc alloc, in Ctx ctx, in ModifierAst a) =>
 	a.matchIn!Json(
-		(in ModifierAst.Keyword x) =>
+		(in ModifierKeywordAst x) =>
 			jsonObject(alloc, [
 				kindField!"keyword",
 				optionalField!("type-arg", TypeAst)(x.typeArg, (in TypeAst type) =>
@@ -334,35 +355,35 @@ Json jsonOfSpecUseAst(ref Alloc alloc, in Ctx ctx, in SpecUseAst a) =>
 
 Json jsonOfTypeAst(ref Alloc alloc, in Ctx ctx, in TypeAst a) =>
 	a.matchIn!Json(
-		(in TypeAst.Bogus x) =>
+		(in BogusTypeAst x) =>
 			jsonObject(alloc, [
 				kindField!"bogus",
 				field!"range"(jsonOfRange(alloc, ctx, x.range))]),
-		(in TypeAst.Fun x) =>
+		(in FunTypeAst x) =>
 			jsonObject(alloc, [
 				kindField!"fun",
 				field!"return-type"(jsonOfTypeAst(alloc, ctx, x.returnType)),
 				field!"kind"(stringOfEnum(x.kind)),
 				field!"param"(jsonOfParamsAst(alloc, ctx, x.params))]),
-		(in TypeAst.Map x) =>
+		(in MapTypeAst x) =>
 			jsonObject(alloc, [
 				kindField!"map",
 				field!"key"(jsonOfTypeAst(alloc, ctx, x.v)),
 				field!"value"(jsonOfTypeAst(alloc, ctx, x.k))]),
 		(in NameAndRange x) =>
 			jsonOfNameAndRange(alloc, ctx, x),
-		(in TypeAst.SuffixName x) =>
+		(in SuffixNameTypeAst x) =>
 			jsonObject(alloc, [
 				kindField!"suffix",
 				field!"left"(jsonOfTypeAst(alloc, ctx, x.left)),
 				field!"name"(jsonOfNameAndRange(alloc, ctx, x.name))]),
-		(in TypeAst.SuffixSpecial x) =>
+		(in SuffixSpecialTypeAst x) =>
 			jsonObject(alloc, [
 				kindField!"suffix-special",
 				field!"left"(jsonOfTypeAst(alloc, ctx, x.left)),
 				field!"suffix-pos"(x.suffixPos),
 				field!"suffix"(symbolForTypeAstSuffix(x.kind))]),
-		(in TypeAst.Tuple x) =>
+		(in TupleTypeAst x) =>
 			jsonObject(alloc, [
 				kindField!"tuple",
 				field!"range"(jsonOfRange(alloc, ctx, x.range)),
@@ -378,14 +399,14 @@ Json jsonOfDestructureAsts(ref Alloc alloc, in Ctx ctx, in DestructureAst[] a) =
 
 Json jsonOfDestructureAst(ref Alloc alloc, in Ctx ctx, in DestructureAst a) =>
 	a.matchIn!Json(
-		(in DestructureAst.Single x) =>
+		(in SingleDestructureAst x) =>
 			jsonObject(alloc, [
 				kindField!"single",
 				field!"name"(jsonOfNameAndRange(alloc, ctx, x.name)),
 				optionalField!("mut", Pos)(x.mut, (in Pos y) => jsonInt(y)),
 				optionalField!("type", TypeAst*)(x.type, (in TypeAst* t) =>
 					jsonOfTypeAst(alloc, ctx, *t))]),
-		(in DestructureAst.Void x) =>
+		(in VoidDestructureAst x) =>
 			jsonObject(alloc, [
 				kindField!"void",
 				field!"range"(jsonOfRange(alloc, ctx, x.range))]),
@@ -586,7 +607,7 @@ Json jsonOfConditionAst(ref Alloc alloc, in Ctx ctx, in ConditionAst a) =>
 	a.matchIn!Json(
 		(in ExprAst x) =>
 			jsonOfExprAst(alloc, ctx, x),
-		(in ConditionAst.UnpackOption x) =>
+		(in UnpackOptionAst x) =>
 			jsonObject(alloc, [
 				field!"destructure"(jsonOfDestructureAst(alloc, ctx, x.destructure)),
 				field!"option"(jsonOfExprAst(alloc, ctx, *x.option))]));
@@ -603,7 +624,7 @@ Json jsonOfCaseAst(ref Alloc alloc, in Ctx ctx, in CaseAst a) =>
 
 Json jsonOfCaseMemberAst(ref Alloc alloc, in Ctx ctx, in CaseMemberAst a) =>
 	a.matchIn!Json(
-		(in CaseMemberAst.Name x) =>
+		(in AsNameAst x) =>
 			jsonObject(alloc, [
 				field!"name"(jsonOfNameAndRange(alloc, ctx, x.name)),
 				optionalField!("destructure", DestructureAst)(x.destructure, (in DestructureAst y) =>
@@ -612,12 +633,12 @@ Json jsonOfCaseMemberAst(ref Alloc alloc, in Ctx ctx, in CaseMemberAst a) =>
 			jsonObject(alloc, [
 				kindField!"integral",
 				field!"value"(jsonOfLiteralIntegralAndRange(alloc, ctx, x))]),
-		(in CaseMemberAst.String x) =>
+		(in AsStringAst x) =>
 			jsonObject(alloc, [
 				kindField!"string",
 				field!"range"(jsonOfRange(alloc, ctx, x.range)),
 				field!"value"(jsonString(alloc, x.value))]),
-		(in CaseMemberAst.Bogus x) =>
+		(in AsBogusAst x) =>
 			jsonObject(alloc, [
 				kindField!"bogus",
 				field!"range"(jsonOfRange(alloc, ctx, x.range))]));

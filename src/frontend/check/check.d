@@ -34,9 +34,11 @@ import frontend.check.typeFromAst :
 import frontend.lang : maxSpecDepth;
 import model.ast :
 	FileAst,
+	ImportFileAst,
+	ImportWholeModuleAst,
 	ModifierAst,
 	ModifierKeyword,
-	ImportOrExportAstKind,
+	ModifierKeywordAst,
 	ImportsOrExportsAst,
 	ImportOrExportAst,
 	NameAndRange,
@@ -296,7 +298,7 @@ Opt!Symbol checkVarModifiers(ref CheckCtx ctx, VarKind kind, in ModifierAst[] mo
 	Cell!(Opt!Symbol) externLibraryName;
 	foreach (ref ModifierAst modifier; modifiers)
 		modifier.matchIn!void(
-			(in ModifierAst.Keyword x) {
+			(in ModifierKeywordAst x) {
 				if (x.keyword == ModifierKeyword.extern_) {
 					SymbolSet names = getExternsFromModifier(ctx, x, required: true);
 					if (has(cellGet(externLibraryName)))
@@ -356,7 +358,7 @@ SpecFlagsAndParents checkSpecModifiers(
 	bool builtin = false;
 	immutable SpecInst*[] parents = mapOp!(immutable SpecInst*, ModifierAst)(ctx.alloc, asts, (ref ModifierAst ast) =>
 		ast.matchIn!(Opt!(SpecInst*))(
-			(in ModifierAst.Keyword x) {
+			(in ModifierKeywordAst x) {
 				switch (x.keyword) {
 					case ModifierKeyword.builtin:
 						if (builtin)
@@ -473,7 +475,7 @@ HashTable!(NameReferents, Symbol, nameFromNameReferents) getAllExports(
 
 	foreach (ref ImportOrExport e; reExports)
 		force(e.source).kind.matchIn!void(
-			(in ImportOrExportAstKind.ModuleWhole m) {
+			(in ImportWholeModuleAst m) {
 				// TODO: if this is a re-export of another library, only re-export the public members
 				foreach (NameReferents referents; e.module_.exports)
 					addExport(referents, () => force(e.source).pathRange);
@@ -482,7 +484,7 @@ HashTable!(NameReferents, Symbol, nameFromNameReferents) getAllExports(
 				foreach (ref immutable NameReferents* x; e.imported)
 					addExport(*x, () => force(e.source).pathRange);
 			},
-			(in ImportOrExportAstKind.File) {
+			(in ImportFileAst _) {
 				assert(false);
 			});
 	foreach (StructOrAlias x; structsAndAliasesMap)
@@ -631,7 +633,7 @@ ImportsOrReExports checkImportsOrReExports(
 		foreach (ref ImportOrExportAst importAst; force(ast).paths) {
 			ExportVisibility importVisibility = importMinVisibility(importAst);
 			importAst.kind.match!void(
-				(ImportOrExportAstKind.ModuleWhole) {
+				(ImportWholeModuleAst _) {
 					handleModuleImport(some(&importAst), importVisibility, (ref ImportOrExport) {});
 				},
 				(NameAndRange[] names) {
@@ -639,7 +641,7 @@ ImportsOrReExports checkImportsOrReExports(
 						x.imported = checkNamedImports(alloc, diagsBuilder, importVisibility, x.modulePtr, names);
 					});
 				},
-				(ref ImportOrExportAstKind.File x) {
+				(ref ImportFileAst x) {
 					nextResolvedImport().matchWithPointers!void(
 						(Module*) {
 							assert(false);

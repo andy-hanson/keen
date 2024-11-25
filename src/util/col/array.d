@@ -387,28 +387,28 @@ size_t count(T)(in T[] a, in bool delegate(in T) @safe @nogc pure nothrow cb) {
 	return res;
 }
 
-immutable struct NoneOneOrMany {
-	immutable struct None {}
-	immutable struct One {
-		size_t index;
-		private size_t _padding; // Avoid suggestion to use TaggedUnion
-	}
-	immutable struct Many {}
+private immutable struct NoneOneOrMany {
 	mixin Union!(None, One, Many);
 }
+immutable struct None {}
+immutable struct One {
+	size_t index;
+	private size_t _padding; // Avoid suggestion to use TaggedUnion
+}
+immutable struct Many {}
 NoneOneOrMany noneOneOrMany(T)(in T[] a, in bool delegate(in T) @safe @nogc pure nothrow cb) {
 	MutOpt!size_t res;
 	foreach (size_t index, ref const T x; a)
 		if (cb(x)) {
 			if (has(res))
-				return NoneOneOrMany(NoneOneOrMany.Many());
+				return NoneOneOrMany(Many());
 			else
 				res = someMut(index);
 		}
 
 	return has(res)
-		? NoneOneOrMany(NoneOneOrMany.One(force(res)))
-		: NoneOneOrMany(NoneOneOrMany.None());
+		? NoneOneOrMany(One(force(res)))
+		: NoneOneOrMany(None());
 }
 
 @trusted T[] filter(T)(ref Alloc alloc, in T[] a, in bool delegate(in T) @safe @nogc pure nothrow cb) =>

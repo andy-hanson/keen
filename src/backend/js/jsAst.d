@@ -90,9 +90,9 @@ immutable struct JsDecl {
 	JsDeclKind kind;
 }
 immutable struct JsDeclKind {
-	immutable struct Let {}
-	mixin Union!(JsClassDecl, JsExpr, Let);
+	mixin Union!(JsClassDecl, JsExpr, LetDeclKind);
 }
+immutable struct LetDeclKind {}
 immutable struct JsClassDecl {
 	Opt!(JsExpr*) extends;
 	JsClassMember[] members;

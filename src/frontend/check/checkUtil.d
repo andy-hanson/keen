@@ -8,11 +8,13 @@ import frontend.check.typeFromAst : AliasAllowed, checkDestructure, DestructureK
 import model.ast :
 	DestructureAst,
 	LiteralIntegralAndRange,
-	ModifierAst,
 	ModifierKeyword,
+	ModifierKeywordAst,
 	NameAndRange,
 	ParamsAst,
-	TypeAst;
+	TupleTypeAst,
+	TypeAst,
+	VarargsAst;
 import model.model :
 	CommonTypes,
 	Destructure,
@@ -100,7 +102,7 @@ private Params checkParams(
 				checkDestructure(
 					ctx, commonTypes, structsAndAliasesMap, typeContainer, typeParamsScope,
 					ast, none!Type, DestructureKind.param))),
-		(ParamsAst.Varargs* varargs) {
+		(VarargsAst* varargs) {
 			Destructure param = checkDestructure(
 				ctx, commonTypes, structsAndAliasesMap, typeContainer, typeParamsScope,
 				&varargs.param, none!Type, DestructureKind.param);
@@ -119,7 +121,7 @@ private Params checkParams(
 				Params.Varargs(param, has(elementType) ? force(elementType) : Type.bogus)));
 		});
 
-SymbolSet getExternsFromModifier(ref CheckCtx ctx, in ModifierAst.Keyword modifier, bool required) {
+SymbolSet getExternsFromModifier(ref CheckCtx ctx, in ModifierKeywordAst modifier, bool required) {
 	assert(modifier.keyword == ModifierKeyword.extern_);
 	if (has(modifier.typeArg))
 		return optOrDefault!SymbolSet(tryGetExternsFromTypeArg(ctx, force(modifier.typeArg)), () =>
@@ -134,10 +136,10 @@ SymbolSet getExternsFromModifier(ref CheckCtx ctx, in ModifierAst.Keyword modifi
 private Opt!SymbolSet tryGetExternsFromTypeArg(ref CheckCtx ctx, in TypeAst arg) {
 	if (arg.isA!NameAndRange) {
 		return some(symbolSet(checkExternNameOrBogus(ctx, arg.as!NameAndRange, emptySymbolSet)));
-	} else if (arg.isA!(TypeAst.Tuple*)) {
+	} else if (arg.isA!(TupleTypeAst*)) {
 		bool ok = true;
 		SymbolSet res = buildSymbolSet((scope ref SymbolSetBuilder out_) {
-			foreach (TypeAst member; arg.as!(TypeAst.Tuple*).members) {
+			foreach (TypeAst member; arg.as!(TupleTypeAst*).members) {
 				if (member.isA!NameAndRange)
 					out_ ~= checkExternNameOrBogus(ctx, member.as!NameAndRange, emptySymbolSet);
 				else

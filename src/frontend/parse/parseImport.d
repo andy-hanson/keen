@@ -17,7 +17,16 @@ import frontend.parse.parseUtil :
 	tryTakeOperator,
 	tryTakeToken;
 import model.ast :
-	ImportFileType, ImportOrExportAst, ImportOrExportAstKind, ImportsOrExportsAst, NameAndRange, PathOrRelPath, TypeAst;
+	ImportFileAst,
+	ImportFileType,
+	ImportWholeModuleAst,
+	ImportOrExportAst,
+	ImportOrExportAstKind,
+	ImportsOrExportsAst,
+	NameAndRange,
+	PathOrRelPath,
+	SuffixNameTypeAst,
+	TypeAst;
 import model.parseDiag : ParseDiag;
 import util.col.array : emptySmallArray, small, SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
@@ -97,14 +106,14 @@ ImportOrExportAstKind parseImportOrExportKind(ref Lexer lexer, Pos start) {
 			: takeIndentOrFailGeneric(
 				lexer,
 				() => parseIndentedImportNames(lexer, start),
-				(in Range _) => ImportOrExportAstKind(ImportOrExportAstKind.ModuleWhole()));
+				(in Range _) => ImportOrExportAstKind(ImportWholeModuleAst()));
 	} else if (tryTakeToken(lexer, Token.as)) {
 		NameAndRange name = takeNameAndRange(lexer);
 		TypeAst type = parseType(lexer);
-		return ImportOrExportAstKind(allocate(lexer.alloc, ImportOrExportAstKind.File(
+		return ImportOrExportAstKind(allocate(lexer.alloc, ImportFileAst(
 			name, type, toImportFileTypeOrDiag(lexer, type))));
 	} else
-		return ImportOrExportAstKind(ImportOrExportAstKind.ModuleWhole());
+		return ImportOrExportAstKind(ImportWholeModuleAst());
 }
 
 ImportFileType toImportFileTypeOrDiag(ref Lexer lexer, in TypeAst type) {
@@ -128,8 +137,8 @@ bool isSimpleName(TypeAst a, Symbol name) =>
 	a.isA!NameAndRange && a.as!NameAndRange.name == name;
 
 bool isInstStructOneArg(TypeAst a, Symbol typeArgName, Symbol name) {
-	if (a.isA!(TypeAst.SuffixName*)) {
-		TypeAst.SuffixName* s = a.as!(TypeAst.SuffixName*);
+	if (a.isA!(SuffixNameTypeAst*)) {
+		SuffixNameTypeAst* s = a.as!(SuffixNameTypeAst*);
 		return isSimpleName(s.left, typeArgName) && s.name.name == name;
 	} else
 		return false;

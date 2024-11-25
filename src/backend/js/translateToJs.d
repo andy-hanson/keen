@@ -59,6 +59,7 @@ import backend.js.jsAst :
 	JsParams,
 	JsScriptAst,
 	JsStatement,
+	LetDeclKind,
 	Shebang,
 	SyncOrAsync;
 import backend.js.jsAstUtil : genEnumIntegralValue, genForceUnionMember, genThrowBogus, matchUnionMembers;
@@ -78,7 +79,7 @@ import backend.js.translateModuleCtx :
 	translateStructReference;
 import backend.js.writeJsAst : writeJsModuleAst, writeJsScriptAst;
 import frontend.showModel : ShowTypeCtx;
-import model.ast : ImportOrExportAstKind;
+import model.ast : ImportWholeModuleAst;
 import model.model :
 	AnyDecl,
 	allExterns,
@@ -552,7 +553,7 @@ JsImport[] translateReExports(ref TranslateProgramCtx ctx, in ModulePaths module
 	});
 }
 bool isImportModuleWhole(in ImportOrExport x) =>
-	!has(x.source) || force(x.source).kind.isA!(ImportOrExportAstKind.ModuleWhole);
+	!has(x.source) || force(x.source).kind.isA!ImportWholeModuleAst;
 
 JsDecl translateDecl(ref TranslateModuleCtx ctx, AnyDecl x) =>
 	x.matchWithPointers!JsDecl(
@@ -958,4 +959,4 @@ JsStatement genSuper(ref Alloc alloc, in Source source, SmallArray!JsExpr args) 
 	exprStatement(genCallSync(source, allocate(alloc, genGlobal(source, symbol!"super")), args));
 
 JsDecl translateVarDecl(ref TranslateModuleCtx ctx, VarDecl* a) =>
-	makeDecl(ctx, AnyDecl(a), JsDeclKind(JsDeclKind.Let()));
+	makeDecl(ctx, AnyDecl(a), JsDeclKind(LetDeclKind()));

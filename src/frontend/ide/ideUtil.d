@@ -3,19 +3,28 @@ module frontend.ide.ideUtil;
 @safe @nogc pure nothrow:
 
 import model.ast :
+	BogusTypeAst,
 	DestructureAst,
 	FileAst,
 	FunDeclAst,
+	FunTypeAst,
+	MapTypeAst,
 	ModifierAst,
 	NameAndRange,
 	ParamsAst,
+	SingleDestructureAst,
 	SpecDeclAst,
 	SpecUseAst,
 	StructAliasAst,
 	StructDeclAst,
+	SuffixNameTypeAst,
+	SuffixSpecialTypeAst,
 	TestAst,
+	TupleTypeAst,
 	TypeAst,
-	VarDeclAst;
+	VarargsAst,
+	VarDeclAst,
+	VoidDestructureAst;
 import model.model : FunDecl, FunDeclSource, SpecInst, SpecDecl, StructInst, Type, TypeParamIndex;
 import util.col.array : arrayOfSingle, count, firstZip, isEmpty, only, only2;
 import util.col.sortUtil : eachSorted, sortedIter;
@@ -140,31 +149,31 @@ private:
 
 Opt!T findInTypeArgs(T)(in Type[] typeArgs, in TypeAst ast, in TypeCbOpt!T cb) =>
 	ast.match!(Opt!T)(
-		(TypeAst.Bogus) =>
+		(BogusTypeAst _) =>
 			none!T,
-		(ref TypeAst.Fun x) {
+		(ref FunTypeAst x) {
 			Type[2] returnAndParam = only2(typeArgs);
 			return optOr!T(
 				cb(returnAndParam[0], x.returnType),
 				() => eachFunTypeParameter!T(returnAndParam[1], x.params, cb));
 		},
-		(ref TypeAst.Map x) =>
+		(ref MapTypeAst x) =>
 			zipEachTypeArg!T(typeArgs, x.kv, cb),
 		(NameAndRange _) =>
 			// For a type alias, 'typeArgs' may be non-empty as it comes from the alias' target type.
 			// But ignore them in any case.
 			none!T,
-		(ref TypeAst.SuffixName x) =>
+		(ref SuffixNameTypeAst x) =>
 			zipEachTypeArgMayUnpackTuple!T(typeArgs, x.left, cb),
-		(ref TypeAst.SuffixSpecial x) =>
+		(ref SuffixSpecialTypeAst x) =>
 			zipEachTypeArgMayUnpackTuple!T(typeArgs, x.left, cb),
-		(ref TypeAst.Tuple x) =>
+		(ref TupleTypeAst x) =>
 			zipEachTypeArg!T(typeArgs, x.members, cb));
 
 Opt!T zipEachTypeArgMayUnpackTuple(T)(in Type[] typeArgs, in TypeAst typeArgAst, in TypeCbOpt!T cb) =>
 	zipEachTypeArg!T(
 		typeArgs,
-		typeArgs.length == 1 ? arrayOfSingle(ptrTrustMe(typeArgAst)) : typeArgAst.as!(TypeAst.Tuple*).members,
+		typeArgs.length == 1 ? arrayOfSingle(ptrTrustMe(typeArgAst)) : typeArgAst.as!(TupleTypeAst*).members,
 		cb);
 
 Opt!T zipEachTypeArg(T)(in Type[] typeArgs, in TypeAst[] typeArgAsts, in TypeCbOpt!T cb) =>
@@ -176,7 +185,7 @@ Opt!T eachFunTypeParameter(T)(in Type paramsType, in ParamsAst paramsAst, in Typ
 			params.length == 1
 				? eachTypeInDestructure!T(paramsType, only(params), cb)
 				: eachTypeInDestructureParts!T(paramsType, params, cb),
-		(in ParamsAst.Varargs) =>
+		(in VarargsAst _) =>
 			none!T);
 
 Opt!T eachTypeInDestructureParts(T)(in Type type, in DestructureAst[] parts, in TypeCbOpt!T cb) =>
@@ -190,9 +199,9 @@ Opt!T eachTypeInDestructureParts(T)(in Type type, in DestructureAst[] parts, in 
 
 Opt!T eachTypeInDestructure(T)(in Type type, in DestructureAst ast, in TypeCbOpt!T cb) =>
 	ast.matchIn!(Opt!T)(
-		(in DestructureAst.Single x) =>
+		(in SingleDestructureAst x) =>
 			has(x.type) ? cb(type, *force(x.type)) : none!T,
-		(in DestructureAst.Void x) =>
+		(in VoidDestructureAst x) =>
 			none!T,
 		(in DestructureAst[] parts) =>
 			eachTypeInDestructureParts!T(type, parts, cb));

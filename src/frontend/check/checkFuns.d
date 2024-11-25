@@ -15,7 +15,15 @@ import frontend.check.funsForStruct : addFunsForStruct, addFunsForVar, countFuns
 import frontend.check.instantiate : noDelaySpecInsts;
 import frontend.check.typeFromAst : checkTypeParams, specFromAst;
 import model.ast :
-	EmptyAst, FunDeclAst, ImportFileType, ModifierAst, ModifierKeyword, ImportOrExportAstKind, SpecUseAst, TestAst;
+	EmptyAst,
+	FunDeclAst,
+	ImportFileType,
+	ModifierAst,
+	ModifierKeyword,
+	ModifierKeywordAst,
+	ImportFileAst,
+	SpecUseAst,
+	TestAst;
 import model.model :
 	CommonTypes,
 	DeclKind,
@@ -148,7 +156,7 @@ void setFileImportFunctionBody(ref CheckCtx ctx, FunDecl* fun, in ImportOrExport
 
 FunBody getFileImportFunctionBody(ref CheckCtx ctx, Range range, in ImportOrExportFile a) {
 	ImportFileContent content = () {
-		final switch (a.source.kind.as!(ImportOrExportAstKind.File*).type) {
+		final switch (a.source.kind.as!(ImportFileAst*).type) {
 			case ImportFileType.nat8Array:
 				return ImportFileContent(a.content.asBytes);
 			case ImportFileType.string:
@@ -170,7 +178,7 @@ FunDecl funDeclForFileImportOrExport(
 	ref ImportOrExportFile a,
 	Visibility visibility,
 ) {
-	ImportOrExportAstKind.File* ast = a.source.kind.as!(ImportOrExportAstKind.File*);
+	ImportFileAst* ast = a.source.kind.as!(ImportFileAst*);
 	return FunDecl(
 		FunDeclSource(FunDeclSource.FileImport(ctx.curUri, a.source)),
 		visibility,
@@ -272,7 +280,7 @@ FunModifiers checkFunModifiers(
 	SmallArray!(immutable SpecInst*) specs =
 		mapOp!(immutable SpecInst*, ModifierAst)(ctx.alloc, asts, (ref ModifierAst ast) =>
 			ast.matchIn!(Opt!(SpecInst*))(
-				(in ModifierAst.Keyword x) {
+				(in ModifierKeywordAst x) {
 					if (x.keyword == ModifierKeyword.extern_) {
 						if (cellGet(externs).isEmpty)
 							cellSet(externs, getExternsFromModifier(ctx, x, required: true));
@@ -325,7 +333,7 @@ TestModifiers checkTestModifiers(ref CheckCtx ctx, in TestAst ast) {
 	Cell!SymbolSet externs;
 	foreach (ModifierAst modifier; ast.modifiers) {
 		modifier.matchIn!void(
-			(in ModifierAst.Keyword x) {
+			(in ModifierKeywordAst x) {
 				CollectedFunFlags flag = tryGetFunFlag(x.keyword);
 				if (isAllowedTestFlag(flag)) {
 					modifierTypeArgInvalid(ctx, x);

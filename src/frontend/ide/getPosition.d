@@ -18,48 +18,66 @@ import frontend.parse.lexWhitespace : walkBackwardsForPosition;
 import lib.lsp.lspTypes : TextDocumentPositionParams;
 import model.ast :
 	ArrowAccessAst,
+	AsNameAst,
 	AssertOrForbidAst,
 	AssignmentAst,
 	AssignmentCallAst,
+	BogusTypeAst,
+	BuiltinTypeAst,
 	CallAst,
 	CaseAst,
 	CaseMemberAst,
 	ConditionAst,
 	DestructureAst,
+	EnumAst,
+	ExternTypeAst,
+	FlagsAst,
 	IdentifierAst,
-	ImportOrExportAstKind,
 	EnumOrFlagsMemberAst,
 	ExprAst,
 	FinallyAst,
 	ForAst,
 	FunDeclAst,
+	FunTypeAst,
 	ModifierAst,
 	IfAst,
+	ImportFileAst,
 	ImportOrExportAst,
+	ImportWholeModuleAst,
 	LambdaAst,
 	LetAst,
 	LoopAst,
 	LoopBreakAst,
 	LoopWhileOrUntilAst,
+	MapTypeAst,
 	MatchAst,
 	ModifierKeyword,
+	ModifierKeywordAst,
 	NameAndRange,
 	paramsArray,
 	ParamsAst,
 	PtrAst,
+	RecordAst,
 	RecordFieldAst,
 	SignatureAst,
+	SingleDestructureAst,
 	SpecUseAst,
 	StructBodyAst,
 	StructDeclAst,
+	SuffixNameTypeAst,
+	SuffixSpecialTypeAst,
+	SumTypeAst,
 	TestAst,
 	ThrowAst,
 	TrustedAst,
 	TryAst,
 	TryLetAst,
+	TupleTypeAst,
 	TypeAst,
 	TypedAst,
+	UnpackOptionAst,
 	VisibilityAndRange,
+	VoidDestructureAst,
 	WithAst;
 import model.model :
 	AnyDecl,
@@ -246,7 +264,7 @@ Opt!PositionKind positionInModifier(
 	Pos pos,
 ) =>
 	modifiers[index].matchIn!(Opt!PositionKind)(
-		(in ModifierAst.Keyword x) {
+		(in ModifierKeywordAst x) {
 			switch (x.keyword) {
 				case ModifierKeyword.extern_:
 					return some(container.isA!(FunDecl*) && container.as!(FunDecl*).body_.isA!(FunBody.Extern)
@@ -285,7 +303,7 @@ Opt!PositionKind positionInDestructure(
 	Pos pos,
 ) {
 	Opt!PositionKind handleSingle(Type type, in PositionKind delegate() @safe @nogc pure nothrow cbName) {
-		DestructureAst.Single ast = destructureAst.as!(DestructureAst.Single);
+		SingleDestructureAst ast = destructureAst.as!(SingleDestructureAst);
 		return hasPos(ast.range, pos)
 			? optOr!PositionKind(
 				optIf(hasPos(ast.nameRange, pos), cbName),
@@ -298,7 +316,7 @@ Opt!PositionKind positionInDestructure(
 	}
 	return a.matchWithPointers!(Opt!PositionKind)(
 		(Destructure.Ignore* x) =>
-			destructureAst.isA!(DestructureAst.Void)
+			destructureAst.isA!(VoidDestructureAst)
 				? none!PositionKind
 				: handleSingle(x.type, () => PositionKind(PositionKind.Keyword(PositionKind.Keyword.Kind.underscore))),
 		(Local* x) =>
@@ -316,13 +334,13 @@ Opt!PositionKind positionInImportsOrExports(ImportOrExport[] importsOrExports, P
 		if (!im.isStd && hasPos(force(im.source).range, pos)) {
 			ImportOrExportAst* source = force(im.source);
 			return source.kind.matchIn!(Opt!PositionKind)(
-				(in ImportOrExportAstKind.ModuleWhole) =>
+				(in ImportWholeModuleAst _) =>
 					some(PositionKind(PositionKind.ImportedModule(&im))),
 				(in NameAndRange[] names) =>
 					hasPos(force(im.source).pathRange, pos)
 						? some(PositionKind(PositionKind.ImportedModule(&im)))
 						: positionInImportedNames(im.modulePtr, names, im.imported, pos),
-				(in ImportOrExportAstKind.File) =>
+				(in ImportFileAst _) =>
 					assert(false));
 		}
 	return none!PositionKind;
@@ -378,17 +396,17 @@ Opt!PositionKind positionInStruct(in Ctx ctx, StructDecl* a, in StructDeclAst as
 
 PositionKind.Keyword.Kind keywordKindForStructBody(in StructBodyAst a) =>
 	a.matchIn!(PositionKind.Keyword.Kind)(
-		(in StructBodyAst.Builtin) =>
+		(in BuiltinTypeAst) =>
 			PositionKind.Keyword.Kind.builtin,
-		(in StructBodyAst.Enum) =>
+		(in EnumAst) =>
 			PositionKind.Keyword.Kind.enum_,
-		(in StructBodyAst.Extern) =>
+		(in ExternTypeAst) =>
 			PositionKind.Keyword.Kind.extern_,
-		(in StructBodyAst.Flags) =>
+		(in FlagsAst) =>
 			PositionKind.Keyword.Kind.flags,
-		(in StructBodyAst.Record) =>
+		(in RecordAst) =>
 			PositionKind.Keyword.Kind.record,
-		(in StructBodyAst.SumType x) =>
+		(in SumTypeAst x) =>
 			enumConvert!(PositionKind.Keyword.Kind, SumTypeKind)(x.kind));
 
 Opt!PositionKind positionInVisibility(VisibilityContainer a, in Opt!VisibilityAndRange visibility, Pos pos) =>
@@ -440,21 +458,21 @@ Opt!PositionKind positionInStructBody(
 		(ref StructBody.Enum x) =>
 			positionInEnumOrFlagsBody(
 				ctx, decl, x.storage, x.members,
-				ast.as!(StructBodyAst.Enum).params, ast.as!(StructBodyAst.Enum).members,
+				ast.as!EnumAst.params, ast.as!EnumAst.members,
 				pos),
 		(StructBody.Extern) =>
 			none!PositionKind,
 		(StructBody.Flags x) =>
 			positionInEnumOrFlagsBody(
 				ctx, decl, x.storage, x.members,
-				ast.as!(StructBodyAst.Flags).params, ast.as!(StructBodyAst.Flags).members,
+				ast.as!FlagsAst.params, ast.as!FlagsAst.members,
 				pos),
 		(StructBody.Record x) =>
-			positionInRecord(ctx, decl, x.fields, ast.as!(StructBodyAst.Record), pos),
+			positionInRecord(ctx, decl, x.fields, ast.as!RecordAst, pos),
 		(StructBody.SumType x) =>
-			positionInVariant(decl, x, ast.as!(StructBodyAst.SumType), pos));
+			positionInVariant(decl, x, ast.as!SumTypeAst, pos));
 
-Opt!PositionKind positionInVariant(StructDecl* decl, StructBody.SumType a, in StructBodyAst.SumType ast, Pos pos) =>
+Opt!PositionKind positionInVariant(StructDecl* decl, StructBody.SumType a, in SumTypeAst ast, Pos pos) =>
 	optOr!PositionKind(
 		firstZipIfSizeEq!(PositionKind, TypeAst, SumTypeMemberAndMethodImpls)(
 			ast.types, a.listedMembers, (TypeAst typeAst, SumTypeMemberAndMethodImpls x) =>
@@ -465,7 +483,7 @@ Opt!PositionKind positionInRecord(
 	in Ctx ctx,
 	StructDecl* decl,
 	in RecordField[] members,
-	ref StructBodyAst.Record ast,
+	ref RecordAst ast,
 	Pos pos,
 ) =>
 	isEmpty(members)
@@ -473,7 +491,7 @@ Opt!PositionKind positionInRecord(
 		: has(ast.params)
 		? firstZipPointerFirst!(PositionKind, RecordField, DestructureAst)(
 			members, force(ast.params).as!(DestructureAst[]), (RecordField* field, DestructureAst param) =>
-				positionInRecordFieldParameter(decl, field, param.as!(DestructureAst.Single), pos))
+				positionInRecordFieldParameter(decl, field, param.as!(SingleDestructureAst), pos))
 		: firstZipPointerFirst!(PositionKind, RecordField, RecordFieldAst)(
 			members, ast.fields, (RecordField* field, RecordFieldAst fieldAst) =>
 				positionInRecordField(decl, field, fieldAst, pos));
@@ -481,7 +499,7 @@ Opt!PositionKind positionInRecord(
 Opt!PositionKind positionInRecordFieldParameter(
 	StructDecl* decl,
 	RecordField* field,
-	in DestructureAst.Single param,
+	in SingleDestructureAst param,
 	Pos pos,
 ) =>
 	optOr!PositionKind(
@@ -743,7 +761,7 @@ Opt!PositionKind positionAtCondition(
 		(in Expr _) =>
 			none!PositionKind,
 		(in Condition.UnpackOption x) {
-			ConditionAst.UnpackOption* unpackAst = ast.as!(ConditionAst.UnpackOption*);
+			UnpackOptionAst* unpackAst = ast.as!(UnpackOptionAst*);
 			return optOr!PositionKind(
 				positionInDestructure(ctx, x.destructure, unpackAst.destructure, pos),
 				() => optIf(hasPos(unpackAst.questionEqualsRange, pos), () =>
@@ -870,8 +888,8 @@ Opt!PositionKind positionInMatchCaseDestructure(
 	in CaseMemberAst ast,
 	Pos pos,
 ) =>
-	ast.isA!(CaseMemberAst.Name) && has(ast.as!(CaseMemberAst.Name).destructure)
-		? positionInDestructure(ctx, destructure, force(ast.as!(CaseMemberAst.Name).destructure), pos)
+	ast.isA!AsNameAst && has(ast.as!AsNameAst.destructure)
+		? positionInDestructure(ctx, destructure, force(ast.as!AsNameAst.destructure), pos)
 		: none!PositionKind;
 
 Opt!PositionKind positionAtMatchKeyword(in ExprCtx ctx, ExprRef matchExpr, in MatchAst ast, Pos pos) =>
@@ -907,19 +925,19 @@ Opt!PositionKind positionInType(TypeContainer container, Type type, in TypeAst a
 Opt!PositionKind positionInTypeNotArgs(TypeContainer container, Type type, in TypeAst ast, Pos pos) {
 	PositionKind here = PositionKind(TypeWithContainer(type, container));
 	return ast.matchIn!(Opt!PositionKind)(
-		(in TypeAst.Bogus) =>
+		(in BogusTypeAst) =>
 			none!PositionKind,
-		(in TypeAst.Fun x) =>
+		(in FunTypeAst x) =>
 			optIf(hasPos(x.kindRange, pos), () => here),
-		(in TypeAst.Map x) =>
+		(in MapTypeAst x) =>
 			none!PositionKind,
 		(in NameAndRange x) =>
 			some(here),
-		(in TypeAst.SuffixName x) =>
+		(in SuffixNameTypeAst x) =>
 			optIf(hasPos(x.name.range, pos), () => here),
-		(in TypeAst.SuffixSpecial x) =>
+		(in SuffixSpecialTypeAst x) =>
 			optIf(hasPos(x.suffixRange, pos), () => here),
-		(in TypeAst.Tuple) =>
+		(in TupleTypeAst) =>
 			none!PositionKind);
 }
 

@@ -4,7 +4,7 @@ module util.jsonParse;
 
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : Builder, finish;
-import util.json : Json;
+import util.json : Json, jsonNull;
 import util.opt : force, has, none, Opt, some;
 import util.string :
 	CString, cStringIsEmpty, isDecimalDigit, isWhitespace, MutCString, takeChar, tryTakeChar, tryTakeChars;
@@ -58,7 +58,7 @@ Opt!Json parseValue(ref Alloc alloc, scope ref MutCString ptr) {
 				: none!Json;
 		case 'n':
 			return tryTakeChars(ptr, "ull")
-				? some(Json(Json.Null()))
+				? some(jsonNull)
 				: none!Json;
 		case 't':
 			return tryTakeChars(ptr, "rue")
