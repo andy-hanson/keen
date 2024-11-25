@@ -42,6 +42,7 @@ import model.model :
 	StructDecl,
 	StructInst,
 	Test,
+	Type,
 	TypeParamIndex,
 	TypeWithContainer,
 	VarDecl;
@@ -147,7 +148,7 @@ Opt!Target targetForPosition(Position pos) =>
 			none!Target,
 		(TypeWithContainer x) =>
 			x.type.matchWithPointers!(Opt!Target)(
-				(Bogus) =>
+				(Type.Bogus) =>
 					none!Target,
 				(TypeParamIndex p) =>
 					some(Target(PositionKind.TypeParamWithContainer(p, forbidModule(x.container)))),

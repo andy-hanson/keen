@@ -111,9 +111,22 @@ import interpret.runBytecode : opSetupCatch, opSwitchFiber, opSwitchFiberInitial
 import model.constant : Constant;
 import model.lowModel :
 	asNonGcPointee,
+	AbortLowExpr,
+	CallFunPointerLowExpr,
+	CallLowExpr,
+	CreateRecordLowExpr,
+	CreateUnionLowExpr,
+	FunPointerLowExpr,
+	IfLowExpr,
 	isSignedInteger,
+	LetLowExpr,
+	LocalGetLowExpr,
+	LocalPointerLowExpr,
+	LocalSetLowExpr,
+	LoopBreakLowExpr,
+	LoopContinueLowExpr,
+	LoopLowExpr,
 	LowExpr,
-	LowExprKind,
 	LowField,
 	LowFunExprBody,
 	LowFunIndex,
@@ -125,8 +138,24 @@ import model.lowModel :
 	LowUnion,
 	LowVar,
 	LowVarIndex,
+	PointerCastLowExpr,
 	PrimitiveType,
-	UpdateParam;
+	RecordFieldGetLowExpr,
+	RecordFieldPointerLowExpr,
+	RecordFieldSetLowExpr,
+	Special4aryLowExpr,
+	SpecialBinaryLowExpr,
+	SpecialBinaryMathLowExpr,
+	SpecialTernaryLowExpr,
+	SpecialUnaryLowExpr,
+	SpecialUnaryMathLowExpr,
+	SwitchLowExpr,
+	TailRecurLowExpr,
+	UnionAsLowExpr,
+	UnionKindLowExpr,
+	UpdateParam,
+	VarGetLowExpr,
+	VarSetLowExpr;
 import model.model : Builtin4ary, BuiltinBinary, BuiltinTernary, BuiltinUnary, Program;
 import model.typeLayout :
 	nStackEntriesForRecord, nStackEntriesForUnion, nStackEntriesForType, optPack, Pack, typeSizeBytes;
@@ -290,11 +319,11 @@ void generateExpr(
 	assert(after.returnValueStackEntries.size == nStackEntriesForType(ctx, expr.type));
 	ByteCodeSource source = ByteCodeSource(ctx.curFunIndex, expr.source.range.start);
 	expr.kind.matchIn!void(
-		(in LowExprKind.Abort x) {
+		(in AbortLowExpr x) {
 			writeAbort(writer, source);
 			setNextStackEntry(writer, stackEntriesEnd(after.returnValueStackEntries));
 		},
-		(in LowExprKind.Call it) {
+		(in CallLowExpr it) {
 			StackEntry stackEntryBeforeArgs = getNextStackEntry(writer);
 			size_t expectedStackEffect = after.returnValueStackEntries.size;
 			generateArgsAndContinue(writer, ctx, locals, it.args);
@@ -304,7 +333,7 @@ void generateExpr(
 			//TODO: do a tailcall if possible
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.CallFunPointer x) {
+		(in CallFunPointerLowExpr x) {
 			StackEntry stackEntryBeforeArgs = getNextStackEntry(writer);
 			generateExprAndContinue(writer, ctx, locals, *x.funPtr);
 			generateArgsAndContinue(writer, ctx, locals, x.args);
@@ -313,19 +342,19 @@ void generateExpr(
 				ctx.funPtrTypeToDynCallSig[ctx.program.indexOfFunPointerType(x.funPointerType)]);
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.CreateRecord x) {
+		(in CreateRecordLowExpr x) {
 			generateCreateRecord(writer, ctx, *expr.type.as!(LowRecord*), source, locals, x);
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.CreateUnion x) {
+		(in CreateUnionLowExpr x) {
 			generateCreateUnion(writer, ctx, *expr.type.as!(LowUnion*), source, locals, x);
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.FunPointer x) {
+		(in FunPointerLowExpr x) {
 			writeConstantFunPointer(writer, ctx, source, expr.type, x.fun);
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.If it) {
+		(in IfLowExpr it) {
 			generateIf(
 				writer, ctx, source, locals, after, it.cond,
 				(ref ExprAfter innerAfter) {
@@ -335,46 +364,46 @@ void generateExpr(
 					generateExpr(writer, ctx, locals, innerAfter, it.else_);
 				});
 		},
-		(in LowExprKind.Init) {
+		(in InitLowExpr) {
 			// bytecode interpreter doesn't need to init anything
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.Let it) =>
+		(in LetLowExpr it) =>
 			generateLet(writer, ctx, locals, after, it),
-		(in LowExprKind.LocalGet it) {
+		(in LocalGetLowExpr it) {
 			StackEntries entries = getLocal(ctx, locals, it.local);
 			if (entries.size != 0)
 				writeDupEntries(writer, source, entries);
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.LocalPointer x) =>
+		(in LocalPointerLowExpr x) =>
 			generatePtrToLocal(writer, ctx, source, locals, after, x.local),
-		(in LowExprKind.LocalSet it) {
+		(in LocalSetLowExpr it) {
 			StackEntries entries = getLocal(ctx, locals, it.local);
 			generateExprAndContinue(writer, ctx, locals, it.value);
 			if (entries.size != 0)
 				writeSet(writer, source, entries);
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.Loop x) {
+		(in LoopLowExpr x) {
 			generateLoop(writer, ctx, locals, after, x);
 		},
-		(in LowExprKind.LoopBreak x) {
+		(in LoopBreakLowExpr x) {
 			generateExpr(writer, ctx, locals, *after.kind.as!(ExprAfterKind.Loop*).afterBreak, x.value);
 		},
-		(in LowExprKind.LoopContinue x) {
+		(in LoopContinueLowExpr x) {
 			generateLoopContinue(writer, ctx, source, locals, after, x);
 		},
-		(in LowExprKind.PointerCast it) {
+		(in PointerCastLowExpr it) {
 			generateExpr(writer, ctx, locals, after, it.target);
 		},
-		(in LowExprKind.RecordFieldGet it) {
+		(in RecordFieldGetLowExpr it) {
 			generateRecordFieldGet(writer, ctx, source, locals, it);
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.RecordFieldPointer x) =>
+		(in RecordFieldPointerLowExpr x) =>
 			generateRecordFieldPointer(writer, ctx, source, locals, after, x),
-		(in LowExprKind.RecordFieldSet x) {
+		(in RecordFieldSetLowExpr x) {
 			generateRecordFieldSet(writer, ctx, source, locals, x);
 			handleAfter(writer, ctx, source, after);
 		},
@@ -382,48 +411,48 @@ void generateExpr(
 			generateConstant(writer, ctx, source, expr.type, it);
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.SpecialUnary it) {
+		(in SpecialUnaryLowExpr it) {
 			generateSpecialUnary(writer, ctx, source, locals, after, expr.type, it);
 		},
-		(in LowExprKind.SpecialUnaryMath x) {
+		(in SpecialUnaryMathLowExpr x) {
 			generateExprAndContinue(writer, ctx, locals, x.arg);
 			writeFnUnary(writer, source, fnForUnaryMath(x.kind));
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.SpecialBinary x) {
+		(in SpecialBinaryLowExpr x) {
 			generateSpecialBinary(writer, ctx, source, locals, after, x);
 		},
-		(in LowExprKind.SpecialBinaryMath x) {
+		(in SpecialBinaryMathLowExpr x) {
 			foreach (scope ref LowExpr arg; castNonScope(x.args))
 				generateExprAndContinue(writer, ctx, locals, arg);
 			writeFnBinary(writer, source, fnForBinaryMath(x.kind));
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.SpecialTernary it) {
+		(in SpecialTernaryLowExpr it) {
 			generateSpecialTernary(writer, ctx, source, locals, after, it);
 		},
-		(in LowExprKind.Special4ary x) {
+		(in Special4aryLowExpr x) {
 			generateSpecial4ary(writer, ctx, source, locals, after, x);
 		},
-		(in LowExprKind.Switch x) {
+		(in SwitchLowExpr x) {
 			generateSwitch(writer, ctx, source, locals, after, x);
 		},
-		(in LowExprKind.TailRecur it) {
+		(in TailRecurLowExpr it) {
 			generateTailRecur(writer, ctx, source, locals, after, it);
 		},
-		(in LowExprKind.UnionAs x) {
+		(in UnionAsLowExpr x) {
 			generateUnionAs(writer, ctx, source, locals, after, x);
 		},
-		(in LowExprKind.UnionKind x) {
+		(in UnionKindLowExpr x) {
 			generateUnionKind(writer, ctx, source,locals, after, x);
 		},
-		(in LowExprKind.VarGet x) {
+		(in VarGetLowExpr x) {
 			LowVar var = ctx.program.vars[x.varIndex];
 			writeVarPtr(writer, ctx, source, x.varIndex, var);
 			writeRead(writer, source, 0, typeSizeBytes(ctx, var.type));
 			handleAfter(writer, ctx, source, after);
 		},
-		(in LowExprKind.VarSet x) {
+		(in VarSetLowExpr x) {
 			LowVar var = ctx.program.vars[x.varIndex];
 			writeVarPtr(writer, ctx, source, x.varIndex, var);
 			generateExprAndContinue(writer, ctx, locals, *x.value);
@@ -481,7 +510,7 @@ void generateLet(
 	ref ExprCtx ctx,
 	in Locals locals,
 	scope ref ExprAfter after,
-	in LowExprKind.Let a,
+	in LetLowExpr a,
 ) {
 	StackEntries localEntries = StackEntries(getNextStackEntry(writer), nStackEntriesForType(ctx, a.local.type));
 	generateExprAndContinue(writer, ctx, locals, a.value);
@@ -494,7 +523,7 @@ void generateLet(
 	ref ExprCtx ctx,
 	in Locals locals,
 	scope ref ExprAfter after,
-	in LowExprKind.Loop a,
+	in LoopLowExpr a,
 ) {
 	StackEntry stackBeforeLoop = getNextStackEntry(writer);
 	withBranching(writer, ctx, after, (ref ExprAfter afterBranch, ref ExprAfter afterLastBranch) {
@@ -514,7 +543,7 @@ void generateLoopContinue(
 	ByteCodeSource source,
 	in Locals locals,
 	scope ref ExprAfter after,
-	in LowExprKind.LoopContinue a,
+	in LoopContinueLowExpr a,
 ) {
 	ExprAfterKind.Loop* loop = after.kind.as!(ExprAfterKind.Loop*);
 	// Need to clean up any temporaries before doing the loop again
@@ -529,7 +558,7 @@ void generateUnionAs(
 	ByteCodeSource source,
 	in Locals locals,
 	scope ref ExprAfter after,
-	in LowExprKind.UnionAs a,
+	in UnionAsLowExpr a,
 ) {
 	StackEntry startStack = getNextStackEntry(writer);
 	generateExprAndContinue(writer, ctx, locals, *a.union_);
@@ -551,7 +580,7 @@ void generateUnionKind(
 	ByteCodeSource source,
 	in Locals locals,
 	scope ref ExprAfter after,
-	in LowExprKind.UnionKind a,
+	in UnionKindLowExpr a,
 ) {
 	StackEntry startStack = getNextStackEntry(writer);
 	generateExprAndContinue(writer, ctx, locals, *a.union_);
@@ -567,12 +596,12 @@ void generateSwitch(
 	ByteCodeSource source,
 	in Locals locals,
 	scope ref ExprAfter after,
-	in LowExprKind.Switch a,
+	in SwitchLowExpr a,
  ) {
 	StackEntry stackBefore = getNextStackEntry(writer);
 	generateExprAndContinue(writer, ctx, locals, a.value);
 	signExtendSignedInts(writer, source, a.value.type.as!PrimitiveType);
-	bool defaultAbort = a.default_.kind.isA!(LowExprKind.Abort);
+	bool defaultAbort = a.default_.kind.isA!(AbortLowExpr);
 	SwitchDelayed delayed = writeSwitchDelay(writer, source, a.caseValues, !defaultAbort);
 	withBranching(writer, ctx, after, (ref ExprAfter afterBranch, ref ExprAfter afterLastBranch) {
 		void writeCaseOrDefault(size_t index, ref LowExpr expr, bool isLast) {
@@ -615,7 +644,7 @@ void generateTailRecur(
 	ByteCodeSource source,
 	in Locals locals,
 	scope ref ExprAfter after,
-	in LowExprKind.TailRecur a,
+	in TailRecurLowExpr a,
 ) {
 	// We need to generate all new values before overwriting anything.
 	foreach (ref UpdateParam updateParam; a.updateParams)
@@ -649,7 +678,7 @@ void generateCreateRecord(
 	in LowRecord record,
 	ByteCodeSource source,
 	in Locals locals,
-	in LowExprKind.CreateRecord it,
+	in CreateRecordLowExpr it,
 ) {
 	generateCreateRecordOrConstantRecord(writer, ctx, record, source, (size_t fieldIndex, LowType fieldType) {
 		LowExpr arg = it.args[fieldIndex];
@@ -683,7 +712,7 @@ void generateCreateUnion(
 	in LowUnion union_,
 	ByteCodeSource source,
 	in Locals locals,
-	in LowExprKind.CreateUnion a,
+	in CreateUnionLowExpr a,
 ) {
 	generateCreateUnionOrConstantUnion(writer, ctx, union_, a.memberIndex, source, (LowType _) {
 		generateExprAndContinue(writer, ctx, locals, a.arg);
@@ -801,7 +830,7 @@ void generateSpecialUnary(
 	in Locals locals,
 	scope ref ExprAfter after,
 	in LowType type,
-	in LowExprKind.SpecialUnary a,
+	in SpecialUnaryLowExpr a,
 ) {
 	void generateArg() {
 		generateExprAndContinue(writer, ctx, locals, a.arg);
@@ -956,7 +985,7 @@ void generateRecordFieldPointer(
 	ByteCodeSource source,
 	in Locals locals,
 	scope ref ExprAfter after,
-	in LowExprKind.RecordFieldPointer a,
+	in RecordFieldPointerLowExpr a,
 ) {
 	size_t offset = a.targetRecordType.fields[a.fieldIndex].offset;
 	if (offset != 0) {
@@ -972,7 +1001,7 @@ void generateRecordFieldGet(
 	ref ExprCtx ctx,
 	ByteCodeSource source,
 	in Locals locals,
-	in LowExprKind.RecordFieldGet a,
+	in RecordFieldGetLowExpr a,
 ) {
 	StackEntry targetEntry = getNextStackEntry(writer);
 	generateExprAndContinue(writer, ctx, locals, *a.target);
@@ -1004,7 +1033,7 @@ void generateRecordFieldSet(
 	ref ExprCtx ctx,
 	ByteCodeSource source,
 	in Locals locals,
-	in LowExprKind.RecordFieldSet a,
+	in RecordFieldSetLowExpr a,
 ) {
 	StackEntry before = getNextStackEntry(writer);
 	generateExprAndContinue(writer, ctx, locals, a.target);
@@ -1022,7 +1051,7 @@ void generateSpecialTernary(
 	ByteCodeSource source,
 	in Locals locals,
 	scope ref ExprAfter after,
-	in LowExprKind.SpecialTernary a,
+	in SpecialTernaryLowExpr a,
 ) {
 	foreach (ref LowExpr arg; castNonScope(a).args)
 		generateExprAndContinue(writer, ctx, locals, arg);
@@ -1040,7 +1069,7 @@ void generateSpecial4ary(
 	ByteCodeSource source,
 	in Locals locals,
 	scope ref ExprAfter after,
-	in LowExprKind.Special4ary a,
+	in Special4aryLowExpr a,
 ) {
 	foreach (ref LowExpr arg; castNonScope(a).args)
 		generateExprAndContinue(writer, ctx, locals, arg);
@@ -1058,7 +1087,7 @@ void generateSpecialBinary(
 	ByteCodeSource source,
 	in Locals locals,
 	scope ref ExprAfter after,
-	in LowExprKind.SpecialBinary a,
+	in SpecialBinaryLowExpr a,
 ) {
 	LowExpr left = a.args[0], right = a.args[1];
 	void fn(Operation.Fn fn, bool returnVoid = false) {

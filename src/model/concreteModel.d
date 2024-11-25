@@ -722,9 +722,9 @@ bool existsDirectChildExpr(ref ConcreteExpr a, in bool delegate(ref ConcreteExpr
 			cb(x.cond) || cb(x.then) || cb(x.else_),
 		(LetConcreteExpr* x) =>
 			cb(x.value) || cb(x.then),
-		(LocalGetConcreteExpr) =>
+		(LocalGetConcreteExpr _) =>
 			false,
-		(LocalPointerConcreteExpr) =>
+		(LocalPointerConcreteExpr _) =>
 			false,
 		(LocalSetConcreteExpr* x) =>
 			cb(x.value),
@@ -732,7 +732,7 @@ bool existsDirectChildExpr(ref ConcreteExpr a, in bool delegate(ref ConcreteExpr
 			cb(x.body_),
 		(LoopBreakConcreteExpr* x) =>
 			cb(x.value),
-		(LoopContinueConcreteExpr) =>
+		(LoopContinueConcreteExpr _) =>
 			false,
 		(MatchEnumOrIntegralConcreteExpr* x) =>
 			cb(x.matched) ||

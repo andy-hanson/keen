@@ -406,267 +406,268 @@ immutable struct LowFunIndex {
 }
 
 immutable struct LowExprKind {
-	immutable struct Abort {}
-
-	immutable struct Call {
-		LowFunIndex called;
-		SmallArray!LowExpr args; // Includes implicit ctx arg if needed
-	}
-
-	immutable struct CallFunPointer {
-		@safe @nogc pure nothrow:
-
-		LowExpr* funPtr;
-		SmallArray!LowExpr args;
-
-		LowFunPointerType* funPointerType() scope =>
-			funPtr.type.as!(LowFunPointerType*);
-	}
-
-	immutable struct CreateRecord {
-		@safe @nogc pure nothrow:
-		LowExpr[] args;
-
-		this(LowExpr[] a) {
-			args = a;
-			assert(!isEmpty(args));
-		}
-	}
-
-	immutable struct CreateUnion {
-		size_t memberIndex;
-		LowExpr arg;
-	}
-
-	// Sometimes this will be a Constant.FunPointer instead,
-	// but that's only possible for functions known to ConcreteModel
-	immutable struct FunPointer {
-		LowFunIndex fun;
-	}
-
-	immutable struct If {
-		LowExpr cond;
-		LowExpr then;
-		LowExpr else_;
-	}
-
-	immutable struct Init {
-		BuiltinFun.Init.Kind kind;
-	}
-
-	immutable struct Let {
-		// A heap-allocated mutable local will become a read-only local whose type is a gc-ptr
-		LowLocal* local;
-		LowExpr value;
-		LowExpr then;
-	}
-
-	immutable struct LocalGet {
-		LowLocal* local;
-	}
-
-	immutable struct LocalPointer {
-		LowLocal* local;
-	}
-
-	immutable struct LocalSet {
-		LowLocal* local;
-		LowExpr value;
-	}
-
-	immutable struct Loop {
-		LowExpr body_;
-	}
-	immutable struct LoopBreak {
-		LowExpr value;
-	}
-	immutable struct LoopContinue {}
-
-	immutable struct PointerCast {
-		LowExpr target;
-	}
-
-	immutable struct RecordFieldGet {
-		@safe @nogc pure nothrow:
-
-		LowExpr* target; // Call 'targetIsPointer' to see if this is x.y or x->y
-		size_t fieldIndex;
-
-		LowRecord* targetRecordType() scope =>
-			(targetIsPointer ? asPointee(target.type) : target.type).as!(LowRecord*);
-
-		bool targetIsPointer() scope =>
-			isPointerGcOrRaw(target.type);
-	}
-
-	immutable struct RecordFieldPointer {
-		@safe @nogc pure nothrow:
-
-		LowExpr* target; // Always a pointer
-		size_t fieldIndex;
-
-		LowRecord* targetRecordType() scope =>
-			asPointee(target.type).as!(LowRecord*);
-	}
-
-	immutable struct RecordFieldSet {
-		@safe @nogc pure nothrow:
-
-		LowExpr target; // Always a pointer
-		size_t fieldIndex;
-		LowExpr value;
-
-		// Use a template to avoid forward reference errors
-		LowRecord* targetRecordType()() scope =>
-			asPointee(target.type).as!(LowRecord*);
-	}
-
-	immutable struct SpecialUnary {
-		@safe @nogc pure nothrow:
-
-		BuiltinUnary kind;
-		LowExpr* argPtr;
-
-		ref LowExpr arg() return scope =>
-			*argPtr;
-
-		this(BuiltinUnary k, LowExpr* a) {
-			kind = k;
-			argPtr = a;
-			switch (k) {
-				case BuiltinUnary.arrayPointer:
-				case BuiltinUnary.arraySize:
-					// These should be lowered to RecordFieldGet
-					assert(false);
-				default:
-					break;
-			}
-		}
-	}
-
-	immutable struct SpecialUnaryMath {
-		@safe @nogc pure nothrow:
-		BuiltinUnaryMath kind;
-		LowExpr* argPtr;
-
-		ref LowExpr arg() return scope =>
-			*argPtr;
-	}
-
-	immutable struct SpecialBinary {
-		@safe @nogc pure nothrow:
-
-		BuiltinBinary kind;
-		LowExpr[2]* argsPtr;
-
-		ref LowExpr[2] args() return scope =>
-			*argsPtr;
-
-		this(BuiltinBinary k, LowExpr[2]* a) {
-			kind = k;
-			argsPtr = a;
-			assert(k != BuiltinBinary.newArray); // This should be lowered to CreateRecord
-		}
-	}
-
-	immutable struct SpecialBinaryMath {
-		@safe @nogc pure nothrow:
-		BuiltinBinaryMath kind;
-		LowExpr[2]* argsPtr;
-
-		ref LowExpr[2] args() return scope =>
-			*argsPtr;
-	}
-
-	immutable struct SpecialTernary {
-		@safe @nogc pure nothrow:
-		BuiltinTernary kind;
-		LowExpr[3]* argsPtr;
-
-		ref LowExpr[3] args() return scope =>
-			*argsPtr;
-	}
-
-	immutable struct Special4ary {
-		@safe @nogc pure nothrow:
-		Builtin4ary kind;
-		LowExpr[4]* argsPtr;
-
-		ref LowExpr[4] args() return scope =>
-			*argsPtr;
-	}
-
-	immutable struct Switch {
-		@safe @nogc pure nothrow:
-		LowExpr value;
-		IntegralValues caseValues;
-		SmallArray!LowExpr caseExprs;
-		LowExpr default_; // This is often Abort
-
-		this(LowExpr value, IntegralValues caseValues, SmallArray!LowExpr caseExprs, LowExpr default_) {
-			this.value = value; this.caseValues = caseValues; this.caseExprs = caseExprs; this.default_ = default_;
-			assert(caseValues.length == caseExprs.length);
-			assert(!isEmpty(caseExprs));
-		}
-	}
-
-	immutable struct TailRecur {
-		UpdateParam[] updateParams;
-	}
-
-	immutable struct VarGet {
-		LowVarIndex varIndex;
-	}
-	immutable struct VarSet {
-		LowVarIndex varIndex;
-		LowExpr* value;
-	}
-	immutable struct UnionAs {
-		LowExpr* union_;
-		uint memberIndex;
-	}
-	immutable struct UnionKind {
-		LowExpr* union_;
-	}
-
 	mixin Union!(
-		Abort,
-		Call,
-		CallFunPointer,
-		CreateRecord,
-		CreateUnion*,
-		FunPointer,
-		If*,
-		Init,
-		Let*,
-		LocalGet,
-		LocalPointer,
-		LocalSet*,
-		Loop*,
-		LoopBreak*,
-		LoopContinue,
-		PointerCast*,
-		RecordFieldGet,
-		RecordFieldPointer,
-		RecordFieldSet*,
+		AbortLowExpr,
+		CallLowExpr,
+		CallFunPointerLowExpr,
+		CreateRecordLowExpr,
+		CreateUnionLowExpr*,
+		FunPointerLowExpr,
+		IfLowExpr*,
+		InitLowExpr,
+		LetLowExpr*,
+		LocalGetLowExpr,
+		LocalPointerLowExpr,
+		LocalSetLowExpr*,
+		LoopLowExpr*,
+		LoopBreakLowExpr*,
+		LoopContinueLowExpr,
+		PointerCastLowExpr*,
+		RecordFieldGetLowExpr,
+		RecordFieldPointerLowExpr,
+		RecordFieldSetLowExpr*,
 		Constant,
-		SpecialUnary,
-		SpecialUnaryMath,
-		SpecialBinary,
-		SpecialBinaryMath,
-		SpecialTernary,
-		Special4ary,
-		Switch*,
-		TailRecur,
-		UnionAs,
-		UnionKind,
-		VarGet,
-		VarSet);
+		SpecialUnaryLowExpr,
+		SpecialUnaryMathLowExpr,
+		SpecialBinaryLowExpr,
+		SpecialBinaryMathLowExpr,
+		SpecialTernaryLowExpr,
+		Special4aryLowExpr,
+		SwitchLowExpr*,
+		TailRecurLowExpr,
+		UnionAsLowExpr,
+		UnionKindLowExpr,
+		VarGetLowExpr,
+		VarSetLowExpr);
 }
 version (WebAssembly) {
 	static assert(LowExprKind.sizeof == Constant.sizeof + ulong.sizeof);
 } else {
-	static assert(LowExprKind.sizeof == LowExprKind.Call.sizeof + ulong.sizeof);
+	static assert(LowExprKind.sizeof == CallLowExpr.sizeof + ulong.sizeof);
+}
+
+immutable struct AbortLowExpr {}
+
+immutable struct CallLowExpr {
+	LowFunIndex called;
+	SmallArray!LowExpr args; // Includes implicit ctx arg if needed
+}
+
+immutable struct CallFunPointerLowExpr {
+	@safe @nogc pure nothrow:
+
+	LowExpr* funPtr;
+	SmallArray!LowExpr args;
+
+	LowFunPointerType* funPointerType() scope =>
+		funPtr.type.as!(LowFunPointerType*);
+}
+
+immutable struct CreateRecordLowExpr {
+	@safe @nogc pure nothrow:
+	LowExpr[] args;
+
+	this(LowExpr[] a) {
+		args = a;
+		assert(!isEmpty(args));
+	}
+}
+
+immutable struct CreateUnionLowExpr {
+	size_t memberIndex;
+	LowExpr arg;
+}
+
+// Sometimes this will be a Constant.FunPointer instead,
+// but that's only possible for functions known to ConcreteModel
+immutable struct FunPointerLowExpr {
+	LowFunIndex fun;
+}
+
+immutable struct IfLowExpr {
+	LowExpr cond;
+	LowExpr then;
+	LowExpr else_;
+}
+
+immutable struct InitLowExpr {
+	BuiltinFun.Init.Kind kind;
+}
+
+immutable struct LetLowExpr {
+	// A heap-allocated mutable local will become a read-only local whose type is a gc-ptr
+	LowLocal* local;
+	LowExpr value;
+	LowExpr then;
+}
+
+immutable struct LocalGetLowExpr {
+	LowLocal* local;
+}
+
+immutable struct LocalPointerLowExpr {
+	LowLocal* local;
+}
+
+immutable struct LocalSetLowExpr {
+	LowLocal* local;
+	LowExpr value;
+}
+
+immutable struct LoopLowExpr {
+	LowExpr body_;
+}
+immutable struct LoopBreakLowExpr {
+	LowExpr value;
+}
+immutable struct LoopContinueLowExpr {}
+
+immutable struct PointerCastLowExpr {
+	LowExpr target;
+}
+
+immutable struct RecordFieldGetLowExpr {
+	@safe @nogc pure nothrow:
+
+	LowExpr* target; // Call 'targetIsPointer' to see if this is x.y or x->y
+	size_t fieldIndex;
+
+	LowRecord* targetRecordType() scope =>
+		(targetIsPointer ? asPointee(target.type) : target.type).as!(LowRecord*);
+
+	bool targetIsPointer() scope =>
+		isPointerGcOrRaw(target.type);
+}
+
+immutable struct RecordFieldPointerLowExpr {
+	@safe @nogc pure nothrow:
+
+	LowExpr* target; // Always a pointer
+	size_t fieldIndex;
+
+	LowRecord* targetRecordType() scope =>
+		asPointee(target.type).as!(LowRecord*);
+}
+
+immutable struct RecordFieldSetLowExpr {
+	@safe @nogc pure nothrow:
+
+	LowExpr target; // Always a pointer
+	size_t fieldIndex;
+	LowExpr value;
+
+	// Use a template to avoid forward reference errors
+	LowRecord* targetRecordType()() scope =>
+		asPointee(target.type).as!(LowRecord*);
+}
+
+immutable struct SpecialUnaryLowExpr {
+	@safe @nogc pure nothrow:
+
+	BuiltinUnary kind;
+	LowExpr* argPtr;
+
+	ref LowExpr arg() return scope =>
+		*argPtr;
+
+	this(BuiltinUnary k, LowExpr* a) {
+		kind = k;
+		argPtr = a;
+		switch (k) {
+			case BuiltinUnary.arrayPointer:
+			case BuiltinUnary.arraySize:
+				// These should be lowered to RecordFieldGet
+				assert(false);
+			default:
+				break;
+		}
+	}
+}
+
+immutable struct SpecialUnaryMathLowExpr {
+	@safe @nogc pure nothrow:
+	BuiltinUnaryMath kind;
+	LowExpr* argPtr;
+
+	ref LowExpr arg() return scope =>
+		*argPtr;
+}
+
+immutable struct SpecialBinaryLowExpr {
+	@safe @nogc pure nothrow:
+
+	BuiltinBinary kind;
+	LowExpr[2]* argsPtr;
+
+	ref LowExpr[2] args() return scope =>
+		*argsPtr;
+
+	this(BuiltinBinary k, LowExpr[2]* a) {
+		kind = k;
+		argsPtr = a;
+		assert(k != BuiltinBinary.newArray); // This should be lowered to CreateRecord
+	}
+}
+
+immutable struct SpecialBinaryMathLowExpr {
+	@safe @nogc pure nothrow:
+	BuiltinBinaryMath kind;
+	LowExpr[2]* argsPtr;
+
+	ref LowExpr[2] args() return scope =>
+		*argsPtr;
+}
+
+immutable struct SpecialTernaryLowExpr {
+	@safe @nogc pure nothrow:
+	BuiltinTernary kind;
+	LowExpr[3]* argsPtr;
+
+	ref LowExpr[3] args() return scope =>
+		*argsPtr;
+}
+
+immutable struct Special4aryLowExpr {
+	@safe @nogc pure nothrow:
+	Builtin4ary kind;
+	LowExpr[4]* argsPtr;
+
+	ref LowExpr[4] args() return scope =>
+		*argsPtr;
+}
+
+immutable struct SwitchLowExpr {
+	@safe @nogc pure nothrow:
+	LowExpr value;
+	IntegralValues caseValues;
+	SmallArray!LowExpr caseExprs;
+	LowExpr default_; // This is often Abort
+
+	this(LowExpr value, IntegralValues caseValues, SmallArray!LowExpr caseExprs, LowExpr default_) {
+		this.value = value; this.caseValues = caseValues; this.caseExprs = caseExprs; this.default_ = default_;
+		assert(caseValues.length == caseExprs.length);
+		assert(!isEmpty(caseExprs));
+	}
+}
+
+immutable struct TailRecurLowExpr {
+	UpdateParam[] updateParams;
+}
+
+immutable struct UnionAsLowExpr {
+	LowExpr* union_;
+	uint memberIndex;
+}
+immutable struct UnionKindLowExpr {
+	LowExpr* union_;
+}
+
+immutable struct VarGetLowExpr {
+	LowVarIndex varIndex;
+}
+immutable struct VarSetLowExpr {
+	LowVarIndex varIndex;
+	LowExpr* value;
 }
 
 immutable struct UpdateParam {

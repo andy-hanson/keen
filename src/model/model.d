@@ -323,7 +323,7 @@ immutable struct Arity {
 	uint countParamDecls() scope =>
 		matchIn!uint(
 			(in uint x) => x,
-			(in Varargs) => 1);
+			(in Varargs _) => 1);
 
 	bool isVariadic() scope =>
 		isA!Varargs;

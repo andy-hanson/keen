@@ -328,7 +328,7 @@ void checkBuiltin(ref Ctx ctx, in ConcreteType type, in BuiltinConcreteExpr a) {
 		(BuiltinFun.StaticSymbols) {
 			assert(false);
 		},
-		(VersionFun) {
+		(VersionFun _) {
 			assert(false);
 		});
 }

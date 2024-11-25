@@ -353,7 +353,7 @@ Opt!size_t findExpectedStructForLiteral(
 						(Type.Bogus) {
 							ambiguous = true;
 						},
-						(TypeParamIndex) {},
+						(TypeParamIndex _) {},
 						(StructInst* x) { handleStruct(x); });
 				else {
 					ambiguous = true;

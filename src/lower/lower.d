@@ -103,6 +103,7 @@ import model.concreteModel :
 	LocalSetConcreteExpr,
 	LoopBreakConcreteExpr,
 	LoopConcreteExpr,
+	LoopContinueConcreteExpr,
 	MatchEnumOrIntegralConcreteExpr,
 	MatchStringLikeConcreteExpr,
 	MatchUnionConcreteExpr,
@@ -126,11 +127,17 @@ import model.lowModel :
 	asGcPointee,
 	asNonGcPointee,
 	ConcreteFunToLowFunIndex,
+	CreateRecordLowExpr,
+	CreateUnionLowExpr,
 	ExternLibraries,
 	ExternLibrary,
+	IfLowExpr,
+	InitLowExpr,
 	isPrimitiveType,
 	isTuple,
 	isVoid,
+	LocalGetLowExpr,
+	LoopLowExpr,
 	LowCommonTypes,
 	LowExpr,
 	LowExprKind,
@@ -158,6 +165,11 @@ import model.lowModel :
 	LowUnionIndex,
 	PointerTypeAndConstantsLow,
 	PrimitiveType,
+	SpecialUnaryLowExpr,
+	SwitchLowExpr,
+	TailRecurLowExpr,
+	UnionAsLowExpr,
+	UnionKindLowExpr,
 	UpdateParam;
 import model.model :
 	Builtin4ary,
@@ -987,7 +999,7 @@ LowExpr getLowExpr(
 		(CreateRecordConcreteExpr x) =>
 			getCreateRecordExpr(ctx, exprPos, locals, type, range, x),
 		(ref CreateUnionConcreteExpr x) =>
-			LowExpr(type, range, LowExprKind(allocate(ctx.alloc, LowExprKind.CreateUnion(
+			LowExpr(type, range, LowExprKind(allocate(ctx.alloc, CreateUnionLowExpr(
 				x.memberIndex,
 				getLowExpr(ctx, locals, x.arg, exprPos.asNonTail))))),
 		(ref DropConcreteExpr x) =>
@@ -995,7 +1007,7 @@ LowExpr getLowExpr(
 		(ref FinallyConcreteExpr x) =>
 			getFinallyExpr(ctx, exprPos, locals, range, type, x),
 		(ref IfConcreteExpr x) =>
-			LowExpr(type, range, LowExprKind(allocate(ctx.alloc, LowExprKind.If(
+			LowExpr(type, range, LowExprKind(allocate(ctx.alloc, IfLowExpr(
 				getLowExpr(ctx, locals, x.cond, ExprPos.nonTail),
 				getLowExpr(ctx, locals, x.then, exprPos),
 				getLowExpr(ctx, locals, x.else_, exprPos))))),
@@ -1010,12 +1022,12 @@ LowExpr getLowExpr(
 				ctx.alloc, range, getLocal(ctx, locals, x.local), getLowExpr(ctx, locals, x.value, ExprPos.nonTail))),
 		(ref LoopConcreteExpr x) =>
 			handleExprPos(ctx, exprPos, LowExpr(type, range, LowExprKind(allocate(ctx.alloc,
-				LowExprKind.Loop(getLowExpr(ctx, locals, x.body_, ExprPos.loopNoGcRoots)))))),
+				LoopLowExpr(getLowExpr(ctx, locals, x.body_, ExprPos.loopNoGcRoots)))))),
 		(ref LoopBreakConcreteExpr x) {
 			assert(exprPos.kind == ExprPos.Kind.loop);
 			return genLoopBreak(ctx.alloc, type, range, getLowExpr(ctx, locals, x.value, exprPos.asNonTail));
 		},
-		(LoopContinueConcreteExpr) {
+		(LoopContinueConcreteExpr _) {
 			assert(exprPos.kind == ExprPos.Kind.loop);
 			return popGcRootsThenDo(ctx, exprPos.nGcRootsToPop, genLoopContinue(type, range));
 		},
@@ -1049,10 +1061,10 @@ LowExpr getLowExpr(
 		(ref TryLetConcreteExpr x) =>
 			getTryLetExpr(ctx, locals, exprPos, range, type, x),
 		(UnionAsConcreteExpr x) =>
-			LowExpr(type, range, LowExprKind(LowExprKind.UnionAs(
+			LowExpr(type, range, LowExprKind(UnionAsLowExpr(
 				allocate(ctx.alloc, getLowExpr(ctx, locals, *x.union_, exprPos.asNonTail)), x.memberIndex))),
 		(UnionKindConcreteExpr x) =>
-			LowExpr(type, range, LowExprKind(LowExprKind.UnionKind(
+			LowExpr(type, range, LowExprKind(UnionKindLowExpr(
 				allocate(ctx.alloc, getLowExpr(ctx, locals, *x.union_, exprPos.asNonTail))))));
 }
 
@@ -1088,12 +1100,12 @@ bool mayHaveSideEffects(in LowExpr a) =>
 	!neverHasSideEffects(a);
 bool neverHasSideEffects(in LowExpr a) =>
 	a.kind.isA!Constant ||
-	a.kind.isA!(LowExprKind.LocalGet) ||
-	(a.kind.isA!(LowExprKind.CreateRecord) &&
-		every!LowExpr(a.kind.as!(LowExprKind.CreateRecord).args, (in LowExpr x) => neverHasSideEffects(x))) ||
-	(a.kind.isA!(LowExprKind.SpecialUnary) &&
-		a.kind.as!(LowExprKind.SpecialUnary).kind == BuiltinUnary.deref &&
-		neverHasSideEffects(a.kind.as!(LowExprKind.SpecialUnary).arg));
+	a.kind.isA!(LocalGetLowExpr) ||
+	(a.kind.isA!(CreateRecordLowExpr) &&
+		every!LowExpr(a.kind.as!(CreateRecordLowExpr).args, (in LowExpr x) => neverHasSideEffects(x))) ||
+	(a.kind.isA!(SpecialUnaryLowExpr) &&
+		a.kind.as!(SpecialUnaryLowExpr).kind == BuiltinUnary.deref &&
+		neverHasSideEffects(a.kind.as!(SpecialUnaryLowExpr).arg));
 
 LowExpr getCallExpr(
 	ref GetLowExprCtx ctx,
@@ -1141,17 +1153,17 @@ LowExpr getCallRegular(
 		MutArr!UpdateParam updateParams;
 		zipPtrFirst(ctx.lowParams, args, (LowLocal* param, ref ConcreteExpr concreteArg) {
 			LowExpr arg = getLowExpr(ctx, locals, concreteArg, ExprPos.nonTail);
-			if (!(arg.kind.isA!(LowExprKind.LocalGet) && arg.kind.as!(LowExprKind.LocalGet).local == param))
+			if (!(arg.kind.isA!(LocalGetLowExpr) && arg.kind.as!(LocalGetLowExpr).local == param))
 				push(ctx.alloc, updateParams, UpdateParam(param, arg));
 		});
 		if (mutArrIsEmpty(updateParams))
 			return popGcRootsThenDo(
 				ctx, exprPos.nGcRootsToPop,
-				LowExpr(type, range, LowExprKind(LowExprKind.TailRecur([]))));
+				LowExpr(type, range, LowExprKind(TailRecurLowExpr([]))));
 		else {
 			UpdateParam last = mustPop(updateParams);
 			push(ctx.alloc, updateParams, UpdateParam(last.param, handleExprPos(ctx, exprPos, last.newValue)));
-			return LowExpr(type, range, LowExprKind(LowExprKind.TailRecur(moveToArray(ctx.alloc, updateParams))));
+			return LowExpr(type, range, LowExprKind(TailRecurLowExpr(moveToArray(ctx.alloc, updateParams))));
 		}
 	} else
 		return withPushAllGcRoots(
@@ -1230,8 +1242,8 @@ LowExpr callFunPointerInner(
 	Opt!(SmallArray!LowType) optArgTypes = tryUnpackTuple(ctx.alloc, arg.type);
 	if (has(optArgTypes)) {
 		SmallArray!LowType argTypes = force(optArgTypes);
-		return arg.kind.isA!(LowExprKind.CreateRecord)
-			? doCall(funPtr, small!LowExpr(arg.kind.as!(LowExprKind.CreateRecord).args))
+		return arg.kind.isA!(CreateRecordLowExpr)
+			? doCall(funPtr, small!LowExpr(arg.kind.as!(CreateRecordLowExpr).args))
 			: argTypes.length == 0
 			// Making sure the side effect order is function then arg
 			? genLetTempConstNoGcRoot(ctx, range, funPtr, (LowExpr getFunPointer) =>
@@ -1321,7 +1333,7 @@ LowExpr getCallBuiltinExpr(
 			// handled in concretize
 			assert(false),
 		(BuiltinFun.Init x) =>
-			LowExpr(type, range, LowExprKind(LowExprKind.Init(x.kind))),
+			LowExpr(type, range, LowExprKind(InitLowExpr(x.kind))),
 		(JsFun _) =>
 			assert(false),
 		(BuiltinFun.MarkRoot) =>
@@ -1481,7 +1493,7 @@ LowExpr getMatchIntegralExpr(
 	UriAndRange range,
 	ref MatchEnumOrIntegralConcreteExpr a,
 ) =>
-	LowExpr(type, range, LowExprKind(allocate(ctx.alloc, LowExprKind.Switch(
+	LowExpr(type, range, LowExprKind(allocate(ctx.alloc, SwitchLowExpr(
 		value: getLowExpr(ctx, locals, a.matched, ExprPos.nonTail),
 		caseValues: a.caseValues,
 		caseExprs: map!(LowExpr, ConcreteExpr)(ctx.alloc, a.caseExprs, (ref ConcreteExpr case_) =>
@@ -1538,7 +1550,7 @@ LowExpr getMatchUnionExpr(
 	withLetTempConstNoGcRoot(ctx, locals, a.matched, (LowExpr getMatched) {
 		LowExpr* getMatchedPtr = allocate(ctx.alloc, getMatched);
 		return LowExpr(type, range, LowExprKind(allocate(ctx.alloc,
-			LowExprKind.Switch(
+			SwitchLowExpr(
 				value: genUnionKind(range, getMatchedPtr),
 				caseValues: a.memberIndices,
 				caseExprs: lowerMatchCases(ctx, locals, exprPos, type, range, getMatchedPtr, a.memberIndices, a.cases),
@@ -1718,7 +1730,7 @@ LowExpr getTryOrTryLetExpr(
 		withRestorableGcRoot(ctx, range, (LowExpr restoreGcRoot) {
 			LowExpr* curThrown = allocate(ctx.alloc, genGetCurThrown(ctx, range));
 			LowExpr matchThrown = LowExpr(type, range, LowExprKind(allocate(ctx.alloc,
-				LowExprKind.Switch(
+				SwitchLowExpr(
 					value: genUnionKind(range, curThrown),
 					caseValues: exceptionMemberIndices,
 					caseExprs: lowerMatchCases(

@@ -38,7 +38,7 @@ TypeSize sizeOfType(in AllLowTypes types, in LowType a) =>
 			funPtrSize,
 		(PrimitiveType x) =>
 			primitiveSize(x),
-		(LowPointerCombine) =>
+		(LowPointerCombine _) =>
 			ptrSize,
 		(ref LowRecord x) =>
 			typeSize(x),

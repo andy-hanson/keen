@@ -6,10 +6,23 @@ import model.concreteModel : ConcreteFun;
 import model.constant : Constant, constantZero;
 import model.model : Builtin4ary, BuiltinUnary, BuiltinUnaryMath, BuiltinBinary, BuiltinBinaryMath, BuiltinTernary;
 import model.lowModel :
+	AbortLowExpr,
 	asPointee,
 	AllLowTypes,
+	CallFunPointerLowExpr,
+	CallLowExpr,
+	CreateRecordLowExpr,
 	debugName,
+	FunPointerLowExpr,
+	IfLowExpr,
 	isPointerNonGc,
+	LetLowExpr,
+	LocalGetLowExpr,
+	LocalSetLowExpr,
+	LocalPointerLowExpr,
+	LoopBreakLowExpr,
+	LoopContinueLowExpr,
+	LoopLowExpr,
 	LowExpr,
 	LowExprKind,
 	LowFunIndex,
@@ -18,7 +31,22 @@ import model.lowModel :
 	LowRecord,
 	LowType,
 	LowVarIndex,
-	PrimitiveType;
+	PointerCastLowExpr,
+	PrimitiveType,
+	RecordFieldGetLowExpr,
+	RecordFieldPointerLowExpr,
+	RecordFieldSetLowExpr,
+	Special4aryLowExpr,
+	SpecialBinaryLowExpr,
+	SpecialBinaryMathLowExpr,
+	SpecialTernaryLowExpr,
+	SpecialUnaryLowExpr,
+	SpecialUnaryMathLowExpr,
+	SwitchLowExpr,
+	UnionAsLowExpr,
+	UnionKindLowExpr,
+	VarGetLowExpr,
+	VarSetLowExpr;
 import model.typeLayout : typeSizeBytes;
 import util.alloc.alloc : Alloc;
 import util.col.array : foldReverse, mapWithIndex, newArray, small, SmallArray;
@@ -44,13 +72,13 @@ LowType nat64Type() => LowType(PrimitiveType.nat64);
 LowType voidType() => LowType(PrimitiveType.void_);
 
 LowExpr genAbort(LowType type, UriAndRange range) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.Abort()));
+	LowExpr(type, range, LowExprKind(AbortLowExpr()));
 
 LowExpr genUnionAs(LowType asType, UriAndRange range, LowExpr* union_, uint memberIndex) =>
-	LowExpr(asType, range, LowExprKind(LowExprKind.UnionAs(union_, memberIndex)));
+	LowExpr(asType, range, LowExprKind(UnionAsLowExpr(union_, memberIndex)));
 
 LowExpr genUnionKind(UriAndRange range, LowExpr* union_) =>
-	LowExpr(nat64Type, range, LowExprKind(LowExprKind.UnionKind(union_)));
+	LowExpr(nat64Type, range, LowExprKind(UnionKindLowExpr(union_)));
 
 LowExpr genUnionMatch(
 	ref Alloc alloc,
@@ -60,10 +88,10 @@ LowExpr genUnionMatch(
 	SmallArray!LowType unionMembers,
 	in LowExpr delegate(size_t, LowExpr) @safe @nogc pure nothrow cbCase,
 ) {
-	assert(getUnion.kind.isA!(LowExprKind.LocalGet));
+	assert(getUnion.kind.isA!(LocalGetLowExpr));
 	LowExpr* getUnionPtr = allocate(alloc, getUnion);
 	return LowExpr(type, range, LowExprKind(allocate(alloc,
-		LowExprKind.Switch(
+		SwitchLowExpr(
 			genUnionKind(range, getUnionPtr),
 			integralValuesRange(unionMembers.length),
 			mapWithIndex!(LowExpr, LowType)(
@@ -73,17 +101,17 @@ LowExpr genUnionMatch(
 }
 
 LowExpr genUnary(ref Alloc alloc, LowType type, UriAndRange range, BuiltinUnary kind, LowExpr arg) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.SpecialUnary(kind, allocate(alloc, arg))));
+	LowExpr(type, range, LowExprKind(SpecialUnaryLowExpr(kind, allocate(alloc, arg))));
 LowExpr genUnaryMath(ref Alloc alloc, LowType type, UriAndRange range, BuiltinUnaryMath kind, LowExpr arg) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.SpecialUnaryMath(kind, allocate(alloc, arg))));
+	LowExpr(type, range, LowExprKind(SpecialUnaryMathLowExpr(kind, allocate(alloc, arg))));
 LowExpr genBinary(
 	ref Alloc alloc, LowType type, UriAndRange range, BuiltinBinary kind, LowExpr arg0, LowExpr arg1,
 ) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.SpecialBinary(kind, allocate!(LowExpr[2])(alloc, [arg0, arg1]))));
+	LowExpr(type, range, LowExprKind(SpecialBinaryLowExpr(kind, allocate!(LowExpr[2])(alloc, [arg0, arg1]))));
 LowExpr genBinaryMath(
 	ref Alloc alloc, LowType type, UriAndRange range, BuiltinBinaryMath kind, LowExpr arg0, LowExpr arg1,
 ) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.SpecialBinaryMath(kind, allocate!(LowExpr[2])(alloc, [arg0, arg1]))));
+	LowExpr(type, range, LowExprKind(SpecialBinaryMathLowExpr(kind, allocate!(LowExpr[2])(alloc, [arg0, arg1]))));
 LowExpr genTernary(
 	ref Alloc alloc,
 	LowType type,
@@ -93,7 +121,7 @@ LowExpr genTernary(
 	LowExpr arg1,
 	LowExpr arg2,
 ) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.SpecialTernary(
+	LowExpr(type, range, LowExprKind(SpecialTernaryLowExpr(
 		kind, allocate!(LowExpr[3])(alloc, [arg0, arg1, arg2]))));
 LowExpr gen4ary(
 	ref Alloc alloc,
@@ -105,19 +133,19 @@ LowExpr gen4ary(
 	LowExpr arg2,
 	LowExpr arg3,
 ) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.Special4ary(
+	LowExpr(type, range, LowExprKind(Special4aryLowExpr(
 		kind, allocate!(LowExpr[4])(alloc, [arg0, arg1, arg2, arg3]))));
 
 LowExpr genAddPointer(ref Alloc alloc, LowType.PointerConst ptrType, UriAndRange range, LowExpr ptr, LowExpr added) =>
 	genBinary(alloc, LowType(ptrType), range, BuiltinBinary.addPointerAndNat64, ptr, added);
 
 LowExpr genLocalPointer(LowType type, UriAndRange range, LowLocal* local) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.LocalPointer(local)));
+	LowExpr(type, range, LowExprKind(LocalPointerLowExpr(local)));
 
 LowExpr genFunPointer(LowType type, UriAndRange range, ConcreteFun* fun) =>
 	LowExpr(type, range, LowExprKind(Constant(Constant.FunPointer(fun))));
 LowExpr genFunPointer(LowType type, UriAndRange range, LowFunIndex fun) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.FunPointer(fun)));
+	LowExpr(type, range, LowExprKind(FunPointerLowExpr(fun)));
 
 LowExpr genDrop(ref Alloc alloc, UriAndRange range, LowExpr a) =>
 	a.type == voidType ? a : genUnary(alloc, voidType, range, BuiltinUnary.drop, a);
@@ -139,7 +167,7 @@ LowExpr genDerefRawPointer(ref Alloc alloc, UriAndRange range, LowExpr ptr) =>
 	genDerefGcOrRawPointer(alloc, range, ptr);
 
 LowExpr genIf(ref Alloc alloc, UriAndRange range, LowExpr cond, LowExpr then, LowExpr else_) =>
-	LowExpr(then.type, range, LowExprKind(allocate(alloc, LowExprKind.If(cond, then, else_))));
+	LowExpr(then.type, range, LowExprKind(allocate(alloc, IfLowExpr(cond, then, else_))));
 
 LowExpr genIncrPointer(ref Alloc alloc, UriAndRange range, LowType.PointerConst pointerType, LowExpr pointer) =>
 	genAddPointer(alloc, pointerType, range, pointer, genConstantNat64(range, 1));
@@ -161,20 +189,20 @@ private LowExpr genNull(LowType type, UriAndRange range) =>
 	LowExpr(type, range, LowExprKind(constantZero));
 
 LowExpr genCallFunPointerNoGcRoots(LowType type, UriAndRange range, LowExpr* funPtr, SmallArray!LowExpr args) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.CallFunPointer(funPtr, args)));
+	LowExpr(type, range, LowExprKind(CallFunPointerLowExpr(funPtr, args)));
 
 LowExpr genCallNoGcRoots(LowType type, UriAndRange range, LowFunIndex called, LowExpr[] args) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.Call(called, small!LowExpr(args))));
+	LowExpr(type, range, LowExprKind(CallLowExpr(called, small!LowExpr(args))));
 LowExpr genCallNoGcRoots(ref Alloc alloc, LowType type, UriAndRange range, LowFunIndex called, in LowExpr[] args) =>
 	genCallNoGcRoots(type, range, called, newArray(alloc, args));
 LowExpr genSizeOf(in AllLowTypes allTypes, UriAndRange range, LowType t) =>
 	genConstantNat64(range, typeSizeBytes(allTypes, t));
 
 LowExpr genIdentifier(UriAndRange range, LowLocal* local) =>
-	LowExpr(local.type, range, LowExprKind(LowExprKind.LocalGet(local)));
+	LowExpr(local.type, range, LowExprKind(LocalGetLowExpr(local)));
 
 LowExpr genLocalSet(ref Alloc alloc, UriAndRange range, LowLocal* local, LowExpr value) =>
-	LowExpr(voidType, range, LowExprKind(allocate(alloc, LowExprKind.LocalSet(local, value))));
+	LowExpr(voidType, range, LowExprKind(allocate(alloc, LocalSetLowExpr(local, value))));
 
 LowExpr genWrapMulNat64(ref Alloc alloc, UriAndRange range, LowExpr left, LowExpr right) =>
 	genBinary(alloc, nat64Type, range, BuiltinBinary.wrapMulNat64, left, right);
@@ -186,23 +214,23 @@ LowExpr genPointerEqualNull(ref Alloc alloc, UriAndRange range, LowExpr a) =>
 	genPointerEqual(alloc, range, a, genNull(a.type, range));
 
 LowExpr genPointerCast(ref Alloc alloc, LowType type, UriAndRange range, LowExpr inner) =>
-	LowExpr(type, range, LowExprKind(allocate(alloc, LowExprKind.PointerCast(inner))));
+	LowExpr(type, range, LowExprKind(allocate(alloc, PointerCastLowExpr(inner))));
 
 LowExpr genCreateRecordNoGcRoots(ref Alloc alloc, LowType type, UriAndRange range, in LowExpr[] args) =>
 	genCreateRecordNoGcRoots(type, range, newArray(alloc, args));
 LowExpr genCreateRecordNoGcRoots(LowType type, UriAndRange range, LowExpr[] args) {
 	assert(type.isA!(LowRecord*));
-	return LowExpr(type, range, LowExprKind(LowExprKind.CreateRecord(args)));
+	return LowExpr(type, range, LowExprKind(CreateRecordLowExpr(args)));
 }
 
 LowExpr genRecordFieldGet(ref Alloc alloc, LowType type, in UriAndRange range, LowExpr record, size_t fieldIndex) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.RecordFieldGet(allocate(alloc, record), fieldIndex)));
+	LowExpr(type, range, LowExprKind(RecordFieldGetLowExpr(allocate(alloc, record), fieldIndex)));
 LowExpr genRecordFieldPointer(ref Alloc alloc, LowType type, in UriAndRange range, LowExpr record, size_t fieldIndex) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.RecordFieldPointer(allocate(alloc, record), fieldIndex)));
+	LowExpr(type, range, LowExprKind(RecordFieldPointerLowExpr(allocate(alloc, record), fieldIndex)));
 LowExpr genRecordFieldSetNoGcRoot(
 	ref Alloc alloc, in UriAndRange range, LowExpr record, size_t fieldIndex, LowExpr value,
 ) =>
-	LowExpr(voidType, range, LowExprKind(allocate(alloc, LowExprKind.RecordFieldSet(record, fieldIndex, value))));
+	LowExpr(voidType, range, LowExprKind(allocate(alloc, RecordFieldSetLowExpr(record, fieldIndex, value))));
 
 LowExpr genSeq(ref Alloc alloc, UriAndRange range, LowExpr first, LowExpr then) =>
 	genBinary(alloc, then.type, range, BuiltinBinary.seq, first, then);
@@ -227,7 +255,7 @@ LowLocal genLocalByValue(ref Alloc alloc, Symbol name, bool isMutable, uint inde
 
 // 'local.type' should not contain GC roots
 LowExpr genLetNoGcRoot(ref Alloc alloc, UriAndRange range, LowLocal* local, LowExpr init, LowExpr then) =>
-	LowExpr(then.type, range, LowExprKind(allocate(alloc, LowExprKind.Let(local, init, then))));
+	LowExpr(then.type, range, LowExprKind(allocate(alloc, LetLowExpr(local, init, then))));
 
 LowExpr genLetTempConstNoGcRoot(
 	ref Alloc alloc,
@@ -268,16 +296,16 @@ LowType getElementPointerTypeFromArrayOrMutArrayType(in AllLowTypes allTypes, in
 }
 
 @trusted LowExpr genLoop(ref Alloc alloc, LowType type, UriAndRange range, LowExpr body_) =>
-	LowExpr(type, range, LowExprKind(allocate(alloc, LowExprKind.Loop(body_))));
+	LowExpr(type, range, LowExprKind(allocate(alloc, LoopLowExpr(body_))));
 
 LowExpr genLoopBreak(ref Alloc alloc, LowType type, UriAndRange range, LowExpr value) =>
-	LowExpr(type, range, LowExprKind(allocate(alloc, LowExprKind.LoopBreak(value))));
+	LowExpr(type, range, LowExprKind(allocate(alloc, LoopBreakLowExpr(value))));
 
 LowExpr genLoopContinue(LowType type, UriAndRange range) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.LoopContinue()));
+	LowExpr(type, range, LowExprKind(LoopContinueLowExpr()));
 
 LowExpr genVarGet(LowType type, UriAndRange range, LowVarIndex var) =>
-	LowExpr(type, range, LowExprKind(LowExprKind.VarGet(var)));
+	LowExpr(type, range, LowExprKind(VarGetLowExpr(var)));
 
 LowExpr genVarSet(ref Alloc alloc, UriAndRange range, LowVarIndex var, LowExpr value) =>
-	LowExpr(voidType, range, LowExprKind(LowExprKind.VarSet(var, allocate(alloc, value))));
+	LowExpr(voidType, range, LowExprKind(VarSetLowExpr(var, allocate(alloc, value))));

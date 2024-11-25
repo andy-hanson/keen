@@ -616,7 +616,7 @@ ImportsOrReExports checkImportsOrReExports(
 				add(alloc, imports, ImportOrExport(source, x, minVisibility));
 				cbInitImported(mustPeek!ImportOrExport(imports));
 			},
-			(FileContent) {
+			(FileContent*) {
 				assert(false);
 			},
 			(Diag.ImportFileDiag* x) {

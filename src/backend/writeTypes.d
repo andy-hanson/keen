@@ -115,7 +115,7 @@ bool canReferenceTypeAsValue(in LowProgram program, in StructStates states, in L
 			true,
 		(LowFunPointerType* x) =>
 			states.funPtrStates[program.indexOfFunPointerType(x)],
-		(PrimitiveType) =>
+		(PrimitiveType _) =>
 			true,
 		(LowPointerCombine x) =>
 			canReferenceTypeAsPointee(program, states, x.pointee),

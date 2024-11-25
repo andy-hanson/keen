@@ -1485,7 +1485,7 @@ DeclKind declKindOfStruct(StructDecl* a) =>
 	a.body_.matchIn!DeclKind(
 		(in StructBody.Bogus) =>
 			assert(false),
-		(in BuiltinType) =>
+		(in BuiltinType _) =>
 			assert(false),
 		(in StructBody.Enum) =>
 			DeclKind.enum_,
@@ -1503,7 +1503,7 @@ MemberKind memberKindOfStruct(StructDecl* a) =>
 	a.body_.matchIn!MemberKind(
 		(in StructBody.Bogus) =>
 			assert(false),
-		(in BuiltinType) =>
+		(in BuiltinType _) =>
 			assert(false),
 		(in StructBody.Enum) =>
 			MemberKind.enumMember,

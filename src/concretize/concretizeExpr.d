@@ -1164,7 +1164,7 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 			genLoop(ctx.alloc, type, range, concretizeExpr(ctx, type, locals, x.body_)),
 		(LoopBreakExpr* x) =>
 			genBreak(ctx.alloc, range, concretizeExpr(ctx, type, locals, x.value)),
-		(LoopContinueExpr) =>
+		(LoopContinueExpr _) =>
 			genContinue(type, range),
 		(LoopWhileOrUntilExpr* x) =>
 			concretizeLoopWhileOrUntil(ctx, type, range, locals, *x),

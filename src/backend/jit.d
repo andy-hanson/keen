@@ -107,10 +107,24 @@ import frontend.lang : JitOptions, OptimizationLevel;
 import model.concreteModel : isCatchPoint;
 import model.constant : Constant;
 import model.lowModel :
+	AbortLowExpr,
 	ArrTypeAndConstantsLow,
+	CallFunPointerLowExpr,
+	CallLowExpr,
+	CreateRecordLowExpr,
+	CreateUnionLowExpr,
+	FunPointerLowExpr,
+	IfLowExpr,
+	InitLowExpr,
+	LetLowExpr,
+	LocalGetLowExpr,
 	localMustBeVolatile,
+	LocalPointerLowExpr,
+	LocalSetLowExpr,
+	LoopBreakLowExpr,
+	LoopContinueLowExpr,
+	LoopLowExpr,
 	LowExpr,
-	LowExprKind,
 	LowExternType,
 	LowFun,
 	LowFunBody,
@@ -125,9 +139,25 @@ import model.lowModel :
 	LowVar,
 	LowVarIndex,
 	LowType,
+	PointerCastLowExpr,
 	PointerTypeAndConstantsLow,
 	PrimitiveType,
-	UpdateParam;
+	RecordFieldGetLowExpr,
+	RecordFieldPointerLowExpr,
+	RecordFieldSetLowExpr,
+	Special4aryLowExpr,
+	SpecialBinaryLowExpr,
+	SpecialBinaryMathLowExpr,
+	SpecialTernaryLowExpr,
+	SpecialUnaryLowExpr,
+	SpecialUnaryMathLowExpr,
+	SwitchLowExpr,
+	TailRecurLowExpr,
+	UnionAsLowExpr,
+	UnionKindLowExpr,
+	UpdateParam,
+	VarGetLowExpr,
+	VarSetLowExpr;
 import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinTernary, BuiltinUnary;
 import model.showLowModel : writeFunSig;
 import util.alloc.alloc : Alloc, withTempAlloc;
@@ -925,69 +955,69 @@ immutable(gcc_jit_field*) recordField(in ExprCtx ctx, in LowRecord* record, size
 
 ExprResult toGccExpr(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, ref LowExpr a) =>
 	a.kind.match!ExprResult(
-		(LowExprKind.Abort x) =>
+		(AbortLowExpr x) =>
 			abortToGcc(ctx, locals, emit, a.type),
-		(LowExprKind.Call it) =>
+		(CallLowExpr it) =>
 			callToGcc(ctx, locals, emit, a.type, it),
-		(LowExprKind.CallFunPointer it) =>
+		(CallFunPointerLowExpr it) =>
 			callFunPointerToGcc(ctx, locals, emit, a, it),
-		(LowExprKind.CreateRecord it) =>
+		(CreateRecordLowExpr it) =>
 			createRecordToGcc(ctx, locals, emit, a, it),
-		(ref LowExprKind.CreateUnion it) =>
+		(ref CreateUnionLowExpr it) =>
 			createUnionToGcc(ctx, locals, emit, a, it),
-		(LowExprKind.FunPointer x) =>
+		(FunPointerLowExpr x) =>
 			funPointerToGcc(ctx, emit, a.type, x.fun),
-		(ref LowExprKind.If it) =>
+		(ref IfLowExpr it) =>
 			ifToGcc(ctx, locals, emit, a.type, it.cond, it.then, it.else_),
-		(LowExprKind.Init x) =>
+		(InitLowExpr x) =>
 			initToGcc(ctx, emit, x.kind),
-		(ref LowExprKind.Let it) =>
+		(ref LetLowExpr it) =>
 			letToGcc(ctx, locals, emit, it),
-		(LowExprKind.LocalGet it) =>
+		(LocalGetLowExpr it) =>
 			localGetToGcc(ctx, locals, emit, it),
-		(LowExprKind.LocalPointer x) =>
+		(LocalPointerLowExpr x) =>
 			localPointerToGcc(ctx, locals, emit, a.type, x),
-		(ref LowExprKind.LocalSet it) =>
+		(ref LocalSetLowExpr it) =>
 			localSetToGcc(ctx, locals, emit, it),
-		(ref LowExprKind.Loop it) =>
+		(ref LoopLowExpr it) =>
 			loopToGcc(ctx, locals, emit, a.type, it),
-		(ref LowExprKind.LoopBreak it) =>
+		(ref LoopBreakLowExpr it) =>
 			loopBreakToGcc(ctx, locals, emit, it),
-		(LowExprKind.LoopContinue) =>
+		(LoopContinueLowExpr _) =>
 			loopContinueToGcc(ctx, locals, emit),
-		(ref LowExprKind.PointerCast it) =>
+		(ref PointerCastLowExpr it) =>
 			ptrCastToGcc(ctx, locals, emit, a, it),
-		(LowExprKind.RecordFieldGet it) =>
+		(RecordFieldGetLowExpr it) =>
 			recordFieldGetToGcc(ctx, locals, emit, it),
-		(LowExprKind.RecordFieldPointer x) =>
+		(RecordFieldPointerLowExpr x) =>
 			recordFieldPointerToGcc(ctx, locals, emit, a, x),
-		(ref LowExprKind.RecordFieldSet it) =>
+		(ref RecordFieldSetLowExpr it) =>
 			recordFieldSetToGcc(ctx, locals, emit, it),
 		(Constant x) =>
 			constantToGcc(ctx, emit, a.type, x),
-		(LowExprKind.SpecialUnary x) =>
+		(SpecialUnaryLowExpr x) =>
 			unaryToGcc(ctx, locals, emit, a.type, x),
-		(LowExprKind.SpecialUnaryMath x) =>
+		(SpecialUnaryMathLowExpr x) =>
 			callBuiltinUnary(ctx, locals, emit, x.arg, builtinForUnaryMath(x.kind)),
-		(LowExprKind.SpecialBinary x) =>
+		(SpecialBinaryLowExpr x) =>
 			binaryToGcc(ctx, locals, emit, a.type, x),
-		(LowExprKind.SpecialBinaryMath x) =>
+		(SpecialBinaryMathLowExpr x) =>
 			callBuiltinBinary(ctx, locals, emit, x.args, builtinForBinaryMath(x.kind)),
-		(LowExprKind.SpecialTernary x) =>
+		(SpecialTernaryLowExpr x) =>
 			ternaryToGcc(ctx, locals, emit, a.type, x),
-		(LowExprKind.Special4ary x) =>
+		(Special4aryLowExpr x) =>
 			fouraryToGcc(ctx, locals, emit, a.type, x),
-		(ref LowExprKind.Switch x) =>
+		(ref SwitchLowExpr x) =>
 			switchToGcc(ctx, locals, emit, a.type, x),
-		(LowExprKind.TailRecur it) =>
+		(TailRecurLowExpr it) =>
 			tailRecurToGcc(ctx, locals, emit, it),
-		(LowExprKind.UnionAs x) =>
+		(UnionAsLowExpr x) =>
 			unionAsToGcc(ctx, locals, emit, x),
-		(LowExprKind.UnionKind x) =>
+		(UnionKindLowExpr x) =>
 			unionKindToGcc(ctx, locals, emit, x),
-		(LowExprKind.VarGet x) =>
+		(VarGetLowExpr x) =>
 			varGetToGcc(ctx, locals, emit, x),
-		(LowExprKind.VarSet x) =>
+		(VarSetLowExpr x) =>
 			varSetToGcc(ctx, locals, emit, x));
 
 gcc_jit_rvalue* emitToRValueCb(
@@ -1033,7 +1063,7 @@ ExprResult callToGcc(
 	ref Locals locals,
 	ExprEmit emit,
 	LowType type,
-	in LowExprKind.Call a,
+	in CallLowExpr a,
 ) =>
 	makeCall(
 		ctx, emit, type, ctx.gccFuns[a.called],
@@ -1059,7 +1089,7 @@ ExprResult callToGcc(
 	ref Locals locals,
 	ExprEmit emit,
 	in LowExpr expr,
-	in LowExprKind.CallFunPointer a,
+	in CallFunPointerLowExpr a,
 ) {
 	gcc_jit_rvalue* funPtrGcc = emitToRValue(ctx, locals, *a.funPtr);
 	//TODO:NO ALLOC
@@ -1077,7 +1107,7 @@ ExprResult callToGcc(
 	ref ExprCtx ctx,
 	ref Locals locals,
 	ExprEmit emit,
-	in LowExprKind.TailRecur a,
+	in TailRecurLowExpr a,
 ) {
 	assert(emit.isA!(ExprEmit.Return));
 
@@ -1103,10 +1133,10 @@ ExprResult callToGcc(
 	return ExprResult(ExprResult.BreakContinueOrReturn());
 }
 
-ExprResult varGetToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, in LowExprKind.VarGet a) {
+ExprResult varGetToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, in VarGetLowExpr a) {
 	return emitSimpleNoSideEffects(ctx, emit, gcc_jit_lvalue_as_rvalue(ctx.gccVars[a.varIndex]));
 }
-ExprResult varSetToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, in LowExprKind.VarSet a) {
+ExprResult varSetToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, in VarSetLowExpr a) {
 	emitToLValue(ctx, locals, ctx.gccVars[a.varIndex], *a.value);
 	return emitVoid(ctx, emit);
 }
@@ -1140,7 +1170,7 @@ ExprResult createRecordToGcc(
 	ref Locals locals,
 	ExprEmit emit,
 	ref LowExpr expr,
-	ref LowExprKind.CreateRecord a,
+	ref CreateRecordLowExpr a,
 ) =>
 	emitRecordCbWithArgs!LowExpr(ctx, emit, expr.type, a.args, (size_t _, ExprEmit emitArg, ref LowExpr arg) =>
 		toGccExpr(ctx, locals, emitArg, arg));
@@ -1171,12 +1201,12 @@ ExprResult createUnionToGcc(
 	ref Locals locals,
 	ExprEmit emit,
 	ref LowExpr expr,
-	ref LowExprKind.CreateUnion a,
+	ref CreateUnionLowExpr a,
 ) =>
 	emitUnion(ctx, emit, expr.type, a.memberIndex, (ExprEmit emitArg) =>
 		toGccExpr(ctx, locals, emitArg, a.arg));
 
-ExprResult letToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, ref LowExprKind.Let a) =>
+ExprResult letToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, ref LetLowExpr a) =>
 	emitWithLocal(ctx, locals, emit, a.local, a.then, (ExprEmit valueEmit) =>
 		toGccExpr(ctx, locals, valueEmit, a.value));
 
@@ -1201,7 +1231,7 @@ ExprResult emitWithLocal(
 	return toGccExpr(ctx, castNonScope_ref(newLocals), emit, then);
 }
 
-ExprResult localGetToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, in LowExprKind.LocalGet a) {
+ExprResult localGetToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, in LocalGetLowExpr a) {
 	immutable gcc_jit_rvalue* value = gcc_jit_lvalue_as_rvalue(getLocal(ctx, locals, a.local));
 	return emitSimpleNoSideEffects(ctx, emit, localMustBeVolatile(ctx, *a.local)
 		? gcc_jit_context_new_cast(ctx.gcc, null, value, getGccType(ctx.types, a.local.type))
@@ -1215,12 +1245,12 @@ bool localMustBeVolatile(in ExprCtx ctx, in LowLocal local) =>
 bool isCatchPoint(in ExprCtx ctx, LowType type) =>
 	type.isA!(LowExternType*) && isCatchPoint(*type.as!(LowExternType*).source);
 
-ExprResult localSetToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, ref LowExprKind.LocalSet a) {
+ExprResult localSetToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, ref LocalSetLowExpr a) {
 	emitToLValue(ctx, locals, getLocal(ctx, locals, a.local), a.value);
 	return emitVoid(ctx, emit);
 }
 
-ExprResult loopToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, LowType type, ref LowExprKind.Loop a) =>
+ExprResult loopToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, LowType type, ref LoopLowExpr a) =>
 	emitWithBranching(
 		ctx, emit, type, "loopEnd",
 		(
@@ -1241,7 +1271,7 @@ ExprResult loopToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, LowType 
 			assert(innerResult.isA!(ExprResult.BreakContinueOrReturn));
 		});
 
-ExprResult loopBreakToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, ref LowExprKind.LoopBreak a) {
+ExprResult loopBreakToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, ref LoopBreakLowExpr a) {
 	ExprEmit.Loop loop = *emit.as!(ExprEmit.Loop*);
 	// Give 'breakEmit' to the inner expr, so it does whatever is needed by the loop
 	ExprResult result = toGccExpr(ctx, locals, loop.breakEmit, a.value);
@@ -1264,7 +1294,7 @@ ExprResult ptrCastToGcc(
 	ref Locals locals,
 	ExprEmit emit,
 	ref LowExpr expr,
-	ref LowExprKind.PointerCast a,
+	ref PointerCastLowExpr a,
 ) =>
 	emitSimpleNoSideEffects(ctx, emit, gcc_jit_context_new_cast(
 		ctx.gcc,
@@ -1277,7 +1307,7 @@ ExprResult recordFieldPointerToGcc(
 	ref Locals locals,
 	ExprEmit emit,
 	ref LowExpr expr,
-	ref LowExprKind.RecordFieldPointer a,
+	ref RecordFieldPointerLowExpr a,
 ) =>
 	emitSimpleYesSideEffects(
 		ctx, emit, expr.type,
@@ -1293,7 +1323,7 @@ ExprResult localPointerToGcc(
 	ref Locals locals,
 	ExprEmit emit,
 	LowType type,
-	ref LowExprKind.LocalPointer a,
+	ref LocalPointerLowExpr a,
 ) {
 	immutable gcc_jit_rvalue* pointer = gcc_jit_lvalue_get_address(getLocal(ctx, locals, a.local), null);
 	return emitSimpleNoSideEffects(ctx, emit, localMustBeVolatile(ctx, *a.local)
@@ -1305,7 +1335,7 @@ ExprResult recordFieldGetToGcc(
 	ref ExprCtx ctx,
 	ref Locals locals,
 	ExprEmit emit,
-	ref LowExprKind.RecordFieldGet a,
+	ref RecordFieldGetLowExpr a,
 ) {
 	gcc_jit_rvalue* target = emitToRValue(ctx, locals, *a.target);
 	immutable gcc_jit_field* field = recordField(ctx, a.targetRecordType, a.fieldIndex);
@@ -1321,7 +1351,7 @@ ExprResult unionKindToGcc(
 	ref ExprCtx ctx,
 	ref Locals locals,
 	ExprEmit emit,
-	in LowExprKind.UnionKind a,
+	in UnionKindLowExpr a,
 ) =>
 	emitSimpleNoSideEffects(
 		ctx, emit,
@@ -1340,7 +1370,7 @@ ExprResult unionAsToGcc(
 	ref ExprCtx ctx,
 	ref Locals locals,
 	ExprEmit emit,
-	in LowExprKind.UnionAs a,
+	in UnionAsLowExpr a,
 ) =>
 	emitSimpleNoSideEffects(
 		ctx, emit,
@@ -1350,7 +1380,7 @@ ExprResult recordFieldSetToGcc(
 	ref ExprCtx ctx,
 	ref Locals locals,
 	ExprEmit emit,
-	ref LowExprKind.RecordFieldSet a,
+	ref RecordFieldSetLowExpr a,
 ) {
 	gcc_jit_rvalue* target = emitToRValue(ctx, locals, a.target);
 	gcc_jit_rvalue* value = emitToRValue(ctx, locals, a.value);
@@ -1441,7 +1471,7 @@ ExprResult funPointerToGcc(ref ExprCtx ctx, ExprEmit emit, LowType type, LowFunI
 	ref Locals locals,
 	ExprEmit emit,
 	LowType type,
-	in LowExprKind.SpecialUnary a,
+	in SpecialUnaryLowExpr a,
 ) {
 	ExprResult builtin(BuiltinFunction x) =>
 		callBuiltinUnary(ctx, locals, emit, a.arg, x);
@@ -1586,7 +1616,7 @@ ExprResult ternaryToGcc(
 	ref Locals locals,
 	ExprEmit emit,
 	LowType type,
-	in LowExprKind.SpecialTernary a,
+	in SpecialTernaryLowExpr a,
 ) {
 	final switch (a.kind) {
 		case BuiltinTernary.interpreterBacktrace:
@@ -1599,7 +1629,7 @@ ExprResult fouraryToGcc(
 	ref Locals locals,
 	ExprEmit emit,
 	LowType type,
-	ref LowExprKind.Special4ary a,
+	ref Special4aryLowExpr a,
 ) {
 	final switch (a.kind) {
 		case Builtin4ary.switchFiberInitial:
@@ -1616,7 +1646,7 @@ ExprResult binaryToGcc(
 	ref Locals locals,
 	ExprEmit emit,
 	LowType type,
-	ref LowExprKind.SpecialBinary a,
+	ref SpecialBinaryLowExpr a,
 ) {
 	LowExpr left = a.args[0], right = a.args[1];
 	ExprResult operator(gcc_jit_binary_op op) {
@@ -1909,7 +1939,7 @@ ExprResult switchToGcc(
 	ref Locals locals,
 	ExprEmit emit,
 	LowType type,
-	ref LowExprKind.Switch a,
+	ref SwitchLowExpr a,
 ) {
 	gcc_jit_rvalue* switchedValue = emitToRValue(ctx, locals, a.value);
 	return emitWithBranching(
@@ -2026,7 +2056,7 @@ gcc_jit_rvalue* arbitraryValue(ref ExprCtx ctx, LowType type) {
 		(in PrimitiveType _) =>
 			emitToRValueCb((ExprEmit emit) =>
 				zeroedToGcc(ctx, emit, type)),
-		(in LowPointerCombine) =>
+		(in LowPointerCombine _) =>
 			nullValue(),
 		(in LowRecord _) =>
 			getRValueUsingLocal(ctx, type, (gcc_jit_lvalue*) {}),

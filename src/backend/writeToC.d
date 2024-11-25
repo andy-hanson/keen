@@ -19,18 +19,32 @@ import frontend.showModel : ShowCtx;
 import model.concreteModel : ConcreteStruct, ConcreteStructBody, isEmptyStruct;
 import model.constant : Constant;
 import model.lowModel :
+	AbortLowExpr,
 	AllConstantsLow,
 	ArrTypeAndConstantsLow,
 	asGcPointee,
+	CallFunPointerLowExpr,
+	CallLowExpr,
+	CreateRecordLowExpr,
+	CreateUnionLowExpr,
 	debugName,
 	ExternLibraries,
 	ExternLibrary,
+	FunPointerLowExpr,
+	IfLowExpr,
+	InitLowExpr,
 	isChar8,
 	isChar32,
 	isPointerNonGc,
+	LetLowExpr,
+	LocalGetLowExpr,
 	localMustBeVolatile,
+	LocalPointerLowExpr,
+	LocalSetLowExpr,
+	LoopBreakLowExpr,
+	LoopContinueLowExpr,
+	LoopLowExpr,
 	LowExpr,
-	LowExprKind,
 	LowExternType,
 	LowField,
 	LowFun,
@@ -49,9 +63,25 @@ import model.lowModel :
 	LowType,
 	LowUnion,
 	LowUnionIndex,
+	PointerCastLowExpr,
 	PointerTypeAndConstantsLow,
 	PrimitiveType,
-	UpdateParam;
+	RecordFieldGetLowExpr,
+	RecordFieldPointerLowExpr,
+	RecordFieldSetLowExpr,
+	Special4aryLowExpr,
+	SpecialBinaryLowExpr,
+	SpecialBinaryMathLowExpr,
+	SpecialTernaryLowExpr,
+	SpecialUnaryLowExpr,
+	SpecialUnaryMathLowExpr,
+	SwitchLowExpr,
+	TailRecurLowExpr,
+	UnionAsLowExpr,
+	UnionKindLowExpr,
+	UpdateParam,
+	VarGetLowExpr,
+	VarSetLowExpr;
 import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinTernary, BuiltinUnary, isLambda, TypeSize;
 import model.showLowModel : writeFunSig;
 import model.typeLayout : sizeOfType, typeSizeBytes;
@@ -973,66 +1003,66 @@ WriteExprResult writeExpr(
 		writeInlineableSimple(writer, indent, ctx, writeKind, type, inline);
 
 	return expr.kind.matchIn!WriteExprResult(
-		(in LowExprKind.Abort) =>
+		(in AbortLowExpr _) =>
 			writeAbort(writer, indent, ctx, writeKind, type),
-		(in LowExprKind.Call it) =>
+		(in CallLowExpr it) =>
 			writeCallExpr(writer, indent, ctx, writeKind, type, it),
-		(in LowExprKind.CallFunPointer it) =>
+		(in CallFunPointerLowExpr it) =>
 			writeCallFunPointer(writer, indent, ctx, writeKind, type, it),
-		(in LowExprKind.CreateRecord it) =>
+		(in CreateRecordLowExpr it) =>
 			inlineable(it.args, (in WriteExprResult[] args) {
 				writeCastToType(writer, ctx.ctx, type);
 				writer ~= '{';
 				writeTempOrInlines(writer, ctx, it.args, args);
 				writer ~= '}';
 			}),
-		(in LowExprKind.CreateUnion it) =>
+		(in CreateUnionLowExpr it) =>
 			inlineableSingleArg(it.arg, (in WriteExprResult arg) {
 				writeCreateUnion(writer, ctx.ctx, ConstantRefPos.outer, type, it.memberIndex, () {
 					writeTempOrInline(writer, ctx, it.arg, arg);
 				});
 			}),
-		(in LowExprKind.FunPointer x) =>
+		(in FunPointerLowExpr x) =>
 			inlineableSimple(() {
 				writeFunPointer(writer, ctx.ctx, x.fun);
 			}),
-		(in LowExprKind.If it) =>
+		(in IfLowExpr it) =>
 			writeIf(writer, indent, ctx, writeKind, type, it),
-		(in LowExprKind.Init x) =>
+		(in InitLowExpr x) =>
 			writeInit(writer, indent, ctx, writeKind, x),
-		(in LowExprKind.Let it) =>
+		(in LetLowExpr it) =>
 			writeLet(writer, indent, ctx, writeKind, it),
-		(in LowExprKind.LocalGet it) =>
+		(in LocalGetLowExpr it) =>
 			inlineableSimple(() {
 				writeAccessLocal(writer, ctx, *it.local);
 			}),
-		(in LowExprKind.LocalPointer x) =>
+		(in LocalPointerLowExpr x) =>
 			inlineableSimple(() {
 				if (localMustBeVolatile(ctx, *x.local))
 					writeCastToType(writer, ctx.ctx, type);
 				writer ~= '&';
 				writeAccessLocal(writer, ctx, *x.local);
 			}),
-		(in LowExprKind.LocalSet it) =>
+		(in LocalSetLowExpr it) =>
 			writeLocalSet(writer, indent, ctx, writeKind, it),
-		(in LowExprKind.Loop x) =>
+		(in LoopLowExpr x) =>
 			writeLoop(writer, indent, ctx, writeKind, type, x),
-		(in LowExprKind.LoopBreak x) =>
+		(in LoopBreakLowExpr x) =>
 			writeLoopBreak(writer, indent, ctx, writeKind, x),
-		(in LowExprKind.LoopContinue) =>
+		(in LoopContinueLowExpr _) =>
 			writeLoopContinue(writer, indent, writeKind),
-		(in LowExprKind.PointerCast x) =>
+		(in PointerCastLowExpr x) =>
 			inlineableSingleArg(x.target, (in WriteExprResult arg) {
 				writer ~= '(';
 				writeCastToType(writer, ctx.ctx, type);
 				writeTempOrInline(writer, ctx, x.target, arg);
 				writer ~= ')';
 			}),
-		(in LowExprKind.RecordFieldGet x) =>
+		(in RecordFieldGetLowExpr x) =>
 			writeRecordFieldGet(writer, indent, ctx, writeKind, type, x),
-		(in LowExprKind.RecordFieldPointer x) =>
+		(in RecordFieldPointerLowExpr x) =>
 			writeRecordFieldPointer(writer, indent, ctx, writeKind, type, x),
-		(in LowExprKind.RecordFieldSet x) {
+		(in RecordFieldSetLowExpr x) {
 			WriteExprResult recordValue = writeExprTempOrInline(writer, indent, ctx, x.target);
 			WriteExprResult fieldValue = writeExprTempOrInline(writer, indent, ctx, x.value);
 			return writeReturnVoid(writer, indent, ctx, writeKind, () {
@@ -1046,44 +1076,44 @@ WriteExprResult writeExpr(
 			inlineableSimple(() {
 				writeConstantRef(writer, ctx.ctx, ConstantRefPos.outer, type, it);
 			}),
-		(in LowExprKind.SpecialUnary x) =>
+		(in SpecialUnaryLowExpr x) =>
 			writeSpecialUnary(writer, indent, ctx, writeKind, type, x),
-		(in LowExprKind.SpecialUnaryMath x) =>
+		(in SpecialUnaryMathLowExpr x) =>
 			specialCallUnary(writer, indent, ctx, writeKind, type, x.arg, stringOfEnum(builtinForUnaryMath(x.kind))),
-		(in LowExprKind.SpecialBinary x) =>
+		(in SpecialBinaryLowExpr x) =>
 			writeSpecialBinary(writer, indent, ctx, writeKind, type, x),
-		(in LowExprKind.SpecialBinaryMath x) =>
+		(in SpecialBinaryMathLowExpr x) =>
 			specialCallBinary(writer, indent, ctx, writeKind, type, x.args, stringOfEnum(builtinForBinaryMath(x.kind))),
-		(in LowExprKind.SpecialTernary x) {
+		(in SpecialTernaryLowExpr x) {
 			final switch (x.kind) {
 				case BuiltinTernary.interpreterBacktrace:
 					assert(false);
 					return writeExprDone(); // needed to give the lambda a return type
 			}
 		},
-		(in LowExprKind.Special4ary x) {
+		(in Special4aryLowExpr x) {
 			final switch (x.kind) {
 				case Builtin4ary.switchFiberInitial:
 					// defined in writeToC_boilerplace.c
 					return specialCallNary(writer, indent, ctx, writeKind, type, x.args, "switch_fiber_initial");
 			}
 		},
-		(in LowExprKind.Switch x) =>
+		(in SwitchLowExpr x) =>
 			writeSwitch(writer, indent, ctx, writeKind, type, x),
-		(in LowExprKind.TailRecur x) {
+		(in TailRecurLowExpr x) {
 			assert(writeKind.isA!(WriteKind.Void) || writeKind.isA!(WriteKind.Return));
 			writeTailRecur(writer, indent, ctx, x);
 			return writeExprDone();
 		},
-		(in LowExprKind.UnionAs x) =>
+		(in UnionAsLowExpr x) =>
 			writeUnionAs(writer, indent, ctx, writeKind, type, x),
-		(in LowExprKind.UnionKind x) =>
+		(in UnionKindLowExpr x) =>
 			writeUnionKind(writer, indent, ctx, writeKind, type, x),
-		(in LowExprKind.VarGet x) =>
+		(in VarGetLowExpr x) =>
 			inlineableSimple(() {
 				writeLowVarAccess(writer, ctx.ctx, x.varIndex);
 			}),
-		(in LowExprKind.VarSet x) {
+		(in VarSetLowExpr x) {
 			WriteKind varWriteKind = WriteKind(x.varIndex);
 			cast(void) writeExpr(writer, indent, ctx, varWriteKind, *x.value);
 			return writeReturnVoid(writer, indent, ctx, writeKind);
@@ -1123,7 +1153,7 @@ WriteExprResult writeNonInlineable(
 			writer ~= " = ";
 			return writeExprDone();
 		},
-		(in MakeTemp) =>
+		(in WriteKind.MakeTemp _) =>
 			makeTemp(),
 		(in WriteKind.Return) {
 			writer ~= "return ";
@@ -1224,9 +1254,9 @@ WriteExprResult writeReturnVoid(
 			assert(false),
 		(in WriteKind.InlineOrTemp) =>
 			assert(false),
-		(in LowLocal) =>
+		(in LowLocal _) =>
 			assert(false),
-		(in LowVarIndex) =>
+		(in LowVarIndex _) =>
 			assert(false),
 		(in WriteKind.MakeTemp) =>
 			assert(false),
@@ -1301,7 +1331,7 @@ WriteExprResult writeCallExpr(
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in LowType type,
-	in LowExprKind.Call a,
+	in CallLowExpr a,
 ) {
 	WriteExprResult[] args = writeExprsTempOrInline(writer, indent, ctx, a.args);
 	return writeNonInlineable(writer, indent, ctx, writeKind, type, () {
@@ -1316,7 +1346,7 @@ void writeTailRecur(
 	scope ref Writer writer,
 	size_t indent,
 	scope ref FunBodyCtx ctx,
-	in LowExprKind.TailRecur a,
+	in TailRecurLowExpr a,
 ) {
 	WriteExprResult[] newValues =
 		map(ctx.tempAlloc, a.updateParams, (ref UpdateParam updateParam) =>
@@ -1370,7 +1400,7 @@ WriteExprResult writeSwitch(
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in LowType type, // type returned by the switch
-	in LowExprKind.Switch a,
+	in SwitchLowExpr a,
 ) {
 	WriteExprResult valueResult = writeExprTempOrInline(writer, indent, ctx, a.value);
 	WriteExprResultAndNested nested = getNestedWriteKind(writer, indent, ctx, type, castNonScope_ref(writeKind));
@@ -1584,7 +1614,7 @@ WriteExprResult writeRecordFieldPointer(
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in LowType type,
-	in LowExprKind.RecordFieldPointer a,
+	in RecordFieldPointerLowExpr a,
 ) =>
 	writeInlineableSingleArg(writer, indent, ctx, writeKind, type, *a.target, (in WriteExprResult recordValue) {
 		writer ~= "(&";
@@ -1599,7 +1629,7 @@ WriteExprResult writeRecordFieldGet(
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in LowType type,
-	in LowExprKind.RecordFieldGet a,
+	in RecordFieldGetLowExpr a,
 ) =>
 	writeInlineableSingleArg(writer, indent, ctx, writeKind, type, *a.target, (in WriteExprResult recordValue) {
 		if (!isEmptyType(ctx, type)) {
@@ -1614,7 +1644,7 @@ WriteExprResult writeUnionAs(
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in LowType type,
-	in LowExprKind.UnionAs a,
+	in UnionAsLowExpr a,
 ) =>
 	writeInlineableSingleArg(writer, indent, ctx, writeKind, type, *a.union_, (in WriteExprResult unionValue) {
 		if (!isEmptyType(ctx, type)) {
@@ -1632,7 +1662,7 @@ WriteExprResult writeUnionKind(
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in LowType type,
-	in LowExprKind.UnionKind a,
+	in UnionKindLowExpr a,
 ) =>
 	writeInlineableSingleArg(writer, indent, ctx, writeKind, type, *a.union_, (in WriteExprResult unionValue) {
 		if (!isEmptyType(ctx, type)) {
@@ -1647,7 +1677,7 @@ WriteExprResult writeSpecialUnary(
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in LowType type,
-	in LowExprKind.SpecialUnary a,
+	in SpecialUnaryLowExpr a,
 ) {
 	WriteExprResult prefix(string prefix) =>
 		writeInlineableSingleArg(writer, indent, ctx, writeKind, type, a.arg, (in WriteExprResult temp) {
@@ -1848,7 +1878,7 @@ WriteExprResult writeSpecialBinary(
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in LowType type,
-	in LowExprKind.SpecialBinary a,
+	in SpecialBinaryLowExpr a,
 ) {
 	LowExpr left = a.args[0], right = a.args[1];
 	WriteExprResult arg0() =>
@@ -2048,7 +2078,7 @@ WriteExprResult writeIf(
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in LowType type,
-	in LowExprKind.If a,
+	in IfLowExpr a,
 ) {
 	// TODO: writeExprTempOrInline
 	Temp temp0 = writeExprTemp(writer, indent, ctx, a.cond);
@@ -2071,7 +2101,7 @@ WriteExprResult writeInit(
 	size_t indent,
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
-	in LowExprKind.Init a,
+	in InitLowExpr a,
 ) {
 	if (useStructThreadLocals(ctx.ctx)) {
 		writeNewline(writer, indent);
@@ -2098,7 +2128,7 @@ WriteExprResult writeCallFunPointer(
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in LowType type,
-	in LowExprKind.CallFunPointer a,
+	in CallFunPointerLowExpr a,
 ) {
 	WriteExprResult fn = writeExprTempOrInline(writer, indent, ctx, *a.funPtr);
 	WriteExprResult[] args = writeExprsTempOrInline(writer, indent, ctx, a.args);
@@ -2115,7 +2145,7 @@ WriteExprResult writeLet(
 	size_t indent,
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
-	in LowExprKind.Let a,
+	in LetLowExpr a,
 ) {
 	if (!writeKind.isA!(WriteKind.Inline)) {
 		if (isEmptyType(ctx, a.local.type))
@@ -2135,7 +2165,7 @@ WriteExprResult writeLocalSet(
 	size_t indent,
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
-	in LowExprKind.LocalSet a,
+	in LocalSetLowExpr a,
 ) {
 	if (isEmptyType(ctx, a.local.type))
 		writeExprVoid(writer, indent, ctx, a.value);
@@ -2152,7 +2182,7 @@ WriteExprResult writeLoop(
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in LowType type,
-	in LowExprKind.Loop a,
+	in LoopLowExpr a,
 ) {
 	WriteExprResultAndNested nested = getNestedWriteKind(writer, indent, ctx, type, castNonScope_ref(writeKind));
 
@@ -2178,7 +2208,7 @@ WriteExprResult writeLoopBreak(
 	size_t indent,
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
-	in LowExprKind.LoopBreak a,
+	in LoopBreakLowExpr a,
 ) {
 	cast(void) writeExpr(writer, indent, ctx, writeKind.as!(LoopInfo*).writeKind, a.value);
 	return writeExprDone;

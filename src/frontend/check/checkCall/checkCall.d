@@ -285,7 +285,7 @@ Expr checkCallSpecialCbN(
 ) =>
 	checkCallSpecialCbN(
 		ctx, locals, source, diagRange, funName, expected, none!Type, nArgs, cbCheckArg,
-		(in CalledDecl) => true,
+		(in CalledDecl _) => true,
 		(scope ref Candidate[]) => true);
 private Expr checkCallSpecialCbN(
 	ref ExprCtx ctx,
