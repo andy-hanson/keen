@@ -1441,8 +1441,7 @@ immutable struct FunFlags {
 
 	bool bare;
 	bool summon;
-	enum Safety : ubyte { safe, trusted, unsafe }
-	Safety safety;
+	FunSafety safety;
 	bool okIfUnused;
 	bool forceCtx;
 
@@ -1453,19 +1452,21 @@ immutable struct FunFlags {
 	FunFlags withSummon(bool value) =>
 		FunFlags(bare, value, safety, okIfUnused, forceCtx);
 
-	static FunFlags regular(bool bare, bool summon, Safety safety, bool forceCtx) =>
+	static FunFlags regular(bool bare, bool summon, FunSafety safety, bool forceCtx) =>
 		FunFlags(bare, summon, safety, false, forceCtx);
 
 	static FunFlags none() =>
-		FunFlags(safety: Safety.safe);
+		FunFlags(safety: FunSafety.safe);
 	static FunFlags generatedBare() =>
-		FunFlags(bare: true, safety: Safety.safe, okIfUnused: true);
+		FunFlags(bare: true, safety: FunSafety.safe, okIfUnused: true);
 	static FunFlags generatedBareUnsafe() =>
-		FunFlags(bare: true, safety: Safety.unsafe, okIfUnused: true);
+		FunFlags(bare: true, safety: FunSafety.unsafe, okIfUnused: true);
 	static FunFlags generated() =>
-		FunFlags(safety: Safety.safe, okIfUnused: true);
+		FunFlags(safety: FunSafety.safe, okIfUnused: true);
 }
 static assert(FunFlags.sizeof == 5);
+
+enum FunSafety : ubyte { safe, trusted, unsafe }
 
 immutable struct FunDeclSource {
 	@safe @nogc pure nothrow:
@@ -1627,7 +1628,7 @@ immutable struct FunDecl {
 	bool isSummon() scope =>
 		flags.summon;
 	bool isUnsafe() scope =>
-		flags.safety == FunFlags.Safety.unsafe;
+		flags.safety == FunSafety.unsafe;
 	bool okIfUnused() scope =>
 		flags.okIfUnused;
 
@@ -3220,14 +3221,7 @@ immutable struct IfExpr {
 immutable struct LambdaExpr {
 	@safe @nogc pure nothrow:
 
-	enum Kind {
-		data,
-		shared_,
-		mut,
-		explicitShared,
-	}
-
-	Kind kind;
+	LambdaKind kind;
 	Destructure param;
 	Opt!(StructInst*) mutTypeForExplicitShared;
 	private Late!Expr lateBody;
@@ -3253,6 +3247,12 @@ immutable struct LambdaExpr {
 		param.isA!(Destructure.Ignore*) &&
 		param.as!(Destructure.Ignore*).source.isA!(VoidDestructureAst*);
 }
+enum LambdaKind {
+	data,
+	shared_,
+	mut,
+	explicitShared,
+}
 
 immutable struct LetExpr {
 	Destructure destructure;
@@ -3265,12 +3265,10 @@ immutable struct LiteralExpr {
 }
 
 immutable struct LiteralStringLikeExpr {
-	@safe @nogc pure nothrow:
-
-	enum Kind { char8Array, char32Array, cString, jsAny, string_, symbol }
-	Kind kind;
+	StringLiteralKind kind;
 	SmallString value; // For char32Array, this will be decoded in concretize.
 }
+enum StringLiteralKind { char8Array, char32Array, cString, jsAny, string_, symbol }
 
 immutable struct LocalGetExpr {
 	Local* local;
@@ -3366,7 +3364,7 @@ immutable struct MatchStringLikeExpr {
 		Expr then;
 	}
 
-	LiteralStringLikeExpr.Kind kind;
+	StringLiteralKind kind;
 	ExprAndType matched;
 	Called equals; // == function for the type
 	SmallArray!Case cases;
@@ -3913,10 +3911,10 @@ immutable struct DiagAutoFunWrongReturnType {
 
 immutable struct DiagBuiltinFunCantHaveBody {}
 immutable struct DiagBuiltinUnsupported {
-	enum Kind { function_, spec, type }
-	Kind kind;
+	DiagBuiltinUnsupportedKind kind;
 	Symbol name;
 }
+enum DiagBuiltinUnsupportedKind { function_, spec, type }
 
 immutable struct DiagCallMissingExtern {
 	FunDecl* callee;
@@ -3947,32 +3945,26 @@ immutable struct DiagCallNoMatch {
 }
 
 immutable struct DiagCallShouldUseSyntax {
-	enum Kind {
-		for_break,
-		force,
-		for_loop,
-		new_,
-		not,
-		set_subscript,
-		subscript,
-		with_block,
-	}
 	size_t arity;
-	Kind kind;
+	DiagCallShouldUseSyntaxKind kind;
+}
+enum DiagCallShouldUseSyntaxKind {
+	for_break,
+	force,
+	for_loop,
+	new_,
+	not,
+	set_subscript,
+	subscript,
+	with_block,
 }
 
 immutable struct DiagCantCall {
-	enum Reason {
-		nonBare,
-		summon,
-		summonInDataLambda,
-		unsafe,
-		variadicFromBare,
-	}
-
-	Reason reason;
+	DiagCantCallReason reason;
 	FunDecl* callee;
 }
+enum DiagCantCallReason { nonBare, summon, summonInDataLambda, unsafe, variadicFromBare }
+
 immutable struct DiagCaseDuplicate {
 	StructDecl* member;
 	StructDecl* sumType;
@@ -4108,7 +4100,7 @@ immutable struct DiagImportRefersToNothing {
 immutable struct DiagLambdaCantBeFunctionPointer {}
 immutable struct DiagLambdaCantInferParamType {}
 immutable struct DiagLambdaClosurePurity {
-	LambdaExpr.Kind lambdaKind;
+	LambdaKind lambdaKind;
 	Symbol localName;
 	Purity localPurity;
 	// If missing, the error is that the local itself is 'mut'.
@@ -4152,10 +4144,7 @@ immutable struct DiagLocalIgnoredButMutable {}
 immutable struct DiagLocalNotMutable {
 	VariableRef local;
 }
-immutable struct DiagLoopDisallowedBody {
-	enum Kind { finally_, try_ }
-	Kind kind;
-}
+enum DiagLoopDisallowedBody { finally_, try_ }
 immutable struct DiagLoopWithoutBreak {}
 immutable struct DiagMainMissingExterns {
 	Symbol[] missing;
@@ -4166,10 +4155,7 @@ immutable struct DiagMainTestMissing {
 immutable struct DiagMatchCaseDuplicate {
 	mixin Union!(Symbol, string, ulong, long);
 }
-immutable struct DiagMatchCaseForType {
-	enum Kind { enumOrUnion, numeric, stringLike }
-	Kind kind;
-}
+enum DiagMatchCaseForType { enumOrUnion, numeric, stringLike }
 immutable struct DiagMatchCaseNameNotInEnum {
 	Symbol actual;
 	StructDecl* enum_;
@@ -4240,14 +4226,8 @@ immutable struct DiagParamMissingType {}
 immutable struct DiagParamMutable {}
 immutable struct DiagPointerIsNative {}
 immutable struct DiagPointerIsUnsafe {}
-immutable struct DiagPointerMutToConst {
-	enum Kind { fieldOfByRef, fieldOfByVal, local }
-	Kind kind;
-}
-immutable struct DiagPointerUnsupported {
-	enum Reason { other, recordNotByRef }
-	Reason reason;
-}
+enum DiagPointerMutToConst { fieldOfByRef, fieldOfByVal, local }
+enum DiagPointerUnsupported { other, recordNotByRef }
 immutable struct DiagPurityWorseThanParent {
 	StructDecl* parent;
 	Type child;
@@ -4308,21 +4288,11 @@ immutable struct DiagSpecSigCantBeVariadic {}
 immutable struct DiagSpecUseInvalid {
 	DeclKind declKind;
 }
-immutable struct DiagStringLiteralInvalid {
-	enum Reason { cStringContainsNul, notExternJs, stringContainsNul, symbolContainsNul }
-	Reason reason;
-}
+enum DiagStringLiteralInvalid { cStringContainsNul, notExternJs, stringContainsNul, symbolContainsNul }
 immutable struct DiagStorageMissingType {}
 immutable struct DiagSumTypeListedMembersNonUnion {}
 immutable struct DiagTestMissingBody {}
-immutable struct DiagTrustedUnnecessary {
-	enum Reason {
-		inTrusted,
-		inUnsafeFunction,
-		unused,
-	}
-	Reason reason;
-}
+enum DiagTrustedUnnecessary { inTrusted, inUnsafeFunction, unused }
 immutable struct DiagTupleTooBig {
 	size_t actual;
 	size_t maxAllowed;
@@ -4338,30 +4308,24 @@ immutable struct DiagTypeParamCantHaveTypeArgs {}
 immutable struct DiagTypeParamsUnsupported {
 	DeclKind declKind;
 }
-immutable struct DiagTypeShouldUseSyntax {
-	enum Kind {
-		array,
-		funData,
-		funMut,
-		funPointer,
-		funShared,
-		map,
-		mutArray,
-		mutMap,
-		mutPointer,
-		opt,
-		pointer,
-		sharedArray,
-		sharedMap,
-		tuple,
-	}
-	Kind kind;
+enum DiagTypeShouldUseSyntax {
+	array,
+	funData,
+	funMut,
+	funPointer,
+	funShared,
+	map,
+	mutArray,
+	mutMap,
+	mutPointer,
+	opt,
+	pointer,
+	sharedArray,
+	sharedMap,
+	tuple,
 }
 immutable struct DiagUnionMemberTypeParameter {}
-immutable struct DiagUnsupportedSyntax {
-	enum Reason { enumMemberMutability, enumMemberType }
-	Reason reason;
-}
+enum DiagUnsupportedSyntax { enumMemberMutability, enumMemberType }
 immutable struct DiagUnusedImport {
 	Module* importedModule;
 	Opt!Symbol importedName;

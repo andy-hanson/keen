@@ -13,7 +13,9 @@ import model.model :
 	Diag,
 	DiagTrustedUnnecessary,
 	FunFlags,
+	FunSafety,
 	LambdaExpr,
+	LambdaKind,
 	Local,
 	Mutability,
 	Specs,
@@ -67,7 +69,7 @@ bool isInLambda(in LocalsInfo a) =>
 	has(a.lambda);
 
 bool isInDataLambda(in LocalsInfo a) =>
-	has(a.lambda) && (force(a.lambda).lambda.kind == LambdaExpr.Kind.data || isInDataLambda(*force(a.lambda).outer));
+	has(a.lambda) && (force(a.lambda).lambda.kind == LambdaKind.data || isInDataLambda(*force(a.lambda).outer));
 
 struct LocalNode {
 	MutOpt!(LocalNode*) prev;
@@ -134,21 +136,20 @@ TypeWithContainer typeWithContainer(ref const ExprCtx ctx, Type a) =>
 	TypeWithContainer(a, ctx.typeContainer);
 
 T withTrusted(T)(ref ExprCtx ctx, ExprAst* source, in T delegate() @safe @nogc pure nothrow cb) {
-	Opt!(DiagTrustedUnnecessary.Reason) reason = ctx.outermostFunFlags.safety != FunFlags.Safety.safe
-		? some(DiagTrustedUnnecessary.Reason.inUnsafeFunction)
+	Opt!DiagTrustedUnnecessary reason = ctx.outermostFunFlags.safety != FunSafety.safe
+		? some(DiagTrustedUnnecessary.inUnsafeFunction)
 		: ctx.isInTrusted
-		? some(DiagTrustedUnnecessary.Reason.inTrusted)
-		: none!(DiagTrustedUnnecessary.Reason);
+		? some(DiagTrustedUnnecessary.inTrusted)
+		: none!DiagTrustedUnnecessary;
 	if(has(reason)) {
-		addDiag2(ctx, trustedKeywordRange(source), Diag(DiagTrustedUnnecessary(force(reason))));
+		addDiag2(ctx, trustedKeywordRange(source), Diag(force(reason)));
 		return cb();
 	} else {
 		ctx.isInTrusted = true;
 		T res = cb();
 		ctx.isInTrusted = false;
 		if (!ctx.usedTrusted)
-			addDiag2(ctx, trustedKeywordRange(source), Diag(
-				DiagTrustedUnnecessary(DiagTrustedUnnecessary.Reason.unused)));
+			addDiag2(ctx, trustedKeywordRange(source), Diag(DiagTrustedUnnecessary.unused));
 		ctx.usedTrusted = false;
 		return res;
 	}
@@ -168,12 +169,12 @@ bool checkCanDoUnsafe(ref ExprCtx ctx) {
 	}
 }
 
-bool allowsUnsafe(FunFlags.Safety a) {
+bool allowsUnsafe(FunSafety a) {
 	final switch (a) {
-		case FunFlags.Safety.safe:
+		case FunSafety.safe:
 			return false;
-		case FunFlags.Safety.unsafe:
-		case FunFlags.Safety.trusted:
+		case FunSafety.unsafe:
+		case FunSafety.trusted:
 			return true;
 	}
 }

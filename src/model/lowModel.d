@@ -15,7 +15,6 @@ import model.concreteModel :
 import model.constant : Constant;
 import model.model :
 	Builtin4ary,
-	BuiltinFun,
 	BuiltinFunInitKind,
 	BuiltinType,
 	BuiltinUnary,

@@ -5,7 +5,7 @@ module concretize.gatherInfo;
 import model.concreteModel :
 	CallConcreteExpr, ConcreteCommonFuns, ConcreteExpr, ConcreteFun, ConcreteFunBody, existsDirectChildExpr;
 import model.constant : Constant;
-import model.model : BuiltinBinary, BuiltinFun, BuiltinFunCallLambda;
+import model.model : BuiltinBinary, BuiltinFunCallLambda;
 import util.alloc.alloc : Alloc, withTempAlloc;
 import util.col.array : mustFind;
 import util.col.mutArr : mustPop, MutArr, mutArrIsEmpty, push;

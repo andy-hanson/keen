@@ -50,6 +50,7 @@ import model.model :
 	DiagCallMultipleMatches,
 	DiagCallNoMatch,
 	DiagCallShouldUseSyntax,
+	DiagCallShouldUseSyntaxKind,
 	DiagFunctionWithSignatureNotFound,
 	Expr,
 	ExprAndType,
@@ -377,7 +378,7 @@ Expr checkCallIdentifier(alias checkExpr)(
 	ref Expected expected,
 ) {
 	if (name == symbol!"new")
-		addDiag2(ctx, source.range, Diag(DiagCallShouldUseSyntax(0, DiagCallShouldUseSyntax.Kind.new_)));
+		addDiag2(ctx, source.range, Diag(DiagCallShouldUseSyntax(0, DiagCallShouldUseSyntaxKind.new_)));
 	return checkCallSpecial!checkExpr(ctx, locals, source, source.range, name, [], expected);
 }
 
@@ -550,7 +551,7 @@ void checkCallShouldUseSyntax(ref ExprCtx ctx, in CallAst ast) {
 	switch (ast.style) {
 		case CallAst.Style.dot:
 		case CallAst.Style.infix:
-			Opt!(DiagCallShouldUseSyntax.Kind) kind = shouldUseSyntaxKind(ast);
+			Opt!DiagCallShouldUseSyntaxKind kind = shouldUseSyntaxKind(ast);
 			if (has(kind))
 				addDiag2(ctx, ast.funName.range, Diag(DiagCallShouldUseSyntax(ast.args.length, force(kind))));
 			break;
@@ -559,26 +560,26 @@ void checkCallShouldUseSyntax(ref ExprCtx ctx, in CallAst ast) {
 	}
 }
 
-Opt!(DiagCallShouldUseSyntax.Kind) shouldUseSyntaxKind(in CallAst ast) {
+Opt!DiagCallShouldUseSyntaxKind shouldUseSyntaxKind(in CallAst ast) {
 	switch (ast.funName.name.value) {
 		case symbol!"for-break".value:
-			return optIf(secondArgIsLambda(ast), () => DiagCallShouldUseSyntax.Kind.for_break);
+			return optIf(secondArgIsLambda(ast), () => DiagCallShouldUseSyntaxKind.for_break);
 		case symbol!"force".value:
-			return some(DiagCallShouldUseSyntax.Kind.force);
+			return some(DiagCallShouldUseSyntaxKind.force);
 		case symbol!"for-loop".value:
-			return optIf(secondArgIsLambda(ast), () => DiagCallShouldUseSyntax.Kind.for_loop);
+			return optIf(secondArgIsLambda(ast), () => DiagCallShouldUseSyntaxKind.for_loop);
 		case symbol!"new".value:
-			return some(DiagCallShouldUseSyntax.Kind.new_);
+			return some(DiagCallShouldUseSyntaxKind.new_);
 		case symbol!"not".value:
-			return some(DiagCallShouldUseSyntax.Kind.not);
+			return some(DiagCallShouldUseSyntaxKind.not);
 		case symbol!"set-subscript".value:
-			return some(DiagCallShouldUseSyntax.Kind.set_subscript);
+			return some(DiagCallShouldUseSyntaxKind.set_subscript);
 		case symbol!"subscript".value:
-			return some(DiagCallShouldUseSyntax.Kind.subscript);
+			return some(DiagCallShouldUseSyntaxKind.subscript);
 		case symbol!"with-block".value:
-			return optIf(secondArgIsLambda(ast), () => DiagCallShouldUseSyntax.Kind.with_block);
+			return optIf(secondArgIsLambda(ast), () => DiagCallShouldUseSyntaxKind.with_block);
 		default:
-			return none!(DiagCallShouldUseSyntax.Kind);
+			return none!DiagCallShouldUseSyntaxKind;
 	}
 }
 bool secondArgIsLambda(in CallAst ast) =>

@@ -53,6 +53,7 @@ import model.model :
 	Destructure,
 	Diag,
 	DiagBuiltinUnsupported,
+	DiagBuiltinUnsupportedKind,
 	DiagCaseDuplicate,
 	DiagCaseInvalidMemberType,
 	DiagCaseInvalidSumType,
@@ -903,12 +904,10 @@ Opt!EnumOrFlagsMember enumMemberFromParam(
 		SingleDestructureAst* single = &ast.as!SingleDestructureAst();
 		if (has(single.mut)) {
 			Opt!Range mutRange = single.mutRange;
-			addDiag(ctx, force(mutRange), Diag(
-				DiagUnsupportedSyntax(DiagUnsupportedSyntax.Reason.enumMemberMutability)));
+			addDiag(ctx, force(mutRange), Diag(DiagUnsupportedSyntax.enumMemberMutability));
 		}
 		if (has(single.type))
-			addDiag(ctx, force(single.type).range, Diag(
-				DiagUnsupportedSyntax(DiagUnsupportedSyntax.Reason.enumMemberType)));
+			addDiag(ctx, force(single.type).range, Diag(DiagUnsupportedSyntax.enumMemberType));
 		return some(EnumOrFlagsMember(EnumMemberSource(single), enum_, value));
 	} else {
 		addDiag(ctx, ast.range, Diag(
@@ -1180,7 +1179,7 @@ BuiltinType getBuiltinType(scope ref CheckCtx ctx, StructDecl* struct_) {
 			return BuiltinType.void_;
 		default:
 			addDiagAssertSameUri(ctx, struct_.nameRange, Diag(
-				DiagBuiltinUnsupported(DiagBuiltinUnsupported.Kind.type, struct_.name)));
+				DiagBuiltinUnsupported(DiagBuiltinUnsupportedKind.type, struct_.name)));
 			return BuiltinType.void_;
 	}
 }

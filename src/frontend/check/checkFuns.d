@@ -46,6 +46,7 @@ import model.model :
 	FunDecl,
 	FunDeclSource,
 	FunFlags,
+	FunSafety,
 	ImportFileContent,
 	isEmpty,
 	isLinkageAlwaysCompatible,
@@ -417,11 +418,11 @@ FunFlags checkFunFlags(ref CheckCtx ctx, in Range range, CollectedFunFlags flags
 			? ModifierKeyword.extern_
 			: assert(false);
 
-	FunFlags.Safety safety = trusted
-		? FunFlags.Safety.trusted
+	FunSafety safety = trusted
+		? FunSafety.trusted
 		: unsafe
-		? FunFlags.Safety.unsafe
-		: FunFlags.Safety.safe;
+		? FunSafety.unsafe
+		: FunSafety.safe;
 	if (implicitBare && explicitBare)
 		warnRedundant(bodyModifier(), ModifierKeyword.bare);
 	if (implicitUnsafe && explicitUnsafe)

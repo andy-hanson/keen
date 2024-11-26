@@ -155,6 +155,7 @@ import model.model :
 	SeqExpr,
 	Signature,
 	SpecInst,
+	StringLiteralKind,
 	StructBody,
 	StructInst,
 	SumTypeKind,
@@ -792,20 +793,20 @@ ExprResult translateLetLikeCb(
 
 JsExpr translateLiteralStringLike(ref TranslateExprCtx ctx, in Source source, ref LiteralStringLikeExpr a) {
 	final switch (a.kind) {
-		case LiteralStringLikeExpr.Kind.char8Array:
+		case StringLiteralKind.char8Array:
 			return genArray(source, map(ctx.alloc, a.value, (ref immutable char x) =>
 				genIntegerUnsigned(source, x)));
-		case LiteralStringLikeExpr.Kind.char32Array:
+		case StringLiteralKind.char32Array:
 			return genArray(source, buildArray!JsExpr(ctx.alloc, (scope ref Builder!JsExpr out_) {
 				mustUnicodeDecode(a.value, (dchar x) {
 					out_ ~= genIntegerUnsigned(source, x);
 				});
 			}));
-		case LiteralStringLikeExpr.Kind.cString:
+		case StringLiteralKind.cString:
 			assert(false);
-		case LiteralStringLikeExpr.Kind.jsAny:
-		case LiteralStringLikeExpr.Kind.string_:
-		case LiteralStringLikeExpr.Kind.symbol:
+		case StringLiteralKind.jsAny:
+		case StringLiteralKind.string_:
+		case StringLiteralKind.symbol:
 			return genString(source, a.value);
 	}
 }

@@ -50,6 +50,7 @@ import model.model :
 	FunFlags,
 	FunInst,
 	FunPointerExpr,
+	FunSafety,
 	IfExpr,
 	ImportOrExport,
 	IntegralType,
@@ -436,11 +437,11 @@ Json funFlags(ref Alloc alloc, in FunFlags a) {
 		flag!"summon"(a.summon),
 		() {
 			final switch (a.safety) {
-				case FunFlags.Safety.safe:
+				case FunSafety.safe:
 					return none!Symbol;
-				case FunFlags.Safety.trusted:
+				case FunSafety.trusted:
 					return some(symbol!"trusted");
-				case FunFlags.Safety.unsafe:
+				case FunSafety.unsafe:
 					return some(symbol!"unsafe");
 			}
 		}(),

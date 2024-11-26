@@ -123,6 +123,7 @@ import model.model :
 	FunPointerExpr,
 	IfExpr,
 	LambdaExpr,
+	LambdaKind,
 	LetExpr,
 	LiteralExpr,
 	LiteralStringLikeExpr,
@@ -144,6 +145,7 @@ import model.model :
 	Purity,
 	RecordFieldPointerExpr,
 	SeqExpr,
+	StringLiteralKind,
 	ThrowExpr,
 	TrustedExpr,
 	TryExpr,
@@ -542,7 +544,7 @@ ConcreteExpr concretizeLambda(
 	in Locals locals,
 	LambdaExpr* e,
 ) {
-	if (e.kind == LambdaExpr.Kind.explicitShared) {
+	if (e.kind == LambdaKind.explicitShared) {
 		ConcreteType innerType = getConcreteType(ctx, Type(force(e.mutTypeForExplicitShared)));
 		ConcreteExpr inner = concretizeLambdaInner(ctx, innerType, range, locals, e);
 		ConcreteType[2] lambdaTypeArgs = only2(innerType.struct_.source.as!(ConcreteStructSource.Inst).typeArgs);
@@ -783,21 +785,21 @@ ConcreteExpr concretizeLiteralStringLike(
 	ref ConcretizeExprCtx ctx,
 	ConcreteType type,
 	in UriAndRange range,
-	LiteralStringLikeExpr.Kind kind,
+	StringLiteralKind kind,
 	string value,
 ) {
 	final switch (kind) {
-		case LiteralStringLikeExpr.Kind.char8Array:
+		case StringLiteralKind.char8Array:
 			return genChar8Array(ctx.concretizeCtx, range, value);
-		case LiteralStringLikeExpr.Kind.char32Array:
+		case StringLiteralKind.char32Array:
 			return genChar32Array(ctx.concretizeCtx, range, value);
-		case LiteralStringLikeExpr.Kind.cString:
+		case StringLiteralKind.cString:
 			return ConcreteExpr(type, range, ConcreteExprKind(constantCString(ctx.concretizeCtx, value)));
-		case LiteralStringLikeExpr.Kind.jsAny:
+		case StringLiteralKind.jsAny:
 			assert(false);
-		case LiteralStringLikeExpr.Kind.string_:
+		case StringLiteralKind.string_:
 			return genStringLiteral(ctx.concretizeCtx, range, value);
-		case LiteralStringLikeExpr.Kind.symbol:
+		case StringLiteralKind.symbol:
 			return ConcreteExpr(type, range, ConcreteExprKind(
 				constantSymbol(ctx.concretizeCtx, symbolOfString(value))));
 	}

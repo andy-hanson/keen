@@ -53,6 +53,7 @@ import model.model :
 	DeclKind,
 	Diag,
 	DiagBuiltinUnsupported,
+	DiagBuiltinUnsupportedKind,
 	DiagDuplicateDeclaration,
 	DiagDuplicateExports,
 	DiagDuplicateImportName,
@@ -174,7 +175,7 @@ Opt!BuiltinSpec getBuiltinSpec(ref CheckCtx ctx, in Range range, Symbol name) {
 		case symbol!"shared".value:
 			return some(BuiltinSpec.shared_);
 		default:
-			addDiag(ctx, range, Diag(DiagBuiltinUnsupported(DiagBuiltinUnsupported.Kind.spec, name)));
+			addDiag(ctx, range, Diag(DiagBuiltinUnsupported(DiagBuiltinUnsupportedKind.spec, name)));
 			return none!BuiltinSpec;
 	}
 }

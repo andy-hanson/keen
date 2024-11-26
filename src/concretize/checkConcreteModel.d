@@ -52,7 +52,6 @@ import model.model :
 	BuiltinBinary,
 	BuiltinBinaryLazy,
 	BuiltinBinaryMath,
-	BuiltinFun,
 	BuiltinTernary,
 	BuiltinType,
 	BuiltinUnary,

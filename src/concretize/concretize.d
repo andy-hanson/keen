@@ -39,7 +39,6 @@ import model.concreteModel :
 import model.model :
 	allExterns,
 	BuildTarget,
-	BuiltinFun,
 	BuiltinFunCallLambda,
 	CommonFuns,
 	FunBody,

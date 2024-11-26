@@ -408,36 +408,36 @@ void writeStructInst(scope ref Writer writer, in ShowTypeCtx ctx, in TypeContain
 	}
 
 	Symbol name = s.decl.name;
-	Opt!(DiagTypeShouldUseSyntax.Kind) kind = typeSyntaxKind(name);
+	Opt!DiagTypeShouldUseSyntax kind = typeSyntaxKind(name);
 	if (has(kind)) {
 		final switch (force(kind)) {
-			case DiagTypeShouldUseSyntax.Kind.array:
+			case DiagTypeShouldUseSyntax.array:
 				return suffix("[]");
-			case DiagTypeShouldUseSyntax.Kind.map:
+			case DiagTypeShouldUseSyntax.map:
 				return map("");
-			case DiagTypeShouldUseSyntax.Kind.funData:
+			case DiagTypeShouldUseSyntax.funData:
 				return fun(FunKind.data);
-			case DiagTypeShouldUseSyntax.Kind.funMut:
+			case DiagTypeShouldUseSyntax.funMut:
 				return fun(FunKind.mut);
-			case DiagTypeShouldUseSyntax.Kind.funPointer:
+			case DiagTypeShouldUseSyntax.funPointer:
 				return fun(FunKind.function_);
-			case DiagTypeShouldUseSyntax.Kind.funShared:
+			case DiagTypeShouldUseSyntax.funShared:
 				return fun(FunKind.shared_);
-			case DiagTypeShouldUseSyntax.Kind.mutArray:
+			case DiagTypeShouldUseSyntax.mutArray:
 				return suffix(" mut[]");
-			case DiagTypeShouldUseSyntax.Kind.mutMap:
+			case DiagTypeShouldUseSyntax.mutMap:
 				return map(" mut");
-			case DiagTypeShouldUseSyntax.Kind.mutPointer:
+			case DiagTypeShouldUseSyntax.mutPointer:
 				return suffix(" mut*");
-			case DiagTypeShouldUseSyntax.Kind.opt:
+			case DiagTypeShouldUseSyntax.opt:
 				return suffix("?");
-			case DiagTypeShouldUseSyntax.Kind.pointer:
+			case DiagTypeShouldUseSyntax.pointer:
 				return suffix("*");
-			case DiagTypeShouldUseSyntax.Kind.sharedArray:
+			case DiagTypeShouldUseSyntax.sharedArray:
 				return suffix(" shared[]");
-			case DiagTypeShouldUseSyntax.Kind.sharedMap:
+			case DiagTypeShouldUseSyntax.sharedMap:
 				return map(" shared");
-			case DiagTypeShouldUseSyntax.Kind.tuple:
+			case DiagTypeShouldUseSyntax.tuple:
 				return writeTupleType(writer, ctx, typeContainer, s.typeArgs);
 		}
 	} else {

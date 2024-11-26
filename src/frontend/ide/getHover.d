@@ -44,6 +44,7 @@ import model.model :
 	IntegralType,
 	isSigned,
 	LambdaExpr,
+	LambdaKind,
 	Local,
 	LoopWhileOrUntilExpr,
 	NameReferents,
@@ -571,13 +572,13 @@ void getExprKeywordHover(
 		case ExprKeyword.lambdaArrow:
 			writer ~= () {
 				final switch (exprKind.as!(LambdaExpr*).kind) {
-					case LambdaExpr.Kind.data:
+					case LambdaKind.data:
 						return "Lambda with 'data' closure and no 'summon'.";
-					case LambdaExpr.Kind.shared_:
+					case LambdaKind.shared_:
 						return "Lambda with 'shared' closure.";
-					case LambdaExpr.Kind.mut:
+					case LambdaKind.mut:
 						return "Lambda with 'mut' closure.";
-					case LambdaExpr.Kind.explicitShared:
+					case LambdaKind.explicitShared:
 						return "Lambda with 'mut' closure, converted to 'shared' by waiting for exclusion.";
 				}
 			}();

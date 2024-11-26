@@ -56,7 +56,9 @@ import model.model :
 	DiagCallMultipleMatches,
 	DiagCallNoMatch,
 	DiagCallShouldUseSyntax,
+	DiagCallShouldUseSyntaxKind,
 	DiagCantCall,
+	DiagCantCallReason,
 	DiagCaseDuplicate,
 	DiagCaseInvalidMemberType,
 	DiagCaseInvalidSumType,
@@ -676,13 +678,13 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in DiagCallShouldUseSyntax x) {
 			writer ~= () {
 				final switch (x.kind) {
-					case DiagCallShouldUseSyntax.Kind.for_break:
+					case DiagCallShouldUseSyntaxKind.for_break:
 						return "Prefer to write a 'for' loop instead of calling 'for-break'.";
-					case DiagCallShouldUseSyntax.Kind.force:
+					case DiagCallShouldUseSyntaxKind.force:
 						return "Prefer to write 'x!' instead of 'x.force'.";
-					case DiagCallShouldUseSyntax.Kind.for_loop:
+					case DiagCallShouldUseSyntaxKind.for_loop:
 						return "Prefer to write a 'for' loop instead of calling 'for-loop'.";
-					case DiagCallShouldUseSyntax.Kind.new_:
+					case DiagCallShouldUseSyntaxKind.new_:
 						switch (x.arity) {
 							case 0:
 								return "Prefer to write '()' instead of 'new'.";
@@ -691,13 +693,13 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 							default:
 								return "Prefer to write 'x, y' instead of 'x new y'.";
 						}
-					case DiagCallShouldUseSyntax.Kind.not:
+					case DiagCallShouldUseSyntaxKind.not:
 						return "Prefer to write '!x' instead of 'x.not'";
-					case DiagCallShouldUseSyntax.Kind.set_subscript:
+					case DiagCallShouldUseSyntaxKind.set_subscript:
 						return "Prefer to write 'x[i] := y' instead of 'x set-subscript i, y'.";
-					case DiagCallShouldUseSyntax.Kind.subscript:
+					case DiagCallShouldUseSyntaxKind.subscript:
 						return "Prefer to write 'x[i]' instead of 'x subscript i'.";
-					case DiagCallShouldUseSyntax.Kind.with_block:
+					case DiagCallShouldUseSyntaxKind.with_block:
 						return "Prefer to write a 'with' block instead of calling 'with-block'.";
 				}
 			}();
@@ -705,22 +707,22 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in DiagCantCall x) {
 			writer ~= () {
 				final switch (x.reason) {
-					case DiagCantCall.Reason.nonBare:
+					case DiagCantCallReason.nonBare:
 						return "A 'bare' function can't call non-'bare' function";
-					case DiagCantCall.Reason.summon:
+					case DiagCantCallReason.summon:
 						return "A non-'summon' function can't call 'summon' function";
-					case DiagCantCall.Reason.summonInDataLambda:
+					case DiagCantCallReason.summonInDataLambda:
 						return "Can't call a 'summon' function from inside a 'data' lambda.";
-					case DiagCantCall.Reason.unsafe:
+					case DiagCantCallReason.unsafe:
 						return "A non-'unsafe' function can't call 'unsafe' function";
-					case DiagCantCall.Reason.variadicFromBare:
+					case DiagCantCallReason.variadicFromBare:
 						return "A 'bare' function can't call variadic function";
 				}
 			}();
 			writer ~= ' ';
 			writeFunDecl(writer, ctx, WriteKind.quoted, x.callee);
 			writer ~= '.';
-			if (x.reason == DiagCantCall.Reason.unsafe)
+			if (x.reason == DiagCantCallReason.unsafe)
 				writer ~= "\n(Consider putting the call in a 'trusted' expression.)";
 		},
 		(in DiagCaseDuplicate x) {
@@ -1071,7 +1073,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagLoopDisallowedBody x) {
 			writer ~= "Loop body cannot be a ";
-			writeName(writer, ctx, stringOfEnum(x.kind));
+			writeName(writer, ctx, stringOfEnum(x));
 			writer ~= " expression";
 		},
 		(in DiagLoopWithoutBreak) {
@@ -1107,12 +1109,12 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagMatchCaseForType x) {
 			writer ~= () {
-				final switch (x.kind) {
-					case DiagMatchCaseForType.Kind.enumOrUnion:
+				final switch (x) {
+					case DiagMatchCaseForType.enumOrUnion:
 						return "To match an enum or union, branches must use identifiers.";
-					case DiagMatchCaseForType.Kind.numeric:
+					case DiagMatchCaseForType.numeric:
 						return "To match a number, branches must use number literals.";
-					case DiagMatchCaseForType.Kind.stringLike:
+					case DiagMatchCaseForType.stringLike:
 						return "To match a string-like type, branches must use identifiers or string literals.";
 				}
 			}();
@@ -1273,22 +1275,22 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagPointerMutToConst x) {
 			writer ~= () {
-				final switch (x.kind) {
-					case DiagPointerMutToConst.Kind.fieldOfByRef:
+				final switch (x) {
+					case DiagPointerMutToConst.fieldOfByRef:
 						return "Can't get a 'mut' pointer to a non-'mut' field.";
-					case DiagPointerMutToConst.Kind.fieldOfByVal:
+					case DiagPointerMutToConst.fieldOfByVal:
 						return "Can't get a 'mut' field pointer from a non-'mut' record pointer.";
-					case DiagPointerMutToConst.Kind.local:
+					case DiagPointerMutToConst.local:
 						return "Can't get a 'mut' pointer to a non-'mut' local.";
 				}
 			}();
 		},
 		(in DiagPointerUnsupported x) {
-			final switch (x.reason) {
-				case DiagPointerUnsupported.Reason.other:
+			final switch (x) {
+				case DiagPointerUnsupported.other:
 					writer ~= "Can't get a pointer to this kind of expression.";
 					break;
-				case DiagPointerUnsupported.Reason.recordNotByRef:
+				case DiagPointerUnsupported.recordNotByRef:
 					writer ~= "To get a pointer to a record field, " ~
 						"the record must be 'by-ref' or a pointer to a 'by-val' record.";
 					break;
@@ -1401,14 +1403,14 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagStringLiteralInvalid x) {
 			writer ~= () {
-				final switch (x.reason) {
-					case DiagStringLiteralInvalid.Reason.cStringContainsNul:
+				final switch (x) {
+					case DiagStringLiteralInvalid.cStringContainsNul:
 						return "'c-string' literal can't contain '\\0'.";
-					case DiagStringLiteralInvalid.Reason.notExternJs:
+					case DiagStringLiteralInvalid.notExternJs:
 						return "Cant' create a 'js-any' value without 'js extern'.";
-					case DiagStringLiteralInvalid.Reason.stringContainsNul:
+					case DiagStringLiteralInvalid.stringContainsNul:
 						return "'string' literal can't contain '\\0'.";
-					case DiagStringLiteralInvalid.Reason.symbolContainsNul:
+					case DiagStringLiteralInvalid.symbolContainsNul:
 						return "'symbol' literal can't contain '\\0'.";
 				}
 			}();
@@ -1440,12 +1442,12 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagTrustedUnnecessary x) {
 			writer ~= () {
-				final switch (x.reason) {
-					case DiagTrustedUnnecessary.Reason.inTrusted:
+				final switch (x) {
+					case DiagTrustedUnnecessary.inTrusted:
 						return "'trusted' expression is redundant inside another 'trusted' expression.";
-					case DiagTrustedUnnecessary.Reason.inUnsafeFunction:
+					case DiagTrustedUnnecessary.inUnsafeFunction:
 						return "'trusted' expression is redundant inside an 'unsafe' function.";
-					case DiagTrustedUnnecessary.Reason.unused:
+					case DiagTrustedUnnecessary.unused:
 						return "There is no unsafe code in this expression; you could remove 'trusted'.";
 				}
 			}();
@@ -1477,34 +1479,34 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagTypeShouldUseSyntax x) {
 			writer ~= () {
-				final switch (x.kind) {
-					case DiagTypeShouldUseSyntax.Kind.array:
+				final switch (x) {
+					case DiagTypeShouldUseSyntax.array:
 						return "Prefer to write 't[]' instead of 't array'.";
-					case DiagTypeShouldUseSyntax.Kind.funData:
+					case DiagTypeShouldUseSyntax.funData:
 						return "Prefer to write 'r data(x p)' instead of '(r, p) fun-data'.";
-					case DiagTypeShouldUseSyntax.Kind.funMut:
+					case DiagTypeShouldUseSyntax.funMut:
 						return "Prefer to write 'r mut(x p)' instead of '(r, p) fun-mut'.";
-					case DiagTypeShouldUseSyntax.Kind.funPointer:
+					case DiagTypeShouldUseSyntax.funPointer:
 						return "Prefer to writer 'r function(x p)' instead of '(r, p) fun-pointer'.";
-					case DiagTypeShouldUseSyntax.Kind.funShared:
+					case DiagTypeShouldUseSyntax.funShared:
 						return "Prefer to write 'r shared(x p)' instead of '(r, p) fun-shared'.";
-					case DiagTypeShouldUseSyntax.Kind.map:
+					case DiagTypeShouldUseSyntax.map:
 						return "Prefer to write 'v[k]' instead of '(k, v) map'.";
-					case DiagTypeShouldUseSyntax.Kind.mutArray:
+					case DiagTypeShouldUseSyntax.mutArray:
 						return "Prefer to write 't mut[]' instead of 't mut-array'.";
-					case DiagTypeShouldUseSyntax.Kind.mutMap:
+					case DiagTypeShouldUseSyntax.mutMap:
 						return "Prefer to write 'v mut[k]' instead of '(k, v) mut-map'.";
-					case DiagTypeShouldUseSyntax.Kind.mutPointer:
+					case DiagTypeShouldUseSyntax.mutPointer:
 						return "Prefer to write 't mut*' instead of 't mut-pointer'.";
-					case DiagTypeShouldUseSyntax.Kind.opt:
+					case DiagTypeShouldUseSyntax.opt:
 						return "Prefer to write 't?' instead of 't option'.";
-					case DiagTypeShouldUseSyntax.Kind.pointer:
+					case DiagTypeShouldUseSyntax.pointer:
 						return "Prefer to write 't*' instead of 't const-pointer'.";
-					case DiagTypeShouldUseSyntax.Kind.sharedArray:
+					case DiagTypeShouldUseSyntax.sharedArray:
 						return "Prefer to write 't shared[]' instead of 't shared-array'.";
-					case DiagTypeShouldUseSyntax.Kind.sharedMap:
+					case DiagTypeShouldUseSyntax.sharedMap:
 						return "Prefer to write 'v shared[k]' instead of '(k, v) shared-map'.";
-					case DiagTypeShouldUseSyntax.Kind.tuple:
+					case DiagTypeShouldUseSyntax.tuple:
 						return "Prefer to write '(t, u)' instead of '(t, u) tuple2'.";
 				}
 			}();
@@ -1514,10 +1516,10 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagUnsupportedSyntax x) {
 			writer ~= () {
-				final switch (x.reason) {
-					case DiagUnsupportedSyntax.Reason.enumMemberMutability:
+				final switch (x) {
+					case DiagUnsupportedSyntax.enumMemberMutability:
 						return "An enum member can't be 'mut'.";
-					case DiagUnsupportedSyntax.Reason.enumMemberType:
+					case DiagUnsupportedSyntax.enumMemberType:
 						return "An enum member can't specify a type.";
 				}
 			}();

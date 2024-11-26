@@ -249,7 +249,7 @@ Type typeFromAst(
 					aliasAllowed);
 		},
 		(ref SuffixNameTypeAst x) {
-			Opt!(DiagTypeShouldUseSyntax.Kind) optSyntax = typeSyntaxKind(x.name.name);
+			Opt!DiagTypeShouldUseSyntax optSyntax = typeSyntaxKind(x.name.name);
 			if (has(optSyntax))
 				addDiag(ctx, x.suffixRange, Diag(DiagTypeShouldUseSyntax(force(optSyntax))));
 			Opt!TypeParamIndex typeParam = findTypeParam(typeParamsScope, x.name.name);
@@ -317,34 +317,34 @@ private Opt!TypeParamIndex findTypeParam(in TypeParams typeParamsScope, Symbol n
 	return has(res) ? some(TypeParamIndex(safeToUint(force(res)))) : none!TypeParamIndex;
 }
 
-Opt!(DiagTypeShouldUseSyntax.Kind) typeSyntaxKind(Symbol a) {
+Opt!DiagTypeShouldUseSyntax typeSyntaxKind(Symbol a) {
 	switch (a.value) {
 		case symbol!"array".value:
-			return some(DiagTypeShouldUseSyntax.Kind.array);
+			return some(DiagTypeShouldUseSyntax.array);
 		case symbol!"fun-data".value:
-			return some(DiagTypeShouldUseSyntax.Kind.funData);
+			return some(DiagTypeShouldUseSyntax.funData);
 		case symbol!"fun-mut".value:
-			return some(DiagTypeShouldUseSyntax.Kind.funMut);
+			return some(DiagTypeShouldUseSyntax.funMut);
 		case symbol!"fun-pointer".value:
-			return some(DiagTypeShouldUseSyntax.Kind.funPointer);
+			return some(DiagTypeShouldUseSyntax.funPointer);
 		case symbol!"fun-shared".value:
-			return some(DiagTypeShouldUseSyntax.Kind.funShared);
+			return some(DiagTypeShouldUseSyntax.funShared);
 		case symbol!"const-pointer".value:
-			return some(DiagTypeShouldUseSyntax.Kind.pointer);
+			return some(DiagTypeShouldUseSyntax.pointer);
 		case symbol!"map".value:
-			return some(DiagTypeShouldUseSyntax.Kind.map);
+			return some(DiagTypeShouldUseSyntax.map);
 		case symbol!"mut-array".value:
-			return some(DiagTypeShouldUseSyntax.Kind.mutArray);
+			return some(DiagTypeShouldUseSyntax.mutArray);
 		case symbol!"mut-map".value:
-			return some(DiagTypeShouldUseSyntax.Kind.mutMap);
+			return some(DiagTypeShouldUseSyntax.mutMap);
 		case symbol!"mut-pointer".value:
-			return some(DiagTypeShouldUseSyntax.Kind.mutPointer);
+			return some(DiagTypeShouldUseSyntax.mutPointer);
 		case symbol!"option".value:
-			return some(DiagTypeShouldUseSyntax.Kind.opt);
+			return some(DiagTypeShouldUseSyntax.opt);
 		case symbol!"shared-array".value:
-			return some(DiagTypeShouldUseSyntax.Kind.sharedArray);
+			return some(DiagTypeShouldUseSyntax.sharedArray);
 		case symbol!"shared-map".value:
-			return some(DiagTypeShouldUseSyntax.Kind.sharedMap);
+			return some(DiagTypeShouldUseSyntax.sharedMap);
 		case symbol!"tuple2".value:
 		case symbol!"tuple3".value:
 		case symbol!"tuple4".value:
@@ -353,9 +353,9 @@ Opt!(DiagTypeShouldUseSyntax.Kind) typeSyntaxKind(Symbol a) {
 		case symbol!"tuple7".value:
 		case symbol!"tuple8".value:
 		case symbol!"tuple9".value:
-			return some(DiagTypeShouldUseSyntax.Kind.tuple);
+			return some(DiagTypeShouldUseSyntax.tuple);
 		default:
-			return none!(DiagTypeShouldUseSyntax.Kind);
+			return none!DiagTypeShouldUseSyntax;
 	}
 }
 

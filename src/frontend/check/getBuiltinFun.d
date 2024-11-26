@@ -30,6 +30,7 @@ import model.model :
 	Destructure,
 	Diag,
 	DiagBuiltinUnsupported,
+	DiagBuiltinUnsupportedKind,
 	FunBody,
 	FunDecl,
 	isArray,
@@ -99,7 +100,7 @@ FunBody inner(
 	BuiltinBinaryLazy failBinaryLazy() => cast(BuiltinBinaryLazy) 0xffffffff;
 
 	FunBody fail() {
-		addDiag(ctx, range, Diag(DiagBuiltinUnsupported(DiagBuiltinUnsupported.Kind.function_, name)));
+		addDiag(ctx, range, Diag(DiagBuiltinUnsupported(DiagBuiltinUnsupportedKind.function_, name)));
 		return FunBody.bogus;
 	}
 	FunBody constant(bool returnTypeOk, Constant value) =>

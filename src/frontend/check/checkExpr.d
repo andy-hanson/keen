@@ -198,6 +198,7 @@ import model.model :
 	isEmptyType,
 	isSigned,
 	LambdaExpr,
+	LambdaKind,
 	LetExpr,
 	LiteralExpr,
 	LiteralStringLikeExpr,
@@ -224,6 +225,7 @@ import model.model :
 	ReturnAndParamTypes,
 	SeqExpr,
 	SpecDecl,
+	StringLiteralKind,
 	StructAlias,
 	StructBody,
 	StructDecl,
@@ -741,19 +743,19 @@ MutOpt!VariableRefAndType getIdentifierFromLambda(
 void checkClosureMutability(
 	ref ExprCtx ctx,
 	ExprAst* source,
-	LambdaExpr.Kind lambdaKind,
+	LambdaKind lambdaKind,
 	Symbol name,
 	Mutability mutability,
 	Type type,
 ) {
 	Purity expectedPurity = () {
 		final switch (lambdaKind) {
-			case LambdaExpr.Kind.data:
+			case LambdaKind.data:
 				return Purity.data;
-			case LambdaExpr.Kind.shared_:
+			case LambdaKind.shared_:
 				return Purity.shared_;
-			case LambdaExpr.Kind.mut:
-			case LambdaExpr.Kind.explicitShared:
+			case LambdaKind.mut:
+			case LambdaKind.explicitShared:
 				return Purity.mut;
 		}
 	}();
@@ -935,15 +937,15 @@ Expr checkLiteralString(ref ExprCtx ctx, ExprAst* source, string value, ref Expe
 		ctx.commonTypes.symbol,
 	];
 	Opt!size_t opTypeIndex = findExpectedStructForLiteral(ctx, source, expected, allowedTypes);
-	static immutable LiteralStringLikeExpr.Kind[allowedTypes.length] kinds = [
-		LiteralStringLikeExpr.Kind.cString, // won't be used
-		LiteralStringLikeExpr.Kind.cString, // won't be used
-		LiteralStringLikeExpr.Kind.char8Array,
-		LiteralStringLikeExpr.Kind.char32Array,
-		LiteralStringLikeExpr.Kind.cString,
-		LiteralStringLikeExpr.Kind.jsAny,
-		LiteralStringLikeExpr.Kind.string_,
-		LiteralStringLikeExpr.Kind.symbol,
+	static immutable StringLiteralKind[allowedTypes.length] kinds = [
+		StringLiteralKind.cString, // won't be used
+		StringLiteralKind.cString, // won't be used
+		StringLiteralKind.char8Array,
+		StringLiteralKind.char32Array,
+		StringLiteralKind.cString,
+		StringLiteralKind.jsAny,
+		StringLiteralKind.string_,
+		StringLiteralKind.symbol,
 	];
 
 	if (has(opTypeIndex)) {
@@ -956,31 +958,30 @@ Expr checkLiteralString(ref ExprCtx ctx, ExprAst* source, string value, ref Expe
 				return some(ExprKind(LiteralExpr(Constant(
 					IntegralValue(char32LiteralValue(ctx, source.range, value))))));
 			else {
-				string checkNoNul(DiagStringLiteralInvalid.Reason reason) {
+				string checkNoNul(DiagStringLiteralInvalid diag) {
 					Opt!size_t index = indexOf(value, '\0');
 					if (has(index)) {
-						addDiag2(ctx, source.range, Diag(DiagStringLiteralInvalid(reason)));
+						addDiag2(ctx, source.range, Diag(diag));
 						return value[0 .. force(index)];
 					} else
 						return value;
 				}
-				LiteralStringLikeExpr.Kind kind = kinds[typeIndex];
+				StringLiteralKind kind = kinds[typeIndex];
 				Opt!string fixedValue = () {
 					final switch (kind) {
-						case LiteralStringLikeExpr.Kind.char8Array:
-						case LiteralStringLikeExpr.Kind.char32Array:
+						case StringLiteralKind.char8Array:
+						case StringLiteralKind.char32Array:
 							return some(value);
-						case LiteralStringLikeExpr.Kind.cString:
-							return some(checkNoNul(DiagStringLiteralInvalid.Reason.cStringContainsNul));
-						case LiteralStringLikeExpr.Kind.string_:
-							return some(checkNoNul(DiagStringLiteralInvalid.Reason.stringContainsNul));
-						case LiteralStringLikeExpr.Kind.symbol:
-							return some(checkNoNul(DiagStringLiteralInvalid.Reason.symbolContainsNul));
-						case LiteralStringLikeExpr.Kind.jsAny:
+						case StringLiteralKind.cString:
+							return some(checkNoNul(DiagStringLiteralInvalid.cStringContainsNul));
+						case StringLiteralKind.string_:
+							return some(checkNoNul(DiagStringLiteralInvalid.stringContainsNul));
+						case StringLiteralKind.symbol:
+							return some(checkNoNul(DiagStringLiteralInvalid.symbolContainsNul));
+						case StringLiteralKind.jsAny:
 							bool ok = symbol!"js" in ctx.externs;
 							if (!ok)
-								addDiag2(ctx, source.range, Diag(
-									DiagStringLiteralInvalid(DiagStringLiteralInvalid.Reason.notExternJs)));
+								addDiag2(ctx, source.range, Diag(DiagStringLiteralInvalid.notExternJs));
 							return optIf(ok, () => value);
 					}
 				}();
@@ -1165,14 +1166,14 @@ Expr checkPointerInner(
 	if (inner.kind.isA!LocalGetExpr) {
 		Local* local = inner.kind.as!LocalGetExpr.local;
 		if (expectedMutability != PointerMutability.readOnly && !local.isMutable)
-			addDiag2(ctx, source, Diag(DiagPointerMutToConst(DiagPointerMutToConst.Kind.local)));
+			addDiag2(ctx, source, Diag(DiagPointerMutToConst.local));
 		if (expectedMutability == PointerMutability.writeable)
 			markIsUsedSetOnStack(locals, local);
 		return check(ctx, expected, pointerType, source, ExprKind(LocalPointerExpr(local)));
 	} else if (inner.kind.isA!CallExpr)
 		return checkPointerOfCall(ctx, source, inner.kind.as!CallExpr, pointerType, expectedMutability, expected);
 	else {
-		addDiag2(ctx, source, Diag(DiagPointerUnsupported()));
+		addDiag2(ctx, source, Diag(DiagPointerUnsupported.other));
 		return bogus(expected, source);
 	}
 }
@@ -1185,8 +1186,8 @@ Expr checkPointerOfCall(
 	PointerMutability expectedMutability,
 	ref Expected expected,
 ) {
-	Expr fail(DiagPointerUnsupported.Reason reason = DiagPointerUnsupported.Reason.other) {
-		addDiag2(ctx, source, Diag(DiagPointerUnsupported(reason)));
+	Expr fail(DiagPointerUnsupported diag = DiagPointerUnsupported.other) {
+		addDiag2(ctx, source, Diag(diag));
 		return bogus(expected, source);
 	}
 
@@ -1202,7 +1203,7 @@ Expr checkPointerOfCall(
 					: PointerMutability.readOnly;
 			if (isDefinitelyByRef(*recordType)) {
 				if (fieldMutability < expectedMutability)
-					addDiag2(ctx, source, Diag(DiagPointerMutToConst(DiagPointerMutToConst.Kind.fieldOfByRef)));
+					addDiag2(ctx, source, Diag(DiagPointerMutToConst.fieldOfByRef));
 				return check(ctx, expected, pointerType, source, ExprKind(allocate(ctx.alloc,
 					RecordFieldPointerExpr(ExprAndType(target, Type(recordType)), rfg.field))));
 			} else if (target.kind.isA!CallExpr) {
@@ -1216,7 +1217,7 @@ Expr checkPointerOfCall(
 					// Ignore fieldMutability -- we'll allow mutating a non-mut field from a mut pointer.
 					// But not allow any mutation from a non-mut pointer even for mutable fields.
 					if (pointerMutability < expectedMutability) {
-						addDiag2(ctx, source, Diag(DiagPointerMutToConst(DiagPointerMutToConst.Kind.fieldOfByVal)));
+						addDiag2(ctx, source, Diag(DiagPointerMutToConst.fieldOfByVal));
 						return bogus(expected, source);
 					} else
 						return check(ctx, expected, pointerType, source, ExprKind(allocate(ctx.alloc,
@@ -1224,7 +1225,7 @@ Expr checkPointerOfCall(
 				} else
 					return fail();
 			} else
-				return fail(DiagPointerUnsupported.Reason.recordNotByRef);
+				return fail(DiagPointerUnsupported.recordNotByRef);
 		} else
 			return fail();
 	} else
@@ -1370,7 +1371,7 @@ Expr checkShared(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, Shared
 		et.funType.returnType,
 		et.typeContext,
 		et.funType.funStruct,
-		LambdaExpr.Kind.explicitShared);
+		LambdaKind.explicitShared);
 
 	if (!isShared(ctx.outermostFunSpecs, et.instantiatedParamType))
 		diag(Diag(DiagSharedLambdaTypeIsNotShared(
@@ -1413,14 +1414,14 @@ Expr checkLambda(
 		toLambdaKind(et.funType.kind)).expr;
 }
 
-LambdaExpr.Kind toLambdaKind(FunKind a) {
+LambdaKind toLambdaKind(FunKind a) {
 	final switch (a) {
 		case FunKind.data:
-			return LambdaExpr.Kind.data;
+			return LambdaKind.data;
 		case FunKind.shared_:
-			return LambdaExpr.Kind.shared_;
+			return LambdaKind.shared_;
 		case FunKind.mut:
-			return LambdaExpr.Kind.mut;
+			return LambdaKind.mut;
 		case FunKind.function_:
 			assert(false);
 	}
@@ -1439,7 +1440,7 @@ LambdaAndReturnType checkLambdaInner(
 	Type nonInstantiatedReturnType,
 	TypeContext returnTypeContext,
 	StructDecl* funStruct,
-	LambdaExpr.Kind kind,
+	LambdaKind kind,
 ) {
 	Destructure param = checkDestructure2(ctx, paramAst, paramType, DestructureKind.param);
 	LambdaExpr* lambda = allocate(ctx.alloc, LambdaExpr(kind, param, mutTypeForExplicitShared));
@@ -1573,7 +1574,7 @@ Expr checkMatch(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ref Mat
 		(BuiltinType x) {
 			Opt!CharType charType = optAsCharType(x);
 			Opt!IntegralType integral = optAsIntegralType(x);
-			Opt!(LiteralStringLikeExpr.Kind) stringLike = getMatchableStringLikeFromBuiltin(x);
+			Opt!StringLiteralKind stringLike = getMatchableStringLikeFromBuiltin(x);
 			return has(charType)
 				? checkMatchChar(ctx, locals, source, ast, expected, matched, force(charType))
 				: has(integral)
@@ -1589,7 +1590,7 @@ Expr checkMatch(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ref Mat
 		(StructBody.Flags) =>
 			notMatchable(),
 		(StructBody.Record) {
-			Opt!(LiteralStringLikeExpr.Kind) stringLike = getMatchableStringLikeFromRecord(ctx.commonTypes, inst);
+			Opt!StringLiteralKind stringLike = getMatchableStringLikeFromRecord(ctx.commonTypes, inst);
 			return has(stringLike)
 				? checkMatchStringLike(ctx, locals, source, ast, expected, matched, force(stringLike))
 				: notMatchable();
@@ -1972,13 +1973,13 @@ Expr checkMatchIntegral(
 			mapOpPointers!(MatchIntegralExpr.Case, CaseAst)(ctx.alloc, ast.cases, (CaseAst* caseAst) {
 				Opt!IntegralValue optValue = caseAst.member.match!(Opt!IntegralValue)(
 					(AsNameAst x) {
-						addDiag2(ctx, x.name.range, Diag(DiagMatchCaseForType(DiagMatchCaseForType.Kind.numeric)));
+						addDiag2(ctx, x.name.range, Diag(DiagMatchCaseForType.numeric));
 						return none!IntegralValue;
 					},
 					(LiteralIntegralAndRange x) =>
 						some(checkLiteralIntegralValue(ctx.checkCtx, integralType, x)),
 					(AsStringAst x) {
-						addDiag2(ctx, x.range, Diag(DiagMatchCaseForType(DiagMatchCaseForType.Kind.numeric)));
+						addDiag2(ctx, x.range, Diag(DiagMatchCaseForType.numeric));
 						return none!IntegralValue;
 					},
 					(AsBogusAst _) =>
@@ -2002,21 +2003,21 @@ Expr checkMatchIntegral(
 		MatchIntegralExpr(MatchIntegralExpr.Kind(integralType), matched, cases, else_))));
 }
 
-Opt!(LiteralStringLikeExpr.Kind) getMatchableStringLikeFromBuiltin(BuiltinType a) {
+Opt!StringLiteralKind getMatchableStringLikeFromBuiltin(BuiltinType a) {
 	switch (a) {
 		case BuiltinType.string_:
-			return some(LiteralStringLikeExpr.Kind.string_);
+			return some(StringLiteralKind.string_);
 		case BuiltinType.symbol:
-			return some(LiteralStringLikeExpr.Kind.symbol);
+			return some(StringLiteralKind.symbol);
 		default:
-			return none!(LiteralStringLikeExpr.Kind);
+			return none!StringLiteralKind;
 	}
 }
-Opt!(LiteralStringLikeExpr.Kind) getMatchableStringLikeFromRecord(in CommonTypes commonTypes, in StructInst* inst) =>
-	inst == commonTypes.symbol ? some(LiteralStringLikeExpr.Kind.symbol) :
-	inst == commonTypes.char32Array ? some(LiteralStringLikeExpr.Kind.char32Array) :
-	inst == commonTypes.char8Array ? some(LiteralStringLikeExpr.Kind.char8Array) :
-	none!(LiteralStringLikeExpr.Kind);
+Opt!StringLiteralKind getMatchableStringLikeFromRecord(in CommonTypes commonTypes, in StructInst* inst) =>
+	inst == commonTypes.symbol ? some(StringLiteralKind.symbol) :
+	inst == commonTypes.char32Array ? some(StringLiteralKind.char32Array) :
+	inst == commonTypes.char8Array ? some(StringLiteralKind.char8Array) :
+	none!StringLiteralKind;
 
 Expr checkMatchStringLike(
 	ref ExprCtx ctx,
@@ -2025,7 +2026,7 @@ Expr checkMatchStringLike(
 	ref MatchAst ast,
 	ref Expected expected,
 	ref ExprAndType matched,
-	LiteralStringLikeExpr.Kind kind,
+	StringLiteralKind kind,
 ) {
 	Opt!(SpecDecl*) spec = getSpecFromCommonModule(
 		ctx.checkCtx, ctx.specsMap, ast.keywordRange(source), symbol!"equal", CommonModule.compare);
@@ -2123,7 +2124,7 @@ Opt!string stringFromCaseAst(ref ExprCtx ctx, CaseMemberAst ast) =>
 			return some(stringOfSymbol(ctx.alloc, x.name.name));
 		},
 		(LiteralIntegralAndRange x) {
-			addDiag2(ctx, x.range, Diag(DiagMatchCaseForType(DiagMatchCaseForType.Kind.stringLike)));
+			addDiag2(ctx, x.range, Diag(DiagMatchCaseForType.stringLike));
 			return none!string;
 		},
 		(AsStringAst x) =>
@@ -2136,7 +2137,7 @@ Opt!(AsNameAst*) nameFromCaseMemberAst(ref ExprCtx ctx, CaseMemberAst* ast) {
 		? some(&ast.as!AsNameAst())
 		: none!(AsNameAst*);
 	if (!has(res))
-		addDiag2(ctx, ast.nameRange, Diag(DiagMatchCaseForType(DiagMatchCaseForType.Kind.enumOrUnion)));
+		addDiag2(ctx, ast.nameRange, Diag(DiagMatchCaseForType.enumOrUnion));
 	return res;
 }
 
@@ -2240,8 +2241,7 @@ Expr checkWith(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, WithAst*
 
 Expr checkFinally(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, FinallyAst* ast, ref Expected expected) {
 	if (has(tryGetLoop(expected))) {
-		addDiag2(ctx, ast.finallyKeywordRange(source), Diag(
-			DiagLoopDisallowedBody(DiagLoopDisallowedBody.Kind.finally_)));
+		addDiag2(ctx, ast.finallyKeywordRange(source), Diag(DiagLoopDisallowedBody.finally_));
 		return bogus(expected, source);
 	} else {
 		Expr right = checkAndExpect(ctx, locals, &ast.right, Type(ctx.commonTypes.void_));
@@ -2252,8 +2252,7 @@ Expr checkFinally(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, Final
 
 Expr checkTry(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TryAst ast, ref Expected expected) {
 	if (has(tryGetLoop(expected))) {
-		addDiag2(ctx, ast.tryKeywordRange(source), Diag(
-			DiagLoopDisallowedBody(DiagLoopDisallowedBody.Kind.finally_)));
+		addDiag2(ctx, ast.tryKeywordRange(source), Diag(DiagLoopDisallowedBody.finally_));
 		return bogus(expected, source);
 	} else {
 		Expr body_ = checkExpr(ctx, locals, ast.tried, expected);

@@ -158,7 +158,7 @@ import model.lowModel :
 	UpdateParam,
 	VarGetLowExpr,
 	VarSetLowExpr;
-import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinFunInitKind, BuiltinTernary, BuiltinUnary;
+import model.model : Builtin4ary, BuiltinBinary, BuiltinFunInitKind, BuiltinTernary, BuiltinUnary;
 import model.showLowModel : writeFunSig;
 import util.alloc.alloc : Alloc, withTempAlloc;
 import util.col.array : fillArray, indexOfPointer, isEmpty, map, mapStatic, mapWithIndex, zip;

@@ -21,12 +21,14 @@ import model.model :
 	Diag,
 	DiagCallMissingExtern,
 	DiagCantCall,
+	DiagCantCallReason,
 	DiagSpecMatchMultiple,
 	DiagSpecNoMatch,
 	FunDecl,
 	FunDeclAndTypeArgs,
 	FunInst,
 	FunFlags,
+	FunSafety,
 	isPurityAlwaysCompatible,
 	isPurityCompatible,
 	Purity,
@@ -177,18 +179,18 @@ void checkCallFlags(
 	ArgsKind argsKind,
 	in bool delegate() @safe @nogc pure nothrow canDoUnsafe,
 ) {
-	void diag(DiagCantCall.Reason reason) {
+	void diag(DiagCantCallReason reason) {
 		addDiag(ctx, diagRange, Diag(DiagCantCall(reason, called)));
 	}
 	if (!called.flags.bare && caller.bare && !called.flags.forceCtx && !isInLambda(locals))
 		// TODO: need to explain this better in the case where 'bare' is due to the lambda
-		diag(DiagCantCall.Reason.nonBare);
+		diag(DiagCantCallReason.nonBare);
 	if (called.flags.summon && (!caller.summon || isInDataLambda(locals)))
-		diag(!caller.summon ? DiagCantCall.Reason.summon : DiagCantCall.Reason.summonInDataLambda);
-	if (called.flags.safety == FunFlags.Safety.unsafe && !canDoUnsafe())
-		diag(DiagCantCall.Reason.unsafe);
+		diag(!caller.summon ? DiagCantCallReason.summon : DiagCantCallReason.summonInDataLambda);
+	if (called.flags.safety == FunSafety.unsafe && !canDoUnsafe())
+		diag(DiagCantCallReason.unsafe);
 	if (called.isVariadic && argsKind == ArgsKind.nonEmpty && caller.bare)
-		diag(DiagCantCall.Reason.variadicFromBare);
+		diag(DiagCantCallReason.variadicFromBare);
 }
 
 Called checkCallSpecsWithRealTrace(

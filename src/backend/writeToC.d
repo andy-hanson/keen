@@ -82,8 +82,7 @@ import model.lowModel :
 	UpdateParam,
 	VarGetLowExpr,
 	VarSetLowExpr;
-import model.model :
-	Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinFunInitKind, BuiltinTernary, BuiltinUnary, isLambda, TypeSize;
+import model.model : Builtin4ary, BuiltinBinary, BuiltinFunInitKind, BuiltinTernary, BuiltinUnary, isLambda, TypeSize;
 import model.showLowModel : writeFunSig;
 import model.typeLayout : sizeOfType, typeSizeBytes;
 import util.alloc.alloc : Alloc, TempAlloc;
