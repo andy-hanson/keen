@@ -40,6 +40,7 @@ import model.model :
 	allExterns,
 	BuildTarget,
 	BuiltinFun,
+	BuiltinFunCallLambda,
 	CommonFuns,
 	FunBody,
 	MainFun,
@@ -157,7 +158,7 @@ void finishLambdas(ref ConcretizeCtx ctx) {
 	foreach (ConcreteFun* fun; asTemporaryArray(ctx.allConcreteFuns)) {
 		if (fun.body_.isA!(ConcreteFunBody.Builtin)) {
 			ConcreteFunBody.Builtin builtin = fun.body_.as!(ConcreteFunBody.Builtin);
-			if (builtin.kind.isA!(BuiltinFun.CallLambda)) {
+			if (builtin.kind.isA!BuiltinFunCallLambda) {
 				ConcreteStruct* lambda = mustBeByVal(fun.params[0].type);
 				fun.overwriteBody(generateCallLambda(
 					ctx, fun, lambda.body_.as!(ConcreteStructBody.Union).members,

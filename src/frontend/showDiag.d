@@ -35,11 +35,21 @@ import model.model :
 	CantImportCrowAsText,
 	CircularImport,
 	DeclKind,
+	DestructureExpectedTuple,
 	Diag,
 	DiagAliasNotAllowed,
 	DiagAssertOrForbidMessageIsThrow,
 	DiagAssignmentNotAllowed,
-	DiagAutoFunError,
+	DiagAutoFunBare,
+	DiagAutoFunEnumOrFlagsToWrongStorage,
+	DiagAutoFunParamNotSimple,
+	DiagAutoFunSpecCorrupt,
+	DiagAutoFunSpecFromWrongModule,
+	DiagAutoFunTypeNotFullyVisible,
+	DiagAutoFunWrongName,
+	DiagAutoFunWrongParams,
+	DiagAutoFunWrongParamType,
+	DiagAutoFunWrongReturnType,
 	DiagBuiltinFunCantHaveBody,
 	DiagBuiltinUnsupported,
 	DiagCallMissingExtern,
@@ -135,9 +145,10 @@ import model.model :
 	DiagRecordFieldNeedsType,
 	DiagSharedArgIsNotLambda,
 	DiagSharedLambdaTypeIsNotShared,
+	DiagSharedLambdaTypeIsNotSharedKind,
 	DiagSharedLambdaUnused,
 	DiagSharedNotExpected,
-	DiagSpecMatchError,
+	DiagSpecMatchMultiple,
 	DiagSpecNoMatch,
 	DiagSpecRecursion,
 	DiagSpecSigCantBeVariadic,
@@ -145,6 +156,7 @@ import model.model :
 	DiagStringLiteralInvalid,
 	DiagStorageMissingType,
 	DiagStructParamsSyntaxError,
+	DiagStructParamsSyntaxErrorReason,
 	DiagSumTypeListedMembersNonUnion,
 	DiagTestMissingBody,
 	DiagTrustedUnnecessary,
@@ -156,7 +168,9 @@ import model.model :
 	DiagTypeShouldUseSyntax,
 	DiagUnionMemberTypeParameter,
 	DiagUnsupportedSyntax,
-	DiagUnused,
+	DiagUnusedImport,
+	DiagUnusedLocal,
+	DiagUnusedPrivateDecl,
 	DiagVarargsParamMustBeArray,
 	DiagVisibilityWarning,
 	DiagWithHasElse,
@@ -299,35 +313,6 @@ DiagnosticSeverity maxDiagnosticSeverity(in ProgramWithOptMain a) {
 		res = max(res, getDiagnosticSeverity(x.kind));
 	});
 	return res;
-}
-
-void writeUnusedDiag(scope ref Writer writer, in ShowCtx ctx, in DiagUnused a) {
-	a.kind.matchIn!void(
-		(in DiagUnused.Kind.Import x) {
-			if (has(x.importedName)) {
-				writer ~= "Imported name ";
-				writeName(writer, ctx, force(x.importedName));
-			} else {
-				writer ~= "Imported module ";
-				writeName(writer, ctx, baseName(x.importedModule.uri));
-			}
-			writer ~= " is unused.";
-		},
-		(in DiagUnused.Kind.Local x) {
-			writer ~= "Local ";
-			writeName(writer, ctx, x.local.name);
-			writer ~= !x.local.isMutable
-				? " is unused"
-				: x.usedGet
-				? " is mutable but never reassigned"
-				: x.usedSet
-				? " is assigned to but unused"
-				: " is unused.";
-		},
-		(in DiagUnused.Kind.PrivateDecl x) {
-			writeName(writer, ctx, x.name);
-			writer ~= " is unused.";
-		});
 }
 
 void writeParseDiag(scope ref Writer writer, in ShowCtx ctx, in ParseDiag d) {
@@ -595,75 +580,72 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in DiagAssignmentNotAllowed) {
 			writer ~= "Can't assign to this kind of expression.";
 		},
-		(in DiagAutoFunError x) {
-			x.matchIn!void(
-				(in DiagAutoFunError.Bare) {
-					writer ~= "Automatic 'to json' can't be 'bare'.";
-				},
-				(in DiagAutoFunError.EnumOrFlagsToWrongStorage x) {
-					writer ~= "Type ";
-					writeName(writer, ctx, x.enumOrFlagsType.name);
-					writer ~= " has storage type ";
-					writeName(writer, ctx, stringOfEnum(x.actualStorageType));
-					writer ~= ", not ";
-					writeName(writer, ctx, stringOfEnum(x.expectedStorageType));
-				},
-				(in DiagAutoFunError.ParamNotSimple) {
-					writer ~= "An auto fun must have simple parameters (not ignored or destructured).";
-				},
-				(in DiagAutoFunError.SpecCorrupt x) {
-					writer ~= "Spec ";
-					writeName(writer, ctx, x.specName);
-					writer ~= " does not have the expected content.";
-				},
-				(in DiagAutoFunError.SpecFromWrongModule) {
-					writer ~= "Spec for automatic function comes from unexpected module.";
-				},
-				(in DiagAutoFunError.TypeNotFullyVisible) {
-					writer ~= "This function can't be automatic because the type is not fully visible in this context.";
-				},
-				(in DiagAutoFunError.WrongName) {
-					writer ~= "Function needs a body. (An automatic function must be named '==', '<=>', or 'to'.)";
-				},
-				(in DiagAutoFunError.WrongParams p) {
-					writer ~= () {
-						final switch (p.kind) {
-							case AutoFunName.compare:
-								return "'<=>' must take two parameters of the same type.";
-							case AutoFunName.equals:
-								return "'==' must take two parameters of the same type.";
-							case AutoFunName.members:
-								return "'members' must take no parameters.";
-							case AutoFunName.to:
-								return "'to' must take a single parameter.";
-						}
-					}();
-				},
-				(in DiagAutoFunError.WrongParamType p) {
-					writer ~= "An automatic function parameter must be a ";
-					writeKeyword(writer, ctx, symbol!"record");
-					writer ~= " or ";
-					writeKeyword(writer, ctx, symbol!"union");
-					writer ~= " type.";
-				},
-				(in DiagAutoFunError.WrongReturnType p) {
-					writer ~= () {
-						final switch (p.kind) {
-							case AutoFunName.compare:
-								return "'<=>' must return 'comparison'.";
-							case AutoFunName.equals:
-								return "'==' must return 'bool'.";
-							case AutoFunName.members:
-								return "'members' must return an array of an 'enum' or 'flags' type.";
-							case AutoFunName.to:
-								return "'to' must be one of:\n" ~
-									"\t'to json(a t)' where 't' is a enum, flags, record, or union type\n" ~
-									"\t'to symbol(a e)' where 'e' is an enum type\n" ~
-									"\t'to e?(a symbol)' where 'e' is an enum or flags type\n" ~
-									"\t'to symbol[](a f)' where 'f' is a flags type\n";
-						}
-					}();
-				});
+		(in DiagAutoFunBare _) {
+			writer ~= "Automatic 'to json' can't be 'bare'.";
+		},
+		(in DiagAutoFunEnumOrFlagsToWrongStorage x) {
+			writer ~= "Type ";
+			writeName(writer, ctx, x.enumOrFlagsType.name);
+			writer ~= " has storage type ";
+			writeName(writer, ctx, stringOfEnum(x.actualStorageType));
+			writer ~= ", not ";
+			writeName(writer, ctx, stringOfEnum(x.expectedStorageType));
+		},
+		(in DiagAutoFunParamNotSimple _) {
+			writer ~= "An auto fun must have simple parameters (not ignored or destructured).";
+		},
+		(in DiagAutoFunSpecCorrupt x) {
+			writer ~= "Spec ";
+			writeName(writer, ctx, x.specName);
+			writer ~= " does not have the expected content.";
+		},
+		(in DiagAutoFunSpecFromWrongModule _) {
+			writer ~= "Spec for automatic function comes from unexpected module.";
+		},
+		(in DiagAutoFunTypeNotFullyVisible _) {
+			writer ~= "This function can't be automatic because the type is not fully visible in this context.";
+		},
+		(in DiagAutoFunWrongName _) {
+			writer ~= "Function needs a body. (An automatic function must be named '==', '<=>', or 'to'.)";
+		},
+		(in DiagAutoFunWrongParams x) {
+			writer ~= () {
+				final switch (x.kind) {
+					case AutoFunName.compare:
+						return "'<=>' must take two parameters of the same type.";
+					case AutoFunName.equals:
+						return "'==' must take two parameters of the same type.";
+					case AutoFunName.members:
+						return "'members' must take no parameters.";
+					case AutoFunName.to:
+						return "'to' must take a single parameter.";
+				}
+			}();
+		},
+		(in DiagAutoFunWrongParamType _) {
+			writer ~= "An automatic function parameter must be a ";
+			writeKeyword(writer, ctx, symbol!"record");
+			writer ~= " or ";
+			writeKeyword(writer, ctx, symbol!"union");
+			writer ~= " type.";
+		},
+		(in DiagAutoFunWrongReturnType x) {
+			writer ~= () {
+				final switch (x.kind) {
+					case AutoFunName.compare:
+						return "'<=>' must return 'comparison'.";
+					case AutoFunName.equals:
+						return "'==' must return 'bool'.";
+					case AutoFunName.members:
+						return "'members' must return an array of an 'enum' or 'flags' type.";
+					case AutoFunName.to:
+						return "'to' must be one of:\n" ~
+							"\t'to json(a t)' where 't' is a enum, flags, record, or union type\n" ~
+							"\t'to symbol(a e)' where 'e' is an enum type\n" ~
+							"\t'to e?(a symbol)' where 'e' is an enum or flags type\n" ~
+							"\t'to symbol[](a f)' where 'f' is a flags type\n";
+				}
+			}();
 		},
 		(in DiagBuiltinFunCantHaveBody x) {
 			writer ~= "A 'builtin' function can't have a body.";
@@ -792,7 +774,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagDestructureTypeMismatch x) {
 			x.expected.matchIn!void(
-				(in DiagDestructureTypeMismatch.Expected.Tuple t) {
+				(in DestructureExpectedTuple t) {
 					writer ~= "Expected a tuple with ";
 					writer ~= t.size;
 					writer ~= " elements, but got ";
@@ -1271,7 +1253,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagNeedsExpectedType x) {
 			writer ~= '\'';
-			writer ~= stringOfEnum(x.kind);
+			writer ~= stringOfEnum(x);
 			writer ~= "' expression needs an expected type.";
 		},
 		(in DiagParamMissingType) {
@@ -1347,9 +1329,9 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= "'shared' lambda needs a 'shared' ";
 			writer ~= () {
 				final switch (x.kind) {
-					case DiagSharedLambdaTypeIsNotShared.Kind.paramType:
+					case DiagSharedLambdaTypeIsNotSharedKind.paramType:
 						return "parameter";
-					case DiagSharedLambdaTypeIsNotShared.Kind.returnType:
+					case DiagSharedLambdaTypeIsNotSharedKind.returnType:
 						return "return";
 				}
 			}();
@@ -1361,23 +1343,14 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= "The lambda does not have anything 'mut' in its closure, so it does not need 'shared'.";
 		},
 		(in DiagSharedNotExpected x) {
-			writer ~= () {
-				final switch (x.reason) {
-					case DiagSharedNotExpected.Reason.notShared:
-						return "Expected type is a lambda, but it is not 'shared'.";
-				}
-			}();
-			writer ~= '\n';
+			writer ~= "Expected type is a lambda, but it is not 'shared'.\n";
 			writeExpected(writer, ctx, x.expected, ExpectedKind.lambda);
 		},
-		(in DiagSpecMatchError x) {
-			x.reason.matchIn!void(
-				(in DiagSpecMatchError.Reason.MultipleMatches y) {
-					writer ~= "Multiple implementations found for spec signature ";
-					writeName(writer, ctx, y.sigName);
-					writer ~= ':';
-					writeCalleds(writer, ctx, x.outermostTypeContainer, y.matches);
-				});
+		(in DiagSpecMatchMultiple x) {
+			writer ~= "Multiple implementations found for spec signature ";
+			writeName(writer, ctx, x.sigName);
+			writer ~= ':';
+			writeCalleds(writer, ctx, x.outermostTypeContainer, x.matches);
 			writeNewline(writer, 1);
 			writer ~= "Calling:";
 			writeSpecTrace(writer, ctx, x.outermostTypeContainer, x.trace);
@@ -1445,15 +1418,15 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagStructParamsSyntaxError x) {
 			final switch (x.reason) {
-				case DiagStructParamsSyntaxError.Reason.hasParamsAndFields:
+				case DiagStructParamsSyntaxErrorReason.hasParamsAndFields:
 					writer ~= aOrAnDeclKind(declKindOfStruct(x.struct_));
 					writer ~= " can't have both parameter-style and indented fields.";
 					break;
-				case DiagStructParamsSyntaxError.Reason.destructure:
+				case DiagStructParamsSyntaxErrorReason.destructure:
 					writer ~= aOrAnMemberKind(memberKindOfStruct(x.struct_));
 					writer ~= " can't use destructuring.";
 					break;
-				case DiagStructParamsSyntaxError.Reason.variadic:
+				case DiagStructParamsSyntaxErrorReason.variadic:
 					writer ~= aOrAnMemberKind(memberKindOfStruct(x.struct_));
 					writer ~= " can't be variadic.";
 					break;
@@ -1549,8 +1522,30 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				}
 			}();
 		},
-		(in DiagUnused x) {
-			writeUnusedDiag(writer, ctx, x);
+		(in DiagUnusedImport x) {
+			if (has(x.importedName)) {
+				writer ~= "Imported name ";
+				writeName(writer, ctx, force(x.importedName));
+			} else {
+				writer ~= "Imported module ";
+				writeName(writer, ctx, baseName(x.importedModule.uri));
+			}
+			writer ~= " is unused.";
+		},
+		(in DiagUnusedLocal x) {
+			writer ~= "Local ";
+			writeName(writer, ctx, x.local.name);
+			writer ~= !x.local.isMutable
+				? " is unused"
+				: x.usedGet
+				? " is mutable but never reassigned"
+				: x.usedSet
+				? " is assigned to but unused"
+				: " is unused.";
+		},
+		(in DiagUnusedPrivateDecl x) {
+			writeName(writer, ctx, x.name);
+			writer ~= " is unused.";
 		},
 		(in DiagVarargsParamMustBeArray) {
 			writer ~= "Variadic parameter must be an ";

@@ -9,6 +9,7 @@ import model.model :
 	asExtern,
 	AssertOrForbidExpr,
 	AutoFun,
+	AutoFunKind,
 	BogusCallExpr,
 	BogusExpr,
 	BogusType,
@@ -18,6 +19,8 @@ import model.model :
 	BuiltinBinaryLazy,
 	BuiltinBinaryMath,
 	BuiltinFun,
+	BuiltinFunAllTests,
+	BuiltinFunCallLambda,
 	BuiltinTernary,
 	BuiltinType,
 	BuiltinUnary,
@@ -171,7 +174,7 @@ bool isUsedInModule(in AllUsed a, Uri module_, in AnyDecl x) {
 
 private immutable struct AsyncSets {
 	Set!(FunDecl*) asyncFuns;
-	Set!(FunAndSpecSig) asyncSpecSigs;
+	Set!FunAndSpecSig asyncSpecSigs;
 }
 SyncOrAsync isAsyncFun(in AllUsed a, FunDecl* fun) =>
 	fun in a.async.asyncFuns ? SyncOrAsync.async : SyncOrAsync.sync;
@@ -241,7 +244,7 @@ private bool bodyIsNotInlined(in FunDecl a) =>
 	(a.body_.isA!BuiltinFun && !isInlinedBuiltinFun(a.body_.as!BuiltinFun));
 private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 	a.matchIn!bool(
-		(in BuiltinFun.AllTests) =>
+		(in BuiltinFunAllTests) =>
 			false,
 		(in BuiltinUnary _) =>
 			true,
@@ -264,31 +267,31 @@ private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 			true,
 		(in Builtin4ary _) =>
 			true,
-		(in BuiltinFun.CallLambda) =>
+		(in BuiltinFunCallLambda) =>
 			true,
-		(in BuiltinFun.CallFunPointer) =>
+		(in BuiltinFunCallFunPointer) =>
 			true,
 		(in Constant _) =>
 			true,
-		(in BuiltinFun.GcSafeValue) =>
+		(in BuiltinFunGcSafeValue) =>
 			true,
-		(in BuiltinFun.Init) =>
+		(in BuiltinFunInit) =>
 			true,
 		(in JsFun _) =>
 			true,
-		(in BuiltinFun.MarkRoot) =>
+		(in BuiltinFunMarkRoot) =>
 			assert(false),
-		(in BuiltinFun.MarkVisit) =>
+		(in BuiltinFunMarkVisit) =>
 			assert(false),
-		(in BuiltinFun.NewEmptyOption) =>
+		(in BuiltinFunNewEmptyOption) =>
 			true,
-		(in BuiltinFun.NewNonEmptyOption) =>
+		(in BuiltinFunNewNonEmptyOption) =>
 			true,
-		(in BuiltinFun.PointerCast) =>
+		(in BuiltinFunPointerCast) =>
 			assert(false),
-		(in BuiltinFun.SizeOf) =>
+		(in BuiltinFunSizeOf) =>
 			assert(false),
-		(in BuiltinFun.StaticSymbols) =>
+		(in BuiltinFunStaticSymbols) =>
 			assert(false),
 		(in VersionFun _) =>
 			assert(false));
@@ -333,7 +336,7 @@ AnyDecl toAnyDecl(StructOrAlias a) =>
 
 AsyncSets allAsyncFuns(ref AllUsedBuilder builder) {
 	MutSet!(FunDecl*) asyncFuns;
-	MutSet!(FunAndSpecSig) asyncSpecSigs;
+	MutSet!FunAndSpecSig asyncSpecSigs;
 	MutArr!(FunDecl*) funsToProcess;
 
 	bool addFun(FunDecl* x) {
@@ -498,16 +501,16 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 			(FunBody.Bogus) {},
 			(AutoFun x) {
 				final switch (x.kind) {
-					case AutoFun.Kind.equals:
-					case AutoFun.Kind.enumOrFlagsMembers:
-					case AutoFun.Kind.enumOrFlagsToIntegral:
-					case AutoFun.Kind.enumToSymbol:
-					case AutoFun.Kind.flagsToSymbolArray:
-					case AutoFun.Kind.compare:
-					case AutoFun.Kind.integralToOptEnumOrFlags:
-					case AutoFun.Kind.symbolToOptEnumOrFlags:
+					case AutoFunKind.equals:
+					case AutoFunKind.enumOrFlagsMembers:
+					case AutoFunKind.enumOrFlagsToIntegral:
+					case AutoFunKind.enumToSymbol:
+					case AutoFunKind.flagsToSymbolArray:
+					case AutoFunKind.compare:
+					case AutoFunKind.integralToOptEnumOrFlags:
+					case AutoFunKind.symbolToOptEnumOrFlags:
 						break;
-					case AutoFun.Kind.toJson:
+					case AutoFunKind.toJson:
 						ref CommonFuns commonFuns() => res.program.commonFuns;
 						trackAllUsedInFun(res, a.moduleUri, commonFuns.toJsonFromTArray, FunUse.regular);
 						foreach (FunInst* f; [commonFuns.toJsonFromJson, commonFuns.newJsonFromPairs])
@@ -519,11 +522,11 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 					trackAllUsedInCalled(res, a.moduleUri, FunOrTest(a), called, FunUse.regular);
 			},
 			(BuiltinFun x) {
-				if (x.isA!(BuiltinFun.AllTests)) {
+				if (x.isA!BuiltinFunAllTests) {
 					eachTest(*res.program, res.allExterns, res.testSelector, (Test* test) {
 						trackAllUsedInTest(res, from, test);
 					});
-				} else if (x.isA!(BuiltinFun.CallLambda))
+				} else if (x.isA!BuiltinFunCallLambda)
 					usedTuple(res, from, a.arity.as!uint - 1);
 			},
 			(FunBody.CreateEnumOrFlags) {

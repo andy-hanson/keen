@@ -88,7 +88,7 @@ LowExpr genUnionMatch(
 	SmallArray!LowType unionMembers,
 	in LowExpr delegate(size_t, LowExpr) @safe @nogc pure nothrow cbCase,
 ) {
-	assert(getUnion.kind.isA!(LocalGetLowExpr));
+	assert(getUnion.kind.isA!LocalGetLowExpr);
 	LowExpr* getUnionPtr = allocate(alloc, getUnion);
 	return LowExpr(type, range, LowExprKind(allocate(alloc,
 		SwitchLowExpr(

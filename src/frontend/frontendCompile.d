@@ -440,7 +440,7 @@ bool isCircularImport(in MostlyResolvedImport a) =>
 	a.isA!(DiagImportFile*) && a.asConst!(DiagImportFile*).isA!CircularImport;
 MutOpt!(MutSmallArray!Uri) asCircularImport(MostlyResolvedImport a) =>
 	isCircularImport(a)
-		? someMut!(MutSmallArray!Uri)(a.as!(DiagImportFile*).as!(CircularImport).cycle)
+		? someMut!(MutSmallArray!Uri)(a.as!(DiagImportFile*).as!CircularImport.cycle)
 		: noneMut!(MutSmallArray!Uri);
 
 void addToWorkableIfSo(ref Frontend a, CrowFile* file) {

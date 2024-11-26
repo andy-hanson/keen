@@ -96,7 +96,7 @@ immutable struct LspOutRequest {
 	LspOutRequestParams params;
 }
 immutable struct LspOutRequestParams {
-	mixin Union!(InlayHintRefresh);
+	mixin Union!InlayHintRefresh;
 }
 immutable struct InlayHintRefresh {}
 
@@ -236,7 +236,7 @@ immutable struct ExecuteCommandParams {
 	immutable struct RunTest {
 		UriAndLine where;
 	}
-	mixin Union!(RunTest);
+	mixin Union!RunTest;
 }
 
 immutable struct CompletionParams {

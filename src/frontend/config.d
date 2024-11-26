@@ -78,7 +78,7 @@ ConfigExternUris parseExtern(
 	in Json json,
 ) =>
 	parseSymbolMap!(Opt!Uri)(alloc, diags, json, (in Json value) =>
-		optIf(!value.isA!(JsonNull), () =>
+		optIf(!value.isA!JsonNull, () =>
 			parseUriOrBogus(dirContainingConfig, diags, value)));
 
 Uri parseUriOrBogus(Uri dirContainingConfig, scope ref ArrayBuilder!Diagnostic diags, in Json value) {

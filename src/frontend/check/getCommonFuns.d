@@ -387,7 +387,7 @@ bool signatureMatchesTemplate(in FunDecl actual, in TypeParamsAndSig expected) =
 
 bool typesMatch(in Type a, in TypeParams typeParamsA, in Type b, in TypeParams typeParamsB) =>
 	a == b
-	|| a.isA!(TypeParamIndex) && b.isA!(TypeParamIndex) && a.as!(TypeParamIndex).index == b.as!(TypeParamIndex).index
+	|| a.isA!TypeParamIndex && b.isA!TypeParamIndex && a.as!TypeParamIndex.index == b.as!TypeParamIndex.index
 	|| typesAreCorrespondingStructInsts(a, b, (ref Type x, ref Type y) =>
 		typesMatch(x, typeParamsA, y, typeParamsB));
 

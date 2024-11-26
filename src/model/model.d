@@ -1056,19 +1056,19 @@ string stringOfVarKindLowerCase(VarKind a) {
 }
 
 immutable struct AutoFun {
-	enum Kind {
-		compare,
-		enumOrFlagsMembers,
-		enumOrFlagsToIntegral,
-		enumToSymbol,
-		equals,
-		flagsToSymbolArray,
-		integralToOptEnumOrFlags,
-		symbolToOptEnumOrFlags,
-		toJson
-	}
-	Kind kind;
+	AutoFunKind kind;
 	Called[] members; // e.g., '<=>' implementations for each record/union member
+}
+enum AutoFunKind {
+	compare,
+	enumOrFlagsMembers,
+	enumOrFlagsToIntegral,
+	enumToSymbol,
+	equals,
+	flagsToSymbolArray,
+	integralToOptEnumOrFlags,
+	symbolToOptEnumOrFlags,
+	toJson
 }
 
 immutable struct FunBody {
@@ -1166,24 +1166,8 @@ enum JsFun {
 }
 
 immutable struct BuiltinFun {
-	immutable struct AllTests {}
-	immutable struct CallLambda {}
-	immutable struct CallFunPointer {}
-	immutable struct GcSafeValue {}
-	immutable struct Init {
-		enum Kind { global, perThread }
-		Kind kind;
-	}
-	immutable struct MarkRoot {}
-	immutable struct MarkVisit {}
-	immutable struct NewEmptyOption {}
-	immutable struct NewNonEmptyOption {}
-	immutable struct PointerCast {}
-	immutable struct SizeOf {}
-	immutable struct StaticSymbols {}
-
 	mixin Union!(
-		AllTests,
+		BuiltinFunAllTests,
 		BuiltinUnary,
 		BuiltinUnaryMath,
 		BuiltinBinary,
@@ -1191,21 +1175,36 @@ immutable struct BuiltinFun {
 		BuiltinBinaryMath,
 		BuiltinTernary,
 		Builtin4ary,
-		CallLambda,
-		CallFunPointer,
+		BuiltinFunCallLambda,
+		BuiltinFunCallFunPointer,
 		Constant,
-		GcSafeValue,
-		Init,
+		BuiltinFunGcSafeValue,
+		BuiltinFunInit,
 		JsFun,
-		MarkRoot,
-		MarkVisit,
-		NewEmptyOption,
-		NewNonEmptyOption,
-		PointerCast,
-		SizeOf,
-		StaticSymbols,
+		BuiltinFunMarkRoot,
+		BuiltinFunMarkVisit,
+		BuiltinFunNewEmptyOption,
+		BuiltinFunNewNonEmptyOption,
+		BuiltinFunPointerCast,
+		BuiltinFunSizeOf,
+		BuiltinFunStaticSymbols,
 		VersionFun);
 }
+immutable struct BuiltinFunAllTests {}
+immutable struct BuiltinFunCallLambda {}
+immutable struct BuiltinFunCallFunPointer {}
+immutable struct BuiltinFunGcSafeValue {}
+immutable struct BuiltinFunInit {
+	BuiltinFunInitKind kind;
+}
+enum BuiltinFunInitKind { global, perThread }
+immutable struct BuiltinFunMarkRoot {}
+immutable struct BuiltinFunMarkVisit {}
+immutable struct BuiltinFunNewEmptyOption {}
+immutable struct BuiltinFunNewNonEmptyOption {}
+immutable struct BuiltinFunPointerCast {}
+immutable struct BuiltinFunSizeOf {}
+immutable struct BuiltinFunStaticSymbols {}
 
 enum BuiltinUnary {
 	arrayPointer, // works on mut-slice too
@@ -3754,7 +3753,16 @@ immutable struct Diag {
 		DiagAliasNotAllowed,
 		DiagAssertOrForbidMessageIsThrow,
 		DiagAssignmentNotAllowed,
-		DiagAutoFunError,
+		DiagAutoFunBare,
+		DiagAutoFunEnumOrFlagsToWrongStorage,
+		DiagAutoFunParamNotSimple,
+		DiagAutoFunSpecCorrupt,
+		DiagAutoFunSpecFromWrongModule,
+		DiagAutoFunTypeNotFullyVisible,
+		DiagAutoFunWrongName,
+		DiagAutoFunWrongParams,
+		DiagAutoFunWrongParamType,
+		DiagAutoFunWrongReturnType,
 		DiagBuiltinFunCantHaveBody,
 		DiagBuiltinUnsupported,
 		DiagCallMissingExtern,
@@ -3851,7 +3859,7 @@ immutable struct Diag {
 		DiagSharedLambdaTypeIsNotShared,
 		DiagSharedLambdaUnused,
 		DiagSharedNotExpected,
-		DiagSpecMatchError,
+		DiagSpecMatchMultiple,
 		DiagSpecNoMatch,
 		DiagSpecRecursion,
 		DiagSpecSigCantBeVariadic,
@@ -3870,7 +3878,9 @@ immutable struct Diag {
 		DiagTypeShouldUseSyntax,
 		DiagUnionMemberTypeParameter,
 		DiagUnsupportedSyntax,
-		DiagUnused,
+		DiagUnusedImport,
+		DiagUnusedLocal,
+		DiagUnusedPrivateDecl,
 		DiagVarargsParamMustBeArray,
 		DiagVisibilityWarning,
 		DiagWithHasElse,
@@ -3882,37 +3892,23 @@ immutable struct DiagAliasNotAllowed {}
 immutable struct DiagAssertOrForbidMessageIsThrow {}
 immutable struct DiagAssignmentNotAllowed {}
 
-immutable struct DiagAutoFunError {
-	immutable struct Bare {}
-	immutable struct EnumOrFlagsToWrongStorage {
-		StructDecl* enumOrFlagsType;
-		IntegralType actualStorageType;
-		IntegralType expectedStorageType;
-	}
-	immutable struct ParamNotSimple {}
-	immutable struct SpecCorrupt { Symbol specName; }
-	immutable struct SpecFromWrongModule {}
-	immutable struct TypeNotFullyVisible {}
-	immutable struct WrongName {}
-	immutable struct WrongParams {
-		AutoFunName kind;
-	}
-	immutable struct WrongParamType {}
-	immutable struct WrongParamTypeEnumOrFlags {}
-	immutable struct WrongReturnType {
-		AutoFunName kind;
-	}
-	mixin Union!(
-		Bare,
-		EnumOrFlagsToWrongStorage,
-		ParamNotSimple,
-		SpecCorrupt,
-		SpecFromWrongModule,
-		TypeNotFullyVisible,
-		WrongName,
-		WrongParams,
-		WrongParamType,
-		WrongReturnType);
+immutable struct DiagAutoFunBare {}
+immutable struct DiagAutoFunEnumOrFlagsToWrongStorage {
+	StructDecl* enumOrFlagsType;
+	IntegralType actualStorageType;
+	IntegralType expectedStorageType;
+}
+immutable struct DiagAutoFunParamNotSimple {}
+immutable struct DiagAutoFunSpecCorrupt { Symbol specName; }
+immutable struct DiagAutoFunSpecFromWrongModule {}
+immutable struct DiagAutoFunTypeNotFullyVisible {}
+immutable struct DiagAutoFunWrongName {}
+immutable struct DiagAutoFunWrongParams {
+	AutoFunName kind;
+}
+immutable struct DiagAutoFunWrongParamType {}
+immutable struct DiagAutoFunWrongReturnType {
+	AutoFunName kind;
 }
 
 immutable struct DiagBuiltinFunCantHaveBody {}
@@ -4008,13 +4004,13 @@ immutable struct DiagCommonVarMissing {
 	Symbol name;
 }
 immutable struct DiagDestructureTypeMismatch {
-	immutable struct Expected {
-		immutable struct Tuple { size_t size; }
-		mixin Union!(Tuple, TypeWithContainer);
-	}
-	Expected expected;
+	DestructureExpectedType expected;
 	TypeWithContainer actual;
 }
+immutable struct DestructureExpectedType {
+	mixin Union!(DestructureExpectedTuple, TypeWithContainer);
+}
+immutable struct DestructureExpectedTuple { size_t size; }
 immutable struct DiagDuplicateDeclaration {
 	enum Kind {
 		enumMember,
@@ -4239,14 +4235,7 @@ immutable struct DiagNameNotFound {
 	Kind kind;
 	Symbol name;
 }
-immutable struct DiagNeedsExpectedType {
-	enum Kind {
-		loop,
-		pointer,
-		throw_,
-	}
-	Kind kind;
-}
+enum DiagNeedsExpectedType { loop, pointer, throw_ }
 immutable struct DiagParamMissingType {}
 immutable struct DiagParamMutable {}
 immutable struct DiagPointerIsNative {}
@@ -4271,37 +4260,24 @@ immutable struct DiagRecordFieldNeedsType {
 	Symbol fieldName;
 }
 immutable struct DiagStructParamsSyntaxError {
-	enum Reason {
-		hasParamsAndFields,
-		destructure,
-		variadic,
-	}
 	StructDecl* struct_;
-	Reason reason;
+	DiagStructParamsSyntaxErrorReason reason;
 }
+enum DiagStructParamsSyntaxErrorReason { hasParamsAndFields, destructure, variadic }
 immutable struct DiagSharedArgIsNotLambda {}
 immutable struct DiagSharedLambdaTypeIsNotShared {
-	enum Kind { paramType, returnType }
-	Kind kind;
+	DiagSharedLambdaTypeIsNotSharedKind kind;
 	TypeWithContainer actual;
 }
+enum DiagSharedLambdaTypeIsNotSharedKind { paramType, returnType }
 immutable struct DiagSharedLambdaUnused {}
 immutable struct DiagSharedNotExpected {
-	enum Reason { notShared }
-	Reason reason;
 	ExpectedForDiag expected;
 }
-// spec did have a match, but there was an error
-immutable struct DiagSpecMatchError {
-	immutable struct Reason {
-		immutable struct MultipleMatches {
-			Symbol sigName;
-			Called[] matches;
-		}
-		mixin Union!(MultipleMatches);
-	}
+immutable struct DiagSpecMatchMultiple {
 	TypeContainer outermostTypeContainer;
-	Reason reason;
+	Symbol sigName;
+	Called[] matches;
 	FunDeclAndTypeArgs[] trace;
 }
 immutable struct DiagSpecNoMatch {
@@ -4386,23 +4362,17 @@ immutable struct DiagUnsupportedSyntax {
 	enum Reason { enumMemberMutability, enumMemberType }
 	Reason reason;
 }
-immutable struct DiagUnused {
-	immutable struct Kind {
-		immutable struct Import {
-			Module* importedModule;
-			Opt!Symbol importedName;
-		}
-		immutable struct Local {
-			.Local* local;
-			bool usedGet;
-			bool usedSet;
-		}
-		immutable struct PrivateDecl {
-			Symbol name;
-		}
-		mixin Union!(Import, Local, PrivateDecl);
-	}
-	Kind kind;
+immutable struct DiagUnusedImport {
+	Module* importedModule;
+	Opt!Symbol importedName;
+}
+immutable struct DiagUnusedLocal {
+	Local* local;
+	bool usedGet;
+	bool usedSet;
+}
+immutable struct DiagUnusedPrivateDecl {
+	Symbol name;
 }
 immutable struct DiagVarargsParamMustBeArray {}
 immutable struct DiagMethodImplVisibility {

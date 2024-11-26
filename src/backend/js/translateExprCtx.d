@@ -531,7 +531,7 @@ private ExprResult translateCallBuiltin(
 	ExprResult expr(JsExpr value) =>
 		forceExpr(ctx.alloc, pos, returnType, value);
 	return a.matchIn!ExprResult(
-		(in BuiltinFun.AllTests) {
+		(in BuiltinFunAllTests) {
 			assert(nArgs == 0);
 			return expr(translateAllTests(ctx.ctx, source));
 		},
@@ -559,10 +559,10 @@ private ExprResult translateCallBuiltin(
 			assert(false),
 		(in Builtin4ary x) =>
 			assert(false),
-		(in BuiltinFun.CallLambda) =>
+		(in BuiltinFunCallLambda) =>
 			expr(genCallAwait(ctx.alloc, source, getArg(0), [
 				genTuple(ctx, source, nArgs - 1, (size_t i) => getArg(i + 1))])),
-		(in BuiltinFun.CallFunPointer) =>
+		(in BuiltinFunCallFunPointer) =>
 			expr(genCallAwait(
 				ctx.alloc,
 				source,
@@ -572,31 +572,31 @@ private ExprResult translateCallBuiltin(
 			assert(nArgs == 0);
 			return expr(translateConstant(ctx.ctx, source, x, returnType));
 		},
-		(in BuiltinFun.GcSafeValue) {
+		(in BuiltinFunGcSafeValue) {
 			assert(nArgs == 0);
 			return expr(genNull(source));
 		},
-		(in BuiltinFun.Init) =>
+		(in BuiltinFunInit) =>
 			assert(false),
 		(in JsFun x) =>
 			translateCallJsFun(ctx.ctx, source, returnType, pos, x, nArgs, getArg),
-		(in BuiltinFun.MarkRoot) =>
+		(in BuiltinFunMarkRoot) =>
 			assert(false),
-		(in BuiltinFun.MarkVisit) =>
+		(in BuiltinFunMarkVisit) =>
 			assert(false),
-		(in BuiltinFun.NewEmptyOption) {
+		(in BuiltinFunNewEmptyOption) {
 			assert(nArgs == 0);
 			return expr(genOptionNone(source));
 		},
-		(in BuiltinFun.NewNonEmptyOption) {
+		(in BuiltinFunNewNonEmptyOption) {
 			assert(nArgs == 1);
 			return expr(genOptionSome(ctx.alloc, source, getArg(0)));
 		},
-		(in BuiltinFun.PointerCast) =>
+		(in BuiltinFunPointerCast) =>
 			assert(false),
-		(in BuiltinFun.SizeOf) =>
+		(in BuiltinFunSizeOf) =>
 			assert(false),
-		(in BuiltinFun.StaticSymbols) =>
+		(in BuiltinFunStaticSymbols) =>
 			assert(false),
 		(in VersionFun x) {
 			assert(nArgs == 0);

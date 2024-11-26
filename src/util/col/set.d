@@ -7,7 +7,7 @@ import util.col.mutSet : MutSet;
 immutable struct Set(T) {
 	@safe @nogc pure nothrow:
 
-	private MutSet!(T) inner;
+	private MutSet!T inner;
 
 	bool opBinaryRight(string op)(in T x) scope if (op == "in") =>
 		x in inner;

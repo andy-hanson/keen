@@ -21,7 +21,7 @@ import model.model :
 	Diag,
 	DiagCallMissingExtern,
 	DiagCantCall,
-	DiagSpecMatchError,
+	DiagSpecMatchMultiple,
 	DiagSpecNoMatch,
 	FunDecl,
 	FunDeclAndTypeArgs,
@@ -104,7 +104,7 @@ Called checkSpecSingleSigIgnoreParents2(
 	CheckSpecsCtx checkSpecsCtx = CheckSpecsCtx(ctx.allocPtr, ctx.instantiateCtx, castNonScope_ref(funsInScope));
 	return withRealTrace!Called(ctx, caller, diagRange, (scope RealTrace* trace) =>
 		withExactStackArray!(Called, Called)(countSigs(*spec), (scope ref SpecImpls specImpls) {
-			Opt!(DiagSpecNoMatch) diag = checkSpecImplInner!(RealTrace*)(specImpls, checkSpecsCtx, trace, *spec);
+			Opt!DiagSpecNoMatch diag = checkSpecImplInner!(RealTrace*)(specImpls, checkSpecsCtx, trace, *spec);
 			assert(spec.sigTypes.length == 1);
 			if (has(diag)) {
 				addDiag(ctx, diagRange, Diag(force(diag)));
@@ -277,12 +277,13 @@ T withTrace(T)(
 	return res;
 }
 
-void specMatchError(ref CheckSpecsCtx ctx, scope DummyTrace, DiagSpecMatchError.Reason) {
+void specMatchError(ref CheckSpecsCtx ctx, scope DummyTrace, Symbol name, Called[] matches) {
 	ctx.hasErrors = true;
 }
-void specMatchError(ref CheckSpecsCtx ctx, scope RealTrace* a, DiagSpecMatchError.Reason reason) {
+void specMatchError(ref CheckSpecsCtx ctx, scope RealTrace* a, Symbol name, Called[] matches) {
 	ctx.hasErrors = true;
-	addDiag(*a.ctx, a.range, Diag(DiagSpecMatchError(a.typeContainer, reason, newArray(a.ctx.alloc, a.trace.soFar))));
+	addDiag(*a.ctx, a.range, Diag(
+		DiagSpecMatchMultiple(a.typeContainer, name, matches, newArray(a.ctx.alloc, a.trace.soFar))));
 }
 
 DummyTrace.NoMatch specNoMatch(scope DummyTrace, DiagSpecNoMatch.Reason) =>
@@ -388,8 +389,7 @@ Trace.Result findSpecSigImplementation(Trace)(
 	if (has(cellGet(res))) {
 		if (hasMultipleMatches(trace, multipleMatches)) {
 			addMultipleMatch(ctx, trace, multipleMatches, force(cellGet(res)));
-			specMatchError(ctx, trace, DiagSpecMatchError.Reason(DiagSpecMatchError.Reason.MultipleMatches(
-				sigDecl.name, finishMultipleMatches(ctx, trace, multipleMatches))));
+			specMatchError(ctx, trace, sigDecl.name, finishMultipleMatches(ctx, trace, multipleMatches));
 		}
 		return Trace.Result(force(cellGet(res)));
 	} else

@@ -177,6 +177,9 @@ import model.model :
 	BuiltinBinaryLazy,
 	BuiltinBinaryMath,
 	BuiltinFun,
+	BuiltinFunInit,
+	BuiltinFunMarkVisit,
+	BuiltinFunMarkRoot,
 	BuiltinTernary,
 	BuiltinType,
 	BuiltinUnary,
@@ -450,13 +453,13 @@ AllLowFuns getAllLowFuns(
 	foreach (ConcreteFun* fun; program.allFuns) {
 		Opt!LowFunIndex opIndex = fun.body_.match!(Opt!LowFunIndex)(
 			(ConcreteFunBody.Builtin x) {
-				if (x.kind.isA!(BuiltinFun.MarkRoot)) {
+				if (x.kind.isA!BuiltinFunMarkRoot) {
 					Opt!MarkRoot res = getMarkRootForType(
 						getLowTypeCtx.alloc, lowFunCauses, markVisitFuns,
 						lowTypeFromConcreteType(getLowTypeCtx, only(x.typeArgs)));
 					return optIf(has(res), () =>
 						force(res).fun);
-				} else if (x.kind.isA!(BuiltinFun.MarkVisit)) {
+				} else if (x.kind.isA!BuiltinFunMarkVisit) {
 					if (!lateIsSet(markCtxTypeLate))
 						lateSet(markCtxTypeLate, lowTypeFromConcreteType(
 							getLowTypeCtx,
@@ -705,7 +708,7 @@ LowFunBody getLowFunBody(
 	if (a.body_.isA!(ConcreteFunBody.Extern)) {
 		return LowFunBody(LowFunBody.Extern(a.body_.as!(ConcreteFunBody.Extern).libraryName));
 	} else {
-		ConcreteExpr expr = a.body_.as!(ConcreteExpr);
+		ConcreteExpr expr = a.body_.as!ConcreteExpr;
 		GetLowExprCtx exprCtx = GetLowExprCtx(
 			ptrTrustMe(showCtx),
 			thisFunIndex,
@@ -1100,12 +1103,12 @@ bool mayHaveSideEffects(in LowExpr a) =>
 	!neverHasSideEffects(a);
 bool neverHasSideEffects(in LowExpr a) =>
 	a.kind.isA!Constant ||
-	a.kind.isA!(LocalGetLowExpr) ||
-	(a.kind.isA!(CreateRecordLowExpr) &&
-		every!LowExpr(a.kind.as!(CreateRecordLowExpr).args, (in LowExpr x) => neverHasSideEffects(x))) ||
-	(a.kind.isA!(SpecialUnaryLowExpr) &&
-		a.kind.as!(SpecialUnaryLowExpr).kind == BuiltinUnary.deref &&
-		neverHasSideEffects(a.kind.as!(SpecialUnaryLowExpr).arg));
+	a.kind.isA!LocalGetLowExpr ||
+	(a.kind.isA!CreateRecordLowExpr &&
+		every!LowExpr(a.kind.as!CreateRecordLowExpr.args, (in LowExpr x) => neverHasSideEffects(x))) ||
+	(a.kind.isA!SpecialUnaryLowExpr &&
+		a.kind.as!SpecialUnaryLowExpr.kind == BuiltinUnary.deref &&
+		neverHasSideEffects(a.kind.as!SpecialUnaryLowExpr.arg));
 
 LowExpr getCallExpr(
 	ref GetLowExprCtx ctx,
@@ -1153,7 +1156,7 @@ LowExpr getCallRegular(
 		MutArr!UpdateParam updateParams;
 		zipPtrFirst(ctx.lowParams, args, (LowLocal* param, ref ConcreteExpr concreteArg) {
 			LowExpr arg = getLowExpr(ctx, locals, concreteArg, ExprPos.nonTail);
-			if (!(arg.kind.isA!(LocalGetLowExpr) && arg.kind.as!(LocalGetLowExpr).local == param))
+			if (!(arg.kind.isA!LocalGetLowExpr && arg.kind.as!LocalGetLowExpr.local == param))
 				push(ctx.alloc, updateParams, UpdateParam(param, arg));
 		});
 		if (mutArrIsEmpty(updateParams))
@@ -1242,8 +1245,8 @@ LowExpr callFunPointerInner(
 	Opt!(SmallArray!LowType) optArgTypes = tryUnpackTuple(ctx.alloc, arg.type);
 	if (has(optArgTypes)) {
 		SmallArray!LowType argTypes = force(optArgTypes);
-		return arg.kind.isA!(CreateRecordLowExpr)
-			? doCall(funPtr, small!LowExpr(arg.kind.as!(CreateRecordLowExpr).args))
+		return arg.kind.isA!CreateRecordLowExpr
+			? doCall(funPtr, small!LowExpr(arg.kind.as!CreateRecordLowExpr.args))
 			: argTypes.length == 0
 			// Making sure the side effect order is function then arg
 			? genLetTempConstNoGcRoot(ctx, range, funPtr, (LowExpr getFunPointer) =>
@@ -1277,7 +1280,7 @@ LowExpr getCallBuiltinExpr(
 	LowExpr getArg3() =>
 		getArg(args[3]);
 	return kind.match!LowExpr(
-		(BuiltinFun.AllTests) =>
+		(BuiltinFunAllTests) =>
 			assert(false), // handled in concretize
 		(BuiltinUnary kind) {
 			assert(args.length == 1);
@@ -1323,39 +1326,39 @@ LowExpr getCallBuiltinExpr(
 			assert(args.length == 4);
 			return gen4ary(ctx.alloc, type, range, kind, getArg0, getArg1, getArg2, getArg3);
 		},
-		(BuiltinFun.CallLambda) =>
+		(BuiltinFunCallLambda) =>
 			assert(false), // handled in concretize
-		(BuiltinFun.CallFunPointer) =>
+		(BuiltinFunCallFunPointer) =>
 			callFunPointer(ctx, ExprPos.nonTail, locals, range, type, only2(args)),
 		(Constant x) =>
 			LowExpr(type, range, LowExprKind(x)),
-		(BuiltinFun.GcSafeValue) =>
+		(BuiltinFunGcSafeValue) =>
 			// handled in concretize
 			assert(false),
-		(BuiltinFun.Init x) =>
+		(BuiltinFunInit x) =>
 			LowExpr(type, range, LowExprKind(InitLowExpr(x.kind))),
 		(JsFun _) =>
 			assert(false),
-		(BuiltinFun.MarkRoot) =>
+		(BuiltinFunMarkRoot) =>
 			// Handled in getAllLowFuns
 			assert(false),
-		(BuiltinFun.MarkVisit) =>
+		(BuiltinFunMarkVisit) =>
 			// Handled in getAllLowFuns
 			assert(false),
-		(BuiltinFun.NewEmptyOption) =>
+		(BuiltinFunNewEmptyOption) =>
 			assert(false),
-		(BuiltinFun.NewNonEmptyOption) =>
+		(BuiltinFunNewNonEmptyOption) =>
 			assert(false),
-		(BuiltinFun.PointerCast) {
+		(BuiltinFunPointerCast) {
 			assert(args.length == 1);
 			return genPointerCast(ctx.alloc, type, range, getArg0);
 		},
-		(BuiltinFun.SizeOf) {
+		(BuiltinFunSizeOf) {
 			LowType typeArg =
 				lowTypeFromConcreteType(ctx.typeCtx, only(called.body_.as!(ConcreteFunBody.Builtin).typeArgs));
 			return genSizeOf(ctx.allTypes, range, typeArg);
 		},
-		(BuiltinFun.StaticSymbols) =>
+		(BuiltinFunStaticSymbols) =>
 			LowExpr(type, range, LowExprKind(ctx.staticSymbols)),
 		(VersionFun _) =>
 			// handled in concretize
@@ -1483,7 +1486,7 @@ bool expressionMayYield(in GetLowExprCtx ctx, in ConcreteExpr a) =>
 		isYieldingCall(ctx, a) || existsDirectChildExpr(a, (ref ConcreteExpr child) => expressionMayYield(ctx, child)));
 
 bool isYieldingCall(in GetLowExprCtx ctx, in ConcreteExpr a) =>
-	a.kind.isA!(CallConcreteExpr) && a.kind.as!(CallConcreteExpr).called in ctx.concreteProgram.yieldingFuns;
+	a.kind.isA!CallConcreteExpr && a.kind.as!CallConcreteExpr.called in ctx.concreteProgram.yieldingFuns;
 
 LowExpr getMatchIntegralExpr(
 	ref GetLowExprCtx ctx,

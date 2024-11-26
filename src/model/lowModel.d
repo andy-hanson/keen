@@ -16,6 +16,7 @@ import model.constant : Constant;
 import model.model :
 	Builtin4ary,
 	BuiltinFun,
+	BuiltinFunInitKind,
 	BuiltinType,
 	BuiltinUnary,
 	BuiltinUnaryMath,
@@ -491,7 +492,7 @@ immutable struct IfLowExpr {
 }
 
 immutable struct InitLowExpr {
-	BuiltinFun.Init.Kind kind;
+	BuiltinFunInitKind kind;
 }
 
 immutable struct LetLowExpr {

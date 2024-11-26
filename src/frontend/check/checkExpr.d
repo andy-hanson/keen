@@ -168,11 +168,12 @@ import model.model :
 	DiagPointerUnsupported,
 	DiagSharedArgIsNotLambda,
 	DiagSharedLambdaTypeIsNotShared,
+	DiagSharedLambdaTypeIsNotSharedKind,
 	DiagSharedLambdaUnused,
 	DiagSharedNotExpected,
 	DiagStringLiteralInvalid,
 	DiagTypeAnnotationUnnecessary,
-	DiagUnused,
+	DiagUnusedLocal,
 	DiagWithHasElse,
 	emptySpecs,
 	emptyTypeParams,
@@ -517,7 +518,7 @@ Expr checkThrow(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ThrowAs
 		return Expr(source, ExprKind(allocate(ctx.alloc, ThrowExpr(
 			checkAndExpect(ctx, locals, &ast.thrown, Type(ctx.commonTypes.exception))))));
 	else {
-		addDiag2(ctx, source, Diag(DiagNeedsExpectedType(DiagNeedsExpectedType.Kind.throw_)));
+		addDiag2(ctx, source, Diag(DiagNeedsExpectedType.throw_));
 		return bogus(expected, source);
 	}
 }
@@ -1095,14 +1096,13 @@ void addUnusedLocalDiags(ref ExprCtx ctx, Local* local, scope ref LocalNode node
 	bool isGot = node.isUsed[LocalAccessKind.getOnStack] || node.isUsed[LocalAccessKind.getThroughClosure];
 	bool isSet = node.isUsed[LocalAccessKind.setOnStack] || node.isUsed[LocalAccessKind.setThroughClosure];
 	if (!isGot || (!isSet && local.isMutable))
-		addDiag2(ctx, localMustHaveNameRange(*local), Diag(
-			DiagUnused(DiagUnused.Kind(DiagUnused.Kind.Local(local, isGot, isSet)))));
+		addDiag2(ctx, localMustHaveNameRange(*local), Diag(DiagUnusedLocal(local, isGot, isSet)));
 }
 
 Expr checkPointer(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, PtrAst* ast, ref Expected expected) =>
 	getExpectedPointee(ctx, expected).match!Expr(
 		(ExpectedPointeeNone _) {
-			addDiag2(ctx, source, Diag(DiagNeedsExpectedType(DiagNeedsExpectedType.Kind.pointer)));
+			addDiag2(ctx, source, Diag(DiagNeedsExpectedType.pointer));
 			return bogus(expected, source);
 		},
 		(ExpectedPointeeFunPointer x) =>
@@ -1358,7 +1358,7 @@ Expr checkShared(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, Shared
 
 	ExpectedLambdaType et = force(opEt);
 	if (et.funType.kind != FunKind.shared_) {
-		diag(Diag(DiagSharedNotExpected(DiagSharedNotExpected.Reason.notShared, getExpectedForDiag(ctx, expected))));
+		diag(Diag(DiagSharedNotExpected(getExpectedForDiag(ctx, expected))));
 		return bogus(expected, source);
 	}
 
@@ -1374,10 +1374,10 @@ Expr checkShared(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, Shared
 
 	if (!isShared(ctx.outermostFunSpecs, et.instantiatedParamType))
 		diag(Diag(DiagSharedLambdaTypeIsNotShared(
-			DiagSharedLambdaTypeIsNotShared.Kind.paramType, typeWithContainer(ctx, et.instantiatedParamType))));
+			DiagSharedLambdaTypeIsNotSharedKind.paramType, typeWithContainer(ctx, et.instantiatedParamType))));
 	if (!isShared(ctx.outermostFunSpecs, res.returnType))
 		diag(Diag(DiagSharedLambdaTypeIsNotShared(
-			DiagSharedLambdaTypeIsNotShared.Kind.returnType, typeWithContainer(ctx, res.returnType))));
+			DiagSharedLambdaTypeIsNotSharedKind.returnType, typeWithContainer(ctx, res.returnType))));
 
 	bool allShared = every!VariableRef(res.expr.kind.as!(LambdaExpr*).closure, (in VariableRef x) =>
 		x.mutability.isImmutable && isShared(ctx.outermostFunSpecs, x.type));
@@ -1495,7 +1495,7 @@ Expr checkLoop(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, LoopAst*
 			addDiag2(ctx, ast.keywordRange(source), Diag(DiagLoopWithoutBreak()));
 		return Expr(source, ExprKind(castImmutable(loop)));
 	} else {
-		addDiag2(ctx, source, Diag(DiagNeedsExpectedType(DiagNeedsExpectedType.Kind.loop)));
+		addDiag2(ctx, source, Diag(DiagNeedsExpectedType.loop));
 		return bogus(expected, source);
 	}
 }
@@ -1768,7 +1768,7 @@ Opt!MatchSumTypeCase checkMatchSumTypeCase(
 	if (!has(optCaseType)) return none!MatchSumTypeCase;
 	StructInst* caseType = force(optCaseType);
 
-	ref Opt!DestructureAst destructureAst() => memberAst.as!(AsNameAst).destructure;
+	ref Opt!DestructureAst destructureAst() => memberAst.as!AsNameAst.destructure;
 	Destructure destructure = () {
 		if (has(destructureAst))
 			return checkDestructure2(ctx, &force(destructureAst), Type(caseType), DestructureKind.local);
@@ -1935,7 +1935,7 @@ Expr checkMatchChar(
 		MatchIntegralExpr(MatchIntegralExpr.Kind(charType), matched, cases, else_))));
 }
 
-Opt!(IntegralType) optAsIntegralType(BuiltinType x) {
+Opt!IntegralType optAsIntegralType(BuiltinType x) {
 	switch (x) {
 		case BuiltinType.int8:
 			return some(IntegralType.int8);
@@ -2132,8 +2132,8 @@ Opt!string stringFromCaseAst(ref ExprCtx ctx, CaseMemberAst ast) =>
 			none!string);
 
 Opt!(AsNameAst*) nameFromCaseMemberAst(ref ExprCtx ctx, CaseMemberAst* ast) {
-	Opt!(AsNameAst*) res = ast.isA!(AsNameAst)
-		? some(&ast.as!(AsNameAst)())
+	Opt!(AsNameAst*) res = ast.isA!AsNameAst
+		? some(&ast.as!AsNameAst())
 		: none!(AsNameAst*);
 	if (!has(res))
 		addDiag2(ctx, ast.nameRange, Diag(DiagMatchCaseForType(DiagMatchCaseForType.Kind.enumOrUnion)));
@@ -2197,7 +2197,7 @@ bool hasBreakOrContinue(in ExprAst a) =>
 		(in LoopWhileOrUntilAst x) =>
 			hasBreakOrContinue(x.after),
 		(in MatchAst x) =>
-			exists!(CaseAst)(x.cases, (in CaseAst case_) =>
+			exists!CaseAst(x.cases, (in CaseAst case_) =>
 				hasBreakOrContinue(case_.then)),
 		(in ParenthesizedAst _) =>
 			false,
@@ -2232,7 +2232,7 @@ Expr checkFor(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ForAst* a
 
 Expr checkWith(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, WithAst* ast, ref Expected expected) {
 	Range keywordRange = ast.withKeywordRange(*source);
-	if (!ast.else_.kind.isA!(EmptyAst))
+	if (!ast.else_.kind.isA!EmptyAst)
 		addDiag2(ctx, keywordRange, Diag(DiagWithHasElse()));
 	return checkCallArgAndLambda!(checkExpr, checkLambda)(
 		ctx, locals, source, keywordRange, symbol!"with-block", &ast.arg, &ast.param, &ast.body_, expected);

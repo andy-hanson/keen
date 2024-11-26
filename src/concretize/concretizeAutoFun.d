@@ -62,6 +62,7 @@ import model.constant : Constant;
 import model.model :
 	asUnion,
 	AutoFun,
+	AutoFunKind,
 	Called,
 	EnumOrFlagsMember,
 	FlagsFunction,
@@ -98,7 +99,7 @@ ConcreteExpr concretizeAutoFun(ref ConcretizeExprCtx ctx, ref AutoFun a) {
 		genParamGet(ctx.curFun.range, &ctx.curFun.params[1]);
 	UriAndRange range() => ctx.curFun.range;
 	final switch (a.kind) {
-		case AutoFun.Kind.compare:
+		case AutoFunKind.compare:
 			ConcreteExpr compareIntegral(IntegralType storage) =>
 				genCompareIntegral(
 					ctx.concretizeCtx,
@@ -117,18 +118,18 @@ ConcreteExpr concretizeAutoFun(ref ConcretizeExprCtx ctx, ref AutoFun a) {
 					concretizeCompareRecord(ctx, x.fields, a.members),
 				(ConcreteStructBody.Union x) =>
 					concretizeCompareUnion(ctx, x.members, a.members));
-		case AutoFun.Kind.enumOrFlagsMembers:
+		case AutoFunKind.enumOrFlagsMembers:
 			Constant[] elements = map(
 				ctx.alloc,
 				enumOrFlagsMembers(arrayElementType(ctx.curFun.returnType)),
 				(ref EnumOrFlagsMember member) => Constant(member.value));
 			Constant res = getConstantArray(ctx.alloc, ctx.allConstants, mustBeByVal(ctx.curFun.returnType), elements);
 			return ConcreteExpr(ctx.curFun.returnType, range, ConcreteExprKind(res));
-		case AutoFun.Kind.enumOrFlagsToIntegral:
+		case AutoFunKind.enumOrFlagsToIntegral:
 			return genCast(ctx.alloc, ctx.curFun.returnType, range, param0());
-		case AutoFun.Kind.enumToSymbol:
+		case AutoFunKind.enumToSymbol:
 			return concretizeEnumToSymbol(ctx);
-		case AutoFun.Kind.equals:
+		case AutoFunKind.equals:
 			return handleEnumFlagsRecordOrUnion(
 				sameType(ctx.curFun.params),
 				(StructBody.Enum x) =>
@@ -139,13 +140,13 @@ ConcreteExpr concretizeAutoFun(ref ConcretizeExprCtx ctx, ref AutoFun a) {
 					concretizeEqualRecord(ctx, x.fields, a.members),
 				(ConcreteStructBody.Union x) =>
 					concretizeEqualUnion(ctx, x.members, a.members));
-		case AutoFun.Kind.flagsToSymbolArray:
+		case AutoFunKind.flagsToSymbolArray:
 			return concretizeFlagsToSymbolArray(ctx);
-		case AutoFun.Kind.integralToOptEnumOrFlags:
+		case AutoFunKind.integralToOptEnumOrFlags:
 			return concretizeIntegralToOptEnumOrFlags(ctx);
-		case AutoFun.Kind.symbolToOptEnumOrFlags:
+		case AutoFunKind.symbolToOptEnumOrFlags:
 			return concretizeSymbolToOptEnumOrFlags(ctx);
-		case AutoFun.Kind.toJson:
+		case AutoFunKind.toJson:
 			return handleEnumFlagsRecordOrUnion(
 				only(ctx.curFun.params).type,
 				(StructBody.Enum x) =>

@@ -5,7 +5,7 @@ module concretize.gatherInfo;
 import model.concreteModel :
 	CallConcreteExpr, ConcreteCommonFuns, ConcreteExpr, ConcreteFun, ConcreteFunBody, existsDirectChildExpr;
 import model.constant : Constant;
-import model.model : BuiltinBinary, BuiltinFun;
+import model.model : BuiltinBinary, BuiltinFun, BuiltinFunCallLambda;
 import util.alloc.alloc : Alloc, withTempAlloc;
 import util.col.array : mustFind;
 import util.col.mutArr : mustPop, MutArr, mutArrIsEmpty, push;
@@ -51,7 +51,7 @@ private:
 bool isSwitchFiber(in ConcreteFun a) {
 	if (a.body_.isA!(ConcreteFunBody.Builtin)) {
 		ConcreteFunBody.Builtin builtin = a.body_.as!(ConcreteFunBody.Builtin);
-		return builtin.kind.isA!(BuiltinBinary) && builtin.kind.as!(BuiltinBinary) == BuiltinBinary.switchFiber;
+		return builtin.kind.isA!BuiltinBinary && builtin.kind.as!BuiltinBinary == BuiltinBinary.switchFiber;
 	} else
 		return false;
 }
@@ -64,7 +64,7 @@ CalledBy buildCalledBy(ref Alloc alloc, in immutable ConcreteFun*[] allConcreteF
 	foreach (ConcreteFun* fun; allConcreteFuns)
 		fun.body_.match!void(
 			(ConcreteFunBody.Builtin x) {
-				assert(!x.kind.isA!(BuiltinFun.CallLambda));
+				assert(!x.kind.isA!BuiltinFunCallLambda);
 			},
 			(ConcreteFunBody.Extern) {},
 			(ConcreteExpr x) {
@@ -78,8 +78,8 @@ CalledBy buildCalledBy(ref Alloc alloc, in immutable ConcreteFun*[] allConcreteF
 }
 
 void buildCalledByRecur(ref Alloc alloc, ref CalledBy res, ConcreteFun* f, ref ConcreteExpr expr) {
-	if (expr.kind.isA!(CallConcreteExpr))
-		add(alloc, res, expr.kind.as!(CallConcreteExpr).called, f);
+	if (expr.kind.isA!CallConcreteExpr)
+		add(alloc, res, expr.kind.as!CallConcreteExpr.called, f);
 	existsDirectChildExpr(expr, (ref ConcreteExpr child) {
 		buildCalledByRecur(alloc, res, f, child);
 		return false;

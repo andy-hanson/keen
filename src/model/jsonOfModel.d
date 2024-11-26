@@ -17,6 +17,9 @@ import model.model :
 	BuiltinBinaryLazy,
 	BuiltinBinaryMath,
 	BuiltinFun,
+	BuiltinFunCallFunPointer,
+	BuiltinFunInit,
+	BuiltinFunInitKind,
 	BuiltinSpec,
 	BuiltinTernary,
 	BuiltinType,
@@ -150,7 +153,7 @@ Json jsonOfModule(ref Alloc alloc, in LineAndColumnGetter lcg, in Module a) {
 
 Json jsonOfBuiltin(ref Alloc alloc, in BuiltinFun a) =>
 	a.matchIn!Json(
-		(in BuiltinFun.AllTests) =>
+		(in BuiltinFunAllTests) =>
 			jsonString!"all-tests",
 		(in BuiltinUnary x) =>
 			jsonString(stringOfEnum(x)),
@@ -166,37 +169,37 @@ Json jsonOfBuiltin(ref Alloc alloc, in BuiltinFun a) =>
 			jsonString(stringOfEnum(x)),
 		(in Builtin4ary x) =>
 			jsonString(stringOfEnum(x)),
-		(in BuiltinFun.CallLambda) =>
+		(in BuiltinFunCallLambda) =>
 			jsonString!"call-lambda",
-		(in BuiltinFun.CallFunPointer x) =>
+		(in BuiltinFunCallFunPointer x) =>
 			jsonString!"call-fun-pointer",
 		(in Constant x) =>
 			jsonOfConstant(alloc, x),
-		(in BuiltinFun.GcSafeValue) =>
+		(in BuiltinFunGcSafeValue) =>
 			jsonString!"gc-safe-value",
-		(in BuiltinFun.Init x) {
+		(in BuiltinFunInit x) {
 			final switch (x.kind) {
-				case BuiltinFun.Init.Kind.global:
+				case BuiltinFunInitKind.global:
 					return jsonString!"init-global";
-				case BuiltinFun.Init.Kind.perThread:
+				case BuiltinFunInitKind.perThread:
 					return jsonString!"init-per-thread";
 			}
 		},
 		(in JsFun x) =>
 			jsonString(stringOfEnum(x)),
-		(in BuiltinFun.MarkRoot) =>
+		(in BuiltinFunMarkRoot) =>
 			jsonString!"mark-root",
-		(in BuiltinFun.MarkVisit) =>
+		(in BuiltinFunMarkVisit) =>
 			jsonString!"mark-visit",
-		(in BuiltinFun.NewEmptyOption) =>
+		(in BuiltinFunNewEmptyOption) =>
 			jsonString!"new-empty-option",
-		(in BuiltinFun.NewNonEmptyOption) =>
+		(in BuiltinFunNewNonEmptyOption) =>
 			jsonString!"new-non-empty-option",
-		(in BuiltinFun.PointerCast) =>
+		(in BuiltinFunPointerCast) =>
 			jsonString!"pointer-cast",
-		(in BuiltinFun.SizeOf) =>
+		(in BuiltinFunSizeOf) =>
 			jsonString!"size-of",
-		(in BuiltinFun.StaticSymbols) =>
+		(in BuiltinFunStaticSymbols) =>
 			jsonString!"static-symbols",
 		(in VersionFun x) =>
 			jsonString(stringOfEnum(x)));
@@ -826,7 +829,7 @@ Json jsonOfCalledSpecSig(ref Alloc alloc, in Ctx ctx, in CalledSpecSig a) =>
 		field!"name"(a.name)]);
 
 Json jsonOfMatchSumTypeCases(ref Alloc alloc, in Ctx ctx, in MatchSumTypeCase[] cases) =>
-	jsonList!(MatchSumTypeCase)(alloc, cases, (in MatchSumTypeCase x) =>
+	jsonList!MatchSumTypeCase(alloc, cases, (in MatchSumTypeCase x) =>
 		jsonOfMatchSumTypeCase(alloc, ctx, x));
 
 Json jsonOfMatchSumTypeCase(ref Alloc alloc, in Ctx ctx, in MatchSumTypeCase a) =>

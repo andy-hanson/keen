@@ -25,10 +25,12 @@ import model.model :
 	asTuple,
 	CommonTypes,
 	Destructure,
+	DestructureExpectedTuple,
+	DestructureExpectedType,
 	DestructureIgnoreSource,
 	Diag,
 	DiagAliasNotAllowed,
-	DiagAutoFunError,
+	DiagAutoFunSpecFromWrongModule,
 	DiagDestructureTypeMismatch,
 	DiagDuplicateDeclaration,
 	DiagDuplicateImports,
@@ -414,7 +416,7 @@ Opt!(SpecDecl*) getSpecFromCommonModule(
 	Opt!(SpecDecl*) spec = tryFindSpec(ctx, NameAndRange(diagRange.start, name), specsMap);
 	if (has(spec)) {
 		if (force(spec).moduleUri != ctx.commonUris[expectedModule]) {
-			addDiag(ctx, diagRange, Diag(DiagAutoFunError(DiagAutoFunError.SpecFromWrongModule())));
+			addDiag(ctx, diagRange, Diag(DiagAutoFunSpecFromWrongModule()));
 			return none!(SpecDecl*);
 		} else
 			return spec;
@@ -484,7 +486,7 @@ Destructure checkDestructure(
 			if (has(destructuredType) && force(destructuredType) != force(declaredType))
 				addDiag(ctx, ast.range, Diag(
 					DiagDestructureTypeMismatch(
-						DiagDestructureTypeMismatch.Expected(typeWithContainer(force(declaredType))),
+						DestructureExpectedType(typeWithContainer(force(declaredType))),
 						typeWithContainer(force(destructuredType)))));
 			return force(declaredType);
 		} else if (has(destructuredType))
@@ -505,7 +507,7 @@ Destructure checkDestructure(
 				if (has(x.mut))
 					addDiag(ctx, ast.range, Diag(DiagLocalIgnoredButMutable()));
 				return Destructure(allocate(ctx.alloc, Destructure.Ignore(
-					DestructureIgnoreSource(&ast.as!(SingleDestructureAst)()), x.name.start, type)));
+					DestructureIgnoreSource(&ast.as!SingleDestructureAst()), x.name.start, type)));
 			} else {
 				LocalMutability mutability = () {
 					if (has(x.mut) && kind == DestructureKind.param) {
@@ -516,13 +518,13 @@ Destructure checkDestructure(
 						return has(x.mut) ? LocalMutability.mutableOnStack : LocalMutability.immutable_;
 				}();
 				return Destructure(allocate(ctx.alloc,
-					Local(LocalSource(&ast.as!(SingleDestructureAst)()), mutability, type)));
+					Local(LocalSource(&ast.as!SingleDestructureAst()), mutability, type)));
 			}
 		},
 		(VoidDestructureAst x) {
 			Type type = getType(some(Type(commonTypes.void_)));
 			return Destructure(allocate(ctx.alloc, Destructure.Ignore(
-				DestructureIgnoreSource(&ast.as!(VoidDestructureAst)()), x.range.start, type)));
+				DestructureIgnoreSource(&ast.as!VoidDestructureAst()), x.range.start, type)));
 		},
 		(DestructureAst[] partAsts) {
 			if (has(destructuredType)) {
@@ -539,8 +541,7 @@ Destructure checkDestructure(
 				else {
 					addDiag(ctx, ast.range, Diag(
 						DiagDestructureTypeMismatch(
-							DiagDestructureTypeMismatch.Expected(
-								DiagDestructureTypeMismatch.Expected.Tuple(partAsts.length)),
+							DestructureExpectedType(DestructureExpectedTuple(partAsts.length)),
 							typeWithContainer(tupleType))));
 					return Destructure(allocate(ctx.alloc, Destructure.Split(
 						tupleType,

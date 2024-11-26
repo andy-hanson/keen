@@ -81,6 +81,7 @@ import model.model :
 	DiagSpecUseInvalid,
 	DiagStorageMissingType,
 	DiagStructParamsSyntaxError,
+	DiagStructParamsSyntaxErrorReason,
 	DiagSumTypeListedMembersNonUnion,
 	DiagUnionMemberTypeParameter,
 	DiagUnsupportedSyntax,
@@ -321,8 +322,8 @@ private Opt!SumTypeMembership sumTypeMembershipFromModifier(
 	StructDecl* struct_,
 	ModifierAst* mod,
 ) {
-	if (mod.isA!(ModifierKeywordAst)) {
-		ModifierKeywordAst* kw = &mod.as!(ModifierKeywordAst)();
+	if (mod.isA!ModifierKeywordAst) {
+		ModifierKeywordAst* kw = &mod.as!ModifierKeywordAst();
 		if (kw.keyword == ModifierKeyword.case_) {
 			if (has(kw.typeArg)) {
 				Type type = typeFromAst(
@@ -548,7 +549,7 @@ StructModifierAsts accumulateStructModifiers(ref CheckCtx ctx, ModifierAst[] mod
 	MutOpt!(ModifierKeywordAst*) purityAndForced;
 	foreach (ref ModifierAst modifier; modifiers) {
 		if (isCommonModifier(modifier)) {
-			ModifierKeywordAst* kw = &modifier.as!(ModifierKeywordAst)();
+			ModifierKeywordAst* kw = &modifier.as!ModifierKeywordAst();
 			if (kw.keyword != ModifierKeyword.case_)
 				accumulateModifier(
 					ctx,
@@ -720,7 +721,7 @@ EnumOrFlagsMembers checkEnumOrFlagsMembers(
 ) {
 	if (has(paramsAst) && !isEmpty(memberAsts)) {
 		addDiag(ctx, struct_.nameRange.range, Diag(
-			DiagStructParamsSyntaxError(struct_, DiagStructParamsSyntaxError.Reason.hasParamsAndFields)));
+			DiagStructParamsSyntaxError(struct_, DiagStructParamsSyntaxErrorReason.hasParamsAndFields)));
 		return EnumOrFlagsMembers(
 			emptySmallArray!EnumOrFlagsMember,
 			HashTable!(EnumOrFlagsMember*, Symbol, nameOfEnumOrFlagsMember)());
@@ -754,7 +755,7 @@ EnumOrFlagsMembers checkEnumOrFlagsMembers(
 			ctx.alloc, members, (EnumOrFlagsMember* duplicate) {
 				addDiag(ctx, duplicate.nameRange.range, Diag(DiagDuplicateDeclaration(memberKind, duplicate.name)));
 			});
-	eachPair!(EnumOrFlagsMember)(members, (in EnumOrFlagsMember a, in EnumOrFlagsMember b) {
+	eachPair!EnumOrFlagsMember(members, (in EnumOrFlagsMember a, in EnumOrFlagsMember b) {
 		if (a.value == b.value)
 			addDiag(ctx, b.range, Diag(
 				DiagEnumDuplicateValue(isSigned(storage), b.value.value)));
@@ -777,7 +778,7 @@ SmallArray!EnumOrFlagsMember enumOrFlagsMembersFromParams(
 					enumMemberFromParam(ctx, enumOrFlags, x, cbValue(x.range, none!LiteralIntegralAndRange))),
 		(ref VarargsAst x) {
 			addDiag(ctx, x.param.range, Diag(
-				DiagStructParamsSyntaxError(enumOrFlags, DiagStructParamsSyntaxError.Reason.variadic)));
+				DiagStructParamsSyntaxError(enumOrFlags, DiagStructParamsSyntaxErrorReason.variadic)));
 			return emptySmallArray!EnumOrFlagsMember;
 		});
 
@@ -859,7 +860,7 @@ SmallArray!RecordField checkRecordFields(
 ) {
 	if (has(ast.params) && !isEmpty(ast.fields))
 		addDiag(ctx, struct_.nameRange.range, Diag(
-			DiagStructParamsSyntaxError(struct_, DiagStructParamsSyntaxError.Reason.hasParamsAndFields)));
+			DiagStructParamsSyntaxError(struct_, DiagStructParamsSyntaxErrorReason.hasParamsAndFields)));
 	SmallArray!RecordField res = has(ast.params)
 		? recordFieldsFromParams(ctx, commonTypes, structsAndAliasesMap, struct_, force(ast.params))
 		: mapPointers!(RecordField, RecordFieldAst)(
@@ -888,7 +889,7 @@ SmallArray!RecordField recordFieldsFromParams(
 					recordFieldFromParam(ctx, commonTypes, structsAndAliasesMap, struct_, param)),
 		(ref VarargsAst x) {
 			addDiag(ctx, x.param.range, Diag(
-				DiagStructParamsSyntaxError(struct_, DiagStructParamsSyntaxError.Reason.variadic)));
+				DiagStructParamsSyntaxError(struct_, DiagStructParamsSyntaxErrorReason.variadic)));
 			return emptySmallArray!RecordField;
 		});
 
@@ -898,8 +899,8 @@ Opt!EnumOrFlagsMember enumMemberFromParam(
 	DestructureAst* ast,
 	IntegralValue value,
 ) {
-	if (ast.isA!(SingleDestructureAst)) {
-		SingleDestructureAst* single = &ast.as!(SingleDestructureAst)();
+	if (ast.isA!SingleDestructureAst) {
+		SingleDestructureAst* single = &ast.as!SingleDestructureAst();
 		if (has(single.mut)) {
 			Opt!Range mutRange = single.mutRange;
 			addDiag(ctx, force(mutRange), Diag(
@@ -911,7 +912,7 @@ Opt!EnumOrFlagsMember enumMemberFromParam(
 		return some(EnumOrFlagsMember(EnumMemberSource(single), enum_, value));
 	} else {
 		addDiag(ctx, ast.range, Diag(
-			DiagStructParamsSyntaxError(enum_, DiagStructParamsSyntaxError.Reason.destructure)));
+			DiagStructParamsSyntaxError(enum_, DiagStructParamsSyntaxErrorReason.destructure)));
 		return none!EnumOrFlagsMember;
 	}
 }
@@ -923,8 +924,8 @@ Opt!RecordField recordFieldFromParam(
 	StructDecl* record,
 	DestructureAst* ast,
 ) {
-	if (ast.isA!(SingleDestructureAst)) {
-		SingleDestructureAst* single = &ast.as!(SingleDestructureAst)();
+	if (ast.isA!SingleDestructureAst) {
+		SingleDestructureAst* single = &ast.as!SingleDestructureAst();
 		return some(checkRecordField(
 			ctx, commonTypes, structsAndAliasesMap, record,
 			RecordFieldSource(single),
@@ -934,7 +935,7 @@ Opt!RecordField recordFieldFromParam(
 			has(single.type) ? some(*force(single.type)) : none!TypeAst));
 	} else {
 		addDiag(ctx, ast.range, Diag(
-			DiagStructParamsSyntaxError(record, DiagStructParamsSyntaxError.Reason.destructure)));
+			DiagStructParamsSyntaxError(record, DiagStructParamsSyntaxErrorReason.destructure)));
 		return none!RecordField;
 	}
 }
@@ -983,8 +984,8 @@ IntegralType checkEnumOrFlagsModifiers(
 	MutOpt!(ModifierKeywordAst*) storage;
 	foreach (ref ModifierAst modifier; modifiers) {
 		if (!isCommonModifier(modifier)) {
-			if (modifier.isA!(ModifierKeywordAst)) {
-				ModifierKeywordAst* x = &modifier.as!(ModifierKeywordAst)();
+			if (modifier.isA!ModifierKeywordAst) {
+				ModifierKeywordAst* x = &modifier.as!ModifierKeywordAst();
 				if (x.keyword == ModifierKeyword.storage) {
 					if (has(storage))
 						addDiag(ctx, x.keywordRange, Diag(DiagModifierDuplicate(ModifierKeyword.storage)));
@@ -1040,8 +1041,8 @@ RecordModifiers accumulateRecordModifiers(ref CheckCtx ctx, ModifierAst[] modifi
 	MutOpt!(ModifierKeywordAst*) packed;
 
 	foreach (ref ModifierAst modifier; modifiers) {
-		if (modifier.isA!(ModifierKeywordAst)) {
-			ModifierKeywordAst* x = &modifier.as!(ModifierKeywordAst)();
+		if (modifier.isA!ModifierKeywordAst) {
+			ModifierKeywordAst* x = &modifier.as!ModifierKeywordAst();
 			switch (x.keyword) {
 				case ModifierKeyword.byRef:
 				case ModifierKeyword.byVal:

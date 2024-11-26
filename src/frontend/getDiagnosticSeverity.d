@@ -7,7 +7,16 @@ import model.model :
 	DiagAliasNotAllowed,
 	DiagAssertOrForbidMessageIsThrow,
 	DiagAssignmentNotAllowed,
-	DiagAutoFunError,
+	DiagAutoFunBare,
+	DiagAutoFunEnumOrFlagsToWrongStorage,
+	DiagAutoFunParamNotSimple,
+	DiagAutoFunSpecCorrupt,
+	DiagAutoFunSpecFromWrongModule,
+	DiagAutoFunTypeNotFullyVisible,
+	DiagAutoFunWrongName,
+	DiagAutoFunWrongParams,
+	DiagAutoFunWrongParamType,
+	DiagAutoFunWrongReturnType,
 	DiagBuiltinFunCantHaveBody,
 	DiagBuiltinUnsupported,
 	DiagCallMissingExtern,
@@ -104,7 +113,7 @@ import model.model :
 	DiagSharedLambdaTypeIsNotShared,
 	DiagSharedLambdaUnused,
 	DiagSharedNotExpected,
-	DiagSpecMatchError,
+	DiagSpecMatchMultiple,
 	DiagSpecNoMatch,
 	DiagSpecRecursion,
 	DiagSpecSigCantBeVariadic,
@@ -123,7 +132,9 @@ import model.model :
 	DiagTypeShouldUseSyntax,
 	DiagUnionMemberTypeParameter,
 	DiagUnsupportedSyntax,
-	DiagUnused,
+	DiagUnusedImport,
+	DiagUnusedLocal,
+	DiagUnusedPrivateDecl,
 	DiagVarargsParamMustBeArray,
 	DiagVisibilityWarning,
 	DiagWithHasElse,
@@ -158,7 +169,25 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.warning,
 		(in DiagAssignmentNotAllowed _) =>
 			DiagnosticSeverity.checkError,
-		(in DiagAutoFunError _) =>
+		(in DiagAutoFunBare _) =>
+			DiagnosticSeverity.checkError,
+		(in DiagAutoFunEnumOrFlagsToWrongStorage _) =>
+			DiagnosticSeverity.checkError,
+		(in DiagAutoFunParamNotSimple _) =>
+			DiagnosticSeverity.checkError,
+		(in DiagAutoFunSpecCorrupt _) =>
+			DiagnosticSeverity.checkError,
+		(in DiagAutoFunSpecFromWrongModule _) =>
+			DiagnosticSeverity.checkError,
+		(in DiagAutoFunTypeNotFullyVisible _) =>
+			DiagnosticSeverity.checkError,
+		(in DiagAutoFunWrongName _) =>
+			DiagnosticSeverity.checkError,
+		(in DiagAutoFunWrongParams _) =>
+			DiagnosticSeverity.checkError,
+		(in DiagAutoFunWrongParamType _) =>
+			DiagnosticSeverity.checkError,
+		(in DiagAutoFunWrongReturnType _) =>
 			DiagnosticSeverity.checkError,
 		(in DiagBuiltinFunCantHaveBody _) =>
 			DiagnosticSeverity.checkError,
@@ -352,7 +381,7 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.unusedCode,
 		(in DiagSharedNotExpected _) =>
 			DiagnosticSeverity.checkError,
-		(in DiagSpecMatchError _) =>
+		(in DiagSpecMatchMultiple _) =>
 			DiagnosticSeverity.checkError,
 		(in DiagSpecNoMatch _) =>
 			DiagnosticSeverity.checkError,
@@ -390,7 +419,11 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.checkError,
 		(in DiagUnsupportedSyntax _) =>
 			DiagnosticSeverity.checkError,
-		(in DiagUnused _) =>
+		(in DiagUnusedImport _) =>
+			DiagnosticSeverity.unusedCode,
+		(in DiagUnusedLocal _) =>
+			DiagnosticSeverity.unusedCode,
+		(in DiagUnusedPrivateDecl _) =>
 			DiagnosticSeverity.unusedCode,
 		(in DiagVarargsParamMustBeArray _) =>
 			DiagnosticSeverity.checkError,

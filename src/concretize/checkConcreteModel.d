@@ -264,7 +264,7 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 
 void checkBuiltin(ref Ctx ctx, in ConcreteType type, in BuiltinConcreteExpr a) {
 	a.fun.match!void(
-		(BuiltinFun.AllTests) {
+		(BuiltinFunAllTests) {
 			assert(false);
 		},
 		(BuiltinUnary x) {
@@ -289,43 +289,43 @@ void checkBuiltin(ref Ctx ctx, in ConcreteType type, in BuiltinConcreteExpr a) {
 		(Builtin4ary _) {
 			assert(false);
 		},
-		(BuiltinFun.CallLambda) {
+		(BuiltinFunCallLambda) {
 			assert(false);
 		},
-		(BuiltinFun.CallFunPointer) {
+		(BuiltinFunCallFunPointer) {
 			assert(false);
 		},
 		(Constant _) {
 			assert(false);
 		},
-		(BuiltinFun.GcSafeValue) {
+		(BuiltinFunGcSafeValue) {
 			assert(false);
 		},
-		(BuiltinFun.Init) {
+		(BuiltinFunInit) {
 			assert(false);
 		},
 		(JsFun _) {
 			assert(false);
 		},
-		(BuiltinFun.MarkRoot) {
+		(BuiltinFunMarkRoot) {
 			assert(false);
 		},
-		(BuiltinFun.MarkVisit) {
+		(BuiltinFunMarkVisit) {
 			assert(false);
 		},
-		(BuiltinFun.NewEmptyOption) {
+		(BuiltinFunNewEmptyOption) {
 			assert(false);
 		},
-		(BuiltinFun.NewNonEmptyOption) {
+		(BuiltinFunNewNonEmptyOption) {
 			assert(false);
 		},
-		(BuiltinFun.PointerCast) {
+		(BuiltinFunPointerCast) {
 			assert(false);
 		},
-		(BuiltinFun.SizeOf) {
+		(BuiltinFunSizeOf) {
 			assert(false);
 		},
-		(BuiltinFun.StaticSymbols) {
+		(BuiltinFunStaticSymbols) {
 			assert(false);
 		},
 		(VersionFun _) {

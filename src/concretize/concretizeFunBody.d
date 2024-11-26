@@ -51,7 +51,20 @@ import model.concreteModel :
 	pointeeTypeIfIsPointer;
 import model.constant : Constant, constantZero;
 import model.model :
-	AutoFun, BuiltinFun, eachTest, Expr, FlagsFunction, FunBody, FunInst, ImportFileContent, Test, Type, VarDecl;
+	AutoFun,
+	BuiltinFun,
+	BuiltinFunAllTests,
+	BuiltinFunNewEmptyOption,
+	BuiltinFunNewNonEmptyOption,
+	eachTest,
+	Expr,
+	FlagsFunction,
+	FunBody,
+	FunInst,
+	ImportFileContent,
+	Test,
+	Type,
+	VarDecl;
 import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, isEmpty, mapPointers, newSmallArray, only, onlyPointer;
 import util.col.arrayBuilder : buildArray, Builder;
@@ -178,11 +191,11 @@ ConcreteFunBody concretizeBuiltinFun(
 	ConcreteLocal[] concreteParams,
 	BuiltinFun a,
 ) =>
-	a.isA!(BuiltinFun.AllTests)
+	a.isA!BuiltinFunAllTests
 		? bodyForAllTests(ctx, cf.returnType)
-		: a.isA!(BuiltinFun.NewEmptyOption)
+		: a.isA!BuiltinFunNewEmptyOption
 		? ConcreteFunBody(genNone(ctx, cf.returnType, cf.range))
-		: a.isA!(BuiltinFun.NewNonEmptyOption)
+		: a.isA!BuiltinFunNewNonEmptyOption
 		? ConcreteFunBody(genSome(ctx, cf.returnType, cf.range, genLocalGet(cf.range, &only(concreteParams))))
 		: ConcreteFunBody(ConcreteFunBody.Builtin(a, cf.source.as!ConcreteFunKey.typeArgs));
 

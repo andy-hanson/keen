@@ -11,6 +11,19 @@ import model.model :
 	BuiltinBinaryLazy,
 	BuiltinBinaryMath,
 	BuiltinFun,
+	BuiltinFunAllTests,
+	BuiltinFunCallFunPointer,
+	BuiltinFunCallLambda,
+	BuiltinFunGcSafeValue,
+	BuiltinFunInit,
+	BuiltinFunInitKind,
+	BuiltinFunMarkVisit,
+	BuiltinFunMarkRoot,
+	BuiltinFunNewEmptyOption,
+	BuiltinFunNewNonEmptyOption,
+	BuiltinFunPointerCast,
+	BuiltinFunSizeOf,
+	BuiltinFunStaticSymbols,
 	BuiltinUnary,
 	BuiltinUnaryMath,
 	BuiltinTernary,
@@ -262,7 +275,7 @@ FunBody inner(
 		case symbol!"acosh".value:
 			return unaryMath(BuiltinUnaryMath.acoshFloat32, BuiltinUnaryMath.acoshFloat64);
 		case symbol!"all-tests".value:
-			return arity == 0 ? FunBody(BuiltinFun(BuiltinFun.AllTests())) : fail();
+			return arity == 0 ? FunBody(BuiltinFun(BuiltinFunAllTests())) : fail();
 		case symbol!"array-pointer".value:
 			return arity == 1 && isPointerConst(rt) && isArray(p0) ? unary(BuiltinUnary.arrayPointer) : fail();
 		case symbol!"array-size".value:
@@ -295,7 +308,7 @@ FunBody inner(
 		case symbol!"as-fun-pointer".value:
 		case symbol!"as-mut".value:
 		case symbol!"pointer-cast".value:
-			return FunBody(BuiltinFun(BuiltinFun.PointerCast()));
+			return FunBody(BuiltinFun(BuiltinFunPointerCast()));
 		case symbol!"bits-of".value:
 			return unary(
 				isNat32(rt) && isFloat32(p0)
@@ -347,9 +360,9 @@ FunBody inner(
 				? BuiltinUnary.float64FromBits
 				: failUnary);
 		case symbol!"gc-safe-value".value:
-			return FunBody(BuiltinFun(BuiltinFun.GcSafeValue()));
+			return FunBody(BuiltinFun(BuiltinFunGcSafeValue()));
 		case symbol!"global-init".value:
-			return arity == 0 ? FunBody(BuiltinFun(BuiltinFun.Init(BuiltinFun.Init.Kind.global))) : fail();
+			return arity == 0 ? FunBody(BuiltinFun(BuiltinFunInit(BuiltinFunInitKind.global))) : fail();
 		case symbol!"infinity".value:
 			return constant(isFloat32Or64(rt), Constant(Constant.Float(double.infinity)));
 		case symbol!"instanceof".value:
@@ -386,10 +399,10 @@ FunBody inner(
 		case symbol!"js-global".value:
 			return isJsAny(rt) && arity == 0 ? FunBody(BuiltinFun(JsFun.jsGlobal)) : fail();
 		case symbol!"mark-root".value:
-			return FunBody(BuiltinFun(BuiltinFun.MarkRoot()));
+			return FunBody(BuiltinFun(BuiltinFunMarkRoot()));
 		case symbol!"mark-visit".value:
 			// TODO: check signature
-			return FunBody(BuiltinFun(BuiltinFun.MarkVisit()));
+			return FunBody(BuiltinFun(BuiltinFunMarkVisit()));
 		case symbol!"mut-slice-pointer".value:
 			return arity == 1 && isPointerMut(rt) && isMutSlice(p0) ? unary(BuiltinUnary.arrayPointer) : fail();
 		case symbol!"mut-slice-size".value:
@@ -399,9 +412,9 @@ FunBody inner(
 		case symbol!"new".value:
 			return isOptionType(rt) ?
 				arity == 0
-					? FunBody(BuiltinFun(BuiltinFun.NewEmptyOption()))
+					? FunBody(BuiltinFun(BuiltinFunNewEmptyOption()))
 					: arity == 1 && isTypeParam0(p0)
-					? FunBody(BuiltinFun(BuiltinFun.NewNonEmptyOption()))
+					? FunBody(BuiltinFun(BuiltinFunNewNonEmptyOption()))
 					: fail()
 				: fail();
 		case symbol!"new-array".value:
@@ -419,10 +432,10 @@ FunBody inner(
 		case symbol!"null".value:
 			return constant(isPointerConstOrMut(rt), constantZero);
 		case symbol!"per-thread-init".value:
-			return arity == 0 ? FunBody(BuiltinFun(BuiltinFun.Init(BuiltinFun.Init.Kind.perThread))) : fail();
+			return arity == 0 ? FunBody(BuiltinFun(BuiltinFunInit(BuiltinFunInitKind.perThread))) : fail();
 		case symbol!"pointer-cast-from-extern".value:
 		case symbol!"pointer-cast-to-extern".value:
-			return FunBody(BuiltinFun(BuiltinFun.PointerCast()));
+			return FunBody(BuiltinFun(BuiltinFunPointerCast()));
 		case symbol!"unsafe-pow".value:
 			return binaryMath(BuiltinBinaryMath.unsafePowFloat32, BuiltinBinaryMath.unsafePowFloat64);
 		case symbol!"reference-equal".value:
@@ -448,9 +461,9 @@ FunBody inner(
 		case symbol!"sinh".value:
 			return unaryMath(BuiltinUnaryMath.sinhFloat32, BuiltinUnaryMath.sinhFloat64);
 		case symbol!"size-of".value:
-			return FunBody(BuiltinFun(BuiltinFun.SizeOf()));
+			return FunBody(BuiltinFun(BuiltinFunSizeOf()));
 		case symbol!"static-symbols".value:
-			return FunBody(BuiltinFun(BuiltinFun.StaticSymbols()));
+			return FunBody(BuiltinFun(BuiltinFunStaticSymbols()));
 		case symbol!"switch-fiber".value:
 			return binary(BuiltinBinary.switchFiber);
 		case symbol!"switch-fiber-initial".value:
@@ -459,9 +472,9 @@ FunBody inner(
 			return isJsAny(rt) && arity == 2 && isJsAny(p0) && isString(p1)
 				? FunBody(BuiltinFun(JsFun.get))
 				: isFunPointer(p0)
-				? FunBody(BuiltinFun(BuiltinFun.CallFunPointer()))
+				? FunBody(BuiltinFun(BuiltinFunCallFunPointer()))
 				: isLambdaType(p0)
-				? FunBody(BuiltinFun(BuiltinFun.CallLambda()))
+				? FunBody(BuiltinFun(BuiltinFunCallLambda()))
 				: fail();
 		case symbol!"sqrt".value:
 			return unaryMath(BuiltinUnaryMath.sqrtFloat32, BuiltinUnaryMath.sqrtFloat64);

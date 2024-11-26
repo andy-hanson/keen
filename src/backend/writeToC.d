@@ -82,7 +82,8 @@ import model.lowModel :
 	UpdateParam,
 	VarGetLowExpr,
 	VarSetLowExpr;
-import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinTernary, BuiltinUnary, isLambda, TypeSize;
+import model.model :
+	Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinFunInitKind, BuiltinTernary, BuiltinUnary, isLambda, TypeSize;
 import model.showLowModel : writeFunSig;
 import model.typeLayout : sizeOfType, typeSizeBytes;
 import util.alloc.alloc : Alloc, TempAlloc;
@@ -1733,7 +1734,7 @@ WriteExprResult writeSpecialUnary(
 		case BuiltinUnary.deref:
 			return prefix("*");
 		case BuiltinUnary.drop:
-			return a.arg.kind.isA!(Constant) ? writeVoid(writeKind) : writeCast();
+			return a.arg.kind.isA!Constant ? writeVoid(writeKind) : writeCast();
 		case BuiltinUnary.float32FromBits:
 			return convert(to: "float32", from: "nat32");
 		case BuiltinUnary.float64FromBits:
@@ -2107,11 +2108,11 @@ WriteExprResult writeInit(
 		writeNewline(writer, indent);
 		writer ~= () {
 			final switch (a.kind) {
-				case BuiltinFun.Init.Kind.global:
+				case BuiltinFunInitKind.global:
 					return ctx.isMSVC
 						? "THREAD_LOCALS_INDEX = TlsAlloc();"
 						: "";
-				case BuiltinFun.Init.Kind.perThread:
+				case BuiltinFunInitKind.perThread:
 					return ctx.isMSVC
 						? "TlsSetValue(THREAD_LOCALS_INDEX, " ~
 							"(struct ThreadLocals*) calloc(1, sizeof(struct ThreadLocals)));"

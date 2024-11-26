@@ -158,7 +158,7 @@ import model.lowModel :
 	UpdateParam,
 	VarGetLowExpr,
 	VarSetLowExpr;
-import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinTernary, BuiltinUnary;
+import model.model : Builtin4ary, BuiltinBinary, BuiltinFun, BuiltinFunInitKind, BuiltinTernary, BuiltinUnary;
 import model.showLowModel : writeFunSig;
 import util.alloc.alloc : Alloc, withTempAlloc;
 import util.col.array : fillArray, indexOfPointer, isEmpty, map, mapStatic, mapWithIndex, zip;
@@ -2064,9 +2064,9 @@ gcc_jit_rvalue* arbitraryValue(ref ExprCtx ctx, LowType type) {
 			getRValueUsingLocal(ctx, type, (gcc_jit_lvalue*) {}));
 }
 
-ExprResult initToGcc(ref ExprCtx ctx, ExprEmit emit, BuiltinFun.Init.Kind kind) {
+ExprResult initToGcc(ref ExprCtx ctx, ExprEmit emit, BuiltinFunInitKind kind) {
 	final switch (kind) {
-		case BuiltinFun.Init.Kind.global:
+		case BuiltinFunInitKind.global:
 			zip!(immutable gcc_jit_rvalue*[], ArrTypeAndConstantsLow)(
 				ctx.globalsForConstants.arrs,
 				ctx.program.allConstants.arrs,
@@ -2101,7 +2101,7 @@ ExprResult initToGcc(ref ExprCtx ctx, ExprEmit emit, BuiltinFun.Init.Kind kind) 
 						});
 				});
 			return emitVoid(ctx, emit);
-		case BuiltinFun.Init.Kind.perThread:
+		case BuiltinFunInitKind.perThread:
 			return emitVoid(ctx, emit);
 	}
 }

@@ -9,7 +9,8 @@ import model.model :
 	DeclKind,
 	Diag,
 	Diagnostic,
-	DiagUnused,
+	DiagUnusedImport,
+	DiagUnusedPrivateDecl,
 	DiagVisibilityWarning,
 	DiagTypeParamsUnsupported,
 	ExportVisibility,
@@ -108,8 +109,7 @@ void markUsed(ref CheckCtx ctx, StructOrAlias a) {
 void checkForUnused(ref CheckCtx ctx, StructAlias[] aliases, StructDecl[] structs, SpecDecl[] specs, FunDecl[] funs) {
 	void checkUnusedDecl(T)(T* decl, in bool delegate() @safe @nogc pure nothrow cbAltIsUsed) {
 		if (decl.visibility == Visibility.private_ && !(isUsed(ctx.used, decl) || cbAltIsUsed()))
-			addDiagAssertSameUri(ctx, decl.nameRange, Diag(
-				DiagUnused(DiagUnused.Kind(DiagUnused.Kind.PrivateDecl(decl.name)))));
+			addDiagAssertSameUri(ctx, decl.nameRange, Diag(DiagUnusedPrivateDecl(decl.name)));
 	}
 	foreach (ref StructAlias alias_; aliases)
 		checkUnusedDecl(&alias_, () => false);
@@ -133,7 +133,7 @@ SmallArray!ImportOrExport finishImports(ref CheckCtx ctx) {
 		}
 
 		void addDiagUnused(Range range, Opt!Symbol name) {
-			addDiag(ctx, range, Diag(DiagUnused(DiagUnused.Kind(DiagUnused.Kind.Import(import_.modulePtr, name)))));
+			addDiag(ctx, range, Diag(DiagUnusedImport(import_.modulePtr, name)));
 		}
 		force(import_.source).kind.match!void(
 			(ImportWholeModuleAst x) {

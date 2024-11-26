@@ -101,6 +101,8 @@ import model.model :
 	BuiltinBinary,
 	BuiltinBinaryLazy,
 	BuiltinFun,
+	BuiltinFunGcSafeValue,
+	BuiltinFunSizeOf,
 	BuiltinUnary,
 	Called,
 	CallExpr,
@@ -1230,12 +1232,12 @@ Opt!Constant tryEvalConstant(
 				return tryEvalConstantBinary(x.kind.as!BuiltinBinary, args[0], args[1]);
 			} else if (x.kind.isA!BuiltinUnary) {
 				return tryEvalConstantUnary(x.kind.as!BuiltinUnary, only(args));
-			} else if (x.kind.isA!(BuiltinFun.SizeOf)) {
+			} else if (x.kind.isA!BuiltinFunSizeOf) {
 				assert(isEmpty(args));
 				return isKnownEmptyType(only(fn.source.as!ConcreteFunKey.typeArgs))
 					? some(constantZero())
 					: none!Constant;
-			} else if (x.kind.isA!(BuiltinFun.GcSafeValue)) {
+			} else if (x.kind.isA!BuiltinFunGcSafeValue) {
 				assert(isEmpty(args));
 				return some(constantZero());
 			} else

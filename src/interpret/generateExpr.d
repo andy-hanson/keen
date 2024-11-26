@@ -601,7 +601,7 @@ void generateSwitch(
 	StackEntry stackBefore = getNextStackEntry(writer);
 	generateExprAndContinue(writer, ctx, locals, a.value);
 	signExtendSignedInts(writer, source, a.value.type.as!PrimitiveType);
-	bool defaultAbort = a.default_.kind.isA!(AbortLowExpr);
+	bool defaultAbort = a.default_.kind.isA!AbortLowExpr;
 	SwitchDelayed delayed = writeSwitchDelay(writer, source, a.caseValues, !defaultAbort);
 	withBranching(writer, ctx, after, (ref ExprAfter afterBranch, ref ExprAfter afterLastBranch) {
 		void writeCaseOrDefault(size_t index, ref LowExpr expr, bool isLast) {

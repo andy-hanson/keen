@@ -303,7 +303,7 @@ Opt!PositionKind positionInDestructure(
 	Pos pos,
 ) {
 	Opt!PositionKind handleSingle(Type type, in PositionKind delegate() @safe @nogc pure nothrow cbName) {
-		SingleDestructureAst ast = destructureAst.as!(SingleDestructureAst);
+		SingleDestructureAst ast = destructureAst.as!SingleDestructureAst;
 		return hasPos(ast.range, pos)
 			? optOr!PositionKind(
 				optIf(hasPos(ast.nameRange, pos), cbName),
@@ -316,7 +316,7 @@ Opt!PositionKind positionInDestructure(
 	}
 	return a.matchWithPointers!(Opt!PositionKind)(
 		(Destructure.Ignore* x) =>
-			destructureAst.isA!(VoidDestructureAst)
+			destructureAst.isA!VoidDestructureAst
 				? none!PositionKind
 				: handleSingle(x.type, () => PositionKind(PositionKind.Keyword(PositionKind.Keyword.Kind.underscore))),
 		(Local* x) =>
@@ -491,7 +491,7 @@ Opt!PositionKind positionInRecord(
 		: has(ast.params)
 		? firstZipPointerFirst!(PositionKind, RecordField, DestructureAst)(
 			members, force(ast.params).as!(DestructureAst[]), (RecordField* field, DestructureAst param) =>
-				positionInRecordFieldParameter(decl, field, param.as!(SingleDestructureAst), pos))
+				positionInRecordFieldParameter(decl, field, param.as!SingleDestructureAst, pos))
 		: firstZipPointerFirst!(PositionKind, RecordField, RecordFieldAst)(
 			members, ast.fields, (RecordField* field, RecordFieldAst fieldAst) =>
 				positionInRecordField(decl, field, fieldAst, pos));

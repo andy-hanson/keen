@@ -352,9 +352,9 @@ immutable struct ContainerAndBody {
 }
 
 Opt!(Local*) exprLocalReference(ExprKind a) =>
-	a.isA!(ClosureGetExpr)
+	a.isA!ClosureGetExpr
 		? some(a.as!ClosureGetExpr.local)
-		: a.isA!(ClosureSetExpr)
+		: a.isA!ClosureSetExpr
 		? some(a.as!ClosureSetExpr.local)
 		: a.isA!LocalGetExpr
 		? some(a.as!LocalGetExpr.local)
@@ -484,8 +484,8 @@ void eachTypeInStructBody(
 }
 void eachTypeInEnumOrFlags(ref CommonTypes commonTypes, in StructDeclAst struct_, IntegralType storage, in TypeCb cb) {
 	foreach (ref ModifierAst modifier; struct_.modifiers)
-		if (modifier.isA!(ModifierKeywordAst)) {
-			ModifierKeywordAst keyword = modifier.as!(ModifierKeywordAst);
+		if (modifier.isA!ModifierKeywordAst) {
+			ModifierKeywordAst keyword = modifier.as!ModifierKeywordAst;
 			if (keyword.keyword == ModifierKeyword.storage && has(keyword.typeArg))
 				cb(Type(commonTypes.integrals[storage]), force(keyword.typeArg));
 		}
@@ -495,8 +495,8 @@ void eachTypeInRecord(in StructBody.Record a, in RecordAst ast, in TypeCb cb) {
 		if (force(ast.params).isA!(DestructureAst[])) {
 			zip!(RecordField, DestructureAst)(
 				a.fields, force(ast.params).as!(DestructureAst[]), (ref RecordField field, ref DestructureAst ast) {
-					if (ast.isA!(SingleDestructureAst)) {
-						Opt!(TypeAst*) typeAst = ast.as!(SingleDestructureAst).type;
+					if (ast.isA!SingleDestructureAst) {
+						Opt!(TypeAst*) typeAst = ast.as!SingleDestructureAst.type;
 						if (has(typeAst))
 							cb(field.type, *force(typeAst));
 					}
@@ -525,14 +525,14 @@ void eachTypeInParams(in Params a, in ParamsAst asts, in TypeCb cb) {
 
 void eachTypeInDestructure(in Destructure a, in DestructureAst ast, in TypeCb cb) {
 	void handleSingle(in Type type) {
-		Opt!(TypeAst*) typeAst = ast.as!(SingleDestructureAst).type;
+		Opt!(TypeAst*) typeAst = ast.as!SingleDestructureAst.type;
 		if (has(typeAst))
 			cb(type, *force(typeAst));
 	}
 
 	a.matchIn!void(
 		(in Destructure.Ignore x) {
-			if (!ast.isA!(VoidDestructureAst))
+			if (!ast.isA!VoidDestructureAst)
 				handleSingle(x.type);
 		},
 		(in Local x) {
@@ -612,7 +612,7 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 		(in ThrowExpr _) {},
 		(in TrustedExpr _) {},
 		(in TryExpr x) {
-			eachTypeInMatchSumType(x.catches, astKind.as!(TryAst).catches, cb);
+			eachTypeInMatchSumType(x.catches, astKind.as!TryAst.catches, cb);
 		},
 		(in TryLetExpr x) {
 			eachTypeInMatchSumTypeCase(x.catch_, astKind.as!(TryLetAst*).catchMember, cb);
@@ -801,7 +801,7 @@ void referencesForSignature(in Program program, in Signature* a, in ReferenceCb 
 					Opt!Called optCalled = getCalledAtExpr(x.expr.kind);
 					if (has(optCalled)) {
 						Called called = force(optCalled);
-						if (called.isA!(CalledSpecSig) && called.as!(CalledSpecSig).nonInstantiatedSig == a)
+						if (called.isA!CalledSpecSig && called.as!CalledSpecSig.nonInstantiatedSig == a)
 							cb(UriAndRange(module_.uri, callNameRange(*x.expr.ast)));
 					}
 				});

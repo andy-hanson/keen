@@ -53,6 +53,7 @@ import backend.js.translateModuleCtx :
 import model.model :
 	arrayElementType,
 	AutoFun,
+	AutoFunKind,
 	BuiltinType,
 	Called,
 	Destructure,
@@ -85,7 +86,7 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 		params[0].type.as!(StructInst*).decl;
 	StructDecl* returnStruct = fun.returnType.as!(StructInst*).decl;
 	final switch (auto_.kind) {
-		case AutoFun.Kind.compare:
+		case AutoFunKind.compare:
 			assert(params.length == 2);
 			return matchEnumFlagsRecordOrUnion(
 				struct_,
@@ -97,18 +98,18 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 					translateCompareRecord(ctx, source, auto_, returnStruct, fields, param(0), param(1)),
 				(in SumTypeMemberAndMethodImpls[] members) =>
 					translateCompareUnion(ctx, source, auto_, returnStruct, members, param(0), param(1)));
-		case AutoFun.Kind.enumOrFlagsMembers:
+		case AutoFunKind.enumOrFlagsMembers:
 			StructDecl* enumStruct = arrayElementType(fun.returnType).as!(StructInst*).decl;
 			return exprFunBody(
 				ctx.alloc,
 				translateGetStatic(ctx.ctx, source, enumStruct, JsMemberName.special(symbol!"members")));
-		case AutoFun.Kind.enumOrFlagsToIntegral:
+		case AutoFunKind.enumOrFlagsToIntegral:
 			assert(params.length == 1);
 			return exprFunBody(ctx.alloc, getEnumValue(ctx.alloc, source, param(0)));
-		case AutoFun.Kind.enumToSymbol:
+		case AutoFunKind.enumToSymbol:
 			assert(params.length == 1);
 			return exprFunBody(ctx.alloc, getEnumName(ctx.alloc, source, param(0)));
-		case AutoFun.Kind.equals:
+		case AutoFunKind.equals:
 			assert(params.length == 2);
 			return matchEnumFlagsRecordOrUnion(
 				struct_,
@@ -120,15 +121,15 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 					translateEqualRecord(ctx, source, auto_, fields, param(0), param(1)),
 				(in SumTypeMemberAndMethodImpls[] members) =>
 					translateEqualUnion(ctx, source, auto_, members, param(0), param(1)));
-		case AutoFun.Kind.flagsToSymbolArray:
+		case AutoFunKind.flagsToSymbolArray:
 			return exprFunBody(ctx.alloc, flagsToSymbolArray(ctx.ctx, source, struct_, param(0)));
-		case AutoFun.Kind.integralToOptEnumOrFlags:
+		case AutoFunKind.integralToOptEnumOrFlags:
 			assert(params.length == 1);
 			return integralToOptEnumOrFlags(ctx, source, param(0));
-		case AutoFun.Kind.symbolToOptEnumOrFlags:
+		case AutoFunKind.symbolToOptEnumOrFlags:
 			assert(params.length == 1);
 			return symbolToOptEnumOrFlags(ctx, source, param(0));
-		case AutoFun.Kind.toJson:
+		case AutoFunKind.toJson:
 			assert(params.length == 1);
 			return matchEnumFlagsRecordOrUnion(
 				struct_,
