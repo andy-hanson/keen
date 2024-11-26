@@ -98,7 +98,7 @@ import model.ast :
 	UnpackOptionAst,
 	VoidDestructureAst,
 	WithAst;
-import model.parseDiag;
+import model.parseDiag : ParseDiag, ParseDiagExpected, ParseDiagMatchCaseInterpolated, ParseDiagNeedsBlockCtx;
 import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, newArray, newSmallArray, only2, SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, arrayBuilderIsEmpty, buildArray, buildSmallArray, Builder, finish;

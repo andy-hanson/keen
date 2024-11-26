@@ -26,8 +26,185 @@ import frontend.showModel :
 	writeUriAndRange,
 	writeVisibility;
 import model.ast : ModifierKeyword, stringOfModifierKeyword;
-import model.model;
-import model.parseDiag;
+import model.model :
+	arityMatches,
+	AutoFunName,
+	bestCasePurity,
+	BuiltinType,
+	CalledDecl,
+	CantImportCrowAsText,
+	CircularImport,
+	DeclKind,
+	Diag,
+	DiagAliasNotAllowed,
+	DiagAssertOrForbidMessageIsThrow,
+	DiagAssignmentNotAllowed,
+	DiagAutoFunError,
+	DiagBuiltinFunCantHaveBody,
+	DiagBuiltinUnsupported,
+	DiagCallMissingExtern,
+	DiagCallMultipleMatches,
+	DiagCallNoMatch,
+	DiagCallShouldUseSyntax,
+	DiagCantCall,
+	DiagCaseDuplicate,
+	DiagCaseInvalidMemberType,
+	DiagCaseInvalidSumType,
+	DiagCaseMissingType,
+	DiagCharLiteralMustBeOneChar,
+	DiagCommonFunDuplicate,
+	DiagCommonFunMissing,
+	DiagCommonTypeMissing,
+	DiagCommonVarMissing,
+	DiagDestructureTypeMismatch,
+	DiagDuplicateDeclaration,
+	DiagDuplicateExports,
+	DiagDuplicateImportName,
+	DiagDuplicateImports,
+	DiagEmptyEnumOrUnion,
+	DiagEnumBackingTypeInvalid,
+	DiagEnumDuplicateValue,
+	DiagExpectedTypeIsNotALambda,
+	DiagExternBodyMultiple,
+	DiagExternInvalidName,
+	DiagExternIsUnsafe,
+	DiagExternRedundant,
+	DiagExternFunVariadic,
+	DiagExternHasUnnecessaryLibraryName,
+	DiagExternMissingLibraryName,
+	DiagExternRecordImplicitlyByVal,
+	DiagExternSumType,
+	DiagExternTypeError,
+	DiagFlagsSigned,
+	DiagFunctionWithSignatureNotFound,
+	DiagFunPointerExprMustBeName,
+	DiagFunPointerNotBare,
+	DiagIfThrow,
+	DiagImportFile,
+	DiagImportRefersToNothing,
+	DiagLambdaCantBeFunctionPointer,
+	DiagLambdaCantInferParamType,
+	DiagLambdaClosurePurity,
+	DiagLambdaMultipleMatch,
+	DiagLambdaNotExpected,
+	DiagLambdaTypeMissingParamType,
+	DiagLambdaTypeVariadic,
+	DiagLinkageWorseThanContainingFun,
+	DiagLinkageWorseThanContainingType,
+	DiagLiteralFloatAccuracy,
+	DiagLiteralMultipleMatch,
+	DiagLiteralNotExpected,
+	DiagLiteralOverflow,
+	DiagLocalIgnoredButMutable,
+	DiagLocalNotMutable,
+	DiagLoopDisallowedBody,
+	DiagLoopWithoutBreak,
+	DiagMainMissingExterns,
+	DiagMainTestMissing,
+	DiagMatchCaseDuplicate,
+	DiagMatchCaseForType,
+	DiagMatchCaseNameNotInEnum,
+	DiagMatchCaseNoValueForEnumOrSymbol,
+	DiagMatchCaseShouldUseIgnore,
+	DiagMatchNeedsElse,
+	DiagMatchOnNonMatchable,
+	DiagMatchSumTypeCantInferTypeArgs,
+	DiagMatchSumTypeNoMember,
+	DiagMatchUnhandledCases,
+	DiagMatchUnnecessaryElse,
+	DiagMethodImplVisibility,
+	DiagModifierConflict,
+	DiagModifierDuplicate,
+	DiagModifierInvalid,
+	DiagModifierRedundantDueToDeclKind,
+	DiagModifierRedundantDueToModifier,
+	DiagModifierTypeArgInvalid,
+	DiagMutFieldNotAllowed,
+	DiagNameNotFound,
+	DiagNeedsExpectedType,
+	Diagnostic,
+	DiagnosticSeverity,
+	DiagParamMissingType,
+	DiagParamMutable,
+	DiagPointerIsNative,
+	DiagPointerIsUnsafe,
+	DiagPointerMutToConst,
+	DiagPointerUnsupported,
+	DiagPurityWorseThanParent,
+	DiagPurityWorseThanSumType,
+	DiagRecordFieldNeedsType,
+	DiagSharedArgIsNotLambda,
+	DiagSharedLambdaTypeIsNotShared,
+	DiagSharedLambdaUnused,
+	DiagSharedNotExpected,
+	DiagSpecMatchError,
+	DiagSpecNoMatch,
+	DiagSpecRecursion,
+	DiagSpecSigCantBeVariadic,
+	DiagSpecUseInvalid,
+	DiagStringLiteralInvalid,
+	DiagStorageMissingType,
+	DiagStructParamsSyntaxError,
+	DiagSumTypeListedMembersNonUnion,
+	DiagTestMissingBody,
+	DiagTrustedUnnecessary,
+	DiagTupleTooBig,
+	DiagTypeAnnotationUnnecessary,
+	DiagTypeConflict,
+	DiagTypeParamCantHaveTypeArgs,
+	DiagTypeParamsUnsupported,
+	DiagTypeShouldUseSyntax,
+	DiagUnionMemberTypeParameter,
+	DiagUnsupportedSyntax,
+	DiagUnused,
+	DiagVarargsParamMustBeArray,
+	DiagVisibilityWarning,
+	DiagWithHasElse,
+	DiagWrongNumberTypeArgs,
+	eachDiagnostic,
+	EnumOrFlagsMember,
+	ExpectedForDiag,
+	FunDeclAndTypeArgs,
+	LibraryNotConfigured,
+	maxValue,
+	minValue,
+	nTypeParams,
+	Params,
+	ProgramWithOptMain,
+	ReadError,
+	RelativeImportReachesPastRoot,
+	Signature,
+	SpecDecl,
+	StructBody,
+	StructDecl,
+	StructInst,
+	Type,
+	TypeContainer,
+	TypeParamsAndSig,
+	TypeWithContainer,
+	UriAndDiagnostic;
+import model.parseDiag :
+	ParseDiag,
+	ParseDiagDocCommentUnused,
+	ParseDiagExpected,
+	ParseDiagFileNotUtf8,
+	ParseDiagImportFileTypeNotSupported,
+	ParseDiagIndentNotDivisible,
+	ParseDiagIndentTooMuch,
+	ParseDiagIndentWrongCharacter,
+	ParseDiagInvalidStringEscape,
+	ParseDiagMatchCaseInterpolated,
+	ParseDiagMissingInterpolated,
+	ParseDiagNeedsBlockCtx,
+	ParseDiagnostic,
+	ParseDiagTrailingComma,
+	ParseDiagTypeEmptyParens,
+	ParseDiagTypeTrailingMut,
+	ParseDiagTypeUnnecessaryParens,
+	ParseDiagUnexpectedCharacter,
+	ParseDiagUnexpectedOperator,
+	ParseDiagUnexpectedToken,
+	ReadFileDiag;
 import util.alloc.alloc : Alloc;
 import util.col.array : contains, exists, isEmpty, only;
 import util.col.arrayBuilder : arrayBuilderSort, buildArray, Builder;
@@ -735,12 +912,12 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagExternTypeError x) {
 			writer ~= () {
-				final switch (x.reason) {
-					case DiagExternTypeError.Reason.alignmentIsDefault:
+				final switch (x) {
+					case DiagExternTypeError.alignmentIsDefault:
 						return "Alignment value is the default and can be omitted.";
-					case DiagExternTypeError.Reason.badAlignment:
+					case DiagExternTypeError.badAlignment:
 						return "Alignment must be 1, 2, 4, or 8.";
-					case DiagExternTypeError.Reason.tooBig:
+					case DiagExternTypeError.tooBig:
 						return "Type size is too big.";
 				}
 			}();
@@ -771,10 +948,10 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagImportFile x) {
 			x.matchIn!void(
-				(in DiagImportFile.CantImportCrowAsText y) {
+				(in CantImportCrowAsText y) {
 					writer ~= "Can't import a '.crow' file as content.";
 				},
-				(in DiagImportFile.CircularImport y) {
+				(in CircularImport y) {
 					writer ~= "This is part of a circular import:";
 					foreach (Uri uri; y.cycle) {
 						writeNewline(writer, 1);
@@ -784,17 +961,17 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					writeNewline(writer, 1);
 					writeUri(writer, ctx, y.cycle[0]);
 				},
-				(in DiagImportFile.LibraryNotConfigured x) {
+				(in LibraryNotConfigured x) {
 					writer ~= "Library ";
 					writeName(writer, ctx, x.libraryName);
 					writer ~= " is not configured.";
 					writeNewline(writer, 0);
 					writer ~= "It must be added to \"include\" in 'crow-config.json'.";
 				},
-				(in DiagImportFile.ReadError y) {
+				(in ReadError y) {
 					showReadFileDiag(writer, ctx, y.diag, some(y.uri));
 				},
-				(in DiagImportFile.RelativeImportReachesPastRoot y) {
+				(in RelativeImportReachesPastRoot y) {
 					writer ~= "Relative path ";
 					writer ~= y.imported;
 					writer ~= " reaches above the root directory.";
@@ -932,7 +1109,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagMatchCaseDuplicate x) {
 			writer ~= "Duplicate branch ";
-			x.kind.matchIn!void(
+			x.matchIn!void(
 				(in Symbol x) {
 					writeName(writer, ctx, x);
 				},

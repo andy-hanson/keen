@@ -184,7 +184,7 @@ void typeDefinitionForFunDecl(in FunDecl* a, in ReferenceCb cb) {
 
 void definitionForType(in TypeContainer typeContainer, in Type a, in ReferenceCb cb) =>
 	a.matchIn!void(
-		(in Type.Bogus) {},
+		(in BogusType) {},
 		(in TypeParamIndex x) {
 			cb(typeParamWithContainerRange(PositionKind.TypeParamWithContainer(x, forbidModule(typeContainer))));
 		},

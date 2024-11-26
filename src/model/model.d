@@ -1,7 +1,5 @@
 module model.model;
 
-// See also frontendUtil.d
-
 @safe @nogc pure nothrow:
 
 import frontend.getDiagnosticSeverity : getDiagnosticSeverity;
@@ -122,18 +120,18 @@ immutable struct TypeParamIndex {
 
 immutable struct Type {
 	@safe @nogc pure nothrow:
-	immutable struct Bogus {}
-	mixin TaggedUnion!(Bogus, TypeParamIndex, StructInst*);
+	mixin TaggedUnion!(BogusType, TypeParamIndex, StructInst*);
 
 	static Type bogus() =>
-		Type(Type.Bogus());
+		Type(BogusType());
 
 	bool isBogus() scope =>
-		isA!Bogus;
+		isA!BogusType;
 
 	bool opEquals(scope Type b) scope =>
 		taggedPointerEquals(b);
 }
+immutable struct BogusType {}
 
 bool isEmptyType(in Type a) =>
 	a.isA!(StructInst*) && isEmptyType(*a.as!(StructInst*));
@@ -264,7 +262,7 @@ Type pointeeType(in Type a) {
 
 PurityRange purityRange(Type a) =>
 	a.matchIn!PurityRange(
-		(in Type.Bogus) =>
+		(in BogusType) =>
 			PurityRange(Purity.data, Purity.data),
 		(in TypeParamIndex _) =>
 			PurityRange(Purity.data, Purity.mut),
@@ -276,7 +274,7 @@ Purity bestCasePurity(Type a) =>
 
 LinkageRange linkageRange(Type a) =>
 	a.matchIn!LinkageRange(
-		(in Type.Bogus) =>
+		(in BogusType) =>
 			LinkageRange(Linkage.extern_, Linkage.extern_),
 		(in TypeParamIndex _) =>
 			LinkageRange(Linkage.internal, Linkage.extern_),
@@ -285,11 +283,6 @@ LinkageRange linkageRange(Type a) =>
 
 immutable struct Params {
 	@safe @nogc pure nothrow:
-
-	immutable struct Varargs {
-		Destructure param;
-		Type elementType;
-	}
 
 	mixin TaggedUnion!(SmallArray!Destructure, Varargs*);
 
@@ -300,8 +293,12 @@ immutable struct Params {
 		matchIn!Arity(
 			(in Destructure[] params) =>
 				Arity(safeToUint(params.length)),
-			(in Params.Varargs) =>
+			(in Varargs _) =>
 				Arity(Arity.Varargs()));
+}
+immutable struct Varargs {
+	Destructure param;
+	Type elementType;
 }
 bool isEmpty(in Params a) =>
 	isEmpty(a.arity);
@@ -310,7 +307,7 @@ SmallArray!Destructure paramsArray(return scope Params a) =>
 	a.matchWithPointers!(SmallArray!Destructure)(
 		(Destructure[] x) =>
 			small!Destructure(x),
-		(Params.Varargs* x) =>
+		(Varargs* x) =>
 			small!Destructure(arrayOfSingle(&x.param)));
 
 Destructure[] assertNonVariadic(Params a) =>
@@ -1636,7 +1633,7 @@ immutable struct FunDecl {
 		flags.okIfUnused;
 
 	bool isVariadic() scope =>
-		params.isA!(Params.Varargs*);
+		params.isA!(Varargs*);
 
 	bool isTemplate() scope =>
 		!isEmpty(typeParams) || !isEmpty(specs);
@@ -4079,10 +4076,7 @@ immutable struct DiagExternMissingLibraryName {}
 immutable struct DiagExternRecordImplicitlyByVal {
 	StructDecl* struct_;
 }
-immutable struct DiagExternTypeError {
-	enum Reason { alignmentIsDefault, badAlignment, tooBig }
-	Reason reason;
-}
+enum DiagExternTypeError { alignmentIsDefault, badAlignment, tooBig }
 immutable struct DiagExternSumType {}
 immutable struct DiagFlagsSigned {}
 immutable struct DiagFunctionWithSignatureNotFound {
@@ -4094,28 +4088,23 @@ immutable struct DiagFunPointerExprMustBeName {}
 immutable struct DiagFunPointerNotBare {}
 immutable struct DiagIfThrow {}
 immutable struct DiagImportFile {
-	immutable struct CantImportCrowAsText {}
-	immutable struct CircularImport {
-		SmallArray!Uri cycle;
-	}
-	immutable struct LibraryNotConfigured {
-		Symbol libraryName;
-	}
-	immutable struct ReadError {
-		// The imported file will also have a ParseDiag for the issue, but we also show the error in the importer.
-		// (This is important in an IDE.)
-		Uri uri;
-		ReadFileDiag diag;
-	}
-	immutable struct RelativeImportReachesPastRoot {
-		RelPath imported;
-	}
-	mixin Union!(
-		CantImportCrowAsText,
-		CircularImport,
-		LibraryNotConfigured,
-		ReadError,
-		RelativeImportReachesPastRoot);
+	mixin Union!(CantImportCrowAsText, CircularImport, LibraryNotConfigured, ReadError, RelativeImportReachesPastRoot);
+}
+immutable struct CantImportCrowAsText {}
+immutable struct CircularImport {
+	SmallArray!Uri cycle;
+}
+immutable struct LibraryNotConfigured {
+	Symbol libraryName;
+}
+immutable struct ReadError {
+	// The imported file will also have a ParseDiag for the issue, but we also show the error in the importer.
+	// (This is important in an IDE.)
+	Uri uri;
+	ReadFileDiag diag;
+}
+immutable struct RelativeImportReachesPastRoot {
+	RelPath imported;
 }
 immutable struct DiagImportRefersToNothing {
 	Symbol name;
@@ -4179,10 +4168,7 @@ immutable struct DiagMainTestMissing {
 	uint expectedLine;
 }
 immutable struct DiagMatchCaseDuplicate {
-	immutable struct Kind {
-		mixin Union!(Symbol, string, ulong, long);
-	}
-	Kind kind;
+	mixin Union!(Symbol, string, ulong, long);
 }
 immutable struct DiagMatchCaseForType {
 	enum Kind { enumOrUnion, numeric, stringLike }
@@ -4419,9 +4405,6 @@ immutable struct DiagUnused {
 	Kind kind;
 }
 immutable struct DiagVarargsParamMustBeArray {}
-immutable struct DiagVariantMemberIsTemplate {
-	StructDecl* member;
-}
 immutable struct DiagMethodImplVisibility {
 	StructDecl* member;
 	StructInst* sumType;

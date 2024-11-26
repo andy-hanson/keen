@@ -14,6 +14,7 @@ import frontend.ide.position :
 import model.model :
 	AutoFun,
 	BogusCallExpr,
+	BogusType,
 	BuiltinFun,
 	Called,
 	CalledDecl,
@@ -42,7 +43,6 @@ import model.model :
 	StructDecl,
 	StructInst,
 	Test,
-	Type,
 	TypeParamIndex,
 	TypeWithContainer,
 	VarDecl;
@@ -148,7 +148,7 @@ Opt!Target targetForPosition(Position pos) =>
 			none!Target,
 		(TypeWithContainer x) =>
 			x.type.matchWithPointers!(Opt!Target)(
-				(Type.Bogus) =>
+				(BogusType _) =>
 					none!Target,
 				(TypeParamIndex p) =>
 					some(Target(PositionKind.TypeParamWithContainer(p, forbidModule(x.container)))),

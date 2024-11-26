@@ -9,6 +9,7 @@ import frontend.storage : FileContentGetters, LineAndColumnGetters;
 import model.ast : ExprAst;
 import model.model :
 	BogusExpr,
+	BogusType,
 	BogusWrongTypeExpr,
 	BuiltinType,
 	CommonTypes,
@@ -123,7 +124,7 @@ struct Expected {
 
 	immutable struct Infer {}
 	// TypeParamIndex (and type params in type args of StructInst) are in the context of the function being checked
-	mixin TaggedUnion!(Infer, Type.Bogus, TypeParamIndex, StructInst*, MutSmallArray!TypeAndContext, LoopInfo*);
+	mixin TaggedUnion!(Infer, BogusType, TypeParamIndex, StructInst*, MutSmallArray!TypeAndContext, LoopInfo*);
 
 	T matchCombineType(T)(
 		in T delegate(Infer) @safe @nogc pure nothrow cbInfer,
@@ -133,7 +134,7 @@ struct Expected {
 	) =>
 		matchWithPointers!T(
 			cbInfer,
-			(Type.Bogus x) => cbType(Type(x)),
+			(BogusType x) => cbType(Type(x)),
 			(TypeParamIndex x) => cbType(Type(x)),
 			(StructInst* x) => cbType(Type(x)),
 			cbTypeAndContext,
@@ -146,7 +147,7 @@ struct Expected {
 	) const =>
 		matchConst!T(
 			cbInfer,
-			(Type.Bogus x) => cbType(Type(x)),
+			(BogusType x) => cbType(Type(x)),
 			(TypeParamIndex x) => cbType(Type(x)),
 			(StructInst* x) => cbType(Type(x)),
 			cbTypeAndContext,
@@ -203,7 +204,7 @@ ExprAndType checkWithModifyExpected(size_t n)(
 
 Expr withExpect(Type type, in Expr delegate(ref Expected) @safe @nogc pure nothrow cb) {
 	Expected expected = type.matchWithPointers!Expected(
-			(Type.Bogus x) =>
+			(BogusType x) =>
 				Expected(x),
 			(TypeParamIndex x) =>
 				Expected(x),
@@ -260,7 +261,7 @@ void debugLogExpected(scope ref Writer writer, ref ExprCtx ctx, in Expected a) {
 		(const Expected.Infer) {
 			writer ~= "<<infer>>";
 		},
-		(const Type.Bogus x) {
+		(const BogusType x) {
 			writer ~= "<<bogus>>";
 		},
 		(const TypeParamIndex x) {
@@ -290,7 +291,7 @@ private void debugLogExpectedChoice(
 	in TypeAndContext choice,
 ) {
 	choice.type.matchIn!void(
-		(in Type.Bogus) {
+		(in BogusType) {
 			writer ~= "<<bogus>>";
 		},
 		(in TypeParamIndex x) {
@@ -351,14 +352,14 @@ Opt!size_t findExpectedStructForLiteral(
 
 	eachChoiceConst(expected, (const TypeAndContext choice) {
 		choice.type.matchWithPointers!void(
-			(Type.Bogus) {
+			(BogusType _) {
 				ambiguous = true;
 			},
 			(TypeParamIndex index) {
 				Opt!Type inferred = tryGetInferred(choice.context, index);
 				if (has(inferred))
 					force(inferred).matchWithPointers!void(
-						(Type.Bogus) {
+						(BogusType _) {
 							ambiguous = true;
 						},
 						(TypeParamIndex _) {},
@@ -382,12 +383,12 @@ Opt!size_t findExpectedStructForLiteral(
 
 private @trusted void setToType(ref Expected expected, Type type) {
 	type.matchWithPointers!void(
-		(Type.Bogus x) { expected = x; },
+		(BogusType x) { expected = x; },
 		(TypeParamIndex x) { expected = x; },
 		(StructInst* x) { expected = x; });
 }
 private void setToBogus(ref Expected expected) {
-	expected = Type.Bogus();
+	expected = BogusType();
 }
 void setToBogusIfInferring(ref Expected expected) {
 	expected.matchCombineType!void(
@@ -640,7 +641,7 @@ private bool setTypeNoDiagnostic(InstantiateCtx ctx, ref Expected expected, Type
 
 Opt!Type tryGetNonInferringType(InstantiateCtx ctx, const TypeAndContext a) =>
 	a.type.matchWithPointers!(Opt!Type)(
-		(Type.Bogus) =>
+		(BogusType _) =>
 			some(Type.bogus),
 		(TypeParamIndex x) {
 			const MutOpt!(SingleInferringType*) ta = tryGetInferring(a.context, x);
@@ -685,7 +686,7 @@ private:
 // This is like 'tryGetNonInferringType' but returns a type with Boguses in it instead of `none`.
 Type applyInferred(InstantiateCtx ctx, in TypeAndContext a) =>
 	a.type.match!Type(
-		(Type.Bogus) =>
+		(BogusType _) =>
 			Type.bogus,
 		(TypeParamIndex x) {
 			const MutOpt!(SingleInferringType*) ta = tryGetInferring(a.context, x);
@@ -707,14 +708,14 @@ Returns true if it succeeds.
 */
 public bool matchTypes(InstantiateCtx ctx, TypeAndContext a, const TypeAndContext b) =>
 	a.type.matchWithPointers!bool(
-		(Type.Bogus) =>
+		(BogusType _) =>
 			// TODO: make sure to infer type params in this case!
 			true,
 		(TypeParamIndex pa) =>
 			matchTypes_TypeParam(ctx, pa, a.context, b),
 		(StructInst* ai) =>
 			b.type.matchWithPointers!bool(
-				(Type.Bogus) =>
+				(BogusType _) =>
 					true,
 				(TypeParamIndex pb) =>
 					matchTypes_TypeParamB(ctx, a, pb, b.context),
@@ -738,7 +739,7 @@ bool matchTypes_TypeParam(InstantiateCtx ctx, TypeParamIndex a, TypeContext aCon
 	} else
 		// It's an outer type param (not in either inferring).
 		return b.type.match!bool(
-			(Type.Bogus) =>
+			(BogusType _) =>
 				true,
 			(TypeParamIndex bp) {
 				const MutOpt!(SingleInferringType*) bInferringB = tryGetInferring(b.context, bp);
@@ -783,7 +784,7 @@ public void inferTypeArgsFrom(
 		return;
 	const TypeAndContext b2 = maybeInferred(b);
 	a.matchWithPointers!void(
-		(Type.Bogus) {},
+		(BogusType _) {},
 		(TypeParamIndex ap) {
 			SingleInferringType* aInferring = &aContext.args[ap.index];
 			if (!has(tryGetInferred(*aInferring))) {

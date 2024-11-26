@@ -191,7 +191,7 @@ void eachImportAndReExport(
 			if (has(x)) cb(import_.importVisibility, force(x));
 		} else {
 			Opt!(NameReferents*) res = force(import_.source).kind.match!(Opt!(NameReferents*))(
-				(ImportWholeModuleAst) =>
+				(ImportWholeModuleAst _) =>
 					getPointer!(NameReferents, Symbol, nameFromNameReferents)(import_.modulePtr.exports, name),
 				(NameAndRange[]) =>
 					import_.imported[name],

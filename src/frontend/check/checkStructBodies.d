@@ -42,7 +42,87 @@ import model.ast :
 	TypeAst,
 	VarargsAst,
 	VisibilityAndRange;
-import model.model;
+import model.model :
+	asTypeContainer,
+	BogusType,
+	BuiltinType,
+	ByValOrRef,
+	Called,
+	CommonTypes,
+	DeclKind,
+	Destructure,
+	Diag,
+	DiagBuiltinUnsupported,
+	DiagCaseDuplicate,
+	DiagCaseInvalidMemberType,
+	DiagCaseInvalidSumType,
+	DiagCaseMissingType,
+	DiagDuplicateDeclaration,
+	DiagEmptyEnumOrUnion,
+	DiagEnumBackingTypeInvalid,
+	DiagEnumDuplicateValue,
+	DiagExternRecordImplicitlyByVal,
+	DiagExternSumType,
+	DiagExternTypeError,
+	DiagFlagsSigned,
+	DiagLinkageWorseThanContainingType,
+	DiagLiteralOverflow,
+	DiagMethodImplVisibility,
+	DiagModifierConflict,
+	DiagModifierDuplicate,
+	DiagModifierInvalid,
+	DiagModifierRedundantDueToDeclKind,
+	DiagModifierTypeArgInvalid,
+	DiagMutFieldNotAllowed,
+	DiagPurityWorseThanParent,
+	DiagPurityWorseThanSumType,
+	DiagRecordFieldNeedsType,
+	DiagSpecSigCantBeVariadic,
+	DiagSpecUseInvalid,
+	DiagStorageMissingType,
+	DiagStructParamsSyntaxError,
+	DiagSumTypeListedMembersNonUnion,
+	DiagUnionMemberTypeParameter,
+	DiagUnsupportedSyntax,
+	DiagVisibilityWarning,
+	emptyTypeParams,
+	EnumMemberSource,
+	EnumOrFlagsMember,
+	FunFlags,
+	FunInst,
+	IntegralType,
+	IntegralTypes,
+	isSigned,
+	isLinkagePossiblyCompatible,
+	isPurityAlwaysCompatible,
+	isPurityPossiblyCompatible,
+	leastVisibility,
+	linkageRange,
+	Linkage,
+	maxValue,
+	nameOfEnumOrFlagsMember,
+	Purity,
+	purityRange,
+	RecordField,
+	RecordFieldSource,
+	RecordFlags,
+	ReturnAndParamTypes,
+	Signature,
+	SignatureContainer,
+	StructBody,
+	StructDecl,
+	StructDeclSource,
+	StructInst,
+	SumTypeKind,
+	SumTypeMemberAndMethodImpls,
+	SumTypeMembership,
+	Type,
+	TypeContainer,
+	TypeParamIndex,
+	TypeParams,
+	TypeSize,
+	Varargs,
+	Visibility;
 import util.alloc.stackAlloc : withStackArray;
 import util.col.array :
 	arrayOfSingle,
@@ -163,7 +243,7 @@ SmallArray!Signature checkSignatures(
 		Destructure[] params = rp.params.matchWithPointers!(Destructure[])(
 			(Destructure[] x) =>
 				x,
-			(Params.Varargs* x) {
+			(Varargs* x) {
 				addDiag(ctx, x.param.range, Diag(DiagSpecSigCantBeVariadic()));
 				return arrayOfSingle(&x.param);
 			});
@@ -366,12 +446,10 @@ Opt!TypeSize getExternTypeSize(ref CheckCtx ctx, in StructDeclAst declAst, in Ex
 				uint alignment = getSizeValue(ctx, *force(bodyAst.alignment));
 				if (isValidAlignment(alignment)) {
 					if (alignment == default_)
-						addDiag(ctx, force(bodyAst.alignment).range, Diag(
-							DiagExternTypeError(DiagExternTypeError.Reason.alignmentIsDefault)));
+						addDiag(ctx, force(bodyAst.alignment).range, Diag(DiagExternTypeError.alignmentIsDefault));
 					return alignment;
 				} else {
-					addDiag(ctx, force(bodyAst.alignment).range, Diag(
-						DiagExternTypeError(DiagExternTypeError.Reason.badAlignment)));
+					addDiag(ctx, force(bodyAst.alignment).range, Diag(DiagExternTypeError.badAlignment));
 					return default_;
 				}
 			} else
@@ -715,7 +793,7 @@ IntegralType getEnumTypeFromType(
 ) {
 	IntegralTypes integrals = commonTypes.integrals;
 	return type.matchWithPointers!IntegralType(
-		(Type.Bogus) =>
+		(BogusType _) =>
 			defaultEnumBackingType(),
 		(TypeParamIndex _) =>
 			// enums can't have type params

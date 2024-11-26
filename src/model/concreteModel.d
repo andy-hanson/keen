@@ -15,13 +15,13 @@ import model.model :
 	isString,
 	isTuple,
 	Local,
-	Params,
 	Purity,
 	mustBeEnumOrFlags,
 	StructBody,
 	StructDecl,
 	Test,
 	TypeSize,
+	Varargs,
 	VarDecl;
 import util.col.array : arraysEqual, exists, isEmpty, only, SmallArray;
 import util.col.set : Set;
@@ -394,7 +394,7 @@ immutable struct ConcreteFunKey {
 bool isVariadic(in ConcreteFun a) =>
 	a.source.matchIn!bool(
 		(in ConcreteFunKey x) =>
-			x.decl.params.isA!(Params.Varargs*),
+			x.decl.params.isA!(Varargs*),
 		(in ConcreteFunSource.Lambda) =>
 			false,
 		(in ConcreteFunSource.Test) =>

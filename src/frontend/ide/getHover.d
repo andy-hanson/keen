@@ -291,7 +291,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 		},
 		(TypeWithContainer x) {
 			x.type.matchIn!void(
-				(in Type.Bogus) {},
+				(in BogusType) {},
 				(in TypeParamIndex p) {
 					hoverTypeParam(writer, ctx, forbidModule(x.container), p);
 				},

@@ -5,6 +5,7 @@ module frontend.check.instantiate;
 import frontend.allInsts :
 	getAllFutureAndMutArrayImpls, getOrAddFunInst, getOrAddSpecInst, getOrAddStructInst, AllInsts;
 import model.model :
+	BogusType,
 	CommonTypes,
 	Destructure,
 	FunDecl,
@@ -55,7 +56,7 @@ MayDelaySpecInsts noDelaySpecInsts() =>
 
 Type instantiateType(InstantiateCtx ctx, Type type, in TypeArgs typeArgs) =>
 	type.matchWithPointers!Type(
-		(Type.Bogus _) =>
+		(BogusType _) =>
 			Type.bogus,
 		(TypeParamIndex x) =>
 			typeArgs[x.index],

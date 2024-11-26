@@ -148,7 +148,6 @@ import model.model :
 	MatchSumTypeCase,
 	MatchSumTypeExpr,
 	methodCaller,
-	Params,
 	paramsArray,
 	paramTypeAt,
 	RecordField,
@@ -158,6 +157,7 @@ import model.model :
 	SpecInst,
 	StructBody,
 	StructInst,
+	SumTypeKind,
 	Test,
 	ThrowExpr,
 	TrustedExpr,
@@ -166,7 +166,7 @@ import model.model :
 	Type,
 	TypedExpr,
 	TypeParamIndex,
-	SumTypeKind;
+	Varargs;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapToStackArray;
 import util.col.array :
@@ -207,7 +207,7 @@ void genAssertType(
 	JsExpr get,
 ) {
 	type.matchIn!void(
-		(in Type.Bogus) {},
+		(in BogusType) {},
 		(in TypeParamIndex _) {},
 		(in StructInst x) {
 			genAssertType(out_, ctx, source, x, get);
@@ -360,11 +360,11 @@ JsParams translateFunParams(ref TranslateExprCtx ctx, in FunDecl a, bool omitFir
 				foreach (ref Destructure x; xs[(omitFirst ? 1 : 0) .. $])
 					out_ ~= translateDestructure(ctx, x);
 			},
-			(ref Params.Varargs x) {});
+			(ref Varargs x) {});
 	});
 	return JsParams(params, a.params.match!(Opt!JsDestructure)(
 		(Destructure[]) => none!JsDestructure,
-		(ref Params.Varargs x) =>
+		(ref Varargs x) =>
 			some(translateDestructure(ctx, x.param))));
 }
 JsDestructure translateDestructure(ref TranslateExprCtx ctx, in Destructure a) =>

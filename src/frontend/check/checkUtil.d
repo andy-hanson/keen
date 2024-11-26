@@ -16,6 +16,7 @@ import model.ast :
 	TypeAst,
 	VarargsAst;
 import model.model :
+	BogusType,
 	CommonTypes,
 	Destructure,
 	Diag,
@@ -39,6 +40,7 @@ import model.model :
 	TypeContainer,
 	TypeParamIndex,
 	TypeParams,
+	Varargs,
 	Visibility;
 import util.integralValues : IntegralValue;
 import util.col.array : mapPointers, only, small;
@@ -112,7 +114,7 @@ private Params checkParams(
 				ctx, commonTypes, structsAndAliasesMap, typeContainer, typeParamsScope,
 				&varargs.param, none!Type, DestructureKind.param);
 			Opt!Type elementType = param.type.matchIn!(Opt!Type)(
-				(in Type.Bogus _) =>
+				(in BogusType _) =>
 					some(Type.bogus),
 				(in TypeParamIndex _) =>
 					none!Type,
@@ -122,8 +124,7 @@ private Params checkParams(
 					: none!Type);
 			if (!has(elementType))
 				addDiag(ctx, varargs.param.range, Diag(DiagVarargsParamMustBeArray()));
-			return Params(allocate(ctx.alloc,
-				Params.Varargs(param, has(elementType) ? force(elementType) : Type.bogus)));
+			return Params(allocate(ctx.alloc, Varargs(param, has(elementType) ? force(elementType) : Type.bogus)));
 		});
 
 SymbolSet getExternsFromModifier(ref CheckCtx ctx, in ModifierKeywordAst modifier, bool required) {

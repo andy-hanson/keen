@@ -11,6 +11,7 @@ import model.model :
 	AutoFun,
 	BogusCallExpr,
 	BogusExpr,
+	BogusType,
 	BogusWrongTypeExpr,
 	Builtin4ary,
 	BuiltinBinary,
@@ -408,7 +409,7 @@ bool addDecl(ref AllUsedBuilder res, Uri from, AnyDecl used) {
 
 void trackAllUsedInType(ref AllUsedBuilder res, Uri from, Type a) {
 	a.match!void(
-		(Type.Bogus) {},
+		(BogusType _) {},
 		(TypeParamIndex _) {},
 		(ref StructInst x) {
 			if (!x.decl.body_.isA!BuiltinType)

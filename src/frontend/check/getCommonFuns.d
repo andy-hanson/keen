@@ -57,6 +57,7 @@ import model.model :
 	TypeParams,
 	TypeParamsAndSig,
 	UriAndDiagnostic,
+	Varargs,
 	VarDecl,
 	VarKind,
 	Visibility;
@@ -264,7 +265,7 @@ Params makeParams(ref Alloc alloc, in ParamsShort params) =>
 		(ParamShort[] x) =>
 			makeParams(alloc, x),
 		(ref ParamsShort.Variadic x) =>
-			Params(allocate(alloc, Params.Varargs(makeParam(alloc, x.param), x.elementType))));
+			Params(allocate(alloc, Varargs(makeParam(alloc, x.param), x.elementType))));
 Params makeParams(ref Alloc alloc, in ParamShort[] params) =>
 	Params(map(alloc, params, (ref ParamShort x) => makeParam(alloc, x)));
 
@@ -381,7 +382,7 @@ bool signatureMatchesTemplate(in FunDecl actual, in TypeParamsAndSig expected) =
 						typesMatch(x.type, actual.typeParams, y.type, expected.typeParams)),
 			(in ParamsShort.Variadic x) =>
 				actual.isVariadic && typesMatch(
-					actual.params.as!(Params.Varargs*).param.type, actual.typeParams,
+					actual.params.as!(Varargs*).param.type, actual.typeParams,
 					x.param.type, expected.typeParams));
 
 bool typesMatch(in Type a, in TypeParams typeParamsA, in Type b, in TypeParams typeParamsB) =>

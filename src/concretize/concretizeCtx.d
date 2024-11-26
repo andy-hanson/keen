@@ -26,6 +26,7 @@ import model.concreteModel :
 	sizeOrPointerSizeBytes;
 import model.constant : Constant;
 import model.model :
+	BogusType,
 	BuiltinType,
 	Called,
 	CalledSpecSig,
@@ -374,7 +375,7 @@ ConcreteType getConcreteType_forStructInst(ref ConcretizeCtx ctx, StructInst* in
 
 ConcreteType getConcreteType(ref ConcretizeCtx ctx, Type t, in TypeArgsScope typeArgsScope) =>
 	t.matchWithPointers!ConcreteType(
-		(Type.Bogus) =>
+		(BogusType _) =>
 			bogusType(ctx),
 		(TypeParamIndex x) =>
 			typeArgsScope[x.index],

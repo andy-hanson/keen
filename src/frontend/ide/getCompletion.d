@@ -22,12 +22,12 @@ import model.model :
 	ImportOrExport,
 	Module,
 	NameReferents,
-	Params,
 	SpecInst,
 	StructInst,
 	Type,
 	TypeContainer,
-	TypeWithContainer;
+	TypeWithContainer,
+	Varargs;
 import util.alloc.alloc : Alloc;
 import util.col.array : isEmpty;
 import util.col.arrayBuilder : buildArray, Builder;
@@ -120,7 +120,7 @@ Opt!Type firstParamType(in FunDecl a) =>
 	a.params.matchIn!(Opt!Type)(
 		(in Destructure[] x) =>
 			optIf(!isEmpty(x), () => x[0].type),
-		(in Params.Varargs x) =>
+		(in Varargs x) =>
 			some(x.elementType));
 Opt!Type firstParamType(in CalledSpecSig a) {
 	Type[] paramTypes = a.instantiatedSig.paramTypes;

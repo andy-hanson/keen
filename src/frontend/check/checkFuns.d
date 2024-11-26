@@ -58,6 +58,7 @@ import model.model :
 	Type,
 	TypeContainer,
 	TypeParams,
+	Varargs,
 	VarDecl,
 	Visibility;
 import model.parseDiag : ParseDiag, ParseDiagFileNotUtf8;
@@ -231,7 +232,7 @@ FunBody checkExternBody(ref CheckCtx ctx, FunDecl* fun) {
 				if (!isLinkageAlwaysCompatible(funLinkage, linkageRange(param.type)))
 					addDiag(ctx, param.range, Diag(DiagLinkageWorseThanContainingFun(fun, param.type, some(&param))));
 		},
-		(ref Params.Varargs x) {
+		(ref Varargs x) {
 			addDiag(ctx, x.param.range, Diag(DiagExternFunVariadic()));
 		});
 

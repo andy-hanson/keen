@@ -57,12 +57,12 @@ import model.model :
 	FunDecl,
 	FunFlags,
 	Local,
-	Params,
 	ReturnAndParamTypes,
 	Signature,
 	SpecInst,
 	Type,
-	TypeContainer;
+	TypeContainer,
+	Varargs;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array :
@@ -134,7 +134,7 @@ private bool parameterNamesAre(in CalledDecl a, in NameAndRange[] names) {
 			x.params.match!(Destructure[])(
 				(Destructure[] y) => y,
 				// will always fail because 'names' is always non-empty
-				(ref Params.Varargs) => typeAs!(Destructure[])([])),
+				(ref Varargs _) => typeAs!(Destructure[])([])),
 		(CalledSpecSig x) =>
 			typeAs!(Destructure[])(x.nonInstantiatedSig.params));
 	return arraysCorrespond!(Destructure, NameAndRange)(actual, names, (ref Destructure x, ref NameAndRange name) =>

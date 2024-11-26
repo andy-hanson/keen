@@ -118,7 +118,7 @@ private alias TypeCbOpt(T) = Opt!T delegate(in Type, in TypeAst) @safe @nogc pur
 
 Opt!T eachTypeComponent(T)(in Type type, in TypeAst ast, in TypeCbOpt!T cb) =>
 	type.matchIn!(Opt!T)(
-		(in Type.Bogus) =>
+		(in BogusType) =>
 			none!T,
 		(in TypeParamIndex _) =>
 			none!T,

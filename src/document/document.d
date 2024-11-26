@@ -316,7 +316,7 @@ Json documentParam(ref Ctx ctx, in TypeParams typeParams, in Destructure a) {
 
 Json documentTypeRef(ref Ctx ctx, in TypeParams typeParams, in Type a) =>
 	a.matchIn!Json(
-		(in Type.Bogus) =>
+		(in BogusType) =>
 			assert(false),
 		(in TypeParamIndex x) =>
 			jsonObject(ctx.alloc, [kindField!"type-param", field!"name"(typeParams[x.index].name)]),

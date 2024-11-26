@@ -100,6 +100,7 @@ import model.model :
 	VariableRef,
 	SumTypeMembership,
 	SumTypeMemberAndMethodImpls,
+	Varargs,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mapOp;
@@ -456,7 +457,7 @@ Json jsonOfParams(ref Alloc alloc, in Ctx ctx, in Params a) =>
 	a.matchIn!Json(
 		(in Destructure[] params) =>
 			jsonOfDestructures(alloc, ctx, params),
-		(in Params.Varargs v) =>
+		(in Varargs v) =>
 			jsonObject(alloc, [
 				kindField!"varargs",
 				field!"param"(jsonOfDestructure(alloc, ctx, v.param))]));
@@ -528,7 +529,7 @@ Json jsonOfFunBody(ref Alloc alloc, in Ctx ctx, in FunBody a) =>
 
 Json jsonOfType(ref Alloc alloc, in Ctx ctx, in Type a) =>
 	a.matchIn!Json(
-		(in Type.Bogus) =>
+		(in BogusType) =>
 			jsonString!"bogus" ,
 		(in TypeParamIndex x) =>
 			jsonObject(alloc, [

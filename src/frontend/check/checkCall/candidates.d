@@ -28,7 +28,8 @@ import model.model :
 	Params,
 	ReturnAndParamTypes,
 	SpecInst,
-	Type;
+	Type,
+	Varargs;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : pushStackArray, StackArrayBuilder, withBuildStackArray, withRestoreStack;
 import util.col.array : everyWithIndex, filterUnordered, map, makeArray, MutSmallArray, newArray, small;
@@ -205,7 +206,7 @@ private Type paramTypeAt(in Params params, size_t argIndex) =>
 	params.matchIn!Type(
 		(in Destructure[] x) =>
 			x[argIndex].type,
-		(in Params.Varargs x) =>
+		(in Varargs x) =>
 			x.elementType);
 
 private void eachFunInScopeForSpec(

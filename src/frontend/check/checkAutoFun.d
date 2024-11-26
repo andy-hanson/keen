@@ -28,16 +28,16 @@ import model.model :
 	isSymbol,
 	Local,
 	mustUnwrapOptionType,
-	Params,
 	RecordField,
 	SpecDecl,
 	Signature,
 	StructBody,
 	StructDecl,
 	StructInst,
-	Type,
 	SumTypeKind,
-	SumTypeMemberAndMethodImpls;
+	SumTypeMemberAndMethodImpls,
+	Type,
+	Varargs;
 import util.col.array : allSame, every, isEmpty, map, only;
 import util.opt : force, has, none, Opt, optOrDefault, some;
 import util.symbol : symbol;
@@ -216,7 +216,7 @@ Opt!Type getAutoFunParamType(ref CheckCtx ctx, AutoFunName funName, FunDecl* fun
 			params.length == countParams && allSame!(Type, Destructure)(params, (in Destructure x) => x.type)
 				? some(params[0].type)
 				: none!Type,
-		(in Params.Varargs) =>
+		(in Varargs) =>
 			none!Type);
 	if (!has(res)) {
 		addDiag(ctx, fun.nameRange.range, Diag(DiagAutoFunError(DiagAutoFunError.WrongParams(funName))));

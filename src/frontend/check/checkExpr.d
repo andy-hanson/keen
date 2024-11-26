@@ -117,7 +117,130 @@ import model.ast :
 	UnpackOptionAst,
 	WithAst;
 import model.constant : Constant;
-import model.model;
+import model.model :
+	asExtern,
+	AssertOrForbidExpr,
+	BogusExpr,
+	BuiltinFun,
+	BuiltinType,
+	BuiltinUnary,
+	Called,
+	CalledSpecSig,
+	CallExpr,
+	CharType,
+	ClosureGetExpr,
+	ClosureRef,
+	ClosureSetExpr,
+	CommonTypes,
+	Condition,
+	Destructure,
+	DestructureIgnoreSource,
+	Diag,
+	DiagAssertOrForbidMessageIsThrow,
+	DiagAssignmentNotAllowed,
+	DiagCharLiteralMustBeOneChar,
+	DiagDuplicateDeclaration,
+	DiagExternIsUnsafe,
+	DiagFunPointerExprMustBeName,
+	DiagFunPointerNotBare,
+	DiagIfThrow,
+	DiagLambdaCantBeFunctionPointer,
+	DiagLambdaClosurePurity,
+	DiagLiteralFloatAccuracy,
+	DiagLocalNotMutable,
+	DiagLoopDisallowedBody,
+	DiagLoopWithoutBreak,
+	DiagMatchCaseDuplicate,
+	DiagMatchCaseForType,
+	DiagMatchCaseNameNotInEnum,
+	DiagMatchCaseNoValueForEnumOrSymbol,
+	DiagMatchCaseShouldUseIgnore,
+	DiagMatchNeedsElse,
+	DiagMatchOnNonMatchable,
+	DiagMatchSumTypeCantInferTypeArgs,
+	DiagMatchSumTypeNoMember,
+	DiagMatchUnhandledCases,
+	DiagMatchUnnecessaryElse,
+	DiagNeedsExpectedType,
+	DiagPointerIsNative,
+	DiagPointerIsUnsafe,
+	DiagPointerMutToConst,
+	DiagPointerUnsupported,
+	DiagSharedArgIsNotLambda,
+	DiagSharedLambdaTypeIsNotShared,
+	DiagSharedLambdaUnused,
+	DiagSharedNotExpected,
+	DiagStringLiteralInvalid,
+	DiagTypeAnnotationUnnecessary,
+	DiagUnused,
+	DiagWithHasElse,
+	emptySpecs,
+	emptyTypeParams,
+	EnumMember,
+	Expr,
+	ExprAndType,
+	ExprKind,
+	ExternCondition,
+	ExternExpr,
+	FinallyExpr,
+	FloatType,
+	FunBody,
+	FunDecl,
+	FunFlags,
+	FunInst,
+	FunKind,
+	FunPointerExpr,
+	IfExpr,
+	IntegralType,
+	IntegralTypes,
+	isDefinitelyByRef,
+	isEmptyType,
+	isSigned,
+	LambdaExpr,
+	LetExpr,
+	LiteralExpr,
+	LiteralStringLikeExpr,
+	Local,
+	LocalGetExpr,
+	localMustHaveNameRange,
+	LocalMutability,
+	LocalPointerExpr,
+	LocalSetExpr,
+	LoopExpr,
+	LoopBreakExpr,
+	LoopContinueExpr,
+	LoopWhileOrUntilExpr,
+	MatchEnumExpr,
+	MatchIntegralExpr,
+	MatchStringLikeExpr,
+	MatchSumTypeCase,
+	MatchSumTypeExpr,
+	Mutability,
+	paramsArray,
+	purityRange,
+	Purity,
+	RecordFieldPointerExpr,
+	ReturnAndParamTypes,
+	SeqExpr,
+	SpecDecl,
+	StructAlias,
+	StructBody,
+	StructDecl,
+	StructInst,
+	StructOrAlias,
+	SumTypeKind,
+	SumTypeMemberAndMethodImpls,
+	SumTypeMembership,
+	ThrowExpr,
+	toMutability,
+	TrustedExpr,
+	TryExpr,
+	TryLetExpr,
+	Type,
+	TypeContainer,
+	TypeWithContainer,
+	TypedExpr,
+	VariableRef;
 import util.alloc.stackAlloc : MaxStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell;
 import util.col.array :
@@ -978,7 +1101,7 @@ void addUnusedLocalDiags(ref ExprCtx ctx, Local* local, scope ref LocalNode node
 
 Expr checkPointer(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, PtrAst* ast, ref Expected expected) =>
 	getExpectedPointee(ctx, expected).match!Expr(
-		(ExpectedPointeeNone) {
+		(ExpectedPointeeNone _) {
 			addDiag2(ctx, source, Diag(DiagNeedsExpectedType(DiagNeedsExpectedType.Kind.pointer)));
 			return bogus(expected, source);
 		},
@@ -1510,8 +1633,7 @@ Expr checkMatchEnum(
 				size_t index = mustHaveIndexOfPointer(body_.members, member);
 				if (seen[index]) {
 					hasCaseDiag = true;
-					addDiag2(ctx, caseAst.member.nameRange, Diag(
-						DiagMatchCaseDuplicate(DiagMatchCaseDuplicate.Kind(force(name)))));
+					addDiag2(ctx, caseAst.member.nameRange, Diag(DiagMatchCaseDuplicate(force(name))));
 				} else {
 					seen[index] = true;
 					AsNameAst* nameAst = force(asName);
@@ -1620,7 +1742,7 @@ SmallArray!MatchSumTypeCase checkMatchSumTypeCases(
 						return res;
 					else {
 						addDiag2(ctx, caseAst.member.nameRange, Diag(
-							DiagMatchCaseDuplicate(DiagMatchCaseDuplicate.Kind(force(res).member.decl.name))));
+							DiagMatchCaseDuplicate(force(res).member.decl.name)));
 						return none!MatchSumTypeCase;
 					}
 				} else
@@ -1802,8 +1924,7 @@ Expr checkMatchChar(
 					if (tryAdd(seen, value))
 						return some(MatchIntegralExpr.Case(value, checkExpr(ctx, locals, &caseAst.then, expected)));
 					else {
-						addDiag2(ctx, caseAst.member.nameRange, Diag(
-							DiagMatchCaseDuplicate(DiagMatchCaseDuplicate.Kind(force(stringValue)))));
+						addDiag2(ctx, caseAst.member.nameRange, Diag(DiagMatchCaseDuplicate(force(stringValue))));
 						return none!(MatchIntegralExpr.Case);
 					}
 				} else
@@ -1860,7 +1981,7 @@ Expr checkMatchIntegral(
 						addDiag2(ctx, x.range, Diag(DiagMatchCaseForType(DiagMatchCaseForType.Kind.numeric)));
 						return none!IntegralValue;
 					},
-					(AsBogusAst) =>
+					(AsBogusAst _) =>
 						none!IntegralValue);
 				if (has(optValue)) {
 					IntegralValue value = force(optValue);
@@ -1868,9 +1989,9 @@ Expr checkMatchIntegral(
 						return some(MatchIntegralExpr.Case(value, checkExpr(ctx, locals, &caseAst.then, expected)));
 					else {
 						addDiag2(ctx, caseAst.member.nameRange, Diag(
-							DiagMatchCaseDuplicate(isSigned(integralType)
-								? DiagMatchCaseDuplicate.Kind(value.asSigned())
-								: DiagMatchCaseDuplicate.Kind(value.asUnsigned()))));
+							isSigned(integralType)
+								? DiagMatchCaseDuplicate(value.asSigned())
+								: DiagMatchCaseDuplicate(value.asUnsigned())));
 						return none!(MatchIntegralExpr.Case);
 					}
 				} else
@@ -1929,8 +2050,7 @@ Expr checkMatchStringLike(
 					if (tryAdd(seen, value))
 						return some(MatchStringLikeExpr.Case(value, checkExpr(ctx, locals, &caseAst.then, expected)));
 					else {
-						addDiag2(ctx, caseAst.member.nameRange, Diag(
-							DiagMatchCaseDuplicate(DiagMatchCaseDuplicate.Kind(value))));
+						addDiag2(ctx, caseAst.member.nameRange, Diag(DiagMatchCaseDuplicate(value)));
 						return none!(MatchStringLikeExpr.Case);
 					}
 				} else
@@ -2008,7 +2128,7 @@ Opt!string stringFromCaseAst(ref ExprCtx ctx, CaseMemberAst ast) =>
 		},
 		(AsStringAst x) =>
 			some(x.value),
-		(AsBogusAst) =>
+		(AsBogusAst _) =>
 			none!string);
 
 Opt!(AsNameAst*) nameFromCaseMemberAst(ref ExprCtx ctx, CaseMemberAst* ast) {

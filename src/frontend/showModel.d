@@ -11,7 +11,6 @@ import model.model :
 	CalledSpecSig,
 	CommonTypes,
 	Destructure,
-	Diag,
 	DiagTypeShouldUseSyntax,
 	FunDecl,
 	FunDeclAndTypeArgs,
@@ -34,6 +33,7 @@ import model.model :
 	TypeParams,
 	TypeParamsAndSig,
 	TypeWithContainer,
+	Varargs,
 	Visibility;
 import util.col.array : isEmpty, only, only2, sizeEq;
 import util.opt : force, has, none, Opt, some;
@@ -301,7 +301,7 @@ void writeSig(
 					afterParameter();
 				});
 		},
-		(in Params.Varargs varargs) {
+		(in Varargs varargs) {
 			beforeParameter();
 			writer ~= "...";
 			writeTypeUnquoted(writer, ctx, TypeWithContainer(
@@ -532,7 +532,7 @@ void writeTypeQuoted(scope ref Writer writer, in ShowTypeCtx ctx, in TypeWithCon
 
 void writeTypeUnquoted(scope ref Writer writer, in ShowTypeCtx ctx, in TypeWithContainer a) {
 	a.type.matchIn!void(
-		(in Type.Bogus) {
+		(in BogusType) {
 			writer ~= "<<any>>";
 		},
 		(in TypeParamIndex x) {
