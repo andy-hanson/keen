@@ -68,10 +68,10 @@ SmallArray!ImportOrExportAst parseImportLines(ref Lexer lexer) {
 PathOrRelPath parseImportPath(ref Lexer lexer) {
 	Opt!ushort nParents = () {
 		if (tryTakeToken(lexer, Token.dot)) {
-			takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiagExpected.Kind.slash);
+			takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiagExpected.slash);
 			return some!ushort(0);
 		} else if (tryTakeOperator(lexer, symbol!"..")) {
-			takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiagExpected.Kind.slash);
+			takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiagExpected.slash);
 			return some(safeToUshort(takeDotDotSlashes(lexer, 1)));
 		} else
 			return none!ushort;
@@ -82,7 +82,7 @@ PathOrRelPath parseImportPath(ref Lexer lexer) {
 
 size_t takeDotDotSlashes(ref Lexer lexer, size_t acc) {
 	if (tryTakeOperator(lexer, symbol!"..")) {
-		takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiagExpected.Kind.slash);
+		takeOrAddDiagExpectedOperator(lexer, symbol!"/", ParseDiagExpected.slash);
 		return takeDotDotSlashes(lexer, acc + 1);
 	} else
 		return acc;
@@ -152,7 +152,7 @@ ImportOrExportAstKind parseIndentedImportNames(ref Lexer lexer, Pos start) {
 		final switch (takeNewlineOrDedent(lexer)) {
 			case NewlineOrDedent.newline:
 				if (!has(trailingComma))
-					addDiag(lexer, range(lexer, start), ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.comma)));
+					addDiag(lexer, range(lexer, start), ParseDiag(ParseDiagExpected(ParseDiagExpected.comma)));
 				continue;
 			case NewlineOrDedent.dedent:
 				addDiagIfTrailingComma(lexer, trailingComma);

@@ -77,6 +77,7 @@ import model.ast :
 	AsStringAst,
 	BogusAst,
 	CallAst,
+	CallAstStyle,
 	CallNamedAst,
 	CaseAst,
 	CaseMemberAst,
@@ -140,6 +141,7 @@ import model.model :
 	DiagAssignmentNotAllowed,
 	DiagCharLiteralMustBeOneChar,
 	DiagDuplicateDeclaration,
+	DiagDuplicateDeclarationKind,
 	DiagExternIsUnsafe,
 	DiagFunPointerExprMustBeName,
 	DiagFunPointerNotBare,
@@ -592,11 +594,11 @@ Expr checkAssignment(
 		CallAst leftCall = left.kind.as!CallAst;
 		Opt!Symbol name = () {
 			switch (leftCall.style) {
-				case CallAst.Style.dot:
+				case CallAstStyle.dot:
 					return some(prependSet(leftCall.funName.name));
-				case CallAst.Style.prefixOperator:
+				case CallAstStyle.prefixOperator:
 					return leftCall.funName.name == symbol!"*" ? some(symbol!"set-deref") : none!Symbol;
-				case CallAst.Style.subscript:
+				case CallAstStyle.subscript:
 					return some(symbol!"set-subscript");
 				default:
 					return none!Symbol;
@@ -1071,7 +1073,7 @@ Opt!Expr checkWithLocal(
 ) {
 	if (nameIsParameterOrLocalInScope(ctx, locals, local.name))
 		addDiag2(ctx, localMustHaveNameRange(*local), Diag(
-			DiagDuplicateDeclaration(DiagDuplicateDeclaration.Kind.paramOrLocal, local.name)));
+			DiagDuplicateDeclaration(DiagDuplicateDeclarationKind.paramOrLocal, local.name)));
 
 	LocalNode localNode = LocalNode(
 		locals.locals,
@@ -1276,7 +1278,7 @@ Opt!NameAndTypeArg getNameAndTypeArg(in ExprAst ast) {
 		return some(NameAndTypeArg(NameAndRange(ast.range.start, ast.kind.as!IdentifierAst.name), none!(TypeAst*)));
 	else if (ast.kind.isA!CallAst) {
 		CallAst call = ast.kind.as!CallAst;
-		return optIf(call.style == CallAst.Style.single && isEmpty(call.args), () =>
+		return optIf(call.style == CallAstStyle.single && isEmpty(call.args), () =>
 			NameAndTypeArg(call.funName, call.typeArg));
 	} else
 		return none!NameAndTypeArg;
@@ -1708,7 +1710,7 @@ Expr checkMatchSumType(
 					Diag(DiagMatchUnhandledCases(listMissingUnionCases(ctx, sumType, body_, cases))))));
 		} else
 			return some(allocate(ctx.alloc, checkMatchElseRequired(
-				ctx, locals, source, ast, expected, DiagMatchNeedsElse.Kind.variant)));
+				ctx, locals, source, ast, expected, DiagMatchNeedsElse.variant)));
 	}();
 	return Expr(source, ExprKind(allocate(ctx.alloc, MatchSumTypeExpr(matched, cases, else_))));
 }
@@ -1931,7 +1933,7 @@ Expr checkMatchChar(
 				} else
 					return none!(MatchIntegralExpr.Case);
 			}));
-	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, DiagMatchNeedsElse.Kind.integral);
+	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, DiagMatchNeedsElse.integral);
 	return Expr(source, ExprKind(allocate(ctx.alloc,
 		MatchIntegralExpr(MatchIntegralExpr.Kind(charType), matched, cases, else_))));
 }
@@ -1998,7 +2000,7 @@ Expr checkMatchIntegral(
 				} else
 					return none!(MatchIntegralExpr.Case);
 			}));
-	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, DiagMatchNeedsElse.Kind.integral);
+	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, DiagMatchNeedsElse.integral);
 	return Expr(source, ExprKind(allocate(ctx.alloc,
 		MatchIntegralExpr(MatchIntegralExpr.Kind(integralType), matched, cases, else_))));
 }
@@ -2057,7 +2059,7 @@ Expr checkMatchStringLike(
 				} else
 					return none!(MatchStringLikeExpr.Case);
 			}));
-	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, DiagMatchNeedsElse.Kind.stringLike);
+	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, DiagMatchNeedsElse.stringLike);
 	return Expr(source, ExprKind(allocate(ctx.alloc, MatchStringLikeExpr(kind, matched, equals, cases, else_))));
 }
 
@@ -2067,7 +2069,7 @@ Expr checkMatchElseRequired(
 	ExprAst* source,
 	ref MatchAst ast,
 	ref Expected expected,
-	DiagMatchNeedsElse.Kind kind,
+	DiagMatchNeedsElse kind,
 ) =>
 	checkMatchElseRequired(ctx, locals, source, ast, expected, () => Diag(DiagMatchNeedsElse(kind)));
 Expr checkMatchElseRequired(

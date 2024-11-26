@@ -7,15 +7,18 @@ import backend.js.jsAst :
 	JsArrowFunction,
 	JsAssignStatement,
 	JsBinaryExpr,
+	JsBinaryKind,
 	JsBlockStatement,
 	JsBreakStatement,
 	JsCallExpr,
 	JsCallWithSpreadExpr,
 	JsClassDecl,
 	JsClassMember,
+	JsClassMemberStatic,
 	JsClassMethod,
 	JsContinueStatement,
 	JsDecl,
+	JsDeclExported,
 	JsDefaultDestructure,
 	JsDestructure,
 	JsExpr,
@@ -29,8 +32,10 @@ import backend.js.jsAst :
 	JsLiteralStringFromMemberName,
 	JsLiteralStringFromSymbol,
 	JsMemberName,
+	JsMemberNameKind,
 	JsModuleAst,
 	JsName,
+	JsNameKind,
 	JsNewExpr,
 	JsNullExpr,
 	JsObjectDestructure,
@@ -48,6 +53,7 @@ import backend.js.jsAst :
 	JsTryCatchStatement,
 	JsTryFinallyStatement,
 	JsUnaryExpr,
+	JsUnaryKind,
 	JsVarDecl,
 	JsWhileStatement,
 	LetDeclKind,
@@ -242,19 +248,19 @@ void writeJsName(scope ref Output writer, in JsName name) {
 	} else {
 		writer ~= () {
 			final switch (name.kind) {
-				case JsName.Kind.none:
+				case JsNameKind.none:
 					return "";
-				case JsName.Kind.function_:
+				case JsNameKind.function_:
 					return "f_";
-				case JsName.Kind.local:
+				case JsNameKind.local:
 					return "l_";
-				case JsName.Kind.specialLocal:
+				case JsNameKind.specialLocal:
 					return "sl_";
-				case JsName.Kind.specSig:
+				case JsNameKind.specSig:
 					return "s_";
-				case JsName.Kind.temp:
+				case JsNameKind.temp:
 					return "x_";
-				case JsName.Kind.type:
+				case JsNameKind.type:
 					return "t_";
 			}
 		}();
@@ -286,21 +292,21 @@ void writeQuotedMemberName(scope ref Output writer, JsMemberName a) {
 	writer ~= a.crowName;
 	writer ~= '"';
 }
-string memberNamePrefix(JsMemberName.Kind a) {
+string memberNamePrefix(JsMemberNameKind a) {
 	final switch (a) {
-		case JsMemberName.Kind.none:
+		case JsMemberNameKind.none:
 			return "";
-		case JsMemberName.Kind.enumMember:
+		case JsMemberNameKind.enumMember:
 			return "e_";
-		case JsMemberName.Kind.recordField:
+		case JsMemberNameKind.recordField:
 			return "f_";
-		case JsMemberName.Kind.special:
+		case JsMemberNameKind.special:
 			return "s_";
-		case JsMemberName.Kind.sumTypeMethod:
+		case JsMemberNameKind.sumTypeMethod:
 			return "m_";
-		case JsMemberName.Kind.unionConstructor:
+		case JsMemberNameKind.unionConstructor:
 			return "uc_";
-		case JsMemberName.Kind.unionMember:
+		case JsMemberNameKind.unionMember:
 			return "um_";
 	}
 }
@@ -372,9 +378,9 @@ void writeDecl(scope ref Output writer, in ShowTypeCtx showCtx, in JsDecl decl, 
 	markMap(writer, decl.source);
 	if (!neverExport) {
 		final switch (decl.exported) {
-			case JsDecl.Exported.private_:
+			case JsDeclExported.private_:
 				break;
-			case JsDecl.Exported.export_:
+			case JsDeclExported.export_:
 				writer ~= "export ";
 				break;
 		}
@@ -415,9 +421,9 @@ void writeClass(scope ref Output writer, JsName name, in JsClassDecl x) {
 }
 void writeClassMember(scope ref Output writer, in JsClassMember member) {
 	final switch (member.isStatic) {
-		case JsClassMember.Static.instance:
+		case JsClassMemberStatic.instance:
 			break;
-		case JsClassMember.Static.static_:
+		case JsClassMemberStatic.static_:
 			writer ~= "static ";
 			break;
 	}
@@ -615,7 +621,7 @@ void writeTryFinally(scope ref Output writer, uint indent, in JsTryFinallyStatem
 }
 pragma(inline, false)
 void writeVarDecl(scope ref Output writer, uint indent, in JsVarDecl a) {
-	writer ~= stringOfEnum(a.kind);
+	writer ~= stringOfEnum(a.const_);
 	writer ~= ' ';
 	writeDestructure(writer, a.destructure);
 	if (has(a.initializer)) {
@@ -701,39 +707,39 @@ void writeExpr(scope ref Output writer, uint indent, in JsExpr a, ExprPos pos = 
 			writer ~= ' ';
 			writer ~= () {
 				final switch (x.kind) {
-					case JsBinaryExpr.Kind.and:
+					case JsBinaryKind.and:
 						return "&&";
-					case JsBinaryExpr.Kind.bitShiftLeft:
+					case JsBinaryKind.bitShiftLeft:
 						return "<<";
-					case JsBinaryExpr.Kind.bitShiftRight:
+					case JsBinaryKind.bitShiftRight:
 						return ">>";
-					case JsBinaryExpr.Kind.bitwiseAnd:
+					case JsBinaryKind.bitwiseAnd:
 						return "&";
-					case JsBinaryExpr.Kind.bitwiseOr:
+					case JsBinaryKind.bitwiseOr:
 						return "|";
-					case JsBinaryExpr.Kind.bitwiseXor:
+					case JsBinaryKind.bitwiseXor:
 						return "^";
-					case JsBinaryExpr.Kind.divide:
+					case JsBinaryKind.divide:
 						return "/";
-					case JsBinaryExpr.Kind.eqEqEq:
+					case JsBinaryKind.eqEqEq:
 						return "===";
-					case JsBinaryExpr.Kind.in_:
+					case JsBinaryKind.in_:
 						return "in";
-					case JsBinaryExpr.Kind.instanceof:
+					case JsBinaryKind.instanceof:
 						return "instanceof";
-					case JsBinaryExpr.Kind.less:
+					case JsBinaryKind.less:
 						return "<";
-					case JsBinaryExpr.Kind.minus:
+					case JsBinaryKind.minus:
 						return "-";
-					case JsBinaryExpr.Kind.modulo:
+					case JsBinaryKind.modulo:
 						return "%";
-					case JsBinaryExpr.Kind.notEqEq:
+					case JsBinaryKind.notEqEq:
 						return "!==";
-					case JsBinaryExpr.Kind.or:
+					case JsBinaryKind.or:
 						return "||";
-					case JsBinaryExpr.Kind.plus:
+					case JsBinaryKind.plus:
 						return "+";
-					case JsBinaryExpr.Kind.times:
+					case JsBinaryKind.times:
 						return "*";
 				}
 			}();
@@ -838,15 +844,15 @@ void writeExpr(scope ref Output writer, uint indent, in JsExpr a, ExprPos pos = 
 			writer ~= '(';
 			writer ~= () {
 				final switch (x.kind) {
-					case JsUnaryExpr.Kind.await:
+					case JsUnaryKind.await:
 						return "await ";
-					case JsUnaryExpr.Kind.bitwiseNot:
+					case JsUnaryKind.bitwiseNot:
 						return "~";
-					case JsUnaryExpr.Kind.not:
+					case JsUnaryKind.not:
 						return "!";
-					case JsUnaryExpr.Kind.typeof_:
+					case JsUnaryKind.typeof_:
 						return "typeof ";
-					case JsUnaryExpr.Kind.void_:
+					case JsUnaryKind.void_:
 						return "void ";
 				}
 			}();

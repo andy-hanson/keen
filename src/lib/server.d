@@ -862,36 +862,32 @@ Json jsonOfLowModel(
 	jsonOfLowProgram(alloc, server.lineAndColumnGetters, buildToLowProgram(perf, alloc, server, versionInfo, program));
 
 immutable struct PrintKind {
-	immutable struct Ast {}
-	immutable struct Model {}
-	immutable struct ConcreteModel {}
-	immutable struct LowModel {}
-	immutable struct IdeAtPos {
-		enum Kind {
-			completion,
-			definition,
-			documentHighlight,
-			hover,
-			implementation,
-			references,
-			rename,
-			signatureHelp,
-			typeDefinition,
-		}
-		Kind kind;
-		LineAndColumn lineAndColumn;
-	}
-	immutable struct IdeWholeFile {
-		enum Kind {
-			codeLenses,
-			foldingRanges,
-			inlayHints,
-			tokens,
-		}
-		Kind kind;
-	}
-
-	mixin Union!(Ast, Model, ConcreteModel, LowModel, IdeAtPos, IdeWholeFile);
+	mixin Union!(PrintAst, PrintModel, PrintConcreteModel, PrintLowModel, PrintIdeAtPos, PrintIdeWholeFile);
+}
+immutable struct PrintAst {}
+immutable struct PrintModel {}
+immutable struct PrintConcreteModel {}
+immutable struct PrintLowModel {}
+immutable struct PrintIdeAtPos {
+	PrintIdeAtPosKind kind;
+	LineAndColumn lineAndColumn;
+}
+enum PrintIdeAtPosKind {
+	completion,
+	definition,
+	documentHighlight,
+	hover,
+	implementation,
+	references,
+	rename,
+	signatureHelp,
+	typeDefinition,
+}
+enum PrintIdeWholeFile {
+	codeLenses,
+	foldingRanges,
+	inlayHints,
+	tokens,
 }
 
 Json jsonForPrintIdeAtPos(
@@ -900,7 +896,7 @@ Json jsonForPrintIdeAtPos(
 	ref Server server,
 	ref Program program,
 	in UriLineAndColumn where,
-	PrintKind.IdeAtPos.Kind kind,
+	PrintIdeAtPosKind kind,
 ) {
 	TextDocumentPositionParams params = TextDocumentPositionParams(
 		where.uri,
@@ -908,28 +904,28 @@ Json jsonForPrintIdeAtPos(
 	Json locations(UriAndLineAndCharacterRange[] xs) =>
 		jsonOfReferences(alloc, xs);
 	final switch (kind) {
-		case PrintKind.IdeAtPos.Kind.completion:
+		case PrintIdeAtPosKind.completion:
 			Opt!CompletionList res = getCompletionForProgram(alloc, server, program, CompletionParams(params));
 			return has(res) ? jsonOfCompletionList(alloc, force(res)) : jsonNull;
-		case PrintKind.IdeAtPos.Kind.definition:
+		case PrintIdeAtPosKind.definition:
 			return locations(getDefinitionForProgram(alloc, server, program, DefinitionParams(params)));
-		case PrintKind.IdeAtPos.Kind.documentHighlight:
+		case PrintIdeAtPosKind.documentHighlight:
 			Opt!DocumentHighlightResult res = getDocumentHighlightsForProgram(
 				alloc, server, program, DocumentHighlightParams(params));
 			return has(res) ? jsonOfDocumentHighlight(alloc, force(res)) : jsonNull;
-		case PrintKind.IdeAtPos.Kind.hover:
+		case PrintIdeAtPosKind.hover:
 			return jsonOfHover(alloc, getHoverForProgram(alloc, server, program, HoverParams(params)));
-		case PrintKind.IdeAtPos.Kind.implementation:
+		case PrintIdeAtPosKind.implementation:
 			return locations(getImplementationForProgram(alloc, server, program, ImplementationParams(params)));
-		case PrintKind.IdeAtPos.Kind.rename:
+		case PrintIdeAtPosKind.rename:
 			Opt!WorkspaceEdit rename = getRenameForProgram(alloc, server, program, RenameParams(params, "new-name"));
 			return has(rename) ? jsonOfWorkspaceEdit(alloc, force(rename)) : jsonNull;
-		case PrintKind.IdeAtPos.Kind.references:
+		case PrintIdeAtPosKind.references:
 			return locations(getReferencesForProgram(alloc, server, program, ReferenceParams(params)));
-		case PrintKind.IdeAtPos.Kind.signatureHelp:
+		case PrintIdeAtPosKind.signatureHelp:
 			Opt!SignatureHelp res = getSignatureHelpForProgram(alloc, server, program, SignatureHelpParams(params));
 			return has(res) ? jsonOfSignatureHelp(alloc, force(res)) : jsonNull;
-		case PrintKind.IdeAtPos.Kind.typeDefinition:
+		case PrintIdeAtPosKind.typeDefinition:
 			return locations(getTypeDefinitionForProgram(alloc, server, program, TypeDefinitionParams(params)));
 	}
 }
@@ -940,19 +936,19 @@ Json jsonForPrintIdeWholeFile(
 	ref Server server,
 	ref Program program,
 	in Uri uri,
-	PrintKind.IdeWholeFile.Kind kind,
+	PrintIdeWholeFile kind,
 ) {
 	final switch (kind) {
-		case PrintKind.IdeWholeFile.Kind.codeLenses:
+		case PrintIdeWholeFile.codeLenses:
 			return jsonOfCodeLenses(alloc, getCodeLenses(alloc, program, CodeLensParams(uri)));
-		case PrintKind.IdeWholeFile.Kind.foldingRanges:
+		case PrintIdeWholeFile.foldingRanges:
 			CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
 			return jsonOfFoldingRanges(alloc, foldingRangesOfAst(alloc, *file));
-		case PrintKind.IdeWholeFile.Kind.inlayHints:
+		case PrintIdeWholeFile.inlayHints:
 			return jsonOfInlayHints(
 				alloc,
 				getInlayHintsForProgram(alloc, server, program, InlayHintParams(uri)));
-		case PrintKind.IdeWholeFile.Kind.tokens:
+		case PrintIdeWholeFile.tokens:
 			CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
 			return jsonOfDecodedTokens(alloc, tokensOfAst(alloc, *file));
 	}

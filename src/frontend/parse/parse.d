@@ -101,7 +101,7 @@ ExprAndDiags parseSingleLineExpression(ref Alloc alloc, in CString source) {
 	Lexer lexer = createLexer(ptrTrustMe(alloc), castNonScope_ref(source));
 	mustTakeToken(lexer, Token.newlineSameIndent);
 	ExprAst expr = parseSingleStatementLine(lexer);
-	takeOrAddDiagExpectedToken(lexer, Token.endOfFile, ParseDiagExpected.Kind.endOfLine);
+	takeOrAddDiagExpectedToken(lexer, Token.endOfFile, ParseDiagExpected.endOfLine);
 	return ExprAndDiags(expr, finishDiagnostics(lexer));
 }
 
@@ -113,7 +113,7 @@ TypeParams parseTypeParams(ref Lexer lexer) =>
 			do {
 				res ~= takeNameAndRange(lexer);
 			} while (tryTakeToken(lexer, Token.comma));
-			takeOrAddDiagExpectedToken(lexer, Token.bracketRight, ParseDiagExpected.Kind.closingBracket);
+			takeOrAddDiagExpectedToken(lexer, Token.bracketRight, ParseDiagExpected.closingBracket);
 		})
 		: emptySmallArray!NameAndRange;
 
@@ -146,7 +146,7 @@ SmallArray!EnumOrFlagsMemberAst parseEnumOrFlagsMembers(ref Lexer lexer) =>
 			if (tryTakeToken(lexer, Token.equal)) {
 				Opt!LiteralIntegralAndRange res = tryTakeLiteralIntegral(lexer);
 				if (!has(res))
-					addDiagExpected(lexer, ParseDiagExpected.Kind.literalIntegral);
+					addDiagExpected(lexer, ParseDiagExpected.literalIntegral);
 				return res;
 			} else
 				return none!LiteralIntegralAndRange;
@@ -325,7 +325,7 @@ ExternTypeAst parseExternType(ref Lexer lexer) {
 		Opt!(LiteralIntegralAndRange*) alignment = has(size) && tryTakeToken(lexer, Token.comma)
 			? parseIntegral(lexer)
 			: none!(LiteralIntegralAndRange*);
-		takeOrAddDiagExpectedToken(lexer, Token.parenRight, ParseDiagExpected.Kind.closingParen);
+		takeOrAddDiagExpectedToken(lexer, Token.parenRight, ParseDiagExpected.closingParen);
 		return ExternTypeAst(size, alignment);
 	} else
 		return ExternTypeAst(none!(LiteralIntegralAndRange*), none!(LiteralIntegralAndRange*));
@@ -333,7 +333,7 @@ ExternTypeAst parseExternType(ref Lexer lexer) {
 Opt!(LiteralIntegralAndRange*) parseIntegral(ref Lexer lexer) {
 	Pos start = curPos(lexer);
 	Opt!LiteralIntegral res = takeOrAddDiagExpectedToken!LiteralIntegral(
-		lexer, ParseDiagExpected.Kind.literalIntegral, (TokenAndData x) =>
+		lexer, ParseDiagExpected.literalIntegral, (TokenAndData x) =>
 			optIf(x.token == Token.literalIntegral, () => x.asLiteralIntegral));
 	return has(res)
 		? some(allocate(lexer.alloc, LiteralIntegralAndRange(range(lexer, start), force(res))))

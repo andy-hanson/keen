@@ -91,25 +91,25 @@ immutable struct BuildOptions {
 }
 
 immutable struct SingleBuildOutput {
-	enum Kind { c, executable, jsScript, jsModules, nodeJsScript, nodeJsModules }
-	Kind kind;
+	SingleBuildOutputKind kind;
 	FilePath path;
 }
+enum SingleBuildOutputKind { c, executable, jsScript, jsModules, nodeJsScript, nodeJsModules }
 
 BuildTarget[] targetsForBuild(ref Alloc alloc, OS os, in BuildCommand x) =>
 	buildArray!BuildTarget(alloc, (scope ref Builder!BuildTarget out_) {
 		foreach (SingleBuildOutput output; x.options.out_)
 			addIfNotContains!BuildTarget(out_, targetForBuildOutput(os, output.kind));
 	});
-private BuildTarget targetForBuildOutput(OS os, SingleBuildOutput.Kind a) {
+private BuildTarget targetForBuildOutput(OS os, SingleBuildOutputKind a) {
 	final switch (a) {
-		case SingleBuildOutput.Kind.c:
-		case SingleBuildOutput.Kind.executable:
+		case SingleBuildOutputKind.c:
+		case SingleBuildOutputKind.executable:
 			return BuildTarget.native(os);
-		case SingleBuildOutput.Kind.jsScript:
-		case SingleBuildOutput.Kind.jsModules:
-		case SingleBuildOutput.Kind.nodeJsScript:
-		case SingleBuildOutput.Kind.nodeJsModules:
+		case SingleBuildOutputKind.jsScript:
+		case SingleBuildOutputKind.jsModules:
+		case SingleBuildOutputKind.nodeJsScript:
+		case SingleBuildOutputKind.nodeJsModules:
 			return BuildTarget.js;
 	}
 }

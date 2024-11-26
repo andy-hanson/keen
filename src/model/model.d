@@ -3769,9 +3769,9 @@ immutable struct Diag {
 		DiagCallShouldUseSyntax,
 		DiagCantCall,
 		DiagCaseDuplicate,
-		DiagCaseInvalidMemberType,
 		DiagCaseInvalidSumType,
 		DiagCaseMissingType,
+		DiagCaseTypeIsTemplate,
 		DiagCharLiteralMustBeOneChar,
 		DiagCommonFunDuplicate,
 		DiagCommonFunMissing,
@@ -3969,16 +3969,14 @@ immutable struct DiagCaseDuplicate {
 	StructDecl* member;
 	StructDecl* sumType;
 }
-immutable struct DiagCaseInvalidMemberType {
-	enum Reason { isTemplate }
-	Reason reason;
-	StructDecl* member;
-}
 immutable struct DiagCaseInvalidSumType {
 	StructDecl* member;
 	Type actual;
 }
 immutable struct DiagCaseMissingType {}
+immutable struct DiagCaseTypeIsTemplate {
+	StructDecl* caseType;
+}
 
 immutable struct DiagCharLiteralMustBeOneChar {}
 immutable struct DiagCommonFunDuplicate {
@@ -4004,38 +4002,31 @@ immutable struct DestructureExpectedType {
 }
 immutable struct DestructureExpectedTuple { size_t size; }
 immutable struct DiagDuplicateDeclaration {
-	enum Kind {
-		enumMember,
-		flagsMember,
-		paramOrLocal,
-		recordField,
-		spec,
-		structOrAlias,
-		typeParam,
-		unionMember,
-	}
-	Kind kind;
+	DiagDuplicateDeclarationKind kind;
 	Symbol name;
+}
+enum DiagDuplicateDeclarationKind {
+	enumMember,
+	flagsMember,
+	paramOrLocal,
+	recordField,
+	spec,
+	structOrAlias,
+	typeParam,
+	unionMember,
 }
 immutable struct DiagDuplicateExports {
-	enum Kind {
-		spec,
-		type,
-	}
-	Kind kind;
+	DiagDuplicateExportsKind kind;
 	Symbol name;
 }
+enum DiagDuplicateExportsKind { spec, type }
 // This is for the same name imported multiple times (`import ./m: foo, foo`)
 immutable struct DiagDuplicateImportName {
 	Symbol name;
 }
 // This is for different types of the same name imported from multiple modules
 immutable struct DiagDuplicateImports {
-	enum Kind {
-		spec,
-		type,
-	}
-	Kind kind;
+	DiagDuplicateExportsKind kind;
 	Symbol name;
 }
 immutable struct DiagEmptyEnumOrUnion {}
@@ -4166,10 +4157,7 @@ immutable struct DiagMatchCaseNoValueForEnumOrSymbol {
 immutable struct DiagMatchCaseShouldUseIgnore {
 	StructInst* member;
 }
-immutable struct DiagMatchNeedsElse {
-	enum Kind { integral, stringLike, variant }
-	Kind kind;
-}
+enum DiagMatchNeedsElse { integral, stringLike, variant }
 immutable struct DiagMatchOnNonMatchable {
 	TypeWithContainer type;
 }
@@ -4212,15 +4200,10 @@ immutable struct DiagModifierTypeArgInvalid {
 }
 immutable struct DiagMutFieldNotAllowed {}
 immutable struct DiagNameNotFound {
-	enum Kind {
-		docCommentReference,
-		function_,
-		spec,
-		type,
-	}
-	Kind kind;
+	DiagNameNotFoundKind kind;
 	Symbol name;
 }
+enum DiagNameNotFoundKind { docCommentReference, function_, spec, type }
 enum DiagNeedsExpectedType { loop, pointer, throw_ }
 immutable struct DiagParamMissingType {}
 immutable struct DiagParamMutable {}

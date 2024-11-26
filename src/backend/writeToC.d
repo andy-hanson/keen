@@ -60,6 +60,7 @@ import model.lowModel :
 	LowRecordIndex,
 	LowVar,
 	LowVarIndex,
+	LowVarKind,
 	LowType,
 	LowUnion,
 	LowUnionIndex,
@@ -429,7 +430,7 @@ void writeVars(scope ref Writer writer, scope ref Ctx ctx, in immutable FullInde
 	if (useStructThreadLocals(ctx)) {
 		writer ~= "struct ThreadLocals {\n";
 		fullIndexMapEach!(LowVarIndex, LowVar)(vars, (LowVarIndex varIndex, ref LowVar var) {
-			if (var.kind == LowVar.Kind.threadLocal) {
+			if (var.kind == LowVarKind.threadLocal) {
 				writer ~= '\t';
 				writeVarTypeAndName(writer, ctx, varIndex, var);
 				writer ~= ";\n";
@@ -439,14 +440,14 @@ void writeVars(scope ref Writer writer, scope ref Ctx ctx, in immutable FullInde
 	}
 
 	fullIndexMapEach!(LowVarIndex, LowVar)(vars, (LowVarIndex varIndex, ref LowVar var) {
-		if (!(useStructThreadLocals(ctx) && var.kind == LowVar.Kind.threadLocal)) {
+		if (!(useStructThreadLocals(ctx) && var.kind == LowVarKind.threadLocal)) {
 			writer ~= () {
 				final switch (var.kind) {
-					case LowVar.Kind.externGlobal:
+					case LowVarKind.externGlobal:
 						return "extern ";
-					case LowVar.Kind.global:
+					case LowVarKind.global:
 						return "static ";
-					case LowVar.Kind.threadLocal:
+					case LowVarKind.threadLocal:
 						return "static _Thread_local ";
 				}
 			}();
@@ -1176,7 +1177,7 @@ WriteExprResult writeNonInlineable(
 
 void writeLowVarAccess(scope ref Writer writer, in Ctx ctx, in LowVarIndex varIndex) {
 	LowVar var() => ctx.program.vars[varIndex];
-	if (useStructThreadLocals(ctx) && var.kind == LowVar.Kind.threadLocal)
+	if (useStructThreadLocals(ctx) && var.kind == LowVarKind.threadLocal)
 		writer ~= "threadLocals()->";
 	writeLowVarMangledName(writer, ctx.mangledNames, varIndex, var);
 }

@@ -346,7 +346,7 @@ void skipRestOfBlockComment(ref MutCString ptr, in AddDiag addDiag) {
 		if (tryTakeTripleHashThenNewline(ptr))
 			break;
 		else if (*ptr == '\0') {
-			addDiag(ptr, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.blockCommentEnd)));
+			addDiag(ptr, ParseDiag(ParseDiagExpected(ParseDiagExpected.blockCommentEnd)));
 			break;
 		}
 		skipRestOfLineAndNewline(ptr);

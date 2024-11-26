@@ -21,7 +21,8 @@ import model.lowModel :
 	LowType,
 	LowUnion,
 	LowVar,
-	LowVarIndex;
+	LowVarIndex,
+	LowVarKind;
 import util.alloc.alloc : Alloc;
 import util.col.map : Map;
 import util.col.mapBuilder : finishMap, mustAddToMap, MapBuilder;
@@ -128,7 +129,7 @@ void writeLowVarMangledName(
 	LowVarIndex varIndex,
 	in LowVar var,
 ) {
-	if (var.kind != LowVar.Kind.externGlobal) {
+	if (var.kind != LowVarKind.externGlobal) {
 		writer ~= stringOfEnum(var.kind);
 		writer ~= '_';
 	}

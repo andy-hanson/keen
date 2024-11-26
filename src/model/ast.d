@@ -115,12 +115,7 @@ immutable struct FunTypeAst {
 
 immutable struct MapTypeAst {
 	@safe @nogc pure nothrow:
-	enum Kind {
-		data,
-		mut,
-		shared_,
-	}
-	Kind kind;
+	MapTypeAstKind kind;
 	// They are actually written v[k] at the use, but applied as (k, v)
 	TypeAst[2] kv;
 	TypeAst k() return scope =>
@@ -131,6 +126,7 @@ immutable struct MapTypeAst {
 	Range range() scope =>
 		Range(v.range.start, safeToUint(k.range.end + "]".length));
 }
+enum MapTypeAstKind { data, mut, shared_ }
 
 immutable struct SuffixNameTypeAst {
 	@safe @nogc pure nothrow:
@@ -145,17 +141,9 @@ immutable struct SuffixNameTypeAst {
 
 immutable struct SuffixSpecialTypeAst {
 	@safe @nogc pure nothrow:
-	enum Kind : ubyte {
-		array,
-		mutArray,
-		mutPtr,
-		option,
-		ptr,
-		sharedArray,
-	}
 	TypeAst left;
 	Pos suffixPos;
-	Kind kind;
+	SuffixSpecialTypeAstKind kind;
 
 	Range range() scope =>
 		Range(left.range.start, suffixEnd);
@@ -164,6 +152,7 @@ immutable struct SuffixSpecialTypeAst {
 	private Pos suffixEnd() scope =>
 		suffixPos + suffixLength(kind);
 }
+enum SuffixSpecialTypeAstKind : ubyte { array, mutArray, mutPtr, option, ptr, sharedArray }
 
 immutable struct TupleTypeAst {
 	@safe @nogc pure nothrow:
@@ -178,47 +167,47 @@ immutable struct TupleTypeAst {
 	}
 }
 
-private uint suffixLength(SuffixSpecialTypeAst.Kind a) {
+private uint suffixLength(SuffixSpecialTypeAstKind a) {
 	final switch (a) {
-		case SuffixSpecialTypeAst.Kind.array:
+		case SuffixSpecialTypeAstKind.array:
 			return cast(uint) "[]".length;
-		case SuffixSpecialTypeAst.Kind.option:
+		case SuffixSpecialTypeAstKind.option:
 			return cast(uint) "?".length;
-		case SuffixSpecialTypeAst.Kind.mutArray:
+		case SuffixSpecialTypeAstKind.mutArray:
 			return cast(uint) "mut[]".length;
-		case SuffixSpecialTypeAst.Kind.mutPtr:
+		case SuffixSpecialTypeAstKind.mutPtr:
 			return cast(uint) "mut*".length;
-		case SuffixSpecialTypeAst.Kind.ptr:
+		case SuffixSpecialTypeAstKind.ptr:
 			return cast(uint) "*".length;
-		case SuffixSpecialTypeAst.Kind.sharedArray:
+		case SuffixSpecialTypeAstKind.sharedArray:
 			return cast(uint) "shared[]".length;
 	}
 }
 
-Symbol symbolForTypeAstMap(MapTypeAst.Kind a) {
+Symbol symbolForTypeAstMap(MapTypeAstKind a) {
 	final switch (a) {
-		case MapTypeAst.Kind.data:
+		case MapTypeAstKind.data:
 			return symbol!"map";
-		case MapTypeAst.Kind.mut:
+		case MapTypeAstKind.mut:
 			return symbol!"mut-map";
-		case MapTypeAst.Kind.shared_:
+		case MapTypeAstKind.shared_:
 			return symbol!"shared-map";
 	}
 }
 
-Symbol symbolForTypeAstSuffix(SuffixSpecialTypeAst.Kind a) {
+Symbol symbolForTypeAstSuffix(SuffixSpecialTypeAstKind a) {
 	final switch (a) {
-		case SuffixSpecialTypeAst.Kind.array:
+		case SuffixSpecialTypeAstKind.array:
 			return symbol!"array";
-		case SuffixSpecialTypeAst.Kind.mutArray:
+		case SuffixSpecialTypeAstKind.mutArray:
 			return symbol!"mut-array";
-		case SuffixSpecialTypeAst.Kind.mutPtr:
+		case SuffixSpecialTypeAstKind.mutPtr:
 			return symbol!"mut-pointer";
-		case SuffixSpecialTypeAst.Kind.option:
+		case SuffixSpecialTypeAstKind.option:
 			return symbol!"option";
-		case SuffixSpecialTypeAst.Kind.ptr:
+		case SuffixSpecialTypeAstKind.ptr:
 			return symbol!"const-pointer";
-		case SuffixSpecialTypeAst.Kind.sharedArray:
+		case SuffixSpecialTypeAstKind.sharedArray:
 			return symbol!"shared-array";
 	}
 }
@@ -289,30 +278,16 @@ immutable struct BogusAst {}
 immutable struct CallAst {
 	@safe @nogc pure nothrow:
 
-	enum Style : ubyte {
-		augment, // This is the call for '!' in 'x !f y' or for '?!' in 'x f?! y'
-		comma, // `a, b`, `a, b, c`, etc.
-		dot, // `a.b`
-		emptyParens, // `()`
-		infix, // `a b`, `a b c`, `a b c, d`, etc.
-		prefixBang,
-		prefixOperator, // `-x`, `x`, `~x`
-		single, // `a@t` (without the type arg, it would just be an Identifier)
-		subscript, // `a[b]`
-		suffixBang, // `x!`
-		questionSubscript, // `a?[b]``
-		questionDot, // `a?.b``
-	}
-	Style style;
+	CallAstStyle style;
 	Pos keywordPos; // Position of '.' or '?'
 	NameAndRange funName;
 	SmallArray!ExprAst args;
 	Opt!(TypeAst*) typeArg;
 
-	this(Style s, NameAndRange fn, SmallArray!ExprAst a, Opt!(TypeAst*) ta = none!(TypeAst*)) {
+	this(CallAstStyle s, NameAndRange fn, SmallArray!ExprAst a, Opt!(TypeAst*) ta = none!(TypeAst*)) {
 		this(s, Pos.max, fn, a, ta);
 	}
-	this(Style s, Pos kp, NameAndRange fn, SmallArray!ExprAst a, Opt!(TypeAst*) ta = none!(TypeAst*)) {
+	this(CallAstStyle s, Pos kp, NameAndRange fn, SmallArray!ExprAst a, Opt!(TypeAst*) ta = none!(TypeAst*)) {
 		style = s;
 		keywordPos = kp;
 		funName = fn;
@@ -323,27 +298,41 @@ immutable struct CallAst {
 
 	Opt!Range keywordRange() scope {
 		final switch (style) {
-			case Style.augment:
+			case CallAstStyle.augment:
 				return some(funName.range);
-			case Style.comma:
-			case Style.dot:
-			case Style.subscript:
+			case CallAstStyle.comma:
+			case CallAstStyle.dot:
+			case CallAstStyle.subscript:
 				return some(rangeOfStartAndLength(keywordPos, 1));
-			case Style.questionDot:
-			case Style.questionSubscript:
+			case CallAstStyle.questionDot:
+			case CallAstStyle.questionSubscript:
 				return some(rangeOfStartAndLength(keywordPos, 2));
-			case Style.emptyParens:
-			case Style.infix:
-			case Style.prefixBang:
-			case Style.prefixOperator:
-			case Style.single:
-			case Style.suffixBang:
+			case CallAstStyle.emptyParens:
+			case CallAstStyle.infix:
+			case CallAstStyle.prefixBang:
+			case CallAstStyle.prefixOperator:
+			case CallAstStyle.single:
+			case CallAstStyle.suffixBang:
 				return none!Range;
 		}
 	}
 
 	Range nameRange(in ExprAst* ast) scope =>
-		style == Style.comma ? ast.range : funName.range;
+		style == CallAstStyle.comma ? ast.range : funName.range;
+}
+enum CallAstStyle : ubyte {
+	augment, // This is the call for '!' in 'x !f y' or for '?!' in 'x f?! y'
+	comma, // `a, b`, `a, b, c`, etc.
+	dot, // `a.b`
+	emptyParens, // `()`
+	infix, // `a b`, `a b c`, `a b c, d`, etc.
+	prefixBang,
+	prefixOperator, // `-x`, `x`, `~x`
+	single, // `a@t` (without the type arg, it would just be an Identifier)
+	subscript, // `a[b]`
+	suffixBang, // `x!`
+	questionSubscript, // `a?[b]``
+	questionDot, // `a?.b``
 }
 
 immutable struct CallNamedAst {
@@ -428,18 +417,7 @@ immutable struct UnpackOptionAst {
 
 immutable struct IfAst {
 	@safe @nogc pure nothrow:
-	enum Kind {
-		guardWithColon,
-		guardWithoutColon,
-		ifWithoutElse, // 'if' with no 'else'
-		ifElif, // In this case, the 'else' expression will be another IfAst
-		ifElse, // Has 'if' and 'else' keywords
-		ternaryWithElse, // 'cond ? then : else'
-		ternaryWithoutElse, // 'cond ? then'
-		unless,
-	}
-
-	Kind kind;
+	IfAstKind kind;
 	bool isElseOfParent; // 'ifWithoutElse', 'ifElif', and 'ifElse' could all be the 'else' branch of a preceding 'if'
 	Pos firstKeywordPos; // Position of 'if' or '?' or 'unless'
 	Pos secondKeywordPos_; // Position of 'elif' or 'else' or ':' keyword
@@ -452,15 +430,15 @@ immutable struct IfAst {
 
 	bool isConditionNegated() scope {
 		final switch (kind) {
-			case IfAst.Kind.ifWithoutElse:
-			case IfAst.Kind.ifElif:
-			case IfAst.Kind.ifElse:
-			case IfAst.Kind.ternaryWithElse:
-			case IfAst.Kind.ternaryWithoutElse:
+			case IfAstKind.ifWithoutElse:
+			case IfAstKind.ifElif:
+			case IfAstKind.ifElse:
+			case IfAstKind.ternaryWithElse:
+			case IfAstKind.ternaryWithoutElse:
 				return false;
-			case IfAst.Kind.guardWithColon:
-			case IfAst.Kind.guardWithoutColon:
-			case IfAst.Kind.unless:
+			case IfAstKind.guardWithColon:
+			case IfAstKind.guardWithoutColon:
+			case IfAstKind.unless:
 				return true;
 		}
 	}
@@ -468,30 +446,30 @@ immutable struct IfAst {
 	// For a 'guard', this is optional.
 	Opt!(ExprAst*) firstBranch() return scope {
 		final switch (kind) {
-			case Kind.guardWithColon:
-			case Kind.ifWithoutElse:
-			case Kind.ifElif:
-			case Kind.ifElse:
-			case Kind.ternaryWithElse:
-			case Kind.ternaryWithoutElse:
-			case Kind.unless:
+			case IfAstKind.guardWithColon:
+			case IfAstKind.ifWithoutElse:
+			case IfAstKind.ifElif:
+			case IfAstKind.ifElse:
+			case IfAstKind.ternaryWithElse:
+			case IfAstKind.ternaryWithoutElse:
+			case IfAstKind.unless:
 				return some(branchesPtr);
-			case Kind.guardWithoutColon:
+			case IfAstKind.guardWithoutColon:
 				return none!(ExprAst*);
 		}
 	}
 	@trusted Opt!(ExprAst*) secondBranch() return scope {
 		final switch (kind) {
-			case Kind.guardWithColon:
-			case Kind.ifElif:
-			case Kind.ifElse:
-			case Kind.ternaryWithElse:
+			case IfAstKind.guardWithColon:
+			case IfAstKind.ifElif:
+			case IfAstKind.ifElse:
+			case IfAstKind.ternaryWithElse:
 				return some(&branchesPtr[1]);
-			case Kind.guardWithoutColon:
+			case IfAstKind.guardWithoutColon:
 				return some(branchesPtr);
-			case Kind.ifWithoutElse:
-			case Kind.ternaryWithoutElse:
-			case Kind.unless:
+			case IfAstKind.ifWithoutElse:
+			case IfAstKind.ternaryWithoutElse:
+			case IfAstKind.unless:
 				return none!(ExprAst*);
 		}
 	}
@@ -499,17 +477,17 @@ immutable struct IfAst {
 	Range firstKeywordRange() scope {
 		size_t length = () {
 			final switch (kind) {
-				case Kind.guardWithColon:
-				case Kind.guardWithoutColon:
+				case IfAstKind.guardWithColon:
+				case IfAstKind.guardWithoutColon:
 					return "guard".length;
-				case Kind.ifWithoutElse:
-				case Kind.ifElif:
-				case Kind.ifElse:
+				case IfAstKind.ifWithoutElse:
+				case IfAstKind.ifElif:
+				case IfAstKind.ifElse:
 					return "if".length;
-				case Kind.ternaryWithElse:
-				case Kind.ternaryWithoutElse:
+				case IfAstKind.ternaryWithElse:
+				case IfAstKind.ternaryWithoutElse:
 					return "?".length;
-				case Kind.unless:
+				case IfAstKind.unless:
 					return "unless".length;
 			}
 		}();
@@ -520,34 +498,44 @@ immutable struct IfAst {
 	Opt!Range secondKeywordRange() scope {
 		size_t length = () {
 			final switch (kind) {
-				case Kind.guardWithoutColon:
-				case Kind.ifWithoutElse:
-				case Kind.ternaryWithoutElse:
-				case Kind.unless:
+				case IfAstKind.guardWithoutColon:
+				case IfAstKind.ifWithoutElse:
+				case IfAstKind.ternaryWithoutElse:
+				case IfAstKind.unless:
 					return 0;
-				case Kind.ifElif:
-				case Kind.ifElse:
+				case IfAstKind.ifElif:
+				case IfAstKind.ifElse:
 					return "else".length;
-				case Kind.guardWithColon:
-				case Kind.ternaryWithElse:
+				case IfAstKind.guardWithColon:
+				case IfAstKind.ternaryWithElse:
 					return ":".length;
 			}
 		}();
 		return optIf(length != 0, () => rangeOfStartAndLength(secondKeywordPos_, length));
 	}
 }
+enum IfAstKind {
+	guardWithColon,
+	guardWithoutColon,
+	ifWithoutElse, // 'if' with no 'else'
+	ifElif, // In this case, the 'else' expression will be another IfAst
+	ifElse, // Has 'if' and 'else' keywords
+	ternaryWithElse, // 'cond ? then : else'
+	ternaryWithoutElse, // 'cond ? then'
+	unless,
+}
 
-private size_t countIfBranches(IfAst.Kind kind) {
+private size_t countIfBranches(IfAstKind kind) {
 	final switch (kind) {
-		case IfAst.Kind.guardWithoutColon:
-		case IfAst.Kind.ifWithoutElse:
-		case IfAst.Kind.ternaryWithoutElse:
-		case IfAst.Kind.unless:
+		case IfAstKind.guardWithoutColon:
+		case IfAstKind.ifWithoutElse:
+		case IfAstKind.ternaryWithoutElse:
+		case IfAstKind.unless:
 			return 1;
-		case IfAst.Kind.guardWithColon:
-		case IfAst.Kind.ifElif:
-		case IfAst.Kind.ifElse:
-		case IfAst.Kind.ternaryWithElse:
+		case IfAstKind.guardWithColon:
+		case IfAstKind.ifElif:
+		case IfAstKind.ifElse:
+		case IfAstKind.ternaryWithElse:
 			return 2;
 	}
 }
@@ -555,7 +543,7 @@ private size_t countIfBranches(IfAst.Kind kind) {
 // Have to move this out of the struct due to forward reference error
 IfAst createIfAst(
 	ref Alloc alloc,
-	IfAst.Kind kind,
+	IfAstKind kind,
 	bool isElseOfParent,
 	Pos firstKeywordPos,
 	ConditionAst condition,

@@ -6,6 +6,7 @@ import frontend.parse.lexer :
 	addDiag,
 	addDiagUnexpectedCurToken,
 	curPos,
+	ElifOrElse,
 	ElifOrElseKeyword,
 	getPeekToken,
 	getPeekTokenAndData,
@@ -14,12 +15,10 @@ import frontend.parse.lexer :
 	lookaheadLambda,
 	lookaheadNameColon,
 	lookaheadQuestionEquals,
-	QuoteKind,
 	range,
 	rangeAtChar,
 	rangeForCurToken,
 	skipUntilNewlineNoDiag,
-	StringPart,
 	takeInitialStringPart,
 	takeNextToken,
 	takeNextTokenMayContinueOntoNextLine,
@@ -29,6 +28,7 @@ import frontend.parse.lexer :
 	tryTakeNewlineThenCatch,
 	tryTakeNewlineThenElifOrElse,
 	tryTakeNewlineThenElse;
+import frontend.parse.lexString : QuoteKind, StringPart, StringPartAfter;
 import frontend.parse.lexToken : isNewlineToken;
 import frontend.parse.parseString : parseString;
 import frontend.parse.parseType :
@@ -59,6 +59,7 @@ import model.ast :
 	BogusAst,
 	bogusExpr,
 	CallAst,
+	CallAstStyle,
 	CallNamedAst,
 	CaseAst,
 	CaseMemberAst,
@@ -73,7 +74,7 @@ import model.ast :
 	FinallyAst,
 	ForAst,
 	IdentifierAst,
-	IfAst,
+	IfAstKind,
 	LambdaAst,
 	LetAst,
 	LiteralIntegralAndRange,
@@ -304,7 +305,7 @@ ExprAst parseCallsAfterQuestion(ref Lexer lexer, Pos start, ref ExprAst lhs, Pos
 	Opt!ExprAst else_ = optIf(hasColon, () => parseExprAndCalls(lexer, argCtx));
 	return ExprAst(range(lexer, start), ExprAstKind(createIfAst(
 		lexer.alloc,
-		hasColon ? IfAst.Kind.ternaryWithElse : IfAst.Kind.ternaryWithoutElse,
+		hasColon ? IfAstKind.ternaryWithElse : IfAstKind.ternaryWithoutElse,
 		false,
 		questionPos,
 		ConditionAst(allocate(lexer.alloc, lhs)),
@@ -324,7 +325,7 @@ ExprAst parseCallsAfterComma(ref Lexer lexer, Pos start, ref ExprAst lhs, Pos co
 	Range range = range(lexer, start);
 	return ExprAst(range, ExprAstKind(
 		//TODO: range is wrong..
-		CallAst(CallAst.Style.comma, commaPos, NameAndRange(range.start, symbol!"new"), args)));
+		CallAst(CallAstStyle.comma, commaPos, NameAndRange(range.start, symbol!"new"), args)));
 }
 
 ExprAst parseNamedCalls(ref Lexer lexer, Pos start, ref ExprAst lhs, ArgCtx argCtx) {
@@ -357,12 +358,12 @@ ExprAst parseNamedCalls(ref Lexer lexer, Pos start, ref ExprAst lhs, ArgCtx argC
 		if (has(assignment)) {
 			final switch (force(assignment)) {
 				case AssignmentKind.inPlace:
-					return ExprAstKind(CallAst(CallAst.Style.infix, funName, args));
+					return ExprAstKind(CallAst(CallAstStyle.infix, funName, args));
 				case AssignmentKind.replace:
 					return ExprAstKind(AssignmentCallAst(funName, allocate!(ExprAst[2])(lexer.alloc, only2(args))));
 			}
 		} else
-			return ExprAstKind(CallAst(CallAst.Style.infix, funName, args, typeArg));
+			return ExprAstKind(CallAst(CallAstStyle.infix, funName, args, typeArg));
 	}();
 	ExprAst expr = ExprAst(range(lexer, start), exprKind);
 	ExprAst res = funToken == Token.nameAfterBang
@@ -375,7 +376,7 @@ ExprAst parseNamedCalls(ref Lexer lexer, Pos start, ref ExprAst lhs, ArgCtx argC
 
 ExprAst makeAugment(ref Alloc alloc, Range range, Pos pos, Symbol name, ExprAst inner) =>
 	ExprAst(range, ExprAstKind(
-		CallAst(CallAst.Style.augment, pos, NameAndRange(pos, name), newSmallArray!ExprAst(alloc, [inner]))));
+		CallAst(CallAstStyle.augment, pos, NameAndRange(pos, name), newSmallArray!ExprAst(alloc, [inner]))));
 
 immutable struct NameAndPrecedence {
 	Token token;
@@ -501,7 +502,7 @@ ExprAst tryParseDotsAndSubscripts(ref Lexer lexer, ExprAst initial) {
 			return tryParseDotsAndSubscripts(lexer, ExprAst(
 				range(lexer, start),
 				ExprAstKind(CallAst(
-					CallAst.Style.suffixBang,
+					CallAstStyle.suffixBang,
 					NameAndRange(dotPos, symbol!"force"),
 					newSmallArray(lexer.alloc, [initial])))));
 		default:
@@ -511,7 +512,7 @@ ExprAst tryParseDotsAndSubscripts(ref Lexer lexer, ExprAst initial) {
 ExprAst handleDotOrQuestionDot(ref Lexer lexer, ExprAst initial, Pos start, Pos dotPos, bool isQuestionDot) {
 	CallAst call(NameAndRange name, Opt!(TypeAst*) typeArg) =>
 		CallAst(
-			isQuestionDot ? CallAst.Style.questionDot : CallAst.Style.dot,
+			isQuestionDot ? CallAstStyle.questionDot : CallAstStyle.dot,
 			dotPos, name, newSmallArray(lexer.alloc, [initial]), typeArg);
 
 	ExprAst res = () {
@@ -538,19 +539,19 @@ ExprAst parseSubscript(ref Lexer lexer, ExprAst initial, Pos subscriptPos, bool 
 			return ExprAst(
 				range(lexer, subscriptPos),
 				ExprAstKind(CallAst(
-					CallAst.Style.emptyParens,
+					CallAstStyle.emptyParens,
 					NameAndRange(subscriptPos, symbol!"new"),
 					emptySmallArray!ExprAst)));
 		else {
 			ExprAst res = parseExprNoBlock(lexer);
-			takeOrAddDiagExpectedToken(lexer, Token.bracketRight, ParseDiagExpected.Kind.closingBracket);
+			takeOrAddDiagExpectedToken(lexer, Token.bracketRight, ParseDiagExpected.closingBracket);
 			return res;
 		}
 	}();
 	return tryParseDotsAndSubscripts(lexer, ExprAst(
 		range(lexer, initial.range.start),
 		ExprAstKind(CallAst(
-			isQuestionBracket ? CallAst.Style.questionSubscript : CallAst.Style.subscript,
+			isQuestionBracket ? CallAstStyle.questionSubscript : CallAstStyle.subscript,
 			subscriptPos,
 			NameAndRange(subscriptPos, symbol!"subscript"),
 			newSmallArray(lexer.alloc, [initial, arg])))));
@@ -588,12 +589,12 @@ CaseMemberAst parseCaseMember(ref Lexer lexer) {
 
 CaseMemberAst parseStringLiteralForMatchCase(ref Lexer lexer) {
 	Pos start = curPos(lexer);
-	if (takeOrAddDiagExpectedToken(lexer, Token.quoteDouble, ParseDiagExpected.Kind.matchCase)) {
+	if (takeOrAddDiagExpectedToken(lexer, Token.quoteDouble, ParseDiagExpected.matchCase)) {
 		StringPart part = takeInitialStringPart(lexer, QuoteKind.quoteDouble);
 		final switch (part.after) {
-			case StringPart.After.done:
+			case StringPartAfter.done:
 				break;
-			case StringPart.After.lbrace:
+			case StringPartAfter.lbrace:
 				addDiag(lexer, range(lexer, start), ParseDiag(ParseDiagMatchCaseInterpolated()));
 				break;
 		}
@@ -613,7 +614,7 @@ ConditionAst parseCondition(ref Lexer lexer, AllowedBlock allowedBlock) {
 	if (lookaheadQuestionEquals(lexer)) {
 		DestructureAst lhs = parseDestructureNoRequireParens(lexer);
 		Pos questionEqualPos = curPos(lexer);
-		takeOrAddDiagExpectedToken(lexer, Token.questionEqual, ParseDiagExpected.Kind.questionEqual);
+		takeOrAddDiagExpectedToken(lexer, Token.questionEqual, ParseDiagExpected.questionEqual);
 		ExprAst option = parseExprNoBlock(lexer);
 		return ConditionAst(allocate(lexer.alloc,
 			UnpackOptionAst(lhs, questionEqualPos, allocate(lexer.alloc, option))));
@@ -628,23 +629,23 @@ ExprAst parseIf(ref Lexer lexer, Pos start, bool isElseOfParent) {
 
 	Opt!ExprAst else_ = optIf(has(elifOrElse), () {
 		final switch (force(elifOrElse).kind) {
-			case ElifOrElseKeyword.Kind.elif:
+			case ElifOrElse.elif:
 				return parseIf(lexer, force(elifOrElse).pos, true);
-			case ElifOrElseKeyword.Kind.else_:
+			case ElifOrElse.else_:
 				return parseIndentedStatements(lexer);
 		}
 	});
 
-	IfAst.Kind kind = () {
+	IfAstKind kind = () {
 		if (has(elifOrElse)) {
 			final switch (force(elifOrElse).kind) {
-				case ElifOrElseKeyword.Kind.elif:
-					return IfAst.Kind.ifElif;
-				case ElifOrElseKeyword.Kind.else_:
-					return IfAst.Kind.ifElse;
+				case ElifOrElse.elif:
+					return IfAstKind.ifElif;
+				case ElifOrElse.else_:
+					return IfAstKind.ifElse;
 			}
 		} else
-			return IfAst.Kind.ifWithoutElse;
+			return IfAstKind.ifWithoutElse;
 	}();
 
 	ExprAstKind exprKind = ExprAstKind(createIfAst(
@@ -669,26 +670,26 @@ ConditionAndBody parseConditionAndBody(ref Lexer lexer) {
 ExprAst parseUnless(ref Lexer lexer, Pos start) {
 	ConditionAndBody cb = parseConditionAndBody(lexer);
 	return ExprAst(range(lexer, start), ExprAstKind(createIfAst(
-		lexer.alloc, IfAst.Kind.unless, false, start, cb.condition, some(cb.body_), none!Pos, none!ExprAst)));
+		lexer.alloc, IfAstKind.unless, false, start, cb.condition, some(cb.body_), none!Pos, none!ExprAst)));
 }
 
 ExprAst parseShared(ref Lexer lexer, Pos start, AllowedBlock allowedBlock) =>
-	parsePrefixKeyword(lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.Kind.shared_, (ExprAst inner) =>
+	parsePrefixKeyword(lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.shared_, (ExprAst inner) =>
 		ExprAstKind(allocate(lexer.alloc, SharedAst(inner))));
 
 ExprAst parseThrow(ref Lexer lexer, Pos start, AllowedBlock allowedBlock) =>
-	parsePrefixKeyword(lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.Kind.throw_, (ExprAst inner) =>
+	parsePrefixKeyword(lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.throw_, (ExprAst inner) =>
 		ExprAstKind(allocate(lexer.alloc, ThrowAst(inner))));
 
 ExprAst parseTrusted(ref Lexer lexer, Pos start, AllowedBlock allowedBlock) =>
-	parsePrefixKeyword(lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.Kind.trusted, (ExprAst inner) =>
+	parsePrefixKeyword(lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.trusted, (ExprAst inner) =>
 		ExprAstKind(allocate(lexer.alloc, TrustedAst(inner))));
 
 ExprAst parsePrefixKeyword(
 	ref Lexer lexer,
 	Pos start,
 	AllowedBlock allowedBlock,
-	ParseDiagNeedsBlockCtx.Kind needsBlockKind,
+	ParseDiagNeedsBlockCtx needsBlockKind,
 	in ExprAstKind delegate(ExprAst) @safe @nogc pure nothrow cbMakeExpr,
 ) {
 	ExprAst inner = parseExprInlineOrBlock(lexer, start, allowedBlock, needsBlockKind);
@@ -718,7 +719,7 @@ ExprAst parseGuard(ref Lexer lexer, Pos start) {
 	ExprAst secondBranch = parseNextLinesOrEmpty(lexer);
 	return ExprAst(range(lexer, start), ExprAstKind(createIfAst(
 		lexer.alloc,
-		has(firstBranch) ? IfAst.Kind.guardWithColon : IfAst.Kind.guardWithoutColon,
+		has(firstBranch) ? IfAstKind.guardWithColon : IfAstKind.guardWithoutColon,
 		false,
 		start,
 		condition,
@@ -729,13 +730,13 @@ ExprAst parseGuard(ref Lexer lexer, Pos start) {
 
 ExprAst parseFor(ref Lexer lexer, Pos start, AllowedBlock allowedBlock) =>
 	parseForOrWith(
-		lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.Kind.for_,
+		lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.for_,
 		(DestructureAst param, Pos colon, ExprAst col, ExprAst body_, ExprAst else_) =>
 			ExprAstKind(allocate(lexer.alloc, ForAst(param, colon, col, body_, else_))));
 
 ExprAst parseWith(ref Lexer lexer, Pos start, AllowedBlock allowedBlock) =>
 	parseForOrWith(
-		lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.Kind.with_,
+		lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.with_,
 		(DestructureAst param, Pos colon, ExprAst col, ExprAst body_, ExprAst else_) =>
 			ExprAstKind(allocate(lexer.alloc, WithAst(param, colon, col, body_, else_))));
 
@@ -743,13 +744,13 @@ ExprAst parseForOrWith(
 	ref Lexer lexer,
 	Pos start,
 	AllowedBlock allowedBlock,
-	ParseDiagNeedsBlockCtx.Kind blockKind,
+	ParseDiagNeedsBlockCtx blockKind,
 	in ExprAstKind delegate(
 		DestructureAst, Pos colon, ExprAst rhs, ExprAst body_, ExprAst else_,
 	) @safe @nogc pure nothrow cbMakeExprKind,
 ) {
 	DestructureAndEndTokenPos paramAndColon = parseForThenOrWithParameter(
-		lexer, Token.colon, ParseDiagExpected.Kind.colon);
+		lexer, Token.colon, ParseDiagExpected.colon);
 	DestructureAst param = paramAndColon.destructure;
 	Pos colon = paramAndColon.endTokenPos;
 	ExprAst rhs = parseExprNoBlock(lexer);
@@ -802,7 +803,7 @@ ExprAst takeIndentOrFail_Expr(ref Lexer lexer, in ExprAst delegate() @safe @nogc
 ExprAst parseLambdaWithParenthesizedParameters(ref Lexer lexer, Pos start, AllowedBlock allowedBlock) {
 	DestructureAst parameter = parseDestructureRequireParens(lexer);
 	Pos arrowPos = curPos(lexer);
-	takeOrAddDiagExpectedToken(lexer, Token.arrowLambda, ParseDiagExpected.Kind.lambdaArrow);
+	takeOrAddDiagExpectedToken(lexer, Token.arrowLambda, ParseDiagExpected.lambdaArrow);
 	return parseLambdaAfterArrow(lexer, start, allowedBlock, parameter, arrowPos);
 }
 
@@ -813,7 +814,7 @@ struct DestructureAndEndTokenPos {
 DestructureAndEndTokenPos parseForThenOrWithParameter(
 	ref Lexer lexer,
 	Token endToken,
-	ParseDiagExpected.Kind expectedEndToken,
+	ParseDiagExpected expectedEndToken,
 ) {
 	Pos pos = curPos(lexer);
 	if (tryTakeToken(lexer, endToken))
@@ -845,7 +846,7 @@ ExprAst parseLambdaAfterArrow(
 	DestructureAst parameter,
 	Pos arrowPos,
 ) {
-	ExprAst body_ = parseExprInlineOrBlock(lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.Kind.lambda);
+	ExprAst body_ = parseExprInlineOrBlock(lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.lambda);
 	return ExprAst(range(lexer, start), ExprAstKind(allocate(lexer.alloc, LambdaAst(parameter, arrowPos, body_))));
 }
 
@@ -853,7 +854,7 @@ ExprAst parseExprInlineOrBlock(
 	ref Lexer lexer,
 	Pos start,
 	AllowedBlock allowedBlock,
-	ParseDiagNeedsBlockCtx.Kind needsBlockKind,
+	ParseDiagNeedsBlockCtx needsBlockKind,
 ) {
 	bool inLine = peekTokenExpression(lexer);
 	return inLine
@@ -871,14 +872,14 @@ ExprAst skipRestOfLineAndReturnBogus(ref Lexer lexer, Pos start, ParseDiag diag)
 	return skipRestOfLineAndReturnBogusNoDiag(lexer, start);
 }
 
-ExprAst exprBlockNotAllowed(ref Lexer lexer, Pos start, ParseDiagNeedsBlockCtx.Kind kind) =>
+ExprAst exprBlockNotAllowed(ref Lexer lexer, Pos start, ParseDiagNeedsBlockCtx kind) =>
 	skipRestOfLineAndReturnBogus(lexer, start, ParseDiag(ParseDiagNeedsBlockCtx(kind)));
 
 ExprAst ifAllowBlock(
 	ref Lexer lexer,
 	Pos start,
 	AllowedBlock allowedBlock,
-	ParseDiagNeedsBlockCtx.Kind kind,
+	ParseDiagNeedsBlockCtx kind,
 	in ExprAst delegate() @safe @nogc pure nothrow cbAllowBlock,
 ) {
 	final switch (allowedBlock) {
@@ -895,7 +896,7 @@ ExprAst parseExprBeforeCall(ref Lexer lexer, AllowedBlock allowedBlock) {
 		return parseLambdaWithParenthesizedParameters(lexer, start, allowedBlock);
 
 	ExprAst ifAllowBlock(
-		ParseDiagNeedsBlockCtx.Kind kind,
+		ParseDiagNeedsBlockCtx kind,
 		in ExprAst delegate() @safe @nogc pure nothrow cbAllowBlock,
 	) =>
 		.ifAllowBlock(lexer, start, allowedBlock, kind, cbAllowBlock);
@@ -910,11 +911,11 @@ ExprAst parseExprBeforeCall(ref Lexer lexer, AllowedBlock allowedBlock) {
 			if (tryTakeToken(lexer, Token.parenRight)) {
 				//TODO: range is wrong..
 				ExprAst expr = ExprAst(range(lexer, start), ExprAstKind(
-					CallAst(CallAst.Style.emptyParens, NameAndRange(start, symbol!"new"), emptySmallArray!ExprAst)));
+					CallAst(CallAstStyle.emptyParens, NameAndRange(start, symbol!"new"), emptySmallArray!ExprAst)));
 				return tryParseDotsAndSubscripts(lexer, expr);
 			} else {
 				ExprAst inner = parseExprNoBlock(lexer);
-				takeOrAddDiagExpectedToken(lexer, Token.parenRight, ParseDiagExpected.Kind.closingParen);
+				takeOrAddDiagExpectedToken(lexer, Token.parenRight, ParseDiagExpected.closingParen);
 				ExprAst expr = ExprAst(
 					range(lexer, start),
 					ExprAstKind(allocate(lexer.alloc, ParenthesizedAst(inner))));
@@ -931,7 +932,7 @@ ExprAst parseExprBeforeCall(ref Lexer lexer, AllowedBlock allowedBlock) {
 			return ExprAst(
 				range(lexer, start),
 				ExprAstKind(CallAst(
-					CallAst.Style.prefixBang,
+					CallAstStyle.prefixBang,
 					NameAndRange(start, symbol!"not"),
 					newSmallArray(lexer.alloc, [inner]))));
 		case Token.break_:
@@ -939,15 +940,15 @@ ExprAst parseExprBeforeCall(ref Lexer lexer, AllowedBlock allowedBlock) {
 		case Token.continue_:
 			return ExprAst(range(lexer, start), ExprAstKind(LoopContinueAst()));
 		case Token.do_:
-			return ifAllowBlock(ParseDiagNeedsBlockCtx.Kind.do_, () => parseDo(lexer, start));
+			return ifAllowBlock(ParseDiagNeedsBlockCtx.do_, () => parseDo(lexer, start));
 		case Token.extern_:
 			return parseExtern(lexer, start);
 		case Token.if_:
-			return ifAllowBlock(ParseDiagNeedsBlockCtx.Kind.if_, () => parseIf(lexer, start, false));
+			return ifAllowBlock(ParseDiagNeedsBlockCtx.if_, () => parseIf(lexer, start, false));
 		case Token.for_:
 			return parseFor(lexer, start, allowedBlock);
 		case Token.match:
-			return ifAllowBlock(ParseDiagNeedsBlockCtx.Kind.match, () => parseMatch(lexer, start));
+			return ifAllowBlock(ParseDiagNeedsBlockCtx.match, () => parseMatch(lexer, start));
 		case Token.name:
 			Symbol name = token.asSymbol;
 			Pos arrowPos = curPos(lexer);
@@ -979,7 +980,7 @@ ExprAst parseExprBeforeCall(ref Lexer lexer, AllowedBlock allowedBlock) {
 		case Token.literalIntegral:
 			return tryParseDotsAndSubscripts(lexer, ExprAst(range(lexer, start), ExprAstKind(token.asLiteralIntegral)));
 		case Token.loop:
-			return ifAllowBlock(ParseDiagNeedsBlockCtx.Kind.loop, () => parseLoop(lexer, start));
+			return ifAllowBlock(ParseDiagNeedsBlockCtx.loop, () => parseLoop(lexer, start));
 		case Token.shared_:
 			return parseShared(lexer, start, allowedBlock);
 		case Token.throw_:
@@ -987,14 +988,14 @@ ExprAst parseExprBeforeCall(ref Lexer lexer, AllowedBlock allowedBlock) {
 		case Token.trusted:
 			return parseTrusted(lexer, start, allowedBlock);
 		case Token.try_:
-			return ifAllowBlock(ParseDiagNeedsBlockCtx.Kind.try_, () => parseTryBlock(lexer, start));
+			return ifAllowBlock(ParseDiagNeedsBlockCtx.try_, () => parseTryBlock(lexer, start));
 		case Token.underscore:
 			Pos arrowPos = curPos(lexer);
 			return tryTakeToken(lexer, Token.arrowLambda)
 				? parseLambdaAfterNameAndArrow(lexer, start, allowedBlock, symbol!"_", arrowPos)
 				: badToken(lexer, start, token);
 		case Token.unless:
-			return ifAllowBlock(ParseDiagNeedsBlockCtx.Kind.unless, () => parseUnless(lexer, start));
+			return ifAllowBlock(ParseDiagNeedsBlockCtx.unless, () => parseUnless(lexer, start));
 		case Token.with_:
 			return parseWith(lexer, start, allowedBlock);
 		default:
@@ -1010,7 +1011,7 @@ ExprAst badToken(ref Lexer lexer, Pos start, TokenAndData token) {
 ExprAst handlePrefixUnaryOperator(ref Lexer lexer, AllowedBlock allowedBlock, Pos start, Symbol operator) {
 	ExprAst arg = parseExprBeforeCall(lexer, allowedBlock);
 	return ExprAst(range(lexer, start), ExprAstKind(
-		CallAst(CallAst.Style.prefixOperator, NameAndRange(start, operator), newSmallArray(lexer.alloc, [arg]))));
+		CallAst(CallAstStyle.prefixOperator, NameAndRange(start, operator), newSmallArray(lexer.alloc, [arg]))));
 }
 
 ExprAst parseExtern(ref Lexer lexer, Pos start) {
@@ -1019,7 +1020,7 @@ ExprAst parseExtern(ref Lexer lexer, Pos start) {
 			do {
 				res ~= takeNameAndRange(lexer);
 			} while (tryTakeToken(lexer, Token.comma));
-			takeOrAddDiagExpectedToken(lexer, Token.parenRight, ParseDiagExpected.Kind.closingParen);
+			takeOrAddDiagExpectedToken(lexer, Token.parenRight, ParseDiagExpected.closingParen);
 		})
 		: newArray(lexer.alloc, [takeNameAndRange(lexer)]);
 	return ExprAst(range(lexer, start), ExprAstKind(ExternAst(names)));
@@ -1029,7 +1030,7 @@ ExprAst handleName(ref Lexer lexer, Pos start, NameAndRange name) {
 	Opt!(TypeAst*) typeArg = tryParseTypeArgForExpr(lexer);
 	return has(typeArg)
 		? ExprAst(range(lexer, start), ExprAstKind(
-			CallAst(CallAst.Style.single, name, emptySmallArray!ExprAst, typeArg)))
+			CallAst(CallAstStyle.single, name, emptySmallArray!ExprAst, typeArg)))
 		: tryParseDotsAndSubscripts(lexer, ExprAst(range(lexer, start), ExprAstKind(IdentifierAst(name.name))));
 }
 
@@ -1086,7 +1087,7 @@ ExprAst parseNamedCall(ref Lexer lexer, Pos start) {
 	ArrayBuilder!ExprAst values;
 	do {
 		NameAndRange name = takeNameAndRange(lexer);
-		if (takeOrAddDiagExpectedTokenAndSkipRestOfLine(lexer, Token.colon, ParseDiagExpected.Kind.namedArgument)) {
+		if (takeOrAddDiagExpectedTokenAndSkipRestOfLine(lexer, Token.colon, ParseDiagExpected.namedArgument)) {
 			add(lexer.alloc, names, name);
 			add(lexer.alloc, values, parseExprNoLet(lexer));
 		}
@@ -1104,7 +1105,7 @@ ExprAst parseEquals(ref Lexer lexer) {
 	else {
 		DestructureAst left = parseDestructureNoRequireParens(lexer);
 		takeOrAddDiagExpectedTokenAndMayContinueOntoNextLine(
-			lexer, Token.equal, ParseDiagExpected.Kind.equals);
+			lexer, Token.equal, ParseDiagExpected.equals);
 		ExprAst init = parseExprNoLet(lexer);
 		ExprAst then = parseNextLinesOrEmpty(lexer);
 		return ExprAst(range(lexer, start), ExprAstKind(allocate(lexer.alloc, LetAst(left, init, then))));
@@ -1113,10 +1114,10 @@ ExprAst parseEquals(ref Lexer lexer) {
 
 ExprAst parseTryLet(ref Lexer lexer, Pos start) {
 	DestructureAst destructure = parseDestructureNoRequireParens(lexer);
-	takeOrAddDiagExpectedTokenAndMayContinueOntoNextLine(lexer, Token.equal, ParseDiagExpected.Kind.equals);
+	takeOrAddDiagExpectedTokenAndMayContinueOntoNextLine(lexer, Token.equal, ParseDiagExpected.equals);
 	ExprAst value = parseExprNoBlock(lexer);
 	Pos catchPos = curPos(lexer);
-	takeOrAddDiagExpectedToken(lexer, Token.catch_, ParseDiagExpected.Kind.catch_);
+	takeOrAddDiagExpectedToken(lexer, Token.catch_, ParseDiagExpected.catch_);
 	CaseMemberAst catchMember = parseCaseMember(lexer);
 	ExprAst catch_ = tryTakeTokenAndMayContinueOntoNextLine(lexer, Token.colon)
 		? parseExprNoLet(lexer)

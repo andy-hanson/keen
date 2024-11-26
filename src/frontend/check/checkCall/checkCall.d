@@ -36,7 +36,8 @@ import frontend.check.inferringType :
 	withExpectCandidates;
 import frontend.check.instantiate : InstantiateCtx, makeOptionIfNotAlready, makeOptionType;
 import frontend.check.typeFromAst : getNTypeArgsForDiagnostic, tryUnpackOptionType, unpackTupleIfNeeded;
-import model.ast : CallAst, CallNamedAst, DestructureAst, ExprAst, LambdaAst, NameAndRange, VoidDestructureAst;
+import model.ast :
+	CallAst, CallAstStyle, CallNamedAst, DestructureAst, ExprAst, LambdaAst, NameAndRange, VoidDestructureAst;
 import model.model :
 	BogusCallExpr,
 	Called,
@@ -105,7 +106,7 @@ Expr checkCall(alias checkExpr)(
 	ref Expected expected,
 ) {
 	checkCallShouldUseSyntax(ctx, ast);
-	return ast.style == CallAst.Style.questionSubscript || ast.style == CallAst.Style.questionDot
+	return ast.style == CallAstStyle.questionSubscript || ast.style == CallAstStyle.questionDot
 		? checkOptionCall!checkExpr(ctx, locals, source, ast, expected)
 		: checkCallCommon!checkExpr(
 			ctx, expected, source, locals,
@@ -549,8 +550,8 @@ CallInnerResult checkCallInner(
 
 void checkCallShouldUseSyntax(ref ExprCtx ctx, in CallAst ast) {
 	switch (ast.style) {
-		case CallAst.Style.dot:
-		case CallAst.Style.infix:
+		case CallAstStyle.dot:
+		case CallAstStyle.infix:
 			Opt!DiagCallShouldUseSyntaxKind kind = shouldUseSyntaxKind(ast);
 			if (has(kind))
 				addDiag2(ctx, ast.funName.range, Diag(DiagCallShouldUseSyntax(ast.args.length, force(kind))));

@@ -137,6 +137,7 @@ import model.lowModel :
 	LowRecord,
 	LowUnion,
 	LowVar,
+	LowVarKind,
 	LowVarIndex,
 	LowType,
 	PointerCastLowExpr,
@@ -677,10 +678,10 @@ GccVars generateGccVars(
 					: gcc_jit_global_kind.GCC_JIT_GLOBAL_INTERNAL,
 				type, name.ptr);
 			final switch (var.kind) {
-				case LowVar.Kind.externGlobal:
-				case LowVar.Kind.global:
+				case LowVarKind.externGlobal:
+				case LowVarKind.global:
 					break;
-				case LowVar.Kind.threadLocal:
+				case LowVarKind.threadLocal:
 					gcc_jit_lvalue_set_tls_model(res, gcc_jit_tls_model.GCC_JIT_TLS_MODEL_LOCAL_DYNAMIC);
 					break;
 			}

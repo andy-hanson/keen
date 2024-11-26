@@ -12,6 +12,7 @@ import lower.generateMarkVisitFun :
 	generateMarkVisit,
 	initMarkVisitFuns,
 	MarkRoot,
+	MarkRootKind,
 	MarkVisitFuns;
 import lower.lowerUtil :
 	addLowFun,
@@ -138,6 +139,7 @@ import model.lowModel :
 	isVoid,
 	LocalGetLowExpr,
 	LoopLowExpr,
+	LowArrayField,
 	LowCommonTypes,
 	LowExpr,
 	LowExprKind,
@@ -160,6 +162,7 @@ import model.lowModel :
 	LowRecordIndex,
 	LowVar,
 	LowVarIndex,
+	LowVarKind,
 	LowType,
 	LowUnion,
 	LowUnionIndex,
@@ -283,15 +286,15 @@ private FullIndexMap!(LowVarIndex, LowVar) getAllLowVars(
 	immutable ConcreteVar*[] vars,
 ) =>
 	fullIndexMapOfArr!(LowVarIndex, LowVar)(map(alloc, vars, (ref immutable ConcreteVar* source) {
-		LowVar.Kind kind = () {
+		LowVarKind kind = () {
 			final switch (source.source.kind) {
 				case VarKind.global:
 					return has(source.source.externLibraryName)
-						? LowVar.Kind.externGlobal
-						: LowVar.Kind.global;
+						? LowVarKind.externGlobal
+						: LowVarKind.global;
 				case VarKind.threadLocal:
 					assert(!has(source.source.externLibraryName));
-					return LowVar.Kind.threadLocal;
+					return LowVarKind.threadLocal;
 			}
 		}();
 		return LowVar(source, kind, lowTypeFromConcreteType(ctx, source.type));
@@ -388,9 +391,9 @@ SmallArray!LowField makeRecordFields(ref GetLowTypeCtx getLowTypeCtx, ref LowRec
 			? char8Type
 			: lowTypeFromConcreteType(getLowTypeCtx, only(builtin.typeArgs));
 		return newSmallArray(getLowTypeCtx.alloc, [
-			LowField(LowFieldSource(LowFieldSource.ArrayField.size), 0, nat64Type),
+			LowField(LowFieldSource(LowArrayField.size), 0, nat64Type),
 			LowField(
-				LowFieldSource(LowFieldSource.ArrayField.pointer),
+				LowFieldSource(LowArrayField.pointer),
 				8,
 				builtin.kind == BuiltinType.mutSlice
 					? getPointerMut(getLowTypeCtx, elementType)
@@ -825,9 +828,9 @@ LowExpr maybeAddGcRoot(
 
 	LowExpr pointerToLocal = () {
 		final switch (markRoot.kind) {
-			case MarkRoot.Kind.localAlreadyPointer:
+			case MarkRootKind.localAlreadyPointer:
 				return genIdentifier(range, local);
-			case MarkRoot.Kind.pointerToLocal:
+			case MarkRootKind.pointerToLocal:
 				return genLocalPointer(getPointerMut(ctx.typeCtx, local.type), range, local);
 		}
 	}();
@@ -836,9 +839,9 @@ LowExpr maybeAddGcRoot(
 		// TODO: 'funType' is not the correct type for 'markRoot.fun' if we need to cast it for 'localAlreadyPointer'
 		LowExpr fun = genFunPointer(funType, range, markRoot.fun);
 		final switch (markRoot.kind) {
-			case MarkRoot.Kind.localAlreadyPointer:
+			case MarkRootKind.localAlreadyPointer:
 				return genPointerCast(ctx.alloc, funType, range, fun);
-			case MarkRoot.Kind.pointerToLocal:
+			case MarkRootKind.pointerToLocal:
 				return fun;
 		}
 	}();

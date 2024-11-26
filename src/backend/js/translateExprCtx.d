@@ -40,15 +40,16 @@ import backend.js.jsAst :
 	genTimes,
 	genUnary,
 	genUndefined,
-	JsBinaryExpr,
+	JsBinaryKind,
 	JsBlockStatement,
 	JsDestructure,
 	JsExpr,
 	JsMemberName,
 	JsName,
+	JsNameKind,
 	JsParams,
 	JsStatement,
-	JsUnaryExpr,
+	JsUnaryKind,
 	SyncOrAsync;
 import backend.js.jsAstUtil :
 	genForceUnionMember,
@@ -355,7 +356,7 @@ private JsExpr translateFunOrSpecReference(
 			translateFunReference(ctx, source, x.decl),
 		(CalledSpecSig x) =>
 			genIdentifier(source, JsName(
-				JsName.Kind.specSig,
+				JsNameKind.specSig,
 				x.nonInstantiatedSig.name,
 				some(safeToUshort(findSigIndex(*caller.as!(FunDecl*), x))))));
 
@@ -973,16 +974,16 @@ private ExprResult translateBuiltinBinary(
 ) {
 	ExprResult expr(JsExpr value) =>
 		forceExpr(ctx.alloc, pos, type, value);
-	JsExpr binary(JsBinaryExpr.Kind kind) =>
+	JsExpr binary(JsBinaryKind kind) =>
 		genBinary(ctx.alloc, source, kind, left, right);
 	JsExpr add() =>
-		binary(JsBinaryExpr.Kind.plus);
+		binary(JsBinaryKind.plus);
 	JsExpr sub() =>
-		binary(JsBinaryExpr.Kind.minus);
+		binary(JsBinaryKind.minus);
 	JsExpr mul() =>
-		binary(JsBinaryExpr.Kind.times);
+		binary(JsBinaryKind.times);
 	JsExpr div() =>
-		binary(JsBinaryExpr.Kind.divide);
+		binary(JsBinaryKind.divide);
 	final switch (a) {
 		case BuiltinBinary.addFloat32:
 			return expr(toFloat32(ctx.alloc, source, add()));
@@ -1004,7 +1005,7 @@ private ExprResult translateBuiltinBinary(
 		case BuiltinBinary.bitwiseAndNat16:
 		case BuiltinBinary.bitwiseAndNat32:
 		case BuiltinBinary.bitwiseAndNat64:
-			return expr(binary(JsBinaryExpr.Kind.bitwiseAnd));
+			return expr(binary(JsBinaryKind.bitwiseAnd));
 		case BuiltinBinary.bitwiseOrInt8:
 		case BuiltinBinary.bitwiseOrInt16:
 		case BuiltinBinary.bitwiseOrInt32:
@@ -1013,7 +1014,7 @@ private ExprResult translateBuiltinBinary(
 		case BuiltinBinary.bitwiseOrNat16:
 		case BuiltinBinary.bitwiseOrNat32:
 		case BuiltinBinary.bitwiseOrNat64:
-			return expr(binary(JsBinaryExpr.Kind.bitwiseOr));
+			return expr(binary(JsBinaryKind.bitwiseOr));
 		case BuiltinBinary.bitwiseXorInt8:
 		case BuiltinBinary.bitwiseXorInt16:
 		case BuiltinBinary.bitwiseXorInt32:
@@ -1022,7 +1023,7 @@ private ExprResult translateBuiltinBinary(
 		case BuiltinBinary.bitwiseXorNat16:
 		case BuiltinBinary.bitwiseXorNat32:
 		case BuiltinBinary.bitwiseXorNat64:
-			return expr(binary(JsBinaryExpr.Kind.bitwiseXor));
+			return expr(binary(JsBinaryKind.bitwiseXor));
 		case BuiltinBinary.equalChar8:
 		case BuiltinBinary.equalChar32:
 		case BuiltinBinary.equalFloat32:
@@ -1036,7 +1037,7 @@ private ExprResult translateBuiltinBinary(
 		case BuiltinBinary.equalNat32:
 		case BuiltinBinary.equalNat64:
 		case BuiltinBinary.referenceEqual:
-			return expr(binary(JsBinaryExpr.Kind.eqEqEq));
+			return expr(binary(JsBinaryKind.eqEqEq));
 		case BuiltinBinary.lessChar8:
 		case BuiltinBinary.lessFloat32:
 		case BuiltinBinary.lessFloat64:
@@ -1048,7 +1049,7 @@ private ExprResult translateBuiltinBinary(
 		case BuiltinBinary.lessNat16:
 		case BuiltinBinary.lessNat32:
 		case BuiltinBinary.lessNat64:
-			return expr(binary(JsBinaryExpr.Kind.less));
+			return expr(binary(JsBinaryKind.less));
 		case BuiltinBinary.mulFloat32:
 			return expr(toFloat32(ctx.alloc, source, mul()));
 		case BuiltinBinary.mulFloat64:
@@ -1074,9 +1075,9 @@ private ExprResult translateBuiltinBinary(
 		case BuiltinBinary.unsafeSubNat64:
 			return expr(sub());
 		case BuiltinBinary.unsafeBitShiftLeftNat64:
-			return expr(genAsNat64(ctx.alloc, source, binary(JsBinaryExpr.Kind.bitShiftLeft)));
+			return expr(genAsNat64(ctx.alloc, source, binary(JsBinaryKind.bitShiftLeft)));
 		case BuiltinBinary.unsafeBitShiftRightNat64:
-			return expr(genAsNat64(ctx.alloc, source, binary(JsBinaryExpr.Kind.bitShiftRight)));
+			return expr(genAsNat64(ctx.alloc, source, binary(JsBinaryKind.bitShiftRight)));
 		case BuiltinBinary.unsafeDivFloat32:
 			return expr(toFloat32(ctx.alloc, source, div()));
 		case BuiltinBinary.unsafeDivFloat64:
@@ -1090,7 +1091,7 @@ private ExprResult translateBuiltinBinary(
 		case BuiltinBinary.unsafeDivNat64:
 			return expr(div());
 		case BuiltinBinary.unsafeModNat64:
-			return expr(binary(JsBinaryExpr.Kind.modulo));
+			return expr(binary(JsBinaryKind.modulo));
 		case BuiltinBinary.wrapAddNat8:
 			return expr(genAsNat8(ctx.alloc, source, add()));
 		case BuiltinBinary.wrapAddNat16:
@@ -1173,7 +1174,7 @@ private JsExpr translateBuiltinBinaryMath(
 	JsExpr atan2() =>
 		callMath(ctx.alloc, source, symbol!"atan2", [left, right]);
 	JsExpr mod() =>
-		genBinary(ctx.alloc, source, JsBinaryExpr.Kind.modulo, left, right);
+		genBinary(ctx.alloc, source, JsBinaryKind.modulo, left, right);
 	JsExpr pow() =>
 		callMath(ctx.alloc, source, symbol!"pow", [left, right]);
 	final switch (kind) {
@@ -1203,11 +1204,11 @@ private ExprResult translateCallJsFun(
 ) {
 	ExprResult expr(JsExpr value) =>
 		forceExpr(ctx.alloc, pos, returnType, value);
-	ExprResult unary(JsUnaryExpr.Kind kind) {
+	ExprResult unary(JsUnaryKind kind) {
 		assert(nArgs == 1);
 		return expr(genUnary(ctx.alloc, source, kind, getArg(0)));
 	}
-	ExprResult binary(JsBinaryExpr.Kind kind) {
+	ExprResult binary(JsBinaryKind kind) {
 		assert(nArgs == 2);
 		return expr(genBinary(ctx.alloc, source, kind, getArg(0), getArg(1)));
 	}
@@ -1245,19 +1246,19 @@ private ExprResult translateCallJsFun(
 				[],
 				getArg(2)));
 		case JsFun.eqEqEq:
-			return binary(JsBinaryExpr.Kind.eqEqEq);
+			return binary(JsBinaryKind.eqEqEq);
 		case JsFun.get:
 			assert(nArgs == 2);
 			return expr(genPropertyAccessComputed(ctx.alloc, source, getArg(0), getArg(1)));
 		case JsFun.instanceof:
-			return binary(JsBinaryExpr.Kind.instanceof);
+			return binary(JsBinaryKind.instanceof);
 		case JsFun.jsGlobal:
 			assert(nArgs == 0);
 			return expr(genGlobal(source, ctx.isBrowser ? symbol!"window" : symbol!"global"));
 		case JsFun.less:
-			return binary(JsBinaryExpr.Kind.less);
+			return binary(JsBinaryKind.less);
 		case JsFun.plus:
-			return binary(JsBinaryExpr.Kind.plus);
+			return binary(JsBinaryKind.plus);
 		case JsFun.set:
 			assert(nArgs == 3);
 			return forceStatement(ctx.alloc, SyncOrAsync.sync, pos, genAssign(
@@ -1266,7 +1267,7 @@ private ExprResult translateCallJsFun(
 				genPropertyAccessComputed(ctx.alloc, source, getArg(0), getArg(1)),
 				getArg(2)));
 		case JsFun.typeof_:
-			return unary(JsUnaryExpr.Kind.typeof_);
+			return unary(JsUnaryKind.typeof_);
 	}
 }
 

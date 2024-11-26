@@ -21,6 +21,7 @@ import model.ast :
 	BogusTypeAst,
 	BuiltinTypeAst,
 	CallAst,
+	CallAstStyle,
 	CallNamedAst,
 	CaseAst,
 	CaseMemberAst,
@@ -535,32 +536,32 @@ void addExprTokens(scope ref Ctx ctx, in ExprAst a) {
 					addTypeTokens(ctx, *force(x.typeArg));
 			}
 			final switch (x.style) {
-				case CallAst.Style.dot:
-				case CallAst.Style.infix:
-				case CallAst.Style.questionDot:
+				case CallAstStyle.dot:
+				case CallAstStyle.infix:
+				case CallAstStyle.questionDot:
 					addExprTokens(ctx, x.args[0]);
 					addName();
 					addExprsTokens(ctx, x.args[1 .. $]);
 					break;
-				case CallAst.Style.prefixBang:
+				case CallAstStyle.prefixBang:
 					reference(ctx.tokens, TokenType.function_, rangeOfStartAndLength(x.funName.start, "!".length));
 					addExprTokens(ctx, only(x.args));
 					break;
-				case CallAst.Style.suffixBang:
+				case CallAstStyle.suffixBang:
 					addExprTokens(ctx, only(x.args));
 					reference(ctx.tokens, TokenType.function_, rangeOfStartAndLength(x.funName.start, "!".length));
 					break;
-				case CallAst.style.emptyParens:
+				case CallAstStyle.emptyParens:
 					break;
-				case CallAst.style.prefixOperator:
-				case CallAst.Style.single:
+				case CallAstStyle.prefixOperator:
+				case CallAstStyle.single:
 					addName();
 					addExprsTokens(ctx, x.args);
 					break;
-				case CallAst.Style.augment:
-				case CallAst.Style.comma:
-				case CallAst.Style.subscript:
-				case CallAst.Style.questionSubscript:
+				case CallAstStyle.augment:
+				case CallAstStyle.comma:
+				case CallAstStyle.subscript:
+				case CallAstStyle.questionSubscript:
 					addExprsTokens(ctx, x.args);
 					break;
 			}

@@ -479,16 +479,16 @@ bool lookaheadKeyword(CString ptr, in string expected) {
 }
 
 immutable struct ElifOrElseKeyword {
-	enum Kind { elif, else_ }
-	Kind kind;
+	ElifOrElse kind;
 	Pos pos;
 }
-Opt!(ElifOrElseKeyword.Kind) lookaheadElifOrElse(CString ptr) =>
+enum ElifOrElse { elif, else_ }
+Opt!ElifOrElse lookaheadElifOrElse(CString ptr) =>
 	lookaheadKeyword(ptr, "elif")
-		? some(ElifOrElseKeyword.Kind.elif)
+		? some(ElifOrElse.elif)
 		: lookaheadKeyword(ptr, "else")
-		? some(ElifOrElseKeyword.Kind.else_)
-		: none!(ElifOrElseKeyword.Kind);
+		? some(ElifOrElse.else_)
+		: none!ElifOrElse;
 
 private:
 

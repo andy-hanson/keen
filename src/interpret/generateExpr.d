@@ -138,6 +138,7 @@ import model.lowModel :
 	LowUnion,
 	LowVar,
 	LowVarIndex,
+	LowVarKind,
 	PointerCastLowExpr,
 	PrimitiveType,
 	RecordFieldGetLowExpr,
@@ -469,16 +470,16 @@ void writeVarPtr(
 	LowVar var,
 ) {
 	final switch (var.kind) {
-		case LowVar.Kind.externGlobal:
+		case LowVarKind.externGlobal:
 			Opt!Symbol libName = var.externLibraryName;
 			writePushConstant(
 				writer, source,
 				mustGet(mustGet(ctx.externPointers, force(libName)), var.name).asUlong);
 			break;
-		case LowVar.Kind.global:
+		case LowVarKind.global:
 			writePushConstant(writer, source, cast(ulong) getGlobalsPointer(ctx.varsInfo.offsetsInWords[varIndex]));
 			break;
-		case LowVar.Kind.threadLocal:
+		case LowVarKind.threadLocal:
 			writeThreadLocalPtr(writer, source, ctx.varsInfo.offsetsInWords[varIndex]);
 			break;
 	}

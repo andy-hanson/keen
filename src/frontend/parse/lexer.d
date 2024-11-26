@@ -2,7 +2,7 @@ module frontend.parse.lexer;
 
 @safe @nogc pure nothrow:
 
-import frontend.parse.lexString : takeStringPart;
+import frontend.parse.lexString : QuoteKind, StringPart, StringPartAfter, takeStringPart;
 import frontend.parse.lexToken :
 	ExtraDedents,
 	isNewlineToken,
@@ -34,8 +34,7 @@ import util.string : CString, MutCString;
 import util.symbol : symbol;
 import util.util : enumConvert;
 
-public import frontend.parse.lexString : QuoteKind, StringPart;
-public import frontend.parse.lexToken : ElifOrElseKeyword, Token, TokenAndData;
+public import frontend.parse.lexToken : ElifOrElse, ElifOrElseKeyword, Token, TokenAndData;
 
 struct Lexer {
 	@safe @nogc pure nothrow:
@@ -229,9 +228,9 @@ private Range range(in Lexer lexer, CString begin) =>
 StringPart takeClosingBraceThenStringPart(ref Lexer lexer, QuoteKind quoteKind) {
 	if (getPeekToken(lexer) != Token.braceRight) {
 		Pos start = posAtPtr(lexer);
-		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.closeInterpolated)));
+		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(ParseDiagExpected.closeInterpolated)));
 		skipUntilNewlineNoDiag(lexer);
-		return StringPart(Range(start, posAtPtr(lexer)), "", StringPart.After.done);
+		return StringPart(Range(start, posAtPtr(lexer)), "", StringPartAfter.done);
 	} else
 		return takeStringPartCommon(lexer, quoteKind);
 }
@@ -308,7 +307,7 @@ private Opt!Pos tryTakeNewlineThenKeyword(scope ref Lexer lexer, Token keyword, 
 
 Opt!ElifOrElseKeyword tryTakeNewlineThenElifOrElse(ref Lexer lexer) {
 	if (getPeekToken(lexer) == Token.newlineSameIndent) {
-		Opt!(ElifOrElseKeyword.Kind) kind = lookaheadElifOrElse(lexer.ptr);
+		Opt!ElifOrElse kind = lookaheadElifOrElse(lexer.ptr);
 		if (has(kind)) {
 			mustTakeToken(lexer, Token.newlineSameIndent);
 			Pos pos = curPos(lexer);

@@ -60,9 +60,9 @@ import model.model :
 	DiagCantCall,
 	DiagCantCallReason,
 	DiagCaseDuplicate,
-	DiagCaseInvalidMemberType,
 	DiagCaseInvalidSumType,
 	DiagCaseMissingType,
+	DiagCaseTypeIsTemplate,
 	DiagCharLiteralMustBeOneChar,
 	DiagCommonFunDuplicate,
 	DiagCommonFunMissing,
@@ -70,6 +70,7 @@ import model.model :
 	DiagCommonVarMissing,
 	DiagDestructureTypeMismatch,
 	DiagDuplicateDeclaration,
+	DiagDuplicateDeclarationKind,
 	DiagDuplicateExports,
 	DiagDuplicateImportName,
 	DiagDuplicateImports,
@@ -323,7 +324,7 @@ void writeParseDiag(scope ref Writer writer, in ShowCtx ctx, in ParseDiag d) {
 			writer ~= "Doc comment must appear at top of module or before a declaration.";
 		},
 		(in ParseDiagExpected x) {
-			writer ~= showParseDiagExpected(x.kind);
+			writer ~= showParseDiagExpected(x);
 		},
 		(in ParseDiagFileNotUtf8) {
 			writer ~= "File is not encoded as UTF-8 or has encoding errors.";
@@ -359,11 +360,11 @@ void writeParseDiag(scope ref Writer writer, in ShowCtx ctx, in ParseDiag d) {
 			writer ~= "Expected something inside of the '{}'.";
 		},
 		(in ParseDiagNeedsBlockCtx x) {
-			if (x.kind == ParseDiagNeedsBlockCtx.Kind.lambda)
+			if (x == ParseDiagNeedsBlockCtx.lambda)
 				writer ~= "Lambda";
 			else {
 				writer ~= '\'';
-				writer ~= stringOfEnum(x.kind);
+				writer ~= stringOfEnum(x);
 				writer ~= '\'';
 			}
 			writer ~= " expression must appear in a context where it can be followed by an indented block.";
@@ -400,63 +401,63 @@ void writeParseDiag(scope ref Writer writer, in ShowCtx ctx, in ParseDiag d) {
 		});
 }
 
-string showParseDiagExpected(ParseDiagExpected.Kind kind) {
+string showParseDiagExpected(ParseDiagExpected kind) {
 	final switch (kind) {
-		case ParseDiagExpected.Kind.as:
+		case ParseDiagExpected.as:
 			return "Expected 'as'.";
-		case ParseDiagExpected.Kind.blockCommentEnd:
+		case ParseDiagExpected.blockCommentEnd:
 			return "Expected '###' (then a newline).";
-		case ParseDiagExpected.Kind.catch_:
+		case ParseDiagExpected.catch_:
 			return "Expected 'catch'.";
-		case ParseDiagExpected.Kind.closeInterpolated:
+		case ParseDiagExpected.closeInterpolated:
 			return "Expected '}'.";
-		case ParseDiagExpected.Kind.closingBracket:
+		case ParseDiagExpected.closingBracket:
 			return "Expected ']'.";
-		case ParseDiagExpected.Kind.closingParen:
+		case ParseDiagExpected.closingParen:
 			return "Expected ')'.";
-		case ParseDiagExpected.Kind.colon:
+		case ParseDiagExpected.colon:
 			return "Expected ':'.";
-		case ParseDiagExpected.Kind.comma:
+		case ParseDiagExpected.comma:
 			return "Expected ','.";
-		case ParseDiagExpected.Kind.dedent:
+		case ParseDiagExpected.dedent:
 			return "Expected a dedent.";
-		case ParseDiagExpected.Kind.endOfLine:
+		case ParseDiagExpected.endOfLine:
 			return "Expected end of line.";
-		case ParseDiagExpected.Kind.equals:
+		case ParseDiagExpected.equals:
 			return "Expected '='.";
-		case ParseDiagExpected.Kind.indent:
+		case ParseDiagExpected.indent:
 			return "Expected an indent.";
-		case ParseDiagExpected.Kind.lambdaArrow:
+		case ParseDiagExpected.lambdaArrow:
 			return "Expected ' =>' after lambda parameters.";
-		case ParseDiagExpected.Kind.less:
+		case ParseDiagExpected.less:
 			return "Expected '<'.";
-		case ParseDiagExpected.Kind.literalIntegral:
+		case ParseDiagExpected.literalIntegral:
 			return "Expected an integer.";
-		case ParseDiagExpected.Kind.literalNat:
+		case ParseDiagExpected.literalNat:
 			return "Expected a natural number.";
-		case ParseDiagExpected.Kind.matchCase:
+		case ParseDiagExpected.matchCase:
 			return "A branch of a 'match' must be an identifier, number literal, or string literal.";
-		case ParseDiagExpected.Kind.name:
+		case ParseDiagExpected.name:
 			return "Expected a name (non-operator).";
-		case ParseDiagExpected.Kind.namedArgument:
+		case ParseDiagExpected.namedArgument:
 			return "Expected another named argument.";
-		case ParseDiagExpected.Kind.nameOrOperator:
+		case ParseDiagExpected.nameOrOperator:
 			return "Expected a name or operator.";
-		case ParseDiagExpected.Kind.newline:
+		case ParseDiagExpected.newline:
 			return "Expected a newline.";
-		case ParseDiagExpected.Kind.newlineOrDedent:
+		case ParseDiagExpected.newlineOrDedent:
 			return "Expected a newline or dedent.";
-		case ParseDiagExpected.Kind.openParen:
+		case ParseDiagExpected.openParen:
 			return "Expected '('.";
-		case ParseDiagExpected.Kind.questionEqual:
+		case ParseDiagExpected.questionEqual:
 			return "Expected '?='.";
-		case ParseDiagExpected.Kind.quoteDouble:
+		case ParseDiagExpected.quoteDouble:
 			return "Expected '\"'.";
-		case ParseDiagExpected.Kind.quoteDouble3:
+		case ParseDiagExpected.quoteDouble3:
 			return "Expected '\"\"\"'.";
-		case ParseDiagExpected.Kind.slash:
+		case ParseDiagExpected.slash:
 			return "Expected '/'.";
-		case ParseDiagExpected.Kind.typeArgsEnd:
+		case ParseDiagExpected.typeArgsEnd:
 			return "Expected '>'.";
 	}
 }
@@ -732,14 +733,6 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeName(writer, ctx, x.sumType.name);
 			writer ~= " multiple times.";
 		},
-		(in DiagCaseInvalidMemberType x) {
-			writeName(writer, ctx, x.member.name);
-			writer ~= " can't be a 'case' because ";
-			final switch (x.reason) {
-				case DiagCaseInvalidMemberType.Reason.isTemplate:
-					writer ~= "it is a template.";
-			}
-		},
 		(in DiagCaseInvalidSumType x) {
 			writer ~= "'case' requires an 'interface' or 'variant' type, not ";
 			writeTypeUnquoted(writer, ctx, TypeWithContainer(x.actual, TypeContainer(x.member)));
@@ -747,6 +740,10 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagCaseMissingType x) {
 			writer ~= "'case' needs a type argument. It should be an 'interface' or 'variant' type.";
+		},
+		(in DiagCaseTypeIsTemplate x) {
+			writeName(writer, ctx, x.caseType.name);
+			writer ~= " can't be a 'case' because it is a template.";
 		},
 		(in DiagCharLiteralMustBeOneChar) {
 			writer ~= "Value of 'char' type must be a single character";
@@ -792,21 +789,21 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in DiagDuplicateDeclaration x) {
 			writer ~= () {
 				final switch (x.kind) {
-					case DiagDuplicateDeclaration.Kind.enumMember:
+					case DiagDuplicateDeclarationKind.enumMember:
 						return "Enum member";
-					case DiagDuplicateDeclaration.Kind.flagsMember:
+					case DiagDuplicateDeclarationKind.flagsMember:
 						return "Flags member";
-					case DiagDuplicateDeclaration.Kind.paramOrLocal:
+					case DiagDuplicateDeclarationKind.paramOrLocal:
 						return "Local";
-					case DiagDuplicateDeclaration.Kind.recordField:
+					case DiagDuplicateDeclarationKind.recordField:
 						return "Record field";
-					case DiagDuplicateDeclaration.Kind.spec:
+					case DiagDuplicateDeclarationKind.spec:
 						return "Spec";
-					case DiagDuplicateDeclaration.Kind.structOrAlias:
+					case DiagDuplicateDeclarationKind.structOrAlias:
 						return "Type";
-					case DiagDuplicateDeclaration.Kind.typeParam:
+					case DiagDuplicateDeclarationKind.typeParam:
 						return "Type parameter";
-					case DiagDuplicateDeclaration.Kind.unionMember:
+					case DiagDuplicateDeclarationKind.unionMember:
 						return "Union case";
 				}
 			}();
@@ -816,14 +813,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagDuplicateExports x) {
 			writer ~= "There are multiple exported ";
-			writer ~= () {
-				final switch (x.kind) {
-					case DiagDuplicateExports.Kind.spec:
-						return "specs";
-					case DiagDuplicateExports.Kind.type:
-						return "types";
-				}
-			}();
+			writer ~= stringOfEnum(x.kind);
 			writer ~= " named ";
 			writeName(writer, ctx, x.name);
 			writer ~= '.';
@@ -1149,12 +1139,12 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in DiagMatchNeedsElse x) {
 			writer ~= "A 'match' on ";
 			writer ~= () {
-				final switch (x.kind) {
-					case DiagMatchNeedsElse.Kind.integral:
+				final switch (x) {
+					case DiagMatchNeedsElse.integral:
 						return "an integral ";
-					case DiagMatchNeedsElse.Kind.stringLike:
+					case DiagMatchNeedsElse.stringLike:
 						return "a string or symbol";
-					case DiagMatchNeedsElse.Kind.variant:
+					case DiagMatchNeedsElse.variant:
 						return "a variant ";
 				}
 			}();

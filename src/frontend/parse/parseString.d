@@ -3,7 +3,14 @@ module frontend.parse.parseString;
 @safe @nogc pure nothrow:
 
 import frontend.parse.lexer :
-	addDiag, curPos, Lexer, QuoteKind, range, StringPart, takeClosingBraceThenStringPart, takeInitialStringPart, Token;
+	addDiag,
+	curPos,
+	Lexer,
+	range,
+	takeClosingBraceThenStringPart,
+	takeInitialStringPart,
+	Token;
+import frontend.parse.lexString : QuoteKind, StringPart, StringPartAfter;
 import frontend.parse.parseUtil : peekToken, skipBlankLines, takeNameOrOperator, tryTakeToken;
 import model.ast :
 	DocCommentAst, DocCommentContent, ExprAst, ExprAstKind, InterpolatedAst, LiteralStringAst, NameAndRange;
@@ -72,9 +79,9 @@ Out takeInterpolatedCb(Out)(
 ) {
 	StringPart firstPart = takeInitialStringPart(lexer, quoteKind);
 	final switch (firstPart.after) {
-		case StringPart.After.done:
+		case StringPartAfter.done:
 			return cbSingle(firstPart);
-		case StringPart.After.lbrace:
+		case StringPartAfter.lbrace:
 			if (!isEmpty(firstPart.text))
 				cbString(firstPart);
 			while (true) {
@@ -88,9 +95,9 @@ Out takeInterpolatedCb(Out)(
 				if (!isEmpty(part.text))
 					cbString(part);
 				final switch (part.after) {
-					case StringPart.After.done:
+					case StringPartAfter.done:
 						return cbFinish();
-					case StringPart.After.lbrace:
+					case StringPartAfter.lbrace:
 						continue;
 				}
 			}

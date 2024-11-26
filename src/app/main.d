@@ -30,6 +30,7 @@ import app.command :
 	RunCommand,
 	SelfTestCommand,
 	SingleBuildOutput,
+	SingleBuildOutputKind,
 	targetsForBuild,
 	VersionCommand;
 import app.dyncall : withRealExtern;
@@ -100,7 +101,12 @@ import lib.server :
 	jsonOfModel,
 	perfStats,
 	printAst,
-	PrintKind,
+	PrintAst,
+	PrintConcreteModel,
+	PrintIdeAtPos,
+	PrintIdeWholeFile,
+	PrintLowModel,
+	PrintModel,
 	Server,
 	ServerSettings,
 	setFile,
@@ -499,28 +505,28 @@ CString[] getAllArgs(ref Alloc alloc, in Server server, in MainKind main) =>
 ExitCodeOrSignal doPrint(scope ref Perf perf, ref Alloc alloc, ref Server server, in PrintCommand command) {
 	Uri mainUri = command.mainUri;
 	return command.kind.matchImpure!ExitCodeOrSignal(
-		(in PrintKind.Ast) {
+		(in PrintAst _) {
 			loadSingleFile(perf, server, mainUri);
 			return printDiagsAndJson(alloc, printAst(perf, alloc, server, mainUri));
 		},
-		(in PrintKind.Model) =>
+		(in PrintModel _) =>
 			withProgramForRoots(perf, alloc, server, [mainUri], (ref Program program) =>
 				printJson(alloc, jsonOfModel(perf, alloc, server, program, mainUri))),
-		(in PrintKind.ConcreteModel) =>
+		(in PrintConcreteModel _) =>
 			withProgramForMain(perf, alloc, server, MainKind.fun(mainUri, []), [], (ref ProgramWithMain program) =>
 				printJson(alloc, jsonOfConcreteModel(
 					perf, alloc, server, versionInfoForInterpret(getOS(), VersionOptions()), program))),
-		(in PrintKind.LowModel) =>
+		(in PrintLowModel _) =>
 			withProgramForMain(perf, alloc, server, MainKind.fun(mainUri, []), [], (ref ProgramWithMain program) =>
 				printJson(alloc, jsonOfLowModel(
 					perf, alloc, server, versionInfoForInterpret(getOS(), VersionOptions()), program))),
-		(in PrintKind.IdeAtPos x) =>
+		(in PrintIdeAtPos x) =>
 			withProgramForRoots(perf, alloc, server, [mainUri], (ref Program program) =>
 				printJson(alloc, jsonForPrintIdeAtPos(
 					perf, alloc, server, program, UriLineAndColumn(mainUri, x.lineAndColumn), x.kind))),
-		(in PrintKind.IdeWholeFile x) =>
+		(in PrintIdeWholeFile x) =>
 			withProgramForRoots(perf, alloc, server, [mainUri], (ref Program program) =>
-				printJson(alloc, jsonForPrintIdeWholeFile(perf, alloc, server, program, mainUri, x.kind))));
+				printJson(alloc, jsonForPrintIdeWholeFile(perf, alloc, server, program, mainUri, x))));
 }
 
 ExitCodeOrSignal buildAndRun(
@@ -569,12 +575,12 @@ ExitCodeOrSignal buildAllOutputs(
 	in BuildOptions options,
 	ref ProgramWithMain program,
 ) {
-	Opt!FilePath findPath(SingleBuildOutput.Kind kind) {
+	Opt!FilePath findPath(SingleBuildOutputKind kind) {
 		Opt!SingleBuildOutput s = find!SingleBuildOutput(options.out_, (in SingleBuildOutput x) => x.kind == kind);
 		return optIf(has(s), () => force(s).path);
 	}
 	// 'exe' build must be done after 'c' build.
-	Opt!FilePath exe = findPath(SingleBuildOutput.Kind.executable);
+	Opt!FilePath exe = findPath(SingleBuildOutputKind.executable);
 	Late!PathAndArgs exeCompileCommand = late!PathAndArgs();
 
 	ExitCodeOrSignal buildC(FilePath cPath) =>
@@ -597,17 +603,17 @@ ExitCodeOrSignal buildAllOutputs(
 
 	ExitCodeOrSignal res = eachUntilError!SingleBuildOutput(options.out_, (ref SingleBuildOutput out_) {
 		final switch (out_.kind) {
-			case SingleBuildOutput.Kind.c:
+			case SingleBuildOutputKind.c:
 				return buildC(out_.path);
-			case SingleBuildOutput.Kind.executable:
+			case SingleBuildOutputKind.executable:
 				return ExitCodeOrSignal.ok; // do this last
-			case SingleBuildOutput.Kind.jsModules:
+			case SingleBuildOutputKind.jsModules:
 				return buildJsModules(out_.path, JsTarget.browser);
-			case SingleBuildOutput.Kind.jsScript:
+			case SingleBuildOutputKind.jsScript:
 				return buildJsScript(out_.path, JsTarget.browser);
-			case SingleBuildOutput.Kind.nodeJsModules:
+			case SingleBuildOutputKind.nodeJsModules:
 				return buildJsModules(out_.path, JsTarget.node);
-			case SingleBuildOutput.Kind.nodeJsScript:
+			case SingleBuildOutputKind.nodeJsScript:
 				return buildJsScript(out_.path, JsTarget.node);
 		}
 	});

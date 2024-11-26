@@ -19,7 +19,8 @@ import frontend.showModel :
 	writeTypeUnquoted,
 	writeVisibility;
 import lib.lsp.lspTypes : Hover, MarkupContent, MarkupKind;
-import model.ast : AssertOrForbidAst, ExprAst, ExprAstKind, IfAst, MatchAst, ModifierKeyword, UnpackOptionAst;
+import model.ast :
+	AssertOrForbidAst, ExprAst, ExprAstKind, IfAst, IfAstKind, MatchAst, ModifierKeyword, UnpackOptionAst;
 import model.model :
 	AnyDecl,
 	asBuiltinExtern,
@@ -529,42 +530,42 @@ void getExprKeywordHover(
 				(in ExprAst _) => false,
 				(in UnpackOptionAst _) => true);
 			final switch (ifAst.kind) {
-				case IfAst.Kind.guardWithColon:
-				case IfAst.Kind.guardWithoutColon:
+				case IfAstKind.guardWithColon:
+				case IfAstKind.guardWithoutColon:
 					writer ~= isUnpackOption
 						? "If the option is non-empty, destructures it and continues."
 						: "If the expression is 'true', continues.";
 					writer ~= '\n';
-					writer ~= ifAst.kind == IfAst.Kind.guardWithColon
+					writer ~= ifAst.kind == IfAstKind.guardWithColon
 						? "Otherwise, returns the expression after the ':'."
 						: "Otherwise, returns '()'.";
 					break;
-				case IfAst.Kind.ifWithoutElse:
-				case IfAst.Kind.ifElif:
-				case IfAst.Kind.ifElse:
-				case IfAst.Kind.ternaryWithElse:
-				case IfAst.Kind.ternaryWithoutElse:
+				case IfAstKind.ifWithoutElse:
+				case IfAstKind.ifElif:
+				case IfAstKind.ifElse:
+				case IfAstKind.ternaryWithElse:
+				case IfAstKind.ternaryWithoutElse:
 					writer ~= isUnpackOption
 						? "If the value is a non-empty option, destructures it and returns the first branch."
 						: "If the condition is 'true', returns the first branch.";
 					writer ~= '\n';
 					writer ~= () {
 						final switch (ifAst.kind) {
-							case IfAst.Kind.ifWithoutElse:
-							case IfAst.Kind.ternaryWithoutElse:
+							case IfAstKind.ifWithoutElse:
+							case IfAstKind.ternaryWithoutElse:
 								return "Otherwise, returns '()'.";
-							case IfAst.Kind.ifElif:
-							case IfAst.Kind.ifElse:
-							case IfAst.Kind.ternaryWithElse:
+							case IfAstKind.ifElif:
+							case IfAstKind.ifElse:
+							case IfAstKind.ternaryWithElse:
 								return "Otherwise, returns the second branch.";
-							case IfAst.Kind.guardWithColon:
-							case IfAst.Kind.guardWithoutColon:
-							case IfAst.Kind.unless:
+							case IfAstKind.guardWithColon:
+							case IfAstKind.guardWithoutColon:
+							case IfAstKind.unless:
 								assert(0);
 						}
 					}();
 					break;
-				case IfAst.Kind.unless:
+				case IfAstKind.unless:
 					writer ~= "Returns the body if the condition is false. If the condition is true, returns '()'.";
 					break;
 			}
@@ -631,14 +632,14 @@ void getMatchHover(
 	writer ~= "Match on ";
 	writer ~= () {
 		final switch (info.kind) {
-			case MatchInfo.Kind.enum_:
+			case MatchKind.enum_:
 				return "enum ";
-			case MatchInfo.Kind.integral:
-			case MatchInfo.Kind.stringLike:
+			case MatchKind.integral:
+			case MatchKind.stringLike:
 				return "";
-			case MatchInfo.Kind.union_:
+			case MatchKind.union_:
 				return "union ";
-			case MatchInfo.Kind.variant:
+			case MatchKind.variant:
 				return "variant ";
 		}
 	}();
@@ -646,20 +647,20 @@ void getMatchHover(
 	writer ~= '.';
 }
 immutable struct MatchInfo {
-	enum Kind { enum_, integral, stringLike, union_, variant }
-	Kind kind;
+	MatchKind kind;
 	Type matchedType;
 }
+enum MatchKind { enum_, integral, stringLike, union_, variant }
 MatchInfo getMatchInfo(ExprKind a) =>
 	a.isA!(MatchEnumExpr*)
-		? MatchInfo(MatchInfo.Kind.enum_, a.as!(MatchEnumExpr*).matched.type)
+		? MatchInfo(MatchKind.enum_, a.as!(MatchEnumExpr*).matched.type)
 		: a.isA!(MatchIntegralExpr*)
-		? MatchInfo(MatchInfo.Kind.integral, a.as!(MatchIntegralExpr*).matched.type)
+		? MatchInfo(MatchKind.integral, a.as!(MatchIntegralExpr*).matched.type)
 		: a.isA!(MatchStringLikeExpr*)
-		? MatchInfo(MatchInfo.Kind.stringLike, a.as!(MatchStringLikeExpr*).matched.type)
+		? MatchInfo(MatchKind.stringLike, a.as!(MatchStringLikeExpr*).matched.type)
 		: a.isA!(MatchSumTypeExpr*)
 		? MatchInfo(
-			a.as!(MatchSumTypeExpr*).isUnion ? MatchInfo.Kind.union_ : MatchInfo.Kind.variant,
+			a.as!(MatchSumTypeExpr*).isUnion ? MatchKind.union_ : MatchKind.variant,
 			a.as!(MatchSumTypeExpr*).matched.type)
 		: assert(false);
 

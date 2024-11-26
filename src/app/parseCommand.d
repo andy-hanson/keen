@@ -21,10 +21,19 @@ import app.command :
 	RunOptions,
 	SelfTestCommand,
 	SingleBuildOutput,
+	SingleBuildOutputKind,
 	VersionCommand;
 import frontend.lang : CCompileOptions, CVersion, FileType, fileType, JitOptions, MainKind, OptimizationLevel;
 import frontend.parse.lexToken : NatAndOverflow, takeNat;
-import lib.server : PrintKind;
+import lib.server :
+	PrintAst,
+	PrintConcreteModel,
+	PrintIdeAtPos,
+	PrintIdeAtPosKind,
+	PrintIdeWholeFile,
+	PrintKind,
+	PrintLowModel,
+	PrintModel;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : StackArrayBuilder, withBuildStackArray;
 import util.col.array : copyArray, findIndex, isEmpty, map, newArray, only;
@@ -453,62 +462,62 @@ Opt!PrintKind parsePrintKind(in CString a, in CString[] args) {
 
 	switch (stringOfCString(a)) {
 		case "ast":
-			return expectEmptyArgs(PrintKind(PrintKind.Ast()));
+			return expectEmptyArgs(PrintKind(PrintAst()));
 		case "model":
-			return expectEmptyArgs(PrintKind(PrintKind.Model()));
+			return expectEmptyArgs(PrintKind(PrintModel()));
 		case "concrete-model":
-			return expectEmptyArgs(PrintKind(PrintKind.ConcreteModel()));
+			return expectEmptyArgs(PrintKind(PrintConcreteModel()));
 		case "low-model":
-			return expectEmptyArgs(PrintKind(PrintKind.LowModel()));
+			return expectEmptyArgs(PrintKind(PrintLowModel()));
 		default:
-			Opt!(PrintKind.IdeAtPos.Kind) kindAtPos = ideAtPosKind(stringOfCString(a));
+			Opt!(PrintIdeAtPosKind) kindAtPos = ideAtPosKind(stringOfCString(a));
 			if (has(kindAtPos))
 				return expectLineAndColumn((in LineAndColumn lc) =>
-					PrintKind(PrintKind.IdeAtPos(force(kindAtPos), lc)));
+					PrintKind(PrintIdeAtPos(force(kindAtPos), lc)));
 			else {
-				Opt!(PrintKind.IdeWholeFile.Kind) kindWholeFile = ideWholeFileKind(stringOfCString(a));
+				Opt!PrintIdeWholeFile kindWholeFile = ideWholeFileKind(stringOfCString(a));
 				return has(kindWholeFile)
-					? expectEmptyArgs(PrintKind(PrintKind.IdeWholeFile(force(kindWholeFile))))
+					? expectEmptyArgs(PrintKind(PrintIdeWholeFile(force(kindWholeFile))))
 					: none!PrintKind;
 			}
 	}
 }
-Opt!(PrintKind.IdeAtPos.Kind) ideAtPosKind(in string a) {
+Opt!(PrintIdeAtPosKind) ideAtPosKind(in string a) {
 	switch (a) {
 		case "completion":
-			return some(PrintKind.IdeAtPos.Kind.completion);
+			return some(PrintIdeAtPosKind.completion);
 		case "definition":
-			return some(PrintKind.IdeAtPos.Kind.definition);
+			return some(PrintIdeAtPosKind.definition);
 		case "document-highlights":
-			return some(PrintKind.IdeAtPos.Kind.documentHighlight);
+			return some(PrintIdeAtPosKind.documentHighlight);
 		case "hover":
-			return some(PrintKind.IdeAtPos.Kind.hover);
+			return some(PrintIdeAtPosKind.hover);
 		case "implementation":
-			return some(PrintKind.IdeAtPos.Kind.implementation);
+			return some(PrintIdeAtPosKind.implementation);
 		case "references":
-			return some(PrintKind.IdeAtPos.Kind.references);
+			return some(PrintIdeAtPosKind.references);
 		case "rename":
-			return some(PrintKind.IdeAtPos.Kind.rename);
+			return some(PrintIdeAtPosKind.rename);
 		case "signature-help":
-			return some(PrintKind.IdeAtPos.Kind.signatureHelp);
+			return some(PrintIdeAtPosKind.signatureHelp);
 		case "type-definition":
-			return some(PrintKind.IdeAtPos.Kind.typeDefinition);
+			return some(PrintIdeAtPosKind.typeDefinition);
 		default:
-			return none!(PrintKind.IdeAtPos.Kind);
+			return none!(PrintIdeAtPosKind);
 	}
 }
-Opt!(PrintKind.IdeWholeFile.Kind) ideWholeFileKind(in string a) {
+Opt!PrintIdeWholeFile ideWholeFileKind(in string a) {
 	switch (a) {
 		case "code-lenses":
-			return some(PrintKind.IdeWholeFile.Kind.codeLenses);
+			return some(PrintIdeWholeFile.codeLenses);
 		case "folding-ranges":
-			return some(PrintKind.IdeWholeFile.Kind.foldingRanges);
+			return some(PrintIdeWholeFile.foldingRanges);
 		case "inlay-hints":
-			return some(PrintKind.IdeWholeFile.Kind.inlayHints);
+			return some(PrintIdeWholeFile.inlayHints);
 		case "tokens":
-			return some(PrintKind.IdeWholeFile.Kind.tokens);
+			return some(PrintIdeWholeFile.tokens);
 		default:
-			return none!(PrintKind.IdeWholeFile.Kind);
+			return none!PrintIdeWholeFile;
 	}
 }
 
@@ -595,7 +604,7 @@ CommandKind parseBuildCommand(ref Alloc alloc, FilePath cwd, scope ref Diags dia
 	SingleBuildOutput[] resOut = !isEmpty(out_)
 		? out_
 		: newArray(alloc, [
-			SingleBuildOutput(SingleBuildOutput.Kind.executable, defaultExecutablePathForMain(main, cwd, os))]);
+			SingleBuildOutput(SingleBuildOutputKind.executable, defaultExecutablePathForMain(main, cwd, os))]);
 	BuildOptions options = BuildOptions(
 		VersionOptions(isSingleThreaded: singleThreaded, stackTraceEnabled: !noStackTrace),
 		resOut,
@@ -707,7 +716,7 @@ Opt!SingleBuildOutput parseSingleBuildOut(FilePath cwd, OS os, scope ref Diags d
 	if (has(optPrefix)) {
 		PrefixAndRest pr = force(optPrefix);
 		FilePath path = parseFilePathWithCwdOrDiag(diags, cwd, pr.rest);
-		Opt!(SingleBuildOutput.Kind) kind = buildKindFromPrefix(pr.prefix, getExtension(path));
+		Opt!SingleBuildOutputKind kind = buildKindFromPrefix(pr.prefix, getExtension(path));
 		if (has(kind))
 			return some(SingleBuildOutput(force(kind), path));
 		else {
@@ -716,7 +725,7 @@ Opt!SingleBuildOutput parseSingleBuildOut(FilePath cwd, OS os, scope ref Diags d
 		}
 	} else {
 		FilePath path = parseFilePathWithCwdOrDiag(diags, cwd, arg);
-		Opt!(SingleBuildOutput.Kind) kind = buildKindFromExtension(getExtension(path), os);
+		Opt!SingleBuildOutputKind kind = buildKindFromExtension(getExtension(path), os);
 		if (has(kind))
 			return some(SingleBuildOutput(force(kind), path));
 		else {
@@ -726,29 +735,29 @@ Opt!SingleBuildOutput parseSingleBuildOut(FilePath cwd, OS os, scope ref Diags d
 	}
 }
 
-Opt!(SingleBuildOutput.Kind) buildKindFromPrefix(in string prefix, Extension extension) {
+Opt!SingleBuildOutputKind buildKindFromPrefix(in string prefix, Extension extension) {
 	switch (prefix) {
 		case "js":
 			return some(extension == Extension.js
-				? SingleBuildOutput.Kind.jsScript
-				: SingleBuildOutput.Kind.jsModules);
+				? SingleBuildOutputKind.jsScript
+				: SingleBuildOutputKind.jsModules);
 		case "node-js":
 			return some(extension == Extension.js
-				? SingleBuildOutput.Kind.nodeJsScript
-				: SingleBuildOutput.Kind.nodeJsModules);
+				? SingleBuildOutputKind.nodeJsScript
+				: SingleBuildOutputKind.nodeJsModules);
 		default:
-			return none!(SingleBuildOutput.Kind);
+			return none!SingleBuildOutputKind;
 	}
 }
-Opt!(SingleBuildOutput.Kind) buildKindFromExtension(Extension extension, OS os) {
+Opt!SingleBuildOutputKind buildKindFromExtension(Extension extension, OS os) {
 	switch (extension) {
 		case Extension.c:
-			return some(SingleBuildOutput.Kind.c);
+			return some(SingleBuildOutputKind.c);
 		case Extension.js:
-			return some(SingleBuildOutput.Kind.jsScript);
+			return some(SingleBuildOutputKind.jsScript);
 		default:
 			return optIf(extension == defaultExecutableExtension(os), () =>
-				SingleBuildOutput.Kind.executable);
+				SingleBuildOutputKind.executable);
 	}
 }
 

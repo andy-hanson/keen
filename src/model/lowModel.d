@@ -251,9 +251,9 @@ bool isPrimitiveType(LowType a, PrimitiveType p) =>
 	a.isA!PrimitiveType && a.as!PrimitiveType == p;
 
 immutable struct LowFieldSource {
-	enum ArrayField { pointer, size }
-	mixin TaggedUnion!(ConcreteField*, ArrayField);
+	mixin TaggedUnion!(ConcreteField*, LowArrayField);
 }
+enum LowArrayField { pointer, size }
 
 immutable struct LowField {
 	LowFieldSource source;
@@ -265,7 +265,7 @@ Symbol debugName(in LowField a) =>
 	a.source.matchIn!Symbol(
 		(in ConcreteField x) =>
 			x.debugName,
-		(in LowFieldSource.ArrayField x) =>
+		(in LowArrayField x) =>
 			symbolOfEnum(x));
 
 immutable struct LowLocalSource {
@@ -720,12 +720,7 @@ immutable struct LowVar {
 	@safe @nogc pure nothrow:
 
 	ConcreteVar* source;
-	enum Kind {
-		externGlobal,
-		global,
-		threadLocal,
-	}
-	Kind kind;
+	LowVarKind kind;
 	LowType type;
 
 	bool isExtern() scope =>
@@ -735,6 +730,7 @@ immutable struct LowVar {
 	Symbol name() scope =>
 		source.source.name;
 }
+enum LowVarKind { externGlobal, global, threadLocal }
 
 immutable struct LowProgram {
 	@safe @nogc pure nothrow:

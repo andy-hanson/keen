@@ -3,7 +3,7 @@ module backend.js.translateModuleCtx;
 @safe @nogc pure nothrow:
 
 import backend.js.allUsed : AllUsed, allUsed;
-import backend.js.jsAst : genIdentifier, JsDecl, JsDeclKind, JsExpr, JsName;
+import backend.js.jsAst : genIdentifier, JsDecl, JsDeclExported, JsDeclKind, JsExpr, JsName, JsNameKind;
 import backend.js.sourceMap : Source;
 import frontend.showModel : ShowCtx;
 import model.model :
@@ -107,25 +107,25 @@ immutable struct ModuleExportMangledNames {
 JsDecl makeDecl(in TranslateModuleCtx ctx, AnyDecl source, JsDeclKind value) =>
 	JsDecl(
 		declSource(ctx, source),
-		source.visibility == Visibility.private_ ? JsDecl.Exported.private_ : JsDecl.Exported.export_,
+		source.visibility == Visibility.private_ ? JsDeclExported.private_ : JsDeclExported.export_,
 		mangledNameForDecl(ctx, source),
 		value);
 
 JsName jsNameForDecl(in AnyDecl a, Opt!ushort index) {
-	JsName.Kind kind = a.matchIn!(JsName.Kind)(
+	JsNameKind kind = a.matchIn!JsNameKind(
 		(in FunDecl _) =>
-			JsName.Kind.function_,
+			JsNameKind.function_,
 		(in SpecDecl _) =>
 			// Specs don't compile to named entities; their sigs become function parameters
 			assert(false),
 		(in StructAlias _) =>
-			JsName.Kind.type,
+			JsNameKind.type,
 		(in StructDecl _) =>
-			JsName.Kind.type,
+			JsNameKind.type,
 		(in Test _) =>
-			JsName.Kind.function_,
+			JsNameKind.function_,
 		(in VarDecl _) =>
-			JsName.Kind.function_);
+			JsNameKind.function_);
 	return JsName(kind, a.name, index);
 }
 

@@ -55,7 +55,9 @@ import model.model :
 	DiagBuiltinUnsupported,
 	DiagBuiltinUnsupportedKind,
 	DiagDuplicateDeclaration,
+	DiagDuplicateDeclarationKind,
 	DiagDuplicateExports,
+	DiagDuplicateExportsKind,
 	DiagDuplicateImportName,
 	DiagExternBodyMultiple,
 	DiagImportFile,
@@ -281,7 +283,7 @@ StructsAndAliasesMap buildStructsAndAliasesMap(ref CheckCtx ctx, StructDecl[] st
 	MutHashTable!(StructOrAlias, Symbol, structOrAliasName) builder;
 	void add(StructOrAlias sa) {
 		addToDeclsMap!StructOrAlias(
-			ctx, builder, sa, DiagDuplicateDeclaration.Kind.structOrAlias, (in StructOrAlias x) =>
+			ctx, builder, sa, DiagDuplicateDeclarationKind.structOrAlias, (in StructOrAlias x) =>
 				x.nameRange);
 	}
 	foreach (ref StructDecl decl; structs)
@@ -346,7 +348,7 @@ void addToDeclsMap(T, alias getName)(
 	ref CheckCtx ctx,
 	scope ref MutHashTable!(T, Symbol, getName) builder,
 	T added,
-	DiagDuplicateDeclaration.Kind kind,
+	DiagDuplicateDeclarationKind kind,
 	in UriAndRange delegate(in T) @safe @nogc pure nothrow cbNameRange,
 ) {
 	if (!mayAdd(ctx.alloc, builder, added))
@@ -395,7 +397,7 @@ SpecsMap buildSpecsMap(ref CheckCtx ctx, SpecDecl[] specs) {
 	MutHashTable!(immutable SpecDecl*, Symbol, specDeclName) builder;
 	foreach (ref SpecDecl spec; specs)
 		addToDeclsMap!(immutable SpecDecl*)(
-			ctx, builder, &spec, DiagDuplicateDeclaration.Kind.spec, (in SpecDecl* x) =>
+			ctx, builder, &spec, DiagDuplicateDeclarationKind.spec, (in SpecDecl* x) =>
 				x.nameRange);
 	return moveToImmutable(builder);
 }
@@ -471,11 +473,11 @@ HashTable!(NameReferents, Symbol, nameFromNameReferents) getAllExports(
 			toAdd.name,
 			() => toAdd,
 			(ref NameReferents prev) {
-				Opt!(DiagDuplicateExports.Kind) kind = has(prev.structOrAlias) && has(toAdd.structOrAlias)
-					? some(DiagDuplicateExports.Kind.type)
+				Opt!(DiagDuplicateExportsKind) kind = has(prev.structOrAlias) && has(toAdd.structOrAlias)
+					? some(DiagDuplicateExportsKind.type)
 					: has(prev.spec) && has(toAdd.spec)
-					? some(DiagDuplicateExports.Kind.spec)
-					: none!(DiagDuplicateExports.Kind);
+					? some(DiagDuplicateExportsKind.spec)
+					: none!DiagDuplicateExportsKind;
 				if (has(kind))
 					addDiag(ctx, range(), Diag(DiagDuplicateExports(force(kind), nameFromNameReferents(toAdd))));
 				return NameReferents(

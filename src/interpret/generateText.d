@@ -17,6 +17,7 @@ import model.lowModel :
 	LowUnion,
 	LowVar,
 	LowVarIndex,
+	LowVarKind,
 	LowType,
 	PointerTypeAndConstantsLow,
 	PrimitiveType;
@@ -61,12 +62,12 @@ VarsInfo generateVarsInfo(ref Alloc alloc, in LowProgram program) {
 				return res;
 			}
 			final switch (x.kind) {
-				case LowVar.Kind.externGlobal:
+				case LowVarKind.externGlobal:
 					// See 'writeVarPtr' -- we don't use VarsInfo for these
 					return size_t.max;
-				case LowVar.Kind.global:
+				case LowVarKind.global:
 					return handle(VarKind.global);
-				case LowVar.Kind.threadLocal:
+				case LowVarKind.threadLocal:
 					return handle(VarKind.threadLocal);
 			}
 		});

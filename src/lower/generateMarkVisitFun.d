@@ -104,10 +104,10 @@ MarkVisitFuns initMarkVisitFuns(ref Alloc alloc, AllLowTypes* allTypes, LowCommo
 		newMutIndexMap!(LowUnionIndex, Opt!LowFunIndex)(alloc, allTypes.allUnions.length));
 
 immutable struct MarkRoot {
-	enum Kind { pointerToLocal, localAlreadyPointer }
-	Kind kind;
+	MarkRootKind kind;
 	LowFunIndex fun;
 }
+enum MarkRootKind { pointerToLocal, localAlreadyPointer }
 Opt!MarkRoot getMarkRootForType(
 	ref Alloc alloc,
 	scope ref MutArr!LowFunCause lowFunCauses,
@@ -123,7 +123,7 @@ Opt!MarkRoot getMarkRootForType(
 			none!MarkRoot,
 		(LowType.PointerGc x) =>
 			some(MarkRoot(
-				MarkRoot.Kind.localAlreadyPointer,
+				MarkRootKind.localAlreadyPointer,
 				getMarkVisitForPointerGc(alloc, lowFunCauses, markVisitFuns, x))),
 		(LowType.PointerConst x) =>
 			none!MarkRoot,
@@ -135,7 +135,7 @@ Opt!MarkRoot getMarkRootForType(
 				markVisitFuns.allTypes.indexOfRecord(x),
 				() => optIf(has(getMarkVisitForRecord(alloc, lowFunCauses, markVisitFuns, x)), () =>
 					addLowFun(alloc, lowFunCauses, LowFunCause(LowFunCause.MarkRoot(LowType(x))))));
-			return optIf(has(res), () => MarkRoot(MarkRoot.Kind.pointerToLocal, force(res)));
+			return optIf(has(res), () => MarkRoot(MarkRootKind.pointerToLocal, force(res)));
 		},
 		(LowUnion* x) {
 			Opt!LowFunIndex res = getOrAdd(
@@ -143,7 +143,7 @@ Opt!MarkRoot getMarkRootForType(
 				markVisitFuns.allTypes.indexOfUnion(x),
 				() => optIf(has(getMarkVisitForUnion(alloc, lowFunCauses, markVisitFuns, x)), () =>
 					addLowFun(alloc, lowFunCauses, LowFunCause(LowFunCause.MarkRoot(LowType(x))))));
-			return optIf(has(res), () => MarkRoot(MarkRoot.Kind.pointerToLocal, force(res)));
+			return optIf(has(res), () => MarkRoot(MarkRootKind.pointerToLocal, force(res)));
 		});
 
 // Returns none if the type does not need a mark-visit function (since it contains no GC pointers)

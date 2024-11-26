@@ -19,6 +19,7 @@ import model.model :
 	Destructure,
 	Diag,
 	DiagNameNotFound,
+	DiagNameNotFoundKind,
 	DocCommentReference,
 	DocCommentReferences,
 	EnumOrFlagsMember,
@@ -164,7 +165,7 @@ DocCommentReference checkDocCommentReference(
 		},
 		() => referenceFun(ctx, funsMap, specs, name),
 		() {
-			addDiag(ctx, ast.range, Diag(DiagNameNotFound(DiagNameNotFound.Kind.docCommentReference, name)));
+			addDiag(ctx, ast.range, Diag(DiagNameNotFound(DiagNameNotFoundKind.docCommentReference, name)));
 			return DocCommentReference(DocCommentReference.Bogus());
 		});
 }

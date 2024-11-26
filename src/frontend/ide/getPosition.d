@@ -25,6 +25,7 @@ import model.ast :
 	BogusTypeAst,
 	BuiltinTypeAst,
 	CallAst,
+	CallAstStyle,
 	CaseAst,
 	CaseMemberAst,
 	ConditionAst,
@@ -41,6 +42,7 @@ import model.ast :
 	FunTypeAst,
 	ModifierAst,
 	IfAst,
+	IfAstKind,
 	ImportFileAst,
 	ImportOrExportAst,
 	ImportWholeModuleAst,
@@ -733,19 +735,19 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, ref Loops loops, ExprRef a, Pos
 		});
 }
 
-ExprKeyword ifSecondKeyword(IfAst.Kind kind) {
+ExprKeyword ifSecondKeyword(IfAstKind kind) {
 	final switch (kind) {
-		case IfAst.Kind.guardWithColon:
-		case IfAst.Kind.ternaryWithElse:
+		case IfAstKind.guardWithColon:
+		case IfAstKind.ternaryWithElse:
 			return ExprKeyword.colonInIf;
-		case IfAst.Kind.ifElif:
+		case IfAstKind.ifElif:
 			return ExprKeyword.elif;
-		case IfAst.Kind.ifElse:
+		case IfAstKind.ifElse:
 			return ExprKeyword.else_;
-		case IfAst.Kind.guardWithoutColon:
-		case IfAst.Kind.ifWithoutElse:
-		case IfAst.Kind.ternaryWithoutElse:
-		case IfAst.Kind.unless:
+		case IfAstKind.guardWithoutColon:
+		case IfAstKind.ifWithoutElse:
+		case IfAstKind.ternaryWithoutElse:
+		case IfAstKind.unless:
 			assert(0);
 	}
 }
@@ -784,19 +786,19 @@ bool posIsAtCall(in ExprAst a, Pos pos) {
 	if (a.kind.isA!CallAst) {
 		CallAst call = a.kind.as!CallAst;
 		final switch (call.style) {
-			case CallAst.Style.comma:
-			case CallAst.Style.emptyParens:
-			case CallAst.Style.subscript:
-			case CallAst.Style.questionSubscript:
+			case CallAstStyle.comma:
+			case CallAstStyle.emptyParens:
+			case CallAstStyle.subscript:
+			case CallAstStyle.questionSubscript:
 				return false;
-			case CallAst.Style.augment:
-			case CallAst.Style.dot:
-			case CallAst.Style.infix:
-			case CallAst.Style.prefixBang:
-			case CallAst.Style.prefixOperator:
-			case CallAst.Style.questionDot:
-			case CallAst.Style.single:
-			case CallAst.Style.suffixBang:
+			case CallAstStyle.augment:
+			case CallAstStyle.dot:
+			case CallAstStyle.infix:
+			case CallAstStyle.prefixBang:
+			case CallAstStyle.prefixOperator:
+			case CallAstStyle.questionDot:
+			case CallAstStyle.single:
+			case CallAstStyle.suffixBang:
 				return hasPos(call.funName.range, pos);
 		}
 	} else if (a.kind.isA!IdentifierAst)

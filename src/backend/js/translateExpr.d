@@ -48,12 +48,13 @@ import backend.js.jsAst :
 	JsExprOrBlockStatement,
 	JsMemberName,
 	JsName,
+	JsNameKind,
 	JsObjectDestructure,
 	JsParams,
 	JsStatement,
 	JsStatementKind,
 	JsSwitchStatement,
-	JsVarDecl,
+	JsVarDeclConst,
 	SyncOrAsync;
 import backend.js.jsAstUtil :
 	genForceUnionMember,
@@ -397,7 +398,7 @@ JsDestructure translateDestructureSplit(ref TranslateExprCtx ctx, in Source sour
 void translateSpecsToParams(scope ref Builder!JsDestructure out_, in FunDecl a) {
 	eachSpecInFunIncludingParents(a, (SpecInst* spec) {
 		foreach (ref Signature x; spec.decl.sigs)
-			out_ ~= JsDestructure(JsName(JsName.Kind.specSig, x.name, some(safeToUshort(sizeSoFar(out_)))));
+			out_ ~= JsDestructure(JsName(JsNameKind.specSig, x.name, some(safeToUshort(sizeSoFar(out_)))));
 		return false;
 	});
 }
@@ -785,7 +786,7 @@ ExprResult translateLetLikeCb(
 		} else
 			add(ctx.alloc, out_, genVarDecl(
 				source,
-				hasAnyMutable(destructure) ? JsVarDecl.Kind.let : JsVarDecl.Kind.const_,
+				hasAnyMutable(destructure) ? JsVarDeclConst.let : JsVarDeclConst.const_,
 				translateDestructure(ctx, destructure),
 				some(allocate(ctx.alloc, value))));
 		return cb(out_, inner);

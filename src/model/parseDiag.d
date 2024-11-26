@@ -46,38 +46,35 @@ immutable struct ParseDiag {
 static assert(ParseDiag.sizeof <= 32);
 
 immutable struct ParseDiagDocCommentUnused {}
-immutable struct ParseDiagExpected {
-	enum Kind {
-		as,
-		blockCommentEnd,
-		catch_,
-		closeInterpolated,
-		closingBracket,
-		closingParen,
-		colon,
-		comma,
-		dedent,
-		endOfLine,
-		equals,
-		indent,
-		lambdaArrow,
-		less,
-		literalIntegral,
-		literalNat,
-		matchCase,
-		name,
-		namedArgument,
-		nameOrOperator,
-		newline,
-		newlineOrDedent,
-		openParen,
-		questionEqual,
-		quoteDouble,
-		quoteDouble3,
-		slash,
-		typeArgsEnd,
-	}
-	Kind kind;
+enum ParseDiagExpected {
+	as,
+	blockCommentEnd,
+	catch_,
+	closeInterpolated,
+	closingBracket,
+	closingParen,
+	colon,
+	comma,
+	dedent,
+	endOfLine,
+	equals,
+	indent,
+	lambdaArrow,
+	less,
+	literalIntegral,
+	literalNat,
+	matchCase,
+	name,
+	namedArgument,
+	nameOrOperator,
+	newline,
+	newlineOrDedent,
+	openParen,
+	questionEqual,
+	quoteDouble,
+	quoteDouble3,
+	slash,
+	typeArgsEnd,
 }
 immutable struct ParseDiagFileNotUtf8 {}
 immutable struct ParseDiagImportFileTypeNotSupported {}
@@ -94,22 +91,19 @@ immutable struct ParseDiagInvalidStringEscape {
 }
 immutable struct ParseDiagMatchCaseInterpolated {}
 immutable struct ParseDiagMissingInterpolated {}
-immutable struct ParseDiagNeedsBlockCtx {
-	enum Kind {
-		do_,
-		for_,
-		if_,
-		match,
-		lambda,
-		loop,
-		shared_,
-		throw_,
-		trusted,
-		try_,
-		unless,
-		with_,
-	}
-	Kind kind;
+enum ParseDiagNeedsBlockCtx {
+	do_,
+	for_,
+	if_,
+	match,
+	lambda,
+	loop,
+	shared_,
+	throw_,
+	trusted,
+	try_,
+	unless,
+	with_,
 }
 immutable struct ParseDiagTrailingComma {}
 immutable struct ParseDiagTypeEmptyParens {}

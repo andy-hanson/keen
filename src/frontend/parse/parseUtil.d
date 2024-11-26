@@ -64,25 +64,25 @@ Opt!T tryTakeTokenCb(T)(ref Lexer lexer, in Opt!T delegate(TokenAndData) @safe @
 	return res;
 }
 
-bool takeOrAddDiagExpectedTokenAndSkipRestOfLine(ref Lexer lexer, Token token, ParseDiagExpected.Kind kind) {
+bool takeOrAddDiagExpectedTokenAndSkipRestOfLine(ref Lexer lexer, Token token, ParseDiagExpected kind) {
 	bool res = takeOrAddDiagExpectedToken(lexer, token, kind);
 	if (!res)
 		skipUntilNewlineNoDiag(lexer);
 	return res;
 }
-bool takeOrAddDiagExpectedToken(ref Lexer lexer, Token token, ParseDiagExpected.Kind kind) {
+bool takeOrAddDiagExpectedToken(ref Lexer lexer, Token token, ParseDiagExpected kind) {
 	bool res = tryTakeToken(lexer, token);
 	if (!res)
 		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(kind)));
 	return res;
 }
-bool takeOrAddDiagExpectedTokenAndMayContinueOntoNextLine(ref Lexer lexer, Token token, ParseDiagExpected.Kind kind) {
+bool takeOrAddDiagExpectedTokenAndMayContinueOntoNextLine(ref Lexer lexer, Token token, ParseDiagExpected kind) {
 	bool res = tryTakeTokenAndMayContinueOntoNextLine(lexer, token);
 	if (!res)
 		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(kind)));
 	return res;
 }
-bool takeOrAddDiagExpectedToken(ref Lexer lexer, in Token[] tokens, ParseDiagExpected.Kind kind) {
+bool takeOrAddDiagExpectedToken(ref Lexer lexer, in Token[] tokens, ParseDiagExpected kind) {
 	bool res = tryTakeToken(lexer, tokens);
 	if (!res)
 		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(kind)));
@@ -90,7 +90,7 @@ bool takeOrAddDiagExpectedToken(ref Lexer lexer, in Token[] tokens, ParseDiagExp
 }
 Opt!T takeOrAddDiagExpectedToken(T)(
 	ref Lexer lexer,
-	ParseDiagExpected.Kind kind,
+	ParseDiagExpected kind,
 	in Opt!T delegate(TokenAndData) @safe @nogc pure nothrow cb,
 ) {
 	Opt!T res = tryTakeTokenCb!T(lexer, cb);
@@ -99,11 +99,11 @@ Opt!T takeOrAddDiagExpectedToken(T)(
 	return res;
 }
 
-void addDiagExpected(ref Lexer lexer, ParseDiagExpected.Kind kind) {
+void addDiagExpected(ref Lexer lexer, ParseDiagExpected kind) {
 	addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(kind)));
 }
 
-bool takeOrAddDiagExpectedOperator(ref Lexer lexer, Symbol operator, ParseDiagExpected.Kind kind) {
+bool takeOrAddDiagExpectedOperator(ref Lexer lexer, Symbol operator, ParseDiagExpected kind) {
 	bool res = tryTakeOperator(lexer, operator);
 	if (!res)
 		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(kind)));
@@ -141,7 +141,7 @@ Opt!NameAndRange tryTakeNameAndRangeOrDiag(ref Lexer lexer) {
 	Pos start = curPos(lexer);
 	Opt!NameAndRange res = tryTakeNameAndRange(lexer);
 	if (!has(res))
-		addDiag(lexer, rangeForCurToken(lexer, start), ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.name)));
+		addDiag(lexer, rangeForCurToken(lexer, start), ParseDiag(ParseDiagExpected(ParseDiagExpected.name)));
 	return res;
 }
 
@@ -167,7 +167,7 @@ NameAndRange takeNameOrOperator(ref Lexer lexer) {
 		return NameAndRange(start, force(res));
 	else {
 		addDiag(lexer, rangeForCurToken(lexer, start), ParseDiag(
-			ParseDiagExpected(ParseDiagExpected.Kind.nameOrOperator)));
+			ParseDiagExpected(ParseDiagExpected.nameOrOperator)));
 		return NameAndRange(start, symbol!"");
 	}
 }
@@ -194,7 +194,7 @@ bool peekEndOfLine(ref Lexer lexer) =>
 
 void takeDedent(ref Lexer lexer) {
 	if (!tryTakeToken(lexer, Token.newlineDedent)) {
-		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.dedent)));
+		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(ParseDiagExpected.dedent)));
 		while (skipToNextNewlineOrDedent(lexer) != NewlineOrDedent.dedent) {}
 	}
 }
@@ -210,7 +210,7 @@ NewlineOrDedent takeNewlineOrDedent(ref Lexer lexer) {
 	else if (tryTakeToken(lexer, [Token.newlineDedent, Token.endOfFile]))
 		return NewlineOrDedent.dedent;
 	else {
-		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.newlineOrDedent)));
+		addDiagAtChar(lexer, ParseDiag(ParseDiagExpected(ParseDiagExpected.newlineOrDedent)));
 		return skipToNextNewlineOrDedent(lexer);
 	}
 }
@@ -251,7 +251,7 @@ T takeIndentOrFailGeneric(T)(
 		return cbIndent();
 	else {
 		Range range = rangeForCurToken(lexer, start);
-		addDiag(lexer, range, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.indent)));
+		addDiag(lexer, range, ParseDiag(ParseDiagExpected(ParseDiagExpected.indent)));
 		return cbFail(range);
 	}
 }

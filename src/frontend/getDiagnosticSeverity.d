@@ -25,9 +25,9 @@ import model.model :
 	DiagCallShouldUseSyntax,
 	DiagCantCall,
 	DiagCaseDuplicate,
-	DiagCaseInvalidMemberType,
 	DiagCaseInvalidSumType,
 	DiagCaseMissingType,
+	DiagCaseTypeIsTemplate,
 	DiagCharLiteralMustBeOneChar,
 	DiagCommonFunDuplicate,
 	DiagCommonFunMissing,
@@ -205,11 +205,11 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.checkError,
 		(in DiagCaseDuplicate _) =>
 			DiagnosticSeverity.checkError,
-		(in DiagCaseInvalidMemberType _) =>
-			DiagnosticSeverity.checkError,
 		(in DiagCaseInvalidSumType _) =>
 			DiagnosticSeverity.checkError,
 		(in DiagCaseMissingType _) =>
+			DiagnosticSeverity.checkError,
+		(in DiagCaseTypeIsTemplate _) =>
 			DiagnosticSeverity.checkError,
 		(in DiagCharLiteralMustBeOneChar _) =>
 			DiagnosticSeverity.checkError,

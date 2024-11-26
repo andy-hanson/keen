@@ -33,11 +33,14 @@ import model.model :
 	DiagAutoFunSpecFromWrongModule,
 	DiagDestructureTypeMismatch,
 	DiagDuplicateDeclaration,
+	DiagDuplicateDeclarationKind,
+	DiagDuplicateExportsKind,
 	DiagDuplicateImports,
 	DiagLambdaTypeMissingParamType,
 	DiagLambdaTypeVariadic,
 	DiagLocalIgnoredButMutable,
 	DiagNameNotFound,
+	DiagNameNotFoundKind,
 	DiagParamMissingType,
 	DiagParamMutable,
 	DiagTupleTooBig,
@@ -130,8 +133,8 @@ Opt!StructOrAlias structOrAliasFromName(
 ) =>
 	tryFindT!StructOrAlias(
 		ctx, name, range, structsAndAliasesMap[name],
-		DiagDuplicateImports.Kind.type,
-		optIf(!noDiag, () => DiagNameNotFound.Kind.type),
+		DiagDuplicateExportsKind.type,
+		optIf(!noDiag, () => DiagNameNotFoundKind.type),
 		(in NameReferents x) => x.structOrAlias);
 
 Type makeTupleType(
@@ -207,7 +210,7 @@ size_t getNTypeArgsForDiagnostic(in CommonTypes commonTypes, in Opt!Type explici
 void checkTypeParams(ref CheckCtx ctx, in NameAndRange[] asts) {
 	eachPair!NameAndRange(asts, (in NameAndRange x, in NameAndRange y) {
 		if (x.name == y.name)
-			addDiag(ctx, y.range, Diag(DiagDuplicateDeclaration(DiagDuplicateDeclaration.Kind.typeParam, y.name)));
+			addDiag(ctx, y.range, Diag(DiagDuplicateDeclaration(DiagDuplicateDeclarationKind.typeParam, y.name)));
 	});
 }
 
@@ -430,8 +433,8 @@ Opt!(SpecDecl*) tryFindSpec(ref CheckCtx ctx, NameAndRange name, in SpecsMap spe
 		name.name,
 		name.range,
 		specsMap[name.name],
-		DiagDuplicateImports.Kind.spec,
-		optIf(!noDiag, () => DiagNameNotFound.Kind.spec),
+		DiagDuplicateExportsKind.spec,
+		optIf(!noDiag, () => DiagNameNotFoundKind.spec),
 		(in NameReferents x) => x.spec);
 
 Opt!Type typeFromDestructure(
@@ -574,8 +577,8 @@ Opt!T tryFindT(T)(
 	Symbol name,
 	in Range range,
 	Opt!T fromThisModule,
-	DiagDuplicateImports.Kind duplicateImportKind,
-	Opt!(DiagNameNotFound.Kind) nameNotFoundKind,
+	DiagDuplicateExportsKind duplicateImportKind,
+	Opt!DiagNameNotFoundKind nameNotFoundKind,
 	in Opt!T delegate(in NameReferents) @safe @nogc pure nothrow getFromNameReferents,
 ) {
 	Cell!(Opt!T) res = Cell!(Opt!T)(fromThisModule);

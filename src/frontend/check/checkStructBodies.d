@@ -55,10 +55,11 @@ import model.model :
 	DiagBuiltinUnsupported,
 	DiagBuiltinUnsupportedKind,
 	DiagCaseDuplicate,
-	DiagCaseInvalidMemberType,
 	DiagCaseInvalidSumType,
 	DiagCaseMissingType,
+	DiagCaseTypeIsTemplate,
 	DiagDuplicateDeclaration,
+	DiagDuplicateDeclarationKind,
 	DiagEmptyEnumOrUnion,
 	DiagEnumBackingTypeInvalid,
 	DiagEnumDuplicateValue,
@@ -272,7 +273,7 @@ private SmallArray!SumTypeMemberAndMethodImpls checkSumTypeListedMembersInitial(
 					if (exists!SumTypeMemberAndMethodImpls(soFar, (in SumTypeMemberAndMethodImpls x) =>
 							x.member.decl == member.decl)) {
 						addDiag(ctx, typeAst.range, Diag(
-							DiagDuplicateDeclaration(DiagDuplicateDeclaration.Kind.unionMember, member.decl.name)));
+							DiagDuplicateDeclaration(DiagDuplicateDeclarationKind.unionMember, member.decl.name)));
 						return none!SumTypeMemberAndMethodImpls;
 					} else
 						return some(SumTypeMemberAndMethodImpls(member));
@@ -303,8 +304,7 @@ private SmallArray!SumTypeMembership checkSumTypeMembershipsInitial(
 				ctx, commonTypes, structsAndAliasesMap, struct_, mod);
 			if (has(res)) {
 				if (struct_.isTemplate) {
-					addDiag(ctx, mod.range, Diag(
-						DiagCaseInvalidMemberType(DiagCaseInvalidMemberType.Reason.isTemplate, struct_)));
+					addDiag(ctx, mod.range, Diag(DiagCaseTypeIsTemplate(struct_)));
 					return none!SumTypeMembership;
 				}
 				if (exists!SumTypeMembership(soFar, (in SumTypeMembership x) =>
@@ -666,7 +666,7 @@ StructBody checkEnum(
 ) {
 	EnumOrFlagsMembers members = checkEnumOrFlagsMembers(
 		ctx, commonTypes, structsAndAliasesMap,
-		struct_, range, e.params, e.members, DiagDuplicateDeclaration.Kind.enumMember, storage,
+		struct_, range, e.params, e.members, DiagDuplicateDeclarationKind.enumMember, storage,
 		(Opt!IntegralValue lastValue) =>
 			has(lastValue)
 				? ValueAndOverflow(
@@ -689,7 +689,7 @@ StructBody.Flags checkFlags(
 ) =>
 	StructBody.Flags(storage, checkEnumOrFlagsMembers(
 		ctx, commonTypes, structsAndAliasesMap,
-		struct_, range, ast.params, ast.members, DiagDuplicateDeclaration.Kind.flagsMember, storage,
+		struct_, range, ast.params, ast.members, DiagDuplicateDeclarationKind.flagsMember, storage,
 		(Opt!IntegralValue lastValue) =>
 			has(lastValue)
 				? ValueAndOverflow(
@@ -716,7 +716,7 @@ EnumOrFlagsMembers checkEnumOrFlagsMembers(
 	in Range range,
 	in Opt!ParamsAst paramsAst,
 	in EnumOrFlagsMemberAst[] memberAsts,
-	DiagDuplicateDeclaration.Kind memberKind,
+	DiagDuplicateDeclarationKind memberKind,
 	IntegralType storage,
 	in ValueAndOverflow delegate(Opt!IntegralValue) @safe @nogc pure nothrow cbGetNextValue,
 ) {
@@ -871,7 +871,7 @@ SmallArray!RecordField checkRecordFields(
 					RecordFieldSource(x), x.visibility, x.name, x.mutability, x.type));
 	eachPair!RecordField(res, (in RecordField a, in RecordField b) {
 		if (a.name == b.name)
-			addDiag(ctx, b.range, Diag(DiagDuplicateDeclaration(DiagDuplicateDeclaration.Kind.recordField, a.name)));
+			addDiag(ctx, b.range, Diag(DiagDuplicateDeclaration(DiagDuplicateDeclarationKind.recordField, a.name)));
 	});
 	return res;
 }

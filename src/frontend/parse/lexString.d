@@ -15,10 +15,9 @@ import util.util : castNonScope_ref;
 immutable struct StringPart {
 	Range range;
 	string text;
-	After after;
-
-	enum After { done, lbrace }
+	StringPartAfter after;
 }
+enum StringPartAfter { done, lbrace }
 
 enum QuoteKind {
 	quoteBar,
@@ -44,7 +43,7 @@ StringPart takeStringPart(
 
 private immutable struct StringRange {
 	Range range;
-	StringPart.After after;
+	StringPartAfter after;
 }
 private StringRange takeStringRange(
 	return scope ref MutCString ptr,
@@ -56,7 +55,7 @@ private StringRange takeStringRange(
 	CString partStart = ptr;
 	while (true) {
 		CString start = ptr;
-		StringRange finishHere(StringPart.After after) =>
+		StringRange finishHere(StringPartAfter after) =>
 			StringRange(rangeOfStartAndLength(startPos, start - partStart), after);
 		switch (*ptr) {
 			case '"':
@@ -66,10 +65,10 @@ private StringRange takeStringRange(
 						cbChar('"');
 						break;
 					case QuoteKind.quoteDouble:
-						return finishHere(StringPart.After.done);
+						return finishHere(StringPartAfter.done);
 					case QuoteKind.quoteDouble3:
 						if (tryTakeChars(ptr, "\"\""))
-							return finishHere(StringPart.After.done);
+							return finishHere(StringPartAfter.done);
 						else
 							cbChar('"');
 						break;
@@ -77,7 +76,7 @@ private StringRange takeStringRange(
 				break;
 			case '{':
 				ptr++;
-				return finishHere(StringPart.After.lbrace);
+				return finishHere(StringPartAfter.lbrace);
 			case '\\':
 				ptr++;
 				takeStringEscape(start, ptr, cbChar, addDiag);
@@ -95,10 +94,10 @@ private StringRange takeStringRange(
 							cbChar('\n');
 							break;
 						} else
-							return finishHere(StringPart.After.done);
+							return finishHere(StringPartAfter.done);
 					case QuoteKind.quoteDouble:
-						addDiag(start, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.quoteDouble)));
-						return finishHere(StringPart.After.done);
+						addDiag(start, ParseDiag(ParseDiagExpected(ParseDiagExpected.quoteDouble)));
+						return finishHere(StringPartAfter.done);
 					case QuoteKind.quoteDouble3:
 						cbChar(takeChar(ptr));
 						break;
@@ -109,13 +108,13 @@ private StringRange takeStringRange(
 					case QuoteKind.quoteBar:
 						break;
 					case QuoteKind.quoteDouble:
-						addDiag(start, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.quoteDouble)));
+						addDiag(start, ParseDiag(ParseDiagExpected(ParseDiagExpected.quoteDouble)));
 						break;
 					case QuoteKind.quoteDouble3:
-						addDiag(start, ParseDiag(ParseDiagExpected(ParseDiagExpected.Kind.quoteDouble3)));
+						addDiag(start, ParseDiag(ParseDiagExpected(ParseDiagExpected.quoteDouble3)));
 						break;
 				}
-				return finishHere(StringPart.After.done);
+				return finishHere(StringPartAfter.done);
 			default:
 				cbChar(takeChar(ptr));
 		}

@@ -44,10 +44,11 @@ import backend.js.jsAst :
 	genString,
 	genThis,
 	genThrow,
-	JsBinaryExpr,
+	JsBinaryKind,
 	JsBlockStatement,
 	JsClassDecl,
 	JsClassMember,
+	JsClassMemberStatic,
 	JsDecl,
 	JsDeclKind,
 	JsDestructure,
@@ -682,7 +683,7 @@ void translateEnumDecl(
 	foreach (ref EnumOrFlagsMember member; a.members)
 		out_ ~= genField(
 			source,
-			JsClassMember.Static.static_,
+			JsClassMemberStatic.static_,
 			JsMemberName.enumMember(member.name),
 			genNew(ctx.alloc, source, genThis(source), [
 				genString(source, stringOfSymbol(ctx.alloc, member.name)),
@@ -694,7 +695,7 @@ JsStatement genAssignToThis(ref Alloc alloc, Source source, JsMemberName name, J
 JsClassMember enumOrFlagsMembers(ref TranslateModuleCtx ctx, in Source source, in EnumOrFlagsMember[] members) =>
 	genField(
 		source,
-		JsClassMember.Static.static_,
+		JsClassMemberStatic.static_,
 		JsMemberName.special(symbol!"members"),
 		genArray(source, map(ctx.alloc, members, (ref EnumOrFlagsMember member) =>
 			genPropertyAccess(ctx.alloc, source, genThis(source), JsMemberName.enumMember(member.name)))));
@@ -737,20 +738,20 @@ void translateFlagsDecl(
 	foreach (ref EnumOrFlagsMember member; a.members) {
 		out_ ~= genField(
 			source,
-			JsClassMember.Static.static_,
+			JsClassMemberStatic.static_,
 			JsMemberName.enumMember(member.name),
 			genNew(ctx.alloc, source, genThis(source), [genIntegerUnsigned(source, member.value.asUnsigned())]));
 	}
 	out_ ~= genField(
 		source,
-		JsClassMember.Static.static_,
+		JsClassMemberStatic.static_,
 		JsMemberName.special(symbol!"none"),
 		genNew(ctx.alloc, source, genThis(source), [genIntegerUnsigned(source, 0)]));
 	out_ ~= enumOrFlagsMembers(ctx, source, a.members);
 	out_ ~= intersectOrUnionMethod(
-		ctx, source, struct_, JsMemberName.special(symbol!"intersect"), JsBinaryExpr.Kind.bitwiseAnd);
+		ctx, source, struct_, JsMemberName.special(symbol!"intersect"), JsBinaryKind.bitwiseAnd);
 	out_ ~= intersectOrUnionMethod(
-		ctx, source, struct_, JsMemberName.special(symbol!"union"), JsBinaryExpr.Kind.bitwiseOr);
+		ctx, source, struct_, JsMemberName.special(symbol!"union"), JsBinaryKind.bitwiseOr);
 	out_ ~= negateMethod(ctx, source, struct_, getAllFlagsValue(a));
 	out_ ~= flagsInMethod(ctx, source, struct_);
 }
@@ -759,7 +760,7 @@ JsClassMember intersectOrUnionMethod(
 	in Source source,
 	in StructDecl* struct_,
 	JsMemberName name,
-	JsBinaryExpr.Kind kind,
+	JsBinaryKind kind,
 ) {
 	JsName b = JsName.specialLocal(symbol!"b");
 	return genInstanceMethod(
