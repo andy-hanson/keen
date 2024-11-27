@@ -44,6 +44,11 @@ import model.model :
 	CommonFuns,
 	CommonTypes,
 	Condition,
+	CreateEnumOrFlags,
+	CreateExtern,
+	CreateRecord,
+	CreateRecordAndConvertToSumType,
+	CreateSumType,
 	Destructure,
 	DestructureIgnore,
 	DestructureSplit,
@@ -62,8 +67,11 @@ import model.model :
 	FinallyExpr,
 	Flags,
 	FlagsFunction,
-	FunBody,
+	FunBodyBogus,
 	funBodyExprRef,
+	FunBodyExtern,
+	FunBodyFileImport,
+	FunBodyMethod,
 	FunDecl,
 	FunInst,
 	FunKind,
@@ -92,6 +100,7 @@ import model.model :
 	MatchSumTypeCase,
 	MatchSumTypeExpr,
 	methodCaller,
+	methodIndex,
 	Module,
 	moduleAtUri,
 	mustUnwrapOptionType,
@@ -102,7 +111,11 @@ import model.model :
 	ProgramWithMain,
 	Record,
 	RecordField,
+	RecordFieldCall,
+	RecordFieldGet,
+	RecordFieldPointer,
 	RecordFieldPointerExpr,
+	RecordFieldSet,
 	SeqExpr,
 	Signature,
 	SpecInst,
@@ -113,6 +126,8 @@ import model.model :
 	StructInst,
 	StructOrAlias,
 	SumType,
+	sumType,
+	SumTypeMemberGet,
 	SumTypeMembership,
 	SumTypeKind,
 	SumTypeMemberAndMethodImpls,
@@ -124,7 +139,9 @@ import model.model :
 	TryLetExpr,
 	Type,
 	TypedExpr,
-	TypeParamIndex;
+	TypeParamIndex,
+	VarGet,
+	VarSet;
 import util.alloc.alloc : Alloc;
 import util.col.array : exists, zipPointers;
 import util.col.hashTable : existsInHashTable;
@@ -257,8 +274,8 @@ bool bodyIsInlined(in FunDecl a) =>
 private bool bodyIsNotInlined(in FunDecl a) =>
 	a.body_.isA!AutoFun ||
 	a.body_.isA!Expr ||
-	a.body_.isA!(FunBody.FileImport) ||
-	a.body_.isA!(FunBody.SumTypeMemberGet) ||
+	a.body_.isA!FunBodyFileImport ||
+	a.body_.isA!SumTypeMemberGet ||
 	(a.body_.isA!BuiltinFun && !isInlinedBuiltinFun(a.body_.as!BuiltinFun));
 private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 	a.matchIn!bool(
@@ -516,7 +533,7 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 			trackAllUsedInType(res, typesUsedAt, a.returnType);
 		}
 		a.body_.match!void(
-			(FunBody.Bogus) {},
+			(FunBodyBogus _) {},
 			(AutoFun x) {
 				final switch (x.kind) {
 					case AutoFunKind.equals:
@@ -547,35 +564,35 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 				} else if (x.isA!BuiltinFunCallLambda)
 					usedTuple(res, from, a.arity.as!uint - 1);
 			},
-			(FunBody.CreateEnumOrFlags) {
+			(CreateEnumOrFlags _) {
 				usedReturnType();
 			},
-			(FunBody.CreateExtern) {
+			(CreateExtern _) {
 				assert(false);
 			},
-			(FunBody.CreateRecord) {
+			(CreateRecord _) {
 				usedReturnType();
 			},
-			(FunBody.CreateRecordAndConvertToSumType x) {
+			(CreateRecordAndConvertToSumType x) {
 				usedReturnType();
 				trackAllUsedInStruct(res, from, x.member.decl);
 			},
-			(FunBody.CreateSumType) {
+			(CreateSumType _) {
 				usedReturnType();
 			},
 			(Expr _) {
 				trackAllUsedInExprRef(res, FunOrTest(a), funBodyExprRef(a));
 			},
-			(FunBody.Extern _) {
+			(FunBodyExtern _) {
 				assert(false);
 			},
-			(FunBody.FileImport _) {},
+			(FunBodyFileImport _) {},
 			(FlagsFunction _) {
 				usedReturnType();
 			},
-			(FunBody.Method x) {
-				SumType sumType = x.sumType(*a);
-				size_t methodIndex = x.methodIndex(*a);
+			(FunBodyMethod x) {
+				SumType sumType = sumType(x, *a);
+				size_t methodIndex = methodIndex(x, *a);
 				if (sumType.kind == SumTypeKind.union_) {
 					foreach (ref SumTypeMemberAndMethodImpls case_; sumType.listedMembers) {
 						Opt!Called impl = case_.methodImpls[methodIndex];
@@ -584,22 +601,22 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 					}
 				}
 			},
-			(FunBody.RecordFieldCall) {
+			(RecordFieldCall _) {
 				usedTuple(res, from, a.arity.as!uint - 1);
 			},
-			(FunBody.RecordFieldGet) {},
-			(FunBody.RecordFieldPointer) { assert(false); },
-			(FunBody.RecordFieldSet) {},
-			(FunBody.SumTypeMemberGet) {
+			(RecordFieldGet _) {},
+			(RecordFieldPointer _) { assert(false); },
+			(RecordFieldSet _) {},
+			(SumTypeMemberGet _) {
 				// Needs the unwrapped option type for 'instanceof',
 				// and the option type to return 'option.some' or 'option.none'
 				usedReturnType();
 				trackAllUsedInType(res, from, mustUnwrapOptionType(a.returnType));
 			},
-			(FunBody.VarGet x) {
+			(VarGet x) {
 				cast(void) addDecl(res, from, AnyDecl(x.var));
 			},
-			(FunBody.VarSet x) {
+			(VarSet x) {
 				cast(void) addDecl(res, from, AnyDecl(x.var));
 			});
 	}

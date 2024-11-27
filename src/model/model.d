@@ -802,7 +802,7 @@ immutable struct StructDecl {
 		source.match!DocCommentAst(
 			(ref StructDeclAst x) =>
 				x.docComment,
-			(ref StructDeclSource.Bogus) =>
+			(ref StructDeclSourceBogus) =>
 				DocCommentAst.empty);
 	DocComment docComment() return scope =>
 		DocComment(docCommentAst, docCommentReferences);
@@ -810,20 +810,20 @@ immutable struct StructDecl {
 		source.match!TypeParams(
 			(ref StructDeclAst x) =>
 				x.typeParams,
-			(ref StructDeclSource.Bogus x) =>
+			(ref StructDeclSourceBogus x) =>
 				x.typeParams);
 	Symbol name() scope =>
 		source.matchIn!Symbol(
 			(in StructDeclAst x) =>
 				x.name.name,
-			(in StructDeclSource.Bogus x) =>
+			(in StructDeclSourceBogus x) =>
 				x.name);
 
 	UriAndRange range() scope =>
 		UriAndRange(moduleUri, source.matchIn!Range(
 			(in StructDeclAst x) =>
 				x.range,
-			(in StructDeclSource.Bogus) =>
+			(in StructDeclSourceBogus) =>
 				Range.empty));
 
 	UriAndRange keywordRange() scope =>
@@ -878,25 +878,25 @@ immutable struct SumTypeMembership {
 
 immutable struct StructDeclSource {
 	@safe @nogc pure nothrow:
-	immutable struct Bogus {
-		Symbol name;
-		TypeParams typeParams;
-	}
-	mixin TaggedUnion!(StructDeclAst*, Bogus*);
+	mixin TaggedUnion!(StructDeclAst*, StructDeclSourceBogus*);
 
 	Range keywordRange() scope =>
 		matchIn!Range(
 			(in StructDeclAst x) =>
 				x.keywordRange,
-			(in StructDeclSource.Bogus) =>
+			(in StructDeclSourceBogus) =>
 				Range.empty);
 
 	Range nameRange() scope =>
 		matchIn!Range(
 			(in StructDeclAst x) =>
 				x.nameRange,
-			(in StructDeclSource.Bogus) =>
+			(in StructDeclSourceBogus) =>
 				Range.empty);
+}
+immutable struct StructDeclSourceBogus {
+	Symbol name;
+	TypeParams typeParams;
 }
 
 // The StructInst and its contents are allocated using the AllInsts alloc.
@@ -1072,52 +1072,8 @@ enum AutoFunKind {
 
 immutable struct FunBody {
 	@safe @nogc pure nothrow:
-	immutable struct Bogus {}
-	immutable struct CreateEnumOrFlags {
-		EnumOrFlagsMember* member;
-	}
-	immutable struct CreateExtern {}
-	immutable struct CreateRecord {}
-	immutable struct CreateRecordAndConvertToSumType {
-		StructInst* member; // This is the sumType member type, and the record type
-	}
-	immutable struct CreateSumType {}
-	immutable struct Extern {
-		Symbol libraryName;
-	}
-	immutable struct FileImport {
-		ImportFileContent content;
-	}
-	immutable struct Method {
-		@safe @nogc pure nothrow:
-		Signature* method;
-
-		ref SumType sumType(in FunDecl fun) scope {
-			assert(fun.body_.as!(FunBody.Method) == this);
-			return fun.params.as!(Destructure[])[0].type.as!(StructInst*).decl.body_.as!SumType;
-		}
-		size_t methodIndex(in FunDecl fun) scope =>
-			mustHaveIndexOfPointer(sumType(fun).methods, method);
-	}
-	immutable struct RecordFieldCall {
-		RecordField* field;
-		FunKind funKind;
-	}
-	immutable struct RecordFieldGet {
-		RecordField* field;
-	}
-	immutable struct RecordFieldPointer {
-		RecordField* field;
-	}
-	immutable struct RecordFieldSet {
-		RecordField* field;
-	}
-	immutable struct SumTypeMemberGet {}
-	immutable struct VarGet { VarDecl* var; }
-	immutable struct VarSet { VarDecl* var; }
-
 	mixin Union!(
-		Bogus,
+		FunBodyBogus,
 		AutoFun,
 		BuiltinFun,
 		CreateEnumOrFlags,
@@ -1126,10 +1082,10 @@ immutable struct FunBody {
 		CreateRecordAndConvertToSumType,
 		CreateSumType,
 		Expr,
-		Extern,
-		FileImport,
+		FunBodyExtern,
+		FunBodyFileImport,
 		FlagsFunction,
-		Method,
+		FunBodyMethod,
 		RecordFieldCall,
 		RecordFieldGet,
 		RecordFieldPointer,
@@ -1139,12 +1095,61 @@ immutable struct FunBody {
 		VarSet);
 
 	static FunBody bogus() =>
-		FunBody(Bogus());
-
-	bool isGenerated() scope =>
-		!isA!Bogus && !isA!AutoFun && !isA!BuiltinFun && !isA!Expr && !isA!Extern && !isA!FileImport;
+		FunBody(FunBodyBogus());
 }
 static assert(FunBody.sizeof == ulong.sizeof + Expr.sizeof);
+
+private bool isGenerated(in FunBody a) scope =>
+	!a.isA!FunBodyBogus &&
+	!a.isA!AutoFun &&
+	!a.isA!BuiltinFun &&
+	!a.isA!Expr &&
+	!a.isA!FunBodyExtern &&
+	!a.isA!FunBodyFileImport;
+
+immutable struct FunBodyBogus {}
+immutable struct CreateEnumOrFlags {
+	EnumOrFlagsMember* member;
+}
+immutable struct CreateExtern {}
+immutable struct CreateRecord {}
+immutable struct CreateRecordAndConvertToSumType {
+	StructInst* member; // This is the sumType member type, and the record type
+}
+immutable struct CreateSumType {}
+immutable struct FunBodyExtern {
+	Symbol libraryName;
+}
+immutable struct FunBodyFileImport {
+	ImportFileContent content;
+}
+immutable struct FunBodyMethod {
+	@safe @nogc pure nothrow:
+	Signature* method;
+}
+ref SumType sumType(in FunBodyMethod a, in FunDecl fun) scope {
+	assert(fun.body_.as!FunBodyMethod() == a);
+	return fun.params.as!(Destructure[])[0].type.as!(StructInst*).decl.body_.as!SumType;
+}
+size_t methodIndex(in FunBodyMethod a, in FunDecl fun) scope =>
+	mustHaveIndexOfPointer(sumType(a, fun).methods, a.method);
+
+immutable struct RecordFieldCall {
+	RecordField* field;
+	FunKind funKind;
+}
+immutable struct RecordFieldGet {
+	RecordField* field;
+}
+immutable struct RecordFieldPointer {
+	RecordField* field;
+}
+immutable struct RecordFieldSet {
+	RecordField* field;
+}
+immutable struct SumTypeMemberGet {}
+immutable struct VarGet { VarDecl* var; }
+immutable struct VarSet { VarDecl* var; }
 
 enum JsFun {
 	asJsAny,
@@ -1616,14 +1621,14 @@ immutable struct FunDecl {
 		DocComment(docCommentAst, docCommentReferences);
 
 	Linkage linkage() scope =>
-		body_.isA!(FunBody.Extern) ? Linkage.extern_ : Linkage.internal;
+		body_.isA!FunBodyExtern ? Linkage.extern_ : Linkage.internal;
 
 	bool isBare() scope =>
 		flags.bare;
 	bool isBareOrForceCtx() scope =>
 		flags.bare || flags.forceCtx;
 	bool isGenerated() scope =>
-		body_.isGenerated;
+		.isGenerated(body_);
 	bool isSummon() scope =>
 		flags.summon;
 	bool isUnsafe() scope =>
@@ -3667,7 +3672,7 @@ private bool typesCompatible(in Type a, in Type b) =>
 
 FunDecl* sumTypeMemberGetter(FunDecl[] funs, in StructDecl* struct_, in SumTypeMembership x) =>
 	mustFindFunNamed(funs, struct_.name, (in FunDecl fun) =>
-		fun.body_.isA!(FunBody.SumTypeMemberGet) &&
+		fun.body_.isA!SumTypeMemberGet &&
 		only(paramsArray(fun.params)).type == Type(x.sumType) &&
 		fun.source.as!(StructDecl*) == struct_);
 FunDecl* methodCaller(ref Program program, in Signature* a) =>

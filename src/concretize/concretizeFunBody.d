@@ -57,15 +57,31 @@ import model.model :
 	BuiltinFunAllTests,
 	BuiltinFunNewEmptyOption,
 	BuiltinFunNewNonEmptyOption,
+	CreateEnumOrFlags,
+	CreateExtern,
+	CreateRecord,
+	CreateRecordAndConvertToSumType,
+	CreateSumType,
 	eachTest,
 	Expr,
 	FlagsFunction,
 	FunBody,
+	FunBodyBogus,
+	FunBodyExtern,
+	FunBodyFileImport,
+	FunBodyMethod,
 	FunInst,
 	ImportFileContent,
+	RecordFieldCall,
+	RecordFieldGet,
+	RecordFieldPointer,
+	RecordFieldSet,
+	SumTypeMemberGet,
 	Test,
 	Type,
-	VarDecl;
+	VarDecl,
+	VarGet,
+	VarSet;
 import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, isEmpty, mapPointers, newSmallArray, only, onlyPointer;
 import util.col.arrayBuilder : buildArray, Builder;
@@ -86,22 +102,22 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, ConcreteFun* cf) {
 		(ref ConcreteFunSource.WrapMain x) => assert(false));
 	ConcreteLocal[] concreteParams = cf.params;
 	ConcreteFunBody body_ = funBody.match!ConcreteFunBody(
-		(FunBody.Bogus) =>
+		(FunBodyBogus _) =>
 			ConcreteFunBody(genBogus(ctx, cf.returnType, cf.range)),
 		(AutoFun x) =>
 			withConcretizeExprCtx(ctx, cf, (ref ConcretizeExprCtx exprCtx) =>
 				ConcreteFunBody(concretizeAutoFun(exprCtx, x))),
 		(BuiltinFun x) =>
 			concretizeBuiltinFun(ctx, cf, concreteParams, x),
-		(FunBody.CreateEnumOrFlags x) =>
+		(CreateEnumOrFlags x) =>
 			ConcreteFunBody(genConstant(cf.returnType, cf.range, Constant(IntegralValue(x.member.value.value)))),
-		(FunBody.CreateExtern) =>
+		(CreateExtern _) =>
 			ConcreteFunBody(genConstant(cf.returnType, cf.range, constantZero)),
-		(FunBody.CreateRecord) =>
+		(CreateRecord _) =>
 			isEmpty(concreteParams)
 				? ConcreteFunBody(genConstant(cf.returnType, cf.range, constantZero()))
 				: ConcreteFunBody(genCreateRecordFromParams(ctx.alloc, cf.returnType, cf.range, concreteParams)),
-		(FunBody.CreateRecordAndConvertToSumType x) {
+		(CreateRecordAndConvertToSumType x) {
 			ConcreteType memberType = getConcreteType(ctx, Type(x.member), cf.source.as!ConcreteFunKey.typeArgs);
 			size_t memberIndex = ensureSumTypeCase(ctx, cf.returnType, memberType);
 			return isEmpty(concreteParams)
@@ -110,34 +126,34 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, ConcreteFun* cf) {
 					ctx.alloc, cf.returnType, cf.range, memberIndex,
 					genCreateRecordFromParams(ctx.alloc, memberType, cf.range, concreteParams)));
 		},
-		(FunBody.CreateSumType x) =>
+		(CreateSumType x) =>
 			createUnionBody(ctx.alloc, cf, ensureSumTypeCase(
 				ctx, cf.returnType, isEmpty(concreteParams) ? voidType(ctx) : only(concreteParams).type)),
 		(Expr x) =>
 			ConcreteFunBody(concretizeFunBody(ctx, cf, x)),
-		(FunBody.Extern x) =>
+		(FunBodyExtern x) =>
 			ConcreteFunBody(ConcreteFunBody.Extern(x.libraryName)),
-		(FunBody.FileImport x) =>
+		(FunBodyFileImport x) =>
 			ConcreteFunBody(concretizeFileImport(ctx, cf, x)),
 		(FlagsFunction x) =>
 			ConcreteFunBody(concretizeFlagsFunction(ctx, cf, x)),
-		(FunBody.Method x) {
+		(FunBodyMethod x) {
 			push(ctx.alloc, ctx.deferredMethods, cf);
 			return ConcreteFunBody(ConcreteFunBody.Deferred());
 		},
-		(FunBody.RecordFieldCall x) =>
+		(RecordFieldCall x) =>
 			genRecordFieldCall(ctx, cf, x),
-		(FunBody.RecordFieldGet x) =>
+		(RecordFieldGet x) =>
 			ConcreteFunBody(genRecordFieldGet(
 				cf.returnType, cf.range,
 				allocate(ctx.alloc, genLocalGet(cf.range, onlyPointer(cf.params))),
 				fieldIndexFromField(only(cf.params).type, x.field))),
-		(FunBody.RecordFieldPointer x) =>
+		(RecordFieldPointer x) =>
 			ConcreteFunBody(genRecordFieldPointer(
 				cf.returnType, cf.range,
 				allocate(ctx.alloc, genLocalGet(cf.range, onlyPointer(cf.params))),
 				fieldIndexFromField(pointeeType(only(cf.params).type), x.field))),
-		(FunBody.RecordFieldSet x) {
+		(RecordFieldSet x) {
 			assert(cf.params.length == 2);
 			return ConcreteFunBody(genRecordFieldSet(
 				ctx,
@@ -146,13 +162,13 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, ConcreteFun* cf) {
 				fieldIndexFromField(pointeeTypeIfIsPointer(cf.params[0].type), x.field),
 				genLocalGet(cf.range, &cf.params[1])));
 		},
-		(FunBody.SumTypeMemberGet x) =>
+		(SumTypeMemberGet x) =>
 			genUnionMemberGet(
 				ctx, cf,
 				ensureSumTypeCase(ctx, only(concreteParams).type, unwrapOptionType(ctx, cf.returnType))),
-		(FunBody.VarGet x) =>
+		(VarGet x) =>
 			ConcreteFunBody(ConcreteFunBody.VarGet(getVar(ctx, x.var))),
-		(FunBody.VarSet x) =>
+		(VarSet x) =>
 			ConcreteFunBody(ConcreteFunBody.VarSet(getVar(ctx, x.var))));
 	cf.overwriteBody(body_);
 }
@@ -224,7 +240,7 @@ ConcreteExpr genConstantUnionEmptyMemberType(
 ) =>
 	genConstant(type, range, Constant(allocate(alloc, ConstantUnion(memberIndex, constantZero()))));
 
-ConcreteExpr concretizeFileImport(ref ConcretizeCtx ctx, ConcreteFun* cf, ref FunBody.FileImport import_) =>
+ConcreteExpr concretizeFileImport(ref ConcretizeCtx ctx, ConcreteFun* cf, ref FunBodyFileImport import_) =>
 	withConcretizeExprCtx(ctx, cf, (ref ConcretizeExprCtx exprCtx) {
 		ConcreteExprKind exprKind = import_.content.match!ConcreteExprKind(
 			(immutable ubyte[] x) =>

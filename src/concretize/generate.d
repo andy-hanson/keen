@@ -65,10 +65,10 @@ import model.model :
 	BuiltinUnary,
 	Called,
 	EnumOrFlagsMember,
-	FunBody,
 	IntegralType,
 	Record,
-	RecordField;
+	RecordField,
+	RecordFieldCall;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	isEmpty,
@@ -194,7 +194,7 @@ ConcreteExpr genLocalPointer(ConcreteType type, in UriAndRange range, ConcreteLo
 ConcreteExpr genLocalSet(ref ConcretizeCtx ctx, in UriAndRange range, ConcreteLocal* local, ConcreteExpr value) =>
 	ConcreteExpr(voidType(ctx), range, ConcreteExprKind(allocate(ctx.alloc, LocalSetConcreteExpr(local, value))));
 
-ConcreteFunBody genRecordFieldCall(ref ConcretizeCtx ctx, ConcreteFun* fun, FunBody.RecordFieldCall body_) {
+ConcreteFunBody genRecordFieldCall(ref ConcretizeCtx ctx, ConcreteFun* fun, RecordFieldCall body_) {
 	UriAndRange range = fun.range;
 	ConcreteExpr* recordArg = allocate(ctx.alloc, genParamGet(range, &fun.params[0]));
 	size_t fieldIndex = fieldIndexFromField(recordArg.type, body_.field);

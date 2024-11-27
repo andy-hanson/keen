@@ -38,6 +38,11 @@ import model.model :
 	CalledSpecSig,
 	CallExpr,
 	CallOptionExpr,
+	CreateEnumOrFlags,
+	CreateExtern,
+	CreateRecord,
+	CreateRecordAndConvertToSumType,
+	CreateSumType,
 	Destructure,
 	DocCommentReferenceBogus,
 	EnumOrFlagsMember,
@@ -46,23 +51,33 @@ import model.model :
 	ExternExpr,
 	FlagsFunction,
 	forbidModule,
-	FunBody,
+	FunBodyBogus,
 	FunDecl,
+	FunBodyExtern,
+	FunBodyFileImport,
+	FunBodyMethod,
 	FunInst,
 	FunPointerExpr,
 	Local,
 	Module,
 	mustUnwrapOptionType,
 	RecordField,
+	RecordFieldCall,
+	RecordFieldGet,
+	RecordFieldPointer,
+	RecordFieldSet,
 	Signature,
 	SpecDecl,
 	StructAlias,
 	StructDecl,
 	StructInst,
+	SumTypeMemberGet,
 	Test,
 	TypeParamIndex,
 	TypeWithContainer,
-	VarDecl;
+	VarDecl,
+	VarGet,
+	VarSet;
 import util.col.array : only;
 import util.opt : none, Opt, optIf, some;
 import util.union_ : Union;
@@ -218,48 +233,48 @@ Opt!Target calledTarget(ref Called a) =>
 
 Target funDeclTarget(FunDecl* a) =>
 	a.body_.match!Target(
-		(FunBody.Bogus) =>
+		(FunBodyBogus _) =>
 			Target(a),
 		(AutoFun _) =>
 			Target(a),
 		(BuiltinFun _) =>
 			Target(a),
-		(FunBody.CreateEnumOrFlags x) =>
+		(CreateEnumOrFlags x) =>
 			// goto the enum member
 			Target(x.member),
-		(FunBody.CreateExtern) =>
+		(CreateExtern _) =>
 			// goto the return type
 			returnTypeTarget(a),
-		(FunBody.CreateRecord) =>
+		(CreateRecord _) =>
 			returnTypeTarget(a),
-		(FunBody.CreateRecordAndConvertToSumType x) =>
+		(CreateRecordAndConvertToSumType x) =>
 			Target(x.member.decl),
-		(FunBody.CreateSumType x) =>
+		(CreateSumType x) =>
 			Target(only(a.params.as!(Destructure[])).type.as!(StructInst*).decl),
 		(Expr _) =>
 			Target(a),
-		(FunBody.Extern) =>
+		(FunBodyExtern _) =>
 			Target(a),
-		(FunBody.FileImport) =>
+		(FunBodyFileImport _) =>
 			// TODO: Target for a file showing all imports
 			Target(a),
 		(FlagsFunction x) =>
 			returnTypeTarget(a),
-		(FunBody.Method x) =>
+		(FunBodyMethod x) =>
 			Target(x.method),
-		(FunBody.RecordFieldCall x) =>
+		(RecordFieldCall x) =>
 			Target(x.field),
-		(FunBody.RecordFieldGet x) =>
+		(RecordFieldGet x) =>
 			Target(x.field),
-		(FunBody.RecordFieldPointer x) =>
+		(RecordFieldPointer x) =>
 			Target(x.field),
-		(FunBody.RecordFieldSet x) =>
+		(RecordFieldSet x) =>
 			Target(x.field),
-		(FunBody.SumTypeMemberGet) =>
+		(SumTypeMemberGet _) =>
 			Target(mustUnwrapOptionType(a.returnType).as!(StructInst*).decl),
-		(FunBody.VarGet x) =>
+		(VarGet x) =>
 			Target(x.var),
-		(FunBody.VarSet x) =>
+		(VarSet x) =>
 			Target(x.var));
 
 Target returnTypeTarget(FunDecl* fun) =>

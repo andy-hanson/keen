@@ -43,6 +43,8 @@ import model.model :
 	emptySpecs,
 	Expr,
 	FunBody,
+	FunBodyExtern,
+	FunBodyFileImport,
 	FunDecl,
 	FunDeclSource,
 	FunFlags,
@@ -182,7 +184,7 @@ FunBody getFileImportFunctionBody(ref CheckCtx ctx, Range range, in ImportOrExpo
 				}
 		}
 	}();
-	return FunBody(FunBody.FileImport(content));
+	return FunBody(FunBodyFileImport(content));
 }
 
 FunDecl funDeclForFileImportOrExport(
@@ -239,7 +241,7 @@ FunBody checkExternBody(ref CheckCtx ctx, FunDecl* fun) {
 
 	Opt!Symbol single = fun.externs.asSingle;
 	if (has(single))
-		return FunBody(FunBody.Extern(force(single)));
+		return FunBody(FunBodyExtern(force(single)));
 	else {
 		addDiag(ctx, fun.nameRange.range, Diag(DiagExternBodyMultiple()));
 		return FunBody.bogus;

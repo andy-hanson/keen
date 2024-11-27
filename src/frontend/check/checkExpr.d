@@ -192,7 +192,6 @@ import model.model :
 	FinallyExpr,
 	Flags,
 	FloatType,
-	FunBody,
 	FunDecl,
 	FunFlags,
 	FunInst,
@@ -233,6 +232,7 @@ import model.model :
 	purityRange,
 	Purity,
 	Record,
+	RecordFieldGet,
 	RecordFieldPointerExpr,
 	ReturnAndParamTypes,
 	SeqExpr,
@@ -1207,8 +1207,8 @@ Expr checkPointerOfCall(
 
 	if (call.called.isA!(FunInst*)) {
 		FunInst* getFieldFun = call.called.as!(FunInst*);
-		if (getFieldFun.decl.body_.isA!(FunBody.RecordFieldGet)) {
-			FunBody.RecordFieldGet rfg = getFieldFun.decl.body_.as!(FunBody.RecordFieldGet);
+		if (getFieldFun.decl.body_.isA!RecordFieldGet) {
+			RecordFieldGet rfg = getFieldFun.decl.body_.as!RecordFieldGet;
 			Expr target = only(call.args);
 			StructInst* recordType = only(getFieldFun.paramTypes).as!(StructInst*);
 			PointerMutability fieldMutability =

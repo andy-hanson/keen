@@ -128,8 +128,8 @@ import model.model :
 	FinallyExpr,
 	findDirectChildExpr,
 	Flags,
-	FunBody,
 	funBodyExprRef,
+	FunBodyExtern,
 	FunDecl,
 	FunDeclSource,
 	FunPointerExpr,
@@ -160,20 +160,22 @@ import model.model :
 	Module,
 	moduleAtUri,
 	Params,
+	paramsArray,
 	Program,
 	Record,
 	RecordFieldPointerExpr,
 	RecordField,
 	SeqExpr,
+	Signature,
 	SpecDecl,
 	SpecInst,
 	Specs,
 	StructBody,
 	StructBodyBogus,
-	SumType,
-	Signature,
+	StructDeclSourceBogus,
 	StructAlias,
 	StructDecl,
+	SumType,
 	SumTypeKind,
 	SumTypeMemberAndMethodImpls,
 	Test,
@@ -189,7 +191,6 @@ import model.model :
 	TypeWithContainer,
 	UnpackOption,
 	VarDecl;
-import model.model : paramsArray, StructDeclSource;
 import util.col.array : findIndex, first, firstPointer, firstZip, firstZipIfSizeEq, firstZipPointerFirst, isEmpty;
 import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
 import util.conv : safeToUint;
@@ -302,9 +303,9 @@ Opt!PositionKind positionInModifier(
 		(in ModifierKeywordAst x) {
 			switch (x.keyword) {
 				case ModifierKeyword.extern_:
-					return some(container.isA!(FunDecl*) && container.as!(FunDecl*).body_.isA!(FunBody.Extern)
+					return some(container.isA!(FunDecl*) && container.as!(FunDecl*).body_.isA!FunBodyExtern
 						? PositionKind(PositionModifierExtern(
-							container.as!(FunDecl*).body_.as!(FunBody.Extern).libraryName))
+							container.as!(FunDecl*).body_.as!FunBodyExtern.libraryName))
 						: PositionKind(PositionModifier(container, x.keyword)));
 				default:
 					return some(PositionKind(PositionModifier(container, x.keyword)));
@@ -416,7 +417,7 @@ Opt!PositionKind positionInStruct(in Ctx ctx, StructDecl* a, Pos pos) =>
 	a.source.matchIn!(Opt!PositionKind)(
 		(in StructDeclAst x) =>
 			positionInStruct(ctx, a, x, pos),
-		(in StructDeclSource.Bogus) =>
+		(in StructDeclSourceBogus _) =>
 			none!PositionKind);
 
 Opt!PositionKind positionInStruct(in Ctx ctx, StructDecl* a, in StructDeclAst ast, Pos pos) =>

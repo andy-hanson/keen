@@ -127,7 +127,7 @@ import model.model :
 	ExternExpr,
 	ExternType,
 	FinallyExpr,
-	FunBody,
+	FunBodyFileImport,
 	FunDecl,
 	FunInst,
 	FunPointerExpr,
@@ -424,8 +424,8 @@ JsExprOrBlockStatement translateFunBody(ref TranslateExprCtx ctx, FunDecl* fun) 
 					genAssertTypesForDestructure(out_, ctx.ctx, source, param);
 				return translateExpr(ctx, fun.body_.as!Expr, fun.returnType, pos);
 			})));
-	else if (fun.body_.isA!(FunBody.FileImport))
-		return fun.body_.as!(FunBody.FileImport).content.match!JsExprOrBlockStatement(
+	else if (fun.body_.isA!FunBodyFileImport)
+		return fun.body_.as!FunBodyFileImport.content.match!JsExprOrBlockStatement(
 			(immutable ubyte[] bytes) =>
 				exprFunBody(ctx.alloc, genArray(source, map(ctx.alloc, bytes, (ref immutable ubyte x) =>
 					genIntegerUnsigned(source, x)))),

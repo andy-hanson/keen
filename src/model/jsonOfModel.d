@@ -46,6 +46,11 @@ import model.model :
 	ClosureGetExpr,
 	ClosureSetExpr,
 	Condition,
+	CreateEnumOrFlags,
+	CreateExtern,
+	CreateRecord,
+	CreateRecordAndConvertToSumType,
+	CreateSumType,
 	Destructure,
 	DestructureIgnore,
 	DestructureSplit,
@@ -64,6 +69,10 @@ import model.model :
 	Flags,
 	FlagsFunction,
 	FunBody,
+	FunBodyBogus,
+	FunBodyExtern,
+	FunBodyFileImport,
+	FunBodyMethod,
 	FunDecl,
 	FunFlags,
 	FunInst,
@@ -100,7 +109,11 @@ import model.model :
 	NameReferents,
 	Params,
 	RecordField,
+	RecordFieldCall,
+	RecordFieldGet,
+	RecordFieldPointer,
 	RecordFieldPointerExpr,
+	RecordFieldSet,
 	Purity,
 	Record,
 	RecordFlags,
@@ -115,6 +128,7 @@ import model.model :
 	StructDecl,
 	StructInst,
 	stringOfVisibility,
+	SumTypeMemberGet,
 	Test,
 	ThrowExpr,
 	TrustedExpr,
@@ -131,6 +145,8 @@ import model.model :
 	SumTypeMembership,
 	SumTypeMemberAndMethodImpls,
 	Varargs,
+	VarGet,
+	VarSet,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mapOp;
@@ -504,57 +520,57 @@ Json jsonOfSpecInst(ref Alloc alloc, in Ctx ctx, in SpecInst a) =>
 
 Json jsonOfFunBody(ref Alloc alloc, in Ctx ctx, in FunBody a) =>
 	a.matchIn!Json(
-		(in FunBody.Bogus) =>
+		(in FunBodyBogus _) =>
 			jsonString!"bogus" ,
 		(in AutoFun _) =>
 			jsonString!"auto",
 		(in BuiltinFun x) =>
 			jsonOfBuiltin(alloc, x),
-		(in FunBody.CreateEnumOrFlags x) =>
+		(in CreateEnumOrFlags x) =>
 			jsonObject(alloc, [kindField!"create-enum", field!"member"(x.member.name)]),
-		(in FunBody.CreateExtern) =>
+		(in CreateExtern _) =>
 			jsonString!"new-extern",
-		(in FunBody.CreateRecord) =>
+		(in CreateRecord _) =>
 			jsonString!"new-record",
-		(in FunBody.CreateRecordAndConvertToSumType x) =>
+		(in CreateRecordAndConvertToSumType x) =>
 			jsonObject(alloc, [kindField!"create-record-to-sum-type", field!"member"(x.member.decl.name)]),
-		(in FunBody.CreateSumType x) =>
+		(in CreateSumType x) =>
 			jsonObject(alloc, [kindField!"create-sum-type"]),
 		(in Expr x) =>
 			jsonOfExpr(alloc, ctx, x),
-		(in FunBody.Extern x) =>
+		(in FunBodyExtern x) =>
 			jsonObject(alloc, [
 				kindField!"extern",
 				field!"library-name"(x.libraryName)]),
-		(in FunBody.FileImport x) =>
+		(in FunBodyFileImport x) =>
 			jsonObject(alloc, [kindField!"file-import"]),
 		(in FlagsFunction x) =>
 			jsonObject(alloc, [
 				kindField!"flags-fun",
 				field!"fn"(stringOfEnum(x))]),
-		(in FunBody.Method x) =>
+		(in FunBodyMethod x) =>
 			jsonObject(alloc, [kindField!"call-method", field!"method"(x.method.name)]),
-		(in FunBody.RecordFieldCall x) =>
+		(in RecordFieldCall x) =>
 			jsonObject(alloc, [
 				kindField!"field-call",
 				field!"field"(x.field.name)]),
-		(in FunBody.RecordFieldGet x) =>
+		(in RecordFieldGet x) =>
 			jsonObject(alloc, [
 				kindField!"field-get",
 				field!"field"(x.field.name)]),
-		(in FunBody.RecordFieldPointer x) =>
+		(in RecordFieldPointer x) =>
 			jsonObject(alloc, [
 				kindField!"field-pointer",
 				field!"field"(x.field.name)]),
-		(in FunBody.RecordFieldSet x) =>
+		(in RecordFieldSet x) =>
 			jsonObject(alloc, [
 				kindField!"field-set",
 				field!"field"(x.field.name)]),
-		(in FunBody.SumTypeMemberGet x) =>
+		(in SumTypeMemberGet x) =>
 			jsonObject(alloc, [kindField!"sum-type-member-get"]),
-		(in FunBody.VarGet) =>
+		(in VarGet _) =>
 			jsonString!"var-get",
-		(in FunBody.VarSet) =>
+		(in VarSet _) =>
 			jsonString!"var-set");
 
 Json jsonOfType(ref Alloc alloc, in Ctx ctx, in Type a) =>

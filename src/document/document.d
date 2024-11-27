@@ -14,7 +14,6 @@ import model.model :
 	EnumOrFlagsMember,
 	ExternType,
 	Flags,
-	FunBody,
 	FunDecl,
 	Module,
 	moduleAtUri,
@@ -40,6 +39,7 @@ import model.model :
 	TypeSize,
 	VarDecl,
 	SumTypeMembership,
+	VarGet,
 	VarKind,
 	Visibility;
 import util.alloc.alloc : Alloc;
@@ -93,8 +93,8 @@ Json documentModule(ref Ctx ctx, in Program program, in Module a) {
 			foreach (FunDecl* fun; referents.funs)
 				if (fun.visibility == Visibility.public_) {
 					if (fun.isGenerated) {
-						if (fun.body_.isA!(FunBody.VarGet))
-							res ~= documentVarDecl(ctx, *fun.body_.as!(FunBody.VarGet).var);
+						if (fun.body_.isA!VarGet)
+							res ~= documentVarDecl(ctx, *fun.body_.as!VarGet.var);
 					} else
 						res ~= documentFun(ctx, *fun);
 				}

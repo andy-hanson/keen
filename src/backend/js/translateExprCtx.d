@@ -97,12 +97,20 @@ import model.model :
 	Called,
 	CalledSpecSig,
 	CommonTypes,
+	CreateEnumOrFlags,
+	CreateExtern,
+	CreateRecord,
+	CreateRecordAndConvertToSumType,
+	CreateSumType,
 	eachSpecInFunIncludingParents,
 	eachTest,
 	EnumOrFlagsMember,
 	Expr,
 	FlagsFunction,
-	FunBody,
+	FunBodyBogus,
+	FunBodyExtern,
+	FunBodyFileImport,
+	FunBodyMethod,
 	FunDecl,
 	FunInst,
 	FunKind,
@@ -111,14 +119,21 @@ import model.model :
 	Local,
 	mustUnwrapOptionType,
 	RecordField,
+	RecordFieldCall,
+	RecordFieldGet,
+	RecordFieldPointer,
+	RecordFieldSet,
 	SpecInst,
 	StructDecl,
 	StructInst,
 	SumType,
+	SumTypeKind,
+	SumTypeMemberGet,
 	Test,
 	Type,
 	TypeParamIndex,
-	SumTypeKind;
+	VarGet,
+	VarSet;
 import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, isEmpty, makeArray, map, newArray, only;
 import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder, finish;
@@ -438,31 +453,31 @@ ExprResult translateCallInline(
 	JsExpr recordField(RecordField* field) =>
 		genPropertyAccess(ctx.alloc, source, getArg(0), JsMemberName.recordField(field.name));
 	return called.body_.matchIn!ExprResult(
-		(in FunBody.Bogus) =>
+		(in FunBodyBogus _) =>
 			translateToBogus(ctx.alloc, source, pos),
 		(in AutoFun x) =>
 			assert(false),
 		(in BuiltinFun x) =>
 			translateCallBuiltin(ctx, source, returnType, pos, x, nArgs, getArg),
-		(in FunBody.CreateEnumOrFlags x) =>
+		(in CreateEnumOrFlags x) =>
 			expr(genPropertyAccess(ctx.alloc, source, returnTypeRef, JsMemberName.enumMember(x.member.name))),
-		(in FunBody.CreateExtern) =>
+		(in CreateExtern _) =>
 			assert(false),
-		(in FunBody.CreateRecord) =>
+		(in CreateRecord _) =>
 			expr(createRecord(returnStruct)),
-		(in FunBody.CreateRecordAndConvertToSumType x) =>
+		(in CreateRecordAndConvertToSumType x) =>
 			expr(createSumType(ctx, source, returnStruct, createRecord(x.member.decl), x.member.decl.name)),
-		(in FunBody.CreateSumType x) =>
+		(in CreateSumType x) =>
 			expr(createSumType(ctx, source, returnStruct, onlyArg(), only(paramTypes).as!(StructInst*).decl.name)),
 		(in Expr _) =>
 			assert(false),
-		(in FunBody.Extern) =>
+		(in FunBodyExtern _) =>
 			assert(false),
-		(in FunBody.FileImport) =>
+		(in FunBodyFileImport _) =>
 			assert(false),
 		(in FlagsFunction x) =>
 			expr(translateFlagsFunction(ctx, source, returnType, paramTypes, x, nArgs, getArg)),
-		(in FunBody.Method x) =>
+		(in FunBodyMethod x) =>
 			expr(genCall(
 				ctx.alloc,
 				source,
@@ -470,7 +485,7 @@ ExprResult translateCallInline(
 				allocate(ctx.alloc, genPropertyAccess(
 					ctx.alloc, source, getArg(0), JsMemberName.sumTypeMethod(x.method.name))),
 				args(skip: 1))),
-		(in FunBody.RecordFieldCall x) {
+		(in RecordFieldCall x) {
 			assert(nArgs >= 1);
 			return expr(genCallAwait(
 				ctx.alloc,
@@ -480,15 +495,15 @@ ExprResult translateCallInline(
 					? args(skip: 1)
 					: newArray(ctx.alloc, [genTuple(ctx, source, nArgs - 1, (size_t i) => getArg(i + 1))])));
 		},
-		(in FunBody.RecordFieldGet x) =>
+		(in RecordFieldGet x) =>
 			expr(recordField(x.field)),
-		(in FunBody.RecordFieldPointer) =>
+		(in RecordFieldPointer _) =>
 			assert(false),
-		(in FunBody.RecordFieldSet x) {
+		(in RecordFieldSet x) {
 			assert(nArgs == 2);
 			return forceStatement(ctx, pos, genAssign(ctx.alloc, source, recordField(x.field), getArg(1)));
 		},
-		(in FunBody.SumTypeMemberGet) {
+		(in SumTypeMemberGet _) {
 			assert(!bodyIsInlined(*called));
 			JsExpr arg = onlyArg();
 			StructInst* member = mustUnwrapOptionType(returnType).as!(StructInst*);
@@ -508,9 +523,9 @@ ExprResult translateCallInline(
 					genOptionSome(ctx.alloc, source, arg),
 					genOptionNone(source)));
 		},
-		(in FunBody.VarGet x) =>
+		(in VarGet x) =>
 			expr(translateVarReference(ctx.ctx, source, x.var)),
-		(in FunBody.VarSet x) =>
+		(in VarSet x) =>
 			forceStatement(
 				ctx, pos,
 				genAssign(ctx.alloc, source, translateVarReference(ctx.ctx, source, x.var), onlyArg())));

@@ -20,6 +20,7 @@ import model.model :
 	SpecInst,
 	StructDecl,
 	StructDeclSource,
+	StructDeclSourceBogus,
 	StructInst,
 	Type,
 	Visibility;
@@ -197,7 +198,7 @@ Module makeModule(ref Alloc alloc, Uri uri, in StructDecl[] structs) =>
 
 StructDecl dummyStruct(ref Alloc alloc, Uri uri, Symbol name, size_t nTypeParams) =>
 	StructDecl(
-		StructDeclSource(allocate(alloc, StructDeclSource.Bogus(
+		StructDeclSource(allocate(alloc, StructDeclSourceBogus(
 			name,
 			small!NameAndRange(typeParams[0 .. nTypeParams])))),
 		uri,

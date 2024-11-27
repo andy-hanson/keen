@@ -18,6 +18,11 @@ import model.model :
 	BuiltinType,
 	ByValOrRef,
 	CommonTypes,
+	CreateEnumOrFlags,
+	CreateExtern,
+	CreateRecord,
+	CreateRecordAndConvertToSumType,
+	CreateSumType,
 	Destructure,
 	DestructureIgnore,
 	DestructureIgnoreSource,
@@ -27,6 +32,7 @@ import model.model :
 	Flags,
 	FlagsFunction,
 	FunBody,
+	FunBodyMethod,
 	FunDecl,
 	FunDeclSource,
 	FunFlags,
@@ -34,17 +40,24 @@ import model.model :
 	ParamShort,
 	Record,
 	RecordField,
+	RecordFieldCall,
+	RecordFieldGet,
+	RecordFieldPointer,
+	RecordFieldSet,
 	Signature,
 	StructBodyBogus,
 	StructDecl,
 	StructInst,
 	SumType,
+	SumTypeMemberGet,
 	Type,
 	TypeParamIndex,
 	VarDecl,
 	SumTypeMembership,
 	SumTypeKind,
 	SumTypeMemberAndMethodImpls,
+	VarGet,
+	VarSet,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withStackArray;
@@ -156,7 +169,7 @@ private void addFunsForVariantMember(
 		Type(variant),
 		makeParams(ctx.alloc, [param!"a"(Type(memberType))]),
 		FunFlags.generatedBare,
-		FunBody(FunBody.CreateSumType()));
+		FunBody(CreateSumType()));
 	if (member.body_.isA!Record) {
 		ref Record record() => member.body_.as!Record;
 		funsBuilder ~= funForStruct(
@@ -165,7 +178,7 @@ private void addFunsForVariantMember(
 			Type(variant),
 			recordConstructorParams(ctx.alloc, record),
 			recordIsAlwaysByVal(record) ? FunFlags.generatedBare : FunFlags.generated,
-			FunBody(FunBody.CreateRecordAndConvertToSumType(memberType)));
+			FunBody(CreateRecordAndConvertToSumType(memberType)));
 	}
 	final switch (variantKind) {
 		case SumTypeKind.interface_:
@@ -178,7 +191,7 @@ private void addFunsForVariantMember(
 				Type(makeOptionType(ctx.instantiateCtx, commonTypes, Type(memberType))),
 				makeParams(ctx.alloc, [param!"a"(Type(variant))]),
 				FunFlags.generatedBare,
-				FunBody(FunBody.SumTypeMemberGet()));
+				FunBody(SumTypeMemberGet()));
 			break;
 	}
 }
@@ -198,7 +211,7 @@ void addFunsForVar(
 		Params([]),
 		FunFlags.generatedBareUnsafe,
 		extern_,
-		FunBody(FunBody.VarGet(var)));
+		FunBody(VarGet(var)));
 	funsBuilder ~= basicFunDecl(
 		FunDeclSource(var),
 		var.visibility,
@@ -207,7 +220,7 @@ void addFunsForVar(
 		makeParams(ctx.alloc, [param!"a"(var.type)]),
 		FunFlags.generatedBareUnsafe,
 		extern_,
-		FunBody(FunBody.VarSet(var)));
+		FunBody(VarSet(var)));
 }
 
 private:
@@ -251,7 +264,7 @@ FunDecl newExtern(InstantiateCtx ctx, StructDecl* struct_) =>
 		Type(instantiateNonTemplateStructDecl(ctx, struct_)),
 		Params([]),
 		FunFlags.generatedBareUnsafe,
-		FunBody(FunBody.CreateExtern()));
+		FunBody(CreateExtern()));
 
 StructInst* instantiateNonTemplateStructDecl(InstantiateCtx ctx, StructDecl* structDecl) =>
 	instantiateStruct(ctx, structDecl, []);
@@ -307,7 +320,7 @@ FunDecl enumOrFlagsConstructor(ref Alloc alloc, Visibility visibility, StructIns
 		Params([]),
 		FunFlags.generatedBare.withSummon(enum_.decl.isSummon),
 		enum_.decl.externSet,
-		FunBody(FunBody.CreateEnumOrFlags(member)));
+		FunBody(CreateEnumOrFlags(member)));
 
 void addFunsForRecord(
 	ref CheckCtx ctx,
@@ -347,7 +360,7 @@ void addFunsForRecordConstructor(
 		(byVal ? FunFlags.generatedBare : FunFlags.generated).withSummon(struct_.isSummon),
 		struct_.externSet,
 		[],
-		FunBody(FunBody.CreateRecord()));
+		FunBody(CreateRecord()));
 }
 
 Params recordConstructorParams(ref Alloc alloc, ref Record record) =>
@@ -372,7 +385,7 @@ void addFunsForRecordField(
 		FunFlags.generatedBare.withSummon(struct_.isSummon),
 		struct_.externSet,
 		[],
-		FunBody(FunBody.RecordFieldGet(field)));
+		FunBody(RecordFieldGet(field)));
 
 	void addRecordFieldPointer(Visibility visibility, Type recordPointer, Type fieldPointer) {
 		funsBuilder ~= funDeclWithBody(
@@ -384,7 +397,7 @@ void addFunsForRecordField(
 			FunFlags.generatedBareUnsafe.withSummon(struct_.isSummon),
 			struct_.externSet,
 			[],
-			FunBody(FunBody.RecordFieldPointer(field)));
+			FunBody(RecordFieldPointer(field)));
 	}
 
 	maybeAddFieldCaller(ctx, funsBuilder, commonTypes, struct_, recordType, field);
@@ -411,7 +424,7 @@ void addFunsForRecordField(
 				FunFlags.generatedBareUnsafe.withSummon(struct_.isSummon),
 				struct_.externSet,
 				[],
-				FunBody(FunBody.RecordFieldSet(field)));
+				FunBody(RecordFieldSet(field)));
 			addRecordFieldPointer(
 				setVisibility,
 				recordMutPointer,
@@ -426,7 +439,7 @@ void addFunsForRecordField(
 				FunFlags.generatedBare.withSummon(struct_.isSummon),
 				struct_.externSet,
 				[],
-				FunBody(FunBody.RecordFieldSet(field)));
+				FunBody(RecordFieldSet(field)));
 	}
 }
 
@@ -454,7 +467,7 @@ void maybeAddFieldCaller(
 			FunFlags.generated.withOkIfUnused.withSummon(struct_.isSummon),
 			struct_.externSet,
 			[],
-			FunBody(FunBody.RecordFieldCall(field, funType.kind)));
+			FunBody(RecordFieldCall(field, funType.kind)));
 	}
 }
 
@@ -513,5 +526,5 @@ void addFunsForVariant(
 			FunFlags.generated.withSummon(struct_.isSummon),
 			struct_.externSet,
 			[],
-			FunBody(FunBody.Method(&sig)));
+			FunBody(FunBodyMethod(&sig)));
 }

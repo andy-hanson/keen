@@ -21,6 +21,7 @@ import model.model :
 	StructBodyBogus,
 	StructDecl,
 	StructDeclSource,
+	StructDeclSourceBogus,
 	StructInst,
 	StructOrAlias,
 	Type,
@@ -189,7 +190,7 @@ StructInst* instantiateNonTemplateStructDecl(InstantiateCtx ctx, StructDecl* str
 
 public StructDecl* bogusStructDecl(ref Alloc alloc, Symbol name, size_t nTypeParameters) =>
 	allocate(alloc, StructDecl(
-		StructDeclSource(allocate(alloc, StructDeclSource.Bogus(
+		StructDeclSource(allocate(alloc, StructDeclSourceBogus(
 			name,
 			small!NameAndRange(makeArray!NameAndRange(alloc, nTypeParameters, (size_t i) =>
 				NameAndRange(0, symbol!"")))))),

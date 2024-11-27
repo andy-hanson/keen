@@ -41,7 +41,7 @@ import model.model :
 	BuildTarget,
 	BuiltinFunCallLambda,
 	CommonFuns,
-	FunBody,
+	FunBodyMethod,
 	MainFun,
 	ProgramWithMain,
 	SumType,
@@ -177,7 +177,7 @@ void finishVariants(ref ConcretizeCtx ctx) {
 		ConcreteStruct* sumType = mustBeByVal(fun.params[0].type);
 		size_t methodIndex = mustHaveIndexOfPointer(
 			sumType.source.as!(ConcreteStructSource.Inst).decl.body_.as!SumType.methods,
-			fun.source.as!ConcreteFunKey.decl.body_.as!(FunBody.Method).method);
+			fun.source.as!ConcreteFunKey.decl.body_.as!FunBodyMethod.method);
 		MutArr!ConcreteSumTypeCase impls = mustGet(ctx.sumTypeToCases, sumType);
 		fun.overwriteBody(generateCallMethod(ctx, fun, sumType, asTemporaryArray(impls), methodIndex));
 	}

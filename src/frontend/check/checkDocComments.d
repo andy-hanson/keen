@@ -16,6 +16,11 @@ import model.model :
 	CalledDecl,
 	CalledSpecSig,
 	CommonTypes,
+	CreateEnumOrFlags,
+	CreateExtern,
+	CreateRecord,
+	CreateRecordAndConvertToSumType,
+	CreateSumType,
 	Destructure,
 	Diag,
 	DiagNameNotFound,
@@ -31,12 +36,19 @@ import model.model :
 	firstLocal,
 	Flags,
 	FlagsFunction,
-	FunBody,
+	FunBodyBogus,
+	FunBodyExtern,
+	FunBodyFileImport,
+	FunBodyMethod,
 	FunDecl,
 	Local,
 	paramsArray,
 	Record,
 	RecordField,
+	RecordFieldCall,
+	RecordFieldGet,
+	RecordFieldPointer,
+	RecordFieldSet,
 	SpecDecl,
 	Signature,
 	Specs,
@@ -46,10 +58,13 @@ import model.model :
 	StructInst,
 	StructOrAlias,
 	SumType,
+	SumTypeMemberGet,
 	Test,
 	TypeParamIndex,
 	TypeParams,
-	VarDecl;
+	VarDecl,
+	VarGet,
+	VarSet;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array : first, firstWithIndex, map;
 import util.comparison : Comparison;
@@ -216,45 +231,45 @@ DocCommentReference docCommentReferenceForFunDecl(FunDecl* a) {
 	DocCommentReference returnStruct() =>
 		DocCommentReference(a.returnType.as!(StructInst*).decl);
 	return a.body_.match!DocCommentReference(
-		(FunBody.Bogus) =>
+		(FunBodyBogus _) =>
 			fun,
 		(AutoFun _) =>
 			fun,
 		(BuiltinFun _) =>
 			fun,
-		(FunBody.CreateEnumOrFlags x) =>
+		(CreateEnumOrFlags x) =>
 			DocCommentReference(x.member),
-		(FunBody.CreateExtern) =>
+		(CreateExtern _) =>
 			returnStruct(),
-		(FunBody.CreateRecord) =>
+		(CreateRecord _) =>
 			returnStruct(),
-		(FunBody.CreateRecordAndConvertToSumType x) =>
+		(CreateRecordAndConvertToSumType x) =>
 			DocCommentReference(x.member.decl),
-		(FunBody.CreateSumType) =>
+		(CreateSumType _) =>
 			returnStruct(),
 		(Expr _) =>
 			fun,
-		(FunBody.Extern _) =>
+		(FunBodyExtern _) =>
 			fun,
-		(FunBody.FileImport _) =>
+		(FunBodyFileImport _) =>
 			fun,
 		(FlagsFunction _) =>
 			returnStruct(),
-		(FunBody.Method x) =>
+		(FunBodyMethod x) =>
 			DocCommentReference(x.method),
-		(FunBody.RecordFieldCall x) =>
+		(RecordFieldCall x) =>
 			DocCommentReference(x.field),
-		(FunBody.RecordFieldGet x) =>
+		(RecordFieldGet x) =>
 			DocCommentReference(x.field),
-		(FunBody.RecordFieldPointer x) =>
+		(RecordFieldPointer x) =>
 			DocCommentReference(x.field),
-		(FunBody.RecordFieldSet x) =>
+		(RecordFieldSet x) =>
 			DocCommentReference(x.field),
-		(FunBody.SumTypeMemberGet x) =>
+		(SumTypeMemberGet x) =>
 			returnStruct(),
-		(FunBody.VarGet x) =>
+		(VarGet x) =>
 			DocCommentReference(x.var),
-		(FunBody.VarSet x) =>
+		(VarSet x) =>
 			DocCommentReference(x.var));
 }
 

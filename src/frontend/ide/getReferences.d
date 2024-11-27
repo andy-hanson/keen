@@ -71,6 +71,7 @@ import model.model :
 	ClosureGetExpr,
 	ClosureSetExpr,
 	CommonTypes,
+	CreateEnumOrFlags,
 	Condition,
 	Destructure,
 	DestructureIgnore,
@@ -128,7 +129,10 @@ import model.model :
 	Program,
 	Record,
 	RecordField,
+	RecordFieldGet,
+	RecordFieldPointer,
 	RecordFieldPointerExpr,
+	RecordFieldSet,
 	SeqExpr,
 	SpecDecl,
 	Signature,
@@ -137,7 +141,7 @@ import model.model :
 	StructBody,
 	StructBodyBogus,
 	StructDecl,
-	StructDeclSource,
+	StructDeclSourceBogus,
 	StructInst,
 	SumType,
 	Test,
@@ -153,6 +157,8 @@ import model.model :
 	VarDecl,
 	SumTypeMembership,
 	SumTypeMemberAndMethodImpls,
+	VarGet,
+	VarSet,
 	Visibility;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
@@ -453,7 +459,7 @@ void eachTypeInStruct(ref CommonTypes commonTypes, in StructDecl a, in TypeCb cb
 			eachTypeInStructModifiers(a.sumTypeMemberships, x.modifiers, cb);
 			eachTypeInStructBody(commonTypes, a.body_, x, x.body_, cb);
 		},
-		(in StructDeclSource.Bogus) {});
+		(in StructDeclSourceBogus _) {});
 void eachTypeInStructModifiers(
 	in SumTypeMembership[] variants,
 	in ModifierAst[] modifiers,
@@ -832,7 +838,7 @@ void referencesForEnumOrFlagsMember(in Program program, in EnumOrFlagsMember* me
 	StructDecl* enum_ = member.containingEnum;
 	Module* declaringModule = moduleAtUri(program, enum_.moduleUri);
 	FunDecl* ctor = mustFindFunNamed(declaringModule, member.name, (in FunDecl fun) =>
-		fun.body_.isA!(FunBody.CreateEnumOrFlags) && fun.body_.as!(FunBody.CreateEnumOrFlags).member == member);
+		fun.body_.isA!CreateEnumOrFlags && fun.body_.as!CreateEnumOrFlags.member == member);
 	eachExprThatMayReference(
 		program, member.visibility, declaringModule,
 		(in Module module_, in NameAndRange ast, in DocCommentReference x) {
@@ -855,8 +861,8 @@ void referencesForVarDecl(in Program program, in VarDecl* a, in ReferenceCb cb) 
 	// Find references to get/set
 	Module* declaringModule = moduleAtUri(program, a.moduleUri);
 	FunDecl*[2] funs = mustFindFunsNamed(declaringModule, a.name, (in FunDecl x) =>
-		(x.body_.isA!(FunBody.VarGet) && x.body_.as!(FunBody.VarGet).var == a) ||
-		(x.body_.isA!(FunBody.VarSet) && x.body_.as!(FunBody.VarSet).var == a));
+		(x.body_.isA!VarGet && x.body_.as!VarGet.var == a) ||
+		(x.body_.isA!VarSet && x.body_.as!VarSet.var == a));
 	referencesForFunDecls(program, funs, cb);
 }
 
@@ -901,7 +907,7 @@ void eachFunNamed(in Module* module_, Symbol name, in void delegate(FunDecl*) @s
 }
 
 bool isRecordFieldFunction(in FunBody a) =>
-	a.isA!(FunBody.RecordFieldGet) || a.isA!(FunBody.RecordFieldPointer) || a.isA!(FunBody.RecordFieldSet);
+	a.isA!RecordFieldGet || a.isA!RecordFieldPointer || a.isA!RecordFieldSet;
 
 void referencesForSpecDecl(in Program program, in SpecDecl* a, in ReferenceCb refCb) {
 	eachModuleThatMayReference(program, a.visibility, moduleAtUri(program, a.moduleUri), (in Module module_) {
