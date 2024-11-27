@@ -138,12 +138,12 @@ bool isEmptyType(in Type a) =>
 bool isEmptyType(in StructInst a) =>
 	isVoid(*a.decl) || isEmptyRecord(*a.decl);
 private bool isEmptyRecord(in StructDecl a) =>
-	a.body_.isA!(StructBody.Record) && isEmpty(a.body_.as!(StructBody.Record).fields);
+	a.body_.isA!Record && isEmpty(a.body_.as!Record.fields);
 
 bool isEnum(in Type a) =>
-	a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!(StructBody.Enum*);
+	a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!(Enum*);
 bool isFlags(in Type a) =>
-	a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!(StructBody.Flags);
+	a.isA!(StructInst*) && a.as!(StructInst*).decl.body_.isA!Flags;
 
 bool isArray(in Type a) =>
 	isBuiltinType(a, BuiltinType.array);
@@ -405,7 +405,7 @@ size_t signatureIndex(in Signature* a) scope =>
 		(in SpecDecl spec) =>
 			mustHaveIndexOfPointer(spec.sigs, a),
 		(in StructDecl variant) =>
-			mustHaveIndexOfPointer(variant.body_.as!(StructBody.SumType).methods, a));
+			mustHaveIndexOfPointer(variant.body_.as!SumType.methods, a));
 
 immutable struct TypeParamsAndSig {
 	TypeParams typeParams;
@@ -543,9 +543,9 @@ immutable struct EnumOrFlagsMember {
 	}
 
 	IntegralType storage() scope =>
-		containingEnum.body_.isA!(StructBody.Enum*)
-			? containingEnum.body_.as!(StructBody.Enum*).storage
-			: containingEnum.body_.as!(StructBody.Flags).storage;
+		containingEnum.body_.isA!(Enum*)
+			? containingEnum.body_.as!(Enum*).storage
+			: containingEnum.body_.as!Flags.storage;
 	Uri moduleUri() scope =>
 		containingEnum.moduleUri;
 	Visibility visibility() scope =>
@@ -559,47 +559,46 @@ immutable struct EnumOrFlagsMember {
 }
 
 immutable struct StructBody {
-	immutable struct Bogus {}
-	immutable struct Enum {
-		IntegralType storage;
-		SmallArray!EnumOrFlagsMember members;
-		HashTable!(EnumOrFlagsMember*, Symbol, nameOfEnumOrFlagsMember) membersByName;
-	}
-	immutable struct Extern {
-		Opt!TypeSize size;
-	}
-	immutable struct Flags {
-		IntegralType storage;
-		SmallArray!EnumOrFlagsMember members;
-	}
-	immutable struct Record {
-		RecordFlags flags;
-		SmallArray!RecordField fields;
-	}
-	// 'interface', 'union', or 'variant'
-	immutable struct SumType {
-		@safe @nogc pure nothrow:
-
-		SumTypeKind kind;
-		immutable struct MembersAndMethods {
-			SmallArray!SumTypeMemberAndMethodImpls listedMembers; // There may be other members not in this list
-			SmallArray!Signature methods;
-		}
-		private MembersAndMethods* membersAndMethods;
-
-		SmallArray!SumTypeMemberAndMethodImpls listedMembers() return scope =>
-			membersAndMethods.listedMembers;
-		SmallArray!Signature methods() return scope =>
-			membersAndMethods.methods;
-	}
-
-	mixin .Union!(Bogus, BuiltinType, Enum*, Extern, Flags, Record, SumType);
+	mixin Union!(StructBodyBogus, BuiltinType, Enum*, ExternType, Flags, Record, SumType);
 }
-static assert(StructBody.sizeof == StructBody.Record.sizeof + size_t.sizeof);
+immutable struct StructBodyBogus {}
+immutable struct Enum {
+	IntegralType storage;
+	SmallArray!EnumOrFlagsMember members;
+	HashTable!(EnumOrFlagsMember*, Symbol, nameOfEnumOrFlagsMember) membersByName;
+}
+immutable struct ExternType {
+	Opt!TypeSize size;
+}
+immutable struct Flags {
+	IntegralType storage;
+	SmallArray!EnumOrFlagsMember members;
+}
+immutable struct Record {
+	RecordFlags flags;
+	SmallArray!RecordField fields;
+}
+// 'interface', 'union', or 'variant'
+immutable struct SumType {
+	@safe @nogc pure nothrow:
+
+	SumTypeKind kind;
+	immutable struct MembersAndMethods {
+		SmallArray!SumTypeMemberAndMethodImpls listedMembers; // There may be other members not in this list
+		SmallArray!Signature methods;
+	}
+	private MembersAndMethods* membersAndMethods;
+
+	SmallArray!SumTypeMemberAndMethodImpls listedMembers() return scope =>
+		membersAndMethods.listedMembers;
+	SmallArray!Signature methods() return scope =>
+		membersAndMethods.methods;
+}
+static assert(StructBody.sizeof == Record.sizeof + size_t.sizeof);
 
 SumTypeMemberAndMethodImpls[] asUnion(ref StructBody a) =>
-	asUnion(a.as!(StructBody.SumType));
-SumTypeMemberAndMethodImpls[] asUnion(ref StructBody.SumType a) {
+	asUnion(a.as!SumType);
+SumTypeMemberAndMethodImpls[] asUnion(ref SumType a) {
 	assert(a.kind == SumTypeKind.union_);
 	return a.listedMembers;
 }
@@ -607,7 +606,7 @@ SumTypeMemberAndMethodImpls[] asUnion(ref StructBody.SumType a) {
 Symbol nameOfEnumOrFlagsMember(in EnumOrFlagsMember* a) =>
 	a.name;
 
-IntegralValue getAllFlagsValue(in StructBody.Flags body_) =>
+IntegralValue getAllFlagsValue(in Flags body_) =>
 	fold!(IntegralValue, EnumOrFlagsMember)(
 		IntegralValue(0),
 		body_.members,
@@ -838,7 +837,7 @@ immutable struct StructDecl {
 }
 
 EnumOrFlagsMember[] mustBeEnumOrFlags(in StructDecl a) =>
-	a.body_.isA!(StructBody.Enum*) ? a.body_.as!(StructBody.Enum*).members : a.body_.as!(StructBody.Flags).members;
+	a.body_.isA!(Enum*) ? a.body_.as!(Enum*).members : a.body_.as!Flags.members;
 
 // This is stored on the SumType for the types listed in it.
 immutable struct SumTypeMemberAndMethodImpls {
@@ -868,8 +867,8 @@ immutable struct SumTypeMembership {
 	void methodImpls(SmallArray!(Opt!Called) value) =>
 		lateSet(methodImpls_, value);
 
-	ref StructBody.SumType sumTypeBody() return scope =>
-		sumType.decl.body_.as!(StructBody.SumType);
+	ref SumType sumTypeBody() return scope =>
+		sumType.decl.body_.as!SumType;
 
 	SumTypeKind sumTypeKind() scope =>
 		sumTypeBody.kind;
@@ -923,8 +922,8 @@ immutable struct StructInst {
 
 bool isDefinitelyByRef(in StructInst a) {
 	StructBody body_ = a.decl.body_;
-	return body_.isA!(StructBody.Record) &&
-		optEqual!ByValOrRef(body_.as!(StructBody.Record).flags.forcedByValOrRef, some(ByValOrRef.byRef));
+	return body_.isA!Record &&
+		optEqual!ByValOrRef(body_.as!Record.flags.forcedByValOrRef, some(ByValOrRef.byRef));
 }
 
 immutable struct SpecDeclBody {
@@ -1093,9 +1092,9 @@ immutable struct FunBody {
 		@safe @nogc pure nothrow:
 		Signature* method;
 
-		ref StructBody.SumType sumType(in FunDecl fun) scope {
+		ref SumType sumType(in FunDecl fun) scope {
 			assert(fun.body_.as!(FunBody.Method) == this);
-			return fun.params.as!(Destructure[])[0].type.as!(StructInst*).decl.body_.as!(StructBody.SumType);
+			return fun.params.as!(Destructure[])[0].type.as!(StructInst*).decl.body_.as!SumType;
 		}
 		size_t methodIndex(in FunDecl fun) scope =>
 			mustHaveIndexOfPointer(sumType(fun).methods, method);
@@ -3318,8 +3317,8 @@ immutable struct MatchEnumExpr {
 		return res;
 	}
 
-	StructBody.Enum* enumBody() =>
-		enum_.body_.as!(StructBody.Enum*);
+	Enum* enumBody() =>
+		enum_.body_.as!(Enum*);
 }
 immutable struct MatchEnumCase {
 	EnumOrFlagsMember* member;
@@ -3379,8 +3378,8 @@ immutable struct MatchSumTypeExpr {
 
 	StructInst* sumType() return scope =>
 		matched.type.as!(StructInst*);
-	StructBody.SumType sumTypeBody() return scope =>
-		sumType.decl.body_.as!(StructBody.SumType);
+	SumType sumTypeBody() return scope =>
+		sumType.decl.body_.as!SumType;
 	bool isUnion() {
 		final switch (sumTypeBody.kind) {
 			case SumTypeKind.interface_:
@@ -3413,7 +3412,7 @@ immutable struct RecordFieldPointerExpr {
 			: target.type.as!(StructInst*).decl;
 
 	size_t fieldIndex() =>
-		mustHaveIndexOfPointer(recordDecl.body_.as!(StructBody.Record).fields, field);
+		mustHaveIndexOfPointer(recordDecl.body_.as!Record.fields, field);
 }
 
 immutable struct SeqExpr {

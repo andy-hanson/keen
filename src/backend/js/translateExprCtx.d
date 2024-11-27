@@ -112,9 +112,9 @@ import model.model :
 	mustUnwrapOptionType,
 	RecordField,
 	SpecInst,
-	StructBody,
 	StructDecl,
 	StructInst,
+	SumType,
 	Test,
 	Type,
 	TypeParamIndex,
@@ -493,7 +493,7 @@ ExprResult translateCallInline(
 			JsExpr arg = onlyArg();
 			StructInst* member = mustUnwrapOptionType(returnType).as!(StructInst*);
 			StructDecl* variant = only(paramTypes).as!(StructInst*).decl;
-			return variant.body_.as!(StructBody.SumType).kind == SumTypeKind.union_
+			return variant.body_.as!SumType.kind == SumTypeKind.union_
 				? expr(genTernary(
 					ctx.alloc,
 					source,
@@ -523,7 +523,7 @@ private JsExpr createSumType(
 	JsExpr arg,
 	Symbol memberName,
 ) {
-	if (variant.body_.as!(StructBody.SumType).kind == SumTypeKind.union_) {
+	if (variant.body_.as!SumType.kind == SumTypeKind.union_) {
 		JsExpr member = genPropertyAccess(
 			ctx.alloc, source, translateStructReference(ctx, source, variant),
 			JsMemberName.unionConstructor(memberName));

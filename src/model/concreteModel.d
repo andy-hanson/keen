@@ -7,17 +7,19 @@ import model.model :
 	BuiltinFun,
 	BuiltinType,
 	Destructure,
+	Enum,
 	EnumOrFlagsMember,
 	Expr,
+	Flags,
 	FunDecl,
 	IntegralType,
 	isOptionType,
 	isString,
 	isTuple,
 	Local,
-	Purity,
 	mustBeEnumOrFlags,
-	StructBody,
+	Purity,
+	Record,
 	StructDecl,
 	Test,
 	TypeSize,
@@ -51,7 +53,7 @@ immutable struct ConcreteStructBody {
 	immutable struct Record {
 		SmallArray!ConcreteField fields;
 	}
-	// Lambdas and all StructBody.SumType kinds compile to this
+	// Lambdas and all SumType kinds compile to this
 	immutable struct Union {
 		@safe @nogc pure nothrow:
 		// In the concrete model we identify members by index, so don't care about their names.
@@ -70,6 +72,17 @@ immutable struct ConcreteStructBody {
 	mixin .Union!(Builtin*, Enum, Extern, Flags, Record, Union);
 }
 static assert(ConcreteStructBody.sizeof == ConcreteStructBody.Record.sizeof + size_t.sizeof);
+
+bool isPacked(in ConcreteStruct a) =>
+	a.source.matchIn!bool(
+		(in ConcreteStructSource.Bogus) =>
+			false,
+		(in ConcreteStructSource.Inst x) =>
+			x.decl.body_.isA!BuiltinType
+				? false
+				: x.decl.body_.as!Record.flags.packed,
+		(in ConcreteStructSource.Lambda) =>
+			false);
 
 immutable struct ConcreteType {
 	@safe @nogc pure nothrow:
@@ -117,9 +130,9 @@ ConcreteStruct* mustBeByVal(ConcreteType a) {
 EnumOrFlagsMember[] mustBeEnumOrFlags(ConcreteType a) =>
 	mustBeEnumOrFlags(*mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl);
 EnumOrFlagsMember[] mustBeEnum(ConcreteType a) =>
-	mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Enum*).members;
-ref StructBody.Flags mustBeFlags(ConcreteType a) =>
-	mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Flags);
+	mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl.body_.as!(Enum*).members;
+ref Flags mustBeFlags(ConcreteType a) =>
+	mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl.body_.as!Flags;
 
 immutable struct ConcreteStructInfo {
 	ConcreteStructBody body_;

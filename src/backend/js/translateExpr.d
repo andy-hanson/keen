@@ -125,6 +125,7 @@ import model.model :
 	Expr,
 	ExprAndType,
 	ExternExpr,
+	ExternType,
 	FinallyExpr,
 	FunBody,
 	FunDecl,
@@ -157,6 +158,7 @@ import model.model :
 	methodCaller,
 	paramsArray,
 	paramTypeAt,
+	Record,
 	RecordField,
 	RecordFieldPointerExpr,
 	SeqExpr,
@@ -165,6 +167,7 @@ import model.model :
 	StringLiteralKind,
 	StructBody,
 	StructInst,
+	SumType,
 	SumTypeKind,
 	Test,
 	ThrowExpr,
@@ -231,7 +234,7 @@ void genAssertType(
 ) {
 	Opt!JsExpr notOk = a.decl.body_.isA!BuiltinType
 		? genIsNotBuiltinType(ctx, source, a.decl.body_.as!BuiltinType, get)
-		: optIf(!a.decl.body_.isA!(StructBody.Extern) && !isVariantOrInterface(a.decl.body_), () =>
+		: optIf(!a.decl.body_.isA!ExternType && !isVariantOrInterface(a.decl.body_), () =>
 			genNot(
 				ctx.alloc, source,
 				genInstanceof(ctx.alloc, source, get, translateStructReference(ctx, source, a.decl))));
@@ -243,8 +246,8 @@ void genAssertType(
 			genThrowJsError(ctx.alloc, source, "Value did not have expected type")));
 }
 private bool isVariantOrInterface(in StructBody a) =>
-	a.isA!(StructBody.SumType) && () {
-		final switch (a.as!(StructBody.SumType).kind) {
+	a.isA!SumType && () {
+		final switch (a.as!SumType.kind) {
 			case SumTypeKind.union_:
 				return false;
 			case SumTypeKind.interface_:
@@ -386,7 +389,7 @@ JsDestructure translateDestructure(ref TranslateExprCtx ctx, in Destructure a) =
 			translateDestructureSplit(ctx, exprSource(ctx, a.range), x));
 JsDestructure translateDestructureSplit(ref TranslateExprCtx ctx, in Source source, in DestructureSplit x) {
 	if (x.isValidDestructure(ctx.commonTypes)) {
-		SmallArray!RecordField fields = x.destructuredType.as!(StructInst*).decl.body_.as!(StructBody.Record).fields;
+		SmallArray!RecordField fields = x.destructuredType.as!(StructInst*).decl.body_.as!Record.fields;
 		return JsDestructure(JsObjectDestructure(
 			mapZip!(immutable KeyValuePair!(JsMemberName, JsDestructure), RecordField, Destructure)(
 				ctx.alloc, fields, x.parts, (ref RecordField field, ref Destructure part) =>

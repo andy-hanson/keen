@@ -18,6 +18,7 @@ import model.model :
 	Purity,
 	StructAlias,
 	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructDeclSource,
 	StructInst,
@@ -200,4 +201,4 @@ public StructDecl* bogusStructDecl(ref Alloc alloc, Symbol name, size_t nTypePar
 		false,
 		late(emptyDocCommentReferences),
 		late(emptySmallArray!SumTypeMembership),
-		late(StructBody(StructBody.Bogus()))));
+		late(StructBody(StructBodyBogus()))));

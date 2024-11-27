@@ -57,13 +57,15 @@ import model.model :
 	CallExpr,
 	CallOptionExpr,
 	CharType,
-	DocCommentReference,
 	DocCommentReferenceBogus,
+	Enum,
 	EnumOrFlagsMember,
 	Expr,
 	ExprKind,
 	ExprRef,
 	ExternExpr,
+	ExternType,
+	Flags,
 	forbidModule,
 	FunDecl,
 	FunPointerExpr,
@@ -78,15 +80,17 @@ import model.model :
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
 	MatchSumTypeExpr,
+	Record,
 	RecordField,
 	Signature,
 	SpecDecl,
 	stringOfVarKindLowerCase,
 	stringOfVarKindUpperCase,
 	StructAlias,
-	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructInst,
+	SumType,
 	Test,
 	TryExpr,
 	Type,
@@ -116,7 +120,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 			hoverForDocRef(writer, ctx, x);
 		},
 		(EnumOrFlagsMember* x) {
-			writer ~= x.containingEnum.body_.isA!(StructBody.Enum*) ? "Enum " : "Flags ";
+			writer ~= x.containingEnum.body_.isA!(Enum*) ? "Enum " : "Flags ";
 			writer ~= " member ";
 			writer ~= x.containingEnum.name;
 			writer ~= '.';
@@ -298,7 +302,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 					writer ~= " signature ";
 				},
 				(in StructDecl x) {
-					writer ~= showSumTypeKindUpperCase(x.body_.as!(StructBody.SumType).kind);
+					writer ~= showSumTypeKindUpperCase(x.body_.as!SumType.kind);
 					writeName(writer, ctx, x.name);
 					writer ~= " method ";
 				});
@@ -356,9 +360,9 @@ void hoverForDocRef(scope ref Writer writer, in ShowModelCtx ctx, PositionDocRef
 		},
 		(EnumOrFlagsMember* x) {
 			writer ~= "References ";
-			writer ~= x.containingEnum.body_.isA!(StructBody.Enum*)
+			writer ~= x.containingEnum.body_.isA!(Enum*)
 				? "enum"
-				: x.containingEnum.body_.isA!(StructBody.Flags)
+				: x.containingEnum.body_.isA!Flags
 				? "flags"
 				: assert(false);
 			writeName(writer, ctx, x.containingEnum.name);
@@ -427,19 +431,19 @@ void writeStructAliasHover(scope ref Writer writer, in ShowModelCtx ctx, in Stru
 
 void writeStructDeclHover(scope ref Writer writer, in ShowModelCtx ctx, in StructDecl a) {
 	writer ~= a.body_.matchIn!string(
-		(in StructBody.Bogus) =>
+		(in StructBodyBogus _) =>
 			"Type ",
 		(in BuiltinType _) =>
 			"Builtin type ",
-		(in StructBody.Enum) =>
+		(in Enum _) =>
 			"Enum type ",
-		(in StructBody.Extern) =>
+		(in ExternType _) =>
 			"Extern type ",
-		(in StructBody.Flags) =>
+		(in Flags _) =>
 			"Flags type ",
-		(in StructBody.Record) =>
+		(in Record _) =>
 			"Record type ",
-		(in StructBody.SumType x) {
+		(in SumType x) {
 			writer ~= showSumTypeKindUpperCase(x.kind);
 			return " type ";
 		});

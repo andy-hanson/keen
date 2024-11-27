@@ -37,7 +37,10 @@ import model.model :
 	Destructure,
 	DestructureIgnore,
 	DestructureSplit,
+	Enum,
 	Expr,
+	ExternType,
+	Flags,
 	FunDecl,
 	FunInst,
 	IntegralType,
@@ -54,11 +57,13 @@ import model.model :
 	Program,
 	ProgramWithMain,
 	Purity,
+	Record,
 	RecordField,
 	SpecInst,
-	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructInst,
+	SumType,
 	Test,
 	Type,
 	TypeParamIndex,
@@ -430,7 +435,7 @@ private bool canGetRecordSize(in ConcreteStruct* a) =>
 private void setConcreteStructRecordSize(ref Alloc alloc, ConcreteStruct* a) {
 	FieldsType fieldsType = a.source.isA!(ConcreteStructSource.Lambda) ? FieldsType.closure : FieldsType.record;
 	bool packed = fieldsType == FieldsType.record &&
-		a.source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Record).flags.packed;
+		a.source.as!(ConcreteStructSource.Inst).decl.body_.as!Record.flags.packed;
 	TypeSizeAndFieldOffsets size = recordSize(alloc, packed, a.body_.as!(ConcreteStructBody.Record).fields);
 	if (!a.defaultReferenceKindIsSet)
 		a.defaultReferenceKind = getDefaultReferenceKindForFields(size.typeSize, a.isSelfMutable, fieldsType);
@@ -589,28 +594,28 @@ void initializeConcreteStruct(
 	in SmallArray!ConcreteType typeArgs,
 ) {
 	inst.decl.body_.match!void(
-		(StructBody.Bogus) {
+		(StructBodyBogus _) {
 			assert(false);
 		},
 		(BuiltinType x) {
 			initializeConcreteStructForBuiltin(ctx, res, typeArgs, x);
 		},
-		(ref StructBody.Enum x) {
+		(ref Enum x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
 			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Enum(x.storage)), false);
 			res.typeSize = typeSizeForEnumOrFlags(x.storage);
 		},
-		(StructBody.Extern x) {
+		(ExternType x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
 			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Extern()), false);
 			res.typeSize = optOrDefault!TypeSize(x.size, () => TypeSize(0, 0));
 		},
-		(StructBody.Flags x) {
+		(Flags x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
 			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Flags(x.storage)), false);
 			res.typeSize = typeSizeForEnumOrFlags(x.storage);
 		},
-		(StructBody.Record r) {
+		(Record r) {
 			// don't set 'defaultReferenceKind' until the end, unless explicit
 			if (has(r.flags.forcedByValOrRef))
 				res.defaultReferenceKind = enumConvert!ReferenceKind(force(r.flags.forcedByValOrRef));
@@ -623,7 +628,7 @@ void initializeConcreteStruct(
 			res.info = info;
 			setConcreteStructRecordSizeOrDefer(ctx, res);
 		},
-		(StructBody.SumType x) {
+		(SumType x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
 			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Union()), false);
 			push(ctx.alloc, ctx.deferredTypeSize, res);

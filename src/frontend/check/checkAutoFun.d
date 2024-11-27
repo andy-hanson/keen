@@ -26,6 +26,9 @@ import model.model :
 	DiagAutoFunWrongParams,
 	DiagAutoFunWrongParamType,
 	DiagAutoFunWrongReturnType,
+	Enum,
+	ExternType,
+	Flags,
 	FunBody,
 	FunDecl,
 	IntegralType,
@@ -37,12 +40,15 @@ import model.model :
 	isSymbol,
 	Local,
 	mustUnwrapOptionType,
+	Record,
 	RecordField,
 	SpecDecl,
 	Signature,
 	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructInst,
+	SumType,
 	SumTypeKind,
 	SumTypeMemberAndMethodImpls,
 	Type,
@@ -146,16 +152,16 @@ bool isEnumOrFlagsOption(in Type a) =>
 
 bool isEnumOrFlags(in Type a) =>
 	isEnum(a) || isFlags(a);
-StructBody.Flags asEnumOrFlags(in Type a) {
+Flags asEnumOrFlags(in Type a) {
 	assert(isEnumOrFlags(a));
 	if (isEnum(a)) {
-		StructBody.Enum* e = asEnum(a);
-		return StructBody.Flags(e.storage, e.members);
+		Enum* e = asEnum(a);
+		return Flags(e.storage, e.members);
 	} else
-		return a.as!(StructInst*).decl.body_.as!(StructBody.Flags);
+		return a.as!(StructInst*).decl.body_.as!Flags;
 }
-StructBody.Enum* asEnum(in Type a) =>
-	a.as!(StructInst*).decl.body_.as!(StructBody.Enum*);
+Enum* asEnum(in Type a) =>
+	a.as!(StructInst*).decl.body_.as!(Enum*);
 
 FunBody checkAutoFunWithSpec(
 	ref CheckCtx ctx,
@@ -190,20 +196,20 @@ FunBody checkAutoFunWithSpec(
 				: instantiateSpec(ctx.instantiateCtx, spec, [instType]));
 		}
 		Called[] members = paramInst.decl.body_.match!(Called[])(
-			(StructBody.Bogus) =>
+			(StructBodyBogus _) =>
 				assert(false),
 			(BuiltinType _) =>
 				assert(false),
-			(ref StructBody.Enum) =>
+			(ref Enum) =>
 				typeAs!(Called[])([]),
-			(StructBody.Extern) =>
+			(ExternType _) =>
 				assert(false),
-			(StructBody.Flags) =>
+			(Flags) =>
 				typeAs!(Called[])([]),
-			(StructBody.Record x) =>
+			(Record x) =>
 				map(ctx.alloc, x.fields, (ref RecordField field) =>
 					checkSpecForComponent(field.type)),
-			(StructBody.SumType v) =>
+			(SumType v) =>
 				map(ctx.alloc, v.listedMembers, (ref SumTypeMemberAndMethodImpls m) =>
 					checkSpecForComponent(Type(m.member))));
 		return FunBody(AutoFun(funKind, members));
@@ -245,29 +251,29 @@ bool isEnumFlagsRecordOrUnion(in Type a) =>
 bool isRecordOrUnion(in Type a) =>
 	a.isA!(StructInst*) && isRecordOrUnion(a.as!(StructInst*).decl.body_);
 bool isRecordOrUnion(in StructBody a) =>
-	a.isA!(StructBody.Record) || isUnion(a);
+	a.isA!Record || isUnion(a);
 bool isUnion(in StructBody a) =>
-	a.isA!(StructBody.SumType) && a.as!(StructBody.SumType).kind == SumTypeKind.union_;
+	a.isA!SumType && a.as!SumType.kind == SumTypeKind.union_;
 
 bool isFullyVisible(in CheckCtx ctx, in Type a) {
 	if (!a.isA!(StructInst*))
 		return false;
 	StructDecl* decl = a.as!(StructInst*).decl;
 	return decl.moduleUri == ctx.curUri || decl.body_.matchIn!bool(
-		(in StructBody.Bogus) =>
+		(in StructBodyBogus _) =>
 			true,
 		(in BuiltinType _) =>
 			true,
-		(in StructBody.Enum) =>
+		(in Enum _) =>
 			true,
-		(in StructBody.Extern) =>
+		(in ExternType _) =>
 			false,
-		(in StructBody.Flags) =>
+		(in Flags _) =>
 			true,
-		(in StructBody.Record record) =>
+		(in Record record) =>
 			every!RecordField(record.fields, (in RecordField x) =>
 				x.visibility == decl.visibility),
-		(in StructBody.SumType x) =>
+		(in SumType x) =>
 			x.kind == SumTypeKind.union_);
 }
 

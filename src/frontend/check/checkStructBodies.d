@@ -88,8 +88,11 @@ import model.model :
 	DiagUnionMemberTypeParameter,
 	DiagUnsupportedSyntax,
 	emptyTypeParams,
+	Enum,
 	EnumMemberSource,
 	EnumOrFlagsMember,
+	ExternType,
+	Flags,
 	FunFlags,
 	FunInst,
 	IntegralType,
@@ -105,6 +108,7 @@ import model.model :
 	nameOfEnumOrFlagsMember,
 	Purity,
 	purityRange,
+	Record,
 	RecordField,
 	RecordFieldSource,
 	RecordFlags,
@@ -115,6 +119,7 @@ import model.model :
 	StructDecl,
 	StructDeclSource,
 	StructInst,
+	SumType,
 	SumTypeKind,
 	SumTypeMemberAndMethodImpls,
 	SumTypeMembership,
@@ -216,7 +221,7 @@ void checkStructBodies(
 	});
 }
 
-private StructBody.SumType checkSumType(
+private SumType checkSumType(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
@@ -229,9 +234,7 @@ private StructBody.SumType checkSumType(
 		ctx, commonTypes, structsAndAliasesMap, struct_, astBody);
 	SmallArray!Signature sigs = checkSignatures(
 		ctx, commonTypes, structsAndAliasesMap, SignatureContainer(struct_), ast.typeParams, astBody.methods);
-	return StructBody.SumType(
-		astBody.kind,
-		allocate(ctx.alloc, StructBody.SumType.MembersAndMethods(listedMembers, sigs)));
+	return SumType(astBody.kind, allocate(ctx.alloc, SumType.MembersAndMethods(listedMembers, sigs)));
 }
 
 SmallArray!Signature checkSignatures(
@@ -352,8 +355,8 @@ private Opt!SumTypeMembership sumTypeMembershipFromModifier(
 private bool isInterfaceOrVariant(in Type a) =>
 	a.isA!(StructInst*) && isInterfaceOrVariant(a.as!(StructInst*).decl.body_);
 private bool isInterfaceOrVariant(in StructBody a) =>
-	a.isA!(StructBody.SumType) && () {
-		final switch (a.as!(StructBody.SumType).kind) {
+	a.isA!SumType && () {
+		final switch (a.as!SumType.kind) {
 			case SumTypeKind.interface_:
 			case SumTypeKind.variant:
 				return true;
@@ -364,8 +367,8 @@ private bool isInterfaceOrVariant(in StructBody a) =>
 
 void checkMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap funsMap, StructDecl[] structs) {
 	foreach (ref StructDecl struct_; structs) {
-		if (struct_.body_.isA!(StructBody.SumType)) {
-			SumTypeMemberAndMethodImpls[] members = struct_.body_.as!(StructBody.SumType).listedMembers;
+		if (struct_.body_.isA!SumType) {
+			SumTypeMemberAndMethodImpls[] members = struct_.body_.as!SumType.listedMembers;
 			TypeAst[] memberAsts = struct_.source.as!(StructDeclAst*).body_.as!SumTypeAst.types;
 			foreach (size_t i, ref SumTypeMemberAndMethodImpls x; members) {
 				x.methodImpls = checkMethodImplsForCase(
@@ -373,7 +376,7 @@ void checkMethodImpls(ref CheckCtx ctx, ref CommonTypes commonTypes, FunsMap fun
 					TypeContainer(&struct_), x.member,
 					sizeEq(members, memberAsts) ? memberAsts[i].range : struct_.nameRange.range,
 					instantiateStructWithOwnTypeParams(ctx.instantiateCtx, &struct_),
-					struct_.body_.as!(StructBody.SumType).methods);
+					struct_.body_.as!SumType.methods);
 			}
 		}
 
@@ -436,10 +439,10 @@ SmallArray!(Opt!Called) checkMethodImplsForCase(
 			}));
 }
 
-StructBody.Extern checkExtern(ref CheckCtx ctx, in StructDeclAst declAst, in ExternTypeAst bodyAst) {
+ExternType checkExtern(ref CheckCtx ctx, in StructDeclAst declAst, in ExternTypeAst bodyAst) {
 	checkNoTypeParams(ctx, declAst.typeParams, DeclKind.extern_);
 	checkOnlyCommonModifiers(ctx, DeclKind.extern_, declAst.modifiers);
-	return StructBody.Extern(getExternTypeSize(ctx, declAst, bodyAst));
+	return ExternType(getExternTypeSize(ctx, declAst, bodyAst));
 }
 
 Opt!TypeSize getExternTypeSize(ref CheckCtx ctx, in StructDeclAst declAst, in ExternTypeAst bodyAst) {
@@ -678,10 +681,10 @@ StructBody checkEnum(
 				: ValueAndOverflow(IntegralValue(0), false));
 	if (isEmpty(members.members))
 		addDiag(ctx, range, Diag(DiagEmptyEnumOrUnion()));
-	return StructBody(allocate(ctx.alloc, StructBody.Enum(storage, members.members, members.membersByName)));
+	return StructBody(allocate(ctx.alloc, Enum(storage, members.members, members.membersByName)));
 }
 
-StructBody.Flags checkFlags(
+Flags checkFlags(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
@@ -690,7 +693,7 @@ StructBody.Flags checkFlags(
 	in FlagsAst ast,
 	IntegralType storage,
 ) =>
-	StructBody.Flags(storage, checkEnumOrFlagsMembers(
+	Flags(storage, checkEnumOrFlagsMembers(
 		ctx, commonTypes, structsAndAliasesMap,
 		struct_, range, ast.params, ast.members, DiagDuplicateDeclarationKind.flagsMember, storage,
 		(Opt!IntegralValue lastValue) =>
@@ -826,7 +829,7 @@ IntegralType getEnumTypeFromType(
 				})());
 }
 
-StructBody.Record checkRecord(
+Record checkRecord(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
@@ -852,7 +855,7 @@ StructBody.Record checkRecord(
 		nominal: has(modifiers.nominal),
 		packed: has(modifiers.packed),
 		forcedByValOrRef: valOrRef);
-	return StructBody.Record(flags, fields);
+	return Record(flags, fields);
 }
 
 SmallArray!RecordField checkRecordFields(

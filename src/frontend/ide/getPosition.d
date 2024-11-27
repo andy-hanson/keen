@@ -119,12 +119,15 @@ import model.model :
 	Destructure,
 	DestructureIgnore,
 	DestructureSplit,
+	Enum,
 	EnumOrFlagsMember,
 	Expr,
 	ExprRef,
 	ExternExpr,
+	ExternType,
 	FinallyExpr,
 	findDirectChildExpr,
+	Flags,
 	FunBody,
 	funBodyExprRef,
 	FunDecl,
@@ -158,13 +161,16 @@ import model.model :
 	moduleAtUri,
 	Params,
 	Program,
+	Record,
 	RecordFieldPointerExpr,
 	RecordField,
 	SeqExpr,
+	SpecDecl,
 	SpecInst,
 	Specs,
 	StructBody,
-	SpecDecl,
+	StructBodyBogus,
+	SumType,
 	Signature,
 	StructAlias,
 	StructDecl,
@@ -478,28 +484,28 @@ Opt!PositionKind positionInStructBody(
 	Pos pos,
 ) =>
 	body_.match!(Opt!PositionKind)(
-		(StructBody.Bogus) =>
+		(StructBodyBogus _) =>
 			none!PositionKind,
 		(BuiltinType _) =>
 			none!PositionKind,
-		(ref StructBody.Enum x) =>
+		(ref Enum x) =>
 			positionInEnumOrFlagsBody(
 				ctx, decl, x.storage, x.members,
 				ast.as!EnumAst.params, ast.as!EnumAst.members,
 				pos),
-		(StructBody.Extern) =>
+		(ExternType _) =>
 			none!PositionKind,
-		(StructBody.Flags x) =>
+		(Flags x) =>
 			positionInEnumOrFlagsBody(
 				ctx, decl, x.storage, x.members,
 				ast.as!FlagsAst.params, ast.as!FlagsAst.members,
 				pos),
-		(StructBody.Record x) =>
+		(Record x) =>
 			positionInRecord(ctx, decl, x.fields, ast.as!RecordAst, pos),
-		(StructBody.SumType x) =>
+		(SumType x) =>
 			positionInVariant(decl, x, ast.as!SumTypeAst, pos));
 
-Opt!PositionKind positionInVariant(StructDecl* decl, StructBody.SumType a, in SumTypeAst ast, Pos pos) =>
+Opt!PositionKind positionInVariant(StructDecl* decl, SumType a, in SumTypeAst ast, Pos pos) =>
 	optOr!PositionKind(
 		firstZipIfSizeEq!(PositionKind, TypeAst, SumTypeMemberAndMethodImpls)(
 			ast.types, a.listedMembers, (TypeAst typeAst, SumTypeMemberAndMethodImpls x) =>

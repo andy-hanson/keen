@@ -52,13 +52,16 @@ import model.model :
 	DocComment,
 	DocCommentReference,
 	DocCommentReferenceBogus,
+	Enum,
 	EnumOrFlagsMember,
 	Expr,
 	ExprAndType,
 	ExprKind,
 	ExprRef,
 	ExternExpr,
+	ExternType,
 	FinallyExpr,
+	Flags,
 	FlagsFunction,
 	FunBody,
 	FunDecl,
@@ -99,13 +102,16 @@ import model.model :
 	RecordField,
 	RecordFieldPointerExpr,
 	Purity,
+	Record,
 	RecordFlags,
 	SeqExpr,
+	Signature,
 	SpecDecl,
 	StructAlias,
-	Signature,
+	SumType,
 	SpecInst,
 	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructInst,
 	stringOfVisibility,
@@ -305,22 +311,22 @@ Json jsonOfStructDecl(ref Alloc alloc, in Ctx ctx, ref StructDecl a) =>
 
 Json jsonOfStructBody(ref Alloc alloc, in Ctx ctx, ref StructBody a) =>
 	a.match!Json(
-		(StructBody.Bogus) =>
+		(StructBodyBogus _) =>
 			jsonString("bogus"),
 		(BuiltinType x) =>
 			jsonString(stringOfEnum(x)),
-		(ref StructBody.Enum x) =>
+		(ref Enum x) =>
 			jsonOfEnumOrFlags(alloc, ctx, "enum", x.storage, x.members),
-		(StructBody.Extern x) =>
+		(ExternType x) =>
 			jsonObject(alloc, [
 				kindField!"extern",
 				optionalField!("size", TypeSize)(x.size, (TypeSize size) =>
 					jsonOfTypeSize(alloc, size))]),
-		(StructBody.Flags x) =>
+		(Flags x) =>
 			jsonOfEnumOrFlags(alloc, ctx, "flags", x.storage, x.members),
-		(StructBody.Record x) =>
+		(Record x) =>
 			jsonOfRecord(alloc, ctx, x),
-		(StructBody.SumType x) =>
+		(SumType x) =>
 			jsonOfVariant(alloc, ctx, x));
 
 Json jsonOfEnumOrFlags(
@@ -346,7 +352,7 @@ Json jsonOfTypeSize(ref Alloc alloc, in TypeSize a) =>
 		field!"size"(a.sizeBytes),
 		field!"align"(a.alignmentBytes)]);
 
-Json jsonOfRecord(ref Alloc alloc, in Ctx ctx, in StructBody.Record a) =>
+Json jsonOfRecord(ref Alloc alloc, in Ctx ctx, in Record a) =>
 	jsonObject(alloc, [
 		kindField!"record",
 		field!"flags"(jsonOfRecordFlags(alloc, ctx, a.flags)),
@@ -369,7 +375,7 @@ Json jsonOfRecordField(ref Alloc alloc, in Ctx ctx, in RecordField a) =>
 			jsonString(stringOfVisibility(x))),
 		field!"type"(jsonOfType(alloc, ctx, a.type))]);
 
-Json jsonOfVariant(ref Alloc alloc, in Ctx ctx, in StructBody.SumType a) =>
+Json jsonOfVariant(ref Alloc alloc, in Ctx ctx, in SumType a) =>
 	jsonObject(alloc, [
 		kindField!"variant",
 		field!"kind"(stringOfEnum(a.kind)),

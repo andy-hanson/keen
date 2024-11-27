@@ -52,12 +52,15 @@ import model.model :
 	eachSpecSigAndImpl,
 	eachLocal,
 	eachTest,
+	Enum,
 	evalExternCondition,
 	Expr,
 	ExprRef,
 	ExternCondition,
 	ExternExpr,
+	ExternType,
 	FinallyExpr,
+	Flags,
 	FlagsFunction,
 	FunBody,
 	funBodyExprRef,
@@ -97,6 +100,7 @@ import model.model :
 	paramsArray,
 	Program,
 	ProgramWithMain,
+	Record,
 	RecordField,
 	RecordFieldPointerExpr,
 	SeqExpr,
@@ -104,9 +108,11 @@ import model.model :
 	SpecInst,
 	StructAlias,
 	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructInst,
 	StructOrAlias,
+	SumType,
 	SumTypeMembership,
 	SumTypeKind,
 	SumTypeMemberAndMethodImpls,
@@ -450,22 +456,22 @@ void trackAllUsedInStruct(ref AllUsedBuilder res, Uri from, StructDecl* a) {
 
 void trackAllUsedInStructBody(ref AllUsedBuilder res, Uri from, in StructBody a) {
 	a.match!void(
-		(StructBody.Bogus) {},
+		(StructBodyBogus) {},
 		(BuiltinType _) {},
-		(ref StructBody.Enum) {
+		(ref Enum) {
 			// 'members' constructs pairs
 			trackAllUsedInStruct(res, from, res.program.commonTypes.pair);
 		},
-		(StructBody.Extern) {},
-		(StructBody.Flags) {
+		(ExternType _) {},
+		(Flags _) {
 			// 'members' constructs pairs
 			trackAllUsedInStruct(res, from, res.program.commonTypes.pair);
 		},
-		(StructBody.Record record) {
+		(Record record) {
 			foreach (RecordField field; record.fields)
 				trackAllUsedInType(res, from, field.type);
 		},
-		(StructBody.SumType x) {
+		(SumType x) {
 			if (x.kind == SumTypeKind.union_) {
 				foreach (SumTypeMemberAndMethodImpls member; x.listedMembers)
 					trackAllUsedInStruct(res, from, member.member.decl);
@@ -568,7 +574,7 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 				usedReturnType();
 			},
 			(FunBody.Method x) {
-				StructBody.SumType sumType = x.sumType(*a);
+				SumType sumType = x.sumType(*a);
 				size_t methodIndex = x.methodIndex(*a);
 				if (sumType.kind == SumTypeKind.union_) {
 					foreach (ref SumTypeMemberAndMethodImpls case_; sumType.listedMembers) {

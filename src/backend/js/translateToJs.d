@@ -88,7 +88,10 @@ import model.model :
 	BuildTarget,
 	BuiltinType,
 	Called,
+	Enum,
 	EnumOrFlagsMember,
+	ExternType,
+	Flags,
 	FunDecl,
 	getAllFlagsValue,
 	hasFatalDiagnostics,
@@ -102,12 +105,14 @@ import model.model :
 	NameReferents,
 	Program,
 	ProgramWithMain,
+	Record,
 	RecordField,
 	Signature,
 	SpecDecl,
 	StructAlias,
-	StructBody,
+	StructBodyBogus,
 	StructDecl,
+	SumType,
 	Test,
 	TestSelector,
 	VarDecl,
@@ -317,7 +322,7 @@ JsScriptAst translateProgramToScript(ref TranslateProgramCtx ctx) {
 }
 bool isVariantOrTuple(in TranslateProgramCtx ctx, in AnyDecl a) =>
 	a.isA!(StructDecl*) && (
-		a.as!(StructDecl*).body_.isA!(StructBody.SumType) ||
+		a.as!(StructDecl*).body_.isA!SumType ||
 		isTuple(ctx.commonTypes, a.as!(StructDecl*)));
 
 JsStatement[] callMain(ref TranslateModuleCtx ctx) {
@@ -588,20 +593,20 @@ JsDecl translateStructDecl(ref TranslateModuleCtx ctx, StructDecl* a) {
 		Opt!Super super_ = optIf(has(extends), () => Super(emptySmallArray!JsExpr, callFinishConstructor: true));
 
 		a.body_.match!void(
-			(StructBody.Bogus) =>
+			(StructBodyBogus _) =>
 				assert(false),
 			(BuiltinType x) =>
 				assert(false),
-			(ref StructBody.Enum x) {
+			(ref Enum x) {
 				translateEnumDecl(ctx, source, out_, super_, x);
 			},
-			(StructBody.Extern) {},
-			(StructBody.Flags x) =>
+			(ExternType _) {},
+			(Flags x) =>
 				translateFlagsDecl(ctx, source, out_, a, super_, x),
-			(StructBody.Record x) {
+			(Record x) {
 				translateRecordDecl(ctx, source, out_, super_, x);
 			},
-			(StructBody.SumType x) {
+			(SumType x) {
 				if (x.kind == SumTypeKind.union_)
 					translateUnionDecl(ctx, source, out_, super_, x);
 				if (a == ctx.commonTypes.exception.decl) {
@@ -663,7 +668,7 @@ void translateEnumDecl(
 	in Source source,
 	scope ref Builder!JsClassMember out_,
 	Opt!Super super_,
-	in StructBody.Enum a,
+	in Enum a,
 ) {
 	/*
 	class E {
@@ -706,7 +711,7 @@ void translateFlagsDecl(
 	scope ref Builder!JsClassMember out_,
 	in StructDecl* struct_,
 	Opt!Super super_,
-	in StructBody.Flags a,
+	in Flags a,
 ) {
 	/*
 	class F {
@@ -809,7 +814,7 @@ void translateRecordDecl(
 	in Source source,
 	scope ref Builder!JsClassMember out_,
 	Opt!Super super_,
-	in StructBody.Record a,
+	in Record a,
 ) {
 	/*
 	class R {
@@ -839,7 +844,7 @@ void translateUnionDecl(
 	in Source source,
 	scope ref Builder!JsClassMember out_,
 	Opt!Super super_,
-	in StructBody.SumType a,
+	in SumType a,
 ) {
 	/*
 	class U {

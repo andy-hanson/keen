@@ -60,7 +60,15 @@ import model.concreteModel :
 	unwrapOptionType;
 import model.constant : Constant, constantBool, ConstantUnion, constantZero;
 import model.model :
-	BuiltinBinary, BuiltinFun, BuiltinUnary, Called, EnumOrFlagsMember, FunBody, IntegralType, RecordField, StructBody;
+	BuiltinBinary,
+	BuiltinFun,
+	BuiltinUnary,
+	Called,
+	EnumOrFlagsMember,
+	FunBody,
+	IntegralType,
+	Record,
+	RecordField;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	isEmpty,
@@ -213,7 +221,7 @@ ConcreteFunBody genRecordFieldCall(ref ConcretizeCtx ctx, ConcreteFun* fun, FunB
 }
 size_t fieldIndexFromField(ConcreteType recordType, RecordField* field) =>
 	mustHaveIndexOfPointer(
-		recordType.struct_.source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.Record).fields,
+		recordType.struct_.source.as!(ConcreteStructSource.Inst).decl.body_.as!Record.fields,
 		field);
 private ConcreteField* concreteFieldFromIndex(ConcreteType recordType, size_t fieldIndex) =>
 	&recordType.struct_.body_.as!(ConcreteStructBody.Record).fields[fieldIndex];

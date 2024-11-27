@@ -181,13 +181,16 @@ import model.model :
 	DiagWithHasElse,
 	emptySpecs,
 	emptyTypeParams,
+	Enum,
 	EnumMember,
 	Expr,
 	ExprAndType,
 	ExprKind,
 	ExternCondition,
 	ExternExpr,
+	ExternType,
 	FinallyExpr,
+	Flags,
 	FloatType,
 	FunBody,
 	FunDecl,
@@ -229,16 +232,18 @@ import model.model :
 	paramsArray,
 	purityRange,
 	Purity,
+	Record,
 	RecordFieldPointerExpr,
 	ReturnAndParamTypes,
 	SeqExpr,
 	SpecDecl,
 	StringLiteralKind,
 	StructAlias,
-	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructInst,
 	StructOrAlias,
+	SumType,
 	SumTypeKind,
 	SumTypeMemberAndMethodImpls,
 	SumTypeMembership,
@@ -1578,7 +1583,7 @@ Expr checkMatch(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ref Mat
 		return bogus(expected, ast.matched);
 	}
 	return decl.body_.match!Expr(
-		(StructBody.Bogus) =>
+		(StructBodyBogus _) =>
 			notMatchable(),
 		(BuiltinType x) {
 			Opt!CharType charType = optAsCharType(x);
@@ -1592,19 +1597,19 @@ Expr checkMatch(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ref Mat
 				? checkMatchStringLike(ctx, locals, source, ast, expected, matched, force(stringLike))
 				: notMatchable();
 		},
-		(ref StructBody.Enum x) =>
+		(ref Enum x) =>
 			checkMatchEnum(ctx, locals, source, ast, expected, matched, decl, x),
-		(StructBody.Extern) =>
+		(ExternType _) =>
 			notMatchable(),
-		(StructBody.Flags) =>
+		(Flags _) =>
 			notMatchable(),
-		(StructBody.Record) {
+		(Record _) {
 			Opt!StringLiteralKind stringLike = getMatchableStringLikeFromRecord(ctx.commonTypes, inst);
 			return has(stringLike)
 				? checkMatchStringLike(ctx, locals, source, ast, expected, matched, force(stringLike))
 				: notMatchable();
 		},
-		(StructBody.SumType x) =>
+		(SumType x) =>
 			canMatchSumType(x.kind)
 				? checkMatchSumType(ctx, locals, source, ast, expected, matched, inst)
 				: notMatchable());
@@ -1628,7 +1633,7 @@ Expr checkMatchEnum(
 	ref Expected expected,
 	ref ExprAndType matched,
 	StructDecl* matchedEnum,
-	in StructBody.Enum body_,
+	in Enum body_,
 ) =>
 	withStackArray!(Expr, bool)(body_.members.length, (size_t _) => false, (scope bool[] seen) {
 		bool hasCaseDiag = false;
@@ -1695,7 +1700,7 @@ Expr checkMatchSumType(
 	StructInst* sumType,
 ) {
 	SmallArray!MatchSumTypeCase cases = checkMatchSumTypeCases(ctx, locals, sumType, ast.cases, expected);
-	StructBody.SumType body_() => sumType.decl.body_.as!(StructBody.SumType);
+	SumType body_() => sumType.decl.body_.as!SumType;
 	bool isUnion = () {
 		final switch (body_.kind) {
 			case SumTypeKind.interface_:
@@ -1724,7 +1729,7 @@ Expr checkMatchSumType(
 immutable(StructInst*[]) listMissingUnionCases(
 	ref ExprCtx ctx,
 	StructInst* sumType,
-	StructBody.SumType body_,
+	SumType body_,
 	in MatchSumTypeCase[] cases,
 ) =>
 	buildArray!(immutable StructInst*)(ctx.alloc, (scope ref Builder!(immutable StructInst*) out_) {
@@ -1800,7 +1805,7 @@ Opt!(StructInst*) getSumTypeCaseFromName(
 	Range nameRange,
 	in Opt!Type delegate() @safe @nogc pure nothrow expectedMemberType,
 ) {
-	SumTypeMemberAndMethodImpls[] listedMembers = sumType.decl.body_.as!(StructBody.SumType).listedMembers;
+	SumTypeMemberAndMethodImpls[] listedMembers = sumType.decl.body_.as!SumType.listedMembers;
 	Opt!StructOrAlias op = structOrAliasFromName(ctx.checkCtx, name, nameRange, ctx.structsAndAliasesMap);
 	if (!has(op)) return none!(StructInst*);
 	return force(op).matchWithPointers!(Opt!(StructInst*))(

@@ -25,22 +25,27 @@ import model.model :
 	DocCommentReferences,
 	EnumOrFlagsMember,
 	emptySpecs,
-	FlagsFunction,
+	Enum,
 	Expr,
+	ExternType,
 	firstLocal,
+	Flags,
+	FlagsFunction,
 	FunBody,
 	FunDecl,
 	Local,
 	paramsArray,
+	Record,
 	RecordField,
 	SpecDecl,
 	Signature,
 	Specs,
 	StructAlias,
-	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructInst,
 	StructOrAlias,
+	SumType,
 	Test,
 	TypeParamIndex,
 	TypeParams,
@@ -84,22 +89,22 @@ void checkDocComments(
 	foreach (ref StructDecl struct_; structs) {
 		struct_.docCommentReferences = checkRefsForDecl(AnyDecl(&struct_));
 		struct_.body_.match!void(
-			(StructBody.Bogus) {},
+			(StructBodyBogus _) {},
 			(BuiltinType _) {},
-			(ref StructBody.Enum x) {
+			(ref Enum x) {
 				foreach (ref EnumOrFlagsMember member; x.members)
 					member.docCommentReferences = checkRefsForStruct(struct_, member.docCommentAst);
 			},
-			(StructBody.Extern) {},
-			(StructBody.Flags x) {
+			(ExternType _) {},
+			(Flags x) {
 				foreach (ref EnumOrFlagsMember member; x.members)
 					member.docCommentReferences = checkRefsForStruct(struct_, member.docCommentAst);
 			},
-			(StructBody.Record x) {
+			(Record x) {
 				foreach (ref RecordField field; x.fields)
 					field.docCommentReferences = checkRefsForStruct(struct_, field.docCommentAst);
 			},
-			(StructBody.SumType x) {
+			(SumType x) {
 				foreach (ref Signature sig; x.methods)
 					sig.docCommentReferences = map!(DocCommentReference, NameAndRange)(
 						ctx.alloc, sig.docCommentAst.references, (ref NameAndRange ast) =>

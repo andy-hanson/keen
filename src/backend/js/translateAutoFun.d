@@ -57,17 +57,22 @@ import model.model :
 	BuiltinType,
 	Called,
 	Destructure,
+	Enum,
 	EnumOrFlagsMember,
+	ExternType,
+	Flags,
 	FunDecl,
 	getAllFlagsValue,
 	isFlags,
 	Local,
 	mustBeEnumOrFlags,
 	mustUnwrapOptionType,
+	Record,
 	RecordField,
-	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructInst,
+	SumType,
 	SumTypeKind,
 	SumTypeMemberAndMethodImpls,
 	Type;
@@ -90,9 +95,9 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 			assert(params.length == 2);
 			return matchEnumFlagsRecordOrUnion(
 				struct_,
-				(in StructBody.Enum) =>
+				(in Enum _) =>
 					translateCompareEnumOrFlags(ctx, source, returnStruct, param(0), param(1)),
-				(in StructBody.Flags) =>
+				(in Flags _) =>
 					translateCompareEnumOrFlags(ctx, source, returnStruct, param(0), param(1)),
 				(in RecordField[] fields) =>
 					translateCompareRecord(ctx, source, auto_, returnStruct, fields, param(0), param(1)),
@@ -113,9 +118,9 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 			assert(params.length == 2);
 			return matchEnumFlagsRecordOrUnion(
 				struct_,
-				(in StructBody.Enum) =>
+				(in Enum _) =>
 					translateEqualEnumOrFlags(ctx, source, *struct_, param(0), param(1)),
-				(in StructBody.Flags) =>
+				(in Flags _) =>
 					translateEqualEnumOrFlags(ctx, source, *struct_, param(0), param(1)),
 				(in RecordField[] fields) =>
 					translateEqualRecord(ctx, source, auto_, fields, param(0), param(1)),
@@ -133,9 +138,9 @@ JsExprOrBlockStatement translateAutoFun(ref TranslateExprCtx ctx, FunDecl* fun, 
 			assert(params.length == 1);
 			return matchEnumFlagsRecordOrUnion(
 				struct_,
-				(in StructBody.Enum) =>
+				(in Enum _) =>
 					translateEnumToJson(ctx, source, param(0)),
-				(in StructBody.Flags) =>
+				(in Flags _) =>
 					translateFlagsToJson(ctx, source, struct_, param(0)),
 				(in RecordField[] fields) =>
 					translateRecordToJson(ctx, source, auto_, fields, param(0)),
@@ -156,7 +161,7 @@ JsExprOrBlockStatement integralToOptEnumOrFlags(ref TranslateExprCtx ctx, in Sou
 
 JsExprOrBlockStatement integralToOptFlags(ref TranslateExprCtx ctx, in Source source, JsExpr param, StructDecl* flags) {
 	// a & all === a ? [new F(a)] : []
-	JsExpr all = genIntegerUnsigned(source, getAllFlagsValue(flags.body_.as!(StructBody.Flags)).asUnsigned);
+	JsExpr all = genIntegerUnsigned(source, getAllFlagsValue(flags.body_.as!Flags).asUnsigned);
 	JsExpr newFlags = genNew(ctx.alloc, source, translateStructReference(ctx.ctx, source, flags), [param]);
 	return exprFunBody(ctx.alloc, genTernary(
 		ctx.alloc, source,
@@ -221,7 +226,7 @@ JsExpr flagsToArray(
 	JsExpr emptyArray = genArray(source, []);
 	// (F.x.in(a) ? ["x"] : []).concat(F.y.in(a) ? ["y"] : [])
 	return mapReduce!(JsExpr, EnumOrFlagsMember)(
-		flagsStruct.body_.as!(StructBody.Flags).members,
+		flagsStruct.body_.as!Flags.members,
 		(ref EnumOrFlagsMember member) =>
 			genTernary(
 				ctx.alloc,
@@ -240,23 +245,23 @@ JsExpr flagsToArray(
 
 JsExprOrBlockStatement matchEnumFlagsRecordOrUnion(
 	in StructDecl* struct_,
-	in JsExprOrBlockStatement delegate(in StructBody.Enum) @safe @nogc pure nothrow cbEnum,
-	in JsExprOrBlockStatement delegate(in StructBody.Flags) @safe @nogc pure nothrow cbFlags,
+	in JsExprOrBlockStatement delegate(in Enum) @safe @nogc pure nothrow cbEnum,
+	in JsExprOrBlockStatement delegate(in Flags) @safe @nogc pure nothrow cbFlags,
 	in JsExprOrBlockStatement delegate(in RecordField[]) @safe @nogc pure nothrow cbRecord,
 	in JsExprOrBlockStatement delegate(in SumTypeMemberAndMethodImpls[]) @safe @nogc pure nothrow cbUnion,
 ) =>
 	struct_.body_.matchIn!JsExprOrBlockStatement(
-		(in StructBody.Bogus) =>
+		(in StructBodyBogus _) =>
 			assert(false),
 		(in BuiltinType _) =>
 			assert(false),
 		cbEnum,
-		(in StructBody.Extern) =>
+		(in ExternType _) =>
 			assert(false),
 		cbFlags,
-		(in StructBody.Record x) =>
+		(in Record x) =>
 			cbRecord(x.fields),
-		(in StructBody.SumType x) {
+		(in SumType x) {
 			assert(x.kind == SumTypeKind.union_);
 			return cbUnion(x.listedMembers);
 		});
@@ -405,13 +410,13 @@ JsExprOrBlockStatement translateEqualEnumOrFlags(
 	JsExpr p0,
 	JsExpr p1,
 ) {
-	if (decl.body_.isA!(StructBody.Flags))
+	if (decl.body_.isA!Flags)
 		return exprFunBody(ctx.alloc, genEqEqEq(
 			ctx.alloc, source,
 			getEnumValue(ctx.alloc, source, p0),
 			getEnumValue(ctx.alloc, source, p1)));
 	else {
-		assert(decl.body_.isA!(StructBody.Enum*));
+		assert(decl.body_.isA!(Enum*));
 		return exprFunBody(ctx.alloc, genEqEqEq(ctx.alloc, source, p0, p1));
 	}
 }

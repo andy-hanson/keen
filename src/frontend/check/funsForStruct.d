@@ -21,7 +21,10 @@ import model.model :
 	Destructure,
 	DestructureIgnore,
 	DestructureIgnoreSource,
+	Enum,
 	EnumOrFlagsMember,
+	ExternType,
+	Flags,
 	FlagsFunction,
 	FunBody,
 	FunDecl,
@@ -29,11 +32,13 @@ import model.model :
 	FunFlags,
 	Params,
 	ParamShort,
+	Record,
 	RecordField,
 	Signature,
-	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructInst,
+	SumType,
 	Type,
 	TypeParamIndex,
 	VarDecl,
@@ -56,19 +61,19 @@ size_t countFunsForStructs(in StructDecl[] structs) =>
 
 private size_t countFunsForStruct(in StructDecl a) =>
 	countFunsForSumTypeMemberships(a) + a.body_.matchIn!size_t(
-		(in StructBody.Bogus) =>
+		(in StructBodyBogus) =>
 			0,
 		(in BuiltinType _) =>
 			0,
-		(in StructBody.Enum x) =>
+		(in Enum x) =>
 			// constructor for each member
 			x.members.length,
-		(in StructBody.Extern x) =>
+		(in ExternType x) =>
 			size_t(has(x.size) ? 1 : 0),
-		(in StructBody.Flags x) =>
+		(in Flags x) =>
 			// 'new', '~', '&', '|', 'in', and a constructor for each member
 			5 + x.members.length,
-		(in StructBody.Record x) {
+		(in Record x) {
 			size_t forGetSet = sum!RecordField(x.fields, (in RecordField field) =>
 				1 + has(field.mutability));
 			size_t forCall = sum!RecordField(x.fields, (in RecordField field) =>
@@ -76,17 +81,17 @@ private size_t countFunsForStruct(in StructDecl a) =>
 			// byVal has get/set for pointer too
 			return 1 + forGetSet * (recordIsAlwaysByVal(x) ? 2 : 1) + forCall;
 		},
-		(in StructBody.SumType x) =>
+		(in SumType x) =>
 			x.methods.length +
 			sum!SumTypeMemberAndMethodImpls(x.listedMembers, (in SumTypeMemberAndMethodImpls member) =>
 				countFunsForSumTypeMember(x, *member.member.decl)));
 private size_t countFunsForSumTypeMemberships(in StructDecl a) =>
 	sum!SumTypeMembership(a.sumTypeMemberships, (in SumTypeMembership x) =>
 		countFunsForSumTypeMember(x.sumTypeBody, a));
-private size_t countFunsForSumTypeMember(in StructBody.SumType sumType, in StructDecl member) =>
+private size_t countFunsForSumTypeMember(in SumType sumType, in StructDecl member) =>
 	// Records will also have a named constructor returning the sumType.
 	// Non-interface sumTypes will have a function to (optionally) convert to the member type
-	1 + (member.body_.isA!(StructBody.Record) ? 1 : 0) + (sumType.kind == SumTypeKind.interface_ ? 0 : 1);
+	1 + (member.body_.isA!Record ? 1 : 0) + (sumType.kind == SumTypeKind.interface_ ? 0 : 1);
 
 size_t countFunsForVars(in VarDecl[] vars) =>
 	vars.length * 2;
@@ -98,22 +103,22 @@ void addFunsForStruct(
 	StructDecl* struct_,
 ) {
 	struct_.body_.match!void(
-		(StructBody.Bogus) {},
+		(StructBodyBogus _) {},
 		(BuiltinType _) {},
-		(ref StructBody.Enum x) {
+		(ref Enum x) {
 			addFunsForEnum(ctx, funsBuilder, commonTypes, struct_, x);
 		},
-		(StructBody.Extern x) {
+		(ExternType x) {
 			if (has(x.size))
 				funsBuilder ~= newExtern(ctx.instantiateCtx, struct_);
 		},
-		(StructBody.Flags x) {
+		(Flags x) {
 			addFunsForFlags(ctx, funsBuilder, commonTypes, struct_, x);
 		},
-		(StructBody.Record x) {
+		(Record x) {
 			addFunsForRecord(ctx, funsBuilder, commonTypes, struct_, x);
 		},
-		(StructBody.SumType x) {
+		(SumType x) {
 			addFunsForVariant(ctx, funsBuilder, commonTypes, struct_, x);
 		});
 	addFunsForSumTypeMemberships(ctx, funsBuilder, commonTypes, struct_);
@@ -142,7 +147,7 @@ private void addFunsForVariantMember(
 	StructInst* variant,
 	StructInst* memberType,
 ) {
-	SumTypeKind variantKind = variant.decl.body_.as!(StructBody.SumType).kind;
+	SumTypeKind variantKind = variant.decl.body_.as!SumType.kind;
 	StructDecl* member = memberType.decl;
 	// Convert from the type to a variant
 	funsBuilder ~= funForStruct(
@@ -152,8 +157,8 @@ private void addFunsForVariantMember(
 		makeParams(ctx.alloc, [param!"a"(Type(memberType))]),
 		FunFlags.generatedBare,
 		FunBody(FunBody.CreateSumType()));
-	if (member.body_.isA!(StructBody.Record)) {
-		ref StructBody.Record record() => member.body_.as!(StructBody.Record);
+	if (member.body_.isA!Record) {
+		ref Record record() => member.body_.as!Record;
 		funsBuilder ~= funForStruct(
 			sourceStruct,
 			member.name,
@@ -251,7 +256,7 @@ FunDecl newExtern(InstantiateCtx ctx, StructDecl* struct_) =>
 StructInst* instantiateNonTemplateStructDecl(InstantiateCtx ctx, StructDecl* structDecl) =>
 	instantiateStruct(ctx, structDecl, []);
 
-bool recordIsAlwaysByVal(in StructBody.Record record) =>
+bool recordIsAlwaysByVal(in Record record) =>
 	isEmpty(record.fields) || optEqual!ByValOrRef(record.flags.forcedByValOrRef, some(ByValOrRef.byVal));
 
 void addFunsForEnum(
@@ -259,7 +264,7 @@ void addFunsForEnum(
 	scope ref ExactSizeArrayBuilder!FunDecl funsBuilder,
 	ref CommonTypes commonTypes,
 	StructDecl* struct_,
-	ref StructBody.Enum enum_,
+	ref Enum enum_,
 ) {
 	StructInst* inst = instantiateNonTemplateStructDecl(ctx.instantiateCtx, struct_);
 	foreach (ref EnumOrFlagsMember member; enum_.members)
@@ -271,7 +276,7 @@ void addFunsForFlags(
 	scope ref ExactSizeArrayBuilder!FunDecl funsBuilder,
 	ref CommonTypes commonTypes,
 	StructDecl* struct_,
-	ref StructBody.Flags flags,
+	ref Flags flags,
 ) {
 	StructInst* inst = instantiateNonTemplateStructDecl(ctx.instantiateCtx, struct_);
 	FunDecl make(Symbol name, Type returnType, in ParamShort[] params, FlagsFunction fun) =>
@@ -309,7 +314,7 @@ void addFunsForRecord(
 	scope ref ExactSizeArrayBuilder!FunDecl funsBuilder,
 	ref CommonTypes commonTypes,
 	StructDecl* struct_,
-	ref StructBody.Record record,
+	ref Record record,
 ) {
 	Type structType = instantiateStructWithTypeArgsFromParams(ctx, struct_);
 	bool byVal = recordIsAlwaysByVal(record);
@@ -329,7 +334,7 @@ void addFunsForRecordConstructor(
 	scope ref ExactSizeArrayBuilder!FunDecl funsBuilder,
 	ref CommonTypes commonTypes,
 	StructDecl* struct_,
-	ref StructBody.Record record,
+	ref Record record,
 	Type structType,
 	bool byVal,
 ) {
@@ -345,7 +350,7 @@ void addFunsForRecordConstructor(
 		FunBody(FunBody.CreateRecord()));
 }
 
-Params recordConstructorParams(ref Alloc alloc, ref StructBody.Record record) =>
+Params recordConstructorParams(ref Alloc alloc, ref Record record) =>
 	Params(map(alloc, record.fields, (ref RecordField x) =>
 		makeParam(alloc, ParamShort(x.name, x.type))));
 
@@ -484,7 +489,7 @@ void addFunsForVariant(
 	scope ref ExactSizeArrayBuilder!FunDecl funsBuilder,
 	ref CommonTypes commonTypes,
 	StructDecl* struct_,
-	ref StructBody.SumType variant,
+	ref SumType variant,
 ) {
 	StructInst* variantInst = instantiateStructWithOwnTypeParams(ctx.instantiateCtx, struct_);
 

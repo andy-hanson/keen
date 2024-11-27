@@ -39,7 +39,6 @@ import model.model :
 	CallExpr,
 	CallOptionExpr,
 	Destructure,
-	DocCommentReference,
 	DocCommentReferenceBogus,
 	EnumOrFlagsMember,
 	Expr,

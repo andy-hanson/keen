@@ -6,24 +6,22 @@ import model.concreteModel :
 	ConcreteField,
 	ConcreteFun,
 	ConcreteStruct,
-	ConcreteStructSource,
 	ConcreteVar,
 	isArrayOrMutArray,
 	isFiber,
+	isPacked,
 	isTuple,
 	name;
 import model.constant : Constant;
 import model.model :
 	Builtin4ary,
 	BuiltinFunInitKind,
-	BuiltinType,
 	BuiltinUnary,
 	BuiltinUnaryMath,
 	BuiltinBinary,
 	BuiltinBinaryMath,
 	BuiltinTernary,
 	Local,
-	StructBody,
 	TypeSize;
 import util.col.array : isEmpty, SmallArray;
 import util.col.map : Map;
@@ -60,15 +58,7 @@ immutable struct LowRecord {
 		lateSet(fields_, x);
 
 	bool isPacked() scope =>
-		source.source.matchIn!bool(
-			(in ConcreteStructSource.Bogus) =>
-				false,
-			(in ConcreteStructSource.Inst x) =>
-				x.decl.body_.isA!BuiltinType
-					? false
-					: x.decl.body_.as!(StructBody.Record).flags.packed,
-			(in ConcreteStructSource.Lambda) =>
-				false);
+		.isPacked(*source);
 }
 
 TypeSize typeSize(in LowRecord a) =>

@@ -179,11 +179,14 @@ import model.model :
 	DiagWithHasElse,
 	DiagWrongNumberTypeArgs,
 	eachDiagnostic,
+	Enum,
 	EnumOrFlagsMember,
 	ExpectedForDiag,
 	ExpectedForDiagChoices,
 	ExpectedForDiagInfer,
 	ExpectedForDiagLoop,
+	ExternType,
+	Flags,
 	FunDeclAndTypeArgs,
 	LibraryNotConfigured,
 	maxValue,
@@ -192,6 +195,7 @@ import model.model :
 	Params,
 	ProgramWithOptMain,
 	ReadError,
+	Record,
 	RelativeImportReachesPastRoot,
 	Signature,
 	SpecBuiltinNotSatisfied,
@@ -199,9 +203,10 @@ import model.model :
 	SpecImplNotFound,
 	SpecTooDeep,
 	SpecDecl,
-	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructInst,
+	SumType,
 	Type,
 	TypeContainer,
 	TypeParamsAndSig,
@@ -1142,7 +1147,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= x.actual;
 			writer ~= ".\nThis should be one of: ";
 			writeWithCommas!EnumOrFlagsMember(
-				writer, x.enum_.body_.as!(StructBody.Enum*).members, (in EnumOrFlagsMember member) {
+				writer, x.enum_.body_.as!(Enum*).members, (in EnumOrFlagsMember member) {
 					writeName(writer, ctx, member.name);
 				});
 		},
@@ -1324,7 +1329,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= '.';
 		},
 		(in DiagPurityWorseThanSumType x) {
-			writer ~= showSumTypeKindUpperCase(x.sumType.decl.body_.as!(StructBody.SumType).kind);
+			writer ~= showSumTypeKindUpperCase(x.sumType.decl.body_.as!SumType.kind);
 			writer ~= ' ';
 			writeName(writer, ctx, x.sumType.decl.name);
 			writer ~= " has purity ";
@@ -1644,37 +1649,37 @@ void writeModifier(scope ref Writer writer, in ShowDiagCtx ctx, ModifierKeyword 
 
 DeclKind declKindOfStruct(StructDecl* a) =>
 	a.body_.matchIn!DeclKind(
-		(in StructBody.Bogus) =>
+		(in StructBodyBogus _) =>
 			assert(false),
 		(in BuiltinType _) =>
 			assert(false),
-		(in StructBody.Enum) =>
+		(in Enum _) =>
 			DeclKind.enum_,
-		(in StructBody.Extern) =>
+		(in ExternType _) =>
 			assert(false),
-		(in StructBody.Flags) =>
+		(in Flags _) =>
 			DeclKind.flags,
-		(in StructBody.Record) =>
+		(in Record _) =>
 			DeclKind.record,
-		(in StructBody.SumType) =>
+		(in SumType _) =>
 			DeclKind.variant);
 
 enum MemberKind { enumMember, flagsMember, recordField }
 MemberKind memberKindOfStruct(StructDecl* a) =>
 	a.body_.matchIn!MemberKind(
-		(in StructBody.Bogus) =>
+		(in StructBodyBogus _) =>
 			assert(false),
 		(in BuiltinType _) =>
 			assert(false),
-		(in StructBody.Enum) =>
+		(in Enum _) =>
 			MemberKind.enumMember,
-		(in StructBody.Extern) =>
+		(in ExternType _) =>
 			assert(false),
-		(in StructBody.Flags) =>
+		(in Flags _) =>
 			MemberKind.flagsMember,
-		(in StructBody.Record) =>
+		(in Record _) =>
 			MemberKind.recordField,
-		(in StructBody.SumType) =>
+		(in SumType _) =>
 			assert(false));
 
 string aOrAnDeclKind(DeclKind a) {

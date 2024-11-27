@@ -44,7 +44,7 @@ import model.model :
 	FunBody,
 	MainFun,
 	ProgramWithMain,
-	StructBody,
+	SumType,
 	TestSelector;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mustHaveIndexOfPointer, small;
@@ -176,7 +176,7 @@ void finishVariants(ref ConcretizeCtx ctx) {
 	foreach (ConcreteFun* fun; ctx.deferredMethods) {
 		ConcreteStruct* sumType = mustBeByVal(fun.params[0].type);
 		size_t methodIndex = mustHaveIndexOfPointer(
-			sumType.source.as!(ConcreteStructSource.Inst).decl.body_.as!(StructBody.SumType).methods,
+			sumType.source.as!(ConcreteStructSource.Inst).decl.body_.as!SumType.methods,
 			fun.source.as!ConcreteFunKey.decl.body_.as!(FunBody.Method).method);
 		MutArr!ConcreteSumTypeCase impls = mustGet(ctx.sumTypeToCases, sumType);
 		fun.overwriteBody(generateCallMethod(ctx, fun, sumType, asTemporaryArray(impls), methodIndex));

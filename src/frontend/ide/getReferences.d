@@ -79,12 +79,15 @@ import model.model :
 	DocCommentReference,
 	eachDescendentExprExcluding,
 	eachDescendentExprIncluding,
+	Enum,
 	EnumOrFlagsMember,
 	Expr,
 	ExprKind,
 	ExprRef,
 	ExternExpr,
+	ExternType,
 	FinallyExpr,
+	Flags,
 	FunBody,
 	funBodyExprRef,
 	FunDecl,
@@ -123,6 +126,7 @@ import model.model :
 	Params,
 	paramsArray,
 	Program,
+	Record,
 	RecordField,
 	RecordFieldPointerExpr,
 	SeqExpr,
@@ -131,9 +135,11 @@ import model.model :
 	SpecInst,
 	StructAlias,
 	StructBody,
+	StructBodyBogus,
 	StructDecl,
 	StructDeclSource,
 	StructInst,
+	SumType,
 	Test,
 	testBodyExprRef,
 	ThrowExpr,
@@ -470,19 +476,19 @@ void eachTypeInStructBody(
 	in TypeCb cb,
 ) {
 	body_.matchIn!void(
-		(in StructBody.Bogus) {},
+		(in StructBodyBogus _) {},
 		(in BuiltinType _) {},
-		(in StructBody.Enum x) {
+		(in Enum x) {
 			eachTypeInEnumOrFlags(commonTypes, structAst, x.storage, cb);
 		},
-		(in StructBody.Extern) {},
-		(in StructBody.Flags x) {
+		(in ExternType _) {},
+		(in Flags x) {
 			eachTypeInEnumOrFlags(commonTypes, structAst, x.storage, cb);
 		},
-		(in StructBody.Record x) {
+		(in Record x) {
 			eachTypeInRecord(x, ast.as!RecordAst, cb);
 		},
-		(in StructBody.SumType x) {
+		(in SumType x) {
 			eachTypeInVariant(x, ast.as!SumTypeAst, cb);
 		});
 }
@@ -494,7 +500,7 @@ void eachTypeInEnumOrFlags(ref CommonTypes commonTypes, in StructDeclAst struct_
 				cb(Type(commonTypes.integrals[storage]), force(keyword.typeArg));
 		}
 }
-void eachTypeInRecord(in StructBody.Record a, in RecordAst ast, in TypeCb cb) {
+void eachTypeInRecord(in Record a, in RecordAst ast, in TypeCb cb) {
 	if (has(ast.params)) {
 		if (force(ast.params).isA!(DestructureAst[])) {
 			zip!(RecordField, DestructureAst)(
@@ -512,7 +518,7 @@ void eachTypeInRecord(in StructBody.Record a, in RecordAst ast, in TypeCb cb) {
 				cb(field.type, force(ast.type));
 		});
 }
-void eachTypeInVariant(in StructBody.SumType a, in SumTypeAst ast, in TypeCb cb) {
+void eachTypeInVariant(in SumType a, in SumTypeAst ast, in TypeCb cb) {
 	zipIfSizeEq!(SumTypeMemberAndMethodImpls, TypeAst)(
 		a.listedMembers, ast.types, (ref SumTypeMemberAndMethodImpls member, ref TypeAst ast) {
 			cb(Type(member.member), ast);
@@ -701,22 +707,22 @@ void eachDocComment(in Module module_, in void delegate(DocComment) @safe @nogc 
 	foreach (StructDecl x; module_.structs) {
 		cb(x.docComment);
 		x.body_.match!void(
-			(StructBody.Bogus) {},
+			(StructBodyBogus) {},
 			(BuiltinType _) {},
-			(ref StructBody.Enum enum_) {
+			(ref Enum enum_) {
 				foreach (EnumOrFlagsMember member; enum_.members)
 					cb(member.docComment);
 			},
-			(StructBody.Extern) {},
-			(StructBody.Flags flags) {
+			(ExternType _) {},
+			(Flags flags) {
 				foreach (EnumOrFlagsMember member; flags.members)
 					cb(member.docComment);
 			},
-			(StructBody.Record record) {
+			(Record record) {
 				foreach (ref RecordField field; record.fields)
 					cb(field.docComment);
 			},
-			(StructBody.SumType variant) {
+			(SumType variant) {
 				foreach (Signature method; variant.methods)
 					cb(method.docComment);
 			});
