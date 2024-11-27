@@ -28,6 +28,7 @@ import model.concreteModel :
 	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
+	ConcreteMatchUnionCase,
 	ConcreteStruct,
 	ConcreteStructBody,
 	ConcreteStructSource,
@@ -57,7 +58,7 @@ import model.concreteModel :
 	UnionAsConcreteExpr,
 	UnionKindConcreteExpr,
 	unwrapOptionType;
-import model.constant : Constant, constantBool, constantZero;
+import model.constant : Constant, constantBool, ConstantUnion, constantZero;
 import model.model :
 	BuiltinBinary, BuiltinFun, BuiltinUnary, Called, EnumOrFlagsMember, FunBody, IntegralType, RecordField, StructBody;
 import util.alloc.alloc : Alloc;
@@ -147,11 +148,11 @@ ConcreteExpr genSome(ref ConcretizeCtx ctx, ConcreteType optionType, in UriAndRa
 }
 ConcreteExpr genConstantSome(ref ConcretizeCtx ctx, ConcreteType optionType, in UriAndRange range, Constant inner) {
 	assertIsOptionType(ctx, optionType);
-	return genConstant(optionType, range, Constant(allocate(ctx.alloc, Constant.Union(1, inner))));
+	return genConstant(optionType, range, Constant(allocate(ctx.alloc, ConstantUnion(1, inner))));
 }
 ConcreteExpr genNone(ref ConcretizeCtx ctx, ConcreteType optionType, in UriAndRange range) {
 	assertIsOptionType(ctx, optionType);
-	return genConstant(optionType, range, Constant(allocate(ctx.alloc, Constant.Union(0, constantZero))));
+	return genConstant(optionType, range, Constant(allocate(ctx.alloc, ConstantUnion(0, constantZero))));
 }
 ConcreteType unwrapOptionType(in ConcretizeCtx ctx, ConcreteType optionType) {
 	assertIsOptionType(ctx, optionType);
@@ -317,12 +318,12 @@ ConcreteExpr genMatchUnion(
 	ConcreteExpr(returnType, range, ConcreteExprKind(allocate(ctx.alloc, MatchUnionConcreteExpr(
 		union_,
 		integralValuesRange(memberTypes.length),
-		mapWithIndex!(MatchUnionConcreteExpr.Case, ConcreteType)(
+		mapWithIndex!(ConcreteMatchUnionCase, ConcreteType)(
 			ctx.alloc, memberTypes, (size_t memberIndex, ref ConcreteType memberType) {
 				ConcreteLocal* local = allocate(ctx.alloc, ConcreteLocal(
 					ConcreteLocalSource(ConcreteGeneratedLocalKind.member),
 					memberType));
-				return MatchUnionConcreteExpr.Case(some(local), cb(memberIndex, genLocalGet(range, local)));
+				return ConcreteMatchUnionCase(some(local), cb(memberIndex, genLocalGet(range, local)));
 			}),
 		none!(ConcreteExpr*)))));
 

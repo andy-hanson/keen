@@ -19,7 +19,7 @@ import model.model :
 	FunPointerExpr,
 	ImportOrExport,
 	Local,
-	MatchIntegralExpr,
+	MatchIntegralKind,
 	Module,
 	NameReferents,
 	RecordField,
@@ -267,7 +267,7 @@ immutable struct PositionMatchEnumCase {
 	EnumOrFlagsMember* member;
 }
 immutable struct PositionMatchIntegralCase {
-	MatchIntegralExpr.Kind kind;
+	MatchIntegralKind kind;
 	IntegralValue value;
 }
 immutable struct PositionMatchStringLikeCase {

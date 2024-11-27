@@ -19,6 +19,7 @@ import model.model :
 	ByValOrRef,
 	CommonTypes,
 	Destructure,
+	DestructureIgnore,
 	DestructureIgnoreSource,
 	EnumOrFlagsMember,
 	FlagsFunction,
@@ -499,7 +500,7 @@ void addFunsForVariant(
 			sig.name,
 			sig.returnType,
 			Params(prepend(ctx.alloc,
-				Destructure(allocate(ctx.alloc, Destructure.Ignore(
+				Destructure(allocate(ctx.alloc, DestructureIgnore(
 					DestructureIgnoreSource(struct_),
 					sig.ast.range.start,
 					Type(variantInst)))),

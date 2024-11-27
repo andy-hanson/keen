@@ -3,7 +3,7 @@ module frontend.check.getBuiltinFun;
 @safe @nogc pure nothrow:
 
 import frontend.check.checkCtx : addDiag, CheckCtx;
-import model.constant : Constant, constantBool, constantZero;
+import model.constant : Constant, constantBool, ConstantFloat, constantZero;
 import model.model :
 	arrayElementType,
 	Builtin4ary,
@@ -365,7 +365,7 @@ FunBody inner(
 		case symbol!"global-init".value:
 			return arity == 0 ? FunBody(BuiltinFun(BuiltinFunInit(BuiltinFunInitKind.global))) : fail();
 		case symbol!"infinity".value:
-			return constant(isFloat32Or64(rt), Constant(Constant.Float(double.infinity)));
+			return constant(isFloat32Or64(rt), Constant(ConstantFloat(double.infinity)));
 		case symbol!"instanceof".value:
 			return isBool(rt) && arity == 2 && isJsAny(p0) && isJsAny(p1)
 				? FunBody(BuiltinFun(JsFun.instanceof))
@@ -409,7 +409,7 @@ FunBody inner(
 		case symbol!"mut-slice-size".value:
 			return arity == 1 && isNat64(rt) && isMutSlice(p0) ? unary(BuiltinUnary.arraySize) : fail();
 		case symbol!"nan".value:
-			return constant(isFloat32Or64(rt), Constant(Constant.Float(double.nan)));
+			return constant(isFloat32Or64(rt), Constant(ConstantFloat(double.nan)));
 		case symbol!"new".value:
 			return isOptionType(rt) ?
 				arity == 0

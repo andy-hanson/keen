@@ -85,6 +85,8 @@ import model.concreteModel :
 	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
+	ConcreteMatchStringLikeCase,
+	ConcreteMatchUnionCase,
 	ConcreteProgram,
 	ConcreteStruct,
 	ConcreteStructBody,
@@ -1543,10 +1545,10 @@ LowExpr getMatchStringLikeExpr(
 ) =>
 	// We don't need a GC root for 'matched' since we use it immediately without yielding
 	withLetTempConstNoGcRoot(ctx, locals, a.matched, (LowExpr matched) =>
-		foldReverse!(LowExpr, MatchStringLikeConcreteExpr.Case)(
+		foldReverse!(LowExpr, ConcreteMatchStringLikeCase)(
 			getLowExpr(ctx, locals, a.else_, exprPos),
 			a.cases,
-			(LowExpr else_, ref MatchStringLikeConcreteExpr.Case case_) =>
+			(LowExpr else_, ref ConcreteMatchStringLikeCase case_) =>
 				genIf(
 					ctx.alloc,
 					range,
@@ -1583,11 +1585,11 @@ SmallArray!LowExpr lowerMatchCases(
 	UriAndRange range,
 	LowExpr* getMatched,
 	IntegralValues memberIndices,
-	in MatchUnionConcreteExpr.Case[] cases,
+	in ConcreteMatchUnionCase[] cases,
 ) =>
-	small!LowExpr(mapWithIndex!(LowExpr, MatchUnionConcreteExpr.Case)(
+	small!LowExpr(mapWithIndex!(LowExpr, ConcreteMatchUnionCase)(
 		ctx.alloc, cases,
-		(size_t caseIndex, ref MatchUnionConcreteExpr.Case case_) =>
+		(size_t caseIndex, ref ConcreteMatchUnionCase case_) =>
 			has(case_.local)
 				? withLowLocal!LowExpr(ctx, locals, force(case_.local), (in Locals newLocals, LowLocal* local) =>
 					genLetPossiblyGcRoot(
@@ -1717,7 +1719,7 @@ LowExpr getTryOrTryLetExpr(
 	UriAndRange range,
 	LowType type,
 	IntegralValues exceptionMemberIndices,
-	in MatchUnionConcreteExpr.Case[] catchCases,
+	in ConcreteMatchUnionCase[] catchCases,
 	in LowExpr delegate(LowExpr restoreCurCatchPoint) @safe @nogc pure nothrow firstBlock,
 ) =>
 	/*

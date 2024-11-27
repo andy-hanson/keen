@@ -3,7 +3,7 @@ module lower.lowExprHelpers;
 @safe @nogc pure nothrow:
 
 import model.concreteModel : ConcreteFun;
-import model.constant : Constant, constantZero;
+import model.constant : Constant, ConstantFunPointer, constantZero;
 import model.model : Builtin4ary, BuiltinUnary, BuiltinUnaryMath, BuiltinBinary, BuiltinBinaryMath, BuiltinTernary;
 import model.lowModel :
 	AbortLowExpr,
@@ -143,7 +143,7 @@ LowExpr genLocalPointer(LowType type, UriAndRange range, LowLocal* local) =>
 	LowExpr(type, range, LowExprKind(LocalPointerLowExpr(local)));
 
 LowExpr genFunPointer(LowType type, UriAndRange range, ConcreteFun* fun) =>
-	LowExpr(type, range, LowExprKind(Constant(Constant.FunPointer(fun))));
+	LowExpr(type, range, LowExprKind(Constant(ConstantFunPointer(fun))));
 LowExpr genFunPointer(LowType type, UriAndRange range, LowFunIndex fun) =>
 	LowExpr(type, range, LowExprKind(FunPointerLowExpr(fun)));
 

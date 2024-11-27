@@ -22,6 +22,8 @@ import model.model :
 	AnyDecl,
 	bestCasePurity,
 	Destructure,
+	DestructureIgnore,
+	DestructureSplit,
 	eachDecl,
 	eachDescendentExprIncluding,
 	Expr,
@@ -249,7 +251,7 @@ void getInlayHintsForDestructure(
 	LineAndCharacter toLineAndCharacter(Pos pos) =>
 		showCtx.lineAndCharacterGetters[typeContainer.moduleUri][pos, PosKind.startOfRange];
 	a.matchIn!void(
-		(in Destructure.Ignore x) {},
+		(in DestructureIgnore x) {},
 		(in Local x) {
 			if (x.source.isA!(SingleDestructureAst*)) {
 				SingleDestructureAst* ast = x.source.as!(SingleDestructureAst*);
@@ -271,7 +273,7 @@ void getInlayHintsForDestructure(
 						paddingLeft: true);
 			}
 		},
-		(in Destructure.Split x) {
+		(in DestructureSplit x) {
 			foreach (Destructure part; x.parts)
 				getInlayHintsForDestructure(alloc, out_, showCtx, typeContainer, part);
 		});

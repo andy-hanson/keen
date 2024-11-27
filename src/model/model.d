@@ -294,7 +294,7 @@ immutable struct Params {
 			(in Destructure[] params) =>
 				Arity(safeToUint(params.length)),
 			(in Varargs _) =>
-				Arity(Arity.Varargs()));
+				Arity(ArityVarargs()));
 }
 immutable struct Varargs {
 	Destructure param;
@@ -313,31 +313,31 @@ SmallArray!Destructure paramsArray(return scope Params a) =>
 Destructure[] assertNonVariadic(Params a) =>
 	a.as!(Destructure[]);
 
-immutable struct Arity {
+private immutable struct Arity {
 	@safe @nogc pure nothrow:
-	immutable struct Varargs {}
-	mixin TaggedUnion!(immutable uint, Varargs);
+	mixin TaggedUnion!(immutable uint, ArityVarargs);
 
 	uint countParamDecls() scope =>
 		matchIn!uint(
 			(in uint x) => x,
-			(in Varargs _) => 1);
+			(in ArityVarargs _) => 1);
 
 	bool isVariadic() scope =>
-		isA!Varargs;
+		isA!ArityVarargs;
 }
+immutable struct ArityVarargs {}
 bool isEmpty(in Arity a) =>
 	a.match!bool(
 		(uint nParams) =>
 			nParams == 0,
-		(Arity.Varargs) =>
+		(ArityVarargs) =>
 			false);
 
 bool arityMatches(in Arity sigArity, size_t nArgs) =>
 	sigArity.match!bool(
 		(uint nParams) =>
 			nParams == nArgs,
-		(Arity.Varargs) =>
+		(ArityVarargs _) =>
 			true);
 
 immutable struct SignatureContainer {
@@ -414,9 +414,9 @@ immutable struct TypeParamsAndSig {
 	uint countSpecs;
 }
 immutable struct ParamsShort {
-	immutable struct Variadic { ParamShort param; Type elementType; }
-	mixin TaggedUnion!(SmallArray!ParamShort, Variadic*);
+	mixin TaggedUnion!(SmallArray!ParamShort, ParamsShortVariadic*);
 }
+immutable struct ParamsShortVariadic { ParamShort param; Type elementType; }
 immutable struct ParamShort {
 	Symbol name;
 	Type type;
@@ -2892,52 +2892,52 @@ immutable struct DestructureIgnoreSource {
 immutable struct Destructure {
 	@safe @nogc pure nothrow:
 
-	// This can come from '_' or '()' (which is the same as '_ void')
-	immutable struct Ignore {
-		DestructureIgnoreSource source;
-		Pos pos;
-		Type type;
-	}
-	immutable struct Split {
-		@safe @nogc pure nothrow:
-		// This will be the type attempted to destructure.
-		// If it can't be destructured, each of 'parts' will have a bogus type.
-		Type destructuredType;
-		SmallArray!Destructure parts;
-
-		bool isValidDestructure(in CommonTypes commonTypes) scope {
-			Opt!(Type[]) types = asTuple(commonTypes, destructuredType);
-			return has(types) && force(types).length == parts.length;
-		}
-	}
-	mixin TaggedUnion!(Ignore*, Local*, Split*);
+	mixin TaggedUnion!(DestructureIgnore*, Local*, DestructureSplit*);
 
 	Opt!Symbol name() scope =>
 		matchIn!(Opt!Symbol)(
-			(in Destructure.Ignore _) =>
+			(in DestructureIgnore _) =>
 				none!Symbol,
 			(in Local x) =>
 				some(x.name),
-			(in Destructure.Split _) =>
+			(in DestructureSplit _) =>
 				none!Symbol);
 
 	Range range() scope =>
 		matchIn!Range(
-			(in Ignore x) =>
+			(in DestructureIgnore x) =>
 				Range(x.pos, x.pos + 1),
 			(in Local x) =>
 				localMustHaveRange(x),
-			(in Split x) =>
+			(in DestructureSplit x) =>
 				combineRanges(x.parts[0].range, x.parts[$ - 1].range));
 
 	Type type() scope =>
 		matchIn!Type(
-			(in Ignore x) =>
+			(in DestructureIgnore x) =>
 				x.type,
 			(in Local x) =>
 				x.type,
-			(in Split x) =>
+			(in DestructureSplit x) =>
 				x.destructuredType);
+}
+// This can come from '_' or '()' (which is the same as '_ void')
+immutable struct DestructureIgnore {
+	DestructureIgnoreSource source;
+	Pos pos;
+	Type type;
+}
+immutable struct DestructureSplit {
+	@safe @nogc pure nothrow:
+	// This will be the type attempted to destructure.
+	// If it can't be destructured, each of 'parts' will have a bogus type.
+	Type destructuredType;
+	SmallArray!Destructure parts;
+
+	bool isValidDestructure(in CommonTypes commonTypes) scope {
+		Opt!(Type[]) types = asTuple(commonTypes, destructuredType);
+		return has(types) && force(types).length == parts.length;
+	}
 }
 void eachLocal(Destructure a, in void delegate(Local*) @safe @nogc pure nothrow cb) {
 	Opt!bool res = firstLocal!bool(a, (Local* x) {
@@ -2948,11 +2948,11 @@ void eachLocal(Destructure a, in void delegate(Local*) @safe @nogc pure nothrow 
 }
 Opt!Out firstLocal(Out)(Destructure a, in Opt!Out delegate(Local*) @safe @nogc pure nothrow cb) =>
 	a.matchWithPointers!(Opt!Out)(
-		(Destructure.Ignore*) =>
+		(DestructureIgnore*) =>
 			none!Out,
 		(Local* x) =>
 			cb(x),
-		(Destructure.Split* x) =>
+		(DestructureSplit* x) =>
 			first!(Out, Destructure)(x.parts, (Destructure part) =>
 				firstLocal!Out(part, cb)));
 
@@ -2966,9 +2966,8 @@ immutable struct DocComment {
 }
 
 immutable struct DocCommentReference {
-	immutable struct Bogus {}
 	mixin Union!(
-		Bogus,
+		DocCommentReferenceBogus,
 		CalledSpecSig,
 		EnumOrFlagsMember*,
 		FunDecl*,
@@ -2981,6 +2980,7 @@ immutable struct DocCommentReference {
 		TypeParamIndex,
 		VarDecl*);
 }
+immutable struct DocCommentReferenceBogus {}
 alias DocCommentReferences = SmallArray!DocCommentReference;
 DocCommentReferences emptyDocCommentReferences() =>
 	emptySmallArray!DocCommentReference;
@@ -3039,11 +3039,11 @@ immutable struct ExprAndType {
 }
 
 immutable struct Condition {
-	immutable struct UnpackOption {
-		Destructure destructure;
-		ExprAndType option;
-	}
 	mixin TaggedUnion!(Expr*, UnpackOption*);
+}
+immutable struct UnpackOption {
+	Destructure destructure;
+	ExprAndType option;
 }
 
 immutable struct ExternCondition {
@@ -3244,8 +3244,8 @@ immutable struct LambdaExpr {
 	// We don't know whether this lambda is for the main body or for the optional 'else'.
 	// But if it is from the `else`, this function will return true.
 	bool isIgnore() scope =>
-		param.isA!(Destructure.Ignore*) &&
-		param.as!(Destructure.Ignore*).source.isA!(VoidDestructureAst*);
+		param.isA!(DestructureIgnore*) &&
+		param.as!(DestructureIgnore*).source.isA!(VoidDestructureAst*);
 }
 enum LambdaKind {
 	data,
@@ -3307,23 +3307,23 @@ immutable struct MatchEnumExpr {
 	@safe @nogc pure nothrow:
 
 	ExprAndType matched;
-	immutable struct Case {
-		immutable EnumOrFlagsMember* member;
-		Expr then;
-	}
-	SmallArray!Case cases;
+	SmallArray!MatchEnumCase cases;
 	Opt!Expr else_;
 
 	StructDecl* enum_() {
 		StructInst* inst = matched.type.as!(StructInst*);
 		assert(isEmpty(inst.typeArgs));
 		StructDecl* res = inst.decl;
-		assert(every!Case(cases, (in Case x) => x.member.containingEnum == res));
+		assert(every!MatchEnumCase(cases, (in MatchEnumCase x) => x.member.containingEnum == res));
 		return res;
 	}
 
 	StructBody.Enum* enumBody() =>
 		enum_.body_.as!(StructBody.Enum*);
+}
+immutable struct MatchEnumCase {
+	EnumOrFlagsMember* member;
+	Expr then;
 }
 
 Range caseNameRange(in Expr matchExpr, size_t caseIndex) {
@@ -3339,36 +3339,35 @@ Range caseNameRange(in Expr matchExpr, size_t caseIndex) {
 
 // Match on charX, intX, natX type
 immutable struct MatchIntegralExpr {
-	immutable struct Kind {
-		@safe @nogc pure nothrow:
-		mixin TaggedUnion!(CharType, IntegralType);
-		bool isSigned() =>
-			match!bool(
-				(CharType _) => false,
-				(IntegralType x) => .isSigned(x));
-	}
-	immutable struct Case {
-		IntegralValue value;
-		Expr then;
-	}
-	Kind kind;
+	MatchIntegralKind kind;
 	ExprAndType matched;
-	SmallArray!Case cases;
+	SmallArray!MatchIntegralCase cases;
 	Expr else_;
+}
+immutable struct MatchIntegralKind {
+	@safe @nogc pure nothrow:
+	mixin TaggedUnion!(CharType, IntegralType);
+	bool isSigned() =>
+		match!bool(
+			(CharType _) => false,
+			(IntegralType x) => .isSigned(x));
+}
+immutable struct MatchIntegralCase {
+	IntegralValue value;
+	Expr then;
 }
 
 // Match on symbol, string, char8 array, char8[], char32 array, char32[]
 immutable struct MatchStringLikeExpr {
-	immutable struct Case {
-		string value;
-		Expr then;
-	}
-
 	StringLiteralKind kind;
 	ExprAndType matched;
 	Called equals; // == function for the type
-	SmallArray!Case cases;
+	SmallArray!MatchStringLikeCase cases;
 	Expr else_;
+}
+immutable struct MatchStringLikeCase {
+	string value;
+	Expr then;
 }
 
 immutable struct MatchSumTypeExpr {
@@ -3537,7 +3536,7 @@ Opt!T findDirectChildExpr(T)(
 		cond.matchWithPointers!ExprRef(
 			(Expr* x) =>
 				ExprRef(x, boolType),
-			(Condition.UnpackOption* x) =>
+			(UnpackOption* x) =>
 				toRef(&x.option));
 	Opt!T directChildInMatchSumTypeCases(MatchSumTypeCase[] cases) =>
 		firstPointer!(T, MatchSumTypeCase)(cases, (MatchSumTypeCase* x) =>
@@ -3622,18 +3621,18 @@ Opt!T findDirectChildExpr(T)(
 		(MatchEnumExpr* x) =>
 			optOr!T(
 				cb(toRef(&x.matched)),
-				() => firstPointer!(T, MatchEnumExpr.Case)(x.cases, (MatchEnumExpr.Case* y) => cb(sameType(&y.then))),
+				() => firstPointer!(T, MatchEnumCase)(x.cases, (MatchEnumCase* y) => cb(sameType(&y.then))),
 				() => has(x.else_) ? cb(sameType(&force(x.else_))) : none!T),
 		(MatchIntegralExpr* x) =>
 			optOr!T(
 				cb(toRef(&x.matched)),
-				() => firstPointer!(T, MatchIntegralExpr.Case)(x.cases, (MatchIntegralExpr.Case* y) =>
+				() => firstPointer!(T, MatchIntegralCase)(x.cases, (MatchIntegralCase* y) =>
 					cb(sameType(&y.then))),
 				() => cb(sameType(&x.else_))),
 		(MatchStringLikeExpr* x) =>
 			optOr!T(
 				cb(toRef(&x.matched)),
-				() => firstPointer!(T, MatchStringLikeExpr.Case)(x.cases, (MatchStringLikeExpr.Case* y) =>
+				() => firstPointer!(T, MatchStringLikeCase)(x.cases, (MatchStringLikeCase* y) =>
 					cb(sameType(&y.then))),
 				() => cb(sameType(&x.else_))),
 		(MatchSumTypeExpr* x) =>
@@ -4244,26 +4243,27 @@ immutable struct DiagSpecMatchMultiple {
 	FunDeclAndTypeArgs[] trace;
 }
 immutable struct DiagSpecNoMatch {
-	immutable struct Reason {
-		immutable struct BuiltinNotSatisfied {
-			BuiltinSpec kind;
-			Type type;
-		}
-		immutable struct CantInferTypeArguments {
-			// Since we didn't infer type args, it can't go onto the trace.
-			FunDecl* fun;
-		}
-		immutable struct SpecImplNotFound {
-			Signature* sigDecl;
-			ReturnAndParamTypes sigType;
-		}
-		immutable struct TooDeep {}
-		mixin Union!(BuiltinNotSatisfied, CantInferTypeArguments, SpecImplNotFound, TooDeep);
-	}
 	TypeContainer outermostTypeContainer;
-	Reason reason;
+	SpecNoMatchReason reason;
 	FunDeclAndTypeArgs[] trace;
 }
+immutable struct SpecNoMatchReason {
+	mixin Union!(SpecBuiltinNotSatisfied, SpecCantInferTypeArgs, SpecImplNotFound, SpecTooDeep);
+}
+immutable struct SpecBuiltinNotSatisfied {
+	BuiltinSpec kind;
+	Type type;
+}
+immutable struct SpecCantInferTypeArgs {
+	// Since we didn't infer type args, it can't go onto the trace.
+	FunDecl* fun;
+}
+immutable struct SpecImplNotFound {
+	Signature* sigDecl;
+	ReturnAndParamTypes sigType;
+}
+immutable struct SpecTooDeep {}
+
 immutable struct DiagSpecRecursion {
 	SpecDecl*[] trace;
 }
@@ -4329,16 +4329,17 @@ immutable struct DiagMethodImplVisibility {
 }
 // We don't have any warning at the top-level even though '~' is redundant. This is only within a record.
 immutable struct DiagVisibilityWarning {
-	immutable struct Kind {
-		immutable struct Field { StructDecl* record; Symbol fieldName; }
-		immutable struct FieldMutability { Symbol fieldName; }
-		immutable struct New { StructDecl* record; }
-		mixin Union!(Field, FieldMutability, New);
-	}
-	Kind kind;
+	VisibilityWarningKind kind;
 	Visibility defaultVisibility;
 	Visibility actualVisibility;
 }
+immutable struct VisibilityWarningKind {
+	mixin Union!(VisibilityWarningField, VisibilityWarningFieldMutability, VisibilityWarningNew);
+}
+immutable struct VisibilityWarningField { StructDecl* record; Symbol fieldName; }
+immutable struct VisibilityWarningFieldMutability { Symbol fieldName; }
+immutable struct VisibilityWarningNew { StructDecl* record; }
+
 immutable struct DiagWithHasElse {}
 immutable struct DiagWrongNumberTypeArgs {
 	Symbol name;

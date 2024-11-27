@@ -118,6 +118,8 @@ import model.model :
 	Condition,
 	defaultAssertOrForbidMessage,
 	Destructure,
+	DestructureIgnore,
+	DestructureSplit,
 	eachLocal,
 	eachSpecInFunIncludingParents,
 	Expr,
@@ -144,8 +146,11 @@ import model.model :
 	LoopBreakExpr,
 	LoopContinueExpr,
 	LoopWhileOrUntilExpr,
+	MatchEnumCase,
 	MatchEnumExpr,
+	MatchIntegralCase,
 	MatchIntegralExpr,
+	MatchStringLikeCase,
 	MatchStringLikeExpr,
 	MatchSumTypeCase,
 	MatchSumTypeExpr,
@@ -169,6 +174,7 @@ import model.model :
 	Type,
 	TypedExpr,
 	TypeParamIndex,
+	UnpackOption,
 	Varargs;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapToStackArray;
@@ -372,13 +378,13 @@ JsParams translateFunParams(ref TranslateExprCtx ctx, in FunDecl a, bool omitFir
 }
 JsDestructure translateDestructure(ref TranslateExprCtx ctx, in Destructure a) =>
 	a.matchIn!JsDestructure(
-		(in Destructure.Ignore) =>
+		(in DestructureIgnore) =>
 			JsDestructure(tempName(ctx, symbol!"ignore")),
 		(in Local x) =>
 			JsDestructure(localName(x)),
-		(in Destructure.Split x) =>
+		(in DestructureSplit x) =>
 			translateDestructureSplit(ctx, exprSource(ctx, a.range), x));
-JsDestructure translateDestructureSplit(ref TranslateExprCtx ctx, in Source source, in Destructure.Split x) {
+JsDestructure translateDestructureSplit(ref TranslateExprCtx ctx, in Source source, in DestructureSplit x) {
 	if (x.isValidDestructure(ctx.commonTypes)) {
 		SmallArray!RecordField fields = x.destructuredType.as!(StructInst*).decl.body_.as!(StructBody.Record).fields;
 		return JsDestructure(JsObjectDestructure(
@@ -708,7 +714,7 @@ ExprResult translateIfCb(
 					translateExprToExpr(ctx, cond, Type(ctx.commonTypes.bool_)),
 					translateToStatement(ctx.alloc, source, cbTrueBranch),
 					translateToStatement(ctx.alloc, source, cbFalseBranch))),
-			(ref Condition.UnpackOption x) =>
+			(ref UnpackOption x) =>
 				translateUnpackOption(ctx, source,type, pos, x, cbTrueBranch, cbFalseBranch));
 }
 ExprResult translateUnpackOption(
@@ -716,7 +722,7 @@ ExprResult translateUnpackOption(
 	in Source source,
 	Type type,
 	scope ExprPos pos,
-	ref Condition.UnpackOption unpack,
+	ref UnpackOption unpack,
 	in TranslateCb cbTrueBranch,
 	in TranslateCb cbFalseBranch,
 ) =>
@@ -781,7 +787,7 @@ ExprResult translateLetLikeCb(
 	in StatementsCb cb,
 ) =>
 	forceStatements(ctx, source, pos, (scope ref ArrayBuilder!JsStatement out_, scope ExprPos inner) {
-		if (destructure.isA!(Destructure.Ignore*)) {
+		if (destructure.isA!(DestructureIgnore*)) {
 			if (!value.kind.isA!JsName)
 				add(ctx.alloc, out_, exprStatement(value));
 		} else
@@ -833,7 +839,7 @@ ExprResult translateLoopWhileOrUntil(
 				return translateExpr(ctx, a.after, type, inner);
 			});
 		},
-		(ref Condition.UnpackOption unpack) =>
+		(ref UnpackOption unpack) =>
 			forceStatements(ctx, source, pos, (scope ref ArrayBuilder!JsStatement outerOut, scope ExprPos outerPos) {
 				if (a.isUntil) {
 					/*
@@ -902,9 +908,9 @@ ExprResult translateMatchEnum(
 	forceStatement(ctx, pos, genSwitch(
 		source,
 		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched)),
-		mapWithIndex!(JsSwitchCase, MatchEnumExpr.Case)(
+		mapWithIndex!(JsSwitchCase, MatchEnumCase)(
 			ctx.alloc, a.cases,
-			(size_t caseIndex, ref MatchEnumExpr.Case case_) =>
+			(size_t caseIndex, ref MatchEnumCase case_) =>
 				JsSwitchCase(
 					translateEnumValue(ctx.ctx, exprSource(ctx, caseNameRange(expr, caseIndex)), *case_.member),
 					translateExprToSwitchBlockStatement(ctx, case_.then, type))),
@@ -920,7 +926,7 @@ ExprResult translateMatchIntegral(
 	forceStatement(ctx, pos, genSwitch(
 		source,
 		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched)),
-		map(ctx.alloc, a.cases, (ref MatchIntegralExpr.Case case_) =>
+		map(ctx.alloc, a.cases, (ref MatchIntegralCase case_) =>
 			JsSwitchCase(
 				a.kind.isSigned
 					? genIntegerSigned(source, case_.value.asSigned)
@@ -938,7 +944,7 @@ ExprResult translateMatchStringLike(
 	forceStatement(ctx, pos, genSwitch(
 		source,
 		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched)),
-		map(ctx.alloc, a.cases, (ref MatchStringLikeExpr.Case case_) =>
+		map(ctx.alloc, a.cases, (ref MatchStringLikeCase case_) =>
 			JsSwitchCase(
 				genString(source, case_.value),
 				translateExprToSwitchBlockStatement(ctx, case_.then, type))),
@@ -1119,9 +1125,9 @@ ExprResult translateTryLet(
 
 bool hasAnyMutable(in Destructure a) =>
 	a.matchIn!bool(
-		(in Destructure.Ignore) =>
+		(in DestructureIgnore) =>
 			false,
 		(in Local x) =>
 			!x.mutability.isImmutable,
-		(in Destructure.Split x) =>
+		(in DestructureSplit x) =>
 			exists!Destructure(x.parts, (in Destructure part) => hasAnyMutable(part)));

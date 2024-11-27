@@ -70,7 +70,7 @@ import backend.js.translateModuleCtx :
 	translateTestReference,
 	translateVarReference;
 import frontend.storage : FileContentGetters;
-import model.constant : asBool, asInt64, asNat64, Constant;
+import model.constant : asBool, asInt64, asNat64, Constant, ConstantFloat, ConstantZero;
 import model.model :
 	AutoFun,
 	Builtin4ary,
@@ -619,16 +619,16 @@ private ExprResult translateCallBuiltin(
 
 JsExpr translateConstant(ref TranslateModuleCtx ctx, in Source source, in Constant value, in Type type) {
 	if (type.isA!TypeParamIndex) {
-		assert(value.isA!(Constant.Zero));
+		assert(value.isA!ConstantZero);
 		return genNull(source);
 	} else {
 		switch (type.as!(StructInst*).decl.body_.as!BuiltinType) {
 			case BuiltinType.bool_:
 				return genBool(source, asBool(value));
 			case BuiltinType.float32:
-				return toFloat32(ctx.alloc, source, genNumber(source, value.as!(Constant.Float).value));
+				return toFloat32(ctx.alloc, source, genNumber(source, value.as!ConstantFloat.value));
 			case BuiltinType.float64:
-				return genNumber(source, value.as!(Constant.Float).value);
+				return genNumber(source, value.as!ConstantFloat.value);
 			case BuiltinType.int8:
 			case BuiltinType.int16:
 			case BuiltinType.int32:

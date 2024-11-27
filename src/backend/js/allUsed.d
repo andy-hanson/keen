@@ -45,6 +45,8 @@ import model.model :
 	CommonTypes,
 	Condition,
 	Destructure,
+	DestructureIgnore,
+	DestructureSplit,
 	eachDirectChildExpr,
 	eachImportOrReExport,
 	eachSpecSigAndImpl,
@@ -602,13 +604,13 @@ void trackAllUsedInTest(ref AllUsedBuilder res, Uri from, Test* test) {
 }
 void trackAllUsedInDestructure(ref AllUsedBuilder res, Uri from, Destructure a) {
 	a.match!void(
-		(ref Destructure.Ignore x) {
+		(ref DestructureIgnore x) {
 			trackAllUsedInType(res, from, x.type);
 		},
 		(ref Local x) {
 			trackAllUsedInType(res, from, x.type);
 		},
-		(ref Destructure.Split x) {
+		(ref DestructureSplit x) {
 			trackAllUsedInType(res, from, x.destructuredType);
 			foreach (Destructure part; x.parts)
 				trackAllUsedInDestructure(res, from, part);

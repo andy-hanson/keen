@@ -17,6 +17,8 @@ import model.concreteModel :
 	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
+	ConcreteMatchStringLikeCase,
+	ConcreteMatchUnionCase,
 	ConcreteProgram,
 	ConcreteStruct,
 	ConcreteStructBody,
@@ -315,10 +317,10 @@ Json jsonOfConcreteExprKind(ref Alloc alloc, in Ctx ctx, in ConcreteExprKind a) 
 			jsonObject(alloc, [
 				kindField!"match-string-like",
 				field!"value"(jsonOfConcreteExpr(alloc, ctx, x.matched)),
-				field!"cases"(jsonList!(MatchStringLikeConcreteExpr.Case)(
+				field!"cases"(jsonList!ConcreteMatchStringLikeCase(
 					alloc,
 					x.cases,
-					(in MatchStringLikeConcreteExpr.Case case_) =>
+					(in ConcreteMatchStringLikeCase case_) =>
 						jsonObject(alloc, [
 							field!"value"(jsonOfConcreteExpr(alloc, ctx, case_.value)),
 						field!"then"(jsonOfConcreteExpr(alloc, ctx, case_.then))]))),
@@ -379,11 +381,11 @@ Json jsonOfConcreteExprKind(ref Alloc alloc, in Ctx ctx, in ConcreteExprKind a) 
 				kindField!"union-kind",
 				field!"union"(jsonOfConcreteExpr(alloc, ctx, *x.union_))]));
 
-Json jsonOfMatchUnionCases(ref Alloc alloc, in Ctx ctx, in MatchUnionConcreteExpr.Case[] cases) =>
-	jsonList!(MatchUnionConcreteExpr.Case)(alloc, cases, (in MatchUnionConcreteExpr.Case x) =>
+Json jsonOfMatchUnionCases(ref Alloc alloc, in Ctx ctx, in ConcreteMatchUnionCase[] cases) =>
+	jsonList!ConcreteMatchUnionCase(alloc, cases, (in ConcreteMatchUnionCase x) =>
 		jsonOfMatchUnionCase(alloc, ctx, x));
 
-Json jsonOfMatchUnionCase(ref Alloc alloc, in Ctx ctx, in MatchUnionConcreteExpr.Case a) =>
+Json jsonOfMatchUnionCase(ref Alloc alloc, in Ctx ctx, in ConcreteMatchUnionCase a) =>
 	jsonObject(alloc, [
 		optionalField!("local", ConcreteLocal*)(a.local, (in ConcreteLocal* local) =>
 			jsonOfConcreteLocalDeclare(alloc, *local)),

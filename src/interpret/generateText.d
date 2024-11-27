@@ -4,7 +4,16 @@ module interpret.generateText;
 
 import interpret.bytecode : TextIndex;
 import interpret.funToReferences : FunToReferences, registerTextReference;
-import model.constant : Constant;
+import model.constant :
+	Constant,
+	ConstantArray,
+	ConstantCString,
+	ConstantFloat,
+	ConstantFunPointer,
+	ConstantPointer,
+	ConstantRecord,
+	ConstantUnion,
+	ConstantZero;
 import model.lowModel :
 	AllConstantsLow,
 	ArrTypeAndConstantsLow,
@@ -91,18 +100,18 @@ immutable struct TextArrInfo {
 	ubyte* textPtr;
 }
 
-TextArrInfo getTextInfoForArray(ref TextInfo info, in AllConstantsLow allConstants, Constant.ArrConstant a) {
+TextArrInfo getTextInfoForArray(ref TextInfo info, in AllConstantsLow allConstants, ConstantArray a) {
 	size_t constantSize = allConstants.arrs[a.typeIndex].constants[a.index].length;
 	size_t textIndex = info.arrTypeIndexToConstantIndexToTextIndex[a.typeIndex][a.index];
 	return TextArrInfo(constantSize, &info.text[textIndex]);
 }
 
-immutable(ubyte*) getTextPointer(ref TextInfo info, Constant.Pointer a) {
+immutable(ubyte*) getTextPointer(ref TextInfo info, ConstantPointer a) {
 	size_t textIndex = info.pointeeTypeIndexToIndexToTextIndex[a.typeIndex][a.index];
 	return &info.text[textIndex];
 }
 
-immutable(ubyte*) getTextPointerForCString(ref TextInfo info, Constant.CString a) =>
+immutable(ubyte*) getTextPointerForCString(ref TextInfo info, ConstantCString a) =>
 	&info.text[info.cStringIndexToTextIndex[a.index]];
 
 TextAndInfo generateText(
@@ -193,40 +202,40 @@ struct Ctx {
 // Write out any constants that this points to.
 void ensureConstant(ref Alloc alloc, ref TempAlloc tempAlloc, ref Ctx ctx, in LowType t, in Constant c) {
 	c.matchIn!void(
-		(in Constant.ArrConstant it) {
-			ArrTypeAndConstantsLow* arrs = &ctx.program.allConstants.arrs[it.typeIndex];
+		(in ConstantArray x) {
+			ArrTypeAndConstantsLow* arrs = &ctx.program.allConstants.arrs[x.typeIndex];
 			assert(arrs.arrType == t.as!(LowRecord*));
 			recurWriteArr(
 				alloc,
 				tempAlloc,
 				ctx,
-				it.typeIndex,
+				x.typeIndex,
 				arrs.elementType,
-				it.index,
-				arrs.constants[it.index]);
+				x.index,
+				arrs.constants[x.index]);
 		},
-		(in Constant.CString) {
+		(in ConstantCString _) {
 			// We wrote out all CStrings first, so no need to do anything here.
 		},
-		(in Constant.Float) {},
-		(in Constant.FunPointer) {},
+		(in ConstantFloat _) {},
+		(in ConstantFunPointer _) {},
 		(in IntegralValue _) {},
-		(in Constant.Pointer it) {
-			PointerTypeAndConstantsLow* ptrs = &ctx.program.allConstants.pointers[it.typeIndex];
+		(in ConstantPointer x) {
+			PointerTypeAndConstantsLow* ptrs = &ctx.program.allConstants.pointers[x.typeIndex];
 			assert(ptrs.pointeeType == asGcPointee(t));
 			recurWritePointer(
 				alloc, tempAlloc, ctx,
-				it.typeIndex, ptrs.pointeeType, it.index, ptrs.constants[it.index]);
+				x.typeIndex, ptrs.pointeeType, x.index, ptrs.constants[x.index]);
 		},
-		(in Constant.Record x) {
+		(in ConstantRecord x) {
 			zip!(LowField, Constant)(t.as!(LowRecord*).fields, x.args, (ref LowField field, ref Constant arg) {
 				ensureConstant(alloc, tempAlloc, ctx, field.type, arg);
 			});
 		},
-		(in Constant.Union x) {
+		(in ConstantUnion x) {
 			ensureConstant(alloc, tempAlloc, ctx, t.as!(LowUnion*).members[x.memberIndex], x.arg);
 		},
-		(in Constant.Zero) {});
+		(in ConstantZero _) {});
 }
 
 void recurWriteArr(
@@ -284,17 +293,17 @@ void writeConstant(ref Alloc alloc, ref TempAlloc tempAlloc, ref Ctx ctx, in Low
 	size_t typeSize = typeSizeBytes(ctx.program, type);
 
 	constant.matchIn!void(
-		(in Constant.ArrConstant x) {
+		(in ConstantArray x) {
 			//TODO:DUP CODE (see getTextInfoForArray)
 			size_t constantSize = ctx.program.allConstants.arrs[x.typeIndex].constants[x.index].length;
 			add64(ctx.text, constantSize);
 			size_t textIndex = ctx.arrTypeIndexToConstantIndexToTextIndex[x.typeIndex][x.index];
 			add64TextPtr(ctx.text, textIndex);
 		},
-		(in Constant.CString x) {
+		(in ConstantCString x) {
 			add64TextPtr(ctx.text, ctx.cStringIndexToTextIndex[x.index]);
 		},
-		(in Constant.Float x) {
+		(in ConstantFloat x) {
 			switch (type.as!PrimitiveType) {
 				case PrimitiveType.float32:
 					add32(ctx.text, bitsOfFloat32(x.value));
@@ -306,7 +315,7 @@ void writeConstant(ref Alloc alloc, ref TempAlloc tempAlloc, ref Ctx ctx, in Low
 					assert(false);
 			}
 		},
-		(in Constant.FunPointer x) {
+		(in ConstantFunPointer x) {
 			LowFunIndex fun = mustGet(ctx.program.concreteFunToLowFunIndex, x.fun);
 			registerTextReference(
 				tempAlloc,
@@ -343,11 +352,11 @@ void writeConstant(ref Alloc alloc, ref TempAlloc tempAlloc, ref Ctx ctx, in Low
 					break;
 			}
 		},
-		(in Constant.Pointer x) {
+		(in ConstantPointer x) {
 			size_t textIndex = ctx.pointeeTypeIndexToIndexToTextIndex[x.typeIndex][x.index];
 			add64TextPtr(ctx.text, textIndex);
 		},
-		(in Constant.Record x) {
+		(in ConstantRecord x) {
 			size_t start = exactSizeArrBuilderCurSize(ctx.text);
 			zip!(LowField, Constant)(type.as!(LowRecord*).fields, x.args, (ref LowField field, ref Constant value) {
 				padTo(ctx.text, start + field.offset);
@@ -355,7 +364,7 @@ void writeConstant(ref Alloc alloc, ref TempAlloc tempAlloc, ref Ctx ctx, in Low
 			});
 			padTo(ctx.text, start + typeSize);
 		},
-		(in Constant.Union x) {
+		(in ConstantUnion x) {
 			add64(ctx.text, x.memberIndex);
 			LowType memberType = type.as!(LowUnion*).members[x.memberIndex];
 			writeConstant(alloc, tempAlloc, ctx, memberType, x.arg);
@@ -364,7 +373,7 @@ void writeConstant(ref Alloc alloc, ref TempAlloc tempAlloc, ref Ctx ctx, in Low
 			size_t padding = unionSize - 8 - memberSize;
 			add0Bytes(ctx.text, padding);
 		},
-		(in Constant.Zero) {
+		(in ConstantZero) {
 			add0Bytes(ctx.text, typeSize);
 		});
 

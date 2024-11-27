@@ -21,6 +21,7 @@ import model.model :
 	DiagNameNotFound,
 	DiagNameNotFoundKind,
 	DocCommentReference,
+	DocCommentReferenceBogus,
 	DocCommentReferences,
 	EnumOrFlagsMember,
 	emptySpecs,
@@ -166,7 +167,7 @@ DocCommentReference checkDocCommentReference(
 		() => referenceFun(ctx, funsMap, specs, name),
 		() {
 			addDiag(ctx, ast.range, Diag(DiagNameNotFound(DiagNameNotFoundKind.docCommentReference, name)));
-			return DocCommentReference(DocCommentReference.Bogus());
+			return DocCommentReference(DocCommentReferenceBogus());
 		});
 }
 

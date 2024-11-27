@@ -17,7 +17,16 @@ import backend.writeTypes : TypeWriters, writeTypes;
 import frontend.lang : CCompileOptions, CVersion, OptimizationLevel;
 import frontend.showModel : ShowCtx;
 import model.concreteModel : ConcreteStruct, ConcreteStructBody, isEmptyStruct;
-import model.constant : Constant;
+import model.constant :
+	Constant,
+	ConstantArray,
+	ConstantCString,
+	ConstantFloat,
+	ConstantFunPointer,
+	ConstantPointer,
+	ConstantRecord,
+	ConstantUnion,
+	ConstantZero;
 import model.lowModel :
 	AbortLowExpr,
 	AllConstantsLow,
@@ -1485,7 +1494,7 @@ void writeConstantRef(
 ) {
 	assert(!isEmptyType(ctx, type));
 	a.matchIn!void(
-		(in Constant.ArrConstant x) {
+		(in ConstantArray x) {
 			if (pos == ConstantRefPos.outer) writeCastToType(writer, ctx, type);
 			size_t size = ctx.program.allConstants.arrs[x.typeIndex].constants[x.index].length;
 			writer ~= '{';
@@ -1497,10 +1506,10 @@ void writeConstantRef(
 				writeConstantArrStorageName(writer, ctx.mangledNames, ctx.program, type.as!(LowRecord*), x.index);
 			writer ~= '}';
 		},
-		(in Constant.CString x) {
+		(in ConstantCString x) {
 			writeCStringName(writer, x.index);
 		},
-		(in Constant.Float x) {
+		(in ConstantFloat x) {
 			switch (type.as!PrimitiveType) {
 				case PrimitiveType.float32:
 					writeCastToType(writer, ctx, type);
@@ -1512,7 +1521,7 @@ void writeConstantRef(
 			}
 			writeFloatLiteralForC(writer, x.value);
 		},
-		(in Constant.FunPointer x) {
+		(in ConstantFunPointer x) {
 			if (isPointerNonGc(type))
 				writer ~= "((uint8_t*)";
 			writeFunPointer(writer, ctx, mustGet(ctx.program.concreteFunToLowFunIndex, x.fun));
@@ -1522,11 +1531,11 @@ void writeConstantRef(
 		(in IntegralValue x) {
 			writeConstantIntegral(writer, ctx, type, x);
 		},
-		(in Constant.Pointer it) {
+		(in ConstantPointer it) {
 			writer ~= '&';
 			writeConstantPointerStorageName(writer, ctx.mangledNames, ctx.program, asGcPointee(type), it.index);
 		},
-		(in Constant.Record it) {
+		(in ConstantRecord it) {
 			if (pos == ConstantRefPos.outer)
 				writeCastToType(writer, ctx, type);
 			writer ~= '{';
@@ -1541,12 +1550,12 @@ void writeConstantRef(
 				});
 			writer ~= '}';
 		},
-		(in Constant.Union x) {
+		(in ConstantUnion x) {
 			writeCreateUnion(writer, ctx, pos, type, x.memberIndex, () {
 				writeConstantRef(writer, ctx, ConstantRefPos.inner, type.as!(LowUnion*).members[x.memberIndex], x.arg);
 			});
 		},
-		(in Constant.Zero) {
+		(in ConstantZero) {
 			writeZeroedValue(writer, ctx, type);
 		});
 }

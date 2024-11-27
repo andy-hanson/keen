@@ -6,7 +6,6 @@ import frontend.ide.position :
 	assertLocalContainer,
 	ExprContainer,
 	ExpressionPosition,
-	ExpressionPositionKind,
 	ExpressionPositionLiteral,
 	ExprKeyword,
 	LocalRef,
@@ -16,7 +15,6 @@ import frontend.ide.position :
 	PositionImportedModule,
 	PositionImportedName,
 	PositionKeyword,
-	PositionKind,
 	PositionLocal,
 	PositionMatchEnumCase,
 	PositionMatchIntegralCase,
@@ -42,6 +40,7 @@ import model.model :
 	CallOptionExpr,
 	Destructure,
 	DocCommentReference,
+	DocCommentReferenceBogus,
 	EnumOrFlagsMember,
 	Expr,
 	ExprRef,
@@ -95,7 +94,7 @@ Opt!Target targetForPosition(Position pos) =>
 	pos.kind.matchWithPointers!(Opt!Target)(
 		(PositionDocRef docRef) =>
 			docRef.ref_.matchWithPointers!(Opt!Target)(
-				(DocCommentReference.Bogus) =>
+				(DocCommentReferenceBogus _) =>
 					none!Target,
 				(CalledSpecSig x) =>
 					some(Target(x.nonInstantiatedSig)),

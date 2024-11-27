@@ -9,7 +9,7 @@ import model.concreteModel :
 	ConcreteStructSource,
 	ConcreteType,
 	PointerTypeAndConstantsConcrete;
-import model.constant : Constant, constantZero;
+import model.constant : Constant, ConstantArray, ConstantCString, ConstantPointer, constantZero;
 import util.alloc.alloc : Alloc;
 import util.col.array : arraysEqual, fillArray, findIndex, isEmpty, map, only;
 import util.col.mutArr : asTemporaryArray, moveToArray, MutArr, mutArrSize, push;
@@ -25,8 +25,8 @@ import util.util : ptrTrustMe;
 struct AllConstantsBuilder {
 	private:
 	@disable this(ref const AllConstantsBuilder);
-	MutMap!(immutable string, Constant.CString) cStrings;
-	MutMap!(Symbol, Constant.CString) symbols;
+	MutMap!(immutable string, ConstantCString) cStrings;
+	MutMap!(Symbol, ConstantCString) symbols;
 	MutArr!CString cStringValues;
 	MutMap!(ConcreteType, ArrTypeAndConstants) arrs;
 	MutMap!(ConcreteStruct*, PointerTypeAndConstants) pointers;
@@ -51,7 +51,7 @@ AllConstantsConcrete finishAllConstants(
 ) {
 	Constant staticSymbols = getConstantArray(
 		alloc, a, symbolArrayStruct,
-		mapToArray!(Constant, Symbol, Constant.CString)(alloc, a.symbols, (Symbol _, ref Constant.CString v) =>
+		mapToArray!(Constant, Symbol, ConstantCString)(alloc, a.symbols, (Symbol _, ref ConstantCString v) =>
 			Constant(v)));
 
 	ArrTypeAndConstantsConcrete[] arrays = fillArray!ArrTypeAndConstantsConcrete(
@@ -81,7 +81,7 @@ Constant getConstantPointer(
 ) {
 	PointerTypeAndConstants* d = ptrTrustMe(getOrAdd(alloc, constants.pointers, pointee, () =>
 		PointerTypeAndConstants(safeToUint(size(constants.pointers)), MutArr!(immutable Constant)())));
-	return Constant(Constant.Pointer(
+	return Constant(ConstantPointer(
 		d.typeIndex,
 		findOrPush!Constant(alloc, d.constants, (in Constant a) => a == value, () => value)));
 }
@@ -108,15 +108,15 @@ Constant getConstantArray(
 			d.constants,
 			(in Constant[] x) => arraysEqual!Constant(x, elements),
 			() => elements);
-		return Constant(Constant.ArrConstant(d.typeIndex, index));
+		return Constant(ConstantArray(d.typeIndex, index));
 	}
 }
 
 Constant getConstantCString(ref Alloc alloc, ref AllConstantsBuilder allConstants, string value) =>
 	Constant(getConstantCStringInner(alloc, allConstants, value));
 
-private Constant.CString getConstantCStringInner(ref Alloc alloc, ref AllConstantsBuilder allConstants, string value) =>
-	getOrAdd!(immutable string, Constant.CString)(
+private ConstantCString getConstantCStringInner(ref Alloc alloc, ref AllConstantsBuilder allConstants, string value) =>
+	getOrAdd!(immutable string, ConstantCString)(
 		alloc,
 		allConstants.cStrings,
 		value,
@@ -124,7 +124,7 @@ private Constant.CString getConstantCStringInner(ref Alloc alloc, ref AllConstan
 			uint index = safeToUint(mutArrSize(allConstants.cStringValues));
 			assert(size(allConstants.cStrings) == index);
 			push(alloc, allConstants.cStringValues, copyToCString(alloc, value));
-			return Constant.CString(index);
+			return ConstantCString(index);
 		});
 
 Constant getConstantString(
@@ -139,7 +139,7 @@ Constant getConstantString(
 			Constant(IntegralValue(x))));
 
 Constant getConstantSymbol(ref Alloc alloc, ref AllConstantsBuilder allConstants, Symbol value) =>
-	Constant(getOrAdd!(Symbol, Constant.CString)(alloc, allConstants.symbols, value, () =>
+	Constant(getOrAdd!(Symbol, ConstantCString)(alloc, allConstants.symbols, value, () =>
 		getConstantCStringInner(alloc, allConstants, stringOfSymbol(alloc, value))));
 
 private:

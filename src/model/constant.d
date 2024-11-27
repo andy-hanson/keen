@@ -14,90 +14,99 @@ import util.union_ : Union;
 immutable struct Constant {
 	@safe @nogc pure nothrow:
 
-	immutable struct ArrConstant {
-		uint typeIndex; // Index of the arr type in AllConstants
-		uint index; // Index into AllConstants#arrs for this type.
-	}
-	// Nul-terminated string identified only by its begin pointer.
-	immutable struct CString {
-		uint index; // Index into AllConstants#cStrings
-	}
-	// Used for float32 / float64
-	immutable struct Float {
-		double value;
-	}
-	immutable struct FunPointer {
-		ConcreteFun* fun;
-	}
-	// Pointer (or gc-pointer) to another constant
-	immutable struct Pointer {
-		uint typeIndex;
-		uint index; // Index into AllConstants#pointers for this type
-	}
-	// This is a record by-value.
-	immutable struct Record {
-		SmallArray!Constant args;
-	}
-	immutable struct Union {
-		size_t memberIndex;
-		Constant arg;
-	}
-	// All 0 bits. Good for null, void, or empty value of 'extern' type.
-	immutable struct Zero {}
-
-	mixin .Union!(ArrConstant, CString, Float, FunPointer, IntegralValue, Pointer, Record, Union*, Zero);
+	mixin Union!(
+		ConstantArray,
+		ConstantCString,
+		ConstantFloat,
+		ConstantFunPointer,
+		IntegralValue,
+		ConstantPointer,
+		ConstantRecord,
+		ConstantUnion*,
+		ConstantZero);
 
 	// WARN: Only do this with constants known to have the same type
 	bool opEquals(in Constant b) scope {
-		if (isA!(Constant.Zero) || b.isA!(Constant.Zero))
+		if (isA!ConstantZero || b.isA!ConstantZero)
 			return isZero(this) && isZero(b);
 		else {
 			assert(kind == b.kind);
 			return matchIn!bool(
-				(in Constant.ArrConstant x) =>
-					b.as!(Constant.ArrConstant).index == x.index,
-				(in Constant.CString x) =>
-					b.as!(Constant.CString).index == x.index,
-				(in Constant.Float x) =>
+				(in ConstantArray x) =>
+					b.as!ConstantArray.index == x.index,
+				(in ConstantCString x) =>
+					b.as!ConstantCString.index == x.index,
+				(in ConstantFloat x) =>
 					//TODO: handle NaN
-					b.as!(Constant.Float).value == x.value,
-				(in Constant.FunPointer x) =>
-					b.as!(Constant.FunPointer).fun == x.fun,
+					b.as!ConstantFloat.value == x.value,
+				(in ConstantFunPointer x) =>
+					b.as!ConstantFunPointer.fun == x.fun,
 				(in IntegralValue x) =>
 					b.as!IntegralValue.value == x.value,
-				(in Constant.Pointer x) =>
-					b.as!(Constant.Pointer).index == x.index,
-				(in Constant.Record ra) =>
-					arraysEqual!Constant(ra.args, b.as!(Constant.Record).args),
-				(in Constant.Union ua) =>
-					ua.memberIndex == b.as!(Constant.Union*).memberIndex && ua.arg == b.as!(Constant.Union*).arg,
-				(in Constant.Zero) =>
+				(in ConstantPointer x) =>
+					b.as!ConstantPointer.index == x.index,
+				(in ConstantRecord ra) =>
+					arraysEqual!Constant(ra.args, b.as!ConstantRecord.args),
+				(in ConstantUnion ua) =>
+					ua.memberIndex == b.as!(ConstantUnion*).memberIndex && ua.arg == b.as!(ConstantUnion*).arg,
+				(in ConstantZero) =>
 					true);
 		}
 	}
 }
 static assert(Constant.sizeof <= 16);
 
+immutable struct ConstantArray {
+	uint typeIndex; // Index of the arr type in AllConstants
+	uint index; // Index into AllConstants#arrs for this type.
+}
+// Nul-terminated string identified only by its begin pointer.
+immutable struct ConstantCString {
+	uint index; // Index into AllConstants#cStrings
+}
+// Used for float32 / float64
+immutable struct ConstantFloat {
+	double value;
+}
+immutable struct ConstantFunPointer {
+	ConcreteFun* fun;
+}
+// Pointer (or gc-pointer) to another constant
+immutable struct ConstantPointer {
+	uint typeIndex;
+	uint index; // Index into AllConstants#pointers for this type
+}
+// This is a record by-value.
+immutable struct ConstantRecord {
+	SmallArray!Constant args;
+}
+immutable struct ConstantUnion {
+	size_t memberIndex;
+	Constant arg;
+}
+// All 0 bits. Good for null, void, or empty value of 'extern' type.
+immutable struct ConstantZero {}
+
 private bool isZero(in Constant a) =>
 	a.matchIn!bool(
-		(in Constant.ArrConstant) =>
+		(in ConstantArray) =>
 			// We only create ArrConstant for non-empty arrays
 			false,
-		(in Constant.CString) =>
+		(in ConstantCString _) =>
 			false,
-		(in Constant.Float x) =>
+		(in ConstantFloat x) =>
 			x.value == 0,
-		(in Constant.FunPointer x) =>
+		(in ConstantFunPointer x) =>
 			false,
 		(in IntegralValue x) =>
 			x.value == 0,
-		(in Constant.Pointer x) =>
+		(in ConstantPointer x) =>
 			false,
-		(in Constant.Record x) =>
+		(in ConstantRecord x) =>
 			every!Constant(x.args, (in Constant arg) => isZero(arg)),
-		(in Constant.Union x) =>
+		(in ConstantUnion x) =>
 			isZero(x.arg),
-		(in Constant.Zero) =>
+		(in ConstantZero _) =>
 			true);
 
 Constant constantBool(bool b) =>
@@ -110,9 +119,9 @@ bool asBool(Constant a) {
 }
 
 Constant constantZero() =>
-	Constant(Constant.Zero());
+	Constant(ConstantZero());
 
 long asInt64(Constant a) =>
-	a.isA!(Constant.Zero) ? 0 : a.as!IntegralValue.asSigned;
+	a.isA!(ConstantZero) ? 0 : a.as!IntegralValue.asSigned;
 ulong asNat64(Constant a) =>
-	a.isA!(Constant.Zero) ? 0 : a.as!IntegralValue.asUnsigned;
+	a.isA!(ConstantZero) ? 0 : a.as!IntegralValue.asUnsigned;

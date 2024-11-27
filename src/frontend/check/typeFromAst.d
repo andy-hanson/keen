@@ -27,7 +27,9 @@ import model.model :
 	Destructure,
 	DestructureExpectedTuple,
 	DestructureExpectedType,
+	DestructureIgnore,
 	DestructureIgnoreSource,
+	DestructureSplit,
 	Diag,
 	DiagAliasNotAllowed,
 	DiagAutoFunSpecFromWrongModule,
@@ -509,7 +511,7 @@ Destructure checkDestructure(
 			if (x.name.name == symbol!"_") {
 				if (has(x.mut))
 					addDiag(ctx, ast.range, Diag(DiagLocalIgnoredButMutable()));
-				return Destructure(allocate(ctx.alloc, Destructure.Ignore(
+				return Destructure(allocate(ctx.alloc, DestructureIgnore(
 					DestructureIgnoreSource(&ast.as!SingleDestructureAst()), x.name.start, type)));
 			} else {
 				LocalMutability mutability = () {
@@ -526,7 +528,7 @@ Destructure checkDestructure(
 		},
 		(VoidDestructureAst x) {
 			Type type = getType(some(Type(commonTypes.void_)));
-			return Destructure(allocate(ctx.alloc, Destructure.Ignore(
+			return Destructure(allocate(ctx.alloc, DestructureIgnore(
 				DestructureIgnoreSource(&ast.as!VoidDestructureAst()), x.range.start, type)));
 		},
 		(DestructureAst[] partAsts) {
@@ -534,7 +536,7 @@ Destructure checkDestructure(
 				Type tupleType = force(destructuredType);
 				Opt!(Type[]) fieldTypes = asTuple(commonTypes, tupleType);
 				if (has(fieldTypes) && force(fieldTypes).length == partAsts.length)
-					return Destructure(allocate(ctx.alloc, Destructure.Split(
+					return Destructure(allocate(ctx.alloc, DestructureSplit(
 						tupleType,
 						mapZipPtrFirst!(Destructure, DestructureAst, Type)(
 							ctx.alloc, partAsts, force(fieldTypes), (DestructureAst* part, Type fieldType) =>
@@ -546,7 +548,7 @@ Destructure checkDestructure(
 						DiagDestructureTypeMismatch(
 							DestructureExpectedType(DestructureExpectedTuple(partAsts.length)),
 							typeWithContainer(tupleType))));
-					return Destructure(allocate(ctx.alloc, Destructure.Split(
+					return Destructure(allocate(ctx.alloc, DestructureSplit(
 						tupleType,
 						mapPointers!(Destructure, DestructureAst)(
 							ctx.alloc, small!DestructureAst(partAsts), (DestructureAst* part) =>
@@ -565,7 +567,7 @@ Destructure checkDestructure(
 					(scope Type[] types) =>
 						makeTupleType(ctx, commonTypes, types, () =>
 							combineRanges(partAsts[0].range, partAsts[$ - 1].range)));
-				return Destructure(allocate(ctx.alloc, Destructure.Split(type, small!Destructure(parts))));
+				return Destructure(allocate(ctx.alloc, DestructureSplit(type, small!Destructure(parts))));
 			}
 		});
 }

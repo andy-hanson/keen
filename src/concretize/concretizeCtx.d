@@ -35,6 +35,8 @@ import model.model :
 	CommonFuns,
 	CommonTypes,
 	Destructure,
+	DestructureIgnore,
+	DestructureSplit,
 	Expr,
 	FunDecl,
 	FunInst,
@@ -510,11 +512,11 @@ public SmallArray!ConcreteLocal concretizeLambdaParams(
 ConcreteLocal concretizeParamDestructure(ref ConcretizeCtx ctx, ref Destructure x, TypeArgsScope typeArgsScope) =>
 	ConcreteLocal(
 		x.matchWithPointers!ConcreteLocalSource(
-			(Destructure.Ignore*) =>
+			(DestructureIgnore*) =>
 				ConcreteLocalSource(ConcreteGeneratedLocalKind.ignore),
 			(Local* x) =>
 				ConcreteLocalSource(x),
-			(Destructure.Split*) =>
+			(DestructureSplit*) =>
 				ConcreteLocalSource(ConcreteGeneratedLocalKind.destruct)),
 		getConcreteType(ctx, x.type, typeArgsScope));
 

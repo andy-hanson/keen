@@ -50,7 +50,7 @@ import model.concreteModel :
 	mustBeByVal,
 	pointeeType,
 	pointeeTypeIfIsPointer;
-import model.constant : Constant, constantZero;
+import model.constant : Constant, ConstantFunPointer, ConstantUnion, constantZero;
 import model.model :
 	AutoFun,
 	BuiltinFun,
@@ -222,7 +222,7 @@ ConcreteExpr genConstantUnionEmptyMemberType(
 	UriAndRange range,
 	size_t memberIndex,
 ) =>
-	genConstant(type, range, Constant(allocate(alloc, Constant.Union(memberIndex, constantZero()))));
+	genConstant(type, range, Constant(allocate(alloc, ConstantUnion(memberIndex, constantZero()))));
 
 ConcreteExpr concretizeFileImport(ref ConcretizeCtx ctx, ConcreteFun* cf, ref FunBody.FileImport import_) =>
 	withConcretizeExprCtx(ctx, cf, (ref ConcretizeExprCtx exprCtx) {
@@ -248,7 +248,7 @@ ConcreteFunBody bodyForAllTests(ref ConcretizeCtx ctx, ConcreteType returnType) 
 		buildArray!Constant(ctx.alloc, (scope ref Builder!Constant out_) {
 			size_t testIndex = 0;
 			eachTest(ctx.program, ctx.allExterns, ctx.programWithMainPtr.testSelector, (Test* test) {
-				out_ ~= Constant(Constant.FunPointer(concreteFunForTest(ctx, test, testIndex++)));
+				out_ ~= Constant(ConstantFunPointer(concreteFunForTest(ctx, test, testIndex++)));
 			});
 		})))));
 

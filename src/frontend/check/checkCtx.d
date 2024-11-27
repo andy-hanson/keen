@@ -27,7 +27,8 @@ import model.model :
 	SumTypeMembership,
 	sumTypeMemberGetter,
 	TypeParams,
-	Visibility;
+	Visibility,
+	VisibilityWarningKind;
 import util.alloc.alloc : Alloc;
 import util.col.array : exists, isEmpty, mustFind, SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, smallFinish;
@@ -224,7 +225,7 @@ Visibility visibilityFromDefaultWithDiag(
 	scope ref CheckCtx ctx,
 	Visibility default_,
 	in Opt!VisibilityAndRange explicit,
-	DiagVisibilityWarning.Kind kind,
+	VisibilityWarningKind kind,
 ) {
 	if (has(explicit)) {
 		Visibility actual = force(explicit).visibility;

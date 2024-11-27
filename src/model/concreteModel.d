@@ -551,37 +551,35 @@ immutable struct MatchEnumOrIntegralConcreteExpr {
 }
 
 immutable struct MatchStringLikeConcreteExpr {
-	immutable struct Case {
-		ConcreteExpr value;
-		ConcreteExpr then;
-	}
-
 	ConcreteExpr matched;
 	ConcreteFun* equals;
-	SmallArray!Case cases;
+	SmallArray!ConcreteMatchStringLikeCase cases;
 	ConcreteExpr else_;
+}
+immutable struct ConcreteMatchStringLikeCase {
+	ConcreteExpr value;
+	ConcreteExpr then;
 }
 
 immutable struct MatchUnionConcreteExpr {
 	@safe @nogc pure nothrow:
 
-	immutable struct Case {
-		Opt!(ConcreteLocal*) local;
-		ConcreteExpr then;
-	}
-
 	ConcreteExpr matched;
 	IntegralValues memberIndices;
-	SmallArray!Case cases;
+	SmallArray!ConcreteMatchUnionCase cases;
 	Opt!(ConcreteExpr*) else_;
 
-	this(ConcreteExpr m, IntegralValues mi, SmallArray!Case c, Opt!(ConcreteExpr*) e) {
+	this(ConcreteExpr m, IntegralValues mi, SmallArray!ConcreteMatchUnionCase c, Opt!(ConcreteExpr*) e) {
 		matched = m;
 		memberIndices = mi;
 		cases = c;
 		else_ = e;
 		assert(!isEmpty(cases));
 	}
+}
+immutable struct ConcreteMatchUnionCase {
+	Opt!(ConcreteLocal*) local;
+	ConcreteExpr then;
 }
 
 immutable struct RecordFieldGetConcreteExpr {
@@ -613,14 +611,14 @@ immutable struct ThrowConcreteExpr {
 immutable struct TryConcreteExpr {
 	ConcreteExpr tried;
 	IntegralValues exceptionMemberIndices;
-	SmallArray!(MatchUnionConcreteExpr.Case) catchCases;
+	SmallArray!ConcreteMatchUnionCase catchCases;
 }
 
 immutable struct TryLetConcreteExpr {
 	Opt!(ConcreteLocal*) local;
 	ConcreteExpr value;
 	IntegralValue exceptionMemberIndex;
-	MatchUnionConcreteExpr.Case catch_;
+	ConcreteMatchUnionCase catch_;
 	ConcreteExpr then;
 }
 
@@ -739,12 +737,12 @@ bool existsDirectChildExpr(ref ConcreteExpr a, in bool delegate(ref ConcreteExpr
 			(has(x.else_) && cb(*force(x.else_))),
 		(MatchStringLikeConcreteExpr* x) =>
 			cb(x.matched) ||
-			exists!(MatchStringLikeConcreteExpr.Case)(x.cases, (ref MatchStringLikeConcreteExpr.Case case_) =>
+			exists!ConcreteMatchStringLikeCase(x.cases, (ref ConcreteMatchStringLikeCase case_) =>
 				cb(case_.value) || cb(case_.then)) ||
 			cb(x.else_),
 		(MatchUnionConcreteExpr* x) =>
 			cb(x.matched) ||
-			exists!(MatchUnionConcreteExpr.Case)(x.cases, (ref MatchUnionConcreteExpr.Case case_) =>
+			exists!ConcreteMatchUnionCase(x.cases, (ref ConcreteMatchUnionCase case_) =>
 				cb(case_.then)) ||
 			(has(x.else_) && cb(*force(x.else_))),
 		(RecordFieldGetConcreteExpr x) =>
@@ -759,7 +757,7 @@ bool existsDirectChildExpr(ref ConcreteExpr a, in bool delegate(ref ConcreteExpr
 			cb(x.thrown),
 		(TryConcreteExpr* x) =>
 			cb(x.tried) ||
-			exists!(MatchUnionConcreteExpr.Case)(x.catchCases, (ref MatchUnionConcreteExpr.Case case_) =>
+			exists!ConcreteMatchUnionCase(x.catchCases, (ref ConcreteMatchUnionCase case_) =>
 				cb(case_.then)),
 		(TryLetConcreteExpr* x) =>
 			cb(x.value) || cb(x.catch_.then) || cb(x.then),

@@ -35,7 +35,12 @@ import model.model :
 	PurityRange,
 	purityRange,
 	ReturnAndParamTypes,
+	SpecBuiltinNotSatisfied,
+	SpecCantInferTypeArgs,
 	SpecDecl,
+	SpecImplNotFound,
+	SpecNoMatchReason,
+	SpecTooDeep,
 	Signature,
 	SpecInst,
 	Specs,
@@ -288,9 +293,9 @@ void specMatchError(ref CheckSpecsCtx ctx, scope RealTrace* a, Symbol name, Call
 		DiagSpecMatchMultiple(a.typeContainer, name, matches, newArray(a.ctx.alloc, a.trace.soFar))));
 }
 
-DummyTrace.NoMatch specNoMatch(scope DummyTrace, DiagSpecNoMatch.Reason) =>
+DummyTrace.NoMatch specNoMatch(scope DummyTrace _, SpecNoMatchReason _2) =>
 	DummyTrace.NoMatch();
-RealTrace.NoMatch specNoMatch(scope RealTrace* a, DiagSpecNoMatch.Reason reason) =>
+RealTrace.NoMatch specNoMatch(scope RealTrace* a, SpecNoMatchReason reason) =>
 	DiagSpecNoMatch(a.typeContainer, reason, newArray(a.ctx.alloc, a.trace.soFar));
 bool isFull(DummyTrace trace) {
 	assert(trace.depth <= maxSpecDepth);
@@ -308,8 +313,7 @@ Trace.Result checkCandidate(Trace)(
 ) =>
 	testCandidateForSpecSig(ctx.instantiateCtx, candidate, sigType, TypeContext.nonInferring)
 		? getCalledFromCandidateAfterTypeChecks(ctx, candidate, trace)
-		: Trace.Result(specNoMatch(trace, DiagSpecNoMatch.Reason(
-			DiagSpecNoMatch.Reason.SpecImplNotFound(sigDecl, sigType))));
+		: Trace.Result(specNoMatch(trace, SpecNoMatchReason(SpecImplNotFound(sigDecl, sigType))));
 
 Trace.Result getCalledFromCandidateAfterTypeChecks(Trace)(
 	ref CheckSpecsCtx ctx,
@@ -324,7 +328,7 @@ Trace.Result getCalledFromCandidateAfterTypeChecks(Trace)(
 			candidate.called.matchWithPointers!(Trace.Result)(
 				(FunDecl* f) =>
 					isFull(trace)
-						? Trace.Result(specNoMatch(trace, DiagSpecNoMatch.Reason(DiagSpecNoMatch.Reason.TooDeep())))
+						? Trace.Result(specNoMatch(trace, SpecNoMatchReason(SpecTooDeep())))
 						: withExactStackArray!(Trace.Result, Called)(countSpecSigs(*f), (scope ref SpecImpls out_) {
 							Opt!(Trace.NoMatch) diag = checkSpecImpls!Trace(
 								out_, ctx, f, small!Type(candidateTypeArgs), trace);
@@ -338,8 +342,7 @@ Trace.Result getCalledFromCandidateAfterTypeChecks(Trace)(
 				(CalledSpecSig s) =>
 					Trace.Result(Called(s))),
 		() =>
-			Trace.Result(specNoMatch(trace, DiagSpecNoMatch.Reason(
-				DiagSpecNoMatch.Reason.CantInferTypeArguments(candidate.called.as!(FunDecl*))))));
+			Trace.Result(specNoMatch(trace, SpecNoMatchReason(SpecCantInferTypeArgs(candidate.called.as!(FunDecl*))))));
 
 size_t countSpecSigs(in FunDecl a) =>
 	sum(a.specs, (in SpecInst* x) =>
@@ -397,7 +400,7 @@ Trace.Result findSpecSigImplementation(Trace)(
 	} else
 		return Trace.Result(has(cellGet(deepestNoMatch))
 			? force(cellGet(deepestNoMatch))
-			: specNoMatch(trace, DiagSpecNoMatch.Reason(DiagSpecNoMatch.Reason.SpecImplNotFound(sigDecl, sigType))));
+			: specNoMatch(trace, SpecNoMatchReason(SpecImplNotFound(sigDecl, sigType))));
 }
 
 bool checkBuiltinSpec(ref CheckSpecsCtx ctx, BuiltinSpec kind, Type typeArg) {
@@ -467,8 +470,7 @@ Opt!(Trace.NoMatch) checkSpecImplInner(Trace)(
 	TypeArgs typeArgs = specInstInstantiated.typeArgs;
 	return optOr!(Trace.NoMatch)(
 		optIf(has(decl.builtin) && !checkBuiltinSpec(ctx, force(decl.builtin), only(typeArgs)),
-			() => specNoMatch(trace, DiagSpecNoMatch.Reason(
-				DiagSpecNoMatch.Reason.BuiltinNotSatisfied(force(decl.builtin), only(typeArgs))))),
+			() => specNoMatch(trace, SpecNoMatchReason(SpecBuiltinNotSatisfied(force(decl.builtin), only(typeArgs))))),
 		() => first!(Trace.NoMatch, immutable SpecInst*)(
 			specInstInstantiated.parents, (SpecInst* parent) =>
 				checkSpecImplInner!Trace(res, ctx, trace, *parent)),

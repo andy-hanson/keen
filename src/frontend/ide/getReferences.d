@@ -13,8 +13,7 @@ import frontend.ide.ideUtil :
 	ReferenceCb,
 	TypeCb;
 import frontend.ide.importReferences : eachModuleReferencing, eachNamedImport, referencesForModule, UriAndName;
-import frontend.ide.position :
-	ExprContainer, Position, PositionImportedName, PositionKind, PositionLocal, TypeParamWithContainer;
+import frontend.ide.position : ExprContainer, Position, PositionImportedName, PositionLocal, TypeParamWithContainer;
 import lib.lsp.lspTypes : DocumentHighlight, DocumentHighlightKind, DocumentHighlightResult;
 import model.ast :
 	AsBogusAst,
@@ -74,6 +73,8 @@ import model.model :
 	CommonTypes,
 	Condition,
 	Destructure,
+	DestructureIgnore,
+	DestructureSplit,
 	DocComment,
 	DocCommentReference,
 	eachDescendentExprExcluding,
@@ -108,6 +109,7 @@ import model.model :
 	LoopContinueExpr,
 	LoopExpr,
 	LoopWhileOrUntilExpr,
+	MatchEnumCase,
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
@@ -141,6 +143,7 @@ import model.model :
 	Type,
 	TypedExpr,
 	TypeParamIndex,
+	UnpackOption,
 	VarDecl,
 	SumTypeMembership,
 	SumTypeMemberAndMethodImpls,
@@ -532,14 +535,14 @@ void eachTypeInDestructure(in Destructure a, in DestructureAst ast, in TypeCb cb
 	}
 
 	a.matchIn!void(
-		(in Destructure.Ignore x) {
+		(in DestructureIgnore x) {
 			if (!ast.isA!VoidDestructureAst)
 				handleSingle(x.type);
 		},
 		(in Local x) {
 			handleSingle(x.type);
 		},
-		(in Destructure.Split x) {
+		(in DestructureSplit x) {
 			zip(x.parts, ast.as!(DestructureAst[]), (ref Destructure part, ref DestructureAst partAst) {
 				eachTypeInDestructure(part, partAst, cb);
 			});
@@ -643,7 +646,7 @@ void eachTypeInMatchSumTypeCase(in MatchSumTypeCase case_, in CaseMemberAst memb
 void eachTypeInCondition(in Condition condition, in ConditionAst ast, in TypeCb cb) {
 	condition.matchIn!void(
 		(in Expr _) {},
-		(in Condition.UnpackOption x) {
+		(in UnpackOption x) {
 			eachTypeInDestructure(x.destructure, ast.as!(UnpackOptionAst*).destructure, cb);
 		});
 }
@@ -834,7 +837,7 @@ void referencesForEnumOrFlagsMember(in Program program, in EnumOrFlagsMember* me
 			if (x.expr.kind.isA!(MatchEnumExpr*)) {
 				MatchEnumExpr* matchEnum = x.expr.kind.as!(MatchEnumExpr*);
 				if (matchEnum.enum_ == enum_)
-					foreach (size_t caseIndex, MatchEnumExpr.Case case_; matchEnum.cases)
+					foreach (size_t caseIndex, MatchEnumCase case_; matchEnum.cases)
 						if (case_.member == member)
 							cb(UriAndRange(m.uri, caseNameRange(*x.expr, caseIndex)));
 			} else

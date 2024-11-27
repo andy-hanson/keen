@@ -117,6 +117,8 @@ import model.model :
 	CommonTypes,
 	Condition,
 	Destructure,
+	DestructureIgnore,
+	DestructureSplit,
 	EnumOrFlagsMember,
 	Expr,
 	ExprRef,
@@ -144,8 +146,11 @@ import model.model :
 	LoopContinueExpr,
 	LoopExpr,
 	LoopWhileOrUntilExpr,
+	MatchEnumCase,
 	MatchEnumExpr,
+	MatchIntegralCase,
 	MatchIntegralExpr,
+	MatchStringLikeCase,
 	MatchStringLikeExpr,
 	MatchSumTypeCase,
 	MatchSumTypeExpr,
@@ -164,6 +169,7 @@ import model.model :
 	StructAlias,
 	StructDecl,
 	SumTypeKind,
+	SumTypeMemberAndMethodImpls,
 	Test,
 	testBodyExprRef,
 	ThrowExpr,
@@ -175,8 +181,8 @@ import model.model :
 	TypedExpr,
 	TypeParamIndex,
 	TypeWithContainer,
-	VarDecl,
-	SumTypeMemberAndMethodImpls;
+	UnpackOption,
+	VarDecl;
 import model.model : paramsArray, StructDeclSource;
 import util.col.array : findIndex, first, firstPointer, firstZip, firstZipIfSizeEq, firstZipPointerFirst, isEmpty;
 import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
@@ -338,13 +344,13 @@ Opt!PositionKind positionInDestructure(
 			: none!PositionKind;
 	}
 	return a.matchWithPointers!(Opt!PositionKind)(
-		(Destructure.Ignore* x) =>
+		(DestructureIgnore* x) =>
 			destructureAst.isA!VoidDestructureAst
 				? none!PositionKind
 				: handleSingle(x.type, () => PositionKind(PositionKeyword.underscore)),
 		(Local* x) =>
 			handleSingle(x.type, () => PositionKind(PositionLocal(container, x))),
-		(Destructure.Split* x) =>
+		(DestructureSplit* x) =>
 			isEmpty(x.parts)
 				? none!PositionKind
 				: firstZip!(PositionKind, Destructure, DestructureAst)(
@@ -778,7 +784,7 @@ Opt!PositionKind positionAtCondition(
 	condition.matchIn!(Opt!PositionKind)(
 		(in Expr _) =>
 			none!PositionKind,
-		(in Condition.UnpackOption x) {
+		(in UnpackOption x) {
 			UnpackOptionAst* unpackAst = ast.as!(UnpackOptionAst*);
 			return optOr!PositionKind(
 				positionInDestructure(ctx, x.destructure, unpackAst.destructure, pos),
@@ -834,9 +840,9 @@ bool posIsAtCall(in ExprAst a, Pos pos) {
 Opt!PositionKind positionAtMatchEnum(in ExprCtx ctx, ExprRef expr, ref MatchEnumExpr a, ref MatchAst ast, Pos pos) =>
 	optOr!PositionKind(
 		positionAtMatchKeyword(ctx, expr, ast, pos),
-		() => firstZipIfSizeEq!(PositionKind, MatchEnumExpr.Case, CaseAst)(
+		() => firstZipIfSizeEq!(PositionKind, MatchEnumCase, CaseAst)(
 			a.cases, ast.cases,
-			(MatchEnumExpr.Case case_, CaseAst caseAst) =>
+			(MatchEnumCase case_, CaseAst caseAst) =>
 				optIf(hasPos(caseAst.keywordAndMemberNameRange, pos), () =>
 					PositionKind(PositionMatchEnumCase(case_.member)))));
 
@@ -849,9 +855,9 @@ Opt!PositionKind positionAtMatchIntegral(
 ) =>
 	optOr!PositionKind(
 		positionAtMatchKeyword(ctx, expr, ast, pos),
-		() => firstZipIfSizeEq!(PositionKind, MatchIntegralExpr.Case, CaseAst)(
+		() => firstZipIfSizeEq!(PositionKind, MatchIntegralCase, CaseAst)(
 			a.cases, ast.cases,
-			(MatchIntegralExpr.Case case_, CaseAst caseAst) =>
+			(MatchIntegralCase case_, CaseAst caseAst) =>
 				optIf(hasPos(caseAst.keywordAndMemberNameRange, pos), () =>
 					PositionKind(PositionMatchIntegralCase(a.kind, case_.value)))));
 
@@ -864,9 +870,9 @@ Opt!PositionKind positionAtMatchStringLike(
 ) =>
 	optOr!PositionKind(
 		positionAtMatchKeyword(ctx, expr, ast, pos),
-		() => firstZipIfSizeEq!(PositionKind, MatchStringLikeExpr.Case, CaseAst)(
+		() => firstZipIfSizeEq!(PositionKind, MatchStringLikeCase, CaseAst)(
 			a.cases, ast.cases,
-			(MatchStringLikeExpr.Case case_, CaseAst caseAst) =>
+			(MatchStringLikeCase case_, CaseAst caseAst) =>
 				optIf(hasPos(caseAst.keywordAndMemberNameRange, pos), () =>
 					PositionKind(PositionMatchStringLikeCase(
 						TypeWithContainer(a.matched.type, ctx.container.toTypeContainer),

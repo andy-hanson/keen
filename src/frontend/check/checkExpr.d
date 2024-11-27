@@ -117,7 +117,7 @@ import model.ast :
 	TypedAst,
 	UnpackOptionAst,
 	WithAst;
-import model.constant : Constant;
+import model.constant : Constant, ConstantFloat;
 import model.model :
 	asExtern,
 	AssertOrForbidExpr,
@@ -135,7 +135,9 @@ import model.model :
 	CommonTypes,
 	Condition,
 	Destructure,
+	DestructureIgnore,
 	DestructureIgnoreSource,
+	DestructureSplit,
 	Diag,
 	DiagAssertOrForbidMessageIsThrow,
 	DiagAssignmentNotAllowed,
@@ -214,8 +216,12 @@ import model.model :
 	LoopBreakExpr,
 	LoopContinueExpr,
 	LoopWhileOrUntilExpr,
+	MatchEnumCase,
 	MatchEnumExpr,
+	MatchIntegralCase,
 	MatchIntegralExpr,
+	MatchIntegralKind,
+	MatchStringLikeCase,
 	MatchStringLikeExpr,
 	MatchSumTypeCase,
 	MatchSumTypeExpr,
@@ -245,6 +251,7 @@ import model.model :
 	TypeContainer,
 	TypeWithContainer,
 	TypedExpr,
+	UnpackOption,
 	VariableRef;
 import util.alloc.stackAlloc : MaxStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell;
@@ -495,7 +502,7 @@ Opt!Destructure optDestructure(Condition a) =>
 	a.match!(Opt!Destructure)(
 		(ref Expr _) =>
 			none!Destructure,
-		(ref Condition.UnpackOption x) =>
+		(ref UnpackOption x) =>
 			some(x.destructure));
 
 Condition checkCondition(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ConditionAst ast) =>
@@ -504,7 +511,7 @@ Condition checkCondition(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source
 			Condition(allocate(ctx.alloc, checkAndExpect(ctx, locals, x, Type(ctx.commonTypes.bool_)))),
 		(UnpackOptionAst* x) =>
 			Condition(allocate(ctx.alloc, checkUnpackOption(ctx, locals, source, x))));
-Condition.UnpackOption checkUnpackOption(
+UnpackOption checkUnpackOption(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
@@ -512,7 +519,7 @@ Condition.UnpackOption checkUnpackOption(
 ) {
 	ExprAndOptionType res = withExpectOption(ctx.instantiateCtx, ctx.commonTypes, (ref Expected expected) =>
 		checkExpr(ctx, locals, condAst.option, expected));
-	return Condition.UnpackOption(
+	return UnpackOption(
 		checkDestructure2(ctx, &condAst.destructure, res.nonOptionType, DestructureKind.local),
 		res.option);
 }
@@ -861,7 +868,7 @@ Expr asFloat(
 ) {
 	if (overflow)
 		addDiag2(ctx, source, Diag(DiagLiteralFloatAccuracy(floatType, toDouble(value))));
-	return check(ctx, expected, Type(inst), source, ExprKind(LiteralExpr(Constant(Constant.Float(toDouble(value))))));
+	return check(ctx, expected, Type(inst), source, ExprKind(LiteralExpr(Constant(ConstantFloat(toDouble(value))))));
 }
 
 double toDouble(HighPrecisionFloat a) {
@@ -1042,11 +1049,11 @@ Opt!Expr checkWithDestructure(
 	in Opt!Expr delegate(ref LocalsInfo) @safe @nogc pure nothrow cb,
 ) =>
 	destructure.matchWithPointers!(Opt!Expr)(
-		(Destructure.Ignore*) =>
+		(DestructureIgnore*) =>
 			cb(locals),
 		(Local* x) =>
 			checkWithLocal(ctx, locals, x, cb),
-		(Destructure.Split* x) =>
+		(DestructureSplit* x) =>
 			checkWithDestructureParts(ctx, locals, x.parts, cb));
 Opt!Expr checkWithDestructureParts(
 	ref ExprCtx ctx,
@@ -1625,7 +1632,7 @@ Expr checkMatchEnum(
 ) =>
 	withStackArray!(Expr, bool)(body_.members.length, (size_t _) => false, (scope bool[] seen) {
 		bool hasCaseDiag = false;
-		ExactSizeArrayBuilder!(MatchEnumExpr.Case) cases = newExactSizeArrayBuilder!(MatchEnumExpr.Case)(
+		ExactSizeArrayBuilder!MatchEnumCase cases = newExactSizeArrayBuilder!MatchEnumCase(
 			ctx.alloc, ast.cases.length);
 		foreach (ref CaseAst caseAst; ast.cases) {
 			Opt!(AsNameAst*) asName = nameFromCaseMemberAst(ctx, &caseAst.member);
@@ -1643,7 +1650,7 @@ Expr checkMatchEnum(
 					if (has(nameAst.destructure))
 						addDiag2(ctx, force(nameAst.destructure).range, Diag(
 							DiagMatchCaseNoValueForEnumOrSymbol(some(matchedEnum))));
-					cases ~= MatchEnumExpr.Case(member, checkExpr(ctx, locals, &caseAst.then, expected));
+					cases ~= MatchEnumCase(member, checkExpr(ctx, locals, &caseAst.then, expected));
 				}
 			} else {
 				hasCaseDiag = true;
@@ -1778,7 +1785,7 @@ Opt!MatchSumTypeCase checkMatchSumTypeCase(
 		else {
 			if (!isEmptyType(*caseType))
 				addDiag2(ctx, memberAst.nameRange, Diag(DiagMatchCaseShouldUseIgnore(caseType)));
-			return Destructure(allocate(ctx.alloc, Destructure.Ignore(
+			return Destructure(allocate(ctx.alloc, DestructureIgnore(
 				DestructureIgnoreSource(memberAst), memberAst.nameRange.start, Type(caseType))));
 		}
 	}();
@@ -1909,9 +1916,9 @@ Expr checkMatchChar(
 	ref ExprAndType matched,
 	CharType charType,
 ) {
-	SmallArray!(MatchIntegralExpr.Case) cases = withTempSet!(SmallArray!(MatchIntegralExpr.Case), IntegralValue)(
+	SmallArray!MatchIntegralCase cases = withTempSet!(SmallArray!MatchIntegralCase, IntegralValue)(
 		ast.cases.length, (scope ref TempSet!IntegralValue seen) =>
-			mapOpPointers!(MatchIntegralExpr.Case, CaseAst)(ctx.alloc, ast.cases, (CaseAst* caseAst) {
+			mapOpPointers!(MatchIntegralCase, CaseAst)(ctx.alloc, ast.cases, (CaseAst* caseAst) {
 				Opt!string stringValue = stringFromCaseAst(ctx, caseAst.member);
 				if (has(stringValue)) {
 					IntegralValue value = () {
@@ -1925,17 +1932,17 @@ Expr checkMatchChar(
 						}
 					}();
 					if (tryAdd(seen, value))
-						return some(MatchIntegralExpr.Case(value, checkExpr(ctx, locals, &caseAst.then, expected)));
+						return some(MatchIntegralCase(value, checkExpr(ctx, locals, &caseAst.then, expected)));
 					else {
 						addDiag2(ctx, caseAst.member.nameRange, Diag(DiagMatchCaseDuplicate(force(stringValue))));
-						return none!(MatchIntegralExpr.Case);
+						return none!MatchIntegralCase;
 					}
 				} else
-					return none!(MatchIntegralExpr.Case);
+					return none!MatchIntegralCase;
 			}));
 	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, DiagMatchNeedsElse.integral);
 	return Expr(source, ExprKind(allocate(ctx.alloc,
-		MatchIntegralExpr(MatchIntegralExpr.Kind(charType), matched, cases, else_))));
+		MatchIntegralExpr(MatchIntegralKind(charType), matched, cases, else_))));
 }
 
 Opt!IntegralType optAsIntegralType(BuiltinType x) {
@@ -1970,9 +1977,9 @@ Expr checkMatchIntegral(
 	ref ExprAndType matched,
 	IntegralType integralType,
 ) {
-	SmallArray!(MatchIntegralExpr.Case) cases = withTempSet!(SmallArray!(MatchIntegralExpr.Case), IntegralValue)(
+	SmallArray!MatchIntegralCase cases = withTempSet!(SmallArray!MatchIntegralCase, IntegralValue)(
 		ast.cases.length, (scope ref TempSet!IntegralValue seen) =>
-			mapOpPointers!(MatchIntegralExpr.Case, CaseAst)(ctx.alloc, ast.cases, (CaseAst* caseAst) {
+			mapOpPointers!(MatchIntegralCase, CaseAst)(ctx.alloc, ast.cases, (CaseAst* caseAst) {
 				Opt!IntegralValue optValue = caseAst.member.match!(Opt!IntegralValue)(
 					(AsNameAst x) {
 						addDiag2(ctx, x.name.range, Diag(DiagMatchCaseForType.numeric));
@@ -1989,20 +1996,20 @@ Expr checkMatchIntegral(
 				if (has(optValue)) {
 					IntegralValue value = force(optValue);
 					if (tryAdd(seen, value))
-						return some(MatchIntegralExpr.Case(value, checkExpr(ctx, locals, &caseAst.then, expected)));
+						return some(MatchIntegralCase(value, checkExpr(ctx, locals, &caseAst.then, expected)));
 					else {
 						addDiag2(ctx, caseAst.member.nameRange, Diag(
 							isSigned(integralType)
 								? DiagMatchCaseDuplicate(value.asSigned())
 								: DiagMatchCaseDuplicate(value.asUnsigned())));
-						return none!(MatchIntegralExpr.Case);
+						return none!MatchIntegralCase;
 					}
 				} else
-					return none!(MatchIntegralExpr.Case);
+					return none!MatchIntegralCase;
 			}));
 	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, DiagMatchNeedsElse.integral);
 	return Expr(source, ExprKind(allocate(ctx.alloc,
-		MatchIntegralExpr(MatchIntegralExpr.Kind(integralType), matched, cases, else_))));
+		MatchIntegralExpr(MatchIntegralKind(integralType), matched, cases, else_))));
 }
 
 Opt!StringLiteralKind getMatchableStringLikeFromBuiltin(BuiltinType a) {
@@ -2044,20 +2051,20 @@ Expr checkMatchStringLike(
 		ctx.outermostFunFlags,
 		ctx.externs,
 		instantiateSpec(ctx.instantiateCtx, force(spec), [matched.type]));
-	SmallArray!(MatchStringLikeExpr.Case) cases = withTempSet!(SmallArray!(MatchStringLikeExpr.Case), string)(
+	SmallArray!MatchStringLikeCase cases = withTempSet!(SmallArray!MatchStringLikeCase, string)(
 		ast.cases.length, (scope ref TempSet!string seen) =>
-			mapOpPointers!(MatchStringLikeExpr.Case, CaseAst)(ctx.alloc, ast.cases, (CaseAst* caseAst) {
+			mapOpPointers!(MatchStringLikeCase, CaseAst)(ctx.alloc, ast.cases, (CaseAst* caseAst) {
 				Opt!string optValue = stringFromCaseAst(ctx, caseAst.member);
 				if (has(optValue)) {
 					string value = force(optValue);
 					if (tryAdd(seen, value))
-						return some(MatchStringLikeExpr.Case(value, checkExpr(ctx, locals, &caseAst.then, expected)));
+						return some(MatchStringLikeCase(value, checkExpr(ctx, locals, &caseAst.then, expected)));
 					else {
 						addDiag2(ctx, caseAst.member.nameRange, Diag(DiagMatchCaseDuplicate(value)));
-						return none!(MatchStringLikeExpr.Case);
+						return none!MatchStringLikeCase;
 					}
 				} else
-					return none!(MatchStringLikeExpr.Case);
+					return none!MatchStringLikeCase;
 			}));
 	Expr else_ = checkMatchElseRequired(ctx, locals, source, ast, expected, DiagMatchNeedsElse.stringLike);
 	return Expr(source, ExprKind(allocate(ctx.alloc, MatchStringLikeExpr(kind, matched, equals, cases, else_))));

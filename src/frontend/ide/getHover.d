@@ -4,7 +4,6 @@ module frontend.ide.getHover;
 
 import frontend.ide.position :
 	ExpressionPosition,
-	ExpressionPositionKind,
 	ExpressionPositionLiteral,
 	ExprKeyword,
 	LocalRef,
@@ -16,7 +15,6 @@ import frontend.ide.position :
 	PositionImportedModule,
 	PositionImportedName,
 	PositionKeyword,
-	PositionKind,
 	PositionLocal,
 	PositionMatchEnumCase,
 	PositionMatchIntegralCase,
@@ -59,8 +57,8 @@ import model.model :
 	CallExpr,
 	CallOptionExpr,
 	CharType,
-	Condition,
 	DocCommentReference,
+	DocCommentReferenceBogus,
 	EnumOrFlagsMember,
 	Expr,
 	ExprKind,
@@ -95,6 +93,7 @@ import model.model :
 	TypeContainer,
 	TypeParamIndex,
 	TypeWithContainer,
+	UnpackOption,
 	VarDecl;
 import util.alloc.alloc : Alloc;
 import util.col.array : only;
@@ -350,7 +349,7 @@ private:
 
 void hoverForDocRef(scope ref Writer writer, in ShowModelCtx ctx, PositionDocRef a) {
 	a.ref_.matchWithPointers!void(
-		(DocCommentReference.Bogus) {},
+		(DocCommentReferenceBogus _) {},
 		(CalledSpecSig x) {
 			writer ~= "References ";
 			writeCalledSpecSig(writer, ctx, WriteKind.quoted, typeContainerFor(a.container), x);
@@ -514,7 +513,7 @@ void getExprKeywordHover(
 		case ExprKeyword.assert_:
 			writer ~= exprKind.as!(AssertOrForbidExpr*).condition.matchIn!string(
 				(in Expr _) => "Throws if the condition is 'false'.",
-				(in Condition.UnpackOption _) => "Throws if the option is empty.");
+				(in UnpackOption _) => "Throws if the option is empty.");
 			break;
 		case ExprKeyword.colonColon:
 			writer ~= "Provides an expected type for the expression to its left.";
@@ -549,7 +548,7 @@ void getExprKeywordHover(
 		case ExprKeyword.forbid:
 			writer ~= exprKind.as!(AssertOrForbidExpr*).condition.matchIn!string(
 				(in Expr _) => "Throws if the condition is 'true'.",
-				(in Condition.UnpackOption _) => "Throws if the option is non-empty.");
+				(in UnpackOption _) => "Throws if the option is non-empty.");
 			break;
 		case ExprKeyword.guardIfOrUnless:
 			IfAst ifAst = astKind.as!IfAst;

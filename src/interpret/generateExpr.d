@@ -102,13 +102,22 @@ import interpret.bytecodeWriter :
 	writeSwitchDelay,
 	writeThreadLocalPtr,
 	writeWrite;
-import interpret.extern_ : ExternPointersForAllLibraries, FunPointer;
+import interpret.extern_ : ExternPointersForAllLibraries;
 import interpret.funToReferences :
 	FunPointerTypeToDynCallSig, FunToReferences, registerCall, registerFunPointerReference;
 import interpret.generateText :
 	getTextInfoForArray, getTextPointer, getTextPointerForCString, TextArrInfo, TextInfo, VarsInfo;
 import interpret.runBytecode : opSetupCatch, opSwitchFiber, opSwitchFiberInitial;
-import model.constant : Constant;
+import model.constant :
+	Constant,
+	ConstantArray,
+	ConstantCString,
+	ConstantFloat,
+	ConstantFunPointer,
+	ConstantPointer,
+	ConstantRecord,
+	ConstantUnion,
+	ConstantZero;
 import model.lowModel :
 	asNonGcPointee,
 	AbortLowExpr,
@@ -759,49 +768,49 @@ void generateConstant(
 	in Constant constant,
 ) {
 	constant.matchIn!void(
-		(in Constant.ArrConstant it) {
-			TextArrInfo info = getTextInfoForArray(ctx.textInfo, ctx.program.allConstants, it);
+		(in ConstantArray x) {
+			TextArrInfo info = getTextInfoForArray(ctx.textInfo, ctx.program.allConstants, x);
 			writePushConstant(writer, source, info.size);
 			writePushConstantPointer(writer, source, info.textPtr);
 		},
-		(in Constant.CString it) {
-			writePushConstantPointer(writer, source, getTextPointerForCString(ctx.textInfo, it));
+		(in ConstantCString x) {
+			writePushConstantPointer(writer, source, getTextPointerForCString(ctx.textInfo, x));
 		},
-		(in Constant.Float it) {
+		(in ConstantFloat x) {
 			switch (type.as!PrimitiveType) {
 				case PrimitiveType.float32:
-					writePushConstant(writer, source, bitsOfFloat32(cast(float) it.value));
+					writePushConstant(writer, source, bitsOfFloat32(cast(float) x.value));
 					break;
 				case PrimitiveType.float64:
-					writePushConstant(writer, source, bitsOfFloat64(it.value));
+					writePushConstant(writer, source, bitsOfFloat64(x.value));
 					break;
 				default:
 					assert(false);
 			}
 		},
-		(in Constant.FunPointer x) {
+		(in ConstantFunPointer x) {
 			writeConstantFunPointer(writer, ctx, source, type, mustGet(ctx.program.concreteFunToLowFunIndex, x.fun));
 		},
-		(in IntegralValue it) {
-			writePushConstant(writer, source, it.value);
+		(in IntegralValue x) {
+			writePushConstant(writer, source, x.value);
 		},
-		(in Constant.Pointer it) {
-			immutable ubyte* pointer = getTextPointer(ctx.textInfo, it);
+		(in ConstantPointer x) {
+			immutable ubyte* pointer = getTextPointer(ctx.textInfo, x);
 			writePushConstantPointer(writer, source, pointer);
 		},
-		(in Constant.Record it) {
+		(in ConstantRecord x) {
 			generateCreateRecordOrConstantRecord(
 				writer, ctx, *type.as!(LowRecord*), source, (size_t argIndex, LowType argType) {
-					generateConstant(writer, ctx, source, argType, it.args[argIndex]);
+					generateConstant(writer, ctx, source, argType, x.args[argIndex]);
 				});
 		},
-		(in Constant.Union x) {
+		(in ConstantUnion x) {
 			generateCreateUnionOrConstantUnion(
 				writer, ctx, *type.as!(LowUnion*), x.memberIndex, source, (LowType memberType) {
 					generateConstant(writer, ctx, source, memberType, x.arg);
 				});
 		},
-		(in Constant.Zero) {
+		(in ConstantZero _) {
 			writeZeroed(writer, source, typeSizeBytes(ctx, type));
 		});
 }

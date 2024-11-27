@@ -105,7 +105,16 @@ import backend.writeToC : getLinkOptions;
 import frontend.showModel : ShowCtx;
 import frontend.lang : JitOptions, OptimizationLevel;
 import model.concreteModel : isCatchPoint;
-import model.constant : Constant;
+import model.constant :
+	Constant,
+	ConstantArray,
+	ConstantCString,
+	ConstantFloat,
+	ConstantFunPointer,
+	ConstantPointer,
+	ConstantRecord,
+	ConstantUnion,
+	ConstantZero;
 import model.lowModel :
 	AbortLowExpr,
 	ArrTypeAndConstantsLow,
@@ -1393,7 +1402,7 @@ ExprResult recordFieldSetToGcc(
 
 ExprResult constantToGcc(ref ExprCtx ctx, ExprEmit emit, LowType type, in Constant a) =>
 	a.matchIn!ExprResult(
-		(in Constant.ArrConstant it) {
+		(in ConstantArray it) {
 			size_t arrSize = ctx.program.allConstants.arrs[it.typeIndex].constants[it.index].length;
 			gcc_jit_rvalue* storage = ctx.globalsForConstants.arrs[it.typeIndex][it.index];
 			gcc_jit_rvalue* arrPtr = gcc_jit_lvalue_get_address(
@@ -1416,7 +1425,7 @@ ExprResult constantToGcc(ref ExprCtx ctx, ExprEmit emit, LowType type, in Consta
 					gcc_jit_context_new_rvalue_from_long(ctx.gcc, ctx.nat64Type, arrSize));
 			});
 		},
-		(in Constant.CString x) =>
+		(in ConstantCString x) =>
 			emitSimpleNoSideEffects(
 				ctx, emit,
 				// Cast to non-const since we don't use that
@@ -1426,31 +1435,31 @@ ExprResult constantToGcc(ref ExprCtx ctx, ExprEmit emit, LowType type, in Consta
 						ctx.gcc,
 						ctx.program.allConstants.cStrings[x.index].ptr),
 					getGccType(ctx.types, type))),
-		(in Constant.Float it) =>
+		(in ConstantFloat it) =>
 			emitSimpleNoSideEffects(
 				ctx,
 				emit,
 				gcc_jit_context_new_rvalue_from_double(ctx.gcc, getGccType(ctx.types, type), it.value)),
-		(in Constant.FunPointer x) =>
+		(in ConstantFunPointer x) =>
 			funPointerToGcc(ctx, emit, type, mustGet(ctx.program.concreteFunToLowFunIndex, x.fun)),
 		(in IntegralValue it) =>
 			emitSimpleNoSideEffects(
 				ctx,
 				emit,
 				gcc_jit_context_new_rvalue_from_long(ctx.gcc, getGccType(ctx.types, type), it.value)),
-		(in Constant.Pointer it) {
+		(in ConstantPointer it) {
 			gcc_jit_lvalue* storage = ctx.globalsForConstants.pointers[it.typeIndex][it.index];
 			return emitSimpleNoSideEffects(ctx, emit, gcc_jit_lvalue_get_address(storage, null));
 		},
-		(in Constant.Record x) =>
+		(in ConstantRecord x) =>
 			emitRecordCbWithArgs!Constant(
 				ctx, emit, type, x.args,
 				(size_t argIndex, ExprEmit emitArg, ref Constant arg) =>
 					constantToGcc(ctx, emitArg, type.as!(LowRecord*).fields[argIndex].type, arg)),
-		(in Constant.Union x) =>
+		(in ConstantUnion x) =>
 			emitUnion(ctx, emit, type, x.memberIndex, (ExprEmit emitArg) =>
 				constantToGcc(ctx, emitArg, type.as!(LowUnion*).members[x.memberIndex], x.arg)),
-		(in Constant.Zero) =>
+		(in ConstantZero _) =>
 			zeroedToGcc(ctx, emit, type));
 
 ExprResult funPointerToGcc(ref ExprCtx ctx, ExprEmit emit, LowType type, LowFunIndex fun) {

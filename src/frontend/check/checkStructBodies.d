@@ -87,7 +87,6 @@ import model.model :
 	DiagSumTypeListedMembersNonUnion,
 	DiagUnionMemberTypeParameter,
 	DiagUnsupportedSyntax,
-	DiagVisibilityWarning,
 	emptyTypeParams,
 	EnumMemberSource,
 	EnumOrFlagsMember,
@@ -125,7 +124,11 @@ import model.model :
 	TypeParams,
 	TypeSize,
 	Varargs,
-	Visibility;
+	Visibility,
+	VisibilityWarningField,
+	VisibilityWarningFieldMutability,
+	VisibilityWarningKind,
+	VisibilityWarningNew;
 import util.alloc.stackAlloc : withStackArray;
 import util.col.array :
 	arrayOfSingle,
@@ -962,11 +965,11 @@ RecordField checkRecordField(
 	if (has(mutabilityAst) && record.purity != Purity.mut && !record.purityIsForced)
 		addDiag(ctx, force(mutabilityAst).range, Diag(DiagMutFieldNotAllowed()));
 	Visibility visibility = visibilityFromDefaultWithDiag(ctx, record.visibility, visibilityAst,
-		DiagVisibilityWarning.Kind(DiagVisibilityWarning.Kind.Field(record, name.name)));
+		VisibilityWarningKind(VisibilityWarningField(record, name.name)));
 	Opt!Visibility mutability = has(mutabilityAst)
 		? some(visibilityFromDefaultWithDiag(
 			ctx, visibility, force(mutabilityAst).visibility,
-			DiagVisibilityWarning.Kind(DiagVisibilityWarning.Kind.FieldMutability(name.name))))
+			VisibilityWarningKind(VisibilityWarningFieldMutability(name.name))))
 		: none!Visibility;
 	return RecordField(source, record, visibility, mutability, memberType);
 }
@@ -1100,8 +1103,7 @@ Visibility recordNewVisibility(
 			visibilityFromNewVisibility(force(modifiers.newVisibility).keyword),
 			force(modifiers.newVisibility).keywordPos))
 		: none!VisibilityAndRange;
-	return visibilityFromDefaultWithDiag(ctx, default_, explicit, DiagVisibilityWarning.Kind(
-		DiagVisibilityWarning.Kind.New(record)));
+	return visibilityFromDefaultWithDiag(ctx, default_, explicit, VisibilityWarningKind(VisibilityWarningNew(record)));
 }
 
 Visibility visibilityFromNewVisibility(ModifierKeyword a) {

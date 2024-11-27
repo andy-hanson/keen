@@ -12,6 +12,8 @@ import model.model :
 	CalledSpecSig,
 	CommonTypes,
 	Destructure,
+	DestructureIgnore,
+	DestructureSplit,
 	DiagTypeShouldUseSyntax,
 	FunDecl,
 	FunDeclAndTypeArgs,
@@ -21,7 +23,7 @@ import model.model :
 	Local,
 	Params,
 	ParamShort,
-	ParamsShort,
+	ParamsShortVariadic,
 	Purity,
 	ReturnAndParamTypes,
 	SpecInst,
@@ -332,7 +334,7 @@ void writeSigSimple(
 				writeParamShort(writer, ctx, typeContainer, x);
 			});
 		},
-		(in ParamsShort.Variadic x) {
+		(in ParamsShortVariadic x) {
 			writer ~= "...";
 			writeParamShort(writer, ctx, typeContainer, x.param);
 		});
@@ -369,7 +371,7 @@ private void writeDestructure(
 ) {
 	Type type = has(instantiated) ? force(instantiated) : a.type;
 	a.matchIn!void(
-		(in Destructure.Ignore) {
+		(in DestructureIgnore _) {
 			writer ~= "_ ";
 			writeTypeUnquoted(writer, ctx, TypeWithContainer(type, typeContainer));
 		},
@@ -378,7 +380,7 @@ private void writeDestructure(
 			writer ~= ' ';
 			writeTypeUnquoted(writer, ctx, TypeWithContainer(type, typeContainer));
 		},
-		(in Destructure.Split x) {
+		(in DestructureSplit x) {
 			writer ~= '(';
 			writeWithCommasZip!(Destructure, Type)(
 				writer, x.parts, type.as!(StructInst*).typeArgs, (in Destructure part, in Type partType) {

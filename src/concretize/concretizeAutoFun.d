@@ -58,7 +58,7 @@ import model.concreteModel :
 	mustBeFlags,
 	mustBeByVal,
 	unwrapOptionType;
-import model.constant : Constant;
+import model.constant : Constant, ConstantUnion;
 import model.model :
 	asUnion,
 	AutoFun,
@@ -288,7 +288,7 @@ Constant constantJsonString(ref ConcretizeCtx ctx, ConcreteType jsonType, Symbol
 	size_t memberIndex = 3;
 	ConcreteType string_ = stringType(ctx);
 	assert(members[memberIndex] == string_);
-	return Constant(allocate(ctx.alloc, Constant.Union(
+	return Constant(allocate(ctx.alloc, ConstantUnion(
 		memberIndex,
 		getConstantString(ctx.alloc, ctx.allConstants, mustBeByVal(string_), value))));
 }

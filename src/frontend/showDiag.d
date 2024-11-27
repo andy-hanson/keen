@@ -194,6 +194,10 @@ import model.model :
 	ReadError,
 	RelativeImportReachesPastRoot,
 	Signature,
+	SpecBuiltinNotSatisfied,
+	SpecCantInferTypeArgs,
+	SpecImplNotFound,
+	SpecTooDeep,
 	SpecDecl,
 	StructBody,
 	StructDecl,
@@ -202,7 +206,10 @@ import model.model :
 	TypeContainer,
 	TypeParamsAndSig,
 	TypeWithContainer,
-	UriAndDiagnostic;
+	UriAndDiagnostic,
+	VisibilityWarningField,
+	VisibilityWarningFieldMutability,
+	VisibilityWarningNew;
 import model.parseDiag :
 	ParseDiag,
 	ParseDiagDocCommentUnused,
@@ -1368,17 +1375,17 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagSpecNoMatch x) {
 			x.reason.matchIn!void(
-				(in DiagSpecNoMatch.Reason.BuiltinNotSatisfied y) {
+				(in SpecBuiltinNotSatisfied y) {
 					writeTypeQuoted(writer, ctx, TypeWithContainer(y.type, x.outermostTypeContainer));
 					writer ~= " is not '";
 					writer ~= stringOfEnum(y.kind);
 					writer ~= "'.";
 				},
-				(in DiagSpecNoMatch.Reason.CantInferTypeArguments y) {
+				(in SpecCantInferTypeArgs y) {
 					writer ~= "Can't infer type arguments to ";
 					writeFunDecl(writer, ctx, WriteKind.quoted, y.fun);
 				},
-				(in DiagSpecNoMatch.Reason.SpecImplNotFound y) {
+				(in SpecImplNotFound y) {
 					writer ~= "No implementation was found for spec signature ";
 					Signature* sig = y.sigDecl;
 					writeSig(
@@ -1386,7 +1393,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 						Params(sig.params), some(y.sigType));
 					writer ~= '.';
 				},
-				(in DiagSpecNoMatch.Reason.TooDeep _) {
+				(in SpecTooDeep _) {
 					writer ~= "Spec instantiation is too deep.";
 				});
 			if (!isEmpty(x.trace)) {
@@ -1719,7 +1726,7 @@ string aOrAnMemberKind(MemberKind a) {
 void writeVisibilityWarning(scope ref Writer writer, in ShowDiagCtx ctx, in DiagVisibilityWarning a) {
 	if (a.actualVisibility > a.defaultVisibility) {
 		a.kind.matchIn!void(
-			(in DiagVisibilityWarning.Kind.Field x) {
+			(in VisibilityWarningField x) {
 				writer ~= "Field ";
 				writeName(writer, ctx, x.fieldName);
 				writer ~= " should not be more visible than record ";
@@ -1728,7 +1735,7 @@ void writeVisibilityWarning(scope ref Writer writer, in ShowDiagCtx ctx, in Diag
 				writeVisibility(writer, ctx, a.defaultVisibility);
 				writer ~= '.';
 			},
-			(in DiagVisibilityWarning.Kind.FieldMutability x) {
+			(in VisibilityWarningFieldMutability x) {
 				writer ~= "Field ";
 				writeName(writer, ctx, x.fieldName);
 				writer ~= " can't have ";
@@ -1736,7 +1743,7 @@ void writeVisibilityWarning(scope ref Writer writer, in ShowDiagCtx ctx, in Diag
 				writer ~= " mutability when the field itself is ";
 				writeVisibility(writer, ctx, a.defaultVisibility);
 			},
-			(in DiagVisibilityWarning.Kind.New x) {
+			(in VisibilityWarningNew x) {
 				writeName(writer, ctx, symbol!"new");
 				writer ~= " function for record ";
 				writeName(writer, ctx, x.record.name);
@@ -1747,21 +1754,21 @@ void writeVisibilityWarning(scope ref Writer writer, in ShowDiagCtx ctx, in Diag
 	} else {
 		assert(a.actualVisibility == a.defaultVisibility);
 		a.kind.matchIn!void(
-			(in DiagVisibilityWarning.Kind.Field x) {
+			(in VisibilityWarningField x) {
 				writer ~= "Fields of record ";
 				writeName(writer, ctx, x.record.name);
 				writer ~= " are already ";
 				writeVisibility(writer, ctx, a.defaultVisibility);
 				writer ~= " by default.";
 			},
-			(in DiagVisibilityWarning.Kind.FieldMutability x) {
+			(in VisibilityWarningFieldMutability x) {
 				writer ~= "Field ";
 				writeName(writer, ctx, x.fieldName);
 				writer ~= " mutability would already be ";
 				writeVisibility(writer, ctx, a.defaultVisibility);
 				writer ~= " by default.";
 			},
-			(in DiagVisibilityWarning.Kind.New x) {
+			(in VisibilityWarningNew x) {
 				writer ~= "The 'new' function for ";
 				writeName(writer, ctx, x.record.name);
 				writer ~= " is already ";

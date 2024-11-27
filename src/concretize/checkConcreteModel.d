@@ -10,6 +10,8 @@ import model.concreteModel :
 	ConcreteExpr,
 	ConcreteFun,
 	ConcreteLocal,
+	ConcreteMatchStringLikeCase,
+	ConcreteMatchUnionCase,
 	ConcreteProgram,
 	ConcreteStruct,
 	ConcreteStructBody,
@@ -46,7 +48,7 @@ import model.concreteModel :
 	TryLetConcreteExpr,
 	UnionAsConcreteExpr,
 	UnionKindConcreteExpr;
-import model.constant : Constant;
+import model.constant : Constant, ConstantRecord;
 import model.model :
 	Builtin4ary,
 	BuiltinBinary,
@@ -131,7 +133,7 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 			checkExpr(ctx, x.inner.type, *x.inner);
 		},
 		(in Constant x) {
-			if (x.isA!(Constant.Record)) {
+			if (x.isA!ConstantRecord) {
 				assert(mustBeByVal(type).body_.isA!(ConcreteStructBody.Record));
 			}
 			// TODO: More checks
@@ -200,7 +202,7 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 			assert(x.equals.params.length == 2);
 			assert(every!ConcreteLocal(x.equals.params, (in ConcreteLocal param) =>
 				param.type == x.matched.type));
-			foreach (MatchStringLikeConcreteExpr.Case case_; x.cases)
+			foreach (ConcreteMatchStringLikeCase case_; x.cases)
 				checkExpr(ctx, type, case_.then);
 			checkExpr(ctx, type, x.else_);
 		},
@@ -460,11 +462,11 @@ void checkMatchUnionCases(
 	in ConcreteType type,
 	in ConcreteType unionOrVariant,
 	in IntegralValues memberIndices,
-	in MatchUnionConcreteExpr.Case[] cases,
+	in ConcreteMatchUnionCase[] cases,
 ) {
 	assert(cases.length == memberIndices.length);
 	ConcreteType[] members = unionMembers(ctx, unionOrVariant);
-	foreach (size_t caseIndex, MatchUnionConcreteExpr.Case case_; cases) {
+	foreach (size_t caseIndex, ConcreteMatchUnionCase case_; cases) {
 		assert(
 			!has(case_.local) ||
 			force(case_.local).type == members[safeToSizeT(memberIndices[caseIndex].value)]);

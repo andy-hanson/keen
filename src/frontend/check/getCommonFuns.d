@@ -46,6 +46,7 @@ import model.model :
 	Params,
 	ParamShort,
 	ParamsShort,
+	ParamsShortVariadic,
 	Program,
 	StructInst,
 	StructOrAlias,
@@ -145,7 +146,7 @@ CommonFunsAndDiagnostics getCommonFuns(
 
 	Type jsAny = getType(CommonModule.js, symbol!"js-any");
 
-	ParamsShort.Variadic newJsonPairsParams = ParamsShort.Variadic(
+	ParamsShortVariadic newJsonPairsParams = ParamsShortVariadic(
 		param!"pairs"(symbolJsonTupleArray), symbolJsonTuple);
 
 	ParamShort[1] tArrayParam = [param!"a"(tArray)];
@@ -264,7 +265,7 @@ Params makeParams(ref Alloc alloc, in ParamsShort params) =>
 	params.match!Params(
 		(ParamShort[] x) =>
 			makeParams(alloc, x),
-		(ref ParamsShort.Variadic x) =>
+		(ref ParamsShortVariadic x) =>
 			Params(allocate(alloc, Varargs(makeParam(alloc, x.param), x.elementType))));
 Params makeParams(ref Alloc alloc, in ParamShort[] params) =>
 	Params(map(alloc, params, (ref ParamShort x) => makeParam(alloc, x)));
@@ -380,7 +381,7 @@ bool signatureMatchesTemplate(in FunDecl actual, in TypeParamsAndSig expected) =
 					params,
 					(ref Destructure x, ref ParamShort y) =>
 						typesMatch(x.type, actual.typeParams, y.type, expected.typeParams)),
-			(in ParamsShort.Variadic x) =>
+			(in ParamsShortVariadic x) =>
 				actual.isVariadic && typesMatch(
 					actual.params.as!(Varargs*).param.type, actual.typeParams,
 					x.param.type, expected.typeParams));
@@ -504,7 +505,7 @@ ParamsShort copyParams(ref Alloc alloc, in ParamsShort a) =>
 	a.match!ParamsShort(
 		(ParamShort[] x) =>
 			ParamsShort(copyArray(alloc, x)),
-		(ref ParamsShort.Variadic x) =>
+		(ref ParamsShortVariadic x) =>
 			ParamsShort(allocate(alloc, x)));
 
 immutable(FunDecl*[]) getFuns(ref Module a, Symbol name) {

@@ -4,12 +4,12 @@ module frontend.ide.getSignatureHelp;
 
 import document.document : docCommentString;
 import frontend.ide.position :
-	ExpressionPosition, ExpressionPositionKind, ExpressionPositionLiteral, ExprKeyword, LocalRef, LoopKeyword, Position;
+	ExpressionPosition, ExpressionPositionLiteral, ExprKeyword, LocalRef, LoopKeyword, Position;
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : ParameterInformation, SignatureHelp, SignatureInformation;
 import model.ast : CallAst, ExprAstKind;
 import model.model :
-	Arity,
+	ArityVarargs,
 	BogusCallExpr,
 	CalledDecl,
 	CalledSpecSig,
@@ -93,7 +93,7 @@ SignatureInformation signatureInformation(
 
 	size_t nParams = a.arity.matchIn!size_t(
 		(in uint x) => x,
-		(in Arity.Varargs) => 1);
+		(in ArityVarargs _) => 1);
 	ExactSizeArrayBuilder!ParameterInformation parameters =
 		newExactSizeArrayBuilder!ParameterInformation(alloc, nParams);
 

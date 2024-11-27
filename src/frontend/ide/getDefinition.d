@@ -4,7 +4,7 @@ module frontend.ide.getDefinition;
 
 import frontend.ide.getTarget : Target, targetForPosition;
 import frontend.ide.ideUtil : ReferenceCb;
-import frontend.ide.position : Position, PositionImportedName, PositionKind, PositionLocal, TypeParamWithContainer;
+import frontend.ide.position : Position, PositionImportedName, PositionLocal, TypeParamWithContainer;
 import model.ast : ExprAst, LoopAst;
 import model.model :
 	asTypeContainer,

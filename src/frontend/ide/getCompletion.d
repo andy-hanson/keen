@@ -5,14 +5,7 @@ module frontend.ide.getCompletion;
 import document.document : docCommentString;
 import frontend.check.inferringType : isTypeMatchPossibleForCompletions;
 import frontend.ide.position :
-	ExprContainer,
-	ExpressionPosition,
-	ExpressionPositionKind,
-	ExpressionPositionLiteral,
-	ExprKeyword,
-	Position,
-	LocalRef,
-	LoopKeyword;
+	ExprContainer, ExpressionPosition, ExpressionPositionLiteral, ExprKeyword, Position, LocalRef, LoopKeyword;
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : CompletionItem, CompletionList;
 import model.model :
