@@ -6,6 +6,7 @@ import model.concreteModel :
 	ConcreteFun,
 	ConcreteFunKey,
 	ConcreteFunSource,
+	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
 	ConcreteStruct,
@@ -86,7 +87,7 @@ private void writeConcreteFunSig(scope ref Writer writer, in ShowCtx ctx, in Con
 				(in ConcreteLocalSource.Closure) {
 					writer ~= "<closure>";
 				},
-				(in ConcreteLocalSource.Generated x) {
+				(in ConcreteGeneratedLocalKind x) {
 					writer ~= stringOfEnum(x);
 				});
 			writer ~= ' ';

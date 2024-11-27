@@ -82,6 +82,7 @@ import model.concreteModel :
 	ConcreteField,
 	ConcreteFun,
 	ConcreteFunBody,
+	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
 	ConcreteProgram,
@@ -180,7 +181,16 @@ import model.model :
 	BuiltinBinaryLazy,
 	BuiltinBinaryMath,
 	BuiltinFun,
+	BuiltinFunAllTests,
+	BuiltinFunCallLambda,
+	BuiltinFunCallFunPointer,
+	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
+	BuiltinFunNewEmptyOption,
+	BuiltinFunNewNonEmptyOption,
+	BuiltinFunPointerCast,
+	BuiltinFunSizeOf,
+	BuiltinFunStaticSymbols,
 	BuiltinFunMarkVisit,
 	BuiltinFunMarkRoot,
 	BuiltinTernary,
@@ -668,14 +678,14 @@ LowLocalSource getLowLocalSource(ref Alloc alloc, ConcreteLocalSource a) =>
 			LowLocalSource(x),
 		(ConcreteLocalSource.Closure x) =>
 			LowLocalSource(allocate(alloc, LowLocalSource.Generated(symbol!"closure", isMutable: false))),
-		(ConcreteLocalSource.Generated x) {
+		(ConcreteGeneratedLocalKind x) {
 			bool isMutable = () {
 				final switch (x) {
-					case ConcreteLocalSource.Generated.args:
-					case ConcreteLocalSource.Generated.ignore:
-					case ConcreteLocalSource.Generated.destruct:
-					case ConcreteLocalSource.Generated.member:
-					case ConcreteLocalSource.Generated.reference:
+					case ConcreteGeneratedLocalKind.args:
+					case ConcreteGeneratedLocalKind.ignore:
+					case ConcreteGeneratedLocalKind.destruct:
+					case ConcreteGeneratedLocalKind.member:
+					case ConcreteGeneratedLocalKind.reference:
 						return false;
 				}
 			}();
@@ -730,7 +740,7 @@ LowFunBody getLowFunBody(
 			hasTailRecur: false,
 			localIndex: safeToUint(a.params.length));
 		LowExpr body_ = withStackMap!(LowExpr, ConcreteLocal*, LowLocal*)((ref Locals locals) =>
-			getLowExpr(exprCtx, locals, expr, ExprPos(0, ExprPos.Kind.tail)));
+			getLowExpr(exprCtx, locals, expr, ExprPos(0, ExprPosKind.tail)));
 		return LowFunBody(LowFunExprBody(
 			LowFunFlags(
 				hasSetupCatch: exprCtx.hasSetupCatch,
@@ -921,26 +931,26 @@ uint nextLocalIndex(ref GetLowExprCtx ctx) {
 struct ExprPos {
 	@safe @nogc pure nothrow:
 	uint nGcRootsToPop;
-	enum Kind {
-		// A regular expression, not the one returned from the function
-		nonTail,
-		// The body of a loop (or a branch of an 'if' that is the body of a loop, etc.)
-		loop,
-		// An expression returned from the function with no step after, suitable for tail recursion.
-		tail
-	}
-	Kind kind;
+	ExprPosKind kind;
 
-	static ExprPos nonTail() => ExprPos(0, Kind.nonTail);
-	static ExprPos loopNoGcRoots() => ExprPos(0, Kind.loop);
+	static ExprPos nonTail() => ExprPos(0, ExprPosKind.nonTail);
+	static ExprPos loopNoGcRoots() => ExprPos(0, ExprPosKind.loop);
 	ExprPos withIncrNGcRoots() =>
 		ExprPos(nGcRootsToPop + 1, kind);
 	ExprPos asNonTail() =>
-		ExprPos(nGcRootsToPop, Kind.nonTail);
+		ExprPos(nGcRootsToPop, ExprPosKind.nonTail);
+}
+enum ExprPosKind {
+	// A regular expression, not the one returned from the function
+	nonTail,
+	// The body of a loop (or a branch of an 'if' that is the body of a loop, etc.)
+	loop,
+	// An expression returned from the function with no step after, suitable for tail recursion.
+	tail
 }
 
 LowExpr handleExprPos(ref GetLowExprCtx ctx, ExprPos exprPos, LowExpr expr) {
-	assert(exprPos.kind != ExprPos.Kind.loop);
+	assert(exprPos.kind != ExprPosKind.loop);
 	return doThenPopGcRoots(ctx, exprPos.nGcRootsToPop, expr);
 }
 
@@ -1030,11 +1040,11 @@ LowExpr getLowExpr(
 			handleExprPos(ctx, exprPos, LowExpr(type, range, LowExprKind(allocate(ctx.alloc,
 				LoopLowExpr(getLowExpr(ctx, locals, x.body_, ExprPos.loopNoGcRoots)))))),
 		(ref LoopBreakConcreteExpr x) {
-			assert(exprPos.kind == ExprPos.Kind.loop);
+			assert(exprPos.kind == ExprPosKind.loop);
 			return genLoopBreak(ctx.alloc, type, range, getLowExpr(ctx, locals, x.value, exprPos.asNonTail));
 		},
 		(LoopContinueConcreteExpr _) {
-			assert(exprPos.kind == ExprPos.Kind.loop);
+			assert(exprPos.kind == ExprPosKind.loop);
 			return popGcRootsThenDo(ctx, exprPos.nGcRootsToPop, genLoopContinue(type, range));
 		},
 		(ref MatchEnumOrIntegralConcreteExpr x) =>
@@ -1154,7 +1164,7 @@ LowExpr getCallRegular(
 	ConcreteFun* concreteCalled,
 	LowFunIndex called,
 ) {
-	if (called == ctx.currentFun && exprPos.kind == ExprPos.Kind.tail) {
+	if (called == ctx.currentFun && exprPos.kind == ExprPosKind.tail) {
 		ctx.hasTailRecur = true;
 		MutArr!UpdateParam updateParams;
 		zipPtrFirst(ctx.lowParams, args, (LowLocal* param, ref ConcreteExpr concreteArg) {
@@ -1283,7 +1293,7 @@ LowExpr getCallBuiltinExpr(
 	LowExpr getArg3() =>
 		getArg(args[3]);
 	return kind.match!LowExpr(
-		(BuiltinFunAllTests) =>
+		(BuiltinFunAllTests _) =>
 			assert(false), // handled in concretize
 		(BuiltinUnary kind) {
 			assert(args.length == 1);
@@ -1329,39 +1339,39 @@ LowExpr getCallBuiltinExpr(
 			assert(args.length == 4);
 			return gen4ary(ctx.alloc, type, range, kind, getArg0, getArg1, getArg2, getArg3);
 		},
-		(BuiltinFunCallLambda) =>
+		(BuiltinFunCallLambda _) =>
 			assert(false), // handled in concretize
-		(BuiltinFunCallFunPointer) =>
+		(BuiltinFunCallFunPointer _) =>
 			callFunPointer(ctx, ExprPos.nonTail, locals, range, type, only2(args)),
 		(Constant x) =>
 			LowExpr(type, range, LowExprKind(x)),
-		(BuiltinFunGcSafeValue) =>
+		(BuiltinFunGcSafeValue _) =>
 			// handled in concretize
 			assert(false),
 		(BuiltinFunInit x) =>
 			LowExpr(type, range, LowExprKind(InitLowExpr(x.kind))),
 		(JsFun _) =>
 			assert(false),
-		(BuiltinFunMarkRoot) =>
+		(BuiltinFunMarkRoot _) =>
 			// Handled in getAllLowFuns
 			assert(false),
-		(BuiltinFunMarkVisit) =>
+		(BuiltinFunMarkVisit _) =>
 			// Handled in getAllLowFuns
 			assert(false),
-		(BuiltinFunNewEmptyOption) =>
+		(BuiltinFunNewEmptyOption _) =>
 			assert(false),
-		(BuiltinFunNewNonEmptyOption) =>
+		(BuiltinFunNewNonEmptyOption _) =>
 			assert(false),
-		(BuiltinFunPointerCast) {
+		(BuiltinFunPointerCast _) {
 			assert(args.length == 1);
 			return genPointerCast(ctx.alloc, type, range, getArg0);
 		},
-		(BuiltinFunSizeOf) {
+		(BuiltinFunSizeOf _) {
 			LowType typeArg =
 				lowTypeFromConcreteType(ctx.typeCtx, only(called.body_.as!(ConcreteFunBody.Builtin).typeArgs));
 			return genSizeOf(ctx.allTypes, range, typeArg);
 		},
-		(BuiltinFunStaticSymbols) =>
+		(BuiltinFunStaticSymbols _) =>
 			LowExpr(type, range, LowExprKind(ctx.staticSymbols)),
 		(VersionFun _) =>
 			// handled in concretize
@@ -1602,7 +1612,7 @@ LowExpr getThrowExpr(
 	LowExpr callThrow = genCallNoGcRoots(ctx.alloc, voidType, range, ctx.commonFuns.throwImpl, [
 		getLowExpr(ctx, locals, a.thrown, ExprPos.nonTail)]);
 	LowExpr res = type == voidType ? callThrow : genSeq(ctx.alloc, range, callThrow, genZeroed(type, range));
-	return exprPos.kind == ExprPos.Kind.loop ? genLoopBreak(ctx.alloc, type, range, res) : res;
+	return exprPos.kind == ExprPosKind.loop ? genLoopBreak(ctx.alloc, type, range, res) : res;
 }
 
 LowExpr getFinallyExpr(

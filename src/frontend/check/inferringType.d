@@ -21,6 +21,9 @@ import model.model :
 	DiagLiteralNotExpected,
 	DiagTypeConflict,
 	ExpectedForDiag,
+	ExpectedForDiagChoices,
+	ExpectedForDiagInfer,
+	ExpectedForDiagLoop,
 	Expr,
 	ExprAndType,
 	ExprKind,
@@ -291,7 +294,7 @@ private void debugLogExpectedChoice(
 	in TypeAndContext choice,
 ) {
 	choice.type.matchIn!void(
-		(in BogusType) {
+		(in BogusType _) {
 			writer ~= "<<bogus>>";
 		},
 		(in TypeParamIndex x) {
@@ -461,7 +464,7 @@ MutOpt!ExpectedLambdaType getExpectedLambda(
 	if (anyDiag) {
 		if (!arrayBuilderIsEmpty(multiple))
 			addDiag2(ctx, source, Diag(
-				DiagLambdaMultipleMatch(ExpectedForDiag.Choices(finish(ctx.alloc, multiple), ctx.typeContainer))));
+				DiagLambdaMultipleMatch(ExpectedForDiagChoices(finish(ctx.alloc, multiple), ctx.typeContainer))));
 		return noneMut!ExpectedLambdaType;
 	} else {
 		if (!has(cellGet(res)))
@@ -609,15 +612,15 @@ private ExprAndType check(ref ExprCtx ctx, ref Expected expected, ExprAndType a)
 ExpectedForDiag getExpectedForDiag(ref ExprCtx ctx, ref const Expected expected) =>
 	expected.matchCombineTypeConst!ExpectedForDiag(
 		(Expected.Infer) =>
-			ExpectedForDiag(ExpectedForDiag.Infer()),
+			ExpectedForDiag(ExpectedForDiagInfer()),
 		(Type x) =>
-			ExpectedForDiag(ExpectedForDiag.Choices(newArray!Type(ctx.alloc, [x]), ctx.typeContainer)),
+			ExpectedForDiag(ExpectedForDiagChoices(newArray!Type(ctx.alloc, [x]), ctx.typeContainer)),
 		(const TypeAndContext[] choices) =>
-			ExpectedForDiag(ExpectedForDiag.Choices(
+			ExpectedForDiag(ExpectedForDiagChoices(
 				map(ctx.alloc, choices, (ref const TypeAndContext x) => applyInferred(ctx.instantiateCtx, x)),
 				ctx.typeContainer)),
 		(const LoopInfo*) =>
-			ExpectedForDiag(ExpectedForDiag.Loop()));
+			ExpectedForDiag(ExpectedForDiagLoop()));
 
 // Note: this may infer type parameters
 private bool setTypeNoDiagnostic(InstantiateCtx ctx, ref Expected expected, Type actual) =>

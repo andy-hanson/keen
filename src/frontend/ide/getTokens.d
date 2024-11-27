@@ -414,7 +414,7 @@ void addStructTokens(scope ref Ctx ctx, in StructDeclAst a) {
 		(in EnumAst x) {
 			addEnumOrFlagsTokens(ctx, a, x.params, x.members);
 		},
-		(in ExternTypeAst) {
+		(in ExternTypeAst _) {
 			addModifierTokens(ctx, a.modifiers);
 		},
 		(in FlagsAst x) {
@@ -706,7 +706,7 @@ void addCaseMemberTokens(scope ref Ctx ctx, in CaseMemberAst a) {
 		(in AsStringAst x) {
 			stringLiteral(ctx.tokens, x.range);
 		},
-		(in AsBogusAst) {});
+		(in AsBogusAst _) {});
 }
 
 void addConditionTokens(scope ref Ctx ctx, in ConditionAst a) {

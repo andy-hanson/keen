@@ -181,6 +181,9 @@ import model.model :
 	eachDiagnostic,
 	EnumOrFlagsMember,
 	ExpectedForDiag,
+	ExpectedForDiagChoices,
+	ExpectedForDiagInfer,
+	ExpectedForDiagLoop,
 	FunDeclAndTypeArgs,
 	LibraryNotConfigured,
 	maxValue,
@@ -320,16 +323,16 @@ DiagnosticSeverity maxDiagnosticSeverity(in ProgramWithOptMain a) {
 
 void writeParseDiag(scope ref Writer writer, in ShowCtx ctx, in ParseDiag d) {
 	d.matchIn!void(
-		(in ParseDiagDocCommentUnused) {
+		(in ParseDiagDocCommentUnused _) {
 			writer ~= "Doc comment must appear at top of module or before a declaration.";
 		},
 		(in ParseDiagExpected x) {
 			writer ~= showParseDiagExpected(x);
 		},
-		(in ParseDiagFileNotUtf8) {
+		(in ParseDiagFileNotUtf8 _) {
 			writer ~= "File is not encoded as UTF-8 or has encoding errors.";
 		},
-		(in ParseDiagImportFileTypeNotSupported) {
+		(in ParseDiagImportFileTypeNotSupported _) {
 			writer ~= "Import file type not allowed; the only supported types are 'nat8 array' and 'string'.";
 		},
 		(in ParseDiagIndentNotDivisible d) {
@@ -353,7 +356,7 @@ void writeParseDiag(scope ref Writer writer, in ShowCtx ctx, in ParseDiag d) {
 			writer ~= x.actual;
 			writer ~= "'.";
 		},
-		(in ParseDiagMatchCaseInterpolated) {
+		(in ParseDiagMatchCaseInterpolated _) {
 			writer ~= "'match' only works with literal strings, not interpolated strings.";
 		},
 		(in ParseDiagMissingInterpolated x) {
@@ -372,16 +375,16 @@ void writeParseDiag(scope ref Writer writer, in ShowCtx ctx, in ParseDiag d) {
 		(in ReadFileDiag x) {
 			showReadFileDiag(writer, ctx, x, none!Uri);
 		},
-		(in ParseDiagTrailingComma) {
+		(in ParseDiagTrailingComma _) {
 			writer ~= "Remove this trailing comma.";
 		},
-		(in ParseDiagTypeEmptyParens) {
+		(in ParseDiagTypeEmptyParens _) {
 			writer ~= "'()' is not a type. Did you mean 'void'?";
 		},
-		(in ParseDiagTypeTrailingMut) {
+		(in ParseDiagTypeTrailingMut _) {
 			writer ~= "To make something mutable, put 'mut' after its name, not after its type.";
 		},
-		(in ParseDiagTypeUnnecessaryParens) {
+		(in ParseDiagTypeUnnecessaryParens _) {
 			writer ~= "Parentheses are unnecessary.";
 		},
 		(in ParseDiagUnexpectedCharacter x) {
@@ -516,71 +519,87 @@ void writeCallNoMatch(scope ref Writer writer, in ShowDiagCtx ctx, in DiagCallNo
 			(d.actualNTypeArgs == 0 || nTypeParams(c) == d.actualNTypeArgs) &&
 			arityMatches(c.arity, d.actualArity));
 
-	if (isEmpty(d.allCandidates)) {
-		writer ~= "There is no function ";
-		if (d.actualArity == 0)
-			// If there is no local variable by that name we try a call,
-			// but message should reflect that the user might not have wanted a call.
-			writer ~= "or variable ";
-		writer ~= "named ";
-		writeName(writer, ctx, d.funName);
-		writer ~= '.';
+	if (isEmpty(d.allCandidates))
+		writeCallNoCandidates(writer, ctx, d);
+	else if (!someCandidateHasCorrectArity)
+		writeCallNoCorrectArity(writer, ctx, d, someCandidateHasCorrectNTypeArgs);
+	else
+		writeCallCloseMatch(writer, ctx, d);
+}
 
-		if (d.actualArgTypes.length == 1) {
-			writer ~= "\nArgument type: ";
-			writeTypeQuoted(writer, ctx, TypeWithContainer(only(d.actualArgTypes), d.typeContainer));
-		}
-	} else if (!someCandidateHasCorrectArity) {
-		writer ~= "There are functions named ";
-		writeName(writer, ctx, d.funName);
-		writer ~= ", but none takes ";
-		if (someCandidateHasCorrectNTypeArgs) {
-			writer ~= d.actualArity;
-		} else {
-			writer ~= d.actualNTypeArgs;
-			writer ~= " type";
-		}
-		writer ~= " arguments. candidates:";
-		writeCalledDecls(writer, ctx, d.typeContainer, d.allCandidates);
-	} else {
-		writer ~= "There are functions named ";
-		writeName(writer, ctx, d.funName);
-		writer ~= ", but they do not match the ";
-		bool hasRet = d.expectedReturnType.isA!(ExpectedForDiag.Choices);
-		bool hasArgs = !isEmpty(d.actualArgTypes);
-		string descr = hasRet
-			? hasArgs ? "expected return type and actual argument types" : "expected return type"
-			: "actual argument types";
-		writer ~= descr;
-		writer ~= '.';
-		writeNewline(writer, 0);
-		if (hasRet)
-			writeExpected(writer, ctx, d.expectedReturnType, ExpectedKind.return_);
-		if (hasArgs) {
-			writer ~= "\nActual argument types: ";
-			writeWithCommas!Type(writer, d.actualArgTypes, (in Type t) {
-				writeTypeQuoted(writer, ctx, TypeWithContainer(t, d.typeContainer));
-			});
-			if (d.actualArgTypes.length < d.actualArity)
-				writer ~= " (Other arguments not checked; gave up early.)";
-		}
-		writer ~= "\nCandidates (with ";
-		writer ~= d.actualArity;
-		writer ~= " arguments):";
-		writeCalledDecls(writer, ctx, d.typeContainer, d.allCandidates, (in CalledDecl c) =>
-			arityMatches(c.arity, d.actualArity));
+void writeCallNoCandidates(scope ref Writer writer, in ShowDiagCtx ctx, in DiagCallNoMatch d) {
+	writer ~= "There is no function ";
+	if (d.actualArity == 0)
+		// If there is no local variable by that name we try a call,
+		// but message should reflect that the user might not have wanted a call.
+		writer ~= "or variable ";
+	writer ~= "named ";
+	writeName(writer, ctx, d.funName);
+	writer ~= '.';
+
+	if (d.actualArgTypes.length == 1) {
+		writer ~= "\nArgument type: ";
+		writeTypeQuoted(writer, ctx, TypeWithContainer(only(d.actualArgTypes), d.typeContainer));
 	}
+}
+
+void writeCallNoCorrectArity(
+	scope ref Writer writer,
+	in ShowDiagCtx ctx,
+	in DiagCallNoMatch d,
+	bool someCandidateHasCorrectNTypeArgs,
+) {
+	writer ~= "There are functions named ";
+	writeName(writer, ctx, d.funName);
+	writer ~= ", but none takes ";
+	if (someCandidateHasCorrectNTypeArgs) {
+		writer ~= d.actualArity;
+	} else {
+		writer ~= d.actualNTypeArgs;
+		writer ~= " type";
+	}
+	writer ~= " arguments. candidates:";
+	writeCalledDecls(writer, ctx, d.typeContainer, d.allCandidates);
+}
+
+void writeCallCloseMatch(scope ref Writer writer, in ShowDiagCtx ctx, in DiagCallNoMatch d) {
+	writer ~= "There are functions named ";
+	writeName(writer, ctx, d.funName);
+	writer ~= ", but they do not match the ";
+	bool hasRet = d.expectedReturnType.isA!ExpectedForDiagChoices;
+	bool hasArgs = !isEmpty(d.actualArgTypes);
+	string descr = hasRet
+		? hasArgs ? "expected return type and actual argument types" : "expected return type"
+		: "actual argument types";
+	writer ~= descr;
+	writer ~= '.';
+	writeNewline(writer, 0);
+	if (hasRet)
+		writeExpected(writer, ctx, d.expectedReturnType, ExpectedKind.return_);
+	if (hasArgs) {
+		writer ~= "\nActual argument types: ";
+		writeWithCommas!Type(writer, d.actualArgTypes, (in Type t) {
+			writeTypeQuoted(writer, ctx, TypeWithContainer(t, d.typeContainer));
+		});
+		if (d.actualArgTypes.length < d.actualArity)
+			writer ~= " (Other arguments not checked; gave up early.)";
+	}
+	writer ~= "\nCandidates (with ";
+	writer ~= d.actualArity;
+	writer ~= " arguments):";
+	writeCalledDecls(writer, ctx, d.typeContainer, d.allCandidates, (in CalledDecl c) =>
+		arityMatches(c.arity, d.actualArity));
 }
 
 void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 	diag.matchIn!void(
-		(in DiagAliasNotAllowed) {
+		(in DiagAliasNotAllowed _) {
 			writer ~= "An alias is not allowed to reference another alias in the same module.";
 		},
-		(in DiagAssertOrForbidMessageIsThrow) {
+		(in DiagAssertOrForbidMessageIsThrow _) {
 			writer ~= "The expression after the ':' for an assert or forbid is always thrown; it doesn't need 'throw'.";
 		},
-		(in DiagAssignmentNotAllowed) {
+		(in DiagAssignmentNotAllowed _) {
 			writer ~= "Can't assign to this kind of expression.";
 		},
 		(in DiagAutoFunBare _) {
@@ -745,7 +764,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeName(writer, ctx, x.caseType.name);
 			writer ~= " can't be a 'case' because it is a template.";
 		},
-		(in DiagCharLiteralMustBeOneChar) {
+		(in DiagCharLiteralMustBeOneChar _) {
 			writer ~= "Value of 'char' type must be a single character";
 		},
 		(in DiagCommonFunDuplicate x) {
@@ -867,13 +886,13 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeName(writer, ctx, x.name);
 			writer ~= " is already in scope, so this expression is always 'true'.";
 		},
-		(in DiagExternFunVariadic) {
+		(in DiagExternFunVariadic _) {
 			writer ~= "An 'extern' function can't be variadic.";
 		},
-		(in DiagExternHasUnnecessaryLibraryName) {
+		(in DiagExternHasUnnecessaryLibraryName _) {
 			writer ~= "'extern' for a type does not need the library name.";
 		},
-		(in DiagExternMissingLibraryName) {
+		(in DiagExternMissingLibraryName _) {
 			writer ~= "Expected 'extern' to be preceded by the library name.";
 		},
 		(in DiagExternRecordImplicitlyByVal x) {
@@ -881,7 +900,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeName(writer, ctx, x.struct_.name);
 			writer ~= " is implicitly 'by-val'.";
 		},
-		(in DiagExternSumType) {
+		(in DiagExternSumType _) {
 			writer ~= "An 'interface', 'union', or 'variant' can't be 'extern'.";
 		},
 		(in DiagExternTypeError x) {
@@ -896,7 +915,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				}
 			}();
 		},
-		(in DiagFlagsSigned) {
+		(in DiagFlagsSigned _) {
 			writer ~= "A 'flags' type can't use a signed storage type.";
 		},
 		(in DiagFunctionWithSignatureNotFound x) {
@@ -911,13 +930,13 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			});
 			writer ~= ")'.";
 		},
-		(in DiagFunPointerExprMustBeName) {
+		(in DiagFunPointerExprMustBeName _) {
 			writer ~= "Function pointer expression must be a plain identifier ('&f').";
 		},
-		(in DiagFunPointerNotBare) {
+		(in DiagFunPointerNotBare _) {
 			writer ~= "The target of a function pointer must be a 'bare' function.";
 		},
-		(in DiagIfThrow) {
+		(in DiagIfThrow _) {
 			writer ~= "Instead of throwing from a conditional expression, use 'assert' or 'forbid'.";
 		},
 		(in DiagImportFile x) {
@@ -987,7 +1006,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= "Consider explicitly typing the lambda's parameter.";
 		},
 		(in DiagLambdaNotExpected x) {
-			if (x.expected.isA!(ExpectedForDiag.Infer))
+			if (x.expected.isA!ExpectedForDiagInfer)
 				writer ~= "Lambda expression needs an expected type.";
 			else {
 				writer ~= "The lambda doesn't match the expected type at this location.";
@@ -995,11 +1014,11 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				writeExpected(writer, ctx, x.expected, ExpectedKind.lambda);
 			}
 		},
-		(in DiagLambdaTypeMissingParamType) {
+		(in DiagLambdaTypeMissingParamType _) {
 			writer ~= "Function type needs parameter types. " ~
 				"(It is parsed a as a destructure, so it needs both parameter names and types.)";
 		},
-		(in DiagLambdaTypeVariadic) {
+		(in DiagLambdaTypeVariadic _) {
 			writer ~= "A function type can't be variadic; only a function can.";
 		},
 		(in DiagLinkageWorseThanContainingFun x) {
@@ -1036,7 +1055,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			});
 		},
 		(in DiagLiteralNotExpected x) {
-			if (x.expected.isA!(ExpectedForDiag.Infer))
+			if (x.expected.isA!ExpectedForDiagInfer)
 				writer ~= "Literal expression needs an expected type.";
 			else {
 				writer ~= "The literal doesn't match the expected type at this location.";
@@ -1053,7 +1072,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= maxValue(x.type);
 			writer ~= '.';
 		},
-		(in DiagLocalIgnoredButMutable) {
+		(in DiagLocalIgnoredButMutable _) {
 			writer ~= "Unnecessary 'mut' on ignored local variable.";
 		},
 		(in DiagLocalNotMutable x) {
@@ -1066,7 +1085,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeName(writer, ctx, stringOfEnum(x));
 			writer ~= " expression";
 		},
-		(in DiagLoopWithoutBreak) {
+		(in DiagLoopWithoutBreak _) {
 			writer ~= "'loop' has no 'break'.";
 		},
 		(in DiagMainMissingExterns x) {
@@ -1233,7 +1252,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeModifier(writer, ctx, x.modifier);
 			writer ~= " does not take a type argument in this context.";
 		},
-		(in DiagMutFieldNotAllowed) {
+		(in DiagMutFieldNotAllowed _) {
 			writer ~= "This field is 'mut', so the record must be 'mut'.";
 		},
 		(in DiagNameNotFound x) {
@@ -1248,19 +1267,19 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= stringOfEnum(x);
 			writer ~= "' expression needs an expected type.";
 		},
-		(in DiagParamMissingType) {
+		(in DiagParamMissingType _) {
 			writer ~= "This parameter needs a type.";
 		},
-		(in DiagParamMutable) {
+		(in DiagParamMutable _) {
 			writer ~= "A parameter can't be mutable.";
 		},
 		(in ParseDiag x) {
 			writeParseDiag(writer, ctx, x);
 		},
-		(in DiagPointerIsNative) {
+		(in DiagPointerIsNative _) {
 			writer ~= "Can only get a pointer in an 'extern native' context.";
 		},
-		(in DiagPointerIsUnsafe) {
+		(in DiagPointerIsUnsafe _) {
 			writer ~= "Can only get a pointer in an 'unsafe' or 'trusted' context.";
 		},
 		(in DiagPointerMutToConst x) {
@@ -1314,7 +1333,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeName(writer, ctx, x.fieldName);
 			writer ~= " needs a type.";
 		},
-		(in DiagSharedArgIsNotLambda) {
+		(in DiagSharedArgIsNotLambda _) {
 			writer ~= "Argument to 'shared' must be a lambda expression.";
 		},
 		(in DiagSharedLambdaTypeIsNotShared x) {
@@ -1405,7 +1424,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				}
 			}();
 		},
-		(in DiagStorageMissingType) {
+		(in DiagStorageMissingType _) {
 			writer ~= "'storage' needs a type.";
 		},
 		(in DiagStructParamsSyntaxError x) {
@@ -1424,10 +1443,10 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					break;
 			}
 		},
-		(in DiagSumTypeListedMembersNonUnion) {
+		(in DiagSumTypeListedMembersNonUnion _) {
 			writer ~= "Only 'union' types support listing member types.";
 		},
-		(in DiagTestMissingBody) {
+		(in DiagTestMissingBody _) {
 			writer ~= "This test needs a body.";
 		},
 		(in DiagTrustedUnnecessary x) {
@@ -1460,7 +1479,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeTypeQuoted(writer, ctx, x.actual);
 			writer ~= '.';
 		},
-		(in DiagTypeParamCantHaveTypeArgs) {
+		(in DiagTypeParamCantHaveTypeArgs _) {
 			writer ~= "Can't provide type arguments to a type parameter.";
 		},
 		(in DiagTypeParamsUnsupported x) {
@@ -1501,7 +1520,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 				}
 			}();
 		},
-		(in DiagUnionMemberTypeParameter) {
+		(in DiagUnionMemberTypeParameter _) {
 			writer ~= "A type parameter can't be a union member.";
 		},
 		(in DiagUnsupportedSyntax x) {
@@ -1539,7 +1558,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeName(writer, ctx, x.name);
 			writer ~= " is unused.";
 		},
-		(in DiagVarargsParamMustBeArray) {
+		(in DiagVarargsParamMustBeArray _) {
 			writer ~= "Variadic parameter must be an ";
 			writeName(writer, ctx, symbol!"array");
 			writer ~= '.';
@@ -1547,7 +1566,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in DiagVisibilityWarning x) {
 			writeVisibilityWarning(writer, ctx, x);
 		},
-		(in DiagWithHasElse) {
+		(in DiagWithHasElse _) {
 			writeKeyword(writer, ctx, "with");
 			writer ~= " statement can't have ";
 			writeKeyword(writer, ctx, "else");
@@ -1581,7 +1600,7 @@ void writeExpected(scope ref Writer writer, in ShowDiagCtx ctx, in ExpectedForDi
 		writer ~= "type";
 	}
 	a.matchIn!void(
-		(in ExpectedForDiag.Choices choices) {
+		(in ExpectedForDiagChoices choices) {
 			if (choices.types.length == 1) {
 				writer ~= "Expected ";
 				writeType();
@@ -1595,17 +1614,17 @@ void writeExpected(scope ref Writer writer, in ShowDiagCtx ctx, in ExpectedForDi
 				writeTypesOnLines(writer, ctx, choices);
 			}
 		},
-		(in ExpectedForDiagInfer) {
+		(in ExpectedForDiagInfer _) {
 			writer ~= "This location has no expected ";
 			writeType();
 			writer ~= '.';
 		},
-		(in ExpectedForDiagLoop) {
+		(in ExpectedForDiagLoop _) {
 			writer ~= "Expected a loop 'break' or 'continue'.";
 		});
 }
 
-void writeTypesOnLines(scope ref Writer writer, in ShowDiagCtx ctx, in ExpectedForDiag.Choices choices) {
+void writeTypesOnLines(scope ref Writer writer, in ShowDiagCtx ctx, in ExpectedForDiagChoices choices) {
 	foreach (Type x; choices.types) {
 		writeNewline(writer, 1);
 		writeTypeQuoted(writer, ctx, TypeWithContainer(x, choices.typeContainer));

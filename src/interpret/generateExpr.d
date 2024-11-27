@@ -118,6 +118,7 @@ import model.lowModel :
 	CreateUnionLowExpr,
 	FunPointerLowExpr,
 	IfLowExpr,
+	InitLowExpr,
 	isSignedInteger,
 	LetLowExpr,
 	LocalGetLowExpr,
@@ -365,7 +366,7 @@ void generateExpr(
 					generateExpr(writer, ctx, locals, innerAfter, it.else_);
 				});
 		},
-		(in InitLowExpr) {
+		(in InitLowExpr _) {
 			// bytecode interpreter doesn't need to init anything
 			handleAfter(writer, ctx, source, after);
 		},

@@ -225,7 +225,7 @@ Opt!Type getAutoFunParamType(ref CheckCtx ctx, AutoFunName funName, FunDecl* fun
 			params.length == countParams && allSame!(Type, Destructure)(params, (in Destructure x) => x.type)
 				? some(params[0].type)
 				: none!Type,
-		(in Varargs) =>
+		(in Varargs _) =>
 			none!Type);
 	if (!has(res)) {
 		addDiag(ctx, fun.nameRange.range, Diag(DiagAutoFunWrongParams(funName)));

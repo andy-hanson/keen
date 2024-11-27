@@ -4,10 +4,11 @@ module frontend.ide.getDefinition;
 
 import frontend.ide.getTarget : Target, targetForPosition;
 import frontend.ide.ideUtil : ReferenceCb;
-import frontend.ide.position : Position, PositionKind;
+import frontend.ide.position : Position, PositionImportedName, PositionKind, PositionLocal, TypeParamWithContainer;
 import model.ast : ExprAst, LoopAst;
 import model.model :
 	asTypeContainer,
+	BogusType,
 	EnumOrFlagsMember,
 	forbidModule,
 	FunDecl,
@@ -65,10 +66,10 @@ public void definitionForTarget(Uri curUri, in Target a, in ReferenceCb cb) =>
 		(in FunDecl x) {
 			cb(x.nameRange);
 		},
-		(in PositionKind.ImportedName x) {
+		(in PositionImportedName x) {
 			definitionForImportedName(x, cb);
 		},
-		(in PositionKind.LocalPosition x) {
+		(in PositionLocal x) {
 			cb(UriAndRange(x.container.moduleUri, localMustHaveNameRange(*x.local)));
 		},
 		(in Target.Loop x) {
@@ -93,17 +94,17 @@ public void definitionForTarget(Uri curUri, in Target a, in ReferenceCb cb) =>
 		(in StructDecl x) {
 			cb(x.nameRange);
 		},
-		(in PositionKind.TypeParamWithContainer x) {
+		(in TypeParamWithContainer x) {
 			cb(typeParamWithContainerRange(x));
 		},
 		(in VarDecl x) {
 			cb(x.nameRange);
 		});
 
-UriAndRange typeParamWithContainerRange(in PositionKind.TypeParamWithContainer a) =>
+UriAndRange typeParamWithContainerRange(in TypeParamWithContainer a) =>
 	UriAndRange(a.container.moduleUri, a.container.typeParams[a.typeParam.index].range);
 
-void definitionForImportedName(in PositionKind.ImportedName a, in ReferenceCb cb) {
+void definitionForImportedName(in PositionImportedName a, in ReferenceCb cb) {
 	if (has(a.referents)) {
 		NameReferents nr = *force(a.referents);
 		if (has(nr.structOrAlias))
@@ -123,7 +124,7 @@ void typeDefinitionForTarget(in Target a, in ReferenceCb cb) {
 		(FunDecl* x) {
 			typeDefinitionForFunDecl(x, cb);
 		},
-		(PositionKind.ImportedName x) {
+		(PositionImportedName x) {
 			if (has(x.referents)) {
 				NameReferents* refs = force(x.referents);
 				if (has(refs.structOrAlias))
@@ -132,7 +133,7 @@ void typeDefinitionForTarget(in Target a, in ReferenceCb cb) {
 					typeDefinitionForFunDecl(only(refs.funs), cb);
 			}
 		},
-		(PositionKind.LocalPosition x) {
+		(PositionLocal x) {
 			definitionForType(x.container.toTypeContainer, x.local.type, cb);
 		},
 		(Target.Loop x) {
@@ -152,7 +153,7 @@ void typeDefinitionForTarget(in Target a, in ReferenceCb cb) {
 		(StructDecl* x) {
 			definitionForStruct(*x, cb);
 		},
-		(PositionKind.TypeParamWithContainer x) {
+		(TypeParamWithContainer x) {
 			cb(typeParamWithContainerRange(x));
 		},
 		(VarDecl* x) {
@@ -184,9 +185,9 @@ void typeDefinitionForFunDecl(in FunDecl* a, in ReferenceCb cb) {
 
 void definitionForType(in TypeContainer typeContainer, in Type a, in ReferenceCb cb) =>
 	a.matchIn!void(
-		(in BogusType) {},
+		(in BogusType _) {},
 		(in TypeParamIndex x) {
-			cb(typeParamWithContainerRange(PositionKind.TypeParamWithContainer(x, forbidModule(typeContainer))));
+			cb(typeParamWithContainerRange(TypeParamWithContainer(x, forbidModule(typeContainer))));
 		},
 		(in StructInst x) {
 			definitionForStruct(*x.decl, cb);

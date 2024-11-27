@@ -6,6 +6,7 @@ import frontend.showModel : ShowModelCtx;
 import frontend.storage : FileContentGetters;
 import model.ast : NameAndRange;
 import model.model :
+	BogusType,
 	BuiltinType,
 	Destructure,
 	DocComment,
@@ -316,7 +317,7 @@ Json documentParam(ref Ctx ctx, in TypeParams typeParams, in Destructure a) {
 
 Json documentTypeRef(ref Ctx ctx, in TypeParams typeParams, in Type a) =>
 	a.matchIn!Json(
-		(in BogusType) =>
+		(in BogusType _) =>
 			assert(false),
 		(in TypeParamIndex x) =>
 			jsonObject(ctx.alloc, [kindField!"type-param", field!"name"(typeParams[x.index].name)]),

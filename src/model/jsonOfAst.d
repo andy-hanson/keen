@@ -269,11 +269,11 @@ Json jsonOfStructDeclAst(ref Alloc alloc, in Ctx ctx, in StructDeclAst a) =>
 
 Json jsonOfStructBodyAst(ref Alloc alloc, in Ctx ctx, in StructBodyAst a) =>
 	a.matchIn!Json(
-		(in BuiltinTypeAst) =>
+		(in BuiltinTypeAst _) =>
 			jsonString!"builtin" ,
 		(in EnumAst e) =>
 			jsonOfEnumOrFlags(alloc, ctx, "enum", e.params, e.members),
-		(in ExternTypeAst) =>
+		(in ExternTypeAst _) =>
 			jsonString!"extern",
 		(in FlagsAst e) =>
 			jsonOfEnumOrFlags(alloc, ctx, "flags", e.params, e.members),

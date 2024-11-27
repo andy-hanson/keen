@@ -31,6 +31,7 @@ import model.lowModel :
 	CreateUnionLowExpr,
 	FunPointerLowExpr,
 	IfLowExpr,
+	InitLowExpr,
 	isPointerNonGc,
 	isVoid,
 	LetLowExpr,
@@ -174,7 +175,7 @@ void checkLowExpr(ref FunCtx ctx, in LowType type, in LowExpr expr, in ExprPos e
 			checkLowExpr(ctx, type, it.then, exprPos);
 			checkLowExpr(ctx, type, it.else_, exprPos);
 		},
-		(in InitLowExpr) {
+		(in InitLowExpr _) {
 			assert(isVoid(type));
 		},
 		(in LetLowExpr x) {

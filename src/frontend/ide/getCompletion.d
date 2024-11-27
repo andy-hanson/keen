@@ -4,7 +4,15 @@ module frontend.ide.getCompletion;
 
 import document.document : docCommentString;
 import frontend.check.inferringType : isTypeMatchPossibleForCompletions;
-import frontend.ide.position : ExprContainer, ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position;
+import frontend.ide.position :
+	ExprContainer,
+	ExpressionPosition,
+	ExpressionPositionKind,
+	ExpressionPositionLiteral,
+	ExprKeyword,
+	Position,
+	LocalRef,
+	LoopKeyword;
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : CompletionItem, CompletionList;
 import model.model :
@@ -61,11 +69,11 @@ Opt!CompletionList completionAtExpressionPosition(
 			none!CompletionList,
 		(in FunPointerExpr x) =>
 			none!CompletionList,
-		(in ExpressionPositionKind.Literal) =>
+		(in ExpressionPositionLiteral _) =>
 			none!CompletionList,
-		(in ExpressionPositionKind.LocalRef x) =>
+		(in LocalRef x) =>
 			completionAfterType(alloc, showCtx, module_, a.container, x.local.type),
-		(in ExpressionPositionKind.LoopKeyword) =>
+		(in LoopKeyword _) =>
 			none!CompletionList);
 
 Opt!CompletionList completionAfterType(

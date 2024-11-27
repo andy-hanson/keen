@@ -9,6 +9,7 @@ import model.concreteModel :
 	ConcreteFun,
 	ConcreteFunKey,
 	ConcreteFunSource,
+	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
 	ConcreteMutability,
@@ -16,6 +17,7 @@ import model.concreteModel :
 	ConcreteStructBody,
 	ConcreteStructInfo,
 	ConcreteStructSource,
+	ConcreteStructSpecialKind,
 	ConcreteType,
 	ConcreteVar,
 	hasSizeOrPointerSizeBytes,
@@ -210,7 +212,7 @@ private ConcreteType bogusType(ref ConcretizeCtx a) =>
 	lazilySet!ConcreteType(a._bogusType, () {
 		ConcreteStruct* res = allocate(a.alloc, ConcreteStruct(
 			Purity.data,
-			ConcreteStruct.SpecialKind.none,
+			ConcreteStructSpecialKind.none,
 			ConcreteStructSource(ConcreteStructSource.Bogus())));
 		add(a.alloc, a.allConcreteStructs, res);
 		res.info = ConcreteStructInfo(
@@ -342,17 +344,17 @@ ConcreteType getConcreteType_forStructInst(ref ConcretizeCtx ctx, StructInst* in
 					Purity purity = fold!(Purity, ConcreteType)(
 						decl.purity, typeArgs, (Purity p, in ConcreteType ta) =>
 							worsePurity(p, purity(ta)));
-					ConcreteStruct.SpecialKind specialKind = isArrayOrMutSlice(*decl)
-						? ConcreteStruct.SpecialKind.arrayOrMutArray
+					ConcreteStructSpecialKind specialKind = isArrayOrMutSlice(*decl)
+						? ConcreteStructSpecialKind.arrayOrMutArray
 						: inst == ctx.program.commonFuns.catchPointType
-						? ConcreteStruct.SpecialKind.catchPoint
+						? ConcreteStructSpecialKind.catchPoint
 						: inst == ctx.commonTypes.fiber
-						? ConcreteStruct.SpecialKind.fiber
+						? ConcreteStructSpecialKind.fiber
 						: isPointerConstOrMut(*decl)
-						? ConcreteStruct.SpecialKind.pointer
+						? ConcreteStructSpecialKind.pointer
 						: isTuple(ctx.commonTypes, decl)
-						? ConcreteStruct.SpecialKind.tuple
-						: ConcreteStruct.SpecialKind.none;
+						? ConcreteStructSpecialKind.tuple
+						: ConcreteStructSpecialKind.none;
 					ConcreteStruct* res = allocate(ctx.alloc, ConcreteStruct(
 						purity,
 						specialKind,
@@ -403,7 +405,7 @@ ConcreteType concreteTypeFromClosure(
 			assert(f.mutability == ConcreteMutability.const_);
 			return worsePurity(p, purity(f.type));
 		});
-		ConcreteStruct* cs = allocate(ctx.alloc, ConcreteStruct(purity, ConcreteStruct.SpecialKind.none, source));
+		ConcreteStruct* cs = allocate(ctx.alloc, ConcreteStruct(purity, ConcreteStructSpecialKind.none, source));
 		cs.info = getConcreteStructInfoForFields(closureFields);
 		setConcreteStructRecordSizeOrDefer(ctx, cs);
 		add(ctx.alloc, ctx.allConcreteStructs, cs);
@@ -509,11 +511,11 @@ ConcreteLocal concretizeParamDestructure(ref ConcretizeCtx ctx, ref Destructure 
 	ConcreteLocal(
 		x.matchWithPointers!ConcreteLocalSource(
 			(Destructure.Ignore*) =>
-				ConcreteLocalSource(ConcreteLocalSource.Generated.ignore),
+				ConcreteLocalSource(ConcreteGeneratedLocalKind.ignore),
 			(Local* x) =>
 				ConcreteLocalSource(x),
 			(Destructure.Split*) =>
-				ConcreteLocalSource(ConcreteLocalSource.Generated.destruct)),
+				ConcreteLocalSource(ConcreteGeneratedLocalKind.destruct)),
 		getConcreteType(ctx, x.type, typeArgsScope));
 
 public void addConcreteFun(ref ConcretizeCtx ctx, ConcreteFun* fun) {

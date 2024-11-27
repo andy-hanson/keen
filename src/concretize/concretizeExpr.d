@@ -66,6 +66,7 @@ import model.concreteModel :
 	ConcreteFunBody,
 	ConcreteFunKey,
 	ConcreteFunSource,
+	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
 	ConcreteMutability,
@@ -394,7 +395,7 @@ ConcreteExpr concretizeBuiltinBinaryLazy(
 			return genIfOption(ctx.alloc, range, arg0, RootLocalAndExpr(none!(ConcreteLocal*), arg0), arg1);
 		case BuiltinBinaryLazy.optionQuestion2:
 			ConcreteLocal* local = allocate(ctx.alloc,
-				ConcreteLocal(ConcreteLocalSource(ConcreteLocalSource.Generated.member), type));
+				ConcreteLocal(ConcreteLocalSource(ConcreteGeneratedLocalKind.member), type));
 			ConcreteType optionType = getConcreteType(ctx, called.paramTypes[0]);
 			assert(unwrapOptionType(ctx.concretizeCtx, optionType) == type);
 			return genIfOption(
@@ -418,7 +419,7 @@ ConcreteExpr concretizeCallOption(
 
 	ConcreteExpr option = concretizeExpr(ctx, locals, a.firstArg);
 	ConcreteLocal* local = allocate(ctx.alloc, ConcreteLocal(
-		ConcreteLocalSource(ConcreteLocalSource.Generated.destruct),
+		ConcreteLocalSource(ConcreteGeneratedLocalKind.destruct),
 		called.params[0].type));
 	assert(a.restArgs.length + 1 == called.params.length);
 	SmallArray!ConcreteExpr allArgs = mapWithFirst!(ConcreteExpr, Expr)(
@@ -680,7 +681,7 @@ RootLocalAndExpr concretizeWithDestructure(
 					ConcreteType referenceType = getConcreteType(
 						ctx, Type(local.mutability.as!(LocalMutability.MutableAllocated).referenceType));
 					ConcreteLocal* referenceLocal = allocate(ctx.alloc,
-						ConcreteLocal(ConcreteLocalSource(ConcreteLocalSource.Generated.reference), referenceType));
+						ConcreteLocal(ConcreteLocalSource(ConcreteGeneratedLocalKind.reference), referenceType));
 					ConcreteExpr then = cb(addLocal(locals, local, LocalOrConstant(referenceLocal)));
 					return genLet(
 						ctx.alloc, type, range, referenceLocal,
@@ -694,7 +695,7 @@ RootLocalAndExpr concretizeWithDestructure(
 		(Destructure.Split* x) {
 			if (x.isValidDestructure(ctx.concretizeCtx.commonTypes)) {
 				ConcreteLocal* temp = allocate(ctx.alloc, ConcreteLocal(
-					ConcreteLocalSource(ConcreteLocalSource.Generated.destruct),
+					ConcreteLocalSource(ConcreteGeneratedLocalKind.destruct),
 					getConcreteType(ctx, destructure.type)));
 				return RootLocalAndExpr(
 					some(temp),

@@ -25,7 +25,7 @@ import model.ast :
 	VarargsAst,
 	VarDeclAst,
 	VoidDestructureAst;
-import model.model : FunDecl, FunDeclSource, SpecInst, SpecDecl, StructInst, Type, TypeParamIndex;
+import model.model : BogusType, FunDecl, FunDeclSource, SpecInst, SpecDecl, StructInst, Type, TypeParamIndex;
 import util.col.array : arrayOfSingle, count, firstZip, isEmpty, only, only2;
 import util.col.sortUtil : eachSorted, sortedIter;
 import util.comparison : compareOr, Comparison;
@@ -118,7 +118,7 @@ private alias TypeCbOpt(T) = Opt!T delegate(in Type, in TypeAst) @safe @nogc pur
 
 Opt!T eachTypeComponent(T)(in Type type, in TypeAst ast, in TypeCbOpt!T cb) =>
 	type.matchIn!(Opt!T)(
-		(in BogusType) =>
+		(in BogusType _) =>
 			none!T,
 		(in TypeParamIndex _) =>
 			none!T,

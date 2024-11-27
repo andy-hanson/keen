@@ -14,6 +14,7 @@ import model.concreteModel :
 	ConcreteFunBody,
 	ConcreteFunKey,
 	ConcreteFunSource,
+	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
 	ConcreteProgram,
@@ -211,7 +212,7 @@ Symbol name(in ConcreteLocalSource a) =>
 			x.name,
 		(in ConcreteLocalSource.Closure) =>
 			symbol!"closure",
-		(in ConcreteLocalSource.Generated x) =>
+		(in ConcreteGeneratedLocalKind x) =>
 			symbolOfEnum(x));
 
 Json jsonOfConcreteExpr(ref Alloc alloc, in Ctx ctx, in ConcreteExpr a) =>

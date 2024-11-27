@@ -164,17 +164,8 @@ immutable struct ConcreteStructSource {
 immutable struct ConcreteStruct {
 	@safe @nogc pure nothrow:
 
-	enum SpecialKind {
-		none,
-		arrayOrMutArray,
-		catchPoint,
-		fiber,
-		pointer, // mut or const
-		tuple,
-	}
-
 	Purity purity;
-	SpecialKind specialKind;
+	ConcreteStructSpecialKind specialKind;
 	ConcreteStructSource source;
 	private Late!ConcreteStructInfo info_;
 	//TODO: this isn't needed outside of concretizeCtx.d
@@ -219,9 +210,17 @@ immutable struct ConcreteStruct {
 		lateSet(fieldOffsets_, value);
 	}
 }
+enum ConcreteStructSpecialKind {
+	none,
+	arrayOrMutArray,
+	catchPoint,
+	fiber,
+	pointer, // mut or const
+	tuple,
+}
 
 bool isArrayOrMutArray(in ConcreteStruct a) =>
-	a.specialKind == ConcreteStruct.SpecialKind.arrayOrMutArray;
+	a.specialKind == ConcreteStructSpecialKind.arrayOrMutArray;
 ConcreteType arrayElementType(ConcreteType arrayType) {
 	assert(isArrayOrMutArray(*mustBeByVal(arrayType)));
 	return only(mustBeByVal(arrayType).source.as!(ConcreteStructSource.Inst).typeArgs);
@@ -234,13 +233,13 @@ ConcreteType unwrapOptionType(ConcreteType optionType) {
 	return only(mustBeByVal(optionType).source.as!(ConcreteStructSource.Inst).typeArgs);
 }
 bool isCatchPoint(in ConcreteStruct a) =>
-	a.specialKind == ConcreteStruct.SpecialKind.catchPoint;
+	a.specialKind == ConcreteStructSpecialKind.catchPoint;
 bool isFiber(in ConcreteStruct a) =>
-	a.specialKind == ConcreteStruct.SpecialKind.fiber;
+	a.specialKind == ConcreteStructSpecialKind.fiber;
 bool isPointer(ConcreteType a) =>
 	a.reference == ReferenceKind.byVal && isPointer(*a.struct_);
 private bool isPointer(in ConcreteStruct a) =>
-	a.specialKind == ConcreteStruct.SpecialKind.pointer;
+	a.specialKind == ConcreteStructSpecialKind.pointer;
 ConcreteType pointeeType(ConcreteType pointerType) {
 	assert(isPointer(*mustBeByVal(pointerType)));
 	return only(mustBeByVal(pointerType).source.as!(ConcreteStructSource.Inst).typeArgs);
@@ -252,7 +251,7 @@ ConcreteType pointeeTypeIfIsPointer(ConcreteType a) =>
 private bool isBogus(in ConcreteStruct a) =>
 	a.source.isA!(ConcreteStructSource.Bogus);
 bool isTuple(in ConcreteStruct a) =>
-	a.specialKind == ConcreteStruct.SpecialKind.tuple;
+	a.specialKind == ConcreteStructSpecialKind.tuple;
 
 //TODO: this is only useful during concretize, move
 bool hasSizeOrPointerSizeBytes(in ConcreteType a) {
@@ -286,9 +285,9 @@ immutable struct ConcreteField {
 
 immutable struct ConcreteLocalSource {
 	immutable struct Closure {} // Closure parameter
-	enum Generated { args, ignore, destruct, member, reference }
-	mixin TaggedUnion!(Local*, Closure, Generated);
+	mixin TaggedUnion!(Local*, Closure, ConcreteGeneratedLocalKind);
 }
+enum ConcreteGeneratedLocalKind { args, ignore, destruct, member, reference }
 
 immutable struct ConcreteLocal {
 	ConcreteLocalSource source;

@@ -7,10 +7,29 @@ import frontend.ide.position :
 	ExprContainer,
 	ExpressionPosition,
 	ExpressionPositionKind,
+	ExpressionPositionLiteral,
 	ExprKeyword,
+	LocalRef,
+	LoopKeyword,
 	Position,
+	PositionDocRef,
+	PositionImportedModule,
+	PositionImportedName,
+	PositionKeyword,
 	PositionKind,
-	typeContainerFor;
+	PositionLocal,
+	PositionMatchEnumCase,
+	PositionMatchIntegralCase,
+	PositionMatchStringLikeCase,
+	PositionMatchSumTypeCase,
+	PositionModifier,
+	PositionModifierExtern,
+	PositionModule,
+	PositionRecordFieldMutability,
+	PositionSpecUse,
+	PositionVisibilityMark,
+	typeContainerFor,
+	TypeParamWithContainer;
 import model.model :
 	AutoFun,
 	BogusCallExpr,
@@ -59,8 +78,8 @@ immutable struct Target {
 	mixin Union!(
 		EnumOrFlagsMember*,
 		FunDecl*,
-		PositionKind.ImportedName,
-		PositionKind.LocalPosition,
+		PositionImportedName,
+		PositionLocal,
 		Loop,
 		Module*,
 		RecordField*,
@@ -68,13 +87,13 @@ immutable struct Target {
 		Signature*,
 		StructAlias*,
 		StructDecl*,
-		PositionKind.TypeParamWithContainer,
+		TypeParamWithContainer,
 		VarDecl*);
 }
 
 Opt!Target targetForPosition(Position pos) =>
 	pos.kind.matchWithPointers!(Opt!Target)(
-		(PositionKind.DocRef docRef) =>
+		(PositionDocRef docRef) =>
 			docRef.ref_.matchWithPointers!(Opt!Target)(
 				(DocCommentReference.Bogus) =>
 					none!Target,
@@ -85,7 +104,7 @@ Opt!Target targetForPosition(Position pos) =>
 				(FunDecl* x) =>
 					some(Target(x)),
 				(Local* x) =>
-					some(Target(PositionKind.LocalPosition(assertLocalContainer(docRef.container), x))),
+					some(Target(PositionLocal(assertLocalContainer(docRef.container), x))),
 				(RecordField* x) =>
 					some(Target(x)),
 				(Signature* x) =>
@@ -97,9 +116,7 @@ Opt!Target targetForPosition(Position pos) =>
 				(SpecDecl* x) =>
 					some(Target(x)),
 				(TypeParamIndex x) =>
-					some(Target(PositionKind.TypeParamWithContainer(
-						x,
-						forbidModule(typeContainerFor(docRef.container))))),
+					some(Target(TypeParamWithContainer(x, forbidModule(typeContainerFor(docRef.container))))),
 				(VarDecl* x) =>
 					some(Target(x))),
 		(EnumOrFlagsMember* x) =>
@@ -108,37 +125,37 @@ Opt!Target targetForPosition(Position pos) =>
 			exprTarget(x),
 		(FunDecl* x) =>
 			some(Target(x)),
-		(PositionKind.ImportedModule x) =>
+		(PositionImportedModule x) =>
 			some(Target(x.modulePtr)),
-		(PositionKind.ImportedName x) =>
+		(PositionImportedName x) =>
 			some(Target(x)),
-		(PositionKind.Keyword _) =>
+		(PositionKeyword _) =>
 			none!Target,
-		(PositionKind.LocalPosition x) =>
+		(PositionLocal x) =>
 			some(Target(x)),
-		(PositionKind.MatchEnumCase x) =>
+		(PositionMatchEnumCase x) =>
 			some(Target(x.member)),
-		(PositionKind.MatchIntegralCase x) =>
+		(PositionMatchIntegralCase x) =>
 			none!Target,
-		(PositionKind.MatchStringLikeCase x) =>
+		(PositionMatchStringLikeCase x) =>
 			none!Target,
-		(PositionKind.MatchSumTypeCase x) =>
+		(PositionMatchSumTypeCase x) =>
 			some(Target(x.member.decl)),
-		(PositionKind.Modifier) =>
+		(PositionModifier _) =>
 			none!Target,
-		(PositionKind.ModifierExtern) =>
+		(PositionModifierExtern _) =>
 			none!Target,
-		(PositionKind.ModulePosition) =>
+		(PositionModule _) =>
 			some(Target(pos.module_)),
 		(RecordField* x) =>
 			some(Target(x)),
-		(PositionKind.RecordFieldMutability) =>
+		(PositionRecordFieldMutability _) =>
 			none!Target,
 		(SpecDecl* x) =>
 			some(Target(x)),
 		(Signature* x) =>
 			some(Target(x)),
-		(PositionKind.SpecUse x) =>
+		(PositionSpecUse x) =>
 			some(Target(x.spec.decl)),
 		(StructAlias* x) =>
 			some(Target(x)),
@@ -151,14 +168,14 @@ Opt!Target targetForPosition(Position pos) =>
 				(BogusType _) =>
 					none!Target,
 				(TypeParamIndex p) =>
-					some(Target(PositionKind.TypeParamWithContainer(p, forbidModule(x.container)))),
+					some(Target(TypeParamWithContainer(p, forbidModule(x.container)))),
 				(StructInst* x) =>
 					some(Target(x.decl))),
-		(PositionKind.TypeParamWithContainer x) =>
+		(TypeParamWithContainer x) =>
 			some(Target(x)),
 		(VarDecl* x) =>
 			some(Target(x)),
-		(PositionKind.VisibilityMark) =>
+		(PositionVisibilityMark _) =>
 			none!Target);
 
 private:
@@ -178,11 +195,11 @@ Opt!Target exprTarget(ExpressionPosition a) =>
 			none!Target,
 		(FunPointerExpr x) =>
 			calledTarget(x.called),
-		(ExpressionPositionKind.Literal) =>
+		(ExpressionPositionLiteral _) =>
 			none!Target,
-		(ExpressionPositionKind.LocalRef x) =>
-			some(Target(PositionKind.LocalPosition(a.container.toLocalContainer, x.local))),
-		(ExpressionPositionKind.LoopKeyword x) =>
+		(LocalRef x) =>
+			some(Target(PositionLocal(a.container.toLocalContainer, x.local))),
+		(LoopKeyword x) =>
 			some(Target(Target.Loop(a.container, x.loop))));
 
 Target calledDeclTarget(ref CalledDecl a) =>

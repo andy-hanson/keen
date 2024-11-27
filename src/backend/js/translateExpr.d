@@ -53,7 +53,7 @@ import backend.js.jsAst :
 	JsParams,
 	JsStatement,
 	JsStatementKind,
-	JsSwitchStatement,
+	JsSwitchCase,
 	JsVarDeclConst,
 	SyncOrAsync;
 import backend.js.jsAstUtil :
@@ -106,6 +106,7 @@ import model.model :
 	AutoFun,
 	BogusCallExpr,
 	BogusExpr,
+	BogusType,
 	BogusWrongTypeExpr,
 	BuiltinType,
 	Called,
@@ -209,7 +210,7 @@ void genAssertType(
 	JsExpr get,
 ) {
 	type.matchIn!void(
-		(in BogusType) {},
+		(in BogusType _) {},
 		(in TypeParamIndex _) {},
 		(in StructInst x) {
 			genAssertType(out_, ctx, source, x, get);
@@ -901,10 +902,10 @@ ExprResult translateMatchEnum(
 	forceStatement(ctx, pos, genSwitch(
 		source,
 		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched)),
-		mapWithIndex!(JsSwitchStatement.Case, MatchEnumExpr.Case)(
+		mapWithIndex!(JsSwitchCase, MatchEnumExpr.Case)(
 			ctx.alloc, a.cases,
 			(size_t caseIndex, ref MatchEnumExpr.Case case_) =>
-				JsSwitchStatement.Case(
+				JsSwitchCase(
 					translateEnumValue(ctx.ctx, exprSource(ctx, caseNameRange(expr, caseIndex)), *case_.member),
 					translateExprToSwitchBlockStatement(ctx, case_.then, type))),
 		translateSwitchDefault(ctx, source, a.else_, type, "Invalid enum value")));
@@ -920,7 +921,7 @@ ExprResult translateMatchIntegral(
 		source,
 		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched)),
 		map(ctx.alloc, a.cases, (ref MatchIntegralExpr.Case case_) =>
-			JsSwitchStatement.Case(
+			JsSwitchCase(
 				a.kind.isSigned
 					? genIntegerSigned(source, case_.value.asSigned)
 					: genIntegerUnsigned(source, case_.value.asUnsigned),
@@ -938,7 +939,7 @@ ExprResult translateMatchStringLike(
 		source,
 		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched)),
 		map(ctx.alloc, a.cases, (ref MatchStringLikeExpr.Case case_) =>
-			JsSwitchStatement.Case(
+			JsSwitchCase(
 				genString(source, case_.value),
 				translateExprToSwitchBlockStatement(ctx, case_.then, type))),
 		translateExprToSwitchBlockStatement(ctx, a.else_, type)));

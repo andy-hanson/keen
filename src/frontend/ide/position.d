@@ -195,115 +195,111 @@ TypeContainer typeContainerFor(DocCommentContainer a) =>
 			asTypeContainer(x.container));
 
 immutable struct PositionKind {
-	immutable struct DocRef {
-		DocCommentContainer container;
-		DocCommentReference ref_;
-	}
-	immutable struct ImportedModule {
-		@safe @nogc pure nothrow:
-		ImportOrExport* import_;
-
-		Module* modulePtr() =>
-			import_.modulePtr;
-		ref Module module_() scope =>
-			import_.module_;
-	}
-	immutable struct ImportedName {
-		Module* exportingModule;
-		Symbol name;
-		Opt!(NameReferents*) referents;
-	}
-	// non-Modifier
-	immutable struct Keyword {
-		enum Kind {
-			alias_,
-			builtin,
-			enum_,
-			extern_,
-			flags,
-			global,
-			interface_,
-			localMut,
-			record,
-			spec,
-			threadLocal,
-			underscore,
-			union_,
-			variant,
-		}
-		Kind kind;
-	}
-	immutable struct LocalPosition {
-		LocalContainer container;
-		Local* local;
-	}
-	immutable struct MatchEnumCase {
-		EnumOrFlagsMember* member;
-	}
-	immutable struct MatchIntegralCase {
-		MatchIntegralExpr.Kind kind;
-		IntegralValue value;
-	}
-	immutable struct MatchStringLikeCase {
-		TypeWithContainer type;
-		string value;
-	}
-	immutable struct MatchSumTypeCase {
-		ExprContainer container;
-		StructInst* member;
-	}
-	immutable struct Modifier {
-		TypeContainer container;
-		ModifierKeyword modifier;
-	}
-	immutable struct ModifierExtern {
-		Symbol libraryName;
-	}
-	immutable struct ModulePosition {}
-	immutable struct RecordFieldMutability {
-		Opt!Visibility visibility;
-	}
-	immutable struct SpecUse {
-		TypeContainer container;
-		SpecInst* spec;
-	}
-	immutable struct TypeParamWithContainer {
-		TypeParamIndex typeParam;
-		// Since this is never on a Module, use AnyDecl instead of TypeContainer
-		AnyDecl container;
-	}
-	immutable struct VisibilityMark {
-		VisibilityContainer container;
-	}
-
 	mixin Union!(
-		DocRef,
+		PositionDocRef,
 		EnumOrFlagsMember*,
 		ExpressionPosition,
 		FunDecl*,
-		ImportedModule,
-		ImportedName,
-		Keyword,
-		LocalPosition,
-		MatchEnumCase,
-		MatchIntegralCase,
-		MatchStringLikeCase,
-		MatchSumTypeCase,
-		Modifier,
-		ModifierExtern,
-		ModulePosition,
+		PositionImportedModule,
+		PositionImportedName,
+		PositionKeyword,
+		PositionLocal,
+		PositionMatchEnumCase,
+		PositionMatchIntegralCase,
+		PositionMatchStringLikeCase,
+		PositionMatchSumTypeCase,
+		PositionModifier,
+		PositionModifierExtern,
+		PositionModule,
 		RecordField*,
-		RecordFieldMutability,
+		PositionRecordFieldMutability,
 		SpecDecl*,
 		Signature*,
-		SpecUse,
+		PositionSpecUse,
 		StructAlias*,
 		StructDecl*,
 		Test*,
 		TypeWithContainer,
 		TypeParamWithContainer,
 		VarDecl*,
-		VisibilityMark);
+		PositionVisibilityMark);
+}
+immutable struct PositionDocRef {
+	DocCommentContainer container;
+	DocCommentReference ref_;
+}
+immutable struct PositionImportedModule {
+	@safe @nogc pure nothrow:
+	ImportOrExport* import_;
+
+	Module* modulePtr() =>
+		import_.modulePtr;
+	ref Module module_() scope =>
+		import_.module_;
+}
+immutable struct PositionImportedName {
+	Module* exportingModule;
+	Symbol name;
+	Opt!(NameReferents*) referents;
+}
+// non-Modifier
+enum PositionKeyword {
+	alias_,
+	builtin,
+	enum_,
+	extern_,
+	flags,
+	global,
+	interface_,
+	localMut,
+	record,
+	spec,
+	threadLocal,
+	underscore,
+	union_,
+	variant,
+}
+immutable struct PositionLocal {
+	LocalContainer container;
+	Local* local;
+}
+immutable struct PositionMatchEnumCase {
+	EnumOrFlagsMember* member;
+}
+immutable struct PositionMatchIntegralCase {
+	MatchIntegralExpr.Kind kind;
+	IntegralValue value;
+}
+immutable struct PositionMatchStringLikeCase {
+	TypeWithContainer type;
+	string value;
+}
+immutable struct PositionMatchSumTypeCase {
+	ExprContainer container;
+	StructInst* member;
+}
+immutable struct PositionModifier {
+	TypeContainer container;
+	ModifierKeyword modifier;
+}
+immutable struct PositionModifierExtern {
+	Symbol libraryName;
+}
+immutable struct PositionModule {}
+immutable struct PositionRecordFieldMutability {
+	Opt!Visibility visibility;
+}
+immutable struct PositionSpecUse {
+	TypeContainer container;
+	SpecInst* spec;
+}
+immutable struct TypeParamWithContainer {
+	TypeParamIndex typeParam;
+	// Since this is never on a Module, use AnyDecl instead of TypeContainer
+	AnyDecl container;
+}
+immutable struct PositionVisibilityMark {
+	VisibilityContainer container;
 }
 
 immutable struct ExpressionPosition {
@@ -313,17 +309,6 @@ immutable struct ExpressionPosition {
 }
 
 immutable struct ExpressionPositionKind {
-	immutable struct Literal {}
-	immutable struct LocalRef {
-		enum Kind { get, set, closureGet, closureSet, pointer }
-		Kind kind;
-		Local* local;
-	}
-	immutable struct LoopKeyword {
-		enum Kind { loop, break_, continue_ }
-		Kind kind;
-		ExprRef loop;
-	}
 	mixin Union!(
 		BogusCallExpr,
 		CallExpr,
@@ -331,10 +316,21 @@ immutable struct ExpressionPositionKind {
 		ExprKeyword,
 		ExternExpr,
 		FunPointerExpr,
-		Literal,
+		ExpressionPositionLiteral,
 		LocalRef,
 		LoopKeyword);
 }
+immutable struct ExpressionPositionLiteral {}
+immutable struct LocalRef {
+	LocalRefKind kind;
+	Local* local;
+}
+enum LocalRefKind { get, set, closureGet, closureSet, pointer }
+immutable struct LoopKeyword {
+	LoopKeywordKind kind;
+	ExprRef loop;
+}
+enum LoopKeywordKind { loop, break_, continue_ }
 
 enum ExprKeyword {
 	ampersand,

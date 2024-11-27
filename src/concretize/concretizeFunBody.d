@@ -42,6 +42,7 @@ import model.concreteModel :
 	ConcreteFunBody,
 	ConcreteFunKey,
 	ConcreteFunSource,
+	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
 	ConcreteType,
@@ -176,7 +177,7 @@ ConcreteFun* concreteFunForWrapMain(ref ConcretizeCtx ctx, FunInst* modelMain) {
 		ConcreteFunSource(allocate(ctx.alloc, ConcreteFunSource.WrapMain(range))),
 		nat64,
 		newSmallArray(ctx.alloc, [
-			ConcreteLocal(ConcreteLocalSource(ConcreteLocalSource.Generated.args), stringArrayType),
+			ConcreteLocal(ConcreteLocalSource(ConcreteGeneratedLocalKind.args), stringArrayType),
 		])));
 	res.body_ = ConcreteFunBody(body_);
 	addConcreteFun(ctx, res);

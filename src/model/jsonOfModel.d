@@ -11,15 +11,26 @@ import model.model :
 	AutoFun,
 	BogusCallExpr,
 	BogusExpr,
+	BogusType,
 	BogusWrongTypeExpr,
 	Builtin4ary,
 	BuiltinBinary,
 	BuiltinBinaryLazy,
 	BuiltinBinaryMath,
 	BuiltinFun,
+	BuiltinFunAllTests,
 	BuiltinFunCallFunPointer,
+	BuiltinFunCallLambda,
+	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
 	BuiltinFunInitKind,
+	BuiltinFunMarkRoot,
+	BuiltinFunMarkVisit,
+	BuiltinFunNewEmptyOption,
+	BuiltinFunNewNonEmptyOption,
+	BuiltinFunPointerCast,
+	BuiltinFunSizeOf,
+	BuiltinFunStaticSymbols,
 	BuiltinSpec,
 	BuiltinTernary,
 	BuiltinType,
@@ -154,7 +165,7 @@ Json jsonOfModule(ref Alloc alloc, in LineAndColumnGetter lcg, in Module a) {
 
 Json jsonOfBuiltin(ref Alloc alloc, in BuiltinFun a) =>
 	a.matchIn!Json(
-		(in BuiltinFunAllTests) =>
+		(in BuiltinFunAllTests _) =>
 			jsonString!"all-tests",
 		(in BuiltinUnary x) =>
 			jsonString(stringOfEnum(x)),
@@ -170,13 +181,13 @@ Json jsonOfBuiltin(ref Alloc alloc, in BuiltinFun a) =>
 			jsonString(stringOfEnum(x)),
 		(in Builtin4ary x) =>
 			jsonString(stringOfEnum(x)),
-		(in BuiltinFunCallLambda) =>
+		(in BuiltinFunCallLambda _) =>
 			jsonString!"call-lambda",
 		(in BuiltinFunCallFunPointer x) =>
 			jsonString!"call-fun-pointer",
 		(in Constant x) =>
 			jsonOfConstant(alloc, x),
-		(in BuiltinFunGcSafeValue) =>
+		(in BuiltinFunGcSafeValue _) =>
 			jsonString!"gc-safe-value",
 		(in BuiltinFunInit x) {
 			final switch (x.kind) {
@@ -188,19 +199,19 @@ Json jsonOfBuiltin(ref Alloc alloc, in BuiltinFun a) =>
 		},
 		(in JsFun x) =>
 			jsonString(stringOfEnum(x)),
-		(in BuiltinFunMarkRoot) =>
+		(in BuiltinFunMarkRoot _) =>
 			jsonString!"mark-root",
-		(in BuiltinFunMarkVisit) =>
+		(in BuiltinFunMarkVisit _) =>
 			jsonString!"mark-visit",
-		(in BuiltinFunNewEmptyOption) =>
+		(in BuiltinFunNewEmptyOption _) =>
 			jsonString!"new-empty-option",
-		(in BuiltinFunNewNonEmptyOption) =>
+		(in BuiltinFunNewNonEmptyOption _) =>
 			jsonString!"new-non-empty-option",
-		(in BuiltinFunPointerCast) =>
+		(in BuiltinFunPointerCast _) =>
 			jsonString!"pointer-cast",
-		(in BuiltinFunSizeOf) =>
+		(in BuiltinFunSizeOf _) =>
 			jsonString!"size-of",
-		(in BuiltinFunStaticSymbols) =>
+		(in BuiltinFunStaticSymbols _) =>
 			jsonString!"static-symbols",
 		(in VersionFun x) =>
 			jsonString(stringOfEnum(x)));
@@ -533,7 +544,7 @@ Json jsonOfFunBody(ref Alloc alloc, in Ctx ctx, in FunBody a) =>
 
 Json jsonOfType(ref Alloc alloc, in Ctx ctx, in Type a) =>
 	a.matchIn!Json(
-		(in BogusType) =>
+		(in BogusType _) =>
 			jsonString!"bogus" ,
 		(in TypeParamIndex x) =>
 			jsonObject(alloc, [

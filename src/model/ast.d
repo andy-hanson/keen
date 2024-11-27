@@ -1127,15 +1127,15 @@ immutable struct StructDeclAst {
 
 private string keywordForStructBody(in StructBodyAst a) =>
 	a.matchIn!string(
-		(in BuiltinAst) =>
+		(in BuiltinTypeAst _) =>
 			"builtin",
-		(in EnumAst) =>
+		(in EnumAst _) =>
 			"enum",
-		(in ExternTypeAst) =>
+		(in ExternTypeAst _) =>
 			"extern",
-		(in FlagsAst) =>
+		(in FlagsAst _) =>
 			"flags",
-		(in RecordAst) =>
+		(in RecordAst _) =>
 			"record",
 		(in SumTypeAst x) =>
 			stringOfEnum(x.kind));

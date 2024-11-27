@@ -3,7 +3,8 @@ module frontend.ide.getSignatureHelp;
 @safe @nogc pure nothrow:
 
 import document.document : docCommentString;
-import frontend.ide.position : ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position;
+import frontend.ide.position :
+	ExpressionPosition, ExpressionPositionKind, ExpressionPositionLiteral, ExprKeyword, LocalRef, LoopKeyword, Position;
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : ParameterInformation, SignatureHelp, SignatureInformation;
 import model.ast : CallAst, ExprAstKind;
@@ -48,11 +49,11 @@ Opt!SignatureHelp signatureHelpAtExpressionPosition(ref Alloc alloc, in ShowType
 			none!SignatureHelp,
 		(in FunPointerExpr x) =>
 			none!SignatureHelp,
-		(in ExpressionPositionKind.Literal) =>
+		(in ExpressionPositionLiteral _) =>
 			none!SignatureHelp,
-		(in ExpressionPositionKind.LocalRef) =>
+		(in LocalRef _) =>
 			none!SignatureHelp,
-		(in ExpressionPositionKind.LoopKeyword) =>
+		(in LoopKeyword _) =>
 			none!SignatureHelp);
 
 SignatureHelp signatureHelpAtBogusCall(

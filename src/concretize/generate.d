@@ -25,6 +25,7 @@ import model.concreteModel :
 	ConcreteField,
 	ConcreteFun,
 	ConcreteFunBody,
+	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
 	ConcreteStruct,
@@ -319,7 +320,7 @@ ConcreteExpr genMatchUnion(
 		mapWithIndex!(MatchUnionConcreteExpr.Case, ConcreteType)(
 			ctx.alloc, memberTypes, (size_t memberIndex, ref ConcreteType memberType) {
 				ConcreteLocal* local = allocate(ctx.alloc, ConcreteLocal(
-					ConcreteLocalSource(ConcreteLocalSource.Generated(ConcreteLocalSource.Generated.member)),
+					ConcreteLocalSource(ConcreteGeneratedLocalKind.member),
 					memberType));
 				return MatchUnionConcreteExpr.Case(some(local), cb(memberIndex, genLocalGet(range, local)));
 			}),

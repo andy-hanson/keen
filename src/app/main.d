@@ -465,7 +465,7 @@ ExitCodeOrSignal run(scope ref Perf perf, ref Alloc alloc, ref Server server, Fi
 				else
 					return ExitCodeOrSignal(printError("This build does not support '--jit'"));
 			},
-			(in NodeJsRunOptions) =>
+			(in NodeJsRunOptions _) =>
 				buildAndRunNodeJs(perf, alloc, server, cwd, program, run.main.programArgs)));
 }
 

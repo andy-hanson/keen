@@ -3,7 +3,33 @@ module frontend.ide.getHover;
 @safe @nogc pure nothrow:
 
 import frontend.ide.position :
-	ExpressionPosition, ExpressionPositionKind, ExprKeyword, Position, PositionKind, typeContainerFor;
+	ExpressionPosition,
+	ExpressionPositionKind,
+	ExpressionPositionLiteral,
+	ExprKeyword,
+	LocalRef,
+	LocalRefKind,
+	LoopKeyword,
+	LoopKeywordKind,
+	Position,
+	PositionDocRef,
+	PositionImportedModule,
+	PositionImportedName,
+	PositionKeyword,
+	PositionKind,
+	PositionLocal,
+	PositionMatchEnumCase,
+	PositionMatchIntegralCase,
+	PositionMatchStringLikeCase,
+	PositionMatchSumTypeCase,
+	PositionModifier,
+	PositionModifierExtern,
+	PositionModule,
+	PositionRecordFieldMutability,
+	PositionSpecUse,
+	PositionVisibilityMark,
+	typeContainerFor,
+	TypeParamWithContainer;
 import frontend.showModel :
 	ShowModelCtx,
 	showSumTypeKindUpperCase,
@@ -26,6 +52,7 @@ import model.model :
 	asBuiltinExtern,
 	AssertOrForbidExpr,
 	BogusCallExpr,
+	BogusType,
 	BuiltinExtern,
 	BuiltinType,
 	CalledSpecSig,
@@ -86,7 +113,7 @@ Hover getHover(ref Alloc alloc, in ShowModelCtx ctx, in Position pos) =>
 
 void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 	pos.kind.matchWithPointers!void(
-		(PositionKind.DocRef x) {
+		(PositionDocRef x) {
 			hoverForDocRef(writer, ctx, x);
 		},
 		(EnumOrFlagsMember* x) {
@@ -102,62 +129,62 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 		(FunDecl* x) {
 			writeFunDecl(writer, ctx, WriteKind.unquoted, x);
 		},
-		(PositionKind.ImportedModule x) {
+		(PositionImportedModule x) {
 			writer ~= "Import module ";
 			writeFile(writer, ctx, x.module_.uri);
 		},
-		(PositionKind.ImportedName x) {
+		(PositionImportedName x) {
 			getImportedNameHover(writer, ctx, x);
 		},
-		(PositionKind.Keyword x) {
+		(PositionKeyword x) {
 			writer ~= () {
-				final switch (x.kind) {
-					case PositionKind.Keyword.Kind.alias_:
+				final switch (x) {
+					case PositionKeyword.alias_:
 						return "Declares a type alias.";
-					case PositionKind.Keyword.Kind.builtin:
+					case PositionKeyword.builtin:
 						return "Declares a type implemented natively by Crow.";
-					case PositionKind.Keyword.Kind.enum_:
+					case PositionKeyword.enum_:
 						return "Declares an enumerated type. The type can only have the values listed.";
-					case PositionKind.Keyword.Kind.extern_:
+					case PositionKeyword.extern_:
 						return "Declares a type implemented by an external library.";
-					case PositionKind.Keyword.Kind.flags:
+					case PositionKeyword.flags:
 						return "Declares a type that can have any combination of flags (this would be an 'enum' in C)";
-					case PositionKind.Keyword.Kind.global:
+					case PositionKeyword.global:
 						return "Declares a mutable global variable (shared between all threads).";
-					case PositionKind.Keyword.Kind.interface_:
+					case PositionKeyword.interface_:
 						return "An 'interface' is just like a 'variant', " ~
 							"but does not support 'match' or conversion to case types.";
-					case PositionKind.Keyword.Kind.localMut:
+					case PositionKeyword.localMut:
 						return "Makes this a mutable variable.";
-					case PositionKind.Keyword.Kind.record:
+					case PositionKeyword.record:
 						return "Declares a type combining several named members.";
-					case PositionKind.Keyword.Kind.spec:
+					case PositionKeyword.spec:
 						return "Specifies function signatures which to be provided by a function's caller.";
-					case PositionKind.Keyword.Kind.threadLocal:
+					case PositionKeyword.threadLocal:
 						return "Declares a mutable thread-local variable.";
-					case PositionKind.Keyword.Kind.underscore:
+					case PositionKeyword.underscore:
 						return "Ignores the value.";
-					case PositionKind.Keyword.Kind.union_:
+					case PositionKeyword.union_:
 						return "A union can be one of several listed case types.";
-					case PositionKind.Keyword.Kind.variant:
+					case PositionKeyword.variant:
 						return "Declares a union-like type with an extensible set of case types, " ~
 							"created by 'case' declarations on the types.";
 				}
 			}();
 		},
-		(PositionKind.LocalPosition x) {
+		(PositionLocal x) {
 			writer ~= "Local ";
 			writeName(writer, ctx, x.local.name);
 			writer ~= " of type ";
 			writeTypeQuoted(writer, ctx, TypeWithContainer(x.local.type, x.container.toTypeContainer));
 		},
-		(PositionKind.MatchEnumCase x) {
+		(PositionMatchEnumCase x) {
 			writer ~= "Handler for enum ";
 			writeName(writer, ctx, x.member.containingEnum.name);
 			writer ~= " member ";
 			writeName(writer, ctx, x.member.name);
 		},
-		(PositionKind.MatchIntegralCase x) {
+		(PositionMatchIntegralCase x) {
 			writer ~= "Handler for value ";
 			x.kind.matchIn!void(
 				(in CharType t) {
@@ -174,17 +201,17 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 					writeName(writer, ctx, stringOfEnum(t));
 				});
 		},
-		(PositionKind.MatchStringLikeCase x) {
+		(PositionMatchStringLikeCase x) {
 			writer ~= "Handler for value ";
 			writeQuotedString(writer, x.value);
 			writer ~= " :: ";
 			writeTypeUnquoted(writer, ctx, x.type);
 		},
-		(PositionKind.MatchSumTypeCase x) {
+		(PositionMatchSumTypeCase x) {
 			writer ~= "Handler for type ";
 			writeTypeQuoted(writer, ctx, TypeWithContainer(Type(x.member), x.container.toTypeContainer));
 		},
-		(PositionKind.Modifier x) {
+		(PositionModifier x) {
 			writer ~= () {
 				final switch (x.modifier) {
 					case ModifierKeyword.bare:
@@ -236,12 +263,12 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 				}
 			}();
 		},
-		(PositionKind.ModifierExtern x) {
+		(PositionModifierExtern x) {
 			writer ~= "Function comes from external library ";
 			writeName(writer, ctx, x.libraryName);
 			writer ~= '.';
 		},
-		(PositionKind.ModulePosition) {
+		(PositionModule _) {
 			writer ~= "Module ";
 			writer ~= pos.module_.uri;
 		},
@@ -253,7 +280,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 			writer ~= " :: ";
 			writeTypeUnquoted(writer, ctx, TypeWithContainer(x.type, TypeContainer(x.containingRecord)));
 		},
-		(PositionKind.RecordFieldMutability x) {
+		(PositionRecordFieldMutability x) {
 			writer ~= "Defines a ";
 			if (has(x.visibility)) {
 				writeVisibility(writer, ctx.show, force(x.visibility));
@@ -278,7 +305,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 				});
 			writeName(writer, ctx, sig.name);
 		},
-		(PositionKind.SpecUse x) {
+		(PositionSpecUse x) {
 			writer ~= "Spec ";
 			writeSpecInst(writer, ctx, x.container, *x.spec);
 		},
@@ -293,7 +320,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 		},
 		(TypeWithContainer x) {
 			x.type.matchIn!void(
-				(in BogusType) {},
+				(in BogusType _) {},
 				(in TypeParamIndex p) {
 					hoverTypeParam(writer, ctx, forbidModule(x.container), p);
 				},
@@ -301,7 +328,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 					writeStructDeclHover(writer, ctx, *i.decl);
 				});
 		},
-		(PositionKind.TypeParamWithContainer x) {
+		(TypeParamWithContainer x) {
 			hoverTypeParam(writer, ctx, x.container, x.typeParam);
 		},
 		(VarDecl* x) {
@@ -311,7 +338,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 			writer ~= " :: ";
 			writeTypeUnquoted(writer, ctx, TypeWithContainer(x.type, TypeContainer(x)));
 		},
-		(PositionKind.VisibilityMark x) {
+		(PositionVisibilityMark x) {
 			writer ~= "Marks ";
 			writeName(writer, ctx, x.container.name);
 			writer ~= " as ";
@@ -321,7 +348,7 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 
 private:
 
-void hoverForDocRef(scope ref Writer writer, in ShowModelCtx ctx, PositionKind.DocRef a) {
+void hoverForDocRef(scope ref Writer writer, in ShowModelCtx ctx, PositionDocRef a) {
 	a.ref_.matchWithPointers!void(
 		(DocCommentReference.Bogus) {},
 		(CalledSpecSig x) {
@@ -425,7 +452,7 @@ void writeSpecDeclHover(scope ref Writer writer, in ShowModelCtx ctx, in SpecDec
 	writeName(writer, ctx, a.name);
 }
 
-void getImportedNameHover(scope ref Writer writer, in ShowModelCtx ctx, in PositionKind.ImportedName a) {
+void getImportedNameHover(scope ref Writer writer, in ShowModelCtx ctx, in PositionImportedName a) {
 	if (has(a.referents)) {
 		bool first = true;
 		void separate() {
@@ -738,51 +765,51 @@ void getExprHover(
 			writeCalled(writer, ctx, WriteKind.quoted, typeContainer, x.called);
 			writer ~= '.';
 		},
-		(in ExpressionPositionKind.Literal x) {
+		(in ExpressionPositionLiteral _) {
 			writer ~= "Literal expression.";
 		},
-		(in ExpressionPositionKind.LocalRef x) {
+		(in LocalRef x) {
 			writer ~= () {
 				final switch (x.kind) {
-					case ExpressionPositionKind.LocalRef.Kind.get:
+					case LocalRefKind.get:
 						return "Gets local variable ";
-					case ExpressionPositionKind.LocalRef.Kind.set:
+					case LocalRefKind.set:
 						return "Sets local variable ";
-					case ExpressionPositionKind.LocalRef.Kind.closureGet:
+					case LocalRefKind.closureGet:
 						return "Gets local variable ";
-					case ExpressionPositionKind.LocalRef.Kind.closureSet:
+					case LocalRefKind.closureSet:
 						return "Sets local variable ";
-					case ExpressionPositionKind.LocalRef.Kind.pointer:
+					case LocalRefKind.pointer:
 						return "Gets pointer to local variable ";
 				}
 			}();
 			writeName(writer, ctx, x.local.name);
 			writer ~= () {
 				final switch (x.kind) {
-					case ExpressionPositionKind.LocalRef.Kind.get:
-					case ExpressionPositionKind.LocalRef.Kind.set:
-					case ExpressionPositionKind.LocalRef.Kind.pointer:
+					case LocalRefKind.get:
+					case LocalRefKind.set:
+					case LocalRefKind.pointer:
 						return "";
-					case ExpressionPositionKind.LocalRef.Kind.closureGet:
-					case ExpressionPositionKind.LocalRef.Kind.closureSet:
+					case LocalRefKind.closureGet:
+					case LocalRefKind.closureSet:
 						return " (through closure)";
 				}
 			}();
 			writer ~= '.';
 		},
-		(in ExpressionPositionKind.LoopKeyword x) {
+		(in LoopKeyword x) {
 			final switch (x.kind) {
-				case ExpressionPositionKind.LoopKeyword.Kind.break_:
+				case LoopKeywordKind.break_:
 					writer ~= "Breaks out of ";
 					writeLoop(writer, ctx, curUri, x.loop);
 					writer ~= '.';
 					break;
-				case ExpressionPositionKind.LoopKeyword.Kind.continue_:
+				case LoopKeywordKind.continue_:
 					writer ~= "Goes back to the start of ";
 					writeLoop(writer, ctx, curUri, x.loop);
 					writer ~= '.';
 					break;
-				case ExpressionPositionKind.LoopKeyword.Kind.loop:
+				case LoopKeywordKind.loop:
 					writer ~= "Loop that terminates at a 'break'.";
 					break;
 			}

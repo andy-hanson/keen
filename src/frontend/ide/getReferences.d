@@ -13,7 +13,8 @@ import frontend.ide.ideUtil :
 	ReferenceCb,
 	TypeCb;
 import frontend.ide.importReferences : eachModuleReferencing, eachNamedImport, referencesForModule, UriAndName;
-import frontend.ide.position : ExprContainer, Position, PositionKind;
+import frontend.ide.position :
+	ExprContainer, Position, PositionImportedName, PositionKind, PositionLocal, TypeParamWithContainer;
 import lib.lsp.lspTypes : DocumentHighlight, DocumentHighlightKind, DocumentHighlightResult;
 import model.ast :
 	AsBogusAst,
@@ -216,9 +217,9 @@ private Opt!UriAndName asUriAndName(Target a) =>
 			some(UriAndName(x.moduleUri, x.name)),
 		(in FunDecl x) =>
 			some(UriAndName(x.moduleUri, x.name)),
-		(in PositionKind.ImportedName x) =>
+		(in PositionImportedName x) =>
 			none!UriAndName, // this would be redundant
-		(in PositionKind.LocalPosition x) =>
+		(in PositionLocal x) =>
 			none!UriAndName,
 		(in Target.Loop _) =>
 			none!UriAndName,
@@ -236,7 +237,7 @@ private Opt!UriAndName asUriAndName(Target a) =>
 			some(UriAndName(x.moduleUri, x.name)),
 		(in StructDecl x) =>
 			some(UriAndName(x.moduleUri, x.name)),
-		(in PositionKind.TypeParamWithContainer x) =>
+		(in TypeParamWithContainer x) =>
 			none!UriAndName,
 		(in VarDecl x) =>
 			some(UriAndName(x.moduleUri, x.name)));
@@ -251,10 +252,10 @@ void referencesForTarget(in Program program, Uri curUri, in Target a, in Referen
 		(FunDecl* x) {
 			referencesForFunDecl(program, x, cb);
 		},
-		(PositionKind.ImportedName x) {
+		(PositionImportedName x) {
 			referencesForImportedName(program, x, cb);
 		},
-		(PositionKind.LocalPosition x) {
+		(PositionLocal x) {
 			referencesForLocal(program, curUri, x, cb);
 		},
 		(Target.Loop x) {
@@ -278,7 +279,7 @@ void referencesForTarget(in Program program, Uri curUri, in Target a, in Referen
 		(StructDecl* x) {
 			referencesForStructDecl(program, x, cb);
 		},
-		(PositionKind.TypeParamWithContainer x) {
+		(TypeParamWithContainer x) {
 			referencesForTypeParam(program.commonTypes, curUri, x, cb);
 		},
 		(VarDecl* x) {
@@ -300,7 +301,7 @@ void referencesForStructAlias(in Program program, in StructAlias* a, in Referenc
 		});
 }
 
-void referencesForImportedName(in Program program, in PositionKind.ImportedName a, in ReferenceCb cb) {
+void referencesForImportedName(in Program program, in PositionImportedName a, in ReferenceCb cb) {
 	eachNamedImport(program, a.exportingModule, a.name, (in UriAndRange where, IsImportOrExport _) {
 		cb(where);
 	});
@@ -320,7 +321,7 @@ void referencesForImportedName(in Program program, in PositionKind.ImportedName 
 	}
 }
 
-void referencesForLocal(in Program program, Uri curUri, in PositionKind.LocalPosition a, in ReferenceCb cb) {
+void referencesForLocal(in Program program, Uri curUri, in PositionLocal a, in ReferenceCb cb) {
 	Opt!ContainerAndBody body_ = a.container.matchWithPointers!(Opt!ContainerAndBody)(
 		(FunDecl* x) =>
 			x.body_.isA!Expr
@@ -372,7 +373,7 @@ void referencesForLoop(ref CommonTypes commonTypes, Uri curUri, in Target.Loop a
 void referencesForTypeParam(
 	ref CommonTypes commonTypes,
 	Uri curUri,
-	in PositionKind.TypeParamWithContainer a,
+	in TypeParamWithContainer a,
 	in ReferenceCb refCb,
 ) {
 	eachDocCommentReference(a.container.docComment, (ref NameAndRange ast, ref DocCommentReference ref_) {

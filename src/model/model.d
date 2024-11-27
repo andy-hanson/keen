@@ -262,7 +262,7 @@ Type pointeeType(in Type a) {
 
 PurityRange purityRange(Type a) =>
 	a.matchIn!PurityRange(
-		(in BogusType) =>
+		(in BogusType _) =>
 			PurityRange(Purity.data, Purity.data),
 		(in TypeParamIndex _) =>
 			PurityRange(Purity.data, Purity.mut),
@@ -274,7 +274,7 @@ Purity bestCasePurity(Type a) =>
 
 LinkageRange linkageRange(Type a) =>
 	a.matchIn!LinkageRange(
-		(in BogusType) =>
+		(in BogusType _) =>
 			LinkageRange(Linkage.extern_, Linkage.extern_),
 		(in TypeParamIndex _) =>
 			LinkageRange(Linkage.internal, Linkage.extern_),
@@ -4100,7 +4100,7 @@ immutable struct DiagLambdaClosurePurity {
 }
 immutable struct DiagLambdaMultipleMatch {
 	// This is only the expected types that are lambdas
-	ExpectedForDiag.Choices choices;
+	ExpectedForDiagChoices choices;
 }
 immutable struct DiagLambdaNotExpected {
 	ExpectedForDiag expected;
@@ -4349,11 +4349,11 @@ immutable struct DiagWrongNumberTypeArgs {
 enum AutoFunName { compare, equals, members, to }
 
 immutable struct ExpectedForDiag {
-	immutable struct Choices {
-		Type[] types;
-		TypeContainer typeContainer;
-	}
-	immutable struct Infer {}
-	immutable struct Loop {}
-	mixin Union!(Choices, Infer, Loop);
+	mixin Union!(ExpectedForDiagChoices, ExpectedForDiagInfer, ExpectedForDiagLoop);
 }
+immutable struct ExpectedForDiagChoices {
+	Type[] types;
+	TypeContainer typeContainer;
+}
+immutable struct ExpectedForDiagInfer {}
+immutable struct ExpectedForDiagLoop {}

@@ -78,6 +78,18 @@ import model.model :
 	BuiltinBinaryLazy,
 	BuiltinBinaryMath,
 	BuiltinFun,
+	BuiltinFunAllTests,
+	BuiltinFunCallLambda,
+	BuiltinFunCallFunPointer,
+	BuiltinFunGcSafeValue,
+	BuiltinFunInit,
+	BuiltinFunMarkRoot,
+	BuiltinFunMarkVisit,
+	BuiltinFunNewEmptyOption,
+	BuiltinFunNewNonEmptyOption,
+	BuiltinFunPointerCast,
+	BuiltinFunSizeOf,
+	BuiltinFunStaticSymbols,
 	BuiltinTernary,
 	BuiltinType,
 	BuiltinUnary,
@@ -532,7 +544,7 @@ private ExprResult translateCallBuiltin(
 	ExprResult expr(JsExpr value) =>
 		forceExpr(ctx.alloc, pos, returnType, value);
 	return a.matchIn!ExprResult(
-		(in BuiltinFunAllTests) {
+		(in BuiltinFunAllTests _) {
 			assert(nArgs == 0);
 			return expr(translateAllTests(ctx.ctx, source));
 		},
@@ -560,10 +572,10 @@ private ExprResult translateCallBuiltin(
 			assert(false),
 		(in Builtin4ary x) =>
 			assert(false),
-		(in BuiltinFunCallLambda) =>
+		(in BuiltinFunCallLambda _) =>
 			expr(genCallAwait(ctx.alloc, source, getArg(0), [
 				genTuple(ctx, source, nArgs - 1, (size_t i) => getArg(i + 1))])),
-		(in BuiltinFunCallFunPointer) =>
+		(in BuiltinFunCallFunPointer _) =>
 			expr(genCallAwait(
 				ctx.alloc,
 				source,
@@ -573,31 +585,31 @@ private ExprResult translateCallBuiltin(
 			assert(nArgs == 0);
 			return expr(translateConstant(ctx.ctx, source, x, returnType));
 		},
-		(in BuiltinFunGcSafeValue) {
+		(in BuiltinFunGcSafeValue _) {
 			assert(nArgs == 0);
 			return expr(genNull(source));
 		},
-		(in BuiltinFunInit) =>
+		(in BuiltinFunInit _) =>
 			assert(false),
 		(in JsFun x) =>
 			translateCallJsFun(ctx.ctx, source, returnType, pos, x, nArgs, getArg),
-		(in BuiltinFunMarkRoot) =>
+		(in BuiltinFunMarkRoot _) =>
 			assert(false),
-		(in BuiltinFunMarkVisit) =>
+		(in BuiltinFunMarkVisit _) =>
 			assert(false),
-		(in BuiltinFunNewEmptyOption) {
+		(in BuiltinFunNewEmptyOption _) {
 			assert(nArgs == 0);
 			return expr(genOptionNone(source));
 		},
-		(in BuiltinFunNewNonEmptyOption) {
+		(in BuiltinFunNewNonEmptyOption _) {
 			assert(nArgs == 1);
 			return expr(genOptionSome(ctx.alloc, source, getArg(0)));
 		},
-		(in BuiltinFunPointerCast) =>
+		(in BuiltinFunPointerCast _) =>
 			assert(false),
-		(in BuiltinFunSizeOf) =>
+		(in BuiltinFunSizeOf _) =>
 			assert(false),
-		(in BuiltinFunStaticSymbols) =>
+		(in BuiltinFunStaticSymbols _) =>
 			assert(false),
 		(in VersionFun x) {
 			assert(nArgs == 0);

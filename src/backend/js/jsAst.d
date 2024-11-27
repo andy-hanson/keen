@@ -181,16 +181,15 @@ immutable struct JsReturnStatement {
 	JsExpr* arg;
 }
 immutable struct JsSwitchStatement {
-	immutable struct Case {
-		JsExpr value;
-		// Technically un-blocked statements are allowed,
-		// but it's safer to force braces around them so they have a scope
-		JsBlockStatement then;
-	}
-
 	JsExpr* arg;
-	Case[] cases_;
+	JsSwitchCase[] cases_;
 	JsBlockStatement default_;
+}
+immutable struct JsSwitchCase {
+	JsExpr value;
+	// Technically un-blocked statements are allowed,
+	// but it's safer to force braces around them so they have a scope
+	JsBlockStatement then;
 }
 immutable struct JsThrowStatement {
 	JsExpr* arg;
@@ -470,7 +469,7 @@ JsStatement genReturn(ref Alloc alloc, in Source source, JsExpr arg) =>
 JsStatement genSwitch(
 	in Source source,
 	JsExpr* arg,
-	JsSwitchStatement.Case[] cases,
+	JsSwitchCase[] cases,
 	JsBlockStatement default_,
 ) =>
 	JsStatement(source, JsStatementKind(JsSwitchStatement(arg, cases, default_)));

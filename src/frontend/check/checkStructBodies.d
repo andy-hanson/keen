@@ -600,15 +600,15 @@ Purity defaultPurity(DeclKind a) {
 
 DeclKind getDeclKind(in StructBodyAst a) =>
 	a.matchIn!DeclKind(
-		(in BuiltinAst) =>
+		(in BuiltinTypeAst _) =>
 			DeclKind.builtin,
-		(in EnumAst) =>
+		(in EnumAst _) =>
 			DeclKind.enum_,
-		(in ExternTypeAst) =>
+		(in ExternTypeAst _) =>
 			DeclKind.extern_,
-		(in FlagsAst) =>
+		(in FlagsAst _) =>
 			DeclKind.flags,
-		(in RecordAst) =>
+		(in RecordAst _) =>
 			DeclKind.record,
 		(in SumTypeAst x) =>
 			declKindForSumType(x.kind));

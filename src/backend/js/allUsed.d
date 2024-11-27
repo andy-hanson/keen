@@ -20,7 +20,17 @@ import model.model :
 	BuiltinBinaryMath,
 	BuiltinFun,
 	BuiltinFunAllTests,
+	BuiltinFunCallFunPointer,
 	BuiltinFunCallLambda,
+	BuiltinFunGcSafeValue,
+	BuiltinFunInit,
+	BuiltinFunMarkRoot,
+	BuiltinFunMarkVisit,
+	BuiltinFunNewEmptyOption,
+	BuiltinFunNewNonEmptyOption,
+	BuiltinFunPointerCast,
+	BuiltinFunSizeOf,
+	BuiltinFunStaticSymbols,
 	BuiltinTernary,
 	BuiltinType,
 	BuiltinUnary,
@@ -244,7 +254,7 @@ private bool bodyIsNotInlined(in FunDecl a) =>
 	(a.body_.isA!BuiltinFun && !isInlinedBuiltinFun(a.body_.as!BuiltinFun));
 private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 	a.matchIn!bool(
-		(in BuiltinFunAllTests) =>
+		(in BuiltinFunAllTests _) =>
 			false,
 		(in BuiltinUnary _) =>
 			true,
@@ -267,31 +277,31 @@ private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 			true,
 		(in Builtin4ary _) =>
 			true,
-		(in BuiltinFunCallLambda) =>
+		(in BuiltinFunCallLambda _) =>
 			true,
-		(in BuiltinFunCallFunPointer) =>
+		(in BuiltinFunCallFunPointer _) =>
 			true,
 		(in Constant _) =>
 			true,
-		(in BuiltinFunGcSafeValue) =>
+		(in BuiltinFunGcSafeValue _) =>
 			true,
-		(in BuiltinFunInit) =>
+		(in BuiltinFunInit _) =>
 			true,
 		(in JsFun _) =>
 			true,
-		(in BuiltinFunMarkRoot) =>
+		(in BuiltinFunMarkRoot _) =>
 			assert(false),
-		(in BuiltinFunMarkVisit) =>
+		(in BuiltinFunMarkVisit _) =>
 			assert(false),
-		(in BuiltinFunNewEmptyOption) =>
+		(in BuiltinFunNewEmptyOption _) =>
 			true,
-		(in BuiltinFunNewNonEmptyOption) =>
+		(in BuiltinFunNewNonEmptyOption _) =>
 			true,
-		(in BuiltinFunPointerCast) =>
+		(in BuiltinFunPointerCast _) =>
 			assert(false),
-		(in BuiltinFunSizeOf) =>
+		(in BuiltinFunSizeOf _) =>
 			assert(false),
-		(in BuiltinFunStaticSymbols) =>
+		(in BuiltinFunStaticSymbols _) =>
 			assert(false),
 		(in VersionFun _) =>
 			assert(false));

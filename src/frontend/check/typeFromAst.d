@@ -450,7 +450,7 @@ Opt!Type typeFromDestructure(
 				? some(typeFromAst(
 					ctx, commonTypes, structsAndAliasesMap, *force(x.type), typeParamsScope, AliasAllowed.yes))
 				: none!Type,
-		(in VoidDestructureAst) =>
+		(in VoidDestructureAst _) =>
 			some(Type(commonTypes.void_)),
 		(in DestructureAst[] parts) =>
 			typeFromDestructures(ctx, commonTypes, structsAndAliasesMap, typeParamsScope, parts));

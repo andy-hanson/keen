@@ -238,7 +238,7 @@ void writeDiag(scope ref Writer writer, in Diag a) {
 			writeQuotedString(writer, x.actual);
 			writer ~= '.';
 		},
-		(in PrintKindInvalid) {
+		(in PrintKindInvalid _) {
 			writer ~= "Not a valid print command.";
 		},
 		(in RedundantPart x) {
@@ -270,10 +270,10 @@ void writeDiag(scope ref Writer writer, in Diag a) {
 					});
 				});
 		},
-		(in RunOptimizeNeedsAotOrJit) {
+		(in RunOptimizeNeedsAotOrJit _) {
 			writer ~= "'--optimize' must be combined with '--aot' or '--jit'.";
 		},
-		(in TestLineNumberInvalid) {
+		(in TestLineNumberInvalid _) {
 			writer ~= "Specifying a test line number only works when there is a single test file.";
 		},
 		(in UnexpectedPart x) {

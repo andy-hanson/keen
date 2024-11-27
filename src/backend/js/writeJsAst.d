@@ -46,6 +46,7 @@ import backend.js.jsAst :
 	JsReturnStatement,
 	JsScriptAst,
 	JsStatement,
+	JsSwitchCase,
 	JsSwitchStatement,
 	JsTernaryExpr,
 	JsThisExpr,
@@ -395,7 +396,7 @@ void writeDecl(scope ref Output writer, in ShowTypeCtx showCtx, in JsDecl decl, 
 			writer ~= " = ";
 			writeExpr(writer, 0, x);
 		},
-		(in LetDeclKind) {
+		(in LetDeclKind _) {
 			writer ~= "let ";
 			writeJsName(writer, decl.name);
 		});
@@ -590,7 +591,7 @@ void writeSwitch(scope ref Output writer, uint indent, in JsSwitchStatement a) {
 	writer ~= "switch (";
 	writeExpr(writer, indent + 2, *a.arg);
 	writer ~= ") {";
-	foreach (JsSwitchStatement.Case case_; a.cases_) {
+	foreach (JsSwitchCase case_; a.cases_) {
 		writeNewline(writer, indent + 1);
 		writer ~= "case ";
 		writeExpr(writer, indent, case_.value);

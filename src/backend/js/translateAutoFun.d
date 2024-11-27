@@ -41,7 +41,7 @@ import backend.js.jsAst :
 	JsMemberName,
 	JsName,
 	JsStatement,
-	JsSwitchStatement;
+	JsSwitchCase;
 import backend.js.jsAstUtil :
 	genEnumIntegralValue, genForceUnionMember, genIsUnionMember, genOptionNone, genOptionSome, matchUnionMembers;
 import backend.js.sourceMap : Source;
@@ -182,7 +182,7 @@ JsExprOrBlockStatement convertToOptEnumOrFlagsCommon(
 			source,
 			allocate(ctx.alloc, param),
 			map(ctx.alloc, members, (ref EnumOrFlagsMember member) =>
-				JsSwitchStatement.Case(
+				JsSwitchCase(
 					cbCaseKey(member),
 					genBlockReturn(
 						ctx.alloc,

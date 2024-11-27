@@ -52,6 +52,18 @@ import model.model :
 	BuiltinBinary,
 	BuiltinBinaryLazy,
 	BuiltinBinaryMath,
+	BuiltinFunAllTests,
+	BuiltinFunCallFunPointer,
+	BuiltinFunCallLambda,
+	BuiltinFunGcSafeValue,
+	BuiltinFunInit,
+	BuiltinFunMarkRoot,
+	BuiltinFunMarkVisit,
+	BuiltinFunNewEmptyOption,
+	BuiltinFunNewNonEmptyOption,
+	BuiltinFunPointerCast,
+	BuiltinFunSizeOf,
+	BuiltinFunStaticSymbols,
 	BuiltinTernary,
 	BuiltinType,
 	BuiltinUnary,
@@ -263,7 +275,7 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 
 void checkBuiltin(ref Ctx ctx, in ConcreteType type, in BuiltinConcreteExpr a) {
 	a.fun.match!void(
-		(BuiltinFunAllTests) {
+		(BuiltinFunAllTests _) {
 			assert(false);
 		},
 		(BuiltinUnary x) {
@@ -288,43 +300,43 @@ void checkBuiltin(ref Ctx ctx, in ConcreteType type, in BuiltinConcreteExpr a) {
 		(Builtin4ary _) {
 			assert(false);
 		},
-		(BuiltinFunCallLambda) {
+		(BuiltinFunCallLambda _) {
 			assert(false);
 		},
-		(BuiltinFunCallFunPointer) {
+		(BuiltinFunCallFunPointer _) {
 			assert(false);
 		},
 		(Constant _) {
 			assert(false);
 		},
-		(BuiltinFunGcSafeValue) {
+		(BuiltinFunGcSafeValue _) {
 			assert(false);
 		},
-		(BuiltinFunInit) {
+		(BuiltinFunInit _) {
 			assert(false);
 		},
 		(JsFun _) {
 			assert(false);
 		},
-		(BuiltinFunMarkRoot) {
+		(BuiltinFunMarkRoot _) {
 			assert(false);
 		},
-		(BuiltinFunMarkVisit) {
+		(BuiltinFunMarkVisit _) {
 			assert(false);
 		},
-		(BuiltinFunNewEmptyOption) {
+		(BuiltinFunNewEmptyOption _) {
 			assert(false);
 		},
-		(BuiltinFunNewNonEmptyOption) {
+		(BuiltinFunNewNonEmptyOption _) {
 			assert(false);
 		},
-		(BuiltinFunPointerCast) {
+		(BuiltinFunPointerCast _) {
 			assert(false);
 		},
-		(BuiltinFunSizeOf) {
+		(BuiltinFunSizeOf _) {
 			assert(false);
 		},
-		(BuiltinFunStaticSymbols) {
+		(BuiltinFunStaticSymbols _) {
 			assert(false);
 		},
 		(VersionFun _) {

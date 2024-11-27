@@ -6,6 +6,7 @@ import frontend.check.typeFromAst : typeSyntaxKind;
 import frontend.storage : FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters;
 import model.ast : NameAndRange;
 import model.model :
+	BogusType,
 	Called,
 	CalledDecl,
 	CalledSpecSig,
@@ -532,7 +533,7 @@ void writeTypeQuoted(scope ref Writer writer, in ShowTypeCtx ctx, in TypeWithCon
 
 void writeTypeUnquoted(scope ref Writer writer, in ShowTypeCtx ctx, in TypeWithContainer a) {
 	a.type.matchIn!void(
-		(in BogusType) {
+		(in BogusType _) {
 			writer ~= "<<any>>";
 		},
 		(in TypeParamIndex x) {
