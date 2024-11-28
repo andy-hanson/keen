@@ -276,7 +276,7 @@ void withIdeTestsForCrowAndJsonFiles(string dir, string[] fileNames)(
 					setupTestServer(test, server, files);
 				});
 			Program program = getProgram(test.perf, test.alloc, server);
-			cb(getShowDiagCtx(server, program), program, tests);
+			cb(getShowDiagCtx(test.alloc, server, program), program, tests);
 		});
 	});
 }

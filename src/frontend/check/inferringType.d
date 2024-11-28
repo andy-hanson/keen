@@ -5,7 +5,6 @@ module frontend.check.inferringType;
 import frontend.check.exprCtx : addDiag2, ExprCtx, typeWithContainer;
 import frontend.check.instantiate : InstantiateCtx, instantiateStruct;
 import frontend.showModel : ShowCtx, ShowTypeCtx, ShowOptions, writeTypeUnquoted;
-import frontend.storage : FileContentGetters, LineAndColumnGetters;
 import model.ast : ExprAst;
 import model.model :
 	BogusExpr,
@@ -61,6 +60,7 @@ import util.col.array :
 import util.col.arrayBuilder : add, ArrayBuilder, arrayBuilderIsEmpty, asTemporaryArray, finish;
 import util.memory : allocate;
 import util.opt : has, force, MutOpt, none, noneMut, Opt, optIf, optOrDefault, some, someInout, someMut;
+import util.sourceRange : FileContentGetters, LineAndColumnGetters;
 import util.union_ : TaggedUnion;
 import util.uri : UrisInfo;
 import util.util : castNonScope_ref;
@@ -254,8 +254,8 @@ Expr withExpectLoop(ref LoopInfo info, in Expr delegate(ref Expected) @safe @nog
 void debugLogExpected(scope ref Writer writer, ref ExprCtx ctx, in Expected a) {
 	ShowTypeCtx showCtx = ShowTypeCtx(
 		ShowCtx(
-			LineAndColumnGetters(null), // not used
-			FileContentGetters(null),
+			LineAndColumnGetters(), // not used
+			FileContentGetters(),
 			UrisInfo(),
 			ShowOptions(color: false)),
 		ctx.commonTypesPtr);

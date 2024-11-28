@@ -3,7 +3,6 @@ module concretize.concretizeCtx;
 @safe @nogc pure nothrow:
 
 import concretize.allConstantsBuilder : AllConstantsBuilder, getConstantCString, getConstantSymbol;
-import frontend.storage : FileContentGetters;
 import model.concreteModel :
 	ConcreteField,
 	ConcreteFun,
@@ -99,6 +98,7 @@ import util.col.mutMap : getOrAddAndDidAdd, mustAdd, mustGet, MutMap, ValueAndDi
 import util.late : Late, late, lateGet, lateSet, lazilySet;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optOrDefault, some;
+import util.sourceRange : FileContentGetters;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : SymbolSet;
 import util.util : enumConvert, max, roundUp, typeAs;

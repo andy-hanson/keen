@@ -3,7 +3,6 @@ module interpret.debugInfo;
 @safe @nogc nothrow: // not pure (because of backtraceStringsStorage)
 
 import frontend.showModel : ShowCtx, writeUriAndPos;
-import frontend.storage : LineAndColumnGetters;
 import interpret.bytecode : ByteCode, ByteCodeIndex, ByteCodeSource, Operation;
 import interpret.stacks : returnTempAsArrReverse, Stacks;
 import model.concreteModel : ConcreteFun;
@@ -13,7 +12,7 @@ import util.alloc.alloc : Alloc, withStaticAlloc;
 import util.col.array : isPointerInRange;
 import util.memory : initMemory;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : LineAndColumn, PosKind, UriAndPos;
+import util.sourceRange : LineAndColumn, LineAndColumnGetters, PosKind, UriAndPos;
 import util.string : CString;
 import util.uri : cStringOfUriPreferRelative, Uri, UrisInfo;
 import util.util : min;

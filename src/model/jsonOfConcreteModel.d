@@ -2,7 +2,6 @@ module model.jsonOfConcreteModel;
 
 @safe @nogc pure nothrow:
 
-import frontend.storage : LineAndColumnGetters;
 import model.concreteModel :
 	BuiltinConcreteExpr,
 	CallConcreteExpr,
@@ -59,7 +58,7 @@ import util.alloc.alloc : Alloc;
 import util.integralValues : IntegralValue, IntegralValues;
 import util.json :
 	field, Json, jsonObject, optionalArrayField, optionalField, optionalFlagField, jsonList, jsonString, kindField;
-import util.sourceRange : jsonOfLineAndColumnRange;
+import util.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetters;
 import util.symbol : Symbol, symbol, symbolOfEnum;
 import util.util : stringOfEnum;
 

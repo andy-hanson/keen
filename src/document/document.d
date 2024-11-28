@@ -3,7 +3,6 @@ module document.document;
 @safe @nogc pure nothrow:
 
 import frontend.showModel : ShowModelCtx;
-import frontend.storage : FileContentGetters;
 import model.ast : NameAndRange;
 import model.model :
 	BogusType,
@@ -57,7 +56,7 @@ import util.json :
 	jsonString,
 	kindField;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : compareUriAndRange, UriAndRange;
+import util.sourceRange : compareUriAndRange, FileContentGetters, UriAndRange;
 import util.string : isWhitespace;
 import util.symbol : Symbol, symbol;
 import util.uri : stringOfUri, Uri;

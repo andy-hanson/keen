@@ -2,7 +2,6 @@ module model.model;
 
 @safe @nogc pure nothrow:
 
-import frontend.storage : FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters;
 import model.ast :
 	AssertOrForbidAst,
 	CaseAst,
@@ -59,7 +58,8 @@ import util.conv : safeToUint, safeToUshort;
 import util.integralValues : IntegralValue;
 import util.late : Late, lateGet, lateIsSet, lateSet, lateSetOverwrite;
 import util.opt : force, has, none, Opt, optEqual, optIf, optOr, optOrDefault, some;
-import util.sourceRange : combineRanges, Pos, Range, UriAndRange;
+import util.sourceRange :
+	combineRanges, FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters, Pos, Range, UriAndRange;
 import util.string : SmallString;
 import util.symbol : enumOfSymbol, Symbol, symbol, symbolOfEnum;
 import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, SymbolSetBuilder;

@@ -2,7 +2,6 @@ module backend.js.sourceMap;
 
 @safe @nogc pure nothrow:
 
-import frontend.storage : FileContentGetters;
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.map : Map, mustGet;
@@ -11,7 +10,7 @@ import util.comparison : Comparison;
 import util.conv : safeToInt, safeToUint;
 import util.json : field, jsonList, jsonObject, jsonString, jsonToString;
 import util.opt : Opt;
-import util.sourceRange : compareLineAndCharacter, LineAndCharacter;
+import util.sourceRange : compareLineAndCharacter, FileContentGetters, LineAndCharacter;
 import util.symbol : Extension, Symbol, symbol;
 import util.uri : alterExtension, Path, stringOfPath, Uri;
 import util.util : abs;

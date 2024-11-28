@@ -6,7 +6,7 @@ import std.meta : AliasSeq, staticMap;
 
 import frontend.lang : FileType, fileType;
 import frontend.showModel : ShowCtx, ShowOptions;
-import frontend.storage : FileContentGetters, LineAndColumnGetters, ReadFileResult, Storage;
+import frontend.storage : fileContentGetters, lineAndColumnGetters, ReadFileResult, Storage;
 import interpret.bytecode : ByteCode, ByteCodeIndex, Operation;
 import interpret.debugInfo : showDataArr;
 import interpret.stacks : dataEnd, returnTempAsArrReverse, Stacks;
@@ -55,8 +55,8 @@ void withShowDiagCtxForTestImpure(
 
 private void withShowDiagCtxForTestImpl(alias cb)(scope ref Test test, in Storage storage) =>
 	cb(ShowCtx(
-		LineAndColumnGetters(ptrTrustMe(storage)),
-		FileContentGetters(ptrTrustMe(storage)),
+		lineAndColumnGetters(test.alloc, storage),
+		fileContentGetters(test.alloc, storage),
 		UrisInfo(none!Uri),
 		ShowOptions(false)));
 

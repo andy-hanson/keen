@@ -3,7 +3,6 @@ module frontend.showModel;
 @safe @nogc pure nothrow:
 
 import frontend.check.typeFromAst : typeSyntaxKind;
-import frontend.storage : FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters;
 import model.ast : NameAndRange;
 import model.model :
 	BogusType,
@@ -41,7 +40,8 @@ import model.model :
 	Visibility;
 import util.col.array : isEmpty, only, only2, sizeEq;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : PosKind, toUriAndPos, UriAndPos, UriAndRange;
+import util.sourceRange :
+	FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters, PosKind, toUriAndPos, UriAndPos, UriAndRange;
 import util.symbol : Symbol;
 import util.uri : Uri, UrisInfo, writeUriPreferRelative;
 import util.util : stringOfEnum;

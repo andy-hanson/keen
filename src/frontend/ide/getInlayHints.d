@@ -4,7 +4,6 @@ module frontend.ide.getInlayHints;
 
 import frontend.ide.importReferences : ImportsAndReExports, isEmpty, withImportsAndReExportsOf;
 import frontend.showModel : ShowModelCtx, writeTypeUnquoted;
-import frontend.storage : LineAndCharacterGetters;
 import lib.lsp.lspTypes :
 	Command,
 	ExecuteCommandParams,
@@ -59,6 +58,7 @@ import util.sourceRange :
 	endOfLine,
 	LineAndCharacter,
 	LineAndCharacterGetter,
+	LineAndCharacterGetters,
 	lineOfPos,
 	Pos,
 	PosKind,

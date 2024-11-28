@@ -69,7 +69,6 @@ import backend.js.translateModuleCtx :
 	translateStructReference,
 	translateTestReference,
 	translateVarReference;
-import frontend.storage : FileContentGetters;
 import model.constant : asBool, asInt64, asNat64, Constant, ConstantFloat, ConstantZero;
 import model.model :
 	AutoFun,
@@ -141,6 +140,7 @@ import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder, finish;
 import util.conv : safeToUshort;
 import util.memory : allocate;
 import util.opt : force, none, some;
+import util.sourceRange : FileContentGetters;
 import util.symbol : Symbol, symbol;
 import util.union_ : TaggedUnion, Union;
 import util.uri : Uri;

@@ -4,7 +4,7 @@ module test.testSourceMap;
 
 import backend.js.sourceMap : finish, ModulePaths, SingleSourceMapping, Source, SourceMapBuilder, writeBase64VLQ;
 import frontend.lang : FileType, fileType;
-import frontend.storage : FileContentGetters, setFileAssumeUtf8, Storage;
+import frontend.storage : fileContentGetters, setFileAssumeUtf8, Storage;
 import test.testUtil : assertEqual, Test;
 import util.col.map : KeyValuePair, newMap;
 import util.sourceRange : LineAndCharacter;
@@ -64,7 +64,7 @@ void testBuilder(ref Test test) {
 	ModulePaths modulePaths = ModulePaths(newMap(test.alloc, [
 		KeyValuePair!(Uri, Path)(a_crow, parsePath("mapped/a.crow"))]));
 	assertEqual(
-		finish(map, FileContentGetters(&storage), modulePaths),
+		finish(map, fileContentGetters(test.alloc, storage), modulePaths),
 		q"({"version":3,"sources":["mapped/a.crow"],"sourcesContent":["hello"],"names":["foo"],)" ~
 		q"("mappings":";CACCA;CACAA"})");
 }

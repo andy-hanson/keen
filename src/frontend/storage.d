@@ -20,23 +20,18 @@ import util.alloc.alloc :
 	withTempAlloc;
 import util.col.array : concatenateIn, contains;
 import util.col.arrayBuilder : buildArray, Builder;
-import util.col.mutMap : getOrAdd, keys, mayDelete, mustAdd, MutMap, values;
+import util.col.mutMap : getOrAdd, keys, mayDelete, moveToMap, mustAdd, MutMap, values;
 import util.memory : allocate;
 import util.opt : ConstOpt, force, has, MutOpt, none, Opt, some;
 import util.perf : Perf;
 import util.sourceRange :
+	FileContentGetters,
 	LineAndCharacterGetter,
+	LineAndCharacterGetters,
 	LineAndColumnGetter,
 	lineAndColumnGetterForText,
-	Pos,
-	PosKind,
-	Range,
-	UriAndPos,
-	UriAndRange,
-	UriLineAndCharacter,
-	UriAndLineAndCharacterRange,
-	UriLineAndColumn,
-	UriLineAndColumnRange;
+	LineAndColumnGetters,
+	Range;
 import util.string : CString, cString, CStringAndLength, stringOfRange;
 import util.unicode : FileContent, unicodeValidate;
 import util.union_ : Union;
@@ -74,14 +69,14 @@ immutable struct FileInfo {
 				x.content.asFileContent,
 			(ref OtherFileInfo x) =>
 				x.content);
-	TextFileContent asTextFile() =>
-		match!TextFileContent(
+	Opt!TextFileContent asTextFile() =>
+		match!(Opt!TextFileContent)(
 			(ref CrowFileInfo x) =>
-				x.content,
+				some(x.content),
 			(ref CrowConfigFileInfo x) =>
-				x.content,
+				some(x.content),
 			(ref OtherFileInfo _) =>
-				assert(false));
+				none!TextFileContent);
 }
 
 immutable struct TextFileContent {
@@ -168,7 +163,7 @@ FileInfo changeFile(scope ref Perf perf, ref Storage a, Uri uri, in TextDocument
 	FileInfo info = fileOrDiag(a, uri).as!FileInfo;
 	return withTempAlloc(a.metaAlloc, (ref Alloc tempAlloc) {
 		string newContent = applyChange(
-			tempAlloc, info.asTextFile.asString, info.asTextFile.lineAndCharacterGetter, change);
+			tempAlloc, force(info.asTextFile).asString, force(info.asTextFile).lineAndCharacterGetter, change);
 		// TODO:PERF This means an unnecessary copy in 'setFile'.
 		// Would be better to modify the array in place and force re-parse.
 		return setFileAssumeUtf8(perf, a, uri, newContent);
@@ -265,57 +260,33 @@ immutable struct ReadFileResult {
 	mixin Union!(FileContent, ReadFileDiag);
 }
 
-const struct FileContentGetters {
-	@safe @nogc pure nothrow:
-
-	private const Storage* storage;
-
-	private Opt!FileInfo getFileInfo(Uri uri) scope {
-		ConstOpt!(AllocAndValue!FileInfo) res = storage.successes[uri];
-		return has(res) ? some(force(res).value) : none!FileInfo;
+FileContentGetters fileContentGetters(ref Alloc alloc, return scope ref const Storage storage) {
+	MutMap!(Uri, string) res;
+	foreach (Uri uri, ref const AllocAndValue!FileInfo value; storage.successes) {
+		if (value.value.isA!(CrowFileInfo*))
+			mustAdd(alloc, res, uri, value.value.as!(CrowFileInfo*).content.asString);
 	}
-
-	string opIndex(Uri uri) scope =>
-		force(getFileInfo(uri)).as!(CrowFileInfo*).content.asString;
-	string opIndex(in UriAndRange x) scope =>
-		x.range.isEmpty ? "" : this[x.uri][x.range.start .. x.range.end];
+	return FileContentGetters(moveToMap(alloc, res));
 }
 
-const struct LineAndCharacterGetters {
-	@safe @nogc pure nothrow:
+LineAndCharacterGetter lineAndCharacterGetter(ref Alloc alloc, return scope ref const Storage storage, Uri uri) =>
+	lineAndColumnGetter(alloc, storage, uri).lineAndCharacterGetter;
+LineAndCharacterGetters lineAndCharacterGetters(ref Alloc alloc, return scope ref const Storage storage) =>
+	lineAndColumnGetters(alloc, storage).lineAndCharacterGetters;
 
-	private const Storage* storage;
-
-	LineAndCharacterGetter opIndex(Uri uri) scope {
-		ConstOpt!(AllocAndValue!FileInfo) res = storage.successes[uri];
-		return has(res) ? force(res).value.asTextFile.lineAndCharacterGetter : LineAndCharacterGetter.empty;
-	}
-
-	Pos opIndex(in UriLineAndCharacter x) scope =>
-		this[x.uri][x.pos];
-
-	UriAndLineAndCharacterRange opIndex(in UriAndRange x) scope =>
-		UriAndLineAndCharacterRange(x.uri, this[x.uri][x.range]);
+LineAndColumnGetter lineAndColumnGetter(ref Alloc alloc, return scope ref const Storage storage, Uri uri) {
+	const MutOpt!(AllocAndValue!FileInfo) file = storage.successes[uri];
+	Opt!TextFileContent content = has(file) ? force(file).value.asTextFile : none!TextFileContent;
+	return has(content) ? force(content).lineAndColumnGetter : LineAndColumnGetter.empty;
 }
-
-const struct LineAndColumnGetters {
-	@safe @nogc pure nothrow:
-
-	private const Storage* storage;
-
-	LineAndColumnGetter opIndex(Uri uri) scope {
-		ConstOpt!(AllocAndValue!FileInfo) res = storage.successes[uri];
-		return has(res) ? force(res).value.asTextFile.lineAndColumnGetter : LineAndColumnGetter.empty;
+LineAndColumnGetters lineAndColumnGetters(ref Alloc alloc, return scope ref const Storage storage) {
+	MutMap!(Uri, LineAndColumnGetter) res;
+	foreach (Uri uri, ref const AllocAndValue!FileInfo value; storage.successes) {
+		Opt!TextFileContent content = value.value.asTextFile;
+		if (has(content))
+			mustAdd(alloc, res, uri, force(content).lineAndColumnGetter);
 	}
-
-	UriLineAndColumn opIndex(in UriAndPos pos, PosKind kind) scope =>
-		UriLineAndColumn(pos.uri, this[pos.uri][pos.pos, kind]);
-
-	UriLineAndColumnRange opIndex(in UriAndRange x) scope =>
-		UriLineAndColumnRange(x.uri, this[x.uri][x.range]);
-
-	LineAndCharacterGetters lineAndCharacterGetters() return scope =>
-		LineAndCharacterGetters(storage);
+	return LineAndColumnGetters(moveToMap(alloc, res));
 }
 
 private string applyChange(

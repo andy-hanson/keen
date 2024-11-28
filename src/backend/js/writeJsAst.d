@@ -63,12 +63,11 @@ import backend.js.jsAst :
 import backend.js.sourceMap : finish, JsAndMap, ModulePaths, SingleSourceMapping, Source, SourceMapBuilder;
 import backend.mangle : mangleNameCommon;
 import frontend.showModel : ShowTypeCtx;
-import frontend.storage : FileContentGetters;
 import util.alloc.alloc : Alloc;
 import util.col.array : contains, isEmpty, only;
 import util.col.map : KeyValuePair;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, optIf, someMut;
-import util.sourceRange : LineAndCharacter;
+import util.sourceRange : FileContentGetters, LineAndCharacter;
 import util.string : isAsciiIdentifierChar, isDecimalDigit;
 import util.symbol : Symbol, symbol, writeQuotedSymbol;
 import util.uri : RelPath, Uri;

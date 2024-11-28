@@ -459,7 +459,7 @@ ExitCodeOrSignal run(scope ref Perf perf, ref Alloc alloc, ref Server server, Fi
 					return ExitCodeOrSignal(jitAndRun(
 						perf,
 						alloc,
-						getShowCtx(server),
+						getShowCtx(alloc, server),
 						buildToLowProgram(perf, alloc, server, versionInfoForJIT(getOS(), options.version_), program),
 						options.options,
 						getAllArgs(alloc, server, run.main)));

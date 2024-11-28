@@ -39,14 +39,16 @@ import frontend.storage :
 	allUrisWithFileDiag,
 	changeFile,
 	CrowFileInfo,
-	FileContentGetters,
+	fileContentGetters,
 	FileInfo,
 	FileInfoOrDiag,
 	fileOrDiag,
 	FilesState,
 	filesState,
-	LineAndCharacterGetters,
-	LineAndColumnGetters,
+	lineAndCharacterGetter,
+	lineAndCharacterGetters,
+	lineAndColumnGetter,
+	lineAndColumnGetters,
 	ReadFileResult,
 	setFile,
 	setFileAssumeUtf8,
@@ -164,12 +166,21 @@ import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.perf : Perf;
-import util.sourceRange : LineAndColumn, toLineAndCharacter, UriAndLineAndCharacterRange, UriLineAndColumn;
+import util.sourceRange :
+	FileContentGetters,
+	LineAndCharacterGetter,
+	LineAndCharacterGetters,
+	LineAndColumn,
+	LineAndColumnGetter,
+	LineAndColumnGetters,
+	toLineAndCharacter,
+	UriAndLineAndCharacterRange,
+	UriLineAndColumn;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
 import util.union_ : Union;
-import util.util : castNonScope, castNonScope_ref;
+import util.util : castNonScope;
 import versionInfo : JsTarget, OS, VersionInfo, versionInfoForBuildToC, versionInfoForInterpret, VersionOptions;
 
 ExitCodeOrSignal buildAndInterpret(
@@ -196,7 +207,7 @@ ExitCodeOrSignal buildAndInterpret(
 						perf, bytecodeAlloc, program.program, lowProgram,
 						force(externPointers), extern_.aggregateCbs, extern_.makeSyntheticFunPointers);
 					return ExitCodeOrSignal(runBytecode(
-						perf, getShowDiagCtx(server, program.program),
+						perf, getShowDiagCtx(buildAlloc, server, program.program),
 						extern_.doDynCall, lowProgram, byteCode, allArgs));
 				});
 		else {
@@ -534,13 +545,17 @@ struct Server {
 		*lateGet(frontend_);
 	ShowOptions showOptions() scope const =>
 		showOptions_;
-	LineAndCharacterGetters lineAndCharacterGetters() return scope const =>
-		LineAndCharacterGetters(&castNonScope_ref(storage));
-	LineAndColumnGetters lineAndColumnGetters() return scope const =>
-		LineAndColumnGetters(&castNonScope_ref(storage));
-	FileContentGetters fileContentGetters() return scope const =>
-		FileContentGetters(&castNonScope_ref(storage));
 }
+FileContentGetters fileContentGetters(ref Alloc alloc, return scope const ref Server server) =>
+	fileContentGetters(alloc, server.storage);
+LineAndCharacterGetter lineAndCharacterGetter(ref Alloc alloc, return scope ref const Server server, Uri uri) =>
+	lineAndCharacterGetter(alloc, server.storage, uri);
+LineAndCharacterGetters lineAndCharacterGetters(ref Alloc alloc, return scope ref const Server server) =>
+	lineAndCharacterGetters(alloc, server.storage);
+LineAndColumnGetter lineAndColumnGetter(ref Alloc alloc, return scope ref const Server server, Uri uri) =>
+	lineAndColumnGetter(alloc, server.storage, uri);
+LineAndColumnGetters lineAndColumnGetters(ref Alloc alloc, return scope ref const Server server) =>
+	lineAndColumnGetters(alloc, server.storage);
 
 immutable struct ServerSettings {
 	Uri includeDir;
@@ -673,10 +688,10 @@ private string showDiagnosticsCommon(
 	in ProgramWithOptMain program,
 	in Opt!(Uri[]) onlyForUris,
 ) =>
-	stringOfDiagnostics(alloc, getShowDiagCtx(server, program.program), program, onlyForUris);
+	stringOfDiagnostics(alloc, getShowDiagCtx(alloc, server, program.program), program, onlyForUris);
 
 Json document(ref Alloc alloc, in Server server, in Program program, in Uri[] uris) =>
-	documentModules(alloc, program, getShowDiagCtx(server, program), uris);
+	documentModules(alloc, program, getShowDiagCtx(alloc, server, program), uris);
 
 private Opt!CompletionList getCompletionForProgram(
 	ref Alloc alloc,
@@ -686,7 +701,7 @@ private Opt!CompletionList getCompletionForProgram(
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.after);
 	return has(position)
-		? getCompletionForPosition(alloc, getShowDiagCtx(server, program, forceNoColor: true), force(position))
+		? getCompletionForPosition(alloc, getShowDiagCtx(alloc, server, program, forceNoColor: true), force(position))
 		: none!CompletionList;
 }
 
@@ -762,7 +777,8 @@ private Opt!SignatureHelp getSignatureHelpForProgram(
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.textDocumentAndPosition, GetPositionKind.after);
 	return has(position)
-		? getSignatureHelpForPosition(alloc, getShowDiagCtx(server, program, forceNoColor: true), force(position))
+		? getSignatureHelpForPosition(
+			alloc, getShowDiagCtx(alloc, server, program, forceNoColor: true), force(position))
 		: none!SignatureHelp;
 }
 
@@ -774,7 +790,7 @@ private Opt!Hover getHoverForProgram(
 ) {
 	Opt!Position position = serverGetPosition(server, program, params.params, GetPositionKind.exact);
 	return optIf(has(position), () =>
-		getHover(alloc, getShowDiagCtx(server, program, forceNoColor: true), force(position)));
+		getHover(alloc, getShowDiagCtx(alloc, server, program, forceNoColor: true), force(position)));
 }
 
 private InlayHint[] getInlayHintsForProgram(
@@ -786,7 +802,7 @@ private InlayHint[] getInlayHintsForProgram(
 	getInlayHints(
 		alloc,
 		program,
-		getShowDiagCtx(server, program, forceNoColor: true),
+		getShowDiagCtx(alloc, server, program, forceNoColor: true),
 		server.lspState.testStates,
 		params);
 
@@ -819,13 +835,13 @@ struct DiagsAndResultJson {
 
 private DiagsAndResultJson printForAst(ref Alloc alloc, ref Server server, Uri uri, in FileAst ast, Json result) =>
 	DiagsAndResultJson(
-		stringOfParseDiagnostics(alloc, getShowCtx(server), uri, ast.parseDiagnostics),
+		stringOfParseDiagnostics(alloc, getShowCtx(alloc, server), uri, ast.parseDiagnostics),
 		result);
-
 
 DiagsAndResultJson printAst(scope ref Perf perf, ref Alloc alloc, ref Server server, Uri uri) {
 	CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
-	return printForAst(alloc, server, uri, file.ast, jsonOfAst(alloc, server.lineAndColumnGetters[uri], file.ast));
+	return printForAst(
+		alloc, server, uri, file.ast, jsonOfAst(alloc, lineAndColumnGetter(alloc, server, uri), file.ast));
 }
 
 private CrowFileInfo* getCrowFileForTokens(ref Alloc alloc, ref Server server, Uri uri) =>
@@ -838,7 +854,7 @@ private CrowFileInfo* getCrowFileForTokens(ref Alloc alloc, ref Server server, U
 				fileAstForDiag(alloc, ParseDiag(x)))));
 
 Json jsonOfModel(scope ref Perf perf, ref Alloc alloc, ref Server server, Program program, Uri uri) =>
-	jsonOfModule(alloc, server.lineAndColumnGetters[uri], *moduleAtUri(program, uri));
+	jsonOfModule(alloc, lineAndColumnGetter(alloc, server, uri), *moduleAtUri(program, uri));
 
 Json jsonOfConcreteModel(
 	scope ref Perf perf,
@@ -848,8 +864,8 @@ Json jsonOfConcreteModel(
 	ref ProgramWithMain program,
 ) =>
 	jsonOfConcreteProgram(
-		alloc, server.lineAndColumnGetters,
-		concretize(perf, alloc, getShowDiagCtx(server, program.program), versionInfo, program));
+		alloc, lineAndColumnGetters(alloc, server),
+		concretize(perf, alloc, getShowDiagCtx(alloc, server, program.program), versionInfo, program));
 
 Json jsonOfLowModel(
 	scope ref Perf perf,
@@ -858,7 +874,8 @@ Json jsonOfLowModel(
 	in VersionInfo versionInfo,
 	ref ProgramWithMain program,
 ) =>
-	jsonOfLowProgram(alloc, server.lineAndColumnGetters, buildToLowProgram(perf, alloc, server, versionInfo, program));
+	jsonOfLowProgram(
+		alloc, lineAndColumnGetters(alloc, server), buildToLowProgram(perf, alloc, server, versionInfo, program));
 
 immutable struct PrintKind {
 	mixin Union!(PrintAst, PrintModel, PrintConcreteModel, PrintLowModel, PrintIdeAtPos, PrintIdeWholeFile);
@@ -899,7 +916,7 @@ Json jsonForPrintIdeAtPos(
 ) {
 	TextDocumentPositionParams params = TextDocumentPositionParams(
 		where.uri,
-		toLineAndCharacter(server.lineAndColumnGetters[where.uri], where.pos));
+		toLineAndCharacter(lineAndColumnGetter(alloc, server, where.uri), where.pos));
 	Json locations(UriAndLineAndCharacterRange[] xs) =>
 		jsonOfReferences(alloc, xs);
 	final switch (kind) {
@@ -961,7 +978,7 @@ LowProgram buildToLowProgram(
 	ref ProgramWithMain program,
 ) {
 	assert(!hasFatalDiagnostics(program));
-	ShowCtx ctx = getShowDiagCtx(server, program.program);
+	ShowCtx ctx = getShowDiagCtx(alloc, server, program.program);
 	ConcreteProgram concreteProgram = concretize(perf, alloc, ctx, versionInfo, program);
 	return lower(perf, alloc, ctx, program.mainConfig.extern_, program.program, concreteProgram);
 }
@@ -981,7 +998,7 @@ BuildToCResult buildToC(
 ) {
 	LowProgram lowProgram = buildToLowProgram(perf, alloc, server, versionInfoForBuildToC(os, version_,), program);
 	return BuildToCResult(
-		writeToC(alloc, getShowDiagCtx(server, program.program), lowProgram, params),
+		writeToC(alloc, getShowDiagCtx(alloc, server, program.program), lowProgram, params),
 		lowProgram.externLibraries);
 }
 
@@ -994,7 +1011,7 @@ JsAndMap buildToJsScript(
 ) {
 	assert(!hasFatalDiagnostics(program));
 	return translateToJsScript(
-		alloc, program, getShowDiagCtx(server, program.program, forceNoColor: true), target, sourceMapName);
+		alloc, program, getShowDiagCtx(alloc, server, program.program, forceNoColor: true), target, sourceMapName);
 }
 
 JsModules buildToJsModules(
@@ -1004,19 +1021,20 @@ JsModules buildToJsModules(
 	JsTarget target,
 ) =>
 	translateToJsModules(
-		alloc, program, getShowDiagCtx(server, program.program, forceNoColor: true), target);
+		alloc, program, getShowDiagCtx(alloc, server, program.program, forceNoColor: true), target);
 
 ShowDiagCtx getShowDiagCtx(
+	ref Alloc alloc,
 	return scope ref const Server server,
 	return scope ref Program program,
 	bool forceNoColor = false,
 ) =>
-	ShowDiagCtx(getShowCtx(server, forceNoColor: forceNoColor), program.commonTypesPtr);
+	ShowDiagCtx(getShowCtx(alloc, server, forceNoColor: forceNoColor), program.commonTypesPtr);
 
-ShowCtx getShowCtx(return scope ref const Server server, bool forceNoColor = false) =>
+ShowCtx getShowCtx(ref Alloc alloc, return scope ref const Server server, bool forceNoColor = false) =>
 	ShowCtx(
-		server.lineAndColumnGetters,
-		server.fileContentGetters,
+		lineAndColumnGetters(alloc, server),
+		fileContentGetters(alloc, server),
 		server.urisInfo,
 		forceNoColor ? server.showOptions.withoutColor : server.showOptions);
 
@@ -1044,11 +1062,11 @@ void notifyDiagnostics(
 		freeElements!Uri(state.stateAlloc, state.urisWithDiagnostics);
 	}();
 	state.urisWithDiagnostics = castNonScope(newUris);
-	ShowDiagCtx ctx = getShowDiagCtx(server, program);
+	ShowDiagCtx ctx = getShowDiagCtx(alloc, server, program);
 	foreach (ref UriAndDiagnostics ud; all)
 		add(alloc, out_, notification(PublishDiagnosticsParams(ud.uri, map(alloc, ud.diagnostics, (ref Diagnostic x) =>
 			LspDiagnostic(
-				server.lineAndCharacterGetters[ud.uri][x.range],
+				lineAndCharacterGetter(alloc, server, ud.uri)[x.range],
 				toLspDiagnosticSeverity(getDiagnosticSeverity(x.kind)),
 				stringOfDiag(alloc, ctx, x.kind))))));
 }

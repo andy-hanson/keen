@@ -6,9 +6,11 @@ import util.alloc.alloc : Alloc;
 import util.comparison : compareOr, compareUint, Comparison;
 import util.col.array : isEmpty;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
+import util.col.map : Map, mustGet;
 import util.conv : safeToUint;
 import util.hash : HashCode, hashUints;
 import util.json : field, get, Json, jsonObject;
+import util.opt : force, has, Opt, optOrDefault;
 import util.string : CString, MutCString, stringOfRange;
 import util.unicode : byteIndexOfCharacterIndex, characterIndexOfByteIndex;
 import util.uri : compareUriNaturally, mustParseUri, stringOfUri, Uri;
@@ -210,6 +212,52 @@ Json jsonOfLineAndColumn(ref Alloc alloc, in LineAndColumn a) =>
 
 Json jsonOfLineAndCharacter(ref Alloc alloc, in LineAndCharacter a) =>
 	jsonObject(alloc, [field!"line"(a.line), field!"character"(a.character)]);
+
+immutable struct FileContentGetters {
+	@safe @nogc pure nothrow:
+
+	private Map!(Uri, string) lookup;
+
+	string opIndex(Uri uri) scope =>
+		mustGet(lookup, uri);
+	string opIndex(in UriAndRange x) scope =>
+		x.range.isEmpty ? "" : this[x.uri][x.range.start .. x.range.end];
+}
+
+immutable struct LineAndCharacterGetters {
+	@safe @nogc pure nothrow:
+
+	private Map!(Uri, LineAndColumnGetter) lookup;
+
+	LineAndCharacterGetter opIndex(Uri uri) scope {
+		Opt!LineAndColumnGetter res = lookup[uri];
+		return has(res) ? force(res).lineAndCharacterGetter : LineAndCharacterGetter.empty;
+	}
+
+	Pos opIndex(in UriLineAndCharacter x) scope =>
+		this[x.uri][x.pos];
+
+	UriAndLineAndCharacterRange opIndex(in UriAndRange x) scope =>
+		UriAndLineAndCharacterRange(x.uri, this[x.uri][x.range]);
+}
+
+immutable struct LineAndColumnGetters {
+	@safe @nogc pure nothrow:
+
+	private Map!(Uri, LineAndColumnGetter) lookup;
+
+	LineAndColumnGetter opIndex(Uri uri) scope =>
+		optOrDefault!LineAndColumnGetter(lookup[uri], () => LineAndColumnGetter.empty);
+
+	UriLineAndColumn opIndex(in UriAndPos pos, PosKind kind) scope =>
+		UriLineAndColumn(pos.uri, this[pos.uri][pos.pos, kind]);
+
+	UriLineAndColumnRange opIndex(in UriAndRange x) scope =>
+		UriLineAndColumnRange(x.uri, this[x.uri][x.range]);
+
+	LineAndCharacterGetters lineAndCharacterGetters() return scope =>
+		LineAndCharacterGetters(lookup);
+}
 
 immutable struct LineAndCharacterGetter {
 	@safe @nogc pure nothrow:

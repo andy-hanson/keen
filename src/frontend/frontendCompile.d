@@ -11,13 +11,13 @@ import frontend.allInsts : AllInsts, freeInstantiationsForModule, perfStats;
 import frontend.storage :
 	CrowConfigFileInfo,
 	CrowFileInfo,
-	FileContentGetters,
+	fileContentGetters,
 	FileInfo,
 	FileInfoOrDiag,
 	fileOrDiag,
 	FilesState,
 	filesState,
-	LineAndColumnGetters,
+	lineAndColumnGetters,
 	markUnknownIfNotExist,
 	OtherFileInfo,
 	Storage;
@@ -82,7 +82,7 @@ import util.uri :
 	PathFirstAndRest,
 	RelPath,
 	resolveUri;
-import util.util : castImmutable, ptrTrustMe, todo;
+import util.util : ptrTrustMe, todo;
 
 struct Frontend {
 	@safe @nogc pure nothrow:
@@ -209,8 +209,8 @@ Program makeProgram(scope ref Perf perf, ref Alloc alloc, ref Frontend a) {
 		allConfigs: getAllConfigs(alloc, a),
 		allModules: mapPreservingKeys!(immutable Module*, getModuleUri, CrowFile*, Uri, getCrowFileUri)(
 			alloc, a.crowFiles, (ref const CrowFile* file) => file.mustHaveModule),
-		fileContentGetters: castImmutable(FileContentGetters(a.storagePtr)),
-		lineAndColumnGetters: castImmutable(LineAndColumnGetters(a.storagePtr)),
+		fileContentGetters: fileContentGetters(alloc, a.storage),
+		lineAndColumnGetters: lineAndColumnGetters(alloc, a.storage),
 		commonFunsAndDiagnostics: commonFuns,
 		commonTypesPtr: force(a.commonTypes),
 		otherTypes: OtherTypes(getAllFutureAndMutArrayImpls(alloc, ctx, futureImpl, mutArrayImpl)));

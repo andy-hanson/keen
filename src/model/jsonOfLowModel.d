@@ -2,7 +2,6 @@ module model.jsonOfLowModel;
 
 @safe @nogc pure nothrow:
 
-import frontend.storage : LineAndColumnGetters;
 import model.concreteModel : ConcreteFun;
 import model.constant : Constant;
 import model.jsonOfConstant : jsonOfConstant;
@@ -65,7 +64,7 @@ import model.model : Local;
 import model.jsonOfConcreteModel : jsonOfConcreteFunRef, jsonOfConcreteStructRef, jsonOfIntegralValues;
 import util.alloc.alloc : Alloc;
 import util.json : field, jsonObject, Json, jsonList, jsonString, kindField;
-import util.sourceRange : jsonOfLineAndColumnRange;
+import util.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetters;
 import util.util : castNonScope, stringOfEnum;
 
 Json jsonOfLowProgram(ref Alloc alloc, in LineAndColumnGetters lineAndColumnGetters, in LowProgram a) {
