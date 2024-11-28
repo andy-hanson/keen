@@ -661,7 +661,7 @@ JsExpr translateLiteral(ref TranslateExprCtx ctx, in Source source, in LiteralEx
 			}
 		});
 }
-JsExpr translateConstant(ref TranslateModuleCtx ctx, in Source source, in BuiltinFunConstant value, in Type type) {
+private JsExpr translateConstant(ref TranslateModuleCtx ctx, in Source source, in BuiltinFunConstant value, in Type type) {
 	if (type.isA!TypeParamIndex) {
 		assert(value.isA!BuiltinFunConstantNull);
 		return genNull(source);

@@ -8,8 +8,12 @@ import model.concreteModel :
 	ConcreteStruct,
 	ConcreteStructSource,
 	ConcreteType,
+	Constant,
+	ConstantArray,
+	ConstantCString,
+	ConstantPointer,
+	constantZero,
 	PointerTypeAndConstantsConcrete;
-import model.constant : Constant, ConstantArray, ConstantCString, ConstantPointer, constantZero;
 import util.alloc.alloc : Alloc;
 import util.col.array : arraysEqual, fillArray, findIndex, isEmpty, map, only;
 import util.col.mutArr : asTemporaryArray, moveToArray, MutArr, mutArrSize, push;

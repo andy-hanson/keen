@@ -47,10 +47,15 @@ import model.concreteModel :
 	ConcreteLocalSource,
 	ConcreteType,
 	ConcreteVar,
+	Constant,
+	constantBool,
+	ConstantFloat,
+	ConstantFunPointer,
+	ConstantUnion,
+	constantZero,
 	mustBeByVal,
 	pointeeType,
 	pointeeTypeIfIsPointer;
-import model.constant : Constant, constantBool, ConstantFloat, ConstantFunPointer, ConstantUnion, constantZero;
 import model.model :
 	AutoFun,
 	BuiltinFun,

@@ -4,7 +4,7 @@ module interpret.generateText;
 
 import interpret.bytecode : TextIndex;
 import interpret.funToReferences : FunToReferences, registerTextReference;
-import model.constant :
+import model.concreteModel :
 	Constant,
 	ConstantArray,
 	ConstantCString,

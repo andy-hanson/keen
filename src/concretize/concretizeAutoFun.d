@@ -53,12 +53,13 @@ import model.concreteModel :
 	ConcreteStructBody,
 	ConcreteStructSource,
 	ConcreteType,
+	Constant,
+	ConstantUnion,
 	isFlags,
 	mustBeEnumOrFlags,
 	mustBeFlags,
 	mustBeByVal,
 	unwrapOptionType;
-import model.constant : Constant, ConstantUnion;
 import model.model :
 	asUnion,
 	AutoFun,

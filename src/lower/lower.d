@@ -93,6 +93,7 @@ import model.concreteModel :
 	ConcreteStructSource,
 	ConcreteType,
 	ConcreteVar,
+	Constant,
 	CreateArrayConcreteExpr,
 	CreateRecordConcreteExpr,
 	CreateUnionConcreteExpr,
@@ -123,7 +124,6 @@ import model.concreteModel :
 	TryLetConcreteExpr,
 	UnionAsConcreteExpr,
 	UnionKindConcreteExpr;
-import model.constant : Constant;
 import model.lowModel :
 	AllConstantsLow,
 	AllLowTypes,

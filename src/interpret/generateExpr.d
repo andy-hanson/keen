@@ -108,7 +108,7 @@ import interpret.funToReferences :
 import interpret.generateText :
 	getTextInfoForArray, getTextPointer, getTextPointerForCString, TextArrInfo, TextInfo, VarsInfo;
 import interpret.runBytecode : opSetupCatch, opSwitchFiber, opSwitchFiberInitial;
-import model.constant :
+import model.concreteModel :
 	Constant,
 	ConstantArray,
 	ConstantCString,

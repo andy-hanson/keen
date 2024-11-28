@@ -7,12 +7,12 @@ import model.concreteModel :
 	ConcreteFun,
 	ConcreteStruct,
 	ConcreteVar,
+	Constant,
 	isArrayOrMutArray,
 	isFiber,
 	isPacked,
 	isTuple,
 	name;
-import model.constant : Constant;
 import model.model :
 	Builtin4ary,
 	BuiltinFunInitKind,

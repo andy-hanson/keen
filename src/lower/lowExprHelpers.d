@@ -2,8 +2,7 @@ module lower.lowExprHelpers;
 
 @safe @nogc pure nothrow:
 
-import model.concreteModel : ConcreteFun;
-import model.constant : Constant, ConstantFunPointer, constantZero;
+import model.concreteModel : ConcreteFun, Constant, ConstantFunPointer, constantZero;
 import model.model : Builtin4ary, BuiltinUnary, BuiltinUnaryMath, BuiltinBinary, BuiltinBinaryMath, BuiltinTernary;
 import model.lowModel :
 	AbortLowExpr,

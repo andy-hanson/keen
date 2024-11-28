@@ -18,9 +18,8 @@ import lower.lowExprHelpers :
 	nat32Type,
 	nat64Type,
 	voidType;
-import model.constant : Constant;
+import model.concreteModel : ConcreteFun, ConcreteProgram, Constant;
 import model.jsonOfConcreteModel : jsonOfConcreteStructRef;
-import model.concreteModel : ConcreteFun, ConcreteProgram;
 import model.lowModel :
 	AbortLowExpr,
 	asNonGcPointee,

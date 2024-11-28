@@ -3,8 +3,7 @@ module concretize.gatherInfo;
 @safe @nogc pure nothrow:
 
 import model.concreteModel :
-	CallConcreteExpr, ConcreteCommonFuns, ConcreteExpr, ConcreteFun, ConcreteFunBody, existsDirectChildExpr;
-import model.constant : Constant;
+	CallConcreteExpr, ConcreteCommonFuns, ConcreteExpr, ConcreteFun, ConcreteFunBody, Constant, existsDirectChildExpr;
 import model.model : BuiltinBinary, BuiltinFunCallLambda;
 import util.alloc.alloc : Alloc, withTempAlloc;
 import util.col.array : mustFind;

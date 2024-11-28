@@ -2,9 +2,8 @@ module model.jsonOfLowModel;
 
 @safe @nogc pure nothrow:
 
-import model.concreteModel : ConcreteFun;
-import model.constant : Constant;
-import model.jsonOfConstant : jsonOfConstant;
+import model.concreteModel : ConcreteFun, Constant;
+import model.jsonOfConcreteModel : jsonOfConstant;
 import model.lowModel :
 	AbortLowExpr,
 	CallLowExpr,

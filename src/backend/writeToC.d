@@ -16,8 +16,9 @@ import backend.builtinMath : builtinForBinaryMath, builtinForUnaryMath;
 import backend.writeTypes : TypeWriters, writeTypes;
 import frontend.lang : CCompileOptions, CVersion, OptimizationLevel;
 import frontend.showModel : ShowCtx;
-import model.concreteModel : ConcreteStruct, ConcreteStructBody, isEmptyStruct;
-import model.constant :
+import model.concreteModel :
+	ConcreteStruct,
+	ConcreteStructBody,
 	Constant,
 	ConstantArray,
 	ConstantCString,
@@ -26,7 +27,8 @@ import model.constant :
 	ConstantPointer,
 	ConstantRecord,
 	ConstantUnion,
-	ConstantZero;
+	ConstantZero,
+	isEmptyStruct;
 import model.lowModel :
 	AbortLowExpr,
 	AllConstantsLow,

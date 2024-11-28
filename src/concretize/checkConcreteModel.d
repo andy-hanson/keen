@@ -16,6 +16,8 @@ import model.concreteModel :
 	ConcreteStruct,
 	ConcreteStructBody,
 	ConcreteType,
+	Constant,
+	ConstantRecord,
 	CreateArrayConcreteExpr,
 	CreateRecordConcreteExpr,
 	CreateUnionConcreteExpr,
@@ -48,7 +50,6 @@ import model.concreteModel :
 	TryLetConcreteExpr,
 	UnionAsConcreteExpr,
 	UnionKindConcreteExpr;
-import model.constant : Constant, ConstantRecord;
 import model.model :
 	Builtin4ary,
 	BuiltinBinary,

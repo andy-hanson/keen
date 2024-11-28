@@ -19,13 +19,13 @@ import model.concreteModel :
 	ConcreteStructSpecialKind,
 	ConcreteType,
 	ConcreteVar,
+	Constant,
 	hasSizeOrPointerSizeBytes,
 	isBogus,
 	mustBeByVal,
 	purity,
 	ReferenceKind,
 	sizeOrPointerSizeBytes;
-import model.constant : Constant;
 import model.model :
 	BogusType,
 	BuiltinType,

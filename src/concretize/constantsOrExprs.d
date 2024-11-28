@@ -2,8 +2,7 @@ module concretize.constantsOrExprs;
 
 @safe @nogc pure nothrow:
 
-import model.concreteModel : ConcreteExpr;
-import model.constant : Constant;
+import model.concreteModel : ConcreteExpr, Constant;
 import util.alloc.alloc : Alloc;
 import util.col.array : every, map, SmallArray;
 import util.union_ : TaggedUnion;

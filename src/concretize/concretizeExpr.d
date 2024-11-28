@@ -59,6 +59,8 @@ import concretize.generate :
 	unwrapOptionType;
 import model.concreteModel :
 	arrayElementType,
+	asBool,
+	asNat64,
 	ConcreteExpr,
 	ConcreteExprKind,
 	ConcreteField,
@@ -76,6 +78,11 @@ import model.concreteModel :
 	ConcreteStructBody,
 	ConcreteStructSource,
 	ConcreteType,
+	Constant,
+	constantBool,
+	ConstantFloat,
+	ConstantFunPointer,
+	constantZero,
 	CreateArrayConcreteExpr,
 	FinallyConcreteExpr,
 	IfConcreteExpr,
@@ -95,7 +102,6 @@ import model.concreteModel :
 	ThrowConcreteExpr,
 	TryConcreteExpr,
 	TryLetConcreteExpr;
-import model.constant : asBool, asNat64, Constant, constantBool, ConstantFloat, ConstantFunPointer, constantZero;
 import model.model :
 	AssertOrForbidExpr,
 	BogusCallExpr,

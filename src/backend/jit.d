@@ -104,8 +104,7 @@ import backend.mangle :
 import backend.writeToC : getLinkOptions;
 import frontend.showModel : ShowCtx;
 import frontend.lang : JitOptions, OptimizationLevel;
-import model.concreteModel : isCatchPoint;
-import model.constant :
+import model.concreteModel :
 	Constant,
 	ConstantArray,
 	ConstantCString,
@@ -114,7 +113,8 @@ import model.constant :
 	ConstantPointer,
 	ConstantRecord,
 	ConstantUnion,
-	ConstantZero;
+	ConstantZero,
+	isCatchPoint;
 import model.lowModel :
 	AbortLowExpr,
 	ArrTypeAndConstantsLow,
