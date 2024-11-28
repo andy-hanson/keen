@@ -3,11 +3,11 @@ module backend.js.jsAst;
 @safe @nogc pure nothrow:
 
 import backend.js.sourceMap : Source;
+import model.integralValues : IntegralValue;
 import util.alloc.alloc : Alloc;
 import util.col.array : newArray, newSmallArray, SmallArray;
 import util.col.map : KeyValuePair;
 import util.comparison : compareEnum, Comparison, compareOptions, compareOr, compareUint;
-import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : none, Opt, some;
 import util.symbol : compareSymbolsNaturally, Symbol, symbolOfString;

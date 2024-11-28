@@ -2,12 +2,12 @@ module model.ast;
 
 @safe @nogc pure nothrow:
 
+import model.integralValues : IntegralValue;
 import model.parseDiag : ParseDiag, ParseDiagnostic;
 import model.sourceRange : combineRanges, Pos, Range, rangeOfStartAndLength;
 import util.alloc.alloc : Alloc;
 import util.col.array : arrayOfSingle, emptySmallArray, exists, isEmpty, newArray, newSmallArray, sizeEq, SmallArray;
 import util.conv : safeToUint;
-import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
 import util.symbol : Symbol, symbol, symbolSize;

@@ -3,6 +3,7 @@ module frontend.ide.position;
 @safe @nogc pure nothrow:
 
 import model.ast : ModifierKeyword, NameAndRange;
+import model.integralValues : IntegralValue;
 import model.model :
 	AnyDecl,
 	asTypeContainer,
@@ -38,7 +39,6 @@ import model.model :
 	TypeWithContainer,
 	VarDecl,
 	Visibility;
-import util.integralValues : IntegralValue;
 import util.opt : Opt;
 import util.symbol : Symbol;
 import util.union_ : TaggedUnion, Union;

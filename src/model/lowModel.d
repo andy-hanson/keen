@@ -13,6 +13,7 @@ import model.concreteModel :
 	isPacked,
 	isTuple,
 	name;
+import model.integralValues : IntegralValues;
 import model.model :
 	Builtin4ary,
 	BuiltinFunInitKind,
@@ -28,7 +29,6 @@ import util.col.array : isEmpty, SmallArray;
 import util.col.map : Map;
 import util.col.fullIndexMap : FullIndexMap, indexOfPointer;
 import util.hash : HashCode, hashTaggedPointer;
-import util.integralValues : IntegralValues;
 import util.late : Late, lateGet, lateSet;
 import util.opt : has, none, Opt;
 import util.string : CString;

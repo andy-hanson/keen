@@ -2,10 +2,10 @@ module test.testIntegralValues;
 
 @safe @nogc pure nothrow:
 
+import model.integralValues :
+	IntegralValue, IntegralValues, integralValuesRange, mapToIntegralValues, singleIntegralValue;
 import test.testUtil : Test;
 import util.col.array : arraysEqual, arraysIdentical;
-import util.integralValues :
-	IntegralValue, IntegralValues, integralValuesRange, mapToIntegralValues, singleIntegralValue;
 
 void testIntegralValues(ref Test test) {
 	assertSingle(singleIntegralValue(IntegralValue(5)), 5);

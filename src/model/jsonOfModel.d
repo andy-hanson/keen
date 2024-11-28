@@ -3,6 +3,7 @@ module model.jsonOfModel;
 @safe @nogc pure nothrow:
 
 import model.ast : ImportOrExportAst, NameAndRange;
+import model.integralValues : IntegralValue;
 import model.model :
 	AnyDecl,
 	AssertOrForbidExpr,
@@ -157,7 +158,6 @@ import model.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetter, Range,
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mapOp;
 import util.col.arrayBuilder : buildArray, Builder;
-import util.integralValues : IntegralValue;
 import util.json :
 	field,
 	Json,

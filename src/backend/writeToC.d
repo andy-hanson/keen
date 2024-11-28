@@ -29,6 +29,7 @@ import model.concreteModel :
 	ConstantUnion,
 	ConstantZero,
 	isEmptyStruct;
+import model.integralValues : IntegralValue;
 import model.lowModel :
 	AbortLowExpr,
 	AllConstantsLow,
@@ -104,7 +105,6 @@ import util.col.arrayBuilder : buildArray, Builder;
 import util.col.map : mustGet;
 import util.col.fullIndexMap : FullIndexMap, fullIndexMapEach;
 import util.conv : safeToUint;
-import util.integralValues : IntegralValue;
 import util.opt : force, has, none, Opt, some;
 import util.string : CString, cString, cStringSize, stringOfCString;
 import util.symbol : addExtension, cStringOfSymbol, Extension, Symbol, symbol;

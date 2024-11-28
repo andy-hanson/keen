@@ -14,6 +14,7 @@ import model.concreteModel :
 	ConstantRecord,
 	ConstantUnion,
 	ConstantZero;
+import model.integralValues : IntegralValue;
 import model.lowModel :
 	AllConstantsLow,
 	ArrTypeAndConstantsLow,
@@ -50,7 +51,6 @@ import util.col.exactSizeArrayBuilder :
 	padTo;
 import util.col.fullIndexMap : FullIndexMap, mapFullIndexMap;
 import util.conv : bitsOfFloat32, bitsOfFloat64;
-import util.integralValues : IntegralValue;
 import util.string : CString, cStringSize;
 import util.util : castImmutable, castNonScope, ptrTrustMe;
 

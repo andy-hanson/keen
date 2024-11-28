@@ -47,13 +47,13 @@ import interpret.runBytecode :
 	opSwitchWithValues,
 	opThreadLocalPtr,
 	opWrite;
+import model.integralValues : IntegralValues;
 import model.typeLayout : Pack;
 import util.alloc.alloc : Alloc;
 import util.col.array : endPtr;
 import util.col.arrayBuilder : add, ArrayBuilder, backUp, finish;
 import util.col.fullIndexMap : fullIndexMapOfArr;
 import util.col.mutArr : moveToMutArray, mustPop, MutArr, mutArrEnd, mutArrSize, push;
-import util.integralValues : IntegralValues;
 import util.memory : initMemory, overwriteMemory;
 import util.util : divRoundUp, isMultipleOf, todo;
 

@@ -102,6 +102,7 @@ import model.concreteModel :
 	ThrowConcreteExpr,
 	TryConcreteExpr,
 	TryLetConcreteExpr;
+import model.integralValues : IntegralValue, IntegralValues, integralValuesRange, mapToIntegralValues;
 import model.model :
 	AssertOrForbidExpr,
 	BogusCallExpr,
@@ -186,7 +187,6 @@ import util.col.array :
 import util.col.mutArr : MutArr, mutArrSize, push;
 import util.col.mutMap : mustGet;
 import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
-import util.integralValues : IntegralValue, IntegralValues, integralValuesRange, mapToIntegralValues;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.symbol : symbol, symbolOfString;

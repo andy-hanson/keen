@@ -60,11 +60,11 @@ import model.concreteModel :
 	TryLetConcreteExpr,
 	UnionAsConcreteExpr,
 	UnionKindConcreteExpr;
+import model.integralValues : IntegralValue, IntegralValues;
 import model.jsonOfModel : jsonOfBuiltin;
 import model.model : Local;
 import model.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetters;
 import util.alloc.alloc : Alloc;
-import util.integralValues : IntegralValue, IntegralValues;
 import util.json :
 	field, Json, jsonObject, optionalArrayField, optionalField, optionalFlagField, jsonList, jsonString, kindField;
 import util.symbol : Symbol, symbol, symbolOfEnum;

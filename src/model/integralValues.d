@@ -1,4 +1,4 @@
-module util.integralValues;
+module model.integralValues;
 
 @safe @nogc nothrow:
 

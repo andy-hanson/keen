@@ -42,6 +42,7 @@ import model.ast :
 	TypeAst,
 	VarargsAst,
 	VisibilityAndRange;
+import model.integralValues : IntegralValue;
 import model.model :
 	asTypeContainer,
 	BogusType,
@@ -152,7 +153,6 @@ import util.col.array :
 	SmallArray,
 	zipPtrFirst;
 import util.col.hashTable : HashTable, makeHashTable;
-import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, optFromMut, optIf, some, someMut;
 import util.symbol : Symbol, symbol;

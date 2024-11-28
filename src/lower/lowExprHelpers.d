@@ -3,6 +3,7 @@ module lower.lowExprHelpers;
 @safe @nogc pure nothrow:
 
 import model.concreteModel : ConcreteFun, Constant, ConstantFunPointer, constantZero;
+import model.integralValues : IntegralValue, integralValuesRange;
 import model.model : Builtin4ary, BuiltinUnary, BuiltinUnaryMath, BuiltinBinary, BuiltinBinaryMath, BuiltinTernary;
 import model.lowModel :
 	AbortLowExpr,
@@ -51,7 +52,6 @@ import model.typeLayout : typeSizeBytes;
 import util.alloc.alloc : Alloc;
 import util.col.array : foldReverse, mapWithIndex, newArray, small, SmallArray;
 import util.conv : safeToUint;
-import util.integralValues : IntegralValue, integralValuesRange;
 import util.memory : allocate;
 import util.symbol : Symbol, symbol;
 

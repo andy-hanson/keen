@@ -69,6 +69,7 @@ import backend.js.translateModuleCtx :
 	translateStructReference,
 	translateTestReference,
 	translateVarReference;
+import model.integralValues : IntegralValue;
 import model.model :
 	AutoFun,
 	Builtin4ary,
@@ -144,7 +145,6 @@ import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, isEmpty, makeArray, map, newArray, only;
 import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder, finish;
 import util.conv : safeToUshort;
-import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, some;
 import util.symbol : Symbol, symbol;

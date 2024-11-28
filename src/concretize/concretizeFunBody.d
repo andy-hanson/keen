@@ -56,6 +56,7 @@ import model.concreteModel :
 	mustBeByVal,
 	pointeeType,
 	pointeeTypeIfIsPointer;
+import model.integralValues : IntegralValue;
 import model.model :
 	AutoFun,
 	BuiltinFun,
@@ -96,7 +97,6 @@ import util.col.array : emptySmallArray, isEmpty, mapPointers, newSmallArray, on
 import util.col.arrayBuilder : buildArray, Builder;
 import util.col.hashTable : getOrAdd;
 import util.col.mutArr : push;
-import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.symbol : symbol;
 

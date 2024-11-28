@@ -118,6 +118,7 @@ import model.concreteModel :
 	ConstantRecord,
 	ConstantUnion,
 	ConstantZero;
+import model.integralValues : IntegralValue;
 import model.lowModel :
 	asNonGcPointee,
 	AbortLowExpr,
@@ -177,7 +178,6 @@ import util.col.map : mustGet;
 import util.col.mutArr : clearAndFree, MutArr, push;
 import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet;
 import util.conv : bitsOfFloat32, bitsOfFloat64;
-import util.integralValues : IntegralValue;
 import util.opt : force, has, Opt;
 import util.symbol : Symbol;
 import util.union_ : TaggedUnion;

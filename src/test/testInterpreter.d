@@ -51,6 +51,7 @@ import interpret.funToReferences :
 import interpret.runBytecode : opCall, stepUntilBreak, stepUntilExit, withInterpreter;
 import interpret.stacks : dataEnd, dataPop, dataPush, Stacks, stacksForRange;
 import lower.lowExprHelpers : nat64Type, voidType;
+import model.integralValues : integralValuesRange;
 import model.lowModel :
 	AllConstantsLow,
 	AllLowTypes,
@@ -81,7 +82,6 @@ import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, small;
 import util.col.enumMap : EnumMap;
 import util.col.fullIndexMap : emptyFullIndexMap, fullIndexMapOfArr;
-import util.integralValues : integralValuesRange;
 import util.memory : allocate;
 import util.symbol : symbol;
 import util.util : castNonScope, castNonScope_ref, ptrTrustMe;

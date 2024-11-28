@@ -50,6 +50,7 @@ import model.concreteModel :
 	TryLetConcreteExpr,
 	UnionAsConcreteExpr,
 	UnionKindConcreteExpr;
+import model.integralValues : IntegralValues, singleIntegralValue;
 import model.model :
 	Builtin4ary,
 	BuiltinBinary,
@@ -79,7 +80,6 @@ import model.showLowModel : writeConcreteType;
 import util.col.array : every, only, zip;
 import util.col.enumMap : EnumMap;
 import util.conv : safeToSizeT;
-import util.integralValues : IntegralValues, singleIntegralValue;
 import util.opt : force, has;
 import util.util : castNonScope_ref, ptrTrustMe, stringOfEnum;
 import util.writer : debugLogWithWriter, Writer;

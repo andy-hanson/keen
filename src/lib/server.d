@@ -136,6 +136,7 @@ import lib.lsp.lspTypes :
 import lower.lower : lower;
 import model.ast : fileAstForDiag, FileAst;
 import model.concreteModel : ConcreteProgram;
+import model.integralValues : initIntegralValues;
 import model.jsonOfAst : jsonOfAst;
 import model.jsonOfConcreteModel : jsonOfConcreteProgram;
 import model.jsonOfLowModel : jsonOfLowProgram;
@@ -170,7 +171,6 @@ import util.col.arrayBuilder : add, addAll, ArrayBuilder, finish;
 import util.col.mutArr : clearAndDoNotFree, MutArr, push;
 import util.col.mutMap : clear, setInMap;
 import util.exitCode : ExitCode, ExitCodeOrSignal;
-import util.integralValues : initIntegralValues;
 import util.json : field, Json, jsonNull, jsonObject;
 import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;

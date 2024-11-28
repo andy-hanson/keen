@@ -28,6 +28,7 @@ import model.ast :
 	UnpackOptionAst,
 	VarDeclAst,
 	VoidDestructureAst;
+import model.integralValues : IntegralValue;
 import model.parseDiag : ParseDiag, ParseDiagnostic, ReadFileDiag;
 import model.sourceRange :
 	combineRanges, FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters, Pos, Range, UriAndRange;
@@ -56,7 +57,6 @@ import util.col.hashTable : existsInHashTable, HashTable, mustGet;
 import util.col.map : Map, mustGet;
 import util.col.enumMap : EnumMap;
 import util.conv : safeToUint, safeToUshort;
-import util.integralValues : IntegralValue;
 import util.late : Late, lateGet, lateIsSet, lateSet, lateSetOverwrite;
 import util.opt : force, has, none, Opt, optEqual, optIf, optOr, optOrDefault, some;
 import util.string : SmallString;

@@ -227,6 +227,7 @@ import util.col.array :
 	small,
 	SmallArray,
 	zipPtrFirst;
+import model.integralValues : IntegralValue, IntegralValues, singleIntegralValue;
 import model.sourceRange : UriAndRange;
 import util.col.map : KeyValuePair, makeMapFromKeysOptional, makeMapWithIndex, mustGet, Map;
 import util.col.fullIndexMap : FullIndexMap, fullIndexMapOfArr;
@@ -235,7 +236,6 @@ import util.col.mutMap : moveToMap, mustAdd, mustGet, MutMap, MutMap;
 import util.col.mutMultiMap : add, eachKey, eachValueForKey, MutMultiMap;
 import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
 import util.conv : safeToUint;
-import util.integralValues : IntegralValue, IntegralValues, singleIntegralValue;
 import util.late : Late, late, lateGet, lateIsSet, lateSet;
 import util.memory : allocate;
 import util.opt : flattenOption, force, has, none, Opt, optIf, some;

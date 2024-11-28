@@ -62,6 +62,7 @@ import model.concreteModel :
 	UnionAsConcreteExpr,
 	UnionKindConcreteExpr,
 	unwrapOptionType;
+import model.integralValues : IntegralValue, IntegralValues, integralValuesRange, mapToIntegralValues;
 import model.model :
 	BuiltinBinary,
 	BuiltinFun,
@@ -88,7 +89,6 @@ import util.col.array :
 	SmallArray;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.conv : safeToUint;
-import util.integralValues : IntegralValue, IntegralValues, integralValuesRange, mapToIntegralValues;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, some;
 import util.string : bytesOfString;

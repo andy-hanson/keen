@@ -24,6 +24,7 @@ import interpret.stacks :
 	returnPush,
 	Stacks,
 	withDefaultStacks;
+import model.integralValues : IntegralValue;
 import model.lowModel : LowProgram;
 import model.typeLayout : PackField;
 import util.alloc.stackAlloc : ensureStackAllocInitialized;
@@ -31,7 +32,6 @@ import util.col.array : indexOf;
 import util.col.map : mustGet;
 import util.conv : safeToUint, safeToSizeT;
 import util.exitCode : ExitCode;
-import util.integralValues : IntegralValue;
 import util.memory : memcpy, memmove, overwriteMemory;
 import util.opt : force, has, Opt;
 import util.perf : Perf, PerfMeasure, withMeasureNoAlloc;

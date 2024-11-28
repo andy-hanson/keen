@@ -14,12 +14,12 @@ import model.concreteModel :
 	ConstantPointer,
 	constantZero,
 	PointerTypeAndConstantsConcrete;
+import model.integralValues : IntegralValue;
 import util.alloc.alloc : Alloc;
 import util.col.array : arraysEqual, fillArray, findIndex, isEmpty, map, only;
 import util.col.mutArr : asTemporaryArray, moveToArray, MutArr, mutArrSize, push;
 import util.col.mutMap : getOrAdd, mapToArray, MutMap, size, values;
 import util.conv : safeToUint;
-import util.integralValues : IntegralValue;
 import util.memory : initMemory;
 import util.opt : force, has, Opt;
 import util.string : copyToCString, CString;

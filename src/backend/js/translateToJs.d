@@ -81,6 +81,7 @@ import backend.js.translateModuleCtx :
 import backend.js.writeJsAst : writeJsModuleAst, writeJsScriptAst;
 import frontend.showModel : ShowTypeCtx;
 import model.ast : ImportWholeModuleAst;
+import model.integralValues : IntegralValue;
 import model.model :
 	AnyDecl,
 	allExterns,
@@ -132,7 +133,6 @@ import util.col.mutMap : addOrChange, deleteWhere, getOrAdd, moveToMap, mustAdd,
 import util.col.set : Set;
 import util.col.sortUtil : sortInPlace;
 import util.conv : safeToUshort;
-import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, MutOpt, none, Opt, optIf, optFromMut, some, someMut;
 import util.symbol : compareSymbolsNaturally, stringOfSymbol, Symbol, symbol;

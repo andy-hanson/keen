@@ -15,6 +15,7 @@ import model.ast :
 	TupleTypeAst,
 	TypeAst,
 	VarargsAst;
+import model.integralValues : IntegralValue;
 import model.model :
 	BogusType,
 	CommonTypes,
@@ -42,7 +43,6 @@ import model.model :
 	TypeParams,
 	Varargs,
 	Visibility;
-import util.integralValues : IntegralValue;
 import util.col.array : mapPointers, only, small;
 import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
 import util.memory : allocate;

@@ -91,7 +91,7 @@ import util.col.array :
 	sizeEq3,
 	SmallArray;
 import util.conv : safeToUint;
-import util.integralValues : IntegralValue;
+import model.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt;
 import util.symbol : Symbol, symbol;

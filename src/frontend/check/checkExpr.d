@@ -117,6 +117,7 @@ import model.ast :
 	TypedAst,
 	UnpackOptionAst,
 	WithAst;
+import model.integralValues : IntegralValue;
 import model.model :
 	asExtern,
 	AssertOrForbidExpr,
@@ -284,7 +285,6 @@ import util.col.enumMap : EnumMap, makeEnumMap;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, newExactSizeArrayBuilder, smallFinish;
 import util.col.tempSet : TempSet, tryAdd, withTempSet;
 import util.conv : powerOf10, safeToUshort, toLongWithOverflow;
-import util.integralValues : IntegralValue;
 import util.memory : allocate, overwriteMemory;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, optIf, optOr, optOrDefault, someMut, some;
 import util.string : CString, smallString;

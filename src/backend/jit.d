@@ -115,6 +115,7 @@ import model.concreteModel :
 	ConstantUnion,
 	ConstantZero,
 	isCatchPoint;
+import model.integralValues : IntegralValue;
 import model.lowModel :
 	AbortLowExpr,
 	ArrTypeAndConstantsLow,
@@ -178,7 +179,6 @@ import util.col.fullIndexMap : FullIndexMap, fullIndexMapZip, mapFullIndexMap_mu
 import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
 import util.conv : safeToInt;
 import util.exitCode : ExitCode;
-import util.integralValues : IntegralValue;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, some, someMut;
 import util.perf : Perf, PerfMeasure, withMeasure;
 import util.string : CString;
