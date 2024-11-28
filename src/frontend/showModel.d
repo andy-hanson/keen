@@ -8,6 +8,7 @@ import model.ast : NameAndRange;
 import model.model :
 	BogusType,
 	Called,
+	CalledBogus,
 	CalledDecl,
 	CalledSpecSig,
 	CommonTypes,
@@ -89,7 +90,7 @@ void writeCalled(
 	in Called a,
 ) {
 	a.matchIn!void(
-		(in Called.Bogus x) {
+		(in CalledBogus x) {
 			writer ~= "<<bogus>>";
 		},
 		(in FunInst x) {

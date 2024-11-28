@@ -25,7 +25,7 @@ import model.ast :
 	VarargsAst,
 	VarDeclAst,
 	VoidDestructureAst;
-import model.model : BogusType, FunDecl, FunDeclSource, SpecInst, SpecDecl, StructInst, Type, TypeParamIndex;
+import model.model : BogusType, FunDecl, FunSourceAst, SpecInst, SpecDecl, StructInst, Type, TypeParamIndex;
 import util.col.array : arrayOfSingle, count, firstZip, isEmpty, only, only2;
 import util.col.sortUtil : eachSorted, sortedIter;
 import util.comparison : compareOr, Comparison;
@@ -79,9 +79,9 @@ void eachSpecParent(in SpecDecl a, in SpecCb cb) {
 }
 
 void eachFunSpec(in FunDecl a, in SpecCb cb) {
-	if (a.source.isA!(FunDeclSource.Ast)) {
+	if (a.source.isA!FunSourceAst) {
 		Opt!bool res = eachSpec!bool(
-			a.specs, a.source.as!(FunDeclSource.Ast).ast.modifiers,
+			a.specs, a.source.as!FunSourceAst.ast.modifiers,
 			(SpecInst* x, in SpecUseAst y) {
 				cb(x, y);
 				return none!bool;

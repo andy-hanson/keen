@@ -31,6 +31,7 @@ import model.model :
 	BogusType,
 	BuiltinType,
 	Called,
+	CalledBogus,
 	CalledSpecSig,
 	CommonFuns,
 	CommonTypes,
@@ -450,7 +451,7 @@ Opt!(ConcreteFun*) getConcreteFunFromCalled(
 	Called called,
 ) =>
 	called.matchWithPointers!(Opt!(ConcreteFun*))(
-		(Called.Bogus*) =>
+		(CalledBogus*) =>
 			none!(ConcreteFun*),
 		(FunInst* funInst) =>
 			getConcreteFunFromFunInst(ctx, typeScope, specsScope, funInst),

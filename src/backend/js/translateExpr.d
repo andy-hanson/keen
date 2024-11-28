@@ -132,7 +132,7 @@ import model.model :
 	FunInst,
 	FunPointerExpr,
 	IfExpr,
-	ImportFileContent,
+	ImportFileContentBogus,
 	isSigned,
 	isVoid,
 	LambdaExpr,
@@ -431,7 +431,7 @@ JsExprOrBlockStatement translateFunBody(ref TranslateExprCtx ctx, FunDecl* fun) 
 					genIntegerUnsigned(source, x)))),
 			(string s) =>
 				exprFunBody(ctx.alloc, genString(source, s)),
-			(ImportFileContent.Bogus) =>
+			(ImportFileContentBogus _) =>
 				JsExprOrBlockStatement(genBlockStatement(ctx.alloc, [genThrowBogus(ctx.alloc, source)])));
 	else {
 		Destructure[] params = fun.params.as!(Destructure[]);

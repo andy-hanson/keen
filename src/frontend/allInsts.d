@@ -4,6 +4,7 @@ module frontend.allInsts;
 
 import model.model :
 	Called,
+	CalledBogus,
 	CalledSpecSig,
 	FunDecl,
 	FunInst,
@@ -259,7 +260,7 @@ void eachReferenceInType(in Type type, in ReferenceCb cb) {
 void eachReferenceInSpecImpls(in SpecImpls specImpls, in ReferenceCb cb) {
 	foreach (Called called; specImpls)
 		called.matchWithPointers!void(
-			(Called.Bogus* x) {
+			(CalledBogus* x) {
 				eachReferenceInType(x.returnType, cb);
 				foreach (Type t; x.paramTypes)
 					eachReferenceInType(t, cb);

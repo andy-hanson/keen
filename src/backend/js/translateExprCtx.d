@@ -95,6 +95,7 @@ import model.model :
 	BuiltinUnary,
 	BuiltinUnaryMath,
 	Called,
+	CalledBogus,
 	CalledSpecSig,
 	CommonTypes,
 	CreateEnumOrFlags,
@@ -359,7 +360,7 @@ private void writeSpecArgs(
 	in Called called,
 ) {
 	called.match!void(
-		(ref Called.Bogus x) {},
+		(ref CalledBogus x) {},
 		(ref FunInst x) {
 			foreach (ref Called impl; x.specImpls)
 				out_ ~= translateFunToExpr(ctx, source, caller, impl);
@@ -377,7 +378,7 @@ private JsExpr translateFunOrSpecReference(
 	in Called called,
 ) =>
 	called.match!JsExpr(
-		(ref Called.Bogus x) =>
+		(ref CalledBogus x) =>
 			genThrowBogusExpr(ctx.alloc, source),
 		(ref FunInst x) =>
 			translateFunReference(ctx, source, x.decl),

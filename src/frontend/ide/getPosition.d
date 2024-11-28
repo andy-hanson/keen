@@ -131,8 +131,8 @@ import model.model :
 	funBodyExprRef,
 	FunBodyExtern,
 	FunDecl,
-	FunDeclSource,
 	FunPointerExpr,
+	FunSourceAst,
 	IfExpr,
 	ImportedReferents,
 	ImportOrExport,
@@ -247,8 +247,8 @@ Opt!PositionKind getPositionKind(in Ctx ctx, Module* module_, Pos pos, GetPositi
 		() => firstPointer!(PositionKind, SpecDecl)(module_.specs, (SpecDecl* x) =>
 			positionInSpec(x, pos)),
 		() => firstPointer!(PositionKind, FunDecl)(module_.funs, (FunDecl* x) =>
-			x.source.isA!(FunDeclSource.Ast)
-				? positionInFun(ctx, x, x.source.as!(FunDeclSource.Ast).ast, pos, posKind)
+			x.source.isA!FunSourceAst
+				? positionInFun(ctx, x, x.source.as!FunSourceAst.ast, pos, posKind)
 				: none!PositionKind),
 		() => firstPointer!(PositionKind, Test)(module_.tests, (Test* x) =>
 			positionInTest(ctx, x, *x.ast, pos, posKind)),

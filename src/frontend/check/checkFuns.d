@@ -49,6 +49,8 @@ import model.model :
 	FunDeclSource,
 	FunFlags,
 	FunSafety,
+	FunSourceAst,
+	FunSourceFileImport,
 	ImportFileContent,
 	isEmpty,
 	isLinkageAlwaysCompatible,
@@ -138,7 +140,7 @@ FunDecl[] checkFunsInitial(
 					ctx, commonTypes, structsAndAliasesMap, specsMap,
 					funAst.typeParams, funAst.nameRange, hasBody, funAst.modifiers);
 				initMemory(fun, FunDecl(
-					FunDeclSource(FunDeclSource.Ast(ctx.curUri, &funAst)),
+					FunDeclSource(FunSourceAst(ctx.curUri, &funAst)),
 					visibilityFromExplicitTopLevel(funAst.visibility),
 					funAst.name.name,
 					rp.returnType,
@@ -195,7 +197,7 @@ FunDecl funDeclForFileImportOrExport(
 ) {
 	ImportFileAst* ast = a.source.kind.as!(ImportFileAst*);
 	return FunDecl(
-		FunDeclSource(FunDeclSource.FileImport(ctx.curUri, a.source)),
+		FunDeclSource(FunSourceFileImport(ctx.curUri, a.source)),
 		visibility,
 		ast.name.name,
 		typeForFileImport(commonTypes, ast.type),
@@ -220,7 +222,7 @@ FunBody checkExternBody(ref CheckCtx ctx, FunDecl* fun) {
 	checkNoTypeParams(ctx, fun.typeParams, DeclKind.externFunction);
 	if (!isEmpty(fun.specs)) {
 		Range range = mustFind!ModifierAst(
-			fun.source.as!(FunDeclSource.Ast).ast.modifiers,
+			fun.source.as!FunSourceAst.ast.modifiers,
 			(ref ModifierAst x) => x.isA!SpecUseAst,
 		).range;
 		addDiag(ctx, range, Diag(DiagSpecUseInvalid(DeclKind.externFunction)));

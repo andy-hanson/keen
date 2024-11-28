@@ -71,7 +71,7 @@ import model.model :
 	FunBodyFileImport,
 	FunBodyMethod,
 	FunInst,
-	ImportFileContent,
+	ImportFileContentBogus,
 	RecordFieldCall,
 	RecordFieldGet,
 	RecordFieldPointer,
@@ -247,7 +247,7 @@ ConcreteExpr concretizeFileImport(ref ConcretizeCtx ctx, ConcreteFun* cf, ref Fu
 				ConcreteExprKind(constantOfBytes(ctx, cf.returnType, x)),
 			(string x) =>
 				genStringLiteralKind(ctx, cf.range, x),
-			(ImportFileContent.Bogus) =>
+			(ImportFileContentBogus _) =>
 				genBogusKind(exprCtx.concretizeCtx, cf.range));
 		return ConcreteExpr(cf.returnType, cf.range, exprKind);
 	});

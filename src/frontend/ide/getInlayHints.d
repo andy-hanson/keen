@@ -30,7 +30,7 @@ import model.model :
 	ExprRef,
 	funBodyExprRef,
 	FunDecl,
-	FunDeclSource,
+	FunSourceAst,
 	ImportOrExport,
 	LambdaExpr,
 	LetExpr,
@@ -221,7 +221,7 @@ void writeInlayPartsWithCommas(T)(
 }
 
 void getInlayHintsForFun(ref Alloc alloc, scope ref Builder!InlayHint out_, in ShowModelCtx showCtx, FunDecl* fun) {
-	if (!fun.source.isA!(FunDeclSource.Ast)) return;
+	if (!fun.source.isA!FunSourceAst) return;
 	scope TypeContainer typeContainer = TypeContainer(fun);
 	foreach (ref Destructure param; paramsArray(fun.params))
 		getInlayHintsForDestructure(alloc, out_, showCtx, typeContainer, param);

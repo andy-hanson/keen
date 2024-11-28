@@ -14,6 +14,7 @@ import frontend.lang : maxSpecDepth;
 import model.model :
 	BuiltinSpec,
 	Called,
+	CalledBogus,
 	CalledDecl,
 	CalledSpecSig,
 	CommonTypes,
@@ -116,7 +117,7 @@ Called checkSpecSingleSigIgnoreParents2(
 			if (has(diag)) {
 				addDiag(ctx, diagRange, Diag(force(diag)));
 				CalledSpecSig sig = CalledSpecSig(spec, 0);
-				return Called(allocate(ctx.alloc, Called.Bogus(CalledDecl(sig), sig.returnType, sig.paramTypes)));
+				return Called(allocate(ctx.alloc, CalledBogus(CalledDecl(sig), sig.returnType, sig.paramTypes)));
 			} else {
 				Called res = finish(specImpls)[$ - 1];
 				LocalsInfo locals;
@@ -124,13 +125,13 @@ Called checkSpecSingleSigIgnoreParents2(
 					allowsUnsafe(callerFlags.safety));
 				return ok
 					? res
-					: Called(allocate(ctx.alloc, Called.Bogus(toCalledDecl(res), res.returnType, res.paramTypes)));
+					: Called(allocate(ctx.alloc, CalledBogus(toCalledDecl(res), res.returnType, res.paramTypes)));
 			}
 		}));
 }
 private CalledDecl toCalledDecl(Called a) =>
 	a.match!CalledDecl(
-		(ref Called.Bogus x) =>
+		(ref CalledBogus x) =>
 			x.decl,
 		(ref FunInst x) =>
 			CalledDecl(x.decl),
@@ -149,7 +150,7 @@ bool checkCalled(
 	in bool delegate() @safe @nogc pure nothrow canDoUnsafe,
 ) =>
 	called.match!bool(
-		(ref Called.Bogus) =>
+		(ref CalledBogus _) =>
 			true,
 		(ref FunInst x) {
 			markUsed(ctx, x.decl);

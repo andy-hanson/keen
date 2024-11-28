@@ -38,6 +38,7 @@ import model.model :
 	BuiltinUnaryMath,
 	ByValOrRef,
 	Called,
+	CalledBogus,
 	CalledDecl,
 	CalledSpecSig,
 	CallExpr,
@@ -88,6 +89,9 @@ import model.model :
 	LiteralStringLikeExpr,
 	Local,
 	LocalGetExpr,
+	LocalImmutable,
+	LocalMutableAllocated,
+	LocalMutableOnStack,
 	LocalPointerExpr,
 	LocalSetExpr,
 	LocalMutability,
@@ -823,18 +827,18 @@ Json jsonOfLocal(ref Alloc alloc, in Ctx ctx, in Local a) =>
 		field!"type"(jsonOfType(alloc, ctx, a.type))]);
 Json jsonOfLocalMutability(ref Alloc alloc, in Ctx ctx, in LocalMutability a) =>
 	a.matchIn!Json(
-		(in LocalMutability.Immutable) =>
+		(in LocalImmutable) =>
 			jsonString("immutable"),
-		(in LocalMutability.MutableOnStack) =>
+		(in LocalMutableOnStack) =>
 			jsonString("mutable-on-stack"),
-		(in LocalMutability.MutableAllocated x) =>
+		(in LocalMutableAllocated x) =>
 			jsonObject(alloc, [
 				kindField!"mutable-allocated",
 				field!"reference-type"(jsonOfStructInst(alloc, ctx, *x.referenceType))]));
 
 Json jsonOfCalled(ref Alloc alloc, in Ctx ctx, in Called a) =>
 	a.matchIn!Json(
-		(in Called.Bogus x) =>
+		(in CalledBogus x) =>
 			jsonObject(alloc, [
 				kindField!"bogus",
 				field!"decl"(x.decl.name),

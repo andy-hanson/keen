@@ -32,14 +32,18 @@ import model.model :
 	FunBody,
 	FunDecl,
 	FunDeclSource,
+	FunSourceBogus,
 	FunFlags,
 	FunInst,
 	FunKind,
 	Local,
 	LocalMutability,
 	LocalSource,
+	LocalSourceGenerated,
 	MainFun,
 	MainFunAndDiagnostics,
+	MainFunNat64OfArgs,
+	MainFunVoid,
 	Module,
 	moduleAtUri,
 	NameReferents,
@@ -259,7 +263,7 @@ MainFunAndDiagnostics getMainFunAndDiagnostics(
 
 Destructure makeParam(ref Alloc alloc, ParamShort param) =>
 	Destructure(allocate(alloc, Local(
-		LocalSource(allocate(alloc, LocalSource.Generated(param.name))), LocalMutability.immutable_, param.type)));
+		LocalSource(allocate(alloc, LocalSourceGenerated(param.name))), LocalMutability.immutable_, param.type)));
 
 Params makeParams(ref Alloc alloc, in ParamsShort params) =>
 	params.match!Params(
@@ -448,9 +452,9 @@ MainFun getMainFun(
 	FunInst* inst = instantiateNonTemplateFun(ctx, decl.decl);
 	final switch (decl.sigIndex) {
 		case 0:
-			return MainFun(MainFun.Void(inst));
+			return MainFun(MainFunVoid(inst));
 		case 1:
-			return MainFun(MainFun.Nat64OfArgs(inst));
+			return MainFun(MainFunNat64OfArgs(inst));
 	}
 }
 
@@ -481,7 +485,7 @@ FunDeclAndSigIndex getFunDeclMulti(
 		return lateGet(res);
 	else {
 		FunDecl* decl = allocate(alloc, funDeclWithBody(
-			FunDeclSource(FunDeclSource.Bogus(module_.uri, expectedSigs[0].typeParams)),
+			FunDeclSource(FunSourceBogus(module_.uri, expectedSigs[0].typeParams)),
 			Visibility.public_,
 			name,
 			expectedSigs[0].returnType,

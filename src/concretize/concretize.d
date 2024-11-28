@@ -43,6 +43,8 @@ import model.model :
 	CommonFuns,
 	FunBodyMethod,
 	MainFun,
+	MainFunNat64OfArgs,
+	MainFunVoid,
 	ProgramWithMain,
 	SumType,
 	TestSelector;
@@ -137,9 +139,9 @@ ConcreteProgram concretizeInner(
 
 ConcreteFun* concretizeMainFun(ref ConcretizeCtx ctx, ref CommonFuns commonFuns, MainFun main) =>
 	main.match!(ConcreteFun*)(
-		(MainFun.Nat64OfArgs x) =>
+		(MainFunNat64OfArgs x) =>
 			getNonTemplateConcreteFun(ctx, x.fun),
-		(MainFun.Void x) =>
+		(MainFunVoid x) =>
 			concreteFunForWrapMain(ctx, x.fun),
 		(TestSelector x) =>
 			concreteFunForWrapMain(ctx, commonFuns.runAllTests));

@@ -34,6 +34,7 @@ import model.model :
 	BogusType,
 	BuiltinFun,
 	Called,
+	CalledBogus,
 	CalledDecl,
 	CalledSpecSig,
 	CallExpr,
@@ -224,7 +225,7 @@ Target calledDeclTarget(ref CalledDecl a) =>
 
 Opt!Target calledTarget(ref Called a) =>
 	a.match!(Opt!Target)(
-		(ref Called.Bogus) =>
+		(ref CalledBogus _) =>
 			none!Target,
 		(ref FunInst funInst) =>
 			some(funDeclTarget(funInst.decl)),

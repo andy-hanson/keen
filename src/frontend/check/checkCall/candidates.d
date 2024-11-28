@@ -16,6 +16,7 @@ import frontend.check.maps : FunsMap;
 import model.model :
 	arityMatches,
 	Called,
+	CalledBogus,
 	CalledDecl,
 	CalledSpecSig,
 	CommonTypes,
@@ -187,7 +188,7 @@ Called candidateBogusCalled(
 		])
 		: makeArray(alloc, candidate.called.arity.countParamDecls, (size_t i) =>
 			getCandidateTypeOrBogus(instantiateCtx, candidate, paramTypeAt(candidate.called, i)));
-	return Called(allocate(alloc, Called.Bogus(candidate.called, returnType, paramTypes)));
+	return Called(allocate(alloc, CalledBogus(candidate.called, returnType, paramTypes)));
 }
 
 private Type getCandidateTypeOrBogus(InstantiateCtx ctx, ref const Candidate candidate, Type declaredType) {

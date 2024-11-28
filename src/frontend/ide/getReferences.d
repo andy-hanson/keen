@@ -92,9 +92,9 @@ import model.model :
 	FunBody,
 	funBodyExprRef,
 	FunDecl,
-	FunDeclSource,
 	FunInst,
 	FunPointerExpr,
+	FunSourceAst,
 	getCalledAtExpr,
 	greatestVisibility,
 	IfExpr,
@@ -428,8 +428,8 @@ void eachTypeInModule(ref CommonTypes commonTypes, in Module a, in TypeCb cb) {
 }
 
 void eachTypeInFun(ref CommonTypes commonTypes, ref FunDecl a, in TypeCb cb) {
-	if (a.source.isA!(FunDeclSource.Ast)) {
-		FunDeclAst* ast = a.source.as!(FunDeclSource.Ast).ast;
+	if (a.source.isA!FunSourceAst) {
+		FunDeclAst* ast = a.source.as!FunSourceAst.ast;
 		cb(a.returnType, ast.returnType);
 		eachTypeInParams(a.params, ast.params, cb);
 		eachFunSpec(a, (SpecInst* spec, in SpecUseAst specAst) {

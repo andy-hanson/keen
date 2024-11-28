@@ -97,7 +97,8 @@ import model.model :
 	hasFatalDiagnostics,
 	ImportOrExport,
 	isTuple,
-	MainFun,
+	MainFunNat64OfArgs,
+	MainFunVoid,
 	methodCaller,
 	Module,
 	moduleAtUri,
@@ -332,7 +333,7 @@ JsStatement[] callMain(ref TranslateModuleCtx ctx) {
 	JsStatement[] callPlain() =>
 		newArray(ctx.alloc, [exprStatement(genCallSync(ctx.alloc, source, mainRef, []))]);
 	return ctx.ctx.programWithMainPtr.mainFun.matchIn!(JsStatement[])(
-		(in MainFun.Nat64OfArgs) {
+		(in MainFunNat64OfArgs _) {
 			JsName exitCode = JsName.specialLocal(symbol!"exitCode");
 			JsExpr exitCodeNotZero = genNotEqEq(
 				ctx.alloc,
@@ -391,7 +392,7 @@ JsStatement[] callMain(ref TranslateModuleCtx ctx) {
 						ctx.alloc, source, callMain, JsMemberName.noPrefix(symbol!"then"), [arg]))]);
 			}
 		},
-		(in MainFun.Void) =>
+		(in MainFunVoid _) =>
 			callPlain(),
 		(in TestSelector x) =>
 			callPlain());

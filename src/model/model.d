@@ -1475,24 +1475,11 @@ enum FunSafety : ubyte { safe, trusted, unsafe }
 immutable struct FunDeclSource {
 	@safe @nogc pure nothrow:
 
-	immutable struct Bogus {
-		Uri uri;
-		TypeParams typeParams;
-	}
-	immutable struct Ast {
-		Uri moduleUri;
-		FunDeclAst* ast;
-	}
-	immutable struct FileImport {
-		Uri moduleUri; // This is the importing module, not imported
-		ImportOrExportAst* ast;
-	}
-
 	mixin Union!(
-		Bogus,
-		Ast,
+		FunSourceBogus,
+		FunSourceAst,
 		EnumOrFlagsMember*,
-		FileImport,
+		FunSourceFileImport,
 		RecordField*,
 		// This is for a variant method
 		Signature*,
@@ -1501,13 +1488,13 @@ immutable struct FunDeclSource {
 
 	Uri moduleUri() scope =>
 		matchIn!Uri(
-			(in FunDeclSource.Bogus x) =>
+			(in FunSourceBogus x) =>
 				x.uri,
-			(in FunDeclSource.Ast x) =>
+			(in FunSourceAst x) =>
 				x.moduleUri,
 			(in EnumOrFlagsMember x) =>
 				x.moduleUri,
-			(in FunDeclSource.FileImport x) =>
+			(in FunSourceFileImport x) =>
 				x.moduleUri,
 			(in RecordField x) =>
 				x.moduleUri,
@@ -1520,13 +1507,13 @@ immutable struct FunDeclSource {
 
 	UriAndRange range() scope =>
 		matchIn!UriAndRange(
-			(in FunDeclSource.Bogus x) =>
+			(in FunSourceBogus x) =>
 				UriAndRange(x.uri, Range.empty),
-			(in FunDeclSource.Ast x) =>
+			(in FunSourceAst x) =>
 				UriAndRange(x.moduleUri, x.ast.range),
 			(in EnumOrFlagsMember x) =>
 				UriAndRange(x.moduleUri, x.range),
-			(in FunDeclSource.FileImport x) =>
+			(in FunSourceFileImport x) =>
 				UriAndRange(x.moduleUri, x.ast.range),
 			(in RecordField x) =>
 				UriAndRange(x.moduleUri, x.range),
@@ -1538,13 +1525,13 @@ immutable struct FunDeclSource {
 				x.range);
 	UriAndRange nameRange() scope =>
 		matchIn!UriAndRange(
-			(in FunDeclSource.Bogus x) =>
+			(in FunSourceBogus x) =>
 				UriAndRange(x.uri, Range.empty),
-			(in FunDeclSource.Ast x) =>
+			(in FunSourceAst x) =>
 				UriAndRange(x.moduleUri, x.ast.nameRange),
 			(in EnumOrFlagsMember x) =>
 				x.nameRange,
-			(in FunDeclSource.FileImport x) =>
+			(in FunSourceFileImport x) =>
 				UriAndRange(x.moduleUri, x.ast.range),
 			(in RecordField x) =>
 				x.nameRange,
@@ -1556,9 +1543,21 @@ immutable struct FunDeclSource {
 				x.nameRange);
 
 	DocCommentAst docCommentAst() scope =>
-		isA!Ast
-			? as!Ast.ast.docComment
+		isA!FunSourceAst
+			? as!FunSourceAst.ast.docComment
 			: DocCommentAst.empty;
+}
+immutable struct FunSourceBogus {
+	Uri uri;
+	TypeParams typeParams;
+}
+immutable struct FunSourceAst {
+	Uri moduleUri;
+	FunDeclAst* ast;
+}
+immutable struct FunSourceFileImport {
+	Uri moduleUri; // This is the importing module, not imported
+	ImportOrExportAst* ast;
 }
 
 immutable struct FunDecl {
@@ -1591,13 +1590,13 @@ immutable struct FunDecl {
 
 	TypeParams typeParams() return scope =>
 		source.match!TypeParams(
-			(FunDeclSource.Bogus x) =>
+			(FunSourceBogus x) =>
 				x.typeParams,
-			(FunDeclSource.Ast x) =>
+			(FunSourceAst x) =>
 				x.ast.typeParams,
 			(ref EnumOrFlagsMember x) =>
 				x.containingEnum.typeParams,
-			(FunDeclSource.FileImport _) =>
+			(FunSourceFileImport _) =>
 				emptySmallArray!NameAndRange,
 			(ref RecordField x) =>
 				x.containingRecord.typeParams,
@@ -1835,16 +1834,11 @@ size_t nTypeParams(in CalledDecl a) =>
 immutable struct Called {
 	@safe @nogc pure nothrow:
 
-	immutable struct Bogus {
-		CalledDecl decl;
-		Type returnType;
-		Type[] paramTypes;
-	}
-	mixin TaggedUnion!(Bogus*, FunInst*, CalledSpecSig);
+	mixin TaggedUnion!(CalledBogus*, FunInst*, CalledSpecSig);
 
 	CalledDecl calledDecl() return scope =>
 		match!CalledDecl(
-			(ref Bogus x) =>
+			(ref CalledBogus x) =>
 				x.decl,
 			(ref FunInst x) =>
 				CalledDecl(x.decl),
@@ -1856,7 +1850,7 @@ immutable struct Called {
 
 	Type returnType() scope =>
 		match!Type(
-			(ref Bogus x) =>
+			(ref CalledBogus x) =>
 				x.returnType,
 			(ref FunInst f) =>
 				f.returnType,
@@ -1865,7 +1859,7 @@ immutable struct Called {
 
 	Type[] paramTypes() scope =>
 		match!(Type[])(
-			(ref Bogus x) =>
+			(ref CalledBogus x) =>
 				x.paramTypes,
 			(ref FunInst x) =>
 				x.paramTypes,
@@ -1878,10 +1872,15 @@ immutable struct Called {
 	bool isVariadic() scope =>
 		arity.isVariadic;
 }
+immutable struct CalledBogus {
+	CalledDecl decl;
+	Type returnType;
+	Type[] paramTypes;
+}
 
 Type paramTypeAt(in Called a, size_t argIndex) scope =>
 	a.matchIn!Type(
-		(in Called.Bogus x) =>
+		(in CalledBogus x) =>
 			a.isVariadic ? only(x.paramTypes) : x.paramTypes[argIndex],
 		(in FunInst x) =>
 			a.isVariadic ? arrayElementType(only(x.paramTypes)) : x.paramTypes[argIndex],
@@ -1997,7 +1996,7 @@ void eachDecl(in Module a, in void delegate(AnyDecl) @safe @nogc pure nothrow cb
 	foreach (ref SpecDecl x; a.specs)
 		cb(AnyDecl(&x));
 	foreach (ref FunDecl x; a.funs)
-		if (x.source.isA!(FunDeclSource.Ast))
+		if (x.source.isA!FunSourceAst)
 			cb(AnyDecl(&x));
 	foreach (ref Test x; a.tests)
 		cb(AnyDecl(&x));
@@ -2236,9 +2235,9 @@ immutable struct ImportOrExport {
 alias ImportedReferents = HashTable!(NameReferents*, Symbol, nameFromNameReferentsPointer);
 
 immutable struct ImportFileContent {
-	immutable struct Bogus {}
-	mixin Union!(immutable ubyte[], string, Bogus);
+	mixin Union!(immutable ubyte[], string, ImportFileContentBogus);
 }
+immutable struct ImportFileContentBogus {}
 
 immutable struct NameReferents {
 	@safe @nogc pure nothrow:
@@ -2471,15 +2470,15 @@ immutable struct ProgramWithMain {
 // TODO: isn't this basically just OS?
 immutable struct BuildTarget {
 	@safe @nogc pure nothrow:
-	immutable struct Js {}
-	immutable struct Native { OS os; }
-	mixin Union!(Js, Native);
+	mixin Union!(BuildTargetJs, BuildTargetNative);
 
 	static BuildTarget js() =>
-		BuildTarget(Js());
+		BuildTarget(BuildTargetJs());
 	static BuildTarget native(OS os) =>
-		BuildTarget(Native(os));
+		BuildTarget(BuildTargetNative(os));
 }
+private immutable struct BuildTargetJs {}
+private immutable struct BuildTargetNative { OS os; }
 
 // All 'extern's to compile with for the given target
 SymbolSet allExterns(in ProgramWithMain program, BuildTarget target) =>
@@ -2488,10 +2487,10 @@ SymbolSet allExternsForMainConfig(in Config mainConfig, Opt!BuildTarget target) 
 	buildSymbolSet((scope ref SymbolSetBuilder out_) {
 		if (has(target)) {
 			force(target).match!void(
-				(BuildTarget.Js) {
+				(BuildTargetJs _) {
 					out_ ~= symbol!"js";
 				},
-				(BuildTarget.Native x) {
+				(BuildTargetNative x) {
 					final switch (x.os) {
 						case OS.nodeJs:
 						case OS.web:
@@ -2548,24 +2547,17 @@ immutable struct MainFunAndDiagnostics {
 immutable struct MainFun {
 	@safe @nogc pure nothrow:
 
-	immutable struct Nat64OfArgs {
-		FunInst* fun;
-	}
-	immutable struct Void {
-		FunInst* fun;
-	}
-
-	mixin Union!(Nat64OfArgs, Void, TestSelector);
+	mixin Union!(MainFunNat64OfArgs, MainFunVoid, TestSelector);
 
 	UriAndRange rangeForDiag() scope =>
 		matchIn!UriAndRange(
-			(in Nat64OfArgs x) =>
+			(in MainFunNat64OfArgs x) =>
 				x.fun.decl.range,
-			(in Void x) =>
+			(in MainFunVoid x) =>
 				x.fun.decl.range,
 			(in TestSelector test) =>
 				test.matchIn!UriAndRange(
-					(in TestSelector.All x) =>
+					(in TestSelectorAll x) =>
 						// We don't get diagnostics for this
 						assert(false),
 					(in Config x) =>
@@ -2577,13 +2569,13 @@ immutable struct MainFun {
 
 	Opt!Uri uriForTempPath() scope =>
 		matchIn!(Opt!Uri)(
-			(in Nat64OfArgs x) =>
+			(in MainFunNat64OfArgs x) =>
 				some(x.fun.decl.moduleUri),
-			(in Void x) =>
+			(in MainFunVoid x) =>
 				some(x.fun.decl.moduleUri),
 			(in TestSelector test) =>
 				test.matchIn!(Opt!Uri)(
-					(in TestSelector.All) =>
+					(in TestSelectorAll) =>
 						none!Uri,
 					(in Config x) =>
 						some(force(x.configUri)),
@@ -2594,13 +2586,13 @@ immutable struct MainFun {
 
 	SymbolSet requiredExterns() scope =>
 		matchIn!SymbolSet(
-			(in Nat64OfArgs x) =>
+			(in MainFunNat64OfArgs x) =>
 				x.fun.decl.externs,
-			(in Void x) =>
+			(in MainFunVoid x) =>
 				x.fun.decl.externs,
 			(in TestSelector x) =>
 				x.matchIn!SymbolSet(
-					(in TestSelector.All) =>
+					(in TestSelectorAll) =>
 						emptySymbolSet,
 					(in Config _) =>
 						emptySymbolSet,
@@ -2613,13 +2605,13 @@ immutable struct MainFun {
 		Config* configFor(Uri uri) =>
 			moduleAtUri(program, uri).config;
 		return match!(Config*)(
-			(Nat64OfArgs x) =>
+			(MainFunNat64OfArgs x) =>
 				configFor(x.fun.decl.moduleUri),
-			(Void x) =>
+			(MainFunVoid x) =>
 				configFor(x.fun.decl.moduleUri),
 			(TestSelector test) =>
 				test.matchWithPointers!(Config*)(
-					(TestSelector.All x) =>
+					(TestSelectorAll x) =>
 						x.mainConfig,
 					(Config* x) =>
 						x,
@@ -2631,24 +2623,30 @@ immutable struct MainFun {
 
 	TestSelector testSelector(ref Program program) =>
 		matchIn!TestSelector(
-			(in Nat64OfArgs _) =>
+			(in MainFunNat64OfArgs _) =>
 				TestSelector.all(mainConfig(program)),
-			(in Void _) =>
+			(in MainFunVoid _) =>
 				TestSelector.all(mainConfig(program)),
 			(in TestSelector x) =>
 				x);
 }
+immutable struct MainFunNat64OfArgs {
+	FunInst* fun;
+}
+immutable struct MainFunVoid {
+	FunInst* fun;
+}
 
 immutable struct TestSelector {
 	@safe @nogc pure nothrow:
-	immutable struct All {
-		Config* mainConfig;
-	}
 	// All tests, tests in a particular config, tests in a single file, or a single test
-	mixin Union!(All, Config*, Uri, Test*);
+	mixin Union!(TestSelectorAll, Config*, Uri, Test*);
 
 	static TestSelector all(Config* mainConfig) =>
-		TestSelector(All(mainConfig));
+		TestSelector(TestSelectorAll(mainConfig));
+}
+private immutable struct TestSelectorAll {
+	Config* mainConfig;
 }
 
 bool hasAnyDiagnostics(in ProgramWithMain a) =>
@@ -2718,7 +2716,7 @@ void eachTest(
 	in void delegate(Test*) @safe @nogc pure nothrow cb,
 ) {
 	testSelector.matchWithPointers!void(
-		(TestSelector.All) {
+		(TestSelectorAll _) {
 			foreach (immutable Module* m; program.allModules) {
 				foreach (ref Test x; m.tests)
 					if (allExterns.containsAll(x.externs))
@@ -2760,9 +2758,9 @@ alias ConfigImportUris = Map!(Symbol, Uri);
 alias ConfigExternUris = Map!(Symbol, Opt!Uri);
 
 immutable struct LocalSource {
-	immutable struct Generated { Symbol name; }
-	mixin TaggedUnion!(SingleDestructureAst*, Generated*);
+	mixin TaggedUnion!(SingleDestructureAst*, LocalSourceGenerated*);
 }
+immutable struct LocalSourceGenerated { Symbol name; }
 
 immutable struct Local {
 	@safe @nogc pure nothrow:
@@ -2775,25 +2773,25 @@ immutable struct Local {
 		source.matchIn!Symbol(
 			(in SingleDestructureAst x) =>
 				x.name.name,
-			(in LocalSource.Generated x) =>
+			(in LocalSourceGenerated x) =>
 				x.name);
 
 	bool isMutable() scope =>
 		mutability.matchIn!bool(
-			(in LocalMutability.Immutable) =>
+			(in LocalImmutable) =>
 				false,
-			(in LocalMutability.MutableOnStack) =>
+			(in LocalMutableOnStack) =>
 				true,
-			(in LocalMutability.MutableAllocated) =>
+			(in LocalMutableAllocated) =>
 				true);
 
 	bool isAllocated() scope =>
 		mutability.matchIn!bool(
-			(in LocalMutability.Immutable) =>
+			(in LocalImmutable) =>
 				false,
-			(in LocalMutability.MutableOnStack) =>
+			(in LocalMutableOnStack) =>
 				false,
-			(in LocalMutability.MutableAllocated) =>
+			(in LocalMutableAllocated) =>
 				true);
 }
 
@@ -2805,28 +2803,28 @@ private Range localMustHaveRange(in Local a) =>
 
 immutable struct LocalMutability {
 	@safe @nogc pure nothrow:
-	immutable struct Immutable {}
-	immutable struct MutableOnStack {}
-	immutable struct MutableAllocated { StructInst* referenceType; }
-	mixin Union!(Immutable, MutableOnStack, MutableAllocated);
+	mixin Union!(LocalImmutable, LocalMutableOnStack, LocalMutableAllocated);
 
 	static LocalMutability immutable_() =>
-		LocalMutability(LocalMutability.Immutable());
+		LocalMutability(LocalImmutable());
 	static LocalMutability mutableOnStack() =>
-		LocalMutability(LocalMutability.MutableOnStack());
+		LocalMutability(LocalMutableOnStack());
 
 	bool isImmutable() scope =>
-		isA!Immutable;
+		isA!LocalImmutable;
 }
+immutable struct LocalImmutable {}
+immutable struct LocalMutableOnStack {}
+immutable struct LocalMutableAllocated { StructInst* referenceType; }
 
 enum Mutability { immut, mut }
 Mutability toMutability(LocalMutability a) =>
 	a.matchIn!Mutability(
-		(in LocalMutability.Immutable) =>
+		(in LocalImmutable) =>
 			Mutability.immut,
-		(in LocalMutability.MutableOnStack) =>
+		(in LocalMutableOnStack) =>
 			Mutability.mut,
-		(in LocalMutability.MutableAllocated) =>
+		(in LocalMutableAllocated) =>
 			Mutability.mut);
 
 immutable struct ClosureRef {
@@ -2881,11 +2879,11 @@ immutable struct VariableRef {
 			(ClosureRef x) => x.local);
 	ClosureReferenceKind closureReferenceKind() scope =>
 		local.mutability.matchIn!ClosureReferenceKind(
-			(in LocalMutability.Immutable) =>
+			(in LocalImmutable) =>
 				ClosureReferenceKind.direct,
-			(in LocalMutability.MutableOnStack) =>
+			(in LocalMutableOnStack) =>
 				assert(false),
-			(in LocalMutability.MutableAllocated) =>
+			(in LocalMutableAllocated) =>
 				ClosureReferenceKind.allocated);
 }
 

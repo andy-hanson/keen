@@ -126,6 +126,7 @@ import model.model :
 	BuiltinType,
 	BuiltinUnary,
 	Called,
+	CalledBogus,
 	CalledSpecSig,
 	CallExpr,
 	CharType,
@@ -212,6 +213,8 @@ import model.model :
 	LocalGetExpr,
 	localMustHaveNameRange,
 	LocalMutability,
+	LocalMutableAllocated,
+	LocalMutableOnStack,
 	LocalPointerExpr,
 	LocalSetExpr,
 	LoopExpr,
@@ -1096,11 +1099,11 @@ Opt!Expr checkWithLocal(
 		locals.lambda,
 		someMut(ptrTrustMe(localNode)));
 	Opt!Expr res = cb(newLocals);
-	if (localNode.local.mutability.isA!(LocalMutability.MutableOnStack) &&
+	if (localNode.local.mutability.isA!LocalMutableOnStack &&
 		(localNode.isUsed[LocalAccessKind.getThroughClosure] ||
 		 localNode.isUsed[LocalAccessKind.setThroughClosure])) {
 		// TODO: Better way than overwriteMemory?
-		overwriteMemory(&local.mutability, LocalMutability(LocalMutability.MutableAllocated(
+		overwriteMemory(&local.mutability, LocalMutability(LocalMutableAllocated(
 			instantiateStruct(ctx.instantiateCtx, ctx.commonTypes.reference, [local.type]))));
 	}
 	addUnusedLocalDiags(ctx, local, localNode);
@@ -1321,7 +1324,7 @@ Expr checkFunPointerInner(
 
 bool isBareForFunctionPointer(in Called a) =>
 	a.matchIn!bool(
-		(in Called.Bogus) =>
+		(in CalledBogus _) =>
 			true,
 		(in FunInst x) =>
 			x.decl.isBareOrForceCtx &&

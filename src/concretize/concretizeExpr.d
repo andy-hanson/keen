@@ -133,7 +133,7 @@ import model.model :
 	LiteralStringLikeExpr,
 	Local,
 	LocalGetExpr,
-	LocalMutability,
+	LocalMutableAllocated,
 	LocalPointerExpr,
 	LocalSetExpr,
 	LoopBreakExpr,
@@ -526,7 +526,7 @@ SmallArray!ConcreteField concretizeClosureFields(ref ConcretizeExprCtx ctx, Smal
 					return baseType;
 				case ClosureReferenceKind.allocated:
 					return getConcreteType(
-						ctx, Type(x.local.mutability.as!(LocalMutability.MutableAllocated).referenceType));
+						ctx, Type(x.local.mutability.as!LocalMutableAllocated.referenceType));
 			}
 		}();
 		// Even if the variable is mutable, it's a const field holding a mut pointer
@@ -686,7 +686,7 @@ RootLocalAndExpr concretizeWithDestructure(
 			ConcreteExpr expr = () {
 				if (local.isAllocated) {
 					ConcreteType referenceType = getConcreteType(
-						ctx, Type(local.mutability.as!(LocalMutability.MutableAllocated).referenceType));
+						ctx, Type(local.mutability.as!LocalMutableAllocated.referenceType));
 					ConcreteLocal* referenceLocal = allocate(ctx.alloc,
 						ConcreteLocal(ConcreteLocalSource(ConcreteGeneratedLocalKind.reference), referenceType));
 					ConcreteExpr then = cb(addLocal(locals, local, LocalOrConstant(referenceLocal)));

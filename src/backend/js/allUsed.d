@@ -37,6 +37,7 @@ import model.model :
 	BuiltinUnaryMath,
 	Called,
 	CallOptionExpr,
+	CalledBogus,
 	CalledSpecSig,
 	CallExpr,
 	ClosureGetExpr,
@@ -93,7 +94,8 @@ import model.model :
 	LoopBreakExpr,
 	LoopContinueExpr,
 	LoopWhileOrUntilExpr,
-	MainFun,
+	MainFunNat64OfArgs,
+	MainFunVoid,
 	MatchEnumExpr,
 	MatchIntegralExpr,
 	MatchStringLikeExpr,
@@ -217,7 +219,7 @@ SyncOrAsync isAsyncCall(in AllUsed a, in FunDecl* caller, in Called called) =>
 	isAsyncCall(a, FunOrTest(caller), called);
 SyncOrAsync isAsyncCall(in AllUsed a, in FunOrTest caller, in Called called) =>
 	called.matchIn!SyncOrAsync(
-		(in Called.Bogus) =>
+		(in CalledBogus _) =>
 			SyncOrAsync.sync,
 		(in FunInst x) =>
 			isAsyncFun(a, x.decl),
@@ -503,9 +505,9 @@ void trackAllUsedInMain(ref AllUsedBuilder res, ref ProgramWithMain a) {
 
 public FunDecl* actualMainFun(ref ProgramWithMain a) =>
 	a.mainFun.matchIn!(FunDecl*)(
-		(in MainFun.Nat64OfArgs x) =>
+		(in MainFunNat64OfArgs x) =>
 			x.fun.decl,
-		(in MainFun.Void x) =>
+		(in MainFunVoid x) =>
 			x.fun.decl,
 		(in TestSelector _) =>
 			a.program.commonFuns.runAllTests.decl);
@@ -644,7 +646,7 @@ void trackAllUsedInDestructure(ref AllUsedBuilder res, Uri from, Destructure a) 
 // 'called' is used from the variant member, but the caller is the variant method.
 void trackAllUsedInCalled(ref AllUsedBuilder res, Uri from, FunOrTest caller, Called called, FunUse funUse) {
 	called.match!void(
-		(ref Called.Bogus) {},
+		(ref CalledBogus _) {},
 		(ref FunInst calledInst) {
 			trackAllUsedInCalledFunInst(res, from, caller, calledInst, funUse);
 		},
@@ -682,7 +684,7 @@ void trackAllUsedInSpecImpl(
 	Called impl,
 ) {
 	impl.match!void(
-		(ref Called.Bogus) {},
+		(ref CalledBogus _) {},
 		(ref FunInst x) {
 			add(res.alloc, res.funToUsedAsSpecImpl, x.decl, FunAndSpecSig(calledDecl, sig));
 			eachSpecSigAndImpl(*x.decl, x.specImpls, (SpecInst* spec2, Signature* sig2, Called impl2) {
