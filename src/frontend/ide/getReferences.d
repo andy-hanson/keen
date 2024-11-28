@@ -160,13 +160,13 @@ import model.model :
 	VarGet,
 	VarSet,
 	Visibility;
+import model.sourceRange : Range, UriAndLineAndCharacterRange, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array : contains, fold, isEmpty, only, zip, zipIfSizeEq, zipIfSizeEqFilterFirst;
 import util.col.arrayBuilder : buildArray, Builder, buildSortedArray;
 import util.col.tempSet : eachUnique;
 import util.opt : force, has, none, Opt, optIf, some;
-import util.sourceRange : Range, UriAndLineAndCharacterRange, UriAndRange;
 import util.symbol : Symbol;
 import util.uri : Uri;
 

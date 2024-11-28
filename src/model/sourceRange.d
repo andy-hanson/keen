@@ -1,4 +1,4 @@
-module util.sourceRange;
+module model.sourceRange;
 
 @safe @nogc pure nothrow:
 

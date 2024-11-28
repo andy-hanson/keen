@@ -153,6 +153,7 @@ import model.model :
 	VarGet,
 	VarSet,
 	Visibility;
+import model.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetter, Range, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mapOp;
 import util.col.arrayBuilder : buildArray, Builder;
@@ -170,7 +171,6 @@ import util.json :
 	optionalField,
 	kindField;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetter, Range, UriAndRange;
 import util.symbol : compareSymbolsNaturally, Symbol, symbol;
 import util.symbolSet : SymbolSet;
 import util.uri : stringOfUri;

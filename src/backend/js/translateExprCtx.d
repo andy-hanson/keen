@@ -139,6 +139,7 @@ import model.model :
 	TypeParamIndex,
 	VarGet,
 	VarSet;
+import model.sourceRange : FileContentGetters;
 import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, isEmpty, makeArray, map, newArray, only;
 import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder, finish;
@@ -146,7 +147,6 @@ import util.conv : safeToUshort;
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : FileContentGetters;
 import util.symbol : Symbol, symbol;
 import util.union_ : TaggedUnion, Union;
 import util.uri : Uri;

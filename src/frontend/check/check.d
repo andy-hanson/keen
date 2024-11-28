@@ -93,6 +93,7 @@ import model.model :
 	VarDecl,
 	VarKind,
 	Visibility;
+import model.sourceRange : Range, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.cell : Cell, cellGet, cellSet;
@@ -118,7 +119,6 @@ import util.col.mutArr : mustPop, mutArrIsEmpty;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, someMut, some;
 import util.perf : Perf, PerfMeasure, withMeasure;
-import util.sourceRange : Range, UriAndRange;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : SymbolSet;
 import util.unicode : FileContent;

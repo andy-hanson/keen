@@ -24,13 +24,13 @@ import model.model :
 	TypeSize,
 	Varargs,
 	VarDecl;
+import model.sourceRange : UriAndRange;
 import util.col.array : arraysEqual, every, exists, isEmpty, only, SmallArray;
 import util.col.set : Set;
 import util.hash : HashCode, Hasher, hashPointer;
 import util.integralValues : IntegralValue, IntegralValues;
 import util.late : Late, lateGet, lateIsSet, lateSet, lateSetOverwrite;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : UriAndRange;
 import util.string : CString;
 import util.symbol : Symbol;
 import util.union_ : TaggedUnion, Union;

@@ -152,6 +152,16 @@ import model.model :
 	ProgramWithMain,
 	ProgramWithOptMain;
 import model.parseDiag : ParseDiag, ReadFileDiag;
+import model.sourceRange :
+	FileContentGetters,
+	LineAndCharacterGetter,
+	LineAndCharacterGetters,
+	LineAndColumn,
+	LineAndColumnGetter,
+	LineAndColumnGetters,
+	toLineAndCharacter,
+	UriAndLineAndCharacterRange,
+	UriLineAndColumn;
 import util.alloc.alloc : Alloc, AllocKind, FetchMemoryCb, freeElements, MetaAlloc, newAlloc, withTempAllocImpure;
 import util.alloc.stackAlloc : ensureStackAllocInitialized;
 import util.cell : Cell, cellGet, cellSet;
@@ -166,16 +176,6 @@ import util.late : Late, lateGet, lateSet, MutLate;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.perf : Perf;
-import util.sourceRange :
-	FileContentGetters,
-	LineAndCharacterGetter,
-	LineAndCharacterGetters,
-	LineAndColumn,
-	LineAndColumnGetter,
-	LineAndColumnGetters,
-	toLineAndCharacter,
-	UriAndLineAndCharacterRange,
-	UriLineAndColumn;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;

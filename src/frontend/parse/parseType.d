@@ -62,11 +62,11 @@ import model.parseDiag :
 	ParseDiagTypeEmptyParens,
 	ParseDiagTypeTrailingMut,
 	ParseDiagTypeUnnecessaryParens;
+import model.sourceRange : Pos, Range;
 import util.col.array : emptySmallArray, only, SmallArray;
 import util.col.arrayBuilder : Builder, buildSmallArray;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, optOr, some;
-import util.sourceRange : Pos, Range;
 import util.symbol : Symbol, symbol;
 import util.util : optEnumConvert;
 

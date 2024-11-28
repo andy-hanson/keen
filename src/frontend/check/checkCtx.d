@@ -29,6 +29,7 @@ import model.model :
 	TypeParams,
 	Visibility,
 	VisibilityWarningKind;
+import model.sourceRange : Range, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.array : exists, isEmpty, mustFind, SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, smallFinish;
@@ -37,7 +38,6 @@ import util.col.hashTable : getPointer, HashTable, isEmpty, moveToImmutable, mus
 import util.col.mutSet : mayAddToMutSet, MutSet;
 import util.opt : force, has, none, Opt, some;
 import util.perf : Perf;
-import util.sourceRange : Range, UriAndRange;
 import util.symbol : Symbol;
 import util.uri : Uri;
 

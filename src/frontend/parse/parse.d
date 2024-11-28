@@ -75,13 +75,13 @@ import model.ast :
 	VarDeclAst;
 import model.model : SumTypeKind, TypeParams, VarKind, Visibility;
 import model.parseDiag : ParseDiag, ParseDiagDocCommentUnused, ParseDiagExpected, ParseDiagnostic;
+import model.sourceRange : Pos, Range;
 import util.alloc.alloc : Alloc;
 import util.col.array : contains, emptySmallArray, SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, buildSmallArray, Builder, smallFinish;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.perf : Perf, PerfMeasure, withMeasure;
-import util.sourceRange : Pos, Range;
 import util.string : CString, stringOfCString;
 import util.symbol : Symbol;
 import util.util : castNonScope_ref, ptrTrustMe;

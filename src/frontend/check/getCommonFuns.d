@@ -66,6 +66,7 @@ import model.model :
 	VarDecl,
 	VarKind,
 	Visibility;
+import model.sourceRange : LineAndCharacterGetter, PosKind, Range, rangeOfLine, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	arraysCorrespond, copyArray, emptySmallArray, findIndex, findPointer, isEmpty, map, optOnly, sizeEq, small;
@@ -74,7 +75,6 @@ import util.col.enumMap : EnumMap, enumMapMapValues;
 import util.late : late, Late, lateGet, lateIsSet, lateSet;
 import util.memory : allocate;
 import util.opt : force, has, none, MutOpt, Opt, some, someMut;
-import util.sourceRange : LineAndCharacterGetter, PosKind, Range, rangeOfLine, UriAndRange;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet, symbolSetDifference;
 import util.uri : Uri;

@@ -24,12 +24,12 @@ import model.parseDiag :
 	ParseDiagUnexpectedOperator,
 	ParseDiagUnexpectedToken,
 	ParseDiagnostic;
+import model.sourceRange : Pos, Range;
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array : SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, smallFinish;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : Pos, Range;
 import util.string : CString, MutCString;
 import util.symbol : symbol;
 import util.util : enumConvert;

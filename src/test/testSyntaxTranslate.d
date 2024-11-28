@@ -4,9 +4,9 @@ module test.testSyntaxTranslate;
 
 import frontend.ide.syntaxTranslate : syntaxTranslate;
 import lib.lsp.lspTypes : SyntaxTranslateParams, SyntaxTranslateResult, Language;
+import model.sourceRange : Pos;
 import test.testUtil : assertEqual, Test;
 import util.col.array : arraysEqual;
-import util.sourceRange : Pos;
 
 void testSyntaxTranslate(ref Test test) {
 	testAllWays(test, "a", "a", "a");

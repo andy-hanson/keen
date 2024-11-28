@@ -34,6 +34,7 @@ import lib.server :
 	PrintKind,
 	PrintLowModel,
 	PrintModel;
+import model.sourceRange : LineAndColumn;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : StackArrayBuilder, withBuildStackArray;
 import util.col.array : copyArray, findIndex, isEmpty, map, newArray, only;
@@ -41,7 +42,6 @@ import util.col.arrayBuilder : buildArray, Builder, finish;
 import util.conv : isUint, safeToUint;
 import util.exitCode : ExitCode;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, optIf, optOrDefault, some, someMut;
-import util.sourceRange : LineAndColumn;
 import util.string :
 	CString,
 	cString,

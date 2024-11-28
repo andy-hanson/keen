@@ -19,9 +19,9 @@ import frontend.parse.lexer :
 import frontend.parse.lexToken : isSymbolToken;
 import model.ast : LiteralIntegral, LiteralIntegralAndRange, NameAndRange;
 import model.parseDiag : ParseDiag, ParseDiagExpected;
+import model.sourceRange : Pos, Range;
 import util.col.array : contains;
 import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
-import util.sourceRange : Pos, Range;
 import util.symbol : Symbol, symbol;
 
 bool peekToken(ref Lexer lexer, Token expected) =>

@@ -260,6 +260,7 @@ import model.model :
 	TypedExpr,
 	UnpackOption,
 	VariableRef;
+import model.sourceRange : Range;
 import util.alloc.stackAlloc : MaxStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell;
 import util.col.array :
@@ -286,7 +287,6 @@ import util.conv : powerOf10, safeToUshort, toLongWithOverflow;
 import util.integralValues : IntegralValue;
 import util.memory : allocate, overwriteMemory;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, optIf, optOr, optOrDefault, someMut, some;
-import util.sourceRange : Range;
 import util.string : CString, smallString;
 import util.symbol : prependSet, prependSetDeref, stringOfSymbol, Symbol, symbol;
 import util.symbolSet : buildSymbolSet, SymbolSet, SymbolSetBuilder;

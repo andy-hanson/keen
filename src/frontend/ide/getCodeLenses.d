@@ -5,10 +5,10 @@ module frontend.ide.getCodeLenses;
 import frontend.ide.importReferences : ImportsAndReExports, isEmpty, withImportsAndReExportsOfModule;
 import lib.lsp.lspTypes : CodeLens, CodeLensParams, Command;
 import model.model : Module, moduleAtUri, Program;
+import model.sourceRange : LineAndCharacterRange;
 import util.alloc.alloc : Alloc;
 import util.col.array : isEmpty;
 import util.col.arrayBuilder : buildArray, Builder;
-import util.sourceRange : LineAndCharacterRange;
 import util.uri : baseName, Uri;
 import util.writer : makeStringWithWriter, Writer, writeWithCommas;
 

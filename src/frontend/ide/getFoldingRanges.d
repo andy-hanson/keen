@@ -7,11 +7,11 @@ import frontend.storage : CrowFileInfo;
 import lib.lsp.lspTypes : FoldingRange, FoldingRangeKind;
 import model.ast :
 	DocCommentAst, FunDeclAst, ImportsOrExportsAst, SpecDeclAst, StructAliasAst, StructDeclAst, TestAst, VarDeclAst;
+import model.sourceRange : LineAndCharacterGetter, LineAndCharacterRange, Range;
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.conv : safeToUint;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, some, someMut;
-import util.sourceRange : LineAndCharacterGetter, LineAndCharacterRange, Range;
 
 FoldingRange[] foldingRangesOfAst(ref Alloc alloc, in CrowFileInfo file) {
 	scope Ctx ctx = Ctx(&alloc, file.content.lineAndCharacterGetter);

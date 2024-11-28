@@ -36,6 +36,7 @@ import model.model :
 	TypeContainer,
 	TypeParamIndex,
 	TypeWithContainer;
+import model.sourceRange : FileContentGetters, LineAndColumnGetters;
 import util.alloc.stackAlloc :
 	MaxStackArray, withMapOrNoneToStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell, cellGet, cellSet;
@@ -60,7 +61,6 @@ import util.col.array :
 import util.col.arrayBuilder : add, ArrayBuilder, arrayBuilderIsEmpty, asTemporaryArray, finish;
 import util.memory : allocate;
 import util.opt : has, force, MutOpt, none, noneMut, Opt, optIf, optOrDefault, some, someInout, someMut;
-import util.sourceRange : FileContentGetters, LineAndColumnGetters;
 import util.union_ : TaggedUnion;
 import util.uri : UrisInfo;
 import util.util : castNonScope_ref;

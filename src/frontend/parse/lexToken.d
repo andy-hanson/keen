@@ -6,10 +6,10 @@ import frontend.parse.lexWhitespace :
 	AddDiag, CStringRange, IndentKind, skipBlankLinesAndGetIndentDelta, skipUntilNewline;
 import frontend.parse.token : Token;
 import model.ast : HighPrecisionFloat, LiteralFloatAst, LiteralIntegral;
+import model.sourceRange : Pos;
 import util.conv : mulWithOverflow, safeToLong, Sign, toLongWithOverflow;
 import util.integralValues : IntegralValue;
 import util.opt : force, has, none, Opt, optOrDefault, some;
-import util.sourceRange : Pos;
 import util.string :
 	CString,
 	decodeHexDigit,

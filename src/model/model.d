@@ -29,6 +29,8 @@ import model.ast :
 	VarDeclAst,
 	VoidDestructureAst;
 import model.parseDiag : ParseDiag, ParseDiagnostic, ReadFileDiag;
+import model.sourceRange :
+	combineRanges, FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters, Pos, Range, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	arrayOfSingle,
@@ -57,8 +59,6 @@ import util.conv : safeToUint, safeToUshort;
 import util.integralValues : IntegralValue;
 import util.late : Late, lateGet, lateIsSet, lateSet, lateSetOverwrite;
 import util.opt : force, has, none, Opt, optEqual, optIf, optOr, optOrDefault, some;
-import util.sourceRange :
-	combineRanges, FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters, Pos, Range, UriAndRange;
 import util.string : SmallString;
 import util.symbol : enumOfSymbol, Symbol, symbol, symbolOfEnum;
 import util.symbolSet : buildSymbolSet, emptySymbolSet, SymbolSet, symbolSet, SymbolSetBuilder;

@@ -9,6 +9,14 @@ import lib.lsp.lspTypes : TextDocumentContentChangeEvent;
 import model.ast : FileAst, fileAstForDiag;
 import model.model : Config, configForDiag, Diag;
 import model.parseDiag : ParseDiag, ParseDiagFileNotUtf8, ReadFileDiag;
+import model.sourceRange :
+	FileContentGetters,
+	LineAndCharacterGetter,
+	LineAndCharacterGetters,
+	LineAndColumnGetter,
+	lineAndColumnGetterForText,
+	LineAndColumnGetters,
+	Range;
 import util.alloc.alloc :
 	Alloc,
 	AllocAndValue,
@@ -24,14 +32,6 @@ import util.col.mutMap : getOrAdd, keys, mayDelete, moveToMap, mustAdd, MutMap, 
 import util.memory : allocate;
 import util.opt : ConstOpt, force, has, MutOpt, none, Opt, some;
 import util.perf : Perf;
-import util.sourceRange :
-	FileContentGetters,
-	LineAndCharacterGetter,
-	LineAndCharacterGetters,
-	LineAndColumnGetter,
-	lineAndColumnGetterForText,
-	LineAndColumnGetters,
-	Range;
 import util.string : CString, cString, CStringAndLength, stringOfRange;
 import util.unicode : FileContent, unicodeValidate;
 import util.union_ : Union;

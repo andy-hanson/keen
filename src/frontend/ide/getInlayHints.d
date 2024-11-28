@@ -44,16 +44,7 @@ import model.model :
 	Type,
 	TypeContainer,
 	TypeWithContainer;
-import util.alloc.alloc : Alloc;
-import util.alloc.stackAlloc : StackArrayBuilder, withBuildStackArray;
-import util.col.array : every, isEmpty, newArray;
-import util.col.arrayBuilder : buildArray, buildSortedArray, Builder;
-import util.col.hashTable : mustGet;
-import util.col.sortUtil : sortInPlace;
-import util.comparison : Comparison;
-import util.exitCode : ExitCode, isOk, Signal;
-import util.opt : force, has, none, Opt, optIf, some;
-import util.sourceRange :
+import model.sourceRange :
 	compareLineAndCharacter,
 	endOfLine,
 	LineAndCharacter,
@@ -65,6 +56,15 @@ import util.sourceRange :
 	UriAndLine,
 	UriAndLineAndCharacterRange,
 	UriAndRange;
+import util.alloc.alloc : Alloc;
+import util.alloc.stackAlloc : StackArrayBuilder, withBuildStackArray;
+import util.col.array : every, isEmpty, newArray;
+import util.col.arrayBuilder : buildArray, buildSortedArray, Builder;
+import util.col.hashTable : mustGet;
+import util.col.sortUtil : sortInPlace;
+import util.comparison : Comparison;
+import util.exitCode : ExitCode, isOk, Signal;
+import util.opt : force, has, none, Opt, optIf, some;
 import util.symbol : compareSymbolsNaturally, stringOfSymbol, Symbol;
 import util.uri : baseName, Uri;
 import util.util : stringOfEnum;

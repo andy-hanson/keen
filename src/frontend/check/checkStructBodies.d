@@ -134,6 +134,7 @@ import model.model :
 	VisibilityWarningFieldMutability,
 	VisibilityWarningKind,
 	VisibilityWarningNew;
+import model.sourceRange : combineRanges, Range;
 import util.alloc.stackAlloc : withStackArray;
 import util.col.array :
 	arrayOfSingle,
@@ -154,7 +155,6 @@ import util.col.hashTable : HashTable, makeHashTable;
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, optFromMut, optIf, some, someMut;
-import util.sourceRange : combineRanges, Range;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet, symbolSet;
 import util.util : enumConvert, enumConvertOrAssert, optEnumConvert, isMultipleOf;

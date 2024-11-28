@@ -38,10 +38,10 @@ import model.model :
 	TypeWithContainer,
 	Varargs,
 	Visibility;
+import model.sourceRange :
+	FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters, PosKind, toUriAndPos, UriAndPos, UriAndRange;
 import util.col.array : isEmpty, only, only2, sizeEq;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange :
-	FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters, PosKind, toUriAndPos, UriAndPos, UriAndRange;
 import util.symbol : Symbol;
 import util.uri : Uri, UrisInfo, writeUriPreferRelative;
 import util.util : stringOfEnum;

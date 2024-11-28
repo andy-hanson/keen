@@ -4,10 +4,10 @@ module interpret.bytecode;
 
 import model.lowModel : LowFunIndex;
 import model.model : VarKind;
+import model.sourceRange : Pos;
 import util.col.map : Map;
 import util.col.enumMap : EnumMap;
 import util.col.fullIndexMap : FullIndexMap;
-import util.sourceRange : Pos;
 
 immutable struct Operation {
 	alias Fn = immutable void function(

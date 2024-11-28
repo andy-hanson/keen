@@ -65,6 +65,7 @@ import model.model :
 	Type,
 	TypeContainer,
 	Varargs;
+import model.sourceRange : Range;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array :
@@ -92,7 +93,6 @@ import util.late : Late, late, lateGet, lateSet;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some, some;
 import util.perf : endMeasure, PerfMeasure, PerfMeasurer, pauseMeasure, resumeMeasure, startMeasure;
-import util.sourceRange : Range;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : SymbolSet;
 import util.union_ : Union;

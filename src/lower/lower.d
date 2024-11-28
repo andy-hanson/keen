@@ -227,6 +227,7 @@ import util.col.array :
 	small,
 	SmallArray,
 	zipPtrFirst;
+import model.sourceRange : UriAndRange;
 import util.col.map : KeyValuePair, makeMapFromKeysOptional, makeMapWithIndex, mustGet, Map;
 import util.col.fullIndexMap : FullIndexMap, fullIndexMapOfArr;
 import util.col.mutArr : moveToArray, mustPop, MutArr, mutArrIsEmpty, mutArrSize, push;
@@ -239,7 +240,6 @@ import util.late : Late, late, lateGet, lateIsSet, lateSet;
 import util.memory : allocate;
 import util.opt : flattenOption, force, has, none, Opt, optIf, some;
 import util.perf : Perf, PerfMeasure, withMeasure;
-import util.sourceRange : UriAndRange;
 import util.symbol : Symbol, symbol, symbolOfEnum;
 import util.union_ : Union;
 import util.uri : Uri;

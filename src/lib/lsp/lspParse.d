@@ -45,12 +45,12 @@ import lib.lsp.lspTypes :
 	TraceValue,
 	TypeDefinitionParams,
 	UnloadedUrisParams;
+import model.sourceRange : LineAndCharacter, LineAndCharacterRange, uriAndLineOfJson;
 import util.alloc.alloc : Alloc;
 import util.col.array : map;
 import util.json : get, hasKey, Json;
 import util.jsonParse : asUint;
 import util.opt : none, Opt, optIf, some;
-import util.sourceRange : LineAndCharacter, LineAndCharacterRange, uriAndLineOfJson;
 import util.uri : mustParseUri, Uri;
 import util.util : enumOfString;
 

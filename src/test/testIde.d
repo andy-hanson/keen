@@ -36,17 +36,7 @@ import lib.lsp.lspTypes :
 	WorkspaceEdit;
 import lib.server : getProgram, getShowDiagCtx, Server;
 import model.model : Program;
-import frontend.showModel : ShowModelCtx;
-import test.testUtil : assertEqual, setupTestServer, Test, UriAndContent, withTestServer;
-import util.alloc.alloc : Alloc;
-import util.alloc.stackAlloc : withMapToStackArray;
-import util.col.array : arraysEqual, isEmpty, mapCompileTime;
-import util.col.arrayBuilder : buildArray, Builder;
-import util.col.mutMap : MutMap;
-import util.json : field, Json, jsonList, jsonNull, jsonObject, optionalArrayField;
-import util.jsonParse : mustParseJson;
-import util.opt : force, has, none, Opt, optIf;
-import util.sourceRange :
+import model.sourceRange :
 	endOfFile,
 	jsonOfLineAndCharacterRange,
 	jsonOfUriAndLineAndCharacterRange,
@@ -59,6 +49,16 @@ import util.sourceRange :
 	UriAndLine,
 	UriAndLineAndCharacterRange,
 	UriLineAndCharacter;
+import frontend.showModel : ShowModelCtx;
+import test.testUtil : assertEqual, setupTestServer, Test, UriAndContent, withTestServer;
+import util.alloc.alloc : Alloc;
+import util.alloc.stackAlloc : withMapToStackArray;
+import util.col.array : arraysEqual, isEmpty, mapCompileTime;
+import util.col.arrayBuilder : buildArray, Builder;
+import util.col.mutMap : MutMap;
+import util.json : field, Json, jsonList, jsonNull, jsonObject, optionalArrayField;
+import util.jsonParse : mustParseJson;
+import util.opt : force, has, none, Opt, optIf;
 import util.string : CString;
 import util.symbol : cStringOfSymbol, Extension, symbolOfString;
 import util.uri : addExtension, alterExtension, mustParseUri, Uri;

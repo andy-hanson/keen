@@ -4,11 +4,7 @@ module lib.lsp.lspTypes;
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/
 
-import util.exitCode : ExitCode, ExitCodeOrSignal;
-import util.col.map : KeyValuePair;
-import util.col.mutMap : MutMap;
-import util.opt : Opt;
-import util.sourceRange :
+import model.sourceRange :
 	LineAndCharacter,
 	LineAndCharacterRange,
 	Pos,
@@ -16,6 +12,10 @@ import util.sourceRange :
 	UriAndLine,
 	UriLineAndCharacter,
 	UriAndLineAndCharacterRange;
+import util.exitCode : ExitCode, ExitCodeOrSignal;
+import util.col.map : KeyValuePair;
+import util.col.mutMap : MutMap;
+import util.opt : Opt;
 import util.string : SmallString;
 import util.union_ : Union;
 import util.uri : Uri;

@@ -61,9 +61,9 @@ import model.lowModel :
 	VarSetLowExpr;
 import model.model : Local;
 import model.jsonOfConcreteModel : jsonOfConcreteFunRef, jsonOfConcreteStructRef, jsonOfIntegralValues;
+import model.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetters;
 import util.alloc.alloc : Alloc;
 import util.json : field, jsonObject, Json, jsonList, jsonString, kindField;
-import util.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetters;
 import util.util : castNonScope, stringOfEnum;
 
 Json jsonOfLowProgram(ref Alloc alloc, in LineAndColumnGetters lineAndColumnGetters, in LowProgram a) {

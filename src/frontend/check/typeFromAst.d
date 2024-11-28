@@ -68,13 +68,13 @@ import model.model :
 	TypeWithContainer,
 	TypeParamIndex,
 	TypeParams;
+import model.sourceRange : combineRanges, Range;
 import util.alloc.stackAlloc : withMapOrNoneToStackArray, withMapToStackArray;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array : arrayOfSingle, eachPair, findIndex, isEmpty, map, mapPointers, mapZipPtrFirst, only, small;
 import util.conv : safeToUint;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
-import util.sourceRange : combineRanges, Range;
 import util.symbol : Symbol, symbol;
 import util.util : castNonScope_ref, ptrTrustMe;
 

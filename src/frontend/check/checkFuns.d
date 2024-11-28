@@ -67,6 +67,7 @@ import model.model :
 	VarDecl,
 	Visibility;
 import model.parseDiag : ParseDiag, ParseDiagFileNotUtf8;
+import model.sourceRange : Range;
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array : isEmpty, mapOp, mapWithResultPointer, mustFind, small, SmallArray, zipPointers;
@@ -75,7 +76,6 @@ import util.col.exactSizeArrayBuilder : buildArrayExact, ExactSizeArrayBuilder, 
 import util.col.hashTable : insertOrUpdate, mapAndMovePreservingKeys, MutHashTable;
 import util.memory : initMemory;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : Range;
 import util.string : CStringAndLength;
 import util.symbol : Symbol;
 import util.symbolSet : emptySymbolSet, SymbolSet;

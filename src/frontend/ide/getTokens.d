@@ -91,13 +91,7 @@ import model.ast :
 	VarDeclAst,
 	VoidDestructureAst,
 	WithAst;
-import util.alloc.alloc : Alloc;
-import util.col.array : newArray, only, zip;
-import util.col.arrayBuilder : add, addAll, ArrayBuilder, buildArray, Builder, finish;
-import util.conv : safeToUint;
-import util.json : field, Json, jsonList, jsonObject, jsonString;
-import util.opt : force, has, Opt;
-import util.sourceRange :
+import model.sourceRange :
 	LineAndCharacterGetter,
 	LineAndCharacter,
 	LineAndCharacterRange,
@@ -106,6 +100,12 @@ import util.sourceRange :
 	rangeContains,
 	rangeOfStartAndLength,
 	Range;
+import util.alloc.alloc : Alloc;
+import util.col.array : newArray, only, zip;
+import util.col.arrayBuilder : add, addAll, ArrayBuilder, buildArray, Builder, finish;
+import util.conv : safeToUint;
+import util.json : field, Json, jsonList, jsonObject, jsonString;
+import util.opt : force, has, Opt;
 import util.string : CString, cStringSize;
 import util.symbol : symbol;
 import util.util : stringOfEnum;

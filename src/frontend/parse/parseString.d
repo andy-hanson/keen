@@ -15,11 +15,11 @@ import frontend.parse.parseUtil : peekToken, skipBlankLines, takeNameOrOperator,
 import model.ast :
 	DocCommentAst, DocCommentContent, ExprAst, ExprAstKind, InterpolatedAst, LiteralStringAst, NameAndRange;
 import model.parseDiag : ParseDiag, ParseDiagMissingInterpolated;
+import model.sourceRange : Pos, Range;
 import util.col.array : isEmpty;
 import util.col.arrayBuilder : add, ArrayBuilder, finish, smallFinish;
 import util.memory : allocate;
 import util.opt : some;
-import util.sourceRange : Pos, Range;
 
 DocCommentAst tryTakeDocComment(ref Lexer lexer) {
 	skipBlankLines(lexer);

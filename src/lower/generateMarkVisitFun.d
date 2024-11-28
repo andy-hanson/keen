@@ -27,6 +27,7 @@ import model.lowModel :
 	LowUnionIndex,
 	PrimitiveType;
 import model.model : BuiltinUnary;
+import model.sourceRange : UriAndRange;
 import lower.lowerUtil : addLowFun, GetLowTypeCtx, getPointerConst, LowFunCause;
 import lower.lowExprHelpers :
 	boolType,
@@ -67,7 +68,6 @@ import util.col.mutIndexMap : getOrAdd, MutIndexMap, newMutIndexMap;
 import util.col.mutMap : getOrAdd, MutMap;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
-import util.sourceRange : UriAndRange;
 import util.symbol : symbol;
 
 struct MarkVisitFuns {

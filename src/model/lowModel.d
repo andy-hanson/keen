@@ -23,6 +23,7 @@ import model.model :
 	BuiltinTernary,
 	Local,
 	TypeSize;
+import model.sourceRange : UriAndRange;
 import util.col.array : isEmpty, SmallArray;
 import util.col.map : Map;
 import util.col.fullIndexMap : FullIndexMap, indexOfPointer;
@@ -30,7 +31,6 @@ import util.hash : HashCode, hashTaggedPointer;
 import util.integralValues : IntegralValues;
 import util.late : Late, lateGet, lateSet;
 import util.opt : has, none, Opt;
-import util.sourceRange : UriAndRange;
 import util.string : CString;
 import util.symbol : Symbol, symbol, symbolOfEnum;
 import util.union_ : IndexType, TaggedUnion, Union;

@@ -65,12 +65,12 @@ import model.model :
 	VarDecl,
 	VarGet,
 	VarSet;
+import model.sourceRange : compareUriAndRange;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array : first, firstWithIndex, map;
 import util.comparison : Comparison;
 import util.conv : safeToUshort, safeToUint;
 import util.opt : force, has, none, Opt, optIf, optOrDefault,some;
-import util.sourceRange : compareUriAndRange;
 import util.symbol : Symbol;
 
 void checkDocComments(

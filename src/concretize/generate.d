@@ -72,6 +72,7 @@ import model.model :
 	Record,
 	RecordField,
 	RecordFieldCall;
+import model.sourceRange : UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	isEmpty,
@@ -90,7 +91,6 @@ import util.conv : safeToUint;
 import util.integralValues : IntegralValue, IntegralValues, integralValuesRange, mapToIntegralValues;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : UriAndRange;
 import util.string : bytesOfString;
 import util.symbol : Symbol;
 import util.unicode : mustUnicodeDecode;

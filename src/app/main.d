@@ -119,6 +119,7 @@ import lib.server :
 import model.lowModel : ExternLibraries;
 import model.model : BuildTarget, hasAnyDiagnostics, Program, ProgramWithMain;
 import model.parseDiag : ReadFileDiag;
+import model.sourceRange : UriLineAndColumn;
 version (Test) {
 	import test.test : test;
 }
@@ -132,7 +133,6 @@ import util.late : Late, late, lateGet, lateIsSet, lateSet;
 import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
 import util.perf : disablePerf, isEnabled, Perf, PerfMeasure, withMeasureNoAlloc, withNullPerf;
 import util.perfReport : perfReport;
-import util.sourceRange : UriLineAndColumn;
 import util.string : CString, mustStripPrefix, MutCString;
 import util.symbol : Extension, symbol;
 import util.unicode : FileContent;

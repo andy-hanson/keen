@@ -29,12 +29,12 @@ import model.ast :
 	TypeAst;
 import model.parseDiag :
 	ParseDiag, ParseDiagExpected, ParseDiagImportFileTypeNotSupported, ParseDiagTrailingComma;
+import model.sourceRange : Pos, Range;
 import util.col.array : emptySmallArray, small, SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.conv : safeToUshort;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : Pos, Range;
 import util.symbol : concatSymbolsWithDot, Symbol, symbol;
 import util.uri : Path, RelPath, rootPathPlain;
 

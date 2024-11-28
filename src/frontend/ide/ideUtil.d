@@ -26,11 +26,11 @@ import model.ast :
 	VarDeclAst,
 	VoidDestructureAst;
 import model.model : BogusType, FunDecl, FunSourceAst, SpecInst, SpecDecl, StructInst, Type, TypeParamIndex;
+import model.sourceRange : compareLineAndCharacterRange, Pos, UriAndLineAndCharacterRange, UriAndRange;
 import util.col.array : arrayOfSingle, count, firstZip, isEmpty, only, only2;
 import util.col.sortUtil : eachSorted, sortedIter;
 import util.comparison : compareOr, Comparison;
 import util.opt : force, has, none, Opt, optOr, some;
-import util.sourceRange : compareLineAndCharacterRange, Pos, UriAndLineAndCharacterRange, UriAndRange;
 import util.uri : compareUriNaturally;
 import util.util : ptrTrustMe;
 

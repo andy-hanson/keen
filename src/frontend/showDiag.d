@@ -237,6 +237,7 @@ import model.parseDiag :
 	ParseDiagUnexpectedOperator,
 	ParseDiagUnexpectedToken,
 	ReadFileDiag;
+import model.sourceRange : compareRange;
 import util.alloc.alloc : Alloc;
 import util.col.array : contains, exists, isEmpty, only;
 import util.col.arrayBuilder : arrayBuilderSort, buildArray, Builder;
@@ -244,7 +245,6 @@ import util.col.multiMap : makeMultiMap, MultiMap, MultiMapCb;
 import util.col.sortUtil : sorted;
 import util.comparison : Comparison;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : compareRange;
 import util.symbol : Symbol, symbol;
 import util.uri : baseName, compareUriNaturally, Uri;
 import util.util : stringOfEnum, max;

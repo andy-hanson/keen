@@ -75,6 +75,7 @@ import model.model :
 	RecordField,
 	StructBody,
 	SumTypeMemberAndMethodImpls;
+import model.sourceRange : UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	allSame,
@@ -93,7 +94,6 @@ import util.conv : safeToUint;
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt;
-import util.sourceRange : UriAndRange;
 import util.symbol : Symbol, symbol;
 
 ConcreteExpr concretizeAutoFun(ref ConcretizeExprCtx ctx, ref AutoFun a) {

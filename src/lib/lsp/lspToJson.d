@@ -41,19 +41,19 @@ import lib.lsp.lspTypes :
 	UnloadedUris,
 	WorkspaceEdit,
 	Write;
-import util.alloc.alloc : Alloc;
-import util.col.array : map;
-import util.col.map : KeyValuePair;
-import util.exitCode : ExitCode, Signal;
-import util.json : field, Json, jsonBool, jsonList, jsonNull, jsonObject, jsonString, optionalField, optionalFlagField;
-import util.opt : force, has, Opt;
-import util.sourceRange :
+import model.sourceRange :
 	jsonOfLineAndCharacter,
 	jsonOfLineAndCharacterRange,
 	jsonOfUriAndLine,
 	jsonOfUriAndLineAndCharacterRange,
 	Pos,
 	UriAndLineAndCharacterRange;
+import util.alloc.alloc : Alloc;
+import util.col.array : map;
+import util.col.map : KeyValuePair;
+import util.exitCode : ExitCode, Signal;
+import util.json : field, Json, jsonBool, jsonList, jsonNull, jsonObject, jsonString, optionalField, optionalFlagField;
+import util.opt : force, has, Opt;
 import util.uri : stringOfUri, symbolOfUri, Uri;
 import util.util : stringOfEnum;
 

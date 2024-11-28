@@ -4,9 +4,9 @@ module frontend.parse.lexWhitespace;
 
 import model.parseDiag :
 	ParseDiag, ParseDiagExpected, ParseDiagIndentNotDivisible, ParseDiagIndentTooMuch, ParseDiagIndentWrongCharacter;
+import model.sourceRange : Pos, Range;
 import util.col.array : isEmpty;
 import util.conv : safeIntFromUint;
-import util.sourceRange : Pos, Range;
 import util.string : CString, cString, cStringIsEmpty, isWhitespace, MutCString, tryTakeChar, tryTakeChars;
 import util.util : castNonScope_ref;
 

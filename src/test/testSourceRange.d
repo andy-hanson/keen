@@ -2,8 +2,7 @@ module test.testSourceRange;
 
 @safe @nogc pure nothrow:
 
-import test.testUtil : assertEqual, Test;
-import util.sourceRange :
+import model.sourceRange :
 	LineAndCharacter,
 	LineAndCharacterGetter,
 	LineAndColumn,
@@ -12,6 +11,7 @@ import util.sourceRange :
 	lineLengthInCharacters,
 	Pos,
 	PosKind;
+import test.testUtil : assertEqual, Test;
 import util.string : CString, cString, MutCString, startsWith;
 
 void testSourceRange(ref Test test) {

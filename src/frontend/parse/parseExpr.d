@@ -100,12 +100,12 @@ import model.ast :
 	VoidDestructureAst,
 	WithAst;
 import model.parseDiag : ParseDiag, ParseDiagExpected, ParseDiagMatchCaseInterpolated, ParseDiagNeedsBlockCtx;
+import model.sourceRange : Pos, Range;
 import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, newArray, newSmallArray, only2, SmallArray;
 import util.col.arrayBuilder : add, ArrayBuilder, arrayBuilderIsEmpty, buildArray, buildSmallArray, Builder, finish;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some, some;
-import util.sourceRange : Pos, Range;
 import util.symbol : Symbol, symbol;
 import util.util : max;
 

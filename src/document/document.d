@@ -56,7 +56,7 @@ import util.json :
 	jsonString,
 	kindField;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : compareUriAndRange, FileContentGetters, UriAndRange;
+import model.sourceRange : compareUriAndRange, FileContentGetters, UriAndRange;
 import util.string : isWhitespace;
 import util.symbol : Symbol, symbol;
 import util.uri : stringOfUri, Uri;

@@ -73,6 +73,7 @@ import model.model :
 	SumTypeMemberAndMethodImpls,
 	SumTypeMembership,
 	worsePurity;
+import model.sourceRange : FileContentGetters;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapOrNoneToStackArray, withMapToStackArray;
 import util.col.array :
@@ -98,7 +99,6 @@ import util.col.mutMap : getOrAddAndDidAdd, mustAdd, mustGet, MutMap, ValueAndDi
 import util.late : Late, late, lateGet, lateSet, lazilySet;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optOrDefault, some;
-import util.sourceRange : FileContentGetters;
 import util.symbol : Symbol, symbol;
 import util.symbolSet : SymbolSet;
 import util.util : enumConvert, max, roundUp, typeAs;

@@ -179,6 +179,7 @@ import model.model :
 	TypeParamIndex,
 	UnpackOption,
 	Varargs;
+import model.sourceRange : Range, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapToStackArray;
 import util.col.array :
@@ -196,7 +197,6 @@ import util.col.map : KeyValuePair;
 import util.conv : safeToUshort;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
-import util.sourceRange : Range, UriAndRange;
 import util.symbol : Symbol, symbol;
 import util.unicode : mustUnicodeDecode;
 import util.util : ptrTrustMe;

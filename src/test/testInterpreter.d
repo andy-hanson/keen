@@ -74,6 +74,7 @@ import model.lowModel :
 	LowUnionIndex,
 	PrimitiveType;
 import model.model : VarKind;
+import model.sourceRange : Pos;
 import model.typeLayout : Pack, PackField;
 import test.testUtil : expectDataStack, expectReturnStack, Test, withShowDiagCtxForTestImpure;
 import util.alloc.alloc : Alloc;
@@ -82,7 +83,6 @@ import util.col.enumMap : EnumMap;
 import util.col.fullIndexMap : emptyFullIndexMap, fullIndexMapOfArr;
 import util.integralValues : integralValuesRange;
 import util.memory : allocate;
-import util.sourceRange : Pos;
 import util.symbol : symbol;
 import util.util : castNonScope, castNonScope_ref, ptrTrustMe;
 import versionInfo : OS, versionInfoForInterpret, VersionOptions;

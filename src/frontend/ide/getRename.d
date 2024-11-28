@@ -7,11 +7,11 @@ import frontend.ide.position : Position;
 import frontend.ide.getReferences : eachReferenceForTarget, IncludeImports;
 import lib.lsp.lspTypes : TextEdit, WorkspaceEdit;
 import model.model : Program;
+import model.sourceRange : compareLineAndCharacterRange, UriAndLineAndCharacterRange, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : add, buildGroupedAndSorted, GroupedSortedBuilder;
 import util.comparison : Comparison;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : compareLineAndCharacterRange, UriAndLineAndCharacterRange, UriAndRange;
 import util.string : copyString;
 import util.uri : compareUriNaturally, Uri;
 

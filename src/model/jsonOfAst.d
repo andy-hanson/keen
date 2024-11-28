@@ -93,6 +93,7 @@ import model.ast :
 	VoidDestructureAst,
 	WithAst;
 import model.model : Visibility;
+import model.sourceRange : jsonOfLineAndColumn, jsonOfLineAndColumnRange, LineAndColumnGetter, Pos, PosKind, Range;
 import util.alloc.alloc : Alloc;
 import util.json :
 	field,
@@ -106,7 +107,6 @@ import util.json :
 	jsonString,
 	kindField;
 import util.opt : force, Opt;
-import util.sourceRange : jsonOfLineAndColumn, jsonOfLineAndColumnRange, LineAndColumnGetter, Pos, PosKind, Range;
 import util.uri : Path, RelPath, stringOfPath;
 import util.util : stringOfEnum;
 import util.writer : makeStringWithWriter;

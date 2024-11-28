@@ -19,12 +19,12 @@ import model.model :
 	FunDecl,
 	FunPointerExpr,
 	TypeContainer;
+import model.sourceRange : Range;
 import util.alloc.alloc : Alloc;
 import util.col.array : map;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, finish, newExactSizeArrayBuilder;
 import util.conv : safeToUint;
 import util.opt : none, Opt, some;
-import util.sourceRange : Range;
 import util.string : smallString;
 import util.writer : curUtf16Offset, makeStringWithWriter, Writer;
 

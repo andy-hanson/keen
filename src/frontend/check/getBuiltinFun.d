@@ -69,8 +69,8 @@ import model.model :
 	StructInst,
 	Type,
 	TypeParamIndex;
+import model.sourceRange : Range;
 import util.opt : force, has, none, Opt, some;
-import util.sourceRange : Range;
 import util.symbol : Symbol, symbol;
 import versionInfo : VersionFun;
 

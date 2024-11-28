@@ -27,11 +27,11 @@ import model.model :
 	TypeContainer,
 	TypeParamIndex,
 	VarDecl;
+import model.sourceRange : UriAndLineAndCharacterRange, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.array : only;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.opt : force, has, Opt;
-import util.sourceRange : UriAndLineAndCharacterRange, UriAndRange;
 import util.uri : Uri;
 import util.util : castNonScope_ref;
 

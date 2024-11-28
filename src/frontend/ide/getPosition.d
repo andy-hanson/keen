@@ -191,11 +191,11 @@ import model.model :
 	TypeWithContainer,
 	UnpackOption,
 	VarDecl;
+import model.sourceRange : combineRanges, Pos, Range;
 import util.col.array : findIndex, first, firstPointer, firstZip, firstZipIfSizeEq, firstZipPointerFirst, isEmpty;
 import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
 import util.conv : safeToUint;
 import util.opt : force, has, none, Opt, optIf, optOr, optOr, optOrDefault, some;
-import util.sourceRange : combineRanges, Pos, Range;
 import util.util : enumConvert;
 
 enum GetPositionKind {

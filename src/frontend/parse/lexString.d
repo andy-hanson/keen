@@ -4,10 +4,10 @@ module frontend.parse.lexString;
 
 import frontend.parse.lexWhitespace : AddDiag;
 import model.parseDiag : ParseDiag, ParseDiagExpected, ParseDiagInvalidStringEscape;
+import model.sourceRange : Pos, Range, rangeOfStartAndLength;
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.opt : force, has, none, Opt, optIf;
-import util.sourceRange : Pos, Range, rangeOfStartAndLength;
 import util.string : CString, decodeHexDigit, MutCString, stringOfRange, takeChar, tryTakeChars;
 import util.unicode : safeToChar, tryUnicodeEncode;
 import util.util : castNonScope_ref;

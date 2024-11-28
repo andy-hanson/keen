@@ -49,6 +49,7 @@ import model.model :
 	Type,
 	TypeArgs,
 	TypeContainer;
+import model.sourceRange : Range;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withExactStackArray, withMapOrNoneToStackArray, withMaxStackArray;
 import util.cell : Cell, cellGet, cellSet;
@@ -57,7 +58,6 @@ import util.col.arrayBuilder : add, ArrayBuilder, arrayBuilderIsEmpty, finish;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder, finish, smallFinish;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, optOr, some;
-import util.sourceRange : Range;
 import util.symbol : Symbol;
 import util.symbolSet : SymbolSet;
 import util.union_ : Union;

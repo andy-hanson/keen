@@ -99,11 +99,11 @@ import model.model :
 	TypeWithContainer,
 	UnpackOption,
 	VarDecl;
+import model.sourceRange : PosKind;
 import util.alloc.alloc : Alloc;
 import util.col.array : only;
 import util.conv : safeToUint;
 import util.opt : force, has, Opt;
-import util.sourceRange : PosKind;
 import util.symbol : Symbol;
 import util.uri : Uri;
 import util.util : stringOfEnum;

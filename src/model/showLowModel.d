@@ -27,8 +27,8 @@ import model.lowModel :
 	LowUnion,
 	PrimitiveType;
 import model.model : Local;
+import model.sourceRange : UriLineAndColumnRange;
 import util.col.array : only;
-import util.sourceRange : UriLineAndColumnRange;
 import util.util : stringOfEnum;
 import util.writer : Writer, writeWithCommas;
 

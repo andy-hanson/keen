@@ -90,6 +90,7 @@ import model.model :
 	VarDecl,
 	VarGet,
 	VarSet;
+import model.sourceRange : UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, isEmpty, mapPointers, newSmallArray, only, onlyPointer;
 import util.col.arrayBuilder : buildArray, Builder;
@@ -97,7 +98,6 @@ import util.col.hashTable : getOrAdd;
 import util.col.mutArr : push;
 import util.integralValues : IntegralValue;
 import util.memory : allocate;
-import util.sourceRange : UriAndRange;
 import util.symbol : symbol;
 
 void fillInConcreteFunBody(ref ConcretizeCtx ctx, ConcreteFun* cf) {

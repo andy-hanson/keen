@@ -7,10 +7,10 @@ import frontend.ide.getTarget : Target, targetForPosition;
 import frontend.ide.ideUtil : ReferenceCb;
 import frontend.ide.position : Position;
 import model.model : Called, FunInst, Module, Program, Signature, signatureIndex, StructDecl, SumTypeMembership;
+import model.sourceRange : UriAndLineAndCharacterRange, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : buildArray, Builder;
 import util.opt : force, has, Opt;
-import util.sourceRange : UriAndLineAndCharacterRange, UriAndRange;
 import util.uri : Uri;
 
 UriAndLineAndCharacterRange[] getImplementationForPosition(ref Alloc alloc, in Program program, in Position pos) =>

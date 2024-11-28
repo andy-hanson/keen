@@ -14,12 +14,12 @@ import model.model :
 	NameReferents,
 	Program,
 	Visibility;
+import model.sourceRange : UriAndRange;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array : isEmpty;
 import util.col.tempSet : mustAdd, TempSet, tryAdd, withTempSet;
 import util.opt : force, has, Opt;
 import util.col.sortUtil : sortInPlace;
-import util.sourceRange : UriAndRange;
 import util.symbol : Symbol;
 import util.uri : compareUriNaturally, Uri;
 import util.util : ptrTrustMe;

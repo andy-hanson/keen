@@ -167,6 +167,7 @@ import model.model :
 	TypedExpr,
 	UnpackOption,
 	VariableRef;
+import model.sourceRange : Range, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	isEmpty,
@@ -188,7 +189,6 @@ import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
 import util.integralValues : IntegralValue, IntegralValues, integralValuesRange, mapToIntegralValues;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some;
-import util.sourceRange : Range, UriAndRange;
 import util.symbol : symbol, symbolOfString;
 import util.union_ : Union;
 import util.uri : Uri;

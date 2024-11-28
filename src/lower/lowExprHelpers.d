@@ -46,13 +46,13 @@ import model.lowModel :
 	UnionKindLowExpr,
 	VarGetLowExpr,
 	VarSetLowExpr;
+import model.sourceRange : UriAndRange;
 import model.typeLayout : typeSizeBytes;
 import util.alloc.alloc : Alloc;
 import util.col.array : foldReverse, mapWithIndex, newArray, small, SmallArray;
 import util.conv : safeToUint;
 import util.integralValues : IntegralValue, integralValuesRange;
 import util.memory : allocate;
-import util.sourceRange : UriAndRange;
 import util.symbol : Symbol, symbol;
 
 LowType boolType() => LowType(PrimitiveType.bool_);
