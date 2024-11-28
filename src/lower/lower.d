@@ -186,6 +186,7 @@ import model.model :
 	BuiltinFunAllTests,
 	BuiltinFunCallLambda,
 	BuiltinFunCallFunPointer,
+	BuiltinFunConstant,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
 	BuiltinFunNewEmptyOption,
@@ -1345,8 +1346,8 @@ LowExpr getCallBuiltinExpr(
 			assert(false), // handled in concretize
 		(BuiltinFunCallFunPointer _) =>
 			callFunPointer(ctx, ExprPos.nonTail, locals, range, type, only2(args)),
-		(Constant x) =>
-			LowExpr(type, range, LowExprKind(x)),
+		(BuiltinFunConstant x) =>
+			assert(false), // handled in concretize
 		(BuiltinFunGcSafeValue _) =>
 			// handled in concretize
 			assert(false),

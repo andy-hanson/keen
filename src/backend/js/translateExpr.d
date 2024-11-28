@@ -80,11 +80,11 @@ import backend.js.translateExprCtx :
 	StatementsCb,
 	tempName,
 	TranslateCb,
-	translateConstant,
 	translateEnumValue,
 	TranslateExprCtx,
 	translateFunToExpr,
 	translateCallInline,
+	translateLiteral,
 	translateLocalGet,
 	translateStructReference,
 	translateToBlockStatement,
@@ -528,7 +528,7 @@ ExprResult translateExpr(ref TranslateExprCtx ctx, ref Expr a, Type type, scope 
 		(ref LetExpr x) =>
 			translateLet(ctx, source, x, type, pos),
 		(LiteralExpr x) =>
-			forceExpr(ctx, pos, type, translateConstant(ctx.ctx, source, x.value, type)),
+			forceExpr(ctx, pos, type, translateLiteral(ctx, source, x, type)),
 		(LiteralStringLikeExpr x) =>
 			forceExpr(ctx, pos, type, translateLiteralStringLike(ctx, source, x)),
 		(LocalGetExpr x) {

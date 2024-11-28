@@ -3,7 +3,6 @@ module backend.js.allUsed;
 @safe @nogc pure nothrow:
 
 import backend.js.jsAst : SyncOrAsync;
-import model.constant : Constant;
 import model.model :
 	AnyDecl,
 	asExtern,
@@ -22,6 +21,7 @@ import model.model :
 	BuiltinFunAllTests,
 	BuiltinFunCallFunPointer,
 	BuiltinFunCallLambda,
+	BuiltinFunConstant,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
 	BuiltinFunMarkRoot,
@@ -308,7 +308,7 @@ private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 			true,
 		(in BuiltinFunCallFunPointer _) =>
 			true,
-		(in Constant _) =>
+		(in BuiltinFunConstant _) =>
 			true,
 		(in BuiltinFunGcSafeValue _) =>
 			true,

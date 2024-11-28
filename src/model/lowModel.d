@@ -240,6 +240,11 @@ private immutable struct LowTypeCombinePointer {
 bool isPrimitiveType(LowType a, PrimitiveType p) =>
 	a.isA!PrimitiveType && a.as!PrimitiveType == p;
 
+LowType arrayElementType(LowType a) {
+	assert(isArrayOrMutArray(*a.as!(LowRecord*).source));
+	return asNonGcPointee(a.as!(LowRecord*).fields[1].type);
+}
+
 immutable struct LowFieldSource {
 	mixin TaggedUnion!(ConcreteField*, LowArrayField);
 }

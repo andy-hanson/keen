@@ -57,6 +57,7 @@ import model.model :
 	BuiltinFunAllTests,
 	BuiltinFunCallFunPointer,
 	BuiltinFunCallLambda,
+	BuiltinFunConstant,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
 	BuiltinFunMarkRoot,
@@ -308,7 +309,7 @@ void checkBuiltin(ref Ctx ctx, in ConcreteType type, in BuiltinConcreteExpr a) {
 		(BuiltinFunCallFunPointer _) {
 			assert(false);
 		},
-		(Constant _) {
+		(BuiltinFunConstant _) {
 			assert(false);
 		},
 		(BuiltinFunGcSafeValue _) {

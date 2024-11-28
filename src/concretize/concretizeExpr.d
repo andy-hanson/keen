@@ -95,7 +95,7 @@ import model.concreteModel :
 	ThrowConcreteExpr,
 	TryConcreteExpr,
 	TryLetConcreteExpr;
-import model.constant : asBool, asNat64, Constant, constantBool, ConstantFunPointer, constantZero;
+import model.constant : asBool, asNat64, Constant, constantBool, ConstantFloat, ConstantFunPointer, constantZero;
 import model.model :
 	AssertOrForbidExpr,
 	BogusCallExpr,
@@ -749,6 +749,18 @@ ConcreteExpr concretizeWithDestructurePartsRecur(
 	}
 }
 
+ConcreteExpr concretizeLiteral(
+	ref ConcretizeExprCtx,
+	ConcreteType type,
+	in UriAndRange range,
+	in LiteralExpr a,
+) =>
+	genConstant(type, range, a.match!Constant(
+		(IntegralValue x) =>
+			Constant(x),
+		(double x) =>
+			Constant(ConstantFloat(x))));
+
 ConcreteExpr concretizeIf(
 	ref ConcretizeExprCtx ctx,
 	ConcreteType type,
@@ -1163,7 +1175,7 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 		(LetExpr* x) =>
 			concretizeLet(ctx, type, range, locals, *x),
 		(LiteralExpr x) =>
-			ConcreteExpr(type, range, ConcreteExprKind(x.value)),
+			concretizeLiteral(ctx, type, range, x),
 		(LiteralStringLikeExpr x) =>
 			concretizeLiteralStringLike(ctx, type, range, x.kind, x.value),
 		(LocalGetExpr x) =>

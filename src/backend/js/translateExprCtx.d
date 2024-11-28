@@ -69,7 +69,6 @@ import backend.js.translateModuleCtx :
 	translateStructReference,
 	translateTestReference,
 	translateVarReference;
-import model.constant : asBool, asInt64, asNat64, Constant, ConstantFloat, ConstantZero;
 import model.model :
 	AutoFun,
 	Builtin4ary,
@@ -80,6 +79,9 @@ import model.model :
 	BuiltinFunAllTests,
 	BuiltinFunCallLambda,
 	BuiltinFunCallFunPointer,
+	BuiltinFunConstant,
+	BuiltinFunConstantNull,
+	BuiltinFunConstantVoid,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
 	BuiltinFunMarkRoot,
@@ -114,8 +116,11 @@ import model.model :
 	FunDecl,
 	FunInst,
 	FunKind,
+	IntegralType,
+	isSigned,
 	isVoid,
 	JsFun,
+	LiteralExpr,
 	Local,
 	mustUnwrapOptionType,
 	RecordField,
@@ -138,12 +143,14 @@ import util.alloc.alloc : Alloc;
 import util.col.array : emptySmallArray, isEmpty, makeArray, map, newArray, only;
 import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder, finish;
 import util.conv : safeToUshort;
+import util.integralValues : IntegralValue;
 import util.memory : allocate;
-import util.opt : force, none, some;
+import util.opt : force, has, none, Opt, some;
 import util.sourceRange : FileContentGetters;
 import util.symbol : Symbol, symbol;
 import util.union_ : TaggedUnion, Union;
 import util.uri : Uri;
+import util.util : optEnumConvert;
 import versionInfo : isVersion, VersionFun;
 
 struct TranslateExprCtx {
@@ -597,7 +604,7 @@ private ExprResult translateCallBuiltin(
 				source,
 				allocate(ctx.alloc, getArg(0)),
 				makeArray(ctx.alloc, nArgs - 1, (size_t i) => getArg(i + 1)))),
-		(in Constant x) {
+		(in BuiltinFunConstant x) {
 			assert(nArgs == 0);
 			return expr(translateConstant(ctx.ctx, source, x, returnType));
 		},
@@ -633,31 +640,41 @@ private ExprResult translateCallBuiltin(
 		});
 }
 
-JsExpr translateConstant(ref TranslateModuleCtx ctx, in Source source, in Constant value, in Type type) {
+JsExpr translateLiteral(ref TranslateExprCtx ctx, in Source source, in LiteralExpr a, in Type type) {
+	BuiltinType builtin = type.as!(StructInst*).decl.body_.as!BuiltinType;
+	return a.match!JsExpr(
+		(IntegralValue x) {
+			Opt!IntegralType integral = optEnumConvert!(IntegralType, BuiltinType)(builtin);
+			return has(integral) && isSigned(force(integral)) // character types are unsigned
+				? genIntegerSigned(source, x.asSigned)
+				: genIntegerUnsigned(source, x.asUnsigned);
+		},
+		(double x) {
+			JsExpr num = genNumber(source, x);
+			switch (builtin) {
+				case BuiltinType.float32:
+					return toFloat32(ctx.alloc, source, num);
+				case BuiltinType.float64:
+					return num;
+				default:
+					assert(false);
+			}
+		});
+}
+JsExpr translateConstant(ref TranslateModuleCtx ctx, in Source source, in BuiltinFunConstant value, in Type type) {
 	if (type.isA!TypeParamIndex) {
-		assert(value.isA!ConstantZero);
+		assert(value.isA!BuiltinFunConstantNull);
 		return genNull(source);
 	} else {
 		switch (type.as!(StructInst*).decl.body_.as!BuiltinType) {
 			case BuiltinType.bool_:
-				return genBool(source, asBool(value));
+				return genBool(source, value.as!bool);
 			case BuiltinType.float32:
-				return toFloat32(ctx.alloc, source, genNumber(source, value.as!ConstantFloat.value));
+				return toFloat32(ctx.alloc, source, genNumber(source, value.as!double));
 			case BuiltinType.float64:
-				return genNumber(source, value.as!ConstantFloat.value);
-			case BuiltinType.int8:
-			case BuiltinType.int16:
-			case BuiltinType.int32:
-			case BuiltinType.int64:
-				return genIntegerSigned(source, asInt64(value));
-			case BuiltinType.char8:
-			case BuiltinType.char32:
-			case BuiltinType.nat8:
-			case BuiltinType.nat16:
-			case BuiltinType.nat32:
-			case BuiltinType.nat64:
-				return genIntegerUnsigned(source, asNat64(value));
+				return genNumber(source, value.as!double);
 			case BuiltinType.void_:
+				assert(value.isA!BuiltinFunConstantVoid);
 				return genUndefined(ctx.alloc, source);
 			default:
 				assert(false);

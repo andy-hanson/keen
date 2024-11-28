@@ -3,8 +3,6 @@ module model.jsonOfModel;
 @safe @nogc pure nothrow:
 
 import model.ast : ImportOrExportAst, NameAndRange;
-import model.constant : Constant;
-import model.jsonOfConstant : jsonOfConstant;
 import model.model :
 	AnyDecl,
 	AssertOrForbidExpr,
@@ -21,6 +19,9 @@ import model.model :
 	BuiltinFunAllTests,
 	BuiltinFunCallFunPointer,
 	BuiltinFunCallLambda,
+	BuiltinFunConstant,
+	BuiltinFunConstantNull,
+	BuiltinFunConstantVoid,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
 	BuiltinFunInitKind,
@@ -155,6 +156,7 @@ import model.model :
 import util.alloc.alloc : Alloc;
 import util.col.array : map, mapOp;
 import util.col.arrayBuilder : buildArray, Builder;
+import util.integralValues : IntegralValue;
 import util.json :
 	field,
 	Json,
@@ -220,8 +222,8 @@ Json jsonOfBuiltin(ref Alloc alloc, in BuiltinFun a) =>
 			jsonString!"call-lambda",
 		(in BuiltinFunCallFunPointer x) =>
 			jsonString!"call-fun-pointer",
-		(in Constant x) =>
-			jsonOfConstant(alloc, x),
+		(in BuiltinFunConstant x) =>
+			jsonOfBuiltinFunConstant(x),
 		(in BuiltinFunGcSafeValue _) =>
 			jsonString!"gc-safe-value",
 		(in BuiltinFunInit x) {
@@ -252,6 +254,17 @@ Json jsonOfBuiltin(ref Alloc alloc, in BuiltinFun a) =>
 			jsonString(stringOfEnum(x)));
 
 private:
+
+Json jsonOfBuiltinFunConstant(in BuiltinFunConstant a) =>
+	a.matchIn!Json(
+		(in bool x) =>
+			Json(x),
+		(in double x) =>
+			Json(x),
+		(in BuiltinFunConstantNull _) =>
+			jsonString("null"),
+		(in BuiltinFunConstantVoid _) =>
+			jsonString("void"));
 
 Opt!(Json.ObjectField) docCommentField(ref Alloc alloc, in Ctx ctx, in DocComment a) =>
 	optionalField!"doc"(!a.isEmpty, () =>
@@ -687,9 +700,7 @@ Json jsonOfExprKind(ref Alloc alloc, in Ctx ctx, in ExprKind a) =>
 				field!"value"(jsonOfExpr(alloc, ctx, x.value)),
 				field!"then"(jsonOfExpr(alloc, ctx, x.then))]),
 		(in LiteralExpr x) =>
-			jsonObject(alloc, [
-				kindField!"literal",
-				field!"value"(jsonOfConstant(alloc, x.value))]),
+			jsonOfLiteralExpr(alloc, x),
 		(in LiteralStringLikeExpr x) =>
 			jsonObject(alloc, [
 				kindField!"string",
@@ -794,6 +805,15 @@ Json jsonOfExprKind(ref Alloc alloc, in Ctx ctx, in ExprKind a) =>
 			jsonObject(alloc, [
 				kindField!"typed",
 				field!"inner"(jsonOfExpr(alloc, ctx, a.inner))]));
+
+Json jsonOfLiteralExpr(ref Alloc alloc, in LiteralExpr a) =>
+	jsonObject(alloc, [
+		kindField!"literal",
+		field!"value"(a.match!Json(
+			(IntegralValue x) =>
+				Json(x.value),
+			(double x) =>
+				Json(x)))]);
 
 Json jsonOfCondition(ref Alloc alloc, in Ctx ctx, in Condition a) =>
 	a.matchIn!Json(

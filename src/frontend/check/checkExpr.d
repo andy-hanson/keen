@@ -117,7 +117,6 @@ import model.ast :
 	TypedAst,
 	UnpackOptionAst,
 	WithAst;
-import model.constant : Constant, ConstantFloat;
 import model.model :
 	asExtern,
 	AssertOrForbidExpr,
@@ -876,7 +875,7 @@ Expr asFloat(
 ) {
 	if (overflow)
 		addDiag2(ctx, source, Diag(DiagLiteralFloatAccuracy(floatType, toDouble(value))));
-	return check(ctx, expected, Type(inst), source, ExprKind(LiteralExpr(Constant(ConstantFloat(toDouble(value))))));
+	return check(ctx, expected, Type(inst), source, ExprKind(LiteralExpr(toDouble(value))));
 }
 
 double toDouble(HighPrecisionFloat a) {
@@ -925,8 +924,8 @@ Expr checkLiteralIntegral(ref ExprCtx ctx, ExprAst* source, in LiteralIntegral a
 		if (typeIndex < integralTypes.length)
 			return check(
 				ctx, expected, Type(numberType), source,
-				ExprKind(LiteralExpr(Constant(checkLiteralIntegralValue(
-					ctx.checkCtx, integralTypes[typeIndex], LiteralIntegralAndRange(source.range, ast))))));
+				ExprKind(LiteralExpr(checkLiteralIntegralValue(
+					ctx.checkCtx, integralTypes[typeIndex], LiteralIntegralAndRange(source.range, ast)))));
 		else {
 			bool overflow = ast.overflow;
 			long value = ast.isSigned ? ast.value.asSigned : toLongWithOverflow(ast.value.asUnsigned, overflow);
@@ -969,11 +968,9 @@ Expr checkLiteralString(ref ExprCtx ctx, ExprAst* source, string value, ref Expe
 		size_t typeIndex = force(opTypeIndex);
 		Opt!ExprKind expr = () {
 			if (typeIndex == 0) // char8
-				return some(ExprKind(LiteralExpr(Constant(
-					IntegralValue(char8LiteralValue(ctx, source.range, value))))));
+				return some(ExprKind(LiteralExpr(IntegralValue(char8LiteralValue(ctx, source.range, value)))));
 			else if (typeIndex == 1) // char32
-				return some(ExprKind(LiteralExpr(Constant(
-					IntegralValue(char32LiteralValue(ctx, source.range, value))))));
+				return some(ExprKind(LiteralExpr(IntegralValue(char32LiteralValue(ctx, source.range, value)))));
 			else {
 				string checkNoNul(DiagStringLiteralInvalid diag) {
 					Opt!size_t index = indexOf(value, '\0');

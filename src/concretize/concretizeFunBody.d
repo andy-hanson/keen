@@ -50,11 +50,14 @@ import model.concreteModel :
 	mustBeByVal,
 	pointeeType,
 	pointeeTypeIfIsPointer;
-import model.constant : Constant, ConstantFunPointer, ConstantUnion, constantZero;
+import model.constant : Constant, constantBool, ConstantFloat, ConstantFunPointer, ConstantUnion, constantZero;
 import model.model :
 	AutoFun,
 	BuiltinFun,
 	BuiltinFunAllTests,
+	BuiltinFunConstant,
+	BuiltinFunConstantNull,
+	BuiltinFunConstantVoid,
 	BuiltinFunNewEmptyOption,
 	BuiltinFunNewNonEmptyOption,
 	CreateEnumOrFlags,
@@ -210,12 +213,24 @@ ConcreteFunBody concretizeBuiltinFun(
 ) =>
 	a.isA!BuiltinFunAllTests
 		? bodyForAllTests(ctx, cf.returnType)
+		: a.isA!BuiltinFunConstant
+		? ConcreteFunBody(genConstant(cf.returnType, cf.range, toConstant(a.as!BuiltinFunConstant)))
 		: a.isA!BuiltinFunNewEmptyOption
 		? ConcreteFunBody(genNone(ctx, cf.returnType, cf.range))
 		: a.isA!BuiltinFunNewNonEmptyOption
 		? ConcreteFunBody(genSome(ctx, cf.returnType, cf.range, genLocalGet(cf.range, &only(concreteParams))))
 		: ConcreteFunBody(ConcreteFunBody.Builtin(a, cf.source.as!ConcreteFunKey.typeArgs));
 
+Constant toConstant(BuiltinFunConstant a) =>
+	a.match!Constant(
+		(bool x) =>
+			constantBool(x),
+		(double x) =>
+			Constant(ConstantFloat(x)),
+		(BuiltinFunConstantNull _) =>
+			constantZero,
+		(BuiltinFunConstantVoid _) =>
+			constantZero);
 
 ConcreteExpr genCreateRecordFromParams(
 	ref Alloc alloc,

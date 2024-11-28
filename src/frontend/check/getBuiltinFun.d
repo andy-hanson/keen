@@ -3,7 +3,6 @@ module frontend.check.getBuiltinFun;
 @safe @nogc pure nothrow:
 
 import frontend.check.checkCtx : addDiag, CheckCtx;
-import model.constant : Constant, constantBool, ConstantFloat, constantZero;
 import model.model :
 	arrayElementType,
 	Builtin4ary,
@@ -14,6 +13,9 @@ import model.model :
 	BuiltinFunAllTests,
 	BuiltinFunCallFunPointer,
 	BuiltinFunCallLambda,
+	BuiltinFunConstant,
+	BuiltinFunConstantNull,
+	BuiltinFunConstantVoid,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
 	BuiltinFunInitKind,
@@ -103,7 +105,7 @@ FunBody inner(
 		addDiag(ctx, range, Diag(DiagBuiltinUnsupported(DiagBuiltinUnsupportedKind.function_, name)));
 		return FunBody.bogus;
 	}
-	FunBody constant(bool returnTypeOk, Constant value) =>
+	FunBody constant(bool returnTypeOk, BuiltinFunConstant value) =>
 		returnTypeOk ? FunBody(BuiltinFun(value)) : fail();
 	FunBody unary(BuiltinUnary kind) =>
 		arity == 1 && kind != failUnary ? FunBody(BuiltinFun(kind)) : fail();
@@ -350,7 +352,7 @@ FunBody inner(
 				? BuiltinUnary.cStringOfSymbol
 				: failUnary);
 		case symbol!"false".value:
-			return FunBody(BuiltinFun(constantBool(false)));
+			return constant(isBool(rt), BuiltinFunConstant(false));
 		case symbol!"fmod".value:
 			return binaryMath(BuiltinBinaryMath.fmodFloat32, BuiltinBinaryMath.fmodFloat64);
 		case symbol!"from-bits".value:
@@ -365,7 +367,7 @@ FunBody inner(
 		case symbol!"global-init".value:
 			return arity == 0 ? FunBody(BuiltinFun(BuiltinFunInit(BuiltinFunInitKind.global))) : fail();
 		case symbol!"infinity".value:
-			return constant(isFloat32Or64(rt), Constant(ConstantFloat(double.infinity)));
+			return constant(isFloat32Or64(rt), BuiltinFunConstant(double.infinity));
 		case symbol!"instanceof".value:
 			return isBool(rt) && arity == 2 && isJsAny(p0) && isJsAny(p1)
 				? FunBody(BuiltinFun(JsFun.instanceof))
@@ -409,7 +411,7 @@ FunBody inner(
 		case symbol!"mut-slice-size".value:
 			return arity == 1 && isNat64(rt) && isMutSlice(p0) ? unary(BuiltinUnary.arraySize) : fail();
 		case symbol!"nan".value:
-			return constant(isFloat32Or64(rt), Constant(ConstantFloat(double.nan)));
+			return constant(isFloat32Or64(rt), BuiltinFunConstant(double.nan));
 		case symbol!"new".value:
 			return isOptionType(rt) ?
 				arity == 0
@@ -429,9 +431,9 @@ FunBody inner(
 		case symbol!"not".value:
 			return isBool(rt) && isBool(p0) ? unary(BuiltinUnary.not) : fail();
 		case symbol!"new-void".value:
-			return constant(isVoid(rt), constantZero);
+			return constant(isVoid(rt), BuiltinFunConstant(BuiltinFunConstantVoid()));
 		case symbol!"null".value:
-			return constant(isPointerConstOrMut(rt), constantZero);
+			return constant(isPointerConstOrMut(rt), BuiltinFunConstant(BuiltinFunConstantNull()));
 		case symbol!"per-thread-init".value:
 			return arity == 0 ? FunBody(BuiltinFun(BuiltinFunInit(BuiltinFunInitKind.perThread))) : fail();
 		case symbol!"pointer-cast-from-extern".value:
@@ -540,7 +542,7 @@ FunBody inner(
 				? BuiltinUnary.toPtrFromNat64
 				: failUnary);
 		case symbol!"true".value:
-			return constant(isBool(rt), constantBool(true));
+			return constant(isBool(rt), BuiltinFunConstant(true));
 		case symbol!"truncate-to".value:
 			return unary(isFloat64(p0)
 				? BuiltinUnary.truncateToInt64FromFloat64

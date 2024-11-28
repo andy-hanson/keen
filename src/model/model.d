@@ -28,7 +28,6 @@ import model.ast :
 	UnpackOptionAst,
 	VarDeclAst,
 	VoidDestructureAst;
-import model.constant : Constant;
 import model.parseDiag : ParseDiag, ParseDiagnostic, ReadFileDiag;
 import util.alloc.alloc : Alloc;
 import util.col.array :
@@ -1180,7 +1179,7 @@ immutable struct BuiltinFun {
 		Builtin4ary,
 		BuiltinFunCallLambda,
 		BuiltinFunCallFunPointer,
-		Constant,
+		BuiltinFunConstant,
 		BuiltinFunGcSafeValue,
 		BuiltinFunInit,
 		JsFun,
@@ -1196,6 +1195,12 @@ immutable struct BuiltinFun {
 immutable struct BuiltinFunAllTests {}
 immutable struct BuiltinFunCallLambda {}
 immutable struct BuiltinFunCallFunPointer {}
+immutable struct BuiltinFunConstant {
+	// double includes constant float32s too
+	mixin Union!(bool, double, BuiltinFunConstantNull, BuiltinFunConstantVoid);
+}
+immutable struct BuiltinFunConstantNull {}
+immutable struct BuiltinFunConstantVoid {}
 immutable struct BuiltinFunGcSafeValue {}
 immutable struct BuiltinFunInit {
 	BuiltinFunInitKind kind;
@@ -3257,7 +3262,7 @@ immutable struct LetExpr {
 }
 
 immutable struct LiteralExpr {
-	Constant value;
+	mixin Union!(IntegralValue, double);
 }
 
 immutable struct LiteralStringLikeExpr {

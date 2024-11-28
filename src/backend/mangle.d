@@ -295,6 +295,7 @@ bool conflictsWithCName(Symbol a) {
 		case symbol!"for".value:
 		case symbol!"int".value:
 		case symbol!"log".value: // defined by tgmath.h
+		case symbol!"nan".value: // defined by mathcalls.h
 		case symbol!"signed".value:
 		case symbol!"unsigned".value:
 		case symbol!"void".value:

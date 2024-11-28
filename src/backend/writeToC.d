@@ -30,6 +30,7 @@ import model.constant :
 import model.lowModel :
 	AbortLowExpr,
 	AllConstantsLow,
+	arrayElementType,
 	ArrTypeAndConstantsLow,
 	asGcPointee,
 	CallFunPointerLowExpr,
@@ -369,6 +370,7 @@ void writeConstants(scope ref Writer writer, scope ref Ctx ctx, in AllConstantsL
 	writer ~= '\n';
 
 	foreach (ref ArrTypeAndConstantsLow a; allConstants.arrs) {
+		if (isEmptyType(ctx, a.elementType)) continue;
 		foreach (size_t i, Constant[] elements; a.constants) {
 			declareConstantArrStorage(writer, ctx, a.arrType, a.elementType, i, elements.length);
 			writer ~= ";\n";
@@ -383,6 +385,7 @@ void writeConstants(scope ref Writer writer, scope ref Ctx ctx, in AllConstantsL
 	}
 
 	foreach (ref ArrTypeAndConstantsLow a; allConstants.arrs) {
+		if (isEmptyType(ctx, a.elementType)) continue;
 		foreach (size_t i, Constant[] elements; a.constants) {
 			declareConstantArrStorage(writer, ctx, a.arrType, a.elementType, i, elements.length);
 			writer ~= " = ";
@@ -1500,7 +1503,7 @@ void writeConstantRef(
 			writer ~= '{';
 			writer ~= size;
 			writer ~= ", ";
-			if (size == 0)
+			if (size == 0 || isEmptyType(ctx, arrayElementType(type)))
 				writer ~= "NULL";
 			else
 				writeConstantArrStorageName(writer, ctx.mangledNames, ctx.program, type.as!(LowRecord*), x.index);
