@@ -2,7 +2,7 @@ module model.parseDiag;
 
 @safe @nogc pure nothrow:
 
-import frontend.parse.lexer : Token;
+import frontend.parse.token : Token;
 import util.sourceRange : Range;
 import util.symbol : Symbol;
 import util.union_ : Union;

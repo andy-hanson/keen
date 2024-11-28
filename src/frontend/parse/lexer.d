@@ -34,7 +34,8 @@ import util.string : CString, MutCString;
 import util.symbol : symbol;
 import util.util : enumConvert;
 
-public import frontend.parse.lexToken : ElifOrElse, ElifOrElseKeyword, Token, TokenAndData;
+public import frontend.parse.lexToken : ElifOrElse, ElifOrElseKeyword, TokenAndData;
+public import frontend.parse.token : Token;
 
 struct Lexer {
 	@safe @nogc pure nothrow:

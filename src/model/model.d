@@ -67,6 +67,8 @@ import util.uri : RelPath, Uri;
 import util.util : enumConvertOrAssert, max, min, optEnumConvert, stringOfEnum;
 import versionInfo : OS, VersionFun;
 
+public import model.ast : FunKind, stringOfVarKindLowerCase, stringOfVarKindUpperCase, SumTypeKind, VarKind, Visibility;
+
 alias Purity = immutable Purity_;
 private enum Purity_ : ubyte {
 	// sorted best case to worst case
@@ -611,8 +613,6 @@ IntegralValue getAllFlagsValue(in Flags body_) =>
 		(IntegralValue a, in EnumOrFlagsMember b) =>
 			a | b.value);
 
-enum SumTypeKind { interface_, union_, variant }
-
 enum BuiltinType {
 	array,
 	bool_,
@@ -1030,26 +1030,6 @@ enum FlagsFunction {
 	negate, // ~
 	none,
 	union_, // |
-}
-
-enum VarKind { global, threadLocal }
-
-string stringOfVarKindUpperCase(VarKind a) {
-	final switch (a) {
-		case VarKind.global:
-			return "Global";
-		case VarKind.threadLocal:
-			return "Thread-local";
-	}
-}
-
-string stringOfVarKindLowerCase(VarKind a) {
-	final switch (a) {
-		case VarKind.global:
-			return "global";
-		case VarKind.threadLocal:
-			return "thread-local";
-	}
 }
 
 immutable struct AutoFun {
@@ -2269,12 +2249,6 @@ Symbol nameFromNameReferents(in NameReferents a) =>
 Symbol nameFromNameReferentsPointer(in NameReferents* a) =>
 	a.name;
 
-enum FunKind {
-	data,
-	shared_,
-	mut,
-	function_,
-}
 Opt!FunKind funKindFromBuiltinType(BuiltinType a) {
 	switch (a) {
 		case BuiltinType.lambdaData:
@@ -3446,12 +3420,6 @@ immutable struct TypedExpr {
 	Expr inner;
 }
 
-alias Visibility = immutable Visibility_;
-private enum Visibility_ : ubyte {
-	private_,
-	internal,
-	public_,
-}
 string stringOfVisibility(Visibility a) =>
 	stringOfEnum(a);
 

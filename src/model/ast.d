@@ -2,7 +2,6 @@ module model.ast;
 
 @safe @nogc pure nothrow:
 
-import model.model : FunKind, stringOfVarKindLowerCase, SumTypeKind, VarKind, Visibility;
 import model.parseDiag : ParseDiag, ParseDiagnostic;
 import util.alloc.alloc : Alloc;
 import util.col.array : arrayOfSingle, emptySmallArray, exists, isEmpty, newArray, newSmallArray, sizeEq, SmallArray;
@@ -15,6 +14,41 @@ import util.symbol : Symbol, symbol, symbolSize;
 import util.union_ : TaggedUnion, Union;
 import util.uri : Path, pathLength, RelPath, relPathLength;
 import util.util : roundUp, stringOfEnum;
+
+enum FunKind {
+	data,
+	shared_,
+	mut,
+	function_,
+}
+
+enum SumTypeKind { interface_, union_, variant }
+
+enum VarKind { global, threadLocal }
+
+string stringOfVarKindLowerCase(VarKind a) {
+	final switch (a) {
+		case VarKind.global:
+			return "global";
+		case VarKind.threadLocal:
+			return "thread-local";
+	}
+}
+
+string stringOfVarKindUpperCase(VarKind a) {
+	final switch (a) {
+		case VarKind.global:
+			return "Global";
+		case VarKind.threadLocal:
+			return "Thread-local";
+	}
+}
+
+enum Visibility : ubyte {
+	private_,
+	internal,
+	public_,
+}
 
 immutable struct NameAndRange {
 	@safe @nogc pure nothrow:
