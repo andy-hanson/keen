@@ -2,7 +2,6 @@ module model.model;
 
 @safe @nogc pure nothrow:
 
-import frontend.getDiagnosticSeverity : getDiagnosticSeverity;
 import frontend.storage : FileContentGetters, LineAndCharacterGetters, LineAndColumnGetters;
 import model.ast :
 	AssertOrForbidAst,
@@ -2651,8 +2650,6 @@ private immutable struct TestSelectorAll {
 
 bool hasAnyDiagnostics(in ProgramWithMain a) =>
 	hasAnyDiagnostics(a.program) || !isEmpty(a.mainFunDiagnostics);
-bool hasFatalDiagnostics(in ProgramWithMain a) =>
-	hasFatalDiagnostics(a.program) || !isEmpty(a.mainFunDiagnostics);
 
 immutable struct Program {
 	@safe @nogc pure nothrow:
@@ -2678,9 +2675,6 @@ Module* moduleAtUri(in Program program, Uri uri) =>
 
 bool hasAnyDiagnostics(in Program a) =>
 	existsDiagnostic(a, (in UriAndDiagnostic _) => true);
-bool hasFatalDiagnostics(in Program a) =>
-	existsDiagnostic(a, (in UriAndDiagnostic x) =>
-		isFatal(getDiagnosticSeverity(x.kind)));
 
 // Iterates in no particular order
 void eachDiagnostic(in ProgramWithOptMain a, in void delegate(in UriAndDiagnostic) @safe @nogc pure nothrow cb) {
@@ -2698,7 +2692,7 @@ private bool existsDiagnostic(
 	(a.hasMain && exists!UriAndDiagnostic(a.asProgramWithMain.mainFunDiagnostics, cb)) ||
 	existsDiagnostic(a.program, cb);
 
-private bool existsDiagnostic(in Program a, in bool delegate(in UriAndDiagnostic) @safe @nogc pure nothrow cb) =>
+bool existsDiagnostic(in Program a, in bool delegate(in UriAndDiagnostic) @safe @nogc pure nothrow cb) =>
 	exists!UriAndDiagnostic(a.commonFunsAndDiagnostics.diagnostics, cb) ||
 	existsInHashTable!(immutable Config*, Uri, getConfigUri)(a.allConfigs, (in Config* config) =>
 		exists!Diagnostic(config.diagnostics, (in Diagnostic x) =>
@@ -3699,7 +3693,7 @@ enum DiagnosticSeverity {
 	parseError,
 	importError,
 }
-private bool isFatal(DiagnosticSeverity a) =>
+bool isFatal(DiagnosticSeverity a) =>
 	a >= DiagnosticSeverity.commonMissing;
 
 immutable struct UriAndDiagnostic {

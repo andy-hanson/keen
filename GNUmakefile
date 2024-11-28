@@ -169,7 +169,7 @@ show-dependencies: bin/dependencies.svg
 bin/dependencies.svg: bin/dependencies.dot
 	dot -Tsvg -o bin/dependencies.svg bin/dependencies.dot
 
-bin/dependencies.dot: bin/crow test/dependencies.crow
+bin/dependencies.dot: bin/crow src test/dependencies.crow
 	bin/crow test/dependencies.crow
 
 ### site ###

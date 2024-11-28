@@ -94,7 +94,6 @@ import model.model :
 	Flags,
 	FunDecl,
 	getAllFlagsValue,
-	hasFatalDiagnostics,
 	ImportOrExport,
 	isTuple,
 	MainFunNat64OfArgs,
@@ -193,7 +192,6 @@ Out withTranslateProgram(Out)(
 	bool isScript,
 	in Out delegate(ref TranslateProgramCtx) @safe @nogc pure nothrow cb,
 ) {
-	assert(!hasFatalDiagnostics(program));
 	VersionInfo version_ = versionInfoForBuildToJS(jsTarget);
 	SymbolSet allExterns = allExterns(program, BuildTarget.js);
 	AllUsed allUsed = allUsed(alloc, program, version_, allExterns);

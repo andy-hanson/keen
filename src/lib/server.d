@@ -15,7 +15,7 @@ import frontend.frontendCompile :
 	perfStats,
 	programWithMainFromProgram;
 import document.document : documentModules;
-import frontend.getDiagnosticSeverity : getDiagnosticSeverity;
+import frontend.getDiagnosticSeverity : getDiagnosticSeverity, hasFatalDiagnostics;
 import frontend.ide.getCodeLenses : getCodeLenses;
 import frontend.ide.getCompletion : getCompletionForPosition;
 import frontend.ide.getDefinition : getDefinitionForPosition, getTypeDefinitionForPosition;
@@ -29,6 +29,7 @@ import frontend.ide.getReferences : getDocumentHighlightsForPosition, getReferen
 import frontend.ide.getSignatureHelp : getSignatureHelpForPosition;
 import frontend.ide.getTokens : jsonOfDecodedTokens, tokensOfAst;
 import frontend.ide.position : Position;
+import frontend.ide.syntaxTranslate : syntaxTranslate;
 import frontend.lang : MainKind;
 import frontend.showDiag :
 	sortedDiagnostics, stringOfDiag, stringOfDiagnostics, stringOfParseDiagnostics, UriAndDiagnostics;
@@ -52,7 +53,6 @@ import frontend.storage :
 	setFileBytes,
 	Storage,
 	TextFileContent;
-import frontend.ide.syntaxTranslate : syntaxTranslate;
 import interpret.bytecode : ByteCode;
 import interpret.extern_ : Extern, ExternPointersForAllLibraries, WriteError;
 import interpret.fakeExtern : withFakeExtern, WriteCb;
@@ -145,7 +145,6 @@ import model.model :
 	Diagnostic,
 	DiagnosticSeverity,
 	hasAnyDiagnostics,
-	hasFatalDiagnostics,
 	moduleAtUri,
 	Program,
 	ProgramWithMain,

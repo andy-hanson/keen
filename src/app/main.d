@@ -62,6 +62,7 @@ version (GccJitAvailable) {
 import backend.js.sourceMap : JsAndMap;
 import backend.js.translateToJs : JsModules;
 import backend.writeToC : PathAndArgs, WriteToCParams;
+import frontend.getDiagnosticSeverity : hasFatalDiagnostics;
 import frontend.lang : CCompileOptions, MainKind, MainKindMainFunction, MainKindTestsAtUri, MainKindTestsInConfig;
 import frontend.showModel : ShowOptions;
 import frontend.storage : FilesState;
@@ -116,7 +117,7 @@ import lib.server :
 	showDiagnostics,
 	version_;
 import model.lowModel : ExternLibraries;
-import model.model : BuildTarget, hasAnyDiagnostics, hasFatalDiagnostics, Program, ProgramWithMain;
+import model.model : BuildTarget, hasAnyDiagnostics, Program, ProgramWithMain;
 import model.parseDiag : ReadFileDiag;
 version (Test) {
 	import test.test : test;

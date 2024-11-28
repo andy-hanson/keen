@@ -138,7 +138,12 @@ import model.model :
 	DiagVarargsParamMustBeArray,
 	DiagVisibilityWarning,
 	DiagWithHasElse,
-	DiagWrongNumberTypeArgs;
+	DiagWrongNumberTypeArgs,
+	existsDiagnostic,
+	isFatal,
+	Program,
+	ProgramWithMain,
+	UriAndDiagnostic;
 import model.parseDiag :
 	ParseDiag,
 	ParseDiagDocCommentUnused,
@@ -160,6 +165,13 @@ import model.parseDiag :
 	ParseDiagUnexpectedOperator,
 	ParseDiagUnexpectedToken,
 	ReadFileDiag;
+import util.col.array : isEmpty;
+
+bool hasFatalDiagnostics(in Program a) =>
+	existsDiagnostic(a, (in UriAndDiagnostic x) =>
+		isFatal(getDiagnosticSeverity(x.kind)));
+bool hasFatalDiagnostics(in ProgramWithMain a) =>
+	hasFatalDiagnostics(a.program) || !isEmpty(a.mainFunDiagnostics);
 
 DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 	a.matchIn!DiagnosticSeverity(

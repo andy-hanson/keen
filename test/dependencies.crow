@@ -13,8 +13,8 @@ main void() summon, native extern
 			for x : file imports
 				guard x !ignore
 				out ~= (importer, x)
-	dependencies.to-map find-circular-dependencies (), "app.main", ("app.main",)
-	"bin/dependencies.dot" write-file dependencies.to-dot
+	dependencies.to-map find-circular-dependencies "app.main", ()
+	#"bin/dependencies.dot" write-file dependencies.to-dot
 	()
 
 -to-map symbol[][symbol](a dependency[])
@@ -24,18 +24,24 @@ main void() summon, native extern
 	for x, y : res
 		x, y.move-to
 
+-state enum(not-started, started, finished)
+
 -find-circular-dependencies void(
 	dependencies symbol[][symbol],
-	path symbol[],
 	cur symbol,
-	seen symbol set,
+	states state mut[symbol],
 )
-	assert seen[cur]
+	states[cur] := started
 	for dependency : dependencies[cur] ?? ()
-		p = path ~ dependency
-		s = seen try-add dependency ??
-			throw "Circular dependency: {" " join (for x : p; "{x}")}" error
-		dependencies find-circular-dependencies p, dependency, s
+		info log "{cur} depends on {dependency}"
+		match states[dependency] ?? not-started
+		as not-started
+			dependencies find-circular-dependencies dependency, states
+		as started
+			throw "Found a circular dependency involving {cur} -> {dependency}" error
+		as finished
+			()
+	states[cur] := finished
 
 -imports string[](file string) summon, native extern
 	"dub run dscanner --yes --quiet -- --imports {file}".shell-exec split "\n" filter x =>
@@ -50,8 +56,8 @@ main void() summon, native extern
 	"{a.importer.to::json} -> {a.exporter.to::json}"
 
 -ignore bool(a string)
-	# omit model and util since these are commonly imported dependencies
-	ignore-base string[] = "core.", "model.", "std.", "test.", "util."
+	# omit util since these are commonly imported dependencies
+	ignore-base string[] = "core.", "std.", "test.", "util."
 	a == "object" || ignore-base exists (x => a starts-with x) || a ends-with ".txt"
 
 -to-dot string(dependencies dependency[])
