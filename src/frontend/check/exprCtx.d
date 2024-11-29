@@ -156,7 +156,7 @@ T withTrusted(T)(ref ExprCtx ctx, ExprAst* source, in T delegate() @safe @nogc p
 }
 
 private Range trustedKeywordRange(in ExprAst* source) =>
-	rangeOfStartAndLength(source.range.start, "trusted".length);
+	rangeOfStartAndLength(source.range.start, "trusted");
 
 bool checkCanDoUnsafe(ref ExprCtx ctx) {
 	if (allowsUnsafe(ctx.outermostFunFlags.safety))

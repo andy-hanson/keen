@@ -1,0 +1,398 @@
+import
+	./source-range
+
+fun-kind enum(data_, shared_, mut_, function_)
+to symbol(a fun-kind)
+	match a
+	as data_
+		"data"
+	as shared_
+		"shared"
+	as mut_
+		"mut"
+	as function_
+		"function"
+sum-type-kind enum(interface_, union_, variant_)
+var-kind enum(global_, thread-local_)
+
+string-of-var-kind-lower-case string(a var-kind)
+	match a
+	as global_
+		"global"
+	as thread-local_
+		"thread-local"
+
+string-of-var-kind-upper-case string(a var-kind)
+	match a
+	as global_
+		"Global"
+	as thread-local_
+		"Thread-local"
+
+visibility enum(private_, internal_, public_)
+
+name-and-range record(name symbol, start pos)
+range source-range(a name-and-range)
+	a.start range-of-start-and-length a.name.to
+
+field-mutability-ast record(pos pos, visibility_ visibility?)
+range source-range(a field-mutability-ast)
+	a.pos range-of-start-and-length (a.visibility_.is-empty ? "mut" : "-mut")
+visibility visibility-and-range?(a field-mutability-ast)
+	a.pos get-visibility-and-range a.visibility_
+
+visibility-and-range record(visibility visibility, pos pos)
+range source-range(a visibility-and-range)
+	a.pos range-of-start-and-length "+"
+
+-get-visibility-and-range visibility-and-range?(pos pos, visibility visibility?)
+	if x ?= visibility
+		(x, pos),
+
+type-ast union(
+	bogus-type-ast,
+	fun-type-ast,
+	map-type-ast,
+	name-and-range,
+	suffix-name-type-ast,
+	suffix-special-type-ast,
+	tuple-type-ast
+)
+	range source-range()
+name-range-or-range source-range(a type-ast)
+	match a
+	as bogus-type-ast x
+		x range
+	as fun-type-ast x
+		x kind-range
+	as map-type-ast x
+		x range
+	as name-and-range x
+		x range
+	as suffix-name-type-ast x
+		x suffix-range
+	as suffix-special-type-ast x
+		x suffix-range
+	as tuple-type-ast x
+		x range
+
+bogus-type-ast record(range source-range)
+fun-type-ast record
+	return-type type-ast
+	kind-pos pos
+	kind fun-kind
+	params-range source-range
+	params params-ast
+range source-range(a fun-type-ast)
+	a.return-type.range combine-ranges a.params-range
+kind-range source-range(a fun-type-ast)
+	a.kind-pos range-of-start-and-length a.kind.to::symbol.to
+
+map-type-ast record(kind map-type-ast-kind, value type-ast, key type-ast)
+map-type-ast-kind enum(data_, mut_, shared_) # TODO: just use Purity? ----------------------------------------------------
+to symbol(a map-type-ast-kind)
+	match a
+	as data_
+		"data"
+	as mut_
+		"mut"
+	as shared_
+		"shared"
+range source-range(a map-type-ast)
+	a.value.range.start .. a.key.range.end + "]".size-char8s.to
+
+suffix-name-type-ast record(left type-ast, name name-and-range)
+range source-range(a suffix-name-type-ast)
+	a.left.range combine-ranges a.suffix-range
+suffix-range source-range(a suffix-name-type-ast)
+	a.name range
+
+suffix-special-type-ast record(left type-ast, suffix-pos pos, kind suffix-special-type-ast-kind)
+suffix-special-type-ast-kind enum(array, mut-array, mut-pointer, option, const-pointer, shared-array)
+to symbol(a suffix-special-type-ast-kind)
+range source-range(a suffix-special-type-ast)
+	a.left.range.start .. a.suffix-end
+suffix-range source-range(a suffix-special-type-ast)
+	a.suffix-pos .. a.suffix-end
+-suffix-end pos(a suffix-special-type-ast)
+	a.suffix-pos + a.kind.suffix.size-char8s.to
+
+-suffix string(a suffix-special-type-ast-kind)
+	match a
+	as array
+		"[]"
+	as const-pointer
+		"*"
+	as mut-array
+		"mut[]"
+	as mut-pointer
+		"mut*"
+	as option
+		"?"
+	as shared-array
+		"shared[]"
+
+tuple-type-ast record(range source-range, members type-ast[])
+
+
+expr-ast record(range source-range) # TODO
+
+
+arrow-access-ast record(left expr-ast, keyword-pos pos, name name-and-range)
+arrow-range source-range(a arrow-access-ast)
+	a.keyword-pos range-of-start-and-length "->"
+arrow-and-name-range source-range(a arrow-access-ast)
+	a.arrow-range combine-ranges a.name.range
+
+assert-or-forbid-ast record
+	is-forbid bool
+	condition condition-ast
+	thrown assert-or-forbid-thrown-ast?
+	after expr-ast
+keyword-range source-range(a assert-or-forbid-ast, ast expr-ast)
+	"assert".size-char8s is "forbid".size-char8s
+	ast.range[0 .. "assert".size-char8s]
+
+assert-or-forbid-thrown-ast record(colon-pos pos, expr expr-ast)
+colon-range source-range(a assert-or-forbid-thrown-ast)
+	a.colon-pos range-of-start-and-length ":"
+
+| {left} := {right}
+assignment-ast record(left expr-ast, assignment-pos pos, right expr-ast)
+keyword-range source-range(a assignment-ast)
+	a.assignment-pos range-of-start-and-length ":="
+
+| {left} {fun-name}:= {right}"
+assignment-call-ast record(fun-name name-and-range, left expr-ast, right expr-ast)
+keyword-range source-range(a assignment-call-ast)
+	a.fun-name.range.end range-of-start-and-length ":="
+
+bogus-ast record
+
+call-ast record
+	style call-ast-style
+	| Position of '.' or '?'
+	keyword-pos pos
+	fun-name name-and-range
+	args expr-ast[]
+	type-arg type-ast?
+call-ast-style enum
+	| This is the call for '!' in 'x !f y' or for '?!' in 'x f?! y'
+	augment
+	| `a, b`, `a, b, c`, etc.
+	comma
+	| `a.b`
+	dot
+	| `()`
+	empty-parens
+	| `a b`, `a b c`, `a b c, d`, etc.
+	infix
+	| `!x`
+	prefix-bang
+	| `-x`, `x`, `~x`
+	prefix-operator
+	| `a@t` (without the type arg, it would just be an IdentifierAst)
+	single
+	| `a[b]`
+	subscript
+	| `x!`
+	suffix-bang
+	| `a?.b`
+	question-dot
+	| `a?[b]`
+	question-subscript
+new call-ast(style call-ast-style, fun-name name-and-range, args expr-ast[])
+	style, fun-name, args, ()
+new call-ast(style call-ast-style, fun-name name-and-range, args expr-ast[], type-arg type-ast?)
+	style, max-value::pos, fun-name, args, type-arg
+
+keyword-range source-range?(a call-ast)
+	match a style
+	as augment
+		a.fun-name.range,
+	as comma
+		a.keyword-range-1,
+	as dot
+		a.keyword-range-1,
+	as subscript
+		a.keyword-range-1,
+	as question-dot
+		a.keyword-range-2,
+	as question-subscript
+		a.keyword-range-2,
+	else
+		()
+-keyword-range-1 source-range(a call-ast)
+	a.keyword-pos range-of-start-and-length 1
+-keyword-range-2 source-range(a call-ast)
+	a.keyword-pos range-of-start-and-length 2
+name-range source-range(a call-ast, ast expr-ast)
+	match a style
+	as comma
+		ast range
+	else
+		a.fun-name range
+
+call-named-ast record(names name-and-range[], args expr-ast[])
+do-ast record(body expr-ast)
+| Used for implicit 'else ()' or implicit '()' after a Let
+empty-ast record
+extern-ast record(names name-and-range[])
+
+finally-ast record(right expr-ast, below expr-ast)
+finally-keyword-range source-range(a finally-ast, ast expr-ast)
+	assert ast.kind.finally-ast! reference-equal a
+	ast.range[0 .. "finally".size-char8s]
+
+for-ast record
+	param destructure-ast
+	colon-pos pos
+	collection expr-ast
+	body expr-ast
+	| May be an empty-ast
+	else_ expr-ast
+for-keyword-range source-range(a for-ast, ast expr-ast)
+	assert ast.kind.for-ast! reference-equal a
+	ast.range[0 .. "for".size-char8s]
+colon-range source-range(a for-ast)
+	a.colon-pos range-of-start-and-length ":"
+
+identifier-ast record(name symbol)
+
+condition-ast union(expr-ast, unpack-option-ast)
+unpack-option-ast record(destructure destructure-ast, question-equals-pos pos, option expr-ast)
+range source-range(a unpack-option-ast)
+	a.destructure.range combine-ranges a.option.range
+question-equals-range source-range(a unpack-option-ast)
+	a.question-equals-pos range-of-start-and-length "?="
+
+if-ast record
+	kind if-ast-kind
+	| 'ifWithoutElse', 'ifElif', and 'ifElse' could all be the 'else' branch of a preceding 'if'
+	is-else-of-parent bool
+	| Position of 'if' or '?' or 'unless'
+	first-keyword-pos pos
+	| Position of 'elif' or 'else' of ':' keyword
+	second-keyword-pos_ pos
+	condition condition-ast
+	| This may not be present for a 'guard'
+	first-branch expr-ast?
+	second-branch expr-ast?
+if-ast-kind enum
+	guard-with-colon
+	guard-without-colon
+	if-without-else
+	| In this case, the 'elif' expression will be another IfAst
+	if-elif
+	| Has 'if' and 'else' keywords, no 'elif' (though this may begin as an 'elif')
+	if-else
+	| `cond ? then : else`
+	ternary-with-else
+	| `cond ? then`
+	ternary-without-else
+	unless_
+first-keyword-range source-range(a if-ast)
+	a.first-keyword-pos range-of-start-and-length match a kind
+	as guard-with-colon
+		"guard"
+	as guard-without-colon
+		"guard"
+	as if-without-else
+		"if"
+	as if-elif
+		"if"
+	as if-else
+		"if"
+	as ternary-with-else
+		"?"
+	as ternary-without-else
+		"?"
+	as unless_
+		"unless"
+second-keyword-pos pos?(a if-ast)
+	if _ ?= a second-branch
+		a.second-keyword-pos_,
+second-keyword-range source-range?(a if-ast)
+	keyword string = match a kind
+	as guard-with-colon
+		":"
+	as guard-without-colon
+		""
+	as if-elif
+		"else"
+	as if-else
+		"else"
+	as if-without-else
+		""
+	as ternary-with-else
+		":"
+	as ternary-without-else
+		""
+	as unless_
+		""
+	if keyword != ""
+		(a.second-keyword-pos_ range-of-start-and-length keyword),
+
+interpolated-ast record(parts expr-ast[])
+
+lambda-ast record(param destructure-ast, arrow-pos pos, body expr-ast)
+arrow-range source-range(a lambda-ast)
+	a.arrow-pos range-of-start-and-length "=>"
+
+destructure-ast union(single-destructure-ast, void-destructure-ast, destructure-ast[])
+	range source-range()
+single-destructure-ast record(name name-and-range, mut_ pos?, type type-ast?)
+| `()` is a destructure matching only void values
+void-destructure-ast record(range source-range)
+
+range source-range(a single-destructure-ast)
+	end-range source-range = (a.type?.range || a.mut-range) ?? a.name.range	
+	a.name.start .. end-range.end
+mut-range source-range?(a single-destructure-ast)
+	if x ?= a mut_
+		(x range-of-start-and-length "mut"),
+
+range source-range(a destructure-ast[])
+	a[0].range combine-ranges a[end - 1].range
+
+pos pos(a destructure-ast)
+	match a
+	as single-destructure-ast x
+		x.name start
+	as void-destructure-ast x
+		x.range start
+	as array xs
+		xs[0].pos
+
+let-ast record(destructure destructure-ast, value expr-ast, then expr-ast)
+
+| value is longValue * (10 ** exponent)
+high-precision-float record(long-value int, exponent int)
+
+literal-float-ast record(value high-precision-float, overflow bool)
+
+literal-integral record(is-signed bool, overflow bool, value integral-value)
+
+literal-integral-and-range record(range source-range, literal literal-integral)
+
+literal-string-ast record(value string)
+
+loop-ast record(body expr-ast)
+keyword-range source-range(a loop-ast, ast expr-ast)
+	assert source.kind.loop-ast! reference-equal a
+	ast.range[0 .. "loop".size-char8s]
+
+loop-break-ast record(value expr-ast)
+keyword-range source-range(a loop-break-ast, ast expr-ast)
+	assert ast.kind.loop-break-ast! reference-equal a
+	ast.range[0 .. "break".size-char8s]
+
+loop-continue-ast record
+keyword-range source-range(_ loop-continue-ast, ast expr-ast)
+	ast.range[0 .. "continue".size-char8s]
+
+loop-while-or-until-ast record(is-until bool, condition condition-ast, body expr-ast, after expr-ast)
+keyword-range source-range(a loop-while-or-until-ast, ast expr-ast)
+	assert ast.kind.loop-while-or-until-ast! reference-equal a
+	"while".size-char8s is "until".size-char8s
+	ast.range[0 .. "while".size-char8s]

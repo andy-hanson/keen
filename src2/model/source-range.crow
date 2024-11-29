@@ -1,0 +1,385 @@
+import
+	./uri
+
+pos alias
+	nat32
+
+source-range record(to pos range)
+== bool(a source-range, b source-range)
+<=> comparison(a source-range, b source-range)
+# TODO: this should be implemented in stdlib ---------------------------------------------------------------
+<=> comparison(a pos range, b pos range)
+.. source-range(a pos, b pos)
+	a .. b,
+start pos(a source-range)
+	a.to low
+end pos(a source-range)
+	a.to high
+new source-range(start pos, end pos)
+	start .. end,
+new source-range()
+	0, 0
+
+length nat(a source-range)
+	a.to size
+
+is-empty bool(a source-range)
+	a.to is-empty
+
+subscript source-range(a source-range, b nat range)
+	end = a.start + b.high.to
+	assert end <= a.end
+	a.start + b.low.to .. end,
+
+range-contains bool(a source-range, b source-range)
+	a.start <= b.start && b.end <= a.end
+
+
+combine-ranges source-range(a source-range, b source-range)
+	a.start, b.end
+
+range-of-start-and-length source-range(start pos, length string)
+	start range-of-start-and-length length.size-char8s
+range-of-start-and-length source-range(start pos, length nat)
+	start, start + length.to
+
+uri-and-pos record(uri uri, pos pos)
+new uri-and-pos()
+	(), 0
+
+uri-and-range record(uri uri, range source-range)
+start pos(a uri-and-range)
+	a.range start
+end pos(a uri-and-range)
+	a.range end
+new uri-and-range()
+	() top-of-file
+top-of-file uri-and-range(uri uri)
+	uri, ()
+
+<=> comparison(a uri-and-range, b uri-and-range)
+
+to uri-and-pos(a uri-and-range)
+	a.uri, a.start
+
+line-and-character record(line nat32, character nat32)
+== bool(a line-and-character, b line-and-character)
+top-of-file line-and-character()
+	0, 0
+show string(a line-and-character)
+	"{a line}x{a character}"
+<=> comparison(a line-and-character, b line-and-character)
+to json(a line-and-character)
+
+line-and-column-range record(start line-and-column, end line-and-column)
+show string(a line-and-column-range)
+	"{a start}-{a end}"
+
+uri-line-and-character record(uri uri, pos line-and-character)
+
+uri-line-and-column record(uri uri, pos line-and-column)
+
+uri-line-and-column-range record(uri uri, range line-and-column-range)
+
+line-and-column record(line-0-indexed nat32, column-0-indexed nat32)
+== bool(a line-and-column, b line-and-column)
+line-1-indexed nat32(a line-and-column)
+	a.line-0-indexed + 1
+column-1-indexed nat32(a line-and-column)
+	a.column-0-indexed + 1
+show string(a line-and-column)
+	"{a line-1-indexed}:{a column-1-indexed}"
+to json(a line-and-column)
+	("line", a.line-0-indexed.to), ("column", a.column-0-indexed.to)
+
+line-and-character-range record(start line-and-character, end line-and-character)
+top-of-file line-and-character-range()
+	top-of-file, top-of-file
+to json(a line-and-character-range)
+
+uri-and-line record(uri uri, line nat32)
+to json(a uri-and-line)
+to uri-and-line(a json)
+	a["uri"].string!.to, a["line"].to::nat.to
+
+uri-and-line-and-character-range record(uri uri, range line-and-character-range)
+top-of-file uri-and-line-and-character-range(uri uri)
+	uri, top-of-file
+to json(a uri-and-line-and-character-range)
+
+file-content-getters record(lookup string[uri])
+subscript string(a file-content-getters, uri uri)
+	a.lookup[uri]!
+subscript string(a file-content-getters, where uri-and-range)
+	unless where.range.is-empty
+		s char8[] = a[where.uri] to
+		s[where.start.to .. where.end.to] to
+
+line-and-character-getter record
+	source-text char8[]
+	line-to-pos nat32[]
+	uses-crlf bool
+new line-and-character-getter()
+	"", (0,), false
+max-pos nat32(a line-and-character-getter)
+	a.source-text.size to
+subscript pos(a line-and-character-getter, lc line-and-character)
+	if lc.line >= a.line-to-pos.size.to
+		a.max-pos
+	else
+		line-text string = a get-line-text lc.line.to
+		a.line-to-pos[lc.line to] + (line-text byte-index-of-character-index lc.character.to).to
+subscript source-range(a line-and-character-getter, lc line-and-character-range)
+	a[lc.start], a[lc.end]
+
+# TODO: using 'subscript' with a hardcoded 'kind' is silly, just use differently named functions 000000000000000000000000000
+subscript line-and-character(a line-and-character-getter, (start-pos pos, kind pos-kind))
+	pos mut = start-pos
+	line mut = a.line-to-pos line-at-pos pos
+	if kind == end-of-range && a.line-to-pos[line] == pos && line != 0
+		line -:= 1
+		pos -:= 1
+	line-start = a.line-to-pos[line]
+	assert (pos >= line-start && line == a.line-to-pos.size - 1) || pos <= a.line-to-pos[line + 1]
+	character mut nat32 = a get-line-text line character-index-of-byte-index (pos - line-start).to to
+	# Don't include a column for the '\r' in '\r\n'
+	if a.uses-crlf && line + 1 < a.line-to-pos.size && pos + 1 == a.line-to-pos[line + 1]
+		character -:= 1
+	line.to, character
+
+get-line-text string(a line-and-character-getter, line nat)
+	range nat range = a.line-to-pos[line].to .. (a next-line-pos line to)
+	a.source-text[range] to
+
+last-line nat(a line-and-character-getter)
+	unless a.line-to-pos.is-empty
+		a.line-to-pos.size - 1
+
+subscript line-and-character-range(a line-and-character-getter, range source-range)
+	a[range.start, start-of-range], a[range.end, end-of-range]
+
+end-of-file pos(a line-and-character-getter)
+	a.source-text.size to
+start-of-line-pos pos(a line-and-character-getter, line nat)
+	if line >= a.line-to-pos.size - 1
+		a max-pos
+	else
+		a.line-to-pos[line]
+next-line-pos pos(a line-and-character-getter, line nat)
+	if line >= a.line-to-pos.size - 1
+		a max-pos
+	else
+		a.line-to-pos[line + 1] - 1
+
+line-of-pos nat32(a line-and-character-getter, pos pos)
+	a[pos, start-of-range].line
+
+line-and-column-getter record
+	line-and-character-getter line-and-character-getter
+	line-to-n-tabs nat8[]
+new line-and-column-getter()
+	(), (0,)
+subscript pos(a line-and-column-getter, pos line-and-column)
+	a.line-and-character-getter[a to-line-and-character pos]
+
+subscript line-and-column(a line-and-column-getter, where (pos, pos-kind))
+	x line-and-character = a.line-and-character-getter[where]
+	line = x line
+	character = x character
+	n-tabs = a.line-to-n-tabs[line to]
+	column nat32 = if character <= n-tabs.to
+		character * tab-size
+	else
+		n-tabs.to * (tab-size - 1) + character
+	line, column
+
+subscript line-and-column-range(a line-and-column-getter, range source-range)
+	a[range.start, start-of-range], a[range.end, end-of-range]
+
+to-line-and-character line-and-character(a line-and-column-getter, lc line-and-column)
+	n-tabs = if lc.line-0-indexed.to::nat64 < a.line-to-n-tabs.size
+		a.line-to-n-tabs[lc.line-0-indexed.to]
+	lc.line-0-indexed, (lc.column-0-indexed column-to-character n-tabs.to)
+
+line-and-column-getter-for-text line-and-column-getter(text string) trusted
+	ptr string-walker = text,
+	line-to-pos pos mut[] = 0,
+	line-to-n-tabs nat8 mut[] = ptr.advance-and-get-n-tabs,
+	uses-crlf mut = false
+	until ptr is-at-end
+		x = *ptr
+		ptr advance
+		if x == "\r" && *ptr == "\n"
+			uses-crlf := true
+		if x == "\n" || (x == "\r" && *ptr != "\n")
+			line-to-pos ~= ptr.index.to
+			line-to-n-tabs ~= ptr advance-and-get-n-tabs
+	
+	lc line-and-character-getter = text.to, line-to-pos.move-to, uses-crlf
+	lc, line-to-n-tabs.move-to
+
+line-length-in-characters nat(a line-and-character-getter, line nat)
+	info log "SO: {line} {a.line-to-pos.size}"
+	if line < a.line-to-pos.size - 1
+		next = a.line-to-pos[line + 1]
+		here = a.line-to-pos[line]
+		info log "next: {next}, here: {here}"
+		next.to - here.to - 1 - a.uses-crlf.to
+	elif line == a.line-to-pos.size - 1
+		info log "U R HERE: {a.line-to-pos[line]}"
+		a.source-text.size - a.line-to-pos[line].to
+
+column-to-character pos(column nat32, n-tabs nat32)
+	if column <= n-tabs * tab-size
+		column / tab-size
+	else
+		column - (n-tabs * (tab-size - 1))
+
+line-at-pos nat(line-to-pos nat32[], pos pos)
+	low-line mut nat = 0
+	high-line mut nat = line-to-pos size
+	while low-line < high-line - 1
+		middle-line = (low-line + high-line) / 2
+		middle-pos = line-to-pos[middle-line]
+		if pos == middle-pos
+			low-line := middle-line
+			high-line := middle-line
+		elif pos < middle-pos
+			# Exclusive -- must be on a previous line
+			high-line := middle-line
+		else
+			# Inclusive -- may be on a later character of the same line
+			low-line := middle-line
+	low-line
+
+# TODO: configurable
+tab-size nat32()
+	4
+
+string-walker record mut
+	-chars char8[]
+	-index mut nat
+new string-walker(a string)
+	a.to, 0
+is-at-end bool(a string-walker) trusted
+	a.index == a.chars.size
+* char8(a string-walker) trusted
+	if a.index == a.chars.size
+		"\0"
+	else
+		a.chars[a index]
+
+-advance void(a string-walker)
+	forbid a is-at-end
+	a.index +:= 1
+
+-advance-and-get-n-tabs nat8(a string-walker)
+	begin = a index
+	while *a == "\t"
+		a advance
+	a.index - begin to
+
+pos-kind enum(start-of-range, end-of-range)
+== bool(a pos-kind, b pos-kind)
+
+-byte-index-of-character-index nat(a string, b nat)
+	chars char32[] = a to
+	# TODO: PERF -----------------------------------------------------------------------------------------------------------------
+	chars[0 .. (b min chars.size)].to size-char8s
+-character-index-of-byte-index nat(a string, b nat)
+	chars char8[] = a to
+	# TODO: PERF -----------------------------------------------------------------------------------------------------------------
+	chars[0 .. (b min chars.size)].to::string size
+
+region test
+
+test
+	"a\n\tbb\nc\n" test-lf-or-cr
+	"a\r\tbb\rc\r" test-lf-or-cr
+	"a\r\n\tbb\r\nc\r\n" test-crlf
+
+test
+	assert "$"::char8[].size == 1
+	assert "¥"::char8[].size == 2
+	assert "₿"::char8[].size == 3
+	assert "𝄮"::char8[].size == 4
+	text string = "x\n$¥₿𝄮\ny"
+	cash = text pos-of "$"
+	cash is 2
+	yen = text pos-of "¥"
+	yen is 3
+	bitcoin = text pos-of "₿"
+	bitcoin is 5
+	natural = text pos-of "𝄮"
+	natural is 8
+	y = text pos-of "y"
+	y is 13
+
+	lcg = text line-and-column-getter-for-text
+	lcg verify-convert cash, 1, 0
+	lcg verify-convert yen, 1, 1
+	lcg verify-convert bitcoin, 1, 2
+	lcg verify-convert natural, 1, 3
+	lcg verify-convert y - 1, 1, 4
+	lcg verify-convert y, 2, 0
+
+-test-lf-or-cr void(text string)
+	lcg = text line-and-column-getter-for-text
+	lcg verify-convert 0, 0, 0 # a
+	lcg verify-convert 1, 0, 1 # \n or \r
+	lcg verify-convert 2, 1, 0 # \t
+	lcg verify-convert 2, end-of-range, 0, 1, 1, 1
+	lcg verify-convert 3, 1, 1, 4 # b
+	lcg verify-convert 4, 1, 2, 5 # b
+	lcg verify-convert 5, 1, 3, 6 # \n or \r
+	lcg verify-convert 6, 2, 0 # c
+	lcg verify-convert 7, 2, 1 # \n or \r
+	lcg verify-convert 8, 3, 0 # end
+	lcg common false
+
+-test-crlf void(text string)
+	lcg = text line-and-column-getter-for-text
+	lcg verify-convert 0, 0, 0 # a
+	lcg verify-convert 1, 0, 1 # \r
+	lcg verify-convert 2, start-of-range, 0, 1, 1, 1 # \n
+	lcg verify-convert 2, end-of-range, 0, 1, 1, 1
+	lcg verify-convert 3, 1, 0 # \t
+	lcg verify-convert 3, end-of-range, 0, 1, 1, 1
+	lcg verify-convert 4, 1, 1, 4 # b
+	lcg verify-convert 5, 1, 2, 5 # b
+	lcg verify-convert 6, 1, 3, 6 # \r
+	lcg verify-convert 7, start-of-range, 1, 3, 6, 6 # \n
+	lcg verify-convert 8, 2, 0 # c
+	lcg verify-convert 9, 2, 1, 1 # \t
+	lcg verify-convert 10, start-of-range, 2, 1, 1, 9 # \n
+	lcg verify-convert 11, 3, 0 # end
+	lcg common true
+
+-common void(lcg line-and-column-getter, crlf bool)
+	chg = lcg line-and-character-getter
+	crlfn nat32 = crlf.to::nat to
+	lcg[(0, 99)::line-and-column] is 1 + crlfn
+	chg[(0, 99)::line-and-character] is 1 + crlfn
+	lcg[(99, 99)::line-and-column] is 8 + crlfn * 3
+	chg[(99, 99)::line-and-character] is 8 + crlfn * 3
+
+	chg line-length-in-characters 0 is 1
+	chg line-length-in-characters 1 is 3
+	chg line-length-in-characters 2 is 1
+	chg line-length-in-characters 3 is 0
+
+-verify-convert void(lcg line-and-column-getter, pos pos, line nat32, character nat32)
+	lcg verify-convert pos, line, character, character
+-verify-convert void(lcg line-and-column-getter, pos pos, line nat32, character nat32, column nat32)
+	lcg verify-convert pos, start-of-range, line, character, column, pos
+-verify-convert void(lcg line-and-column-getter, pos pos, kind pos-kind, line nat32, character nat32, column nat32, convert-back-pos pos)
+	line-and-character line-and-character = line, character
+	line-and-column line-and-column = line, column
+	lcg.line-and-character-getter[pos, kind] is line-and-character
+	lcg[pos, kind] is line-and-column
+	lcg.line-and-character-getter[line-and-character] is convert-back-pos
+	lcg[line-and-column] is convert-back-pos
+
+-pos-of pos(text string, substring string)
+	before, _ = text try-split-once! substring
+	before.size-char8s to

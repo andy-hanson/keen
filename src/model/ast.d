@@ -74,7 +74,7 @@ immutable struct FieldMutabilityAst {
 	Opt!Visibility visibility_;
 
 	Range range() =>
-		rangeOfStartAndLength(pos, has(visibility) ? "-mut".length : "mut".length);
+		rangeOfStartAndLength(pos, has(visibility) ? "-mut" : "mut");
 
 	Opt!VisibilityAndRange visibility() =>
 		getVisibilityAndRange(pos, visibility_);
@@ -88,7 +88,7 @@ immutable struct VisibilityAndRange {
 	Pos pos;
 
 	Range range() =>
-		rangeOfStartAndLength(pos, "+".length);
+		rangeOfStartAndLength(pos, "+");
 }
 
 private Opt!VisibilityAndRange getVisibilityAndRange(Pos pos, Opt!Visibility visibility) =>
@@ -144,7 +144,7 @@ immutable struct FunTypeAst {
 	Range range() scope =>
 		combineRanges(returnType.range, paramsRange);
 	Range kindRange() scope =>
-		rangeOfStartAndLength(kindPos, stringOfEnum(kind).length);
+		rangeOfStartAndLength(kindPos, stringOfEnum(kind));
 }
 
 immutable struct MapTypeAst {
@@ -186,7 +186,7 @@ immutable struct SuffixSpecialTypeAst {
 	private Pos suffixEnd() scope =>
 		suffixPos + suffixLength(kind);
 }
-enum SuffixSpecialTypeAstKind : ubyte { array, mutArray, mutPtr, option, ptr, sharedArray }
+enum SuffixSpecialTypeAstKind : ubyte { array, constPointer, mutArray, mutPointer, option, sharedArray }
 
 immutable struct TupleTypeAst {
 	@safe @nogc pure nothrow:
@@ -205,14 +205,14 @@ private uint suffixLength(SuffixSpecialTypeAstKind a) {
 	final switch (a) {
 		case SuffixSpecialTypeAstKind.array:
 			return cast(uint) "[]".length;
-		case SuffixSpecialTypeAstKind.option:
-			return cast(uint) "?".length;
+		case SuffixSpecialTypeAstKind.constPointer:
+			return cast(uint) "*".length;
 		case SuffixSpecialTypeAstKind.mutArray:
 			return cast(uint) "mut[]".length;
-		case SuffixSpecialTypeAstKind.mutPtr:
+		case SuffixSpecialTypeAstKind.mutPointer:
 			return cast(uint) "mut*".length;
-		case SuffixSpecialTypeAstKind.ptr:
-			return cast(uint) "*".length;
+		case SuffixSpecialTypeAstKind.option:
+			return cast(uint) "?".length;
 		case SuffixSpecialTypeAstKind.sharedArray:
 			return cast(uint) "shared[]".length;
 	}
@@ -233,14 +233,14 @@ Symbol symbolForTypeAstSuffix(SuffixSpecialTypeAstKind a) {
 	final switch (a) {
 		case SuffixSpecialTypeAstKind.array:
 			return symbol!"array";
+		case SuffixSpecialTypeAstKind.constPointer:
+			return symbol!"const-pointer";
 		case SuffixSpecialTypeAstKind.mutArray:
 			return symbol!"mut-array";
-		case SuffixSpecialTypeAstKind.mutPtr:
+		case SuffixSpecialTypeAstKind.mutPointer:
 			return symbol!"mut-pointer";
 		case SuffixSpecialTypeAstKind.option:
 			return symbol!"option";
-		case SuffixSpecialTypeAstKind.ptr:
-			return symbol!"const-pointer";
 		case SuffixSpecialTypeAstKind.sharedArray:
 			return symbol!"shared-array";
 	}
@@ -253,7 +253,7 @@ immutable struct ArrowAccessAst {
 	NameAndRange name;
 
 	Range arrowRange() scope =>
-		rangeOfStartAndLength(keywordPos, "->".length);
+		rangeOfStartAndLength(keywordPos, "->");
 	Range arrowAndNameRange() scope =>
 		combineRanges(arrowRange, name.range);
 }
@@ -277,7 +277,7 @@ immutable struct AssertOrForbidThrownAst {
 	ExprAst expr;
 
 	Range colonRange() scope =>
-		rangeOfStartAndLength(colonPos, ":".length);
+		rangeOfStartAndLength(colonPos, ":");
 }
 
 // `left := right`
@@ -288,7 +288,7 @@ immutable struct AssignmentAst {
 	ExprAst right;
 
 	Range keywordRange() =>
-		rangeOfStartAndLength(assignmentPos, ":=".length);
+		rangeOfStartAndLength(assignmentPos, ":=");
 }
 
 // `left f:= right`
@@ -304,7 +304,7 @@ immutable struct AssignmentCallAst {
 		(*leftAndRight)[1];
 
 	Range keywordRange() =>
-		rangeOfStartAndLength(funName.range.end, ":=".length);
+		rangeOfStartAndLength(funName.range.end, ":=");
 }
 
 immutable struct BogusAst {}
@@ -419,7 +419,7 @@ immutable struct ForAst {
 		return source.range[0 .. "for".length];
 	}
 	Range colonRange() scope =>
-		rangeOfStartAndLength(colonPos, ":".length);
+		rangeOfStartAndLength(colonPos, ":");
 }
 
 immutable struct IdentifierAst {
@@ -446,7 +446,7 @@ immutable struct UnpackOptionAst {
 	Range range() scope =>
 		combineRanges(destructure.range, option.range);
 	Range questionEqualsRange() scope =>
-		rangeOfStartAndLength(questionEqualsPos, "?=".length);
+		rangeOfStartAndLength(questionEqualsPos, "?=");
 }
 
 immutable struct IfAst {
@@ -610,7 +610,7 @@ immutable struct LambdaAst {
 	ExprAst body_;
 
 	Range arrowRange() scope =>
-		rangeOfStartAndLength(arrowPos, "=>".length);
+		rangeOfStartAndLength(arrowPos, "=>");
 }
 
 immutable struct DestructureAst {
@@ -638,7 +638,7 @@ immutable struct DestructureAst {
 			(in VoidDestructureAst x) =>
 				x.range,
 			(in DestructureAst[] parts) =>
-				Range(parts[0].range.start, parts[$ - 1].range.end));
+				combineRanges(parts[0].range, parts[$ - 1].range));
 }
 immutable struct SingleDestructureAst {
 	@safe @nogc pure nothrow:
@@ -656,7 +656,7 @@ immutable struct SingleDestructureAst {
 		name.range;
 	Opt!Range mutRange() scope =>
 		has(mut)
-			? some(Range(force(mut), force(mut) + safeToUint("mut".length)))
+			? some(rangeOfStartAndLength(force(mut), safeToUint("mut".length)))
 			: none!Range;
 }
 // `()` is a destructure matching only void values
@@ -743,7 +743,7 @@ immutable struct MatchAst {
 	Opt!(MatchElseAst*) else_;
 
 	Range keywordRange(in ExprAst* source) scope =>
-		rangeOfStartAndLength(source.range.start, "match".length);
+		rangeOfStartAndLength(source.range.start, "match");
 }
 
 immutable struct CaseAst {
@@ -788,7 +788,7 @@ immutable struct MatchElseAst {
 	ExprAst expr;
 
 	Range keywordRange() =>
-		rangeOfStartAndLength(keywordPos, "else".length);
+		rangeOfStartAndLength(keywordPos, "else");
 }
 
 immutable struct ParenthesizedAst {
@@ -863,7 +863,7 @@ immutable struct TryLetAst {
 	Range tryKeywordRange(in ExprAst* ast) scope =>
 		ast.range[0 .. "try".length];
 	Range catchKeywordRange() scope =>
-		rangeOfStartAndLength(catchKeywordPos, "catch".length);
+		rangeOfStartAndLength(catchKeywordPos, "catch");
 }
 
 // expr :: t
@@ -874,7 +874,7 @@ immutable struct TypedAst {
 	TypeAst type;
 
 	Range keywordRange() =>
-		rangeOfStartAndLength(colonPos, "::".length);
+		rangeOfStartAndLength(colonPos, "::");
 	Range keywordAndTypeRange() =>
 		combineRanges(keywordRange, type.range);
 }
@@ -893,7 +893,7 @@ immutable struct WithAst {
 		return ast.range[0 .. "with".length];
 	}
 	Range colonRange() scope =>
-		rangeOfStartAndLength(colonPos, ":".length);
+		rangeOfStartAndLength(colonPos, ":");
 }
 
 immutable struct ExprAstKind {
@@ -990,7 +990,7 @@ immutable struct StructAliasAst {
 	Range nameRange() scope =>
 		name.range;
 	Range keywordRange() scope =>
-		rangeOfStartAndLength(keywordPos, "alias".length);
+		rangeOfStartAndLength(keywordPos, "alias");
 	Opt!VisibilityAndRange visibility() scope =>
 		getVisibilityAndRange(range.start, visibility_);
 }
@@ -1027,7 +1027,7 @@ immutable struct ModifierKeywordAst {
 			? combineRanges(force(typeArg).range, keywordRange)
 			: keywordRange;
 	Range keywordRange() scope =>
-		rangeOfStartAndLength(keywordPos, stringOfModifierKeyword(keyword).length);
+		rangeOfStartAndLength(keywordPos, stringOfModifierKeyword(keyword));
 }
 
 immutable struct SpecUseAst {
@@ -1154,7 +1154,7 @@ immutable struct StructDeclAst {
 	Range nameRange() scope =>
 		name.range;
 	Range keywordRange() scope =>
-		rangeOfStartAndLength(keywordPos, keywordForStructBody(body_).length);
+		rangeOfStartAndLength(keywordPos, keywordForStructBody(body_));
 	Opt!VisibilityAndRange visibility() scope =>
 		getVisibilityAndRange(range.start, visibility_);
 }
@@ -1189,7 +1189,7 @@ immutable struct SpecDeclAst {
 	Range nameRange() scope =>
 		name.range;
 	Range keywordRange() scope =>
-		rangeOfStartAndLength(specKeywordPos, "spec".length);
+		rangeOfStartAndLength(specKeywordPos, "spec");
 	Opt!VisibilityAndRange visibility() scope =>
 		getVisibilityAndRange(range.start, visibility_);
 }
@@ -1270,7 +1270,7 @@ immutable struct TestAst {
 	ExprAst body_; // EmptyAst if missing
 
 	Range keywordRange() scope =>
-		rangeOfStartAndLength(range.start, "test".length);
+		rangeOfStartAndLength(range.start, "test");
 }
 
 // 'global' or 'thread-local'
@@ -1290,7 +1290,7 @@ immutable struct VarDeclAst {
 	Range nameRange() scope =>
 		name.range;
 	Range keywordRange() scope =>
-		rangeOfStartAndLength(keywordPos, stringOfVarKindLowerCase(kind).length);
+		rangeOfStartAndLength(keywordPos, stringOfVarKindLowerCase(kind));
 	Opt!VisibilityAndRange visibility() scope =>
 		getVisibilityAndRange(range.start, visibility_);
 }

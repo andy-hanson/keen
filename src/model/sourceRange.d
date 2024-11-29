@@ -57,6 +57,8 @@ Comparison compareRange(in Range a, in Range b) =>
 Range combineRanges(in Range a, in Range b) =>
 	Range(a.start, b.end);
 
+Range rangeOfStartAndLength(Pos start, in string length) =>
+	rangeOfStartAndLength(start, length.length);
 Range rangeOfStartAndLength(Pos start, size_t length) =>
 	Range(start, safeToUint(start + length));
 
@@ -123,9 +125,6 @@ private immutable struct LineAndColumnRange {
 		writer ~= end;
 	}
 }
-Comparison compareLineAndCharacterRange(in LineAndCharacterRange a, in LineAndCharacterRange b) =>
-	compareOr(compareLineAndCharacter(a.start, b.start), () =>
-		compareLineAndCharacter(a.end, b.end));
 
 immutable struct UriLineAndCharacter {
 	Uri uri;
@@ -169,6 +168,9 @@ immutable struct LineAndCharacterRange {
 	static LineAndCharacterRange topOfFile() =>
 		LineAndCharacterRange(LineAndCharacter(0, 0), LineAndCharacter(0, 0));
 }
+Comparison compareLineAndCharacterRange(in LineAndCharacterRange a, in LineAndCharacterRange b) =>
+	compareOr(compareLineAndCharacter(a.start, b.start), () =>
+		compareLineAndCharacter(a.end, b.end));
 
 immutable struct UriAndLine {
 	@safe @nogc pure nothrow:
@@ -329,12 +331,11 @@ uint lineOfPos(in LineAndCharacterGetter a, Pos pos) =>
 immutable struct LineAndColumnGetter {
 	@safe @nogc pure nothrow:
 	LineAndCharacterGetter lineAndCharacterGetter;
-	bool usesCRLF;
 	ubyte[] lineToNTabs;
 
 	static LineAndColumnGetter empty() {
 		static immutable ubyte[] emptyLineToNTabs = [0];
-		return LineAndColumnGetter(LineAndCharacterGetter.empty, false, emptyLineToNTabs);
+		return LineAndColumnGetter(LineAndCharacterGetter.empty, emptyLineToNTabs);
 	}
 
 	Pos opIndex(in LineAndColumn x) scope =>
@@ -382,7 +383,6 @@ LineAndColumnGetter lineAndColumnGetterForText(ref Alloc alloc, return scope CSt
 
 	return LineAndColumnGetter(
 		LineAndCharacterGetter(stringOfRange(text, ptr), finish(alloc, lineToPos), ptr - text, usesCRLF),
-		usesCRLF,
 		finish(alloc, lineToNTabs));
 }
 

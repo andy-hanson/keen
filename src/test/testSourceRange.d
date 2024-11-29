@@ -26,7 +26,6 @@ private:
 void testLFOrCR(ref Test test, CString text) {
 	LineAndColumnGetter lcg = lineAndColumnGetterForText(test.alloc, text);
 	verifyConvert(lcg, 0, line: 0, character: 0); // a
-	verifyConvert(lcg, 0, line: 0, character: 0); //
 	verifyConvert(lcg, 1, line: 0, character: 1); // \n or \r
 	verifyConvert(lcg, 2, line: 1, character: 0); // \t
 	verifyConvert(lcg, 2, PosKind.endOfRange, line: 0, character: 1, column: 1, convertBackPos: 1);

@@ -294,7 +294,7 @@ void keyword(scope ref TokensBuilder a, in Range range) {
 	reference(a, TokenType.keyword, range);
 }
 void keyword(scope ref TokensBuilder a, Pos start, in string name) {
-	keyword(a, rangeOfStartAndLength(start, name.length));
+	keyword(a, rangeOfStartAndLength(start, name));
 }
 void numberLiteral(scope ref TokensBuilder a, in Range range) {
 	reference(a, TokenType.number, range);
@@ -544,12 +544,12 @@ void addExprTokens(scope ref Ctx ctx, in ExprAst a) {
 					addExprsTokens(ctx, x.args[1 .. $]);
 					break;
 				case CallAstStyle.prefixBang:
-					reference(ctx.tokens, TokenType.function_, rangeOfStartAndLength(x.funName.start, "!".length));
+					reference(ctx.tokens, TokenType.function_, rangeOfStartAndLength(x.funName.start, "!"));
 					addExprTokens(ctx, only(x.args));
 					break;
 				case CallAstStyle.suffixBang:
 					addExprTokens(ctx, only(x.args));
-					reference(ctx.tokens, TokenType.function_, rangeOfStartAndLength(x.funName.start, "!".length));
+					reference(ctx.tokens, TokenType.function_, rangeOfStartAndLength(x.funName.start, "!"));
 					break;
 				case CallAstStyle.emptyParens:
 					break;
