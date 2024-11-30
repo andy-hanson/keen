@@ -12,8 +12,7 @@ import frontend.parse.lexer :
 	Token;
 import frontend.parse.lexString : QuoteKind, StringPart, StringPartAfter;
 import frontend.parse.parseUtil : peekToken, skipBlankLines, takeNameOrOperator, tryTakeToken;
-import model.ast :
-	DocCommentAst, DocCommentContent, ExprAst, ExprAstKind, InterpolatedAst, LiteralStringAst, NameAndRange;
+import model.ast : DocCommentAst, DocCommentContent, ExprAst, InterpolatedAst, LiteralStringAst, NameAndRange;
 import model.parseDiag : ParseDiag, ParseDiagMissingInterpolated;
 import model.sourceRange : Pos, Range;
 import util.col.array : isEmpty;
@@ -55,15 +54,15 @@ ExprAst parseString(
 	return takeInterpolatedCb!ExprAst(
 		lexer, start, quoteKind,
 		cbSingle: (StringPart part) =>
-			ExprAst(range(lexer, start), ExprAstKind(LiteralStringAst(part.text))),
+			ExprAst(LiteralStringAst(range(lexer, start), part.text)),
 		cbInterpolation: () {
 			add(lexer.alloc, parts, cbInterpolated());
 		},
 		cbString: (StringPart part) {
-			add(lexer.alloc, parts, ExprAst(part.range, ExprAstKind(LiteralStringAst(part.text))));
+			add(lexer.alloc, parts, ExprAst(LiteralStringAst(part.range, part.text)));
 		},
 		cbFinish: () =>
-			ExprAst(range(lexer, start), ExprAstKind(InterpolatedAst(finish(lexer.alloc, parts)))));
+			ExprAst(InterpolatedAst(range(lexer, start), finish(lexer.alloc, parts))));
 }
 
 private:

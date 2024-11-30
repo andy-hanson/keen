@@ -28,7 +28,6 @@ import model.ast :
 	ConditionAst,
 	DestructureAst,
 	ExprAst,
-	ExprAstKind,
 	ForAst,
 	FunDeclAst,
 	IfAst,
@@ -357,7 +356,7 @@ void referencesForLocal(in Program program, Uri curUri, in PositionLocal a, in R
 			});
 		eachDescendentExprIncluding(program.commonTypes, force(body_).body_, (ExprRef x) {
 			Opt!(Local*) itsLocal = exprLocalReference(x.expr.kind);
-			if (has(itsLocal) && force(itsLocal) == a.local && !x.expr.ast.kind.isA!AssignmentCallAst)
+			if (has(itsLocal) && force(itsLocal) == a.local && !x.expr.ast.isA!AssignmentCallAst)
 				cb(UriAndRange(force(body_).container.moduleUri, x.expr.range));
 		});
 	}
@@ -568,18 +567,17 @@ void eachTypeInExpr(ref CommonTypes commonTypes, ExprRef expr, in TypeCb cb) {
 }
 
 void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
-	ExprAstKind astKind() =>
-		a.expr.ast.kind;
+	ExprAst* ast = a.expr.ast;
 	a.expr.kind.matchIn!void(
 		(in AssertOrForbidExpr x) {
-			eachTypeInCondition(x.condition, astKind.as!AssertOrForbidAst.condition, cb);
+			eachTypeInCondition(x.condition, ast.as!AssertOrForbidAst.condition, cb);
 		},
 		(in BogusCallExpr _) {},
 		(in BogusExpr _) {},
 		(in BogusWrongTypeExpr _) {},
 		(in CallExpr x) {
-			if (astKind.isA!CallAst) {
-				Opt!(TypeAst*) typeArg = astKind.as!CallAst.typeArg;
+			if (ast.isA!CallAst) {
+				Opt!(TypeAst*) typeArg = ast.as!CallAst.typeArg;
 				if (has(typeArg))
 					eachPackedTypeArg(x.called.as!(FunInst*).typeArgs, *force(typeArg), cb);
 			}
@@ -591,20 +589,20 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 		(in FinallyExpr _) {},
 		(in FunPointerExpr _) {},
 		(in IfExpr x) {
-			eachTypeInCondition(x.condition, astKind.as!IfAst.condition, cb);
+			eachTypeInCondition(x.condition, ast.as!IfAst.condition, cb);
 		},
 		(in LambdaExpr x) {
 			if (!x.isIgnore) {
-				DestructureAst param = astKind.isA!(ForAst*)
-					? astKind.as!(ForAst*).param
-					: astKind.isA!(WithAst*)
-					? astKind.as!(WithAst*).param
-					: astKind.as!(LambdaAst*).param;
+				DestructureAst param = ast.isA!(ForAst*)
+					? ast.as!(ForAst*).param
+					: ast.isA!(WithAst*)
+					? ast.as!(WithAst*).param
+					: ast.as!(LambdaAst*).param;
 				eachTypeInDestructure(x.param, param, cb);
 			}
 		},
 		(in LetExpr x) {
-			eachTypeInDestructure(x.destructure, astKind.as!(LetAst*).destructure, cb);
+			eachTypeInDestructure(x.destructure, ast.as!(LetAst*).destructure, cb);
 		},
 		(in LiteralExpr _) {},
 		(in LiteralStringLikeExpr _) {},
@@ -615,26 +613,26 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 		(in LoopBreakExpr _) {},
 		(in LoopContinueExpr _) {},
 		(in LoopWhileOrUntilExpr x) {
-			eachTypeInCondition(x.condition, astKind.as!(LoopWhileOrUntilAst*).condition, cb);
+			eachTypeInCondition(x.condition, ast.as!(LoopWhileOrUntilAst*).condition, cb);
 		},
 		(in MatchEnumExpr _) {},
 		(in MatchIntegralExpr _) {},
 		(in MatchStringLikeExpr _) {},
 		(in MatchSumTypeExpr x) {
-			eachTypeInMatchSumType(x.cases, astKind.as!MatchAst.cases, cb);
+			eachTypeInMatchSumType(x.cases, ast.as!MatchAst.cases, cb);
 		},
 		(in RecordFieldPointerExpr _) {},
 		(in SeqExpr _) {},
 		(in ThrowExpr _) {},
 		(in TrustedExpr _) {},
 		(in TryExpr x) {
-			eachTypeInMatchSumType(x.catches, astKind.as!TryAst.catches, cb);
+			eachTypeInMatchSumType(x.catches, ast.as!TryAst.catches, cb);
 		},
 		(in TryLetExpr x) {
-			eachTypeInMatchSumTypeCase(x.catch_, astKind.as!(TryLetAst*).catchMember, cb);
+			eachTypeInMatchSumTypeCase(x.catch_, ast.as!(TryLetAst*).catchMember, cb);
 		},
 		(in TypedExpr x) =>
-			cb(a.type, astKind.as!(TypedAst*).type));
+			cb(a.type, ast.as!(TypedAst*).type));
 }
 
 void eachTypeInMatchSumType(in MatchSumTypeCase[] cases, in CaseAst[] caseAsts, in TypeCb cb) {
@@ -753,20 +751,19 @@ void eachFunReferenceAtExpr(in Module module_, in ExprRef x, in FunDecl*[] decls
 }
 
 Range callNameRange(in ExprAst a) {
-	ExprAstKind kind = a.kind;
-	return kind.isA!(AssignmentAst*)
-		? kind.as!(AssignmentAst*).left.range
-		: kind.isA!AssignmentCallAst
-		? kind.as!AssignmentCallAst.funName.range
-		: kind.isA!CallAst
-		? kind.as!CallAst.funName.range
-		: kind.isA!(ForAst*)
-		? kind.as!(ForAst*).forKeywordRange(a)
-		: kind.isA!IfAst
+	return a.isA!(AssignmentAst*)
+		? a.as!(AssignmentAst*).left.range
+		: a.isA!AssignmentCallAst
+		? a.as!AssignmentCallAst.funName.range
+		: a.isA!CallAst
+		? a.as!CallAst.funName.range
+		: a.isA!(ForAst*)
+		? a.as!(ForAst*).forKeywordRange
+		: a.isA!IfAst
 		// This only happens for implicit 'else ()'
-		? kind.as!IfAst.firstKeywordRange
-		: kind.isA!(WithAst*)
-		? kind.as!(WithAst*).withKeywordRange(a)
+		? a.as!IfAst.firstKeywordRange
+		: a.isA!(WithAst*)
+		? a.as!(WithAst*).withKeywordRange
 		: a.range;
 }
 

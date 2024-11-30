@@ -26,7 +26,6 @@ import model.ast :
 	EnumAst,
 	EnumOrFlagsMemberAst,
 	ExprAst,
-	ExprAstKind,
 	ExternAst,
 	ExternTypeAst,
 	FieldMutabilityAst,
@@ -37,7 +36,6 @@ import model.ast :
 	FunDeclAst,
 	FunTypeAst,
 	ModifierAst,
-	IdentifierAst,
 	IfAst,
 	ImportFileAst,
 	ImportOrExportAst,
@@ -46,7 +44,8 @@ import model.ast :
 	InterpolatedAst,
 	LambdaAst,
 	LetAst,
-	LiteralFloatAst,
+	LiteralFloat,
+	LiteralFloatAndRange,
 	LiteralIntegral,
 	LiteralIntegralAndRange,
 	LiteralStringAst,
@@ -232,7 +231,7 @@ Json jsonOfEnumOrFlagsMember(ref Alloc alloc, in Ctx ctx, in EnumOrFlagsMemberAs
 		optionalField!("value", LiteralIntegralAndRange)(a.value, (in LiteralIntegralAndRange x) =>
 			jsonOfLiteralIntegralAndRange(alloc, ctx, x))]);
 
-Json jsonOfLiteralFloatAst(ref Alloc alloc, in LiteralFloatAst a) =>
+Json jsonOfLiteralFloat(ref Alloc alloc, in LiteralFloat a) =>
 	jsonObject(alloc, [
 		kindField!"float",
 		// Convert to a string to avoid losing long -> double conversion
@@ -414,11 +413,6 @@ Json jsonOfDestructureAst(ref Alloc alloc, in Ctx ctx, in DestructureAst a) =>
 			jsonList!DestructureAst(alloc, parts, (in DestructureAst part) =>
 				jsonOfDestructureAst(alloc, ctx, part)));
 
-Json jsonOfExprAst(ref Alloc alloc, in Ctx ctx, in ExprAst ast) =>
-	jsonObject(alloc, [
-		field!"range"(jsonOfRange(alloc, ctx, ast.range)),
-		field!"kind"(jsonOfExprAstKind(alloc, ctx, ast.kind))]);
-
 Json jsonOfExprAsts(ref Alloc alloc, in Ctx ctx, in ExprAst[] asts) =>
 	jsonList!ExprAst(alloc, asts, (in ExprAst x) =>
 		jsonOfExprAst(alloc, ctx, x));
@@ -432,7 +426,7 @@ Json jsonOfNameAndRange(ref Alloc alloc, in Ctx ctx, in NameAndRange a) =>
 		field!"start"(jsonOfLineAndColumn(alloc, ctx.lineAndColumnGetter[a.start, PosKind.startOfRange])),
 		field!"name"(a.name)]);
 
-Json jsonOfExprAstKind(ref Alloc alloc, in Ctx ctx, in ExprAstKind ast) =>
+Json jsonOfExprAst(ref Alloc alloc, in Ctx ctx, in ExprAst ast) =>
 	ast.matchIn!Json(
 		(in ArrowAccessAst e) =>
 			jsonObject(alloc, [
@@ -494,7 +488,7 @@ Json jsonOfExprAstKind(ref Alloc alloc, in Ctx ctx, in ExprAstKind ast) =>
 				field!"collection"(jsonOfExprAst(alloc, ctx, x.collection)),
 				field!"body"(jsonOfExprAst(alloc, ctx, x.body_)),
 				field!"else"(jsonOfExprAst(alloc, ctx, x.else_))]),
-		(in IdentifierAst a) =>
+		(in NameAndRange a) =>
 			jsonObject(alloc, [
 				kindField!"identifier",
 				field!"name"(a.name)]),
@@ -524,10 +518,10 @@ Json jsonOfExprAstKind(ref Alloc alloc, in Ctx ctx, in ExprAstKind ast) =>
 				field!"destructure"(jsonOfDestructureAst(alloc, ctx, a.destructure)),
 				field!"value"(jsonOfExprAst(alloc, ctx, a.value)),
 				field!"then"(jsonOfExprAst(alloc, ctx, a.then))]),
-		(in LiteralFloatAst a) =>
-			jsonOfLiteralFloatAst(alloc, a),
-		(in LiteralIntegral a) =>
-			jsonOfLiteralIntegral(alloc, a),
+		(in LiteralFloatAndRange a) =>
+			jsonOfLiteralFloat(alloc, a.literal),
+		(in LiteralIntegralAndRange a) =>
+			jsonOfLiteralIntegral(alloc, a.literal),
 		(in LiteralStringAst a) =>
 			jsonOfLiteralStringAst(alloc, a),
 		(in LoopAst a) =>
@@ -569,15 +563,15 @@ Json jsonOfExprAstKind(ref Alloc alloc, in Ctx ctx, in ExprAstKind ast) =>
 		(in SharedAst a) =>
 			jsonObject(alloc, [
 				kindField!"shared",
-				field!"inner"(jsonOfExprAst(alloc, ctx, a.inner))]),
+				field!"inner"(jsonOfExprAst(alloc, ctx, *a.inner))]),
 		(in ThrowAst x) =>
 			jsonObject(alloc, [
 				kindField!"throw",
-				field!"thrown"(jsonOfExprAst(alloc, ctx, x.thrown))]),
+				field!"thrown"(jsonOfExprAst(alloc, ctx, *x.thrown))]),
 		(in TrustedAst x) =>
 			jsonObject(alloc, [
 				kindField!"trusted",
-				field!"inner"(jsonOfExprAst(alloc, ctx, x.inner))]),
+				field!"inner"(jsonOfExprAst(alloc, ctx, *x.inner))]),
 		(in TryAst x) =>
 			jsonObject(alloc, [
 				kindField!"try",

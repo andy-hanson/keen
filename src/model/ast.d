@@ -62,8 +62,10 @@ immutable struct NameAndRange {
 		start = s;
 	}
 
+	Pos end() scope =>
+		start + symbolSize(name);
 	Range range() scope =>
-		rangeOfStartAndLength(start, symbolSize(name));
+		Range(start, end);
 }
 static assert(NameAndRange.sizeof == ulong.sizeof);
 
@@ -107,6 +109,8 @@ immutable struct TypeAst {
 		SuffixSpecialTypeAst*,
 		TupleTypeAst*);
 
+	Pos end() scope =>
+		range.end;
 	Range range() scope =>
 		matchIn!Range(
 			(in BogusTypeAst x) => x.range,
@@ -252,6 +256,10 @@ immutable struct ArrowAccessAst {
 	Pos keywordPos;
 	NameAndRange name;
 
+	Pos start() scope =>
+		left.start;
+	Pos end() scope =>
+		name.end;
 	Range arrowRange() scope =>
 		rangeOfStartAndLength(keywordPos, "->");
 	Range arrowAndNameRange() scope =>
@@ -261,15 +269,16 @@ immutable struct ArrowAccessAst {
 immutable struct AssertOrForbidAst {
 	@safe @nogc pure nothrow:
 
+	Pos start;
 	bool isForbid;
 	ConditionAst condition;
 	Opt!(AssertOrForbidThrownAst*) thrown;
 	ExprAst* after;
 
-	Range keywordRange(in ExprAst* ast) scope {
-		static assert("assert".length == "forbid".length);
-		return ast.range[0 .. "assert".length];
-	}
+	Range keywordRange() scope =>
+		rangeOfStartAndLength(start, "assert");
+	Pos end() scope =>
+		after.end;
 }
 immutable struct AssertOrForbidThrownAst {
 	@safe @nogc pure nothrow:
@@ -287,7 +296,11 @@ immutable struct AssignmentAst {
 	Pos assignmentPos;
 	ExprAst right;
 
-	Range keywordRange() =>
+	Pos start() scope =>
+		left.start;
+	Pos end() scope =>
+		right.end;
+	Range keywordRange() scope =>
 		rangeOfStartAndLength(assignmentPos, ":=");
 }
 
@@ -303,25 +316,38 @@ immutable struct AssignmentCallAst {
 	ref ExprAst right() return scope =>
 		(*leftAndRight)[1];
 
-	Range keywordRange() =>
+	Pos start() scope =>
+		left.start;
+	Pos end() scope =>
+		right.end;
+	Range keywordRange() scope =>
 		rangeOfStartAndLength(funName.range.end, ":=");
 }
 
-immutable struct BogusAst {}
+immutable struct BogusAst {
+	@safe @nogc pure nothrow:
+	Range range;
+	Pos start() scope =>
+		range.start;
+	Pos end() scope =>
+		range.end;
+}
 
 immutable struct CallAst {
 	@safe @nogc pure nothrow:
 
+	Range range;
 	CallAstStyle style;
 	Pos keywordPos; // Position of '.' or '?'
 	NameAndRange funName;
 	SmallArray!ExprAst args;
 	Opt!(TypeAst*) typeArg;
 
-	this(CallAstStyle s, NameAndRange fn, SmallArray!ExprAst a, Opt!(TypeAst*) ta = none!(TypeAst*)) {
-		this(s, Pos.max, fn, a, ta);
+	this(Range r, CallAstStyle s, NameAndRange fn, SmallArray!ExprAst a, Opt!(TypeAst*) ta = none!(TypeAst*)) {
+		this(r, s, Pos.max, fn, a, ta);
 	}
-	this(CallAstStyle s, Pos kp, NameAndRange fn, SmallArray!ExprAst a, Opt!(TypeAst*) ta = none!(TypeAst*)) {
+	this(Range r, CallAstStyle s, Pos kp, NameAndRange fn, SmallArray!ExprAst a, Opt!(TypeAst*) ta = none!(TypeAst*)) {
+		range = r;
 		style = s;
 		keywordPos = kp;
 		funName = fn;
@@ -330,6 +356,10 @@ immutable struct CallAst {
 		assert(has(keywordRange) == (keywordPos != Pos.max));
 	}
 
+	Pos start() scope =>
+		range.start;
+	Pos end() scope =>
+		range.end;
 	Opt!Range keywordRange() scope {
 		final switch (style) {
 			case CallAstStyle.augment:
@@ -362,7 +392,7 @@ enum CallAstStyle : ubyte {
 	infix, // `a b`, `a b c`, `a b c, d`, etc.
 	prefixBang,
 	prefixOperator, // `-x`, `x`, `~x`
-	single, // `a@t` (without the type arg, it would just be an Identifier)
+	single, // `a@t` (without the type arg, the ExprAst would just be a NameAndRange)
 	subscript, // `a[b]`
 	suffixBang, // `x!`
 	questionSubscript, // `a?[b]``
@@ -381,49 +411,72 @@ immutable struct CallNamedAst {
 		assert(!isEmpty(names));
 		assert(sizeEq(names, args));
 	}
+
+	Pos start() scope =>
+		names[0].start;
+	Pos end() scope =>
+		args[$ - 1].end;
 }
 
 immutable struct DoAst {
+	@safe @nogc pure nothrow:
+	Pos start;
 	ExprAst* body_;
+
+	Pos end() scope =>
+		body_.end;
 }
 
 // Used for implicit 'else ()' or implicit '()' after a Let
-immutable struct EmptyAst {}
+immutable struct EmptyAst {
+	@safe @nogc pure nothrow:
+	Range range;
+	Pos start() scope =>
+		range.start;
+	Pos end() scope =>
+		range.end;
+}
 
 immutable struct ExternAst {
+	@safe @nogc pure nothrow:
+	Range range;
 	NameAndRange[] names;
+	Pos start() scope =>
+		range.start;
+	Pos end() scope =>
+		range.end;
 }
 
 immutable struct FinallyAst {
 	@safe @nogc pure nothrow:
 
+	Pos start;
 	ExprAst right;
 	ExprAst below;
 
-	Range finallyKeywordRange(in ExprAst* ast) scope {
-		assert(ast.kind.as!(FinallyAst*) == &this);
-		return ast.range[0 .. "finally".length];
-	}
+	Pos end() scope =>
+		below.end;
+	Range finallyKeywordRange() scope =>
+		rangeOfStartAndLength(start, "finally");
 }
 
 immutable struct ForAst {
 	@safe @nogc pure nothrow:
+	Pos start;
 	DestructureAst param;
 	Pos colonPos;
 	ExprAst collection;
 	ExprAst body_;
 	ExprAst else_; // May be EmptyAst
 
-	Range forKeywordRange(in ExprAst source) scope {
-		assert(source.kind.as!(ForAst*) == &this);
-		return source.range[0 .. "for".length];
-	}
+	Pos end() scope =>
+		else_.isA!EmptyAst
+			? body_.end
+			: else_.end;
+	Range forKeywordRange() scope =>
+		rangeOfStartAndLength(start, "for");
 	Range colonRange() scope =>
 		rangeOfStartAndLength(colonPos, ":");
-}
-
-immutable struct IdentifierAst {
-	Symbol name;
 }
 
 immutable struct ConditionAst {
@@ -444,13 +497,14 @@ immutable struct UnpackOptionAst {
 	ExprAst* option;
 
 	Range range() scope =>
-		combineRanges(destructure.range, option.range);
+		Range(destructure.start, option.end);
 	Range questionEqualsRange() scope =>
 		rangeOfStartAndLength(questionEqualsPos, "?=");
 }
 
 immutable struct IfAst {
 	@safe @nogc pure nothrow:
+	Pos start;
 	IfAstKind kind;
 	bool isElseOfParent; // 'ifWithoutElse', 'ifElif', and 'ifElse' could all be the 'else' branch of a preceding 'if'
 	Pos firstKeywordPos; // Position of 'if' or '?' or 'unless'
@@ -458,6 +512,11 @@ immutable struct IfAst {
 	ConditionAst condition;
 	// How many branches this points to depends on 'kind'. See 'countIfBranches'.
 	private ExprAst* branchesPtr;
+
+	Pos end() scope =>
+		has(secondBranch)
+			? force(secondBranch).end
+			: force(firstBranch).end;
 
 	@trusted ExprAst[] allBranches() return scope =>
 		branchesPtr[0 .. countIfBranches(kind)];
@@ -577,6 +636,7 @@ private size_t countIfBranches(IfAstKind kind) {
 // Have to move this out of the struct due to forward reference error
 IfAst createIfAst(
 	ref Alloc alloc,
+	Pos start,
 	IfAstKind kind,
 	bool isElseOfParent,
 	Pos firstKeywordPos,
@@ -587,6 +647,7 @@ IfAst createIfAst(
 ) {
 	assert(countIfBranches(kind) == has(firstBranch) + has(secondBranch));
 	return IfAst(
+		start: start,
 		kind: kind,
 		isElseOfParent: isElseOfParent,
 		firstKeywordPos: firstKeywordPos,
@@ -600,15 +661,25 @@ IfAst createIfAst(
 }
 
 immutable struct InterpolatedAst {
+	@safe @nogc pure nothrow:
+	Range range;
 	ExprAst[] parts;
+
+	Pos start() scope =>
+		range.start;
+	Pos end() scope =>
+		range.end;
 }
 
 immutable struct LambdaAst {
 	@safe @nogc pure nothrow:
+	Pos start;
 	DestructureAst param;
 	Pos arrowPos;
 	ExprAst body_;
 
+	Pos end() scope =>
+		body_.end;
 	Range arrowRange() scope =>
 		rangeOfStartAndLength(arrowPos, "=>");
 }
@@ -618,27 +689,28 @@ immutable struct DestructureAst {
 
 	mixin Union!(SingleDestructureAst, VoidDestructureAst, DestructureAst[]);
 
-	Pos pos() scope =>
+	Range range() scope =>
+		Range(start, end);
+
+	Pos start() scope =>
 		matchIn!Pos(
 			(in SingleDestructureAst x) =>
 				x.name.start,
 			(in VoidDestructureAst x) =>
 				x.range.start,
 			(in DestructureAst[] parts) =>
-				parts[0].pos);
+				parts[0].start);
 
-	Range range() scope =>
-		matchIn!Range(
-			(in SingleDestructureAst x) {
-				Range name = x.name.range;
-				return has(x.type)
-					? Range(name.start, force(x.type).range.end)
-					: name;
-			},
+	Pos end() scope =>
+		matchIn!Pos(
+			(in SingleDestructureAst x) =>
+				has(x.type)
+					? force(x.type).range.end
+					: x.name.end,
 			(in VoidDestructureAst x) =>
-				x.range,
+				x.range.end,
 			(in DestructureAst[] parts) =>
-				combineRanges(parts[0].range, parts[$ - 1].range));
+				parts[$ - 1].end);
 }
 immutable struct SingleDestructureAst {
 	@safe @nogc pure nothrow:
@@ -665,9 +737,14 @@ immutable struct VoidDestructureAst {
 }
 
 immutable struct LetAst {
+	@safe @nogc pure nothrow:
 	DestructureAst destructure;
 	ExprAst value;
 	ExprAst then;
+	Pos start() scope =>
+		destructure.start;
+	Pos end() scope =>
+		then.end;
 }
 
 immutable struct HighPrecisionFloat {
@@ -676,9 +753,19 @@ immutable struct HighPrecisionFloat {
 	long exponent;
 }
 
-immutable struct LiteralFloatAst {
+immutable struct LiteralFloat {
 	HighPrecisionFloat value;
 	bool overflow;
+}
+
+immutable struct LiteralFloatAndRange {
+	@safe @nogc pure nothrow:
+	Range range;
+	LiteralFloat literal;
+	Pos start() scope =>
+		range.start;
+	Pos end() scope =>
+		range.end;
 }
 
 immutable struct LiteralIntegral {
@@ -688,62 +775,87 @@ immutable struct LiteralIntegral {
 }
 
 immutable struct LiteralIntegralAndRange {
+	@safe @nogc pure nothrow:
 	Range range;
 	LiteralIntegral literal;
+	Pos start() scope =>
+		range.start;
+	Pos end() scope =>
+		range.end;
 }
 
 immutable struct LiteralStringAst {
+	@safe @nogc pure nothrow:
+	Range range;
 	string value;
+	Pos start() scope =>
+		range.start;
+	Pos end() scope =>
+		range.end;
 }
 
 immutable struct LoopAst {
 	@safe @nogc pure nothrow:
+	Pos start;
 	ExprAst body_;
-	Range keywordRange(in ExprAst* source) scope {
-		assert(source.kind.as!(LoopAst*) == &this);
-		return source.range[0 .. "loop".length];
-	}
+	Range keywordRange() scope =>
+		rangeOfStartAndLength(start, "loop");
+	Pos end() scope =>
+		body_.end;
 }
 
 immutable struct LoopBreakAst {
 	@safe @nogc pure nothrow:
+	Pos start;
 	ExprAst value;
 
-	Range keywordRange(in ExprAst* source) scope {
-		assert(source.kind.as!(LoopBreakAst*) == &this);
-		return source.range[0 .. "break".length];
-	}
+	Range keywordRange() scope =>
+		rangeOfStartAndLength(start, "break");
+	Pos end() scope =>
+		value.end;
 }
 
 immutable struct LoopContinueAst {
 	@safe @nogc pure nothrow:
-	Range keywordRange(in ExprAst* source) =>
-		source.range[0 .. "continue".length];
+	Pos start;
+	Pos end() scope =>
+		keywordRange.end;
+	Range keywordRange() scope =>
+		rangeOfStartAndLength(start, "continue");
 }
 
 immutable struct LoopWhileOrUntilAst {
 	@safe @nogc pure nothrow:
+	Pos start;
 	bool isUntil;
 	ConditionAst condition;
 	ExprAst body_;
 	ExprAst after;
 
-	Range keywordRange(in ExprAst* source) scope {
-		assert(source.kind.as!(LoopWhileOrUntilAst*) == &this);
+	Pos end() scope =>
+		after.end;
+	Range keywordRange() scope {
 		static assert("while".length == "until".length);
-		return source.range[0 .. "while".length];
+		return rangeOfStartAndLength(start, "while");
 	}
 }
 
 immutable struct MatchAst {
 	@safe @nogc pure nothrow:
 
+	Pos start;
 	ExprAst* matched;
 	SmallArray!CaseAst cases;
 	Opt!(MatchElseAst*) else_;
 
-	Range keywordRange(in ExprAst* source) scope =>
-		rangeOfStartAndLength(source.range.start, "match");
+	Pos end() scope =>
+		has(else_)
+			? force(else_).end
+			: !isEmpty(cases)
+			? cases[$ - 1].end
+			: matched.end;
+	Range keywordRange() scope =>
+		rangeOfStartAndLength(start, "match");
 }
 
 immutable struct CaseAst {
@@ -755,6 +867,8 @@ immutable struct CaseAst {
 
 	Range keywordAndMemberNameRange() scope =>
 		Range(keywordPos, member.nameRange.end);
+	Pos end() scope =>
+		then.end;
 }
 
 immutable struct CaseMemberAst {
@@ -787,72 +901,93 @@ immutable struct MatchElseAst {
 	Pos keywordPos;
 	ExprAst expr;
 
+	Pos end() scope =>
+		expr.end;
 	Range keywordRange() =>
 		rangeOfStartAndLength(keywordPos, "else");
 }
 
 immutable struct ParenthesizedAst {
+	@safe @nogc pure nothrow:
+	Range range;
 	ExprAst inner;
+	Pos start() scope =>
+		range.start;
+	Pos end() scope =>
+		range.end;
 }
 
 immutable struct PtrAst {
 	@safe @nogc pure nothrow:
+	Pos start;
 	ExprAst inner;
 
-	Range keywordRange(in ExprAst* ast) scope {
-		assert(ast.kind.as!(PtrAst*) == &this);
-		return ast.range[0 .. "&".length];
-	}
+	Range keywordRange() scope =>
+		rangeOfStartAndLength(start, "&");
+	Pos end() scope =>
+		inner.end;
 }
 
 immutable struct SeqAst {
+	@safe @nogc pure nothrow:
 	ExprAst first;
 	ExprAst then;
+	Pos start() scope =>
+		first.start;
+	Pos end() scope =>
+		then.end;
 }
 
 immutable struct SharedAst {
 	@safe @nogc pure nothrow:
-	ExprAst inner;
+	Pos start;
+	ExprAst* inner;
 
-	Range keywordRange(in ExprAst ast) scope {
-		assert(ast.kind.as!(SharedAst*) == &this);
-		return ast.range[0 .. "shared".length];
-	}
+	Pos end() scope =>
+		inner.end;
+	Range keywordRange() scope =>
+		rangeOfStartAndLength(start, "shared");
 }
 
 immutable struct ThrowAst {
 	@safe @nogc pure nothrow:
-	ExprAst thrown;
+	Pos start;
+	ExprAst* thrown;
 
-	Range keywordRange(in ExprAst* ast) scope {
-		assert(ast.kind.as!(ThrowAst*) == &this);
-		return ast.range[0 .. "throw".length];
-	}
+	Range keywordRange() scope =>
+		rangeOfStartAndLength(start, "throw".length);
+	Pos end() scope =>
+		thrown.end;
 }
 
 immutable struct TrustedAst {
 	@safe @nogc pure nothrow:
-	ExprAst inner;
+	Pos start;
+	ExprAst* inner;
 
-	Range keywordRange(in ExprAst* ast) scope {
-		assert(ast.kind.as!(TrustedAst*) == &this);
-		return ast.range[0 .. "trusted".length];
-	}
+	Range keywordRange() scope =>
+		rangeOfStartAndLength(start, "trusted");
+	Pos end() scope =>
+		inner.end;
 }
 
 immutable struct TryAst {
 	@safe @nogc pure nothrow:
 
+	Pos start;
 	ExprAst* tried;
 	SmallArray!CaseAst catches;
 
-	Range tryKeywordRange(in ExprAst* ast) scope =>
-		ast.range[0 .. "try".length];
+	Range tryKeywordRange() scope =>
+		rangeOfStartAndLength(start, "try");
+	Pos end() scope =>
+		catches[$ - 1].end;
 }
 
 immutable struct TryLetAst {
 	@safe @nogc pure nothrow:
 
+	Pos start;
 	DestructureAst destructure;
 	ExprAst value;
 	Pos catchKeywordPos;
@@ -860,8 +995,10 @@ immutable struct TryLetAst {
 	ExprAst catch_;
 	ExprAst then;
 
-	Range tryKeywordRange(in ExprAst* ast) scope =>
-		ast.range[0 .. "try".length];
+	Pos end() scope =>
+		then.end;
+	Range tryKeywordRange() scope =>
+		rangeOfStartAndLength(start, "try");
 	Range catchKeywordRange() scope =>
 		rangeOfStartAndLength(catchKeywordPos, "catch");
 }
@@ -873,6 +1010,10 @@ immutable struct TypedAst {
 	Pos colonPos;
 	TypeAst type;
 
+	Pos start() scope =>
+		expr.start;
+	Pos end() scope =>
+		type.end;
 	Range keywordRange() =>
 		rangeOfStartAndLength(colonPos, "::");
 	Range keywordAndTypeRange() =>
@@ -882,21 +1023,23 @@ immutable struct TypedAst {
 immutable struct WithAst {
 	@safe @nogc pure nothrow:
 
+	Pos start;
 	DestructureAst param;
 	Pos colonPos;
 	ExprAst arg;
 	ExprAst body_;
-	ExprAst else_; // May be EmptyAst (or else a compile error)
+	ExprAst else_; // Usually EmptyAst (or else a compile error)
 
-	Range withKeywordRange(in ExprAst ast) scope {
-		assert(ast.kind.as!(WithAst*) == &this);
-		return ast.range[0 .. "with".length];
-	}
+	Pos end() scope =>
+		else_.isA!EmptyAst ? else_.end : body_.end;
+	Range withKeywordRange() scope =>
+		rangeOfStartAndLength(start, "with");
 	Range colonRange() scope =>
 		rangeOfStartAndLength(colonPos, ":");
 }
 
-immutable struct ExprAstKind {
+immutable struct ExprAst {
+	@safe @nogc pure nothrow:
 	mixin Union!(
 		ArrowAccessAst,
 		AssertOrForbidAst,
@@ -910,13 +1053,13 @@ immutable struct ExprAstKind {
 		ExternAst,
 		FinallyAst*,
 		ForAst*,
-		IdentifierAst,
+		NameAndRange,
 		IfAst,
 		InterpolatedAst,
 		LambdaAst*,
 		LetAst*,
-		LiteralFloatAst,
-		LiteralIntegral,
+		LiteralFloatAndRange,
+		LiteralIntegralAndRange,
 		LiteralStringAst,
 		LoopAst*,
 		LoopBreakAst*,
@@ -926,26 +1069,164 @@ immutable struct ExprAstKind {
 		ParenthesizedAst*,
 		PtrAst*,
 		SeqAst*,
-		SharedAst*,
-		ThrowAst*,
-		TrustedAst*,
+		SharedAst,
+		ThrowAst,
+		TrustedAst,
 		TryAst,
 		TryLetAst*,
 		TypedAst*,
 		WithAst*);
+	
+	Pos start() scope =>
+		matchIn!Pos(
+			(in ArrowAccessAst x) =>
+				x.start,
+			(in AssertOrForbidAst x) =>
+				x.start,
+			(in AssignmentAst x) =>
+				x.start,
+			(in AssignmentCallAst x) =>
+				x.start,
+			(in BogusAst x) =>
+				x.start,
+			(in CallAst x) =>
+				x.start,
+			(in CallNamedAst x) =>
+				x.start,
+			(in DoAst x) =>
+				x.start,
+			(in EmptyAst x) =>
+				x.start,
+			(in ExternAst x) =>
+				x.start,
+			(in FinallyAst x) =>
+				x.start,
+			(in ForAst x) =>
+				x.start,
+			(in NameAndRange x) =>
+				x.start,
+			(in IfAst x) =>
+				x.start,
+			(in InterpolatedAst x) =>
+				x.start,
+			(in LambdaAst x) =>
+				x.start,
+			(in LetAst x) =>
+				x.start,
+			(in LiteralFloatAndRange x) =>
+				x.start,
+			(in LiteralIntegralAndRange x) =>
+				x.start,
+			(in LiteralStringAst x) =>
+				x.start,
+			(in LoopAst x) =>
+				x.start,
+			(in LoopBreakAst x) =>
+				x.start,
+			(in LoopContinueAst x) =>
+				x.start,
+			(in LoopWhileOrUntilAst x) =>
+				x.start,
+			(in MatchAst x) =>
+				x.start,
+			(in ParenthesizedAst x) =>
+				x.start,
+			(in PtrAst x) =>
+				x.start,
+			(in SeqAst x) =>
+				x.start,
+			(in SharedAst x) =>
+				x.start,
+			(in ThrowAst x) =>
+				x.start,
+			(in TrustedAst x) =>
+				x.start,
+			(in TryAst x) =>
+				x.start,
+			(in TryLetAst x) =>
+				x.start,
+			(in TypedAst x) =>
+				x.start,
+			(in WithAst x) =>
+				x.start);
+	Pos end() scope =>
+		matchIn!Pos(
+			(in ArrowAccessAst x) =>
+				x.end,
+			(in AssertOrForbidAst x) =>
+				x.end,
+			(in AssignmentAst x) =>
+				x.end,
+			(in AssignmentCallAst x) =>
+				x.end,
+			(in BogusAst x) =>
+				x.end,
+			(in CallAst x) =>
+				x.end,
+			(in CallNamedAst x) =>
+				x.end,
+			(in DoAst x) =>
+				x.end,
+			(in EmptyAst x) =>
+				x.end,
+			(in ExternAst x) =>
+				x.end,
+			(in FinallyAst x) =>
+				x.end,
+			(in ForAst x) =>
+				x.end,
+			(in NameAndRange x) =>
+				x.end,
+			(in IfAst x) =>
+				x.end,
+			(in InterpolatedAst x) =>
+				x.end,
+			(in LambdaAst x) =>
+				x.end,
+			(in LetAst x) =>
+				x.end,
+			(in LiteralFloatAndRange x) =>
+				x.end,
+			(in LiteralIntegralAndRange x) =>
+				x.end,
+			(in LiteralStringAst x) =>
+				x.end,
+			(in LoopAst x) =>
+				x.end,
+			(in LoopBreakAst x) =>
+				x.end,
+			(in LoopContinueAst x) =>
+				x.end,
+			(in LoopWhileOrUntilAst x) =>
+				x.end,
+			(in MatchAst x) =>
+				x.end,
+			(in ParenthesizedAst x) =>
+				x.end,
+			(in PtrAst x) =>
+				x.end,
+			(in SeqAst x) =>
+				x.end,
+			(in SharedAst x) =>
+				x.end,
+			(in ThrowAst x) =>
+				x.end,
+			(in TrustedAst x) =>
+				x.end,
+			(in TryAst x) =>
+				x.end,
+			(in TryLetAst x) =>
+				x.end,
+			(in TypedAst x) =>
+				x.end,
+			(in WithAst x) =>
+				x.end);
+	Range range() scope =>
+		Range(start, end);
 }
 version (WebAssembly) {} else {
-	static assert(ExprAstKind.sizeof == CallAst.sizeof + ulong.sizeof);
+	static assert(ExprAst.sizeof == CallAst.sizeof + ulong.sizeof);
 }
-
-immutable struct ExprAst {
-	Range range;
-	ExprAstKind kind;
-}
-static assert(ExprAst.sizeof <= 6 * ulong.sizeof);
-
-ExprAst bogusExpr(in Range range) =>
-	ExprAst(range, ExprAstKind(BogusAst()));
 
 immutable struct ParamsAst {
 	mixin TaggedUnion!(SmallArray!DestructureAst, VarargsAst*);

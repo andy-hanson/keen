@@ -135,7 +135,7 @@ FunDecl[] checkFunsInitial(
 					funAst.params,
 					funAst.typeParams,
 					structsAndAliasesMap);
-				bool hasBody = !funAst.body_.kind.isA!EmptyAst;
+				bool hasBody = !funAst.body_.isA!EmptyAst;
 				FunModifiers flagsAndSpecs = checkFunModifiers(
 					ctx, commonTypes, structsAndAliasesMap, specsMap,
 					funAst.typeParams, funAst.nameRange, hasBody, funAst.modifiers);
@@ -333,7 +333,7 @@ FunModifiers checkFunModifiers(
 ) =>
 	small!Test(mapWithResultPointer!(Test, TestAst)(ctx.alloc, testAsts, (TestAst* ast, Test* out_) {
 		TestModifiers modifiers = checkTestModifiers(ctx, *ast);
-		if (ast.body_.kind.isA!EmptyAst)
+		if (ast.body_.isA!EmptyAst)
 			addDiag(ctx, ast.range, Diag(DiagTestMissingBody()));
 		Expr body_ = checkTestBody(
 			ctx, structsAndAliasesMap, commonTypes, specsMap, funsMap,
@@ -456,7 +456,7 @@ void checkFunsWithAsts(
 ) {
 	zipPointers!(FunDecl, FunDeclAst)(funsWithAsts, asts, (FunDecl* fun, FunDeclAst* funAst) {
 		if (!fun.bodyIsSet)
-			fun.body_ = funAst.body_.kind.isA!EmptyAst
+			fun.body_ = funAst.body_.isA!EmptyAst
 				? checkAutoFun(ctx, specsMap, funsMap, fun)
 				: fun.returnType.isBogus
 				? FunBody.bogus

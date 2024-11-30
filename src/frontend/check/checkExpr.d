@@ -90,12 +90,12 @@ import model.ast :
 	FinallyAst,
 	ForAst,
 	HighPrecisionFloat,
-	IdentifierAst,
 	IfAst,
 	InterpolatedAst,
 	LambdaAst,
 	LetAst,
-	LiteralFloatAst,
+	LiteralFloat,
+	LiteralFloatAndRange,
 	LiteralIntegral,
 	LiteralIntegralAndRange,
 	LiteralStringAst,
@@ -352,7 +352,7 @@ Expr checkTestBody(
 private:
 
 Expr checkExpr(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* ast, ref Expected expected) =>
-	ast.kind.matchWithPointers!Expr(
+	ast.matchWithPointers!Expr(
 		(ArrowAccessAst a) =>
 			checkArrowAccess(ctx, locals, ast, a, expected),
 		(AssertOrForbidAst a) =>
@@ -378,7 +378,7 @@ Expr checkExpr(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* ast, ref Expecte
 			checkFinally(ctx, locals, ast, a, expected),
 		(ForAst* a) =>
 			checkFor(ctx, locals, ast, a, expected),
-		(IdentifierAst a) =>
+		(NameAndRange a) =>
 			checkIdentifier(ctx, locals, ast, a, expected),
 		(IfAst a) =>
 			checkIf(ctx, locals, ast, a, expected),
@@ -388,9 +388,9 @@ Expr checkExpr(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* ast, ref Expecte
 			checkLambda(ctx, locals, ast, &a.param, &a.body_, expected),
 		(LetAst* a) =>
 			checkLet(ctx, locals, ast, a, expected),
-		(LiteralFloatAst a) =>
+		(LiteralFloatAndRange a) =>
 			checkLiteralFloat(ctx, ast, a, expected),
-		(LiteralIntegral a) =>
+		(LiteralIntegralAndRange a) =>
 			checkLiteralIntegral(ctx, ast, a, expected),
 		(LiteralStringAst a) =>
 			checkLiteralString(ctx, ast, a.value, expected),
@@ -410,11 +410,11 @@ Expr checkExpr(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* ast, ref Expecte
 			checkPointer(ctx, locals, ast, a, expected),
 		(SeqAst* a) =>
 			checkSeq(ctx, locals, ast, a, expected),
-		(SharedAst* a) =>
+		(SharedAst a) =>
 			checkShared(ctx, locals, ast, a, expected),
-		(ThrowAst* a) =>
+		(ThrowAst a) =>
 			checkThrow(ctx, locals, ast, a, expected),
-		(TrustedAst* a) =>
+		(TrustedAst a) =>
 			checkTrusted(ctx, locals, ast, a, expected),
 		(TryAst a) =>
 			checkTry(ctx, locals, ast, a, expected),
@@ -503,7 +503,7 @@ Expr checkIf(
 		condition, isNegated ? secondBranch : firstBranch, isNegated ? firstBranch : secondBranch))));
 }
 bool isThrow(Opt!(ExprAst*) a) =>
-	has(a) && force(a).kind.isA!(ThrowAst*);
+	has(a) && force(a).isA!ThrowAst;
 
 Opt!Destructure optDestructure(Condition a) =>
 	a.match!(Opt!Destructure)(
@@ -531,18 +531,18 @@ UnpackOption checkUnpackOption(
 		res.option);
 }
 
-Expr checkThrow(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ThrowAst* ast, ref Expected expected) {
+Expr checkThrow(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ThrowAst ast, ref Expected expected) {
 	if (hasInferredType(ctx.instantiateCtx, expected))
 		return Expr(source, ExprKind(allocate(ctx.alloc, ThrowExpr(
-			checkAndExpect(ctx, locals, &ast.thrown, Type(ctx.commonTypes.exception))))));
+			checkAndExpect(ctx, locals, ast.thrown, Type(ctx.commonTypes.exception))))));
 	else {
 		addDiag2(ctx, source, Diag(DiagNeedsExpectedType.throw_));
 		return bogus(expected, source);
 	}
 }
 
-Expr checkTrusted(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TrustedAst* ast, ref Expected expected) {
-	Expr inner = withTrusted!Expr(ctx, source, () => checkExpr(ctx, locals, &ast.inner, expected));
+Expr checkTrusted(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TrustedAst ast, ref Expected expected) {
+	Expr inner = withTrusted!Expr(ctx, source, () => checkExpr(ctx, locals, ast.inner, expected));
 	return Expr(source, ExprKind(allocate(ctx.alloc, TrustedExpr(inner))));
 }
 
@@ -579,9 +579,8 @@ Expr checkAssertOrForbid(
 		condition: condition,
 		thrown: optIf(has(ast.thrown), () {
 			ExprAst* thrownAst = &force(ast.thrown).expr;
-			if (thrownAst.kind.isA!(ThrowAst*))
-				addDiag2(ctx, thrownAst.kind.as!(ThrowAst*).keywordRange(thrownAst), Diag(
-					DiagAssertOrForbidMessageIsThrow()));
+			if (thrownAst.isA!ThrowAst)
+				addDiag2(ctx, thrownAst.as!ThrowAst.keywordRange, Diag(DiagAssertOrForbidMessageIsThrow()));
 			return allocate(ctx.alloc, withExpect(Type(ctx.commonTypes.exception), (ref Expected expectThrown) =>
 				withExternFromCondition(ctx, condition, !isForbid, () =>
 					checkExprWithOptDestructure(
@@ -601,11 +600,10 @@ Expr checkAssignment(
 	ref Expected expected,
 	in Expr delegate(ref Expected) @safe @nogc pure nothrow cbRight,
 ) {
-	if (left.kind.isA!IdentifierAst)
-		return checkAssignIdentifier(
-			ctx, locals, source, keywordRange, left.kind.as!IdentifierAst.name, expected, cbRight);
-	else if (left.kind.isA!CallAst) {
-		CallAst leftCall = left.kind.as!CallAst;
+	if (left.isA!NameAndRange)
+		return checkAssignIdentifier(ctx, locals, source, keywordRange, left.as!NameAndRange.name, expected, cbRight);
+	else if (left.isA!CallAst) {
+		CallAst leftCall = left.as!CallAst;
 		Opt!Symbol name = () {
 			switch (leftCall.style) {
 				case CallAstStyle.dot:
@@ -629,8 +627,8 @@ Expr checkAssignment(
 			addDiag2(ctx, source, Diag(DiagAssignmentNotAllowed()));
 			return bogus(expected, source);
 		}
-	} else if (left.kind.isA!ArrowAccessAst) {
-		ArrowAccessAst leftArrow = left.kind.as!ArrowAccessAst;
+	} else if (left.isA!ArrowAccessAst) {
+		ArrowAccessAst leftArrow = left.as!ArrowAccessAst;
 		return checkCallSpecialCb2(
 			ctx, locals, source, keywordRange,
 			prependSetDeref(leftArrow.name.name),
@@ -669,8 +667,8 @@ Expr checkInterpolated(
 		ctx, locals, source, source.range[0 .. 1], symbol!"interpolate", expected, ast.parts.length,
 		(size_t i, ref Expected argExpected) {
 			ExprAst* part = &ast.parts[i];
-			return part.kind.isA!LiteralStringAst
-				? checkLiteralString(ctx, part, part.kind.as!LiteralStringAst.value, argExpected)
+			return part.isA!LiteralStringAst
+				? checkLiteralString(ctx, part, part.as!LiteralStringAst.value, argExpected)
 				: checkCallSpecial!checkExpr(
 					ctx, locals, source, part.range, symbol!"show", arrayOfSingle(part), argExpected);
 		});
@@ -806,7 +804,7 @@ Expr checkIdentifier(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	ExprAst* source,
-	in IdentifierAst ast,
+	in NameAndRange ast,
 	ref Expected expected,
 ) {
 	MutOpt!VariableRefAndType res = getIdentifierNonCall(
@@ -854,13 +852,13 @@ Expr checkAssignIdentifier(
 		return checkCallSpecialCb1(ctx, locals, source, keywordRange, prependSet(left), expected, cbRight);
 }
 
-Expr checkLiteralFloat(ref ExprCtx ctx, ExprAst* source, in LiteralFloatAst ast, ref Expected expected) {
+Expr checkLiteralFloat(ref ExprCtx ctx, ExprAst* source, in LiteralFloatAndRange ast, ref Expected expected) {
 	immutable StructInst*[2] allowedTypes = [ctx.commonTypes.float32, ctx.commonTypes.float64];
 	Opt!size_t opTypeIndex = findExpectedStructForLiteral(ctx, source, expected, allowedTypes);
 	return has(opTypeIndex)
 		? asFloat(
 			ctx, source, floatTypes[force(opTypeIndex)], allowedTypes[force(opTypeIndex)],
-			ast.value, ast.overflow, expected)
+			ast.literal.value, ast.literal.overflow, expected)
 		: bogus(expected, source);
 }
 
@@ -907,7 +905,7 @@ immutable IntegralType[4] natTypes = [IntegralType.nat8, IntegralType.nat16, Int
 immutable IntegralType[4] intTypes = [IntegralType.int8, IntegralType.int16, IntegralType.int32, IntegralType.int64];
 immutable FloatType[2] floatTypes = [FloatType.float32, FloatType.float64];
 
-Expr checkLiteralIntegral(ref ExprCtx ctx, ExprAst* source, in LiteralIntegral ast, ref Expected expected) {
+Expr checkLiteralIntegral(ref ExprCtx ctx, ExprAst* source, in LiteralIntegralAndRange ast, ref Expected expected) {
 	IntegralTypes integrals = ctx.commonTypes.integrals;
 	immutable StructInst*[10] allowedTypes = [
 		integrals.nat8, integrals.nat16, integrals.nat32, integrals.nat64,
@@ -925,16 +923,18 @@ Expr checkLiteralIntegral(ref ExprCtx ctx, ExprAst* source, in LiteralIntegral a
 			return check(
 				ctx, expected, Type(numberType), source,
 				ExprKind(LiteralExpr(checkLiteralIntegralValue(
-					ctx.checkCtx, integralTypes[typeIndex], LiteralIntegralAndRange(source.range, ast)))));
+					ctx.checkCtx, integralTypes[typeIndex], ast))));
 		else {
-			bool overflow = ast.overflow;
-			long value = ast.isSigned ? ast.value.asSigned : toLongWithOverflow(ast.value.asUnsigned, overflow);
+			bool overflow = ast.literal.overflow;
+			long value = ast.literal.isSigned
+				? ast.literal.value.asSigned
+				: toLongWithOverflow(ast.literal.value.asUnsigned, overflow);
 			return asFloat(
 				ctx, source,
 				floatTypes[typeIndex - integralTypes.length],
 				numberType,
 				HighPrecisionFloat(value, 0),
-				ast.overflow,
+				overflow,
 				expected);
 		}
 	} else
@@ -1286,10 +1286,10 @@ immutable struct NameAndTypeArg {
 	Opt!(TypeAst*) typeArg;
 }
 Opt!NameAndTypeArg getNameAndTypeArg(in ExprAst ast) {
-	if (ast.kind.isA!IdentifierAst)
-		return some(NameAndTypeArg(NameAndRange(ast.range.start, ast.kind.as!IdentifierAst.name), none!(TypeAst*)));
-	else if (ast.kind.isA!CallAst) {
-		CallAst call = ast.kind.as!CallAst;
+	if (ast.isA!NameAndRange)
+		return some(NameAndTypeArg(ast.as!NameAndRange, none!(TypeAst*)));
+	else if (ast.isA!CallAst) {
+		CallAst call = ast.as!CallAst;
 		return optIf(call.style == CallAstStyle.single && isEmpty(call.args), () =>
 			NameAndTypeArg(call.funName, call.typeArg));
 	} else
@@ -1356,16 +1356,16 @@ Opt!Called findFunctionForPointer(
 			() => checkCanDoUnsafe(ctx)));
 }
 
-Expr checkShared(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, SharedAst* ast, ref Expected expected) {
+Expr checkShared(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, SharedAst ast, ref Expected expected) {
 	void diag(Diag diag) {
-		addDiag2(ctx, ast.keywordRange(*source), diag);
+		addDiag2(ctx, ast.keywordRange, diag);
 	}
 
-	if (!ast.inner.kind.isA!(LambdaAst*)) {
+	if (!ast.inner.isA!(LambdaAst*)) {
 		diag(Diag(DiagSharedArgIsNotLambda()));
 		return bogus(expected, source);
 	}
-	LambdaAst* inner = ast.inner.kind.as!(LambdaAst*);
+	LambdaAst* inner = ast.inner.as!(LambdaAst*);
 
 	MutOpt!ExpectedLambdaType opEt = getExpectedLambda(ctx, source, typeFromDestructure2(ctx, inner.param), expected);
 	if (!has(opEt))
@@ -1378,7 +1378,7 @@ Expr checkShared(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, Shared
 	}
 
 	LambdaAndReturnType res = checkLambdaInner(
-		ctx, locals, &ast.inner, &inner.param, &inner.body_, expected,
+		ctx, locals, ast.inner, &inner.param, &inner.body_, expected,
 		some(instantiateStruct(
 			ctx.instantiateCtx, ctx.commonTypes.funStructs[FunKind.mut], et.funType.structInst.typeArgs)),
 		et.instantiatedParamType,
@@ -1507,7 +1507,7 @@ Expr checkLoop(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, LoopAst*
 			checkExpr(ctx, locals, &ast.body_, castNonScope_ref(bodyExpected)));
 		overwriteMemory(&loop.body_, body_);
 		if (!info.hasBreak)
-			addDiag2(ctx, ast.keywordRange(source), Diag(DiagLoopWithoutBreak()));
+			addDiag2(ctx, ast.keywordRange, Diag(DiagLoopWithoutBreak()));
 		return Expr(source, ExprKind(castImmutable(loop)));
 	} else {
 		addDiag2(ctx, source, Diag(DiagNeedsExpectedType.loop));
@@ -1525,7 +1525,7 @@ Expr checkLoopBreak(
 	MutOpt!(LoopInfo*) optLoop = tryGetLoop(expected);
 	if (!has(optLoop))
 		return checkCallSpecial!checkExpr(
-			ctx, locals, source, ast.keywordRange(source), symbol!"loop-break", [ast.value], expected);
+			ctx, locals, source, ast.keywordRange, symbol!"loop-break", [ast.value], expected);
 	else {
 		LoopInfo* loop = force(optLoop);
 		loop.hasBreak = true;
@@ -1546,8 +1546,7 @@ Expr checkLoopContinue(
 	MutOpt!(LoopInfo*) optLoop = tryGetLoop(expected);
 	return has(optLoop)
 		? Expr(source, ExprKind(LoopContinueExpr(force(optLoop).loop)))
-		: checkCallSpecial!checkExpr(
-			ctx, locals, source, ast.keywordRange(source), symbol!"loop-continue", [], expected);
+		: checkCallSpecial!checkExpr(ctx, locals, source, ast.keywordRange, symbol!"loop-continue", [], expected);
 }
 
 Expr checkLoopWhileOrUntil(
@@ -1682,7 +1681,7 @@ Expr checkMatchEnum(
 										out_ ~= member;
 								});
 							});
-						addDiag2(ctx, ast.keywordRange(source), Diag(DiagMatchUnhandledCases(unhandledCases)));
+						addDiag2(ctx, ast.keywordRange, Diag(DiagMatchUnhandledCases(unhandledCases)));
 						return some(bogus(expected, source));
 					}
 				}
@@ -2043,14 +2042,14 @@ Expr checkMatchStringLike(
 	StringLiteralKind kind,
 ) {
 	Opt!(SpecDecl*) spec = getSpecFromCommonModule(
-		ctx.checkCtx, ctx.specsMap, ast.keywordRange(source), symbol!"equal", CommonModule.compare);
+		ctx.checkCtx, ctx.specsMap, ast.keywordRange, symbol!"equal", CommonModule.compare);
 	if (!has(spec))
 		return bogus(expected, source);
 
 	Called equals = checkSpecSingleSigIgnoreParents2(
 		ctx.checkCtx,
 		ctx.funsMap,
-		ast.keywordRange(source),
+		ast.keywordRange,
 		ctx.typeContainer,
 		ctx.outermostFunSpecs,
 		ctx.outermostFunFlags,
@@ -2095,7 +2094,7 @@ Expr checkMatchElseRequired(
 	if (has(ast.else_))
 		return checkExpr(ctx, locals, &force(ast.else_).expr, expected);
 	else {
-		addDiag2(ctx, ast.keywordRange(source), cbDiag());
+		addDiag2(ctx, ast.keywordRange, cbDiag());
 		return bogus(expected, source);
 	}
 }
@@ -2162,7 +2161,7 @@ Expr checkSeq(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, SeqAst* a
 }
 
 bool hasBreakOrContinue(in ExprAst a) =>
-	a.kind.matchIn!bool(
+	a.matchIn!bool(
 		(in ArrowAccessAst _) =>
 			false,
 		(in AssertOrForbidAst x) =>
@@ -2187,7 +2186,7 @@ bool hasBreakOrContinue(in ExprAst a) =>
 			false,
 		(in ForAst _) =>
 			false,
-		(in IdentifierAst _) =>
+		(in NameAndRange _) =>
 			false,
 		(in IfAst x) =>
 			exists!ExprAst(x.allBranches, (in ExprAst y) => hasBreakOrContinue(y)),
@@ -2197,9 +2196,9 @@ bool hasBreakOrContinue(in ExprAst a) =>
 			false,
 		(in LetAst x) =>
 			hasBreakOrContinue(x.then),
-		(in LiteralFloatAst _) =>
+		(in LiteralFloatAndRange _) =>
 			false,
-		(in LiteralIntegral _) =>
+		(in LiteralIntegralAndRange _) =>
 			false,
 		(in LiteralStringAst _) =>
 			false,
@@ -2237,8 +2236,8 @@ bool hasBreakOrContinue(in ExprAst a) =>
 
 Expr checkFor(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ForAst* ast, ref Expected expected) {
 	Symbol funName = hasBreakOrContinue(ast.body_) ? symbol!"for-break" : symbol!"for-loop";
-	Range keywordRange = ast.forKeywordRange(*source);
-	return ast.else_.kind.isA!EmptyAst
+	Range keywordRange = ast.forKeywordRange;
+	return ast.else_.isA!EmptyAst
 		? checkCallArgAndLambda!(checkExpr, checkLambda)(
 			ctx, locals, source, keywordRange, funName, &ast.collection, &ast.param, &ast.body_, expected)
 		: checkCallArgAnd2Lambdas!(checkExpr, checkLambda)(
@@ -2246,8 +2245,8 @@ Expr checkFor(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, ForAst* a
 }
 
 Expr checkWith(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, WithAst* ast, ref Expected expected) {
-	Range keywordRange = ast.withKeywordRange(*source);
-	if (!ast.else_.kind.isA!EmptyAst)
+	Range keywordRange = ast.withKeywordRange;
+	if (!ast.else_.isA!EmptyAst)
 		addDiag2(ctx, keywordRange, Diag(DiagWithHasElse()));
 	return checkCallArgAndLambda!(checkExpr, checkLambda)(
 		ctx, locals, source, keywordRange, symbol!"with-block", &ast.arg, &ast.param, &ast.body_, expected);
@@ -2255,7 +2254,7 @@ Expr checkWith(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, WithAst*
 
 Expr checkFinally(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, FinallyAst* ast, ref Expected expected) {
 	if (has(tryGetLoop(expected))) {
-		addDiag2(ctx, ast.finallyKeywordRange(source), Diag(DiagLoopDisallowedBody.finally_));
+		addDiag2(ctx, ast.finallyKeywordRange, Diag(DiagLoopDisallowedBody.finally_));
 		return bogus(expected, source);
 	} else {
 		Expr right = checkAndExpect(ctx, locals, &ast.right, Type(ctx.commonTypes.void_));
@@ -2266,7 +2265,7 @@ Expr checkFinally(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, Final
 
 Expr checkTry(ref ExprCtx ctx, ref LocalsInfo locals, ExprAst* source, TryAst ast, ref Expected expected) {
 	if (has(tryGetLoop(expected))) {
-		addDiag2(ctx, ast.tryKeywordRange(source), Diag(DiagLoopDisallowedBody.finally_));
+		addDiag2(ctx, ast.tryKeywordRange, Diag(DiagLoopDisallowedBody.finally_));
 		return bogus(expected, source);
 	} else {
 		Expr body_ = checkExpr(ctx, locals, ast.tried, expected);

@@ -5,7 +5,7 @@ module frontend.parse.lexToken;
 import frontend.parse.lexWhitespace :
 	AddDiag, CStringRange, IndentKind, skipBlankLinesAndGetIndentDelta, skipUntilNewline;
 import frontend.parse.token : Token;
-import model.ast : HighPrecisionFloat, LiteralFloatAst, LiteralIntegral;
+import model.ast : HighPrecisionFloat, LiteralFloat, LiteralIntegral;
 import model.integralValues : IntegralValue;
 import model.sourceRange : Pos;
 import util.conv : mulWithOverflow, safeToLong, Sign, toLongWithOverflow;
@@ -39,7 +39,7 @@ immutable struct TokenAndData {
 		Symbol symbol = void; // For Token.name or Token.operator
 		// For Token.newline or Token.EOF
 		ExtraDedents extraDedents = void;
-		LiteralFloatAst literalFloat = void; // for Token.literalFloat
+		LiteralFloat literalFloat = void; // for Token.literalFloat
 		LiteralIntegral literalIntegral = void; // for Token.literalIntegral
 		dchar unexpectedCharacter = void;
 		CStringRange region = void;
@@ -64,7 +64,7 @@ immutable struct TokenAndData {
 		token = t;
 		extraDedents = d;
 	}
-	this(Token t, LiteralFloatAst l) {
+	this(Token t, LiteralFloat l) {
 		assert(t == Token.literalFloat);
 		token = t;
 		literalFloat = l;
@@ -96,7 +96,7 @@ immutable struct TokenAndData {
 		assert(isNewlineToken(token));
 		return extraDedents.extraDedents;
 	}
-	@trusted LiteralFloatAst asLiteralFloat() {
+	@trusted LiteralFloat asLiteralFloat() {
 		assert(token == Token.literalFloat);
 		return literalFloat;
 	}
@@ -583,7 +583,7 @@ TokenAndData takeFloat(ref MutCString ptr, Sign sign, NatAndOverflow natPart, ul
 		overflow = overflow || power.overflow;
 		exp += mulWithOverflow(powerSign, toLongWithOverflow(power.value, overflow), overflow);
 	}
-	return TokenAndData(Token.literalFloat, LiteralFloatAst(HighPrecisionFloat(value, exp), overflow));
+	return TokenAndData(Token.literalFloat, LiteralFloat(HighPrecisionFloat(value, exp), overflow));
 }
 
 public immutable struct NatAndOverflow { ulong value; bool overflow; uint countDigits; }

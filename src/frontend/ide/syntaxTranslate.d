@@ -5,7 +5,7 @@ module frontend.ide.syntaxTranslate;
 import frontend.parse.lexToken : tryTakeIdentifier;
 import frontend.parse.parse : ExprAndDiags, parseSingleLineExpression;
 import lib.lsp.lspTypes : Language, SyntaxTranslateParams, SyntaxTranslateResult;
-import model.ast : CallAst, ExprAst, IdentifierAst, ParenthesizedAst;
+import model.ast : CallAst, ExprAst, NameAndRange, ParenthesizedAst;
 import model.parseDiag : ParseDiagnostic;
 import model.sourceRange : Pos;
 import util.alloc.alloc : Alloc;
@@ -61,8 +61,8 @@ void translateCrowToCOrJava(
 	in ExprAst a,
 	bool isJava,
 ) {
-	if (a.kind.isA!CallAst) {
-		CallAst call = a.kind.as!CallAst;
+	if (a.isA!CallAst) {
+		CallAst call = a.as!CallAst;
 		ExprAst[] remainingArgs = () {
 			if (isJava && call.args.length != 0) {
 				translateCrowToCOrJava(writer, diagnostics, call.args[0], isJava);
@@ -75,10 +75,10 @@ void translateCrowToCOrJava(
 		writeParenthesized!ExprAst(writer, remainingArgs, (in ExprAst x) {
 			translateCrowToCOrJava(writer, diagnostics, x, isJava);
 		});
-	} else if (a.kind.isA!IdentifierAst)
-		writer ~= a.kind.as!IdentifierAst.name;
-	else if (a.kind.isA!(ParenthesizedAst*))
-		translateCrowToCOrJava(writer, diagnostics, a.kind.as!(ParenthesizedAst*).inner, isJava);
+	} else if (a.isA!NameAndRange)
+		writer ~= a.as!NameAndRange.name;
+	else if (a.isA!(ParenthesizedAst*))
+		translateCrowToCOrJava(writer, diagnostics, a.as!(ParenthesizedAst*).inner, isJava);
 	else
 		diagnostics ~= a.range.start;
 }
@@ -88,8 +88,8 @@ void outputCOrJava(scope ref Writer writer, in JavaExpr a) {
 		(in JavaExpr.Bogus _) {
 			writer ~= "bogus";
 		},
-		(in IdentifierAst x) {
-			writer ~= x.name;
+		(in Symbol x) {
+			writer ~= x;
 		},
 		(in JavaExpr.Call x) {
 			outputCOrJava(writer, *x.called);
@@ -114,10 +114,10 @@ JavaExpr translateBetweenCOrJava(ref Alloc alloc, JavaExpr a, bool outputJava) {
 		return call.called.match!JavaExpr(
 			(JavaExpr.Bogus _) =>
 				a,
-			(IdentifierAst x) =>
+			(Symbol x) =>
 				outputJava && !isEmpty(call.args)
 					? JavaExpr(JavaExpr.Call(
-						allocate(alloc, JavaExpr(JavaExpr.Dot(allocate(alloc, recur(call.args[0])), x.name))),
+						allocate(alloc, JavaExpr(JavaExpr.Dot(allocate(alloc, recur(call.args[0])), x))),
 						recurArgs(call.args[1 .. $])))
 					: a,
 			(JavaExpr.Call _) =>
@@ -126,7 +126,7 @@ JavaExpr translateBetweenCOrJava(ref Alloc alloc, JavaExpr a, bool outputJava) {
 				outputJava
 					? a
 					: JavaExpr(JavaExpr.Call(
-						allocate(alloc, JavaExpr(IdentifierAst(x.name))),
+						allocate(alloc, JavaExpr(x.name)),
 						prepend!JavaExpr(alloc, recur(*x.left), recurArgs(call.args)))));
 	} else
 		return a;
@@ -173,8 +173,8 @@ void translateToCrow(scope ref Writer writer, in JavaExpr a, Position position, 
 		(in JavaExpr.Bogus _) {
 			writer ~= "bogus";
 		},
-		(in IdentifierAst x) {
-			withAugment(writer, augment, x.name);
+		(in Symbol x) {
+			withAugment(writer, augment, x);
 		},
 		(in JavaExpr.Call x) {
 			translateCallToCrow(writer, x, position, augment);
@@ -189,11 +189,11 @@ void translateCallToCrow(scope ref Writer writer, in JavaExpr.Call a, Position p
 		(in JavaExpr.Bogus _) {
 			writer ~= "bogus";
 		},
-		(in IdentifierAst x) {
+		(in Symbol x) {
 			if (isEmpty(args))
-				withAugment(writer, augment, x.name);
+				withAugment(writer, augment, x);
 			else
-				writeCrowCall(writer, args[0], x.name, args[1 .. $], position, augment);
+				writeCrowCall(writer, args[0], x, args[1 .. $], position, augment);
 		},
 		(in JavaExpr.Call x) {
 			withAugment(writer, augment, () {
@@ -271,7 +271,7 @@ immutable struct JavaExpr {
 		JavaExpr* left;
 		Symbol name;
 	}
-	mixin Union!(Bogus, IdentifierAst, Call, Dot);
+	mixin Union!(Bogus, Symbol, Call, Dot);
 }
 
 struct ParseCtx {
@@ -306,7 +306,7 @@ JavaExpr parseJavaExprRecur(ref ParseCtx ctx, scope ref MutCString ptr) {
 	skipWhitespace(ptr);
 	Opt!Symbol name = tryTakeName(ptr);
 	if (has(name))
-		return parseJavaExprSuffixes(ctx, ptr, JavaExpr(IdentifierAst(force(name))));
+		return parseJavaExprSuffixes(ctx, ptr, JavaExpr(force(name)));
 	else {
 		addDiag(ctx, ptr);
 		return JavaExpr(JavaExpr.Bogus());

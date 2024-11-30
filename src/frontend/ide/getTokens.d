@@ -44,14 +44,13 @@ import model.ast :
 	ImportWholeModuleAst,
 	ModifierAst,
 	ModifierKeywordAst,
-	IdentifierAst,
 	IfAst,
 	ImportOrExportAst,
 	ImportsOrExportsAst,
 	InterpolatedAst,
 	LambdaAst,
 	LetAst,
-	LiteralFloatAst,
+	LiteralFloatAndRange,
 	LiteralIntegral,
 	LiteralIntegralAndRange,
 	LiteralStringAst,
@@ -505,14 +504,14 @@ void addTestTokens(scope ref Ctx ctx, in TestAst a) {
 }
 
 void addExprTokens(scope ref Ctx ctx, in ExprAst a) {
-	a.kind.matchIn!void(
+	a.matchIn!void(
 		(in ArrowAccessAst x) {
 			addExprTokens(ctx, *x.left);
 			reference(ctx.tokens, TokenType.function_, x.name.range);
 		},
 		(in AssertOrForbidAst x) {
 			// Only the length matters, and "assert" is same length as "forbid"
-			keyword(ctx.tokens, a.range.start, "assert");
+			keyword(ctx.tokens, x.start, "assert");
 			addConditionTokens(ctx, x.condition);
 			if (has(x.thrown))
 				addExprTokens(ctx, force(x.thrown).expr);
@@ -590,8 +589,8 @@ void addExprTokens(scope ref Ctx ctx, in ExprAst a) {
 			addExprTokens(ctx, x.body_);
 			addExprTokens(ctx, x.else_);
 		},
-		(in IdentifierAst _) {
-			reference(ctx.tokens, TokenType.variable, a.range);
+		(in NameAndRange x) {
+			reference(ctx.tokens, TokenType.variable, x.range);
 		},
 		(in IfAst x) {
 			addConditionTokens(ctx, x.condition);
@@ -600,11 +599,11 @@ void addExprTokens(scope ref Ctx ctx, in ExprAst a) {
 		},
 		(in InterpolatedAst x) {
 			foreach (size_t i, ref ExprAst part; x.parts) {
-				if (part.kind.isA!LiteralStringAst)
+				if (part.isA!LiteralStringAst)
 					// Extend the range to include the opening or closing '"'
 					stringLiteral(ctx.tokens, Range(
-						i == 0 ? a.range.start : part.range.start,
-						i == x.parts.length - 1 ? a.range.end : part.range.end));
+						i == 0 ? x.start : part.range.start,
+						i == x.parts.length - 1 ? x.end : part.range.end));
 				else
 					addExprTokens(ctx, part);
 			}
@@ -618,10 +617,10 @@ void addExprTokens(scope ref Ctx ctx, in ExprAst a) {
 			addExprTokens(ctx, x.value);
 			addExprTokens(ctx, x.then);
 		},
-		(in LiteralFloatAst _) {
-			numberLiteral(ctx.tokens, a.range);
+		(in LiteralFloatAndRange x) {
+			numberLiteral(ctx.tokens, x.range);
 		},
-		(in LiteralIntegral _) {
+		(in LiteralIntegralAndRange _) {
 			numberLiteral(ctx.tokens, a.range);
 		},
 		(in LiteralStringAst _) {
@@ -657,13 +656,13 @@ void addExprTokens(scope ref Ctx ctx, in ExprAst a) {
 			addExprTokens( ctx, x.then);
 		},
 		(in SharedAst x) {
-			addExprTokens(ctx, x.inner);
+			addExprTokens(ctx, *x.inner);
 		},
 		(in ThrowAst x) {
-			addExprTokens(ctx, x.thrown);
+			addExprTokens(ctx, *x.thrown);
 		},
 		(in TrustedAst x) {
-			addExprTokens(ctx, x.inner);
+			addExprTokens(ctx, *x.inner);
 		},
 		(in TryAst x) {
 			addExprTokens(ctx, *x.tried);

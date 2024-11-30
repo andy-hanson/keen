@@ -3085,11 +3085,11 @@ string defaultAssertOrForbidMessage(
 	in AssertOrForbidExpr a,
 	in FileContentGetters content,
 ) {
-	PrefixAndRange x = expr.ast.kind.as!AssertOrForbidAst.condition.match!PrefixAndRange(
+	PrefixAndRange x = expr.ast.as!AssertOrForbidAst.condition.match!PrefixAndRange(
 		(ref ExprAst condition) =>
 			PrefixAndRange(
 				a.isForbid ? "Forbidden expression is true: " : "Asserted expression is false: ",
-				expr.ast.kind.as!AssertOrForbidAst.condition.range),
+				expr.ast.as!AssertOrForbidAst.condition.range),
 		(ref UnpackOptionAst unpack) =>
 			PrefixAndRange(
 				a.isForbid ? "Forbidden option is non-empty: " : "Asserted option is empty: ",
@@ -3188,9 +3188,9 @@ immutable struct IfExpr {
 	Expr falseBranch;
 
 	ref Expr firstBranch(ExprAst* ast) return =>
-		ast.kind.as!IfAst.isConditionNegated ? falseBranch : trueBranch;
+		ast.as!IfAst.isConditionNegated ? falseBranch : trueBranch;
 	ref Expr secondBranch(ExprAst* ast) return =>
-		ast.kind.as!IfAst.isConditionNegated ? trueBranch : falseBranch;
+		ast.as!IfAst.isConditionNegated ? trueBranch : falseBranch;
 }
 
 immutable struct LambdaExpr {
@@ -3306,9 +3306,9 @@ Range caseNameRange(in Expr matchExpr, size_t caseIndex) {
 		matchExpr.kind.isA!(MatchEnumExpr*) ||
 		matchExpr.kind.isA!(MatchSumTypeExpr*) ||
 		matchExpr.kind.isA!(TryExpr*));
-	SmallArray!CaseAst cases = matchExpr.ast.kind.isA!TryAst
-		? matchExpr.ast.kind.as!TryAst.catches
-		: matchExpr.ast.kind.as!MatchAst.cases;
+	SmallArray!CaseAst cases = matchExpr.ast.isA!TryAst
+		? matchExpr.ast.as!TryAst.catches
+		: matchExpr.ast.as!MatchAst.cases;
 	return cases[caseIndex].member.nameRange;
 }
 

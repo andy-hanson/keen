@@ -584,7 +584,7 @@ Opt!DiagCallShouldUseSyntaxKind shouldUseSyntaxKind(in CallAst ast) {
 	}
 }
 bool secondArgIsLambda(in CallAst ast) =>
-	ast.args.length == 2 && ast.args[1].kind.isA!(LambdaAst*);
+	ast.args.length == 2 && ast.args[1].isA!(LambdaAst*);
 
 bool filterCandidateByExplicitTypeArg(ref CommonTypes commonTypes, scope ref Candidate candidate, Type typeArg) {
 	size_t nTypeParams = candidate.typeArgs.length;
@@ -653,8 +653,8 @@ ContinueOrAbort inferCandidateTypeArgsFromExplicitlyTypedArgument(
 	size_t argIndex,
 	in ExprAst arg,
 ) =>
-	arg.kind.isA!(LambdaAst*)
-		? inferCandidateTypeArgsFromLambdaParameter(ctx, candidates, argIndex, arg.kind.as!(LambdaAst*).param)
+	arg.isA!(LambdaAst*)
+		? inferCandidateTypeArgsFromLambdaParameter(ctx, candidates, argIndex, arg.as!(LambdaAst*).param)
 		: ContinueOrAbort.continue_;
 
 ContinueOrAbort inferCandidateTypeArgsFromLambdaParameter(

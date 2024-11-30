@@ -43,8 +43,7 @@ import frontend.showModel :
 	writeTypeUnquoted,
 	writeVisibility;
 import lib.lsp.lspTypes : Hover, MarkupContent, MarkupKind;
-import model.ast :
-	AssertOrForbidAst, ExprAst, ExprAstKind, IfAst, IfAstKind, MatchAst, ModifierKeyword, UnpackOptionAst;
+import model.ast : AssertOrForbidAst, ExprAst, IfAst, IfAstKind, MatchAst, ModifierKeyword, UnpackOptionAst;
 import model.model :
 	AnyDecl,
 	asBuiltinExtern,
@@ -505,10 +504,8 @@ void getExprKeywordHover(
 	in ExprRef a,
 	ExprKeyword keyword,
 ) {
-	ExprKind exprKind() =>
-		a.expr.kind;
-	ExprAstKind astKind() =>
-		a.expr.ast.kind;
+	ExprKind exprKind = a.expr.kind;
+	ExprAst* ast = a.expr.ast;
 	final switch (keyword) {
 		case ExprKeyword.ampersand:
 			writer ~= "Gets a pointer to an expression. " ~
@@ -524,7 +521,7 @@ void getExprKeywordHover(
 			break;
 		case ExprKeyword.colonInAssertOrForbid:
 			writer ~= "If the condition is '";
-			writer ~= astKind.as!AssertOrForbidAst.isForbid ? "true" : "false";
+			writer ~= ast.as!AssertOrForbidAst.isForbid ? "true" : "false";
 			writer ~= "', throws an exception with the message to the right of the ':'.";
 			break;
 		case ExprKeyword.colonInFor:
@@ -540,7 +537,7 @@ void getExprKeywordHover(
 			writer ~= "If the first condition is false, evaluates another 'if'.";
 			break;
 		case ExprKeyword.else_:
-			writer ~= astKind.isA!MatchAst
+			writer ~= ast.isA!MatchAst
 				? "If no branch was satisfied, the 'match' evaluates to the 'else' branch."
 				: "If the condition is 'false', the 'else' branch is evaluated.";
 			break;
@@ -555,7 +552,7 @@ void getExprKeywordHover(
 				(in UnpackOption _) => "Throws if the option is non-empty.");
 			break;
 		case ExprKeyword.guardIfOrUnless:
-			IfAst ifAst = astKind.as!IfAst;
+			IfAst ifAst = ast.as!IfAst;
 			bool isUnpackOption = ifAst.condition.matchIn!bool(
 				(in ExprAst _) => false,
 				(in UnpackOptionAst _) => true);

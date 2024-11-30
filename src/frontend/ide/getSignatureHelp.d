@@ -7,7 +7,7 @@ import frontend.ide.position :
 	ExpressionPosition, ExpressionPositionLiteral, ExprKeyword, LocalRef, LoopKeyword, Position;
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : ParameterInformation, SignatureHelp, SignatureInformation;
-import model.ast : CallAst, ExprAstKind;
+import model.ast : CallAst, ExprAst;
 import model.model :
 	ArityVarargs,
 	BogusCallExpr,
@@ -72,9 +72,9 @@ SignatureHelp signatureHelpAtBogusCall(
 }
 
 Opt!uint activeParameter(in ExpressionPosition a) {
-	ExprAstKind kind = a.expr.expr.ast.kind;
-	return kind.isA!CallAst
-		? some(safeToUint(kind.as!CallAst.args.length))
+	ExprAst* ast = a.expr.expr.ast;
+	return ast.isA!CallAst
+		? some(safeToUint(ast.as!CallAst.args.length))
 		: none!uint;
 }
 

@@ -74,7 +74,7 @@ public void definitionForTarget(Uri curUri, in Target a, in ReferenceCb cb) =>
 		},
 		(in Target.Loop x) {
 			ExprAst* ast = x.loop.expr.ast;
-			cb(UriAndRange(curUri, ast.kind.as!(LoopAst*).keywordRange(ast)));
+			cb(UriAndRange(curUri, ast.as!(LoopAst*).keywordRange));
 		},
 		(in Module x) {
 			cb(x.range);
