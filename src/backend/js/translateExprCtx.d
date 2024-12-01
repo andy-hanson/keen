@@ -230,7 +230,7 @@ ExprResult forceExpr(ref Alloc alloc, scope ExprPos pos, Type type, JsExpr expr)
 		(ExprPos.ExpressionOrBlockStatement) =>
 			ExprResult(expr),
 		(ref ExprPos.Statements x) {
-			add(alloc, x.statements, isVoid(type) ? exprStatement(expr) : genReturn(alloc, expr.source, expr));
+			add(alloc, x.statements, isVoid(type) ? exprStatement(expr) : genReturn(alloc, expr.source, expr)); // TODO: could we use separate pos for last and non-last statements?
 			return ExprResult.done;
 		});
 ExprResult forceStatements(ref TranslateExprCtx ctx, in Source source, scope ExprPos pos, in StatementsCb cb) =>
@@ -640,8 +640,8 @@ private ExprResult translateCallBuiltin(
 		});
 }
 
-JsExpr translateLiteral(ref TranslateExprCtx ctx, in Source source, in LiteralExpr a, in Type type) {
-	BuiltinType builtin = type.as!(StructInst*).decl.body_.as!BuiltinType;
+JsExpr translateLiteral(ref TranslateExprCtx ctx, in Source source, in LiteralExpr a) {
+	BuiltinType builtin = a.type.decl.body_.as!BuiltinType;
 	return a.value.match!JsExpr(
 		(IntegralValue x) {
 			Opt!IntegralType integral = optEnumConvert!(IntegralType, BuiltinType)(builtin);

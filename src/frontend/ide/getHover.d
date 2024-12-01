@@ -60,7 +60,6 @@ import model.model :
 	Enum,
 	EnumOrFlagsMember,
 	Expr,
-	ExprRef,
 	ExternExpr,
 	ExternType,
 	Flags,
@@ -502,7 +501,7 @@ void getExprKeywordHover(
 	in ShowModelCtx ctx,
 	in Uri curUri,
 	in TypeContainer typeContainer,
-	in ExprRef a,
+	in Expr a,
 	ExprKeyword keyword,
 ) {
 	final switch (keyword) {
@@ -511,7 +510,7 @@ void getExprKeywordHover(
 				"This does not allocate and so is unsafe. This only works for certain expressions.";
 			break;
 		case ExprKeyword.assert_:
-			writer ~= a.expr.as!(AssertOrForbidExpr*).condition.matchIn!string(
+			writer ~= a.as!(AssertOrForbidExpr*).condition.matchIn!string(
 				(in Expr _) => "Throws if the condition is 'false'.",
 				(in UnpackOption _) => "Throws if the option is empty.");
 			break;
@@ -520,7 +519,7 @@ void getExprKeywordHover(
 			break;
 		case ExprKeyword.colonInAssertOrForbid:
 			writer ~= "If the condition is '";
-			writer ~= a.expr.as!(AssertOrForbidExpr*).isForbid ? "true" : "false";
+			writer ~= a.as!(AssertOrForbidExpr*).isForbid ? "true" : "false";
 			writer ~= "', throws an exception with the message to the right of the ':'.";
 			break;
 		case ExprKeyword.colonInFor:
@@ -547,12 +546,12 @@ void getExprKeywordHover(
 				"The result is from the below expression; the right expression must be 'void'.";
 			break;
 		case ExprKeyword.forbid:
-			writer ~= a.expr.as!(AssertOrForbidExpr*).condition.matchIn!string(
+			writer ~= a.as!(AssertOrForbidExpr*).condition.matchIn!string(
 				(in Expr _) => "Throws if the condition is 'true'.",
 				(in UnpackOption _) => "Throws if the option is non-empty.");
 			break;
 		case ExprKeyword.guardIfOrUnless:
-			IfAst* ifAst = a.expr.as!(IfExpr*).ast;
+			IfAst* ifAst = a.as!(IfExpr*).ast;
 			bool isUnpackOption = ifAst.condition.matchIn!bool(
 				(in ExprAst _) => false,
 				(in UnpackOptionAst _) => true);
@@ -599,7 +598,7 @@ void getExprKeywordHover(
 			break;
 		case ExprKeyword.lambdaArrow:
 			writer ~= () {
-				final switch (a.expr.as!(LambdaExpr*).kind) {
+				final switch (a.as!(LambdaExpr*).kind) {
 					case LambdaKind.data:
 						return "Lambda with 'data' closure and no 'summon'.";
 					case LambdaKind.shared_:
@@ -629,20 +628,20 @@ void getExprKeywordHover(
 			writer ~= "Allows 'unsafe' code to be used anywhere.";
 			break;
 		case ExprKeyword.try_:
-			writer ~= a.expr.isA!(TryExpr*)
+			writer ~= a.isA!(TryExpr*)
 				? "Evaluates and returns the 'try' block, " ~
 					"but if it throws is an exception matching a 'catch' block, returns that instead."
 				: "Runs the initializer (between '=' and 'catch'). If it succeeds, destructures it and continues.\n" ~
 					"If it throws the handled exception, returns the expression after the ':'.";
 			break;
 		case ExprKeyword.until:
-			writer ~= a.expr.as!(LoopWhileOrUntilExpr*).condition.isA!(Expr*)
+			writer ~= a.as!(LoopWhileOrUntilExpr*).condition.isA!(Expr*)
 				? "Loop will run as long as the condition is 'false'."
 				: "Loop will run as long as the option is empty.\n" ~
 					"Then it is destructured and available after the loop.";
 			break;
 		case ExprKeyword.while_:
-			writer ~= a.expr.as!(LoopWhileOrUntilExpr*).condition.isA!(Expr*)
+			writer ~= a.as!(LoopWhileOrUntilExpr*).condition.isA!(Expr*)
 				? "Loop will run as long as the condition is 'true'."
 				: "Loop will run as long as the option is non-empty.";
 			break;
@@ -653,9 +652,9 @@ void getMatchHover(
 	scope ref Writer writer,
 	in ShowModelCtx ctx,
 	in TypeContainer typeContainer,
-	in ExprRef a,
+	in Expr a,
 ) {
-	MatchInfo info = getMatchInfo(*a.expr);
+	MatchInfo info = getMatchInfo(a);
 	writer ~= "Match on ";
 	writer ~= () {
 		final switch (info.kind) {
@@ -720,7 +719,7 @@ void getExprHover(
 			writer ~= " if the first argument is non-empty.";
 		},
 		(in ExprKeyword x) {
-			getExprKeywordHover(writer, ctx, curUri, typeContainer, a.expr, x);
+			getExprKeywordHover(writer, ctx, curUri, typeContainer, *a.expr, x);
 		},
 		(in ExternExpr x) {
 			bool first = true;
@@ -816,7 +815,7 @@ void getExprHover(
 		});
 
 	writer ~= "\nExpression type is: ";
-	writeTypeQuoted(writer, ctx, TypeWithContainer(a.expr.type, typeContainer));
+	writeTypeQuoted(writer, ctx, TypeWithContainer(a.expr.type(ctx.commonTypes), typeContainer));
 }
 
 void writeLoop(scope ref Writer writer, in ShowModelCtx ctx, Uri curUri, in LoopExpr loop) {

@@ -121,6 +121,7 @@ import model.model :
 	ClosureRef,
 	ClosureReferenceKind,
 	ClosureSetExpr,
+	CommonTypes,
 	defaultAssertOrForbidMessage,
 	Destructure,
 	DestructureIgnore,
@@ -264,6 +265,9 @@ public struct ConcretizeExprCtx {
 	ConcretizeCtx* concretizeCtxPtr;
 	immutable ConcreteFun* curFun; // This is the ConcreteFun* for a lambda, not its containing fun.
 	size_t nextLambdaIndex = 0;
+
+	ref CommonTypes commonTypes() =>
+		concretizeCtx.commonTypes;
 
 	Uri curUri() scope const =>
 		curFun.moduleUri;
@@ -1142,7 +1146,9 @@ ConcreteExpr concretizeAssertOrForbid(
 		});
 }
 
-ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, in Locals locals, ref ExprAndType a) =>
+ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, in Locals locals, ref Expr a) =>
+	concretizeExpr(ctx, locals, ExprAndType(a, a.type(ctx.commonTypes)));
+ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, in Locals locals,  ExprAndType a) =>
 	concretizeExpr(ctx, getConcreteType(ctx, a.type), locals, a.expr);
 
 ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Locals locals, ref Expr a) {

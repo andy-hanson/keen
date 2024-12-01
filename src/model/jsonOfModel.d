@@ -64,7 +64,6 @@ import model.model :
 	EnumOrFlagsMember,
 	Expr,
 	ExprAndType,
-	ExprRef,
 	ExternExpr,
 	ExternType,
 	FinallyExpr,
@@ -137,7 +136,6 @@ import model.model :
 	Test,
 	ThrowExpr,
 	TrustedExpr,
-	toExprAndType,
 	TryExpr,
 	TryLetExpr,
 	Type,
@@ -615,9 +613,6 @@ Json jsonOfExprAndType(ref Alloc alloc, in Ctx ctx, in ExprAndType a) =>
 		field!"expr"(jsonOfExpr(alloc, ctx, a.expr)),
 		field!"type"(jsonOfType(alloc, ctx, a.type))]);
 
-Json jsonOfExprRef(ref Alloc alloc, in Ctx ctx, in ExprRef a) =>
-	jsonOfExprAndType(alloc, ctx, toExprAndType(a));
-
 Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 	a.matchIn!Json(
 		(in AssertOrForbidExpr x) =>
@@ -638,7 +633,7 @@ Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 		(in BogusWrongTypeExpr x) =>
 			jsonObject(alloc, [
 				kindField!"bogus-wrong-type",
-				field!"inner"(jsonOfExprRef(alloc, ctx, x.inner))]),
+				field!"inner"(jsonOfExpr(alloc, ctx, *x.inner))]),
 		(in CallExpr x) =>
 			jsonObject(alloc, [
 				kindField!"call",
@@ -816,7 +811,7 @@ Json jsonOfCondition(ref Alloc alloc, in Ctx ctx, in Condition a) =>
 		(in UnpackOption x) =>
 			jsonObject(alloc, [
 				field!"destructure"(jsonOfDestructure(alloc, ctx, x.destructure)),
-				field!"option"(jsonOfExprAndType(alloc, ctx, x.option))]));
+				field!"option"(jsonOfExpr(alloc, ctx, x.option))]));
 
 Json jsonOfDestructure(ref Alloc alloc, in Ctx ctx, in Destructure a) =>
 	a.matchIn!Json(

@@ -68,13 +68,11 @@ import model.model :
 	Enum,
 	EnumOrFlagsMember,
 	Expr,
-	ExprRef,
 	ExternExpr,
 	ExternType,
 	FinallyExpr,
 	Flags,
 	FunBody,
-	funBodyExprRef,
 	FunDecl,
 	FunInst,
 	FunPointerExpr,
@@ -129,7 +127,6 @@ import model.model :
 	StructInst,
 	SumType,
 	Test,
-	testBodyExprRef,
 	ThrowExpr,
 	TrustedExpr,
 	TryExpr,
@@ -258,7 +255,7 @@ void referencesForTarget(in Program program, Uri curUri, in Target a, in Referen
 			referencesForLocal(program, curUri, x, cb);
 		},
 		(Target.Loop x) {
-			referencesForLoop(program.commonTypes, curUri, x, cb);
+			referencesForLoop(curUri, x, cb);
 		},
 		(Module* x) {
 			referencesForModule(program, x, cb);
@@ -324,10 +321,10 @@ void referencesForLocal(in Program program, Uri curUri, in PositionLocal a, in R
 	Opt!ContainerAndBody body_ = a.container.matchWithPointers!(Opt!ContainerAndBody)(
 		(FunDecl* x) =>
 			x.body_.isA!Expr
-				? some(ContainerAndBody(ExprContainer(x), funBodyExprRef(x)))
+				? some(ContainerAndBody(ExprContainer(x), &x.body_.as!Expr()))
 				: none!ContainerAndBody,
 		(Test* x) =>
-			some(ContainerAndBody(ExprContainer(x), testBodyExprRef(program.commonTypes, x))),
+			some(ContainerAndBody(ExprContainer(x), &x.body_)),
 		(SpecDecl*) =>
 			none!ContainerAndBody,
 		(StructDecl*) =>
@@ -339,16 +336,16 @@ void referencesForLocal(in Program program, Uri curUri, in PositionLocal a, in R
 				if (ref_.isA!(Local*) && ref_.as!(Local*) == a.local)
 					cb(UriAndRange(curUri, ast.range));
 			});
-		eachDescendentExprIncluding(program.commonTypes, force(body_).body_, (ExprRef x) {
-			Opt!(Local*) itsLocal = exprLocalReference(*x.expr);
+		eachDescendentExprIncluding(force(body_).body_, (Expr* x) {
+			Opt!(Local*) itsLocal = exprLocalReference(*x);
 			if (has(itsLocal) && force(itsLocal) == a.local) // TODO: && !x.expr.ast.isA!AssignmentCallAst) (this prevents double reference at the assignmentcall) ------------------------
-				cb(UriAndRange(force(body_).container.moduleUri, x.expr.range));
+				cb(UriAndRange(force(body_).container.moduleUri, x.range));
 		});
 	}
 }
 immutable struct ContainerAndBody {
 	ExprContainer container;
-	ExprRef body_;
+	Expr* body_;
 }
 
 Opt!(Local*) exprLocalReference(Expr a) =>
@@ -362,11 +359,11 @@ Opt!(Local*) exprLocalReference(Expr a) =>
 		? some(a.as!LocalSetExpr.local)
 		: none!(Local*);
 
-void referencesForLoop(ref CommonTypes commonTypes, Uri curUri, Target.Loop a, in ReferenceCb cb) {
+void referencesForLoop(Uri curUri, Target.Loop a, in ReferenceCb cb) {
 	Expr expr = Expr(a.loop);
-	eachDescendentExprExcluding(commonTypes, ExprRef(&expr, a.loop.type), (ExprRef child) {
-		if (child.expr.isA!(LoopBreakExpr*) || child.expr.isA!LoopContinueExpr)
-			cb(UriAndRange(curUri, child.expr.range));
+	eachDescendentExprExcluding(expr, (Expr* child) {
+		if (child.isA!(LoopBreakExpr*) || child.isA!LoopContinueExpr)
+			cb(UriAndRange(curUri, child.range));
 	});
 }
 
@@ -409,7 +406,7 @@ void eachTypeInModule(ref CommonTypes commonTypes, in Module a, in TypeCb cb) {
 	foreach (ref FunDecl x; a.funs)
 		eachTypeInFun(commonTypes, x, cb);
 	foreach (ref Test x; a.tests)
-		eachTypeInExpr(commonTypes, testBodyExprRef(commonTypes, &x), cb);
+		eachTypeInExpr(commonTypes, &x.body_, cb);
 }
 
 void eachTypeInFun(ref CommonTypes commonTypes, ref FunDecl a, in TypeCb cb) {
@@ -421,7 +418,7 @@ void eachTypeInFun(ref CommonTypes commonTypes, ref FunDecl a, in TypeCb cb) {
 			eachPackedTypeArg(spec.typeArgs, specAst.typeArg, cb);
 		});
 		if (a.body_.isA!Expr)
-			eachTypeInExpr(commonTypes, funBodyExprRef(&a), cb);
+			eachTypeInExpr(commonTypes, &a.body_.as!Expr(), cb);
 	}
 }
 
@@ -546,14 +543,14 @@ void eachTypeInDestructure(in Destructure a, in DestructureAst ast, in TypeCb cb
 		});
 }
 
-void eachTypeInExpr(ref CommonTypes commonTypes, ExprRef expr, in TypeCb cb) {
-	eachDescendentExprIncluding(commonTypes, expr, (ExprRef x) {
-		eachTypeDirectlyInExpr(x, cb);
+void eachTypeInExpr(ref CommonTypes commonTypes, Expr* expr, in TypeCb cb) {
+	eachDescendentExprIncluding(expr, (Expr* x) {
+		eachTypeDirectlyInExpr(commonTypes, *x, cb);
 	});
 }
 
-void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
-	a.expr.matchIn!void(
+void eachTypeDirectlyInExpr(ref CommonTypes commonTypes, in Expr a, in TypeCb cb) {
+	a.matchIn!void(
 		(in AssertOrForbidExpr x) {
 			eachTypeInCondition(x.condition, x.ast.condition, cb);
 		},
@@ -612,7 +609,7 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 			eachTypeInMatchSumTypeCase(x.catch_, x.ast.catchMember, cb);
 		},
 		(in TypedExpr x) =>
-			cb(a.type, x.ast.type));
+			cb(a.type(commonTypes), x.ast.type));
 }
 
 void eachTypeInMatchSumType(in MatchSumTypeCase[] cases, in CaseAst[] caseAsts, in TypeCb cb) {
@@ -657,8 +654,8 @@ void referencesForFunDecls(in Program program, in FunDecl*[] decls, in Reference
 					if (ref_.isA!(FunDecl*) && contains(decls, ref_.as!(FunDecl*)))
 						cb(UriAndRange(module_.uri, ast.range));
 				},
-				(in Module module_, ExprRef x) {
-					eachFunReferenceAtExpr(module_, x, decls, cb);
+				(in Module module_, Expr* x) {
+					eachFunReferenceAtExpr(module_, *x, decls, cb);
 				});
 		});
 	}
@@ -724,8 +721,8 @@ void eachDocComment(in Module module_, in void delegate(DocComment) @safe @nogc 
 		cb(x.docComment);
 }
 
-void eachFunReferenceAtExpr(in Module module_, in ExprRef x, in FunDecl*[] decls, in ReferenceCb cb) {
-	Opt!CalledAndNameRange called = getCalledAtExpr(*x.expr);
+void eachFunReferenceAtExpr(in Module module_, in Expr x, in FunDecl*[] decls, in ReferenceCb cb) {
+	Opt!CalledAndNameRange called = getCalledAtExpr(x);
 	if (has(called) && force(called).called.isA!(FunInst*) && contains(decls, force(called).called.as!(FunInst*).decl))
 		cb(UriAndRange(module_.uri, force(called).nameRange));
 }
@@ -735,17 +732,17 @@ void eachExprThatMayReference(
 	Visibility visibility,
 	Module* exportingModule,
 	in CbDocCommentReference cbDocCommentReference,
-	in void delegate(in Module, ExprRef) @safe @nogc pure nothrow cb,
+	in void delegate(in Module, Expr*) @safe @nogc pure nothrow cb,
 ) {
 	eachModuleThatMayReference(program, visibility, exportingModule, (in Module module_) {
 		eachDocCommentReference(module_, cbDocCommentReference);
 		foreach (ref FunDecl fun; module_.funs)
 			if (fun.body_.isA!Expr)
-				eachDescendentExprIncluding(program.commonTypes, funBodyExprRef(&fun), (ExprRef x) {
+				eachDescendentExprIncluding(&fun.body_.as!Expr(), (Expr* x) {
 					cb(module_, x);
 				});
 		foreach (ref Test test; module_.tests)
-			eachDescendentExprIncluding(program.commonTypes, testBodyExprRef(program.commonTypes, &test), (ExprRef x) {
+			eachDescendentExprIncluding(&test.body_, (Expr* x) {
 				cb(module_, x);
 			});
 	});
@@ -773,8 +770,8 @@ void referencesForSignature(in Program program, in Signature* a, in ReferenceCb 
 					if (x.isA!(Signature*) && x.as!(Signature*) == a)
 						cb(UriAndRange(module_.uri, ast.range));
 				},
-				(in Module module_, ExprRef x) {
-					Opt!CalledAndNameRange optCalled = getCalledAtExpr(*x.expr);
+				(in Module module_, Expr* x) {
+					Opt!CalledAndNameRange optCalled = getCalledAtExpr(*x);
 					if (has(optCalled)) {
 						CalledAndNameRange called = force(optCalled);
 						if (called.called.isA!CalledSpecSig && called.called.as!CalledSpecSig.nonInstantiatedSig == a)
@@ -805,15 +802,15 @@ void referencesForEnumOrFlagsMember(in Program program, in EnumOrFlagsMember* me
 			if (x.isA!(EnumOrFlagsMember*) && x.as!(EnumOrFlagsMember*) == member)
 				cb(UriAndRange(module_.uri, ast.range));
 		},
-		(in Module m, ExprRef x) {
-			if (x.expr.isA!(MatchEnumExpr*)) {
-				MatchEnumExpr* matchEnum = x.expr.as!(MatchEnumExpr*);
+		(in Module m, Expr* x) {
+			if (x.isA!(MatchEnumExpr*)) {
+				MatchEnumExpr* matchEnum = x.as!(MatchEnumExpr*);
 				if (matchEnum.enum_ == enum_)
 					foreach (size_t caseIndex, MatchEnumCase case_; matchEnum.cases)
 						if (case_.member == member)
 							cb(UriAndRange(m.uri, matchEnum.ast.cases[caseIndex].nameRange));
 			} else
-				eachFunReferenceAtExpr(m, x, [ctor], cb);
+				eachFunReferenceAtExpr(m, *x, [ctor], cb);
 		});
 }
 

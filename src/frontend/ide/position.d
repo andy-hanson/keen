@@ -14,7 +14,7 @@ import model.model :
 	DocCommentReference,
 	emptySpecs,
 	EnumOrFlagsMember,
-	ExprRef,
+	Expr,
 	ExternExpr,
 	FunDecl,
 	FunPointerExpr,
@@ -305,7 +305,7 @@ immutable struct PositionVisibilityMark {
 
 immutable struct ExpressionPosition {
 	ExprContainer container;
-	ExprRef expr;
+	Expr* expr; // TODO: is this needed? ---------------------------------------------------------------------------------------
 	ExpressionPositionKind kind;
 }
 

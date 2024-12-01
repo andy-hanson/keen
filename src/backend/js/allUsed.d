@@ -62,7 +62,6 @@ import model.model :
 	Enum,
 	evalExternCondition,
 	Expr,
-	ExprRef,
 	ExternCondition,
 	ExternExpr,
 	ExternType,
@@ -70,7 +69,6 @@ import model.model :
 	Flags,
 	FlagsFunction,
 	FunBodyBogus,
-	funBodyExprRef,
 	FunBodyExtern,
 	FunBodyFileImport,
 	FunBodyMethod,
@@ -135,7 +133,6 @@ import model.model :
 	SumTypeKind,
 	SumTypeMemberAndMethodImpls,
 	Test,
-	testBodyExprRef,
 	TestSelector,
 	ThrowExpr,
 	TryExpr,
@@ -584,7 +581,7 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 				usedReturnType();
 			},
 			(Expr _) {
-				trackAllUsedInExprRef(res, FunOrTest(a), funBodyExprRef(a));
+				trackAllUsedInExprRef(res, FunOrTest(a), &a.body_.as!Expr());
 			},
 			(FunBodyExtern _) {
 				assert(false);
@@ -626,7 +623,7 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 }
 void trackAllUsedInTest(ref AllUsedBuilder res, Uri from, Test* test) {
 	if (addDecl(res, from, AnyDecl(test)))
-		trackAllUsedInExprRef(res, FunOrTest(test), testBodyExprRef(res.commonTypes, test));
+		trackAllUsedInExprRef(res, FunOrTest(test), &test.body_);
 }
 void trackAllUsedInDestructure(ref AllUsedBuilder res, Uri from, Destructure a) {
 	a.match!void(
@@ -706,29 +703,29 @@ void usedTuple(ref AllUsedBuilder res, Uri from, uint tupleSize) {
 		trackAllUsedInStruct(res, from, force(res.commonTypes.tuple(tupleSize)));
 }
 
-void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, ExprRef a) {
+void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, Expr* a) { // rename . Also, could it just take an Expr? -----------------------------------------------
 	Uri from = curFunc.moduleUri;
-	Opt!CalledAndNameRange called = getCalledAtExpr(*a.expr);
+	Opt!CalledAndNameRange called = getCalledAtExpr(*a);
 	if (has(called))
 		trackAllUsedInCalled(
 			res, from, curFunc, force(called).called,
-			a.expr.isA!FunPointerExpr ? FunUse.noInline : FunUse.regular);
+			a.isA!FunPointerExpr ? FunUse.noInline : FunUse.regular);
 
 	void trackChildren() {
-		eachDirectChildExpr(res.commonTypes, a, (ExprRef x) {
+		eachDirectChildExpr(*a, (Expr* x) {
 			trackAllUsedInExprRef(res, curFunc, x);
 		});
 	}
 
-	if (a.expr.isA!(IfExpr*)) {
-		IfExpr* if_ = a.expr.as!(IfExpr*);
+	if (a.isA!(IfExpr*)) {
+		IfExpr* if_ = a.as!(IfExpr*);
 		Opt!bool constant = tryEvalConstantBool(res.version_, res.allExterns, if_.condition);
 		if (has(constant))
-			trackAllUsedInExprRef(res, curFunc, ExprRef(force(constant) ? &if_.trueBranch : &if_.falseBranch, a.type));
+			trackAllUsedInExprRef(res, curFunc, force(constant) ? &if_.trueBranch : &if_.falseBranch);
 		else
 			trackChildren();
 	} else {
-		a.expr.match!void(
+		a.match!void(
 			(ref AssertOrForbidExpr x) {
 				if (!has(x.thrown))
 					trackAllUsedInFun(res, from, res.program.commonFuns.createError.decl, FunUse.regular);
@@ -738,7 +735,7 @@ void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, ExprRef a)
 			(BogusWrongTypeExpr _) {},
 			(CallExpr _) {},
 			(ref CallOptionExpr x) {
-				trackAllUsedInType(res, from, a.type);
+				trackAllUsedInStruct(res, from, x.type.decl);
 			},
 			(ClosureGetExpr _) {},
 			(ClosureSetExpr _) {},

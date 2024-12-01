@@ -26,8 +26,6 @@ import model.model :
 	eachDecl,
 	eachDescendentExprIncluding,
 	Expr,
-	ExprRef,
-	funBodyExprRef,
 	FunDecl,
 	FunSourceAst,
 	ImportOrExport,
@@ -226,8 +224,8 @@ void getInlayHintsForFun(ref Alloc alloc, scope ref Builder!InlayHint out_, in S
 	foreach (ref Destructure param; paramsArray(fun.params))
 		getInlayHintsForDestructure(alloc, out_, showCtx, typeContainer, param);
 	if (fun.body_.isA!Expr)
-		eachDescendentExprIncluding(showCtx.commonTypes, funBodyExprRef(fun), (ExprRef expr) {
-			eachDestructureAtExprForInlay(*expr.expr, (Destructure destructure) {
+		eachDescendentExprIncluding(&fun.body_.as!Expr(), (Expr* expr) {
+			eachDestructureAtExprForInlay(*expr, (Destructure destructure) {
 				getInlayHintsForDestructure(alloc, out_, showCtx, typeContainer, destructure);
 			});
 		});

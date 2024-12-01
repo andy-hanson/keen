@@ -3100,7 +3100,7 @@ immutable struct Expr {
 			(in TypedExpr x) =>
 				x.range);
 
-	Type type(ref CommonTypes commonTypes) =>
+	Type type(ref CommonTypes commonTypes) return scope =>
 		match!Type(
 			(ref AssertOrForbidExpr x) =>
 				Type(commonTypes.void_),
@@ -3119,7 +3119,7 @@ immutable struct Expr {
 			(ClosureSetExpr x) =>
 				Type(commonTypes.void_),
 			(ExternExpr x) =>
-				Type(commonTypes.bool_),
+				x.type(commonTypes),
 			(ref FinallyExpr x) =>
 				x.type(commonTypes),
 			(FunPointerExpr x) =>
@@ -3183,7 +3183,7 @@ immutable struct Condition {
 }
 immutable struct UnpackOption {
 	Destructure destructure;
-	ExprAndType option;
+	Expr option;
 }
 
 immutable struct ExternCondition {
@@ -3274,11 +3274,11 @@ immutable struct BogusExpr {
 // Wraps an expression that has an invalid type.
 immutable struct BogusWrongTypeExpr {
 	@safe @nogc pure nothrow:
-	ExprRef inner;
+	Expr* inner;
 	Type expectedType;
 
 	Range range() scope =>
-		inner.expr.range;
+		inner.range;
 }
 
 immutable struct CallExprSource {
@@ -3403,6 +3403,8 @@ immutable struct CallOptionExpr {
 
 	Range range() scope =>
 		ast.range;
+	bool wrapsReturnAsOption() scope =>
+		called.returnType != Type(type);
 }
 
 immutable struct ClosureGetExpr {
@@ -3437,6 +3439,8 @@ immutable struct ExternExpr {
 
 	Range range() scope =>
 		ast.range;
+	Type type(ref CommonTypes commonTypes) =>
+		Type(commonTypes.bool_);
 }
 
 bool isBuiltinExtern(Symbol a) =>
@@ -3582,7 +3586,7 @@ immutable struct LetExpr {
 
 immutable struct LiteralExpr {
 	Range range;
-	StructInst* type;
+	StructInst* type; // TODO: maybe this should be IntegralType or FloatType or StringLiteralType -----------------------------
 	LiteralValue value;
 }
 
@@ -3593,7 +3597,7 @@ immutable struct LiteralValue {
 immutable struct LiteralStringLikeExpr {
 	@safe @nogc pure nothrow:
 	Range range;
-	StringLiteralKind kind; // TODO: this is redundant to the type ... or vice versa ........................................
+	StringLiteralKind kind;
 	SmallString value; // For char32Array, this will be decoded in concretize.
 
 	StructInst* type(ref CommonTypes commonTypes) {
@@ -3883,7 +3887,7 @@ immutable struct TypedExpr {
 
 	Range range() scope =>
 		ast.range;
-	Type type(ref CommonTypes commonTypes) =>
+	Type type(ref CommonTypes commonTypes) return scope =>
 		inner.type(commonTypes);
 }
 
@@ -3916,187 +3920,133 @@ Opt!CalledAndNameRange getCalledAtExpr(in Expr a) =>
 		? some(CalledAndNameRange(a.as!FunPointerExpr.called, a.as!FunPointerExpr.ast.range))
 		: none!CalledAndNameRange;
 
-immutable struct ExprRef { // TODO: just have type on expr, so we don't need this. ..........................................
-	Expr* expr;
-	Type type;
-}
-ExprAndType toExprAndType(return scope ExprRef a) =>
-	ExprAndType(*a.expr, a.type);
-
-ExprRef funBodyExprRef(FunDecl* a) =>
-	ExprRef(&a.body_.as!Expr(), a.returnType);
-ExprRef testBodyExprRef(ref CommonTypes commonTypes, Test* a) =>
-	ExprRef(&a.body_, Type(commonTypes.void_));
-
-void eachDescendentExprIncluding(
-	ref CommonTypes commonTypes,
-	ExprRef a,
-	in void delegate(ExprRef) @safe @nogc pure nothrow cb,
-) {
+void eachDescendentExprIncluding(Expr* a, in void delegate(Expr*) @safe @nogc pure nothrow cb) {
 	cb(a);
-	eachDescendentExprExcluding(commonTypes, a, cb);
+	eachDescendentExprExcluding(*a, cb);
 }
 
-void eachDescendentExprExcluding(
-	ref CommonTypes commonTypes,
-	ExprRef a,
-	in void delegate(ExprRef) @safe @nogc pure nothrow cb,
-) {
-	eachDirectChildExpr(commonTypes, a, (ExprRef x) {
-		eachDescendentExprIncluding(commonTypes, x, cb);
+void eachDescendentExprExcluding(ref Expr a, in void delegate(Expr*) @safe @nogc pure nothrow cb) {
+	eachDirectChildExpr(a, (Expr* x) {
+		eachDescendentExprIncluding(x, cb);
 	});
 }
 
-void eachDirectChildExpr(
-	ref CommonTypes commonTypes,
-	ExprRef a,
-	in void delegate(ExprRef) @safe @nogc pure nothrow cb,
-) {
-	Opt!bool res = findDirectChildExpr!bool(commonTypes, a, (ExprRef x) {
+void eachDirectChildExpr(ref Expr a, in void delegate(Expr*) @safe @nogc pure nothrow cb) {
+	Opt!bool res = findDirectChildExpr!bool(a, (Expr* x) {
 		cb(x);
 		return none!bool;
 	});
 	assert(!has(res));
 }
 
-Opt!T findDirectChildExpr(T)(
-	ref CommonTypes commonTypes,
-	ExprRef a,
-	in Opt!T delegate(ExprRef) @safe @nogc pure nothrow cb,
-) {
-	Type boolType = Type(commonTypes.bool_);
-	Type exceptionType = Type(commonTypes.exception);
-	Type voidType = Type(commonTypes.void_);
-	ExprRef sameType(Expr* x) =>
-		ExprRef(x, a.type);
-	ExprRef toRef(ExprAndType* x) =>
-		ExprRef(&x.expr, x.type);
-
-	ExprRef directChildInCondition(Condition cond) =>
-		cond.matchWithPointers!ExprRef(
+Opt!T findDirectChildExpr(T)(ref Expr a, in Opt!T delegate(Expr*) @safe @nogc pure nothrow cb) {
+	Expr* directChildInCondition(Condition cond) =>
+		cond.matchWithPointers!(Expr*)(
 			(Expr* x) =>
-				ExprRef(x, boolType),
+				x,
 			(UnpackOption* x) =>
-				toRef(&x.option));
+				&x.option);
 	Opt!T directChildInMatchSumTypeCases(MatchSumTypeCase[] cases) =>
 		firstPointer!(T, MatchSumTypeCase)(cases, (MatchSumTypeCase* x) =>
-			cb(sameType(&x.then)));
+			cb(&x.then));
 
-	return a.expr.matchWithPointers!(Opt!T)(
+	return a.matchWithPointers!(Opt!T)(
 		(AssertOrForbidExpr* x) =>
 			optOr!T(
 				cb(directChildInCondition(x.condition)),
-				() => has(x.thrown) ? cb(ExprRef(force(x.thrown), exceptionType)) : none!T,
-				() => cb(sameType(&x.after))),
+				() => has(x.thrown) ? cb(force(x.thrown)) : none!T,
+				() => cb(&x.after)),
 		(BogusCallExpr* _) =>
 			none!T,
 		(BogusExpr _) =>
 			none!T,
 		(BogusWrongTypeExpr x) =>
 			cb(x.inner),
-		(CallExpr x) {
-			assert(typesCompatible(a.type, x.called.returnType));
-			if (x.called.isVariadic) {
-				Type argType = arrayElementType(only(x.called.paramTypes));
-				return firstPointer!(T, Expr)(x.args, (Expr* e) => cb(ExprRef(e, argType)));
-			} else
-				return firstZipPointerFirst!(T, Expr, Type)(x.args, x.called.paramTypes, (Expr* e, Type t) =>
-					cb(ExprRef(e, t)));
-		},
+		(CallExpr x) =>
+			firstPointer!(T, Expr)(x.args, cb),
 		(CallOptionExpr* x) =>
 			optOr!T(
-				cb(toRef(&x.firstArg)),
-				() => firstZipPointerFirst!(T, Expr, Type)(x.restArgs, x.called.paramTypes[1 .. $], (Expr* e, Type t) =>
-					cb(ExprRef(e, t)))),
-		(ClosureGetExpr x) {
-			assert(a.type == x.local.type);
-			return none!T;
-		},
-		(ClosureSetExpr x) {
-			assert(a.type == voidType || a.type.isBogus);
-			return cb(ExprRef(x.value, x.local.type));
-		},
+				cb(&x.firstArg.expr),
+				() => firstPointer!(T, Expr)(x.restArgs, cb)),
+		(ClosureGetExpr x) =>
+			none!T,
+		(ClosureSetExpr x) =>
+			cb(x.value),
 		(ExternExpr x) =>
 			none!T,
 		(FinallyExpr* x) =>
-			optOr!T(
-				cb(ExprRef(&x.right, voidType)),
-				() => cb(sameType(&x.below))),
+			optOr!T(cb(&x.right), () => cb(&x.below)),
 		(FunPointerExpr _) =>
 			none!T,
 		(IfExpr* x) =>
 			optOr!T(
 				cb(directChildInCondition(x.condition)),
-				() => cb(sameType(&x.firstBranch())),
-				() => cb(sameType(&x.secondBranch()))),
+				() => cb(&x.firstBranch()),
+				() => cb(&x.secondBranch())),
 		(LambdaExpr* x) =>
-			cb(ExprRef(&x.body_(), x.returnType)),
+			cb(&x.body_()),
 		(LetExpr* x) =>
-			optOr!T(cb(ExprRef(&x.value, x.destructure.type)), () => cb(sameType(&x.then))),
+			optOr!T(cb(&x.value), () => cb(&x.then)),
 		(LiteralExpr _) =>
 			none!T,
 		(LiteralStringLikeExpr _) =>
 			none!T,
-		(LocalGetExpr x) {
-			assert(typesCompatible(a.type, x.local.type));
-			return none!T;
-		},
+		(LocalGetExpr x) =>
+			none!T,
 		(LocalPointerExpr _) =>
 			none!T,
-		(LocalSetExpr x) {
-			assert(a.type == voidType);
-			return cb(ExprRef(x.value, x.local.type));
-		},
+		(LocalSetExpr x) =>
+			cb(x.value),
 		(LoopExpr* x) =>
-			cb(sameType(&x.body_)),
+			cb(&x.body_),
 		(LoopBreakExpr* x) =>
-			cb(sameType(&x.value)),
+			cb(&x.value),
 		(LoopContinueExpr _) =>
 			none!T,
 		(LoopWhileOrUntilExpr* x) =>
 			optOr!T(
 				cb(directChildInCondition(x.condition)),
-				() => cb(ExprRef(&x.body_, voidType)),
-				() => cb(sameType(&x.after))),
+				() => cb(&x.body_),
+				() => cb(&x.after)),
 		(MatchEnumExpr* x) =>
 			optOr!T(
-				cb(toRef(&x.matched)),
-				() => firstPointer!(T, MatchEnumCase)(x.cases, (MatchEnumCase* y) => cb(sameType(&y.then))),
-				() => has(x.else_) ? cb(sameType(&force(x.else_))) : none!T),
+				cb(&x.matched.expr),
+				() => firstPointer!(T, MatchEnumCase)(x.cases, (MatchEnumCase* y) => cb(&y.then)),
+				() => has(x.else_) ? cb(&force(x.else_)) : none!T),
 		(MatchIntegralExpr* x) =>
 			optOr!T(
-				cb(toRef(&x.matched)),
+				cb(&x.matched.expr),
 				() => firstPointer!(T, MatchIntegralCase)(x.cases, (MatchIntegralCase* y) =>
-					cb(sameType(&y.then))),
-				() => cb(sameType(&x.else_))),
+					cb(&y.then)),
+				() => cb(&x.else_)),
 		(MatchStringLikeExpr* x) =>
 			optOr!T(
-				cb(toRef(&x.matched)),
+				cb(&x.matched.expr),
 				() => firstPointer!(T, MatchStringLikeCase)(x.cases, (MatchStringLikeCase* y) =>
-					cb(sameType(&y.then))),
-				() => cb(sameType(&x.else_))),
+					cb(&y.then)),
+				() => cb(&x.else_)),
 		(MatchSumTypeExpr* x) =>
 			optOr!T(
-				cb(toRef(&x.matched)),
+				cb(&x.matched.expr),
 				() => directChildInMatchSumTypeCases(x.cases),
-				() => has(x.else_) ? cb(sameType(force(x.else_))) : none!T),
+				() => has(x.else_) ? cb(force(x.else_)) : none!T),
 		(RecordFieldPointerExpr* x) =>
-			cb(toRef(&x.target)),
+			cb(&x.target.expr),
 		(SeqExpr* x) =>
-			optOr!T(cb(ExprRef(&x.first, voidType)), () => cb(sameType(&x.then))),
+			optOr!T(cb(&x.first), () => cb(&x.then)),
 		(ThrowExpr* x) =>
-			cb(ExprRef(&x.thrown, exceptionType)),
+			cb(&x.thrown),
 		(TrustedExpr* x) =>
-			cb(sameType(&x.inner)),
+			cb(&x.inner),
 		(TryExpr* x) =>
-			optOr!T(cb(sameType(&x.tried)), () => directChildInMatchSumTypeCases(x.catches)),
+			optOr!T(cb(&x.tried), () => directChildInMatchSumTypeCases(x.catches)),
 		(TryLetExpr* x) =>
 			optOr!T(
-				cb(ExprRef(&x.value, x.destructure.type)),
-				() => cb(sameType(&x.catch_.then)),
-				() => cb(sameType(&x.then))),
+				cb(&x.value),
+				() => cb(&x.catch_.then),
+				() => cb(&x.then)),
 		(TypedExpr* x) =>
-			cb(sameType(&x.inner)));
+			cb(&x.inner));
 }
 private bool typesCompatible(in Type a, in Type b) =>
 	a == b || a.isBogus || b.isBogus || (

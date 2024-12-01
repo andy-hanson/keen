@@ -25,7 +25,6 @@ import model.model :
 	ExpectedForDiagLoop,
 	Expr,
 	ExprAndType,
-	ExprRef,
 	FunKind,
 	funKindFromBuiltinType,
 	LoopExpr,
@@ -216,7 +215,7 @@ Expr withExpect(Type type, in Expr delegate(ref Expected) @safe @nogc pure nothr
 }
 
 struct ExprAndOptionType {
-	ExprAndType option;
+	Expr option;
 	Type nonOptionType;
 }
 ExprAndOptionType withExpectOption(
@@ -230,9 +229,8 @@ ExprAndOptionType withExpectOption(
 	TypeAndContext[1] expectedTypes = [TypeAndContext(optionT, TypeContext(small!SingleInferringType(inferringTypes)))];
 	Expected expected = Expected(expectedTypes);
 	Expr option = cb(expected);
-	Type optionType = inferred(expected);
 	Type innerType = optOrDefault!Type(tryGetInferred(inferringTypes[0]), () => Type.bogus);
-	return ExprAndOptionType(ExprAndType(option, optionType), innerType);
+	return ExprAndOptionType(option, innerType);
 }
 
 Type withExpectCandidates(
@@ -605,7 +603,7 @@ private ExprAndType check(ref ExprCtx ctx, ref Expected expected, ExprAndType a)
 			DiagTypeConflict(getExpectedForDiag(ctx, expected), typeWithContainer(ctx, a.type))));
 		setToBogusIfInferring(expected);
 		return ExprAndType(
-			Expr(BogusWrongTypeExpr(ExprRef(allocate(ctx.alloc, a.expr), a.type), inferred(expected))),
+			Expr(BogusWrongTypeExpr(allocate(ctx.alloc, a.expr), inferred(expected))),
 			Type.bogus);
 	}
 }

@@ -48,7 +48,6 @@ import model.model :
 	DocCommentReferenceBogus,
 	EnumOrFlagsMember,
 	Expr,
-	ExprRef,
 	ExternExpr,
 	FlagsFunction,
 	forbidModule,
