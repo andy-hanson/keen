@@ -2414,6 +2414,10 @@ bool isSigned(IntegralType a) {
 	}
 }
 
+immutable struct CharOrIntegralType {
+	mixin Union!(CharType, IntegralType);
+}
+
 long minValue(IntegralType type) {
 	final switch (type) {
 		case IntegralType.int8:
@@ -3004,7 +3008,8 @@ immutable struct Expr {
 		IfExpr*,
 		LambdaExpr*,
 		LetExpr*,
-		LiteralExpr,
+		LiteralFloatExpr,
+		LiteralIntegralExpr,
 		LiteralStringLikeExpr,
 		LocalGetExpr,
 		LocalPointerExpr,
@@ -3059,7 +3064,9 @@ immutable struct Expr {
 				x.range,
 			(in LetExpr x) =>
 				x.range,
-			(in LiteralExpr x) =>
+			(in LiteralFloatExpr x) =>
+				x.range,
+			(in LiteralIntegralExpr x) =>
 				x.range,
 			(in LiteralStringLikeExpr x) =>
 				x.range,
@@ -3130,8 +3137,10 @@ immutable struct Expr {
 				Type(x.type),
 			(ref LetExpr x) =>
 				x.type(commonTypes),
-			(LiteralExpr x) =>
-				Type(x.type),
+			(LiteralFloatExpr x) =>
+				Type(x.type(commonTypes)),
+			(LiteralIntegralExpr x) =>
+				Type(x.type(commonTypes)),
 			(LiteralStringLikeExpr x) =>
 				Type(x.type(commonTypes)),
 			(LocalGetExpr x) =>
@@ -3537,14 +3546,11 @@ immutable struct LambdaExpr {
 	private Late!Expr lateBody;
 	private Late!(SmallArray!VariableRef) closure_;
 	private Late!(StructInst*) lambdaType_;
-	private Late!Type returnType_;
 
-	void fillLate(Expr body_, SmallArray!VariableRef closure, StructInst* lambdaType, Type returnType) {
+	void fillLate(Expr body_, SmallArray!VariableRef closure, StructInst* lambdaType) {
 		lateSet(lateBody, body_);
 		lateSet(closure_, closure);
 		lateSet(lambdaType_, lambdaType);
-		lateSet(returnType_, returnType);
-		assert(returnType == lambdaType.typeArgs[0]); // TODO: don't need to store it separately then --------------------------------------
 	}
 
 	Range range() scope =>
@@ -3553,10 +3559,10 @@ immutable struct LambdaExpr {
 		lateGet(lateBody);
 	SmallArray!VariableRef closure() return scope =>
 		lateGet(closure_);
-	StructInst* type() =>
+	StructInst* type() return scope =>
 		lateGet(lambdaType_);
 	Type returnType() return scope =>
-		lateGet(returnType_);
+		type.typeArgs[0];
 
 	// We don't know whether this lambda is for the main body or for the optional 'else'.
 	// But if it is from the `else`, this function will return true.
@@ -3584,14 +3590,47 @@ immutable struct LetExpr {
 		then.type(commonTypes);
 }
 
-immutable struct LiteralExpr {
+immutable struct LiteralFloatExpr {
+	@safe @nogc pure nothrow:
 	Range range;
-	StructInst* type; // TODO: maybe this should be IntegralType or FloatType or StringLiteralType -----------------------------
-	LiteralValue value;
+	FloatType floatType;
+	double value;
+
+	StructInst* type(ref CommonTypes commonTypes) {
+		final switch (floatType) {
+			case FloatType.float32:
+				return commonTypes.float32;
+			case FloatType.float64:
+				return commonTypes.float64;
+		}
+	}
 }
 
-immutable struct LiteralValue {
-	mixin Union!(IntegralValue, double);
+immutable struct LiteralIntegralExpr {
+	@safe @nogc pure nothrow:
+	Range range;
+	CharOrIntegralType integralType;
+	IntegralValue value;
+
+	bool isSigned() scope =>
+		integralType.match!bool(
+			(CharType _) =>
+				false,
+			(IntegralType x) =>
+				.isSigned(x));
+
+	StructInst* type(ref CommonTypes commonTypes) =>
+		integralType.match!(StructInst*)(
+			(CharType x) {
+				final switch (x) {
+					case CharType.char8:
+						return commonTypes.char8;
+					case CharType.char32:
+						return commonTypes.char32;
+				}
+			},
+			(IntegralType x) =>
+				commonTypes.integrals[x]);
 }
 
 immutable struct LiteralStringLikeExpr {
@@ -3987,7 +4026,9 @@ Opt!T findDirectChildExpr(T)(ref Expr a, in Opt!T delegate(Expr*) @safe @nogc pu
 			cb(&x.body_()),
 		(LetExpr* x) =>
 			optOr!T(cb(&x.value), () => cb(&x.then)),
-		(LiteralExpr _) =>
+		(LiteralFloatExpr _) =>
+			none!T,
+		(LiteralIntegralExpr _) =>
 			none!T,
 		(LiteralStringLikeExpr _) =>
 			none!T,

@@ -85,7 +85,8 @@ import model.model :
 	IsImportOrExport,
 	LambdaExpr,
 	LetExpr,
-	LiteralExpr,
+	LiteralFloatExpr,
+	LiteralIntegralExpr,
 	LiteralStringLikeExpr,
 	Local,
 	LocalGetExpr,
@@ -581,7 +582,8 @@ void eachTypeDirectlyInExpr(ref CommonTypes commonTypes, in Expr a, in TypeCb cb
 		(in LetExpr x) {
 			eachTypeInDestructure(x.destructure, x.ast.destructure, cb);
 		},
-		(in LiteralExpr _) {},
+		(in LiteralFloatExpr _) {},
+		(in LiteralIntegralExpr _) {},
 		(in LiteralStringLikeExpr _) {},
 		(in LocalGetExpr _) {},
 		(in LocalPointerExpr _) {},

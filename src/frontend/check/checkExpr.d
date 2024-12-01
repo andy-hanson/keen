@@ -128,6 +128,7 @@ import model.model :
 	CalledSpecSig,
 	CallExpr,
 	CallExprSource,
+	CharOrIntegralType,
 	CharType,
 	ClosureGetExpr,
 	ClosureRef,
@@ -206,9 +207,9 @@ import model.model :
 	LambdaKind,
 	LambdaSource,
 	LetExpr,
-	LiteralExpr,
+	LiteralFloatExpr,
+	LiteralIntegralExpr,
 	LiteralStringLikeExpr,
-	LiteralValue,
 	Local,
 	LocalGetExpr,
 	localMustHaveNameRange,
@@ -866,7 +867,7 @@ Expr asFloat(
 ) {
 	if (overflow)
 		addDiag2(ctx, range, Diag(DiagLiteralFloatAccuracy(floatType, toDouble(value))));
-	return check(ctx, expected, Type(inst), Expr(LiteralExpr(range, inst, LiteralValue(toDouble(value)))));
+	return check(ctx, expected, Type(inst), Expr(LiteralFloatExpr(range, floatType, toDouble(value))));
 }
 
 double toDouble(HighPrecisionFloat a) {
@@ -912,12 +913,13 @@ Expr checkLiteralIntegral(ref ExprCtx ctx, ExprAst* source, in LiteralIntegralAn
 	if (has(opTypeIndex)) {
 		size_t typeIndex = force(opTypeIndex);
 		StructInst* numberType = allowedTypes[typeIndex];
-		if (typeIndex < integralTypes.length)
+		if (typeIndex < integralTypes.length) {
+			IntegralType integralType = integralTypes[typeIndex];
 			return check(
 				ctx, expected, Type(numberType),
-				Expr(LiteralExpr(ast.range, numberType, LiteralValue(checkLiteralIntegralValue(
-					ctx.checkCtx, integralTypes[typeIndex], ast)))));
-		else {
+				Expr(LiteralIntegralExpr(ast.range, CharOrIntegralType(integralType), checkLiteralIntegralValue(
+					ctx.checkCtx, integralType, ast))));
+		} else {
 			bool overflow = ast.literal.overflow;
 			long value = ast.literal.isSigned
 				? ast.literal.value.asSigned
@@ -961,10 +963,16 @@ Expr checkLiteralString(ref ExprCtx ctx, ExprAst* source, string value, ref Expe
 	if (has(opTypeIndex)) {
 		size_t typeIndex = force(opTypeIndex);
 		Opt!Expr expr = () {
-			if (typeIndex == 0) // char8
-				return some(Expr(LiteralExpr(range, allowedTypes[0], LiteralValue(IntegralValue(char8LiteralValue(ctx, range, value))))));
-			else if (typeIndex == 1) // char32
-				return some(Expr(LiteralExpr(range, allowedTypes[1], LiteralValue(IntegralValue(char32LiteralValue(ctx, range, value))))));
+			if (typeIndex == 0)
+				return some(Expr(LiteralIntegralExpr(
+					range,
+					CharOrIntegralType(CharType.char8),
+					IntegralValue(char8LiteralValue(ctx, range, value)))));
+			else if (typeIndex == 1)
+				return some(Expr(LiteralIntegralExpr(
+					range,
+					CharOrIntegralType(CharType.char32),
+					IntegralValue(char32LiteralValue(ctx, range, value)))));
 			else {
 				string checkNoNul(DiagStringLiteralInvalid diag) {
 					Opt!size_t index = indexOf(value, '\0');
@@ -1477,8 +1485,7 @@ LambdaAndReturnType checkLambdaInner(
 						lambdaInfo.closureFields.finish,
 						(ref const ClosureFieldBuilder x) =>
 							x.variableRef)),
-				lambdaType: instFunStruct,
-				returnType: bodyAndType.b);
+				lambdaType: instFunStruct);
 			return LambdaAndReturnType(
 				//TODO: this check should never fail, so could just set inferred directly with no check
 				check(ctx, expected, Type(instFunStruct), Expr(castImmutable(lambda))),

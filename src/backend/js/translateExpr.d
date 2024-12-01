@@ -84,7 +84,8 @@ import backend.js.translateExprCtx :
 	TranslateExprCtx,
 	translateFunToExpr,
 	translateCallInline,
-	translateLiteral,
+	translateLiteralFloat,
+	translateLiteralIntegral,
 	translateLocalGet,
 	translateStructReference,
 	translateToBlockStatement,
@@ -136,7 +137,8 @@ import model.model :
 	isVoid,
 	LambdaExpr,
 	LetExpr,
-	LiteralExpr,
+	LiteralFloatExpr,
+	LiteralIntegralExpr,
 	LiteralStringLikeExpr,
 	Local,
 	LocalGetExpr,
@@ -523,8 +525,10 @@ ExprResult translateExpr(ref TranslateExprCtx ctx, ref Expr a, scope ExprPos pos
 			translateLambda(ctx, source, x, pos),
 		(ref LetExpr x) =>
 			translateLet(ctx, source, x, pos),
-		(LiteralExpr x) =>
-			forceExpr(ctx, pos, Type(x.type), translateLiteral(ctx, source, x)),
+		(LiteralFloatExpr x) =>
+			forceExpr(ctx, pos, Type(x.type(ctx.commonTypes)), translateLiteralFloat(ctx, source, x)),
+		(LiteralIntegralExpr x) =>
+			forceExpr(ctx, pos, Type(x.type(ctx.commonTypes)), translateLiteralIntegral(ctx, source, x)),
 		(LiteralStringLikeExpr x) =>
 			forceExpr(ctx, pos, Type(x.type(ctx.commonTypes)), translateLiteralStringLike(ctx, source, x)),
 		(LocalGetExpr x) =>

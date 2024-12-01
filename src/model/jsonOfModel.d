@@ -85,7 +85,8 @@ import model.model :
 	JsFun,
 	LambdaExpr,
 	LetExpr,
-	LiteralExpr,
+	LiteralFloatExpr,
+	LiteralIntegralExpr,
 	LiteralStringLikeExpr,
 	Local,
 	LocalGetExpr,
@@ -688,8 +689,18 @@ Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 				field!"destructure"(jsonOfDestructure(alloc, ctx, x.destructure)),
 				field!"value"(jsonOfExpr(alloc, ctx, x.value)),
 				field!"then"(jsonOfExpr(alloc, ctx, x.then))]),
-		(in LiteralExpr x) =>
-			jsonOfLiteralExpr(alloc, x),
+		(in LiteralFloatExpr x) =>
+			jsonObject(alloc, [
+				kindField!"literal-float",
+				field!"type"(stringOfEnum(x.floatType)),
+				field!"value"(x.value)]),
+		(in LiteralIntegralExpr x) =>
+			jsonObject(alloc, [
+				kindField!"literal-integral",
+				field!"type"(x.integralType.matchIn!string(
+					(in CharType y) => stringOfEnum(y),
+					(in IntegralType y) => stringOfEnum(y))),
+				field!"value"(x.value.asUnsigned)]),
 		(in LiteralStringLikeExpr x) =>
 			jsonObject(alloc, [
 				kindField!"string",
@@ -794,15 +805,6 @@ Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 			jsonObject(alloc, [
 				kindField!"typed",
 				field!"inner"(jsonOfExpr(alloc, ctx, a.inner))]));
-
-Json jsonOfLiteralExpr(ref Alloc alloc, in LiteralExpr a) =>
-	jsonObject(alloc, [
-		kindField!"literal",
-		field!"value"(a.value.match!Json(
-			(IntegralValue x) =>
-				Json(x.value),
-			(double x) =>
-				Json(x)))]);
 
 Json jsonOfCondition(ref Alloc alloc, in Ctx ctx, in Condition a) =>
 	a.matchIn!Json(

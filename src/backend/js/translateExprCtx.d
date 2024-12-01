@@ -110,6 +110,7 @@ import model.model :
 	EnumOrFlagsMember,
 	Expr,
 	FlagsFunction,
+	FloatType,
 	FunBodyBogus,
 	FunBodyExtern,
 	FunBodyFileImport,
@@ -121,7 +122,8 @@ import model.model :
 	isSigned,
 	isVoid,
 	JsFun,
-	LiteralExpr,
+	LiteralFloatExpr,
+	LiteralIntegralExpr,
 	Local,
 	mustUnwrapOptionType,
 	RecordField,
@@ -640,27 +642,21 @@ private ExprResult translateCallBuiltin(
 		});
 }
 
-JsExpr translateLiteral(ref TranslateExprCtx ctx, in Source source, in LiteralExpr a) {
-	BuiltinType builtin = a.type.decl.body_.as!BuiltinType;
-	return a.value.match!JsExpr(
-		(IntegralValue x) {
-			Opt!IntegralType integral = optEnumConvert!(IntegralType, BuiltinType)(builtin);
-			return has(integral) && isSigned(force(integral)) // character types are unsigned
-				? genIntegerSigned(source, x.asSigned)
-				: genIntegerUnsigned(source, x.asUnsigned);
-		},
-		(double x) {
-			JsExpr num = genNumber(source, x);
-			switch (builtin) {
-				case BuiltinType.float32:
-					return toFloat32(ctx.alloc, source, num);
-				case BuiltinType.float64:
-					return num;
-				default:
-					assert(false);
-			}
-		});
+JsExpr translateLiteralFloat(ref TranslateExprCtx ctx, in Source source, in LiteralFloatExpr a) { // TODO: maybe this should move to translateExpr?
+	JsExpr num = genNumber(source, a.value);
+	final switch (a.floatType) {
+		case FloatType.float32:
+			return toFloat32(ctx.alloc, source, num);
+		case FloatType.float64:
+			return num;
+	}
 }
+
+JsExpr translateLiteralIntegral(ref TranslateExprCtx ctx, in Source source, in LiteralIntegralExpr a) => // TODO: maybe this should move to translateExpr?
+	a.isSigned
+		? genIntegerSigned(source, a.value.asSigned)
+		: genIntegerUnsigned(source, a.value.asUnsigned);
+
 private JsExpr translateConstant(
 	ref TranslateModuleCtx ctx,
 	in Source source,

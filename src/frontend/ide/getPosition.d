@@ -129,7 +129,8 @@ import model.model :
 	IntegralType,
 	LambdaExpr,
 	LetExpr,
-	LiteralExpr,
+	LiteralFloatExpr,
+	LiteralIntegralExpr,
 	LiteralStringLikeExpr,
 	Local,
 	LocalGetExpr,
@@ -678,7 +679,9 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, Expr* a, Pos pos, GetPositionKi
 						() => keywordAt(ast.colonRange, ExprKeyword.colonInWith))),
 		(LetExpr* x) =>
 			inDestructure(x.destructure, x.ast.destructure),
-		(LiteralExpr _) =>
+		(LiteralFloatExpr _) =>
+			some(expressionPosition(ExpressionPositionKind(ExpressionPositionLiteral()))),
+		(LiteralIntegralExpr _) =>
 			some(expressionPosition(ExpressionPositionKind(ExpressionPositionLiteral()))),
 		(LiteralStringLikeExpr _) =>
 			some(expressionPosition(ExpressionPositionKind(ExpressionPositionLiteral()))),

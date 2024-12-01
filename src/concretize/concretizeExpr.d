@@ -137,7 +137,8 @@ import model.model :
 	LambdaExpr,
 	LambdaKind,
 	LetExpr,
-	LiteralExpr,
+	LiteralFloatExpr,
+	LiteralIntegralExpr,
 	LiteralStringLikeExpr,
 	Local,
 	LocalGetExpr,
@@ -759,17 +760,11 @@ ConcreteExpr concretizeWithDestructurePartsRecur(
 	}
 }
 
-ConcreteExpr concretizeLiteral(
-	ref ConcretizeExprCtx,
-	ConcreteType type,
-	in UriAndRange range,
-	in LiteralExpr a,
-) =>
-	genConstant(type, range, a.value.match!Constant(
-		(IntegralValue x) =>
-			Constant(x),
-		(double x) =>
-			Constant(ConstantFloat(x))));
+ConcreteExpr concretizeLiteralFloat(ref ConcretizeExprCtx, ConcreteType type, in UriAndRange range, in LiteralFloatExpr a) => // inline!
+	genConstant(type, range, Constant(ConstantFloat(a.value)));
+
+ConcreteExpr concretizeLiteralIntegral(ref ConcretizeExprCtx ctx, ConcreteType type, in UriAndRange range, in LiteralIntegralExpr a) => // inline!
+	genConstant(type, range, Constant(a.value));
 
 ConcreteExpr concretizeIf(
 	ref ConcretizeExprCtx ctx,
@@ -1185,8 +1180,10 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 			concretizeLambda(ctx, type, range, locals, x),
 		(LetExpr* x) =>
 			concretizeLet(ctx, type, range, locals, *x),
-		(LiteralExpr x) =>
-			concretizeLiteral(ctx, type, range, x),
+		(LiteralFloatExpr x) =>
+			concretizeLiteralFloat(ctx, type, range, x),
+		(LiteralIntegralExpr x) =>
+			concretizeLiteralIntegral(ctx, type, range, x),
 		(LiteralStringLikeExpr x) =>
 			concretizeLiteralStringLike(ctx, type, range, x.kind, x.value),
 		(LocalGetExpr x) =>
