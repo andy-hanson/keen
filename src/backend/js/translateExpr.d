@@ -100,6 +100,7 @@ import backend.js.translateModuleCtx :
 	sourceAtRange,
 	testSource,
 	TranslateModuleCtx;
+import model.ast : CaseAst;
 import model.model :
 	AnyDecl,
 	AssertOrForbidExpr,
@@ -112,7 +113,6 @@ import model.model :
 	Called,
 	CallExpr,
 	CallOptionExpr,
-	caseNameRange,
 	ClosureGetExpr,
 	ClosureSetExpr,
 	Condition,
@@ -494,10 +494,10 @@ JsBlockStatement translateExprToSwitchBlockStatement(ref TranslateExprCtx ctx, r
 
 ExprResult translateExpr(ref TranslateExprCtx ctx, ref Expr a, Type type, scope ExprPos pos) {
 	Source source = exprSource(ctx, a);
-	return a.kind.match!ExprResult(
+	return a.match!ExprResult(
 		(ref AssertOrForbidExpr x) =>
-			translateAssertOrForbid(ctx, a, source, x, type, pos),
-		(BogusCallExpr x) =>
+			translateAssertOrForbid(ctx, source, x, type, pos),
+		(ref BogusCallExpr x) =>
 			forceStatement(ctx, pos, genThrowBogus(ctx.alloc, source)),
 		(BogusExpr x) =>
 			forceStatement(ctx, pos, genThrowBogus(ctx.alloc, source)),
@@ -571,13 +571,13 @@ ExprResult translateExpr(ref TranslateExprCtx ctx, ref Expr a, Type type, scope 
 		(ref LoopWhileOrUntilExpr x) =>
 			translateLoopWhileOrUntil(ctx, source, x, type, pos),
 		(ref MatchEnumExpr x) =>
-			translateMatchEnum(ctx, source, a, x, type, pos),
+			translateMatchEnum(ctx, source, x, type, pos),
 		(ref MatchIntegralExpr x) =>
 			translateMatchIntegral(ctx, source, x, type, pos),
 		(ref MatchStringLikeExpr x) =>
 			translateMatchStringLike(ctx, source, x, type, pos),
 		(ref MatchSumTypeExpr x) =>
-			translateMatchSumType(ctx, source, a, x, type, pos),
+			translateMatchSumType(ctx, source, x, type, pos),
 		(ref RecordFieldPointerExpr x) =>
 			assert(false),
 		(ref SeqExpr x) =>
@@ -594,7 +594,7 @@ ExprResult translateExpr(ref TranslateExprCtx ctx, ref Expr a, Type type, scope 
 		(ref TrustedExpr x) =>
 			translateExpr(ctx, x.inner, type, pos),
 		(ref TryExpr x) =>
-			translateTry(ctx, source, a, x, type, pos),
+			translateTry(ctx, source, x, type, pos),
 		(ref TryLetExpr x) =>
 			translateTryLet(ctx, source, x, type, pos),
 		(ref TypedExpr x) =>
@@ -603,7 +603,6 @@ ExprResult translateExpr(ref TranslateExprCtx ctx, ref Expr a, Type type, scope 
 
 ExprResult translateAssertOrForbid(
 	ref TranslateExprCtx ctx,
-	ref Expr expr,
 	in Source source,
 	ref AssertOrForbidExpr a,
 	Type type,
@@ -615,7 +614,7 @@ ExprResult translateAssertOrForbid(
 			: genNewError(
 				ctx,
 				source,
-				defaultAssertOrForbidMessage(ctx.alloc, ctx.curUri, expr, a, ctx.fileContentGetters))));
+				defaultAssertOrForbidMessage(ctx.alloc, ctx.curUri, a, ctx.fileContentGetters))));
 	ExprResult after(scope ExprPos inner) =>
 		translateExpr(ctx, a.after, type, inner);
 	return translateIfCb(
@@ -903,7 +902,6 @@ ExprResult translateLoopWhileOrUntil(
 ExprResult translateMatchEnum(
 	ref TranslateExprCtx ctx,
 	in Source source,
-	in Expr expr,
 	ref MatchEnumExpr a,
 	Type type,
 	scope ExprPos pos,
@@ -915,7 +913,7 @@ ExprResult translateMatchEnum(
 			ctx.alloc, a.cases,
 			(size_t caseIndex, ref MatchEnumCase case_) =>
 				JsSwitchCase(
-					translateEnumValue(ctx.ctx, exprSource(ctx, caseNameRange(expr, caseIndex)), *case_.member),
+					translateEnumValue(ctx.ctx, exprSource(ctx, a.ast.cases[caseIndex].nameRange), *case_.member),
 					translateExprToSwitchBlockStatement(ctx, case_.then, type))),
 		translateSwitchDefault(ctx, source, a.else_, type, "Invalid enum value")));
 
@@ -956,14 +954,13 @@ ExprResult translateMatchStringLike(
 ExprResult translateMatchSumType(
 	ref TranslateExprCtx ctx,
 	in Source source,
-	in Expr expr,
 	ref MatchSumTypeExpr a,
 	Type type,
 	scope ExprPos pos,
 ) =>
 	withTemp(ctx, symbol!"matched", a.matched, pos, (JsName matched, scope ExprPos inner) =>
 		translateMatchSumType(
-			ctx, source, matched, expr, a.isUnion, a.cases,
+			ctx, source, matched, a.isUnion, a.cases, a.ast.cases,
 			translateSwitchDefault(
 				ctx, source, optIf(has(a.else_), () => *force(a.else_)), type, "Invalid union value"),
 			type, inner));
@@ -971,9 +968,9 @@ ExprResult translateMatchSumType(
 	ref TranslateExprCtx ctx,
 	in Source source,
 	JsName matched,
-	in Expr expr,
 	bool isUnion,
 	MatchSumTypeCase[] cases,
+	in CaseAst[] caseAsts,
 	JsBlockStatement default_,
 	Type type,
 	scope ExprPos pos,
@@ -984,7 +981,7 @@ ExprResult translateMatchSumType(
 			JsStatement(source, JsStatementKind(default_)),
 			cases,
 			(JsStatement else_, size_t caseIndex, ref MatchSumTypeCase case_) {
-				Source caseSource = exprSource(ctx, caseNameRange(expr, caseIndex));
+				Source caseSource = exprSource(ctx, caseAsts[caseIndex].nameRange);
 				JsExpr matchedExpr = genIdentifier(source, matched);
 				JsExpr isMatch = isUnion
 					? genIsUnionMember(ctx.alloc, caseSource, matchedExpr, case_.member)
@@ -1047,7 +1044,6 @@ ExprResult translateFinally(
 ExprResult translateTry(
 	ref TranslateExprCtx ctx,
 	in Source source,
-	in Expr expr,
 	ref TryExpr a,
 	Type type,
 	scope ExprPos pos,
@@ -1060,7 +1056,7 @@ ExprResult translateTry(
 		exceptionName,
 		translateToBlockStatement(ctx.alloc, (scope ExprPos inner) =>
 			translateMatchSumType(
-				ctx, source, exceptionName, expr, isUnion: false, a.catches,
+				ctx, source, exceptionName, isUnion: false, a.catches, a.ast.catches,
 				genBlockStatement(ctx.alloc, [genThrow(ctx.alloc, source, genIdentifier(source, exceptionName))]),
 				type, inner))));
 }

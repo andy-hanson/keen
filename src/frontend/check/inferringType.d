@@ -25,7 +25,6 @@ import model.model :
 	ExpectedForDiagLoop,
 	Expr,
 	ExprAndType,
-	ExprKind,
 	ExprRef,
 	FunKind,
 	funKindFromBuiltinType,
@@ -36,7 +35,7 @@ import model.model :
 	TypeContainer,
 	TypeParamIndex,
 	TypeWithContainer;
-import model.sourceRange : FileContentGetters, LineAndColumnGetters;
+import model.sourceRange : FileContentGetters, LineAndColumnGetters, Range;
 import util.alloc.stackAlloc :
 	MaxStackArray, withMapOrNoneToStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell, cellGet, cellSet;
@@ -107,7 +106,7 @@ private Opt!Type tryGetInferred(const TypeContext a, TypeParamIndex param) {
 }
 
 struct LoopInfo {
-	immutable Type voidType;
+	immutable Type voidType; // used? -=------------------------------------------------------------------------------------------------
 	immutable LoopExpr* loop;
 	immutable Type type;
 	bool hasBreak;
@@ -329,7 +328,7 @@ If there is no unambiguous choice, adds a diagnostic and returns 'none'.
 */
 Opt!size_t findExpectedStructForLiteral(
 	ref ExprCtx ctx,
-	ExprAst* source,
+	ExprAst* source, // TODO: just take 'range' ---------------------------------------------------------------------------------------
 	ref const Expected expected,
 	in immutable StructInst*[] choices,
 ) {
@@ -430,7 +429,7 @@ struct ExpectedLambdaType {
 
 MutOpt!ExpectedLambdaType getExpectedLambda(
 	ref ExprCtx ctx,
-	ExprAst* source,
+	Range diagRange,
 	Opt!Type declaredParamType,
 	ref Expected expected,
 ) {
@@ -441,11 +440,11 @@ MutOpt!ExpectedLambdaType getExpectedLambda(
 	ArrayBuilder!Type multiple;
 	bool anyDiag = false;
 	eachChoice(expected, (TypeAndContext choice) {
-		Opt!FunType optFunType = getExpectedFunType(ctx, source, choice);
+		Opt!FunType optFunType = getExpectedFunType(ctx, diagRange, choice);
 		if (has(optFunType)) {
 			FunType funType = force(optFunType);
 			Opt!Type actualParamType = getExpectedParamTypeFromFunType(
-				ctx, source, choice.context, declaredParamType, funType, anyDiag);
+				ctx, diagRange, choice.context, declaredParamType, funType, anyDiag);
 			if (has(actualParamType)) {
 				if (has(cellGet(res))) {
 					if (arrayBuilderIsEmpty(multiple)) {
@@ -463,31 +462,31 @@ MutOpt!ExpectedLambdaType getExpectedLambda(
 
 	if (anyDiag) {
 		if (!arrayBuilderIsEmpty(multiple))
-			addDiag2(ctx, source, Diag(
+			addDiag2(ctx, diagRange, Diag(
 				DiagLambdaMultipleMatch(ExpectedForDiagChoices(finish(ctx.alloc, multiple), ctx.typeContainer))));
 		return noneMut!ExpectedLambdaType;
 	} else {
 		if (!has(cellGet(res)))
-			addDiag2(ctx, source, Diag(DiagLambdaNotExpected(getExpectedForDiag(ctx, expected))));
+			addDiag2(ctx, diagRange, Diag(DiagLambdaNotExpected(getExpectedForDiag(ctx, expected))));
 		return cellGet(res);
 	}
 }
 
-private Opt!FunType getExpectedFunType(ref ExprCtx ctx, ExprAst* source, TypeAndContext choice) {
+private Opt!FunType getExpectedFunType(ref ExprCtx ctx, Range diagRange, TypeAndContext choice) {
 	Opt!Type t = choice.type.isA!TypeParamIndex
 		? tryGetInferred(choice.context, choice.type.as!TypeParamIndex)
 		: some(choice.type);
 	if (has(t))
 		return getFunType(force(t));
 	else {
-		addDiag2(ctx, source, Diag(DiagLambdaCantInferParamType()));
+		addDiag2(ctx, diagRange, Diag(DiagLambdaCantInferParamType()));
 		return none!FunType;
 	}
 }
 
 private Opt!Type getExpectedParamTypeFromFunType(
 	ref ExprCtx ctx,
-	ExprAst* source,
+	Range diagRange,
 	TypeContext typeContext,
 	Opt!Type declaredParamType,
 	FunType funType,
@@ -502,7 +501,7 @@ private Opt!Type getExpectedParamTypeFromFunType(
 	else if (has(declaredParamType))
 		return some(force(declaredParamType));
 	else {
-		addDiag2(ctx, source, Diag(DiagLambdaCantInferParamType()));
+		addDiag2(ctx, diagRange, Diag(DiagLambdaCantInferParamType()));
 		anyDiag = true;
 		return none!Type;
 	}
@@ -534,10 +533,10 @@ private void eachChoiceConst(
 		},
 		(const LoopInfo*) {});
 
-
-// True if there is an unambiguous, non-inferring expected type.
-bool hasInferredType(InstantiateCtx ctx, ref const Expected expected) =>
-	has(tryGetNonInferringType(ctx, expected)) || expected.isA!(LoopInfo*);
+Opt!Type tryGetNonInferringTypeIncludingLoop(InstantiateCtx ctx, ref const Expected expected) =>
+	expected.isA!(LoopInfo*)
+		? some(expected.asConst!(LoopInfo*).type)
+		: tryGetNonInferringType(ctx, expected);
 
 // This will return a result if there are no references to inferring type parameters.
 // (There may be references to the current function's type parameters.)
@@ -577,9 +576,11 @@ bool matchExpectedVsReturnTypeNoDiagnostic(
 		(const LoopInfo*) =>
 			false);
 
-Expr bogus(ref Expected expected, ExprAst* ast) {
+Expr bogus(ref Expected expected, ExprAst* ast) =>
+	bogus(expected, ast.range);
+Expr bogus(ref Expected expected, Range range) {
 	setToBogusIfInferring(expected);
-	return Expr(ast, ExprKind(BogusExpr()));
+	return Expr(BogusExpr(range, inferred(expected)));
 }
 
 Type inferred(ref const Expected expected) =>
@@ -594,8 +595,8 @@ Type inferred(ref const Expected expected) =>
 		(const LoopInfo* x) =>
 			x.type);
 
-Expr check(ref ExprCtx ctx, ref Expected expected, Type exprType, ExprAst* source, ExprKind exprKind) =>
-	check(ctx, expected, ExprAndType(Expr(source, exprKind), exprType)).expr;
+Expr check(ref ExprCtx ctx, ref Expected expected, Type exprType, Expr expr) =>
+	check(ctx, expected, ExprAndType(expr, exprType)).expr;
 private ExprAndType check(ref ExprCtx ctx, ref Expected expected, ExprAndType a) {
 	if (setTypeNoDiagnostic(ctx.instantiateCtx, expected, a.type))
 		return a;
@@ -604,7 +605,7 @@ private ExprAndType check(ref ExprCtx ctx, ref Expected expected, ExprAndType a)
 			DiagTypeConflict(getExpectedForDiag(ctx, expected), typeWithContainer(ctx, a.type))));
 		setToBogusIfInferring(expected);
 		return ExprAndType(
-			Expr(a.expr.ast, ExprKind(BogusWrongTypeExpr(ExprRef(allocate(ctx.alloc, a.expr), a.type)))),
+			Expr(BogusWrongTypeExpr(ExprRef(allocate(ctx.alloc, a.expr), a.type), inferred(expected))),
 			Type.bogus);
 	}
 }

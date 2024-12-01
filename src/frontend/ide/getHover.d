@@ -43,7 +43,7 @@ import frontend.showModel :
 	writeTypeUnquoted,
 	writeVisibility;
 import lib.lsp.lspTypes : Hover, MarkupContent, MarkupKind;
-import model.ast : AssertOrForbidAst, ExprAst, IfAst, IfAstKind, MatchAst, ModifierKeyword, UnpackOptionAst;
+import model.ast : ExprAst, IfAst, IfAstKind, ModifierKeyword, UnpackOptionAst;
 import model.model :
 	AnyDecl,
 	asBuiltinExtern,
@@ -60,7 +60,6 @@ import model.model :
 	Enum,
 	EnumOrFlagsMember,
 	Expr,
-	ExprKind,
 	ExprRef,
 	ExternExpr,
 	ExternType,
@@ -68,11 +67,13 @@ import model.model :
 	forbidModule,
 	FunDecl,
 	FunPointerExpr,
+	IfExpr,
 	IntegralType,
 	isSigned,
 	LambdaExpr,
 	LambdaKind,
 	Local,
+	LoopExpr,
 	LoopWhileOrUntilExpr,
 	NameReferents,
 	MatchEnumExpr,
@@ -504,15 +505,13 @@ void getExprKeywordHover(
 	in ExprRef a,
 	ExprKeyword keyword,
 ) {
-	ExprKind exprKind = a.expr.kind;
-	ExprAst* ast = a.expr.ast;
 	final switch (keyword) {
 		case ExprKeyword.ampersand:
 			writer ~= "Gets a pointer to an expression. " ~
 				"This does not allocate and so is unsafe. This only works for certain expressions.";
 			break;
 		case ExprKeyword.assert_:
-			writer ~= exprKind.as!(AssertOrForbidExpr*).condition.matchIn!string(
+			writer ~= a.expr.as!(AssertOrForbidExpr*).condition.matchIn!string(
 				(in Expr _) => "Throws if the condition is 'false'.",
 				(in UnpackOption _) => "Throws if the option is empty.");
 			break;
@@ -521,7 +520,7 @@ void getExprKeywordHover(
 			break;
 		case ExprKeyword.colonInAssertOrForbid:
 			writer ~= "If the condition is '";
-			writer ~= ast.as!AssertOrForbidAst.isForbid ? "true" : "false";
+			writer ~= a.expr.as!(AssertOrForbidExpr*).isForbid ? "true" : "false";
 			writer ~= "', throws an exception with the message to the right of the ':'.";
 			break;
 		case ExprKeyword.colonInFor:
@@ -536,10 +535,11 @@ void getExprKeywordHover(
 		case ExprKeyword.elif:
 			writer ~= "If the first condition is false, evaluates another 'if'.";
 			break;
-		case ExprKeyword.else_:
-			writer ~= ast.isA!MatchAst
-				? "If no branch was satisfied, the 'match' evaluates to the 'else' branch."
-				: "If the condition is 'false', the 'else' branch is evaluated.";
+		case ExprKeyword.elseAfterIf:
+			writer ~= "If the condition is 'false', the 'else' branch is evaluated.";
+			break;
+		case ExprKeyword.elseAfterMatch:
+			writer ~= "If no branch was satisfied, the 'match' evaluates to the 'else' branch.";
 			break;
 		case ExprKeyword.finally_:
 			writer ~= "The expression below 'finally' runs first.\n" ~
@@ -547,12 +547,12 @@ void getExprKeywordHover(
 				"The result is from the below expression; the right expression must be 'void'.";
 			break;
 		case ExprKeyword.forbid:
-			writer ~= exprKind.as!(AssertOrForbidExpr*).condition.matchIn!string(
+			writer ~= a.expr.as!(AssertOrForbidExpr*).condition.matchIn!string(
 				(in Expr _) => "Throws if the condition is 'true'.",
 				(in UnpackOption _) => "Throws if the option is non-empty.");
 			break;
 		case ExprKeyword.guardIfOrUnless:
-			IfAst ifAst = ast.as!IfAst;
+			IfAst* ifAst = a.expr.as!(IfExpr*).ast;
 			bool isUnpackOption = ifAst.condition.matchIn!bool(
 				(in ExprAst _) => false,
 				(in UnpackOptionAst _) => true);
@@ -599,7 +599,7 @@ void getExprKeywordHover(
 			break;
 		case ExprKeyword.lambdaArrow:
 			writer ~= () {
-				final switch (exprKind.as!(LambdaExpr*).kind) {
+				final switch (a.expr.as!(LambdaExpr*).kind) {
 					case LambdaKind.data:
 						return "Lambda with 'data' closure and no 'summon'.";
 					case LambdaKind.shared_:
@@ -629,20 +629,20 @@ void getExprKeywordHover(
 			writer ~= "Allows 'unsafe' code to be used anywhere.";
 			break;
 		case ExprKeyword.try_:
-			writer ~= exprKind.isA!(TryExpr*)
+			writer ~= a.expr.isA!(TryExpr*)
 				? "Evaluates and returns the 'try' block, " ~
 					"but if it throws is an exception matching a 'catch' block, returns that instead."
 				: "Runs the initializer (between '=' and 'catch'). If it succeeds, destructures it and continues.\n" ~
 					"If it throws the handled exception, returns the expression after the ':'.";
 			break;
 		case ExprKeyword.until:
-			writer ~= exprKind.as!(LoopWhileOrUntilExpr*).condition.isA!(Expr*)
+			writer ~= a.expr.as!(LoopWhileOrUntilExpr*).condition.isA!(Expr*)
 				? "Loop will run as long as the condition is 'false'."
 				: "Loop will run as long as the option is empty.\n" ~
 					"Then it is destructured and available after the loop.";
 			break;
 		case ExprKeyword.while_:
-			writer ~= exprKind.as!(LoopWhileOrUntilExpr*).condition.isA!(Expr*)
+			writer ~= a.expr.as!(LoopWhileOrUntilExpr*).condition.isA!(Expr*)
 				? "Loop will run as long as the condition is 'true'."
 				: "Loop will run as long as the option is non-empty.";
 			break;
@@ -655,7 +655,7 @@ void getMatchHover(
 	in TypeContainer typeContainer,
 	in ExprRef a,
 ) {
-	MatchInfo info = getMatchInfo(a.expr.kind);
+	MatchInfo info = getMatchInfo(*a.expr);
 	writer ~= "Match on ";
 	writer ~= () {
 		final switch (info.kind) {
@@ -678,7 +678,7 @@ immutable struct MatchInfo {
 	Type matchedType;
 }
 enum MatchKind { enum_, integral, stringLike, union_, variant }
-MatchInfo getMatchInfo(ExprKind a) =>
+MatchInfo getMatchInfo(Expr a) =>
 	a.isA!(MatchEnumExpr*)
 		? MatchInfo(MatchKind.enum_, a.as!(MatchEnumExpr*).matched.type)
 		: a.isA!(MatchIntegralExpr*)
@@ -801,12 +801,12 @@ void getExprHover(
 			final switch (x.kind) {
 				case LoopKeywordKind.break_:
 					writer ~= "Breaks out of ";
-					writeLoop(writer, ctx, curUri, x.loop);
+					writeLoop(writer, ctx, curUri, *x.loop);
 					writer ~= '.';
 					break;
 				case LoopKeywordKind.continue_:
 					writer ~= "Goes back to the start of ";
-					writeLoop(writer, ctx, curUri, x.loop);
+					writeLoop(writer, ctx, curUri, *x.loop);
 					writer ~= '.';
 					break;
 				case LoopKeywordKind.loop:
@@ -819,7 +819,7 @@ void getExprHover(
 	writeTypeQuoted(writer, ctx, TypeWithContainer(a.expr.type, typeContainer));
 }
 
-void writeLoop(scope ref Writer writer, in ShowModelCtx ctx, Uri curUri, in ExprRef a) {
+void writeLoop(scope ref Writer writer, in ShowModelCtx ctx, Uri curUri, in LoopExpr loop) {
 	writer ~= "the loop at ";
-	writer ~= ctx.lineAndColumnGetters[curUri][a.expr.range.start, PosKind.startOfRange];
+	writer ~= ctx.lineAndColumnGetters[curUri][loop.ast.start, PosKind.startOfRange];
 }

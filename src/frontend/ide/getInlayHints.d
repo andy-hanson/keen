@@ -234,10 +234,10 @@ void getInlayHintsForFun(ref Alloc alloc, scope ref Builder!InlayHint out_, in S
 }
 
 void eachDestructureAtExprForInlay(in Expr a, in void delegate(Destructure) @safe @nogc pure nothrow cb) {
-	if (a.kind.isA!(LambdaExpr*))
-		cb(a.kind.as!(LambdaExpr*).param);
-	else if (a.kind.isA!(LetExpr*))
-		cb(a.kind.as!(LetExpr*).destructure);
+	if (a.isA!(LambdaExpr*))
+		cb(a.as!(LambdaExpr*).param);
+	else if (a.isA!(LetExpr*))
+		cb(a.as!(LetExpr*).destructure);
 	// Ignore MatchSumTypeExpr, since the type is explicit
 }
 

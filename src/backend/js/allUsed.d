@@ -36,6 +36,7 @@ import model.model :
 	BuiltinUnary,
 	BuiltinUnaryMath,
 	Called,
+	CalledAndNameRange,
 	CallOptionExpr,
 	CalledBogus,
 	CalledSpecSig,
@@ -336,8 +337,8 @@ private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 Opt!bool tryEvalConstantBool(in VersionInfo version_, in SymbolSet allExterns, in Condition a) {
 	if (a.isA!(Expr*)) {
 		Expr* x = a.as!(Expr*);
-		if (x.kind.isA!CallExpr) {
-			Called y = x.kind.as!CallExpr.called;
+		if (x.isA!CallExpr) {
+			Called y = x.as!CallExpr.called;
 			if (y.isA!(FunInst*)) {
 				FunDecl* decl = y.as!(FunInst*).decl;
 				if (decl.body_.isA!BuiltinFun) {
@@ -707,11 +708,11 @@ void usedTuple(ref AllUsedBuilder res, Uri from, uint tupleSize) {
 
 void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, ExprRef a) {
 	Uri from = curFunc.moduleUri;
-	Opt!Called called = getCalledAtExpr(a.expr.kind);
+	Opt!CalledAndNameRange called = getCalledAtExpr(*a.expr);
 	if (has(called))
 		trackAllUsedInCalled(
-			res, from, curFunc, force(called),
-			a.expr.kind.isA!FunPointerExpr ? FunUse.noInline : FunUse.regular);
+			res, from, curFunc, force(called).called,
+			a.expr.isA!FunPointerExpr ? FunUse.noInline : FunUse.regular);
 
 	void trackChildren() {
 		eachDirectChildExpr(res.commonTypes, a, (ExprRef x) {
@@ -719,20 +720,20 @@ void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, ExprRef a)
 		});
 	}
 
-	if (a.expr.kind.isA!(IfExpr*)) {
-		IfExpr* if_ = a.expr.kind.as!(IfExpr*);
+	if (a.expr.isA!(IfExpr*)) {
+		IfExpr* if_ = a.expr.as!(IfExpr*);
 		Opt!bool constant = tryEvalConstantBool(res.version_, res.allExterns, if_.condition);
 		if (has(constant))
 			trackAllUsedInExprRef(res, curFunc, ExprRef(force(constant) ? &if_.trueBranch : &if_.falseBranch, a.type));
 		else
 			trackChildren();
 	} else {
-		a.expr.kind.match!void(
+		a.expr.match!void(
 			(ref AssertOrForbidExpr x) {
 				if (!has(x.thrown))
 					trackAllUsedInFun(res, from, res.program.commonFuns.createError.decl, FunUse.regular);
 			},
-			(BogusCallExpr _) {},
+			(ref BogusCallExpr _) {},
 			(BogusExpr _) {},
 			(BogusWrongTypeExpr _) {},
 			(CallExpr _) {},

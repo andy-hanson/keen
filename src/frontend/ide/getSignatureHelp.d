@@ -7,13 +7,14 @@ import frontend.ide.position :
 	ExpressionPosition, ExpressionPositionLiteral, ExprKeyword, LocalRef, LoopKeyword, Position;
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : ParameterInformation, SignatureHelp, SignatureInformation;
-import model.ast : CallAst, ExprAst;
+import model.ast : CallAst;
 import model.model :
 	ArityVarargs,
 	BogusCallExpr,
 	CalledDecl,
 	CalledSpecSig,
 	CallExpr,
+	CallExprSource,
 	CallOptionExpr,
 	ExternExpr,
 	FunDecl,
@@ -63,7 +64,7 @@ SignatureHelp signatureHelpAtBogusCall(
 	in ExpressionPosition expr,
 	in BogusCallExpr a,
 ) {
-	Opt!uint activeParameter = activeParameter(expr);
+	Opt!uint activeParameter = activeParameter(a.ast);
 	return SignatureHelp(
 		signatures: map(alloc, a.candidates, (ref CalledDecl x) =>
 			signatureInformation(alloc, showCtx, outerTypeContainer, x, activeParameter)),
@@ -71,12 +72,10 @@ SignatureHelp signatureHelpAtBogusCall(
 		activeParameter: activeParameter);
 }
 
-Opt!uint activeParameter(in ExpressionPosition a) {
-	ExprAst* ast = a.expr.expr.ast;
-	return ast.isA!CallAst
-		? some(safeToUint(ast.as!CallAst.args.length))
+Opt!uint activeParameter(in CallExprSource a) =>
+	a.isA!(CallAst*)
+		? some(safeToUint(a.as!(CallAst*).args.length))
 		: none!uint;
-}
 
 SignatureInformation signatureInformation(
 	ref Alloc alloc,

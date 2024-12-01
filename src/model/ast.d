@@ -260,6 +260,8 @@ immutable struct ArrowAccessAst {
 		left.start;
 	Pos end() scope =>
 		name.end;
+	Range range() scope =>
+		Range(start, end);
 	Range arrowRange() scope =>
 		rangeOfStartAndLength(keywordPos, "->");
 	Range arrowAndNameRange() scope =>
@@ -279,6 +281,8 @@ immutable struct AssertOrForbidAst {
 		rangeOfStartAndLength(start, "assert");
 	Pos end() scope =>
 		after.end;
+	Range range() scope =>
+		Range(start, end);
 }
 immutable struct AssertOrForbidThrownAst {
 	@safe @nogc pure nothrow:
@@ -300,6 +304,8 @@ immutable struct AssignmentAst {
 		left.start;
 	Pos end() scope =>
 		right.end;
+	Range range() scope =>
+		Range(start, end);
 	Range keywordRange() scope =>
 		rangeOfStartAndLength(assignmentPos, ":=");
 }
@@ -320,6 +326,8 @@ immutable struct AssignmentCallAst {
 		left.start;
 	Pos end() scope =>
 		right.end;
+	Range range() scope =>
+		Range(start, end);
 	Range keywordRange() scope =>
 		rangeOfStartAndLength(funName.range.end, ":=");
 }
@@ -381,8 +389,8 @@ immutable struct CallAst {
 		}
 	}
 
-	Range nameRange(in ExprAst* ast) scope =>
-		style == CallAstStyle.comma ? ast.range : funName.range;
+	Range nameRange() scope =>
+		style == CallAstStyle.comma ? range : funName.range;
 }
 enum CallAstStyle : ubyte {
 	augment, // This is the call for '!' in 'x !f y' or for '?!' in 'x f?! y'
@@ -416,6 +424,8 @@ immutable struct CallNamedAst {
 		names[0].start;
 	Pos end() scope =>
 		args[$ - 1].end;
+	Range range() scope =>
+		Range(start, end);
 }
 
 immutable struct DoAst {
@@ -456,6 +466,8 @@ immutable struct FinallyAst {
 
 	Pos end() scope =>
 		below.end;
+	Range range() scope =>
+		Range(start, end);
 	Range finallyKeywordRange() scope =>
 		rangeOfStartAndLength(start, "finally");
 }
@@ -473,6 +485,8 @@ immutable struct ForAst {
 		else_.isA!EmptyAst
 			? body_.end
 			: else_.end;
+	Range range() scope =>
+		Range(start, end);
 	Range forKeywordRange() scope =>
 		rangeOfStartAndLength(start, "for");
 	Range colonRange() scope =>
@@ -517,6 +531,8 @@ immutable struct IfAst {
 		has(secondBranch)
 			? force(secondBranch).end
 			: force(firstBranch).end;
+	Range range() scope =>
+		Range(start, end);
 
 	@trusted ExprAst[] allBranches() return scope =>
 		branchesPtr[0 .. countIfBranches(kind)];
@@ -680,6 +696,8 @@ immutable struct LambdaAst {
 
 	Pos end() scope =>
 		body_.end;
+	Range range() scope =>
+		Range(start, end);
 	Range arrowRange() scope =>
 		rangeOfStartAndLength(arrowPos, "=>");
 }
@@ -802,6 +820,8 @@ immutable struct LoopAst {
 		rangeOfStartAndLength(start, "loop");
 	Pos end() scope =>
 		body_.end;
+	Range range() scope =>
+		Range(start, end);
 }
 
 immutable struct LoopBreakAst {
@@ -813,6 +833,8 @@ immutable struct LoopBreakAst {
 		rangeOfStartAndLength(start, "break");
 	Pos end() scope =>
 		value.end;
+	Range range() scope =>
+		Range(start, end);
 }
 
 immutable struct LoopContinueAst {
@@ -820,6 +842,8 @@ immutable struct LoopContinueAst {
 	Pos start;
 	Pos end() scope =>
 		keywordRange.end;
+	Range range() scope =>
+		Range(start, end);
 	Range keywordRange() scope =>
 		rangeOfStartAndLength(start, "continue");
 }
@@ -834,6 +858,8 @@ immutable struct LoopWhileOrUntilAst {
 
 	Pos end() scope =>
 		after.end;
+	Range range() scope =>
+		Range(start, end);
 	Range keywordRange() scope {
 		static assert("while".length == "until".length);
 		return rangeOfStartAndLength(start, "while");
@@ -854,6 +880,8 @@ immutable struct MatchAst {
 			: !isEmpty(cases)
 			? cases[$ - 1].end
 			: matched.end;
+	Range range() scope =>
+		Range(start, end);
 	Range keywordRange() scope =>
 		rangeOfStartAndLength(start, "match");
 }
@@ -865,8 +893,10 @@ immutable struct CaseAst {
 	CaseMemberAst member;
 	ExprAst then;
 
+	Range nameRange() scope =>
+		member.nameRange;
 	Range keywordAndMemberNameRange() scope =>
-		Range(keywordPos, member.nameRange.end);
+		Range(keywordPos, nameRange.end);
 	Pos end() scope =>
 		then.end;
 }
@@ -926,6 +956,8 @@ immutable struct PtrAst {
 		rangeOfStartAndLength(start, "&");
 	Pos end() scope =>
 		inner.end;
+	Range range() scope =>
+		Range(start, end);
 }
 
 immutable struct SeqAst {
@@ -945,6 +977,8 @@ immutable struct SharedAst {
 
 	Pos end() scope =>
 		inner.end;
+	Range range() scope =>
+		Range(start, end);
 	Range keywordRange() scope =>
 		rangeOfStartAndLength(start, "shared");
 }
@@ -958,6 +992,8 @@ immutable struct ThrowAst {
 		rangeOfStartAndLength(start, "throw".length);
 	Pos end() scope =>
 		thrown.end;
+	Range range() scope =>
+		Range(start, end);
 }
 
 immutable struct TrustedAst {
@@ -969,6 +1005,8 @@ immutable struct TrustedAst {
 		rangeOfStartAndLength(start, "trusted");
 	Pos end() scope =>
 		inner.end;
+	Range range() scope =>
+		Range(start, end);
 }
 
 immutable struct TryAst {
@@ -982,6 +1020,8 @@ immutable struct TryAst {
 		rangeOfStartAndLength(start, "try");
 	Pos end() scope =>
 		catches[$ - 1].end;
+	Range range() scope =>
+		Range(start, end);
 }
 
 immutable struct TryLetAst {
@@ -997,6 +1037,8 @@ immutable struct TryLetAst {
 
 	Pos end() scope =>
 		then.end;
+	Range range() scope =>
+		Range(start, end);
 	Range tryKeywordRange() scope =>
 		rangeOfStartAndLength(start, "try");
 	Range catchKeywordRange() scope =>
@@ -1014,6 +1056,8 @@ immutable struct TypedAst {
 		expr.start;
 	Pos end() scope =>
 		type.end;
+	Range range() scope =>
+		Range(start, end);
 	Range keywordRange() =>
 		rangeOfStartAndLength(colonPos, "::");
 	Range keywordAndTypeRange() =>
@@ -1032,6 +1076,8 @@ immutable struct WithAst {
 
 	Pos end() scope =>
 		else_.isA!EmptyAst ? else_.end : body_.end;
+	Range range() scope =>
+		Range(start, end);
 	Range withKeywordRange() scope =>
 		rangeOfStartAndLength(start, "with");
 	Range colonRange() scope =>
@@ -1076,7 +1122,7 @@ immutable struct ExprAst {
 		TryLetAst*,
 		TypedAst*,
 		WithAst*);
-	
+
 	Pos start() scope =>
 		matchIn!Pos(
 			(in ArrowAccessAst x) =>

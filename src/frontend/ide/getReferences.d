@@ -18,8 +18,6 @@ import lib.lsp.lspTypes : DocumentHighlight, DocumentHighlightKind, DocumentHigh
 import model.ast :
 	AsBogusAst,
 	AsNameAst,
-	AssertOrForbidAst,
-	AssignmentAst,
 	AssignmentCallAst,
 	AsStringAst,
 	CallAst,
@@ -27,15 +25,8 @@ import model.ast :
 	CaseMemberAst,
 	ConditionAst,
 	DestructureAst,
-	ExprAst,
-	ForAst,
 	FunDeclAst,
-	IfAst,
-	LambdaAst,
-	LetAst,
 	LiteralIntegralAndRange,
-	LoopWhileOrUntilAst,
-	MatchAst,
 	ModifierAst,
 	ModifierKeyword,
 	ModifierKeywordAst,
@@ -49,24 +40,19 @@ import model.ast :
 	StructBodyAst,
 	StructDeclAst,
 	SumTypeAst,
-	TryAst,
-	TryLetAst,
 	TypeAst,
-	TypedAst,
 	UnpackOptionAst,
-	VoidDestructureAst,
-	WithAst;
+	VoidDestructureAst;
 import model.model :
 	AssertOrForbidExpr,
 	BogusCallExpr,
 	BogusExpr,
 	BogusWrongTypeExpr,
 	BuiltinType,
-	Called,
+	CalledAndNameRange,
 	CalledSpecSig,
 	CallExpr,
 	CallOptionExpr,
-	caseNameRange,
 	ClosureGetExpr,
 	ClosureSetExpr,
 	CommonTypes,
@@ -82,7 +68,6 @@ import model.model :
 	Enum,
 	EnumOrFlagsMember,
 	Expr,
-	ExprKind,
 	ExprRef,
 	ExternExpr,
 	ExternType,
@@ -159,7 +144,7 @@ import model.model :
 	VarGet,
 	VarSet,
 	Visibility;
-import model.sourceRange : Range, UriAndLineAndCharacterRange, UriAndRange;
+import model.sourceRange : UriAndLineAndCharacterRange, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array : contains, fold, isEmpty, only, zip, zipIfSizeEq, zipIfSizeEqFilterFirst;
@@ -355,8 +340,8 @@ void referencesForLocal(in Program program, Uri curUri, in PositionLocal a, in R
 					cb(UriAndRange(curUri, ast.range));
 			});
 		eachDescendentExprIncluding(program.commonTypes, force(body_).body_, (ExprRef x) {
-			Opt!(Local*) itsLocal = exprLocalReference(x.expr.kind);
-			if (has(itsLocal) && force(itsLocal) == a.local && !x.expr.ast.isA!AssignmentCallAst)
+			Opt!(Local*) itsLocal = exprLocalReference(*x.expr);
+			if (has(itsLocal) && force(itsLocal) == a.local) // TODO: && !x.expr.ast.isA!AssignmentCallAst) (this prevents double reference at the assignmentcall) ------------------------
 				cb(UriAndRange(force(body_).container.moduleUri, x.expr.range));
 		});
 	}
@@ -366,7 +351,7 @@ immutable struct ContainerAndBody {
 	ExprRef body_;
 }
 
-Opt!(Local*) exprLocalReference(ExprKind a) =>
+Opt!(Local*) exprLocalReference(Expr a) =>
 	a.isA!ClosureGetExpr
 		? some(a.as!ClosureGetExpr.local)
 		: a.isA!ClosureSetExpr
@@ -377,9 +362,10 @@ Opt!(Local*) exprLocalReference(ExprKind a) =>
 		? some(a.as!LocalSetExpr.local)
 		: none!(Local*);
 
-void referencesForLoop(ref CommonTypes commonTypes, Uri curUri, in Target.Loop a, in ReferenceCb cb) {
-	eachDescendentExprExcluding(commonTypes, a.loop, (ExprRef child) {
-		if (child.expr.kind.isA!(LoopBreakExpr*) || child.expr.kind.isA!LoopContinueExpr)
+void referencesForLoop(ref CommonTypes commonTypes, Uri curUri, Target.Loop a, in ReferenceCb cb) {
+	Expr expr = Expr(a.loop);
+	eachDescendentExprExcluding(commonTypes, ExprRef(&expr, a.loop.type), (ExprRef child) {
+		if (child.expr.isA!(LoopBreakExpr*) || child.expr.isA!LoopContinueExpr)
 			cb(UriAndRange(curUri, child.expr.range));
 	});
 }
@@ -567,17 +553,16 @@ void eachTypeInExpr(ref CommonTypes commonTypes, ExprRef expr, in TypeCb cb) {
 }
 
 void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
-	ExprAst* ast = a.expr.ast;
-	a.expr.kind.matchIn!void(
+	a.expr.matchIn!void(
 		(in AssertOrForbidExpr x) {
-			eachTypeInCondition(x.condition, ast.as!AssertOrForbidAst.condition, cb);
+			eachTypeInCondition(x.condition, x.ast.condition, cb);
 		},
 		(in BogusCallExpr _) {},
 		(in BogusExpr _) {},
 		(in BogusWrongTypeExpr _) {},
 		(in CallExpr x) {
-			if (ast.isA!CallAst) {
-				Opt!(TypeAst*) typeArg = ast.as!CallAst.typeArg;
+			if (x.ast.isA!(CallAst*)) {
+				Opt!(TypeAst*) typeArg = x.ast.as!(CallAst*).typeArg;
 				if (has(typeArg))
 					eachPackedTypeArg(x.called.as!(FunInst*).typeArgs, *force(typeArg), cb);
 			}
@@ -589,20 +574,15 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 		(in FinallyExpr _) {},
 		(in FunPointerExpr _) {},
 		(in IfExpr x) {
-			eachTypeInCondition(x.condition, ast.as!IfAst.condition, cb);
+			eachTypeInCondition(x.condition, x.ast.condition, cb);
 		},
 		(in LambdaExpr x) {
 			if (!x.isIgnore) {
-				DestructureAst param = ast.isA!(ForAst*)
-					? ast.as!(ForAst*).param
-					: ast.isA!(WithAst*)
-					? ast.as!(WithAst*).param
-					: ast.as!(LambdaAst*).param;
-				eachTypeInDestructure(x.param, param, cb);
+				eachTypeInDestructure(x.param, x.ast.param, cb);
 			}
 		},
 		(in LetExpr x) {
-			eachTypeInDestructure(x.destructure, ast.as!(LetAst*).destructure, cb);
+			eachTypeInDestructure(x.destructure, x.ast.destructure, cb);
 		},
 		(in LiteralExpr _) {},
 		(in LiteralStringLikeExpr _) {},
@@ -613,26 +593,26 @@ void eachTypeDirectlyInExpr(ExprRef a, in TypeCb cb) {
 		(in LoopBreakExpr _) {},
 		(in LoopContinueExpr _) {},
 		(in LoopWhileOrUntilExpr x) {
-			eachTypeInCondition(x.condition, ast.as!(LoopWhileOrUntilAst*).condition, cb);
+			eachTypeInCondition(x.condition, x.ast.condition, cb);
 		},
 		(in MatchEnumExpr _) {},
 		(in MatchIntegralExpr _) {},
 		(in MatchStringLikeExpr _) {},
 		(in MatchSumTypeExpr x) {
-			eachTypeInMatchSumType(x.cases, ast.as!MatchAst.cases, cb);
+			eachTypeInMatchSumType(x.cases, x.ast.cases, cb);
 		},
 		(in RecordFieldPointerExpr _) {},
 		(in SeqExpr _) {},
 		(in ThrowExpr _) {},
 		(in TrustedExpr _) {},
 		(in TryExpr x) {
-			eachTypeInMatchSumType(x.catches, ast.as!TryAst.catches, cb);
+			eachTypeInMatchSumType(x.catches, x.ast.catches, cb);
 		},
 		(in TryLetExpr x) {
-			eachTypeInMatchSumTypeCase(x.catch_, ast.as!(TryLetAst*).catchMember, cb);
+			eachTypeInMatchSumTypeCase(x.catch_, x.ast.catchMember, cb);
 		},
 		(in TypedExpr x) =>
-			cb(a.type, ast.as!(TypedAst*).type));
+			cb(a.type, x.ast.type));
 }
 
 void eachTypeInMatchSumType(in MatchSumTypeCase[] cases, in CaseAst[] caseAsts, in TypeCb cb) {
@@ -745,26 +725,9 @@ void eachDocComment(in Module module_, in void delegate(DocComment) @safe @nogc 
 }
 
 void eachFunReferenceAtExpr(in Module module_, in ExprRef x, in FunDecl*[] decls, in ReferenceCb cb) {
-	Opt!Called called = getCalledAtExpr(x.expr.kind);
-	if (has(called) && force(called).isA!(FunInst*) && contains(decls, force(called).as!(FunInst*).decl))
-		cb(UriAndRange(module_.uri, callNameRange(*x.expr.ast)));
-}
-
-Range callNameRange(in ExprAst a) {
-	return a.isA!(AssignmentAst*)
-		? a.as!(AssignmentAst*).left.range
-		: a.isA!AssignmentCallAst
-		? a.as!AssignmentCallAst.funName.range
-		: a.isA!CallAst
-		? a.as!CallAst.funName.range
-		: a.isA!(ForAst*)
-		? a.as!(ForAst*).forKeywordRange
-		: a.isA!IfAst
-		// This only happens for implicit 'else ()'
-		? a.as!IfAst.firstKeywordRange
-		: a.isA!(WithAst*)
-		? a.as!(WithAst*).withKeywordRange
-		: a.range;
+	Opt!CalledAndNameRange called = getCalledAtExpr(*x.expr);
+	if (has(called) && force(called).called.isA!(FunInst*) && contains(decls, force(called).called.as!(FunInst*).decl))
+		cb(UriAndRange(module_.uri, force(called).nameRange));
 }
 
 void eachExprThatMayReference(
@@ -811,11 +774,11 @@ void referencesForSignature(in Program program, in Signature* a, in ReferenceCb 
 						cb(UriAndRange(module_.uri, ast.range));
 				},
 				(in Module module_, ExprRef x) {
-					Opt!Called optCalled = getCalledAtExpr(x.expr.kind);
+					Opt!CalledAndNameRange optCalled = getCalledAtExpr(*x.expr);
 					if (has(optCalled)) {
-						Called called = force(optCalled);
-						if (called.isA!CalledSpecSig && called.as!CalledSpecSig.nonInstantiatedSig == a)
-							cb(UriAndRange(module_.uri, callNameRange(*x.expr.ast)));
+						CalledAndNameRange called = force(optCalled);
+						if (called.called.isA!CalledSpecSig && called.called.as!CalledSpecSig.nonInstantiatedSig == a)
+							cb(UriAndRange(module_.uri, called.nameRange));
 					}
 				});
 		},
@@ -843,12 +806,12 @@ void referencesForEnumOrFlagsMember(in Program program, in EnumOrFlagsMember* me
 				cb(UriAndRange(module_.uri, ast.range));
 		},
 		(in Module m, ExprRef x) {
-			if (x.expr.kind.isA!(MatchEnumExpr*)) {
-				MatchEnumExpr* matchEnum = x.expr.kind.as!(MatchEnumExpr*);
+			if (x.expr.isA!(MatchEnumExpr*)) {
+				MatchEnumExpr* matchEnum = x.expr.as!(MatchEnumExpr*);
 				if (matchEnum.enum_ == enum_)
 					foreach (size_t caseIndex, MatchEnumCase case_; matchEnum.cases)
 						if (case_.member == member)
-							cb(UriAndRange(m.uri, caseNameRange(*x.expr, caseIndex)));
+							cb(UriAndRange(m.uri, matchEnum.ast.cases[caseIndex].nameRange));
 			} else
 				eachFunReferenceAtExpr(m, x, [ctor], cb);
 		});

@@ -6,7 +6,7 @@ import frontend.check.checkCtx : addDiag, CheckCtx;
 import frontend.check.instantiate : InstantiateCtx;
 import frontend.check.maps : FunsMap, SpecsMap, StructsAndAliasesMap;
 import frontend.check.typeFromAst : AliasAllowed, checkDestructure, DestructureKind, typeFromAst, typeFromDestructure;
-import model.ast : DestructureAst, ExprAst, TypeAst;
+import model.ast : DestructureAst, ExprAst, TrustedAst, TypeAst;
 import model.model :
 	CommonTypes,
 	Destructure,
@@ -24,7 +24,7 @@ import model.model :
 	TypeParams,
 	TypeWithContainer,
 	VariableRef;
-import model.sourceRange : Range, rangeOfStartAndLength;
+import model.sourceRange : Range;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray;
 import util.cell : Cell, cellGet, cellSet;
@@ -135,28 +135,25 @@ struct ExprCtx {
 TypeWithContainer typeWithContainer(ref const ExprCtx ctx, Type a) =>
 	TypeWithContainer(a, ctx.typeContainer);
 
-T withTrusted(T)(ref ExprCtx ctx, ExprAst* source, in T delegate() @safe @nogc pure nothrow cb) {
+T withTrusted(T)(ref ExprCtx ctx, in TrustedAst ast, in T delegate() @safe @nogc pure nothrow cb) {
 	Opt!DiagTrustedUnnecessary reason = ctx.outermostFunFlags.safety != FunSafety.safe
 		? some(DiagTrustedUnnecessary.inUnsafeFunction)
 		: ctx.isInTrusted
 		? some(DiagTrustedUnnecessary.inTrusted)
 		: none!DiagTrustedUnnecessary;
 	if(has(reason)) {
-		addDiag2(ctx, trustedKeywordRange(source), Diag(force(reason)));
+		addDiag2(ctx, ast.keywordRange, Diag(force(reason)));
 		return cb();
 	} else {
 		ctx.isInTrusted = true;
 		T res = cb();
 		ctx.isInTrusted = false;
 		if (!ctx.usedTrusted)
-			addDiag2(ctx, trustedKeywordRange(source), Diag(DiagTrustedUnnecessary.unused));
+			addDiag2(ctx, ast.keywordRange, Diag(DiagTrustedUnnecessary.unused));
 		ctx.usedTrusted = false;
 		return res;
 	}
 }
-
-private Range trustedKeywordRange(in ExprAst* source) =>
-	rangeOfStartAndLength(source.range.start, "trusted");
 
 bool checkCanDoUnsafe(ref ExprCtx ctx) {
 	if (allowsUnsafe(ctx.outermostFunFlags.safety))

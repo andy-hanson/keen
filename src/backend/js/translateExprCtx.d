@@ -642,7 +642,7 @@ private ExprResult translateCallBuiltin(
 
 JsExpr translateLiteral(ref TranslateExprCtx ctx, in Source source, in LiteralExpr a, in Type type) {
 	BuiltinType builtin = type.as!(StructInst*).decl.body_.as!BuiltinType;
-	return a.match!JsExpr(
+	return a.value.match!JsExpr(
 		(IntegralValue x) {
 			Opt!IntegralType integral = optEnumConvert!(IntegralType, BuiltinType)(builtin);
 			return has(integral) && isSigned(force(integral)) // character types are unsigned

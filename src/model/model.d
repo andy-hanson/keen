@@ -3,20 +3,38 @@ module model.model;
 @safe @nogc pure nothrow:
 
 import model.ast :
+	ArrowAccessAst,
 	AssertOrForbidAst,
+	AssignmentAst,
+	AssignmentCallAst,
+	CallAst,
+	CallNamedAst,
 	CaseAst,
 	CaseMemberAst,
+	DestructureAst,
 	DocCommentAst,
 	EnumOrFlagsMemberAst,
+	EmptyAst,
 	ExprAst,
+	ExternAst,
 	FileAst,
+	FinallyAst,
+	ForAst,
 	FunDeclAst,
 	IfAst,
 	ImportOrExportAst,
+	InterpolatedAst,
+	LambdaAst,
+	LetAst,
+	LoopAst,
+	LoopBreakAst,
+	LoopContinueAst,
+	LoopWhileOrUntilAst,
 	MatchAst,
 	ModifierKeyword,
 	ModifierKeywordAst,
 	NameAndRange,
+	PtrAst,
 	RecordFieldAst,
 	SingleDestructureAst,
 	SpecDeclAst,
@@ -24,10 +42,15 @@ import model.ast :
 	StructAliasAst,
 	StructDeclAst,
 	TestAst,
+	ThrowAst,
+	TrustedAst,
 	TryAst,
+	TryLetAst,
+	TypedAst,
 	UnpackOptionAst,
 	VarDeclAst,
-	VoidDestructureAst;
+	VoidDestructureAst,
+	WithAst;
 import model.integralValues : IntegralValue;
 import model.parseDiag : ParseDiag, ParseDiagnostic, ReadFileDiag;
 import model.sourceRange :
@@ -2886,6 +2909,10 @@ immutable struct Destructure {
 				localMustHaveRange(x),
 			(in DestructureSplit x) =>
 				combineRanges(x.parts[0].range, x.parts[$ - 1].range));
+	Pos start() scope =>
+		range.start;
+	Pos end() scope =>
+		range.end;
 
 	Type type() scope =>
 		matchIn!Type(
@@ -2962,17 +2989,9 @@ DocCommentReferences emptyDocCommentReferences() =>
 
 immutable struct Expr {
 	@safe @nogc pure nothrow:
-	ExprAst* ast;
-	ExprKind kind;
-
-	Range range() scope =>
-		ast.range;
-}
-
-immutable struct ExprKind {
 	mixin Union!(
 		AssertOrForbidExpr*,
-		BogusCallExpr,
+		BogusCallExpr*,
 		BogusExpr,
 		BogusWrongTypeExpr,
 		CallExpr,
@@ -3005,10 +3024,156 @@ immutable struct ExprKind {
 		TryExpr*,
 		TryLetExpr*,
 		TypedExpr*);
-}
-static assert(ExprKind.sizeof == CallExpr.sizeof + ulong.sizeof);
 
-immutable struct ExprAndType {
+	Pos start() scope =>
+		range.start;
+	Pos end() scope =>
+		range.end;
+	Range range() scope =>
+		matchIn!Range(
+			(in AssertOrForbidExpr x) =>
+				x.range,
+			(in BogusCallExpr x) =>
+				x.range,
+			(in BogusExpr x) =>
+				x.range,
+			(in BogusWrongTypeExpr x) =>
+				x.range,
+			(in CallExpr x) =>
+				x.range,
+			(in CallOptionExpr x) =>
+				x.range,
+			(in ClosureGetExpr x) =>
+				x.range,
+			(in ClosureSetExpr x) =>
+				x.range,
+			(in ExternExpr x) =>
+				x.range,
+			(in FinallyExpr x) =>
+				x.range,
+			(in FunPointerExpr x) =>
+				x.range,
+			(in IfExpr x) =>
+				x.range,
+			(in LambdaExpr x) =>
+				x.range,
+			(in LetExpr x) =>
+				x.range,
+			(in LiteralExpr x) =>
+				x.range,
+			(in LiteralStringLikeExpr x) =>
+				x.range,
+			(in LocalGetExpr x) =>
+				x.range,
+			(in LocalPointerExpr x) =>
+				x.range,
+			(in LocalSetExpr x) =>
+				x.range,
+			(in LoopExpr x) =>
+				x.range,
+			(in LoopBreakExpr x) =>
+				x.range,
+			(in LoopContinueExpr x) =>
+				x.range,
+			(in LoopWhileOrUntilExpr x) =>
+				x.range,
+			(in MatchEnumExpr x) =>
+				x.range,
+			(in MatchIntegralExpr x) =>
+				x.range,
+			(in MatchStringLikeExpr x) =>
+				x.range,
+			(in MatchSumTypeExpr x) =>
+				x.range,
+			(in RecordFieldPointerExpr x) =>
+				x.range,
+			(in SeqExpr x) =>
+				x.range,
+			(in ThrowExpr x) =>
+				x.range,
+			(in TrustedExpr x) =>
+				x.range,
+			(in TryExpr x) =>
+				x.range,
+			(in TryLetExpr x) =>
+				x.range,
+			(in TypedExpr x) =>
+				x.range);
+
+	Type type(ref CommonTypes commonTypes) =>
+		match!Type(
+			(ref AssertOrForbidExpr x) =>
+				Type(commonTypes.void_),
+			(ref BogusCallExpr x) =>
+				x.expectedType,
+			(BogusExpr x) =>
+				x.expectedType,
+			(BogusWrongTypeExpr x) =>
+				x.expectedType,
+			(CallExpr x) =>
+				x.type,
+			(ref CallOptionExpr x) =>
+				Type(x.type),
+			(ClosureGetExpr x) =>
+				x.type,
+			(ClosureSetExpr x) =>
+				Type(commonTypes.void_),
+			(ExternExpr x) =>
+				Type(commonTypes.bool_),
+			(ref FinallyExpr x) =>
+				x.type(commonTypes),
+			(FunPointerExpr x) =>
+				Type(x.type),
+			(ref IfExpr x) =>
+				x.type(commonTypes),
+			(ref LambdaExpr x) =>
+				Type(x.type),
+			(ref LetExpr x) =>
+				x.type(commonTypes),
+			(LiteralExpr x) =>
+				Type(x.type),
+			(LiteralStringLikeExpr x) =>
+				Type(x.type(commonTypes)),
+			(LocalGetExpr x) =>
+				x.type,
+			(LocalPointerExpr x) =>
+				Type(x.type),
+			(LocalSetExpr x) =>
+				Type(commonTypes.void_),
+			(ref LoopExpr x) =>
+				x.type,
+			(ref LoopBreakExpr x) =>
+				x.loop.type,
+			(LoopContinueExpr x) =>
+				x.loop.type,
+			(ref LoopWhileOrUntilExpr x) =>
+				Type(commonTypes.void_),
+			(ref MatchEnumExpr x) =>
+				x.type(commonTypes),
+			(ref MatchIntegralExpr x) =>
+				x.type(commonTypes),
+			(ref MatchStringLikeExpr x) =>
+				x.type(commonTypes),
+			(ref MatchSumTypeExpr x) =>
+				x.type(commonTypes),
+			(ref RecordFieldPointerExpr x) =>
+				Type(x.type),
+			(ref SeqExpr x) =>
+				x.type(commonTypes),
+			(ref ThrowExpr x) =>
+				x.type,
+			(ref TrustedExpr x) =>
+				x.type(commonTypes),
+			(ref TryExpr x) =>
+				x.type(commonTypes),
+			(ref TryLetExpr x) =>
+				x.type(commonTypes),
+			(ref TypedExpr x) =>
+				x.type(commonTypes));
+}
+static assert(Expr.sizeof == CallExpr.sizeof + ulong.sizeof);
+
+immutable struct ExprAndType { // KILL ----------------------------------------------------------------------------------------------
 	Expr expr;
 	Type type;
 }
@@ -3034,8 +3199,8 @@ Opt!ExternCondition asExtern(in Condition a) =>
 		: none!ExternCondition;
 private Opt!ExternCondition asExtern(ref Expr a) {
 	Expr e = skipTrusted(a);
-	if (e.kind.isA!CallExpr) {
-		CallExpr call = e.kind.as!CallExpr;
+	if (e.isA!CallExpr) {
+		CallExpr call = e.as!CallExpr;
 		if (isAnd(call.called)) {
 			assert(call.args.length == 2);
 			Opt!ExternCondition arg0 = asExtern(call.args[0]);
@@ -3064,15 +3229,20 @@ private bool isBuiltinFun(in Called a, in bool delegate(in BuiltinFun) @safe @no
 private bool isBuiltinFun(in FunBody a, in bool delegate(in BuiltinFun) @safe @nogc pure nothrow cb) =>
 	a.isA!BuiltinFun && cb(a.as!BuiltinFun);
 private Opt!SymbolSet asExternExpr(in Expr a) =>
-	optIf(a.kind.isA!ExternExpr, () => a.kind.as!ExternExpr.names);
+	optIf(a.isA!ExternExpr, () => a.as!ExternExpr.names);
 private ref Expr skipTrusted(return ref Expr a) =>
-	a.kind.isA!(TrustedExpr*) ? a.kind.as!(TrustedExpr*).inner : a;
+	a.isA!(TrustedExpr*) ? a.as!(TrustedExpr*).inner : a;
 
 immutable struct AssertOrForbidExpr {
+	@safe @nogc pure nothrow:
+	AssertOrForbidAst* ast;
 	bool isForbid;
 	Condition condition;
 	Opt!(Expr*) thrown;
 	Expr after;
+
+	Range range() scope =>
+		ast.range;
 }
 private immutable struct PrefixAndRange {
 	string prefix;
@@ -3081,15 +3251,14 @@ private immutable struct PrefixAndRange {
 string defaultAssertOrForbidMessage(
 	ref Alloc alloc,
 	Uri curUri,
-	in Expr expr,
 	in AssertOrForbidExpr a,
 	in FileContentGetters content,
 ) {
-	PrefixAndRange x = expr.ast.as!AssertOrForbidAst.condition.match!PrefixAndRange(
+	PrefixAndRange x = a.ast.condition.match!PrefixAndRange(
 		(ref ExprAst condition) =>
 			PrefixAndRange(
 				a.isForbid ? "Forbidden expression is true: " : "Asserted expression is false: ",
-				expr.ast.as!AssertOrForbidAst.condition.range),
+				a.ast.condition.range),
 		(ref UnpackOptionAst unpack) =>
 			PrefixAndRange(
 				a.isForbid ? "Forbidden option is non-empty: " : "Asserted option is empty: ",
@@ -3097,59 +3266,177 @@ string defaultAssertOrForbidMessage(
 	return concatenate(alloc, x.prefix, content[UriAndRange(curUri, x.range)]);
 }
 
-immutable struct BogusExpr {}
+immutable struct BogusExpr {
+	Range range;
+	Type expectedType;
+}
 
 // Wraps an expression that has an invalid type.
 immutable struct BogusWrongTypeExpr {
+	@safe @nogc pure nothrow:
 	ExprRef inner;
+	Type expectedType;
+
+	Range range() scope =>
+		inner.expr.range;
+}
+
+immutable struct CallExprSource {
+	@safe @nogc pure nothrow:
+	// IfAst is for an implicit 'else ()'
+	mixin Union!(
+		ArrowAccessAst*,
+		AssignmentAst*,
+		AssignmentCallAst*,
+		CallAst*,
+		CallNamedAst*,
+		EmptyAst*,
+		ForAst*,
+		IfAst*,
+		InterpolatedAst*,
+		LoopBreakAst*,
+		LoopContinueAst*,
+		NameAndRange*,
+		WithAst*);
+
+	Range range() scope =>
+		matchIn!Range(
+			(in ArrowAccessAst x) =>
+				x.range,
+			(in AssignmentAst x) =>
+				x.range,
+			(in AssignmentCallAst x) =>
+				x.range,
+			(in CallAst x) =>
+				x.range,
+			(in CallNamedAst x) =>
+				x.range,
+			(in EmptyAst x) =>
+				x.range,
+			(in ForAst x) =>
+				x.range,
+			(in IfAst x) =>
+				x.range,
+			(in InterpolatedAst x) =>
+				x.range,
+			(in LoopBreakAst x) =>
+				x.range,
+			(in LoopContinueAst x) =>
+				x.range,
+			(in NameAndRange x) =>
+				x.range,
+			(in WithAst x) =>
+				x.range);
+	Range nameRange() scope =>
+		matchIn!Range(
+			(in ArrowAccessAst x) =>
+				x.name.range,
+			(in AssignmentAst x) =>
+				x.left.range,
+			(in AssignmentCallAst x) =>
+				x.funName.range,
+			(in CallAst x) =>
+				x.nameRange,
+			(in CallNamedAst x) =>
+				x.range,
+			(in EmptyAst x) =>
+				x.range,
+			(in ForAst x) =>
+				x.forKeywordRange,
+			(in IfAst x) =>
+				x.firstKeywordRange,
+			(in InterpolatedAst x) =>
+				x.range,
+			(in LoopBreakAst x) =>
+				x.range,
+			(in LoopContinueAst x) =>
+				x.range,
+			(in NameAndRange x) =>
+				x.range,
+			(in WithAst x) =>
+				x.withKeywordRange);
 }
 
 immutable struct BogusCallExpr {
+	@safe @nogc pure nothrow:
+	CallExprSource ast;
 	SmallArray!CalledDecl candidates;
 	// Note: It may have given up on checking arguments.
 	SmallArray!ExprAndType checkedArgs;
+	Type expectedType;
 
-	@safe @nogc pure nothrow this(SmallArray!CalledDecl cs, SmallArray!ExprAndType cas) {
+	@safe @nogc pure nothrow this(CallExprSource a, SmallArray!CalledDecl cs, SmallArray!ExprAndType cas, Type et) {
+		ast = a;
 		candidates = cs;
 		checkedArgs = cas;
+		expectedType = et;
 		assert(!isEmpty(candidates));
 	}
+
+	Range range() scope =>
+		ast.range;
 }
 
 immutable struct CallExpr {
+	@safe @nogc pure nothrow:
+	CallExprSource ast;
 	Called called;
 	SmallArray!Expr args;
+
+	Range range() scope =>
+		ast.range;
+	Type type() =>
+		called.returnType;
 }
 
 // Expression for 'x?.y' or 'x?[y]'
 immutable struct CallOptionExpr {
+	@safe @nogc pure nothrow:
+	CallAst* ast;
 	// May or may not return an option. If not it will be wrapped after calling.
 	Called called;
 	// Type is an option type. The option is unwrapped before calling.
 	ExprAndType firstArg;
 	// These are non-optional.
 	SmallArray!Expr restArgs;
+	StructInst* type;
+
+	Range range() scope =>
+		ast.range;
 }
 
 immutable struct ClosureGetExpr {
 	@safe @nogc pure nothrow:
+	Pos start;
 	ClosureRef closureRef;
 
+	Range range() scope =>
+		NameAndRange(start, closureRef.name).range;
+	Type type() =>
+		local.type;
 	Local* local() return scope =>
 		closureRef.local;
 }
 
 immutable struct ClosureSetExpr {
 	@safe @nogc pure nothrow:
+	Range assigneeRange;
 	ClosureRef closureRef;
 	Expr* value;
 
+	Range range() scope =>
+		combineRanges(assigneeRange, value.range);
 	Local* local() return scope =>
 		closureRef.local;
 }
 
 immutable struct ExternExpr {
+	@safe @nogc pure nothrow:
+	ExternAst* ast;
 	SymbolSet names;
+
+	Range range() scope =>
+		ast.range;
 }
 
 bool isBuiltinExtern(Symbol a) =>
@@ -3172,47 +3459,98 @@ immutable enum BuiltinExtern {
 }
 
 immutable struct FinallyExpr {
+	@safe @nogc pure nothrow:
+	FinallyAst* ast;
 	Expr right;
 	Expr below;
+
+	Range range() scope =>
+		ast.range;
+	Type type(ref CommonTypes commonTypes) =>
+		below.type(commonTypes);
 }
 
 immutable struct FunPointerExpr {
+	@safe @nogc pure nothrow:
+	PtrAst* ast;
 	Called called;
+	StructInst* type;
+
+	Range range() scope =>
+		ast.range;
 }
 
 // Expression for an IfAst -- see that for all kinds of syntax this corresponds to
 immutable struct IfExpr {
 	@safe @nogc pure nothrow:
+	IfAst* ast;
 	Condition condition;
 	Expr trueBranch;
 	Expr falseBranch;
 
-	ref Expr firstBranch(ExprAst* ast) return =>
-		ast.as!IfAst.isConditionNegated ? falseBranch : trueBranch;
-	ref Expr secondBranch(ExprAst* ast) return =>
-		ast.as!IfAst.isConditionNegated ? trueBranch : falseBranch;
+	Range range() scope =>
+		ast.range;
+	ref Expr firstBranch() return =>
+		ast.isConditionNegated ? falseBranch : trueBranch;
+	ref Expr secondBranch() return =>
+		ast.isConditionNegated ? trueBranch : falseBranch;
+	Type type(ref CommonTypes commonTypes) {
+		assert(trueBranch.type(commonTypes) == falseBranch.type(commonTypes));
+		return trueBranch.type(commonTypes);
+	}
+}
+
+immutable struct LambdaSource {
+	@safe @nogc pure nothrow:
+	mixin TaggedUnion!(ForAst*, LambdaAst*, WithAst*);
+
+	DestructureAst param() return scope =>
+		match!DestructureAst(
+			(ref ForAst x) =>
+				x.param,
+			(ref LambdaAst x) =>
+				x.param,
+			(ref WithAst x) =>
+				x.param);
+
+	Range range() scope =>
+		matchIn!Range(
+			(in ForAst x) =>
+				x.range,
+			(in LambdaAst x) =>
+				x.range,
+			(in WithAst x) =>
+				x.range);
 }
 
 immutable struct LambdaExpr {
 	@safe @nogc pure nothrow:
 
+	LambdaSource ast;
 	LambdaKind kind;
 	Destructure param;
 	Opt!(StructInst*) mutTypeForExplicitShared;
 	private Late!Expr lateBody;
 	private Late!(SmallArray!VariableRef) closure_;
+	private Late!(StructInst*) lambdaType_;
 	private Late!Type returnType_;
 
-	void fillLate(Expr body_, SmallArray!VariableRef closure, Type returnType) {
+	void fillLate(Expr body_, SmallArray!VariableRef closure, StructInst* lambdaType, Type returnType) {
 		lateSet(lateBody, body_);
 		lateSet(closure_, closure);
+		lateSet(lambdaType_, lambdaType);
 		lateSet(returnType_, returnType);
+		assert(returnType == lambdaType.typeArgs[0]); // TODO: don't need to store it separately then --------------------------------------
 	}
 
+	Range range() scope =>
+		ast.range;
 	ref Expr body_() return scope =>
 		lateGet(lateBody);
 	SmallArray!VariableRef closure() return scope =>
 		lateGet(closure_);
+	StructInst* type() =>
+		lateGet(lambdaType_);
 	Type returnType() return scope =>
 		lateGet(returnType_);
 
@@ -3230,60 +3568,138 @@ enum LambdaKind {
 }
 
 immutable struct LetExpr {
+	@safe @nogc pure nothrow:
+	LetAst* ast;
 	Destructure destructure;
 	Expr value;
 	Expr then;
+
+	Range range() scope =>
+		Range(destructure.start, then.end);
+	Type type(ref CommonTypes commonTypes) =>
+		then.type(commonTypes);
 }
 
 immutable struct LiteralExpr {
+	Range range;
+	StructInst* type;
+	LiteralValue value;
+}
+
+immutable struct LiteralValue {
 	mixin Union!(IntegralValue, double);
 }
 
 immutable struct LiteralStringLikeExpr {
-	StringLiteralKind kind;
+	@safe @nogc pure nothrow:
+	Range range;
+	StringLiteralKind kind; // TODO: this is redundant to the type ... or vice versa ........................................
 	SmallString value; // For char32Array, this will be decoded in concretize.
+
+	StructInst* type(ref CommonTypes commonTypes) {
+		final switch (kind) {
+			case StringLiteralKind.char8Array:
+				return commonTypes.char8Array;
+			case StringLiteralKind.char32Array:
+				return commonTypes.char32Array;
+			case StringLiteralKind.cString:
+				return commonTypes.cString;
+			case StringLiteralKind.jsAny:
+				return commonTypes.jsAny;
+			case StringLiteralKind.string_:
+				return commonTypes.string_;
+			case StringLiteralKind.symbol:
+				return commonTypes.symbol;
+		}
+	}
 }
 enum StringLiteralKind { char8Array, char32Array, cString, jsAny, string_, symbol }
 
 immutable struct LocalGetExpr {
+	@safe @nogc pure nothrow:
+	Pos start;
 	Local* local;
+
+	Range range() scope =>
+		NameAndRange(start, local.name).range;
+	Type type() =>
+		local.type;
 }
 
 immutable struct LocalPointerExpr {
+	@safe @nogc pure nothrow:
+	PtrAst* ast;
 	Local* local;
+	StructInst* type;
+
+	Range range() scope =>
+		ast.range;
 }
 
 immutable struct LocalSetExpr {
+	@safe @nogc pure nothrow:
+	Range assigneeRange;
 	Local* local;
 	Expr* value;
+
+	Range range() scope =>
+		combineRanges(assigneeRange, value.range);
 }
 
 immutable struct LoopExpr {
+	@safe @nogc pure nothrow:
+	LoopAst* ast;
+	Type type;
 	Expr body_;
+
+	Range range() scope =>
+		ast.range;
 }
 
 immutable struct LoopBreakExpr {
+	@safe @nogc pure nothrow:
+	LoopBreakAst* ast;
 	LoopExpr* loop;
 	Expr value;
+
+	Range range() scope =>
+		ast.range;
 }
 
 immutable struct LoopContinueExpr {
+	@safe @nogc pure nothrow:
+	LoopContinueAst* ast;
 	LoopExpr* loop;
+
+	Range range() scope =>
+		ast.range;
 }
 
 immutable struct LoopWhileOrUntilExpr {
-	bool isUntil;
+	@safe @nogc pure nothrow:
+	LoopWhileOrUntilAst* ast;
 	Condition condition;
 	Expr body_; // Always of type 'void'
 	Expr after;
+
+	bool isUntil() scope =>
+		ast.isUntil;
+	Range range() scope =>
+		ast.range;
 }
 
 immutable struct MatchEnumExpr {
 	@safe @nogc pure nothrow:
 
+	MatchAst* ast;
 	ExprAndType matched;
 	SmallArray!MatchEnumCase cases;
 	Opt!Expr else_;
+
+	Range range() scope =>
+		ast.range;
+	Type type(ref CommonTypes commonTypes) =>
+		has(else_) ? force(else_).type(commonTypes) : cases[0].then.type(commonTypes);
 
 	StructDecl* enum_() {
 		StructInst* inst = matched.type.as!(StructInst*);
@@ -3301,23 +3717,19 @@ immutable struct MatchEnumCase {
 	Expr then;
 }
 
-Range caseNameRange(in Expr matchExpr, size_t caseIndex) {
-	assert(
-		matchExpr.kind.isA!(MatchEnumExpr*) ||
-		matchExpr.kind.isA!(MatchSumTypeExpr*) ||
-		matchExpr.kind.isA!(TryExpr*));
-	SmallArray!CaseAst cases = matchExpr.ast.isA!TryAst
-		? matchExpr.ast.as!TryAst.catches
-		: matchExpr.ast.as!MatchAst.cases;
-	return cases[caseIndex].member.nameRange;
-}
-
 // Match on charX, intX, natX type
 immutable struct MatchIntegralExpr {
+	@safe @nogc pure nothrow:
+	MatchAst* ast;
 	MatchIntegralKind kind;
 	ExprAndType matched;
 	SmallArray!MatchIntegralCase cases;
 	Expr else_;
+
+	Range range() scope =>
+		ast.range;
+	Type type(ref CommonTypes commonTypes) =>
+		else_.type(commonTypes);
 }
 immutable struct MatchIntegralKind {
 	@safe @nogc pure nothrow:
@@ -3334,11 +3746,18 @@ immutable struct MatchIntegralCase {
 
 // Match on symbol, string, char8 array, char8[], char32 array, char32[]
 immutable struct MatchStringLikeExpr {
+	@safe @nogc pure nothrow:
+	MatchAst* ast;
 	StringLiteralKind kind;
 	ExprAndType matched;
 	Called equals; // == function for the type
 	SmallArray!MatchStringLikeCase cases;
 	Expr else_;
+
+	Range range() scope =>
+		ast.range;
+	Type type(ref CommonTypes commonTypes) =>
+		else_.type(commonTypes);
 }
 immutable struct MatchStringLikeCase {
 	string value;
@@ -3348,10 +3767,15 @@ immutable struct MatchStringLikeCase {
 immutable struct MatchSumTypeExpr {
 	@safe @nogc pure nothrow:
 
+	MatchAst* ast;
 	ExprAndType matched;
 	SmallArray!MatchSumTypeCase cases;
 	Opt!(Expr*) else_;
 
+	Range range() scope =>
+		ast.range;
+	Type type(ref CommonTypes commonTypes) =>
+		has(else_) ? force(else_).type(commonTypes) : cases[0].then.type(commonTypes);
 	StructInst* sumType() return scope =>
 		matched.type.as!(StructInst*);
 	SumType sumTypeBody() return scope =>
@@ -3379,45 +3803,88 @@ immutable struct MatchSumTypeCase {
 immutable struct RecordFieldPointerExpr {
 	@safe @nogc pure nothrow:
 
+	PtrAst* ast;
 	ExprAndType target; // This will be a pointer or by-ref type
 	RecordField* field;
+	StructInst* type;
 
+	Range range() scope =>
+		ast.range;
 	StructDecl* recordDecl() scope =>
 		isPointerConstOrMut(target.type)
 			? pointeeType(target.type).as!(StructInst*).decl
 			: target.type.as!(StructInst*).decl;
-
 	size_t fieldIndex() =>
 		mustHaveIndexOfPointer(recordDecl.body_.as!Record.fields, field);
 }
 
 immutable struct SeqExpr {
+	@safe @nogc pure nothrow:
 	Expr first;
 	Expr then;
+
+	Range range() scope =>
+		Range(first.start, then.end);
+	Type type(ref CommonTypes commonTypes) =>
+		then.type(commonTypes);
 }
 
 immutable struct ThrowExpr {
+	@safe @nogc pure nothrow:
+	ThrowAst* ast;
 	Expr thrown;
+	Type type;
+
+	Range range() scope =>
+		ast.range;
 }
 
 immutable struct TrustedExpr {
+	@safe @nogc pure nothrow:
+	TrustedAst* ast;
 	Expr inner;
+
+	Range range() scope =>
+		ast.range;
+	Type type(ref CommonTypes commonTypes) =>
+		inner.type(commonTypes);
 }
 
 immutable struct TryExpr {
+	@safe @nogc pure nothrow:
+	TryAst* ast;
 	Expr tried;
 	SmallArray!MatchSumTypeCase catches;
+
+	Range range() scope =>
+		ast.range;
+	Type type(ref CommonTypes commonTypes) =>
+		tried.type(commonTypes);
 }
 
 immutable struct TryLetExpr {
+	@safe @nogc pure nothrow:
+	TryLetAst* ast;
 	Destructure destructure;
 	Expr value;
 	MatchSumTypeCase catch_;
 	Expr then;
+
+	Range range() scope =>
+		ast.range;
+	Type type(ref CommonTypes commonTypes) =>
+		then.type(commonTypes);
 }
 
 immutable struct TypedExpr {
+	@safe @nogc pure nothrow:
+	TypedAst* ast;
 	Expr inner;
+
+	Range range() scope =>
+		ast.range;
+	Type type(ref CommonTypes commonTypes) =>
+		inner.type(commonTypes);
 }
 
 string stringOfVisibility(Visibility a) =>
@@ -3436,16 +3903,20 @@ Visibility leastVisibility(Visibility a, Visibility b) =>
 Visibility greatestVisibility(Visibility a, Visibility b) =>
 	max(a, b);
 
-Opt!Called getCalledAtExpr(in ExprKind x) =>
-	x.isA!CallExpr
-		? some(x.as!CallExpr.called)
-		: x.isA!(CallOptionExpr*)
-		? some(x.as!(CallOptionExpr*).called)
-		: x.isA!FunPointerExpr
-		? some(x.as!FunPointerExpr.called)
-		: none!Called;
+immutable struct CalledAndNameRange {
+	Called called;
+	Range nameRange;
+}
+Opt!CalledAndNameRange getCalledAtExpr(in Expr a) =>
+	a.isA!CallExpr
+		? some(CalledAndNameRange(a.as!CallExpr.called, a.as!CallExpr.ast.nameRange))
+		: a.isA!(CallOptionExpr*)
+		? some(CalledAndNameRange(a.as!(CallOptionExpr*).called, a.as!(CallOptionExpr*).ast.nameRange))
+		: a.isA!FunPointerExpr
+		? some(CalledAndNameRange(a.as!FunPointerExpr.called, a.as!FunPointerExpr.ast.range))
+		: none!CalledAndNameRange;
 
-immutable struct ExprRef {
+immutable struct ExprRef { // TODO: just have type on expr, so we don't need this. ..........................................
 	Expr* expr;
 	Type type;
 }
@@ -3511,13 +3982,13 @@ Opt!T findDirectChildExpr(T)(
 		firstPointer!(T, MatchSumTypeCase)(cases, (MatchSumTypeCase* x) =>
 			cb(sameType(&x.then)));
 
-	return a.expr.kind.matchWithPointers!(Opt!T)(
+	return a.expr.matchWithPointers!(Opt!T)(
 		(AssertOrForbidExpr* x) =>
 			optOr!T(
 				cb(directChildInCondition(x.condition)),
 				() => has(x.thrown) ? cb(ExprRef(force(x.thrown), exceptionType)) : none!T,
 				() => cb(sameType(&x.after))),
-		(BogusCallExpr _) =>
+		(BogusCallExpr* _) =>
 			none!T,
 		(BogusExpr _) =>
 			none!T,
@@ -3556,8 +4027,8 @@ Opt!T findDirectChildExpr(T)(
 		(IfExpr* x) =>
 			optOr!T(
 				cb(directChildInCondition(x.condition)),
-				() => cb(sameType(&x.firstBranch(a.expr.ast))),
-				() => cb(sameType(&x.secondBranch(a.expr.ast)))),
+				() => cb(sameType(&x.firstBranch())),
+				() => cb(sameType(&x.secondBranch()))),
 		(LambdaExpr* x) =>
 			cb(ExprRef(&x.body_(), x.returnType)),
 		(LetExpr* x) =>

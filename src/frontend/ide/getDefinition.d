@@ -5,7 +5,7 @@ module frontend.ide.getDefinition;
 import frontend.ide.getTarget : Target, targetForPosition;
 import frontend.ide.ideUtil : ReferenceCb;
 import frontend.ide.position : Position, PositionImportedName, PositionLocal, TypeParamWithContainer;
-import model.ast : ExprAst, LoopAst;
+import model.ast : LoopAst;
 import model.model :
 	asTypeContainer,
 	BogusType,
@@ -13,6 +13,7 @@ import model.model :
 	forbidModule,
 	FunDecl,
 	localMustHaveNameRange,
+	LoopExpr,
 	Module,
 	NameReferents,
 	Program,
@@ -73,8 +74,7 @@ public void definitionForTarget(Uri curUri, in Target a, in ReferenceCb cb) =>
 			cb(UriAndRange(x.container.moduleUri, localMustHaveNameRange(*x.local)));
 		},
 		(in Target.Loop x) {
-			ExprAst* ast = x.loop.expr.ast;
-			cb(UriAndRange(curUri, ast.as!(LoopAst*).keywordRange));
+			cb(UriAndRange(curUri, x.loop.ast.keywordRange));
 		},
 		(in Module x) {
 			cb(x.range);

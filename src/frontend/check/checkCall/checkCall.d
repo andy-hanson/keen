@@ -44,6 +44,7 @@ import model.model :
 	CalledDecl,
 	CalledSpecSig,
 	CallExpr,
+	CallExprSource,
 	CallOptionExpr,
 	CommonTypes,
 	Destructure,
@@ -55,13 +56,14 @@ import model.model :
 	DiagFunctionWithSignatureNotFound,
 	Expr,
 	ExprAndType,
-	ExprKind,
 	FunDecl,
 	FunFlags,
+	LambdaSource,
 	Local,
 	ReturnAndParamTypes,
 	Signature,
 	SpecInst,
+	StructInst,
 	Type,
 	TypeContainer,
 	Varargs;
@@ -101,17 +103,16 @@ import util.util : typeAs;
 Expr checkCall(alias checkExpr)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
-	ExprAst* source,
-	ref CallAst ast,
+	CallAst* ast,
 	ref Expected expected,
 ) {
-	checkCallShouldUseSyntax(ctx, ast);
+	checkCallShouldUseSyntax(ctx, *ast);
 	return ast.style == CallAstStyle.questionSubscript || ast.style == CallAstStyle.questionDot
-		? checkOptionCall!checkExpr(ctx, locals, source, ast, expected)
+		? checkOptionCall!checkExpr(ctx, locals, ast, expected)
 		: checkCallCommon!checkExpr(
-			ctx, expected, source, locals,
+			ctx, expected, CallExprSource(ast), locals,
 			// Show diags at the function name and not at the whole call ast
-			ast.nameRange(source),
+			ast.nameRange,
 			ast.funName.name,
 			has(ast.typeArg) ? some(typeFromAst2(ctx, *force(ast.typeArg))) : none!Type,
 			ast.args,
@@ -121,12 +122,11 @@ Expr checkCall(alias checkExpr)(
 Expr checkCallNamed(alias checkExpr)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
-	ExprAst* source,
-	ref CallNamedAst ast,
+	CallNamedAst* ast,
 	ref Expected expected,
 ) =>
 	checkCallCommon!checkExpr(
-		ctx, expected, source, locals, source.range, symbol!"new", none!Type, ast.args,
+		ctx, expected, CallExprSource(ast), locals, ast.range, symbol!"new", none!Type, ast.args,
 		(in CalledDecl x) => parameterNamesAre(x, ast.names));
 
 private bool parameterNamesAre(in CalledDecl a, in NameAndRange[] names) {
@@ -146,7 +146,7 @@ private bool parameterNamesAre(in CalledDecl a, in NameAndRange[] names) {
 Expr checkCallSpecial(alias checkExpr)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
-	ExprAst* source,
+	CallExprSource source,
 	Range range,
 	Symbol funName,
 	in ExprAst[] args,
@@ -159,7 +159,7 @@ Expr checkCallSpecial(alias checkExpr)(
 private Expr checkCallCommon(alias checkExpr)(
 	ref ExprCtx ctx,
 	ref Expected expected,
-	ExprAst* source,
+	CallExprSource source,
 	ref LocalsInfo locals,
 	Range diagRange,
 	Symbol funName,
@@ -188,7 +188,8 @@ private Expr checkCallCommon(alias checkExpr)(
 Expr checkCallArgAndLambda(alias checkExpr, alias checkLambda)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
-	ExprAst* source,
+	CallExprSource callSource,
+	LambdaSource lambdaSource,
 	Range diagRange,
 	Symbol funName,
 	ExprAst* argAst,
@@ -197,18 +198,19 @@ Expr checkCallArgAndLambda(alias checkExpr, alias checkLambda)(
 	ref Expected expected,
 ) =>
 	checkCallSpecialCb2(
-		ctx, locals, source, diagRange, funName, expected,
+		ctx, locals, callSource, diagRange, funName, expected,
 		(ref Expected argExpected) =>
 			checkExpr(ctx, locals, argAst, argExpected),
 		(ref Expected argExpected) =>
-			checkLambda(ctx, locals, source, paramAst, bodyAst, argExpected),
+			checkLambda(ctx, locals, lambdaSource, paramAst, bodyAst, argExpected),
 		(scope ref Candidate[] candidates) =>
 			inferCandidateTypeArgsFromLambdaParameter(ctx, candidates, 1, *paramAst) == ContinueOrAbort.continue_);
 
 Expr checkCallArgAnd2Lambdas(alias checkExpr, alias checkLambda)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
-	ExprAst* source,
+	CallExprSource callSource,
+	LambdaSource lambdaSource,
 	Range diagRange,
 	Symbol funName,
 	ExprAst* argAst,
@@ -218,7 +220,7 @@ Expr checkCallArgAnd2Lambdas(alias checkExpr, alias checkLambda)(
 	ref Expected expected,
 ) =>
 	checkCallSpecialCbN(
-		ctx, locals, source, diagRange, funName, expected,
+		ctx, locals, callSource, diagRange, funName, expected,
 		typeArg: none!Type,
 		nArgs: 3,
 		cbCheckArg: (size_t i, ref Expected argExpected) {
@@ -226,9 +228,9 @@ Expr checkCallArgAnd2Lambdas(alias checkExpr, alias checkLambda)(
 				case 0:
 					return checkExpr(ctx, locals, argAst, argExpected);
 				case 1:
-					return checkLambda(ctx, locals, source, paramAst, bodyAst, argExpected);
+					return checkLambda(ctx, locals, lambdaSource, paramAst, bodyAst, argExpected);
 				case 2:
-					return checkLambda(ctx, locals, source, &voidDestructure, body2Ast, argExpected);
+					return checkLambda(ctx, locals, lambdaSource, &voidDestructure, body2Ast, argExpected);
 			}
 		},
 		cbAdditionalFilter: (in CalledDecl _) => true,
@@ -240,7 +242,7 @@ private immutable DestructureAst voidDestructure = DestructureAst(VoidDestructur
 Expr checkCallSpecialCb1(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
-	ExprAst* source,
+	CallExprSource source,
 	Range diagRange,
 	Symbol funName,
 	ref Expected expected,
@@ -256,7 +258,7 @@ Expr checkCallSpecialCb1(
 Expr checkCallSpecialCb2(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
-	ExprAst* source,
+	CallExprSource source,
 	Range diagRange,
 	Symbol funName,
 	ref Expected expected,
@@ -282,7 +284,7 @@ Expr checkCallSpecialCb2(
 Expr checkCallSpecialCbN(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
-	ExprAst* source,
+	CallExprSource source,
 	Range diagRange,
 	Symbol funName,
 	ref Expected expected,
@@ -296,7 +298,7 @@ Expr checkCallSpecialCbN(
 private Expr checkCallSpecialCbN(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
-	ExprAst* source,
+	CallExprSource source,
 	Range diagRange,
 	Symbol funName,
 	ref Expected expected,
@@ -318,16 +320,18 @@ private Expr checkCallSpecialCbN(
 	return innerResult.match!Expr(
 		(Called called) =>
 			// Check should always succeed, but we need it to set the inferred type
-			check(ctx, expected, called.returnType, source, ExprKind(CallExpr(called, args))),
+			check(ctx, expected, called.returnType, Expr(CallExpr(source, called, args))),
 		(CallInnerResult.Failure failure) {
 			SmallArray!CalledDecl candidates = getCandidateDeclsForBogus(ctx, funName);
 			if (isEmpty(candidates))
-				return bogus(expected, source);
+				return bogus(expected, source.range);
 			else {
 				setToBogusIfInferring(expected);
-				return Expr(source, ExprKind(BogusCallExpr(
+				return Expr(allocate(ctx.alloc, BogusCallExpr(
+					source,
 					candidates,
-					exprsAndTypes(ctx.alloc, args, failure.argTypes))));
+					exprsAndTypes(ctx.alloc, args, failure.argTypes),
+					inferred(expected))));
 			}
  		});
 }
@@ -374,13 +378,12 @@ private CallInnerResult checkCallCb(
 Expr checkCallIdentifier(alias checkExpr)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
-	ExprAst* source,
-	Symbol name,
+	NameAndRange* ast,
 	ref Expected expected,
 ) {
-	if (name == symbol!"new")
-		addDiag2(ctx, source.range, Diag(DiagCallShouldUseSyntax(0, DiagCallShouldUseSyntaxKind.new_)));
-	return checkCallSpecial!checkExpr(ctx, locals, source, source.range, name, [], expected);
+	if (ast.name == symbol!"new")
+		addDiag2(ctx, ast.range, Diag(DiagCallShouldUseSyntax(0, DiagCallShouldUseSyntaxKind.new_)));
+	return checkCallSpecial!checkExpr(ctx, locals, CallExprSource(ast), ast.range, ast.name, [], expected);
 }
 
 Opt!Called findFunctionForReturnAndParamTypes(
@@ -427,8 +430,7 @@ private:
 Expr checkOptionCall(alias checkExpr)(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
-	ExprAst* source,
-	ref CallAst ast,
+	CallAst* ast,
 	ref Expected outerExpected,
 ) =>
 	checkWithModifyExpected!2(
@@ -467,13 +469,15 @@ Expr checkOptionCall(alias checkExpr)(
 				(in CalledDecl _) => true,
 				(scope ref Candidate[] _) => true);
 			return res.match!ExprAndType(
-				(Called called) =>
-					ExprAndType(
-						Expr(source, ExprKind(allocate(ctx.alloc,
-							CallOptionExpr(called, lateGet(firstArg), smallFinish(restArgs))))),
-						makeOptionIfNotAlready(ctx.instantiateCtx, ctx.commonTypes, called.returnType)),
+				(Called called) {
+					StructInst* type = makeOptionIfNotAlready(ctx.instantiateCtx, ctx.commonTypes, called.returnType);
+					return ExprAndType(
+						Expr(allocate(ctx.alloc,
+							CallOptionExpr(ast, called, lateGet(firstArg), smallFinish(restArgs), type))),
+						Type(type));
+				},
 				(CallInnerResult.Failure) =>
-					ExprAndType(bogus(innerExpected, source), Type.bogus));
+					ExprAndType(bogus(innerExpected, ast.range), Type.bogus));
 		}).expr;
 
 

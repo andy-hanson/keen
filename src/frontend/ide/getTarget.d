@@ -60,6 +60,7 @@ import model.model :
 	FunInst,
 	FunPointerExpr,
 	Local,
+	LoopExpr,
 	Module,
 	mustUnwrapOptionType,
 	RecordField,
@@ -86,7 +87,7 @@ import util.union_ : Union;
 immutable struct Target {
 	immutable struct Loop {
 		ExprContainer container;
-		ExprRef loop;
+		LoopExpr* loop;
 	}
 
 	mixin Union!(
@@ -195,19 +196,19 @@ Opt!Target targetForPosition(Position pos) =>
 private:
 
 Opt!Target exprTarget(ExpressionPosition a) =>
-	a.kind.match!(Opt!Target)(
-		(BogusCallExpr x) =>
+	a.kind.matchWithPointers!(Opt!Target)(
+		(BogusCallExpr* x) =>
 			optIf(x.candidates.length == 1, () =>
 				calledDeclTarget(only(x.candidates))),
-		(CallExpr x) =>
+		(CallExpr* x) =>
 			calledTarget(x.called),
-		(CallOptionExpr x) =>
+		(CallOptionExpr* x) =>
 			calledTarget(x.called),
 		(ExprKeyword x) =>
 			none!Target,
-		(ExternExpr _) =>
+		(ExternExpr* _) =>
 			none!Target,
-		(FunPointerExpr x) =>
+		(FunPointerExpr* x) =>
 			calledTarget(x.called),
 		(ExpressionPositionLiteral _) =>
 			none!Target,

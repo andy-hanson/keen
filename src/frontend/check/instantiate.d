@@ -106,8 +106,8 @@ StructInst* makeArrayType(InstantiateCtx ctx, ref CommonTypes commonTypes, Type 
 StructInst* makeOptionType(InstantiateCtx ctx, ref CommonTypes commonTypes, Type innerType) =>
 	instantiateStruct(ctx, commonTypes.option, [innerType]);
 
-Type makeOptionIfNotAlready(InstantiateCtx ctx, ref CommonTypes commonTypes, Type a) =>
-	isOptionType(a) ? a : Type(makeOptionType(ctx, commonTypes, a));
+StructInst* makeOptionIfNotAlready(InstantiateCtx ctx, ref CommonTypes commonTypes, Type a) =>
+	isOptionType(a) ? a.as!(StructInst*) : makeOptionType(ctx, commonTypes, a);
 
 StructInst* makeConstPointerType(InstantiateCtx ctx, ref CommonTypes commonTypes, Type pointeeType) =>
 	instantiateStruct(ctx, commonTypes.pointerConst, [pointeeType]);

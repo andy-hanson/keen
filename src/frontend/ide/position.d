@@ -20,6 +20,7 @@ import model.model :
 	FunPointerExpr,
 	ImportOrExport,
 	Local,
+	LoopExpr,
 	MatchIntegralKind,
 	Module,
 	NameReferents,
@@ -310,25 +311,25 @@ immutable struct ExpressionPosition {
 
 immutable struct ExpressionPositionKind {
 	mixin Union!(
-		BogusCallExpr,
-		CallExpr,
-		CallOptionExpr,
+		BogusCallExpr*,
+		CallExpr*,
+		CallOptionExpr*,
 		ExprKeyword,
-		ExternExpr,
-		FunPointerExpr,
+		ExternExpr*,
+		FunPointerExpr*,
 		ExpressionPositionLiteral,
 		LocalRef,
 		LoopKeyword);
 }
-immutable struct ExpressionPositionLiteral {}
+immutable struct ExpressionPositionLiteral {} // Why not just point to the expr? ---------------------------------------------------
 immutable struct LocalRef {
 	LocalRefKind kind;
 	Local* local;
 }
 enum LocalRefKind { get, set, closureGet, closureSet, pointer }
-immutable struct LoopKeyword {
+immutable struct LoopKeyword { // TODO: we could just use the 3 separate expr kinds ...................................................
 	LoopKeywordKind kind;
-	ExprRef loop;
+	LoopExpr* loop;
 }
 enum LoopKeywordKind { loop, break_, continue_ }
 
@@ -341,7 +342,8 @@ enum ExprKeyword {
 	colonInIf,
 	colonInWith,
 	elif,
-	else_,
+	elseAfterIf,
+	elseAfterMatch,
 	finally_,
 	forbid,
 	guardIfOrUnless,

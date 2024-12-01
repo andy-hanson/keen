@@ -64,7 +64,6 @@ import model.model :
 	EnumOrFlagsMember,
 	Expr,
 	ExprAndType,
-	ExprKind,
 	ExprRef,
 	ExternExpr,
 	ExternType,
@@ -620,11 +619,6 @@ Json jsonOfExprRef(ref Alloc alloc, in Ctx ctx, in ExprRef a) =>
 	jsonOfExprAndType(alloc, ctx, toExprAndType(a));
 
 Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
-	jsonObject(alloc, [
-		field!"range"(jsonOfRange(alloc, ctx, a.range)),
-		field!"kind"(jsonOfExprKind(alloc, ctx, a.kind))]);
-
-Json jsonOfExprKind(ref Alloc alloc, in Ctx ctx, in ExprKind a) =>
 	a.matchIn!Json(
 		(in AssertOrForbidExpr x) =>
 			jsonObject(alloc, [
@@ -809,7 +803,7 @@ Json jsonOfExprKind(ref Alloc alloc, in Ctx ctx, in ExprKind a) =>
 Json jsonOfLiteralExpr(ref Alloc alloc, in LiteralExpr a) =>
 	jsonObject(alloc, [
 		kindField!"literal",
-		field!"value"(a.match!Json(
+		field!"value"(a.value.match!Json(
 			(IntegralValue x) =>
 				Json(x.value),
 			(double x) =>

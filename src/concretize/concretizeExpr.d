@@ -761,7 +761,7 @@ ConcreteExpr concretizeLiteral(
 	in UriAndRange range,
 	in LiteralExpr a,
 ) =>
-	genConstant(type, range, a.match!Constant(
+	genConstant(type, range, a.value.match!Constant(
 		(IntegralValue x) =>
 			Constant(x),
 		(double x) =>
@@ -1100,14 +1100,13 @@ ConcreteExpr concretizeAssertOrForbid(
 	ConcreteType type,
 	in UriAndRange range,
 	in Locals locals,
-	in Expr expr,
 	ref AssertOrForbidExpr a,
 ) {
 	ConcreteExpr defaultThrown() =>
 		genError(
 			ctx.concretizeCtx,
 			range,
-			defaultAssertOrForbidMessage(ctx.alloc, ctx.curUri, expr, a, ctx.concretizeCtx.fileContentGetters));
+			defaultAssertOrForbidMessage(ctx.alloc, ctx.curUri, a, ctx.concretizeCtx.fileContentGetters));
 	ConcreteExpr throwNoDestructure() =>
 		genThrow(ctx.alloc, type, range, has(a.thrown)
 			? concretizeExpr(ctx, exceptionType(ctx.concretizeCtx), locals, *force(a.thrown))
@@ -1150,10 +1149,10 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 	UriAndRange range = UriAndRange(ctx.curUri, a.range);
 	if (isBogus(type))
 		return concretizeBogus(ctx, type, range);
-	return a.kind.matchWithPointers!ConcreteExpr(
+	return a.matchWithPointers!ConcreteExpr(
 		(AssertOrForbidExpr* x) =>
-			concretizeAssertOrForbid(ctx, type, range, locals, a, *x),
-		(BogusCallExpr _) =>
+			concretizeAssertOrForbid(ctx, type, range, locals, *x),
+		(BogusCallExpr* _) =>
 			concretizeBogus(ctx, type, range),
 		(BogusExpr _) =>
 			concretizeBogus(ctx, type, range),
