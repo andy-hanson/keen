@@ -127,7 +127,6 @@ import model.model :
 	DestructureIgnore,
 	DestructureSplit,
 	Expr,
-	ExprAndType,
 	ExternExpr,
 	FinallyExpr,
 	FunBody,

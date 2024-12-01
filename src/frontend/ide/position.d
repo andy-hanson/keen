@@ -22,6 +22,8 @@ import model.model :
 	ImportOrExport,
 	Local,
 	LoopExpr,
+	LoopBreakExpr,
+	LoopContinueExpr,
 	Module,
 	NameReferents,
 	RecordField,
@@ -319,7 +321,9 @@ immutable struct ExpressionPositionKind {
 		FunPointerExpr*,
 		ExpressionPositionLiteral,
 		LocalRef,
-		LoopKeyword);
+		LoopExpr*,
+		LoopBreakExpr*,
+		LoopContinueExpr*);
 }
 immutable struct ExpressionPositionLiteral {} // Why not just point to the expr? ---------------------------------------------------
 immutable struct LocalRef {
@@ -327,11 +331,6 @@ immutable struct LocalRef {
 	Local* local;
 }
 enum LocalRefKind { get, set, closureGet, closureSet, pointer }
-immutable struct LoopKeyword { // TODO: we could just use the 3 separate expr kinds ...................................................
-	LoopKeywordKind kind;
-	LoopExpr* loop;
-}
-enum LoopKeywordKind { loop, break_, continue_ }
 
 enum ExprKeyword {
 	ampersand,

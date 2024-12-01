@@ -9,7 +9,6 @@ import frontend.ide.position :
 	ExpressionPositionLiteral,
 	ExprKeyword,
 	LocalRef,
-	LoopKeyword,
 	Position,
 	PositionDocRef,
 	PositionImportedModule,
@@ -60,6 +59,8 @@ import model.model :
 	FunPointerExpr,
 	Local,
 	LoopExpr,
+	LoopBreakExpr,
+	LoopContinueExpr,
 	Module,
 	mustUnwrapOptionType,
 	RecordField,
@@ -213,7 +214,11 @@ Opt!Target exprTarget(ExpressionPosition a) =>
 			none!Target,
 		(LocalRef x) =>
 			some(Target(PositionLocal(a.container.toLocalContainer, x.local))),
-		(LoopKeyword x) =>
+		(LoopExpr* x) =>
+			some(Target(Target.Loop(a.container, x))),
+		(LoopBreakExpr* x) =>
+			some(Target(Target.Loop(a.container, x.loop))),
+		(LoopContinueExpr* x) =>
 			some(Target(Target.Loop(a.container, x.loop))));
 
 Target calledDeclTarget(ref CalledDecl a) =>

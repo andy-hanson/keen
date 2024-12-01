@@ -3234,11 +3234,6 @@ immutable struct Expr {
 }
 static assert(Expr.sizeof == CallExpr.sizeof + ulong.sizeof);
 
-immutable struct ExprAndType { // KILL ----------------------------------------------------------------------------------------------
-	Expr expr;
-	Type type;
-}
-
 immutable struct Condition {
 	mixin TaggedUnion!(Expr*, UnpackOption*);
 }

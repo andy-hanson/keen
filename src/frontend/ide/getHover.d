@@ -8,8 +8,6 @@ import frontend.ide.position :
 	ExprKeyword,
 	LocalRef,
 	LocalRefKind,
-	LoopKeyword,
-	LoopKeywordKind,
 	Position,
 	PositionDocRef,
 	PositionImportedModule,
@@ -73,6 +71,8 @@ import model.model :
 	LambdaKind,
 	Local,
 	LoopExpr,
+	LoopBreakExpr,
+	LoopContinueExpr,
 	LoopWhileOrUntilExpr,
 	NameReferents,
 	MatchEnumExpr,
@@ -796,22 +796,18 @@ void getExprHover(
 			}();
 			writer ~= '.';
 		},
-		(in LoopKeyword x) {
-			final switch (x.kind) {
-				case LoopKeywordKind.break_:
-					writer ~= "Breaks out of ";
-					writeLoop(writer, ctx, curUri, *x.loop);
-					writer ~= '.';
-					break;
-				case LoopKeywordKind.continue_:
-					writer ~= "Goes back to the start of ";
-					writeLoop(writer, ctx, curUri, *x.loop);
-					writer ~= '.';
-					break;
-				case LoopKeywordKind.loop:
-					writer ~= "Loop that terminates at a 'break'.";
-					break;
-			}
+		(in LoopExpr x) {
+			writer ~= "Loop that terminates at a 'break'.";
+		},
+		(in LoopBreakExpr x) {
+			writer ~= "Breaks out of ";
+			writeLoop(writer, ctx, curUri, *x.loop);
+			writer ~= '.';
+		},
+		(in LoopContinueExpr x) {
+			writer ~= "Goes back to the start of ";
+			writeLoop(writer, ctx, curUri, *x.loop);
+			writer ~= '.';
 		});
 
 	writer ~= "\nExpression type is: ";

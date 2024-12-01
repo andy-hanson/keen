@@ -581,8 +581,8 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 			(CreateSumType _) {
 				usedReturnType();
 			},
-			(Expr _) {
-				trackAllUsedInExprRef(res, FunOrTest(a), &a.body_.as!Expr());
+			(Expr x) {
+				trackAllUsedInExpr(res, FunOrTest(a), x);
 			},
 			(FunBodyExtern _) {
 				assert(false);
@@ -624,7 +624,7 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 }
 void trackAllUsedInTest(ref AllUsedBuilder res, Uri from, Test* test) {
 	if (addDecl(res, from, AnyDecl(test)))
-		trackAllUsedInExprRef(res, FunOrTest(test), &test.body_);
+		trackAllUsedInExpr(res, FunOrTest(test), test.body_);
 }
 void trackAllUsedInDestructure(ref AllUsedBuilder res, Uri from, Destructure a) {
 	a.match!void(
@@ -704,17 +704,17 @@ void usedTuple(ref AllUsedBuilder res, Uri from, uint tupleSize) {
 		trackAllUsedInStruct(res, from, force(res.commonTypes.tuple(tupleSize)));
 }
 
-void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, Expr* a) { // rename . Also, could it just take an Expr? -----------------------------------------------
+void trackAllUsedInExpr(ref AllUsedBuilder res, FunOrTest curFunc, Expr a) {
 	Uri from = curFunc.moduleUri;
-	Opt!CalledAndNameRange called = getCalledAtExpr(*a);
+	Opt!CalledAndNameRange called = getCalledAtExpr(a);
 	if (has(called))
 		trackAllUsedInCalled(
 			res, from, curFunc, force(called).called,
 			a.isA!FunPointerExpr ? FunUse.noInline : FunUse.regular);
 
 	void trackChildren() {
-		eachDirectChildExpr(*a, (Expr* x) {
-			trackAllUsedInExprRef(res, curFunc, x);
+		eachDirectChildExpr(a, (Expr* x) {
+			trackAllUsedInExpr(res, curFunc, *x);
 		});
 	}
 
@@ -722,7 +722,7 @@ void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, Expr* a) {
 		IfExpr* if_ = a.as!(IfExpr*);
 		Opt!bool constant = tryEvalConstantBool(res.version_, res.allExterns, if_.condition);
 		if (has(constant))
-			trackAllUsedInExprRef(res, curFunc, force(constant) ? &if_.trueBranch : &if_.falseBranch);
+			trackAllUsedInExpr(res, curFunc, force(constant) ? if_.trueBranch : if_.falseBranch);
 		else
 			trackChildren();
 	} else {

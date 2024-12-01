@@ -14,8 +14,6 @@ import frontend.ide.position :
 	LocalContainer,
 	LocalRef,
 	LocalRefKind,
-	LoopKeyword,
-	LoopKeywordKind,
 	Position,
 	PositionDocRef,
 	PositionImportedModule,
@@ -608,8 +606,6 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, Expr* a, Pos pos, GetPositionKi
 		optIf(hasPos(range, pos), () => keyword(k));
 	PositionKind local(LocalRefKind kind, Local* local) =>
 		expressionPosition(ExpressionPositionKind(LocalRef(kind, local)));
-	PositionKind loopKeyword(LoopKeywordKind kind, LoopExpr* loop) =>
-		expressionPosition(ExpressionPositionKind(LoopKeyword(kind, loop)));
 	Opt!PositionKind call(CallExprSource ast, ExpressionPositionKind kind) {
 		bool ok = () {
 			final switch (posKind) {
@@ -696,12 +692,13 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, Expr* a, Pos pos, GetPositionKi
 				local(LocalRefKind.set, x.local)),
 		(LoopExpr* x) =>
 			optIf(hasPos(x.ast.keywordRange, pos), () =>
-				expressionPosition(ExpressionPositionKind(LoopKeyword(LoopKeywordKind.loop, x)))),
+				expressionPosition(ExpressionPositionKind(x))),
 		(LoopBreakExpr* x) =>
 			optIf(hasPos(x.ast.keywordRange, pos), () =>
-				loopKeyword(LoopKeywordKind.break_, x.loop)),
+				expressionPosition(ExpressionPositionKind(x))),
 		(LoopContinueExpr x) =>
-			some(loopKeyword(LoopKeywordKind.continue_, x.loop)),
+			optIf(hasPos(x.ast.keywordRange, pos), () =>
+				expressionPosition(ExpressionPositionKind(&a.as!LoopContinueExpr()))),
 		(LoopWhileOrUntilExpr* x) =>
 			optOr!PositionKind(
 				keywordAt(

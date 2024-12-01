@@ -24,7 +24,6 @@ import model.model :
 	ExpectedForDiagInfer,
 	ExpectedForDiagLoop,
 	Expr,
-	ExprAndType,
 	FunKind,
 	funKindFromBuiltinType,
 	LoopExpr,
@@ -153,6 +152,14 @@ struct Expected {
 			(StructInst* x) => cbType(Type(x)),
 			cbTypeAndContext,
 			cbLoopInfo);
+}
+
+// In the type checker, an expression 'type' funciton might not be callable due to late initialization/
+// For example, a ClosureGet accesses its type from the lambda, which might not be initialized yet.
+// So we instead pass the type explicitly.
+immutable struct ExprAndType {
+	Expr expr;
+	Type type;
 }
 
 ExprAndType withInfer(in Expr delegate(ref Expected) @safe @nogc pure nothrow cb) {
