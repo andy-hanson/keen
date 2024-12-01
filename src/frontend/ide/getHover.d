@@ -669,25 +669,25 @@ void getMatchHover(
 				return "variant ";
 		}
 	}();
-	writeTypeQuoted(writer, ctx, TypeWithContainer(info.matchedType, typeContainer));
+	writeTypeQuoted(writer, ctx, TypeWithContainer(Type(info.matchedType), typeContainer));
 	writer ~= '.';
 }
 immutable struct MatchInfo {
 	MatchKind kind;
-	Type matchedType;
+	StructInst* matchedType;
 }
 enum MatchKind { enum_, integral, stringLike, union_, variant }
 MatchInfo getMatchInfo(Expr a) =>
 	a.isA!(MatchEnumExpr*)
-		? MatchInfo(MatchKind.enum_, a.as!(MatchEnumExpr*).matched.type)
+		? MatchInfo(MatchKind.enum_, a.as!(MatchEnumExpr*).enumType)
 		: a.isA!(MatchIntegralExpr*)
-		? MatchInfo(MatchKind.integral, a.as!(MatchIntegralExpr*).matched.type)
+		? MatchInfo(MatchKind.integral, a.as!(MatchIntegralExpr*).matchedType)
 		: a.isA!(MatchStringLikeExpr*)
-		? MatchInfo(MatchKind.stringLike, a.as!(MatchStringLikeExpr*).matched.type)
+		? MatchInfo(MatchKind.stringLike, a.as!(MatchStringLikeExpr*).matchedType)
 		: a.isA!(MatchSumTypeExpr*)
 		? MatchInfo(
 			a.as!(MatchSumTypeExpr*).isUnion ? MatchKind.union_ : MatchKind.variant,
-			a.as!(MatchSumTypeExpr*).matched.type)
+			a.as!(MatchSumTypeExpr*).sumType)
 		: assert(false);
 
 void getExprHover(

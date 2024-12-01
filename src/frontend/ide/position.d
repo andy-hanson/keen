@@ -10,6 +10,7 @@ import model.model :
 	BogusCallExpr,
 	CallExpr,
 	CallOptionExpr,
+	CharOrIntegralType,
 	DocComment,
 	DocCommentReference,
 	emptySpecs,
@@ -21,7 +22,6 @@ import model.model :
 	ImportOrExport,
 	Local,
 	LoopExpr,
-	MatchIntegralKind,
 	Module,
 	NameReferents,
 	RecordField,
@@ -268,7 +268,7 @@ immutable struct PositionMatchEnumCase {
 	EnumOrFlagsMember* member;
 }
 immutable struct PositionMatchIntegralCase {
-	MatchIntegralKind kind;
+	CharOrIntegralType kind;
 	IntegralValue value;
 }
 immutable struct PositionMatchStringLikeCase {

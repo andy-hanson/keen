@@ -226,7 +226,6 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralCase,
 	MatchIntegralExpr,
-	MatchIntegralKind,
 	MatchStringLikeCase,
 	MatchStringLikeExpr,
 	MatchSumTypeCase,
@@ -241,7 +240,7 @@ import model.model :
 	ReturnAndParamTypes,
 	SeqExpr,
 	SpecDecl,
-	StringLiteralKind,
+	StringLikeType,
 	StructAlias,
 	StructBodyBogus,
 	StructDecl,
@@ -949,15 +948,15 @@ Expr checkLiteralString(ref ExprCtx ctx, ExprAst* source, string value, ref Expe
 		ctx.commonTypes.symbol,
 	];
 	Opt!size_t opTypeIndex = findExpectedStructForLiteral(ctx, source, expected, allowedTypes);
-	static immutable StringLiteralKind[allowedTypes.length] kinds = [
-		StringLiteralKind.cString, // won't be used
-		StringLiteralKind.cString, // won't be used
-		StringLiteralKind.char8Array,
-		StringLiteralKind.char32Array,
-		StringLiteralKind.cString,
-		StringLiteralKind.jsAny,
-		StringLiteralKind.string_,
-		StringLiteralKind.symbol,
+	static immutable StringLikeType[allowedTypes.length] kinds = [
+		StringLikeType.cString, // won't be used
+		StringLikeType.cString, // won't be used
+		StringLikeType.char8Array,
+		StringLikeType.char32Array,
+		StringLikeType.cString,
+		StringLikeType.jsAny,
+		StringLikeType.string_,
+		StringLikeType.symbol,
 	];
 
 	if (has(opTypeIndex)) {
@@ -982,19 +981,19 @@ Expr checkLiteralString(ref ExprCtx ctx, ExprAst* source, string value, ref Expe
 					} else
 						return value;
 				}
-				StringLiteralKind kind = kinds[typeIndex];
+				StringLikeType stringType = kinds[typeIndex];
 				Opt!string fixedValue = () {
-					final switch (kind) {
-						case StringLiteralKind.char8Array:
-						case StringLiteralKind.char32Array:
+					final switch (stringType) {
+						case StringLikeType.char8Array:
+						case StringLikeType.char32Array:
 							return some(value);
-						case StringLiteralKind.cString:
+						case StringLikeType.cString:
 							return some(checkNoNul(DiagStringLiteralInvalid.cStringContainsNul));
-						case StringLiteralKind.string_:
+						case StringLikeType.string_:
 							return some(checkNoNul(DiagStringLiteralInvalid.stringContainsNul));
-						case StringLiteralKind.symbol:
+						case StringLikeType.symbol:
 							return some(checkNoNul(DiagStringLiteralInvalid.symbolContainsNul));
-						case StringLiteralKind.jsAny:
+						case StringLikeType.jsAny:
 							bool ok = symbol!"js" in ctx.externs;
 							if (!ok)
 								addDiag2(ctx, source.range, Diag(DiagStringLiteralInvalid.notExternJs));
@@ -1002,7 +1001,7 @@ Expr checkLiteralString(ref ExprCtx ctx, ExprAst* source, string value, ref Expe
 					}
 				}();
 				return optIf(has(fixedValue), () =>
-					Expr(LiteralStringLikeExpr(range, kind, smallString(force(fixedValue)))));
+					Expr(LiteralStringLikeExpr(range, stringType, smallString(force(fixedValue)))));
 			}
 		}();
 		return has(expr)
@@ -1222,7 +1221,7 @@ Expr checkPointerOfCall(
 				if (fieldMutability < expectedMutability)
 					addDiag2(ctx, range, Diag(DiagPointerMutToConst.fieldOfByRef));
 				return check(ctx, expected, Type(pointerType), Expr(allocate(ctx.alloc,
-					RecordFieldPointerExpr(ast, ExprAndType(target, Type(recordType)), rfg.field, pointerType))));
+					RecordFieldPointerExpr(ast, target, rfg.field, pointerType))));
 			} else if (target.isA!CallExpr) {
 				CallExpr targetCall = target.as!CallExpr;
 				Called called = targetCall.called;
@@ -1238,7 +1237,7 @@ Expr checkPointerOfCall(
 						return bogus(expected, range);
 					} else
 						return check(ctx, expected, Type(pointerType), Expr(allocate(ctx.alloc,
-							RecordFieldPointerExpr(ast, ExprAndType(targetPtr, derefedType), rfg.field, pointerType))));
+							RecordFieldPointerExpr(ast, targetPtr, rfg.field, pointerType))));
 				} else
 					return fail();
 			} else
@@ -1557,15 +1556,17 @@ Expr checkLoopWhileOrUntil(
 }
 
 Expr checkMatch(ref ExprCtx ctx, ref LocalsInfo locals, MatchAst* ast, ref Expected expected) {
-	ExprAndType matched = checkAndInfer(ctx, locals, ast.matched);
-	StructInst* inst = matched.type.isA!(StructInst*)
-		? matched.type.as!(StructInst*)
+	ExprAndType matchedAndType = checkAndInfer(ctx, locals, ast.matched);
+	Expr matched = matchedAndType.expr;
+	Type matchedType = matchedAndType.type;
+	StructInst* inst = matchedType.isA!(StructInst*)
+		? matchedType.as!(StructInst*)
 		// Use an arbitrary non-matchable inst as default
 		: ctx.commonTypes.void_;
 	StructDecl* decl = inst.decl;
 	Expr notMatchable() {
-		if (!matched.type.isBogus)
-			addDiag2(ctx, ast.matched.range, Diag(DiagMatchOnNonMatchable(typeWithContainer(ctx, matched.type))));
+		if (!matched.typeIsBogus)
+			addDiag2(ctx, ast.matched.range, Diag(DiagMatchOnNonMatchable(typeWithContainer(ctx, matchedType))));
 		return bogus(expected, ast.matched);
 	}
 	return decl.body_.match!Expr(
@@ -1574,7 +1575,7 @@ Expr checkMatch(ref ExprCtx ctx, ref LocalsInfo locals, MatchAst* ast, ref Expec
 		(BuiltinType x) {
 			Opt!CharType charType = optAsCharType(x);
 			Opt!IntegralType integral = optAsIntegralType(x);
-			Opt!StringLiteralKind stringLike = getMatchableStringLikeFromBuiltin(x);
+			Opt!StringLikeType stringLike = getMatchableStringLikeFromBuiltin(x);
 			return has(charType)
 				? checkMatchChar(ctx, locals, ast, expected, matched, force(charType))
 				: has(integral)
@@ -1590,7 +1591,7 @@ Expr checkMatch(ref ExprCtx ctx, ref LocalsInfo locals, MatchAst* ast, ref Expec
 		(Flags _) =>
 			notMatchable(),
 		(Record _) {
-			Opt!StringLiteralKind stringLike = getMatchableStringLikeFromRecord(ctx.commonTypes, inst);
+			Opt!StringLikeType stringLike = getMatchableStringLikeFromRecord(ctx.commonTypes, inst);
 			return has(stringLike)
 				? checkMatchStringLike(ctx, locals, ast, expected, matched, force(stringLike))
 				: notMatchable();
@@ -1616,7 +1617,7 @@ Expr checkMatchEnum(
 	ref LocalsInfo locals,
 	MatchAst* ast,
 	ref Expected expected,
-	ref ExprAndType matched,
+	ref Expr matched,
 	StructDecl* matchedEnum,
 	in Enum body_,
 ) =>
@@ -1680,7 +1681,7 @@ Expr checkMatchSumType(
 	ref LocalsInfo locals,
 	MatchAst* ast,
 	ref Expected expected,
-	ref ExprAndType matched,
+	ref Expr matched,
 	StructInst* sumType,
 ) {
 	SmallArray!MatchSumTypeCase cases = checkMatchSumTypeCases(ctx, locals, sumType, ast.cases, expected);
@@ -1901,7 +1902,7 @@ Expr checkMatchChar(
 	ref LocalsInfo locals,
 	MatchAst* ast,
 	ref Expected expected,
-	ref ExprAndType matched,
+	ref Expr matched,
 	CharType charType,
 ) {
 	SmallArray!MatchIntegralCase cases = withTempSet!(SmallArray!MatchIntegralCase, IntegralValue)(
@@ -1929,8 +1930,7 @@ Expr checkMatchChar(
 					return none!MatchIntegralCase;
 			}));
 	Expr else_ = checkMatchElseRequired(ctx, locals, *ast, expected, DiagMatchNeedsElse.integral);
-	return Expr(allocate(ctx.alloc,
-		MatchIntegralExpr(ast, MatchIntegralKind(charType), matched, cases, else_)));
+	return Expr(allocate(ctx.alloc, MatchIntegralExpr(ast, CharOrIntegralType(charType), matched, cases, else_)));
 }
 
 Opt!IntegralType optAsIntegralType(BuiltinType x) {
@@ -1961,7 +1961,7 @@ Expr checkMatchIntegral(
 	ref LocalsInfo locals,
 	MatchAst* ast,
 	ref Expected expected,
-	ref ExprAndType matched,
+	ref Expr matched,
 	IntegralType integralType,
 ) {
 	SmallArray!MatchIntegralCase cases = withTempSet!(SmallArray!MatchIntegralCase, IntegralValue)(
@@ -1995,32 +1995,31 @@ Expr checkMatchIntegral(
 					return none!MatchIntegralCase;
 			}));
 	Expr else_ = checkMatchElseRequired(ctx, locals, *ast, expected, DiagMatchNeedsElse.integral);
-	return Expr(allocate(ctx.alloc, MatchIntegralExpr(ast, MatchIntegralKind(integralType), matched, cases, else_)));
+	return Expr(allocate(ctx.alloc, MatchIntegralExpr(ast, CharOrIntegralType(integralType), matched, cases, else_)));
 }
 
-Opt!StringLiteralKind getMatchableStringLikeFromBuiltin(BuiltinType a) {
+Opt!StringLikeType getMatchableStringLikeFromBuiltin(BuiltinType a) {
 	switch (a) {
 		case BuiltinType.string_:
-			return some(StringLiteralKind.string_);
+			return some(StringLikeType.string_);
 		case BuiltinType.symbol:
-			return some(StringLiteralKind.symbol);
+			return some(StringLikeType.symbol);
 		default:
-			return none!StringLiteralKind;
+			return none!StringLikeType;
 	}
 }
-Opt!StringLiteralKind getMatchableStringLikeFromRecord(in CommonTypes commonTypes, in StructInst* inst) =>
-	inst == commonTypes.symbol ? some(StringLiteralKind.symbol) :
-	inst == commonTypes.char32Array ? some(StringLiteralKind.char32Array) :
-	inst == commonTypes.char8Array ? some(StringLiteralKind.char8Array) :
-	none!StringLiteralKind;
+Opt!StringLikeType getMatchableStringLikeFromRecord(in CommonTypes commonTypes, in StructInst* inst) =>
+	inst == commonTypes.char32Array ? some(StringLikeType.char32Array) :
+	inst == commonTypes.char8Array ? some(StringLikeType.char8Array) :
+	none!StringLikeType;
 
 Expr checkMatchStringLike(
 	ref ExprCtx ctx,
 	ref LocalsInfo locals,
 	MatchAst* ast,
 	ref Expected expected,
-	ref ExprAndType matched,
-	StringLiteralKind kind,
+	ref Expr matched,
+	StringLikeType stringType,
 ) {
 	Opt!(SpecDecl*) spec = getSpecFromCommonModule(
 		ctx.checkCtx, ctx.specsMap, ast.keywordRange, symbol!"equal", CommonModule.compare);
@@ -2035,7 +2034,7 @@ Expr checkMatchStringLike(
 		ctx.outermostFunSpecs,
 		ctx.outermostFunFlags,
 		ctx.externs,
-		instantiateSpec(ctx.instantiateCtx, force(spec), [matched.type]));
+		instantiateSpec(ctx.instantiateCtx, force(spec), [matched.type(ctx.commonTypes)]));
 	SmallArray!MatchStringLikeCase cases = withTempSet!(SmallArray!MatchStringLikeCase, string)(
 		ast.cases.length, (scope ref TempSet!string seen) =>
 			mapOpPointers!(MatchStringLikeCase, CaseAst)(ctx.alloc, ast.cases, (CaseAst* caseAst) {
@@ -2052,7 +2051,7 @@ Expr checkMatchStringLike(
 					return none!MatchStringLikeCase;
 			}));
 	Expr else_ = checkMatchElseRequired(ctx, locals, *ast, expected, DiagMatchNeedsElse.stringLike);
-	return Expr(allocate(ctx.alloc, MatchStringLikeExpr(ast, kind, matched, equals, cases, else_)));
+	return Expr(allocate(ctx.alloc, MatchStringLikeExpr(ast, stringType, matched, equals, cases, else_)));
 }
 
 Expr checkMatchElseRequired(

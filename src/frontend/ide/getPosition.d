@@ -638,11 +638,11 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, Expr* a, Pos pos, GetPositionKi
 			none!PositionKind,
 		(CallExpr x) =>
 			call(x.ast, ExpressionPositionKind(&a.as!CallExpr())),
-		(CallOptionExpr* x) =>
+		(CallOptionExpr x) =>
 			optOr!PositionKind(
 				keywordAt(force(x.ast.keywordRange), ExprKeyword.questionDotOrSubscript),
 				() => optIf(posIsAtCall(*x.ast, pos), () =>
-					expressionPosition(ExpressionPositionKind(x)))),
+					expressionPosition(ExpressionPositionKind(&a.as!CallOptionExpr())))),
 		(ClosureGetExpr x) =>
 			some(local(LocalRefKind.closureGet, x.local)),
 		(ClosureSetExpr x) =>
@@ -839,7 +839,7 @@ Opt!PositionKind positionAtMatchIntegral(in ExprCtx ctx, Expr* expr, ref MatchIn
 			a.cases, a.ast.cases,
 			(MatchIntegralCase case_, CaseAst caseAst) =>
 				optIf(hasPos(caseAst.keywordAndMemberNameRange, pos), () =>
-					PositionKind(PositionMatchIntegralCase(a.kind, case_.value)))));
+					PositionKind(PositionMatchIntegralCase(a.integralType, case_.value)))));
 
 Opt!PositionKind positionAtMatchStringLike(in ExprCtx ctx, Expr* expr, ref MatchStringLikeExpr a, Pos pos) =>
 	optOr!PositionKind(
@@ -849,7 +849,7 @@ Opt!PositionKind positionAtMatchStringLike(in ExprCtx ctx, Expr* expr, ref Match
 			(MatchStringLikeCase case_, CaseAst caseAst) =>
 				optIf(hasPos(caseAst.keywordAndMemberNameRange, pos), () =>
 					PositionKind(PositionMatchStringLikeCase(
-						TypeWithContainer(a.matched.type, ctx.container.toTypeContainer),
+						TypeWithContainer(Type(a.matchedType), ctx.container.toTypeContainer),
 						case_.value)))));
 
 Opt!PositionKind positionAtMatchSumType(ref ExprCtx ctx, Expr* expr, ref MatchSumTypeExpr a, Pos pos) =>

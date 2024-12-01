@@ -327,16 +327,10 @@ private Expr checkCallSpecialCbN(
 				return bogus(expected, source.range);
 			else {
 				setToBogusIfInferring(expected);
-				return Expr(allocate(ctx.alloc, BogusCallExpr(
-					source,
-					candidates,
-					exprsAndTypes(ctx.alloc, args, failure.argTypes),
-					inferred(expected))));
+				return Expr(allocate(ctx.alloc, BogusCallExpr(source, candidates, args, inferred(expected))));
 			}
  		});
 }
-private SmallArray!ExprAndType exprsAndTypes(ref Alloc alloc, SmallArray!Expr args, SmallArray!Type types) =>
-	mapZip!(ExprAndType, Expr, Type)(alloc, args, types, (ref Expr x, ref Type y) => ExprAndType(x, y));
 private SmallArray!CalledDecl getCandidateDeclsForBogus(ref ExprCtx ctx, Symbol funName) =>
 	buildSmallArray!CalledDecl(ctx.alloc, (scope ref Builder!CalledDecl res) {
 		eachFunInScope(funsInExprScope(ctx), funName, (CalledDecl called) {
@@ -442,9 +436,8 @@ Expr checkOptionCall(alias checkExpr)(
 			return has(res) ? some!(Type[2])([force(res), option]) : none!(Type[2]);
 		},
 		(ref Expected innerExpected) {
-			Late!ExprAndType firstArg = late!ExprAndType;
 			assert(ast.args.length != 0);
-			ExactSizeArrayBuilder!Expr restArgs = newExactSizeArrayBuilder!Expr(ctx.alloc, ast.args.length - 1);
+			ExactSizeArrayBuilder!Expr args = newExactSizeArrayBuilder!Expr(ctx.alloc, ast.args.length);
 			CallInnerResult res = checkCallCb(
 				ctx, locals, ast.funName.range, ast.funName.name, none!Type, ast.args.length, innerExpected,
 				(size_t index, ref Expected argExpected) {
@@ -458,13 +451,13 @@ Expr checkOptionCall(alias checkExpr)(
 							(ref Expected optionalArgExpected) {
 								Expr expr = checkExpr(ctx, locals, argAst, optionalArgExpected);
 								Type option = inferred(optionalArgExpected);
-								lateSet(firstArg, ExprAndType(expr, option));
+								args ~= expr;
 								// We wrapped expected types in diagnostics, so it must unpack to an option
 								Type nonOption = force(tryUnpackOptionType(ctx.commonTypes, option));
 								return ExprAndType(expr, nonOption);
 							});
 					} else
-						restArgs ~= checkExpr(ctx, locals, argAst, argExpected);
+						args ~= checkExpr(ctx, locals, argAst, argExpected);
 				},
 				(in CalledDecl _) => true,
 				(scope ref Candidate[] _) => true);
@@ -472,8 +465,7 @@ Expr checkOptionCall(alias checkExpr)(
 				(Called called) {
 					StructInst* type = makeOptionIfNotAlready(ctx.instantiateCtx, ctx.commonTypes, called.returnType);
 					return ExprAndType(
-						Expr(allocate(ctx.alloc,
-							CallOptionExpr(ast, called, lateGet(firstArg), smallFinish(restArgs), type))),
+						Expr(CallOptionExpr(ast, called, smallFinish(args), type)),
 						Type(type));
 				},
 				(CallInnerResult.Failure) =>

@@ -735,7 +735,7 @@ void trackAllUsedInExprRef(ref AllUsedBuilder res, FunOrTest curFunc, Expr* a) {
 			(BogusExpr _) {},
 			(BogusWrongTypeExpr _) {},
 			(CallExpr _) {},
-			(ref CallOptionExpr x) {
+			(CallOptionExpr x) {
 				trackAllUsedInStruct(res, from, x.type.decl);
 			},
 			(ClosureGetExpr _) {},

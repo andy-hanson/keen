@@ -257,7 +257,7 @@ ConcreteType char32ArrayType(ref ConcretizeCtx a) =>
 ref immutable(EnumMap!(IntegralType, ConcreteType)) integralTypes(ref ConcretizeCtx a) =>
 	lazilySet!(EnumMap!(IntegralType, ConcreteType))(a._integralTypes, () =>
 		makeEnumMap!(IntegralType, ConcreteType)((IntegralType x) =>
-			getConcreteType_forStructInst(a, a.commonTypes.integrals[x], emptySmallArray!ConcreteType)));
+			getConcreteType_forStructInst(a, a.commonTypes[x], emptySmallArray!ConcreteType)));
 ConcreteType integralType(ref ConcretizeCtx a, IntegralType type) =>
 	integralTypes(a)[type];
 

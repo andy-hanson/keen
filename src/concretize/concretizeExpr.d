@@ -161,7 +161,7 @@ import model.model :
 	Purity,
 	RecordFieldPointerExpr,
 	SeqExpr,
-	StringLiteralKind,
+	StringLikeType,
 	ThrowExpr,
 	TrustedExpr,
 	TryExpr,
@@ -426,7 +426,7 @@ ConcreteExpr concretizeCallOption(
 	ConcreteType type,
 	in UriAndRange range,
 	in Locals locals,
-	ref CallOptionExpr a,
+	CallOptionExpr a,
 ) {
 	// `a?.b` ==> `x ?= a ? (x.b,) : ()`
 	// But `x.b` may already be an option and might not need to be wrapped
@@ -810,21 +810,21 @@ ConcreteExpr concretizeLiteralStringLike(
 	ref ConcretizeExprCtx ctx,
 	ConcreteType type,
 	in UriAndRange range,
-	StringLiteralKind kind,
+	StringLikeType kind,
 	string value,
 ) {
 	final switch (kind) {
-		case StringLiteralKind.char8Array:
+		case StringLikeType.char8Array:
 			return genChar8Array(ctx.concretizeCtx, range, value);
-		case StringLiteralKind.char32Array:
+		case StringLikeType.char32Array:
 			return genChar32Array(ctx.concretizeCtx, range, value);
-		case StringLiteralKind.cString:
+		case StringLikeType.cString:
 			return ConcreteExpr(type, range, ConcreteExprKind(constantCString(ctx.concretizeCtx, value)));
-		case StringLiteralKind.jsAny:
+		case StringLikeType.jsAny:
 			assert(false);
-		case StringLiteralKind.string_:
+		case StringLikeType.string_:
 			return genStringLiteral(ctx.concretizeCtx, range, value);
-		case StringLiteralKind.symbol:
+		case StringLikeType.symbol:
 			return ConcreteExpr(type, range, ConcreteExprKind(
 				constantSymbol(ctx.concretizeCtx, symbolOfString(value))));
 	}
@@ -1023,7 +1023,7 @@ ConcreteExpr concretizeMatchStringLike(
 	SmallArray!ConcreteMatchStringLikeCase cases = map(
 		ctx.alloc, a.cases, (ref MatchStringLikeCase case_) =>
 			ConcreteMatchStringLikeCase(
-				concretizeLiteralStringLike(ctx, matched.type, range, a.kind, case_.value),
+				concretizeLiteralStringLike(ctx, matched.type, range, a.stringType, case_.value),
 				concretizeExpr(ctx, type, locals, case_.then)));
 	return ConcreteExpr(type, range, ConcreteExprKind(allocate(ctx.alloc,
 		MatchStringLikeConcreteExpr(matched, force(equals), cases, concretizeExpr(ctx, type, locals, a.else_)))));
@@ -1141,10 +1141,8 @@ ConcreteExpr concretizeAssertOrForbid(
 		});
 }
 
-ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, in Locals locals, ref Expr a) =>
-	concretizeExpr(ctx, locals, ExprAndType(a, a.type(ctx.commonTypes)));
-ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, in Locals locals,  ExprAndType a) =>
-	concretizeExpr(ctx, getConcreteType(ctx, a.type), locals, a.expr);
+ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, in Locals locals,  ref Expr a) =>
+	concretizeExpr(ctx, getConcreteType(ctx, a.type(ctx.commonTypes)), locals, a);
 
 ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Locals locals, ref Expr a) {
 	UriAndRange range = UriAndRange(ctx.curUri, a.range);
@@ -1161,8 +1159,8 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 			concretizeBogus(ctx, type, range),
 		(CallExpr x) =>
 			concretizeCall(ctx, type, range, locals, x),
-		(CallOptionExpr* x) =>
-			concretizeCallOption(ctx, type, range, locals, *x),
+		(CallOptionExpr x) =>
+			concretizeCallOption(ctx, type, range, locals, x),
 		(ClosureGetExpr x) =>
 			concretizeClosureGet(ctx, type, range, x),
 		(ClosureSetExpr x) =>
@@ -1185,7 +1183,7 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 		(LiteralIntegralExpr x) =>
 			concretizeLiteralIntegral(ctx, type, range, x),
 		(LiteralStringLikeExpr x) =>
-			concretizeLiteralStringLike(ctx, type, range, x.kind, x.value),
+			concretizeLiteralStringLike(ctx, type, range, x.stringType, x.value),
 		(LocalGetExpr x) =>
 			concretizeLocalGet(ctx, type, range, locals, x.local),
 		(LocalPointerExpr x) =>

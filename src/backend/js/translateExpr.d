@@ -164,7 +164,7 @@ import model.model :
 	SeqExpr,
 	Signature,
 	SpecInst,
-	StringLiteralKind,
+	StringLikeType,
 	StructBody,
 	StructInst,
 	SumType,
@@ -503,7 +503,7 @@ ExprResult translateExpr(ref TranslateExprCtx ctx, ref Expr a, scope ExprPos pos
 			forceStatement(ctx, pos, genThrowBogus(ctx.alloc, source)),
 		(CallExpr x) =>
 			translateCall(ctx, source, x, pos),
-		(ref CallOptionExpr x) =>
+		(CallOptionExpr x) =>
 			translateCallOption(ctx, source, x, pos),
 		(ClosureGetExpr x) =>
 			forceExpr(ctx, pos, x.type, genIdentifier(source, localName(*x.local))),
@@ -617,7 +617,7 @@ ExprResult translateAssertOrForbid(
 
 ExprResult translateCall(ref TranslateExprCtx ctx, in Source source, ref CallExpr a, scope ExprPos pos) =>
 	translateCallCommon(ctx, source, a.called, [], a.args, pos);
-ExprResult translateCallOption(ref TranslateExprCtx ctx, in Source source, ref CallOptionExpr a, scope ExprPos pos) =>
+ExprResult translateCallOption(ref TranslateExprCtx ctx, in Source source, CallOptionExpr a, scope ExprPos pos) =>
 	/*
 	firstArg?.called
 	==>
@@ -627,7 +627,7 @@ ExprResult translateCallOption(ref TranslateExprCtx ctx, in Source source, ref C
 		? Option.some(called(option.some))
 		: Option.none
 	*/
-	withTemp(ctx, symbol!"option", a.firstArg.expr, pos, (JsName option, scope ExprPos inner) {
+	withTemp(ctx, symbol!"option", a.firstArg, pos, (JsName option, scope ExprPos inner) {
 		JsExpr forceIt = genOptionForce(ctx.alloc, source, genIdentifier(source, option));
 		JsExpr call = translateToExpr((scope ExprPos callPos) =>
 			translateCallCommon(ctx, source, a.called, [forceIt], a.restArgs, callPos));
@@ -781,21 +781,21 @@ ExprResult translateLetLikeCb(
 	});
 
 JsExpr translateLiteralStringLike(ref TranslateExprCtx ctx, in Source source, ref LiteralStringLikeExpr a) {
-	final switch (a.kind) {
-		case StringLiteralKind.char8Array:
+	final switch (a.stringType) {
+		case StringLikeType.char8Array:
 			return genArray(source, map(ctx.alloc, a.value, (ref immutable char x) =>
 				genIntegerUnsigned(source, x)));
-		case StringLiteralKind.char32Array:
+		case StringLikeType.char32Array:
 			return genArray(source, buildArray!JsExpr(ctx.alloc, (scope ref Builder!JsExpr out_) {
 				mustUnicodeDecode(a.value, (dchar x) {
 					out_ ~= genIntegerUnsigned(source, x);
 				});
 			}));
-		case StringLiteralKind.cString:
+		case StringLikeType.cString:
 			assert(false);
-		case StringLiteralKind.jsAny:
-		case StringLiteralKind.string_:
-		case StringLiteralKind.symbol:
+		case StringLikeType.jsAny:
+		case StringLikeType.string_:
+		case StringLikeType.symbol:
 			return genString(source, a.value);
 	}
 }
@@ -885,7 +885,7 @@ ExprResult translateMatchEnum(
 ) =>
 	forceStatement(ctx, pos, genSwitch(
 		source,
-		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched.expr)),
+		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched)),
 		mapWithIndex!(JsSwitchCase, MatchEnumCase)(
 			ctx.alloc, a.cases,
 			(size_t caseIndex, ref MatchEnumCase case_) =>
@@ -902,10 +902,10 @@ ExprResult translateMatchIntegral(
 ) =>
 	forceStatement(ctx, pos, genSwitch(
 		source,
-		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched.expr)),
+		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched)),
 		map(ctx.alloc, a.cases, (ref MatchIntegralCase case_) =>
 			JsSwitchCase(
-				a.kind.isSigned
+				a.integralType.isSigned
 					? genIntegerSigned(source, case_.value.asSigned)
 					: genIntegerUnsigned(source, case_.value.asUnsigned),
 				translateExprToSwitchBlockStatement(ctx, case_.then))),
@@ -919,7 +919,7 @@ ExprResult translateMatchStringLike(
 ) =>
 	forceStatement(ctx, pos, genSwitch(
 		source,
-		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched.expr)),
+		allocate(ctx.alloc, translateExprToExpr(ctx, a.matched)),
 		map(ctx.alloc, a.cases, (ref MatchStringLikeCase case_) =>
 			JsSwitchCase(
 				genString(source, case_.value),
@@ -932,7 +932,7 @@ ExprResult translateMatchSumType(
 	ref MatchSumTypeExpr a,
 	scope ExprPos pos,
 ) =>
-	withTemp(ctx, symbol!"matched", a.matched.expr, pos, (JsName matched, scope ExprPos inner) =>
+	withTemp(ctx, symbol!"matched", a.matched, pos, (JsName matched, scope ExprPos inner) =>
 		translateMatchSumType(
 			ctx, source, matched, a.isUnion, a.cases, a.ast.cases,
 			translateSwitchDefault(

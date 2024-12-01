@@ -45,6 +45,7 @@ import model.model :
 	CalledSpecSig,
 	CallExpr,
 	CallOptionExpr,
+	CharOrIntegralType,
 	CharType,
 	ClosureGetExpr,
 	ClosureSetExpr,
@@ -63,7 +64,6 @@ import model.model :
 	Enum,
 	EnumOrFlagsMember,
 	Expr,
-	ExprAndType,
 	ExternExpr,
 	ExternType,
 	FinallyExpr,
@@ -104,7 +104,6 @@ import model.model :
 	MatchEnumExpr,
 	MatchIntegralCase,
 	MatchIntegralExpr,
-	MatchIntegralKind,
 	MatchStringLikeCase,
 	MatchStringLikeExpr,
 	MatchSumTypeCase,
@@ -609,11 +608,6 @@ Json jsonOfExprs(ref Alloc alloc, in Ctx ctx, in Expr[] a) =>
 	jsonList!Expr(alloc, a, (in Expr x) =>
 		jsonOfExpr(alloc, ctx, x));
 
-Json jsonOfExprAndType(ref Alloc alloc, in Ctx ctx, in ExprAndType a) =>
-	jsonObject(alloc, [
-		field!"expr"(jsonOfExpr(alloc, ctx, a.expr)),
-		field!"type"(jsonOfType(alloc, ctx, a.type))]);
-
 Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 	a.matchIn!Json(
 		(in AssertOrForbidExpr x) =>
@@ -627,8 +621,8 @@ Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 				kindField!"bogus-call",
 				field!"candidates"(jsonList!CalledDecl(alloc, x.candidates, (in CalledDecl d) =>
 					jsonOfCalledDecl(alloc, ctx, d))),
-				field!"checked-args"(jsonList!ExprAndType(alloc, x.checkedArgs, (in ExprAndType e) =>
-					jsonOfExprAndType(alloc, ctx, e)))]),
+				field!"checked-args"(jsonList!Expr(alloc, x.checkedArgs, (in Expr e) =>
+					jsonOfExpr(alloc, ctx, e)))]),
 		(in BogusExpr _) =>
 			jsonObject(alloc, [kindField!"bogus"]),
 		(in BogusWrongTypeExpr x) =>
@@ -643,8 +637,7 @@ Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 		(in CallOptionExpr x) =>
 			jsonObject(alloc, [
 				kindField!"option-call",
-				field!"first-arg"(jsonOfExprAndType(alloc, ctx, x.firstArg)),
-				field!"rest-args"(jsonList!Expr(alloc, x.restArgs, (in Expr arg) =>
+				field!"args"(jsonList!Expr(alloc, x.allArgs, (in Expr arg) =>
 					jsonOfExpr(alloc, ctx, arg))),
 				field!"called"(jsonOfCalled(alloc, ctx, x.called))]),
 		(in ClosureGetExpr x) =>
@@ -697,14 +690,12 @@ Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 		(in LiteralIntegralExpr x) =>
 			jsonObject(alloc, [
 				kindField!"literal-integral",
-				field!"type"(x.integralType.matchIn!string(
-					(in CharType y) => stringOfEnum(y),
-					(in IntegralType y) => stringOfEnum(y))),
+				field!"type"(jsonOfCharOrIntegralType(x.integralType)),
 				field!"value"(x.value.asUnsigned)]),
 		(in LiteralStringLikeExpr x) =>
 			jsonObject(alloc, [
 				kindField!"string",
-				field!"type"(jsonString(stringOfEnum(x.kind))),
+				field!"type"(jsonString(stringOfEnum(x.stringType))),
 				field!"value"(jsonString(alloc, x.value))]),
 		(in LocalGetExpr x) =>
 			jsonObject(alloc, [
@@ -738,7 +729,7 @@ Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 		(in MatchEnumExpr x) =>
 			jsonObject(alloc, [
 				kindField!"match-enum",
-				field!"matched"(jsonOfExprAndType(alloc, ctx, x.matched)),
+				field!"matched"(jsonOfExpr(alloc, ctx, x.matched)),
 				field!"cases"(jsonList!MatchEnumCase(alloc, x.cases, (in MatchEnumCase case_) =>
 					jsonObject(alloc, [
 						field!"member"(case_.member.name),
@@ -747,8 +738,8 @@ Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 		(in MatchIntegralExpr x) =>
 			jsonObject(alloc, [
 				kindField!"match-integral",
-				field!"kind"(jsonOfMatchIntegralKind(x.kind)),
-				field!"matched"(jsonOfExprAndType(alloc, ctx, x.matched)),
+				field!"kind"(jsonOfCharOrIntegralType(x.integralType)),
+				field!"matched"(jsonOfExpr(alloc, ctx, x.matched)),
 				field!"cases"(jsonList!MatchIntegralCase(alloc, x.cases, (in MatchIntegralCase case_) =>
 					jsonObject(alloc, [
 						field!"value"(case_.value.value),
@@ -757,8 +748,8 @@ Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 		(in MatchStringLikeExpr x) =>
 			jsonObject(alloc, [
 				kindField!"match-string-like",
-				field!"type"(stringOfEnum(x.kind)),
-				field!"matched"(jsonOfExprAndType(alloc, ctx, x.matched)),
+				field!"type"(stringOfEnum(x.stringType)),
+				field!"matched"(jsonOfExpr(alloc, ctx, x.matched)),
 				field!"equals"(jsonOfCalled(alloc, ctx, x.equals)),
 				field!"cases"(jsonList(map(alloc, x.cases, (ref MatchStringLikeCase case_) =>
 					jsonObject(alloc, [
@@ -768,13 +759,13 @@ Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 		(in MatchSumTypeExpr x) =>
 			jsonObject(alloc, [
 				kindField!"match-variant",
-				field!"matched"(jsonOfExprAndType(alloc, ctx, x.matched)),
+				field!"matched"(jsonOfExpr(alloc, ctx, x.matched)),
 				field!"cases"(jsonOfMatchSumTypeCases(alloc, ctx, x.cases)),
 				optionalField!("else", Expr*)(x.else_, (in Expr* y) => jsonOfExpr(alloc, ctx, *y))]),
 		(in RecordFieldPointerExpr x) =>
 			jsonObject(alloc, [
 				kindField!"field-pointer",
-				field!"target"(jsonOfExprAndType(alloc, ctx, x.target)),
+				field!"target"(jsonOfExpr(alloc, ctx, x.target)),
 				field!"field"(x.field.name)]),
 		(in SeqExpr a) =>
 			jsonObject(alloc, [
@@ -805,6 +796,13 @@ Json jsonOfExpr(ref Alloc alloc, in Ctx ctx, in Expr a) =>
 			jsonObject(alloc, [
 				kindField!"typed",
 				field!"inner"(jsonOfExpr(alloc, ctx, a.inner))]));
+
+Json jsonOfCharOrIntegralType(CharOrIntegralType a) =>
+	Json(a.match!string(
+		(CharType x) =>
+			stringOfEnum(x),
+		(IntegralType x) =>
+			stringOfEnum(x)));
 
 Json jsonOfCondition(ref Alloc alloc, in Ctx ctx, in Condition a) =>
 	a.matchIn!Json(
@@ -886,13 +884,6 @@ Json jsonOfCalledSpecSig(ref Alloc alloc, in Ctx ctx, in CalledSpecSig a) =>
 		kindField!"spec-sig",
 		field!"spec"(a.specInst.decl.name),
 		field!"name"(a.name)]);
-
-Json jsonOfMatchIntegralKind(in MatchIntegralKind a) =>
-	a.match!Json(
-		(CharType x) =>
-			jsonString(stringOfEnum(x)),
-		(IntegralType x) =>
-			jsonString(stringOfEnum(x)));
 
 Json jsonOfMatchSumTypeCases(ref Alloc alloc, in Ctx ctx, in MatchSumTypeCase[] cases) =>
 	jsonList!MatchSumTypeCase(alloc, cases, (in MatchSumTypeCase x) =>

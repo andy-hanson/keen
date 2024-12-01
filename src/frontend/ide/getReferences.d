@@ -486,7 +486,7 @@ void eachTypeInEnumOrFlags(ref CommonTypes commonTypes, in StructDeclAst struct_
 		if (modifier.isA!ModifierKeywordAst) {
 			ModifierKeywordAst keyword = modifier.as!ModifierKeywordAst;
 			if (keyword.keyword == ModifierKeyword.storage && has(keyword.typeArg))
-				cb(Type(commonTypes.integrals[storage]), force(keyword.typeArg));
+				cb(Type(commonTypes[storage]), force(keyword.typeArg));
 		}
 }
 void eachTypeInRecord(in Record a, in RecordAst ast, in TypeCb cb) {

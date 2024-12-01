@@ -278,9 +278,11 @@ bool isPointerConst(in Type a) =>
 	isBuiltinType(a, BuiltinType.pointerConst);
 bool isPointerMut(in Type a) =>
 	isBuiltinType(a, BuiltinType.pointerMut);
-Type pointeeType(in Type a) {
-	assert(isPointerConstOrMut(a));
-	return only(a.as!(StructInst*).typeArgs);
+Type pointeeType(in Type a) =>
+	pointeeType(*a.as!(StructInst*));
+Type pointeeType(in StructInst a) {
+	assert(isPointerConstOrMut(*a.decl));
+	return only(a.typeArgs);
 }
 
 PurityRange purityRange(Type a) =>
@@ -2368,6 +2370,39 @@ immutable struct CommonTypes {
 
 	size_t maxTupleSize() scope =>
 		9;
+
+	StructInst* opIndex(CharType type) {
+		final switch (type) {
+			case CharType.char8:
+				return char8;
+			case CharType.char32:
+				return char32;
+		}
+	}
+	StructInst* opIndex(IntegralType type) =>
+		integrals[type];
+	StructInst* opIndex(CharOrIntegralType type) =>
+		type.match!(StructInst*)(
+			(CharType x) =>
+				this[x],
+			(IntegralType x) =>
+				this[x]);
+	StructInst* opIndex(StringLikeType type) {
+		final switch (type) {
+			case StringLikeType.char8Array:
+				return char8Array;
+			case StringLikeType.char32Array:
+				return char32Array;
+			case StringLikeType.cString:
+				return cString;
+			case StringLikeType.jsAny:
+				return jsAny;
+			case StringLikeType.string_:
+				return string_;
+			case StringLikeType.symbol:
+				return symbol;
+		}
+	}
 }
 immutable struct OtherTypes {
 	Map!(StructInst*, StructInst*) futureOrMutArrayToImpl;
@@ -2415,7 +2450,15 @@ bool isSigned(IntegralType a) {
 }
 
 immutable struct CharOrIntegralType {
+	@safe @nogc pure nothrow:
+
 	mixin Union!(CharType, IntegralType);
+	bool isSigned() =>
+		match!bool(
+			(CharType _) =>
+				false,
+			(IntegralType x) =>
+				.isSigned(x));
 }
 
 long minValue(IntegralType type) {
@@ -2999,7 +3042,7 @@ immutable struct Expr {
 		BogusExpr,
 		BogusWrongTypeExpr,
 		CallExpr,
-		CallOptionExpr*,
+		CallOptionExpr,
 		ClosureGetExpr,
 		ClosureSetExpr,
 		ExternExpr,
@@ -3107,6 +3150,15 @@ immutable struct Expr {
 			(in TypedExpr x) =>
 				x.range);
 
+	bool typeIsBogus() scope =>
+		typeNotCommon.isBogus;
+	Type typeNotCommon() return scope {
+		CommonTypes commonTypes = CommonTypes(); // It won't actually use this
+		Type res = type(commonTypes);
+		if (res.isA!(StructInst*))
+			assert(res.as!(StructInst*) != null);
+		return res;
+	}
 	Type type(ref CommonTypes commonTypes) return scope =>
 		match!Type(
 			(ref AssertOrForbidExpr x) =>
@@ -3119,7 +3171,7 @@ immutable struct Expr {
 				x.expectedType,
 			(CallExpr x) =>
 				x.type,
-			(ref CallOptionExpr x) =>
+			(CallOptionExpr x) =>
 				Type(x.type),
 			(ClosureGetExpr x) =>
 				x.type,
@@ -3371,10 +3423,10 @@ immutable struct BogusCallExpr {
 	CallExprSource ast;
 	SmallArray!CalledDecl candidates;
 	// Note: It may have given up on checking arguments.
-	SmallArray!ExprAndType checkedArgs;
+	SmallArray!Expr checkedArgs;
 	Type expectedType;
 
-	@safe @nogc pure nothrow this(CallExprSource a, SmallArray!CalledDecl cs, SmallArray!ExprAndType cas, Type et) {
+	@safe @nogc pure nothrow this(CallExprSource a, SmallArray!CalledDecl cs, SmallArray!Expr cas, Type et) {
 		ast = a;
 		candidates = cs;
 		checkedArgs = cas;
@@ -3404,16 +3456,19 @@ immutable struct CallOptionExpr {
 	CallAst* ast;
 	// May or may not return an option. If not it will be wrapped after calling.
 	Called called;
-	// Type is an option type. The option is unwrapped before calling.
-	ExprAndType firstArg;
-	// These are non-optional.
-	SmallArray!Expr restArgs;
+	// The first arg is an option which is unwrapped before calling. The rest are non-optional.
+	SmallArray!Expr allArgs;
+	// If 'called.returnType' is not an option, this wraps it in an option.
 	StructInst* type;
 
 	Range range() scope =>
 		ast.range;
 	bool wrapsReturnAsOption() scope =>
 		called.returnType != Type(type);
+	ref Expr firstArg() =>
+		allArgs[0];
+	Expr[] restArgs() =>
+		allArgs[1 .. $];
 }
 
 immutable struct ClosureGetExpr {
@@ -3613,50 +3668,21 @@ immutable struct LiteralIntegralExpr {
 	IntegralValue value;
 
 	bool isSigned() scope =>
-		integralType.match!bool(
-			(CharType _) =>
-				false,
-			(IntegralType x) =>
-				.isSigned(x));
-
+		integralType.isSigned;
 	StructInst* type(ref CommonTypes commonTypes) =>
-		integralType.match!(StructInst*)(
-			(CharType x) {
-				final switch (x) {
-					case CharType.char8:
-						return commonTypes.char8;
-					case CharType.char32:
-						return commonTypes.char32;
-				}
-			},
-			(IntegralType x) =>
-				commonTypes.integrals[x]);
+		commonTypes[integralType];
 }
 
 immutable struct LiteralStringLikeExpr {
 	@safe @nogc pure nothrow:
 	Range range;
-	StringLiteralKind kind;
+	StringLikeType stringType;
 	SmallString value; // For char32Array, this will be decoded in concretize.
 
-	StructInst* type(ref CommonTypes commonTypes) {
-		final switch (kind) {
-			case StringLiteralKind.char8Array:
-				return commonTypes.char8Array;
-			case StringLiteralKind.char32Array:
-				return commonTypes.char32Array;
-			case StringLiteralKind.cString:
-				return commonTypes.cString;
-			case StringLiteralKind.jsAny:
-				return commonTypes.jsAny;
-			case StringLiteralKind.string_:
-				return commonTypes.string_;
-			case StringLiteralKind.symbol:
-				return commonTypes.symbol;
-		}
-	}
+	StructInst* type(ref CommonTypes commonTypes) =>
+		commonTypes[stringType];
 }
-enum StringLiteralKind { char8Array, char32Array, cString, jsAny, string_, symbol }
+enum StringLikeType { char8Array, char32Array, cString, jsAny, string_, symbol }
 
 immutable struct LocalGetExpr {
 	@safe @nogc pure nothrow:
@@ -3735,7 +3761,7 @@ immutable struct MatchEnumExpr {
 	@safe @nogc pure nothrow:
 
 	MatchAst* ast;
-	ExprAndType matched;
+	Expr matched;
 	SmallArray!MatchEnumCase cases;
 	Opt!Expr else_;
 
@@ -3744,8 +3770,10 @@ immutable struct MatchEnumExpr {
 	Type type(ref CommonTypes commonTypes) =>
 		has(else_) ? force(else_).type(commonTypes) : cases[0].then.type(commonTypes);
 
+	StructInst* enumType() return scope =>
+		matched.typeNotCommon.as!(StructInst*);
 	StructDecl* enum_() {
-		StructInst* inst = matched.type.as!(StructInst*);
+		StructInst* inst = enumType;
 		assert(isEmpty(inst.typeArgs));
 		StructDecl* res = inst.decl;
 		assert(every!MatchEnumCase(cases, (in MatchEnumCase x) => x.member.containingEnum == res));
@@ -3764,8 +3792,8 @@ immutable struct MatchEnumCase {
 immutable struct MatchIntegralExpr {
 	@safe @nogc pure nothrow:
 	MatchAst* ast;
-	MatchIntegralKind kind;
-	ExprAndType matched;
+	CharOrIntegralType integralType;
+	Expr matched;
 	SmallArray!MatchIntegralCase cases;
 	Expr else_;
 
@@ -3773,14 +3801,8 @@ immutable struct MatchIntegralExpr {
 		ast.range;
 	Type type(ref CommonTypes commonTypes) =>
 		else_.type(commonTypes);
-}
-immutable struct MatchIntegralKind {
-	@safe @nogc pure nothrow:
-	mixin TaggedUnion!(CharType, IntegralType);
-	bool isSigned() =>
-		match!bool(
-			(CharType _) => false,
-			(IntegralType x) => .isSigned(x));
+	StructInst* matchedType() return scope =>
+		matched.typeNotCommon.as!(StructInst*);
 }
 immutable struct MatchIntegralCase {
 	IntegralValue value;
@@ -3791,8 +3813,8 @@ immutable struct MatchIntegralCase {
 immutable struct MatchStringLikeExpr {
 	@safe @nogc pure nothrow:
 	MatchAst* ast;
-	StringLiteralKind kind;
-	ExprAndType matched;
+	StringLikeType stringType;
+	Expr matched;
 	Called equals; // == function for the type
 	SmallArray!MatchStringLikeCase cases;
 	Expr else_;
@@ -3801,6 +3823,8 @@ immutable struct MatchStringLikeExpr {
 		ast.range;
 	Type type(ref CommonTypes commonTypes) =>
 		else_.type(commonTypes);
+	StructInst* matchedType() =>
+		matched.typeNotCommon.as!(StructInst*);
 }
 immutable struct MatchStringLikeCase {
 	string value;
@@ -3811,7 +3835,7 @@ immutable struct MatchSumTypeExpr {
 	@safe @nogc pure nothrow:
 
 	MatchAst* ast;
-	ExprAndType matched;
+	Expr matched;
 	SmallArray!MatchSumTypeCase cases;
 	Opt!(Expr*) else_;
 
@@ -3820,7 +3844,7 @@ immutable struct MatchSumTypeExpr {
 	Type type(ref CommonTypes commonTypes) =>
 		has(else_) ? force(else_).type(commonTypes) : cases[0].then.type(commonTypes);
 	StructInst* sumType() return scope =>
-		matched.type.as!(StructInst*);
+		matched.typeNotCommon.as!(StructInst*);
 	SumType sumTypeBody() return scope =>
 		sumType.decl.body_.as!SumType;
 	bool isUnion() {
@@ -3847,16 +3871,18 @@ immutable struct RecordFieldPointerExpr {
 	@safe @nogc pure nothrow:
 
 	PtrAst* ast;
-	ExprAndType target; // This will be a pointer or by-ref type
+	Expr target; // This will be a pointer or by-ref type
 	RecordField* field;
 	StructInst* type;
 
 	Range range() scope =>
 		ast.range;
-	StructDecl* recordDecl() scope =>
-		isPointerConstOrMut(target.type)
-			? pointeeType(target.type).as!(StructInst*).decl
-			: target.type.as!(StructInst*).decl;
+	StructDecl* recordDecl() scope {
+		StructInst* type = target.typeNotCommon.as!(StructInst*);
+		return isPointerConstOrMut(*type.decl)
+			? pointeeType(*type).as!(StructInst*).decl
+			: type.decl;
+	}
 	size_t fieldIndex() =>
 		mustHaveIndexOfPointer(recordDecl.body_.as!Record.fields, field);
 }
@@ -3953,8 +3979,8 @@ immutable struct CalledAndNameRange {
 Opt!CalledAndNameRange getCalledAtExpr(in Expr a) =>
 	a.isA!CallExpr
 		? some(CalledAndNameRange(a.as!CallExpr.called, a.as!CallExpr.ast.nameRange))
-		: a.isA!(CallOptionExpr*)
-		? some(CalledAndNameRange(a.as!(CallOptionExpr*).called, a.as!(CallOptionExpr*).ast.nameRange))
+		: a.isA!CallOptionExpr
+		? some(CalledAndNameRange(a.as!CallOptionExpr.called, a.as!CallOptionExpr.ast.nameRange))
 		: a.isA!FunPointerExpr
 		? some(CalledAndNameRange(a.as!FunPointerExpr.called, a.as!FunPointerExpr.ast.range))
 		: none!CalledAndNameRange;
@@ -4003,10 +4029,8 @@ Opt!T findDirectChildExpr(T)(ref Expr a, in Opt!T delegate(Expr*) @safe @nogc pu
 			cb(x.inner),
 		(CallExpr x) =>
 			firstPointer!(T, Expr)(x.args, cb),
-		(CallOptionExpr* x) =>
-			optOr!T(
-				cb(&x.firstArg.expr),
-				() => firstPointer!(T, Expr)(x.restArgs, cb)),
+		(CallOptionExpr x) =>
+			firstPointer!(T, Expr)(x.allArgs, cb),
 		(ClosureGetExpr x) =>
 			none!T,
 		(ClosureSetExpr x) =>
@@ -4051,28 +4075,28 @@ Opt!T findDirectChildExpr(T)(ref Expr a, in Opt!T delegate(Expr*) @safe @nogc pu
 				() => cb(&x.after)),
 		(MatchEnumExpr* x) =>
 			optOr!T(
-				cb(&x.matched.expr),
+				cb(&x.matched),
 				() => firstPointer!(T, MatchEnumCase)(x.cases, (MatchEnumCase* y) => cb(&y.then)),
 				() => has(x.else_) ? cb(&force(x.else_)) : none!T),
 		(MatchIntegralExpr* x) =>
 			optOr!T(
-				cb(&x.matched.expr),
+				cb(&x.matched),
 				() => firstPointer!(T, MatchIntegralCase)(x.cases, (MatchIntegralCase* y) =>
 					cb(&y.then)),
 				() => cb(&x.else_)),
 		(MatchStringLikeExpr* x) =>
 			optOr!T(
-				cb(&x.matched.expr),
+				cb(&x.matched),
 				() => firstPointer!(T, MatchStringLikeCase)(x.cases, (MatchStringLikeCase* y) =>
 					cb(&y.then)),
 				() => cb(&x.else_)),
 		(MatchSumTypeExpr* x) =>
 			optOr!T(
-				cb(&x.matched.expr),
+				cb(&x.matched),
 				() => directChildInMatchSumTypeCases(x.cases),
 				() => has(x.else_) ? cb(force(x.else_)) : none!T),
 		(RecordFieldPointerExpr* x) =>
-			cb(&x.target.expr),
+			cb(&x.target),
 		(SeqExpr* x) =>
 			optOr!T(cb(&x.first), () => cb(&x.then)),
 		(ThrowExpr* x) =>
