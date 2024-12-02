@@ -664,6 +664,7 @@ immutable string[] specialSymbols = [
 	"candidates",
 	"capabilities",
 	"case-exprs",
+	"case-type",
 	"case-values",
 	"cast-immutable",
 	"catch-cases",

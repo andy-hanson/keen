@@ -3845,7 +3845,7 @@ immutable struct MatchSumTypeCase {
 	Destructure destructure;
 	Expr then;
 
-	StructInst* member() return scope =>
+	StructInst* caseType() return scope =>
 		destructure.type.as!(StructInst*);
 }
 
@@ -3860,10 +3860,10 @@ immutable struct RecordFieldPointerExpr {
 	Range range() scope =>
 		ast.range;
 	StructDecl* recordDecl() scope {
-		StructInst* type = target.typeNotCommon.as!(StructInst*);
-		return isPointerConstOrMut(*type.decl)
-			? pointeeType(*type).as!(StructInst*).decl
-			: type.decl;
+		StructInst* targetType = target.typeNotCommon.as!(StructInst*);
+		return isPointerConstOrMut(*targetType.decl)
+			? pointeeType(*targetType).as!(StructInst*).decl
+			: targetType.decl;
 	}
 	size_t fieldIndex() =>
 		mustHaveIndexOfPointer(recordDecl.body_.as!Record.fields, field);

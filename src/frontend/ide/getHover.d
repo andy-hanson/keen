@@ -779,11 +779,10 @@ void getExprHover(
 			writeMatchHover(writer, ctx, typeContainer, typeDesc, x.sumType);
 		},
 		(in TryExpr x) {
-			// TODO: this could name the type of exception if there's only one --------------------------------------------------------
 			writer ~= "Evaluates the 'try' block, but if it throws ";
 			if (x.catches.length == 1) {
 				writer ~= "a ";
-				writeTypeQuoted(writer, ctx, TypeWithContainer(Type(only(x.catches).member), typeContainer));
+				writeTypeQuoted(writer, ctx, TypeWithContainer(Type(only(x.catches).caseType), typeContainer));
 			} else {
 				writer ~= "an exception matching a 'catch' block";
 			}

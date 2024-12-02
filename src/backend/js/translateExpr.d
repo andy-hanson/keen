@@ -973,12 +973,12 @@ ExprResult translateMatchSumType(
 				Source caseSource = exprSource(ctx, caseAsts[caseIndex].nameRange);
 				JsExpr matchedExpr = genIdentifier(source, matched);
 				JsExpr isMatch = isUnion
-					? genIsUnionMember(ctx.alloc, caseSource, matchedExpr, case_.member)
+					? genIsUnionMember(ctx.alloc, caseSource, matchedExpr, case_.caseType)
 					: genInstanceof(
 							ctx.alloc, caseSource, matchedExpr,
-							translateStructReference(ctx, caseSource, case_.member.decl));
+							translateStructReference(ctx, caseSource, case_.caseType.decl));
 				JsExpr destructured = isUnion
-					? genForceUnionMember(ctx.alloc, source, matchedExpr, case_.member)
+					? genForceUnionMember(ctx.alloc, source, matchedExpr, case_.caseType)
 					: matchedExpr;
 				JsStatement then = translateToStatement(ctx.alloc, source, (scope ExprPos pos) =>
 					translateLetLike(ctx, source, case_.destructure, destructured, case_.then, pos));
@@ -1094,7 +1094,7 @@ ExprResult translateTryLet(
 						ctx.alloc,
 						source,
 						genInstanceof(ctx.alloc, source, genIdentifier(source, exceptionName),
-						translateStructReference(ctx, source, a.catch_.member.decl))));
+						translateStructReference(ctx, source, a.catch_.caseType.decl))));
 				add(ctx.alloc, catchOut, genIf(
 					ctx.alloc, source, cond,
 					genThrow(ctx.alloc, source, genIdentifier(source, exceptionName))));

@@ -1731,7 +1731,7 @@ immutable(StructInst*[]) listMissingUnionCases(
 	buildArray!(immutable StructInst*)(ctx.alloc, (scope ref Builder!(immutable StructInst*) out_) {
 		foreach (SumTypeMemberAndMethodImpls member; body_.listedMembers) {
 			StructInst* memberInst = instantiateStructInst(ctx.instantiateCtx, *member.member, sumType.typeArgs);
-			if (!exists!MatchSumTypeCase(cases, (in MatchSumTypeCase case_) => case_.member == memberInst))
+			if (!exists!MatchSumTypeCase(cases, (in MatchSumTypeCase case_) => case_.caseType == memberInst))
 				out_ ~= memberInst;
 		}
 	});
@@ -1749,11 +1749,11 @@ SmallArray!MatchSumTypeCase checkMatchSumTypeCases(
 				Opt!MatchSumTypeCase res = checkMatchSumTypeCase(
 					ctx, locals, matchedVariant, &caseAst.member, &caseAst.then, expected);
 				if (has(res)) {
-					if (tryAdd(seen, force(res).member))
+					if (tryAdd(seen, force(res).caseType))
 						return res;
 					else {
 						addDiag2(ctx, caseAst.nameRange, Diag(
-							DiagMatchCaseDuplicate(force(res).member.decl.name)));
+							DiagMatchCaseDuplicate(force(res).caseType.decl.name)));
 						return none!MatchSumTypeCase;
 					}
 				} else

@@ -863,7 +863,7 @@ Opt!PositionKind positionAtMatchSumTypeCases(
 Opt!PositionKind positionAtMatchSumTypeCase(ref ExprCtx ctx, MatchSumTypeCase case_, CaseAst ast, Pos pos) =>
 	optOr!PositionKind(
 		optIf(hasPos(ast.keywordAndMemberNameRange, pos), () =>
-			PositionKind(PositionMatchSumTypeCase(ctx.container, case_.member))),
+			PositionKind(PositionMatchSumTypeCase(ctx.container, case_.caseType))),
 		() => positionInMatchCaseDestructure(ctx, case_.destructure, ast.member, pos));
 
 Opt!PositionKind positionInMatchCaseDestructure(
@@ -902,7 +902,7 @@ Opt!PositionKind positionAtTryLet(in ExprCtx ctx, TryLetExpr* a, Pos pos) =>
 			PositionKind(ExpressionPosition(ctx.container, none!Type, ExpressionPositionKind(a)))),
 		() => positionInDestructure(ctx, a.destructure, a.ast.destructure, pos),
 		() => optIf(hasPos(combineRanges(a.ast.catchKeywordRange, a.ast.catchMember.nameRange), pos), () =>
-			PositionKind(PositionMatchSumTypeCase(ctx.container, a.catch_.member))),
+			PositionKind(PositionMatchSumTypeCase(ctx.container, a.catch_.caseType))),
 		() => positionInMatchCaseDestructure(ctx, a.catch_.destructure, a.ast.catchMember, pos));
 
 Opt!PositionKind positionInType(TypeContainer container, Type type, in TypeAst ast, Pos pos) =>

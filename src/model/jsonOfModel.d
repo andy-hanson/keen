@@ -890,7 +890,7 @@ Json jsonOfMatchSumTypeCases(ref Alloc alloc, in Ctx ctx, in MatchSumTypeCase[] 
 
 Json jsonOfMatchSumTypeCase(ref Alloc alloc, in Ctx ctx, in MatchSumTypeCase a) =>
 	jsonObject(alloc, [
-		field!"member"(a.member.decl.name),
+		field!"case-type"(a.caseType.decl.name),
 		field!"destructure"(jsonOfDestructure(alloc, ctx, a.destructure)),
 		field!"then"(jsonOfExpr(alloc, ctx, a.then))]);
 

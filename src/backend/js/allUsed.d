@@ -784,5 +784,5 @@ void trackAllUsedInMatchSumTypeCases(ref AllUsedBuilder res, Uri from, in MatchS
 		trackAllUsedInMatchSumTypeCase(res, from, case_);
 }
 void trackAllUsedInMatchSumTypeCase(ref AllUsedBuilder res, Uri from, in MatchSumTypeCase case_) {
-	trackAllUsedInStruct(res, from, case_.member.decl);
+	trackAllUsedInStruct(res, from, case_.caseType.decl);
 }
