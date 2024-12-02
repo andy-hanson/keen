@@ -3455,11 +3455,9 @@ immutable struct CallOptionExpr {
 
 immutable struct ClosureGetExpr {
 	@safe @nogc pure nothrow:
-	Pos start;
+	Range range;
 	ClosureRef closureRef;
 
-	Range range() scope =>
-		NameAndRange(start, closureRef.name).range;
 	Type type() =>
 		local.type;
 	Local* local() return scope =>
@@ -3668,11 +3666,9 @@ enum StringLikeType { char8Array, char32Array, cString, jsAny, string_, symbol }
 
 immutable struct LocalGetExpr {
 	@safe @nogc pure nothrow:
-	Pos start;
+	Range range;
 	Local* local;
 
-	Range range() scope =>
-		NameAndRange(start, local.name).range;
 	Type type() =>
 		local.type;
 }

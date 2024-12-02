@@ -479,12 +479,12 @@ immutable struct ForAst {
 	Pos colonPos;
 	ExprAst collection;
 	ExprAst body_;
-	ExprAst else_; // May be EmptyAst
+	Opt!(ExprAst*) else_;
 
 	Pos end() scope =>
-		else_.isA!EmptyAst
-			? body_.end
-			: else_.end;
+		has(else_)
+			? force(else_).end
+			: body_.end;
 	Range range() scope =>
 		Range(start, end);
 	Range forKeywordRange() scope =>
@@ -1072,10 +1072,12 @@ immutable struct WithAst {
 	Pos colonPos;
 	ExprAst arg;
 	ExprAst body_;
-	ExprAst else_; // Usually EmptyAst (or else a compile error)
+	Opt!(ExprAst*) else_; // Compile error if present
 
 	Pos end() scope =>
-		else_.isA!EmptyAst ? else_.end : body_.end;
+		has(else_)
+			? force(else_).end
+			: body_.end;
 	Range range() scope =>
 		Range(start, end);
 	Range withKeywordRange() scope =>

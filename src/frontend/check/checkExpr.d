@@ -810,16 +810,16 @@ Expr checkIdentifier(
 	MutOpt!VariableRefAndType res = getIdentifierNonCall(
 		ctx, locals, some(ast.range), ast.name, LocalAccessKind.getOnStack);
 	return has(res)
-		? check(ctx, expected, force(res).type, exprForVariableRef(ast.start, force(res).variableRef))
+		? check(ctx, expected, force(res).type, exprForVariableRef(ast.range, force(res).variableRef))
 		: checkCallIdentifier!checkExpr(ctx, locals, ast, expected);
 }
 
-Expr exprForVariableRef(Pos start, VariableRef a) =>
+Expr exprForVariableRef(Range range, VariableRef a) =>
 	a.matchWithPointers!Expr(
 		(Local* x) =>
-			Expr(LocalGetExpr(start, x)),
+			Expr(LocalGetExpr(range, x)),
 		(ClosureRef x) =>
-			Expr(ClosureGetExpr(start, x)));
+			Expr(ClosureGetExpr(range, x)));
 
 Expr checkAssignIdentifier(
 	ref ExprCtx ctx,
@@ -2226,18 +2226,18 @@ bool hasBreakOrContinue(in ExprAst a) =>
 Expr checkFor(ref ExprCtx ctx, ref LocalsInfo locals, ForAst* ast, ref Expected expected) {
 	Symbol funName = hasBreakOrContinue(ast.body_) ? symbol!"for-break" : symbol!"for-loop";
 	Range keywordRange = ast.forKeywordRange;
-	return ast.else_.isA!EmptyAst
-		? checkCallArgAndLambda!(checkExpr, checkLambda)(
+	return has(ast.else_)
+		? checkCallArgAnd2Lambdas!(checkExpr, checkLambda)(
 			ctx, locals, CallExprSource(ast), LambdaSource(ast), keywordRange, funName,
-			&ast.collection, &ast.param, &ast.body_, expected)
-		: checkCallArgAnd2Lambdas!(checkExpr, checkLambda)(
+			&ast.collection, &ast.param, &ast.body_, force(ast.else_), expected)
+		: checkCallArgAndLambda!(checkExpr, checkLambda)(
 			ctx, locals, CallExprSource(ast), LambdaSource(ast), keywordRange, funName,
-			&ast.collection, &ast.param, &ast.body_, &ast.else_, expected);
+			&ast.collection, &ast.param, &ast.body_, expected);
 }
 
 Expr checkWith(ref ExprCtx ctx, ref LocalsInfo locals, WithAst* ast, ref Expected expected) {
 	Range keywordRange = ast.withKeywordRange;
-	if (!ast.else_.isA!EmptyAst)
+	if (has(ast.else_))
 		addDiag2(ctx, keywordRange, Diag(DiagWithHasElse()));
 	return checkCallArgAndLambda!(checkExpr, checkLambda)(
 		ctx, locals, CallExprSource(ast), LambdaSource(ast), keywordRange, symbol!"with-block",

@@ -487,7 +487,8 @@ Json jsonOfExprAst(ref Alloc alloc, in Ctx ctx, in ExprAst ast) =>
 				field!"param"(jsonOfDestructureAst(alloc, ctx, x.param)),
 				field!"collection"(jsonOfExprAst(alloc, ctx, x.collection)),
 				field!"body"(jsonOfExprAst(alloc, ctx, x.body_)),
-				field!"else"(jsonOfExprAst(alloc, ctx, x.else_))]),
+				optionalField!("else", ExprAst*)(x.else_, (in ExprAst* else_) =>
+					jsonOfExprAst(alloc, ctx, *else_))]),
 		(in NameAndRange a) =>
 			jsonObject(alloc, [
 				kindField!"identifier",
@@ -595,7 +596,9 @@ Json jsonOfExprAst(ref Alloc alloc, in Ctx ctx, in ExprAst ast) =>
 				kindField!"with",
 				field!"param"(jsonOfDestructureAst(alloc, ctx, x.param)),
 				field!"arg"(jsonOfExprAst(alloc, ctx, x.arg)),
-				field!"body"(jsonOfExprAst(alloc, ctx, x.body_))]));
+				field!"body"(jsonOfExprAst(alloc, ctx, x.body_)),
+				optionalField!("else", ExprAst*)(x.else_, (in ExprAst* else_) =>
+					jsonOfExprAst(alloc, ctx, *else_))]));
 
 Json jsonOfConditionAst(ref Alloc alloc, in Ctx ctx, in ConditionAst a) =>
 	a.matchIn!Json(

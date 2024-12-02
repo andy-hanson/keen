@@ -711,13 +711,13 @@ ExprAst parseGuard(ref Lexer lexer, Pos start) {
 ExprAst parseFor(ref Lexer lexer, Pos start, AllowedBlock allowedBlock) =>
 	parseForOrWith(
 		lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.for_,
-		(DestructureAst param, Pos colon, ExprAst col, ExprAst body_, ExprAst else_) =>
+		(DestructureAst param, Pos colon, ExprAst col, ExprAst body_, Opt!(ExprAst*) else_) =>
 			ExprAst(allocate(lexer.alloc, ForAst(start, param, colon, col, body_, else_))));
 
 ExprAst parseWith(ref Lexer lexer, Pos start, AllowedBlock allowedBlock) =>
 	parseForOrWith(
 		lexer, start, allowedBlock, ParseDiagNeedsBlockCtx.with_,
-		(DestructureAst param, Pos colon, ExprAst col, ExprAst body_, ExprAst else_) =>
+		(DestructureAst param, Pos colon, ExprAst col, ExprAst body_, Opt!(ExprAst*) else_) =>
 			ExprAst(allocate(lexer.alloc, WithAst(start, param, colon, col, body_, else_))));
 
 ExprAst parseForOrWith(
@@ -726,7 +726,7 @@ ExprAst parseForOrWith(
 	AllowedBlock allowedBlock,
 	ParseDiagNeedsBlockCtx blockKind,
 	in ExprAst delegate(
-		DestructureAst, Pos colon, ExprAst rhs, ExprAst body_, ExprAst else_,
+		DestructureAst, Pos colon, ExprAst rhs, ExprAst body_, Opt!(ExprAst*) else_,
 	) @safe @nogc pure nothrow cbMakeExpr,
 ) {
 	DestructureAndEndTokenPos paramAndColon = parseForThenOrWithParameter(
@@ -737,7 +737,7 @@ ExprAst parseForOrWith(
 	bool semi = tryTakeToken(lexer, Token.semicolon);
 	if (semi) {
 		ExprAst body_ = parseExprNoBlock(lexer);
-		return cbMakeExpr(param, colon, rhs, body_, emptyAst(lexer));
+		return cbMakeExpr(param, colon, rhs, body_, none!(ExprAst*));
 	} else
 		final switch (allowedBlock) {
 			case AllowedBlock.no:
@@ -745,7 +745,8 @@ ExprAst parseForOrWith(
 			case AllowedBlock.yes:
 				return takeIndentOrFail_Expr(lexer, () {
 					ExprAst body_ = parseStatementsAndDedent(lexer);
-					ExprAst else_ = parseElseOrEmpty(lexer);
+					Opt!(ExprAst*) else_ = optIf(has(tryTakeNewlineThenElse(lexer)), () =>
+						allocate(lexer.alloc, parseIndentedStatements(lexer)));
 					return cbMakeExpr(param, colon, rhs, body_, else_);
 				});
 		}
@@ -755,9 +756,6 @@ Opt!(MatchElseAst*) tryParseElse(ref Lexer lexer) {
 	Opt!Pos pos = tryTakeNewlineThenElse(lexer);
 	return optIf(has(pos), () => allocate(lexer.alloc, MatchElseAst(force(pos), parseIndentedStatements(lexer))));
 }
-
-ExprAst parseElseOrEmpty(ref Lexer lexer) =>
-	has(tryTakeNewlineThenElse(lexer)) ? parseIndentedStatements(lexer) : emptyAst(lexer);
 
 ExprAst parseLoop(ref Lexer lexer, Pos start) =>
 	ExprAst(allocate(lexer.alloc, LoopAst(start, parseIndentedStatements(lexer))));

@@ -586,7 +586,7 @@ void addExprTokens(scope ref Ctx ctx, in ExprAst a) {
 			addDestructureTokens(ctx, x.param);
 			addExprTokens(ctx, x.collection);
 			addExprTokens(ctx, x.body_);
-			addExprTokens(ctx, x.else_);
+			if (has(x.else_)) addExprTokens(ctx, *force(x.else_));
 		},
 		(in NameAndRange x) {
 			reference(ctx.tokens, TokenType.variable, x.range);
@@ -683,6 +683,7 @@ void addExprTokens(scope ref Ctx ctx, in ExprAst a) {
 			addDestructureTokens(ctx, x.param);
 			addExprTokens(ctx, x.arg);
 			addExprTokens(ctx, x.body_);
+			if (has(x.else_)) addExprTokens(ctx, *force(x.else_));
 		});
 }
 
