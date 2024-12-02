@@ -25,6 +25,7 @@ import backend.js.jsAst :
 	genLet,
 	genNot,
 	genNotEqEq,
+	genNumber,
 	genOr,
 	genReturn,
 	genString,
@@ -65,7 +66,8 @@ import backend.js.jsAstUtil :
 	genOptionSome,
 	genThrowBogus,
 	genThrowBogusExpr,
-	genThrowJsError;
+	genThrowJsError,
+	genToFloat32;
 import backend.js.sourceMap : Source;
 import backend.js.translateAutoFun : translateAutoFun;
 import backend.js.translateExprCtx :
@@ -84,8 +86,6 @@ import backend.js.translateExprCtx :
 	TranslateExprCtx,
 	translateFunToExpr,
 	translateCallInline,
-	translateLiteralFloat,
-	translateLiteralIntegral,
 	translateLocalGet,
 	translateStructReference,
 	translateToBlockStatement,
@@ -127,6 +127,7 @@ import model.model :
 	ExternExpr,
 	ExternType,
 	FinallyExpr,
+	FloatType,
 	FunBodyFileImport,
 	FunDecl,
 	FunInst,
@@ -779,6 +780,21 @@ ExprResult translateLetLikeCb(
 				some(allocate(ctx.alloc, value))));
 		return cb(out_, inner);
 	});
+
+JsExpr translateLiteralFloat(ref TranslateExprCtx ctx, in Source source, in LiteralFloatExpr a) {
+	JsExpr num = genNumber(source, a.value);
+	final switch (a.floatType) {
+		case FloatType.float32:
+			return genToFloat32(ctx.alloc, source, num);
+		case FloatType.float64:
+			return num;
+	}
+}
+
+JsExpr translateLiteralIntegral(ref TranslateExprCtx ctx, in Source source, in LiteralIntegralExpr a) =>
+	a.isSigned
+		? genIntegerSigned(source, a.value.asSigned)
+		: genIntegerUnsigned(source, a.value.asUnsigned);
 
 JsExpr translateLiteralStringLike(ref TranslateExprCtx ctx, in Source source, ref LiteralStringLikeExpr a) {
 	final switch (a.stringType) {

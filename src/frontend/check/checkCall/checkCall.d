@@ -68,7 +68,6 @@ import model.model :
 	TypeContainer,
 	Varargs;
 import model.sourceRange : Range;
-import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array :
 	arraysCorrespond,
@@ -81,7 +80,6 @@ import util.col.array :
 	filterUnorderedButDontRemoveAll,
 	isEmpty,
 	map,
-	mapZip,
 	newArray,
 	newSmallArray,
 	only,
@@ -91,7 +89,6 @@ import util.col.array :
 import util.col.arrayBuilder : Builder, buildSmallArray, finish;
 import util.col.exactSizeArrayBuilder :
 	ExactSizeArrayBuilder, newExactSizeArrayBuilder, finishAllowSmaller, smallFinish;
-import util.late : Late, late, lateGet, lateSet;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt, optIf, some, some;
 import util.perf : endMeasure, PerfMeasure, PerfMeasurer, pauseMeasure, resumeMeasure, startMeasure;

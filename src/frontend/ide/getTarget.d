@@ -28,6 +28,7 @@ import frontend.ide.position :
 	typeContainerFor,
 	TypeParamWithContainer;
 import model.model :
+	AssertOrForbidExpr,
 	AutoFun,
 	BogusCallExpr,
 	BogusType,
@@ -57,10 +58,17 @@ import model.model :
 	FunBodyMethod,
 	FunInst,
 	FunPointerExpr,
+	IfExpr,
+	LambdaExpr,
 	Local,
 	LoopExpr,
 	LoopBreakExpr,
 	LoopContinueExpr,
+	LoopWhileOrUntilExpr,
+	MatchEnumExpr,
+	MatchIntegralExpr,
+	MatchStringLikeExpr,
+	MatchSumTypeExpr,
 	Module,
 	mustUnwrapOptionType,
 	RecordField,
@@ -75,6 +83,8 @@ import model.model :
 	StructInst,
 	SumTypeMemberGet,
 	Test,
+	TryExpr,
+	TryLetExpr,
 	TypeParamIndex,
 	TypeWithContainer,
 	VarDecl,
@@ -197,6 +207,8 @@ private:
 
 Opt!Target exprTarget(ExpressionPosition a) =>
 	a.kind.matchWithPointers!(Opt!Target)(
+		(AssertOrForbidExpr* _) =>
+			none!Target,
 		(BogusCallExpr* x) =>
 			optIf(x.candidates.length == 1, () =>
 				calledDeclTarget(only(x.candidates))),
@@ -210,7 +222,11 @@ Opt!Target exprTarget(ExpressionPosition a) =>
 			none!Target,
 		(FunPointerExpr* x) =>
 			calledTarget(x.called),
+		(IfExpr* _) =>
+			none!Target,
 		(ExpressionPositionLiteral _) =>
+			none!Target,
+		(LambdaExpr* _) =>
 			none!Target,
 		(LocalRef x) =>
 			some(Target(PositionLocal(a.container.toLocalContainer, x.local))),
@@ -219,7 +235,21 @@ Opt!Target exprTarget(ExpressionPosition a) =>
 		(LoopBreakExpr* x) =>
 			some(Target(Target.Loop(a.container, x.loop))),
 		(LoopContinueExpr* x) =>
-			some(Target(Target.Loop(a.container, x.loop))));
+			some(Target(Target.Loop(a.container, x.loop))),
+		(LoopWhileOrUntilExpr* _) =>
+			none!Target,
+		(MatchEnumExpr* _) =>
+			none!Target,
+		(MatchIntegralExpr* _) =>
+			none!Target,
+		(MatchStringLikeExpr* _) =>
+			none!Target,
+		(MatchSumTypeExpr* _) =>
+			none!Target,
+		(TryExpr* _) =>
+			none!Target,
+		(TryLetExpr* _) =>
+			none!Target);
 
 Target calledDeclTarget(ref CalledDecl a) =>
 	a.matchWithPointers!Target(

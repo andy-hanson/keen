@@ -51,7 +51,6 @@ import model.ast :
 	LambdaAst,
 	LetAst,
 	LiteralFloatAndRange,
-	LiteralIntegral,
 	LiteralIntegralAndRange,
 	LiteralStringAst,
 	LoopAst,

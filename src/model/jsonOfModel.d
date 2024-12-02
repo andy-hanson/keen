@@ -3,7 +3,6 @@ module model.jsonOfModel;
 @safe @nogc pure nothrow:
 
 import model.ast : ImportOrExportAst, NameAndRange;
-import model.integralValues : IntegralValue;
 import model.model :
 	AnyDecl,
 	AssertOrForbidExpr,

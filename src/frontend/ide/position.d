@@ -6,6 +6,7 @@ import model.ast : ModifierKeyword, NameAndRange;
 import model.integralValues : IntegralValue;
 import model.model :
 	AnyDecl,
+	AssertOrForbidExpr,
 	asTypeContainer,
 	BogusCallExpr,
 	CallExpr,
@@ -15,15 +16,21 @@ import model.model :
 	DocCommentReference,
 	emptySpecs,
 	EnumOrFlagsMember,
-	Expr,
 	ExternExpr,
 	FunDecl,
 	FunPointerExpr,
+	IfExpr,
 	ImportOrExport,
+	LambdaExpr,
 	Local,
 	LoopExpr,
 	LoopBreakExpr,
 	LoopContinueExpr,
+	LoopWhileOrUntilExpr,
+	MatchEnumExpr,
+	MatchIntegralExpr,
+	MatchStringLikeExpr,
+	MatchSumTypeExpr,
 	Module,
 	NameReferents,
 	RecordField,
@@ -37,6 +44,9 @@ import model.model :
 	StructInst,
 	Test,
 	toTypeContainer,
+	TryExpr,
+	TryLetExpr,
+	Type,
 	TypeContainer,
 	TypeParamIndex,
 	TypeWithContainer,
@@ -307,25 +317,35 @@ immutable struct PositionVisibilityMark {
 
 immutable struct ExpressionPosition {
 	ExprContainer container;
-	Expr* expr; // TODO: is this needed? ---------------------------------------------------------------------------------------
+	Opt!Type type;
 	ExpressionPositionKind kind;
 }
 
 immutable struct ExpressionPositionKind {
 	mixin Union!(
+		AssertOrForbidExpr*,
 		BogusCallExpr*,
 		CallExpr*,
 		CallOptionExpr*,
 		ExprKeyword,
 		ExternExpr*,
 		FunPointerExpr*,
+		IfExpr*,
 		ExpressionPositionLiteral,
+		LambdaExpr*,
 		LocalRef,
 		LoopExpr*,
 		LoopBreakExpr*,
-		LoopContinueExpr*);
+		LoopContinueExpr*,
+		LoopWhileOrUntilExpr*,
+		MatchEnumExpr*,
+		MatchIntegralExpr*,
+		MatchStringLikeExpr*,
+		MatchSumTypeExpr*,
+		TryExpr*,
+		TryLetExpr*);
 }
-immutable struct ExpressionPositionLiteral {} // Why not just point to the expr? ---------------------------------------------------
+immutable struct ExpressionPositionLiteral {}
 immutable struct LocalRef {
 	LocalRefKind kind;
 	Local* local;
@@ -334,9 +354,9 @@ enum LocalRefKind { get, set, closureGet, closureSet, pointer }
 
 enum ExprKeyword {
 	ampersand,
-	assert_,
 	colonColon,
-	colonInAssertOrForbid,
+	colonAfterAssert,
+	colonAfterForbid,
 	colonInFor,
 	colonInIf,
 	colonInWith,
@@ -344,15 +364,8 @@ enum ExprKeyword {
 	elseAfterIf,
 	elseAfterMatch,
 	finally_,
-	forbid,
-	guardIfOrUnless,
-	lambdaArrow,
-	match,
 	questionDotOrSubscript,
 	questionEquals,
 	throw_,
 	trusted,
-	try_,
-	until,
-	while_,
 }

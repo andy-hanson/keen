@@ -9,7 +9,6 @@ import model.ast :
 	AssignmentCallAst,
 	CallAst,
 	CallNamedAst,
-	CaseAst,
 	CaseMemberAst,
 	DestructureAst,
 	DocCommentAst,
@@ -65,7 +64,6 @@ import util.col.array :
 	exists,
 	first,
 	firstPointer,
-	firstZipPointerFirst,
 	fold,
 	isEmpty,
 	mustFindPointer,
@@ -1886,17 +1884,6 @@ immutable struct CalledBogus {
 	Type returnType;
 	Type[] paramTypes;
 }
-
-Type paramTypeAt(in Called a, size_t argIndex) scope =>
-	a.matchIn!Type(
-		(in CalledBogus x) =>
-			a.isVariadic ? only(x.paramTypes) : x.paramTypes[argIndex],
-		(in FunInst x) =>
-			a.isVariadic ? arrayElementType(only(x.paramTypes)) : x.paramTypes[argIndex],
-		(in CalledSpecSig x) {
-			assert(!a.isVariadic);
-			return x.paramTypes[argIndex];
-		});
 
 immutable struct StructOrAlias {
 	@safe @nogc pure nothrow:
@@ -3818,7 +3805,7 @@ immutable struct MatchStringLikeExpr {
 		ast.range;
 	Type type(ref CommonTypes commonTypes) =>
 		else_.type(commonTypes);
-	StructInst* matchedType() =>
+	StructInst* matchedType() return scope =>
 		matched.typeNotCommon.as!(StructInst*);
 }
 immutable struct MatchStringLikeCase {

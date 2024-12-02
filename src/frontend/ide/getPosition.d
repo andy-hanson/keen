@@ -181,7 +181,6 @@ import model.model :
 	VarDecl;
 import model.sourceRange : combineRanges, Pos, Range;
 import util.col.array : findIndex, first, firstPointer, firstZip, firstZipIfSizeEq, firstZipPointerFirst, isEmpty;
-import util.col.stackMap : StackMap, stackMapAdd, stackMapMustGet, withStackMap;
 import util.conv : safeToUint;
 import util.opt : force, has, none, Opt, optIf, optOr, optOr, optOrDefault, some;
 import util.util : enumConvert;
@@ -597,7 +596,7 @@ Opt!PositionKind positionInExprChild(ref ExprCtx ctx, ref Expr a, Pos pos, GetPo
 
 Opt!PositionKind positionAtExpr(ref ExprCtx ctx, Expr* a, Pos pos, GetPositionKind posKind) {
 	PositionKind expressionPosition(ExpressionPositionKind x) =>
-		PositionKind(ExpressionPosition(ctx.container, a, x));
+		PositionKind(ExpressionPosition(ctx.container, some(a.type(ctx.commonTypes)), x));
 	Opt!PositionKind inDestructure(in Destructure x, in DestructureAst y) =>
 		positionInDestructure(ctx, x, y, pos);
 	PositionKind keyword(ExprKeyword k) =>
@@ -621,10 +620,12 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, Expr* a, Pos pos, GetPositionKi
 	return a.matchWithPointers!(Opt!PositionKind)(
 		(AssertOrForbidExpr* x) =>
 			optOr!PositionKind(
-				keywordAt(x.ast.keywordRange, x.isForbid ? ExprKeyword.forbid : ExprKeyword.assert_),
-				() => positionAtCondition(ctx, x.condition, a, x.ast.condition, pos),
+				optIf(hasPos(x.ast.keywordRange, pos), () => expressionPosition(ExpressionPositionKind(x))),
+				() => positionAtCondition(ctx, x.condition, x.ast.condition, pos),
 				() => has(x.ast.thrown)
-					? keywordAt(force(x.ast.thrown).colonRange, ExprKeyword.colonInAssertOrForbid)
+					? keywordAt(
+						force(x.ast.thrown).colonRange,
+						x.isForbid ? ExprKeyword.colonAfterForbid : ExprKeyword.colonAfterAssert)
 					: none!PositionKind),
 		(BogusCallExpr* x) =>
 			call(x.ast, ExpressionPositionKind(x)),
@@ -652,8 +653,8 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, Expr* a, Pos pos, GetPositionKi
 			some(expressionPosition(ExpressionPositionKind(&a.as!FunPointerExpr()))),
 		(IfExpr* x) =>
 			optOr!PositionKind(
-				keywordAt(x.ast.firstKeywordRange, ExprKeyword.guardIfOrUnless),
-				() => positionAtCondition(ctx, x.condition, a, x.ast.condition, pos),
+				optIf(hasPos(x.ast.firstKeywordRange, pos), () => expressionPosition(ExpressionPositionKind(x))),
+				() => positionAtCondition(ctx, x.condition, x.ast.condition, pos),
 				() => has(x.ast.secondKeywordRange)
 					? keywordAt(force(x.ast.secondKeywordRange), ifSecondKeyword(x.ast.kind))
 					: none!PositionKind),
@@ -665,9 +666,9 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, Expr* a, Pos pos, GetPositionKi
 						x.isIgnore ? none!PositionKind : inDestructure(x.param, ast.param),
 						() => keywordAt(ast.colonRange, ExprKeyword.colonInFor)),
 				(in LambdaAst ast) =>
-					optOr!PositionKind(
-						keywordAt(ast.arrowRange, ExprKeyword.lambdaArrow),
-						() => inDestructure(x.param, ast.param)),
+					hasPos(ast.arrowRange, pos)
+						? some(expressionPosition(ExpressionPositionKind(x)))
+						: inDestructure(x.param, ast.param),
 				(in WithAst ast) =>
 					// 'with' keyword is handled in the CallExpr
 					optOr!PositionKind(
@@ -700,19 +701,17 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, Expr* a, Pos pos, GetPositionKi
 			optIf(hasPos(x.ast.keywordRange, pos), () =>
 				expressionPosition(ExpressionPositionKind(&a.as!LoopContinueExpr()))),
 		(LoopWhileOrUntilExpr* x) =>
-			optOr!PositionKind(
-				keywordAt(
-					x.ast.keywordRange,
-					x.isUntil ? ExprKeyword.until : ExprKeyword.while_),
-				() => positionAtCondition(ctx, x.condition, a, x.ast.condition, pos)),
+			hasPos(x.ast.keywordRange, pos)
+				? some(expressionPosition(ExpressionPositionKind(x)))
+				: positionAtCondition(ctx, x.condition, x.ast.condition, pos),
 		(MatchEnumExpr* x) =>
-			positionAtMatchEnum(ctx, a, *x, pos),
+			positionAtMatchEnum(ctx, x, pos),
 		(MatchIntegralExpr* x) =>
-			positionAtMatchIntegral(ctx, a, *x, pos),
+			positionAtMatchIntegral(ctx, x, pos),
 		(MatchStringLikeExpr* x) =>
-			positionAtMatchStringLike(ctx, a, *x, pos),
+			positionAtMatchStringLike(ctx, x, pos),
 		(MatchSumTypeExpr* x) =>
-			positionAtMatchSumType(ctx, a, *x, pos),
+			positionAtMatchSumType(ctx, x, pos),
 		(RecordFieldPointerExpr* x) =>
 			keywordAt(x.ast.keywordRange, ExprKeyword.ampersand),
 		(SeqExpr* x) =>
@@ -722,9 +721,9 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, Expr* a, Pos pos, GetPositionKi
 		(TrustedExpr* x) =>
 			keywordAt(x.ast.keywordRange, ExprKeyword.trusted),
 		(TryExpr* x) =>
-			positionAtTry(ctx, a, *x, pos),
+			positionAtTry(ctx, x, pos),
 		(TryLetExpr* x) =>
-			positionAtTryLet(ctx, a, *x, pos),
+			positionAtTryLet(ctx, x, pos),
 		(TypedExpr* x) =>
 			optOr!PositionKind(
 				keywordAt(x.ast.keywordRange, ExprKeyword.colonColon),
@@ -748,13 +747,7 @@ ExprKeyword ifSecondKeyword(IfAstKind kind) {
 	}
 }
 
-Opt!PositionKind positionAtCondition(
-	in ExprCtx ctx,
-	in Condition condition,
-	Expr* source,
-	in ConditionAst ast,
-	Pos pos,
-) =>
+Opt!PositionKind positionAtCondition(in ExprCtx ctx, in Condition condition, in ConditionAst ast, Pos pos) =>
 	condition.matchIn!(Opt!PositionKind)(
 		(in Expr _) =>
 			none!PositionKind,
@@ -763,8 +756,10 @@ Opt!PositionKind positionAtCondition(
 			return optOr!PositionKind(
 				positionInDestructure(ctx, x.destructure, unpackAst.destructure, pos),
 				() => optIf(hasPos(unpackAst.questionEqualsRange, pos), () =>
-					PositionKind(ExpressionPosition(ctx.container, source, ExpressionPositionKind(
-						ExprKeyword.questionEquals)))));
+					PositionKind(ExpressionPosition(
+						ctx.container,
+						none!Type,
+						ExpressionPositionKind(ExprKeyword.questionEquals)))));
 		});
 
 bool posIsAtCall(in CallExprSource a, Pos pos) =>
@@ -820,27 +815,27 @@ Range rangeForPosIsAtCall(in CallAst ast) {
 	}
 }
 
-Opt!PositionKind positionAtMatchEnum(in ExprCtx ctx, Expr* expr, ref MatchEnumExpr a, Pos pos) =>
+Opt!PositionKind positionAtMatchEnum(in ExprCtx ctx, MatchEnumExpr* a, Pos pos) =>
 	optOr!PositionKind(
-		positionAtMatchKeyword(ctx, expr, *a.ast, pos),
+		positionAtMatchKeyword(ctx, ExpressionPositionKind(a), a.type(ctx.commonTypes), *a.ast, pos),
 		() => firstZipIfSizeEq!(PositionKind, MatchEnumCase, CaseAst)(
 			a.cases, a.ast.cases,
 			(MatchEnumCase case_, CaseAst caseAst) =>
 				optIf(hasPos(caseAst.keywordAndMemberNameRange, pos), () =>
 					PositionKind(PositionMatchEnumCase(case_.member)))));
 
-Opt!PositionKind positionAtMatchIntegral(in ExprCtx ctx, Expr* expr, ref MatchIntegralExpr a, Pos pos) =>
+Opt!PositionKind positionAtMatchIntegral(in ExprCtx ctx, MatchIntegralExpr* a, Pos pos) =>
 	optOr!PositionKind(
-		positionAtMatchKeyword(ctx, expr, *a.ast, pos),
+		positionAtMatchKeyword(ctx, ExpressionPositionKind(a), a.type(ctx.commonTypes), *a.ast, pos),
 		() => firstZipIfSizeEq!(PositionKind, MatchIntegralCase, CaseAst)(
 			a.cases, a.ast.cases,
 			(MatchIntegralCase case_, CaseAst caseAst) =>
 				optIf(hasPos(caseAst.keywordAndMemberNameRange, pos), () =>
 					PositionKind(PositionMatchIntegralCase(a.integralType, case_.value)))));
 
-Opt!PositionKind positionAtMatchStringLike(in ExprCtx ctx, Expr* expr, ref MatchStringLikeExpr a, Pos pos) =>
+Opt!PositionKind positionAtMatchStringLike(in ExprCtx ctx, MatchStringLikeExpr* a, Pos pos) =>
 	optOr!PositionKind(
-		positionAtMatchKeyword(ctx, expr, *a.ast, pos),
+		positionAtMatchKeyword(ctx, ExpressionPositionKind(a), a.type(ctx.commonTypes), *a.ast, pos),
 		() => firstZipIfSizeEq!(PositionKind, MatchStringLikeCase, CaseAst)(
 			a.cases, a.ast.cases,
 			(MatchStringLikeCase case_, CaseAst caseAst) =>
@@ -849,9 +844,9 @@ Opt!PositionKind positionAtMatchStringLike(in ExprCtx ctx, Expr* expr, ref Match
 						TypeWithContainer(Type(a.matchedType), ctx.container.toTypeContainer),
 						case_.value)))));
 
-Opt!PositionKind positionAtMatchSumType(ref ExprCtx ctx, Expr* expr, ref MatchSumTypeExpr a, Pos pos) =>
+Opt!PositionKind positionAtMatchSumType(ref ExprCtx ctx, MatchSumTypeExpr* a, Pos pos) =>
 	optOr!PositionKind(
-		positionAtMatchKeyword(ctx, expr, *a.ast, pos),
+		positionAtMatchKeyword(ctx, ExpressionPositionKind(a), a.type(ctx.commonTypes), *a.ast, pos),
 		() => positionAtMatchSumTypeCases(ctx, a.cases, a.ast.cases, pos));
 
 Opt!PositionKind positionAtMatchSumTypeCases(
@@ -881,23 +876,30 @@ Opt!PositionKind positionInMatchCaseDestructure(
 		? positionInDestructure(ctx, destructure, force(ast.as!AsNameAst.destructure), pos)
 		: none!PositionKind;
 
-Opt!PositionKind positionAtMatchKeyword(in ExprCtx ctx, Expr* matchExpr, in MatchAst ast, Pos pos) =>
+Opt!PositionKind positionAtMatchKeyword(
+	in ExprCtx ctx,
+	ExpressionPositionKind kind,
+	Type type,
+	in MatchAst ast,
+	Pos pos,
+) =>
 	optOr!PositionKind(
 		optIf(hasPos(ast.keywordRange, pos), () =>
-			PositionKind(ExpressionPosition(ctx.container, matchExpr, ExpressionPositionKind(ExprKeyword.match)))),
+			PositionKind(ExpressionPosition(ctx.container, some(type), kind))),
 		() => optIf(has(ast.else_) && hasPos(force(ast.else_).keywordRange, pos), () =>
-			PositionKind(ExpressionPosition(ctx.container, matchExpr, ExpressionPositionKind(ExprKeyword.elseAfterMatch)))));
+			PositionKind(ExpressionPosition(
+				ctx.container, some(type), ExpressionPositionKind(ExprKeyword.elseAfterMatch)))));
 
-Opt!PositionKind positionAtTry(in ExprCtx ctx, Expr* expr, ref TryExpr a, Pos pos) =>
+Opt!PositionKind positionAtTry(in ExprCtx ctx, TryExpr* a, Pos pos) =>
 	optOr!PositionKind(
 		optIf(hasPos(a.ast.tryKeywordRange, pos), () =>
-			PositionKind(ExpressionPosition(ctx.container, expr, ExpressionPositionKind(ExprKeyword.try_)))),
+			PositionKind(ExpressionPosition(ctx.container, some(a.type(ctx.commonTypes)), ExpressionPositionKind(a)))),
 		() => positionAtMatchSumTypeCases(ctx, a.catches, a.ast.catches, pos));
 
-Opt!PositionKind positionAtTryLet(in ExprCtx ctx, Expr* expr, ref TryLetExpr a, Pos pos) =>
+Opt!PositionKind positionAtTryLet(in ExprCtx ctx, TryLetExpr* a, Pos pos) =>
 	optOr!PositionKind(
 		optIf(hasPos(a.ast.tryKeywordRange, pos), () =>
-			PositionKind(ExpressionPosition(ctx.container, expr, ExpressionPositionKind(ExprKeyword.try_)))),
+			PositionKind(ExpressionPosition(ctx.container, none!Type, ExpressionPositionKind(a)))),
 		() => positionInDestructure(ctx, a.destructure, a.ast.destructure, pos),
 		() => optIf(hasPos(combineRanges(a.ast.catchKeywordRange, a.ast.catchMember.nameRange), pos), () =>
 			PositionKind(PositionMatchSumTypeCase(ctx.container, a.catch_.member))),

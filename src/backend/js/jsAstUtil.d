@@ -7,6 +7,7 @@ import backend.js.jsAst :
 	genArrowFunction,
 	genBlockStatement,
 	genCall,
+	genCallPropertySync,
 	genGlobal,
 	genIf,
 	genIn,
@@ -30,7 +31,7 @@ import model.model : EnumOrFlagsMember, isSigned, StructInst, SumTypeMemberAndMe
 import util.alloc.alloc : Alloc;
 import util.col.array : foldReverseWithIndex;
 import util.memory : allocate;
-import util.symbol : symbol;
+import util.symbol : Symbol, symbol;
 
 JsExpr genIife(ref Alloc alloc, in Source source, SyncOrAsync async, JsBlockStatement body_) =>
 	genCall(
@@ -83,3 +84,9 @@ JsExpr genOptionNone(in Source source) =>
 
 JsExpr genEnumIntegralValue(in Source source, ref EnumOrFlagsMember member) =>
 	genInteger(source, isSigned(member.storage), member.value);
+
+JsExpr genCallMath(ref Alloc alloc, in Source source, Symbol name, in JsExpr[] args) =>
+	genCallPropertySync(alloc, source, genGlobal(source, symbol!"Math"), JsMemberName.noPrefix(name), args);
+
+JsExpr genToFloat32(ref Alloc alloc, in Source source, JsExpr arg) =>
+	genCallMath(alloc, source, symbol!"fround", [arg]);

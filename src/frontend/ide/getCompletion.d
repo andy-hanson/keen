@@ -4,26 +4,17 @@ module frontend.ide.getCompletion;
 
 import document.document : docCommentString;
 import frontend.check.inferringType : isTypeMatchPossibleForCompletions;
-import frontend.ide.position :
-	ExprContainer, ExpressionPosition, ExpressionPositionLiteral, ExprKeyword, Position, LocalRef;
+import frontend.ide.position : ExprContainer, ExpressionPosition, Position, LocalRef;
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : CompletionItem, CompletionList;
 import model.model :
-	BogusCallExpr,
 	CalledDecl,
 	CalledSpecSig,
-	CallExpr,
-	CallOptionExpr,
 	Destructure,
 	eachCalledSpecSig,
 	eachImportOrReExport,
-	ExternExpr,
 	FunDecl,
-	FunPointerExpr,
 	ImportOrExport,
-	LoopExpr,
-	LoopBreakExpr,
-	LoopContinueExpr,
 	Module,
 	NameReferents,
 	SpecInst,
@@ -52,29 +43,9 @@ Opt!CompletionList completionAtExpressionPosition(
 	in Module* module_,
 	in ExpressionPosition a,
 ) =>
-	a.kind.matchIn!(Opt!CompletionList)(
-		(in BogusCallExpr _) =>
-			none!CompletionList,
-		(in CallExpr _) =>
-			none!CompletionList,
-		(in CallOptionExpr _) =>
-			none!CompletionList,
-		(in ExprKeyword _) =>
-			none!CompletionList,
-		(in ExternExpr _) =>
-			none!CompletionList,
-		(in FunPointerExpr x) =>
-			none!CompletionList,
-		(in ExpressionPositionLiteral _) =>
-			none!CompletionList,
-		(in LocalRef x) =>
-			completionAfterType(alloc, showCtx, module_, a.container, x.local.type),
-		(in LoopExpr _) =>
-			none!CompletionList,
-		(in LoopBreakExpr _) =>
-			none!CompletionList,
-		(in LoopContinueExpr _) =>
-			none!CompletionList);
+	a.kind.isA!LocalRef
+		? completionAfterType(alloc, showCtx, module_, a.container, a.kind.as!LocalRef.local.type)
+		: none!CompletionList;
 
 Opt!CompletionList completionAfterType(
 	ref Alloc alloc,

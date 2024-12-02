@@ -104,7 +104,6 @@ private Opt!Type tryGetInferred(const TypeContext a, TypeParamIndex param) {
 }
 
 struct LoopInfo {
-	immutable Type voidType; // used? -=------------------------------------------------------------------------------------------------
 	immutable LoopExpr* loop;
 	immutable Type type;
 	bool hasBreak;
@@ -333,7 +332,7 @@ If there is no unambiguous choice, adds a diagnostic and returns 'none'.
 */
 Opt!size_t findExpectedStructForLiteral(
 	ref ExprCtx ctx,
-	ExprAst* source, // TODO: just take 'range' ---------------------------------------------------------------------------------------
+	Range range,
 	ref const Expected expected,
 	in immutable StructInst*[] choices,
 ) {
@@ -379,10 +378,10 @@ Opt!size_t findExpectedStructForLiteral(
 	});
 
 	if (ambiguous || !has(cellGet(rslt))) {
-		addDiag2(ctx, source, Diag(DiagLiteralNotExpected(getExpectedForDiag(ctx, expected))));
+		addDiag2(ctx, range, Diag(DiagLiteralNotExpected(getExpectedForDiag(ctx, expected))));
 		return none!size_t;
 	} else if (!arrayBuilderIsEmpty(multiple)) {
-		addDiag2(ctx, source, Diag(DiagLiteralMultipleMatch(ctx.typeContainer, finish(ctx.alloc, multiple))));
+		addDiag2(ctx, range, Diag(DiagLiteralMultipleMatch(ctx.typeContainer, finish(ctx.alloc, multiple))));
 		return none!size_t;
 	} else
 		return cellGet(rslt);

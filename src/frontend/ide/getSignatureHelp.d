@@ -3,25 +3,11 @@ module frontend.ide.getSignatureHelp;
 @safe @nogc pure nothrow:
 
 import document.document : docCommentString;
-import frontend.ide.position : ExpressionPosition, ExpressionPositionLiteral, ExprKeyword, LocalRef, Position;
+import frontend.ide.position : ExpressionPosition, Position;
 import frontend.showModel : ShowTypeCtx, writeCalledDecl, WriteKind;
 import lib.lsp.lspTypes : ParameterInformation, SignatureHelp, SignatureInformation;
 import model.ast : CallAst;
-import model.model :
-	ArityVarargs,
-	BogusCallExpr,
-	CalledDecl,
-	CalledSpecSig,
-	CallExpr,
-	CallExprSource,
-	CallOptionExpr,
-	ExternExpr,
-	FunDecl,
-	FunPointerExpr,
-	LoopExpr,
-	LoopBreakExpr,
-	LoopContinueExpr,
-	TypeContainer;
+import model.model : ArityVarargs, BogusCallExpr, CalledDecl, CalledSpecSig, CallExprSource, FunDecl, TypeContainer;
 import model.sourceRange : Range;
 import util.alloc.alloc : Alloc;
 import util.col.array : map;
@@ -39,35 +25,14 @@ Opt!SignatureHelp getSignatureHelpForPosition(ref Alloc alloc, in ShowTypeCtx sh
 private:
 
 Opt!SignatureHelp signatureHelpAtExpressionPosition(ref Alloc alloc, in ShowTypeCtx showCtx, in ExpressionPosition a) =>
-	a.kind.matchIn!(Opt!SignatureHelp)(
-		(in BogusCallExpr x) =>
-			some(signatureHelpAtBogusCall(alloc, showCtx, a.container.toTypeContainer, a, x)),
-		(in CallExpr x) =>
-			none!SignatureHelp,
-		(in CallOptionExpr x) =>
-			none!SignatureHelp,
-		(in ExprKeyword x) =>
-			none!SignatureHelp,
-		(in ExternExpr _) =>
-			none!SignatureHelp,
-		(in FunPointerExpr x) =>
-			none!SignatureHelp,
-		(in ExpressionPositionLiteral _) =>
-			none!SignatureHelp,
-		(in LocalRef _) =>
-			none!SignatureHelp,
-		(in LoopExpr _) =>
-			none!SignatureHelp,
-		(in LoopBreakExpr _) =>
-			none!SignatureHelp,
-		(in LoopContinueExpr _) =>
-			none!SignatureHelp);
+	a.kind.isA!(BogusCallExpr*)
+		? some(signatureHelpAtBogusCall(alloc, showCtx, a.container.toTypeContainer, *a.kind.as!(BogusCallExpr*)))
+		: none!SignatureHelp;
 
 SignatureHelp signatureHelpAtBogusCall(
 	ref Alloc alloc,
 	in ShowTypeCtx showCtx,
 	in TypeContainer outerTypeContainer,
-	in ExpressionPosition expr,
 	in BogusCallExpr a,
 ) {
 	Opt!uint activeParameter = activeParameter(a.ast);

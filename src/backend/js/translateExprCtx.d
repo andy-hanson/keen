@@ -25,8 +25,6 @@ import backend.js.jsAst :
 	genGlobal,
 	genIdentifier,
 	genInstanceof,
-	genIntegerSigned,
-	genIntegerUnsigned,
 	genNew,
 	genNot,
 	genNull,
@@ -52,6 +50,7 @@ import backend.js.jsAst :
 	JsUnaryKind,
 	SyncOrAsync;
 import backend.js.jsAstUtil :
+	genCallMath,
 	genForceUnionMember,
 	genIife,
 	genIsUnionMember,
@@ -60,7 +59,8 @@ import backend.js.jsAstUtil :
 	genOptionNone,
 	genOptionSome,
 	genThrowBogus,
-	genThrowBogusExpr;
+	genThrowBogusExpr,
+	genToFloat32;
 import backend.js.sourceMap : Source;
 import backend.js.translateModuleCtx :
 	localName,
@@ -69,7 +69,6 @@ import backend.js.translateModuleCtx :
 	translateStructReference,
 	translateTestReference,
 	translateVarReference;
-import model.integralValues : IntegralValue;
 import model.model :
 	AutoFun,
 	Builtin4ary,
@@ -110,7 +109,6 @@ import model.model :
 	EnumOrFlagsMember,
 	Expr,
 	FlagsFunction,
-	FloatType,
 	FunBodyBogus,
 	FunBodyExtern,
 	FunBodyFileImport,
@@ -118,12 +116,8 @@ import model.model :
 	FunDecl,
 	FunInst,
 	FunKind,
-	IntegralType,
-	isSigned,
 	isVoid,
 	JsFun,
-	LiteralFloatExpr,
-	LiteralIntegralExpr,
 	Local,
 	mustUnwrapOptionType,
 	RecordField,
@@ -148,11 +142,10 @@ import util.col.array : emptySmallArray, isEmpty, makeArray, map, newArray, only
 import util.col.arrayBuilder : add, ArrayBuilder, buildArray, Builder, finish;
 import util.conv : safeToUshort;
 import util.memory : allocate;
-import util.opt : force, has, none, Opt, some;
+import util.opt : force, none, some;
 import util.symbol : Symbol, symbol;
 import util.union_ : TaggedUnion, Union;
 import util.uri : Uri;
-import util.util : optEnumConvert;
 import versionInfo : isVersion, VersionFun;
 
 struct TranslateExprCtx {
@@ -232,7 +225,7 @@ ExprResult forceExpr(ref Alloc alloc, scope ExprPos pos, Type type, JsExpr expr)
 		(ExprPos.ExpressionOrBlockStatement) =>
 			ExprResult(expr),
 		(ref ExprPos.Statements x) {
-			add(alloc, x.statements, isVoid(type) ? exprStatement(expr) : genReturn(alloc, expr.source, expr)); // TODO: could we use separate pos for last and non-last statements?
+			add(alloc, x.statements, isVoid(type) ? exprStatement(expr) : genReturn(alloc, expr.source, expr));
 			return ExprResult.done;
 		});
 ExprResult forceStatements(ref TranslateExprCtx ctx, in Source source, scope ExprPos pos, in StatementsCb cb) =>
@@ -642,21 +635,6 @@ private ExprResult translateCallBuiltin(
 		});
 }
 
-JsExpr translateLiteralFloat(ref TranslateExprCtx ctx, in Source source, in LiteralFloatExpr a) { // TODO: maybe this should move to translateExpr?
-	JsExpr num = genNumber(source, a.value);
-	final switch (a.floatType) {
-		case FloatType.float32:
-			return toFloat32(ctx.alloc, source, num);
-		case FloatType.float64:
-			return num;
-	}
-}
-
-JsExpr translateLiteralIntegral(ref TranslateExprCtx ctx, in Source source, in LiteralIntegralExpr a) => // TODO: maybe this should move to translateExpr?
-	a.isSigned
-		? genIntegerSigned(source, a.value.asSigned)
-		: genIntegerUnsigned(source, a.value.asUnsigned);
-
 private JsExpr translateConstant(
 	ref TranslateModuleCtx ctx,
 	in Source source,
@@ -671,7 +649,7 @@ private JsExpr translateConstant(
 			case BuiltinType.bool_:
 				return genBool(source, value.as!bool);
 			case BuiltinType.float32:
-				return toFloat32(ctx.alloc, source, genNumber(source, value.as!double));
+				return genToFloat32(ctx.alloc, source, genNumber(source, value.as!double));
 			case BuiltinType.float64:
 				return genNumber(source, value.as!double);
 			case BuiltinType.void_:
@@ -860,7 +838,7 @@ private JsExpr translateBuiltinUnary(ref Alloc alloc, in Source source, BuiltinU
 				JsMemberName.noPrefix(symbol!"map"),
 				[BigInt]);
 		case BuiltinUnary.truncateToInt64FromFloat64:
-			return genCallSync(alloc, source, BigInt, [callMath(alloc, source, symbol!"trunc", [arg])]);
+			return genCallSync(alloc, source, BigInt, [genCallMath(alloc, source, symbol!"trunc", [arg])]);
 		case BuiltinUnary.trustAsString:
 			// new TextDecoder().decode(new Uint8Array(arg.map(Number)))
 			return genCallPropertySync(
@@ -904,17 +882,17 @@ private JsExpr genSubscriptZero(ref Alloc alloc, in Source source, JsExpr arg) =
 
 private JsExpr translateBuiltinUnaryMath(ref Alloc alloc, in Source source, BuiltinUnaryMath a, JsExpr arg) {
 	JsExpr f32(Symbol name) =>
-		toFloat32(alloc, source, callMath(alloc, source, name, [arg]));
+		genToFloat32(alloc, source, genCallMath(alloc, source, name, [arg]));
 	JsExpr f64(Symbol name) =>
-		callMath(alloc, source, name, [arg]);
+		genCallMath(alloc, source, name, [arg]);
 	JsExpr round() =>
 		// JS round gives wrong results for negative numbers, so fix by only rounding positive
 		// Math.sign(arg) * Math.round(Math.abs(arg))
 		genTimes(
 			alloc,
 			source,
-			callMath(alloc, source, symbol!"sign", [arg]),
-			callMath(alloc, source, symbol!"round", [callMath(alloc, source, symbol!"abs", [arg])]));
+			genCallMath(alloc, source, symbol!"sign", [arg]),
+			genCallMath(alloc, source, symbol!"round", [genCallMath(alloc, source, symbol!"abs", [arg])]));
 
 	final switch (a) {
 		case BuiltinUnaryMath.acosFloat32:
@@ -936,7 +914,7 @@ private JsExpr translateBuiltinUnaryMath(ref Alloc alloc, in Source source, Buil
 		case BuiltinUnaryMath.roundDownFloat32:
 			return f32(symbol!"floor");
 		case BuiltinUnaryMath.roundFloat32:
-			return toFloat32(alloc, source, round());
+			return genToFloat32(alloc, source, round());
 		case BuiltinUnaryMath.roundUpFloat32:
 			return f32(symbol!"ceil");
 		case BuiltinUnaryMath.sinFloat32:
@@ -988,10 +966,6 @@ private JsExpr translateBuiltinUnaryMath(ref Alloc alloc, in Source source, Buil
 			return f64(symbol!"log");
 	}
 }
-private JsExpr callMath(ref Alloc alloc, in Source source, Symbol name, in JsExpr[] args) =>
-	genCallPropertySync(alloc, source, genGlobal(source, symbol!"Math"), JsMemberName.noPrefix(name), args);
-private JsExpr toFloat32(ref Alloc alloc, in Source source, JsExpr arg) =>
-	callMath(alloc, source, symbol!"fround", [arg]);
 
 private JsExpr genAsNat(ref Alloc alloc, in Source source, uint bits, JsExpr arg) =>
 	genCallPropertySync(
@@ -1032,7 +1006,7 @@ private ExprResult translateBuiltinBinary(
 		binary(JsBinaryKind.divide);
 	final switch (a) {
 		case BuiltinBinary.addFloat32:
-			return expr(toFloat32(ctx.alloc, source, add()));
+			return expr(genToFloat32(ctx.alloc, source, add()));
 		case BuiltinBinary.addFloat64:
 		case BuiltinBinary.unsafeAddInt8:
 		case BuiltinBinary.unsafeAddInt16:
@@ -1097,7 +1071,7 @@ private ExprResult translateBuiltinBinary(
 		case BuiltinBinary.lessNat64:
 			return expr(binary(JsBinaryKind.less));
 		case BuiltinBinary.mulFloat32:
-			return expr(toFloat32(ctx.alloc, source, mul()));
+			return expr(genToFloat32(ctx.alloc, source, mul()));
 		case BuiltinBinary.mulFloat64:
 		case BuiltinBinary.unsafeMulInt8:
 		case BuiltinBinary.unsafeMulInt16:
@@ -1109,7 +1083,7 @@ private ExprResult translateBuiltinBinary(
 		case BuiltinBinary.unsafeMulNat64:
 			return expr(mul());
 		case BuiltinBinary.subFloat32:
-			return expr(toFloat32(ctx.alloc, source, sub()));
+			return expr(genToFloat32(ctx.alloc, source, sub()));
 		case BuiltinBinary.subFloat64:
 		case BuiltinBinary.unsafeSubInt8:
 		case BuiltinBinary.unsafeSubInt16:
@@ -1125,7 +1099,7 @@ private ExprResult translateBuiltinBinary(
 		case BuiltinBinary.unsafeBitShiftRightNat64:
 			return expr(genAsNat64(ctx.alloc, source, binary(JsBinaryKind.bitShiftRight)));
 		case BuiltinBinary.unsafeDivFloat32:
-			return expr(toFloat32(ctx.alloc, source, div()));
+			return expr(genToFloat32(ctx.alloc, source, div()));
 		case BuiltinBinary.unsafeDivFloat64:
 		case BuiltinBinary.unsafeDivInt8:
 		case BuiltinBinary.unsafeDivInt16:
@@ -1218,22 +1192,22 @@ private JsExpr translateBuiltinBinaryMath(
 	JsExpr right,
 ) {
 	JsExpr atan2() =>
-		callMath(ctx.alloc, source, symbol!"atan2", [left, right]);
+		genCallMath(ctx.alloc, source, symbol!"atan2", [left, right]);
 	JsExpr mod() =>
 		genBinary(ctx.alloc, source, JsBinaryKind.modulo, left, right);
 	JsExpr pow() =>
-		callMath(ctx.alloc, source, symbol!"pow", [left, right]);
+		genCallMath(ctx.alloc, source, symbol!"pow", [left, right]);
 	final switch (kind) {
 		case BuiltinBinaryMath.atan2Float32:
-			return toFloat32(ctx.alloc, source, atan2());
+			return genToFloat32(ctx.alloc, source, atan2());
 		case BuiltinBinaryMath.atan2Float64:
 			return atan2();
 		case BuiltinBinaryMath.fmodFloat32:
-			return toFloat32(ctx.alloc, source, mod());
+			return genToFloat32(ctx.alloc, source, mod());
 		case BuiltinBinaryMath.fmodFloat64:
 			return mod();
 		case BuiltinBinaryMath.unsafePowFloat32:
-			return toFloat32(ctx.alloc, source, pow());
+			return genToFloat32(ctx.alloc, source, pow());
 		case BuiltinBinaryMath.unsafePowFloat64:
 			return pow();
 	}

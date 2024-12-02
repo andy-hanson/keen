@@ -41,7 +41,7 @@ import frontend.showModel :
 	writeTypeUnquoted,
 	writeVisibility;
 import lib.lsp.lspTypes : Hover, MarkupContent, MarkupKind;
-import model.ast : ExprAst, IfAst, IfAstKind, ModifierKeyword, UnpackOptionAst;
+import model.ast : IfAstKind, ModifierKeyword;
 import model.model :
 	AnyDecl,
 	asBuiltinExtern,
@@ -90,8 +90,10 @@ import model.model :
 	StructDecl,
 	StructInst,
 	SumType,
+	SumTypeKind,
 	Test,
 	TryExpr,
+	TryLetExpr,
 	Type,
 	TypeContainer,
 	TypeParamIndex,
@@ -501,7 +503,6 @@ void getExprKeywordHover(
 	in ShowModelCtx ctx,
 	in Uri curUri,
 	in TypeContainer typeContainer,
-	in Expr a,
 	ExprKeyword keyword,
 ) {
 	final switch (keyword) {
@@ -509,18 +510,14 @@ void getExprKeywordHover(
 			writer ~= "Gets a pointer to an expression. " ~
 				"This does not allocate and so is unsafe. This only works for certain expressions.";
 			break;
-		case ExprKeyword.assert_:
-			writer ~= a.as!(AssertOrForbidExpr*).condition.matchIn!string(
-				(in Expr _) => "Throws if the condition is 'false'.",
-				(in UnpackOption _) => "Throws if the option is empty.");
-			break;
 		case ExprKeyword.colonColon:
 			writer ~= "Provides an expected type for the expression to its left.";
 			break;
-		case ExprKeyword.colonInAssertOrForbid:
-			writer ~= "If the condition is '";
-			writer ~= a.as!(AssertOrForbidExpr*).isForbid ? "true" : "false";
-			writer ~= "', throws an exception with the message to the right of the ':'.";
+		case ExprKeyword.colonAfterAssert:
+			writer ~= "If the condition is false, throws an exception with the message to the right of the ':'.";
+			break;
+		case ExprKeyword.colonAfterForbid:
+			writer ~= "If the condition is false, throws an exception with the message to the right of the ':'.";
 			break;
 		case ExprKeyword.colonInFor:
 			writer ~= "The expression to the right of the ':' is the first argument to 'for-loop' or 'for-break'.";
@@ -545,74 +542,6 @@ void getExprKeywordHover(
 				"The expression to the right of 'finally' runs second, even if there was an exception.\n" ~
 				"The result is from the below expression; the right expression must be 'void'.";
 			break;
-		case ExprKeyword.forbid:
-			writer ~= a.as!(AssertOrForbidExpr*).condition.matchIn!string(
-				(in Expr _) => "Throws if the condition is 'true'.",
-				(in UnpackOption _) => "Throws if the option is non-empty.");
-			break;
-		case ExprKeyword.guardIfOrUnless:
-			IfAst* ifAst = a.as!(IfExpr*).ast;
-			bool isUnpackOption = ifAst.condition.matchIn!bool(
-				(in ExprAst _) => false,
-				(in UnpackOptionAst _) => true);
-			final switch (ifAst.kind) {
-				case IfAstKind.guardWithColon:
-				case IfAstKind.guardWithoutColon:
-					writer ~= isUnpackOption
-						? "If the option is non-empty, destructures it and continues."
-						: "If the expression is 'true', continues.";
-					writer ~= '\n';
-					writer ~= ifAst.kind == IfAstKind.guardWithColon
-						? "Otherwise, returns the expression after the ':'."
-						: "Otherwise, returns '()'.";
-					break;
-				case IfAstKind.ifWithoutElse:
-				case IfAstKind.ifElif:
-				case IfAstKind.ifElse:
-				case IfAstKind.ternaryWithElse:
-				case IfAstKind.ternaryWithoutElse:
-					writer ~= isUnpackOption
-						? "If the value is a non-empty option, destructures it and returns the first branch."
-						: "If the condition is 'true', returns the first branch.";
-					writer ~= '\n';
-					writer ~= () {
-						final switch (ifAst.kind) {
-							case IfAstKind.ifWithoutElse:
-							case IfAstKind.ternaryWithoutElse:
-								return "Otherwise, returns '()'.";
-							case IfAstKind.ifElif:
-							case IfAstKind.ifElse:
-							case IfAstKind.ternaryWithElse:
-								return "Otherwise, returns the second branch.";
-							case IfAstKind.guardWithColon:
-							case IfAstKind.guardWithoutColon:
-							case IfAstKind.unless:
-								assert(0);
-						}
-					}();
-					break;
-				case IfAstKind.unless:
-					writer ~= "Returns the body if the condition is false. If the condition is true, returns '()'.";
-					break;
-			}
-			break;
-		case ExprKeyword.lambdaArrow:
-			writer ~= () {
-				final switch (a.as!(LambdaExpr*).kind) {
-					case LambdaKind.data:
-						return "Lambda with 'data' closure and no 'summon'.";
-					case LambdaKind.shared_:
-						return "Lambda with 'shared' closure.";
-					case LambdaKind.mut:
-						return "Lambda with 'mut' closure.";
-					case LambdaKind.explicitShared:
-						return "Lambda with 'mut' closure, converted to 'shared' by waiting for exclusion.";
-				}
-			}();
-			break;
-		case ExprKeyword.match:
-			getMatchHover(writer, ctx, typeContainer, a);
-			break;
 		case ExprKeyword.questionDotOrSubscript:
 			writer ~= "The expression to the left of '?.' or '?[' is an option.\n" ~
 				"The call is only done if it is non-empty.";
@@ -627,68 +556,8 @@ void getExprKeywordHover(
 		case ExprKeyword.trusted:
 			writer ~= "Allows 'unsafe' code to be used anywhere.";
 			break;
-		case ExprKeyword.try_:
-			writer ~= a.isA!(TryExpr*)
-				? "Evaluates and returns the 'try' block, " ~
-					"but if it throws is an exception matching a 'catch' block, returns that instead."
-				: "Runs the initializer (between '=' and 'catch'). If it succeeds, destructures it and continues.\n" ~
-					"If it throws the handled exception, returns the expression after the ':'.";
-			break;
-		case ExprKeyword.until:
-			writer ~= a.as!(LoopWhileOrUntilExpr*).condition.isA!(Expr*)
-				? "Loop will run as long as the condition is 'false'."
-				: "Loop will run as long as the option is empty.\n" ~
-					"Then it is destructured and available after the loop.";
-			break;
-		case ExprKeyword.while_:
-			writer ~= a.as!(LoopWhileOrUntilExpr*).condition.isA!(Expr*)
-				? "Loop will run as long as the condition is 'true'."
-				: "Loop will run as long as the option is non-empty.";
-			break;
 	}
 }
-
-void getMatchHover(
-	scope ref Writer writer,
-	in ShowModelCtx ctx,
-	in TypeContainer typeContainer,
-	in Expr a,
-) {
-	MatchInfo info = getMatchInfo(a);
-	writer ~= "Match on ";
-	writer ~= () {
-		final switch (info.kind) {
-			case MatchKind.enum_:
-				return "enum ";
-			case MatchKind.integral:
-			case MatchKind.stringLike:
-				return "";
-			case MatchKind.union_:
-				return "union ";
-			case MatchKind.variant:
-				return "variant ";
-		}
-	}();
-	writeTypeQuoted(writer, ctx, TypeWithContainer(Type(info.matchedType), typeContainer));
-	writer ~= '.';
-}
-immutable struct MatchInfo {
-	MatchKind kind;
-	StructInst* matchedType;
-}
-enum MatchKind { enum_, integral, stringLike, union_, variant }
-MatchInfo getMatchInfo(Expr a) =>
-	a.isA!(MatchEnumExpr*)
-		? MatchInfo(MatchKind.enum_, a.as!(MatchEnumExpr*).enumType)
-		: a.isA!(MatchIntegralExpr*)
-		? MatchInfo(MatchKind.integral, a.as!(MatchIntegralExpr*).matchedType)
-		: a.isA!(MatchStringLikeExpr*)
-		? MatchInfo(MatchKind.stringLike, a.as!(MatchStringLikeExpr*).matchedType)
-		: a.isA!(MatchSumTypeExpr*)
-		? MatchInfo(
-			a.as!(MatchSumTypeExpr*).isUnion ? MatchKind.union_ : MatchKind.variant,
-			a.as!(MatchSumTypeExpr*).sumType)
-		: assert(false);
 
 void getExprHover(
 	scope ref Writer writer,
@@ -698,6 +567,13 @@ void getExprHover(
 ) {
 	TypeContainer typeContainer = a.container.toTypeContainer;
 	a.kind.matchIn!void(
+		(in AssertOrForbidExpr x) {
+			writer ~= x.condition.matchIn!string(
+				(in Expr _) =>
+					x.isForbid ? "Throws if the condition is 'true'." : "Throws if the condition is 'false'.",
+				(in UnpackOption _) =>
+					x.isForbid ? "Throws if the option is non-empty." : "Throws if the option is empty.");
+		},
 		(in BogusCallExpr x) {
 			if (x.candidates.length == 1) {
 				writer ~= "Calls ";
@@ -719,7 +595,7 @@ void getExprHover(
 			writer ~= " if the first argument is non-empty.";
 		},
 		(in ExprKeyword x) {
-			getExprKeywordHover(writer, ctx, curUri, typeContainer, *a.expr, x);
+			getExprKeywordHover(writer, ctx, curUri, typeContainer, x);
 		},
 		(in ExternExpr x) {
 			bool first = true;
@@ -764,8 +640,67 @@ void getExprHover(
 			writeCalled(writer, ctx, WriteKind.quoted, typeContainer, x.called);
 			writer ~= '.';
 		},
+		(in IfExpr x) {
+			bool isUnpackOption = x.condition.matchIn!bool(
+				(in Expr _) => false,
+				(in UnpackOption _) => true);
+			final switch (x.ast.kind) {
+				case IfAstKind.guardWithColon:
+				case IfAstKind.guardWithoutColon:
+					writer ~= isUnpackOption
+						? "If the option is non-empty, destructures it and continues."
+						: "If the expression is 'true', continues.";
+					writer ~= '\n';
+					writer ~= x.ast.kind == IfAstKind.guardWithColon
+						? "Otherwise, returns the expression after the ':'."
+						: "Otherwise, returns '()'.";
+					break;
+				case IfAstKind.ifWithoutElse:
+				case IfAstKind.ifElif:
+				case IfAstKind.ifElse:
+				case IfAstKind.ternaryWithElse:
+				case IfAstKind.ternaryWithoutElse:
+					writer ~= isUnpackOption
+						? "If the value is a non-empty option, destructures it and returns the first branch."
+						: "If the condition is 'true', returns the first branch.";
+					writer ~= '\n';
+					writer ~= () {
+						final switch (x.ast.kind) {
+							case IfAstKind.ifWithoutElse:
+							case IfAstKind.ternaryWithoutElse:
+								return "Otherwise, returns '()'.";
+							case IfAstKind.ifElif:
+							case IfAstKind.ifElse:
+							case IfAstKind.ternaryWithElse:
+								return "Otherwise, returns the second branch.";
+							case IfAstKind.guardWithColon:
+							case IfAstKind.guardWithoutColon:
+							case IfAstKind.unless:
+								assert(0);
+						}
+					}();
+					break;
+				case IfAstKind.unless:
+					writer ~= "Returns the body if the condition is false. If the condition is true, returns '()'.";
+					break;
+			}
+		},
 		(in ExpressionPositionLiteral _) {
 			writer ~= "Literal expression.";
+		},
+		(in LambdaExpr x) {
+			writer ~= () {
+				final switch (x.kind) {
+					case LambdaKind.data:
+						return "Lambda with 'data' closure and no 'summon'.";
+					case LambdaKind.shared_:
+						return "Lambda with 'shared' closure.";
+					case LambdaKind.mut:
+						return "Lambda with 'mut' closure.";
+					case LambdaKind.explicitShared:
+						return "Lambda with 'mut' closure, converted to 'shared' by waiting for exclusion.";
+				}
+			}();
 		},
 		(in LocalRef x) {
 			writer ~= () {
@@ -808,13 +743,78 @@ void getExprHover(
 			writer ~= "Goes back to the start of ";
 			writeLoop(writer, ctx, curUri, *x.loop);
 			writer ~= '.';
+		},
+		(in LoopWhileOrUntilExpr x) {
+			writer ~= x.condition.matchIn!string(
+				(in Expr _) =>
+					x.isUntil
+						? "Loop will run as long as the condition is 'false'."
+						: "Loop will run as long as the condition is 'true'.",
+				(in UnpackOption _) =>
+					x.isUntil
+						? "Loop will run as long as the option is empty.\n" ~
+							"Then it is destructured and available after the loop."
+						: "Loop will run as long as the option is non-empty.");
+		},
+		(in MatchEnumExpr x) {
+			writeMatchHover(writer, ctx, typeContainer, "enum ", x.enumType);
+		},
+		(in MatchIntegralExpr x) {
+			writeMatchHover(writer, ctx, typeContainer, "", x.matchedType);
+		},
+		(in MatchStringLikeExpr x) {
+			writeMatchHover(writer, ctx, typeContainer, "", x.matchedType);
+		},
+		(in MatchSumTypeExpr x) {
+			string typeDesc = () {
+				final switch (x.sumTypeBody.kind) {
+					case SumTypeKind.interface_:
+						return "interface ";
+					case SumTypeKind.union_:
+						return "union ";
+					case SumTypeKind.variant:
+						return "variant ";
+				}
+			}();
+			writeMatchHover(writer, ctx, typeContainer, typeDesc, x.sumType);
+		},
+		(in TryExpr x) {
+			// TODO: this could name the type of exception if there's only one --------------------------------------------------------
+			writer ~= "Evaluates the 'try' block, but if it throws ";
+			if (x.catches.length == 1) {
+				writer ~= "a ";
+				writeTypeQuoted(writer, ctx, TypeWithContainer(Type(only(x.catches).member), typeContainer));
+			} else {
+				writer ~= "an exception matching a 'catch' block";
+			}
+			writer ~= ", evaluates the 'catch' block instead.";
+		},
+		(in TryLetExpr x) {
+			writer ~= "Runs the initializer (between '=' and 'catch'). " ~
+				"If it succeeds, destructures it and continues.\n" ~
+				"If it throws the handled exception, returns the expression after the ':'.";
 		});
 
-	writer ~= "\nExpression type is: ";
-	writeTypeQuoted(writer, ctx, TypeWithContainer(a.expr.type(ctx.commonTypes), typeContainer));
+	if (has(a.type)) {
+		writer ~= "\nExpression type is: ";
+		writeTypeQuoted(writer, ctx, TypeWithContainer(force(a.type), typeContainer));
+	}
 }
 
 void writeLoop(scope ref Writer writer, in ShowModelCtx ctx, Uri curUri, in LoopExpr loop) {
 	writer ~= "the loop at ";
 	writer ~= ctx.lineAndColumnGetters[curUri][loop.ast.start, PosKind.startOfRange];
+}
+
+void writeMatchHover(
+	scope ref Writer writer,
+	in ShowModelCtx ctx,
+	in TypeContainer typeContainer,
+	string typeDesc,
+	in StructInst* matchedType,
+) {
+	writer ~= "Match on ";
+	writer ~= typeDesc;
+	writeTypeQuoted(writer, ctx, TypeWithContainer(Type(matchedType), typeContainer));
+	writer ~= '.';
 }

@@ -759,12 +759,6 @@ ConcreteExpr concretizeWithDestructurePartsRecur(
 	}
 }
 
-ConcreteExpr concretizeLiteralFloat(ref ConcretizeExprCtx, ConcreteType type, in UriAndRange range, in LiteralFloatExpr a) => // inline!
-	genConstant(type, range, Constant(ConstantFloat(a.value)));
-
-ConcreteExpr concretizeLiteralIntegral(ref ConcretizeExprCtx ctx, ConcreteType type, in UriAndRange range, in LiteralIntegralExpr a) => // inline!
-	genConstant(type, range, Constant(a.value));
-
 ConcreteExpr concretizeIf(
 	ref ConcretizeExprCtx ctx,
 	ConcreteType type,
@@ -1140,7 +1134,7 @@ ConcreteExpr concretizeAssertOrForbid(
 		});
 }
 
-ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, in Locals locals,  ref Expr a) =>
+ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, in Locals locals, ref Expr a) =>
 	concretizeExpr(ctx, getConcreteType(ctx, a.type(ctx.commonTypes)), locals, a);
 
 ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Locals locals, ref Expr a) {
@@ -1178,9 +1172,9 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 		(LetExpr* x) =>
 			concretizeLet(ctx, type, range, locals, *x),
 		(LiteralFloatExpr x) =>
-			concretizeLiteralFloat(ctx, type, range, x),
+			genConstant(type, range, Constant(ConstantFloat(x.value))),
 		(LiteralIntegralExpr x) =>
-			concretizeLiteralIntegral(ctx, type, range, x),
+			genConstant(type, range, Constant(x.value)),
 		(LiteralStringLikeExpr x) =>
 			concretizeLiteralStringLike(ctx, type, range, x.stringType, x.value),
 		(LocalGetExpr x) =>

@@ -138,9 +138,6 @@ bin/crow: $(d_dependencies)
 	ldc2 -ofbin/crow $(ldc_flags_assert) $(ldc_fast_flags) src/app/main.d -I=src -i $(app_link)
 	rm bin/crow.o
 
-bin/crow-with-symbols: $(d-dependencieS)
-	ldc2 -ofbin/crow-with-symbols $(ldc_flags_assert) -O2 --d-version=TailRecursionAvailable -g src/app/main.d -I=src -i $(app_link)
-
 # This isn't used anywhere, but you can rename the result to 'crow.wasm' to help debugging in the browser
 bin/crow-debug.wasm: $(d_dependencies)
 	# For some reason, Chrome crashes if this is not at least -O1

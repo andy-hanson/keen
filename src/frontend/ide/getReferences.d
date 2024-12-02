@@ -18,7 +18,6 @@ import lib.lsp.lspTypes : DocumentHighlight, DocumentHighlightKind, DocumentHigh
 import model.ast :
 	AsBogusAst,
 	AsNameAst,
-	AssignmentCallAst,
 	AsStringAst,
 	CallAst,
 	CaseAst,
@@ -142,12 +141,12 @@ import model.model :
 	VarGet,
 	VarSet,
 	Visibility;
-import model.sourceRange : UriAndLineAndCharacterRange, UriAndRange;
+import model.sourceRange : Pos, Range, UriAndLineAndCharacterRange, UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array : contains, fold, isEmpty, only, zip, zipIfSizeEq, zipIfSizeEqFilterFirst;
 import util.col.arrayBuilder : buildArray, Builder, buildSortedArray;
-import util.col.tempSet : eachUnique;
+import util.col.tempSet : eachUnique, TempSet, tryAdd, withTempSet;
 import util.opt : force, has, none, Opt, optIf, some;
 import util.symbol : Symbol;
 import util.uri : Uri;
@@ -337,10 +336,13 @@ void referencesForLocal(in Program program, Uri curUri, in PositionLocal a, in R
 				if (ref_.isA!(Local*) && ref_.as!(Local*) == a.local)
 					cb(UriAndRange(curUri, ast.range));
 			});
-		eachDescendentExprIncluding(force(body_).body_, (Expr* x) {
-			Opt!(Local*) itsLocal = exprLocalReference(*x);
-			if (has(itsLocal) && force(itsLocal) == a.local) // TODO: && !x.expr.ast.isA!AssignmentCallAst) (this prevents double reference at the assignmentcall) ------------------------
-				cb(UriAndRange(force(body_).container.moduleUri, x.range));
+		// Deduplicate the LocalGet and LocalSet in `x +:= 1`
+		withTempSet!(void, Pos)(0x1000, (scope ref TempSet!Pos seen) {
+			eachDescendentExprIncluding(force(body_).body_, (Expr* x) {
+				Opt!LocalReference ref_ = exprLocalReference(*x);
+				if (has(ref_) && force(ref_).local == a.local && tryAdd(seen, x.start))
+					cb(UriAndRange(force(body_).container.moduleUri, force(ref_).nameRange));
+			});
 		});
 	}
 }
@@ -349,16 +351,20 @@ immutable struct ContainerAndBody {
 	Expr* body_;
 }
 
-Opt!(Local*) exprLocalReference(Expr a) =>
+immutable struct LocalReference {
+	Local* local;
+	Range nameRange;
+}
+Opt!LocalReference exprLocalReference(Expr a) =>
 	a.isA!ClosureGetExpr
-		? some(a.as!ClosureGetExpr.local)
+		? some(LocalReference(a.as!ClosureGetExpr.local, a.as!ClosureGetExpr.range))
 		: a.isA!ClosureSetExpr
-		? some(a.as!ClosureSetExpr.local)
+		? some(LocalReference(a.as!ClosureSetExpr.local, a.as!ClosureSetExpr.assigneeRange))
 		: a.isA!LocalGetExpr
-		? some(a.as!LocalGetExpr.local)
+		? some(LocalReference(a.as!LocalGetExpr.local, a.as!LocalGetExpr.range))
 		: a.isA!LocalSetExpr
-		? some(a.as!LocalSetExpr.local)
-		: none!(Local*);
+		? some(LocalReference(a.as!LocalSetExpr.local, a.as!LocalSetExpr.assigneeRange))
+		: none!LocalReference;
 
 void referencesForLoop(Uri curUri, Target.Loop a, in ReferenceCb cb) {
 	Expr expr = Expr(a.loop);
