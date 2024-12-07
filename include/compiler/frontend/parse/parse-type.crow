@@ -1,0 +1,316 @@
+import
+	./lexer
+	./lex-token
+	./parse-util
+	./token
+	../../model/ast
+	../../model/parse-diag
+	../../model/source-range
+
+try-take-visibility visibility?(lexer lexer)
+	if lexer try-take-operator "-"
+		private,
+	elif lexer try-take-operator "+"
+		public,
+	elif lexer try-take-operator "~"
+		internal,
+
+parse-type-arg-for-var-decl type-ast(lexer lexer)
+	if lexer take-or-add-diag-expected-token paren-left, open-paren
+		res = lexer parse-type
+		_ = lexer take-or-add-diag-expected-token paren-left, closing-paren
+		res
+	else
+		lexer.range-at-char bogus-type-ast
+
+try-parse-type-arg-for-expr type-ast?(lexer lexer)
+	if lexer try-take-token at
+		lexer.parse-type-for-typed-expr,
+
+-parse-types-with-commas-then-closing-paren type-ast[](lexer lexer, indent-level nat?)
+	with out : build
+		lexer parse-types-with-commas-then-closing-paren out, indent-level
+
+-parse-types-with-commas-then-closing-paren void(lexer lexer, res type-ast array-builder, indent-level nat?)
+	unless lexer try-take-token paren-right
+		lexer parse-with-separator comma, () =>
+			if x ?= indent-level
+				lexer skip-newlines-ignore-indentation x
+			res ~= lexer parse-type
+			if x ?= indent-level
+				lexer skip-newlines-ignore-indentation x
+		_ = lexer take-or-add-diag-expected-token paren-right, closing-paren
+
+-parse-with-separator void(lexer lexer, separator token, cb void mut())
+	cb[]
+	while lexer try-take-token separator
+		cb[]
+
+parse-type type-ast(lexer lexer)
+	lexer parse-type-suffixes (lexer parse-type-before-suffixes unnecessary)
+
+parse-modifiers modifier-ast[](lexer lexer)
+	unless lexer peek-end-of-line
+		with out : build
+			out ~= lexer parse-modifier
+			while lexer try-take-token-and-may-continue-onto-next-line comma
+				out ~= lexer parse-modifier
+
+-parse-modifier modifier-ast(lexer lexer)
+	start = lexer cur-pos
+	if keyword ?= lexer try-take-modifier-keyword
+		((), start, keyword)::modifier-keyword-ast to
+	else
+		lexer parse-modifier-suffixes (lexer parse-type-before-suffixes unnecessary)
+
+-try-take-modifier-keyword modifier-keyword?(lexer lexer)
+	res modifier-keyword? = lexer try-take-token-cb x => x.token to
+	res || if lexer lookahead-new-visibility
+		visibility = lexer.try-take-visibility !
+		name = lexer take-name
+		name is "new"
+		visibility.new-visibility,
+
+-to modifier-keyword?(a token)
+	a.to::symbol to
+
+| Ensures that 't data' or 't shared' parses as a spec and not a modifier
+-try-take-modifier-keyword-non-spec modifier-keyword?(lexer lexer)
+	unless lexer peek-token (data_, shared_)
+		lexer try-take-modifier-keyword
+
+-new-visibility modifier-keyword(a visibility)
+	match a
+	as private
+		new-private
+	as internal
+		new-internal
+	as public
+		new-public
+
+parse-type-for-typed-expr type-ast(lexer lexer)
+	lexer parse-type-suffixes-non-name (lexer parse-type-before-suffixes necessary)
+
+parse-destructure-require-parens destructure-ast(lexer lexer)
+	start = lexer cur-pos
+	if lexer try-take-token paren-left
+		if lexer try-take-token paren-right
+			lexer range start void-destructure-ast
+		else
+			res = lexer parse-destructure-no-require-parens
+			_ = lexer take-or-add-diag-expected-token paren-right, closing-paren
+			res
+	else
+		name = lexer take-name-and-range-allow-underscore
+		pos-for-mut = lexer cur-pos
+		mut_ pos? = lexer try-take-token mut_ ? (pos-for-mut,)
+		type type-ast? = unless lexer.get-peek-token is-destructure-end
+			lexer.parse-type,
+		name single-destructure-ast mut_, type
+
+-is-destructure-end bool(a token)
+	a == colon ||
+	a == comma ||
+	a == equal ||
+	a == paren-right ||
+	a == question-equal ||
+	a is-newline-token
+
+parse-destructure-no-require-parens destructure-ast(lexer lexer)
+	first = lexer parse-destructure-require-parens
+	if lexer try-take-token comma
+		parts destructure-ast[] = with out : build
+			out ~= first
+			lexer parse-with-separator comma, () =>
+				out ~= lexer parse-destructure-require-parens
+		parts to
+	else
+		first
+
+try-parse-sum-type-listed-types type-ast[](lexer lexer)
+	indent-level = lexer get-cur-indent
+	if lexer try-take-token paren-left
+		lexer parse-types-with-commas-then-closing-paren (indent-level,)
+
+try-parse-params params-ast?(lexer lexer)
+	if lexer peek-token paren-left
+		lexer.parse-params,
+
+parse-params params-ast(lexer lexer)
+	indent-level = lexer get-cur-indent
+	if lexer !take-or-add-diag-expected-token paren-left, open-paren
+		lexer skip-until-newline-no-diag
+		() to
+	elif lexer try-take-token paren-right
+		() to
+	elif lexer try-take-token dot3
+		param = lexer parse-destructure-require-parens
+		_ = lexer take-or-add-diag-expected-token paren-right, closing-paren
+		param varargs-ast
+	else
+		parts destructure-ast[] = with out : build
+			loop
+				lexer skip-newlines-ignore-indentation indent-level
+				out ~= lexer parse-destructure-require-parens
+				lexer skip-newlines-ignore-indentation indent-level
+				if lexer try-take-token paren-right
+					break
+				elif lexer !take-or-add-diag-expected-token comma, comma
+					lexer skip-until-newline-no-diag
+					break
+				else
+					lexer skip-newlines-ignore-indentation indent-level
+					if lexer try-take-token paren-right
+						break
+					else
+						continue
+		parts to
+
+-parentheses-necessary enum(unnecessary, necessary)
+-== bool(a parentheses-necessary, b parentheses-necessary)
+
+-parse-type-before-suffixes type-ast(lexer lexer, parens parentheses-necessary)
+	start = lexer cur-pos
+	match lexer get-peek-token
+	as name
+		start name-and-range lexer.take-next-token.as-symbol
+	as paren-left
+		lexer must-take-token paren-left
+		lexer parse-tuple-type start, parens
+	else
+		lexer add-diag-unexpected-cur-token start, lexer.get-peek-token-and-data
+		lexer range-for-cur-token start bogus-type-ast
+
+-parse-tuple-type type-ast(lexer lexer, start pos, parens parentheses-necessary)
+	args type-ast[] = lexer parse-types-with-commas-then-closing-paren ()
+	match args size
+	as 0
+		range = lexer range start
+		lexer add-diag range, parse-diag-type-empty-parens
+		range bogus-type-ast
+	as 1
+		if parens != necessary
+			lexer add-diag (lexer range start), parse-diag-type-unnecessary-parens
+		args[0]
+	else
+		lexer range start tuple-type-ast args
+
+-parse-type-suffixes type-ast(lexer lexer, left type-ast)
+	if suffix ?= lexer parse-type-suffix-non-name () => left
+		lexer parse-type-suffixes suffix
+	elif name ?= lexer try-take-name-and-range
+		lexer parse-type-suffixes (left suffix-name-type-ast name)
+	else
+		left
+
+-parse-modifier-suffixes modifier-ast(lexer lexer, left type-ast)
+	keyword-pos = lexer cur-pos
+	if keyword ?= lexer try-take-modifier-keyword-non-spec
+		(left,) modifier-keyword-ast keyword-pos, keyword
+	elif suffix ?= lexer parse-type-suffix-non-name () => left
+		lexer parse-modifier-suffixes suffix
+	elif name ?= lexer try-take-name-and-range-allow-name-like-keywords
+		lexer parse-modifier-suffixes-after-name left, name
+	elif name ?= left name-and-range
+		() spec-use-ast name
+	else
+		lexer add-diag-expected name
+		(left,) spec-use-ast (lexer.cur-pos, "")
+
+-parse-modifier-suffixes-after-name modifier-ast(lexer lexer, left type-ast, name name-and-range)
+	name-is-type type-ast data() = () => left suffix-name-type-ast name
+	keyword-pos = lexer cur-pos
+	if keyword ?= lexer try-take-modifier-keyword-non-spec
+		(name-is-type[],) modifier-keyword-ast keyword-pos, keyword
+	elif suffix ?= lexer parse-type-suffix-non-name name-is-type
+		lexer parse-modifier-suffixes suffix
+	elif name2 ?= lexer try-take-name-and-range
+		lexer parse-modifier-suffixes-after-name name-is-type[], name2
+	else
+		(left,) spec-use-ast name
+	
+parse-type-suffixes-non-name type-ast(lexer lexer, left type-ast)
+	if suffix ?= lexer parse-type-suffix-non-name () => left
+		lexer parse-type-suffixes-non-name suffix
+	else
+		left
+
+-parse-type-suffix-non-name type-ast?(lexer lexer, cb-left type-ast data()) # TODO: does cb-left sitll need to be a cb???
+	suffix-pos = lexer cur-pos
+	suffix2 type-ast? data(kind suffix-special-type-ast-kind, left type-ast) = (kind, left) =>
+		(left suffix-special-type-ast suffix-pos, kind),
+	suffix1 type-ast? data(kind suffix-special-type-ast-kind) = kind =>
+		suffix2[kind, cb-left[]]
+	double-suffix type-ast? data(kind1 suffix-special-type-ast-kind, kind2 suffix-special-type-ast-kind) = (kind1, kind2) =>
+		inner type-ast = cb-left[] suffix-special-type-ast suffix-pos, kind2
+		(inner suffix-special-type-ast suffix-pos + 1, kind1),
+	map-like2 type-ast? mut(kind map-type-ast-kind, left type-ast) = (kind, left) =>
+		key = lexer parse-type
+		_ = lexer take-or-add-diag-expected-token bracket-right, closing-bracket
+		(kind map-type-ast key, left),
+	map-like1 type-ast? mut(kind map-type-ast-kind) = kind =>
+		map-like2[kind, cb-left[]]
+
+	match lexer get-peek-token
+	as question
+		lexer must-take-token question
+		suffix1[option]
+	as bracket-left
+		lexer must-take-token bracket-left
+		if lexer try-take-token bracket-right
+			suffix1[array]
+		else
+			map-like1[data_]
+	as question-bracket
+		lexer must-take-token question-bracket
+		left = suffix1[option]!
+		if lexer try-take-token bracket-right
+			(left suffix-special-type-ast suffix-pos + 1, array),
+		else
+			map-like2[data_, left]
+	as operator
+		if lexer try-take-operator "*"
+			suffix1[const-pointer]
+		elif lexer try-take-operator "**"
+			double-suffix[const-pointer, const-pointer]
+	as mut_
+		if fun ?= lexer try-parse-fun-type suffix-pos, mut_, mut_, cb-left
+			fun.to,
+		else
+			mut-pos = lexer cur-pos
+			lexer must-take-token mut_
+			if lexer try-take-token bracket-left
+				if lexer try-take-token bracket-right
+					suffix1[mut-array]
+				else
+					map-like1[mut_]
+			elif lexer try-take-operator "*"
+				suffix1[mut-pointer]
+			elif lexer try-take-operator "**"
+				double-suffix[mut-pointer, const-pointer]
+			else
+				lexer add-diag (lexer range mut-pos), parse-diag-type-trailing-mut
+				()
+	as function_
+		(lexer try-parse-fun-type suffix-pos, function_, function_, cb-left)?.to
+	as data_
+		(lexer try-parse-fun-type suffix-pos, data_, data_, cb-left)?.to
+	as shared_
+		if fun ?= lexer try-parse-fun-type suffix-pos, shared_, shared_, cb-left
+			fun.to,
+		elif lexer lookahead-open-bracket
+			lexer must-take-token shared_
+			lexer must-take-token bracket-left
+			if lexer try-take-token bracket-right
+				suffix1[shared-array]
+			else
+				map-like1[shared_]
+	else
+		()
+
+try-parse-fun-type fun-type-ast?(lexer lexer, keyword-pos pos, keyword token, kind fun-kind, return-type type-ast data())
+	if lexer lookahead-open-paren
+		lexer must-take-token keyword
+		before-params = lexer cur-pos
+		params = lexer parse-params
+		(return-type[], keyword-pos, kind, (lexer range before-params), params),

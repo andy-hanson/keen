@@ -7,7 +7,7 @@ import util.comparison : compareArrays, compareChar, compareOr, compareSizeT, Co
 import util.col.array : append, arrayOfRange, arraysEqual, copyArray, endPtr, isEmpty, small, SmallArray;
 import util.conv : safeToUint;
 import util.hash : HashCode, hashString;
-import util.opt : force, none, Opt, some;
+import util.opt : none, Opt, some;
 import util.util : castNonScope_ref;
 
 alias SmallString = SmallArray!(immutable char);
@@ -195,8 +195,10 @@ bool tryTakeChar(scope ref MutCString ptr, char expected) {
 }
 
 pure @trusted CString mustStripPrefix(CString a, string prefix) {
-	Opt!CString res = tryGetAfterStartsWith(a, prefix);
-	return force(res);
+	MutCString ptr = a;
+	bool ok = tryTakeChars(ptr, prefix);
+	assert(ok);
+	return ptr;
 }
 
 bool startsWith(in CString a, in string chars) {
@@ -208,9 +210,6 @@ bool startsWithThenWhitespace(in CString a, in string chars) {
 	MutCString ptr = a;
 	return tryTakeChars(ptr, chars) && isWhitespace(*ptr);
 }
-
-Opt!CString tryGetAfterStartsWith(MutCString ptr, in string chars) =>
-	tryTakeChars(ptr, chars) ? some!CString(ptr) : none!CString;
 
 immutable struct PrefixAndRest {
 	string prefix;

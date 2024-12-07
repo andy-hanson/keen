@@ -3219,7 +3219,9 @@ immutable struct Expr {
 			(ref TypedExpr x) =>
 				x.type(commonTypes));
 }
-static assert(Expr.sizeof == CallExpr.sizeof + ulong.sizeof);
+version (WebAssembly) {} else {
+	static assert(Expr.sizeof == CallExpr.sizeof + ulong.sizeof);
+}
 
 immutable struct Condition {
 	mixin TaggedUnion!(Expr*, UnpackOption*);
@@ -4551,7 +4553,6 @@ immutable struct DiagLinkageWorseThanContainingType {
 }
 immutable struct DiagLiteralFloatAccuracy {
 	FloatType type;
-	double actual;
 }
 immutable struct DiagLiteralMultipleMatch {
 	TypeContainer typeContainer;

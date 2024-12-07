@@ -859,7 +859,7 @@ Expr checkLiteralFloat(ref ExprCtx ctx, in LiteralFloatAndRange ast, ref Expecte
 	return has(opTypeIndex)
 		? asFloat(
 			ctx, ast.range, floatTypes[force(opTypeIndex)], allowedTypes[force(opTypeIndex)],
-			ast.literal.value, ast.literal.overflow, expected)
+			ast.literal.value, expected)
 		: bogus(expected, ast.range);
 }
 
@@ -868,13 +868,12 @@ Expr asFloat(
 	Range range,
 	FloatType floatType,
 	StructInst* inst,
-	HighPrecisionFloat value,
-	bool overflow,
+	Opt!HighPrecisionFloat value,
 	ref Expected expected,
 ) {
-	if (overflow)
-		addDiag2(ctx, range, Diag(DiagLiteralFloatAccuracy(floatType, toDouble(value))));
-	return check(ctx, expected, Type(inst), Expr(LiteralFloatExpr(range, floatType, toDouble(value))));
+	if (!has(value))
+		addDiag2(ctx, range, Diag(DiagLiteralFloatAccuracy(floatType)));
+	return check(ctx, expected, Type(inst), Expr(LiteralFloatExpr(range, floatType, toDouble(force(value)))));
 }
 
 double toDouble(HighPrecisionFloat a) {
@@ -927,16 +926,16 @@ Expr checkLiteralIntegral(ref ExprCtx ctx, in LiteralIntegralAndRange ast, ref E
 				Expr(LiteralIntegralExpr(ast.range, CharOrIntegralType(integralType), checkLiteralIntegralValue(
 					ctx.checkCtx, integralType, ast))));
 		} else {
-			bool overflow = ast.literal.overflow;
+			bool overflow = !has(ast.literal.value);
+			IntegralValue astValue = optOrDefault!IntegralValue(ast.literal.value, () => IntegralValue(0));
 			long value = ast.literal.isSigned
-				? ast.literal.value.asSigned
-				: toLongWithOverflow(ast.literal.value.asUnsigned, overflow);
+				? astValue.asSigned
+				: toLongWithOverflow(astValue.asUnsigned, overflow);
 			return asFloat(
 				ctx, ast.range,
 				floatTypes[typeIndex - integralTypes.length],
 				numberType,
-				HighPrecisionFloat(value, 0),
-				overflow,
+				optIf(!overflow, () => HighPrecisionFloat(value, 0)),
 				expected);
 		}
 	} else

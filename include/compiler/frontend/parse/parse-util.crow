@@ -1,0 +1,207 @@
+import
+	./lexer
+	./lex-token
+	./token
+	../../model/ast
+	../../model/parse-diag
+	../../model/source-range
+
+peek-token bool(lexer lexer, expected token)
+	lexer.get-peek-token == expected
+peek-token bool(lexer lexer, expected token set)
+	expected[lexer get-peek-token]
+
+try-take-token bool(lexer lexer, expected token)
+	if lexer peek-token expected
+		_ = lexer take-next-token
+		true
+try-take-token bool(lexer lexer, expected token set)
+	if lexer peek-token expected
+		_ = lexer take-next-token
+		true
+
+try-take-token-and-may-continue-onto-next-line bool(lexer lexer, expected token)
+	if lexer peek-token expected
+		_ = lexer take-next-token-may-continue-onto-next-line
+		true
+
+try-take-operator bool(lexer lexer, expected symbol)
+	lexer try-take-token-if x =>
+		x.token == operator && x.as-symbol == expected
+
+-try-take-token-if bool(lexer lexer, cb bool data(x token-and-data))
+	res = lexer try-take-token-cb x => cb[x] ? (true,)
+	res !is-empty
+try-take-token-cb[t] t?(lexer lexer, cb t? data(x token-and-data))
+	peek = lexer get-peek-token-and-data
+	res = cb[peek]
+	if _ ?= res
+		_ = lexer take-next-token
+	res
+
+take-or-add-diag-expected-token-and-skip-rest-of-line bool(lexer lexer, token token, kind parse-diag-expected)
+	res = lexer take-or-add-diag-expected-token token, kind
+	unless res
+		lexer skip-until-newline-no-diag
+	res
+take-or-add-diag-expected-token bool(lexer lexer, token token, kind parse-diag-expected)
+	res = lexer try-take-token token
+	unless res
+		lexer add-diag-at-char kind.to
+	res
+take-or-add-diag-expected-token bool(lexer lexer, tokens token set, kind parse-diag-expected)
+	res = lexer try-take-token tokens
+	unless res
+		lexer add-diag-at-char kind.to
+	res
+take-or-add-diag-expected-token[t] t?(lexer lexer, kind parse-diag-expected, cb t? data(x token-and-data))
+	res = lexer try-take-token-cb cb
+	if res is-empty
+		lexer add-diag-at-char kind.to
+	res
+
+add-diag-expected void(lexer lexer, kind parse-diag-expected)
+	lexer add-diag-at-char kind.to
+
+take-or-add-diag-expected-operator bool(lexer lexer, operator symbol, kind parse-diag-expected)
+	res = lexer try-take-operator operator
+	unless res
+		lexer add-diag-at-char kind.to
+	res
+
+try-take-name-and-range-allow-name-like-keywords name-and-range?(lexer lexer)
+	start = lexer cur-pos
+	res = lexer try-take-token-cb x =>
+		if x.token == name
+			x.as-symbol,
+		else
+			x.token try-get-name-like-keyword
+	if x ?= res
+		(start, x),
+
+-try-get-name-like-keyword symbol?(a token)
+	match a
+	as data_
+		"data",
+	as enum_
+		"enum",
+	as flags_
+		"flags",
+	as shared_
+		"shared",
+	else
+		()
+
+try-take-name-and-range name-and-range?(lexer lexer)
+	start = lexer cur-pos
+	lexer try-take-token-cb x =>
+		if x.token == name
+			(start, x.as-symbol),
+try-take-name-and-range-or-diag name-and-range?(lexer lexer)
+	start = lexer cur-pos
+	res = lexer try-take-name-and-range
+	if res is-empty
+		lexer add-diag (lexer range-for-cur-token start), name::parse-diag-expected.to
+	res
+
+take-name-and-range name-and-range(lexer lexer)
+	lexer try-take-name-and-range-or-diag ?? (lexer.cur-pos, "")
+take-name-and-range-allow-underscore name-and-range(lexer lexer)
+	start = lexer cur-pos
+	if lexer try-take-token underscore
+		start, "_"
+	else
+		lexer take-name-and-range
+
+take-name symbol(lexer lexer)
+	lexer.take-name-and-range name
+
+take-name-or-operator name-and-range(lexer lexer)
+	start pos = lexer cur-pos
+	res = lexer try-take-token-cb x =>
+		x try-get-name-or-operator
+	if x ?= res
+		start, x
+	else
+		lexer add-diag (lexer range-for-cur-token start), name-or-operator::parse-diag-expected.to
+		start, ""
+
+-try-get-name-or-operator symbol?(a token-and-data)
+	if a.token is-symbol-token && a.token != name-or-operator-colon-equals
+		a.as-symbol,
+	else
+		a.token try-get-name-like-keyword
+
+peek-name-or-operator bool(lexer lexer)
+	lexer.get-peek-token-and-data.try-get-name-or-operator !is-empty
+
+skip-blank-lines void(lexer lexer)
+	while lexer try-take-token newline-same-indent
+		()
+
+
+peek-end-of-line bool(lexer lexer)
+	lexer peek-token end-of-line-tokens
+-end-of-line-tokens token set()
+	newline-dedent, newline-indent, newline-same-indent, end-of-file
+
+take-dedent bool(lexer lexer)
+	if lexer try-take-token newline-dedent
+		lexer add-diag-at-char dedent::parse-diag-expected.to
+		while lexer.skip-to-next-newline-or-dedent != dedent
+			()
+
+newline-or-dedent enum(newline, dedent)
+== bool(a newline-or-dedent, b newline-or-dedent)
+take-newline-or-dedent newline-or-dedent(lexer lexer)
+	if lexer try-take-token newline-same-indent
+		newline
+	elif lexer try-take-token (newline-dedent, end-of-file)
+		dedent
+	else
+		lexer add-diag-at-char newline-or-dedent::parse-diag-expected.to
+		lexer skip-to-next-newline-or-dedent
+
+-skip-to-next-newline-or-dedent newline-or-dedent(lexer lexer)
+	lexer skip-to-next-newline-or-dedent 0
+-skip-to-next-newline-or-dedent newline-or-dedent(lexer lexer, init-dedents-needed nat)
+	dedents-needed mut = init-dedents-needed
+	loop
+		lexer skip-until-newline-no-diag
+		match lexer.take-next-token token
+		as newline-dedent
+			if dedents-needed == 0
+				break dedent
+			else
+				dedents-needed -:= 1
+				continue
+		as newline-same-indent
+			if dedents-needed == 0
+				break newline
+			else
+				continue
+		as end-of-file
+			dedents-needed is 0
+			break newline
+		as newline-indent
+			dedents-needed +:= 1
+			continue
+		else
+			throw unreachable
+
+take-indent-or-fail-generic[t] t(lexer lexer, cb-indent t mut(), cb-fail t mut(x source-range))
+	start = lexer cur-pos
+	if lexer try-take-token newline-indent
+		cb-indent[]
+	else
+		range = lexer range-for-cur-token start
+		lexer add-diag range, indent::parse-diag-expected.to
+		cb-fail[range]
+
+try-take-literal-integral literal-integral-and-range?(lexer lexer)
+	start = lexer cur-pos
+	res = lexer try-take-token-cb x =>
+		if x.token == literal-integral
+			x.as-literal-integral,
+	if x ?= res
+		((lexer range start), x),

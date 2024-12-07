@@ -35,7 +35,7 @@ import model.ast :
 	ForAst,
 	FunDeclAst,
 	FunTypeAst,
-	ModifierAst,
+	HighPrecisionFloat,
 	IfAst,
 	ImportFileAst,
 	ImportOrExportAst,
@@ -91,6 +91,7 @@ import model.ast :
 	VarDeclAst,
 	VoidDestructureAst,
 	WithAst;
+import model.integralValues : IntegralValue;
 import model.model : Visibility;
 import model.sourceRange : jsonOfLineAndColumn, jsonOfLineAndColumnRange, LineAndColumnGetter, Pos, PosKind, Range;
 import util.alloc.alloc : Alloc;
@@ -235,9 +236,10 @@ Json jsonOfLiteralFloat(ref Alloc alloc, in LiteralFloat a) =>
 	jsonObject(alloc, [
 		kindField!"float",
 		// Convert to a string to avoid losing long -> double conversion
-		field!"long"(makeStringWithWriter(alloc, a.value.longValue)),
-		field!"exponent"(makeStringWithWriter(alloc, a.value.exponent)),
-		field!"overflow"(a.overflow)]);
+		optionalField!("value", HighPrecisionFloat)(a.value, (in HighPrecisionFloat value) =>
+			jsonObject(alloc, [
+				field!"long"(makeStringWithWriter(alloc, value.longValue)),
+				field!"exponent"(makeStringWithWriter(alloc, value.exponent))]))]);
 
 Json jsonOfLiteralStringAst(ref Alloc alloc, in LiteralStringAst a) =>
 	jsonObject(alloc, [
@@ -252,10 +254,9 @@ Json jsonOfLiteralIntegralAndRange(ref Alloc alloc, in Ctx ctx, in LiteralIntegr
 Json jsonOfLiteralIntegral(ref Alloc alloc, in LiteralIntegral a) =>
 	jsonObject(alloc, [
 		field!"is-signed"(a.isSigned),
-		field!"overflow"(a.overflow),
-		field!"value"(a.isSigned
-			? makeStringWithWriter(alloc, a.value.asSigned)
-			: makeStringWithWriter(alloc, a.value.asUnsigned))]);
+		optionalField!("value", IntegralValue)(a.value, (in IntegralValue value) => a.isSigned
+			? jsonString(makeStringWithWriter(alloc, value.asSigned))
+			: jsonString(makeStringWithWriter(alloc, value.asUnsigned)))]);
 
 Json jsonOfStructDeclAst(ref Alloc alloc, in Ctx ctx, in StructDeclAst a) =>
 	jsonObject(alloc, [

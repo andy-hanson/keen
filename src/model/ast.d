@@ -772,8 +772,8 @@ immutable struct HighPrecisionFloat {
 }
 
 immutable struct LiteralFloat {
-	HighPrecisionFloat value;
-	bool overflow;
+	// empty on overflow
+	Opt!HighPrecisionFloat value;
 }
 
 immutable struct LiteralFloatAndRange {
@@ -787,9 +787,9 @@ immutable struct LiteralFloatAndRange {
 }
 
 immutable struct LiteralIntegral {
+	// If true, use 'value.asSigned', otherwise use 'value.asUnsigned'
 	bool isSigned;
-	bool overflow;
-	IntegralValue value;
+	Opt!IntegralValue value; // empty on overflow
 }
 
 immutable struct LiteralIntegralAndRange {

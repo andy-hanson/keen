@@ -116,8 +116,8 @@ void testChangeBootstrap(ref Test test) {
 		setFileAssumeUtf8(test.perf, server, bootstrap, concatenate(test.alloc, defaultBootstrap, "junk"));
 		assertEqual(
 			showDiags(),
-			"test:///include/crow/private/bootstrap.crow 323:5-323:5 Unexpected end of file.\n" ~
-			"test:///include/crow/private/bootstrap.crow 323:5-323:5 Expected '('.");
+			"test:///include/crow/private/bootstrap.crow 325:5-325:5 Unexpected end of file.\n" ~
+			"test:///include/crow/private/bootstrap.crow 325:5-325:5 Expected '('.");
 
 		setFileAssumeUtf8(test.perf, server, bootstrap, defaultBootstrap);
 		assertEqual(showDiags(), "");

@@ -8,7 +8,7 @@ import model.sourceRange : Pos, Range, rangeOfStartAndLength;
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.opt : force, has, none, Opt, optIf;
-import util.string : CString, decodeHexDigit, MutCString, stringOfRange, takeChar, tryTakeChars;
+import util.string : CString, decodeHexDigit, isWhitespace, MutCString, stringOfRange, takeChar, tryTakeChars;
 import util.unicode : safeToChar, tryUnicodeEncode;
 import util.util : castNonScope_ref;
 
@@ -86,7 +86,7 @@ private StringRange takeStringRange(
 				final switch (quoteKind) {
 					case QuoteKind.quoteBar:
 						MutCString ptr2 = ptr;
-						while (*ptr2 == '\n' || *ptr2 == '\r' || *ptr2 == ' ' || *ptr2 == '\t') ptr2++;
+						while (isWhitespace(*ptr2)) ptr2++;
 						if (*ptr2 == '|') {
 							ptr2++;
 							if (*ptr2 == ' ') ptr2++;

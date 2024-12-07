@@ -542,8 +542,8 @@ Opt!uint convertFrom1Indexed(in Opt!uint a) =>
 Opt!uint tryTakeNat(ref MutCString ptr) {
 	if (isDecimalDigit(*ptr)) {
 		NatAndOverflow res = takeNat(ptr, 10);
-		return optIf(!res.overflow && isUint(res.value), () =>
-			safeToUint(res.value));
+		return optIf(has(res.value) && isUint(force(res.value)), () =>
+			safeToUint(force(res.value)));
 	} else
 		return none!uint;
 }

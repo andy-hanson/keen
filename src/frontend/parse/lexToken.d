@@ -7,9 +7,8 @@ import frontend.parse.lexWhitespace :
 import frontend.parse.token : Token;
 import model.ast : HighPrecisionFloat, LiteralFloat, LiteralIntegral;
 import model.integralValues : IntegralValue;
-import model.sourceRange : Pos;
 import util.conv : mulWithOverflow, safeToLong, Sign, toLongWithOverflow;
-import util.opt : force, has, none, Opt, optOrDefault, some;
+import util.opt : force, has, none, Opt, optIf, optOrDefault, some;
 import util.string :
 	CString,
 	decodeHexDigit,
@@ -20,7 +19,6 @@ import util.string :
 	startsWithThenWhitespace,
 	stringOfRange,
 	takeChar,
-	tryGetAfterStartsWith,
 	tryTakeChar,
 	tryTakeChars;
 import util.symbol : appendEquals, Symbol, symbol, symbolOfString;
@@ -145,10 +143,7 @@ bool isSymbolToken(Token a) {
 TokenAndData lexInitialToken(ref MutCString ptr, IndentKind indentKind, ref uint curIndent, in AddDiag addDiag) =>
 	newlineToken(ptr, Token.newlineSameIndent, indentKind, curIndent, addDiag);
 
-/*
-Advances 'ptr' to lex a single token.
-Possibly writes to 'data' depending on the kind of token returned.
-*/
+// Advances 'ptr' to lex a single token.
 TokenAndData lexToken(
 	ref MutCString ptr,
 	IndentKind indentKind,
@@ -197,12 +192,12 @@ TokenAndData lexToken(
 			return plainToken(Token.parenRight);
 		case '[':
 			return plainToken(Token.bracketLeft);
+		case ']':
+			return plainToken(Token.bracketRight);
 		case '{':
 			return plainToken(Token.braceLeft);
 		case '}':
 			return plainToken(Token.braceRight);
-		case ']':
-			return plainToken(Token.bracketRight);
 		case '-':
 			return isDecimalDigit(*ptr)
 				? takeNumberAfterSign(ptr, some(Sign.minus))
@@ -301,22 +296,15 @@ private TokenAndData lexIdentifierLike(ref MutCString ptr) {
 
 bool lookaheadEquals(MutCString ptr) {
 	while (true) {
-		switch (*ptr) {
-			case ' ':
-				ptr++;
-				if (startsWithThenWhitespace(ptr, "="))
-					return true;
-				else
-					break;
-			// characters that appear in types
-			default:
-				if (!isTypeChar(*ptr))
-					return false;
-				else {
-					ptr++;
-					break;
-				}
-		}
+		if (tryTakeChar(ptr, ' ')) {
+			if (startsWithThenWhitespace(ptr, "="))
+				return true;
+			else
+				continue;
+		} else if (trySkipTypeChar(ptr)) {
+			continue;
+		} else
+			return false;
 	}
 }
 
@@ -327,22 +315,15 @@ bool lookaheadColon(MutCString ptr) {
 
 bool lookaheadQuestionEquals(MutCString ptr) {
 	while (true) {
-		switch (*ptr) {
-			case ' ':
-				ptr++;
-				if (startsWithThenWhitespace(ptr, "?="))
-					return true;
-				else
-					break;
-			default:
-				// Destructure chars are same as type chars
-				if (!isTypeChar(*ptr))
-					return false;
-				else {
-					ptr++;
-					break;
-				}
-		}
+		if (tryTakeChar(ptr, ' ')) {
+			if (startsWithThenWhitespace(ptr, "?="))
+				return true;
+			else
+				continue;
+		} else if (trySkipTypeChar(ptr))
+			continue;
+		else
+			return false;
 	}
 }
 
@@ -369,15 +350,11 @@ bool lookaheadLambdaAfterParenLeft(MutCString ptr) {
 	}
 }
 
-bool lookaheadKeyword(CString ptr, in string expected) {
-	Opt!CString end = tryGetAfterStartsWith(ptr, expected);
-	return has(end) && !isProbablyIdentifierCharForLookahead(*force(end));
+bool lookaheadKeyword(CString start, in string expected) {
+	MutCString ptr = start;
+	return tryTakeChars(ptr, expected) && !isProbablyIdentifierCharForLookahead(*ptr);
 }
 
-immutable struct ElifOrElseKeyword {
-	ElifOrElse kind;
-	Pos pos;
-}
 enum ElifOrElse { elif, else_ }
 Opt!ElifOrElse lookaheadElifOrElse(CString ptr) =>
 	lookaheadKeyword(ptr, "elif")
@@ -548,17 +525,22 @@ TokenAndData takeNumberAfterSign(ref MutCString ptr, Opt!Sign sign) {
 	NatAndOverflow n = takeNat(ptr, base);
 	if (peekDecimalPoint(ptr)) {
 		ptr++;
-		return takeFloat(ptr, optOrDefault!Sign(sign, () => Sign.plus), n, base);
+		return TokenAndData(Token.literalFloat, has(n.value)
+			? takeFloat(ptr, optOrDefault!Sign(sign, () => Sign.plus), force(n.value), base)
+			: LiteralFloat(none!HighPrecisionFloat));
 	} else if (has(sign))
 		return TokenAndData(Token.literalIntegral, () {
-			final switch (force(sign)) {
-				case Sign.plus:
-					return LiteralIntegral(
-						isSigned: true, overflow: n.value > long.max, value: IntegralValue(n.value));
-				case Sign.minus:
-					return LiteralIntegral(
-						isSigned: true, overflow: n.value > (cast(ulong) long.max) + 1, value: IntegralValue(-n.value));
-			}
+			Opt!IntegralValue value = () {
+				final switch (force(sign)) {
+					case Sign.plus:
+						return optIf(has(n.value) && force(n.value) <= (cast(ulong) long.max), () =>
+							IntegralValue(force(n.value)));
+					case Sign.minus:
+						return optIf(has(n.value) && force(n.value) <= (cast(ulong) long.max) + 1, () =>
+							IntegralValue(-long(force(n.value))));
+				}
+			}();
+			return LiteralIntegral(isSigned: true, value: value);
 		}());
 	else
 		return TokenAndData(Token.literalIntegral, toLiteralIntegral(n));
@@ -572,31 +554,40 @@ bool peekDecimalPoint(MutCString ptr) {
 		return false;
 }
 
-TokenAndData takeFloat(ref MutCString ptr, Sign sign, NatAndOverflow natPart, ulong base) {
-	NatAndOverflow res = takeNatContinue(ptr, base, NatAndOverflow(natPart.value, natPart.overflow, countDigits: 0));
-	bool overflow = res.overflow;
-	long value = mulWithOverflow(sign, toLongWithOverflow(res.value, overflow), overflow);
-	long exp = -safeToLong(res.countDigits);
+LiteralFloat takeFloat(ref MutCString ptr, Sign sign, ulong natPart, ulong base) {
+	NatAndOverflow beforeE = takeNatContinue(ptr, base, natPart);
+	if (!has(beforeE.value))
+		return LiteralFloat(none!HighPrecisionFloat);
+	bool overflow = false;
+	long value = mulWithOverflow(sign, toLongWithOverflow(force(beforeE.value), overflow), overflow);
+	long exp = -safeToLong(beforeE.countDigits);
 	if (tryTakeChar(ptr, 'e')) {
 		Sign powerSign = tryTakeChar(ptr, '-') ? Sign.minus : Sign.plus;
 		NatAndOverflow power = takeNat(ptr, 10);
-		overflow = overflow || power.overflow;
-		exp += mulWithOverflow(powerSign, toLongWithOverflow(power.value, overflow), overflow);
+		overflow = overflow || !has(power.value);
+		exp += mulWithOverflow(
+			powerSign,
+			toLongWithOverflow(optOrDefault!ulong(power.value, () => 0), overflow),
+			overflow);
 	}
-	return TokenAndData(Token.literalFloat, LiteralFloat(HighPrecisionFloat(value, exp), overflow));
+	return LiteralFloat(optIf(!overflow, () => HighPrecisionFloat(value, exp)));
 }
 
-public immutable struct NatAndOverflow { ulong value; bool overflow; uint countDigits; }
+public immutable struct NatAndOverflow {
+	// empty on overflow
+	Opt!ulong value;
+	uint countDigits;
+}
 LiteralIntegral toLiteralIntegral(NatAndOverflow a) =>
-	LiteralIntegral(isSigned: false, overflow: a.overflow, value: IntegralValue(a.value));
+	LiteralIntegral(isSigned: false, value: optIf(has(a.value), () => IntegralValue(force(a.value))));
 
 public NatAndOverflow takeNat(scope ref MutCString ptr, ulong base) =>
-	takeNatContinue(ptr, base, NatAndOverflow(0, false, 0));
+	takeNatContinue(ptr, base, 0);
 
-NatAndOverflow takeNatContinue(scope ref MutCString ptr, ulong base, NatAndOverflow starting) {
-	ulong value = starting.value;
-	bool overflow = starting.overflow;
-	uint countDigits = starting.countDigits;
+NatAndOverflow takeNatContinue(scope ref MutCString ptr, ulong base, ulong starting) {
+	ulong value = starting;
+	bool overflow = false;
+	uint countDigits = 0;
 	while (true) {
 		Opt!ubyte digit = decodeHexDigit(*ptr);
 		if (has(digit) && force(digit) < base) {
@@ -609,7 +600,7 @@ NatAndOverflow takeNatContinue(scope ref MutCString ptr, ulong base, NatAndOverf
 		} else
 			break;
 	}
-	return NatAndOverflow(value, overflow, countDigits);
+	return NatAndOverflow(optIf(!overflow, () => value), countDigits);
 }
 
 public bool tryTakeIdentifier(ref MutCString ptr) {
@@ -687,6 +678,14 @@ bool isAllowedUnicodeIdentifierChar(dchar a) =>
 	(0x4e00 <= a && a <= 0x9fff) ||
 	// Hangul
 	(0xac00 <= a && a <= 0xd7a3);
+
+bool trySkipTypeChar(ref MutCString ptr) {
+	if (isTypeChar(*ptr)) {
+		ptr++;
+		return true;
+	} else
+		return false;
+}
 
 bool isTypeChar(char c) {
 	switch (c) {

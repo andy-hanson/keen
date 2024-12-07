@@ -250,7 +250,6 @@ import util.uri : baseName, compareUriNaturally, Uri;
 import util.util : stringOfEnum, max;
 import util.writer :
 	makeStringWithWriter,
-	writeFloatLiteral,
 	writeHex,
 	writeNewline,
 	writeQuotedChar,
@@ -1057,8 +1056,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in DiagLiteralFloatAccuracy x) {
 			writer ~= "Literal of type '";
 			writeName(writer, ctx, stringOfEnum(x.type));
-			writer ~= "' will be rounded to ";
-			writeFloatLiteral(writer, x.actual, infinity: "infinity", nan: "NaN");
+			writer ~= " overflows.";
 		},
 		(in DiagLiteralMultipleMatch x) {
 			writer ~= "Multiple possible types for literal expression: ";

@@ -34,7 +34,7 @@ import util.string : CString, MutCString;
 import util.symbol : symbol;
 import util.util : enumConvert;
 
-public import frontend.parse.lexToken : ElifOrElse, ElifOrElseKeyword, TokenAndData;
+public import frontend.parse.lexToken : ElifOrElse, TokenAndData;
 public import frontend.parse.token : Token;
 
 struct Lexer {
@@ -306,6 +306,10 @@ private Opt!Pos tryTakeNewlineThenKeyword(scope ref Lexer lexer, Token keyword, 
 		return none!Pos;
 }
 
+immutable struct ElifOrElseKeyword {
+	ElifOrElse kind;
+	Pos pos;
+}
 Opt!ElifOrElseKeyword tryTakeNewlineThenElifOrElse(ref Lexer lexer) {
 	if (getPeekToken(lexer) == Token.newlineSameIndent) {
 		Opt!ElifOrElse kind = lookaheadElifOrElse(lexer.ptr);

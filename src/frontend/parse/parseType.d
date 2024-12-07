@@ -38,6 +38,7 @@ import frontend.parse.parseUtil :
 import model.ast :
 	BogusTypeAst,
 	DestructureAst,
+	FunKind,
 	FunTypeAst,
 	MapTypeAst,
 	MapTypeAstKind,
@@ -54,8 +55,8 @@ import model.ast :
 	TupleTypeAst,
 	TypeAst,
 	VarargsAst,
+	Visibility,
 	VoidDestructureAst;
-import model.model : FunKind, Visibility;
 import model.parseDiag :
 	ParseDiag,
 	ParseDiagExpected,
@@ -363,7 +364,7 @@ Opt!TypeAst parseTypeSuffixNonName(ref Lexer lexer, in TypeAst delegate() @safe 
 			TypeAst(allocate(lexer.alloc, SuffixSpecialTypeAst(cbLeft(), suffixPos, kind2))),
 			suffixPos + 1,
 			kind1))));
-	Opt!TypeAst mapLike(MapTypeAstKind kind, Pos bracketPos = suffixPos, TypeAst left = cbLeft()) {
+	Opt!TypeAst mapLike(MapTypeAstKind kind, TypeAst left = cbLeft()) {
 		TypeAst key = parseType(lexer);
 		takeOrAddDiagExpectedToken(lexer, Token.bracketRight, ParseDiagExpected.closingBracket);
 		return some(TypeAst(allocate(lexer.alloc, MapTypeAst(kind, [key, left]))));
@@ -384,7 +385,7 @@ Opt!TypeAst parseTypeSuffixNonName(ref Lexer lexer, in TypeAst delegate() @safe 
 			return tryTakeToken(lexer, Token.bracketRight)
 				? some(TypeAst(allocate(lexer.alloc, SuffixSpecialTypeAst(
 					left, suffixPos + 1, SuffixSpecialTypeAstKind.array))))
-				: mapLike(MapTypeAstKind.data, suffixPos + 1, left);
+				: mapLike(MapTypeAstKind.data, left);
 		case Token.operator:
 			return tryTakeOperator(lexer, symbol!"*")
 				? suffix(SuffixSpecialTypeAstKind.constPointer)

@@ -67,9 +67,9 @@ FunDecl funDeclWithBody(
 }
 
 IntegralValue checkLiteralIntegralValue(ref CheckCtx ctx, IntegralType type, LiteralIntegralAndRange ast) {
-	if (ast.literal.overflow || literalNatOrIntOverflows(type, ast.literal.isSigned, ast.literal.value))
+	if (!has(ast.literal.value) || literalNatOrIntOverflows(type, ast.literal.isSigned, force(ast.literal.value)))
 		addDiag(ctx, ast.range, Diag(DiagLiteralOverflow(type)));
-	return ast.literal.value;
+	return optOrDefault!IntegralValue(ast.literal.value, () => IntegralValue(0));
 }
 
 private bool literalNatOrIntOverflows(IntegralType type, bool isSigned, IntegralValue value) =>

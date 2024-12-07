@@ -1,0 +1,663 @@
+import
+	./lex-whitespace
+	./token
+	../../model/ast
+	../../model/source-range
+	../../util/string-walker
+
+token-and-data record
+	-dummy void
+	token token
+	token-data token-data
+token-data union(void, symbol, extra-dedents, literal-float, literal-integral, char32, source-range)
+extra-dedents record(extra-dedents nat)
+
+new token-and-data(token token)
+	forbid token is-symbol-token
+	forbid token is-newline-token
+	forbid token == literal-float
+	forbid token == literal-integral
+	forbid token == unexpected-character
+	forbid token == region_
+	(), token, ()::void.to
+new token-and-data(token token, s symbol)
+	assert token is-symbol-token
+	(), token, s.to
+new token-and-data(token token, d extra-dedents)
+	assert token is-newline-token
+	(), token, d.to
+new token-and-data(token token, l literal-float)
+	assert token == literal-float
+	(), token, l.to
+new token-and-data(token token, l literal-integral)
+	assert token == literal-integral
+	(), token, l.to
+new token-and-data(token token, c char32)
+	assert token == unexpected-character
+	(), token, c.to
+new token-and-data(token token, r source-range)
+	assert token == region_
+	(), token, r.to
+
+is-symbol bool(a token-and-data)
+	a.token is-symbol-token
+as-symbol symbol(a token-and-data)
+	assert a.token is-symbol-token
+	a.token-data symbol!
+as-extra-dedents nat(a token-and-data)
+	assert a.token is-newline-token
+	a.token-data.extra-dedents! extra-dedents
+as-literal-float literal-float(a token-and-data)
+	assert a.token == literal-float
+	a.token-data literal-float!
+as-literal-integral literal-integral(a token-and-data)
+	assert a.token == literal-integral
+	a.token-data literal-integral!
+as-unexpected-character char32(a token-and-data)
+	assert a.token == unexpected-character
+	a.token-data char32!
+as-region source-range(a token-and-data)
+	assert a.token == region_
+	a.token-data source-range!
+
+plain-token token-and-data(a token)
+	a,
+
+is-newline-token bool(a token)
+	match a
+	as end-of-file
+		true
+	as newline-dedent
+		true
+	as newline-indent
+		true
+	as newline-same-indent
+		true
+	else
+		false
+
+is-symbol-token bool(a token)
+	match a
+	as name
+		true
+	as name-after-bang
+		true
+	as name-bang
+		true
+	as name-or-operator-equals
+		true
+	as name-or-operator-colon-equals
+		true
+	as operator
+		true
+	else
+		false
+
+lex-initial-token token-and-data(ptr string-walker, indent-kind indent-kind, cur-indent nat reference, add-diag add-diag)
+	ptr newline-token newline-same-indent, indent-kind, cur-indent, add-diag
+
+| Advances {ptr} to lex a single token.
+lex-token token-and-data(
+	ptr string-walker,
+	indent-kind indent-kind,
+	prev-token token,
+	cur-indent nat reference,
+	add-diag add-diag,
+)
+	guard ptr !is-at-end : ptr newline-token end-of-file, indent-kind, cur-indent, add-diag
+
+	start = ptr pos
+	c = ptr take-char
+	match c
+	# skip-spaces-and-comments will prevent these characters from being next
+	as " "
+		throw unreachable
+	as "\t"
+		throw unreachable
+	as "\r"
+		throw unreachable
+	as "#"
+		throw unreachable
+	as "\n"
+		ptr newline-token newline-same-indent, indent-kind, cur-indent, add-diag
+	as "~"
+		ptr operator-token (ptr try-take-char "~" ? "~~" : "~")
+	as "@"
+		at plain-token
+	as "!"
+		if ptr !starts-with "==" && ptr try-take-char "="
+			ptr operator-token "!="
+		else
+			before-name = ptr pos
+			if ptr try-take-identifier
+				name-after-bang, (ptr string-from before-name).to::symbol
+			else
+				bang plain-token
+	as "%"
+		ptr operator-token "%"
+	as "^"
+		ptr operator-token "^"
+	as "&"
+		ptr operator-token (ptr try-take-char "&" ? "&&" : "&")
+	as "*"
+		ptr operator-token (ptr try-take-char "*" ? "**" : "*")
+	as "("
+		paren-left plain-token
+	as ")"
+		paren-right plain-token
+	as "["
+		bracket-left plain-token
+	as "]"
+		bracket-right plain-token
+	as "\{"
+		brace-left plain-token
+	as "}"
+		brace-right plain-token
+	as "-"
+		if *ptr is-decimal-digit
+			ptr take-number-after-sign (minus,)
+		elif ptr try-take-char ">"
+			arrow-access plain-token
+		else
+			ptr operator-token "-"
+	as "="
+		if ptr try-take-char ">"
+			arrow-lambda plain-token
+		elif ptr try-take-char "="
+			ptr operator-token "=="
+		else
+			equal plain-token
+	as "+"
+		if *ptr is-decimal-digit
+			ptr take-number-after-sign (plus,)
+		else
+			ptr operator-token "+"
+	as "|"
+		if prev-token is-newline-token && *ptr is-whitespace
+			quote-bar plain-token
+		else
+			ptr operator-token (ptr try-take-char "|" ? "||" : "|")
+	as ":"
+		if ptr try-take-char "="
+			colon-equal plain-token
+		elif ptr try-take-char ":"
+			colon2 plain-token
+		else
+			colon plain-token
+	as ";"
+		semicolon plain-token
+	as "\""
+		(ptr try-take-chars "\"\"" ? quote-double-3 : quote-double) plain-token
+	as ","
+		comma plain-token
+	as "<"
+		ptr operator-token if ptr try-take-char "="
+			ptr try-take-char ">" ? "<=>" : "<="
+		elif ptr try-take-char "<"
+			"<<"
+		else
+			"<"
+	as ">"
+		ptr operator-token if ptr try-take-char "="
+			">="
+		elif ptr try-take-char ">"
+			">>"
+		else
+			">"
+	as "."
+		if ptr try-take-char "."
+			if ptr try-take-char "."
+				dot3 plain-token
+			else
+				ptr operator-token ".."
+		else
+			dot plain-token
+	as "/"
+		ptr operator-token "/"
+	as "?"
+		if ptr try-take-char "="
+			question-equal plain-token
+		elif ptr try-take-char "."
+			question-dot plain-token
+		elif ptr try-take-char "["
+			question-bracket plain-token
+		elif ptr try-take-char "?"
+			ptr operator-token "??"
+		else
+			question plain-token
+	else
+		ptr.pos := start
+		if c is-decimal-digit
+			ptr take-number-after-sign ()
+		else
+			ptr lex-identifier-like
+
+-lex-identifier-like token-and-data(ptr string-walker)
+	start = ptr pos
+	if ptr try-take-identifier
+		symbol symbol = ptr string-from start to
+		token = symbol token-for-symbol
+		match token
+		as name
+			ptr name-like-token symbol, name
+		as region_
+			ptr skip-until-newline
+			region_, (start, ptr.pos)
+		else
+			token plain-token
+	else
+		unexpected-character, ptr must-take-one-unicode-char
+
+lookahead-equals bool(start string-walker)
+	ptr = start copy
+	loop
+		if ptr try-take-char " "
+			if ptr starts-with-then-whitespace "="
+				break true
+			else
+				continue
+		elif ptr try-skip-type-char
+			continue
+		else
+			break false
+
+lookahead-colon bool(start string-walker)
+	ptr = start copy
+	while ptr try-take-char " "
+		()
+	ptr try-take-char ":" && *ptr != ":" && *ptr != "="
+
+lookahead-question-equals bool(ptr string-walker)
+	loop
+		if ptr try-take-char " "
+			if ptr starts-with-then-whitespace "?="
+				break true
+			else
+				continue
+		# Destructure chars are same as type chars
+		elif ptr try-skip-type-char
+			continue
+		else
+			break false
+
+lookahead-lambda-after-paren-left bool(ptr string-walker)
+	open-parens mut nat = 1
+	loop
+		if *ptr == "("
+			open-parens +:= 1
+			ptr advance
+			continue
+		elif *ptr == ")"
+			open-parens -:= 1
+			# TODO: allow more or less whitespace
+			if open-parens == 0
+				ptr advance
+				break ptr starts-with " =>"
+			else
+				continue
+		else
+			if ptr try-skip-type-char
+				continue
+			else
+				break false
+
+lookahead-keyword bool(start string-walker, expected char8[])
+	ptr = start copy
+	if ptr try-take-chars expected
+		*ptr is-probably-identifier-char-for-lookahead
+
+elif-or-else enum(elif_, else_)
+lookahead-elif-or-else elif-or-else?(start string-walker)
+	if start lookahead-keyword "elif"
+		elif_,
+	elif start lookahead-keyword "else"
+		else_,
+
+-newline-token token-and-data(
+	ptr string-walker,
+	newline-or-eof token,
+	indent-kind indent-kind,
+	cur-indent nat reference,
+	add-diag add-diag,
+)
+	delta = ptr skip-blank-lines-and-get-indent-delta indent-kind, cur-indent, add-diag
+	token = if delta == 0
+		newline-or-eof
+	elif delta < 0
+		newline-dedent
+	else
+		newline-indent
+	extra-dedents nat = delta < 0 ? delta.abs - 1 : 0
+	token, (extra-dedents,)::extra-dedents
+
+-operator-token token-and-data(ptr string-walker, value symbol)
+	ptr name-like-token value, operator
+
+-name-like-token token-and-data(ptr string-walker, value symbol, regular-token token)
+	if ptr !starts-with "==" && ptr try-take-char "="
+		name-or-operator-equals, (value.to ~~ "=").to::symbol
+	else
+		token = if regular-token == name && ptr try-take-char "!"
+			name-bang
+		elif ptr try-take-chars ":="
+			name-or-operator-colon-equals
+		else
+			regular-token
+		token, value
+
+-token-for-symbol token(a symbol)
+	match a
+	as "abstract"
+		reserved
+	as "alias"
+		alias_
+	as "as"
+		as_
+	as "assert"
+		assert_
+	as "bare"
+		bare_
+	as "break"
+		break_
+	as "builtin"
+		builtin_
+	as "by-ref"
+		by-ref_
+	as "by-val"
+		by-val_
+	as "case"
+		case_
+	as "catch"
+		catch_
+	as "class"
+		reserved
+	as "continue"
+		continue_
+	as "data"
+		data_
+	as "do"
+		do_
+	as "elif"
+		elif_
+	as "else"
+		else_
+	as "enum"
+		enum_
+	as "export"
+		export_
+	as "extern"
+		extern_
+	as "finally"
+		finally_
+	as "flags"
+		flags_
+	as "for"
+		for_
+	as "force-shared"
+		force-shared_
+	as "forbid"
+		forbid_
+	as "force-ctx"
+		force-ctx_
+	as "function"
+		function_
+	as "global"
+		global_
+	as "guard"
+		guard_
+	as "if"
+		if_
+	as "import"
+		import_
+	as "interface"
+		interface_
+	as "loop"
+		loop_
+	as "match"
+		match_
+	as "mut"
+		mut_
+	as "nominal"
+		nominal_
+	as "no-std"
+		no-std_
+	as "packed"
+		packed_
+	as "pure"
+		pure_
+	as "record"
+		record_
+	as "region"
+		region_
+	as "shared"
+		shared_
+	as "spec"
+		spec_
+	as "storage"
+		storage_
+	as "summon"
+		summon_
+	as "test"
+		test_
+	as "thread-local"
+		thread-local_
+	as "throw"
+		throw_
+	as "trusted"
+		trusted_
+	as "try"
+		try_
+	as "unless"
+		unless_
+	as "union"
+		union_
+	as "unsafe"
+		unsafe_
+	as "until"
+		until_
+	as "variant"
+		variant_
+	as "while"
+		while_
+	as "with"
+		with_
+	as "_"
+		underscore
+	else
+		name
+
+-sign enum(minus, plus)
+
+-take-number-after-sign token-and-data(ptr string-walker, sign sign?)
+	base nat = if ptr try-take-chars "0x"
+		16
+	elif ptr try-take-chars "0o"
+		8
+	elif ptr try-take-chars "0b"
+		2
+	else
+		10
+	n = ptr take-nat base
+	if ptr peek-decimal-point
+		ptr advance
+		literal-float, if v ?= n value
+			(ptr take-float (sign ?? plus), v, base),
+		else
+			(),
+	elif s ?= sign
+		value integral-value? = if v ?= n value
+			match s
+			as plus
+				if v <= max-value::int.to
+					v.to,
+			as minus
+				if v <= max-value::int.to
+					(-v.to::int).to,
+				elif v == max-value::int.to + 1
+					min-value::int.to,
+		literal-integral, (true, value)::literal-integral
+	else
+		literal-integral, n.to-literal-integral
+
+-peek-decimal-point bool(ptr string-walker)
+	*ptr == "." && ptr[1] is-decimal-digit
+
+-take-float high-precision-float?(ptr string-walker, sign sign, nat-part nat, base nat)
+	before-e = ptr take-nat-continue base, nat-part
+	guard v ?= before-e.value
+	guard value ?= sign signed v
+	exp int = -before-e.count-digits.to
+	if ptr try-take-char "e"
+		power-sign = ptr try-take-char "-" ? minus : plus
+		guard power ?= ptr take-nat 10 value
+		guard signed-power ?= power-sign signed power
+		(value, exp + signed-power),
+	else
+		(value, exp),
+
+-signed int?(sign sign, value nat)
+	match sign
+	as plus
+		if value <= max-value::int.to
+			value.to,
+	as minus
+		if value <= max-value::int.to
+			-value.to,
+		elif value == max-value::int.to + 1
+			min-value,
+
+nat-and-overflow record(value nat?, count-digits nat)
+-to-literal-integral literal-integral(a nat-and-overflow)
+	false, a.value?.to
+
+take-nat nat-and-overflow(ptr string-walker, base nat)
+	ptr take-nat-continue base, 0
+-take-nat-continue nat-and-overflow(ptr string-walker, base nat64, starting nat)
+	value mut = starting
+	overflow mut = false
+	count-digits mut nat = 0
+	loop
+		digit = *ptr decode-hex-digit
+		if d ?= digit
+			if d.to::nat < base
+				count-digits +:= 1
+				ptr advance
+				new-value = value * base * d.to
+				_ = ptr try-take-char "_"
+				overflow := overflow || new-value / base != value
+				value := new-value
+				continue
+			else
+				break
+		else
+			break
+	(!overflow ? (value,)), count-digits
+
+try-take-identifier bool(ptr string-walker)
+	if ptr try-take-initial-identifier-char
+		loop
+			before-hyphen = ptr pos
+			while ptr try-take-char "-"
+				()
+			if ptr try-take-one-identifier-char
+				continue
+			else
+				ptr.pos := before-hyphen
+				break
+		true
+-try-take-initial-identifier-char bool(ptr string-walker)
+	*ptr !is-decimal-digit && *ptr != "-" && ptr try-take-one-identifier-char
+-try-take-one-identifier-char bool(ptr string-walker)
+	if *ptr is-single-byte-identifier-char
+		ptr advance
+		true
+	elif *ptr is-utf8-initial-or-continue-code
+		before = ptr pos
+		x = ptr must-take-one-unicode-char
+		if x is-allowed-unicode-identifier-char
+			true
+		else
+			ptr.pos := before
+			false
+
+-is-single-byte-identifier-char bool(a char8)
+	"a"::char8 <= a && a <= "z" ||
+	"A"::char8 <= a && a <= "Z" ||
+	a == "-" ||
+	a == "_" ||
+	a is-decimal-digit
+
+-is-probably-identifier-char-for-lookahead bool(a char8)
+	a is-single-byte-identifier-char || a is-utf8-initial-or-continue-code
+
+-is-allowed-unicode-identifier-char bool(a char32)
+	a.to::nat32 is-allowed-unicode-identifier-char
+-is-allowed-unicode-identifier-char bool(a nat32)
+	# Latin extended
+	if 0xc0::nat32 <= a && a <= 0xff && a != "×"::char32.to && a != "÷"::char32.to
+		true
+	# Greek and Coptic
+	elif 0x370::nat32 <= a && a <= 0x3ff
+		true
+	# Cyrillic
+	elif 0x400::nat32 <= a && a <= 0x4ff
+		true
+	# Hebrew
+	elif 0x591::nat32 <= a && a <= 0x5f4
+		true
+	# Arabic
+	elif 0x600::nat32 <= a && a <= 0x6ff
+		true
+	# Devanagari
+	elif 0x904::nat32 <= a && a <= 0x97f && !(0x964::nat32 <= a && a <= 0x971)
+		true
+	# Bengali
+	elif 0x985::nat32 <= a && a <= 0x9e3
+		true
+	# Gurmukhi
+	elif 0xa01::nat32 <= a && a <= 0xa5e
+		true
+	# Gujarati
+	elif 0xa81::nat32 <= a && a <= 0xaff
+		true
+	# Tamil
+	elif 0xb82::nat32 <= a && a <= 0xbfa
+		true
+	# Telugu
+	elif 0xc00::nat32 <= a && a <= 0xc7f
+		true
+	# Tibetan
+	elif 0xf00::nat32 <= a && a <= 0xfda
+		true
+	# Latin extended additional
+	elif 0x1e00::nat32 <= a && a <= 0x1eff
+		true
+	# Hiragana
+	elif 0x3041::nat32 <= a && a <= 0x309f
+		true
+	# Katakana
+	elif 0x30a0::nat32 <= a && a <= 0x30ff
+		true
+	# CJK Unified Ideographs
+	elif 0x4e00::nat32 <= a && a <= 0x9fff
+		true
+	# Hangul
+	elif 0xac00::nat32 <= a && a <= 0xd7a3
+		true
+
+-try-skip-type-char bool(ptr string-walker)
+	if *ptr is-type-char
+		ptr advance
+		true
+
+-is-type-char bool(a char8)
+	a == " " ||
+	a == "," ||
+	a == "?" ||
+	a == "^" ||
+	a == "*" ||
+	a == "[" ||
+	a == "]" ||
+	a == "(" ||
+	a == ")" ||
+	a is-probably-identifier-char-for-lookahead
