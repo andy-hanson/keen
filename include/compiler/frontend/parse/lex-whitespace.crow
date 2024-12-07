@@ -1,0 +1,279 @@
+import
+	../../model/parse-diag
+	../../model/source-range
+	../../util/string-walker
+
+add-diag alias
+	void mut(pos pos, diag parse-diag)
+cb-comment alias
+	void mut(pos pos)
+
+indent-kind enum(tabs, spaces-2, spaces-4, ignore)
+
+detect-indent-kind indent-kind(a string)
+	ptr string-walker = a,
+	loop
+		begin = ptr pos
+		match *ptr
+		as "\0"
+			break tabs
+		as "\t"
+			break tabs
+		as " "
+			while *ptr == " "
+				ptr advance
+			n = ptr.pos - begin
+			break if n == 2
+				spaces-2
+			else
+				spaces-4
+		else
+			ptr skip-until-newline
+			if *ptr == "\n"
+				ptr advance
+			continue
+
+skip-until-newline void(a string-walker)
+	while a !is-at-end && *a != "\n"
+		a advance
+
+| Used to lex the tokens that appear between AST nodes for syntax highlighting.
+lex-tokens-between-asts void(
+	source string,
+	range source-range,
+	cb-comment void mut(x source-range),
+	cb-keyword void mut(x source-range),
+)
+	ptr string-walker = source,
+	ptr advance range.start.to
+	end = range end
+	while ptr.pos < end
+		ptr skip-for-tokens end, pos =>
+			cb-comment[pos, ptr.pos]
+		if ptr.pos < end
+			start = ptr pos
+			while *ptr !ignore-char-for-tokens && ptr.pos < end
+				ptr advance
+			cb-keyword[start, ptr.pos]
+
+| Does not skip newlines (unless within a comment), only spaces within a line
+skip-spaces-and-comments void(ptr string-walker, cb-comment cb-comment, add-diag add-diag)
+	loop
+		start = ptr pos
+		if *ptr is-whitespace-non-newline
+			ptr advance
+			continue
+		elif *ptr == "\\"
+			if ptr try-take-line-continuation cb-comment
+				continue
+			else
+				break
+		elif *ptr == "#"
+			if ptr try-take-triple-hash-then-newline
+				ptr skip-rest-of-block-comment add-diag
+				cb-comment[start]
+			else
+				while ptr try-take-char " "
+					()
+				ptr skip-until-newline
+				cb-comment[start]
+			continue
+		else
+			break
+
+-is-whitespace bool(a char8)
+	a == "\n" || a is-whitespace-non-newline
+-is-whitespace-non-newline bool(a char8)
+	a == " " || a == "\t" || a == "\r"
+
+skip-blank-lines-and-get-indent-delta int(
+	ptr string-walker,
+	indent-kind indent-kind,
+	cur-indent nat reference,
+	add-diag add-diag,
+)
+	loop
+		start mut = ptr pos
+		new-indent mut nat = 0
+		cb-start-of-loop void mut() = () =>
+			start := ptr pos
+			new-indent := ptr take-indent-amount-after-newline indent-kind, add-diag
+		ptr skip-blank-lines cb-start-of-loop, (_ => ()), add-diag
+		if ptr is-at-end
+			# Ignore indent before end of file
+			new-indent := 0
+		
+		# If we got here, we're looking at a non-empty line (or end of file)
+		delta int = new-indent.to - cur-indent->to
+		if delta > 1
+			add-diag[start, parse-diag-indent-too-much]
+			ptr skip-rest-of-line-and-newline
+			continue
+		else
+			*cur-indent := new-indent
+			break delta
+
+may-continue-onto-next-line bool(ptr string-walker, indent-kind indent-kind, min-indent nat)
+	start = ptr pos
+	while ptr try-take-char " "
+		()
+	if ptr try-take-newline
+		diag mut = false
+		new-indent = ptr take-indent-amount-after-newline indent-kind, _ =>
+			diag := true
+		if new-indent >= min-indent && !diag
+			true
+		else
+			ptr.pos := start
+			false
+
+-try-take-line-continuation bool(ptr string-walker, cb-comment cb-comment)
+	if *ptr == "\\"
+		ptr2 = ptr copy
+		ptr2 advance
+		res = ptr2 may-continue-onto-next-line ignore, 0
+		if res
+			start = ptr pos
+			ptr advance
+			cb-comment[start]
+			ptr.pos := ptr2.pos
+		res
+
+-ignore-char-for-tokens bool(a char8)
+	a is-whitespace || a == "\\" || a == "#" || a is-non-keyword-punctuation
+
+-skip-for-tokens void(ptr string-walker, end pos, cb-comment cb-comment)
+	loop
+		guard ptr.pos < end : break
+		start = ptr pos
+		while *ptr is-non-keyword-punctuation && ptr.pos < end
+			ptr advance
+		if ptr.pos < end
+			ptr skip-spaces-and-comments cb-comment, _ => ()
+		if ptr.pos < end && *ptr == "\\"
+			# Non-comment '\', skip this too
+			ptr advance
+		if ptr.pos < end
+			ptr skip-blank-lines (_ => ()), cb-comment, _ => ()
+		if ptr.pos == start
+			break
+		else
+			continue
+
+| Used for completions and signature help.
+| Walks to the left skipping whitespace on the same line. Can also skip a single '.'.
+walk-backwards-for-position pos(source-text string, pos pos)
+	ptr string-walker = source-text, pos
+	assert ptr is-at-end
+	ptr skip-whitespace-backwards
+	if ptr.pos != 0 && ptr[-1] == "."
+		ptr.pos -:= 1
+		ptr skip-whitespace-backwards
+	ptr pos
+-skip-whitespace-backwards void(a string-walker)
+	loop
+		if a.pos != 0 && a[-1] == " "
+			a.pos -:= 1
+			continue
+		else
+			break
+
+| Skip mundane punctuation instead of highlighting it as a keyword
+-is-non-keyword-punctuation bool(a char8)
+	a == "." || a == "," || a == "(" || a == ")" || a == "[" || a == "]"
+
+-skip-blank-lines void(
+	ptr string-walker,
+	cb-start-of-loop void mut(),
+	cb-comment cb-comment,
+	add-diag add-diag,
+)
+	loop
+		cb-start-of-loop[]
+		before = ptr pos
+		if ptr try-take-newline
+			continue
+		elif ptr try-take-triple-hash-then-newline
+			ptr skip-rest-of-block-comment add-diag
+			cb-comment[before]
+			continue
+		elif ptr try-take-char "#"
+			while ptr try-take-char " "
+				()
+			ptr skip-until-newline
+			cb-comment[before]
+			continue
+		elif ptr try-take-line-continuation cb-comment
+			continue
+		else
+			break
+
+-skip-rest-of-line-and-newline void(ptr string-walker)
+	ptr skip-until-newline
+	_ = ptr try-take-newline
+
+-try-take-newline bool(ptr string-walker)
+	if ptr try-take-char "\r"
+		_ = ptr try-take-char "\n"
+		true
+	else
+		ptr try-take-char "\n"
+
+-take-indent-amount-after-newline nat(ptr string-walker, indent-kind indent-kind, add-diag add-diag)
+	match indent-kind
+	as tabs
+		begin = ptr pos
+		while ptr try-take-char "\t"
+			()
+		if *ptr == " "
+			start-spaces = ptr pos
+			while ptr try-take-char " "
+				()
+			add-diag[start-spaces, true.parse-diag-indent-wrong-character]
+		ptr.pos - begin to
+	as spaces-2
+		ptr take-indent-amount-after-newline-spaces 2, add-diag
+	as spaces-4
+		ptr take-indent-amount-after-newline-spaces 4, add-diag
+	as ignore
+		while ptr try-take-char "\t" || ptr try-take-char " "
+			()
+		0
+
+-take-indent-amount-after-newline-spaces nat(ptr string-walker, n-spaces-per-indent nat, add-diag add-diag)
+	begin = ptr pos
+	while ptr try-take-char " "
+		()
+	if *ptr == "\t"
+		start-tabs = ptr pos
+		while ptr try-take-char "\t"
+			()
+		add-diag[start-tabs, false.parse-diag-indent-wrong-character]
+	n-spaces nat = ptr.pos - begin to
+	res = n-spaces / n-spaces-per-indent
+	if res * n-spaces-per-indent != n-spaces
+		add-diag[begin, (n-spaces parse-diag-indent-not-divisible n-spaces-per-indent)]
+	res
+
+-try-take-triple-hash-then-newline bool(ptr string-walker)
+	ptr2 = ptr copy
+	if ptr2 try-take-chars "###"
+		while ptr2 try-take-char " "
+			()
+		if ptr2 try-take-newline || ptr2 is-at-end
+			ptr.pos := ptr2 pos
+			true
+
+| Returns the end of the comment text (ptr will be advanced further, past the '###')
+skip-rest-of-block-comment void(ptr string-walker, add-diag add-diag)
+	loop
+		while ptr try-take-char "\t" || ptr try-take-char " "
+			()
+		if ptr try-take-triple-hash-then-newline
+			break
+		elif ptr is-at-end
+			add-diag[ptr.pos, block-comment-end.to]
+			break
+		else
+			ptr skip-rest-of-line-and-newline
+			continue

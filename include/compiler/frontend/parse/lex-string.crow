@@ -1,0 +1,163 @@
+import
+	./lex-whitespace
+	../../../crow/string: unicode-encode
+	../../model/parse-diag
+	../../model/source-range
+	../../util/string-walker
+
+string-part record(range source-range, text string, after string-part-after)
+string-part-after enum(done, lbrace)
+
+quote-kind enum(bar, double, double3)
+== bool(a quote-kind, b quote-kind)
+
+take-string-part string-part(
+	ptr string-walker,
+	start-pos pos,
+	quote-kind quote-kind,
+	add-diag add-diag,
+)
+	res char8 mut[] = ()
+	cb-char void mut(x char8) = x =>
+		if quote-kind != bar
+			res ~= x
+	range, after = ptr take-string-range start-pos, quote-kind, cb-char, add-diag
+	range, res.move-to::char8[].to, after
+
+-take-string-range (source-range, string-part-after)(
+	ptr string-walker,
+	start-pos pos,
+	quote-kind quote-kind,
+	cb-char void mut(x char8),
+	add-diag add-diag,
+)
+	part-start = ptr pos
+	loop
+		start = ptr pos
+		finish-here (source-range, string-part-after) mut(after string-part-after) = after =>
+			(start-pos range-of-start-and-length start - part-start), after
+		match *ptr combine-newline
+		as "\""
+			ptr advance
+			match quote-kind
+			as bar
+				cb-char["\""]
+				continue
+			as double
+				break finish-here[done]
+			as double3
+				if ptr try-take-chars "\"\""
+					break finish-here[done]
+				else
+					cb-char["\""]
+					continue
+		as "\{"
+			ptr advance
+			break finish-here[lbrace]
+		as "\\"
+			ptr advance
+			start take-string-escape ptr, cb-char, add-diag
+			continue
+		as "\n"
+			match quote-kind
+			as bar
+				ptr2 = ptr copy
+				while *ptr2 == "\n" || *ptr2 == "\r" || *ptr2 == " " || *ptr2 == "\t" # OTDO: use is-whilespaec helper ?????????????????????
+					ptr2 advance
+				if *ptr2 == "|"
+					ptr2 advance
+					_ = ptr2 try-take-char " "
+					ptr.pos := ptr2 pos
+					cb-char["\n"]
+					continue
+				else
+					break finish-here[done]
+			as double
+				add-diag[start, quote-double::parse-diag-expected.to]
+				break finish-here[done]
+			as double3
+				cb-char[ptr take-char]
+				continue
+		as "\0"
+			match quote-kind
+			as bar
+				()
+			as double
+				add-diag[start, quote-double::parse-diag-expected.to]
+			as double3
+				add-diag[start, quote-double-3::parse-diag-expected.to]
+			break finish-here[done]
+		else
+			cb-char[ptr take-char]
+			continue
+
+-combine-newline char8(a char8)
+	a == "\r" ? "\n" : a
+
+-take-string-escape void(start pos, ptr string-walker, cb-char void mut(x char8), add-diag add-diag)
+	match ptr take-char
+	as "\\"
+		cb-char["\\"]
+	as "\{"
+		cb-char["\{"]
+	as "0"
+		cb-char["\0"]
+	as "\""
+		cb-char["\""]
+	as "n"
+		cb-char["\n"]
+	as "r"
+		cb-char["\r"]
+	as "t"
+		cb-char["\t"]
+	as "u"
+		start take-unicode-escape ptr, cb-char, add-diag, 2
+	as "U"
+		start take-unicode-escape ptr, cb-char, add-diag, 4
+	as "x"
+		start take-unicode-escape ptr, cb-char, add-diag, 1
+	else
+		start string-escape-error ptr, cb-char, add-diag
+
+-take-unicode-escape void(
+	start pos,
+	ptr string-walker,
+	cb-char void mut(x char8),
+	add-diag add-diag,
+	n-bytes nat,
+)
+	full-char mut nat32 = 0
+	for _ : 0::nat .. n-bytes
+		if x ?= ptr take-char-escape
+			full-char := (full-char << 8) | x.to
+			continue
+		else
+			start string-escape-error ptr, cb-char, add-diag
+			break
+	try
+		full-char unicode-encode x => cb-char[x to]
+	catch invalid-unicode-character _
+		start string-escape-error ptr, cb-char, add-diag
+
+-string-escape-error void(start pos, ptr string-walker, cb-char void mut(x char8), add-diag add-diag)
+	add-diag[start, (ptr string-from start).parse-diag-invalid-string-escape]
+	for x : "�"::char8[]
+		cb-char[x]
+
+-take-char-escape nat8?(a string-walker)
+	if digit0 ?= a try-take-hex-digit
+		if digit1 ?= a try-take-hex-digit
+			(digit0 << 4) | digit1,
+
+-try-take-hex-digit nat8?(a string-walker)
+	if x ?= *a decode-hex-digit
+		a advance
+		x,
+	
+-decode-hex-digit nat8?(a char8)
+	if "0"::char8 <= a && a <= "9"
+		a.to - "0".to,
+	elif a in "a" .. "f"
+		10 + (a.to - "a".to),
+	elif a in "A" .. "F"
+		10 + (a.to - "A".to),

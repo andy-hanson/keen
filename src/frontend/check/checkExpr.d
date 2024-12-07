@@ -261,7 +261,7 @@ import model.model :
 	TypedExpr,
 	UnpackOption,
 	VariableRef;
-import model.sourceRange : Pos, Range;
+import model.sourceRange : Range;
 import util.alloc.stackAlloc : MaxStackArray, withMapToStackArray, withMaxStackArray, withStackArray;
 import util.cell : Cell;
 import util.col.array :

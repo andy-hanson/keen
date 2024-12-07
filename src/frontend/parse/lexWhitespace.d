@@ -169,7 +169,7 @@ bool mayContinueOntoNextLine(ref MutCString ptr, IndentKind indentKind, uint min
 	if (tryTakeNewline(ptr)) {
 		bool diag = false;
 		uint newIndent = takeIndentAmountAfterNewline(ptr, indentKind, (CString _, ParseDiag _2) { diag = true; });
-		if (newIndent >= minIndent) {
+		if (newIndent >= minIndent && !diag) {
 			return true;
 		} else {
 			ptr = original;
