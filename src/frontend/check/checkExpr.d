@@ -165,7 +165,8 @@ import model.model :
 	DiagMatchOnNonMatchable,
 	DiagMatchSumTypeCantInferTypeArgs,
 	DiagMatchSumTypeNoMember,
-	DiagMatchUnhandledCases,
+	DiagMatchUnhandledEnumMembers,
+	DiagMatchUnhandledUnionCaseTypes,
 	DiagMatchUnnecessaryElse,
 	DiagNeedsExpectedType,
 	DiagPointerIsNative,
@@ -1678,7 +1679,7 @@ Expr checkMatchEnum(
 										out_ ~= member;
 								});
 							});
-						addDiag2(ctx, ast.keywordRange, Diag(DiagMatchUnhandledCases(unhandledCases)));
+						addDiag2(ctx, ast.keywordRange, Diag(DiagMatchUnhandledEnumMembers(unhandledCases)));
 						return some(bogus(expected, ast.range));
 					}
 				}
@@ -1714,7 +1715,7 @@ Expr checkMatchSumType(
 				return none!(Expr*);
 			} else
 				return some(allocate(ctx.alloc, checkMatchElseRequired(ctx, locals, *ast, expected, () =>
-					Diag(DiagMatchUnhandledCases(listMissingUnionCases(ctx, sumType, body_, cases))))));
+					Diag(DiagMatchUnhandledUnionCaseTypes(listMissingUnionCases(ctx, sumType, body_, cases))))));
 		} else
 			return some(allocate(ctx.alloc, checkMatchElseRequired(
 				ctx, locals, *ast, expected, DiagMatchNeedsElse.variant)));

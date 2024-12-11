@@ -1,0 +1,109 @@
+import
+	./lexer
+	./parse-type
+	./parse-util
+	./token
+	../../model/ast
+	../../model/parse-diag
+	../../model/source-range
+	../../model/uri
+
+parse-imports-or-exports imports-or-exports-ast?(lexer lexer, keyword token)
+	start = lexer cur-pos
+	if lexer try-take-token keyword
+		imports = lexer take-indent-or-fail-generic (() => lexer parse-import-lines), _ => ()
+		((lexer range start), imports),
+
+-parse-import-lines import-or-export-ast[](lexer lexer)
+	with out : build
+		loop
+			out ~= lexer parse-single-module-import-on-own-line
+			match lexer take-newline-or-dedent
+			as newline
+				continue
+			as dedent
+				break
+
+-parse-import-path path-or-rel-path(lexer lexer)
+	n-parents nat? = if lexer try-take-token dot
+		_ = lexer take-or-add-diag-expected-operator "/", slash
+		0,
+	elif lexer try-take-operator ".."
+		_ = lexer take-or-add-diag-expected-operator "/", slash
+		lexer.take-dot-dot-slashes,
+	path = lexer add-path-components lexer.take-path-component.root-path
+	if n ?= n-parents
+		n rel-path path
+	else
+		path to
+
+-take-dot-dot-slashes nat(lexer lexer)
+	acc mut nat = 1
+	while lexer try-take-operator ".."
+		_ = lexer take-or-add-diag-expected-operator "/", slash
+		acc +:= 1
+	acc
+
+-add-path-components path(lexer lexer, start path)
+	acc mut = start
+	while lexer try-take-operator "/"
+		acc /:= lexer take-path-component
+	acc
+
+-parse-single-module-import-on-own-line import-or-export-ast(lexer lexer)
+	start = lexer cur-pos
+	path = lexer parse-import-path
+	kind = lexer parse-import-or-export-kind start
+	(lexer range start), path, kind
+
+-parse-import-or-export-kind import-or-export-ast-kind(lexer lexer, start pos)
+	if lexer try-take-token colon
+		if lexer peek-name-or-operator
+			lexer.take-comma-separated-names-diag-trailing-comma to
+		else
+			lexer take-indent-or-fail-generic (() => lexer parse-indented-import-names start), _ => import-whole-module-ast
+	elif lexer try-take-token as_
+		name = lexer take-name-and-range
+		type = lexer parse-type
+		name import-file-ast type, (lexer to-import-file-type-or-diag type)
+	else
+		import-whole-module-ast
+
+-to-import-file-type-or-diag import-file-type(lexer lexer, type type-ast)
+	type.to-import-file-type ?? do
+		lexer add-diag type.range, parse-diag-import-file-type-not-supported
+		string
+
+-to-import-file-type import-file-type?(a type-ast)
+	if a is-simple-name "string"
+		string,
+	elif a is-inst-struct-one-arg "nat8", "array"
+		nat8-array,
+
+-is-simple-name bool(a type-ast, name symbol)
+	if x ?= a name-and-range
+		x.name == name
+-is-inst-struct-one-arg bool(a type-ast, type-arg-name symbol, name symbol)
+	if x ?= a suffix-name-type-ast
+		x.left is-simple-name type-arg-name && x.name.name == name
+
+-parse-indented-import-names import-or-export-ast-kind(lexer lexer, start pos)
+	names name-and-range[] = with out : build
+		loop
+			trailing-comma = lexer take-comma-separated-names out
+			match lexer take-newline-or-dedent
+			as newline
+				if trailing-comma is-empty
+					lexer add-diag (lexer range start), comma::parse-diag-expected.to
+				continue
+			as dedent
+				lexer add-diag-if-trailing-comma trailing-comma
+				break
+	names to
+
+-take-path-component symbol(lexer lexer)
+	cur mut = lexer take-name
+	while lexer try-take-token dot
+		extension = lexer take-name
+		cur := "{cur}.{extension}"
+	cur

@@ -31,7 +31,7 @@ DocCommentAst tryTakeDocComment(ref Lexer lexer) {
 			range(lexer, start),
 			smallFinish(lexer.alloc, references)))));
 	DocCommentAst res = takeInterpolatedCb!DocCommentAst(
-		lexer, start, QuoteKind.quoteBar,
+		lexer, QuoteKind.quoteBar,
 		cbSingle: (StringPart _) =>
 			done(),
 		cbInterpolation: () {
@@ -52,7 +52,7 @@ ExprAst parseString(
 ) {
 	ArrayBuilder!ExprAst parts;
 	return takeInterpolatedCb!ExprAst(
-		lexer, start, quoteKind,
+		lexer, quoteKind,
 		cbSingle: (StringPart part) =>
 			ExprAst(LiteralStringAst(range(lexer, start), part.text)),
 		cbInterpolation: () {
@@ -69,7 +69,6 @@ private:
 
 Out takeInterpolatedCb(Out)(
 	ref Lexer lexer,
-	Pos start,
 	QuoteKind quoteKind,
 	in Out delegate(StringPart) @safe @nogc pure nothrow cbSingle,
 	in void delegate() @safe @nogc pure nothrow cbInterpolation,

@@ -266,7 +266,7 @@ bool isUnknownUris(in LspOutMessage a) =>
 	a.isA!LspOutNotification && a.as!LspOutNotification.isA!UnknownUris;
 
 @trusted LspInMessage lspRead(ref Alloc alloc, bool logLsp) {
-	char[0x10000] buffer = void;
+	char[0x20000] buffer = void;
 	CString line0 = readLineFromStdin(buffer);
 	CString stripped = mustStripPrefix(line0, "Content-Length: ");
 	uint contentLength = mustParseUint(stripped);

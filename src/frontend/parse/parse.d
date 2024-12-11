@@ -154,7 +154,7 @@ SmallArray!EnumOrFlagsMemberAst parseEnumOrFlagsMembers(ref Lexer lexer) =>
 		return EnumOrFlagsMemberAst(docComment, range(lexer, start), name, value);
 	});
 
-SmallArray!RecordFieldAst parseRecordOrUnionMembers(ref Lexer lexer) =>
+SmallArray!RecordFieldAst parseRecordFields(ref Lexer lexer) =>
 	parseIndentedLines!RecordFieldAst(lexer, () {
 		DocCommentAst docComment = tryTakeDocComment(lexer);
 		Pos start = curPos(lexer);
@@ -277,7 +277,7 @@ void parseSpecOrStructOrFun(
 		case Token.record:
 			mustTakeToken(lexer, Token.record);
 			Opt!ParamsAst params = tryParseParams(lexer);
-			addStruct(() => StructBodyAst(RecordAst(params, parseRecordOrUnionMembers(lexer))));
+			addStruct(() => StructBodyAst(RecordAst(params, parseRecordFields(lexer))));
 			break;
 		case Token.spec:
 			mustTakeToken(lexer, Token.spec);
@@ -392,9 +392,7 @@ FileAst parseFileInner(ref Lexer lexer) {
 		if (tryTakeToken(lexer, Token.endOfFile)) {
 			if (!docComment.isEmpty)
 				addDiag(lexer, force(docComment.range), ParseDiag(ParseDiagDocCommentUnused()));
-			break;
-		}
-		if (peekToken(lexer, Token.region)) {
+		} else if (peekToken(lexer, Token.region)) {
 			TokenAndData x = takeNextToken(lexer);
 			assert(x.token == Token.region);
 			add(lexer.alloc, regions, rangeOf(lexer, x.asRegion));

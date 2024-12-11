@@ -49,12 +49,17 @@ take-or-add-diag-expected-token bool(lexer lexer, token token, kind parse-diag-e
 	unless res
 		lexer add-diag-at-char kind.to
 	res
+take-or-add-diag-expected-token-and-may-continue-onto-next-line bool(lexer lexer, token token, kind parse-diag-expected)
+	res = lexer try-take-token-and-may-continue-onto-next-line token
+	unless res
+		lexer add-diag-at-char kind.to
+	res
 take-or-add-diag-expected-token bool(lexer lexer, tokens token set, kind parse-diag-expected)
 	res = lexer try-take-token tokens
 	unless res
 		lexer add-diag-at-char kind.to
 	res
-take-or-add-diag-expected-token[t] t?(lexer lexer, kind parse-diag-expected, cb t? data(x token-and-data))
+take-or-add-diag-expected-token-cb[t] t?(lexer lexer, kind parse-diag-expected, cb t? data(x token-and-data))
 	res = lexer try-take-token-cb cb
 	if res is-empty
 		lexer add-diag-at-char kind.to
@@ -145,8 +150,8 @@ peek-end-of-line bool(lexer lexer)
 -end-of-line-tokens token set()
 	newline-dedent, newline-indent, newline-same-indent, end-of-file
 
-take-dedent bool(lexer lexer)
-	if lexer try-take-token newline-dedent
+take-dedent void(lexer lexer)
+	if lexer !try-take-token newline-dedent
 		lexer add-diag-at-char dedent::parse-diag-expected.to
 		while lexer.skip-to-next-newline-or-dedent != dedent
 			()
@@ -205,3 +210,29 @@ try-take-literal-integral literal-integral-and-range?(lexer lexer)
 			x.as-literal-integral,
 	if x ?= res
 		((lexer range start), x),
+
+take-comma-separated-names-diag-trailing-comma name-and-range[](lexer lexer)
+	with out : build
+		lexer add-diag-if-trailing-comma (lexer take-comma-separated-names out)
+
+add-diag-if-trailing-comma void(lexer lexer, trailing-comma source-range?)
+	if x ?= trailing-comma
+		lexer add-diag x, parse-diag-trailing-comma
+
+| Returns position of trailing comma
+take-comma-separated-names source-range?(lexer lexer, names name-and-range array-builder)
+	loop
+		names ~= lexer take-name-or-operator
+		start = lexer cur-pos
+		if lexer try-take-token comma
+			if lexer peek-end-of-line
+				break (lexer range start),
+			else
+				continue
+		else
+			break
+
+parse-with-separator void(lexer lexer, separator token, cb void mut())
+	cb[]
+	while lexer try-take-token separator
+		cb[]

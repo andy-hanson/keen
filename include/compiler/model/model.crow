@@ -1,0 +1,3289 @@
+import
+	./ast
+	./integral-values
+	./parse-diag
+	./source-range
+	./uri
+	./version-info
+	../util/util
+
+purity enum(data_, shared_, mut_)
+== bool(a purity, b purity)
+<=> comparison(a purity, b purity)
+
+is-purity-compatible bool(expected purity, actual purity)
+	actual <= expected
+
+purity-range record(best-case purity, worst-case purity)
+
+-combine-purity-range purity-range(a purity-range, b purity-range)
+	(a.best-case worse-purity b.best-case), (a.worst-case worse-purity b.worst-case)
+
+is-purity-always-compatible bool(referencer purity, referenced purity-range)
+	referenced.worst-case <= referencer
+is-purity-always-compatible bool(referencer purity-range, referenced purity)
+	referenced <= referencer.best-case
+is-purity-possibly-compatible bool(referencer purity, referenced purity-range)
+	referenced.best-case <= referencer
+
+worse-purity purity(a purity, b purity)
+	a max b
+
+type-params alias
+	name-and-range[]
+type-args alias
+	type[]
+spec-impls alias
+	called[]
+specs alias
+	spec-inst[]
+
+type union(bogus-type, type-param-index, struct-inst) mut
+== bool(a type, b type)
+bogus-type record
+== bool(a bogus-type, b bogus-type)
+| Represent type parameter as the index, so we don't generate different types for every `t[]`.
+| (These are disambiguated in the type checker using `TypeAndContext`)
+type-param-index record(index nat)
+== bool(a type-param-index, b type-param-index)
+
+is-bogus bool(a type)
+	a.bogus-type !is-empty
+
+is-empty-type bool(a type)
+	if x ?= a struct-inst
+		x is-empty-type
+is-empty-type bool(a struct-inst)
+	a.decl is-void || a.decl is-empty-record
+-is-empty-record bool(a struct-decl)
+	if x ?= a.body record_
+		x.fields is-empty
+
+is-enum bool(a type)
+	if x ?= a struct-inst
+		x.decl.body.enum_ !is-empty
+is-flags bool(a type)
+	if x ?= a struct-inst
+		x.decl.body.flags_ !is-empty
+
+is-array bool(a type)
+	a is-builtin-type array
+is-mut-array bool(a type)
+	a is-builtin-type mut-array
+is-mut-array bool(a struct-inst)
+	a is-builtin-type mut-array
+is-mut-slice bool(a type)
+	a is-builtin-type mut-slice
+is-array-or-mut-slice bool(a struct-decl)
+	a is-builtin-type array || a is-builtin-type mut-slice
+
+is-tuple bool(common-types common-types, a type)
+	if x ?= a struct-inst
+		common-types is-tuple x.decl
+is-tuple bool(common-types common-types, a struct-decl)
+	if actual ?= common-types tuple a.type-params.size
+		actual == a
+
+as-tuple type[]?(common-types common-types, type type)
+	if common-types is-tuple type
+		type.struct-inst!.type-args,
+
+is-bool bool(a type)
+	a is-builtin-type bool
+is-char8 bool(a type)
+	a is-builtin-type char8
+is-char32 bool(a type)
+	a is-builtin-type char32
+is-float32 bool(a type)
+	a is-builtin-type float32
+is-float64 bool(a type)
+	a is-builtin-type float64
+is-future bool(a type)
+	a is-builtin-type future
+is-int8 bool(a type)
+	a is-builtin-type int8
+is-int16 bool(a type)
+	a is-builtin-type int16
+is-int32 bool(a type)
+	a is-builtin-type int32
+is-int64 bool(a type)
+	a is-builtin-type int64
+is-js-any bool(a type)
+	a is-builtin-type js-any
+is-nat8 bool(a type)
+	a is-builtin-type nat8
+is-nat16 bool(a type)
+	a is-builtin-type nat16
+is-nat32 bool(a type)
+	a is-builtin-type nat32
+is-nat64 bool(a type)
+	a is-builtin-type nat64
+is-string bool(a type)
+	a is-builtin-type string
+is-string bool(a struct-decl)
+	a is-builtin-type string
+is-symbol bool(a type)
+	a is-builtin-type symbol
+is-void bool(a type)
+	a is-builtin-type void
+is-void bool(a struct-decl)
+	a is-builtin-type void
+
+as-integral-type integral-type?(a type)
+	if builtin_ ?= a as-builtin-type
+		builtin_ to
+
+-is-builtin-type bool(a type, builtin_ builtin-type)
+	if x ?= a struct-inst
+		x is-builtin-type builtin_
+-is-builtin-type bool(a struct-inst, builtin_ builtin-type)
+	a.decl is-builtin-type builtin_
+-is-builtin-type bool(a struct-decl, builtin_ builtin-type)
+	if x ?= a.body builtin-type
+		x == builtin_
+-as-builtin-type builtin-type?(a type)
+	if x ?= a struct-inst
+		x.decl.body builtin-type
+
+array-element-type type(a type)
+	assert a is-array
+	a.struct-inst!.type-args only
+
+must-unwrap-option-type type(a type)
+	assert a is-option-type
+	a.struct-inst!.type-args only
+
+is-option-type bool(a type)
+	a is-builtin-type option
+is-option-type bool(a struct-decl)
+	a is-builtin-type option
+
+is-fun-pointer bool(a type)
+	a is-builtin-type fun-pointer
+is-lambda-type bool(a type)
+	if x ?= a struct-inst
+		x.decl is-lambda-type
+is-lambda-type bool(a struct-decl)
+	if x ?= a.body builtin-type
+		x is-lambda
+
+is-pointer-const-or-mut bool(a type)
+	a is-pointer-const || a is-pointer-mut
+is-pointer-const-or-mut bool(a struct-decl)
+	a is-builtin-type pointer-const || a is-builtin-type pointer-mut
+is-pointer-const bool(a type)
+	a is-builtin-type pointer-const
+is-pointer-mut bool(a type)
+	a is-builtin-type pointer-mut
+pointee-type type(a type)
+	a.struct-inst! pointee-type
+pointee-type type(a struct-inst)
+	assert a.decl is-pointer-const-or-mut
+	a.type-args only
+
+purity-range purity-range(a type)
+	match a
+	as bogus-type
+		data_, data_
+	as type-param-index _
+		data_, mut_
+	as struct-inst x
+		x purity-range
+
+best-case-purity purity(a type)
+	a.purity-range best-case
+
+linkage-range linkage-range(a type)
+	match a
+	as bogus-type
+		extern_, extern_
+	as type-param-index _
+		internal, extern_
+	as struct-inst x
+		x linkage-range
+
+params union(destructure[], varargs) mut
+new params()
+	()::destructure[] to
+arity arity(a params)
+	match a
+	as array xs
+		xs.size to
+	as varargs _
+		arity-varargs
+varargs record(param destructure, element-type type) mut # TODO: can't element-type just be param.type.array-element-type ????????
+is-empty bool(a params)
+	a.arity is-empty
+
+params-array destructure[](a params)
+	match a
+	as array x
+		x
+	as varargs x
+		x.param,
+
+assert-non-variadic destructure[](a params)
+	a.array!
+
+-arity union(nat, arity-varargs)
+arity-varargs record
+
+count-param-decls nat(a arity)
+	match a
+	as nat x
+		x
+	as arity-varargs
+		1
+is-variadic bool(a arity)
+	match a
+	as nat _
+		false
+	as arity-varargs
+		true
+is-empty bool(a arity)
+	match a
+	as nat x
+		x == 0
+	as arity-varargs
+		false
+arity-matches bool(sig-arity arity, n-args nat)
+	match sig-arity
+	as nat x
+		x == n-args
+	as arity-varargs
+		true
+
+signature-container union(spec-decl, struct-decl) mut
+	module-uri uri()
+	name symbol()
+	type-params type-params()
+to type-container(a signature-container)
+	match a
+	as spec-decl x
+		x to
+	as struct-decl x
+		x to
+
+| Function signature without a body. Used in a spec or variant.
+signature record mut
+	container signature-container
+	ast signature-ast
+	return-type type
+	params destructure[]
+	doc-comment-references mut doc-comment-references
+name symbol(a signature)
+	a.ast name
+module-uri uri(a signature)
+	a.container module-uri
+range uri-and-range(a signature)
+	a.module-uri, a.ast.range
+name-range uri-and-range(a signature)
+	a.module-uri, a.ast.name-and-range.range
+doc-comment-ast doc-comment-ast(a signature)
+	a.ast doc-comment
+doc-comment doc-comment(a signature)
+	a.doc-comment-ast, a.doc-comment-references
+signature-index nat(a signature)
+	match a container
+	as spec-decl x
+		x.sigs must-have-index-of-pointer a
+	as struct-decl x
+		x.body.sum-type!.methods must-have-index-of-pointer a
+
+type-params-and-sig record mut
+	type-params type-params
+	return-type type
+	params params-short
+	count-specs nat
+params-short union(param-short[], params-short-variadic) mut
+params-short-variadic record(param param-short, element-type type) mut
+param-short record(name symbol, type type) mut
+
+record-field-source union(single-destructure-ast, record-field-ast)
+	doc-comment doc-comment-ast()
+	range source-range()
+	name-range source-range()
+name symbol(a record-field-source)
+	match a
+	as single-destructure-ast x
+		x.name name
+	as record-field-ast x
+		x.name name
+
+record-field record mut
+	source record-field-source
+	containing-record struct-decl
+	visibility visibility
+	mutability visibility?
+	type type
+	doc-comment-references mut doc-comment-references
+module-uri uri(a record-field)
+	a.containing-record module-uri
+name symbol(a record-field)
+	a.source name
+range source-range(a record-field)
+	a.source range
+name-range uri-and-range(a record-field)
+	a.module-uri, a.source.name-range
+doc-comment-ast doc-comment-ast(a record-field)
+	a.source doc-comment
+doc-comment doc-comment(a record-field)
+	a.doc-comment-ast, a.doc-comment-references
+
+by-val-or-ref enum(by-val_, by-ref_)
+== bool(a by-val-or-ref, b by-val-or-ref)
+
+record-flags record
+	new-visibility visibility
+	nominal_ bool
+	packed_ bool
+	forced-by-val-or-ref by-val-or-ref?
+
+enum-member-source union(enum-or-flags-member-ast, single-destructure-ast)
+	doc-comment doc-comment-ast()
+	range source-range()
+	name-range source-range()
+name symbol(a enum-member-source)
+	match a
+	as enum-or-flags-member-ast x
+		x name
+	as single-destructure-ast x
+		x.name name
+
+enum-member alias
+	enum-or-flags-member
+enum-or-flags-member record mut
+	source enum-member-source
+	containing-enum struct-decl
+	value integral-value
+	doc-comment-referecnes mut doc-comment-references
+storage_ integral-type(a enum-or-flags-member)
+	match a.containing-enum body
+	as enum_ x
+		x storage_
+	as flags_ x
+		x storage_
+	else
+		throw unreachable
+module-uri uri(a enum-or-flags-member)
+	a.containing-enum module-uri
+visibility visibility(a enum-or-flags-member)
+	a.containing-enum visibility
+name symbol(a enum-or-flags-member)
+	a.source name
+range source-range(a enum-or-flags-member)
+	a.source range
+name-range uri-and-range(a enum-or-flags-member)
+	a.module-uri, a.source.name-range
+
+struct-body union(struct-body-bogus, builtin-type, enum_, extern-type, flags_, record_, sum-type) mut
+struct-body-bogus record
+enum_ record mut
+	storage_ integral-type
+	members enum-or-flags-member[]
+	members-by-name enum-or-flags-member[symbol]
+extern-type record(size type-size?)
+flags_ record(storage_ integral-type, members enum-or-flags-member[]) mut
+record_ record(flags_ record-flags, fields record-field[]) mut
+| interface, union, or variant
+sum-type record mut
+	kind sum-type-kind
+	listed-members sum-type-member-and-method-impls[]
+	methods signature[]
+as-union sum-type-member-and-method-impls[](a struct-body)
+	a.sum-type! as-union
+as-union sum-type-member-and-method-impls[](a sum-type)
+	assert a.kind == union_
+	a listed-members
+
+get-all-flags-value integral-value(body flags_)
+	res mut nat = 0
+	for member : body members
+		res |:= member.value as-unsigned
+	res,
+
+builtin-type enum
+	array
+	bool
+	catch-point
+	char8
+	char32
+	float32
+	float64
+	fun-pointer
+	future
+	int8
+	int16
+	int32
+	int64
+	js-any
+	lambda-data
+	lambda-mut
+	lambda-shared
+	mut-array
+	mut-slice
+	nat8
+	nat16
+	nat32
+	nat64
+	option
+	pointer-const
+	pointer-mut
+	string
+	symbol
+	void
+== bool(a builtin-type, b builtin-type)
+is-char-or-integral bool(a builtin-type)
+	match a
+	as char8
+		true
+	as char32
+		true
+	as int8
+		true
+	as int32
+		true
+	as int64
+		true
+	as nat8
+		true
+	as nat16
+		true
+	as nat32
+		true
+	as nat64
+		true
+	else
+		false
+is-lambda bool(a builtin-type)
+	match a
+	as lambda-data
+		true
+	as lambda-mut
+		true
+	as lambda-shared
+		true
+	else
+		false
+
+type-size record(size-bytes nat, alignment-bytes nat)
+
+struct-alias record mut
+	ast struct-alias-ast
+	module-uri uri
+	visibility visibility
+	doc-comment-references mut doc-comment-references
+	target mut struct-inst
+doc-comment-ast doc-comment-ast(a struct-alias)
+	a.ast doc-comment
+doc-comment doc-comment(a struct-alias)
+	a.doc-comment-ast, a.doc-comment-references
+name symbol(a struct-alias)
+	a.ast.name name
+type-params type-params(_ struct-alias)
+	()
+range uri-and-range(a struct-alias)
+	a.module-uri, a.ast.range
+name-range uri-and-range(a struct-alias)
+	a.module-uri, a.ast.name-range
+
+# Sorted least strict to most strict
+linkage enum(internal, extern_)
+== bool(a linkage, b linkage)
+<=> comparison(a linkage, b linkage)
+
+| Range of possible linkage
+-linkage-range record(least-strict linkage, most-strict linkage)
+-combine-linkage-range linkage-range(referencer linkage-range, referenced linkage-range)
+	(referencer.least-strict min referenced.least-strict), (referencer.most-strict min referenced.most-strict)
+is-linkage-possibly-compatible bool(referencer linkage, referenced linkage-range)
+	referenced.most-strict >= referencer
+is-linkage-always-compatible bool(referencer linkage, referenced linkage-range)
+	referenced.least-strict >= referencer
+
+struct-decl record mut
+	source struct-decl-source
+	module-uri uri
+	visibility visibility
+	extern_ symbol-set?
+	is-summon bool
+	| Warn: purity on the decl does not take type args into account
+	purity purity
+	purity-is-forced bool
+	doc-comment-references mut doc-comment-references
+	sum-type-memberships mut sum-type-membership[]
+	body mut struct-body
+== bool(a struct-decl, b struct-decl)
+	trusted a reference-equal b
+extern-set symbol-set(a struct-decl)
+	a.extern_ ?? ()
+linkage linkage(a struct-decl)
+	a.extern_ == (("js",),) ? extern_ : internal
+doc-comment-ast doc-comment-ast(a struct-decl)
+	a.source doc-comment
+doc-comment doc-comment(a struct-decl)
+	a.doc-comment-ast, a.doc-comment-references
+type-params type-params(a struct-decl)
+	a.source type-params
+name symbol(a struct-decl)
+	a.source name
+range uri-and-range(a struct-decl)
+	a.module-uri, a.source.range
+keyword-range uri-and-range(a struct-decl)
+	a.module-uri, a.source.keyword-range
+name-range uri-and-range(a struct-decl)
+	a.module-uri, a.source.name-range
+is-template bool(a struct-decl)
+	a.type-params !is-empty
+
+must-be-enum-or-flags enum-or-flags-member[](a struct-decl)
+	if x ?= a.body enum_
+		x members
+	else
+		a.body.flags_! members
+
+sum-type-member-and-method-impls record mut
+	member struct-inst
+	method-impls mut called?[]
+
+sum-type-membership record mut
+	ast modifier-keyword-ast
+	sum-type struct-inst
+	method-impls mut called?[]
+
+struct-decl-source union(struct-decl-ast, struct-decl-source-bogus)
+	type-params type-params()
+struct-decl-source-bogus record(name symbol, type-params type-params)
+range source-range(a struct-decl-source)
+	match a
+	as struct-decl-ast x
+		x range
+	as struct-decl-source-bogus	_
+		()
+name symbol(a struct-decl-source)
+	match a
+	as struct-decl-ast x
+		x.name name
+	as struct-decl-source-bogus x
+		x name
+doc-comment doc-comment-ast(a struct-decl-source)
+	match a
+	as struct-decl-ast x
+		x doc-comment
+	as struct-decl-source-bogus _
+		()
+keyword-range source-range(a struct-decl-source)
+	match a
+	as struct-decl-ast x
+		x keyword-range
+	as struct-decl-source-bogus _
+		()
+name-range source-range(a struct-decl-source)
+	match a
+	as struct-decl-ast x
+		x name-range
+	as struct-decl-source-bogus _
+		()
+
+| WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
+struct-inst record(decl struct-decl, type-args type-args) mut
+== bool(a struct-inst, b struct-inst)
+	trusted a reference-equal b
+linkage-range linkage-range(a struct-inst)
+	res mut linkage-range = a.decl.linkage, a.decl.linkage
+	for x : a type-args
+		res combine-linkage-range:= x linkage-range
+	res
+purity-range purity-range(a struct-inst)
+	res mut purity-range = a.decl.purity, a.decl.purity
+	for x : a type-args
+		res combine-purity-range:= x purity-range
+	res
+is-definitely-by-ref bool(a struct-inst)
+	if x ?= a.decl.body record_
+		x.flags_.forced-by-val-or-ref == (by-ref_,)
+
+spec-decl-body record(builtin_ builtin-spec?, parents specs, sigs signature[]) mut
+
+builtin-spec enum(data_, shared_)
+
+spec-decl record mut
+	module-uri uri
+	ast spec-decl-ast
+	visibility visibility
+	doc-comment-references mut doc-comment-references
+	late-body mut spec-decl-body?
+doc-comment-ast doc-comment-ast(a spec-decl)
+	a.ast doc-comment
+doc-comment doc-comment(a spec-decl)
+	a.doc-comment-ast, a.doc-comment-references
+name symbol(a spec-decl)
+	a.ast.name name
+type-params type-params(a spec-decl)
+	a.ast type-params
+body-is-set bool(a spec-decl)
+	a.late-body !is-empty
+body spec-decl-body(a spec-decl)
+	a late-body!
+set-body void(a spec-decl, value spec-decl-body)
+	forbid a body-is-set
+	a.late-body := value,
+	assert a body-is-set
+builtin_ builtin-spec?(a spec-decl)
+	a.body builtin_
+parents specs(a spec-decl)
+	a.body parents
+overwrite-parents-to-empty void(a spec-decl)
+	a.late-body := (a.builtin_, (), a.sigs),
+sigs signature[](a spec-decl)
+	a.body sigs
+range uri-and-range(a spec-decl)
+	a.module-uri, a.ast.range
+name-range uri-and-range(a spec-decl)
+	a.module-uri, a.ast.name-range
+
+| WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
+spec-inst record(decl spec-decl, type-args type-args, body mut spec-inst-body) mut
+parents spec-inst[](a spec-inst)
+	a.body parents
+sig-types return-and-param-types[](a spec-inst)
+	a.body sig-types
+name symbol(a spec-inst)
+	a.decl name
+-each-spec-sig void(a spec-inst, cb void mut(x signature))
+	for parent : a parents
+		parent each-spec-sig cb
+	a.decl.sigs for-loop cb
+count-sigs nat(a spec-inst[])
+	a sum x => x count-sigs
+count-sigs nat(a spec-inst)
+	a.parents.count-sigs + a.sig-types.size
+each-called-spec-sig void(a spec-inst, cb void mut(x called-spec-sig))
+	for parent : a parents
+		parent each-called-spec-sig cb
+	for sig-index : 0::nat .. a.decl.sigs.size
+		cb[a, sig-index]
+
+spec-inst-body record mut
+	parents specs
+	| These correspond to the signatures in decl.body
+	sig-types return-and-param-types[]
+
+flags-function enum
+	in_
+	| `&`
+	intersect
+	| `~`
+	negate
+	| Function to get an empty member of the flags
+	none
+	| `|`
+	union_
+
+auto-fun record mut
+	kind auto-fun-kind
+	| e.g., '<=>' implementations for each record/union member
+	members called[]
+
+auto-fun-kind enum
+	compare
+	enum-or-flags-members
+	enum-or-flags-to-integral
+	enum-to-symbol
+	equals
+	flags-to-symbol-array
+	integral-to-opt-enum-or-flags
+	symbol-to-opt-enum-or-flags
+	to-json
+
+fun-body union(
+	fun-body-bogus,
+	auto-fun,
+	builtin-fun,
+	create-enum-or-flags,
+	create-extern,
+	create-record,
+	create-record-and-convert-to-sum-type,
+	create-sum-type,
+	expr,
+	fun-body-extern,
+	fun-body-file-import,
+	flags-function,
+	fun-body-method,
+	record-field-call,
+	record-field-get,
+	record-field-pointer,
+	record-field-set,
+	sum-type-member-get,
+	var-get,
+	var-set
+) mut
+-is-generated bool(a fun-body)
+	match a
+	as fun-body-bogus
+		false
+	as auto-fun _
+		false
+	as builtin-fun _
+		false
+	as expr _
+		false
+	as fun-body-extern _
+		false
+	as fun-body-file-import _
+		false
+	else
+		true
+
+fun-body-bogus record
+create-enum-or-flags record(member enum-or-flags-member) mut
+create-extern record
+create-record record
+create-record-and-convert-to-sum-type record mut
+	| This is the sum-type's case type, and the record type
+	member struct-inst
+create-sum-type record
+fun-body-extern record(library-name symbol)
+fun-body-file-import record(content import-file-content)
+fun-body-method record(method signature) mut
+sum-type sum-type(_ fun-body-method, fun fun-decl)
+	fun.params.array![0].type.struct-inst!.decl.body.sum-type!
+method-index nat(a fun-body-method, fun fun-decl)
+	(a sum-type fun).methods must-have-index-of-pointer a.method
+record-field-call record(field record-field, fun-kind fun-kind) mut
+record-field-get record(field record-field) mut
+record-field-pointer record(field record-field) mut
+record-field-set record(field record-field) mut
+sum-type-member-get record
+var-get record(var var-decl) mut
+var-set record(var var-decl) mut
+
+js-fun enum
+	as-js-any
+	await
+	call
+	call-new
+	call-property
+	call-property-spread
+	cast
+	eq-eq-eq
+	get
+	instanceof
+	js-global
+	less
+	plus
+	set
+	typeof
+
+builtin-fun union(
+	builtin-fun-all-tests,
+	builtin-unary,
+	builtin-unary-math,
+	builtin-binary,
+	builtin-binary-lazy,
+	builtin-binary-math,
+	builtin-ternary,
+	builtin-4ary,
+	builtin-fun-call-lambda,
+	builtin-fun-call-fun-pointer,
+	builtin-fun-constant,
+	builtin-fun-gc-safe-value,
+	builtin-fun-init,
+	js-fun,
+	builtin-fun-mark-root,
+	builtin-fun-mark-visit,
+	builtin-fun-new-empty-option,
+	builtin-fun-new-non-empty-option,
+	builtin-fun-pointer-cast,
+	builtin-fun-size-of,
+	builtin-fun-static-symbols,
+	version-fun
+)
+builtin-fun-all-tests record
+builtin-fun-call-lambda record
+builtin-fun-call-fun-pointer record
+# 'float' works for float32 constants too
+builtin-fun-constant union(bool, float, builtin-fun-constant-null, builtin-fun-constant-void)
+builtin-fun-constant-null record
+builtin-fun-constant-void record
+builtin-fun-gc-safe-value record
+builtin-fun-init enum(global_, per-thread)
+builtin-fun-mark-root record
+builtin-fun-mark-visit record
+builtin-fun-new-empty-option record
+builtin-fun-new-non-empty-option record
+builtin-fun-pointer-cast record
+builtin-fun-size-of record
+builtin-fun-static-symbols record
+
+builtin-unary enum
+	| works on mut-slice too
+	array-pointer
+	| works on mut-slice too
+	array-size
+	as-any-pointer
+	as-future
+	as-future-impl
+	as-mut-array
+	as-mut-array-impl
+	bits-of-float32
+	bit-sof-float64
+	bitwise-not-nat8
+	bitwise-not-nat16
+	bitwise-not-nat32
+	bitwise-not-nat64
+	count-ones-nat64
+	c-string-of-symbol
+	deref
+	drop
+	float32-from-bits
+	float64-from-bits
+	is-nan-float32
+	is-nan-float64
+	not
+	jump-to-catch
+	reference-from-pointer
+	setup-catch
+	symbol-of-c-string
+	to-char8-from-nat8
+	to-char8-array-from-string
+	to-float32-from-float64
+	to-float64-from-float32
+	to-float64-from-int64
+	to-float64-from-nat64
+	to-int64-from-int8
+	to-int64-from-int16
+	to-int64-from-int32
+	to-nat8-from-char8
+	to-nat32-from-char32
+	to-nat64-from-nat8
+	to-nat64-from-nat16
+	to-nat64-from-nat32
+	to-nat64-from-ptr
+	to-ptr-from-nat64
+	truncate-to-int64-from-float64
+	trust-as-string
+	unsafe-to-char32-from-char8
+	unsafe-to-char32-from-nat32
+	unsafe-to-nat32-from-int32
+	unsafe-to-int8-from-int64
+	unsafe-to-int16-from-int64
+	unsafe-to-int32-from-int64
+	unsafe-to-nat64-from-int64
+	unsafe-to-int64-from-nat64
+	unsafe-to-nat8-from-nat64
+	unsafe-to-nat16-from-nat64
+	unsafe-to-nat32-from-nat64
+== bool(a builtin-unary, b builtin-unary)
+
+builtin-unary-math enum
+	acos-float32
+	acos-float64
+	acosh-float32
+	acosh-float64
+	asin-float32
+	asin-float64
+	asinh-float32
+	asinh-float64
+	atan-float32
+	atan-float64
+	atanh-float32
+	atanh-float64
+	cos-float32
+	cos-float64
+	cosh-float32
+	cosh-float64
+	round-down-float32
+	round-down-float64
+	round-float32
+	round-float64
+	round-up-float32
+	round-up-float64
+	sin-float32
+	sin-float64
+	sinh-float32
+	finh-float64
+	sqrt-float32
+	sqrt-float64
+	tan-float32
+	tan-float64
+	tanh-float32
+	tanh-float64
+	unsafe-log-float32
+	unsafe-log-float64
+
+builtin-binary enum
+	add-float32
+	add-float64
+	| As in C, the RHS is multiplied by the pointee size first (so `x + 3` adds 12 to an `int32*`)
+	add-pointer-and-nat64
+	bitwise-and-int8
+	bitwise-and-int16
+	bitwise-and-int32
+	bitwise-and-int64
+	bitwise-and-nat8
+	bitwise-and-nat16
+	bitwise-and-nat32
+	bitwise-and-nat64
+	bitwise-or-int8
+	bitwise-or-int16
+	bitwise-or-int32
+	bitwise-or-int64
+	bitwise-or-nat8
+	bitwise-or-nat16
+	bitwise-or-nat32
+	bitwise-or-nat64
+	bitwise-xor-int8
+	bitwise-xor-int16
+	bitwise-xor-int32
+	bitwise-xor-int64
+	bitwise-xor-nat8
+	bitwise-xor-nat16
+	bitwise-xor-nat32
+	bitwise-xor-nat64
+	equal-char8
+	equal-char32
+	equal-float32
+	equal-float64
+	equal-int8
+	equal-int16
+	equal-int32
+	equal-int64
+	equal-nat8
+	equal-nat16
+	equal-nat32
+	equal-nat64
+	equal-pointer
+	less-char8
+	less-float32
+	less-float64
+	less-int8
+	less-int16
+	less-int32
+	less-int64
+	less-nat8
+	less-nat16
+	less-nat32
+	less-nat64
+	less-pointer
+	mul-float32
+	mul-float64
+	| Also works for mut-slice
+	new-array
+	reference-equal
+	seq
+	sub-float32
+	sub-float64
+	| Like for 'add-pointer-and-nat64', RHS is multiplied by size of pointee first
+	sub-pointer-and-nat64
+	switch-fiber
+	unsafe-add-int8
+	unsafe-add-int16
+	unsafe-add-int32
+	unsafe-add-int64
+	unsafe-add-nat8
+	unsafe-add-nat16
+	unsafe-add-nat32
+	unsafe-add-nat64
+	unsafe-bit-shift-left-nat64
+	unsafe-bit-shift-right-nat64
+	unsafe-div-float32
+	unsafe-div-float64
+	unsafe-div-int8
+	unsafe-div-int16
+	unsafe-div-int32
+	unsafe-div-int64
+	unsafe-div-nat8
+	unsafe-div-nat16
+	unsafe-div-nat32
+	unsafe-div-nat64
+	unsafe-mul-int8
+	unsafe-mul-int16
+	unsafe-mul-int32
+	unsafe-mul-int64
+	unsafe-mul-nat8
+	unsafe-mul-nat16
+	unsafe-mul-nat32
+	unsafe-mul-nat64
+	unsafe-sub-int8
+	unsafe-sub-int16
+	unsafe-sub-int32
+	unsafe-sub-int64
+	unsafe-sub-nat8
+	unsafe-sub-nat16
+	unsafe-sub-nat32
+	unsafe-sub-nat64
+	wrap-add-nat8
+	wrap-add-nat16
+	wrap-add-nat32
+	wrap-add-nat64
+	wrap-mul-nat8
+	wrap-mul-nat16
+	wrap-mul-nat32
+	wrap-mul-nat64
+	wrap-sub-nat8
+	wrap-sub-nat16
+	wrap-sub-nat32
+	wrap-sub-nat64
+	write-to-pointer
+
+| These all have a lazy second argument
+builtin-binary-lazy enum
+	bool-and
+	bool-or
+	option-or
+	option-question-2
+== bool(a builtin-binary-lazy, b builtin-binary-lazy)
+
+builtin-binary-math enum
+	atan2-float32
+	atan2-float64
+	| Like the C 'fmod' function, this is not a true modulo; it keeps negative numbers negative
+	fmod-float32
+	fmod-float64
+	unsafe-pow-float32
+	unsafe-pow-float64
+
+builtin-ternary enum(interpreter-backtrace)
+builtin-4ary enum(switch-fiber-initial)
+
+fun-flags record
+	bare_ bool
+	summon_ bool
+	safety fun-safety
+	ok-if-unused bool
+	force-ctx_ bool
+with-ok-if-unused fun-flags(a fun-flags)
+	a.bare_, a.summon_, a.safety, true, a.force-ctx_
+with-summon fun-flags(a fun-flags)
+	a with-summon true
+with-summon fun-flags(a fun-flags, summon_ bool)
+	a.bare_, summon_, a.safety, a.ok-if-unused, a.force-ctx_
+
+regular fun-flags(bare_ bool, summon_ bool, safety fun-safety, force-ctx_ bool)
+	bare_, summon_, safety, false, force-ctx_
+none fun-flags()
+	false, false, safe, false, false
+generated-bare fun-flags()
+	true, false, safe, true, false
+generated-bare-unsafe fun-flags()
+	true, false, unsafe_, true, false
+generated fun-flags()
+	false, false, safe, true, false
+
+fun-safety enum(safe, trusted_, unsafe_)
+== bool(a fun-safety, b fun-safety)
+
+fun-decl-source union(
+	fun-source-bogus,
+	fun-source-ast,
+	enum-or-flags-member,
+	fun-source-file-import,
+	record-field,
+	# This is for a variant method
+	signature,
+	struct-decl,
+	var-decl
+) mut
+	module-uri uri()
+	name-range uri-and-range()
+range uri-and-range(a fun-decl-source)
+	match a
+	as fun-source-bogus x
+		x.module-uri, ()
+	as fun-source-ast x
+		x.module-uri, x.ast.range
+	as enum-or-flags-member x
+		x.module-uri, x.range
+	as fun-source-file-import x
+		x.module-uri, x.ast.range
+	as record-field x
+		x.module-uri, x.range
+	as signature x
+		x range
+	as struct-decl x
+		x range
+	as var-decl x
+		x range
+doc-comment-ast doc-comment-ast(a fun-decl-source)
+	if x ?= a fun-source-ast
+		x.ast doc-comment
+type-params type-params(a fun-decl-source)
+	match a
+	as fun-source-bogus x
+		x type-params
+	as fun-source-ast x
+		x.ast type-params
+	as enum-or-flags-member x
+		x.containing-enum type-params
+	as fun-source-file-import _
+		()
+	as record-field x
+		x.containing-record type-params
+	as signature x
+		x.container type-params
+	as struct-decl x
+		x type-params
+	as var-decl x
+		x type-params
+fun-source-bogus record(module-uri uri, type-params type-params)
+name-range uri-and-range(a fun-source-bogus)
+	a.module-uri top-of-file
+fun-source-ast record(module-uri uri, ast fun-decl-ast)
+name-range uri-and-range(a fun-source-ast)
+	a.module-uri, a.ast.range
+fun-source-file-import record
+	| This is the importing module, not imported
+	module-uri uri
+	ast import-or-export-ast
+name-range uri-and-range(a fun-source-file-import)
+	a.module-uri, a.ast.range
+
+fun-decl record mut
+	source fun-decl-source
+	visibility visibility
+	name symbol
+	return-type type
+	params params
+	flags_ fun-flags
+	externs symbol-set
+	specs specs
+	doc-comment-references mut doc-comment-references
+	body mut fun-body
+type-params type-params(a fun-decl)
+	a.source type-params
+module-uri uri(a fun-decl)
+	a.source module-uri
+range uri-and-range(a fun-decl)
+	a.source range
+name-range uri-and-range(a fun-decl)
+	a.source name-range
+doc-comment-ast doc-comment-ast(a fun-decl)
+	a.source doc-comment-ast
+doc-comment doc-comment(a fun-decl)
+	a.doc-comment-ast, a.doc-comment-references
+linkage linkage(a fun-decl)
+	match a body
+	as fun-body-extern _
+		extern_
+	else
+		internal
+is-bare bool(a fun-decl)
+	a.flags_ bare_
+is-bare-or-force-ctx bool(a fun-decl)
+	a.flags_.bare_ || a.flags_.force-ctx_
+is-generated bool(a fun-decl)
+	a.body is-generated
+is-summon bool(a fun-decl)
+	a.flags_ summon_
+is-unsafe bool(a fun-decl)
+	a.flags_.safety == unsafe_
+ok-if-unused bool(a fun-decl)
+	a.flags_ ok-if-unused
+is-variadic bool(a fun-decl)
+	match a params
+	as array _
+		false
+	as varargs _
+		true
+is-template bool(a fun-decl)
+	a.type-params !is-empty || a.specs !is-empty
+arity arity(a fun-decl)
+	a.params arity
+each-spec-in-fun-including-parents bool(a fun-decl, cb bool mut(x spec-inst))
+	a.specs iterate x =>
+		x each-spec-including-parents cb
+-each-spec-including-parents bool(a spec-inst, cb bool mut(x spec-inst))
+	from-parents = a.parents exists parent =>
+		parent each-spec-including-parents cb
+	from-parents || cb[a]
+each-spec-sig-and-impl void(a fun-decl, impls spec-impls, cb void mut(x spec-inst, sig signature, c called))
+	assert impls.size == a.specs.count-sigs
+	impl-index mut nat = 0
+	for spec_ : a specs
+		spec_ each-spec-sig sig =>
+			cb[spec_, sig, impls[impl-index]]
+			impl-index +:= 1
+	impl-index is impls.size
+
+test_ record mut
+	ast test-ast
+	module-uri uri
+	flags_ fun-flags
+	externs symbol-set
+	body expr
+	doc-comment-references mut doc-comment-references
+doc-comment-ast doc-comment-ast(a test_)
+	a.ast doc-comment
+doc-comment doc-comment(a test_)
+	a.doc-comment-ast, a.doc-comment-references
+range uri-and-range(a test_)
+	a.module-uri, a.ast.range
+name symbol(_ test_)
+	"test"
+type-params type-params(_ test_)
+	()
+| Treat as public since 'run-all-tests' runs tests from other modules
+visibility visibility(_ test_)
+	public
+
+fun-decl-and-type-args record(decl fun-decl, type-args type-args) mut
+
+| WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
+fun-inst record mut
+	decl fun-decl
+	type-args type-args
+	spec-impls spec-impls
+	instantiated-sig return-and-param-types
+name symbol(a fun-inst)
+	a.decl name
+return-type type(a fun-inst)
+	a.instantiated-sig return-type
+param-types type[](a fun-inst)
+	a.instantiated-sig param-types
+arity arity(a fun-inst)
+	a.decl arity
+
+return-and-param-types record(return-and-param-types type[]) mut
+return-type type(a return-and-param-types)
+	a.return-and-param-types[0]
+param-types type[](a return-and-param-types)
+	a.return-and-param-types[1 .. end]
+
+called-spec-sig record(spec-inst spec-inst, sig-index nat) mut
+instantiated-sig return-and-param-types(a called-spec-sig)
+	a.spec-inst.sig-types[a sig-index]
+return-type type(a called-spec-sig)
+	a.instantiated-sig return-type
+param-types type[](a called-spec-sig)
+	a.instantiated-sig param-types
+non-instantiated-sig signature(a called-spec-sig)
+	a.spec-inst.decl.sigs[a sig-index]
+module-uri uri(a called-spec-sig)
+	a.spec-inst.decl module-uri
+name symbol(a called-spec-sig)
+	a.non-instantiated-sig name
+range uri-and-range(a called-spec-sig)
+	a.non-instantiated-sig range
+arity arity(a called-spec-sig)
+	a.non-instantiated-sig.params.size to
+type-params type-params(_ called-spec-sig)
+	()
+doc-comment doc-comment(a called-spec-sig)
+	a.non-instantiated-sig doc-comment
+
+| Like 'Called', but not fully instantiated. (This is used for Candidate when checking a call expr.)
+called-decl union(fun-decl, called-spec-sig) mut
+	module-uri uri()
+	name symbol()
+	type-params type-params()
+	return-type type()
+	arity arity()
+	doc-comment doc-comment()
+non-instantiated-params params(a called-decl)
+	match a
+	as fun-decl x
+		x params
+	as called-spec-sig x
+		x.non-instantiated-sig.params to
+is-variadic bool(a called-decl)
+	a.arity is-variadic
+n-type-params nat(a called-decl)
+	a.type-params size
+
+called union(called-bogus, fun-inst, called-spec-sig) mut
+	return-type type()
+	param-types type[]()
+	arity arity()
+called-bogus record(decl called-decl, return-type type, param-types type[]) mut
+arity arity(a called-bogus)
+	a.decl arity
+
+called-decl called-decl(a called)
+	match a
+	as called-bogus x
+		x decl
+	as fun-inst x
+		x.decl to
+	as called-spec-sig x
+		x to
+name symbol(a called)
+	a.called-decl name
+is-variadic bool(a called)
+	a.arity is-variadic
+
+struct-or-alias union(struct-alias, struct-decl) mut
+	range uri-and-range()
+	name-range uri-and-range()
+	visibility visibility()
+	name symbol()
+	type-params type-params()
+
+| There is no `var-inst` since these can't be templates
+var-decl record mut
+	ast var-decl-ast
+	module-uri uri
+	visibility visibility
+	type type
+	extern-library-name symbol?
+	doc-comment-references mut doc-comment-references
+doc-comment-ast doc-comment-ast(a var-decl)
+	a.ast doc-comment
+doc-comment doc-comment(a var-decl)
+	a.doc-comment-ast, a.doc-comment-references
+name symbol(a var-decl)
+	a.ast.name name
+type-params type-params(_ var-decl)
+	()
+kind var-kind(a var-decl)
+	a.ast kind
+range uri-and-range(a var-decl)
+	a.module-uri, a.ast.range
+name-range uri-and-range(a var-decl)
+	a.module-uri, a.ast.name-range
+
+module record mut
+	uri uri
+	| The config closest to this module. (Not necessarily the main config.)
+	config config
+	ast file-ast
+	| WARN: This is not every diagnostic. See {each-diagnostic}.
+	diagnostics diagnostic[]
+	imports import-or-export[]
+	re-exports import-or-export[]
+	aliases struct-alias[]
+	structs struct-decl[]
+	vars var-decl[]
+	specs spec-decl[]
+	funs fun-decl[]
+	tests test_[]
+	exports name-referents[symbol]
+	doc-comment-references doc-comment-references
+module-uri uri(a module)
+	a uri
+type-params type-params(_ module)
+	()
+range uri-and-range(a module)
+	a.uri top-of-file
+doc-comment-ast doc-comment-ast(a module)
+	a.ast doc-comment
+doc-comment doc-comment(a module)
+	a.doc-comment-ast, a.doc-comment-references
+
+| Excludes derived decls, e.g. FunDecl that is a record field getter
+each-decl void(a module, cb void mut(x any-decl))
+	for x : a aliases
+		cb[x to]
+	for x : a structs
+		cb[x to]
+	for x : a vars
+		cb[x to]
+	for x : a specs
+		cb[x to]
+	for x : a funs
+		if _ ?= x.source fun-source-ast
+			cb[x to]
+	for x : a tests
+		cb[x to]
+
+any-decl union(fun-decl, spec-decl, struct-alias, struct-decl, test_, var-decl) mut
+	module-uri uri()
+	name symbol()
+	range uri-and-range()
+	doc-comment-ast doc-comment-ast()
+	doc-comment doc-comment()
+	type-params type-params()
+	visibility visibility()
+specs specs(a any-decl)
+	match a
+	as fun-decl x
+		x specs
+	as spec-decl x
+		x parents
+	as struct-alias _
+		()
+	as struct-decl _
+		()
+	as test_ _
+		()
+	as var-decl _
+		()
+
+type-with-container record(type type, container type-container) mut
+
+| Since a type parameter is represented as its index, we need a context to know where to find it.
+| This is like AnyDecl, but also includes 'Module' which can have types in its doc comment.
+type-container union(fun-decl, module, spec-decl, struct-alias, struct-decl, test_, var-decl) mut
+	module-uri uri()
+	type-params type-params()
+	doc-comment doc-comment()
+forbid-module any-decl(a type-container)
+	match a
+	as fun-decl x
+		x to
+	as module _
+		throw unreachable
+	as spec-decl x
+		x to
+	as struct-alias x
+		x to
+	as struct-decl x
+		x to
+	as test_ x
+		x to
+	as var-decl x
+		x to
+to type-container(a any-decl)
+	match a
+	as fun-decl x
+		x to
+	as spec-decl x
+		x to
+	as struct-alias x
+		x to
+	as struct-decl x
+		x to
+	as test_ x
+		x to
+	as var-decl x
+		x to
+
+is-import-or-export enum(import_, export_)
+each-import-or-re-export void(a module, cb void mut(x import-or-export))
+	a each-import-or-re-export-with-kind (_, x) =>
+		cb[x]
+each-import-or-re-export-with-kind void(a module, cb void mut(kind is-import-or-export, x import-or-export))
+	for x : a imports
+		cb[import_, x]
+	for x : a re-exports
+		cb[export_, x]
+
+import-or-export record mut
+	| Empty for an automatic import of std
+	source import-or-export-ast?
+	module module
+	| If this is {internal}, import internal and public exports.
+	| If this is {public}, import only public exports.
+	import-visibility export-visibility
+	| If the ast was {name-and-range}[], this will have an entry for each name (except when there was nothing to import).
+	| For an import of a whole module, this tracks what was actually used in this module.
+	| For a re-export of a whole module, this is not used.
+	imported mut imported-referents?
+has-imported bool(a import-or-export)
+	a.imported !is-empty
+is-std bool(a import-or-export)
+	a.source is-empty
+is-relative-import bool(a import-or-export)
+	if x ?= a source
+		if _ ?= x.path rel-path
+			true
+imported-referents alias
+	name-referents[symbol]
+
+import-file-content union(nat8[], string, import-file-content-bogus)
+import-file-content-bogus record
+
+name-referents record mut
+	struct-or-alias struct-or-alias?
+	spec_ spec-decl?
+	funs fun-decl[]
+name symbol(a name-referents)
+	if x ?= a struct-or-alias
+		x name
+	elif x ?= a spec_
+		x name
+	else
+		a.funs[0] name
+
+fun-kind-from-builtin-type fun-kind?(a builtin-type)
+	match a
+	as lambda-data
+		data_,
+	as lambda-shared
+		shared_,
+	as lambda-mut
+		mut_,
+	as fun-pointer
+		function_,
+	else
+		()
+
+common-funs-and-diagnostics record(common-funs common-funs, diagnostics uri-and-diagnostic[]) mut
+
+common-funs record mut
+	js-await fun-inst
+	cur-catch-point fun-inst
+	set-cur-catch-point fun-inst
+	cur-thrown var-decl
+	allocate fun-inst
+	create-error fun-inst
+	lambda-subscript (fun-kind, fun-decl) enum-map
+	shared-of-mut-lambda fun-decl
+	mark fun-inst
+	to-json-from-json fun-inst
+	to-json-from-t-array fun-decl
+	new-json-from-pairs fun-inst
+	run-fiber fun-inst
+	run-all-tests fun-inst
+	rt-main fun-inst
+	throw-impl fun-inst
+	equal-const-pointers fun-decl
+	rethrow-current-exception fun-inst
+	concat-arrays fun-decl
+	gc-root fun-inst
+	set-gc-root fun-inst
+	pop-gc-root fun-inst
+catch-point-pointer-type struct-inst(a common-funs)
+	a.cur-catch-point.return-type struct-inst!
+catch-point-type struct-inst(a common-funs)
+	a.catch-point-pointer-type.type-args.only struct-inst!
+
+common-types record mut
+	bool struct-inst
+	char8 struct-inst
+	char32 struct-inst
+	c-string struct-inst
+	exception struct-inst
+	fiber struct-inst
+	float32 struct-inst
+	float64 struct-inst
+	future struct-decl
+	integrals integral-types
+	js-any struct-inst
+	string struct-inst
+	symbol struct-inst
+	symbol-array struct-inst
+	void struct-inst
+	array struct-decl
+	char8-array struct-inst
+	char8-const-pointer struct-inst
+	char32-array struct-inst
+	nat8-array struct-inst
+	string-array struct-inst
+	option struct-decl
+	pointer-const struct-decl
+	pointer-mut struct-decl
+	reference struct-decl
+	| No tuple0 and tuple1, so this is 2-9 inclusive
+	tuples-2-through-9 struct-decl[]
+	| Indexed by FunKind, then by arity. (arity = typeArgs.length - 1)
+	fun-structs (fun-kind, struct-decl) enum-map
+fun-pointer-struct struct-decl(a common-types)
+	a.fun-structs[function_]
+pair struct-decl(a common-types)
+	a tuple! 2
+tuple struct-decl?(a common-types, arity nat)
+	if arity in 2 .. 10
+		a.tuples-2-through-9[arity - 2],
+max-tuple-size nat(_ common-types)
+	9
+subscript struct-inst(a common-types, type char-type)
+	match type
+	as char8
+		a char8
+	as char32
+		a char32
+subscript struct-inst(a common-types, type integral-type)
+	a.integrals[type]
+subscript struct-inst(a common-types, type char-or-integral-type)
+	match type
+	as char-type x
+		a[x]
+	as integral-type x
+		a[x]
+subscript struct-inst(a common-types, type float-type)
+	match type
+	as float32
+		a float32
+	as float64
+		a float64
+subscript struct-inst(a common-types, type string-like-type)
+	match type
+	as char8-array
+		a char8-array
+	as char32-array
+		a char32-array
+	as c-string
+		a c-string
+	as js-any
+		a js-any
+	as string
+		a string
+	as symbol
+		a symbol
+
+other-types record mut
+	future-or-mut-array-to-impl struct-inst[struct-inst]
+
+integral-types record mut
+	map (integral-type, struct-inst) enum-map
+subscript struct-inst(a integral-types, type integral-type)
+	a.map at type
+int8 struct-inst(a integral-types)
+	a[int8]
+int16 struct-inst(a integral-types)
+	a[int16]
+int32 struct-inst(a integral-types)
+	a[int32]
+int64 struct-inst(a integral-types)
+	a[int64]
+nat8 struct-inst(a integral-types)
+	a[nat8]
+nat16 struct-inst(a integral-types)
+	a[nat16]
+nat32 struct-inst(a integral-types)
+	a[nat32]
+nat64 struct-inst(a integral-types)
+	a[nat64]
+
+char-type enum(char8, char32)
+float-type enum(float32, float64)
+integral-type enum(int8, int16, int32, int64, nat8, nat16, nat32, nat64)
+to nat32(a integral-type)
+members integral-type[]()
+to integral-type?(a builtin-type)
+	match a
+	as int8
+		int8,
+	as int16
+		int16,
+	as int32
+		int32,
+	as int64
+		int64,
+	as nat8
+		nat8,
+	as nat16
+		nat16,
+	as nat32
+		nat32,
+	as nat64
+		nat64,
+	else
+		()
+is-signed bool(a integral-type)
+	match a
+	as int8
+		true
+	as int16
+		true
+	as int32
+		true
+	as int64
+		true
+	as nat8
+		false
+	as nat16
+		false
+	as nat32
+		false
+	as nat64
+		false
+
+char-or-integral-type union(char-type, integral-type)
+is-signed bool(a char-or-integral-type)
+	match a
+	as char-type _
+		false
+	as integral-type x
+		x is-signed
+
+min-value int(a integral-type)
+	match a
+	as int8
+		min-value::int8 to
+	as int16
+		min-value::int16 to
+	as int32
+		min-value::int32 to
+	as int64
+		min-value
+	as nat8
+		0
+	as nat16
+		0
+	as nat32
+		0
+	as nat64
+		0
+
+max-value nat(a integral-type)
+	match a
+	as int8
+		max-value::int8 to
+	as int16
+		max-value::int16 to
+	as int32
+		max-value::int32 to
+	as int64
+		max-value::int64 to
+	as nat8
+		max-value::nat8 to
+	as nat16
+		max-value::nat16 to
+	as nat32
+		max-value::nat32 to
+	as nat64
+		max-value
+
+program-with-main record(program program, main-fun-and-diagnostics main-fun-and-diagnostics) mut
+main-fun main-fun(a program-with-main)
+	a.main-fun-and-diagnostics main-fun
+main-fun-diagnostics uri-and-diagnostic[](a program-with-main)
+	a.main-fun-and-diagnostics diagnostics
+main-config config(a program-with-main)
+	a.main-fun main-config a.program
+test-selector test-selector(a program-with-main)
+	a.main-fun test-selector a.program
+
+# TODO: isn't this basically just OS?
+build-target union(build-target-js, build-target-native)
+build-target-js record
+build-target-native record(os os)
+
+| All 'extern's to compile with for the given target
+all-externs symbol-set(program program-with-main, target build-target)
+	program.main-config all-externs-for-main-config (target,)
+all-externs-for-main-config symbol-set(main-config config, target build-target?)
+	with out : build
+		if t ?= target
+			match t
+			as build-target-js _
+				out ~= "js"
+			as build-target-native x
+				match x os
+				as node-js
+					throw unreachable
+				as web
+					throw unreachable
+				as none
+					out ~= "fake"
+				as linux
+					out ~~= ("linux", "posix", "pthread", "sodium", "unwind")::(symbol set)
+				as windows
+					out ~~= ("DbgHelp", "ucrtbase", "windows")::(symbol set)
+				out ~~= ("libc", "native")::(symbol set)
+		for name, uri : main-config.extern_
+			if _ ?= uri
+				out ~= name
+
+program-with-opt-main record(program program, main-fun-and-diagnostics main-fun-and-diagnostics?) mut
+has-main bool(a program-with-opt-main)
+	a.main-fun-and-diagnostics !is-empty
+as-program-with-main program-with-main(a program-with-opt-main)
+	a.program, a.main-fun-and-diagnostics!
+as-program program(a program-with-opt-main)
+	a program
+as-program-with-opt-main program-with-opt-main(a program-with-main)
+	a.program, (a.main-fun-and-diagnostics,)
+as-program-with-opt-main program-with-opt-main(a program)
+	a, ()
+
+main-fun-and-diagnostics record(main-fun main-fun, diagnostics uri-and-diagnostic[]) mut
+
+main-fun union(main-fun-nat64-of-args, main-fun-void, test-selector) mut
+main-fun-nat64-of-args record(fun fun-inst) mut
+main-fun-void record(fun fun-inst) mut
+
+range-for-diag uri-and-range(a main-fun)
+	match a
+	as main-fun-nat64-of-args x
+		x.fun.decl range
+	as main-fun-void x
+		x.fun.decl range
+	as test-selector test_
+		match test_
+		as test-selector-all _
+			# We don't get diagnostics for this
+			throw unreachable
+		as config x
+			x.config-uri! top-of-file
+		as uri x
+			x top-of-file
+		as test_ x
+			x range
+uri-for-temp-path uri?(a main-fun)
+	match a
+	as main-fun-nat64-of-args x
+		x.fun.decl.module-uri,
+	as main-fun-void x
+		x.fun.decl.module-uri,
+	as test-selector test_
+		match test_
+		as test-selector-all _
+			()
+		as config x
+			x.config-uri!,
+		as uri x
+			x,
+		as test_ x
+			x.module-uri,
+required-externs symbol-set(a main-fun)
+	match a
+	as main-fun-nat64-of-args x
+		x.fun.decl externs
+	as main-fun-void x
+		x.fun.decl externs
+	as test-selector s
+		match s
+		as test-selector-all _
+			()
+		as config _
+			()
+		as uri _
+			()
+		as test_ x
+			x externs
+main-config config(a main-fun, program program)
+	config-for config mut(uri uri) = uri =>
+		program module-at-uri uri config
+	match a
+	as main-fun-nat64-of-args x
+		config-for[x.fun.decl module-uri]
+	as main-fun-void x
+		config-for[x.fun.decl module-uri]
+	as test-selector test_
+		match test_
+		as test-selector-all x
+			x main-config
+		as config x
+			x
+		as uri x
+			config-for[x]
+		as test_ x
+			config-for[x module-uri]
+test-selector test-selector(a main-fun, program program)
+	match a
+	as main-fun-nat64-of-args _
+		a main-config program test-selector-all
+	as main-fun-void _
+		a main-config program test-selector-all
+	as test-selector x
+		x
+
+| All tests, tests in a particular config, tests in a single file, or a single test
+test-selector union(test-selector-all, config, uri, test_) mut
+test-selector-all record(main-config config) mut
+
+has-any-diagnostics bool(a program-with-main)
+	a.program has-any-diagnostics || a.main-fun-diagnostics !is-empty
+
+program record mut
+	all-configs config[uri]
+	all-modules module[uri]
+	file-content-getters file-content-getters
+	line-and-column-getters line-and-column-getters
+	common-funs-and-diagnostics common-funs-and-diagnostics
+	common-types common-types
+	other-types other-types
+line-and-character-getters line-and-character-getters(a program)
+	a.line-and-column-getters line-and-character-getters
+common-funs common-funs(a program)
+	a.common-funs-and-diagnostics common-funs
+config-at-uri config(a program, uri uri)
+	a.all-configs[uri]!
+module-at-uri module(a program, uri uri)
+	a.all-modules[uri]!
+
+has-any-diagnostics bool(a program)
+	a exists-diagnostic _ => true
+| Iterates in no particular order
+each-diagnostic void(a program-with-opt-main, cb void mut(x uri-and-diagnostic))
+	res = a exists-diagnostic x =>
+		cb[x]
+		false
+	forbid res
+-exists-diagnostic bool(a program-with-opt-main, cb bool mut(x uri-and-diagnostic))
+	(a.has-main && a.as-program-with-main.main-fun-diagnostics exists cb) ||
+	a.program exists-diagnostic cb
+exists-diagnostic bool(a program, cb bool mut(x uri-and-diagnostic))
+	a.common-funs-and-diagnostics.diagnostics exists cb ||
+	a exists-diagnostic-in-configs cb ||
+	a exists-diagnostic-in-modules cb
+-exists-diagnostic-in-configs bool(a program, cb bool mut(x uri-and-diagnostic))
+	a.all-configs exists (_, config) =>
+		config.diagnostics exists x =>
+			cb[config.config-uri!, x]
+-exists-diagnostic-in-modules bool(a program, cb bool mut(x uri-and-diagnostic))
+	a.all-modules exists (_, module) =>
+		in-ast = module.ast.parse-diagnostics exists x =>
+			cb[(module.uri, x.range), x.kind.to]
+		in-ast || module.diagnostics exists x =>
+			cb[module.uri, x]
+
+each-test void(a program, all-externs symbol-set, selector test-selector, cb void mut(x test_))
+	match selector
+	as test-selector-all _
+		for _, m : a all-modules
+			for x : m tests
+				if x.externs is-subset-of all-externs
+					cb[x]
+	as config config
+		for _, m : a all-modules
+			if m.config == config
+				for x : m tests
+					if x.externs is-subset-of all-externs
+						cb[x]
+	as uri uri
+		for x : a module-at-uri uri tests
+			if x.externs is-subset-of all-externs
+				cb[x]
+	as test_ x
+		assert x.externs is-subset-of all-externs
+		cb[x]
+
+config record mut
+	config-uri uri?
+	diagnostics diagnostic[]
+	include config-import-uris
+	extern_ config-extern-uris
+get-config-uri uri(a config)
+	a config-uri!
+== bool(a config, b config)
+	a.config-uri == b.config-uri
+new config()
+	(), (), (), ()
+config-for-diag config(uri uri, diag diag)
+	(uri,), (((), diag),), (), ()
+
+config-import-uris alias
+	uri[symbol]
+config-extern-uris alias
+	uri?[symbol]
+
+local-source union(single-destructure-ast, local-source-generated)
+local-source-generated record(name symbol)
+
+local record(source local-source, mutability local-mutability, type type) mut
+name symbol(a local)
+	match a source
+	as single-destructure-ast x
+		x.name name
+	as local-source-generated x
+		x name
+is-mutable bool(a local)
+	a.mutability.to-mutability == mut_
+is-allocated bool(a local)
+	match a mutability
+	as local-immutable
+		false
+	as local-mutable-on-stack
+		false
+	as local-mutable-allocated _
+		true
+local-must-have-name-range source-range(a local)
+	a.source.single-destructure-ast! name-range
+-local-must-have-range source-range(a local)
+	a.source.single-destructure-ast! range
+
+local-mutability union(local-immutable, local-mutable-on-stack, local-mutable-allocated) mut
+local-immutable record
+local-mutable-on-stack record
+local-mutable-allocated record(reference-type struct-inst) mut
+is-immutable bool(a local-mutability)
+	a.to-mutability == immut
+
+mutability enum(immut, mut_)
+== bool(a mutability, b mutability)
+to-mutability mutability(a local-mutability)
+	match a
+	as local-immutable
+		immut
+	as local-mutable-on-stack
+		mut_
+	as local-mutable-allocated _
+		mut_
+
+closure-ref record(lambda lambda-expr, index nat) mut
+variable-ref variable-ref(a closure-ref)
+	a.lambda.closure[a index]
+local local(a closure-ref)
+	a.variable-ref local
+closure-reference-kind closure-reference-kind(a closure-ref)
+	a.variable-ref closure-reference-kind
+name symbol(a closure-ref)
+	a.local name
+type type(a closure-ref)
+	a.local type
+
+closure-reference-kind enum(direct, allocated)
+
+variable-ref union(local, closure-ref) mut
+	name symbol()
+mutability local-mutability(a variable-ref)
+	a.local mutability
+type type(a variable-ref)
+	a.local type
+local local(a variable-ref)
+	match a
+	as local x
+		x
+	as closure-ref x
+		x local
+closure-reference-kind closure-reference-kind(a variable-ref)
+	match a.local mutability
+	as local-immutable
+		direct
+	as local-mutable-on-stack
+		throw unreachable
+	as local-mutable-allocated _
+		allocated
+
+
+destructure union(destructure-ignore, local, destructure-split) mut
+| This can come from '_' or '()' (which is the same as '_ void')
+destructure-ignore record(source destructure-ignore-source, pos pos, type type) mut
+destructure-ignore-source union(case-member-ast, struct-decl, single-destructure-ast, void-destructure-ast) mut
+destructure-split record mut
+	| This will be the type attempted to destructure.
+	| If it can't be destructured, each of 'parts' will have a bogus type.
+	destructured-type type
+	parts destructure[]
+is-valid-destructure bool(a destructure-split, common-types common-types)
+	if types ?= common-types as-tuple a.destructured-type
+		types.size == a.parts.size
+
+name symbol?(a destructure)
+	match a
+	as destructure-ignore _
+		()
+	as local x
+		x.name,
+	as destructure-split _
+		()
+range source-range(a destructure)
+	match a
+	as destructure-ignore x
+		x.pos range-of-start-and-length "_"
+	as local x
+		x local-must-have-range
+	as destructure-split x
+		x.parts[0].range combine-ranges x.parts[end - 1].range
+start pos(a destructure)
+	a.range start
+end pos(a destructure)
+	a.range end
+type type(a destructure)
+	match a
+	as destructure-ignore x
+		x type
+	as local x
+		x type
+	as destructure-split x
+		x destructured-type
+each-local void(a destructure, cb void mut(x local))
+	res bool? = a first-local x =>
+		cb[x]
+		()
+	assert res is-empty
+first-local[out] out?(a destructure, cb out? mut(x local))
+	match a
+	as destructure-ignore _
+		()
+	as local x
+		cb[x]
+	as destructure-split x
+		for part : x.parts
+			if res ?= part first-local cb
+				break res
+
+doc-comment record(ast doc-comment-ast, references doc-comment-references) mut
+is-empty bool(a doc-comment)
+	a.ast is-empty
+
+doc-comment-reference union(
+	doc-comment-reference-bogus,
+	called-spec-sig,
+	enum-or-flags-member,
+	fun-decl,
+	local,
+	record-field,
+	signature,
+	struct-alias,
+	struct-decl,
+	spec-decl,
+	type-param-index,
+	var-decl
+) mut
+doc-comment-reference-bogus record
+doc-comment-references alias
+	doc-comment-reference[]
+
+expr union(
+	assert-or-forbid-expr,
+	bogus-call-expr,
+	bogus-expr,
+	bogus-wrong-type-expr,
+	call-expr,
+	call-option-expr,
+	closure-get-expr,
+	closure-set-expr,
+	extern-expr,
+	finally-expr,
+	fun-pointer-expr,
+	if-expr,
+	lambda-expr,
+	let-expr,
+	literal-float-expr,
+	literal-integral-expr,
+	literal-string-like-expr,
+	local-get-expr,
+	local-pointer-expr,
+	local-set-expr,
+	loop-expr,
+	loop-break-expr,
+	loop-continue-expr,
+	loop-while-or-until-expr,
+	match-enum-expr,
+	match-integral-expr,
+	match-string-like-expr,
+	match-sum-type-expr,
+	record-field-pointer-expr,
+	seq-expr,
+	throw-expr,
+	trusted-expr,
+	try-expr,
+	try-let-expr,
+	typed-expr
+) mut
+	range source-range()
+start pos(a expr)
+	a.range start
+end pos(a expr)
+	a.range end
+
+type-is-bogus bool(a expr)
+	a.type-not-common is-bogus
+type-not-common type(a expr) trusted
+	res = a type gc-safe-value
+	if x ?= res struct-inst
+		assert x !reference-equal gc-safe-value
+	res
+type type(a expr, common-types common-types)
+	match a
+	as assert-or-forbid-expr _
+		common-types.void to
+	as bogus-call-expr x
+		x expected-type
+	as bogus-expr x
+		x expected-type
+	as bogus-wrong-type-expr x
+		x expected-type
+	as call-expr x
+		x type
+	as call-option-expr x
+		x.type to
+	as closure-get-expr x
+		x type
+	as closure-set-expr _
+		common-types.void to
+	as extern-expr _
+		common-types.bool to
+	as finally-expr x
+		x type common-types
+	as fun-pointer-expr x
+		x.type to
+	as if-expr x
+		x type common-types
+	as lambda-expr x
+		x.type to
+	as let-expr x
+		x type common-types
+	as literal-float-expr x
+		x type common-types to
+	as literal-integral-expr x
+		x type common-types to
+	as literal-string-like-expr x
+		x type common-types to
+	as local-get-expr x
+		x type
+	as local-pointer-expr x
+		x.type to
+	as local-set-expr _
+		common-types.void to
+	as loop-expr x
+		x type
+	as loop-break-expr x
+		x.loop_ type
+	as loop-continue-expr x
+		x.loop_ type
+	as loop-while-or-until-expr _
+		common-types.void to
+	as match-enum-expr x
+		x type common-types
+	as match-integral-expr x
+		x type common-types
+	as match-string-like-expr x
+		x type common-types
+	as match-sum-type-expr x
+		x type common-types
+	as record-field-pointer-expr x
+		x.type to
+	as seq-expr x
+		x type common-types
+	as throw-expr x
+		x type
+	as trusted-expr x
+		x type common-types
+	as try-expr x
+		x type common-types
+	as try-let-expr x
+		x type common-types
+	as typed-expr x
+		x type common-types
+
+condition union(expr, unpack-option) mut
+unpack-option record(destructure destructure, option expr) mut
+extern-condition record
+	is-negated bool
+	| If isNegated is set, this means !(x && y && ...)
+	required-externs symbol-set
+eval-extern-condition bool(a extern-condition, all-externs symbol-set)
+	a.is-negated xor (a.required-externs is-subset-of all-externs)
+as-extern extern-condition?(a condition)
+	if x ?= a expr
+		x as-extern
+-as-extern extern-condition?(a expr)
+	e = a skip-trusted
+	if call ?= e call-expr
+		if call.called is-and
+			assert call.args.size == 2
+			if arg0 ?= call.args[0] as-extern
+				if arg1 ?= call.args[1] as-extern
+					if arg0 !is-negated && arg1 !is-negated
+						(false, arg0.required-externs | arg1.required-externs),
+		elif call.called is-not
+			if names ?= call.args.only.skip-trusted as-extern-expr
+				(true, names),
+	elif names ?= e as-extern-expr
+		(false, names),
+-is-and bool(a called)
+	a is-builtin-fun fun =>
+		if l ?= fun builtin-binary-lazy
+			l == bool-and
+-is-not bool(a called)
+	a is-builtin-fun fun =>
+		if l ?= fun builtin-unary
+			l == not
+-is-builtin-fun bool(a called, cb bool data(x builtin-fun))
+	if fun ?= a fun-inst
+		fun.decl.body is-builtin-fun cb
+-is-builtin-fun bool(a fun-body, cb bool data(x builtin-fun))
+	if x ?= a builtin-fun
+		cb[x]
+-as-extern-expr symbol-set?(a expr)
+	a.extern-expr?.names
+-skip-trusted expr(a expr)
+	if x ?= a trusted-expr
+		x inner
+	else
+		a
+
+assert-or-forbid-expr record mut
+	ast assert-or-forbid-ast
+	is-forbid bool
+	condition condition
+	thrown expr?
+	after expr
+range source-range(a assert-or-forbid-expr)
+	a.ast range
+default-assert-or-forbid-message string(cur-uri uri, a assert-or-forbid-expr, content file-content-getters)
+	prefix string, range source-range = match a.ast condition
+	as expr-ast condition
+		(a.is-forbid ? "Forbidden expression is true: " : "Asserted expression is false: "), condition.range
+	as unpack-option-ast unpack
+		(a.is-forbid ? "Forbidden option is non-empty: " : "Asserted option is empty: "), unpack.option.range
+	prefix ~~ content[cur-uri, range]
+
+bogus-expr record(range source-range, expected-type type) mut
+
+| Wraps an expression that has an invalid type.
+bogus-wrong-type-expr record(inner expr, expected-type type) mut
+range source-range(a bogus-wrong-type-expr)
+	a.inner range
+
+call-expr-source union(
+	arrow-access-ast,
+	assignment-ast,
+	assignment-call-ast,
+	call-ast,
+	call-named-ast,
+	empty-ast,
+	for-ast,
+	if-ast,
+	interpolated-ast,
+	loop-break-ast,
+	loop-continue-ast,
+	name-and-range,
+	with-ast
+)
+	range source-range()
+name-range source-range(a call-expr-source)
+	match a
+	as arrow-access-ast x
+		x.name range
+	as assignment-ast x
+		x.left range
+	as assignment-call-ast x
+		x.fun-name range
+	as call-ast x
+		x name-range
+	as call-named-ast x
+		x range
+	as empty-ast x
+		x range
+	as for-ast x
+		x for-keyword-range
+	as if-ast x
+		x first-keyword-range
+	as interpolated-ast x
+		x range
+	as loop-break-ast x
+		x range
+	as loop-continue-ast x
+		x range
+	as name-and-range x
+		x range
+	as with-ast x
+		x with-keyword-range
+
+bogus-call-expr record mut
+	ast call-expr-source
+	candidates called-decl[]
+	| Note: It may have given up on checking arguments.
+	checked-args expr[]
+	expected-type type
+range source-range(a bogus-call-expr)
+	a.ast range
+
+call-expr record(ast call-expr-source, called called, args expr[]) mut
+range source-range(a call-expr)
+	a.ast range
+type type(a call-expr)
+	a.called return-type
+
+| Expression for 'x?.y' or 'x?[y]'
+call-option-expr record mut
+	ast call-ast
+	| May or may not return an option. If not it will be wrapped after calling.
+	called called
+	| The first arg is an option which is unwrapped before calling. The rest are non-optional.
+	all-args expr[]
+	| If 'called.returnType' is not an option, this wraps it in an option.
+	type struct-inst
+range source-range(a call-option-expr)
+	a.ast range
+wraps-return-as-option bool(a call-option-expr)
+	a.called.return-type != a.type.to
+first-arg expr(a call-option-expr)
+	a.all-args[0]
+rest-args expr[](a call-option-expr)
+	a.all-args[1 .. end]
+
+closure-get-expr record(range source-range, closure-ref closure-ref) mut
+type type(a closure-get-expr)
+	a.local type
+local local(a closure-get-expr)
+	a.closure-ref local
+
+closure-set-expr record(assignee-range source-range, closure-ref closure-ref, value expr) mut
+range source-range(a closure-set-expr)
+	a.assignee-range combine-ranges a.value.range
+local local(a closure-set-expr)
+	a.closure-ref local
+
+extern-expr record(ast extern-ast, names symbol-set)
+range source-range(a extern-expr)
+	a.ast range
+
+builtin-extern enum
+	DbgHelp
+	fake
+	js
+	libc
+	linux
+	native
+	posix
+	pthread
+	sodium
+	ucrtbase
+	unwind
+	windows
+to builtin-extern?(a symbol)
+is-builtin-extern bool(a symbol)
+	a.to::builtin-extern? !is-empty
+
+finally-expr record(ast finally-ast, right expr, below expr) mut
+range source-range(a finally-expr)
+	a.ast range
+type type(a finally-expr, common-types common-types)
+	a.below type common-types
+
+fun-pointer-expr record(ast ptr-ast, called called, type struct-inst) mut
+range source-range(a fun-pointer-expr)
+	a.ast range
+
+| Expression for an IfAst -- see that for all kinds of syntax this corresponds to
+if-expr record mut
+	ast if-ast
+	condition condition
+	true-branch expr
+	false-branch expr
+range source-range(a if-expr)
+	a.ast range
+first-branch expr(a if-expr)
+	a.ast is-condition-negated ? a false-branch : a true-branch
+second-branch expr(a if-expr)
+	a.ast is-condition-negated ? a true-branch : a false-branch
+type type(a if-expr, common-types common-types)
+	assert (a.true-branch type common-types) == (a.false-branch type common-types)
+	a.true-branch type common-types
+
+lambda-source union(for-ast, lambda-ast, with-ast)
+	param destructure-ast()
+	range source-range()
+
+lambda-expr record mut
+	ast lambda-source
+	kind lambda-kind
+	param destructure
+	mut-type-for-explicit-shared struct-inst?
+	body expr
+	closure variable-ref[]
+	type struct-inst
+lambda-kind enum(data_, shared_, mut_, explicit-shared)
+range source-range(a lambda-expr)
+	a.ast range
+return-type type(a lambda-expr)
+	a.type.type-args[0]
+| We don't know whether this lambda is for the main body or for the optional 'else'.
+| But if it is from the `else`, this function will return true.
+is-ignore bool(a lambda-expr)
+	if x ?= a.param destructure-ignore
+		x.source.void-destructure-ast !is-empty
+
+let-expr record(ast let-ast, destructure destructure, value expr, then expr) mut
+range source-range(a let-expr)
+	a.destructure.start, a.then.end
+type type(a let-expr, common-types common-types)
+	a.then type common-types
+
+literal-float-expr record(range source-range, float-type float-type, value float)
+type struct-inst(a literal-float-expr, common-types common-types)
+	common-types[a float-type]
+
+literal-integral-expr record
+	range source-range
+	integral-type char-or-integral-type
+	value integral-value
+is-signed bool(a literal-integral-expr)
+	a.integral-type is-signed
+type struct-inst(a literal-integral-expr, common-types common-types)
+	common-types[a integral-type]
+
+literal-string-like-expr record
+	range source-range
+	string-type string-like-type
+	| For char32-array, this will be decoded in concretize.
+	value string
+string-like-type enum(char8-array, char32-array, c-string, js-any, string, symbol)
+type struct-inst(a literal-string-like-expr, common-types common-types)
+	common-types[a string-type]
+
+local-get-expr record(range source-range, local local) mut
+type type(a local-get-expr)
+	a.local type
+
+local-pointer-expr record(ast ptr-ast, local local, type struct-inst) mut
+range source-range(a local-pointer-expr)
+	a.ast range
+
+local-set-expr record(assignee-range source-range, local local, value expr) mut
+range source-range(a local-set-expr)
+	a.assignee-range combine-ranges a.value.range
+
+loop-expr record(ast loop-ast, type type, body expr) mut
+range source-range(a loop-expr)
+	a.ast range
+
+loop-break-expr record(ast loop-break-ast, loop_ loop-expr, value expr) mut
+range source-range(a loop-break-expr)
+	a.ast range
+loop-continue-expr record(ast loop-continue-ast, loop_ loop-expr) mut
+range source-range(a loop-continue-expr)
+	a.ast range
+
+loop-while-or-until-expr record mut
+	ast loop-while-or-until-ast
+	condition condition
+	| Always of type `void`
+	body expr
+	after expr
+is-until bool(a loop-while-or-until-expr)
+	a.ast is-until
+range source-range(a loop-while-or-until-expr)
+	a.ast range
+
+match-enum-expr record mut
+	ast match-ast
+	matched expr
+	cases match-enum-case[]
+	else_ expr?
+match-enum-case record(member enum-or-flags-member, then expr) mut
+range source-range(a match-enum-expr)
+	a.ast range
+type type(a match-enum-expr, common-types common-types)
+	if x ?= a else_
+		x type common-types
+	else
+		a.cases[0].then type common-types
+enum-type struct-inst(a match-enum-expr)
+	a.matched.type-not-common.struct-inst!
+enum_ struct-decl(a match-enum-expr)
+	inst = a enum-type
+	assert inst.type-args is-empty
+	res = inst decl
+	assert a.cases every x => x.member.containing-enum == res
+	res
+enum-body enum_(a match-enum-expr)
+	a.enum_.body enum_!
+
+match-integral-expr record mut
+	ast match-ast
+	integral-type char-or-integral-type
+	matched expr
+	cases match-integral-case[]
+	else_ expr
+match-integral-case record(value integral-value, then expr) mut
+range source-range(a match-integral-expr)
+	a.ast range
+type type(a match-integral-expr, common-types common-types)
+	a.else_ type common-types
+matched-type struct-inst(a match-integral-expr)
+	a.matched.type-not-common struct-inst!
+
+match-string-like-expr record mut
+	ast match-ast
+	string-type string-like-type
+	matched expr
+	| `==` function for the type
+	equals called
+	cases match-string-like-case[]
+	else_ expr
+match-string-like-case record(value string, then expr) mut
+range source-range(a match-string-like-expr)
+	a.ast range
+type type(a match-string-like-expr, common-types common-types)
+	a.else_ type common-types
+matched-type struct-inst(a match-string-like-expr)
+	a.matched.type-not-common struct-inst!
+
+match-sum-type-expr record mut
+	ast match-ast
+	matched expr
+	cases match-sum-type-case[]
+	else_ expr?
+match-sum-type-case record(destructure destructure, then expr) mut
+case-type struct-inst(a match-sum-type-case)
+	a.destructure.type struct-inst!
+range source-range(a match-sum-type-expr)
+	a.ast range
+type type(a match-sum-type-expr, common-types common-types)
+	if x ?= a else_
+		x type common-types
+	else
+		a.cases[0].then type common-types
+sum-type struct-inst(a match-sum-type-expr)
+	a.matched.type-not-common struct-inst!
+sum-type-body sum-type(a match-sum-type-expr)
+	a.sum-type.decl.body sum-type!
+is-union bool(a match-sum-type-expr)
+	match a.sum-type-body kind
+	as interface_
+		throw unreachable
+	as union_
+		true
+	as variant_
+		false
+
+record-field-pointer-expr record mut
+	ast ptr-ast
+	| This will be a pointer or by-ref type
+	target expr
+	field record-field
+	type struct-inst
+range source-range(a record-field-pointer-expr)
+	a.ast range
+record-decl struct-decl(a record-field-pointer-expr)
+	target-type = a.target.type-not-common struct-inst!
+	if target-type.decl is-pointer-const-or-mut
+		target-type.pointee-type.struct-inst! decl
+	else
+		target-type decl
+field-index nat(a record-field-pointer-expr)
+	a.record-decl.body.record_!.fields must-have-index-of-pointer a.field
+
+seq-expr record(first expr, then expr) mut
+range source-range(a seq-expr)
+	a.first.start, a.then.end
+type type(a seq-expr, common-types common-types)
+	a.then type common-types
+
+throw-expr record(ast throw-ast, thrown expr, type type) mut
+range source-range(a throw-expr)
+	a.ast range
+
+trusted-expr record(ast trusted-ast, inner expr) mut
+range source-range(a trusted-expr)
+	a.ast range
+type type(a trusted-expr, common-types common-types)
+	a.inner type common-types
+
+try-expr record(ast try-ast, tried expr, catches match-sum-type-case[]) mut
+range source-range(a try-expr)
+	a.ast range
+type type(a try-expr, common-types common-types)
+	a.tried type common-types
+
+try-let-expr record mut
+	ast try-let-ast
+	destructure destructure
+	value expr
+	catch_ match-sum-type-case
+	then expr
+range source-range(a try-let-expr)
+	a.ast range
+type type(a try-let-expr, common-types common-types)
+	a.then type common-types
+
+typed-expr record(ast typed-ast, inner expr) mut
+range source-range(a typed-expr)
+	a.ast range
+type type(a typed-expr, common-types common-types)
+	a.inner type common-types
+
+export-visibility enum(internal, public)
+== bool(a export-visibility, b export-visibility)
+<=> comparison(a export-visibility, b export-visibility)
+to export-visibility(a visibility)
+	match a
+	as private
+		throw unreachable
+	as internal
+		internal
+	as public
+		public
+
+import-can-see bool(import-visibility export-visibility, export-visibility visibility)
+	export-visibility.to::export-visibility >= import-visibility
+
+least-visibility visibility(a visibility, b visibility)
+	a min b
+greatest-visibility visibility(a visibility, b visibility)
+	a max b
+
+called-and-name-range record(called called, name-range source-range) mut
+get-called-at-expr called-and-name-range?(a expr)
+	match a
+	as call-expr x
+		(x.called, x.ast.name-range),
+	as call-option-expr x
+		(x.called, x.ast.name-range),
+	as fun-pointer-expr x
+		(x.called, x.ast.range),
+	else
+		()
+
+each-descendent-expr-including void(a expr, cb void mut(x expr))
+	cb[a]
+	a each-descendent-expr-excluding cb
+each-descendent-expr-excluding void(a expr, cb void mut(x expr))
+	a each-direct-child-expr x =>
+		x each-descendent-expr-including cb
+each-direct-child-expr void(a expr, cb void mut(x expr))
+	res bool? = a find-direct-child-expr x =>
+		cb[x]
+		()
+	assert res is-empty
+
+find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
+	match a
+	as assert-or-forbid-expr x
+		cb[x.condition direct-child-in-condition] || x.thrown cb-option cb || cb[x after]
+	as bogus-call-expr _
+		()
+	as bogus-expr _
+		()
+	as bogus-wrong-type-expr x
+		cb[x inner]
+	as call-expr x
+		x.args first cb
+	as call-option-expr x
+		x.all-args first cb
+	as closure-get-expr _
+		()
+	as closure-set-expr x
+		cb[x value]
+	as extern-expr _
+		()
+	as finally-expr x
+		cb[x right] || cb[x below]
+	as fun-pointer-expr _
+		()
+	as if-expr x
+		cb[x.condition direct-child-in-condition] || cb[x first-branch] || cb[x second-branch]
+	as lambda-expr x
+		cb[x body]
+	as let-expr x
+		cb[x value] || cb[x then]
+	as literal-float-expr _
+		()
+	as literal-integral-expr _
+		()
+	as literal-string-like-expr _
+		()
+	as local-get-expr _
+		()
+	as local-pointer-expr _
+		()
+	as local-set-expr x
+		cb[x value]
+	as loop-expr x
+		cb[x body]
+	as loop-break-expr x
+		cb[x value]
+	as loop-continue-expr _
+		()
+	as loop-while-or-until-expr x
+		cb[x.condition direct-child-in-condition] || cb[x body] || cb[x after]
+	as match-enum-expr x
+		cb[x matched] || (x.cases first y => cb[y then]) || x.else_ cb-option cb
+	as match-integral-expr x
+		cb[x matched] || (x.cases first y => cb[y then]) || cb[x else_]
+	as match-string-like-expr x
+		cb[x matched] || (x.cases first y => cb[y then]) || cb[x else_]
+	as match-sum-type-expr x
+		cb[x matched] || x.cases direct-child-in-match-sum-type-cases cb || x.else_ cb-option cb
+	as record-field-pointer-expr x
+		cb[x target]
+	as seq-expr x
+		cb[x first] || cb[x then]
+	as throw-expr x
+		cb[x thrown]
+	as trusted-expr x
+		cb[x inner]
+	as try-expr x
+		cb[x tried] || x.catches direct-child-in-match-sum-type-cases cb
+	as try-let-expr x
+		cb[x value] || cb[x.catch_ then] || cb[x then]
+	as typed-expr x
+		cb[x inner]
+-direct-child-in-condition expr(a condition)
+	match a
+	as expr x
+		x
+	as unpack-option x
+		x option
+-direct-child-in-match-sum-type-cases[t] t?(cases match-sum-type-case[], cb t? mut(x expr))
+	cases first x => cb[x then]
+-cb-option[out, in] out?(a in?, cb out? mut(x in))
+	if x ?= a
+		cb[x]
+-first[out, in] out?(a in[], cb out? mut(x in))
+	for x : a
+		if res ?= cb[x]
+			break res
+
+sum-type-member-getter fun-decl(funs fun-decl[], struct struct-decl, x sum-type-membership)
+	funs must-find-fun-named struct.name, fun =>
+		if _ ?= fun.body sum-type-member-get
+			fun.params.params-array.only.type == x.sum-type.to &&
+			fun.source.struct-decl! == struct
+method-caller fun-decl(program program, a signature)
+	program module-at-uri a.module-uri must-find-fun-named a.name, fun =>
+		if x ?= fun.source signature
+			trusted x reference-equal a
+
+must-find-fun-named fun-decl(module module, name symbol, cb bool mut(x fun-decl))
+	module.funs must-find-fun-named name, cb
+must-find-fun-named fun-decl(funs fun-decl[], name symbol, cb bool mut(x fun-decl))
+	funs must-find fun => fun.name == name && cb[fun]
+
+| In the CLI, we omit diagnostics if there are other more severe ones.
+| So e.g., you wouldn't see unused code errors if there are parse errors.
+diagnostic-severity enum
+	unused-code
+	warning
+	check-error
+	name-not-found
+	| Severe error where a common fun (e.g. 'alloc', 'main') or type (e.g. 'void') is missing
+	common-missing
+	parse-error
+	import-error
+== bool(a diagnostic-severity, b diagnostic-severity)
+is-fatal bool(a diagnostic-severity)
+	a == common-missing || a == parse-error || a == import-error
+
+uri-and-diagnostic record(uri uri, diagnostic diagnostic) mut
+new uri-and-diagnostic(range uri-and-range, kind diag)
+	range.uri, (range.range, kind)
+where uri-and-range(a uri-and-diagnostic)
+	a.uri, a.diagnostic.range
+kind diag(a uri-and-diagnostic)
+	a.diagnostic kind
+
+diagnostic record(range source-range, kind diag) mut
+
+decl-kind enum
+	alias_
+	builtin_
+	enum_
+	extern_
+	extern-function
+	flags_
+	function_
+	global_
+	interface_
+	record_
+	spec_
+	test_
+	thread-local_
+	union_
+	variant_
+
+diag union(
+	diag-alias-not-allowed,
+	diag-assert-or-forbid-message-is-throw,
+	diag-assignment-not-allowed,
+	diag-auto-fun-bare,
+	diag-auto-fun-enum-or-flags-to-wrong-storage,
+	diag-auto-fun-param-not-simple,
+	diag-auto-fun-spec-corrupt,
+	diag-auto-fun-spec-from-wrong-module,
+	diag-auto-fun-type-not-fully-visible,
+	diag-auto-fun-wrong-name,
+	diag-auto-fun-wrong-params,
+	diag-auto-fun-wrong-param-type,
+	diag-auto-fun-wrong-return-type,
+	diag-builtin-fun-cant-have-body,
+	diag-builtin-unsupported,
+	diag-call-missing-extern,
+	diag-call-multiple-matches,
+	diag-call-no-match,
+	diag-call-should-use-syntax,
+	diag-cant-call,
+	diag-case-duplicate,
+	diag-case-invalid-sum-type,
+	diag-case-missing-type,
+	diag-case-type-is-template,
+	diag-char-literal-must-be-one-char,
+	diag-common-fun-duplicate,
+	diag-common-fun-missing,
+	diag-common-type-missing,
+	diag-common-var-missing,
+	diag-destructure-type-mismatch,
+	diag-duplicate-declaration,
+	diag-duplicate-exports,
+	diag-duplicate-import-name,
+	diag-duplicate-imports,
+	diag-empty-enum-or-union,
+	diag-enum-backing-type-invalid,
+	diag-enum-duplicate-value,
+	diag-expected-type-is-not-a-lambda,
+	diag-extern-body-multiple,
+	diag-extern-invalid-name,
+	diag-extern-is-unsafe,
+	diag-extern-redundant,
+	diag-extern-fun-variadic,
+	diag-extern-has-unnecessary-library-name,
+	diag-extern-missing-library-name,
+	diag-extern-record-implicitly-by-val,
+	diag-extern-sum-type,
+	diag-extern-type-error,
+	diag-flags-signed,
+	diag-function-with-signature-not-found,
+	diag-fun-pointer-expr-must-be-name,
+	diag-fun-pointer-not-bare,
+	diag-if-throw,
+	diag-import-file,
+	diag-import-refers-to-nothing,
+	diag-lambda-cant-be-function-pointer,
+	diag-lambda-cant-infer-param-type,
+	diag-lambda-closure-purity,
+	diag-lambda-multiple-match,
+	diag-lambda-not-expected,
+	diag-lambda-type-missing-param-type,
+	diag-lambda-type-variadic,
+	diag-linkage-worse-than-containing-fun,
+	diag-linkage-worse-than-containing-type,
+	diag-literal-float-accuracy,
+	diag-literal-multiple-match,
+	diag-literal-not-expected,
+	diag-literal-overflow,
+	diag-local-ignored-but-mutable,
+	diag-local-not-mutable,
+	diag-loop-disallowed-body,
+	diag-loop-without-break,
+	diag-main-missing-externs,
+	diag-main-test-missing,
+	diag-match-case-duplicate,
+	diag-match-case-for-type,
+	diag-match-case-name-not-in-enum,
+	diag-match-case-no-value-for-enum-or-symbol,
+	diag-match-case-should-use-ignore,
+	diag-match-needs-else,
+	diag-match-on-non-matchable,
+	diag-match-sum-type-cant-infer-type-args,
+	diag-match-sum-type-no-member,
+	diag-match-unhandled-enum-members,
+	diag-match-unhandled-union-case-types,
+	diag-match-unnecessary-else,
+	diag-method-impl-visibility,
+	diag-modifier-conflict,
+	diag-modifier-duplicate,
+	diag-modifier-invalid,
+	diag-modifier-redundant-due-to-decl-kind,
+	diag-modifier-redundant-due-to-modifier,
+	diag-modifier-type-arg-invalid,
+	diag-mut-field-not-allowed,
+	diag-name-not-found,
+	diag-needs-expected-type,
+	diag-param-missing-type,
+	diag-param-mutable,
+	parse-diag,
+	diag-pointer-is-native,
+	diag-pointer-is-unsafe,
+	diag-pointer-mut-to-const,
+	diag-pointer-unsupported,
+	diag-purity-worse-than-parent,
+	diag-purity-worse-than-sum-type,
+	diag-record-field-needs-type,
+	diag-shared-arg-is-not-lambda,
+	diag-shared-lambda-type-is-not-shared,
+	diag-shared-lambda-unused,
+	diag-shared-not-expected,
+	diag-spec-match-multiple,
+	diag-spec-no-match,
+	diag-spec-recursion,
+	diag-spec-sig-cant-be-variadic,
+	diag-spec-use-invalid,
+	diag-string-literal-invalid,
+	diag-storage-missing-type,
+	diag-struct-params-syntax-error,
+	diag-sum-type-listed-members-non-union,
+	diag-test-missing-body,
+	diag-trusted-unnecessary,
+	diag-tuple-too-big,
+	diag-type-annotation-unnecessary,
+	diag-type-conflict,
+	diag-type-param-cant-have-type-args,
+	diag-type-params-unsupported,
+	diag-type-should-use-syntax,
+	diag-union-member-type-parameter,
+	diag-unsupported-syntax,
+	diag-unused-import,
+	diag-unused-local,
+	diag-unused-private-decl,
+	diag-varargs-param-must-be-array,
+	diag-visibility-warning,
+	diag-with-has-else,
+	diag-wrong-number-type-args
+) mut
+diag-alias-not-allowed record
+diag-assert-or-forbid-message-is-throw record
+diag-assignment-not-allowed record
+diag-auto-fun-bare record
+diag-auto-fun-enum-or-flags-to-wrong-storage record mut
+	enum-or-flags-type struct-decl
+	actual-storage-type integral-type
+	expected-storage-type integral-type
+diag-auto-fun-param-not-simple record
+diag-auto-fun-spec-corrupt record(spec-name symbol)
+diag-auto-fun-spec-from-wrong-module record
+diag-auto-fun-type-not-fully-visible record
+diag-auto-fun-wrong-name record
+diag-auto-fun-wrong-params record(kind auto-fun-name)
+diag-auto-fun-wrong-param-type record
+diag-auto-fun-wrong-return-type record(kind auto-fun-name)
+diag-builtin-fun-cant-have-body record
+diag-builtin-unsupported record(kind diag-builtin-unsupported-kind, name symbol)
+diag-builtin-unsupported-kind enum(function_, spec_, type)
+diag-call-missing-extern record(callee fun-decl, missing-extern symbol) mut
+| Note: this error is issued *before* resolving specs.
+| We don't exclude a candidate based on not having specs.
+diag-call-multiple-matches record mut
+	fun-name symbol
+	type-container type-container
+	| Unlike {diag-call-no-match}, these are only the ones that match 
+	matches called-decl[]
+diag-call-no-match record mut
+	type-container type-container
+	fun-name symbol
+	expected-return-type expected-for-diag
+	| 0 for inferred type args.
+	| This is the unpacked tuple, actualNTypeArgs > 1 may match candidates with 1 type arg.
+	actual-n-type-args nat
+	actual-arity nat
+	| NOTE: we may have given up early and this may not be as much as actualArity
+	actual-arg-types type[]
+	| All candidates, including those with wrong arity
+	all-candidates called-decl[]
+diag-call-should-use-syntax record(arity nat, kind diag-call-should-use-syntax-kind)
+diag-call-should-use-syntax-kind enum
+	for-break
+	force
+	for-loop
+	new
+	not
+	set-subscript
+	subscript
+	with-block
+diag-cant-call record(reason diag-cant-call-reason, callee fun-decl) mut
+diag-cant-call-reason enum
+	non-bare
+	summon_
+	summon-in-data-lambda
+	unsafe_
+	variadic-from-bare
+diag-case-duplicate record(member struct-decl, sum-type struct-decl) mut
+diag-case-invalid-sum-type record(member struct-decl, actual type) mut
+diag-case-missing-type record
+diag-case-type-is-template record(case-type struct-decl) mut
+diag-char-literal-must-be-one-char record
+diag-common-fun-duplicate record(name symbol)
+diag-common-fun-missing record(dummy-for-context fun-decl, sig-choices type-params-and-sig[]) mut
+diag-common-type-missing record(name symbol)
+diag-common-var-missing record(var-kind var-kind, name symbol)
+diag-destructure-type-mismatch record mut
+	expected destructure-expected-type
+	actual type-with-container
+destructure-expected-type union(destructure-expected-tuple, type-with-container) mut
+destructure-expected-tuple record(size nat)
+diag-duplicate-declaration record(kind diag-duplicate-declaration-kind, name symbol)
+diag-duplicate-declaration-kind enum
+	enum-member
+	flags-member
+	param-or-local
+	record-field
+	spec_
+	struct-or-alias
+	type-param
+	union-member
+diag-duplicate-exports record(kind diag-duplicate-exports-kind, name symbol)
+diag-duplicate-exports-kind enum(spec_, type)
+diag-duplicate-expots-kind enum(spec_, type)
+| This is for the same name imported multiple times (`import ./m: foo, foo`)
+diag-duplicate-import-name record(name symbol)
+| This is for different types of the same name imported from multiple modules
+diag-duplicate-imports record(kind diag-duplicate-exports-kind, name symbol)
+diag-empty-enum-or-union record
+diag-enum-backing-type-invalid record(enum_ struct-decl, actual type) mut
+diag-enum-duplicate-value record(signed bool, value integral-value)
+diag-expected-type-is-not-a-lambda record(expected-type type-with-container?) mut
+diag-extern-body-multiple record
+diag-extern-invalid-name record(name symbol)
+diag-extern-is-unsafe record
+diag-extern-redundant record(name symbol)
+diag-extern-fun-variadic record
+diag-extern-has-unnecessary-library-name record
+diag-extern-missing-library-name record
+diag-extern-record-implicitly-by-val record(struct struct-decl) mut
+diag-extern-type-error enum(alignment-is-default, bad-alignment, too-big)
+diag-extern-sum-type record
+diag-flags-signed record
+diag-function-with-signature-not-found record mut
+	name symbol
+	type-container type-container
+	return-and-param-types return-and-param-types
+diag-fun-pointer-expr-must-be-name record
+diag-fun-pointer-not-bare record
+diag-if-throw record
+diag-import-file union(
+	cant-import-crow-as-text,
+	circular-import,
+	library-not-configured,
+	read-error,
+	relative-import-reaches-past-root
+)
+cant-import-crow-as-text record
+circular-import record(cycle uri[])
+library-not-configured record(library-name symbol)
+| The imported file will also have a ParseDiag for the issue, but we also show the error in the importer.
+| (This is important in an IDE.)
+read-error record(uri uri, diag read-file-diag)
+relative-import-reaches-past-root record(imported rel-path)
+diag-import-refers-to-nothing record(name symbol)
+diag-lambda-cant-be-function-pointer record
+diag-lambda-cant-infer-param-type record
+diag-lambda-closure-purity record mut
+	lambda-kind lambda-kind
+	local-name symbol
+	local-purity purity
+	| If missing, the error is that the local itself is 'mut'.
+	| If present, the error is that the type is 'mut'.
+	type type-with-container?
+diag-lambda-multiple-match record mut
+	| This is only the expected types that are lambdas
+	choices expected-for-diag-choices
+diag-lambda-not-expected record(expected expected-for-diag) mut
+diag-lambda-type-missing-param-type record
+diag-lambda-type-variadic record
+diag-linkage-worse-than-containing-fun record mut
+	containing-fun fun-decl
+	referenced-type type
+	| Empty for return type
+	param destructure?
+diag-linkage-worse-than-containing-type record mut
+	containing-type struct-decl
+	referenced-type type
+diag-literal-float-accuracy record(type float-type)
+diag-literal-multiple-match record(type-container type-container, types struct-inst[]) mut
+diag-literal-not-expected record(expected expected-for-diag) mut
+diag-literal-overflow record(type integral-type)
+diag-local-ignored-but-mutable record
+diag-local-not-mutable record(local variable-ref) mut
+diag-loop-disallowed-body enum(finally_, try_)
+diag-loop-without-break record
+diag-main-missing-externs record(missing symbol[])
+diag-main-test-missing record(expected-line nat)
+diag-match-case-duplicate union(symbol, string, nat, int)
+diag-match-case-for-type enum(enum-or-union, numeric, string-like)
+diag-match-case-name-not-in-enum record(actual symbol, enum_ struct-decl) mut
+diag-match-case-no-value-for-enum-or-symbol record(enum_ struct-decl?) mut
+diag-match-case-should-use-ignore record(member struct-inst) mut
+diag-match-needs-else enum(integral, string-like, variant_)
+diag-match-on-non-matchable record(type type-with-container) mut
+diag-match-sum-type-cant-infer-type-args record(member struct-decl) mut
+diag-match-sum-type-no-member record(variant_ type-with-container, non-member struct-decl) mut
+diag-match-unhandled-enum-members record(members enum-or-flags-member[]) mut
+diag-match-unhandled-union-case-types record(case-types struct-inst[]) mut
+diag-match-unnecessary-else record
+diag-modifier-conflict record(prev-modifier modifier-keyword, cur-modifier modifier-keyword)
+diag-modifier-duplicate record(modifier modifier-keyword)
+diag-modifier-invalid record(modifier modifier-keyword, decl-kind decl-kind)
+| This is like 'ModifierDuplicate' but the modifiers are not identical.
+| E.g., 'extern unsafe', since 'extern' implies 'unsafe'.
+diag-modifier-redundant-due-to-modifier record
+	modifier modifier-keyword
+	| This is implied by the first modifier
+	redundant-modifier modifier-keyword
+diag-modifier-redundant-due-to-decl-kind record
+	modifier modifier-keyword
+	decl-kind decl-kind
+diag-modifier-type-arg-invalid record
+	modifier modifier-keyword
+diag-mut-field-not-allowed record
+diag-name-not-found record(kind diag-name-not-found-kind, name symbol)
+diag-name-not-found-kind enum(doc-comment-reference, function_, spec_, type)
+diag-needs-expected-type enum(loop_, pointer, throw_)
+diag-param-missing-type record
+diag-param-mutable record
+diag-pointer-is-native record
+diag-pointer-is-unsafe record
+diag-pointer-mut-to-const enum(field-of-by-ref, field-of-by-val, local)
+diag-pointer-unsupported enum(other, record-not-by-ref)
+diag-purity-worse-than-parent record(parent struct-decl, child type) mut
+diag-purity-worse-than-sum-type record(case_ struct-decl, sum-type struct-inst) mut
+diag-record-field-needs-type record(field-name symbol)
+diag-shared-arg-is-not-lambda record
+diag-struct-params-syntax-error record mut
+	struct struct-decl
+	reason diag-struct-params-syntax-error-reason
+diag-struct-params-syntax-error-reason enum(has-params-and-fields, destructure, variadic)
+diag-shared-lambda-type-is-not-shared record mut
+	kind diag-shared-lambda-type-is-not-shared-kind
+	actual type-with-container
+diag-shared-lambda-type-is-not-shared-kind enum(param-type, return-type)
+diag-shared-lambda-unused record
+diag-shared-not-expected record(expected expected-for-diag) mut
+diag-spec-match-multiple record mut
+	outermost-type-container type-container
+	sig-name symbol
+	matches called[]
+	trace fun-decl-and-type-args[]
+diag-spec-no-match record mut
+	outermost-type-container type-container
+	reason spec-no-match-reason
+	trace fun-decl-and-type-args[]
+spec-no-match-reason union(
+	spec-builtin-not-satisfied,
+	spec-cant-infer-type-args,
+	spec-impl-not-found,
+	spec-too-deep
+) mut
+spec-builtin-not-satisfied record(kind builtin-spec, type type) mut
+spec-cant-infer-type-args record mut
+	| Since we didn't infer type args, it can't go onto the trace.
+	fun fun-decl
+spec-impl-not-found record(sig-decl signature, sig-type return-and-param-types) mut
+spec-too-deep record
+diag-spec-recursion record(trace spec-decl[]) mut
+diag-spec-sig-cant-be-variadic record
+diag-spec-use-invalid record(decl-kind decl-kind)
+diag-string-literal-invalid enum
+	c-string-contains-nul
+	not-extern-js
+	string-contains-nul
+	symbol-contains-nul
+diag-storage-missing-type record
+diag-sum-type-listed-members-non-union record
+diag-test-missing-body record
+diag-trusted-unnecessary enum(in-trusted, in-unsafe-function, unused)
+diag-tuple-too-big record(actual nat, max-allowed nat)
+diag-type-annotation-unnecessary record(type type-with-container) mut
+diag-type-conflict record(expected expected-for-diag, actual type-with-container) mut
+diag-type-param-cant-have-type-args record
+diag-type-params-unsupported record(decl-kind decl-kind)
+diag-type-should-use-syntax enum
+	array
+	fun-data
+	fun-mut
+	fun-pointer
+	fun-shared
+	map
+	mut-array
+	mut-map
+	mut-pointer
+	opt
+	pointer
+	shared-array
+	shared-map
+	tuple
+diag-union-member-type-parameter record
+diag-unsupported-syntax enum
+	enum-member-mutability
+	enum-member-type
+diag-unused-import record(imported-module module, imported-name symbol?) mut
+diag-unused-local record(local local, used-get bool, used-set bool) mut
+diag-unused-private-decl record(name symbol)
+diag-varargs-param-must-be-array record
+diag-method-impl-visibility record mut
+	member struct-decl
+	sum-type struct-inst
+	method-impl fun-inst
+| We don't have any warning at the top-level even though '~' is redundant. This is only within a record.
+diag-visibility-warning record mut
+	kind visibility-warning-kind
+	default-visibility visibility
+	actual-visibility visibility
+visibility-warning-kind union(
+	visibility-warning-field,
+	visibility-warning-field-mutability,
+	visibility-warning-new
+) mut
+visibility-warning-field record(record_ struct-decl, field-name symbol) mut
+visibility-warning-field-mutability record(field-name symbol)
+visibility-warning-new record(record_ struct-decl) mut
+diag-with-has-else record
+diag-wrong-number-type-args record(name symbol, n-expected-type-args nat, n-actual-type-args nat)
+
+auto-fun-name enum(compare, equals, members, to)
+
+expected-for-diag union(
+	expected-for-diag-choices,
+	expected-for-diag-infer,
+	expected-for-diag-loop
+) mut
+expected-for-diag-choices record(types type[], type-container type-container) mut
+expected-for-diag-infer record
+expected-for-diag-loop record

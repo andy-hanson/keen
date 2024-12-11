@@ -765,7 +765,7 @@ EnumOrFlagsMembers checkEnumOrFlagsMembers(
 	eachPair!EnumOrFlagsMember(members, (in EnumOrFlagsMember a, in EnumOrFlagsMember b) {
 		if (a.value == b.value)
 			addDiag(ctx, b.range, Diag(
-				DiagEnumDuplicateValue(isSigned(storage), b.value.value)));
+				DiagEnumDuplicateValue(isSigned(storage), b.value)));
 	});
 	return EnumOrFlagsMembers(members, membersByName);
 }
@@ -1089,7 +1089,7 @@ void checkReferenceLinkageAndPurity(ref CheckCtx ctx, StructDecl* struct_, in Ra
 void checkReferencePurity(ref CheckCtx ctx, StructDecl* struct_, in Range range, Type referencedType) {
 	if (!isPurityPossiblyCompatible(referencer: struct_.purity, referenced: purityRange(referencedType)) &&
 		!struct_.purityIsForced)
-		addDiag(ctx, range, Diag(DiagPurityWorseThanParent(struct_, referencedType)));
+		addDiag(ctx, range, Diag(DiagPurityWorseThanParent(struct_, referencedType.as!(StructInst*))));
 }
 
 Visibility recordNewVisibility(

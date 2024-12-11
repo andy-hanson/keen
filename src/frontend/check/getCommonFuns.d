@@ -164,7 +164,6 @@ CommonFunsAndDiagnostics getCommonFuns(
 			voidType, [param!"value"(catchPointConstPointer)]),
 		curThrown: getVar(CommonModule.exceptionLowLevel, symbol!"cur-thrown", VarKind.threadLocal),
 		allocate: getFun(CommonModule.alloc, symbol!"allocate", nat8MutPointerType, [param!"size-bytes"(nat64Type)]),
-		and: getFun(CommonModule.boolLowLevel, symbol!"&&", boolType, [param!"a"(boolType), param!"b"(boolType)]),
 		createError: getFun(
 			CommonModule.exceptionLowLevel, symbol!"error", Type(commonTypes.exception), [param!"a"(stringType)]),
 		lambdaSubscript: getLambdaSubscriptFuns(

@@ -123,7 +123,8 @@ import model.model :
 	DiagMatchOnNonMatchable,
 	DiagMatchSumTypeCantInferTypeArgs,
 	DiagMatchSumTypeNoMember,
-	DiagMatchUnhandledCases,
+	DiagMatchUnhandledEnumMembers,
+	DiagMatchUnhandledUnionCaseTypes,
 	DiagMatchUnnecessaryElse,
 	DiagMethodImplVisibility,
 	DiagModifierConflict,
@@ -869,9 +870,9 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in DiagEnumDuplicateValue x) {
 			writer ~= "Duplicate enum value ";
 			if (x.signed)
-				writer ~= x.value;
+				writer ~= x.value.asSigned;
 			else
-				writer ~= cast(ulong) x.value;
+				writer ~= x.value.asUnsigned;
 			writer ~= '.';
 		},
 		(in DiagExpectedTypeIsNotALambda x) {
@@ -1195,24 +1196,20 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writeTypeQuoted(writer, ctx, x.variant);
 			writer ~= '.';
 		},
-		(in DiagMatchUnhandledCases x) {
+		(in DiagMatchUnhandledEnumMembers x) {
 			writer ~= "'match' is missing ";
-			size_t length = x.matchIn!size_t(
-				(in EnumOrFlagsMember*[] xs) => xs.length,
-				(in StructInst*[] xs) => xs.length);
-			writer ~= (length == 1 ? "case" : "cases:");
-			writer ~= ' ';
-			x.matchIn!void(
-				(in EnumOrFlagsMember*[] members) {
-					writeWithCommas!(EnumOrFlagsMember*)(writer, members, (in EnumOrFlagsMember* member) {
-						writeName(writer, ctx, member.name);
-					});
-				},
-				(in StructInst*[] members) {
-					writeWithCommas!(StructInst*)(writer, members, (in StructInst* member) {
-						writeName(writer, ctx, member.decl.name);
-					});
-				});
+			writer ~= (x.members.length == 1 ? "handler for enum member " : "handlers for union members: ");
+			writeWithCommas!(EnumOrFlagsMember*)(writer, x.members, (in EnumOrFlagsMember* member) {
+				writeName(writer, ctx, member.name);
+			});
+			writer ~= '.';
+		},
+		(in DiagMatchUnhandledUnionCaseTypes x) {
+			writer ~= "'match' is missing ";
+			writer ~= (x.caseTypes.length == 1 ? "handler for union case type " : "handlers for union case types: ");
+			writeWithCommas!(StructInst*)(writer, x.caseTypes, (in StructInst* member) {
+				writeName(writer, ctx, member.decl.name);
+			});
 			writer ~= '.';
 		},
 		(in DiagMatchUnnecessaryElse x) {
@@ -1321,9 +1318,9 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= " has purity ";
 			writePurity(writer, ctx, x.parent.purity);
 			writer ~= ", but member of type ";
-			writeTypeQuoted(writer, ctx, TypeWithContainer(x.child, TypeContainer(x.parent)));
+			writeTypeQuoted(writer, ctx, TypeWithContainer(Type(x.child), TypeContainer(x.parent)));
 			writer ~= " has purity ";
-			writePurity(writer, ctx, bestCasePurity(x.child));
+			writePurity(writer, ctx, bestCasePurity(Type(x.child)));
 			writer ~= '.';
 		},
 		(in DiagPurityWorseThanSumType x) {

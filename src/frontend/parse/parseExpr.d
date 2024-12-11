@@ -134,9 +134,6 @@ ArgCtx requirePrecedenceGt(ArgCtx a, int precedence) =>
 		a.allowedBlock,
 		AllowedCalls(max(a.allowedCalls.minPrecedenceExclusive, precedence)));
 
-ArgCtx requirePrecedenceGtComma(ArgCtx a) =>
-	requirePrecedenceGt(a, commaPrecedence);
-
 SmallArray!ExprAst parseArgs(ref Lexer lexer, ArgCtx ctx, ExprAst first) =>
 	buildSmallArray!ExprAst(lexer.alloc, (scope ref Builder!ExprAst out_) {
 		out_ ~= first;
@@ -267,7 +264,7 @@ bool isPrefixUnaryOperator(Symbol a) {
 	}
 }
 
-ExprAst parseAssignment(ref Lexer lexer, Pos start, ref ExprAst left, Pos assignmentPos) {
+ExprAst parseAssignment(ref Lexer lexer, ref ExprAst left, Pos assignmentPos) {
 	ExprAst right = parseExprNoLet(lexer);
 	return ExprAst(allocate(lexer.alloc, AssignmentAst(left, assignmentPos, right)));
 }
@@ -318,7 +315,7 @@ bool canParseCommaExpr(in ArgCtx argCtx) =>
 	commaPrecedence > argCtx.allowedCalls.minPrecedenceExclusive;
 
 ExprAst parseCallsAfterComma(ref Lexer lexer, Pos start, ref ExprAst lhs, Pos commaPos, ArgCtx argCtx) {
-	SmallArray!ExprAst args = parseArgs(lexer, requirePrecedenceGtComma(argCtx), lhs);
+	SmallArray!ExprAst args = parseArgs(lexer, requirePrecedenceGt(argCtx, commaPrecedence), lhs);
 	Range range = range(lexer, start);
 	return ExprAst(CallAst(range, CallAstStyle.comma, commaPos, NameAndRange(range.start, symbol!"new"), args));
 }
@@ -729,7 +726,7 @@ ExprAst parseForOrWith(
 		DestructureAst, Pos colon, ExprAst rhs, ExprAst body_, Opt!(ExprAst*) else_,
 	) @safe @nogc pure nothrow cbMakeExpr,
 ) {
-	DestructureAndEndTokenPos paramAndColon = parseForThenOrWithParameter(
+	DestructureAndEndTokenPos paramAndColon = parseForOrWithParameter(
 		lexer, Token.colon, ParseDiagExpected.colon);
 	DestructureAst param = paramAndColon.destructure;
 	Pos colon = paramAndColon.endTokenPos;
@@ -783,7 +780,7 @@ struct DestructureAndEndTokenPos {
 	DestructureAst destructure;
 	Pos endTokenPos;
 }
-DestructureAndEndTokenPos parseForThenOrWithParameter(
+DestructureAndEndTokenPos parseForOrWithParameter( // TODO: INLINE
 	ref Lexer lexer,
 	Token endToken,
 	ParseDiagExpected expectedEndToken,
@@ -1057,7 +1054,7 @@ public ExprAst parseSingleStatementLine(ref Lexer lexer) {
 				ExprAst expr = parseExprBeforeCall(lexer, AllowedBlock.yes);
 				Pos assignmentPos = curPos(lexer);
 				return tryTakeTokenAndMayContinueOntoNextLine(lexer, Token.colonEqual)
-					? parseAssignment(lexer, start, expr, assignmentPos)
+					? parseAssignment(lexer, expr, assignmentPos)
 					: parseCalls(lexer, start, expr, ArgCtx(AllowedBlock.yes, allowAllCalls()));
 			}
 	}

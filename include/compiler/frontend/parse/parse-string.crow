@@ -1,0 +1,61 @@
+import
+	./lexer
+	./lex-string
+	./parse-util
+	./token
+	../../model/ast
+	../../model/parse-diag
+	../../model/source-range
+
+try-take-doc-comment doc-comment-ast(lexer lexer)
+	lexer skip-blank-lines
+	start = lexer cur-pos
+	guard lexer try-take-token quote-bar
+
+	references name-and-range mut[] = ()
+	done doc-comment-ast mut() = () =>
+		content doc-comment-content = (lexer range start), references.move-to
+		(content,),
+	cb-interpolation void mut() = () =>
+		references ~= lexer take-name-or-operator
+	res = lexer take-interpolated-cb bar, (_ => done[]), cb-interpolation, (_ => ()), done
+	lexer skip-blank-lines
+	res
+
+parse-string expr-ast(lexer lexer, start pos, quote-kind quote-kind, cb-interpolated expr-ast mut())
+	parts expr-ast mut[] = ()
+	lexer take-interpolated-cb quote-kind, \
+		(part => (lexer range start) literal-string-ast part.text), \
+		(() => parts ~= cb-interpolated[]), \
+		(part => parts ~= part.range literal-string-ast part.text), \
+		(() => (lexer range start) interpolated-ast parts.move-to)
+
+-take-interpolated-cb[out] out(
+	lexer lexer,
+	quote-kind quote-kind,
+	cb-single out mut(part string-part),
+	cb-interpolation void mut(),
+	cb-string void mut(part string-part),
+	cb-finish out mut(),
+)
+	first-part = lexer take-initial-string-part quote-kind
+	match first-part after
+	as done
+		cb-single[first-part]
+	as lbrace
+		unless first-part.text is-empty
+			cb-string[first-part]
+		loop
+			if lexer peek-token brace-right
+				pos = lexer cur-pos
+				lexer add-diag (pos - 1, pos + 1), parse-diag-missing-interpolated
+			else
+				cb-interpolation[]
+			part = lexer take-closing-brace-then-string-part quote-kind
+			unless part.text is-empty
+				cb-string[part]
+			match part after
+			as done
+				break cb-finish[]
+			else
+				continue

@@ -1,0 +1,263 @@
+import
+	./lexer
+	./lex-token
+	./parse-expr
+	./parse-import
+	./parse-string
+	./parse-type
+	./parse-util
+	./token
+	../../model/ast
+	../../model/parse-diag
+	../../model/source-range
+
+parse-file file-ast(source string)
+	source.create-lexer parse-file-inner
+
+expr-and-diags record(expr expr-ast, diags parse-diagnostic[])
+parse-single-line-expression expr-and-diags(source string)
+	forbid "\n"::char32 in source
+	lexer = source create-lexer
+	lexer must-take-token newline-same-indent
+	expr = lexer parse-single-statement-line
+	_ = lexer take-or-add-diag-expected-token end-of-file, end-of-line
+	expr, lexer.finish-diagnostics	
+
+-parse-type-params name-and-range[](lexer lexer)
+	if lexer try-take-token bracket-left
+		res = lexer take-comma-separated-names-diag-trailing-comma
+		_ = lexer take-or-add-diag-expected-token bracket-right, closing-bracket
+		res
+
+-parse-indented-lines[t] t[](lexer lexer, cb t mut())
+	if lexer try-take-token newline-indent
+		with out : build
+			loop
+				out ~= cb[]
+				match lexer take-newline-or-dedent
+				as newline
+					continue
+				as dedent
+					break
+
+-parse-indented-sigs signature-ast[](lexer lexer)
+	lexer parse-indented-lines () =>
+		doc-comment = lexer try-take-doc-comment
+		start = lexer cur-pos
+		name = lexer take-name-or-operator
+		name.start is start
+		return-type = lexer parse-type
+		params = lexer parse-params
+		doc-comment, (lexer range start), name.name, return-type, params
+
+-parse-enum-or-flags-members enum-or-flags-member-ast[](lexer lexer)
+	lexer parse-indented-lines () =>
+		doc-comment = lexer try-take-doc-comment
+		start = lexer cur-pos
+		name = lexer take-name
+		value literal-integral-and-range? = if lexer try-take-token equal
+			res = lexer try-take-literal-integral
+			if res is-empty
+				lexer add-diag-expected literal-integral
+			res
+		doc-comment, (lexer range start), name, value
+
+-parse-record-fields record-field-ast[](lexer lexer)
+	lexer parse-indented-lines () =>
+		doc-comment = lexer try-take-doc-comment
+		start = lexer cur-pos
+		visibility = lexer try-take-visibility
+		name = lexer take-name-and-range
+		mutability = lexer parse-field-mutability
+		type type-ast? = unless lexer peek-end-of-line
+			lexer.parse-type,
+		doc-comment, (lexer range start), visibility, name, mutability, type
+
+-parse-field-mutability field-mutability-ast?(lexer lexer)
+	pos = lexer cur-pos
+	peek = lexer get-peek-token-and-data
+	visibility = lexer try-take-visibility
+	if lexer try-take-token mut_
+		(pos, visibility),
+	elif _ ?= visibility
+		lexer add-diag-unexpected-cur-token pos, peek
+		()
+
+-parse-fun fun-decl-ast(
+	lexer lexer,
+	doc-comment doc-comment-ast,
+	visibility visibility?,
+	start pos,
+	name name-and-range,
+	type-params name-and-range[],
+)
+	return-type = lexer parse-type
+	params = lexer parse-params
+	modifiers = lexer parse-modifiers
+	body = lexer parse-fun-expr-body
+	doc-comment, (lexer range start), visibility, name, type-params, return-type, params, modifiers, body
+
+-parse-spec-or-struct-or-fun-or-test void(
+	lexer lexer,
+	specs spec-decl-ast mut[],
+	struct-aliases struct-alias-ast mut[],
+	structs struct-decl-ast mut[],
+	funs fun-decl-ast mut[],
+	tests test-ast mut[],
+	vars var-decl-ast mut[],
+	doc-comment doc-comment-ast
+)
+	start = lexer cur-pos
+	if lexer try-take-token test_
+		modifiers = lexer parse-modifiers
+		body = lexer parse-fun-expr-body
+		tests ~= (doc-comment, (lexer range start), modifiers, body)
+	else
+		lexer parse-spec-or-struct-or-fun specs, struct-aliases, structs, funs, vars, doc-comment
+
+-parse-spec-or-struct-or-fun void(
+	lexer lexer,
+	specs spec-decl-ast mut[],
+	struct-aliases struct-alias-ast mut[],
+	structs struct-decl-ast mut[],
+	funs fun-decl-ast mut[],
+	var-decls var-decl-ast mut[],
+	doc-comment doc-comment-ast,
+)
+	start = lexer cur-pos
+	visibility = lexer try-take-visibility
+	name = lexer take-name-or-operator
+	type-params = lexer parse-type-params
+	keyword-pos = lexer cur-pos
+
+	add-struct void mut(cb struct-body-ast mut()) = cb =>
+		modifiers = lexer parse-modifiers
+		body = cb[]
+		structs ~= (doc-comment, (lexer range start), visibility, name, type-params, keyword-pos, modifiers, body)
+	add-sum-type void mut(kind sum-type-kind) = kind =>
+		_ = lexer take-next-token
+		types = lexer try-parse-sum-type-listed-types
+		add-struct[() => kind sum-type-ast types, lexer.parse-indented-sigs]
+	token = lexer get-peek-token
+	match token
+	as alias_
+		lexer must-take-token alias_
+		cb type-ast mut() = () =>
+			res = lexer parse-type
+			lexer take-dedent
+			res
+		target = lexer take-indent-or-fail-generic cb, range => range bogus-type-ast
+		struct-aliases ~= (doc-comment, (lexer range start), visibility, name, type-params, keyword-pos, target)
+	as builtin_
+		lexer must-take-token builtin_
+		add-struct[() => builtin-type-ast]
+	as enum_
+		lexer must-take-token enum_
+		params = lexer try-parse-params
+		add-struct[() => params enum-ast lexer.parse-enum-or-flags-members]
+	as extern_
+		lexer must-take-token extern_
+		body = lexer parse-extern-type
+		add-struct[() => body to]
+	as flags_
+		lexer must-take-token flags_
+		params = lexer try-parse-params
+		add-struct[() => params flags-ast lexer.parse-enum-or-flags-members]
+	as global_
+		pos = lexer cur-pos
+		lexer must-take-token global_
+		var-decls ~= lexer parse-var-decl start, doc-comment, visibility, name, type-params, pos, global_
+	as interface_
+		add-sum-type[interface_]
+	as record_
+		lexer must-take-token record_
+		params = lexer try-parse-params
+		add-struct[() => params record-ast lexer.parse-record-fields]
+	as spec_
+		lexer must-take-token spec_
+		modifiers = lexer parse-modifiers
+		sigs = lexer parse-indented-sigs
+		specs ~= (doc-comment, (lexer range start), visibility, name, type-params, keyword-pos, modifiers, sigs)
+	as thread-local_
+		pos = lexer cur-pos
+		lexer must-take-token thread-local_
+		var-decls ~= lexer parse-var-decl start, doc-comment, visibility, name, type-params, pos, thread-local_
+	as union_
+		add-sum-type[union_]
+	as variant_
+		add-sum-type[variant_]
+	else
+		funs ~= lexer parse-fun doc-comment, visibility, start, name, type-params
+
+-parse-extern-type extern-type-ast(lexer lexer)
+	if lexer try-take-token paren-left
+		size = lexer parse-integral
+		alignment literal-integral-and-range? = if size !is-empty && lexer try-take-token comma
+			lexer.parse-integral
+		_ = lexer take-or-add-diag-expected-token paren-right, closing-paren
+		size, alignment
+	else
+		(), ()
+-parse-integral literal-integral-and-range?(lexer lexer)
+	start = lexer cur-pos
+	res literal-integral? = lexer take-or-add-diag-expected-token-cb literal-integral, x =>
+		if x.token == literal-integral
+			x.as-literal-integral,
+	if x ?= res
+		((lexer range start), x),
+
+-parse-var-decl var-decl-ast(
+	lexer lexer,
+	start pos,
+	doc-comment doc-comment-ast,
+	visibility visibility?,
+	name name-and-range,
+	type-params name-and-range[],
+	kind-pos pos,
+	kind var-kind,
+)
+	type = lexer parse-type-arg-for-var-decl
+	modifiers = lexer parse-modifiers
+	doc-comment, (lexer range start), visibility, name, type-params, kind-pos, kind, type, modifiers
+
+-parse-file-inner file-ast(lexer lexer)
+	module-doc-comment mut = lexer try-take-doc-comment
+	no-std_ = lexer try-take-token no-std_
+	lexer skip-blank-lines
+	imports = lexer parse-imports-or-exports import_
+	lexer skip-blank-lines
+	exports = lexer parse-imports-or-exports export_
+
+	regions source-range mut[] = ()
+	specs spec-decl-ast mut[] = ()
+	struct-aliases struct-alias-ast mut[] = ()
+	structs struct-decl-ast mut[] = ()
+	funs fun-decl-ast mut[] = ()
+	tests test-ast mut[] = ()
+	vars var-decl-ast mut[] = ()
+
+	first mut = true
+	while lexer !try-take-token end-of-file
+		doc-comment = do
+			here = lexer try-take-doc-comment
+			if first
+				first := false
+				if module-doc-comment !is-empty && here is-empty && !no-std_ && imports is-empty && exports is-empty
+					res = module-doc-comment
+					module-doc-comment := ()
+					res
+				else
+					here
+			else
+				here
+		if lexer try-take-token end-of-file
+			if doc-comment !is-empty
+				lexer add-diag doc-comment.range!, parse-diag-doc-comment-unused
+		elif lexer peek-token region_
+			x = lexer take-next-token
+			x.token is region_
+			regions ~= x.as-region
+		else
+			lexer parse-spec-or-struct-or-fun-or-test specs, struct-aliases, structs, funs, tests, vars, doc-comment
+
+	lexer.finish-diagnostics, module-doc-comment, no-std_, imports, exports, regions.move-to, specs.move-to, struct-aliases.move-to, structs.move-to, funs.move-to, tests.move-to, vars.move-to

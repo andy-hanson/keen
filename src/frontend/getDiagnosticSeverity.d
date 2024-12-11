@@ -87,7 +87,8 @@ import model.model :
 	DiagMatchOnNonMatchable,
 	DiagMatchSumTypeCantInferTypeArgs,
 	DiagMatchSumTypeNoMember,
-	DiagMatchUnhandledCases,
+	DiagMatchUnhandledEnumMembers,
+	DiagMatchUnhandledUnionCaseTypes,
 	DiagMatchUnnecessaryElse,
 	DiagMethodImplVisibility,
 	DiagModifierConflict,
@@ -341,7 +342,9 @@ DiagnosticSeverity getDiagnosticSeverity(in Diag a) =>
 			DiagnosticSeverity.checkError,
 		(in DiagMatchSumTypeNoMember _) =>
 			DiagnosticSeverity.checkError,
-		(in DiagMatchUnhandledCases _) =>
+		(in DiagMatchUnhandledEnumMembers _) =>
+			DiagnosticSeverity.checkError,
+		(in DiagMatchUnhandledUnionCaseTypes _) =>
 			DiagnosticSeverity.checkError,
 		(in DiagMatchUnnecessaryElse _) =>
 			DiagnosticSeverity.unusedCode,

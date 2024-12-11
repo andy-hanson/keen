@@ -793,9 +793,6 @@ immutable struct StructDecl {
 	private Late!(SmallArray!SumTypeMembership) lateSumTypeMemberships;
 	private Late!StructBody lateBody;
 
-	bool bodyIsSet() =>
-		lateIsSet(lateBody);
-
 	SymbolSet externSet() =>
 		optOrDefault!SymbolSet(extern_, () => emptySymbolSet);
 	Linkage linkage() scope =>
@@ -2001,8 +1998,6 @@ void eachDecl(in Module a, in void delegate(AnyDecl) @safe @nogc pure nothrow cb
 immutable struct AnyDecl {
 	@safe @nogc pure nothrow:
 
-	// WARN: We'll never consider a StructAlias as 'used', only the underlying StructDecl.
-	// An inlined function is not considered used, just its return type
 	mixin TaggedUnion!(FunDecl*, SpecDecl*, StructAlias*, StructDecl*, Test*, VarDecl*);
 
 	Uri moduleUri() scope =>
@@ -2287,7 +2282,6 @@ immutable struct CommonFuns {
 	FunInst* setCurCatchPoint;
 	VarDecl* curThrown;
 	FunInst* allocate;
-	FunInst* and;
 	FunInst* createError;
 	EnumMap!(FunKind, FunDecl*) lambdaSubscript;
 	FunDecl* sharedOfMutLambda;
@@ -2374,6 +2368,14 @@ immutable struct CommonTypes {
 				this[x],
 			(IntegralType x) =>
 				this[x]);
+	StructInst* opIndex(FloatType type) {
+		final switch (type) {
+			case FloatType.float32:
+				return float32;
+			case FloatType.float64:
+				return float64;
+		}	
+	}
 	StructInst* opIndex(StringLikeType type) {
 		final switch (type) {
 			case StringLikeType.char8Array:
@@ -3633,14 +3635,8 @@ immutable struct LiteralFloatExpr {
 	FloatType floatType;
 	double value;
 
-	StructInst* type(ref CommonTypes commonTypes) {
-		final switch (floatType) {
-			case FloatType.float32:
-				return commonTypes.float32;
-			case FloatType.float64:
-				return commonTypes.float64;
-		}
-	}
+	StructInst* type(ref CommonTypes commonTypes) =>
+		commonTypes[floatType];
 }
 
 immutable struct LiteralIntegralExpr {
@@ -4093,13 +4089,6 @@ Opt!T findDirectChildExpr(T)(ref Expr a, in Opt!T delegate(Expr*) @safe @nogc pu
 		(TypedExpr* x) =>
 			cb(&x.inner));
 }
-private bool typesCompatible(in Type a, in Type b) =>
-	a == b || a.isBogus || b.isBogus || (
-		a.isA!(StructInst*) && b.isA!(StructInst*) && a.as!(StructInst*).decl == b.as!(StructInst*).decl &&
-		arraysCorrespond!(Type, Type)(
-			a.as!(StructInst*).typeArgs,
-			b.as!(StructInst*).typeArgs,
-			(ref Type x, ref Type y) => typesCompatible(x, y)));
 
 FunDecl* sumTypeMemberGetter(FunDecl[] funs, in StructDecl* struct_, in SumTypeMembership x) =>
 	mustFindFunNamed(funs, struct_.name, (in FunDecl fun) =>
@@ -4265,7 +4254,8 @@ immutable struct Diag {
 		DiagMatchOnNonMatchable,
 		DiagMatchSumTypeCantInferTypeArgs,
 		DiagMatchSumTypeNoMember,
-		DiagMatchUnhandledCases,
+		DiagMatchUnhandledEnumMembers,
+		DiagMatchUnhandledUnionCaseTypes,
 		DiagMatchUnnecessaryElse,
 		DiagMethodImplVisibility,
 		DiagModifierConflict,
@@ -4470,7 +4460,7 @@ immutable struct DiagEnumBackingTypeInvalid {
 }
 immutable struct DiagEnumDuplicateValue {
 	bool signed;
-	long value;
+	IntegralValue value;
 }
 immutable struct DiagExpectedTypeIsNotALambda {
 	Opt!TypeWithContainer expectedType;
@@ -4601,8 +4591,11 @@ immutable struct DiagMatchSumTypeNoMember {
 	TypeWithContainer variant;
 	StructDecl* nonMember;
 }
-immutable struct DiagMatchUnhandledCases {
-	mixin Union!(immutable EnumOrFlagsMember*[], immutable StructInst*[]);
+immutable struct DiagMatchUnhandledEnumMembers {
+	immutable EnumOrFlagsMember*[] members;
+}
+immutable struct DiagMatchUnhandledUnionCaseTypes {
+	immutable StructInst*[] caseTypes;
 }
 immutable struct DiagMatchUnnecessaryElse {}
 
@@ -4646,7 +4639,7 @@ enum DiagPointerMutToConst { fieldOfByRef, fieldOfByVal, local }
 enum DiagPointerUnsupported { other, recordNotByRef }
 immutable struct DiagPurityWorseThanParent {
 	StructDecl* parent;
-	Type child;
+	StructInst* child;
 }
 immutable struct DiagPurityWorseThanSumType {
 	StructDecl* case_;
