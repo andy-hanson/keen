@@ -144,7 +144,7 @@ private void addFunsForSumTypeMemberships(
 	StructDecl* struct_,
 ) {
 	foreach (SumTypeMembership x; struct_.sumTypeMemberships) {
-		addFunsForVariantMember(
+		addFunsForSumTypeMember(
 			ctx, funsBuilder, commonTypes,
 			sourceStruct: struct_,
 			variant: x.sumType,
@@ -152,7 +152,7 @@ private void addFunsForSumTypeMemberships(
 	}
 }
 
-private void addFunsForVariantMember(
+private void addFunsForSumTypeMember(
 	ref CheckCtx ctx,
 	scope ref ExactSizeArrayBuilder!FunDecl funsBuilder,
 	ref CommonTypes commonTypes,
@@ -329,18 +329,12 @@ void addFunsForRecord(
 	StructDecl* struct_,
 	ref Record record,
 ) {
-	Type structType = instantiateStructWithTypeArgsFromParams(ctx, struct_);
+	Type structType = instantiateStructWithOwnTypeParams(ctx.instantiateCtx, struct_);
 	bool byVal = recordIsAlwaysByVal(record);
 	addFunsForRecordConstructor(ctx, funsBuilder, commonTypes, struct_, record, structType, byVal);
 	foreach (ref RecordField field; record.fields)
 		addFunsForRecordField(ctx, funsBuilder, commonTypes, struct_, structType, byVal, &field);
 }
-
-Type instantiateStructWithTypeArgsFromParams(ref CheckCtx ctx, StructDecl* struct_) =>
-	withStackArray!(Type, Type)(
-		struct_.typeParams.length,
-		(size_t i) => Type(TypeParamIndex(safeToUint(i))),
-		(scope Type[] typeArgs) => Type(instantiateStruct(ctx.instantiateCtx, struct_, typeArgs)));
 
 void addFunsForRecordConstructor(
 	ref CheckCtx ctx,
@@ -507,7 +501,7 @@ void addFunsForVariant(
 	StructInst* variantInst = instantiateStructWithOwnTypeParams(ctx.instantiateCtx, struct_);
 
 	foreach (ref SumTypeMemberAndMethodImpls x; variant.listedMembers)
-		addFunsForVariantMember(
+		addFunsForSumTypeMember(
 			ctx, funsBuilder, commonTypes,
 			sourceStruct: struct_, variant: variantInst, memberType: x.member);
 

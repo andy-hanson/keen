@@ -36,7 +36,7 @@ import frontend.check.inferringType :
 	TypeContext,
 	withExpectCandidates;
 import frontend.check.instantiate : InstantiateCtx, makeOptionIfNotAlready, makeOptionType;
-import frontend.check.typeFromAst : getNTypeArgsForDiagnostic, tryUnpackOptionType, unpackTupleIfNeeded;
+import frontend.check.typeFromAst : getNTypeArgsForDiagnostic, unpackTupleIfNeeded;
 import model.ast :
 	CallAst, CallAstStyle, CallNamedAst, DestructureAst, ExprAst, LambdaAst, NameAndRange, VoidDestructureAst;
 import model.model :
@@ -60,10 +60,12 @@ import model.model :
 	FunFlags,
 	LambdaSource,
 	Local,
+	mustUnwrapOptionTypeOrBogus,
 	ReturnAndParamTypes,
 	Signature,
 	SpecInst,
 	StructInst,
+	tryUnwrapOptionType,
 	Type,
 	TypeContainer,
 	Varargs;
@@ -429,7 +431,7 @@ Expr checkOptionCall(alias checkExpr)(
 		// For the return type:
 		// The whole expression should be expected to be an option, and the call's return type is the non-optional type.
 		(Type option) {
-			Opt!Type res = tryUnpackOptionType(ctx.commonTypes, option);
+			Opt!Type res = tryUnwrapOptionType(option);
 			return has(res) ? some!(Type[2])([force(res), option]) : none!(Type[2]);
 		},
 		(ref Expected innerExpected) {
@@ -450,8 +452,7 @@ Expr checkOptionCall(alias checkExpr)(
 								Type option = inferred(optionalArgExpected);
 								args ~= expr;
 								// We wrapped expected types in diagnostics, so it must unpack to an option
-								Type nonOption = force(tryUnpackOptionType(ctx.commonTypes, option));
-								return ExprAndType(expr, nonOption);
+								return ExprAndType(expr, mustUnwrapOptionTypeOrBogus(option));
 							});
 					} else
 						args ~= checkExpr(ctx, locals, argAst, argExpected);

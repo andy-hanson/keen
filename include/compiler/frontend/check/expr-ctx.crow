@@ -1,0 +1,140 @@
+import
+	./check-ctx
+	./instantiate
+	./maps
+	./type-from-ast
+	../../model/ast
+	../../model/model
+	../../model/source-range
+	../../util/enum-map
+	../../util/util
+
+closure-field-builder record mut
+	| name, mutability, and type are eventually redundant to the variable-ref,
+	| but are needed before the lambda has its Late fields filled in
+	name symbol
+	mutability mutability
+	| References 'is-used' for the captured variable. Empty for a Param.
+	is-used (local-access-kind, bool) mut-enum-map?
+	type type
+	variable-ref variable-ref
+
+set-is-used void(a closure-field-builder, access-kind local-access-kind)
+	if x ?= a is-used
+		x[access-kind] := true
+
+lambda-info record mut
+	outer locals-info
+	| WARN: Only 'lambda.kind' will be initialized while checking the lambda
+	lambda lambda-expr
+	closure-fields closure-field-builder mut[]
+
+locals-info record mut
+	lambda mut lambda-info?
+	locals mut local-node?
+new locals-info()
+	(), ()
+
+is-in-lambda bool(a locals-info)
+	a.lambda !is-empty
+
+is-in-data-lambda bool(a locals-info)
+	if x ?= a lambda
+		x.lambda.kind == data_ || x.outer is-in-data-lambda
+
+# TODO: maybe I should just use an array instead of a linked list ---------------------------------------------------------------
+local-node record mut
+	prev mut local-node?
+	is-used (local-access-kind, bool) mut-enum-map
+	local local
+local-access-kind enum
+	get-on-stack
+	get-through-closure
+	set-on-stack
+	set-through-closure
+to nat32(a local-access-kind)
+members local-access-kind[]()
+
+mark-is-used-set-on-stack void(locals locals-info, local local)
+	node mut = locals locals!
+	loop
+		if node.local.name == local.name
+			node.is-used[set-on-stack] := true
+			break
+		else
+			node := node prev!
+			continue
+
+expr-ctx record mut
+	check-ctx check-ctx
+	structs-and-aliases-map structs-and-aliases-map
+	specs-map specs-map
+	funs-map funs-map
+	common-types common-types
+	| For diags. This will be a {fun-decl} or {test_}.
+	# TODO: instead of commenting the type, use a more appropriate type! ----------------------------------------------------------
+	type-container type-container
+	# TODO: this name is redundant. Crow doesn't have nested functions, so the function is always the outermost .........................
+	outermost-fun-specs specs
+	outermost-fun-type-params type-params
+	outermost-fun-flags fun-flags
+	externs mut symbol-set
+	-is-in-trusted mut bool
+	-used-trusted mut bool
+instantiate-ctx instantiate-ctx(a expr-ctx)
+	a.check-ctx instantiate-ctx
+
+type-with-container type-with-container(ctx expr-ctx, a type)
+	a, ctx.type-container
+
+# TODO: use a 'with-block' --------------------------------------------------------------------------------------------------------------
+with-trusted[out] out(ctx expr-ctx, ast trusted-ast, cb out mut())
+	reason diag-trusted-unnecessary? = if ctx.outermost-fun-flags.safety != safe
+		in-unsafe-function,
+	elif ctx is-in-trusted
+		in-trusted,
+	if x ?= reason
+		ctx add-diag ast.keyword-range, x.to
+		cb[]
+	else
+		ctx.is-in-trusted := true
+		res = cb[]
+		ctx.is-in-trusted := false
+		if ctx !used-trusted
+			ctx add-diag ast.keyword-range, unused::diag-trusted-unnecessary.to
+		ctx.used-trusted := false
+		res
+
+check-can-do-unsafe bool(ctx expr-ctx)
+	if ctx.outermost-fun-flags.safety allows-unsafe
+		true
+	else
+		res = ctx is-in-trusted
+		if res
+			ctx.used-trusted := true
+		res
+
+allows-unsafe bool(a fun-safety)
+	match a
+	as safe
+		false
+	as unsafe_
+		true
+	as trusted_
+		true
+
+add-diag void(ctx expr-ctx, range source-range, diag diag)
+	ctx.check-ctx add-diag range, diag
+add-diag void(ctx expr-ctx, source expr-ast, diag diag)
+	ctx add-diag source.range, diag
+
+type-from-destructure type?(ctx expr-ctx, ast destructure-ast)
+	ctx.check-ctx type-from-destructure ctx.common-types, ast, ctx.structs-and-aliases-map, ctx.outermost-fun-type-params
+
+check-destructure destructure(ctx expr-ctx, ast destructure-ast, type type, kind destructure-kind)
+	ctx.check-ctx check-destructure ctx.common-types, ctx.structs-and-aliases-map,
+		ctx.type-container, ctx.outermost-fun-type-params,
+		ast, (type,), kind
+
+type-from-ast type(ctx expr-ctx, ast type-ast)
+	ctx.check-ctx type-from-ast ctx.common-types, ctx.structs-and-aliases-map, ast, ctx.outermost-fun-type-params, yes

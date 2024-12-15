@@ -1,0 +1,111 @@
+import
+	./instantiate
+	./maps
+	../../model/ast
+	../../model/model
+	../../model/source-range
+	../../model/uri
+	../../util/enum-map
+
+get-common-types common-types(
+	instantiate-ctx instantiate-ctx,
+	diagnostics-builder diagnostic mut[],
+	structs-and-aliases-map structs-and-aliases-map,
+)
+	ctx common-types-ctx = instantiate-ctx, diagnostics-builder, structs-and-aliases-map
+	char8 = ctx non-template "char8"
+	char32 = ctx non-template "char32"
+	symbol = ctx non-template "symbol"
+	void = ctx non-template "void"
+	array = ctx get-decl "array", 1
+	pointer-const = ctx get-decl "const-pointer", 1
+	integrals integral-types = (for type : make-enum-map; ctx non-template type.to),
+	string = ctx non-template "string"
+
+	bool: ctx non-template "bool"
+	char8: char8
+	char32: char32
+	c-string: ctx instantiate1 pointer-const, char8
+	exception: ctx non-template "exception"
+	fiber: ctx non-template "fiber"
+	float32: ctx non-template "float32"
+	float64: ctx non-template "float64"
+	future: ctx get-decl "future", 1
+	integrals: integrals
+	js-any: ctx non-template "js-any"
+	string: string
+	symbol: symbol
+	symbol-array: ctx instantiate1 array, symbol
+	void: void
+	array: array
+	char8-array: ctx instantiate1 array, char8
+	char8-const-pointer: ctx instantiate1 pointer-const, char8
+	char32-array: ctx instantiate1 array, char32
+	nat8-array: ctx instantiate1 array, integrals.nat8
+	string-array: ctx instantiate1 array, string
+	option: ctx get-decl "option", 1
+	pointer-const: pointer-const
+	pointer-mut: ctx get-decl "mut-pointer", 1
+	reference: ctx get-decl "reference", 1
+	tuples-2-through-9: for i : 2::nat .. 10
+		ctx get-tuple i
+	fun-structs: for kind : make-enum-map
+		ctx get-decl "fun-{kind}", 2
+
+-common-types-ctx record mut
+	instantiate-ctx instantiate-ctx
+	diagnostics-builder diagnostic mut[]
+	structs-and-aliases-map structs-and-aliases-map
+
+-add-diag-missing void(ctx common-types-ctx, name symbol)
+	ctx.diagnostics-builder ~= ((), name.diag-common-type-missing)
+
+-get-decl struct-decl(ctx common-types-ctx, name symbol, n-type-parameters nat)
+	ctx.structs-and-aliases-map get-common-template-type name, n-type-parameters ?? do
+		ctx add-diag-missing name
+		ctx.instantiate-ctx bogus-struct-decl name, n-type-parameters
+
+-non-template struct-inst(ctx common-types-ctx, name symbol)
+	ctx.instantiate-ctx get-common-non-template-type ctx.structs-and-aliases-map, name ?? do
+		ctx add-diag-missing name
+		ctx.instantiate-ctx instantiate-non-template-struct-decl (ctx.instantiate-ctx bogus-struct-decl name, 0)
+
+-get-tuple struct-decl(ctx common-types-ctx, n nat)
+	ctx get-decl "tuple{n}", n
+
+-instantiate1 struct-inst(ctx common-types-ctx, decl struct-decl, type-arg struct-inst)
+	ctx.instantiate-ctx instantiate-struct decl, (type-arg.to,)
+
+-get-common-template-type struct-decl?(structs-and-aliases-map structs-and-aliases-map, name symbol, expected-type-params nat)
+	if decl ?= structs-and-aliases-map[name]?.struct-decl
+		if decl.type-params.size == expected-type-params
+			decl,
+
+-get-common-non-template-type struct-inst?(ctx instantiate-ctx, structs-and-aliases-map structs-and-aliases-map, name symbol)
+	if x ?= structs-and-aliases-map[name]
+		(ctx instantiate-non-template-struct-or-alias x),
+
+-instantiate-non-template-struct-or-alias struct-inst(ctx instantiate-ctx, struct-or-alias struct-or-alias)
+	assert struct-or-alias.type-params is-empty
+	match struct-or-alias
+	as struct-alias x
+		x target
+	as struct-decl x
+		ctx instantiate-non-template-struct-decl x
+
+-instantiate-non-template-struct-decl struct-inst(ctx instantiate-ctx, struct-decl struct-decl)
+	ctx instantiate-struct struct-decl, ()
+
+bogus-struct-decl struct-decl(ctx instantiate-ctx, name symbol, n-type-parameters nat)
+	id: ctx.next-id
+	source: name struct-decl-source-bogus for _ : 0::nat .. n-type-parameters
+		0, ""
+	module-uri: ()
+	visibility: public
+	extern_: ()
+	is-summon: false
+	purity: data_
+	purity-is-forced: false
+	doc-comment-references: ()
+	sum-type-memberships: ()
+	body: struct-body-bogus

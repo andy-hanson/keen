@@ -251,6 +251,16 @@ Type arrayElementType(Type type) {
 	return only(type.as!(StructInst*).typeArgs);
 }
 
+Opt!Type tryUnwrapOptionType(Type optionType) =>
+	isOptionType(optionType) || optionType.isBogus
+		? some(mustUnwrapOptionTypeOrBogus(optionType))
+		: none!Type;
+
+Type mustUnwrapOptionTypeOrBogus(Type a) =>
+	a.isBogus
+		? Type.bogus
+		: mustUnwrapOptionType(a);
+
 Type mustUnwrapOptionType(Type a) {
 	assert(isOptionType(a));
 	return only(a.as!(StructInst*).typeArgs);
@@ -2374,7 +2384,7 @@ immutable struct CommonTypes {
 				return float32;
 			case FloatType.float64:
 				return float64;
-		}	
+		}
 	}
 	StructInst* opIndex(StringLikeType type) {
 		final switch (type) {

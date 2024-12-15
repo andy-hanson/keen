@@ -1,6 +1,19 @@
+import
+	crow/col/mut-slice
+
 only[t] t(a t[])
 	a.size is 1
 	a[0]
+only2[t] (t, t)(a t[])
+	a.size is 2
+	a[0], a[1]
+opt-only[t] t?(a t[])
+	if a.size == 1
+		a[0],
+
+arrays-correspond[t, u] bool(a t[], b u[], cb bool mut(x t, y u))
+	a.size == b.size && 0::nat .. a.size every i =>
+		cb[a[i], b[i]]
 
 # Named this way to match the old D implementation ... can't really do this any more .........................................
 must-have-index-of-pointer[t] nat(xs t[], value t) trusted
@@ -16,26 +29,6 @@ sum[t] nat(xs t[], cb nat mut(x t))
 		res +:= cb[x]
 	res
 
-
-enum-map[k, v] record
-	| One for each enum member
-	-values v[]
-
-make-enum-map[k, v] (k, v) enum-map(cb v mut(key k)) k enum-like
-	inner v[] = for index, key : members::k[] with-index
-		key.to::nat32 is index.to
-		cb[key]
-	inner,
-
-subscript[k, v] v(a (k, v) enum-map, key k) k enum-like
-	a.values[key.to::nat32 to]
-at[k, v] v(a (k, v) enum-map, key k) k enum-like
-	a.values[key.to::nat32 to]
-
-enum-like[t] spec t data
-	to nat32(a t)
-	members t[]()
-
 symbol-set alias
 	symbol set
 
@@ -48,3 +41,86 @@ must-find[t] t(a t[], f bool mut(x t))
 			break x
 	else
 		throw unreachable
+
+value-and-did-add[t] record(value t, did-add bool)
+get-or-add-and-did-add[k, v] v value-and-did-add(a v mut[k], key k, cb v mut()) k key
+	did-add mut = false
+	value = a ensure key, () =>
+		did-add := true
+		cb[]
+	value, did-add
+
+pop-arbitrary[t] t?(a t mut-set) t key
+	value t? = for x : a
+		break x
+	if x ?= value
+		assert a remove x
+	value
+
+
+mut-multi-map[k, v] record mut
+	-inner v mut-set mut[k]
+~=[k, v] void(a (k, v) mut-multi-map, (key k, value v)) k key, v key
+	a.inner ensure key ~= value
+remove-key[k, v] v set(a (k, v) mut-multi-map, key k) k key, v key
+	if x ?= a.inner remove key
+		x move-to
+# TODO: PERF design the mut-multi-map so we can easily remove a single value for a key (the D version did this) ---------------
+remove-pair[k, v] bool(a (k, v) mut-multi-map, key k, value v) k key, v key
+	if vs ?= a.inner[key]
+		vs remove value
+
+map-or-none[t] record(values t[]) nominal
+for-loop[out, in] out[]?(a in map-or-none, f out? mut(x in))
+	res out mut[] = ()
+	for x : a values
+		if y ?= f[x]
+			res ~= y
+			continue
+		else
+			break
+	else
+		res.move-to,
+
+zip[t, u] record nominal
+	a t[]
+	b u[]
+size[t, u] nat64(a (t, u) zip)
+	a.a.size is a.b.size
+	a.a.size
+iterate[t, u] bool(a (t, u) zip, f bool mut(x t, y u))
+	(0::nat .. a.size) iterate i =>
+		f[a.a[i], a.b[i]]
+
+each-pair[t] void(a t[], f void mut(x t, y t))
+	for i : 0::nat .. a.size
+		for j : i + 1 .. a.size
+			f[a[i], a[j]]
+
+none-or-one-or-many[t] union(none, t one, many)
+none record
+one[t] record(value t)
+many record
+
+none-or-one-or-many[t] t none-or-one-or-many(a t[], cb bool mut(x t))
+	res mut t none-or-one-or-many = none
+	for x : a
+		guard cb[x] : continue
+		if _ ?= res none
+			res := x one
+			continue
+		else
+			res := many
+			break
+	res
+
+filter-unordered[t] t[](_ t mut-slice, _ bool mut(x t))
+	throw todo
+
+first[out, in] out?(a in[], f out? mut(x in))
+	for x : a
+		if res ?= f[x]
+			break res
+cb-option[out, in] out?(a in?, cb out? mut(x in))
+	if x ?= a
+		cb[x]

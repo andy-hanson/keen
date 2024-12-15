@@ -1,0 +1,104 @@
+import
+	./check-ctx
+	./maps
+	./type-from-ast
+	../../model/ast
+	../../model/integral-values
+	../../model/model
+	../../util/util
+
+check-literal-integral-value integral-value(ctx check-ctx, type integral-type, ast literal-integral-and-range)
+	res integral-value? = if value ?= ast.literal.value
+		unless type literal-nat-or-int-overflows ast.literal.is-signed, value
+			value,
+	res ?? do
+		ctx add-diag ast.range, type.diag-literal-overflow
+		0::nat,
+
+-literal-nat-or-int-overflows bool(type integral-type, is-signed bool, value integral-value)
+	if is-signed
+		value.as-signed < type.min-value ||
+		(value.as-signed > 0 && value.as-signed.to::nat64 > type.max-value)
+	else
+		value.as-unsigned > type.max-value
+
+check-return-type-and-params (type, params)(
+	ctx check-ctx,
+	common-types common-types,
+	type-container type-container,
+	return-type-ast type-ast,
+	params-ast params-ast,
+	type-params type-params,
+	structs-and-aliases-map structs-and-aliases-map,
+)
+	ret = ctx type-from-ast common-types, structs-and-aliases-map, return-type-ast, type-params, yes
+	params = ctx check-params common-types, type-container, params-ast, structs-and-aliases-map, type-params
+	ret, params
+
+-check-params params(
+	ctx check-ctx,
+	common-types common-types,
+	type-container type-container,
+	ast params-ast,
+	structs-and-aliases-map structs-and-aliases-map,
+	type-params-scope type-params,
+)
+	match ast
+	as array asts
+		params destructure[] = for x : asts
+			ctx check-destructure common-types, structs-and-aliases-map, type-container, type-params-scope, x, (), param
+		params to
+	as varargs-ast varargs
+		param = ctx check-destructure common-types, structs-and-aliases-map, type-container, type-params-scope, varargs.param, (), param
+		# TODO: factor out a function -------------------------------------------------------------------------------------------------
+		element-type type? = match param type
+		as bogus-type
+			bogus-type,
+		as type-param-index _
+			()
+		as struct-inst x
+			if x.decl == common-types.array
+				x.type-args.only,
+		if element-type is-empty
+			ctx add-diag varargs.param.range, diag-varargs-param-must-be-array
+		param varargs (element-type ?? bogus-type)
+
+get-externs-from-modifier symbol-set(ctx check-ctx, modifier modifier-keyword-ast, required bool)
+	assert modifier.keyword == extern_
+	if arg ?= modifier type-arg
+		# TODO: doesn't this forget to add a diag? ---------------------------------------------------------------------------------
+		ctx try-get-externs-from-type-arg arg ?? (required ? ("bogus",) : ())
+	elif required
+		ctx add-diag modifier.keyword-range, diag-extern-missing-library-name
+		"bogus",
+	else
+		()
+
+-try-get-externs-from-type-arg symbol-set?(ctx check-ctx, arg type-ast)
+	match arg
+	as name-and-range x
+		((ctx check-extern-name-or-bogus x, ()),),
+	as tuple-type-ast x
+		ok mut = true
+		res symbol-set = for member : x members
+			match member
+			as name-and-range n
+				ctx check-extern-name-or-bogus n, ()
+			else
+				ok := false
+				"bogus"
+		ok ? res,
+	else
+		()
+
+-check-extern-name-or-bogus symbol(ctx check-ctx, name name-and-range, enclosing-externs symbol-set)
+	ctx check-extern-name name, enclosing-externs ?? "bogus"
+check-extern-name symbol?(ctx check-ctx, name name-and-range, enclosing-externs symbol-set)
+	res = name name
+	if res is-builtin-extern || res in ctx.config.extern_
+		if res in enclosing-externs
+			ctx add-diag name.range, res.diag-extern-redundant
+		res,
+	else
+		ctx add-diag name.range, res.diag-extern-invalid-name
+		()

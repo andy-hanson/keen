@@ -46,7 +46,6 @@ import frontend.check.inferringType :
 	LoopInfo,
 	matchTypes,
 	nonInferring,
-	Pair,
 	SingleInferringType,
 	tryGetInferred,
 	tryGetNonInferringType,
@@ -54,7 +53,6 @@ import frontend.check.inferringType :
 	tryGetLoop,
 	TypeAndContext,
 	TypeContext,
-	withCopyWithNewExpectedType,
 	withExpect,
 	withExpectLoop,
 	withExpectOption,
@@ -1480,14 +1478,15 @@ LambdaAndReturnType checkLambdaInner(
 				locals.countAllAccessibleLocals,
 				someMut(ptrTrustMe(lambdaInfo)),
 				noneMut!(LocalNode*));
-			Pair!(Expr, Type) bodyAndType = withCopyWithNewExpectedType!Expr(expected,
+			ExprAndType bodyAndType = withExpect(
 				nonInstantiatedReturnType,
 				returnTypeContext,
 				(ref Expected returnTypeInferrer) =>
 					checkExprWithDestructure(ctx, bodyLocals, param, bodyAst, returnTypeInferrer));
-			StructInst* instFunStruct = instantiateStruct(ctx.instantiateCtx, funStruct, [bodyAndType.b, param.type]);
+			StructInst* instFunStruct =
+				instantiateStruct(ctx.instantiateCtx, funStruct, [bodyAndType.type, param.type]);
 			lambda.fillLate(
-				body_: bodyAndType.a,
+				body_: bodyAndType.expr,
 				closure: small!VariableRef(
 					map!(VariableRef, ClosureFieldBuilder)(
 						ctx.alloc,
@@ -1498,7 +1497,7 @@ LambdaAndReturnType checkLambdaInner(
 			return LambdaAndReturnType(
 				//TODO: this check should never fail, so could just set inferred directly with no check
 				check(ctx, expected, Type(instFunStruct), Expr(castImmutable(lambda))),
-				bodyAndType.b);
+				bodyAndType.type);
 		});
 }
 

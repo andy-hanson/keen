@@ -1,0 +1,355 @@
+import
+	crow/io/terminal-color
+	./check/type-from-ast
+	../model/ast
+	../model/model
+	../model/source-range
+	../model/uri
+	../util/util
+
+show-ctx record
+	line-and-column-getters line-and-column-getters
+	file-content-getters file-content-getters
+	uris-info uris-info
+	options show-options
+line-and-character-getters line-and-character-getters(a show-ctx)
+	a.line-and-column-getters line-and-character-getters
+
+show-type-ctx record mut
+	show show-ctx
+	common-types common-types
+show-diag-ctx alias
+	show-type-ctx
+show-model-ctx alias
+	show-type-ctx
+
+show-options record(color bool)
+without-color show-options(_ show-options)
+	false,
+
+show-called string(ctx show-type-ctx, write-kind write-kind, type-container type-container, a called)
+	match a
+	as called-bogus _
+		"<<bogus>>"
+	as fun-inst x
+		ctx show-fun-inst write-kind, type-container, x
+	as called-spec-sig x
+		ctx show-called-spec-sig write-kind, type-container, x
+
+show-called-decl string(ctx show-type-ctx, write-kind write-kind, type-container type-container, a called-decl)
+	ctx show-called-decl write-kind, type-container, a, "", ""
+show-called-decl string(
+	ctx show-type-ctx,
+	write-kind write-kind,
+	type-container type-container,
+	a called-decl,
+	before-parameter string,
+	after-parameter string,
+)
+	match a
+	as fun-decl x
+		ctx show-fun-decl write-kind, x, before-parameter, after-parameter
+	as called-spec-sig x
+		ctx show-called-spec-sig write-kind, type-container, x, before-parameter, after-parameter
+	
+show-called-decls string(
+	ctx show-type-ctx,
+	type-container type-container,
+	cs called-decl[],
+	filter bool data(x called-decl),
+)
+	"" join for x : cs
+		if filter[x]
+			"\n\t{ctx show-called-decl unquoted, type-container, x}"
+
+show-calleds string(ctx show-type-ctx, type-container type-container, cs called[])
+	"" join for x : cs
+		"\n\t{ctx show-called unquoted, type-container, x}"
+
+show-called-spec-sig string(ctx show-type-ctx, write-kind write-kind, type-container type-container, a called-spec-sig)
+	ctx show-called-spec-sig write-kind, type-container, a, "", ""
+-show-called-spec-sig string(
+	ctx show-type-ctx,
+	write-kind write-kind,
+	type-container type-container,
+	a called-spec-sig,
+	before-parameter string,
+	after-parameter string
+)
+	sig = ctx show-sig write-kind, type-container, a.name, a.return-type, a.non-instantiated-sig.params.to, (a.instantiated-sig,), before-parameter, after-parameter
+	"{sig} (from spec {ctx show-name a.spec-inst.decl.name})"
+
+-show-type-params-and-args string(
+	ctx show-type-ctx,
+	type-params type-params,
+	type-args-context type-container,
+	type-args type[],
+)
+	type-params.size is type-args.size
+	unless type-params is-empty
+		shown string = ", " join for param, arg : type-params zip type-args
+			"{param name}={ctx show-type-unquoted (arg, type-args-context)}"
+		" with {shown}"
+
+show-fun-decl string(ctx show-type-ctx, kind write-kind, a fun-decl)
+	ctx show-fun-decl kind, a, "", ""
+show-fun-decl string(ctx show-type-ctx, kind write-kind, a fun-decl, before-parameter string, after-parameter string)
+	sig = ctx show-sig kind, a.to, a.name, a.return-type, a.params, (), before-parameter, after-parameter
+	"{sig}{ctx.show show-fun-decl-location a}"
+
+show-fun-decl-and-type-args string(ctx show-type-ctx, type-container type-container, a fun-decl-and-type-args)
+	"{a.decl name}{ctx show-type-args type-container, a.type-args}{ctx.show show-fun-decl-location a.decl}"
+
+write-kind enum(quoted, unquoted)
+== bool(a write-kind, b write-kind)
+
+show-fun-inst string(ctx show-type-ctx, kind write-kind, type-container type-container, a fun-inst)
+	"{ctx show-fun-decl kind, a.decl}{ctx show-type-params-and-args a.decl.type-params, type-container, a.type-args}"
+
+-show-fun-decl-location string(ctx show-ctx, fun-decl fun-decl)
+	" (from {ctx show-line-number fun-decl.range.to})"
+
+-show-line-number string(ctx show-ctx, pos uri-and-pos)
+	line nat32 = ctx.line-and-column-getters[pos, start-of-range].pos line-1-indexed
+	"{ctx.options.color ? bold}{ctx show-uri pos.uri}{ctx.options.color ? reset} line {line}"
+
+show-sig string(
+	ctx show-type-ctx,
+	kind write-kind,
+	type-container type-container,
+	name symbol,
+	return-type type,
+	params params,
+	instantiated return-and-param-types?,
+)
+	ctx show-sig kind, type-container, name, return-type, params, instantiated, "", ""
+show-sig string(
+	ctx show-type-ctx,
+	kind write-kind,
+	type-container type-container,
+	name symbol,
+	return-type type,
+	params params,
+	instantiated return-and-param-types?,
+	before-parameter string,
+	after-parameter string,
+)
+	quoted = kind == quoted
+	with out : build
+		if quoted
+			out ~= "'"
+		out ~~= name to
+		if instantiated is-empty
+			out ~~= ctx show-type-params type-container.type-params
+		out ~= " "	
+		out ~~= ctx show-type-unquoted (instantiated?.return-type ?? return-type, type-container)
+		out ~= "("
+		out ~~= match params
+		as array params-array
+			if inst ?= instantiated
+				", " join for x, t : params-array zip inst.param-types
+					"{before-parameter}{ctx show-destructure type-container, x, (t,)}{after-parameter}"
+			else
+				", " join for x : params-array
+					"{before-parameter}{ctx show-destructure type-container, x, ()}{after-parameter}"
+		as varargs varargs
+			param-type = if x ?= instantiated
+				x.param-types only
+			else
+				varargs.param type
+			type = ctx show-type-unquoted (param-type, type-container)
+			"{before-parameter}...{type}{after-parameter}"
+		out ~= ")"
+		if quoted
+			out ~= "'"
+
+show-sig-simple string(ctx show-type-ctx, type-container type-container, name symbol, sig type-params-and-sig)
+	with out : build
+		out ~~= name to
+		out ~~= ctx show-type-params sig.type-params
+		out ~= " "
+		out ~~= ctx show-type-unquoted (sig.return-type, type-container)
+		out ~= "("
+		out ~~= match sig params
+		as array params
+			", " join for x : params
+				ctx show-param-short type-container, x
+		as params-short-variadic x
+			"...{ctx show-param-short type-container, x.param}"
+		out ~= ")"
+
+-show-param-short string(ctx show-type-ctx, type-container type-container, a param-short)
+	"{a name} {ctx show-type-unquoted (a.type, type-container)}"
+
+-show-type-params string(_ show-type-ctx, type-params type-params)
+	unless type-params is-empty
+		names string = ", " join for x : type-params; x.name to
+		"[{names}]"
+
+-show-destructure string(
+	ctx show-type-ctx,
+	type-container type-container,
+	a destructure,
+	instantiated type?,
+)
+	type = instantiated ?? a.type
+	match a
+	as destructure-ignore _
+		"_ {ctx show-type-unquoted (type, type-container)}"
+	as local x
+		"{x name} {ctx show-type-unquoted (type, type-container)}"
+	as destructure-split x
+		parts string = ", " join for part, part-type : x.parts zip type.struct-inst!.type-args
+			ctx show-destructure type-container, part, (part-type,)
+		"({parts})"
+
+show-struct-inst string(ctx show-type-ctx, type-container type-container, a struct-inst)
+	name = a.decl name
+	if kind ?= name type-syntax-kind
+		match kind
+		as array
+			ctx show-suffix-type type-container, "[]", a
+		as map
+			ctx show-map-type type-container, "", a
+		as fun-data
+			ctx show-fun-type type-container, data_, a
+		as fun-mut
+			ctx show-fun-type type-container, mut_, a
+		as fun-pointer
+			ctx show-fun-type type-container, function_, a
+		as fun-shared
+			ctx show-fun-type type-container, shared_, a
+		as mut-array
+			ctx show-suffix-type type-container, " mut[]", a
+		as mut-map
+			ctx show-map-type type-container, " mut", a
+		as mut-pointer
+			ctx show-suffix-type type-container, " mut*", a
+		as opt
+			ctx show-suffix-type type-container, "?", a
+		as pointer
+			ctx show-suffix-type type-container, "*", a
+		as shared-array
+			ctx show-suffix-type type-container, " shared[]", a
+		as shared-map
+			ctx show-suffix-type type-container, " shared", a
+		as tuple
+			ctx show-tuple-type type-container, a.type-args
+	else
+		prefix string = match a.type-args size
+		as 0
+			""
+		as 1
+			"{ctx show-type-unquoted (a.type-args.only, type-container)} "
+		else
+			"{ctx show-tuple-type type-container, a.type-args} "
+		"{prefix}{name}"
+
+-show-fun-type string(ctx show-type-ctx, type-container type-container, kind fun-kind, a struct-inst)
+	return-type, param-type = a.type-args only2
+	with out : build
+		out ~~= ctx show-type-unquoted (return-type, type-container)
+		out ~~= " {kind}("
+		out ~~= if ctx.common-types is-tuple param-type
+			# TODO: use as-tuple ----------------------------------------------------------------------------
+			", " join for type-arg : param-type.struct-inst!.type-args
+				"_ {ctx show-type-unquoted (type-arg, type-container)}"
+		elif param-type != ctx.common-types.void.to
+			ctx show-type-unquoted (param-type, type-container)
+		out ~= ")"
+-show-map-type string(ctx show-type-ctx, type-container type-container, open string, a struct-inst)
+	key, value = a.type-args only2
+	"{ctx show-type-unquoted (key, type-container)}{open}[{ctx show-type-unquoted (value, type-container)}]"
+-show-suffix-type string(ctx show-type-ctx, type-container type-container, suffix string, a struct-inst)
+	"{ctx show-type-unquoted (a.type-args.only, type-container)}{suffix}"
+
+-show-tuple-type string(ctx show-type-ctx, type-container type-container, members type[])
+	parts string = ", " join for arg : members
+		ctx show-type-unquoted (arg, type-container)
+	"({parts})"
+
+show-type-args-generic[t] string(type-args t[], is-simple-type bool data(x t), cb-show-type string mut(x t))
+	unless type-args is-empty
+		if type-args.size == 1 && is-simple-type[type-args only]
+			"@{cb-show-type[type-args only]}"
+		else
+			parts string = ", " join for x : type-args
+				cb-show-type[x]
+			"@({parts})"
+
+-show-type-args string(ctx show-type-ctx, type-container type-container, types type[])
+	types show-type-args-generic (x => x is-simple-type), x => ctx show-type-unquoted (x, type-container)
+-is-simple-type bool(a type)
+	if x ?= a struct-inst
+		x.type-args is-empty
+	else
+		true
+
+show-type-quoted string(ctx show-type-ctx, a type-with-container)
+	"'{ctx show-type-unquoted a}'"
+show-type-unquoted string(ctx show-type-ctx, a type-with-container)
+	match a type
+	as bogus-type
+		"<<any>>"
+	as type-param-index x
+		if x.index < a.container.type-params.size
+			"{a.container.type-params[x index] name}"
+		else
+			# TODO: This should be unreachable, but see 'test/end-to-end/compile-errors/nested-spec-error.crow'
+			"Type parameter {x index}"
+	as struct-inst x
+		ctx show-struct-inst a.container, x
+
+show-purity string(ctx show-ctx, a purity)
+	ctx show-name a.to::symbol
+
+show-keyword string(ctx show-ctx, keyword symbol)
+	ctx show-name keyword
+show-name string(ctx show-ctx, name symbol)
+	ctx show-name name.to::string
+show-name string(ctx show-type-ctx, name symbol)
+	ctx.show show-name name
+show-name string(_ show-ctx, name string)
+	"'{name}'"
+
+show-spec-inst string(ctx show-type-ctx, type-container type-container, a spec-inst)
+	"{a name}{ctx show-type-args type-container, a.type-args}"
+
+show-uri-and-range string(ctx show-ctx, where uri-and-range)
+	show-where string = unless where.uri == ()
+		"{ctx.line-and-column-getters[where] range}"
+	"{ctx show-file-no-reset where.uri}{show-where}{ctx.options.color ? reset}"
+
+show-uri-and-pos string(ctx show-ctx, where uri-and-pos)
+	show-where string = unless where.uri == ()
+		"{ctx.line-and-column-getters[where, start-of-range].pos}"
+	"{ctx show-file-no-reset where.uri}{show-where}{ctx.options.color ? reset}"
+
+show-file string(ctx show-ctx, uri uri)
+	"{ctx show-file-no-reset uri}{ctx.options.color ? reset}"
+
+show-uri string(ctx show-ctx, uri uri)
+	ctx.uris-info show-uri-prefer-relative uri
+
+-show-file-no-reset string(ctx show-ctx, uri uri)
+	with out : build
+		color = ctx.options color
+		if color
+			out ~~= bold
+			out ~~= ctx show-uri uri
+			out ~~= red foreground
+		else
+			out ~~= (ctx show-uri uri)
+		out ~= " "
+
+show-visibility string(_ show-ctx, a visibility)
+	"{a.to::symbol}"
+
+show-sum-type-kind-upper-case string(a sum-type-kind)
+	match a
+	as interface_
+		"Interface"
+	as union_
+		"Union"
+	as variant_
+		"Variant"

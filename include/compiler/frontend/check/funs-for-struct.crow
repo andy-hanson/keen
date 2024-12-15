@@ -1,0 +1,284 @@
+import
+	./check-ctx
+	./get-common-funs
+	./inferring-type
+	./instantiate
+	../../model/ast
+	../../model/model
+	../../model/source-range
+	../../util/util
+
+add-funs-for-struct void(ctx check-ctx, out fun-decl mut[], common-types common-types, struct struct-decl)
+	match struct body
+	as struct-body-bogus
+		()
+	as builtin-type _
+		()
+	as enum_ x
+		ctx add-funs-for-enum out, struct, x
+	as extern-type x
+		if _ ?= x size
+			out ~= ctx new-extern struct
+	as flags_ x
+		ctx add-funs-for-flags out, common-types, struct, x
+	as record_ x
+		ctx add-funs-for-record out, common-types, struct, x
+	as sum-type x
+		ctx add-funs-for-sum-type out, common-types, struct, x
+	
+	ctx add-funs-for-sum-type-memberships out, common-types, struct
+
+-add-funs-for-sum-type-memberships void(ctx check-ctx, out fun-decl mut[], common-types common-types, struct struct-decl)
+	for x : struct.sum-type-memberships
+		ctx add-funs-for-sum-type-member out, common-types, struct, x.sum-type,
+			(ctx.instantiate-ctx instantiate-struct-with-own-type-params struct)
+
+-add-funs-for-sum-type-member void(
+	ctx check-ctx,
+	out fun-decl mut[],
+	common-types common-types,
+	source-struct struct-decl,
+	sum-type struct-inst,
+	case-type struct-inst,
+)
+	case-decl = case-type decl
+	# Convert from the case type to the sum type
+	out ~= ctx fun-for-struct source-struct, "to", sum-type.to, (("a", case-type.to),).make-params, generated-bare, create-sum-type
+	if record_ ?= case-decl.body record_
+		out ~= ctx fun-for-struct source-struct, case-decl.name, sum-type.to, record_.record-constructor-params,
+			(record_ is-definitely-by-val ? generated-bare : generated),
+			case-type.create-record-and-convert-to-sum-type
+	
+	if sum-type.decl.body.sum-type!.kind can-convert-back
+		out ~= ctx fun-for-struct source-struct, case-decl.name,
+			(ctx.instantiate-ctx make-option-type common-types, case-type.to).to,
+			(("a", sum-type.to),).make-params,
+			generated-bare,
+			sum-type-member-get
+
+-can-convert-back bool(a sum-type-kind)
+	match a
+	as interface_
+		false
+	as union_
+		true
+	as variant_
+		true
+
+add-funs-for-var void(ctx check-ctx, out fun-decl mut[], common-types common-types, var var-decl)
+	extern_ symbol-set = if x ?= var.extern-library-name
+		x,
+	out ~= do
+		id: ctx next-id
+		source: var to
+		visibility: var visibility
+		name: var name
+		return-type: var type
+		params: ()
+		flags_: generated-bare-unsafe
+		externs: extern_
+		specs: ()
+		doc-comment-references: ()
+		body: var var-get
+	out ~= do
+		id: ctx next-id
+		source: var to
+		visibility: var visibility
+		name: "set-{var name}"
+		return-type: common-types.void to
+		params: (("a", var.type),) make-params
+		flags_: generated-bare-unsafe
+		externs: extern_
+		specs: ()
+		doc-comment-references: ()
+		body: var var-set
+
+-fun-for-struct fun-decl(
+	ctx check-ctx,
+	struct struct-decl,
+	name symbol,
+	return-type type,
+	params params,
+	flags_ fun-flags,
+	body fun-body,
+)
+	forbid flags_ summon_
+	ctx.next-id, struct.to, struct.visibility, name, return-type, params, (flags_ with-summon struct.is-summon), struct.extern-set, (), (), body
+
+-new-extern fun-decl(ctx check-ctx, struct struct-decl)
+	ctx fun-for-struct struct, "new", (ctx.instantiate-ctx instantiate-struct struct, ()).to, (), generated-bare-unsafe, create-extern
+
+-add-funs-for-enum void(ctx check-ctx, out fun-decl mut[], struct struct-decl, enum_ enum_)
+	inst = ctx.instantiate-ctx instantiate-struct struct, ()
+	for member : enum_ members
+		out ~= ctx enum-or-flags-constructor struct.visibility, inst, member
+
+-add-funs-for-flags void(ctx check-ctx, out fun-decl mut[], common-types common-types, struct struct-decl, flags_ flags_)
+	inst = ctx.instantiate-ctx instantiate-struct struct, ()
+	type type = inst to
+	out ~= ctx flags-function struct, "new", type, (), none
+	out ~= ctx flags-function struct, "~", type, (("a", type),), negate
+	out ~= ctx flags-function struct, "|", type, (("a", type),), union_
+	out ~= ctx flags-function struct, "&", type, (("a", type), ("b", type)), intersect
+	out ~= ctx flags-function struct, "in", common-types.bool.to, (("a", type), ("b", type)), in
+	for member : flags_ members
+		out ~= ctx enum-or-flags-constructor struct.visibility, inst, member
+-flags-function fun-decl(ctx check-ctx, struct struct-decl, name symbol, return-type type, params param-short[], fun flags-function)
+	ctx fun-for-struct struct, name, return-type, params.make-params, generated-bare, fun.to
+
+-enum-or-flags-constructor fun-decl(ctx check-ctx, visibility visibility, enum_ struct-inst, member enum-or-flags-member)
+	ctx.next-id, member.to, visibility, member.name, enum_.to, (), (generated-bare with-summon enum_.decl.is-summon), enum_.decl.extern-set, (), (), member.create-enum-or-flags
+
+-add-funs-for-record void(ctx check-ctx, out fun-decl mut[], common-types common-types, struct struct-decl, record_ record_)
+	struct-type = ctx.instantiate-ctx instantiate-struct-with-own-type-params struct
+	by-val_ = record_ is-definitely-by-val
+	out ~= ctx record-constructor struct, record_, struct-type.to, by-val_
+	for field : record_ fields
+		ctx add-funs-for-record-field out, common-types, struct, struct-type.to, by-val_, field
+
+-record-constructor fun-decl(
+	ctx check-ctx,
+	struct struct-decl,
+	record_ record_,
+	struct-type type,
+	by-val_ bool,
+)
+	id: ctx next-id
+	source: struct to
+	visibility: record_.flags_ new-visibility
+	name: record_.flags_.nominal_ ? struct.name : "new"
+	return-type: struct-type
+	params: record_ record-constructor-params
+	flags_: (by-val_ ? generated-bare : generated) with-summon struct.is-summon
+	externs: struct extern-set
+	specs: ()
+	doc-comment-references: ()
+	body: create-record
+
+-record-constructor-params params(record_ record_)
+	(for x : record_ fields; (x.name, x.type) make-param)::destructure[] to
+
+-add-funs-for-record-field void(
+	ctx check-ctx,
+	out fun-decl mut[],
+	common-types common-types,
+	struct struct-decl,
+	record-type type,
+	record-is-by-val bool,
+	field record-field,
+)
+	out ~= do
+		id: ctx next-id
+		source: field to
+		visibility: field visibility
+		name: field name
+		return-type: field type
+		params: (("a", record-type),) make-params
+		flags_: generated-bare with-summon struct.is-summon
+		externs: struct extern-set
+		specs: ()
+		doc-comment-references: ()
+		body: field record-field-get
+
+	add-record-field-pointer void mut(visibility visibility, record-pointer type, field-pointer type) = (visibility, record-pointer, field-pointer) =>
+		out ~= do
+			id: ctx next-id
+			source: field to
+			visibility: visibility
+			name: field name
+			return-type: field-pointer
+			params: (("a", record-pointer),) make-params
+			flags_: generated-bare-unsafe with-summon struct.is-summon
+			externs: struct extern-set
+			specs: ()
+			doc-comment-references: ()
+			body: field record-field-pointer
+
+	ctx maybe-add-field-caller out, common-types, struct, record-type, field
+
+	if record-is-by-val
+		add-record-field-pointer[field.visibility, (ctx.instantiate-ctx make-const-pointer-type common-types, record-type).to, (ctx.instantiate-ctx make-const-pointer-type common-types, field.type).to]
+	
+	if set-visibility ?= field mutability
+		record-mut-pointer = ctx.instantiate-ctx make-mut-pointer-type common-types, record-type
+		if record-is-by-val
+			out ~= do
+				id: ctx next-id
+				source: field to
+				visibility: set-visibility
+				name: "set-deref-{field name}"
+				return-type: common-types.void to
+				params: (("a", record-mut-pointer.to), (field.name, field.type)) make-params
+				flags_: generated-bare-unsafe with-summon struct.is-summon
+				externs: struct extern-set
+				specs: ()
+				doc-comment-references: ()
+				body: field record-field-set
+			add-record-field-pointer[set-visibility, record-mut-pointer.to, (ctx.instantiate-ctx make-mut-pointer-type common-types, field.type).to]
+		else
+			out ~= do
+				id: ctx next-id
+				source: field to
+				visibility: set-visibility
+				name: "set-{field name}"
+				return-type: common-types.void to
+				params: (("a", record-type), (field.name, field.type)) make-params
+				flags_: generated-bare with-summon struct.is-summon
+				externs: struct extern-set
+				specs: ()
+				doc-comment-references: ()
+				body: field record-field-set
+
+-maybe-add-field-caller void(
+	ctx check-ctx,
+	out fun-decl mut[],
+	common-types common-types,
+	struct struct-decl,
+	record-type type,
+	field record-field,
+)
+	if fun-type ?= field.type get-fun-type
+		params = common-types params-for-field-caller record-type, fun-type.param-type
+		out ~= do
+			id: ctx.next-id
+			source: field to
+			visibility: field visibility
+			name: field name
+			return-type: fun-type return-type
+			params: params make-params
+			flags_: generated.with-ok-if-unused with-summon struct.is-summon
+			externs: struct extern-set
+			specs: ()
+			doc-comment-references: ()
+			body: field record-field-call fun-type.kind
+
+-params-for-field-caller param-short[](common-types common-types, record-type type, param-type type)
+	param-a param-short = "a", record-type
+	if parts ?= common-types as-tuple param-type
+		with out : build
+			out ~= param-a
+			for i, type : parts with-index
+				out ~= ("param{i}", type)
+	elif param-type == common-types.void.to
+		param-a,
+	else
+		param-a, ("param", param-type)
+
+-add-funs-for-sum-type void(ctx check-ctx, out fun-decl mut[], common-types common-types, struct struct-decl, sum-type sum-type)
+	sum-type-inst = ctx.instantiate-ctx instantiate-struct-with-own-type-params struct
+	for x : sum-type listed-members
+		ctx add-funs-for-sum-type-member out, common-types, struct, sum-type-inst, x.member
+	
+	for sig : sum-type methods
+		out ~= do
+			id: ctx next-id
+			source: sig to
+			visibility: struct visibility
+			name: sig name
+			return-type: sig return-type
+			params: (struct.to destructure-ignore sig.ast.range.start, sum-type-inst.to) ~ sig.params to
+			flags_: generated with-summon struct.is-summon
+			externs: struct extern-set
+			specs: ()
+			doc-comment-references: ()
+			body: sig fun-body-method

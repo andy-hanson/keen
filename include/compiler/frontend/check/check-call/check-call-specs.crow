@@ -1,0 +1,353 @@
+import
+	./candidates
+	../check-ctx
+	../expr-ctx
+	../inferring-type
+	../instantiate
+	../maps
+	../../lang
+	../../../model/model
+	../../../model/source-range
+	../../../util/util
+	../../../../crow/col/mut-array: hint-size
+
+is-shared bool(fun-specs spec-inst[], type type)
+	fun-specs is-purity-always-compatible-considering-specs type, shared_
+
+is-purity-always-compatible-considering-specs bool(fun-specs spec-inst[], type type, expected purity)
+	type-purity = type purity-range
+	expected is-purity-always-compatible type-purity ||
+	(fun-specs exists inst => inst spec-provides-purity type, expected) ||
+	match type
+	as bogus-type
+		false
+	as type-param-index _
+		false
+	as struct-inst x
+		expected is-purity-compatible type-purity.best-case &&
+		x.type-args every type-arg =>
+			fun-specs is-purity-always-compatible-considering-specs type-arg, expected
+	
+check-call-specs called(
+	ctx check-ctx,
+	common-types common-types,
+	type-container type-container,
+	funs-in-scope funs-in-scope,
+	diag-range source-range,
+	candidate candidate,
+)
+	check-specs-ctx check-specs-ctx = ctx.instantiate-ctx, funs-in-scope, false
+	match check-specs-ctx get-called-from-candidate-after-type-checks candidate, 0.dummy-trace
+	as called x
+		if check-specs-ctx has-errors
+			ctx check-call-specs-with-real-trace common-types, type-container, funs-in-scope, diag-range, candidate
+		else
+			x
+	as no-match _
+		ctx check-call-specs-with-real-trace common-types, type-container, funs-in-scope, diag-range, candidate
+
+check-spec-single-sig-ignore-parents called(ctx check-ctx, funs-map funs-map, decl fun-decl, spec_ spec-inst)
+	ctx check-spec-single-sig-ignore-parents funs-map, decl.name-range.range, decl.to, decl.specs, decl.flags_, decl.externs, spec_
+check-spec-single-sig-ignore-parents called(
+	ctx check-ctx,
+	funs-map funs-map,
+	diag-range source-range,
+	caller type-container,
+	caller-specs specs,
+	caller-flags fun-flags,
+	caller-externs symbol-set,
+	spec_ spec-inst,
+)
+	funs-in-scope funs-in-scope = caller-specs, funs-map, ctx.imports-and-re-exports
+	check-specs-ctx check-specs-ctx = ctx.instantiate-ctx, funs-in-scope, false
+	trace real-trace = ctx, caller, diag-range, ()
+	spec-impls called mut[] = ()
+	spec-impls hint-size spec_.count-sigs
+	spec_.sig-types.size is 1
+	if no-match ?= spec-impls check-spec-impl-inner check-specs-ctx, trace.to, spec_
+		ctx add-diag diag-range, no-match.diag!
+		sig called-spec-sig = spec_, 0
+		sig.to called-bogus sig.return-type, sig.param-types
+	else
+		res = spec-impls[end - 1]
+		locals locals-info = ()
+		ok = ctx check-called diag-range, res, caller-flags, caller-externs, locals, non-empty, () =>
+			caller-flags.safety allows-unsafe
+		if ok
+			res
+		else
+			res.to-called-decl called-bogus res.return-type, res.param-types
+-to-called-decl called-decl(a called)
+	match a
+	as called-bogus x
+		x decl
+	as fun-inst x
+		x.decl to
+	as called-spec-sig x
+		x to
+
+| Additional checks on a call after the overload and spec impls have been chosen.
+check-called bool(
+	ctx check-ctx,
+	diag-range source-range,
+	called called,
+	fun-flags fun-flags,
+	externs symbol-set,
+	locals locals-info,
+	args-kind args-kind,
+	can-do-unsafe bool data(),
+)
+	match called
+	as called-bogus _
+		true
+	as fun-inst x
+		ctx mark-used x.decl.id
+		ctx check-call-flags diag-range, x.decl, fun-flags, locals, args-kind, can-do-unsafe
+		ctx check-call-externs diag-range, x.decl, externs && x.spec-impls every impl =>
+			ctx check-called diag-range, impl, fun-flags, externs, locals, args-kind, can-do-unsafe
+	as called-spec-sig _
+		# For a spec, we do checks when providing the spec impl
+		true
+
+-args-kind enum(empty, non-empty)
+-== bool(a args-kind, b args-kind)
+
+-check-call-externs bool(ctx check-ctx, diag-range source-range, called fun-decl, externs symbol-set)
+	ok = called.externs is-subset-of externs
+	unless ok
+		for x : called externs
+			if x !in externs
+				ctx add-diag diag-range, (called diag-call-missing-extern x)
+	ok
+
+-check-call-flags void(
+	ctx check-ctx,
+	diag-range source-range,
+	called fun-decl,
+	caller fun-flags,
+	locals locals-info,
+	args-kind args-kind,
+	can-do-unsafe bool data(),
+)
+	diag void mut(reason diag-cant-call-reason) = reason =>
+		ctx add-diag diag-range, (reason diag-cant-call called)
+	if called.flags_ !bare_ && caller bare_ && called.flags_ !force-ctx_ && locals !is-in-lambda
+		# TODO: need to explain this better in the case where 'bare' is due to the lambda
+		diag[non-bare]
+	if called.flags_ summon_ && (caller !summon_ || locals is-in-data-lambda)
+		diag[caller summon_ ? summon-in-data-lambda : summon_]
+	if called.flags_.safety == unsafe_ && !can-do-unsafe[]
+		diag[unsafe_]
+	if called is-variadic && args-kind == non-empty && caller bare_
+		diag[variadic-from-bare]
+
+-check-call-specs-with-real-trace called(
+	ctx check-ctx,
+	common-types common-types,
+	type-container type-container,
+	funs-in-scope funs-in-scope,
+	range source-range,
+	candidate candidate,
+)
+	check-specs-ctx check-specs-ctx = ctx.instantiate-ctx, funs-in-scope, false
+	trace real-trace = ctx, type-container, range, ()
+	match check-specs-ctx get-called-from-candidate-after-type-checks candidate, trace.to
+	as called x
+		x
+	as no-match x
+		ctx add-diag range, x.diag!
+		ctx.instantiate-ctx candidate-bogus-called common-types, candidate
+
+-check-specs-ctx record mut
+	instantiate-ctx instantiate-ctx
+	funs-in-scope funs-in-scope
+	has-errors mut bool
+
+-spec-result union(called, no-match) mut
+-no-match record mut
+	depth nat
+	diag diag?
+
+# TODO: I think this is not necessary now that I have a GC available ......................................................
+-trace union(dummy-trace, real-trace) mut
+-dummy-trace record mut
+	depth mut nat
+-real-trace record mut
+	check-ctx check-ctx
+	type-container type-container
+	range source-range
+	trace fun-decl-and-type-args mut[]
+
+-depth nat(a trace)
+	match a
+	as dummy-trace x
+		x depth
+	as real-trace x
+		x.trace size
+-trace-push void(a trace, called fun-decl-and-type-args)
+	match a
+	as dummy-trace x
+		x.depth +:= 1
+	as real-trace x
+		x.trace ~= called
+-trace-pop void(a trace)
+	match a
+	as dummy-trace x
+		x.depth -:= 1
+	as real-trace x
+		_ = x.trace pop!
+-spec-no-match diag?(a trace, reason spec-no-match-reason)
+	match a
+	as dummy-trace _
+		()
+	as real-trace x
+		(x.type-container diag-spec-no-match reason, x.trace.to),
+
+-check-candidate spec-result(
+	ctx check-specs-ctx,
+	sig-decl signature,
+	sig-type return-and-param-types,
+	candidate candidate,
+	trace trace,
+)
+	if ctx.instantiate-ctx test-candidate-for-spec-sig candidate, sig-type, non-inferring
+		ctx get-called-from-candidate-after-type-checks candidate, trace
+	else
+		trace.depth no-match (trace spec-no-match (sig-decl spec-impl-not-found sig-type))
+
+-get-called-from-candidate-after-type-checks spec-result(ctx check-specs-ctx, candidate candidate, trace trace)
+	if candidate-type-args ?= for x : candidate.type-args map-or-none; x try-get-inferred
+		match candidate called
+		as fun-decl f
+			if trace.depth >= max-spec-depth
+				trace.depth no-match (trace spec-no-match spec-too-deep)
+			else
+				spec-impls called mut[] = ()
+				spec-impls hint-size f.count-spec-sigs
+				if no-match ?= spec-impls check-spec-impls ctx, f, candidate-type-args, trace
+					no-match to
+				else
+					(ctx.instantiate-ctx instantiate-fun f, candidate-type-args, spec-impls.move-to to) to
+		as called-spec-sig x
+			x.to to
+	else
+		trace.depth no-match (trace spec-no-match candidate.called.fun-decl!.spec-cant-infer-type-args)
+
+-count-spec-sigs nat(a fun-decl)
+	a.specs sum x => x count-sigs
+
+-find-spec-sig-implementation spec-result(
+	ctx check-specs-ctx,
+	sig-decl signature,
+	sig-type return-and-param-types,
+	trace trace,
+)
+	res mut called? = ()
+	# TODO: perf avoid allocating this for dummy-trace? ------------------------------------------------------------------
+	multiple-matches called mut[] = ()
+	deepest-no-match mut no-match? = ()
+	ctx.funs-in-scope each-candidate sig-decl.name, sig-type.param-types.size, candidate =>
+		match ctx check-candidate sig-decl, sig-type, candidate, trace
+		as called x
+			if _ ?= res
+				multiple-matches ~= x
+			else
+				res := x,
+		as no-match x
+			if d ?= deepest-no-match
+				if d.depth < x.depth
+					deepest-no-match := x,
+			else
+				deepest-no-match := x,
+	
+	if result ?= res
+		match trace
+		as dummy-trace _
+			()
+		as real-trace x
+			unless multiple-matches is-empty
+				multiple-matches ~= result
+				ctx.has-errors := true
+				diag = x.type-container diag-spec-match-multiple sig-decl.name, multiple-matches.move-to, x.trace.to
+				x.check-ctx add-diag x.range, diag
+		result to
+	elif x ?= deepest-no-match
+		x to
+	else
+		trace.depth no-match (trace spec-no-match (sig-decl spec-impl-not-found sig-type))
+
+-check-builtin-spec bool(ctx check-specs-ctx, kind builtin-spec, type-arg type)
+	# TODO: could simplify using purity-of-builtin-spec ---------------------------------------------------------------------
+	match kind
+	as data_
+		ctx.funs-in-scope.outermost-fun-specs is-purity-always-compatible-considering-specs type-arg, data_
+	as shared_
+		ctx.funs-in-scope.outermost-fun-specs is-purity-always-compatible-considering-specs type-arg, shared_
+
+-some-spec-including-parents bool(inst spec-inst, cb bool mut(x spec-inst))
+	cb[inst] || inst.parents exists parent => parent some-spec-including-parents cb
+
+-purity-of-builtin-spec purity(kind builtin-spec)
+	match kind
+	as data_
+		data_
+	as shared_
+		shared_
+
+| Whether {inst} tells us that {type} has purity at least {expected}
+-spec-provides-purity bool(inst spec-inst, type type, expected purity)
+	inst some-spec-including-parents x =>
+		if builtin_ ?= x.decl builtin_
+			x.type-args.only == type && builtin_ builtin-spec-provides-purity expected
+
+-builtin-spec-provides-purity bool(kind builtin-spec, expected purity)
+	expected is-purity-compatible kind.purity-of-builtin-spec
+
+-check-spec-impls no-match?(
+	out called mut[],
+	ctx check-specs-ctx,
+	called fun-decl,
+	called-type-args type-args,
+	trace trace,
+)
+	called.specs first spec-inst =>
+		# spec-inst was instantiated potentially based on f's params.
+		# Need to instantiate it again.
+		inst2 = ctx.instantiate-ctx instantiate-spec-inst spec-inst, called-type-args, no-delay-spec-insts
+		out check-spec-impl ctx, called, trace, inst2
+
+-check-spec-impl no-match?(
+	out called mut[],
+	ctx check-specs-ctx,
+	called fun-decl,
+	trace trace,
+	spec-inst-instantiated spec-inst,
+)
+	trace trace-push (called, spec-inst-instantiated.type-args)
+	res = out check-spec-impl-inner ctx, trace, spec-inst-instantiated
+	trace trace-pop
+	res
+
+-check-spec-impl-inner no-match?(
+	out called mut[],
+	ctx check-specs-ctx,
+	trace trace,
+	spec-inst-instantiated spec-inst,
+)
+	decl = spec-inst-instantiated decl
+	type-args = spec-inst-instantiated type-args
+	if decl.builtin_ !is-empty && ctx !check-builtin-spec decl.builtin_!, type-args.only
+		diag = trace spec-no-match (decl.builtin_! spec-builtin-not-satisfied type-args.only)
+		(trace.depth, diag),
+	else
+		for parent : spec-inst-instantiated parents
+			if no-match ?= out check-spec-impl-inner ctx, trace, parent
+				break no-match,
+		else
+			for sig-decl, sig-type : decl.sigs zip spec-inst-instantiated.sig-types
+				match ctx find-spec-sig-implementation sig-decl, sig-type, trace
+				as called x
+					out ~= x
+					()
+				as no-match x
+					break x

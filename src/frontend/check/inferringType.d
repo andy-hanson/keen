@@ -219,6 +219,12 @@ Expr withExpect(Type type, in Expr delegate(ref Expected) @safe @nogc pure nothr
 				Expected(x));
 	return cb(expected);
 }
+ExprAndType withExpect(Type type, TypeContext context, in Expr delegate(ref Expected) @safe @nogc pure nothrow cb) {
+	TypeAndContext[1] t = [TypeAndContext(type, context)];
+	Expected expected = Expected(small!TypeAndContext(castNonScope_ref(t)));
+	Expr res = cb(expected);
+	return ExprAndType(res, inferred(expected));
+}
 
 struct ExprAndOptionType {
 	Expr option;
@@ -407,22 +413,6 @@ void setToBogusIfInferring(ref Expected expected) {
 		},
 		(LoopInfo*) {});
 
-}
-
-struct Pair(T, U) {
-	T a;
-	U b;
-}
-Pair!(T, Type) withCopyWithNewExpectedType(T)(
-	ref Expected expected,
-	Type newExpectedType,
-	TypeContext newTypeContext,
-	in T delegate(ref Expected) @safe @nogc pure nothrow cb,
-) {
-	TypeAndContext[1] t = [TypeAndContext(newExpectedType, newTypeContext)];
-	Expected newExpected = Expected(small!TypeAndContext(castNonScope_ref(t)));
-	T res = cb(newExpected);
-	return Pair!(T, Type)(castNonScope_ref(res), inferred(newExpected));
 }
 
 struct ExpectedLambdaType {

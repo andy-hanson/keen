@@ -5,11 +5,20 @@ import
 	./source-range
 	./uri
 	./version-info
+	../util/enum-map
 	../util/util
 
 purity enum(data_, shared_, mut_)
 == bool(a purity, b purity)
 <=> comparison(a purity, b purity)
+to symbol(a purity)
+	match a
+	as data_
+		"data"
+	as shared_
+		"shared"
+	as mut_
+		"mut"
 
 is-purity-compatible bool(expected purity, actual purity)
 	actual <= expected
@@ -42,10 +51,12 @@ type union(bogus-type, type-param-index, struct-inst) mut
 == bool(a type, b type)
 bogus-type record
 == bool(a bogus-type, b bogus-type)
+<=> comparison(a bogus-type, b bogus-type)
 | Represent type parameter as the index, so we don't generate different types for every `t[]`.
 | (These are disambiguated in the type checker using `TypeAndContext`)
 type-param-index record(index nat)
 == bool(a type-param-index, b type-param-index)
+<=> comparison(a type-param-index, b type-param-index)
 
 is-bogus bool(a type)
 	a.bogus-type !is-empty
@@ -100,6 +111,8 @@ is-float64 bool(a type)
 	a is-builtin-type float64
 is-future bool(a type)
 	a is-builtin-type future
+is-future bool(a struct-inst)
+	a is-builtin-type future
 is-int8 bool(a type)
 	a is-builtin-type int8
 is-int16 bool(a type)
@@ -145,10 +158,15 @@ as-integral-type integral-type?(a type)
 	if x ?= a struct-inst
 		x.decl.body builtin-type
 
-array-element-type type(a type)
-	assert a is-array
-	a.struct-inst!.type-args only
+array-element-type type?(a type)
+	if a is-array
+		a.struct-inst!.type-args.only,
 
+try-unwrap-option-type type?(a type)
+	if a is-option-type || a is-bogus
+		a.must-unwrap-option-type-or-bogus,
+must-unwrap-option-type-or-bogus type(a type)
+	a is-bogus ? bogus-type : a must-unwrap-option-type
 must-unwrap-option-type type(a type)
 	assert a is-option-type
 	a.struct-inst!.type-args only
@@ -296,6 +314,8 @@ type-params-and-sig record mut
 	params params-short
 	count-specs nat
 params-short union(param-short[], params-short-variadic) mut
+new params-short()
+	()::param-short[] to
 params-short-variadic record(param param-short, element-type type) mut
 param-short record(name symbol, type type) mut
 
@@ -469,6 +489,7 @@ is-lambda bool(a builtin-type)
 type-size record(size-bytes nat, alignment-bytes nat)
 
 struct-alias record mut
+	id decl-id
 	ast struct-alias-ast
 	module-uri uri
 	visibility visibility
@@ -502,6 +523,7 @@ is-linkage-always-compatible bool(referencer linkage, referenced linkage-range)
 	referenced.least-strict >= referencer
 
 struct-decl record mut
+	id decl-id
 	source struct-decl-source
 	module-uri uri
 	visibility visibility
@@ -585,8 +607,18 @@ name-range source-range(a struct-decl-source)
 	as struct-decl-source-bogus _
 		()
 
+decl-or-inst-id record(value nat)
+== bool(a decl-or-inst-id, b decl-or-inst-id)
+<=> comparison(a decl-or-inst-id, b decl-or-inst-id)
+hash-mix void(hasher hasher, a decl-or-inst-id)
+	hasher hash-mix a.value
+decl-id alias
+	decl-or-inst-id
+inst-id alias
+	decl-or-inst-id
+
 | WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
-struct-inst record(decl struct-decl, type-args type-args) mut
+struct-inst record(id inst-id, decl struct-decl, type-args type-args) mut
 == bool(a struct-inst, b struct-inst)
 	trusted a reference-equal b
 linkage-range linkage-range(a struct-inst)
@@ -602,17 +634,22 @@ purity-range purity-range(a struct-inst)
 is-definitely-by-ref bool(a struct-inst)
 	if x ?= a.decl.body record_
 		x.flags_.forced-by-val-or-ref == (by-ref_,)
+is-definitely-by-val bool(a record_)
+	a.fields is-empty || a.flags_ forced-by-val-or-ref == (by-val_,)
 
 spec-decl-body record(builtin_ builtin-spec?, parents specs, sigs signature[]) mut
 
 builtin-spec enum(data_, shared_)
 
 spec-decl record mut
+	id decl-id
 	module-uri uri
 	ast spec-decl-ast
 	visibility visibility
 	doc-comment-references mut doc-comment-references
 	late-body mut spec-decl-body?
+== bool(a spec-decl, b spec-decl)
+	trusted a reference-equal b
 doc-comment-ast doc-comment-ast(a spec-decl)
 	a.ast doc-comment
 doc-comment doc-comment(a spec-decl)
@@ -643,7 +680,7 @@ name-range uri-and-range(a spec-decl)
 	a.module-uri, a.ast.name-range
 
 | WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
-spec-inst record(decl spec-decl, type-args type-args, body mut spec-inst-body) mut
+spec-inst record(id inst-id, decl spec-decl, type-args type-args, body mut spec-inst-body) mut
 parents spec-inst[](a spec-inst)
 	a.body parents
 sig-types return-and-param-types[](a spec-inst)
@@ -670,7 +707,7 @@ spec-inst-body record mut
 	sig-types return-and-param-types[]
 
 flags-function enum
-	in_
+	in
 	| `&`
 	intersect
 	| `~`
@@ -827,7 +864,7 @@ builtin-unary enum
 	as-mut-array
 	as-mut-array-impl
 	bits-of-float32
-	bit-sof-float64
+	bits-of-float64
 	bitwise-not-nat8
 	bitwise-not-nat16
 	bitwise-not-nat32
@@ -902,7 +939,7 @@ builtin-unary-math enum
 	sin-float32
 	sin-float64
 	sinh-float32
-	finh-float64
+	sinh-float64
 	sqrt-float32
 	sqrt-float64
 	tan-float32
@@ -912,6 +949,7 @@ builtin-unary-math enum
 	unsafe-log-float32
 	unsafe-log-float64
 
+# IDEA: this could be a union with `bitwise-or record(type integral-type)`. That would cut down on all these members. --------------------------
 builtin-binary enum
 	add-float32
 	add-float64
@@ -997,6 +1035,7 @@ builtin-binary enum
 	unsafe-div-nat16
 	unsafe-div-nat32
 	unsafe-div-nat64
+	unsafe-mod-nat64
 	unsafe-mul-int8
 	unsafe-mul-int16
 	unsafe-mul-int32
@@ -1140,6 +1179,7 @@ name-range uri-and-range(a fun-source-file-import)
 	a.module-uri, a.ast.range
 
 fun-decl record mut
+	id decl-id
 	source fun-decl-source
 	visibility visibility
 	name symbol
@@ -1150,6 +1190,8 @@ fun-decl record mut
 	specs specs
 	doc-comment-references mut doc-comment-references
 	body mut fun-body
+== bool(a fun-decl, b fun-decl)
+	trusted a reference-equal b
 type-params type-params(a fun-decl)
 	a.source type-params
 module-uri uri(a fun-decl)
@@ -1207,6 +1249,7 @@ each-spec-sig-and-impl void(a fun-decl, impls spec-impls, cb void mut(x spec-ins
 	impl-index is impls.size
 
 test_ record mut
+	id decl-id
 	ast test-ast
 	module-uri uri
 	flags_ fun-flags
@@ -1221,6 +1264,8 @@ range uri-and-range(a test_)
 	a.module-uri, a.ast.range
 name symbol(_ test_)
 	"test"
+name-range uri-and-range(a test_)
+	a.module-uri, a.ast.keyword-range
 type-params type-params(_ test_)
 	()
 | Treat as public since 'run-all-tests' runs tests from other modules
@@ -1231,6 +1276,7 @@ fun-decl-and-type-args record(decl fun-decl, type-args type-args) mut
 
 | WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
 fun-inst record mut
+	id inst-id
 	decl fun-decl
 	type-args type-args
 	spec-impls spec-impls
@@ -1313,6 +1359,7 @@ is-variadic bool(a called)
 	a.arity is-variadic
 
 struct-or-alias union(struct-alias, struct-decl) mut
+	id decl-id()
 	range uri-and-range()
 	name-range uri-and-range()
 	visibility visibility()
@@ -1321,6 +1368,7 @@ struct-or-alias union(struct-alias, struct-decl) mut
 
 | There is no `var-inst` since these can't be templates
 var-decl record mut
+	id decl-id
 	ast var-decl-ast
 	module-uri uri
 	visibility visibility
@@ -1387,9 +1435,11 @@ each-decl void(a module, cb void mut(x any-decl))
 		cb[x to]
 
 any-decl union(fun-decl, spec-decl, struct-alias, struct-decl, test_, var-decl) mut
+	id decl-id()
 	module-uri uri()
 	name symbol()
 	range uri-and-range()
+	name-range uri-and-range()
 	doc-comment-ast doc-comment-ast()
 	doc-comment doc-comment()
 	type-params type-params()
@@ -1618,7 +1668,7 @@ other-types record mut
 integral-types record mut
 	map (integral-type, struct-inst) enum-map
 subscript struct-inst(a integral-types, type integral-type)
-	a.map at type
+	a.map[type]
 int8 struct-inst(a integral-types)
 	a[int8]
 int16 struct-inst(a integral-types)
@@ -1640,6 +1690,7 @@ char-type enum(char8, char32)
 float-type enum(float32, float64)
 integral-type enum(int8, int16, int32, int64, nat8, nat16, nat32, nat64)
 to nat32(a integral-type)
+to symbol(a integral-type)
 members integral-type[]()
 to integral-type?(a builtin-type)
 	match a
@@ -1954,7 +2005,10 @@ config-extern-uris alias
 local-source union(single-destructure-ast, local-source-generated)
 local-source-generated record(name symbol)
 
-local record(source local-source, mutability local-mutability, type type) mut
+local record mut
+	source local-source
+	mutability local-mutability
+	type type
 name symbol(a local)
 	match a source
 	as single-destructure-ast x
@@ -2032,6 +2086,7 @@ closure-reference-kind closure-reference-kind(a variable-ref)
 
 destructure union(destructure-ignore, local, destructure-split) mut
 | This can come from '_' or '()' (which is the same as '_ void')
+# TODO: isn't 'pos' redundant to the source? ------------------------------------------------------------------------------------
 destructure-ignore record(source destructure-ignore-source, pos pos, type type) mut
 destructure-ignore-source union(case-member-ast, struct-decl, single-destructure-ast, void-destructure-ast) mut
 destructure-split record mut
@@ -2452,6 +2507,7 @@ lambda-expr record mut
 	closure variable-ref[]
 	type struct-inst
 lambda-kind enum(data_, shared_, mut_, explicit-shared)
+== bool(a lambda-kind, b lambda-kind)
 range source-range(a lambda-expr)
 	a.ast range
 return-type type(a lambda-expr)
@@ -2786,13 +2842,6 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 		x option
 -direct-child-in-match-sum-type-cases[t] t?(cases match-sum-type-case[], cb t? mut(x expr))
 	cases first x => cb[x then]
--cb-option[out, in] out?(a in?, cb out? mut(x in))
-	if x ?= a
-		cb[x]
--first[out, in] out?(a in[], cb out? mut(x in))
-	for x : a
-		if res ?= cb[x]
-			break res
 
 sum-type-member-getter fun-decl(funs fun-decl[], struct struct-decl, x sum-type-membership)
 	funs must-find-fun-named struct.name, fun =>

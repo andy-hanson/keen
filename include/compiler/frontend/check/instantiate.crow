@@ -1,0 +1,106 @@
+import
+	../all-insts
+	../../model/model
+	../../util/util
+
+instantiate-ctx record(all-insts all-insts) mut
+
+next-id decl-or-inst-id(a instantiate-ctx)
+	a.all-insts next-id
+
+delay-spec-insts alias
+	spec-inst mut[]
+may-delay-spec-insts alias
+	spec-inst mut[]?
+no-delay-spec-insts may-delay-spec-insts()
+	()
+
+instantiate-type type(ctx instantiate-ctx, type type, type-args type-args)
+	match type
+	as bogus-type
+		bogus-type
+	as type-param-index x
+		type-args[x index]
+	as struct-inst x
+		ctx instantiate-struct-inst x, type-args to
+
+instantiate-fun fun-inst(ctx instantiate-ctx, decl fun-decl, type-args type-args, spec-impls spec-impls)
+	ctx.all-insts get-or-add-fun-inst decl, type-args, spec-impls, () =>
+		ctx instantiate-return-and-param-types decl.return-type, decl.params.params-array, type-args
+
+# Given a struct decl 'foo[t]', returns a 't foo'
+instantiate-struct-with-own-type-params struct-inst(ctx instantiate-ctx, decl struct-decl)
+	# TODO:PERF preallocate these??? Or just slice from a global constant ---------------------------------------------------
+	type-args type[] = for i : 0::nat .. decl.type-params.size
+		i type-param-index
+	ctx instantiate-struct decl, type-args
+
+instantiate-struct struct-inst(ctx instantiate-ctx, decl struct-decl, type-args type-args)
+	ctx.all-insts get-or-add-struct-inst decl, type-args value
+
+instantiate-struct-inst struct-inst(ctx instantiate-ctx, struct-inst struct-inst, type-args type-args)
+	instantiated-type-args type[] = for x : struct-inst type-args
+		ctx instantiate-type x, type-args
+	ctx instantiate-struct struct-inst.decl, instantiated-type-args
+
+make-array-type struct-inst(ctx instantiate-ctx, common-types common-types, element-type type)
+	ctx instantiate-struct common-types.array, (element-type,)
+
+make-option-type struct-inst(ctx instantiate-ctx, common-types common-types, inner-type type)
+	ctx instantiate-struct common-types.option, (inner-type,)
+
+make-option-if-not-already struct-inst(ctx instantiate-ctx, common-types common-types, a type)
+	if a is-option-type
+		a struct-inst!
+	else
+		ctx make-option-type common-types, a
+	
+make-const-pointer-type struct-inst(ctx instantiate-ctx, common-types common-types, pointee-type type)
+	ctx instantiate-struct common-types.pointer-const, (pointee-type,)
+make-mut-pointer-type struct-inst(ctx instantiate-ctx, common-types common-types, pointee-type type)
+	ctx instantiate-struct common-types.pointer-mut, (pointee-type,)
+
+instantiate-spec spec-inst(ctx instantiate-ctx, decl spec-decl, type-args type-args)
+	ctx instantiate-spec decl, type-args, ()
+instantiate-spec spec-inst(ctx instantiate-ctx, decl spec-decl, type-args type-args, delay-spec-insts may-delay-spec-insts)
+	res = ctx.all-insts get-or-add-spec-inst decl, type-args
+	if res did-add
+		if decl body-is-set
+			ctx instantiate-spec-body res.value, delay-spec-insts
+		else
+			delay-spec-insts! ~= res.value
+	res value
+
+instantiate-spec-body void(ctx instantiate-ctx, a spec-inst, delay-spec-insts may-delay-spec-insts)
+	parents spec-inst[] = for parent : a.decl parents
+		ctx instantiate-spec-inst parent, a.type-args, delay-spec-insts
+	sigs return-and-param-types[] = for sig : a.decl sigs
+		ctx instantiate-return-and-param-types sig.return-type, sig.params, a.type-args
+	a.body := parents, sigs
+
+instantiate-spec-inst spec-inst(ctx instantiate-ctx, spec-inst spec-inst, type-args type-args, delay-spec-insts may-delay-spec-insts)
+	instantiated-type-args type[] = for x : spec-inst type-args
+		ctx instantiate-type x, type-args
+	ctx instantiate-spec spec-inst.decl, instantiated-type-args, delay-spec-insts
+
+get-all-future-and-mut-array-impls struct-inst[inst-id](
+	ctx instantiate-ctx,
+	future-impl struct-decl,
+	mut-array-impl struct-decl,
+)
+	ctx.all-insts get-all-future-and-mut-array-impls \
+		(x => ctx instantiate-struct future-impl, x),
+		(x => ctx instantiate-struct mut-array-impl, x)
+
+-instantiate-return-and-param-types return-and-param-types(
+	ctx instantiate-ctx,
+	decl-return-type type,
+	decl-params destructure[],
+	type-args type-args
+)
+	types type[] = for i : 0::nat .. decl-params.size + 1
+		if i == 0
+			ctx instantiate-type decl-return-type, type-args
+		else
+			ctx instantiate-type decl-params[i - 1].type, type-args
+	types,

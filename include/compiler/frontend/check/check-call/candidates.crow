@@ -1,0 +1,123 @@
+import
+	crow/col/mut-slice
+	../check-ctx
+	../expr-ctx
+	../inferring-type
+	../instantiate
+	../maps
+	../../../model/model
+	../../../util/util
+
+candidates-for-diag called-decl[](candidates candidate[])
+	for x : candidates
+		x called
+
+get-all-candidates-as-called-decls called-decl[](ctx expr-ctx, fun-name symbol)
+	with out : build
+		ctx each-fun-in-expr-scope fun-name, called =>
+			out ~= called
+
+candidate record mut
+	called called-decl
+	| This is always empty if calling a {called-spec-sig}
+	type-args single-inferring-type[]
+
+type-context-for-candidate type-context(a candidate)
+	a.type-args,
+
+# TODO: use a with-block -----------------------------------------------------------------------------------------------------------
+with-candidates[out] out(
+	funs funs-in-scope,
+	fun-name symbol,
+	actual-arity nat,
+	cb-filter-candidate bool mut(x candidate),
+	cb out mut(x candidate[]),
+)
+	candidates candidate mut-slice = with out : build
+		funs each-fun-in-scope fun-name, called =>
+			if called.arity arity-matches actual-arity
+				out ~= called init-candidate
+	cb[candidates filter-unordered cb-filter-candidate]
+
+-init-candidate candidate(called called-decl)
+	(called, (for _ : called type-params; ()))
+
+each-candidate void(funs funs-in-scope, fun-name symbol, actual-arity nat, f void mut(x candidate))
+	funs each-fun-in-scope fun-name, called =>
+		if called.arity arity-matches actual-arity
+			f[called init-candidate]
+
+funs-in-scope record mut
+	outermost-fun-specs spec-inst[]
+	funs-map funs-map
+	imports-and-re-exports import-and-re-export-modules
+funs-in-non-expr-scope funs-in-scope(ctx check-ctx, funs-map funs-map)
+	(), funs-map, ctx.imports-and-re-exports
+funs-in-expr-scope funs-in-scope(ctx expr-ctx)
+	ctx.outermost-fun-specs, ctx.funs-map, ctx.check-ctx.imports-and-re-exports
+
+-each-fun-in-expr-scope void(ctx expr-ctx, fun-name symbol, cb void mut(x called-decl))
+	ctx.funs-in-expr-scope each-fun-in-scope fun-name, cb
+each-fun-in-scope void(a funs-in-scope, fun-name symbol, cb void mut(x called-decl))
+	for spec-inst : a outermost-fun-specs
+		spec-inst each-fun-in-scope-for-spec fun-name, cb
+	for f : a.funs-map[fun-name] ?? ()
+		cb[f to]
+	a.imports-and-re-exports each-import-and-re-export fun-name, (visibility, x) =>
+		for f : x funs
+			if visibility import-can-see f.visibility
+				cb[f to]
+
+test-candidate-for-spec-sig bool(
+	ctx instantiate-ctx,
+	spec-candidate candidate,
+	return-and-param-types return-and-param-types,
+	call-type-context type-context,
+)
+	return-type = return-and-param-types return-type
+	param-types = return-and-param-types param-types
+	ctx match-types (spec-candidate.called.return-type, spec-candidate.type-context-for-candidate), (return-type, call-type-context) &&
+	param-types.with-index every (arg-idx, param-type) =>
+		ctx test-candidate-param-type spec-candidate, arg-idx, (param-type, call-type-context)
+
+| Also does type inference on the candidate
+test-candidate-param-type bool(ctx instantiate-ctx, candidate candidate, arg-idx nat, actual-arg-type type-and-context)
+	ctx match-types (ctx get-candidate-expected-parameter-type candidate, arg-idx), actual-arg-type
+
+get-candidate-expected-parameter-type type-and-context(ctx instantiate-ctx, candidate candidate, arg-index nat)
+	decl-type = candidate.called param-type-at arg-index
+	if instantiated ?= ctx try-get-non-inferring-type (decl-type, candidate.type-context-for-candidate)
+		instantiated non-inferring
+	else
+		decl-type, candidate.type-context-for-candidate
+
+candidate-bogus-called called(instantiate-ctx instantiate-ctx, common-types common-types, candidate candidate)
+	return-type = instantiate-ctx get-candidate-type-or-bogus candidate, candidate.called.return-type
+	param-types type[] = if candidate.called is-variadic
+		p0 = instantiate-ctx get-candidate-type-or-bogus candidate, (candidate.called param-type-at 0)
+		(instantiate-ctx make-array-type common-types, p0 to),
+	else
+		for i : 0::nat .. candidate.called.arity.count-param-decls
+			instantiate-ctx get-candidate-type-or-bogus candidate, (candidate.called param-type-at i)
+	candidate.called called-bogus return-type, param-types
+
+-get-candidate-type-or-bogus type(ctx instantiate-ctx, candidate candidate, declared-type type)
+	ctx try-get-non-inferring-type (declared-type, candidate.type-context-for-candidate) ?? bogus-type
+
+-param-type-at type(called called-decl, arg-index nat)
+	match called
+	as fun-decl x
+		x.params param-type-at arg-index
+	as called-spec-sig x
+		x.param-types[arg-index]
+-param-type-at type(params params, arg-index nat)
+	match params
+	as array x
+		x[arg-index] type
+	as varargs x
+		x element-type
+
+-each-fun-in-scope-for-spec void(spec-inst spec-inst, fun-name symbol, cb void mut(x called-decl))
+	spec-inst each-called-spec-sig x =>
+		if x.name == fun-name
+			cb[x to]
