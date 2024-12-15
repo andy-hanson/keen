@@ -60,7 +60,6 @@ import model.model :
 	SpecInst,
 	StructAlias,
 	StructDecl,
-	StructInst,
 	StructOrAlias,
 	Type,
 	TypeArgs,

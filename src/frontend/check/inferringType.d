@@ -167,7 +167,7 @@ ExprAndType withInfer(in Expr delegate(ref Expected) @safe @nogc pure nothrow cb
 	return ExprAndType(expr, inferred(expected));
 }
 
-ExprAndType checkWithModifyExpected(size_t n)(
+Expr checkWithModifyExpected(size_t n)(
 	ref ExprCtx ctx,
 	ref Expected outer,
 	// If this returns 'none', the expected type can't be satisfied.
@@ -175,7 +175,7 @@ ExprAndType checkWithModifyExpected(size_t n)(
 	// This can return a modified type. E.g., if expecting a non-option, it would return the option.
 	in ExprAndType delegate(ref Expected) @safe @nogc pure nothrow cbInner,
 ) =>
-	outer.matchCombineType!ExprAndType(
+	outer.matchCombineType!Expr(
 		(Expected.Infer) {
 			Expected inner = Expected(Expected.Infer());
 			return check(ctx, outer, cbInner(inner));
@@ -192,7 +192,7 @@ ExprAndType checkWithModifyExpected(size_t n)(
 			}
 		},
 		(TypeAndContext[] outerTypes) =>
-			withMaxStackArray!(ExprAndType, TypeAndContext)(
+			withMaxStackArray!(Expr, TypeAndContext)(
 				outerTypes.length * n,
 				(scope ref MaxStackArray!TypeAndContext modifiedTypes) {
 					foreach (ref TypeAndContext outerType; outerTypes) {
@@ -207,7 +207,7 @@ ExprAndType checkWithModifyExpected(size_t n)(
 					return check(ctx, outer, cbInner(inner));
 				}),
 		(LoopInfo*) =>
-			cbInner(outer));
+			cbInner(outer).expr);
 
 Expr withExpect(Type type, in Expr delegate(ref Expected) @safe @nogc pure nothrow cb) {
 	Expected expected = type.matchWithPointers!Expected(
@@ -590,17 +590,15 @@ Type inferred(ref const Expected expected) =>
 			x.type);
 
 Expr check(ref ExprCtx ctx, ref Expected expected, Type exprType, Expr expr) =>
-	check(ctx, expected, ExprAndType(expr, exprType)).expr;
-private ExprAndType check(ref ExprCtx ctx, ref Expected expected, ExprAndType a) {
+	check(ctx, expected, ExprAndType(expr, exprType));
+private Expr check(ref ExprCtx ctx, ref Expected expected, ExprAndType a) {
 	if (setTypeNoDiagnostic(ctx.instantiateCtx, expected, a.type))
-		return a;
+		return a.expr;
 	else {
 		addDiag2(ctx, a.expr.range, Diag(
 			DiagTypeConflict(getExpectedForDiag(ctx, expected), typeWithContainer(ctx, a.type))));
 		setToBogusIfInferring(expected);
-		return ExprAndType(
-			Expr(BogusWrongTypeExpr(allocate(ctx.alloc, a.expr), inferred(expected))),
-			Type.bogus);
+		return Expr(BogusWrongTypeExpr(allocate(ctx.alloc, a.expr), inferred(expected)));
 	}
 }
 

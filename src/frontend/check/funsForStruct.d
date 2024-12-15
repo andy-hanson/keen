@@ -51,7 +51,6 @@ import model.model :
 	SumType,
 	SumTypeMemberGet,
 	Type,
-	TypeParamIndex,
 	VarDecl,
 	SumTypeMembership,
 	SumTypeKind,
@@ -60,10 +59,8 @@ import model.model :
 	VarSet,
 	Visibility;
 import util.alloc.alloc : Alloc;
-import util.alloc.stackAlloc : withStackArray;
 import util.col.array : isEmpty, map, mapWithFirst, prepend, sum;
 import util.col.exactSizeArrayBuilder : ExactSizeArrayBuilder;
-import util.conv : safeToUint;
 import util.memory : allocate;
 import util.opt : force, has, Opt, optEqual, some;
 import util.symbol : prependSet, prependSetDeref, Symbol, symbol;

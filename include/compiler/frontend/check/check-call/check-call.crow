@@ -1,0 +1,508 @@
+import
+	../../../../crow/col/mut-array: hint-size
+	../../../model/ast
+	../../../model/model
+	../../../model/source-range
+	../../../util/util
+	../check-ctx
+	../expr-ctx
+	../inferring-type
+	../instantiate
+	../type-from-ast
+	./candidates
+	./check-call-specs
+
+check-expr spec
+	check-expr expr(ctx expr-ctx, locals locals-info, ast expr-ast, expected expected)
+check-lambda spec
+	check-lambda expr(
+		ctx expr-ctx,
+		locals locals-info,
+		source lambda-source,
+		param-ast destructure-ast,
+		body-ast expr-ast,
+		expected expected,
+	)
+
+check-call expr(ctx expr-ctx, locals locals-info, ast call-ast, expected expected) check-expr
+	ctx check-call-should-use-syntax ast
+	if ast.style == question-subscript || ast.style == question-dot
+		ctx check-option-call locals, ast, expected
+	else
+		type-arg type? = if x ?= ast type-arg
+			(ctx type-from-ast x),
+		ctx check-call-common expected, ast.to, locals, ast.name-range, ast.fun-name.name, type-arg, ast.args, _ => true
+
+check-call-named expr(ctx expr-ctx, locals locals-info, ast call-named-ast, expected expected) check-expr
+	ctx check-call-common expected, ast.to, locals, ast.range, "new", (), ast.args, x => x parameter-names-are ast.names
+
+-parameter-names-are bool(a called-decl, names name-and-range[])
+	forbid names is-empty
+	actual = match a
+	as fun-decl x
+		match x params
+		as array y
+			y
+		as varargs _
+			# will always fail because 'names' is always non-empty
+			()
+	as called-spec-sig x
+		x.non-instantiated-sig params
+	actual arrays-correspond names, (x, y) => x.name == (y.name,)
+
+check-call-special expr(
+	ctx expr-ctx,
+	locals locals-info,
+	source call-expr-source,
+	range source-range,
+	fun-name symbol,
+	args expr-ast[],
+	expected expected,
+) check-expr
+	ctx check-call-common expected, source, locals, range, fun-name, (), args, _ => true
+
+-check-call-common expr(
+	ctx expr-ctx,
+	expected expected,
+	source call-expr-source,
+	locals locals-info,
+	diag-range source-range,
+	fun-name symbol,
+	type-arg type?,
+	arg-asts expr-ast[],
+	cb-additional-filter bool mut(candidate called-decl),
+) check-expr
+	ctx check-call-special-cb-n locals, source, diag-range, fun-name, expected, type-arg, arg-asts.size,
+		((i, arg-expected) => ctx check-expr locals, arg-asts[i], arg-expected),
+		cb-additional-filter,
+		candidates => arg-asts.with-index every (arg-idx, arg) => (ctx infer-candidate-type-args-from-explicitly-typed-argument candidates, arg-idx, arg) == continue_
+
+check-call-arg-and-lambda expr(
+	ctx expr-ctx,
+	locals locals-info,
+	call-source call-expr-source,
+	lambda-source lambda-source,
+	diag-range source-range,
+	fun-name symbol,
+	arg-ast expr-ast,
+	param-ast destructure-ast,
+	body-ast expr-ast,
+	expected expected,
+) check-expr, check-lambda
+	ctx check-call-special-cb-2 locals, call-source, diag-range, fun-name, expected,
+		(arg-expected => ctx check-expr locals, arg-ast, arg-expected),
+		(arg-expected => ctx check-lambda locals, lambda-source, param-ast, body-ast, arg-expected),
+		candidates => (ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast) == continue_
+
+check-call-arg-and-2-lambdas expr(
+	ctx expr-ctx,
+	locals locals-info,
+	call-source call-expr-source,
+	lambda-source lambda-source,
+	diag-range source-range,
+	fun-name symbol,
+	arg-ast expr-ast,
+	param-ast destructure-ast,
+	body-ast expr-ast,
+	# Second lambda has no param
+	body-2-ast expr-ast,
+	expected expected,
+) check-expr, check-lambda
+	check-arg expr mut(i nat, arg-expected expected) = (i, arg-expected) =>
+		match i
+		as 0
+			ctx check-expr locals, arg-ast, arg-expected
+		as 1
+			ctx check-lambda locals, lambda-source, param-ast, body-ast, arg-expected
+		as 2
+			ctx check-lambda locals, lambda-source, void-destructure, body-2-ast, arg-expected
+		else
+			throw unreachable
+	ctx check-call-special-cb-n locals, call-source, diag-range, fun-name, expected, (), 3,
+		check-arg,
+		(_ => true),
+		candidates => (ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast) == continue_
+-void-destructure destructure-ast()
+	() void-destructure-ast
+
+check-call-special-cb-1 expr(
+	ctx expr-ctx,
+	locals locals-info,
+	source call-expr-source,
+	diag-range source-range,
+	fun-name symbol,
+	expected expected,
+	cb-arg expr mut(x expected),
+)
+	ctx check-call-special-cb-n locals, source, diag-range, fun-name, expected, 1, (i, arg-expected) =>
+		i is 0
+		cb-arg[arg-expected]
+
+check-call-special-cb-2 expr(
+	ctx expr-ctx,
+	locals locals-info,
+	source call-expr-source,
+	diag-range source-range,
+	fun-name symbol,
+	expected expected,
+	cb-arg0 expr mut(x expected),
+	cb-arg1 expr mut(x expected),
+	cb-before-check bool mut(x candidate mut[]),
+)
+	check-arg expr mut(i nat, arg-expected expected) = (i, arg-expected) =>
+		match i
+		as 0
+			cb-arg0[arg-expected]
+		as 1
+			cb-arg1[arg-expected]
+		else
+			throw unreachable
+	ctx check-call-special-cb-n locals, source, diag-range, fun-name, expected, (), 2,
+		check-arg, (_ => true), cb-before-check
+
+check-call-special-cb-n expr(
+	ctx expr-ctx,
+	locals locals-info,
+	source call-expr-source,
+	diag-range source-range,
+	fun-name symbol,
+	expected expected,
+	n-args nat,
+	cb-check-arg expr mut(i nat, arg-expected expected),
+)
+	ctx check-call-special-cb-n locals, source, diag-range, fun-name, expected, (), n-args, cb-check-arg, (_ => true), _ => true
+-check-call-special-cb-n expr(
+	ctx expr-ctx,
+	locals locals-info,
+	source call-expr-source,
+	diag-range source-range,
+	fun-name symbol,
+	expected expected,
+	type-arg type?,
+	n-args nat,
+	cb-check-arg expr mut(i nat, arg-expected expected),
+	cb-additional-filter bool mut(candidate called-decl),
+	cb-before-check bool mut(candidates candidate mut[]),
+)
+	args expr mut[] = ()
+	args hint-size n-args
+	check-arg void mut(i nat, arg-expected expected) = (i, arg-expected) =>
+		args ~= cb-check-arg[i, arg-expected]
+	match ctx check-call-cb locals, diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-additional-filter, cb-before-check
+	as called called
+		# Check should always succeed, but we need it to set the inferred type
+		ctx check expected, called.return-type, (source call-expr called, args.move-to)
+	as call-failure _
+		candidates = ctx get-candidate-decls-for-bogus fun-name
+		if candidates is-empty
+			expected bogus source.range
+		else
+			expected set-to-bogus-if-inferring
+			source bogus-call-expr candidates, args.move-to, expected.inferred
+-get-candidate-decls-for-bogus called-decl[](ctx expr-ctx, fun-name symbol)
+	with out : build
+		ctx.funs-in-expr-scope each-fun-in-scope  fun-name, called =>
+			out ~= called
+
+-cb-check-arg alias
+	void mut(arg-index nat, arg-expected expected)
+-check-call-cb call-inner-result(
+	ctx expr-ctx,
+	locals locals-info,
+	diag-range source-range,
+	fun-name symbol,
+	type-arg type?,
+	n-args nat,
+	expected expected,
+	cb-check-arg cb-check-arg,
+	cb-additional-filter bool mut(x called-decl),
+	cb-before-check bool mut(x candidate mut[]),
+)
+	filter-candidate bool mut(x candidate) = candidate =>
+		ctx.common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
+		ctx.instantiate-ctx match-expected-vs-return-type-no-diagnostic expected, (candidate.called.return-type, candidate.type-context-for-candidate) &&
+		cb-additional-filter[candidate called]
+	ctx.funs-in-expr-scope with-candidates fun-name, n-args, filter-candidate, candidates =>
+		if cb-before-check[candidates]
+			ctx check-call-inner locals, diag-range, fun-name, type-arg, candidates, expected, n-args, cb-check-arg
+		else
+			call-failure
+
+check-call-identifier expr(ctx expr-ctx, locals locals-info, ast name-and-range, expected expected) check-expr
+	if ast.name == "new"
+		ctx add-diag ast.range, (0 diag-call-should-use-syntax new_)
+	ctx check-call-special locals, ast.to, ast.range, ast.name, (), expected
+
+find-function-for-return-and-param-types called?(
+	ctx check-ctx,
+	common-types common-types,
+	type-container type-container,
+	funs-in-scope funs-in-scope,
+	outermost-fun-flags fun-flags,
+	externs symbol-set,
+	locals locals-info,
+	name symbol,
+	diag-range source-range,
+	type-arg type?,
+	return-and-param-types return-and-param-types,
+	can-do-unsafe bool mut(),
+)
+	arity = return-and-param-types.param-types size
+	check-candidate bool mut(x candidate) = candidate =>
+		common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
+		ctx.instantiate-ctx test-candidate-for-spec-sig candidate, return-and-param-types, non-inferring
+	funs-in-scope with-candidates name, arity, check-candidate, candidates =>
+		if x ?= candidates opt-only
+			(ctx check-call-after-choosing-overload common-types, type-container, funs-in-scope, outermost-fun-flags, externs, locals, x, diag-range, arity, can-do-unsafe),
+		else
+			ctx add-diag diag-range, if candidates is-empty
+				name diag-function-with-signature-not-found type-container, return-and-param-types
+			else
+				name diag-call-multiple-matches type-container, for x : candidates; x called
+			()
+
+-check-option-call expr(ctx expr-ctx, locals locals-info, ast call-ast, outer-expected expected) check-expr
+	ctx check-with-modify-expected outer-expected, (x => x try-spread-option-type), inner-expected =>
+		assert ast.args.size != 0
+		args expr mut[] = ()
+		args hint-size ast.args.size
+		check-arg void mut(index nat, arg-expected expected) = (index, arg-expected) =>
+			arg-ast = ast.args[index]
+			if index == 0
+				# For the first argument: It's opposite of for the return type.
+				# The call is expecting a non-option, but change that to be expecting an option.
+				_ = ctx check-with-modify-expected arg-expected, (x => ctx make-option-type x), optional-arg-expected =>
+					expr = ctx check-expr locals, arg-ast, optional-arg-expected
+					option = optional-arg-expected inferred
+					args ~= expr
+					expr, option.must-unwrap-option-type-or-bogus
+			else
+				args ~= ctx check-expr locals, arg-ast, arg-expected
+		res = ctx check-call-cb locals, ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, (_ => true), _ => true
+		match res
+		as called called
+			type = ctx.instantiate-ctx make-option-if-not-already ctx.common-types, called.return-type
+			(ast call-option-expr called, args.move-to, type), type.to
+		as call-failure _
+			(inner-expected bogus ast.range), bogus-type
+-try-spread-option-type type[]?(a type)
+	if inner ?= a try-unwrap-option-type
+		(inner, a),
+-make-option-type type[]?(ctx expr-ctx, a type)
+	((ctx.instantiate-ctx make-option-type ctx.common-types, a to),),
+
+-call-inner-result union(called, call-failure) mut
+-call-failure record
+-check-call-inner call-inner-result(
+	ctx expr-ctx,
+	locals locals-info,
+	diag-range source-range,
+	fun-name symbol,
+	explicit-type-arg type?,
+	candidates candidate mut[],
+	expected expected,
+	n-args nat,
+	cb-check-arg cb-check-arg,
+)
+	actual-arg-types type mut[] = ()
+	actual-arg-types hint-size n-args
+	some-arg-is-bogus mut = false
+	for arg-idx : 0::nat .. n-args
+		guard candidates !is-empty : break
+		candidates filter-unordered-but-dont-remove-all x => ctx pre-check-candidate-specs x
+		arg-type = ctx.instantiate-ctx with-param-expected candidates, arg-idx, arg-expected =>
+			cb-check-arg[arg-idx, arg-expected]
+		actual-arg-types ~= arg-type
+		# If it failed to check, don-t continue, just stop there
+		if arg-type is-bogus
+			some-arg-is-bogus := true
+			candidates clear
+			break
+		else
+			candidates filter-unordered candidate =>
+				ctx.instantiate-ctx test-candidate-param-type candidate, arg-idx, arg-type.non-inferring
+			continue
+	
+	guard !some-arg-is-bogus : call-failure
+
+	candidates filter-unordered-but-dont-remove-all x => ctx pre-check-candidate-specs x
+
+	if x ?= candidates opt-only
+		result = ctx.check-ctx check-call-after-choosing-overload ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope,
+			ctx.outermost-fun-flags, ctx.externs, locals, x, diag-range, n-args, () => ctx check-can-do-unsafe
+		result to
+	else
+		ctx add-diag diag-range, if candidates is-empty
+			all-candidates = ctx get-all-candidates-as-called-decls fun-name
+			ctx.type-container diag-call-no-match fun-name, (ctx get-expected-for-diag expected), (ctx.common-types get-n-type-args-for-diagnostic explicit-type-arg), n-args, actual-arg-types.move-to, all-candidates
+		else
+			fun-name diag-call-multiple-matches ctx.type-container, candidates.move-to.candidates-for-diag
+		call-failure		
+
+-check-call-should-use-syntax void(ctx expr-ctx, ast call-ast)
+	if ast.style == dot || ast.style == infix
+		if kind ?= ast should-use-syntax-kind
+			ctx add-diag ast.fun-name.range, (ast.args.size diag-call-should-use-syntax kind)
+-should-use-syntax-kind diag-call-should-use-syntax-kind?(ast call-ast)
+	match ast.fun-name.name
+	as for-break
+		if ast second-arg-is-lambda
+			for-break,
+	as force
+		force,
+	as for-loop
+		if ast second-arg-is-lambda
+			for-loop,
+	as new
+		new_,
+	as not
+		not,
+	as set-subscript
+		set-subscript,
+	as subscript
+		subscript,
+	as with-block
+		if ast second-arg-is-lambda
+			with-block,
+	else
+		()
+-second-arg-is-lambda bool(a call-ast)
+	a.args.size == 2 && a.args[1].lambda-ast !is-empty
+
+-filter-candidate-by-explicit-type-arg bool(common-types common-types, candidate candidate, opt-type-arg type?)
+	if type-arg ?= opt-type-arg
+		n-type-params = candidate.type-args size
+		args = common-types unpack-tuple-if-needed n-type-params, type-arg
+		ok = args.size == n-type-params
+		if ok
+			for i, x : candidate.type-args with-index
+				x set-and-ignore-existing args[i]
+		ok
+
+-with-param-expected type(ctx instantiate-ctx, candidates candidate mut[], arg-idx nat, cb void mut(x expected))
+	out type-and-context mut[] = ()
+	for candidate : candidates
+		expected = ctx get-candidate-expected-parameter-type candidate, arg-idx
+		is-duplicate = expected.context !is-inferring && out exists x => (x.context !is-inferring && x.type == expected.type)
+		unless is-duplicate
+			out ~= expected
+	out.move-to with-expect-candidates cb
+
+-infer-candidate-type-args-from-checked-spec-sig void(
+	ctx instantiate-ctx,
+	spec-candidate candidate,
+	spec-sig signature,
+	sig-types return-and-param-types,
+	call-inferring-type-args type-context,
+)
+	ctx infer-type-args-from sig-types.return-type, call-inferring-type-args, (spec-candidate.called.return-type, spec-candidate.type-context-for-candidate)
+	for arg-idx : 0::nat .. spec-sig.params.size
+		ctx infer-type-args-from sig-types.param-types[arg-idx], call-inferring-type-args, (ctx get-candidate-expected-parameter-type spec-candidate, arg-idx)
+
+-type-args-inference-state enum(none, partial, all)
+-== bool(a type-args-inference-state, b type-args-inference-state)
+-get-inference-state type-args-inference-state(type-args single-inferring-type[])
+	has-inferred mut = false
+	has-uninferred mut = false
+	for x : type-args
+		if _ ?= x try-get-inferred
+			has-inferred := true
+		else
+			has-uninferred := true
+	if has-inferred
+		has-uninferred ? partial : all
+	else
+		none
+
+-continue-or-abort enum(continue_, abort)
+-== bool(a continue-or-abort, b continue-or-abort)
+-infer-candidate-type-args-from-explicitly-typed-argument continue-or-abort(
+	ctx expr-ctx,
+	candidates candidate mut[],
+	arg-index nat,
+	arg expr-ast,
+)
+	if lambda ?= arg lambda-ast
+		ctx infer-candidate-type-args-from-lambda-parameter candidates, arg-index, lambda.param
+	else
+		continue_
+-infer-candidate-type-args-from-lambda-parameter continue-or-abort(
+	ctx expr-ctx,
+	candidates candidate mut[],
+	arg-index nat,
+	param-ast destructure-ast,
+)
+	# TODO: this means we may do 'typeFromDestructure' twice, once here and once when checking,
+	# leading to duplicate diagnostics
+	if lambda-param-type  ?= ctx type-from-destructure param-ast
+		if lambda-param-type is-bogus
+			abort
+		else
+			for candidate : candidates
+				param-type = ctx.instantiate-ctx get-candidate-expected-parameter-type candidate, arg-index
+				ctx.instantiate-ctx infer-type-args-from-lambda-parameter-type param-type.type, candidate.type-context-for-candidate, lambda-param-type
+			continue_	
+	else
+		continue_
+
+# This is not the final check, but we do filter out some candidates or infer type arguments early based on specs.
+-pre-check-candidate-specs bool(ctx expr-ctx, candidate candidate)
+	# For performance, don't bother unless we have something to infer from already
+	state = candidate.type-args get-inference-state
+	state == none || match candidate called
+	as fun-decl called
+		called.specs every spec_ =>
+			ctx pre-check-candidate-spec candidate, called, spec_, state
+	as called-spec-sig _
+		true
+
+-pre-check-candidate-spec bool(
+	ctx expr-ctx,
+	call-candidate candidate,
+	called fun-decl,
+	spec_ spec-inst,
+	state type-args-inference-state,
+)
+	if spec_.parents every parent => ctx pre-check-candidate-spec call-candidate, called, parent, state
+		if state == partial
+			spec_.decl.sigs zip spec_.sig-types every (sig, return-and-param-types) =>
+				ctx infer-candidate-type-args-from-spec-sig call-candidate, sig, return-and-param-types
+		else
+			true
+
+-infer-candidate-type-args-from-spec-sig bool(
+	ctx expr-ctx,
+	call-candidate candidate,
+	spec-sig signature,
+	return-and-param-types return-and-param-types,
+)
+	call-context = call-candidate type-context-for-candidate
+	test_ bool mut(x candidate) = x =>
+		ctx.instantiate-ctx test-candidate-for-spec-sig x, return-and-param-types, call-context
+	ctx.funs-in-expr-scope with-candidates spec-sig.name, spec-sig.params.size, test_, spec-candidates =>
+		match spec-candidates size
+		as 0
+			false
+		as 1
+			ctx.instantiate-ctx infer-candidate-type-args-from-checked-spec-sig spec-candidates.only, spec-sig, return-and-param-types, call-context
+			true
+		else
+			true
+
+check-call-after-choosing-overload called(
+	ctx check-ctx,
+	common-types common-types,
+	type-container type-container,
+	funs-in-scope funs-in-scope,
+	outermost-fun-flags fun-flags,
+	externs symbol-set,
+	locals locals-info,
+	candidate candidate,
+	diag-range source-range,
+	n-args nat,
+	can-do-unsafe bool mut(),
+)
+	called = ctx check-call-specs common-types, type-container, funs-in-scope, diag-range, candidate
+	# TODO: should we really ignore this? ------------------------------------------------------------------------------------------------------------
+	_ = ctx check-called diag-range, called, outermost-fun-flags, externs, locals, (n-args == 0 ? empty : non-empty), can-do-unsafe
+	called

@@ -57,7 +57,6 @@ import model.sourceRange :
 import util.alloc.alloc : Alloc;
 import util.col.array :
 	arrayOfSingle,
-	arraysCorrespond,
 	concatenate,
 	emptySmallArray,
 	every,

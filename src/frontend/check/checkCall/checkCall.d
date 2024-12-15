@@ -74,7 +74,6 @@ import util.alloc.stackAlloc : MaxStackArray, withMaxStackArray;
 import util.col.array :
 	arraysCorrespond,
 	copyArray,
-	emptySmallArray,
 	every,
 	everyWithIndex,
 	exists,
@@ -365,7 +364,7 @@ private CallInnerResult checkCallCb(
 				? checkCallInner(
 					ctx, locals, diagRange, funName, typeArg,
 					perfMeasurer, candidates, expected, nArgs, cbCheckArg)
-				: CallInnerResult(CallInnerResult.Failure(emptySmallArray!Type)));
+				: CallInnerResult(CallInnerResult.Failure()));
 }
 
 Expr checkCallIdentifier(alias checkExpr)(
@@ -468,11 +467,11 @@ Expr checkOptionCall(alias checkExpr)(
 				},
 				(CallInnerResult.Failure) =>
 					ExprAndType(bogus(innerExpected, ast.range), Type.bogus));
-		}).expr;
+		});
 
 
 immutable struct CallInnerResult {
-	immutable struct Failure { SmallArray!Type argTypes; }
+	immutable struct Failure {}
 	mixin Union!(Called, Failure);
 }
 CallInnerResult checkCallInner(
@@ -514,7 +513,7 @@ CallInnerResult checkCallInner(
 		scope SmallArray!Type actualArgTypes = small!Type(actualArgTypesBuilder.finish);
 
 		if (someArgIsBogus)
-			return CallInnerResult(CallInnerResult.Failure(newSmallArray(ctx.alloc, actualArgTypes)));
+			return CallInnerResult(CallInnerResult.Failure());
 
 		filterUnorderedButDontRemoveAll(candidates, (ref Candidate x) =>
 			preCheckCandidateSpecs(ctx, x));
@@ -534,7 +533,7 @@ CallInnerResult checkCallInner(
 			} else
 				addDiag2(ctx, diagRange, Diag(
 					DiagCallMultipleMatches(funName, ctx.typeContainer, candidatesForDiag(ctx.alloc, candidates))));
-			return CallInnerResult(CallInnerResult.Failure(allocatedArgTypes));
+			return CallInnerResult(CallInnerResult.Failure());
 		} else
 			return CallInnerResult(checkCallAfterChoosingOverload(
 				ctx.checkCtx, ctx.commonTypes, ctx.typeContainer, funsInExprScope(ctx),
@@ -701,12 +700,11 @@ bool preCheckCandidateSpec(
 	// For a builtin spec, we'll leave it for the end.
 	(state != TypeArgsInferenceState.partial || zipEvery!(Signature, ReturnAndParamTypes)(
 		spec.decl.sigs, spec.sigTypes, (ref Signature sig, ref ReturnAndParamTypes returnAndParamTypes) =>
-			inferCandidateTypeArgsFromSpecSig(ctx, callCandidate, called, sig, returnAndParamTypes)));
+			inferCandidateTypeArgsFromSpecSig(ctx, callCandidate, sig, returnAndParamTypes)));
 
 bool inferCandidateTypeArgsFromSpecSig(
 	ref ExprCtx ctx,
 	ref Candidate callCandidate,
-	in FunDecl called,
 	in Signature specSig,
 	in ReturnAndParamTypes returnAndParamTypes,
 ) {
