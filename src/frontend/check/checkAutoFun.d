@@ -76,8 +76,7 @@ FunBody checkAutoFun(ref CheckCtx ctx, in SpecsMap specsMap, in FunsMap funsMap,
 			return has(spec) && has(paramType)
 				? checkAutoFunWithSpec(
 					ctx, funsMap, fun, force(paramType), AutoFunName.equals, AutoFunKind.equals, force(spec),
-					returnTypeOk: none!bool,
-					countParams: 2)
+					returnTypeOk: none!bool)
 				: FunBody.bogus;
 		case symbol!"<=>".value:
 			Opt!(SpecDecl*) spec = getSpecFromCommonModule(
@@ -86,8 +85,7 @@ FunBody checkAutoFun(ref CheckCtx ctx, in SpecsMap specsMap, in FunsMap funsMap,
 			return has(spec) && has(paramType)
 				? checkAutoFunWithSpec(
 					ctx, funsMap, fun, force(paramType), AutoFunName.compare, AutoFunKind.compare, force(spec),
-					returnTypeOk: none!bool,
-					countParams: 2)
+					returnTypeOk: none!bool)
 				: FunBody.bogus;
 		case symbol!"to".value:
 			Opt!Type optParamType = getAutoFunParamType(ctx, AutoFunName.to, fun, countParams: 1);
@@ -122,7 +120,6 @@ FunBody checkAutoFun(ref CheckCtx ctx, in SpecsMap specsMap, in FunsMap funsMap,
 						? checkAutoFunWithSpec(
 							ctx, funsMap, fun, paramType, AutoFunName.to, AutoFunKind.toJson, force(spec),
 							returnTypeOk: some(isJson(ctx, fun.returnType)),
-							countParams: 1,
 							extraTypeArg: some(fun.returnType))
 						: FunBody.bogus;
 				}
@@ -172,7 +169,6 @@ FunBody checkAutoFunWithSpec(
 	AutoFunKind funKind,
 	SpecDecl* spec,
 	Opt!bool returnTypeOk, // if none, use sig
-	uint countParams,
 	Opt!Type extraTypeArg = none!Type,
 ) {
 	FunBody diag(Diag x) {

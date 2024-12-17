@@ -1,11 +1,206 @@
 import
+	../../model/ast
 	../../model/model
+	../../model/source-range
+	../../model/uri
+	../../util/enum-map
+	../../util/util
 	./check-call/check-call-specs
 	./check-ctx
 	./maps
 	./instantiate
 	./type-from-ast
 	
-#check-auto-fun fun-body(ctx check-ctx, specs-map specs-map, funs-map funs-map, fun fun-decl)
-#	asdf
+check-auto-fun fun-body(ctx check-ctx, specs-map specs-map, funs-map funs-map, fun fun-decl)
+	wrong fun-body mut(diag diag) = diag =>
+		ctx add-diag fun.name-range.range, diag
+		fun-body-bogus
+	wrong-params fun-body mut(kind auto-fun-name) = kind =>
+		wrong[kind diag-auto-fun-wrong-params]
+	wrong-return-type fun-body mut(kind auto-fun-name) = kind =>
+		wrong[kind diag-auto-fun-wrong-return-type]
+	
+	match fun name
+	as "=="
+		if spec_ ?= ctx get-spec-from-common-module specs-map, fun.name-range.range, "equal", compare
+			if param-type ?= ctx get-auto-fun-param-type equals, fun, 2
+				ctx check-auto-fun-with-spec funs-map, fun, param-type, equals, equals, spec_, (), ()
+			else
+				fun-body-bogus
+		else
+			fun-body-bogus
+	as "<=>"
+		if spec_ ?= ctx get-spec-from-common-module specs-map, fun.name-range.range, "compare", compare
+			if param-type ?= ctx get-auto-fun-param-type compare, fun, 2
+				ctx check-auto-fun-with-spec funs-map, fun, param-type, compare, compare, spec_, (), ()
+			else
+				fun-body-bogus
+		else
+			fun-body-bogus
+	as "to"
+		if param-type ?= ctx get-auto-fun-param-type to, fun, 1
+			returned-integral = fun.return-type as-integral-type
+			param-integral = param-type as-integral-type
+			if fun.return-type is-enum-or-flags-option && param-type is-symbol
+				symbol-to-opt-enum-or-flags auto-fun ()
+			elif fun.return-type is-enum-or-flags-option && param-integral !is-empty && param-integral! == fun.return-type.must-unwrap-option-type.as-enum-or-flags.storage_
+				integral-to-opt-enum-or-flags auto-fun ()
+			elif returned-integral !is-empty && param-type is-enum-or-flags
+				if returned-integral! != param-type.as-enum-or-flags.storage_
+					wrong[param-type.struct-inst!.decl diag-auto-fun-enum-or-flags-to-wrong-storage param-type.as-enum-or-flags.storage_, returned-integral!]
+				else
+					enum-or-flags-to-integral auto-fun ()
+			elif fun.return-type is-symbol && param-type is-enum
+				enum-to-symbol auto-fun ()
+			elif fun.return-type is-symbol-array && param-type is-flags
+				if ctx check-auto-fun-not-bare fun
+					flags-to-symbol-array auto-fun ()
+				else
+					fun-body-bogus
+			elif spec_ ?= ctx get-spec-from-common-module specs-map, fun.name-range.range,"to", misc
+				if ctx check-auto-fun-not-bare fun
+					ctx check-auto-fun-with-spec funs-map, fun, param-type, to, to-json, spec_, ((ctx is-json fun.return-type),), (fun.return-type,)
+				else
+					fun-body-bogus
+			else
+				fun-body-bogus
+		else
+			fun-body-bogus
+	as "members"
+		if fun.params !is-empty
+			wrong-params[members]
+		elif fun.return-type !is-enum-or-flags-array
+			wrong-return-type[members]
+		else
+			enum-or-flags-members auto-fun ()
+	else
+		ctx add-diag fun.name-range.range, diag-auto-fun-wrong-name
+		fun-body-bogus		
 
+-is-enum-or-flags-array bool(a type)
+	if x ?= a array-element-type
+		x is-enum-or-flags
+-is-symbol-array bool(a type)
+	if x ?= a array-element-type
+		x is-symbol
+-is-enum-or-flags-option bool(a type)
+	a is-option-type && a.must-unwrap-option-type is-enum-or-flags
+-is-enum-or-flags bool(a type)
+	a is-enum || a is-flags
+# TODO: it would make more sense to return (integral-type, enum-or-flags-member[]) -------------------------------------------------------------
+-as-enum-or-flags flags_(a type)
+	assert a is-enum-or-flags
+	if a is-enum
+		e = a as-enum
+		e.storage_, e.members
+	else
+		a.struct-inst!.decl.body flags_!
+-as-enum enum_(a type)
+	a.struct-inst!.decl.body enum_!
+
+-check-auto-fun-with-spec fun-body(
+	ctx check-ctx,
+	funs-map funs-map,
+	fun fun-decl,
+	param-type type,
+	fun-name auto-fun-name,
+	fun-kind auto-fun-kind,
+	spec_ spec-decl,
+	return-type-ok bool?, # If none, use sig
+	extra-type-arg type?,
+)
+	diag fun-body mut(x diag) = x =>
+		ctx add-diag fun.name-range.range, x
+		fun-body-bogus
+	guard sig ?= spec_.sigs opt-only : diag[spec_.name diag-auto-fun-spec-corrupt]
+
+	guard param-type is-enum-flags-record-or-union : diag[diag-auto-fun-wrong-param-type]
+	guard return-type-ok ?? fun.return-type == sig.return-type : diag[fun-name diag-auto-fun-wrong-return-type]
+	param-inst = param-type struct-inst!
+	check-spec-for-component called mut(decl-type type) = decl-type =>
+		inst-type = ctx.instantiate-ctx instantiate-type decl-type, param-inst.type-args
+		spec-inst = ctx.instantiate-ctx instantiate-spec spec_, if x ?= extra-type-arg
+			(x, inst-type)
+		else
+			inst-type,
+		ctx check-spec-single-sig-ignore-parents funs-map, fun, spec-inst
+	members called[] = match param-inst.decl body
+	as struct-body-bogus
+		throw unreachable
+	as builtin-type _
+		throw unreachable
+	as enum_ _
+		()
+	as extern-type _
+		throw unreachable
+	as flags_ _
+		()
+	as record_ x
+		for field : x fields
+			check-spec-for-component[field type]
+	as sum-type x
+		for m : x listed-members
+			check-spec-for-component[m.member to]
+	fun-kind auto-fun members
+
+-check-auto-fun-not-bare bool(ctx check-ctx, fun fun-decl)
+	if fun.flags_ bare_
+		ctx add-diag fun.name-range.range, diag-auto-fun-bare
+		false
+	else
+		true
+
+get-auto-fun-param-type type?(ctx check-ctx, fun-name auto-fun-name, fun fun-decl, count-params nat)
+	fail type? mut(diag diag) = diag =>
+		ctx add-diag fun.name-range.range, diag
+		()
+	opt type? = match fun params
+	as array params
+		if params.size == count-params && params all-same x => x type
+			params[0].type,
+	as varargs _
+		()
+
+	guard res ?= opt : fail[fun-name diag-auto-fun-wrong-params]
+	if ctx !is-fully-visible res
+		fail[diag-auto-fun-type-not-fully-visible]
+	elif fun.params.array! !every x => x.local !is-empty
+		fail[diag-auto-fun-param-not-simple]
+	else
+		res,
+
+-is-enum-flags-record-or-union bool(a type)
+	a is-enum-or-flags || a is-record-or-union
+-is-record-or-union bool(a type)
+	if x ?= a struct-inst
+		x.decl.body is-record-or-union
+-is-record-or-union bool(a struct-body)
+	a.record_ !is-empty || a is-union
+-is-union bool(a struct-body)
+	if x ?= a sum-type
+		x.kind == union_
+
+-is-fully-visible bool(ctx check-ctx, a type)
+	guard inst ?= a struct-inst : false
+	decl = inst decl
+	decl.module-uri == ctx.cur-uri || match decl body
+	as struct-body-bogus
+		true
+	as builtin-type _
+		true
+	as enum_ _
+		true
+	as extern-type _
+		false
+	as flags_ _
+		true
+	as record_ record_
+		record_.fields every field =>
+			field.visibility == decl.visibility
+	as sum-type x
+		x.kind == union_
+
+-is-json bool(ctx check-ctx, a type)
+	if inst ?= a struct-inst
+		decl = inst decl
+		decl.module-uri == ctx.common-uris[json] && decl.name == "json"

@@ -1,0 +1,1516 @@
+import
+	../../../crow/col/mut-array: hint-size
+	../../model/ast
+	../../model/integral-values
+	../../model/model
+	../../model/source-range
+	../../util/enum-map
+	../../util/util
+	./check-call/candidates
+	./check-call/check-call
+	./check-call/check-call-specs
+	./check-ctx
+	./check-util
+	./expr-ctx
+	./inferring-type
+	./instantiate
+	./maps
+	./type-from-ast
+
+check-function-body expr(
+	check-ctx check-ctx,
+	structs-and-aliases-map structs-and-aliases-map,
+	common-types common-types,
+	specs-map specs-map,
+	funs-map funs-map,
+	fun fun-decl,
+	ast expr-ast,
+)
+	forbid fun.return-type is-bogus
+	expr-ctx expr-ctx = do
+		check-ctx: check-ctx
+		structs-and-aliases-map: structs-and-aliases-map
+		specs-map: specs-map
+		funs-map: funs-map
+		common-types: common-types
+		type-container: fun to
+		outermost-fun-specs: fun specs
+		outermost-fun-type-params: fun type-params
+		outermost-fun-flags: fun flags_
+		externs: fun externs
+		is-in-trusted: false
+		used-trusted: false
+	expr-ctx check-with-param-destructures ast, fun.params.params-array, inner-locals =>
+		expr-ctx check-and-expect inner-locals, ast, fun.return-type
+
+check-test-body expr(
+	check-ctx check-ctx,
+	structs-and-aliases-map structs-and-aliases-map,
+	common-types common-types,
+	specs-map specs-map,
+	funs-map funs-map,
+	type-container type-container,
+	flags_ fun-flags,
+	externs symbol-set,
+	ast expr-ast,
+)
+	expr-ctx expr-ctx = do
+		check-ctx: check-ctx
+		structs-and-aliases-map: structs-and-aliases-map
+		specs-map: specs-map
+		funs-map: funs-map
+		common-types: common-types
+		type-container: type-container
+		outermost-fun-specs: ()
+		outermost-fun-type-params: ()
+		outermost-fun-flags: flags_
+		externs: externs
+		is-in-trusted: false
+		used-trusted: false
+	locals locals-info = ()
+	expr-ctx check-and-expect locals, ast, common-types.void.to
+
+-check-expr expr(ctx expr-ctx, locals locals-info, ast expr-ast, expected expected)
+	match ast
+	as arrow-access-ast x
+		ctx check-arrow-access locals, x, expected
+	as assert-or-forbid-ast x
+		ctx check-assert-or-forbid locals, x, expected
+	as assignment-ast x
+		ctx check-assignment locals, x.to, x.left, x.keyword-range, expected, right-expected =>
+			ctx check-expr locals, x.right, right-expected
+	as assignment-call-ast x
+		ctx check-assignment-call locals, x, expected
+	as bogus-ast _
+		expected bogus ast
+	as call-ast x
+		ctx check-call locals, x, expected
+	as call-named-ast x
+		ctx check-call-named locals, x, expected
+	as do-ast x
+		ctx check-expr locals, x.body, expected
+	as empty-ast x
+		ctx check-empty-new locals, x.to, ast.range, expected
+	as extern-ast x
+		ctx check-extern x, expected
+	as finally-ast x
+		ctx check-finally locals, x, expected
+	as for-ast x
+		ctx check-for locals, x, expected
+	as name-and-range x
+		ctx check-identifier locals, x, expected
+	as if-ast x
+		ctx check-if locals, x, expected
+	as interpolated-ast x
+		ctx check-interpolated locals, x, expected
+	as lambda-ast x
+		ctx check-lambda locals, x.to, x.param, x.body, expected
+	as let-ast x
+		ctx check-let locals, x, expected
+	as literal-float-and-range x
+		ctx check-literal-float x, expected
+	as literal-integral-and-range x
+		ctx check-literal-integral x, expected
+	as literal-string-ast x
+		ctx check-literal-string x, expected
+	as loop-ast x
+		ctx check-loop locals, x, expected
+	as loop-break-ast x
+		ctx check-loop-break locals, x, expected
+	as loop-continue-ast x
+		ctx check-loop-continue locals, x, expected	
+	as loop-while-or-until-ast x
+		ctx check-loop-while-or-until locals, x, expected
+	as match-ast x
+		ctx check-match locals, x, expected
+	as parenthesized-ast x
+		# TODO: should there even be a 'parenthesized-ast'? ----------------------------------------------------------------
+		ctx check-expr locals, x.inner, expected
+	as ptr-ast x
+		ctx check-pointer locals, ast, x, expected
+	as seq-ast x
+		ctx check-seq locals, x, expected
+	as shared-ast x
+		ctx check-shared locals, x, expected
+	as throw-ast x
+		ctx check-throw locals, x, expected
+	as trusted-ast x
+		ctx check-trusted locals, x, expected
+	as try-ast x
+		ctx check-try locals, x, expected
+	as try-let-ast x
+		ctx check-try-let locals, x, expected
+	as typed-ast x
+		ctx check-typed locals, x, expected
+	as with-ast x
+		ctx check-with locals, x, expected
+
+-check-with-param-destructures expr(ctx expr-ctx, ast expr-ast, params destructure[], cb expr mut(locals locals-info))
+	locals locals-info = ()
+	ctx check-with-param-destructures-recur locals, params, (inner-locals => cb[inner-locals],) ?? do
+		ast.range bogus-expr bogus-type
+# TODO: I think this recursion is unnecessary now. 'check-with-destructure' could just return the inner locals normally. --------------
+-check-with-param-destructures-recur expr?(
+	ctx expr-ctx,
+	locals locals-info,
+	params destructure[],
+	cb expr? mut(locals locals-info),
+)
+	if params is-empty
+		cb[locals]
+	else
+		ctx check-with-destructure locals, params[0], inner-locals =>
+			ctx check-with-param-destructures-recur inner-locals, params[1 .. end], cb
+
+-check-and-infer expr-and-type(ctx expr-ctx, locals locals-info, ast expr-ast)
+	(expected => ctx check-expr locals, ast, expected) with-infer
+
+-check-and-expect-or-infer expr-and-type(ctx expr-ctx, locals locals-info, ast expr-ast, opt-expected type?)
+	if e ?= opt-expected
+		(ctx check-and-expect locals, ast, e), e
+	else
+		ctx check-and-infer locals, ast
+
+-check-and-expect expr(ctx expr-ctx, locals locals-info, ast expr-ast, expected type)
+	expected with-expect e =>
+		ctx check-expr locals, ast, e
+
+-void-type type(ctx expr-ctx)
+	ctx.common-types.void to
+
+-check-arrow-access expr(ctx expr-ctx, locals locals-info, ast arrow-access-ast, expected expected)
+	ctx check-call-special-cb1 locals, ast.to, ast.arrow-range, ast.name.name, expected, arg-expected =>
+		ctx check-call-special locals, ast.to, ast.arrow-range, "*", (ast.left,), arg-expected
+
+-check-if expr(ctx expr-ctx, locals locals-info, ast if-ast, expected expected)
+	if ast.first-branch is-throw || (ast.second-branch is-throw && ast !is-else-of-parent)
+		ctx add-diag ast.first-keyword-range, diag-if-throw
+	condition = ctx check-condition locals, ast.condition
+	destructure = condition opt-destructure
+	is-negated = ast is-condition-negated
+	empty-new-range = ast first-keyword-range
+	first-branch = ctx with-extern-from-condition condition, is-negated, () =>
+		ctx check-expr-with-opt-destructure-or-empty-new locals, ast.to,
+			(!is-negated ? destructure), ast.first-branch, empty-new-range, expected
+	second-branch = ctx with-extern-from-condition condition, !is-negated, () =>
+		ctx check-expr-with-opt-destructure-or-empty-new locals, ast.to,
+			(is-negated ? destructure), ast.second-branch, empty-new-range, expected
+	ast if-expr condition, (is-negated ? second-branch : first-branch), (is-negated ? first-branch : second-branch)
+-is-throw bool(a expr-ast?)
+	a?.throw-ast !is-empty
+
+-opt-destructure destructure?(a condition)
+	match a
+	as expr _
+		()
+	as unpack-option x
+		x.destructure,
+
+-check-condition condition(ctx expr-ctx, locals locals-info, ast condition-ast)
+	match ast
+	as expr-ast x
+		ctx check-and-expect locals, x, ctx.common-types.bool.to to
+	as unpack-option-ast x
+		ctx check-unpack-option locals, x to
+-check-unpack-option unpack-option(ctx expr-ctx, locals locals-info, cond-ast unpack-option-ast)
+	res = ctx.instantiate-ctx with-expect-option ctx.common-types, expected =>
+		ctx check-expr locals, cond-ast.option, expected
+	(ctx check-destructure cond-ast.destructure, res.non-option-type, local), res.option
+
+-check-throw expr(ctx expr-ctx, locals locals-info, ast throw-ast, expected expected)
+	if type ?= ctx.instantiate-ctx try-get-non-inferring-type-including-loop expected
+		thrown = ctx check-and-expect locals, ast.thrown, ctx.common-types.exception.to
+		ast throw-expr thrown, type
+	else
+		ctx add-diag ast.range, throw_::diag-needs-expected-type.to
+		expected bogus ast.range
+
+-check-trusted expr(ctx expr-ctx, locals locals-info, ast trusted-ast, expected expected)
+	inner = ctx with-trusted ast, () =>
+		ctx check-expr locals, ast.inner, expected
+	ast trusted-expr inner
+
+-check-extern expr(ctx expr-ctx, ast extern-ast, expected expected)
+	unless ctx check-can-do-unsafe
+		ctx add-diag ast.range, diag-extern-is-unsafe
+	ok mut = true
+	names symbol-set = with out : build
+		for name-ast : ast names
+			if name ?= ctx.check-ctx check-extern-name name-ast, ctx.externs
+				out ~= name
+			else
+				ok := false
+	if ok
+		ctx check expected, ctx.common-types.bool.to, (ast extern-expr names)
+	else
+		expected bogus ast.range
+
+-check-assert-or-forbid expr(ctx expr-ctx, locals locals-info, ast assert-or-forbid-ast, expected expected)
+	condition = ctx check-condition locals, ast.condition
+	destructure = condition opt-destructure
+	is-forbid = ast is-forbid
+	thrown expr? = if thrown-ast ?= ast thrown
+		if x ?= thrown-ast.expr throw-ast
+			ctx add-diag x.keyword-range, diag-assert-or-forbid-message-is-throw
+		res = ctx.common-types.exception.to with-expect expect-thrown =>
+			ctx with-extern-from-condition condition, !is-forbid, () =>
+				ctx check-expr-with-opt-destructure locals, (is-forbid ? destructure), thrown-ast.expr, expect-thrown
+		res,
+	after = ctx with-extern-from-condition condition, is-forbid, () =>
+		ctx check-expr-with-opt-destructure locals, (!is-forbid ? destructure), ast.after, expected
+	ast assert-or-forbid-expr is-forbid, condition, thrown, after
+
+-check-assignment expr(
+	ctx expr-ctx,
+	locals locals-info,
+	source call-expr-source,
+	left expr-ast,
+	keyword-range source-range,
+	expected expected,
+	cb-right expr mut(x expected),
+)
+	match left
+	as name-and-range x
+		ctx check-assign-identifier locals, x, keyword-range, x.name, expected, cb-right
+	as call-ast left-call
+		name symbol? = match left-call style
+		as dot
+			"set-{left-call.fun-name name}",
+		as prefix-operator
+			left-call.fun-name.name == "*" ? "set-deref",
+		as subscript
+			"set-subscript",
+		else
+			()
+		if x ?= name
+			ctx check-call-special-cb-n locals, source, keyword-range, x, expected, left-call.args.size + 1, (i, arg-expected) =>
+				if i == left-call.args.size
+					cb-right[arg-expected]
+				else
+					ctx check-expr locals, left-call.args[i], arg-expected
+		else
+			ctx add-diag left.range, diag-assignment-not-allowed
+			expected bogus source.range
+	as arrow-access-ast left-arrow
+		check-arg expr mut(x expected) = arg-expected =>
+			ctx check-expr locals, left-arrow.left, arg-expected
+		ctx check-call-special-cb2 locals, source, keyword-range, "set-deref-{left-arrow.name name}", expected, check-arg, cb-right, _ => true
+	else
+		ctx add-diag left.range, diag-assignment-not-allowed
+		expected bogus source.range
+
+-check-assignment-call expr(ctx expr-ctx, locals locals-info, ast assignment-call-ast, expected expected)
+	ctx check-assignment locals, ast.to, ast.left, ast.keyword-range, expected, arg-expected =>
+		ctx check-call-special locals, ast.to, ast.fun-name.range, ast.fun-name.name, (ast.left, ast.right), arg-expected
+
+-check-empty-new expr(ctx expr-ctx, locals locals-info, source call-expr-source, range source-range, expected expected)
+	ctx check-call-special locals, source, range, "new", (), expected
+
+-check-interpolated expr(ctx expr-ctx, locals locals-info, ast interpolated-ast, expected expected)
+	ctx check-call-special-cb-n locals, ast.to, ast.range[0 .. 1], "interpolate", expected, ast.parts.size, (i, arg-expected) =>
+		part = ast.parts[i]
+		match part
+		as literal-string-ast x
+			ctx check-literal-string x, arg-expected
+		else
+			ctx check-call-special locals, ast.to, part.range, "show", (part,), arg-expected
+
+-variable-ref-and-type record mut
+	variable-ref variable-ref
+	mutability mutability
+	# Empty for Param
+	is-used (local-access-kind, bool) mut-enum-map?
+	type type
+-set-is-used void(a variable-ref-and-type, kind local-access-kind)
+	if x ?= a is-used
+		x[kind] := true
+
+-get-identifier-non-call variable-ref-and-type?(
+	ctx expr-ctx,
+	locals locals-info,
+	# if missing, no diags
+	diag-range source-range?,
+	name symbol, 
+	access-kind local-access-kind,
+)
+	from-locals = if x ?= locals locals
+		x get-identifier-in-locals name, access-kind
+	if node ?= from-locals
+		node.is-used[access-kind] := true
+		(node.local.to, node.local.mutability.to-mutability, (node.is-used,), node.local.type),
+	elif x ?= locals lambda
+		ctx get-identifier-from-lambda diag-range, name, x, access-kind.access-kind-in-closure
+-get-identifier-in-locals local-node?(node local-node, name symbol, access-kind local-access-kind)
+	if node.local.name == name
+		node,
+	elif prev ?= node prev
+		prev get-identifier-in-locals name, access-kind
+-get-identifier-from-lambda variable-ref-and-type?(
+	ctx expr-ctx,
+	diag-range source-range?,
+	name symbol,
+	info lambda-info,
+	access-kind local-access-kind,
+)
+	for index, field : info.closure-fields with-index
+		if field.name == name
+			field set-is-used access-kind
+			ref variable-ref = info.lambda closure-ref index
+			break (ref, field.mutability, field.is-used, field.type),
+	else
+		if outer ?= ctx get-identifier-non-call info.outer, diag-range, name, access-kind
+			closure-field-index = info.closure-fields size
+			if x ?= diag-range
+				ctx check-closure-mutability x, info.lambda.kind, name, outer.mutability, outer.type
+			info.closure-fields ~= (name, outer.mutability, outer.is-used, outer.type, outer.variable-ref)
+			outer set-is-used access-kind
+			ref variable-ref = info.lambda closure-ref closure-field-index
+			(ref, outer.mutability, outer.is-used, outer.type),
+-check-closure-mutability void(
+	ctx expr-ctx,
+	diag-range source-range,
+	lambda-kind lambda-kind,
+	name symbol,
+	mutability mutability,
+	type type,
+)
+	expected-purity purity = match lambda-kind
+	as data_
+		data_
+	as shared_
+		shared_
+	as mut_
+		mut_
+	as explicit-shared
+		mut_
+	if expected-purity != mut_
+		if mutability != immut
+			ctx add-diag diag-range, (lambda-kind diag-lambda-closure-purity name, mut_, ())
+		elif ctx.outermost-fun-specs !is-purity-always-compatible-considering-specs type, expected-purity
+			ctx add-diag diag-range, (lambda-kind diag-lambda-closure-purity name, type.purity-range.worst-case, ((ctx type-with-container type),))
+
+-access-kind-in-closure local-access-kind(a local-access-kind)
+	match a
+	as get-on-stack
+		get-through-closure
+	as get-through-closure
+		get-through-closure
+	as set-on-stack
+		set-through-closure
+	as set-through-closure
+		set-through-closure
+
+-name-is-parameter-or-local-in-scope bool(ctx expr-ctx, locals locals-info, name symbol)
+	ctx get-identifier-non-call locals, (), name, get-on-stack !is-empty
+
+-check-identifier expr(ctx expr-ctx, locals locals-info, ast name-and-range, expected expected)
+	if res ?= ctx get-identifier-non-call locals, (ast.range,), ast.name, get-on-stack
+		ctx check expected, res.type, (ast.range expr-for-variable-ref res.variable-ref)
+	else
+		ctx check-call-identifier locals, ast, expected
+
+-expr-for-variable-ref expr(range source-range, a variable-ref)
+	match a
+	as local x
+		range local-get-expr x
+	as closure-ref x
+		range closure-get-expr x
+
+-check-assign-identifier expr(
+	ctx expr-ctx,
+	locals locals-info,
+	source name-and-range,
+	keyword-range source-range,
+	left symbol,
+	expected expected,
+	cb-right expr mut(x expected),
+)
+	if var ?= ctx get-identifier-non-call locals, (source.range,), left, set-on-stack
+		match var mutability
+		as immut
+			ctx add-diag source.range, var.variable-ref.diag-local-not-mutable
+			expected bogus source.range
+		as mut_
+			value = var.type with-expect cb-right
+			match var variable-ref
+			as local local
+				ctx check expected, ctx.void-type, (source.range local-set-expr local, value)
+			as closure-ref x
+				ctx check expected, ctx.void-type, (source.range closure-set-expr x, value)
+	else
+		ctx check-call-special-cb1 locals, source.to, keyword-range, "set-{left}", expected, cb-right
+
+-check-literal-float expr(ctx expr-ctx, ast literal-float-and-range, expected expected)
+	allowed-types struct-inst[] = ctx.common-types.float32, ctx.common-types.float64
+	if index ?= ctx find-expected-struct-for-literal ast.range, expected, allowed-types
+		ctx as-float ast.range, float-types[index], allowed-types[index], ast.literal.value, expected
+	else
+		expected bogus ast.range
+
+-as-float expr(
+	ctx expr-ctx,
+	range source-range,
+	float-type float-type,
+	inst struct-inst,
+	value high-precision-float?,
+	expected expected,
+)
+	if value is-empty
+		ctx add-diag range, float-type.diag-literal-float-accuracy
+	ctx check expected, inst.to, (range literal-float-expr float-type, (value ?? ()).to)
+
+-to float(a high-precision-float) trusted
+	assert extern (native, libc) : todo
+	x c-string = "{a long-value}e{a exponent}"
+	res mut float = 0
+	_ = x sscanf "%lf", &res
+	res
+-sscanf int32(input c-string, format c-string, output float64 mut*) libc extern, pure # TODO: do it without an external dependency?
+
+# TODO: these could use 'mebmers'? --------------------------------------------------------------------------------------------
+-nat-types integral-type[]()
+	nat8, nat16, nat32, nat64
+-int-types integral-type[]()
+	int8, int16, int32, int64
+integral-types integral-type[]()
+	nat-types ~~ int-types
+-float-types float-type[]()
+	float32, float64
+
+-check-literal-integral expr(ctx expr-ctx, ast literal-integral-and-range, expected expected)
+	integrals = ctx.common-types integrals
+	allowed-types struct-inst[] = integrals.nat8, integrals.nat16, integrals.nat32, integrals.nat64,
+		integrals.int8, integrals.int16, integrals.int32, integrals.int64,
+		ctx.common-types.float32, ctx.common-types.float64
+	if type-index ?= ctx find-expected-struct-for-literal ast.range, expected, allowed-types
+		number-type = allowed-types[type-index]
+		if type-index < integral-types.size
+			integral-type = integral-types[type-index]
+			value = ctx.check-ctx check-literal-integral-value integral-type, ast
+			ctx check expected, number-type.to, (ast.range literal-integral-expr integral-type.to, value)
+		else
+			overflow mut = ast.literal.value is-empty
+			ast-value integral-value = ast.literal.value ?? (0::nat64,)
+			value int = if ast.literal is-signed
+				ast-value as-signed
+			else
+				try
+					ast-value.as-unsigned to
+				catch unary-out-of-range _
+					overflow := true
+					0
+			ctx as-float ast.range, float-types[type-index - integral-types.size], number-type, (!overflow ? ((value, 0),)), expected
+	else
+		expected bogus ast.range
+
+-check-literal-string expr(ctx expr-ctx, ast literal-string-ast, expected expected)
+	range = ast range
+	value = ast value
+	types = ctx common-types
+	allowed-types struct-inst[] = types.char8, types.char32, types.char8-array, types.char32-array, types.c-string, types.js-any, types.string, types.symbol
+	# First 2 kinds won't be used
+	kinds string-like-type[] = c-string, c-string, char8-array, char32-array, c-string, js-any, string, symbol
+	guard type-index ?= ctx find-expected-struct-for-literal range, expected, allowed-types : expected bogus range
+	expr expr? = if type-index == 0
+		(range literal-integral-expr char8.to, ((ctx char8-literal-value range, value).to,)),
+	elif type-index == 1
+		(range literal-integral-expr char32.to, ((ctx char32-literal-value range, value).to,)),
+	else
+		check-no-nul string mut(diag diag-string-literal-invalid) = diag =>
+			if index ?= value index-of "\0"
+				ctx add-diag range, diag.to
+				(value.to::char8[])[0 .. index] to
+			else
+				value
+		string-type = kinds[type-index]
+		fixed-value string? = match string-type
+		as char8-array
+			value,
+		as char32-array
+			value,
+		as c-string
+			check-no-nul[c-string-contains-nul],
+		as string
+			check-no-nul[string-contains-nul],
+		as symbol
+			check-no-nul[symbol-contains-nul],
+		as js-any
+			if "js"::symbol in ctx.externs
+				value,
+			else
+				ctx add-diag range, not-extern-js.to
+				()
+		if x ?= fixed-value
+			(range literal-string-like-expr string-type, x),
+	if x ?= expr
+		ctx check expected, allowed-types[type-index].to, x
+	else
+		expected bogus range
+
+-char8-literal-value char8(ctx expr-ctx, diag-range source-range, value string)
+	char8s = value.to::char8[]
+	char8s opt-only ?? do
+		ctx add-diag diag-range, diag-char-literal-must-be-one-char
+		"a"
+-char32-literal-value char32(ctx expr-ctx, diag-range source-range, value string)
+	value.decode-as-single-unicode-char ?? do
+		ctx add-diag diag-range, diag-char-literal-must-be-one-char
+		"a"
+-decode-as-single-unicode-char char32?(a string)
+	a.to::char32[] opt-only
+
+-check-expr-with-opt-destructure expr(
+	ctx expr-ctx,
+	locals locals-info,
+	destructure destructure?,
+	ast expr-ast,
+	expected expected,
+)
+	if x ?= destructure
+		ctx check-expr-with-destructure locals, x, ast, expected
+	else
+		ctx check-expr locals, ast, expected
+
+-check-expr-with-destructure expr(
+	ctx expr-ctx,
+	locals locals-info,
+	destructure destructure,
+	ast expr-ast,
+	expected expected,
+)
+	res = ctx check-with-destructure locals, destructure, inner-locals =>
+		(ctx check-expr inner-locals, ast, expected),
+	res ?? expected bogus ast
+
+-check-with-destructure expr?(
+	ctx expr-ctx,
+	locals locals-info,
+	destructure destructure,
+	cb expr? mut(inner-locals locals-info),
+)
+	match destructure
+	as destructure-ignore _
+		cb[locals]
+	as local x
+		ctx check-with-local locals, x, cb
+	as destructure-split x
+		ctx check-with-destructure-parts locals, x.parts, cb
+# TODO: This awkward recursion is probalby unnecessary now! I can just push to locals and pop when done! ----------------------------------
+-check-with-destructure-parts expr?(
+	ctx expr-ctx,
+	locals locals-info,
+	parts destructure[],
+	cb expr? mut(inner-locals locals-info),
+)
+	if x ?= parts opt-only
+		ctx check-with-destructure locals, x, cb
+	else
+		ctx check-with-destructure locals, parts[0], inner-locals =>
+			ctx check-with-destructure-parts inner-locals, parts[1 .. end], cb
+
+-check-with-local expr?(
+	ctx expr-ctx,
+	locals locals-info,
+	local local,
+	cb expr? mut(inner-locals locals-info),
+)
+	if ctx name-is-parameter-or-local-in-scope locals, local.name
+		ctx add-diag local.local-must-have-name-range, (param-or-local diag-duplicate-declaration local.name)
+	
+	local-node local-node = locals.locals, (), local
+	new-locals locals-info = locals.lambda, (local-node,)
+	res = cb[new-locals]
+	needs-allocate = local-node.local.mutability.local-mutable-on-stack !is-empty && (local-node.is-used[get-through-closure] || local-node.is-used[set-through-closure])
+	if needs-allocate
+		local.mutability := (ctx.instantiate-ctx instantiate-struct ctx.common-types.reference, (local.type,)) local-mutable-allocated
+	ctx add-unused-local-diags local, local-node
+	res
+
+-add-unused-local-diags void(ctx expr-ctx, local local, node local-node)
+	is-got = node.is-used[get-on-stack] || node.is-used[get-through-closure]
+	is-set = node.is-used[set-on-stack] || node.is-used[set-through-closure]
+	if !is-got || (!is-set && local is-mutable)
+		ctx add-diag local.local-must-have-name-range, (local diag-unused-local is-got, is-set)
+
+-check-pointer expr(ctx expr-ctx, locals locals-info, source expr-ast, ast ptr-ast, expected expected)
+	match ctx get-expected-pointee expected
+	as expected-pointee-none _
+		ctx add-diag source, pointer::diag-needs-expected-type.to
+		expected bogus source
+	as expected-pointee-fun-pointer x
+		ctx check-fun-pointer locals, ast, x, expected
+	as expected-pointee-pointer x
+		ctx check-pointer-inner locals, source, ast, x.pointer, x.pointee, x.mutability, expected
+
+-expected-pointee union(expected-pointee-none, expected-pointee-fun-pointer, expected-pointee-pointer) mut
+-expected-pointee-none record
+-expected-pointee-fun-pointer record(return-type type, param-types type) mut
+-expected-pointee-pointer record(pointer struct-inst, pointee type, mutability pointer-mutability) mut
+
+-pointer-mutability enum(read-only, writeable) # TODO: names should probably be 'const' and 'mut' ---------------------------------
+== bool(a pointer-mutability, b pointer-mutability)
+<=> comparison(a pointer-mutability, b pointer-mutability)
+
+-get-expected-pointee expected-pointee(ctx expr-ctx, expected expected)
+	if inst ?= (ctx.instantiate-ctx try-get-non-inferring-type expected)?.struct-inst
+		if inst.decl == ctx.common-types.pointer-const # TODO: could use is-pointer-const 000000000000000000000000000000000000
+			inst expected-pointee-pointer inst.type-args.only, read-only
+		elif inst.decl == ctx.common-types.pointer-mut # TODO: could use is-pointer-mut 00000000000000000000000000000000000000
+			inst expected-pointee-pointer inst.type-args.only, writeable
+		elif inst.decl == ctx.common-types.fun-pointer-struct
+			r, p = inst.type-args only2
+			r expected-pointee-fun-pointer p
+		else
+			expected-pointee-none
+	else
+		expected-pointee-none
+
+-check-pointer-inner expr(
+	ctx expr-ctx,
+	locals locals-info,
+	source expr-ast,
+	ast ptr-ast,
+	pointer-type struct-inst,
+	pointee-type type,
+	expected-mutability pointer-mutability,
+	expected expected,
+)
+	if "native"::symbol !in ctx.externs
+		ctx add-diag source, diag-pointer-is-native
+		expected bogus source
+	else
+		if ctx !check-can-do-unsafe
+			ctx add-diag source, diag-pointer-is-unsafe
+		match ctx check-and-expect locals, ast.inner, pointee-type
+		as local-get-expr x
+			if expected-mutability != read-only && x.local !is-mutable
+				ctx add-diag source, local::diag-pointer-mut-to-const.to
+			if expected-mutability == writeable
+				locals mark-is-used-set-on-stack x.local
+			ctx check expected, pointer-type.to, (ast local-pointer-expr x.local, pointer-type)
+		as call-expr x
+			ctx check-pointer-of-call ast, x, pointer-type, expected-mutability, expected
+		else
+			ctx add-diag source, other::diag-pointer-unsupported.to
+			expected bogus source
+	
+-check-pointer-of-call expr(
+	ctx expr-ctx,
+	ast ptr-ast,
+	call call-expr,
+	pointer-type struct-inst,
+	expected-mutability pointer-mutability,
+	expected expected,
+)
+	range = ast range
+	fail expr mut(diag diag-pointer-unsupported) = diag =>
+		ctx add-diag range, diag.to
+		expected bogus range
+	
+	guard get-field-fun ?= call.called fun-inst : fail[other]
+	guard rfg ?= get-field-fun.decl.body record-field-get : fail[other]
+	target = call.args only
+	record-type = get-field-fun.param-types.only struct-inst!
+	# TODO: if it's privatley mutable, we shouldn't be able to get a mut-pointer to it ------------------------------------------
+	field-mutability = rfg.field.mutability is-empty ? read-only : writeable
+	if record-type is-definitely-by-ref
+		if field-mutability < expected-mutability
+			ctx add-diag range, field-of-by-ref::diag-pointer-mut-to-const.to
+		ctx check expected, pointer-type.to, (ast record-field-pointer-expr target, rfg.field, pointer-type)
+	elif target-call ?= target call-expr
+		called = target-call called
+		guard deref-fun ?= called fun-inst : fail[other]
+		guard deref-fun is-deref-function : fail[other]
+		derefed-type = deref-fun.param-types only
+		pointer-mutability = ctx mutability-for-ptr-decl derefed-type.struct-inst!.decl
+		target-ptr = target-call.args only
+		# Ignore fieldMutability -- allow mutating a non-mut field from a mut pointer.
+		# But do not allow any mutation from a non-mut pointer even for mutable fields.
+		if pointer-mutability < expected-mutability
+			ctx add-diag range, field-of-by-val::diag-pointer-mut-to-const.to
+			expected bogus range
+		else
+			ctx check expected, pointer-type.to, (ast record-field-pointer-expr target-ptr, rfg.field, pointer-type)
+	else
+		fail[record-not-by-ref]
+
+-is-deref-function bool(a fun-inst)
+	if b ?= a.decl.body builtin-fun
+		if u ?= b builtin-unary
+			u == deref
+
+-mutability-for-ptr-decl pointer-mutability(ctx expr-ctx, a struct-decl)
+	# TODO: should not need ctx ----------------------------------------------------------------------------------------------------
+	if a == ctx.common-types.pointer-const
+		read-only
+	else
+		assert a == ctx.common-types.pointer-mut
+		writeable
+
+-check-fun-pointer expr(
+	ctx expr-ctx,
+	locals locals-info,
+	ast ptr-ast,
+	expected-pointee expected-pointee-fun-pointer,
+	expected expected,
+)
+	if name, type-arg ?= ast.inner get-name-and-type-arg
+		ctx check-fun-pointer-inner locals, ast, name, type-arg, expected-pointee, expected
+	else
+		ctx add-diag ast.range, diag-fun-pointer-expr-must-be-name
+		expected bogus ast.range
+-get-name-and-type-arg (name-and-range, type-ast?)?(ast expr-ast)
+	match ast
+	as name-and-range x		
+		(x, ()),
+	as call-ast x
+		if x.style == single && x.args is-empty
+			(x.fun-name, x.type-arg),
+	else
+		()
+-check-fun-pointer-inner expr(
+	ctx expr-ctx,
+	locals locals-info,
+	ast ptr-ast,
+	name name-and-range,
+	type-arg type-ast?,
+	expected-pointee expected-pointee-fun-pointer,
+	expected expected,
+)
+	guard called ?= ctx find-function-for-pointer locals, name, type-arg, expected-pointee : expected bogus ast.range
+	param-type = ctx.check-ctx make-tuple-type ctx.common-types, called.param-types, () => ast.range
+	struct-inst = ctx.instantiate-ctx instantiate-struct ctx.common-types.fun-pointer-struct, (called.return-type, param-type)
+	if "js"::symbol !in ctx.externs && called !is-bare-for-function-pointer
+		ctx add-diag ast.range, diag-fun-pointer-not-bare
+	ctx check expected, struct-inst.to, (ast fun-pointer-expr called, struct-inst)
+
+-is-bare-for-function-pointer bool(a called)
+	match a
+	as called-bogus _
+		true
+	as fun-inst x
+		x.decl is-bare-or-force-ctx && x.spec-impls every i => i is-bare-for-function-pointer
+	as called-spec-sig _
+		false
+
+-return-and-param-types return-and-param-types(common-types common-types, a expected-pointee-fun-pointer)
+	(a.return-type ~ (common-types unpack-tuple a.param-types)),
+
+-find-function-for-pointer called?(
+	ctx expr-ctx,
+	locals locals-info,
+	name name-and-range,
+	type-arg-ast type-ast?,
+	expected expected-pointee-fun-pointer,
+)
+	type-arg type? = if x ?= type-arg-ast
+		(ctx type-from-ast x),
+	return-and-param-types = ctx.common-types return-and-param-types expected
+	ctx.check-ctx find-function-for-return-and-param-types ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope, ctx.outermost-fun-flags, ctx.externs,
+		locals, name.name, name.range, type-arg, return-and-param-types, () => ctx check-can-do-unsafe
+
+-check-shared expr(ctx expr-ctx, locals locals-info, ast shared-ast, expected expected)
+	diag void mut(diag diag) = diag =>
+		ctx add-diag ast.keyword-range, diag
+	diag-bogus expr mut(diag diag) = x =>
+		ctx add-diag ast.keyword-range, x
+		expected bogus ast.range
+
+	guard inner ?= ast.inner lambda-ast : diag-bogus[diag-shared-arg-is-not-lambda]
+	guard et ?= ctx get-expected-lambda ast.range, (ctx type-from-destructure inner.param), expected : expected bogus ast.range
+	guard et.fun-type.kind == shared_ : diag-bogus[ctx get-expected-for-diag expected diag-shared-not-expected]
+	res = ctx check-lambda-inner locals, inner.to, inner.param, inner.body, expected,
+		((ctx.instantiate-ctx instantiate-struct ctx.common-types.fun-structs[mut_], et.fun-type.struct-inst.type-args),),
+		et.instantiated-param-type,
+		et.fun-type.return-type,
+		et.type-context,
+		et.fun-type.fun-struct,
+		explicit-shared
+	
+	if ctx.outermost-fun-specs !is-shared et.instantiated-param-type
+		diag[param-type diag-shared-lambda-type-is-not-shared (ctx type-with-container et.instantiated-param-type)]
+	if ctx.outermost-fun-specs !is-shared res.return-type
+		diag[return-type diag-shared-lambda-type-is-not-shared (ctx type-with-container res.return-type)]
+	
+	all-shared = res.expr.lambda-expr!.closure every x =>
+		x.mutability is-immutable && ctx.outermost-fun-specs is-shared x.type
+	if all-shared
+		diag[diag-shared-lambda-unused]
+	res expr
+
+-check-lambda expr(
+	ctx expr-ctx,
+	locals locals-info,
+	source lambda-source,
+	param-ast destructure-ast,
+	body-ast expr-ast,
+	expected expected,
+)
+	diag-range = source range
+	guard et ?= ctx get-expected-lambda diag-range, (ctx type-from-destructure param-ast), expected : expected bogus diag-range
+	kind = et.fun-type kind
+	if kind == function_
+		ctx add-diag diag-range, diag-lambda-cant-be-function-pointer
+		expected bogus diag-range
+	else
+		res = ctx check-lambda-inner locals, source, param-ast, body-ast, expected, (),
+			et.instantiated-param-type, et.fun-type.return-type, et.type-context, et.fun-type.fun-struct, kind.to-lambda-kind
+		res expr
+
+-to-lambda-kind lambda-kind(a fun-kind)
+	match a
+	as data_
+		data_
+	as shared_
+		shared_
+	as mut_
+		mut_
+	as function_
+		throw unreachable
+
+-lambda-and-return-type record(expr expr, return-type type) mut
+-check-lambda-inner lambda-and-return-type(
+	ctx expr-ctx,
+	locals locals-info,
+	source lambda-source,
+	param-ast destructure-ast,
+	body-ast expr-ast,
+	expected expected,
+	mut-type-for-explicit-shared struct-inst?,
+	param-type type,
+	non-instantiated-return-type type,
+	return-type-context type-context,
+	fun-struct struct-decl,
+	kind lambda-kind,
+)
+	param = ctx check-destructure param-ast, param-type, param
+	lambda lambda-expr = do
+		ast: source
+		kind: kind
+		param: param
+		mut-type-for-explicit-shared: mut-type-for-explicit-shared
+		# Dummy values that will be overwritten
+		body: source.range bogus-expr bogus-type
+		closure: ()
+		type: ctx.common-types void
+	lambda-info lambda-info = locals, lambda, ()
+	# Checking the body of the lambda may fill in candidate type args
+	# if the expected return type contains candidate's type params
+	body-locals locals-info = (lambda-info,), ()
+	body-and-type = non-instantiated-return-type with-expect return-type-context, return-type-inferrer =>
+		ctx check-expr-with-destructure body-locals, param, body-ast, return-type-inferrer
+	inst-fun-struct = ctx.instantiate-ctx instantiate-struct fun-struct, (body-and-type.type, param.type)
+	lambda.body := body-and-type expr
+	lambda.closure := for x : lambda-info.closure-fields
+		x variable-ref
+	lambda.type := inst-fun-struct
+	# TODO: this check should never fail, so could just set inferred directly with no check ----------------------------------------
+	res = ctx check expected, inst-fun-struct.to, lambda.to
+	res, body-and-type.type
+
+-check-let expr(ctx expr-ctx, locals locals-info, ast let-ast, expected expected)
+	value = ctx check-and-expect-or-infer locals, ast.value, (ctx type-from-destructure ast.destructure)
+	destructure = ctx check-destructure ast.destructure, value.type, local
+	then = ctx check-expr-with-destructure locals, destructure, ast.then, expected
+	ast let-expr destructure, value.expr, then
+
+-check-loop expr(ctx expr-ctx, locals locals-info, ast loop-ast, expected expected)
+	if type ?= ctx.instantiate-ctx try-get-non-inferring-type expected
+		loop_ loop-expr = ast, type, (ast.range bogus-expr bogus-type)
+		info loop-info = loop_, type, false
+		loop_.body := info with-expect-loop body-expected =>
+			ctx check-expr locals, ast.body, body-expected
+		if info !has-break
+			ctx add-diag ast.keyword-range, diag-loop-without-break
+		loop_ to
+	else
+		ctx add-diag ast.range, loop_::diag-needs-expected-type.to
+		expected bogus ast.range
+
+-check-loop-break expr(ctx expr-ctx, locals locals-info, ast loop-break-ast, expected expected)
+	if loop_ ?= expected try-get-loop
+		loop_.has-break := true
+		value = ctx check-and-expect locals, ast.value, loop_.type
+		ast loop-break-expr loop_.loop_, value
+	else
+		ctx check-call-special locals, ast.to, ast.keyword-range, "loop-break", (ast.value,), expected
+
+-check-loop-continue expr(ctx expr-ctx, locals locals-info, ast loop-continue-ast, expected expected)
+	if loop_ ?= expected try-get-loop
+		ast loop-continue-expr loop_.loop_
+	else
+		ctx check-call-special locals, ast.to, ast.keyword-range, "loop-continue", (), expected
+
+-check-loop-while-or-until expr(ctx expr-ctx, locals locals-info, ast loop-while-or-until-ast, expected expected)
+	condition = ctx check-condition locals, ast.condition
+	destructure = condition opt-destructure
+	body = ctx.void-type with-expect body-expected =>
+		ctx check-expr-with-opt-destructure locals, (ast !is-until ? destructure), ast.body, body-expected
+	after = ctx check-expr-with-opt-destructure locals, (ast is-until ? destructure), ast.after, expected
+	ast loop-while-or-until-expr condition, body, after
+
+-check-match expr(ctx expr-ctx, locals locals-info, ast match-ast, expected expected)
+	matched-and-type expr-and-type = ctx check-and-infer locals, ast.matched
+	matched = matched-and-type expr
+	matched-type = matched-and-type type
+	# Use an arbitrary non-matchable inst as default
+	inst = matched-type.struct-inst ?? ctx.common-types.void
+	decl = inst decl
+	not-matchable expr mut() = () =>
+		if matched !type-is-bogus # TODO: why not just use matched-type? -------------------------------------------------
+			ctx add-diag ast.matched.range, (ctx type-with-container matched-type).diag-match-on-non-matchable
+		expected bogus ast.matched
+	match decl body
+	as struct-body-bogus _
+		not-matchable[]
+	as builtin-type builtin_
+		if char-type ?= builtin_ opt-as-char-type
+			ctx check-match-char locals, ast, expected, matched, char-type
+		elif integral ?= builtin_ opt-as-integral-type
+			ctx check-match-integral locals, ast, expected, matched, integral
+		elif string-like ?= builtin_ get-matchable-string-like-from-builtin
+			ctx check-match-string-like locals, ast, expected, matched, string-like
+		else
+			not-matchable[]
+	as enum_ x
+		ctx check-match-enum locals, ast, expected, matched, decl, x
+	as extern-type _
+		not-matchable[]
+	as flags_ _
+		not-matchable[]
+	as record_ _
+		if string-like ?= ctx.common-types get-matchable-string-like-from-record inst
+			ctx check-match-string-like locals, ast, expected, matched, string-like
+		else
+			not-matchable[]
+	as sum-type x
+		if x.kind can-match-sum-type
+			ctx check-match-sum-type locals, ast, expected, matched, inst
+		else
+			not-matchable[]
+
+-can-match-sum-type bool(a sum-type-kind)
+	match a
+	as interface_
+		false
+	as union_
+		true
+	as variant_
+		true
+
+-check-match-enum expr(
+	ctx expr-ctx,
+	locals locals-info,
+	ast match-ast,
+	expected expected,
+	matched expr,
+	matched-enum struct-decl,
+	body enum_,
+)
+	seen bool mut[] = for _ : body members; false
+	has-case-diag mut = false
+	cases match-enum-case mut[] = ()
+	cases hint-size ast.cases.size
+	for case-ast : ast cases
+		# TODO: NEATER (break into a function and use 'guard') ---------------------------------------------------------------------
+		as-name = ctx name-from-case-member-ast case-ast.member
+		name = as-name?.name?.name
+		opt-member enum-member? = if x ?= name
+			body.members-by-name[x]
+		if member ?= opt-member
+			index = body.members must-have-index-of-pointer member
+			if seen[index]
+				has-case-diag := true
+				ctx add-diag case-ast.name-range, name!.to::diag-match-case-duplicate.to
+			else
+				seen[index] := true
+				name-ast = as-name!
+				if d ?= name-ast destructure
+					ctx add-diag d.range, (matched-enum,).diag-match-case-no-value-for-enum-or-symbol
+				cases ~= (member, (ctx check-expr locals, case-ast.then, expected))
+		else
+			has-case-diag := true
+			if n ?= name
+				ctx add-diag case-ast.name-range, (n diag-match-case-name-not-in-enum matched-enum)
+
+	guard !has-case-diag : expected bogus ast.range
+	
+	else_ expr? = if seen every x => x
+		if x ?= ast else_
+			ctx add-diag x.keyword-range, diag-match-unnecessary-else
+		()
+	elif x ?= ast else_
+		(ctx check-expr locals, x.expr, expected),
+	else
+		unhandled-cases enum-member[] = with out : build
+			for member, seen-it : body.members zip seen.move-to
+				if !seen-it
+					out ~= member
+		ctx add-diag ast.keyword-range, unhandled-cases.diag-match-unhandled-enum-members
+		(expected bogus ast.range),
+
+	ast match-enum-expr matched, cases.move-to, else_
+
+-check-match-sum-type expr(
+	ctx expr-ctx,
+	locals locals-info,
+	ast match-ast,
+	expected expected,
+	matched expr,
+	sum-type struct-inst,
+)
+	cases = ctx check-match-sum-type-cases locals, sum-type, ast.cases, expected
+	body = sum-type.decl.body sum-type!
+	is-union = body.kind == union_
+	else_ expr? = if is-union
+		if cases.size == body.listed-members.size
+			if x ?= ast.else_
+				ctx add-diag x.keyword-range, diag-match-unnecessary-else
+			()
+		else
+			e = ctx check-match-else-required locals, ast, expected, () =>
+				(ctx list-missing-union-cases sum-type, body, cases) diag-match-unhandled-union-case-types
+			e,
+	else
+		(ctx check-match-else-required locals, ast, expected, variant_),
+	ast match-sum-type-expr matched, cases, else_
+-list-missing-union-cases struct-inst[](ctx expr-ctx, union_ struct-inst, body sum-type, cases match-sum-type-case[])
+	with out : build
+		for member : body listed-members
+			member-inst = ctx.instantiate-ctx instantiate-struct-inst member.member, union_.type-args
+			if cases !exists x => x.case-type == member-inst
+				out ~= member-inst
+
+-check-match-sum-type-cases match-sum-type-case[](
+	ctx expr-ctx,
+	locals locals-info,
+	matched-variant struct-inst,
+	case-asts case-ast[],
+	expected expected,
+)
+	seen inst-id mut-set = ()
+	# TODO: seen hint-size case-asts.size =-============================================================================================
+	with out : case-asts.size build
+		for case-ast : case-asts
+			if res ?= ctx check-match-sum-type-case locals, matched-variant, case-ast.member, case-ast.then, expected
+				if seen try-add res.case-type.id
+					out ~= res
+				else
+					ctx add-diag case-ast.name-range, res.case-type.decl.name.to::diag-match-case-duplicate.to
+
+-check-match-sum-type-case match-sum-type-case?(
+	ctx  expr-ctx,
+	locals locals-info,
+	matched-variant struct-inst,
+	member-ast case-member-ast,
+	then-ast expr-ast,
+	expected expected,
+)
+	as-name = ctx name-from-case-member-ast member-ast
+	name = as-name?.name?.name
+	opt-case-type struct-inst? = if n ?= name
+		ctx get-sum-type-case-from-name matched-variant, n, member-ast.name-range, () =>
+			if d ?= as-name?.destructure
+				ctx type-from-destructure d
+	guard case-type ?= opt-case-type
+	
+	destructure = if ast ?= member-ast.as-name-ast!.destructure
+		ctx check-destructure ast, case-type.to, local
+	else
+		if case-type !is-empty-type
+			ctx add-diag member-ast.name-range, case-type.diag-match-case-should-use-ignore
+		member-ast.to destructure-ignore member-ast.name-range.start, case-type.to
+	if destructure.type !is-bogus
+		expr = ctx check-expr-with-destructure locals, destructure, then-ast, expected
+		(destructure, expr),
+
+-get-sum-type-case-from-name struct-inst?(
+	ctx expr-ctx,
+	sum-type struct-inst,
+	name symbol,
+	name-range source-range,
+	expected-member-type type? mut(),
+)
+	listed-members = sum-type.decl.body.sum-type! listed-members
+	guard sa ?= ctx.check-ctx struct-or-alias-from-name name, name-range, ctx.structs-and-aliases-map, false
+	match sa
+	as struct-alias alias_
+		target = alias_ target
+		is-listed = listed-members exists x => x.member == target
+		has-membership = target.decl.sum-type-memberships exists x => x.sum-type == sum-type
+		if is-listed || has-membership
+			target,
+		else
+			ctx add-diag name-range, (ctx type-with-container sum-type.to diag-match-sum-type-no-member target.decl)
+			()
+	as struct-decl decl
+		# TODO: NEATER -------------------------------------------------------------------------------------------------------------------
+		from-listed struct-inst? = listed-members first x =>
+			if x.member.decl == decl
+				(ctx.instantiate-ctx instantiate-struct-inst x.member, sum-type.type-args),
+		from-membership instantiated-sum-type-case-or-bogus? mut() = () =>
+			decl.sum-type-memberships first x =>
+				ctx compare-sum-types name-range, decl, x.sum-type, sum-type, expected-member-type
+		if res ?= from-listed?.to::instantiated-sum-type-case-or-bogus? || from-membership[]
+			match res
+			as struct-inst x
+				x,
+			as sum-type-case-bogus
+				()
+		else
+			ctx add-diag name-range, (ctx type-with-container sum-type.to diag-match-sum-type-no-member decl)
+			()
+
+-instantiated-sum-type-case-or-bogus union(struct-inst, sum-type-case-bogus) mut
+-sum-type-case-bogus record
+
+| Returns instantiated case type if the declared sum-type matches the actual
+-compare-sum-types instantiated-sum-type-case-or-bogus?(
+	ctx expr-ctx,
+	range source-range,
+	case_ struct-decl,
+	declared-sum-type struct-inst,
+	actual-sum-type struct-inst,
+	expected-case-type type? mut(),
+)
+	guard declared-sum-type.decl == actual-sum-type.decl
+	inferring-types single-inferring-type[] = for _ : case_ type-params; ()
+	inferring-context type-context = inferring-types,
+	inferring-declared-sum-type type-and-context = declared-sum-type.to, inferring-context
+	guard ctx.instantiate-ctx match-types inferring-declared-sum-type, actual-sum-type.to.non-inferring
+	if inferring-types exists x => x.try-get-inferred is-empty
+		if t ?= expected-case-type[]
+			# Just using this for inference
+			_ = ctx.instantiate-ctx match-types ((ctx.instantiate-ctx instantiate-struct-with-own-type-params case_ to), inferring-context), t.non-inferring
+	
+	any-not-inferred mut bool = false
+	inferred-types type[] = for x : inferring-types
+		x.try-get-inferred ?? do
+			any-not-inferred := true
+			bogus-type
+	# TODO: NEATER (use map-opt?) ------------------------------------------------------------------------------------------------------------------
+	if any-not-inferred
+		ctx add-diag range, case_.diag-match-sum-type-cant-infer-type-args
+		sum-type-case-bogus,
+	else
+		(ctx.instantiate-ctx instantiate-struct case_, inferred-types to),
+
+-opt-as-char-type char-type?(a builtin-type)
+	match a
+	as char8
+		char8,
+	as char32
+		char32,
+	else
+		()
+
+-check-match-char expr(
+	ctx expr-ctx,
+	locals locals-info,
+	ast match-ast,
+	expected expected,
+	matched expr,
+	char-type char-type,
+)
+	seen integral-value mut-set = () # TODO: hint-size ----------------------------------------------------------------------------
+	cases match-integral-case[] = with out : ast.cases.size build
+		for case-ast : ast cases
+			guard string-value ?= ctx string-from-case-ast case-ast.member
+			value integral-value = match char-type
+			as char8
+				(ctx char8-literal-value case-ast.name-range, string-value).to,
+			as char32
+				(ctx char32-literal-value case-ast.name-range, string-value).to,
+			if seen try-add value
+				out ~= (value, (ctx check-expr locals, case-ast.then, expected))
+			else
+				ctx add-diag case-ast.name-range, string-value.to::diag-match-case-duplicate.to
+	else_ = ctx check-match-else-required locals, ast, expected, integral
+	ast match-integral-expr char-type.to, matched, cases, else_
+
+opt-as-integral-type integral-type?(a builtin-type)
+	match a
+	as int8
+		int8,
+	as int16
+		int16,
+	as int32
+		int32,
+	as int64
+		int64,
+	as nat8
+		nat8,
+	as nat16
+		nat16,
+	as nat32
+		nat32,
+	as nat64
+		nat64,
+	else
+		()
+
+-check-match-integral expr(
+	ctx expr-ctx,
+	locals locals-info,
+	ast match-ast,
+	expected expected,
+	matched expr,
+	integral-type integral-type,
+)
+	seen integral-value mut-set = () # TODO: hint-size --------------------------------------------------------------------
+	cases match-integral-case[] = with out : build
+		for case-ast : ast cases
+			opt-value integral-value? = match case-ast member
+			as as-name-ast x
+				ctx add-diag x.name.range, numeric::diag-match-case-for-type.to
+				()
+			as literal-integral-and-range x
+				(ctx.check-ctx check-literal-integral-value integral-type, x),
+			as as-string-ast x
+				ctx add-diag x.range, numeric::diag-match-case-for-type.to
+				()
+			as as-bogus-ast _
+				()
+			if value ?= opt-value
+				if seen try-add value
+					out ~= (value, (ctx check-expr locals, case-ast.then, expected))
+				else
+					ctx add-diag case-ast.name-range, if integral-type is-signed
+						value.as-signed.to::diag-match-case-duplicate to
+					else
+						value.as-unsigned.to::diag-match-case-duplicate to
+	else_ = ctx check-match-else-required locals, ast, expected, integral
+	ast match-integral-expr integral-type.to, matched, cases, else_
+
+-get-matchable-string-like-from-builtin string-like-type?(a builtin-type)
+	match a
+	as string
+		string,
+	as symbol
+		symbol,
+	else
+		()
+-get-matchable-string-like-from-record string-like-type?(common-types common-types, inst struct-inst)
+	if inst == common-types.char32-array
+		char32-array,
+	elif inst == common-types.char8-array
+		char8-array,
+
+-check-match-string-like expr(
+	ctx expr-ctx,
+	locals locals-info,
+	ast match-ast,
+	expected expected,
+	matched expr,
+	string-type string-like-type,
+)
+	guard spec_ ?= ctx.check-ctx get-spec-from-common-module ctx.specs-map, ast.keyword-range, "equal", compare : expected bogus ast.range
+
+	equals = ctx.check-ctx check-spec-single-sig-ignore-parents ctx.funs-map, ast.keyword-range, ctx.type-container,
+		ctx.outermost-fun-specs, ctx.outermost-fun-flags, ctx.externs,
+		(ctx.instantiate-ctx instantiate-spec spec_, ((matched type ctx.common-types),))
+	seen string mut-set = ()
+	cases match-string-like-case[] = with out : build
+		for case-ast : ast cases
+			if value ?= ctx string-from-case-ast case-ast.member
+				if seen try-add value
+					out ~= (value, (ctx check-expr locals, case-ast.then, expected))
+				else
+					ctx add-diag case-ast.name-range, value.to::diag-match-case-duplicate.to
+	else_ = ctx check-match-else-required locals, ast, expected, string-like
+	ast match-string-like-expr string-type, matched, equals, cases, else_
+
+-check-match-else-required expr(
+	ctx expr-ctx,
+	locals locals-info,
+	ast match-ast,
+	expected expected,
+	kind diag-match-needs-else,
+)
+	ctx check-match-else-required locals, ast, expected, () => kind.to
+-check-match-else-required expr(
+	ctx expr-ctx,
+	locals locals-info,
+	ast match-ast,
+	expected expected,
+	cb-diag diag mut(),
+)
+	if x ?= ast else_
+		ctx check-expr locals, x.expr, expected
+	else
+		ctx add-diag ast.keyword-range, cb-diag[]
+		expected bogus ast.range
+
+# TODO: use a with-block ---------------------------------------------------------------------------------------------------------
+-with-extern-from-condition[out] out(ctx expr-ctx, condition condition, is-negated bool, cb out mut())
+	guard extern_ ?= condition as-extern : cb[]
+	guard !(is-negated xor extern_.is-negated) : cb[]
+	original-externs = ctx externs
+	ctx.externs |:= extern_ required-externs
+	res = cb[]
+	ctx.externs := original-externs
+	res
+
+-check-expr-with-opt-destructure-or-empty-new expr(
+	ctx expr-ctx,
+	locals locals-info,
+	parent call-expr-source,
+	destructure destructure?,
+	ast expr-ast?,
+	empty-new-range source-range,
+	expected expected,
+)
+	if x ?= ast
+		ctx check-expr-with-opt-destructure locals, destructure, x, expected
+	else
+		ctx check-empty-new locals, parent, empty-new-range, expected
+
+-string-from-case-ast string?(ctx expr-ctx, ast case-member-ast)
+	match ast
+	as as-name-ast x
+		if d ?= x destructure
+			ctx add-diag d.range, ().diag-match-case-no-value-for-enum-or-symbol
+		x.name.name.to,
+	as literal-integral-and-range x
+		ctx add-diag x.range, string-like::diag-match-case-for-type.to
+		()
+	as as-string-ast x
+		x.value,
+	as as-bogus-ast _
+		()
+
+-name-from-case-member-ast as-name-ast?(ctx expr-ctx, ast case-member-ast)
+	res as-name-ast? = ast as-name-ast
+	if res is-empty
+		ctx add-diag ast.name-range, enum-or-union::diag-match-case-for-type.to
+	res
+
+-check-seq expr(ctx expr-ctx, locals locals-info, ast seq-ast, expected expected)
+	first = ctx check-and-expect locals, ast.first, ctx.void-type
+	then = ctx check-expr locals, ast.then, expected
+	first seq-expr then
+
+-has-break-or-continue bool(a expr-ast)
+	match a
+	as arrow-access-ast _
+		false
+	as assert-or-forbid-ast x
+		x.after has-break-or-continue
+	as assignment-ast _
+		false
+	as assignment-call-ast _
+		false
+	as bogus-ast _
+		false
+	as call-ast _
+		false
+	as call-named-ast _
+		false
+	as do-ast x
+		x.body has-break-or-continue
+	as empty-ast _
+		false
+	as extern-ast _
+		false
+	as finally-ast _
+		false
+	as for-ast _
+		false
+	as name-and-range _
+		false
+	as if-ast x
+		x.all-branches exists y => y has-break-or-continue
+	as interpolated-ast _
+		false
+	as lambda-ast _
+		false
+	as let-ast x
+		x.then has-break-or-continue
+	as literal-float-and-range _
+		false
+	as literal-integral-and-range _
+		false
+	as literal-string-ast _
+		false
+	as loop-ast _
+		false
+	as loop-break-ast _
+		true
+	as loop-continue-ast _
+		true
+	as loop-while-or-until-ast x
+		x.after has-break-or-continue
+	as match-ast x
+		x.cases exists case_ => case_.then has-break-or-continue
+	as parenthesized-ast _
+		false
+	as ptr-ast _
+		false
+	as seq-ast x
+		x.then has-break-or-continue
+	as shared-ast _
+		false
+	as throw-ast _
+		false
+	as trusted-ast _
+		false
+	as try-ast _
+		false
+	as try-let-ast x
+		x.then has-break-or-continue
+	as typed-ast _
+		false
+	as with-ast _
+		false
+
+-check-for expr(ctx expr-ctx, locals locals-info, ast for-ast, expected expected)
+	fun-name symbol = ast.body has-break-or-continue ? "for-break" : "for-loop"
+	keyword-range = ast for-keyword-range
+	if else_ ?= ast else_
+		ctx check-call-arg-and-2-lambdas locals, ast.to, ast.to, keyword-range, fun-name,
+			ast.collection, ast.param, ast.body, else_, expected
+	else
+		ctx check-call-arg-and-lambda locals, ast.to, ast.to, keyword-range, fun-name,
+			ast.collection, ast.param, ast.body, expected
+
+-check-with expr(ctx expr-ctx, locals locals-info, ast with-ast, expected expected)
+	keyword-range = ast with-keyword-range
+	if _ ?= ast else_
+		ctx add-diag keyword-range, diag-with-has-else
+	ctx check-call-arg-and-lambda locals, ast.to, ast.to, keyword-range, "with-block",
+		ast.arg, ast.param, ast.body, expected
+
+-check-finally expr(ctx expr-ctx, locals locals-info, ast finally-ast, expected expected)
+	if _ ?= expected try-get-loop
+		ctx add-diag ast.finally-keyword-range, finally_::diag-loop-disallowed-body.to
+		expected bogus ast.range
+	else
+		right = ctx check-and-expect locals, ast.right, ctx.void-type
+		below = ctx check-expr locals, ast.below, expected
+		ast finally-expr right, below
+
+-check-try expr(ctx expr-ctx, locals locals-info, ast try-ast, expected expected)
+	if _ ?= expected try-get-loop
+		ctx add-diag ast.try-keyword-range, try_::diag-loop-disallowed-body.to
+		expected bogus ast.range
+	else
+		body = ctx check-expr locals, ast.tried, expected
+		catches = ctx check-match-sum-type-cases locals, ctx.common-types.exception, ast.catches, expected
+		ast try-expr body, catches
+
+-check-try-let expr(ctx expr-ctx, locals locals-info, ast try-let-ast, expected expected)
+	value expr-and-type = ctx check-and-expect-or-infer locals, ast.value, (ctx type-from-destructure ast.destructure)
+	destructure = ctx check-destructure ast.destructure, value.type, local
+	guard catch_ ?= ctx check-match-sum-type-case locals, ctx.common-types.exception, ast.catch-member, ast.catch_, expected : expected bogus ast.range
+	then = ctx check-expr-with-destructure locals, destructure, ast.then, expected
+	ast try-let-expr destructure, value.expr, catch_, then
+
+-check-typed expr(ctx expr-ctx, locals locals-info, ast typed-ast, expected expected)
+	type = ctx type-from-ast ast.type
+	guard type !is-bogus : expected bogus ast.range
+	if inferred ?= ctx.instantiate-ctx try-get-non-inferring-type expected
+		# If inferred != type, we'll fail in 'check'
+		if inferred == type
+			ctx add-diag ast.keyword-and-type-range, (ctx type-with-container type).diag-type-annotation-unnecessary
+	expr = ctx check-and-expect locals, ast.expr, type
+	ctx check expected, type, (ast typed-expr expr)
