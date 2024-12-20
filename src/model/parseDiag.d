@@ -74,7 +74,6 @@ enum ParseDiagExpected {
 	quoteDouble,
 	quoteDouble3,
 	slash,
-	typeArgsEnd,
 }
 immutable struct ParseDiagFileNotUtf8 {}
 immutable struct ParseDiagImportFileTypeNotSupported {}

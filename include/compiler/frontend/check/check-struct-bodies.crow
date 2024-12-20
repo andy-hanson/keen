@@ -1,0 +1,817 @@
+import
+	../../model/ast
+	../../model/integral-values
+	../../model/model
+	../../model/source-range
+	../../util/util
+	./check-call/check-call
+	./check-call/candidates
+	./check-ctx
+	./check-util
+	./expr-ctx
+	./instantiate
+	./maps
+	./type-from-ast
+
+modifier-type-arg-invalid void(ctx check-ctx, modifier modifier-keyword-ast)
+	if _ ?= modifier type-arg
+		ctx add-diag modifier.range, modifier.keyword.diag-modifier-type-arg-invalid
+
+modifier-type-arg-invalid void(ctx check-ctx, modifiers modifier-keyword-ast?[])
+	for modifier : modifiers
+		if x ?= modifier
+			ctx modifier-type-arg-invalid x
+
+check-structs-initial struct-decl[](ctx check-ctx, asts struct-decl-ast[])
+	for ast : asts
+		ctx check-type-params ast.type-params
+		m = ctx get-struct-modifiers ast.body.get-decl-kind, ast.modifiers
+		id: ctx.next-id
+		source: ast to
+		module-uri: ctx cur-uri
+		visibility: ast.visibility visibility-from-explicit-top-level
+		extern_: m extern_
+		is-summon: m is-summon
+		purity: m.purity-and-forced purity
+		purity-is-forced: m.purity-and-forced forced
+		doc-comment-references: ()
+		sum-type-memberships: ()
+		body: struct-body-bogus
+
+check-struct-bodies void(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	structs struct-decl[],
+	asts struct-decl-ast[],
+)
+	for struct, ast : structs zip asts
+		struct.sum-type-memberships := ctx check-sum-type-memberships-initial common-types, structs-and-aliases-map, struct, ast
+		struct.body := match ast body
+		as builtin-type-ast _
+			ctx check-only-common-modifiers builtin_, ast.modifiers
+			ctx get-builtin-type struct to
+		as enum-ast x
+			ctx check-no-type-params ast.type-params, enum_
+			storage_ = ctx check-enum-or-flags-modifiers common-types, structs-and-aliases-map, struct, enum_, ast.modifiers, false
+			ctx check-enum struct, ast.range, x, storage_
+		as extern-type-ast x
+			ctx check-extern ast, x to
+		as flags-ast x
+			ctx check-no-type-params ast.type-params, flags_
+			storage_ = ctx check-enum-or-flags-modifiers common-types, structs-and-aliases-map, struct, flags_, ast.modifiers, true
+			ctx check-flags struct, x, storage_ to
+		as record-ast x
+			ctx check-record common-types, structs-and-aliases-map, struct, ast.modifiers, x to
+		as sum-type-ast x
+			ctx check-sum-type common-types, structs-and-aliases-map, struct, ast, x to
+
+-check-sum-type sum-type(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	struct struct-decl,
+	ast struct-decl-ast,
+	ast-body sum-type-ast,
+)
+	ctx check-only-common-modifiers ast-body.kind.decl-kind-for-sum-type, ast.modifiers
+	listed-members = ctx check-sum-type-listed-members-initial common-types, structs-and-aliases-map, struct, ast-body
+	sigs = ctx check-signatures common-types, structs-and-aliases-map, struct.to, ast.type-params, ast-body.methods
+	ast-body.kind, listed-members, sigs
+
+check-signatures signature[](
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	container signature-container,
+	type-params type-params,
+	asts signature-ast[],
+)
+	for ast : asts
+		return-type, params = ctx check-return-type-and-params common-types, container.to, ast.return-type, ast.params, type-params, structs-and-aliases-map
+		params-array = match params
+		as array x
+			x
+		as varargs x
+			ctx add-diag x.param.range, diag-spec-sig-cant-be-variadic
+			x.param,
+		container, ast, return-type, params-array, ()
+
+-check-sum-type-listed-members-initial sum-type-member-and-method-impls[](
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	sum-type struct-decl,
+	ast sum-type-ast,
+)
+	if ast.kind == union_
+		if ast.types is-empty
+			ctx add-diag sum-type.keyword-range.range, diag-empty-enum-or-union
+		res sum-type-member-and-method-impls mut[] = ()
+		for type-ast : ast types
+			type = ctx type-from-ast common-types, structs-and-aliases-map, type-ast, sum-type.type-params, yes
+			if member ?= type struct-inst
+				if res exists x => x.member.decl == member.decl
+					ctx add-diag type-ast.range, (union-member diag-duplicate-declaration member.decl.name)
+				else
+					res ~= (member, ())
+			elif type !is-bogus
+				ctx add-diag type-ast.range, diag-union-member-type-parameter
+		res move-to
+	else
+		if ast.types !is-empty
+			ctx add-diag (ast.types[0].range combine-ranges ast.types[end - 1].range), diag-sum-type-listed-members-non-union
+		()
+
+-check-sum-type-memberships-initial sum-type-membership[](
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	struct struct-decl,
+	ast struct-decl-ast,
+)
+	res sum-type-membership mut[] = ()
+	for mod : ast modifiers
+		guard membership ?= ctx sum-type-membership-from-modifier common-types, structs-and-aliases-map, struct, mod
+		if struct is-template
+			ctx add-diag mod.range, struct.diag-case-type-is-template
+		elif res exists x => x.sum-type.decl == membership.sum-type.decl
+			ctx add-diag mod.range, (struct diag-case-duplicate membership.sum-type.decl)
+		else
+			res ~= membership
+	res move-to
+-sum-type-membership-from-modifier sum-type-membership?(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	struct struct-decl,
+	mod modifier-ast,
+)
+	guard kw ?= mod modifier-keyword-ast
+	guard kw.keyword == case_
+	if type-ast ?= kw type-arg
+		type = ctx type-from-ast common-types, structs-and-aliases-map, type-ast, struct.type-params, yes
+		if type is-interface-or-variant
+			(kw, type.struct-inst!, ()),
+		else
+			if type !is-bogus
+				ctx add-diag kw.range, (struct diag-case-invalid-sum-type type)
+			()
+	else
+		ctx add-diag kw.range, diag-case-missing-type
+		()
+
+-is-interface-or-variant bool(a type)
+	if x ?= a struct-inst
+		x.decl.body is-interface-or-variant
+-is-interface-or-variant bool(a struct-body)
+	if s ?= a sum-type
+		match s kind
+		as interface_
+			true
+		as variant_
+			true
+		as union_
+			false
+
+check-method-impls void(ctx check-ctx, common-types common-types, funs-map funs-map, structs struct-decl[])
+	for struct : structs
+		if sum ?= struct.body sum-type
+			members = sum listed-members
+			member-asts = struct.source.struct-decl-ast!.body.sum-type-ast! types
+			for i, x : members with-index
+				x.method-impls := ctx check-method-impls-for-case common-types, funs-map,
+					struct.to, x.member,
+					(members.size == member-asts.size ? member-asts[i].range : struct.name-range.range),
+					(ctx.instantiate-ctx instantiate-struct-with-own-type-params struct),
+					struct.body.sum-type!.methods
+		
+		for x : struct.sum-type-memberships
+			member-type = ctx.instantiate-ctx instantiate-struct-with-own-type-params struct
+			x.method-impls := ctx check-method-impls-for-case common-types, funs-map,
+				struct.to, member-type, x.ast.range, x.sum-type, x.sum-type-decl-methods
+
+-check-method-impls-for-case called?[](
+	ctx check-ctx,
+	common-types common-types,
+	funs-map funs-map,
+	type-container type-container,
+	member-type struct-inst,
+	diag-range source-range,
+	sum-type struct-inst,
+	method-decls signature[],
+)
+	member = member-type decl
+	# Use the best case for the member type, because:
+	# * Union cases have the same type parameters as the union.
+	# * Interface or variant cases can't be templates anyway.
+	unless sum-type.purity-range is-purity-always-compatible member-type.purity-range.best-case
+		ctx add-diag diag-range, (member diag-purity-worse-than-sum-type sum-type)
+	
+	for sig : method-decls
+		types type[] = with out : build
+			out ~= ctx.instantiate-ctx instantiate-type sig.return-type, sum-type.type-args
+			out ~= member-type to
+			for x : sig.params[1 .. end]
+				out ~= ctx.instantiate-ctx instantiate-type x.type, sum-type.type-args
+		called = ctx find-function-for-return-and-param-types common-types, type-container,
+			(ctx funs-in-non-expr-scope funs-map),
+			(none with-summon member.is-summon),
+			member.extern-set,
+			(),
+			sig.name,
+			diag-range,
+			(),
+			(types,),
+			() => false
+		if fun ?= called?.fun-inst
+			if fun.decl.visibility < (sum-type.decl.visibility least-visibility member.visibility)
+				ctx add-diag diag-range, (member diag-method-impl-visibility sum-type, fun)
+		called
+
+-check-extern extern-type(ctx check-ctx, decl-ast struct-decl-ast, body-ast extern-type-ast)
+	ctx check-no-type-params decl-ast.type-params, extern_
+	ctx check-only-common-modifiers extern_, decl-ast.modifiers
+	(ctx get-extern-type-size body-ast),
+
+-get-extern-type-size type-size?(ctx check-ctx, body-ast extern-type-ast)
+	if size-ast ?= body-ast size
+		size = ctx get-size-value size-ast
+		default = size default-alignment
+		alignment = if alignment-ast ?= body-ast alignment
+			alignment = ctx get-size-value alignment-ast
+			if alignment is-valid-alignment
+				if alignment == default
+					ctx add-diag alignment-ast.range, alignment-is-default::diag-extern-type-error.to
+				alignment
+			else
+				ctx add-diag alignment-ast.range, bad-alignment::diag-extern-type-error.to
+				default
+		else
+			default
+		(size, alignment),
+	else
+		assert body-ast.alignment is-empty
+		()
+
+-get-size-value nat(ctx check-ctx, ast literal-integral-and-range)
+	(ctx check-literal-integral-value nat64, ast).as-unsigned
+
+-is-valid-alignment bool(alignment nat)
+	match alignment
+	as 1
+		true
+	as 2
+		true
+	as 4
+		true
+	as 8
+		true
+	as 16
+		true
+	else
+		false
+
+-default-alignment nat(size nat)
+	if size == 0
+		0
+	elif size is-multiple-of 8
+		8
+	elif size is-multiple-of 4
+		4
+	elif size is-multiple-of 2
+		2
+	else
+		1
+
+-struct-modifiers record(extern_ symbol-set?, is-summon bool, purity-and-forced purity-and-forced)
+-purity-and-forced record(purity purity, forced bool)
+
+# Purity is taken for granted here, and verified later when we check the body.
+-get-struct-modifiers struct-modifiers(ctx check-ctx, decl-kind decl-kind, modifiers modifier-ast[])
+	accum struct-modifier-asts = ctx accumulate-struct-modifiers modifiers
+	default-extern symbol-set? = decl-kind == extern_ ? ((),) : ()
+	extern_ symbol-set? = if keyword ?= accum extern_
+		if decl-kind is-sum-type
+			ctx add-diag keyword.keyword-range, diag-extern-sum-type
+			default-extern
+		else
+			set = ctx get-externs-from-modifier keyword, false
+			if _ ?= default-extern
+				ctx add-diag keyword.keyword-range, (keyword.keyword diag-modifier-redundant-due-to-decl-kind decl-kind)
+			set,
+	else
+		default-extern
+	is-summon = if x ?= accum.summon_
+		ctx modifier-type-arg-invalid x
+		true
+	default-purity = decl-kind default-purity
+	purity = if keyword ?= accum purity-and-forced
+		pf = keyword.keyword purity-and-forced-from-modifier!
+		if pf.purity == default-purity
+			ctx add-diag keyword.keyword-range, (keyword.keyword diag-modifier-redundant-due-to-decl-kind decl-kind)
+		pf
+	else
+		default-purity, false
+	extern_, is-summon, purity
+
+-struct-modifier-asts record
+	extern_ modifier-keyword-ast?
+	summon_ modifier-keyword-ast?
+	purity-and-forced modifier-keyword-ast?
+-accumulate-struct-modifiers struct-modifier-asts(ctx check-ctx, modifiers modifier-ast[])
+	extern_ modifier-keyword-ast? reference = (),
+	summon_ modifier-keyword-ast? reference = (),
+	purity-and-forced modifier-keyword-ast? reference = (),
+	for modifier : modifiers
+		if modifier is-common-modifier
+			kw = modifier modifier-keyword-ast!
+			if kw.keyword != case_
+				ref = match kw keyword
+				as extern_
+					extern_
+				as summon_
+					summon_
+				else
+					purity-and-forced
+				ctx accumulate-modifier ref, kw
+	ctx modifier-type-arg-invalid (*purity-and-forced,)
+	*extern_, *summon_, *purity-and-forced
+		
+-decl-kind-for-sum-type decl-kind(a sum-type-kind)
+	match a
+	as interface_
+		interface_
+	as union_
+		union_
+	as variant_
+		variant_
+
+-is-sum-type bool(a decl-kind)
+	match a
+	as interface_
+		true
+	as union_
+		true
+	as variant_
+		true
+	else
+		false
+
+-default-purity purity(a decl-kind)
+	match a
+	as alias_
+		throw unreachable
+	as builtin_
+		data_
+	as enum_
+		data_
+	as extern_
+		mut_
+	as extern-function
+		throw unreachable
+	as flags_
+		data_
+	as function_
+		throw unreachable
+	as global_
+		throw unreachable
+	as interface_
+		data_
+	as record_
+		data_
+	as spec_
+		throw unreachable
+	as test_
+		throw unreachable
+	as thread-local_
+		throw unreachable
+	as union_
+		data_
+	as variant_
+		data_
+
+-get-decl-kind decl-kind(a struct-body-ast)
+	match a
+	as builtin-type-ast _
+		builtin_
+	as enum-ast _
+		enum_
+	as extern-type-ast _
+		extern_
+	as flags-ast _
+		flags_
+	as record-ast _
+		record_
+	as sum-type-ast x
+		x.kind decl-kind-for-sum-type
+
+-purity-and-forced-from-modifier purity-and-forced?(a modifier-keyword)
+	match a
+	as data_
+		(data_, false),
+	as force-shared_
+		(shared_, true),
+	as mut_
+		(mut_, false),
+	as shared_
+		(shared_, false),
+	else
+		()
+
+-check-only-common-modifiers void(ctx check-ctx, decl-kind decl-kind, modifiers modifier-ast[])
+	for modifier : modifiers
+		if modifier !is-common-modifier
+			ctx add-diag modifier.range, match modifier
+			as modifier-keyword-ast x
+				if x.keyword == by-val_
+					x.keyword diag-modifier-redundant-due-to-decl-kind decl-kind
+				else
+					x.keyword diag-modifier-invalid decl-kind
+			as spec-use-ast _
+				decl-kind diag-spec-use-invalid
+
+-is-common-modifier bool(a modifier-ast)
+	match a
+	as modifier-keyword-ast x
+		match x keyword
+		as case_
+			true
+		as extern_
+			true
+		as summon_
+			true
+		else
+			x.keyword.purity-and-forced-from-modifier !is-empty
+	as spec-use-ast _
+		false
+
+-check-enum struct-body(
+	ctx check-ctx,
+	struct struct-decl,
+	range source-range,
+	ast enum-ast,
+	storage_ integral-type,
+)
+	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, enum-member, storage_, last-value =>
+		if x ?= last-value
+			((x.as-unsigned wrap-add 1),), x.as-unsigned == storage_.max-value
+		else
+			(0::nat,), false
+	if members.members is-empty
+		ctx add-diag range, diag-empty-enum-or-union
+	storage_ enum_ members.members, members.members-by-name
+
+-check-flags flags_(ctx check-ctx, struct struct-decl, ast flags-ast, storage_ integral-type)
+	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, flags-member, storage_, last-value =>
+		if x ?= last-value
+			# TODO: diagnostic if the last value isn't a power of 2
+			# TODO: I think all this is silly. We should just require that *all* values be specified or *none* at all -----------------------------
+			((x.as-unsigned wrap-mul 2),), x.as-unsigned >= storage_.max-value / 2
+		else
+			(1::nat,), false
+	storage_, members.members
+
+-value-and-overflow record(value integral-value, overflow bool)
+# TODO: we don't need members-by-name for flags ...................................................................................
+-enum-or-flags-members record(members enum-or-flags-member[], members-by-name enum-or-flags-member[symbol]) mut
+-check-enum-or-flags-members enum-or-flags-members(
+	ctx check-ctx,
+	struct struct-decl,
+	params-ast params-ast?,
+	member-asts enum-or-flags-member-ast[],
+	member-kind diag-duplicate-declaration-kind,
+	storage_ integral-type,
+	cb-get-next-value value-and-overflow mut(last-value integral-value?),
+)
+	if params-ast !is-empty && member-asts !is-empty
+		ctx add-diag struct.name-range.range, (struct diag-struct-params-syntax-error has-params-and-fields)
+
+	last-value mut nat? = ()
+	cb-value cb-enum-value = (value-range, literal) =>
+		value = if x ?= literal
+			ctx check-literal-integral-value storage_, x
+		else
+			value-and-overflow = cb-get-next-value[last-value?.new]
+			if value-and-overflow overflow
+				ctx add-diag value-range, storage_.diag-literal-overflow
+			value-and-overflow value
+		last-value := value.as-unsigned,
+		value
+	
+	members = if x ?= params-ast
+		ctx enum-or-flags-members-from-params struct, x, cb-value
+	else
+		for x : member-asts
+			x.to, struct, cb-value[x.range, x.value], ()
+	
+	members-by-name enum-or-flags-member[symbol] = members make-hash-table (x => x.name), duplicate =>
+		ctx add-diag duplicate.name-range.range, (member-kind diag-duplicate-declaration duplicate.name)
+	members each-pair (x, y) =>
+		if x.value == y.value
+			ctx add-diag y.range, (storage_.is-signed diag-enum-duplicate-value y.value)
+	members, members-by-name
+
+-cb-enum-value alias
+	integral-value mut(range source-range, explicit literal-integral-and-range?)
+
+-enum-or-flags-members-from-params enum-or-flags-member[](
+	ctx check-ctx,
+	enum-or-flags struct-decl,
+	params params-ast,
+	cb-value cb-enum-value,
+)
+	match params
+	as array destructures
+		with out : build
+			for x : destructures
+				if member ?= ctx enum-member-from-param enum-or-flags, x, cb-value[x.range, ()]
+					out ~= member
+	as varargs-ast x
+		ctx add-diag x.param.range, (enum-or-flags diag-struct-params-syntax-error variadic)
+		()
+
+-default-enum-backing-type integral-type()
+	nat32
+
+-get-enum-type-from-type integral-type(
+	ctx check-ctx,
+	struct struct-decl,
+	range source-range,
+	common-types common-types,
+	type type,
+)
+	integrals = common-types integrals
+	# TODO: we don't need common-types for this, the builtin types store what kind of builtin they are! --------------------
+	match type
+	as bogus-type _
+		default-enum-backing-type
+	as type-param-index _
+		# Enums can't have type params
+		throw unreachable
+	as struct-inst x
+		if x == integrals.int8
+			int8
+		elif x == integrals.int16
+			int16
+		elif x == integrals.int32
+			int32
+		elif x == integrals.int64
+			int64
+		elif x == integrals.nat8
+			nat8
+		elif x == integrals.nat16
+			nat16
+		elif x == integrals.nat32
+			nat32
+		elif x == integrals.nat64
+			nat64
+		else
+			ctx add-diag range, (struct diag-enum-backing-type-invalid x.to)
+			default-enum-backing-type
+
+-check-record record_(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	struct struct-decl,
+	modifier-asts modifier-ast[],
+	ast record-ast,
+)
+	modifiers = ctx accumulate-record-modifiers modifier-asts
+	extern-forces-by-val = struct.linkage != internal && struct.extern-set != ("js",)
+	val-or-ref by-val-or-ref? = if extern-forces-by-val
+		by-val_,
+	elif x ?= modifiers by-val-or-ref
+		x.keyword.to!,
+	if extern-forces-by-val
+		if x ?= modifiers.by-val-or-ref
+			ctx add-diag x.keyword-range, struct.diag-extern-record-implicitly-by-val
+
+	fields = ctx check-record-fields common-types, structs-and-aliases-map, struct, ast
+	flags_ record-flags = do
+		new-visibility: ctx record-new-visibility struct, fields, modifiers
+		nominal_: modifiers.nominal_ !is-empty
+		packed_: modifiers.packed_ !is-empty
+		forced-by-val-or-ref: val-or-ref
+	flags_, fields
+
+-to by-val-or-ref?(a modifier-keyword)
+	match a
+	as by-val_
+		by-val_,
+	as by-ref_
+		by-ref_,
+	else
+		()
+
+-check-record-fields record-field[](
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	struct struct-decl,
+	ast record-ast,
+)
+	if ast.params !is-empty && ast.fields !is-empty
+		ctx add-diag struct.name-range.range, (struct diag-struct-params-syntax-error has-params-and-fields)
+	res = if x ?= ast params
+		ctx record-fields-from-params common-types, structs-and-aliases-map, struct, x
+	else
+		for x : ast fields
+			ctx check-record-field common-types, structs-and-aliases-map, struct, x.to, x.visibility, x.name, x.mutability, x.type
+	res each-pair (x, y) =>
+		if x.name == y.name
+			ctx add-diag y.range, (record-field diag-duplicate-declaration y.name)
+	res
+# TODO: INLINE --------------------------------------------------------------------------------------------------------------------------
+-record-fields-from-params record-field[](
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	struct struct-decl,
+	ast params-ast,
+)
+	match ast
+	as array destructures
+		with out : build
+			for param : destructures
+				if field ?= ctx record-field-from-param common-types, structs-and-aliases-map, struct, param
+					out ~= field
+	as varargs-ast x
+		ctx add-diag x.param.range, (struct diag-struct-params-syntax-error variadic)
+		()
+
+# TODO: move closer to where it is used? ------------------------------------------------------------------------------------------
+-enum-member-from-param enum-or-flags-member?(
+	ctx check-ctx,
+	enum_ struct-decl,
+	ast destructure-ast,
+	value integral-value,
+)
+	if single ?= ast single-destructure-ast
+		if x ?= single mut-range
+			ctx add-diag x, enum-member-mutability::diag-unsupported-syntax.to
+		if x ?= single type
+			ctx add-diag x.range, enum-member-type::diag-unsupported-syntax.to
+		(single.to, enum_, value, ()),
+	else
+		ctx add-diag ast.range, (enum_ diag-struct-params-syntax-error destructure)
+		()
+
+-record-field-from-param record-field?(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	record_ struct-decl,
+	ast destructure-ast,
+)
+	if single ?= ast single-destructure-ast
+		mutability field-mutability-ast? = if x ?= single mut_
+			(x, ()),
+		res = ctx check-record-field common-types, structs-and-aliases-map, record_, single.to,
+			(), single.name, mutability, single.type
+		res,
+	else
+		ctx add-diag ast.range, (record_ diag-struct-params-syntax-error destructure)
+		()
+
+# Shared in common between {single-destructure-ast} and {record-field-ast}
+-check-record-field record-field(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	record_ struct-decl,
+	source record-field-source,
+	visibility-ast visibility-and-range?,
+	name name-and-range,
+	mutability-ast field-mutability-ast?,
+	type-ast type-ast?,
+)
+	member-type = if x ?= type-ast
+		ctx type-from-ast common-types, structs-and-aliases-map, x, record_.type-params, yes
+	else
+		ctx add-diag name.range, name.name.diag-record-field-needs-type
+		bogus-type
+	ctx check-reference-linkage-and-purity record_, source.range, member-type
+	
+	visibility = ctx visibility-from-default-with-diag record_.visibility, visibility-ast, (record_ visibility-warning-field name.name)
+	mutability visibility? = if x ?= mutability-ast
+		if record_.purity != mut_ && record_ !purity-is-forced
+			ctx add-diag x.range, diag-mut-field-not-allowed
+		(ctx visibility-from-default-with-diag visibility, x.visibility, name.name.visibility-warning-field-mutability),
+	source, record_, visibility, mutability, member-type, ()
+
+| TODO: {is-flags} is redundant to the declKind
+check-enum-or-flags-modifiers integral-type(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	struct struct-decl,
+	decl-kind decl-kind,
+	modifiers modifier-ast[],
+	is-flags bool,
+)
+	storage-modifier mut modifier-keyword-ast? = ()
+	for modifier : modifiers
+		guard modifier !is-common-modifier
+		if x ?= modifier modifier-keyword-ast
+			if x.keyword == storage_
+				if _ ?= storage-modifier
+					ctx add-diag x.keyword-range, storage_.diag-modifier-duplicate
+				else
+					storage-modifier := x,
+			else
+				ctx add-diag x.keyword-range, if x.keyword == by-val_
+					x.keyword diag-modifier-redundant-due-to-decl-kind decl-kind
+				else
+					x.keyword diag-modifier-invalid decl-kind
+		else
+			ctx add-diag modifier.range, decl-kind.diag-spec-use-invalid
+	
+	if x ?= storage-modifier
+		if type-ast ?= x type-arg
+			type = ctx type-from-ast common-types, structs-and-aliases-map, type-ast, (), yes
+			res = ctx get-enum-type-from-type struct, type-ast.range, common-types, type
+			if is-flags && res is-signed
+				ctx add-diag x.keyword-range, diag-flags-signed
+			res
+		else
+			ctx add-diag x.keyword-range, diag-storage-missing-type
+			nat32
+	else
+		nat32
+
+-record-modifiers record
+	by-val-or-ref modifier-keyword-ast?
+	new-visibility modifier-keyword-ast?
+	nominal_ modifier-keyword-ast?
+	packed_ modifier-keyword-ast?
+
+-accumulate-modifier void(ctx check-ctx, ref modifier-keyword-ast? reference, new modifier-keyword-ast)
+	if old ?= *ref
+		ctx add-diag new.keyword-range, if new.keyword == old.keyword
+			new.keyword diag-modifier-duplicate
+		else
+			old.keyword diag-modifier-conflict new.keyword
+	*ref := new,
+
+-accumulate-record-modifiers record-modifiers(ctx check-ctx, modifiers modifier-ast[])
+	by-val-or-ref modifier-keyword-ast? reference = (),
+	new-visibility modifier-keyword-ast? reference = (),
+	nominal-keyword modifier-keyword-ast? reference = (),
+	packed-keyword modifier-keyword-ast? reference = (),
+
+	for modifier : modifiers
+		guard x ?= modifier modifier-keyword-ast : ctx add-diag modifier.range, record_.diag-spec-use-invalid
+		keyword = x keyword
+		if keyword == by-ref_ || keyword == by-val_
+			ctx accumulate-modifier by-val-or-ref, x
+		elif keyword == new-internal || keyword == new-private || keyword == new-public
+			ctx accumulate-modifier new-visibility, x
+		elif keyword == nominal_
+			ctx accumulate-modifier nominal-keyword, x
+		elif keyword == packed_
+			ctx accumulate-modifier packed-keyword, x
+		elif modifier !is-common-modifier
+			ctx add-diag x.keyword-range, (keyword diag-modifier-invalid record_)
+	
+	ctx modifier-type-arg-invalid (*by-val-or-ref, *new-visibility, *nominal-keyword, *packed-keyword)
+	*by-val-or-ref, *new-visibility, *nominal-keyword, *packed-keyword
+
+-check-reference-linkage-and-purity void(ctx check-ctx, struct struct-decl, range source-range, referenced-type type)
+	unless struct.linkage is-linkage-possibly-compatible referenced-type.linkage-range
+		ctx add-diag range, (struct diag-linkage-worse-than-containing-type referenced-type)
+	ctx check-reference-purity struct, range, referenced-type
+
+-check-reference-purity void(ctx check-ctx, struct struct-decl, range source-range, referenced-type type)
+	unless struct.purity is-purity-possibly-compatible referenced-type.purity-range || struct purity-is-forced
+		ctx add-diag range, (struct diag-purity-worse-than-parent referenced-type.struct-inst!)
+
+-record-new-visibility visibility(
+	ctx check-ctx,
+	record_ struct-decl,
+	fields record-field[],
+	modifiers record-modifiers,
+)
+	default mut = record_ visibility
+	for field : fields
+		default least-visibility:= field visibility
+	explicit visibility-and-range? = if x ?= modifiers new-visibility
+		(x.keyword.visibility-from-new-visibility, x.keyword-pos),
+	ctx visibility-from-default-with-diag default, explicit, record_.visibility-warning-new
+
+-visibility-from-new-visibility visibility(a modifier-keyword)
+	match a
+	as new-private
+		private
+	as new-internal
+		internal
+	as new-public
+		public
+	else
+		throw unreachable
+
+-get-builtin-type builtin-type(ctx check-ctx, struct struct-decl)
+	struct.name.to ?? do
+		ctx add-diag-assert-same-uri struct.name-range, (type diag-builtin-unsupported struct.name)
+		void

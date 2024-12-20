@@ -472,8 +472,6 @@ string showParseDiagExpected(ParseDiagExpected kind) {
 			return "Expected '\"\"\"'.";
 		case ParseDiagExpected.slash:
 			return "Expected '/'.";
-		case ParseDiagExpected.typeArgsEnd:
-			return "Expected '>'.";
 	}
 }
 
@@ -522,10 +520,6 @@ void writeSpecTrace(
 }
 
 void writeCallNoMatch(scope ref Writer writer, in ShowDiagCtx ctx, in DiagCallNoMatch d) {
-	bool someCandidateHasCorrectNTypeArgs =
-		d.actualNTypeArgs == 0 ||
-		exists!CalledDecl(d.allCandidates, (in CalledDecl c) =>
-			nTypeParams(c) == 1 || nTypeParams(c) == d.actualNTypeArgs);
 	bool someCandidateHasCorrectArity =
 		exists!CalledDecl(d.allCandidates, (in CalledDecl c) =>
 			(d.actualNTypeArgs == 0 || nTypeParams(c) == d.actualNTypeArgs) &&
@@ -533,9 +527,13 @@ void writeCallNoMatch(scope ref Writer writer, in ShowDiagCtx ctx, in DiagCallNo
 
 	if (isEmpty(d.allCandidates))
 		writeCallNoCandidates(writer, ctx, d);
-	else if (!someCandidateHasCorrectArity)
+	else if (!someCandidateHasCorrectArity) {
+		bool someCandidateHasCorrectNTypeArgs =
+			d.actualNTypeArgs == 0 ||
+			exists!CalledDecl(d.allCandidates, (in CalledDecl c) =>
+				nTypeParams(c) == 1 || nTypeParams(c) == d.actualNTypeArgs);
 		writeCallNoCorrectArity(writer, ctx, d, someCandidateHasCorrectNTypeArgs);
-	else
+	} else
 		writeCallCloseMatch(writer, ctx, d);
 }
 
@@ -766,7 +764,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagCaseInvalidSumType x) {
 			writer ~= "'case' requires an 'interface' or 'variant' type, not ";
-			writeTypeUnquoted(writer, ctx, TypeWithContainer(x.actual, TypeContainer(x.member)));
+			writeTypeQuoted(writer, ctx, TypeWithContainer(x.actual, TypeContainer(x.member)));
 			writer ~= '.';
 		},
 		(in DiagCaseMissingType x) {
@@ -777,7 +775,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= " can't be a 'case' because it is a template.";
 		},
 		(in DiagCharLiteralMustBeOneChar _) {
-			writer ~= "Value of 'char' type must be a single character";
+			writer ~= "Value of 'char' type must be a single character.";
 		},
 		(in DiagCommonFunDuplicate x) {
 			writer ~= "Module contains multiple valid ";
@@ -835,7 +833,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 					case DiagDuplicateDeclarationKind.typeParam:
 						return "Type parameter";
 					case DiagDuplicateDeclarationKind.unionMember:
-						return "Union case";
+						return "Union case type";
 				}
 			}();
 			writer ~= " name ";
@@ -865,7 +863,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		(in DiagEnumBackingTypeInvalid x) {
 			writer ~= "Type ";
 			writeTypeQuoted(writer, ctx, TypeWithContainer(x.actual, TypeContainer(x.enum_)));
-			writer ~= " cannot be used to back an enum.";
+			writer ~= " cannot be used as a storage type.";
 		},
 		(in DiagEnumDuplicateValue x) {
 			writer ~= "Duplicate enum value ";
@@ -888,7 +886,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagExternInvalidName x) {
 			writeName(writer, ctx, x.name);
-			writer ~= " is not a builtin extern name and is not configured in 'crow-config.json'";
+			writer ~= " is not a builtin extern name and is not configured in 'crow-config.json'.";
 		},
 		(in DiagExternIsUnsafe x) {
 			writer ~= "An 'extern' expression can only appear in an 'unsafe' or 'trusted' context.";
@@ -1027,11 +1025,11 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			}
 		},
 		(in DiagLambdaTypeMissingParamType _) {
-			writer ~= "Function type needs parameter types. " ~
-				"(It is parsed a as a destructure, so it needs both parameter names and types.)";
+			writer ~= "Lambda type needs parameter types. " ~
+				"(It is parsed as a destructure, so it needs both parameter names and types.)";
 		},
 		(in DiagLambdaTypeVariadic _) {
-			writer ~= "A function type can't be variadic; only a function can.";
+			writer ~= "A lambda type can't be variadic; only a function can.";
 		},
 		(in DiagLinkageWorseThanContainingFun x) {
 			writer ~= "'extern' function ";
@@ -1048,7 +1046,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= '.';
 		},
 		(in DiagLinkageWorseThanContainingType x) {
-			writer ~= "Extern type ";
+			writer ~= "'extern' type ";
 			writeName(writer, ctx, x.containingType.name);
 			writer ~= " can't reference non-extern type ";
 			writeTypeQuoted(writer, ctx, TypeWithContainer(x.referencedType, TypeContainer(x.containingType)));
@@ -1171,7 +1169,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			writer ~= () {
 				final switch (x) {
 					case DiagMatchNeedsElse.integral:
-						return "an integral ";
+						return "an integral";
 					case DiagMatchNeedsElse.stringLike:
 						return "a string or symbol";
 					case DiagMatchNeedsElse.variant:
@@ -1198,7 +1196,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 		},
 		(in DiagMatchUnhandledEnumMembers x) {
 			writer ~= "'match' is missing ";
-			writer ~= (x.members.length == 1 ? "handler for enum member " : "handlers for union members: ");
+			writer ~= (x.members.length == 1 ? "handler for enum member " : "handlers for enum members: ");
 			writeWithCommas!(EnumOrFlagsMember*)(writer, x.members, (in EnumOrFlagsMember* member) {
 				writeName(writer, ctx, member.name);
 			});
@@ -1451,7 +1449,7 @@ void writeDiag(scope ref Writer writer, in ShowDiagCtx ctx, in Diag diag) {
 			}
 		},
 		(in DiagSumTypeListedMembersNonUnion _) {
-			writer ~= "Only 'union' types support listing member types.";
+			writer ~= "Only 'union' types support listing case types.";
 		},
 		(in DiagTestMissingBody _) {
 			writer ~= "This test needs a body.";

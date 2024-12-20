@@ -42,7 +42,6 @@ import util.util : ptrTrustMe;
 
 CommonTypes* getCommonTypes(
 	ref Alloc alloc,
-	Uri curUri,
 	InstantiateCtx instantiateCtx,
 	scope ref ArrayBuilder!Diagnostic diagnosticsBuilder,
 	in StructsAndAliasesMap structsAndAliasesMap,

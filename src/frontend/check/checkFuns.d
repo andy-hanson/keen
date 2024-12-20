@@ -318,7 +318,7 @@ FunModifiers checkFunModifiers(
 					specFromAst(
 						ctx, commonTypes, structsAndAliasesMap, specsMap, typeParamsScope, x, noDelaySpecInsts)));
 	return FunModifiers(
-		checkFunFlags(ctx, range, allFlags, isExternBody: !hasBody && !cellGet(externs).isEmpty, isTest: false),
+		checkFunFlags(ctx, range, allFlags, isExternBody: !hasBody && !cellGet(externs).isEmpty),
 		(allFlags & CollectedFunFlags.builtin) != 0,
 		cellGet(externs), specs);
 }
@@ -368,7 +368,7 @@ TestModifiers checkTestModifiers(ref CheckCtx ctx, in TestAst ast) {
 			});
 	}
 	return TestModifiers(
-		checkFunFlags(ctx, ast.keywordRange, allFlags, isExternBody: false, isTest: true),
+		checkFunFlags(ctx, ast.keywordRange, allFlags, isExternBody: false),
 		cellGet(externs));
 }
 
@@ -397,7 +397,7 @@ enum CollectedFunFlags {
 CollectedFunFlags tryGetFunFlag(ModifierKeyword kind) =>
 	optEnumConvert!CollectedFunFlags(kind, () => CollectedFunFlags.none);
 
-FunFlags checkFunFlags(ref CheckCtx ctx, in Range range, CollectedFunFlags flags, bool isExternBody, bool isTest) {
+FunFlags checkFunFlags(ref CheckCtx ctx, in Range range, CollectedFunFlags flags, bool isExternBody) {
 	void warnRedundant(ModifierKeyword modifier, ModifierKeyword redundantModifier) {
 		addDiag(ctx, range, Diag(DiagModifierRedundantDueToModifier(modifier, redundantModifier)));
 	}

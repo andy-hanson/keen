@@ -204,7 +204,7 @@ void checkStructBodies(
 				checkNoTypeParams(ctx, ast.typeParams, DeclKind.enum_);
 				IntegralType storage = checkEnumOrFlagsModifiers(
 					ctx, commonTypes, structsAndAliasesMap, struct_, DeclKind.enum_, ast.modifiers, isFlags: false);
-				return checkEnum(ctx, commonTypes, structsAndAliasesMap, struct_, ast.range, x, storage);
+				return checkEnum(ctx, struct_, ast.range, x, storage);
 			},
 			(ExternTypeAst x) =>
 				StructBody(checkExtern(ctx, ast, x)),
@@ -212,7 +212,7 @@ void checkStructBodies(
 				checkNoTypeParams(ctx, ast.typeParams, DeclKind.flags);
 				IntegralType storage = checkEnumOrFlagsModifiers(
 					ctx, commonTypes, structsAndAliasesMap, struct_, DeclKind.flags, ast.modifiers, isFlags: false);
-				return StructBody(checkFlags(ctx, commonTypes, structsAndAliasesMap, struct_, ast.range, x, storage));
+				return StructBody(checkFlags(ctx, struct_, x, storage));
 			},
 			(RecordAst x) =>
 				StructBody(checkRecord(ctx, commonTypes, structsAndAliasesMap, struct_, ast.modifiers, x)),
@@ -263,17 +263,17 @@ private SmallArray!SumTypeMemberAndMethodImpls checkSumTypeListedMembersInitial(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,
 	ref StructsAndAliasesMap structsAndAliasesMap,
-	StructDecl* variant_,
+	StructDecl* sumType,
 	ref SumTypeAst ast,
 ) {
 	if (ast.kind == SumTypeKind.union_) {
 		if (isEmpty(ast.types))
-			addDiag(ctx, variant_.keywordRange.range, Diag(DiagEmptyEnumOrUnion()));
+			addDiag(ctx, sumType.keywordRange.range, Diag(DiagEmptyEnumOrUnion()));
 		return mapOpPointersWithSoFar!(SumTypeMemberAndMethodImpls, TypeAst)(
 			ctx.alloc, ast.types,
 			(TypeAst* typeAst, in SumTypeMemberAndMethodImpls[] soFar) {
 				Type type = typeFromAst(
-					ctx, commonTypes, structsAndAliasesMap, *typeAst, variant_.typeParams, AliasAllowed.yes);
+					ctx, commonTypes, structsAndAliasesMap, *typeAst, sumType.typeParams, AliasAllowed.yes);
 				if (type.isA!(StructInst*)) {
 					StructInst* member = type.as!(StructInst*);
 					if (exists!SumTypeMemberAndMethodImpls(soFar, (in SumTypeMemberAndMethodImpls x) =>
@@ -661,18 +661,9 @@ bool isCommonModifier(in ModifierAst a) =>
 		(in SpecUseAst _) =>
 			false);
 
-StructBody checkEnum(
-	ref CheckCtx ctx,
-	ref CommonTypes commonTypes,
-	ref StructsAndAliasesMap structsAndAliasesMap,
-	StructDecl* struct_,
-	in Range range,
-	in EnumAst e,
-	IntegralType storage,
-) {
+StructBody checkEnum(ref CheckCtx ctx, StructDecl* struct_, Range range, in EnumAst e, IntegralType storage) {
 	EnumOrFlagsMembers members = checkEnumOrFlagsMembers(
-		ctx, commonTypes, structsAndAliasesMap,
-		struct_, range, e.params, e.members, DiagDuplicateDeclarationKind.enumMember, storage,
+		ctx, struct_, e.params, e.members, DiagDuplicateDeclarationKind.enumMember, storage,
 		(Opt!IntegralValue lastValue) =>
 			has(lastValue)
 				? ValueAndOverflow(
@@ -684,18 +675,9 @@ StructBody checkEnum(
 	return StructBody(allocate(ctx.alloc, Enum(storage, members.members, members.membersByName)));
 }
 
-Flags checkFlags(
-	ref CheckCtx ctx,
-	ref CommonTypes commonTypes,
-	ref StructsAndAliasesMap structsAndAliasesMap,
-	StructDecl* struct_,
-	in Range range,
-	in FlagsAst ast,
-	IntegralType storage,
-) =>
+Flags checkFlags(ref CheckCtx ctx, StructDecl* struct_, in FlagsAst ast, IntegralType storage) =>
 	Flags(storage, checkEnumOrFlagsMembers(
-		ctx, commonTypes, structsAndAliasesMap,
-		struct_, range, ast.params, ast.members, DiagDuplicateDeclarationKind.flagsMember, storage,
+		ctx, struct_, ast.params, ast.members, DiagDuplicateDeclarationKind.flagsMember, storage,
 		(Opt!IntegralValue lastValue) =>
 			has(lastValue)
 				? ValueAndOverflow(
@@ -716,10 +698,7 @@ immutable struct EnumOrFlagsMembers {
 }
 EnumOrFlagsMembers checkEnumOrFlagsMembers(
 	ref CheckCtx ctx,
-	ref CommonTypes commonTypes,
-	ref StructsAndAliasesMap structsAndAliasesMap,
 	StructDecl* struct_,
-	in Range range,
 	in Opt!ParamsAst paramsAst,
 	in EnumOrFlagsMemberAst[] memberAsts,
 	DiagDuplicateDeclarationKind memberKind,
@@ -977,6 +956,7 @@ RecordField checkRecordField(
 	return RecordField(source, record, visibility, mutability, memberType);
 }
 
+// TODO: 'isFlags' is redundant to the declKind
 IntegralType checkEnumOrFlagsModifiers(
 	ref CheckCtx ctx,
 	ref CommonTypes commonTypes,

@@ -105,7 +105,6 @@ import util.col.array :
 	isEmpty,
 	mapOp,
 	mapPointers,
-	mapWithResultPointer,
 	newArray,
 	only,
 	small,
@@ -152,7 +151,7 @@ BootstrapCheck checkBootstrap(
 	checkWorker(
 		alloc, perf, allInsts, commonUris, [], uriAndAst,
 		(ref CheckCtx ctx, in StructsAndAliasesMap structsAndAliasesMap) =>
-			getCommonTypes(ctx.alloc, ctx.curUri, ctx.instantiateCtx, ctx.diagnosticsBuilder, structsAndAliasesMap));
+			getCommonTypes(ctx.alloc, ctx.instantiateCtx, ctx.diagnosticsBuilder, structsAndAliasesMap));
 
 Module* check(
 	scope ref Perf perf,
@@ -202,13 +201,8 @@ SpecDeclBody checkSpecDeclBody(
 	return SpecDeclBody(builtin, small!(immutable SpecInst*)(modifiers.parents), sigs);
 }
 
-@trusted SpecDecl[] checkSpecDeclsInitial(
-	ref CheckCtx ctx,
-	ref CommonTypes commonTypes,
-	ref StructsAndAliasesMap structsAndAliasesMap,
-	SpecDeclAst[] asts,
-) =>
-	mapWithResultPointer!(SpecDecl, SpecDeclAst)(ctx.alloc, asts, (SpecDeclAst* ast, SpecDecl* out_) {
+@trusted SpecDecl[] checkSpecDeclsInitial(ref CheckCtx ctx, SpecDeclAst[] asts) =>
+	mapPointers!(SpecDecl, SpecDeclAst)(ctx.alloc, asts, (SpecDeclAst* ast) {
 		checkTypeParams(ctx, ast.typeParams);
 		return SpecDecl(ctx.curUri, ast, visibilityFromExplicitTopLevel(ast.visibility));
 	});
@@ -417,7 +411,7 @@ Module* checkWorkerAfterCommonTypes(
 
 	VarDecl[] vars = mapPointers(ctx.alloc, ast.vars, (VarDeclAst* ast) =>
 		checkVarDecl(ctx, commonTypes, structsAndAliasesMap, ast));
-	SpecDecl[] specs = checkSpecDeclsInitial(ctx, commonTypes, structsAndAliasesMap, ast.specs);
+	SpecDecl[] specs = checkSpecDeclsInitial(ctx, ast.specs);
 	SpecsMap specsMap = buildSpecsMap(ctx, specs);
 	checkSpecBodies(ctx, commonTypes, structsAndAliasesMap, specsMap, ast.specs, specs);
 	FunsAndMap funsAndMap = checkFuns(
@@ -432,11 +426,10 @@ Module* checkWorkerAfterCommonTypes(
 		ast.funs,
 		ast.tests);
 	checkDocComments(
-		ctx, commonTypes,
-		structsAndAliasesMap, specsMap, funsAndMap.funsMap,
+		ctx, structsAndAliasesMap, specsMap, funsAndMap.funsMap,
 		structAliases, structs, specs, vars, funsAndMap.funs, funsAndMap.tests);
 	DocCommentReferences moduleDocCommentReferences = checkDocCommentReferences(
-		ctx, commonTypes, structsAndAliasesMap, specsMap, funsAndMap.funsMap,
+		ctx, structsAndAliasesMap, specsMap, funsAndMap.funsMap,
 		emptyTypeParams, emptySpecs, ast.docComment);
 	SmallArray!ImportOrExport imports = finishImports(ctx);
 	checkForUnused(ctx, structAliases, structs, specs, funsAndMap.funs);

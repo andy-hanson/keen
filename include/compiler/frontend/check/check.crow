@@ -1,0 +1,444 @@
+import
+	../../model/ast
+	../../model/model
+	../../model/source-range
+	../../model/uri
+	../../util/util
+	../all-insts
+	../lang
+	./check-doc-comments
+	./check-funs
+	./check-ctx
+	./check-struct-bodies
+	./check-util
+	./get-common-types
+	./maps
+	./instantiate
+	./type-from-ast
+
+uri-and-ast record(uri uri, config config, ast file-ast) mut
+resolved-import union(module, file-content, diag-import-file) mut
+
+check-bootstrap (module, common-types)(
+	all-insts all-insts,
+	common-uris common-uris,
+	uri-and-ast uri-and-ast,
+)
+	all-insts check-worker common-uris, (), uri-and-ast, (ctx, structs-and-aliases-map) =>
+		ctx.instantiate-ctx get-common-types ctx.diagnostics-builder, structs-and-aliases-map
+
+check module(
+	all-insts all-insts,
+	common-uris common-uris,
+	uri-and-ast uri-and-ast,
+	imports resolved-import[],
+	common-types common-types,
+)
+	module, _ = all-insts check-worker common-uris, imports, uri-and-ast, ((_, _) => common-types)
+	module
+
+-get-builtin-spec builtin-spec?(ctx check-ctx, range source-range, name symbol)
+	match name
+	as "data"
+		data_,
+	as "shared"
+		shared_,
+	else
+		ctx add-diag range, (spec_ diag-builtin-unsupported name)
+		()
+
+-check-spec-decl-body spec-decl-body(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	specs-map specs-map,
+	spec_ spec-decl,
+	type-params type-params,
+	delay-spec-insts delay-spec-insts,
+	ast spec-decl-ast,
+)
+	modifiers = ctx check-spec-modifiers common-types, structs-and-aliases-map, specs-map, delay-spec-insts, ast.type-params, ast.modifiers
+	builtin_ builtin-spec? = if modifiers is-builtin
+		ctx get-builtin-spec ast.name-range, ast.name.name
+	sigs = ctx check-signatures common-types, structs-and-aliases-map, spec_.to, type-params, ast.sigs
+	builtin_, modifiers.parents, sigs
+
+-check-spec-decls-initial spec-decl[](ctx check-ctx, asts spec-decl-ast[])
+	for ast : asts
+		ctx check-type-params ast.type-params
+		ctx.next-id, ctx.cur-uri, ast, ast.visibility.visibility-from-explicit-top-level, (), ()
+
+-check-spec-bodies void(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	specs-map specs-map,
+	asts spec-decl-ast[],
+	specs spec-decl[],
+)
+	delay-spec-insts delay-spec-insts = ()
+	for ast, spec_ : asts zip specs
+		spec_.body := ctx check-spec-decl-body common-types, structs-and-aliases-map, specs-map,
+			spec_, ast.type-params, delay-spec-insts, ast
+	
+	for decl : specs
+		ctx detect-and-fix-spec-recursion decl
+	while x ?= delay-spec-insts pop
+		ctx.instantiate-ctx instantiate-spec-body x, (delay-spec-insts,)
+
+-detect-and-fix-spec-recursion void(ctx check-ctx, decl spec-decl)
+	trace spec-decl mut[] = ()
+	if decl recur-detect-spec-recursion trace
+		ctx add-diag-assert-same-uri decl.range, trace.move-to.diag-spec-recursion
+		decl overwrite-parents-to-empty
+-recur-detect-spec-recursion bool(cur spec-decl, trace spec-decl mut[])
+	cur.parents !is-empty && trace.size >= max-spec-depth || for parent : cur parents
+		trace ~= parent decl
+		if parent.decl recur-detect-spec-recursion trace
+			break true
+		else
+			_ = trace.pop!
+	else
+		false
+
+-check-struct-aliases-initial struct-alias[](ctx check-ctx, asts struct-alias-ast[])
+	for ast : asts
+		ctx check-no-type-params ast.type-params, alias_
+		ctx.next-id, ast, ctx.cur-uri, ast.visibility.visibility-from-explicit-top-level, (), trusted gc-safe-value # TODO: don't use trusted
+
+-check-struct-alias-targets void(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	aliases struct-alias[],
+	asts struct-alias-ast[],
+)
+	for struct-alias, ast : aliases zip asts
+		type = ctx type-from-ast common-types, structs-and-aliases-map, ast.target, ast.type-params, different-module
+		struct-alias.target := match type
+		as bogus-type _
+			common-types void	
+		as struct-inst x
+			x
+		as type-param-index _
+			throw unreachable
+
+-build-structs-and-aliases-map structs-and-aliases-map(
+	ctx check-ctx,
+	structs struct-decl[],
+	aliases struct-alias[],
+)
+	res struct-or-alias mut[symbol] = ()
+	add void mut(sa struct-or-alias) = sa =>
+		ctx add-to-decls-map res, sa.name, sa, struct-or-alias, x => x name-range
+	for x : structs
+		add[x to]
+	for x : aliases
+		add[x to]
+	res move-to
+
+-check-var-decl var-decl(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	ast var-decl-ast,
+)
+	ctx check-no-type-params ast.type-params, ast.kind.to
+	id: ctx next-id
+	ast: ast
+	module-uri: ctx cur-uri
+	visibility: ast.visibility visibility-from-explicit-top-level
+	type: ctx type-from-ast-no-type-params common-types, structs-and-aliases-map, ast.type
+	extern-library-name: ctx check-var-modifiers ast.kind, ast.modifiers
+	doc-comment-references: ()
+-to decl-kind(a var-kind)
+	match a
+	as global_
+		global_
+	as thread-local_
+		thread-local_
+-check-var-modifiers symbol?(ctx check-ctx, kind var-kind, modifiers modifier-ast[])
+	extern-library-name mut symbol? = ()
+	for modifier : modifiers
+		match modifier
+		as modifier-keyword-ast x
+			if x.keyword == extern_
+				names = ctx get-externs-from-modifier x, true
+				if _ ?= extern-library-name
+					ctx add-diag x.keyword-range, extern_.diag-modifier-duplicate
+				else
+					if name ?= names as-single
+						match kind
+						as global_
+							extern-library-name := name,
+						as thread-local_
+							ctx add-diag x.keyword-range, (extern_ diag-modifier-invalid thread-local_)
+					else
+						ctx add-diag x.range, diag-extern-body-multiple
+			else
+				ctx add-diag x.range, (x.keyword diag-modifier-invalid kind.to)
+		as spec-use-ast x
+			ctx add-diag x.range, kind.to.diag-spec-use-invalid
+	extern-library-name
+
+-add-to-decls-map[t] void(
+	ctx check-ctx,
+	builder t mut[symbol],
+	name symbol,
+	value t,
+	kind diag-duplicate-declaration-kind,
+	cb-name-range uri-and-range mut(x t),
+)
+	if name in builder
+		ctx add-diag-assert-same-uri cb-name-range[value], (kind diag-duplicate-declaration name)
+	else
+		builder[name] := value
+
+-spec-flags-and-parents record(is-builtin bool, parents spec-inst[]) mut
+-check-spec-modifiers spec-flags-and-parents(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	specs-map specs-map,
+	delay-spec-insts delay-spec-insts,
+	type-params-scope type-params,
+	asts modifier-ast[],
+)
+	is-builtin mut = false
+	parents spec-inst[] = with out : build
+		for ast : asts
+			match ast
+			as modifier-keyword-ast x
+				match x keyword
+				as builtin_
+					if is-builtin
+						ctx add-diag x.keyword-range, x.keyword.diag-modifier-duplicate
+					ctx modifier-type-arg-invalid x
+					is-builtin := true
+				else
+					ctx add-diag x.keyword-range, (x.keyword diag-modifier-invalid spec_)
+			as spec-use-ast x
+				if spec_ ?= ctx spec-from-ast common-types, structs-and-aliases-map, specs-map, type-params-scope, x, (delay-spec-insts,)
+					out ~= spec_
+	is-builtin, parents
+
+-build-specs-map specs-map(ctx check-ctx, specs spec-decl[])
+	res spec-decl mut[symbol] = ()
+	for x : specs
+		ctx add-to-decls-map res, x.name, x, spec_, y => y name-range
+	res move-to
+
+-check-worker-after-common-types module(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	struct-aliases struct-alias[],
+	structs struct-decl[],
+	uri uri,
+	config config,
+	imports-and-re-exports imports-and-re-exports,
+	ast file-ast,
+)
+	ctx check-struct-bodies common-types, structs-and-aliases-map, structs, ast.structs
+	vars var-decl[] = for x : ast vars
+		ctx check-var-decl common-types, structs-and-aliases-map, x
+	specs = ctx check-spec-decls-initial ast.specs
+	specs-map = ctx build-specs-map specs
+	ctx check-spec-bodies common-types, structs-and-aliases-map, specs-map, ast.specs, specs
+	funs-and-map = ctx check-funs common-types, specs-map, structs, structs-and-aliases-map, vars,
+		imports-and-re-exports.file-imports, imports-and-re-exports.file-exports, ast.funs, ast.tests
+	ctx check-doc-comments structs-and-aliases-map, specs-map, funs-and-map.funs-map,
+		struct-aliases, structs, specs, vars, funs-and-map.funs, funs-and-map.tests
+	module-doc-comment-references = ctx check-doc-comment-references structs-and-aliases-map,
+		specs-map, funs-and-map.funs-map, (), (), ast.doc-comment
+	imports = ctx finish-imports
+	ctx check-for-unused struct-aliases, structs, specs, funs-and-map.funs
+	uri: uri
+	config: config
+	ast: ast
+	diagnostics: ctx finish-diagnostics
+	imports: imports
+	re-exports: imports-and-re-exports module-re-exports
+	aliases: struct-aliases
+	structs: structs
+	vars: vars
+	specs: specs
+	funs: funs-and-map funs
+	tests: funs-and-map tests
+	exports: ctx get-all-exports imports-and-re-exports.module-re-exports, structs-and-aliases-map, specs-map, funs-and-map.funs-map
+	doc-comment-references: module-doc-comment-references
+
+-get-all-exports name-referents[symbol](
+	ctx check-ctx,
+	re-exports import-or-export[],
+	structs-and-aliases-map structs-and-aliases-map,
+	specs-map specs-map,
+	funs-map funs-map,
+)
+	res name-referents mut[symbol] = ()
+	add-export void mut(to-add name-referents, range source-range mut()) = (to-add, range) =>
+		res[to-add name] := if prev ?= res[to-add name]
+			# TODO: factor this to a function ----------------------------------------------------------------------------------
+			kind diag-duplicate-exports-kind? = if prev.struct-or-alias !is-empty && to-add.struct-or-alias !is-empty
+				type,
+			elif prev.spec_ !is-empty && to-add.spec_ !is-empty
+				spec_,
+			if k ?= kind
+				ctx add-diag range[], (k diag-duplicate-exports to-add.name)
+			(prev struct-or-alias || to-add struct-or-alias), (prev spec_ || to-add spec_), (prev.funs ~~ to-add.funs)
+		else
+			to-add
+	
+	for e : re-exports
+		match e.source! kind
+		as import-whole-module-ast _
+			# TODO: if this is a re-export of another library, only re-export the public members
+			for _, x : e.module exports
+				add-export[x, () => e.source!.path-range]
+		as array _
+			for _, x : e.imported!
+				add-export[x, () => e.source!.path-range]
+		as import-file-ast _
+			throw unreachable
+
+	for _, x : structs-and-aliases-map
+		if x.visibility != private
+			add-export[((x,), (), ()), () => x.range.range]
+	for _, x : specs-map
+		if x.visibility != private
+			add-export[((), (x,), ()), () => x.range.range]
+	for _, funs : funs-map
+		fun-decls fun-decl[] = funs filter x => x.visibility != private
+		if fun-decls !is-empty
+			add-export[((), (), fun-decls), () => ()]
+	res move-to
+
+-check-worker (module, common-types)(
+	all-insts all-insts,
+	common-uris common-uris,
+	resolved-imports resolved-import[],
+	uri-and-ast uri-and-ast,
+	get-common-types common-types mut(ctx check-ctx, types structs-and-aliases-map),
+)
+	diags-builder diagnostic mut[] = ()
+	imports-and-re-exports = diags-builder check-imports-and-re-exports uri-and-ast.ast, resolved-imports
+	ast = uri-and-ast ast
+	ctx check-ctx = do
+		instantiate-ctx: all-insts,
+		common-uris: common-uris
+		cur-uri: uri-and-ast uri
+		config: uri-and-ast config
+		imports-and-re-exports: imports-and-re-exports modules
+		diagnostics-builder: diags-builder
+		used: ()
+	# Since structs may refer to each other, first get a structs-and-aliases-map, *then* fill in bodies.
+	structs = ctx check-structs-initial ast.structs
+	struct-aliases = ctx check-struct-aliases-initial ast.struct-aliases
+	structs-and-aliases-map = ctx build-structs-and-aliases-map structs, struct-aliases
+	common-types = get-common-types[ctx, structs-and-aliases-map]
+	ctx check-struct-alias-targets common-types, structs-and-aliases-map, struct-aliases, ast.struct-aliases
+	res = ctx check-worker-after-common-types common-types, structs-and-aliases-map, struct-aliases, structs, uri-and-ast.uri, uri-and-ast.config, imports-and-re-exports, ast
+	res, common-types
+
+-imports-and-re-exports record mut
+	module-imports import-or-export[]
+	module-re-exports import-or-export[]
+	file-imports import-or-export-file[]
+	file-exports import-or-export-file[]
+-modules import-and-re-export-modules(a imports-and-re-exports)
+	a.module-imports, a.module-re-exports
+
+-check-imports-and-re-exports imports-and-re-exports(
+	diags-builder diagnostic mut[],
+	ast file-ast,
+	resolved-imports resolved-import[],
+)
+	resolved-imports-left resolved-import[] reference = resolved-imports,
+	imports = diags-builder check-imports-or-re-exports ast.imports, resolved-imports-left, !ast.no-std_
+	re-exports = diags-builder check-imports-or-re-exports ast.re-exports, resolved-imports-left, false
+	assert *resolved-imports-left is-empty
+	imports.modules, re-exports.modules, imports.files, re-exports.files
+
+-imports-or-re-exports record(modules import-or-export[], files import-or-export-file[]) mut
+-check-imports-or-re-exports imports-or-re-exports(
+	diags-builder diagnostic mut[],
+	ast imports-or-exports-ast?,
+	resolved-imports resolved-import[] reference,
+	include-std bool,
+)
+	imports import-or-export mut[] = ()
+	file-imports import-or-export-file mut[] = ()
+	next-resolved-import resolved-import mut() = () =>
+		res = (*resolved-imports)[0]
+		*resolved-imports := (*resolved-imports)[1 .. end]
+		res
+	
+	handle-module-import void mut(source import-or-export-ast?, min-visibility export-visibility, cb-init-imported void mut(x import-or-export)) = (source, min-visibility, cb-init-imported) =>
+		match next-resolved-import[]
+		as module x
+			imports ~= (source, x, min-visibility, ())
+			cb-init-imported[imports.peek!]
+		as file-content _
+			throw unreachable
+		as diag-import-file x
+			diags-builder ~= (source?.path-range ?? (), x.to)
+	
+	if include-std
+		handle-module-import[(), public, _ => ()]
+	
+	if a ?= ast
+		for import-ast : a paths
+			import-visibility = import-ast import-min-visibility
+			match import-ast kind
+			as import-whole-module-ast _
+				handle-module-import[(import-ast,), import-visibility, _ => ()]
+			as array names
+				cb void mut(x import-or-export) = x =>
+					x.imported := (diags-builder check-named-imports import-visibility, x.module, names),
+				handle-module-import[(import-ast,), import-visibility, cb]
+			as import-file-ast _
+				match next-resolved-import[]
+				as module _
+					throw unreachable
+				as file-content x
+					file-imports ~= (import-ast, x)
+				as diag-import-file x
+					diags-builder ~= (import-ast.path-range, x.to)
+	
+	imports.move-to, file-imports.move-to
+
+-import-min-visibility export-visibility(a import-or-export-ast)
+	match a path
+	as path _
+		public
+	as rel-path _
+		internal
+
+-check-named-imports imported-referents(
+	diags-builder diagnostic mut[],
+	import-visibility export-visibility,
+	module module,
+	names name-and-range[],
+)
+	res name-referents mut[symbol] = ()	
+	for name : names
+		if referents ?= module.exports[name.name]
+			if referents has-visibility import-visibility
+				if name.name in res
+					diags-builder ~= (name.range, name.name.diag-duplicate-import-name)
+				else
+					res[name.name] := referents
+			else
+				diags-builder ~= (name.range, name.name.diag-import-refers-to-nothing)
+		else
+			diags-builder ~= (name.range, name.name.diag-import-refers-to-nothing)
+	res move-to
+
+-has-visibility bool(a name-referents, visibility export-visibility)
+	a.struct-or-alias exists (x => visibility import-can-see x.visibility) ||
+	a.spec_ exists (x => visibility import-can-see x.visibility) ||
+	a.funs exists x => visibility import-can-see x.visibility
+
+-exists[t] bool(a t?, f bool mut(x t))
+	if x ?= a
+		f[x]

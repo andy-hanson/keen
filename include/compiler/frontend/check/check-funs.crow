@@ -1,0 +1,334 @@
+import
+	../../model/ast
+	../../model/model
+	../../model/parse-diag
+	../../model/source-range
+	../../util/util
+	./check-auto-fun
+	./check-ctx
+	./check-expr
+	./check-struct-bodies
+	./check-util
+	./get-builtin-fun
+	./maps
+	./funs-for-struct
+	./instantiate
+	./type-from-ast
+
+check-funs funs-and-map(
+	ctx check-ctx,
+	common-types common-types,
+	specs-map specs-map,
+	structs struct-decl[],
+	structs-and-aliases-map structs-and-aliases-map,
+	vars var-decl[],
+	file-imports import-or-export-file[],
+	file-exports import-or-export-file[],
+	asts fun-decl-ast[],
+	test-asts test-ast[],
+)
+	funs = ctx check-funs-initial common-types, specs-map, structs, structs-and-aliases-map, vars, file-imports, file-exports, asts
+	funs-map = funs build-funs-map
+	ctx check-method-impls common-types, funs-map, structs
+	ctx check-funs-with-asts common-types, structs-and-aliases-map, specs-map, funs-map, funs[0 .. asts.size], asts
+	for i, f : file-imports with-index
+		ctx set-file-import-function-body funs[asts.size + i], f
+	for i, f : file-exports with-index
+		ctx set-file-import-function-body funs[asts.size + file-imports.size + i], f
+	funs, (ctx check-tests common-types, structs-and-aliases-map, specs-map, funs-map, test-asts), funs-map
+
+-check-funs-initial fun-decl[](
+	ctx check-ctx,
+	common-types common-types,
+	specs-map specs-map,
+	structs struct-decl[],
+	structs-and-aliases-map structs-and-aliases-map,
+	vars var-decl[],
+	file-imports import-or-export-file[],
+	file-exports import-or-export-file[],
+	asts fun-decl-ast[],
+)
+	with out : build
+		for fun-ast : asts
+			has-body = fun-ast.body.empty-ast is-empty
+			flags-and-specs = ctx check-fun-modifiers common-types, structs-and-aliases-map, specs-map, fun-ast.type-params, fun-ast.name-range, has-body, fun-ast.modifiers
+			fun fun-decl = do
+				id: ctx next-id
+				source: (ctx.cur-uri fun-source-ast fun-ast)
+				visibility: fun-ast.visibility visibility-from-explicit-top-level
+				name: fun-ast.name name
+				return-type: bogus-type
+				params: ()
+				flags_: flags-and-specs flags_
+				externs: flags-and-specs externs
+				specs: flags-and-specs specs
+				doc-comment-references: ()
+				body: fun-body-uninitialized
+			ctx check-type-params fun-ast.type-params
+			return-type, params = ctx check-return-type-and-params common-types, fun.to, fun-ast.return-type, fun-ast.params, fun-ast.type-params, structs-and-aliases-map
+			fun.return-type := return-type
+			fun.params := params
+			if flags-and-specs is-builtin
+				if has-body
+					ctx add-diag fun-ast.name-range, diag-builtin-fun-cant-have-body
+				fun.body := ctx get-builtin-fun fun
+			elif !has-body && flags-and-specs.externs !is-empty
+				fun.body := ctx check-extern-body fun
+		for f : file-imports
+			out ~= ctx fun-decl-for-file-import-or-export common-types, f, private
+		for f : file-exports
+			out ~= ctx fun-decl-for-file-import-or-export common-types, f, public
+		
+		for struct : structs
+			ctx add-funs-for-struct out, common-types, struct
+		for var : vars
+			ctx add-funs-for-var out, common-types, var
+
+-set-file-import-function-body void(ctx check-ctx, fun fun-decl, a import-or-export-file)
+	fun.body := ctx get-file-import-function-body fun.range.range, a
+-get-file-import-function-body fun-body(ctx check-ctx, range source-range, a import-or-export-file)
+	content import-file-content = match a.source.kind.import-file-ast! type
+	as nat8-array
+		a.content to
+	as string
+		try
+			a.content.as-string to
+		catch unicode-decode-error _
+			ctx add-diag range, parse-diag-file-not-utf8.to
+			"" to
+	content fun-body-file-import
+
+-fun-decl-for-file-import-or-export fun-decl(
+	ctx check-ctx,
+	common-types common-types,
+	a import-or-export-file,
+	visibility visibility,
+)
+	ast = a.source.kind import-file-ast!
+	id: ctx next-id
+	source: ctx.cur-uri fun-source-file-import a.source
+	visibility: visibility
+	name: ast.name name
+	return-type: common-types type-for-file-import ast.type
+	params: ()
+	flags_: generated-bare
+	externs: ()
+	specs: ()
+	doc-comment-references: ()
+	body: fun-body-bogus
+
+-type-for-file-import type(common-types common-types, type import-file-type)
+	match type
+	as nat8-array
+		common-types.nat8-array to
+	as string
+		common-types.string to
+
+-check-extern-body fun-body(ctx check-ctx, fun fun-decl)
+	fun-linkage linkage = extern_
+	ctx check-no-type-params fun.type-params, extern-function
+	unless fun.specs is-empty
+		modifier = fun.source.fun-source-ast!.ast.modifiers must-find x => x.spec-use-ast !is-empty	
+		ctx add-diag modifier.range, extern-function.diag-spec-use-invalid
+
+	unless fun-linkage is-linkage-always-compatible fun.return-type.linkage-range
+		ctx add-diag-assert-same-uri fun.range, (fun diag-linkage-worse-than-containing-fun fun.return-type, ())
+	match fun params
+	as array params
+		for param : params
+			unless fun-linkage !is-linkage-always-compatible param.type.linkage-range
+				ctx add-diag param.range, (fun diag-linkage-worse-than-containing-fun param.type, (param,))
+	as varargs x
+		ctx add-diag x.param.range, diag-extern-fun-variadic
+
+	if single ?= fun.externs as-single
+		single fun-body-extern
+	else
+		ctx add-diag fun.name-range.range, diag-extern-body-multiple
+		fun-body-bogus
+
+-build-funs-map funs-map(funs fun-decl[])
+	res fun-decl mut[] mut[symbol] = ()
+	for fun : funs
+		res ensure fun.name ~= fun
+	for k, v : res
+		k, v.move-to
+
+-fun-modifiers record mut
+	flags_ fun-flags
+	is-builtin bool
+	externs symbol-set
+	specs spec-inst[]
+-check-fun-modifiers fun-modifiers(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	specs-map specs-map,
+	type-params-scope type-params,
+	range source-range,
+	has-body bool,
+	asts modifier-ast[],
+)
+	all-flags mut collected-fun-flags = ()
+	externs mut symbol-set = ()
+	specs spec-inst[] =  with out : build
+		for ast : asts
+			match ast
+			as modifier-keyword-ast x
+				if x.keyword == extern_
+					if externs is-empty
+						externs := ctx get-externs-from-modifier x, true
+					else
+						ctx add-diag x.range, extern_.diag-modifier-duplicate
+				else
+					flag = x.keyword try-get-fun-flag
+					if flag == ()
+						ctx add-diag x.keyword-range, (x.keyword diag-modifier-invalid function_)
+					elif flag in all-flags
+						ctx add-diag x.keyword-range, x.keyword.diag-modifier-duplicate
+					ctx modifier-type-arg-invalid x
+					all-flags |:= flag
+				()
+			as spec-use-ast x
+				if inst ?= ctx spec-from-ast common-types, structs-and-aliases-map, specs-map, type-params-scope, x, no-delay-spec-insts
+					out ~= inst
+	flags_ = ctx check-fun-flags range, all-flags, (!has-body && externs !is-empty)
+	flags_, (builtin_::collected-fun-flags in all-flags), externs, specs
+
+-check-tests test_[](
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	specs-map specs-map,
+	funs-map funs-map,
+	test-asts test-ast[],
+)
+	for ast : test-asts
+		modifiers = ctx check-test-modifiers ast
+		test_ test_ = ctx.next-id, ast, ctx.cur-uri, modifiers.flags_, modifiers.externs, (() bogus-expr bogus-type), ()
+		if _ ?= ast.body empty-ast
+			ctx add-diag ast.range, diag-test-missing-body
+		test_.body := ctx check-test-body structs-and-aliases-map, common-types, specs-map, funs-map,
+			test_.to, modifiers.flags_, modifiers.externs, ast.body
+		test_
+
+-test-modifiers record(flags_ fun-flags, externs symbol-set)
+-check-test-modifiers test-modifiers(ctx check-ctx, ast test-ast)
+	all-flags mut collected-fun-flags = ()
+	externs mut symbol-set = ()
+	for modifier : ast modifiers
+		match modifier
+		as modifier-keyword-ast x
+			flag = x.keyword try-get-fun-flag
+			if flag is-allowed-test-flag
+				ctx modifier-type-arg-invalid x
+				all-flags |:= flag
+			elif x.keyword == extern_
+				if externs is-empty
+					externs := ctx get-externs-from-modifier x, true
+				else
+					ctx add-diag x.range, extern_.diag-modifier-duplicate
+			else
+				ctx add-diag x.keyword-range, (x.keyword diag-modifier-invalid test_)
+		as spec-use-ast x
+			ctx add-diag x.range, test_.diag-spec-use-invalid
+	flags_ = ctx check-fun-flags ast.keyword-range, all-flags, false
+	flags_, externs
+
+-is-allowed-test-flag bool(flag collected-fun-flags)
+	flag == bare_ || flag == summon_ || flag == trusted_
+
+-collected-fun-flags flags
+	bare_
+	builtin_
+	force-ctx_
+	pure_
+	summon_
+	trusted_
+	unsafe_
+-== bool(a collected-fun-flags, b collected-fun-flags)
+-try-get-fun-flag collected-fun-flags(a modifier-keyword)
+	match a
+	as bare_
+		bare_
+	as builtin_
+		builtin_
+	as force-ctx_
+		force-ctx_
+	as pure_
+		pure_
+	as summon_
+		summon_
+	as trusted_
+		trusted_
+	as unsafe_
+		unsafe_
+	else
+		()
+
+-check-fun-flags fun-flags(ctx check-ctx, range source-range, flags_ collected-fun-flags, is-extern-body bool)
+	warn-redundant void mut(modifier modifier-keyword, redundant-modifier modifier-keyword) = (modifier, redundant-modifier) =>
+		ctx add-diag range, (modifier diag-modifier-redundant-due-to-modifier redundant-modifier)
+	
+	is-builtin = builtin_::collected-fun-flags in flags_
+	is-explicit-bare = bare_::collected-fun-flags in flags_
+	is-force-ctx = force-ctx_::collected-fun-flags in flags_
+	is-pure = pure_::collected-fun-flags in flags_
+	is-explicit-summon = summon_::collected-fun-flags in flags_
+	is-trusted = trusted_::collected-fun-flags in flags_
+	is-explicit-unsafe = unsafe_::collected-fun-flags in flags_
+	
+	is-implicit-unsafe = is-extern-body && !is-builtin
+	is-unsafe = is-explicit-unsafe || is-implicit-unsafe
+	is-implicit-bare = is-extern-body && !is-builtin
+	is-bare = is-explicit-bare || is-implicit-bare
+
+	body-modifier modifier-keyword data() = () =>
+		if is-builtin
+			builtin_
+		elif is-extern-body
+			extern_
+		else
+			throw unreachable
+	
+	safety fun-safety = if is-trusted
+		trusted_
+	elif is-unsafe
+		unsafe_
+	else
+		safe
+	
+	if is-implicit-bare && is-explicit-bare
+		warn-redundant[body-modifier[], bare_]
+	if is-implicit-unsafe && is-explicit-unsafe
+		warn-redundant[body-modifier[], bare_]
+	if is-explicit-unsafe && is-trusted
+		ctx add-diag range, (unsafe_ diag-modifier-conflict trusted_)
+
+	if is-pure && is-explicit-summon
+		ctx add-diag range, (pure_ diag-modifier-conflict summon_)
+	elif is-pure && !is-extern-body
+		ctx add-diag range, (pure_ diag-modifier-redundant-due-to-decl-kind function_)
+	elif is-explicit-summon && is-extern-body
+		warn-redundant[extern_, summon_]
+	
+	is-summon = !is-pure && (is-explicit-summon || (is-extern-body && !is-builtin))
+	is-bare, is-summon, safety, false, is-force-ctx
+
+-check-funs-with-asts void(
+	ctx check-ctx,
+	common-types common-types,
+	structs-and-aliases-map structs-and-aliases-map,
+	specs-map specs-map,
+	funs-map funs-map,
+	funs-with-asts fun-decl[],
+	asts fun-decl-ast[],
+)
+	for fun, fun-ast : funs-with-asts zip asts
+		guard _ ?= fun.body fun-body-uninitialized
+		fun.body := if _ ?= fun-ast.body empty-ast
+			ctx check-auto-fun specs-map, funs-map, fun
+		elif fun.return-type is-bogus
+			fun-body-bogus
+		else
+			ctx check-function-body structs-and-aliases-map, common-types, specs-map, funs-map, fun, fun-ast.body to

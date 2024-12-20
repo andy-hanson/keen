@@ -1,0 +1,184 @@
+import
+	../../model/ast
+	../../model/model
+	../../model/source-range
+	../../util/util
+	./check-call/candidates
+	./check-ctx
+	./instantiate
+	./maps
+	./type-from-ast
+
+check-doc-comments void(
+	ctx check-ctx,
+	structs-and-aliases-map structs-and-aliases-map,
+	specs-map specs-map,
+	funs-map funs-map,
+	struct-aliases struct-alias[],
+	structs struct-decl[],
+	spec-decls spec-decl[],
+	vars var-decl[],
+	funs fun-decl[],
+	tests test_[],
+)
+	check-ref doc-comment-reference mut(type-params type-params, specs specs, ast name-and-range) = (type-params, specs, ast) =>
+		ctx check-doc-comment-reference structs-and-aliases-map, specs-map, funs-map, type-params, specs, ast
+	check-ref-for-sig doc-comment-reference mut(type-params type-params, specs specs, params destructure[], ast name-and-range) = (type-params, specs, params, ast) =>
+		params reference-in-params ast.name ?? check-ref[type-params, specs, ast]
+	check-refs doc-comment-references mut(type-params type-params, specs specs, ast doc-comment-ast) = (type-params, specs, ast) =>
+		ctx check-doc-comment-references structs-and-aliases-map, specs-map, funs-map, type-params, specs, ast
+	check-refs-for-decl doc-comment-references mut(decl any-decl) = decl =>
+		check-refs[decl.type-params, decl.specs, decl.doc-comment-ast]
+	check-refs-for-struct doc-comment-references mut(struct struct-decl, ast doc-comment-ast) = (struct, ast) =>
+		check-refs[struct.type-params, (), ast]
+	
+	for x : struct-aliases
+		x.doc-comment-references := check-refs-for-decl[x to]
+	for struct : structs
+		struct.doc-comment-references := check-refs-for-decl[struct to]
+		match struct body
+		as struct-body-bogus _
+			()
+		as builtin-type _
+			()
+		as enum_ x
+			for member : x members
+				member.doc-comment-references := check-refs-for-struct[struct, member.doc-comment-ast]
+		as extern-type _
+			()
+		as flags_ x
+			for member : x members
+				member.doc-comment-references := check-refs-for-struct[struct, member.doc-comment-ast]
+		as record_ x
+			for field : x fields
+				field.doc-comment-references := check-refs-for-struct[struct, field.doc-comment-ast]
+		as sum-type x
+			for sig : x methods
+				sig.doc-comment-references := for ast : sig.doc-comment-ast.references
+					check-ref-for-sig[struct.type-params, (), sig.params, ast]
+	for spec_ : spec-decls
+		spec_.doc-comment-references := check-refs-for-decl[spec_ to]
+		for sig : spec_ sigs
+			sig.doc-comment-references := for ast : sig.doc-comment-ast references
+				ctx reference-spec-sig spec_, ast.name ?? check-ref-for-sig[spec_.type-params, spec_.parents, sig.params, ast]
+	for x : vars
+		x.doc-comment-references := check-refs-for-decl[x to]
+	for x : funs
+		x.doc-comment-references := for ast : x.doc-comment-ast references
+			check-ref-for-sig[x.type-params, x.specs, x.params.params-array, ast]
+	for x : tests
+		x.doc-comment-references := check-refs-for-decl[x to]
+
+check-doc-comment-references doc-comment-references(
+	ctx check-ctx,
+	structs-and-aliases-map structs-and-aliases-map,
+	specs-map specs-map,
+	funs-map funs-map,
+	type-params type-params,
+	specs specs,
+	ast doc-comment-ast,
+)
+	for name : ast references
+		ctx check-doc-comment-reference structs-and-aliases-map, specs-map, funs-map, type-params, specs, name
+
+-check-doc-comment-reference doc-comment-reference(
+	ctx check-ctx,
+	structs-and-aliases-map structs-and-aliases-map,
+	specs-map specs-map,
+	funs-map funs-map,
+	type-params type-params,
+	specs specs,
+	ast name-and-range,
+)
+	name = ast name
+	if x ?= type-params find-index x => x.name == name
+		x type-param-index
+	elif sa ?= ctx struct-or-alias-from-name name, ast.range, structs-and-aliases-map, true
+		sa to
+	elif spec_ ?= ctx try-find-spec ast, specs-map, true
+		spec_ to
+	elif x ?= ctx reference-fun funs-map, specs, name
+		x
+	else
+		ctx add-diag ast.range, (doc-comment-reference diag-name-not-found name)
+		doc-comment-reference-bogus
+
+-to doc-comment-reference(a struct-or-alias)
+	match a
+	as struct-decl x
+		x to
+	as struct-alias x
+		x to
+
+-reference-in-params doc-comment-reference?(params destructure[], name symbol)
+	params first param =>
+		param first-local local =>
+			if local.name == name
+				local.to,
+
+-reference-spec-sig doc-comment-reference?(ctx check-ctx, cur-spec spec-decl, name symbol)
+	if index ?= cur-spec.sigs find-index x => x.name == name
+		((ctx.instantiate-ctx instantiate-spec-with-own-type-params cur-spec) called-spec-sig index),
+
+-reference-fun doc-comment-reference?(ctx check-ctx, funs-map funs-map, specs specs, name symbol)
+	if called ?= ctx first-fun-in-scope funs-map, specs, name
+		match called
+		as fun-decl x
+			ctx mark-used x.id # TODO: don't mark used if it's a private function in this module ....................................
+			x.doc-comment-reference-for-fun-decl,
+		as called-spec-sig x
+			x.to,
+
+-doc-comment-reference-for-fun-decl doc-comment-reference(a fun-decl)
+	fun doc-comment-reference = a to
+	return-struct doc-comment-reference mut() = () => a.return-type.struct-inst!.decl to
+	match a body
+	as fun-body-uninitialized
+		throw unreachable
+	as fun-body-bogus
+		fun
+	as auto-fun _
+		fun
+	as builtin-fun _
+		fun
+	as create-enum-or-flags x
+		x.member to
+	as create-extern _
+		return-struct[]
+	as create-record _
+		return-struct[]
+	as create-record-and-convert-to-sum-type x
+		x.member.decl to
+	as create-sum-type _
+		return-struct[]
+	as expr _
+		fun
+	as fun-body-extern _
+		fun
+	as fun-body-file-import _
+		fun
+	as flags-function _
+		return-struct[]
+	as fun-body-method x
+		x.method to
+	as record-field-call x
+		x.field to
+	as record-field-get x
+		x.field to
+	as record-field-pointer x
+		x.field to
+	as record-field-set x
+		x.field to
+	as sum-type-member-get _
+		return-struct[]
+	as var-get x
+		x.var to
+	as var-set x
+		x.var to
+
+-first-fun-in-scope called-decl?(ctx check-ctx, funs-map funs-map, specs specs, name symbol)
+	res mut called-decl? = ()
+	(specs, funs-map, ctx.imports-and-re-exports) each-fun-in-scope name, x =>
+		if res.is-empty || x.range < res!.range
+			res := x,
+	res

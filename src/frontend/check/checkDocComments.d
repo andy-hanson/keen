@@ -15,7 +15,6 @@ import model.model :
 	BuiltinType,
 	CalledDecl,
 	CalledSpecSig,
-	CommonTypes,
 	CreateEnumOrFlags,
 	CreateExtern,
 	CreateRecord,
@@ -75,7 +74,6 @@ import util.symbol : Symbol;
 
 void checkDocComments(
 	ref CheckCtx ctx,
-	ref CommonTypes commonTypes,
 	in StructsAndAliasesMap structsAndAliasesMap,
 	in SpecsMap specsMap,
 	in FunsMap funsMap,
@@ -87,13 +85,13 @@ void checkDocComments(
 	Test[] tests,
 ) {
 	DocCommentReference checkRef(TypeParams typeParams, Specs specs, NameAndRange ast) =>
-		checkDocCommentReference(ctx, commonTypes, structsAndAliasesMap, specsMap, funsMap, typeParams, specs, ast);
+		checkDocCommentReference(ctx, structsAndAliasesMap, specsMap, funsMap, typeParams, specs, ast);
 	DocCommentReference checkRefForSig(TypeParams typeParams, Specs specs, Destructure[] params, NameAndRange ast) =>
 		optOrDefault!DocCommentReference(
 			referenceInParams(params, ast.name),
 			() => checkRef(typeParams, specs, ast));
 	DocCommentReferences checkRefs(TypeParams typeParams, Specs specs, DocCommentAst ast) =>
-		checkDocCommentReferences(ctx, commonTypes, structsAndAliasesMap, specsMap, funsMap, typeParams, specs, ast);
+		checkDocCommentReferences(ctx, structsAndAliasesMap, specsMap, funsMap, typeParams, specs, ast);
 	DocCommentReferences checkRefsForDecl(AnyDecl decl) =>
 		checkRefs(decl.typeParams, decl.specs, decl.docCommentAst);
 	DocCommentReferences checkRefsForStruct(ref StructDecl struct_, DocCommentAst ast) =>
@@ -149,7 +147,6 @@ void checkDocComments(
 
 DocCommentReferences checkDocCommentReferences(
 	ref CheckCtx ctx,
-	ref CommonTypes commonTypes,
 	in StructsAndAliasesMap structsAndAliasesMap,
 	in SpecsMap specsMap,
 	in FunsMap funsMap,
@@ -159,13 +156,12 @@ DocCommentReferences checkDocCommentReferences(
 ) =>
 	map!(DocCommentReference, NameAndRange)(ctx.alloc, ast.references, (ref NameAndRange name) =>
 		checkDocCommentReference(
-			ctx, commonTypes, structsAndAliasesMap, specsMap, funsMap, typeParams, specs, name));
+			ctx, structsAndAliasesMap, specsMap, funsMap, typeParams, specs, name));
 
 private:
 
 DocCommentReference checkDocCommentReference(
 	ref CheckCtx ctx,
-	ref CommonTypes commonTypes,
 	in StructsAndAliasesMap structsAndAliasesMap,
 	in SpecsMap specsMap,
 	in FunsMap funsMap,
