@@ -2,6 +2,7 @@ module lib.server;
 
 @safe @nogc nothrow: // not pure
 
+import app.command : PrintIdeAtPosKind, PrintIdeWholeFile;
 import backend.js.sourceMap : JsAndMap;
 import backend.js.translateToJs : JsModules, translateToJsModules, translateToJsScript;
 import backend.writeToC : writeToC, WriteToCParams, WriteToCResult;
@@ -93,7 +94,6 @@ import lib.lsp.lspTypes :
 	InitializedParams,
 	InitializeParams,
 	InitializeResult,
-	InlayHint,
 	InlayHintParams,
 	InlayHintRefresh,
 	InlayHintResult,
@@ -160,7 +160,6 @@ import model.sourceRange :
 	FileContentGetters,
 	LineAndCharacterGetter,
 	LineAndCharacterGetters,
-	LineAndColumn,
 	LineAndColumnGetter,
 	LineAndColumnGetters,
 	toLineAndCharacter,
@@ -182,7 +181,6 @@ import util.perf : Perf;
 import util.string : copyString, CString, cString;
 import util.symbol : initSymbols, Symbol;
 import util.uri : FilePath, initUris, stringOfFilePath, Uri, UrisInfo;
-import util.union_ : Union;
 import util.util : castNonScope;
 import versionInfo : JsTarget, OS, VersionInfo, versionInfoForBuildToC, versionInfoForInterpret, VersionOptions;
 
@@ -881,35 +879,6 @@ Json jsonOfLowModel(
 ) =>
 	jsonOfLowProgram(
 		alloc, lineAndColumnGetters(alloc, server), buildToLowProgram(perf, alloc, server, versionInfo, program));
-
-immutable struct PrintKind {
-	mixin Union!(PrintAst, PrintModel, PrintConcreteModel, PrintLowModel, PrintIdeAtPos, PrintIdeWholeFile);
-}
-immutable struct PrintAst {}
-immutable struct PrintModel {}
-immutable struct PrintConcreteModel {}
-immutable struct PrintLowModel {}
-immutable struct PrintIdeAtPos {
-	PrintIdeAtPosKind kind;
-	LineAndColumn lineAndColumn;
-}
-enum PrintIdeAtPosKind {
-	completion,
-	definition,
-	documentHighlight,
-	hover,
-	implementation,
-	references,
-	rename,
-	signatureHelp,
-	typeDefinition,
-}
-enum PrintIdeWholeFile {
-	codeLenses,
-	foldingRanges,
-	inlayHints,
-	tokens,
-}
 
 Json jsonForPrintIdeAtPos(
 	scope ref Perf perf,

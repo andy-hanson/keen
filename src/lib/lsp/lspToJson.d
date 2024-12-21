@@ -58,7 +58,7 @@ import util.col.array : map;
 import util.col.map : KeyValuePair;
 import util.exitCode : ExitCode, Signal;
 import util.json : field, Json, jsonBool, jsonList, jsonNull, jsonObject, jsonString, optionalField, optionalFlagField;
-import util.opt : force, has, Opt;
+import util.opt : force, has;
 import util.uri : stringOfUri, symbolOfUri, Uri;
 import util.util : stringOfEnum;
 

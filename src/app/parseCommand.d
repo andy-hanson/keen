@@ -16,7 +16,15 @@ import app.command :
 	JitRunOptions,
 	LspCommand,
 	NodeJsRunOptions,
+	PrintAst,
 	PrintCommand,
+	PrintConcreteModel,
+	PrintIdeAtPos,
+	PrintIdeAtPosKind,
+	PrintIdeWholeFile,
+	PrintKind,
+	PrintLowModel,
+	PrintModel,
 	RunCommand,
 	RunOptions,
 	SelfTestCommand,
@@ -25,15 +33,6 @@ import app.command :
 	VersionCommand;
 import frontend.lang : CCompileOptions, CVersion, FileType, fileType, JitOptions, MainKind, OptimizationLevel;
 import frontend.parse.lexToken : NatAndOverflow, takeNat;
-import lib.server :
-	PrintAst,
-	PrintConcreteModel,
-	PrintIdeAtPos,
-	PrintIdeAtPosKind,
-	PrintIdeWholeFile,
-	PrintKind,
-	PrintLowModel,
-	PrintModel;
 import model.sourceRange : LineAndColumn;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : StackArrayBuilder, withBuildStackArray;

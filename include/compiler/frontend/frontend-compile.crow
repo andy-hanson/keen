@@ -1,0 +1,490 @@
+import
+	../model/ast
+	../model/model
+	../model/parse-diag
+	../model/uri
+	../util/enum-map
+	../util/util
+	./all-insts
+	./check/check
+	./check/check-ctx
+	./check/get-common-funs
+	./check/instantiate
+	./lang
+	./storage_
+
+frontend record mut
+	# TODO: I wonder if 'storage' should be combined into frontend .......................................................................
+	storage_ storage_
+	crow-include-dir uri
+	common-uris common-uris
+	common-files mut (common-module, crow-file) enum-map?
+	all-insts all-insts
+	| Set after 'bootstrap.crow' is compiled
+	common-types mut common-types?
+	crow-files crow-file mut[uri]
+	| Number of crow-files without {module} set
+	count-uncompiled-crow-files mut nat
+	other-files other-file mut[uri]
+	| Set of crow files which are ready to compile immediately.
+	| (Parsing and resolving imports is always done immediately.)
+	| This doesn't include files whose imports are not yet compiled.
+	| If all import uris are resolved but nothing is workable, there must be a circular import.
+	workable uri mut-set
+
+# TODO: just call it 'new' ------------------------------------------------------------------------------------------------------
+init-frontend frontend(storage_ storage_, crow-include-dir uri)
+	storage_: storage_
+	crow-include-dir: crow-include-dir
+	common-uris: crow-include-dir common-uris
+	common-files: ()
+	all-insts: ()
+	common-types: ()
+	crow-files: ()
+	count-uncompiled-crow-files: 0
+	other-files: ()
+	workable: ()
+
+-crow-file record mut
+	uri uri
+	ast-or-diag mut ast-or-diag
+	| This will be empty if not yet computed and `(default-config,)` if there is no config file on the path.
+	config mut config?
+	| Also includes re-exports. Set once we have config.
+	resolved-imports mut mostly-resolved-import[]?
+	| Uris are for {crow-file}s
+	referenced-by uri mut-set
+	module mut module?
+has-module bool(a crow-file)
+	a.module !is-empty
+must-have-module module(a crow-file)
+	a.module!
+
+-ast-or-diag union(file-ast, read-file-diag)
+
+-other-file record mut
+	uri uri
+	content mut file-content?
+	| Uris are for {crow-file}s
+	referenced-by uri mut-set
+
+make-program-with-main program-with-main(a frontend, main main-kind, targets build-target[])
+	a program-with-main-from-program a.make-program, main, targets
+program-with-main-from-program program-with-main(
+	a frontend,
+	program program,
+	main main-kind,
+	targets build-target[],
+)
+	program, ((a.all-insts,) get-main-fun-and-diagnostics program, main, targets	)
+
+make-program program(a frontend)
+	assert a.storage_.files-state == all-loaded
+	common-modules (common-module, module) enum-map = for _, x : a common-files!
+		x must-have-module
+	ctx instantiate-ctx = a.all-insts,
+	common-funs = ctx get-common-funs a.common-types!, common-modules
+	future-impl = common-modules[future-low-level].structs must-find x => x.name == "future-impl"
+	mut-array-impl = common-modules[mut-array].structs must-find x => x.name == "mut-array-impl"
+	all-configs: a get-all-configs
+	all-modules:for uri, file : a crow-files
+		uri, file.must-have-module
+	file-content-getters: a.storage_ file-content-getters
+	line-and-column-getters: a.storage_ line-and-column-getters
+	common-funs-and-diagnostics: common-funs
+	common-types: a.common-types!
+	other-types: (ctx get-all-future-and-mut-array-impls future-impl, mut-array-impl),
+
+on-file-changed void(a frontend, uri uri, info file-info-or-diag)
+	match uri file-type
+	as crow
+		file = a ensure-crow-file uri
+		file.ast-or-diag := match info
+		as file-info x
+			x.crow-file-info!.ast to
+		as read-file-diag x
+			# Files don't change *to* unknown, only change out of that state
+			forbid x == unknown
+			x to
+		a updated-ast-or-config file
+	as crow-config
+		for _, file : a crow-files
+			a update-file-on-config-change file
+	as other
+		is-loading = match info
+		as file-info _
+			false
+		as read-file-diag x
+			forbid x == unknown
+			x == loading
+		file = a ensure-other-file uri
+		unless is-loading
+			file.content := match info
+			as file-info x
+				x.other-file-info!.content,
+			as read-file-diag _
+				(),
+			for x : file referenced-by
+				a add-to-workable-if-so a.crow-files[x]!
+	a do-dirty-work
+
+-get-all-configs config[uri](a frontend)
+	res config mut[uri] = ()
+	for _, file : a crow-files
+		config = file config!
+		if uri ?= config config-uri
+			_ = res ensure uri, () => config
+	res move-to
+
+-ensure-crow-file crow-file(a frontend, uri uri)
+	assert uri.file-type == crow
+	a.crow-files ensure uri, () =>
+		a.storage_ mark-unknown-if-not-exist uri
+		a.count-uncompiled-crow-files +:= 1
+		uri, unknown::read-file-diag.to, (a.storage_ try-find-config uri.parent-or-empty), (), (), ()
+
+-ensure-other-file other-file(a frontend, uri uri)
+	forbid uri.file-type == crow
+	a.other-files ensure uri, () =>
+		a.storage_ mark-unknown-if-not-exist uri
+		uri, (), ()
+
+-to-ast file-ast(a ast-or-diag)
+	match a
+	as file-ast x
+		x
+	as read-file-diag x
+		forbid x is-unknown-or-loading
+		x.to file-ast-for-diag
+
+-do-dirty-work void(a frontend)
+	bootstrap = a.common-files![bootstrap]
+	if a.workable remove bootstrap.uri
+		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.ast-or-diag.to-ast
+		module, common-types = a.all-insts check-bootstrap a.common-uris, fa
+		a.common-types := common-types,
+		bootstrap.module := module,
+		a.count-uncompiled-crow-files -:= 1
+		a mark-all-non-bootstrap-modules-dirty bootstrap # since they all use common-types
+
+	guard _ ?= a common-types
+	loop
+		if uri ?= a.workable pop-arbitrary
+			file = a.crow-files[uri]!
+			file.module := (a compile-non-bootstrap-module file),
+			a.count-uncompiled-crow-files -:= 1
+			for importer : file referenced-by
+				a add-to-workable-if-so a.crow-files[importer]!
+			continue
+		elif a.storage_.files-state == all-loaded && a.count-uncompiled-crow-files != 0
+			a fix-circular-imports
+			continue
+		else
+			break
+
+| This may not fix all circular imports, but it's run in a loop
+-fix-circular-imports void(a frontend)
+	for _, x : a crow-files
+		if x !has-module
+			cycle-builder uri mut[] = ()
+			_ = a fix-circular-imports-recur cycle-builder, x
+			break
+-fix-circular-imports-recur uri[](a frontend, cycle-builder uri mut[], file crow-file)
+	forbid file has-module
+	cycle-builder ~= file uri
+	import-index = file.resolved-imports! find-index! x => x !is-import-workable
+	next = file.resolved-imports![import-index] crow-file!
+	cycle uri[] = if next.uri in cycle-builder
+		cycle-builder move-to
+	else
+		a fix-circular-imports-recur cycle-builder, next
+	new-import mostly-resolved-import = (cycle rotate-to-first file.uri).circular-import::diag-import-file to
+	file.resolved-imports := (file.resolved-imports! update-at import-index, new-import),
+	_ = next.referenced-by remove file.uri
+	a add-to-workable-if-so file
+	cycle
+
+-rotate-to-first[t] t[](values t[], first-value t) t equal
+	index = values index-of! first-value
+	values[index .. end] ~~ values[0 .. index]
+
+-compile-non-bootstrap-module module(a frontend, file crow-file)
+	assert file is-workable
+	forbid a.common-types is-empty # bootstrap must be compiled first
+	ast uri-and-ast = file.uri, file.config!, file.ast-or-diag.to-ast
+	imports = a fully-resolve-imports file.resolved-imports!
+	a.all-insts check a.common-uris, ast, imports, a.common-types!
+
+-update-file-on-config-change void(a frontend, file crow-file)
+	if best-config ?= a.storage_ try-find-config file.uri.parent-or-empty
+		ok = if config ?= file config
+			best-config.config-uri != config.config-uri
+		else
+			true
+		if ok
+			file.config := best-config,
+			a updated-ast-or-config file
+
+-updated-ast-or-config void(a frontend, file crow-file)
+	if file is-unknown-or-loading || file.config is-empty
+		assert file.resolved-imports is-empty && file !has-module
+	else
+		a recompute-resolved-imports file
+
+-is-unknown-or-loading bool(a crow-file)
+	if r ?= a.ast-or-diag read-file-diag
+		r is-unknown-or-loading
+
+-recompute-resolved-imports void(a frontend, file crow-file)
+	a mark-module-dirty file
+	circular-import = unless file.resolved-imports is-empty
+		file clear-resolved-imports
+	file.resolved-imports := (a resolve-imports file.ast-or-diag, file.config!, file.uri),
+	for x : file.resolved-imports!
+		if rb ?= x get-referenced-by
+			rb ~= file.uri
+
+	if circ ?= circular-import
+		if file.resolved-imports! !has-circular-import
+			for uri : circ
+				if uri != file.uri
+					other = a.crow-files[uri]!
+					ci = other clear-resolved-imports
+					forbid ci is-empty # But ignore since we've already handled it
+					a recompute-resolved-imports other
+	
+	a add-to-workable-if-so file
+
+-clear-resolved-imports uri[]?(file crow-file)
+	circular-import mut uri[]? = ()
+	for import_ : file resolved-imports!
+		if rb ?= import_ get-referenced-by
+			_ = rb remove file.uri
+		else
+			circular-import := import_ as-circular-import
+	file.resolved-imports := ()
+	circular-import
+
+-has-circular-import bool(a mostly-resolved-import[])
+	a exists x => x is-circular-import
+-is-circular-import bool(a mostly-resolved-import)
+	a.diag-import-file?.circular-import !is-empty
+-as-circular-import uri[]?(a mostly-resolved-import)
+	if a is-circular-import
+		a.diag-import-file!.circular-import!.cycle,
+
+-add-to-workable-if-so void(a frontend, file crow-file)
+	if file is-workable
+		a.workable ~= file uri
+
+-is-workable bool(a crow-file)
+	forbid a has-module
+	a !is-unknown-or-loading &&
+	a.config !is-empty &&
+	a.resolved-imports! every x => x is-import-workable
+-is-import-workable bool(a mostly-resolved-import)
+	match a
+	as crow-file x
+		x has-module
+	as other-file x
+		x.content !is-empty
+	as diag-import-file x
+		if r ?= x read-error
+			# Unknown/loading files still have a CrowFile*, Config*, or OtherFile*
+			forbid r.diag is-unknown-or-loading
+		true
+
+-is-unknown-or-loading bool(a read-file-diag)
+	match a
+	as error
+		false
+	as not-found
+		false
+	as loading
+		true
+	as unknown
+		true
+
+-resolve-imports mostly-resolved-import[](
+	a frontend,
+	ast-or-diag ast-or-diag,
+	config config,
+	uri uri,
+)
+	match ast-or-diag
+	as file-ast x
+		a resolve-imports-for-ast x, config, uri
+	as read-file-diag _
+		()
+
+-resolve-imports-for-ast mostly-resolved-import[](a frontend, ast file-ast, config config, uri uri)
+	with out : ast.count-imports-and-re-exports build
+		unless ast no-std_
+			out ~= a.common-files![std] to
+		# TODO: use each-import-or-re-export? ---------------------------------------------------------------------------------------
+		if i ?= ast imports
+			for x : i paths
+				out ~= a try-resolve-import config, uri, x
+		if i ?= ast re-exports
+			for x : i paths
+				out ~= a try-resolve-import config, uri, x
+
+-count-imports-and-re-exports nat(a file-ast)
+	(a !no-std_).to +
+	(a.imports?.paths?.size ?? 0) +
+	(a.re-exports?.paths?.size ?? 0)
+
+# TODO: just take `bootstrap uri`, not `bootstrap crow-file` --------------------------------------------------------------------------
+-mark-all-non-bootstrap-modules-dirty void(a frontend, bootstrap crow-file)
+	for uri, x : a crow-files
+		if uri != bootstrap.uri
+			a mark-module-dirty x
+	a.workable clear
+	for uri, x : a crow-files
+		if uri != bootstrap.uri
+			a add-to-workable-if-so x
+
+-mark-module-dirty void(a frontend, file crow-file)
+	if file has-module
+		file.module := ()
+		a.count-uncompiled-crow-files +:= 1
+		for x : file referenced-by
+			a mark-module-dirty a.crow-files[x]!
+
+-fully-resolve-imports resolved-import[](a frontend, imports mostly-resolved-import[])
+	for import_ : imports
+		match import_
+		as crow-file file
+			match file ast-or-diag
+			as file-ast _
+				file.must-have-module to
+			as read-file-diag d
+				(file.uri read-error d)::diag-import-file to
+		as other-file file
+			match a.storage_ file-or-diag file.uri
+			as file-info _
+				file.content! to
+			as read-file-diag diag
+				(file.uri read-error diag)::diag-import-file to
+		as diag-import-file x
+			x to
+
+-try-find-config config?(storage_ storage_, config-dir uri)
+	match storage_ file-or-diag config-dir / crow-config-base-name
+	as file-info x
+		x.crow-config-file-info!.config,
+	as read-file-diag x
+		match x
+		as not-found
+			if par ?= config-dir parent
+				storage_ try-find-config par
+			else
+				(),
+		as error
+			throw todo
+		else
+			assert x == loading || x == unknown
+			# Query all possible configs to ensure they are loaded early
+			if par ?= config-dir parent
+				_ = storage_ try-find-config par
+			()
+
+-common-uris common-uris(include-dir uri)
+	include-crow = include-dir / "crow"
+	col = include-crow / "col"
+	private = include-crow / "private"
+	test-util = include-crow / "test-util"
+	for k : make-enum-map
+		match k
+		as alloc
+			private / "alloc.croow"
+		as array
+			col / "array.croow"
+		as bool-low-level
+			private / "bool-low-level.croow"
+		as bootstrap
+			private / "bootstrap.croow"
+		as compare
+			include-crow / "compare.croow"
+		as exception-low-level
+			private / "exception-low-level.croow"
+		as future-low-level
+			private / "future-low-level.croow"
+		as js
+			include-crow / "js.croow"
+		as json
+			include-crow / "json.croow"
+		as misc
+			include-crow / "misc.croow"
+		as mut-array
+			col / "mut-array.croow"
+		as number-low-level
+			private / "number-low-level.croow"
+		as pointer
+			include-crow / "pointer.croow"
+		as runtime
+			private / "runtime.croow"
+		as runtime-main
+			private / "rt-main.croow"
+		as std
+			include-crow / "std.croow"
+		as string
+			include-crow / "string.croow"
+		as symbol-low-level
+			private / "symbol-low-level.croow"
+		as test-runner
+			test-util / "test-runner.crow"
+
+-uri-or-diag union(uri, diag-import-file)
+
+| For an unknown/loading file, this will still be a {crow-file} or {other-file}
+-mostly-resolved-import union(crow-file, other-file, diag-import-file) mut
+
+-get-referenced-by uri mut-set?(import_ mostly-resolved-import)
+	match import_
+	as crow-file x
+		x.referenced-by,
+	as other-file x
+		x.referenced-by,
+	as diag-import-file _
+		()
+
+-try-resolve-import mostly-resolved-import(
+	a frontend,
+	config config,
+	from-uri uri,
+	ast import-or-export-ast,
+)
+	base uri-or-diag = match ast path
+	as path path
+		library-name, rest = path first-and-rest
+		if library-name == "crow" || library-name == "system"
+			a.crow-include-dir concat-uri-and-path path to
+		elif from-config ?= config.include[library-name]
+			if r ?= rest
+				from-config concat-uri-and-path r to
+			else
+				from-config to
+		else
+			library-name.library-not-configured::diag-import-file to
+	as rel-path rel-path
+		if rel ?= from-uri.parent-or-empty resolve-uri rel-path
+			rel to
+		else
+			rel-path.relative-import-reaches-past-root::diag-import-file to
+	match base
+	as uri uri
+		crow-file mostly-resolved-import mut() = () =>
+			a ensure-crow-file (uri add-extension ".crow") to
+		match ast kind
+		as import-whole-module-ast
+			crow-file[]
+		as array _
+			crow-file[]
+		as import-file-ast _
+			if uri.file-type == crow
+				cant-import-crow-as-text::diag-import-file to
+			else
+				a ensure-other-file uri to
+	as diag-import-file x
+		x to

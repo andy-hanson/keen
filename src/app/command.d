@@ -3,8 +3,8 @@ module app.command;
 @safe @nogc pure nothrow:
 
 import frontend.lang : CCompileOptions, JitOptions, MainKind;
-import lib.server : PrintKind;
 import model.model : BuildTarget;
+import model.sourceRange : LineAndColumn;
 import util.alloc.alloc : Alloc;
 import util.col.arrayBuilder : addIfNotContains, buildArray, Builder;
 import util.string : CString;
@@ -54,6 +54,34 @@ immutable struct LspCommand {}
 immutable struct PrintCommand {
 	PrintKind kind;
 	Uri mainUri;
+}
+immutable struct PrintKind {
+	mixin Union!(PrintAst, PrintModel, PrintConcreteModel, PrintLowModel, PrintIdeAtPos, PrintIdeWholeFile);
+}
+immutable struct PrintAst {}
+immutable struct PrintModel {}
+immutable struct PrintConcreteModel {}
+immutable struct PrintLowModel {}
+immutable struct PrintIdeAtPos {
+	PrintIdeAtPosKind kind;
+	LineAndColumn lineAndColumn;
+}
+enum PrintIdeAtPosKind {
+	completion,
+	definition,
+	documentHighlight,
+	hover,
+	implementation,
+	references,
+	rename,
+	signatureHelp,
+	typeDefinition,
+}
+enum PrintIdeWholeFile {
+	codeLenses,
+	foldingRanges,
+	inlayHints,
+	tokens,
 }
 immutable struct RunCommand {
 	MainKind main;
