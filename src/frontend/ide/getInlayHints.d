@@ -12,6 +12,7 @@ import lib.lsp.lspTypes :
 	InlayHintLabel,
 	InlayHintLabelPart,
 	InlayHintParams,
+	InlayHintResult,
 	Pipe,
 	RunResult,
 	TestStates,
@@ -68,14 +69,14 @@ import util.uri : baseName, Uri;
 import util.util : stringOfEnum;
 import util.writer : makeStringWithWriter, writeWithCommas, Writer, writeWithNewlines;
 
-InlayHint[] getInlayHints(
+InlayHintResult getInlayHints(
 	ref Alloc alloc,
 	in Program program,
 	in ShowModelCtx showCtx,
 	in TestStates testStates,
 	InlayHintParams params,
 ) =>
-	buildSortedArray!(InlayHint, compareInlayHints)(alloc, (scope ref Builder!InlayHint out_) {
+	InlayHintResult(buildSortedArray!(InlayHint, compareInlayHints)(alloc, (scope ref Builder!InlayHint out_) {
 		Uri uri = params.textDocument;
 		Module* module_ = moduleAtUri(program, uri);
 		foreach (ImportOrExport x; module_.imports)
@@ -84,7 +85,7 @@ InlayHint[] getInlayHints(
 		eachDecl(*module_, (AnyDecl x) {
 			getInlayHintsForDecl(alloc, out_, program, showCtx, testStates, x);
 		});
-	});
+	}));
 
 private:
 

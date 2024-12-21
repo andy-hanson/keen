@@ -1,0 +1,232 @@
+import
+	../../model/source-range
+	../../model/uri
+	../../util/exit-code
+
+location alias
+	uri-and-line-and-character-range
+position alias
+	line-and-character
+text-document-identifier alias
+	uri
+text-document-position-params alias
+	uri-line-and-character
+
+lsp-in-message union(lsp-in-notification, lsp-in-request, lsp-in-response)
+
+lsp-in-notification union(
+	cancel-request-params,
+	did-change-text-document-params,
+	did-close-text-document-params,
+	did-open-text-document-params,
+	did-save-text-document-params,
+	exit-params,
+	initialized-params,
+	read-file-result-params,
+	set-trace-params
+)
+
+lsp-in-request record(id nat, params lsp-in-request-params)
+lsp-in-request-params union(
+	build-js-script-params,
+	code-lens-params,
+	completion-params,
+	definition-params,
+	document-highlight-params,
+	execute-command-params,
+	folding-range-params,
+	hover-params,
+	implementation-params,
+	initialize-params,
+	inlay-hint-params,
+	reference-params,
+	rename-params,
+	run-params,
+	semantic-tokens-params,
+	shutdown-params,
+	signature-help-params,
+	syntax-translate-params,
+	type-definition-params,
+	unloaded-uris-params
+)
+| Nothing here for now since we don't need the response
+lsp-in-response record()
+
+lsp-out-action record(out-messages lsp-out-message[], exit-code exit-code?)
+lsp-out-message union(lsp-out-notification, lsp-out-request, lsp-out-response)
+lsp-out-notification union(publish-diagnostics-params, register-capability, unknown-uris)
+lsp-out-request record(id nat, params lsp-out-request-params)
+lsp-out-request-params union(inlay-hint-refresh)
+inlay-hint-refresh record
+
+lsp-out-response record(id nat, result lsp-out-result)
+lsp-out-result union(
+	build-js-script-result,
+	code-lens-result,
+	completion-list,
+	document-highlight-result,
+	folding-range-result,
+	initialize-result,
+	inlay-hint,
+	inlay-hint-result,
+	hover,
+	ranges-result,
+	run-result,
+	semantic-tokens,
+	signature-help,
+	syntax-translate-result,
+	unloaded-uris,
+	workspace-edit,
+	null-lsp-out-result)
+null-lsp-out-result record
+
+register-capability record(id string, method string)
+
+| Only used if it's in {initialization-options}. (Currently that is true for VSCode but not for Sublime Text.)
+| The editor should send back a 'readFileResult' notification for each unknown URI.
+unknown-uris record(unknown-uris uri[])
+
+# For simplicity, this will just have a hardcoded result in to::json
+initialize-result record
+
+set-trace-params record(value trace-value)
+trace-value enum(off, messages, verbose)
+
+syntax-translate-params record(source string, from language, to language)
+language enum(c, crow, java)
+syntax-translate-result record(output string, diagnostics pos[])
+
+| Parameter to "custom/readFileResult"
+read-file-result-params record(uri uri, type read-file-result-type, content nat8[])
+read-file-result-type enum(ok, not-found, error)
+| Parameter to "custom/build-js-script"
+build-js-script-params record(uri uri, diagnosticsOnlyForUris uri[]?)
+build-js-script-result record(diagnostics string, script string?)
+| Parameter to "custom/run"
+run-params record(uri uri, diagnosticsOnlyForUris uri[])
+
+test-states alias
+	run-result mut[uri-and-line]
+| Response to "custom/run"
+run-result record(exit exit-code-or-signal, writes write[])
+write record(pipe pipe, text string)
+pipe enum(stdout, stderr)
+
+| Parameter to "custom/unloadedUris"
+unloaded-uris-params record
+unloaded-uris record(unloadedUris uri[])
+
+cancel-request-params record(id nat)
+
+exit-params record
+
+initialize-params record(initializationOptions initialization-options, trace trace-value)
+initialization-options record(unknownUris bool)
+initialized-params record
+shutdown-params record
+code-lens-params record(textDocument text-document-identifier)
+code-lens-result record(lenses code-lens[])
+code-lens record
+	range line-and-character-range
+	| // WARN: The documentation says this is a Command, but it doesn't seem to support a 'tooltip' when on a CodeLens.
+	command command
+command record
+	title string
+	tooltip string?
+	| This also determines 'command'.
+	| Arguments must be represented as an array.
+	arguments execute-command-params?
+execute-command-params union(run-test)
+run-test record(where uri-and-line)
+
+completion-params record(params text-document-position-params)
+completion-list record(items completion-item[])
+completion-item record(label string, detail string, documentation string)
+
+| For {definition-params}, {implementation-params}, or {reference-params}
+ranges-result record
+	ranges uri-and-line-and-character-range[]
+
+definition-params record(params text-document-position-params)
+implementation-params record(params text-document-position-params)
+did-change-text-document-params record
+	textDocument text-document-identifier
+	contentChanges text-document-content-change-event[]
+did-close-text-document-params record
+did-save-text-document-params record(textDocument text-document-identifier)
+did-open-text-document-params record(textDocument text-document-item)
+text-document-item record(uri uri, text string)
+
+hover-params record(params text-document-position-params)
+hover record(contents markup-content)
+markup-content record(kind markup-kind, value string)
+markup-kind enum(plaintext, markdown)
+
+publish-diagnostics-params record(uri uri, diagnostics lsp-diagnostic[])
+text-document-content-change-event record(range line-and-character-range?, text string)
+lsp-diagnostic record(range line-and-character-range, severity lsp-diagnostic-severity, message string)
+lsp-diagnostic-severity enum
+	Error = 1
+	Warning = 2
+	Information = 3
+	Hint = 4
+
+rename-params record
+	| This appears in JSON as two separate properties
+	text-document-and-position text-document-position-params
+	newName string
+reference-params record
+	params text-document-position-params
+document-highlight-params record
+	params text-document-position-params
+| Result for a document highlight can also be {null-lsp-out-result} instead of this
+document-highlight-result record
+	uri uri
+	highlights document-highlight[]
+document-highlight record(range line-and-character-range, kind document-highlight-kind)
+document-highlight-kind enum
+	Text = 1
+	Read = 2
+	Write = 3
+semantic-tokens-params record(textDocument text-document-identifier)
+workspace-edit record(changes (uri, text-edit[])[])
+text-edit record(range line-and-character-range, newText string)
+semantic-tokens record(data_ nat[])
+signature-help-params record(text-document-and-position text-document-position-params)
+signature-help record
+	signatures signature-information[]
+	activeSignature nat?
+	activeParameter nat?
+signature-information record
+	label string
+	documentation string
+	parameters parameter-information[]
+	activeParameter nat?
+parameter-information record
+	| This is a range of UTF-16 characters
+	label nat range
+	| Omitted if empty
+	documentation string
+
+type-definition-params record(text-document-and-position text-document-position-params)
+inlay-hint-params record(textDocument text-document-identifier, range line-and-character-range)
+inlay-hint-result record(hints inlay-hint[])
+inlay-hint record
+	position line-and-character
+	label inlay-hint-label
+	kind inlay-hint-kind
+	paddingLeft bool
+inlay-hint-kind enum
+	none = 0
+	Type = 1
+	Parameter = 2
+inlay-hint-label union(string, inlay-hint-label-part[])
+inlay-hint-label-part record
+	value string
+	tooltip string?
+	location location?
+	command command?
+folding-range-params record(textDocument text-document-identifier)
+folding-range-result record(ranges folding-range[])
+folding-range record(startLine nat, endLine nat, kind folding-range-kind?)
+folding-range-kind enum(comments, imports, region_)

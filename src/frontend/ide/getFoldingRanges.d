@@ -4,7 +4,7 @@ module frontend.ide.getFoldingRanges;
 
 import frontend.ide.ideUtil : walkAstInOrder;
 import frontend.storage : CrowFileInfo;
-import lib.lsp.lspTypes : FoldingRange, FoldingRangeKind;
+import lib.lsp.lspTypes : FoldingRange, FoldingRangeKind, FoldingRangeResult;
 import model.ast :
 	DocCommentAst, FunDeclAst, ImportsOrExportsAst, SpecDeclAst, StructAliasAst, StructDeclAst, TestAst, VarDeclAst;
 import model.sourceRange : LineAndCharacterGetter, LineAndCharacterRange, Range;
@@ -13,7 +13,7 @@ import util.col.arrayBuilder : add, ArrayBuilder, finish;
 import util.conv : safeToUint;
 import util.opt : force, has, MutOpt, none, noneMut, Opt, some, someMut;
 
-FoldingRange[] foldingRangesOfAst(ref Alloc alloc, in CrowFileInfo file) {
+FoldingRangeResult foldingRangesOfAst(ref Alloc alloc, in CrowFileInfo file) {
 	scope Ctx ctx = Ctx(&alloc, file.content.lineAndCharacterGetter);
 	addRangesForRegions(ctx, file.ast.regions);
 	walkAstInOrder!(
@@ -26,7 +26,7 @@ FoldingRange[] foldingRangesOfAst(ref Alloc alloc, in CrowFileInfo file) {
 		addRangesForTest,
 		addRangesForVarDecl,
 	)(file.ast, ctx);
-	return finish(alloc, ctx.out_);
+	return FoldingRangeResult(finish(alloc, ctx.out_));
 }
 
 private:

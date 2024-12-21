@@ -105,34 +105,34 @@ immutable struct LspOutResponse {
 	LspOutResult result;
 }
 immutable struct LspOutResult {
-	immutable struct Null {}
 	mixin Union!(
 		BuildJsScriptResult,
-		CodeLens[],
+		CodeLensResult,
 		CompletionList,
 		DocumentHighlightResult,
-		FoldingRange[],
+		FoldingRangeResult,
 		InitializeResult,
 		InlayHint,
-		InlayHint[],
-		Opt!Hover,
+		InlayHintResult,
+		Hover,
+		RangesResult,
 		RunResult,
 		SemanticTokens,
 		SignatureHelp,
 		SyntaxTranslateResult,
 		UnloadedUris,
-		UriAndLineAndCharacterRange[], // for definition, implementation, or references
 		WorkspaceEdit, // for rename
-		Null,
+		NullLspOutResult,
 	);
 }
+immutable struct NullLspOutResult {}
 
 immutable struct RegisterCapability {
 	string id;
 	string method;
 }
 
-// Only used if it's in InitializeOptions. (Currently that is true for VSCode but not for Sublime Text.)
+// Only used if it's in InitializationOptions. (Currently that is true for VSCode but not for Sublime Text.)
 // The editor should send back a readFileResult notification for each unknown URI.
 immutable struct UnknownUris {
 	Uri[] unknownUris;
@@ -219,6 +219,9 @@ immutable struct CodeLensParams {
 	TextDocumentIdentifier textDocument;
 }
 
+immutable struct CodeLensResult {
+	CodeLens[] lenses;
+}
 immutable struct CodeLens {
 	LineAndCharacterRange range;
 	// WARN: The documentation says this is a Command, but it doesn't seem to support a 'tooltip' when on a CodeLens.
@@ -250,6 +253,11 @@ immutable struct CompletionItem {
 	string label;
 	string detail; // E.g., the full function signature
 	string documentation;
+}
+
+// for definition, implementation, or references
+immutable struct RangesResult {
+	UriAndLineAndCharacterRange[] ranges;
 }
 
 immutable struct DefinitionParams {
@@ -395,6 +403,9 @@ immutable struct InlayHintParams {
 	LineAndCharacterRange range;
 }
 
+immutable struct InlayHintResult {
+	InlayHint[] hints;
+}
 immutable struct InlayHint {
 	LineAndCharacter position;
 	InlayHintLabel label;
@@ -415,6 +426,9 @@ immutable struct InlayHintLabelPart {
 
 immutable struct FoldingRangeParams {
 	TextDocumentIdentifier textDocument;
+}
+immutable struct FoldingRangeResult {
+	FoldingRange[] ranges;
 }
 immutable struct FoldingRange {
 	uint startLine;

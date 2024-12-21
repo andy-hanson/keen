@@ -19,10 +19,10 @@ import frontend.ide.position : Position;
 import frontend.showModel : ShowModelCtx;
 import frontend.storage : CrowFileInfo, setFileAssumeUtf8, Storage;
 import lib.lsp.lspToJson :
-	jsonOfCodeLenses,
+	jsonOfCodeLensResult,
 	jsonOfCompletionList,
-	jsonOfFoldingRanges,
-	jsonOfInlayHints,
+	jsonOfFoldingRangeResult,
+	jsonOfInlayHintResult,
 	jsonOfReferences,
 	jsonOfSignatureHelp,
 	jsonOfWorkspaceEdit;
@@ -68,7 +68,7 @@ void testCodeLens(ref Test test) {
 	ideTestWithCrowAndJsonFiles!("code-lens", ["a", "b"])(
 		test,
 		(in ShowModelCtx ctx, in Program program, Uri uri) =>
-			jsonOfCodeLenses(test.alloc, getCodeLenses(test.alloc, program, CodeLensParams(uri))));
+			jsonOfCodeLensResult(test.alloc, getCodeLenses(test.alloc, program, CodeLensParams(uri))));
 }
 
 void testCompletion(ref Test test) {
@@ -83,7 +83,7 @@ void testCompletion(ref Test test) {
 
 void testFoldingRanges(ref Test test) {
 	withAstTests!("folding-ranges", ["basic"])(test, (in CrowFileInfo file) =>
-		jsonOfFoldingRanges(test.alloc, foldingRangesOfAst(test.alloc, file)));
+		jsonOfFoldingRangeResult(test.alloc, foldingRangesOfAst(test.alloc, file)));
 }
 
 void testHover(ref Test test) {
@@ -156,7 +156,7 @@ void testInlayHints(ref Test test) {
 	ideTestWithCrowAndJsonFiles!("inlay-hints", ["a", "b", "c"])(
 		test,
 		(in ShowModelCtx ctx, in Program program, Uri uri) =>
-			jsonOfInlayHints(
+			jsonOfInlayHintResult(
 				test.alloc,
 				getInlayHints(
 					test.alloc, program, ctx, MutMap!(UriAndLine, RunResult)(),

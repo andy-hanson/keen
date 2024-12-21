@@ -3,7 +3,7 @@ module frontend.ide.getCodeLenses;
 @safe @nogc pure nothrow:
 
 import frontend.ide.importReferences : ImportsAndReExports, isEmpty, withImportsAndReExportsOfModule;
-import lib.lsp.lspTypes : CodeLens, CodeLensParams, Command;
+import lib.lsp.lspTypes : CodeLens, CodeLensParams, CodeLensResult, Command;
 import model.model : Module, moduleAtUri, Program;
 import model.sourceRange : LineAndCharacterRange;
 import util.alloc.alloc : Alloc;
@@ -12,9 +12,9 @@ import util.col.arrayBuilder : buildArray, Builder;
 import util.uri : baseName, Uri;
 import util.writer : makeStringWithWriter, Writer, writeWithCommas;
 
-CodeLens[] getCodeLenses(ref Alloc alloc, in Program program, in CodeLensParams params) {
+CodeLensResult getCodeLenses(ref Alloc alloc, in Program program, in CodeLensParams params) {
 	Module* module_ = moduleAtUri(program, params.textDocument);
-	return buildArray!CodeLens(alloc, (scope ref Builder!CodeLens out_) {
+	return CodeLensResult(buildArray!CodeLens(alloc, (scope ref Builder!CodeLens out_) {
 		withImportsAndReExportsOfModule!void(program, module_, (in ImportsAndReExports x) {
 			if (!isEmpty(x)) {
 				size_t maxUris = 4;
@@ -28,7 +28,7 @@ CodeLens[] getCodeLenses(ref Alloc alloc, in Program program, in CodeLensParams 
 				out_ ~= CodeLens(LineAndCharacterRange.topOfFile, Command(message));
 			}
 		});
-	});
+	}));
 }
 
 private:

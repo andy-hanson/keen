@@ -6,6 +6,7 @@ import frontend.ide.getTokens : getTokensLegend;
 import lib.lsp.lspTypes :
 	BuildJsScriptResult,
 	CodeLens,
+	CodeLensResult,
 	Command,
 	CompletionItem,
 	CompletionList,
@@ -14,12 +15,14 @@ import lib.lsp.lspTypes :
 	ExecuteCommandParams,
 	FoldingRange,
 	FoldingRangeKind,
+	FoldingRangeResult,
 	Hover,
 	InitializeResult,
 	InlayHint,
 	InlayHintLabel,
 	InlayHintLabelPart,
 	InlayHintRefresh,
+	InlayHintResult,
 	LspDiagnostic,
 	LspOutAction,
 	LspOutMessage,
@@ -28,8 +31,10 @@ import lib.lsp.lspTypes :
 	LspOutResponse,
 	LspOutResult,
 	MarkupContent,
+	NullLspOutResult,
 	ParameterInformation,
 	PublishDiagnosticsParams,
+	RangesResult,
 	RegisterCapability,
 	RunResult,
 	SemanticTokens,
@@ -104,22 +109,24 @@ Json jsonOfLspOutResult(ref Alloc alloc, ref LspOutResult a) =>
 	a.match!Json(
 		(BuildJsScriptResult x) =>
 			jsonObject(alloc, [field!"diagnostics"(x.diagnostics), optionalField!"script"(x.script)]),
-		(CodeLens[] xs) =>
-			jsonOfCodeLenses(alloc, xs),
+		(CodeLensResult x) =>
+			jsonOfCodeLensResult(alloc, x),
 		(CompletionList x) =>
 			jsonOfCompletionList(alloc, x),
 		(DocumentHighlightResult x) =>
 			jsonOfDocumentHighlight(alloc, x),
-		(FoldingRange[] x) =>
-			jsonOfFoldingRanges(alloc, x),
+		(FoldingRangeResult x) =>
+			jsonOfFoldingRangeResult(alloc, x),
 		(InitializeResult _) =>
 			jsonObject(alloc, [field!"capabilities"(initializeCapabilities(alloc))]),
 		(InlayHint x) =>
 			jsonOfInlayHint(alloc, x),
-		(InlayHint[] x) =>
-			jsonOfInlayHints(alloc, x),
-		(Opt!Hover x) =>
+		(InlayHintResult x) =>
+			jsonOfInlayHintResult(alloc, x),
+		(Hover x) =>
 			jsonOfHover(alloc, x),
+		(RangesResult x) =>
+			jsonOfReferences(alloc, x.ranges),
 		(RunResult x) =>
 			jsonOfRunResult(alloc, x),
 		(SemanticTokens x) =>
@@ -133,11 +140,9 @@ Json jsonOfLspOutResult(ref Alloc alloc, ref LspOutResult a) =>
 		(UnloadedUris x) =>
 			jsonObject(alloc, [field!"unloadedUris"(jsonList!Uri(alloc, x.unloadedUris, (in Uri x) =>
 				Json(stringOfUri(alloc, x))))]),
-		(UriAndLineAndCharacterRange[] x) =>
-			jsonOfReferences(alloc, x),
 		(WorkspaceEdit x) =>
 			jsonOfWorkspaceEdit(alloc, x),
-		(LspOutResult.Null) =>
+		(NullLspOutResult _) =>
 			jsonNull);
 
 Json jsonOfRunResult(ref Alloc alloc, in RunResult a) =>
@@ -184,14 +189,11 @@ Json jsonOfPublishDiagnosticsParams(ref Alloc alloc, in PublishDiagnosticsParams
 		field!"diagnostics"(jsonList(map(alloc, a.diagnostics, (ref LspDiagnostic x) =>
 			jsonOfDiagnostic(alloc, x))))]);
 
-public Json jsonOfHover(ref Alloc alloc, in Opt!Hover a) =>
-	has(a) ? jsonOfHover(alloc, force(a)) : jsonNull;
-
-Json jsonOfHover(ref Alloc alloc, in Hover a) =>
+public Json jsonOfHover(ref Alloc alloc, in Hover a) =>
 	jsonObject(alloc, [field!"contents"(jsonOfMarkupContent(alloc, a.contents))]);
 
-public Json jsonOfCodeLenses(ref Alloc alloc, in CodeLens[] a) =>
-	jsonList(map(alloc, a, (ref CodeLens x) =>
+public Json jsonOfCodeLensResult(ref Alloc alloc, in CodeLensResult a) =>
+	jsonList(map(alloc, a.lenses, (ref CodeLens x) =>
 		jsonOfCodeLens(alloc, x)));
 Json jsonOfCodeLens(ref Alloc alloc, ref CodeLens a) =>
 	jsonObject(alloc, [
@@ -226,8 +228,8 @@ public Json jsonOfDocumentHighlight(ref Alloc alloc, in DocumentHighlightResult 
 			field!"range"(jsonOfLineAndCharacterRange(alloc, x.range)),
 			field!"kind"(uint(x.kind))]));
 
-public Json jsonOfInlayHints(ref Alloc alloc, in InlayHint[] a) =>
-	jsonList(map(alloc, a, (ref InlayHint x) =>
+public Json jsonOfInlayHintResult(ref Alloc alloc, in InlayHintResult a) =>
+	jsonList(map(alloc, a.hints, (ref InlayHint x) =>
 		jsonOfInlayHint(alloc, x)));
 Json jsonOfInlayHint(ref Alloc alloc, ref InlayHint a) =>
 	jsonObject(alloc, [
@@ -301,8 +303,8 @@ Json jsonOfParameterInformation(ref Alloc alloc, ref ParameterInformation a) =>
 	jsonObject(alloc, [
 		field!"label"(jsonList(alloc, [Json(a.label.start), Json(a.label.end)]))]);
 
-public Json jsonOfFoldingRanges(ref Alloc alloc, in FoldingRange[] a) =>
-	jsonList!FoldingRange(alloc, a, (in FoldingRange x) =>
+public Json jsonOfFoldingRangeResult(ref Alloc alloc, in FoldingRangeResult a) =>
+	jsonList!FoldingRange(alloc, a.ranges, (in FoldingRange x) =>
 		jsonOfFoldingRange(alloc, x));
 Json jsonOfFoldingRange(ref Alloc alloc, in FoldingRange a) =>
 	jsonObject(alloc, [

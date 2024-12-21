@@ -61,12 +61,12 @@ import interpret.fakeExtern : withFakeExtern, WriteCb;
 import interpret.generateBytecode : generateBytecode;
 import interpret.runBytecode : runBytecode;
 import lib.lsp.lspToJson :
-	jsonOfCodeLenses,
+	jsonOfCodeLensResult,
 	jsonOfCompletionList,
 	jsonOfDocumentHighlight,
-	jsonOfFoldingRanges,
+	jsonOfFoldingRangeResult,
 	jsonOfHover,
-	jsonOfInlayHints,
+	jsonOfInlayHintResult,
 	jsonOfReferences,
 	jsonOfSignatureHelp,
 	jsonOfWorkspaceEdit;
@@ -96,6 +96,7 @@ import lib.lsp.lspTypes :
 	InlayHint,
 	InlayHintParams,
 	InlayHintRefresh,
+	InlayHintResult,
 	LspDiagnostic,
 	LspDiagnosticSeverity,
 	LspInMessage,
@@ -109,8 +110,10 @@ import lib.lsp.lspTypes :
 	LspOutRequestParams,
 	LspOutResponse,
 	LspOutResult,
+	NullLspOutResult,
 	Pipe,
 	PublishDiagnosticsParams,
+	RangesResult,
 	ReadFileResultParams,
 	ReadFileResultType,
 	ReferenceParams,
@@ -344,7 +347,7 @@ private LspOutAction handleLspRequest(
 		(in SemanticTokensParams x) =>
 			respond(LspOutResult(tokensOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument)))),
 		(in ShutdownParams _) =>
-			respond(LspOutResult(LspOutResult.Null())),
+			respond(LspOutResult(NullLspOutResult())),
 		(in SignatureHelpParams _) =>
 			needProgram(),
 		(in SyntaxTranslateParams x) =>
@@ -401,31 +404,33 @@ private LspOutAction handleLspRequestWithProgram(
 			respond(LspOutResult(getCodeLenses(alloc, program, x))),
 		(in CompletionParams x) {
 			Opt!CompletionList res = getCompletionForProgram(alloc, server, program, x);
-			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
+			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(NullLspOutResult()));
 		},
 		(in DefinitionParams x) =>
-			respond(LspOutResult(getDefinitionForProgram(alloc, server, program, x))),
+			respond(LspOutResult(RangesResult(getDefinitionForProgram(alloc, server, program, x)))),
 		(in DocumentHighlightParams x) {
 			Opt!DocumentHighlightResult res = getDocumentHighlightsForProgram(alloc, server, program, x);
-			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
+			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(NullLspOutResult()));
 		},
 		(in ExecuteCommandParams x) =>
 			executeCommand(perf, alloc, server, program, request, x),
 		(in FoldingRangeParams x) =>
 			assert(false),
-		(in HoverParams x) =>
-			respond(LspOutResult(getHoverForProgram(alloc, server, program, x))),
+		(in HoverParams x) {
+			Opt!Hover result = getHoverForProgram(alloc, server, program, x);
+			return respond(has(result) ? LspOutResult(force(result)) : LspOutResult(NullLspOutResult()));
+		},
 		(in ImplementationParams x) =>
-			respond(LspOutResult(getImplementationForProgram(alloc, server, program, x))),
+			respond(LspOutResult(RangesResult(getImplementationForProgram(alloc, server, program, x)))),
 		(in InitializeParams _) =>
 			assert(false),
 		(in InlayHintParams x) =>
 			respond(LspOutResult(getInlayHintsForProgram(alloc, server, program, x))),
 		(in ReferenceParams x) =>
-			respond(LspOutResult(getReferencesForProgram(alloc, server, program, x))),
+			respond(LspOutResult(RangesResult(getReferencesForProgram(alloc, server, program, x)))),
 		(in RenameParams x) {
 			Opt!WorkspaceEdit res = getRenameForProgram(alloc, server, program, x);
-			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
+			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(NullLspOutResult()));
 		},
 		(in RunParams x) {
 			ArrayBuilder!Write writes;
@@ -445,12 +450,12 @@ private LspOutAction handleLspRequestWithProgram(
 			assert(false),
 		(in SignatureHelpParams x) {
 			Opt!SignatureHelp res = getSignatureHelpForProgram(alloc, server, program, x);
-			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(LspOutResult.Null()));
+			return respond(has(res) ? LspOutResult(force(res)) : LspOutResult(NullLspOutResult()));
 		},
 		(in SyntaxTranslateParams x) =>
 			assert(false),
 		(in TypeDefinitionParams x) =>
-			respond(LspOutResult(getTypeDefinitionForProgram(alloc, server, program, x))),
+			respond(LspOutResult(RangesResult(getTypeDefinitionForProgram(alloc, server, program, x)))),
 		(in UnloadedUrisParams _) =>
 			assert(false));
 }
@@ -477,7 +482,7 @@ private LspOutAction executeCommand(
 				RunResult(exit, finish(server.lspState.stateAlloc, writes)));
 			return LspOutAction(
 				newArray!LspOutMessage(alloc, [
-					messageForResponse(request, LspOutResult(LspOutResult.Null())),
+					messageForResponse(request, LspOutResult(NullLspOutResult())),
 					LspOutMessage(LspOutRequest(1, LspOutRequestParams(InlayHintRefresh())))]));
 		});
 
@@ -793,7 +798,7 @@ private Opt!Hover getHoverForProgram(
 		getHover(alloc, getShowDiagCtx(alloc, server, program, forceNoColor: true), force(position)));
 }
 
-private InlayHint[] getInlayHintsForProgram(
+private InlayHintResult getInlayHintsForProgram(
 	ref Alloc alloc,
 	in Server server,
 	in Program program,
@@ -930,7 +935,8 @@ Json jsonForPrintIdeAtPos(
 				alloc, server, program, DocumentHighlightParams(params));
 			return has(res) ? jsonOfDocumentHighlight(alloc, force(res)) : jsonNull;
 		case PrintIdeAtPosKind.hover:
-			return jsonOfHover(alloc, getHoverForProgram(alloc, server, program, HoverParams(params)));
+			Opt!Hover res = getHoverForProgram(alloc, server, program, HoverParams(params));
+			return has(res) ? jsonOfHover(alloc, force(res)) : jsonNull;
 		case PrintIdeAtPosKind.implementation:
 			return locations(getImplementationForProgram(alloc, server, program, ImplementationParams(params)));
 		case PrintIdeAtPosKind.rename:
@@ -956,12 +962,12 @@ Json jsonForPrintIdeWholeFile(
 ) {
 	final switch (kind) {
 		case PrintIdeWholeFile.codeLenses:
-			return jsonOfCodeLenses(alloc, getCodeLenses(alloc, program, CodeLensParams(uri)));
+			return jsonOfCodeLensResult(alloc, getCodeLenses(alloc, program, CodeLensParams(uri)));
 		case PrintIdeWholeFile.foldingRanges:
 			CrowFileInfo* file = getCrowFileForTokens(alloc, server, uri);
-			return jsonOfFoldingRanges(alloc, foldingRangesOfAst(alloc, *file));
+			return jsonOfFoldingRangeResult(alloc, foldingRangesOfAst(alloc, *file));
 		case PrintIdeWholeFile.inlayHints:
-			return jsonOfInlayHints(
+			return jsonOfInlayHintResult(
 				alloc,
 				getInlayHintsForProgram(alloc, server, program, InlayHintParams(uri)));
 		case PrintIdeWholeFile.tokens:

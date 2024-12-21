@@ -1,0 +1,171 @@
+import
+	../lib/lsp/lsp-types
+	../model/ast
+	../model/model
+	../model/parse-diag
+	../model/source-range
+	../model/uri
+	./config
+	./lang
+	./parse/parse
+
+storage_ record mut
+	# A uri will be in at most one of these maps (TODO: just use file-info-or-diag)-----------------------------------------
+	successes file-info mut[uri]
+	diags read-file-diag mut[uri]
+
+file-info union(crow-file-info, crow-config-file-info, other-file-info) mut
+content file-content(a file-info)
+	match a
+	as crow-file-info x
+		x.content as-file-content
+	as crow-config-file-info x
+		x.content as-file-content
+	as other-file-info x
+		x content
+as-text-file text-file-content?(a file-info)
+	match a
+	as crow-file-info x
+		x.content,
+	as crow-config-file-info x
+		x.content,
+	as other-file-info _
+		()
+
+text-file-content record
+	content string
+	line-and-column-getter line-and-column-getter
+new text-file-content()
+	(), ()
+as-file-content file-content(a text-file-content)
+	a.content.to,
+as-string string(a text-file-content)
+	a content
+line-and-character-getter line-and-character-getter(a text-file-content)
+	a.line-and-column-getter line-and-character-getter
+length nat32(a text-file-content)
+	a.line-and-character-getter.max-pos
+
+crow-file-info record(content text-file-content, ast file-ast)
+crow-config-file-info record(content text-file-content, config config) mut
+other-file-info record(content file-content)
+file-info-or-diag union(file-info, read-file-diag) mut
+set-file file-info-or-diag(a storage_, uri uri, result read-file-result)
+	match result
+	as file-content x
+		a set-file-bytes uri, x.bytes to
+	as read-file-diag x
+		a set-file-diag uri, x
+		x to
+set-file-bytes file-info(a storage_, uri uri, content nat8[])
+	a prepare-set-file uri
+	info = uri init-file-info content
+	forbid uri in a.successes
+	a.successes[uri] := info
+	info
+# TODO: We don't need 'assume-utf8', we'll throw na exception and the test will fail if it's not valid utf8 ----------------------------------
+set-file-assume-utf8 file-info(a storage_, uri uri, content string)
+	a set-file-bytes uri, content.to
+-set-file-diag void(a storage_, uri uri, diag read-file-diag)
+	a prepare-set-file uri
+	forbid uri in a.diags
+	a.diags[uri] := diag
+-prepare-set-file void(a storage_, uri uri)
+	_ = a.diags remove uri
+	_ = a.successes remove uri
+
+change-file file-info(a storage_, uri uri, changes text-document-content-change-event[])
+	for change : changes[0 .. end]
+		_ = a change-file uri, change
+	a change-file uri, changes[end - 1]
+
+change-file file-info(a storage_, uri uri, change text-document-content-change-event)
+	info = a file-or-diag uri file-info!
+	text = info as-text-file!
+	new-content = text.as-string apply-change text.line-and-character-getter, change
+	a set-file-assume-utf8 uri, new-content
+
+-init-file-info file-info(uri uri, input nat8[])
+	content file-content = input,
+	string string? = try
+		input.as-string,
+	catch unicode-decode-error _
+		()
+	text-file-content text-file-content mut() = () =>
+		if x ?= string
+			x, x.line-and-column-getter-for-text
+	match uri file-type
+	as crow
+		text-file-content[] crow-file-info if x ?= string
+			x parse-file
+		else
+			parse-diag-file-not-utf8 file-ast-for-diag
+	as crow-config
+		text-file-content[] crow-config-file-info if x ?= string
+			uri parse-config x
+		else
+			uri config-for-diag parse-diag-file-not-utf8.to
+	as other
+		content other-file-info
+
+files-state enum(has-unknown, has-loading, all-loaded)
+files-state files-state(a storage_)
+	res mut files-state = all-loaded
+	for _, x : a.diags
+		match x
+		as unknown
+			break has-unknown
+		as loading
+			res := has-loading
+			continue
+		as not-found
+			continue
+		as error
+			continue
+	else
+		res
+
+all-storage-uris uri[](a storage_)
+	(for uri, _ : a successes; uri) ~~ (for uri, _ : a diags; uri)
+all-uris-with-file-diag uri[](a storage_, search-diags read-file-diag[])
+	with out : build
+		for uri, diag : a diags
+			if diag in search-diags
+				out ~= uri
+| This adds to the unknown set if {uri} is not found
+file-or-diag file-info-or-diag(a storage_, uri uri)
+	if res ?= a.successes[uri]
+		res to
+	else
+		a.diags ensure uri, (() => unknown) to
+mark-unknown-if-not-exsist void(a storage_, uri uri)
+	_ = a file-or-diag uri
+
+read-file-result union(file-content, read-file-diag)
+
+file-content-getters file-content-getters(a storage_)
+	map string[uri] = with out : build
+		for uri, file : a successes
+			if x ?= file crow-file-info
+				out ~= (uri, x.content.as-string)
+	map,
+line-and-character-getter line-and-character-getter(a storage_, uri uri)
+	a line-and-column-getter uri line-and-character-getter
+line-and-character-getters line-and-character-getters(a storage_)
+	a.line-and-column-getters line-and-character-getters
+line-and-column-getter line-and-column-getter(a storage_, uri uri)
+	a.successes[uri]?.as-text-file?.line-and-column-getter ?? ()
+line-and-column-getters line-and-column-getters(a storage_)
+	map line-and-column-getter[uri] = with out : build
+		for uri, file : a successes
+			if x ?= file as-text-file
+				out ~= (uri, x.line-and-column-getter)
+	map,
+
+-apply-change string(input string, lc line-and-character-getter, event text-document-content-change-event)
+	if r ?= event range
+		range source-range = lc[r]
+		chars char8[] = input to
+		chars[0 .. range.start.to].to ~~ event.text ~~ chars[range.end.to .. end].to
+	else
+		event text
