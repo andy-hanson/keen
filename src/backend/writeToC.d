@@ -17,8 +17,8 @@ import backend.writeTypes : TypeWriters, writeTypes;
 import frontend.lang : CCompileOptions, CVersion, OptimizationLevel;
 import frontend.showModel : ShowCtx;
 import model.concreteModel :
+	ConcreteBuiltinType,
 	ConcreteStruct,
-	ConcreteStructBody,
 	Constant,
 	ConstantArray,
 	ConstantCString,
@@ -634,8 +634,8 @@ bool canUseAnonymousUnions(in Ctx ctx) =>
 	ctx.cVersion < CVersion.c11;
 
 void writeUnion(scope ref Writer writer, scope ref Ctx ctx, in LowUnion a) {
-	bool isBuiltin = a.source.body_.isA!(ConcreteStructBody.Builtin*);
-	if (isBuiltin) assert(isLambda(a.source.body_.as!(ConcreteStructBody.Builtin*).kind));
+	bool isBuiltin = a.source.body_.isA!(ConcreteBuiltinType*);
+	if (isBuiltin) assert(isLambda(a.source.body_.as!(ConcreteBuiltinType*).kind));
 
 	if (isBuiltin || exists!LowType(a.members, (in LowType member) => !isEmptyType(ctx, member))) {
 		if (canUseAnonymousUnions(ctx)) {
@@ -1560,7 +1560,7 @@ void writeConstantRef(
 				writeConstantRef(writer, ctx, ConstantRefPos.inner, type.as!(LowUnion*).members[x.memberIndex], x.arg);
 			});
 		},
-		(in ConstantZero) {
+		(in ConstantZero _) {
 			writeZeroedValue(writer, ctx, type);
 		});
 }

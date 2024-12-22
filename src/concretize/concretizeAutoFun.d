@@ -44,15 +44,20 @@ import concretize.generate :
 import model.concreteModel :
 	arrayElementType,
 	CastConcreteExpr,
+	ConcreteBuiltinType,
+	ConcreteEnum,
+	ConcreteExternType,
 	ConcreteExpr,
 	ConcreteExprKind,
 	ConcreteField,
+	ConcreteFlags,
 	ConcreteFun,
 	ConcreteLocal,
+	ConcreteRecord,
 	ConcreteStruct,
-	ConcreteStructBody,
-	ConcreteStructSource,
+	ConcreteStructSourceInst,
 	ConcreteType,
+	ConcreteUnion,
 	Constant,
 	ConstantUnion,
 	isFlags,
@@ -118,9 +123,9 @@ ConcreteExpr concretizeAutoFun(ref ConcretizeExprCtx ctx, ref AutoFun a) {
 					compareIntegral(x.storage),
 				(Flags x) =>
 					compareIntegral(x.storage),
-				(ConcreteStructBody.Record x) =>
+				(ConcreteRecord x) =>
 					concretizeCompareRecord(ctx, x.fields, a.members),
-				(ConcreteStructBody.Union x) =>
+				(ConcreteUnion x) =>
 					concretizeCompareUnion(ctx, x.members, a.members));
 		case AutoFunKind.enumOrFlagsMembers:
 			Constant[] elements = map(
@@ -140,9 +145,9 @@ ConcreteExpr concretizeAutoFun(ref ConcretizeExprCtx ctx, ref AutoFun a) {
 					concretizeEqualEnumOrFlags(ctx.concretizeCtx, range, x.storage, param0(), param1()),
 				(Flags x) =>
 					concretizeEqualEnumOrFlags(ctx.concretizeCtx, range, x.storage, param0(), param1()),
-				(ConcreteStructBody.Record x) =>
+				(ConcreteRecord x) =>
 					concretizeEqualRecord(ctx, x.fields, a.members),
-				(ConcreteStructBody.Union x) =>
+				(ConcreteUnion x) =>
 					concretizeEqualUnion(ctx, x.members, a.members));
 		case AutoFunKind.flagsToSymbolArray:
 			return concretizeFlagsToSymbolArray(ctx);
@@ -155,11 +160,11 @@ ConcreteExpr concretizeAutoFun(ref ConcretizeExprCtx ctx, ref AutoFun a) {
 				only(ctx.curFun.params).type,
 				(Enum x) =>
 					concretizeEnumToJson(ctx),
-				(Flags) =>
+				(Flags _) =>
 					concretizeFlagsToJson(ctx),
-				(ConcreteStructBody.Record x) =>
+				(ConcreteRecord x) =>
 					concretizeRecordToJson(ctx, x.fields, a.members),
-				(ConcreteStructBody.Union x) =>
+				(ConcreteUnion x) =>
 					concretizeUnionToJson(ctx, x.members, a.members));
 	}
 }
@@ -224,10 +229,10 @@ ConcreteExpr genFlagsIn(
 }
 
 IntegralType integralTypeFromFlagsType(in ConcreteType a) =>
-	mustBeByVal(a).body_.as!(ConcreteStructBody.Flags).storage;
+	mustBeByVal(a).body_.as!ConcreteFlags.storage;
 
 SmallArray!EnumOrFlagsMember enumOrFlagsMembers(ConcreteType type) {
-	StructBody body_ = mustBeByVal(type).source.as!(ConcreteStructSource.Inst).decl.body_;
+	StructBody body_ = mustBeByVal(type).source.as!ConcreteStructSourceInst.decl.body_;
 	return body_.isA!(Enum*) ? body_.as!(Enum*).members : body_.as!Flags.members;
 }
 
@@ -288,7 +293,7 @@ ConcreteExpr concretizeFlagsToJson(ref ConcretizeExprCtx ctx) {
 }
 
 Constant constantJsonString(ref ConcretizeCtx ctx, ConcreteType jsonType, Symbol value) {
-	ConcreteType[] members = mustBeByVal(jsonType).body_.as!(ConcreteStructBody.Union).members;
+	ConcreteType[] members = mustBeByVal(jsonType).body_.as!ConcreteUnion.members;
 	size_t memberIndex = 3;
 	ConcreteType string_ = stringType(ctx);
 	assert(members[memberIndex] == string_);
@@ -431,18 +436,18 @@ T handleEnumFlagsRecordOrUnion(T)(
 	in ConcreteType type,
 	in T delegate(Enum) @safe @nogc pure nothrow cbEnum,
 	in T delegate(Flags) @safe @nogc pure nothrow cbFlags,
-	in T delegate(ConcreteStructBody.Record) @safe @nogc pure nothrow cbRecord,
-	in T delegate(ConcreteStructBody.Union) @safe @nogc pure nothrow cbUnion,
+	in T delegate(ConcreteRecord) @safe @nogc pure nothrow cbRecord,
+	in T delegate(ConcreteUnion) @safe @nogc pure nothrow cbUnion,
 ) =>
 	type.struct_.body_.match!T(
-		(ref ConcreteStructBody.Builtin) =>
+		(ref ConcreteBuiltinType _) =>
 			assert(false),
-		(ConcreteStructBody.Enum) =>
-			cbEnum(*type.struct_.source.as!(ConcreteStructSource.Inst).decl.body_.as!(Enum*)),
-		(ConcreteStructBody.Extern) =>
+		(ConcreteEnum _) =>
+			cbEnum(*type.struct_.source.as!ConcreteStructSourceInst.decl.body_.as!(Enum*)),
+		(ConcreteExternType _) =>
 			assert(false),
-		(ConcreteStructBody.Flags) =>
-			cbFlags(type.struct_.source.as!(ConcreteStructSource.Inst).decl.body_.as!(Flags)),
+		(ConcreteFlags _) =>
+			cbFlags(type.struct_.source.as!ConcreteStructSourceInst.decl.body_.as!(Flags)),
 		cbRecord,
 		cbUnion);
 
@@ -586,7 +591,7 @@ ConcreteExpr concretizeUnionToJson(
 }
 
 ref StructBody body_(ConcreteType a) =>
-	a.struct_.source.as!(ConcreteStructSource.Inst).decl.body_;
+	a.struct_.source.as!ConcreteStructSourceInst.decl.body_;
 // Discards concrete type info, so used only for names
 RecordField[] recordFieldsForNames(ConcreteType a) =>
 	body_(a).as!Record.fields;

@@ -372,7 +372,7 @@ void buildGccProgram(ref Alloc alloc, in ShowCtx showCtx, ref gcc_jit_context ct
 						toGccExpr(exprCtx, locals, emit, expr.expr));
 					result.match!void(
 						(ExprResult.BreakContinueOrReturn) {},
-						(ref gcc_jit_rvalue) => assert(false),
+						(ref gcc_jit_rvalue _) => assert(false),
 						(ExprResult.Void) {});
 				}
 
@@ -1287,7 +1287,7 @@ ExprResult loopBreakToGcc(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, ref
 	ExprResult result = toGccExpr(ctx, locals, loop.breakEmit, a.value);
 	result.match!void(
 		(ExprResult.BreakContinueOrReturn) {},
-		(ref gcc_jit_rvalue) { assert(false); },
+		(ref gcc_jit_rvalue _) { assert(false); },
 		(ExprResult.Void) {
 			gcc_jit_block_end_with_jump(ctx.curBlock, null, force(loop.endBlock));
 		});

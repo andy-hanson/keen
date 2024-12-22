@@ -71,7 +71,7 @@ size_t countFunsForStructs(in StructDecl[] structs) =>
 
 private size_t countFunsForStruct(in StructDecl a) =>
 	countFunsForSumTypeMemberships(a) + a.body_.matchIn!size_t(
-		(in StructBodyBogus) =>
+		(in StructBodyBogus _) =>
 			0,
 		(in BuiltinType _) =>
 			0,

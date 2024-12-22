@@ -135,7 +135,7 @@ TextAndInfo generateText(
 			alloc,
 			program.allConstants.pointers,
 			(ref PointerTypeAndConstantsLow x) =>
-				map!(size_t, Constant)(alloc, x.constants, (ref Constant) => size_t(0))));
+				map!(size_t, Constant)(alloc, x.constants, (ref Constant _) => size_t(0))));
 
 	// Ensure 0 is not a valid text index
 	ctx.text ~= 0;
@@ -373,7 +373,7 @@ void writeConstant(ref Alloc alloc, ref TempAlloc tempAlloc, ref Ctx ctx, in Low
 			size_t padding = unionSize - 8 - memberSize;
 			add0Bytes(ctx.text, padding);
 		},
-		(in ConstantZero) {
+		(in ConstantZero _) {
 			add0Bytes(ctx.text, typeSize);
 		});
 

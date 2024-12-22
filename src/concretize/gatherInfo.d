@@ -3,7 +3,17 @@ module concretize.gatherInfo;
 @safe @nogc pure nothrow:
 
 import model.concreteModel :
-	CallConcreteExpr, ConcreteCommonFuns, ConcreteExpr, ConcreteFun, ConcreteFunBody, Constant, existsDirectChildExpr;
+	CallConcreteExpr,
+	ConcreteCommonFuns,
+	ConcreteExpr,
+	ConcreteFun,
+	ConcreteFunBodyBuiltin,
+	ConcreteFunBodyDeferred,
+	ConcreteFunBodyExtern,
+	ConcreteFunBodyVarGet,
+	ConcreteFunBodyVarSet,
+	Constant,
+	existsDirectChildExpr;
 import model.model : BuiltinBinary, BuiltinFunCallLambda;
 import util.alloc.alloc : Alloc, withTempAlloc;
 import util.col.array : mustFind;
@@ -48,8 +58,8 @@ Set!(immutable ConcreteFun*) getYieldingFuns(
 private:
 
 bool isSwitchFiber(in ConcreteFun a) {
-	if (a.body_.isA!(ConcreteFunBody.Builtin)) {
-		ConcreteFunBody.Builtin builtin = a.body_.as!(ConcreteFunBody.Builtin);
+	if (a.body_.isA!ConcreteFunBodyBuiltin) {
+		ConcreteFunBodyBuiltin builtin = a.body_.as!ConcreteFunBodyBuiltin;
 		return builtin.kind.isA!BuiltinBinary && builtin.kind.as!BuiltinBinary == BuiltinBinary.switchFiber;
 	} else
 		return false;
@@ -62,17 +72,17 @@ CalledBy buildCalledBy(ref Alloc alloc, in immutable ConcreteFun*[] allConcreteF
 	CalledBy res;
 	foreach (ConcreteFun* fun; allConcreteFuns)
 		fun.body_.match!void(
-			(ConcreteFunBody.Builtin x) {
+			(ConcreteFunBodyBuiltin x) {
 				assert(!x.kind.isA!BuiltinFunCallLambda);
 			},
-			(ConcreteFunBody.Extern) {},
+			(ConcreteFunBodyExtern _) {},
 			(ConcreteExpr x) {
 				if (!x.kind.isA!Constant)
 					buildCalledByRecur(alloc, res, fun, x);
 			},
-			(ConcreteFunBody.VarGet) {},
-			(ConcreteFunBody.VarSet) {},
-			(ConcreteFunBody.Deferred) => assert(false));
+			(ConcreteFunBodyVarGet _) {},
+			(ConcreteFunBodyVarSet _) {},
+			(ConcreteFunBodyDeferred _) => assert(false));
 	return res;
 }
 

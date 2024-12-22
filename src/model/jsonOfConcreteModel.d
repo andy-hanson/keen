@@ -6,23 +6,41 @@ import model.concreteModel :
 	BuiltinConcreteExpr,
 	CallConcreteExpr,
 	CastConcreteExpr,
+	ConcreteBuiltinType,
+	ConcreteEnum,
 	ConcreteExpr,
 	ConcreteExprKind,
+	ConcreteExternType,
 	ConcreteField,
+	ConcreteFlags,
 	ConcreteFun,
 	ConcreteFunBody,
+	ConcreteFunBodyBuiltin,
+	ConcreteFunBodyExtern,
+	ConcreteFunBodyVarGet,
+	ConcreteFunBodyVarSet,
+	ConcreteFunBodyDeferred,
 	ConcreteFunKey,
 	ConcreteFunSource,
+	ConcreteFunSourceLambda,
+	ConcreteFunSourceTest,
+	ConcreteFunSourceWrapMain,
 	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
+	ConcreteLocalSourceClosure,
 	ConcreteMatchStringLikeCase,
 	ConcreteMatchUnionCase,
 	ConcreteProgram,
+	ConcreteRecord,
 	ConcreteStruct,
 	ConcreteStructBody,
 	ConcreteStructSource,
+	ConcreteStructSourceBogus,
+	ConcreteStructSourceInst,
+	ConcreteStructSourceLambda,
 	ConcreteType,
+	ConcreteUnion,
 	ConcreteVar,
 	Constant,
 	ConstantArray,
@@ -96,11 +114,11 @@ Json jsonOfConcreteStruct(ref Alloc alloc, in ConcreteStruct a) =>
 
 Json jsonOfConcreteStructSource(ref Alloc alloc, in ConcreteStructSource a) =>
 	a.matchIn!Json(
-		(in ConcreteStructSource.Bogus) =>
+		(in ConcreteStructSourceBogus _) =>
 			jsonString!"BOGUS",
-		(in ConcreteStructSource.Inst x) =>
+		(in ConcreteStructSourceInst x) =>
 			jsonString(x.decl.name),
-		(in ConcreteStructSource.Lambda x) =>
+		(in ConcreteStructSourceLambda x) =>
 			jsonObject(alloc, [
 				kindField!"lambda",
 				field!"containing"(jsonOfConcreteFunRef(alloc, *x.containingFun)),
@@ -111,22 +129,22 @@ public Json jsonOfConcreteStructRef(ref Alloc alloc, in ConcreteStruct a) =>
 
 Json jsonOfConcreteStructBody(ref Alloc alloc, in ConcreteStructBody a) =>
 	a.matchIn!Json(
-		(in ConcreteStructBody.Builtin x) =>
-			jsonOfConcreteStructBodyBuiltin(alloc, x),
-		(in ConcreteStructBody.Enum x) =>
+		(in ConcreteBuiltinType x) =>
+			jsonOfConcreteBuiltinType(alloc, x),
+		(in ConcreteEnum x) =>
 			//TODO:MORE DETAIL
 			jsonString!"enum",
-		(in ConcreteStructBody.Extern) =>
+		(in ConcreteExternType _) =>
 			jsonString!"extern",
-		(in ConcreteStructBody.Flags x) =>
+		(in ConcreteFlags x) =>
 			//TODO:MORE DETAIL
 			jsonString!"flags" ,
-		(in ConcreteStructBody.Record x) =>
-			jsonOfConcreteStructBodyRecord(alloc, x),
-		(in ConcreteStructBody.Union x) =>
-			jsonOfConcreteStructBodyUnion(alloc, x));
+		(in ConcreteRecord x) =>
+			jsonOfConcreteRecord(alloc, x),
+		(in ConcreteUnion x) =>
+			jsonOfConcreteUnion(alloc, x));
 
-Json jsonOfConcreteStructBodyBuiltin(ref Alloc alloc, in ConcreteStructBody.Builtin a) =>
+Json jsonOfConcreteBuiltinType(ref Alloc alloc, in ConcreteBuiltinType a) =>
 	jsonObject(alloc, [
 		kindField!"builtin",
 		field!"name"(stringOfEnum(a.kind)),
@@ -138,7 +156,7 @@ Json jsonOfConcreteType(ref Alloc alloc, in ConcreteType a) =>
 		field!"reference-kind"(stringOfEnum(a.reference)),
 		field!"struct"(jsonOfConcreteStructRef(alloc, *a.struct_))]);
 
-Json jsonOfConcreteStructBodyRecord(ref Alloc alloc, in ConcreteStructBody.Record a) =>
+Json jsonOfConcreteRecord(ref Alloc alloc, in ConcreteRecord a) =>
 	jsonObject(alloc, [
 		kindField!"record",
 		field!"fields"(jsonList!ConcreteField(alloc, a.fields, (in ConcreteField x) =>
@@ -147,10 +165,10 @@ Json jsonOfConcreteStructBodyRecord(ref Alloc alloc, in ConcreteStructBody.Recor
 Json jsonOfConcreteField(ref Alloc alloc, in ConcreteField a) =>
 	jsonObject(alloc, [
 		field!"name"(a.debugName),
-		field!"mutability"(stringOfEnum(a.mutability)),
+		field!"is-mutable"(a.isMutable),
 		field!"type"(jsonOfConcreteType(alloc, a.type))]);
 
-Json jsonOfConcreteStructBodyUnion(ref Alloc alloc, in ConcreteStructBody.Union a) =>
+Json jsonOfConcreteUnion(ref Alloc alloc, in ConcreteUnion a) =>
 	jsonObject(alloc, [
 		kindField!"union",
 		field!"members"(jsonList!ConcreteType(alloc, a.members, (in ConcreteType x) =>
@@ -173,14 +191,14 @@ Json jsonOfConcreteFunSource(ref Alloc alloc, in ConcreteFunSource a) =>
 	a.matchIn!Json(
 		(in ConcreteFunKey x) =>
 			jsonString(x.decl.name),
-		(in ConcreteFunSource.Lambda x) =>
+		(in ConcreteFunSourceLambda x) =>
 			jsonObject(alloc, [
 				kindField!"lambda",
 				field!"containing"(jsonOfConcreteFunRef(alloc, *x.containingFun)),
 				field!"index"(x.index)]),
-		(in ConcreteFunSource.Test) =>
+		(in ConcreteFunSourceTest _) =>
 			jsonString!"test",
-		(in ConcreteFunSource.WrapMain) =>
+		(in ConcreteFunSourceWrapMain _) =>
 			jsonString!"wrap-main");
 
 public Json jsonOfConcreteFunRef(ref Alloc alloc, in ConcreteFun a) =>
@@ -188,20 +206,20 @@ public Json jsonOfConcreteFunRef(ref Alloc alloc, in ConcreteFun a) =>
 
 Json jsonOfConcreteFunBody(ref Alloc alloc, in Ctx ctx, in ConcreteFunBody a) =>
 	a.matchIn!Json(
-		(in ConcreteFunBody.Builtin x) =>
+		(in ConcreteFunBodyBuiltin x) =>
 			jsonOfConcreteFunBodyBuiltin(alloc, x),
-		(in ConcreteFunBody.Extern) =>
+		(in ConcreteFunBodyExtern _) =>
 			jsonString!"extern",
 		(in ConcreteExpr x) =>
 			jsonOfConcreteExpr(alloc, ctx, x),
-		(in ConcreteFunBody.VarGet) =>
+		(in ConcreteFunBodyVarGet _) =>
 			jsonString!"var-get",
-		(in ConcreteFunBody.VarSet) =>
+		(in ConcreteFunBodyVarSet _) =>
 			jsonString!"var-set",
-		(in ConcreteFunBody.Deferred) =>
+		(in ConcreteFunBodyDeferred _) =>
 			assert(false));
 
-Json jsonOfConcreteFunBodyBuiltin(ref Alloc alloc, in ConcreteFunBody.Builtin a) =>
+Json jsonOfConcreteFunBodyBuiltin(ref Alloc alloc, in ConcreteFunBodyBuiltin a) =>
 	jsonObject(alloc, [
 		kindField!"builtin",
 		optionalArrayField!("type-args", ConcreteType)(alloc, a.typeArgs, (in ConcreteType x) =>
@@ -219,7 +237,7 @@ Symbol name(in ConcreteLocalSource a) =>
 	a.matchIn!Symbol(
 		(in Local x) =>
 			x.name,
-		(in ConcreteLocalSource.Closure) =>
+		(in ConcreteLocalSourceClosure _) =>
 			symbol!"closure",
 		(in ConcreteGeneratedLocalKind x) =>
 			symbolOfEnum(x));

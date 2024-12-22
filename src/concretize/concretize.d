@@ -27,14 +27,14 @@ import frontend.showModel : ShowCtx;
 import model.concreteModel :
 	ConcreteCommonFuns,
 	ConcreteFun,
-	ConcreteFunBody,
+	ConcreteFunBodyBuiltin,
 	ConcreteFunKey,
 	ConcreteProgram,
 	ConcreteStruct,
 	ConcreteStructBody,
-	ConcreteStructInfo,
-	ConcreteStructSource,
+	ConcreteStructSourceInst,
 	ConcreteType,
+	ConcreteUnion,
 	mustBeByVal;
 import model.model :
 	allExterns,
@@ -150,19 +150,17 @@ void finishLambdas(ref ConcretizeCtx ctx) {
 	foreach (ConcreteStruct* struct_, MutArr!ConcreteLambdaImpl impls; ctx.lambdaStructToImpls) {
 		ConcreteType[] caseTypes = map(ctx.alloc, asTemporaryArray(impls), (ref ConcreteLambdaImpl x) =>
 			x.closureType);
-		struct_.info = ConcreteStructInfo(
-			body_: ConcreteStructBody(ConcreteStructBody.Union(late(small!ConcreteType(caseTypes)))),
-			isSelfMutable: false);
+		struct_.body_ = ConcreteStructBody(ConcreteUnion(late(small!ConcreteType(caseTypes))));
 		push(ctx.alloc, ctx.deferredTypeSize, struct_);
 	}
 
 	foreach (ConcreteFun* fun; asTemporaryArray(ctx.allConcreteFuns)) {
-		if (fun.body_.isA!(ConcreteFunBody.Builtin)) {
-			ConcreteFunBody.Builtin builtin = fun.body_.as!(ConcreteFunBody.Builtin);
+		if (fun.body_.isA!ConcreteFunBodyBuiltin) {
+			ConcreteFunBodyBuiltin builtin = fun.body_.as!ConcreteFunBodyBuiltin;
 			if (builtin.kind.isA!BuiltinFunCallLambda) {
 				ConcreteStruct* lambda = mustBeByVal(fun.params[0].type);
 				fun.overwriteBody(generateCallLambda(
-					ctx, fun, lambda.body_.as!(ConcreteStructBody.Union).members,
+					ctx, fun, lambda.body_.as!ConcreteUnion.members,
 					asTemporaryArray(mustGet(ctx.lambdaStructToImpls, lambda))));
 			}
 		}
@@ -171,14 +169,14 @@ void finishLambdas(ref ConcretizeCtx ctx) {
 
 void finishVariants(ref ConcretizeCtx ctx) {
 	foreach (ConcreteStruct* sumType, MutArr!ConcreteSumTypeCase x; ctx.sumTypeToCases) {
-		if (!sumType.body_.as!(ConcreteStructBody.Union).hasMembers) // It will already be set for a 'union'
+		if (!sumType.body_.as!ConcreteUnion.hasMembers) // It will already be set for a 'union'
 			finishSumTypeCases(ctx, sumType, x);
 	}
 
 	foreach (ConcreteFun* fun; ctx.deferredMethods) {
 		ConcreteStruct* sumType = mustBeByVal(fun.params[0].type);
 		size_t methodIndex = mustHaveIndexOfPointer(
-			sumType.source.as!(ConcreteStructSource.Inst).decl.body_.as!SumType.methods,
+			sumType.source.as!ConcreteStructSourceInst.decl.body_.as!SumType.methods,
 			fun.source.as!ConcreteFunKey.decl.body_.as!FunBodyMethod.method);
 		MutArr!ConcreteSumTypeCase impls = mustGet(ctx.sumTypeToCases, sumType);
 		fun.overwriteBody(generateCallMethod(ctx, fun, sumType, asTemporaryArray(impls), methodIndex));

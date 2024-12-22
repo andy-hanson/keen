@@ -4,7 +4,17 @@ module lower.lowerUtil;
 
 import lower.lowExprHelpers : voidType;
 import model.concreteModel :
-	ConcreteFun, ConcreteStruct, ConcreteStructBody, ConcreteType, isEmptyStruct, ReferenceKind;
+	ConcreteBuiltinType,
+	ConcreteEnum,
+	ConcreteExternType,
+	ConcreteFlags,
+	ConcreteFun,
+	ConcreteRecord,
+	ConcreteStruct,
+	ConcreteType,
+	ConcreteUnion,
+	isEmptyStruct,
+	ReferenceKind;
 import model.lowModel :
 	AllLowTypes,
 	LowExternTypeIndex,
@@ -75,7 +85,7 @@ LowType lowTypeFromConcreteStruct(ref GetLowTypeCtx ctx, in ConcreteStruct* stru
 	uint lowIndex() => mustGet(ctx.lowIndices, struct_);
 	LowType record() => LowType(&ctx.allTypes.allRecords[LowRecordIndex(lowIndex)]);
 	return struct_.body_.matchIn!LowType(
-		(in ConcreteStructBody.Builtin x) {
+		(in ConcreteBuiltinType x) {
 			final switch (x.kind) {
 				case BuiltinType.bool_:
 					return LowType(PrimitiveType.bool_);
@@ -130,15 +140,15 @@ LowType lowTypeFromConcreteStruct(ref GetLowTypeCtx ctx, in ConcreteStruct* stru
 					assert(false);
 			}
 		},
-		(in ConcreteStructBody.Enum x) =>
+		(in ConcreteEnum x) =>
 			LowType(typeOfIntegralType(x.storage)),
-		(in ConcreteStructBody.Extern x) =>
+		(in ConcreteExternType x) =>
 			LowType(&ctx.allTypes.allExternTypes[LowExternTypeIndex(lowIndex)]),
-		(in ConcreteStructBody.Flags x) =>
+		(in ConcreteFlags x) =>
 			LowType(typeOfIntegralType(x.storage)),
-		(in ConcreteStructBody.Record) =>
+		(in ConcreteRecord _) =>
 			record(),
-		(in ConcreteStructBody.Union) =>
+		(in ConcreteUnion _) =>
 			LowType(&ctx.allTypes.allUnions[LowUnionIndex(lowIndex)]));
 }
 

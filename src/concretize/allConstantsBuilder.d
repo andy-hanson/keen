@@ -6,7 +6,7 @@ import model.concreteModel :
 	AllConstantsConcrete,
 	ArrTypeAndConstantsConcrete,
 	ConcreteStruct,
-	ConcreteStructSource,
+	ConcreteStructSourceInst,
 	ConcreteType,
 	Constant,
 	ConstantArray,
@@ -100,7 +100,7 @@ Constant getConstantArray(
 	if (isEmpty(elements))
 		return constantZero;
 	else {
-		ConcreteType elementType = only(arrStruct.source.as!(ConcreteStructSource.Inst).typeArgs);
+		ConcreteType elementType = only(arrStruct.source.as!ConcreteStructSourceInst.typeArgs);
 		ArrTypeAndConstants* d = ptrTrustMe(getOrAdd(alloc, allConstants.arrs, elementType, () =>
 			ArrTypeAndConstants(
 				arrStruct,

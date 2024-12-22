@@ -1,0 +1,697 @@
+import
+	../frontend/lang
+	../frontend/parse/lex-token
+	../model/source-range
+	../model/uri
+	../model/version-info
+	../util/exit-code
+	../util/string-walker
+	../util/util
+	./command
+
+# TODO: this module should make use of crow's standard parse-command module instead of inventing its own! -----------------------------
+
+parse-command command(cwd file-path, os os, args string[])
+	arg0 string = args is-empty ? "" : args[0]
+	if arg0 ends-with ".crow"
+		main main-kind = (cwd parse-uri-with-cwd arg0) main-kind-main-function args[1 .. end]
+		options run-options = false interpret-run-options default
+		kind command-kind = main run-command options
+		kind, ()
+	elif name ?= arg0 command-name
+		cwd parse-command-from-name os, name, args[1 .. end]
+	else
+		exit exit-code = arg0 == "help" || arg0 == "--help" ? ok : error
+		(help-all-text help-command exit), ()
+
+-parse-command-from-name command(cwd file-path, os os, name command-name, args string[])
+	split = args split-args
+	if split help
+		(name.help-for-command help-command ok), split.options
+	else
+		diags diags = ()
+		res = cwd parse-command-kind os, name, split.args, diags
+		if diags is-empty
+			res, split.options
+		else
+			show-diags string = "\n" join for x : diags; "{x}"
+			help string = "Command syntax error:\n{show-diags}\n{name help-for-command}"
+			(help help-command error), split.options
+
+-bogus command-kind()
+	"This should not appear" help-command error
+
+-command-name enum
+	build
+	check
+	document
+	lsp
+	print
+	run
+	test_
+	version
+-show string(a command-name)
+	match a
+	as build
+		"build"
+	as check
+		"check"
+	as document
+		"document"
+	as lsp
+		"lsp"
+	as print
+		"print"
+	as run
+		"run"
+	as test_
+		"test"
+	as version
+		"version"
+== bool(a command-name, b command-name)
+-members command-name[]()
+-command-name command-name?(a string)
+	match a
+	as build
+		build,
+	as check
+		check,
+	as document
+		document,
+	as lsp
+		lsp,
+	as print
+		print,
+	as run
+		run,
+	as "test"
+		test_,
+	as version
+		version,
+	else
+		()
+
+-diags alias
+	diag mut[]
+-diag union(
+	build-out-bad-file-extension,
+	build-out-bad-prefix,
+	duplicate-part,
+	expected-crow-uri,
+	expected-nat,
+	expected-paths,
+	needs-single-path,
+	parse-file-path,
+	print-kind-invalid,
+	redundant-part,
+	run-arg-not-supported-in-node-js,
+	run-kind-incompatible,
+	run-optimize-needs-aot-or-jit,
+	test-line-number-invalid,
+	unexpected-part,
+	unexpected-part-args,
+	unexpected-before
+)
+-build-out-bad-file-extension record(executable-extension string)
+-build-out-bad-prefix record(prefix string)
+-duplicate-part record(tag string)
+-expected-crow-uri record(actual string)
+-expected-nat record(actual string)
+-expected-paths record(tag string?)
+-needs-single-path record(actual nat)
+-parse-file-path record(actual string)
+-print-kind-invalid record
+-redundant-part record
+	redundant-tag string
+	| This causes {redundant-tag} to be redundant
+	other-tag string
+-run-arg-not-supported-in-node-js record(arg string)
+-run-kind-incompatible record(aot bool, jit bool, node-js bool)
+-run-optimize-needs-aot-or-jit record
+-test-line-number-invalid record
+-unexpected-part record(tag string)
+-unexpected-part-args record(part args-part)
+-unexpected-before record(arg string)
+
+-show string(a diag)
+	match a
+	as build-out-bad-file-extension x
+		"Build output must be a '.c', '.js', or '{x.executable-extension}' file."
+	as build-out-bad-prefix x
+		"Unrecognized output prefix {x.prefix quote}. An output can start with 'js:' or 'node-js:'."
+	as duplicate-part x
+		"Argument {x.tag quote} appears twice."
+	as expected-crow-uri x
+		"Expected path to a '.crow' file, instead got {x.actual quote}."
+	as expected-nat x
+		"Expected argument to be a natural number, instead got {x.actual quote}."
+	as expected-paths x
+		if tag ?= x tag
+			"Argument {tag} expects a list of paths."
+		else
+			"This command expects a list of paths."
+	as needs-single-path x
+		if x.actual == 0
+			"This command needs a path."
+		else
+			"This command expects a single path. Instead got {x actual}."
+	as parse-file-path x
+		"Not a valid file path: {x.actual quote}."
+	as print-kind-invalid
+		"Not a valid print command."
+	as redundant-part x
+		"{x.redundant-tag quote} is redundant given {x.other-tag quote}."
+	as run-arg-not-supported-in-node-js x
+		"Running with node.js does not support the {x.arg quote} option."
+	as run-kind-incompatible x
+		kinds string[] = (x.aot ? ("--aot",)) ~~ (x.jit ? ("--jit",)) ~~ (x.node-js ? ("--node-js",))
+		"Can not specify both {kinds join-with-commas-and-and}."
+	as run-optimize-needs-aot-or-jit
+		"'--optimize' must be combined with '--aot' or '--jit'."
+	as test-line-number-invalid
+		"Specifying a test line number only works when there is a single test file."
+	as unexpected-part x
+		"Unexpected argument {x.tag quote}."
+	as unexpected-part-args x
+		"Arugument {x.part.tag quote} is a flag and should not have any values (starting with {x.part.args[0] quote}."
+	as unexpected-before x
+		"Unexpected un-named argument {x.arg quote}."
+
+-join-with-commas-and-and string(a string[])
+	if a.size == 2
+		"{a[0]} and {a[1]}"
+	else
+		with out : build
+			for i, x : a with-index
+				if i != 0
+					out ~~= (i == a.size - 1 ? ", and " : ", ")
+				out ~~= x
+
+-parse-command-kind command-kind(
+	cwd file-path,
+	os os,
+	command-name command-name,
+	args split-args,
+	diags diags,
+)
+	match command-name
+	as build
+		cwd parse-build-command diags, os, args
+	as check
+		diags expect-empty-parts args.parts
+		diags expect-empty-after-dash-dash args.after-dash-dash
+		cwd parse-root-uris diags, args.before-first-part check-command
+	as document
+		diags expect-empty-parts args.parts
+		diags expect-empty-after-dash-dash args.after-dash-dash
+		cwd parse-root-uris diags, args.before-first-part document-command
+	as lsp
+		diags expect-all-empty args
+		lsp-command
+	as print
+		cwd parse-print-command diags, args
+	as run
+		options = diags parse-run-options args.parts, false run-options
+		main = cwd parse-main-uri diags, args.before-first-part
+		main-kind main-kind = main main-kind-main-function (args.after-dash-dash ?? ())
+		main-kind run-command options
+	as test_
+		options = diags parse-run-options args.parts, true
+		diags expect-empty-after-dash-dash args.after-dash-dash
+		main = cwd parse-main-kind-for-test diags, args.before-first-part, options.all
+		main run-command options.run-options
+	as version
+		diags expect-all-empty args
+		version-command
+
+-expect-all-empty void(diags diags, args split-args)
+	diags expect-empty-before args.before-first-part
+	diags expect-empty-parts args.parts
+	diags expect-empty-after-dash-dash args.after-dash-dash
+-expect-empty-before void(diags diags, before string[])
+	unless before is-empty
+		diags ~= before[0] unexpected-before
+-expect-empty-parts void(diags diags, parts args-part[])
+	for part : parts
+		diags ~= part.tag unexpected-part
+-expect-empty-after-dash-dash void(diags diags, after string[]?)
+	if _ ?= after
+		diags ~= "--" unexpected-part
+
+-default-executable-extension string(os os)
+	match os
+	as linux
+		""
+	as node-js
+		throw unreachable
+	as none
+		throw unreachable
+	as web
+		throw unreachable
+	as windows
+		".exe"
+
+-parse-main-kind-for-test main-kind(cwd file-path, diags diags, args string[], all bool)
+	line nat? = if args.size == 2
+		args[1] parse-line
+	if args.size == 2 && line is-empty
+		diags ~= args[1] expected-nat
+	if args.size != 1 && args.size != 2
+		diags ~= args.size needs-single-path
+		bogus
+	else
+		uri = cwd parse-uri-with-cwd args[0]
+		match uri file-type
+		as crow
+			if all && line !is-empty
+				diags ~= test-line-number-invalid
+			all main-kind-tests-at-uri uri, line
+		as crow-config
+			if line !is-empty
+				diags ~= test-line-number-invalid
+			all main-kind-tests-in-config uri
+		as other
+			diags ~= args[0] expected-crow-uri
+			bogus
+-bogus main-kind()
+	() main-kind-tests-at-uri (), ()
+
+-parse-main-uri uri(cwd file-path, diags diags, args string[])
+	if arg ?= args opt-only
+		cwd parse-crow-uri diags, arg
+	else
+		diags ~= args.size needs-single-path
+		()
+
+-parse-crow-uri uri(cwd file-path, diags diags, arg string)
+	uri = cwd parse-uri-with-cwd arg
+	if uri.get-extension != ".crow"
+		diags ~= arg expected-crow-uri
+	uri
+
+-parse-root-uris uri[](cwd file-path, diags diags, args string[])
+	if args is-empty
+		diags ~= ().expected-paths
+	for arg : args
+		cwd parse-crow-uri diags, arg
+
+-parse-print-command command-kind(cwd file-path, diags diags, args split-args)
+	diags expect-empty-parts args.parts
+	diags expect-empty-after-dash-dash args.after-dash-dash
+	kind = if args.before-first-part.size >= 2
+		args.before-first-part[0] parse-print-kind args.before-first-part[2 .. end]
+	if k ?= kind
+		k print-command (cwd parse-crow-uri diags, args.before-first-part[1])
+	else
+		diags ~= print-kind-invalid
+		bogus
+
+-parse-print-kind print-kind?(a string, args string[])
+	match a
+	as ast
+		args expect-empty-args print-ast
+	as model
+		args expect-empty-args print-model
+	as concrete-model
+		args expect-empty-args print-concrete-model
+	as low-model
+		args expect-empty-args print-low-model
+	else
+		if kind-at-pos ?= a ide-at-pos-kind
+			args expect-line-and-column lc =>
+				kind-at-pos print-ide-at-pos lc
+		elif kind-whole-file ?= a ide-whole-file-kind
+			args expect-empty-args kind-whole-file.to
+-expect-empty-args print-kind?(args string[], x print-kind)
+	if args is-empty
+		x,
+-expect-line-and-column print-kind?(args string[], f print-kind data(x line-and-column))
+	if lc ?= args.opt-only?.parse-line-and-column
+		f[lc],
+# TODO: INLINE ------------------------------------------------------------------------------------------------------------------------------
+-ide-at-pos-kind print-ide-at-pos-kind?(a string)
+	a.to to
+-ide-whole-file-kind print-ide-whole-file?(a string)
+	a.to to
+
+-parse-line-and-column line-and-column?(a string)
+	ptr string-walker = a,
+	guard line ?= ptr.try-take-nat convert-from-1-indexed
+	guard ptr try-take-char ":"
+	guard column ?= ptr.try-take-nat convert-from-1-indexed
+	guard ptr is-at-end
+	(line, column),
+-parse-line nat?(a string)
+	ptr string-walker = a,
+	guard line ?= ptr.try-take-nat convert-from-1-indexed
+	guard ptr is-at-end
+	line.to,
+-convert-from-1-indexed nat32?(a nat?)
+	if x ?= a
+		if x != 0
+			n = x - 1
+			if n <= max-value::nat32.to
+				n.to,
+-try-take-nat nat?(a string-walker)
+	if *a is-decimal-digit
+		a take-nat 10 value
+
+-parse-build-command command-kind(cwd file-path, diags diags, os os, args split-args)
+	diags expect-empty-after-dash-dash args.after-dash-dash
+	out mut single-build-output[] = ()
+	optimize mut = false
+	is-c99 mut = false
+	no-stack-trace mut = false
+	single-threaded mut = false
+	test_ mut = false
+	all mut = false
+	diags warn-duplicates args.parts
+	for part : args parts
+		match part tag
+		as "--c99"
+			diags expect-flag part
+			is-c99 := true
+		as "--no-stack-trace"
+			diags expect-flag part
+			no-stack-trace := true
+		as "--out"
+			out := cwd parse-build-out os, diags, part
+		as "--optimize"
+			diags expect-flag part
+			optimize := true
+		as "--single-threaded"
+			diags expect-flag part
+			single-threaded := true
+		as "--test"
+			diags expect-flag part
+			test_ := true
+		as "--all"
+			diags expect-flag part
+			all := true
+		else
+			diags ~= part.tag unexpected-part
+	
+	if all && !test_
+		diags ~= "--all".unexpected-part
+	
+	main main-kind = if test_
+		cwd parse-main-kind-for-test diags, args.before-first-part, all
+	else
+		cwd parse-main-uri diags, args.before-first-part main-kind-main-function ()
+	res-out single-build-output[] = if out is-empty
+		(executable, (main default-executable-path-for-main cwd, os)),
+	else
+		out
+	options crow-build-options = do
+		version: do
+			is-single-threaded: single-threaded
+			stack-trace-enabled: no-stack-trace
+		out: res-out
+		c-compile-options: do
+			optimization-level: optimize ? o2 : none
+			c-version: is-c99 ? c99 : c11
+	main build-command options
+
+-warn-duplicates void(diags diags, parts args-part[])
+	seen string mut-set = ()
+	for part : parts
+		tag = part tag
+		if tag in seen
+			diags ~= tag duplicate-part
+		seen ~= tag
+
+-run-options-and-all record(run-options run-options, all bool)
+-parse-run-options run-options-and-all(diags diags, arg-parts args-part[], allow-all bool)
+	no-stack-trace mut = false
+	aot mut = false
+	jit mut = false
+	node-js mut = false
+	optimize mut = false
+	single-threaded mut = false
+	all mut = false
+	fake-extern mut = false
+	diags warn-duplicates arg-parts
+	for part : arg-parts
+		match part tag
+		as "--all"
+			if allow-all
+				diags expect-flag part
+				all := true
+			else
+				diags ~= part.tag unexpected-part
+		as "--aot"
+			diags expect-flag part
+			aot := true
+		as "--fake-extern"
+			diags expect-flag part
+			fake-extern := true
+		as "--jit"
+			diags expect-flag part
+			jit := true
+		as "--node-js"
+			diags expect-flag part
+			node-js := true
+		as "--no-stack-trace"
+			diags expect-flag part
+			no-stack-trace := true
+		as "--optimize"
+			diags expect-flag part
+			optimize := true
+		as "--single-threaded"
+			diags expect-flag part
+			single-threaded := true
+		else
+			diags ~= part.tag unexpected-part
+	
+	if fake-extern && (aot || jit || node-js)
+		diags ~= "--fake-extern" unexpected-part
+	if fake-extern && single-threaded
+		diags ~= "--single-threaded" redundant-part "--fake-extern"
+	if aot.to::nat + jit.to + node-js.to > 1
+		diags ~= aot run-kind-incompatible jit, node-js
+	if !aot && !jit && optimize
+		diags ~= run-optimize-needs-aot-or-jit
+	if node-js && (single-threaded || optimize || no-stack-trace)
+		arg string = single-threaded ? "--single-threaded" : optimize ? "--optimize" : "--no-stack-trace"
+		diags ~= arg run-arg-not-supported-in-node-js
+	version version-options = do
+		is-single-threaded: fake-extern || single-threaded
+		stack-trace-enabled: !no-stack-trace
+	res run-options = if aot
+		version aot-run-options ((optimize ? o2 : none), c11)
+	elif jit
+		version jit-run-options ((optimize ? o2 : none),)
+	elif node-js
+		node-js-run-options
+	else
+		fake-extern interpret-run-options version
+	res, all
+
+-expect-flag void(diags diags, part args-part)
+	unless part.args is-empty
+		diags ~= part unexpected-part-args
+
+-parse-build-out single-build-output[](cwd file-path, os os, diags diags, part args-part)
+	if part.args is-empty
+		diags ~= (part.tag,) expected-paths
+	with out : build
+		for arg : part args
+			out ~~= cwd parse-single-build-out os, diags, arg
+-parse-single-build-out single-build-output?(cwd file-path, os os, diags diags, arg string)
+	if prefix, rest ?= arg try-split-once ":"
+		path = diags parse-file-path-with-cwd-or-diag cwd, rest
+		if kind ?= prefix build-kind-from-prefix path.get-extension
+			(kind, path),
+		else
+			diags ~= prefix build-out-bad-prefix
+			()
+	else
+		path = diags parse-file-path-with-cwd-or-diag cwd, arg
+		if kind ?= path.get-extension build-kind-from-extension os
+			(kind, path),
+		else
+			diags ~= os.default-executable-extension build-out-bad-file-extension
+			()
+
+-build-kind-from-prefix single-build-output-kind?(prefix string, extension string)
+	match prefix
+	as js
+		if extension == ".js"
+			js-script,
+		else
+			js-modules,
+	as node-js
+		if extension == ".js"
+			node-js-script,
+		else
+			node-js-modules,
+	else
+		()
+-build-kind-from-extension single-build-output-kind?(extension string, os os)
+	match extension
+	as ".c"
+		c,
+	as ".js"
+		js-script,
+	else
+		if extension == os.default-executable-extension
+			executable,
+
+-parse-file-path-with-cwd-or-diag file-path(diags diags, cwd file-path, arg string)
+	cwd parse-file-path-with-cwd arg ?? do
+		diags ~= arg parse-file-path
+		cwd / "bogus"
+
+-default-executable-path-for-main file-path(main main-kind, cwd file-path, os os)
+	base = if main.main-uri-for-all-args uri-is-file
+		main.main-uri-for-all-args as-file-path
+	else
+		cwd / "main"
+	base default-executable-path os
+-default-executable-path file-path(base file-path, os os)
+	base alter-extension os.default-executable-extension
+
+-args-part record
+	tag string
+	args string[]
+
+-split-args record
+	before-first-part string[]
+	parts args-part[]
+	| After seeing a '--' we stop parsing and just return the rest raw.
+	after-dash-dash string[]?
+
+-split-args-and-options record
+	args split-args
+	options command-options
+	help bool
+
+-split-args split-args-and-options(args string[])
+	if first-arg-index ?= args find-index arg => arg starts-with "--"
+		before-args = args[0 .. first-arg-index]
+		dash-dash = args[first-arg-index .. end] index-of "--"
+		before-dash-dash string[], after-dash-dash string[]? = if x ?= dash-dash
+			args[first-arg-index .. first-arg-index + x], (args[first-arg-index + x .. end],)
+		else
+			args[first-arg-index .. end], ()
+		named-args = before-dash-dash split-named-args
+		(before-args, named-args.parts, after-dash-dash), named-args.options, named-args.help
+	else
+		(args, (), ()), (), ()
+
+-named-args record
+	parts args-part[]
+	options command-options
+	help bool
+-split-named-args named-args(args string[])
+	help mut = false
+	perf mut = false
+	parts args-part[] = with out : build
+		assert args is-empty || args[0] starts-with "--"
+		cur-part-start mut nat? = ()
+		finish-part void mut(i nat) = i =>
+			if x ?= cur-part-start
+				out ~= (args[x], args[x + 1 .. i])
+				cur-part-start := ()
+		for i, arg : args with-index
+			finish-part[i]
+			if arg == "--help"
+				help := true
+			elif arg == "--perf"
+				perf := true
+			else
+				cur-part-start := i,
+		finish-part[args size]
+	parts, (perf,), help
+
+-help-all-text string()
+	commands string = "" join for name : members::command-name[]
+		unless name is-internal-command
+			"\n\t{name show-command}"
+	"Command must be one of:" ~~
+	"\n\tcrow hello.crow (or any '.crow' file)" ~~
+	commands ~~
+	".\nFor more info, run e.g. 'crow build --help'."
+
+-is-internal-command bool(a command-name)
+	a == print
+-help-for-command string(name command-name)
+	"Command: {name show-command}\n\n{name command-description}"
+-show-command string(name command-name)
+	options = name describe-command-options
+	show-options string = options !is-empty ? " {options}"
+	"crow {name}{show-options}"
+-describe-command-options string(name command-name)
+	match name
+	as build
+		"PATH [--out PATH] [--optimize]"
+	as check
+		"PATHS"
+	as document
+		"PATHS"
+	as lsp
+		""
+	as print
+		"[kind] PATH [LINE:COLUMN]"
+	as run
+		"PATH [--aot] [--optimize] -- [program-args]"
+	as test_
+		"PATH [line number] [--all]"
+	as version
+		""
+-command-description string(name command-name)
+	match name
+	as build
+		"Compiles the program at PATH." ~~
+		"\nOptions are:" ~~
+		"\n\t--out : Output path. Defaults to the input path with the extension changed." ~~
+		"\n\t\tIf this has a '.c' extension, it will output C source code instead." ~~
+		"\n\t--optimize : Enables optimizations." ~~
+		"\n\t--test: Ignore the 'main' function and compile a program that runs tests." ~~
+		"\n\t\t--all: Works with '--test'. Runs all tests in all included files." ~~
+		"\n\t--c99 : Compile to C99. (Default is C11 which is less verbose.)" ~~
+		build-run-common-options
+	as check
+		"Prints any diagnostics for the module(s) at PATH(s) or their imports.\nNo options."
+	as document
+		"Generates JSON documentation for the module(s) at PATH(s).\nNo options."
+	as lsp
+		"This runs the Language Server Protocol through stdin/stdout.\nNo options."
+	as print
+		"Internal command for debugging. This should be one of:" ~~
+		"\ncrow print ast PATH" ~~
+		"\ncrow print model PATH" ~~
+		"\ncrow print concrete-model PATH" ~~
+		"\ncrow print low-model PATH" ~~
+		"\n" ~~
+		"\ncrow print code-lenses PATH" ~~
+		"\ncrow print definition PATH LINE:COLUMN" ~~
+		"\ncrow print document-highlights PATH LINE:COLUMN" ~~
+		"\ncrow print folding-ranges PATH" ~~
+		"\ncrow print hover PATH LINE:COLUMN" ~~
+		"\ncrow print inlay-hints PATH" ~~
+		"\ncrow print references PATH LINE:COLUMN" ~~
+		"\ncrow print rename PATH LINE:COLUMN" ~~
+		"\ncrow print signature-help PATH LINE:COLUMN" ~~
+		"\ncrow print tokens PATH" ~~
+		"\ncrow print type-definition PATH LINE:COLUMN"
+	as run
+		"Runs the program at PATH." ~~
+		"\nArguments after '--' will be sent to the program." ~~
+		"\nOptions are:\n" ~~
+		"\n\t--aot : Instead of interpreting the program, builds an executable, runs it, then deletes it." ~~
+		"\n\t--optimize : Use with '--aot'. Enables optimizations." ~~
+		build-run-common-options ~~
+		"\nWith no options, 'crow run foo.crow' is equivalent to 'crow foo.crow'."
+	as test_
+		"Runs tests at PATH." ~~
+		"\nIf PATH is a 'crow-config' file, searches its directory (recursively) for '.crow' files" ~~
+			" that would have it as their config." ~~
+		"\nIf PATH is a file, runs tests in that file." ~~
+		"\nYou can also specify the line number of a 'test' keyword to run only that test." ~~
+		"\nIf '--all' is specified, runs all tests in reachable files, including library tests."
+	as version
+		"Prints information about the version of 'crow'.\nNo options."
+-build-run-common-options string()
+	"\n\t--single-threaded : See documentation for 'is-single-threaded' in 'crow/version'." ~~
+	"\n\t--no-stack-trace : See documentation for 'is-stack-trace-enabled' in 'crow/version'."

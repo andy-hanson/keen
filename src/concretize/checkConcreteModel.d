@@ -7,15 +7,19 @@ import model.concreteModel :
 	BuiltinConcreteExpr,
 	CallConcreteExpr,
 	CastConcreteExpr,
+	ConcreteBuiltinType,
+	ConcreteEnum,
 	ConcreteExpr,
 	ConcreteFun,
 	ConcreteLocal,
 	ConcreteMatchStringLikeCase,
 	ConcreteMatchUnionCase,
 	ConcreteProgram,
+	ConcreteRecord,
 	ConcreteStruct,
 	ConcreteStructBody,
 	ConcreteType,
+	ConcreteUnion,
 	Constant,
 	ConstantRecord,
 	CreateArrayConcreteExpr,
@@ -136,7 +140,7 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 		},
 		(in Constant x) {
 			if (x.isA!ConstantRecord) {
-				assert(mustBeByVal(type).body_.isA!(ConcreteStructBody.Record));
+				assert(mustBeByVal(type).body_.isA!ConcreteRecord);
 			}
 			// TODO: More checks
 		},
@@ -151,7 +155,7 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 				checkExprAnyType(ctx, arg);
 		},
 		(in CreateUnionConcreteExpr x) {
-			checkExpr(ctx, mustBeByVal(type).body_.as!(ConcreteStructBody.Union).members[x.memberIndex], x.arg);
+			checkExpr(ctx, mustBeByVal(type).body_.as!ConcreteUnion.members[x.memberIndex], x.arg);
 		},
 		(in DropConcreteExpr x) {
 			assert(isVoid(type));
@@ -190,8 +194,8 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 		(in MatchEnumOrIntegralConcreteExpr x) {
 			ConcreteStructBody body_ = mustBeByVal(x.matched.type).body_;
 			assert(
-				body_.isA!(ConcreteStructBody.Enum) ||
-				isCharOrIntegral(body_.as!(ConcreteStructBody.Builtin*).kind));
+				body_.isA!ConcreteEnum ||
+				isCharOrIntegral(body_.as!(ConcreteBuiltinType*).kind));
 			checkExprAnyType(ctx, x.matched);
 			foreach (ConcreteExpr case_; x.caseExprs)
 				checkExpr(ctx, type, case_);
@@ -218,7 +222,7 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 		},
 		(in RecordFieldGetConcreteExpr x) {
 			checkExprAnyType(ctx, *x.record);
-			assert(x.record.type.struct_.body_.as!(ConcreteStructBody.Record).fields[x.fieldIndex].type == type);
+			assert(x.record.type.struct_.body_.as!ConcreteRecord.fields[x.fieldIndex].type == type);
 		},
 		(in RecordFieldPointerConcreteExpr x) {
 			checkExprAnyType(ctx, *x.record);
@@ -230,21 +234,21 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 						return x.record.type.struct_;
 				}
 			}();
-			assert(record.body_.as!(ConcreteStructBody.Record).fields[x.fieldIndex].type == pointeeType(type));
+			assert(record.body_.as!ConcreteRecord.fields[x.fieldIndex].type == pointeeType(type));
 		},
 		(in RecordFieldSetConcreteExpr x) {
 			assert(isVoid(type));
 			checkExprAnyType(ctx, x.record);
 			ConcreteStruct* struct_ = x.record.type.struct_;
 			ConcreteType recordType = () {
-				if (struct_.body_.isA!(ConcreteStructBody.Builtin*)) {
-					ConcreteStructBody.Builtin* builtin = struct_.body_.as!(ConcreteStructBody.Builtin*);
+				if (struct_.body_.isA!(ConcreteBuiltinType*)) {
+					ConcreteBuiltinType* builtin = struct_.body_.as!(ConcreteBuiltinType*);
 					assert(builtin.kind == BuiltinType.pointerMut);
 					return only(builtin.typeArgs);
 				} else
 					return x.record.type;
 			}();
-			checkExpr(ctx, recordType.struct_.body_.as!(ConcreteStructBody.Record).fields[x.fieldIndex].type, x.value);
+			checkExpr(ctx, recordType.struct_.body_.as!ConcreteRecord.fields[x.fieldIndex].type, x.value);
 		},
 		(in SeqConcreteExpr x) {
 			checkExpr(ctx, ctx.types.void_, x.first);
@@ -273,7 +277,7 @@ void checkExpr(ref Ctx ctx, in ConcreteType type, in ConcreteExpr expr) {
 		(in UnionKindConcreteExpr x) {
 			checkType(ctx, type, ctx.types.nat64);
 			ConcreteStructBody body_ = mustBeByVal(x.union_.type).body_;
-			assert(body_.isA!(ConcreteStructBody.Union));
+			assert(body_.isA!ConcreteUnion);
 		});
 }
 
@@ -477,7 +481,7 @@ void checkMatchUnionCases(
 }
 
 ConcreteType[] unionMembers(ref Ctx ctx, in ConcreteType type) =>
-	mustBeByVal(type).body_.as!(ConcreteStructBody.Union).members;
+	mustBeByVal(type).body_.as!ConcreteUnion.members;
 
 void checkExprAnyType(ref Ctx ctx, in ConcreteExpr expr) {
 	checkExpr(ctx, expr.type, expr);

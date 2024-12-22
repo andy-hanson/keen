@@ -536,6 +536,7 @@ immutable string[] specialSymbols = [
 	"interpreter-backtrace",
 	"is-big-endian",
 	"is-interpreted",
+	"is-mutable",
 	"is-single-threaded",
 	"is-stack-trace-enabled",
 	"listed-members",

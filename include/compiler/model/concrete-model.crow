@@ -1,0 +1,565 @@
+import
+	./integral-values
+	./model
+	./source-range
+	./uri
+	./version-info
+	../util/util
+
+concrete-struct-body union(
+	concrete-builtin-type,
+	concrete-enum,
+	concrete-extern-type,
+	concrete-flags,
+	concrete-record,
+	concrete-union) mut
+concrete-builtin-type record(kind builtin-type, type-args concrete-type[]) mut
+concrete-enum record(storage_ integral-type)
+concrete-flags record(storage_ integral-type)
+concrete-extern-type record
+concrete-record record(is-some-field-mutable bool, fields concrete-field[]) mut
+| Lambdas and all {sum-type} kinds compile to this
+concrete-union record mut
+	| This may be empty for a lambda type with no implementations.
+	opt-members mut concrete-type[]?
+has-members bool(a concrete-union)
+	a.members !is-empty
+members concrete-type[](a concrete-union)
+	a.opt-members!
+set-members void(a concrete-union, members concrete-type[])
+	a.opt-members := (members,)
+
+is-packed bool(a concrete-struct)
+	if inst ?= a.source concrete-struct-source-inst
+		if r ?= inst.decl.body record_
+			r.flags_ packed_
+
+concrete-type record(reference reference-kind, struct concrete-struct) mut
+reference-kind enum(by-val_, by-ref_)
+== bool(a reference-kind, b reference-kind)
+by-val_ concrete-type(struct concrete-struct)
+	by-val_, struct
+== bool(a concrete-type, b concrete-type)
+	a.reference == b.reference && a.struct == b.struct
+is-bogus bool(a concrete-type)
+	a.reference == by-val_ && a.struct is-bogus
+is-void bool(a concrete-type)
+	a.reference == by-val_ && if b ?= a.struct.body concrete-builtin-type
+		b.kind == void
+is-empty-type bool(a concrete-type)
+	a.reference == by-val_ && a.struct is-empty-struct
+is-empty-struct bool(a concrete-struct)
+	a.type-size.size-bytes == 0
+is-flags bool(a concrete-type)
+	a.reference == by-val_ && a.struct is-flags
+is-flags bool(a concrete-struct)
+	a.body.concrete-flags !is-empty
+purity purity(a concrete-type)
+	a.struct purity
+must-be-by-val concrete-struct(a concrete-type)
+	assert a.reference == by-val_
+	a struct
+must-be-enum-or-flags enum-or-flags-member[](a concrete-type)
+	a.must-be-by-val.source.concrete-struct-source-inst!.decl must-be-enum-or-flags
+must-be-enum enum-or-flags-member[](a concrete-type)
+	a.must-be-by-val.source.concrete-struct-source-inst!.decl.body.enum_! members
+must-be-flags flags_(a concrete-type)
+	a.must-be-by-val.source.concrete-struct-source-inst!.decl.body flags_!	
+
+concrete-struct-source union(
+	concrete-struct-source-bogus,
+	concrete-struct-source-inst,
+	concrete-struct-source-lambda) mut
+concrete-struct-source-bogus record
+concrete-struct-source-inst record mut
+	decl struct-decl
+	type-args concrete-type[]
+== bool(a concrete-struct-source-inst, b concrete-struct-source-inst)
+	a.decl == b.decl && a.type-args == b.type-args
+concrete-struct-source-lambda record(containing-fun concrete-fun, index nat) mut
+concrete-struct-id record
+	id nat
+== bool(a concrete-struct-id, b concrete-struct-id)
+concrete-struct record mut
+	id nat
+	purity purity
+	special-kind concrete-struct-special-kind
+	source concrete-struct-source
+	body mut concrete-struct-body
+	late-default-reference-kind mut reference-kind?
+	late-type-size mut type-size?
+	# Only set for records
+	field-offsets mut nat[]
+== bool(a concrete-struct, b concrete-struct)
+	a.id == b.id
+concrete-struct-special-kind enum
+	none
+	array-or-mut-array
+	catch-point
+	fiber
+	pointer # mut or const
+	tuple
+== bool(a concrete-struct-special-kind, b concrete-struct-special-kind)
+is-self-mutable bool(a concrete-struct)
+	if r ?= a.body concrete-record
+		r is-some-field-mutable
+type-size-is-set bool(a concrete-struct)
+	a.late-type-size !is-empty
+type-size type-size(a concrete-struct)
+	a late-type-size!
+set-type-size void(a concrete-struct, type-size type-size)
+	a.late-type-size := type-size,
+default-reference-kind-is-set bool(a concrete-struct)
+	a.late-default-reference-kind !is-empty
+default-reference-kind reference-kind(a concrete-struct)
+	a late-default-reference-kind!
+set-default-reference-kind void(a concrete-struct, value reference-kind)
+	a.late-default-reference-kind := value,
+
+is-array-or-mut-array bool(a concrete-struct)
+	a.special-kind == array-or-mut-array
+array-element-type concrete-type(array-type concrete-type)
+	assert array-type.must-be-by-val is-array-or-mut-array
+	array-type.must-be-by-val.source.concrete-struct-source-inst!.type-args only
+-is-option bool(a concrete-struct)
+	if inst ?= a.source concrete-struct-source-inst
+		inst.decl is-option-type
+unwrap-option-type concrete-type(option-type concrete-type)
+	assert option-type.must-be-by-val is-option
+	option-type.must-be-by-val.source.concrete-struct-source-inst!.type-args only
+is-catch-point bool(a concrete-struct)
+	a.special-kind == catch-point
+is-fiber bool(a concrete-struct)
+	a.special-kind == fiber
+is-pointer bool(a concrete-type)
+	a.reference == by-val_ && a.struct is-pointer
+is-pointer bool(a concrete-struct)
+	a.special-kind == pointer
+pointee-type concrete-type(pointer-type concrete-type)
+	assert pointer-type.must-be-by-val is-pointer
+	pointer-type.must-be-by-val.source.concrete-struct-source-inst!.type-args only
+pointee-type-if-is-pointer concrete-type(a concrete-type)
+	a is-pointer ? a pointee-type : a
+is-bogus bool(a concrete-struct)
+	a.source.concrete-struct-source-bogus !is-empty
+is-tuple bool(a concrete-struct)
+	a.special-kind == tuple
+
+has-size-or-pointer-size-bytes bool(a concrete-type)
+	match a reference
+	as by-val_
+		a.struct type-size-is-set
+	as by-ref_
+		true
+
+size-or-pointer-size-bytes type-size(a concrete-type)
+	match a reference
+	as by-val_
+		a.struct type-size
+	as by-ref_
+		8, 8
+
+concrete-field record mut
+	debug-name symbol
+	is-mutable bool
+	type concrete-type
+
+concrete-local-source union(local, concrete-local-source-closure, concrete-generated-local-kind) mut
+concrete-local-source-closure record
+concrete-generated-local-kind enum(args, ignore, destruct, member, reference)
+concrete-local record(source concrete-local-source, type concrete-type) mut
+
+concrete-fun-body union(
+	concrete-fun-body-builtin,
+	concrete-fun-body-extern,
+	concrete-expr,
+	concrete-fun-body-var-get,
+	concrete-fun-body-var-set,
+	concrete-fun-body-deferred) mut
+concrete-fun-body-builtin record(kind builtin-fun, type-args concrete-type[]) mut
+concrete-fun-body-extern record(library-name symbol)
+concrete-fun-body-var-get record(var concrete-var) mut
+concrete-fun-body-var-set record(var concrete-var) mut
+concrete-fun-body-deferred record
+
+concrete-fun-source union(
+	concrete-fun-key,
+	concrete-fun-source-lambda,
+	concrete-fun-source-test,
+	concrete-fun-source-wrap-main) mut
+concrete-fun-source-lambda record mut
+	containing-fun concrete-fun
+	param destructure
+	body-expr expr
+	| # This is the {index}th lambda in the containing function
+	index nat
+concrete-fun-source-test record mut
+	test_ test_
+	| Arbitrary index over all tests
+	test-index nat
+concrete-fun-source-wrap-main record(range uri-and-range)
+
+concrete-fun-id record
+	id nat
+== bool(a concrete-fun-id, b concrete-fun-id)
+concrete-fun record mut
+	id concrete-fun-id
+	source concrete-fun-source
+	return-type concrete-type
+	params concrete-local[]
+	body mut concrete-fun-body
+module-uri uri(a concrete-fun)
+	a.range uri
+range uri-and-range(a concrete-fun)
+	match a source
+	as concrete-fun-key x
+		x.decl range
+	as concrete-fun-source-lambda x
+		x.containing-fun.module-uri, x.body-expr.range
+	as concrete-fun-source-test x
+		x.test_ range
+	as concrete-fun-source-wrap-main x
+		x range
+
+concrete-fun-key record mut
+	decl fun-decl
+	type-args concrete-type[]
+	spec-impls concrete-fun[]
+
+# TODO: why would we ever care about this? --------------------------------------------------------------------------------------------
+is-variadic bool(a concrete-fun)
+	if x ?= a.source concrete-fun-key
+		x.decl.params.varargs !is-empty
+
+name symbol?(a concrete-fun)
+	a.source.concrete-fun-key?.decl?.name
+
+is-summon bool(a concrete-fun)
+	match a source
+	as concrete-fun-key x
+		x.decl is-summon
+	as concrete-fun-source-lambda x
+		x.containing-fun is-summon
+	as concrete-fun-source-test _
+		# 'isSummon' is called for direct calls, but tests are never called directly
+		throw unreachable
+	as concrete-fun-source-wrap-main _
+		throw unreachable
+
+concrete-expr record mut
+	type concrete-type
+	range uri-and-range
+	kind concrete-expr-kind
+
+concrete-expr-kind union(
+	builtin-concrete-expr,
+	call-concrete-expr,
+	cast-concrete-expr,
+	constant,
+	create-array-concrete-expr,
+	create-record-concrete-expr,
+	create-union-concrete-expr,
+	drop-concrete-expr,
+	finally-concrete-expr,
+	if-concrete-expr,
+	let-concrete-expr,
+	local-get-concrete-expr,
+	local-pointer-concrete-expr,
+	local-set-concrete-expr,
+	loop-concrete-expr,
+	loop-break-concrete-expr,
+	loop-continue-concrete-expr,
+	match-enum-or-integral-concrete-expr,
+	match-string-like-concrete-expr,
+	match-union-concrete-expr,
+	record-field-get-concrete-expr,
+	record-field-pointer-concrete-expr,
+	record-field-set-concrete-expr,
+	seq-concrete-expr,
+	throw-concrete-expr,
+	try-concrete-expr,
+	try-let-concrete-expr,
+	union-as-concrete-expr,
+	union-kind-concrete-expr) mut
+builtin-concrete-expr record(fun builtin-fun, args concrete-expr[]) mut
+call-concrete-expr record(called concrete-fun, args concrete-expr[]) mut
+| Reinterpret cast between different types with the same size
+cast-concrete-expr record(inner concrete-expr) mut
+create-array-concrete-expr record(args concrete-expr[]) mut
+create-record-concrete-expr record(args concrete-expr[]) mut
+create-union-concrete-expr record(member-index nat, arg concrete-expr) mut
+drop-concrete-expr record(arg concrete-expr) mut
+finally-concrete-expr record(right concrete-expr, below concrete-expr) mut
+if-concrete-expr record(cond concrete-expr, then concrete-expr, else_ concrete-expr) mut
+let-concrete-expr record(local concrete-local, value concrete-expr, then concrete-expr) mut
+local-get-concrete-expr record(local concrete-local) mut
+local-pointer-concrete-expr record(local concrete-local) mut
+local-set-concrete-expr record(local concrete-local, value concrete-expr) mut
+loop-concrete-expr record(body concrete-expr) mut
+loop-break-concrete-expr record(value concrete-expr) mut
+loop-continue-concrete-expr record
+match-enum-or-integral-concrete-expr record mut
+	matched concrete-expr
+	case-values integral-values
+	case-exprs concrete-expr[]
+	else_ concrete-expr?
+match-string-like-concrete-expr record mut
+	matched concrete-expr
+	equals concrete-fun
+	cases concrete-match-string-like-case[]
+	else_ concrete-expr
+# TODO: shouldn't 'value' be a constant? ------------------------------------------------------------------------------------------------
+concrete-match-string-like-case record(value concrete-expr, then concrete-expr) mut
+match-union-concrete-expr record mut
+	matched concrete-expr
+	member-indices integral-values
+	cases concrete-match-union-case[]
+	else_ concrete-expr?
+concrete-match-union-case record(local concrete-local?, then concrete-expr) mut
+record-field-get-concrete-expr record(record_ concrete-expr, field-index nat) mut
+record-field-pointer-concrete-expr record(record_ concrete-expr, field-index nat) mut
+record-field-set-concrete-expr record mut
+	record_ concrete-expr
+	field-index nat
+	value concrete-expr
+seq-concrete-expr record(first concrete-expr, then concrete-expr) mut
+throw-concrete-expr record(thrown concrete-expr) mut
+try-concrete-expr record mut
+	tried concrete-expr
+	exception-member-indices integral-values
+	catch-cases concrete-match-union-case[]
+try-let-concrete-expr record mut
+	local concrete-local?
+	value concrete-expr
+	exception-member-index integral-value
+	catch_ concrete-match-union-case
+	then concrete-expr
+| Unsafe internal operation for casting a union to a member. Does not check the kind!
+union-as-concrete-expr record(union_ concrete-expr, member-index nat) mut
+| Internal operation for getting the 'kind' of a union. (This is the member index.)
+union-kind-concrete-expr record(union_ concrete-expr) mut
+
+return-type concrete-type(a call-concrete-expr)
+	a.called return-type
+
+arr-type-and-constants-concrete record mut
+	arr-type concrete-struct
+	element-type concrete-type
+	constants constant[][]
+
+pointer-type-and-constants-concrete record mut
+	pointee-type concrete-struct
+	constants constant[]
+
+# TODO: rename -- this is not all constants, just the ones by-ref
+all-constants-concrete record mut
+	c-strings string[]
+	static-symbols constant
+	arrs arr-type-and-constants-concrete
+	| These are just the by-ref records
+	pointers pointer-type-and-constants-concrete
+
+concrete-var record(source var-decl, type concrete-type) mut
+
+concrete-program record mut
+	version version-info
+	all-constants all-constants-concrete
+	all-structs concrete-struct[]
+	all-vars concrete-var[]
+	all-funs concrete-fun[]
+	yielding-funs concrete-fun-id set	
+	common-funs concrete-common-funs
+concrete-common-funs record mut
+	alloc concrete-fun
+	cur-catch-point concrete-fun
+	set-cur-catch-point concrete-fun
+	cur-thrown concrete-var
+	mark concrete-fun
+	mark-visit-fiber concrete-fun
+	rethrow-current-exception concrete-fun
+	run-fiber concrete-fun
+	rt-main concrete-fun
+	throw-impl concrete-fun
+	user-main concrete-fun
+	gc-root concrete-fun
+	set-gc-root concrete-fun
+	pop-gc-root concrete-fun
+fiber-reference-type concrete-type(a concrete-common-funs)
+	a.run-fiber.params[1] type
+
+exists-direct-child-expr bool(a concrete-expr, f bool mut(x concrete-expr))
+	match a kind
+	as builtin-concrete-expr x
+		x.args exists f
+	as call-concrete-expr x
+		x.args exists f
+	as cast-concrete-expr x
+		f[x inner]
+	as constant _
+		false
+	as create-array-concrete-expr x
+		x.args exists f
+	as create-record-concrete-expr x
+		x.args exists f
+	as create-union-concrete-expr x
+		f[x arg]
+	as drop-concrete-expr x
+		f[x arg]
+	as finally-concrete-expr x
+		f[x right] || f[x below]
+	as if-concrete-expr x
+		f[x cond] || f[x then] || f[x else_]
+	as let-concrete-expr _
+		false
+	as local-get-concrete-expr _
+		false
+	as local-pointer-concrete-expr _
+		false
+	as local-set-concrete-expr x
+		f[x value]
+	as loop-concrete-expr x
+		f[x body]
+	as loop-break-concrete-expr x
+		f[x value]
+	as loop-continue-concrete-expr _
+		false
+	as match-enum-or-integral-concrete-expr x
+		f[x matched] || x.case-exprs exists f || x.else_ cb-option f
+	as match-string-like-concrete-expr x
+		f[x matched] ||
+		x.cases exists (case_ => f[case_ value] || f[case_ then]) ||
+		f[x else_]
+	as match-union-concrete-expr x
+		f[x matched] ||
+		x.cases exists (case_ => f[case_ then]) ||
+		x.else_ cb-option f
+	as record-field-get-concrete-expr x
+		f[x record_]
+	as record-field-pointer-concrete-expr x
+		f[x record_]
+	as record-field-set-concrete-expr x
+		f[x record_] || f[x value]
+	as seq-concrete-expr x
+		f[x first] || f[x then]
+	as throw-concrete-expr x
+		f[x thrown]
+	as try-concrete-expr x
+		f[x tried] || x.catch-cases exists case_ => f[case_ then]
+	as try-let-concrete-expr x
+		f[x value] || f[x.catch_ then] || f[x then]
+	as union-as-concrete-expr x
+		f[x union_]
+	as union-kind-concrete-expr x
+		f[x union_]
+
+| The type of a constant is implicit (given by context).
+| This means two constants that look equal may not be the same constant if they have different types
+| (e.g., IntegralValue has different sizes.)
+| WARN: A Constant.Record is *by value* even if the record usually isn't. Use Constant.Pointer for a pointer.
+constant union(
+	constant-array,
+	constant-c-string,
+	constant-float,
+	constant-fun-pointer,
+	integral-value,
+	constant-pointer,
+	constant-record,
+	constant-union,
+	constant-zero
+)
+# This assumes the constants are for the same type
+== bool(a constant, b constant)
+	if _ ?= b constant-zero
+		a is-zero
+	else
+		match a
+		as constant-array x
+			b.constant-array! == x
+		as constant-c-string x
+			b.constant-c-string! == x
+		as constant-float x
+			b.constant-float! == x
+		as constant-fun-pointer x
+			b.constant-fun-pointer! == x
+		as integral-value x
+			b.integral-value! == x
+		as constant-pointer x
+			b.constant-pointer! == x
+		as constant-record x
+			b.constant-record! == x
+		as constant-union x
+			b.constant-union! == x
+		as constant-zero
+			b is-zero
+-is-zero bool(a constant)
+	match a
+	as constant-array _
+		# We only create this for non-empty arrays
+		false
+	as constant-c-string _
+		false
+	as constant-float x
+		# TODO: This would be true for -0, but that doesn't have all 0 bits ...
+		x.value == 0
+	as constant-fun-pointer _
+		false
+	as integral-value x
+		x.as-unsigned == 0
+	as constant-pointer _
+		false
+	as constant-record x
+		# TODO: we shouldn't create the constant-record in that case
+		x.args every arg => arg is-zero
+	as constant-union x
+		x.member-index == 0 && x.arg is-zero
+	as constant-zero
+		true
+constant-array record
+	| Index of the array type in {all-constants-concrete}.{arrs}
+	type-index nat
+	| Index within that array type
+	index nat
+== bool(a constant-array, b constant-array)
+| Nul-terminated string identified only by its begin pointer.
+constant-c-string record
+	| Index into {all-constants-concrete}.{c-strings}
+	index nat
+== bool(a constant-c-string, b constant-c-string)
+| Used for float32 or float64
+constant-float record(value float)
+# TODO: handle Nan! -------------------------------------------------------------------------------------------------------------
+== bool(a constant-float, b constant-float)
+constant-fun-pointer record(fun concrete-fun-id)
+== bool(a constant-fun-pointer, b constant-fun-pointer)
+| Pointer (or gc-pointer) to another constant
+constant-pointer record
+	| Index of the pointer type in {all-constants-concrete}.{pointers}
+	type-index nat
+	| Index within that pointer type
+	index nat
+== bool(a constant-pointer, b constant-pointer)
+| This is always by-value. Use a {constant-pointer} for a by-ref record.
+constant-record record(args constant[])
+== bool(a constant-record, b constant-record)
+constant-union record(member-index nat, arg constant)
+== bool(a constant-union, b constant-union)
+| All zero bits. Can be used for any type.
+constant-zero record
+== bool(a constant-zero, b constant-zero)
+
+constant-bool constant(a bool)
+	(a.to::nat,)::integral-value to
+as-bool bool(a constant)
+	match a.integral-value! as-unsigned
+	as 0
+		false
+	as 1
+		true
+	else
+		throw unreachable
+
+as-nat64 nat(a constant)
+	if _ ?= a constant-zero
+		0
+	else
+		a.integral-value! as-unsigned

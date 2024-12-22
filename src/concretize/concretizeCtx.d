@@ -4,20 +4,31 @@ module concretize.concretizeCtx;
 
 import concretize.allConstantsBuilder : AllConstantsBuilder, getConstantCString, getConstantSymbol;
 import model.concreteModel :
+	ConcreteBuiltinType,
+	ConcreteEnum,
+	ConcreteExternType,
 	ConcreteField,
+	ConcreteFlags,
 	ConcreteFun,
 	ConcreteFunKey,
 	ConcreteFunSource,
+	ConcreteFunSourceLambda,
+	ConcreteFunSourceTest,
+	ConcreteFunSourceWrapMain,
 	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
-	ConcreteMutability,
+	ConcreteLocalSourceClosure,
+	ConcreteRecord,
 	ConcreteStruct,
 	ConcreteStructBody,
-	ConcreteStructInfo,
 	ConcreteStructSource,
+	ConcreteStructSourceBogus,
+	ConcreteStructSourceInst,
+	ConcreteStructSourceLambda,
 	ConcreteStructSpecialKind,
 	ConcreteType,
+	ConcreteUnion,
 	ConcreteVar,
 	Constant,
 	hasSizeOrPointerSizeBytes,
@@ -64,7 +75,6 @@ import model.model :
 	StructDecl,
 	StructInst,
 	SumType,
-	Test,
 	Type,
 	TypeParamIndex,
 	TypeSize,
@@ -106,8 +116,8 @@ import versionInfo : OS, VersionInfo;
 
 alias TypeArgsScope = SmallArray!ConcreteType;
 
-private ConcreteStructSource.Inst getStructKey(return in ConcreteStruct* a) =>
-	a.source.as!(ConcreteStructSource.Inst);
+private ConcreteStructSourceInst getStructKey(return in ConcreteStruct* a) =>
+	a.source.as!ConcreteStructSourceInst;
 
 VarDecl* getVarKey(return in ConcreteVar* a) =>
 	a.source;
@@ -119,11 +129,11 @@ TypeArgsScope typeArgsScopeForFun(ConcreteFun* a) =>
 	a.source.match!TypeArgsScope(
 		(ConcreteFunKey x) =>
 			x.typeArgs,
-		(ref ConcreteFunSource.Lambda x) =>
+		(ref ConcreteFunSourceLambda x) =>
 			typeArgsScopeForFun(x.containingFun),
-		(ref ConcreteFunSource.Test x) =>
+		(ref ConcreteFunSourceTest x) =>
 			emptySmallArray!ConcreteType,
-		(ref ConcreteFunSource.WrapMain x) =>
+		(ref ConcreteFunSourceWrapMain x) =>
 			emptySmallArray!ConcreteType);
 
 immutable struct SpecsScope {
@@ -134,11 +144,11 @@ SpecsScope specsScopeForFun(ConcreteFun* a) =>
 	a.source.match!SpecsScope(
 		(ConcreteFunKey x) =>
 			SpecsScope(x.decl.specs, x.specImpls),
-		(ref ConcreteFunSource.Lambda x) =>
+		(ref ConcreteFunSourceLambda x) =>
 			specsScopeForFun(x.containingFun),
-		(ref ConcreteFunSource.Test x) =>
+		(ref ConcreteFunSourceTest x) =>
 			emptySpecsScope,
-		(ref ConcreteFunSource.WrapMain x) =>
+		(ref ConcreteFunSourceWrapMain x) =>
 			emptySpecsScope);
 private SpecsScope emptySpecsScope() =>
 	SpecsScope(emptySmallArray!(immutable SpecInst*), emptySmallArray!(immutable ConcreteFun*));
@@ -156,7 +166,7 @@ struct ConcretizeCtx {
 	Late!(ConcreteFun*) newJsonFromPairsFunction_;
 	Late!(ConcreteFun*) toJsonFromJsonArrayFunction_;
 	AllConstantsBuilder allConstants;
-	MutHashTable!(ConcreteStruct*, ConcreteStructSource.Inst, getStructKey) nonLambdaConcreteStructs;
+	MutHashTable!(ConcreteStruct*, ConcreteStructSourceInst, getStructKey) nonLambdaConcreteStructs;
 	ArrayBuilder!(ConcreteStruct*) allConcreteStructs;
 	MutHashTable!(immutable ConcreteVar*, immutable VarDecl*, getVarKey) concreteVarLookup;
 	MutHashTable!(ConcreteFun*, ConcreteFunKey, getFunKey) nonLambdaConcreteFuns;
@@ -221,11 +231,9 @@ private ConcreteType bogusType(ref ConcretizeCtx a) =>
 		ConcreteStruct* res = allocate(a.alloc, ConcreteStruct(
 			Purity.data,
 			ConcreteStructSpecialKind.none,
-			ConcreteStructSource(ConcreteStructSource.Bogus())));
+			ConcreteStructSource(ConcreteStructSourceBogus())));
 		add(a.alloc, a.allConcreteStructs, res);
-		res.info = ConcreteStructInfo(
-			ConcreteStructBody(ConcreteStructBody.Record(emptySmallArray!ConcreteField)),
-			false);
+		res.body_ = ConcreteStructBody(ConcreteRecord(false, emptySmallArray!ConcreteField));
 		res.defaultReferenceKind = ReferenceKind.byVal;
 		res.typeSize = TypeSize(0, 1);
 		res.fieldOffsets = typeAs!(immutable uint[])([]);
@@ -280,7 +288,7 @@ ConcreteStruct* symbolArrayType(ref ConcretizeCtx a) =>
 	mustBeByVal(getConcreteType_forStructInst(a, a.commonTypes.symbolArray, emptySmallArray!ConcreteType));
 
 ConcreteType getReferencedType(in ConcretizeCtx ctx, ConcreteType type) {
-	ConcreteStructSource.Inst inst = type.struct_.source.as!(ConcreteStructSource.Inst);
+	ConcreteStructSourceInst inst = type.struct_.source.as!ConcreteStructSourceInst;
 	assert(inst.decl == ctx.commonTypes.reference);
 	return only(inst.typeArgs);
 }
@@ -325,7 +333,7 @@ ConcreteFun* getConcreteFunForLambda(
 ) {
 	assert(!isBogus(returnType));
 	ConcreteFun* res = allocate(ctx.alloc, ConcreteFun(
-		ConcreteFunSource(allocate(ctx.alloc, ConcreteFunSource.Lambda(
+		ConcreteFunSource(allocate(ctx.alloc, ConcreteFunSourceLambda(
 			containingConcreteFun, modelParam, bodyExpr, index))),
 		returnType,
 		params));
@@ -345,9 +353,9 @@ ConcreteType getConcreteType_forStructInst(ref ConcretizeCtx ctx, StructInst* in
 
 	return withConcreteTypes(ctx, inst.typeArgs, typeArgsScope, (scope ConcreteType[] typeArgs) {
 		StructDecl* decl = inst.decl;
-		scope ConcreteStructSource.Inst key = ConcreteStructSource.Inst(decl, small!ConcreteType(typeArgs));
+		scope ConcreteStructSourceInst key = ConcreteStructSourceInst(decl, small!ConcreteType(typeArgs));
 		ValueAndDidAdd!(ConcreteStruct*) res =
-			getOrAddAndDidAdd!(ConcreteStruct*, ConcreteStructSource.Inst, getStructKey)(
+			getOrAddAndDidAdd!(ConcreteStruct*, ConcreteStructSourceInst, getStructKey)(
 				ctx.alloc, ctx.nonLambdaConcreteStructs, key, () {
 					Purity purity = fold!(Purity, ConcreteType)(
 						decl.purity, typeArgs, (Purity p, in ConcreteType ta) =>
@@ -366,7 +374,7 @@ ConcreteType getConcreteType_forStructInst(ref ConcretizeCtx ctx, StructInst* in
 					ConcreteStruct* res = allocate(ctx.alloc, ConcreteStruct(
 						purity,
 						specialKind,
-						ConcreteStructSource(ConcreteStructSource.Inst(decl, newSmallArray(ctx.alloc, typeArgs)))));
+						ConcreteStructSource(ConcreteStructSourceInst(decl, newSmallArray(ctx.alloc, typeArgs)))));
 					add(ctx.alloc, ctx.allConcreteStructs, res);
 					return res;
 				});
@@ -410,11 +418,11 @@ ConcreteType concreteTypeFromClosure(
 	else {
 		Purity purity = fold!(Purity, ConcreteField)(Purity.data, closureFields, (Purity p, in ConcreteField f) {
 			// TODO: lambda fields are never mutable, use a different type?
-			assert(f.mutability == ConcreteMutability.const_);
+			assert(!f.isMutable);
 			return worsePurity(p, purity(f.type));
 		});
 		ConcreteStruct* cs = allocate(ctx.alloc, ConcreteStruct(purity, ConcreteStructSpecialKind.none, source));
-		cs.info = getConcreteStructInfoForFields(closureFields);
+		cs.body_ = concreteStructBodyForFields(closureFields);
 		setConcreteStructRecordSizeOrDefer(ctx, cs);
 		add(ctx.alloc, ctx.allConcreteStructs, cs);
 		// TODO: consider passing closure by value
@@ -430,14 +438,14 @@ private void setConcreteStructRecordSizeOrDefer(ref ConcretizeCtx ctx, ConcreteS
 }
 
 private bool canGetRecordSize(in ConcreteStruct* a) =>
-	every!ConcreteField(a.body_.as!(ConcreteStructBody.Record).fields, (in ConcreteField field) =>
+	every!ConcreteField(a.body_.as!ConcreteRecord.fields, (in ConcreteField field) =>
 		hasSizeOrPointerSizeBytes(field.type));
 
 private void setConcreteStructRecordSize(ref Alloc alloc, ConcreteStruct* a) {
-	FieldsType fieldsType = a.source.isA!(ConcreteStructSource.Lambda) ? FieldsType.closure : FieldsType.record;
+	FieldsType fieldsType = a.source.isA!ConcreteStructSourceLambda ? FieldsType.closure : FieldsType.record;
 	bool packed = fieldsType == FieldsType.record &&
-		a.source.as!(ConcreteStructSource.Inst).decl.body_.as!Record.flags.packed;
-	TypeSizeAndFieldOffsets size = recordSize(alloc, packed, a.body_.as!(ConcreteStructBody.Record).fields);
+		a.source.as!ConcreteStructSourceInst.decl.body_.as!Record.flags.packed;
+	TypeSizeAndFieldOffsets size = recordSize(alloc, packed, a.body_.as!ConcreteRecord.fields);
 	if (!a.defaultReferenceKindIsSet)
 		a.defaultReferenceKind = getDefaultReferenceKindForFields(size.typeSize, a.isSelfMutable, fieldsType);
 	a.typeSize = size.typeSize;
@@ -511,7 +519,7 @@ public SmallArray!ConcreteLocal concretizeLambdaParams(
 	TypeArgsScope typeArgsScope,
 ) =>
 	newSmallArray!ConcreteLocal(ctx.alloc, [
-		ConcreteLocal(ConcreteLocalSource(ConcreteLocalSource.Closure()), closureType),
+		ConcreteLocal(ConcreteLocalSource(ConcreteLocalSourceClosure()), closureType),
 		concretizeParamDestructure(ctx, param, typeArgsScope),
 	]);
 
@@ -556,11 +564,10 @@ ReferenceKind getDefaultReferenceKindForFields(TypeSize typeSize, bool isSelfMut
 
 enum FieldsType { record, closure }
 
-ConcreteStructInfo getConcreteStructInfoForFields(SmallArray!ConcreteField fields) =>
-	ConcreteStructInfo(
-		ConcreteStructBody(ConcreteStructBody.Record(fields)),
-		exists!ConcreteField(fields, (in ConcreteField field) =>
-			field.mutability != ConcreteMutability.const_));
+ConcreteStructBody concreteStructBodyForFields(SmallArray!ConcreteField fields) {
+	bool isSomeFieldMutable = exists!ConcreteField(fields, (in ConcreteField x) => x.isMutable);
+	return ConcreteStructBody(ConcreteRecord(isSomeFieldMutable, fields));
+}
 
 immutable struct TypeSizeAndFieldOffsets {
 	TypeSize typeSize;
@@ -603,17 +610,17 @@ void initializeConcreteStruct(
 		},
 		(ref Enum x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
-			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Enum(x.storage)), false);
+			res.body_ = ConcreteStructBody(ConcreteEnum(x.storage));
 			res.typeSize = typeSizeForEnumOrFlags(x.storage);
 		},
 		(ExternType x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
-			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Extern()), false);
+			res.body_ = ConcreteStructBody(ConcreteExternType());
 			res.typeSize = optOrDefault!TypeSize(x.size, () => TypeSize(0, 0));
 		},
 		(Flags x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
-			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Flags(x.storage)), false);
+			res.body_ = ConcreteStructBody(ConcreteFlags(x.storage));
 			res.typeSize = typeSizeForEnumOrFlags(x.storage);
 		},
 		(Record r) {
@@ -621,17 +628,13 @@ void initializeConcreteStruct(
 			if (has(r.flags.forcedByValOrRef))
 				res.defaultReferenceKind = enumConvert!ReferenceKind(force(r.flags.forcedByValOrRef));
 			SmallArray!ConcreteField fields = map(ctx.alloc, r.fields, (ref RecordField f) =>
-				ConcreteField(
-					f.name,
-					has(f.mutability) ? ConcreteMutability.mutable : ConcreteMutability.const_,
-					getConcreteType(ctx, f.type, typeArgs)));
-			ConcreteStructInfo info = getConcreteStructInfoForFields(fields);
-			res.info = info;
+				ConcreteField(f.name, has(f.mutability), getConcreteType(ctx, f.type, typeArgs)));
+			res.body_ = concreteStructBodyForFields(fields);
 			setConcreteStructRecordSizeOrDefer(ctx, res);
 		},
 		(SumType x) {
 			res.defaultReferenceKind = ReferenceKind.byVal;
-			res.info = ConcreteStructInfo(ConcreteStructBody(ConcreteStructBody.Union()), false);
+			res.body_ = ConcreteStructBody(ConcreteUnion());
 			push(ctx.alloc, ctx.deferredTypeSize, res);
 			mustAdd(
 				ctx.alloc, ctx.sumTypeToCases, res,
@@ -650,7 +653,7 @@ void initializeConcreteStruct(
 }
 
 public size_t ensureSumTypeCase(ref ConcretizeCtx ctx, ConcreteType sumType, ConcreteType caseType) {
-	ref ConcreteStructBody.Union body_() => mustBeByVal(sumType).body_.as!(ConcreteStructBody.Union);
+	ref ConcreteUnion body_() => mustBeByVal(sumType).body_.as!ConcreteUnion;
 	return body_.hasMembers
 		? force(indexOf!ConcreteType(body_.members, caseType))
 		: findIndexOrPush!ConcreteSumTypeCase(
@@ -668,7 +671,7 @@ public void finishSumTypeCases(
 	ConcreteStruct* variant,
 	ref MutArr!ConcreteSumTypeCase x,
 ) {
-	variant.body_.as!(ConcreteStructBody.Union).members =
+	variant.body_.as!ConcreteUnion.members =
 		small!ConcreteType(map(ctx.alloc, asTemporaryArray(x), (ref ConcreteSumTypeCase x) =>
 			x.memberType));
 }
@@ -678,8 +681,8 @@ SmallArray!(Opt!(ConcreteFun*)) sumTypeMembershipMethodImpls(
 	ConcreteType sumType,
 	ConcreteType memberType,
 ) {
-	StructDecl* sumTypeDecl = mustBeByVal(sumType).source.as!(ConcreteStructSource.Inst).decl;
-	ConcreteStructSource.Inst memberSource = memberType.struct_.source.as!(ConcreteStructSource.Inst);
+	StructDecl* sumTypeDecl = mustBeByVal(sumType).source.as!ConcreteStructSourceInst.decl;
+	ConcreteStructSourceInst memberSource = memberType.struct_.source.as!ConcreteStructSourceInst;
 	SumTypeMembership membership = mustFindOnly!SumTypeMembership(
 		memberSource.decl.sumTypeMemberships, (ref SumTypeMembership x) =>
 			x.sumType.decl == sumTypeDecl);
@@ -708,17 +711,13 @@ void initializeConcreteStructForBuiltin(
 			// Lambda types handled in 'finishLambdas'
 			break;
 		case BuiltinType.option:
-			struct_.info = ConcreteStructInfo(
-				ConcreteStructBody(ConcreteStructBody.Union(
-					late(newSmallArray!ConcreteType(ctx.alloc, [voidType(ctx), only(typeArgs)])))),
-				isSelfMutable: false);
+			struct_.body_ = ConcreteStructBody(ConcreteUnion(
+				late(newSmallArray!ConcreteType(ctx.alloc, [voidType(ctx), only(typeArgs)]))));
 			push(ctx.alloc, ctx.deferredTypeSize, struct_);
 			break;
 		default:
-			struct_.info = ConcreteStructInfo(
-				ConcreteStructBody(allocate(ctx.alloc, ConcreteStructBody.Builtin(
-					type, struct_.source.as!(ConcreteStructSource.Inst).typeArgs))),
-				isSelfMutable: false);
+			struct_.body_ = ConcreteStructBody(allocate(ctx.alloc, ConcreteBuiltinType(
+				type, struct_.source.as!ConcreteStructSourceInst.typeArgs)));
 			struct_.typeSize = getBuiltinStructSize(type, ctx.versionInfo);
 			break;
 	}
@@ -750,11 +749,11 @@ public void deferredFillRecordAndUnionBodies(ref ConcretizeCtx ctx) {
 		bool couldGetSomething = false;
 		filterUnordered!(ConcreteStruct*)(ctx.deferredTypeSize, (ref ConcreteStruct* struct_) {
 			bool canGet;
-			if (struct_.body_.isA!(ConcreteStructBody.Record)) {
+			if (struct_.body_.isA!ConcreteRecord) {
 				canGet = canGetRecordSize(struct_);
 				if (canGet) setConcreteStructRecordSize(ctx.alloc, struct_);
 			} else {
-				ConcreteType[] members = struct_.body_.as!(ConcreteStructBody.Union).members;
+				ConcreteType[] members = struct_.body_.as!ConcreteUnion.members;
 				canGet = canGetUnionSize(members);
 				if (canGet) struct_.typeSize = unionSize(members);
 			}

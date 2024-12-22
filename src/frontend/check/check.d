@@ -641,7 +641,7 @@ ImportsOrReExports checkImportsOrReExports(
 			ExportVisibility importVisibility = importMinVisibility(importAst);
 			importAst.kind.match!void(
 				(ImportWholeModuleAst _) {
-					handleModuleImport(some(&importAst), importVisibility, (ref ImportOrExport) {});
+					handleModuleImport(some(&importAst), importVisibility, (ref ImportOrExport _) {});
 				},
 				(NameAndRange[] names) {
 					handleModuleImport(some(&importAst), importVisibility, (ref ImportOrExport x) {

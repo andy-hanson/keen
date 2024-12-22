@@ -362,7 +362,7 @@ bool isEmpty(in Arity a) =>
 	a.match!bool(
 		(uint nParams) =>
 			nParams == 0,
-		(ArityVarargs) =>
+		(ArityVarargs _) =>
 			false);
 
 bool arityMatches(in Arity sigArity, size_t nArgs) =>
@@ -460,7 +460,7 @@ immutable struct RecordFieldSource {
 
 	DocCommentAst docComment() scope =>
 		match!DocCommentAst(
-			(ref SingleDestructureAst) =>
+			(ref SingleDestructureAst _) =>
 				DocCommentAst.empty,
 			(ref RecordFieldAst x) =>
 				x.docComment);
@@ -829,7 +829,7 @@ immutable struct StructDecl {
 		source.match!DocCommentAst(
 			(ref StructDeclAst x) =>
 				x.docComment,
-			(ref StructDeclSourceBogus) =>
+			(ref StructDeclSourceBogus _) =>
 				DocCommentAst.empty);
 	DocComment docComment() return scope =>
 		DocComment(docCommentAst, docCommentReferences);
@@ -850,7 +850,7 @@ immutable struct StructDecl {
 		UriAndRange(moduleUri, source.matchIn!Range(
 			(in StructDeclAst x) =>
 				x.range,
-			(in StructDeclSourceBogus) =>
+			(in StructDeclSourceBogus _) =>
 				Range.empty));
 
 	UriAndRange keywordRange() scope =>
@@ -911,14 +911,14 @@ immutable struct StructDeclSource {
 		matchIn!Range(
 			(in StructDeclAst x) =>
 				x.keywordRange,
-			(in StructDeclSourceBogus) =>
+			(in StructDeclSourceBogus _) =>
 				Range.empty);
 
 	Range nameRange() scope =>
 		matchIn!Range(
 			(in StructDeclAst x) =>
 				x.nameRange,
-			(in StructDeclSourceBogus) =>
+			(in StructDeclSourceBogus _) =>
 				Range.empty);
 }
 immutable struct StructDeclSourceBogus {
@@ -2621,7 +2621,7 @@ immutable struct MainFun {
 				some(x.fun.decl.moduleUri),
 			(in TestSelector test) =>
 				test.matchIn!(Opt!Uri)(
-					(in TestSelectorAll) =>
+					(in TestSelectorAll _) =>
 						none!Uri,
 					(in Config x) =>
 						some(force(x.configUri)),
@@ -2638,7 +2638,7 @@ immutable struct MainFun {
 				x.fun.decl.externs,
 			(in TestSelector x) =>
 				x.matchIn!SymbolSet(
-					(in TestSelectorAll) =>
+					(in TestSelectorAll _) =>
 						emptySymbolSet,
 					(in Config _) =>
 						emptySymbolSet,
@@ -2819,20 +2819,20 @@ immutable struct Local {
 
 	bool isMutable() scope =>
 		mutability.matchIn!bool(
-			(in LocalImmutable) =>
+			(in LocalImmutable _) =>
 				false,
-			(in LocalMutableOnStack) =>
+			(in LocalMutableOnStack _) =>
 				true,
-			(in LocalMutableAllocated) =>
+			(in LocalMutableAllocated _) =>
 				true);
 
 	bool isAllocated() scope =>
 		mutability.matchIn!bool(
-			(in LocalImmutable) =>
+			(in LocalImmutable _) =>
 				false,
-			(in LocalMutableOnStack) =>
+			(in LocalMutableOnStack _) =>
 				false,
-			(in LocalMutableAllocated) =>
+			(in LocalMutableAllocated _) =>
 				true);
 }
 
@@ -2861,11 +2861,11 @@ immutable struct LocalMutableAllocated { StructInst* referenceType; }
 enum Mutability { immut, mut }
 Mutability toMutability(LocalMutability a) =>
 	a.matchIn!Mutability(
-		(in LocalImmutable) =>
+		(in LocalImmutable _) =>
 			Mutability.immut,
-		(in LocalMutableOnStack) =>
+		(in LocalMutableOnStack _) =>
 			Mutability.mut,
-		(in LocalMutableAllocated) =>
+		(in LocalMutableAllocated _) =>
 			Mutability.mut);
 
 immutable struct ClosureRef {
@@ -2920,11 +2920,11 @@ immutable struct VariableRef {
 			(ClosureRef x) => x.local);
 	ClosureReferenceKind closureReferenceKind() scope =>
 		local.mutability.matchIn!ClosureReferenceKind(
-			(in LocalImmutable) =>
+			(in LocalImmutable _) =>
 				ClosureReferenceKind.direct,
-			(in LocalMutableOnStack) =>
+			(in LocalMutableOnStack _) =>
 				assert(false),
-			(in LocalMutableAllocated) =>
+			(in LocalMutableAllocated _) =>
 				ClosureReferenceKind.allocated);
 }
 

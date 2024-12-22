@@ -4,11 +4,15 @@ module backend.mangle;
 
 import model.concreteModel :
 	ConcreteFun,
-	ConcreteFunBody,
+	ConcreteFunBodyExtern,
 	ConcreteFunKey,
-	ConcreteFunSource,
+	ConcreteFunSourceLambda,
+	ConcreteFunSourceTest,
+	ConcreteFunSourceWrapMain,
 	ConcreteStruct,
-	ConcreteStructSource;
+	ConcreteStructSourceBogus,
+	ConcreteStructSourceInst,
+	ConcreteStructSourceLambda;
 import model.lowModel :
 	LowExternType,
 	LowFun,
@@ -58,9 +62,9 @@ MangledNames buildMangledNames(ref Alloc alloc, return scope const LowProgram pr
 						//TODO: use temp alloc
 						addToPrevOrIndex!ConcreteFun(alloc, funNameToIndex, funToNameIndex, cf, x.decl.name);
 					},
-					(in ConcreteFunSource.Lambda) {},
-					(in ConcreteFunSource.Test) {},
-					(in ConcreteFunSource.WrapMain) {});
+					(in ConcreteFunSourceLambda _) {},
+					(in ConcreteFunSourceTest _) {},
+					(in ConcreteFunSourceWrapMain _) {});
 			},
 			(LowFunSource.Generated*) {});
 
@@ -70,11 +74,11 @@ MangledNames buildMangledNames(ref Alloc alloc, return scope const LowProgram pr
 
 	void build(ConcreteStruct* s) {
 		s.source.match!void(
-			(ConcreteStructSource.Bogus) {},
-			(ConcreteStructSource.Inst x) {
+			(ConcreteStructSourceBogus _) {},
+			(ConcreteStructSourceInst x) {
 				addToPrevOrIndex!ConcreteStruct(alloc, structNameToIndex, structToNameIndex, s, x.decl.name);
 			},
-			(ConcreteStructSource.Lambda) {});
+			(ConcreteStructSourceLambda) {});
 	}
 	foreach (ref LowExternType x; program.allExternTypes)
 		build(x.source);
@@ -109,17 +113,17 @@ private immutable(FullIndexMap!(LowVarIndex, size_t)) makeVarToNameIndex(
 
 void writeStructMangledName(scope ref Writer writer, in MangledNames mangledNames, in ConcreteStruct* source) {
 	source.source.matchIn!void(
-		(in ConcreteStructSource.Bogus) {
+		(in ConcreteStructSourceBogus _) {
 			writer ~= "__BOGUS";
 		},
-		(in ConcreteStructSource.Inst x) {
+		(in ConcreteStructSourceInst x) {
 			writeMangledName(writer, mangledNames, x.decl.name);
 			maybeWriteIndexSuffix(writer, mangledNames.structToNameIndex[source]);
 		},
-		(in ConcreteStructSource.Lambda it) {
-			writeConcreteFunMangledName(writer, mangledNames, it.containingFun);
+		(in ConcreteStructSourceLambda x) {
+			writeConcreteFunMangledName(writer, mangledNames, x.containingFun);
 			writer ~= "__lambda";
-			writer ~= it.index;
+			writer ~= x.index;
 		});
 }
 
@@ -167,23 +171,23 @@ private void writeConcreteFunMangledName(
 ) {
 	source.source.matchIn!void(
 		(in ConcreteFunKey x) {
-			if (source.body_.isA!(ConcreteFunBody.Extern))
+			if (source.body_.isA!ConcreteFunBodyExtern)
 				writer ~= x.decl.name;
 			else {
 				writeMangledName(writer, mangledNames, x.decl.name);
 				maybeWriteIndexSuffix(writer, mangledNames.funToNameIndex[source]);
 			}
 		},
-		(in ConcreteFunSource.Lambda x) {
+		(in ConcreteFunSourceLambda x) {
 			writeConcreteFunMangledName(writer, mangledNames, x.containingFun);
 			writer ~= "__lambda";
 			writer ~= x.index;
 		},
-		(in ConcreteFunSource.Test x) {
+		(in ConcreteFunSourceTest x) {
 			writer ~= "__test";
 			writer ~= x.testIndex;
 		},
-		(in ConcreteFunSource.WrapMain x) {
+		(in ConcreteFunSourceWrapMain x) {
 			writer ~= "__wrap_main";
 		});
 }

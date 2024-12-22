@@ -651,7 +651,7 @@ MostlyResolvedImport tryResolveImport(ref Frontend a, in Config config, Uri from
 					crowFile(),
 				(NameAndRange[]) =>
 					crowFile(),
-				(ref ImportFileAst) =>
+				(ref ImportFileAst _) =>
 					fileType(uri) == FileType.crow
 						? MostlyResolvedImport(allocate(a.alloc, DiagImportFile(CantImportCrowAsText())))
 						: MostlyResolvedImport(ensureOtherFile(a, uri)));

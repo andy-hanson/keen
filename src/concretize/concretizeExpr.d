@@ -65,18 +65,25 @@ import model.concreteModel :
 	ConcreteExprKind,
 	ConcreteField,
 	ConcreteFun,
-	ConcreteFunBody,
+	ConcreteFunBodyBuiltin,
+	ConcreteFunBodyDeferred,
+	ConcreteFunBodyExtern,
+	ConcreteFunBodyVarGet,
+	ConcreteFunBodyVarSet,
 	ConcreteFunKey,
-	ConcreteFunSource,
+	ConcreteFunSourceLambda,
+	ConcreteFunSourceTest,
+	ConcreteFunSourceWrapMain,
 	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
 	ConcreteMatchStringLikeCase,
 	ConcreteMatchUnionCase,
-	ConcreteMutability,
+	ConcreteRecord,
 	ConcreteStruct,
-	ConcreteStructBody,
 	ConcreteStructSource,
+	ConcreteStructSourceInst,
+	ConcreteStructSourceLambda,
 	ConcreteType,
 	Constant,
 	constantBool,
@@ -210,11 +217,11 @@ private Out withParams(Out)(ConcreteFun* cf, in Out delegate(in Destructure[]) @
 	cf.source.match!Out(
 		(ConcreteFunKey x) =>
 			cb(paramsArray(x.decl.params)),
-		(ref ConcreteFunSource.Lambda x) =>
+		(ref ConcreteFunSourceLambda x) =>
 			cb([x.param]),
-		(ref ConcreteFunSource.Test x) =>
+		(ref ConcreteFunSourceTest x) =>
 			cb([]),
-		(ref ConcreteFunSource.WrapMain x) =>
+		(ref ConcreteFunSourceWrapMain x) =>
 			assert(false));
 
 Out withConcretizeExprCtx(Out)(
@@ -513,7 +520,7 @@ immutable struct ClosureFieldInfo {
 ClosureFieldInfo getClosureFieldInfo(ref ConcretizeExprCtx ctx, in UriAndRange range, in ClosureRef a) {
 	ConcreteLocal* closureParam = &ctx.currentConcreteFun.params[0];
 	ConcreteType closureType = closureParam.type;
-	ConcreteStructBody.Record record = closureType.struct_.body_.as!(ConcreteStructBody.Record);
+	ConcreteRecord record = closureType.struct_.body_.as!ConcreteRecord;
 	ClosureReferenceKind referenceKind = a.closureReferenceKind;
 	ConcreteType fieldType = record.fields[a.index].type;
 	ConcreteType pointeeType = () {
@@ -540,7 +547,7 @@ SmallArray!ConcreteField concretizeClosureFields(ref ConcretizeExprCtx ctx, Smal
 			}
 		}();
 		// Even if the variable is mutable, it's a const field holding a mut pointer
-		return ConcreteField(x.name, ConcreteMutability.const_, type);
+		return ConcreteField(x.name, false, type);
 	});
 
 ConcreteExpr concretizeFunPointer(
@@ -565,7 +572,7 @@ ConcreteExpr concretizeLambda(
 	if (e.kind == LambdaKind.explicitShared) {
 		ConcreteType innerType = getConcreteType(ctx, Type(force(e.mutTypeForExplicitShared)));
 		ConcreteExpr inner = concretizeLambdaInner(ctx, innerType, range, locals, e);
-		ConcreteType[2] lambdaTypeArgs = only2(innerType.struct_.source.as!(ConcreteStructSource.Inst).typeArgs);
+		ConcreteType[2] lambdaTypeArgs = only2(innerType.struct_.source.as!ConcreteStructSourceInst.typeArgs);
 		ConcreteFun* sharedOfMutLambda = getConcreteFun(
 			ctx.concretizeCtx, ctx.concretizeCtx.program.commonFuns.sharedOfMutLambda, lambdaTypeArgs, []);
 		return genCall(ctx.alloc, range, sharedOfMutLambda, [inner]);
@@ -590,7 +597,7 @@ ConcreteExpr concretizeLambdaInner(
 	ConcreteType closureType = concreteTypeFromClosure(
 		ctx.concretizeCtx,
 		closureFields,
-		ConcreteStructSource(ConcreteStructSource.Lambda(ctx.curFun, lambdaIndex)));
+		ConcreteStructSource(ConcreteStructSourceLambda(ctx.curFun, lambdaIndex)));
 	SmallArray!ConcreteLocal params = concretizeLambdaParams(ctx.concretizeCtx, closureType, e.param, typeScope(ctx));
 
 	ConcreteStruct* lambdaStruct = mustBeByVal(type);
@@ -746,7 +753,7 @@ ConcreteExpr concretizeWithDestructurePartsRecur(
 	else {
 		Destructure part = parts[partIndex];
 		UriAndRange range = toUriAndRange(ctx, part.range);
-		ConcreteType valueType = mustBeByVal(getTemp.type).body_.as!(ConcreteStructBody.Record).fields[partIndex].type;
+		ConcreteType valueType = mustBeByVal(getTemp.type).body_.as!ConcreteRecord.fields[partIndex].type;
 		ConcreteType expectedType = getConcreteType(ctx, part.type);
 		if (expectedType == valueType) {
 			ConcreteExpr value = ConcreteExpr(valueType, range, isVoid(valueType)
@@ -1244,7 +1251,7 @@ Opt!Constant tryEvalConstant(
 	in VersionInfo versionInfo,
 ) =>
 	fn.body_.matchIn!(Opt!Constant)(
-		(in ConcreteFunBody.Builtin x) {
+		(in ConcreteFunBodyBuiltin x) {
 			if (x.kind.isA!VersionFun) {
 				assert(isEmpty(args));
 				return some(constantBool(isVersion(versionInfo, x.kind.as!VersionFun)));
@@ -1264,14 +1271,14 @@ Opt!Constant tryEvalConstant(
 			} else
 				return none!Constant;
 		},
-		(in ConcreteFunBody.Extern) => none!Constant,
+		(in ConcreteFunBodyExtern _) => none!Constant,
 		(in ConcreteExpr x) =>
 			x.kind.isA!Constant
 				? some(x.kind.as!Constant)
 				: none!Constant,
-		(in ConcreteFunBody.VarGet) => none!Constant,
-		(in ConcreteFunBody.VarSet) => none!Constant,
-		(in ConcreteFunBody.Deferred) => none!Constant);
+		(in ConcreteFunBodyVarGet _) => none!Constant,
+		(in ConcreteFunBodyVarSet _) => none!Constant,
+		(in ConcreteFunBodyDeferred _) => none!Constant);
 
 bool isKnownEmptyType(in ConcreteType a) =>
 	a.struct_.typeSizeIsSet && isEmptyType(a);

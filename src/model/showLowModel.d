@@ -5,12 +5,16 @@ module model.showLowModel;
 import model.concreteModel :
 	ConcreteFun,
 	ConcreteFunKey,
-	ConcreteFunSource,
+	ConcreteFunSourceLambda,
+	ConcreteFunSourceTest,
+	ConcreteFunSourceWrapMain,
 	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
-	ConcreteLocalSource,
+	ConcreteLocalSourceClosure,
 	ConcreteStruct,
-	ConcreteStructSource,
+	ConcreteStructSourceBogus,
+	ConcreteStructSourceInst,
+	ConcreteStructSourceLambda,
 	ConcreteType,
 	ReferenceKind;
 import frontend.showModel : ShowCtx, writeTypeArgsGeneric;
@@ -84,7 +88,7 @@ private void writeConcreteFunSig(scope ref Writer writer, in ShowCtx ctx, in Con
 				(in Local p) {
 					writer ~= p.name;
 				},
-				(in ConcreteLocalSource.Closure) {
+				(in ConcreteLocalSourceClosure _) {
 					writer ~= "<closure>";
 				},
 				(in ConcreteGeneratedLocalKind x) {
@@ -155,16 +159,16 @@ void writeConcreteFunName(scope ref Writer writer, in ShowCtx ctx, in ConcreteFu
 			writeConcreteTypeArgs(writer, ctx, x.typeArgs);
 			// TODO: write spec impls?
 		},
-		(in ConcreteFunSource.Lambda it) {
-			writeConcreteFunName(writer, ctx, *it.containingFun);
+		(in ConcreteFunSourceLambda x) {
+			writeConcreteFunName(writer, ctx, *x.containingFun);
 			writer ~= ".lambda";
-			writer ~= it.index;
+			writer ~= x.index;
 		},
-		(in ConcreteFunSource.Test) {
+		(in ConcreteFunSourceTest _) {
 			//TODO: more unique name for each test
 			writer ~= "test";
 		},
-		(in ConcreteFunSource.WrapMain) {
+		(in ConcreteFunSourceWrapMain _) {
 			writer ~= "wrap-main";
 		});
 }
@@ -179,10 +183,10 @@ void writeConcreteTypeArgs(scope ref Writer writer, in ShowCtx ctx, in ConcreteT
 
 void writeConcreteStruct(scope ref Writer writer, in ShowCtx ctx, in ConcreteStruct a) {
 	a.source.matchIn!void(
-		(in ConcreteStructSource.Bogus) {
+		(in ConcreteStructSourceBogus _) {
 			writer ~= "BOGUS";
 		},
-		(in ConcreteStructSource.Inst x) {
+		(in ConcreteStructSourceInst x) {
 			switch (x.typeArgs.length) {
 				case 0:
 					break;
@@ -199,7 +203,7 @@ void writeConcreteStruct(scope ref Writer writer, in ShowCtx ctx, in ConcreteStr
 			}
 			writer ~= x.decl.name;
 		},
-		(in ConcreteStructSource.Lambda x) {
+		(in ConcreteStructSourceLambda x) {
 			writeConcreteFunName(writer, ctx, *x.containingFun);
 			writer ~= ".lambda";
 			writer ~= x.index;

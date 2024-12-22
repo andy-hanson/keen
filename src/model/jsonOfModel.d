@@ -835,9 +835,9 @@ Json jsonOfLocal(ref Alloc alloc, in Ctx ctx, in Local a) =>
 		field!"type"(jsonOfType(alloc, ctx, a.type))]);
 Json jsonOfLocalMutability(ref Alloc alloc, in Ctx ctx, in LocalMutability a) =>
 	a.matchIn!Json(
-		(in LocalImmutable) =>
+		(in LocalImmutable _) =>
 			jsonString("immutable"),
-		(in LocalMutableOnStack) =>
+		(in LocalMutableOnStack _) =>
 			jsonString("mutable-on-stack"),
 		(in LocalMutableAllocated x) =>
 			jsonObject(alloc, [

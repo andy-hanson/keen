@@ -78,20 +78,30 @@ import model.concreteModel :
 	BuiltinConcreteExpr,
 	CallConcreteExpr,
 	CastConcreteExpr,
+	ConcreteBuiltinType,
+	ConcreteEnum,
 	ConcreteExpr,
+	ConcreteExternType,
 	ConcreteField,
+	ConcreteFlags,
 	ConcreteFun,
-	ConcreteFunBody,
+	ConcreteFunBodyBuiltin,
+	ConcreteFunBodyDeferred,
+	ConcreteFunBodyExtern,
+	ConcreteFunBodyVarGet,
+	ConcreteFunBodyVarSet,
 	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
+	ConcreteLocalSourceClosure,
 	ConcreteMatchStringLikeCase,
 	ConcreteMatchUnionCase,
 	ConcreteProgram,
+	ConcreteRecord,
 	ConcreteStruct,
-	ConcreteStructBody,
-	ConcreteStructSource,
+	ConcreteStructSourceInst,
 	ConcreteType,
+	ConcreteUnion,
 	ConcreteVar,
 	Constant,
 	CreateArrayConcreteExpr,
@@ -241,7 +251,6 @@ import util.memory : allocate;
 import util.opt : flattenOption, force, has, none, Opt, optIf, some;
 import util.perf : Perf, PerfMeasure, withMeasure;
 import util.symbol : Symbol, symbol, symbolOfEnum;
-import util.union_ : Union;
 import util.uri : Uri;
 import util.util : castNonScope_ref, ptrTrustMe;
 import versionInfo : isVersion, VersionFun;
@@ -342,7 +351,7 @@ GetLowTypeCtx getAllLowTypes(ref Alloc alloc, in ConcreteProgram program) {
 		makeMapFromKeysOptional!(ConcreteStruct*, uint)(alloc, program.allStructs, (immutable ConcreteStruct* source) =>
 			isEmptyStruct(*source) ? none!uint :
 			source.body_.matchIn!(Opt!uint)(
-				(in ConcreteStructBody.Builtin x) {
+				(in ConcreteBuiltinType x) {
 					switch (x.kind) {
 						case BuiltinType.array:
 						case BuiltinType.mutSlice:
@@ -355,15 +364,15 @@ GetLowTypeCtx getAllLowTypes(ref Alloc alloc, in ConcreteProgram program) {
 							return none!uint;
 					}
 				},
-				(in ConcreteStructBody.Enum x) =>
+				(in ConcreteEnum x) =>
 					none!uint,
-				(in ConcreteStructBody.Extern x) =>
+				(in ConcreteExternType x) =>
 					some(addAndGetIndex(alloc, externTypesBuilder, LowExternType(source))),
-				(in ConcreteStructBody.Flags x) =>
+				(in ConcreteFlags x) =>
 					none!uint,
-				(in ConcreteStructBody.Record) =>
+				(in ConcreteRecord _) =>
 					some(addAndGetIndex(alloc, recordsBuilder, LowRecord(source))),
-				(in ConcreteStructBody.Union) =>
+				(in ConcreteUnion _) =>
 					some(addAndGetIndex(alloc, unionsBuilder, LowUnion(source)))));
 
 	immutable FullIndexMap!(LowExternTypeIndex, LowExternType) allExternTypes =
@@ -383,22 +392,22 @@ GetLowTypeCtx getAllLowTypes(ref Alloc alloc, in ConcreteProgram program) {
 	foreach (ref LowRecord record; allRecords)
 		record.fields = makeRecordFields(getLowTypeCtx, record);
 	foreach (ref LowFunPointerType funPointer; allFunPointerTypes) {
-		ConcreteType[2] typeArgs = only2(funPointer.source.body_.as!(ConcreteStructBody.Builtin*).typeArgs);
+		ConcreteType[2] typeArgs = only2(funPointer.source.body_.as!(ConcreteBuiltinType*).typeArgs);
 		funPointer.returnType = lowTypeFromConcreteType(getLowTypeCtx, typeArgs[0]),
 		funPointer.paramTypes = maybeUnpackTuple(alloc, lowTypeFromConcreteType(getLowTypeCtx, typeArgs[1]));
 	}
 	foreach (ref LowUnion union_; allUnions)
 		union_.members = map!(LowType, ConcreteType)(
 			alloc,
-			union_.source.body_.as!(ConcreteStructBody.Union).members,
+			union_.source.body_.as!ConcreteUnion.members,
 			(ref ConcreteType member) => lowTypeFromConcreteType(getLowTypeCtx, member));
 
 	return getLowTypeCtx;
 }
 
 SmallArray!LowField makeRecordFields(ref GetLowTypeCtx getLowTypeCtx, ref LowRecord record) {
-	if (record.source.body_.isA!(ConcreteStructBody.Builtin*)) {
-		ConcreteStructBody.Builtin* builtin = record.source.body_.as!(ConcreteStructBody.Builtin*);
+	if (record.source.body_.isA!(ConcreteBuiltinType*)) {
+		ConcreteBuiltinType* builtin = record.source.body_.as!(ConcreteBuiltinType*);
 		assert(lowersToArray(builtin.kind));
 		LowType elementType = builtin.kind == BuiltinType.string_
 			? char8Type
@@ -414,7 +423,7 @@ SmallArray!LowField makeRecordFields(ref GetLowTypeCtx getLowTypeCtx, ref LowRec
 	} else
 		return mapZipPtrFirst!(LowField, ConcreteField, immutable uint)(
 			getLowTypeCtx.alloc,
-			record.source.body_.as!(ConcreteStructBody.Record).fields,
+			record.source.body_.as!ConcreteRecord.fields,
 			record.source.fieldOffsets,
 			(ConcreteField* field, immutable uint fieldOffset) =>
 				LowField(LowFieldSource(field), fieldOffset, lowTypeFromConcreteType(getLowTypeCtx, field.type)));
@@ -468,7 +477,7 @@ AllLowFuns getAllLowFuns(
 
 	foreach (ConcreteFun* fun; program.allFuns) {
 		Opt!LowFunIndex opIndex = fun.body_.match!(Opt!LowFunIndex)(
-			(ConcreteFunBody.Builtin x) {
+			(ConcreteFunBodyBuiltin x) {
 				if (x.kind.isA!BuiltinFunMarkRoot) {
 					Opt!MarkRoot res = getMarkRootForType(
 						getLowTypeCtx.alloc, lowFunCauses, markVisitFuns,
@@ -492,18 +501,18 @@ AllLowFuns getAllLowFuns(
 					return none!LowFunIndex;
 				}
 			},
-			(ConcreteFunBody.Extern x) {
+			(ConcreteFunBodyExtern x) {
 				Opt!Symbol optName = name(*fun);
 				addExternSymbol(x.libraryName, force(optName));
 				return some(addLowFun(alloc, lowFunCauses, LowFunCause(fun)));
 			},
 			(ConcreteExpr x) =>
 				some(addLowFun(alloc, lowFunCauses, LowFunCause(fun))),
-			(ConcreteFunBody.VarGet x) =>
+			(ConcreteFunBodyVarGet x) =>
 				none!LowFunIndex,
-			(ConcreteFunBody.VarSet) =>
+			(ConcreteFunBodyVarSet _) =>
 				none!LowFunIndex,
-			(ConcreteFunBody.Deferred) =>
+			(ConcreteFunBodyDeferred _) =>
 				assert(false));
 		if (has(opIndex))
 			mustAdd(getLowTypeCtx.alloc, concreteFunToLowFunIndex, fun, force(opIndex));
@@ -679,7 +688,7 @@ LowLocalSource getLowLocalSource(ref Alloc alloc, ConcreteLocalSource a) =>
 	a.matchWithPointers!LowLocalSource(
 		(Local* x) =>
 			LowLocalSource(x),
-		(ConcreteLocalSource.Closure x) =>
+		(ConcreteLocalSourceClosure x) =>
 			LowLocalSource(allocate(alloc, LowLocalSource.Generated(symbol!"closure", isMutable: false))),
 		(ConcreteGeneratedLocalKind x) {
 			bool isMutable = () {
@@ -721,8 +730,8 @@ LowFunBody getLowFunBody(
 	LowLocal[] params,
 	ConcreteFun* a,
 ) {
-	if (a.body_.isA!(ConcreteFunBody.Extern)) {
-		return LowFunBody(LowFunBody.Extern(a.body_.as!(ConcreteFunBody.Extern).libraryName));
+	if (a.body_.isA!ConcreteFunBodyExtern) {
+		return LowFunBody(LowFunBody.Extern(a.body_.as!ConcreteFunBodyExtern.libraryName));
 	} else {
 		ConcreteExpr expr = a.body_.as!ConcreteExpr;
 		GetLowExprCtx exprCtx = GetLowExprCtx(
@@ -1153,7 +1162,7 @@ LowExpr getCallEquals(
 		? genCallNoGcRoots(ctx.alloc, boolType, range, force(opCalled), [arg0, arg1])
 		: genBinary(
 			ctx.alloc, boolType, range,
-			called.body_.as!(ConcreteFunBody.Builtin).kind.as!BuiltinBinary,
+			called.body_.as!ConcreteFunBodyBuiltin.kind.as!BuiltinBinary,
 			arg0, arg1);
 }
 
@@ -1201,20 +1210,20 @@ LowExpr getCallSpecial(
 	in ConcreteExpr[] args,
 ) =>
 	called.body_.match!LowExpr(
-		(ConcreteFunBody.Builtin x) =>
+		(ConcreteFunBodyBuiltin x) =>
 			getCallBuiltinExpr(ctx, locals, type, range, called, args, x.kind),
-		(ConcreteFunBody.Extern) =>
+		(ConcreteFunBodyExtern _) =>
 			assert(false),
 		(ConcreteExpr x) =>
 			LowExpr(type, range, LowExprKind(x.kind.as!Constant)),
-		(ConcreteFunBody.VarGet x) =>
+		(ConcreteFunBodyVarGet x) =>
 			genVarGet(type, range, mustGet(ctx.varIndices, x.var)),
-		(ConcreteFunBody.VarSet x) =>
+		(ConcreteFunBodyVarSet x) =>
 			genVarSet(
 				ctx.alloc, range,
 				mustGet(ctx.varIndices, x.var),
 				getLowExpr(ctx, locals, only(args), ExprPos.nonTail)),
-		(ConcreteFunBody.Deferred) =>
+		(ConcreteFunBodyDeferred _) =>
 			assert(false));
 
 LowExpr getRecordFieldSet(
@@ -1371,7 +1380,7 @@ LowExpr getCallBuiltinExpr(
 		},
 		(BuiltinFunSizeOf _) {
 			LowType typeArg =
-				lowTypeFromConcreteType(ctx.typeCtx, only(called.body_.as!(ConcreteFunBody.Builtin).typeArgs));
+				lowTypeFromConcreteType(ctx.typeCtx, only(called.body_.as!ConcreteFunBodyBuiltin.typeArgs));
 			return genSizeOf(ctx.allTypes, range, typeArg);
 		},
 		(BuiltinFunStaticSymbols _) =>
@@ -1438,7 +1447,7 @@ LowExpr getCreateArrayExpr(
 		// return arr_foo{n, ptr};
 		LowType elementType = lowTypeFromConcreteType(
 			ctx.typeCtx,
-			only(mustBeByVal(concreteArrType).source.as!(ConcreteStructSource.Inst).typeArgs));
+			only(mustBeByVal(concreteArrType).source.as!ConcreteStructSourceInst.typeArgs));
 		LowType elementPtrType = getPointerConst(ctx.typeCtx, elementType);
 		LowExpr elementSize = genSizeOf(ctx.allTypes, range, elementType);
 		LowExpr nElements = genConstantNat64(range, a.args.length);

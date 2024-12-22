@@ -329,7 +329,7 @@ CommandKind parseCommandKind(
 		case CommandName.print:
 			return parsePrintCommand(alloc, cwd, diags, args);
 		case CommandName.run:
-			RunOptions options = parseRunOptions(alloc, os, diags, args.parts, allowAll: false).runOptions;
+			RunOptions options = parseRunOptions(alloc, diags, args.parts, allowAll: false).runOptions;
 			return CommandKind(RunCommand(
 				MainKind.fun(
 					parseMainUri(alloc, cwd, diags, args.beforeFirstPart),
@@ -340,7 +340,7 @@ CommandKind parseCommandKind(
 			expectEmptyAfterDashDash(diags, args.afterDashDash);
 			return CommandKind(SelfTestCommand(copyArray(alloc, args.beforeFirstPart)));
 		case CommandName.test:
-			RunOptionsAndAll options = parseRunOptions(alloc, os, diags, args.parts, allowAll: true);
+			RunOptionsAndAll options = parseRunOptions(alloc, diags, args.parts, allowAll: true);
 			expectEmptyAfterDashDash(diags, args.afterDashDash);
 			return CommandKind(RunCommand(
 				parseMainKindForTest(alloc, cwd, diags, args.beforeFirstPart, options.all),
@@ -617,7 +617,7 @@ immutable struct RunOptionsAndAll {
 	RunOptions runOptions;
 	bool all;
 }
-RunOptionsAndAll parseRunOptions(ref Alloc alloc, OS os, scope ref Diags diags, in ArgsPart[] argParts, bool allowAll) {
+RunOptionsAndAll parseRunOptions(ref Alloc alloc, scope ref Diags diags, in ArgsPart[] argParts, bool allowAll) {
 	bool noStackTrace = false;
 	bool aot = false;
 	bool jit = false;

@@ -746,7 +746,7 @@ bool matchTypes_TypeParam(InstantiateCtx ctx, TypeParamIndex a, TypeContext aCon
 				} else
 					return a == bp;
 			},
-			(ref StructInst) =>
+			(ref StructInst _) =>
 				false);
 }
 

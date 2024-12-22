@@ -136,6 +136,7 @@ import model.model :
 	Test,
 	TestSelector,
 	ThrowExpr,
+	TrustedExpr,
 	TryExpr,
 	TryLetExpr,
 	Type,
@@ -476,7 +477,7 @@ void trackAllUsedInStructBody(ref AllUsedBuilder res, Uri from, in StructBody a)
 	a.match!void(
 		(StructBodyBogus) {},
 		(BuiltinType _) {},
-		(ref Enum) {
+		(ref Enum _) {
 			// 'members' constructs pairs
 			trackAllUsedInStruct(res, from, res.program.commonTypes.pair);
 		},
@@ -767,7 +768,7 @@ void trackAllUsedInExpr(ref AllUsedBuilder res, FunOrTest curFunc, Expr a) {
 			(ref RecordFieldPointerExpr _) {},
 			(ref SeqExpr _) {},
 			(ref ThrowExpr _) {},
-			(ref TrustedExpr) {},
+			(ref TrustedExpr _) {},
 			(ref TryExpr x) {
 				trackAllUsedInMatchSumTypeCases(res, from, x.catches);
 			},

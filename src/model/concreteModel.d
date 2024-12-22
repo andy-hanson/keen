@@ -38,49 +38,50 @@ import util.uri : Uri;
 import versionInfo : VersionInfo;
 
 immutable struct ConcreteStructBody {
-	immutable struct Builtin {
-		BuiltinType kind;
-		SmallArray!ConcreteType typeArgs;
-	}
-	immutable struct Enum {
-		IntegralType storage;
-	}
-	immutable struct Flags {
-		IntegralType storage;
-	}
-	immutable struct Extern {}
-	immutable struct Record {
-		SmallArray!ConcreteField fields;
-	}
-	// Lambdas and all SumType kinds compile to this
-	immutable struct Union {
-		@safe @nogc pure nothrow:
-		// In the concrete model we identify members by index, so don't care about their names.
-		// This may be empty for a lambda type with no implementations.
-		Late!(SmallArray!ConcreteType) members_;
-
-		bool hasMembers() scope =>
-			lateIsSet(members_);
-		SmallArray!ConcreteType members() return scope =>
-			lateGet(members_);
-		void members(SmallArray!ConcreteType value) {
-			lateSet(members_, value);
-		}
-	}
-
-	mixin .Union!(Builtin*, Enum, Extern, Flags, Record, Union);
+	mixin Union!(ConcreteBuiltinType*, ConcreteEnum, ConcreteExternType, ConcreteFlags, ConcreteRecord, ConcreteUnion);
 }
-static assert(ConcreteStructBody.sizeof == ConcreteStructBody.Record.sizeof + size_t.sizeof);
+static assert(ConcreteStructBody.sizeof == ConcreteRecord.sizeof + size_t.sizeof);
+
+immutable struct ConcreteBuiltinType {
+	BuiltinType kind;
+	SmallArray!ConcreteType typeArgs;
+}
+immutable struct ConcreteEnum {
+	IntegralType storage;
+}
+immutable struct ConcreteFlags {
+	IntegralType storage;
+}
+immutable struct ConcreteExternType {}
+immutable struct ConcreteRecord {
+	bool isSomeFieldMutable;
+	SmallArray!ConcreteField fields;
+}
+// Lambdas and all SumType kinds compile to this
+immutable struct ConcreteUnion {
+	@safe @nogc pure nothrow:
+	// In the concrete model we identify members by index, so don't care about their names.
+	// This may be empty for a lambda type with no implementations.
+	Late!(SmallArray!ConcreteType) members_;
+
+	bool hasMembers() scope =>
+		lateIsSet(members_);
+	SmallArray!ConcreteType members() return scope =>
+		lateGet(members_);
+	void members(SmallArray!ConcreteType value) {
+		lateSet(members_, value);
+	}
+}
 
 bool isPacked(in ConcreteStruct a) =>
 	a.source.matchIn!bool(
-		(in ConcreteStructSource.Bogus) =>
+		(in ConcreteStructSourceBogus _) =>
 			false,
-		(in ConcreteStructSource.Inst x) =>
+		(in ConcreteStructSourceInst x) =>
 			x.decl.body_.isA!BuiltinType
 				? false
 				: x.decl.body_.as!Record.flags.packed,
-		(in ConcreteStructSource.Lambda) =>
+		(in ConcreteStructSourceLambda _) =>
 			false);
 
 immutable struct ConcreteType {
@@ -104,8 +105,8 @@ bool isBogus(in ConcreteType a) =>
 	isBogus(*a.struct_);
 bool isVoid(in ConcreteType a) =>
 	a.reference == ReferenceKind.byVal &&
-	a.struct_.body_.isA!(ConcreteStructBody.Builtin*) &&
-	a.struct_.body_.as!(ConcreteStructBody.Builtin*).kind == BuiltinType.void_;
+	a.struct_.body_.isA!(ConcreteBuiltinType*) &&
+	a.struct_.body_.as!(ConcreteBuiltinType*).kind == BuiltinType.void_;
 bool isEmptyType(in ConcreteType a) =>
 	a.reference == ReferenceKind.byVal && isEmptyStruct(*a.struct_);
 bool isEmptyStruct(in ConcreteStruct a) =>
@@ -113,7 +114,7 @@ bool isEmptyStruct(in ConcreteStruct a) =>
 bool isFlags(in ConcreteType a) =>
 	a.reference == ReferenceKind.byVal && isFlags(*a.struct_);
 bool isFlags(in ConcreteStruct a) =>
-	a.body_.isA!(ConcreteStructBody.Flags);
+	a.body_.isA!ConcreteFlags;
 
 alias ReferenceKind = immutable ReferenceKind_;
 private enum ReferenceKind_ { byVal, byRef }
@@ -127,50 +128,42 @@ ConcreteStruct* mustBeByVal(ConcreteType a) {
 }
 
 EnumOrFlagsMember[] mustBeEnumOrFlags(ConcreteType a) =>
-	mustBeEnumOrFlags(*mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl);
+	mustBeEnumOrFlags(*mustBeByVal(a).source.as!ConcreteStructSourceInst.decl);
 EnumOrFlagsMember[] mustBeEnum(ConcreteType a) =>
-	mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl.body_.as!(Enum*).members;
+	mustBeByVal(a).source.as!ConcreteStructSourceInst.decl.body_.as!(Enum*).members;
 ref Flags mustBeFlags(ConcreteType a) =>
-	mustBeByVal(a).source.as!(ConcreteStructSource.Inst).decl.body_.as!Flags;
-
-immutable struct ConcreteStructInfo {
-	ConcreteStructBody body_;
-	bool isSelfMutable; //TODO: never used? (may need for GC though)
-}
+	mustBeByVal(a).source.as!ConcreteStructSourceInst.decl.body_.as!Flags;
 
 immutable struct ConcreteStructSource {
-	immutable struct Bogus {}
+	mixin Union!(ConcreteStructSourceBogus, ConcreteStructSourceInst, ConcreteStructSourceLambda);
+}
+immutable struct ConcreteStructSourceBogus {}
+immutable struct ConcreteStructSourceInst {
+	@safe @nogc pure nothrow:
+	StructDecl* decl;
+	SmallArray!ConcreteType typeArgs;
 
-	immutable struct Inst {
-		@safe @nogc pure nothrow:
-		StructDecl* decl;
-		SmallArray!ConcreteType typeArgs;
-
-		this(StructDecl* d, SmallArray!ConcreteType ta) {
-			decl = d;
-			typeArgs = ta;
-			assert(typeArgs.length == decl.typeParams.length);
-			assert(!isString(*decl)); // Concretize should replace 'string' with 'char8 array'
-		}
-
-		bool opEquals(in Inst b) scope =>
-			decl == b.decl && arraysEqual!ConcreteType(typeArgs, b.typeArgs);
-
-		HashCode hash() scope {
-			Hasher hasher;
-			hasher ~= decl;
-			foreach (ConcreteType t; typeArgs)
-				hasher ~= t.struct_;
-			return hasher.finish();
-		}
+	this(StructDecl* d, SmallArray!ConcreteType ta) {
+		decl = d;
+		typeArgs = ta;
+		assert(typeArgs.length == decl.typeParams.length);
+		assert(!isString(*decl)); // Concretize should replace 'string' with 'char8 array'
 	}
 
-	immutable struct Lambda {
-		ConcreteFun* containingFun;
-		size_t index;
-	}
+	bool opEquals(in ConcreteStructSourceInst b) scope =>
+		decl == b.decl && arraysEqual!ConcreteType(typeArgs, b.typeArgs);
 
-	mixin Union!(Bogus, Inst, Lambda);
+	HashCode hash() scope {
+		Hasher hasher;
+		hasher ~= decl;
+		foreach (ConcreteType t; typeArgs)
+			hasher ~= t.struct_;
+		return hasher.finish();
+	}
+}
+immutable struct ConcreteStructSourceLambda {
+	ConcreteFun* containingFun;
+	size_t index;
 }
 
 immutable struct ConcreteStruct {
@@ -179,26 +172,21 @@ immutable struct ConcreteStruct {
 	Purity purity;
 	ConcreteStructSpecialKind specialKind;
 	ConcreteStructSource source;
-	private Late!ConcreteStructInfo info_;
+	private Late!ConcreteStructBody lateBody;
 	//TODO: this isn't needed outside of concretizeCtx.d
 	private Late!ReferenceKind defaultReferenceKind_;
 	private Late!TypeSize typeSize_;
 	// Only set for records
 	private Late!(immutable uint[]) fieldOffsets_;
 
-	bool infoIsSet() scope =>
-		lateIsSet(info_);
-	void info(ConcreteStructInfo value) {
-		lateSet(info_, value);
+	void body_(ConcreteStructBody value) {
+		lateSet(lateBody, value);
 	}
-	private ref ConcreteStructInfo info() return scope =>
-		lateGet(info_);
-
 	ref ConcreteStructBody body_() return scope =>
-		info.body_;
+		lateGet(lateBody);
 
 	bool isSelfMutable() scope =>
-		info.isSelfMutable;
+		body_.isA!ConcreteRecord && body_.as!ConcreteRecord.isSomeFieldMutable;
 
 	bool typeSizeIsSet() scope =>
 		lateIsSet(typeSize_);
@@ -235,14 +223,14 @@ bool isArrayOrMutArray(in ConcreteStruct a) =>
 	a.specialKind == ConcreteStructSpecialKind.arrayOrMutArray;
 ConcreteType arrayElementType(ConcreteType arrayType) {
 	assert(isArrayOrMutArray(*mustBeByVal(arrayType)));
-	return only(mustBeByVal(arrayType).source.as!(ConcreteStructSource.Inst).typeArgs);
+	return only(mustBeByVal(arrayType).source.as!ConcreteStructSourceInst.typeArgs);
 }
 private bool isOption(in ConcreteStruct a) =>
-	a.source.isA!(ConcreteStructSource.Inst) && isOptionType(a.source.as!(ConcreteStructSource.Inst).decl);
+	a.source.isA!ConcreteStructSourceInst && isOptionType(a.source.as!ConcreteStructSourceInst.decl);
 
 ConcreteType unwrapOptionType(ConcreteType optionType) {
 	assert(isOption(*mustBeByVal(optionType)));
-	return only(mustBeByVal(optionType).source.as!(ConcreteStructSource.Inst).typeArgs);
+	return only(mustBeByVal(optionType).source.as!ConcreteStructSourceInst.typeArgs);
 }
 bool isCatchPoint(in ConcreteStruct a) =>
 	a.specialKind == ConcreteStructSpecialKind.catchPoint;
@@ -254,14 +242,14 @@ private bool isPointer(in ConcreteStruct a) =>
 	a.specialKind == ConcreteStructSpecialKind.pointer;
 ConcreteType pointeeType(ConcreteType pointerType) {
 	assert(isPointer(*mustBeByVal(pointerType)));
-	return only(mustBeByVal(pointerType).source.as!(ConcreteStructSource.Inst).typeArgs);
+	return only(mustBeByVal(pointerType).source.as!ConcreteStructSourceInst.typeArgs);
 }
 ConcreteType pointeeTypeIfIsPointer(ConcreteType a) =>
 	isPointer(a)
 		? pointeeType(a)
 		: a;
 private bool isBogus(in ConcreteStruct a) =>
-	a.source.isA!(ConcreteStructSource.Bogus);
+	a.source.isA!ConcreteStructSourceBogus;
 bool isTuple(in ConcreteStruct a) =>
 	a.specialKind == ConcreteStructSpecialKind.tuple;
 
@@ -284,21 +272,16 @@ TypeSize sizeOrPointerSizeBytes(in ConcreteType a) {
 	}
 }
 
-enum ConcreteMutability {
-	const_,
-	mutable,
-}
-
 immutable struct ConcreteField {
 	Symbol debugName;
-	ConcreteMutability mutability;
+	bool isMutable;
 	ConcreteType type;
 }
 
 immutable struct ConcreteLocalSource {
-	immutable struct Closure {} // Closure parameter
-	mixin TaggedUnion!(Local*, Closure, ConcreteGeneratedLocalKind);
+	mixin TaggedUnion!(Local*, ConcreteLocalSourceClosure, ConcreteGeneratedLocalKind);
 }
+immutable struct ConcreteLocalSourceClosure {}
 enum ConcreteGeneratedLocalKind { args, ignore, destruct, member, reference }
 
 immutable struct ConcreteLocal {
@@ -307,38 +290,40 @@ immutable struct ConcreteLocal {
 }
 
 immutable struct ConcreteFunBody {
-	immutable struct Builtin {
-		BuiltinFun kind;
-		ConcreteType[] typeArgs;
-	}
-	immutable struct Extern {
-		Symbol libraryName;
-	}
-	immutable struct VarGet { ConcreteVar* var; }
-	immutable struct VarSet { ConcreteVar* var; }
-	immutable struct Deferred {} // Should only be used temporarily
-
-	mixin Union!(Builtin, Extern, ConcreteExpr, VarGet, VarSet, Deferred);
+	mixin Union!(
+		ConcreteFunBodyBuiltin,
+		ConcreteFunBodyExtern,
+		ConcreteExpr,
+		ConcreteFunBodyVarGet,
+		ConcreteFunBodyVarSet,
+		ConcreteFunBodyDeferred);
 }
+immutable struct ConcreteFunBodyBuiltin {
+	BuiltinFun kind;
+	ConcreteType[] typeArgs;
+}
+immutable struct ConcreteFunBodyExtern {
+	Symbol libraryName;
+}
+immutable struct ConcreteFunBodyVarGet { ConcreteVar* var; }
+immutable struct ConcreteFunBodyVarSet { ConcreteVar* var; }
+immutable struct ConcreteFunBodyDeferred {} // Should only be used temporarily
 
 immutable struct ConcreteFunSource {
-	immutable struct Lambda {
-		ConcreteFun* containingFun;
-		Destructure param;
-		Expr* bodyExpr;
-		size_t index; // nth lambda in the containing function
-	}
-
-	immutable struct Test {
-		.Test* test;
-		size_t testIndex; // Arbitrary index over all tests
-	}
-
-	immutable struct WrapMain {
-		UriAndRange range;
-	}
-
-	mixin Union!(ConcreteFunKey, Lambda*, Test*, WrapMain*);
+	mixin Union!(ConcreteFunKey, ConcreteFunSourceLambda*, ConcreteFunSourceTest*, ConcreteFunSourceWrapMain*);
+}
+immutable struct ConcreteFunSourceLambda {
+	ConcreteFun* containingFun;
+	Destructure param;
+	Expr* bodyExpr;
+	size_t index; // nth lambda in the containing function
+}
+immutable struct ConcreteFunSourceTest {
+	Test* test;
+	size_t testIndex; // Arbitrary index over all tests
+}
+immutable struct ConcreteFunSourceWrapMain {
+	UriAndRange range;
 }
 
 // We generate a ConcreteFun for:
@@ -370,11 +355,11 @@ immutable struct ConcreteFun {
 		source.matchIn!UriAndRange(
 			(in ConcreteFunKey x) =>
 				x.decl.range,
-			(in ConcreteFunSource.Lambda x) =>
+			(in ConcreteFunSourceLambda x) =>
 				UriAndRange(x.containingFun.moduleUri, x.bodyExpr.range),
-			(in ConcreteFunSource.Test x) =>
+			(in ConcreteFunSourceTest x) =>
 				x.test.range,
-			(in ConcreteFunSource.WrapMain x) =>
+			(in ConcreteFunSourceWrapMain x) =>
 				x.range);
 }
 
@@ -406,11 +391,11 @@ bool isVariadic(in ConcreteFun a) =>
 	a.source.matchIn!bool(
 		(in ConcreteFunKey x) =>
 			x.decl.params.isA!(Varargs*),
-		(in ConcreteFunSource.Lambda) =>
+		(in ConcreteFunSourceLambda _) =>
 			false,
-		(in ConcreteFunSource.Test) =>
+		(in ConcreteFunSourceTest _) =>
 			false,
-		(in ConcreteFunSource.WrapMain) =>
+		(in ConcreteFunSourceWrapMain _) =>
 			false);
 
 Opt!Symbol name(ref ConcreteFun a) =>
@@ -420,12 +405,12 @@ bool isSummon(ref ConcreteFun a) =>
 	a.source.matchIn!bool(
 		(in ConcreteFunKey x) =>
 			x.decl.isSummon,
-		(in ConcreteFunSource.Lambda x) =>
+		(in ConcreteFunSourceLambda x) =>
 			isSummon(*x.containingFun),
-		(in ConcreteFunSource.Test) =>
+		(in ConcreteFunSourceTest _) =>
 			// 'isSummon' is called for direct calls, but tests are never called directly
 			assert(false),
-		(in ConcreteFunSource.WrapMain) =>
+		(in ConcreteFunSourceWrapMain _) =>
 			assert(false));
 
 immutable struct ConcreteExpr {
@@ -616,7 +601,6 @@ immutable struct SeqConcreteExpr {
 }
 
 immutable struct ThrowConcreteExpr {
-	// a `c-string`
 	ConcreteExpr thrown;
 }
 
@@ -820,7 +804,7 @@ immutable struct Constant {
 					arraysEqual!Constant(ra.args, b.as!ConstantRecord.args),
 				(in ConstantUnion ua) =>
 					ua.memberIndex == b.as!(ConstantUnion*).memberIndex && ua.arg == b.as!(ConstantUnion*).arg,
-				(in ConstantZero) =>
+				(in ConstantZero _) =>
 					true);
 		}
 	}
@@ -860,7 +844,7 @@ immutable struct ConstantZero {}
 
 private bool isZero(in Constant a) =>
 	a.matchIn!bool(
-		(in ConstantArray) =>
+		(in ConstantArray _) =>
 			// We only create ArrConstant for non-empty arrays
 			false,
 		(in ConstantCString _) =>

@@ -40,8 +40,16 @@ import model.concreteModel :
 	ConcreteExprKind,
 	ConcreteFun,
 	ConcreteFunBody,
+	ConcreteFunBodyBuiltin,
+	ConcreteFunBodyDeferred,
+	ConcreteFunBodyExtern,
+	ConcreteFunBodyVarGet,
+	ConcreteFunBodyVarSet,
 	ConcreteFunKey,
 	ConcreteFunSource,
+	ConcreteFunSourceLambda,
+	ConcreteFunSourceTest,
+	ConcreteFunSourceWrapMain,
 	ConcreteGeneratedLocalKind,
 	ConcreteLocal,
 	ConcreteLocalSource,
@@ -102,12 +110,12 @@ import util.symbol : symbol;
 
 void fillInConcreteFunBody(ref ConcretizeCtx ctx, ConcreteFun* cf) {
 	// set to arbitrary temporarily. (But it can't be a constant or something will optimize based on that!)
-	cf.body_ = ConcreteFunBody(ConcreteFunBody.Extern(symbol!"bogus"));
+	cf.body_ = ConcreteFunBody(ConcreteFunBodyExtern(symbol!"bogus"));
 	FunBody funBody = cf.source.match!FunBody(
 		(ConcreteFunKey x) => x.decl.body_,
-		(ref ConcreteFunSource.Lambda x) => FunBody(*x.bodyExpr),
-		(ref ConcreteFunSource.Test x) => assert(false),
-		(ref ConcreteFunSource.WrapMain x) => assert(false));
+		(ref ConcreteFunSourceLambda x) => FunBody(*x.bodyExpr),
+		(ref ConcreteFunSourceTest x) => assert(false),
+		(ref ConcreteFunSourceWrapMain x) => assert(false));
 	ConcreteLocal[] concreteParams = cf.params;
 	ConcreteFunBody body_ = funBody.match!ConcreteFunBody(
 		(FunBodyBogus _) =>
@@ -140,14 +148,14 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, ConcreteFun* cf) {
 		(Expr x) =>
 			ConcreteFunBody(concretizeFunBody(ctx, cf, x)),
 		(FunBodyExtern x) =>
-			ConcreteFunBody(ConcreteFunBody.Extern(x.libraryName)),
+			ConcreteFunBody(ConcreteFunBodyExtern(x.libraryName)),
 		(FunBodyFileImport x) =>
 			ConcreteFunBody(concretizeFileImport(ctx, cf, x)),
 		(FlagsFunction x) =>
 			ConcreteFunBody(concretizeFlagsFunction(ctx, cf, x)),
 		(FunBodyMethod x) {
 			push(ctx.alloc, ctx.deferredMethods, cf);
-			return ConcreteFunBody(ConcreteFunBody.Deferred());
+			return ConcreteFunBody(ConcreteFunBodyDeferred());
 		},
 		(RecordFieldCall x) =>
 			genRecordFieldCall(ctx, cf, x),
@@ -175,9 +183,9 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, ConcreteFun* cf) {
 				ctx, cf,
 				ensureSumTypeCase(ctx, only(concreteParams).type, unwrapOptionType(ctx, cf.returnType))),
 		(VarGet x) =>
-			ConcreteFunBody(ConcreteFunBody.VarGet(getVar(ctx, x.var))),
+			ConcreteFunBody(ConcreteFunBodyVarGet(getVar(ctx, x.var))),
 		(VarSet x) =>
-			ConcreteFunBody(ConcreteFunBody.VarSet(getVar(ctx, x.var))));
+			ConcreteFunBody(ConcreteFunBodyVarSet(getVar(ctx, x.var))));
 	cf.overwriteBody(body_);
 }
 
@@ -198,7 +206,7 @@ ConcreteFun* concreteFunForWrapMain(ref ConcretizeCtx ctx, FunInst* modelMain) {
 	ConcreteExpr zero = ConcreteExpr(nat64, range, ConcreteExprKind(constantZero));
 	ConcreteExpr body_ = genSeq(ctx.alloc, range, callMain, zero);
 	ConcreteFun* res = allocate(ctx.alloc, ConcreteFun(
-		ConcreteFunSource(allocate(ctx.alloc, ConcreteFunSource.WrapMain(range))),
+		ConcreteFunSource(allocate(ctx.alloc, ConcreteFunSourceWrapMain(range))),
 		nat64,
 		newSmallArray(ctx.alloc, [
 			ConcreteLocal(ConcreteLocalSource(ConcreteGeneratedLocalKind.args), stringArrayType),
@@ -224,7 +232,7 @@ ConcreteFunBody concretizeBuiltinFun(
 		? ConcreteFunBody(genNone(ctx, cf.returnType, cf.range))
 		: a.isA!BuiltinFunNewNonEmptyOption
 		? ConcreteFunBody(genSome(ctx, cf.returnType, cf.range, genLocalGet(cf.range, &only(concreteParams))))
-		: ConcreteFunBody(ConcreteFunBody.Builtin(a, cf.source.as!ConcreteFunKey.typeArgs));
+		: ConcreteFunBody(ConcreteFunBodyBuiltin(a, cf.source.as!ConcreteFunKey.typeArgs));
 
 Constant toConstant(BuiltinFunConstant a) =>
 	a.match!Constant(
@@ -291,7 +299,7 @@ ConcreteFunBody bodyForAllTests(ref ConcretizeCtx ctx, ConcreteType returnType) 
 ConcreteFun* concreteFunForTest(ref ConcretizeCtx ctx, Test* test, size_t testIndex) {
 	ConcreteType voidType = voidType(ctx);
 	ConcreteFun* res = allocate(ctx.alloc, ConcreteFun(
-		ConcreteFunSource(allocate(ctx.alloc, ConcreteFunSource.Test(test, testIndex))),
+		ConcreteFunSource(allocate(ctx.alloc, ConcreteFunSourceTest(test, testIndex))),
 		voidType,
 		emptySmallArray!ConcreteLocal));
 	res.body_ = ConcreteFunBody(concretizeFunBody(ctx, res, test.body_));

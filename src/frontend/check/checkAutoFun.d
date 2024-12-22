@@ -196,11 +196,11 @@ FunBody checkAutoFunWithSpec(
 				assert(false),
 			(BuiltinType _) =>
 				assert(false),
-			(ref Enum) =>
+			(ref Enum _) =>
 				typeAs!(Called[])([]),
 			(ExternType _) =>
 				assert(false),
-			(Flags) =>
+			(Flags _) =>
 				typeAs!(Called[])([]),
 			(Record x) =>
 				map(ctx.alloc, x.fields, (ref RecordField field) =>

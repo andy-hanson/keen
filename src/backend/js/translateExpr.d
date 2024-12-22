@@ -382,7 +382,7 @@ JsParams translateFunParams(ref TranslateExprCtx ctx, in FunDecl a, bool omitFir
 }
 JsDestructure translateDestructure(ref TranslateExprCtx ctx, in Destructure a) =>
 	a.matchIn!JsDestructure(
-		(in DestructureIgnore) =>
+		(in DestructureIgnore _) =>
 			JsDestructure(tempName(ctx, symbol!"ignore")),
 		(in Local x) =>
 			JsDestructure(localName(x)),
@@ -1109,7 +1109,7 @@ ExprResult translateTryLet(
 
 bool hasAnyMutable(in Destructure a) =>
 	a.matchIn!bool(
-		(in DestructureIgnore) =>
+		(in DestructureIgnore _) =>
 			false,
 		(in Local x) =>
 			!x.mutability.isImmutable,

@@ -29,10 +29,11 @@ import model.concreteModel :
 	ConcreteLocal,
 	ConcreteLocalSource,
 	ConcreteMatchUnionCase,
+	ConcreteRecord,
 	ConcreteStruct,
-	ConcreteStructBody,
-	ConcreteStructSource,
+	ConcreteStructSourceInst,
 	ConcreteType,
+	ConcreteUnion,
 	Constant,
 	constantBool,
 	ConstantUnion,
@@ -167,10 +168,10 @@ ConcreteExpr genNone(ref ConcretizeCtx ctx, ConcreteType optionType, in UriAndRa
 }
 ConcreteType unwrapOptionType(in ConcretizeCtx ctx, ConcreteType optionType) {
 	assertIsOptionType(ctx, optionType);
-	return only(mustBeByVal(optionType).source.as!(ConcreteStructSource.Inst).typeArgs);
+	return only(mustBeByVal(optionType).source.as!ConcreteStructSourceInst.typeArgs);
 }
 private void assertIsOptionType(in ConcretizeCtx ctx, ConcreteType optionType) {
-	assert(mustBeByVal(optionType).source.as!(ConcreteStructSource.Inst).decl == ctx.commonTypes.option);
+	assert(mustBeByVal(optionType).source.as!ConcreteStructSourceInst.decl == ctx.commonTypes.option);
 }
 ConcreteExpr genVoid(ref ConcretizeCtx ctx, in UriAndRange range) =>
 	genConstant(voidType(ctx), range, constantZero);
@@ -203,7 +204,7 @@ ConcreteFunBody genRecordFieldCall(ref ConcretizeCtx ctx, ConcreteFun* fun, Reco
 	size_t fieldIndex = fieldIndexFromField(recordArg.type, body_.field);
 	ConcreteStruct* fieldType = mustBeByVal(concreteFieldFromIndex(recordArg.type, fieldIndex).type);
 	ConcreteExpr getFun = genRecordFieldGet(ConcreteType.byVal(fieldType), range, recordArg, fieldIndex);
-	ConcreteType[] typeArgs = fieldType.source.as!(ConcreteStructSource.Inst).typeArgs;
+	ConcreteType[] typeArgs = fieldType.source.as!ConcreteStructSourceInst.typeArgs;
 	assert(typeArgs.length == 2);
 	ConcreteFun* callFun = getConcreteFun(ctx, ctx.program.commonFuns.lambdaSubscript[body_.funKind], typeArgs, []);
 	ConcreteExpr arg = () {
@@ -224,10 +225,10 @@ ConcreteFunBody genRecordFieldCall(ref ConcretizeCtx ctx, ConcreteFun* fun, Reco
 }
 size_t fieldIndexFromField(ConcreteType recordType, RecordField* field) =>
 	mustHaveIndexOfPointer(
-		recordType.struct_.source.as!(ConcreteStructSource.Inst).decl.body_.as!Record.fields,
+		recordType.struct_.source.as!ConcreteStructSourceInst.decl.body_.as!Record.fields,
 		field);
 private ConcreteField* concreteFieldFromIndex(ConcreteType recordType, size_t fieldIndex) =>
-	&recordType.struct_.body_.as!(ConcreteStructBody.Record).fields[fieldIndex];
+	&recordType.struct_.body_.as!ConcreteRecord.fields[fieldIndex];
 
 ConcreteFunBody genUnionMemberGet(ref ConcretizeCtx ctx, ConcreteFun* cf, size_t memberIndex) {
 	UriAndRange range = cf.range;
@@ -272,7 +273,7 @@ ConcreteFunBody generateCallMethod(
 	size_t methodIndex,
 ) {
 	UriAndRange range = fun.range;
-	SmallArray!ConcreteType members = sumType.body_.as!(ConcreteStructBody.Union).members;
+	SmallArray!ConcreteType members = sumType.body_.as!ConcreteUnion.members;
 	return isEmpty(members)
 		? ConcreteFunBody(genThrowString(ctx, fun.returnType, range, "Called method of empty interface"))
 		: ConcreteFunBody(genMatchUnion(
