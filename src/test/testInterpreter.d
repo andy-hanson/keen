@@ -61,10 +61,12 @@ import model.lowModel :
 	LowExternTypeIndex,
 	LowFun,
 	LowFunBody,
+	LowFunBodyExtern,
 	LowFunIndex,
 	LowFunPointerType,
 	LowFunPointerTypeIndex,
 	LowFunSource,
+	LowFunSourceGenerated,
 	LowLocal,
 	LowProgram,
 	LowRecord,
@@ -128,10 +130,10 @@ void doInterpret(
 	in void delegate(in ulong[] stacksStorage, scope ref Stacks, Operation*) @system @nogc nothrow runInterpreter,
 ) {
 	LowFun[1] lowFun = [LowFun(
-		LowFunSource(allocate(test.alloc, LowFunSource.Generated(symbol!"test", []))),
+		LowFunSource(allocate(test.alloc, LowFunSourceGenerated(symbol!"test", []))),
 		nat64Type,
 		emptySmallArray!LowLocal,
-		LowFunBody(LowFunBody.Extern(symbol!"bogus")))];
+		LowFunBody(LowFunBodyExtern(symbol!"bogus")))];
 	LowProgram lowProgram = LowProgram(
 		versionInfoForInterpret(OS.linux, VersionOptions()),
 		ConcreteFunToLowFunIndex(),

@@ -24,7 +24,6 @@ import model.model :
 	BuiltinFunConstantVoid,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
-	BuiltinFunInitKind,
 	BuiltinFunMarkRoot,
 	BuiltinFunMarkVisit,
 	BuiltinFunNewEmptyOption,
@@ -223,10 +222,10 @@ Json jsonOfBuiltin(ref Alloc alloc, in BuiltinFun a) =>
 		(in BuiltinFunGcSafeValue _) =>
 			jsonString!"gc-safe-value",
 		(in BuiltinFunInit x) {
-			final switch (x.kind) {
-				case BuiltinFunInitKind.global:
+			final switch (x) {
+				case BuiltinFunInit.global:
 					return jsonString!"init-global";
-				case BuiltinFunInitKind.perThread:
+				case BuiltinFunInit.perThread:
 					return jsonString!"init-per-thread";
 			}
 		},

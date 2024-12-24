@@ -146,7 +146,6 @@ import model.lowModel :
 	ExternLibraries,
 	ExternLibrary,
 	IfLowExpr,
-	InitLowExpr,
 	isPrimitiveType,
 	isTuple,
 	isVoid,
@@ -162,14 +161,20 @@ import model.lowModel :
 	LowFieldSource,
 	LowFun,
 	LowFunBody,
+	LowFunBodyExtern,
 	LowFunExprBody,
 	LowFunFlags,
 	LowFunIndex,
 	LowFunPointerType,
 	LowFunPointerTypeIndex,
 	LowFunSource,
+	LowFunSourceGenerated,
 	LowLocal,
 	LowLocalSource,
+	LowLocalSourceGenerated,
+	LowPointerConst,
+	LowPointerGc,
+	LowPointerMut,
 	LowProgram,
 	LowRecord,
 	LowRecordIndex,
@@ -279,7 +284,7 @@ private LowProgram lowerInner(
 	LowType nat64MutPointer = getPointerMut(getLowTypeCtx, nat64Type);
 	LowCommonTypes commonTypes = LowCommonTypes(
 		catchPointConstPointer: catchPointConstPointerType,
-		catchPointMutPointer: LowType(LowType.PointerMut(catchPointConstPointerType.as!(LowType.PointerConst).pointee)),
+		catchPointMutPointer: LowType(LowPointerMut(catchPointConstPointerType.as!LowPointerConst.pointee)),
 		fiberReference: lowTypeFromConcreteType(getLowTypeCtx, a.commonFuns.fiberReferenceType),
 		nat8ConstPointer: getPointerConst(getLowTypeCtx, nat8Type),
 		nat8MutPointer: getPointerMut(getLowTypeCtx, nat8Type),
@@ -529,7 +534,7 @@ AllLowFuns getAllLowFuns(
 			immutable KeyValuePair!(immutable ConcreteVar*, LowVarIndex)(x, LowVarIndex(i)));
 
 	LowType gcRootMutPointerType = lowTypeFromConcreteType(getLowTypeCtx, program.commonFuns.gcRoot.returnType);
-	LowType gcRootType = *gcRootMutPointerType.as!(LowType.PointerMut).pointee;
+	LowType gcRootType = *gcRootMutPointerType.as!LowPointerMut.pointee;
 
 	LowCommonFuns commonFuns = LowCommonFuns(
 		alloc: mustGet(concreteFunToLowFunIndex, program.commonFuns.alloc),
@@ -672,7 +677,7 @@ LowFun mainFun(ref GetLowTypeCtx ctx, LowFunIndex rtMainIndex, ConcreteFun* user
 	]);
 	LowFunBody body_ = LowFunBody(LowFunExprBody(LowFunFlags.none, call));
 	return LowFun(
-		LowFunSource(allocate(ctx.alloc, LowFunSource.Generated(symbol!"main", []))),
+		LowFunSource(allocate(ctx.alloc, LowFunSourceGenerated(symbol!"main", []))),
 		int32Type,
 		params,
 		body_);
@@ -689,7 +694,7 @@ LowLocalSource getLowLocalSource(ref Alloc alloc, ConcreteLocalSource a) =>
 		(Local* x) =>
 			LowLocalSource(x),
 		(ConcreteLocalSourceClosure x) =>
-			LowLocalSource(allocate(alloc, LowLocalSource.Generated(symbol!"closure", isMutable: false))),
+			LowLocalSource(allocate(alloc, LowLocalSourceGenerated(symbol!"closure", isMutable: false))),
 		(ConcreteGeneratedLocalKind x) {
 			bool isMutable = () {
 				final switch (x) {
@@ -701,7 +706,7 @@ LowLocalSource getLowLocalSource(ref Alloc alloc, ConcreteLocalSource a) =>
 						return false;
 				}
 			}();
-			return LowLocalSource(allocate(alloc, LowLocalSource.Generated(symbolOfEnum(x), isMutable)));
+			return LowLocalSource(allocate(alloc, LowLocalSourceGenerated(symbolOfEnum(x), isMutable)));
 		});
 
 T withLowLocal(T)(
@@ -731,7 +736,7 @@ LowFunBody getLowFunBody(
 	ConcreteFun* a,
 ) {
 	if (a.body_.isA!ConcreteFunBodyExtern) {
-		return LowFunBody(LowFunBody.Extern(a.body_.as!ConcreteFunBodyExtern.libraryName));
+		return LowFunBody(LowFunBodyExtern(a.body_.as!ConcreteFunBodyExtern.libraryName));
 	} else {
 		ConcreteExpr expr = a.body_.as!ConcreteExpr;
 		GetLowExprCtx exprCtx = GetLowExprCtx(
@@ -1361,7 +1366,7 @@ LowExpr getCallBuiltinExpr(
 			// handled in concretize
 			assert(false),
 		(BuiltinFunInit x) =>
-			LowExpr(type, range, LowExprKind(InitLowExpr(x.kind))),
+			LowExpr(type, range, LowExprKind(x)),
 		(JsFun _) =>
 			assert(false),
 		(BuiltinFunMarkRoot _) =>
@@ -1460,7 +1465,7 @@ LowExpr getCreateArrayExpr(
 				(LowExpr nextExpr, size_t index, ref LowExpr arg) {
 					LowExpr elementPtr = genAddPointer(
 						ctx.alloc,
-						elementPtrType.as!(LowType.PointerConst),
+						elementPtrType.as!LowPointerConst,
 						range,
 						getPtr,
 						genConstantNat64(range, index));
@@ -1478,7 +1483,7 @@ LowExpr getCreateRecordExpr(
 	in CreateRecordConcreteExpr a,
 ) =>
 	withPushAllGcRoots(ctx, locals, range, exprPos, isYieldingCall: false, a.args, (ExprPos innerPos, LowExpr[] args) {
-		bool alloc = type.isA!(LowType.PointerGc);
+		bool alloc = type.isA!LowPointerGc;
 		LowType recordType = alloc ? asGcPointee(type) : type;
 		LowExpr record = isVoid(type)
 			? genDropAllThen(ctx.alloc, range, args, genZeroed(type, range))

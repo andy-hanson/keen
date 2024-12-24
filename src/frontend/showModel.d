@@ -424,7 +424,11 @@ void writeStructInst(scope ref Writer writer, in ShowTypeCtx ctx, in TypeContain
 			case DiagTypeShouldUseSyntax.funMut:
 				return fun(FunKind.mut);
 			case DiagTypeShouldUseSyntax.funPointer:
-				return fun(FunKind.function_);
+				if (isEmpty(s.typeArgs)) // TODO: I don't know when this would happen
+					writer ~= "<<bogus>>";
+				else
+					fun(FunKind.function_);
+				return;
 			case DiagTypeShouldUseSyntax.funShared:
 				return fun(FunKind.shared_);
 			case DiagTypeShouldUseSyntax.mutArray:
@@ -478,8 +482,10 @@ private void writeFunType(
 			writer ~= "_ ";
 			writeTypeUnquoted(writer, ctx, TypeWithContainer(typeArg, typeContainer));
 		});
-	else if (paramType != Type(ctx.commonTypes.void_))
+	else if (paramType != Type(ctx.commonTypes.void_)) {
+		writer ~= "_ ";
 		writeTypeUnquoted(writer, ctx, TypeWithContainer(paramType, typeContainer));
+	}
 	writer ~= ')';
 }
 

@@ -43,12 +43,15 @@ import model.lowModel :
 	LowExternType,
 	LowField,
 	LowFun,
-	LowFunBody,
+	LowFunBodyExtern,
 	LowFunExprBody,
 	LowFunIndex,
 	LowFunPointerType,
 	LowFunPointerTypeIndex,
 	LowLocal,
+	LowPointerConst,
+	LowPointerGc,
+	LowPointerMut,
 	LowProgram,
 	LowPointerCombine,
 	LowRecord,
@@ -207,7 +210,7 @@ void generateBytecodeForFun(
 	ByteCodeSource source = ByteCodeSource(funIndex, fun.range.range.start);
 
 	fun.body_.matchIn!void(
-		(in LowFunBody.Extern body_) {
+		(in LowFunBodyExtern body_) {
 			generateExternCall(writer, program, funIndex, fun, body_, externPointers, typeCtx);
 			writeReturn(writer, source);
 		},
@@ -225,7 +228,7 @@ void generateExternCall(
 	in LowProgram program,
 	LowFunIndex funIndex,
 	ref LowFun fun,
-	in LowFunBody.Extern a,
+	in LowFunBodyExtern a,
 	ExternPointersForAllLibraries externPointers,
 	ref DynCallTypeCtx typeCtx,
 ) {
@@ -301,11 +304,11 @@ DynCallType toDynCallType(ref DynCallTypeCtx ctx, LowType a) =>
 			DynCallType.pointer,
 		(PrimitiveType x) =>
 			DynCallType(x),
-		(LowType.PointerGc) =>
+		(LowPointerGc _) =>
 			DynCallType.pointer,
-		(LowType.PointerConst) =>
+		(LowPointerConst _) =>
 			DynCallType.pointer,
-		(LowType.PointerMut) =>
+		(LowPointerMut _) =>
 			DynCallType.pointer,
 		(LowRecord* x) =>
 			recordOrUnionToDynCallType(ctx, ctx.records, x),

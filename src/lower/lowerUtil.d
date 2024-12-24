@@ -20,6 +20,9 @@ import model.lowModel :
 	LowExternTypeIndex,
 	LowFunIndex,
 	LowFunPointerTypeIndex,
+	LowPointerConst,
+	LowPointerGc,
+	LowPointerMut,
 	LowRecordIndex,
 	LowType,
 	LowUnionIndex,
@@ -70,13 +73,13 @@ private LowType* allocateLowType(ref GetLowTypeCtx ctx, LowType a) =>
 		allocate(ctx.alloc, a));
 
 private LowType getPointerGc(ref GetLowTypeCtx ctx, LowType pointee) =>
-	LowType(LowType.PointerGc(allocateLowType(ctx, pointee)));
+	LowType(LowPointerGc(allocateLowType(ctx, pointee)));
 
 LowType getPointerConst(ref GetLowTypeCtx ctx, LowType pointee) =>
-	LowType(LowType.PointerConst(allocateLowType(ctx, pointee)));
+	LowType(LowPointerConst(allocateLowType(ctx, pointee)));
 
 LowType getPointerMut(ref GetLowTypeCtx ctx, LowType pointee) =>
-	LowType(LowType.PointerMut(allocateLowType(ctx, pointee)));
+	LowType(LowPointerMut(allocateLowType(ctx, pointee)));
 
 LowType lowTypeFromConcreteStruct(ref GetLowTypeCtx ctx, in ConcreteStruct* struct_) {
 	if (isEmptyStruct(*struct_))

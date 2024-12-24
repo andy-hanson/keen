@@ -16,7 +16,7 @@ import model.concreteModel :
 import model.integralValues : IntegralValues;
 import model.model :
 	Builtin4ary,
-	BuiltinFunInitKind,
+	BuiltinFunInit,
 	BuiltinUnary,
 	BuiltinUnaryMath,
 	BuiltinBinary,
@@ -133,44 +133,13 @@ bool isSignedInteger(PrimitiveType a) =>
 immutable struct LowType {
 	@safe @nogc pure nothrow:
 
-	// Warn: Do not construct directly, use 'getPointerGc' from 'lowerUtil.d'
-	immutable struct PointerGc {
-		@safe @nogc pure nothrow:
-		LowType* pointee;
-
-		@system void* asPointerForTaggedUnion() =>
-			cast(void*) pointee;
-		@system static PointerGc fromPointerForTaggedUnion(void* a) =>
-			PointerGc(cast(LowType*) a);
-	}
-	// Warn: Do not construct directly, use 'getPointerConst' from 'lowerUtil.d'
-	immutable struct PointerConst {
-		@safe @nogc pure nothrow:
-		LowType* pointee;
-
-		@system void* asPointerForTaggedUnion() =>
-			cast(void*) pointee;
-		@system static PointerConst fromPointerForTaggedUnion(void* a) =>
-			PointerConst(cast(LowType*) a);
-	}
-	// Warn: Do not construct directly, use 'getPointerMut' from 'lowerUtil.d'
-	immutable struct PointerMut {
-		@safe @nogc pure nothrow:
-		LowType* pointee;
-
-		@system void* asPointerForTaggedUnion() =>
-			cast(void*) pointee;
-		@system static PointerMut fromPointerForTaggedUnion(void* a) =>
-			PointerMut(cast(LowType*) a);
-	}
-
 	mixin TaggedUnion!(
 		LowExternType*,
 		LowFunPointerType*,
 		PrimitiveType,
-		PointerGc,
-		PointerConst,
-		PointerMut,
+		LowPointerGc,
+		LowPointerConst,
+		LowPointerMut,
 		LowRecord*,
 		LowUnion*);
 
@@ -188,11 +157,11 @@ immutable struct LowType {
 				LowTypeCombinePointer(x),
 			(PrimitiveType x) =>
 				LowTypeCombinePointer(x),
-			(PointerGc x) =>
+			(LowPointerGc x) =>
 				LowTypeCombinePointer(LowPointerCombine(*x.pointee)),
-			(PointerConst x) =>
+			(LowPointerConst x) =>
 				LowTypeCombinePointer(LowPointerCombine(*x.pointee)),
-			(PointerMut x) =>
+			(LowPointerMut x) =>
 				LowTypeCombinePointer(LowPointerCombine(*x.pointee)),
 			(LowRecord* x) =>
 				LowTypeCombinePointer(x),
@@ -200,6 +169,37 @@ immutable struct LowType {
 				LowTypeCombinePointer(x));
 }
 static assert(LowType.sizeof <= 16);
+
+// Warn: Do not construct directly, use 'getPointerGc' from 'lowerUtil.d'
+immutable struct LowPointerGc {
+	@safe @nogc pure nothrow:
+	LowType* pointee;
+
+	@system void* asPointerForTaggedUnion() =>
+		cast(void*) pointee;
+	@system static LowPointerGc fromPointerForTaggedUnion(void* a) =>
+		LowPointerGc(cast(LowType*) a);
+}
+// Warn: Do not construct directly, use 'getPointerConst' from 'lowerUtil.d'
+immutable struct LowPointerConst {
+	@safe @nogc pure nothrow:
+	LowType* pointee;
+
+	@system void* asPointerForTaggedUnion() =>
+		cast(void*) pointee;
+	@system static LowPointerConst fromPointerForTaggedUnion(void* a) =>
+		LowPointerConst(cast(LowType*) a);
+}
+// Warn: Do not construct directly, use 'getPointerMut' from 'lowerUtil.d'
+immutable struct LowPointerMut {
+	@safe @nogc pure nothrow:
+	LowType* pointee;
+
+	@system void* asPointerForTaggedUnion() =>
+		cast(void*) pointee;
+	@system static LowPointerMut fromPointerForTaggedUnion(void* a) =>
+		LowPointerMut(cast(LowType*) a);
+}
 
 bool isChar8(LowType a) =>
 	a.isA!PrimitiveType && a.as!PrimitiveType == PrimitiveType.char8;
@@ -210,24 +210,24 @@ bool isVoid(LowType a) =>
 	a.isA!PrimitiveType && a.as!PrimitiveType == PrimitiveType.void_;
 
 bool isPointerNonGc(LowType a) =>
-	a.isA!(LowType.PointerConst) || a.isA!(LowType.PointerMut);
+	a.isA!LowPointerConst || a.isA!LowPointerMut;
 
 private bool isPointerGcOrRaw(LowType a) =>
-	a.isA!(LowType.PointerGc) || isPointerNonGc(a);
+	a.isA!LowPointerGc || isPointerNonGc(a);
 
 @trusted LowType asPointee(return scope LowType a) =>
 	a.combinePointer.as!LowPointerCombine.pointee;
 
-immutable(LowType) asGcPointee(LowType a) =>
-	*a.as!(LowType.PointerGc).pointee;
+LowType asGcPointee(LowType a) =>
+	*a.as!LowPointerGc.pointee;
 
-immutable(LowType) asNonGcPointee(LowType a) {
+LowType asNonGcPointee(LowType a) {
 	assert(isPointerNonGc(a));
 	return asPointee(a);
 }
 
-immutable(LowType.PointerConst) asPointerConst(LowType.PointerMut a) =>
-	LowType.PointerConst(a.pointee);
+LowPointerConst asPointerConst(LowPointerMut a) =>
+	LowPointerConst(a.pointee);
 
 immutable struct LowPointerCombine {
 	LowType pointee;
@@ -264,11 +264,11 @@ Symbol debugName(in LowField a) =>
 			symbolOfEnum(x));
 
 immutable struct LowLocalSource {
-	immutable struct Generated {
-		Symbol name;
-		bool isMutable;
-	}
-	mixin TaggedUnion!(Local*, Generated*);
+	mixin TaggedUnion!(Local*, LowLocalSourceGenerated*);
+}
+immutable struct LowLocalSourceGenerated {
+	Symbol name;
+	bool isMutable;
 }
 
 immutable struct LowLocal {
@@ -288,7 +288,7 @@ immutable struct LowLocal {
 		source.matchIn!Symbol(
 			(in Local x) =>
 				x.name,
-			(in LowLocalSource.Generated x) =>
+			(in LowLocalSourceGenerated x) =>
 				x.name);
 
 	// This is whether the local itself is mutable, not whether its value is.
@@ -296,7 +296,7 @@ immutable struct LowLocal {
 		source.matchIn!bool(
 			(in Local x) =>
 				x.isMutable,
-			(in LowLocalSource.Generated x) =>
+			(in LowLocalSourceGenerated x) =>
 				x.isMutable);
 }
 bool localMustBeVolatile(in LowFun curFun, in LowLocal local) =>
@@ -304,11 +304,10 @@ bool localMustBeVolatile(in LowFun curFun, in LowLocal local) =>
 	local.isMutable && curFun.hasSetupCatch;
 
 immutable struct LowFunBody {
-	immutable struct Extern {
-		Symbol libraryName;
-	}
-
-	mixin Union!(Extern, LowFunExprBody);
+	mixin Union!(LowFunBodyExtern, LowFunExprBody);
+}
+immutable struct LowFunBodyExtern {
+	Symbol libraryName;
 }
 
 immutable struct LowFunExprBody {
@@ -329,12 +328,11 @@ immutable struct LowFunFlags {
 }
 
 immutable struct LowFunSource {
-	immutable struct Generated {
-		Symbol name;
-		LowType[] typeArgs;
-	}
-
-	mixin TaggedUnion!(ConcreteFun*, Generated*);
+	mixin TaggedUnion!(ConcreteFun*, LowFunSourceGenerated*);
+}
+immutable struct LowFunSourceGenerated {
+	Symbol name;
+	LowType[] typeArgs;
 }
 
 immutable struct LowFun {
@@ -349,18 +347,18 @@ immutable struct LowFun {
 	Opt!Symbol name() scope =>
 		source.matchIn!(Opt!Symbol)(
 			(in ConcreteFun x) => x.name,
-			(in LowFunSource.Generated) => none!Symbol);
+			(in LowFunSourceGenerated) => none!Symbol);
 
 	UriAndRange range() scope =>
 		source.matchIn!UriAndRange(
 			(in ConcreteFun x) =>
 				x.range,
-			(in LowFunSource.Generated) =>
+			(in LowFunSourceGenerated) =>
 				UriAndRange.empty);
 
 	LowFunFlags flags() scope =>
 		body_.matchIn!LowFunFlags(
-			(in LowFunBody.Extern) =>
+			(in LowFunBodyExtern _) =>
 				LowFunFlags(
 					hasSetupCatch: false,
 					hasTailRecur: false,
@@ -378,7 +376,7 @@ immutable struct LowFun {
 		source.matchIn!bool(
 			(in ConcreteFun _) =>
 				false,
-			(in LowFunSource.Generated x) =>
+			(in LowFunSourceGenerated x) =>
 				x.name == symbol!"main");
 }
 
@@ -409,7 +407,7 @@ immutable struct LowExprKind {
 		CreateUnionLowExpr*,
 		FunPointerLowExpr,
 		IfLowExpr*,
-		InitLowExpr,
+		BuiltinFunInit,
 		LetLowExpr*,
 		LocalGetLowExpr,
 		LocalPointerLowExpr,
@@ -445,7 +443,7 @@ immutable struct AbortLowExpr {}
 
 immutable struct CallLowExpr {
 	LowFunIndex called;
-	SmallArray!LowExpr args; // Includes implicit ctx arg if needed
+	SmallArray!LowExpr args;
 }
 
 immutable struct CallFunPointerLowExpr {
@@ -483,10 +481,6 @@ immutable struct IfLowExpr {
 	LowExpr cond;
 	LowExpr then;
 	LowExpr else_;
-}
-
-immutable struct InitLowExpr {
-	BuiltinFunInitKind kind;
 }
 
 immutable struct LetLowExpr {
@@ -648,6 +642,10 @@ immutable struct SwitchLowExpr {
 immutable struct TailRecurLowExpr {
 	UpdateParam[] updateParams;
 }
+immutable struct UpdateParam {
+	LowLocal* param;
+	LowExpr newValue;
+}
 
 immutable struct UnionAsLowExpr {
 	LowExpr* union_;
@@ -663,11 +661,6 @@ immutable struct VarGetLowExpr {
 immutable struct VarSetLowExpr {
 	LowVarIndex varIndex;
 	LowExpr* value;
-}
-
-immutable struct UpdateParam {
-	LowLocal* param;
-	LowExpr newValue;
 }
 
 immutable struct ArrTypeAndConstantsLow {
@@ -773,7 +766,7 @@ immutable struct LowCommonTypes {
 	LowType nat64MutPointerMutPointer;
 
 	LowType catchPoint() =>
-		*catchPointConstPointer.as!(LowType.PointerConst).pointee;
+		*catchPointConstPointer.as!LowPointerConst.pointee;
 }
 
 alias ExternLibraries = immutable ExternLibrary[];

@@ -45,11 +45,11 @@ import model.lowModel :
 	ExternLibrary,
 	FunPointerLowExpr,
 	IfLowExpr,
-	InitLowExpr,
 	isChar8,
 	isChar32,
 	isPointerNonGc,
 	LetLowExpr,
+	LowFunBodyExtern,
 	LocalGetLowExpr,
 	localMustBeVolatile,
 	LocalPointerLowExpr,
@@ -61,7 +61,6 @@ import model.lowModel :
 	LowExternType,
 	LowField,
 	LowFun,
-	LowFunBody,
 	LowFunExprBody,
 	LowFunIndex,
 	LowFunPointerType,
@@ -96,7 +95,7 @@ import model.lowModel :
 	UpdateParam,
 	VarGetLowExpr,
 	VarSetLowExpr;
-import model.model : Builtin4ary, BuiltinBinary, BuiltinFunInitKind, BuiltinTernary, BuiltinUnary, isLambda, TypeSize;
+import model.model : Builtin4ary, BuiltinBinary, BuiltinFunInit, BuiltinTernary, BuiltinUnary, isLambda, TypeSize;
 import model.showLowModel : writeFunSig;
 import model.typeLayout : sizeOfType, typeSizeBytes;
 import util.alloc.alloc : Alloc, TempAlloc;
@@ -792,7 +791,7 @@ void writeFunReturnTypeNameAndParams(scope ref Writer writer, scope ref Ctx ctx,
 }
 
 void writeFunDeclaration(scope ref Writer writer, scope ref Ctx ctx, LowFunIndex funIndex, in LowFun fun) {
-	if (fun.body_.isA!(LowFunBody.Extern))
+	if (fun.body_.isA!LowFunBodyExtern)
 		writer ~= "extern ";
 	else if (!fun.isGeneratedMain)
 		writer ~= "static ";
@@ -808,7 +807,7 @@ void writeFunDefinition(
 	in LowFun fun,
 ) {
 	fun.body_.matchIn!void(
-		(in LowFunBody.Extern) {
+		(in LowFunBodyExtern _) {
 			// declaration is enough
 		},
 		(in LowFunExprBody x) {
@@ -1043,7 +1042,7 @@ WriteExprResult writeExpr(
 			}),
 		(in IfLowExpr it) =>
 			writeIf(writer, indent, ctx, writeKind, type, it),
-		(in InitLowExpr x) =>
+		(in BuiltinFunInit x) =>
 			writeInit(writer, indent, ctx, writeKind, x),
 		(in LetLowExpr it) =>
 			writeLet(writer, indent, ctx, writeKind, it),
@@ -2116,17 +2115,17 @@ WriteExprResult writeInit(
 	size_t indent,
 	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
-	in InitLowExpr a,
+	in BuiltinFunInit a,
 ) {
 	if (useStructThreadLocals(ctx.ctx)) {
 		writeNewline(writer, indent);
 		writer ~= () {
-			final switch (a.kind) {
-				case BuiltinFunInitKind.global:
+			final switch (a) {
+				case BuiltinFunInit.global:
 					return ctx.isMSVC
 						? "THREAD_LOCALS_INDEX = TlsAlloc();"
 						: "";
-				case BuiltinFunInitKind.perThread:
+				case BuiltinFunInit.perThread:
 					return ctx.isMSVC
 						? "TlsSetValue(THREAD_LOCALS_INDEX, " ~
 							"(struct ThreadLocals*) calloc(1, sizeof(struct ThreadLocals)));"

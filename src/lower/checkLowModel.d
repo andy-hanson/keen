@@ -30,11 +30,14 @@ import model.lowModel :
 	CreateUnionLowExpr,
 	FunPointerLowExpr,
 	IfLowExpr,
-	InitLowExpr,
 	isPointerNonGc,
 	isVoid,
 	LetLowExpr,
 	LocalGetLowExpr,
+	LowFunBodyExtern,
+	LowPointerConst,
+	LowPointerGc,
+	LowPointerMut,
 	LocalPointerLowExpr,
 	LocalSetLowExpr,
 	LoopBreakLowExpr,
@@ -45,7 +48,6 @@ import model.lowModel :
 	LowExternType,
 	LowField,
 	LowFun,
-	LowFunBody,
 	LowFunExprBody,
 	LowFunPointerType,
 	LowLocal,
@@ -72,7 +74,14 @@ import model.lowModel :
 	VarGetLowExpr,
 	VarSetLowExpr;
 import model.model :
-	Builtin4ary, BuiltinBinary, BuiltinBinaryMath, BuiltinTernary, BuiltinUnary, BuiltinUnaryMath, Program;
+	Builtin4ary,
+	BuiltinBinary,
+	BuiltinBinaryMath,
+	BuiltinFunInit,
+	BuiltinTernary,
+	BuiltinUnary,
+	BuiltinUnaryMath,
+	Program;
 import model.showLowModel : writeFunName;
 import util.alloc.alloc : Alloc;
 import util.col.array : sizeEq;
@@ -127,7 +136,7 @@ struct FunCtx {
 
 void checkLowFun(ref Ctx ctx, in LowFun fun) {
 	fun.body_.matchIn!void(
-		(in LowFunBody.Extern) {},
+		(in LowFunBodyExtern _) {},
 		(in LowFunExprBody x) {
 			FunCtx funCtx = FunCtx(ptrTrustMe(ctx), ptrTrustMe(fun));
 			checkLowExpr(funCtx, fun.returnType, x.expr, ExprPos.tail);
@@ -174,7 +183,7 @@ void checkLowExpr(ref FunCtx ctx, in LowType type, in LowExpr expr, in ExprPos e
 			checkLowExpr(ctx, type, it.then, exprPos);
 			checkLowExpr(ctx, type, it.else_, exprPos);
 		},
-		(in InitLowExpr _) {
+		(in BuiltinFunInit _) {
 			assert(isVoid(type));
 		},
 		(in LetLowExpr x) {
@@ -664,15 +673,15 @@ Json jsonOfLowType2(ref Alloc alloc, in LowProgram program, in LowType a) =>
 			jsonString!"some-fun-ptr", //TODO: more detail
 		(in PrimitiveType x) =>
 			jsonString(stringOfEnum(x)),
-		(in LowType.PointerGc x) =>
+		(in LowPointerGc x) =>
 			jsonObject(alloc, [
 				kindField!"pointer-gc",
 				field!"pointee"(jsonOfLowType2(alloc, program, *x.pointee))]),
-		(in LowType.PointerConst x) =>
+		(in LowPointerConst x) =>
 			jsonObject(alloc, [
 				kindField!"pointer-const",
 				field!"pointee"(jsonOfLowType2(alloc, program, *x.pointee))]),
-		(in LowType.PointerMut x) =>
+		(in LowPointerMut x) =>
 			jsonObject(alloc, [
 				kindField!"pointer-mut",
 				field!"pointee"(jsonOfLowType2(alloc, program, *x.pointee))]),

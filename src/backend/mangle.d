@@ -18,7 +18,7 @@ import model.lowModel :
 	LowFun,
 	LowFunIndex,
 	LowFunPointerType,
-	LowFunSource,
+	LowFunSourceGenerated,
 	LowLocal,
 	LowProgram,
 	LowRecord,
@@ -66,7 +66,7 @@ MangledNames buildMangledNames(ref Alloc alloc, return scope const LowProgram pr
 					(in ConcreteFunSourceTest _) {},
 					(in ConcreteFunSourceWrapMain _) {});
 			},
-			(LowFunSource.Generated*) {});
+			(LowFunSourceGenerated*) {});
 
 	MutMap!(Symbol, PrevOrIndex!ConcreteStruct) structNameToIndex;
 	// This will not have an entry for non-overloaded structs.
@@ -155,7 +155,7 @@ void writeLowFunMangledName(
 		(ConcreteFun* x) {
 			writeConcreteFunMangledName(writer, mangledNames, x);
 		},
-		(LowFunSource.Generated* x) {
+		(LowFunSourceGenerated* x) {
 			writeMangledName(writer, mangledNames, x.name);
 			if (x.name != symbol!"main") {
 				writer ~= '_';

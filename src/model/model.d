@@ -1211,10 +1211,7 @@ immutable struct BuiltinFunConstant {
 immutable struct BuiltinFunConstantNull {}
 immutable struct BuiltinFunConstantVoid {}
 immutable struct BuiltinFunGcSafeValue {}
-immutable struct BuiltinFunInit {
-	BuiltinFunInitKind kind;
-}
-enum BuiltinFunInitKind { global, perThread }
+enum BuiltinFunInit { global, perThread }
 immutable struct BuiltinFunMarkRoot {}
 immutable struct BuiltinFunMarkVisit {}
 immutable struct BuiltinFunNewEmptyOption {}

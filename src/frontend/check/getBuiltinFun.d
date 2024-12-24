@@ -18,7 +18,6 @@ import model.model :
 	BuiltinFunConstantVoid,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
-	BuiltinFunInitKind,
 	BuiltinFunMarkVisit,
 	BuiltinFunMarkRoot,
 	BuiltinFunNewEmptyOption,
@@ -365,7 +364,7 @@ FunBody inner(
 		case symbol!"gc-safe-value".value:
 			return FunBody(BuiltinFun(BuiltinFunGcSafeValue()));
 		case symbol!"global-init".value:
-			return arity == 0 ? FunBody(BuiltinFun(BuiltinFunInit(BuiltinFunInitKind.global))) : fail();
+			return arity == 0 ? FunBody(BuiltinFun(BuiltinFunInit.global)) : fail();
 		case symbol!"infinity".value:
 			return constant(isFloat32Or64(rt), BuiltinFunConstant(double.infinity));
 		case symbol!"instanceof".value:
@@ -435,7 +434,7 @@ FunBody inner(
 		case symbol!"null".value:
 			return constant(isPointerConstOrMut(rt), BuiltinFunConstant(BuiltinFunConstantNull()));
 		case symbol!"per-thread-init".value:
-			return arity == 0 ? FunBody(BuiltinFun(BuiltinFunInit(BuiltinFunInitKind.perThread))) : fail();
+			return arity == 0 ? FunBody(BuiltinFun(BuiltinFunInit.perThread)) : fail();
 		case symbol!"pointer-cast-from-extern".value:
 		case symbol!"pointer-cast-to-extern".value:
 			return FunBody(BuiltinFun(BuiltinFunPointerCast()));

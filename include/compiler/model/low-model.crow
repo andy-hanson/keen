@@ -1,0 +1,392 @@
+import
+	../util/full-index-map
+	./concrete-model
+	./integral-values
+	./model
+	./source-range
+	./uri
+	./version-info
+
+low-extern-type-index record(index nat)
+== bool(a low-extern-type-index, b low-extern-type-index)
+low-extern-type record(index low-extern-type-index, source concrete-struct) mut
+== bool(a low-extern-type, b low-extern-type)
+	a.index == b.index
+type-size type-size(a low-extern-type)
+	a.source type-size
+
+low-record-index record(index nat)
+== bool(a low-record-index, b low-record-index)
+low-record record(index low-record-index, source concrete-struct, fields mut low-field[]) mut
+== bool(a low-record, b low-record)
+	a.index == b.index
+is-packed bool(a low-record)
+	a.source is-packed
+type-size type-size(a low-record)
+	a.source type-size
+is-array-or-mut-array bool(a low-record)
+	a.source is-array-or-mut-array
+is-fiber bool(a low-record)
+	a.source is-fiber
+is-tuple bool(a low-record)
+	a.source is-tuple
+
+low-union-index record(index nat)
+== bool(a low-union-index, b low-union-index)
+low-union record(index low-union-index, source concrete-struct, members low-type[]) mut
+== bool(a low-union, b low-union)
+	a.index == b.index
+| This might change if we use tagged pointers
+members-offset nat(_ low-union)
+	8
+type-size type-size(a low-union)
+	a.source type-size
+
+low-fun-pointer-type-index record(index nat)
+== bool(a low-fun-pointer-type-index, b low-fun-pointer-type-index)
+low-fun-pointer-type record mut
+	index low-fun-pointer-type-index
+	source concrete-struct
+	return-type low-type
+	param-types low-type[]
+== bool(a low-fun-pointer-type, b low-fun-pointer-type)
+	a.index == b.index
+
+primitive-type enum
+	bool
+	char8
+	char32
+	float32
+	float64
+	int8
+	int16
+	int32
+	int64
+	nat8
+	nat16
+	nat32
+	nat64
+	void
+== bool(a primitive-type, b primitive-type)
+is-signed-integer bool(a primitive-type)
+	a == int8 || a == int16 || a == int32 || a == int64
+
+low-type union(
+	low-extern-type,
+	low-fun-pointer-type,
+	primitive-type,
+	low-pointer-gc,
+	low-pointer-const,
+	low-pointer-mut,
+	low-record,
+	low-union) mut
+== bool(a low-type, b low-type)
+combine-pointer low-type-combine-pointer(a low-type)
+	match a
+	as low-extern-type x
+		x to
+	as low-fun-pointer-type x
+		x to
+	as primitive-type x
+		x to
+	as low-pointer-gc x
+		x.pointee low-pointer-combine
+	as low-pointer-const x
+		x.pointee low-pointer-combine
+	as low-pointer-mut x
+		x.pointee low-pointer-combine
+	as low-record x
+		x to
+	as low-union x
+		x to
+
+| WARN: Do not construct directly, use 'get-pointer-gc' from 'lower-util'
+low-pointer-gc record(pointee low-type) mut
+== bool(a low-pointer-gc, b low-pointer-gc)
+| WARN: Do not construct directly, use 'get-pointer-gc' from 'lower-util'
+low-pointer-const record(pointee low-type) mut
+== bool(a low-pointer-const, b low-pointer-const)
+| WARN: Do not construct directly, use 'get-pointer-gc' from 'lower-util'
+low-pointer-mut record(pointee low-type) mut
+== bool(a low-pointer-mut, b low-pointer-mut)
+
+is-char8 bool(a low-type)
+	a == char8.to
+is-char32 bool(a low-type)
+	a == char32.to
+is-void bool(a low-type)
+	a == void.to
+is-pointer-non-gc bool(a low-type)
+	a.low-pointer-const !is-empty || a.low-pointer-mut !is-empty
+-is-pointer-gc-or-raw bool(a low-type)
+	a.low-pointer-gc !is-empty || a is-pointer-non-gc
+as-pointee low-type(a low-type)
+	a.combine-pointer.low-pointer-combine! pointee
+as-gc-pointee low-type(a low-type)
+	a.low-pointer-gc! pointee
+as-non-gc-pointee low-type(a low-type)
+	assert a is-pointer-non-gc
+	a as-pointee
+as-pointer-const low-pointer-const(a low-pointer-mut)
+	a.pointee,
+
+low-pointer-combine record(pointee low-type) mut
+low-type-combine-pointer union(
+	low-extern-type,
+	low-fun-pointer-type,
+	primitive-type,
+	low-pointer-combine,
+	low-record,
+	low-union) mut
+
+is-primitive-type bool(a low-type, p primitive-type) # TODO: inline -------------------------------------------------------------------------------------------
+	a == p.to
+
+array-element-type low-type(a low-type)
+	r = a low-record!
+	assert r.source is-array-or-mut-array
+	r.fields[1].type as-non-gc-pointee
+
+low-field-source union(concrete-field, low-array-field) mut
+low-array-field enum(pointer, size)
+to symbol(a low-array-field)
+
+low-field record(source low-field-source, offset nat, type low-type) mut
+debug-name symbol(a low-field)
+	match a source
+	as concrete-field x
+		x debug-name
+	as low-array-field x
+		x to
+
+low-local-source union(local, low-local-source-generated) mut
+	name symbol()
+	is-mutable bool()
+low-local-source-generated record(name symbol, is-mutable bool)
+
+low-local record mut
+	source low-local-source
+	# This is the {index}th local within this function
+	index nat
+	type low-type
+name symbol(a low-local)
+	a.source name
+| This is whether the local itself is mutable, not whether the local's type is mutable.
+is-mutable bool(a low-local)
+	a.source is-mutable
+| https://stackoverflow.com/questions/7996825/why-volatile-works-for-setjmp-longjmp
+local-must-be-volatile bool(cur-fun low-fun, local low-local)
+	local is-mutable && cur-fun has-setup-catch
+
+low-fun-body union(low-fun-body-extern, low-fun-expr-body) mut
+low-fun-body-extern record(library-name symbol)
+low-fun-expr-body record(flags_ low-fun-flags, expr low-expr) mut
+has-setup-catch bool(a low-fun-expr-body)
+	a.flags_ has-setup-catch
+has-tail-recur bool(a low-fun-expr-body)
+	a.flags_ has-tail-recur
+may-yield bool(a low-fun-expr-body)
+	a.flags_ may-yield
+low-fun-flags record(has-setup-catch bool, has-tail-recur bool, may-yield bool)
+new low-fun-flags()
+	false, false, false
+
+low-fun-source union(concrete-fun, low-fun-source-generated) mut
+low-fun-source-generated record(name symbol, type-args low-type[]) mut
+
+low-fun record mut
+	source low-fun-source
+	return-type low-type
+	params low-local[]
+	body low-fun-body
+name symbol?(a low-fun)
+	match a source
+	as concrete-fun x
+		x name
+	as low-fun-source-generated _
+		()
+range uri-and-range(a low-fun)
+	match a source
+	as concrete-fun x
+		x range
+	as low-fun-source-generated _
+		()
+flags_ low-fun-flags(a low-fun)
+	match a body
+	as low-fun-body-extern _
+		()
+	as low-fun-expr-body x
+		x flags_
+has-setup-catch bool(a low-fun)
+	a.flags_ has-setup-catch
+may-yield bool(a low-fun)
+	a.flags_ may-yield
+is-generated-main bool(a low-fun)
+	match a source
+	as concrete-fun _
+		false
+	as low-fun-source-generated x
+		x.name == "main"
+
+low-expr-source alias
+	uri-and-range
+
+low-expr record mut
+	type low-type
+	source low-expr-source
+	kind low-expr-kind
+
+low-fun-index record(index nat)
+
+low-expr-kind union(
+	abort-low-expr,
+	call-low-expr,
+	call-fun-pointer-low-expr,
+	create-record-low-expr,
+	create-union-low-expr,
+	fun-pointer-low-expr,
+	if-low-expr,
+	builtin-fun-init,
+	let-low-expr,
+	local-get-low-expr,
+	local-pointer-low-expr,
+	local-set-low-expr,
+	loop-low-expr,
+	loop-break-low-expr,
+	loop-continue-low-expr,
+	pointer-cast-low-expr,
+	record-field-get-low-expr,
+	record-field-pointer-low-expr,
+	record-field-set-low-expr,
+	constant,
+	special-unary-low-expr,
+	special-unary-math-low-expr,
+	special-binary-low-expr,
+	special-binary-math-low-expr,
+	special-ternary-low-expr,
+	special-4ary-low-expr,
+	switch-low-expr,
+	tail-recur-low-expr,
+	union-as-low-expr,
+	union-kind-low-expr,
+	var-get-low-expr,
+	var-set-low-expr) mut
+abort-low-expr record
+call-low-expr record(called low-fun-index, args low-expr[]) mut
+call-fun-pointer-low-expr record(fun-ptr low-expr, args low-expr[]) mut
+fun-pointer-type low-fun-pointer-type(a call-fun-pointer-low-expr)
+	a.fun-ptr.type low-fun-pointer-type!
+create-record-low-expr record(args low-expr[]) mut
+create-union-low-expr record(member-index nat, arg low-expr) mut
+| Sometimes this will be a Constant.FunPointer instead,
+| but that's only possible for functions known to ConcreteModel
+fun-pointer-low-expr record(fun low-fun-index)
+if-low-expr record(cond low-expr, then low-expr, else_ low-expr) mut
+let-low-expr record(local low-local, value low-expr, then low-expr) mut
+local-get-low-expr record(local low-local) mut
+local-pointer-low-expr record(local low-local) mut
+local-set-low-expr record(local low-local, value low-expr) mut
+loop-low-expr record(body low-expr) mut
+loop-break-low-expr record(value low-expr) mut
+loop-continue-low-expr record
+pointer-cast-low-expr record(target low-expr) mut
+| This may get from a value or from a pointer
+record-field-get-low-expr record(target low-expr, field-index nat) mut
+target-record-type low-record(a record-field-get-low-expr)
+	(a target-is-pointer ? a.target.type as-pointee : a.target type) low-record!
+target-is-pointer bool(a record-field-get-low-expr)
+	a.target.type is-pointer-gc-or-raw
+record-field-pointer-low-expr record mut
+	| Always a pointer
+	target low-expr
+	field-index nat
+target-record-type low-record(a record-field-pointer-low-expr)
+	a.target.type.as-pointee low-record!
+record-field-set-low-expr record mut
+	| Always a pointer
+	target low-expr
+	field-index nat
+	value low-expr
+target-record-type low-record(a record-field-set-low-expr)
+	a.target.type.as-pointee low-record!
+special-unary-low-expr record(kind builtin-unary, arg low-expr) mut
+special-unary-math-low-expr record(kind builtin-unary-math, arg low-expr) mut
+special-binary-low-expr record(kind builtin-binary, args (low-expr, low-expr)) mut
+special-binary-math-low-expr record(kind builtin-binary-math, args (low-expr, low-expr)) mut
+special-ternary-low-expr record(kind builtin-ternary, args (low-expr, low-expr, low-expr)) mut
+special-4ary-low-expr record(kind builtin-4ary, args (low-expr, low-expr, low-expr, low-expr)) mut
+switch-low-expr record mut
+	value low-expr
+	case-values integral-values
+	case-exprs low-expr[]
+	| This is often {abort-low-expr}
+	default low-expr
+tail-recur-low-expr record(update-params (low-local, low-expr)[]) mut
+union-as-low-expr record(union_ low-expr, member-index nat) mut
+union-kind-low-expr record(union_ low-expr) mut
+var-get-low-expr record(var-index low-var-index)
+var-set-low-expr record(var-index low-var-index, value low-expr) mut
+
+arr-type-and-constants-low record mut
+	arr-type low-record
+	element-type low-type
+	constants constant[][]
+pointer-type-and-constants-low record mut
+	pointee-type low-type
+	constants constant[]
+# TODO: rename -- this is not all constants, just the ones by-ref
+all-constants-low record mut
+	c-string string[]
+	args arr-type-and-constants-low[]
+	pointers pointer-type-and-constants-low[]
+
+concrete-fun-to-low-fun-index alias
+	low-fun-index[concrete-fun-id]
+
+low-var-index record(index nat)
+low-var record(source concrete-var, kind low-var-kind, type low-type) mut
+low-var-kind enum(extern-global, global_, thread-local_)
+
+low-program record mut
+	version version-info
+	concrete-fun-to-low-fun-index concrete-fun-to-low-fun-index
+	all-constants all-constants-low
+	common-types low-common-types
+	vars (low-var-index, low-var) full-index-map
+	all-types all-low-types
+	all-funs (low-fun-index, low-fun) full-index-map
+	main low-fun-index
+	extern-libraries extern-libraries
+to json(_ low-program)
+	throw todo
+all-extern-types (low-extern-type-index, low-extern-type) full-index-map(a low-program)
+	a.all-types all-extern-types
+all-fun-pointer-types (low-fun-pointer-type-index, low-fun-pointer-type) full-index-map(a low-program)
+	a.all-types all-fun-pointer-types
+all-records (low-record-index, low-record) full-index-map(a low-program)
+	a.all-types all-records
+all-unions (low-union-index, low-union) full-index-map(a low-program)
+	a.all-types all-unions
+low-common-types record mut
+	catch-point-const-pointer low-type
+	catch-point-mut-pointer low-type
+	fiber-reference low-type
+	nat8-const-pointer low-type
+	nat8-mut-pointer low-type
+	nat64-mut-pointer low-type
+	nat64-mut-pointer-mut-pointer low-type
+catch-point low-type(a low-common-types)
+	a.catch-point-const-pointer.low-pointer-const! pointee
+
+extern-libraries alias
+	extern-library[]
+extern-library record
+	library-name symbol
+	configured-dir uri?
+	import-names symbol[]
+
+all-low-types record mut
+	all-extern-types (low-extern-type-index, low-extern-type) full-index-map
+	all-fun-pointer-types (low-fun-pointer-type-index, low-fun-pointer-type) full-index-map
+	all-records (low-record-index, low-record) full-index-map
+	all-unions (low-union-index, low-union) full-index-map

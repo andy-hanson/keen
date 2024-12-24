@@ -28,6 +28,8 @@ import model.lowModel :
 	LowFunIndex,
 	LowLocal,
 	LowLocalSource,
+	LowLocalSourceGenerated,
+	LowPointerConst,
 	LowRecord,
 	LowType,
 	LowVarIndex,
@@ -135,7 +137,7 @@ LowExpr gen4ary(
 	LowExpr(type, range, LowExprKind(Special4aryLowExpr(
 		kind, allocate!(LowExpr[4])(alloc, [arg0, arg1, arg2, arg3]))));
 
-LowExpr genAddPointer(ref Alloc alloc, LowType.PointerConst ptrType, UriAndRange range, LowExpr ptr, LowExpr added) =>
+LowExpr genAddPointer(ref Alloc alloc, LowPointerConst ptrType, UriAndRange range, LowExpr ptr, LowExpr added) =>
 	genBinary(alloc, LowType(ptrType), range, BuiltinBinary.addPointerAndNat64, ptr, added);
 
 LowExpr genLocalPointer(LowType type, UriAndRange range, LowLocal* local) =>
@@ -168,7 +170,7 @@ LowExpr genDerefRawPointer(ref Alloc alloc, UriAndRange range, LowExpr ptr) =>
 LowExpr genIf(ref Alloc alloc, UriAndRange range, LowExpr cond, LowExpr then, LowExpr else_) =>
 	LowExpr(then.type, range, LowExprKind(allocate(alloc, IfLowExpr(cond, then, else_))));
 
-LowExpr genIncrPointer(ref Alloc alloc, UriAndRange range, LowType.PointerConst pointerType, LowExpr pointer) =>
+LowExpr genIncrPointer(ref Alloc alloc, UriAndRange range, LowPointerConst pointerType, LowExpr pointer) =>
 	genAddPointer(alloc, pointerType, range, pointer, genConstantNat64(range, 1));
 
 LowExpr genFalse(UriAndRange range) =>
@@ -250,7 +252,7 @@ LowExpr genZeroed(LowType type, UriAndRange range) =>
 LowLocal* genLocal(ref Alloc alloc, Symbol name, bool isMutable, uint index, LowType type) =>
 	allocate(alloc, genLocalByValue(alloc, name, isMutable, index, type));
 LowLocal genLocalByValue(ref Alloc alloc, Symbol name, bool isMutable, uint index, LowType type) =>
-	LowLocal(LowLocalSource(allocate(alloc, LowLocalSource.Generated(name, isMutable))), index, type);
+	LowLocal(LowLocalSource(allocate(alloc, LowLocalSourceGenerated(name, isMutable))), index, type);
 
 // 'local.type' should not contain GC roots
 LowExpr genLetNoGcRoot(ref Alloc alloc, UriAndRange range, LowLocal* local, LowExpr init, LowExpr then) =>

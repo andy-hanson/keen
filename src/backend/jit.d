@@ -125,7 +125,6 @@ import model.lowModel :
 	CreateUnionLowExpr,
 	FunPointerLowExpr,
 	IfLowExpr,
-	InitLowExpr,
 	LetLowExpr,
 	LocalGetLowExpr,
 	localMustBeVolatile,
@@ -137,12 +136,13 @@ import model.lowModel :
 	LowExpr,
 	LowExternType,
 	LowFun,
-	LowFunBody,
+	LowFunBodyExtern,
 	LowFunExprBody,
 	LowFunIndex,
 	LowFunPointerType,
 	LowLocal,
 	LowPointerCombine,
+	LowPointerConst,
 	LowProgram,
 	LowRecord,
 	LowUnion,
@@ -169,7 +169,7 @@ import model.lowModel :
 	UpdateParam,
 	VarGetLowExpr,
 	VarSetLowExpr;
-import model.model : Builtin4ary, BuiltinBinary, BuiltinFunInitKind, BuiltinTernary, BuiltinUnary;
+import model.model : Builtin4ary, BuiltinBinary, BuiltinFunInit, BuiltinTernary, BuiltinUnary;
 import model.showLowModel : writeFunSig;
 import util.alloc.alloc : Alloc, withTempAlloc;
 import util.col.array : fillArray, indexOfPointer, isEmpty, map, mapStatic, mapWithIndex, zip;
@@ -333,7 +333,7 @@ void buildGccProgram(ref Alloc alloc, in ShowCtx showCtx, ref gcc_jit_context ct
 		gccFuns,
 		(LowFunIndex funIndex, ref LowFun fun, ref gcc_jit_function* curFun) {
 		fun.body_.match!void(
-			(LowFunBody.Extern it) {},
+			(LowFunBodyExtern _) {},
 			(LowFunExprBody expr) {
 				gcc_jit_block* entryBlock = gcc_jit_function_new_block(curFun, "entry");
 				ExprCtx exprCtx = ExprCtx(
@@ -707,7 +707,7 @@ gcc_jit_function* toGccFunctionSignature(
 	in LowFun fun,
 ) {
 	gcc_jit_function_kind kind = fun.body_.matchIn!gcc_jit_function_kind(
-		(in LowFunBody.Extern x) =>
+		(in LowFunBodyExtern x) =>
 			gcc_jit_function_kind.GCC_JIT_FUNCTION_IMPORTED,
 		(in LowFunExprBody _) =>
 			funIndex == program.main
@@ -979,8 +979,8 @@ ExprResult toGccExpr(ref ExprCtx ctx, ref Locals locals, ExprEmit emit, ref LowE
 			funPointerToGcc(ctx, emit, a.type, x.fun),
 		(ref IfLowExpr it) =>
 			ifToGcc(ctx, locals, emit, a.type, it.cond, it.then, it.else_),
-		(InitLowExpr x) =>
-			initToGcc(ctx, emit, x.kind),
+		(BuiltinFunInit x) =>
+			initToGcc(ctx, emit, x),
 		(ref LetLowExpr it) =>
 			letToGcc(ctx, locals, emit, it),
 		(LocalGetLowExpr it) =>
@@ -1465,7 +1465,7 @@ ExprResult constantToGcc(ref ExprCtx ctx, ExprEmit emit, LowType type, in Consta
 ExprResult funPointerToGcc(ref ExprCtx ctx, ExprEmit emit, LowType type, LowFunIndex fun) {
 	gcc_jit_rvalue* value = gcc_jit_function_get_address(ctx.gccFuns[fun], null);
 	gcc_jit_rvalue* castValue = () {
-		if (type.isA!(LowType.PointerConst))
+		if (type.isA!LowPointerConst)
 			// We need to cast function pointer to any-ptr for 'all-funs'
 			return gcc_jit_context_new_cast(ctx.gcc, null, value, getGccType(ctx.types, type));
 		else {
@@ -2074,9 +2074,9 @@ gcc_jit_rvalue* arbitraryValue(ref ExprCtx ctx, LowType type) {
 			getRValueUsingLocal(ctx, type, (gcc_jit_lvalue*) {}));
 }
 
-ExprResult initToGcc(ref ExprCtx ctx, ExprEmit emit, BuiltinFunInitKind kind) {
+ExprResult initToGcc(ref ExprCtx ctx, ExprEmit emit, BuiltinFunInit kind) {
 	final switch (kind) {
-		case BuiltinFunInitKind.global:
+		case BuiltinFunInit.global:
 			zip!(immutable gcc_jit_rvalue*[], ArrTypeAndConstantsLow)(
 				ctx.globalsForConstants.arrs,
 				ctx.program.allConstants.arrs,
@@ -2111,7 +2111,7 @@ ExprResult initToGcc(ref ExprCtx ctx, ExprEmit emit, BuiltinFunInitKind kind) {
 						});
 				});
 			return emitVoid(ctx, emit);
-		case BuiltinFunInitKind.perThread:
+		case BuiltinFunInit.perThread:
 			return emitVoid(ctx, emit);
 	}
 }

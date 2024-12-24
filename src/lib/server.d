@@ -307,53 +307,52 @@ private LspOutAction handleLspRequest(
 	ref Server server,
 	in LspInRequest request,
 ) {
-	LspOutAction respond(LspOutResult x) =>
-		singleResponse(alloc, request, x);
-	LspOutAction needProgram() =>
-		respondWithProgram(perf, alloc, server, request);
-	return request.params.matchImpure!LspOutAction(
+	Opt!LspOutResult res = request.params.matchImpure!(Opt!LspOutResult)(
 		(in BuildJsScriptParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in CodeLensParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in CompletionParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in DefinitionParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in DocumentHighlightParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in ExecuteCommandParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in FoldingRangeParams x) =>
-			respond(LspOutResult(foldingRangesOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument)))),
+			some(LspOutResult(foldingRangesOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument)))),
 		(in HoverParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in ImplementationParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in InitializeParams x) {
 			server.lspState.supportsUnknownUris = x.initializationOptions.unknownUris;
-			return respond(LspOutResult(InitializeResult()));
+			return some(LspOutResult(InitializeResult()));
 		},
 		(in InlayHintParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in ReferenceParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in RenameParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in RunParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in SemanticTokensParams x) =>
-			respond(LspOutResult(tokensOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument)))),
+			some(LspOutResult(tokensOfAst(alloc, *getCrowFileForTokens(alloc, server, x.textDocument)))),
 		(in ShutdownParams _) =>
-			respond(LspOutResult(NullLspOutResult())),
+			some(LspOutResult(NullLspOutResult())),
 		(in SignatureHelpParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in SyntaxTranslateParams x) =>
-			respond(LspOutResult(syntaxTranslate(alloc, x))),
+			some(LspOutResult(syntaxTranslate(alloc, x))),
 		(in TypeDefinitionParams _) =>
-			needProgram(),
+			none!LspOutResult,
 		(in UnloadedUrisParams _) =>
-			respond(LspOutResult(UnloadedUris(allUnloadedUris(alloc, server)))));
+			some(LspOutResult(UnloadedUris(allUnloadedUris(alloc, server)))));
+	return has(res)
+		? singleResponse(alloc, request, force(res))
+		: respondWithProgram(perf, alloc, server, request);
 }
 
 private pure LspOutAction singleResponse(ref Alloc alloc, in LspInRequest request, LspOutResult response) =>

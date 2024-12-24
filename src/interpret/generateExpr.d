@@ -128,7 +128,6 @@ import model.lowModel :
 	CreateUnionLowExpr,
 	FunPointerLowExpr,
 	IfLowExpr,
-	InitLowExpr,
 	isSignedInteger,
 	LetLowExpr,
 	LocalGetLowExpr,
@@ -168,7 +167,7 @@ import model.lowModel :
 	UpdateParam,
 	VarGetLowExpr,
 	VarSetLowExpr;
-import model.model : Builtin4ary, BuiltinBinary, BuiltinTernary, BuiltinUnary, Program;
+import model.model : Builtin4ary, BuiltinBinary, BuiltinFunInit, BuiltinTernary, BuiltinUnary, Program;
 import model.typeLayout :
 	nStackEntriesForRecord, nStackEntriesForUnion, nStackEntriesForType, optPack, Pack, typeSizeBytes;
 import util.alloc.alloc : TempAlloc;
@@ -375,7 +374,7 @@ void generateExpr(
 					generateExpr(writer, ctx, locals, innerAfter, it.else_);
 				});
 		},
-		(in InitLowExpr _) {
+		(in BuiltinFunInit _) {
 			// bytecode interpreter doesn't need to init anything
 			handleAfter(writer, ctx, source, after);
 		},

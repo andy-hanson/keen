@@ -24,7 +24,10 @@ import model.lowModel :
 	LowFun,
 	LowFunIndex,
 	LowFunPointerType,
-	LowFunSource,
+	LowFunSourceGenerated,
+	LowPointerConst,
+	LowPointerGc,
+	LowPointerMut,
 	LowProgram,
 	LowRecord,
 	LowType,
@@ -45,7 +48,7 @@ void writeFunName(scope ref Writer writer, in ShowCtx ctx, in LowProgram lowProg
 		(in ConcreteFun x) {
 			writeConcreteFunName(writer, ctx, x);
 		},
-		(in LowFunSource.Generated x) {
+		(in LowFunSourceGenerated x) {
 			writer ~= x.name;
 			writeLowTypeArgs(writer, ctx, lowProgram, x.typeArgs);
 			writer ~= " (generated)";
@@ -70,7 +73,7 @@ void writeFunSig(scope ref Writer writer, in ShowCtx ctx, in LowProgram lowProgr
 		(in ConcreteFun x) {
 			writeConcreteFunSig(writer, ctx, x, a.mayYield);
 		},
-		(in LowFunSource.Generated) {
+		(in LowFunSourceGenerated _) {
 			writeFunName(writer, ctx, lowProgram, a);
 		});
 }
@@ -129,17 +132,17 @@ void writeLowType(scope ref Writer writer, in ShowCtx ctx, in AllLowTypes lowTyp
 		(in PrimitiveType x) {
 			writer ~= stringOfEnum(x);
 		},
-		(in LowType.PointerGc x) {
+		(in LowPointerGc x) {
 			writer ~= "pointer-gc(";
 			writeLowType(writer, ctx, lowTypes, *x.pointee);
 			writer ~= ')';
 		},
-		(in LowType.PointerConst x) {
+		(in LowPointerConst x) {
 			writer ~= "pointer-const(";
 			writeLowType(writer, ctx, lowTypes, *x.pointee);
 			writer ~= ')';
 		},
-		(in LowType.PointerMut x) {
+		(in LowPointerMut x) {
 			writer ~= "pointer-mut(";
 			writeLowType(writer, ctx, lowTypes, *x.pointee);
 			writer ~= ')';

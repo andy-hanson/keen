@@ -13,7 +13,6 @@ import model.lowModel :
 	debugName,
 	FunPointerLowExpr,
 	IfLowExpr,
-	InitLowExpr,
 	LetLowExpr,
 	LocalGetLowExpr,
 	LocalPointerLowExpr,
@@ -28,13 +27,19 @@ import model.lowModel :
 	LowField,
 	LowFun,
 	LowFunBody,
+	LowFunBodyExtern,
 	LowFunExprBody,
 	LowFunIndex,
 	LowFunPointerType,
 	LowFunPointerTypeIndex,
 	LowFunSource,
+	LowFunSourceGenerated,
 	LowLocal,
 	LowLocalSource,
+	LowLocalSourceGenerated,
+	LowPointerConst,
+	LowPointerGc,
+	LowPointerMut,
 	LowProgram,
 	LowRecord,
 	LowRecordIndex,
@@ -59,7 +64,7 @@ import model.lowModel :
 	UpdateParam,
 	VarGetLowExpr,
 	VarSetLowExpr;
-import model.model : Local;
+import model.model : BuiltinFunInit, Local;
 import model.jsonOfConcreteModel : jsonOfConcreteFunRef, jsonOfConcreteStructRef, jsonOfIntegralValues;
 import model.sourceRange : jsonOfLineAndColumnRange, LineAndColumnGetters;
 import util.alloc.alloc : Alloc;
@@ -98,11 +103,11 @@ Json jsonOfLowType(ref Alloc alloc, in LowType a) =>
 			jsonObject(alloc, [kindField!"fun-pointer", field!"source"(jsonOfConcreteStructRef(alloc, *x.source))]),
 		(in PrimitiveType x) =>
 			jsonString(stringOfEnum(x)),
-		(in LowType.PointerGc x) =>
+		(in LowPointerGc x) =>
 			jsonObject(alloc, [kindField!"pointer-gc", field!"pointee"(jsonOfLowType(alloc, *x.pointee))]),
-		(in LowType.PointerConst x) =>
+		(in LowPointerConst x) =>
 			jsonObject(alloc, [kindField!"pointer-const", field!"pointee"(jsonOfLowType(alloc, *x.pointee))]),
-		(in LowType.PointerMut x) =>
+		(in LowPointerMut x) =>
 			jsonObject(alloc, [kindField!"pointer-mut", field!"pointee"(jsonOfLowType(alloc, *x.pointee))]),
 		(in LowRecord x) =>
 			jsonObject(alloc, [kindField!"record", field!"source"(jsonOfConcreteStructRef(alloc, *x.source))]),
@@ -145,12 +150,12 @@ Json jsonOfLowFunSource(ref Alloc alloc, in LowFunSource a) =>
 	a.matchIn!Json(
 		(in ConcreteFun x) =>
 			jsonOfConcreteFunRef(alloc, x),
-		(in LowFunSource.Generated x) =>
+		(in LowFunSourceGenerated x) =>
 			jsonObject(alloc, [kindField!"generated", field!"name"(x.name)]));
 
 Json jsonOfLowFunBody(ref Alloc alloc, in Ctx ctx, in LowFunBody a) =>
 	a.matchIn!Json(
-		(in LowFunBody.Extern) =>
+		(in LowFunBodyExtern _) =>
 			jsonString!"extern",
 		(in LowFunExprBody x) =>
 			jsonOfLowExpr(alloc, ctx, x.expr));
@@ -165,7 +170,7 @@ Json jsonOfLowLocalSource(ref Alloc alloc, in LowLocalSource a) =>
 	a.matchIn!Json(
 		(in Local x) =>
 			jsonString(x.name),
-		(in LowLocalSource.Generated x) =>
+		(in LowLocalSourceGenerated x) =>
 			jsonObject(alloc, [kindField!"generated", field!"name"(x.name), field!"mutable"(x.isMutable)]));
 
 Json jsonOfLowExpr(ref Alloc alloc, in Ctx ctx, in LowExpr a) =>
@@ -211,10 +216,10 @@ Json jsonOfLowExprKind(ref Alloc alloc, in Ctx ctx, in LowExprKind a) =>
 				field!"condition"(jsonOfLowExpr(alloc, ctx, x.cond)),
 				field!"then"(jsonOfLowExpr(alloc, ctx, x.then)),
 				field!"else"(jsonOfLowExpr(alloc, ctx, x.else_))]),
-		(in InitLowExpr x) =>
+		(in BuiltinFunInit x) =>
 			jsonObject(alloc, [
 				kindField!"init",
-				field!"which"(stringOfEnum(x.kind))]),
+				field!"which"(stringOfEnum(x))]),
 		(in LetLowExpr x) =>
 			jsonObject(alloc, [
 				kindField!"let",

@@ -6,7 +6,7 @@ import frontend.showModel : ShowCtx, writeUriAndPos;
 import interpret.bytecode : ByteCode, ByteCodeIndex, ByteCodeSource, Operation;
 import interpret.stacks : returnTempAsArrReverse, Stacks;
 import model.concreteModel : ConcreteFun;
-import model.lowModel : LowFunIndex, LowFunSource, LowProgram;
+import model.lowModel : LowFunIndex, LowFunSourceGenerated, LowProgram;
 import model.showLowModel : writeFunName;
 import model.sourceRange : LineAndColumn, LineAndColumnGetters, PosKind, UriAndPos;
 import util.alloc.alloc : Alloc, withStaticAlloc;
@@ -201,7 +201,7 @@ Opt!Uri getUri(in LowProgram lowProgram, LowFunIndex fun) =>
 	lowProgram.allFuns[fun].source.matchIn!(Opt!Uri)(
 		(in ConcreteFun x) =>
 			some(x.moduleUri),
-		(in LowFunSource.Generated) =>
+		(in LowFunSourceGenerated _) =>
 			none!Uri);
 
 void writeFunNameAtIndex(ref Writer writer, scope ref InterpreterDebugInfo debugInfo, ByteCodeIndex index) {
