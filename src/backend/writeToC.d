@@ -426,11 +426,18 @@ void writeArrayConstant(scope ref Writer writer, scope ref Ctx ctx, in LowType e
 }
 
 void writeEscapedCharForC(scope ref Writer writer, dchar a) {
-	if (a == '?')
-		// avoid trigraphs
-		writer ~= "\\?";
-	else
-		writeEscapedChar_inner(writer, a, forC: true);
+	switch (a) {
+		case '?':
+			// avoid trigraphs
+			writer ~= "\\?";
+			break;
+		case '\'':
+			writer ~= "\\'";
+			break;
+		default:
+			writeEscapedChar_inner(writer, a, forC: true);
+			break;
+	}
 }
 
 bool useStructThreadLocals(in Ctx ctx) =>

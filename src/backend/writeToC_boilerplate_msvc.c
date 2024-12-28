@@ -57,9 +57,9 @@ static unsigned char switch_fiber_initial_code[] = {
 	0x4C, 0x89, 0x0C, 0x24, // mov [rsp], r9
 	0xC3 // ret
 };
-struct fiber;
+struct s_fiber;
 #define switch_fiber_initial(fiber_arg, from, stack_high, func) \
-	((void (*)(struct fiber*, uint64_t**, uint64_t*, void (*)(struct fiber*))) switch_fiber_initial_code)(\
+	((void (*)(struct s_fiber*, uint64_t**, uint64_t*, void (*)(struct s_fiber*))) switch_fiber_initial_code)(\
 		fiber_arg, from, stack_high, func);
 
 // Catch point size is 0x100 (and alignment of 16 due to requirement of 'movaps'); see 'getBuiltinStructSize'.

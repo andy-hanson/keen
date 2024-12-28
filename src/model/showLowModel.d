@@ -121,7 +121,7 @@ void writeConcreteType(scope ref Writer writer, in ShowCtx ctx, in ConcreteType 
 
 private:
 
-void writeLowType(scope ref Writer writer, in ShowCtx ctx, in AllLowTypes lowTypes, in LowType a) {
+public void writeLowType(scope ref Writer writer, in ShowCtx ctx, in AllLowTypes lowTypes, in LowType a) {
 	a.matchIn!void(
 		(in LowExternType _) {
 			writer ~= "some extern type"; // TODO: more detail
@@ -155,7 +155,7 @@ void writeLowType(scope ref Writer writer, in ShowCtx ctx, in AllLowTypes lowTyp
 		});
 }
 
-void writeConcreteFunName(scope ref Writer writer, in ShowCtx ctx, in ConcreteFun a) {
+public void writeConcreteFunName(scope ref Writer writer, in ShowCtx ctx, in ConcreteFun a) {
 	a.source.matchIn!void(
 		(in ConcreteFunKey x) {
 			writer ~= x.decl.name;

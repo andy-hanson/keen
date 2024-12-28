@@ -105,6 +105,7 @@ bool isBogus(in ConcreteType a) =>
 	isBogus(*a.struct_);
 bool isVoid(in ConcreteType a) =>
 	a.reference == ReferenceKind.byVal &&
+	a.struct_.bodyIsSet &&
 	a.struct_.body_.isA!(ConcreteBuiltinType*) &&
 	a.struct_.body_.as!(ConcreteBuiltinType*).kind == BuiltinType.void_;
 bool isEmptyType(in ConcreteType a) =>
@@ -179,6 +180,8 @@ immutable struct ConcreteStruct {
 	// Only set for records
 	private Late!(immutable uint[]) fieldOffsets_;
 
+	bool bodyIsSet() scope =>
+		lateIsSet(lateBody);
 	void body_(ConcreteStructBody value) {
 		lateSet(lateBody, value);
 	}

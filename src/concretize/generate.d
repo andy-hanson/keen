@@ -261,8 +261,10 @@ ConcreteFunBody generateCallLambda(
 	ConcreteExpr lambda = genParamGet(range, &fun.params[0]);
 	ConcreteExpr arg = genParamGet(range, &fun.params[1]);
 	return ConcreteFunBody(
-		genMatchUnion(ctx, fun.returnType, range, memberTypes, lambda, (size_t i, ConcreteExpr closure) =>
-			genCall(ctx.alloc, range, impls[i].impl, [closure, arg])));
+		isEmpty(memberTypes)
+			? genBogus(ctx, fun.returnType, range)
+			: genMatchUnion(ctx, fun.returnType, range, memberTypes, lambda, (size_t i, ConcreteExpr closure) =>
+				genCall(ctx.alloc, range, impls[i].impl, [closure, arg])));
 }
 
 ConcreteFunBody generateCallMethod(

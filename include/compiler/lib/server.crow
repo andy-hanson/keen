@@ -1,4 +1,5 @@
 import
+	crow/io/print
 	../../../bin/d-imports/date.txt as build-date string
 	../../../bin/d-imports/commit-hash.txt as commit-hash string
 	../app/command
@@ -27,7 +28,6 @@ import
 	../frontend/show-diag
 	../frontend/show-model
 	../frontend/storage_
-	../interpret/bytecode
 	../interpret/extern_
 	../interpret/fake-extern
 	../interpret/generate-bytecode
@@ -36,7 +36,6 @@ import
 	../lower/lower
 	../model/ast
 	../model/concrete-model
-	../model/integral-values
 	../model/low-model
 	../model/model
 	../model/parse-diag
@@ -55,6 +54,7 @@ build-and-interpret exit-code-or-signal(
 	diagnostics-only-for-uris uri[]?,
 	all-args string[],
 )
+	_ = diagnostics-only-for-uris # TODO
 	assert server.files-state == all-loaded
 	low-program = server build-to-low-program (os version-info-for-interpret version), program
 	if extern-pointers ?= extern_ load-extern-pointers low-program.extern-libraries, write-error
@@ -81,18 +81,18 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		()
 	as did-change-text-document-params x
 		server change-file x.textDocument, x.contentChanges
-		server handle-file-changed x.textDocument
+		server handle-file-changed
 	as did-close-text-document-params _
 		()
 	as did-open-text-document-params x
 		server set-file-assume-utf8 x.textDocument.uri, x.textDocument.text
-		server handle-file-changed x.textDocument.uri
-	as did-save-text-document-params x
+		server handle-file-changed
+	as did-save-text-document-params _
 		()
-	as exit-params x
+	as exit-params
 		(), (ok,)
 	as initialized-params
-		server initialized-action
+		initialized-action
 	as read-file-result-params x
 		match x type
 		as ok
@@ -101,12 +101,12 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 			server set-file x.uri, not-found
 		as error
 			server set-file x.uri, error
-		server handle-file-changed x.uri
+		server handle-file-changed
 	as set-trace-params _
 		# TODO: implement this
 		()
 
--handle-file-changed lsp-out-action(server server, changed uri)
+-handle-file-changed lsp-out-action(server server)
 	match server files-state
 	as has-unknown
 		unknown = server all-unknown-uris
@@ -130,10 +130,6 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		messages.move-to, exit-code
 
 -handle-lsp-request lsp-out-action(server server, request lsp-in-request)
-	respond lsp-out-action mut(x lsp-out-result) = x =>
-		request single-response x
-	need-program lsp-out-action mut() = () =>
-		server respond-with-program request
 	res lsp-out-result? = match request params
 	as build-js-script-params _
 		()
@@ -237,8 +233,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		writes write mut[] = ()
 		pwm = program-with-main[(x.uri main-kind-main-function ()), (none build-target-native)]
 		if pwm has-any-diagnostics
-			s = x diagnosticsOnlyForUris
-			writes ~= (stderr, (server show-diagnostics pwm, (x.diagnosticsOnlyForUris.to,)))
+			writes ~= (err, (server show-diagnostics pwm, (x.diagnosticsOnlyForUris.to,)))
 		exit exit-code-or-signal = server run-from-lsp pwm, (x.diagnosticsOnlyForUris,), (pipe, text) =>
 			writes ~= (pipe, text)
 		respond[exit run-result writes.move-to]
@@ -280,7 +275,7 @@ run-from-lsp exit-code-or-signal(
 	write-cb write-cb,
 )
 	if program has-fatal-diagnostics
-		write-cb[stderr, "Can't run due to compile errors"]
+		write-cb[err, "Can't run due to compile errors"]
 		error
 	else
 		extern_ = write-cb fake-extern
@@ -288,7 +283,7 @@ run-from-lsp exit-code-or-signal(
 		version-options version-options = do
 			is-single-threaded: true
 			stack-trace-enabled: true
-		server build-and-interpret extern_, (x => write-cb[stderr, x]), program, none, version-options, diagnostics-only-for-uris, all-args
+		server build-and-interpret extern_, (x => write-cb[err, x]), program, none, version-options, diagnostics-only-for-uris, all-args
 
 server record mut
 	include-dir mut uri
@@ -321,7 +316,7 @@ set-server-settings void(server server, settings server-settings)
 	server.show-options := settings show-options
 	server.frontend := (server.storage_ init-frontend server.include-dir)
 
--lsp-state record mut
+lsp-state record mut
 	supports-unknown-uris mut bool
 	uris-with-diagnostics mut uri[]
 	pending-requests lsp-in-request mut[]
@@ -329,7 +324,7 @@ set-server-settings void(server server, settings server-settings)
 -new lsp-state()
 	false, (), (), ()
 
-version json(server server, this-executable file-path)
+crow-version json(this-executable file-path)
 	("path", this-executable.to::string.to), \
 	("built-on", build-date.to),
 	("commit-hash", commit-hash.to)
@@ -362,6 +357,8 @@ all-unknown-uris uri[](server server)
 	server.storage_ all-uris-with-file-diag (unknown, loading)
 
 show-diagnostics string(server server, program program)
+	server show-diagnostics-common program.as-program-with-opt-main, ()
+show-diagnostics string(server server, program program-with-main)
 	server show-diagnostics-common program.as-program-with-opt-main, ()
 show-diagnostics string(server server, program program-with-main, only-for-uris uri set?)
 	server show-diagnostics-common program.as-program-with-opt-main, only-for-uris
@@ -445,7 +442,7 @@ get-program-for-main program-with-main(server server, main main-kind, targets bu
 	server.frontend make-program-with-main main, targets
 
 -server-get-position position?(
-	server server,
+	_ server, # TODO: if this is not used, simplify code! --------------------------------------------------------------------------
 	program program,
 	where text-document-position-params,
 	kind get-position-kind,
@@ -469,7 +466,7 @@ print-ast diags-and-result-json(server server, uri uri)
 	as read-file-diag x
 		(), x.to file-ast-for-diag
 
-json-of-model json(server server, program program, uri uri)
+json-of-model json(_ server, program program, uri uri)
 	program module-at-uri uri to
 
 json-of-concrete-model json(server server, version-info version-info, program program-with-main)
@@ -516,6 +513,7 @@ json-for-print-ide-whole-file json(
 		program get-code-lenses (uri,) to
 	as folding-ranges
 		file = server get-crow-file-for-tokens uri
+		file.folding-ranges-of-ast to
 	as inlay-hints
 		range line-and-character-range = (0, 0), (0, 0)
 		server get-inlay-hints-for-program program, (uri, range) to
@@ -529,7 +527,7 @@ build-to-low-program low-program(
 	program program-with-main,
 )
 	forbid program has-fatal-diagnostics
-	ctx = server get-show-diag-ctx program.program
+	ctx = server get-show-ctx
 	concrete-program = ctx concretize version-info, program
 	ctx lower program.main-config.extern_, program.program, concrete-program
 
@@ -542,7 +540,7 @@ build-to-c build-to-c-result(
 	program program-with-main,
 )
 	low-program = server build-to-low-program (os version-info-for-build-to-c version), program
-	write = server get-show-diag-ctx program.program write-to-c low-program, params
+	write = server.get-show-ctx write-to-c low-program, params
 	write, low-program.extern-libraries
 
 build-to-js-script js-and-map(
@@ -569,7 +567,7 @@ get-show-ctx show-ctx(server server, force-no-color bool)
 	options = force-no-color ? server.show-options.without-color : server.show-options
 	server.line-and-column-getters, server.file-content-getters, server.uris-info, options
 
--notify-diagnostics void(out lsp-out-message mut[], server server, program program)
+-notify-diagnostics void(res lsp-out-message mut[], server server, program program)
 	diags = program.as-program-with-opt-main sorted-diagnostics
 	state = server lsp-state
 	new-uris uri[] = for x : diags; x uri
@@ -577,21 +575,22 @@ get-show-ctx show-ctx(server server, force-no-color bool)
 		out ~~= diags
 		for uri : state uris-with-diagnostics
 			unless uri in new-uris
-				(uri, ()),
+				out ~= (uri, ())
 	state.uris-with-diagnostics := new-uris
 	ctx = server get-show-diag-ctx program
 	for ud : all
-		out ~= ud.uri publish-diagnostics-params for x : ud diagnostics
+		diagnostics lsp-diagnostic[] = for x : ud diagnostics
 			where = (server line-and-character-getter ud.uri)[x.range]
 			severity = x.kind.get-diagnostic-severity to-lsp-diagnostic-severity
 			where, severity, (ctx string-of-diag x.kind)
+		res ~= ud.uri publish-diagnostics-params diagnostics to
 
 -to-lsp-diagnostic-severity lsp-diagnostic-severity(a diagnostic-severity)
 	match a
 	as unused-code
 		Hint
 	as warning
-		Waning
+		Warning
 	as check-error
 		Error
 	as name-not-found
@@ -603,7 +602,7 @@ get-show-ctx show-ctx(server server, force-no-color bool)
 	as parse-error
 		Error
 	
--initialized-action lsp-out-action(server server)
+-initialized-action lsp-out-action()
 	methods string[] = "textDocument/codeLens", \
 		"textDocument/completion",
 		"textDocument/definition",
@@ -619,5 +618,5 @@ get-show-ctx show-ctx(server server, force-no-color bool)
 		"textDocument/typeDefinition",
 		"workspace/executeCommand"
 	messages lsp-out-message[] = for method : methods
-		method register-capability method
+		method register-capability method to
 	messages, ()

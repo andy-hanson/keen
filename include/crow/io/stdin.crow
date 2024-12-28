@@ -3,33 +3,37 @@ import
 	system/unistd: read
 	system/win32: DWORD, GetLastError, GetStdHandle, ReadConsoleA, STD_INPUT_HANDLE
 	../col/mut-slice
-	../private/bootstrap: todo
 	./print: out, print
 	./win32-util: show-win32-error
 
-| Reads from stdin.
+| Reads a line from stdin.
 | If that comes from the user typing at the terminal, this will block until they hit enter.
 | Result will not have leading or trailing whitespace.
 +read-stdin string() summon, trusted, native extern
 	with : new-exclusion
-		# TODO: use a non-blocking API
-		buffer nat8 mut-slice = 0x2000 gc-safe-mut-slice
-		bytes-read nat = if extern windows
-			n-read mut DWORD = 0
-			ok = STD_INPUT_HANDLE.GetStdHandle ReadConsoleA \
-				buffer.begin-pointer, buffer.size.to, &n-read, null
-			assert ok : "{GetLastError show-win32-error}".error
-			n-read to
-		elif extern posix
-			bytes-read-or-err = stdin read buffer.begin-pointer, buffer.size
-			assert bytes-read-or-err >= 0
-			bytes-read-or-err to
-		else
-			throw not-implemented
-		if bytes-read >= buffer.size
-			todo
-		else
-			buffer[0 .. bytes-read].cast-immutable.as-string.strip
+		0x2000.read-up-to-n-bytes-from-stdin.as-string strip
+
++read-n-bytes-from-stdin nat8[](size nat) summon, trusted, native extern
+	res = size read-up-to-n-bytes-from-stdin
+	res.size is size
+	res
+
++read-up-to-n-bytes-from-stdin nat8[](max-size nat) summon, trusted, native extern
+	buffer nat8 mut-slice = max-size gc-safe-mut-slice
+	bytes-read nat = if extern windows
+		n-read mut DWORD = 0
+		ok = STD_INPUT_HANDLE.GetStdHandle ReadConsoleA \
+			buffer.begin-pointer, buffer.size.to, &n-read, null
+		assert ok : "{GetLastError show-win32-error}".error
+		n-read to
+	elif extern posix
+		bytes-read-or-err = stdin read buffer.begin-pointer, buffer.size
+		assert bytes-read-or-err >= 0
+		bytes-read-or-err to
+	else
+		throw not-implemented
+	assert bytes-read <= buffer.size : unreachable
+	buffer[0 .. bytes-read].cast-immutable
 
 | Keep reading from stdin until {parse} returns a non-empty option.
 | Print {error-message} after every failure.

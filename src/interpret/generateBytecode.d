@@ -2,6 +2,7 @@ module interpret.generateBytecode;
 
 @safe @nogc pure nothrow:
 
+import frontend.showModel : ShowCtx;
 import interpret.bytecode :
 	ByteCode, ByteCodeIndex, ByteCodeSource, FunPointerToOperationPointer, Operation, Operations, TextIndex;
 import interpret.bytecodeWriter :
@@ -74,6 +75,7 @@ import util.util : castImmutable, castMutable, castNonScope_ref, ptrTrustMe, tod
 ByteCode generateBytecode(
 	scope ref Perf perf,
 	ref Alloc alloc,
+	in ShowCtx showCtx,
 	in Program modelProgram,
 	in LowProgram program,
 	ExternPointersForAllLibraries externPointers,
@@ -83,20 +85,21 @@ ByteCode generateBytecode(
 	//TODO: use a temp alloc for 2nd arg
 	return withMeasure!(ByteCode, () =>
 		generateBytecodeInner(
-			alloc, alloc, modelProgram, program, externPointers, aggregateCbs, makeSyntheticFunPointers)
+			alloc, alloc, showCtx, modelProgram, program, externPointers, aggregateCbs, makeSyntheticFunPointers)
 	)(perf, alloc, PerfMeasure.generateBytecode);
 }
 
 private ByteCode generateBytecodeInner(
 	ref Alloc codeAlloc,
 	ref TempAlloc tempAlloc,
+	in ShowCtx showCtx,
 	in Program modelProgram,
 	in LowProgram program,
 	ExternPointersForAllLibraries externPointers,
 	in AggregateCbs aggregateCbs,
 	in MakeSyntheticFunPointers cbMakeSyntheticFunPointers,
 ) {
-	DynCallTypeCtx typeCtx = DynCallTypeCtx(ptrTrustMe(codeAlloc), castNonScope_ref(aggregateCbs), ptrTrustMe(program));
+	DynCallTypeCtx typeCtx = DynCallTypeCtx(ptrTrustMe(codeAlloc), ptrTrustMe(showCtx), castNonScope_ref(aggregateCbs), ptrTrustMe(program));
 
 	FunPointerTypeToDynCallSig funPtrTypeToDynCallSig =
 		mapFullIndexMap!(LowFunPointerTypeIndex, DynCallSig, LowFunPointerType)(
@@ -244,6 +247,7 @@ struct DynCallTypeCtx {
 	@safe @nogc pure nothrow:
 
 	Alloc* allocPtr;
+	ShowCtx* showCtx;
 	AggregateCbs aggregateCbs;
 	LowProgram* programPtr;
 	MutMap!(LowRecord*, DynCallType.Aggregate*) records;

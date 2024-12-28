@@ -1,0 +1,509 @@
+#!/usr/bin/env crow
+import
+	crow/col/mut-queue
+	crow/crypto/random
+	crow/io/file
+	crow/io/print
+	crow/io/process
+	crow/io/stdin
+	crow/parse
+	../backend/js/source-map
+	../backend/js/translate-to-js
+	../backend/write-to-c
+	../frontend/get-diagnostic-severity
+	../frontend/lang
+	../frontend/show-model
+	../frontend/storage_
+	../interpret/extern_
+	../interpret/fake-extern
+	../lib/lsp/lsp-types
+	../lib/server
+	../model/low-model
+	../model/model
+	../model/parse-diag
+	../model/source-range
+	../model/uri
+	../model/version-info
+	../util/exit-code
+	./command
+	./dyncall
+	./parse-command
+
+main nat(args string[]) summon, (native, posix) extern # TODO: support windows ---------------------------------------------------------
+	server server = ()
+	cwd = current-directory must-parse-file-path
+	this-executable = current-executable-path must-parse-file-path
+	server set-server-settings do
+		include-dir: this-executable.get-crow-include-dir to
+		cwd: cwd to
+		show-options: (true,)
+	command = cwd parse-command get-os, args
+	try
+		server go cwd, this-executable, command.kind
+		0
+	catch exit x
+		x.exit-code to
+
+exit record(exit-code int32) exception case
+exit exception()
+	1 exit
+show string(a exit)
+	"Should exit with exit code {a exit-code}"
+exit-signal record(signal int32) exception case
+show string(a exit-signal)
+	"Should exit with signal {a signal}"
+
+-run-lsp void(server server, this-executable file-path) summon, native extern
+	error log this-executable.crow-version.show
+	error log "Running language server protocol"
+	server set-show-options (false,)
+	e exit-code = loop
+		log-lsp = false # TODO: get this from specified trace level
+		if exit ?= server handle-one-message-in log-lsp
+			break exit
+		else
+			continue
+	throw e.value.to exit
+
+-handle-one-message-in exit-code?(server server, log-lsp bool) summon, native extern
+	buffered-messages lsp-in-message mut-queue = ()
+	buffered-messages ~= log-lsp lsp-read
+	loop
+		message = buffered-messages dequeue!
+		action = server handle-lsp-message message
+		for out-message : action out-messages
+			if server.lsp-state !supports-unknown-uris && out-message is-unknown-uris
+				error log "Server will load unknown URIs itself (since client does not support them)"
+				for uri : out-message.lsp-out-notification!.unknown-uris! unknown-uris
+					buffered-messages ~= uri.read-file-locally.to::lsp-in-notification to
+			else
+				out-message.to lsp-write log-lsp
+		if exit ?= action.exit-code
+			break exit,
+		elif buffered-messages is-empty
+			break ()
+		else
+			continue
+
+# TODO: it would be better to return an option ...............................................................................
+-is-unknown-uris bool(a lsp-out-message)
+	a.lsp-out-notification?.unknown-uris !is-empty
+
+-lsp-read lsp-in-message(log-lsp bool) summon, native extern
+	line0 = read-stdin
+	stripped = line0 try-remove-start! "Content-Length: "
+	content-length = nat parse stripped
+	line1 = read-stdin strip
+	line1 is ""
+	content = content-length.read-n-bytes-from-stdin as-string
+	if log-lsp
+		error log "LSP message in: {content}"
+	json parse content to
+
+-lsp-write void(content-json json, log-lsp bool) summon, native extern
+	content-string string = "{content-json}"
+	out print-no-newline "Content-Length: {content-string}\r\n\r\n{content-string}"
+	if log-lsp
+		err print "LSP out: {content-string}"
+
+-load-all-files-for-main void(server server, main main-kind) summon, native extern
+	match main
+	as main-kind-main-function x
+		server load-all-files (x.uri,)
+	as main-kind-tests-in-config x
+		server load-all-files-for-config x.config-uri
+	as main-kind-tests-at-uri x
+		server load-all-files (x.crow-uri,)
+
+-load-all-files-for-config void(server server, config-uri uri) summon, native extern
+	if config-uri !uri-is-file
+		err print "Can't list test files at non-file URI {config-uri}"
+		throw exit
+	config-uri.as-file-path.parent! each-file-in-directory-recursive file =>
+		if file.get-extension == ".crow"
+			server load-single-file file.to
+	server load-until-no-unknown-uris
+
+-load-all-files void(server server, root-uris uri[]) summon, native extern
+	for uri : root-uris
+		server load-single-file uri
+	server load-until-no-unknown-uris
+
+-read-file-locally read-file-result-params(uri uri) summon, native extern
+	match uri try-read-file
+	as file-content x
+		uri, ok, x.bytes
+	as read-file-diag x
+		type read-file-result-type = match x
+		as unknown
+			throw unreachable
+		as loading
+			throw unreachable
+		as not-found
+			not-found
+		as error
+			error
+		uri, type, ()
+
+-load-until-no-unknown-uris void(server server) summon, native extern
+	until server.files-state == all-loaded
+		for uri : server all-unknown-uris
+			server load-single-file uri
+
+-load-single-file void(server server, uri uri) summon, native extern
+	server set-file uri, uri.try-read-file
+
+-go void(
+	server server,
+	cwd file-path,
+	this-executable file-path,
+	command command-kind,
+) summon, native extern
+	match command
+	as build-command x
+		server with-program-for-main x.main, (get-os targets-for-build x), program =>
+			server build-all-outputs x.options, program
+	as check-command x
+		server with-program-for-roots x.root-uris, program =>
+			forbid program has-any-diagnostics : exit
+			out print "OK"
+	as document-command x
+		server with-program-for-roots x.root-uris, program =>
+			out print "{server document program, x.root-uris}"
+	as help-command x
+		out print x.help-text
+		throw x.exit-code.value.to exit
+	as lsp-command
+		server run-lsp this-executable
+	as print-command x
+		server do-print x
+	as run-command x
+		server run cwd, x
+	as version-command
+		out print "{this-executable crow-version}"
+
+-run void(server server, cwd file-path, run run-command) summon, native extern
+	os os = run.options is-fake-extern ? none : get-os
+	server with-program-for-main run.main, (os.build-target-native,), program =>
+		match run options
+		as aot-run-options x
+			server build-and-run cwd, program, run.main.program-args, x
+		as interpret-run-options x
+			x.fake-extern with-real-or-fake-extern extern_ =>
+				match server build-and-interpret extern_, (text => err print text), program, os, x.version, (), (server get-all-args run.main)
+				as exit-code exit
+					assert exit == ok : exit.value.to exit
+				as signal r
+					throw r.signal.to exit-signal
+		as jit-run-options _
+			throw todo
+		as node-js-run-options
+			server build-and-run-node-js cwd, program, run.main.program-args
+
+# TODO: no need for 'with', just return it ------------------------------------------------------------------------------------
+-with-real-or-fake-extern void(fake-extern bool, f void mut(_ extern_)) summon, native extern
+	if fake-extern
+		f[((pipe, x) => pipe print-no-newline x) fake-extern]
+	else
+		f[real-extern]
+
+-get-crow-include-dir file-path(this-executable file-path) summon
+	this-dir = this-executable parent-or-empty
+	this-dir-dir = this-dir parent-or-empty
+	if trusted extern windows
+		this-dir-dir.base-name is "crow"
+		this-dir-dir / "include"
+	else
+		usr = "usr" root-file-path
+		if this-dir == usr / "bin"
+			usr / "include" / "crow"
+		elif this-dir == usr / "local" / "bin"
+			usr / "local" / "include" / "crow"
+		else
+			this-dir-dir.base-name is "crow"
+			this-dir-dir / "include"
+
+-get-all-args string[](server server, main main-kind)
+	(server.uris-info show-uri-prefer-relative main.main-uri-for-all-args) ~ main.program-args
+
+-do-print void(server server, command print-command) summon, native extern
+	main-uri = command main-uri
+	match command kind
+	as print-ast
+		server load-single-file main-uri
+		server print-ast main-uri print-diags-and-json
+	as print-model
+		server with-program-for-roots (main-uri,), program =>
+			out print "{server json-of-model program, main-uri}"
+	as print-concrete-model
+		server with-program-for-main (main-uri main-kind-main-function ()), (), program =>
+			out print "{server json-of-concrete-model (get-os version-info-for-interpret default), program}"
+	as print-low-model
+		server with-program-for-main (main-uri main-kind-main-function ()), (), program =>
+			out print "{server json-of-low-model (get-os version-info-for-interpret default), program}"
+	as print-ide-at-pos x
+		server with-program-for-roots (main-uri,), program =>
+			out print "{server json-for-print-ide-at-pos program, (main-uri, x.line-and-column), x.kind}"
+	as print-ide-whole-file x
+		server with-program-for-roots (main-uri,), program =>
+			out print "{server json-for-print-ide-whole-file program, main-uri, x}"
+
+build-and-run void(
+	server server,
+	cwd file-path,
+	program program-with-main,
+	program-args string[],
+	options aot-run-options,
+) summon, native extern
+	temp-base = program temp-base-path cwd
+	with c-path : temp-base temp-path ".c"
+		with exe-path : temp-base temp-path get-os.default-executable-extension
+			server with-build-to-c-and-exe c-path, exe-path, options.version, options.compile-options, program, libs =>
+				# Doing this after 'runProgram' since that may use the '.pdb' file
+				finally cwd cleanup-compile c-path, exe-path
+				libs run-program (exe-path, program-args)
+
+build-and-run-node-js void(
+	server server,
+	cwd file-path,
+	program program-with-main,
+	program-args string[],
+) summon, native extern
+	with js : program temp-base-path cwd temp-path ".js"
+		server with-write-to-js-script program, js, node, false, () =>
+			(js, program-args) run-node-js-program
+
+temp-base-path uri(program program-with-main, cwd file-path)
+	program.main-fun.uri-for-temp-path ?? cwd / "temp" to
+
+build-all-outputs void(
+	server server,
+	options crow-build-options,
+	program program-with-main,
+) summon, native extern
+	find-path file-path? mut(kind single-build-output-kind) = kind =>
+		(options.out find x => x.kind == kind)?.path
+	# 'exe' build must be done after 'c' build.
+	exe = find-path[executable]
+	exe-compile-command mut path-and-args? = ()
+
+	build-c void mut(c-path file-path) = c-path =>
+		server with-write-to-c c-path, exe, options.version, options.c-compile-options, program, (compile-command, _) =>
+			exe-compile-command := compile-command,
+	build-js-script void mut(path file-path, target js-target) = (path, target) =>
+		server with-write-to-js-script program, path, target, true, () => ()
+	build-js-modules void mut(dir file-path, target js-target) = (dir, target) =>
+		server with-write-to-js-modules program, dir, target, main =>
+			out print "Main module is {main}"
+	
+	for out : options out
+		match out kind
+		as c
+			build-c[out path]
+		as executable
+			() # do this last
+		# TODO: NEATER -- just have node-ness be a flag ------------------------------------------------------------------------
+		as js-modules
+			build-js-modules[out.path, browser]
+		as js-script
+			build-js-script[out.path, browser]
+		as node-js-modules
+			build-js-modules[out.path, node]
+		as node-js-script
+			build-js-script[out.path, node]
+
+	if _ ?= exe
+		exe-compile-command! build-to-exe-from-c
+	
+# TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
+-with-write-to-js-script void(
+	server server,
+	program program-with-main,
+	out-file file-path,
+	target js-target,
+	include-source-map bool,
+	f void mut(),
+) summon, native extern
+	source-map-path file-path? = if include-source-map
+		(out-file add-extension ".map"),
+	result = server build-to-js-script program, target, source-map-path?.base-name
+	main-permissions permissions = do
+		read: true
+		write: true
+		execute: match target
+		as browser
+			false
+		as node
+			true
+	out-file write-file result.js, main-permissions, allow
+	if map ?= source-map-path
+		map write-file result.map!, read-write, allow
+	f[]
+
+# TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
+with-write-to-js-modules void(
+	server server,
+	program program-with-main,
+	out-dir file-path,
+	target js-target,
+	f void mut(main-js file-path),
+) summon, native extern
+	result = server build-to-js-modules program, target
+	out-dir write-files-to-dir result.output-files
+	f[out-dir concat-file-path-and-path result.main-js]
+
+# TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
+-with-program-for-main void(
+	server server,
+	main main-kind,
+	targets build-target[],
+	f void mut(x program-with-main),
+) summon, native extern
+	server load-all-files-for-main main
+	program = server get-program-for-main main, targets
+	if program has-any-diagnostics
+		err print (server show-diagnostics program)
+	if program has-fatal-diagnostics
+		err print "Stopping due to compile errors."
+		throw exit
+	f[program]
+
+# TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
+-with-program-for-roots void(server server, roots uri[], f void mut(x program)) summon, native extern
+	server load-all-files roots
+	program = server get-program
+	if program has-any-diagnostics
+		err print (server show-diagnostics program)
+	f[program]
+
+# TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
+-with-write-to-c void(
+	server server,
+	c-path file-path,
+	exe-path file-path?,
+	version version-options,
+	c-compile-options c-compile-options,
+	program program-with-main,
+	f void mut(compile-command path-and-args, extern_ extern-libraries),
+) summon, native extern
+	assert c-compiler ?= find-path-to-c-compiler : exit
+	os = get-os
+	params write-to-c-params = do
+		c-compiler: c-compiler
+		c-path: c-path
+		exe-path: exe-path ?? c-path default-executable-path os
+		compile-options: c-compile-options
+	result = server build-to-c os, version, params, program
+	c-path write-file result.write-to-c-result.c-source, read-write, allow
+	f[result.write-to-c-result.compile-command, result.extern-libraries]
+
+# TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
+-with-build-to-c-and-exe void(
+	server server,
+	c-path file-path,
+	exe-path file-path,
+	version version-options,
+	c-compile-options c-compile-options,
+	program program-with-main,
+	f void mut(x extern-libraries),
+) summon, native extern
+	server with-write-to-c c-path, (exe-path,), version, c-compile-options, program, (compile-command, extern-libraries) =>
+		compile-command build-to-exe-from-c
+		f[extern-libraries]
+
+-build-to-exe-from-c void(compile-command path-and-args) summon, native extern
+	compile-command run-compiler
+
+-print-diags-and-json void(a diags-and-result-json) summon
+	unless a.diagnostics is-empty
+		err print a.diagnostics
+	out print "{a.result}"
+
+# TODO: have this in std- -------------------------------------------------------------------------------------------------------------
+-each-file-in-directory-recursive void(
+	dir-path file-path,
+	f void mut(x file-path),
+) summon, native extern
+	for path : dir-path.to paths-in-dir
+		match path get-path-kind
+		as other
+			()
+		as file
+			f[path must-parse-file-path]
+		as directory
+			path.must-parse-file-path each-file-in-directory-recursive f
+
+-try-read-file read-file-result(uri uri) summon, native extern
+	guard uri uri-is-file : not-found::read-file-diag.to
+	try
+		bytes nat8[] = uri.as-file-path.to read-file
+		content file-content = bytes,
+		content to
+	catch path-not-found _
+		not-found::read-file-diag to
+	catch not-a-text-file _
+		error::read-file-diag to
+	catch file-system-error _
+		error::read-file-diag to
+
+# TODO: have in std (and actually use the system's temp directory ...) ------------------------------------------------------------------------------------------------------------
+temp-path record(base-path uri, extension symbol) nominal
+with-block[out] out(a temp-path, f out mut(path file-path)) summon, native extern
+	if a.base-path uri-is-file
+		base = a.base-path as-file-path
+		random = random::nat64.to-hex
+		temp-path file-path = base alter-extension ".{random}.{a extension}"
+		finally temp-path.to remove-file
+		f[temp-path]
+	else
+		err print "Don't know where to put temporary file near {a.base-path} (since it is not a file path)"
+		throw todo
+
+-run-compiler void(path-and-args path-and-args) summon, native extern
+	# Extern library linker arguments are already in args
+	assert trusted extern libc : todo
+	assert trusted extern posix : todo
+	match path-and-args.path.to spawn-and-wait path-and-args.args
+	as exited x
+		assert x.exit-code == 0 : x.exit-code exit
+	as signaled x
+		throw x.signal exit-signal
+
+-write-files-to-dir void(_ file-path, _ path-and-content[]) summon, native extern
+	throw todo # See the D version
+
+-run-program void(_ extern-libraries, _ path-and-args) summon, native extern
+	# TODO: needs to set up environment for child processes ... see the D version
+	throw todo
+
+-run-node-js-program void(_ path-and-args) summon, native extern
+	# See the D version
+	throw todo
+
+-cleanup-compile void(cwd file-path, c-path file-path, exe-path file-path) summon, native extern
+	guard trusted extern windows
+	exe-path alter-extension ".ilk" remove-file-if-exists
+	exe-path alter-extension ".pdb" remove-file-if-exists
+	obj-base-name = c-path alter-extension ".obj" base-name
+	cwd / obj-base-name remove-file-if-exists
+
+-remove-file-if-exists void(a file-path) summon, native extern
+	try
+		a.to remove-file
+	catch path-not-found _
+		()
+
+-allow-overwrite enum(allow, disallow)
+-write-file void(path file-path, content string, permissions permissions, overwrite allow-overwrite) summon, native extern
+	match overwrite
+	as allow
+		()
+	as disallow
+		# TODO: this could be integrated with opening the file! See 'openFileForWrite' in 'fileSystem.d' --------------------------------------
+		forbid path.to path-exists : path.to path-already-exists
+	path.to write-file content
+	path.to set-permissions permissions.user-only
+
+-find-path-to-c-compiler file-path?()
+	forbid trusted extern windows : todo # See D version
+	"/usr/bin/cc".must-parse-file-path,

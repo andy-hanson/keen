@@ -205,7 +205,7 @@ ExitCodeOrSignal buildAndInterpret(
 			return withTempAllocImpure!ExitCodeOrSignal(
 				server.metaAlloc, AllocKind.interpreter, (ref Alloc bytecodeAlloc) {
 					ByteCode byteCode = generateBytecode(
-						perf, bytecodeAlloc, program.program, lowProgram,
+						perf, bytecodeAlloc, getShowCtx(buildAlloc, server), program.program, lowProgram,
 						force(externPointers), extern_.aggregateCbs, extern_.makeSyntheticFunPointers);
 					return ExitCodeOrSignal(runBytecode(
 						perf, getShowDiagCtx(buildAlloc, server, program.program),

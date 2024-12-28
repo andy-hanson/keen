@@ -117,6 +117,7 @@ void writeStructMangledName(scope ref Writer writer, in MangledNames mangledName
 			writer ~= "__BOGUS";
 		},
 		(in ConcreteStructSourceInst x) {
+			writer ~= "s_";
 			writeMangledName(writer, mangledNames, x.decl.name);
 			maybeWriteIndexSuffix(writer, mangledNames.structToNameIndex[source]);
 		},
@@ -300,7 +301,9 @@ bool conflictsWithCName(Symbol a) {
 		case symbol!"int".value:
 		case symbol!"log".value: // defined by tgmath.h
 		case symbol!"nan".value: // defined by mathcalls.h
+		case symbol!"return".value:
 		case symbol!"signed".value:
+		case symbol!"struct".value:
 		case symbol!"unsigned".value:
 		case symbol!"void".value:
 		case symbol!"while".value:
