@@ -444,6 +444,9 @@ FunBody inner(
 			return binary(BuiltinBinary.referenceEqual);
 		case symbol!"reference-from-pointer".value:
 			return unary(BuiltinUnary.referenceFromPointer);
+		case symbol!"require".value:
+			// TODO: validate the signature
+			return FunBody(BuiltinFun(JsFun.require));
 		case symbol!"round".value:
 			return unaryMath(BuiltinUnaryMath.roundFloat32, BuiltinUnaryMath.roundFloat64);
 		case symbol!"round-down".value:

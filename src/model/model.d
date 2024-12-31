@@ -1172,6 +1172,7 @@ enum JsFun {
 	jsGlobal,
 	less,
 	plus,
+	require,
 	set,
 	typeof_,
 }

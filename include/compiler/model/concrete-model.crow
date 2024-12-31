@@ -12,7 +12,8 @@ concrete-struct-body union(
 	concrete-extern-type,
 	concrete-flags,
 	concrete-record,
-	concrete-union) mut
+	concrete-union,
+	concrete-struct-body-deferred) mut
 concrete-builtin-type record(kind builtin-type, type-args concrete-type[]) mut
 concrete-enum record(storage_ integral-type)
 concrete-flags record(storage_ integral-type)
@@ -22,6 +23,7 @@ concrete-record record(is-some-field-mutable bool, fields concrete-field[]) mut
 concrete-union record mut
 	| This may be empty for a lambda type with no implementations.
 	opt-members mut concrete-type[]?
+concrete-struct-body-deferred record
 has-members bool(a concrete-union)
 	a.members !is-empty
 members concrete-type[](a concrete-union)
@@ -34,11 +36,26 @@ is-packed bool(a concrete-struct)
 		if r ?= inst.decl.body record_
 			r.flags_ packed_
 
+concrete-type-id record(reference reference-kind, struct concrete-struct-id)
+== bool(a concrete-type-id, b concrete-type-id)
+<=> comparison(a concrete-type-id, b concrete-type-id)
+hash-mix void(a hasher, b concrete-type-id)
+	a hash-mix b.reference
+	a hash-mix b.struct
+# TODO: does this just always use the default-reference-kind? -------------------------------------------------------------
 concrete-type record(reference reference-kind, struct concrete-struct) mut
+id concrete-type-id(a concrete-type)
+	a.reference, a.struct.id
 reference-kind enum(by-val_, by-ref_)
 == bool(a reference-kind, b reference-kind)
+<=> comparison(a reference-kind, b reference-kind)
+to nat32(a reference-kind)
+hash-mix void(a hasher, b reference-kind)
+	a hash-mix b.to::nat32
 by-val_ concrete-type(struct concrete-struct)
 	by-val_, struct
+to json(_ concrete-type)
+	throw todo
 == bool(a concrete-type, b concrete-type)
 	a.reference == b.reference && a.struct == b.struct
 is-bogus bool(a concrete-type)
@@ -80,15 +97,18 @@ concrete-struct-source-lambda record(containing-fun concrete-fun, index nat) mut
 concrete-struct-id record
 	id nat
 == bool(a concrete-struct-id, b concrete-struct-id)
+<=> comparison(a concrete-struct-id, b concrete-struct-id)
+hash-mix void(a hasher, b concrete-struct-id)
+	a hash-mix b.id
 concrete-struct record mut
-	id nat
+	id concrete-struct-id
 	purity purity
 	special-kind concrete-struct-special-kind
 	source concrete-struct-source
 	body mut concrete-struct-body
 	late-default-reference-kind mut reference-kind?
 	late-type-size mut type-size?
-	# Only set for records
+	# Only set for records (TODO: Could this go in lower instead?) ---------------------------------------------------------------
 	field-offsets mut nat[]
 == bool(a concrete-struct, b concrete-struct)
 	a.id == b.id
@@ -183,7 +203,7 @@ concrete-fun-body-var-set record(var concrete-var) mut
 concrete-fun-body-deferred record
 
 concrete-fun-source union(
-	concrete-fun-key,
+	concrete-fun-source-regular,
 	concrete-fun-source-lambda,
 	concrete-fun-source-test,
 	concrete-fun-source-wrap-main) mut
@@ -202,6 +222,9 @@ concrete-fun-source-wrap-main record(range uri-and-range)
 concrete-fun-id record
 	id nat
 == bool(a concrete-fun-id, b concrete-fun-id)
+<=> comparison(a concrete-fun-id, b concrete-fun-id)
+hash-mix void(a hasher, b concrete-fun-id)
+	a hash-mix b.id
 concrete-fun record mut
 	id concrete-fun-id
 	source concrete-fun-source
@@ -212,7 +235,7 @@ module-uri uri(a concrete-fun)
 	a.range uri
 range uri-and-range(a concrete-fun)
 	match a source
-	as concrete-fun-key x
+	as concrete-fun-source-regular x
 		x.decl range
 	as concrete-fun-source-lambda x
 		x.containing-fun.module-uri, x.body-expr.range
@@ -221,22 +244,34 @@ range uri-and-range(a concrete-fun)
 	as concrete-fun-source-wrap-main x
 		x range
 
-concrete-fun-key record mut
+concrete-fun-source-regular record mut
 	decl fun-decl
 	type-args concrete-type[]
 	spec-impls concrete-fun[]
+concrete-fun-key record
+	decl decl-id
+	type-args concrete-type-id[]
+	spec-impls concrete-fun-id[]
+== bool(a concrete-fun-key, b concrete-fun-key)
+<=> comparison(a concrete-fun-key, b concrete-fun-key)
+hash-mix void(a hasher, b concrete-fun-key)
+	a hash-mix b.decl
+	for x : b type-args
+		a hash-mix x
+	for x : b spec-impls
+		a hash-mix x
 
 # TODO: why would we ever care about this? --------------------------------------------------------------------------------------------
 is-variadic bool(a concrete-fun)
-	if x ?= a.source concrete-fun-key
+	if x ?= a.source concrete-fun-source-regular
 		x.decl.params.varargs !is-empty
 
 name symbol?(a concrete-fun)
-	a.source.concrete-fun-key?.decl?.name
+	a.source.concrete-fun-source-regular?.decl?.name
 
 is-summon bool(a concrete-fun)
 	match a source
-	as concrete-fun-key x
+	as concrete-fun-source-regular x
 		x.decl is-summon
 	as concrete-fun-source-lambda x
 		x.containing-fun is-summon
@@ -355,9 +390,9 @@ pointer-type-and-constants-concrete record mut
 all-constants-concrete record mut
 	c-strings string[]
 	static-symbols constant
-	arrs arr-type-and-constants-concrete
+	arrs arr-type-and-constants-concrete[]
 	| These are just the by-ref records
-	pointers pointer-type-and-constants-concrete
+	pointers pointer-type-and-constants-concrete[]
 
 concrete-var record(source var-decl, type concrete-type) mut
 

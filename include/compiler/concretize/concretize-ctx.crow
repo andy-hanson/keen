@@ -1,0 +1,679 @@
+import
+	../model/ast
+	../model/concrete-model
+	../model/model
+	../model/source-range
+	../model/version-info
+	../util/enum-map
+	../util/util
+	./all-constants-builder	
+
+type-args-scope alias
+	concrete-type[]
+
+type-args-scope-for-fun type-args-scope(a concrete-fun)
+	match a source
+	as concrete-fun-source-regular x
+		x type-args
+	as concrete-fun-source-lambda x
+		x.containing-fun type-args-scope-for-fun
+	as concrete-fun-source-test _
+		()
+	as concrete-fun-source-wrap-main _
+		()
+	
+specs-scope record(specs spec-inst[], spec-impls concrete-fun[]) mut
+specs-scope-for-fun specs-scope(a concrete-fun)
+	match a source
+	as concrete-fun-source-regular x
+		x.decl.specs, x.spec-impls
+	as concrete-fun-source-lambda x
+		x.containing-fun specs-scope-for-fun
+	as concrete-fun-source-test _
+		(), ()
+	as concrete-fun-source-wrap-main _
+		(), ()
+
+concretize-ctx record mut
+	next-id-value mut nat
+	version-info version-info
+	program-with-main program-with-main
+	file-content-getters file-content-getters
+	all-externs symbol-set
+	fill-in-concrete-fun-body void mut(ctx concretize-ctx, fun concrete-fun) # TODO: I could use a spec instead? ---------------------
+	late-create-error-function mut concrete-fun?
+	late-new-json-from-pairs-function mut concrete-fun?
+	late-to-json-from-json-array-function mut concrete-fun?
+	all-constants all-constants-builder
+	non-lambda-concrete-structs concrete-struct mut[(decl-id, concrete-type-id[])]
+	all-concrete-structs concrete-struct mut[]
+	concrete-var-lookup concrete-var mut[decl-id]
+	non-lambda-concrete-funs concrete-fun mut[concrete-fun-key]
+	deferred-type-size concrete-struct mut[]
+	deferred-methods concrete-fun mut[]
+	all-concrete-funs concrete-fun mut[]
+	| Index in the array is the fun ID
+	lambda-struct-to-impls concrete-lambda-impl mut[] mut[concrete-struct-id]
+	sum-type-to-cases concrete-sum-type-case mut[] mut[concrete-struct-id]
+	late-bogus-type mut concrete-type?
+	late-bool-type mut concrete-type?
+	late-char8-array-type mut concrete-type?
+	late-char8-const-pointer-type mut concrete-type?
+	late-char32-array-type mut concrete-type?
+	late-exception-type mut concrete-type?
+	late-void-type mut concrete-type?
+	late-integral-types mut (integral-type, concrete-type) enum-map?
+	late-string-type mut concrete-type?
+	late-symbol-type mut concrete-type?
+create-error-function concrete-fun(a concretize-ctx)
+	a late-create-error-function!
+new-json-from-pairs-function concrete-fun(a concretize-ctx)
+	a late-new-json-from-pairs-function!
+to-json-from-json-array-function concrete-fun(a concretize-ctx)
+	a late-to-json-from-json-array-function!
+program program(a concretize-ctx)
+	a.program-with-main program
+common-funs common-funs(a concretize-ctx)
+	a.program common-funs
+common-types common-types(a concretize-ctx)
+	a.program common-types
+
+next-id concrete-fun-id(a concretize-ctx)
+	res = a next-id-value # TODO: use a different ID sequence than structs ------------------------------------------------------------
+	a.next-id-value +:= 1
+	res,
+next-id concrete-struct-id(a concretize-ctx)
+	res = a next-id-value
+	a.next-id-value +:= 1
+	res,
+
+concrete-lambda-impl record(closure-type concrete-type, impl concrete-fun) mut
+concrete-sum-type-case record(member-type concrete-type, method-impls mut concrete-fun?[]) mut
+
+finish-concrete-vars concrete-var[](ctx concretize-ctx)
+	for _, v : ctx.concrete-var-lookup; v
+
+-bogus-type concrete-type(a concretize-ctx)
+	a late-bogus-type ?? do
+		bogus-body concrete-struct-body = false concrete-record ()
+		res concrete-struct = a.next-id, data_, none, concrete-struct-source-bogus, bogus-body, (), (), ()
+		a.all-concrete-structs ~= res
+		res.default-reference-kind := by-val_
+		res.type-size := 0, 1
+		res.field-offsets := ()
+		a.late-bogus-type := res.by-val_,
+		res by-val_
+
+bool-type concrete-type(a concretize-ctx)
+	a late-bool-type ?? do
+		res = a get-concrete-type-for-struct-inst a.common-types.bool, ()
+		a.late-bool-type := res,
+		res
+
+json-type concrete-type(a concretize-ctx)
+	a.new-json-from-pairs-function return-type
+
+void-type concrete-type(a concretize-ctx)
+	a late-void-type ?? do
+		res = a get-concrete-type-for-struct-inst a.common-types.void, ()
+		a.late-void-type := res,
+		res
+
+char8-array-type concrete-type(a concretize-ctx)
+	a late-char8-array-type ?? do
+		res = a get-concrete-type-for-struct-inst a.common-types.char8-array, ()
+		a.late-char8-array-type := res,
+		res
+-char8-const-pointer-type concrete-type(a concretize-ctx)
+	a late-char8-const-pointer-type ?? do
+		res = a get-concrete-type-for-struct-inst a.common-types.char8-const-pointer, ()
+		a.late-char8-const-pointer-type := res,
+		res
+
+char32-array-type concrete-type(a concretize-ctx)
+	a late-char32-array-type ?? do
+		res = a get-concrete-type-for-struct-inst a.common-types.char32-array, ()
+		a.late-char32-array-type := res,
+		res
+
+integral-types (integral-type, concrete-type) enum-map(a concretize-ctx)
+	a late-integral-types ?? do
+		res (integral-type, concrete-type) enum-map = for x : make-enum-map
+			a get-concrete-type-for-struct-inst a.common-types[x], ()
+		a.late-integral-types := res,
+		res
+integral-type concrete-type(a concretize-ctx, type integral-type)
+	a.integral-types[type]
+nat64-type concrete-type(a concretize-ctx)
+	a integral-type nat64
+
+exception-type concrete-type(a concretize-ctx)
+	a late-exception-type ?? do
+		res = a get-concrete-type-for-struct-inst a.common-types.exception, ()
+		a.late-exception-type := res,
+		res
+
+string-type concrete-type(a concretize-ctx)
+	# TODO: I should measure if using 'late-string-type' is actually aany better than just getting it every time ..................
+	a late-string-type ?? do
+		res = a get-concrete-type-for-struct-inst a.common-types.string, ()
+		a.late-string-type := res,
+		res
+
+symbol-type concrete-type(a concretize-ctx)
+	a late-symbol-type ?? do
+		res = a get-concrete-type-for-struct-inst a.common-types.symbol, ()
+		a.late-symbol-type := res,
+		res
+
+symbol-array-type concrete-struct(a concretize-ctx)
+	a get-concrete-type-for-struct-inst a.common-types.symbol-array, () must-be-by-val
+
+get-referenced-type concrete-type(ctx concretize-ctx, type concrete-type)
+	inst = type.struct.source concrete-struct-source-inst!
+	assert inst.decl == ctx.common-types.reference
+	inst.type-args only
+
+constant-c-string constant(a concretize-ctx, value string)
+	a.all-constants get-constant-c-string value
+
+constant-symbol constant(a concretize-ctx, value symbol)
+	a.all-constants get-constant-symbol value
+
+-ids concrete-type-id[](a concrete-type[])
+	for x : a; x id
+-ids concrete-fun-id[](a concrete-fun[])
+	for x : a; x id
+
+get-concrete-fun concrete-fun(ctx concretize-ctx, decl fun-decl, type-args concrete-type[], spec-impls concrete-fun[])
+	key concrete-fun-key = decl.id, type-args.ids, spec-impls.ids
+	res = ctx.non-lambda-concrete-funs get-or-add-and-did-add key, () =>
+		ctx get-concrete-fun-from-key decl, type-args, spec-impls
+	if res did-add
+		ctx add-concrete-fun res.value
+		ctx.fill-in-concrete-fun-body[ctx, res.value]
+	res value
+
+get-non-template-concrete-fun concrete-fun(ctx concretize-ctx, inst fun-inst)
+	assert inst.decl !is-template
+	ctx get-concrete-fun inst.decl, (), ()
+
+get-concrete-fun-for-lambda concrete-fun(
+	ctx concretize-ctx,
+	containing-concrete-fun concrete-fun,
+	index nat,
+	return-type concrete-type,
+	model-param destructure,
+	params concrete-local[],
+	body-expr expr,
+)
+	forbid return-type is-bogus
+	res concrete-fun = do
+		id: ctx next-id
+		source: containing-concrete-fun concrete-fun-source-lambda model-param, body-expr, index
+		return-type: return-type
+		params: params
+		body: concrete-fun-body-deferred
+	ctx.fill-in-concrete-fun-body[ctx, res]
+	ctx add-concrete-fun res
+	res
+
+get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-inst, type-args-scope type-args-scope)
+	# TODO: disable these conversions if compiling to JS (or maybe just use a concrete-struct-special-kind and always do it in lower?) -------------------------------------
+	guard inst !is-future && inst !is-mut-array : ctx get-concrete-type-for-struct-inst ctx.program.other-types.future-or-mut-array-to-impl[inst id]!, type-args-scope
+	guard inst !is-string : ctx char8-array-type
+	guard inst !is-symbol : ctx char8-const-pointer-type
+
+	ctx with-concrete-types inst.type-args, type-args-scope, type-args =>
+		decl = inst decl
+		res = ctx.non-lambda-concrete-structs get-or-add-and-did-add (decl.id, type-args.ids), () =>
+			purity mut = decl purity
+			for x : type-args
+				purity worse-purity:= x purity
+			# TODO: factor out a function -------------------------------------------------------------------------------------
+			special-kind = if decl is-array-or-mut-slice
+				array-or-mut-array
+			elif inst == ctx.program.common-funs.catch-point-type
+				catch-point
+			elif inst == ctx.common-types.fiber
+				fiber
+			elif decl is-pointer-const-or-mut
+				pointer
+			elif ctx.common-types is-tuple decl
+				tuple
+			else
+				none
+			res concrete-struct = do
+				id: ctx next-id
+				purity: purity
+				special-kind: special-kind
+				source: decl concrete-struct-source-inst type-args
+				body: concrete-struct-body-deferred
+				late-default-reference-kind: ()
+				late-type-size: ()
+				field-offsets: ()
+			ctx.all-concrete-structs ~= res
+			res
+		if res did-add
+			ctx initialize-concrete-struct inst, res.value, type-args
+			if decl is-lambda-type
+				ctx.lambda-struct-to-impls[res.value id] := ()
+		if res.value !default-reference-kind-is-set
+			# The only way this would not be set is if we are still computing its the size.
+			# In that case, it's a recursive record, so it should be by-ref.
+			res.value.default-reference-kind := by-ref_
+		res.value.default-reference-kind, res.value
+
+get-concrete-type concrete-type(ctx concretize-ctx, type type, type-args-scope type-args-scope)
+	match type
+	as bogus-type
+		ctx bogus-type
+	as type-param-index x
+		type-args-scope[x index]
+	as struct-inst x
+		ctx get-concrete-type-for-struct-inst x, type-args-scope
+
+# TODO: don't need 'with' -------------------------------------------------------------------------------------------------
+-with-concrete-types[t] t(ctx concretize-ctx, types type[], type-args-scope type-args-scope, f t mut(x concrete-type[]))
+	concrete-types concrete-type[] = for t : types
+		ctx get-concrete-type t, type-args-scope
+	f[concrete-types]
+
+concrete-type-from-closure concrete-type(
+	ctx concretize-ctx,
+	closure-fields concrete-field[],
+	source concrete-struct-source,
+)
+	if closure-fields is-empty
+		ctx void-type
+	else
+		purity mut purity = data_
+		for f : closure-fields
+			# Lambda fields are never mutable (TODO: use a different type for them then?) ---------------------------------------
+			forbid f is-mutable
+			purity worse-purity:= f.type purity
+		cs concrete-struct = do
+			id: ctx next-id
+			purity: purity
+			special-kind: none
+			source: source
+			body: closure-fields concrete-struct-body-for-fields
+			late-default-reference-kind: ()
+			late-type-size: ()
+			field-offsets: ()
+		ctx.all-concrete-structs ~= cs
+		# TODO: consider passing closure by value
+		by-ref_, cs
+
+-set-concrete-struct-record-size-or-defer void(ctx concretize-ctx, cs concrete-struct)
+	if cs can-get-record-size
+		cs set-concrete-struct-record-size
+	else
+		ctx.deferred-type-size ~= cs
+
+-can-get-record-size bool(a concrete-struct)
+	a.body.concrete-record!.fields every field =>
+		field.type has-size-or-pointer-size-bytes
+
+-set-concrete-struct-record-size void(a concrete-struct)
+	fields-type fields-type = if _ ?= a.source concrete-struct-source-lambda
+		closure
+	else
+		record_
+	packed_ = fields-type == record_ && a.source.concrete-struct-source-inst!.decl.body.record_!.flags_ packed_
+	size = packed_ record-size a.body.concrete-record!.fields
+	unless a default-reference-kind-is-set
+		a.default-reference-kind := size.type-size get-default-reference-kind-for-fields a.is-self-mutable, fields-type
+	a.type-size := size type-size
+	a.field-offsets := size field-offsets
+
+get-concrete-fun-from-called concrete-fun?(
+	ctx concretize-ctx,
+	type-scope type-args-scope,
+	specs-scope specs-scope,
+	called called,
+)
+	match called
+	as called-bogus _
+		()
+	as fun-inst x
+		ctx get-concrete-fun-from-fun-inst type-scope, specs-scope, x
+	as called-spec-sig x
+		(specs-scope get-spec-sig-implementation x),
+
+-get-concrete-fun-from-fun-inst concrete-fun?(
+	ctx concretize-ctx,
+	type-scope type-args-scope,
+	specs-scope specs-scope,
+	fun-inst fun-inst,
+)
+	spec-impls concrete-fun[]? = for x : fun-inst.spec-impls map-or-none
+		ctx get-concrete-fun-from-called type-scope, specs-scope, x
+	if impls ?= spec-impls
+		ctx with-concrete-types fun-inst.type-args, type-scope, type-args =>
+			(ctx get-concrete-fun fun-inst.decl, type-args, impls),
+
+-get-spec-sig-implementation concrete-fun(specs-scope specs-scope, spec-sig called-spec-sig)
+	index nat reference = 0,
+	for x : specs-scope specs
+		if index search-spec-sig-index-recur x, spec-sig.spec-inst
+			break specs-scope.spec-impls[*index + spec-sig.sig-index]
+	else
+		throw unreachable
+-search-spec-sig-index-recur bool(index nat reference, inst spec-inst, search spec-inst)
+	for parent : inst parents
+		if index search-spec-sig-index-recur parent, search
+			break true
+	else
+		if inst == search
+			true
+		else
+			*index +:= inst.decl.sigs size
+			false
+
+# TODO: RENAME (the D version took ConcreteFunKey) -------------------------------------------------------------------------
+-get-concrete-fun-from-key concrete-fun(
+	ctx concretize-ctx,
+	decl fun-decl,
+	type-args concrete-type[],
+	spec-impls concrete-fun[],
+)
+	return-type = ctx get-concrete-type decl.return-type, type-args
+	params concrete-local[] = for x : decl.params params-array
+		ctx concretize-param-destructure x, type-args
+	id: ctx next-id
+	source: decl concrete-fun-source-regular type-args, spec-impls
+	return-type: return-type
+	params: params
+	body: concrete-fun-body-deferred
+
+concretize-lambda-params concrete-local[](
+	ctx concretize-ctx,
+	closure-type concrete-type,
+	param destructure,
+	type-args-scope type-args-scope,
+)
+	(concrete-local-source-closure, closure-type), (ctx concretize-param-destructure param, type-args-scope)
+
+-concretize-param-destructure concrete-local(ctx concretize-ctx, a destructure, type-args-scope type-args-scope)
+	source concrete-local-source = match a
+	as destructure-ignore _
+		ignore::concrete-generated-local-kind to
+	as local x
+		x to
+	as destructure-split _
+		destruct::concrete-generated-local-kind to
+	source, (ctx get-concrete-type a.type, type-args-scope)
+
+add-concrete-fun void(ctx concretize-ctx, fun concrete-fun)
+	ctx.all-concrete-funs ~= fun
+
+-can-get-union-size bool(members concrete-type[])
+	members every type =>
+		type has-size-or-pointer-size-bytes
+
+-union-size type-size(members concrete-type[])
+	union-align nat = 8
+	max-member mut nat = 0
+	for x : members
+		max-member max:= x.size-or-pointer-size-bytes size-bytes
+	size-bytes = 8 + max-member round-up-to union-align
+	size-bytes, union-align
+
+-get-default-reference-kind-for-fields reference-kind(type-size type-size, is-self-mutable bool, type fields-type)
+	max-size nat = match type
+	as record_
+		8 * 2
+	as closure
+		8
+	is-self-mutable || type-size.size-bytes > max-size ? by-ref_ : by-val_
+
+-fields-type enum(record_, closure)
+-== bool(a fields-type, b fields-type)
+
+-concrete-struct-body-for-fields concrete-struct-body(fields concrete-field[])
+	is-some-field-mutable = fields exists x => x is-mutable
+	is-some-field-mutable concrete-record fields
+
+-type-size-and-field-offsets record(type-size type-size, field-offsets nat[])
+-record-size type-size-and-field-offsets(packed_ bool, fields concrete-field[])
+	max-field-size mut nat = 1
+	max-field-alignment mut nat = 1
+	offset-bytes mut nat = 0
+	field-offsets nat[] = for field : fields
+		field-size = field.type size-or-pointer-size-bytes
+		max-field-size max:= field-size size-bytes
+		unless packed_
+			if field-size.alignment-bytes != 0
+				max-field-alignment max:= field-size alignment-bytes
+				offset-bytes round-up-to:= field-size	alignment-bytes
+		field-offset = offset-bytes
+		offset-bytes +:= field-size size-bytes
+		field-offset
+	type-size type-size = (offset-bytes round-up-to max-field-alignment), max-field-alignment
+	type-size, field-offsets
+
+-initialize-concrete-struct void(
+	ctx concretize-ctx,
+	inst struct-inst,
+	res concrete-struct,
+	type-args concrete-type[],
+)
+	match inst.decl body
+	as struct-body-bogus
+		throw unreachable
+	as builtin-type x
+		ctx initialize-concrete-struct-for-builtin res, type-args, x
+	as enum_ x
+		res.default-reference-kind := by-val_
+		res.body := x.storage_ concrete-enum
+		res.type-size := x.storage_ type-size-for-enum-or-flags
+	as extern-type x
+		res.default-reference-kind := by-val_
+		res.body := concrete-extern-type
+		res.type-size := x.size ?? (0, 0)
+	as flags_ x
+		res.default-reference-kind := by-val_
+		res.body := x.storage_ concrete-flags
+		res.type-size := x.storage_ type-size-for-enum-or-flags
+	as record_ r
+		if val-or-ref ?= r.flags_ forced-by-val-or-ref
+			res.default-reference-kind := val-or-ref to
+		fields concrete-field[] = for f : r fields
+			debug-name: f name
+			is-mutable: f.mutability !is-empty
+			type: ctx get-concrete-type f.type, type-args
+		res.body := fields concrete-struct-body-for-fields
+		ctx set-concrete-struct-record-size-or-defer res
+	as sum-type x
+		res.default-reference-kind := by-val_
+		res.body := () concrete-union
+		ctx.deferred-type-size ~= res
+		ctx.sum-type-to-cases[res id] := for member : x listed-members
+			member-type = ctx get-concrete-type-for-struct-inst member.member, type-args
+			member-type, (ctx sum-type-method-impls-common member.method-impls, type-args)
+		if x.kind == union_
+			res finish-sum-type-cases ctx.sum-type-to-cases[res id]!
+
+-to reference-kind(a by-val-or-ref) # TODO: these should just be the same type ........................................................
+	match a
+	as by-val_
+		by-val_
+	as by-ref_
+		by-ref_
+
+ensure-sum-type-cases nat(ctx concretize-ctx, sum-type concrete-type, case-type concrete-type)
+	body = sum-type.must-be-by-val.body concrete-union!
+	if body has-members
+		body.members index-of! case-type
+	else
+		cases = ctx.sum-type-to-cases[sum-type.must-be-by-val.id]!
+		cases find-index (member => member.member-type == case-type) ?? do
+			res = cases size
+			cases ~= (case-type, (ctx sum-type-membership-method-impls sum-type, case-type))
+			res
+
+finish-sum-type-cases void(sum-type concrete-struct, cases concrete-sum-type-case mut[])
+	sum-type.body.concrete-union!.members := for x : cases
+		x member-type
+
+-sum-type-membership-method-impls concrete-fun?[](
+	ctx concretize-ctx,
+	sum-type concrete-type,
+	member-type concrete-type,
+)
+	sum-type-decl struct-decl = sum-type.must-be-by-val.source.concrete-struct-source-inst! decl
+	member-source = member-type.struct.source concrete-struct-source-inst!
+	membership = member-source.decl.sum-type-memberships must-find-only x => x.sum-type.decl == sum-type-decl
+	ctx sum-type-method-impls-common membership.method-impls, member-source.type-args
+
+-sum-type-method-impls-common concrete-fun?[](
+	ctx concretize-ctx,
+	method-impls called?[],
+	type-args type-args-scope,
+)
+	for x : method-impls
+		if c ?= x
+			ctx get-concrete-fun-from-called type-args, ((), ()), c
+
+-initialize-concrete-struct-for-builtin void(
+	ctx concretize-ctx,
+	struct concrete-struct,
+	type-args concrete-type[],
+	type builtin-type,
+)
+	struct.default-reference-kind := by-val_
+	match type
+	as fun-data
+		# Lambda types handled in 'finish-lambdas'
+		()
+	as fun-mut
+		()
+	as fun-shared
+		()	
+	as option
+		struct.body := ((ctx.void-type, type-args.only),) concrete-union
+		ctx.deferred-type-size ~= struct
+	else
+		# TODO: isn't that big expression the same as the local 'type-args'? ---------------------------------------------------
+		struct.body := type concrete-builtin-type struct.source.concrete-struct-source-inst!.type-args
+		struct.type-size := type get-builtin-struct-size ctx.version-info
+
+-type-size-for-enum-or-flags type-size(a integral-type)
+	size nat = a size-for-enum-or-flags
+	size, size
+-size-for-enum-or-flags nat(a integral-type)
+	match a
+	as int8
+		1
+	as nat8
+		1
+	as int16
+		2
+	as nat16
+		2
+	as int32
+		4
+	as nat32
+		4
+	as int64
+		8
+	as nat64
+		8
+
+deferred-fill-record-and-union-bodies void(ctx concretize-ctx)
+	until ctx.deferred-type-size is-empty
+		could-get-something mut = false
+		ctx.deferred-type-size filter-unordered struct =>
+			can-get mut = false
+			match struct body
+			as concrete-record _
+				can-get := struct can-get-record-size
+				if can-get
+					struct set-concrete-struct-record-size
+			as concrete-union u
+				can-get := u.members can-get-union-size
+				if can-get
+					struct.type-size := u.members union-size
+			else
+				throw unreachable
+			if can-get
+				could-get-something := true
+			!can-get
+		assert could-get-something
+
+-get-builtin-struct-size type-size(kind builtin-type, version version-info)
+	# TODO: SORT CASES ----------------------------------------------------------------------------------------------------
+	match kind
+	as bool
+		1, 1
+	as char8
+		1, 1
+	as int8
+		1, 1
+	as nat8
+		1, 1
+	as int16
+		2, 2
+	as nat16
+		2, 2
+	as char32
+		4, 4
+	as float32
+		4, 4
+	as int32
+		4, 4
+	as nat32
+		4, 4
+	as float64
+		8, 8
+	as fun-pointer
+		8, 8
+	as int64
+		8, 8
+	as nat64
+		8, 8
+	as const-pointer
+		8, 8
+	as mut-pointer
+		8, 8
+	as symbol
+		8, 8
+	as future
+		throw unreachable
+	as fun-data
+		throw unreachable
+	as fun-mut
+		throw unreachable
+	as fun-shared
+		throw unreachable
+	as option
+		throw unreachable
+	as mut-array
+		throw unreachable
+	as array
+		16, 8
+	as mut-slice
+		16, 8
+	as string
+		16, 8
+	as catch-point
+		forbid version is-interpreted : todo
+		match version os
+		as linux
+			# Keep in sync with 'catch point size' comment in writeToC_boilerplate_posix.c
+			0x40, 8
+		as node-js
+			throw unreachable
+		as none
+			throw unreachable
+		as web
+			throw unreachable
+		as windows
+			# Keep in sync with 'catch point size' comment in writeToC_boilerplate_msvc.c
+			0x100, 16
+	as js-any
+		# JS builds don't use concretize. But JS type may appear in a union.
+		0, 1
+	as void
+		0, 1

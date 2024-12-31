@@ -170,7 +170,7 @@ void finishLambdas(ref ConcretizeCtx ctx) {
 void finishVariants(ref ConcretizeCtx ctx) {
 	foreach (ConcreteStruct* sumType, MutArr!ConcreteSumTypeCase x; ctx.sumTypeToCases) {
 		if (!sumType.body_.as!ConcreteUnion.hasMembers) // It will already be set for a 'union'
-			finishSumTypeCases(ctx, sumType, x);
+			finishSumTypeCases(ctx.alloc, sumType, x);
 	}
 
 	foreach (ConcreteFun* fun; ctx.deferredMethods) {

@@ -66,11 +66,12 @@ import backend.js.jsAst :
 import backend.js.jsAstUtil : genEnumIntegralValue, genForceUnionMember, genThrowBogus, matchUnionMembers;
 import backend.js.sourceMap : JsAndMap, ModulePaths, Source;
 import backend.js.translateExpr : genAssertType, methodImpl, translateFunDecl, translateTest;
-import backend.js.translateExprCtx : makeCallNoInlineWithSpread;
+import backend.js.translateExprCtx : makeCall, TranslateExprCtx;
 import backend.js.translateModuleCtx :
 	aliasSource,
 	funSource,
 	jsNameForDecl,
+	localName,
 	makeDecl,
 	ModuleExportMangledNames,
 	structSource,
@@ -89,6 +90,7 @@ import model.model :
 	BuildTarget,
 	BuiltinType,
 	Called,
+	Destructure,
 	Enum,
 	EnumOrFlagsMember,
 	ExternType,
@@ -97,6 +99,7 @@ import model.model :
 	getAllFlagsValue,
 	ImportOrExport,
 	isTuple,
+	Local,
 	MainFunNat64OfArgs,
 	MainFunVoid,
 	methodCaller,
@@ -124,7 +127,7 @@ import model.model :
 import util.alloc.alloc : Alloc;
 import util.cell : Cell, cellGet, cellSet;
 import util.col.array :
-	emptySmallArray, isEmpty, map, mapOp, newArray, newSmallArray, SmallArray, zipPointers;
+	emptySmallArray, isEmpty, map, mapOp, newArray, newSmallArray, prepend, SmallArray, zipPointers;
 import util.col.arrayBuilder : add, addAll, ArrayBuilder, buildArray, Builder, finish;
 import util.col.hashTable : mustGet, withSortedKeys;
 import util.col.map : Map, mustGet;
@@ -857,11 +860,11 @@ void translateUnionDecl(
 			return new this({ bar: value })
 		}
 
-		m_method(...args) {
+		m_method(x, y) {
 			if ("foo" in this) {
-				return foo_method(this.foo)
+				return foo_method(this.foo. x. u)
 			} else if ("bar" in this) {
-				return bar_method(this.bar)
+				return bar_method(this.bar, x, y)
 			} else {
 				throw new Error("Invalid union value")
 			}
@@ -901,25 +904,24 @@ void translateUnionDecl(
 	}
 
 	foreach (size_t methodIndex, ref Signature method; a.methods) {
-		JsName args = JsName.local(symbol!"args");
+		TranslateExprCtx exprCtx = TranslateExprCtx(
+			ptrTrustMe(ctx), source.uri, FunOrTest(methodCaller(ctx.program, &method)));
+		JsParams params = JsParams(map!(JsDestructure, Destructure)(ctx.alloc, method.params, (ref Destructure x) =>
+			JsDestructure(localName(*x.as!(Local*)))));
+		JsExpr[] args = map(ctx.alloc, method.params, (ref Destructure x) =>
+			genIdentifier(source, localName(*x.as!(Local*))));
 		out_ ~= genInstanceMethod(
 			source, SyncOrAsync.sync, JsMemberName.sumTypeMethod(method.name),
-			JsParams(emptySmallArray!JsDestructure, some!JsDestructure(JsDestructure(args))),
+			params,
 			matchUnionMembers(
 				ctx.alloc, source, asUnion(a), genThis(source),
 				(size_t i, ref SumTypeMemberAndMethodImpls case_) {
 					Opt!Called called = case_.methodImpls[methodIndex];
-					return has(called)
-						? genReturn(
-							ctx.alloc, source,
-							makeCallNoInlineWithSpread(
-								ctx, source, SyncOrAsync.sync, FunOrTest(methodCaller(ctx.program, &method)),
-								force(called),
-								(scope ref Builder!JsExpr out_) {
-									out_ ~= genForceUnionMember(ctx.alloc, source, genThis(source), case_.member);
-								},
-								genIdentifier(source, args)))
-						: genThrowBogus(ctx.alloc, source);
+					if (!has(called)) return genThrowBogus(ctx.alloc, source);
+					JsExpr[] allArgs = prepend(
+						ctx.alloc, genForceUnionMember(ctx.alloc, source, genThis(source), case_.member), args);
+					JsExpr call = makeCall(exprCtx, source, force(called), allArgs, noAwait: true);
+					return genReturn(ctx.alloc, source, call);
 				}));
 	}
 

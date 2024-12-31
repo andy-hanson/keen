@@ -185,7 +185,6 @@ struct ConcretizeCtx {
 	Late!ConcreteType _exceptionType;
 	Late!ConcreteType _voidType;
 	Late!(EnumMap!(IntegralType, ConcreteType)) _integralTypes;
-	Late!ConcreteType _ctxType;
 	Late!ConcreteType _stringType;
 	Late!ConcreteType _symbolType;
 
@@ -464,7 +463,7 @@ Opt!(ConcreteFun*) getConcreteFunFromCalled(
 		(FunInst* funInst) =>
 			getConcreteFunFromFunInst(ctx, typeScope, specsScope, funInst),
 		(CalledSpecSig specSig) =>
-			some(getSpecSigImplementation(ctx, typeScope, specsScope, specSig)));
+			some(getSpecSigImplementation(specsScope, specSig)));
 
 private:
 
@@ -481,12 +480,7 @@ Opt!(ConcreteFun*) getConcreteFunFromFunInst(
 			withConcreteTypes(ctx, funInst.typeArgs, typeScope, (scope ConcreteType[] typeArgs) =>
 				getConcreteFun(ctx, funInst.decl, typeArgs, specImpls)));
 
-ConcreteFun* getSpecSigImplementation(
-	in ConcretizeCtx ctx,
-	in TypeArgsScope typeScope,
-	in SpecsScope specsScope,
-	CalledSpecSig specSig,
-) {
+ConcreteFun* getSpecSigImplementation(in SpecsScope specsScope, CalledSpecSig specSig) {
 	size_t index = 0;
 	foreach (SpecInst* x; specsScope.specs)
 		if (searchSpecSigIndexRecur(index, x, specSig.specInst))
@@ -648,7 +642,7 @@ void initializeConcreteStruct(
 						return res;
 					}));
 			if (x.kind == SumTypeKind.union_)
-				finishSumTypeCases(ctx, res, mustGet(ctx.sumTypeToCases, res));
+				finishSumTypeCases(ctx.alloc, res, mustGet(ctx.sumTypeToCases, res));
 		});
 }
 
@@ -666,13 +660,9 @@ public size_t ensureSumTypeCase(ref ConcretizeCtx ctx, ConcreteType sumType, Con
 			});
 }
 
-public void finishSumTypeCases(
-	ref ConcretizeCtx ctx,
-	ConcreteStruct* variant,
-	ref MutArr!ConcreteSumTypeCase x,
-) {
+public void finishSumTypeCases(ref Alloc alloc, ConcreteStruct* variant, ref MutArr!ConcreteSumTypeCase x) {
 	variant.body_.as!ConcreteUnion.members =
-		small!ConcreteType(map(ctx.alloc, asTemporaryArray(x), (ref ConcreteSumTypeCase x) =>
+		small!ConcreteType(map(alloc, asTemporaryArray(x), (ref ConcreteSumTypeCase x) =>
 			x.memberType));
 }
 

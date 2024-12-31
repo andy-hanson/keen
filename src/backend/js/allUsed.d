@@ -534,6 +534,7 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 		void usedReturnType() {
 			trackAllUsedInType(res, typesUsedAt, a.returnType);
 		}
+
 		a.body_.match!void(
 			(FunBodyBogus _) {},
 			(AutoFun x) {
@@ -545,7 +546,9 @@ void trackAllUsedInFun(ref AllUsedBuilder res, Uri from, FunDecl* a, FunUse use)
 					case AutoFunKind.flagsToSymbolArray:
 					case AutoFunKind.compare:
 					case AutoFunKind.integralToOptEnumOrFlags:
+						break;
 					case AutoFunKind.symbolToOptEnumOrFlags:
+						trackAllUsedInType(res, typesUsedAt, mustUnwrapOptionType(a.returnType));
 						break;
 					case AutoFunKind.toJson:
 						ref CommonFuns commonFuns() => res.program.commonFuns;

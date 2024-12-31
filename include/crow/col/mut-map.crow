@@ -8,10 +8,10 @@ import
 	../number: ==, <=>, +, -, *, %, is-even, nat64
 	../option: ==, ??, is-empty, new, option
 	../string: ==, interpolate, join, show, string, upper-case
-	../test-util: is
+	../test-util: is, should-throw
 	../tuple: ==, new, tuple2
 	./array: ==, ~=, array, build, iterate, new, size
-	./collection: build-options, fill, find, find-index, for-loop, n-of, size-hint
+	./collection: build-options, fill, find, find-index, for-loop, n-of, size-hint, was-locked
 	./map: ==, ~=, build, map, new
 	./mut-array:
 		~=, copy, filter=, is-at-capacity, is-empty, iterate, map=, move-to, mut-array, new,
@@ -23,6 +23,7 @@ import
 
 | Mutable unordered map.
 +mut-map[k, v] record mut
+	-locked mut bool
 	-entries mut (k, v) entry mut-slice
 	-total-size mut nat64
 
@@ -40,8 +41,7 @@ import
 | Since hash conflicts are possible,
 | this makes no guarantees about whether more allocations will be needed.
 -mut-map-with-capacity[k, v] v mut[k](capacity nat64) k key
-	# TODO: should not need type annotation
-	(capacity n-of none)::((k, v) entry mut-slice), 0
+	false, (capacity n-of none), 0
 
 | Convert a list of pairs to a map.
 | Later pairs overwrite earlier pairs with the same key.
@@ -64,13 +64,18 @@ import
 	a clear
 	res
 +move-to[k, v] v mut[k](a v mut[k]) k key
-	res v mut[k] = a.entries, a.total-size
+	forbid a.locked
+	res v mut[k] = false, a.entries, a.total-size
 	a.entries := ()
 	a.total-size := 0
 	res
 
 | Copy pairs to a new {mut-map}.
 +copy[k, v] v mut[k](a v mut[k]) k key
+	forbid a locked : was-locked
+	a.locked := true
+	finally do
+		a.locked := false
 	entries (k, v) entry mut-slice = for entry : a entries
 		match entry
 		as none
@@ -79,7 +84,7 @@ import
 			x to
 		as mut-array x
 			x.copy to
-	entries, a.total-size
+	false, entries, a.total-size
 test
 	a string mut[nat64] = (1, "1"), (2, "2"), (5, "5")
 	a verify "_ (1 -> 1) [2 -> 2, 5 -> 5]"
@@ -123,12 +128,14 @@ test
 
 | Removes all pairs, leaving the map empty.
 +clear[k, v] void(a v mut[k]) k key
+	forbid a locked : was-locked
 	a.entries fill none
 	a.total-size := 0
 
 | Set the contents of {a} to the contents of {b} and vice versa.
 | This is O(1).
 +swap[k, v] void(a v mut[k], b v mut[k]) k key
+	forbid a locked || b locked : was-locked
 	temp-entries = a entries
 	a.entries := b entries
 	b.entries := temp-entries
@@ -145,6 +152,7 @@ test
 | If `{key} {in} {a}`, does nothing and returns the associated value.
 | If `{key} !{in} {a}`, sets the value to `{get-value}[]` and returns that.
 +ensure[k, v] v(a v mut[k], key k, get-value v mut()) k key
+	forbid a locked
 	a[key] ?? do
 		value = get-value[]
 		a[key] := value
@@ -155,6 +163,7 @@ test
 
 | Returns the old value (if it exists).
 -update[k, v] v?(a v mut[k], key k, new-value v?) k key
+	forbid a locked : was-locked
 	if a.entries is-empty
 		if value ?= new-value
 			a.entries := (key, value).to,
@@ -238,12 +247,12 @@ test
 
 | Filters the map in place.
 | Calls {f} on every key and value and removes the key if {f} returns {false}.
-|
-| WARN: During the filter, the map will appear to be empty
-| and writes to it will not affect the result.
 +filter=[k, v] void(a v mut[k], f bool mut(key k, value v)) k key
-	temp v mut[k] = a move-to
-	temp.entries map= entry =>
+	forbid a locked : was-locked
+	a.locked := true
+	finally do
+		a.locked := false
+	a.entries map= entry =>
 		match entry
 		as none
 			none
@@ -260,20 +269,25 @@ test
 				m[0] to
 			else
 				m to
-	a swap temp
 test
 	a string mut[nat64] = (0, "zero"), (1, "one"), (2, "two")
 	a filter= (key, _) =>
-		a[3] := "three"
+		try
+			a[3] := "three"
+			should-throw
+		catch was-locked _
+			()
 		key is-even
 	a.to::string[nat64] is ((0, "zero"), (2, "two"))
 
 | Calls {f} on every key and value, and replaces the value with the new value returned by {f}.
 | Does not modify keys.
-| WARN: During the iteration, {a} will appear empty and modifications will be ignored.
 +map-values=[k, v] void(a v mut[k], f v mut(key k, value v)) k key
-	temp v mut[k] = a move-to
-	temp.entries map= entry =>
+	forbid a locked : was-locked
+	a.locked := true
+	finally do
+		a.locked := false
+	a.entries map= entry =>
 		match entry
 		as none
 			none
@@ -282,36 +296,51 @@ test
 		as mut-array m
 			m map= (k, v) => k, f[k, v]
 			m to
-	a swap temp
 test
 	a string mut[nat64] = (0, "zero"), (1, "one"), (2, "two")
 	a map-values= (_, value) =>
-		a[3] := "three"
+		try
+			a[3] := "three"
+			should-throw
+		catch was-locked
+			()
 		value upper-case
 	a.to::string[nat64] is ((0, "ZERO"), (1, "ONE"), (2, "TWO"))
 
 region spec impls (see collection.crow)
 
 | Calls {f} for every key and value in the map.
-| WARN: During the iteration, {a} will appear empty and modifications will be ignored.
 +iterate[k, v] bool(a v mut[k], f bool mut(key k, value v)) k key
-	temp v mut[k] = a move-to
-	res = temp.entries iterate entry =>
-		match entry
-		as none
-			false
-		as tuple2 x
-			f[x]
-		as mut-array m
-			m iterate f
-	a swap temp
-	res
+	forbid a locked : was-locked
+	a.locked := true
+	finally do
+		a.locked := false
+	i mut nat64 = 0
+	loop
+		if i == a.entries.size
+			break false
+		else
+			done = match a.entries[i]
+			as none
+				false
+			as tuple2 x
+				f[x]
+			as mut-array m
+				m iterate f
+			if done
+				break true
+			else
+				i +:= 1
+				continue
 test
 	a string mut[nat64] = (0, "zero"), (1, "one")
 	calls (nat64, string) mut[] = ()
 	for pair : a
-		assert a remove 0 is-empty
-		a[1] := "REPLACED"
+		try
+			_ = a remove 0
+			should-throw
+		catch was-locked
+			()
 		calls ~= pair
 	calls.move-to::(nat64, string)[] is ((0, "zero"), (1, "one"))
 

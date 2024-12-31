@@ -40,6 +40,7 @@ import concretize.generate :
 	genDoAndContinue,
 	genDropThen,
 	genError,
+	genIf,
 	genLet,
 	genLocalGet,
 	genLocalPointer,
@@ -52,7 +53,10 @@ import concretize.generate :
 	genParamGet,
 	genRecordFieldGet,
 	genRecordFieldPointer,
-	genReferenceCreate, genReferenceRead, genReferenceWrite,
+	genReferenceCreate,
+	genReferenceRead,
+	genReferenceWrite,
+	genSeq,
 	genSome,
 	genThrow,
 	genVoid,
@@ -709,7 +713,7 @@ RootLocalAndExpr concretizeWithDestructure(
 					ConcreteExpr then = cb(addLocal(locals, local, LocalOrConstant(referenceLocal)));
 					return genLet(
 						ctx.alloc, type, range, referenceLocal,
-						genReferenceCreate(ctx.concretizeCtx, referenceType, range, genLocalGet(range, rootLocal)),
+						genReferenceCreate(ctx.alloc, referenceType, range, genLocalGet(range, rootLocal)),
 						then);
 				} else
 					return cb(addLocal(locals, local, LocalOrConstant(rootLocal)));
@@ -889,10 +893,7 @@ ConcreteExpr concretizeLoopWhileOrUntil(
 	in Locals locals,
 	ref LoopWhileOrUntilExpr expr,
 ) {
-	ConcreteExpr doAndContinue(ConcreteExpr x) =>
-		genDoAndContinue(ctx.alloc, type, range, x);
-	ConcreteExpr breakWith(ConcreteExpr x) =>
-		genBreak(ctx.alloc, range, x);
+	ConcreteExpr void_ = genVoid(ctx.concretizeCtx, range);
 	return expr.condition.match!ConcreteExpr(
 		(ref Expr x) {
 			/*
@@ -905,68 +906,92 @@ ConcreteExpr concretizeLoopWhileOrUntil(
 					body
 					continue
 				else
-					break after
+					break
+			after
 			*/
 			ConcreteExpr condition = concretizeExpr(ctx, boolType(ctx), locals, x);
-			ConcreteExpr doAndContinue = doAndContinue(concretizeExpr(ctx, voidType(ctx), locals, expr.body_));
-			ConcreteExpr break_ = breakWith(concretizeExpr(ctx, type, locals, expr.after));
-			IfConcreteExpr if_ = expr.isUntil
-				? IfConcreteExpr(condition, break_, doAndContinue)
-				: IfConcreteExpr(condition, doAndContinue, break_);
-			return genLoop(ctx.alloc, type, range, ConcreteExpr(
-				type, range, ConcreteExprKind(allocate(ctx.alloc, if_))));
+			ConcreteExpr doAndContinue = genDoAndContinue(
+				ctx.alloc, void_.type, range,
+				concretizeExpr(ctx, void_.type, locals, expr.body_));
+			ConcreteExpr break_ = genBreak(ctx.alloc, range, void_);
+			ConcreteExpr if_ = expr.isUntil
+				? genIf(ctx.alloc, range, condition, break_, doAndContinue)
+				: genIf(ctx.alloc, range, condition, doAndContinue, break_);
+			ConcreteExpr loop = genLoop(ctx.alloc, void_.type, range, if_);
+			return genSeq(ctx.alloc, range, loop, concretizeExpr(ctx, type, locals, expr.after));
 		},
 		(ref UnpackOption unpack) {
-			IfOptionBranches branches = () {
-				if (expr.isUntil) {
+			ConcreteExpr option = concretizeExpr(ctx, locals, unpack.option);
+			if (expr.isUntil) {
+				RootLocalAndExpr after = concretizeExprWithDestructure(
+					ctx, type, range, locals, unpack.destructure, expr.after);
+				ConcreteExpr body_ = concretizeExpr(ctx, void_.type, locals, expr.body_);
+				if (has(after.rootLocal)) {
 					/*
 					until x ?= xs
 						body
 					after
 					==>
-					loop
+					x = loop
 						if x ?= xs
-							break after
+							break x
 						else
 							body
 							continue
+					after
 					*/
-					RootLocalAndExpr after = concretizeExprWithDestructure(
-						ctx, type, range, locals, unpack.destructure, expr.after);
-					return IfOptionBranches(
-						after.rootLocal, breakWith(after.expr),
-						doAndContinue(concretizeExpr(ctx, voidType(ctx), locals, expr.body_)));
+					ConcreteExpr loop = genLoop(ctx.alloc, force(after.rootLocal).type, range, genIfOption(
+						ctx.alloc, range,
+						option,
+						RootLocalAndExpr(
+							after.rootLocal,
+							genBreak(ctx.alloc, range, genLocalGet(range, force(after.rootLocal)))),
+						genDoAndContinue(ctx.alloc, force(after.rootLocal).type, range, body_)));
+					return genLet(ctx.alloc, type, range, force(after.rootLocal), loop, after.expr);
 				} else {
 					/*
-					while x ?= xs
+					until _ ?= xs
 						body
 					after
-					==>
+					=>
 					loop
-						if x ?= xs
+						if _ ?= xs
+							break
+						else
 							body
 							continue
-						else
-							break after
+					after
 					*/
-					RootLocalAndExpr body_ = concretizeExprWithDestructure(
-						ctx, voidType(ctx), range, locals, unpack.destructure, expr.body_);
-					return IfOptionBranches(
-						body_.rootLocal, doAndContinue(body_.expr),
-						breakWith(concretizeExpr(ctx, type, locals, expr.after)));
+					ConcreteExpr loop = genLoop(ctx.alloc, void_.type, range, genIfOption(
+						ctx.alloc, range, option,
+						RootLocalAndExpr(none!(ConcreteLocal*), genBreak(ctx.alloc, range, void_)),
+						genDoAndContinue(ctx.alloc, void_.type, range, body_)));
+					return genSeq(ctx.alloc, range, loop, after.expr);
 				}
-			}();
-			return genLoop(ctx.alloc, type, range, genIfOption(
-				ctx.alloc, range,
-				concretizeExpr(ctx, locals, unpack.option),
-				RootLocalAndExpr(branches.rootLocal, branches.some),
-				branches.none));
+			} else {
+				/*
+				while x ?= xs
+					body
+				after
+				==>
+				loop
+					if x ?= xs
+						body
+						continue
+					else
+						break
+				after
+				*/
+				RootLocalAndExpr body_ = concretizeExprWithDestructure(
+					ctx, void_.type, range, locals, unpack.destructure, expr.body_);
+				ConcreteExpr loop = genLoop(ctx.alloc, void_.type, range, genIfOption(
+					ctx.alloc, range,
+					option,
+					RootLocalAndExpr(body_.rootLocal, genDoAndContinue(ctx.alloc, void_.type, range, body_.expr)),
+					genBreak(ctx.alloc, range, void_)));
+				return genSeq(ctx.alloc, range, loop, concretizeExpr(ctx, type, locals, expr.after));
+			}
 		});
-}
-immutable struct IfOptionBranches {
-	Opt!(ConcreteLocal*) rootLocal;
-	ConcreteExpr some;
-	ConcreteExpr none;
 }
 
 ConcreteExpr concretizeMatchEnum(

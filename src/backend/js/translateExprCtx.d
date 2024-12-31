@@ -281,7 +281,7 @@ ExprResult withTemp(
 		return cb(jsName, inner);
 	});
 
-JsExpr makeCall(ref TranslateExprCtx ctx, in Source source, Called called, in JsExpr[] args) =>
+JsExpr makeCall(ref TranslateExprCtx ctx, in Source source, Called called, in JsExpr[] args, bool noAwait = false) =>
 	isInlined(called)
 		? translateToExpr((scope ExprPos pos) =>
 			translateCallInline(
@@ -293,7 +293,7 @@ JsExpr makeCall(ref TranslateExprCtx ctx, in Source source, Called called, in Js
 				called.paramTypes,
 				args.length,
 				(size_t i) => args[i]))
-		: makeCallNoInline(ctx, source, called, (scope ref Builder!JsExpr out_) { out_ ~= args; });
+		: makeCallNoInline(ctx, source, called, (scope ref Builder!JsExpr out_) { out_ ~= args; }, noAwait);
 JsExpr makeCallNoInlineWithSpread(
 	ref TranslateModuleCtx ctx,
 	in Source source,
@@ -315,11 +315,12 @@ JsExpr makeCallNoInline(
 	in Source source,
 	Called called,
 	in void delegate(scope ref Builder!JsExpr) @safe @nogc pure nothrow cbArgs,
+	bool noAwait = false,
 ) =>
 	genCall(
 		ctx.alloc,
 		source,
-		isAsyncCall(ctx, called),
+		noAwait ? SyncOrAsync.sync : isAsyncCall(ctx, called),
 		allocate(ctx.alloc, translateFunOrSpecReference(ctx, source, called)),
 		withSpecImpls(ctx, source, called, cbArgs));
 
@@ -1279,6 +1280,13 @@ private ExprResult translateCallJsFun(
 			return binary(JsBinaryKind.less);
 		case JsFun.plus:
 			return binary(JsBinaryKind.plus);
+		case JsFun.require:
+			assert(nArgs == 1);
+			return expr(genCallSync(
+				ctx.alloc,
+				source,
+				genGlobal(source, symbol!"require"),
+				[getArg(0)]));
 		case JsFun.set:
 			assert(nArgs == 3);
 			return forceStatement(ctx.alloc, SyncOrAsync.sync, pos, genAssign(

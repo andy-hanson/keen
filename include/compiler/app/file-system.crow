@@ -1,0 +1,167 @@
+import
+	crow/io/file
+	crow/io/process
+	crow/js
+	crow/result
+	../backend/write-to-c
+	../frontend/storage_
+	../model/low-model
+	../model/model
+	../model/parse-diag
+	../model/uri
+
+exit record(exit-code int32) exception case
+exit exception()
+	1 exit
+show string(a exit)
+	"Should exit with exit code {a exit-code}"
+exit-signal record(signal int32) exception case
+show string(a exit-signal)
+	"Should exit with signal {a signal}"
+
+path-exists bool(path file-path) summon, trusted
+	assert extern native : todo
+	path.to path-exists
+
+write-file void(path file-path, content string) summon, trusted
+	assert extern native : todo
+	path.to write-file content
+
+allow-overwrite enum(allow, disallow)
+write-file void(path file-path, content string, permissions permissions, overwrite allow-overwrite) summon
+	match overwrite
+	as allow
+		()
+	as disallow
+		# TODO: this could be integrated with opening the file! See 'openFileForWrite' in 'fileSystem.d' --------------------------------------
+		forbid path path-exists : path.to path-already-exists
+	path write-file content
+	path set-permissions permissions.user-only
+
+set-permissions void(path file-path, permissions file-permissions) summon, trusted
+	assert extern native : todo
+	path.to set-permissions permissions
+
+remove-file-if-exists void(a file-path) summon
+	try
+		a remove-file
+	catch path-not-found _
+		()
+remove-file void(a file-path) summon, trusted
+	assert extern native : todo
+	a.to remove-file
+
+write-files-to-dir void(_ file-path, _ path-and-content[]) summon
+	throw todo # See the D version
+
+run-compiler void(path-and-args path-and-args) summon
+	assert trusted extern (native, libc, posix) : todo
+	# Extern library linker arguments are already in args
+	match path-and-args.path.to spawn-and-wait path-and-args.args
+	as exited x
+		assert x.exit-code == 0 : x.exit-code exit
+	as signaled x
+		throw x.signal exit-signal
+
+run-program void(_ extern-libraries, _ path-and-args) summon
+	# TODO: needs to set up environment for child processes ... see the D version
+	throw todo
+
+run-node-js-program void(_ path-and-args) summon
+	# See the D version
+	throw todo
+
+# TODO: have this in std- -------------------------------------------------------------------------------------------------------------
+each-file-in-directory-recursive void(
+	dir-path file-path,
+	f void mut(x file-path),
+) summon
+	for path : dir-path get-paths-in-dir
+		match path get-path-kind
+		as other
+			()
+		as file
+			f[path]
+		as directory
+			path each-file-in-directory-recursive f
+
+get-path-kind path-kind(path file-path) summon, trusted
+	assert extern native : todo
+	path.to get-path-kind
+
+get-paths-in-dir file-path[](dir-path file-path) summon, trusted
+	assert extern native : todo
+	for x : dir-path.to paths-in-dir
+		x must-parse-file-path
+
+try-read-file read-file-result(uri uri) summon
+	guard uri uri-is-file : not-found::read-file-diag.to
+	try
+		bytes nat8[] = uri.as-file-path.to do-read-file
+		content file-content = bytes,
+		content to
+	catch path-not-found _
+		not-found::read-file-diag to
+	catch not-a-text-file _
+		error::read-file-diag to
+	catch file-system-error _
+		error::read-file-diag to
+
+cwd file-path() summon, trusted
+	if extern native
+		current-directory must-parse-file-path
+	elif extern js
+		res string = process call-property "cwd" cast
+		res must-parse-file-path
+	else
+		throw todo
+
+-process js-any() js extern
+	trusted "process" js-global
+
+-fs js-any() trusted, js extern
+	"fs" require
+
+-require js-any(name string) builtin, bare, unsafe, js extern # TODO: NEATER --------------------------------------------------------
+
+this-executable file-path() summon, trusted
+	if extern native
+		assert extern posix : todo
+		current-executable-path must-parse-file-path
+	elif extern js
+		"/home/andy/crow/bin/crow" must-parse-file-path # ---------------------------------------------------------------------------------------------
+		#res string = fs call-property "readlinkSync", "/proc/self/exe"::string cast
+		#res must-parse-file-path
+	else
+		throw todo
+
+do-read-file nat8[](path string) summon, trusted
+	if extern native
+		path read-file
+	elif extern js
+		f js-any mut() = () => fs call-property "readFileSync", path
+		match f catch-all
+		as ok x
+			bytes float64[] = "Array".js-global call-property "from", x.value cast
+			for byte : bytes
+				byte to
+		as fail x
+			exception = x.value exception
+			code string = exception.threw-non-exception!.thrown["code"] cast
+			throw if code == "ENOENT"
+				path path-not-found
+			else
+				exception
+	else
+		throw todo
+
+cleanup-compile void(cwd file-path, c-path file-path, exe-path file-path) summon
+	guard trusted extern windows
+	exe-path alter-extension ".ilk" remove-file-if-exists
+	exe-path alter-extension ".pdb" remove-file-if-exists
+	obj-base-name = c-path alter-extension ".obj" base-name
+	cwd / obj-base-name remove-file-if-exists
+
+find-path-to-c-compiler file-path?()
+	forbid trusted extern windows : todo # See D version
+	"/usr/bin/cc".must-parse-file-path,

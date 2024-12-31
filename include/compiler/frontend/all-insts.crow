@@ -5,8 +5,8 @@ import
 all-insts record mut
 	upcoming-id mut nat
 	inst-for-id any-inst mut[inst-id]
-	struct-insts struct-inst mut[type-id[]]
-	spec-insts spec-inst mut[type-id[]]
+	struct-insts struct-inst mut[(decl-id, type-id[])]
+	spec-insts spec-inst mut[(decl-id, type-id[])]
 	fun-insts fun-inst mut[fun-args]
 	referenced-by (decl-or-inst-id, inst-id) mut-multi-map
 new all-insts()
@@ -21,8 +21,8 @@ next-id decl-or-inst-id(a all-insts)
 	res,
 
 get-or-add-struct-inst struct-inst value-and-did-add(a all-insts, decl struct-decl, type-args type-args)
-	did-add mut = false	
-	x = a.struct-insts ensure type-args.ids, () =>
+	did-add mut = false
+	x = a.struct-insts ensure (decl.id, type-args.ids), () =>
 		did-add := true
 		res struct-inst = a.next-id, decl, type-args
 		a.inst-for-id[res.id] := res.to
@@ -32,7 +32,7 @@ get-or-add-struct-inst struct-inst value-and-did-add(a all-insts, decl struct-de
 
 get-or-add-spec-inst spec-inst value-and-did-add(a all-insts, decl spec-decl, type-args type-args)
 	did-add mut = false	
-	x = a.spec-insts ensure type-args.ids, () =>
+	x = a.spec-insts ensure (decl.id, type-args.ids), () =>
 		did-add := true
 		res spec-inst = a.next-id, decl, type-args, ((), ())
 		a.inst-for-id[res.id] := res.to
@@ -47,7 +47,7 @@ get-or-add-fun-inst fun-inst(
 	spec-impls spec-impls, 
 	cb-return-and-param-types return-and-param-types mut(),
 )
-	a.fun-insts ensure (type-args.ids, spec-impls.ids), () =>
+	a.fun-insts ensure (decl.id, type-args.ids, spec-impls.ids), () =>
 		res fun-inst = a.next-id, decl, type-args, spec-impls, cb-return-and-param-types[]
 		a.inst-for-id[res.id] := res.to
 		a add-each-referenced res.to
@@ -86,18 +86,17 @@ get-all-future-and-mut-array-impls struct-inst[inst-id](
 	cb-make-future-impl struct-inst mut(args type-args),
 	cb-make-mut-array-impl struct-inst mut(args type-args),
 )
-	res struct-inst mut[inst-id] = ()
-	for _, x : a struct-insts
-		if x is-future || x is-mut-array
-			res[x id] := trusted gc-safe-value
-	for _, x : res
-		res[x id] := if x is-future
+	keys struct-inst[] = with out : build
+		for _, x : a struct-insts
+			if x is-future || x is-mut-array
+				out ~= x
+	for x : keys
+		x.id, if x is-future
 			cb-make-future-impl[x type-args]
 		elif x is-mut-array
 			cb-make-mut-array-impl[x type-args]
 		else
 			throw unreachable
-	res move-to
 
 to-process alias
 	any-inst mut[]
@@ -124,10 +123,10 @@ any-inst union(struct-inst, spec-inst, fun-inst) mut
 -delete-any-inst-from-table void(a all-insts, inst any-inst)
 	match inst
 	as struct-inst x
-		if removed ?= a.struct-insts remove x.type-args.ids
+		if removed ?= a.struct-insts remove (x.decl.id, x.type-args.ids)
 			assert trusted removed reference-equal x
 	as spec-inst x
-		if removed ?= a.spec-insts remove x.type-args.ids
+		if removed ?= a.spec-insts remove (x.decl.id, x.type-args.ids)
 			assert trusted removed reference-equal x
 	as fun-inst x
 		if removed ?= a.fun-insts remove x.args
@@ -208,11 +207,9 @@ hash-mix void(hasher hasher, a type-id)
 		hasher hash-mix x.index
 	as inst-id x
 		hasher hash-mix x
-hash-mix void(hasher hasher, a type-id[])
-	for x : a
-		hasher hash-mix x
 
 fun-args record by-val
+	fun-decl decl-id
 	type-args type-id[]
 	spec-impls called-id[]
 == bool(a fun-args, b fun-args)
@@ -224,7 +221,7 @@ hash-mix void(hasher hasher, a fun-args)
 		hasher hash-mix x
 
 args fun-args(a fun-inst)
-	a.type-args.ids, a.spec-impls.ids
+	a.decl.id, a.type-args.ids, a.spec-impls.ids
 ids called-id[](a spec-impls)
 	for x : a
 		x called-id

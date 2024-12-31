@@ -52,11 +52,31 @@ type union(bogus-type, type-param-index, struct-inst) mut
 bogus-type record
 == bool(a bogus-type, b bogus-type)
 <=> comparison(a bogus-type, b bogus-type)
-| Represent type parameter as the index, so we don't generate different types for every `t[]`.
-| (These are disambiguated in the type checker using `TypeAndContext`)
+| Represent type parameter as the index, so we don't generate different types for every 't[]'.
+| (These are disambiguated in the type checker using 'TypeAndContext')
 type-param-index record(index nat)
 == bool(a type-param-index, b type-param-index)
 <=> comparison(a type-param-index, b type-param-index)
+
+debug string(a type)
+	match a
+	as bogus-type
+		"<<bogus>>"
+	as type-param-index x
+		"type param {x index}"
+	as struct-inst x
+		x debug
+debug string(a struct-inst)
+	"{a.type-args debug-type-args}{a.decl name}"
+debug-type-args string(a type-args)
+	args string[] = for x : a; x debug
+	match args size
+	as 0
+		""
+	as 1
+		args only
+	else
+		"({", " join args}) "
 
 is-bogus bool(a type)
 	a.bogus-type !is-empty
@@ -133,9 +153,13 @@ is-nat64 bool(a type)
 	a is-builtin-type nat64
 is-string bool(a type)
 	a is-builtin-type string
+is-string bool(a struct-inst)
+	a is-builtin-type string
 is-string bool(a struct-decl)
 	a is-builtin-type string
 is-symbol bool(a type)
+	a is-builtin-type symbol
+is-symbol bool(a struct-inst)
 	a is-builtin-type symbol
 is-void bool(a type)
 	a is-builtin-type void
@@ -188,11 +212,11 @@ is-lambda-type bool(a struct-decl)
 is-pointer-const-or-mut bool(a type)
 	a is-pointer-const || a is-pointer-mut
 is-pointer-const-or-mut bool(a struct-decl)
-	a is-builtin-type pointer-const || a is-builtin-type pointer-mut
+	a is-builtin-type const-pointer || a is-builtin-type mut-pointer
 is-pointer-const bool(a type)
-	a is-builtin-type pointer-const
+	a is-builtin-type const-pointer
 is-pointer-mut bool(a type)
-	a is-builtin-type pointer-mut
+	a is-builtin-type mut-pointer
 pointee-type type(a type)
 	a.struct-inst! pointee-type
 pointee-type type(a struct-inst)
@@ -432,6 +456,7 @@ builtin-type enum
 	catch-point
 	char8
 	char32
+	const-pointer
 	float32
 	float64
 	fun-pointer
@@ -441,22 +466,25 @@ builtin-type enum
 	int32
 	int64
 	js-any
-	lambda-data
-	lambda-mut
-	lambda-shared
+	# TODO: call these 'lambda' (requires changing the name in the struct decl too) -----------------------------------------------
+	fun-data
+	fun-mut
+	fun-shared
 	mut-array
+	mut-pointer
 	mut-slice
 	nat8
 	nat16
 	nat32
 	nat64
 	option
-	pointer-const
-	pointer-mut
 	string
 	symbol
 	void
 == bool(a builtin-type, b builtin-type)
+to symbol(a builtin-type)
+show string(a builtin-type)
+	a.to::symbol to
 to builtin-type?(a symbol)
 is-char-or-integral bool(a builtin-type)
 	match a
@@ -482,16 +510,18 @@ is-char-or-integral bool(a builtin-type)
 		false
 is-lambda bool(a builtin-type)
 	match a
-	as lambda-data
+	as fun-data
 		true
-	as lambda-mut
+	as fun-mut
 		true
-	as lambda-shared
+	as fun-shared
 		true
 	else
 		false
 
 type-size record(size-bytes nat, alignment-bytes nat)
+== bool(a type-size, b type-size)
+to json(a type-size)
 
 struct-alias record mut
 	id decl-id
@@ -499,7 +529,12 @@ struct-alias record mut
 	module-uri uri
 	visibility visibility
 	doc-comment-references mut doc-comment-references
-	target mut struct-inst
+	late-target mut struct-inst?
+target struct-inst(a struct-alias)
+	a late-target!
+set-target void(a struct-alias, value struct-inst)
+	assert a.late-target is-empty
+	a.late-target := value,
 doc-comment-ast doc-comment-ast(a struct-alias)
 	a.ast doc-comment
 doc-comment doc-comment(a struct-alias)
@@ -517,10 +552,15 @@ name-range uri-and-range(a struct-alias)
 linkage enum(internal, extern_)
 == bool(a linkage, b linkage)
 <=> comparison(a linkage, b linkage)
+to symbol(a linkage)
+show string(a linkage)
+	a.to::symbol to
 
 | Range of possible linkage
--linkage-range record(least-strict linkage, most-strict linkage)
--combine-linkage-range linkage-range(referencer linkage-range, referenced linkage-range)
+linkage-range record(least-strict linkage, most-strict linkage)
+show string(a linkage-range)
+	"{a least-strict}-{a most-strict}"
+combine-linkage-range linkage-range(referencer linkage-range, referenced linkage-range)
 	(referencer.least-strict min referenced.least-strict), (referencer.most-strict min referenced.most-strict)
 is-linkage-possibly-compatible bool(referencer linkage, referenced linkage-range)
 	referenced.most-strict >= referencer
@@ -545,7 +585,10 @@ struct-decl record mut
 extern-set symbol-set(a struct-decl)
 	a.extern_ ?? ()
 linkage linkage(a struct-decl)
-	a.extern_ == (("js",),) ? extern_ : internal
+	if e ?= a extern_
+		e == ("js",) ? internal : extern_
+	else
+		internal
 doc-comment-ast doc-comment-ast(a struct-decl)
 	a.source doc-comment
 doc-comment doc-comment(a struct-decl)
@@ -698,6 +741,10 @@ name-range uri-and-range(a spec-decl)
 
 | WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
 spec-inst record(id inst-id, decl spec-decl, type-args type-args, body mut spec-inst-body) mut
+== bool(a spec-inst, b spec-inst)
+	a.id == b.id
+debug string(a spec-inst)
+	"{a.type-args debug-type-args} {a.decl name}"
 parents spec-inst[](a spec-inst)
 	a.body parents
 sig-types return-and-param-types[](a spec-inst)
@@ -725,13 +772,13 @@ spec-inst-body record mut
 
 flags-function enum
 	in
-	| `&`
+	| &
 	intersect
-	| `~`
+	| ~
 	negate
 	| Function to get an empty member of the flags
 	none
-	| `|`
+	| |
 	union_
 
 auto-fun record mut
@@ -828,6 +875,7 @@ js-fun enum
 	js-global
 	less
 	plus
+	require
 	set
 	typeof
 
@@ -968,11 +1016,11 @@ builtin-unary-math enum
 	unsafe-log-float32
 	unsafe-log-float64
 
-# IDEA: this could be a union with `bitwise-or record(type integral-type)`. That would cut down on all these members. --------------------------
+# IDEA: this could be a union with 'bitwise-or record(type integral-type)'. That would cut down on all these members. --------------------------
 builtin-binary enum
 	add-float32
 	add-float64
-	| As in C, the RHS is multiplied by the pointee size first (so `x + 3` adds 12 to an `int32*`)
+	| As in C, the RHS is multiplied by the pointee size first (so 'x + 3' adds 12 to an 'int32*')
 	add-pointer-and-nat64
 	bitwise-and-int8
 	bitwise-and-int16
@@ -1391,7 +1439,7 @@ struct-or-alias union(struct-alias, struct-decl) mut
 	name symbol()
 	type-params type-params()
 
-| There is no `var-inst` since these can't be templates
+| There is no 'var-inst' since these can't be templates
 var-decl record mut
 	id decl-id
 	ast var-decl-ast
@@ -1494,6 +1542,22 @@ type-container union(fun-decl, module, spec-decl, struct-alias, struct-decl, tes
 	module-uri uri()
 	type-params type-params()
 	doc-comment doc-comment()
+debug string(a type-container)
+	match a
+	as fun-decl x
+		"fun {x name}"
+	as module x
+		"module {x uri}"
+	as spec-decl x
+		"spec {x name}"
+	as struct-alias x
+		"alias {x name}"
+	as struct-decl x
+		"struct {x name}"
+	as test_ _
+		"test" # TODO: which test? -----------------------------------------------------------------------------------------------
+	as var-decl x
+		"var {x name}"
 forbid-module any-decl(a type-container)
 	match a
 	as fun-decl x
@@ -1579,11 +1643,11 @@ name symbol(a name-referents)
 
 fun-kind-from-builtin-type fun-kind?(a builtin-type)
 	match a
-	as lambda-data
+	as fun-data
 		data_,
-	as lambda-shared
+	as fun-shared
 		shared_,
-	as lambda-mut
+	as fun-mut
 		mut_,
 	as fun-pointer
 		function_,
@@ -1725,6 +1789,8 @@ integral-type enum(int8, int16, int32, int64, nat8, nat16, nat32, nat64)
 == bool(a integral-type, b integral-type)
 to nat32(a integral-type)
 to symbol(a integral-type)
+show string(a integral-type)
+	a.to::symbol to
 members integral-type[]()
 to integral-type?(a builtin-type)
 	match a
@@ -2254,15 +2320,12 @@ end pos(a expr)
 
 type-is-bogus bool(a expr)
 	a.type-not-common is-bogus
-type-not-common type(a expr) trusted
-	res = a type gc-safe-value
-	if x ?= res struct-inst
-		assert x !reference-equal gc-safe-value
-	res
-type type(a expr, common-types common-types)
+type-not-common type(a expr)
+	a type ()
+type type(a expr, common-types common-types?)
 	match a
 	as assert-or-forbid-expr _
-		common-types.void to
+		common-types!.void to
 	as bogus-call-expr x
 		x expected-type
 	as bogus-expr x
@@ -2276,9 +2339,9 @@ type type(a expr, common-types common-types)
 	as closure-get-expr x
 		x type
 	as closure-set-expr _
-		common-types.void to
+		common-types!.void to
 	as extern-expr _
-		common-types.bool to
+		common-types!.bool to
 	as finally-expr x
 		x type common-types
 	as fun-pointer-expr x
@@ -2300,7 +2363,7 @@ type type(a expr, common-types common-types)
 	as local-pointer-expr x
 		x.type to
 	as local-set-expr _
-		common-types.void to
+		common-types!.void to
 	as loop-expr x
 		x type
 	as loop-break-expr x
@@ -2308,7 +2371,7 @@ type type(a expr, common-types common-types)
 	as loop-continue-expr x
 		x.loop_ type
 	as loop-while-or-until-expr _
-		common-types.void to
+		common-types!.void to
 	as match-enum-expr x
 		x type common-types
 	as match-integral-expr x
@@ -2516,7 +2579,7 @@ is-builtin-extern bool(a symbol)
 finally-expr record(ast finally-ast, right expr, below expr) mut
 range source-range(a finally-expr)
 	a.ast range
-type type(a finally-expr, common-types common-types)
+type type(a finally-expr, common-types common-types?)
 	a.below type common-types
 
 fun-pointer-expr record(ast ptr-ast, called called, type struct-inst) mut
@@ -2535,7 +2598,7 @@ first-branch expr(a if-expr)
 	a.ast is-condition-negated ? a false-branch : a true-branch
 second-branch expr(a if-expr)
 	a.ast is-condition-negated ? a true-branch : a false-branch
-type type(a if-expr, common-types common-types)
+type type(a if-expr, common-types common-types?)
 	assert (a.true-branch type common-types) == (a.false-branch type common-types)
 	a.true-branch type common-types
 
@@ -2558,7 +2621,7 @@ range source-range(a lambda-expr)
 return-type type(a lambda-expr)
 	a.type.type-args[0]
 | We don't know whether this lambda is for the main body or for the optional 'else'.
-| But if it is from the `else`, this function will return true.
+| But if it is from the 'else', this function will return true.
 is-ignore bool(a lambda-expr)
 	if x ?= a.param destructure-ignore
 		x.source.void-destructure-ast !is-empty
@@ -2566,12 +2629,12 @@ is-ignore bool(a lambda-expr)
 let-expr record(ast let-ast, destructure destructure, value expr, then expr) mut
 range source-range(a let-expr)
 	a.destructure.start, a.then.end
-type type(a let-expr, common-types common-types)
+type type(a let-expr, common-types common-types?)
 	a.then type common-types
 
 literal-float-expr record(range source-range, float-type float-type, value float)
-type struct-inst(a literal-float-expr, common-types common-types)
-	common-types[a float-type]
+type struct-inst(a literal-float-expr, common-types common-types?)
+	common-types![a float-type]
 
 literal-integral-expr record
 	range source-range
@@ -2579,8 +2642,8 @@ literal-integral-expr record
 	value integral-value
 is-signed bool(a literal-integral-expr)
 	a.integral-type is-signed
-type struct-inst(a literal-integral-expr, common-types common-types)
-	common-types[a integral-type]
+type struct-inst(a literal-integral-expr, common-types common-types?)
+	common-types![a integral-type]
 
 literal-string-like-expr record
 	range source-range
@@ -2588,8 +2651,8 @@ literal-string-like-expr record
 	| For char32-array, this will be decoded in concretize.
 	value string
 string-like-type enum(char8-array, char32-array, c-string, js-any, string, symbol)
-type struct-inst(a literal-string-like-expr, common-types common-types)
-	common-types[a string-type]
+type struct-inst(a literal-string-like-expr, common-types common-types?)
+	common-types![a string-type]
 
 local-get-expr record(range source-range, local local) mut
 type type(a local-get-expr)
@@ -2617,7 +2680,7 @@ range source-range(a loop-continue-expr)
 loop-while-or-until-expr record mut
 	ast loop-while-or-until-ast
 	condition condition
-	| Always of type `void`
+	| Always of type 'void'
 	body expr
 	after expr
 is-until bool(a loop-while-or-until-expr)
@@ -2633,7 +2696,7 @@ match-enum-expr record mut
 match-enum-case record(member enum-or-flags-member, then expr) mut
 range source-range(a match-enum-expr)
 	a.ast range
-type type(a match-enum-expr, common-types common-types)
+type type(a match-enum-expr, common-types common-types?)
 	if x ?= a else_
 		x type common-types
 	else
@@ -2658,7 +2721,7 @@ match-integral-expr record mut
 match-integral-case record(value integral-value, then expr) mut
 range source-range(a match-integral-expr)
 	a.ast range
-type type(a match-integral-expr, common-types common-types)
+type type(a match-integral-expr, common-types common-types?)
 	a.else_ type common-types
 matched-type struct-inst(a match-integral-expr)
 	a.matched.type-not-common struct-inst!
@@ -2667,14 +2730,14 @@ match-string-like-expr record mut
 	ast match-ast
 	string-type string-like-type
 	matched expr
-	| `==` function for the type
+	| '==' function for the type
 	equals called
 	cases match-string-like-case[]
 	else_ expr
 match-string-like-case record(value string, then expr) mut
 range source-range(a match-string-like-expr)
 	a.ast range
-type type(a match-string-like-expr, common-types common-types)
+type type(a match-string-like-expr, common-types common-types?)
 	a.else_ type common-types
 matched-type struct-inst(a match-string-like-expr)
 	a.matched.type-not-common struct-inst!
@@ -2689,7 +2752,7 @@ case-type struct-inst(a match-sum-type-case)
 	a.destructure.type struct-inst!
 range source-range(a match-sum-type-expr)
 	a.ast range
-type type(a match-sum-type-expr, common-types common-types)
+type type(a match-sum-type-expr, common-types common-types?)
 	if x ?= a else_
 		x type common-types
 	else
@@ -2727,7 +2790,7 @@ field-index nat(a record-field-pointer-expr)
 seq-expr record(first expr, then expr) mut
 range source-range(a seq-expr)
 	a.first.start, a.then.end
-type type(a seq-expr, common-types common-types)
+type type(a seq-expr, common-types common-types?)
 	a.then type common-types
 
 throw-expr record(ast throw-ast, thrown expr, type type) mut
@@ -2737,13 +2800,13 @@ range source-range(a throw-expr)
 trusted-expr record(ast trusted-ast, inner expr) mut
 range source-range(a trusted-expr)
 	a.ast range
-type type(a trusted-expr, common-types common-types)
+type type(a trusted-expr, common-types common-types?)
 	a.inner type common-types
 
 try-expr record(ast try-ast, tried expr, catches match-sum-type-case[]) mut
 range source-range(a try-expr)
 	a.ast range
-type type(a try-expr, common-types common-types)
+type type(a try-expr, common-types common-types?)
 	a.tried type common-types
 
 try-let-expr record mut
@@ -2754,13 +2817,13 @@ try-let-expr record mut
 	then expr
 range source-range(a try-let-expr)
 	a.ast range
-type type(a try-let-expr, common-types common-types)
+type type(a try-let-expr, common-types common-types?)
 	a.then type common-types
 
 typed-expr record(ast typed-ast, inner expr) mut
 range source-range(a typed-expr)
 	a.ast range
-type type(a typed-expr, common-types common-types)
+type type(a typed-expr, common-types common-types?)
 	a.inner type common-types
 
 export-visibility enum(internal, public)
@@ -3169,7 +3232,7 @@ diag-duplicate-declaration-kind enum
 diag-duplicate-exports record(kind diag-duplicate-exports-kind, name symbol)
 diag-duplicate-exports-kind enum(spec_, type)
 diag-duplicate-expots-kind enum(spec_, type)
-| This is for the same name imported multiple times (`import ./m: foo, foo`)
+| This is for the same name imported multiple times ('import ./m: foo, foo')
 diag-duplicate-import-name record(name symbol)
 | This is for different types of the same name imported from multiple modules
 diag-duplicate-imports record(kind diag-duplicate-exports-kind, name symbol)

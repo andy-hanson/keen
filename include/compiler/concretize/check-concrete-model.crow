@@ -1,0 +1,345 @@
+import
+	../frontend/show-model
+	../model/concrete-model
+	../model/integral-values
+	../model/model
+	../model/version-info
+	../util/enum-map
+	../util/util
+
+check-concrete-program void(show-ctx show-ctx, types concrete-common-types, a concrete-program)
+	ctx ctx = show-ctx, types
+	for fun : a all-funs
+		if e ?= fun.body concrete-expr
+			ctx check-expr fun.return-type, e
+
+concrete-common-types record mut
+	bool concrete-type
+	exception concrete-type
+	integral-types (integral-type, concrete-type) enum-map
+	symbol concrete-type
+	void concrete-type
+int8 concrete-type(a concrete-common-types)
+	a.integral-types[int8]
+int16 concrete-type(a concrete-common-types)
+	a.integral-types[int16]
+int32 concrete-type(a concrete-common-types)
+	a.integral-types[int32]
+int64 concrete-type(a concrete-common-types)
+	a.integral-types[int64]
+nat8 concrete-type(a concrete-common-types)
+	a.integral-types[nat8]
+nat16 concrete-type(a concrete-common-types)
+	a.integral-types[nat16]
+nat32 concrete-type(a concrete-common-types)
+	a.integral-types[nat32]
+nat64 concrete-type(a concrete-common-types)
+	a.integral-types[nat64]
+
+-ctx record(show-ctx show-ctx, types concrete-common-types) mut # TODO: show-ctx is not used ...............................
+
+-check-expr void(ctx ctx, type concrete-type, expr concrete-expr)
+	assert type !is-bogus || expr.kind.throw-concrete-expr !is-empty
+	type is expr.type
+	match expr kind
+	as builtin-concrete-expr x
+		ctx check-builtin type, x
+	as call-concrete-expr x
+		type is x.called.return-type
+		for param, arg : x.called.params zip x.args
+			ctx check-expr param.type, arg
+	as cast-concrete-expr x
+		type.size-or-pointer-size-bytes is x.inner.type.size-or-pointer-size-bytes	
+		ctx check-expr x.inner.type, x.inner
+	as constant x
+		match x
+		as constant-record _
+			assert _  ?= type.must-be-by-val.body concrete-record
+		else
+			# TODO
+			()
+	as create-array-concrete-expr x
+		# TODO: validate 'type' is an array type and 'args' are elements
+		for arg : x args
+			ctx check-expr-any-type arg
+	as create-record-concrete-expr x
+		# TODO: validate 'type' is a record and this creates it
+		for arg : x args
+			ctx check-expr-any-type arg
+	as create-union-concrete-expr x
+		ctx check-expr type.must-be-by-val.body.concrete-union!.members[x member-index], x.arg
+	as drop-concrete-expr x
+		assert type is-void
+		ctx check-expr-any-type x.arg
+	as finally-concrete-expr x
+		ctx check-expr ctx.types.void, x.right
+		ctx check-expr type, x.below
+	as if-concrete-expr x
+		ctx check-expr ctx.types.bool, x.cond
+		ctx check-expr type, x.then
+		ctx check-expr type, x.else_
+	as let-concrete-expr x
+		ctx check-expr x.local.type, x.value
+		ctx check-expr type, x.then
+	as local-get-concrete-expr x
+		type is x.local.type
+	as local-pointer-concrete-expr x
+		type.pointee-type is x.local.type
+		# TODO: also check the inner expression
+	as local-set-concrete-expr x
+		assert type is-void
+		ctx check-expr x.local.type, x.value
+	as loop-concrete-expr x
+		ctx check-expr type, x.body
+	as loop-break-concrete-expr x
+		ctx check-expr type, x.value
+	as loop-continue-concrete-expr
+		()
+	as match-enum-or-integral-concrete-expr x
+		body = x.matched.type.must-be-by-val.body
+		assert body.concrete-enum !is-empty || body.concrete-builtin-type!.kind is-char-or-integral
+		ctx check-expr-any-type x.matched
+		for case_ : x case-exprs
+			ctx check-expr type, case_
+		if e ?= x else_
+			ctx check-expr type, e
+	as match-string-like-concrete-expr x
+		ctx check-expr-any-type x.matched
+		assert x.equals.return-type == ctx.types.bool
+		x.equals.params.size is 2
+		assert x.equals.params every param => param.type == x.matched.type
+		for case_ : x cases
+			ctx check-expr type, case_.then
+		ctx check-expr type, x.else_
+	as match-union-concrete-expr x
+		ctx check-expr-any-type x.matched
+		members = x.matched.type union-members
+		assert x.member-indices.size <= members.size
+		ctx check-match-union-cases type, x.matched.type, x.member-indices, x.cases
+		if e ?= x else_
+			ctx check-expr type, e
+	as record-field-get-concrete-expr x
+		ctx check-expr-any-type x.record_
+		assert x.record_.type.struct.body.concrete-record!.fields[x field-index].type == type
+	as record-field-pointer-concrete-expr x
+		ctx check-expr-any-type x.record_
+		record_ = match x.record_.type reference
+		as by-val_
+			x.record_.type.pointee-type must-be-by-val
+		as by-ref_
+			x.record_.type.struct
+		assert record_.body.concrete-record!.fields[x field-index].type == type.pointee-type
+	as record-field-set-concrete-expr x
+		assert type is-void
+		ctx check-expr-any-type x.record_
+		struct = x.record_.type struct
+		record-type = if builtin_ ?= struct.body concrete-builtin-type
+			assert builtin_.kind == mut-pointer
+			builtin_.type-args only
+		else
+			x.record_ type
+		ctx check-expr record-type.struct.body.concrete-record!.fields[x field-index].type, x.value
+	as seq-concrete-expr x
+		ctx check-expr ctx.types.void, x.first
+		ctx check-expr type, x.then
+	as throw-concrete-expr x
+		ctx check-expr ctx.types.exception, x.thrown
+	as try-concrete-expr x
+		ctx check-expr type, x.tried
+		ctx check-match-union-cases type, ctx.types.exception, x.exception-member-indices, x.catch-cases
+	as try-let-concrete-expr x
+		ctx check-expr (x.local?.type ?? x.value.type), x.value
+		ctx check-match-union-cases type, ctx.types.exception, (x.exception-member-index,), (x.catch_,)
+		ctx check-expr type, x.then
+	as union-as-concrete-expr x
+		actual-type = x.union_.type.union-members[x member-index]
+		type is actual-type
+		ctx check-expr-any-type x.union_
+	as union-kind-concrete-expr x
+		type is ctx.types.nat64
+		assert _ ?= x.union_.type.must-be-by-val.body concrete-union
+
+-check-builtin void(ctx ctx, type concrete-type, a builtin-concrete-expr)
+	# TODO: Now I remember. Most of these are unreachable because concretize still mostly compiles builtins to ConcreteFun. There are just a few cases where we create these expressions in generation.
+	match a fun
+	as builtin-fun-all-tests
+		throw unreachable
+	as builtin-unary x
+		ctx check-builtin-unary type, x, a.args.only
+	as builtin-unary-math _
+		throw unreachable
+	as builtin-binary x
+		a.args.size is 2
+		ctx check-builtin-binary type, x, a.args[0], a.args[1]
+	as builtin-binary-lazy _
+		throw unreachable
+	as builtin-binary-math _
+		throw unreachable
+	as builtin-ternary _
+		throw unreachable
+	as builtin-4ary _
+		throw unreachable
+	as builtin-fun-call-lambda
+		throw unreachable
+	as builtin-fun-call-fun-pointer
+		throw unreachable
+	as builtin-fun-constant _
+		throw unreachable
+	as builtin-fun-gc-safe-value
+		throw unreachable
+	as builtin-fun-init _
+		throw unreachable
+	as js-fun _
+		throw unreachable
+	as builtin-fun-mark-root
+		throw unreachable
+	as builtin-fun-mark-visit
+		throw unreachable
+	as builtin-fun-new-empty-option
+		throw unreachable
+	as builtin-fun-new-non-empty-option
+		throw unreachable
+	as builtin-fun-pointer-cast
+		throw unreachable
+	as builtin-fun-size-of
+		throw unreachable
+	as builtin-fun-static-symbols _
+		throw unreachable
+	as version-fun _
+		throw unreachable
+
+-check-builtin-unary void(ctx ctx, type concrete-type, kind builtin-unary, a concrete-expr)
+	check void mut(return-type concrete-type, arg-type concrete-type) = (return-type, arg-type) =>
+		type is return-type
+		ctx check-expr arg-type, a
+	check2 void mut(x concrete-type) = x =>
+		check[x, x]
+	types = ctx types
+	match kind
+	as bitwise-not-nat8
+		check2[types nat8]
+	as bitwise-not-nat16
+		check2[types nat16]
+	as bitwise-not-nat32
+		check2[types nat32]
+	as bitwise-not-nat64
+		check2[types nat64]
+	else
+		throw unreachable
+
+-check-builtin-binary void(
+	ctx ctx,
+	type concrete-type,
+	kind builtin-binary,
+	a concrete-expr,
+	b concrete-expr,
+)
+	check void mut(return-type concrete-type, a-type concrete-type, b-type concrete-type) = (return-type, a-type, b-type) =>
+		type is return-type
+		ctx check-expr a-type, a
+		ctx check-expr b-type, b
+	check3 void mut(x concrete-type) = x =>
+		check[x, x, x]
+	types = ctx.types
+	bool = types bool
+	int8 = types int8
+	int16 = types int16
+	int32 = types int32
+	int64 = types int64
+	nat8 = types nat8
+	nat16 = types nat16
+	nat32 = types nat32
+	nat64 = types nat64
+	match kind
+	as bitwise-and-int8
+		check3[int8]
+	as bitwise-and-int16
+		check3[int16]
+	as bitwise-and-int32
+		check3[int32]
+	as bitwise-and-int64
+		check3[int64]
+	as bitwise-and-nat8
+		check3[nat8]
+	as bitwise-and-nat16
+		check3[nat16]
+	as bitwise-and-nat32
+		check3[nat32]
+	as bitwise-and-nat64
+		check3[nat64]
+	as bitwise-or-int8
+		check3[int8]
+	as bitwise-or-int16
+		check3[int16]
+	as bitwise-or-int32
+		check3[int32]
+	as bitwise-or-int64
+		check3[int64]
+	as bitwise-or-nat8
+		check3[nat8]
+	as bitwise-or-nat16
+		check3[nat16]
+	as bitwise-or-nat32
+		check3[nat32]
+	as bitwise-or-nat64
+		check3[nat64]
+	as equal-int8
+		check[bool, int8, int8]
+	as equal-int16
+		check[bool, int16, int16]
+	as equal-int32
+		check[bool, int32, int32]
+	as equal-int64
+		check[bool, int64, int64]
+	as equal-nat8
+		check[bool, nat8, nat8]
+	as equal-nat16
+		check[bool, nat16, nat16]
+	as equal-nat32
+		check[bool, nat32, nat32]
+	as equal-nat64
+		check[bool, nat16, nat64]
+	as less-int8
+		check[bool, int8, int8]
+	as less-int16
+		check[bool, int16, int16]
+	as less-int32
+		check[bool, int32, int32]
+	as less-int64
+		check[bool, int64, int64]
+	as less-nat8
+		check[bool, nat8, nat8]
+	as less-nat16
+		check[bool, nat16, nat16]
+	as less-nat32
+		check[bool, nat32, nat32]
+	as less-nat64
+		check[bool, nat16, nat64]
+	as equal-pointer
+		type is bool
+		assert a.type is-pointer
+		a.type is b.type
+		ctx check-expr a.type, a
+		ctx check-expr b.type, b
+	else
+		throw unreachable
+
+-check-match-union-cases void(
+	ctx ctx,
+	type concrete-type,
+	union_ concrete-type,
+	member-indices integral-values,
+	cases concrete-match-union-case[],
+)
+	cases.size is member-indices.size
+	members = union_ union-members
+	for case-index, case_ : cases with-index
+		if local ?= case_ local
+			assert local.type == members[member-indices[case-index] as-unsigned]
+		ctx check-expr type, case_.then
+
+union-members concrete-type[](type concrete-type)
+	type.must-be-by-val.body.concrete-union! members
+
+check-expr-any-type void(ctx ctx, expr concrete-expr)
+	ctx check-expr expr.type, expr

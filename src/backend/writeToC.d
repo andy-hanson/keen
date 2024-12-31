@@ -1575,7 +1575,7 @@ void writeConstantIntegral(scope ref Writer writer, in Ctx ctx, in LowType type,
 	PrimitiveType primitive = type.as!PrimitiveType;
 	if (primitive == PrimitiveType.char8 || primitive == PrimitiveType.char32) {
 		if (!ctx.isMSVC && ctx.cVersion >= CVersion.c11 && isValidUnicodeCharacter(safeToUint(a.asUnsigned))) {
-			writer ~= "'";
+			writer ~= "U'";
 			writeEscapedCharForC(writer, safeToUint(a.asUnsigned));
 			writer ~= "'";
 		} else

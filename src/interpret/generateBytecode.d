@@ -99,7 +99,8 @@ private ByteCode generateBytecodeInner(
 	in AggregateCbs aggregateCbs,
 	in MakeSyntheticFunPointers cbMakeSyntheticFunPointers,
 ) {
-	DynCallTypeCtx typeCtx = DynCallTypeCtx(ptrTrustMe(codeAlloc), ptrTrustMe(showCtx), castNonScope_ref(aggregateCbs), ptrTrustMe(program));
+	DynCallTypeCtx typeCtx = DynCallTypeCtx(
+		ptrTrustMe(codeAlloc), ptrTrustMe(showCtx), castNonScope_ref(aggregateCbs), ptrTrustMe(program));
 
 	FunPointerTypeToDynCallSig funPtrTypeToDynCallSig =
 		mapFullIndexMap!(LowFunPointerTypeIndex, DynCallSig, LowFunPointerType)(

@@ -396,7 +396,9 @@ ConcreteExpr genCallVariadic(ref Alloc alloc, UriAndRange range, ConcreteFun* ca
 	genCall(alloc, range, called, [genCreateArray(alloc, only(called.params).type, range, args)]);
 
 private ConcreteExpr genCreateArray(ref Alloc alloc, ConcreteType arrayType, UriAndRange range, ConcreteExpr[] args) =>
-	ConcreteExpr(arrayType, range, ConcreteExprKind(CreateArrayConcreteExpr(args)));
+	isEmpty(args)
+		? genConstant(arrayType, range, constantZero())
+		: ConcreteExpr(arrayType, range, ConcreteExprKind(CreateArrayConcreteExpr(args)));
 
 private ConcreteExpr genCreateRecord(ref Alloc alloc, ConcreteType type, UriAndRange range, in ConcreteExpr[] args) =>
 	genCreateRecord(type, range, newArray(alloc, args));
@@ -436,12 +438,12 @@ ConcreteExpr genOr(ref ConcretizeCtx ctx, UriAndRange range, ConcreteExpr a, Con
 	genIf(ctx.alloc, range, a, genTrue(ctx, range), b);
 
 ConcreteExpr genReferenceCreate(
-	ref ConcretizeCtx ctx,
+	ref Alloc alloc,
 	ConcreteType referenceType,
 	in UriAndRange range,
 	ConcreteExpr value,
 ) =>
-	genCreateRecord(ctx.alloc, referenceType, range, [value]);
+	genCreateRecord(alloc, referenceType, range, [value]);
 ConcreteExpr genReferenceRead(ref ConcretizeCtx ctx, in UriAndRange range, ConcreteExpr reference) =>
 	genRecordFieldGet(getReferencedType(ctx, reference.type), range, allocate(ctx.alloc, reference), 0);
 ConcreteExpr genReferenceWrite(ref ConcretizeCtx ctx, UriAndRange range, ConcreteExpr reference, ConcreteExpr value) {

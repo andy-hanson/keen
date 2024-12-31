@@ -11,6 +11,7 @@ import
 	./check/get-common-funs
 	./check/instantiate
 	./lang
+	./show-model
 	./storage_
 
 frontend record mut
@@ -18,7 +19,7 @@ frontend record mut
 	storage_ storage_
 	crow-include-dir uri
 	common-uris common-uris
-	common-files mut (common-module, crow-file) enum-map?
+	common-files mut (common-module, crow-file) enum-map
 	all-insts all-insts
 	| Set after 'bootstrap.crow' is compiled
 	common-types mut common-types?
@@ -31,19 +32,32 @@ frontend record mut
 	| This doesn't include files whose imports are not yet compiled.
 	| If all import uris are resolved but nothing is workable, there must be a circular import.
 	workable uri mut-set
+show-ctx show-ctx(a frontend) # TODO: THIS ONE IS JUST FOR DEBUG _----------------------------------------------------------------
+	a show-ctx (), ()
+show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
+	line-and-column-getters: a.storage_ line-and-column-getters
+	file-content-getters: a.storage_ file-content-getters
+	uris-info: uris-info
+	options: options
 
 # TODO: just call it 'new' ------------------------------------------------------------------------------------------------------
 init-frontend frontend(storage_ storage_, crow-include-dir uri)
-	storage_: storage_
-	crow-include-dir: crow-include-dir
-	common-uris: crow-include-dir common-uris
-	common-files: ()
-	all-insts: ()
-	common-types: ()
-	crow-files: ()
-	count-uncompiled-crow-files: 0
-	other-files: ()
-	workable: ()
+	common-uris = crow-include-dir common-uris
+	crow-files crow-file mut[uri] = ()
+	res = do
+		storage_: storage_
+		crow-include-dir: crow-include-dir
+		common-uris: common-uris
+		common-files: for _ : common-uris; trusted gc-safe-value # TODO: NEATER ------------------------------------
+		all-insts: ()
+		common-types: ()
+		crow-files: crow-files
+		count-uncompiled-crow-files: 0
+		other-files: ()
+		workable: ()
+	res.common-files := for _, uri : common-uris
+		res ensure-crow-file uri
+	res
 
 -crow-file record mut
 	uri uri
@@ -55,7 +69,7 @@ init-frontend frontend(storage_ storage_, crow-include-dir uri)
 	| Uris are for {crow-file}s
 	referenced-by uri mut-set
 	module mut module?
-has-module bool(a crow-file)
+has-module bool(a crow-file) # TODO: inline ----------------------------------------------------------------------------------
 	a.module !is-empty
 must-have-module module(a crow-file)
 	a.module!
@@ -80,7 +94,7 @@ program-with-main-from-program program-with-main(
 
 make-program program(a frontend)
 	assert a.storage_.files-state == all-loaded
-	common-modules (common-module, module) enum-map = for _, x : a common-files!
+	common-modules (common-module, module) enum-map = for _, x : a common-files
 		x must-have-module
 	ctx instantiate-ctx = a.all-insts,
 	common-funs = ctx get-common-funs a.common-types!, common-modules
@@ -108,7 +122,8 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 			x to
 		a updated-ast-or-config file
 	as crow-config
-		for _, file : a crow-files
+		files crow-file[] = for _, v : a.crow-files; v
+		for file : files
 			a update-file-on-config-change file
 	as other
 		is-loading = match info
@@ -141,7 +156,12 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 	a.crow-files ensure uri, () =>
 		a.storage_ mark-unknown-if-not-exist uri
 		a.count-uncompiled-crow-files +:= 1
-		uri, unknown::read-file-diag.to, (a.storage_ try-find-config uri.parent-or-empty), (), (), ()
+		uri: uri
+		ast-or-diag: unknown::read-file-diag to
+		config: a.storage_ try-find-config uri.parent-or-empty
+		resolved-imports: ()
+		referenced-by: ()
+		module: ()
 
 -ensure-other-file other-file(a frontend, uri uri)
 	forbid uri.file-type == crow
@@ -158,10 +178,10 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 		x.to file-ast-for-diag
 
 -do-dirty-work void(a frontend)
-	bootstrap = a.common-files![bootstrap]
+	bootstrap = a.common-files[bootstrap]
 	if a.workable remove bootstrap.uri
 		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.ast-or-diag.to-ast
-		module, common-types = a.all-insts check-bootstrap a.common-uris, fa
+		module, common-types = a.show-ctx check-bootstrap a.all-insts, a.common-uris, fa
 		a.common-types := common-types,
 		bootstrap.module := module,
 		a.count-uncompiled-crow-files -:= 1
@@ -190,6 +210,7 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 			_ = a fix-circular-imports-recur cycle-builder, x
 			break
 -fix-circular-imports-recur uri[](a frontend, cycle-builder uri mut[], file crow-file)
+	throw todo # We shouldn't get here for hello.crow ------------------------------------------------------------------------------------------
 	forbid file has-module
 	cycle-builder ~= file uri
 	import-index = file.resolved-imports! find-index! x => x !is-import-workable
@@ -213,7 +234,10 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 	forbid a.common-types is-empty # bootstrap must be compiled first
 	ast uri-and-ast = file.uri, file.config!, file.ast-or-diag.to-ast
 	imports = a fully-resolve-imports file.resolved-imports!
-	a.all-insts check a.common-uris, ast, imports, a.common-types!
+	info log "will check {file uri}"
+	res = a.show-ctx check a.all-insts, a.common-uris, ast, imports, a.common-types!
+	info log "did check {file uri}"
+	res
 
 -update-file-on-config-change void(a frontend, file crow-file)
 	if best-config ?= a.storage_ try-find-config file.uri.parent-or-empty
@@ -320,7 +344,7 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 -resolve-imports-for-ast mostly-resolved-import[](a frontend, ast file-ast, config config, uri uri)
 	with out : ast.count-imports-and-re-exports build
 		unless ast no-std_
-			out ~= a.common-files![std] to
+			out ~= a.common-files[std] to
 		# TODO: use each-import-or-re-export? ---------------------------------------------------------------------------------------
 		if i ?= ast imports
 			for x : i paths
@@ -346,6 +370,7 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 
 -mark-module-dirty void(a frontend, file crow-file)
 	if file has-module
+		forbid file.uri.base-name == "bootstrap.crow" # TODO:RM ---------------------------------------------------------------
 		file.module := ()
 		a.count-uncompiled-crow-files +:= 1
 		for x : file referenced-by
@@ -397,41 +422,41 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 	for k : make-enum-map
 		match k
 		as alloc
-			private / "alloc.croow"
+			private / "alloc.crow"
 		as array
-			col / "array.croow"
+			col / "array.crow"
 		as bool-low-level
-			private / "bool-low-level.croow"
+			private / "bool-low-level.crow"
 		as bootstrap
-			private / "bootstrap.croow"
+			private / "bootstrap.crow"
 		as compare
-			include-crow / "compare.croow"
+			include-crow / "compare.crow"
 		as exception-low-level
-			private / "exception-low-level.croow"
+			private / "exception-low-level.crow"
 		as future-low-level
-			private / "future-low-level.croow"
+			private / "future-low-level.crow"
 		as js
-			include-crow / "js.croow"
+			include-crow / "js.crow"
 		as json
-			include-crow / "json.croow"
+			include-crow / "json.crow"
 		as misc
-			include-crow / "misc.croow"
+			include-crow / "misc.crow"
 		as mut-array
-			col / "mut-array.croow"
+			col / "mut-array.crow"
 		as number-low-level
-			private / "number-low-level.croow"
+			private / "number-low-level.crow"
 		as pointer
-			include-crow / "pointer.croow"
+			include-crow / "pointer.crow"
 		as runtime
-			private / "runtime.croow"
+			private / "runtime.crow"
 		as runtime-main
-			private / "rt-main.croow"
+			private / "rt-main.crow"
 		as std
-			include-crow / "std.croow"
+			include-crow / "std.crow"
 		as string
-			include-crow / "string.croow"
+			include-crow / "string.crow"
 		as symbol-low-level
-			private / "symbol-low-level.croow"
+			private / "symbol-low-level.crow"
 		as test-runner
 			test-util / "test-runner.crow"
 

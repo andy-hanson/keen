@@ -1,0 +1,70 @@
+import
+	../model/concrete-model
+	../util/util
+
+all-constants-builder record mut
+	-c-strings constant-c-string mut[string]
+	-symbols constant-c-string mut[symbol]
+	-c-string-values string mut[]
+	# Key is the element type
+	-arrs arr-type-and-constants mut[concrete-type-id]
+	# Key is the pointee type
+	-pointers pointer-type-and-constants mut[concrete-struct-id]
+
+-arr-type-and-constants record mut
+	arr-type concrete-struct
+	element-type concrete-type
+	# Order this was inserted into {arrs}
+	type-index nat
+	constants constant[] mut[]
+
+-pointer-type-and-constants record mut
+	pointee-type concrete-struct
+	type-index nat
+	constants constant mut[]
+
+finish-all-constants all-constants-concrete(a all-constants-builder, symbol-array-struct concrete-struct)
+	static-symbols = a get-constant-array symbol-array-struct, for _, v : a symbols
+		v to
+	arrays arr-type-and-constants-concrete mut[] = for _ : a arrs
+		trusted gc-safe-value # TODO:SAFER -----------------------------------------------------------------------------------------------
+	for _, x : a.arrs
+		arrays[x type-index] := (x.arr-type, x.element-type, x.constants.move-to)
+
+	pointers pointer-type-and-constants-concrete mut[] = for _ : a pointers
+		trusted gc-safe-value # TODO:SAFER -----------------------------------------------------------------------------------------------
+	for _, x : a pointers
+		pointers[x type-index] := x.pointee-type, x.constants.move-to
+
+	a.c-string-values.move-to, static-symbols, arrays.move-to, pointers.move-to
+
+get-constant-pointer constant(constants all-constants-builder, pointee concrete-struct, value constant)
+	d = constants.pointers ensure pointee.id, () =>
+		pointee, constants.pointers.size, ()
+	d.type-index constant-pointer (d.constants find-index-or-push value)
+
+get-constant-array constant(all-constants all-constants-builder, arr-struct concrete-struct, elements constant[])
+	guard elements !is-empty : constant-zero
+	element-type = arr-struct.source.concrete-struct-source-inst!.type-args only
+	d = all-constants.arrs ensure element-type.id, () =>
+		arr-struct, element-type, all-constants.arrs.size, ()
+	index = d.constants find-index-or-push elements
+	d.type-index constant-array index
+
+get-constant-c-string constant(a all-constants-builder, value string)
+	a get-constant-c-string-inner value to
+-get-constant-c-string-inner constant-c-string(a all-constants-builder, value string)
+	a.c-strings ensure value, () =>
+		index = a.c-string-values size
+		a.c-strings.size is index
+		a.c-string-values ~= value
+		index,
+
+get-constant-string constant(a all-constants-builder, string-struct concrete-struct, value symbol)
+	a get-constant-array string-struct, for x : value.to::string.to::char8[]
+		x.to integral-value
+
+get-constant-symbol constant(a all-constants-builder, value symbol)
+	res = a.symbols ensure value, () =>
+		a get-constant-c-string-inner value.to
+	res to

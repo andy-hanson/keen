@@ -1,0 +1,459 @@
+import
+	../model/ast
+	../model/concrete-model
+	../model/integral-values
+	../model/model
+	../model/source-range
+	../util/enum-map
+	../util/util
+	./all-constants-builder
+	./concretize-ctx
+
+gen-constant concrete-expr(type concrete-type, range uri-and-range, value constant)
+	type, range, value.to
+
+gen-constant-integral concrete-expr(type concrete-type, range uri-and-range, value integral-value)
+	type gen-constant range, value.to
+
+gen-false concrete-expr(ctx concretize-ctx, range uri-and-range)
+	ctx gen-bool range, false
+gen-true concrete-expr(ctx concretize-ctx, range uri-and-range)
+	ctx gen-bool range, true
+-gen-bool concrete-expr(ctx concretize-ctx, range uri-and-range, value bool)
+	ctx.bool-type gen-constant range, value.constant-bool
+
+gen-call concrete-expr(range uri-and-range, called concrete-fun, args concrete-expr[])
+	called.return-type, range, (called gen-call-kind args)
+gen-call-kind concrete-expr-kind(called concrete-fun, args concrete-expr[])
+	called call-concrete-expr args
+
+# TODO: If I'm just going to use 'then.type' as the type anyway, I might as well have it be a function on the if-concrete-expr
+gen-if concrete-expr(range uri-and-range, cond concrete-expr, then concrete-expr, else_ concrete-expr)
+	then.type, range, (cond if-concrete-expr then, else_)
+# TODO: most of these functions are unnecessary ....................................................................................
+gen-loop concrete-expr(type concrete-type, range uri-and-range,  body concrete-expr)
+	type, range, body.loop-concrete-expr
+gen-do-and-continue concrete-expr(type concrete-type, range uri-and-range, a concrete-expr)
+	range gen-seq a, (type gen-continue range)
+gen-seq concrete-expr(range uri-and-range, a concrete-expr, b concrete-expr)
+	assert a.type is-void
+	b.type, range, (a seq-concrete-expr b)
+gen-drop-then concrete-expr(ctx concretize-ctx, range uri-and-range, a concrete-expr, b concrete-expr)
+	range gen-seq (ctx gen-drop range, a), b
+gen-continue concrete-expr(type concrete-type, range uri-and-range)
+	type, range, loop-continue-concrete-expr
+gen-break concrete-expr(range uri-and-range, value concrete-expr)
+	value.type, range, value.loop-break-concrete-expr
+gen-create-union concrete-expr(
+	type concrete-type,
+	range uri-and-range,
+	member-index nat,
+	arg concrete-expr,
+)
+	type, range, (member-index create-union-concrete-expr arg)
+
+gen-some concrete-expr(
+	ctx concretize-ctx,
+	option-type concrete-type,
+	range uri-and-range,
+	arg concrete-expr,
+)
+	ctx assert-is-option-type option-type
+	option-type gen-create-union range, 1, arg
+gen-constant-some concrete-expr(
+	ctx concretize-ctx,
+	option-type concrete-type,
+	range uri-and-range,
+	inner constant,
+)
+	ctx assert-is-option-type option-type
+	option-type gen-constant range, (1 constant-union inner)
+gen-none concrete-expr(ctx concretize-ctx, option-type concrete-type, range uri-and-range)
+	ctx assert-is-option-type option-type
+	option-type gen-constant range, (0 constant-union constant-zero)
+unwrap-option-type concrete-type(ctx concretize-ctx, option-type concrete-type)
+	ctx assert-is-option-type option-type
+	option-type.must-be-by-val.source.concrete-struct-source-inst!.type-args only
+-assert-is-option-type void(ctx concretize-ctx, option-type concrete-type)
+	# TODO: this shouldn't need ctx, we could look at the source
+	assert option-type.must-be-by-val.source.concrete-struct-source-inst!.decl == ctx.common-types.option
+
+gen-void concrete-expr(ctx concretize-ctx, range uri-and-range)
+	ctx.void-type gen-constant range, constant-zero
+
+gen-let concrete-expr(
+	type concrete-type,
+	range uri-and-range,
+	local concrete-local,
+	value concrete-expr,
+	then concrete-expr,
+)
+	type, range, (local let-concrete-expr value, then)
+
+gen-drop concrete-expr(ctx concretize-ctx, range uri-and-range, inner concrete-expr)
+	ctx.void-type, range, inner.drop-concrete-expr
+gen-local-get concrete-expr(range uri-and-range, local concrete-local)
+	local.type, range, local.local-get-concrete-expr
+gen-local-pointer concrete-expr(type concrete-type, range uri-and-range, local concrete-local)
+	type, range, local.local-pointer-concrete-expr
+gen-local-set concrete-expr(ctx concretize-ctx, range uri-and-range, local concrete-local, value concrete-expr)
+	ctx.void-type, range, (local local-set-concrete-expr value)
+
+gen-record-field-call concrete-fun-body(ctx concretize-ctx, fun concrete-fun, body record-field-call)
+	range = fun range
+	record-arg = range gen-param-get fun.params[0]
+	field-index = record-arg.type field-index-from-field body.field
+	field-type = (record-arg.type concrete-field-from-index field-index).type must-be-by-val
+	get-fun = field-type.by-val_ gen-record-field-get range, record-arg, field-index
+	type-args = field-type.source.concrete-struct-source-inst! type-args
+	type-args.size is 2
+	call-fun = ctx get-concrete-fun ctx.program.common-funs.lambda-subscript[body fun-kind], type-args, ()
+	arg concrete-expr = match fun.params size
+	as 0
+		throw unreachable
+	as 1
+		ctx gen-void range
+	as 2
+		range gen-param-get fun.params[1]
+	else
+		args concrete-expr[] = for param : fun.params[1 .. end]	
+			range gen-param-get param
+		call-fun.params[1].type gen-create-record range, args
+	range gen-call call-fun, (get-fun, arg) to
+field-index-from-field nat(record-type concrete-type, field record-field)
+	record-type.struct.source.concrete-struct-source-inst!.decl.body.record_!.fields must-have-index-of-pointer field
+concrete-field-from-index concrete-field(record-type concrete-type, field-index nat)
+	record-type.struct.body.concrete-record!.fields[field-index]
+
+gen-union-member-get concrete-fun-body(ctx concretize-ctx, cf concrete-fun, member-index nat)
+	range = cf range
+	param = range gen-param-get cf.params.only
+	member-type = ctx unwrap-option-type cf.return-type
+	cond = ctx gen-equal-nat64 range, (ctx gen-union-kind range, param), (ctx gen-constant-nat64 range, member-index)
+	then = ctx gen-some cf.return-type, range, (member-type gen-union-as range, param, member-index)
+	else_ = ctx gen-none cf.return-type, range
+	range gen-if cond, then, else_ to
+
+gen-constant-nat64 concrete-expr(ctx concretize-ctx, range uri-and-range, value nat)
+	ctx.nat64-type gen-constant range, value.integral-value
+gen-equal-nat64 concrete-expr(ctx concretize-ctx, range uri-and-range, left concrete-expr, right concrete-expr)
+	ctx gen-equal-integral range, nat64, left, right
+gen-less-nat64 concrete-expr(ctx concretize-ctx, range uri-and-range, left concrete-expr, right concrete-expr)
+	ctx gen-less-integral range, nat64, left, right
+
+generate-call-lambda concrete-fun-body(
+	ctx concretize-ctx,
+	fun concrete-fun,
+	member-types concrete-type[],
+	impls concrete-lambda-impl[],
+)
+	range uri-and-range = ()
+	p0, p1 = fun.params only2
+	lambda = range gen-param-get p0
+	arg = range gen-param-get p1
+	expr = if member-types is-empty
+		ctx gen-bogus fun.return-type, range
+	else
+		fun.return-type gen-match-union range, member-types, lambda, (i, closure) => range gen-call impls[i].impl, (closure, arg)
+	expr to
+
+generate-call-method concrete-fun-body(
+	ctx concretize-ctx,
+	fun concrete-fun,
+	sum-type concrete-struct,
+	cases concrete-sum-type-case[],
+	method-index nat,
+)
+	range = fun range
+	members = sum-type.body.concrete-union! members
+	if members is-empty
+		ctx gen-throw-string fun.return-type, range, "Called method of empty interface" to
+	else
+		expr = fun.return-type gen-match-union range, members, (range gen-param-get fun.params[0]), (i, member) =>
+			if impl ?= cases[i].method-impls[method-index]
+				range gen-call impl, for param-index, param : fun.params with-index
+					param-index == 0 ? member : range gen-param-get param
+			else
+				ctx gen-bogus fun.return-type, range 
+		expr to
+
+gen-match-enum-or-integral concrete-expr(
+	type concrete-type,
+	range uri-and-range,
+	matched concrete-expr,
+	f concrete-expr mut(x enum-or-flags-member)
+)
+	members = matched.type must-be-enum
+	values integral-values = for x : members
+		x value
+	type gen-match-enum-or-integral range, matched, values, (members for-loop f), ()
+gen-match-enum-or-integral concrete-expr(
+	type concrete-type,
+	range uri-and-range,
+	matched concrete-expr,
+	case-values integral-values,
+	cases concrete-expr[],
+	else_ concrete-expr?,
+)
+	type, range, (matched match-enum-or-integral-concrete-expr case-values, cases, else_)
+gen-match-union concrete-expr(
+	return-type concrete-type,
+	range uri-and-range,
+	member-types concrete-type[],
+	union_ concrete-expr,
+	f concrete-expr mut(member-index nat, get-local concrete-expr),
+)
+	cases concrete-match-union-case[] = for member-index, member-type : member-types with-index
+		local concrete-local = member::concrete-generated-local-kind.to, member-type
+		(local,), f[member-index, (range gen-local-get local)]
+	kind match-union-concrete-expr = union_, member-types.size.integral-values-range, cases, ()
+	return-type, range, kind.to
+
+gen-throw concrete-expr(type concrete-type, range uri-and-range, thrown concrete-expr)
+	type, range, thrown.gen-throw-kind
+gen-bogus concrete-expr(ctx concretize-ctx, type concrete-type, range uri-and-range)
+	type, range, (ctx gen-bogus-kind range)
+gen-bogus-kind concrete-expr-kind(ctx concretize-ctx, range uri-and-range)
+	ctx gen-throw-string-kind range, "Reached compile error"
+-gen-throw-kind concrete-expr-kind(thrown concrete-expr)# TODO: inline ----------------------------------------------------------------
+	thrown throw-concrete-expr
+gen-error concrete-expr(ctx concretize-ctx, range uri-and-range, message string)
+	range gen-call ctx.create-error-function, ((ctx gen-string-literal range, message),)
+-gen-throw-string concrete-expr(ctx concretize-ctx, type concrete-type, range uri-and-range, message string)
+	type gen-throw range, (ctx gen-error range, message)
+-gen-throw-string-kind concrete-expr-kind(ctx concretize-ctx, range uri-and-range, message string)
+	ctx gen-error range, message gen-throw-kind
+
+gen-string-literal concrete-expr(ctx concretize-ctx, range uri-and-range, value string)
+	ctx.char8-array-type, range, (ctx gen-string-literal-kind range, value)
+gen-string-literal-kind concrete-expr-kind(ctx concretize-ctx, range uri-and-range, value string)
+	(ctx gen-char8-array range, value) kind
+gen-char8-array concrete-expr(ctx concretize-ctx, range uri-and-range, value string)
+	type = ctx char8-array-type
+	type gen-constant range, (ctx constant-of-bytes type, value.to-bytes)
+constant-of-bytes constant(ctx concretize-ctx, array-type concrete-type, bytes nat8[])
+	# TODO:PERF creating a Constant per byte is expensive
+	elements constant[] = for x : bytes
+		x.to integral-value
+	ctx.all-constants get-constant-array array-type.must-be-by-val, elements
+gen-char32-array concrete-expr(ctx concretize-ctx, range uri-and-range, value string)
+	type = ctx char32-array-type
+	type gen-constant range, (ctx char32-array-constant type, value)
+-char32-array-constant constant(ctx concretize-ctx, type concrete-type, value string)
+	ctx.all-constants get-constant-array type.must-be-by-val, for x : value.to::char32[]
+		x.to integral-value
+
+gen-call-variadic concrete-expr(range uri-and-range, called concrete-fun, args concrete-expr[])
+	range gen-call called, ((called.params.only.type gen-create-array range, args),)
+
+-gen-create-array concrete-expr(array-type concrete-type, range uri-and-range, args concrete-expr[])
+	if args is-empty
+		array-type gen-constant range, constant-zero
+	else
+		array-type, range, args.create-array-concrete-expr
+
+gen-create-record concrete-expr(type concrete-type, range uri-and-range, args concrete-expr[]) # TODO: INLINE ----------------------------
+	type, range, args.create-record-concrete-expr
+
+gen-constant-symbol concrete-expr(ctx concretize-ctx, range uri-and-range, value symbol)
+	ctx.symbol-type gen-constant range, (ctx constant-symbol value)
+
+gen-param-get concrete-expr(range uri-and-range, param concrete-local)
+	param.type, range, param.local-get-concrete-expr
+
+# TODO: INLINE -------------------------------------------------------------------------------------------------------------------
+gen-record-field-get concrete-expr(
+	field-type concrete-type,
+	range uri-and-range,
+	arg concrete-expr,
+	field-index nat,
+)
+	field-type, range, (arg record-field-get-concrete-expr field-index)
+# TODO: INLINE -------------------------------------------------------------------------------------------------------------------
+gen-record-field-pointer concrete-expr(
+	pointer-type concrete-type,
+	range uri-and-range,
+	record_ concrete-expr,
+	field-index nat,
+)
+	pointer-type, range, (record_ record-field-pointer-concrete-expr field-index)
+# TODO: INLINE -------------------------------------------------------------------------------------------------------------------
+gen-record-field-set concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	record_ concrete-expr,
+	field-index nat,
+	value concrete-expr,
+)
+	ctx.void-type, range, (record_ record-field-set-concrete-expr field-index, value)
+# TODO: INLINE -------------------------------------------------------------------------------------------------------------------
+gen-union-kind concrete-expr(ctx concretize-ctx, range uri-and-range, arg concrete-expr)
+	ctx.nat64-type, range, arg.union-kind-concrete-expr
+# TODO: INLINE -------------------------------------------------------------------------------------------------------------------
+gen-union-as concrete-expr(type concrete-type, range uri-and-range, arg concrete-expr, member-index nat)
+	type, range, (arg union-as-concrete-expr member-index)
+gen-and concrete-expr(ctx concretize-ctx, range uri-and-range, a concrete-expr, b concrete-expr)
+	range gen-if a, b, (ctx gen-false range)
+gen-or concrete-expr(ctx concretize-ctx, range uri-and-range, a concrete-expr, b concrete-expr)
+	range gen-if a, (ctx gen-true range), b
+
+gen-reference-create concrete-expr(reference-type concrete-type, range uri-and-range, value concrete-expr)
+	reference-type gen-create-record range, (value,)
+gen-reference-read concrete-expr(ctx concretize-ctx, range uri-and-range, reference concrete-expr)
+	(ctx get-referenced-type reference.type) gen-record-field-get range, reference, 0
+gen-reference-write concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	reference concrete-expr,
+	value concrete-expr,
+)
+	_ = ctx get-referenced-type reference.type # Assert that it's a reference type
+	ctx gen-record-field-set range, reference, 0, value
+
+gen-equal-pointer concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	a concrete-expr,
+	b concrete-expr,
+)
+	ctx.bool-type gen-builtin range, equal-pointer.to, (a, b)
+gen-equal-integral concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	type integral-type,
+	a concrete-expr,
+	b concrete-expr,
+)
+	ctx.bool-type gen-builtin range, type.builtin-binary-equal-integral.to, (a, b)
+gen-less-integral concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	type integral-type,
+	a concrete-expr,
+	b concrete-expr,
+)
+	ctx.bool-type gen-builtin range, type.builtin-binary-less-integral.to, (a, b)
+gen-intersect-integral concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	type integral-type,
+	a concrete-expr,
+	b concrete-expr,
+)
+	ctx integral-type type gen-builtin range, type.builtin-binary-intersect-integral.to, (a, b)
+gen-union-integral concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	type integral-type,
+	a concrete-expr,
+	b concrete-expr,
+)
+	ctx integral-type type gen-builtin range, type.builtin-binary-union-integral.to, (a, b)
+gen-negate-integral concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	type integral-type,
+	a concrete-expr,
+)
+	ctx integral-type type gen-builtin range, type.builtin-unary-negate-integral.to, (a,)
+
+# TODO:INLINE ----------------------------------------------------------------------------------------------------------------
+-gen-builtin concrete-expr(
+	type concrete-type,
+	range uri-and-range,
+	fun builtin-fun,
+	args concrete-expr[],
+)
+	type, range, (fun builtin-concrete-expr args)
+
+-builtin-binary-equal-integral builtin-binary(type integral-type)
+	# TODO: the 'builtin-binary' could just have `equal-integral record(x integral-type)` and we wouldn't need this switch-------
+	match type
+	as int8
+		equal-int8
+	as int16
+		equal-int16
+	as int32
+		equal-int32
+	as int64
+		equal-int64
+	as nat8
+		equal-nat8
+	as nat16
+		equal-nat16
+	as nat32
+		equal-nat32
+	as nat64
+		equal-nat64
+-builtin-binary-less-integral builtin-binary(type integral-type)
+	match type
+	as int8
+		less-int8
+	as int16
+		less-int16
+	as int32
+		less-int32
+	as int64
+		less-int64
+	as nat8
+		less-nat8
+	as nat16
+		less-nat16
+	as nat32
+		less-nat32
+	as nat64
+		less-nat64
+-builtin-binary-intersect-integral builtin-binary(type integral-type)
+	match type
+	as int8
+		bitwise-and-int8
+	as int16
+		bitwise-and-int16
+	as int32
+		bitwise-and-int32
+	as int64
+		bitwise-and-int64
+	as nat8
+		bitwise-and-nat8
+	as nat16
+		bitwise-and-nat16
+	as nat32
+		bitwise-and-nat32
+	as nat64
+		bitwise-and-nat64
+-builtin-binary-union-integral builtin-binary(type integral-type)
+	match type
+	as int8
+		bitwise-or-int8
+	as int16
+		bitwise-or-int16
+	as int32
+		bitwise-or-int32
+	as int64
+		bitwise-or-int64
+	as nat8
+		bitwise-or-nat8
+	as nat16
+		bitwise-or-nat16
+	as nat32
+		bitwise-or-nat32
+	as nat64
+		bitwise-or-nat64
+-builtin-unary-negate-integral builtin-unary(type integral-type)
+	match type
+	as int8
+		throw unreachable
+	as int16
+		throw unreachable
+	as int32
+		throw unreachable
+	as int64
+		throw unreachable
+	as nat8
+		bitwise-not-nat8
+	as nat16
+		bitwise-not-nat16
+	as nat32
+		bitwise-not-nat32
+	as nat64
+		bitwise-not-nat64

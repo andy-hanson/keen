@@ -853,6 +853,7 @@ immutable string[] specialSymbols = [
 	"refKeys",
 	"refPairs",
 	"regions",
+	"require",
 	"rest-args",
 	"return-type",
 	"rt-main",
