@@ -11,7 +11,7 @@ import concretize.concretizeCtx :
 	integralType,
 	stringType,
 	symbolType;
-import concretize.concretizeExpr : ConcretizeExprCtx, getConcreteFunFromCalled, getConcreteType, withConcretizeExprCtx;
+import concretize.concretizeExpr : ConcretizeExprCtx, getConcreteFunFromCalled, getConcreteType;
 import concretize.generate :
 	genAnd,
 	genBogus,
@@ -65,6 +65,7 @@ import model.concreteModel :
 	mustBeFlags,
 	mustBeByVal,
 	unwrapOptionType;
+import model.integralValues : IntegralValue;
 import model.model :
 	asUnion,
 	AutoFun,
@@ -96,7 +97,6 @@ import util.col.array :
 	sizeEq3,
 	SmallArray;
 import util.conv : safeToUint;
-import model.integralValues : IntegralValue;
 import util.memory : allocate;
 import util.opt : force, has, none, Opt;
 import util.symbol : Symbol, symbol;
@@ -181,31 +181,29 @@ ConcreteExpr concretizeFlagsFunction(ref ConcretizeCtx ctx, ConcreteFun* cf, Fla
 		genCastIntegral(ctx, range, storage, param1);
 	ConcreteExpr castToFlags(ConcreteExpr x) =>
 		genCast(ctx.alloc, cf.returnType, range, x);
-	return withConcretizeExprCtx(ctx, cf, (ref ConcretizeExprCtx exprCtx) {
-		final switch (fn) {
-			case FlagsFunction.in_:
-				// (x & y) == x
-				IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
-				return genFlagsIn(ctx, range, storage, castParam0(storage), castParam1(storage));
-			case FlagsFunction.intersect:
-				IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
-				return castToFlags(genIntersectIntegral(ctx, range, storage, castParam0(storage), castParam1(storage)));
-			case FlagsFunction.negate:
-				// ~x & all
-				IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
-				return castToFlags(
-					genIntersectIntegral(
-						ctx, range, storage,
-						genNegateIntegral(ctx, range, storage, castParam0(storage)),
-						getAllFlagsExpr(ctx, range, cf.returnType)));
-			case FlagsFunction.none:
-				IntegralType storage = integralTypeFromFlagsType(cf.returnType);
-				return castToFlags(genConstantIntegral(integralType(ctx, storage), range, IntegralValue(0)));
-			case FlagsFunction.union_:
-				IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
-				return castToFlags(genUnionIntegral(ctx, range, storage, castParam0(storage), castParam1(storage)));
-		}
-	});
+	final switch (fn) {
+		case FlagsFunction.in_:
+			// (x & y) == x
+			IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
+			return genFlagsIn(ctx, range, storage, castParam0(storage), castParam1(storage));
+		case FlagsFunction.intersect:
+			IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
+			return castToFlags(genIntersectIntegral(ctx, range, storage, castParam0(storage), castParam1(storage)));
+		case FlagsFunction.negate:
+			// ~x & all
+			IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
+			return castToFlags(
+				genIntersectIntegral(
+					ctx, range, storage,
+					genNegateIntegral(ctx, range, storage, castParam0(storage)),
+					getAllFlagsExpr(ctx, range, cf.returnType)));
+		case FlagsFunction.none:
+			IntegralType storage = integralTypeFromFlagsType(cf.returnType);
+			return castToFlags(genConstantIntegral(integralType(ctx, storage), range, IntegralValue(0)));
+		case FlagsFunction.union_:
+			IntegralType storage = integralTypeFromFlagsType(cf.params[0].type);
+			return castToFlags(genUnionIntegral(ctx, range, storage, castParam0(storage), castParam1(storage)));
+	}
 }
 
 private:

@@ -1,0 +1,493 @@
+import
+	../model/concrete-model
+	../model/integral-values
+	../model/model
+	../model/source-range
+	../util/util
+	./all-constants-builder
+	./concretize-ctx
+	./concretize-expr
+	./generate
+
+concretize-auto-fun concrete-expr(ctx concretize-expr-ctx, a auto-fun)
+	return-type = ctx.cur-fun return-type
+	param0 concrete-expr mut() = () =>
+		ctx.cur-fun.range gen-param-get ctx.cur-fun.params[0]
+	param1 concrete-expr mut() = () =>
+		ctx.cur-fun.range gen-param-get ctx.cur-fun.params[1]
+	range = ctx.cur-fun range
+	match a kind
+	as compare
+		compare-integral concrete-expr mut(storage_ integral-type) = storage_ =>
+			p0 = ctx.concretize-ctx gen-cast-integral range, storage_, param0[]
+			p1 = ctx.concretize-ctx gen-cast-integral range, storage_, param1[]
+			ctx.concretize-ctx gen-compare-integral return-type, range, storage_, p0, p1
+		match ctx.cur-fun.params.same-type enum-flags-record-or-union
+		as enum_ x
+			compare-integral[x.storage_]
+		as flags_ x
+			compare-integral[x.storage_]
+		as concrete-record x
+			ctx concretize-compare-record x.fields, a.members
+		as concrete-union x
+			ctx concretize-compare-union x.members, a.members
+	as enum-or-flags-members
+		elements constant[] = for member : return-type.array-element-type enum-or-flags-members
+			member.value to
+		res = ctx.all-constants get-constant-array return-type.must-be-by-val, elements
+		return-type, range, res.to
+	as enum-or-flags-to-integral
+		return-type gen-cast range, param0[]
+	as enum-to-symbol
+		ctx concretize-enum-to-symbol
+	as equals
+		match ctx.cur-fun.params.same-type enum-flags-record-or-union
+		as enum_ x
+			ctx.concretize-ctx concretize-equal-enum-or-flags range, x.storage_, param0[], param1[]
+		as flags_ x
+			ctx.concretize-ctx concretize-equal-enum-or-flags range, x.storage_, param0[], param1[]
+		as concrete-record x
+			ctx concretize-equal-record x.fields, a.members
+		as concrete-union x
+			ctx concretize-equal-union x.members, a.members
+	as flags-to-symbol-array
+		ctx concretize-flags-to-symbol-array
+	as integral-to-opt-enum-or-flags
+		ctx concretize-integral-to-opt-enum-or-flags
+	as symbol-to-opt-enum-or-flags
+		ctx concretize-symbol-to-opt-enum-or-flags
+	as to-json
+		match ctx.cur-fun.params.only.type enum-flags-record-or-union
+		as enum_ _
+			ctx concretize-enum-to-json
+		as flags_ _
+			ctx concretize-flags-to-json
+		as concrete-record x
+			ctx concretize-record-to-json x.fields, a.members
+		as concrete-union x
+			ctx concretize-union-to-json x.members, a.members
+
+concretize-flags-function concrete-expr(ctx concretize-ctx, cf concrete-fun, fn flags-function)
+	range = cf range
+	param0 concrete-expr mut() = () =>
+		range gen-param-get cf.params[0]
+	param1 concrete-expr mut() = () =>
+		range gen-param-get cf.params[1]
+	cast-param0 concrete-expr mut(storage_ integral-type) = storage_ =>
+		ctx gen-cast-integral range, storage_, param0[]
+	cast-param1 concrete-expr mut(storage_ integral-type) = storage_ =>
+		ctx gen-cast-integral range, storage_, param1[]
+	cast-to-flags concrete-expr mut(x concrete-expr) = x =>
+		cf.return-type gen-cast range, x
+	match fn
+	as in
+		# (x & y) == x
+		storage_ = cf.params[0].type integral-type-from-flags-type
+		ctx gen-flags-in range, storage_, cast-param0[storage_], cast-param1[storage_]
+	as intersect
+		storage_ = cf.params[0].type integral-type-from-flags-type
+		res = ctx gen-intersect-integral range, storage_, cast-param0[storage_], cast-param1[storage_]
+		cast-to-flags[res]
+	as negate
+		# ~x & all
+		storage_ = cf.params[0].type integral-type-from-flags-type
+		neg = ctx gen-negate-integral range, storage_, cast-param0[storage_]
+		all = ctx get-all-flags-expr range, cf.return-type
+		intersect = ctx gen-intersect-integral range, storage_, neg, all
+		cast-to-flags[intersect]
+	as none
+		storage_ = cf.return-type integral-type-from-flags-type
+		res = (ctx integral-type storage_) gen-constant-integral range, (0::nat,)
+		cast-to-flags[res]
+	as union_
+		storage_ = cf.params[0].type integral-type-from-flags-type
+		res = ctx gen-union-integral range, storage_, cast-param0[storage_], cast-param1[storage_]
+		cast-to-flags[res]
+
+-get-all-flags-expr concrete-expr(ctx concretize-ctx, range uri-and-range, flags-type concrete-type)
+	storage_ = ctx integral-type flags-type.integral-type-from-flags-type
+	storage_ gen-constant-integral range, flags-type.must-be-flags.get-all-flags-value
+
+# WARN: p0 is used twice, so it should be a param get (or other expression that has no side effect)
+-gen-flags-in concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	storage_ integral-type,
+	p0 concrete-expr,
+	p1 concrete-expr,
+)
+	assert p0.type == p1.type
+	intersect = ctx gen-intersect-integral range, storage_, p0, p1
+	ctx gen-equal-integral range, storage_, intersect, p0
+
+-integral-type-from-flags-type integral-type(a concrete-type)
+	a.must-be-by-val.body.concrete-flags! storage_
+
+-enum-or-flags-members enum-or-flags-member[](type concrete-type)
+	match type.must-be-by-val.source.concrete-struct-source-inst!.decl body	
+	as enum_ x
+		x members
+	as flags_ x
+		x members
+	else
+		throw unreachable
+
+-concretize-equal-enum-or-flags concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	storage_ integral-type,
+	arg0 concrete-expr,
+	arg1 concrete-expr,
+)
+	arg0-cast = ctx gen-cast-integral range, storage_, arg0
+	arg1-cast = ctx gen-cast-integral range, storage_, arg1
+	ctx gen-equal-integral range, storage_, arg0-cast, arg1-cast
+
+-gen-compare-integral concrete-expr(
+	ctx concretize-ctx,
+	comparison-type concrete-type,
+	range uri-and-range,
+	type integral-type,
+	arg0 concrete-expr,
+	arg1 concrete-expr,
+)
+	# a < b ? less : b < a ? greater : equal
+	less = comparison-type gen-comparison-less range
+	equal = comparison-type gen-comparison-equal range
+	greater = comparison-type gen-comparison-greater range
+	is-less = ctx gen-less-integral range, type, arg0, arg1
+	is-greater = ctx gen-less-integral range, type, arg1, arg0
+	range gen-if is-less, less, (range gen-if is-greater, greater, equal)
+
+-gen-cast-integral concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	type integral-type,
+	arg concrete-expr,
+)
+	ctx integral-type type gen-cast range, arg
+-gen-cast concrete-expr(type concrete-type, range uri-and-range, arg concrete-expr)
+	type, range, arg.cast-concrete-expr
+
+-concretize-enum-to-json concrete-expr(ctx concretize-expr-ctx)
+	ctx auto-fun-match-enum x =>
+		value = ctx.concretize-ctx constant-json-string ctx.cur-fun.return-type, x.name
+		ctx.cur-fun.return-type gen-constant ctx.cur-fun.range, value
+
+-concretize-enum-to-symbol concrete-expr(ctx concretize-expr-ctx)
+	ctx auto-fun-match-enum x =>
+		ctx.concretize-ctx symbol-for-enum-member ctx.cur-fun.return-type, ctx.cur-fun.range, x
+
+-concretize-flags-to-json concrete-expr(ctx concretize-expr-ctx)
+	to = ctx.concretize-ctx to-json-from-json-array-function
+	json-array-type = to.params.only type
+	values = ctx concretize-flags-to-array json-array-type, member =>
+		ctx.concretize-ctx constant-json-string ctx.cur-fun.return-type, member.name
+	ctx.cur-fun.range gen-call to, (values,)
+
+-constant-json-string constant(ctx concretize-ctx, json-type concrete-type, value symbol)
+	members = json-type.must-be-by-val.body.concrete-union! members
+	member-index nat = 3
+	string = ctx string-type
+	assert members[member-index] == string
+	member-index constant-union (ctx.all-constants get-constant-string string.must-be-by-val, value)
+
+-concretize-flags-to-symbol-array concrete-expr(ctx concretize-expr-ctx)
+	ctx concretize-flags-to-array ctx.cur-fun.return-type, member =>
+		ctx.concretize-ctx constant-symbol member.name
+
+-concretize-flags-to-array concrete-expr(
+	ctx concretize-expr-ctx,
+	array-type concrete-type,
+	f constant mut(x enum-or-flags-member),
+)
+	# (a & x == 0 ? () : ("x",)) ~~ (a & y == 0 ? () : ("y",))
+	range = ctx.cur-fun range
+	param = ctx.cur-fun.params only
+	members = param.type.must-be-flags members
+	storage_ = param.type integral-type-from-flags-type
+	storage-type = ctx.concretize-ctx integral-type storage_
+	value = ctx.concretize-ctx gen-cast-integral range, storage_, (ctx.cur-fun.range gen-param-get param)
+	array-struct = array-type must-be-by-val
+	empty-array = array-type gen-constant range, (ctx.all-constants get-constant-array array-struct, ())
+	guard members !is-empty : empty-array
+	array-for-member concrete-expr mut(member enum-or-flags-member) = member =>
+		# (value & x == 0) ? () : ("x",)
+		member-value = storage-type gen-constant-integral range, member.value
+		intersect = ctx.concretize-ctx gen-intersect-integral range, storage_, value, member-value
+		zero = storage-type gen-constant-integral range, (0::nat,)
+		test_ = ctx.concretize-ctx gen-equal-integral range, storage_, intersect, zero
+		array = array-type gen-constant range, (ctx.all-constants get-constant-array array-struct, (f[member],))
+		range gen-if test_, empty-array, array
+	res mut = array-for-member[members[0]]
+	for member : members[1 .. end]
+		res := ctx.concretize-ctx gen-concat-array range, res, array-for-member[member]
+	res
+
+-gen-concat-array concrete-expr(ctx concretize-ctx, range uri-and-range, a concrete-expr, b concrete-expr)
+	assert a.type == b.type
+	concat = ctx get-concrete-fun ctx.common-funs.concat-arrays, (a.type.array-element-type,), ()
+	range gen-call concat, (a, b)
+
+-auto-fun-match-enum concrete-expr(ctx concretize-expr-ctx, f concrete-expr mut(x enum-or-flags-member))
+	param = ctx.cur-fun.range gen-param-get ctx.cur-fun.params.only
+	ctx.cur-fun.return-type gen-match-enum-or-integral ctx.cur-fun.range, param, f
+
+-concretize-integral-to-opt-enum-or-flags concrete-expr(ctx concretize-expr-ctx)
+	if ctx.cur-fun.return-type.unwrap-option-type is-flags
+		ctx concretize-integral-to-opt-flags
+	else
+		ctx concretize-convert-to-opt-enum-or-flags (range, param-get, member) =>
+			value = ctx.concretize-ctx integral-for-enum-member range, member
+			ctx.concretize-ctx gen-equal-integral range, member.storage_, param-get, value
+
+-concretize-integral-to-opt-flags concrete-expr(ctx concretize-expr-ctx)
+	# a in all ? (a.cast,) : ()
+	range = ctx.cur-fun range
+	option-type = ctx.cur-fun return-type
+	flags-type = option-type unwrap-option-type
+	storage_ = flags-type integral-type-from-flags-type
+	param-get = range gen-param-get ctx.cur-fun.params.only
+	all = (ctx.concretize-ctx get-all-flags-expr range, flags-type)
+	a-in-all = ctx.concretize-ctx gen-flags-in range, storage_, param-get, all
+	cast = flags-type gen-cast range, param-get
+	some = ctx.concretize-ctx gen-some option-type, range, cast
+	none = ctx.concretize-ctx gen-none option-type, range
+	range gen-if a-in-all, some, none
+
+-concretize-symbol-to-opt-enum-or-flags concrete-expr(ctx concretize-expr-ctx)
+	ctx concretize-convert-to-opt-enum-or-flags (range, param-get, member) =>
+		assert ctx is-native : todo
+		symbol = ctx.concretize-ctx symbol-for-enum-member param-get.type, range, member
+		ctx.concretize-ctx gen-equal-pointer range, param-get, symbol
+
+-concretize-convert-to-opt-enum-or-flags concrete-expr(
+	ctx concretize-expr-ctx,
+	# TODO: we should generate a match on integrals or symbols, since we have expressions for those! ----------
+	f-test concrete-expr mut(range uri-and-range, param-get concrete-expr, member enum-or-flags-member),
+)
+	range = ctx.cur-fun range
+	option-type = ctx.cur-fun return-type
+	enum-type = option-type unwrap-option-type
+	param-get = range gen-param-get ctx.cur-fun.params.only
+	res mut = ctx.concretize-ctx gen-none option-type, range
+	for member : enum-type.must-be-enum-or-flags reverse
+		# a == "foo" ? (foo,) : res
+		eq = f-test[range, param-get, member]
+		some-enum-value = ctx.concretize-ctx gen-constant-some option-type, range, member.value.to
+		res := range gen-if eq, some-enum-value, res
+	res
+
+-integral-for-enum-member concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	member enum-or-flags-member,
+)
+	ctx integral-type member.storage_ gen-constant-integral range, member.value
+
+-symbol-for-enum-member concrete-expr(
+	ctx concretize-ctx,
+	symbol-type concrete-type,
+	range uri-and-range,
+	member enum-or-flags-member,
+)
+	symbol-type gen-constant range, (ctx constant-symbol member.name)
+
+-same-type concrete-type(params concrete-local[]) # TODO: rename to 'assert-same-type' ----------------------------------------
+	assert params all-same x => x.type
+	params[0] type
+
+-enum-flags-record-or-union union(enum_, flags_, concrete-record, concrete-union) mut
+-enum-flags-record-or-union enum-flags-record-or-union(a concrete-type)
+	match a.struct body
+	as concrete-builtin-type _
+		throw unreachable
+	as concrete-enum _
+		a.struct.source.concrete-struct-source-inst!.decl.body.enum_! to
+	as concrete-extern-type _
+		throw unreachable
+	as concrete-flags _
+		a.struct.source.concrete-struct-source-inst!.decl.body.flags_! to
+	as concrete-record x
+		x to
+	as concrete-union x
+		x to
+	as concrete-struct-body-deferred
+		throw unreachable
+
+-concretize-compare-record concrete-expr(
+	ctx concretize-expr-ctx,
+	fields concrete-field[],
+	field-compares called[],
+)
+	comparison = ctx.cur-fun return-type
+	range = ctx.cur-fun range
+	ctx equal-or-compare-record fields, field-compares, (() => comparison gen-comparison-equal range), (x, y) =>
+		range gen-compare-or x, y
+
+-equal-or-compare-record concrete-expr(
+	ctx concretize-expr-ctx,
+	fields concrete-field[],
+	field-called called[],
+	# TODO: instead of taking a callback, we could just rely on the caller to do it ........................................
+	f-no-fields concrete-expr mut(),
+	f-fold concrete-expr mut(x concrete-expr, y concrete-expr),
+)
+	fields.size is field-called.size
+	guard fields !is-empty : f-no-fields[]
+	range = ctx.cur-fun range
+	params = ctx.cur-fun params
+	param0, param1 = params only2
+	p0 = range gen-local-get param0
+	p1 = range gen-local-get param1
+	compare-field concrete-expr mut(index nat) = index =>
+		field-type = fields[index] type
+		f0 = field-type gen-record-field-get range, p0, index
+		f1 = field-type gen-record-field-get range, p1, index
+		ctx concretize-and-call field-called[index], range, (f0, f1)
+	res mut = compare-field[0]
+	for i : 1::nat .. fields.size
+		res := f-fold[res, compare-field[i]]
+	res
+
+-concretize-compare-union concrete-expr(
+	ctx concretize-expr-ctx,
+	members concrete-type[],
+	member-compares called[],
+)
+	members.size is member-compares.size
+	comparison = ctx.cur-fun return-type
+	range = ctx.cur-fun range
+	guard members !is-empty : comparison gen-comparison-equal range
+	param0, param1 = ctx.cur-fun.params only2
+	p0 = range gen-param-get param0
+	p1 = range gen-param-get param1
+	p0-kind = ctx.concretize-ctx gen-union-kind range, p0
+	p1-kind = ctx.concretize-ctx gen-union-kind range, p1
+	less = comparison gen-comparison-less range
+	greater = comparison gen-comparison-greater range
+	assert ctx is-native : todo
+	# p0.kind < p1.kind ? less : p1.kind < p0.kind ? greater : match p0.kind ...
+	kind-is-less = ctx.concretize-ctx gen-less-nat64 range, p0-kind, p1-kind
+	kind-is-greater = ctx.concretize-ctx gen-less-nat64 range, p1-kind, p0-kind
+	match-same = ctx match-unions-same-kind range, p0, p1, members, member-compares
+	range gen-if kind-is-less, less, (range gen-if kind-is-greater, greater, match-same)
+
+-concretize-equal-record concrete-expr(
+	ctx concretize-expr-ctx,
+	fields concrete-field[],
+	field-equals called[],
+)
+	range = ctx.cur-fun range
+	ctx equal-or-compare-record fields, field-equals, (() => ctx.concretize-ctx gen-true range), (x, y) =>
+		ctx.concretize-ctx gen-and range, x, y
+
+-concretize-equal-union concrete-expr(
+	ctx concretize-expr-ctx,
+	members concrete-type[],
+	member-equals called[],
+)
+	assert ctx is-native : todo
+	range = ctx.cur-fun range
+	guard members !is-empty : ctx.concretize-ctx gen-true range
+	param0, param1 = ctx.cur-fun.params only2
+	p0 = range gen-param-get param0
+	p1 = range gen-param-get param1
+	kind0 = ctx.concretize-ctx gen-union-kind range, p0
+	kind1 = ctx.concretize-ctx gen-union-kind range, p1
+	kind-equal = ctx.concretize-ctx gen-equal-nat64 range, kind0, kind1
+	match-same = ctx match-unions-same-kind range, p0, p1, members, member-equals
+	ctx.concretize-ctx gen-and range, kind-equal, match-same
+
+# Caller should guarantee that the unions have the same kind
+-match-unions-same-kind concrete-expr(
+	ctx concretize-expr-ctx,
+	range uri-and-range,
+	p0 concrete-expr,
+	p1 concrete-expr,
+	members concrete-type[],
+	calleds called[],
+)
+	assert ctx is-native : todo
+	members.size is calleds.size
+	ctx.cur-fun.return-type gen-match-union range, members, p0, (member-index, get-member) =>
+		p1-as-member = get-member.type gen-union-as range, p1, member-index
+		ctx concretize-and-call calleds[member-index], range, (get-member, p1-as-member)
+
+-concretize-record-to-json concrete-expr(
+	ctx concretize-expr-ctx,
+	fields concrete-field[],
+	field-to-json called[],
+)
+	fields.size is field-to-json.size
+	range = ctx.cur-fun range
+	get-param = range gen-param-get ctx.cur-fun.params.only
+	ctx.concretize-ctx gen-new-json range, for field-index, (field, called) : get-param.type.record-fields-for-names zip field-to-json with-index
+		field-value = fields[field-index].type gen-record-field-get range, get-param, field-index
+		field-json = ctx concretize-and-call called, range, (field-value,)
+		ctx.concretize-ctx gen-symbol-json-tuple range, field.name, field-json
+
+-concretize-union-to-json concrete-expr(
+	ctx concretize-expr-ctx,
+	member-types concrete-type[],
+	member-to-json called[],
+)
+	range = ctx.cur-fun range
+	param = ctx.cur-fun.params only
+	members = param.type union-members-for-names
+	member-types.size is members.size
+	member-to-json.size is members.size
+	get-param = range gen-param-get param
+	field = ctx.concretize-ctx.symbol-json-tuple-type gen-match-union range, member-types, get-param, (member-index, get-member) =>
+		member-json = ctx concretize-and-call member-to-json[member-index], range, (get-member,)
+		ctx.concretize-ctx gen-symbol-json-tuple range, members[member-index].member.decl.name, member-json
+	ctx.concretize-ctx gen-new-json range, (field,)
+
+-body struct-body(a concrete-type)
+	a.struct.source.concrete-struct-source-inst!.decl body
+# Discards concrete type info, so only used for names (TODO: just return a symbol[] then!) ----------------------------------------------------------------
+-record-fields-for-names record-field[](a concrete-type)
+	a.body.record_! fields
+# Discards concrete type info, so only used for names (TODO: just return a symbol[] then!) ----------------------------------------------------------------
+-union-members-for-names sum-type-member-and-method-impls[](a concrete-type)
+	a.body as-union
+
+-concretize-and-call concrete-expr(
+	ctx concretize-expr-ctx,
+	called called,
+	range uri-and-range,
+	args concrete-expr[],
+)
+	if fun ?= ctx get-concrete-fun-from-called called
+		range gen-call fun, args
+	else
+		ctx.concretize-ctx gen-bogus (ctx get-concrete-type called.return-type), range
+
+-gen-new-json concrete-expr(ctx concretize-ctx, range uri-and-range, elements concrete-expr[])
+	range gen-call-variadic ctx.new-json-from-pairs-function, elements
+
+-symbol-json-tuple-type concrete-type(ctx concretize-ctx)
+	ctx.new-json-from-pairs-function.params.only.type array-element-type
+
+-gen-symbol-json-tuple concrete-expr(
+	ctx concretize-ctx,
+	range uri-and-range,
+	symbol symbol,
+	value concrete-expr,
+)
+	constant-symbol = ctx gen-constant-symbol range, symbol
+	ctx.symbol-json-tuple-type gen-create-record range, (constant-symbol, value)
+
+-gen-comparison-less concrete-expr(comparison-type concrete-type, range uri-and-range)
+	comparison-type gen-constant range, 0.integral-value
+-gen-comparison-equal concrete-expr(comparison-type concrete-type, range uri-and-range)
+	comparison-type gen-constant range, 1.integral-value
+-gen-comparison-greater concrete-expr(comparison-type concrete-type, range uri-and-range)
+	comparison-type gen-constant range, 2.integral-value
+
+-gen-compare-or concrete-expr(range uri-and-range, a concrete-expr, b concrete-expr)
+	a.type gen-match-enum-or-integral range, a, x =>
+		if x.value.as-unsigned == 1
+			b
+		else
+			a.type gen-constant range, x.value.to

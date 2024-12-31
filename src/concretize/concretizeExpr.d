@@ -478,7 +478,7 @@ ConcreteExpr concretizeClosureGet(
 	in UriAndRange range,
 	in ClosureGetExpr a,
 ) {
-	ClosureFieldInfo info = getClosureFieldInfo(ctx, range, a.closureRef);
+	ClosureFieldInfo info = getClosureFieldInfo(ctx, a.closureRef);
 	ConcreteExpr getField = getClosureField(ctx, range, a.closureRef);
 	final switch (info.referenceKind) {
 		case ClosureReferenceKind.direct:
@@ -493,7 +493,7 @@ ConcreteExpr concretizeClosureGet(
 
 // This does not dereference it if allocated; 'concretizeClosureGet' does that.
 ConcreteExpr getClosureField(ref ConcretizeExprCtx ctx, in UriAndRange range, in ClosureRef a) {
-	ClosureFieldInfo info = getClosureFieldInfo(ctx, range, a);
+	ClosureFieldInfo info = getClosureFieldInfo(ctx, a);
 	return genRecordFieldGet(
 		info.fieldType, range, allocate(ctx.alloc, genParamGet(range, info.closureParam)), info.fieldIndex);
 }
@@ -506,7 +506,7 @@ ConcreteExpr concretizeClosureSet(
 	in ClosureSetExpr a,
 ) {
 	assert(a.closureRef.closureReferenceKind == ClosureReferenceKind.allocated);
-	ClosureFieldInfo info = getClosureFieldInfo(ctx, range, a.closureRef);
+	ClosureFieldInfo info = getClosureFieldInfo(ctx, a.closureRef);
 	assert(info.referenceKind == ClosureReferenceKind.allocated);
 	ConcreteExpr field = getClosureField(ctx, range, a.closureRef);
 	ConcreteExpr value = concretizeExpr(ctx, info.referencedType, locals, *a.value);
@@ -521,7 +521,7 @@ immutable struct ClosureFieldInfo {
 	ConcreteType referencedType; // If field is a reference, this is the type of its value.
 	ClosureReferenceKind referenceKind;
 }
-ClosureFieldInfo getClosureFieldInfo(ref ConcretizeExprCtx ctx, in UriAndRange range, in ClosureRef a) {
+ClosureFieldInfo getClosureFieldInfo(ref ConcretizeExprCtx ctx, in ClosureRef a) {
 	ConcreteLocal* closureParam = &ctx.currentConcreteFun.params[0];
 	ConcreteType closureType = closureParam.type;
 	ConcreteRecord record = closureType.struct_.body_.as!ConcreteRecord;
@@ -873,7 +873,6 @@ ConcreteExpr concretizePtrToLocal(
 
 ConcreteExpr concretizeLocalSet(
 	ref ConcretizeExprCtx ctx,
-	ConcreteType type,
 	in UriAndRange range,
 	in Locals locals,
 	LocalSetExpr a,
@@ -1214,7 +1213,7 @@ ConcreteExpr concretizeExpr(ref ConcretizeExprCtx ctx, ConcreteType type, in Loc
 		(LocalPointerExpr x) =>
 			concretizePtrToLocal(ctx, type, range, locals, x),
 		(LocalSetExpr x) =>
-			concretizeLocalSet(ctx, type, range, locals, x),
+			concretizeLocalSet(ctx, range, locals, x),
 		(LoopExpr* x) =>
 			genLoop(ctx.alloc, type, range, concretizeExpr(ctx, type, locals, x.body_)),
 		(LoopBreakExpr* x) =>
