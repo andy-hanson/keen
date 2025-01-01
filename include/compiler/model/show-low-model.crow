@@ -1,0 +1,103 @@
+import
+	../frontend/show-model
+	../util/full-index-map
+	../util/util
+	./concrete-model
+	./low-model
+	./model
+	./source-range
+	./uri
+
+show-fun-name string(ctx show-ctx, low-program low-program, fun low-fun-index)
+	ctx show-fun-name low-program, low-program.all-funs[fun]
+
+show-fun-name string(ctx show-ctx, low-program low-program, a low-fun)
+	match a source
+	as concrete-fun x
+		ctx show-concrete-fun-name x
+	as low-fun-source-generated x
+		"{x name}{ctx show-low-type-args low-program, x.type-args} (generated)"
+
+-show-low-type-args string(ctx show-ctx, low-program low-program, type-args low-type[])
+	type-args show-type-args-generic (_ => false), type-arg =>
+		ctx show-low-type low-program.all-types, type-arg
+
+show-fun-sig string(ctx show-ctx, low-program low-program, a low-fun)
+	match a source
+	as concrete-fun x
+		ctx show-concrete-fun-sig x, a.may-yield
+	as low-fun-source-generated _
+		ctx show-fun-name low-program, a
+
+-show-concrete-fun-sig string(ctx show-ctx, a concrete-fun, may-yield bool)
+	name = ctx show-concrete-fun-name a
+	type = ctx show-concrete-type a.return-type
+	params = ", " join for param : a params
+		param-name string = match param source
+		as local x
+			"{x name}"
+		as concrete-local-source-closure _
+			"<closure>"
+		as concrete-generated-local-kind x
+			"{x}"
+		"{param-name} {ctx show-concrete-type param.type}"
+	show-may-yield string = may-yield ? " may-yield"
+	range = ctx.line-and-column-getters[a range]
+	"{name} {type}({params}){show-may-yield} {range uri} {range.range start}"
+
+show-concrete-type string(ctx show-ctx, a concrete-type)
+	ref string = a.reference != by-val_ ? " {a reference}"
+	"{ctx show-concrete-struct a.struct}{ref}"
+
+show-low-type string(ctx show-ctx, low-types all-low-types, a low-type)
+	match a
+	as low-extern-type _
+		"some extern type" # TODO: more detail
+	as low-fun-pointer-type _
+		"some fun ptr type" # TODO: more detail
+	as primitive-type x
+		"{x}"
+	as low-pointer-gc x
+		"pointer-gc{ctx show-low-type low-types, x.pointee})"
+	as low-pointer-const x
+		"pointer-const({ctx show-low-type low-types, x.pointee})"
+	as low-pointer-mut x
+		"pointer-mut({ctx show-low-type low-types, x.pointee})"
+	as low-record x
+		ctx show-concrete-struct x.source
+	as low-union x
+		ctx show-concrete-struct x.source
+
+-show-concrete-fun-name string(ctx show-ctx, a concrete-fun)
+	match a source
+	as concrete-fun-source-regular x
+		"{x.decl name}{ctx show-concrete-type-args x.type-args}" # TODO: include spec impls
+	as concrete-fun-source-lambda x
+		"{ctx show-concrete-fun-name x.containing-fun}.lambda{x index}"
+	as concrete-fun-source-test _
+		"test" # TODO: more info
+	as concrete-fun-source-wrap-main _
+		"wrap-main"
+
+-show-concrete-type-args string(ctx show-ctx, a concrete-type[])
+	a show-type-args-generic (_ => false), x =>
+		ctx show-concrete-type x
+
+-show-concrete-struct string(ctx show-ctx, a concrete-struct)
+	match a source
+	as concrete-struct-source-bogus _
+		"BOGUS"
+	as concrete-struct-source-inst x
+		# TODO: use 'show-concrete-type-args' ------------------------------------------------------------------------------------------
+		prefix string = match x.type-args size
+		as 0
+			""
+		as 1
+			"{ctx show-concrete-type x.type-args.only} "
+		else
+			args string = ", " join for arg : x type-args
+				ctx show-concrete-type arg
+			"({args}) "
+		"{prefix}{x.decl name}"
+	as concrete-struct-source-lambda x
+		"{ctx show-concrete-fun-name x.containing-fun}.lambda{x index}"

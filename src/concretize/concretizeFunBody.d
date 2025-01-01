@@ -143,8 +143,8 @@ void fillInConcreteFunBody(ref ConcretizeCtx ctx, ConcreteFun* cf) {
 					genCreateRecordFromParams(ctx.alloc, memberType, cf.range, concreteParams)));
 		},
 		(CreateSumType x) =>
-			createUnionBody(ctx.alloc, cf, ensureSumTypeCase(
-				ctx, cf.returnType, isEmpty(concreteParams) ? voidType(ctx) : only(concreteParams).type)),
+			ConcreteFunBody(createUnionBody(ctx.alloc, cf, ensureSumTypeCase(
+				ctx, cf.returnType, isEmpty(concreteParams) ? voidType(ctx) : only(concreteParams).type))),
 		(Expr x) =>
 			ConcreteFunBody(concretizeFunBody(ctx, cf, x)),
 		(FunBodyExtern x) =>
@@ -225,7 +225,7 @@ ConcreteFunBody concretizeBuiltinFun(
 	BuiltinFun a,
 ) =>
 	a.isA!BuiltinFunAllTests
-		? bodyForAllTests(ctx, cf.returnType)
+		? ConcreteFunBody(bodyForAllTests(ctx, cf.returnType))
 		: a.isA!BuiltinFunConstant
 		? ConcreteFunBody(genConstant(cf.returnType, cf.range, toConstant(a.as!BuiltinFunConstant)))
 		: a.isA!BuiltinFunNewEmptyOption
@@ -254,11 +254,11 @@ ConcreteExpr genCreateRecordFromParams(
 	genCreateRecord(recordType, range, mapPointers(alloc, params, (ConcreteLocal* param) =>
 		genLocalGet(range, param)));
 
-ConcreteFunBody createUnionBody(ref Alloc alloc, ConcreteFun* cf, size_t memberIndex) =>
+ConcreteExpr createUnionBody(ref Alloc alloc, ConcreteFun* cf, size_t memberIndex) =>
 	isEmpty(cf.params)
-		? ConcreteFunBody(genConstantUnionEmptyMemberType(alloc, cf.returnType, cf.range, memberIndex))
-		: ConcreteFunBody(genCreateUnion(
-			alloc, cf.returnType, cf.range, memberIndex, genLocalGet(cf.range, onlyPointer(cf.params))));
+		? genConstantUnionEmptyMemberType(alloc, cf.returnType, cf.range, memberIndex)
+		: genCreateUnion(
+			alloc, cf.returnType, cf.range, memberIndex, genLocalGet(cf.range, onlyPointer(cf.params)));
 
 ConcreteExpr genConstantUnionEmptyMemberType(
 	ref Alloc alloc,
@@ -268,24 +268,23 @@ ConcreteExpr genConstantUnionEmptyMemberType(
 ) =>
 	genConstant(type, range, Constant(allocate(alloc, ConstantUnion(memberIndex, constantZero()))));
 
-ConcreteExpr concretizeFileImport(ref ConcretizeCtx ctx, ConcreteFun* cf, ref FunBodyFileImport import_) =>
-	withConcretizeExprCtx(ctx, cf, (ref ConcretizeExprCtx exprCtx) {
-		ConcreteExprKind exprKind = import_.content.match!ConcreteExprKind(
-			(immutable ubyte[] x) =>
-				ConcreteExprKind(constantOfBytes(ctx, cf.returnType, x)),
-			(string x) =>
-				genStringLiteralKind(ctx, cf.range, x),
-			(ImportFileContentBogus _) =>
-				genBogusKind(exprCtx.concretizeCtx, cf.range));
-		return ConcreteExpr(cf.returnType, cf.range, exprKind);
-	});
+ConcreteExpr concretizeFileImport(ref ConcretizeCtx ctx, ConcreteFun* cf, ref FunBodyFileImport import_) {
+	ConcreteExprKind exprKind = import_.content.match!ConcreteExprKind(
+		(immutable ubyte[] x) =>
+			ConcreteExprKind(constantOfBytes(ctx, cf.returnType, x)),
+		(string x) =>
+			genStringLiteralKind(ctx, cf.range, x),
+		(ImportFileContentBogus _) =>
+			genBogusKind(ctx, cf.range));
+	return ConcreteExpr(cf.returnType, cf.range, exprKind);
+}
 
 public ConcreteVar* getVar(ref ConcretizeCtx ctx, VarDecl* decl) =>
 	getOrAdd!(immutable ConcreteVar*, immutable VarDecl*, getVarKey)(ctx.alloc, ctx.concreteVarLookup, decl, () =>
 		allocate(ctx.alloc, ConcreteVar(decl, getConcreteType(ctx, decl.type, emptySmallArray!ConcreteType))));
 
-ConcreteFunBody bodyForAllTests(ref ConcretizeCtx ctx, ConcreteType returnType) =>
-	ConcreteFunBody(ConcreteExpr(returnType, UriAndRange.empty, ConcreteExprKind(getConstantArray(
+ConcreteExpr bodyForAllTests(ref ConcretizeCtx ctx, ConcreteType returnType) =>
+	ConcreteExpr(returnType, UriAndRange.empty, ConcreteExprKind(getConstantArray(
 		ctx.alloc,
 		ctx.allConstants,
 		mustBeByVal(returnType),
@@ -294,7 +293,7 @@ ConcreteFunBody bodyForAllTests(ref ConcretizeCtx ctx, ConcreteType returnType) 
 			eachTest(ctx.program, ctx.allExterns, ctx.programWithMainPtr.testSelector, (Test* test) {
 				out_ ~= Constant(ConstantFunPointer(concreteFunForTest(ctx, test, testIndex++)));
 			});
-		})))));
+		}))));
 
 ConcreteFun* concreteFunForTest(ref ConcretizeCtx ctx, Test* test, size_t testIndex) {
 	ConcreteType voidType = voidType(ctx);

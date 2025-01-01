@@ -35,7 +35,8 @@ specs-scope-for-fun specs-scope(a concrete-fun)
 		(), ()
 
 concretize-ctx record mut
-	next-id-value mut nat
+	-next-id-value mut nat
+	# TODO: more of these should probably be private -----------------------------------------------------------------------------
 	version-info version-info
 	program-with-main program-with-main
 	file-content-getters file-content-getters
@@ -53,18 +54,54 @@ concretize-ctx record mut
 	deferred-methods concrete-fun mut[]
 	all-concrete-funs concrete-fun mut[]
 	| Index in the array is the fun ID
-	lambda-struct-to-impls concrete-lambda-impl mut[] mut[concrete-struct-id]
-	sum-type-to-cases concrete-sum-type-case mut[] mut[concrete-struct-id]
-	late-bogus-type mut concrete-type?
-	late-bool-type mut concrete-type?
-	late-char8-array-type mut concrete-type?
-	late-char8-const-pointer-type mut concrete-type?
-	late-char32-array-type mut concrete-type?
-	late-exception-type mut concrete-type?
-	late-void-type mut concrete-type?
-	late-integral-types mut (integral-type, concrete-type) enum-map?
-	late-string-type mut concrete-type?
-	late-symbol-type mut concrete-type?
+	lambda-structs (concrete-struct, concrete-lambda-impl mut[]) mut[concrete-struct-id]
+	sum-types (concrete-struct, concrete-sum-type-case mut[]) mut[concrete-struct-id]
+	-late-bogus-type mut concrete-type?
+	-late-bool-type mut concrete-type?
+	-late-char8-array-type mut concrete-type?
+	-late-char8-const-pointer-type mut concrete-type?
+	-late-char32-array-type mut concrete-type?
+	-late-exception-type mut concrete-type?
+	-late-void-type mut concrete-type?
+	-late-integral-types mut (integral-type, concrete-type) enum-map?
+	-late-string-type mut concrete-type?
+	-late-symbol-type mut concrete-type?
+new concretize-ctx(
+	program program-with-main,
+	version-info version-info,
+	file-content-getters file-content-getters,
+	fill-in-concrete-fun-body void mut(ctx concretize-ctx, fun concrete-fun),
+)
+	next-id-value: 0
+	version-info: version-info
+	program-with-main: program
+	file-content-getters: file-content-getters
+	all-externs: program all-externs version-info.os.build-target-native
+	fill-in-concrete-fun-body: fill-in-concrete-fun-body
+	late-create-error-function: ()
+	late-new-json-from-pairs-function: ()
+	late-to-json-from-json-array-function: ()
+	all-constants: ()
+	non-lambda-concrete-structs: ()
+	all-concrete-structs: ()
+	concrete-var-lookup: ()
+	non-lambda-concrete-funs: ()
+	deferred-type-size: ()
+	deferred-methods: ()
+	all-concrete-funs: ()
+	lambda-structs: ()
+	sum-types: ()
+	late-bogus-type: ()
+	late-bool-type: ()
+	late-char8-array-type: ()
+	late-char8-const-pointer-type: ()
+	late-char32-array-type: ()
+	late-exception-type: ()
+	late-void-type: ()
+	late-integral-types: ()
+	late-string-type: ()
+	late-symbol-type: ()
+
 is-native bool(a concretize-ctx)
 	a.version-info is-native
 create-error-function concrete-fun(a concretize-ctx)
@@ -80,6 +117,7 @@ common-funs common-funs(a concretize-ctx)
 common-types common-types(a concretize-ctx)
 	a.program common-types
 
+# TODO: rename to take-next-idd 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 next-id concrete-fun-id(a concretize-ctx)
 	res = a next-id-value # TODO: use a different ID sequence than structs ------------------------------------------------------------
 	a.next-id-value +:= 1
@@ -259,7 +297,7 @@ get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-
 		if res did-add
 			ctx initialize-concrete-struct inst, res.value, type-args
 			if decl is-lambda-type
-				ctx.lambda-struct-to-impls[res.value id] := ()
+				ctx.lambda-structs[res.value id] := res.value, ()
 		if res.value !default-reference-kind-is-set
 			# The only way this would not be set is if we are still computing its the size.
 			# In that case, it's a recursive record, so it should be by-ref.
@@ -491,11 +529,12 @@ add-concrete-fun void(ctx concretize-ctx, fun concrete-fun)
 		res.default-reference-kind := by-val_
 		res.body := () concrete-union
 		ctx.deferred-type-size ~= res
-		ctx.sum-type-to-cases[res id] := for member : x listed-members
+		cases concrete-sum-type-case mut[] = for member : x listed-members
 			member-type = ctx get-concrete-type-for-struct-inst member.member, type-args
 			member-type, (ctx sum-type-method-impls-common member.method-impls, type-args)
+		ctx.sum-types[res id] := res, cases
 		if x.kind == union_
-			res finish-sum-type-cases ctx.sum-type-to-cases[res id]!
+			res finish-sum-type-cases cases
 
 -to reference-kind(a by-val-or-ref) # TODO: these should just be the same type ........................................................
 	match a
@@ -509,7 +548,7 @@ ensure-sum-type-case nat(ctx concretize-ctx, sum-type concrete-type, case-type c
 	if body has-members
 		body.members index-of! case-type
 	else
-		cases = ctx.sum-type-to-cases[sum-type.must-be-by-val.id]!
+		_, cases = ctx.sum-types[sum-type.must-be-by-val id]!
 		cases find-index (member => member.member-type == case-type) ?? do
 			res = cases size
 			cases ~= (case-type, (ctx sum-type-membership-method-impls sum-type, case-type))

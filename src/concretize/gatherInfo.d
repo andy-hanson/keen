@@ -12,7 +12,6 @@ import model.concreteModel :
 	ConcreteFunBodyExtern,
 	ConcreteFunBodyVarGet,
 	ConcreteFunBodyVarSet,
-	Constant,
 	existsDirectChildExpr;
 import model.model : BuiltinBinary, BuiltinFunCallLambda;
 import util.alloc.alloc : Alloc, withTempAlloc;
@@ -77,8 +76,7 @@ CalledBy buildCalledBy(ref Alloc alloc, in immutable ConcreteFun*[] allConcreteF
 			},
 			(ConcreteFunBodyExtern _) {},
 			(ConcreteExpr x) {
-				if (!x.kind.isA!Constant)
-					buildCalledByRecur(alloc, res, fun, x);
+				buildCalledByRecur(alloc, res, fun, x);
 			},
 			(ConcreteFunBodyVarGet _) {},
 			(ConcreteFunBodyVarSet _) {},

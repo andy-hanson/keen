@@ -658,8 +658,7 @@ LowFun lowFunFromCause(
 			return LowFun(LowFunSource(cf), returnType, params, body_);
 		},
 		(LowFunCause.MarkRoot x) =>
-			generateMarkRoot(
-				getLowTypeCtx.alloc, getLowTypeCtx, lowFunCauses, markVisitFuns, markCtxType, commonFuns.mark, x.type),
+			generateMarkRoot(getLowTypeCtx.alloc, getLowTypeCtx, lowFunCauses, markVisitFuns, markCtxType, x.type),
 		(LowFunCause.MarkVisit x) =>
 			generateMarkVisit(getLowTypeCtx.alloc, lowFunCauses, markVisitFuns, markCtxType, commonFuns.mark, x.type));
 

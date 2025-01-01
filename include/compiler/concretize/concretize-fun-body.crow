@@ -1,0 +1,200 @@
+import
+	../model/concrete-model
+	../model/model
+	../model/source-range
+	../util/util
+	./all-constants-builder
+	./concretize-auto-fun
+	./concretize-ctx
+	./concretize-expr
+	./generate
+
+fill-in-concrete-fun-body void(ctx concretize-ctx, cf concrete-fun)
+	cf.body := concrete-fun-body-deferred
+	fun-body = match cf source
+	as concrete-fun-source-regular x
+		x.decl body
+	as concrete-fun-source-lambda x
+		x.body-expr to
+	as concrete-fun-source-test _
+		throw unreachable
+	as concrete-fun-source-wrap-main _
+		throw unreachable
+	return-type = cf return-type
+	range = cf range
+	concrete-params = cf params
+	cf.body := match fun-body
+	as fun-body-bogus
+		ctx gen-bogus return-type, range to
+	as auto-fun x
+		ctx with-concretize-expr-ctx cf, expr-ctx =>
+			expr-ctx concretize-auto-fun x to
+	as builtin-fun x
+		ctx concretize-builtin-fun cf, concrete-params, x
+	as create-enum-or-flags x
+		return-type gen-constant range, x.member.value.to to
+	as create-extern
+		return-type gen-constant range, constant-zero to
+	as create-record
+		if concrete-params is-empty
+			return-type gen-constant range, constant-zero to
+		else
+			return-type gen-create-record-from-params range, concrete-params to
+	as create-record-and-convert-to-sum-type x
+		member-type = ctx get-concrete-type x.member.to, cf.source.concrete-fun-source-regular!.type-args
+		member-index = ctx ensure-sum-type-case cf.return-type, member-type
+		if concrete-params is-empty
+			return-type gen-constant-union-empty-member-type range, member-index to
+		else
+			record_ = member-type gen-create-record-from-params cf.range, concrete-params
+			return-type gen-create-union range, member-index, record_ to
+	as create-sum-type _
+		case_ = ctx ensure-sum-type-case return-type, if concrete-params is-empty
+			ctx void-type
+		else
+			concrete-params.only type
+		cf create-union-body case_ to
+	as expr x
+		ctx concretize-fun-body cf, x to
+	as fun-body-extern x
+		x.library-name concrete-fun-body-extern
+	as fun-body-file-import x
+		ctx concretize-file-import cf, x to
+	as flags-function x
+		ctx concretize-flags-function cf, x to
+	as fun-body-method _
+		ctx.deferred-methods ~= cf
+		concrete-fun-body-deferred
+	as record-field-call x
+		ctx gen-record-field-call cf, x
+	as record-field-get x
+		record_ = range gen-local-get concrete-params.only
+		index = record_.type field-index-from-field x.field
+		return-type gen-record-field-get range, record_, index to
+	as record-field-pointer x
+		record_ = range gen-local-get concrete-params.only
+		index = record_.type.pointee-type field-index-from-field x.field
+		return-type gen-record-field-pointer range, record_, index to
+	as record-field-set x
+		param0, param1 = concrete-params only2
+		p0 = range gen-local-get param0
+		p1 = range gen-local-get param1
+		index = p0.type.pointee-type-if-is-pointer field-index-from-field x.field
+		ctx gen-record-field-set range, p0, index, p1 to
+	as sum-type-member-get
+		case_ = ctx ensure-sum-type-case concrete-params.only.type, (ctx unwrap-option-type return-type)
+		ctx gen-union-member-get cf, case_
+	as var-get x
+		ctx get-var x.var concrete-fun-body-var-get
+	as var-set x
+		ctx get-var x.var concrete-fun-body-var-set
+	as fun-body-uninitialized
+		throw unreachable
+
+concrete-fun-for-wrap-main concrete-fun(ctx concretize-ctx, model-main fun-inst)
+	string-array-type = ctx get-concrete-type-for-struct-inst ctx.common-types.string-array, ()
+	inner-main = ctx get-non-template-concrete-fun model-main
+	###
+	wrapped-main nat(_ string[])
+		real-main
+		0
+	###
+	nat64 = ctx nat64-type
+	range = model-main.decl range
+	call-main concrete-expr = ctx.void-type, range, (inner-main call-concrete-expr ())
+	zero concrete-expr = nat64, range, constant-zero.to
+	body = range gen-seq call-main, zero
+	res concrete-fun = do
+		id: ctx next-id
+		source: range concrete-fun-source-wrap-main
+		return-type: nat64
+		params: (args::concrete-generated-local-kind.to, string-array-type),
+		body: body to
+	ctx add-concrete-fun res
+	res
+
+-concretize-builtin-fun concrete-fun-body(
+	ctx concretize-ctx,
+	cf concrete-fun,
+	concrete-params concrete-local[], # TODO: this is just cf.params -----------------------------------------------------------
+	a builtin-fun,
+)
+	return-type = cf return-type
+	range = cf range
+	match a
+	as builtin-fun-all-tests
+		ctx body-for-all-tests return-type to
+	as builtin-fun-constant x
+		return-type gen-constant range, x.to-constant to
+	as builtin-fun-new-empty-option
+		ctx gen-none return-type, range to
+	as builtin-fun-new-non-empty-option
+		ctx gen-some return-type, range, (range gen-local-get concrete-params.only) to
+	else
+		a concrete-fun-body-builtin cf.source.concrete-fun-source-regular!.type-args
+
+-to-constant constant(a builtin-fun-constant)
+	match a
+	as bool x
+		x constant-bool
+	as float x
+		x constant-float
+	as builtin-fun-constant-null
+		constant-zero
+	as builtin-fun-constant-void # TODO: if this has the same implementation as null I might as well combine them ............
+		constant-zero
+
+-gen-create-record-from-params concrete-expr(
+	record-type concrete-type,
+	range uri-and-range,
+	params concrete-local[],
+)
+	record-type gen-create-record range, for param : params
+		range gen-local-get param
+
+-create-union-body concrete-expr(cf concrete-fun, member-index nat)
+	if cf.params is-empty
+		cf.return-type gen-constant-union-empty-member-type cf.range, member-index
+	else
+		cf.return-type gen-create-union cf.range, member-index, (cf.range gen-local-get cf.params.only)
+
+-gen-constant-union-empty-member-type concrete-expr(
+	type concrete-type,
+	range uri-and-range,
+	member-index nat,
+)
+	type gen-constant range, (member-index constant-union constant-zero)
+
+-concretize-file-import concrete-expr(ctx concretize-ctx, cf concrete-fun, import_ fun-body-file-import)
+	cf.return-type, cf.range, match import_ content
+	as file-content x
+		ctx constant-of-bytes cf.return-type, x.bytes to
+	as string x
+		ctx gen-string-literal-kind cf.range, x
+	as import-file-content-bogus
+		ctx gen-bogus-kind cf.range
+
+get-var concrete-var(ctx concretize-ctx, decl var-decl)
+	ctx.concrete-var-lookup ensure decl.id, () =>
+		decl, (ctx get-concrete-type decl.type, ())
+
+-body-for-all-tests concrete-expr(ctx concretize-ctx, return-type concrete-type)
+	array = ctx.all-constants get-constant-array return-type.must-be-by-val, with out : build
+		test-index mut nat = 0
+		ctx.program each-test ctx.all-externs, ctx.program-with-main.test-selector, test_ =>
+			index = test-index
+			test-index +:= 1
+			fun = ctx concrete-fun-for-test test_, index
+			out ~= fun.id constant-fun-pointer
+	return-type, (), array.to
+
+-concrete-fun-for-test concrete-fun(ctx concretize-ctx, test_ test_, test-index nat)
+	res concrete-fun = do
+		id: ctx next-id
+		source: test_ concrete-fun-source-test test-index
+		return-type: ctx void-type
+		params: ()
+		body: concrete-fun-body-deferred
+	res.body := ctx concretize-fun-body res, test_.body to
+	ctx add-concrete-fun res
+	res

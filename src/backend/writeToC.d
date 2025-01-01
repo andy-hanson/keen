@@ -776,7 +776,7 @@ void writeStructs(ref Alloc alloc, scope ref Writer writer, scope ref Ctx ctx) {
 }
 
 void writeFunReturnTypeNameAndParams(scope ref Writer writer, scope ref Ctx ctx, LowFunIndex funIndex, in LowFun fun) {
-	if (isEmptyType(ctx,fun.returnType))
+	if (isEmptyType(ctx, fun.returnType))
 		writer ~= "void";
 	else
 		writeType(writer, ctx, fun.returnType);

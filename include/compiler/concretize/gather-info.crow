@@ -1,0 +1,63 @@
+import
+	../model/concrete-model
+	../model/model
+
+get-yielding-funs concrete-fun-id set(
+	common-funs concrete-common-funs,
+	all-concrete-funs concrete-fun[],
+)
+	called-by = all-concrete-funs build-called-by
+	# There is just 1 intrinsically yielding function: 'switch-fiber'
+	switch-fiber = all-concrete-funs find! x => x is-switch-fiber
+
+	res concrete-fun-id mut-set = ()
+	# These are functions known to yield that have been added to 'res' but not yet processed for callers.
+	to-propagate concrete-fun mut[] = ()
+	add void mut(x concrete-fun) = x =>
+		if res try-add x.id
+			to-propagate ~= x
+
+	add[switch-fiber]
+	until to-propagate is-empty
+		fun = to-propagate pop!
+		for caller : called-by[fun id] ?? ()
+			if caller != common-funs.run-fiber
+				add[caller]
+
+	res move-to
+
+-is-switch-fiber bool(a concrete-fun)
+	if builtin_ ?= a.body concrete-fun-body-builtin
+		if binary ?= builtin_.kind builtin-binary
+			binary == switch-fiber
+
+# Maps a function to all functions that call it.
+called-by alias
+	concrete-fun[][concrete-fun-id]
+
+build-called-by called-by(all-concrete-funs concrete-fun[])
+	res concrete-fun mut[] mut[concrete-fun-id] = ()
+	for fun : all-concrete-funs
+		match fun body
+		as concrete-fun-body-builtin x
+			forbid _ ?= x.kind builtin-fun-call-lambda
+		as concrete-fun-body-extern _
+			()
+		as concrete-expr x
+			res build-called-by-recur fun, x
+		as concrete-fun-body-var-get _
+			()
+		as concrete-fun-body-var-set _
+			()
+		as concrete-fun-body-deferred
+			throw unreachable
+	for k, v : res
+		k, v.move-to
+
+build-called-by-recur void(res concrete-fun mut[] mut[concrete-fun-id], f concrete-fun, expr concrete-expr)
+	if x ?= expr.kind call-concrete-expr
+		res ensure x.called.id, (() => ()) ~= f
+	else
+		()
+	for child : expr direct-child-exprs
+		res build-called-by-recur f, child

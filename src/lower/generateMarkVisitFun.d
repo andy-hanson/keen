@@ -214,7 +214,6 @@ LowFun generateMarkRoot(
 	scope ref MutArr!LowFunCause lowFunCauses,
 	scope ref MarkVisitFuns markVisitFuns,
 	LowType markCtxType,
-	LowFunIndex markFun,
 	LowType type,
 ) {
 	// For a pointer we should use mark-visit directly.
@@ -269,7 +268,7 @@ LowFun generateMarkVisit(
 			assert(false),
 		(LowPointerGc x) =>
 			generateMarkVisitPointerGc(
-				alloc, allTypes, commonTypes, markCtxType, markFun, range, markCtx,
+				alloc, allTypes, commonTypes, markFun, range, markCtx,
 				value, *x.pointee, getMarkVisit(*x.pointee)),
 		(LowPointerConst _) =>
 			assert(false),
@@ -277,12 +276,12 @@ LowFun generateMarkVisit(
 			assert(false),
 		(LowRecord* record) {
 			if (isArrayOrMutArray(*record)) {
-				LowType elementPointerType = getElementPointerTypeFromArrayOrMutArrayType(allTypes, record);
+				LowType elementPointerType = getElementPointerTypeFromArrayOrMutArrayType(record);
 				return generateMarkVisitArray(
 					alloc, allTypes, commonTypes, markFun, markCtx, value, elementPointerType,
 					getMarkVisit(asPointee(elementPointerType)));
 			} else if (isFiber(*record))
-				return generateMarkVisitFiber(alloc, allTypes, range, markCtx, value, *record, (LowType x) =>
+				return generateMarkVisitFiber(alloc, range, markCtx, value, *record, (LowType x) =>
 					getMarkVisit(x));
 			else
 				return generateMarkVisitRecord(
@@ -306,7 +305,6 @@ LowExpr generateMarkVisitPointerGc(
 	ref Alloc alloc,
 	in AllLowTypes allTypes,
 	ref LowCommonTypes commonTypes,
-	LowType markCtxType,
 	LowFunIndex markFun,
 	UriAndRange range,
 	LowExpr markCtx,
@@ -409,7 +407,6 @@ mark-visit void(mark-ctx mark-ctx, a fiber)
 */
 LowExpr generateMarkVisitFiber(
 	ref Alloc alloc,
-	in AllLowTypes allTypes,
 	UriAndRange range,
 	LowExpr markCtx,
 	LowExpr fiber,
@@ -483,8 +480,8 @@ LowExpr generateMarkVisitUnion(
 	LowExpr markCtx,
 	LowExpr value,
 ) =>
-	genUnionMatch(alloc, voidType, range, value, unionMembers, (size_t i, LowExpr member) {
-		Opt!LowFunIndex visitMember = getMarkVisitForType(alloc, lowFunCauses, markVisitFuns, unionMembers[i]);
+	genUnionMatch(alloc, voidType, range, value, unionMembers, (size_t _, LowExpr member) {
+		Opt!LowFunIndex visitMember = getMarkVisitForType(alloc, lowFunCauses, markVisitFuns, member.type);
 		return has(visitMember)
 			? genCallNoGcRoots(alloc, voidType, range, force(visitMember), [markCtx, member])
 			: genVoid(range);

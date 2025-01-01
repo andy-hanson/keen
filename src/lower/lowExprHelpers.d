@@ -287,7 +287,7 @@ LowExpr genGetArrayOrMutArrayConstPointer(
 	return constPointerType == elementPointerType ? value : genPointerCast(alloc, constPointerType, range, value);
 }
 
-LowType getElementPointerTypeFromArrayOrMutArrayType(in AllLowTypes allTypes, in LowRecord* arrRecord) {
+LowType getElementPointerTypeFromArrayOrMutArrayType(in LowRecord* arrRecord) {
 	assert(arrRecord.fields.length == 2);
 	assert(debugName(arrRecord.fields[0]) == symbol!"size");
 	assert(debugName(arrRecord.fields[1]) == symbol!"pointer");

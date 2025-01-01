@@ -1,0 +1,640 @@
+import
+	../frontend/show-model
+	../model/concrete-model
+	../model/low-model
+	../model/model
+	../model/show-low-model
+	../util/full-index-map
+	../util/util
+	./low-expr-helpers
+
+check-low-program void(
+	show-ctx show-ctx,
+	program program,
+	concrete-program concrete-program,
+	a low-program,
+)
+	ctx ctx = show-ctx, program, concrete-program, a
+	for _, fun : a all-funs
+		ctx check-low-fun fun
+	
+-ctx record mut
+	show-ctx show-ctx
+	model-program program
+	concrete-program concrete-program
+	program low-program
+
+-fun-ctx record(ctx ctx, fun low-fun) mut
+-program low-program(a fun-ctx)
+	a.ctx program
+-concrete-program concrete-program(a fun-ctx)
+	a.ctx concrete-program
+-common-types low-common-types(a fun-ctx)
+	a.program common-types
+
+-check-low-fun void(ctx ctx, fun low-fun)
+	match fun body
+	as low-fun-body-extern _
+		()
+	as low-fun-expr-body x
+		(ctx, fun) check-low-expr fun.return-type, x.expr, tail
+
+-expr-pos enum(non-tail, tail, loop_)
+-== bool(a expr-pos, b expr-pos)
+-to json(a expr-pos)
+
+-check-low-expr void(ctx fun-ctx, type low-type, expr low-expr, expr-pos expr-pos)
+	ctx check-type-equal type, expr.type
+	match expr kind
+	as abort-low-expr _
+		()
+	as call-low-expr x
+		fun = ctx.program.all-funs[x called]
+		assert fun !may-yield ||
+			ctx.fun may-yield ||
+			ctx.fun.source.concrete-fun! == ctx.concrete-program.common-funs.run-fiber
+		ctx check-type-equal type, fun.return-type
+		for param, arg : fun.params zip x.args
+			ctx check-low-expr param.type, arg, non-tail
+	as call-fun-pointer-low-expr x
+		ctx check-type-equal type, x.fun-pointer-type.return-type
+		x.fun-pointer-type.param-types.size is x.args.size
+		for param-type, arg : x.fun-pointer-type.param-types zip x.args
+			ctx check-low-expr param-type, arg, non-tail
+	as create-record-low-expr x
+		for field, arg : type.low-record!.fields zip x.args
+			ctx check-low-expr field.type, arg, non-tail
+	as create-union-low-expr x
+		ctx check-low-expr type.low-union!.members[x member-index], x.arg, non-tail
+	as fun-pointer-low-expr _
+		() # TODO
+	as if-low-expr x
+		ctx check-low-expr bool-type, x.cond, non-tail
+		ctx check-low-expr type, x.then, expr-pos
+		ctx check-low-expr type, x.else_, expr-pos
+	as builtin-fun-init _
+		ctx check-type-equal type, void-type
+	as let-low-expr x
+		ctx check-low-expr x.local.type, x.value, non-tail
+		ctx check-low-expr type, x.then, expr-pos
+	as local-get-low-expr x
+		ctx check-type-equal type, x.local.type
+	as local-pointer-low-expr x
+		ctx check-type-equal type.as-non-gc-pointee, x.local.type
+	as local-set-low-expr x
+		ctx check-type-equal type, void-type
+		ctx check-low-expr x.local.type, x.value, non-tail
+	as loop-low-expr x
+		ctx check-low-expr type, x.body, loop_
+	as loop-break-low-expr x
+		expr-pos is loop_
+		ctx check-low-expr type, x.value, non-tail
+	as loop-continue-low-expr
+		expr-pos is loop_
+	as pointer-cast-low-expr x
+		# TODO: there are some limitations on target...
+		ctx check-low-expr x.target.type, x.target, non-tail
+	as record-field-get-low-expr x
+		ctx check-low-expr x.target.type, x.target, non-tail
+		field-type = x.target-record-type.fields[x field-index] type
+		ctx check-type-equal type, field-type
+	as record-field-pointer-low-expr x
+		ctx check-low-expr x.target.type, x.target, non-tail
+		field-type = x.target-record-type.fields[x field-index] type
+		ctx check-type-equal type.as-non-gc-pointee, field-type
+	as record-field-set-low-expr x
+		ctx check-low-expr x.target.type, x.target, non-tail
+		field-type = x.target-record-type.fields[x field-index] type
+		ctx check-low-expr field-type, x.value, non-tail
+		ctx check-type-equal type, void-type
+	as constant _
+		# Constants are untyped, so can't check more
+		()
+	as special-unary-low-expr x
+		ctx check-special-unary type, x
+	as special-unary-math-low-expr x
+		actual = x.kind unary-math-type
+		ctx check-type-equal type, actual
+		ctx check-low-expr actual, x.arg, non-tail
+	as special-binary-low-expr x
+		ctx check-special-binary type, x, expr-pos
+	as special-binary-math-low-expr x
+		actual = x.kind binary-math-type
+		ctx check-type-equal type, actual
+		arg0, arg1 = x args
+		ctx check-low-expr actual, arg0, non-tail
+		ctx check-low-expr actual, arg1, non-tail
+	as special-ternary-low-expr x
+		match x kind
+		as interpreter-backtrace
+			() # TODO
+	as special-4ary-low-expr x
+		match x kind
+		as switch-fiber-initial
+			ctx check-type-equal type, void-type
+			ct = ctx common-types
+			arg0, arg1, arg2, _ = x args
+			ctx check-low-expr ct.fiber-reference, arg0, non-tail
+			ctx check-low-expr ct.nat64-mut-pointer-mut-pointer, arg1, non-tail
+			ctx check-low-expr ct.nat64-mut-pointer, arg2, non-tail
+			# TODO: arg3 is a 'void function(a fiber)'
+	as switch-low-expr x
+		ctx check-low-expr x.value.type, x.value, non-tail
+		for case_ : x case-exprs
+			ctx check-low-expr type, case_, expr-pos
+	as tail-recur-low-expr x
+		expr-pos is tail
+		for param, value : x update-params
+			ctx check-low-expr param.type, value, non-tail
+	as union-as-low-expr x
+		ctx check-type-equal type, x.union_.type.low-union!.members[x member-index]
+		ctx check-low-expr x.union_.type, x.union_, non-tail
+	as union-kind-low-expr x
+		ctx check-type-equal type, nat64.to
+		ctx check-low-expr x.union_.type, x.union_, non-tail
+	as var-get-low-expr x
+		ctx check-type-equal type, ctx.program.vars[x var-index].type
+	as var-set-low-expr x
+		ctx check-type-equal type, void-type
+		ctx check-low-expr ctx.program.vars[x var-index].type, x.value, non-tail
+
+-check-special-unary void(ctx fun-ctx, type low-type, a special-unary-low-expr)
+	expected = ctx.common-types unary-expected a.kind, type, a.arg.type
+	if r ?= expected return
+		ctx check-type-equal r, type
+	ctx check-low-expr (expected.arg ?? a.arg.type), a.arg, non-tail
+
+-unary-expected expect-unary(
+	common-types low-common-types,
+	kind builtin-unary,
+	return-type low-type,
+	arg-type low-type,
+)
+	match kind
+	as as-future
+		throw unreachable
+	as as-future-impl
+		throw unreachable
+	as as-mut-array
+		throw unreachable
+	as as-mut-array-impl
+		throw unreachable
+	as array-size
+		throw unreachable
+	as array-pointer
+		throw unreachable
+	as c-string-of-symbol
+		throw unreachable
+	as symbol-of-c-string
+		throw unreachable
+	as to-char8-array-from-string
+		throw unreachable
+	as trust-as-string
+		throw unreachable
+	as reference-from-pointer
+		()
+	as as-any-pointer
+		()
+	as bits-of-float32
+		nat32-type, float32-type
+	as bits-of-float64
+		nat64-type, float64-type
+	as bitwise-not-nat8
+		nat8-type, nat8-type
+	as bitwise-not-nat16
+		nat16-type, nat16-type
+	as bitwise-not-nat32
+		nat32-type, nat32-type
+	as bitwise-not-nat64
+		nat64-type, nat64-type
+	as count-ones-nat64
+		nat64-type, nat64-type
+	as deref
+		(arg-type,), ()
+	as drop
+		(void-type,), ()
+	as float32-from-bits
+		float32-type, nat32-type
+	as float64-from-bits
+		float64-type, nat64-type
+	as is-nan-float32
+		bool-type, float32-type
+	as is-nan-float64
+		bool-type, float64-type
+	as jump-to-catch
+		void-type, common-types.catch-point-const-pointer
+	as not
+		bool-type, bool-type
+	as setup-catch
+		bool-type, 	common-types.catch-point-mut-pointer
+	as to-char8-from-nat8
+		char8-type, nat8-type
+	as to-float32-from-float64
+		float32-type, float64-type
+	as to-float64-from-float32
+		float64-type, float32-type
+	as to-float64-from-int64
+		float64-type, int64-type
+	as to-float64-from-nat64
+		float64-type, nat64-type
+	as to-int64-from-int8
+		int64-type, int8-type
+	as to-int64-from-int16
+		int64-type, int16-type
+	as to-int64-from-int32
+		int64-type, int32-type
+	as to-nat8-from-char8
+		nat8-type, char8-type
+	as to-nat32-from-char32
+		nat32-type, char32-type
+	as to-nat64-from-nat8
+		nat64-type, nat8-type
+	as to-nat64-from-nat16
+		nat64-type, nat16-type
+	as to-nat64-from-nat32
+		nat64-type, nat32-type
+	as to-nat64-from-ptr
+		assert arg-type is-pointer-non-gc
+		(), (nat64-type,)
+	as to-ptr-from-nat64
+		assert return-type is-pointer-non-gc
+		(), (nat64-type,)
+	as truncate-to-int64-from-float64
+		int64-type, float64-type
+	as unsafe-to-char32-from-char8
+		char32-type, char8-type
+	as unsafe-to-char32-from-nat32
+		char32-type, nat32-type
+	as unsafe-to-int8-from-int64
+		int8-type, int64-type
+	as unsafe-to-int16-from-int64
+		int16-type, int64-type
+	as unsafe-to-int32-from-int64
+		int32-type, int64-type
+	as unsafe-to-int64-from-nat64
+		int64-type, nat64-type
+	as unsafe-to-nat8-from-nat64
+		nat8-type, nat64-type
+	as unsafe-to-nat16-from-nat64
+		nat16-type, nat64-type
+	as unsafe-to-nat32-from-int32
+		nat32-type, int32-type
+	as unsafe-to-nat32-from-nat64
+		nat32-type, nat64-type
+	as unsafe-to-nat64-from-int64
+		nat64-type, int64-type
+
+-unary-math-type low-type(kind builtin-unary-math)
+	# TODO: the enum should be just for the functions, and store separately whether it is the 32 or 64 bit version, then don't need this!
+	match kind
+	as acos-float32
+		float32-type
+	as acosh-float32
+		float32-type
+	as asin-float32
+		float32-type
+	as asinh-float32
+		float32-type
+	as atan-float32
+		float32-type
+	as atanh-float32
+		float32-type
+	as cos-float32
+		float32-type
+	as cosh-float32
+		float32-type
+	as round-down-float32
+		float32-type
+	as round-float32
+		float32-type
+	as round-up-float32
+		float32-type
+	as sin-float32
+		float32-type
+	as sinh-float32
+		float32-type
+	as sqrt-float32
+		float32-type
+	as tan-float32
+		float32-type
+	as tanh-float32
+		float32-type
+	as unsafe-log-float32
+		float32-type
+	as acos-float64
+		float64-type
+	as acosh-float64
+		float64-type
+	as asin-float64
+		float64-type
+	as asinh-float64
+		float64-type
+	as atan-float64
+		float64-type
+	as atanh-float64
+		float64-type
+	as cos-float64
+		float64-type
+	as cosh-float64
+		float64-type
+	as round-down-float64
+		float64-type
+	as round-float64
+		float64-type
+	as round-up-float64
+		float64-type
+	as sin-float64
+		float64-type
+	as sinh-float64
+		float64-type
+	as tan-float64
+		float64-type
+	as tanh-float64
+		float64-type
+	as sqrt-float64
+		float64-type
+	as unsafe-log-float64
+		float64-type
+
+-expect-unary record(return low-type?, arg low-type?) mut
+-new expect-unary()
+	(), ()
+-new expect-unary(return low-type, arg low-type)
+	return, arg
+
+-check-special-binary void(ctx fun-ctx, type low-type, a special-binary-low-expr, expr-pos expr-pos)
+	arg0, arg1 = a.args
+	return, expected0, expected1 = ctx.common-types binary-expected a.kind, type, arg0.type, arg1.type
+	if r ?= return
+		ctx check-type-equal r, type
+	ctx check-low-expr (expected0 ?? arg0.type), arg0, non-tail
+	ctx check-low-expr (expected1 ?? arg1.type), arg1, (a.kind.can-tail-recurse ? expr-pos : non-tail)
+-can-tail-recurse bool(a builtin-binary)
+	a == seq
+-binary-expected expect-binary(
+	common-types low-common-types,
+	kind builtin-binary,
+	return-type low-type,
+	arg0-type low-type,
+	arg1-type low-type,
+)
+	match kind
+	as add-float32
+		float32-type, float32-type, float32-type
+	as mul-float32
+		float32-type, float32-type, float32-type
+	as sub-float32
+		float32-type, float32-type, float32-type
+	as unsafe-div-float32
+		float32-type, float32-type, float32-type
+	as add-float64
+		float64-type, float64-type, float64-type
+	as mul-float64
+		float64-type, float64-type, float64-type
+	as sub-float64
+		float64-type, float64-type, float64-type
+	as unsafe-div-float64 # TODO: should this be builtin-binary-math? -----------------------------------------------------------
+		float64-type, float64-type, float64-type
+	as add-pointer-and-nat64
+		assert return-type == arg0-type
+		assert return-type is-pointer-non-gc
+		(), (), (nat64-type,)
+	as sub-pointer-and-nat64
+		assert return-type == arg0-type
+		assert return-type is-pointer-non-gc
+		(), (), (nat64-type,)
+	as bitwise-and-int8
+		int8-type, int8-type, int8-type
+	as bitwise-or-int8
+		int8-type, int8-type, int8-type
+	as bitwise-xor-int8
+		int8-type, int8-type, int8-type
+	as unsafe-add-int8
+		int8-type, int8-type, int8-type
+	as unsafe-div-int8
+		int8-type, int8-type, int8-type
+	as unsafe-mul-int8
+		int8-type, int8-type, int8-type
+	as unsafe-sub-int8
+		int8-type, int8-type, int8-type
+	as bitwise-and-int16
+		int16-type, int16-type, int16-type
+	as bitwise-or-int16
+		int16-type, int16-type, int16-type
+	as bitwise-xor-int16
+		int16-type, int16-type, int16-type
+	as unsafe-add-int16
+		int16-type, int16-type, int16-type
+	as unsafe-div-int16
+		int16-type, int16-type, int16-type
+	as unsafe-mul-int16
+		int16-type, int16-type, int16-type
+	as unsafe-sub-int16
+		int16-type, int16-type, int16-type
+	as bitwise-and-int32
+		int32-type, int32-type, int32-type
+	as bitwise-or-int32
+		int32-type, int32-type, int32-type
+	as bitwise-xor-int32
+		int32-type, int32-type, int32-type
+	as unsafe-add-int32
+		int32-type, int32-type, int32-type
+	as unsafe-div-int32
+		int32-type, int32-type, int32-type
+	as unsafe-mul-int32
+		int32-type, int32-type, int32-type
+	as unsafe-sub-int32
+		int32-type, int32-type, int32-type
+	as bitwise-and-int64
+		int64-type, int64-type, int64-type
+	as bitwise-or-int64
+		int64-type, int64-type, int64-type
+	as bitwise-xor-int64
+		int64-type, int64-type, int64-type
+	as unsafe-add-int64
+		int64-type, int64-type, int64-type
+	as unsafe-div-int64
+		int64-type, int64-type, int64-type
+	as unsafe-mul-int64
+		int64-type, int64-type, int64-type
+	as unsafe-sub-int64
+		int64-type, int64-type, int64-type
+	as bitwise-and-nat8
+		nat8-type, nat8-type, nat8-type
+	as bitwise-or-nat8
+		nat8-type, nat8-type, nat8-type
+	as bitwise-xor-nat8
+		nat8-type, nat8-type, nat8-type
+	as unsafe-add-nat8
+		nat8-type, nat8-type, nat8-type
+	as unsafe-div-nat8
+		nat8-type, nat8-type, nat8-type
+	as unsafe-mul-nat8
+		nat8-type, nat8-type, nat8-type
+	as unsafe-sub-nat8
+		nat8-type, nat8-type, nat8-type
+	as wrap-add-nat8
+		nat8-type, nat8-type, nat8-type
+	as wrap-mul-nat8
+		nat8-type, nat8-type, nat8-type
+	as wrap-sub-nat8
+		nat8-type, nat8-type, nat8-type
+	as bitwise-and-nat16
+		nat16-type, nat16-type, nat16-type
+	as bitwise-or-nat16
+		nat16-type, nat16-type, nat16-type
+	as bitwise-xor-nat16
+		nat16-type, nat16-type, nat16-type
+	as unsafe-add-nat16
+		nat16-type, nat16-type, nat16-type
+	as unsafe-div-nat16
+		nat16-type, nat16-type, nat16-type
+	as unsafe-mul-nat16
+		nat16-type, nat16-type, nat16-type
+	as unsafe-sub-nat16
+		nat16-type, nat16-type, nat16-type
+	as wrap-add-nat16
+		nat16-type, nat16-type, nat16-type
+	as wrap-mul-nat16
+		nat16-type, nat16-type, nat16-type
+	as wrap-sub-nat16
+		nat16-type, nat16-type, nat16-type
+	as bitwise-and-nat32
+		nat32-type, nat32-type, nat32-type
+	as bitwise-or-nat32
+		nat32-type, nat32-type, nat32-type
+	as bitwise-xor-nat32
+		nat32-type, nat32-type, nat32-type
+	as unsafe-add-nat32
+		nat32-type, nat32-type, nat32-type
+	as unsafe-div-nat32
+		nat32-type, nat32-type, nat32-type
+	as unsafe-mul-nat32
+		nat32-type, nat32-type, nat32-type
+	as unsafe-sub-nat32
+		nat32-type, nat32-type, nat32-type
+	as wrap-add-nat32
+		nat32-type, nat32-type, nat32-type
+	as wrap-mul-nat32
+		nat32-type, nat32-type, nat32-type
+	as wrap-sub-nat32
+		nat32-type, nat32-type, nat32-type
+	as bitwise-and-nat64
+		nat64-type, nat64-type, nat64-type
+	as bitwise-or-nat64
+		nat64-type, nat64-type, nat64-type
+	as bitwise-xor-nat64
+		nat64-type, nat64-type, nat64-type
+	as unsafe-bit-shift-left-nat64
+		nat64-type, nat64-type, nat64-type
+	as unsafe-bit-shift-right-nat64
+		nat64-type, nat64-type, nat64-type
+	as unsafe-add-nat64
+		nat64-type, nat64-type, nat64-type
+	as unsafe-div-nat64
+		nat64-type, nat64-type, nat64-type
+	as unsafe-mod-nat64
+		nat64-type, nat64-type, nat64-type
+	as unsafe-mul-nat64
+		nat64-type, nat64-type, nat64-type
+	as unsafe-sub-nat64
+		nat64-type, nat64-type, nat64-type
+	as wrap-add-nat64
+		nat64-type, nat64-type, nat64-type
+	as wrap-mul-nat64
+		nat64-type, nat64-type, nat64-type
+	as wrap-sub-nat64
+		nat64-type, nat64-type, nat64-type
+	as equal-char8
+		bool-type, char8-type, char8-type
+	as equal-char32
+		bool-type, char32-type, char32-type
+	as equal-float32
+		bool-type, float32-type, float32-type
+	as less-float32
+		bool-type, float32-type, float32-type
+	as equal-float64
+		bool-type, float64-type, float64-type
+	as less-float64
+		bool-type, float64-type, float64-type
+	as equal-int8
+		bool-type, int8-type, int8-type
+	as less-int8
+		bool-type, int8-type, int8-type
+	as equal-int16
+		bool-type, int16-type, int16-type
+	as less-int16
+		bool-type, int16-type, int16-type
+	as equal-int32
+		bool-type, int32-type, int32-type
+	as less-int32
+		bool-type, int32-type, int32-type
+	as equal-int64
+		bool-type, int64-type, int64-type
+	as less-int64
+		bool-type, int64-type, int64-type
+	as equal-nat8
+		bool-type, nat8-type, nat8-type
+	as less-nat8
+		bool-type, nat8-type, nat8-type
+	as equal-nat16
+		bool-type, nat16-type, nat16-type
+	as less-nat16
+		bool-type, nat16-type, nat16-type
+	as equal-nat32
+		bool-type, nat32-type, nat32-type
+	as less-nat32
+		bool-type, nat32-type, nat32-type
+	as equal-nat64
+		bool-type, nat64-type, nat64-type
+	as less-nat64
+		bool-type, nat64-type, nat64-type
+	as equal-pointer
+		assert arg0-type == arg1-type
+		(bool-type,), (), ()
+	as less-pointer
+		assert arg0-type == arg1-type
+		(bool-type,), (), ()
+	as reference-equal
+		assert arg0-type == arg1-type
+		(bool-type,), (), ()
+	as less-char8
+		bool-type, char8-type, char8-type
+	as new-array
+		throw unreachable
+	as seq
+		assert return-type == arg1-type
+		(), (void-type,), ()
+	as switch-fiber
+		void-type, common-types.nat64-mut-pointer-mut-pointer, common-types.nat64-mut-pointer
+	as write-to-pointer
+		(void-type,), (), (arg0-type.as-pointee,)
+
+-binary-math-type low-type(kind builtin-binary-math)
+	match kind
+	as atan2-float32
+		float32-type
+	as unsafe-pow-float32
+		float32-type
+	as fmod-float32
+		float32-type
+	as fmod-float64
+		float64-type
+	as atan2-float64
+		float64-type
+	as unsafe-pow-float64
+		float64-type
+
+-expect-binary alias
+	(low-type?, low-type?, low-type?)
+-new expect-binary(return low-type, arg0 low-type, arg1 low-type)
+	(return,), (arg0,), (arg1,)
+
+-check-type-equal void(ctx fun-ctx, expected low-type, actual low-type)
+	if expected != actual
+		show-ctx = ctx.ctx show-ctx
+		all-types = ctx.program all-types
+		fun = show-ctx show-fun-name ctx.program, ctx.fun
+		show-expected = ctx.ctx.show-ctx show-low-type all-types, expected
+		show-actual = ctx.ctx.show-ctx show-low-type all-types, actual
+		error log "Somewhere in {fun}:\nExpected:\n{show-expected}\nActual:\n{show-actual}"
