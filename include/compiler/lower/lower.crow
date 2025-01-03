@@ -1,8 +1,1363 @@
 import
+	../backend/builtin-math
 	../frontend/show-model
 	../model/model
 	../model/concrete-model
+	../model/integral-values
 	../model/low-model
+	../model/source-range
+	../model/type-layout
+	../model/version-info
+	../util/full-index-map
+	../util/util
+	./check-low-model
+	./generate-mark-visit-fun
+	./lower-util
+	./low-expr-helpers
 
-lower low-program(_ show-ctx, _ config-extern-uris, _ program, _ concrete-program)
-	throw todo
+lower low-program(
+	show-ctx show-ctx,
+	config-extern config-extern-uris,
+	program program,
+	a concrete-program,
+)
+	get-low-type-ctx = a get-all-low-types # TODO: This should be renamed; it doesn't get all types up-front --------------------
+	catch-point-const-pointer-type = get-low-type-ctx low-type-from-concrete-type a.common-funs.cur-catch-point.return-type
+	nat64-mut-pointer = get-low-type-ctx get-pointer-mut nat64-type
+	common-types low-common-types = do
+		catch-point-const-pointer: catch-point-const-pointer-type
+		catch-point-mut-pointer: catch-point-const-pointer-type.low-pointer-const!.pointee low-pointer-mut
+		fiber-reference: get-low-type-ctx low-type-from-concrete-type a.common-funs.fiber-reference-type 
+		nat8-const-pointer: get-low-type-ctx get-pointer-const nat8-type
+		nat8-mut-pointer: get-low-type-ctx get-pointer-mut nat8-type
+		nat64-mut-pointer: nat64-mut-pointer
+		nat64-mut-pointer-mut-pointer: get-low-type-ctx get-pointer-mut nat64-mut-pointer
+	vars = get-low-type-ctx get-all-low-vars a.all-vars
+	all-funs = show-ctx get-all-low-funs get-low-type-ctx, common-types, config-extern, a, vars
+	all-constants = get-low-type-ctx convert-all-constants a.all-constants
+	res low-program = do
+		version: a.version
+		concrete-fun-to-low-fun-index: all-funs concrete-fun-to-low-fun-index
+		all-constants: all-constants
+		common-types: common-types
+		vars: vars
+		all-types: get-low-type-ctx all-types
+		all-funs: all-funs all-low-funs
+		main: all-funs main
+		extern-libraries: all-funs all-extern-libraries
+	show-ctx check-low-program program, a, res
+	res
+
+-get-all-low-vars (low-var-index, low-var) full-index-map(ctx get-low-type-ctx, vars concrete-var[])
+	for source : vars
+		kind = match source.source kind
+		as global_
+			if _ ?= source.source extern-library-name
+				extern-global
+			else
+				global_
+		as thread-local_
+			forbid _ ?= source.source extern-library-name
+			thread-local_
+		source, kind, (ctx low-type-from-concrete-type source.type)
+
+-convert-all-constants all-constants-low(ctx get-low-type-ctx, a all-constants-concrete)
+	arrays arr-type-and-constants-low[] = for x : a arrs
+		array-type = ctx low-type-from-concrete-struct x.arr-type
+		element-type = ctx low-type-from-concrete-type x.element-type
+		array-type.low-record!, element-type, x.constants
+	pointers pointer-type-and-constants-low[] = for x : a pointers
+		(ctx low-type-from-concrete-struct x.pointee-type), x.constants
+	a.c-strings, arrays, pointers
+
+-all-low-funs record mut
+	concrete-fun-to-low-fun-index concrete-fun-to-low-fun-index
+	all-low-funs (low-fun-index, low-fun) full-index-map
+	main low-fun-index
+	all-extern-libraries extern-libraries
+
+-get-all-low-types get-low-type-ctx(program concrete-program)
+	extern-types-builder low-extern-type mut[] = ()
+	fun-pointer-types-builder low-fun-pointer-type mut[] = ()
+	records-builder low-record mut[] = ()
+	unions-builder low-union mut[] = ()
+	indices nat[concrete-struct-id] = with out : build
+		for source : program all-structs
+			guard source !is-empty-struct
+			id nat? = match source body
+			as concrete-builtin-type x
+				# TODO: factor out a function 0000000000000000000000000000000000000000000000000000000000000000000000000000000000
+				match x kind
+				as array
+					(records-builder add-and-get-index ((records-builder.size,), source, ())),
+				as mut-slice
+					(records-builder add-and-get-index ((records-builder.size,), source, ())),
+				as catch-point
+					(extern-types-builder add-and-get-index ((extern-types-builder.size,), source)),
+				as fun-pointer
+					(fun-pointer-types-builder add-and-get-index ((fun-pointer-types-builder.size,), source, void-type, ())),
+				else
+					()
+			as concrete-enum _
+				()
+			as concrete-extern-type
+				(extern-types-builder add-and-get-index ((extern-types-builder.size,), source)),
+			as concrete-flags _
+				()
+			as concrete-record _
+				(records-builder add-and-get-index ((records-builder.size,), source, ())),
+			as concrete-union _
+				(unions-builder add-and-get-index ((unions-builder.size,), source, ())),
+			as concrete-struct-body-deferred
+				throw unreachable
+			if x ?= id
+				out ~= (source.id, x)
+	
+	# TODO: these are only used to create the all-low-types, so just do that directly --------------------------------------------
+	all-extern-types (low-extern-type-index, low-extern-type) full-index-map = extern-types-builder.move-to,
+	all-fun-pointer-types (low-fun-pointer-type-index, low-fun-pointer-type) full-index-map = fun-pointer-types-builder.move-to,
+	all-records (low-record-index, low-record) full-index-map = records-builder.move-to,
+	all-unions (low-union-index, low-union) full-index-map = unions-builder.move-to,
+	get-low-type-ctx get-low-type-ctx = (all-extern-types, all-fun-pointer-types, all-records, all-unions), indices
+
+	for _, record_ : all-records
+		record_.fields := get-low-type-ctx make-record-fields record_
+	for _, fun-pointer : all-fun-pointer-types
+		return, param = fun-pointer.source.body.concrete-builtin-type!.type-args only2
+		fun-pointer.return-type := get-low-type-ctx low-type-from-concrete-type return
+		fun-pointer.param-types := get-low-type-ctx low-type-from-concrete-type param maybe-unpack-tuple
+	for _, union_ : all-unions
+		union_.members := for member : union_.source.body.concrete-union! members
+			get-low-type-ctx low-type-from-concrete-type member
+	get-low-type-ctx
+
+-make-record-fields low-field[](get-low-type-ctx get-low-type-ctx, record_ low-record)
+	match record_.source body
+	as concrete-builtin-type builtin_
+		assert builtin_.kind lowers-to-array
+		element-type = if builtin_.kind == string
+			char8-type
+		else
+			get-low-type-ctx low-type-from-concrete-type builtin_.type-args.only
+		size low-field = size::low-array-field.to, 0, nat64-type
+		pointer low-field = pointer::low-array-field.to, 8, if builtin_.kind == mut-slice
+			get-low-type-ctx get-pointer-mut element-type
+		else
+			get-low-type-ctx get-pointer-const element-type
+		size, pointer
+	else
+		for field, field-offset : record_.source.body.concrete-record!.fields zip record_.source.field-offsets
+			field.to, field-offset, (get-low-type-ctx low-type-from-concrete-type field.type)
+-lowers-to-array bool(a builtin-type)
+	a == array || a == mut-slice || a == string
+
+-maybe-unpack-tuple low-type[](a low-type)
+	a try-unpack-tuple ?? (a,)
+-try-unpack-tuple low-type[]?(a low-type)
+	if a == void.to
+		(),
+	elif r ?= a low-record
+		if r is-tuple
+			(for x : r.fields; x type),
+
+mut-concrete-fun-to-low-fun-index alias
+	low-fun-index mut[concrete-fun-id]
+
+-get-all-low-funs all-low-funs(
+	show-ctx show-ctx,
+	get-low-type-ctx get-low-type-ctx,
+	common-types low-common-types,
+	config-extern config-extern-uris,
+	program concrete-program,
+	all-vars (low-var-index, low-var) full-index-map,
+)
+	concrete-fun-to-low-fun-index mut-concrete-fun-to-low-fun-index = ()
+	low-fun-causes low-fun-cause mut[] = ()
+	mark-visit-funs = get-low-type-ctx.all-types init-mark-visit-funs common-types
+	mark-ctx-type-late mut low-type? = ()
+
+	# Applies to both funs and vars
+	extern-library-to-names symbol mut[] mut[symbol] = ()
+	add-extern-symbol void mut(library-name symbol, symbol-name symbol) = (library-name, symbol-name) =>
+		extern-library-to-names ensure library-name ~= symbol-name
+
+	for _, x : all-vars
+		if library-name ?= x extern-library-name
+			add-extern-symbol[library-name, x.name]
+	
+	for fun : program all-funs
+		op-index low-fun-index? = match fun body
+		as concrete-fun-body-builtin x
+			match x kind
+			as builtin-fun-mark-root
+				if _, f ?= low-fun-causes get-mark-root-for-type mark-visit-funs, (get-low-type-ctx low-type-from-concrete-type x.type-args.only)
+					f,
+			as builtin-fun-mark-visit
+				if mark-ctx-type-late is-empty
+					mark-ctx-type-late := (get-low-type-ctx low-type-from-concrete-type fun.params[0].type),
+				low-fun-causes get-mark-visit-for-type mark-visit-funs, (get-low-type-ctx low-type-from-concrete-type x.type-args.only)
+			else
+				if program.version !is-version is-interpreted && (x.kind.builtin-unary-math !is-empty || x.kind.builtin-binary-math !is-empty)
+					name symbol = match x kind
+					as builtin-unary-math m
+						m.builtin-for-unary-math to
+					as builtin-binary-math m
+						m.builtin-for-binary-math to
+					else
+						throw unreachable
+					add-extern-symbol["m", name]
+				()
+		as concrete-fun-body-extern x
+			add-extern-symbol[x.library-name, fun.name!]
+			(low-fun-causes add-low-fun fun.to),
+		as concrete-expr _
+			(low-fun-causes add-low-fun fun.to),
+		as concrete-fun-body-var-get _
+			()
+		as concrete-fun-body-var-set _
+			()
+		as concrete-fun-body-deferred
+			throw unreachable
+		if index ?= op-index
+			concrete-fun-to-low-fun-index[fun id] := index
+		
+	mark-ctx-type = mark-ctx-type-late ?? void-type
+
+	user-main-fun-pointer-type = get-low-type-ctx low-type-from-concrete-type program.common-funs.rt-main.params[2].type
+	var-indices var-indices = for i, x : program.all-vars with-index
+		x.id, (i,)
+
+	gc-root-mut-pointer-type = get-low-type-ctx low-type-from-concrete-type program.common-funs.gc-root.return-type
+	gc-root-type = gc-root-mut-pointer-type.low-pointer-mut!.pointee
+
+	common-funs low-common-funs = do
+		map = concrete-fun-to-low-fun-index
+		cf = program.common-funs
+		common-types: common-types
+		alloc: map[cf.alloc id]!
+		cur-catch-point: map[cf.cur-catch-point id]!
+		set-cur-catch-point: map[cf.set-cur-catch-point id]!
+		cur-thrown: var-indices[cf.cur-thrown id]!
+		exception-type: get-low-type-ctx low-type-from-concrete-type cf.cur-thrown.type
+		mark: map[cf.mark id]!
+		rethrow-current-exception: map[cf.rethrow-current-exception id]!
+		throw-impl: map[cf.throw-impl id]!
+		gc-root: map[cf.gc-root id]!
+		gc-root-type: gc-root-type
+		gc-root-mut-pointer-type: gc-root-mut-pointer-type
+		mark-root-fun-pointer-type: gc-root-type.low-record!.fields[1].type
+		set-gc-root: map[cf.set-gc-root id]!
+		pop-gc-root: map[cf.pop-gc-root id]!
+	
+	all-low-funs low-fun mut[] = ()
+	# New low-funs will be discovered while compiling and added to low-fun-cauess
+	index mut nat = 0
+	while index < low-fun-causes.size
+		all-low-funs ~= show-ctx low-fun-from-cause program, program.all-constants.static-symbols, get-low-type-ctx,
+			common-funs,  concrete-fun-to-low-fun-index, var-indices, low-fun-causes,
+			mark-visit-funs, mark-ctx-type, (index,), low-fun-causes[index]
+		index +:= 1
+	all-low-funs ~= get-low-type-ctx main-fun concrete-fun-to-low-fun-index[program.common-funs.rt-main id]!, program.common-funs.user-main, user-main-fun-pointer-type
+
+	concrete-fun-to-low-fun-index: concrete-fun-to-low-fun-index move-to
+	all-low-funs: all-low-funs.move-to,
+	main: low-fun-causes.size,
+	all-extern-libraries: extern-library-to-names get-extern-libraries config-extern
+
+-get-extern-libraries extern-libraries(
+	extern-library-to-names symbol mut[] mut[symbol],
+	config-extern config-extern-uris,
+)
+	with out : build
+		for library, names : extern-library-to-names
+			out ~= (library, config-extern[library].flatten-option, names.move-to)
+
+-flatten-option[t] t?(a t? ?)
+	if x ?= a
+		x
+
+-var-indices alias
+	low-var-index[concrete-var-id]
+
+# Functions that we need to generate calls to
+-low-common-funs record mut
+	common-types low-common-types
+	alloc low-fun-index
+	cur-catch-point low-fun-index
+	set-cur-catch-point low-fun-index
+	cur-thrown low-var-index
+	exception-type low-type
+	mark low-fun-index
+	rethrow-current-exception low-fun-index
+	throw-impl low-fun-index
+	gc-root low-fun-index
+	gc-root-type low-type
+	gc-root-mut-pointer-type low-type
+	mark-root-fun-pointer-type low-type
+	set-gc-root low-fun-index
+	pop-gc-root low-fun-index
+
+-low-fun-from-cause low-fun(
+	show-ctx show-ctx,
+	concrete-program concrete-program,
+	static-symbols constant,
+	get-low-type-ctx get-low-type-ctx,
+	common-funs low-common-funs,
+	concrete-fun-to-low-fun-index mut-concrete-fun-to-low-fun-index,
+	var-indices var-indices,
+	low-fun-causes low-fun-cause mut[],
+	mark-visit-funs mark-visit-funs,
+	mark-ctx-type low-type,
+	this-fun-index low-fun-index,
+	cause low-fun-cause,
+)
+	match cause
+	as concrete-fun cf
+		return-type = get-low-type-ctx low-type-from-concrete-type cf.return-type
+		params low-local[] = for i, x : cf.params with-index
+			get-low-type-ctx get-low-local-for-parameter i, x
+		body = show-ctx get-low-fun-body concrete-program, static-symbols, get-low-type-ctx,
+			low-fun-causes, mark-visit-funs, concrete-fun-to-low-fun-index, common-funs, var-indices, this-fun-index, params, cf
+		cf.to, return-type, params, body
+	as mark-root x
+		get-low-type-ctx generate-mark-root low-fun-causes, mark-visit-funs, mark-ctx-type, x.type
+	as mark-visit x
+		low-fun-causes generate-mark-visit mark-visit-funs, mark-ctx-type, common-funs.mark, x.type
+
+-main-fun low-fun(
+	ctx get-low-type-ctx,
+	rt-main-index low-fun-index,
+	user-main concrete-fun,
+	user-main-fun-pointer-type low-type,
+)
+	char8-pointer-pointer = ctx get-pointer-const (ctx get-pointer-const char8-type)
+	params low-local[] = ("argc" gen-local false, 0, int32-type), ("argv" gen-local false, 1, char8-pointer-pointer)
+	p0 = () gen-identifier params[0]
+	p1 = () gen-identifier params[1]
+	user-main-fun-pointer = user-main-fun-pointer-type gen-fun-pointer (), user-main
+	call = int32-type gen-call-no-gc-roots (), rt-main-index, (p0, p1, user-main-fun-pointer)
+	source: "main" low-fun-source-generated ()
+	return-type: int32-type
+	params: params
+	body: () low-fun-expr-body call
+
+-get-low-local-for-parameter low-local(ctx get-low-type-ctx, index nat, a concrete-local)
+	a.source.get-low-local-source, index, (ctx low-type-from-concrete-type a.type)
+
+-get-low-local-source low-local-source(a concrete-local-source)
+	match a
+	as local x
+		x to
+	as concrete-local-source-closure
+		"closure" low-local-source-generated false
+	as concrete-generated-local-kind x
+		x.to low-local-source-generated false
+
+# TODO: no need for 'with' ---------------------------------------------------------------------------------------------------------------
+-with-low-local[t] t(
+	ctx get-low-expr-ctx,
+	locals locals,
+	concrete-local concrete-local,
+	f t mut(inner locals, local low-local),
+)
+	type = ctx.type-ctx low-type-from-concrete-type concrete-local.type
+	local low-local = concrete-local.source.get-low-local-source, ctx.next-local-index, type
+	f[(locals add-local concrete-local, local), local]
+
+-get-low-fun-body low-fun-body(
+	show-ctx show-ctx,
+	concrete-program concrete-program,
+	static-symbols constant,
+	get-low-type-ctx get-low-type-ctx,
+	low-fun-causes low-fun-cause mut[],
+	mark-visit-funs mark-visit-funs,
+	concrete-fun-to-low-fun-index mut-concrete-fun-to-low-fun-index,
+	common-funs low-common-funs,
+	var-indices var-indices,
+	this-fun-index low-fun-index,
+	params low-local[],
+	a concrete-fun,
+)
+	match a body
+	as concrete-fun-body-extern x
+		x.library-name low-fun-body-extern
+	as concrete-expr expr
+		expr-ctx get-low-expr-ctx = do
+			show-ctx: show-ctx
+			current-fun: this-fun-index
+			concrete-program: concrete-program
+			static-symbols: static-symbols
+			type-ctx: get-low-type-ctx
+			low-fun-causes: low-fun-causes
+			mark-visit-funs: mark-visit-funs
+			concrete-fun-to-low-fun-index: concrete-fun-to-low-fun-index
+			common-funs: common-funs
+			var-indices: var-indices
+			concrete-params: a params
+			low-params: params
+			cur-fun-is-yielding: a.id in concrete-program.yielding-funs
+			has-setup-catch: false
+			has-tail-recur: false
+			local-index: a.params.size
+		body = expr-ctx get-low-expr (), expr, (0, tail)
+		flags_ low-fun-flags = do
+			has-setup-catch: expr-ctx has-setup-catch
+			has-tail-recur: expr-ctx has-tail-recur
+			may-yield: expr-ctx cur-fun-is-yielding
+		flags_ low-fun-expr-body body
+	else
+		throw unreachable
+
+-gen-let-possibly-gc-root low-expr(
+	ctx get-low-expr-ctx,
+	range uri-and-range,
+	local low-local,
+	init low-expr,
+	expr-pos expr-pos,
+	then-may-yield bool,
+	then low-expr mut(pos expr-pos),
+)
+	range gen-let-no-gc-root local, init, (ctx maybe-add-gc-root range, local, expr-pos, then-may-yield, then)
+
+-gen-let-temp-possibly-gc-root low-expr(
+	ctx get-low-expr-ctx,
+	expr-pos expr-pos,
+	range uri-and-range,
+	value low-expr,
+	then-may-yield bool,
+	then low-expr mut(pos expr-pos, get--local low-expr),
+)
+	local = "temp" gen-local false, ctx.next-local-index, value.type
+	ctx gen-let-possibly-gc-root range, local, value, expr-pos, then-may-yield, inner =>
+		then[inner, (range gen-identifier local)]
+
+-gen-seq-then-return-first-possibly-gc-root low-expr(
+	ctx get-low-expr-ctx,
+	expr-pos expr-pos,
+	range uri-and-range,
+	a low-expr,
+	b low-expr,
+	b-may-yield bool,
+)
+	ctx gen-let-temp-possibly-gc-root expr-pos, range, a, b-may-yield, (inner, get-a) =>
+		range gen-seq b, (ctx handle-expr-pos inner, get-a)
+
+-with-push-all-gc-roots low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	range uri-and-range,
+	expr-pos expr-pos,
+	is-yielding-call bool,
+	args concrete-expr[],
+	f low-expr mut(pos expr-pos, args low-expr[]),
+)
+	low-args low-expr[] = for x : args
+		ctx get-low-expr locals, x, non-tail
+	has-yield = is-yielding-call || args exists x => ctx expression-may-yield x
+	has-root = low-args exists x =>
+		ctx.low-fun-causes get-mark-root-for-type ctx.mark-visit-funs, x.type !is-empty
+	if has-yield && has-root
+		arg-getters low-expr mut[] = ()
+		ctx gen-with-gc-roots-recur expr-pos, range, low-args, arg-getters, f
+	else
+		f[expr-pos, low-args]
+# TODO: could I change this to a loop now? -------------------------------------------------------------------------------------
+-gen-with-gc-roots-recur low-expr(
+	ctx get-low-expr-ctx,
+	expr-pos expr-pos,
+	range uri-and-range,
+	args low-expr[],
+	arg-getters low-expr mut[],
+	f low-expr mut(pos expr-pos, args low-expr[]),
+)
+	if args is-empty
+		f[expr-pos, arg-getters.move-to]
+	else
+		ctx gen-let-temp-possibly-gc-root expr-pos, range, args[0], true, (inner, get-arg0) =>
+			arg-getters ~= get-arg0
+			ctx gen-with-gc-roots-recur inner, range, args[1 .. end], arg-getters, f
+
+# Wraps 'expr' in code to push a GC root for 'local' and pop it when done
+-maybe-add-gc-root low-expr(
+	ctx get-low-expr-ctx,
+	range uri-and-range,
+	local low-local,
+	expr-pos expr-pos,
+	may-yield bool,
+	f low-expr mut(pos expr-pos),
+)
+	if may-yield
+		assert ctx cur-fun-is-yielding
+	opt-mark-root = if may-yield
+		ctx.low-fun-causes get-mark-root-for-type ctx.mark-visit-funs, local.type
+	guard mark-root-kind, mark-root-fun ?= opt-mark-root : f[expr-pos]
+	pointer-to-local = match mark-root-kind
+	as local-already-pointer
+		range gen-identifier local
+	as pointer-to-local
+		ctx.type-ctx get-pointer-mut local.type gen-local-pointer range, local
+	mark-root-function = do
+		fun-type = ctx.common-funs mark-root-fun-pointer-type
+		# TODO: 'funType' is not the correct type for 'markRoot.fun' if we need to cast it for 'localAlreadyPointer'
+		fun = fun-type gen-fun-pointer range, mark-root-fun
+		match mark-root-kind
+		as local-already-pointer
+			fun-type gen-pointer-cast range, fun
+		as pointer-to-local
+			fun
+	###
+	root gc-root = (x, &visit-x, gc-root)
+	&root set-gc-root
+	res = <<the body>>
+	pop-gc-root
+	res
+	###
+	local-pointer = ctx.type-ctx get-pointer-const void-type gen-pointer-cast range, pointer-to-local
+	init-root = ctx.common-funs.gc-root-type gen-create-record-no-gc-roots range, (local-pointer, mark-root-function, (ctx gen-get-gc-root range))
+	root = "root" gen-local false, ctx.next-local-index, ctx.common-funs.gc-root-type
+	set-root = ctx gen-set-gc-root range, (ctx.common-funs.gc-root-mut-pointer-type gen-local-pointer range, root)
+	range gen-let-no-gc-root root, init-root, (range gen-seq set-root, f[expr-pos with-incr-n-gc-roots])
+
+-get-low-expr-ctx record mut
+	show-ctx show-ctx
+	current-fun low-fun-index
+	concrete-program concrete-program
+	static-symbols constant
+	type-ctx get-low-type-ctx
+	low-fun-causes low-fun-cause mut[]
+	mark-visit-funs mark-visit-funs
+	concrete-fun-to-low-fun-index mut-concrete-fun-to-low-fun-index
+	common-funs low-common-funs
+	var-indices var-indices
+	concrete-params concrete-local[]
+	low-params low-local[]
+	cur-fun-is-yielding bool
+	has-setup-catch mut bool
+	has-tail-recur mut bool
+	local-index mut nat
+-all-types all-low-types(a get-low-expr-ctx)
+	a.type-ctx all-types
+-common-types low-common-types(a get-low-expr-ctx)
+	a.common-funs common-types
+
+-locals alias
+	# TODO: would probably be more efficient with a mutable map!
+	low-local[concrete-local-id]
+-add-local locals(a locals, local concrete-local, value low-local)
+	forbid local.id in a
+	a ~ (local.id, value)
+-get-local low-local(ctx get-low-expr-ctx, locals locals, local concrete-local)
+	# TODO: It would probably be more efficient to just put the params in the map in the beginning and not need to look for them differently here
+	if param-index ?= ctx.concrete-params find-index x => x == local
+		ctx.low-params[param-index]
+	else
+		locals[local id]!
+
+-try-get-low-fun-index low-fun-index?(ctx get-low-expr-ctx, f concrete-fun)
+	ctx.concrete-fun-to-low-fun-index[f id]
+
+-next-local-index nat(ctx get-low-expr-ctx)
+	res = ctx local-index
+	ctx.local-index +:= 1
+	res
+
+-expr-pos record(n-gc-roots-to-pop nat, kind expr-pos-kind)
+-expr-pos-kind enum
+	| A regular expression, not the one returned from the function
+	non-tail
+	| The body of a loop (or a branch of an 'if' that is the body of a loop, etc.)
+	loop_
+	| An expression returned from the function with no step after, suitable for tail recursion.
+	tail
+-== bool(a expr-pos-kind, b expr-pos-kind)
+-non-tail expr-pos()
+	0, non-tail
+-loop-no-gc-roots expr-pos()
+	0, loop_
+-with-incr-n-gc-roots expr-pos(a expr-pos)
+	a.n-gc-roots-to-pop + 1, a.kind
+-as-non-tail expr-pos(a expr-pos)
+	a.n-gc-roots-to-pop, non-tail
+
+-handle-expr-pos low-expr(ctx get-low-expr-ctx, expr-pos expr-pos, expr low-expr)
+	assert expr-pos.kind != loop_
+	ctx do-then-pop-gc-roots expr-pos.n-gc-roots-to-pop, expr
+
+-do-then-pop-gc-roots low-expr(ctx get-low-expr-ctx, n-gc-roots-to-pop nat, expr low-expr)
+	res mut = expr
+	for _ : 0::nat .. n-gc-roots-to-pop
+		call = void-type gen-call-no-gc-roots res.source, ctx.common-funs.pop-gc-root, ()
+		res := res.source gen-seq-then-return-first-no-gc-root ctx.next-local-index, res, call
+	res
+
+-pop-gc-roots-then-do low-expr(ctx get-low-expr-ctx, n-gc-roots-to-pop nat, expr low-expr)
+	res mut = expr
+	for _ : 0::nat .. n-gc-roots-to-pop
+		call = void-type gen-call-no-gc-roots res.source, ctx.common-funs.pop-gc-root, ()
+		res := res.source gen-seq call, res
+	res
+
+-get-low-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr concrete-expr,
+	expr-pos expr-pos,
+)
+	type = ctx.type-ctx low-type-from-concrete-type expr.type
+	res = ctx get-low-expr locals, type, expr, expr-pos
+	assert res.type == type
+	res
+
+-get-low-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	type low-type,
+	expr concrete-expr,
+	expr-pos expr-pos,
+)
+	range = expr range
+	regular low-expr mut(x low-expr-kind) = x => # TODO: it seems that this was already generally inlined everywhere.... finish the job
+		ctx handle-expr-pos expr-pos, (type, range, x)
+	match expr kind
+	as builtin-concrete-expr x
+		# TODO: factor out a function ---------------------------------------------------------------------------------------
+		match x fun
+		as builtin-unary u
+			type gen-unary range, u, (ctx get-low-expr locals, x.args.only, non-tail)
+		as builtin-binary b
+			arg0, arg1 = x.args only2
+			type gen-binary range, b, (ctx get-low-expr locals, arg0, non-tail), (ctx get-low-expr locals, arg1, non-tail)
+		else
+			throw unreachable
+	as call-concrete-expr x
+		ctx get-call-expr locals, expr-pos, type, range, x.called, x.args
+	as cast-concrete-expr x
+		# TODO: shouldn't this cause errors in the check phase? --------------------------------------------------------------------
+		ctx get-low-expr locals, type, x.inner, expr-pos
+	as constant x
+		regular[x to]
+	as create-array-concrete-expr x
+		ctx get-create-array-expr expr-pos, locals, type, range, expr.type, x
+	as create-record-concrete-expr x
+		ctx get-create-record-expr expr-pos, locals, type, range, x
+	as create-union-concrete-expr x
+		inner = ctx get-low-expr locals, x.arg, expr-pos.as-non-tail
+		type, range, (x.member-index create-union-low-expr inner)
+	as drop-concrete-expr x
+		arg = ctx get-low-expr locals, x.arg, non-tail
+		ctx handle-expr-pos expr-pos, (range gen-drop arg)
+	as finally-concrete-expr x
+		ctx get-finally-expr expr-pos, locals, range, type, x
+	as if-concrete-expr x
+		cond = ctx get-low-expr locals, x.cond, non-tail
+		then = ctx get-low-expr locals, x.then, expr-pos
+		else_ = ctx get-low-expr locals, x.else_, expr-pos
+		type, range, (cond if-low-expr then, else_)
+	as let-concrete-expr x
+		ctx gen-let locals, expr-pos, range, x.local, x.value, x.then, y => y
+	as local-get-concrete-expr x
+		ctx handle-expr-pos expr-pos, (range gen-identifier (ctx get-local locals, x.local))
+	as local-pointer-concrete-expr x
+		ctx handle-expr-pos expr-pos, (type gen-local-pointer range, (ctx get-local locals, x.local))
+	as local-set-concrete-expr x
+		local = ctx get-local locals, x.local
+		value = ctx get-low-expr locals, x.value, non-tail
+		ctx handle-expr-pos expr-pos, (range gen-local-set local, value)
+	as loop-concrete-expr x
+		body = ctx get-low-expr locals, x.body, loop-no-gc-roots
+		ctx handle-expr-pos expr-pos, (type, range, body.loop-low-expr)
+	as loop-break-concrete-expr x
+		assert expr-pos.kind == loop_
+		type gen-loop-break range, (ctx get-low-expr locals, x.value, expr-pos.as-non-tail)
+	as loop-continue-concrete-expr
+		assert expr-pos.kind == loop_
+		ctx pop-gc-roots-then-do expr-pos.n-gc-roots-to-pop, (type gen-loop-continue range)
+	as match-enum-or-integral-concrete-expr x
+		ctx get-match-integral-expr locals, expr-pos, type, range, x
+	as match-string-like-concrete-expr x
+		ctx get-match-string-like-expr locals, expr-pos, range, x
+	as match-union-concrete-expr x
+		ctx get-match-union-expr locals, expr-pos, type, range, x
+	as record-field-get-concrete-expr x
+		ctx handle-expr-pos expr-pos, if ctx.all-types is-empty-type type
+			range gen-drop-then (ctx get-low-expr locals, x.record_, expr-pos), (type gen-zeroed range)
+		else
+			type gen-record-field-get range, (ctx get-low-expr locals, x.record_, non-tail), x.field-index
+	as record-field-pointer-concrete-expr x
+		record_ = ctx get-low-expr locals, x.record_, non-tail
+		ctx handle-expr-pos expr-pos, (type gen-record-field-pointer range, record_, x.field-index)
+	as record-field-set-concrete-expr x
+		ctx get-record-field-set locals, expr-pos, range, x.record_, x.field-index, x.value
+	as seq-concrete-expr x
+		range gen-seq (ctx get-low-expr locals, x.first, non-tail), (ctx get-low-expr locals, x.then, expr-pos)
+	as throw-concrete-expr x
+		ctx get-throw-expr locals, range, type, x, expr-pos
+	as try-concrete-expr x
+		ctx get-try-expr locals, expr-pos, range, type, x
+	as try-let-concrete-expr x
+		ctx get-try-let-expr locals, expr-pos, range, type, x
+	as union-as-concrete-expr x
+		union_ = ctx get-low-expr locals, x.union_, expr-pos.as-non-tail
+		type, range, (union_ union-as-low-expr x.member-index)
+	as union-kind-concrete-expr x
+		union_ = ctx get-low-expr locals, x.union_, expr-pos.as-non-tail
+		type, range, union_.union-kind-low-expr
+
+-get-allocate-expr low-expr(
+	ctx get-low-expr-ctx,
+	range uri-and-range,
+	ptr-type low-type,
+	size low-expr,
+)
+	call = ctx.common-types.nat8-mut-pointer gen-call-no-gc-roots range, ctx.common-funs.alloc, (size,)
+	ptr-type gen-pointer-cast range, call
+
+# TODO: having this and 'get-allocate-expr' be different is confusing. --------=====================================================
+-get-alloc-expr low-expr(
+	ctx get-low-expr-ctx,
+	expr-pos expr-pos,
+	type low-type,
+	range uri-and-range,
+	arg low-expr,
+)
+	if ctx.all-types is-empty-type arg.type
+		null = type gen-zeroed range
+		ctx handle-expr-pos expr-pos, if arg may-have-side-effects
+			range gen-drop-then arg, null
+		else
+			null
+	else
+		ptr = ctx get-allocate-expr range, type, (ctx.all-types gen-size-of range, arg.type)
+		# `x = arg; ptr = (T*) alloc(sizeof(T)); *ptr = x; return ptr;`
+		ctx gen-let-temp-const-no-gc-root range, arg, get-arg =>
+			ctx gen-let-temp-const-no-gc-root range, ptr, get-ptr =>
+				range gen-seq (range gen-write-to-pointer get-ptr, get-arg), (ctx handle-expr-pos expr-pos, get-ptr)
+
+# TODO: this should probably be part of the expression 'type' (determined in concretize)
+-may-have-side-effects bool(a low-expr)
+	a !never-has-side-effects
+-never-has-side-effects bool(a low-expr)
+	match a kind
+	as constant _
+		true
+	as local-get-low-expr _
+		true
+	as create-record-low-expr x
+		x.args every arg => arg never-has-side-effects
+	as special-unary-low-expr x
+		x.kind never-has-side-effects && x.arg never-has-side-effects
+	else
+		false
+-never-has-side-effects bool(a builtin-unary)
+	a == deref
+
+-get-call-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr-pos expr-pos,
+	type low-type,
+	range uri-and-range,
+	concrete-called concrete-fun,
+	args concrete-expr[],
+)
+	if called ?= ctx try-get-low-fun-index concrete-called
+		ctx get-call-regular locals, type, range, expr-pos, args, concrete-called, called
+	else
+		ctx handle-expr-pos expr-pos, (ctx get-call-special locals, type, range, concrete-called, args)
+
+-get-call-equals low-expr(
+	ctx get-low-expr-ctx,
+	range uri-and-range,
+	concrete-called concrete-fun,
+	arg0 low-expr,
+	arg1 low-expr,
+)
+	if called ?= ctx try-get-low-fun-index concrete-called
+		bool-type gen-call-no-gc-roots range, called, (arg0, arg1)
+	else
+		bool-type gen-binary range, concrete-called.body.concrete-fun-body-builtin!.kind.builtin-binary!, arg0, arg1
+
+-get-call-regular low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	type low-type,
+	range uri-and-range,
+	expr-pos expr-pos,
+	args concrete-expr[],
+	concrete-called concrete-fun,
+	called low-fun-index,
+)
+	if called == ctx.current-fun && expr-pos.kind == tail
+		ctx.has-tail-recur := true
+		update-params (low-local, low-expr) mut[] = ()
+		for param, concrete-arg : ctx.low-params zip args
+			arg = ctx get-low-expr locals, concrete-arg, non-tail
+			unless arg is-local-get param
+				update-params ~= (param, arg)
+		if update-params is-empty
+			ctx pop-gc-roots-then-do expr-pos.n-gc-roots-to-pop, (type, range, ().tail-recur-low-expr)
+		else
+			last-local, last-value = update-params pop!
+			update-params ~= (last-local, (ctx handle-expr-pos expr-pos, last-value))
+			type, range, update-params.move-to.tail-recur-low-expr
+	else
+		yields = ctx cur-fun-is-yielding && concrete-called.id in ctx.concrete-program.yielding-funs
+		ctx with-push-all-gc-roots locals, range, expr-pos, yields, args, (inner, low-args) =>
+			ctx handle-expr-pos inner, (type gen-call-no-gc-roots range, called, low-args)
+
+-is-local-get bool(a low-expr, local low-local)
+	guard x ?= a.kind local-get-low-expr
+	x.local.index == local.index
+
+-get-call-special low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	type low-type,
+	range uri-and-range,
+	called concrete-fun,
+	args concrete-expr[],
+)
+	match called body
+	as concrete-fun-body-builtin x
+		ctx get-call-builtin-expr locals, type, range, called, args, x.kind
+	as concrete-fun-body-extern _
+		throw unreachable
+	as concrete-expr x
+		type, range, x.kind.constant!.to
+	as concrete-fun-body-var-get x
+		type gen-var-get range, ctx.var-indices[x.var id]!
+	as concrete-fun-body-var-set x
+		range gen-var-set ctx.var-indices[x.var id]!, (ctx get-low-expr locals, args.only, non-tail)
+	as concrete-fun-body-deferred
+		throw unreachable
+
+-get-record-field-set low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr-pos expr-pos,
+	range uri-and-range,
+	record_ concrete-expr,
+	field-index nat,
+	value concrete-expr,
+)
+	low-record = ctx get-low-expr locals, record_, non-tail
+	ctx gen-let-temp-possibly-gc-root expr-pos, range, low-record, (ctx expression-may-yield value), (inner, get-record) =>
+		low-value = ctx get-low-expr locals, value, non-tail
+		ctx handle-expr-pos inner, (range gen-record-field-set-no-gc-root get-record, field-index, low-value)
+
+-call-fun-pointer low-expr(
+	ctx get-low-expr-ctx,
+	expr-pos expr-pos,
+	locals locals,
+	range uri-and-range,
+	type low-type,
+	(fun-ptr concrete-expr, arg concrete-expr),
+)
+	low-fun-ptr = ctx get-low-expr locals, fun-ptr, non-tail
+	low-arg = ctx get-low-expr locals, arg, non-tail
+	ctx call-fun-pointer-inner expr-pos, range, type, low-fun-ptr, low-arg
+
+-call-fun-pointer-inner low-expr(
+	ctx get-low-expr-ctx,
+	expr-pos expr-pos,
+	range uri-and-range,
+	type low-type,
+	fun-ptr low-expr,
+	arg low-expr,
+)
+	do-call low-expr mut(get-fun-ptr low-expr, args low-expr[]) = (get-fun-ptr, args) =>
+		ctx handle-expr-pos expr-pos, (type gen-call-fun-pointer-no-gc-roots range, get-fun-ptr, args)
+	if arg-types ?= arg.type try-unpack-tuple
+		if r ?= arg.kind create-record-low-expr
+			do-call[fun-ptr, r.args]
+		elif arg-types is-empty
+			# Making sure the side effect order is function, then arg
+			ctx gen-let-temp-const-no-gc-root range, fun-ptr, get-fun-pointer =>
+				range gen-seq arg, do-call[get-fun-pointer, ()]
+		else
+			ctx gen-let-temp-const-no-gc-root range, fun-ptr, get-fun-pointer =>
+				ctx gen-let-temp-const-no-gc-root range, arg, get-arg =>
+					args low-expr[] = for arg-index, arg-type : arg-types with-index
+						arg-type gen-record-field-get range, get-arg, arg-index
+					do-call[get-fun-pointer, args]
+	else
+		do-call[fun-ptr, (arg,)]
+
+-get-call-builtin-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	type low-type,
+	range uri-and-range,
+	called concrete-fun,
+	args concrete-expr[],
+	kind builtin-fun,
+)
+	get-arg low-expr mut(arg concrete-expr, arg-pos expr-pos) = (arg, arg-pos) =>
+		ctx get-low-expr locals, arg, arg-pos
+	get-arg0 low-expr mut() = () => get-arg[args[0], non-tail]
+	get-arg1 low-expr mut() = () => get-arg[args[1], non-tail]
+	get-arg2 low-expr mut() = () => get-arg[args[2], non-tail]
+	get-arg3 low-expr mut() = () => get-arg[args[3], non-tail]
+	match kind
+	as builtin-fun-all-tests
+		throw unreachable
+	as builtin-unary x
+		args.size is 1
+		arg = get-arg0[]
+		same-type low-expr mut() = () =>
+			assert arg.type == type
+			arg
+		match x
+		as array-pointer
+			type gen-record-field-get range, arg, 1
+		as array-size
+			type gen-record-field-get range, arg, 0
+		as as-future
+			same-type[]
+		as as-future-impl
+			same-type[]
+		as as-mut-array
+			same-type[]
+		as as-mut-array-impl
+			same-type[]
+		as c-string-of-symbol
+			same-type[]
+		as symbol-of-c-string
+			same-type[]
+		as to-char8-array-from-string
+			same-type[]
+		as trust-as-string
+			same-type[]
+		else
+			type gen-unary range, x, arg
+	as builtin-unary-math x
+		args.size is 1
+		type gen-unary-math range, x, get-arg0[]
+	as builtin-binary x
+		args.size is 2
+		ctx maybe-optimize-special-binary type, range, x, get-arg0[], get-arg1[]
+	as builtin-binary-lazy _
+		throw unreachable
+	as builtin-binary-math x
+		args.size is 2
+		type gen-binary-math range, x, get-arg0[], get-arg1[]
+	as builtin-ternary x
+		args.size is 3
+		type gen-ternary range, x, get-arg0[], get-arg1[], get-arg2[]
+	as builtin-4ary x
+		args.size is 4
+		type gen-4ary range, x, get-arg0[], get-arg1[], get-arg2[], get-arg3[]
+	as builtin-fun-call-lambda _
+		throw unreachable
+	as builtin-fun-call-fun-pointer _
+		ctx call-fun-pointer non-tail, locals, range, type, args.only2
+	as builtin-fun-constant _
+		throw unreachable
+	as builtin-fun-gc-safe-value _
+		throw unreachable
+	as builtin-fun-init x
+		type, range, x.to
+	as js-fun _
+		throw unreachable
+	as builtin-fun-mark-root _
+		# Handled in get-all-low-funs
+		throw unreachable
+	as builtin-fun-mark-visit _
+		throw unreachable
+	as builtin-fun-new-empty-option _
+		throw unreachable
+	as builtin-fun-new-non-empty-option _
+		throw unreachable
+	as builtin-fun-pointer-cast _
+		args.size is 1
+		type gen-pointer-cast range, get-arg0[]
+	as builtin-fun-size-of _
+		type-arg = ctx.type-ctx low-type-from-concrete-type called.body.concrete-fun-body-builtin!.type-args.only
+		ctx.all-types gen-size-of range, type-arg
+	as builtin-fun-static-symbols _
+		type, range, ctx.static-symbols.to
+	as version-fun _
+		throw unreachable
+
+-maybe-optimize-special-binary low-expr(
+	ctx get-low-expr-ctx,
+	type low-type,
+	range uri-and-range,
+	kind builtin-binary,
+	arg0 low-expr,
+	arg1 low-expr,
+)
+	unopt low-expr mut() = () =>
+		type gen-binary range, kind, arg0, arg1
+	match kind
+	as new-array
+		type gen-create-record-no-gc-roots range, (arg0, arg1) # TODO: this isn't an optimization, should I name this function better?
+	as add-pointer-and-nat64
+		if ctx.all-types is-empty-type arg0.type.as-non-gc-pointee
+			ctx gen-let-temp-const-no-gc-root range, arg0, get-a =>
+				range gen-drop-then arg1, get-a
+		else
+			unopt[]
+	as unsafe-div-nat64
+		if divisor ?= arg1.kind.constant?.integral-value
+			match divisor as-unsigned
+			as 0
+				type gen-abort range
+			as 1
+				# This is not for performance but to work around a bug dividing by 1 in Mir.
+				# See https://github.com/vnmakarov/mir/issues/393
+				# (TODO: this is probably fixed by now!) -----------------------------------------------------------------------
+				arg0
+			else
+				unopt[]
+		else
+			unopt[]
+	else
+		unopt[]
+
+-get-create-array-expr low-expr(
+	ctx get-low-expr-ctx,
+	expr-pos expr-pos,
+	locals locals,
+	arr-type low-type,
+	range uri-and-range,
+	concrete-arr-type concrete-type,
+	a create-array-concrete-expr,
+)
+	ctx with-push-all-gc-roots locals, range, expr-pos, false, a.args, (inner-pos, args) =>
+		# arg0 = ...;
+		# arg1 = ...;
+		# ptr = _alloc(ctx, sizeof(foo) * n);
+		# *(ptr + 0) = arg0;
+		# *(ptr + 1) = arg1;
+		# return arr_foo{n, ptr};
+		element-type = ctx.type-ctx low-type-from-concrete-type concrete-arr-type.must-be-by-val.source.concrete-struct-source-inst!.type-args.only
+		element-pointer-type = ctx.type-ctx get-pointer-const element-type
+		element-size = ctx.all-types gen-size-of range, element-type
+		n-elements = range gen-constant-nat64 a.args.size
+		size-bytes = range gen-wrap-mul-nat64 element-size, n-elements
+		allocate-ptr = ctx get-allocate-expr range, element-pointer-type, size-bytes
+		ctx gen-let-temp-const-no-gc-root range, allocate-ptr, get-ptr =>
+			acc mut = arr-type gen-create-record-no-gc-roots range, (n-elements, get-ptr)
+			for index : 0::nat .. args.size reversed
+				arg = args[index]
+				element-pointer = element-pointer-type.low-pointer-const! gen-add-pointer range, get-ptr, (range gen-constant-nat64 index)
+				write-to-element = range gen-write-to-pointer element-pointer, arg
+				acc := range gen-seq write-to-element, acc
+			ctx handle-expr-pos inner-pos, acc
+
+-get-create-record-expr low-expr(
+	ctx get-low-expr-ctx,
+	expr-pos expr-pos,
+	locals locals,
+	type low-type,
+	range uri-and-range,
+	a create-record-concrete-expr,
+)
+	ctx with-push-all-gc-roots locals, range, expr-pos, false, a.args, (inner-pos, args) =>
+		alloc = type.low-pointer-gc !is-empty
+		record-type = alloc ? type.as-gc-pointee : type
+		record_ = if type is-void
+			range gen-drop-all-then args, (type gen-zeroed range)
+		else
+			record-type gen-create-record-no-gc-roots range, args
+		if alloc
+			ctx get-alloc-expr inner-pos, type, range, record_
+		else
+			ctx handle-expr-pos inner-pos, record_
+
+-gen-let low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr-pos expr-pos,
+	range uri-and-range,
+	concrete-local concrete-local,
+	concrete-value concrete-expr,
+	concrete-then concrete-expr,
+	modify-then low-expr mut(x low-expr),
+)
+	value = ctx get-low-expr locals, concrete-value, non-tail
+	ctx with-low-local locals, concrete-local, (inner-locals, local) =>
+		ctx gen-let-possibly-gc-root range, local, value, expr-pos, (ctx expression-may-yield concrete-then), inner =>
+			modify-then[ctx get-low-expr inner-locals, concrete-then, inner]
+
+-expression-may-yield bool(ctx get-low-expr-ctx, a concrete-expr)
+	ctx cur-fun-is-yielding && (ctx is-yielding-call a || a.direct-child-exprs exists child => ctx expression-may-yield child)
+-is-yielding-call bool(ctx get-low-expr-ctx, a concrete-expr)
+	if call ?= a.kind call-concrete-expr
+		call.called.id in ctx.concrete-program.yielding-funs
+
+-get-match-integral-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr-pos expr-pos,
+	type low-type,
+	range uri-and-range,
+	a match-enum-or-integral-concrete-expr,
+)
+	switch switch-low-expr = do
+		value: ctx get-low-expr locals, a.matched, non-tail
+		case-values: a case-values
+		case-exprs: for x : a case-exprs
+			ctx get-low-expr locals, x, expr-pos
+		default: if x ?= a else_
+			ctx get-low-expr locals, x, expr-pos
+		else
+			type gen-abort range
+	type, range, switch.to
+
+-with-let-temp-const-no-gc-root low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr concrete-expr,
+	f low-expr mut(x low-expr),
+)
+	ctx gen-let-temp-const-no-gc-root expr.range, (ctx get-low-expr locals, expr, non-tail), f
+
+-gen-let-temp-const-no-gc-root low-expr(
+	ctx get-low-expr-ctx,
+	range uri-and-range,
+	value low-expr,
+	f low-expr mut(x low-expr),
+)
+	range gen-let-temp-const-no-gc-root ctx.next-local-index, value, f
+
+-get-match-string-like-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr-pos expr-pos,
+	range uri-and-range,
+	a match-string-like-concrete-expr,
+)
+	# We don't need a GC root for 'matched' since we use it immediately without yielding
+	ctx with-let-temp-const-no-gc-root locals, a.matched, matched =>
+		acc mut = ctx get-low-expr locals, a.else_, expr-pos
+		for case_ : a.cases reversed
+			value = ctx get-low-expr locals, case_.value, non-tail
+			eq = ctx get-call-equals range, a.equals, matched, value
+			then = ctx get-low-expr locals, case_.then, expr-pos
+			acc := range gen-if eq, then, acc
+		acc
+	
+-get-match-union-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr-pos expr-pos,
+	type low-type,
+	range uri-and-range,
+	a match-union-concrete-expr,
+)
+	# We don't need a GC root for 'matched', since each case handles its argument GC root
+	ctx with-let-temp-const-no-gc-root locals, a.matched, get-matched =>
+		switch switch-low-expr = do
+			value: range gen-union-kind get-matched
+			case-values: a member-indices
+			case-exprs: ctx lower-match-cases locals, expr-pos, range, get-matched, a.member-indices, a.cases
+			default: if x ?= a else_
+				ctx get-low-expr locals, x, expr-pos
+			else
+				type gen-abort range
+		type, range, switch.to
+
+-lower-match-cases low-expr[](
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr-pos expr-pos,
+	range uri-and-range,
+	get-matched low-expr,
+	member-indices integral-values,
+	cases concrete-match-union-case[],
+)
+	for case-index, case_ : cases with-index
+		if l ?= case_ local
+			ctx with-low-local locals, l, (new-locals, local) =>
+				as-case-type = local.type gen-union-as range, get-matched, member-indices[case-index].as-unsigned
+				ctx gen-let-possibly-gc-root range, local, as-case-type, expr-pos, (ctx expression-may-yield case_.then), inner =>
+					ctx get-low-expr new-locals, case_.then, inner
+		else
+			ctx get-low-expr locals, case_.then, expr-pos
+
+-get-throw-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	range uri-and-range,
+	type low-type,
+	a throw-concrete-expr,
+	expr-pos expr-pos,
+)
+	# Since we are throwing an exception, don't worry about popping GC roots since 'catch' should restore it.
+	thrown = ctx get-low-expr locals, a.thrown, non-tail
+	call-throw = void-type gen-call-no-gc-roots range, ctx.common-funs.throw-impl, (thrown,)
+	res = if type == void-type
+		call-throw
+	else
+		range gen-seq call-throw, (type gen-zeroed range)
+	if expr-pos.kind == loop_
+		type gen-loop-break range, res
+	else
+		res
+
+-get-finally-expr low-expr(
+	ctx get-low-expr-ctx,
+	expr-pos expr-pos,
+	locals locals,
+	range uri-and-range,
+	type low-type,
+	a finally-concrete-expr,
+)
+	###
+	finally right
+	below
+	==>
+	old-catch-point = cur-catch-point
+	old-gc-root = gc-root
+	store mut catch-point = zeroed
+	err mut = false
+	res = if !(&store setup-catch)
+		below
+	else
+		gc-root := old-gc-root
+		err = true
+		zeroed
+	res add-gc-root
+	cur-catch-point := old-catch-point
+	right
+	if err
+		rethrow-current-exception
+	pop-gc-root
+	res
+	###
+	ctx with-restorable-catch-point range, restore-cur-catch-point =>
+		ctx with-restorable-gc-root range, restore-gc-root =>
+			err = "err" gen-local true, ctx.next-local-index, bool-type
+			below = ctx get-low-expr locals, a.below, non-tail
+			set-err = range gen-local-set err, range.gen-true
+			res = ctx gen-setup-catch range, below, (range gen-seq restore-gc-root, set-err, (type gen-zeroed range))
+			right = ctx get-low-expr locals, a.right, non-tail
+			if_ = range gen-if (range gen-identifier err), (ctx gen-rethrow-current-exception range), range.gen-void
+			after-res = range gen-seq restore-cur-catch-point, right, if_
+			seq = ctx gen-seq-then-return-first-possibly-gc-root expr-pos, range, res, after-res, (ctx expression-may-yield a.right)
+			range gen-let-no-gc-root err, range.gen-false, seq
+
+-get-try-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr-pos expr-pos,
+	range uri-and-range,
+	type low-type,
+	a try-concrete-expr,
+)
+	ctx get-try-or-try-let-expr locals, expr-pos, range, type, a.exception-member-indices, a.catch-cases, restore-cur-catch-point =>
+		# 'tried' type may be a GC root, but 'restoreCurCatchPoint' never yields.
+		range gen-seq-then-return-first-no-gc-root ctx.next-local-index, (ctx get-low-expr locals, a.tried, expr-pos), restore-cur-catch-point
+
+-get-try-let-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr-pos expr-pos,
+	range uri-and-range,
+	type low-type,
+	a try-let-concrete-expr,
+)
+	ctx get-try-or-try-let-expr locals, expr-pos, range, type, (a.exception-member-index,), (a.catch_,), restore-cur-catch-point =>
+		if local ?= a local
+			ctx gen-let locals, expr-pos, range, local, a.value, a.then, then =>
+				range gen-seq restore-cur-catch-point, then
+		else
+			value = ctx get-low-expr locals, a.value, non-tail
+			then = ctx get-low-expr locals, a.then, expr-pos
+			range gen-seq (range gen-drop value), restore-cur-catch-point, then
+
+-get-try-or-try-let-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr-pos expr-pos,
+	range uri-and-range,
+	type low-type,
+	exception-member-indices integral-values,
+	catch-cases concrete-match-union-case[],
+	first-block low-expr mut(restore-cur-catch-point low-expr),
+)
+	###
+	try
+		tried
+	catch foo x
+		handler
+	==>
+	old-catch-point = cur-catch-point
+	old-gc-root = gc-root
+	store mut catch-point = zeroed
+	if !(&store setup-catch)
+		cur-catch-point = &store
+		res = first-block
+		cur-catch-point := old-catch-point
+	else
+		cur-catch-point := old-catch-point
+		gc-root := old-gc-root
+		match cur-thrown
+		as foo x
+			handler
+		else
+			rethrow-current-exception
+	###
+	ctx with-restorable-catch-point range, restore-cur-catch-point =>
+		ctx with-restorable-gc-root range, restore-gc-root =>
+			cur-thrown = ctx gen-get-cur-thrown range
+			switch switch-low-expr = do
+				value: range gen-union-kind cur-thrown
+				case-values: exception-member-indices
+				case-exprs: ctx lower-match-cases locals, expr-pos, range, cur-thrown, exception-member-indices, catch-cases
+				# The 'abort' won't be reached, it's just there to keep this well-typed
+				default: range gen-seq (ctx gen-rethrow-current-exception range), (type gen-abort range)
+			match-thrown low-expr = type, range, switch.to
+			on-error = range gen-seq restore-cur-catch-point, restore-gc-root, match-thrown
+			ctx gen-setup-catch range, first-block[restore-cur-catch-point], on-error
+
+-with-restorable-catch-point low-expr(
+	ctx get-low-expr-ctx,
+	range uri-and-range,
+	f low-expr mut(restore-catch-point low-expr),
+)
+	# Don't need a GC root since 'set-cur-catch-point' never yields.
+	ctx gen-let-temp-const-no-gc-root range, (ctx gen-get-cur-catch-point range), old-catch-point =>
+		f[ctx gen-set-cur-catch-point range, old-catch-point]
+
+-with-restorable-gc-root low-expr(
+	ctx get-low-expr-ctx,
+	range uri-and-range,
+	f low-expr mut(restore-gc-root low-expr),
+)
+	# gc-root is not itself a GC root
+	ctx gen-let-temp-const-no-gc-root range, (ctx gen-get-gc-root range), old-gc-root =>
+		f[ctx gen-set-gc-root range, old-gc-root]
+
+-gen-rethrow-current-exception low-expr(ctx get-low-expr-ctx, range uri-and-range)
+	void-type gen-call-no-gc-roots range, ctx.common-funs.rethrow-current-exception, ()
+
+-gen-setup-catch low-expr(ctx get-low-expr-ctx, range uri-and-range, tried low-expr, on-catch low-expr)
+	ctx.has-setup-catch := true
+	###
+	store mut catch-point = zeroed
+	if &store setup-catch
+		onCatch
+	else
+		cur-catch-point := &store
+		tried
+	###
+	store = "store" gen-local true, ctx.next-local-index, ctx.common-types.catch-point
+	setup-catch = bool-type gen-unary range, setup-catch, (ctx.common-types.catch-point-mut-pointer gen-local-pointer range, store)
+	set-catch-point = ctx gen-set-cur-catch-point range, (ctx.common-types.catch-point-const-pointer gen-local-pointer range, store)
+	else_ = range gen-seq set-catch-point, tried
+	if_ = range gen-if setup-catch, on-catch, else_
+	range gen-let-no-gc-root store, (ctx.common-types.catch-point gen-zeroed range), if_
+
+-gen-get-cur-thrown low-expr(ctx get-low-expr-ctx, range uri-and-range)
+	ctx.common-funs.exception-type gen-var-get range, ctx.common-funs.cur-thrown
+-gen-get-cur-catch-point low-expr(ctx get-low-expr-ctx, range uri-and-range)
+	ctx.common-types.catch-point-const-pointer gen-call-no-gc-roots range, ctx.common-funs.cur-catch-point, ()
+-gen-set-cur-catch-point low-expr(ctx get-low-expr-ctx, range uri-and-range, value low-expr)
+	void-type gen-call-no-gc-roots range, ctx.common-funs.set-cur-catch-point, (value,)
+-gen-get-gc-root low-expr(ctx get-low-expr-ctx, range uri-and-range)
+	ctx.common-funs.gc-root-mut-pointer-type gen-call-no-gc-roots range, ctx.common-funs.gc-root, ()
+-gen-set-gc-root low-expr(ctx get-low-expr-ctx, range uri-and-range, root low-expr)
+	void-type gen-call-no-gc-roots range, ctx.common-funs.set-gc-root, (root,)

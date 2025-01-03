@@ -1044,7 +1044,7 @@ LowExpr getLowExpr(
 				getLowExpr(ctx, locals, x.then, exprPos),
 				getLowExpr(ctx, locals, x.else_, exprPos))))),
 		(ref LetConcreteExpr x) =>
-			genLet(ctx, locals, exprPos, type, range, x.local, x.value, x.then, (LowExpr x) => x),
+			genLet(ctx, locals, exprPos, range, x.local, x.value, x.then, (LowExpr x) => x),
 		(LocalGetConcreteExpr x) =>
 			handleExprPos(ctx, exprPos, genIdentifier(range, getLocal(ctx, locals, x.local))),
 		(LocalPointerConcreteExpr x) =>
@@ -1122,7 +1122,7 @@ LowExpr getAllocExpr(ref GetLowExprCtx ctx, ExprPos exprPos, LowType type, UriAn
 			genLetTempConstNoGcRoot(ctx, range, ptr, (LowExpr getPtr) =>
 				genSeq(
 					ctx.alloc, range,
-					genWriteToPointer(ctx.alloc, range, getPtr, arg),
+					genWriteToPointer(ctx.alloc, range, getPtr, getArg),
 					handleExprPos(ctx, exprPos, getPtr))));
 	}
 }
@@ -1257,13 +1257,12 @@ LowExpr callFunPointer(
 ) {
 	LowExpr funPtr = getLowExpr(ctx, locals, funPtrAndArg[0], ExprPos.nonTail);
 	LowExpr arg = getLowExpr(ctx, locals, funPtrAndArg[1], ExprPos.nonTail);
-	return callFunPointerInner(ctx, exprPos, locals, range, type, funPtr, arg);
+	return callFunPointerInner(ctx, exprPos, range, type, funPtr, arg);
 }
 
 LowExpr callFunPointerInner(
 	ref GetLowExprCtx ctx,
 	ExprPos exprPos,
-	in Locals locals,
 	UriAndRange range,
 	LowType type,
 	LowExpr funPtr,
@@ -1496,7 +1495,6 @@ LowExpr genLet(
 	ref GetLowExprCtx ctx,
 	in Locals locals,
 	ExprPos exprPos,
-	LowType type,
 	UriAndRange range,
 	ConcreteLocal* concreteLocal,
 	ref ConcreteExpr concreteValue,
@@ -1585,7 +1583,7 @@ LowExpr getMatchUnionExpr(
 			SwitchLowExpr(
 				value: genUnionKind(range, getMatchedPtr),
 				caseValues: a.memberIndices,
-				caseExprs: lowerMatchCases(ctx, locals, exprPos, type, range, getMatchedPtr, a.memberIndices, a.cases),
+				caseExprs: lowerMatchCases(ctx, locals, exprPos, range, getMatchedPtr, a.memberIndices, a.cases),
 				default_: has(a.else_)
 					? getLowExpr(ctx, locals, *force(a.else_), exprPos)
 					: genAbort(type, range)))));
@@ -1595,7 +1593,6 @@ SmallArray!LowExpr lowerMatchCases(
 	ref GetLowExprCtx ctx,
 	in Locals locals,
 	ExprPos exprPos,
-	LowType type,
 	UriAndRange range,
 	LowExpr* getMatched,
 	IntegralValues memberIndices,
@@ -1718,7 +1715,7 @@ LowExpr getTryLetExpr(
 		(LowExpr restoreCurCatchPoint) =>
 			has(a.local)
 				? genLet(
-					ctx, locals, exprPos, type, range, force(a.local), a.value, a.then,
+					ctx, locals, exprPos, range, force(a.local), a.value, a.then,
 					(LowExpr then) => genSeq(ctx.alloc, range, restoreCurCatchPoint, then))
 				: genSeq(
 					ctx.alloc, range,
@@ -1766,7 +1763,7 @@ LowExpr getTryOrTryLetExpr(
 					value: genUnionKind(range, curThrown),
 					caseValues: exceptionMemberIndices,
 					caseExprs: lowerMatchCases(
-						ctx, locals, exprPos, type, range, curThrown, exceptionMemberIndices, catchCases),
+						ctx, locals, exprPos, range, curThrown, exceptionMemberIndices, catchCases),
 					default_: genSeq(ctx.alloc, range,
 						genRethrowCurrentException(ctx, range),
 						// 'abort' is just to keep this well-typed
@@ -1800,11 +1797,11 @@ LowExpr genSetupCatch(ref GetLowExprCtx ctx, UriAndRange range, LowExpr tried, L
 	ctx.hasSetupCatch = true;
 	/*
 	store mut catch-point = zeroed
-	if !(&store setup-catch)
+	if &store setup-catch
+		onCatch
+	else
 		cur-catch-point := &store
 		tried
-	else
-		onCatch
 	*/
 	LowLocal* store = genLocal(
 		ctx.alloc, symbol!"store", isMutable: true, nextLocalIndex(ctx), ctx.commonTypes.catchPoint);
