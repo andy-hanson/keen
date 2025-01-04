@@ -1,0 +1,230 @@
+import
+	../model/concrete-model
+	../model/low-model
+	../model/model
+	../util/full-index-map
+	../util/string-walker
+
+mangled-names record
+	var-to-name-index (low-var-index, nat) full-index-map
+	fun-to-name-index nat[concrete-fun-id]
+	struct-to-name-index nat[concrete-struct-id]
+
+build-mangled-names mangled-names(program low-program)
+	# The first time we see a fun with a name, we'll store the fun-pointer here in case it's not overloaded.
+	# After that, we'll start putting them in fun-to-name-index, and store the next index here.
+	fun-name-to-index concrete-fun-id prev-or-index mut[symbol] = ()
+	# This will not have an entry for uniquely-named funs.
+	# TODO: these variable names (fun-name-to-index vs fun-to-name-index) are too similar ---------------------------------------------------------------
+	fun-to-name-index nat mut[concrete-fun-id] = ()
+	# HAS: Ensure 'main' has that name.
+	fun-name-to-index["main"] := 0 to
+	for _, fun : program all-funs
+		match fun source
+		as concrete-fun cf
+			match cf source
+			as concrete-fun-source-regular x
+				fun-name-to-index add-to-prev-or-index fun-to-name-index, cf.id, x.decl.name
+			as concrete-fun-source-lambda _
+				()
+			as concrete-fun-source-test _
+				()
+			as concrete-fun-source-wrap-main _
+				()
+		as low-fun-source-generated _
+			()
+	
+	struct-name-to-index concrete-struct-id prev-or-index mut[symbol] = ()
+	# This will not have an entry for uniquely-named structs.
+	struct-to-name-index nat mut[concrete-struct-id] = ()
+
+	build void mut(s concrete-struct) = s =>
+		match s source
+		as concrete-struct-source-bogus
+			()
+		as concrete-struct-source-inst x
+			struct-name-to-index add-to-prev-or-index struct-to-name-index, s.id, x.decl.name
+		as concrete-struct-source-lambda _
+			()
+
+	for _, x : program all-extern-types
+		build[x source]
+	for _, x : program all-fun-pointer-types
+		build[x source]
+	for _, x : program all-records
+		build[x source]
+	for _, x : program all-unions
+		build[x source]
+	
+	program.vars.make-var-to-name-index, fun-to-name-index.move-to, struct-to-name-index.move-to
+
+-make-var-to-name-index (low-var-index, nat) full-index-map(
+	vars (low-var-index, low-var) full-index-map,
+)
+	counts nat mut[symbol] = ()
+	for _, x : vars
+		index = counts ensure x.name, () => 0
+		counts[x name] := index + 1
+		if x is-extern
+			# Can't have multiple 'extern' vars with the same name
+			assert index == 0 : todo
+		index
+
+struct-mangled-name string(mangled-names mangled-names, source concrete-struct)
+	match source source
+	as concrete-struct-source-bogus
+		"__BOGUS"
+	as concrete-struct-source-inst x
+		"s_{mangled-names mangled-name x.decl.name}{mangled-names.struct-to-name-index[source id] index-suffix}"
+	as concrete-struct-source-lambda x
+		"{mangled-names concrete-fun-mangled-name x.containing-fun}__lambda{x index}"
+
+low-var-mangled-name string(mangled-names mangled-names, var-index low-var-index, var low-var)
+	prefix string = match var kind
+	as extern-global
+		""
+	as global_
+		"g_"
+	as thread-local_
+		"t_"
+	index = mangled-names.var-to-name-index[var-index]
+	suffix string = unless index == 0
+		"_{index}"
+	"{prefix}{mangled-names mangled-name var.name}{suffix}"
+
+low-fun-mangled-name string(mangled-names mangled-names, fun-index low-fun-index, fun low-fun)
+	match fun source
+	as concrete-fun x
+		mangled-names concrete-fun-mangled-name x
+	as low-fun-source-generated x
+		suffix string = unless x.name == "main" # TODO:HAX
+			"_{fun-index index}"
+		"{mangled-names mangled-name x.name}{suffix}"
+
+-concrete-fun-mangled-name string(mangled-names mangled-names, source concrete-fun)
+	match source source
+	as concrete-fun-source-regular x
+		match source body
+		as concrete-fun-body-extern _
+			"{x.decl name}"
+		else
+			"{mangled-names mangled-name x.decl.name}{mangled-names.fun-to-name-index[source id] index-suffix}"
+	as concrete-fun-source-lambda x
+		"{mangled-names concrete-fun-mangled-name x.containing-fun}__lambda{x index}"
+	as concrete-fun-source-test x
+		"__test{x test-index}"
+	as concrete-fun-source-wrap-main _
+		"__wrap_main"
+
+-index-suffix string(index nat?)
+	if x ?= index
+		"_{x}"
+
+low-local-name string(mangled-names mangled-names, a low-local)
+	"__local{mangled-names mangled-name a.name}{a index}"
+
+constant-arr-storage-name string( # TODO: RENAME to constant-array-storage-name ------------------------------------------------
+	mangled-names mangled-names,
+	_ low-program,
+	array-type low-record,
+	index nat,
+)
+	"constant{mangled-names struct-mangled-name array-type.source}_{index}"
+
+constant-pointer-storage-name string(
+	mangled-names mangled-names,
+	_ low-program,
+	pointee-type low-type,
+	index nat,
+)
+	"constant{mangled-names struct-mangled-name pointee-type.low-record!.source}_{index}"
+
+-prev-or-index[t] union(t prev, nat)
+-prev[t] record(value t)
+
+-add-to-prev-or-index[id] void(
+	name-to-index id prev-or-index mut[symbol],
+	to-name-index nat mut[id], 
+	cur id,
+	name symbol,
+) id key
+	name-to-index[name] := if value ?= name-to-index[name]
+		match value
+		as prev x
+			to-name-index[x value] := 0
+			to-name-index[cur] := 1
+			2 to
+		as nat x
+			to-name-index[cur] := x
+			x + 1 to
+	else
+		cur prev
+
+mangled-name string(_ mangled-names, a symbol)
+	# TODO: this applies to any C function. Maybe crow functions should have a common prefix.
+	if a == "errno"
+		"_crow_errno"
+	elif a conflicts-with-c-name
+		"_{a}"
+	else
+		a mangle-name-common
+
+# Used for both JS and C
+mangle-name-common string(a symbol)
+	with out : build
+		for x : a.to::string
+			if x is-ascii-identifier-char
+				out ~= x
+			else
+				out ~~= "__"
+				out ~~= "{x.to::nat32}"
+
+-conflicts-with-c-name bool(a symbol)
+	match a
+	as atomic-bool # avoid conflicting with c's "atomic_bool" type
+		true
+	as abs # conflicts with corecrt_math.h on Windows
+		true
+	as "break"
+		true
+	as "continue"
+		true
+	as default
+		true
+	as "do"
+		true
+	as double
+		true
+	as float
+		true
+	as "for"
+		true
+	as int
+		true
+	as log # defined by tgmath.h
+		true
+	as nan # defined by mathcalls.h
+		true
+	as return
+		true
+	as signed
+		true
+	as struct
+		true
+	as unsigned
+		true
+	as void
+		true
+	as "while"
+		true
+	# Not core keywords, but common libraries
+	as remove
+		true
+	as stderr
+		true
+	as stdout
+		true
+	as write
+		true
+	else
+		false

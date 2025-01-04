@@ -1008,8 +1008,6 @@ WriteExprResult writeExpr(
 	in LowExpr expr,
 ) {
 	LowType type = expr.type;
-	WriteExprResult nonInlineable(in void delegate() @safe @nogc pure nothrow cb) =>
-		writeNonInlineable(writer, indent, ctx, writeKind, type, cb);
 	WriteExprResult inlineable(
 		in LowExpr[] args,
 		in void delegate(in WriteExprResult[]) @safe @nogc pure nothrow inline,
@@ -1086,7 +1084,7 @@ WriteExprResult writeExpr(
 		(in RecordFieldSetLowExpr x) {
 			WriteExprResult recordValue = writeExprTempOrInline(writer, indent, ctx, x.target);
 			WriteExprResult fieldValue = writeExprTempOrInline(writer, indent, ctx, x.value);
-			return writeReturnVoid(writer, indent, ctx, writeKind, () {
+			return writeReturnVoid(writer, indent, writeKind, () {
 				writeTempOrInline(writer, ctx, x.target, recordValue);
 				writeRecordFieldRef(writer, ctx, true, *x.targetRecordType, x.fieldIndex);
 				writer ~= " = ";
@@ -1137,7 +1135,7 @@ WriteExprResult writeExpr(
 		(in VarSetLowExpr x) {
 			WriteKind varWriteKind = WriteKind(x.varIndex);
 			cast(void) writeExpr(writer, indent, ctx, varWriteKind, *x.value);
-			return writeReturnVoid(writer, indent, ctx, writeKind);
+			return writeReturnVoid(writer, indent, writeKind);
 		});
 }
 
@@ -1255,18 +1253,12 @@ WriteExprResult writeInlineableSimple(
 			inline();
 	});
 
-WriteExprResult writeReturnVoid(
-	scope ref Writer writer,
-	size_t indent,
-	scope ref FunBodyCtx ctx,
-	in WriteKind writeKind,
-) =>
-	writeReturnVoid(writer, indent, ctx, writeKind, null);
+WriteExprResult writeReturnVoid(scope ref Writer writer, size_t indent, in WriteKind writeKind) =>
+	writeReturnVoid(writer, indent, writeKind, null);
 
 WriteExprResult writeReturnVoid(
 	scope ref Writer writer,
 	size_t indent,
-	scope ref FunBodyCtx ctx,
 	in WriteKind writeKind,
 	in void delegate() @safe @nogc pure nothrow cb,
 ) =>
@@ -2053,7 +2045,7 @@ WriteExprResult writeSpecialBinary(
 		case BuiltinBinary.writeToPointer:
 			WriteExprResult temp0 = arg0();
 			WriteExprResult temp1 = arg1();
-			return writeReturnVoid(writer, indent, ctx, writeKind, () {
+			return writeReturnVoid(writer, indent, writeKind, () {
 				if (!isEmptyType(ctx, right.type)) {
 					writer ~= "*";
 					writeTempOrInline(writer, ctx, left, temp0);
@@ -2140,7 +2132,7 @@ WriteExprResult writeInit(
 			}
 		}();
 	} // No init needed otherwise
-	return writeReturnVoid(writer, indent, ctx, writeKind);
+	return writeReturnVoid(writer, indent, writeKind);
 }
 
 WriteExprResult writeCallFunPointer(
@@ -2194,7 +2186,7 @@ WriteExprResult writeLocalSet(
 		WriteKind localWriteKind = WriteKind(a.local);
 		cast(void) writeExpr(writer, indent, ctx, localWriteKind, a.value);
 	}
-	return writeReturnVoid(writer, indent, ctx, writeKind);
+	return writeReturnVoid(writer, indent, writeKind);
 }
 
 WriteExprResult writeLoop(
