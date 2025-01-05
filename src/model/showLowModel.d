@@ -115,11 +115,20 @@ void writeConcreteType(scope ref Writer writer, in ShowCtx ctx, in ConcreteType 
 	writeConcreteStruct(writer, ctx, *a.struct_);
 	if (a.reference != ReferenceKind.byVal) {
 		writer ~= ' ';
-		writer ~= stringOfEnum(a.reference);
+		writer ~= showReferenceKind(a.reference);
 	}
 }
 
 private:
+
+string showReferenceKind(ReferenceKind a) {
+	final switch (a) {
+		case ReferenceKind.byVal:
+			return "by-val";
+		case ReferenceKind.byRef:
+			return "by-ref";
+	}
+}
 
 void writeLowType(scope ref Writer writer, in ShowCtx ctx, in AllLowTypes lowTypes, in LowType a) {
 	a.matchIn!void(

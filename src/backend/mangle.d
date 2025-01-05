@@ -2,6 +2,7 @@ module backend.mangle;
 
 @safe @nogc pure nothrow:
 
+import backend.builtinMath : BuiltinFunction;
 import model.concreteModel :
 	ConcreteFun,
 	ConcreteFunBodyExtern,
@@ -34,7 +35,7 @@ import util.col.fullIndexMap : FullIndexMap, mapFullIndexMap;
 import util.col.mutMap : getOrAdd, insertOrUpdate, MutMap, setInMap;
 import util.opt : force, has, Opt;
 import util.string : isAsciiIdentifierChar;
-import util.symbol : Symbol, symbol;
+import util.symbol : optEnumOfSymbol, Symbol, symbol;
 import util.union_ : TaggedUnion;
 import util.util : stringOfEnum, todo;
 import util.writer : Writer;
@@ -298,8 +299,8 @@ bool conflictsWithCName(Symbol a) {
 		case symbol!"double".value:
 		case symbol!"float".value:
 		case symbol!"for".value:
+		case symbol!"inline".value:
 		case symbol!"int".value:
-		case symbol!"log".value: // defined by tgmath.h
 		case symbol!"nan".value: // defined by mathcalls.h
 		case symbol!"return".value:
 		case symbol!"signed".value:
@@ -314,7 +315,52 @@ bool conflictsWithCName(Symbol a) {
 		case symbol!"stdout".value:
 		case symbol!"write".value:
 			return true;
+		// TODO: should use optEnumOfSymbol instead .........................................................................
+		case symbol!"acos".value:
+		case symbol!"acosf".value:
+		case symbol!"acosh".value:
+		case symbol!"acoshf".value:
+		case symbol!"asin".value:
+		case symbol!"asinf".value:
+		case symbol!"asinh".value:
+		case symbol!"asinhf".value:
+		case symbol!"atan".value:
+		case symbol!"atanf".value:
+		case symbol!"atan2".value:
+		case symbol!"atan2f".value:
+		case symbol!"atanh".value:
+		case symbol!"atanhf".value:
+		case symbol!"__builtin_isnan".value:
+		case symbol!"__builtin_popcountl".value:
+		case symbol!"ceil".value:
+		case symbol!"ceilf".value:
+		case symbol!"cos".value:
+		case symbol!"cosf".value:
+		case symbol!"cosh".value:
+		case symbol!"coshf".value:
+		case symbol!"floor".value:
+		case symbol!"floorf".value:
+		case symbol!"fmod".value:
+		case symbol!"fmodf".value:
+		case symbol!"log".value:
+		case symbol!"logf".value:
+		case symbol!"pow".value:
+		case symbol!"powf".value:
+		case symbol!"round".value:
+		case symbol!"roundf".value:
+		case symbol!"sin".value:
+		case symbol!"sinf".value:
+		case symbol!"sinh".value:
+		case symbol!"sinhf".value:
+		case symbol!"sqrt".value:
+		case symbol!"sqrtf".value:
+		case symbol!"tan".value:
+		case symbol!"tanf".value:
+		case symbol!"tanh".value:
+		case symbol!"tanhf".value:
+			return true;
 		default:
 			return false;
+			// return !has(optEnumOfSymbol!BuiltinFunction(a)); ------------- not sure why that doesn't work ---------------------------------
 	}
 }

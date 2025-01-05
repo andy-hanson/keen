@@ -144,6 +144,7 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 
 # TODO: instead of 'is-mvsc' bool, use 'compiler enum(posix, msvc)' -----------------------------------------------------------------
 -c-compile-args string[](extern-libraries extern-libraries, is-msvc bool, params write-to-c-params)
+	info log "extern-libraries is {extern-libraries.to::json}"
 	with out : build
 		out ~~= is-msvc c-compiler-args params.compile-options
 		out ~= params.c-path.to
@@ -250,7 +251,7 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 		with out : build
 			out ~~= "U\""
 			for element : elements
-				out ~~= element.integral-value!.as-unsigned.to::nat32.to escaped-char-for-c
+				out ~~= element.integral-value!.as-unsigned.to::nat32.to escaped-char-for-c-string
 			out ~= "\""
 	else
 		with out : build
@@ -264,7 +265,14 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 				out write-constant-ref ctx, inner, element-type, x
 			out ~~= " }"
 
--escaped-char-for-c string(a char32)
+-escaped-char-for-c-string string(a char32)
+	if a == "\x1b"
+		# Need two adjacent concatenated strings in case the next character is a valid hex digit
+		"\\x1b\"\""
+	else
+		a escaped-char-for-c-char
+
+-escaped-char-for-c-char string(a char32)
 	match a
 	as "?"
 		# Avoid trigraphs
@@ -317,8 +325,7 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 	as "\0"
 		"\\0"
 	as "\x1b"
-		# Need two adjacent concatenated strings in case the next character is a valid hex digit
-		"\\x1b\"\""
+		"\\x1b"
 	else
 		if a is-valid-unicode-character
 			a to
@@ -414,7 +421,7 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 	"struct {ctx.mangled-names struct-mangled-name source}"
 
 -cast-to-type string(ctx ctx, type low-type)
-	"({ctx write-type type})"
+	"({ctx write-type type}) "
 
 -param-decl string(ctx ctx, a low-local)
 	"{ctx write-type a.type} {ctx.mangled-names low-local-name a}"
@@ -553,7 +560,7 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 	as low-fun-body-extern _
 		() # declaration is enough
 	as low-fun-expr-body x
-		out ~~= "/* {ctx.show-ctx show-fun-sig ctx.program, fun} */"
+		out ~~= "/* {ctx.show-ctx show-fun-sig ctx.program, fun} */\n"
 		out write-fun-with-expr-body ctx, fun-index, fun, x
 
 -write-fun-with-expr-body void(
@@ -565,6 +572,7 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 )
 	unless fun is-generated-main
 		out ~~= "static "
+	out ~~= ctx fun-return-type-name-and-params fun-index, fun
 	out ~~= " \{"
 	if body has-tail-recur
 		out ~~= "\n\ttop:;" # Need ';' to ensure it labels a statement
@@ -619,7 +627,7 @@ temp record(index nat)
 	is-alloca = is-volatile && ctx local-must-alloca-if-volatile
 	if is-alloca
 		out ~= "*"
-	out ~= "*"
+	out ~= " "
 	out ~~= ctx.mangled-names low-local-name local
 	if is-alloca
 		out ~~= " = "
@@ -1167,7 +1175,7 @@ temp record(index nat)
 	if primitive == char8 || primitive == char32
 		if ctx !is-msvc && ctx.c-version >= c11 && a.as-unsigned.to.to is-valid-unicode-character
 			out ~~= "U'"
-			out ~~= a.as-unsigned.to.to escaped-char-for-c
+			out ~~= a.as-unsigned.to.to escaped-char-for-c-char
 			out ~= "'"
 		else
 			out ~~= "{a as-unsigned}"
@@ -1183,7 +1191,7 @@ temp record(index nat)
 			if primitive == int64
 				out ~~= "ll"
 	else
-		out ~~= "{a as-unsigned}u}"
+		out ~~= "{a as-unsigned}u"
 		if primitive == nat64
 			out ~~= "ll"
 
@@ -1195,7 +1203,7 @@ temp record(index nat)
 	with out : build
 		chunk mut nat = 0
 		for x : a
-			out ~~= x escaped-char-for-c
+			out ~~= x escaped-char-for-c-string
 			if is-msvc
 				# Avoid error with MSVC: "error C2026: string too big, trailing characters truncated"
 				chunk +:= 1

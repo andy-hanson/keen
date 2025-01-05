@@ -323,6 +323,18 @@ char toLowerCase(char a) =>
 		? cast(char) ('a' + (a - 'A'))
 		: a;
 
+Opt!E optEnumOfSymbol(E)(in Symbol a) {
+	assertNormalEnum!E();
+	switch (a.value) {
+		static foreach (size_t index, string member; __traits(allMembers, E)) {
+			case symbol!(stripUnderscore!member).value:
+				return some(cast(E) index);
+		}
+		default:
+			return none!E;
+	}
+}
+
 private:
 
 // Bit to be set when the symbol is short

@@ -414,7 +414,7 @@ void writeArrayConstant(scope ref Writer writer, scope ref Ctx ctx, in LowType e
 	} else if (isChar32(elementType) && ctx.cVersion >= CVersion.c11 && !ctx.isMSVC) {
 		writer ~= "U\"";
 		foreach (Constant element; elements)
-			writeEscapedCharForC(writer, cast(dchar) element.as!IntegralValue.value);
+			writeEscapedCharForCString(writer, cast(dchar) element.as!IntegralValue.value);
 		writer ~= '"';
 	} else {
 		writer ~= '{';
@@ -425,7 +425,14 @@ void writeArrayConstant(scope ref Writer writer, scope ref Ctx ctx, in LowType e
 	}
 }
 
-void writeEscapedCharForC(scope ref Writer writer, dchar a) {
+void writeEscapedCharForCString(scope ref Writer writer, dchar a) {
+	if (a == '\x1b')
+		// Need two adjacent concatenated strings in case the next character is a valid hex digit
+		writer ~= "\\x1b\"\"";
+	else
+		writeEscapedCharForCChar(writer, a);
+}
+void writeEscapedCharForCChar(scope ref Writer writer, dchar a) {
 	switch (a) {
 		case '?':
 			// avoid trigraphs
@@ -435,7 +442,7 @@ void writeEscapedCharForC(scope ref Writer writer, dchar a) {
 			writer ~= "\\'";
 			break;
 		default:
-			writeEscapedChar_inner(writer, a, forC: true);
+			writeEscapedChar_inner(writer, a);
 			break;
 	}
 }
@@ -1568,7 +1575,7 @@ void writeConstantIntegral(scope ref Writer writer, in Ctx ctx, in LowType type,
 	if (primitive == PrimitiveType.char8 || primitive == PrimitiveType.char32) {
 		if (!ctx.isMSVC && ctx.cVersion >= CVersion.c11 && isValidUnicodeCharacter(safeToUint(a.asUnsigned))) {
 			writer ~= "U'";
-			writeEscapedCharForC(writer, safeToUint(a.asUnsigned));
+			writeEscapedCharForCChar(writer, safeToUint(a.asUnsigned));
 			writer ~= "'";
 		} else
 			writer ~= a.asUnsigned;
@@ -1608,7 +1615,7 @@ void writeStringLiteralWithNul(scope ref Writer writer, bool isMSVC, in string a
 void writeStringLiteralInner(scope ref Writer writer, bool isMSVC, in string a) {
 	size_t chunk = 0;
 	mustUnicodeDecode(a, (dchar x) {
-		writeEscapedCharForC(writer, x);
+		writeEscapedCharForCString(writer, x);
 		if (isMSVC) {
 			// Avoid error with MSVC: "error C2026: string too big, trailing characters truncated"
 			chunk++;
