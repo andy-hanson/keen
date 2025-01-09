@@ -1,0 +1,564 @@
+import
+	../../frontend/show-model
+	../../model/integral-values
+	../../model/source-range
+	../mangle
+	../../util/string-walker
+	../../util/util
+	./js-ast
+	./source-map
+
+write-js-ast js-and-map(
+	show-ctx show-type-ctx,
+	module-paths module-paths,
+	a js-script-ast,
+	source-map-name symbol?,
+)
+	show-ctx.show.file-content-getters build-output module-paths, !source-map-name.is-empty, out =>
+		out ~~= "{a shebang}"
+		if x ?= source-map-name
+			out ~~= x source-map-url
+		for x : a classes
+			out write-class x
+			out ~= "\n"
+		for var : a vars
+			# TODO: have a comment for this too ----------------------------------------------------------------------------------------
+			out write-var-decl 0, var
+			out ~= "\n"
+		for fun : a functions
+			out write-comment fun.comment
+			out ~~= "const {fun name} = "
+			out write-arrow-function 1, expr, fun.fun
+			out ~= "\n"
+		out write-statements a.statements
+
+# TODO: inline? -----------------------------------------------------------------------------------------------------------------
+-build-output js-and-map(
+	files file-content-getters,
+	module-paths module-paths,
+	include-source-map bool,
+	f void mut(output output),
+)
+	map-builder source-map-builder? = include-source-map ? (),
+	text string = with text-builder : build
+		out output = text-builder, map-builder, 0, 0
+		f[out]
+	text, if x ?= map-builder
+		(x finish files, module-paths),
+
+-output record mut
+	text string-builder
+	map source-map-builder?
+	line mut nat32
+	character mut nat32
+
+-~= void(a output, x char32)
+	a.text ~= x
+	if x == "\n"
+		a.line +:= 1
+		a.character := 0
+	else
+		a.character +:= 1
+-~~= void(a output, s string)
+	for x : s
+		a ~= x
+
+-write-with-commas[t] void(a output, xs t[], f void mut(x t))
+	for i, x : xs with-index
+		if i != 0
+			a ~~= ", "
+		f[x]
+
+-mark-map void(a output, source source)
+	if map ?= a map
+		map ~= (source, (a.line, a.character))
+
+-write-on-single-line void(a output, s string) # TODO: this isn't really needed? just use ~~= ............................................
+	forbid "\n"::char32 in s
+	a.text ~~= s
+	a.character +:= s.size-char8s.to
+
+-show string(a shebang)
+	match a
+	as none
+		""
+	as node
+		"#!/usr/bin/env node\n"
+
+-source-map-url string(source-map-name symbol)
+	"//# sourceMappingURL={source-map-name}\n"
+
+-write-statements void(out output, statements js-statement[])
+	for x : statements
+		out ~= "\n"
+		out write-statement 0, x, non-first
+
+-show string(name js-name)
+	if name.crow-name is-js-keyword && name.mangle-index is-empty
+		"_{name crow-name}"
+	else
+		suffix string = if x ?= name mangle-index
+			"___{x}"
+		"{name.kind prefix}{name.crow-name mangle-name-common}{suffix}"
+-prefix string(a js-name-kind)
+	match a
+	as none
+		""
+	as function_
+		"f_"
+	as local
+		"l_"
+	as special-local
+		"sl_"
+	as spec-sig
+		"s_"
+	as temp
+		"x_"
+	as type
+		"t_"
+
+-property-access string(a js-member-name)
+	if a.crow-name needs-mangle
+		"{a}"
+	else
+		".{a}"
+-show string(a js-member-name)
+	if a.crow-name needs-mangle
+		"[{a quoted}]"
+	else
+		"{a.kind member-name-prefix}{a crow-name}"
+-quoted string(a js-member-name)
+	"\"{a.kind member-name-prefix}{a crow-name}\""
+-member-name-prefix string(a js-member-name-kind)
+	match a
+	as none
+		""
+	as enum-member
+		"e_"
+	as record-field
+		"f_"
+	as special
+		"s_"
+	as sum-type-method
+		"m_"
+	as union-constructor
+		"uc_"
+	as union-member
+		"um_"
+
+-needs-mangle bool(a string)
+	a is-js-keyword || a.to::char32[].with-index exists (index, x) =>
+		(index == 0 && x is-decimal-digit) || x !is-allowed-js-identifier-char
+-is-js-keyword bool(a string)
+	match a
+	as await
+		true
+	as "case"
+		true
+	as const
+		true
+	as debugger
+		true
+	as default
+		true
+	as delete
+		true
+	as "enum"
+		true
+	as false
+		true
+	as "function"
+		true
+	as in
+		true
+	as instanceof
+		true
+	as let
+		true
+	as new
+		true
+	as null
+		true
+	as static
+		true
+	as switch
+		true
+	as this
+		true
+	as true
+		true
+	as typeof
+		true
+	as var
+		true
+	as void
+		true
+	else
+		false
+-is-allowed-js-identifier-char bool(a char32)
+	# TODO: JS allows more
+	a is-ascii-identifier-char
+
+-write-class void(out output, a js-class-decl)
+	out write-comment a.comment
+	out ~~= "class {a name}"
+	out ~~= " \{"
+	for member : a members
+		out mark-map member.source
+		out ~~= "\n\t"
+		out write-class-member member
+	out ~= "\n"
+	out ~= "}"
+
+-write-comment void(out output, comment string)
+	unless comment is-empty
+		out ~~= "// {comment}\n"
+
+-write-class-member void(out output, member js-class-member)
+	match member is-static
+	as instance
+		()
+	as static
+		out ~~= "static "
+	match member kind
+	as js-class-method x
+		out ~~= "{x.async maybe-async}{member name}"
+		out write-params x.params, true
+		out write-block-statement 1, x.body
+	as js-expr x
+		out ~~= "{member name} = "
+		out write-expr 1, x
+
+-write-params void(out output, a js-params, always-parens bool)
+	parens = always-parens || a.params.size != 1 || a.params.only.js-name is-empty || a.rest-param !is-empty
+	if parens
+		out ~= "("
+	out write-with-commas a.params, x =>
+		out write-destructure x
+	if x ?= a rest-param
+		unless a.params is-empty
+			out ~~= ", "
+		out ~~= "..."
+		out write-destructure x
+	if parens
+		out ~= ")"
+
+-write-destructure void(out output, a js-destructure)
+	match a
+	as js-name x
+		out ~~= "{x}"
+	as js-default-destructure x
+		out write-destructure x.left
+		out ~~= " = "
+		out write-expr 0, x.default, expr
+	as js-object-destructure x
+		out ~~= "\{ "
+		out write-with-commas x.fields, (name, destructure) =>
+			out ~~= "{name}: "
+			out write-destructure destructure
+		out ~~= " }"
+
+-write-block-statement void(out output, indent nat, a js-block-statement)
+	out ~= "\{"
+	for index, x : a.statements with-index
+		out ~~= indent + 1 newline
+		out write-statement indent + 1, x, (index == 0 ? first : non-first)
+	out ~~= indent newline
+	out ~= "}"
+
+-write-expr-or-block-statement-indented void(out output, indent nat, a js-expr-or-block-statement)
+	match a
+	as js-expr x
+		out ~~= indent + 1 newline
+		out write-expr indent + 1, x
+	as js-block-statement x
+		out ~= " "
+		out write-block-statement indent, x
+
+-statement-pos enum(first, non-first)
+-write-statement void(out output, indent nat, a js-statement, pos statement-pos)
+	out mark-map a.source
+	match a kind
+	as js-assign-statement x
+		out write-assign indent, x
+	as js-block-statement x
+		out write-block-statement indent, x
+	as js-break-statement x
+		out ~~= "break "
+		if l ?= x label
+			out ~~= " {l}"
+	as js-continue-statement
+		out ~~= "continue"
+	as js-expr x
+		out write-expr indent, x, match pos
+		as first
+			statement-first
+		as non-first
+			statement-non-first
+	as js-if-statement x
+		out write-if indent, x
+	as js-return-statement x
+		out ~~= "return "
+		out write-expr indent, x.arg
+	as js-switch-statement x
+		out write-switch indent, x
+	as js-throw-statement x
+		out ~~= "throw "
+		out write-expr indent, x.arg
+	as js-try-catch-statement x
+		out write-try-catch indent, x
+	as js-try-finally-statement x
+		out write-try-finally indent, x
+	as js-var-decl x
+		out write-var-decl indent, x
+	as js-while-statement x
+		out write-while indent, x
+
+-write-assign void(out output, indent nat, a js-assign-statement)
+	out write-expr indent, a.left
+	out ~~= " = "
+	out write-expr indent, a.right
+-write-if void(out output, indent nat, a js-if-statement)
+	out ~~= "if ("
+	out write-expr indent + 2, a.cond
+	out ~~= ") "
+	out write-block-statement indent, a.then
+	if else_ ?= a else_
+		out ~~= " else"
+		if _ ?= else_.kind js-if-statement
+			out ~= " "
+			out write-statement indent, else_, first
+		else
+			_ = out write-statement-indented indent, else_, first
+-write-switch void(out output, indent nat, a js-switch-statement)
+	out ~~= "switch ("
+	out write-expr indent + 2, a.arg
+	out ~~= ") \{"
+	for case_ : a cases
+		out ~~= indent + 1 newline
+		out ~~= "case "
+		out write-expr indent, case_.value
+		out ~= ":"
+		out write-block-statement indent + 1, case_.then
+	out ~~= "{indent + 1 newline}default:"
+	out write-block-statement indent + 1, a.default
+	out ~~= "{indent newline}}"
+-write-try-catch void(out output, indent nat, a js-try-catch-statement)
+	out ~~= "try "
+	out write-block-statement indent, a.tried
+	out ~~= " catch ({a exception}) "
+	out write-block-statement indent, a.catch_
+-write-try-finally void(out output, indent nat, a js-try-finally-statement)
+	out ~~= "try "
+	out write-block-statement indent, a.tried
+	out ~~= " finally "
+	out write-block-statement indent, a.finally_
+-write-var-decl void(out output, indent nat, a js-var-decl)
+	out ~~= "{a const} "
+	out write-destructure a.destructure
+	if x ?= a initializer
+		out ~~= " = "
+		out write-expr indent, x
+-write-while void(out output, indent nat, a js-while-statement)
+	if x ?= a label
+		out ~~= "{x}: "
+	out ~~= "while ("
+	out write-expr indent + 2, a.condition
+	out ~= ")"
+	out write-block-statement indent, a.body
+
+# Returns true if it was a block
+-write-statement-indented bool(out output, indent nat, a js-statement, pos statement-pos)
+	match a kind
+	as js-block-statement b
+		out ~= " "
+		out write-block-statement indent, b
+		true
+	else
+		out ~~= indent + 1 newline
+		out write-statement indent + 1, a, pos
+		false
+
+-expr-pos record
+	| Expression is at the start of a statement and may need ';'
+	is-non-first-statement bool
+	| Expression is called and may need to be wrapped in '()'
+	is-called bool
+-with-called expr-pos(a expr-pos)
+	a.is-non-first-statement, true
+-expr expr-pos()
+	false, false
+-statement-first expr-pos()
+	false, false
+-statement-non-first expr-pos()
+	true, false
+-write-expr void(out output, indent nat, a js-expr)
+	out write-expr indent, a, expr
+-write-expr void(out output, indent nat, a js-expr, pos expr-pos)
+	out mark-map a.source
+	write-arg void mut(arg js-expr) = arg =>
+		out write-expr indent, arg, expr
+	write-arg-with-pos void mut(arg js-expr, arg-pos expr-pos) = (arg, arg-pos) =>
+		out write-expr indent, arg, arg-pos
+	write-args void mut(args js-expr[]) = args =>
+		out write-with-commas args, arg =>
+			out write-expr indent + 1, arg
+	match a kind
+	as js-array-expr x
+		out ~= "["
+		write-args[x elements]
+		out ~= "]"
+	as js-arrow-function x
+		out write-arrow-function indent, pos, x
+	as js-binary-expr x
+		if pos is-non-first-statement
+			out ~= ";"
+		out ~= "("
+		write-arg[x left]
+		out ~= " "
+		out ~~= "{x.kind operator}"
+		out ~= " "
+		write-arg[x right]
+		out ~= ")"
+	as js-call-expr x
+		write-arg-with-pos[x.called, pos.with-called]
+		out ~= "("
+		write-args[x args]
+		out ~= ")"
+	as js-call-with-spread-expr x
+		write-arg-with-pos[x.called, pos.with-called]
+		out ~= "("
+		write-args[x args]
+		unless x.args is-empty
+			out ~~= ", "
+		out ~~= "..."
+		write-arg[x spread-arg]
+		out ~= ")"
+	as js-literal-bool x
+		out ~~= "{x value}"
+	as js-literal-integer x
+		out ~~= if x is-signed
+			"{x.value as-signed}"
+		else
+			"{x.value as-unsigned}"
+		out ~= "n"
+	as js-literal-number x
+		out write-on-single-line x.value.float-literal-for-js
+	as js-literal-string x
+		out write-on-single-line "{x.value quote}"
+	as js-name x
+		out ~~= "{x}"
+	as js-new-expr x
+		out ~~= "new ("
+		write-arg[x class_]
+		out ~~= ")("
+		write-args[x arguments]
+		out ~= ")"
+	as js-null-expr
+		out ~~= "null"
+	as js-object1-expr x
+		forbid pos is-non-first-statement
+		out ~~= "\{ "
+		out write-object-pair indent, x.key, x.value
+		out ~~= " }"
+	as js-property-access-expr x
+		write-arg-with-pos[x.object, pos]
+		out ~~= x.property-name property-access
+	as js-property-access-computed-expr x
+		write-arg-with-pos[x.object, pos]
+		out ~= "["
+		write-arg[x property-name]
+		out ~= "]"
+	as js-ternary-expr x
+		if pos is-non-first-statement
+			out ~= ";"
+		if pos is-called
+			out ~= "("
+		write-arg[x condition]
+		out ~~= " ? "
+		write-arg[x then]
+		out ~~= " : "
+		write-arg[x else_]
+		if pos is-called
+			out ~= ")"
+	as js-this-expr
+		out ~~= "this"
+	as js-unary-expr x
+		if pos is-non-first-statement
+			out ~= ";"
+		out ~= "("
+		out ~~= x.kind operator
+		write-arg[x arg]
+		out ~= ")"
+
+-write-arrow-function void(out output, indent nat, pos expr-pos, a js-arrow-function)
+	if pos is-non-first-statement
+		out ~= ";"
+	if pos is-called
+		out ~= "("
+	out ~~= a.async maybe-async
+	out write-params a.params, false
+	out ~~= " =>"
+	out write-expr-or-block-statement-indented indent, a.body
+	if pos is-called
+		out ~= ")"
+
+-operator string(a js-binary-kind)
+	match a
+	as and
+		"&&"
+	as bit-shift-left
+		"<<"
+	as bit-shift-right
+		">>"
+	as bitwise-and
+		"&"
+	as bitwise-or
+		"|"
+	as bitwise-xor
+		"^"
+	as divide
+		"/"
+	as eq-eq-eq
+		"==="
+	as in
+		"in"
+	as instanceof
+		"instanceof"
+	as less
+		"<"
+	as minus
+		"-"
+	as modulo
+		"%"
+	as not-eq-eq
+		"!=="
+	as or
+		"||"
+	as plus
+		"+"
+	as times
+		"*"
+-operator string(a js-unary-kind)
+	match a
+	as await
+		"await "
+	as bitwise-not
+		"~"
+	as not
+		"!"
+	as typeof
+		"typeof "
+	as void
+		"void "
+
+-maybe-async string(a sync-or-async)
+	match a
+	as sync
+		""
+	as async
+		"async "
+
+-write-object-pair void(out output, indent nat, key js-member-name, value js-expr) # TODO: INLINE -------------------------------------------------------
+	out ~~= "{key}: "
+	out write-expr indent, value

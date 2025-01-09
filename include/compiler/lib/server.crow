@@ -200,10 +200,10 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		request single-response x
 	match request params
 	as build-js-script-params x
-		pwm = program-with-main[(x.uri main-kind-main-function ()), build-target-js]
+		pwm = program-with-main[(x.uri main-kind-main-function ()), web]
 		diags = server show-diagnostics pwm, x.diagnosticsOnlyForUris?.to
 		script string? = unless pwm has-fatal-diagnostics
-			(server build-to-js-script pwm, browser, ()).js,
+			(server build-to-js pwm, browser, ()).js,
 		respond[diags build-js-script-result script]
 	as code-lens-params x
 		respond[program get-code-lenses x to]
@@ -231,7 +231,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		respond[(server get-rename-for-program program, x)?.to ?? null-lsp-out-result]
 	as run-params x
 		writes write mut[] = ()
-		pwm = program-with-main[(x.uri main-kind-main-function ()), (none build-target-native)]
+		pwm = program-with-main[(x.uri main-kind-main-function ()), fake-extern]
 		if pwm has-any-diagnostics
 			writes ~= (err, (server show-diagnostics pwm, (x.diagnosticsOnlyForUris.to,)))
 		exit exit-code-or-signal = server run-from-lsp pwm, (x.diagnosticsOnlyForUris,), (pipe, text) =>
@@ -259,7 +259,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	match params
 	as run-test x
 		main-kind = false main-kind-tests-at-uri x.where.uri, (x.where.line.to,)
-		pwm = server.frontend program-with-main-from-program program, main-kind, (none.build-target-native,)
+		pwm = server.frontend program-with-main-from-program program, main-kind, (fake-extern,)
 		writes write mut[] = ()
 		exit = server run-from-lsp pwm, (), (pipe, text) =>
 			writes ~= (pipe, text)
@@ -542,7 +542,7 @@ build-to-c build-to-c-result(
 	write = server.get-show-ctx write-to-c low-program, params
 	write, low-program.extern-libraries
 
-build-to-js-script js-and-map(
+build-to-js js-and-map(
 	server server,
 	program program-with-main,
 	target js-target,
@@ -550,10 +550,8 @@ build-to-js-script js-and-map(
 )
 	forbid program has-fatal-diagnostics
 	show-ctx = server get-show-diag-ctx program.program, true
-	program translate-to-js-script show-ctx, target, source-map-name
-build-to-js-modules js-modules(server server, program program-with-main, target js-target)
-	show-ctx = server get-show-diag-ctx program.program, true
-	program translate-to-js-modules show-ctx, target
+	concrete-program = show-ctx.show concretize target.version-info-for-build-to-js, program
+	program translate-to-js concrete-program, show-ctx, target, source-map-name
 
 get-show-diag-ctx show-diag-ctx(server server, program program)
 	server get-show-diag-ctx program, false

@@ -12,6 +12,7 @@ import
 
 concretize concrete-program(show-ctx show-ctx, version-info version-info, program program-with-main)
 	ctx concretize-ctx = do
+		show-ctx: show-ctx
 		program: program
 		version-info: version-info
 		file-content-getters: show-ctx file-content-getters
@@ -21,21 +22,39 @@ concretize concrete-program(show-ctx show-ctx, version-info version-info, progra
 	ctx.late-new-json-from-pairs-function := (ctx get-non-template-concrete-fun common-funs.new-json-from-pairs),
 	json-to-json = ctx get-non-template-concrete-fun common-funs.to-json-from-json
 	ctx.late-to-json-from-json-array-function := (ctx get-concrete-fun common-funs.to-json-from-t-array, (ctx.json-type,), (json-to-json,)),
-	concrete-common-funs concrete-common-funs = do
-		alloc: ctx get-non-template-concrete-fun common-funs.allocate
-		cur-catch-point: ctx get-non-template-concrete-fun common-funs.cur-catch-point
-		set-cur-catch-point: ctx get-non-template-concrete-fun common-funs.set-cur-catch-point
-		cur-thrown: ctx get-var common-funs.cur-thrown
-		mark: ctx get-non-template-concrete-fun common-funs.mark
-		rethrow-current-exception: ctx get-non-template-concrete-fun common-funs.rethrow-current-exception
-		run-fiber: ctx get-non-template-concrete-fun common-funs.run-fiber
-		rt-main: ctx get-non-template-concrete-fun common-funs.rt-main
-		throw-impl: ctx get-non-template-concrete-fun common-funs.throw-impl
-		user-main: ctx concretize-main-fun common-funs, program.main-fun
-		gc-root: ctx get-non-template-concrete-fun common-funs.gc-root
-		set-gc-root: ctx get-non-template-concrete-fun common-funs.set-gc-root
-		pop-gc-root: ctx get-non-template-concrete-fun common-funs.pop-gc-root
+	concrete-common-funs concrete-common-funs = if ctx is-native
+		info log "WE SHOULD NOT GET HERE FOR A JS BUILD!" # -------------------------------------------------------------------------------------
+		res concrete-common-funs-native = do
+			alloc: ctx get-non-template-concrete-fun common-funs.allocate
+			cur-catch-point: ctx get-non-template-concrete-fun common-funs.cur-catch-point
+			set-cur-catch-point: ctx get-non-template-concrete-fun common-funs.set-cur-catch-point
+			cur-thrown: ctx get-var common-funs.cur-thrown
+			mark: ctx get-non-template-concrete-fun common-funs.mark
+			rethrow-current-exception: ctx get-non-template-concrete-fun common-funs.rethrow-current-exception
+			run-fiber: ctx get-non-template-concrete-fun common-funs.run-fiber
+			rt-main: ctx get-non-template-concrete-fun common-funs.rt-main
+			throw-impl: ctx get-non-template-concrete-fun common-funs.throw-impl
+			user-main: ctx concretize-main-fun common-funs, program.main-fun
+			gc-root: ctx get-non-template-concrete-fun common-funs.gc-root
+			set-gc-root: ctx get-non-template-concrete-fun common-funs.set-gc-root
+			pop-gc-root: ctx get-non-template-concrete-fun common-funs.pop-gc-root
+		res to
+	elif ctx is-js
+		res concrete-common-funs-js = do
+			js-await: ctx get-non-template-concrete-fun common-funs.js-await
+			main: ctx concretize-main-fun common-funs, program.main-fun
+		res to
+	else
+		throw unreachable
 
+	for struct : ctx all-concrete-structs
+		if ctx is-native
+			assert _ ?= struct late-default-reference-kind
+			assert _ ?= struct late-type-size
+		else
+			forbid _ ?= struct late-default-reference-kind
+			forbid _ ?= struct late-type-size
+			assert struct.field-offsets is-empty
 	ctx finish-lambdas
 	ctx finish-variants
 
@@ -69,6 +88,10 @@ concretize concrete-program(show-ctx show-ctx, version-info version-info, progra
 		ctx concrete-fun-for-wrap-main common-funs.run-all-tests
 
 -finish-lambdas void(ctx concretize-ctx)
+	unless ctx is-native
+		assert ctx.lambda-structs is-empty
+	guard ctx is-native
+
 	for _, (struct, impls) : ctx lambda-structs
 		case-types concrete-type[] = for x : impls
 			x closure-type

@@ -7,8 +7,6 @@ get-yielding-funs concrete-fun-id set(
 	all-concrete-funs concrete-fun[],
 )
 	called-by = all-concrete-funs build-called-by
-	# There is just 1 intrinsically yielding function: 'switch-fiber'
-	switch-fiber = all-concrete-funs find! x => x is-switch-fiber
 
 	res concrete-fun-id mut-set = ()
 	# These are functions known to yield that have been added to 'res' but not yet processed for callers.
@@ -17,45 +15,50 @@ get-yielding-funs concrete-fun-id set(
 		if res try-add x.id
 			to-propagate ~= x
 
-	add[switch-fiber]
+	# There is just 1 intrinsically yielding function: 'switch-fiber'
+	for x : all-concrete-funs
+		if x is-intrinsically-yielding-fun
+			add[x]
 	until to-propagate is-empty
 		fun = to-propagate pop!
 		for caller : called-by[fun id] ?? ()
-			if caller != common-funs.run-fiber
+			unless caller is-always-non-yielding common-funs
 				add[caller]
 
 	res move-to
 
--is-switch-fiber bool(a concrete-fun)
+-is-intrinsically-yielding-fun bool(a concrete-fun)
 	if builtin_ ?= a.body concrete-fun-body-builtin
-		if binary ?= builtin_.kind builtin-binary
+		match builtin_ kind
+		as js-fun x
+			x == await
+		as builtin-binary binary
 			binary == switch-fiber
+		as builtin-fun-call-lambda
+			true # Pessimistically assume that lambdas yield
+		else
+			false
+is-always-non-yielding bool(a concrete-fun, common-funs concrete-common-funs)
+	match common-funs
+	as concrete-common-funs-js _
+		false
+	as concrete-common-funs-native x
+		a == x.run-fiber
 
 # Maps a function to all functions that call it.
-called-by alias
+-called-by alias
 	concrete-fun[][concrete-fun-id]
 
-build-called-by called-by(all-concrete-funs concrete-fun[])
+-build-called-by called-by(all-concrete-funs concrete-fun[])
 	res concrete-fun mut[] mut[concrete-fun-id] = ()
 	for fun : all-concrete-funs
-		match fun body
-		as concrete-fun-body-builtin x
-			forbid _ ?= x.kind builtin-fun-call-lambda
-		as concrete-fun-body-extern _
-			()
-		as concrete-expr x
+		if x ?= fun.body concrete-expr
 			res build-called-by-recur fun, x
-		as concrete-fun-body-var-get _
-			()
-		as concrete-fun-body-var-set _
-			()
-		as concrete-fun-body-deferred
-			throw unreachable
 	for k, v : res
 		k, v.move-to
-
-build-called-by-recur void(res concrete-fun mut[] mut[concrete-fun-id], f concrete-fun, expr concrete-expr)
-	if x ?= expr.kind call-concrete-expr
+-build-called-by-recur void(res concrete-fun mut[] mut[concrete-fun-id], f concrete-fun, expr concrete-expr)
+	match expr kind
+	as call-concrete-expr x
 		res ensure x.called.id, (() => ()) ~= f
 	else
 		()

@@ -293,6 +293,7 @@ bool conflictsWithCName(Symbol a) {
 		case symbol!"atomic-bool".value: // avoid conflicting with c's "atomic_bool" type
 		case symbol!"abs".value: // conflicts with corecrt_math.h on Windows
 		case symbol!"break".value:
+		case symbol!"const".value:
 		case symbol!"continue".value:
 		case symbol!"default".value:
 		case symbol!"do".value:

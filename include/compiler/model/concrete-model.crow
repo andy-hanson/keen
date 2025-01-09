@@ -63,7 +63,9 @@ by-val_ concrete-type(struct concrete-struct)
 is-bogus bool(a concrete-type)
 	a.reference == by-val_ && a.struct is-bogus
 is-void bool(a concrete-type)
-	a.reference == by-val_ && if b ?= a.struct.body concrete-builtin-type
+	a.reference == by-val_ && a.struct is-void
+is-void bool(a concrete-struct)
+	if b ?= a.body concrete-builtin-type
 		b.kind == void
 is-empty-type bool(a concrete-type)
 	a.reference == by-val_ && a.struct is-empty-struct
@@ -88,7 +90,8 @@ must-be-flags flags_(a concrete-type)
 concrete-struct-source union(
 	concrete-struct-source-bogus,
 	concrete-struct-source-inst,
-	concrete-struct-source-lambda) mut
+	concrete-struct-source-lambda
+) mut
 concrete-struct-source-bogus record
 concrete-struct-source-inst record mut
 	decl struct-decl
@@ -96,21 +99,30 @@ concrete-struct-source-inst record mut
 == bool(a concrete-struct-source-inst, b concrete-struct-source-inst)
 	a.decl == b.decl && a.type-args == b.type-args
 concrete-struct-source-lambda record(containing-fun concrete-fun, index nat) mut
-concrete-struct-id record
-	id nat
+concrete-struct-id record(value nat)
 == bool(a concrete-struct-id, b concrete-struct-id)
 <=> comparison(a concrete-struct-id, b concrete-struct-id)
 hash-mix void(a hasher, b concrete-struct-id)
-	a hash-mix b.id
+	a hash-mix b.value
+range uri-and-range(a concrete-struct-source)
+	match a
+	as concrete-struct-source-bogus
+		()
+	as concrete-struct-source-inst x
+		x.decl range
+	as concrete-struct-source-lambda x
+		x.containing-fun range # TODO: more specific source -----------------------------------------------------------------------
 concrete-struct record mut
 	id concrete-struct-id
 	purity purity
 	special-kind concrete-struct-special-kind
 	source concrete-struct-source
 	body mut concrete-struct-body
+	| For a JS build, this will always be unset 
 	late-default-reference-kind mut reference-kind?
+	| For a JS build, this will always be unset 
 	late-type-size mut type-size?
-	# Only set for records (TODO: Could this go in lower instead?) ---------------------------------------------------------------
+	| Only set for records (and native build only) (TODO: Could this go in lower instead?) ---------------------------------------------------------------
 	field-offsets mut nat[]
 == bool(a concrete-struct, b concrete-struct)
 	a.id == b.id
@@ -146,6 +158,15 @@ default-reference-kind reference-kind(a concrete-struct)
 	a late-default-reference-kind!
 set-default-reference-kind void(a concrete-struct, value reference-kind)
 	a.late-default-reference-kind := value,
+
+# Returns return and param types
+as-fun-type (concrete-type, concrete-type)?(a concrete-type)
+	if a.reference == by-val_
+		a.struct as-fun-type
+as-fun-type (concrete-type, concrete-type)?(a concrete-struct)
+	guard x ?= a.body concrete-builtin-type
+	assert x.kind is-lambda-type
+	x.type-args.only2,
 
 is-array-or-mut-array bool(a concrete-struct)
 	a.special-kind == array-or-mut-array
@@ -191,11 +212,19 @@ size-or-pointer-size-bytes type-size(a concrete-type)
 		8, 8
 
 concrete-field record mut
-	debug-name symbol
+	debug-name symbol # TODO: rename to just 'name' .........................................................................
 	is-mutable bool
 	type concrete-type
 
 concrete-local-source union(local, concrete-local-source-closure, concrete-generated-local-kind) mut
+is-mutable bool(a concrete-local-source)
+	match a
+	as local x
+		x is-mutable
+	as concrete-local-source-closure _
+		false
+	as concrete-generated-local-kind _
+		false
 concrete-local-source-closure record
 concrete-generated-local-kind enum(args, ignore, destruct, member, reference)
 to symbol(a concrete-generated-local-kind)
@@ -215,6 +244,8 @@ concrete-local record(id concrete-local-id, source concrete-local-source, type c
 	if res
 		assert a.type == b.type
 	res
+is-mutable bool(a concrete-local)
+	a.source is-mutable
 
 concrete-fun-body union(
 	concrete-fun-body-builtin,
@@ -246,12 +277,11 @@ concrete-fun-source-test record mut
 	test-index nat
 concrete-fun-source-wrap-main record(range uri-and-range)
 
-concrete-fun-id record
-	id nat
+concrete-fun-id record(value nat)
 == bool(a concrete-fun-id, b concrete-fun-id)
 <=> comparison(a concrete-fun-id, b concrete-fun-id)
 hash-mix void(a hasher, b concrete-fun-id)
-	a hash-mix b.id
+	a hash-mix b.value
 concrete-fun record mut
 	id concrete-fun-id
 	source concrete-fun-source
@@ -311,9 +341,13 @@ is-summon bool(a concrete-fun)
 		throw unreachable
 
 concrete-expr record mut
+	dummy void # ------------------------------------------------------------------------------------------------------------------
 	type concrete-type
 	range uri-and-range
 	kind concrete-expr-kind
+new concrete-expr(type concrete-type, range uri-and-range, kind concrete-expr-kind)
+	forbid range.uri == ()
+	(), type, range, kind
 
 concrete-expr-kind union(
 	builtin-concrete-expr,
@@ -327,6 +361,7 @@ concrete-expr-kind union(
 	finally-concrete-expr,
 	if-concrete-expr,
 	let-concrete-expr,
+	lambda-concrete-expr,
 	local-get-concrete-expr,
 	local-pointer-concrete-expr,
 	local-set-concrete-expr,
@@ -356,6 +391,9 @@ drop-concrete-expr record(arg concrete-expr) mut
 finally-concrete-expr record(right concrete-expr, below concrete-expr) mut
 if-concrete-expr record(cond concrete-expr, then concrete-expr, else_ concrete-expr) mut
 let-concrete-expr record(local concrete-local, value concrete-expr, then concrete-expr) mut
+# This is not used for native backends.
+lambda-concrete-expr record(param concrete-local, body concrete-expr) mut
+# For a JS target, this can get a local through a closure.
 local-get-concrete-expr record(local concrete-local) mut
 local-pointer-concrete-expr record(local concrete-local) mut
 local-set-concrete-expr record(local concrete-local, value concrete-expr) mut
@@ -367,6 +405,14 @@ match-enum-or-integral-concrete-expr record mut
 	case-values integral-values
 	case-exprs concrete-expr[]
 	else_ concrete-expr?
+matched-integral-type integral-type(a match-enum-or-integral-concrete-expr)
+	match a.matched.type.struct.body
+	as concrete-builtin-type x
+		x.kind.to::integral-type?!
+	as concrete-enum x
+		x storage_
+	else
+		throw unreachable
 match-string-like-concrete-expr record mut
 	matched concrete-expr
 	equals concrete-fun
@@ -381,11 +427,31 @@ match-union-concrete-expr record mut
 	else_ concrete-expr?
 concrete-match-union-case record(local concrete-local?, then concrete-expr) mut
 record-field-get-concrete-expr record(record_ concrete-expr, field-index nat) mut
+field concrete-field(a record-field-get-concrete-expr)
+	a.record_.type.struct.body.concrete-record!.fields[a field-index]
 record-field-pointer-concrete-expr record(record_ concrete-expr, field-index nat) mut
+record-type concrete-struct(a record-field-pointer-concrete-expr)
+	type = a.record_ type
+	match type reference
+	as by-val_
+		type.pointee-type must-be-by-val
+	as by-ref_
+		type struct
+field concrete-field(a record-field-pointer-concrete-expr)
+	a.record-type.body.concrete-record!.fields[a field-index]
 record-field-set-concrete-expr record mut
 	record_ concrete-expr
 	field-index nat
 	value concrete-expr
+record-type concrete-type(a record-field-set-concrete-expr)
+	struct = a.record_.type struct
+	if builtin_ ?= struct.body concrete-builtin-type
+		assert builtin_.kind == mut-pointer
+		builtin_.type-args only
+	else
+		a.record_ type
+field concrete-field(a record-field-set-concrete-expr)
+	a.record-type.struct.body.concrete-record!.fields[a field-index]
 seq-concrete-expr record(first concrete-expr, then concrete-expr) mut
 throw-concrete-expr record(thrown concrete-expr) mut
 try-concrete-expr record mut
@@ -440,7 +506,11 @@ concrete-program record mut
 	common-funs concrete-common-funs
 to json(_ concrete-program)
 	throw todo
-concrete-common-funs record mut
+concrete-common-funs union(concrete-common-funs-js, concrete-common-funs-native) mut
+concrete-common-funs-js record mut
+	js-await concrete-fun
+	main concrete-fun
+concrete-common-funs-native record mut
 	alloc concrete-fun
 	cur-catch-point concrete-fun
 	set-cur-catch-point concrete-fun
@@ -454,7 +524,7 @@ concrete-common-funs record mut
 	gc-root concrete-fun
 	set-gc-root concrete-fun
 	pop-gc-root concrete-fun
-fiber-reference-type concrete-type(a concrete-common-funs)
+fiber-reference-type concrete-type(a concrete-common-funs-native)
 	a.run-fiber.params[1] type
 
 direct-child-exprs record(expr concrete-expr) mut, nominal
@@ -480,8 +550,10 @@ iterate bool(a direct-child-exprs, f bool mut(x concrete-expr))
 		f[x right] || f[x below]
 	as if-concrete-expr x
 		f[x cond] || f[x then] || f[x else_]
-	as let-concrete-expr _
-		false
+	as lambda-concrete-expr x
+		f[x body]
+	as let-concrete-expr x
+		f[x value] || f[x then]
 	as local-get-concrete-expr _
 		false
 	as local-pointer-concrete-expr _
@@ -622,7 +694,7 @@ constant-zero record
 constant-bool constant(a bool)
 	(a.to::nat,)::integral-value to
 as-bool bool(a constant)
-	match a.integral-value! as-unsigned
+	match a.as-integral as-unsigned
 	as 0
 		false
 	as 1
@@ -631,7 +703,16 @@ as-bool bool(a constant)
 		throw unreachable
 
 as-nat64 nat(a constant)
-	if _ ?= a constant-zero
-		0
+	a.as-integral as-unsigned
+
+as-float float64(a constant)
+	a.constant-float! value
+
+as-integral integral-value(a constant)
+	match a
+	as constant-zero
+		0::nat,
+	as integral-value x
+		x
 	else
-		a.integral-value! as-unsigned
+		throw unreachable

@@ -1,22 +1,1228 @@
 import
 	../../frontend/show-model
+	../../model/concrete-model
+	../../model/integral-values
 	../../model/model
+	../../model/show-low-model
+	../../model/source-range
 	../../model/uri
 	../../model/version-info
+	../../util/util
+	./concrete-mangle
+	./js-ast
 	./source-map
+	./write-js-ast
 
-translate-to-js-script js-and-map(
-	_ program-with-main,
-	_ show-type-ctx,
-	_ js-target,
-	_ symbol?,
+translate-to-js js-and-map(
+	program program-with-main,
+	concrete-program concrete-program,
+	show-ctx show-type-ctx,
+	target js-target,
+	source-map-name symbol?,
 )
-	throw todo
+	ctx to-js-ctx = show-ctx, target, concrete-program, concrete-program.build-mangled-names
+	shebang shebang = match target
+	as browser
+		none
+	as node
+		node
+	classes js-class-decl[] = with out : build
+		for struct : concrete-program all-structs
+			out ~~= ctx translate-struct struct
+	vars js-var-decl[] = with out : build
+		for var : concrete-program all-vars
+			destructure js-destructure = ctx js-name var to
+			out ~= (let, destructure, ())
+	functions js-fun-decl[] = for x : concrete-program all-funs
+		ctx to-js-function x
+	statements js-statement[] = (ctx gen-call-main concrete-program.common-funs.concrete-common-funs-js!.main),
+	ast js-script-ast = shebang, classes, vars, functions, statements
+	module-paths module-paths = program module-paths
+	show-ctx write-js-ast module-paths, ast, source-map-name
 
-js-modules record(main-js path, output-files path-and-content[])
-translate-to-js-modules js-modules(
-	_ program-with-main,
-	_ show-type-ctx,
-	_ js-target,
+-gen-call-main js-statement(ctx to-js-ctx, main concrete-fun)
+	###
+	main(process.argv.slice(2)).then(exit => {
+		if (exit !== 0n) process.exit(exit)
+	})
+	###
+	source = ctx source main
+	process = source gen-global "process"
+	process-argv = source gen-property-access process, "argv".no-prefix
+	process-argv-slice = source gen-call-property-sync process-argv, "slice".no-prefix, ((source gen-number 2),)
+	process-exit = source gen-property-access process, "exit".no-prefix
+	call-main = source gen-call-sync (ctx to-ref source, main), (process-argv-slice,)
+	
+	exit js-name = "exit" no-prefix
+	params js-params = (exit.to,), ()
+	get-exit = source gen-identifier exit
+	call-exit = source gen-call-sync process-exit, (get-exit,)
+	exit-neq-0 = source gen-not-eq-eq get-exit, (source gen-integer-unsigned 0)
+	body js-statement = source gen-if exit-neq-0, call-exit.expr-statement.to
+	fn = source gen-arrow-function sync, params, body.to
+
+	source gen-call-property-sync call-main, "then".no-prefix, (fn,) expr-statement
+
+# TODO: this does expose the URIs on the build machine ......................................................................
+-module-paths module-paths(program program-with-main)
+	for uri, _ : program.program all-modules
+		uri, uri.to
+
+-translate-struct js-class-decl?(ctx to-js-ctx, a concrete-struct)
+	source = ctx source a
+	name = ctx js-name a
+	body js-class-member[]? = match a body
+	as concrete-builtin-type _
+		()
+	as concrete-enum _
+		()
+	as concrete-extern-type _
+		()
+	as concrete-flags _
+		()
+	as concrete-record x
+		(ctx class-for-record source, x),
+	as concrete-union x
+		(source class-for-union x),
+	as concrete-struct-body-deferred
+		throw unreachable
+	if b ?= body
+		comment = ctx.show-ctx show-concrete-struct a
+		(comment, name, b),
+
+-gen-type-assert js-statement?(ctx to-js-ctx, source source, get js-expr, a concrete-type) # TODO: Once it's working, put type assertions behind a flag
+	match a.struct body
+	as concrete-builtin-type x
+		source gen-assert-builtin-type get, x
+	as concrete-enum _
+		(source gen-assert-integral get),
+	as concrete-extern-type _
+		()
+	as concrete-flags _
+		(source gen-assert-integral get),
+	as concrete-record _
+		(source gen-assert-instanceof get, (ctx js-name a.struct)),
+	as concrete-union _
+		(source gen-assert-instanceof get, (ctx js-name a.struct)),
+	as concrete-struct-body-deferred
+		throw unreachable
+
+-gen-assert-builtin-type js-statement?(source source, get js-expr, a concrete-builtin-type)
+	instanceof js-statement? mut(x string) = x =>
+		(source gen-assert-instanceof get, x.no-prefix),
+	typeof js-statement? mut(x string) = x =>
+		(source gen-assert-typeof get, x),
+	integral js-statement? mut() = () =>
+		typeof["bigint"]
+	error js-statement? mut() = () =>
+		source.throw-bogus,
+	match a kind
+	as array
+		# TODO: we could use Uint8Array for `nat8[]`s or `char8[]`s to improve performance for those.
+		instanceof["Array"]
+	as bool
+		typeof["boolean"]
+	as catch-point
+		throw unreachable
+	as char8
+		integral[]
+	as char32
+		integral[]
+	as const-pointer
+		error[]
+	as float32
+		typeof["number"]
+	as float64
+		typeof["number"]
+	as fun-pointer
+		typeof["function"]
+	as future
+		instanceof["Promise"]
+	as int8
+		integral[]
+	as int16
+		integral[]
+	as int32
+		integral[]
+	as int64
+		integral[]
+	as js-any
+		()
+	as fun-data
+		typeof["function"]
+	as fun-mut
+		typeof["function"]
+	as fun-shared
+		typeof["function"]
+	as mut-array
+		instanceof["Array"]
+	as mut-pointer
+		error[]
+	as mut-slice
+		instanceof["Array"]
+	as nat8
+		integral[]
+	as nat16
+		integral[]
+	as nat32
+		integral[]
+	as nat64
+		integral[]
+	as option
+		# TODO: for most types, we could represent this as `t` or `null`.
+		# The exceptions would be options of 'js-any' or of other options.
+		instanceof["Array"]
+	as string
+		typeof["string"]
+	as symbol
+		typeof["string"]
+	as void
+		# TODO: we should probably just eliminate these values from concrete-model! -----------------------------------------
+		typeof["undefined"]
+-gen-assert-instanceof js-statement(source source, get js-expr, name js-name)
+	source gen-assert (source gen-instanceof get, (source gen-identifier name))
+-gen-assert-typeof js-statement(source source, get js-expr, type string)
+	source gen-assert (source gen-eq-eq-eq (source gen-typeof get), (source gen-string type))
+-gen-assert-integral js-statement(source source, get js-expr)
+	source gen-assert-typeof get, "bigint"
+-gen-assert js-statement(source source, expr js-expr)
+	cond = source gen-not expr
+	source gen-if cond, source.gen-throw-error.to
+-gen-throw-error js-statement(source source)
+	Error = source gen-identifier "Error".no-prefix
+	thrown = source gen-new Error, ()
+	source gen-throw thrown
+-throw-message js-statement(source source, message string)
+	Error = source gen-identifier "Error".no-prefix
+	string = source gen-string message
+	thrown = source gen-new Error, (string,)
+	source gen-throw thrown
+-throw-unreachable js-statement(source source)
+	source throw-message "Unreachable"
+-throw-bogus js-statement(source source)
+	source throw-message "Reached compile error"
+
+-source source(ctx to-js-ctx, a concrete-struct)
+	range uri-and-range = a.source range
+	range.uri, (ctx.show-ctx show-concrete-struct a).to, ctx.line-and-character-getters[range].range.start
+-source source(ctx to-js-ctx, a concrete-fun)
+	range = a range
+	range.uri, (ctx debug-name a), ctx.line-and-character-getters[range].range.start
+-debug-name symbol(ctx to-js-ctx, a concrete-fun)
+	ctx.show-ctx show-concrete-fun-name a to
+
+-class-for-record js-class-member[](ctx to-js-ctx, source source, a concrete-record)
+	###
+	class R {
+		constructor(x, y) {
+			if (!(x instanceof Whataver)) throw new Error()
+			this.x = x
+			this.y = y
+		}
+	}
+	###
+	names string[] = for field : a fields
+		field.debug-name to
+	constructor js-class-member = source gen-constructor names, (index, get) =>
+		ctx gen-type-assert source, get, a.fields[index].type
+	constructor,
+
+-class-for-union js-class-member[](source source, _ concrete-union)
+	# TODO: for most unions, we could just use the 'value' directly with no class and use 'instanceof' checks for matching
+	###
+	class U {
+		constructor(index, value) {
+			this.index = index
+			this.value = value
+		}
+	}
+	###
+	constructor = source gen-constructor ("index", "value"), _ => ()
+	constructor,
+
+-gen-constructor js-class-member(
+	source source,
+	names string[],
+	check-field js-statement? mut(index nat, value js-expr),
 )
-	throw todo
+	params js-destructure[] = for name : names
+		name.no-prefix to
+	this = source gen-this
+	identifiers js-expr[] = for name : names
+		source gen-identifier name.no-prefix
+	statements js-statement[] = with out : build
+		for index, value : identifiers with-index
+			out ~~= check-field[index, value]
+		for name, identifier : names zip identifiers
+			this_x = source gen-property-access this, name.no-prefix
+			out ~= source gen-assign this_x, identifier
+	kind = sync js-class-method params.to, statements.to
+	source, instance, "constructor".no-prefix, kind
+
+-js-name js-name(ctx to-js-ctx, fun concrete-fun)
+	ctx.mangled-names[fun] no-prefix
+-js-name js-name(ctx to-js-ctx, var concrete-var)
+	ctx.mangled-names[var] no-prefix
+-js-name js-name(ctx to-js-ctx, type concrete-struct)
+	ctx.mangled-names[type] no-prefix
+-to-ref js-expr(ctx to-js-ctx, source source, fun concrete-fun)
+	source gen-identifier (ctx js-name fun)
+-to-ref js-expr(ctx to-js-ctx, source source, var concrete-var)
+	source gen-identifier (ctx js-name var)
+-to-ref js-expr(ctx to-js-ctx, source source, type concrete-struct)
+	source gen-identifier (ctx js-name type)
+
+-to-js-ctx record mut
+	show-type-ctx show-type-ctx
+	target js-target
+	program concrete-program
+	mangled-names concrete-mangled-names
+-show-ctx show-ctx(a to-js-ctx)
+	a.show-type-ctx show
+-line-and-character-getters line-and-character-getters(a to-js-ctx)
+	a.show-ctx line-and-character-getters
+
+-to-expr-ctx record mut
+	ctx to-js-ctx
+	cur-fun concrete-fun
+	upcoming-temp-local-index mut nat
+-take-next-temp-local-index nat(a to-expr-ctx)
+	res = a upcoming-temp-local-index
+	a.upcoming-temp-local-index +:= 1
+	res
+-show-ctx show-ctx(a to-expr-ctx)
+	a.ctx show-ctx
+-to-ref js-expr(ctx to-expr-ctx, source source, fun concrete-fun)
+	ctx.ctx to-ref source, fun
+-to-ref js-expr(ctx to-expr-ctx, source source, var concrete-var)
+	ctx.ctx to-ref source, var
+-to-ref js-expr(ctx to-expr-ctx, source source, type concrete-struct)
+	ctx.ctx to-ref source, type
+
+-source source(ctx to-expr-ctx, a concrete-expr)
+	range = a range
+	range.uri, (ctx.ctx debug-name ctx.cur-fun), ctx.show-ctx.line-and-character-getters[range].range.start
+
+-is-async sync-or-async(ctx to-js-ctx, a concrete-fun)
+	a.id in ctx.program.yielding-funs ? async : sync
+-is-cur-fun-async sync-or-async(ctx to-expr-ctx)
+	ctx.ctx is-async ctx.cur-fun
+
+-to-js-function js-fun-decl(ctx to-js-ctx, a concrete-fun)
+	async sync-or-async = ctx is-async a
+	name js-name = ctx js-name a
+	expr-ctx to-expr-ctx = ctx, a, 0
+	params js-destructure[] = for param : a params
+		expr-ctx local-name param to
+	body = expr-ctx to-block-statement a
+	comment = ctx.show-ctx show-concrete-fun-sig a, ((ctx is-async a) == async)
+	comment, name, (async, (params, ()), body)
+
+-to-block-statement js-expr-or-block-statement(ctx to-expr-ctx, a concrete-fun)
+	source = ctx.ctx source a
+	var-access js-expr mut(var concrete-var) = var =>
+		source gen-identifier (ctx.ctx js-name var)
+	match a body
+	as concrete-fun-body-builtin x
+		ctx to-expr-or-block-statement source, x
+	as concrete-fun-body-extern _
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as concrete-expr x
+		body = ctx to-block-statement x
+		statements js-statement[] = with out: build
+			for param : a params
+				out ~~= ctx.ctx gen-type-assert source, (ctx get-local source, param), param.type
+			out ~~= body statements
+		(statements,) to
+	as concrete-fun-body-var-get x
+		var-access[x var] to
+	as concrete-fun-body-var-set x
+		source gen-assign var-access[x var], (ctx get-local source, a.params.only) to
+	as concrete-fun-body-deferred
+		throw unreachable
+
+-to-expr-or-block-statement js-expr-or-block-statement(ctx to-expr-ctx, source source, a concrete-fun-body-builtin)
+	params = ctx.cur-fun params
+	arg0 js-expr mut() = () =>
+		ctx get-local source, params[0]
+	arg1 js-expr mut() = () =>
+		ctx get-local source, params[1]
+	match a kind
+	as builtin-fun-all-tests
+		throw unreachable
+	as builtin-unary x
+		source to-expr-or-block-statement x, (ctx get-local source, params.only)
+	as builtin-unary-math _
+		throw todo
+	as builtin-binary x
+		params.size is 2
+		source to-expr-or-block-statement x, arg0[], arg1[]
+	as builtin-binary-lazy _
+		throw unreachable
+	as builtin-binary-math _
+		throw todo
+	as builtin-ternary x
+		match x
+		as interpreter-backtrace
+			source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as builtin-4ary x
+		match x
+		as switch-fiber-initial
+			throw unreachable
+	as builtin-fun-call-lambda
+		params.size is 2
+		source gen-call-sync arg0[], (arg1[],) to
+	as builtin-fun-call-fun-pointer
+		params.size is 2
+		source gen-call-sync arg0[], (arg1[],) to
+	as builtin-fun-constant _
+		throw unreachable
+	as builtin-fun-gc-safe-value
+		source.gen-null to
+	as builtin-fun-init _
+		throw unreachable
+	as js-fun x
+		ctx to-expr-or-block-statement source, x
+	as builtin-fun-mark-root
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as builtin-fun-mark-visit
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as builtin-fun-new-empty-option
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as builtin-fun-new-non-empty-option
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as builtin-fun-pointer-cast
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as builtin-fun-size-of
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as builtin-fun-static-symbols
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as version-fun _
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+
+-to-expr-or-block-statement js-expr-or-block-statement(source source, a builtin-unary, arg js-expr)
+	unary js-expr mut(op js-unary-kind) = op =>
+		source gen-unary op, arg
+	match a
+	as array-pointer
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as array-size
+		# BigInt(arg.length)
+		BigInt = source gen-global "BigInt"
+		length = source gen-property-access arg, "length".no-prefix
+		source gen-call-sync BigInt, (length,) to
+	as as-any-pointer
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as as-future
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as as-future-impl
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as as-mut-array
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as as-mut-array-impl
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as bits-of-float32
+		number = source gen-convert 4, "Float32Array", "Uint32Array", arg
+		source gen-call-sync (source gen-global "BigInt"), (number,) to
+	as bits-of-float64
+		source gen-convert 8, "Float64Array", "BigInt64Array", arg to
+	as bitwise-not-nat8
+		source gen-as-nat8 unary[bitwise-not] to
+	as bitwise-not-nat16
+		source gen-as-nat16 unary[bitwise-not] to
+	as bitwise-not-nat32
+		source gen-as-nat32 unary[bitwise-not] to
+	as bitwise-not-nat64
+		source gen-as-nat32 unary[bitwise-not] to
+	as count-ones-nat64
+		throw todo
+	as c-string-of-symbol
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as deref
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as drop
+		throw unreachable
+	as float32-from-bits
+		throw todo
+	as float64-from-bits
+		throw todo
+	as is-nan-float32
+		source gen-is-nan arg to
+	as is-nan-float64
+		source gen-is-nan arg to
+	as not
+		source gen-not arg to
+	as jump-to-catch
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as reference-from-pointer
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as setup-catch
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as symbol-of-c-string
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as to-char8-from-nat8
+		arg to
+	as to-char8-array-from-string
+		# Array.from(new TextEncoder().encode(arg)).map(BigInt)
+		BigInt = source gen-global "BigInt"
+		TextEncoder = source gen-global "TextEncoder"
+		text-encoder = source gen-new TextEncoder, ()
+		encoded = source gen-call-property-sync text-encoder, "encode".no-prefix, (arg,)
+		array = source gen-array-from encoded
+		source gen-call-property-sync array, "map".no-prefix, (BigInt,) to
+	as to-float32-from-float64
+		source gen-as-float32 arg to
+	as to-float64-from-float32
+		arg to
+	as to-float64-from-int64
+		source gen-call-sync (source gen-global "Number"), (arg,) to
+	as to-float64-from-nat64
+		source gen-call-sync (source gen-global "Number"), (arg,) to
+	as to-int64-from-int8
+		arg to
+	as to-int64-from-int16
+		arg to
+	as to-int64-from-int32
+		arg to
+	as to-nat8-from-char8
+		arg to
+	as to-nat32-from-char32
+		arg to
+	as to-nat64-from-nat8
+		arg to
+	as to-nat64-from-nat16
+		arg to
+	as to-nat64-from-nat32
+		arg to
+	as to-nat64-from-ptr
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as to-ptr-from-nat64
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as truncate-to-int64-from-float64
+		throw todo
+	as trust-as-string
+		# new TextDecoder().decode(new Uint8Array(arg.map(Number)))
+		Number = source gen-global "Number"
+		TextDecoder = source gen-global "TextDecoder"
+		Uint8Array = source gen-global "Uint8Array"
+		text-decoder = source gen-new TextDecoder, ()
+		numbers = source gen-call-property-sync arg, "map".no-prefix, (Number,)
+		array = source gen-new Uint8Array, (numbers,)
+		source gen-call-property-sync text-decoder, "decode".no-prefix, (array,) to
+	as unsafe-to-char32-from-char8
+		arg to
+	as unsafe-to-char32-from-nat32
+		arg to
+	as unsafe-to-nat32-from-int32
+		arg to
+	as unsafe-to-int8-from-int64
+		arg to
+	as unsafe-to-int16-from-int64
+		arg to
+	as unsafe-to-int32-from-int64
+		arg to
+	as unsafe-to-nat64-from-int64
+		arg to
+	as unsafe-to-int64-from-nat64
+		arg to
+	as unsafe-to-nat8-from-nat64
+		arg to
+	as unsafe-to-nat16-from-nat64
+		arg to
+	as unsafe-to-nat32-from-nat64
+		arg to
+
+-gen-array-from js-expr(source source, arg js-expr)
+	source gen-call-property-sync (source gen-global "Array"), "from".no-prefix, (arg,)
+
+-to-expr-or-block-statement js-expr-or-block-statement(source source, a builtin-binary, arg0 js-expr, arg1 js-expr)
+	binary js-expr mut(op js-binary-kind) = op =>
+		source gen-binary op, arg0, arg1
+	match a
+	as add-float32
+		# Need to convert to float32
+		source gen-as-float32 binary[plus] to
+	as add-float64
+		binary[plus] to
+	as add-pointer-and-nat64
+		source.throw-bogus to # TODO: should be unreachable -----------------------------------------------------------------------------
+	as bitwise-and-int8
+		binary[bitwise-and] to
+	as bitwise-and-int16
+		binary[bitwise-and] to
+	as bitwise-and-int32
+		binary[bitwise-and] to
+	as bitwise-and-int64
+		binary[bitwise-and] to
+	as bitwise-and-nat8
+		binary[bitwise-and] to
+	as bitwise-and-nat16
+		binary[bitwise-and] to
+	as bitwise-and-nat32
+		binary[bitwise-and] to
+	as bitwise-and-nat64
+		binary[bitwise-and] to
+	as bitwise-or-int8
+		binary[bitwise-or] to
+	as bitwise-or-int16
+		binary[bitwise-or] to
+	as bitwise-or-int32
+		binary[bitwise-or] to
+	as bitwise-or-int64
+		binary[bitwise-or] to
+	as bitwise-or-nat8
+		binary[bitwise-or] to
+	as bitwise-or-nat16
+		binary[bitwise-or] to
+	as bitwise-or-nat32
+		binary[bitwise-or] to
+	as bitwise-or-nat64
+		binary[bitwise-or] to
+	as bitwise-xor-int8
+		binary[bitwise-xor] to
+	as bitwise-xor-int16
+		binary[bitwise-xor] to
+	as bitwise-xor-int32
+		binary[bitwise-xor] to
+	as bitwise-xor-int64
+		binary[bitwise-xor] to
+	as bitwise-xor-nat8
+		binary[bitwise-xor] to
+	as bitwise-xor-nat16
+		binary[bitwise-xor] to
+	as bitwise-xor-nat32
+		binary[bitwise-xor] to
+	as bitwise-xor-nat64
+		binary[bitwise-xor] to
+	as equal-char8
+		binary[eq-eq-eq] to
+	as equal-char32
+		binary[eq-eq-eq] to
+	as equal-float32
+		binary[eq-eq-eq] to
+	as equal-float64
+		binary[eq-eq-eq] to
+	as equal-int8
+		binary[eq-eq-eq] to
+	as equal-int16
+		binary[eq-eq-eq] to
+	as equal-int32
+		binary[eq-eq-eq] to
+	as equal-int64
+		binary[eq-eq-eq] to
+	as equal-nat8
+		binary[eq-eq-eq] to
+	as equal-nat16
+		binary[eq-eq-eq] to
+	as equal-nat32
+		binary[eq-eq-eq] to
+	as equal-nat64
+		binary[eq-eq-eq] to
+	as equal-pointer
+		source.throw-bogus to # TODO: should be unreachable -----------------------------------------------------------------------------
+	as less-char8
+		binary[less] to
+	as less-float32
+		binary[less] to
+	as less-float64
+		binary[less] to
+	as less-int8
+		binary[less] to
+	as less-int16
+		binary[less] to
+	as less-int32
+		binary[less] to
+	as less-int64
+		binary[less] to
+	as less-nat8
+		binary[less] to
+	as less-nat16
+		binary[less] to
+	as less-nat32
+		binary[less] to
+	as less-nat64
+		binary[less] to
+	as less-pointer
+		source.throw-bogus to # TODO: should be unreachable -----------------------------------------------------------------------------
+	as mul-float32
+		# Need to convert to float32
+		throw todo
+	as mul-float64
+		binary[times] to
+	as new-array
+		source.throw-bogus to # TODO: should be unreachable -----------------------------------------------------------------------------
+	as reference-equal
+		binary[eq-eq-eq] to
+	as seq
+		throw unreachable
+	as sub-float32
+		# Need to convert to float32
+		throw todo
+	as sub-float64
+		binary[minus] to
+	as sub-pointer-and-nat64
+		throw unreachable
+	as switch-fiber
+		throw unreachable
+	as unsafe-add-int8
+		binary[plus] to
+	as unsafe-add-int16
+		binary[plus] to
+	as unsafe-add-int32
+		binary[plus] to
+	as unsafe-add-int64
+		binary[plus] to
+	as unsafe-add-nat8
+		binary[plus] to
+	as unsafe-add-nat16
+		binary[plus] to
+	as unsafe-add-nat32
+		binary[plus] to
+	as unsafe-add-nat64
+		binary[plus] to
+	as unsafe-bit-shift-left-nat64
+		source gen-as-nat64 binary[bit-shift-left] to
+	as unsafe-bit-shift-right-nat64
+		# See the old implementation -- need to convert ot nat64
+		source gen-as-nat64 binary[bit-shift-right] to
+	as unsafe-div-float32
+		# must convert to float32
+		throw todo
+	as unsafe-div-float64
+		binary[divide] to
+	as unsafe-div-int8
+		binary[divide] to
+	as unsafe-div-int16
+		binary[divide] to
+	as unsafe-div-int32
+		binary[divide] to
+	as unsafe-div-int64
+		binary[divide] to
+	as unsafe-div-nat8
+		binary[divide] to
+	as unsafe-div-nat16
+		binary[divide] to
+	as unsafe-div-nat32
+		binary[divide] to
+	as unsafe-div-nat64
+		binary[divide] to
+	as unsafe-mod-nat64
+		throw todo
+	as unsafe-mul-int8
+		binary[times] to
+	as unsafe-mul-int16
+		binary[times] to
+	as unsafe-mul-int32
+		binary[times] to
+	as unsafe-mul-int64
+		binary[times] to
+	as unsafe-mul-nat8
+		binary[times] to
+	as unsafe-mul-nat16
+		binary[times] to
+	as unsafe-mul-nat32
+		binary[times] to
+	as unsafe-mul-nat64
+		binary[times] to
+	as unsafe-sub-int8
+		binary[minus] to
+	as unsafe-sub-int16
+		binary[minus] to
+	as unsafe-sub-int32
+		binary[minus] to
+	as unsafe-sub-int64
+		binary[minus] to
+	as unsafe-sub-nat8
+		binary[minus] to
+	as unsafe-sub-nat16
+		binary[minus] to
+	as unsafe-sub-nat32
+		binary[minus] to
+	as unsafe-sub-nat64
+		binary[minus] to
+	as wrap-add-nat8
+		source gen-as-nat8 binary[plus] to
+	as wrap-add-nat16
+		source gen-as-nat16 binary[plus] to
+	as wrap-add-nat32
+		source gen-as-nat32 binary[plus] to
+	as wrap-add-nat64
+		source gen-as-nat64 binary[plus] to
+	as wrap-mul-nat8
+		source gen-as-nat8 binary[times] to
+	as wrap-mul-nat16
+		source gen-as-nat16 binary[times] to
+	as wrap-mul-nat32
+		source gen-as-nat32 binary[times] to
+	as wrap-mul-nat64
+		source gen-as-nat64 binary[times] to
+	as wrap-sub-nat8
+		source gen-as-nat8 binary[minus] to
+	as wrap-sub-nat16
+		source gen-as-nat16 binary[minus] to
+	as wrap-sub-nat32
+		source gen-as-nat32 binary[minus] to
+	as wrap-sub-nat64
+		source gen-as-nat64 binary[minus] to
+	as write-to-pointer
+		source.throw-bogus to # TODO: should be unreachable -----------------------------------------------------------------------------
+
+-to-expr-or-block-statement js-expr-or-block-statement(ctx to-expr-ctx, source source, a js-fun)
+	params = ctx.cur-fun params
+	arg js-expr mut(i nat) = i =>
+		ctx get-local source, params[i]
+	args-starting-at js-expr[] mut(i nat) = i =>
+		for x : params[i .. end]
+			ctx get-local source, x
+	unary js-expr-or-block-statement mut(kind js-unary-kind) = kind =>
+		params.size is 1
+		source gen-unary kind, arg[0] to
+	binary js-expr-or-block-statement mut(kind js-binary-kind) = kind =>
+		params.size is 2
+		source gen-binary kind, arg[0], arg[1] to
+	prop01 js-expr mut() = () =>
+		source gen-property-access-computed arg[0], arg[1]
+	match a
+	as as-js-any
+		arg[0] to
+	as await
+		params.size is 1
+		source gen-await arg[0] to
+	as call
+		source gen-call-sync arg[0], args-starting-at[1] to
+	as call-new
+		source gen-new arg[0], args-starting-at[1] to
+	as call-property
+		source gen-call-sync prop01[], args-starting-at[2] to
+	as call-property-spread
+		params.size is 3
+		source gen-call-with-spread sync, prop01[], (), arg[2] to
+	as cast
+		arg[0] to
+	as eq-eq-eq
+		binary[eq-eq-eq]
+	as get
+		params.size is 2
+		prop01[] to
+	as instanceof
+		binary[instanceof]
+	as js-global
+		params.size is 0
+		name string = match ctx.ctx target
+		as browser
+			"window"
+		as node
+			"global"
+		source gen-global name to
+	as less
+		binary[less]
+	as plus
+		binary[plus]
+	as require
+		params.size is 1
+		source gen-call-sync (source gen-global "require"), (arg[0],) to
+	as set
+		source gen-assign prop01[], arg[2] to
+	as typeof
+		unary[typeof]
+
+-to-js-expr js-expr(ctx to-expr-ctx, a concrete-expr)
+	match ctx to-expr-or-block-statement a
+	as js-expr x
+		x
+	as js-block-statement x
+		ctx source a gen-iife ctx.is-cur-fun-async, x
+
+-to-block-statement js-block-statement(ctx to-expr-ctx, a concrete-expr) # TODO: this should just be 'to-statements' ........................
+	match ctx to-expr-or-block-statement a
+	as js-expr x
+		x return-unless-void a.type.is-void
+	as js-block-statement x
+		x
+
+-return-unless-void js-block-statement(expr js-expr, is-void bool)
+	if is-void
+		expr.expr-statement to
+	else
+		expr.source gen-return expr to
+
+-to-expr-or-block-statement js-expr-or-block-statement(ctx to-expr-ctx, a concrete-expr)
+	source source = ctx source a
+	type = a.type struct
+	match a kind
+	as builtin-concrete-expr _
+		throw todo
+	as call-concrete-expr x
+		call-async = ctx.ctx is-async x.called
+		if call-async == async
+			assert ctx.is-cur-fun-async == async
+		called = ctx to-ref source, x.called
+		args js-expr[] = for arg : x args
+			ctx to-js-expr arg
+		source gen-call call-async, called, args to
+	as cast-concrete-expr _
+		throw unreachable
+	as constant x
+		ctx.ctx to-expr source, a.type, x to
+	as create-array-concrete-expr x
+		# [x, y]
+		args js-expr[] = for arg : x args
+			ctx to-js-expr arg
+		source gen-array args to
+	as create-record-concrete-expr x
+		# new R(x, y, z)
+		record_ = ctx to-ref source, type
+		args js-expr[] = for arg : x args
+			ctx to-js-expr arg
+		source gen-new record_, args to
+	as create-union-concrete-expr x
+		# new U(index, value)
+		union_ = ctx to-ref source, type
+		index = source gen-integer-unsigned x.member-index
+		value = ctx to-js-expr x.arg
+		source gen-new union_, (index, value) to
+	as drop-concrete-expr x
+		value = ctx to-js-expr x.arg
+		source gen-unary void, value to
+	as finally-concrete-expr x
+		source gen-try-finally (ctx to-block-statement x.below), (ctx to-block-statement x.right) to
+	as if-concrete-expr x
+		cond = ctx to-js-expr x.cond
+		match ctx to-expr-or-block-statement x.then
+		as js-expr then
+			match ctx to-expr-or-block-statement x.else_
+			as js-expr else_
+				source gen-ternary cond, then, else_ to
+			as js-block-statement else_
+				then-statement = then return-unless-void type.is-void
+				source gen-if cond, then-statement, (source, else_.to) to
+		as js-block-statement then
+			else_ = ctx to-block-statement x.else_
+			source gen-if cond, then, (source, else_.to) to
+	as let-concrete-expr x
+		local = ctx local-name x.local
+		value = ctx to-js-expr x.value
+		then = ctx to-block-statement x.then
+		kind = x.local is-mutable ? let : const
+		((source gen-var-decl kind, local.to, (value,)) ~ then.statements).gen-block-statement to
+	as lambda-concrete-expr x
+		params js-destructure[] = ctx local-name x.param to,
+		body js-expr-or-block-statement = ctx to-expr-or-block-statement x.body
+		arrow js-arrow-function = async, params.to, body
+		(source, arrow.to) to
+	as local-get-concrete-expr x
+		ctx get-local source, x.local to
+	as local-pointer-concrete-expr _
+		throw unreachable
+	as local-set-concrete-expr x
+		source gen-assign (ctx get-local source, x.local), (ctx to-js-expr x.value) to
+	as loop-concrete-expr x
+		###
+		loop
+			if x
+				continue
+			else
+				break 42
+		==>
+		while (true) {
+			if (x)
+				continue
+			else
+				// In a void context, this will 'break' instead of 'return'
+				return 42
+		}
+		###
+		label js-name? = if type is-void
+			"loop".no-prefix,
+		source gen-while-true label, (ctx to-block-statement x.body) to
+	as loop-break-concrete-expr x
+		if type is-void
+			do-it = ctx to-block-statement x.value
+			break-loop =  source gen-break "loop".no-prefix
+			do-it ~~ break-loop.to to
+		else
+			source gen-return (ctx to-js-expr x.value) to
+	as loop-continue-concrete-expr
+		source.gen-continue to
+	as match-enum-or-integral-concrete-expr x
+		matched = ctx to-js-expr x.matched
+		is-signed = x.matched-integral-type is-signed
+		cases js-switch-case[] = for value, expr : x.case-values zip x.case-exprs
+			integer = if is-signed
+				source gen-integer-signed value.as-signed
+			else
+				source gen-integer-unsigned value.as-unsigned
+			integer, (source maybe-break-switch-case type, (ctx to-block-statement expr))
+		default = if e ?= x else_
+			ctx to-block-statement e
+		else
+			source.throw-unreachable to
+		source gen-switch matched, cases, default to
+	as match-string-like-concrete-expr _
+		throw todo
+	as match-union-concrete-expr x
+		###
+		const temp = u
+		switch (temp.index) {
+			case 0:
+				use(temp.value);
+				break;
+			...
+		}
+		###
+		ctx with-temp "matched", x.matched, matched =>
+			index = source gen-property-access matched, "index".no-prefix
+			matched-value = source gen-property-access matched, "value".no-prefix
+			cases js-switch-case[] = for member-index, case_ : x.member-indices zip x.cases
+				value = source gen-integer-unsigned member-index.as-unsigned
+				then = ctx to-block-statement case_.then
+				then-block js-block-statement = if l ?= case_ local
+					declare = source gen-const (ctx local-name l), matched-value
+					(declare ~ then.statements),
+				else
+					then
+				value, (source maybe-break-switch-case type, then-block)
+			default = if e ?= x else_
+				ctx to-block-statement e
+			else
+				source.throw-unreachable to
+			source gen-switch index, cases, default
+	as record-field-get-concrete-expr x
+		source gen-property-access (ctx to-js-expr x.record_), x.field.debug-name.to.no-prefix to
+	as record-field-pointer-concrete-expr _
+		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+	as record-field-set-concrete-expr x
+		record_ = ctx to-js-expr x.record_
+		value = ctx to-js-expr x.value
+		access = source gen-property-access record_, x.field.debug-name.to.no-prefix
+		source gen-assign access, value to
+	as seq-concrete-expr x
+		(ctx to-block-statement x.first) ~~ (ctx to-block-statement x.then) to
+	as throw-concrete-expr x
+		source gen-throw (ctx to-js-expr x.thrown) to
+	as try-concrete-expr _
+		# TODO: reuse code from compiling match expressions (since we need that in the catch handler)
+		throw todo
+		#tried = ctx to-block-statement x.tried
+		#source gen-try-catch tried, exception, catch_ to
+	as try-let-concrete-expr _
+		throw todo
+	as union-as-concrete-expr x
+		union_ = ctx to-js-expr x.union_
+		source gen-property-access union_, "value".no-prefix to
+	as union-kind-concrete-expr x
+		union_ = ctx to-js-expr x.union_
+		source gen-property-access union_, "index".no-prefix to
+
+-maybe-break-switch-case js-block-statement(source source, type concrete-struct, a js-block-statement)
+	if type is-void
+		((source.gen-break-no-label,),) ~~ a
+	else
+		a
+
+-to js-block-statement(a js-statement)
+	(a,),
+-to js-block-statement(a js-statement[])
+	a,
+-to js-expr-or-block-statement(a js-statement)
+	a.to to
+
+-get-local js-expr(ctx to-expr-ctx, source source, a concrete-local)
+	source gen-identifier (ctx local-name a)
+-local-name js-name(ctx to-expr-ctx, a concrete-local)
+	match a source
+	as local l
+		l.name.to local
+	as concrete-local-source-closure
+		throw unreachable
+	as concrete-generated-local-kind x
+		x.to.to temp ctx.take-next-temp-local-index
+
+-to-expr js-expr(ctx to-js-ctx, source source, type concrete-type, a constant)
+	bogus js-expr = source gen-iife sync, ((source.throw-bogus,),) # TODO: these should instead be unreachable ----------------------------------------------------------------------
+	match type.struct body
+	as concrete-builtin-type builtin_
+		string js-expr mut() = () =>
+			source gen-string match a
+			as constant-array ca
+				elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: have a helper function for this
+				chars char8[] = for x : elements
+					x.as-integral.as-unsigned.to to
+				chars to
+			as constant-c-string x
+				# TODO: 'get-constant-symbol' is hardcoded to generate a c-string. It made sense for the native build but not any more ...
+				ctx.program.all-constants.c-strings[x index]
+			as constant-zero
+				""
+			else
+				throw unreachable
+		match builtin_ kind
+		as array
+			match a
+			as constant-array _
+				throw todo
+			as constant-zero
+				source gen-array ()
+			else
+				throw unreachable
+		as bool
+			source gen-bool a.as-bool
+		as catch-point
+			bogus
+		as char8
+			source constant-integral nat8, a
+		as char32
+			source constant-integral nat32, a
+		as const-pointer
+			bogus
+		as float32
+			source gen-number a.as-float
+		as float64
+			source gen-number a.as-float
+		as fun-pointer
+			bogus
+		as future
+			bogus
+		as int8
+			source constant-integral int8, a
+		as int16
+			source constant-integral int16, a
+		as int32
+			source constant-integral int32, a
+		as int64
+			source constant-integral int64, a
+		as js-any
+			bogus
+		as fun-data
+			bogus
+		as fun-mut
+			bogus
+		as fun-shared
+			bogus
+		as mut-array
+			bogus
+		as mut-pointer
+			bogus
+		as mut-slice
+			bogus
+		as nat8
+			source constant-integral nat8, a
+		as nat16
+			source constant-integral nat16, a
+		as nat32
+			source constant-integral nat32, a
+		as nat64
+			source constant-integral nat64, a
+		as option
+			bogus
+		as string
+			string[]
+		as symbol
+			string[]
+		as void
+			source gen-undefined
+	as concrete-enum x
+		source constant-integral x.storage_, a
+	as concrete-extern-type
+		throw todo
+	as concrete-flags x
+		source constant-integral x.storage_, a
+	as concrete-record x
+		# TODO:PERF Since these are allocated, we should probably make them global 'const' values too
+		match a
+		as constant-record r
+			# new R(x, y)
+			args js-expr[] = for field, arg : x.fields zip r.args
+				ctx to-expr source, field.type, arg
+			source gen-new (ctx to-ref source, type.struct), args
+		as constant-zero
+			source gen-null
+		else
+			throw unreachable
+	as concrete-union u
+		match a
+		as constant-union constant
+			# TODO:PERF Since these are allocated, we should probably make them global 'const' values too
+			# new U(index, value)
+			case-type = u.members[constant member-index]
+			index = source gen-integer-unsigned constant.member-index
+			value = ctx to-expr source, case-type, constant.arg
+			source gen-new (ctx to-ref source, type.struct), (index, value)
+		as constant-zero
+			source gen-null
+		else
+			throw unreachable
+	as concrete-struct-body-deferred
+		throw unreachable
+
+-constant-integral js-expr(source source, type integral-type, a constant)
+	value = a as-integral
+	if type is-signed
+		source gen-integer-signed value.as-signed
+	else
+		source gen-integer-unsigned value.as-unsigned
+
+-with-temp js-expr-or-block-statement(
+	ctx to-expr-ctx,
+	name string,
+	expr concrete-expr,
+	f js-statement mut(get-temp js-expr),
+)
+	js-name js-name = temp, name, ()
+	source = ctx source expr
+	declare = source gen-const js-name, (ctx to-js-expr expr)
+	then = f[source gen-identifier js-name]
+	((declare, then),) to
+
+# TODO: move to a helpers module? -------------------------------------------------------------------------------------------------
+-gen-as-nat8 js-expr(source source, arg js-expr)
+	source gen-as-nat 8, arg
+-gen-as-nat16 js-expr(source source, arg js-expr)
+	source gen-as-nat 16, arg
+-gen-as-nat32 js-expr(source source, arg js-expr)
+	source gen-as-nat 32, arg
+-gen-as-nat64 js-expr(source source, arg js-expr)
+	source gen-as-nat 64, arg
+-gen-as-nat js-expr(source source, n-bits nat, arg js-expr)
+	BigInt = source gen-global "BigInt"
+	source gen-call-property-sync BigInt, "asUintN".no-prefix, ((source gen-number n-bits.to), arg)
+
+-gen-as-float32 js-expr(source source, arg js-expr)
+	source gen-call-math "fround", arg
+
+-gen-call-math js-expr(source source, name string, arg js-expr)
+	source gen-call-property-sync (source gen-global "Math"), name.no-prefix, (arg,)
+
+-gen-is-nan js-expr(source source, arg js-expr)
+	source gen-call-property-sync (source gen-global "Number"), "isNaN".no-prefix, (arg,)
+
+-gen-convert js-expr(
+	source source,
+	size-bytes nat,
+	input-array-type string,
+	output-array-type string,
+	arg js-expr,
+)
+	###
+	const buf = new ArrayBuffer(size_bytes)
+	(new InputArray(buf))[0] = arg
+	return (new OutputArray(buf))[0]
+	###
+	buf-name js-name = "buf" special-local
+	buf js-expr = source gen-identifier buf-name
+	ArrayBuffer = source gen-global "ArrayBuffer"
+	new-buf = source gen-new ArrayBuffer, ((source gen-number size-bytes.to),)
+	declare-buf = source gen-const buf-name, new-buf
+	InputArray = source gen-global input-array-type
+	OutputArray = source gen-global output-array-type
+	input = source gen-subscript-zero (source gen-new InputArray, (buf,))
+	assign-to-input = source gen-assign input, arg
+	output = source gen-subscript-zero (source gen-new OutputArray, (buf,))
+	return-output = source gen-return output
+	source gen-iife sync, ((declare-buf, assign-to-input, return-output),)
+-gen-subscript-zero js-expr(source source, arg js-expr)
+	source gen-property-access-computed arg, (source gen-number 0)
+
+-gen-iife js-expr(source source, async sync-or-async, block js-block-statement)
+	fn js-expr = source, (async js-arrow-function (), block.to)
+	source gen-call async, fn, ()

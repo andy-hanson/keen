@@ -69,6 +69,8 @@ concretize-expr-ctx record mut
 	-next-lambda-index mut nat
 is-native bool(a concretize-expr-ctx)
 	a.concretize-ctx is-native
+is-js bool(a concretize-expr-ctx)
+	a.concretize-ctx is-js
 -common-types common-types(a concretize-expr-ctx)
 	a.concretize-ctx common-types
 -cur-uri uri(a concretize-expr-ctx)
@@ -141,7 +143,7 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 			constant to
 		else
 			concrete-called gen-call-kind for p, x : concrete-called.params zip constants.constants
-				p.type, (), x.to
+				p.type, range, x.to
 	as exprs exprs
 		concrete-called gen-call-kind exprs.exprs
 		
@@ -215,19 +217,22 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
+	locals locals,
 	a closure-get-expr,
 )
-	assert ctx is-native : todo
-	info closure-field-info = ctx get-closure-field-info a.closure-ref
-	get-field = ctx get-closure-field range, a.closure-ref
-	match info reference-kind
-	as direct
-		assert info.field-type == info.referenced-type
-		assert info.field-type == type
-		get-field
-	as allocated
-		assert info.referenced-type == type
-		ctx.concretize-ctx gen-reference-read range, get-field
+	if ctx is-native
+		info = ctx get-closure-field-info a.closure-ref
+		get-field = ctx get-closure-field range, a.closure-ref
+		match info reference-kind
+		as direct
+			assert info.field-type == info.referenced-type
+			assert info.field-type == type
+			get-field
+		as allocated
+			assert info.referenced-type == type
+			ctx.concretize-ctx gen-reference-read range, get-field
+	else
+		ctx concretize-local-get type, range, locals, a.local
 
 | This does not dereference it if allocated; {concretize-closure-get} does that.
 -get-closure-field concrete-expr(ctx concretize-expr-ctx, range uri-and-range, a closure-ref)
@@ -242,14 +247,16 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	locals locals,
 	a closure-set-expr,
 )
-	assert ctx is-native : todo
-	assert a.closure-ref.closure-reference-kind == allocated
-	info = ctx get-closure-field-info a.closure-ref
-	assert info.reference-kind == allocated
-	field = ctx get-closure-field range, a.closure-ref
-	value = ctx concretize-expr info.referenced-type, locals, a.value
-	assert type is-void
-	ctx.concretize-ctx gen-reference-write range, field, value
+	if ctx is-native
+		assert a.closure-ref.closure-reference-kind == allocated
+		info = ctx get-closure-field-info a.closure-ref
+		assert info.reference-kind == allocated
+		field = ctx get-closure-field range, a.closure-ref
+		value = ctx concretize-expr info.referenced-type, locals, a.value
+		assert type is-void
+		ctx.concretize-ctx gen-reference-write range, field, value
+	else
+		ctx concretize-local-set range, locals, a.local, a.value
 
 -closure-field-info record mut
 	closure-param concrete-local
@@ -302,15 +309,25 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	locals locals,
 	e lambda-expr,
 )
-	assert ctx is-native : todo
-	if e.kind == explicit-shared
-		inner-type = ctx get-concrete-type e.mut-type-for-explicit-shared!.to
-		inner = ctx concretize-lambda-inner inner-type, range, locals, e
-		lambda-type-args = inner-type.struct.source.concrete-struct-source-inst! type-args
-		shared-of-mut-lambda = ctx.concretize-ctx get-concrete-fun ctx.concretize-ctx.program.common-funs.shared-of-mut-lambda, lambda-type-args, ()
-		range gen-call shared-of-mut-lambda, (inner,)
+	if ctx is-native
+		if e.kind == explicit-shared
+			inner-type = ctx get-concrete-type e.mut-type-for-explicit-shared!.to
+			inner = ctx concretize-lambda-inner inner-type, range, locals, e
+			lambda-type-args = inner-type.struct.source.concrete-struct-source-inst! type-args
+			shared-of-mut-lambda = ctx.concretize-ctx get-concrete-fun ctx.concretize-ctx.program.common-funs.shared-of-mut-lambda, lambda-type-args, ()
+			range gen-call shared-of-mut-lambda, (inner,)
+		else
+			ctx concretize-lambda-inner type, range, locals, e
 	else
-		ctx concretize-lambda-inner type, range, locals, e
+		assert ctx is-js # In JS, we don't need to do anything for 'explicit-shared'
+		return-type = ctx get-concrete-type e.return-type
+		param-type = ctx get-concrete-type e.param.type
+		body = ctx concretize-expr-with-destructure return-type, range, locals, e.param, e.body
+		param = body.root-local ?? do
+			id: ctx.local-ids take-next-id
+			source: args::concrete-generated-local-kind to
+			type: param-type
+		type, range, (param lambda-concrete-expr body.expr)
 
 -concretize-lambda-inner concrete-expr(
 	ctx concretize-expr-ctx,
@@ -319,6 +336,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	locals locals,
 	e lambda-expr,
 )
+	assert ctx is-native
 	# TODO: handle constants in closure
 	# (do *not* include in the closure type, instead remember them for when compiling the lambda fn)
 	lambda-index = ctx next-lambda-index
@@ -340,6 +358,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	type gen-create-union range, (ctx.concretize-ctx next-lambda-impl-id lambda-struct, impl), closure
 
 -next-lambda-impl-id nat(ctx concretize-ctx, lambda-struct concrete-struct, impl concrete-lambda-impl)
+	assert ctx is-native
 	impl next-lambda-impl-id-inner ctx.lambda-structs[lambda-struct id]!.b
 -next-lambda-impl-id-inner nat(impl concrete-lambda-impl, impls concrete-lambda-impl mut[])
 	res = impls size
@@ -411,7 +430,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		(), then
 	as local local
 		root-local concrete-local = ctx.local-ids.take-next-id, local.to, (ctx get-concrete-type local.type)
-		expr = if local is-allocated
+		expr = if ctx is-allocated local
 			reference-type = ctx get-concrete-type local.mutability.local-mutable-allocated!.reference-type.to
 			reference-local concrete-local = ctx.local-ids.take-next-id, reference::concrete-generated-local-kind.to, reference-type
 			then = f[locals add-local local, reference-local.to]
@@ -426,6 +445,15 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 			(temp,), (ctx concretize-with-destructure-split type, range, locals, x, temp, f)
 		else
 			(), (ctx concretize-bogus type, range)
+
+-is-allocated bool(ctx concretize-expr-ctx, a local)
+	ctx is-native && match a mutability
+	as local-immutable
+		false
+	as local-mutable-on-stack
+		false
+	as local-mutable-allocated _
+		true
 
 -concretize-with-destructure-split concrete-expr(
 	ctx concretize-expr-ctx,
@@ -527,7 +555,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		get = range gen-local-get x
 		if x.type is-bogus
 			ctx concretize-bogus type, range
-		elif local is-allocated
+		elif ctx is-allocated local
 			ctx.concretize-ctx gen-reference-read range, get
 		else
 			get
@@ -544,7 +572,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	assert ctx is-native
 	match locals get-local a.local
 	as concrete-local local
-		if a.local is-allocated
+		if ctx is-allocated a.local
 			type gen-record-field-pointer range, (range gen-local-get local), 0
 		else
 			type gen-local-pointer range, local
@@ -556,18 +584,19 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	range uri-and-range,
 	locals locals,
-	a local-set-expr,
+	local local,
+	value expr,
 )
-	local concrete-local = locals get-local a.local concrete-local!
-	value-type = if a.local is-allocated
-		ctx.concretize-ctx get-referenced-type local.type
+	concrete-local = locals get-local local concrete-local!
+	value-type = if ctx is-allocated local
+		ctx.concretize-ctx get-referenced-type concrete-local.type
 	else
-		local.type
-	value = ctx concretize-expr value-type, locals, a.value
-	if a.local is-allocated
-		ctx.concretize-ctx gen-reference-write range, (range gen-local-get local), value
+		concrete-local.type
+	concrete-value = ctx concretize-expr value-type, locals, value
+	if ctx is-allocated local
+		ctx.concretize-ctx gen-reference-write range, (range gen-local-get concrete-local), concrete-value
 	else
-		ctx.concretize-ctx gen-local-set range, local, value
+		ctx.concretize-ctx gen-local-set range, concrete-local, concrete-value
 
 -concretize-loop-while-or-until concrete-expr(
 	ctx concretize-expr-ctx,
@@ -576,6 +605,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	locals locals,
 	expr loop-while-or-until-expr,
 )
+	assert ctx.void-type is-void # TODO: sanity check -------------------------------------------------------------------------------
 	void = ctx.concretize-ctx gen-void range
 	match expr condition
 	as expr x
@@ -593,7 +623,10 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		after
 		###
 		condition = ctx concretize-expr ctx.bool-type, locals, x
-		do-and-continue = void.type gen-do-and-continue range, (ctx concretize-expr void.type, locals, expr.body)
+		assert void.type is-void # TODO: sanity check -------------------------------------------------------------------------------
+		body = ctx concretize-expr void.type, locals, expr.body
+		assert body.type is-void # TODO: sanity check -------------------------------------------------------------------------------
+		do-and-continue = void.type gen-do-and-continue range, body
 		break_ = range gen-break void
 		if_ = if expr is-until
 			range gen-if condition, break_, do-and-continue
@@ -821,7 +854,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	as call-option-expr x
 		ctx concretize-call-option type, range, locals, x
 	as closure-get-expr x
-		ctx concretize-closure-get type, range, x
+		ctx concretize-closure-get type, range, locals, x
 	as closure-set-expr x
 		ctx concretize-closure-set type, range, locals, x
 	as extern-expr x
@@ -847,7 +880,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	as local-pointer-expr x
 		ctx concretize-ptr-to-local type, range, locals, x
 	as local-set-expr x
-		ctx concretize-local-set range, locals, x
+		ctx concretize-local-set range, locals, x.local, x.value
 	as loop-expr x
 		type gen-loop range, (ctx concretize-expr type, locals, x.body)
 	as loop-break-expr x
@@ -991,4 +1024,3 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	catch-expr = ctx concretize-expr-with-destructure type, range, locals, a.catch_.destructure, a.catch_.then to-match-union-case
 	then = ctx concretize-expr-with-destructure type, range, locals, a.destructure, a.then
 	type, range, (then.root-local try-let-concrete-expr value, catch-member-index, catch-expr, then.expr)
-

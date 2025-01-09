@@ -7,7 +7,6 @@ import
 	crow/io/stdin
 	crow/parse
 	../backend/js/source-map
-	../backend/js/translate-to-js
 	../backend/write-to-c
 	../frontend/get-diagnostic-severity
 	../frontend/lang
@@ -177,7 +176,7 @@ main nat(args string[]) summon
 
 -run void(server server, cwd file-path, run run-command) summon, (dyncall, dynload, native) extern
 	os os = run.options is-fake-extern ? none : get-os
-	server with-program-for-main run.main, (os.build-target-native,), program =>
+	server with-program-for-main run.main, (os.native-target,), program =>
 		match run options
 		as aot-run-options x
 			server build-and-run cwd, program, run.main.program-args, x
@@ -263,7 +262,7 @@ build-and-run-node-js void(
 	program-args string[],
 ) summon, native extern
 	with js : program temp-base-path cwd temp-path ".js"
-		server with-write-to-js-script program, js, node, false, () =>
+		server with-write-to-js program, js, node, false, () =>
 			(js, program-args) run-node-js-program
 
 temp-base-path uri(program program-with-main, cwd file-path)
@@ -284,10 +283,7 @@ build-all-outputs void(
 		server with-write-to-c c-path, exe, options.version, options.c-compile-options, program, (compile-command, _) =>
 			exe-compile-command := compile-command,
 	build-js-script void mut(path file-path, target js-target) = (path, target) =>
-		server with-write-to-js-script program, path, target, true, () => ()
-	build-js-modules void mut(dir file-path, target js-target) = (dir, target) =>
-		server with-write-to-js-modules program, dir, target, main =>
-			out print "Main module is {main}"
+		server with-write-to-js program, path, target, true, () => ()
 	
 	for out : options out
 		match out kind
@@ -297,11 +293,11 @@ build-all-outputs void(
 			() # do this last
 		# TODO: NEATER -- just have node-ness be a flag ------------------------------------------------------------------------
 		as js-modules
-			build-js-modules[out.path, browser]
+			throw todo
 		as js-script
 			build-js-script[out.path, browser]
-		as node-js-modules
-			build-js-modules[out.path, node]
+		as node-js-modules # TODO: remove this option ----------------------------------------------------------------------------------------
+			throw todo
 		as node-js-script
 			build-js-script[out.path, node]
 
@@ -309,7 +305,7 @@ build-all-outputs void(
 		exe-compile-command! build-to-exe-from-c
 	
 # TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
--with-write-to-js-script void(
+-with-write-to-js void(
 	server server,
 	program program-with-main,
 	out-file file-path,
@@ -319,7 +315,7 @@ build-all-outputs void(
 ) summon
 	source-map-path file-path? = if include-source-map
 		(out-file add-extension ".map"),
-	result = server build-to-js-script program, target, source-map-path?.base-name
+	result = server build-to-js program, target, source-map-path?.base-name
 	main-permissions permissions = do
 		read: true
 		write: true
@@ -332,18 +328,6 @@ build-all-outputs void(
 	if map ?= source-map-path
 		map write-file result.map!, read-write, allow
 	f[]
-
-# TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
-with-write-to-js-modules void(
-	server server,
-	program program-with-main,
-	out-dir file-path,
-	target js-target,
-	f void mut(main-js file-path),
-) summon
-	result = server build-to-js-modules program, target
-	out-dir write-files-to-dir result.output-files
-	f[out-dir concat-file-path-and-path result.main-js]
 
 # TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
 -with-program-for-main void(

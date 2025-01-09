@@ -1,4 +1,5 @@
 import
+	../frontend/show-model
 	../model/ast
 	../model/concrete-model
 	../model/model
@@ -35,6 +36,7 @@ specs-scope-for-fun specs-scope(a concrete-fun)
 		(), ()
 
 concretize-ctx record mut
+	show-ctx show-ctx
 	-next-id-value mut nat
 	# TODO: more of these should probably be private -----------------------------------------------------------------------------
 	version-info version-info
@@ -67,16 +69,18 @@ concretize-ctx record mut
 	-late-string-type mut concrete-type?
 	-late-symbol-type mut concrete-type?
 new concretize-ctx(
+	show-ctx show-ctx,
 	program program-with-main,
 	version-info version-info,
 	file-content-getters file-content-getters,
 	fill-in-concrete-fun-body void mut(ctx concretize-ctx, fun concrete-fun),
 )
+	show-ctx: show-ctx
 	next-id-value: 0
 	version-info: version-info
 	program-with-main: program
 	file-content-getters: file-content-getters
-	all-externs: program all-externs version-info.os.build-target-native
+	all-externs: program all-externs version-info.target
 	fill-in-concrete-fun-body: fill-in-concrete-fun-body
 	late-create-error-function: ()
 	late-new-json-from-pairs-function: ()
@@ -104,6 +108,8 @@ new concretize-ctx(
 
 is-native bool(a concretize-ctx)
 	a.version-info is-native
+is-js bool(a concretize-ctx)
+	a.version-info is-js
 create-error-function concrete-fun(a concretize-ctx)
 	a late-create-error-function!
 new-json-from-pairs-function concrete-fun(a concretize-ctx)
@@ -142,9 +148,10 @@ finish-concrete-vars concrete-var[](ctx concretize-ctx)
 		bogus-body concrete-struct-body = false concrete-record ()
 		res concrete-struct = a.next-id, data_, none, concrete-struct-source-bogus, bogus-body, (), (), ()
 		a.all-concrete-structs ~= res
-		res.default-reference-kind := by-val_
-		res.type-size := 0, 1
-		res.field-offsets := ()
+		if a is-native
+			res.default-reference-kind := by-val_
+			res.type-size := 0, 1
+			res.field-offsets := ()
 		a.late-bogus-type := res.by-val_,
 		res by-val_
 
@@ -263,12 +270,7 @@ get-concrete-fun-for-lambda concrete-fun(
 	res
 
 get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-inst, type-args-scope type-args-scope)
-	# TODO: disable these conversions if compiling to JS (or maybe just use a concrete-struct-special-kind and always do it in lower?) -------------------------------------
-	guard inst !is-future && inst !is-mut-array : ctx get-concrete-type-for-struct-inst ctx.program.other-types.future-or-mut-array-to-impl[inst id]!, type-args-scope
-	guard inst !is-string : ctx char8-array-type
-	guard inst !is-symbol : ctx char8-const-pointer-type
-
-	ctx with-concrete-types inst.type-args, type-args-scope, type-args =>
+	ctx concrete-type-special inst, type-args-scope ?? ctx with-concrete-types inst.type-args, type-args-scope, type-args =>
 		decl = inst decl
 		res = ctx.non-lambda-concrete-structs get-or-add-and-did-add (decl.id, type-args.ids), () =>
 			purity mut = decl purity
@@ -300,13 +302,29 @@ get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-
 			res
 		if res did-add
 			ctx initialize-concrete-struct inst, res.value, type-args
-			if decl is-lambda-type
+			if ctx is-native && decl is-lambda-type
 				ctx.lambda-structs[res.value id] := res.value, ()
-		if res.value !default-reference-kind-is-set
+		if ctx is-native && res.value !default-reference-kind-is-set
 			# The only way this would not be set is if we are still computing its the size.
 			# In that case, it's a recursive record, so it should be by-ref.
 			res.value.default-reference-kind := by-ref_
-		res.value.default-reference-kind, res.value
+		ref = if ctx is-native
+			res.value.default-reference-kind
+		else
+			by-val_
+		ref, res.value
+
+-concrete-type-special concrete-type?(ctx concretize-ctx, inst struct-inst, type-args-scope type-args-scope) # TODO: better name
+	# TODO: Maybe we should leave these as builtin types for concretize and lower them in the lowering step? -----------------------------------
+	guard ctx is-native
+	if inst is-future || inst is-mut-array
+		(ctx get-concrete-type-for-struct-inst ctx.program.other-types.future-or-mut-array-to-impl[inst id]!, type-args-scope),
+	elif inst is-string
+		(ctx char8-array-type),
+	elif inst is-symbol
+		(ctx char8-const-pointer-type),
+	else
+		()
 
 get-concrete-type concrete-type(ctx concretize-ctx, type type, type-args-scope type-args-scope)
 	match type
@@ -328,6 +346,7 @@ concrete-type-from-closure concrete-type(
 	closure-fields concrete-field[],
 	source concrete-struct-source,
 )
+	assert ctx is-native
 	if closure-fields is-empty
 		ctx void-type
 	else
@@ -351,6 +370,7 @@ concrete-type-from-closure concrete-type(
 		by-ref_, cs
 
 -set-concrete-struct-record-size-or-defer void(ctx concretize-ctx, cs concrete-struct)
+	assert ctx is-native
 	if cs can-get-record-size
 		cs set-concrete-struct-record-size
 	else
@@ -510,30 +530,36 @@ add-concrete-fun void(ctx concretize-ctx, fun concrete-fun)
 	as builtin-type x
 		ctx initialize-concrete-struct-for-builtin res, type-args, x
 	as enum_ x
-		res.default-reference-kind := by-val_
 		res.body := x.storage_ concrete-enum
-		res.type-size := x.storage_ type-size-for-enum-or-flags
+		if ctx is-native
+			res.default-reference-kind := by-val_
+			res.type-size := x.storage_ type-size-for-enum-or-flags
 	as extern-type x
-		res.default-reference-kind := by-val_
 		res.body := concrete-extern-type
-		res.type-size := x.size ?? (0, 0)
+		if ctx is-native
+			res.default-reference-kind := by-val_
+			res.type-size := x.size ?? (0, 0)
 	as flags_ x
-		res.default-reference-kind := by-val_
 		res.body := x.storage_ concrete-flags
-		res.type-size := x.storage_ type-size-for-enum-or-flags
+		if ctx is-native
+			res.default-reference-kind := by-val_
+			res.type-size := x.storage_ type-size-for-enum-or-flags
 	as record_ r
-		if val-or-ref ?= r.flags_ forced-by-val-or-ref
-			res.default-reference-kind := val-or-ref to
+		if ctx is-native
+			if val-or-ref ?= r.flags_ forced-by-val-or-ref
+				res.default-reference-kind := val-or-ref to
 		fields concrete-field[] = for f : r fields
 			debug-name: f name
 			is-mutable: f.mutability !is-empty
 			type: ctx get-concrete-type f.type, type-args
 		res.body := fields concrete-struct-body-for-fields
-		ctx set-concrete-struct-record-size-or-defer res
+		if ctx is-native
+			ctx set-concrete-struct-record-size-or-defer res
 	as sum-type x
-		res.default-reference-kind := by-val_
 		res.body := () concrete-union
-		ctx.deferred-type-size ~= res
+		if ctx is-native
+			res.default-reference-kind := by-val_
+			ctx.deferred-type-size ~= res
 		cases concrete-sum-type-case mut[] = for member : x listed-members
 			member-type = ctx get-concrete-type-for-struct-inst member.member, type-args
 			member-type, (ctx sum-type-method-impls-common member.method-impls, type-args)
@@ -588,22 +614,20 @@ finish-sum-type-cases void(sum-type concrete-struct, cases concrete-sum-type-cas
 	type-args concrete-type[],
 	type builtin-type,
 )
-	struct.default-reference-kind := by-val_
+	if ctx is-native
+		struct.default-reference-kind := by-val_
 	match type
-	as fun-data
-		# Lambda types handled in 'finish-lambdas'
-		()
-	as fun-mut
-		()
-	as fun-shared
-		()	
+	# TODO: why do we handle 'option' specially here but 'array' specially elsewhere? -----------------------------------------------
 	as option
 		struct.body := ((ctx.void-type, type-args.only),) concrete-union
-		ctx.deferred-type-size ~= struct
+		if ctx is-native
+			ctx.deferred-type-size ~= struct
 	else
-		# TODO: isn't that big expression the same as the local 'type-args'? ---------------------------------------------------
-		struct.body := type concrete-builtin-type struct.source.concrete-struct-source-inst!.type-args
-		struct.type-size := type get-builtin-struct-size ctx.version-info
+		unless ctx is-native && type is-lambda-type # Lambda types handled in 'finish-lambdas'
+			# TODO: isn't that big expression the same as the local 'type-args'? ---------------------------------------------------
+			struct.body := type concrete-builtin-type struct.source.concrete-struct-source-inst!.type-args
+			if ctx is-native
+				struct.type-size := type get-builtin-struct-size ctx.version-info
 
 -type-size-for-enum-or-flags type-size(a integral-type)
 	size nat = a size-for-enum-or-flags
@@ -628,6 +652,8 @@ finish-sum-type-cases void(sum-type concrete-struct, cases concrete-sum-type-cas
 		8
 
 deferred-fill-record-and-union-bodies void(ctx concretize-ctx)
+	unless ctx is-native
+		assert ctx.deferred-type-size is-empty
 	until ctx.deferred-type-size is-empty
 		could-get-something mut = false
 		ctx.deferred-type-size filter-unordered struct =>
@@ -705,17 +731,17 @@ deferred-fill-record-and-union-bodies void(ctx concretize-ctx)
 		16, 8
 	as catch-point
 		forbid version is-interpreted : todo
-		match version os
-		as linux
+		match version target
+		as fake-extern
+			throw unreachable
+		as linux-native
 			# Keep in sync with 'catch point size' comment in writeToC_boilerplate_posix.c
 			0x40, 8
 		as node-js
 			throw unreachable
-		as none
-			throw unreachable
 		as web
 			throw unreachable
-		as windows
+		as windows-native
 			# Keep in sync with 'catch point size' comment in writeToC_boilerplate_msvc.c
 			0x100, 16
 	as js-any

@@ -486,28 +486,49 @@ to symbol(a builtin-type)
 show string(a builtin-type)
 	a.to::symbol to
 to builtin-type?(a symbol)
-is-char-or-integral bool(a builtin-type)
+is-lambda-type bool(a builtin-type)
 	match a
-	as char8
+	as fun-data
 		true
-	as char32
+	as fun-mut
 		true
-	as int8
-		true
-	as int32
-		true
-	as int64
-		true
-	as nat8
-		true
-	as nat16
-		true
-	as nat32
-		true
-	as nat64
+	as fun-shared
 		true
 	else
 		false
+is-char-or-integral bool(a builtin-type)
+	if _ ?= a.to::char-type?
+		true
+	elif _ ?= a.to::integral-type?
+		true
+to char-type?(a builtin-type)
+	match a
+	as char8
+		char8,
+	as char32
+		char32,
+	else
+		()
+to integral-type?(a builtin-type)
+	match a
+	as int8
+		int8,
+	as int16
+		int16,
+	as int32
+		int32,
+	as int64
+		int64,
+	as nat8
+		nat8,
+	as nat16
+		nat16,
+	as nat32
+		nat32,
+	as nat64
+		nat64,
+	else
+		()
 is-lambda bool(a builtin-type)
 	match a
 	as fun-data
@@ -878,6 +899,7 @@ js-fun enum
 	require
 	set
 	typeof
+== bool(a js-fun, b js-fun)
 
 builtin-fun union(
 	builtin-fun-all-tests,
@@ -1796,26 +1818,6 @@ to symbol(a integral-type)
 show string(a integral-type)
 	a.to::symbol to
 members integral-type[]()
-to integral-type?(a builtin-type)
-	match a
-	as int8
-		int8,
-	as int16
-		int16,
-	as int32
-		int32,
-	as int64
-		int64,
-	as nat8
-		nat8,
-	as nat16
-		nat16,
-	as nat32
-		nat32,
-	as nat64
-		nat64,
-	else
-		()
 is-signed bool(a integral-type)
 	match a
 	as int8
@@ -1891,39 +1893,27 @@ main-config config(a program-with-main)
 test-selector test-selector(a program-with-main)
 	a.main-fun test-selector a.program
 
-# TODO: isn't this basically just OS?
-build-target union(build-target-js, build-target-native)
-== bool(a build-target, b build-target)
-build-target-js record
-== bool(a build-target-js, b build-target-js)
-build-target-native record(os os)
-== bool(a build-target-native, b build-target-native)
-
 | All 'extern's to compile with for the given target
 all-externs symbol-set(program program-with-main, target build-target)
 	program.main-config all-externs-for-main-config (target,)
-all-externs-for-main-config symbol-set(main-config config, target build-target?)
+all-externs-for-main-config symbol-set(main-config config, target build-target?) # TODO: does target need to be optional?????
 	with out : build
-		if t ?= target
-			match t
-			as build-target-js _
-				out ~= "js"
-			as build-target-native x
-				match x os
-				as node-js
-					throw unreachable
-				as web
-					throw unreachable
-				as none
-					out ~= "fake"
-				as linux
-					out ~~= ("linux", "posix", "pthread", "sodium", "unwind")::(symbol set)
-				as windows
-					out ~~= ("DbgHelp", "ucrtbase", "windows")::(symbol set)
-				out ~~= ("libc", "native")::(symbol set)
-		for name, uri : main-config.extern_
+		out ~~= (target?.default-symbol-set ?? ())
+		for name, uri : main-config extern_
 			if _ ?= uri
 				out ~= name
+-default-symbol-set symbol-set(target build-target)
+	match target
+	as fake-extern
+		"fake",
+	as linux-native
+		"libc", "linux", "native", "posix", "pthread", "sodium", "unwind"
+	as node-js
+		"js", "node-js"
+	as web
+		"js", "browser"
+	as windows-native
+		"DbgHelp", "libc", "native", "ucrtbase", "windows"
 
 program-with-opt-main record(program program, main-fun-and-diagnostics main-fun-and-diagnostics?) mut
 has-main bool(a program-with-opt-main)
@@ -2126,14 +2116,6 @@ name symbol(a local)
 		x name
 is-mutable bool(a local)
 	a.mutability.to-mutability == mut_
-is-allocated bool(a local)
-	match a mutability
-	as local-immutable
-		false
-	as local-mutable-on-stack
-		false
-	as local-mutable-allocated _
-		true
 local-must-have-name-range source-range(a local)
 	a.source.single-destructure-ast! name-range
 -local-must-have-range source-range(a local)
