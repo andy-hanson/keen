@@ -1,6 +1,7 @@
 import
 	../../frontend/show-model
 	../../model/integral-values
+	../../model/model
 	../../model/source-range
 	../mangle
 	../../util/string-walker
@@ -93,13 +94,13 @@ write-js-ast js-and-map(
 		out ~= "\n"
 		out write-statement 0, x, non-first
 
--show string(name js-name)
-	if name.crow-name is-js-keyword && name.mangle-index is-empty
-		"_{name crow-name}"
+-show string(a js-name)
+	if a.crow-name is-js-keyword && a.mangle-index is-empty
+		"_{a crow-name}"
 	else
-		suffix string = if x ?= name mangle-index
+		suffix string = if x ?= a mangle-index
 			"___{x}"
-		"{name.kind prefix}{name.crow-name mangle-name-common}{suffix}"
+		"{a.kind prefix}{a.crow-name mangle-name-common}{suffix}"
 -prefix string(a js-name-kind)
 	match a
 	as none
@@ -202,6 +203,8 @@ write-js-ast js-and-map(
 -write-class void(out output, a js-class-decl)
 	out write-comment a.comment
 	out ~~= "class {a name}"
+	if x ?= a extends
+		out ~~= " extends {x}"
 	out ~~= " \{"
 	for member : a members
 		out mark-map member.source
@@ -298,8 +301,11 @@ write-js-ast js-and-map(
 	as js-if-statement x
 		out write-if indent, x
 	as js-return-statement x
-		out ~~= "return "
-		out write-expr indent, x.arg
+		if arg ?= x arg
+			out ~~= "return "
+			out write-expr indent, arg
+		else
+			out ~~= "return"
 	as js-switch-statement x
 		out write-switch indent, x
 	as js-throw-statement x
@@ -443,7 +449,7 @@ write-js-ast js-and-map(
 			"{x.value as-unsigned}"
 		out ~= "n"
 	as js-literal-number x
-		out write-on-single-line x.value.float-literal-for-js
+		out write-on-single-line (x.value float-literal-for-js x.type)
 	as js-literal-string x
 		out write-on-single-line "{x.value quote}"
 	as js-name x
@@ -472,15 +478,13 @@ write-js-ast js-and-map(
 	as js-ternary-expr x
 		if pos is-non-first-statement
 			out ~= ";"
-		if pos is-called
-			out ~= "("
+		out ~= "("
 		write-arg[x condition]
 		out ~~= " ? "
 		write-arg[x then]
 		out ~~= " : "
 		write-arg[x else_]
-		if pos is-called
-			out ~= ")"
+		out ~= ")"
 	as js-this-expr
 		out ~~= "this"
 	as js-unary-expr x
@@ -562,3 +566,19 @@ write-js-ast js-and-map(
 -write-object-pair void(out output, indent nat, key js-member-name, value js-expr) # TODO: INLINE -------------------------------------------------------
 	out ~~= "{key}: "
 	out write-expr indent, value
+
+-float-literal-for-js string(a float, type float-type)
+	if a is-nan
+		"Number.NaN"
+	elif a == infinity
+		"Number.POSITIVE_INFINITY"
+	elif a == -infinity
+		"-Number.POSITIVE_INFINITY"
+	else
+		res string = a show
+		# TODO: float parse res is a --------------------------------------------------------------------------------------------------------
+		match type
+		as float32
+			"Math.fround({res})"
+		as float64
+			res

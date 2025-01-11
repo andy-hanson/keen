@@ -173,8 +173,11 @@ is-array-or-mut-array bool(a concrete-struct)
 array-element-type concrete-type(array-type concrete-type) # TODO: this should return an option (and don't need to check is-array first)
 	assert array-type.must-be-by-val is-array-or-mut-array
 	array-type.must-be-by-val.source.concrete-struct-source-inst!.type-args only
--is-option bool(a concrete-struct)
+is-option bool(a concrete-type)
+	a.reference == by-val_ && a.struct is-option
+is-option bool(a concrete-struct)
 	if inst ?= a.source concrete-struct-source-inst
+		assert _ ?= a.body concrete-union # TODO: RM (sanity check) --------------------------------------------------------
 		inst.decl is-option-type
 unwrap-option-type concrete-type(option-type concrete-type) # TODO: this should return an option (instead of needing is-option)
 	assert option-type.must-be-by-val is-option
@@ -194,8 +197,13 @@ pointee-type-if-is-pointer concrete-type(a concrete-type)
 	a is-pointer ? a pointee-type : a
 is-bogus bool(a concrete-struct)
 	a.source.concrete-struct-source-bogus !is-empty
+is-tuple bool(a concrete-type)
+	a.reference == by-val_ && a.struct is-tuple
 is-tuple bool(a concrete-struct)
 	a.special-kind == tuple
+unpack-tuple concrete-type[](a concrete-type)
+	assert a is-tuple
+	a.struct.source.concrete-struct-source-inst! type-args
 
 has-size-or-pointer-size-bytes bool(a concrete-type)
 	match a reference
@@ -287,7 +295,24 @@ concrete-fun record mut
 	source concrete-fun-source
 	return-type concrete-type
 	params concrete-local[]
-	body mut concrete-fun-body
+	-the-body mut concrete-fun-body
+	-dummy void # -----------------------------------------------------------------------------------------------------------------------
+new concrete-fun(id concrete-fun-id, source concrete-fun-source, return-type concrete-type, params concrete-local[], body concrete-fun-body)
+	match body
+	as concrete-expr x
+		assert x.type == return-type
+	else
+		()
+	id, source, return-type, params, body, ()
+body concrete-fun-body(a concrete-fun)
+	a the-body
+set-body void(a concrete-fun, value concrete-fun-body)
+	match value
+	as concrete-expr x
+		assert x.type == a.return-type
+	else
+		()
+	a.the-body := value
 == bool(a concrete-fun, b concrete-fun)
 	a.id == b.id
 module-uri uri(a concrete-fun)
@@ -405,12 +430,12 @@ match-enum-or-integral-concrete-expr record mut
 	case-values integral-values
 	case-exprs concrete-expr[]
 	else_ concrete-expr?
-matched-integral-type integral-type(a match-enum-or-integral-concrete-expr)
+matched-integral-type char-or-integral-type(a match-enum-or-integral-concrete-expr)
 	match a.matched.type.struct.body
 	as concrete-builtin-type x
-		x.kind.to::integral-type?!
+		x.kind.to::char-or-integral-type?!
 	as concrete-enum x
-		x storage_
+		x.storage_ to
 	else
 		throw unreachable
 match-string-like-concrete-expr record mut
@@ -508,6 +533,9 @@ to json(_ concrete-program)
 	throw todo
 concrete-common-funs union(concrete-common-funs-js, concrete-common-funs-native) mut
 concrete-common-funs-js record mut
+	exception concrete-type
+	string concrete-type
+	symbol concrete-type
 	js-await concrete-fun
 	main concrete-fun
 concrete-common-funs-native record mut

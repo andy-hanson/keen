@@ -45,6 +45,7 @@ concretize-ctx record mut
 	all-externs symbol-set
 	fill-in-concrete-fun-body void mut(ctx concretize-ctx, fun concrete-fun) # TODO: I could use a spec instead? ---------------------
 	late-create-error-function mut concrete-fun?
+	late-equal-symbol-function mut concrete-fun?
 	late-new-json-from-pairs-function mut concrete-fun?
 	late-to-json-from-json-array-function mut concrete-fun?
 	all-constants all-constants-builder
@@ -83,9 +84,10 @@ new concretize-ctx(
 	all-externs: program all-externs version-info.target
 	fill-in-concrete-fun-body: fill-in-concrete-fun-body
 	late-create-error-function: ()
+	late-equal-symbol-function: ()
 	late-new-json-from-pairs-function: ()
 	late-to-json-from-json-array-function: ()
-	all-constants: ()
+	all-constants: version-info is-native,
 	non-lambda-concrete-structs: ()
 	all-concrete-structs: ()
 	concrete-var-lookup: ()
@@ -112,6 +114,8 @@ is-js bool(a concretize-ctx)
 	a.version-info is-js
 create-error-function concrete-fun(a concretize-ctx)
 	a late-create-error-function!
+equal-symbol-function concrete-fun(a concretize-ctx)
+	a late-equal-symbol-function!
 new-json-from-pairs-function concrete-fun(a concretize-ctx)
 	a late-new-json-from-pairs-function!
 to-json-from-json-array-function concrete-fun(a concretize-ctx)
@@ -582,7 +586,9 @@ ensure-sum-type-case nat(ctx concretize-ctx, sum-type concrete-type, case-type c
 		_, cases = ctx.sum-types[sum-type.must-be-by-val id]!
 		cases find-index (member => member.member-type == case-type) ?? do
 			res = cases size
-			cases ~= (case-type, (ctx sum-type-membership-method-impls sum-type, case-type))
+			case_ concrete-sum-type-case = case-type, ()
+			cases ~= case_
+			case_.method-impls := ctx sum-type-membership-method-impls sum-type, case-type
 			res
 
 finish-sum-type-cases void(sum-type concrete-struct, cases concrete-sum-type-case mut[])
@@ -619,7 +625,10 @@ finish-sum-type-cases void(sum-type concrete-struct, cases concrete-sum-type-cas
 	match type
 	# TODO: why do we handle 'option' specially here but 'array' specially elsewhere? -----------------------------------------------
 	as option
+		# TODO: this potentially creates a '(void, void)' union, which is the only place it would have the same type multiple times ........
+		# Maybe we could use an impossible type instead. I could declare `-none record` in bootstrap.crow, which would be guaranteed to not be used anywhere.
 		struct.body := ((ctx.void-type, type-args.only),) concrete-union
+		assert struct.body.concrete-union! has-members # TODO: RM (sanity check) ----------------------------------------------
 		if ctx is-native
 			ctx.deferred-type-size ~= struct
 	else
