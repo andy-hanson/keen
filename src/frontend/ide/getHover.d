@@ -613,6 +613,8 @@ void getExprHover(
 							case BuiltinExtern.windows:
 							case BuiltinExtern.ucrtbase:
 								return "run on Windows";
+							case BuiltinExtern.java:
+								return "run in a Java build";
 							case BuiltinExtern.js:
 								return "run in a JavaScript build";
 							case BuiltinExtern.linux:

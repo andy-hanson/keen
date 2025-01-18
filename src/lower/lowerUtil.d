@@ -122,6 +122,7 @@ LowType lowTypeFromConcreteStruct(ref GetLowTypeCtx ctx, in ConcreteStruct* stru
 				case BuiltinType.option: // Concretize replaces this with a Union type
 				case BuiltinType.mutArray: // Concretize replaces this with 'mut-array-impl'
 					assert(false);
+				case BuiltinType.javaAny:
 				case BuiltinType.jsAny:
 				case BuiltinType.void_:
 					return LowType(PrimitiveType.void_);

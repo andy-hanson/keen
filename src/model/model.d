@@ -207,6 +207,8 @@ bool isInt32(in Type a) =>
 	isBuiltinType(a, BuiltinType.int32);
 bool isInt64(in Type a) =>
 	isBuiltinType(a, BuiltinType.int64);
+bool isJavaAny(in Type a) =>
+	isBuiltinType(a, BuiltinType.javaAny);
 bool isJsAny(in Type a) =>
 	isBuiltinType(a, BuiltinType.jsAny);
 bool isNat8(in Type a) =>
@@ -659,6 +661,7 @@ enum BuiltinType {
 	int16,
 	int32,
 	int64,
+	javaAny,
 	jsAny,
 	lambdaData,
 	lambdaMut,
@@ -696,6 +699,7 @@ bool isCharOrIntegral(BuiltinType a) {
 		case BuiltinType.float64:
 		case BuiltinType.future:
 		case BuiltinType.funPointer:
+		case BuiltinType.javaAny:
 		case BuiltinType.jsAny:
 		case BuiltinType.lambdaData:
 		case BuiltinType.lambdaShared:
@@ -3505,6 +3509,7 @@ Opt!BuiltinExtern asBuiltinExtern(Symbol a) =>
 immutable enum BuiltinExtern {
 	DbgHelp,
 	fake,
+	java,
 	js,
 	libc,
 	linux,

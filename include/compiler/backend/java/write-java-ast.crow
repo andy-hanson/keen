@@ -1,0 +1,312 @@
+import
+	../../util/util
+	../write-to-c
+	./java-ast
+
+write-java-ast string(a java-ast)
+	with out : build
+		out ~~= boilerplate
+		for x : a classes
+			out write-class x
+		for x : a interfaces
+			out write-interface x
+
+-boilerplate string()
+	"""class Crow \{
+	static double float64FromNat64(long a) \{
+		return a < 0 ? (double) a + Math.pow(2, 64) : (double) a;
+	}
+	static double round(double a) \{
+		return (a < 0 ? -1 : 1) * Math.round(Math.abs(a));
+	}
+
+	static java.lang.invoke.MethodHandle funPointer(String name, java.lang.Class returnType, java.lang.Class... args) throws Throwable \{
+		return lookup.findStatic(Functions.class, name, java.lang.invoke.MethodType.methodType(returnType, args));
+	}
+	private static java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup();
+
+	static java.lang.Object getStaticField(String className, String fieldName) throws Throwable \{
+		return Class.forName(className).getDeclaredField(fieldName).get(null);
+	}
+	static java.lang.Object callStatic(java.lang.String className, java.lang.String methodName, java.lang.Object... args) throws Throwable \{
+		return callStaticVarargs(className, methodName, args);
+	}
+	static java.lang.Object callStaticVarargs(java.lang.String className, java.lang.String methodName, java.lang.Object[] args) throws Throwable \{
+		return getMethod(Class.forName(className), methodName, args).invoke(null, args);
+	}
+	static java.lang.Object callInstance(Object object, String name, Object... args) throws Throwable \{
+		return getMethod(object.getClass(), name, args).invoke(object, args);
+	}
+	private static java.lang.reflect.Method getMethod(java.lang.Class<?> class_, java.lang.String methodName, java.lang.Object[] args) throws Throwable \{
+		java.lang.Class<?>[] argClasses = new java.lang.Class<?>[args.length];
+		for (int i = 0; i < argClasses.length; i++)
+			argClasses[i] = classOf(args[i]);
+		try \{
+			return class_.getMethod(methodName, argClasses);
+		} catch (java.lang.NoSuchMethodException e) \{
+			java.lang.reflect.Method[] methods = class_.getMethods();
+			java.lang.reflect.Method res = null;
+			for (int i = 0; i < methods.length; i++) \{
+				if (methods[i].getName() == methodName) \{
+					if (res == null)
+						res = methods[i];
+					else
+						throw new Error("Multiple methods with same name");
+				}
+			}
+			if (res == null) throw e;
+			return res;
+		}
+	}
+	private static java.lang.Class classOf(Object a) \{
+		java.lang.Class res = a.getClass();
+		if (res == java.lang.Integer.class)
+			return int.class;
+		else
+			return res;
+	}
+}
+class Void \{
+	static Void instance = new Void();
+	static Void get() \{ return instance; }
+}
+"""
+
+-write-interface void(out string-builder, a java-interface)
+	out ~~= "interface {a name} \{"
+	for method : a methods
+		out ~~= "\n\t{method return-type} {method name}"
+		out write-params method.params
+		out ~~= " throws Throwable;"
+	out ~~= "\n}\n"
+
+-write-class void(out string-builder, a java-class)
+	unless a.comment is-empty
+		out ~~= "// {a comment}\n"
+	out ~~= "class {a name}"
+	if s ?= a extends
+		out ~~= " extends {s}"
+	out ~~= " \{"
+	for field : a fields
+		out ~~= "\n\t{field type} {field name};"
+	if x ?= a constructor
+		out ~~= "\n\t{a name}"
+		out write-params x.params
+		out write-block-statement 1, x.body
+	for method : a methods
+		out ~~= "\n\t"
+		out write-method 1, method
+	out ~~= "\n}\n"
+
+-write-method void(out string-builder, indent nat, a java-method)
+	unless a.comment is-empty
+		out ~~= "// {a comment}{indent newline}"
+	out ~~= match a visibility
+	as private
+		"private "
+	as internal
+		""
+	as public
+		"public "
+	match a kind
+	as instance
+		()
+	as static
+		out ~~= "static "
+	out ~~= "{a return-type} {a name}"
+	out write-params a.params
+	out ~~= " throws Throwable"
+	out write-block-statement indent, a.body
+
+-show string(type java-type)
+	match type
+	as string x
+		x
+	as java-array-type x
+		"{x inner}[]"
+
+-write-params void(out string-builder, params java-param[])
+	res string = ", " join for param : params
+		"{param type} {param name}"
+	out ~~= "({res})"
+
+-write-block-statement void(out string-builder, indent nat, a java-block-statement)
+	out ~~= " \{"
+	for statement : a statements
+		out ~~= indent + 1 newline
+		out write-statement indent + 1, statement
+	out ~~= indent newline
+	out ~= "}"
+
+-write-statement void(out string-builder, indent nat, a java-statement)
+	match a
+	as java-assign-statement x
+		out write-expr indent, x.left
+		out ~~= " = "
+		out write-expr indent, x.right
+		out ~= ";"
+	as java-break x
+		out ~~= "break"
+		if label ?= x label
+			out ~~= " {label}"
+		out ~= ";"
+	as java-continue
+		out ~~= "continue;"
+	as java-expr x
+		out write-expr indent, x
+		out ~= ";"
+	as java-if-statement x
+		out ~~= "if ("
+		out write-expr indent + 2, x.cond
+		out ~~= ")"
+		out write-block-statement indent, x.then
+		out ~~= " else"
+		out write-block-statement indent, x.else_
+	as java-return-statement x
+		out ~~= "return "
+		out write-expr indent, x.returned
+		out ~= ";"
+	as java-switch-statement x
+		out ~~= "switch ("
+		out write-expr indent, x.matched
+		out ~~= ") \{"
+		for case_ : x cases
+			out ~~= "{indent + 1 newline}case "
+			out write-expr indent, case_.value
+			out ~= ":"
+			out write-block-statement indent + 1, case_.body
+		out ~~= "{indent + 1 newline}default:"
+		out write-block-statement indent + 1, x.default
+		out ~~= "{indent newline}}"
+	as java-throw-statement x
+		out ~~= "throw "
+		out write-expr indent, x.thrown
+		out ~= ";"
+	as java-try-statement x
+		out ~~= "try"
+		out write-block-statement indent, x.tried
+		for catch_ : x catches
+			out ~~= " catch ({catch_ caught-class} {catch_ caught-local})"
+			out write-block-statement indent, catch_.then
+		if f ?= x finally_
+			out ~~= " finally"
+			out write-block-statement indent, f
+	as java-var-decl x
+		out ~~= "{x type} {x name} = "
+		out write-expr indent, x.value
+		out ~= ";"
+	as java-while x
+		if label ?= x label
+			out ~~= "{label}: "
+		out ~~= "while ("
+		out write-expr indent + 2, x.condition
+		out ~= ")"
+		out write-block-statement indent, x.body
+
+-write-expr void(out string-builder, indent nat, a java-expr)
+	match a
+	as java-array-get x
+		out write-expr indent, x.array
+		out ~= "["
+		out write-expr indent, x.index
+		out ~= "]"
+	as java-binary x
+		out ~= "("
+		out write-expr indent, x.arg0
+		out ~~= " {x kind} "
+		out write-expr indent, x.arg1
+		out ~= ")"
+	as java-call-instance-method x
+		out write-expr indent, x.object
+		out ~~= ".{x method-name}"
+		out write-args indent, x.args
+	as java-call-static-method x
+		out ~~= x.class-and-method-name
+		out write-args indent, x.args
+	as java-cast x
+		out ~~= "(({x type}) "
+		out write-expr indent, x.inner
+		out ~= ")"
+	as java-class-expr x
+		out ~~= "{x class_}.class"
+	as java-iife x
+		out ~~= "(("
+		out ~~= x iife-type
+		out ~~= ") () ->"
+		out write-block-statement indent, x.body
+		out ~~= ").call()"
+	as java-inline-class x
+		out ~~= "new {x type}() \{"
+		for field : x fields
+			out ~~= "{indent + 1 newline}{field type}{field name} = "
+			out write-expr indent + 1, field.initializer
+			out ~= ";"
+		for method : x methods
+			out ~~= indent + 1 newline
+			out write-method indent + 1, method
+		out ~~= "{indent newline}}"
+	as java-instanceof x
+		out ~= "("
+		out write-expr indent, x.value
+		out ~~= " instanceof {x type})"
+	as java-literal-array x
+		out ~~= "new {x element-type}[] \{ "
+		first mut = true
+		for value : x values
+			if first
+				first := false
+			else
+				out ~~= ", "
+			out write-expr indent, value
+		out ~~= " }"
+	as java-literal-boolean x
+		out ~~= "{x value}"
+	as java-literal-float x
+		out ~~= x.value float-literal-for-c-or-java "Double.POSITIVE_INFINITY", "Double.NaN" 
+		if x is-float32
+			out ~= "f"
+	as java-literal-int32-or-less x
+		out ~~= "{x value}"
+	as java-literal-int64 x
+		out ~~= "{x value}L"
+	as java-literal-string x
+		out ~~= x.value quote
+	as java-local-access x
+		out ~~= x name
+	as java-new x
+		out ~~= "new {x class-name}"
+		out write-args indent, x.args	
+	as java-new-array x
+		out ~~= "new {x element-type}["
+		out write-expr indent, x.size
+		out ~= "]"
+	as java-null
+		out ~~= "null"
+	as java-this
+		out ~~= "this"
+	as java-ternary x
+		out ~~= "("
+		out write-expr indent, x.cond
+		out ~~= " ? "
+		out write-expr indent + 1, x.then
+		out ~~= " : "
+		out write-expr indent + 1, x.else_
+		out ~~= ")"
+	as java-property-access x
+		out write-expr indent, x.left
+		out ~~= ".{x property}"
+	as java-unary x
+		out ~~= "({x kind}"
+		out write-expr indent, x.arg
+		out ~= ")"
+
+-write-args void(out string-builder, indent nat, args java-expr[])
+	first mut = true
+	out ~= "("
+	for arg : args
+		if first
+			first := false
+		else
+			out ~~= ", "
+		out write-expr indent, arg
+	out ~= ")"

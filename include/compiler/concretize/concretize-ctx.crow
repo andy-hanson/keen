@@ -65,6 +65,7 @@ concretize-ctx record mut
 	-late-char8-const-pointer-type mut concrete-type?
 	-late-char32-array-type mut concrete-type?
 	-late-exception-type mut concrete-type?
+	-late-none-type mut concrete-type?
 	-late-void-type mut concrete-type?
 	-late-integral-types mut (integral-type, concrete-type) enum-map?
 	-late-string-type mut concrete-type?
@@ -103,6 +104,7 @@ new concretize-ctx(
 	late-char8-const-pointer-type: ()
 	late-char32-array-type: ()
 	late-exception-type: ()
+	late-none-type: ()
 	late-void-type: ()
 	late-integral-types: ()
 	late-string-type: ()
@@ -110,8 +112,14 @@ new concretize-ctx(
 
 is-native bool(a concretize-ctx)
 	a.version-info is-native
+is-java bool(a concretize-ctx)
+	a.version-info is-java
 is-js bool(a concretize-ctx)
 	a.version-info is-js
+require-unique-union-types bool(a concretize-ctx)
+	a is-java
+preserve-lambdas bool(a concretize-ctx)
+	a is-js
 create-error-function concrete-fun(a concretize-ctx)
 	a late-create-error-function!
 equal-symbol-function concrete-fun(a concretize-ctx)
@@ -142,7 +150,7 @@ next-id concrete-var-id(a concretize-ctx)
 	res,
 
 concrete-lambda-impl record(closure-type concrete-type, impl concrete-fun) mut
-concrete-sum-type-case record(member-type concrete-type, method-impls mut concrete-fun?[]) mut
+concrete-sum-type-case record(member-type concrete-type, method-impls mut concrete-fun?[]?) mut
 
 finish-concrete-vars concrete-var[](ctx concretize-ctx)
 	for _, v : ctx.concrete-var-lookup; v
@@ -167,6 +175,12 @@ bool-type concrete-type(a concretize-ctx)
 
 json-type concrete-type(a concretize-ctx)
 	a.new-json-from-pairs-function return-type
+
+none-type concrete-type(a concretize-ctx)
+	a late-none-type ?? do
+		res = a get-concrete-type-for-struct-inst a.common-types.none, ()
+		a.late-none-type := res,
+		res
 
 void-type concrete-type(a concretize-ctx)
 	a late-void-type ?? do
@@ -306,7 +320,7 @@ get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-
 			res
 		if res did-add
 			ctx initialize-concrete-struct inst, res.value, type-args
-			if ctx is-native && decl is-lambda-type
+			if ctx !preserve-lambdas && decl is-lambda-type
 				ctx.lambda-structs[res.value id] := res.value, ()
 		if ctx is-native && res.value !default-reference-kind-is-set
 			# The only way this would not be set is if we are still computing its the size.
@@ -350,8 +364,8 @@ concrete-type-from-closure concrete-type(
 	closure-fields concrete-field[],
 	source concrete-struct-source,
 )
-	assert ctx is-native
-	if closure-fields is-empty
+	forbid ctx preserve-lambdas
+	if closure-fields is-empty && ctx !require-unique-union-types
 		ctx void-type
 	else
 		purity mut purity = data_
@@ -368,7 +382,8 @@ concrete-type-from-closure concrete-type(
 			late-default-reference-kind: ()
 			late-type-size: ()
 			field-offsets: ()
-		ctx set-concrete-struct-record-size-or-defer cs
+		if ctx is-native
+			ctx set-concrete-struct-record-size-or-defer cs
 		ctx.all-concrete-structs ~= cs
 		# TODO: consider passing closure by value
 		by-ref_, cs
@@ -566,7 +581,9 @@ add-concrete-fun void(ctx concretize-ctx, fun concrete-fun)
 			ctx.deferred-type-size ~= res
 		cases concrete-sum-type-case mut[] = for member : x listed-members
 			member-type = ctx get-concrete-type-for-struct-inst member.member, type-args
-			member-type, (ctx sum-type-method-impls-common member.method-impls, type-args)
+			method-impls = ctx sum-type-method-impls-common member.method-impls, type-args
+			method-impls.size is x.methods.size
+			member-type, (method-impls,)
 		ctx.sum-types[res id] := res, cases
 		if x.kind == union_
 			res finish-sum-type-cases cases
@@ -588,8 +605,12 @@ ensure-sum-type-case nat(ctx concretize-ctx, sum-type concrete-type, case-type c
 			res = cases size
 			case_ concrete-sum-type-case = case-type, ()
 			cases ~= case_
-			case_.method-impls := ctx sum-type-membership-method-impls sum-type, case-type
+			case_.method-impls := (ctx sum-type-membership-method-impls sum-type, case-type),
+			case_.method-impls!.size is sum-type.sum-type-body-from-type.methods.size
 			res
+
+-sum-type-body-from-type sum-type(a concrete-type)
+	a.must-be-by-val.source.concrete-struct-source-inst!.decl.body sum-type!
 
 finish-sum-type-cases void(sum-type concrete-struct, cases concrete-sum-type-case mut[])
 	sum-type.body.concrete-union!.members := for x : cases
@@ -627,7 +648,7 @@ finish-sum-type-cases void(sum-type concrete-struct, cases concrete-sum-type-cas
 	as option
 		# TODO: this potentially creates a '(void, void)' union, which is the only place it would have the same type multiple times ........
 		# Maybe we could use an impossible type instead. I could declare `-none record` in bootstrap.crow, which would be guaranteed to not be used anywhere.
-		struct.body := ((ctx.void-type, type-args.only),) concrete-union
+		struct.body := ((ctx.none-type, type-args.only),) concrete-union
 		assert struct.body.concrete-union! has-members # TODO: RM (sanity check) ----------------------------------------------
 		if ctx is-native
 			ctx.deferred-type-size ~= struct
@@ -743,6 +764,8 @@ deferred-fill-record-and-union-bodies void(ctx concretize-ctx)
 		match version target
 		as fake-extern
 			throw unreachable
+		as java
+			throw unreachable
 		as linux-native
 			# Keep in sync with 'catch point size' comment in writeToC_boilerplate_posix.c
 			0x40, 8
@@ -753,6 +776,10 @@ deferred-fill-record-and-union-bodies void(ctx concretize-ctx)
 		as windows-native
 			# Keep in sync with 'catch point size' comment in writeToC_boilerplate_msvc.c
 			0x100, 16
+	as java-exclusion
+		throw unreachable
+	as java-any
+		0, 1
 	as js-any
 		# JS builds don't use concretize. But JS type may appear in a union.
 		0, 1

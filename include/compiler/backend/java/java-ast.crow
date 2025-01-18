@@ -1,32 +1,264 @@
 java-ast record
-	classes java-class-decl[]
+	classes java-class[]
+	interfaces java-interface[]
 
-java-class-decl record
-	name java-class-name
-	constructor (java-param[], java-block-statement)
-
-java-class-name record(name string)
-java-method-name record(name string)
-
-java-param record
+java-class record
+	comment string
 	name string
-	type java-type
+	extends string?
+	fields java-field[]
+	constructor java-constructor?
+	methods java-method[]
+java-interface record
+	name string
+	methods java-interface-method[]
+java-interface-method record
+	return-type java-type
+	name string
+	params java-param[]
 
-java-type union(string, java-array)
-java-array record(inner java-type)
+java-constructor record(params java-param[], body java-block-statement)
+
+java-visibility enum(private, internal, public)
+to json(a java-visibility)
+
+java-method record
+	comment string
+	visibility java-visibility
+	kind java-method-kind
+	return-type java-type
+	name string
+	params java-param[]
+	body java-block-statement
+to json(a java-method)
+java-method-kind enum(instance, static)
+to json(a java-method-kind)
+
+java-field alias
+	java-param
+java-param record(type java-type, name string)
+to json(a java-param)
+
+java-type union(string, java-array-type)
+to json(a java-type)
+java-array-type record(inner java-type)
+to json(a java-array-type)
 
 java-block-statement record(statements java-statement[])
+new java-block-statement()
+	(),
+to json(a java-block-statement)
+~ ~ java-block-statement(a java-statement, b java-block-statement)
+	a ~ b.statements,
+~ ~ java-block-statement(a java-block-statement, b java-statement)
+	a.statements ~ b,
+~~ java-block-statement(a java-block-statement, b java-block-statement)
+	a.statements ~~ b.statements,
 
 java-statement union(
-	java-return-statement
+	java-assign-statement,
+	java-break,
+	java-continue,
+	java-expr,
+	java-if-statement,
+	java-return-statement,
+	java-switch-statement,
+	java-throw-statement,
+	java-try-statement,
+	java-var-decl,
+	java-while
 )
+to json(a java-statement)
 
+java-assign-statement record(left java-expr, right java-expr)
+to json(a java-assign-statement)
+java-break record(label string?)
+to json(a java-break)
+java-continue record
+to json(a java-continue)
+java-if-statement record(cond java-expr, then java-block-statement, else_ java-block-statement)
+to json(a java-if-statement)
 java-return-statement record(returned java-expr)
+to json(a java-return-statement)
+java-switch-statement record(matched java-expr, cases java-switch-case[], default java-block-statement)
+to json(a java-switch-statement)
+java-switch-case record(value java-expr, body java-block-statement)
+to json(a java-switch-case)
+java-throw-statement record(thrown java-expr)
+to json(a java-throw-statement)
+java-try-statement record(tried java-block-statement, catches java-catch[], finally_ java-block-statement?)
+to json(a java-try-statement)
+java-catch record(caught-class string, caught-local string, then java-block-statement)
+to json(a java-catch)
+java-var-decl record(type java-type, name string, value java-expr)
+to json(a java-var-decl)
+java-while record(label string?, condition java-expr, body java-block-statement)
+to json(a java-while)
 
-java-expr union(java-static-call-expr)
-
-java-static-call-expr record(
-	called-class java-class-name,
-	called-method java-method-name,
-	args java-expr[]
+java-expr union(
+	java-array-get,
+	java-binary,
+	java-call-instance-method,
+	java-call-static-method,
+	java-cast,
+	java-class-expr,
+	java-iife,
+	java-inline-class,
+	java-instanceof,
+	java-literal-array,
+	java-literal-boolean,
+	java-literal-float,
+	java-literal-int32-or-less,
+	java-literal-int64,
+	java-literal-string,
+	java-local-access,
+	java-new,
+	java-new-array,
+	java-null,
+	java-property-access,
+	java-this,
+	java-ternary,
+	java-unary
 )
+to json(a java-expr)
+# Java compiler will error if certain expressions are used as statements
+is-a-statement bool(a java-expr)
+	match a
+	as java-local-access _
+		false
+	as java-null
+		false
+	as java-property-access x
+		x.left is-a-statement
+	as java-this
+		false
+	else
+		true
+java-array-get record(array java-expr, index java-expr)
+to json(a java-array-get)
+java-binary record(kind java-binary-kind, arg0 java-expr, arg1 java-expr)
+to json(a java-binary)
+java-binary-kind enum
+	bit-shift-left
+	bit-shift-right
+	bitwise-and
+	bitwise-or
+	bitwise-xor
+	divide
+	eq-eq
+	less
+	minus
+	modulo
+	not-equal
+	plus
+	times
+to json(a java-binary-kind)
+show string(a java-binary-kind)
+	match a
+	as bit-shift-left
+		"<<"
+	as bit-shift-right
+		">>"
+	as bitwise-and
+		"&"
+	as bitwise-or
+		"|"
+	as bitwise-xor
+		"^"
+	as divide
+		"/"
+	as eq-eq
+		"=="
+	as less
+		"<"
+	as minus
+		"-"
+	as modulo
+		"%"
+	as not-equal
+		"!="
+	as plus
+		"+"
+	as times
+		"*"
+java-call-instance-method record
+	object java-expr
+	method-name string
+	args java-expr[]
+to json(a java-call-instance-method)
+java-call-static-method record
+	class-and-method-name string
+	args java-expr[]
+to json(a java-call-static-method)
+java-cast record
+	type java-type
+	inner java-expr
+to json(a java-cast)
+# `foo.class`
+java-class-expr record(class_ java-type)
+to json(a java-class-expr)
+# Compiles to ((Iife<T>) () -> { body }).apply()
+java-iife record
+	iife-type string
+	body java-block-statement
+to json(a java-iife)
+# Note: All methods of this will be public
+java-inline-class record
+	type java-type
+	fields java-inline-class-field[]
+	methods java-method[]
+to json(a java-inline-class)
+java-inline-class-field record
+	type java-type
+	name string
+	initializer java-expr
+to json(a java-inline-class-field)
+java-instanceof record
+	value java-expr
+	type java-type
+to json(a java-instanceof)
+java-literal-array record(element-type java-type, values java-expr[])
+to json(a java-literal-array)
+java-literal-boolean record(value bool)
+to json(a java-literal-boolean)
+java-literal-float record(is-float32 bool, value float)
+to json(a java-literal-float)
+java-literal-int32-or-less record(value int32)
+to json(a java-literal-int32-or-less)
+java-literal-int64 record(value int64)
+to json(a java-literal-int64)
+java-literal-string record(value string)
+to json(a java-literal-string)
+java-local-access record(name string)
+to json(a java-local-access)
+java-new record(class-name string, args java-expr[])
+to json(a java-new)
+java-new-array record(element-type java-type, size java-expr)
+to json(a java-new-array)
+java-null record
+to json(a java-null)
+java-this record
+to json(a java-this)
+java-ternary record(cond java-expr, then java-expr, else_ java-expr)
+to json(a java-ternary)
+java-property-access record(left java-expr, property string)
+to json(a java-property-access)
+java-unary record(kind java-unary-kind, arg java-expr)
+to json(a java-unary)
+java-unary-kind enum(bitwise-not, not)
+to json(a java-unary-kind)
+show string(a java-unary-kind)
+	match a
+	as bitwise-not
+		"~"
+	as not
+		"!"
+
+java-expr-or-block-statement union(java-expr, java-block-statement)
+to json(a java-expr-or-block-statement)
+to java-expr-or-block-statement(a java-statement)
+	a.to to
+to java-block-statement(a java-statement)
+	(a,),
+to java-block-statement(a java-expr)
+	a.to to

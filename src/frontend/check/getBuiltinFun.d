@@ -46,6 +46,7 @@ import model.model :
 	isInt16,
 	isInt32,
 	isInt64,
+	isJavaAny,
 	isJsAny,
 	isLambdaType,
 	isMutArray,
@@ -175,7 +176,7 @@ FunBody inner(
 					? BuiltinBinary.mulFloat64
 					: failBinary);
 		case symbol!"==".value:
-			return isBool(rt) && arity == 2 && isJsAny(p0) && isJsAny(p1)
+			return isBool(rt) && arity == 2 && ((isJavaAny(p0) && isJavaAny(p1)) || (isJsAny(p0) && isJsAny(p1)))
 				? FunBody(BuiltinFun(JsFun.eqEqEq))
 				: binary(
 					p0 != p1 ? failBinary :
@@ -323,7 +324,7 @@ FunBody inner(
 				? FunBody(BuiltinFun(JsFun.call))
 				: fail();
 		case symbol!"call-new".value:
-			return isJsAny(rt)
+			return isJavaAnyOrJsAny(rt)
 				? FunBody(BuiltinFun(JsFun.callNew))
 				: fail();
 		case symbol!"call-property".value:
@@ -334,8 +335,13 @@ FunBody inner(
 			return isJsAny(rt) && arity == 3 && isJsAny(p0) && isString(p1) && isTypeParam0Array(p2)
 				? FunBody(BuiltinFun(JsFun.callPropertySpread))
 				: fail();
+		case symbol!"call-instance".value:
+		case symbol!"as-java".value:
+		case symbol!"call-static".value:
+		case symbol!"call-static-varargs".value:
+			return FunBody(BuiltinFun(BuiltinFunGcSafeValue())); // -----------------------------------------------------
 		case symbol!"cast".value:
-			return isTypeParam0(rt) && arity == 1 && isJsAny(p0)
+			return isTypeParam0(rt) && arity == 1 && isJavaAnyOrJsAny(p0)
 				? FunBody(BuiltinFun(JsFun.cast_))
 				: fail();
 		case symbol!"count-ones".value:
@@ -363,6 +369,8 @@ FunBody inner(
 				: failUnary);
 		case symbol!"gc-safe-value".value:
 			return FunBody(BuiltinFun(BuiltinFunGcSafeValue()));
+		case symbol!"get-static-field".value:
+			return FunBody(BuiltinFun(BuiltinFunGcSafeValue())); // -------------------------------------------------------------
 		case symbol!"global-init".value:
 			return arity == 0 ? FunBody(BuiltinFun(BuiltinFunInit.global)) : fail();
 		case symbol!"infinity".value:
@@ -398,6 +406,12 @@ FunBody inner(
 			return isJsAny(rt) && arity == 1 && isJsAny(p0)
 				? FunBody(BuiltinFun(JsFun.await))
 				: fail();
+		case symbol!"java-array-get".value:
+		case symbol!"java-array-set".value:
+		case symbol!"java-cur-exclusion".value:
+		case symbol!"java-change-exclusion".value:
+		case symbol!"java-new-array".value:
+			return FunBody(BuiltinFun(JsFun.jsGlobal)); // ---------------------------------------------------------------------------------------------------
 		case symbol!"js-global".value:
 			return isJsAny(rt) && arity == 0 ? FunBody(BuiltinFun(JsFun.jsGlobal)) : fail();
 		case symbol!"mark-root".value:
@@ -736,6 +750,9 @@ bool isTypeParam0Array(in Type a) =>
 
 bool isCString(in Type a) =>
 	isPointerConst(a) && isChar8(pointeeType(a));
+
+bool isJavaAnyOrJsAny(in Type a) =>
+	isJavaAny(a) || isJsAny(a);
 
 bool isTypeParam0(in Type a) =>
 	a.isA!TypeParamIndex && a.as!TypeParamIndex.index == 0;

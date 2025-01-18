@@ -68,7 +68,11 @@ get-builtin-fun fun-body(ctx check-ctx, fun fun-decl)
 			elif is-binary-float64
 				mul-float64,
 	as "=="
-		if rt is-bool && arity == 2 && p0 is-js-any && p1 is-js-any
+		guard rt is-bool
+		guard arity == 2
+		if p0 is-java-any && p1 is-java-any
+			equal::java-fun.to,
+		elif p0 is-js-any && p1 is-js-any
 			eq-eq-eq::js-fun.to,
 		elif p0 == p1
 			arity binary if p0 is-char8
@@ -202,6 +206,9 @@ get-builtin-fun fun-body(ctx check-ctx, fun fun-decl)
 	as as-mut-array-impl
 		if rt is-probably-mut-array-impl && p0 is-mut-array
 			arity unary as-mut-array-impl
+	as as-java
+		if arity == 1 && rt is-java-any && p0 is-type-param-0
+			as-java-any::java-fun.to,
 	as as-js
 		if arity == 1 && rt is-js-any && p0 is-type-param-0
 			as-js-any::js-fun.to,
@@ -227,8 +234,13 @@ get-builtin-fun fun-body(ctx check-ctx, fun fun-decl)
 	as call
 		if rt is-js-any
 			call::js-fun.to,
+	as call-instance
+		if rt is-type-param-0 && p0 is-type-param-1 && p1 is-string
+			call-instance::java-fun.to,
 	as call-new
-		if rt is-js-any
+		if rt is-java-any && p0 is-string && p1 is-java-any-array
+			call-new::java-fun.to,
+		elif rt is-js-any
 			call-new::js-fun.to,
 	as call-property
 		if rt is-js-any && arity >= 2 && p0 is-js-any && p1 is-string # other args are type params
@@ -236,9 +248,18 @@ get-builtin-fun fun-body(ctx check-ctx, fun fun-decl)
 	as call-property-spread
 		if arity == 3  && rt is-js-any && p0 is-js-any && p1 is-string && p2 is-type-param-0-array
 			call-property-spread::js-fun.to,
+	as call-static
+		if rt is-type-param-0 && p0 is-string && p1 is-string
+			call-static::java-fun.to,
+	as call-static-varargs
+		if arity == 3 && rt is-type-param-0 && p0 is-string && p1 is-string && p2 is-java-any-array
+			call-static-varargs::java-fun.to,
 	as cast
-		if arity == 1 && rt is-type-param-0 && p0 is-js-any
-			cast::js-fun.to,
+		if arity == 1 && rt is-type-param-0
+			if p0 is-java-any
+				cast::java-fun.to,
+			elif p0 is-js-any
+				cast::js-fun.to,
 	as count-ones
 		if p0 is-nat64
 			arity unary count-ones-nat64
@@ -261,6 +282,9 @@ get-builtin-fun fun-body(ctx check-ctx, fun fun-decl)
 			float64-from-bits,
 	as gc-safe-value
 		builtin-fun-gc-safe-value,
+	as get-static-field
+		if arity == 2 && rt is-java-any && p0 is-string && p1 is-string
+			get-static-field::java-fun.to,
 	as global-init
 		global_::builtin-fun-init.to,
 	as infinity
@@ -304,6 +328,27 @@ get-builtin-fun fun-body(ctx check-ctx, fun fun-decl)
 	as await
 		if arity == 1 && rt is-js-any && p0 is-js-any
 			await::js-fun.to,
+	as java-array-get
+		if arity == 2 && rt is-type-param-0 && p0 is-type-param-0-array-or-mut-slice && p1 is-nat32
+			array-get::java-fun.to,
+	as java-array-set
+		if arity == 3 && rt is-void && p0 is-type-param-0-mut-slice && p1 is-nat32 && p2 is-type-param-0
+			array-set::java-fun.to,
+	as java-change-exclusion
+		if arity == 1 && rt is-void && p0 is-java-exclusion
+			change-exclusion::java-fun.to,
+	as java-cur-exclusion
+		if arity == 0 && rt is-java-exclusion
+			cur-exclusion::java-fun.to,
+	as java-new-array
+		if arity == 1 && rt is-type-param-0-array-or-mut-slice && p0 is-nat32
+			new-array::java-fun.to,
+		else
+			# ----------------------------------------------------------------------------------------------------------------------
+			info log "arity is {arity}"
+			info log "rt? {rt is-type-param-0-array-or-mut-slice} {rt.to::json}"
+			info log "p0? {p0 is-nat32} {p0.to::json}"
+			()
 	as js-global
 		if arity == 0 && rt is-js-any
 			js-global::js-fun.to,
@@ -638,10 +683,21 @@ get-builtin-fun fun-body(ctx check-ctx, fun fun-decl)
 -is-char8-array bool(a type)
 	if t ?= a array-element-type
 		t is-char8
+-is-java-any-array bool(a type)
+	if t ?= a array-element-type
+		t is-java-any
 -is-type-param-0-array bool(a type)
 	if t ?= a array-element-type
+		t is-type-param-0
+-is-type-param-0-mut-slice bool(a type)
+	if t ?= a mut-slice-element-type
+		t is-type-param-0
+-is-type-param-0-array-or-mut-slice bool(a type)
+	if t ?= a array-or-mut-slice-element-type
 		t is-type-param-0
 -is-c-string bool(a type)
 	a is-pointer-const && a.pointee-type is-char8
 -is-type-param-0 bool(a type)
 	a == 0.type-param-index
+-is-type-param-1 bool(a type)
+	a == 1.type-param-index

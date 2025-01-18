@@ -1,6 +1,7 @@
 import
 	crow/io/file
 	crow/io/process
+	crow/java
 	crow/js
 	crow/result
 	../backend/write-to-c
@@ -9,6 +10,8 @@ import
 	../model/model
 	../model/parse-diag
 	../model/uri
+
+# TODO: most of this code should be moved to the std library ------------------------------------------------------------------
 
 exit record(exit-code int32) exception case
 exit exception()
@@ -20,12 +23,29 @@ show string(a exit-signal)
 	"Should exit with signal {a signal}"
 
 path-exists bool(path file-path) summon, trusted
-	assert extern native : todo
-	path.to path-exists
+	if extern native
+		path.to path-exists
+	elif extern java
+		file java-any = "java.io.File" call-new (path.to::string.as-java,)
+		file call-instance "exists"
+	elif extern js
+		fs call-property "existsSync", path.to::string cast
+	else
+		throw todo
 
 write-file void(path file-path, content string) summon, trusted
-	assert extern native : todo
-	path.to write-file content
+	if extern native
+		path.to write-file content
+	elif extern java
+		# TODO: catch exceptions -----------------------------------------------------------------------------------------
+		utf8 = "java.nio.charset.StandardCharsets" get-static-field "UTF_8"
+		bytes nat8[] = content.as-java call-instance "getBytes", utf8
+		java-path java-any = "java.nio.file.Paths" call-static "get", path.to::string
+		_ void = "java.nio.file.Files" call-static "write", (java-path, bytes)
+	elif extern js
+		fs call-property "writeFileSync", path.to::string, content cast
+	else
+		throw todo
 
 allow-overwrite enum(allow, disallow)
 write-file void(path file-path, content string, permissions permissions, overwrite allow-overwrite) summon
@@ -39,8 +59,34 @@ write-file void(path file-path, content string, permissions permissions, overwri
 	path set-permissions permissions.user-only
 
 set-permissions void(path file-path, permissions file-permissions) summon, trusted
-	assert extern native : todo
-	path.to set-permissions permissions
+	if extern native
+		path.to set-permissions permissions
+	elif extern java
+		args java-any[] = for name : permissions java-permission-names
+			"java.nio.file.attribute.PosixFilePermission" get-static-field name
+		perms java-any = "java.util.EnumSet" call-static-varargs "of", args
+		_ void = "java.nio.file.Files" call-static "setPosixFilePermissions", path.to::string.as-java, perms
+	elif extern js
+		_ = fs call-property "chmodSync", path.to::string, permissions.to::nat32.to::nat64.to::float
+	else
+		throw todo
+
+-java-permission-names string[](a file-permissions)
+	with out : build
+		for x : a.user java-permission-names
+			out ~= "OWNER_{x}"
+		for x : a.group java-permission-names
+			out ~= "GROUP_{x}"
+		for x : a.public java-permission-names
+			out ~= "OTHERS_{x}"
+-java-permission-names string[](a permissions)
+	with out : build
+		if a read
+			out ~= "READ"
+		if a write
+			out ~= "WRITE"
+		if a execute
+			out ~= "EXECUTE"
 
 remove-file-if-exists void(a file-path) summon
 	try
@@ -48,8 +94,12 @@ remove-file-if-exists void(a file-path) summon
 	catch path-not-found _
 		()
 remove-file void(a file-path) summon, trusted
-	assert extern native : todo
-	a.to remove-file
+	if extern native
+		a.to remove-file
+	elif extern js
+		_ = fs call-property "unlinkSync", a.to::string
+	else
+		throw todo
 
 write-files-to-dir void(_ file-path, _ path-and-content[]) summon
 	throw todo # See the D version
@@ -86,13 +136,31 @@ each-file-in-directory-recursive void(
 			path each-file-in-directory-recursive f
 
 get-path-kind path-kind(path file-path) summon, trusted
-	assert extern native : todo
-	path.to get-path-kind
+	if extern native
+		path.to get-path-kind
+	elif extern js
+		# TODO: handle dir not found exception ------------------------------------------------------------------------------
+		stat = fs call-property "lstatSync", path.to::string
+		if stat call-property "isDirectory" js-cast
+			directory
+		elif stat call-property "isFile" js-cast
+			file
+		else
+			other
+	else
+		throw todo
 
 get-paths-in-dir file-path[](dir-path file-path) summon, trusted
-	assert extern native : todo
-	for x : dir-path.to paths-in-dir
-		x must-parse-file-path
+	if extern native
+		for x : dir-path.to paths-in-dir
+			x must-parse-file-path
+	elif extern js
+		# TODO: handle dir not found exception ------------------------------------------------------------------------------
+		names string[] = fs call-property "readdirSync", dir-path.to::string js-cast
+		for name : names
+			dir-path / name.to
+	else
+		throw todo
 
 try-read-file read-file-result(uri uri) summon
 	guard uri uri-is-file : not-found::read-file-diag.to
@@ -128,6 +196,8 @@ this-executable file-path() summon, trusted
 	if extern native
 		assert extern posix : todo
 		current-executable-path must-parse-file-path
+	elif extern java
+		"/home/andy/crow/bin/crow" must-parse-file-path # ---------------------------------------------------------------------------------------------
 	elif extern js
 		"/home/andy/crow/bin/crow" must-parse-file-path # ---------------------------------------------------------------------------------------------
 		#res string = fs call-property "readlinkSync", "/proc/self/exe"::string cast
@@ -138,13 +208,15 @@ this-executable file-path() summon, trusted
 do-read-file nat8[](path string) summon, trusted
 	if extern native
 		path read-file
+	elif extern java
+		# TODO: would be better to catch a file-not-found exception
+		assert path.must-parse-file-path path-exists : path path-not-found
+		"java.nio.file.Files" call-static "readAllBytes", path.as-java
 	elif extern js
-		f js-any mut() = () => fs call-property "readFileSync", path
-		match f catch-all
+		match (() => fs call-property "readFileSync", path) catch-all
 		as ok x
 			bytes float64[] = "Array".js-global call-property "from", x.value cast
-			for byte : bytes
-				byte to
+			for byte : bytes; byte to
 		as fail x
 			exception = x.value exception
 			code string = exception.threw-non-exception!.thrown["code"] cast

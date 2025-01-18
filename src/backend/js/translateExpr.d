@@ -292,6 +292,7 @@ private Opt!JsExpr genIsNotBuiltinType(ref TranslateModuleCtx ctx, in Source sou
 			return typeof_("function");
 		case BuiltinType.future:
 			return instanceof(symbol!"Promise");
+		case BuiltinType.javaAny:
 		case BuiltinType.jsAny:
 			return none!JsExpr;
 		case BuiltinType.lambdaData:

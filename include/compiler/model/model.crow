@@ -49,14 +49,18 @@ specs alias
 
 type union(bogus-type, type-param-index, struct-inst) mut
 == bool(a type, b type)
+to json(a type)
 bogus-type record
 == bool(a bogus-type, b bogus-type)
 <=> comparison(a bogus-type, b bogus-type)
+to json(a bogus-type)
 | Represent type parameter as the index, so we don't generate different types for every 't[]'.
 | (These are disambiguated in the type checker using 'TypeAndContext')
 type-param-index record(index nat)
 == bool(a type-param-index, b type-param-index)
 <=> comparison(a type-param-index, b type-param-index)
+to json(a type-param-index)
+	a.index to
 
 debug string(a type)
 	match a
@@ -105,6 +109,8 @@ is-mut-array bool(a struct-inst)
 	a is-builtin-type mut-array
 is-mut-slice bool(a type)
 	a is-builtin-type mut-slice
+is-array-or-mut-slice bool(a type)
+	a is-builtin-type array || a is-builtin-type mut-slice
 is-array-or-mut-slice bool(a struct-decl)
 	a is-builtin-type array || a is-builtin-type mut-slice
 
@@ -141,8 +147,12 @@ is-int32 bool(a type)
 	a is-builtin-type int32
 is-int64 bool(a type)
 	a is-builtin-type int64
+is-java-any bool(a type)
+	a is-builtin-type java-any
 is-js-any bool(a type)
 	a is-builtin-type js-any
+is-java-exclusion bool(a type)
+	a is-builtin-type java-exclusion
 is-nat8 bool(a type)
 	a is-builtin-type nat8
 is-nat16 bool(a type)
@@ -184,6 +194,12 @@ as-integral-type integral-type?(a type)
 
 array-element-type type?(a type)
 	if a is-array
+		a.struct-inst!.type-args.only,
+mut-slice-element-type type?(a type)
+	if a is-mut-slice
+		a.struct-inst!.type-args.only,
+array-or-mut-slice-element-type type?(a type)
+	if a is-array-or-mut-slice
 		a.struct-inst!.type-args.only,
 
 try-unwrap-option-type type?(a type)
@@ -465,6 +481,8 @@ builtin-type enum
 	int16
 	int32
 	int64
+	java-any
+	java-exclusion
 	js-any
 	# TODO: call these 'lambda' (requires changing the name in the struct decl too) -----------------------------------------------
 	fun-data
@@ -701,6 +719,8 @@ inst-id alias
 struct-inst record(id inst-id, decl struct-decl, type-args type-args) mut
 == bool(a struct-inst, b struct-inst)
 	trusted a reference-equal b
+to json(a struct-inst)
+	("decl", a.decl.name.to), ("type-args", a.type-args.to)
 linkage-range linkage-range(a struct-inst)
 	res mut linkage-range = a.decl.linkage, a.decl.linkage
 	for x : a type-args
@@ -769,6 +789,8 @@ name-range uri-and-range(a spec-decl)
 spec-inst record(id inst-id, decl spec-decl, type-args type-args, body mut spec-inst-body) mut
 == bool(a spec-inst, b spec-inst)
 	a.id == b.id
+to json(a spec-inst)
+	("decl", a.decl.name.to), ("type-args", a.type-args.to)
 debug string(a spec-inst)
 	"{a.type-args debug-type-args} {a.decl name}"
 parents spec-inst[](a spec-inst)
@@ -887,6 +909,23 @@ sum-type-member-get record
 var-get record(var var-decl) mut
 var-set record(var var-decl) mut
 
+java-fun enum
+	array-get
+	array-set
+	as-java-any
+	call-instance
+	call-new
+	call-static
+	call-static-varargs
+	change-exclusion
+	cast
+	cur-exclusion
+	equal
+	get-static-field
+	new-array
+== bool(a java-fun, b java-fun)
+to json(a java-fun)
+
 js-fun enum
 	as-js-any
 	await
@@ -905,6 +944,7 @@ js-fun enum
 	set
 	typeof
 == bool(a js-fun, b js-fun)
+to json(a js-fun)
 
 builtin-fun union(
 	builtin-fun-all-tests,
@@ -920,6 +960,7 @@ builtin-fun union(
 	builtin-fun-constant,
 	builtin-fun-gc-safe-value,
 	builtin-fun-init,
+	java-fun,
 	js-fun,
 	builtin-fun-mark-root,
 	builtin-fun-mark-visit,
@@ -930,22 +971,38 @@ builtin-fun union(
 	builtin-fun-static-symbols,
 	version-fun
 )
+to json(a builtin-fun)
 builtin-fun-all-tests record
+to json(a builtin-fun-all-tests)
 builtin-fun-call-lambda record
+to json(a builtin-fun-call-lambda)
 builtin-fun-call-fun-pointer record
+to json(a builtin-fun-call-fun-pointer)
 # 'float' works for float32 constants too
 builtin-fun-constant union(bool, float, builtin-fun-constant-null, builtin-fun-constant-void)
+to json(a builtin-fun-constant)
 builtin-fun-constant-null record
+to json(a builtin-fun-constant-null)
 builtin-fun-constant-void record
+to json(a builtin-fun-constant-void)
 builtin-fun-gc-safe-value record
+to json(a builtin-fun-gc-safe-value)
 builtin-fun-init enum(global_, per-thread)
+to json(a builtin-fun-init)
 builtin-fun-mark-root record
+to json(a builtin-fun-mark-root)
 builtin-fun-mark-visit record
+to json(a builtin-fun-mark-visit)
 builtin-fun-new-empty-option record
+to json(a builtin-fun-new-empty-option)
 builtin-fun-new-non-empty-option record
+to json(a builtin-fun-new-non-empty-option)
 builtin-fun-pointer-cast record
+to json(a builtin-fun-pointer-cast)
 builtin-fun-size-of record
+to json(a builtin-fun-size-of)
 builtin-fun-static-symbols record
+to json(a builtin-fun-static-symbols)
 
 builtin-unary enum
 	| works on mut-slice too
@@ -1009,6 +1066,7 @@ builtin-unary enum
 to symbol(a builtin-unary)
 show string(a builtin-unary)
 	a.to::symbol to
+to json(a builtin-unary)
 
 builtin-unary-math enum
 	acos-float32
@@ -1045,6 +1103,7 @@ builtin-unary-math enum
 	tanh-float64
 	unsafe-log-float32
 	unsafe-log-float64
+to json(a builtin-unary-math)
 
 # IDEA: this could be a union with 'bitwise-or record(type integral-type)'. That would cut down on all these members. --------------------------
 builtin-binary enum
@@ -1163,6 +1222,7 @@ builtin-binary enum
 	wrap-sub-nat64
 	write-to-pointer
 == bool(a builtin-binary, b builtin-binary)
+to json(a builtin-binary)
 
 | These all have a lazy second argument
 builtin-binary-lazy enum
@@ -1171,6 +1231,7 @@ builtin-binary-lazy enum
 	option-or
 	option-question-2
 == bool(a builtin-binary-lazy, b builtin-binary-lazy)
+to json(a builtin-binary-lazy)
 
 builtin-binary-math enum
 	atan2-float32
@@ -1180,9 +1241,12 @@ builtin-binary-math enum
 	fmod-float64
 	unsafe-pow-float32
 	unsafe-pow-float64
+to json(a builtin-binary-math)
 
 builtin-ternary enum(interpreter-backtrace)
+to json(a builtin-ternary)
 builtin-4ary enum(switch-fiber-initial)
+to json(a builtin-4ary)
 
 fun-flags record
 	bare_ bool
@@ -1379,6 +1443,8 @@ fun-inst record mut
 	type-args type-args
 	spec-impls spec-impls
 	instantiated-sig return-and-param-types
+to json(a fun-inst)
+	("decl", a.decl.name.to), ("type-args", a.type-args.to), ("spec-impls", a.spec-impls.to)
 name symbol(a fun-inst)
 	a.decl name
 return-type type(a fun-inst)
@@ -1395,6 +1461,7 @@ param-types type[](a return-and-param-types)
 	a.return-and-param-types[1 .. end]
 
 called-spec-sig record(spec-inst spec-inst, sig-index nat) mut
+to json(a called-spec-sig)
 instantiated-sig return-and-param-types(a called-spec-sig)
 	a.spec-inst.sig-types[a sig-index]
 return-type type(a called-spec-sig)
@@ -1424,6 +1491,12 @@ called-decl union(fun-decl, called-spec-sig) mut
 	return-type type()
 	arity arity()
 	doc-comment doc-comment()
+to json(a called-decl)
+	match a
+	as fun-decl x
+		x.name to
+	as called-spec-sig x
+		x.name to
 range uri-and-range(a called-decl)
 	match a
 	as fun-decl x
@@ -1445,7 +1518,9 @@ called union(called-bogus, fun-inst, called-spec-sig) mut
 	return-type type()
 	param-types type[]()
 	arity arity()
+to json(a called)
 called-bogus record(decl called-decl, return-type type, param-types type[]) mut
+to json(a called-bogus)
 arity arity(a called-bogus)
 	a.decl arity
 
@@ -1706,6 +1781,7 @@ common-funs record mut
 	throw-impl fun-inst
 	equal-symbol fun-inst
 	rethrow-current-exception fun-inst
+	show-exception fun-inst
 	concat-arrays fun-decl
 	gc-root fun-inst
 	set-gc-root fun-inst
@@ -1727,6 +1803,7 @@ common-types record mut
 	future struct-decl
 	integrals integral-types
 	js-any struct-inst
+	none struct-inst
 	string struct-inst
 	symbol struct-inst
 	symbol-array struct-inst
@@ -1814,15 +1891,40 @@ nat64 struct-inst(a integral-types)
 	a[nat64]
 
 char-type enum(char8, char32)
+== bool(a char-type, b char-type)
+to json(a char-type)
 float-type enum(float32, float64)
 to symbol(a float-type)
+to json(a float-type)
 integral-type enum(int8, int16, int32, int64, nat8, nat16, nat32, nat64)
-== bool(a integral-type, b integral-type)
 to nat32(a integral-type)
+== bool(a integral-type, b integral-type)
+<=> comparison(a integral-type, b integral-type)
+hash-mix void(a hasher, b integral-type)
+	a hash-mix b.to::nat32
 to symbol(a integral-type)
 show string(a integral-type)
 	a.to::symbol to
+to json(a integral-type)
 members integral-type[]()
+to builtin-type(a integral-type)
+	match a
+	as int8
+		int8
+	as int16
+		int16
+	as int32
+		int32
+	as int64
+		int64
+	as nat8
+		nat8
+	as nat16
+		nat16
+	as nat32
+		nat32
+	as nat64
+		nat64
 is-signed bool(a integral-type)
 	match a
 	as int8
@@ -1843,6 +1945,8 @@ is-signed bool(a integral-type)
 		false
 
 char-or-integral-type union(char-type, integral-type)
+	to json()
+== bool(a char-or-integral-type, b char-or-integral-type)
 is-signed bool(a char-or-integral-type)
 	match a
 	as char-type _
@@ -1911,6 +2015,8 @@ all-externs-for-main-config symbol-set(main-config config, target build-target?)
 	match target
 	as fake-extern
 		"fake",
+	as java
+		"java",
 	as linux-native
 		"libc", "linux", "native", "posix", "pthread", "sodium", "unwind"
 	as node-js
@@ -2113,6 +2219,8 @@ local record mut
 	# TODO: This needs to be mutable so we can switch a local-mutable-on-stack to local-mutable-allocated. Maybe we should store the llocation info separately?
 	mutability mut local-mutability
 	type type
+to json(a local)
+	a.name to
 name symbol(a local)
 	match a source
 	as single-destructure-ast x
@@ -2145,6 +2253,8 @@ to-mutability mutability(a local-mutability)
 		mut_
 
 closure-ref record(lambda lambda-expr, index nat) mut
+to json(_ closure-ref)
+	"TODO"::string to # -------------------------------------------------------------------------------------------------------------------
 variable-ref variable-ref(a closure-ref)
 	a.lambda.closure[a index]
 local local(a closure-ref)
@@ -2160,6 +2270,13 @@ closure-reference-kind enum(direct, allocated)
 == bool(a closure-reference-kind, b closure-reference-kind)
 
 variable-ref union(local, closure-ref) mut
+# TODO: this could be a method, but there's a bug in concretize if the method implementation accesses the union --------------------
+to json(a variable-ref)
+	match a
+	as local x
+		x to
+	as closure-ref x
+		x to
 # TODO: this could be a method, but there's a bug in concretize if the method implementation accesses the union --------------------
 name symbol(a variable-ref)
 	match a
@@ -2188,15 +2305,19 @@ closure-reference-kind closure-reference-kind(a variable-ref)
 
 
 destructure union(destructure-ignore, local, destructure-split) mut
+to json(a destructure)
 | This can come from '_' or '()' (which is the same as '_ void')
 # TODO: isn't 'pos' redundant to the source? ------------------------------------------------------------------------------------
 destructure-ignore record(source destructure-ignore-source, pos pos, type type) mut
+to json(a destructure-ignore)
+	("pos", a.pos.to), ("type", a.type.to)
 destructure-ignore-source union(case-member-ast, struct-decl, single-destructure-ast, void-destructure-ast) mut
 destructure-split record mut
 	| This will be the type attempted to destructure.
 	| If it can't be destructured, each of 'parts' will have a bogus type.
 	destructured-type type
 	parts destructure[]
+to json(a destructure-split)
 is-valid-destructure bool(a destructure-split, common-types common-types)
 	if types ?= common-types as-tuple a.destructured-type
 		types.size == a.parts.size
@@ -2305,6 +2426,7 @@ expr union(
 	typed-expr
 ) mut
 	range source-range()
+to json(a expr)
 start pos(a expr)
 	a.range start
 end pos(a expr)
@@ -2388,7 +2510,9 @@ type type(a expr, common-types common-types?)
 		x type common-types
 
 condition union(expr, unpack-option) mut
+to json(a condition)
 unpack-option record(destructure destructure, option expr) mut
+to json(a unpack-option)
 extern-condition record
 	is-negated bool
 	| If isNegated is set, this means !(x && y && ...)
@@ -2440,6 +2564,7 @@ assert-or-forbid-expr record mut
 	condition condition
 	thrown expr?
 	after expr
+to json(a assert-or-forbid-expr)
 range source-range(a assert-or-forbid-expr)
 	a.ast range
 default-assert-or-forbid-message string(cur-uri uri, a assert-or-forbid-expr, content file-content-getters)
@@ -2451,9 +2576,11 @@ default-assert-or-forbid-message string(cur-uri uri, a assert-or-forbid-expr, co
 	prefix ~~ content[cur-uri, range]
 
 bogus-expr record(range source-range, expected-type type) mut
+to json(a bogus-expr)
 
 | Wraps an expression that has an invalid type.
 bogus-wrong-type-expr record(inner expr, expected-type type) mut
+to json(a bogus-wrong-type-expr)
 range source-range(a bogus-wrong-type-expr)
 	a.inner range
 
@@ -2473,6 +2600,8 @@ call-expr-source union(
 	with-ast
 )
 	range source-range()
+to json(_ call-expr-source)
+	() # ------------------------------------------------------------------------------------------------------------------------
 name-range source-range(a call-expr-source)
 	match a
 	as arrow-access-ast x
@@ -2508,10 +2637,12 @@ bogus-call-expr record mut
 	| Note: It may have given up on checking arguments.
 	checked-args expr[]
 	expected-type type
+to json(a bogus-call-expr)
 range source-range(a bogus-call-expr)
 	a.ast range
 
 call-expr record(ast call-expr-source, called called, args expr[]) mut
+to json(a call-expr)
 range source-range(a call-expr)
 	a.ast range
 type type(a call-expr)
@@ -2526,6 +2657,8 @@ call-option-expr record mut
 	all-args expr[]
 	| If 'called.returnType' is not an option, this wraps it in an option.
 	type struct-inst
+to json(a call-option-expr)
+	("called", a.called.to), ("all-args", a.all-args.to), ("type", a.type.to)
 range source-range(a call-option-expr)
 	a.ast range
 wraps-return-as-option bool(a call-option-expr)
@@ -2536,24 +2669,28 @@ rest-args expr[](a call-option-expr)
 	a.all-args[1 .. end]
 
 closure-get-expr record(range source-range, closure-ref closure-ref) mut
+to json(a closure-get-expr)
 type type(a closure-get-expr)
 	a.local type
 local local(a closure-get-expr)
 	a.closure-ref local
 
 closure-set-expr record(assignee-range source-range, closure-ref closure-ref, value expr) mut
+to json(a closure-set-expr)
 range source-range(a closure-set-expr)
 	a.assignee-range combine-ranges a.value.range
 local local(a closure-set-expr)
 	a.closure-ref local
 
 extern-expr record(ast extern-ast, names symbol-set)
+to json(a extern-expr)
 range source-range(a extern-expr)
 	a.ast range
 
-builtin-extern enum
+builtin-extern enum # TODO: this isn't really used as an enum? It's only used to see if a symbol is a builtin extern ----------------
 	DbgHelp
 	fake
+	java
 	js
 	libc
 	linux
@@ -2569,12 +2706,14 @@ is-builtin-extern bool(a symbol)
 	a.to::builtin-extern? !is-empty
 
 finally-expr record(ast finally-ast, right expr, below expr) mut
+to json(a finally-expr)
 range source-range(a finally-expr)
 	a.ast range
 type type(a finally-expr, common-types common-types?)
 	a.below type common-types
 
 fun-pointer-expr record(ast ptr-ast, called called, type struct-inst) mut
+to json(a fun-pointer-expr)
 range source-range(a fun-pointer-expr)
 	a.ast range
 
@@ -2584,6 +2723,7 @@ if-expr record mut
 	condition condition
 	true-branch expr
 	false-branch expr
+to json(a if-expr)
 range source-range(a if-expr)
 	a.ast range
 first-branch expr(a if-expr)
@@ -2597,6 +2737,7 @@ type type(a if-expr, common-types common-types?)
 lambda-source union(for-ast, lambda-ast, with-ast)
 	param destructure-ast()
 	range source-range()
+to json(a lambda-source)
 
 lambda-expr record mut
 	ast lambda-source
@@ -2606,8 +2747,11 @@ lambda-expr record mut
 	body mut expr
 	closure mut variable-ref[]
 	type mut struct-inst
+to json(a lambda-expr)
+	("kind", a.kind.to), ("param", a.param.to), ("body", a.body.to), ("closure", a.closure.to), ("type", a.type.to)
 lambda-kind enum(data_, shared_, mut_, explicit-shared)
 == bool(a lambda-kind, b lambda-kind)
+to json(a lambda-kind)
 range source-range(a lambda-expr)
 	a.ast range
 return-type type(a lambda-expr)
@@ -2619,12 +2763,14 @@ is-ignore bool(a lambda-expr)
 		x.source.void-destructure-ast !is-empty
 
 let-expr record(ast let-ast, destructure destructure, value expr, then expr) mut
+to json(a let-expr)
 range source-range(a let-expr)
 	a.destructure.start, a.then.end
 type type(a let-expr, common-types common-types?)
 	a.then type common-types
 
 literal-float-expr record(range source-range, float-type float-type, value float)
+to json(a literal-float-expr)
 type struct-inst(a literal-float-expr, common-types common-types?)
 	common-types![a float-type]
 
@@ -2632,6 +2778,7 @@ literal-integral-expr record
 	range source-range
 	integral-type char-or-integral-type
 	value integral-value
+to json(a literal-integral-expr)
 is-signed bool(a literal-integral-expr)
 	a.integral-type is-signed
 type struct-inst(a literal-integral-expr, common-types common-types?)
@@ -2642,30 +2789,40 @@ literal-string-like-expr record
 	string-type string-like-type
 	| For char32-array, this will be decoded in concretize.
 	value string
+to json(a literal-string-like-expr)
 string-like-type enum(char8-array, char32-array, c-string, js-any, string, symbol)
+to json(a string-like-type)
 type struct-inst(a literal-string-like-expr, common-types common-types?)
 	common-types![a string-type]
 
 local-get-expr record(range source-range, local local) mut
+to json(a local-get-expr)
 type type(a local-get-expr)
 	a.local type
 
 local-pointer-expr record(ast ptr-ast, local local, type struct-inst) mut
+to json(a local-pointer-expr)
 range source-range(a local-pointer-expr)
 	a.ast range
 
 local-set-expr record(assignee-range source-range, local local, value expr) mut
+to json(a local-set-expr)
 range source-range(a local-set-expr)
 	a.assignee-range combine-ranges a.value.range
 
 loop-expr record(ast loop-ast, type type, body mut expr) mut
+to json(a loop-expr)
 range source-range(a loop-expr)
 	a.ast range
 
 loop-break-expr record(ast loop-break-ast, loop_ loop-expr, value expr) mut
+to json(a loop-break-expr)
+	("value", a.value.to),
 range source-range(a loop-break-expr)
 	a.ast range
 loop-continue-expr record(ast loop-continue-ast, loop_ loop-expr) mut
+to json(_ loop-continue-expr)
+	()
 range source-range(a loop-continue-expr)
 	a.ast range
 
@@ -2675,6 +2832,8 @@ loop-while-or-until-expr record mut
 	| Always of type 'void'
 	body expr
 	after expr
+to json(a loop-while-or-until-expr)
+	("condition", a.condition.to), ("body", a.body.to), ("after", a.after.to)
 is-until bool(a loop-while-or-until-expr)
 	a.ast is-until
 range source-range(a loop-while-or-until-expr)
@@ -2685,7 +2844,11 @@ match-enum-expr record mut
 	matched expr
 	cases match-enum-case[]
 	else_ expr?
+to json(a match-enum-expr)
+	("matched", a.matched.to), ("cases", a.cases.to), ("else", a.else_.to)
 match-enum-case record(member enum-or-flags-member, then expr) mut
+to json(a match-enum-case)
+	("member", a.member.name.to), ("then", a.then.to)
 range source-range(a match-enum-expr)
 	a.ast range
 type type(a match-enum-expr, common-types common-types?)
@@ -2710,7 +2873,10 @@ match-integral-expr record mut
 	matched expr
 	cases match-integral-case[]
 	else_ expr
+to json(a match-integral-expr)
+	("integral-type", a.integral-type.to), ("matched", a.matched.to), ("cases", a.cases.to), ("else", a.else_.to)
 match-integral-case record(value integral-value, then expr) mut
+to json(a match-integral-case)
 range source-range(a match-integral-expr)
 	a.ast range
 type type(a match-integral-expr, common-types common-types?)
@@ -2726,7 +2892,10 @@ match-string-like-expr record mut
 	equals called
 	cases match-string-like-case[]
 	else_ expr
+to json(a match-string-like-expr)
+	("matched", a.matched.to), ("cases", a.cases.to), ("else", a.else_.to)
 match-string-like-case record(value string, then expr) mut
+to json(a match-string-like-case)
 range source-range(a match-string-like-expr)
 	a.ast range
 type type(a match-string-like-expr, common-types common-types?)
@@ -2739,7 +2908,10 @@ match-sum-type-expr record mut
 	matched expr
 	cases match-sum-type-case[]
 	else_ expr?
+to json(a match-sum-type-expr)
+	("matched", a.matched.to), ("cases", a.cases.to), ("else", a.else_.to)
 match-sum-type-case record(destructure destructure, then expr) mut
+to json(a match-sum-type-case)
 case-type struct-inst(a match-sum-type-case)
 	a.destructure.type struct-inst!
 range source-range(a match-sum-type-expr)
@@ -2765,9 +2937,11 @@ is-union bool(a match-sum-type-expr)
 record-field-pointer-expr record mut
 	ast ptr-ast
 	| This will be a pointer or by-ref type
-	target expr
+	target expr # TODO: rename to 'record'? --------------------------------------------------------------------------------------
 	field record-field
 	type struct-inst
+to json(a record-field-pointer-expr)
+	("target", a.target.to), ("field", a.field.name.to), ("type", a.type.to)
 range source-range(a record-field-pointer-expr)
 	a.ast range
 record-decl struct-decl(a record-field-pointer-expr)
@@ -2780,22 +2954,29 @@ field-index nat(a record-field-pointer-expr)
 	a.record-decl.body.record_!.fields must-have-index-of-pointer a.field
 
 seq-expr record(first expr, then expr) mut
+to json(a seq-expr)
 range source-range(a seq-expr)
 	a.first.start, a.then.end
 type type(a seq-expr, common-types common-types?)
 	a.then type common-types
 
 throw-expr record(ast throw-ast, thrown expr, type type) mut
+to json(a throw-expr)
+	("thrown", a.thrown.to), ("type", a.type.to)
 range source-range(a throw-expr)
 	a.ast range
 
 trusted-expr record(ast trusted-ast, inner expr) mut
+to json(a trusted-expr)
+	("inner", a.inner.to),
 range source-range(a trusted-expr)
 	a.ast range
 type type(a trusted-expr, common-types common-types?)
 	a.inner type common-types
 
 try-expr record(ast try-ast, tried expr, catches match-sum-type-case[]) mut
+to json(a try-expr)
+	("tried", a.tried.to), ("catches", a.catches.to)
 range source-range(a try-expr)
 	a.ast range
 type type(a try-expr, common-types common-types?)
@@ -2807,12 +2988,16 @@ try-let-expr record mut
 	value expr
 	catch_ match-sum-type-case
 	then expr
+to json(a try-let-expr)
+	("destructure", a.destructure.to), ("value", a.value.to), ("catch", a.catch_.to), ("then", a.then.to)
 range source-range(a try-let-expr)
 	a.ast range
 type type(a try-let-expr, common-types common-types?)
 	a.then type common-types
 
 typed-expr record(ast typed-ast, inner expr) mut
+to json(a typed-expr)
+	("inner", a.inner.to),
 range source-range(a typed-expr)
 	a.ast range
 type type(a typed-expr, common-types common-types?)

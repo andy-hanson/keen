@@ -8,7 +8,7 @@ import
 	../../model/uri
 	../../model/version-info
 	../../util/util
-	./concrete-mangle
+	../concrete-mangle
 	./js-ast
 	./source-map
 	./write-js-ast
@@ -47,20 +47,21 @@ translate-to-js js-and-map(
 -gen-call-main js-statement(ctx to-js-ctx, main concrete-fun)
 	###
 	main(process.argv.slice(2)).then(exit => {
-		if (exit !== 0n) process.exit(exit)
+		if (exit !== 0n) process.exit(Number(exit))
 	})
 	###
 	source = ctx source main
 	process = source gen-global "process"
 	process-argv = source gen-property-access process, "argv".no-prefix
 	process-argv-slice = source gen-call-property-sync process-argv, "slice".no-prefix, ((source gen-number64 2),)
-	process-exit = source gen-property-access process, "exit".no-prefix
 	call-main = source gen-call-sync (ctx to-ref source, main), (process-argv-slice,)
 	
 	exit js-name = "exit" no-prefix
 	params js-params = (exit.to,), ()
 	get-exit = source gen-identifier exit
-	call-exit = source gen-call-sync process-exit, (get-exit,)
+	Number = source gen-global "Number"
+	number-exit = source gen-call-sync Number, (get-exit,)
+	call-exit = source gen-call-property-sync process, "exit".no-prefix, (number-exit,)
 	exit-neq-0 = source gen-not-eq-eq get-exit, (source gen-integer-unsigned 0)
 	body js-statement = source gen-if exit-neq-0, call-exit.expr-statement.to
 	fn = source gen-arrow-function sync, params, body.to
@@ -113,8 +114,6 @@ translate-to-js js-and-map(
 		(source gen-assert-typeof get, x),
 	integral js-statement? mut() = () =>
 		typeof["bigint"]
-	error js-statement? mut() = () =>
-		source.throw-bogus,
 	match a kind
 	as array
 		# TODO: we could use Uint8Array for `nat8[]`s or `char8[]`s to improve performance for those.
@@ -122,13 +121,13 @@ translate-to-js js-and-map(
 	as bool
 		typeof["boolean"]
 	as catch-point
-		throw unreachable
+		(source throw-message "Reached assert for catch-point?????"), # TODO: should be unreachable -------------------------------------------------------------------------
 	as char8
 		integral[]
 	as char32
 		integral[]
 	as const-pointer
-		error[]
+		(source throw-message "Reached assert for const-pointer?????"), # TODO: should be unreachable -------------------------------------------------------------------------
 	as float32
 		typeof["number"]
 	as float64
@@ -145,6 +144,10 @@ translate-to-js js-and-map(
 		integral[]
 	as int64
 		integral[]
+	as java-any
+		throw unreachable
+	as java-exclusion
+		throw unreachable
 	as js-any
 		()
 	as fun-data
@@ -156,7 +159,7 @@ translate-to-js js-and-map(
 	as mut-array
 		instanceof["Array"]
 	as mut-pointer
-		error[]
+		(source throw-message "Reached assert for mut-pointer?????"), # TODO: should be unreachable -------------------------------------------------------------------------
 	as mut-slice
 		instanceof["Array"]
 	as nat8
@@ -198,8 +201,6 @@ translate-to-js js-and-map(
 	source gen-throw thrown
 -throw-unreachable js-statement(source source)
 	source throw-message "Unreachable"
--throw-bogus js-statement(source source)
-	source throw-message "Reached compile error"
 
 -source source(ctx to-js-ctx, a concrete-struct)
 	range uri-and-range = a.source range
@@ -312,10 +313,15 @@ translate-to-js js-and-map(
 -to-expr-ctx record mut
 	ctx to-js-ctx
 	cur-fun concrete-fun
+	cur-loop-label mut js-name?
 	temp-local-indices nat mut[concrete-local-id]
 	next-generated-temp-index mut nat
 -show-ctx show-ctx(a to-expr-ctx)
 	a.ctx show-ctx
+-take-next-temp-index nat(a to-expr-ctx)
+	res = a next-generated-temp-index
+	a.next-generated-temp-index +:= 1
+	res
 -to-ref js-expr(ctx to-expr-ctx, source source, fun concrete-fun)
 	ctx.ctx to-ref source, fun
 -to-ref js-expr(ctx to-expr-ctx, source source, var concrete-var)
@@ -335,7 +341,7 @@ translate-to-js js-and-map(
 -to-js-function js-fun-decl(ctx to-js-ctx, a concrete-fun)
 	async sync-or-async = ctx is-async a
 	name js-name = ctx js-name a
-	expr-ctx to-expr-ctx = ctx, a, (), 0
+	expr-ctx to-expr-ctx = ctx, a, (), (), 0
 	params js-destructure[] = for param : a params
 		expr-ctx local-name param to
 	body = expr-ctx to-block-statement a
@@ -346,10 +352,10 @@ translate-to-js js-and-map(
 	source = ctx.ctx source a
 	match a body
 	as concrete-fun-body-builtin x
-		ctx translate-builtin a.return-type, source, x.kind, (for param : a params; param type), for param : a params
+		ctx translate-builtin a.return-type, source, x.kind, a.source.concrete-fun-source-regular!.type-args, for param : a params
 			ctx get-local source, param
 	as concrete-fun-body-extern _
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached extern function?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as concrete-expr x
 		body = ctx to-block-statement x
 		statements js-statement[] = with out: build
@@ -369,36 +375,36 @@ translate-to-js js-and-map(
 	type concrete-type,
 	source source,
 	fun builtin-fun,
-	arg-types concrete-type[],
+	type-args concrete-type[],
 	args js-expr[],
 )
 	match fun
 	as builtin-fun-all-tests
-		throw unreachable
+		source throw-message "Reached builtin-fun-all-tests?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-unary x
-		source to-expr-or-block-statement x, args.only
+		source translate-builtin-unary x, args.only
 	as builtin-unary-math x
-		source to-expr-or-block-statement x, args.only
+		source translate-builtin-unary-math x, args.only
 	as builtin-binary x
-		source to-expr-or-block-statement x, args.only2
+		source translate-builtin-binary x, args.only2
 	as builtin-binary-lazy _
 		throw unreachable
 	as builtin-binary-math x
-		source to-expr x, args.only2 to
+		source translate-builtin-binary-math x, args.only2 to
 	as builtin-ternary x
 		match x
 		as interpreter-backtrace
-			source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+			source throw-message "Reached interpreter-backtrace?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-4ary x
 		match x
 		as switch-fiber-initial
-			throw unreachable
+			source throw-message "Reached switch-fiber-initial?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-call-lambda
 		arg0, arg1 = args only2
 		source gen-call-sync arg0, (arg1,) to
 	as builtin-fun-call-fun-pointer
 		arg0, arg1 = args only2
-		_, param-type = arg-types only2
+		_, param-type = type-args only2
 		if param-type is-tuple
 			ctx with-temp "args", source, arg1, temp =>
 				fields = param-type.must-be-by-val.body.concrete-record! fields
@@ -411,52 +417,54 @@ translate-to-js js-and-map(
 		else
 			source gen-call-sync arg0, (arg1,) to
 	as builtin-fun-constant _
-		throw unreachable
+		source throw-message "Reached builtin-fun-constant?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-gc-safe-value
 		args.size is 0
 		source.gen-null to
 	as builtin-fun-init _
+		source throw-message "Reached builtin-fun-init?????" to # TODO: should be unreachable ----------------------------------------------------------------------
+	as java-fun _
 		throw unreachable
 	as js-fun x
-		ctx to-expr-or-block-statement source, x, args
+		ctx translate-js-fun source, x, args
 	as builtin-fun-mark-root
-		throw unreachable
+		source throw-message "Reached builtin-fun-mark-root?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-mark-visit
-		throw unreachable
+		source throw-message "Reached builtin-fun-mark-visit?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-new-empty-option
-		throw unreachable
+		source throw-message "Reached builtin-fun-new-empty-option?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-new-non-empty-option
-		throw unreachable
+		source throw-message "Reached builtin-fun-new-non-empty-option?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-pointer-cast
-		throw unreachable
+		source throw-message "Reached builtin-fun-pointer-cast?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-size-of
-		throw unreachable
+		source throw-message "Reached builtin-fun-size-of?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-static-symbols
-		throw unreachable
+		source throw-message "Reached builtin-fun-static-symbols?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as version-fun _
-		throw unreachable
+		source throw-message "Reached builtin-fun version-fun?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 
--to-expr-or-block-statement js-expr-or-block-statement(source source, a builtin-unary, arg js-expr)
+-translate-builtin-unary js-expr-or-block-statement(source source, a builtin-unary, arg js-expr)
 	unary js-expr mut(op js-unary-kind) = op =>
 		source gen-unary op, arg
 	match a
 	as array-pointer
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached array-pointer?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as array-size
 		# BigInt(arg.length)
 		BigInt = source gen-global "BigInt"
 		length = source gen-property-access arg, "length".no-prefix
 		source gen-call-sync BigInt, (length,) to
 	as as-any-pointer
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached as-any-pointer?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as as-future
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached as-future?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as as-future-impl
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached as-future-impl?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as as-mut-array
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached as-mut-array??????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as as-mut-array-impl
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached as-mut-array-impl?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as bits-of-float32
 		number = source gen-convert 4, "Float32Array", "Uint32Array", arg
 		source gen-call-sync (source gen-global "BigInt"), (number,) to
@@ -485,11 +493,11 @@ translate-to-js js-and-map(
 		length = source gen-property-access filtered, "length".no-prefix
 		source gen-call-sync BigInt, (length,) to
 	as c-string-of-symbol
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached c-string-of-symbol?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as deref
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached deref??????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as drop
-		throw unreachable
+		source throw-message "Reached drop??????" to
 	as float32-from-bits
 		Number = source gen-global "Number"
 		source gen-convert 4, "Uint32Array", "Float32Array", (source gen-call-sync Number, (arg,)) to
@@ -502,13 +510,13 @@ translate-to-js js-and-map(
 	as not
 		source gen-not arg to
 	as jump-to-catch
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached jump-to-catch?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as reference-from-pointer
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached reference-from-pointer?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as setup-catch
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached setup-catch?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as symbol-of-c-string
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached symbol-of-c-string?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as to-char8-from-nat8
 		arg to
 	as to-char8-array-from-string
@@ -544,9 +552,9 @@ translate-to-js js-and-map(
 	as to-nat64-from-nat32
 		arg to
 	as to-nat64-from-ptr
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached to-nat64-from-pointer?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as to-ptr-from-nat64
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached to-ptr-from-nat64?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as truncate-to-int64-from-float64
 		trunc = source gen-call-math "trunc", arg
 		source gen-call-sync (source gen-global "BigInt"), (trunc,) to
@@ -582,12 +590,12 @@ translate-to-js js-and-map(
 	as unsafe-to-nat32-from-nat64
 		arg to
 
--to-expr-or-block-statement js-expr-or-block-statement(source source, a builtin-unary-math, arg js-expr)
-	f32 js-expr-or-block-statement mut(name string) = name =>
+-translate-builtin-unary-math js-expr-or-block-statement(source source, a builtin-unary-math, arg js-expr)
+	f32 js-expr-or-block-statement data(name string) = name =>
 		source gen-as-float32 (source gen-call-math name, arg) to
-	f64 js-expr-or-block-statement mut(name string) = name =>
+	f64 js-expr-or-block-statement data(name string) = name =>
 		source gen-call-math name, arg to
-	round js-expr-or-block-statement mut(type float-type) = type =>
+	round js-expr-or-block-statement data(type float-type) = type =>
 		###
 		// JS round gives wrong results for negative numbers, so fix by only rounding positive
 		x = arg
@@ -676,7 +684,7 @@ translate-to-js js-and-map(
 	as unsafe-log-float64
 		f64["log"]
 
--to-expr js-expr(source source, a builtin-binary-math, (arg0 js-expr, arg1 js-expr))
+-translate-builtin-binary-math js-expr(source source, a builtin-binary-math, (arg0 js-expr, arg1 js-expr))
 	atan2 js-expr mut() = () =>
 		source gen-call-math "atan2", (arg0, arg1)
 	mod js-expr mut() = () =>
@@ -700,8 +708,8 @@ translate-to-js js-and-map(
 -gen-array-from js-expr(source source, arg js-expr)
 	source gen-call-property-sync (source gen-global "Array"), "from".no-prefix, (arg,)
 
--to-expr-or-block-statement js-expr-or-block-statement(source source, a builtin-binary, (arg0 js-expr, arg1 js-expr))
-	binary js-expr mut(op js-binary-kind) = op =>
+-translate-builtin-binary js-expr-or-block-statement(source source, a builtin-binary, (arg0 js-expr, arg1 js-expr))
+	binary js-expr data(op js-binary-kind) = op =>
 		source gen-binary op, arg0, arg1
 	match a
 	as add-float32
@@ -710,7 +718,7 @@ translate-to-js js-and-map(
 	as add-float64
 		binary[plus] to
 	as add-pointer-and-nat64
-		source.throw-bogus to # TODO: should be unreachable -----------------------------------------------------------------------------
+		source throw-message "Reached add-pointer-and-nat64?????" to # TODO: should be unreachable -----------------------------------------------------------------------------
 	as bitwise-and-int8
 		binary[bitwise-and] to
 	as bitwise-and-int16
@@ -784,7 +792,7 @@ translate-to-js js-and-map(
 	as equal-nat64
 		binary[eq-eq-eq] to
 	as equal-pointer
-		source.throw-bogus to # TODO: should be unreachable -----------------------------------------------------------------------------
+		source throw-message "Reached equal-pointer?????" to # TODO: should be unreachable -----------------------------------------------------------------------------
 	as less-char8
 		binary[less] to
 	as less-float32
@@ -808,25 +816,25 @@ translate-to-js js-and-map(
 	as less-nat64
 		binary[less] to
 	as less-pointer
-		source.throw-bogus to # TODO: should be unreachable -----------------------------------------------------------------------------
+		source throw-message "Reached less-pointer??????" to # TODO: should be unreachable -----------------------------------------------------------------------------
 	as mul-float32
 		source gen-as-float32 binary[times] to
 	as mul-float64
 		binary[times] to
 	as new-array
-		source.throw-bogus to # TODO: should be unreachable -----------------------------------------------------------------------------
+		source throw-message "Reached new-array?????" to # TODO: should be unreachable -----------------------------------------------------------------------------
 	as reference-equal
 		binary[eq-eq-eq] to
 	as seq
-		throw unreachable
+		source throw-message "Reached seq?????" to # TODO: should be unreachable -----------------------------------------------------------------------------
 	as sub-float32
 		source gen-as-float32 binary[minus] to
 	as sub-float64
 		binary[minus] to
 	as sub-pointer-and-nat64
-		throw unreachable
+		source throw-message "Reached sub-pointer-and-nat64?????" to # TODO: should be unreachable
 	as switch-fiber
-		throw unreachable
+		source throw-message "Reached switch-fiber?????" to # TODO: should be unreachable
 	as unsafe-add-int8
 		binary[plus] to
 	as unsafe-add-int16
@@ -927,9 +935,9 @@ translate-to-js js-and-map(
 	as wrap-sub-nat64
 		source gen-as-nat64 binary[minus] to
 	as write-to-pointer
-		source.throw-bogus to # TODO: should be unreachable -----------------------------------------------------------------------------
+		source throw-message "Reached write-to-pointer?????" to # TODO: should be unreachable -----------------------------------------------------------------------------
 
--to-expr-or-block-statement js-expr-or-block-statement(ctx to-expr-ctx, source source, a js-fun, args js-expr[])
+-translate-js-fun js-expr-or-block-statement(ctx to-expr-ctx, source source, a js-fun, args js-expr[])
 	unary js-expr-or-block-statement mut(kind js-unary-kind) = kind =>
 		source gen-unary kind, args.only to
 	binary js-expr-or-block-statement mut(kind js-binary-kind) = kind =>
@@ -1007,7 +1015,7 @@ translate-to-js js-and-map(
 	type = a.type struct
 	match a kind
 	as builtin-concrete-expr x
-		ctx translate-builtin a.type, source, x.fun, (for arg : x.args; arg type), for arg : x args
+		ctx translate-builtin a.type, source, x.fun, x.type-args, for arg : x args
 			ctx to-js-expr arg
 	as call-concrete-expr x
 		call-async = ctx.ctx is-async x.called
@@ -1020,7 +1028,7 @@ translate-to-js js-and-map(
 	as cast-concrete-expr x
 		ctx to-expr-or-block-statement x.inner
 	as constant x
-		ctx.ctx to-expr source, a.type, x to
+		ctx.ctx translate-constant source, type, x to
 	as create-array-concrete-expr x
 		# [x, y]
 		args js-expr[] = for arg : x args
@@ -1070,7 +1078,7 @@ translate-to-js js-and-map(
 	as local-get-concrete-expr x
 		ctx get-local source, x.local to
 	as local-pointer-concrete-expr _
-		throw unreachable
+		source throw-message "Reached local-pointer-concrete-expr?????" to # TODO: should be unreachable --------------------------------------------------------------------------------------
 	as local-set-concrete-expr x
 		source gen-assign (ctx get-local source, x.local), (ctx to-js-expr x.value) to
 	as loop-concrete-expr x
@@ -1090,15 +1098,18 @@ translate-to-js js-and-map(
 		}
 		###
 		label js-name? = if type is-void
-			"loop".no-prefix,
-		source gen-while-true label, (ctx to-block-statement x.body) to
+			(none, "loop", (ctx.take-next-temp-index,)),
+		prev = ctx cur-loop-label
+		ctx.cur-loop-label := label
+		res = source gen-while-true label, (ctx to-block-statement x.body)
+		ctx.cur-loop-label := prev
+		res to
 	as loop-break-concrete-expr x
+		value = ctx to-block-statement x.value
 		if type is-void
-			do-it = ctx to-block-statement x.value
-			break-loop =  source gen-break "loop".no-prefix
-			do-it ~~ break-loop.to to
+			value ~ (source gen-break ctx.cur-loop-label!) to
 		else
-			source gen-return (ctx to-js-expr x.value) to
+			value to
 	as loop-continue-concrete-expr
 		source.gen-continue to
 	as match-enum-or-integral-concrete-expr x
@@ -1121,7 +1132,9 @@ translate-to-js js-and-map(
 		assert ctx.ctx is-string-or-symbol x.matched.type : todo
 		matched = ctx to-js-expr x.matched
 		cases js-switch-case[] = for case_ : x cases
-			(ctx to-js-expr case_.value), (ctx to-block-statement case_.then)
+			value = ctx to-js-expr case_.value
+			then = ctx to-block-statement case_.then
+			value, (source maybe-break-switch-case type, then)
 		default = ctx to-block-statement x.else_
 		source gen-switch matched, cases, default to
 	as match-union-concrete-expr x
@@ -1146,7 +1159,7 @@ translate-to-js js-and-map(
 	as record-field-get-concrete-expr x
 		source gen-property-access (ctx to-js-expr x.record_), x.field.debug-name.to.no-prefix to
 	as record-field-pointer-concrete-expr _
-		source.throw-bogus to # TODO: should be unreachable ----------------------------------------------------------------------
+		source throw-message "Reached record-field-pointer-concrete-expr?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as record-field-set-concrete-expr x
 		record_ = ctx to-js-expr x.record_
 		value = ctx to-js-expr x.value
@@ -1211,13 +1224,17 @@ translate-to-js js-and-map(
 	instanceof-exception = source gen-instanceof get-error, exception
 	error-index = source gen-property-access get-error, "index".no-prefix
 	error-value = source gen-property-access get-error, "value".no-prefix
-	assert concrete-local ?= a local : todo
-	local = ctx local-name concrete-local
+	local js-name? = if l ?= a local
+		(ctx local-name l),
 	# Only needed if void, otherwise 'catch_then' will return
 	ok js-name? = type is-void ? "ok".special-local,
-	let-local = source gen-let local
+	let-local js-statement[] = if l ?= local
+		(source gen-let l),
 	tried js-statement[] = with out : build
-		out ~= source gen-assign local, (ctx to-js-expr a.value)
+		out ~~= if l ?= local
+			((source gen-assign l, (ctx to-js-expr a.value)),)::js-statement[]
+		else
+			ctx to-block-statement a.value statements
 		if x ?= ok
 			out ~= source gen-assign x, (source gen-bool true)
 	index-matches = source gen-eq-eq-eq error-index, (source gen-integer-unsigned a.exception-member-index.as-unsigned)
@@ -1253,7 +1270,7 @@ translate-to-js js-and-map(
 		source gen-if (source gen-identifier x), then to
 	else
 		then
-	((let-local, try_),) ~~ if-ok-then
+	let-local.to ~~ try_.to ~~ if-ok-then
 
 -translate-case js-switch-case(
 	ctx to-expr-ctx,
@@ -1275,7 +1292,7 @@ translate-to-js js-and-map(
 
 -maybe-break-switch-case js-block-statement(source source, type concrete-struct, a js-block-statement)
 	if type is-void
-		a ~~ ((source.gen-break-no-label,),)
+		a ~ source.gen-break-no-label
 	else
 		a
 
@@ -1299,92 +1316,10 @@ translate-to-js js-and-map(
 			ctx.temp-local-indices size
 		x.to.to temp index
 
--to-expr js-expr(ctx to-js-ctx, source source, type concrete-type, a constant)
-	match type.struct body
-	as concrete-builtin-type builtin_
-		string js-expr mut() = () =>
-			source gen-string match a
-			as constant-array ca
-				elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: have a helper function for this
-				chars char8[] = for x : elements
-					x.as-integral.as-unsigned.to to
-				chars to
-			as constant-c-string x
-				# TODO: 'get-constant-symbol' is hardcoded to generate a c-string. It made sense for the native build but not any more ...
-				ctx.program.all-constants.c-strings[x index]
-			as constant-zero
-				""
-			else
-				throw unreachable
-		match builtin_ kind
-		as array
-			match a
-			as constant-array ca
-				elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: I type this a lot. have a helper function.
-				element-type = type array-element-type
-				source gen-array for x : elements
-					ctx to-expr source, element-type, x
-			as constant-zero
-				source gen-array ()
-			else
-				throw unreachable
-		as bool
-			source gen-bool a.as-bool
-		as catch-point
-			throw unreachable
-		as char8
-			source constant-integral nat8, a
-		as char32
-			source constant-integral nat32, a
-		as const-pointer
-			throw unreachable
-		as float32
-			source gen-number32 a.as-float
-		as float64
-			source gen-number64 a.as-float
-		as fun-pointer
-			id = a.constant-fun-pointer! fun
-			ctx to-ref source, id
-		as future
-			throw unreachable
-		as int8
-			source constant-integral int8, a
-		as int16
-			source constant-integral int16, a
-		as int32
-			source constant-integral int32, a
-		as int64
-			source constant-integral int64, a
-		as js-any
-			string[]
-		as fun-data
-			throw unreachable
-		as fun-mut
-			throw unreachable
-		as fun-shared
-			throw unreachable
-		as mut-array
-			throw unreachable
-		as mut-pointer
-			throw unreachable
-		as mut-slice
-			throw unreachable
-		as nat8
-			source constant-integral nat8, a
-		as nat16
-			source constant-integral nat16, a
-		as nat32
-			source constant-integral nat32, a
-		as nat64
-			source constant-integral nat64, a
-		as option
-			throw unreachable
-		as string
-			string[]
-		as symbol
-			string[]
-		as void
-			source gen-undefined
+-translate-constant js-expr(ctx to-js-ctx, source source, type concrete-struct, a constant)
+	match type body
+	as concrete-builtin-type x
+		ctx translate-constant-builtin source, x, a
 	as concrete-enum x
 		source constant-integral x.storage_, a
 	as concrete-extern-type
@@ -1392,12 +1327,12 @@ translate-to-js js-and-map(
 	as concrete-flags x
 		source constant-integral x.storage_, a
 	as concrete-record x
-		# TODO:PERF Since these are allocated, we should probably make them global 'const' values too
-		class_ = ctx to-ref source, type.struct
+		# TODO:PERF Since these are allocated, we should probably make them global 'const' values too --------------------------
+		class_ = ctx to-ref source, type
 		match a
 		as constant-record r
 			source gen-new class_, for field, arg : x.fields zip r.args
-				ctx to-expr source, field.type, arg
+				ctx translate-constant source, field.type.struct, arg
 		as constant-zero
 			if x.fields is-empty
 				source gen-new class_, ()
@@ -1408,18 +1343,109 @@ translate-to-js js-and-map(
 	as concrete-union u
 		match a
 		as constant-union constant
-			# TODO:PERF Since these are allocated, we should probably make them global 'const' values too
+			# TODO:PERF Since these are allocated, we should probably make them global 'const' values too -------------------------
 			# new U(index, value)
 			case-type = u.members[constant member-index]
 			index = source gen-integer-unsigned constant.member-index
-			value = ctx to-expr source, case-type, constant.arg
-			source gen-new (ctx to-ref source, type.struct), (index, value)
+			value = ctx translate-constant source, case-type.struct, constant.arg
+			source gen-new (ctx to-ref source, type), (index, value)
 		as constant-zero
 			source gen-null
 		else
 			throw unreachable
 	as concrete-struct-body-deferred
 		throw unreachable
+
+-translate-constant-builtin js-expr(ctx to-js-ctx, source source, builtin_ concrete-builtin-type, a constant)
+	error js-expr mut(message string) = message => # TODO: none of these should be reachable -------------------------------
+		source gen-iife sync, (source throw-message "CONSTANT {message}" to)
+	string js-expr mut() = () =>
+		source gen-string match a
+		as constant-array ca
+			elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: have a helper function for this
+			chars char8[] = for x : elements
+				x.as-integral.as-unsigned.to to
+			chars to
+		as constant-c-string x
+			# TODO: 'get-constant-symbol' is hardcoded to generate a c-string. It made sense for the native build but not any more ...
+			ctx.program.all-constants.c-strings[x index]
+		as constant-zero
+			""
+		else
+			throw unreachable
+	match builtin_ kind
+	as array
+		match a
+		as constant-array ca
+			elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: I type this a lot. have a helper function.
+			element-type = builtin_.type-args[0]
+			source gen-array for x : elements
+				ctx translate-constant source, element-type.struct, x
+		as constant-zero
+			source gen-array ()
+		else
+			throw unreachable
+	as bool
+		source gen-bool a.as-bool
+	as catch-point
+		error["CATCH-POINT"]
+	as char8
+		source constant-integral nat8, a
+	as char32
+		source constant-integral nat32, a
+	as const-pointer
+		source gen-iife sync, (source throw-message "Reached const pointer????").to # --------------------------------------------
+	as float32
+		source gen-number32 a.as-float
+	as float64
+		source gen-number64 a.as-float
+	as fun-pointer
+		id = a.constant-fun-pointer! fun
+		ctx to-ref source, id
+	as future
+		error["FUTURE"]
+	as int8
+		source constant-integral int8, a
+	as int16
+		source constant-integral int16, a
+	as int32
+		source constant-integral int32, a
+	as int64
+		source constant-integral int64, a
+	as java-any
+		throw unreachable
+	as java-exclusion
+		throw unreachable
+	as js-any
+		string[]
+	as fun-data
+		error["FUN-DATA"]
+	as fun-mut
+		error["FUN-MUT"]
+	as fun-shared
+		error["FUN-SHARED"]
+	as mut-array
+		error["MUT-ARRAY"]
+	as mut-pointer
+		error["MUT-POINTER"]
+	as mut-slice
+		error["MUT-SLICE"]
+	as nat8
+		source constant-integral nat8, a
+	as nat16
+		source constant-integral nat16, a
+	as nat32
+		source constant-integral nat32, a
+	as nat64
+		source constant-integral nat64, a
+	as option
+		error["OPTION"]
+	as string
+		string[]
+	as symbol
+		string[]
+	as void
+		source gen-undefined
 
 -constant-integral js-expr(source source, type integral-type, a constant)
 	value = a as-integral
@@ -1442,9 +1468,7 @@ translate-to-js js-and-map(
 	expr js-expr,
 	f js-statement mut(get-temp js-expr),
 )
-	index = ctx next-generated-temp-index
-	ctx.next-generated-temp-index +:= 1
-	js-name js-name = temp, name, (index,)
+	js-name js-name = temp, name, (ctx.take-next-temp-index,)
 	declare = source gen-const js-name, expr
 	then = f[source gen-identifier js-name]
 	((declare, then),) to

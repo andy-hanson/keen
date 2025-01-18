@@ -806,6 +806,7 @@ TypeSize getBuiltinStructSize(BuiltinType kind, in VersionInfo version_) {
 						// Keep in sync with 'catch point size' comment in writeToC_boilerplate_msvc.c
 						return TypeSize(0x100, 16);
 				}
+		case BuiltinType.javaAny:
 		case BuiltinType.jsAny: // JS builds don't use concretize. But JS type may appear in a union.
 		case BuiltinType.void_:
 			return TypeSize(0, 1);

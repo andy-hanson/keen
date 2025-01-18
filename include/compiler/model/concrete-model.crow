@@ -44,6 +44,7 @@ hash-mix void(a hasher, b concrete-type-id)
 	a hash-mix b.struct
 # TODO: does this just always use the default-reference-kind? -------------------------------------------------------------
 concrete-type record(reference reference-kind, struct concrete-struct) mut
+to json(a concrete-type)
 id concrete-type-id(a concrete-type)
 	a.reference, a.struct.id
 reference-kind enum(by-val_, by-ref_)
@@ -124,6 +125,15 @@ concrete-struct record mut
 	late-type-size mut type-size?
 	| Only set for records (and native build only) (TODO: Could this go in lower instead?) ---------------------------------------------------------------
 	field-offsets mut nat[]
+to json(a concrete-struct)
+	name symbol = match a source
+	as concrete-struct-source-bogus _
+		"BOGUS"
+	as concrete-struct-source-inst x
+		x.decl name
+	as concrete-struct-source-lambda _
+		"lambda"
+	"{name} {a.id value}"::string to
 == bool(a concrete-struct, b concrete-struct)
 	a.id == b.id
 concrete-struct-special-kind enum
@@ -172,7 +182,9 @@ is-array-or-mut-array bool(a concrete-struct)
 	a.special-kind == array-or-mut-array
 array-element-type concrete-type(array-type concrete-type) # TODO: this should return an option (and don't need to check is-array first)
 	assert array-type.must-be-by-val is-array-or-mut-array
-	array-type.must-be-by-val.source.concrete-struct-source-inst!.type-args only
+	array-type.must-be-by-val array-element-type
+array-element-type concrete-type(array-type concrete-struct)
+	array-type.source.concrete-struct-source-inst!.type-args only
 is-option bool(a concrete-type)
 	a.reference == by-val_ && a.struct is-option
 is-option bool(a concrete-struct)
@@ -244,9 +256,13 @@ concrete-local-id record(value nat)
 <=> comparison(a concrete-local-id, b concrete-local-id)
 hash-mix void(a hasher, b concrete-local-id)
 	a hash-mix b.value
+to json(a concrete-local-id)
+	a.value to
 
 # TODO: maybe instead of using 'id', just ensure all the generated locals have unique names ------------------------------------------------
 concrete-local record(id concrete-local-id, source concrete-local-source, type concrete-type) mut
+to json(a concrete-local)
+	("id", a.id.to), ("type", a.type.to)
 == bool(a concrete-local, b concrete-local)
 	res = a.id == b.id
 	if res
@@ -290,6 +306,8 @@ concrete-fun-id record(value nat)
 <=> comparison(a concrete-fun-id, b concrete-fun-id)
 hash-mix void(a hasher, b concrete-fun-id)
 	a hash-mix b.value
+to json(a concrete-fun-id)
+	a.value to
 concrete-fun record mut
 	id concrete-fun-id
 	source concrete-fun-source
@@ -304,6 +322,17 @@ new concrete-fun(id concrete-fun-id, source concrete-fun-source, return-type con
 	else
 		()
 	id, source, return-type, params, body, ()
+to json(a concrete-fun)
+	name symbol = match a source
+	as concrete-fun-source-regular x
+		x.decl name
+	as concrete-fun-source-lambda _
+		"lambda"
+	as concrete-fun-source-test _
+		"test"
+	as concrete-fun-source-wrap-main _
+		"wrap-main"
+	"{name}{a.id value}"::string to
 body concrete-fun-body(a concrete-fun)
 	a the-body
 set-body void(a concrete-fun, value concrete-fun-body)
@@ -366,13 +395,10 @@ is-summon bool(a concrete-fun)
 		throw unreachable
 
 concrete-expr record mut
-	dummy void # ------------------------------------------------------------------------------------------------------------------
 	type concrete-type
 	range uri-and-range
 	kind concrete-expr-kind
-new concrete-expr(type concrete-type, range uri-and-range, kind concrete-expr-kind)
-	forbid range.uri == ()
-	(), type, range, kind
+to json(a concrete-expr)
 
 concrete-expr-kind union(
 	builtin-concrete-expr,
@@ -405,31 +431,51 @@ concrete-expr-kind union(
 	try-let-concrete-expr,
 	union-as-concrete-expr,
 	union-kind-concrete-expr) mut
-builtin-concrete-expr record(fun builtin-fun, args concrete-expr[]) mut
+to json(a concrete-expr-kind)
+builtin-concrete-expr record(fun builtin-fun, type-args concrete-type[], args concrete-expr[]) mut
+to json(a builtin-concrete-expr)
 call-concrete-expr record(called concrete-fun, args concrete-expr[]) mut
+to json(a call-concrete-expr)
 | Reinterpret cast between different types with the same size
 cast-concrete-expr record(inner concrete-expr) mut
+to json(a cast-concrete-expr)
 create-array-concrete-expr record(args concrete-expr[]) mut
+to json(a create-array-concrete-expr)
 create-record-concrete-expr record(args concrete-expr[]) mut
+to json(a create-record-concrete-expr)
 create-union-concrete-expr record(member-index nat, arg concrete-expr) mut
+to json(a create-union-concrete-expr)
 drop-concrete-expr record(arg concrete-expr) mut
+to json(a drop-concrete-expr)
 finally-concrete-expr record(right concrete-expr, below concrete-expr) mut
+to json(a finally-concrete-expr)
 if-concrete-expr record(cond concrete-expr, then concrete-expr, else_ concrete-expr) mut
+to json(a if-concrete-expr)
+
 let-concrete-expr record(local concrete-local, value concrete-expr, then concrete-expr) mut
+to json(a let-concrete-expr)
 # This is not used for native backends.
 lambda-concrete-expr record(param concrete-local, body concrete-expr) mut
+to json(a lambda-concrete-expr)
 # For a JS target, this can get a local through a closure.
 local-get-concrete-expr record(local concrete-local) mut
+to json(a local-get-concrete-expr)
 local-pointer-concrete-expr record(local concrete-local) mut
+to json(a local-pointer-concrete-expr)
 local-set-concrete-expr record(local concrete-local, value concrete-expr) mut
+to json(a local-set-concrete-expr)
 loop-concrete-expr record(body concrete-expr) mut
+to json(a loop-concrete-expr)
 loop-break-concrete-expr record(value concrete-expr) mut
+to json(a loop-break-concrete-expr)
 loop-continue-concrete-expr record
+to json(a loop-continue-concrete-expr)
 match-enum-or-integral-concrete-expr record mut
 	matched concrete-expr
 	case-values integral-values
 	case-exprs concrete-expr[]
 	else_ concrete-expr?
+to json(a match-enum-or-integral-concrete-expr)
 matched-integral-type char-or-integral-type(a match-enum-or-integral-concrete-expr)
 	match a.matched.type.struct.body
 	as concrete-builtin-type x
@@ -443,18 +489,26 @@ match-string-like-concrete-expr record mut
 	equals concrete-fun
 	cases concrete-match-string-like-case[]
 	else_ concrete-expr
+to json(a match-string-like-concrete-expr)
 # TODO: shouldn't 'value' be a constant? ------------------------------------------------------------------------------------------------
 concrete-match-string-like-case record(value concrete-expr, then concrete-expr) mut
+to json(a concrete-match-string-like-case)
 match-union-concrete-expr record mut
 	matched concrete-expr
 	member-indices integral-values
 	cases concrete-match-union-case[]
 	else_ concrete-expr?
+to json(a match-union-concrete-expr)
+case-types concrete-type[](a match-union-concrete-expr)
+	a.matched.type.must-be-by-val.body.concrete-union! members
 concrete-match-union-case record(local concrete-local?, then concrete-expr) mut
+to json(a concrete-match-union-case)
 record-field-get-concrete-expr record(record_ concrete-expr, field-index nat) mut
+to json(a record-field-get-concrete-expr)
 field concrete-field(a record-field-get-concrete-expr)
 	a.record_.type.struct.body.concrete-record!.fields[a field-index]
 record-field-pointer-concrete-expr record(record_ concrete-expr, field-index nat) mut
+to json(a record-field-pointer-concrete-expr)
 record-type concrete-struct(a record-field-pointer-concrete-expr)
 	type = a.record_ type
 	match type reference
@@ -468,6 +522,7 @@ record-field-set-concrete-expr record mut
 	record_ concrete-expr
 	field-index nat
 	value concrete-expr
+to json(a record-field-set-concrete-expr)
 record-type concrete-type(a record-field-set-concrete-expr)
 	struct = a.record_.type struct
 	if builtin_ ?= struct.body concrete-builtin-type
@@ -478,21 +533,28 @@ record-type concrete-type(a record-field-set-concrete-expr)
 field concrete-field(a record-field-set-concrete-expr)
 	a.record-type.struct.body.concrete-record!.fields[a field-index]
 seq-concrete-expr record(first concrete-expr, then concrete-expr) mut
+to json(a seq-concrete-expr)
 throw-concrete-expr record(thrown concrete-expr) mut
+to json(a throw-concrete-expr)
 try-concrete-expr record mut
 	tried concrete-expr
 	exception-member-indices integral-values
 	catch-cases concrete-match-union-case[]
+to json(a try-concrete-expr)
+# TODO: to avoid duplicating code in translate-to-js / translate-to-java / lower, compile this to a 'try' early --------------------
 try-let-concrete-expr record mut
 	local concrete-local?
 	value concrete-expr
 	exception-member-index integral-value
 	catch_ concrete-match-union-case
 	then concrete-expr
+to json(a try-let-concrete-expr)
 | Unsafe internal operation for casting a union to a member. Does not check the kind!
 union-as-concrete-expr record(union_ concrete-expr, member-index nat) mut
+to json(a union-as-concrete-expr)
 | Internal operation for getting the 'kind' of a union. (This is the member index.)
 union-kind-concrete-expr record(union_ concrete-expr) mut
+to json(a union-kind-concrete-expr)
 
 return-type concrete-type(a call-concrete-expr)
 	a.called return-type
@@ -531,10 +593,18 @@ concrete-program record mut
 	common-funs concrete-common-funs
 to json(_ concrete-program)
 	throw todo
-concrete-common-funs union(concrete-common-funs-js, concrete-common-funs-native) mut
+concrete-common-funs union(
+	concrete-common-funs-java,
+	concrete-common-funs-js,
+	concrete-common-funs-native
+) mut
+concrete-common-funs-java record mut
+	exception concrete-struct
+	show-exception concrete-fun
+	main concrete-fun
 concrete-common-funs-js record mut
 	exception concrete-type
-	string concrete-type
+	string concrete-type # TODO: these should probably be concrete-structs ------------------------------------------------------
 	symbol concrete-type
 	js-await concrete-fun
 	main concrete-fun
@@ -638,6 +708,7 @@ constant union(
 	constant-union,
 	constant-zero
 )
+to json(a constant)
 # This assumes the constants are for the same type
 == bool(a constant, b constant)
 	if _ ?= b constant-zero
@@ -690,18 +761,25 @@ constant-array record
 	type-index nat
 	| Index within that array type
 	index nat
+to json(a constant-array)
 == bool(a constant-array, b constant-array)
 | Nul-terminated string identified only by its begin pointer.
 constant-c-string record
 	| Index into {all-constants-concrete}.{c-strings}
 	index nat
+to json(a constant-c-string)
+	a.index to
 == bool(a constant-c-string, b constant-c-string)
 | Used for float32 or float64
 # TODO: using a wrapper type shouldn't be necessary any mroe ..................................................................
 constant-float record(value float)
+to json(a constant-float)
+	a.value to
 # TODO: handle Nan! -------------------------------------------------------------------------------------------------------------
 == bool(a constant-float, b constant-float)
 constant-fun-pointer record(fun concrete-fun-id)
+to json(a constant-fun-pointer)
+	a.fun to
 == bool(a constant-fun-pointer, b constant-fun-pointer)
 | Pointer (or gc-pointer) to another constant
 constant-pointer record
@@ -709,14 +787,19 @@ constant-pointer record
 	type-index nat
 	| Index within that pointer type
 	index nat
+to json(a constant-pointer)
 == bool(a constant-pointer, b constant-pointer)
 | This is always by-value. Use a {constant-pointer} for a by-ref record.
 constant-record record(args constant[])
+to json(a constant-record)
+	a.args to
 == bool(a constant-record, b constant-record)
 constant-union record(member-index nat, arg constant)
+to json(a constant-union)
 == bool(a constant-union, b constant-union)
 | All zero bits. Can be used for any type.
 constant-zero record
+to json(a constant-zero)
 == bool(a constant-zero, b constant-zero)
 
 constant-bool constant(a bool)

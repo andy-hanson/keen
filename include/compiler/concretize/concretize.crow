@@ -24,7 +24,6 @@ concretize concrete-program(show-ctx show-ctx, version-info version-info, progra
 	json-to-json = ctx get-non-template-concrete-fun common-funs.to-json-from-json
 	ctx.late-to-json-from-json-array-function := (ctx get-concrete-fun common-funs.to-json-from-t-array, (ctx.json-type,), (json-to-json,)),
 	concrete-common-funs concrete-common-funs = if ctx is-native
-		info log "WE SHOULD NOT GET HERE FOR A JS BUILD!" # -------------------------------------------------------------------------------------
 		res concrete-common-funs-native = do
 			alloc: ctx get-non-template-concrete-fun common-funs.allocate
 			cur-catch-point: ctx get-non-template-concrete-fun common-funs.cur-catch-point
@@ -48,8 +47,20 @@ concretize concrete-program(show-ctx show-ctx, version-info version-info, progra
 			js-await: ctx get-non-template-concrete-fun common-funs.js-await
 			main: ctx concretize-main-fun common-funs, program.main-fun
 		res to
+	elif ctx is-java
+		res concrete-common-funs-java = do
+			exception: ctx.exception-type must-be-by-val
+			show-exception: ctx get-non-template-concrete-fun common-funs.show-exception
+			main: ctx concretize-main-fun common-funs, program.main-fun
+		res to
 	else
 		throw unreachable
+
+	ctx finish-lambdas
+	ctx finish-variants
+
+	all-concrete-funs concrete-fun[] = ctx.all-concrete-funs move-to
+	ctx deferred-fill-record-and-union-bodies
 
 	for struct : ctx all-concrete-structs
 		if ctx is-native
@@ -59,11 +70,6 @@ concretize concrete-program(show-ctx show-ctx, version-info version-info, progra
 			forbid _ ?= struct late-default-reference-kind
 			forbid _ ?= struct late-type-size
 			assert struct.field-offsets is-empty
-	ctx finish-lambdas
-	ctx finish-variants
-
-	all-concrete-funs concrete-fun[] = ctx.all-concrete-funs move-to
-	ctx deferred-fill-record-and-union-bodies
 
 	res concrete-program = do
 		version: version-info
@@ -92,21 +98,21 @@ concretize concrete-program(show-ctx show-ctx, version-info version-info, progra
 		ctx concrete-fun-for-wrap-main common-funs.run-all-tests
 
 -finish-lambdas void(ctx concretize-ctx)
-	unless ctx is-native
+	if ctx preserve-lambdas
 		assert ctx.lambda-structs is-empty
-	guard ctx is-native
+	else
+		for _, (struct, impls) : ctx lambda-structs
+			case-types concrete-type[] = for x : impls
+				x closure-type
+			struct.body := (case-types,) concrete-union
+			if ctx is-native
+				ctx.deferred-type-size ~= struct
 
-	for _, (struct, impls) : ctx lambda-structs
-		case-types concrete-type[] = for x : impls
-			x closure-type
-		struct.body := (case-types,) concrete-union
-		ctx.deferred-type-size ~= struct
-
-	for fun : ctx all-concrete-funs
-		if builtin_ ?= fun.body concrete-fun-body-builtin
-			if _ ?= builtin_.kind builtin-fun-call-lambda
-				lambda = fun.params[0].type must-be-by-val
-				fun.body := ctx generate-call-lambda fun, lambda.body.concrete-union!.members, ctx.lambda-structs[lambda id]!.b.move-to
+		for fun : ctx all-concrete-funs
+			if builtin_ ?= fun.body concrete-fun-body-builtin
+				if _ ?= builtin_.kind builtin-fun-call-lambda
+					lambda = fun.params[0].type must-be-by-val
+					fun.body := ctx generate-call-lambda fun, lambda.body.concrete-union!.members, ctx.lambda-structs[lambda id]!.b.move-to
 
 -finish-variants void(ctx concretize-ctx)
 	for _, (sum-type, cases) : ctx sum-types
@@ -117,4 +123,4 @@ concretize concrete-program(show-ctx show-ctx, version-info version-info, progra
 		sum-type = fun.params[0].type must-be-by-val
 		method-index = fun.source.concrete-fun-source-regular!.decl.body.fun-body-method! method-index
 		_, impls = ctx.sum-types[sum-type id]!
-		fun.body := ctx generate-call-method fun, sum-type, impls.move-to, method-index
+		fun.body := ctx generate-call-method fun, sum-type, impls, method-index
