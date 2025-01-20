@@ -13,11 +13,39 @@ write-java-ast string(a java-ast)
 
 -boilerplate string()
 	"""class Crow \{
+	static ThreadLocal<java.util.concurrent.locks.ReentrantLock> curExclusion = new ThreadLocal<java.util.concurrent.locks.ReentrantLock>() \{
+		@Override protected java.util.concurrent.locks.ReentrantLock initialValue() \{
+			java.util.concurrent.locks.ReentrantLock res = new java.util.concurrent.locks.ReentrantLock();
+			res.lock();
+			return res;
+		}
+	};
+	static java.util.concurrent.locks.ReentrantLock getExclusion() \{
+		return curExclusion.get();
+	}
+	static Void changeExclusion(java.util.concurrent.locks.ReentrantLock newExclusion) \{
+		java.util.concurrent.locks.ReentrantLock prevExclusion = curExclusion.get();
+		prevExclusion.unlock();
+		curExclusion.set(newExclusion);
+		newExclusion.lock();
+		return Void.get();
+	}
+
 	static double float64FromNat64(long a) \{
 		return a < 0 ? (double) a + Math.pow(2, 64) : (double) a;
 	}
 	static double round(double a) \{
 		return (a < 0 ? -1 : 1) * Math.round(Math.abs(a));
+	}
+
+	static double acosh(double x) \{
+		return Math.log(x + Math.sqrt(x * x - 1.0));
+	}
+	static double asinh(double x) \{
+		return Math.log(x + Math.sqrt(x * x + 1.0));
+	}
+	static double atanh(double x) \{
+		return 0.5 * Math.log((x + 1.0) / (x - 1.0));
 	}
 
 	static java.lang.invoke.MethodHandle funPointer(String name, java.lang.Class returnType, java.lang.Class... args) throws Throwable \{
@@ -28,6 +56,9 @@ write-java-ast string(a java-ast)
 	static java.lang.Object getStaticField(String className, String fieldName) throws Throwable \{
 		return Class.forName(className).getDeclaredField(fieldName).get(null);
 	}
+	static java.lang.Object callNew(java.lang.String className, java.lang.Object... args) throws Throwable \{
+		return getConstructor(Class.forName(className), args).newInstance(args);
+	}
 	static java.lang.Object callStatic(java.lang.String className, java.lang.String methodName, java.lang.Object... args) throws Throwable \{
 		return callStaticVarargs(className, methodName, args);
 	}
@@ -37,26 +68,46 @@ write-java-ast string(a java-ast)
 	static java.lang.Object callInstance(Object object, String name, Object... args) throws Throwable \{
 		return getMethod(object.getClass(), name, args).invoke(object, args);
 	}
+	private static java.lang.reflect.Constructor getConstructor(java.lang.Class<?> class_, java.lang.Object[] args) throws Throwable \{
+		java.lang.Class<?>[] argClasses = classes(args);
+		try \{
+			return class_.getConstructor(argClasses);
+		} catch (java.lang.NoSuchMethodException e) \{
+			throw new Error("TODO: advanced search for correct constructor to call");
+		}
+	}
 	private static java.lang.reflect.Method getMethod(java.lang.Class<?> class_, java.lang.String methodName, java.lang.Object[] args) throws Throwable \{
-		java.lang.Class<?>[] argClasses = new java.lang.Class<?>[args.length];
-		for (int i = 0; i < argClasses.length; i++)
-			argClasses[i] = classOf(args[i]);
+		java.lang.Class<?>[] argClasses = classes(args);
 		try \{
 			return class_.getMethod(methodName, argClasses);
 		} catch (java.lang.NoSuchMethodException e) \{
 			java.lang.reflect.Method[] methods = class_.getMethods();
 			java.lang.reflect.Method res = null;
 			for (int i = 0; i < methods.length; i++) \{
-				if (methods[i].getName() == methodName) \{
+				java.lang.reflect.Method method = methods[i];
+				if (method.getName() == methodName && method.getParameterCount() == args.length && canCallMethod(method.getParameterTypes(), argClasses)) \{
 					if (res == null)
 						res = methods[i];
 					else
-						throw new Error("Multiple methods with same name");
+						throw new Error("Multiple methods could match the given arguments");
 				}
 			}
 			if (res == null) throw e;
 			return res;
 		}
+	}
+	private static java.lang.Class<?>[] classes(java.lang.Object[] args) \{
+		java.lang.Class<?>[] res = new java.lang.Class<?>[args.length];
+		for (int i = 0; i < res.length; i++)
+			res[i] = classOf(args[i]);
+		return res;
+	}
+	private static boolean canCallMethod(java.lang.Class<?>[] parameterTypes, java.lang.Class<?>[] argClasses) \{
+		for (int i = 0; i < parameterTypes.length; i++) \{
+			if (!parameterTypes[i].isAssignableFrom(argClasses[i]))
+				return false;
+		}
+		return true;
 	}
 	private static java.lang.Class classOf(Object a) \{
 		java.lang.Class res = a.getClass();
@@ -88,7 +139,14 @@ class Void \{
 		out ~~= " extends {s}"
 	out ~~= " \{"
 	for field : a fields
-		out ~~= "\n\t{field type} {field name};"
+		out ~~= "\n\t"
+		out write-visibility field.visibility
+		out write-kind field.kind
+		out ~~= "{field type} {field name}"
+		if i ?= field initializer
+			out ~~= " = "
+			out write-expr 1, i
+		out ~= ";"
 	if x ?= a constructor
 		out ~~= "\n\t{a name}"
 		out write-params x.params
@@ -101,29 +159,35 @@ class Void \{
 -write-method void(out string-builder, indent nat, a java-method)
 	unless a.comment is-empty
 		out ~~= "// {a comment}{indent newline}"
-	out ~~= match a visibility
+	out write-visibility a.visibility
+	out write-kind a.kind
+	out ~~= "{a return-type} {a name}"
+	out write-params a.params
+	out ~~= " throws Throwable"
+	out write-block-statement indent, a.body
+
+-write-visibility void(out string-builder, a java-visibility)
+	out ~~= match a
 	as private
 		"private "
 	as internal
 		""
 	as public
 		"public "
-	match a kind
+
+-write-kind void(out string-builder, a java-method-kind)
+	match a
 	as instance
 		()
 	as static
 		out ~~= "static "
-	out ~~= "{a return-type} {a name}"
-	out write-params a.params
-	out ~~= " throws Throwable"
-	out write-block-statement indent, a.body
 
 -show string(type java-type)
 	match type
 	as string x
 		x
 	as java-array-type x
-		"{x inner}[]"
+		"{x element-type}[]"
 
 -write-params void(out string-builder, params java-param[])
 	res string = ", " join for param : params
@@ -192,8 +256,10 @@ class Void \{
 			out ~~= " finally"
 			out write-block-statement indent, f
 	as java-var-decl x
-		out ~~= "{x type} {x name} = "
-		out write-expr indent, x.value
+		out ~~= "{x type} {x name}"
+		if init ?= x initializer
+			out ~~= " = "
+			out write-expr indent, init
 		out ~= ";"
 	as java-while x
 		if label ?= x label
@@ -205,6 +271,8 @@ class Void \{
 
 -write-expr void(out string-builder, indent nat, a java-expr)
 	match a
+	as java-access-static-field x
+		out ~~= "{x class-name}.{x field-name}"
 	as java-array-get x
 		out write-expr indent, x.array
 		out ~= "["
@@ -277,9 +345,16 @@ class Void \{
 		out ~~= "new {x class-name}"
 		out write-args indent, x.args	
 	as java-new-array x
-		out ~~= "new {x element-type}["
-		out write-expr indent, x.size
-		out ~= "]"
+		# TODO: what about at t[][][]? --------------------------------------------------------------------------------------------------
+		match x.element-type
+		as java-array-type array
+			out ~~= "new {array element-type}["
+			out write-expr indent, x.size
+			out ~~= "][]"
+		as string s
+			out ~~= "new {s}["
+			out write-expr indent, x.size
+			out ~= "]"
 	as java-null
 		out ~~= "null"
 	as java-this

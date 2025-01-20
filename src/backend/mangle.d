@@ -305,6 +305,7 @@ bool conflictsWithCName(Symbol a) {
 		case symbol!"nan".value: // defined by mathcalls.h
 		case symbol!"return".value:
 		case symbol!"signed".value:
+		case symbol!"static".value:
 		case symbol!"struct".value:
 		case symbol!"unsigned".value:
 		case symbol!"void".value:

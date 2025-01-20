@@ -27,8 +27,20 @@ translate-to-java string(
 	classes java-class[] = with out : build
 		for struct : concrete-program all-structs
 			out ~~= ctx translate-struct struct
-		out ~= ("", "Functions", (), (), (), (ctx translate-functions concrete-program))
-		out ~= ("", "Main", (), (), (), (ctx.call-main,))
+		out ~= do
+			comment: ""
+			name: "Functions"
+			extends: ()
+			fields: ctx translate-vars concrete-program
+			constructor: ()
+			methods: ctx translate-functions concrete-program
+		out ~= do
+			comment: ""
+			name: "Main"
+			extends: ()
+			fields: ()
+			constructor: ()
+			methods: (ctx.call-main,)
 	interfaces java-interface[] = for id, type : ctx iife-types
 		method java-interface-method = (ctx as-type type), "call", ()
 		"Iife{id value}", (method,)
@@ -57,7 +69,7 @@ translate-to-java string(
 	params java-param[] = (string-array, "args"),
 	get-args = "args" java-local-access
 	call-main = "Functions.{ctx.mangled-names[main]}" java-call-static-method (get-args,)
-	declare-exit = "int".to java-var-decl "exit", ("int".to java-cast call-main)
+	declare-exit = "int".to java-var-decl "exit", (("int".to java-cast call-main),)
 	get-exit = "exit" java-local-access
 	exit-not-zero = not-equal java-binary get-exit, zero
 	system-exit = "java.lang.System.exit" java-call-static-method (get-exit,)
@@ -83,6 +95,16 @@ translate-to-java string(
 -is-exception bool(ctx to-java-ctx, type concrete-struct)
 	type == ctx.exception
 
+-translate-vars java-field[](ctx to-java-ctx, program concrete-program)
+	for var : program all-vars
+		name = ctx.mangled-names[var]
+		match var kind
+		as global_
+			private, static, (ctx as-type var.type), name, ()
+		as thread-local_
+			init = "java.lang.ThreadLocal<?>" java-new ()
+			private, static, "java.lang.ThreadLocal<?>".to, name, (init,)
+
 -translate-functions java-method[](ctx to-java-ctx, program concrete-program)
 	for fun : program all-funs
 		expr-ctx to-expr-ctx = ctx, (), 0, ()
@@ -91,7 +113,7 @@ translate-to-java string(
 		body java-block-statement = match fun body
 		as concrete-fun-body-builtin builtin_
 			args java-expr[] = for param : fun params; expr-ctx get-local param
-			match ctx translate-builtin return, builtin_.kind, builtin_.type-args, fun.return-type.struct, args
+			match expr-ctx translate-builtin return, builtin_.kind, builtin_.type-args, fun.return-type.struct, args
 			as java-expr x
 				x.java-return-statement to
 			as java-block-statement x
@@ -100,10 +122,25 @@ translate-to-java string(
 			throw-bogus to
 		as concrete-expr x
 			expr-ctx to-block-statement return, x
-		as concrete-fun-body-var-get _
-			throw todo
-		as concrete-fun-body-var-set _
-			throw todo
+		as concrete-fun-body-var-get x
+			params.size is 0
+			access = "Functions" java-access-static-field ctx.mangled-names[x.var]
+			match x.var kind
+			as thread-local_
+				expr = ctx cast-and-unbox x.var.type.struct, (access java-call-instance-method "get", ())
+				expr.java-return-statement to
+			as global_
+				access.java-return-statement to
+		as concrete-fun-body-var-set x
+			params.size is 1
+			access = "Functions" java-access-static-field ctx.mangled-names[x.var]
+			arg = expr-ctx get-local fun.params.only
+			statement java-statement = match x.var kind
+			as thread-local_
+				access java-call-instance-method "set", ((ctx box fun.params.only.type.struct, arg),) to
+			as global_
+				access java-assign-statement arg
+			(statement, return-void),
 		as concrete-fun-body-deferred
 			throw unreachable
 		comment = ctx.show-ctx.show show-concrete-fun-sig fun, false
@@ -194,7 +231,7 @@ translate-to-java string(
 		(comment boxing-class name, super, x.storage_.as-type),
 	as concrete-record r
 		fields java-field[] = for field : r fields
-			(ctx as-type field.type), field.debug-name.mangle
+			internal, instance, (ctx as-type field.type), field.debug-name.mangle, ()
 		(comment basic-class name, super, fields),
 	as concrete-union _
 		# Unions just compile to Object
@@ -314,12 +351,15 @@ translate-to-java string(
 		false
 
 -boxing-class java-class(comment string, name string, super string?, primitive-type java-type)
-	comment basic-class name, super, ((primitive-type, "value"),)
+	value-field java-field = internal, instance, primitive-type, "value", ()
+	comment basic-class name, super, (value-field,)
 
 -basic-class java-class(comment string, name string, super-class string?, fields java-field[])
 	assigns java-statement[] = for field : fields
 		java-this java-property-access field.name java-assign-statement field.name.java-local-access
-	constructor java-constructor = fields, (assigns,)
+	params java-param[] = for field : fields
+		field.type, field.name
+	constructor java-constructor = params, (assigns,)
 	comment, name, super-class, fields, (constructor,), ()
 
 -as-type java-type(ctx to-java-ctx, struct concrete-struct, a concrete-builtin-type)
@@ -456,6 +496,7 @@ translate-to-java string(
 				ctx.mangled-names[struct] java-new (arg,)
 	else
 		arg
+
 -unbox java-expr(ctx to-java-ctx, type concrete-struct, arg java-expr)
 	if builtin_ ?= type.body concrete-builtin-type
 		match builtin_ kind
@@ -470,6 +511,9 @@ translate-to-java string(
 				arg java-property-access "value"
 	else
 		arg
+
+-cast-and-unbox java-expr(ctx to-java-ctx, type concrete-struct, arg java-expr)
+	ctx unbox type, (ctx as-boxed-type type java-cast arg)
 
 -as-boxed-type java-type(ctx to-java-ctx, struct concrete-struct, a concrete-builtin-type)
 	match a kind
@@ -510,7 +554,7 @@ translate-to-java string(
 	as fun-pointer
 		"java.lang.invoke.MethodHandle",
 	as future
-		"util.concurrent.Future",
+		"java.util.concurrent.Future",
 	as int8
 		"java.lang.Byte",
 	as int16
@@ -565,10 +609,7 @@ translate-to-java string(
 -return-unless-void java-block-statement(expr java-expr, pos expr-pos)
 	match pos
 	as no-return
-		if expr is-a-statement
-			expr to
-		else
-			(),
+		expr as-statement
 	as return
 		expr.java-return-statement to
 -to-expr java-expr(ctx to-expr-ctx, a concrete-expr)
@@ -582,7 +623,7 @@ translate-to-java string(
 	type = a.type struct
 	match a kind
 	as builtin-concrete-expr x
-		ctx.ctx translate-builtin pos, x.fun, x.type-args, type, for arg : x args
+		ctx translate-builtin pos, x.fun, x.type-args, type, for arg : x args
 			ctx to-expr arg
 	as call-concrete-expr x
 		args java-expr[] = for arg : x args
@@ -601,13 +642,10 @@ translate-to-java string(
 			ctx to-expr arg
 		ctx.mangled-names[type] java-new args to
 	as create-union-concrete-expr x
-		ctx.ctx create-union type, (ctx to-expr x.arg) to
+		ctx.ctx box x.arg.type.struct, (ctx to-expr x.arg) to
 	as drop-concrete-expr x
 		expr = ctx to-expr x.arg
-		if expr is-a-statement
-			expr to
-		else
-			((),)::java-block-statement to
+		expr.as-statement to
 	as finally-concrete-expr x
 		ctx to-block-statement pos, x.below java-try-statement (), ((ctx to-block-statement no-return, x.right),) to
 	as if-concrete-expr x
@@ -618,10 +656,7 @@ translate-to-java string(
 			as java-expr else_
 				match pos
 				as no-return
-					if else_ is-a-statement
-						cond java-if-statement then.to, else_.to to
-					else
-						cond java-if-statement then.to, () to
+					cond java-if-statement then.to, else_.as-statement to
 				as return
 					cond java-ternary then, else_ to
 			as java-block-statement else_
@@ -634,7 +669,7 @@ translate-to-java string(
 		local = ctx local-name x.local
 		value = ctx to-expr x.value
 		then = ctx to-block-statement pos, x.then
-		(ctx as-type x.local.type.struct java-var-decl local, value) ~ then to
+		(ctx as-type x.local.type.struct java-var-decl local, (value,)) ~ then to
 	as lambda-concrete-expr _
 		throw unreachable
 	as local-get-concrete-expr x
@@ -711,11 +746,10 @@ translate-to-java string(
 			else
 				throw-unreachable to
 			for case-type, case_ : x.case-types zip x.cases
-				boxed-type = ctx.ctx as-boxed-type case-type
-				cond = matched java-instanceof boxed-type
+				cond = matched java-instanceof (ctx.ctx as-boxed-type case-type)
 				then = if local ?= case_ local
-					value = ctx.ctx unbox case-type.struct, (boxed-type java-cast matched)
-					decl = ctx as-type local.type.struct java-var-decl (ctx local-name local), value
+					value = ctx.ctx cast-and-unbox case-type.struct, matched
+					decl = ctx as-type local.type.struct java-var-decl (ctx local-name local), (value,)
 					decl ~ (ctx to-block-statement pos, case_.then)
 				else
 					ctx to-block-statement pos, case_.then
@@ -735,21 +769,91 @@ translate-to-java string(
 		(ctx to-expr x.thrown).java-throw-statement to
 	as try-concrete-expr x
 		tried = ctx to-block-statement pos, x.tried
-		exception-types = ctx.ctx.exception.body.concrete-union! members
-		catch-clauses java-catch[] = for index, case_ : x.exception-member-indices zip x.catch-cases
+		catch-clauses java-catch[] = for exception-case-index, case_ : x.exception-member-indices zip x.catch-cases
 			local string = if l ?= case_ local
 				ctx local-name l
 			else
 				"_{ctx take-next-temp-index}"
 			then = ctx to-block-statement pos, case_.then
-			(ctx as-type exception-types[index as-unsigned].struct).string!, local, then
+			(ctx.ctx exception-case-type-from-index exception-case-index), local, then
 		tried java-try-statement catch-clauses, () to
-	as try-let-concrete-expr _
-		throw todo
-	as union-as-concrete-expr _
-		throw todo
-	as union-kind-concrete-expr _
-		throw todo
+	as try-let-concrete-expr x
+		###
+		x = try value catch err local : catch_
+		then
+		==>
+		T local;
+		boolean ok = false;
+		try {
+			local = value;
+			ok = true;
+		} catch (err catch_local) {
+			catch_then;
+		}
+		if (ok) then
+		###
+		is-statement = match pos
+		as no-return
+			true
+		as return
+			false
+		local = if concrete-local ?= x local
+			ctx local-name concrete-local
+		else
+			"ignore{ctx take-next-temp-index}"
+		declare-local = (ctx as-type x.value.type.struct) java-var-decl local, ()
+		ok string? = if is-statement
+			"ok{ctx take-next-temp-index}",
+		declare-ok java-statement? = if o ?= ok
+			("boolean".to java-var-decl  o, (false.java-literal-boolean,)),
+		set-local = local.java-local-access java-assign-statement (ctx to-expr x.value)
+		set-ok java-statement? = if o ?= ok
+			(o.java-local-access java-assign-statement true.java-literal-boolean),
+		caught-local = if l ?= x.catch_.local
+			ctx local-name l
+		else
+			"temp{ctx take-next-temp-index}"
+		catch-then = ctx to-block-statement pos, x.catch_.then
+		catch_ java-catch = (ctx.ctx exception-case-type-from-index x.exception-member-index), caught-local, catch-then
+		then = ctx to-block-statement pos, x.then
+		after java-block-statement = if o ?= ok
+			o.java-local-access java-if-statement then, () to
+		else
+			then
+		tried java-statement[] = with out : build
+			out ~= set-local
+			out ~~= set-ok
+		try_ = (tried,) java-try-statement (catch_,), ()
+		statements java-statement[] = with out : build
+			out ~= declare-local
+			out ~~= declare-ok
+			out ~= try_
+			out ~~= after statements
+		(statements,) to
+	as union-as-concrete-expr x
+		ctx.ctx cast-and-unbox x.case-type.struct, (ctx to-expr x.union_) to
+	as union-kind-concrete-expr x
+		###
+		matched =  ...
+		if (matched instanceof x)
+			return 0;
+		else if (matched instanceof y)
+			return 1;
+		...
+		else
+			throw new Error("Unreachable"); 
+		###
+		ctx with-temp "matched", x.union_, matched =>
+			res mut java-block-statement = throw-unreachable to
+			for case-index, case-type : x.union-members with-index
+				is-case = matched java-instanceof (ctx.ctx as-boxed-type case-type)
+				return-index = case-index.to.java-literal-int32-or-less java-return-statement
+				res := is-case java-if-statement return-index.to, res to
+			res
+
+-exception-case-type-from-index string(ctx to-java-ctx, exception-case-index integral-value)
+	exception-types = ctx.exception.body.concrete-union! members
+	ctx as-type exception-types[exception-case-index as-unsigned].struct string!
 
 -maybe-break-switch-case java-block-statement(pos expr-pos, a java-block-statement)
 	match pos
@@ -764,20 +868,18 @@ translate-to-java string(
 	value concrete-expr,
 	f java-block-statement mut(get-temp java-expr),
 )
+	ctx with-temp base-name, value.type, (ctx to-expr value), f
+-with-temp java-expr-or-block-statement(
+	ctx to-expr-ctx,
+	base-name string,
+	type concrete-type,
+	value java-expr,
+	f java-block-statement mut(get-temp java-expr),
+)
 	name string = "{base-name}{ctx take-next-temp-index}"
-	declare = ctx as-type value.type.struct java-var-decl name, (ctx to-expr value)
+	declare = ctx as-type type.struct java-var-decl name, (value,)
 	then = f[name java-local-access]
 	declare ~ then to
-
--create-union java-expr(ctx to-java-ctx, type concrete-struct, arg java-expr)
-	match type body
-	as concrete-builtin-type builtin_
-		if _ ?= builtin_.kind as-java-lang-class
-			ctx as-type type java-cast arg
-		else
-			ctx.mangled-names[type] java-new (arg,)
-	else
-		ctx as-type type java-cast arg
 
 -translate-constant java-expr(ctx to-java-ctx, type concrete-struct, a constant)
 	match type body
@@ -849,13 +951,14 @@ translate-to-java string(
 	as bool
 		a.as-bool java-literal-boolean
 	as catch-point
-		throw unreachable
+		error["CATCH-POINT"]
 	as char8
-		nat8 constant-integral a
+		u nat8 = a.as-integral.as-unsigned to
+		"char".to java-cast u.wrap-to::int8.to.java-literal-int32-or-less
 	as char32
 		nat32 constant-integral a
 	as const-pointer
-		throw unreachable
+		error["CONST-POINTER"]
 	as float32
 		true constant-float a
 	as float64
@@ -870,7 +973,7 @@ translate-to-java string(
 				out ~= ctx as-type-expr param.type
 		"Crow.funPointer" java-call-static-method args
 	as future
-		throw unreachable
+		error["FUTURE"]
 	as int8
 		int8 constant-integral a
 	as int16
@@ -880,21 +983,21 @@ translate-to-java string(
 	as int64
 		int64 constant-integral a
 	as java-any
-		throw unreachable
+		error["JAVA-ANY"]
 	as java-exclusion
-		throw unreachable
+		error["JAVA-EXCLUSION"]
 	as js-any
-		throw unreachable
+		error["JS-ANY"]
 	as fun-data
-		throw unreachable
+		error["FUN-DATA"]
 	as fun-mut
-		throw unreachable
+		error["FUN-MUT"]
 	as fun-shared
-		throw unreachable
+		error["FUN-SHARED"]
 	as mut-array
 		error["MUT-ARRAY"]
 	as mut-pointer
-		throw unreachable
+		error["MUT-POINTER"]
 	as mut-slice
 		error["MUT-SLICE"]
 	as nat8
@@ -955,7 +1058,7 @@ translate-to-java string(
 		else
 			value.as-unsigned.wrap-to java-literal-int64
 
--translate-builtin java-expr-or-block-statement(ctx to-java-ctx, pos expr-pos, fun builtin-fun, type-args concrete-type[], type concrete-struct, args java-expr[])
+-translate-builtin java-expr-or-block-statement(ctx to-expr-ctx, pos expr-pos, fun builtin-fun, type-args concrete-type[], type concrete-struct, args java-expr[])
 	match fun
 	as builtin-fun-all-tests
 		throw unreachable
@@ -964,7 +1067,7 @@ translate-to-java string(
 	as builtin-unary-math x
 		x translate-builtin-unary-math args.only
 	as builtin-binary x
-		ctx translate-builtin-binary type, x, args.only2
+		ctx.ctx translate-builtin-binary type, x, args.only2
 	as builtin-binary-lazy _
 		throw unreachable
 	as builtin-binary-math x
@@ -983,20 +1086,21 @@ translate-to-java string(
 		_, param-type = type-args only2
 		# TODO: it should probably be concretize's job to remove void expressions, since 'lower' would benefit from that too ............
 		fn, param = args only2
-		assert param-type is-void : todo
-		invoke = ctx unbox type, (ctx as-type type java-cast (fn java-call-instance-method "invoke", ()))
-		match pos
-		as no-return
-			if param is-a-statement
-				((param.to, invoke.to),) to
-			else
-				invoke to
+		if param-type is-void
+			assert param-type is-void : todo
+			invoke = fn java-call-instance-method "invoke", ()
+			cast-invoke = ctx.ctx cast-and-unbox type, invoke
+			param.as-statement ~~ (cast-invoke return-unless-void pos) to
+		elif param-type is-tuple
+			# TODO: very similar code in translate-to-js. We could do this in concretize instead? -------------------------------------------------------------
+			ctx with-temp "args", param-type, param, temp =>
+				fields = param-type.must-be-by-val.body.concrete-record! fields
+				invoke = fn java-call-instance-method "invoke", for field : fields
+					temp java-property-access field.debug-name.mangle
+				ctx.ctx cast-and-unbox type, invoke return-unless-void pos
 		else
-			cast-invoke = (ctx as-type type java-cast invoke).java-return-statement
-			if param is-a-statement
-				((param.to, cast-invoke),) to
-			else
-				invoke to
+			invoke = fn java-call-instance-method "invoke", (param,)
+			ctx.ctx cast-and-unbox type, invoke return-unless-void pos to
 	as builtin-fun-constant _
 		throw unreachable
 	as builtin-fun-gc-safe-value
@@ -1014,21 +1118,21 @@ translate-to-java string(
 			assign = args[0] java-array-get args[1] java-assign-statement args[2]
 			assign maybe-return-void pos to
 		as as-java-any
-			"java.lang.Object".to java-cast (ctx box type-args.only.struct, args.only) to
+			"java.lang.Object".to java-cast (ctx.ctx box type-args.only.struct, args.only) to
 		as call-instance
-			ctx as-type type java-cast ("Crow.callInstance" java-call-static-method args) to
+			ctx.ctx cast-and-unbox type, ("Crow.callInstance" java-call-static-method args) to
 		as call-new
-			throw todo
+			"Crow.callNew" java-call-static-method args to
 		as call-static
-			ctx as-type type java-cast ("Crow.callStatic" java-call-static-method args) to
+			ctx.ctx cast-and-unbox type, ("Crow.callStatic" java-call-static-method args) to
 		as call-static-varargs
 			args.size is 3
-			ctx as-type type java-cast ("Crow.callStaticVarargs" java-call-static-method args) to
+			ctx.ctx cast-and-unbox type, ("Crow.callStaticVarargs" java-call-static-method args) to
 		as cast
-			ctx unbox type, (ctx as-boxed-type type java-cast args.only) to
+			ctx.ctx cast-and-unbox type, args.only to
 		as cur-exclusion
 			args.size is 0
-			"Crow.curExclusion" java-call-static-method () to
+			"Crow.getExclusion" java-call-static-method () to
 		as change-exclusion
 			args.size is 1
 			"Crow.changeExclusion" java-call-static-method args to
@@ -1039,7 +1143,7 @@ translate-to-java string(
 			args.size is 2
 			"Crow.getStaticField" java-call-static-method args to
 		as new-array
-			(ctx as-type type-args.only) java-new-array args.only to
+			(ctx as-type type-args.only.struct) java-new-array args.only to
 	as js-fun _
 		throw unreachable
 	as builtin-fun-mark-root
@@ -1163,7 +1267,7 @@ translate-to-java string(
 	as bitwise-not-nat64
 		unary[bitwise-not]
 	as count-ones-nat64
-		"long".to java-cast ("java.lang.Long.bitcount" java-call-static-method (arg,)) to
+		"long".to java-cast ("java.lang.Long.bitCount" java-call-static-method (arg,)) to
 	as c-string-of-symbol
 		throw unreachable
 	as deref
@@ -1250,78 +1354,78 @@ translate-to-java string(
 
 -translate-builtin-unary-math java-expr-or-block-statement(a builtin-unary-math, arg java-expr)
 	f32 java-expr-or-block-statement data(name string) = name =>
-		"float".to java-cast ("java.lang.Math.{name}" java-call-static-method (arg,)) to
+		"float".to java-cast (name java-call-static-method (arg,)) to
 	f64 java-expr-or-block-statement data(name string) = name =>
-		"java.lang.Math.{name}" java-call-static-method (arg,) to
+		name java-call-static-method (arg,) to
 	match a
 	as acos-float32
-		f32["acos"]
+		f32["java.lang.Math.acos"]
 	as acosh-float32
-		f32["acosh"]
+		f32["Crow.acosh"]
 	as asin-float32
-		f32["asin"]
+		f32["java.lang.Math.asin"]
 	as asinh-float32
-		f32["asinh"]
+		f32["Crow.asinh"]
 	as atan-float32
-		f32["atan"]
+		f32["java.lang.Math.atan"]
 	as atanh-float32
-		f32["atanh"]
+		f32["Crow.atanh"]
 	as cos-float32
-		f32["cos"]
+		f32["java.lang.Math.cos"]
 	as cosh-float32
-		f32["cosh"]
+		f32["java.lang.Math.cosh"]
 	as round-down-float32
-		f32["floor"]
+		f32["java.lang.Math.floor"]
 	as round-float32
 		"float".to java-cast ("Crow.round" java-call-static-method (arg,)) to
 	as round-up-float32
-		f32["ceil"]
+		f32["java.lang.Math.ceil"]
 	as sin-float32
-		f32["sin"]
+		f32["java.lang.Math.sin"]
 	as sinh-float32
-		f32["sinh"]
+		f32["java.lang.Math.sinh"]
 	as sqrt-float32
-		f32["sqrt"]
+		f32["java.lang.Math.sqrt"]
 	as tan-float32
-		f32["tan"]
+		f32["java.lang.Math.tan"]
 	as tanh-float32
-		f32["tanh"]
+		f32["java.lang.Math.tanh"]
 	as unsafe-log-float32
-		f32["log"]
+		f32["java.lang.Math.log"]
 	as acos-float64
-		f64["acos"]
+		f64["java.lang.Math.acos"]
 	as acosh-float64
-		f64["acosh"]
+		f64["Crow.acosh"]
 	as asin-float64
-		f64["asin"]
+		f64["java.lang.Math.asin"]
 	as asinh-float64
-		f64["asinh"]
+		f64["Crow.asinh"]
 	as atan-float64
-		f64["atan"]
+		f64["java.lang.Math.atan"]
 	as atanh-float64
-		f64["atanh"]
+		f64["Crow.atanh"]
 	as cos-float64
-		f64["cos"]
+		f64["java.lang.Math.cos"]
 	as cosh-float64
-		f64["cosh"]
+		f64["java.lang.Math.cosh"]
 	as round-down-float64
-		f64["floor"]
+		f64["java.lang.Math.floor"]
 	as round-float64
 		"Crow.round" java-call-static-method (arg,) to
 	as round-up-float64
-		f64["ceil"]
+		f64["java.lang.Math.ceil"]
 	as sin-float64
-		f64["sin"]
+		f64["java.lang.Math.sin"]
 	as sinh-float64
-		f64["sinh"]
+		f64["java.lang.Math.sinh"]
 	as sqrt-float64
-		f64["sqrt"]
+		f64["java.lang.Math.sqrt"]
 	as tan-float64
-		f64["tan"]
+		f64["java.lang.Math.tan"]
 	as tanh-float64
-		f64["tanh"]
+		f64["java.lang.Math.tanh"]
 	as unsafe-log-float64
-		f64["log"]
+		f64["java.lang.Math.log"]
 
 -translate-builtin-binary java-expr-or-block-statement(ctx to-java-ctx, type concrete-struct, a builtin-binary, (arg0 java-expr, arg1 java-expr))
 	cast java-expr mut(arg java-expr) = arg =>
@@ -1563,7 +1667,7 @@ translate-to-java string(
 )
 	match a
 	as atan2-float32
-		"Math.atan2" java-call-static-method (arg0, arg1) to
+		"float".to java-cast ("Math.atan2" java-call-static-method (arg0, arg1)) to
 	as atan2-float64
 		"Math.atan2" java-call-static-method (arg0, arg1) to
 	as fmod-float32
