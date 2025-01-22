@@ -4,22 +4,19 @@ import
 	../../compare: ==, <, >=, compare, comparison, equal
 	../../exception: unreachable
 	../../json: to
-	../../misc: loop-break, new, subscript, void
+	../../misc: data, loop-break, new, subscript, void
 	../../number: ==, <=>, +, -, /, next
 	../../option: ==, force, is-empty, new, option
 	../../range: .., iterate
 	../../test-util: is
-	../../tuple: a, b, new
+	../../tuple: a, new
 	../../private/bootstrap: nat64
-	../array:
-		==, <=>, +, -, array, array-iterator, begin, end, iterate, new, next, next-index, slice
-	../collection: for-break, for-loop
-	../mut-slice: +, begin, mut-slice, mut-slice-iterator, new, next-index, temp-as-array
-	../mut-array:
-		+, begin, clear, is-empty, move-to, mut-array, mut-array-iterator, push-gc-safe-values,
-		set-subscript, size, subscript, swap, temp-as-array, to
+	../array: ==, +, -, array, begin, end, iterate, new, next, size, slice, subscript
+	../collection: .., end, for-break, for-loop
+	../mut-slice: array-view, as-const, mut-slice, mut-slice-view, size, subscript, view
+	../mut-array
 
-binary-search-has[t] bool(a t[], value t) t compare
+binary-search-has[t] bool(a t[], value t) t compare, t data
 	a binary-search-exact value !is-empty
 
 binary-search-key[k, v] v?(a (k, v)[], key k) k compare
@@ -44,78 +41,64 @@ binary-search-key[k, v] v?(a (k, v)[], key k) k compare
 				left := mid + 1
 				continue
 
-binary-search-exact[t] t mut-array-iterator?(a t mut[], compare comparison data(elem t))
-	# temp-as-array is safe because 'compare' is 'data'
-	if iter ?= trusted a.temp-as-array binary-search-exact compare
-		a.begin + iter.next-index,
-
 ###
 Assumes the array is sorted.
 Returns an iterator whose 'next' is the value, or nothing if the array does not contain the value.
 ###
-binary-search-exact[t] t array-iterator?(a t[], value t) t compare
-	left mut = a begin
-	right mut = a end
-	loop
-		diff = right - left
-		if diff < 4
-			break left linear-search-exact right, value
-		else
-			mid = left + diff / 2
-			match value <=> mid.next!.a
-			as less
-				right := mid
-				continue
-			as equal
-				break mid,
-			as greater
-				left := mid + 1
-				continue
--linear-search-exact[t] t array-iterator?(
-	left t array-iterator,
-	right t array-iterator,
-	value t,
-) t equal
-	cur mut = left
-	loop
-		if cur < right
-			pair = cur next!
-			if pair.a == value
-				break cur,
-			else
-				cur := pair b
-				continue
-		else
-			break
+binary-search-exact[t] nat64?(a t mut[], value t) t compare, t data
+	# temp-as-array is safe because 'compare' is 'data'
+	trusted a.temp-as-array-view binary-search-exact value
+binary-search-exact-cb[t] nat64?(a t mut[], comparer comparison data(x t))
+	# temp-as-array is safe because 'compare' is 'data'
+	trusted a.temp-as-array-view binary-search-exact-cb comparer
+binary-search-exact[t] nat64?(a t array-view, value t) t compare, t data
+	a binary-search-exact-cb x => value <=> x
+binary-search-exact-cb[t] nat64?(a t array-view, comparer comparison data(x t))
+	res = a binary-search-insert-cb comparer
+	unless res == a.size
+		if comparer[a[res]] == equal
+			res,
 
-binary-search-exact[t] t array-iterator?(a t[], compare comparison data(elem t))
-	iter = a binary-search-insert compare
-	if value, _ ?= iter next
-		if compare[value] == equal
-			iter,
+binary-search-exact[t] nat64?(a t[], value t) t compare, t data
+	res = a binary-search-insert value
+	unless res == a.size
+		if a[res] == value
+			res,
+binary-search-exact-cb[t] nat64?(a t[], compare comparison data(elem t))
+	index = a binary-search-insert-cb compare
+	unless index == a.size
+		if compare[a[index]] == equal
+			index,
 test
-	((1, 5, 9)::nat64[] binary-search-exact 5)?.next-index is (1,)
-	((1, 5, 9)::nat64[] binary-search-exact 6)?.next-index is ()
+	a nat64[] = 1, 5, 9
+	a binary-search-exact 5 is (1,)
+	a binary-search-exact 6 is ()
+
+binary-search-insert[t] nat64(a t[], value t) t compare, t data
+	a binary-search-insert-cb x => value <=> x
 
 ###
 Returns the pointer to the least value that is compared equal or greater.
 Returns `a end-pointer` if all values compare less.
 ###
-binary-search-insert[t] t mut-array-iterator(a t mut[], compare comparison data(elem t))
-	a.begin + (trusted a.temp-as-array binary-search-insert compare).next-index
+binary-search-insert-cb[t] nat64(a t mut[], compare comparison data(elem t))
+	trusted a.temp-as-mut-slice binary-search-insert-cb compare
 
-binary-search-insert[t] t mut-slice-iterator(a t mut-slice, compare comparison data(elem t))
-	a.begin + (trusted a.temp-as-array binary-search-insert compare).next-index
+binary-search-insert-cb[t] nat64(a t mut-slice, compare comparison data(elem t))
+	a[0 .. end] binary-search-insert-cb compare
 
-binary-search-insert[t] t array-iterator(a t[], value t) t compare
-	left mut = a begin
-	right mut = a end
+binary-search-insert-cb[t] nat64(a t[], compare comparison data(elem t))
+	a.view binary-search-insert-cb compare
+
+binary-search-insert-cb[t] nat64(a t array-view, compare comparison data(elem t))
+	left mut nat64 = 0
+	right mut = a size
 	loop
-		if left.next-index == right.next-index
+		if left == right
 			break left
 		else
 			mid = left + (right - left) / 2
-			match value <=> mid.next!.a
+			match compare[a[mid]]
 			as less
 				right := mid
 				continue
@@ -124,35 +107,19 @@ binary-search-insert[t] t array-iterator(a t[], value t) t compare
 			as greater
 				left := mid + 1
 				continue
+
+binary-search-insert-cb[t] nat64(a t mut-slice-view, compare comparison data(elem t))
+	(trusted a.as-const) binary-search-insert-cb compare
 
 test
-	a nat64 mut-slice = 1, 3, 5, 7
-	(a binary-search-insert x => 0::nat64 <=> x).next-index is 0
-	(a binary-search-insert x => 3::nat64 <=> x).next-index is 1
-	(a binary-search-insert x => 4::nat64 <=> x).next-index is 2
-	(a binary-search-insert x => 5::nat64 <=> x).next-index is 2
-	(a binary-search-insert x => 6::nat64 <=> x).next-index is 3
-	(a binary-search-insert x => 7::nat64 <=> x).next-index is 3
-	(a binary-search-insert x => 8::nat64 <=> x).next-index is 4
-
-# Returns an iterator that the element should be inserted to the right of.
--binary-search-insert[t] t array-iterator(a t[], compare comparison data(elem t))
-	left mut = a begin
-	right mut = a end
-	loop
-		if left.next-index == right.next-index
-			break left
-		else
-			mid = left + (right - left) / 2
-			match compare[mid.next!.a]
-			as less
-				right := mid
-				continue
-			as equal
-				break mid
-			as greater
-				left := mid + 1
-				continue
+	a nat64[] = 1, 3, 5, 7
+	(a binary-search-insert-cb x => 0::nat64 <=> x) is 0
+	(a binary-search-insert-cb x => 3::nat64 <=> x) is 1
+	(a binary-search-insert-cb x => 4::nat64 <=> x) is 2
+	(a binary-search-insert-cb x => 5::nat64 <=> x) is 2
+	(a binary-search-insert-cb x => 6::nat64 <=> x) is 3
+	(a binary-search-insert-cb x => 7::nat64 <=> x) is 3
+	(a binary-search-insert-cb x => 8::nat64 <=> x) is 4
 
 unique-comparison enum(less, greater)
 

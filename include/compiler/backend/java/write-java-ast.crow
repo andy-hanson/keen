@@ -20,6 +20,20 @@ write-java-ast string(a java-ast)
 			return res;
 		}
 	};
+	// This must be public because it's called through reflection
+	public static Throwable catchAll(Object fn, java.lang.invoke.MethodHandle callIt) \{
+		try \{
+			callIt.invoke(fn);
+			return null;
+		} catch (Throwable e) \{
+			return e;
+		}
+	}
+	public static void yieldFiber() \{
+		java.util.concurrent.locks.ReentrantLock lock = curExclusion.get();
+		lock.unlock();
+		lock.lock();
+	}
 	static java.util.concurrent.locks.ReentrantLock getExclusion() \{
 		return curExclusion.get();
 	}
@@ -29,6 +43,10 @@ write-java-ast string(a java-ast)
 		curExclusion.set(newExclusion);
 		newExclusion.lock();
 		return Void.get();
+	}
+
+	static <T> T throw_(java.lang.String message) \{
+		throw new Error(message);
 	}
 
 	static double float64FromNat64(long a) \{
@@ -194,9 +212,9 @@ class Void \{
 		"{param type} {param name}"
 	out ~~= "({res})"
 
--write-block-statement void(out string-builder, indent nat, a java-block-statement)
+-write-block-statement void(out string-builder, indent nat, a java-statement[])
 	out ~~= " \{"
-	for statement : a statements
+	for statement : a
 		out ~~= indent + 1 newline
 		out write-statement indent + 1, statement
 	out ~~= indent newline
@@ -297,12 +315,6 @@ class Void \{
 		out ~= ")"
 	as java-class-expr x
 		out ~~= "{x class_}.class"
-	as java-iife x
-		out ~~= "(("
-		out ~~= x iife-type
-		out ~~= ") () ->"
-		out write-block-statement indent, x.body
-		out ~~= ").call()"
 	as java-inline-class x
 		out ~~= "new {x type}() \{"
 		for field : x fields
@@ -367,6 +379,8 @@ class Void \{
 		out ~~= " : "
 		out write-expr indent + 1, x.else_
 		out ~~= ")"
+	as java-throw-expression x
+		out ~~= "Crow.<{x type}>throw_({x.message quote})"
 	as java-property-access x
 		out write-expr indent, x.left
 		out ~~= ".{x property}"
