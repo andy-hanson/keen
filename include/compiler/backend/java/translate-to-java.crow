@@ -4,6 +4,7 @@ import
 	../../model/integral-values
 	../../model/model
 	../../model/show-low-model
+	../../model/uri
 	../../model/version-info
 	../../util/util
 	../mangle
@@ -30,6 +31,7 @@ translate-to-java string(
 			comment: ""
 			name: "Functions"
 			extends: ()
+			implements: ()
 			fields: ctx translate-vars concrete-program
 			constructor: ()
 			methods: ctx translate-functions concrete-program
@@ -37,10 +39,11 @@ translate-to-java string(
 			comment: ""
 			name: "Main"
 			extends: ()
+			implements: ()
 			fields: ()
 			constructor: ()
 			methods: (ctx.call-main,)
-	(classes, ()) write-java-ast
+	((), classes) write-java-ast
 
 -funs-lookup concrete-fun[concrete-fun-id](a concrete-program)
 	for fun : a all-funs
@@ -167,6 +170,13 @@ translate-to-java string(
 	mangled-names concrete-mangled-names
 	structs-for-integrals concrete-struct[integral-type]
 
+-union-needs-kind bool(ctx to-java-ctx, union_ concrete-struct)
+	assert _ ?= union_.body concrete-union
+	# TODO: most unions should not need a 'kind', if none of the members compile to 'Object' --------------------------------------------------
+	union_ != ctx.exception
+-union-needs-kind bool(ctx to-expr-ctx, union_ concrete-type)
+	ctx.ctx union-needs-kind union_.struct
+
 -get-structs-for-integrals concrete-struct[integral-type](a concrete-program)
 	res concrete-struct mut[integral-type] = ()
 	for struct : a all-structs
@@ -188,7 +198,7 @@ translate-to-java string(
 	res
 
 -translate-struct java-class?(ctx to-java-ctx, struct concrete-struct)
-	super string? = match struct source
+	extends string? = match struct source
 	as concrete-struct-source-bogus
 		()
 	as concrete-struct-source-inst inst
@@ -209,19 +219,19 @@ translate-to-java string(
 				()
 			else
 				primitive-type java-type = x.kind.as-primitive-type! to
-				(comment boxing-class name, super, primitive-type),
+				(comment boxing-class name, extends, primitive-type),
 	as concrete-enum x
-		(comment boxing-class name, super, x.storage_.as-type),
+		(comment boxing-class name, extends, x.storage_.as-type),
 	as concrete-extern-type _
 		()
 	as concrete-flags x
-		(comment boxing-class name, super, x.storage_.as-type),
+		(comment boxing-class name, extends, x.storage_.as-type),
 	as concrete-record r
 		fields java-field[] = for field : r fields
 			internal, instance, (ctx as-type field.type), field.debug-name.mangle, ()
-		(comment basic-class name, super, fields),
+		(comment basic-class name, extends, fields),
 	as concrete-union _
-		# Unions just compile to Object
+		# Unions all compile to 'Union'
 		()
 	as concrete-struct-body-deferred
 		throw unreachable
@@ -347,7 +357,7 @@ translate-to-java string(
 	params java-param[] = for field : fields
 		field.type, field.name
 	constructor java-constructor = params, assigns
-	comment, name, super-class, fields, (constructor,), ()
+	comment, name, super-class, (), fields, (constructor,), ()
 
 -as-type java-type(ctx to-java-ctx, struct concrete-struct, a concrete-builtin-type)
 	if primitive ?= a.kind as-primitive-type
@@ -388,7 +398,7 @@ translate-to-java string(
 	as java-any
 		()
 	as java-exclusion
-		"java.util.concurrent.locks.ReentrantLock", # TODO: I thinkthis will not be reached? --------------------------------------
+		()
 	as js-any
 		()
 	as fun-data
@@ -445,7 +455,7 @@ translate-to-java string(
 		if ctx is-exception type
 			"java.lang.RuntimeException" to
 		else
-			"java.lang.Object" to
+			"Union" to
 	as concrete-struct-body-deferred
 		throw unreachable
 -as-type java-type(ctx to-expr-ctx, type concrete-struct)
@@ -537,7 +547,7 @@ translate-to-java string(
 	as catch-point
 		"java.lang.Object",
 	as char8
-		"java.lang.Character",
+		()
 	as char32
 		()
 	as const-pointer
@@ -621,7 +631,11 @@ translate-to-java string(
 			pos simple-expr (ctx.mangled-names[type] java-new args)
 	as create-union-concrete-expr x
 		ctx with-temp x.arg, arg =>
-			pos simple-expr (ctx.ctx box x.arg.type.struct, arg)
+			boxed = ctx.ctx box x.arg.type.struct, arg
+			pos simple-expr if ctx union-needs-kind a.type
+				"Union" java-new (x.member-index.to.java-literal-int32-or-less, boxed)
+			else
+				boxed
 	as drop-concrete-expr x
 		ctx translate-expr void, x.arg
 	as finally-concrete-expr x
@@ -666,9 +680,9 @@ translate-to-java string(
 			if matched-type != nat64.to && matched-type != int64.to # Java doesn't allow switch on long
 				cases java-switch-case[] = for value, expr : x.case-values zip x.case-exprs
 					integer = nat64 constant-integral value
-					integer, (ctx translate-expr pos, expr) ~~ pos.maybe-break-switch-case
+					integer, ctx translate-expr pos, expr maybe-break-switch-case pos
 				default = if e ?= x else_
-					(ctx translate-expr pos, e) ~~ pos.maybe-break-switch-case
+					ctx translate-expr pos, e maybe-break-switch-case pos
 				else
 					throw-unreachable,
 				(matched java-switch-statement cases, default),
@@ -687,37 +701,62 @@ translate-to-java string(
 		ctx with-temp x.matched, matched =>
 			cases java-switch-case[] = for case_ : x cases
 				value = ctx.ctx translate-constant case_.value.type.struct, case_.value.kind.constant! # TODO: case values shouldn't be concrete-expr ............................................
-				value, (ctx translate-expr pos, case_.then) ~~ pos.maybe-break-switch-case
-			default = (ctx translate-expr pos, x.else_) ~~ pos.maybe-break-switch-case
+				value, (ctx translate-expr pos, case_.then maybe-break-switch-case pos)
+			default = ctx translate-expr pos, x.else_
 			(matched java-switch-statement cases, default),
 	as match-union-concrete-expr x
-		###
-		matched = ...
-		if (matched instanceof x) {
-			Foo x = (Foo) matched;
-			...
-		} else (if matched instanceof y)
-			Bar x = (Bar) matched;
-		etc ...
-		###
 		ctx with-temp x.matched, matched =>
-			res mut = if e ?= x else_
-				ctx translate-expr pos, e
-			elif x.matched.type.struct == ctx.ctx.exception
-				# The only exception method is 'show'. For non-Crow exceptions, just use 'toString()'.
-				pos simple-expr (matched java-call-instance-method "toString", ())
-			else
-				throw-unreachable,
-			for case-type, case_ : x.case-types zip x.cases
-				cond = matched java-instanceof (ctx.ctx as-boxed-type case-type)
-				then = if local ?= case_ local
-					value = ctx.ctx cast-and-unbox case-type.struct, matched
-					decl = ctx as-type local.type.struct java-var-decl (ctx local-name local), (value,)
-					decl ~ (ctx translate-expr pos, case_.then)
+			if ctx union-needs-kind x.matched.type
+				###
+				matched = ...
+				switch (matched.kind) {
+					case 0: {
+						foo x = (foo) matched.value;
+						...
+					}
+					etc ...
+				}
+				###
+				cases java-switch-case[] = for member-index, case_ : x.member-indices zip x.cases
+					case-type = x.union_.members[member-index as-unsigned]
+					decl java-statement[] = if local ?= case_ local
+						value = ctx.ctx cast-and-unbox case-type.struct, (matched java-property-access "value")
+						(ctx as-type local.type.struct java-var-decl (ctx local-name local), (value,)),
+					expr = ctx translate-expr pos, case_.then
+					member-index.as-unsigned.to.java-literal-int32-or-less, (decl ~~ expr maybe-break-switch-case pos)
+				default = if e ?= x else_
+					ctx translate-expr pos, e
 				else
-					ctx translate-expr pos, case_.then
-				res := (cond java-if-statement then, res),
-			res
+					throw-unreachable,
+				(matched java-property-access "kind" java-switch-statement cases, default),
+			else
+				###
+				matched = ...
+				if (matched instanceof x) {
+					Foo x = (Foo) matched;
+					...
+				} else (if matched instanceof y)
+					Bar x = (Bar) matched;
+				etc ...
+				###
+				res mut = if e ?= x else_
+					ctx translate-expr pos, e
+				elif x.matched.type.struct == ctx.ctx.exception
+					# The only exception method is 'show'. For non-Crow exceptions, just use 'toString()'.
+					pos simple-expr (matched java-call-instance-method "toString", ())
+				else
+					throw-unreachable,
+				for member-index, case_ : x.member-indices zip x.cases
+					case-type = x.union_.members[member-index as-unsigned]
+					cond = matched java-instanceof (ctx.ctx as-boxed-type case-type)
+					then = if local ?= case_ local
+						value = ctx.ctx cast-and-unbox case-type.struct, matched
+						decl = ctx as-type local.type.struct java-var-decl (ctx local-name local), (value,)
+						decl ~ (ctx translate-expr pos, case_.then)
+					else
+						ctx translate-expr pos, case_.then
+					res := (cond java-if-statement then, res),
+				res
 	as record-field-get-concrete-expr x
 		ctx with-temp x.record_, record_ =>
 			pos simple-expr (record_ java-property-access x.field.debug-name.mangle)
@@ -804,40 +843,56 @@ translate-to-java string(
 			out ~~= after
 	as union-as-concrete-expr x
 		ctx with-temp x.union_, union_ =>
-			pos simple-expr (ctx.ctx cast-and-unbox x.case-type.struct, union_)
+			value = if ctx union-needs-kind x.union_.type
+				union_ java-property-access "value"
+			else
+				union_
+			pos simple-expr (ctx.ctx cast-and-unbox x.case-type.struct, value)
 	as union-kind-concrete-expr x
-		###
-		matched =  ...
-		if (matched instanceof x)
-			return 0;
-		else if (matched instanceof y)
-			return 1;
-		...
+		if ctx union-needs-kind x.union_.type
+			ctx with-temp x.union_, union_ =>
+				pos simple-expr (union_ java-property-access "kind")
 		else
-			throw new Error("Unreachable"); 
-		###
-		ctx with-temp x.union_, matched =>
-			res mut java-statement[] = throw-unreachable,
-			for case-index, case-type : x.union-members with-index
-				is-case = matched java-instanceof (ctx.ctx as-boxed-type case-type)
-				return-index = pos simple-expr case-index.to.java-literal-int32-or-less
-				res := (is-case java-if-statement return-index, res),
-			res
+			###
+			matched =  ...
+			if (matched instanceof x)
+				return 0;
+			else if (matched instanceof y)
+				return 1;
+			...
+			else
+				throw new Error("Unreachable"); 
+			###
+			ctx with-temp x.union_, matched =>
+				res mut java-statement[] = throw-unreachable,
+				for case-index, case-type : x.union-members with-index
+					is-case = matched java-instanceof (ctx.ctx as-boxed-type case-type)
+					return-index = pos simple-expr case-index.to.java-literal-int32-or-less
+					res := (is-case java-if-statement return-index, res),
+				res
 
 -exception-case-type-from-index string(ctx to-java-ctx, exception-case-index integral-value)
 	exception-types = ctx.exception.body.concrete-union! members
 	ctx as-type exception-types[exception-case-index as-unsigned].struct string!
 
--maybe-break-switch-case java-statement[](pos expr-pos)
+-maybe-break-switch-case java-statement[](before java-statement[], pos expr-pos)
+	if before needs-break pos
+		before ~ ().java-break
+	else
+		before
+-needs-break bool(before java-statement[], pos expr-pos)
 	match pos
 	as void
-		().java-break,
+		before !ends-with-throw
 	as write-to _
-		().java-break,
+		before !ends-with-throw
 	as loop-pos _
 		()
 	as return
 		()
+-ends-with-throw bool(before java-statement[])
+	unless before is-empty
+		before[end - 1].java-throw-statement !is-empty
 
 -simple-expr java-statement[](pos expr-pos, expr java-expr)
 	match pos
@@ -912,7 +967,10 @@ translate-to-java string(
 			case-type = u.members[constant member-index]
 			value = ctx translate-constant case-type.struct, constant.arg
 			boxed-value = ctx box case-type.struct, value
-			ctx as-type type java-cast boxed-value
+			if ctx union-needs-kind type
+				"Union" java-new (constant.member-index.to.java-literal-int32-or-less, boxed-value)
+			else
+				ctx as-type type java-cast boxed-value
 		as constant-zero
 			java-null
 		else
@@ -1103,7 +1161,8 @@ translate-to-java string(
 					param java-property-access field.debug-name.mangle
 			else
 				param,
-			pos simple-expr (ctx.ctx cast-and-unbox type, invoke)
+			# Note: Not using 'cast-and-unbox' because the MethodHandle uses java's automatic boxing, so it won't box a nat8 as a Nat8 but as a java.lang.Byte
+			pos simple-expr (ctx.ctx as-type type java-cast invoke)
 	as builtin-fun-constant _
 		throw unreachable
 	as builtin-fun-gc-safe-value
@@ -1199,6 +1258,10 @@ translate-to-java string(
 			"" java-literal-string
 		as void
 			java-null
+	as concrete-enum _
+		zero
+	as concrete-flags _
+		zero
 	else
 		java-null
 
