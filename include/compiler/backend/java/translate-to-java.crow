@@ -8,8 +8,8 @@ import
 	../../model/version-info
 	../../util/util
 	../mangle
-	../concrete-mangle
 	./java-ast
+	./mangle-for-java
 	./write-java-ast
 
 translate-to-java string(
@@ -22,19 +22,13 @@ translate-to-java string(
 		program: concrete-program
 		show-ctx: show-ctx
 		funs-lookup: concrete-program.funs-lookup
-		mangled-names: concrete-program.build-mangled-names
+		mangled-names: concrete-program build-mangled-names
 		structs-for-integrals: concrete-program.get-structs-for-integrals
+
 	classes java-class[] = with out : build
 		for struct : concrete-program all-structs
 			out ~~= ctx translate-struct struct
-		out ~= do
-			comment: ""
-			name: "Functions"
-			extends: ()
-			implements: ()
-			fields: ctx translate-vars concrete-program
-			constructor: ()
-			methods: ctx translate-functions concrete-program
+		out ~~= ctx translate-functions-and-vars concrete-program
 		out ~= do
 			comment: ""
 			name: "Main"
@@ -53,7 +47,7 @@ translate-to-java string(
 	###
 	public static void main(String[] args) \{
 		try {
-			int exit = (int) Functions.main123(args);
+			int exit = (int) MainModule.main123(args);
 			if (exit != 0) System.exit(exit);
 		} catch (crow_exception e) {
 			System.err.println(show(e));
@@ -67,19 +61,19 @@ translate-to-java string(
 	string-array java-type = "java.lang.String".to java-array-type
 	params java-param[] = (string-array, "args"),
 	get-args = "args" java-local-access
-	call-main = "Functions.{ctx.mangled-names[main]}" java-call-static-method (get-args,)
+	call-main = ctx.mangled-names[main] java-call-static-method (get-args,)
 	declare-exit = "int".to java-var-decl "exit", (("int".to java-cast call-main),)
 	get-exit = "exit" java-local-access
 	exit-not-zero = not-equal java-binary get-exit, zero
-	system-exit = "java.lang.System.exit" java-call-static-method (get-exit,)
+	system-exit = ("java.lang.System", "exit") java-call-static-method (get-exit,)
 	maybe-exit = exit-not-zero java-if-statement (system-exit.to,), ()
 
 	tried java-statement[] = declare-exit, maybe-exit
 	e = "e" java-local-access
-	show-e = "Functions.{ctx.mangled-names[common-funs show-exception]}" java-call-static-method (e,)
-	println-show-e = "java.lang.System.err.println" java-call-static-method (show-e,)
+	show-e = ctx.mangled-names[common-funs show-exception] java-call-static-method (e,)
+	println-show-e = ("java.lang.System", "err").java-access-static-field java-call-instance-method "println", (show-e,)
 	print-stack-trace = e java-call-instance-method "printStackTrace", ()
-	exit-1 = "java.lang.System.exit" java-call-static-method (1.java-literal-int32-or-less,)
+	exit-1 = ("java.lang.System", "exit") java-call-static-method (1.java-literal-int32-or-less,)
 	catch-block java-statement[] = println-show-e.to, print-stack-trace.to, exit-1.to
 	catch_ java-catch = "java.lang.RuntimeException", "e", catch-block
 	try_ = tried java-try-statement (catch_,), ()
@@ -94,17 +88,34 @@ translate-to-java string(
 -is-exception bool(ctx to-java-ctx, type concrete-struct)
 	type == ctx.exception
 
--translate-vars java-field[](ctx to-java-ctx, program concrete-program)
+-translate-vars java-field[][uri](ctx to-java-ctx, program concrete-program)
+	res java-field mut[] mut[uri] = ()
 	for var : program all-vars
-		name = ctx.mangled-names[var]
-		match var kind
+		name = ctx.mangled-names[var].member
+		field java-field = match var kind
 		as global_
 			private, static, (ctx as-type var.type), name, ()
 		as thread-local_
 			init = "java.lang.ThreadLocal<?>" java-new ()
 			private, static, "java.lang.ThreadLocal<?>".to, name, (init,)
+		res ensure var.module-uri ~= field
+	for uri, fields : res
+		uri, fields.move-to
 
--translate-functions java-method[](ctx to-java-ctx, program concrete-program)
+-translate-functions-and-vars java-class[](ctx to-java-ctx, program concrete-program)
+	methods = ctx translate-methods program
+	fields = ctx translate-vars program
+	for uri : methods.keys.to | fields.keys.to
+		comment: uri to
+		name: ctx.mangled-names[uri]
+		extends: ()
+		implements: ()
+		fields: fields[uri] ?? ()
+		constructor: ()
+		methods: methods[uri] ?? ()
+
+-translate-methods java-method[][uri](ctx to-java-ctx, program concrete-program)
+	res java-method mut[] mut[uri] = ()
 	for fun : program all-funs
 		expr-ctx to-expr-ctx = ctx, (), 0
 		params java-param[] = for param : fun params
@@ -120,7 +131,7 @@ translate-to-java string(
 			expr-ctx translate-expr return, x
 		as concrete-fun-body-var-get x
 			params.size is 0
-			access = "Functions" java-access-static-field ctx.mangled-names[x.var]
+			access = ctx.mangled-names[x.var] java-access-static-field
 			match x.var kind
 			as thread-local_
 				expr = ctx cast-and-unbox x.var.type.struct, (access java-call-instance-method "get", ())
@@ -129,7 +140,7 @@ translate-to-java string(
 				access.java-return-statement,
 		as concrete-fun-body-var-set x
 			params.size is 1
-			access = "Functions" java-access-static-field ctx.mangled-names[x.var]
+			access = ctx.mangled-names[x.var] java-access-static-field 
 			arg = expr-ctx get-local fun.params.only
 			statement java-statement = match x.var kind
 			as thread-local_
@@ -140,7 +151,9 @@ translate-to-java string(
 		as concrete-fun-body-deferred
 			throw unreachable
 		comment = ctx.show-ctx.show show-concrete-fun-sig fun, false
-		comment, internal, static, (ctx as-type fun.return-type), ctx.mangled-names[fun], params, body
+		res ensure fun.module-uri ~= (comment, internal, static, (ctx as-type fun.return-type), ctx.mangled-names[fun].member, params, body)
+	for uri, methods : res
+		uri, methods.move-to
 
 -get-local java-expr(ctx to-expr-ctx, local concrete-local)
 	ctx local-name local java-local-access
@@ -167,7 +180,7 @@ translate-to-java string(
 	program concrete-program
 	show-ctx show-type-ctx
 	funs-lookup concrete-fun[concrete-fun-id]
-	mangled-names concrete-mangled-names
+	mangled-names java-mangled-names
 	structs-for-integrals concrete-struct[integral-type]
 
 -union-needs-kind bool(ctx to-java-ctx, union_ concrete-struct)
@@ -190,7 +203,7 @@ translate-to-java string(
 	ctx to-java-ctx
 	local-names string mut[concrete-local-id]
 	upcoming-temp-index mut nat
--mangled-names concrete-mangled-names(a to-expr-ctx)
+-mangled-names java-mangled-names(a to-expr-ctx)
 	a.ctx mangled-names
 -take-next-temp-index nat(a to-expr-ctx)
 	res = a upcoming-temp-index
@@ -616,8 +629,13 @@ translate-to-java string(
 	as builtin-concrete-expr x
 		ctx translate-builtin pos, x.fun, x.type-args, type, x.args
 	as call-concrete-expr x
-		ctx with-args x.args, args =>
-			pos simple-expr (ctx.mangled-names[x called] java-call-static-method args)
+		# TODO: builtin functions should just always be inlined....
+		match x.called.body 
+		as concrete-fun-body-builtin b
+			ctx translate-builtin pos, b.kind, b.type-args, type, x.args
+		else
+			ctx with-args x.args, args =>
+				pos simple-expr (ctx.mangled-names[x called] java-call-static-method args)
 	as cast-concrete-expr x
 		# This is currently only used to cast an enum to an integral. In Java we just use integrals for enums directly. --------
 		ctx translate-expr pos, x.inner
@@ -655,7 +673,7 @@ translate-to-java string(
 	as lambda-concrete-expr _
 		throw unreachable
 	as local-get-concrete-expr x
-		pos simple-expr (ctx local-name x.local).java-local-access
+		pos simple-expr (ctx local-name x.local java-local-access)
 	as local-pointer-concrete-expr _
 		throw unreachable
 	as local-set-concrete-expr x
@@ -919,23 +937,40 @@ translate-to-java string(
 	f java-statement[] mut(get-args java-expr[]),
 )
 	with out : build
-		arg-names string[] = for _ : args
-			"_arg{ctx take-next-temp-index}"
-		for arg, arg-name : args zip arg-names
-			out ~= ctx as-type arg.type.struct java-var-decl arg-name, ()
-			out ~~= ctx translate-expr arg-name.java-local-access.write-to, arg
-		out ~~= f[for name : arg-names; name java-local-access]
+		exprs java-expr[] = for arg : args
+			if simple ?= ctx as-simple-expr arg
+				simple
+			else
+				arg-name string = "_arg{ctx take-next-temp-index}"
+				out ~= ctx as-type arg.type.struct java-var-decl arg-name, ()
+				out ~~= ctx translate-expr arg-name.java-local-access.write-to, arg
+				arg-name java-local-access
+		out ~~= f[exprs]
+
+-as-simple-expr java-expr?(ctx to-expr-ctx, a concrete-expr)
+	match a kind
+	as constant x
+		(ctx.ctx translate-constant a.type.struct, x),
+	as local-get-concrete-expr x
+		# For a mutable local, it matters *when* we access it, so it can't be delayed until the call
+		if x.local !is-mutable
+			(ctx local-name x.local java-local-access),
+	else
+		()
 
 -with-temp java-statement[](
 	ctx to-expr-ctx,
 	value concrete-expr,
 	f java-statement[] mut(get-temp java-expr),
 )
-	name string = "temp{ctx take-next-temp-index}"
-	declare = ctx as-type value.type.struct java-var-decl name, ()
-	statements = ctx translate-expr name.java-local-access.write-to, value
-	then = f[name java-local-access]
-	declare ~ statements ~~ then
+	if simple ?= ctx as-simple-expr value
+		f[simple]
+	else
+		name string = "temp{ctx take-next-temp-index}"
+		declare = ctx as-type value.type.struct java-var-decl name, ()
+		statements = ctx translate-expr name.java-local-access.write-to, value
+		then = f[name java-local-access]
+		declare ~ statements ~~ then
 
 -translate-constant java-expr(ctx to-java-ctx, type concrete-struct, a constant)
 	match type body
@@ -1025,11 +1060,13 @@ translate-to-java string(
 		id = a.constant-fun-pointer! fun
 		fun = ctx.funs-lookup[id]!
 		args java-expr[] = with out : build
-			out ~= ctx.mangled-names[fun] java-literal-string
+			name = ctx.mangled-names[fun]
+			out ~= name.class_ java-literal-string
+			out ~= name.member java-literal-string
 			out ~= ctx as-type-expr fun.return-type
 			for param : fun params
 				out ~= ctx as-type-expr param.type
-		"Crow.funPointer" java-call-static-method args
+		("Crow", "funPointer") java-call-static-method args
 	as future
 		error["FUTURE"]
 	as int8
@@ -1089,7 +1126,7 @@ translate-to-java string(
 -return-void java-statement()
 	void-expr java-return-statement
 -void-expr java-expr()
-	"Void.get" java-call-static-method ()
+	("Void", "get") java-call-static-method ()
 
 -constant-float java-expr(is-float32 bool, a constant) # TODO: inilne -------------------------------------------------------
 	is-float32 java-literal-float a.as-float
@@ -1268,7 +1305,7 @@ translate-to-java string(
 -translate-builtin-unary java-expr(a builtin-unary, arg java-expr)
 	cast java-expr data(name string) = name =>
 		name.to java-cast arg
-	static java-expr data(name string) = name =>
+	static java-expr data(name class-and-member) = name =>
 		name java-call-static-method (arg,)
 	unary java-expr data(kind java-unary-kind) = kind =>
 		kind java-unary arg
@@ -1288,9 +1325,9 @@ translate-to-java string(
 	as as-mut-array-impl
 		arg
 	as bits-of-float32
-		static["java.lang.Float.floatToRawIntBits"]
+		static["java.lang.Float", "floatToRawIntBits"]
 	as bits-of-float64
-		static["java.lang.Double.doubleToRawLongBits"]
+		static["java.lang.Double", "doubleToRawLongBits"]
 	as bitwise-not-nat8
 		unary[bitwise-not]
 	as bitwise-not-nat16
@@ -1300,7 +1337,7 @@ translate-to-java string(
 	as bitwise-not-nat64
 		unary[bitwise-not]
 	as count-ones-nat64
-		"long".to java-cast ("java.lang.Long.bitCount" java-call-static-method (arg,))
+		"long".to java-cast (("java.lang.Long", "bitCount") java-call-static-method (arg,))
 	as c-string-of-symbol
 		throw unreachable
 	as deref
@@ -1308,13 +1345,13 @@ translate-to-java string(
 	as drop
 		throw unreachable
 	as float32-from-bits
-		static["java.lang.Float.intBitsToFloat"]
+		static["java.lang.Float", "intBitsToFloat"]
 	as float64-from-bits
-		static["java.lang.Double.longBitsToDouble"]
+		static["java.lang.Double", "longBitsToDouble"]
 	as is-nan-float32
-		static["java.lang.Float.isNaN"]
+		static["java.lang.Float", "isNaN"]
 	as is-nan-float64
-		static["java.lang.Double.isNaN"]
+		static["java.lang.Double", "isNaN"]
 	as not
 		unary[not]
 	as jump-to-catch
@@ -1336,7 +1373,7 @@ translate-to-java string(
 	as to-float64-from-int64
 		cast["double"]
 	as to-float64-from-nat64
-		static["Crow.float64FromNat64"]
+		static["Crow", "float64FromNat64"]
 	as to-int64-from-int8
 		cast["long"]
 	as to-int64-from-int16
@@ -1348,11 +1385,11 @@ translate-to-java string(
 	as to-nat32-from-char32
 		arg
 	as to-nat64-from-nat8
-		static["java.lang.Byte.toUnsignedLong"]
+		static["java.lang.Byte", "toUnsignedLong"]
 	as to-nat64-from-nat16
-		static["java.lang.Short.toUnsignedLong"]
+		static["java.lang.Short", "toUnsignedLong"]
 	as to-nat64-from-nat32
-		static["java.lang.Integer.toUnsignedLong"]
+		static["java.lang.Integer", "toUnsignedLong"]
 	as to-nat64-from-ptr
 		throw unreachable
 	as to-ptr-from-nat64
@@ -1362,7 +1399,7 @@ translate-to-java string(
 	as trust-as-string
 		"java.lang.String" java-new (arg, charset-utf8)
 	as unsafe-to-char32-from-char8
-		"java.lang.Byte.toUnsignedInt" java-call-static-method (arg,)
+		("java.lang.Byte", "toUnsignedInt") java-call-static-method (arg,)
 	as unsafe-to-char32-from-nat32
 		arg
 	as unsafe-to-nat32-from-int32
@@ -1385,91 +1422,91 @@ translate-to-java string(
 		cast["int"]
 
 -charset-utf8 java-expr()
-	"java.nio.charset.StandardCharsets" java-access-static-field "UTF_8"
+	("java.nio.charset.StandardCharsets", "UTF_8") java-access-static-field
 
 -translate-builtin-unary-math java-expr(a builtin-unary-math, arg java-expr)
-	f32 java-expr data(name string) = name =>
+	f32 java-expr data(name class-and-member) = name =>
 		"float".to java-cast (name java-call-static-method (arg,))
-	f64 java-expr data(name string) = name =>
+	f64 java-expr data(name class-and-member) = name =>
 		name java-call-static-method (arg,)
 	match a
 	as acos-float32
-		f32["java.lang.Math.acos"]
+		f32["java.lang.Math", "acos"]
 	as acosh-float32
-		f32["Crow.acosh"]
+		f32["Crow", "acosh"]
 	as asin-float32
-		f32["java.lang.Math.asin"]
+		f32["java.lang.Math", "asin"]
 	as asinh-float32
-		f32["Crow.asinh"]
+		f32["Crow", "asinh"]
 	as atan-float32
-		f32["java.lang.Math.atan"]
+		f32["java.lang.Math", "atan"]
 	as atanh-float32
-		f32["Crow.atanh"]
+		f32["Crow", "atanh"]
 	as cos-float32
-		f32["java.lang.Math.cos"]
+		f32["java.lang.Math", "cos"]
 	as cosh-float32
-		f32["java.lang.Math.cosh"]
+		f32["java.lang.Math", "cosh"]
 	as round-down-float32
-		f32["java.lang.Math.floor"]
+		f32["java.lang.Math", "floor"]
 	as round-float32
-		"float".to java-cast ("Crow.round" java-call-static-method (arg,))
+		"float".to java-cast (("Crow", "round") java-call-static-method (arg,))
 	as round-up-float32
-		f32["java.lang.Math.ceil"]
+		f32["java.lang.Math", "ceil"]
 	as sin-float32
-		f32["java.lang.Math.sin"]
+		f32["java.lang.Math", "sin"]
 	as sinh-float32
-		f32["java.lang.Math.sinh"]
+		f32["java.lang.Math", "sinh"]
 	as sqrt-float32
-		f32["java.lang.Math.sqrt"]
+		f32["java.lang.Math", "sqrt"]
 	as tan-float32
-		f32["java.lang.Math.tan"]
+		f32["java.lang.Math", "tan"]
 	as tanh-float32
-		f32["java.lang.Math.tanh"]
+		f32["java.lang.Math", "tanh"]
 	as unsafe-log-float32
-		f32["java.lang.Math.log"]
+		f32["java.lang.Math", "log"]
 	as acos-float64
-		f64["java.lang.Math.acos"]
+		f64["java.lang.Math", "acos"]
 	as acosh-float64
-		f64["Crow.acosh"]
+		f64["Crow", "acosh"]
 	as asin-float64
-		f64["java.lang.Math.asin"]
+		f64["java.lang.Math", "asin"]
 	as asinh-float64
-		f64["Crow.asinh"]
+		f64["Crow", "asinh"]
 	as atan-float64
-		f64["java.lang.Math.atan"]
+		f64["java.lang.Math", "atan"]
 	as atanh-float64
-		f64["Crow.atanh"]
+		f64["Crow", "atanh"]
 	as cos-float64
-		f64["java.lang.Math.cos"]
+		f64["java.lang.Math", "cos"]
 	as cosh-float64
-		f64["java.lang.Math.cosh"]
+		f64["java.lang.Math", "cosh"]
 	as round-down-float64
-		f64["java.lang.Math.floor"]
+		f64["java.lang.Math", "floor"]
 	as round-float64
-		"Crow.round" java-call-static-method (arg,)
+		("Crow", "round") java-call-static-method (arg,)
 	as round-up-float64
-		f64["java.lang.Math.ceil"]
+		f64["java.lang.Math", "ceil"]
 	as sin-float64
-		f64["java.lang.Math.sin"]
+		f64["java.lang.Math", "sin"]
 	as sinh-float64
-		f64["java.lang.Math.sinh"]
+		f64["java.lang.Math", "sinh"]
 	as sqrt-float64
-		f64["java.lang.Math.sqrt"]
+		f64["java.lang.Math", "sqrt"]
 	as tan-float64
-		f64["java.lang.Math.tan"]
+		f64["java.lang.Math", "tan"]
 	as tanh-float64
-		f64["java.lang.Math.tanh"]
+		f64["java.lang.Math", "tanh"]
 	as unsafe-log-float64
-		f64["java.lang.Math.log"]
+		f64["java.lang.Math", "log"]
 
 -translate-builtin-binary java-expr(ctx to-java-ctx, type concrete-struct, a builtin-binary, (arg0 java-expr, arg1 java-expr))
 	cast java-expr mut(arg java-expr) = arg =>
 		ctx as-type type java-cast arg
 	binary java-expr data(kind java-binary-kind) = kind =>
 		kind java-binary arg0, arg1
-	static java-expr data(name string) = name =>
+	static java-expr data(name class-and-member) = name =>
 		name java-call-static-method (arg0, arg1)
-	compare-less java-expr data(name string) = name =>
+	compare-less java-expr data(name class-and-member) = name =>
 		comparison = name java-call-static-method (arg0, arg1)
 		less java-binary comparison, zero
 	match a
@@ -1569,13 +1606,13 @@ translate-to-java string(
 	as less-int64
 		binary[less]
 	as less-nat8
-		compare-less["java.lang.Byte.compareUnsigned"]
+		compare-less["java.lang.Byte", "compareUnsigned"]
 	as less-nat16
-		compare-less["java.lang.Short.compareUnsigned"]
+		compare-less["java.lang.Short", "compareUnsigned"]
 	as less-nat32
-		compare-less["java.lang.Integer.compareUnsigned"]
+		compare-less["java.lang.Integer", "compareUnsigned"]
 	as less-nat64
-		compare-less["java.lang.Long.compareUnsigned"]
+		compare-less["java.lang.Long", "compareUnsigned"]
 	as less-pointer
 		throw unreachable
 	as mul-float32
@@ -1629,15 +1666,15 @@ translate-to-java string(
 	as unsafe-div-int64
 		binary[divide]
 	as unsafe-div-nat8
-		static["java.lang.Byte.divideUnsigned"]
+		static["java.lang.Byte", "divideUnsigned"]
 	as unsafe-div-nat16
-		static["java.lang.Short.divideUnsigned"]
+		static["java.lang.Short", "divideUnsigned"]
 	as unsafe-div-nat32
-		static["java.lang.Integer.divideUnsigned"]
+		static["java.lang.Integer", "divideUnsigned"]
 	as unsafe-div-nat64
-		static["java.lang.Long.divideUnsigned"]
+		static["java.lang.Long", "divideUnsigned"]
 	as unsafe-mod-nat64
-		static["java.lang.Long.remainderUnsigned"]
+		static["java.lang.Long", "remainderUnsigned"]
 	as unsafe-mul-int8
 		cast[binary[times]]
 	as unsafe-mul-int16
@@ -1700,17 +1737,17 @@ translate-to-java string(
 -translate-builtin-binary-math java-expr(a builtin-binary-math, (arg0 java-expr, arg1 java-expr))
 	match a
 	as atan2-float32
-		"float".to java-cast ("Math.atan2" java-call-static-method (arg0, arg1))
+		"float".to java-cast (("Math", "atan2") java-call-static-method (arg0, arg1))
 	as atan2-float64
-		"Math.atan2" java-call-static-method (arg0, arg1)
+		("Math", "atan2") java-call-static-method (arg0, arg1)
 	as fmod-float32
 		modulo java-binary arg0, arg1
 	as fmod-float64
 		modulo java-binary arg0, arg1
 	as unsafe-pow-float32
-		"Math.pow" java-call-static-method (arg0, arg1)
+		("Math", "pow") java-call-static-method (arg0, arg1)
 	as unsafe-pow-float64
-		"Math.pow" java-call-static-method (arg0, arg1)
+		("Math", "pow") java-call-static-method (arg0, arg1)
 
 -translate-java-fun java-statement[](ctx to-java-ctx, pos expr-pos, a java-fun, type concrete-struct, type-args concrete-type[], args java-expr[])
 	match a
@@ -1724,27 +1761,56 @@ translate-to-java string(
 	as as-java-any
 		pos simple-expr ("java.lang.Object".to java-cast (ctx box type-args.only.struct, args.only))
 	as call-instance
-		pos simple-expr (ctx cast-and-unbox type, ("Crow.callInstance" java-call-static-method args))
+		pos simple-expr if simple ?= ctx as-simple-call-instance type-args, args
+			simple
+		else
+			ctx cast-and-unbox type, (("Crow", "callInstance") java-call-static-method args)
 	as call-new
-		pos simple-expr ("Crow.callNew" java-call-static-method args)
+		pos simple-expr (("Crow", "callNew") java-call-static-method args)
 	as call-static
-		pos simple-expr (ctx cast-and-unbox type, ("Crow.callStatic" java-call-static-method args))
+		need-cast mut = false
+		call = if simple ?= type-args as-simple-call-static args
+			simple
+		else
+			need-cast := true
+			("Crow", "callStatic") java-call-static-method args
+		# HAX -- a java void is not a crow void
+		if type is-void
+			call.to ~ (pos simple-expr void-expr)
+		else
+			pos simple-expr if need-cast
+				ctx cast-and-unbox type, call
+			else
+				call
 	as call-static-varargs
 		args.size is 3
-		pos simple-expr (ctx cast-and-unbox type, ("Crow.callStaticVarargs" java-call-static-method args))
+		pos simple-expr (ctx cast-and-unbox type, (("Crow", "callStaticVarargs") java-call-static-method args))
 	as cast
 		pos simple-expr (ctx cast-and-unbox type, args.only)
 	as cur-exclusion
 		args.size is 0
-		pos simple-expr ("Crow.getExclusion" java-call-static-method ())
+		pos simple-expr (("Crow", "getExclusion") java-call-static-method ())
 	as change-exclusion
 		args.size is 1
-		pos simple-expr ("Crow.changeExclusion" java-call-static-method args)
+		pos simple-expr (("Crow", "changeExclusion") java-call-static-method args)
 	as equal
 		args.size is 2
 		pos simple-expr (eq-eq java-binary args[0], args[1])
 	as get-static-field
 		args.size is 2
-		pos simple-expr ("Crow.getStaticField" java-call-static-method args)
+		pos simple-expr (("Crow", "getStaticField") java-call-static-method args)
 	as new-array
 		pos simple-expr ((ctx as-type type-args.only.struct) java-new-array args.only)
+
+-as-simple-call-instance java-expr?(ctx to-java-ctx, type-args concrete-type[], args java-expr[])
+	if method ?= args[1] java-literal-string
+		# We can only do this if we know the types of all arguments
+		if type-args[1 .. end] every x => x !is-java-any
+			(ctx box type-args[1].struct, args[0] java-call-instance-method method.value, args[2 .. end]),
+
+-as-simple-call-static java-expr?(type-args concrete-type[], args java-expr[])
+	if class_ ?= args[0] java-literal-string
+		if method ?= args[1] java-literal-string
+			# We can only do this if we know the types of all arguments
+			if type-args[1 .. end] every x => x !is-java-any
+				((class_.value, method.value) java-call-static-method args[2 .. end]),

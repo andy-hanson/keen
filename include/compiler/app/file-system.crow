@@ -38,8 +38,7 @@ write-file void(path file-path, content string) summon, trusted
 		path.to write-file content
 	elif extern java
 		# TODO: catch exceptions -----------------------------------------------------------------------------------------
-		java-path java-any = "java.nio.file.Paths" call-static "get", path.to::string
-		_ void = "java.nio.file.Files" call-static "write", (java-path, content.to::nat8[])
+		_ void = "java.nio.file.Files" call-static "write", path.to-java-path, content.to::nat8[]
 	elif extern js
 		fs call-property "writeFileSync", path.to::string, content cast
 	else
@@ -63,7 +62,7 @@ set-permissions void(path file-path, permissions file-permissions) summon, trust
 		args java-any[] = for name : permissions java-permission-names
 			"java.nio.file.attribute.PosixFilePermission" get-static-field name
 		perms java-any = "java.util.EnumSet" call-static-varargs "of", args
-		_ void = "java.nio.file.Files" call-static "setPosixFilePermissions", path.to::string.as-java, perms
+		_ void = "java.nio.file.Files" call-static "setPosixFilePermissions", path.to-java-path, perms
 	elif extern js
 		_ = fs call-property "chmodSync", path.to::string, permissions.to::nat32.to::nat64.to::float
 	else
@@ -176,6 +175,9 @@ try-read-file read-file-result(uri uri) summon
 cwd file-path() summon, trusted
 	if extern native
 		current-directory must-parse-file-path
+	elif extern java
+		path java-any = "".to-java-path call-instance "toAbsolutePath"
+		path call-instance "toString" must-parse-file-path
 	elif extern js
 		res string = process call-property "cwd" cast
 		res must-parse-file-path
@@ -209,7 +211,7 @@ do-read-file nat8[](path string) summon, trusted
 	elif extern java
 		# TODO: would be better to catch a file-not-found exception
 		assert path.must-parse-file-path path-exists : path path-not-found
-		"java.nio.file.Files" call-static "readAllBytes", path.as-java
+		"java.nio.file.Files" call-static "readAllBytes", path.to-java-path
 	elif extern js
 		match (() => fs call-property "readFileSync", path) catch-all
 		as ok x
@@ -224,6 +226,11 @@ do-read-file nat8[](path string) summon, trusted
 				exception
 	else
 		throw todo
+
+-to-java-path java-any(a file-path) java extern
+	a.to::string to-java-path
+-to-java-path java-any(a string) trusted, java extern
+	"java.nio.file.Paths" call-static "get", a, ()::string[]
 
 cleanup-compile void(cwd file-path, c-path file-path, exe-path file-path) summon
 	guard trusted extern windows

@@ -2,6 +2,7 @@ import
 	../../util/util
 	../write-to-c
 	./java-ast
+	./mangle-for-java
 
 write-java-ast string(a java-ast)
 	with out : build
@@ -66,8 +67,8 @@ write-java-ast string(a java-ast)
 		return 0.5 * Math.log(Math.abs((x + 1) / (x - 1)));
 	}
 
-	static java.lang.invoke.MethodHandle funPointer(String name, java.lang.Class returnType, java.lang.Class... args) throws Throwable \{
-		return lookup.findStatic(Functions.class, name, java.lang.invoke.MethodType.methodType(returnType, args));
+	static java.lang.invoke.MethodHandle funPointer(String className, String methodName, java.lang.Class returnType, java.lang.Class... args) throws Throwable \{
+		return lookup.findStatic(Class.forName(className), methodName, java.lang.invoke.MethodType.methodType(returnType, args));
 	}
 	private static java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup();
 
@@ -84,7 +85,12 @@ write-java-ast string(a java-ast)
 		return getMethod(Class.forName(className), methodName, args).invoke(null, args);
 	}
 	static java.lang.Object callInstance(Object object, String name, Object... args) throws Throwable \{
-		return getMethod(object.getClass(), name, args).invoke(object, args);
+		java.lang.Class<?> class_ = object.getClass();
+		// HAX: Can't directly ask for a method on that class, so have to skip to the Path interface instead ----------------------------------
+		if (class_.getName() == "sun.nio.fs.UnixPath") \{
+			class_ = java.nio.file.Path.class;
+		}
+		return getMethod(class_, name, args).invoke(object, args);
 	}
 	private static java.lang.reflect.Constructor getConstructor(java.lang.Class<?> class_, java.lang.Object[] args) throws Throwable \{
 		java.lang.Class<?>[] argClasses = classes(args);
@@ -300,7 +306,7 @@ class Void \{
 -write-expr void(out string-builder, indent nat, a java-expr)
 	match a
 	as java-access-static-field x
-		out ~~= "{x class-name}.{x field-name}"
+		out ~~= "{x name}"
 	as java-array-get x
 		out write-expr indent, x.array
 		out ~= "["
@@ -317,7 +323,7 @@ class Void \{
 		out ~~= ".{x method-name}"
 		out write-args indent, x.args
 	as java-call-static-method x
-		out ~~= x.class-and-method-name
+		out ~~= "{x name}"
 		out write-args indent, x.args
 	as java-cast x
 		out ~~= "(({x type}) "
