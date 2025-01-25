@@ -2,16 +2,16 @@ no-std
 import
 	../../bool: &&, ||, bool, false, true
 	../../compare: <, <=, >
-	../collection: index-too-big
+	../collection: build, index-too-big, with-block
 	../../java: ==, as-java, call-static, java-array-get, java-array-set, java-cast, java-new-array
-	../../js: ==, as-js, call-property, call-property-spread, cast, js-cast, subscript
+	../../js: ==, as-js, call-property, cast, js-cast, subscript
 	../../misc: new, subscript, void
-	../../number: ==, <=>, +, -, *, float64, nat32, nat64, round-up-to-power-of-two, to
+	../../number: ==, <=>, +, -, *, nat32, nat64, round-up-to-power-of-two, to
 	../../option: option
 	../../pointer:
 		==, <=>, +, -, *, as-const, const-pointer, gc-safe-value, mem-copy, mut-pointer, null,
 		pointer-cast, set-subscript, size-of, subscript
-	../../range: .., difference, high, low, range, size
+	../../range: ==, .., difference, is-empty, high, low, range, size, subscript
 	../../private/alloc: allocate
 	../../private/bootstrap: array-pointer, array-size, mut-slice, new-array
 	../../private/number-low-level: max-value, unsafe-to
@@ -70,17 +70,6 @@ array-cast[out, in] out[](a in[]) bare, unsafe
 		a java-array-get index.to
 	elif extern js
 		a.as-js[index] cast
-	else
-		todo
-
-+subscript[t] t[](a t[], indices nat64 range) bare
-	assert indices.high <= a.array-size : indices.high index-too-big a.array-size
-	trusted if extern native
-		indices.size new-array a.begin-pointer + indices.low
-	elif extern java
-		"java.util.Arrays" call-static "copyOfRange", a, indices.low.to::nat32, indices.high.to::nat32
-	elif extern js
-		a.as-js call-property "slice", indices.low.to::float64, indices.high.to::float64 cast
 	else
 		todo
 
@@ -194,11 +183,13 @@ Calls `f` for each element in `a`.
 	if x ?= option
 		a ~= x
 +~~=[t] void(a t array-builder, values t[]) trusted
+	a ~~= values.to
++~~=[t] void(a t array-builder, values t array-view) trusted
 	if extern native || extern java
 		forbid a.cur-size == max-value
 		capacity = a.buffer mut-slice-size
-		if a.cur-size + values.array-size > capacity
-			new-size = a.cur-size + values.array-size
+		if a.cur-size + values.size > capacity
+			new-size = a.cur-size + values.size
 			new-capacity = new-size round-up-to-power-of-two
 			new-buffer t mut-slice = new-capacity gc-safe-mut-slice
 			if extern native
@@ -208,15 +199,18 @@ Calls `f` for each element in `a`.
 			else
 				throw todo
 			a.buffer := new-buffer
+
 		if extern native
-			a.buffer.mut-slice-pointer + a.cur-size mem-copy values.begin-pointer, values.array-size
+			a.buffer.mut-slice-pointer + a.cur-size mem-copy values.begin-pointer, values.size
 		elif extern java
-			_ void = "java.lang.System" call-static "arraycopy", values, 0::nat32, a.buffer, a.cur-size.to::nat32, values.array-size.to::nat32
+			_ void = "java.lang.System" call-static "arraycopy", values.inner, values.indices.low.to::nat32, a.buffer, a.cur-size.to::nat32, values.size.to::nat32
 		else
 			throw todo
-		a.cur-size +:= values array-size
+		a.cur-size +:= values size
 	elif extern js
-		a.buffer.as-js call-property-spread "push", values cast
+		_ = values iterate x =>
+			_ = a.buffer.as-js call-property "push", x
+			false
 	else
 		todo
 
@@ -228,3 +222,46 @@ Calls `f` for each element in `a`.
 		size.unsafe-to java-new-array
 	else
 		throw todo
+
+region Views
+
+# TODO:MOVE? ---------------------------------------------------------------------------------------------------------------------
++array-view[t] record by-val
+	~inner t[]
+	~indices nat64 range
++new[t] t array-view(...a t[])
+	a to
++subscript[t] t array-view(a t[], indices nat64 range) bare
+	assert indices.high <= a.array-size : indices.high index-too-big a.array-size
+	a, indices
++to[t] t[](a t array-view)
+	if a.indices == (0 .. a.inner.array-size)
+		a inner
+	elif trusted extern native
+		trusted a.size new-array a.begin-pointer
+	else
+		with out : a.size build
+			out ~~= a
++to[t] t array-view(a t[]) bare
+	a, 0 .. a.array-size
++is-empty[t] bool(a t array-view) bare
+	a.indices is-empty
++size[t] nat64(a t array-view) bare
+	a.indices size
++subscript[t] t(a t array-view, index nat64) bare
+	assert index < a.size : index index-too-big a.size
+	a.inner[a.indices.low + index]
++subscript[t] t array-view(a t array-view, indices nat64 range) bare
+	a.inner, a.indices[indices]
++iterate[t] bool(a t array-view, f bool mut(x t))
+	i mut = a.indices low
+	loop
+		if i == a.indices.high
+			break false
+		elif f[a.inner[i]]
+			break true
+		else
+			i +:= 1
+			continue
++begin-pointer[t] t*(a t array-view) bare, unsafe, native extern
+	a.inner.begin-pointer + a.indices.low

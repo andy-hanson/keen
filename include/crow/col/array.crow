@@ -15,8 +15,8 @@ import
 export
 	../private/bootstrap: array
 	./private/array-low-level:
-		~=, ~~=, array-builder, array-cast, array-reference-equal, as-array, begin-pointer, build,
-		end-pointer, iterate, pointers, size, subscript
+		~=, ~~=, array-builder, array-cast, array-reference-equal, array-view, as-array, begin-pointer, build,
+		end-pointer, is-empty, iterate, new, pointers, size, subscript, to
 
 | Create an array with the given elements.
 +new[t] t[](...a t[]) bare
@@ -39,7 +39,7 @@ export
 | Prepend an element to an array.
 | This is O(n).
 +~[t] t[](a t, b t[])
-	(a,) ~~ b
+	(a,)::t[] ~~ b
 
 | Append an element to an array.
 | This is O(n).
@@ -53,6 +53,15 @@ export
 		b
 	elif b is-empty
 		a
+	else
+		with out : a.size + b.size build
+			out ~~= a
+			out ~~= b
++~~[t] t[](a t array-view, b t array-view)
+	if a is-empty
+		b to
+	elif b is-empty
+		a to
 	else
 		with out : a.size + b.size build
 			out ~~= a
@@ -75,16 +84,20 @@ region basic array operations
 | {index} must be a valid index into {a}. This can't be used to add a value to the end.
 +update-at[t] t[](a t[], index nat64, new-value t)
 	assert index < a.size : index index-too-big a.size
-	# TODO:PERF (only concat once)
-	a[0 .. index] ~ new-value ~~ a[index + 1 .. end]
+	with out : a.size build
+		out ~~= a[0 .. index]
+		out ~= new-value
+		out ~~= a[index + 1 .. end]
 
 | Inserts an element at {index}.
 | Moves all elements that were at {index} or after to the right.
 | Unlike for {update-at}, {index} can be `{a}.{size}`, though it still can't be higher.
 +insert-at[t] t[](a t[], index nat64, value t)
 	assert index <= a.size : index index-too-big a.size
-	# TODO:PERF (only concat once)
-	a[0 .. index] ~ value ~~ a[index .. end]
+	with out : a.size + 1 build
+		out ~~= a[0 .. index]
+		out ~= value
+		out ~~= a[index .. end]
 
 | Removes the element at {index}, shifting all later elements to the left.
 +remove-at[t] t[](a t[], index nat64)
@@ -139,7 +152,29 @@ region spec impls (see collection.crow)
 	rest t array-iterator = a.collection, a.next-index + 1
 	(value, rest),
 
-+slice[t] t[](begin t array-iterator, end t array-iterator) bare # TODO: this will now be slow, find alternatives ---------------
++slice[t] t array-view(begin t array-iterator, end t array-iterator) bare
+	begin.collection[begin.next-index .. end.next-index]
+
++array-view-iterator[t] record(collection t array-view, next-index nat64) by-val
+
++begin[t] t array-view-iterator(a t array-view) bare
+	a, 0
++end[t] t array-view-iterator(a t array-view) bare
+	a, a.size
++prev[t] (t array-view-iterator, t)?(a t array-view-iterator) bare
+	guard a.next-index != 0
+	new-index = a.next-index - 1
+	assert new-index < a.collection.size
+	value = a.collection[new-index]
+	rest t array-view-iterator = a.collection, new-index
+	(rest, value),
++next[t] (t, t array-view-iterator)?(a t array-view-iterator) bare
+	guard a.next-index != a.collection.size
+	assert a.next-index < a.collection.size
+	value = a.collection[a next-index]
+	rest t array-view-iterator = a.collection, a.next-index + 1
+	(value, rest),
++slice[t] t array-view(begin t array-view-iterator, end t array-view-iterator) bare
 	begin.collection[begin.next-index .. end.next-index]
 
 +hash-mix[t] void(hasher hasher, a t[]) t hash-mix

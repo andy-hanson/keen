@@ -1,4 +1,5 @@
 import
+	../../crow/col/private/array-low-level: array-cast
 	../lib/lsp/lsp-types
 	../model/ast
 	../model/model
@@ -35,13 +36,13 @@ as-text-file text-file-content?(a file-info)
 		()
 
 text-file-content record
-	content string
+	content char8[]
 	line-and-column-getter line-and-column-getter
 new text-file-content()
 	(), ()
 as-file-content file-content(a text-file-content)
-	a.content.to,
-as-string string(a text-file-content)
+	trusted a.content.array-cast,
+as-string char8[](a text-file-content)
 	a content
 line-and-character-getter line-and-character-getter(a text-file-content)
 	a.line-and-column-getter line-and-character-getter
@@ -66,8 +67,8 @@ set-file-bytes file-info(a storage_, uri uri, content nat8[])
 	a.successes[uri] := info
 	info
 # TODO: We don't need 'assume-utf8', we'll throw na exception and the test will fail if it's not valid utf8 ----------------------------------
-set-file-assume-utf8 file-info(a storage_, uri uri, content string)
-	a set-file-bytes uri, content.to
+set-file-assume-utf8 file-info(a storage_, uri uri, content char8[])
+	a set-file-bytes uri, trusted content array-cast
 -set-file-diag void(a storage_, uri uri, diag read-file-diag)
 	a prepare-set-file uri
 	forbid uri in a.diags
@@ -89,8 +90,9 @@ change-file file-info(a storage_, uri uri, change text-document-content-change-e
 
 -init-file-info file-info(uri uri, input nat8[])
 	content file-content = input,
-	string string? = try
-		input.as-string,
+	string char8[]? = try
+		_ = input as-string
+		trusted input.array-cast,
 	catch unicode-decode-error _
 		()
 	text-file-content text-file-content mut() = () =>
@@ -132,7 +134,11 @@ files-state files-state(a storage_)
 		res
 
 all-storage-uris uri[](a storage_)
-	(for uri, _ : a successes; uri) ~~ (for uri, _ : a diags; uri)
+	with out : build
+		for uri, _ : a successes
+			out ~= uri
+		for uri, _ : a diags
+			out ~= uri
 all-uris-with-file-diag uri[](a storage_, search-diags read-file-diag[])
 	with out : build
 		for uri, diag : a diags
@@ -150,7 +156,7 @@ mark-unknown-if-not-exist void(a storage_, uri uri)
 read-file-result union(file-content, read-file-diag)
 
 file-content-getters file-content-getters(a storage_)
-	map string[uri] = with out : build
+	map char8[][uri] = with out : build
 		for uri, file : a successes
 			if x ?= file crow-file-info
 				out ~= (uri, x.content.as-string)
@@ -168,10 +174,12 @@ line-and-column-getters line-and-column-getters(a storage_)
 				out ~= (uri, x.line-and-column-getter)
 	map,
 
--apply-change string(input string, lc line-and-character-getter, event text-document-content-change-event)
+-apply-change char8[](input char8[], lc line-and-character-getter, event text-document-content-change-event)
 	if r ?= event range
 		range source-range = lc[r]
-		chars char8[] = input to
-		chars[0 .. range.start.to].to ~~ event.text ~~ chars[range.end.to .. end].to
+		with out : build
+			out ~~= input[0 .. range.start.to].to
+			out ~~= event.text to
+			out ~~= input[range.end.to .. end].to
 	else
-		event text
+		event.text to

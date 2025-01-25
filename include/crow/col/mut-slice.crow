@@ -3,8 +3,7 @@ import
 	../bool: &&, bool, false, true
 	../compare: !=, <, <=, equal
 	../java: java-array-get, java-array-set, java-cast, java-new-array
-	../js:
-		as-js, call, call-property, cast, eval, js-any, js-cast, js-global, subscript, set-subscript
+	../js: as-js, call, call-property, cast, js-cast, js-global, subscript, set-subscript
 	../misc: new, subscript, void
 	../number: ==, <=>, +, -, *, /, %, float64, nat64, next, to
 	../option: new, option
@@ -13,39 +12,16 @@ import
 		set-subscript, size-of, subscript, gc-safe-value
 	../private/alloc: allocate
 	../private/bootstrap: new-array, todo
-	../range: .., difference, is-empty, iterate, high, low, range, size
+	../range: .., difference, is-empty, iterate, high, low, range, size, subscript
 	../tuple: new
-	./array: ~=, ~~=, array, array-builder, begin-pointer, build, iterate, size, subscript
+	./array: ~=, ~~=, array, array-builder, array-view, begin-pointer, build, iterate, size, subscript
 	./private/array-low-level:
-		array-reference-equal, new-mut-slice, mut-slice-pointer, mut-slice-size
+		array-reference-equal, new-mut-slice, mut-slice-pointer, mut-slice-size, new
 	./collection:
 		.., build-options, end, for-loop, index-too-big, iterator-not-comparable,
-		range-relative-to-end, slice-out-of-order, to-range
+		range-relative-to-end, slice-out-of-order, subscript, to-range
 export
 	../private/bootstrap: mut-slice
-
--js-mut-slice[t] t mut-slice(array js-any, begin nat64, size nat64) bare, unsafe, js extern
-	# Use a proxy to produce a mutable slice of the original. (JS 'slice' makes a copy.)
-	"""
-	(array, begin, size) => new Proxy(array, \{
-		get(target, prop) \{
-			return /^\\d+$/.test(prop)
-				? (Number(prop) < size ? target[begin + Number(prop)] : undefined)
-				: prop === 'length'
-				? size
-				: Reflect.get(...arguments)
-		},
-		set(target, prop, value) \{
-			if (/^\\d+$/.test(prop)) \{
-				if (Number(prop) < size)
-					return target[begin + Number(prop)] = value
-				else
-					throw new Error("Index outside range of mut slice")
-			} else
-				return Reflect.set(...arguments)
-		},
-	})
-	""".eval call array, begin.to::float64, size.to::float64 cast
 
 | {true} if {a} and {b} are the exact same reference.
 | This is O(1) as it does not need to look at the elements.
@@ -61,37 +37,6 @@ export
 | This is O(1) because it does not copy anything.
 +subscript[t] t mut-slice(a t mut*, indices nat64 range) bare, unsafe, native extern
 	a.as-const[indices] cast-mutable
-
-# TODO:MOVE? ---------------------------------------------------------------------------------------------------------------------
-+array-view[t] record by-val
-	-inner t[]
-	indices nat64 range
-+view[t] t array-view(a t[]) # TODO: this should just be the default behavior of subscript -------------------------------
-	a, 0 .. a.size
-+is-empty[t] bool(a t array-view)
-	a.indices is-empty
-+size[t] nat64(a t array-view)
-	a.indices size
-+subscript[t] t(a t array-view, index nat64)
-	assert index < a.size : index index-too-big a.size
-	a.inner[a.indices.low + index]
-+subscript[t] t array-view(a t[], indices nat64 range) bare
-	assert indices.high <= a.size : indices.high index-too-big a.size
-	a, indices
-+subscript[t] t array-view(a t[], indices range-relative-to-end) bare
-	a[indices to-range a.size]
-+subscript[t] t array-view(a t array-view, indices nat64 range) bare
-	a.inner, a.indices[indices]
-+iterate[t] bool(a t array-view, f bool mut(x t))
-	i mut = a.indices low
-	loop
-		if i == a.indices.high
-			break false
-		elif f[a.inner[i]]
-			break true
-		else
-			i +:= 1
-			continue
 
 +mut-slice-view[t] record by-val # TODO: this is a silly name --------------------------------------------------------------------------
 	-inner t mut-slice
@@ -124,15 +69,8 @@ export
 +subscript[t] t mut-slice-view(a t mut-slice, indices nat64 range) bare
 	assert indices.high <= a.size : indices.high index-too-big a.size
 	a, indices
-+subscript[t] t mut-slice-view(a t mut-slice, indices range-relative-to-end) bare
-	a[indices to-range a.size]
 +subscript[t] t mut-slice-view(a t mut-slice-view, indices nat64 range) bare
 	a.inner, a.indices[indices]
-
-# TODO: this should be a std function somewhere -------------------------------------------------------------------------------
--subscript nat64 range(a nat64 range, b nat64 range) bare
-	assert b.high <= a.size : b.high index-too-big a.size
-	a.low + b.low .. a.low + b.high
 
 +iterate[t] bool(a t mut-slice-view, f bool mut(x t))
 	i mut = a.indices low
@@ -302,9 +240,7 @@ region unsafe
 	elif extern java
 		size.to java-new-array
 	elif extern js
-		# Array(size).fill(null)
-		array = "Array".js-global call size.to::float64 call-property "fill", gc-safe-value::t
-		array js-mut-slice 0, size
+		"Array".js-global call size.to::float64 call-property "fill", gc-safe-value::t cast
 	else
 		todo
 

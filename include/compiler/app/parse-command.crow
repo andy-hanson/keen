@@ -14,7 +14,7 @@ import
 parse-command command(cwd file-path, os os, args string[])
 	arg0 string = args is-empty ? "" : args[0]
 	if arg0 ends-with ".crow"
-		main main-kind = (cwd parse-uri-with-cwd arg0) main-kind-main-function args[1 .. end]
+		main main-kind = (cwd parse-uri-with-cwd arg0) main-kind-main-function args[1 .. end].to
 		options run-options = false interpret-run-options default
 		kind command-kind = main run-command options
 		kind, ()
@@ -24,7 +24,7 @@ parse-command command(cwd file-path, os os, args string[])
 		exit exit-code = arg0 == "help" || arg0 == "--help" ? ok : error
 		(help-all-text help-command exit), ()
 
--parse-command-from-name command(cwd file-path, os os, name command-name, args string[])
+-parse-command-from-name command(cwd file-path, os os, name command-name, args string array-view)
 	split = args split-args
 	if split help
 		(name.help-for-command help-command ok), split.options
@@ -164,7 +164,7 @@ parse-command command(cwd file-path, os os, args string[])
 	as run-arg-not-supported-in-node-js x
 		"Running with node.js does not support the {x.arg quote} option."
 	as run-kind-incompatible x
-		kinds string[] = (x.aot ? ("--aot",)) ~~ (x.jit ? ("--jit",)) ~~ (x.node-js ? ("--node-js",))
+		kinds string[] = (x.aot ? ("--aot",))::string[] ~~ (x.jit ? ("--jit",)) ~~ (x.node-js ? ("--node-js",))
 		"Can not specify both {kinds join-with-commas-and-and}."
 	as run-optimize-needs-aot-or-jit
 		"'--optimize' must be combined with '--aot' or '--jit'."
@@ -213,7 +213,7 @@ parse-command command(cwd file-path, os os, args string[])
 	as run
 		options = diags parse-run-options args.parts, false run-options
 		main = cwd parse-main-uri diags, args.before-first-part
-		main-kind main-kind = main main-kind-main-function (args.after-dash-dash ?? ())
+		main-kind main-kind = main main-kind-main-function (args.after-dash-dash?.to ?? ())
 		main-kind run-command options
 	as test_
 		options = diags parse-run-options args.parts, true
@@ -228,13 +228,13 @@ parse-command command(cwd file-path, os os, args string[])
 	diags expect-empty-before args.before-first-part
 	diags expect-empty-parts args.parts
 	diags expect-empty-after-dash-dash args.after-dash-dash
--expect-empty-before void(diags diags, before string[])
+-expect-empty-before void(diags diags, before string array-view)
 	unless before is-empty
 		diags ~= before[0] unexpected-before
 -expect-empty-parts void(diags diags, parts args-part[])
 	for part : parts
 		diags ~= part.tag unexpected-part
--expect-empty-after-dash-dash void(diags diags, after string[]?)
+-expect-empty-after-dash-dash void(diags diags, after string array-view?)
 	if _ ?= after
 		diags ~= "--" unexpected-part
 
@@ -247,7 +247,7 @@ default-executable-extension symbol(os os)
 	as windows
 		".exe"
 
--parse-main-kind-for-test main-kind(cwd file-path, diags diags, args string[], all bool)
+-parse-main-kind-for-test main-kind(cwd file-path, diags diags, args string array-view, all bool)
 	line nat? = if args.size == 2
 		args[1] parse-line
 	if args.size == 2 && line is-empty
@@ -272,7 +272,7 @@ default-executable-extension symbol(os os)
 -bogus main-kind()
 	() main-kind-tests-at-uri (), ()
 
--parse-main-uri uri(cwd file-path, diags diags, args string[])
+-parse-main-uri uri(cwd file-path, diags diags, args string array-view)
 	if arg ?= args opt-only
 		cwd parse-crow-uri diags, arg
 	else
@@ -285,7 +285,7 @@ default-executable-extension symbol(os os)
 		diags ~= arg expected-crow-uri
 	uri
 
--parse-root-uris uri[](cwd file-path, diags diags, args string[])
+-parse-root-uris uri[](cwd file-path, diags diags, args string array-view)
 	if args is-empty
 		diags ~= () expected-paths
 	for arg : args
@@ -302,7 +302,7 @@ default-executable-extension symbol(os os)
 		diags ~= print-kind-invalid
 		bogus
 
--parse-print-kind print-kind?(a string, args string[])
+-parse-print-kind print-kind?(a string, args string array-view)
 	match a
 	as ast
 		args expect-empty-args print-ast
@@ -318,10 +318,10 @@ default-executable-extension symbol(os os)
 				kind-at-pos print-ide-at-pos lc
 		elif kind-whole-file ?= a ide-whole-file-kind
 			args expect-empty-args kind-whole-file.to
--expect-empty-args print-kind?(args string[], x print-kind)
+-expect-empty-args print-kind?(args string array-view, x print-kind)
 	if args is-empty
 		x,
--expect-line-and-column print-kind?(args string[], f print-kind data(x line-and-column))
+-expect-line-and-column print-kind?(args string array-view, f print-kind data(x line-and-column))
 	if lc ?= args.opt-only?.parse-line-and-column
 		f[lc],
 # TODO: INLINE ------------------------------------------------------------------------------------------------------------------------------
@@ -331,14 +331,14 @@ default-executable-extension symbol(os os)
 	a.to to
 
 -parse-line-and-column line-and-column?(a string)
-	ptr string-walker = a,
+	ptr string-walker = a.to,
 	guard line ?= ptr.try-take-nat convert-from-1-indexed
 	guard ptr try-take-char ":"
 	guard column ?= ptr.try-take-nat convert-from-1-indexed
 	guard ptr is-at-end
 	(line, column),
 -parse-line nat?(a string)
-	ptr string-walker = a,
+	ptr string-walker = a.to,
 	guard line ?= ptr.try-take-nat convert-from-1-indexed
 	guard ptr is-at-end
 	line.to,
@@ -551,24 +551,24 @@ default-executable-path file-path(base file-path, os os)
 
 -args-part record
 	tag string
-	args string[]
+	args string array-view
 
 -split-args record
-	before-first-part string[]
+	before-first-part string array-view
 	parts args-part[]
 	| After seeing a '--' we stop parsing and just return the rest raw.
-	after-dash-dash string[]?
+	after-dash-dash string array-view?
 
 -split-args-and-options record
 	args split-args
 	options command-options
 	help bool
 
--split-args split-args-and-options(args string[])
+-split-args split-args-and-options(args string array-view)
 	if first-arg-index ?= args find-index arg => arg starts-with "--"
 		before-args = args[0 .. first-arg-index]
 		dash-dash = args[first-arg-index .. end] index-of "--"
-		before-dash-dash string[], after-dash-dash string[]? = if x ?= dash-dash
+		before-dash-dash string array-view, after-dash-dash string array-view? = if x ?= dash-dash
 			args[first-arg-index .. first-arg-index + x], (args[first-arg-index + x .. end],)
 		else
 			args[first-arg-index .. end], ()
@@ -581,7 +581,7 @@ default-executable-path file-path(base file-path, os os)
 	parts args-part[]
 	options command-options
 	help bool
--split-named-args named-args(args string[])
+-split-named-args named-args(args string array-view)
 	help mut = false
 	perf mut = false
 	parts args-part[] = with out : build
