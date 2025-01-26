@@ -33,14 +33,27 @@ path-exists bool(path file-path) summon, trusted
 	else
 		throw todo
 
-write-file void(path file-path, content string) summon, trusted
+ensure-directory void(path file-path) summon, trusted
 	if extern native
-		path.to write-file content
+		path.to ensure-directory
 	elif extern java
-		# TODO: catch exceptions -----------------------------------------------------------------------------------------
-		_ void = "java.nio.file.Files" call-static "write", path.to-java-path, content.to::nat8[]
+		attrs = "java.nio.file.attribute.FileAttribute" empty-array-of
+		"java.nio.file.Files" call-static "createDirectories", path.to-java-path, attrs
+	else
+		throw todo
+
+-empty-array-of java-any[](class-name string) unsafe, java extern
+	class_ java-any = "java.lang.Class" call-static "forName", class-name
+	"java.lang.reflect.Array" call-static "newInstance", class_, 0::int32
+
+-do-write-file void(path string, content string) summon, trusted
+	if extern native
+		path write-file content
+	elif extern java
+		# TODO: catch exceptions -----------------------------------------------------------------------------------------		
+		_ void = "java.nio.file.Files" call-static "write", path.to-java-path, content.to::nat8[], "java.nio.file.OpenOption".empty-array-of
 	elif extern js
-		fs call-property "writeFileSync", path.to::string, content cast
+		fs call-property "writeFileSync", path, content cast
 	else
 		throw todo
 
@@ -52,7 +65,7 @@ write-file void(path file-path, content string, permissions permissions, overwri
 	as disallow
 		# TODO: this could be integrated with opening the file! See 'openFileForWrite' in 'fileSystem.d' --------------------------------------
 		forbid path path-exists : path.to path-already-exists
-	path write-file content
+	path.to do-write-file content
 	path set-permissions permissions.user-only
 
 set-permissions void(path file-path, permissions file-permissions) summon, trusted
@@ -98,8 +111,10 @@ remove-file void(a file-path) summon, trusted
 	else
 		throw todo
 
-write-files-to-dir void(_ file-path, _ path-and-content[]) summon
-	throw todo # See the D version
+write-files-to-dir void(dir file-path, files (string, string)[]) summon
+	dir ensure-directory
+	for name, text : files
+		"{dir}/{name}" do-write-file text
 
 run-compiler void(path-and-args path-and-args) summon
 	assert trusted extern (native, libc, posix) : todo
