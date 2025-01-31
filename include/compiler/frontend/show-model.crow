@@ -20,6 +20,8 @@ line-and-character-getters line-and-character-getters(a show-ctx)
 show-type-ctx record mut
 	show show-ctx
 	common-types common-types
+file-content-getters file-content-getters(a show-type-ctx)
+	a.show file-content-getters
 show-diag-ctx alias
 	show-type-ctx
 show-model-ctx alias
@@ -40,21 +42,31 @@ show-called string(ctx show-type-ctx, kind write-type-kind, type-container type-
 	as called-spec-sig x
 		ctx show-called-spec-sig kind, type-container, x
 
+shown-signature record(name-and-return-type string, params string[], rest string)
+show string(a shown-signature)
+	a show unquoted
+show string(a shown-signature, kind write-type-kind)
+	quoted = kind == quoted
+	with out : build
+		if quoted
+			out ~= "'"
+		out ~~= a.name-and-return-type
+		out ~= "("
+		out ~~= ", " join a.params
+		out ~= ")"
+		if quoted
+			out ~= "'"
+		unless a.rest is-empty
+			out ~~= " {a.rest}"
+
 show-called-decl string(ctx show-type-ctx, kind write-type-kind, type-container type-container, a called-decl)
-	ctx show-called-decl kind, type-container, a, "", ""
-show-called-decl string(
-	ctx show-type-ctx,
-	kind write-type-kind,
-	type-container type-container,
-	a called-decl,
-	before-parameter string,
-	after-parameter string,
-)
+	ctx show-called-decl-parts type-container, a show kind
+show-called-decl-parts shown-signature(ctx show-type-ctx, type-container type-container, a called-decl)
 	match a
 	as fun-decl x
-		ctx show-fun-decl kind, x, before-parameter, after-parameter
+		ctx show-fun-decl-parts x
 	as called-spec-sig x
-		ctx show-called-spec-sig kind, type-container, x, before-parameter, after-parameter
+		ctx show-called-spec-sig-parts type-container, x
 
 show-called-decls string(ctx show-type-ctx, type-container type-container, cs called-decl[])
 	ctx show-called-decls type-container, cs, _ => true	
@@ -73,17 +85,14 @@ show-calleds string(ctx show-type-ctx, type-container type-container, cs called[
 		"\n\t{ctx show-called unquoted, type-container, x}"
 
 show-called-spec-sig string(ctx show-type-ctx, kind write-type-kind, type-container type-container, a called-spec-sig)
-	ctx show-called-spec-sig kind, type-container, a, "", ""
--show-called-spec-sig string(
+	ctx show-called-spec-sig-parts type-container, a show kind
+-show-called-spec-sig-parts shown-signature(
 	ctx show-type-ctx,
-	kind write-type-kind,
 	type-container type-container,
 	a called-spec-sig,
-	before-parameter string,
-	after-parameter string
 )
-	sig = ctx show-sig kind, type-container, a.name, a.return-type, a.non-instantiated-sig.params.to, (a.instantiated-sig,), before-parameter, after-parameter
-	"{sig} (from spec {ctx show-name a.spec-inst.decl.name})"
+	name-and-return-type, parameters = ctx show-sig-parts type-container, a.name, a.return-type, a.non-instantiated-sig.params.to, (a.instantiated-sig,)
+	name-and-return-type, parameters, "(from spec {ctx show-name a.spec-inst.decl.name})"
 
 -show-type-params-and-args string(
 	ctx show-type-ctx,
@@ -98,10 +107,10 @@ show-called-spec-sig string(ctx show-type-ctx, kind write-type-kind, type-contai
 		" with {shown}"
 
 show-fun-decl string(ctx show-type-ctx, kind write-type-kind, a fun-decl)
-	ctx show-fun-decl kind, a, "", ""
-show-fun-decl string(ctx show-type-ctx, kind write-type-kind, a fun-decl, before-parameter string, after-parameter string)
-	sig = ctx show-sig kind, a.to, a.name, a.return-type, a.params, (), before-parameter, after-parameter
-	"{sig}{ctx.show show-fun-decl-location a}"
+	ctx show-fun-decl-parts a show kind
+-show-fun-decl-parts shown-signature(ctx show-type-ctx, a fun-decl)
+	name-and-return-type, params = ctx show-sig-parts a.to, a.name, a.return-type, a.params, ()
+	name-and-return-type, params, (ctx.show show-fun-decl-location a)
 
 show-fun-decl-and-type-args string(ctx show-type-ctx, type-container type-container, a fun-decl-and-type-args)
 	"{a.decl name}{ctx show-type-args type-container, a.type-args}{ctx.show show-fun-decl-location a.decl}"
@@ -128,46 +137,39 @@ show-sig string(
 	params params,
 	instantiated return-and-param-types?,
 )
-	ctx show-sig kind, type-container, name, return-type, params, instantiated, "", ""
-show-sig string(
+	show-name, show-params = ctx show-sig-parts type-container, name, return-type, params, instantiated
+	(show-name, show-params, "") show kind
+
+show-sig-parts (string, string[])(
 	ctx show-type-ctx,
-	kind write-type-kind,
 	type-container type-container,
 	name symbol,
 	return-type type,
 	params params,
 	instantiated return-and-param-types?,
-	before-parameter string,
-	after-parameter string,
 )
-	quoted = kind == quoted
-	with out : build
-		if quoted
-			out ~= "'"
+	show-return-type string = with out : build
 		out ~~= name to
 		if instantiated is-empty
 			out ~~= ctx show-type-params type-container.type-params
 		out ~= " "	
 		out ~~= ctx show-type-unquoted (instantiated?.return-type ?? return-type, type-container)
 		out ~= "("
-		out ~~= match params
-		as array params-array
-			if inst ?= instantiated
-				", " join for x, t : params-array zip inst.param-types
-					"{before-parameter}{ctx show-destructure type-container, x, (t,)}{after-parameter}"
-			else
-				", " join for x : params-array
-					"{before-parameter}{ctx show-destructure type-container, x, ()}{after-parameter}"
-		as varargs varargs
-			param-type = if x ?= instantiated
-				x.param-types only
-			else
-				varargs.param type
-			type = ctx show-type-unquoted (param-type, type-container)
-			"{before-parameter}...{type}{after-parameter}"
-		out ~= ")"
-		if quoted
-			out ~= "'"
+	show-params string[] = match params
+	as array params-array
+		if inst ?= instantiated
+			for x, t : params-array zip inst.param-types
+				ctx show-destructure type-container, x, (t,)
+		else
+			for x : params-array
+				ctx show-destructure type-container, x, ()
+	as varargs varargs
+		param-type = if x ?= instantiated
+			x.param-types only
+		else
+			varargs.param type
+		"...{ctx show-type-unquoted (param-type, type-container)}",
+	show-return-type, show-params
 
 show-sig-simple string(ctx show-type-ctx, type-container type-container, name symbol, sig type-params-and-sig)
 	with out : build

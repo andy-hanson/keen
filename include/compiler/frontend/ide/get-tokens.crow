@@ -1,9 +1,548 @@
 import
+	../../frontend/parse/lex-whitespace
 	../../frontend/storage_
 	../../lib/lsp/lsp-types
+	../../model/ast
+	../../model/source-range
+	../../util/util
+	./ide-util
 
-tokens-of-ast semantic-tokens(_ crow-file-info)
-	throw todo
+tokens-of-ast semantic-tokens(file crow-file-info)
+	ctx ctx = (file.content,),
+	ctx add-doc-comment-tokens file.ast.doc-comment
+	file.ast walk-ast-in-order ast =>
+		match ast
+		as imports-or-exports-ast x
+			ctx add-import-tokens x
+		as spec-decl-ast x
+			ctx add-spec-tokens x
+		as struct-alias-ast x
+			ctx add-struct-alias-tokens x
+		as struct-decl-ast x
+			ctx add-struct-tokens x
+		as fun-decl-ast x
+			ctx add-fun-tokens x
+		as test-ast x
+			ctx add-test-tokens x
+		as var-decl-ast x
+			ctx add-var-decl-tokens x
+	ctx.tokens add-last-tokens
+	ctx.tokens.encoded.move-to,
 
-json-of-decoded-tokens json(_ semantic-tokens)
-	throw todo
+json-of-decoded-tokens json(a semantic-tokens)
+	xs json[] = with out : build
+		a decode-tokens (lc, length, type, modifiers) =>
+			json-modifiers json = modifiers to
+			out ~= (("line", lc.line.to), ("character", lc.character.to), ("length", length.to), ("type", type.to), ("modifiers", json-modifiers.to))
+	xs to
+
+get-tokens-legend json()
+	token-types json[] = for x : members::token-type[]
+		x to
+	token-modifiers json[] = for x : members::token-modifiers[]
+		x to
+	("tokenTypes", token-types.to), ("tokenModifiers", token-modifiers.to)
+
+-ctx record(tokens tokens-builder) mut
+
+-decode-tokens void(a semantic-tokens, f void mut(l line-and-character, length nat, type token-type, modifiers token-modifiers))
+	line mut nat32 = 0
+	character mut nat32 = 0
+	i mut nat = 0
+	while i < a.data_.size
+		delta-line nat32 = a.data_[i] to
+		delta-character nat32 = a.data_[i + 1] to
+		length = a.data_[i + 2]
+		type token-type = a.data_[i + 3] to!
+		modifiers token-modifiers = a.data_[i + 4] to!
+		if delta-line == 0
+			character +:= delta-character
+		else
+			line +:= delta-line
+			character := delta-character
+		f[(line, character), length, type, modifiers]
+		i +:= 5
+
+| https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#semanticTokenTypes
+-token-type enum nat storage
+	comment
+	enum_
+	enumMember
+	function_
+	interface_
+	keyword
+	namespace
+	number
+	parameter
+	property
+	string
+	type
+	typeParameter
+	variable
+-to token-type?(a nat64)
+-to nat(a token-type)
+-members token-type[]()
+-to string(a token-type)
+	match a
+	as comment
+		"comment"
+	as enum_
+		"enum"
+	as enumMember
+		"enumMember"
+	as function_
+		"function"
+	as interface_
+		"interface"
+	as keyword
+		"keyword"
+	as namespace
+		"namespace"
+	as number
+		"number"
+	as parameter
+		"parameter"
+	as property
+		"property"
+	as string
+		"string"
+	as type
+		"type"
+	as typeParameter
+		"typeParameter"
+	as variable
+		"variable"
+-to json(a token-type)
+	a.to::string to
+
+-token-modifiers flags(declaration) nat storage
+-to nat(a token-modifiers)
+-members token-modifiers[]()
+-to token-modifiers?(a nat)
+-to json(a token-modifiers)
+
+-tokens-builder record mut
+	source char8[]
+	line-and-character-getter line-and-character-getter
+	encoded nat mut[]
+	prev-pos mut pos
+	prev-line mut nat32
+	prev-character mut nat32
+-new tokens-builder(content text-file-content)
+	content.content, content.line-and-character-getter, (), 0, 0, 0
+-add void(a tokens-builder, range source-range, type token-type, modifiers token-modifiers)
+	if range.length != 0 # This can happen for missing names
+		a advance-to range.start
+		a.prev-pos := range.end
+		a add-inner range, type, modifiers
+
+-advance-to void(a tokens-builder, pos pos)
+	a add-tokens-between (a.prev-pos, pos)
+	a.prev-pos := pos
+
+-add-last-tokens void(a tokens-builder)
+	a advance-to a.source.size.to
+
+-add-inner void(a tokens-builder, range source-range, type token-type, modifiers token-modifiers)
+	lc-range = a.line-and-character-getter[range]
+	start = lc-range start
+	end = lc-range end
+	if start.line == end.line
+		a add-single-line-token start, (end.character - start.character).to, type, modifiers
+	else
+		first-length = (a.line-and-character-getter line-length-in-characters start.line.to) - start.character.to
+		a add-single-line-token start, first-length, type, modifiers
+		for line : start.line + 1 .. end.line
+			a add-single-line-token (line, 0), (a.line-and-character-getter line-length-in-characters line.to), type, modifiers
+		a add-single-line-token (end.line, 0), end.character.to, type, modifiers
+
+-add-single-line-token void(
+	a tokens-builder,
+	pos line-and-character,
+	length nat,
+	type token-type,
+	modifiers token-modifiers,
+)
+	assert a.prev-line < pos.line ||
+		a.prev-line == pos.line && a.prev-character < pos.character ||
+		a.prev-line == 0 && a.prev-character == 0
+	delta-line nat, delta-character nat = if pos.line == a.prev-line
+		0, pos.character - a.prev-character to
+	else
+		pos.line - a.prev-line to, pos.character to
+	a.encoded ~~= (delta-line, delta-character, length, type to, modifiers to)::nat[]
+	a.prev-line := pos line
+	a.prev-character := pos character
+
+-add-tokens-between void(a tokens-builder, range source-range)
+	on-comment void mut(comment-range source-range) = comment-range =>
+		assert range range-contains comment-range
+		a add-inner comment-range, comment, ()
+	a.source lex-tokens-between-asts range, on-comment, keyword-range =>
+		assert range range-contains keyword-range
+		a add-inner keyword-range, keyword, ()
+
+-declare void(a tokens-builder, type token-type, range source-range)
+	a add range, type, declaration
+-reference void(a tokens-builder, type token-type, range source-range)
+	a add range, type, ()
+-keyword void(a tokens-builder, range source-range)
+	a reference keyword, range
+-keyword void(a tokens-builder, start pos, name string)
+	a keyword (start range-of-start-and-length name)
+-number-literal void(a tokens-builder, range source-range)
+	a reference number, range
+-string-literal void(a tokens-builder, range source-range)
+	a reference string, range
+
+-add-doc-comment-tokens void(ctx ctx, a doc-comment-ast)
+	guard a !is-empty
+	range = a range!
+	pos mut = range start
+	for x : a references
+		ctx.tokens reference comment, (pos, x.range.start)
+		ctx.tokens reference variable, x.range
+		pos := x.range end
+	ctx.tokens reference comment, (pos, range.end)
+
+-add-import-tokens void(ctx ctx, a imports-or-exports-ast)
+	for import-or-export : a paths
+		ctx.tokens reference namespace, import-or-export.path-range
+		match import-or-export kind
+		as import-whole-module-ast _
+			()
+		as array names
+			for name : names
+				ctx.tokens reference variable, name.range
+		as import-file-ast x
+			ctx.tokens declare variable, x.name.range
+
+-add-spec-tokens void(ctx ctx, a spec-decl-ast)
+	ctx add-doc-comment-tokens a.doc-comment
+	ctx.tokens declare interface_, a.name.range
+	ctx add-type-params-tokens a.type-params
+	ctx add-modifier-tokens a.modifiers
+	for x : a sigs
+		ctx add-signature-tokens x
+
+-add-signature-tokens void(ctx ctx, a signature-ast)
+	ctx add-doc-comment-tokens a.doc-comment
+	ctx.tokens declare function_, a.name-range
+	ctx add-sig-return-type-and-params-tokens a.return-type, a.params
+
+-add-sig-return-type-and-params-tokens void(ctx ctx, return-type type-ast, params params-ast)
+	ctx add-type-tokens return-type
+	ctx add-params-tokens params
+
+-add-params-tokens void(ctx ctx, params params-ast)
+	match params
+	as array regular
+		for param : regular
+			ctx add-destructure-tokens param
+	as varargs-ast x
+		ctx add-destructure-tokens x.param
+
+-add-type-tokens void(ctx ctx, a type-ast)
+	match a
+	as bogus-type-ast _
+		()
+	as fun-type-ast x
+		ctx add-type-tokens x.return-type
+		ctx add-params-tokens x.params
+	as map-type-ast x
+		ctx add-type-tokens x.value
+		ctx add-type-tokens x.key
+	as name-and-range x
+		ctx.tokens reference type, x.range
+	as suffix-name-type-ast x
+		ctx add-type-tokens x.left
+		ctx.tokens reference type, x.name.range
+	as suffix-special-type-ast x
+		ctx add-type-tokens x.left
+		ctx.tokens declare type, x.suffix-range
+	as tuple-type-ast x
+		for t : x members
+			ctx add-type-tokens t
+
+-add-type-params-tokens void(ctx ctx, a name-and-range[])
+	for type-param : a
+		ctx.tokens declare typeParameter, type-param.range
+
+-add-struct-alias-tokens void(ctx ctx, a struct-alias-ast)
+	ctx add-doc-comment-tokens a.doc-comment
+	ctx.tokens declare type, a.name.range
+	ctx add-type-params-tokens a.type-params
+	ctx add-type-tokens a.target
+
+-add-struct-tokens void(ctx ctx, a struct-decl-ast)
+	ctx add-doc-comment-tokens a.doc-comment
+	ctx.tokens declare type, a.name.range
+	ctx add-type-params-tokens a.type-params
+	match a body
+	as builtin-type-ast _
+		ctx add-modifier-tokens a.modifiers
+	as enum-ast x
+		ctx add-enum-or-flags-tokens a, x.params, x.members
+	as extern-type-ast _
+		ctx add-modifier-tokens a.modifiers
+	as flags-ast x
+		ctx add-enum-or-flags-tokens a, x.params, x.members
+	as record-ast x
+		ctx add-record-tokens a, x.params, x.fields
+	as sum-type-ast x
+		for type : x types
+			ctx add-type-tokens type
+		ctx add-modifier-tokens a.modifiers
+		for sig : x methods
+			ctx add-signature-tokens sig
+
+-add-record-tokens void(ctx ctx, a struct-decl-ast, params params-ast?, members record-field-ast[])
+	if x ?= params
+		ctx add-params-tokens x
+	ctx add-modifier-tokens a.modifiers
+	for x : members
+		ctx add-doc-comment-tokens x.doc-comment
+		ctx.tokens declare property, x.name.range
+		if t ?= x type
+			ctx add-type-tokens t
+
+-add-modifier-tokens void(ctx ctx, a modifier-ast[])
+	for mod : a
+		match mod
+		as modifier-keyword-ast x
+			if t ?= x type-arg
+				ctx add-type-tokens t
+		as spec-use-ast x
+			if t ?= x type-arg
+				ctx add-type-tokens t
+			ctx.tokens reference interface_, x.name.range
+
+-add-enum-or-flags-tokens void(ctx ctx, a struct-decl-ast, params params-ast?, members enum-or-flags-member-ast[])
+	if x ?= params
+		ctx add-params-tokens x
+	ctx add-modifier-tokens a.modifiers
+	for member : members
+		ctx add-doc-comment-tokens member.doc-comment
+		ctx.tokens declare enumMember, member.name-range
+		if v ?= member value
+			ctx.tokens number-literal v.range
+
+-add-var-decl-tokens void(ctx ctx, a var-decl-ast)
+	ctx add-doc-comment-tokens a.doc-comment
+	ctx.tokens declare variable, a.name.range
+	ctx add-type-params-tokens a.type-params
+	ctx add-type-tokens a.type
+	ctx add-modifier-tokens a.modifiers
+
+-add-fun-tokens void(ctx ctx, a fun-decl-ast)
+	ctx add-doc-comment-tokens a.doc-comment
+	ctx.tokens declare function_, a.name.range
+	ctx add-type-params-tokens a.type-params
+	ctx add-sig-return-type-and-params-tokens a.return-type, a.params
+	ctx add-modifier-tokens a.modifiers
+	ctx add-expr-tokens a.body
+
+-add-test-tokens void(ctx ctx, a test-ast)
+	ctx add-doc-comment-tokens a.doc-comment
+	ctx add-expr-tokens a.body
+
+-add-expr-tokens void(ctx ctx, a expr-ast)
+	match a
+	as arrow-access-ast x
+		ctx add-expr-tokens x.left
+		ctx.tokens reference function_, x.name.range
+	as assert-or-forbid-ast x
+		"assert".size is "forbid".size
+		ctx.tokens keyword x.start, "assert"
+		ctx add-condition-tokens x.condition
+		if t ?= x thrown
+			ctx add-expr-tokens t.expr
+		ctx add-expr-tokens x.after
+	as assignment-ast x
+		ctx add-expr-tokens x.left
+		ctx.tokens keyword x.assignment-pos, ":="
+		ctx add-expr-tokens x.right
+	as assignment-call-ast x
+		ctx add-expr-tokens x.left
+		ctx.tokens reference function_, x.fun-name.range
+		ctx add-expr-tokens x.right
+	as bogus-ast _
+		()
+	as call-ast x
+		add-name void mut() = () =>
+			ctx.tokens reference function_, x.fun-name.range
+			if t ?= x type-arg
+				ctx add-type-tokens t
+		name-in-middle void mut() = () =>
+			ctx add-expr-tokens x.args[0]
+			add-name[]
+			for arg : x.args[1 .. end]
+				ctx add-expr-tokens arg
+		prefix void mut() = () =>
+			add-name[]
+			ctx add-exprs-tokens x.args
+		match x style
+		as dot
+			name-in-middle[]
+		as infix
+			name-in-middle[]
+		as question-dot
+			name-in-middle[]
+		as prefix-bang
+			ctx.tokens reference function_, (x.fun-name.start range-of-start-and-length "!")
+			ctx add-expr-tokens x.args.only
+		as suffix-bang
+			ctx add-expr-tokens x.args.only
+			ctx.tokens reference function_, (x.fun-name.start range-of-start-and-length "!")
+		as empty-parens
+			()
+		as prefix-operator
+			prefix[]
+		as single
+			prefix[]
+		as augment
+			ctx add-exprs-tokens x.args
+		as comma
+			ctx add-exprs-tokens x.args
+		as subscript
+			ctx add-exprs-tokens x.args
+		as question-subscript
+			ctx add-exprs-tokens x.args
+	as call-named-ast x
+		for name, arg : x.names zip x.args
+			ctx.tokens reference parameter, name.range
+			ctx add-expr-tokens arg
+	as do-ast x
+		ctx add-expr-tokens x.body
+	as empty-ast _
+		()
+	as extern-ast x
+		for name : x names
+			ctx.tokens reference namespace, name.range
+	as finally-ast x
+		ctx add-expr-tokens x.right
+		ctx add-expr-tokens x.below
+	as for-ast x
+		ctx add-destructure-tokens x.param
+		ctx add-expr-tokens x.collection
+		ctx add-expr-tokens x.body
+		if e ?= x else_
+			ctx add-expr-tokens e
+	as name-and-range x
+		ctx.tokens reference variable, x.range
+	as if-ast x
+		ctx add-condition-tokens x.condition
+		for branch : x all-branches
+			ctx add-expr-tokens branch
+	as interpolated-ast x
+		for i, part : x.parts with-index
+			match part
+			as literal-string-ast s
+				# Extend the range to include the opening or closing '"'
+				start = i == 0 ? x start : s.range start
+				end = i == x.parts.size - 1 ? x.end : s.range end
+				ctx.tokens string-literal (start, end)
+			else
+				ctx add-expr-tokens part
+	as lambda-ast x
+		ctx add-destructure-tokens x.param
+		ctx add-expr-tokens x.body
+	as let-ast x
+		ctx add-destructure-tokens x.destructure
+		ctx add-expr-tokens x.value
+		ctx add-expr-tokens x.then
+	as literal-float-and-range x
+		ctx.tokens number-literal x.range
+	as literal-integral-and-range x
+		ctx.tokens number-literal x.range
+	as literal-string-ast x
+		ctx.tokens string-literal x.range
+	as loop-ast x
+		ctx add-expr-tokens x.body
+	as loop-break-ast x
+		ctx add-expr-tokens x.value
+	as loop-continue-ast _
+		()
+	as loop-while-or-until-ast x
+		ctx add-condition-tokens x.condition
+		ctx add-expr-tokens x.body
+		ctx add-expr-tokens x.after
+	as match-ast x
+		ctx add-expr-tokens x.matched
+		for case_ : x cases
+			ctx add-case-tokens case_
+		if e ?= x else_
+			ctx add-expr-tokens e.expr
+	as parenthesized-ast x
+		ctx add-expr-tokens x.inner
+	as ptr-ast x
+		ctx add-expr-tokens x.inner
+	as seq-ast x
+		ctx add-expr-tokens x.first
+		ctx add-expr-tokens x.then
+	as shared-ast x
+		ctx add-expr-tokens x.inner
+	as throw-ast x
+		ctx add-expr-tokens x.thrown
+	as trusted-ast x
+		ctx add-expr-tokens x.inner
+	as try-ast x
+		ctx add-expr-tokens x.tried
+		for case_ : x catches
+			ctx add-case-tokens case_
+	as try-let-ast x
+		ctx add-destructure-tokens x.destructure
+		ctx add-expr-tokens x.value
+		ctx add-case-member-tokens x.catch-member
+		ctx add-expr-tokens x.catch_
+		ctx add-expr-tokens x.then
+	as typed-ast x
+		ctx add-expr-tokens x.expr
+		ctx add-type-tokens x.type
+	as with-ast x
+		ctx add-destructure-tokens x.param
+		ctx add-expr-tokens x.arg
+		ctx add-expr-tokens x.body
+		if e ?= x else_
+			ctx add-expr-tokens e
+
+-add-case-tokens void(ctx ctx, a case-ast)
+	ctx add-case-member-tokens a.member
+	ctx add-expr-tokens a.then
+
+-add-case-member-tokens void(ctx ctx, a case-member-ast)
+	match a
+	as as-name-ast x
+		ctx.tokens reference enumMember, x.name.range
+		if d ?= x destructure
+			ctx add-destructure-tokens d
+	as literal-integral-and-range x
+		ctx.tokens number-literal x.range
+	as as-string-ast x
+		ctx.tokens string-literal x.range
+	as as-bogus-ast _
+		()
+
+-add-condition-tokens void(ctx ctx, a condition-ast)
+	match a
+	as expr-ast x
+		ctx add-expr-tokens x
+	as unpack-option-ast x
+		ctx add-destructure-tokens x.destructure
+		ctx add-expr-tokens x.option
+
+-add-destructure-tokens void(ctx ctx, a destructure-ast)
+	match a
+	as single-destructure-ast x
+		ctx.tokens declare (x.name.name == "_" ? comment : parameter), x.name.range
+		if t ?= x type
+			ctx add-type-tokens t
+	as void-destructure-ast x
+		ctx.tokens keyword x.range
+	as array xs
+		for x : xs
+			ctx add-destructure-tokens x
+
+-add-exprs-tokens void(ctx ctx, exprs expr-ast[])
+	for expr : exprs
+		ctx add-expr-tokens expr

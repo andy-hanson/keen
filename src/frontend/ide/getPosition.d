@@ -228,7 +228,7 @@ Opt!PositionKind getPositionKind(in Ctx ctx, Module* module_, Pos pos, GetPositi
 		() => firstPointer!(PositionKind, StructAlias)(module_.aliases, (StructAlias* x) =>
 			positionInAlias(x, pos)),
 		() => firstPointer!(PositionKind, StructDecl)(module_.structs, (StructDecl* x) =>
-			positionInStruct(ctx, x, pos)),
+			positionInStruct(x, pos)),
 		() => firstPointer!(PositionKind, VarDecl)(module_.vars, (VarDecl* x) =>
 			positionInVar(x, pos)),
 		() => firstPointer!(PositionKind, SpecDecl)(module_.specs, (SpecDecl* x) =>
@@ -333,7 +333,7 @@ Opt!PositionKind positionInDestructure(
 				() => optIf(optHasPos(ast.mutRange, pos), () =>
 					PositionKind(PositionKeyword.localMut)),
 				() => has(ast.type)
-					? positionInType( container.toTypeContainer(), type, *force(ast.type), pos)
+					? positionInType(container.toTypeContainer(), type, *force(ast.type), pos)
 					: none!PositionKind)
 			: none!PositionKind;
 	}
@@ -349,7 +349,7 @@ Opt!PositionKind positionInDestructure(
 				? none!PositionKind
 				: firstZip!(PositionKind, Destructure, DestructureAst)(
 					x.parts, destructureAst.as!(DestructureAst[]), (Destructure part, DestructureAst partAst) =>
-						positionInDestructure( container, part, partAst, pos)));
+						positionInDestructure(container, part, partAst, pos)));
 }
 
 Opt!PositionKind positionInImportsOrExports(ImportOrExport[] importsOrExports, Pos pos) {
@@ -400,14 +400,14 @@ Opt!PositionKind positionInAlias(StructAlias* a, Pos pos) =>
 			PositionKind(PositionKeyword.alias_)),
 		() => positionInType(TypeContainer(a), Type(a.target), a.ast.target, pos)));
 
-Opt!PositionKind positionInStruct(in Ctx ctx, StructDecl* a, Pos pos) =>
+Opt!PositionKind positionInStruct(StructDecl* a, Pos pos) =>
 	a.source.matchIn!(Opt!PositionKind)(
 		(in StructDeclAst x) =>
-			positionInStruct(ctx, a, x, pos),
+			positionInStruct(a, x, pos),
 		(in StructDeclSourceBogus _) =>
 			none!PositionKind);
 
-Opt!PositionKind positionInStruct(in Ctx ctx, StructDecl* a, in StructDeclAst ast, Pos pos) =>
+Opt!PositionKind positionInStruct(StructDecl* a, in StructDeclAst ast, Pos pos) =>
 	positionInDecl(AnyDecl(a), pos, () => optOr!PositionKind(
 		positionInVisibility(VisibilityContainer(a), ast.visibility, pos),
 		() => optIf(hasPos(a.nameRange.range, pos), () => PositionKind(a)),
@@ -415,7 +415,7 @@ Opt!PositionKind positionInStruct(in Ctx ctx, StructDecl* a, in StructDeclAst as
 			PositionKind(keywordKindForStructBody(ast.body_))),
 		() => positionInTypeParams(AnyDecl(a), ast.typeParams, pos),
 		() => positionInModifiers(TypeContainer(a), none!Specs, ast.modifiers, pos),
-		() => positionInStructBody(ctx, a, a.body_, ast.body_, pos)));
+		() => positionInStructBody(a, a.body_, ast.body_, pos)));
 
 PositionKeyword keywordKindForStructBody(in StructBodyAst a) =>
 	a.matchIn!PositionKeyword(
@@ -465,7 +465,6 @@ Opt!PositionKind positionInSignature(Signature* sig, in SignatureAst ast, Pos po
 		() => positionInParams(asLocalContainer(sig.container), Params(sig.params), ast.params, pos));
 
 Opt!PositionKind positionInStructBody(
-	in Ctx ctx,
 	StructDecl* decl,
 	ref StructBody body_,
 	in StructBodyAst ast,
@@ -477,19 +476,13 @@ Opt!PositionKind positionInStructBody(
 		(BuiltinType _) =>
 			none!PositionKind,
 		(ref Enum x) =>
-			positionInEnumOrFlagsBody(
-				ctx, decl, x.storage, x.members,
-				ast.as!EnumAst.params, ast.as!EnumAst.members,
-				pos),
+			positionInEnumOrFlagsBody(x.members, ast.as!EnumAst.params, ast.as!EnumAst.members, pos),
 		(ExternType _) =>
 			none!PositionKind,
 		(Flags x) =>
-			positionInEnumOrFlagsBody(
-				ctx, decl, x.storage, x.members,
-				ast.as!FlagsAst.params, ast.as!FlagsAst.members,
-				pos),
+			positionInEnumOrFlagsBody(x.members, ast.as!FlagsAst.params, ast.as!FlagsAst.members, pos),
 		(Record x) =>
-			positionInRecord(ctx, decl, x.fields, ast.as!RecordAst, pos),
+			positionInRecord(decl, x.fields, ast.as!RecordAst, pos),
 		(SumType x) =>
 			positionInVariant(decl, x, ast.as!SumTypeAst, pos));
 
@@ -501,7 +494,6 @@ Opt!PositionKind positionInVariant(StructDecl* decl, SumType a, in SumTypeAst as
 		() => positionInSignatures(a.methods, ast.methods, pos));
 
 Opt!PositionKind positionInRecord(
-	in Ctx ctx,
 	StructDecl* decl,
 	in RecordField[] members,
 	ref RecordAst ast,
@@ -546,9 +538,6 @@ Opt!PositionKind positionInRecordField(StructDecl* decl, RecordField* field, in 
 			: none!PositionKind);
 
 Opt!PositionKind positionInEnumOrFlagsBody(
-	in Ctx ctx,
-	StructDecl* decl,
-	IntegralType storage,
 	in EnumOrFlagsMember[] members,
 	in Opt!ParamsAst paramsAst,
 	in EnumOrFlagsMemberAst[] memberAsts,
@@ -601,7 +590,7 @@ Opt!PositionKind positionAtExpr(ref ExprCtx ctx, Expr* a, Pos pos, GetPositionKi
 		positionInDestructure(ctx, x, y, pos);
 	PositionKind keyword(ExprKeyword k) =>
 		expressionPosition(ExpressionPositionKind(k));
-	Opt!PositionKind keywordAt(Range range, ExprKeyword k, ) =>
+	Opt!PositionKind keywordAt(Range range, ExprKeyword k) =>
 		optIf(hasPos(range, pos), () => keyword(k));
 	PositionKind local(LocalRefKind kind, Local* local) =>
 		expressionPosition(ExpressionPositionKind(LocalRef(kind, local)));

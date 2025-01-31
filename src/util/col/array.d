@@ -694,7 +694,9 @@ T foldRange(T)(
 ) {
 	assert(length != 0);
 	T recur(T acc, size_t i) =>
-		i == length ? acc : cbCombine(acc, cbGet(i));
+		i == length
+			? acc
+			: recur(cbCombine(acc, cbGet(i)), i + 1);
 	return recur(cbGet(0), 1);
 }
 

@@ -143,7 +143,7 @@ void add(scope ref ImportsAndReExportsBuilder a, Uri uri, IsImportOrExport kind)
 	}
 }
 
-// Unlike 'eachNamedImport', this works for un-named imports; so it doe snot pass a location to the callback.
+// Unlike 'eachNamedImport', this works for un-named imports; so it does not pass a location to the callback.
 void eachImport(
 	in Program program,
 	in UriAndName imported,

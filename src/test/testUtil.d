@@ -246,6 +246,7 @@ alias testIncludePathsSeq = AliasSeq!(
 	"crow/io/print.crow",
 	"crow/io/private/time-low-level.crow",
 	"crow/io/win32-util.crow",
+	"crow/java.crow",
 	"crow/js.crow",
 	"crow/json.crow",
 	"crow/log.crow",

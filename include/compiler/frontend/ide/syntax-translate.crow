@@ -1,5 +1,260 @@
 import
+	../../frontend/parse/lex-token
+	../../frontend/parse/parse
 	../../lib/lsp/lsp-types
+	../../model/ast
+	../../model/parse-diag
+	../../model/source-range
+	../../util/string-walker
 
-syntax-translate syntax-translate-result(_ syntax-translate-params)
-	throw todo
+syntax-translate syntax-translate-result(params syntax-translate-params)
+	if "\n"::char32 in params.source
+		"", (0,)
+	elif params.from == params.to
+		params.source, ()
+	elif params.to == crow
+		expr, diags = params.source.to parse-java-expr
+		result string = with out : build
+			out translate-to-crow expr, root, ()
+		result, diags
+	elif params.from == crow
+		res = params.source.to parse-single-line-expression
+		result mut string = ""
+		diagnostics pos[] = with diags-out : build
+			for x : res diags
+				diags-out ~= x.range.start
+			result := with out : build
+				out translate-crow-to-c-or-java diags-out, res.expr, params.to == java
+		result, diagnostics
+	else
+		expr, diags = params.source.to parse-java-expr
+		result string = with out : build
+			out output-c-or-java (expr translate-between-c-or-java params.to == java)
+		result, diags
+
+-translate-crow-to-c-or-java void(
+	out string-builder,
+	diags-out pos array-builder,
+	a expr-ast,
+	is-java bool,
+)
+	match a
+	as call-ast call
+		remaining-args = if is-java && call.args !is-empty
+			out translate-crow-to-c-or-java diags-out, call.args[0], is-java
+			out ~= "."
+			call.args[1 .. end]
+		else
+			call.args to
+		out ~~= call.fun-name.name to
+		out write-parenthesized remaining-args, x =>
+			out translate-crow-to-c-or-java diags-out, x, is-java
+	as name-and-range x
+		out ~~= x.name to
+	as parenthesized-ast x
+		out translate-crow-to-c-or-java diags-out, x.inner, is-java
+	else
+		diags-out ~= a.range.start
+
+-output-c-or-java void(out string-builder, a java-expr)
+	match a
+	as java-bogus
+		out ~~= "bogus"
+	as symbol x
+		out ~~= x to
+	as java-call x
+		out output-c-or-java x.called
+		out write-parenthesized x.args, arg =>
+			out output-c-or-java arg
+	as java-dot x
+		out output-c-or-java x.left
+		out ~= "."
+		out ~~= x.name to
+
+-translate-between-c-or-java java-expr(a java-expr, output-java bool)
+	match a
+	as java-call call
+		match call called
+		as java-bogus
+			a
+		as symbol name
+			if output-java && call.args !is-empty
+				left = call.args[0] java-dot name translate-between-c-or-java output-java
+				left java-call for arg : call args
+					arg translate-between-c-or-java output-java
+			else
+				a
+		as java-call _
+			a
+		as java-dot x
+			if output-java
+				x to
+			else
+				args java-expr[] = with out : build
+					out ~= x.left translate-between-c-or-java output-java
+					for arg : call args
+						out ~= arg translate-between-c-or-java output-java
+				x.name.to java-call args
+	else
+		a
+
+-write-parenthesized[col, elem] void(out string-builder, values col, f void mut(x elem)) (col, elem) iterate
+	out ~= "("
+	out write-with-commas values, f
+	out ~= ")"
+-write-with-commas[col, elem] void(out string-builder, values col, f void mut(x elem)) (col, elem) iterate
+	for i, x : values with-index
+		if i != 0
+			out ~~= ", "
+		f[x]
+
+-position enum(root, first-arg, non-first-arg, before-dot)
+-== bool(a position, b position)
+-augment enum(not, force)
+-to augment?(a symbol)
+-== bool(a augment, b augment)
+-with-augment void(out string-builder, augment augment?, name symbol)
+	out with-augment augment, () =>
+		out ~~= name to
+-with-augment void(out string-builder, augment augment?, f void mut())
+	if augment == (not,)
+		out ~= "!"
+	f[]
+	if augment == (force,)
+		out ~= "!"
+
+-translate-to-crow void(out string-builder, a java-expr, position position, augment augment?)
+	match a
+	as java-bogus
+		out ~~= "bogus"
+	as symbol x
+		out with-augment augment, x
+	as java-call x
+		out translate-call-to-crow x, position, augment
+	as java-dot x
+		out write-crow-call x.left, x.name, (), position, augment
+-translate-call-to-crow void(out string-builder, a java-call, position position, augment augment?)
+	args = a args
+	match a called
+	as java-bogus
+		out ~~= "bogus"
+	as symbol x
+		if args is-empty
+			out with-augment augment, x
+		else
+			out write-crow-call args[0], x, args[1 .. end], position, augment
+	as java-call x
+		out with-augment augment, () =>
+			out translate-to-crow x.to, position, ()
+			out ~= "["
+			out write-with-commas args, arg =>
+				out translate-to-crow arg, non-first-arg, ()
+			out ~= "]"
+	as java-dot x
+		out write-crow-call x.left, x.name, args.to, position, augment
+-write-crow-call void(
+	out string-builder,
+	arg0 java-expr,
+	name symbol,
+	rest-args java-expr array-view,
+	position position,
+	augment augment?,
+)
+	if rest-args is-empty
+		new-augment augment? = if _ ?= augment
+			()
+		else
+			name to
+		if x ?= new-augment
+			out translate-to-crow arg0, position, (x,)
+		elif position == root
+			out translate-to-crow arg0, first-arg, ()
+			out ~= " "
+			out with-augment augment, name
+		else
+			out with-augment augment, () =>
+				out translate-to-crow arg0, before-dot, ()
+				out ~= "."
+				out ~~= name to
+	else
+		needs-parens = match position
+		as root
+			false
+		as first-arg
+			false
+		as non-first-arg
+			true
+		as before-dot
+			true
+		if needs-parens
+			out ~= "("
+		out translate-to-crow arg0, first-arg, ()
+		out ~= " "
+		out with-augment augment, name
+		out ~= " "
+		out write-with-commas rest-args, arg =>
+			out translate-to-crow arg, non-first-arg, ()
+		if needs-parens
+			out ~= ")"
+
+| Also represents C expressions
+-java-expr union(java-bogus, symbol, java-call, java-dot)
+-java-bogus record
+-java-call record(called java-expr, args java-expr[])
+-java-dot record(left java-expr, name symbol)
+
+-parse-ctx record(diags pos mut[]) mut
+-add-diag void(ctx parse-ctx, cur string-walker)
+	ctx.diags ~= cur.pos
+
+-parse-java-expr (java-expr, pos[])(source char8[])
+	ctx parse-ctx = (),
+	ptr string-walker = source,
+	res = ctx parse-java-expr-recur ptr
+	ptr skip-whitespace
+	unless ptr is-at-end
+		ctx add-diag ptr
+	res, ctx.diags.move-to
+
+-parse-java-expr-recur java-expr(ctx parse-ctx, ptr string-walker)
+	ptr skip-whitespace
+	if name ?= ptr try-take-name
+		ctx parse-java-expr-suffixes ptr, name.to
+	else
+		ctx add-diag ptr
+		java-bogus
+-parse-java-expr-suffixes java-expr(ctx parse-ctx, ptr string-walker, lhs java-expr)
+	ptr skip-whitespace
+	if ptr try-take-char "."
+		if name ?= ptr try-take-name
+			ctx parse-java-expr-suffixes ptr, (lhs java-dot name)
+		else
+			ctx add-diag ptr
+			lhs
+	elif ptr try-take-char "("
+		args java-expr[] = if ptr try-take-char ")"
+			()
+		else
+			with out : build
+				loop
+					out ~= ctx parse-java-expr-recur ptr
+					ptr skip-whitespace
+					if ptr try-take-char ","
+						break
+					else
+						continue
+				unless ptr try-take-char ")"
+					ctx add-diag ptr
+		ctx parse-java-expr-suffixes ptr, (lhs java-call args)
+	else
+		lhs
+
+-try-take-name symbol?(ptr string-walker)
+	start = ptr pos
+	ok = ptr try-take-identifier
+	if ok
+		(ptr string-from start to),
+
+-skip-whitespace void(ptr string-walker)
+	while *ptr is-whitespace
+		ptr advance

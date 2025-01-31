@@ -419,7 +419,7 @@ void addStructTokens(scope ref Ctx ctx, in StructDeclAst a) {
 			addEnumOrFlagsTokens(ctx, a, x.params, x.members);
 		},
 		(in RecordAst x) {
-			addRecordTokens(ctx, a, x.params, x.fields, TokenType.property);
+			addRecordTokens(ctx, a, x.params, x.fields);
 		},
 		(in SumTypeAst x) {
 			foreach (ref TypeAst type; x.types)
@@ -435,14 +435,13 @@ void addRecordTokens(
 	in StructDeclAst a,
 	in Opt!ParamsAst params,
 	in RecordFieldAst[] members,
-	TokenType memberTokenType,
 ) {
 	if (has(params))
 		addParamsTokens(ctx, force(params));
 	addModifierTokens(ctx, a.modifiers);
 	foreach (ref RecordFieldAst x; members) {
 		addDocCommentTokens(ctx, x.docComment);
-		declare(ctx.tokens, memberTokenType, x.name.range);
+		declare(ctx.tokens, TokenType.property, x.name.range);
 		if (has(x.type))
 			addTypeTokens(ctx, force(x.type));
 	}

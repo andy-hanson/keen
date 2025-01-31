@@ -1,34 +1,29 @@
 no-std
 import
-	../bool: &&, ||, bool, false, not, true
-	../compare: >, >=
+	../bool: ||, bool, false, new, not, true
+	../compare: <, <=, >, >=
 	../hash: hash, hash-mix
 	../json: to
 	../misc: key, new, subscript, void
-	../number: ==, <=>, +, -, *, %, is-even, nat64
-	../option: ==, ??, is-empty, new, option
+	../number: ==, <=>, +, -, *, /, %, is-even, nat64
+	../option: ==, force, is-empty, new, option
 	../string: ==, interpolate, join, show, string, upper-case
 	../test-util: is, should-throw
-	../tuple: ==, new, tuple2
+	../tuple: ==, a, b, new
 	./array: ==, ~=, array, build, iterate, new, size
-	./collection: build-options, fill, find, find-index, for-loop, n-of, size-hint, was-locked
+	./collection: build-options, fill, for-loop, n-of, size-hint, was-locked, with-index
 	./map: ==, ~=, build, map, new
-	./mut-array:
-		~=, copy, filter=, is-at-capacity, is-empty, iterate, map=, move-to, mut-array, new,
-		remove-unordered-at, set-subscript, size, subscript
+	./mut-array: ~=, move-to, mut-array, new
 	./mut-slice:
-		~=, begin, build, iterate, is-empty, map=, mut-slice, new, next, set-next, set-subscript,
-		size, subscript
+		~=, begin, build, copy, iterate, is-empty, map=, mut-slice, new, next, set-next, set-subscript,
+		size, subscript, swap
 	../symbol: to
 
 | Mutable unordered map.
 +mut-map[k, v] record mut
 	-locked mut bool
-	-entries mut (k, v) entry mut-slice
-	-total-size mut nat64
-
--entry[k, v] union(none, (k, v), (k, v) mut[]) mut
--none record
+	-size_ mut nat64
+	-entries mut (k, v)? mut-slice
 
 | New map containing the given pairs.
 | Later pairs overwrite earlier pairs with the same key.
@@ -41,7 +36,7 @@ import
 | Since hash conflicts are possible,
 | this makes no guarantees about whether more allocations will be needed.
 -mut-map-with-capacity[k, v] v mut[k](capacity nat64) k key
-	false, (capacity n-of none), 0
+	false, 0, (capacity n-of ())
 
 | Convert a list of pairs to a map.
 | Later pairs overwrite earlier pairs with the same key.
@@ -49,7 +44,6 @@ import
 	for x : a; x
 +to[k, v] v[k](a v mut[k]) k key
 	for x : a; x
-
 | Copy pairs to an array.
 +to[k, v] (k, v)[](a v mut[k]) k key
 	for x : a; x
@@ -60,41 +54,30 @@ import
 	a clear
 	res
 +move-to[k, v] v[k](a v mut[k]) k key
+	# TODO: map should have a possibility that is a flat hash table instead of a tree, then this won't have to allocate ---------------
 	res v[k] = a to
 	a clear
 	res
 +move-to[k, v] v mut[k](a v mut[k]) k key
 	forbid a.locked
-	res v mut[k] = false, a.entries, a.total-size
+	res v mut[k] = false, a.size_, a.entries
+	a.size_ := 0
 	a.entries := ()
-	a.total-size := 0
 	res
 
 | Copy pairs to a new {mut-map}.
 +copy[k, v] v mut[k](a v mut[k]) k key
-	forbid a locked : was-locked
-	a.locked := true
-	finally do
-		a.locked := false
-	entries (k, v) entry mut-slice = for entry : a entries
-		match entry
-		as none
-			none
-		as tuple2 x
-			x to
-		as mut-array x
-			x.copy to
-	false, entries, a.total-size
+	false, a.size_, a.entries.copy
 test
 	a string mut[nat64] = (1, "1"), (2, "2"), (5, "5")
-	a verify "_ (1 -> 1) [2 -> 2, 5 -> 5]"
+	a verify "5 -> 5, 1 -> 1, 2 -> 2"
 
 	b = a copy
-	b verify "_ (1 -> 1) [2 -> 2, 5 -> 5]"
+	b verify "5 -> 5, 1 -> 1, 2 -> 2"
 
 	a[6] := "6"
-	a verify "(6 -> 6) (1 -> 1) [2 -> 2, 5 -> 5]"
-	b verify "_ (1 -> 1) [2 -> 2, 5 -> 5]"
+	a verify "6 -> 6, 1 -> 1, 2 -> 2, _, _, 5 -> 5"
+	b verify "5 -> 5, 1 -> 1, 2 -> 2"
 
 | {true} if `{a}.{size} == 0`.
 +is-empty[k, v] bool(a v mut[k]) k key
@@ -102,35 +85,32 @@ test
 
 | Number of pairs in the map.
 +size[k, v] nat64(a v mut[k]) k key
-	a total-size
+	a size_
 
 | Gets the value associated with a key.
 | Returns an empty option if `{key} !{in} {a}`.
 +subscript[k, v] v?(a v mut[k], key k) k key
-	guard a !is-empty
-	match a.entries[key.hash % a.entries.size]
-	as none
-		()
-	as tuple2 k, v
-		k == key ? v,
-	as mut-array m
-		if (_, v) ?= m find (k, _) => k == key
-			v,
+	if index ?= a get-index key
+		a.entries[index]!.b,
 
 | {true} if some pair in the map has the {key}.
 +in[k, v] bool(key k, a v mut[k]) k key
-	!a[key].is-empty
+	a get-index key !is-empty
 
 | Sets the key to the given value, so that `{a}[{key}]` will return {value}.
 | If `{key} {in} {a}`, this overwrites the previous value.
 +set-subscript[k, v] void(a v mut[k], key k, value v) k key
-	_ = a update key, (value,)
+	forbid a locked : was-locked
+	if index ?= a get-index key
+		a.entries[index] := (key, value),
+	else
+		a must-add key, value
 
 | Removes all pairs, leaving the map empty.
 +clear[k, v] void(a v mut[k]) k key
 	forbid a locked : was-locked
-	a.entries fill none
-	a.total-size := 0
+	a.entries fill ()
+	a.size_ := 0
 
 | Set the contents of {a} to the contents of {b} and vice versa.
 | This is O(1).
@@ -139,90 +119,100 @@ test
 	temp-entries = a entries
 	a.entries := b entries
 	b.entries := temp-entries
-	temp-size = a.total-size
-	a.total-size := b total-size
-	b.total-size := temp-size
+	temp-size = a.size_
+	a.size_ := b size_
+	b.size_ := temp-size
+test
+	a string mut[nat64] = (1, "one"),
+	b string mut[nat64] = ()
+	a swap b
+	a.to::string[nat64] is ()
+	b.to::string[nat64] is ((1, "one"),)
 
 | If `{key} {in} {a}`, removes it and returns the associated value.
 | Returns an empty option if `{key} !{in} {a}`.
 +remove[k, v] v?(a v mut[k], key k) k key
-	a update key, ()
+	forbid a locked : was-locked
+	if index ?= a get-index key
+		value = a.entries[index]!.b
+		a remove-at-index index
+		value,
+test
+	a string mut[nat64] = (1, "one"),
+	a remove 2 is ()
+	a.size is 1
+	a remove 1 is ("one",)
+	a.size is 0
+	a remove 1 is ()
+
+-remove-at-index[k, v] void(a v mut[k], index nat64) k key
+	# When there is a hole, move values closer to where they should be.
+	hole mut = index
+	a.entries[hole] := ()
+	from mut = index next-index a.entries
+	while key, _ ?= a.entries[from]
+		key-desired-index = key.hash % a.entries.size
+		if (a.entries walk-distance key-desired-index, hole) < (a.entries walk-distance key-desired-index, from)
+			a.entries swap hole, from
+			hole := from
+		from next-index:= a.entries
+	a.size_ -:= 1
 
 | Ensures that a key is the map.
 | If `{key} {in} {a}`, does nothing and returns the associated value.
 | If `{key} !{in} {a}`, sets the value to `{get-value}[]` and returns that.
 +ensure[k, v] v(a v mut[k], key k, get-value v mut()) k key
-	forbid a locked
-	a[key] ?? do
+	forbid a locked : was-locked
+	res = if index ?= a get-index key
+		assert a.entries[index]!.a == key # TODO: REDUNDANT ----------------------------------------------------------------------
+		a.entries[index]! b
+	else
 		value = get-value[]
-		a[key] := value
+		a must-add key, value
+		assert _ ?= a get-index key
 		value
+	res
+test
+	a string mut[nat64] = ()
+	a ensure 1, (() => "one") is "one"
+	a ensure 1, (() => "two") is "one"
 
 +ensure[k, v] v(a v mut[k], key k) k key, v new
 	a ensure key, () => ()
 
-| Returns the old value (if it exists).
--update[k, v] v?(a v mut[k], key k, new-value v?) k key
-	forbid a locked : was-locked
-	if a.entries is-empty
-		if value ?= new-value
-			a.entries := (key, value).to,
-			a.total-size := 1
-		()
-	else
-		entry-index = key.hash % a.entries.size
-		match a.entries[entry-index]
-		as none
-			guard value ?= new-value
-			a.entries[entry-index] := (key, value) to
-			a.total-size +:= 1
-			()
-		as tuple2 k, v
-			if k == key
-				a.entries[entry-index] := if value ?= new-value
-					(key, value) to
-				else
-					a.total-size -:= 1
-					none
-				v,
-			else
-				guard value ?= new-value
-				if a should-expand
-					a expand
-					a[key] := value
-				else
-					a.entries[entry-index] := ((k, v), (key, value)) to
-					a.total-size +:= 1
-				()
-		as mut-array m
-			if index ?= m find-index (k, _) => k == key
-				_, old-value = m[index]
-				if value ?= new-value
-					m[index] := key, value
-				else
-					_ = m remove-unordered-at index
-					match m size
-					as 0
-						a.entries[entry-index] := none
-					as 1
-						a.entries[entry-index] := m[0] to
-					else
-						()
-					a.total-size -:= 1
-				old-value,
-			else
-				guard value ?= new-value
-				at-capacity = trusted if extern native
-					m is-at-capacity
-				else
-					true
-				if at-capacity && a should-expand
-					a expand
-					a[key] := value
-				else
-					m ~= (key, value)
-					a.total-size +:= 1
-				()
+-must-add[k, v] void(a v mut[k], key k, value v) k key
+	if a should-expand-before-add
+		a do-expand
+	assert a.size_ < a.entries.size
+	a.size_ +:= 1
+	a.entries must-add-to-entries key, value
+
+-must-add-to-entries[k, v] void(entries (k, v)? mut-slice, initial-key k, initial-value v) k key
+	key mut = initial-key
+	value mut = initial-value
+	index mut = key hash entries.size
+	my-cost mut nat64 = 0
+	loop
+		if existing-key, existing-value ?= entries[index]
+			forbid existing-key == key
+			its-cost = entries cost existing-key, index
+			if my-cost > its-cost
+				entries[index] := (key, value),
+				key := existing-key
+				value := existing-value
+				my-cost := its-cost
+			index next-index:= entries
+			my-cost +:= 1
+			continue
+		else
+			entries[index] := (key, value),
+			break
+
+-cost[k, v] nat64(entries (k, v)? mut-slice, key k, actual-index nat64) k key
+	entries walk-distance (key hash entries.size), actual-index
+
+-hash[k] nat64(key k, array-size nat64) k key
+	key.hash % array-size
 
 | This is the same as calling `{a}[{key}] := {value}`.
 | Prefer to write it that way instead.
@@ -232,18 +222,49 @@ test
 +~~=[k, v] void(a v mut[k], pairs (k, v)[]) k key
 	for pair : pairs; a ~= pair
 
-| Called when we're about to allocate a bigger bucket -- maybe we should expand the table instead.
--should-expand[k, v] bool(a v mut[k])
-	a.total-size >= a.entries.size
+-get-index[k, v] nat64?(a v mut[k], key k) k key
+	guard a.entries !is-empty
+	start-i = key.hash % a.entries.size
+	i mut = start-i
+	loop
+		if k, _ ?= a.entries[i]
+			if key == k
+				break i,
+			else
+				i next-index:= a entries
+				if i == start-i
+					break ()
+				else
+					continue
+		else
+			break ()
 
--expand[k, v] void(a v mut[k]) k key
-	forbid a.entries.size == 0
-	new-size = a.entries.size * 2
-	bigger v mut[k] = new-size mut-map-with-capacity
+-next-index[t] nat64(index nat64, array t mut-slice)
+	res = index + 1
+	if res == array.size
+		0
+	else
+		res
+
+| Number of {next-index} calls it would take to get from {from} to {to}
+-walk-distance[t] nat64(entries t mut-slice, from nat64, to nat64)
+	if from <= to
+		to - from
+	else
+		entries.size + to - from
+
+-should-expand-before-add[k, v] bool(a v mut[k]) k key
+	if a.size_ <= 8
+		a.size_ == a.entries.size
+	else
+		a.size_ * 4 / 3 >= a.entries.size
+
+-do-expand[k, v] void(a v mut[k]) k key
+	new-capacity nat64 = a.entries.size < 2 ? 2 : a.entries.size * 2
+	new-entries (k, v)? mut-slice = new-capacity n-of ()
 	for k, v : a
-		bigger[k] := v
-	a swap bigger
-	assert a.entries.size == new-size
+		new-entries must-add-to-entries k, v
+	a.entries := new-entries
 
 | Filters the map in place.
 | Calls {f} on every key and value and removes the key if {f} returns {false}.
@@ -252,23 +273,18 @@ test
 	a.locked := true
 	finally do
 		a.locked := false
+	i mut nat64 = 0
+	until i == a.entries.size
+		rm = if x ?= a.entries[i]
+			!f[x]
+		if rm
+			a remove-at-index i
+		else
+			i +:= 1
 	a.entries map= entry =>
-		match entry
-		as none
-			none
-		as tuple2 k, v
-			if f[k, v]
-				(k, v) to
-			else
-				none
-		as mut-array m
-			m filter= f
-			if m is-empty
-				none
-			elif m.size == 1
-				m[0] to
-			else
-				m to
+		if x ?= entry
+			if f[x]
+				x,
 test
 	a string mut[nat64] = (0, "zero"), (1, "one"), (2, "two")
 	a filter= (key, _) =>
@@ -278,6 +294,7 @@ test
 		catch was-locked _
 			()
 		key is-even
+	a verify "0 -> zero, _, 2 -> two"
 	a.to::string[nat64] is ((0, "zero"), (2, "two"))
 
 | Calls {f} on every key and value, and replaces the value with the new value returned by {f}.
@@ -288,14 +305,8 @@ test
 	finally do
 		a.locked := false
 	a.entries map= entry =>
-		match entry
-		as none
-			none
-		as tuple2 k, v
-			(k, f[k, v]) to
-		as mut-array m
-			m map= (k, v) => k, f[k, v]
-			m to
+		if k, v ?= entry
+			(k, f[k, v]),
 test
 	a string mut[nat64] = (0, "zero"), (1, "one"), (2, "two")
 	a map-values= (_, value) =>
@@ -320,13 +331,8 @@ region spec impls (see collection.crow)
 		if i == a.entries.size
 			break false
 		else
-			done = match a.entries[i]
-			as none
-				false
-			as tuple2 x
+			done = if x ?= a.entries[i]
 				f[x]
-			as mut-array m
-				m iterate f
 			if done
 				break true
 			else
@@ -352,20 +358,22 @@ test
 region test
 
 -dbg[k, v] string(a v mut[k]) k show, v show
-	parts string[] = for entry : a entries
-		match entry
-		as none
+	", " join for entry : a entries
+		if k, v ?= entry
+			"{k} -> {v}"
+		else
 			"_"
-		as tuple2 ar
-			"({ar dbg})"
-		as mut-array m
-			"[{", " join for pair : m; pair dbg}]"
-	" " join parts
--dbg[k, v] string((k k, v v)) k show, v show
-	"{k} -> {v}"
 
 -verify void(a string mut[nat64], expected string)
 	a.dbg is expected
+
+-verify-costs void(a string mut[nat64], costs nat64[])
+	actual-costs nat64[] = for index, x : a.entries with-index
+		if key, _ ?= x
+			a.entries cost key, index
+		else
+			0
+	actual-costs is costs
 
 test
 	a string mut[nat64] = ()
@@ -376,19 +384,19 @@ test
 	a.size is 1
 	a.to::(nat64, string)[] is ((6, "6"),)
 
-	a verify "(6 -> 6)"
+	a verify "6 -> 6, _"
 
 	a[6] := "six"
-	a verify "(6 -> six)"
+	a verify "6 -> six, _"
 
 	a[3] := "3"
-	a verify "(6 -> six) (3 -> 3)"
+	a verify "6 -> six, 3 -> 3"
 
 	a[4] := "4"
-	a verify "(4 -> 4) _ (6 -> six) (3 -> 3)"
+	a verify "4 -> 4, _, 6 -> six, 3 -> 3"
 
 	a[8] := "8"
-	a verify "[4 -> 4, 8 -> 8] _ (6 -> six) (3 -> 3)"
+	a verify "4 -> 4, 8 -> 8, 6 -> six, 3 -> 3"
 
 	a[4] is ("4",)
 	a[8] is ("8",)
@@ -397,18 +405,19 @@ test
 	a.to::(nat64, string)[] is ((4, "4"), (8, "8"), (6, "six"), (3, "3"))
 
 	a[12] := "12"
-	a verify "(8 -> 8) _ _ (3 -> 3) [4 -> 4, 12 -> 12] _ (6 -> six) _"
+	a verify "8 -> 8, _, _, 3 -> 3, 4 -> 4, 12 -> 12, 6 -> six, _"
 
 	a remove 5 is ()
 	a remove 4 is ("4",)
 
-	a verify "(8 -> 8) _ _ (3 -> 3) (12 -> 12) _ (6 -> six) _"
+	a verify "8 -> 8, _, _, 3 -> 3, 12 -> 12, _, 6 -> six, _"
 
 	a[11] := "11"
-	a verify "(8 -> 8) _ _ [3 -> 3, 11 -> 11] (12 -> 12) _ (6 -> six) _"
+	a verify "8 -> 8, _, _, 3 -> 3, 11 -> 11, 12 -> 12, 6 -> six, _"
+	a verify-costs (0, 0, 0, 0, 1, 1, 0, 0)
 
 	a filter= (key, value) => key > 10 || value == "six"
-	a verify "_ _ _ (11 -> 11) (12 -> 12) _ (6 -> six) _"
+	a verify "_, _, _, 11 -> 11, 12 -> 12, _, 6 -> six, _"
 
 	a map-values= (key, value) => "{key}-{value}"
-	a verify "_ _ _ (11 -> 11-11) (12 -> 12-12) _ (6 -> 6-six) _"
+	a verify "_, _, _, 11 -> 11-11, 12 -> 12-12, _, 6 -> 6-six, _"
