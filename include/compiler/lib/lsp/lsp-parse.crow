@@ -1,0 +1,143 @@
+import
+	./lsp-types
+	../../model/source-range
+	../../model/uri
+	../../util/util
+
+to lsp-in-message(message json)
+	guard "result"::symbol !in message : lsp-in-response
+	request lsp-in-message data(req lsp-in-request-params) = req =>
+		message["id"].to lsp-in-request req
+	params = message["params"]
+	match message["method"] string!
+	as "$/cancelRequest"
+		params["id"].to.cancel-request-params to
+	as "$/setTrace"
+		params["value"].string!.parse-trace-value.set-trace-params to
+	as "custom/readFileResult"
+		uri = params parse-uri-property
+		type read-file-result-type = params["type"].string!.to to!
+		content string = if "content"::symbol in params
+			params["content"] string!
+		uri read-file-result-params type, content.to-bytes to
+	as "custom/syntaxTranslate"
+		source = params["source"] string!
+		from language = params["from"].string!.to to!
+		to language = params["to"].string!.to to!
+		request[source syntax-translate-params from, to]
+	as "custom/build-js-script"
+		request[params.parse-uri-property build-js-script-params params.parse-diagnostics-only-for-uris]
+	as "custom/run"
+		request[params.parse-uri-property run-params params.parse-diagnostics-only-for-uris]
+	as "custom/unloaded-uris"
+		request[unloaded-uris-params]
+	as exit
+		exit-params to
+	as initialize
+		options = params["initializationOptions"] parse-initialization-options
+		trace = if "trace"::symbol in params
+			params["trace"].string! parse-trace-value
+		else
+			off
+		request[options initialize-params trace]
+	as initialized
+		initialized-params to
+	as shutdown
+		request[shutdown-params]
+	as "textDocument/codeLens"
+		request[params["textDocment"].parse-text-document-identifier code-lens-params]
+	as "textDocument/completion"
+		request[params.parse-text-document-position-params completion-params]
+	as "textDocument/definition"
+		request[params.parse-text-document-position-params definition-params]
+	as "textDocument/didChange"
+		params.parse-did-change-text-document-params.to to
+	as "textDocument/didClose"
+		did-close-text-document-params to
+	as "textDocument/didOpen"
+		params["textDocument"].parse-text-document-item.did-open-text-document-params to
+	as "textDocument/didSave"
+		params["textDocument"].parse-text-document-identifier.did-save-text-document-params to
+	as "textDocument/documentHighlight"
+		request[params.parse-text-document-position-params document-highlight-params]
+	as "textDocument/foldingRange"
+		request[params["textDocument"].parse-text-document-identifier folding-range-params]
+	as "textDocument/hover"
+		request[params.parse-text-document-position-params hover-params]
+	as "textDocument/implementation"
+		request[params.parse-text-document-position-params implementation-params]
+	as "textDocument/inlayHint"
+		request[params.parse-inlay-hint-params to]
+	as "textDocument/references"
+		request[params.parse-text-document-position-params reference-params]
+	as "textDocument/rename"
+		request[params.parse-text-document-position-params rename-params params["newName"].string!]
+	as "textDocument/semanticTokens/full"
+		request[params["textDocument"].parse-text-document-identifier semantic-tokens-params]
+	as "textDocument/signatureHelp"
+		request[params.parse-text-document-position-params signature-help-params]
+	as "textDocument/typeDefinition"
+		request[params.parse-text-document-position-params type-definition-params]
+	as "workspace/executeCommand"
+		request[params.parse-execute-command-params to]
+	else
+		throw unreachable
+
+-parse-diagnostics-only-for-uris uri[]?(params json)
+	x = params["diagnosticsOnlyForUris"]
+	if x != null
+		x.parse-uri-list,
+
+-parse-uri-list uri[](a json)
+	for x : a array!
+		x.string! must-parse-uri
+
+-parse-initialization-options initialization-options(a json)
+	(a["unknownUris"].bool-or-null ?? false),
+
+-parse-trace-value trace-value(a string) # TODO: INLINE? --------------------------------------------------------------------------
+	a.to to!
+
+-parse-did-change-text-document-params did-change-text-document-params(a json)
+	textDocument: a["textDocument"] parse-text-document-identifier
+	contentChanges: for x : a["contentChanges"] array!
+		x parse-text-document-content-change-event
+
+-parse-text-document-item text-document-item(a json)
+	uri: a parse-uri-property
+	text: a parse-text-property
+
+-parse-text-property string(a json)
+	a["text"] string!
+
+-parse-text-document-position-params text-document-position-params(a json)
+	uri: a["textDocument"] parse-text-document-identifier
+	pos: a["position"] parse-line-and-character
+
+-parse-inlay-hint-params inlay-hint-params(a json)
+	textDocument: a["textDocument"] parse-text-document-identifier
+	range: a["range"] parse-line-and-character-range
+
+-parse-text-document-identifier text-document-identifier(a json)
+	a parse-uri-property
+
+-parse-uri-property uri(a json)
+	a["uri"].string! must-parse-uri
+
+-parse-text-document-content-change-event text-document-content-change-event(a json)
+	range = a["range"]
+	(range != null ? range.parse-line-and-character-range,), a.parse-text-property
+
+-parse-line-and-character-range line-and-character-range(a json)
+	a["start"].parse-line-and-character, a["end"].parse-line-and-character
+
+-parse-line-and-character line-and-character(a json)
+	a["line"].to, a["character"].to
+
+-parse-execute-command-params execute-command-params(params json)
+	arguments = params["arguments"] array!
+	match params["command"] string!
+	as run-test
+		(arguments.only.to,) to
+	else
+		throw unreachable

@@ -252,7 +252,7 @@ void referencesForTarget(in Program program, Uri curUri, in Target a, in Referen
 			referencesForImportedName(program, x, cb);
 		},
 		(PositionLocal x) {
-			referencesForLocal(program, curUri, x, cb);
+			referencesForLocal(curUri, x, cb);
 		},
 		(Target.Loop x) {
 			referencesForLoop(curUri, x, cb);
@@ -317,7 +317,7 @@ void referencesForImportedName(in Program program, in PositionImportedName a, in
 	}
 }
 
-void referencesForLocal(in Program program, Uri curUri, in PositionLocal a, in ReferenceCb cb) {
+void referencesForLocal(Uri curUri, in PositionLocal a, in ReferenceCb cb) {
 	Opt!ContainerAndBody body_ = a.container.matchWithPointers!(Opt!ContainerAndBody)(
 		(FunDecl* x) =>
 			x.body_.isA!Expr

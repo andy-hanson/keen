@@ -498,13 +498,7 @@ void hoverTypeParam(
 	writeName(writer, ctx, typeContainer.typeParams[index.index].name);
 }
 
-void getExprKeywordHover(
-	scope ref Writer writer,
-	in ShowModelCtx ctx,
-	in Uri curUri,
-	in TypeContainer typeContainer,
-	ExprKeyword keyword,
-) {
+void getExprKeywordHover(scope ref Writer writer, ExprKeyword keyword) {
 	final switch (keyword) {
 		case ExprKeyword.ampersand:
 			writer ~= "Gets a pointer to an expression. " ~
@@ -595,7 +589,7 @@ void getExprHover(
 			writer ~= " if the first argument is non-empty.";
 		},
 		(in ExprKeyword x) {
-			getExprKeywordHover(writer, ctx, curUri, typeContainer, x);
+			getExprKeywordHover(writer, x);
 		},
 		(in ExternExpr x) {
 			bool first = true;

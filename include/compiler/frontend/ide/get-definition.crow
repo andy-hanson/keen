@@ -1,10 +1,120 @@
 import
+	../../model/ast
 	../../model/model
 	../../model/source-range
+	../../model/uri
+	../../util/util
+	./ide-util
+	./get-target
 	./position
 
-get-definition-for-position uri-and-line-and-character-range[](_ program, _ position)
-	throw todo
+get-definition-for-position uri-and-line-and-character-range[](program program, pos position)
+	guard target ?= pos target-for-position
+	with out : build
+		pos.module.uri definition-for-target target, x =>
+			out ~= program.line-and-character-getters[x]
 
-get-type-definition-for-position uri-and-line-and-character-range[](_ program, _ position)
-	throw todo
+get-type-definition-for-position uri-and-line-and-character-range[](program program, pos position)
+	guard target ?= pos target-for-position
+	with out : build
+		target type-definition-for-target x =>
+			out ~= program.line-and-character-getters[x]
+
+definition-for-target void(cur-uri uri, a target, f reference-cb)
+	match a
+	as enum-or-flags-member x
+		f[x name-range]
+	as fun-decl x
+		f[x name-range]
+	as position-imported-name x
+		x definition-for-imported-name f
+	as position-local x
+		f[x.container.module-uri, x.local.local-must-have-name-range]
+	as loop-target x
+		f[cur-uri, x.loop_.ast.keyword-range]
+	as module x
+		f[x range]
+	as record-field x
+		f[x name-range]
+	as spec-decl x
+		f[x name-range]
+	as signature x
+		f[x name-range]
+	as struct-alias x
+		f[x name-range]
+	as struct-decl x
+		f[x name-range]
+	as type-param-with-container x
+		f[x type-param-with-container-range]
+	as var-decl x
+		f[x name-range]
+
+-type-param-with-container-range uri-and-range(a type-param-with-container)
+	a.container.module-uri, a.container.type-params[a.type-param index].range
+
+-definition-for-imported-name void(a position-imported-name, f reference-cb)
+	guard refs ?= a referents
+	if x ?= refs struct-or-alias
+		f[x range]
+	if x ?= refs spec_
+		f[x range]
+	for x : refs funs
+		f[x range]
+
+-type-definition-for-target void(a target, f reference-cb)
+	match a
+	as enum-or-flags-member x
+		x.containing-enum definition-for-struct f
+	as fun-decl x
+		x type-definition-for-fun-decl f
+	as position-imported-name x
+		guard refs ?= x referents
+		if s ?= refs struct-or-alias
+			s type-definition-for-struct-or-alias f
+		elif fun ?= refs.funs opt-only
+			fun type-definition-for-fun-decl f
+	as position-local x
+		x.container.to definition-for-type x.local.type, f
+	as loop-target x
+		x.container.to definition-for-type x.loop_.type, f
+	as module _
+		()
+	as record-field x
+		x.containing-record.to definition-for-type x.type, f
+	as spec-decl _
+		()
+	as signature x
+		x.container.to definition-for-type x.return-type, f
+	as struct-alias x
+		x type-definition-for-struct-alias f
+	as struct-decl x
+		x definition-for-struct f
+	as type-param-with-container x
+		f[x type-param-with-container-range]
+	as var-decl x
+		x.to definition-for-type x.type, f
+
+-type-definition-for-struct-or-alias void(a struct-or-alias, f reference-cb)
+	match a
+	as struct-alias x
+		x type-definition-for-struct-alias f
+	as struct-decl x
+		x definition-for-struct f
+
+-type-definition-for-struct-alias void(a struct-alias, f reference-cb)
+	a.target.decl definition-for-struct f
+
+-definition-for-struct void(a struct-decl, f reference-cb)
+	f[a name-range]
+
+-type-definition-for-fun-decl void(a fun-decl, f reference-cb)
+	a.to definition-for-type a.return-type, f
+
+-definition-for-type void(container type-container, a type, f reference-cb)
+	match a
+	as bogus-type
+		()
+	as type-param-index x
+		f[(x, container.forbid-module) type-param-with-container-range]
+	as struct-inst x
+		x.decl definition-for-struct f

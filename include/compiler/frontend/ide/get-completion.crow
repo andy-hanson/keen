@@ -1,7 +1,81 @@
 import
+	../../document/document
+	../../frontend/check/inferring-type
 	../../frontend/show-model
 	../../lib/lsp/lsp-types
+	../../model/model
 	./position
 
-get-completion-for-position completion-list?(_ show-type-ctx, _ position)
-	throw todo
+get-completion-for-position completion-list?(show-ctx show-type-ctx, pos position)
+	match pos kind
+	as expression-position x
+		show-ctx completion-at-expression-position pos.module, x
+	else
+		()
+
+-completion-at-expression-position completion-list?(
+	show-ctx show-type-ctx,
+	module module,
+	a expression-position,
+)
+	match a kind
+	as local-ref x
+		show-ctx completion-after-type module, a.container, x.local.type
+	else
+		()
+
+-completion-after-type completion-list?(
+	show-ctx show-type-ctx,
+	module module,
+	container expr-container,
+	type type,
+)
+	items completion-item[] = with out : build
+		module each-fun-in-expr-scope container, fun =>
+			if t ?= fun first-param-type
+				# Don't include a function that accepts any type, since this results in too many functions matching
+				if t.struct-inst !is-empty && (t, fun.type-container-for) is-type-match-possible-for-completions type
+					out ~= show-ctx completion-for-called-decl container.to, fun
+	unless items is-empty
+		(items,),
+
+-type-container-for type-container(a called-decl)
+	match a
+	as fun-decl x
+		x to
+	as called-spec-sig x
+		x.spec-inst.decl to
+
+-completion-for-called-decl completion-item(show-ctx show-type-ctx, type-container type-container, a called-decl)
+	label: a.name to
+	detail: show-ctx show-called-decl unquoted, type-container, a
+	documentation: show-ctx.file-content-getters doc-comment-string a.module-uri, a.doc-comment
+
+-first-param-type type?(a called-decl)
+	match a
+	as fun-decl x
+		x first-param-type
+	as called-spec-sig x
+		x first-param-type
+-first-param-type type?(a fun-decl)
+	match a params
+	as array xs
+		unless xs is-empty
+			xs[0].type,
+	as varargs x
+		x.element-type,
+-first-param-type type?(a called-spec-sig)
+	param-types = a.instantiated-sig param-types
+	unless param-types is-empty
+		param-types[0],
+
+-each-fun-in-expr-scope void(module module, container expr-container, f void mut(x called-decl))
+	for spec_ : container specs
+		spec_ each-called-spec-sig x =>
+			f[x to]
+	for x : module funs
+		f[x to]
+	module each-import-or-re-export x =>
+		for _, refs : x imported!
+			for fun : refs funs
+				f[fun to]

@@ -1,8 +1,474 @@
 import
 	../../frontend/show-model
 	../../lib/lsp/lsp-types
+	../../model/ast
+	../../model/integral-values
+	../../model/model
+	../../model/source-range
+	../../model/uri
+	../../util/util
 	./position
 
-get-hover hover(_ show-model-ctx, _ position)
-	throw todo
+get-hover hover(ctx show-model-ctx, pos position)
+	(plaintext, (ctx get-hover pos)),
 
+-get-hover string(ctx show-model-ctx, pos position)
+	match pos kind
+	as position-doc-ref x
+		ctx hover-for-doc-ref x
+	as enum-or-flags-member x
+		e string = match x.containing-enum body # TODO: is there already some function that gets the keyword for a struct body?
+		as enum_ _
+			"Enum "
+		as flags_ _
+			"Flags "
+		else
+			throw unreachable
+		"{e} member {x.containing-enum name}.{x name}"
+	as expression-position x
+		ctx expr-hover pos.module.uri, x
+	as fun-decl x
+		ctx show-fun-decl unquoted, x
+	as position-imported-module x
+		"Import module {ctx.show show-file x.module.uri}"
+	as position-imported-name x
+		ctx imported-name-hover x
+	as position-keyword x
+		match x
+		as alias_
+			"Declares a type alias."
+		as builtin_
+			"Declares a type implemented natively by Crow."
+		as enum_
+			"Declares an enumerated type. The type can only have the values listed."
+		as extern_
+			"Declares a type implemented by an external library."
+		as flags_
+			"Declares a type that can have any combination of flags (this would be an 'enum' in C)"
+		as global_
+			"Declares a mutable global variable (shared between all threads)."
+		as interface_
+			"An 'interface' is like a 'variant', but does not support 'match' or conversion to case types."
+		as local-mut
+			"Makes this variable mutable."
+		as record_
+			"Declares a type combining several named members."
+		as spec_
+			"Specifies function signatures to be provided by a function's caller."
+		as thread-local_
+			"Declares a mutable thread-local variable."
+		as underscore
+			"Ignores the value."
+		as union_
+			"A union can be one of several listed case types."
+		as variant_
+			"Declares a union-like type with an extensible set of case types, created by 'case' declarations on the types."
+	as position-local x
+		"Local {ctx show-name x.local.name} of type {ctx show-type-quoted (x.local.type, x.container.to)}"
+	as position-match-enum-case x
+		"Handler for enum {ctx show-name x.member.containing-enum.name} member {ctx show-name x.member.name}"
+	as position-match-integral-case x
+		value string, type string = match x kind
+		as char-type t
+			x.value.as-unsigned.to::nat32.to::char32.to.quote, t.to
+		as integral-type t
+			(t.is-signed ? "{x.value as-signed}" : "{x.value as-unsigned}"), t.to
+		"Handler for value {value} :: {type}"
+	as position-match-string-like-case x
+		"Handler for value {x.value quote} :: {ctx show-type-unquoted x.type}"
+	as position-match-sum-type-case x
+		"Handler for type {ctx show-type-unquoted (x.member.to, x.container.to)}"
+	as position-modifier x
+		match x modifier
+		as bare_
+			"This function does not use the Crow runtime."
+		as builtin_
+			"This function is implemented natively by Crow."
+		as by-ref_
+			"This type is behind a pointer.\n" ~~
+			"This is more efficient if there are many references to the same value."
+		as by-val_
+			"This type is stored by-value.\n" ~~
+			"This avoids allocation but each place this value is used has its own copy of the content."
+		as case_
+			"Adds a case type to an interface or variant type.\n" ~~
+			"The case type must implement the interface/variant type's methods, if any."
+		as data_
+			"The type is completely immutable."
+		as extern_
+			"This type is compatible with external libraries."
+		as force-ctx_
+			"This function uses the runtime, but 'bare' functions can call it.\n" ~~
+			"(Don't use outside of the Crow runtime.)"
+		as force-shared_
+			"This type is be considered 'shared' even though it has 'mut' content."
+		as mut_
+			"This type is either directly mutable or references something mutable."
+		as new-internal
+			"The 'new' function is internal."
+		as new-private
+			"The 'new' function is private."
+		as new-public
+			"The 'new' function is public."
+		as nominal_
+			"The type's constructor uses the type's name instead of 'new'."
+		as packed_
+			"The type will be laid out without gaps for alignment."
+		as pure_
+			"Marks an 'extern' function as not 'summon', meaning it following Crow's purity rules."
+		as shared_
+			"The type is mutable, but in a way that is safe to share between concurrent tasks."
+		as storage_
+			"Determines the type of number used to store the enum."
+		as summon_
+			"This function can directly access all I/O capabilities."
+		as trusted_
+			"This function is not unsafe, but can do unsafe things internally."
+		as unsafe_
+			"This function can only be called by 'trusted' or 'unsafe' functions."
+	as position-modifier-extern x
+		"Function comes from external library {ctx show-name x.library-name}."
+	as position-module _
+		"Module {pos.module uri}"
+	as record-field x
+		type = ctx show-type-unquoted (x.type, x.containing-record.to)
+		"Record field {x.containing-record name}.{x name} :: {type}"
+	as position-record-field-mutability x
+		visibility string = if v ?= x visibility
+			"{ctx.show show-visibility v} "
+		"Defines a {visibility}setter."
+	as spec-decl x
+		ctx spec-decl-hover x
+	as signature sig
+		desc string = match sig container
+		as spec-decl x
+			"Spec {ctx show-name x.name} signature "
+		as struct-decl x
+			"{x.body.sum-type!.kind show-sum-type-kind-upper-case} {ctx show-name x.name} method "
+		"{desc} {ctx show-name sig.name}"
+	as position-spec-use x
+		"Spec {ctx show-spec-inst x.container, x.spec_}"
+	as struct-alias x
+		ctx struct-alias-hover x
+	as struct-decl x
+		ctx struct-decl-hover x
+	as test_ _
+		"Declares a unit test."
+	as type-with-container x
+		match x type
+		as bogus-type
+			""
+		as type-param-index p
+			ctx type-param-hover x.container.forbid-module, p
+		as struct-inst i
+			ctx struct-decl-hover i.decl
+	as type-param-with-container x
+		ctx type-param-hover x.container, x.type-param
+	as var-decl x
+		type = ctx show-type-unquoted (x.type, x.to)
+		"{x.kind string-of-var-kind-upper-case} variable {ctx show-name x.name} :: {type}"
+	as position-visibility-mark x
+		"Marks {ctx show-name x.container.name} as {ctx show-visibility x.container.visibility}."
+
+-hover-for-doc-ref string(ctx show-model-ctx, a position-doc-ref)
+	match a ref
+	as doc-comment-reference-bogus
+		""
+	as called-spec-sig x
+		"References {ctx show-called-spec-sig quoted, a.container.type-container-for, x}"
+	as enum-or-flags-member x
+		e string = match x.containing-enum body # TODO: is there already some function that gets the keyword for a struct body?
+		as enum_ _
+			"enum"
+		as flags_ _
+			"flags"
+		else
+			throw unreachable
+		"References {e} {ctx show-name x.containing-enum.name} member {ctx show-name x.name}."
+	as fun-decl x
+		"References function {ctx show-fun-decl unquoted, x}."
+	as local x
+		"References parameter {ctx show-name x.name}."
+	as record-field x
+		"References record {ctx show-name x.containing-record.name} field {ctx show-name x.name}."
+	as signature x
+		desc string = match x container
+		as spec-decl _
+			"spec signature"
+		as struct-decl _
+			"method"
+		"References {desc} {ctx show-name x.name}."
+	as struct-alias x
+		"References alias {ctx show-name x.name}."
+	as struct-decl x
+		"References type {ctx show-name x.name}."
+	as spec-decl x
+		"References spec {ctx show-name x.name}."
+	as type-param-index x
+		name = a.container.type-container-for.type-params[x index] name
+		"References type parameter {ctx show-name name}"
+	as var-decl x
+		"References {x.kind string-of-var-kind-lower-case} {ctx show-name x.name}."
+
+-struct-alias-hover string(ctx show-model-ctx, a struct-alias)
+	"Alias for {ctx show-type-quoted (a.target.to, a.to)}"
+
+-struct-decl-hover string(ctx show-model-ctx, a struct-decl)
+	desc string = match a body
+	as struct-body-bogus
+		"Type "
+	as builtin-type _
+		"Builtin type "
+	as enum_ _
+		"Enum type "
+	as extern-type _
+		"Extern type"
+	as flags_ _
+		"Flags type "
+	as record_ _
+		"Record type "
+	as sum-type x
+		"{x.kind show-sum-type-kind-upper-case} type "
+	"{desc}{ctx show-name a.name}"
+
+-spec-decl-hover string(ctx show-model-ctx, a spec-decl)
+	"Spec {ctx show-name a.name}"
+
+-imported-name-hover string(ctx show-model-ctx, a position-imported-name)
+	guard refs ?= a referents
+	parts string[] = with out : build
+		if s ?= refs struct-or-alias
+			out ~= match s
+			as struct-alias x
+				ctx struct-alias-hover x
+			as struct-decl x
+				ctx struct-decl-hover x
+		if s ?= refs spec_
+			out ~= ctx spec-decl-hover s
+		for x : refs funs
+			out ~= ctx show-fun-decl unquoted, x
+	"\n" join parts
+
+-type-param-hover string(ctx show-model-ctx, type-container any-decl, index type-param-index)
+	"Type parameter {ctx show-name type-container.type-params[index index].name}"
+
+-expr-keyword-hover string(keyword expr-keyword)
+	match keyword
+	as ampersand
+		"Gets a pointer to an expression. " ~~
+		"This does not allocate and so is unsafe. This only works for certain expressions."
+	as colon-colon
+		"Provides an expected type for the expression to its left."
+	as colon-after-assert
+		"If the condition is false, throws an exception with the message to the right of the ':'."
+	as colon-after-forbid
+		"If the condition is false, throws an exception with the message to the right of the ':'."
+	as colon-in-for
+		"The expression to the right of the ':' is the first argument to 'for-loop' or 'for-break'."
+	as colon-in-if
+		"If the condition is 'false', returns the expression to the right of the colon."
+	as colon-in-with
+		"The expression to the right of the ':' is the first argument to 'with-block'."
+	as elif_
+		"If the first condition is false, evaluates another 'if'."
+	as else-after-if
+		"If the condition is 'false', the 'else' branch is evaluated."
+	as else-after-match
+		"If no branch was satisfied, the 'match' evaluates to the 'else' branch."
+	as finally_
+		"The expression below 'finally' runs first.\n" ~~
+		"The expression to the right of 'finally' runs second, even if there was an exception.\n" ~~
+		"The result is from the below expression; the right expression must be 'void'."
+	as question-dot-or-subscript
+		"The expression to the left of '?.' or '?[' is an option.\n" ~~
+		"The call is only done if it is non-empty."
+	as question-equals
+		"The expression to the right of '?=' should be an option.\n" ~~
+		"The expression to the left of '?=' is destructures the value inside the option if it is non-empty."
+	as throw_
+		"Throws an exception."
+	as trusted_
+		"Allows 'unsafe' code to be used anywhere."
+
+-expr-hover string(ctx show-model-ctx, cur-uri uri, a expression-position)
+	type-container type-container = a.container to
+	without-type string = match a kind
+	as assert-or-forbid-expr x
+		match x condition
+		as expr _
+			x is-forbid ? "Throws if the condition is 'true'." : "Throws if the condition is 'false'."
+		as unpack-option _
+			x is-forbid ? "Throws if the option is non-empty." : "Throws if the option is empty."
+	as bogus-call-expr x
+		if called ?= x.candidates opt-only
+			"Calls {ctx show-called-decl quoted, type-container, called}."
+		else
+			"Calls a function named {ctx show-name x.candidates[0].name}"
+	as call-expr x
+		"Calls {ctx show-called quoted, type-container, x.called}."
+	as call-option-expr x
+		"Calls {ctx show-called quoted, type-container, x.called} if the first argument is non-empty."
+	as expr-keyword x
+		x expr-keyword-hover
+	as extern-expr x
+		parts string[] = for name : x names
+			if builtin_ ?= name.to::builtin-extern?
+				match builtin_
+				as fake
+					"run with '--fake-extern', or when running tests in an IDE"
+				as DbgHelp
+					"run on Windows"
+				as windows
+					"run on Windows"
+				as ucrtbase
+					"run on Windows"
+				as java
+					"run in a Java build"
+				as js
+					"run in a JavaScript build"
+				as linux
+					"ron on Linux"
+				as native
+					"not run on a JavaScript build"
+				as libc
+					"not run on a JavaScript build"
+				as posix
+					"run on a Posix-compliant operating system"
+				as pthread
+					"run on a Posix-compliant operating system"
+				as sodium
+					"run on a Posix-compliant operating system"
+				as unwind
+					"run on a Posix-compliant operating system"
+			else
+				"the {name} library is present"
+		"The expression will be true if {" and " join parts}."
+	as fun-pointer-expr x
+		"Pointer to function {ctx show-called quoted, type-container, x.called}."
+	as if-expr x
+		is-unpack-option = match x condition
+		as expr _
+			false
+		as unpack-option _
+			true
+		guard_ string = if is-unpack-option
+			"If the option is non-empty, destructures it and continues."
+		else
+			"If the expression is 'true', continues."
+		if_ string = if is-unpack-option
+			"If the value is a non-empty option, destructures it and returns the first branch."
+		else
+			"If the condition is 'true', returns the first branch."
+		match x.ast kind
+		as guard-with-colon
+			"{guard_}\nOtherwise, returns the expression after the ':'."
+		as guard-without-colon
+			"{guard_}\nOtherswise, returns '()'."
+		as if-without-else
+			"{if_}\nOtherwise, returns '()'."
+		as ternary-without-else
+			"{if_}\nOtherwise, returns '()'."
+		as if-elif
+			"{if_}\nOtherwise, returns the second branch."
+		as if-else
+			"{if_}\nOtherwise, returns the second branch."
+		as ternary-with-else
+			"{if_}\nOtherwise, returns the second branch."
+		as unless_
+			"Returns the body if the condition is false. If the condition is true, returns '()'."
+	as expression-position-literal
+		"Literal expression."
+	as lambda-expr x
+		match x kind
+		as data_
+			"Lambda with 'data' closure and no 'summon'."
+		as shared_
+			"Lambda with 'shared' closure."
+		as mut_
+			"Lambda with 'mut' closure."
+		as explicit-shared
+			"Lambda with 'mut' closure, converted to 'shared' by waiting for exclusion."
+	as local-ref x
+		desc string = match x kind
+		as get
+			"Gets local variable"
+		as closure-get
+			"Gets local variable"
+		as set
+			"Sets local variable"
+		as closure-set
+			"Sets local variable"
+		as pointer
+			"Gets pointer to local variable"
+		closure string = match x kind
+		as get
+			""
+		as set
+			""
+		as pointer
+			""
+		as closure-get
+			" (through closure)"
+		as closure-set
+			" (through closure)"
+		"{desc} {ctx show-name x.local.name}{closure}."
+	as loop-expr _
+		"Loop that terminates at a 'break'."
+	as loop-break-expr x
+		"Breaks out of {ctx show-loop cur-uri, x.loop_}."
+	as loop-continue-expr x
+		"Goes back to the start of {ctx show-loop cur-uri, x.loop_}."
+	as loop-while-or-until-expr x
+		match x condition
+		as expr _
+			if x is-until
+				"Loop will run as long as the condition is 'false'."
+			else
+				"Loop will run as long as the condition is 'true'."
+		as unpack-option _
+			if x is-until
+				"Loop will run as long as the option is empty.\n" ~~
+				"Then it is destructured and available after the loop."
+			else
+				"Loop will run as long as the option is non-empty."
+	as match-enum-expr x
+		ctx match-hover type-container, "enum ", x.enum-type
+	as match-integral-expr x
+		ctx match-hover type-container, "", x.matched-type
+	as match-string-like-expr x
+		ctx match-hover type-container, "", x.matched-type
+	as match-sum-type-expr x
+		type-desc string = match x.sum-type-body kind
+		as interface_
+			"interface "
+		as union_
+			"union "
+		as variant_
+			"variant "
+		ctx match-hover type-container, type-desc, x.sum-type
+	as try-expr x
+		caught string = if c ?= x.catches opt-only
+			"a {ctx show-type-quoted (c.case-type.to, type-container)}"
+		else
+			"an exception matching a 'catch' block"
+		"Evaluates the 'try' block, but if it throws {caught}, evaluates the 'catch' block instead."
+	as try-let-expr _
+		"Runs the initializer (between '=' and 'catch'). " ~~
+		"If it succeeds, destructures it and continues.\n" ~~
+		"If it throws the handled exception, returns the expression after the ':'."
+
+	if t ?= a type
+		"{without-type}\nExpression type is: {ctx show-type-quoted (t, type-container)}"
+	else
+		without-type
+
+-show-loop string(ctx show-model-ctx, cur-uri uri, loop_ loop-expr)
+	"the loop at {ctx.line-and-column-getters[cur-uri][loop_.ast.start, start-of-range]}"
+
+-match-hover string(
+	ctx show-model-ctx,
+	type-container type-container,
+	type-desc string,
+	matched-type struct-inst,
+)
+	"Match on {type-desc}{ctx show-type-quoted (matched-type.to, type-container)}."

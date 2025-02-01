@@ -1,7 +1,220 @@
 import
+	crow/io/print
 	../../frontend/show-model
 	../../lib/lsp/lsp-types
+	../../model/ast
 	../../model/model
+	../../model/source-range
+	../../model/uri
+	../../util/exit-code
+	./import-references
 
-get-inlay-hints inlay-hint-result(_ program, _ show-ctx, _ test-states, _ inlay-hint-params)
-	throw todo
+get-inlay-hints inlay-hint-result(
+	program program,
+	show-ctx show-model-ctx,
+	test-states test-states,
+	params inlay-hint-params,
+)
+	res inlay-hint[] = with out : build
+		uri = params textDocument
+		module = program module-at-uri uri
+		for x : module imports
+			if s ?= x source
+				out ~~= (show-ctx.line-and-character-getters inlay-hint-for-import uri, s, x)
+		module each-decl x =>
+			out get-inlay-hints-for-decl program, show-ctx, test-states, x
+	(res sort x => x.position),
+
+-inlay-hint-for-import inlay-hint?(
+	lcgs line-and-character-getters,
+	importer-uri uri,
+	ast import-or-export-ast,
+	a import-or-export,
+)
+	guard _ ?= ast.kind import-whole-module-ast
+	names symbol[] = (for name, _ : a imported!; name) sort
+	parts inlay-hint-label-part[] = if names.size > 5
+		("{names size} imported names", ((", " join for x : names; x to),), (), ()),
+	else
+		lcgs imported-name-label-parts a, names
+	((lcgs[importer-uri] end-of-line ast.range.start), parts.to, none, true),
+
+-imported-name-label-parts inlay-hint-label-part[](
+	lcgs line-and-character-getters,
+	a import-or-export,
+	names symbol[],
+)
+	parts inlay-hint-label-part[] = for name : names
+		value: name to
+		tooltip: ()
+		location: lcgs[a.imported![name]!.main-location-for-name-referents],
+		command: ()
+	parts with-commas
+-main-location-for-name-referents uri-and-range(a name-referents)
+	if x ?= a struct-or-alias
+		x name-range
+	elif x ?= a spec_
+		x name-range
+	else
+		a.funs[0] name-range
+
+-get-inlay-hints-for-decl void(
+	out inlay-hint array-builder,
+	program program,
+	show-ctx show-model-ctx,
+	test-states test-states,
+	decl any-decl,
+)
+	uri = decl module-uri
+	lcg = show-ctx.line-and-character-getters[uri]
+	imports = program imports-and-re-exports-of decl # TODO: RENAME ------------------------------------------------------------
+	if imports !is-empty
+		max-uris nat = 3
+		parts inlay-hint-label-part[] = with b : build
+			if imports.re-exports !is-empty
+				b write-uris-or-count-label-parts "Exported by ", imports.re-exports, max-uris
+			if imports.imports !is-empty
+				b write-uris-or-count-label-parts (imports.re-exports.is-empty ? "Used by " : "; Used by"), imports.imports, max-uris
+		out ~= do
+			position: lcg end-of-line-for-decl decl
+			label: parts.to
+			kind: none
+			paddingLeft: true
+	
+	match decl
+	as fun-decl x
+		out get-inlay-hints-for-fun show-ctx, x
+	as test_ x
+		out get-inlay-hints-for-test lcg, test-states, x
+	else
+		()
+
+-write-uris-or-count-label-parts void(
+	out inlay-hint-label-part array-builder,
+	description string,
+	uris uri[],
+	max-uris nat,
+)
+	if uris.size > max-uris
+		out ~= do
+			value: "{description}{uris size} other modules"
+			tooltip: (", " join for x : uris; x.base-name to),
+	else
+		out ~= (description,)
+		parts inlay-hint-label-part[] = for uri : uris
+			value: uri.base-name to
+			location: uri.top-of-file,
+		out ~~= parts with-commas
+
+-with-commas inlay-hint-label-part[](a inlay-hint-label-part[])
+	# TODO: std function to help?
+	first mut = true
+	with out : build
+		for x : a
+			if first
+				first := false
+			else
+				out ~= (", ",)
+			out ~= x
+
+-get-inlay-hints-for-fun void(out inlay-hint array-builder, show-ctx show-model-ctx, fun fun-decl)
+	guard _ ?= fun.source fun-source-ast
+	type-container type-container = fun to
+	for param : fun.params params-array
+		out get-inlay-hints-for-destructure show-ctx, type-container, param
+	if body ?= fun.body expr
+		body each-descendent-expr-including expr =>
+			expr each-destructure-at-expr-for-inlay destructure =>
+				out get-inlay-hints-for-destructure show-ctx, type-container, destructure
+
+-each-destructure-at-expr-for-inlay void(a expr, f void mut(x destructure))
+	match a
+	as lambda-expr x
+		f[x param]
+	as let-expr x
+		f[x destructure]
+	else
+		# Ignore 'match-sum-type-expr' since the type is explicit
+		()
+
+-get-inlay-hints-for-destructure void(
+	out inlay-hint array-builder,
+	show-ctx show-model-ctx,
+	type-container type-container,
+	a destructure,
+)
+	to-line-and-character line-and-character mut(pos pos) = pos =>
+		show-ctx.line-and-character-getters[type-container module-uri][pos, start-of-range]
+	match a
+	as destructure-ignore _
+		()
+	as local x
+		guard ast ?= x.source single-destructure-ast
+		unless _ ?= ast type
+			out ~= do
+				position: to-line-and-character[ast.name.range end]
+				label: show-ctx show-type-unquoted (x.type, type-container) to
+				kind: Type
+				paddingLeft: true
+		purity = x.type best-case-purity
+		if purity != data_
+			out ~= do
+				position: to-line-and-character[ast.range end]
+				label: purity.to::string to
+				kind: none
+				paddingLeft: true
+	as destructure-split x
+		for part : x parts
+			out get-inlay-hints-for-destructure show-ctx, type-container, part
+
+-end-of-line-for-decl line-and-character(lcg line-and-character-getter, decl any-decl)
+	lcg end-of-line decl.range.range.start
+
+-get-inlay-hints-for-test void(
+	out inlay-hint array-builder,
+	lcg line-and-character-getter,
+	test-states test-states,
+	test_ test_,
+)
+	uri = test_ module-uri
+	where uri-and-line = uri, (lcg line-of-pos test_.range.start)
+	position = lcg end-of-line-for-decl test_.to
+	# TODO: this function should just return a single value then -----------------------------------------------------------
+	out ~= do
+		position: position
+		label: if result ?= test-states[where]
+			result label-for-test-result
+		else
+			where label-for-run-test
+		kind: none
+		paddingLeft: true
+
+-label-for-test-result inlay-hint-label(a run-result)
+	part inlay-hint-label-part = (a.exit is-ok ? "OK" : "Test failed"), a.tooltip-for-run-result
+	(part,) to
+
+-label-for-run-test inlay-hint-label(where uri-and-line)
+	part inlay-hint-label-part = do
+		command command = do
+			title: ""
+			tooltip: ()
+			arguments: where.run-test,
+		value: "Run test"
+		command: command,
+	(part,) to
+
+-tooltip-for-run-result string?(result run-result)
+	guard result.exit is-ok || result.writes !is-empty
+	lines string[] = if result.writes every x => x.pipe == out
+		for x : result writes
+			x text
+	else
+		for x : result writes
+			"{x pipe}: {x text}"
+	exit string = unless result.exit is-ok
+		match result exit
+		as exit-code x
+			"\nExit code {x value}"
+		as signal x
+			"\nExited with signal {x signal}"
+	"{"\n" join lines}{exit}",
