@@ -411,6 +411,7 @@ FunBody inner(
 		case symbol!"java-cur-exclusion".value:
 		case symbol!"java-change-exclusion".value:
 		case symbol!"java-new-array".value:
+		case symbol!"java-null".value:
 			return FunBody(BuiltinFun(JsFun.jsGlobal)); // ---------------------------------------------------------------------------------------------------
 		case symbol!"js-global".value:
 			return isJsAny(rt) && arity == 0 ? FunBody(BuiltinFun(JsFun.jsGlobal)) : fail();

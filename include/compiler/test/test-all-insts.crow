@@ -1,0 +1,132 @@
+import
+	../frontend/all-insts
+	../model/ast
+	../model/model
+	../model/uri
+	../util/util
+
+test
+	insts all-insts = ()
+	uri-a = "test://a.crow" must-parse-uri
+
+	###
+	a.crow:
+		a0 record
+		a1[t] record
+		and something using `a0 a1`
+	###
+	a0 = insts.next-id dummy-struct uri-a, "a0", 0
+	a1 = insts.next-id dummy-struct uri-a, "a1", 1
+	module-a module = uri-a make-module (a0, a1)
+	a0-inst = insts get-or-add-struct-inst a0, () must-did-add
+
+	insts get-or-add-struct-inst a0, () must-already-be a0-inst
+	insts assert-referenced-by ((a0.to, (a0-inst.to,)),)
+
+	a1-of-a0 = insts get-or-add-struct-inst a1, (a0-inst.to,) must-did-add
+	forbid a1-of-a0 == a0-inst
+	insts get-or-add-struct-inst a1, (a0-inst.to,) must-already-be a1-of-a0
+	insts assert-referenced-by ((a0.to, (a0-inst.to,)), (a1.to, (a1-of-a0.to,)), (a0-inst.to, (a1-of-a0.to,)))
+
+	###
+	b.crow:
+		b0 record
+		b1[t] record
+		and something using `b0 b1`
+	###
+	uri-b = "test://b.crow" must-parse-uri
+	b0 = insts.next-id dummy-struct uri-b, "b0", 0
+	b1 = insts.next-id dummy-struct uri-b, "b1", 1
+	module-b = uri-b make-module (b0, b1)
+	b0-inst = insts get-or-add-struct-inst b0, () must-did-add
+	b1-of-b0 = insts get-or-add-struct-inst b1, (b0-inst.to,) must-did-add
+
+	# A third module uses `a0 b1`
+	b1-of-a0 = insts get-or-add-struct-inst b1, (a0-inst.to,) must-did-add
+
+	insts assert-referenced-by ( \
+		(a0.to, (a0-inst.to,)), \
+		(a1.to, (a1-of-a0.to,)),
+		(a0-inst.to, (a1-of-a0.to, b1-of-a0.to)),
+		(b0.to, (b0-inst.to,)),
+		(b1.to, (b1-of-b0.to, b1-of-a0.to)),
+		(b0-inst.to, (b1-of-b0.to,)))
+	
+	all-structs-0 struct-inst[] = a0-inst, a1-of-a0, b0-inst, b1-of-b0, b1-of-a0
+	insts.test-get-all-insts-arrays is (all-structs-0, (), ())
+
+	insts free-instantiations-for-module module-a
+
+	all-structs-1 struct-inst[] = b0-inst, b1-of-b0
+	insts.test-get-all-insts-arrays is (all-structs-1, (), ())
+
+	insts assert-referenced-by ((b0.to, (b0-inst.to,)), (b1.to, (b1-of-b0.to,)), (b0-inst.to, (b1-of-b0.to,)))
+
+	insts free-instantiations-for-module module-b
+	insts.test-get-all-insts-arrays is ((), (), ())
+	insts assert-referenced-by ()
+
+-== bool(a all-insts-arrays, b all-insts-arrays)
+-to json(a all-insts-arrays)
+
+-must-did-add[t] t(a t value-and-did-add)
+	a.did-add is true
+	a value
+
+-must-already-be[t] void(a t value-and-did-add, value t) t equal, (json, t) to
+	a.did-add is false
+	a.value is value
+
+-dummy-struct struct-decl(id decl-id, uri uri, name symbol, n-type-params nat)
+	id: id
+	source: name struct-decl-source-bogus n-type-params.dummy-type-params
+	module-uri: uri
+	visibility: public
+	extern_: ()
+	is-summon: false
+	purity: data_
+	purity-is-forced: false
+	doc-comment-references: ()
+	sum-type-memberships: ()
+	body: struct-body-bogus
+
+-make-module module(uri uri, structs struct-decl[])
+	uri: uri
+	config: ()
+	ast: dummy-file-ast
+	diagnostics: ()
+	imports: ()
+	re-exports: ()
+	aliases: ()
+	structs: structs
+	vars: ()
+	specs: ()
+	funs: ()
+	tests: ()
+	exports: ()
+	doc-comment-references: ()
+
+-dummy-file-ast file-ast()
+	() file-ast-for-diags
+
+-dummy-type-params name-and-range[](n nat)
+	for i : 0::nat .. n
+		0, type-param-names[i]
+
+-type-param-names symbol[]()
+	"a", "b", "c"
+
+-assert-referenced-by void(insts all-insts, expected expected-references[])
+	actual = insts test-get-referenced-by
+	translated-expected decl-or-inst-id set[decl-or-inst-id] = for x : expected
+		x.referenced.id, for y : x.referencers
+			y.id
+	actual is translated-expected
+
+-to symbol(a decl-or-inst-id)
+	a.value to
+-to json(a decl-or-inst-id)
+	a.value to
+
+-expected-references record(referenced any-decl-or-inst, referencers any-inst[]) mut
+

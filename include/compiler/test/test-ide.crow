@@ -1,0 +1,162 @@
+import
+	crow/parse
+	../app/file-system
+	../app/parse-command # TODO: Tests shouldn't need to import 'app', move these imported functions
+	../frontend/ide/get-code-lenses
+	../frontend/ide/get-completion
+	../frontend/ide/get-definition
+	../frontend/ide/get-hover
+	../frontend/ide/get-implementation
+	../frontend/ide/get-inlay-hints
+	../frontend/ide/get-position
+	../frontend/ide/get-references
+	../frontend/ide/get-rename
+	../frontend/ide/get-signature-help
+	../frontend/show-model
+	../lib/lsp/lsp-types
+	../lib/server
+	../model/model
+	../model/source-range
+	../model/uri
+	./test-util
+
+test summon
+	server, tests-by-dir = ide-tests-for-crow-and-json-files
+	program = server get-program
+	ctx = server get-show-diag-ctx program
+	for dir-name, tests : tests-by-dir
+		match dir-name
+		as code-lens
+			for test_ : tests
+				(program get-code-lenses (test_.uri,)).to::json is test_.json
+		as completion
+			for test_ : tests
+				ctx test-at-positions test_, where =>
+					guard pos ?= program get-position where, after
+					guard res ?= ctx get-completion-for-position pos
+					res to
+		as folding-ranges
+			for test_ : tests
+				(server folding-ranges test_.uri).to::json is test_.json
+		as hover
+			for test_: tests
+				ctx hover-result program, test_.uri is test_.json
+		as implementation
+			for test_ : tests
+				ctx test-at-positions test_, where =>
+					guard pos ?= program get-position where, exact
+					program get-implementation-for-position pos to
+		as inlay-hints
+			for test_ : tests
+				range line-and-character-range = (0, 0), (max-value, max-value)
+				(program get-inlay-hints ctx, (), (test_.uri, range)).to::json is test_.json
+		as references
+			for test_ : tests
+				ctx test-at-positions test_, where =>
+					guard pos ?= program get-position where, exact
+					program get-references-for-position pos to
+		as rename
+			for test_ : tests
+				ctx test-at-positions test_, where =>
+					guard pos ?= program get-position where, exact
+					guard rename ?= program get-rename-for-position pos, "new-name"
+					rename to
+		as signature-help
+			for test_ : tests
+				ctx test-at-positions test_, where =>
+					guard pos ?= program get-position where, after
+					guard res ?= ctx get-signature-help-for-position pos
+					res to
+		as tokens
+			for test_ : tests
+				(server decoded-tokens test_.uri).to::json is test_.json
+		else
+			throw todo
+
+-ide-tests-for-crow-and-json-files (server, crow-json-test[][symbol])() summon
+	dirs file-path[] = "/home/andy/crow/test/ide".must-parse-file-path get-paths-in-dir # TODO: Don't hardcode ------------------------------
+	server = test-server
+	tests crow-json-test[][symbol] = for dir : dirs
+		tests = dir crow-and-json-files
+		dir.base-name.to, tests
+	server setup-test-server for _, x : tests and-concat
+		for y : x
+			y.uri, y.crow
+	server, tests
+
+-crow-and-json-files crow-json-test[](dir file-path) summon
+	files = dir get-paths-in-dir
+	crow-files file-path mut[] = ()
+	json-files file-path mut[] = ()
+	for file : files
+		match file get-extension
+		as ".crow"
+			crow-files ~= file
+		as ".json"
+			json-files ~= file
+		else
+			throw "Unexpected file {file}" error
+	json-files.size is crow-files.size
+
+	for crow-file : crow-files
+		uri = "test:".must-parse-uri / dir.base-name / crow-file.base-name
+		json-file = crow-file alter-extension ".json"
+		crow = crow-file.to.do-read-file as-string
+		json = json parse json-file.to.do-read-file.as-string
+		uri, crow, json
+
+-crow-json-test record(uri uri, crow string, json json)
+
+-test-at-positions void(ctx show-model-ctx, test_ crow-json-test, f json mut(where uri-line-and-character))
+	uri = test_ uri
+	for key, value : test_.json.json-object! fields
+		line-and-column = key.to parse-line-and-column!
+		line-and-character = ctx.line-and-column-getters[uri] to-line-and-character line-and-column
+		f[uri, line-and-character] is-with-description value, () =>
+			"For {uri} {line-and-column}"
+
+-hover-result json(ctx show-model-ctx, program program, uri uri)
+	results json[] = with out-results : build
+		# Combine ranges that have the same info
+		cur-range-start mut pos = 0
+		cur-info mut info-at-pos = ()
+		lcg = ctx.line-and-character-getters[uri]
+		end-range void mut(end pos) = end =>
+			guard cur-info !is-empty
+			fields json[symbol] = with out : build
+				# TODO: It would probably be neater to use a record with an auto 'to json' -------------------------------
+				out ~= ("range", lcg[(cur-range-start, end)::source-range].to)
+				out ~= ("hover", cur-info.hover.to)
+				unless cur-info.definition is-empty
+					out ~= ("definition", cur-info.definition.to)
+				unless cur-info.type-definition is-empty
+					out ~= ("type-definition", cur-info.type-definition.to)
+			out-results ~= fields.json-object
+		
+		for pos : 0::pos .. lcg.end-of-file + 1
+			position = program get-position (uri, lcg[pos, start-of-range]), exact
+			hover hover? = if p ?= position
+				(ctx get-hover p),
+			here info-at-pos = do
+				hover: if x ?= hover
+					x.contents.value
+				definition: if x ?= position
+					program get-definition-for-position x
+				type-definition: if x ?= position
+					program get-type-definition-for-position x
+			if here != cur-info
+				end-range[pos]
+				cur-range-start := pos
+				cur-info := here
+		
+		end-range[lcg end-of-file]
+	results to
+-info-at-pos record
+	hover string
+	definition uri-and-line-and-character-range[]
+	type-definition uri-and-line-and-character-range[]
+-new info-at-pos()
+	(), (), ()
+-is-empty bool(a info-at-pos)
+	a.hover is-empty && a.definition is-empty && a.type-definition is-empty
+-== bool(a info-at-pos, b info-at-pos)

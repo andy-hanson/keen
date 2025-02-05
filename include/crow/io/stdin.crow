@@ -3,33 +3,62 @@ import
 	system/unistd: read
 	system/win32: DWORD, GetLastError, GetStdHandle, ReadConsoleA, STD_INPUT_HANDLE
 	../col/mut-slice
+	../java
 	./print: out, print
 	./win32-util: show-win32-error
 
 | Reads a line from stdin.
 | If that comes from the user typing at the terminal, this will block until they hit enter.
 | Result will not have leading or trailing whitespace.
-+read-stdin string() summon, trusted, native extern
-	with : new-exclusion
-		0x2000.read-up-to-n-bytes-from-stdin.as-string strip
++read-stdin string() summon, trusted
+	chars char8[] = with out : build
+		loop
+			c char8 = read-one-byte-from-stdin to
+			if c == "\n"
+				break
+			else
+				if c != "\r"
+					out ~= c
+				continue
+	chars to
 
-+read-n-bytes-from-stdin nat8[](size nat) summon, trusted, native extern
++read-one-byte-from-stdin nat8() summon, trusted
+	if extern native
+		assert extern posix : not-implemented
+		x mut nat8 = 0
+		bytes-read = stdin read &x, 1
+		bytes-read is 1
+		x
+	elif extern java
+		in = "java.lang.System" get-static-field "in"
+		res int32 = in call-instance "read"
+		res.to::nat32 to
+	else
+		throw not-implemented
+
++read-n-bytes-from-stdin nat8[](size nat) summon, trusted
 	res = size read-up-to-n-bytes-from-stdin
 	res.size is size
 	res
 
-+read-up-to-n-bytes-from-stdin nat8[](max-size nat) summon, trusted, native extern
++read-up-to-n-bytes-from-stdin nat8[](max-size nat) summon, trusted
 	buffer nat8 mut-slice = max-size gc-safe-mut-slice
-	bytes-read nat = if extern windows
-		n-read mut DWORD = 0
-		ok = STD_INPUT_HANDLE.GetStdHandle ReadConsoleA \
-			buffer.begin-pointer, buffer.size.to, &n-read, null
-		assert ok : "{GetLastError show-win32-error}".error
+	bytes-read nat = if extern native
+		if extern windows
+			n-read mut DWORD = 0
+			ok = STD_INPUT_HANDLE.GetStdHandle ReadConsoleA \
+				buffer.begin-pointer, buffer.size.to, &n-read, null
+			assert ok : "{GetLastError show-win32-error}".error
+			n-read to
+		elif extern posix
+			bytes-read-or-err = stdin read buffer.begin-pointer, buffer.size
+			assert bytes-read-or-err >= 0
+			bytes-read-or-err to
+		else
+			throw not-implemented
+	elif extern java
+		n-read int32  = "java.lang.System" get-static-field "in" call-instance "read", buffer
 		n-read to
-	elif extern posix
-		bytes-read-or-err = stdin read buffer.begin-pointer, buffer.size
-		assert bytes-read-or-err >= 0
-		bytes-read-or-err to
 	else
 		throw not-implemented
 	assert bytes-read <= buffer.size : unreachable

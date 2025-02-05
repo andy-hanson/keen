@@ -49,7 +49,6 @@ import model.sourceRange :
 	UriAndLine,
 	UriAndLineAndCharacterRange,
 	UriLineAndCharacter;
-import frontend.showModel : ShowModelCtx;
 import test.testUtil : assertEqual, setupTestServer, Test, UriAndContent, withTestServer;
 import util.alloc.alloc : Alloc;
 import util.alloc.stackAlloc : withMapToStackArray;

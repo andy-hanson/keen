@@ -1,5 +1,5 @@
 import
-	crow/io/print: pipe
+	crow/io/print: ==, pipe, to
 	../../model/source-range
 	../../model/uri
 	../../util/exit-code
@@ -55,14 +55,40 @@ lsp-out-action record(out-messages lsp-out-message[], exit-code exit-code?)
 new lsp-out-action()
 	(), ()
 lsp-out-message union(lsp-out-notification, lsp-out-request, lsp-out-response)
-to json(_ lsp-out-message)
-	throw todo
+	to json()
+== bool(a lsp-out-message, b lsp-out-message)
 lsp-out-notification union(publish-diagnostics-params, register-capability, unknown-uris)
+== bool(a lsp-out-notification, b lsp-out-notification)
+to json(a lsp-out-notification)
+	method string = match a
+	as publish-diagnostics-params _
+		"textDocument/publishDiagnostics"
+	as register-capability _
+		"client/registerCapability"
+	as unknown-uris _
+		"custom/unknownUris"
+	params json = match a
+	as publish-diagnostics-params x
+		x to
+	as register-capability x
+		x to
+	as unknown-uris x
+		x to
+	("method", method.to), ("params", params)
 lsp-out-request record(id nat, params lsp-out-request-params)
+== bool(a lsp-out-request, b lsp-out-request)
+to json(a lsp-out-request)
+	match a params
+	as inlay-hint-refresh
+		("id", a.id.to), ("method", "workspace/inlayHint/refresh"::string.to)
 lsp-out-request-params union(inlay-hint-refresh)
+== bool(a lsp-out-request-params, b lsp-out-request-params)
 inlay-hint-refresh record
+== bool(a inlay-hint-refresh, b inlay-hint-refresh) 
 
 lsp-out-response record(id nat, result lsp-out-result)
+== bool(a lsp-out-response, b lsp-out-response)
+to json(a lsp-out-response)
 lsp-out-result union(
 	build-js-script-result,
 	code-lens-result,
@@ -81,16 +107,27 @@ lsp-out-result union(
 	unloaded-uris,
 	workspace-edit,
 	null-lsp-out-result)
-null-lsp-out-result record
+	to json()
+== bool(a lsp-out-result, b lsp-out-result) 
+null-lsp-out-result record # TODO: just use json-null directly? --------------------------------------------------------------------
+== bool(a null-lsp-out-result, b null-lsp-out-result)
+to json(_ null-lsp-out-result)
+	null
 
 register-capability record(id string, method string)
+== bool(a register-capability, b register-capability)
+to json(a register-capability)
 
 | Only used if it's in {initialization-options}. (Currently that is true for VSCode but not for Sublime Text.)
 | The editor should send back a 'readFileResult' notification for each unknown URI.
-unknown-uris record(unknown-uris uri[])
+unknown-uris record(unknownUris uri[])
+== bool(a unknown-uris, b unknown-uris)
+to json(a unknown-uris)
 
 # For simplicity, this will just have a hardcoded result in to::json
-initialize-result record
+initialize-result record(capabilities json)
+== bool(a initialize-result, b initialize-result)
+to json(a initialize-result)
 
 set-trace-params record(value trace-value)
 trace-value enum(off, messages, verbose)
@@ -101,14 +138,18 @@ language enum(c, crow, java)
 == bool(a language, b language)
 to language?(a symbol)
 syntax-translate-result record(output string, diagnostics pos[])
+== bool(a syntax-translate-result, b syntax-translate-result)
+to json(a syntax-translate-result)
 
 | Parameter to "custom/readFileResult"
 read-file-result-params record(uri uri, type read-file-result-type, content nat8[])
-read-file-result-type enum(ok, not-found, error)
+read-file-result-type enum(ok, notFound, error)
 to read-file-result-type?(a symbol)
 | Parameter to "custom/build-js-script"
 build-js-script-params record(uri uri, diagnosticsOnlyForUris uri[]?)
 build-js-script-result record(diagnostics string, script string?)
+== bool(a build-js-script-result, b build-js-script-result)
+to json(a build-js-script-result)
 | Parameter to "custom/run"
 run-params record(uri uri, diagnosticsOnlyForUris uri[]?)
 
@@ -116,11 +157,19 @@ test-states alias
 	run-result mut[uri-and-line]
 | Response to "custom/run"
 run-result record(exit exit-code-or-signal, writes write[])
+== bool(a run-result, b run-result)
+to json(a run-result)
 write record(pipe pipe, text string)
+== bool(a write, b write)
+to json(a write)
+-to json(a pipe)
+	a.to::string to
 
 | Parameter to "custom/unloadedUris"
 unloaded-uris-params record
 unloaded-uris record(unloadedUris uri[])
+== bool(a unloaded-uris, b unloaded-uris)
+to json(a unloaded-uris)
 
 cancel-request-params record(id nat)
 
@@ -132,12 +181,14 @@ initialized-params record
 shutdown-params record
 code-lens-params record(textDocument text-document-identifier)
 code-lens-result record(lenses code-lens[])
+== bool(a code-lens-result, b code-lens-result)
 to json(a code-lens-result)
 	a.lenses to
 code-lens record
 	range line-and-character-range
 	| // WARN: The documentation says this is a Command, but it doesn't seem to support a 'tooltip' when on a CodeLens.
 	command command
+== bool(a code-lens, b code-lens)
 to json(a code-lens)
 command record
 	title string
@@ -145,31 +196,38 @@ command record
 	| This also determines 'command'.
 	| Arguments must be represented as an array.
 	arguments execute-command-params?
+== bool(a command, b command)
 to json(a command)
-	if args ?= a arguments
-		match args
-		as run-test x
-			("title", a.title.to), \
-			("tooltip", a.tooltip.to),
-			("command", "run-test"::string.to),
-			("arguments", (x.where.to,)::json[].to) 
-	else
-		("title", a.title.to), ("tooltip", a.tooltip.to)
+	fields json[symbol] = with out : build
+		out ~= ("title", a.title.to)
+		if x ?= a tooltip
+			out ~= ("tooltip", x.to)
+		if args ?= a arguments
+			match args
+			as run-test x
+				out ~= ("command", "run-test"::string.to)
+				out ~= ("arguments", (x.where.to,)::json[].to)
+	fields json-object
 new command(title string)
 	title, (), ()
 execute-command-params union(run-test)
+== bool(a execute-command-params, b execute-command-params)
 run-test record(where uri-and-line)
+== bool(a run-test, b run-test)
 
 completion-params record(params text-document-position-params)
 completion-list record(items completion-item[])
+== bool(a completion-list, b completion-list)
 to json(a completion-list)
-	a.items to
 completion-item record(label string, detail string, documentation string)
+== bool(a completion-item, b completion-item)
 to json(a completion-item)
 
 | For {definition-params}, {implementation-params}, or {reference-params}
-ranges-result record
-	ranges uri-and-line-and-character-range[]
+ranges-result record(ranges uri-and-line-and-character-range[])
+== bool(a ranges-result, b ranges-result)
+to json(a ranges-result)
+	a.ranges to
 
 definition-params record(params text-document-position-params)
 implementation-params record(params text-document-position-params)
@@ -183,19 +241,31 @@ text-document-item record(uri uri, text string)
 
 hover-params record(params text-document-position-params)
 hover record(contents markup-content)
-to json(_ hover)
-	throw todo
+== bool(a hover, b hover)
+to json(a hover)
 markup-content record(kind markup-kind, value string)
+== bool(a markup-content, b markup-content)
+to json(a markup-content)
 markup-kind enum(plaintext, markdown)
+== bool(a markup-kind, b markup-kind)
+to json(a markup-kind)
 
 publish-diagnostics-params record(uri uri, diagnostics lsp-diagnostic[])
+== bool(a publish-diagnostics-params, b publish-diagnostics-params)
+to json(a publish-diagnostics-params)
 text-document-content-change-event record(range line-and-character-range?, text string)
 lsp-diagnostic record(range line-and-character-range, severity lsp-diagnostic-severity, message string)
+== bool(a lsp-diagnostic, b lsp-diagnostic)
+to json(a lsp-diagnostic)
 lsp-diagnostic-severity enum
 	Error = 1
 	Warning = 2
 	Information = 3
 	Hint = 4
+== bool(a lsp-diagnostic-severity, b lsp-diagnostic-severity)
+to nat32(a lsp-diagnostic-severity)
+to json(a lsp-diagnostic-severity)
+	a.to::nat32 to
 
 rename-params record
 	| This appears in JSON as two separate properties
@@ -209,57 +279,113 @@ document-highlight-params record
 document-highlight-result record
 	uri uri
 	highlights document-highlight[]
-to json(_ document-highlight-result)
-	throw todo
+== bool(a document-highlight-result, b document-highlight-result)
+to json(a document-highlight-result)
+	a.highlights to # TODO: is 'uri' ever used then? ------------------------------------------------------------------------
 document-highlight record(range line-and-character-range, kind document-highlight-kind)
+== bool(a document-highlight, b document-highlight)
+to json(a document-highlight)
 document-highlight-kind enum
 	Text = 1
 	Read = 2
 	Write = 3
+== bool(a document-highlight-kind, b document-highlight-kind)
+to nat32(a document-highlight-kind)
+to json(a document-highlight-kind)
+	a.to::nat32 to
 semantic-tokens-params record(textDocument text-document-identifier)
 workspace-edit record(changes (uri, text-edit[])[])
-to json(_ workspace-edit)
-	throw todo
+== bool(a workspace-edit, b workspace-edit)
+to json(a workspace-edit)
+	changes json[symbol] = for uri, changes : a changes
+		uri.to, changes.to
+	("changes", changes.json-object),
 text-edit record(range line-and-character-range, newText string)
+== bool(a text-edit, b text-edit) 
+to json(a text-edit)
 semantic-tokens record(data_ nat[])
+== bool(a semantic-tokens, b semantic-tokens)
+to json(a semantic-tokens)
+	("data", a.data_.to),
 signature-help-params record(text-document-and-position text-document-position-params)
 signature-help record
 	signatures signature-information[]
 	activeSignature nat?
 	activeParameter nat?
-to json(_ signature-help)
-	throw todo
+== bool(a signature-help, b signature-help) 
+to json(a signature-help)
+	fields json[symbol] = with out : build
+		out ~= ("signatures", a.signatures.to)
+		# TODO: is this necessary? can I just use null? -------------------------------------------------------------------------------
+		if x ?= a activeSignature
+			out ~= ("activeSignature", x.to)
+		if x ?= a activeParameter
+			out ~= ("activeParameter", x.to)
+	fields json-object
 signature-information record
 	label string
 	documentation string
 	parameters parameter-information[]
 	activeParameter nat?
+== bool(a signature-information, b signature-information)
+to json(a signature-information)
+	fields json[symbol] = with out : build
+		# TODO: is this necessary? can I just use null? -------------------------------------------------------------------------------
+		out ~= ("label", a.label.to)
+		out ~= ("documentation", a.documentation.to)
+		out ~= ("parameters", a.parameters.to)
+		if x ?= a activeParameter
+			out ~= ("activeParameter", x.to)
+	fields json-object
+
 parameter-information record
 	| This is a range of UTF-16 characters
 	label nat range
 	| Omitted if empty
 	documentation string
+== bool(a parameter-information, b parameter-information)
+to json(a parameter-information)
+	fields json[symbol] = with out : build
+		out ~= ("label", (a.label.low.to, a.label.high.to)::json[].to)
+		unless a.documentation is-empty
+			out ~= ("documentation", a.documentation.to)
+	fields json-object
 
 type-definition-params record(text-document-and-position text-document-position-params)
 inlay-hint-params record(textDocument text-document-identifier, range line-and-character-range)
 inlay-hint-result record(hints inlay-hint[])
-to json(_ inlay-hint-result)
-	throw todo
+== bool(a inlay-hint-result, b inlay-hint-result)
+to json(a inlay-hint-result)
+	a.hints to
 inlay-hint record
 	position line-and-character
 	label inlay-hint-label
-	kind inlay-hint-kind
+	kind inlay-hint-kind?
 	paddingLeft bool
+== bool(a inlay-hint, b inlay-hint)
+to json(a inlay-hint)
+	fields json[symbol] = with out : build
+		out ~= ("position", a.position.to)
+		out ~= ("label", a.label.to)
+		if kind ?= a kind
+			out ~= ("kind", kind.to)
+		if a.paddingLeft
+			out ~= ("paddingLeft", a.paddingLeft.to)
+	fields json-object
 inlay-hint-kind enum
-	none = 0
 	Type = 1
 	Parameter = 2
+== bool(a inlay-hint-kind, b inlay-hint-kind)
+to json(a inlay-hint-kind)
 inlay-hint-label union(string, inlay-hint-label-part[])
+	to json()
+== bool(a inlay-hint-label, b inlay-hint-label)
 inlay-hint-label-part record
 	value string
 	tooltip string?
 	location location?
 	command command?
+== bool(a inlay-hint-label-part, b inlay-hint-label-part)
 new inlay-hint-label-part(value string)
 	value, (), (), ()
 new inlay-hint-label-part(value string, tooltip string?)
@@ -268,9 +394,40 @@ new inlay-hint-label-part(value string, location location?)
 	value, (), location, ()
 new inlay-hint-label-part(value string, command command?)
 	value, (), (), command
+to json(a inlay-hint-label-part)
+	fields json[symbol] = with out : build
+		out ~= ("value", a.value.to)
+		if x ?= a tooltip
+			out ~= ("tooltip", x.to)
+		if x ?= a location
+			out ~= ("location", x.to)
+		if x ?= a.command
+			out ~= ("command", x.to)
+	fields json-object
 folding-range-params record(textDocument text-document-identifier)
 folding-range-result record(ranges folding-range[])
-to json(_ folding-range-result)
-	throw todo
+== bool(a folding-range-result, b folding-range-result)
+to json(a folding-range-result)
+	a.ranges to
 folding-range record(startLine nat, endLine nat, kind folding-range-kind?)
+== bool(a folding-range, b folding-range) 
+to json(a folding-range)
+	fields json[symbol] = with out : build
+		out ~= ("startLine", a.startLine.to)
+		out ~= ("endLine", a.endLine.to)
+		# TODO: Is it actually important to omit the null? ------------------------------------------------------------------------------------------
+		if kind ?= a kind
+			out ~= ("kind", kind.to)
+	fields json-object
 folding-range-kind enum(comment, imports, region_)
+== bool(a folding-range-kind, b folding-range-kind)
+to symbol(a folding-range-kind)
+	match a
+	as comment
+		"comment"
+	as imports
+		"imports"
+	as region_
+		"region"
+to json(a folding-range-kind)
+	a.to::symbol to

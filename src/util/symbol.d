@@ -794,6 +794,7 @@ immutable string[] specialSymbols = [
 	"java-cur-exclusion",
 	"java-exclusion",
 	"java-new-array",
+	"java-null",
 	"jump-to-catch",
 	"js-global",
 	"keyword",

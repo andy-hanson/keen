@@ -79,8 +79,9 @@ syntax-translate syntax-translate-result(params syntax-translate-params)
 			a
 		as symbol name
 			if output-java && call.args !is-empty
-				left = call.args[0] java-dot name translate-between-c-or-java output-java
-				left java-call for arg : call args
+				arg0 = call.args[0] translate-between-c-or-java output-java
+				left = arg0 java-dot name translate-between-c-or-java output-java
+				left java-call for arg : call.args[1 .. end]
 					arg translate-between-c-or-java output-java
 			else
 				a
@@ -240,9 +241,9 @@ syntax-translate syntax-translate-result(params syntax-translate-params)
 					out ~= ctx parse-java-expr-recur ptr
 					ptr skip-whitespace
 					if ptr try-take-char ","
-						break
-					else
 						continue
+					else
+						break
 				unless ptr try-take-char ")"
 					ctx add-diag ptr
 		ctx parse-java-expr-suffixes ptr, (lhs java-call args)
@@ -258,3 +259,34 @@ syntax-translate syntax-translate-result(params syntax-translate-params)
 -skip-whitespace void(ptr string-walker)
 	while *ptr is-whitespace
 		ptr advance
+
+test
+	"a" test-all-ways "a", "a"
+	"a f" test-all-ways "f(a)", "a.f()"
+	"a.f.g h" test-all-ways "h(g(f(a)))", "a.f().g().h()"
+	"a f b" test-all-ways "f(a, b)", "a.f(b)"
+	"a f b, c" test-all-ways "f(a, b, c)", "a.f(b, c)"
+	"a.g f b, c" test-all-ways "f(g(a), b, c)", "a.g().f(b, c)"
+	"a.g f b.h, c" test-all-ways "f(g(a), h(b), c)", "a.g().f(b.h(), c)"
+	"a g b f c, d" test-all-ways "f(g(a, b), c, d)", "a.g(b).f(c, d)"
+	"a g b, c f d, e" test-all-ways "f(g(a, b, c), d, e)", "a.g(b, c).f(d, e)"
+	"a g b f (c h d), e.i" test-all-ways "f(g(a, b), h(c, d), i(e))", "a.g(b).f(c.h(d), e.i())"
+	"a !f b" test-all-ways "not(f(a, b))", "a.f(b).not()"
+	"a f! b" test-all-ways "force(f(a, b))", "a.f(b).force()"
+
+	c test-one-way "f(a) x", crow, "a f", (5,)
+	crow test-one-way "x\n", c, "", (0,)
+
+-test-all-ways void(crow-src string, c-src string, java-src string)
+	crow test-one-way crow-src, c, c-src, ()
+	crow test-one-way crow-src, java, java-src, ()
+	c test-one-way c-src, crow, crow-src, ()
+	c test-one-way c-src, java, java-src, ()
+	java test-one-way java-src, crow, crow-src, ()
+	java test-one-way java-src, c, c-src, ()
+
+-test-one-way void(from language, source string, to language, expected string, expected-diagnostics pos[])
+	result = (source, from, to) syntax-translate
+	result.diagnostics is expected-diagnostics
+	result.output is expected
+

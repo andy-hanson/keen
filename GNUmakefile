@@ -134,9 +134,9 @@ bin/crow-dmd: $(d_dependencies)
 		src/app/main.d -I=src -i $(app_link)
 	rm -f bin/crow-dmd.o
 
-bin/crow: $(d_dependencies)
-	ldc2 -ofbin/crow $(ldc_flags_assert) $(ldc_fast_flags) src/app/main.d -I=src -i $(app_link)
-	rm bin/crow.o
+bin/crowd: $(d_dependencies)
+	ldc2 -ofbin/crowd $(ldc_flags_assert) $(ldc_fast_flags) src/app/main.d -I=src -i $(app_link)
+	rm bin/crowd.o
 
 # This isn't used anywhere, but you can rename the result to 'crow.wasm' to help debugging in the browser
 bin/crow-debug.wasm: $(d_dependencies)
@@ -149,6 +149,18 @@ bin/crow.wasm: $(d_dependencies)
 	ldc2 -ofbin/crow-wasm.wasm $(ldc_flags_assert) $(ldc_wasm_flags) $(ldc_fast_flags_no_tail_call) src/wasm.d -I=src -i
 	rm bin/crow-wasm.o
 	mv bin/crow-wasm.wasm bin/crow.wasm
+
+include_dependencies = $(shell find include -name '*.crow')
+
+bin/crowcrow: bin/crowd $(include_dependencies)
+	bin/crowd build include/compiler/app/main.crow --optimize --out bin/crowcrow
+
+bin/crowj: bin/crowcrow $(include_dependencies)
+	rm -rf bin/crowjava
+	bin/crowcrow build include/compiler/app/main.crow --out java:bin/crowjava
+	time javac bin/crowjava/*.java
+	cd bin/crowjava && jar --create --file=../crowj --main-class=Main *.class
+	chmod +x bin/crowj
 
 ### lint ###
 

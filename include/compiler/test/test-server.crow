@@ -1,0 +1,97 @@
+import
+	crow/parse
+	../frontend/ide/get-tokens
+	../lib/lsp/lsp-types
+	../lib/server
+	../model/ast
+	../model/model
+	../model/source-range
+	../model/uri
+	../util/exit-code
+	./test-util
+
+test summon # test actual LSP
+	server = test-server
+	uri-a = "test:///a.crow" must-parse-uri
+	server setup-test-server uri-a, ""
+	server.all-unknown-uris is ()
+
+	do
+		in-message lsp-in-message = uri-a did-change-text-document-params "main void()".change-whole-file to
+		out = server handle-lsp-message in-message
+		diag lsp-diagnostic = ((0, 0), (0, 4)), Error, "Function needs a body. (An automatic function must be named '==', '<=>', or 'to'.)"
+		out.out-messages is ((uri-a publish-diagnostics-params (diag,)).to,)
+		out.exit-code is ()
+
+	do
+		in-message = uri-a semantic-tokens-params
+		out = server handle-lsp-message (1 lsp-in-request in-message)
+		tokens semantic-tokens = (0, 0, 4, 3, 1, 0, 5, 4, 11, 0),
+		tokens.json-of-decoded-tokens is (json parse """[
+			\{"line":0,"character":0,"length":4,"type":"function","modifiers":["declaration"]},
+			\{"line":0,"character":5,"length":4,"type":"type","modifiers":[]}
+		]""")
+		asdf = 1 lsp-out-response tokens.to
+		out.out-messages is (asdf,)
+		out.exit-code is ()
+
+-change-whole-file text-document-content-change-event[](new-text string)
+	((), new-text),
+
+test summon # test circular import
+	server = test-server
+	uri-a = "test:///a.crow" must-parse-uri
+	uri-b = "test:///b.crow" must-parse-uri
+
+	server setup-test-server uri-a, "main void()"
+	server.all-unknown-uris is ()
+
+	show-diags string mut() = () =>
+		server show-diagnostics server.get-program
+
+	show-diags[] is "test:///a.crow 1:1-1:5 Function needs a body. (An automatic function must be named '==', '<=>', or 'to'.)"
+
+	server set-file-assume-utf8 uri-a, "main void()\n\tinfo log \"hello, world!\""
+	server.all-unknown-uris is ()
+	show-diags[] is ()
+
+	server set-file-assume-utf8 uri-b, "import\n\t./a"
+	server.all-unknown-uris is ()
+	do
+		program = server get-program
+		module-b = program module-at-uri uri-b
+		diags = module-b diagnostics
+		info log "module b source: {server.file-content-getters[uri-b].to::string}"
+		info log "module b ast: {module-b.ast.to::json}"
+		info log "module b imports: {module-b.imports.size}"
+		info log "module b diags: {diags size}"
+	show-diags[] is "test:///b.crow 2:5-2:8 Imported module 'a.crow' is unused."
+
+	server set-file-assume-utf8 uri-a, "import\n\t./b\n\nmain void()\n\tinfo log hello"
+	show-diags[] is expected-diags-2
+
+	server set-file-assume-utf8 uri-b, "hello string()\n\t\"hello\""
+	show-diags[] is ""
+
+# TODO: testFileNotFoundThenAdded --------------------------------------------------------------------------------------------
+#test summon
+#	server = test-server
+#	uri-a = "test:///a.crow" must-parse-uri
+#	uri-b = "test:///b.crow" must-parse-uri
+#	server setup-test-server uri-a, "import\n\t./b\n\nmain void()\n\tinfo log hello"
+#
+#	server show-
+
+# TODO: testFileImportNotFound ---------------------------------------------------------------------------------------------------
+
+# TODO: testChangeBootstrap -------------------------------------------------------------------------------------------------------------
+
+-expected-diags-2 string()
+	"""test:///a.crow 2:5-2:8 This is part of a circular import:
+	test:///a.crow imports
+	test:///b.crow imports
+	test:///a.crow
+test:///b.crow 2:5-2:8 This is part of a circular import:
+	test:///b.crow imports
+	test:///a.crow imports
+	test:///b.crow"""

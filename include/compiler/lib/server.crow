@@ -98,7 +98,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		match x type
 		as ok
 			server set-file x.uri, x.content
-		as not-found
+		as notFound
 			server set-file x.uri, not-found
 		as error
 			server set-file x.uri, error
@@ -108,11 +108,14 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		()
 
 -handle-file-changed lsp-out-action(server server)
-	match server files-state
+	state = server files-state
+	error log "handle-file-changed: state is {state}"
+	match state
 	as has-unknown
 		unknown = server all-unknown-uris
 		for uri : unknown
 			server set-file uri, loading
+		error log "BUT WE STILL HAVE UNKNOWN URIS {" " join for x : unknown; "{x}"}" # -----------------------------------------------------
 		(unknown.unknown-uris.to,), ()
 	as has-loading
 		()
@@ -145,14 +148,14 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	as execute-command-params _
 		()
 	as folding-range-params x
-		(server get-crow-file-for-tokens x.textDocument).folding-ranges-of-ast.to,
+		(server folding-ranges x.textDocument).to,
 	as hover-params _
 		()
 	as implementation-params _
 		()
 	as initialize-params x
 		server.lsp-state.supports-unknown-uris := x.initializationOptions unknownUris
-		initialize-result,
+		initialize-capabilities.initialize-result,
 	as inlay-hint-params _
 		()
 	as reference-params _
@@ -177,6 +180,26 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		request single-response x
 	else
 		server respond-with-program request
+
+-initialize-capabilities json()
+	("textDocumentSync", 2::nat.to), \
+	("codeLensProvider", ()),
+	("completionProvider", (("triggerCharacters", (".",)::string[].to),)),
+	("definitionProvider", ()),
+	("documentHighlightProvider", ()),
+	("executeCommandProvider", (("commands", ("run-test",)::string[].to),)),
+	("foldingRangeProvider", ()),
+	("hoverProvider", ()),
+	("implememtationProvider", ()),
+	("inlayHintProvider", ()),
+	("referencesProvider", ()),
+	("renameProvider", ()),
+	("semanticTokensProvider", (("full", true.to), ("legend", get-tokens-legend))),
+	("signatureHelpProvider", (("triggerCharacters", (",",)::string[].to),)),
+	("typeDefinitionProvider", ())
+
+folding-ranges folding-range-result(server server, uri uri)
+	(server get-crow-file-for-tokens uri) folding-ranges-of-ast
 
 -single-response lsp-out-action(request lsp-in-request, response lsp-out-result)
 	((request message-for-response response),), ()
@@ -518,8 +541,11 @@ json-for-print-ide-whole-file json(
 		range line-and-character-range = (0, 0), (0, 0)
 		server get-inlay-hints-for-program program, (uri, range) to
 	as tokens
-		file = server get-crow-file-for-tokens uri
-		file.tokens-of-ast json-of-decoded-tokens
+		server decoded-tokens uri
+
+decoded-tokens json(server server, uri uri)
+	file = server get-crow-file-for-tokens uri
+	file.tokens-of-ast json-of-decoded-tokens
 
 build-to-low-program low-program(
 	server server,
@@ -552,7 +578,7 @@ build-to-js js-and-map(
 	server server,
 	program program-with-main,
 	target js-target,
-	source-map-name symbol?,
+	source-map-name string?,
 )
 	forbid program has-fatal-diagnostics
 	show-ctx = server get-show-diag-ctx program.program, true

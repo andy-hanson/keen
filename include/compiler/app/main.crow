@@ -6,6 +6,7 @@ import
 	crow/io/print
 	crow/io/stdin
 	crow/parse
+	crow/perf
 	../backend/js/source-map
 	../backend/write-to-c
 	../frontend/get-diagnostic-severity
@@ -31,7 +32,7 @@ import
 
 main nat(args string[]) summon
 	cwd = cwd
-	this-executable = this-executable
+	this-executable = this-executable # TODO: just move to where its' used? -----------------------------------------------------
 	command = cwd parse-command get-os, args
 	server-settings server-settings = do
 		include-dir: this-executable.get-crow-include-dir to
@@ -40,24 +41,28 @@ main nat(args string[]) summon
 			color: !command.kind.lsp-command.is-empty
 	server server = server-settings,
 	try
-		server go cwd, this-executable, command.kind
+		if command.options perf
+			_ void, results perf-result = with : ("check", "parse", "concretize") measure-performance
+				server go cwd, this-executable, command.kind
+			info log "Performance: {results}" # TODO: enable
+		else
+			server go cwd, this-executable, command.kind
 		0
 	catch exit x
 		x.exit-code to
 
 -run-lsp void(server server, this-executable file-path) summon
-	assert trusted extern native : todo
 	error log this-executable.crow-version.show
 	error log "Running language server protocol"
 	e exit-code = loop
-		log-lsp = false # TODO: get this from specified trace level
+		log-lsp = true # TODO: get this from specified trace level ---------------------------------------------------------------
 		if exit ?= server handle-one-message-in log-lsp
 			break exit
 		else
 			continue
 	throw e.value.to exit
 
--handle-one-message-in exit-code?(server server, log-lsp bool) summon, native extern
+-handle-one-message-in exit-code?(server server, log-lsp bool) summon
 	buffered-messages lsp-in-message mut-queue = ()
 	buffered-messages ~= log-lsp lsp-read
 	loop
@@ -66,7 +71,7 @@ main nat(args string[]) summon
 		for out-message : action out-messages
 			if server.lsp-state !supports-unknown-uris && out-message is-unknown-uris
 				error log "Server will load unknown URIs itself (since client does not support them)"
-				for uri : out-message.lsp-out-notification!.unknown-uris! unknown-uris
+				for uri : out-message.lsp-out-notification!.unknown-uris! unknownUris
 					buffered-messages ~= uri.read-file-locally.to::lsp-in-notification to
 			else
 				out-message.to lsp-write log-lsp
@@ -81,22 +86,26 @@ main nat(args string[]) summon
 -is-unknown-uris bool(a lsp-out-message)
 	a.lsp-out-notification?.unknown-uris !is-empty
 
--lsp-read lsp-in-message(log-lsp bool) summon, native extern
+-lsp-read lsp-in-message(log-lsp bool) summon
+	error log "top of lsp-read"
 	line0 = read-stdin
+	error log "line0 is {line0 quote}"
 	stripped = line0 try-remove-start! "Content-Length: "
 	content-length = nat parse stripped
+	error log "content-length is {content-length}"
 	line1 = read-stdin strip
 	line1 is ""
+	error log "got past line1"
 	content = content-length.read-n-bytes-from-stdin as-string
 	if log-lsp
 		error log "LSP message in: {content}"
 	json parse content to
 
--lsp-write void(content-json json, log-lsp bool) summon, native extern
+-lsp-write void(content-json json, log-lsp bool) summon
 	content-string string = "{content-json}"
-	out print-no-newline "Content-Length: {content-string}\r\n\r\n{content-string}"
 	if log-lsp
 		err print "LSP out: {content-string}"
+	out print-no-newline "Content-Length: {content-string.size}\r\n\r\n{content-string}"
 
 -load-all-files-for-main void(server server, main main-kind) summon
 	match main
@@ -132,7 +141,7 @@ main nat(args string[]) summon
 		as loading
 			throw unreachable
 		as not-found
-			not-found
+			notFound
 		as error
 			error
 		uri, type, ()

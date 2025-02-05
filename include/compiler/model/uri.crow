@@ -8,10 +8,10 @@ new path()
 == bool(a path, b path)
 <=> comparison(a path, b path)
 
--parent-and-base-name (path, symbol)?(a path)
+-parent-and-base-name (path, string)?(a path)
 	if left, right ?= a.to::string try-split-once-right "/"
-		((left.to,), right.to),
-base-name symbol(a path)
+		((left.to,), right),
+base-name string(a path)
 	a.parent-and-base-name?.b ?? a.to
 test
 	("a/b",)::path.base-name is "b"
@@ -34,16 +34,12 @@ root-path path(first-component symbol)
 	res path = first-component,
 	assert res.parent is-empty
 	res
-/ path(a path, b symbol)
+/ path(a path, b string)
 	"{a}/{b}",
 test
 	("a",)::path / "b" is ("a/b",)
-components symbol[](a path)
-	for x : a.to::string split "/"
-		x to
-test
-	("",).components is ("",)
-	("a/b/c",).components is ("a", "b", "c")
+components string[](a path)
+	a.to::string components
 
 first-and-rest (symbol, path?)(a path)
 	if par, base ?= a parent-and-base-name
@@ -51,49 +47,49 @@ first-and-rest (symbol, path?)(a path)
 		first, if x ?= mid
 			x / base,
 		else
-			(base,),
+			(base.to,),
 	else
 		a.to, ()
 test
 	("a/b/c",).first-and-rest is ("a", (("b/c",),))
 
 parse-path path(a char8[])
-	a parse-path-inner (false, false)
--parse-path-options record(uri-decode bool, is-uri-file bool)
--parse-path-inner path(a char8[], options parse-path-options)
-	ptr string-walker = a,
-	res mut path = ptr parse-path-component options.uri-decode root-path
-	until ptr is-at-end
-		res := res / (ptr parse-path-component options.uri-decode)
-	res
--parse-path-component symbol(ptr string-walker, uri-decode bool)
-	res string = with out : build
-		loop
-			guard ptr !is-at-end : break
-			x = ptr take-char
-			if x == "%" && uri-decode
-				out ~= if x0 ?= ptr.take-char-or-nul decode-hex-digit # TODO: factor out a function ----------------------------
-					if x1 ?= ptr.take-char-or-nul decode-hex-digit
-						decoded char8 = (x0 << 4) | x1 to
-						decoded.to lower-case
-					else
-						"�"
-				else
-					"�"
-				continue
-			elif x is-slash
-				break
-			else
-				out ~= x to
-				continue
-	res to
+	(a parse-path-inner (false, false)).to,
 test
 	"a/b\\c".parse-path is "a".root-path / "b" / "c"
+-parse-path-options record(uri-decode bool, is-uri-file bool)
+-parse-path-inner string(a char8[], options parse-path-options)
+	ptr string-walker = a,
+	res string = with out : build
+		out parse-path-component ptr, options.uri-decode
+		until ptr is-at-end
+			out ~= "/"
+			out parse-path-component ptr, options.uri-decode
+	res is-windows-path ? res lower-case : res
+-parse-path-component void(out string-builder, ptr string-walker, uri-decode bool)
+	loop
+		guard ptr !is-at-end : break
+		x = ptr take-char
+		if x == "%" && uri-decode
+			out ~= if x0 ?= ptr.take-char-or-nul decode-hex-digit # TODO: factor out a function ----------------------------
+				if x1 ?= ptr.take-char-or-nul decode-hex-digit
+					decoded char8 = (x0 << 4) | x1 to
+					decoded.to lower-case
+				else
+					"�"
+			else
+				"�"
+			continue
+		elif x is-slash
+			break
+		else
+			out ~= x to
+			continue
 
 file-path record(to symbol) -new
 to path(a file-path)
 	a.to,
-base-name symbol(a file-path)
+base-name string(a file-path)
 	a.to::path base-name
 root-file-path file-path(a symbol)
 	a.root-path.to,
@@ -112,12 +108,8 @@ parent file-path?(a file-path)
 		(p.to,),
 parent-or-empty file-path(a file-path)
 	a.parent ?? a
-/ file-path(a file-path, component symbol)
-	fixed-component symbol = if a is-windows-path
-		component.to.lower-case to
-	else
-		component
-	"{a}/{fixed-component}",
+/ file-path(a file-path, component string)
+	"{a}/{a is-windows-path ? component lower-case : component}",
 test
 	("/a/b",)::file-path / "CAPS" is ("/a/b/CAPS",)
 	("c:/blah",)::file-path / "CAPS" is ("c:/blah/caps",)
@@ -129,14 +121,17 @@ root-uri uri(scheme symbol)
 	scheme,
 -file-scheme string()
 	"file://"
-as-file-path file-path(a uri)
-	s = a.to::string try-remove-start! file-scheme
-	if s is-windows-path
-		s.to,
+as-file-path file-path(a uri) # TODO: rename to 'to' ---------------------------------------------------------------------------
+	res char8[] = a.to::symbol.to::string try-remove-start! file-scheme to
+	path char8[] = res parse-path-inner (true, true) to
+	# A uri has a "/" before a Windows path, like `file:///c%3a`; a file-path does not.
+	str string = if path !is-empty && path[0] == "/" && path[1 .. end] is-windows-path
+		path[1 .. end] to
 	else
-		"/{s}",
+		path to
+	str.to,
 test
-	("file://a/b",).as-file-path is ("/a/b",)
+	("file:///a/b",).as-file-path is ("/a/b",)
 	("file://c:/foo",).as-file-path is ("c:/foo",)
 == bool(a uri, b uri)
 <=> comparison(a uri, b uri)
@@ -149,8 +144,16 @@ to json(a uri)
 hash-mix void(a hasher, uri uri)
 	a hash-mix uri.to::symbol
 parent uri?(a uri)
-	if p ?= (a.to,)::path parent
-		(p.to,),
+	chars char8[] = a.to::string to
+	if index ?= chars last-index-of "/"
+		first-index = chars index-of! "/"
+		unless index == first-index + 1
+			res = chars[0 .. index].to::string
+			(res.to,),
+test
+	("file:///home/crow",)::uri.parent is (("file:///home",),)
+	("file:///home",)::uri.parent is (("file://",),)
+	("file://",)::uri.parent is ()
 parent-or-empty uri(a uri)
 	a.parent ?? a
 
@@ -159,7 +162,7 @@ new uri()
 bogus-uri uri()
 	"bogus:bogus",
 
-base-name symbol(a uri)
+base-name string(a uri)
 	(a.to,)::path base-name
 # Return value will start with a "." unless it is the empty string
 get-extension symbol(a path)
@@ -172,15 +175,15 @@ test
 	("a/b.txt",)::path.get-extension is ".txt"
 	("a.txt/b",)::path.get-extension is ""
 
--get-extension symbol(a symbol)
-	if _, r ?= a.to::string try-split-once-right "."
+-get-extension symbol(a string)
+	if _, r ?= a try-split-once-right "."
 		".{r}"
 	else
 		""
 get-extension symbol(a file-path)
 	a.to::path get-extension
 get-extension symbol(a uri)
-	a.to::symbol get-extension
+	a.to::string get-extension
 alter-extension path(a path, extension symbol)
 	(a.to alter-extension extension),
 -alter-extension symbol(a symbol, extension symbol)
@@ -192,9 +195,20 @@ alter-extension path(a path, extension symbol)
 		a
 alter-extension file-path(a file-path, extension symbol)
 	(a.to alter-extension extension),
+alter-extension uri(a uri, extension symbol)
+	(a.to alter-extension extension),
 
-/ uri(a uri, b symbol)
-	"{a}/{b}",
+/ uri(a uri, b string)
+	if a is-windows-path
+		"{a}/{b lower-case}",
+	else
+		res symbol = "{a}/{b}"
+		# ------------------------------------------------------------------------------------------------------------------------
+		forbid res == "test:///b.crow/crow-config.json" : "WTF?" error
+		res,
+test
+	a uri = "file:///c%3a/foo",
+	a / "BAR" is ("file:///c%3a/foo/bar",)
 
 # TODO: name '~~' ======================================================================================================================
 concat-paths path(a path, b path)
@@ -215,21 +229,23 @@ must-parse-uri uri(a string) # TODO: can just use parse-uri now ----------------
 		colon + 3
 	else
 		colon + 1
-	if slash ?= chars[start .. end] index-of "/"
-		root = chars[0 .. start + slash].to::string.to root-uri
-		path = chars[start + slash + 1 .. end].to parse-path-inner (true, root.uri-is-file)
-		"{root}/{path}",
+	schema string = chars[0 .. start] to
+	if schema == file-scheme && chars.size >= start + 5 && chars[start .. start + 5].to::char8[] == "/C%3A"
+		a.lower-case.to,
 	else
-		a.to root-uri
+		a.to,
 is-windows-path bool(a uri)
 	a uri-is-file && a.as-file-path is-windows-path
+test
+	("file:///",)::uri.is-windows-path is false
+	("file://c%3a",)::uri.is-windows-path is true
 parse-uri-with-cwd uri(cwd uri, text string)
 	if text looks-like-absolute-path
 		text.parse-file-path to
 	elif text looks-like-uri
 		text must-parse-uri
 	else
-		cwd resolve-uri text.parse-rel-path ?? throw todo
+		cwd resolve-uri-from-dir text.parse-rel-path ?? throw todo
 -looks-like-absolute-path bool(a string)
 	a starts-with "/" || a is-windows-path
 -looks-like-uri bool(a string)
@@ -238,8 +254,12 @@ test
 	assert "file://foo" looks-like-uri
 	forbid "/a/b" looks-like-uri
 -is-windows-path bool(a string)
-	chars char8[] = a to
-	chars.size >= 3 && chars[0 .. 2] is-windows-path-start && chars[2] is-slash
+	a.to.to::(char8 array-view) is-windows-path
+-is-windows-path bool(a char8 array-view)
+	if a.size >= 3
+		a[0 .. 2] is-windows-path-start && a[2] is-slash
+	elif a.size == 2
+		a is-windows-path-start
 test
 	assert "C:\\Users" is-windows-path
 	assert "c:/users" is-windows-path
@@ -248,11 +268,11 @@ is-windows-path-start bool(a char8 array-view)
 	a.size == 2 && a[0] is-letter && a[1] == ":"
 
 test
-	file-ab uri = "file://a/b",
-	file-xy uri = "file://x/y",
-	file-abxy uri = "file://a/b/x/y",
-	file-axy uri = "file://a/x/y",
-	file-ab parse-uri-with-cwd "file://x/y" is file-xy
+	file-ab uri = "file:///a/b",
+	file-xy uri = "file:///x/y",
+	file-abxy uri = "file:///a/b/x/y",
+	file-axy uri = "file:///a/x/y",
+	file-ab parse-uri-with-cwd "file:///x/y" is file-xy
 	file-ab parse-uri-with-cwd "x/y" is file-abxy
 	file-ab parse-uri-with-cwd "../x/y" is file-axy
 
@@ -277,14 +297,17 @@ test
 	"C:\\User\\CAPPY".parse-file-path is ("c:/user/cappy",)
 
 to uri(a file-path)
-	"{file-scheme}{a.to::string try-remove-start "/" ?? a.to}",
+	slash string = a is-windows-path ? "/"
+	"{file-scheme}{slash}{a.to uri-encode}",
 test
 	fp file-path = "/a/b",
 	uri uri = fp to
-	uri is ("file://a/b",)
+	uri is ("file:///a/b",)
 
 uri-is-file bool(a uri)
-	a.to::string starts-with file-scheme
+	a.to::string uri-is-file
+-uri-is-file bool(a string)
+	a starts-with file-scheme
 
 rel-path record(n-parents nat, path path)
 == bool(a rel-path, b rel-path)
@@ -340,10 +363,9 @@ test
 	info show-uri-prefer-relative ("file://x/y/c/d",) is "file://x/y/c/d"
 
 # params: cwd, path
--components symbol[](a string)
-	for x : a split "/"
-		x to
--components-prefer-relative (bool, symbol array-view)(opt-cwd string?, path string)
+-components string[](a string)
+	a split "/"
+-components-prefer-relative (bool, string array-view)(opt-cwd string?, path string)
 	components = path components
 	if cwd ?= opt-cwd
 		if rest ?= components try-remove-start cwd.components
@@ -353,23 +375,34 @@ test
 	else
 		false, components.to
 
-show-components string(components symbol array-view, uri-encode bool)
+-show-components string(components string array-view, uri-encode bool)
 	"/" join for index, component : components with-index
 		# First component of a Uri is the scheme, which is not encoded
 		if uri-encode && index != 0
 			component encode-path-component
 		else
-			component to
-
--encode-path-component string(component symbol)
+			component
+-uri-encode string(a string)
 	chars char8[] = with out : build
-		for x : component.to::string.to::char8[]
-			if x is-uri-safe-char
+		for x : a.to::char8[]
+			if x == "/"
 				out ~= x
 			else
-				out ~= "%"
-				out ~~= x.to encode-as-hex
+				out encode-char x
 	chars to
+
+-encode-path-component string(component string)
+	chars char8[] = with out : build
+		for x : component.to::char8[]
+			out encode-char x
+	chars to
+-encode-char void(out char8 array-builder, a char8)
+	if a is-uri-safe-char
+		out ~= a
+	else
+		out ~= "%"
+		out ~~= a.to encode-as-hex
+
 -is-uri-safe-char bool(a char8)
 	a is-ascii-identifier-char || a == "-" || a == "." || a == "~"
 
@@ -390,14 +423,99 @@ add-extension uri(a uri, extension symbol)
 -add-extension symbol(a symbol, extension symbol)
 	"{a}{extension}"
 
-resolve-uri uri?(base uri, relative rel-path)
-	if res ?= (base.to,) resolve-path relative
+resolve-uri-from-file uri?(from-file uri, relative rel-path)
+	if dir ?= from-file parent
+		dir resolve-uri-from-dir relative
+resolve-uri-from-dir uri?(from-dir uri, relative rel-path)
+	if res ?= (from-dir.to,) resolve-path relative
 		(res.to,),
-resolve-path path?(base path, relative rel-path)
+-resolve-path path?(from-dir path, relative rel-path)
 	if relative.n-parents == 0
-		(base concat-paths relative.path),
-	elif par ?= base parent
+		(from-dir concat-paths relative.path),
+	elif par ?= from-dir parent
 		par resolve-path (relative.n-parents - 1, relative.path)
+test
+	("file:///foo/a.crow",) resolve-uri-from-file (0, ("b.crow",)) is (("file:///foo/b.crow",),)
+	("file:///a.crow",) resolve-uri-from-file (0, ("b.crow",)) is (("file:///b.crow",),)
 
 crow-file-permissions enum(regular, executable)
 path-and-content record(path path, permissions crow-file-permissions, content string)
+
+
+# TODO: these were in testUri.d. These should probably be broken up to go near the relevant functions
+test
+	a = "file:///a" must-parse-uri
+	a.to::string is "file:///a"
+	b = "file:///b" must-parse-uri
+	a is a
+	a <=> b is less
+
+	a-x = a / "x"
+	a / "x" is a-x
+	a-y = a / "y"
+	a-y.to::string is "file:///a/y"
+
+	z-w = a-x parse-uri-with-cwd "/z/w.crow"
+	z-w.to::string is "file:///z/w.crow"
+	z-w.base-name is "w.crow"
+	z-w.get-extension is ".crow"
+	a-x-z-w = a-x parse-uri-with-cwd "./z/w"
+	a-x-z-w.to::string is "file:///a/x/z/w"
+	a-x parse-uri-with-cwd "z/w" is a-x-z-w
+	a-x parse-uri-with-cwd "../y" is a-y
+
+	crow-lang = "http://crow-lang.org" must-parse-uri
+	a-x parse-uri-with-cwd "http://crow-lang.org" is crow-lang
+
+	crow-lang.parent is ()
+	crow-lang.get-extension is ".org" # TODO: I could fix this ...............................................................
+
+test
+	"file:///home/crow/a.txt" verify-file "/home/crow/a.txt", ("home", "crow", "a.txt")
+	"file:///C%3A/Users/User/a.txt" verify-file "file:///c%3a/users/user/a.txt", "C:\\Users\\User\\a.txt", "c:/users/user/a.txt", ("c:", "users", "user", "a.txt")
+
+	a-uri = "file:///C%3A/Users/User/a" must-parse-uri
+	a-uri.to::string is "file:///c%3a/users/user/a"
+	a-uri.is-windows-path is true
+	boo-uri = a-uri / "BOO"
+	boo-uri.to::string is "file:///c%3a/users/user/a/boo"
+	boo-uri.is-windows-path is true
+
+	a = "C:\\Users\\User\\a" parse-file-path
+	"c:/users/user/a".parse-file-path is a
+	a.is-windows-path is true
+	boo = a / "BOO"
+	boo.to::string is "c:/users/user/a/boo"
+	boo.is-windows-path is true
+
+	a-txt = "/foo/a.txt" parse-file-path
+	a-txt.is-windows-path is false
+	a-f00d-json = a-txt alter-extension ".f00d.json"
+	a-f00d-json.to::string is "/foo/a.f00d.json"
+
+	a-f00d-crow = a-f00d-json alter-extension ".crow"
+	a-f00d-crow.to::string is "/foo/a.f00d.crow"
+
+-verify-file void(uri string, file-path string, components string[])
+	uri verify-file uri, file-path, file-path, components
+-verify-file void(uri-in string, uri-out string, file-path-in string, file-path-out string, components string[])
+	uri = uri-in must-parse-uri
+	file-path = file-path-in parse-file-path
+	assert uri uri-is-file
+	uri.as-file-path is file-path
+	file-path.to::uri is uri
+
+	file-path.to.test-components is components
+
+	uri.to::string is uri-out
+	file-path.to::string is file-path-out
+
+-test-components string[](a path)
+	res string[] = with out : build
+		cur mut = a
+		while p ?= cur parent
+			out ~= cur base-name
+			cur := p
+		unless cur.to::string is-empty
+			out ~= cur base-name
+	res reverse
