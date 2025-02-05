@@ -3,6 +3,7 @@ import
 	../../../model/ast
 	../../../model/model
 	../../../model/source-range
+	../../../util/perfhax
 	../../../util/util
 	../check-ctx
 	../expr-ctx
@@ -218,15 +219,15 @@ check-call-special-cb-n expr(
 	cb-additional-filter bool mut(x called-decl),
 	cb-before-check bool mut(x candidate mut[]),
 )
-	filter-candidate bool mut(x candidate) = candidate =>
+	candidates = ctx.funs-in-expr-scope get-candidates fun-name, n-args
+	candidates filter-unordered candidate =>
 		ctx.common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
 		ctx.instantiate-ctx match-expected-vs-return-type-no-diagnostic expected, (candidate.called.return-type, candidate.type-context-for-candidate) &&
 		cb-additional-filter[candidate called]
-	ctx.funs-in-expr-scope with-candidates fun-name, n-args, filter-candidate, candidates =>
-		if cb-before-check[candidates]
-			ctx check-call-inner locals, diag-range, fun-name, type-arg, candidates, expected, n-args, cb-check-arg
-		else
-			call-failure
+	if cb-before-check[candidates]
+		ctx check-call-inner locals, diag-range, fun-name, type-arg, candidates, expected, n-args, cb-check-arg
+	else
+		call-failure
 
 check-call-identifier expr(ctx expr-ctx, locals locals-info, ast name-and-range, expected expected) check-expr
 	if ast.name == "new"
@@ -248,18 +249,18 @@ find-function-for-return-and-param-types called?(
 	can-do-unsafe bool mut(),
 )
 	arity = return-and-param-types.param-types size
-	check-candidate bool mut(x candidate) = candidate =>
+	candidates = funs-in-scope get-candidates name, arity
+	candidates filter-unordered candidate =>
 		common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
 		ctx.instantiate-ctx test-candidate-for-spec-sig candidate, return-and-param-types, non-inferring
-	funs-in-scope with-candidates name, arity, check-candidate, candidates =>
-		if x ?= candidates opt-only
-			(ctx check-call-after-choosing-overload common-types, type-container, funs-in-scope, outermost-fun-flags, externs, locals, x, diag-range, arity, can-do-unsafe),
+	if x ?= candidates opt-only
+		(ctx check-call-after-choosing-overload common-types, type-container, funs-in-scope, outermost-fun-flags, externs, locals, x, diag-range, arity, can-do-unsafe),
+	else
+		ctx add-diag diag-range, if candidates is-empty
+			name diag-function-with-signature-not-found type-container, return-and-param-types
 		else
-			ctx add-diag diag-range, if candidates is-empty
-				name diag-function-with-signature-not-found type-container, return-and-param-types
-			else
-				name diag-call-multiple-matches type-container, for x : candidates; x called
-			()
+			name diag-call-multiple-matches type-container, for x : candidates; x called
+		()
 
 -check-option-call expr(ctx expr-ctx, locals locals-info, ast call-ast, outer-expected expected) check-expr
 	ctx check-with-modify-expected outer-expected, (x => x try-spread-option-type), inner-expected =>
@@ -325,9 +326,10 @@ find-function-for-return-and-param-types called?(
 	
 	guard !some-arg-is-bogus : call-failure
 
+	start = perf-now
 	candidates filter-unordered-but-dont-remove-all x => ctx pre-check-candidate-specs x
 
-	if x ?= candidates opt-only
+	res call-inner-result = if x ?= candidates opt-only
 		result = ctx.check-ctx check-call-after-choosing-overload ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope,
 			ctx.outermost-fun-flags, ctx.externs, locals, x, diag-range, n-args, () => ctx check-can-do-unsafe
 		result to
@@ -337,7 +339,9 @@ find-function-for-return-and-param-types called?(
 			ctx.type-container diag-call-no-match fun-name, (ctx get-expected-for-diag expected), (ctx.common-types get-n-type-args-for-diagnostic explicit-type-arg), n-args, actual-arg-types.move-to, all-candidates
 		else
 			fun-name diag-call-multiple-matches ctx.type-container, candidates.move-to.candidates-for-diag
-		call-failure		
+		call-failure
+	start end-finish-check-call
+	res
 
 -check-call-should-use-syntax void(ctx expr-ctx, ast call-ast)
 	if ast.style == dot || ast.style == infix
@@ -479,17 +483,17 @@ find-function-for-return-and-param-types called?(
 	return-and-param-types return-and-param-types,
 )
 	call-context = call-candidate type-context-for-candidate
-	test_ bool mut(x candidate) = x =>
+	spec-candidates = ctx.funs-in-expr-scope get-candidates spec-sig.name, spec-sig.params.size
+	spec-candidates filter-unordered x =>
 		ctx.instantiate-ctx test-candidate-for-spec-sig x, return-and-param-types, call-context
-	ctx.funs-in-expr-scope with-candidates spec-sig.name, spec-sig.params.size, test_, spec-candidates =>
-		match spec-candidates size
-		as 0
-			false
-		as 1
-			ctx.instantiate-ctx infer-candidate-type-args-from-checked-spec-sig spec-candidates.only, spec-sig, return-and-param-types, call-context
-			true
-		else
-			true
+	match spec-candidates size
+	as 0
+		false
+	as 1
+		ctx.instantiate-ctx infer-candidate-type-args-from-checked-spec-sig spec-candidates.only, spec-sig, return-and-param-types, call-context
+		true
+	else
+		true
 
 check-call-after-choosing-overload called(
 	ctx check-ctx,
