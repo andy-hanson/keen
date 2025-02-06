@@ -69,6 +69,8 @@ concretize-expr-ctx record mut
 	-next-lambda-index mut nat
 preserve-lambdas bool(a concretize-expr-ctx)
 	a.concretize-ctx preserve-lambdas
+allocate-mutable-closure-variables bool(a concretize-expr-ctx)
+	a !preserve-lambdas || a is-java
 is-native bool(a concretize-expr-ctx)
 	a.concretize-ctx is-native
 is-java bool(a concretize-expr-ctx)
@@ -293,7 +295,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		as direct
 			base-type
 		as allocated
-			ctx get-concrete-type x.local.mutability.local-mutable-allocated!.reference-type.to
+			ctx get-concrete-type x.local.closure-reference-type!.to
 		# Even if the variable is mutable, it's a const field holding a mut pointer
 		x.name, false, type
 
@@ -316,7 +318,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	e lambda-expr,
 )
 	if ctx preserve-lambdas
-		assert ctx is-js # For other backends, we might need to do something about explicit 'shared'
+		forbid e.kind == explicit-shared : todo # For Java, we need to do something for these ---------------------------------------------
 		return-type = ctx get-concrete-type e.return-type
 		param-type = ctx get-concrete-type e.param.type
 		body = ctx concretize-expr-with-destructure return-type, range, locals, e.param, e.body
@@ -436,7 +438,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	as local local
 		root-local concrete-local = ctx.local-ids.take-next-id, local.to, (ctx get-concrete-type local.type)
 		expr = if ctx is-allocated local
-			reference-type = ctx get-concrete-type local.mutability.local-mutable-allocated!.reference-type.to
+			reference-type = ctx get-concrete-type local.closure-reference-type!.to
 			reference-local concrete-local = ctx.local-ids.take-next-id, reference::concrete-generated-local-kind.to, reference-type
 			then = f[locals add-local local, reference-local.to]
 			value = reference-type gen-reference-create range, (range gen-local-get root-local)
@@ -452,13 +454,11 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 			(), (ctx concretize-bogus type, range)
 
 -is-allocated bool(ctx concretize-expr-ctx, a local)
-	ctx !preserve-lambdas && match a mutability
-	as local-immutable
+	match a mutability
+	as immut
 		false
-	as local-mutable-on-stack
-		false
-	as local-mutable-allocated _
-		true
+	as mut_
+		a is-used-in-closure && ctx allocate-mutable-closure-variables
 
 -concretize-with-destructure-split concrete-expr(
 	ctx concretize-expr-ctx,

@@ -32,6 +32,7 @@ translate-to-java (string, string)[](
 		out ~~= ctx translate-functions-and-vars concrete-program
 		out ~= do
 			comment: ""
+			kind: final
 			name: "Main"
 			extends: ()
 			implements: ()
@@ -80,7 +81,7 @@ translate-to-java (string, string)[](
 	catch_ java-catch = "java.lang.Throwable", "e", catch-block
 	try_ = tried java-try-statement (catch_,), ()
 
-	"", public, static, "void".to, "main", params, (try_,)
+	"", public, static, "void".to, "main", params, ((try_,),)
 
 -zero java-expr()
 	0 java-literal-int32-or-less
@@ -109,6 +110,7 @@ translate-to-java (string, string)[](
 	fields = ctx translate-vars program
 	for uri : methods.keys.to | fields.keys.to
 		comment: uri to
+		kind: final
 		name: ctx.mangled-names[uri]
 		extends: ()
 		implements: ()
@@ -153,7 +155,7 @@ translate-to-java (string, string)[](
 		as concrete-fun-body-deferred
 			throw unreachable
 		comment = ctx.show-ctx.show show-concrete-fun-name-and-range fun
-		res ensure fun.module-uri ~= (comment, internal, static, (ctx as-type fun.return-type), ctx.mangled-names[fun].member, params, body)
+		res ensure fun.module-uri ~= (comment, internal, static, (ctx as-type fun.return-type), ctx.mangled-names[fun].member, params, (body,))
 	for uri, methods : res
 		uri, methods.move-to
 
@@ -227,11 +229,11 @@ translate-to-java (string, string)[](
 	match struct body
 	as concrete-builtin-type x
 		unless _ ?= x.kind as-java-lang-class
-			match x.kind
-			as array
+			if x.kind is-array-type
 				()
-			as mut-slice
-				()
+			elif x.kind is-lambda-type
+				return-type, param-type = x.type-args only2
+				(comment lambda-class name, extends, (ctx as-type return-type.struct), (ctx as-type param-type.struct)),
 			else
 				primitive-type java-type = x.kind.as-primitive-type! to
 				(comment boxing-class name, extends, primitive-type),
@@ -250,6 +252,15 @@ translate-to-java (string, string)[](
 		()
 	as concrete-struct-body-deferred
 		throw unreachable
+
+-is-array-type bool(a builtin-type)
+	match a
+	as array
+		true
+	as mut-slice
+		true
+	else
+		false
 
 -mangle string(a symbol)
 	if a is-java-keyword
@@ -362,6 +373,29 @@ translate-to-java (string, string)[](
 	else
 		false
 
+-lambda-class java-class(comment string, name string, super string?, return-type java-type, param-type java-type)
+	###
+	abstract class foo {
+		abstract rt call(p x)
+	}
+	###
+	method java-method = do
+		comment: ""
+		visibility: internal
+		kind: abstract-instance
+		return-type: return-type
+		name: "call"
+		params: ((param-type, "x"),)
+		body: ()
+	comment: comment
+	kind: abstract_
+	name: name
+	extends: super
+	implements: ()
+	fields: ()
+	constructor: ()
+	methods: (method,)
+
 -boxing-class java-class(comment string, name string, super string?, primitive-type java-type)
 	value-field java-field = internal, instance, primitive-type, "value", ()
 	comment basic-class name, super, (value-field,)
@@ -372,7 +406,7 @@ translate-to-java (string, string)[](
 	params java-param[] = for field : fields
 		field.type, field.name
 	constructor java-constructor = params, assigns
-	comment, name, super-class, (), fields, (constructor,), ()
+	comment, final, name, super-class, (), fields, (constructor,), ()
 
 -as-type java-type(ctx to-java-ctx, struct concrete-struct, a concrete-builtin-type)
 	if primitive ?= a.kind as-primitive-type
@@ -417,11 +451,11 @@ translate-to-java (string, string)[](
 	as js-any
 		()
 	as fun-data
-		throw unreachable
+		()
 	as fun-mut
-		throw unreachable
+		()
 	as fun-shared
-		throw unreachable
+		()
 	as mut-array
 		()
 	as mut-pointer
@@ -505,16 +539,12 @@ translate-to-java (string, string)[](
 	else
 		arg
 -box java-expr(ctx to-java-ctx, struct concrete-struct, type builtin-type, arg java-expr)
-	match type
-	as array
+	if type is-array-type
 		arg
-	as mut-slice
-		arg
+	elif x ?= type as-java-lang-class
+		x.to java-cast arg
 	else
-		if x ?= type as-java-lang-class
-			x.to java-cast arg
-		else
-			ctx.mangled-names[struct] java-new (arg,)
+		ctx.mangled-names[struct] java-new (arg,)
 
 -unbox java-expr(ctx to-java-ctx, type concrete-struct, arg java-expr)
 	match type body
@@ -527,31 +557,23 @@ translate-to-java (string, string)[](
 	else
 		arg
 -unbox java-expr(ctx to-java-ctx, struct concrete-struct, type builtin-type, arg java-expr)
-	match type
-	as array
+	if type is-array-type
 		arg
-	as mut-slice
-		arg
+	elif _ ?= type as-java-lang-class
+		ctx as-type struct java-cast arg
 	else
-		if _ ?= type as-java-lang-class
-			ctx as-type struct java-cast arg
-		else
-			arg java-property-access "value"
+		arg java-property-access "value"
 
 -cast-and-unbox java-expr(ctx to-java-ctx, type concrete-struct, arg java-expr)
 	ctx unbox type, (ctx as-boxed-type type java-cast arg)
 
 -as-boxed-type java-type(ctx to-java-ctx, struct concrete-struct, a concrete-builtin-type)
-	match a kind
-	as array
+	if a.kind is-array-type
 		ctx as-type a.type-args.only java-array-type
-	as mut-slice
-		ctx as-type a.type-args.only java-array-type
+	elif x ?= a.kind as-java-lang-class
+		x to
 	else
-		if x ?= a.kind as-java-lang-class
-			x to
-		else
-			ctx.mangled-names[struct] to
+		ctx.mangled-names[struct] to
 
 -as-java-lang-class string?(a builtin-type)
 	match a
@@ -590,11 +612,11 @@ translate-to-java (string, string)[](
 	as js-any
 		"java.lang.Object",
 	as fun-data
-		throw unreachable
+		()
 	as fun-mut
-		throw unreachable
+		()
 	as fun-shared
-		throw unreachable
+		()
 	as mut-array
 		"java.util.ArrayList",
 	as mut-pointer
@@ -669,11 +691,31 @@ translate-to-java (string, string)[](
 			(cond java-if-statement then, else_),
 	as let-concrete-expr x
 		local = ctx local-name x.local
-		write-value = ctx translate-expr local.java-local-access.write-to, x.value
-		then = ctx translate-expr pos, x.then
-		(ctx as-type x.local.type.struct java-var-decl local, ()) ~ write-value ~~ then
-	as lambda-concrete-expr _
-		throw unreachable
+		needs-final = x.local needs-to-be-effectively-final
+		write-to string = if needs-final
+			# Write to a temporary mutable variable, so that the local is effectively final
+			"{local}__TEMP" # TODO: NEATTER --------------------------------------------------------------------------------
+		else
+			local
+		with out : build
+			local-type = ctx as-type x.local.type.struct
+			out ~= (local-type java-var-decl write-to, ())
+			out ~~= ctx translate-expr write-to.java-local-access.write-to, x.value
+			if needs-final
+				out ~= (local-type java-var-decl local, (write-to.java-local-access,))
+			out ~~= ctx translate-expr pos, x.then
+	as lambda-concrete-expr x
+		interface_ = ctx as-type type string!
+		return-type, param-type = type.source.concrete-struct-source-inst!.type-args.only2 # TODO: helper fn for this ------------
+		param-name = ctx local-name x.param
+		aic java-anonymous-inner-class = do
+			interface_: interface_
+			method-return-type: ctx as-type return-type.struct
+			method-name: "call"
+			param-type: ctx as-type param-type.struct
+			param-name: param-name
+			body: ctx translate-expr return, x.body
+		pos simple-expr aic.to
 	as local-get-concrete-expr x
 		pos simple-expr (ctx local-name x.local java-local-access)
 	as local-pointer-concrete-expr _
@@ -890,6 +932,15 @@ translate-to-java (string, string)[](
 					return-index = pos simple-expr case-index.to.java-literal-int32-or-less
 					res := (is-case java-if-statement return-index, res),
 				res
+
+-needs-to-be-effectively-final bool(local concrete-local)
+	match local source
+	as local x
+		x is-used-in-closure
+	as concrete-local-source-closure
+		false
+	as concrete-generated-local-kind _
+		false
 
 -exception-case-type-from-index string(ctx to-java-ctx, exception-case-index integral-value)
 	exception-types = ctx.exception.body.concrete-union! members
@@ -1181,7 +1232,7 @@ translate-to-java (string, string)[](
 			"Reached switch-fiber-initial?????".throw-message, # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-call-lambda
 		ctx with-args args, get-args =>
-			pos simple-expr (get-args[0] java-call-instance-method "invoke", get-args[1 .. end].to)
+			pos simple-expr (get-args[0] java-call-instance-method "call", get-args[1 .. end].to)
 	as builtin-fun-call-fun-pointer
 		ctx with-args args, get-args =>
 			fn, param = get-args only2
@@ -1246,13 +1297,13 @@ translate-to-java (string, string)[](
 		as float64
 			zero
 		as fun-data
-			throw unreachable
+			java-null
 		as fun-mut
-			throw unreachable
+			java-null
 		as fun-pointer
 			java-null
 		as fun-shared
-			throw unreachable
+			java-null
 		as future
 			java-null
 		as int8
