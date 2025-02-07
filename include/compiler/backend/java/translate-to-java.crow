@@ -88,6 +88,10 @@ translate-to-java (string, string)[](
 
 -exception concrete-struct(ctx to-java-ctx)
 	ctx.program.common-funs.concrete-common-funs-java!.exception
+-string concrete-struct(ctx to-java-ctx)
+	ctx.program.common-funs.concrete-common-funs-java!.string
+-symbol concrete-struct(ctx to-java-ctx)
+	ctx.program.common-funs.concrete-common-funs-java!.symbol
 -is-exception bool(ctx to-java-ctx, type concrete-struct)
 	type == ctx.exception
 
@@ -187,12 +191,24 @@ translate-to-java (string, string)[](
 	mangled-names java-mangled-names
 	structs-for-integrals concrete-struct[integral-type]
 
--union-needs-kind bool(ctx to-java-ctx, union_ concrete-struct)
-	assert _ ?= union_.body concrete-union
-	# TODO: most unions should not need a 'kind', if none of the members compile to 'Object' --------------------------------------------------
-	union_ != ctx.exception
 -union-needs-kind bool(ctx to-expr-ctx, union_ concrete-type)
 	ctx.ctx union-needs-kind union_.struct
+-union-needs-kind bool(ctx to-java-ctx, union_ concrete-struct)
+	assert u ?= union_.body concrete-union
+	members = u members
+	members-set concrete-struct-id set = for x : members; x.struct id
+	if union_ == ctx.exception
+		false
+	elif members-set.size != members.size
+		true
+	elif members.size > 4
+		true
+	elif ctx.string.id in members-set && ctx.symbol.id in members-set
+		true
+	else
+		members exists x => x is-union
+-is-union bool(a concrete-type)
+	a.struct.body.concrete-union !is-empty
 
 -get-structs-for-integrals concrete-struct[integral-type](a concrete-program)
 	res concrete-struct mut[integral-type] = ()
@@ -503,8 +519,11 @@ translate-to-java (string, string)[](
 	as concrete-union _
 		if ctx is-exception type
 			"java.lang.Throwable" to
-		else
+		elif ctx union-needs-kind type
 			"Union" to
+		else
+			# TODO: Ideally a crow 'interface' would become a java 'interface' so methods could be called directly --------------------------------------------------
+			"Object" to
 	as concrete-struct-body-deferred
 		throw unreachable
 -as-type java-type(ctx to-expr-ctx, type concrete-struct)
@@ -539,7 +558,7 @@ translate-to-java (string, string)[](
 	else
 		arg
 -box java-expr(ctx to-java-ctx, struct concrete-struct, type builtin-type, arg java-expr)
-	if type is-array-type
+	if type is-array-type || type is-lambda-type
 		arg
 	elif x ?= type as-java-lang-class
 		x.to java-cast arg
@@ -557,7 +576,7 @@ translate-to-java (string, string)[](
 	else
 		arg
 -unbox java-expr(ctx to-java-ctx, struct concrete-struct, type builtin-type, arg java-expr)
-	if type is-array-type
+	if type is-array-type || type is-lambda-type
 		arg
 	elif _ ?= type as-java-lang-class
 		ctx as-type struct java-cast arg
@@ -588,6 +607,7 @@ translate-to-java (string, string)[](
 	as char32
 		()
 	as const-pointer
+		# TODO: throw unreachable? ---------------------------------------------------------------------------------------------------------------
 		"java.lang.Object",
 	as float32
 		"java.lang.Float",

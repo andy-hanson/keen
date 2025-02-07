@@ -2,10 +2,10 @@ no-std
 import
 	../bool: &&, bool, false, true
 	../compare: !=, <, <=, equal
-	../java: java-array-get, java-array-set, java-cast, java-new-array
+	../java: call-static, java-array-get, java-array-set, java-cast, java-new-array
 	../js: as-js, call, call-property, cast, js-cast, js-global, subscript, set-subscript
 	../misc: new, subscript, void
-	../number: ==, <=>, +, -, *, /, %, float64, nat64, next, to
+	../number: ==, <=>, +, -, *, /, %, float64, int32, nat64, next, to
 	../option: new, option
 	../pointer:
 		==, <=>, +, -, as-const, as-mut, mem-clear, mem-move, mut-pointer, pointer-cast,
@@ -16,7 +16,7 @@ import
 	../tuple: new
 	./array: ~=, ~~=, array, array-builder, array-view, begin-pointer, build, iterate, size, subscript
 	./private/array-low-level:
-		array-reference-equal, new-mut-slice, mut-slice-pointer, mut-slice-size, new
+		array-reference-equal, indices, inner, new-mut-slice, mut-slice-pointer, mut-slice-size, new
 	./collection:
 		.., build-options, end, for-loop, index-too-big, iterator-not-comparable,
 		range-relative-to-end, slice-out-of-order, subscript, to-range
@@ -182,20 +182,17 @@ export
 | Overwrites {dest} with the contents of {source}.
 | {dest} and {source} must be the same size.
 +copy-from[t] void(dest t mut-slice-view, source t mut-slice) bare
-	dest copy-from trusted source temp-as-array
+	dest copy-from source[0 .. end]
 -copy-from[t] void(dest t mut-slice-view, source t[]) bare
+	dest copy-from source[0 .. end]
+-copy-from[t] void(dest t mut-slice-view, source t mut-slice-view) bare
+	dest copy-from trusted source temp-as-array-view
+-copy-from[t] void(dest t mut-slice-view, source t array-view) bare
 	assert dest.size == source.size
 	trusted if extern native
 		dest.begin-pointer mem-move source.begin-pointer, source.size
-	else
-		i mut nat64 = 0
-		until i == source.size
-			dest[i] := source[i]
-			i +:= 1
--copy-from[t] void(dest t mut-slice-view, source t mut-slice-view) bare
-	assert dest.size == source.size
-	trusted if extern native
-		dest.begin-pointer mem-move source.begin-pointer.as-const, source.size
+	elif extern java
+		_ void = "java.lang.System" call-static "arraycopy", source.inner, source.indices.low.to::int32, dest.inner, dest.indices.low.to::int32, dest.size.to::int32
 	else
 		i mut nat64 = 0
 		until i == source.size
@@ -281,6 +278,8 @@ region unsafe
 	a cast-immutable
 ~temp-as-array-view[t] t array-view(a t mut-slice) bare, unsafe
 	a.temp-as-array[0 .. end]
+~temp-as-array-view[t] t array-view(a t mut-slice-view) bare, unsafe
+	a.inner.temp-as-array, a.indices
 
 | Casts elements to a different type.
 | This is O(1).
