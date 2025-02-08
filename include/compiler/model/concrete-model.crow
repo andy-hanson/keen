@@ -5,6 +5,7 @@ import
 	./source-range
 	./uri
 	./version-info
+	../util/full-index-map
 	../util/util
 
 concrete-struct-body union(
@@ -218,6 +219,11 @@ pointee-type-if-is-pointer concrete-type(a concrete-type)
 	a is-pointer ? a pointee-type : a
 is-bogus bool(a concrete-struct)
 	a.source.concrete-struct-source-bogus !is-empty
+is-string bool(a concrete-type)
+	a.reference == by-val_ && a.struct is-string
+is-string bool(a concrete-struct)
+	if x ?= a.source concrete-struct-source-inst
+		x.decl is-string
 is-tuple bool(a concrete-type)
 	a.reference == by-val_ && a.struct is-tuple
 is-tuple bool(a concrete-struct)
@@ -457,6 +463,7 @@ cast-concrete-expr record(inner concrete-expr) mut
 to json(a cast-concrete-expr)
 create-array-concrete-expr record(args concrete-expr[]) mut
 to json(a create-array-concrete-expr)
+# Note: This can create a by-ref record too
 create-record-concrete-expr record(args concrete-expr[]) mut
 to json(a create-record-concrete-expr)
 create-union-concrete-expr record(member-index nat, arg concrete-expr) mut
@@ -589,11 +596,11 @@ return-type concrete-type(a call-concrete-expr)
 
 arr-type-and-constants-concrete record mut
 	arr-type concrete-struct
-	element-type concrete-type
+	element-type concrete-type # TODO: don't need to store this, can get it from arr-type ----------------------------------------
 	constants constant[][]
 
 pointer-type-and-constants-concrete record mut
-	pointee-type concrete-struct
+	pointee-type concrete-struct # TODO: is this needed? If we have the type of the pointer we can get this anyway ---------------
 	constants constant[]
 
 # TODO: rename -- this is not all constants, just the ones by-ref
@@ -603,6 +610,9 @@ all-constants-concrete record mut
 	arrs arr-type-and-constants-concrete[] # TODO: rename to 'arrays' ----------------------------------------------------------------
 	| These are just the by-ref records
 	pointers pointer-type-and-constants-concrete[]
+	| Maps a {constant-record} to the record values.
+	| Note a constant record is always by-value, use 'pointers' for pointers.
+	records (constant-record, constant[]) full-index-map[concrete-struct-id]
 
 concrete-var-id record(value nat)
 == bool(a concrete-var-id, b concrete-var-id)
@@ -621,6 +631,7 @@ concrete-program record mut
 	all-structs concrete-struct[]
 	all-vars concrete-var[]
 	all-funs concrete-fun[]
+	funs-by-id concrete-fun[concrete-fun-id] # TODO: I only needed this for debugging --------------------------------------
 	yielding-funs concrete-fun-id set	
 	common-funs concrete-common-funs
 to json(_ concrete-program)
@@ -740,7 +751,7 @@ constant union(
 	constant-pointer,
 	constant-record,
 	constant-union,
-	constant-zero
+	constant-zero # TODO: could I get rid of this and just use a constant of the appropriate type? ---------------------------------
 )
 to json(a constant)
 # This assumes the constants are for the same type
@@ -767,7 +778,29 @@ to json(a constant)
 			b.constant-union! == x
 		as constant-zero
 			b is-zero
--is-zero bool(a constant)
+<=> comparison(_ constant, _ constant)
+	throw todo # This is required by 'mut-map' but not actually used .........................................................
+hash-mix void(hasher hasher, a constant)
+	match a
+	as constant-array x
+		hasher hash-mix x
+	as constant-c-string x
+		hasher hash-mix x
+	as constant-float x
+		hasher hash-mix x
+	as constant-fun-pointer x
+		hasher hash-mix x
+	as integral-value x
+		hasher hash-mix x
+	as constant-pointer x
+		hasher hash-mix x
+	as constant-record x
+		hasher hash-mix x
+	as constant-union x
+		hasher hash-mix x
+	as constant-zero x
+		hasher hash-mix x
+is-zero bool(a constant)
 	match a
 	as constant-array _
 		# We only create this for non-empty arrays
@@ -783,13 +816,44 @@ to json(a constant)
 		x.as-unsigned == 0
 	as constant-pointer _
 		false
-	as constant-record x
-		# TODO: we shouldn't create the constant-record in that case
-		x.args every arg => arg is-zero
+	as constant-record _
+		# We don't create the constant-record in that case
+		false
 	as constant-union x
 		x.member-index == 0 && x.arg is-zero
 	as constant-zero
 		true
+each-nested-constant void(all-constants all-constants-concrete, type concrete-type, a constant, f void mut(x constant))
+	f[a]
+	match a
+	as constant-array xs
+		elem concrete-type = if type is-string
+			type # TODO: this should be char8, but it doesn't matter right now ----------------------------------------------------------
+		else
+			type array-element-type
+		for x : all-constants.arrs[xs type-index].constants[xs index]
+			all-constants each-nested-constant elem, x, f
+	as constant-c-string _
+		()
+	as constant-float _
+		()
+	as constant-fun-pointer _
+		()
+	as integral-value _
+		()
+	as constant-pointer x
+		all-constants each-nested-constant type.pointee-type, all-constants.pointers[x type-index].constants[x index], f
+	as constant-record x
+		fields = type.must-be-by-val.body.concrete-record!.fields
+		args = all-constants.records[type.struct id]![x]
+		for arg, field : args zip fields
+			all-constants each-nested-constant field.type, arg, f
+	as constant-union x
+		member-type = type.must-be-by-val.body.concrete-union!.members[x.member-index]
+		all-constants each-nested-constant member-type, x.arg, f 
+	as constant-zero
+		()	
+
 constant-array record
 	| Index of the array type in {all-constants-concrete}.{arrs}
 	type-index nat
@@ -797,6 +861,9 @@ constant-array record
 	index nat
 to json(a constant-array)
 == bool(a constant-array, b constant-array)
+hash-mix void(hasher hasher, a constant-array)
+	hasher hash-mix a.type-index
+	hasher hash-mix a.index
 | Nul-terminated string identified only by its begin pointer.
 constant-c-string record
 	| Index into {all-constants-concrete}.{c-strings}
@@ -804,17 +871,23 @@ constant-c-string record
 to json(a constant-c-string)
 	a.index to
 == bool(a constant-c-string, b constant-c-string)
+hash-mix void(hasher hasher, a constant-c-string)
+	hasher hash-mix a.index
 | Used for float32 or float64
 # TODO: using a wrapper type shouldn't be necessary any mroe ..................................................................
 constant-float record(value float)
 to json(a constant-float)
 	a.value to
+hash-mix void(hasher hasher, a constant-float)
+	hasher hash-mix a.value
 # TODO: handle Nan! -------------------------------------------------------------------------------------------------------------
 == bool(a constant-float, b constant-float)
 constant-fun-pointer record(fun concrete-fun-id)
 to json(a constant-fun-pointer)
 	a.fun to
 == bool(a constant-fun-pointer, b constant-fun-pointer)
+hash-mix void(hasher hasher, a constant-fun-pointer)
+	hasher hash-mix a.fun
 | Pointer (or gc-pointer) to another constant
 constant-pointer record
 	| Index of the pointer type in {all-constants-concrete}.{pointers}
@@ -823,18 +896,30 @@ constant-pointer record
 	index nat
 to json(a constant-pointer)
 == bool(a constant-pointer, b constant-pointer)
+hash-mix void(hasher hasher, a constant-pointer)
+	hasher hash-mix a.type-index
+	hasher hash-mix a.index
+| Index into {all-constants-concrete}.{records}
 | This is always by-value. Use a {constant-pointer} for a by-ref record.
-constant-record record(args constant[])
-to json(a constant-record)
-	a.args to
+constant-record record(index nat)
 == bool(a constant-record, b constant-record)
+<=> comparison(a constant-record, b constant-record)
+hash-mix void(hasher hasher, a constant-record)
+	hasher hash-mix a.index
+to json(a constant-record)
+	a.index to
 constant-union record(member-index nat, arg constant)
-to json(a constant-union)
 == bool(a constant-union, b constant-union)
+hash-mix void(hasher hasher, a constant-union)
+	hasher hash-mix a.member-index
+	hasher hash-mix a.arg
+to json(a constant-union)
 | All zero bits. Can be used for any type.
 constant-zero record
-to json(a constant-zero)
 == bool(a constant-zero, b constant-zero)
+to json(a constant-zero)
+hash-mix void(_ hasher, _ constant-zero)
+	()
 
 constant-bool constant(a bool)
 	(a.to::nat,)::integral-value to

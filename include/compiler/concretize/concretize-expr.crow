@@ -33,7 +33,7 @@ concretize-fun-body concrete-expr(ctx concretize-ctx, cf concrete-fun, expr expr
 
 # TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
 with-concretize-expr-ctx[t] t(ctx concretize-ctx, fun concrete-fun, f t mut(x concretize-expr-ctx))
-	f[ctx, fun, (fun.params.size,), 0]
+	f[ctx, fun, (fun.params.size,)]
 
 -concretize-bogus concrete-expr(ctx concretize-expr-ctx, type concrete-type, range uri-and-range)
 	ctx.concretize-ctx gen-bogus type, range
@@ -66,7 +66,6 @@ concretize-expr-ctx record mut
 	| This is the concrete-fun for a lambda, not its containing fun.
 	cur-fun concrete-fun
 	local-ids concrete-local-ids
-	-next-lambda-index mut nat
 preserve-lambdas bool(a concretize-expr-ctx)
 	a.concretize-ctx preserve-lambdas
 allocate-mutable-closure-variables bool(a concretize-expr-ctx)
@@ -111,18 +110,13 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 	locals locals,
 	a call-expr,
 )
-	if binary-lazy ?= a.called as-builtin-binary-lazy
-		ctx concretize-builtin-binary-lazy type, range, locals, a.called.fun-inst!, binary-lazy, a.args
-	elif concrete-called ?= ctx get-concrete-fun-from-called a.called
+	if concrete-called ?= ctx get-concrete-fun-from-called a.called
 		if concrete-called.return-type is-bogus
 			ctx concretize-bogus type, range
 		else
 			ctx concretize-call-inner type, range, locals, concrete-called, a.args
 	else
 		ctx concretize-bogus type, range
-
--as-builtin-binary-lazy builtin-binary-lazy?(a called)
-	a.fun-inst?.decl?.body?.builtin-fun?.builtin-binary-lazy
 
 -concretize-call-inner concrete-expr(
 	ctx concretize-expr-ctx,
@@ -133,8 +127,36 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 	args expr[],
 )
 	assert concrete-called.return-type == type
+	concrete-args = ctx get-concrete-args range, locals, concrete-called, args
+	type, range, match concrete-args
+	as constants constants
+		if constant ?= ctx.concretize-ctx try-eval-constant concrete-called, constants.constants, ctx.concretize-ctx.version-info
+			constant to
+		else
+			concrete-called gen-call-kind for p, x : concrete-called.params zip constants.constants
+				p.type, range, x.to
+	as exprs exprs
+		if b ?= concrete-called.body as-builtin-binary-lazy
+			ctx concretize-builtin-binary-lazy type, range, b, exprs.exprs
+		# TODO: -----------------------------------------------------------------------------------------------------------------
+		#elif builtin_ ?= concrete-called.body concrete-fun-body-builtin
+		#	builtin_ builtin-concrete-expr args
+		else
+			concrete-called gen-call-kind exprs.exprs
+
+-as-builtin-binary-lazy builtin-binary-lazy?(a concrete-fun-body)
+	guard x ?= a concrete-fun-body-builtin
+	x.kind builtin-binary-lazy
+
+-get-concrete-args constants-or-exprs(
+	ctx concretize-expr-ctx, 
+	range uri-and-range,
+	locals locals,
+	concrete-called concrete-fun,
+	args expr[],
+)
 	args-may-be-constants = args.is-empty || (concrete-called !is-summon && concrete-called.return-type.purity == data_)
-	concrete-args = if concrete-called is-variadic
+	if concrete-called is-variadic
 		array-type = concrete-called.params.only type
 		element-type = array-type array-element-type
 		pre = args-may-be-constants as-constants-or-exprs-if for arg : args
@@ -143,46 +165,27 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 	else
 		args-may-be-constants as-constants-or-exprs-if for param, arg : concrete-called.params zip args
 			ctx concretize-expr param.type, locals, arg
-	type, range, match concrete-args
-	as constants constants
-		if constant ?= concrete-called try-eval-constant constants.constants, ctx.concretize-ctx.version-info
-			constant to
-		else
-			concrete-called gen-call-kind for p, x : concrete-called.params zip constants.constants
-				p.type, range, x.to
-	as exprs exprs
-		concrete-called gen-call-kind exprs.exprs
-		
--concretize-builtin-binary-lazy concrete-expr(
+
+-concretize-builtin-binary-lazy concrete-expr-kind(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
-	called fun-inst,
 	kind builtin-binary-lazy,
-	args expr[],
+	args concrete-expr[],
 )
-	args.size is 2
-	# TODO: INLINE ----------------------------------------------------------------------------------------------------------
-	arg0 concrete-expr mut(arg-type concrete-type) = arg-type =>
-		ctx concretize-expr arg-type, locals, args[0]
-	arg1 concrete-expr mut(arg-type concrete-type) = arg-type =>
-		ctx concretize-expr arg-type, locals, args[1]
+	arg0, arg1 = args only2
 	# TODO: handle constants here (false && whatever -> false, etc.) ------------------------------------------------------------------------------------------------------
 	match kind
 	as bool-and
-		ctx.concretize-ctx gen-and range, arg0[type], arg1[type]
+		ctx.concretize-ctx gen-and-kind range, arg0, arg1
 	as bool-or
-		ctx.concretize-ctx gen-or range, arg0[type], arg1[type]
+		ctx.concretize-ctx gen-or-kind range, arg0, arg1
 	as option-or
 		# TODO: this should use a let expr to ensure 'a' is only evaluated once! -------------------------------------------------
-		a = arg0[type]
-		range gen-if-option a, ((), a), arg1[type]
+		arg0 gen-if-option-kind ((), arg0), arg1
 	as option-question-2
 		local concrete-local = ctx.local-ids.take-next-id, member::concrete-generated-local-kind.to, type
-		option-type = ctx get-concrete-type called.param-types[0]
-		assert (ctx.concretize-ctx unwrap-option-type option-type) == type
-		range gen-if-option arg0[option-type], ((local,), (range gen-local-get local)), arg1[type]
+		arg0 gen-if-option-kind ((local,), (range gen-local-get local)), arg1
 
 -concretize-call-option concrete-expr(
 	ctx concretize-expr-ctx,
@@ -346,8 +349,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	forbid ctx preserve-lambdas
 	# TODO: handle constants in closure
 	# (do *not* include in the closure type, instead remember them for when compiling the lambda fn)
-	lambda-index = ctx next-lambda-index
-	ctx.next-lambda-index +:= 1
+	lambda-index = ctx.concretize-ctx next-lambda-index
 	closure-fields = ctx concretize-closure-fields e.closure
 	closure-type = ctx.concretize-ctx concrete-type-from-closure closure-fields, (ctx.cur-fun concrete-struct-source-lambda lambda-index)
 	params = ctx.concretize-ctx concretize-lambda-params closure-type, e.param, ctx.type-scope
@@ -357,7 +359,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	closure = if closure-args is-empty && ctx.concretize-ctx !require-unique-union-types
 		ctx.concretize-ctx gen-void range
 	else
-		closure-type gen-create-record range, closure-args
+		ctx.concretize-ctx gen-create-record closure-type, range, closure-args
 	return-type = ctx get-concrete-type e.return-type
 	guard return-type !is-bogus : ctx concretize-bogus type, range
 	fun = ctx.concretize-ctx get-concrete-fun-for-lambda ctx.cur-fun, lambda-index, return-type, e.param, params, e.body
@@ -441,7 +443,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 			reference-type = ctx get-concrete-type local.closure-reference-type!.to
 			reference-local concrete-local = ctx.local-ids.take-next-id, reference::concrete-generated-local-kind.to, reference-type
 			then = f[locals add-local local, reference-local.to]
-			value = reference-type gen-reference-create range, (range gen-local-get root-local)
+			value = ctx.concretize-ctx gen-reference-create reference-type, range, (range gen-local-get root-local)
 			type gen-let range, reference-local, value, then			
 		else
 			f[locals add-local local, root-local.to]
@@ -524,8 +526,14 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	then root-local-and-expr,
 	else_ concrete-expr,
 )
+	else_.type, range, (option gen-if-option-kind then, else_)
+-gen-if-option-kind concrete-expr-kind(
+	option concrete-expr,
+	then root-local-and-expr,
+	else_ concrete-expr,
+)
 	cases concrete-match-union-case[] = ((), else_), (then.root-local, then.expr)
-	else_.type, range, (option match-union-concrete-expr 2.integral-values-range, cases, ())
+	(option match-union-concrete-expr 2.integral-values-range, cases, ())
 
 -concretize-literal-string-like concrete-expr(
 	ctx concretize-expr-ctx,
@@ -947,7 +955,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		array concrete-expr = array-type, range, exprs.exprs.create-array-concrete-expr
 		(array,) exprs
 
--try-eval-constant constant?(fn concrete-fun, args constant[], version version-info)
+-try-eval-constant constant?(ctx concretize-ctx, fn concrete-fun, args constant[], version version-info)
 	match fn body
 	as concrete-fun-body-builtin builtin_
 		match builtin_ kind
@@ -956,6 +964,8 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 			(version is-version x).constant-bool,
 		as builtin-binary x
 			x try-eval-constant-binary args.only2
+		as builtin-binary-lazy x
+			(x eval-constant-binary-lazy args.only2),
 		as builtin-unary x
 			x try-eval-constant-unary args.only
 		as builtin-fun-size-of
@@ -970,16 +980,40 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	as concrete-fun-body-extern _
 		()
 	as concrete-expr x
-		x.kind constant
+		ctx eval-as-constant fn, x, args
 	as concrete-fun-body-var-get _
 		()
 	as concrete-fun-body-var-set _
 		()
 	as concrete-fun-body-deferred _
 		()
+-eval-as-constant constant?(ctx concretize-ctx, fn concrete-fun, a concrete-expr, fn-args constant[]) # TODO: It would be better to have a full AST interpreter
+	match a kind
+	as constant x
+		x,
+	as create-record-concrete-expr x
+		if args ?= for arg : x.args map-or-none; ctx eval-as-constant fn, arg, fn-args
+			(ctx.all-constants get-constant-record a.type, args),
+	# TODO: unions ----------------------------------------------------------------------------------------------------------------------------------------------
+	as local-get-concrete-expr x
+		assert index ?= fn.params index-of x.local
+		fn-args[index],
+	else
+		()
+
 -is-known-empty-type bool(a concrete-type)
 	a.struct.type-size-is-set && a is-empty-type
 
+-eval-constant-binary-lazy constant(fn builtin-binary-lazy, (arg0 constant, arg1 constant))
+	match fn
+	as bool-and
+		(arg0.as-bool && arg1.as-bool) constant-bool
+	as bool-or
+		(arg0.as-bool || arg1.as-bool) constant-bool
+	as option-or
+		throw todo
+	as option-question-2
+		throw todo
 -try-eval-constant-binary constant?(fn builtin-binary, (arg0 constant, arg1 constant))
 	match fn
 	as equal-nat64

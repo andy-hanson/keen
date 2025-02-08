@@ -1,5 +1,6 @@
 import
 	../model/concrete-model
+	../util/full-index-map
 	../util/util
 
 all-constants-builder record mut
@@ -11,8 +12,9 @@ all-constants-builder record mut
 	-arrs arr-type-and-constants mut[concrete-type-id]
 	# Key is the pointee type
 	-pointers pointer-type-and-constants mut[concrete-struct-id]
+	-records constant-record mut[constant[]] mut[concrete-struct-id]
 new all-constants-builder(is-native bool)
-	is-native, (), (), (), (), ()
+	is-native, (), (), (), (), (), ()
 
 -arr-type-and-constants record mut
 	arr-type concrete-struct
@@ -41,7 +43,17 @@ finish-all-constants all-constants-concrete(a all-constants-builder, symbol-arra
 	for _, x : a pointers
 		pointers[x type-index] := x.pointee-type, x.constants.move-to
 
-	a.c-string-values.move-to, static-symbols, arrays.move-to, pointers.move-to
+	records (constant-record, constant[]) full-index-map[concrete-struct-id] = for struct-id, constants : a records
+		lookup constant[][constant-record] = for k, v : constants
+			v, k
+		res (constant-record, constant[]) full-index-map = with out : build
+			for _, i : constants
+				out ~= lookup[i]!
+		for _, args : res
+			forbid args every x => x is-zero
+		struct-id, res
+
+	a.c-string-values.move-to, static-symbols, arrays.move-to, pointers.move-to, records
 
 get-constant-pointer constant(constants all-constants-builder, pointee concrete-struct, value constant)
 	d = constants.pointers ensure pointee.id, () =>
@@ -77,3 +89,24 @@ get-constant-symbol constant(a all-constants-builder, value symbol)
 	res = a.symbols ensure value, () =>
 		a get-constant-c-string-inner value.to
 	res to
+
+get-constant-record constant(a all-constants-builder, struct concrete-struct, args constant[])
+	assert r ?= struct.body concrete-record
+	r.fields.size is args.size
+	if args every x => x is-zero
+		constant-zero
+	else
+		records = a.records ensure struct.id
+		cr = records ensure args, () =>
+			records.size,
+		cr to
+
+get-constant-record constant(a all-constants-builder, type concrete-type, args constant[])
+	a maybe-allocate-constant type, (a get-constant-record type.struct, args)
+
+-maybe-allocate-constant constant(a all-constants-builder, type concrete-type, inner constant)
+	match type reference
+	as by-val_
+		inner
+	as by-ref_
+		a get-constant-pointer type.struct, inner
