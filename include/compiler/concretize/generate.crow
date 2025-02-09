@@ -86,7 +86,9 @@ gen-constant-some concrete-expr(
 	option-type gen-constant range, (1 constant-union inner)
 gen-none concrete-expr(ctx concretize-ctx, option-type concrete-type, range uri-and-range)
 	ctx assert-is-option-type option-type
-	option-type gen-constant range, (0 constant-union constant-zero)
+	none-type = option-type.struct.body.concrete-union!.members[0]
+	none = ctx.all-constants get-constant-record none-type, ()
+	option-type gen-constant range, (0 constant-union none)
 unwrap-option-type concrete-type(ctx concretize-ctx, option-type concrete-type)
 	ctx assert-is-option-type option-type
 	option-type.must-be-by-val.source.concrete-struct-source-inst!.type-args only
@@ -95,7 +97,7 @@ unwrap-option-type concrete-type(ctx concretize-ctx, option-type concrete-type)
 	assert option-type.must-be-by-val.source.concrete-struct-source-inst!.decl == ctx.common-types.option
 
 gen-void concrete-expr(ctx concretize-ctx, range uri-and-range)
-	ctx.void-type gen-constant range, constant-zero
+	ctx.void-type gen-constant range, constant-null
 
 gen-let concrete-expr(
 	type concrete-type,
@@ -120,7 +122,7 @@ gen-record-field-call concrete-fun-body(ctx concretize-ctx, fun concrete-fun, bo
 	record-arg = range gen-param-get fun.params[0]
 	field-index = record-arg.type field-index-from-field body.field
 	field-type = (record-arg.type concrete-field-from-index field-index).type must-be-by-val
-	get-fun = field-type.by-val_ gen-record-field-get range, record-arg, field-index
+	get-fun = ctx gen-record-field-get field-type.by-val_, range, record-arg, field-index
 	type-args = field-type.source.concrete-struct-source-inst! type-args
 	type-args.size is 2
 	call-fun = ctx get-concrete-fun ctx.program.common-funs.lambda-subscript[body fun-kind], type-args, ()
@@ -263,12 +265,12 @@ gen-char32-array concrete-expr(ctx concretize-ctx, range uri-and-range, value st
 	ctx.all-constants get-constant-array type.must-be-by-val, for x : value.to::char32[]
 		x.to integral-value
 
-gen-call-variadic concrete-expr(range uri-and-range, called concrete-fun, args concrete-expr[])
-	range gen-call called, ((called.params.only.type gen-create-array range, args),)
+gen-call-variadic concrete-expr(ctx concretize-ctx, range uri-and-range, called concrete-fun, args concrete-expr[])
+	range gen-call called, ((ctx gen-create-array called.params.only.type, range, args),)
 
--gen-create-array concrete-expr(array-type concrete-type, range uri-and-range, args concrete-expr[])
+-gen-create-array concrete-expr(ctx concretize-ctx, array-type concrete-type, range uri-and-range, args concrete-expr[])
 	if args is-empty
-		array-type gen-constant range, constant-zero
+		array-type gen-constant range, (ctx.all-constants get-constant-array array-type.must-be-by-val, ())
 	else
 		array-type, range, args.create-array-concrete-expr
 
@@ -287,12 +289,17 @@ gen-param-get concrete-expr(range uri-and-range, param concrete-local)
 
 # TODO: INLINE -------------------------------------------------------------------------------------------------------------------
 gen-record-field-get concrete-expr(
+	ctx concretize-ctx,
 	field-type concrete-type,
 	range uri-and-range,
 	arg concrete-expr,
 	field-index nat,
 )
-	field-type, range, (arg record-field-get-concrete-expr field-index)
+	if field-type is-empty-type
+		constant = ctx.all-constants gc-safe-value-for-type field-type
+		ctx gen-drop-then range, arg, (field-type gen-constant range, constant)
+	else
+		field-type, range, arg record-field-get-concrete-expr field-index
 # TODO: INLINE -------------------------------------------------------------------------------------------------------------------
 gen-record-field-pointer concrete-expr(
 	pointer-type concrete-type,
@@ -328,7 +335,7 @@ gen-or-kind concrete-expr-kind(ctx concretize-ctx, range uri-and-range, a concre
 gen-reference-create concrete-expr(ctx concretize-ctx, reference-type concrete-type, range uri-and-range, value concrete-expr)
 	ctx gen-create-record reference-type, range, (value,)
 gen-reference-read concrete-expr(ctx concretize-ctx, range uri-and-range, reference concrete-expr)
-	(ctx get-referenced-type reference.type) gen-record-field-get range, reference, 0
+	ctx gen-record-field-get (ctx get-referenced-type reference.type), range, reference, 0
 gen-reference-write concrete-expr(
 	ctx concretize-ctx,
 	range uri-and-range,

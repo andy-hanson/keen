@@ -5,6 +5,7 @@ import
 	../model/concrete-model
 	../model/integral-values
 	../model/low-model
+	../model/show-low-model
 	../model/source-range
 	../model/type-layout
 	../model/version-info
@@ -35,7 +36,7 @@ lower low-program(
 		nat64-mut-pointer-mut-pointer: get-low-type-ctx get-pointer-mut nat64-mut-pointer
 	vars = get-low-type-ctx get-all-low-vars a.all-vars
 	all-funs = show-ctx get-all-low-funs get-low-type-ctx, common-types, config-extern, a, vars
-	all-constants = get-low-type-ctx convert-all-constants a.all-constants
+	all-constants = show-ctx convert-all-constants get-low-type-ctx, a
 	res low-program = do
 		concrete-program: a
 		concrete-fun-to-low-fun-index: all-funs concrete-fun-to-low-fun-index
@@ -62,14 +63,20 @@ lower low-program(
 			thread-local_
 		source, kind, (ctx low-type-from-concrete-type source.type)
 
--convert-all-constants all-constants-low(ctx get-low-type-ctx, a all-constants-concrete)
+-convert-all-constants all-constants-low(show-ctx show-ctx, ctx get-low-type-ctx, program concrete-program)
+	a = program all-constants
 	arrays arr-type-and-constants-low[] = for x : a arrs
 		array-type = ctx low-type-from-concrete-struct x.arr-type
 		element-type = ctx low-type-from-concrete-type x.element-type
 		array-type.low-record!, element-type, x.constants
-	pointers pointer-type-and-constants-low[] = for x : a pointers
-		(ctx low-type-from-concrete-struct x.pointee-type), x.constants
-	a, arrays, pointers
+	records record-type-and-constants-low[concrete-struct-id] = with out : build
+		for id, constants : a records
+			assert struct ?= program.structs-by-id[id] : "Don't have the struct {id.value}" error # TODO: just assert -------------------------------
+			type = ctx low-type-from-concrete-struct struct
+			unless type is-void
+				assert record_ ?= type low-record : "Got type, but it's not a record, it's {show-ctx show-low-type ctx.all-types, type}" error
+				out ~= (id, (record_, constants))
+	a, arrays, records
 
 -all-low-funs record mut
 	concrete-fun-to-low-fun-index concrete-fun-to-low-fun-index
@@ -674,10 +681,9 @@ mut-concrete-fun-to-low-fun-index alias
 	as match-union-concrete-expr x
 		ctx get-match-union-expr locals, expr-pos, type, range, x
 	as record-field-get-concrete-expr x
-		ctx handle-expr-pos expr-pos, if ctx.all-types is-empty-type type
-			range gen-drop-then (ctx get-low-expr locals, x.record_, expr-pos), (type gen-zeroed range)
-		else
-			type gen-record-field-get range, (ctx get-low-expr locals, x.record_, non-tail), x.field-index
+		# TODO: checking for empty type should be done in concretize ..........................................................................................
+		forbid ctx.all-types is-empty-type type
+		ctx handle-expr-pos expr-pos, (type gen-record-field-get range, (ctx get-low-expr locals, x.record_, non-tail), x.field-index)
 	as record-field-pointer-concrete-expr x
 		record_ = ctx get-low-expr locals, x.record_, non-tail
 		ctx handle-expr-pos expr-pos, (type gen-record-field-pointer range, record_, x.field-index)
@@ -716,7 +722,7 @@ mut-concrete-fun-to-low-fun-index alias
 	arg low-expr,
 )
 	if ctx.all-types is-empty-type arg.type
-		null = type gen-zeroed range
+		null = type gen-null range
 		ctx handle-expr-pos expr-pos, if arg may-have-side-effects
 			range gen-drop-then arg, null
 		else
@@ -1054,8 +1060,9 @@ mut-concrete-fun-to-low-fun-index alias
 	ctx with-push-all-gc-roots locals, range, expr-pos, false, a.args, (inner-pos, args) =>
 		alloc = type.low-pointer-gc !is-empty
 		record-type = alloc ? type.as-gc-pointee : type
+		# TODO: checking for type void should be done in concretize -----------------------------------------------------------------------------------------------
 		record_ = if type is-void
-			range gen-drop-all-then args, (type gen-zeroed range)
+			range gen-drop-all-then args, (type gen-null range)
 		else
 			record-type gen-create-record-no-gc-roots range, args
 		if alloc
@@ -1188,7 +1195,7 @@ mut-concrete-fun-to-low-fun-index alias
 	res = if type == void-type
 		call-throw
 	else
-		range gen-seq call-throw, (type gen-zeroed range)
+		range gen-seq call-throw, (type gen-gc-safe-value range)
 	if expr-pos.kind == loop_
 		type gen-loop-break range, res
 	else
@@ -1229,7 +1236,7 @@ mut-concrete-fun-to-low-fun-index alias
 			err = "err" gen-local true, ctx.next-local-index, bool-type
 			below = ctx get-low-expr locals, a.below, non-tail
 			set-err = range gen-local-set err, range.gen-true
-			res = ctx gen-setup-catch range, below, (range gen-seq restore-gc-root, set-err, (type gen-zeroed range))
+			res = ctx gen-setup-catch range, below, (range gen-seq restore-gc-root, set-err, (type gen-gc-safe-value range))
 			right = ctx get-low-expr locals, a.right, non-tail
 			if_ = range gen-if (range gen-identifier err), (ctx gen-rethrow-current-exception range), range.gen-void
 			after-res = range gen-seq restore-cur-catch-point, right, if_
@@ -1346,7 +1353,7 @@ mut-concrete-fun-to-low-fun-index alias
 	set-catch-point = ctx gen-set-cur-catch-point range, (ctx.common-types.catch-point-const-pointer gen-local-pointer range, store)
 	else_ = range gen-seq set-catch-point, tried
 	if_ = range gen-if setup-catch, on-catch, else_
-	range gen-let-no-gc-root store, (ctx.common-types.catch-point gen-zeroed range), if_
+	range gen-let-no-gc-root store, (ctx.common-types.catch-point gen-gc-safe-value range), if_
 
 -gen-get-cur-thrown low-expr(ctx get-low-expr-ctx, range uri-and-range)
 	ctx.common-funs.exception-type gen-var-get range, ctx.common-funs.cur-thrown

@@ -249,7 +249,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 -get-closure-field concrete-expr(ctx concretize-expr-ctx, range uri-and-range, a closure-ref)
 	forbid ctx preserve-lambdas
 	info = ctx get-closure-field-info a
-	info.field-type gen-record-field-get range, (range gen-param-get info.closure-param), info.field-index
+	ctx.concretize-ctx gen-record-field-get info.field-type, range, (range gen-param-get info.closure-param), info.field-index
 
 -concretize-closure-set concrete-expr(
 	ctx concretize-expr-ctx,
@@ -321,7 +321,8 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	e lambda-expr,
 )
 	if ctx preserve-lambdas
-		forbid e.kind == explicit-shared : todo # For Java, we need to do something for these ---------------------------------------------
+		if ctx is-java
+			forbid e.kind == explicit-shared : todo # For Java, we need to do something for these ---------------------------------------------
 		return-type = ctx get-concrete-type e.return-type
 		param-type = ctx get-concrete-type e.param.type
 		body = ctx concretize-expr-with-destructure return-type, range, locals, e.param, e.body
@@ -489,10 +490,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		value-type = get-temp.type.must-be-by-val.body.concrete-record!.fields[part-index] type
 		expected-type = ctx get-concrete-type part.type
 		if expected-type == value-type
-			value concrete-expr = value-type, range, if value-type is-void
-				constant-zero to
-			else
-				get-temp record-field-get-concrete-expr part-index
+			value = ctx.concretize-ctx gen-record-field-get value-type, range, get-temp, part-index
 			ctx concretize-with-destructure-and-let type, range, locals, part, value, inner =>
 				ctx concretize-with-destructure-parts-recur type, inner, get-temp, parts, part-index + 1, f
 		else
@@ -590,8 +588,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		else
 			type gen-local-pointer range, local
 	as typed-constant x
-		# TODO: what if pointee is a reference?
-		type gen-constant range, (ctx.all-constants get-constant-pointer x.type.must-be-by-val, x.value)
+		type gen-constant range, x.value
 
 -concretize-local-set concrete-expr(
 	ctx concretize-expr-ctx,
@@ -971,10 +968,9 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		as builtin-fun-size-of
 			assert args is-empty
 			if fn.source.concrete-fun-source-regular!.type-args.only is-known-empty-type
-				constant-zero,
+				0.integral-value,
 		as builtin-fun-gc-safe-value
-			assert args is-empty
-			constant-zero,
+			throw unreachable # compiles to a constant
 		else
 			()
 	as concrete-fun-body-extern _

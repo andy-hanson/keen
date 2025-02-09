@@ -33,7 +33,8 @@ translate-to-js js-and-map(
 	vars js-var-decl[] = with out : build
 		for var : concrete-program all-vars
 			destructure js-destructure = ctx js-name var to
-			out ~= (let, destructure, ())
+			value = ctx source var gc-safe-value-for-type var.type
+			out ~= (let, destructure, (value,))
 	functions js-fun-decl[] = for x : concrete-program all-funs
 		ctx to-js-function x
 	statements js-statement[] = (ctx gen-call-main concrete-program.common-funs.concrete-common-funs-js!.main),
@@ -209,6 +210,9 @@ translate-to-js js-and-map(
 -source source(ctx to-js-ctx, a concrete-fun)
 	range = a range
 	range.uri, (ctx debug-name a), ctx.line-and-character-getters[range].range.start
+-source source(ctx to-js-ctx, a concrete-var)
+	range = a range
+	range.uri, a.source.name, ctx.line-and-character-getters[range].range.start
 -debug-name symbol(ctx to-js-ctx, a concrete-fun)
 	ctx.show-ctx show-concrete-fun-name a to
 
@@ -345,7 +349,9 @@ translate-to-js js-and-map(
 	expr-ctx to-expr-ctx = ctx, a, (), (), 0
 	params js-destructure[] = for param : a params
 		expr-ctx local-name param to
+	#info log "TRANSLATE FUNCTION {ctx.show-ctx show-concrete-fun-sig a, false} {a.range.to::json}" # -------------------------------------------------------------------------------
 	body = expr-ctx to-block-statement a
+	#info log "DONE" # ---------------------------------------------------------------------------------------------------------
 	comment = ctx.show-ctx show-concrete-fun-sig a, ((ctx is-async a) == async)
 	comment, name, (async, (params, ()), body)
 
@@ -420,8 +426,7 @@ translate-to-js js-and-map(
 	as builtin-fun-constant _
 		source throw-message "Reached builtin-fun-constant?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-gc-safe-value
-		args.size is 0
-		source.gen-null to
+		throw unreachable
 	as builtin-fun-init _
 		source throw-message "Reached builtin-fun-init?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as java-fun _
@@ -1332,11 +1337,11 @@ translate-to-js js-and-map(
 		as constant-record r
 			source gen-new class_, for field, arg : x.fields zip ctx.program.all-constants.records[type id]![r] # TODO: use a global const instead of creating a new one each time
 				ctx translate-constant source, field.type.struct, arg
-		as constant-zero
-			if x.fields is-empty
-				source gen-new class_, ()
-			else
-				source gen-null
+		as constant-gc-safe-value
+			error log "TWAS A GC SAFE VALUE FOR RECORD?" # -----------------------------------------------------------------
+			throw unreachable
+		as constant-null
+			source gen-null
 		else
 			throw unreachable
 	as concrete-union u
@@ -1348,7 +1353,9 @@ translate-to-js js-and-map(
 			index = source gen-integer-unsigned constant.member-index
 			value = ctx translate-constant source, case-type.struct, constant.arg
 			source gen-new (ctx to-ref source, type), (index, value)
-		as constant-zero
+		as constant-gc-safe-value
+			source gen-null
+		as constant-null
 			source gen-null
 		else
 			throw unreachable
@@ -1368,7 +1375,10 @@ translate-to-js js-and-map(
 		as constant-c-string x
 			# TODO: 'get-constant-symbol' is hardcoded to generate a c-string. It made sense for the native build but not any more ...
 			ctx.program.all-constants.c-strings[x index]
-		as constant-zero
+		as constant-gc-safe-value
+			""
+		as constant-null
+			# TODO: there should never be a null string?? -----------------------------------------------------------------------------cc
 			""
 		else
 			throw unreachable
@@ -1380,7 +1390,7 @@ translate-to-js js-and-map(
 			element-type = builtin_.type-args[0]
 			source gen-array for x : elements
 				ctx translate-constant source, element-type.struct, x
-		as constant-zero
+		as constant-gc-safe-value
 			source gen-array ()
 		else
 			throw unreachable
@@ -1445,6 +1455,23 @@ translate-to-js js-and-map(
 		string[]
 	as void
 		source gen-undefined
+
+-gc-safe-value-for-type js-expr(source source, type concrete-type)
+	match type.struct body
+	as concrete-builtin-type _
+		source gen-integer-unsigned 0 # TODO: not all builtins are numbers ................................................
+	as concrete-enum _
+		source gen-integer-unsigned 0
+	as concrete-extern-type
+		source gen-null
+	as concrete-flags _
+		source gen-integer-unsigned 0
+	as concrete-record _
+		source gen-null
+	as concrete-union _
+		source gen-null
+	as concrete-struct-body-deferred
+		throw unreachable
 
 -constant-integral js-expr(source source, type integral-type, a constant)
 	value = a as-integral

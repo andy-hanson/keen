@@ -64,7 +64,7 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 		for fun-index, fun : program all-funs
 			out ~~= ctx fun-declaration fun-index, fun
 		
-		out write-constants ctx, program.all-constants
+		out write-declare-constants ctx, program.all-constants
 		out write-vars ctx, program.vars
 
 		for fun-index, fun : program all-funs
@@ -209,7 +209,7 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 -c-string-name string(index nat)
 	"__cString{index}"
 
--write-constants void(out string-builder, ctx ctx, all-constants all-constants-low)
+-write-declare-constants void(out string-builder, ctx ctx, all-constants all-constants-low)
 	# Need to ensure strings are written only once so MSVC doesn't create duplicates (which breaks Symbol uniqueness)
 	for index, x : all-constants.c-strings with-index
 		out ~~= "char {index c-string-name}[{x.size-char8s + 1}] = {ctx.is-msvc string-literal-with-nul x};\n"
@@ -221,9 +221,9 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 			out ~~= ctx declare-constant-array-storage a.arr-type, a.element-type, i, elements.size
 			out ~~= ";\n"
 	
-	for a : all-constants pointers
-		for i : 0::nat .. a.constants.size
-			out ~~= ctx declare-constant-pointer-storage a.pointee-type, i
+	for _, x : all-constants records
+		for i, _ : x constants
+			out ~~= ctx declare-constant-record x.record-type, i
 			out ~~= ";\n"
 	
 	for a : all-constants arrays
@@ -234,12 +234,26 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 			out ~~= ctx array-constant a.element-type, elements
 			out ~~= ";\n"
 	
-	for a : all-constants pointers
-		for i, pointee : a.constants with-index
-			out ~~= ctx declare-constant-pointer-storage a.pointee-type, i
+	# TODO: we only actually need the ones that have a pointer to them, others will be written inline --------------------------
+	for _, x : all-constants records
+		for i, (cr, args) : x.constants with-index
+			cr.index is i # TODO: then don't need with-index -------------------------------------------------------------
+			out ~~= ctx declare-constant-record x.record-type, cr
 			out ~~= " = "
-			out write-constant-ref ctx, inner, a.pointee-type, pointee
+			out write-constant-record-value ctx, x.record-type, args, in-constant-initializer
 			out ~~= ";\n"
+
+-write-constant-record-value void(out string-builder, ctx ctx, record-type low-record, args constant[], kind write-constant-kind)
+	out ~~= "\{ "
+	first mut = true
+	for field, arg : record-type.fields zip args
+		if ctx !is-empty-type field.type # TODO: we should just omit the field from low-model then? -------------------------------
+			if first
+				first := false
+			else
+				out ~~= ", "
+			out write-constant-ref ctx, inner, field.type, arg, kind
+	out ~~= " }"
 
 -array-constant string(ctx ctx, element-type low-type, elements constant[])
 	if element-type is-char8
@@ -261,7 +275,7 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 					first := false
 				else
 					out ~~= ", "
-				out write-constant-ref ctx, inner, element-type, x
+				out write-constant-ref ctx, inner, element-type, x, in-constant-initializer
 			out ~~= " }"
 
 -escaped-char-for-c-string string(a char32)
@@ -342,9 +356,9 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 	name = ctx.mangled-names constant-arr-storage-name ctx.program, array-type, index
 	"{ctx write-type element-type} {name}[{n-elements}]"
 
--declare-constant-pointer-storage string(ctx ctx, pointee-type low-type, index nat)
-	type = ctx write-struct-type pointee-type.low-record!.source
-	"{type} {ctx.mangled-names constant-pointer-storage-name ctx.program, pointee-type, index}"
+-declare-constant-record string(ctx ctx, record-type low-record, index constant-record)
+	type = ctx write-struct-type record-type.source
+	"{type} {ctx.mangled-names constant-record-name ctx.program, record-type, index}"
 
 -ctx record mut
 	show-ctx show-ctx
@@ -404,7 +418,7 @@ write-to-c write-to-c-result(show-ctx show-ctx, program low-program, params writ
 -struct-end string()
 	"\n};\n"
 
-# TODO: empty types should just compile to 'void' -------------------------------------------------------------------------------------
+# TODO: empty types should just compile to 'void'. ALso, this should just call the function in 'concrete-model' -------------------------------------------------------------------------------------
 -is-empty-type bool(ctx ctx, a low-type)
 	(ctx.program size-of-type a).size-bytes == 0
 -is-empty-type bool(ctx fun-body-ctx, a low-type)
@@ -745,7 +759,7 @@ temp record(index nat)
 			out ~~= " = "
 			out write-temp-or-inline ctx, x.value, field-value
 	as constant x
-		inlineable-simple[() => out write-constant-ref ctx.ctx, outer, type, x]
+		inlineable-simple[() => out write-constant-ref ctx.ctx, outer, type, x, in-expr]
 	as special-unary-low-expr x
 		out write-special-unary indent, ctx, write-kind, type, x
 	as special-unary-math-low-expr x
@@ -935,7 +949,7 @@ temp record(index nat)
 			as write-kind-return
 				out ~~= indent newline
 				out ~~= if need-value
-					"return {ctx.ctx zeroed-value type};"
+					"return {ctx.ctx gc-safe-value type};"
 				else
 					"return;"
 				write-expr-done
@@ -951,7 +965,7 @@ temp record(index nat)
 				out ~= "("
 			out ~~= "abort()"
 			if need-value
-				out ~~= ", {ctx.ctx zeroed-value type})"
+				out ~~= ", {ctx.ctx gc-safe-value type})"
 
 -write-call-expr write-expr-result(
 	out string-builder, 
@@ -1077,14 +1091,16 @@ temp record(index nat)
 | For some reason, providing a type for a record makes it non-constant.
 | But that is mandatory at the outermost level.
 -constant-ref-pos enum(outer, inner)
-== bool(a constant-ref-pos, b constant-ref-pos)
+-== bool(a constant-ref-pos, b constant-ref-pos)
 
+-write-constant-kind enum(in-constant-initializer, in-expr)
 -write-constant-ref void(
 	out string-builder,
 	ctx ctx,
 	pos constant-ref-pos,
 	type low-type,
 	a constant,
+	kind write-constant-kind
 )
 	forbid ctx is-empty-type type
 	all-constants = ctx.program all-constants
@@ -1118,28 +1134,29 @@ temp record(index nat)
 			out ~= ")"
 	as integral-value x
 		out write-constant-integral ctx, type, x
-	as constant-pointer x
-		out ~= "&"
-		out ~~= ctx.mangled-names constant-pointer-storage-name ctx.program, type.as-gc-pointee, x.index
 	as constant-record x
-		if pos == outer
-			out ~~= ctx cast-to-type type
-		out ~= "\{"
-		first mut = true
-		struct = type.low-record!.source
-		for field, arg : type.low-record!.fields zip all-constants.records[struct id]![x]
-			if ctx !is-empty-type field.type
-				if first
-					first := false
-				else
-					out ~~= ", "
-				out write-constant-ref ctx, inner, field.type, arg
-		out ~= "}"
+		if type is-pointer-gc-or-raw && type.as-pointee is-void
+			out ~~= "NULL"
+		else
+			name string mut(inner-type low-type) = inner-type =>
+				ctx.mangled-names constant-record-name ctx.program, inner-type.low-record!, x
+			if type is-pointer-gc-or-raw
+				out ~~= "&{name[type as-pointee]}"
+			else
+				match kind
+				as in-constant-initializer
+					record_ = type low-record!
+					args = ctx.program.all-constants.records[record_.source.id]!.constants[x]
+					out write-constant-record-value ctx, record_, args, kind
+				as in-expr
+					out ~~= name[type]
 	as constant-union x
 		out write-create-union ctx, pos, type, x.member-index, () =>
-			out write-constant-ref ctx, inner, type.low-union!.members[x member-index], x.arg
-	as constant-zero
-		out ~~= ctx zeroed-value type
+			out write-constant-ref ctx, inner, type.low-union!.members[x member-index], x.arg, kind
+	as constant-gc-safe-value
+		out ~~= ctx gc-safe-value type
+	as constant-null
+		out ~~= ctx gc-safe-value type
 
 -write-constant-integral void(out string-builder, ctx ctx, type low-type, a integral-value)
 	primitive = type primitive-type!
@@ -1424,7 +1441,7 @@ temp record(index nat)
 		out write-temp-or-inlines ctx, args, temps
 		out ~= ")"
 
--zeroed-value string(ctx ctx, type low-type)
+-gc-safe-value string(ctx ctx, type low-type)
 	match type combine-pointer
 	as low-extern-type _
 		"{ctx cast-to-type type}\{\{0}}"
@@ -1438,7 +1455,7 @@ temp record(index nat)
 	as low-record x
 		filtered-fields low-field[] = x.fields filter field => ctx !is-empty-type field.type
 		zeroed-fields string = ", " join for field : filtered-fields
-			ctx zeroed-value field.type
+			ctx gc-safe-value field.type
 		"{ctx cast-to-type type}\{ {zeroed-fields} }"
 	as low-union _
 		"{ctx cast-to-type type}\{0}"

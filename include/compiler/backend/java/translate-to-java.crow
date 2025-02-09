@@ -1063,11 +1063,10 @@ translate-to-java (string, string)[](
 		as constant-record r
 			class_ java-new for field, arg : x.fields zip ctx.program.all-constants.records[type id]![r] # TODO: use a final static field instead of creating a new one every time
 				ctx translate-constant field.type.struct, arg
-		as constant-zero
-			if x.fields is-empty
-				class_ java-new ()
-			else
-				java-null
+		as constant-gc-safe-value
+			java-null
+		as constant-null
+			java-null
 		else
 			throw unreachable
 	as concrete-union u
@@ -1080,7 +1079,9 @@ translate-to-java (string, string)[](
 				"Union" java-new (constant.member-index.to.java-literal-int32-or-less, boxed-value)
 			else
 				ctx as-type type java-cast boxed-value
-		as constant-zero
+		as constant-gc-safe-value
+			java-null
+		as constant-null
 			java-null
 		else
 			throw unreachable
@@ -1098,24 +1099,23 @@ translate-to-java (string, string)[](
 			chars to
 		as constant-c-string x
 			ctx.program.all-constants.c-strings[x index]
-		as constant-zero
-			""
+		as constant-gc-safe-value
+			"" # TODO: use null? ----------------------------------------------------------------------------------------------------------
 		else
 			throw unreachable
 		value java-literal-string
-	match builtin_ kind
-	as array
+	array java-expr mut(must-be-empty bool) = must-be-empty =>
 		element-type = builtin_.type-args only
 		java-element-type = ctx as-type element-type
-		match a
-		as constant-array ca
-			elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: have a helper function for this
-			java-element-type java-literal-array for x : elements
-				ctx translate-constant element-type.struct, x
-		as constant-zero
-			java-element-type java-literal-array ()
-		else
-			throw unreachable
+		ca = a constant-array!
+		elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: have a helper function for this
+		if must-be-empty
+			assert elements is-empty
+		java-element-type java-literal-array for x : elements
+			ctx translate-constant element-type.struct, x
+	match builtin_ kind
+	as array
+		array[false]
 	as bool
 		a.as-bool java-literal-boolean
 	as catch-point
@@ -1168,7 +1168,7 @@ translate-to-java (string, string)[](
 	as mut-pointer
 		error["MUT-POINTER"]
 	as mut-slice
-		error["MUT-SLICE"]
+		array[true]
 	as nat8
 		nat8 constant-integral a
 	as nat16
@@ -1271,8 +1271,7 @@ translate-to-java (string, string)[](
 	as builtin-fun-constant _
 		throw unreachable
 	as builtin-fun-gc-safe-value
-		args.size is 0
-		pos simple-expr type.gc-safe-value
+		throw unreachable
 	as builtin-fun-init _
 		throw unreachable
 	as java-fun x

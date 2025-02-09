@@ -81,7 +81,22 @@ is-void bool(a concrete-struct)
 is-empty-type bool(a concrete-type)
 	a.reference == by-val_ && a.struct is-empty-struct
 is-empty-struct bool(a concrete-struct)
-	a.type-size.size-bytes == 0
+	# Don't rely on type-size since that may not be set yet
+	match a body
+	as concrete-builtin-type x
+		x.kind == void
+	as concrete-enum _
+		false
+	as concrete-extern-type _
+		false # TODO: it's possible to specify an empty extern type .......................................................
+	as concrete-flags _
+		false
+	as concrete-record x
+		x.fields every f => f.type is-empty-type
+	as concrete-union _
+		false
+	as concrete-struct-body-deferred
+		false
 is-flags bool(a concrete-type)
 	a.reference == by-val_ && a.struct is-flags
 is-flags bool(a concrete-struct)
@@ -224,6 +239,16 @@ is-string bool(a concrete-type)
 is-string bool(a concrete-struct)
 	if x ?= a.source concrete-struct-source-inst
 		x.decl is-string
+is-symbol bool(a concrete-type)
+	a.reference == by-val_ && a.struct is-symbol
+is-symbol bool(a concrete-struct)
+	if x ?= a.source concrete-struct-source-inst
+		x.decl is-symbol
+is-js-any bool(a concrete-type)
+	a.reference == by-val_ && a.struct is-js-any
+is-js-any bool(a concrete-struct)
+	if x ?= a.source concrete-struct-source-inst
+		x.decl is-js-any
 is-tuple bool(a concrete-type)
 	a.reference == by-val_ && a.struct is-tuple
 is-tuple bool(a concrete-struct)
@@ -599,17 +624,11 @@ arr-type-and-constants-concrete record mut
 	element-type concrete-type # TODO: don't need to store this, can get it from arr-type ----------------------------------------
 	constants constant[][]
 
-pointer-type-and-constants-concrete record mut
-	pointee-type concrete-struct # TODO: is this needed? If we have the type of the pointer we can get this anyway ---------------
-	constants constant[]
-
 # TODO: rename -- this is not all constants, just the ones by-ref
 all-constants-concrete record mut
 	c-strings string[]
 	static-symbols constant
 	arrs arr-type-and-constants-concrete[] # TODO: rename to 'arrays' ----------------------------------------------------------------
-	| These are just the by-ref records
-	pointers pointer-type-and-constants-concrete[]
 	| Maps a {constant-record} to the record values.
 	| Note a constant record is always by-value, use 'pointers' for pointers.
 	records (constant-record, constant[]) full-index-map[concrete-struct-id]
@@ -622,6 +641,8 @@ hash-mix void(a hasher, b concrete-var-id)
 concrete-var record(id concrete-var-id, source var-decl, type concrete-type) mut
 kind var-kind(a concrete-var)
 	a.source kind
+range uri-and-range(a concrete-var)
+	a.source range
 module-uri uri(a concrete-var)
 	a.source module-uri
 
@@ -629,6 +650,7 @@ concrete-program record mut
 	version version-info
 	all-constants all-constants-concrete
 	all-structs concrete-struct[]
+	structs-by-id concrete-struct[concrete-struct-id]
 	all-vars concrete-var[]
 	all-funs concrete-fun[]
 	funs-by-id concrete-fun[concrete-fun-id] # TODO: I only needed this for debugging --------------------------------------
@@ -748,36 +770,14 @@ constant union(
 	constant-float,
 	constant-fun-pointer,
 	integral-value,
-	constant-pointer,
 	constant-record,
 	constant-union,
-	constant-zero # TODO: could I get rid of this and just use a constant of the appropriate type? ---------------------------------
+	constant-gc-safe-value, # TODO: could I get rid of this and just use a constant of the appropriate type? ---------------------------------
+	constant-null # Needed for gc-safe-value of certain types
 )
 to json(a constant)
 # This assumes the constants are for the same type
 == bool(a constant, b constant)
-	if _ ?= b constant-zero
-		a is-zero
-	else
-		match a
-		as constant-array x
-			b.constant-array! == x
-		as constant-c-string x
-			b.constant-c-string! == x
-		as constant-float x
-			b.constant-float! == x
-		as constant-fun-pointer x
-			b.constant-fun-pointer! == x
-		as integral-value x
-			b.integral-value! == x
-		as constant-pointer x
-			b.constant-pointer! == x
-		as constant-record x
-			b.constant-record! == x
-		as constant-union x
-			b.constant-union! == x
-		as constant-zero
-			b is-zero
 <=> comparison(_ constant, _ constant)
 	throw todo # This is required by 'mut-map' but not actually used .........................................................
 hash-mix void(hasher hasher, a constant)
@@ -792,42 +792,24 @@ hash-mix void(hasher hasher, a constant)
 		hasher hash-mix x
 	as integral-value x
 		hasher hash-mix x
-	as constant-pointer x
-		hasher hash-mix x
 	as constant-record x
 		hasher hash-mix x
 	as constant-union x
 		hasher hash-mix x
-	as constant-zero x
+	as constant-gc-safe-value x
 		hasher hash-mix x
-is-zero bool(a constant)
-	match a
-	as constant-array _
-		# We only create this for non-empty arrays
-		false
-	as constant-c-string _
-		false
-	as constant-float x
-		# TODO: This would be true for -0, but that doesn't have all 0 bits ...
-		x.value == 0
-	as constant-fun-pointer _
-		false
-	as integral-value x
-		x.as-unsigned == 0
-	as constant-pointer _
-		false
-	as constant-record _
-		# We don't create the constant-record in that case
-		false
-	as constant-union x
-		x.member-index == 0 && x.arg is-zero
-	as constant-zero
-		true
-each-nested-constant void(all-constants all-constants-concrete, type concrete-type, a constant, f void mut(x constant))
-	f[a]
+	as constant-null
+		()
+each-nested-constant void(
+	all-constants all-constants-concrete,
+	type concrete-type,
+	a constant,
+	f void mut(type concrete-type, value constant),
+)
+	f[type, a]
 	match a
 	as constant-array xs
-		elem concrete-type = if type is-string
+		elem concrete-type = if type is-string || type is-symbol || type is-js-any
 			type # TODO: this should be char8, but it doesn't matter right now ----------------------------------------------------------
 		else
 			type array-element-type
@@ -841,18 +823,18 @@ each-nested-constant void(all-constants all-constants-concrete, type concrete-ty
 		()
 	as integral-value _
 		()
-	as constant-pointer x
-		all-constants each-nested-constant type.pointee-type, all-constants.pointers[x type-index].constants[x index], f
 	as constant-record x
-		fields = type.must-be-by-val.body.concrete-record!.fields
+		fields = type.struct.body.concrete-record! fields
 		args = all-constants.records[type.struct id]![x]
 		for arg, field : args zip fields
 			all-constants each-nested-constant field.type, arg, f
 	as constant-union x
 		member-type = type.must-be-by-val.body.concrete-union!.members[x.member-index]
 		all-constants each-nested-constant member-type, x.arg, f 
-	as constant-zero
-		()	
+	as constant-gc-safe-value
+		()
+	as constant-null
+		()
 
 constant-array record
 	| Index of the array type in {all-constants-concrete}.{arrs}
@@ -888,19 +870,7 @@ to json(a constant-fun-pointer)
 == bool(a constant-fun-pointer, b constant-fun-pointer)
 hash-mix void(hasher hasher, a constant-fun-pointer)
 	hasher hash-mix a.fun
-| Pointer (or gc-pointer) to another constant
-constant-pointer record
-	| Index of the pointer type in {all-constants-concrete}.{pointers}
-	type-index nat
-	| Index within that pointer type
-	index nat
-to json(a constant-pointer)
-== bool(a constant-pointer, b constant-pointer)
-hash-mix void(hasher hasher, a constant-pointer)
-	hasher hash-mix a.type-index
-	hasher hash-mix a.index
 | Index into {all-constants-concrete}.{records}
-| This is always by-value. Use a {constant-pointer} for a by-ref record.
 constant-record record(index nat)
 == bool(a constant-record, b constant-record)
 <=> comparison(a constant-record, b constant-record)
@@ -914,11 +884,17 @@ hash-mix void(hasher hasher, a constant-union)
 	hasher hash-mix a.member-index
 	hasher hash-mix a.arg
 to json(a constant-union)
-| All zero bits. Can be used for any type.
-constant-zero record
-== bool(a constant-zero, b constant-zero)
-to json(a constant-zero)
-hash-mix void(_ hasher, _ constant-zero)
+# TODO: Shouldn't ever need this, just constant-null! -----------------------------------------------------------------------------
+constant-gc-safe-value record
+== bool(a constant-gc-safe-value, b constant-gc-safe-value)
+to json(a constant-gc-safe-value)
+hash-mix void(_ hasher, _ constant-gc-safe-value)
+	()
+| Also works for 'void'
+constant-null record
+== bool(a constant-null, b constant-null)
+to json(a constant-null)
+hash-mix void(_ hasher, _ constant-null)
 	()
 
 constant-bool constant(a bool)
@@ -939,10 +915,4 @@ as-float float64(a constant)
 	a.constant-float! value
 
 as-integral integral-value(a constant)
-	match a
-	as constant-zero
-		0::nat,
-	as integral-value x
-		x
-	else
-		throw unreachable
+	a integral-value!
