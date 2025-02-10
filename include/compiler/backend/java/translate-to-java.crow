@@ -26,8 +26,10 @@ translate-to-java (string, string)[](
 		funs-lookup: concrete-program.funs-lookup
 		mangled-names: concrete-program build-mangled-names
 		structs-for-integrals: concrete-program.get-structs-for-integrals
+		constant-names: ()
 
 	classes java-class[] = with out : build
+		out ~~= ctx translate-constants
 		for struct : concrete-program all-structs
 			out ~~= ctx translate-struct struct
 		out ~~= ctx translate-functions-and-vars concrete-program
@@ -41,6 +43,189 @@ translate-to-java (string, string)[](
 			constructor: ()
 			methods: (ctx.call-main,)
 	((), classes) write-java-ast
+
+# Since having all constants in one class would be too big, put the constants with their struct
+-translate-constants java-class[](ctx to-java-ctx)
+	constant-array-names class-and-member mut[nat] mut[concrete-struct-id] = ()
+	constant-record-names class-and-member mut[constant-record] mut[concrete-struct-id] = ()
+	constant-union-names class-and-member mut[constant-union] mut[concrete-struct-id] = ()
+
+	cur-class-index mut nat = 0
+	cur-class-name mut string = "constants{cur-class-index}"
+	field-index mut nat = 0
+	ctx.show-ctx.show each-constant-in-dependency-order ctx.program, constant =>
+		if field-index >= max-constants-per-class
+			cur-class-index +:= 1
+			cur-class-name := "constants{cur-class-index}"
+			field-index := 0
+		class-and-member class-and-member = cur-class-name, "x{field-index}"
+		field-index +:= 1
+		match constant
+		as single-constant-array x
+			(constant-array-names ensure constant.type.id)[x index] := class-and-member
+		as single-constant-record x
+			(constant-record-names ensure constant.type.id)[x constant] := class-and-member
+		as single-constant-union x
+			(constant-union-names ensure constant.type.id)[x constant] := class-and-member
+
+	ctx.constant-names := do
+		arrays: for k, v : constant-array-names
+			k, v.move-to
+		records: for k, v : constant-record-names
+			k, v.move-to
+		unions: for k, v : constant-union-names
+			k, v.move-to
+	
+	fields-per-class java-field mut[] mut[string] = ()
+	ctx.show-ctx.show each-constant-in-dependency-order ctx.program, constant =>
+		name class-and-member, value java-expr = match constant
+		as single-constant-array x
+			java-element-type = ctx as-type x.element-type
+			v = java-element-type java-literal-array for e : x.elements
+				ctx translate-constant-reference x.element-type.struct, e
+			ctx.constant-names.arrays[constant.type id]![x index]!, v
+		as single-constant-record x
+			v = ctx as-class x.record-type java-new for arg, field : x.args zip x.fields
+				ctx translate-constant-reference field.type.struct, arg
+			ctx.constant-names.records[constant.type id]![x constant]!, v
+		as single-constant-union x
+			case-type = x.member-type
+			value = ctx translate-constant-reference x.member-type, x.value.member
+			boxed-value = ctx box case-type, value
+			v = if ctx union-needs-kind x.union-type
+				"Union" java-new (x.value.member-index.to.java-literal-int32-or-less, boxed-value)
+			else
+				ctx as-type x.union-type java-cast boxed-value
+			ctx.constant-names.unions[constant.type id]![x constant]!, v
+		fields-per-class ensure name.class_ ~= do
+			visibility: internal
+			kind: static
+			field-kind: final
+			type: ctx as-type constant.type
+			name: name member
+			initializer: value,
+
+	for class-name, fields : fields-per-class
+		"", final, class-name, (), (), fields.move-to, (), ()
+
+# TODO: this may be simpler (and faster) as a single dictionary class-ane-member[nat][concrete-struct-id ----------------------------------------
+-constant-names record
+	arrays class-and-member[nat][concrete-struct-id]
+	records class-and-member[constant-record][concrete-struct-id]
+	unions class-and-member[constant-union][concrete-struct-id] # TODO: could this be a full-index-map? ---------------------
+-new constant-names()
+	(), (), ()
+
+-max-constants-per-class nat()
+	# Java allows 65535 constants, but large arrays include many individual constants, so use this as a limit that seems to work
+	32
+
+# TODO: MOVE, will need this for the JS build too ------------------------------------------------------------------------------
+-each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-program, emit void mut(x any-constant))
+	# TODO:PERF this could use a full-index-set -----------------------------------------------------------------------------
+	seen-arrays (concrete-struct-id, nat) mut-set = ()
+	seen-records (concrete-struct-id, constant-record) mut-set = ()
+	seen-unions (concrete-struct-id, constant-union) mut-set = ()
+	can-reference bool mut(type concrete-struct, c constant) = (type, c) =>
+		match c
+		as constant-array x
+			# TODO: We should stop storing strings as arrays!
+			type is-string || type is-symbol || (type.id, x.index) in seen-arrays
+		as constant-c-string _
+			true
+		as constant-float _
+			true
+		as constant-fun-pointer _
+			true
+		as integral-value _
+			true
+		as constant-record x
+			(type.id, x) in seen-records
+		as constant-union x
+			(type.id, x) in seen-unions
+		as constant-gc-safe-value
+			true
+		as constant-null
+			true
+
+	all-constants = program all-constants
+	did-something mut bool = true
+	while did-something
+		did-something := false
+		for arr : all-constants arrs
+			for array-id, xs : arr.constants with-index
+				key = arr.arr-type.id, array-id
+				guard key !in seen-arrays
+				guard xs every x => can-reference[arr.element-type.struct, x]
+				seen-arrays ~= key
+				emit[arr.arr-type single-constant-array arr.element-type, array-id, xs]
+				did-something := true
+		for struct-id, map : all-constants records
+			for constant, args : map
+				key = struct-id, constant
+				guard key !in seen-records
+				record-type = program.structs-by-id[struct-id]!
+				fields = record-type.body.concrete-record! fields
+				guard args zip fields every (arg, field) => can-reference[field.type.struct, arg]
+				seen-records ~= key
+				emit[record-type single-constant-record constant, args, fields]
+				did-something := true
+		for struct-id, map : all-constants unions
+			for constant, value : map
+				key = struct-id, constant
+				guard key !in seen-unions
+				union-type = program.structs-by-id[struct-id]!
+				members = union-type.body.concrete-union! members
+				member-type = members[value member-index]
+				guard can-reference[member-type.struct, value.member]
+				seen-unions ~= key
+				emit[union-type single-constant-union constant, value, member-type.struct]
+				did-something := true
+		
+	# TODO: RM this debugging code ------------------------------------------------------------------------------------------------------------------
+	for struct-id, map : all-constants records	
+		for constant, args : map
+			key = struct-id, constant
+			if key !in seen-records
+				record-type = program.structs-by-id[struct-id]!
+				fields = record-type.body.concrete-record! fields
+				error log "Could not emit constant record {show-ctx show-concrete-struct record-type}"
+				for arg, field : args zip fields
+					if !can-reference[field.type.struct, arg]
+						error log "  Can not emit field of type {show-ctx show-concrete-struct field.type.struct}"
+
+	n-constant-arrays = all-constants.arrs sum x => x.constants.size
+	n-constant-records = all-constants.records sum (_, map) => map.size
+	n-constant-unions = all-constants.unions sum (_, map) => map.size
+	seen-arrays.size is n-constant-arrays
+	seen-records.size is n-constant-records
+	seen-unions.size is n-constant-unions
+
+-any-constant union(single-constant-array, single-constant-record, single-constant-union) mut
+-type concrete-struct(a any-constant)
+	# TODO: this could be simplified if the type was always called 'type'! --------------------------------------------------
+	match a
+	as single-constant-array x
+		x array-type
+	as single-constant-record x
+		x record-type
+	as single-constant-union x
+		x union-type
+-single-constant-array record mut
+	array-type concrete-struct
+	element-type concrete-type
+	index nat
+	elements constant[]
+-single-constant-record record mut
+	record-type concrete-struct
+	constant constant-record
+	args constant[]
+	fields concrete-field[]
+-single-constant-union record mut
+	union-type concrete-struct
+	constant constant-union
+	value constant-union-value
+	member-type concrete-struct
 
 -funs-lookup concrete-fun[concrete-fun-id](a concrete-program)
 	for fun : a all-funs
@@ -102,10 +287,10 @@ translate-to-java (string, string)[](
 		name = ctx.mangled-names[var].member
 		field java-field = match var kind
 		as global_
-			private, static, (ctx as-type var.type), name, ()
+			private, static, non-final, (ctx as-type var.type), name, ()
 		as thread-local_
 			init = "java.lang.ThreadLocal" java-new ()
-			private, static, "java.lang.ThreadLocal".to, name, (init,)
+			private, static, final, "java.lang.ThreadLocal".to, name, (init,)
 		res ensure var.module-uri ~= field
 	for uri, fields : res
 		uri, fields.move-to
@@ -191,6 +376,7 @@ translate-to-java (string, string)[](
 	funs-lookup concrete-fun[concrete-fun-id]
 	mangled-names java-mangled-names
 	structs-for-integrals concrete-struct[integral-type]
+	constant-names mut constant-names
 
 -union-needs-kind bool(ctx to-expr-ctx, union_ concrete-type)
 	ctx.ctx union-needs-kind union_.struct
@@ -262,7 +448,12 @@ translate-to-java (string, string)[](
 		(comment boxing-class name, extends, x.storage_.as-type),
 	as concrete-record r
 		fields java-field[] = for field : r fields
-			internal, instance, (ctx as-type field.type), field.debug-name.mangle, ()
+			visibility: internal
+			kind: instance
+			field-kind: field.is-mutable ? non-final : final
+			type: ctx as-type field.type
+			name: field.debug-name mangle
+			initializer: ()
 		(comment basic-class name, extends, fields),
 	as concrete-union _
 		# Unions all compile to 'Union'
@@ -414,7 +605,7 @@ translate-to-java (string, string)[](
 	methods: (method,)
 
 -boxing-class java-class(comment string, name string, super string?, primitive-type java-type)
-	value-field java-field = internal, instance, primitive-type, "value", ()
+	value-field java-field = internal, instance, final, primitive-type, "value", ()
 	comment basic-class name, super, (value-field,)
 
 -basic-class java-class(comment string, name string, super-class string?, fields java-field[])
@@ -685,7 +876,7 @@ translate-to-java (string, string)[](
 		# This is currently only used to cast an enum to an integral. In Java we just use integrals for enums directly. --------
 		ctx translate-expr pos, x.inner
 	as constant x
-		pos simple-expr (ctx.ctx translate-constant type, x)
+		pos simple-expr (ctx.ctx translate-constant-reference type, x)
 	as create-array-concrete-expr x
 		ctx with-args x.args, args =>
 			pos simple-expr (ctx as-type type.array-element-type.struct java-literal-array args)
@@ -783,7 +974,7 @@ translate-to-java (string, string)[](
 	as match-string-like-concrete-expr x
 		ctx with-temp x.matched, matched =>
 			cases java-switch-case[] = for case_ : x cases
-				value = ctx.ctx translate-constant case_.value.type.struct, case_.value.kind.constant! # TODO: case values shouldn't be concrete-expr ............................................
+				value = ctx.ctx translate-constant-reference case_.value.type.struct, case_.value.kind.constant! # TODO: case values shouldn't be concrete-expr ............................................
 				value, (ctx translate-expr pos, case_.then maybe-break-switch-case pos)
 			default = ctx translate-expr pos, x.else_
 			(matched java-switch-statement cases, default),
@@ -1024,7 +1215,7 @@ translate-to-java (string, string)[](
 -as-simple-expr java-expr?(ctx to-expr-ctx, a concrete-expr)
 	match a kind
 	as constant x
-		(ctx.ctx translate-constant a.type.struct, x),
+		(ctx.ctx translate-constant-reference a.type.struct, x),
 	as local-get-concrete-expr x
 		# For a mutable local, it matters *when* we access it, so it can't be delayed until the call
 		if x.local !is-mutable
@@ -1046,7 +1237,7 @@ translate-to-java (string, string)[](
 		then = f[name java-local-access]
 		declare ~ statements ~~ then
 
--translate-constant java-expr(ctx to-java-ctx, type concrete-struct, a constant)
+-translate-constant-reference java-expr(ctx to-java-ctx, type concrete-struct, a constant)
 	match type body
 	as concrete-builtin-type x
 		ctx translate-constant-builtin type, x, a
@@ -1056,30 +1247,21 @@ translate-to-java (string, string)[](
 		throw todo
 	as concrete-flags x
 		x.storage_ constant-integral a
-	as concrete-record x
-		# TODO:PERF Since these are allocated, we should probably make them global 'const' values too --------------------------
-		class_ = ctx as-class type
+	as concrete-record _
 		match a
 		as constant-record r
-			class_ java-new for field, arg : x.fields zip ctx.program.all-constants.records[type id]![r] # TODO: use a final static field instead of creating a new one every time
-				ctx translate-constant field.type.struct, arg
+			assert rrr ?= ctx.constant-names.records[type id] : "Can't find constant records for type {ctx.show-ctx.show show-concrete-struct type}" error
+			rrr[r]! java-access-static-field
 		as constant-gc-safe-value
 			java-null
 		as constant-null
 			java-null
 		else
 			throw unreachable
-	as concrete-union x
+	as concrete-union _
 		match a
 		as constant-union u
-			uv = ctx.program.all-constants.unions[type id]![u] # TODO: use a 'static final' member instead ------------------
-			case-type = x.members[uv member-index]
-			value = ctx translate-constant case-type.struct, uv.member
-			boxed-value = ctx box case-type.struct, value
-			if ctx union-needs-kind type
-				"Union" java-new (uv.member-index.to.java-literal-int32-or-less, boxed-value)
-			else
-				ctx as-type type java-cast boxed-value
+			ctx.constant-names.unions[type id]![u]! java-access-static-field
 		as constant-gc-safe-value
 			java-null
 		as constant-null
@@ -1105,18 +1287,14 @@ translate-to-java (string, string)[](
 		else
 			throw unreachable
 		value java-literal-string
-	array java-expr mut(must-be-empty bool) = must-be-empty =>
-		element-type = builtin_.type-args only
-		java-element-type = ctx as-type element-type
-		ca = a constant-array!
-		elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: have a helper function for this
-		if must-be-empty
-			assert elements is-empty
-		java-element-type java-literal-array for x : elements
-			ctx translate-constant element-type.struct, x
+	array java-expr mut() = () =>
+		assert asdf ?= ctx.constant-names.arrays[type id] : "Can't find constant array for type {ctx.show-ctx.show show-concrete-struct type}" error # ----------
+		assert arr ?= a constant-array : "The constant is not a constant-array" error
+		assert array-at-index ?= asdf[arr index] : "No constant at index {arr index}" error
+		array-at-index java-access-static-field
 	match builtin_ kind
 	as array
-		array[false]
+		array[]
 	as bool
 		a.as-bool java-literal-boolean
 	as catch-point
@@ -1169,7 +1347,7 @@ translate-to-java (string, string)[](
 	as mut-pointer
 		error["MUT-POINTER"]
 	as mut-slice
-		array[true]
+		array[]
 	as nat8
 		nat8 constant-integral a
 	as nat16
