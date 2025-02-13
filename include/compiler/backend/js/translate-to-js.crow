@@ -408,19 +408,22 @@ translate-to-js js-and-map(
 			source throw-message "Reached switch-fiber-initial?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-call-lambda
 		arg0, arg1 = args only2
-		source gen-call-sync arg0, (arg1,) to
+		call = source gen-call-sync arg0, (arg1,)
+		source gen-await call to
 	as builtin-fun-call-fun-pointer
 		arg0, arg1 = args only2
 		_, param-type = type-args only2
 		if param-type is-tuple
-			ctx with-temp "args", source, arg1, temp =>
-				fields = param-type.must-be-by-val.body.concrete-record! fields
-				call = source gen-call-sync arg0, for field : fields
-					source gen-property-access temp, field.debug-name.to.no-prefix
-				if type is-void
-					call expr-statement
-				else
-					source gen-return call
+			ctx with-temp "fun", source, arg0, fn =>
+				inner = ctx with-temp "args", source, arg1, temp =>
+					fields = param-type.must-be-by-val.body.concrete-record! fields
+					call = source gen-call-sync fn, for field : fields
+						source gen-property-access temp, field.debug-name.to.no-prefix
+					if type is-void
+						call.expr-statement,
+					else
+						(source gen-return call),
+				inner.js-block-statement! statements
 		else
 			source gen-call-sync arg0, (arg1,) to
 	as builtin-fun-constant _
@@ -1161,7 +1164,7 @@ translate-to-js js-and-map(
 				ctx to-block-statement e
 			else
 				source.throw-unreachable to
-			source gen-switch index, cases, default
+			(source gen-switch index, cases, default),
 	as record-field-get-concrete-expr x
 		source gen-property-access (ctx to-js-expr x.record_), x.field.debug-name.to.no-prefix to
 	as record-field-pointer-concrete-expr _
@@ -1485,7 +1488,7 @@ translate-to-js js-and-map(
 	ctx to-expr-ctx,
 	name string,
 	expr concrete-expr,
-	f js-statement mut(get-temp js-expr),
+	f js-statement[] mut(get-temp js-expr),
 )
 	ctx with-temp name, (ctx source expr), (ctx to-js-expr expr), f
 -with-temp js-expr-or-block-statement(
@@ -1493,12 +1496,12 @@ translate-to-js js-and-map(
 	name string,
 	source source,
 	expr js-expr,
-	f js-statement mut(get-temp js-expr),
+	f js-statement[] mut(get-temp js-expr),
 )
 	js-name js-name = temp, name, (ctx.take-next-temp-index,)
 	declare = source gen-const js-name, expr
 	then = f[source gen-identifier js-name]
-	((declare, then),) to
+	(declare ~ then,) to
 
 # TODO: move to a helpers module? -------------------------------------------------------------------------------------------------
 -gen-as-nat8 js-expr(source source, arg js-expr)

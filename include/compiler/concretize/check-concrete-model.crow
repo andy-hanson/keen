@@ -27,8 +27,13 @@ check-concrete-program void(show-ctx show-ctx, types concrete-common-types, a co
 
 concrete-common-types record mut
 	bool concrete-type
+	char-types (char-type, concrete-type) enum-map
+	char8-array concrete-type
+	char8-pointer concrete-type
 	exception concrete-type
 	integral-types (integral-type, concrete-type) enum-map
+	float-types (float-type, concrete-type) enum-map
+	string concrete-type
 	symbol concrete-type
 	void concrete-type
 int8 concrete-type(a concrete-common-types)
@@ -47,6 +52,14 @@ nat32 concrete-type(a concrete-common-types)
 	a.integral-types[nat32]
 nat64 concrete-type(a concrete-common-types)
 	a.integral-types[nat64]
+float32 concrete-type(a concrete-common-types)
+	a.float-types[float32]
+float64 concrete-type(a concrete-common-types)
+	a.float-types[float64]
+char8 concrete-type(a concrete-common-types)
+	a.char-types[char8]
+char32 concrete-type(a concrete-common-types)
+	a.char-types[char32]
 
 -ctx record mut
 	show-ctx show-ctx # TODO: not used? -------------------------------------------------------------------------------------------
@@ -180,55 +193,102 @@ is-native bool(a ctx)
 		type is ctx.types.nat64
 		assert _ ?= x.union_.type.must-be-by-val.body concrete-union
 
+-check-match-union-cases void(
+	ctx ctx,
+	type concrete-type,
+	union_ concrete-type,
+	member-indices integral-values,
+	cases concrete-match-union-case[],
+)
+	cases.size is member-indices.size
+	members = union_ union-members
+	for case-index, case_ : cases with-index
+		if local ?= case_ local
+			assert local.type == members[member-indices[case-index] as-unsigned]
+		ctx check-expr type, case_.then
+
+union-members concrete-type[](type concrete-type)
+	type.must-be-by-val.body.concrete-union! members
+
+check-expr-any-type void(ctx ctx, expr concrete-expr)
+	ctx check-expr expr.type, expr
+
 -check-builtin void(ctx ctx, type concrete-type, a builtin-concrete-expr)
 	# TODO: Now I remember. Most of these are unreachable because concretize still mostly compiles builtins to ConcreteFun. There are just a few cases where we create these expressions in generation.
 	match a fun
 	as builtin-fun-all-tests
+		error log "UNREACHABLE BUILTIN-FUN-ALL-TESTS" # --------------------------------------------------------------------------------
 		throw unreachable
 	as builtin-unary x
 		ctx check-builtin-unary type, x, a.args.only
-	as builtin-unary-math _
-		throw unreachable
+	as builtin-unary-math x
+		float-type = ctx.types.float-types[x type]
+		type is float-type
+		ctx check-expr float-type, a.args.only
 	as builtin-binary x
 		a.args.size is 2
 		ctx check-builtin-binary type, x, a.args[0], a.args[1]
 	as builtin-binary-lazy _
+		error log "UNREACHABLE BUILTIN-BINARY-LAZY" # --------------------------------------------------------------------------------
 		throw unreachable
-	as builtin-binary-math _
-		throw unreachable
+	as builtin-binary-math x
+		float-type = ctx.types.float-types[x type]
+		type is float-type
+		a.args.size is 2
+		for arg : a args
+			ctx check-expr float-type, arg
 	as builtin-ternary _
-		throw unreachable
+		() # TODO ---------------------------------------------------------------------------------------------------------------
 	as builtin-4ary _
-		throw unreachable
+		() # TODO ---------------------------------------------------------------------------------------------------------------
 	as builtin-fun-call-lambda
-		throw unreachable
+		# TODO: arg0 is a lambda, we could extract the param type,
+		fun, param = a.args only2
+		#asdf = fn.type.must-be-by-val.source concrete-struct-source-lambda! # TODO: I need the type of the lambda ....................
+		# TODO: assert that 'type' is the lambda return type -------------------------------------------------------------
+		ctx check-expr fun.type, fun
+		ctx check-expr param.type, param # TODO: this should use the lambda param type ---------------------------------------------
 	as builtin-fun-call-fun-pointer
-		throw unreachable
+		fun, param = a.args only2
+		builtin_ = fun.type.must-be-by-val.body concrete-builtin-type!
+		builtin_.kind is fun-pointer
+		return-type, param-type = builtin_.type-args only2
+		type is return-type
+		ctx check-expr fun.type, fun
+		ctx check-expr param-type, param
 	as builtin-fun-constant _
+		error log "UNREACHABLE builtin-fun-constant" # --------------------------------------------------------------------------------
 		throw unreachable
 	as builtin-fun-gc-safe-value
+		error log "UNREACHABLE GC-SAFE-VALUE" # --------------------------------------------------------------------------------
 		throw unreachable
 	as builtin-fun-init _
+		error log "UNREACHABLE INIT" # --------------------------------------------------------------------------------
 		throw unreachable
-	as java-fun _
-		throw unreachable
-	as js-fun _
-		throw unreachable
+	as java-fun x
+		ctx check-builtin-java type, x, a.args
+	as js-fun x
+		ctx check-builtin-js type, x, a.args
 	as builtin-fun-mark-root
-		throw unreachable
+		() # TODO ---------------------------------------------------------------------------------------------------------------
 	as builtin-fun-mark-visit
-		throw unreachable
+		() # TODO ---------------------------------------------------------------------------------------------------------------
 	as builtin-fun-new-empty-option
+		error log "UNREACHABLE EMPTY OPTION" # --------------------------------------------------------------------------------
 		throw unreachable
 	as builtin-fun-new-non-empty-option
+		error log "UNREACHABLE NON EMPTY OPTION" # --------------------------------------------------------------------------------
 		throw unreachable
 	as builtin-fun-pointer-cast
-		throw unreachable
+		() # TODO ---------------------------------------------------------------------------------------------------------------
 	as builtin-fun-size-of
-		throw unreachable
+		type is ctx.types.nat64
+		a.args.size is 0
 	as builtin-fun-static-symbols _
-		throw unreachable
+		# type is ctx.types.symbol-array TODO -------------------------------------------------------------------------------
+		a.args.size is 0
 	as version-fun _
+		error log "UNREACHABLE VERSION_FUN" # --------------------------------------------------------------------------------
 		throw unreachable
 
 -check-builtin-unary void(ctx ctx, type concrete-type, kind builtin-unary, a concrete-expr)
@@ -238,17 +298,147 @@ is-native bool(a ctx)
 	check2 void mut(x concrete-type) = x =>
 		check[x, x]
 	types = ctx types
+	bool = types bool
+	char8 = types char8
+	char8-array = types char8-array
+	c-string = types char8-pointer
+	char32 = types char32
+	float32 = types float32
+	float64 = types float64
+	int8 = types int8
+	int16 = types int16
+	int32 = types int32
+	int64 = types int64
+	nat8 = types nat8
+	nat16 = types nat16
+	nat32 = types nat32
+	nat64 = types nat64
+	string = types string
+	symbol = types symbol
+	void = types void
 	match kind
+	as array-pointer
+		type.pointee-type is a.type.array-element-type
+		ctx check-expr a.type, a
+	as array-size
+		type is nat64
+		assert a.type.must-be-by-val is-array-or-mut-array
+		ctx check-expr a.type, a
+	as as-any-pointer
+		() # TODO --------------------------------------------------------------------------------------------------------------------
+	as as-future
+		# TODO: since this function doesn't actually do anything, conretize should "inline" it by omitting it ------------------
+		ctx check-expr a.type, a
+	as as-future-impl
+		# TODO: since this function doesn't actually do anything, conretize should "inline" it by omitting it ------------------
+		ctx check-expr a.type, a
+	as as-mut-array
+		# TODO: since this function doesn't actually do anything, conretize should "inline" it by omitting it ------------------
+		ctx check-expr a.type, a
+	as as-mut-array-impl
+		# TODO: since this function doesn't actually do anything, conretize should "inline" it by omitting it ------------------
+		ctx check-expr a.type, a
+	as bits-of-float32
+		check[nat32, float32]
+	as bits-of-float64
+		check[nat64, float64]
 	as bitwise-not-nat8
-		check2[types nat8]
+		check2[nat8]
 	as bitwise-not-nat16
-		check2[types nat16]
+		check2[nat16]
 	as bitwise-not-nat32
-		check2[types nat32]
+		check2[nat32]
 	as bitwise-not-nat64
-		check2[types nat64]
-	else
+		check2[nat64]
+	as count-ones-nat64
+		check2[nat64]
+	as c-string-of-symbol
+		check[c-string, symbol]
+	as deref
+		check[a.type.pointee-type, a.type]
+	as drop
+		error log "UNREACHABLE DROP" # --------------------------------------------------------------------------------
 		throw unreachable
+	as float32-from-bits
+		check[float32, nat32]
+	as float64-from-bits
+		check[float64, nat64]
+	as is-nan-float32
+		check[bool, float32]
+	as is-nan-float64
+		check[bool, float64]
+	as not
+		check2[bool]
+	as jump-to-catch
+		check[void, a.type] # TODO: type arg should be catch-point* --------------------------------------------------------------------------------
+	as reference-from-pointer
+		assert a.type is-pointer
+		check[type, a.type]
+	as setup-catch
+		check[bool, a.type] # TODO: arg type should be catch-point mut* -------------------------------------
+	as symbol-of-c-string
+		check[symbol, c-string]
+	as to-char8-from-nat8
+		check[char8, nat8]
+	as to-char8-array-from-string
+		check[char8-array, string]
+	as to-float32-from-float64
+		check[float32, float64]
+	as to-float64-from-float32
+		check[float64, float32]
+	as to-float64-from-int64
+		check[float64, int64]
+	as to-float64-from-nat64
+		check[float64, nat64]
+	as to-int64-from-int8
+		check[int64, int8]
+	as to-int64-from-int16
+		check[int64, int16]
+	as to-int64-from-int32
+		check[int64, int32]
+	as to-nat8-from-char8
+		check[nat8, char8]
+	as to-nat32-from-char32
+		check[nat32, char32]
+	as to-nat64-from-nat8
+		check[nat64, nat8]
+	as to-nat64-from-nat16
+		check[nat64, nat16]
+	as to-nat64-from-nat32
+		check[nat64, nat32]
+	as to-nat64-from-ptr
+		type is nat64
+		assert a.type is-pointer
+		ctx check-expr a.type, a
+	as to-ptr-from-nat64
+		assert type is-pointer
+		ctx check-expr nat64, a
+	as truncate-to-int64-from-float64
+		check[int64, float64]
+	as trust-as-string
+		check[string, char8-array]
+	as unsafe-to-char32-from-char8
+		check[char32, char8]
+	as unsafe-to-char32-from-nat32
+		check[char32, nat32]
+	as unsafe-to-nat32-from-int32
+		check[nat32, int32]
+	as unsafe-to-int8-from-int64
+		check[int8, int64]
+	as unsafe-to-int16-from-int64
+		check[int16, int64]
+	as unsafe-to-int32-from-int64
+		check[int32, int64]
+	as unsafe-to-nat64-from-int64
+		check[nat64, int64]
+	as unsafe-to-int64-from-nat64
+		check[int64, nat64]
+	as unsafe-to-nat8-from-nat64
+		check[nat8, nat64]
+	as unsafe-to-nat16-from-nat64
+		check[nat16, nat64]
+	as unsafe-to-nat32-from-nat64
+		check[nat32, nat64]
 
 -check-builtin-binary void(
 	ctx ctx,
@@ -265,6 +455,10 @@ is-native bool(a ctx)
 		check[x, x, x]
 	types = ctx.types
 	bool = types bool
+	char8 = types char8
+	char32 = types char32
+	float32 = types float32
+	float64 = types float64
 	int8 = types int8
 	int16 = types int16
 	int32 = types int32
@@ -273,7 +467,21 @@ is-native bool(a ctx)
 	nat16 = types nat16
 	nat32 = types nat32
 	nat64 = types nat64
+	void = types void
+	bool-of-pointers void mut() = () =>
+		type is bool
+		assert a.type is-pointer
+		a.type is b.type
+		ctx check-expr a.type, a
+		ctx check-expr b.type, b
 	match kind
+	as add-float32
+		check3[float32]
+	as add-float64
+		check3[float64]
+	as add-pointer-and-nat64
+		assert type is-pointer
+		check[type, type, nat64]
 	as bitwise-and-int8
 		check3[int8]
 	as bitwise-and-int16
@@ -306,6 +514,30 @@ is-native bool(a ctx)
 		check3[nat32]
 	as bitwise-or-nat64
 		check3[nat64]
+	as bitwise-xor-int8
+		check3[int8]
+	as bitwise-xor-int16
+		check3[int16]
+	as bitwise-xor-int32
+		check3[int32]
+	as bitwise-xor-int64
+		check3[int64]
+	as bitwise-xor-nat8
+		check3[nat8]
+	as bitwise-xor-nat16
+		check3[nat16]
+	as bitwise-xor-nat32
+		check3[nat32]
+	as bitwise-xor-nat64
+		check3[nat64]
+	as equal-char8
+		check[bool, char8, char8]
+	as equal-char32
+		check[bool, char32, char32]
+	as equal-float32
+		check[bool, float32, float32]
+	as equal-float64
+		check[bool, float64, float64]
 	as equal-int8
 		check[bool, int8, int8]
 	as equal-int16
@@ -322,6 +554,14 @@ is-native bool(a ctx)
 		check[bool, nat32, nat32]
 	as equal-nat64
 		check[bool, nat64, nat64]
+	as equal-pointer
+		bool-of-pointers[]
+	as less-char8
+		check[bool, char8, char8]
+	as less-float32
+		check[bool, float32, float32]
+	as less-float64
+		check[bool, float64, float64]
 	as less-int8
 		check[bool, int8, int8]
 	as less-int16
@@ -338,31 +578,269 @@ is-native bool(a ctx)
 		check[bool, nat32, nat32]
 	as less-nat64
 		check[bool, nat64, nat64]
-	as equal-pointer
-		type is bool
-		assert a.type is-pointer
-		a.type is b.type
-		ctx check-expr a.type, a
-		ctx check-expr b.type, b
-	else
+	as less-pointer
+		bool-of-pointers[]
+	as mul-float32
+		check3[float32]
+	as mul-float64
+		check3[float64]
+	as new-array
+		type.array-element-type is b.type.pointee-type
+		check[type, nat64, b.type]
+	as reference-equal
+		check[bool, a.type, a.type]
+	as seq
+		error log "UNREACHABLE SEQ" # ------------------------------------------------------------------------------------
 		throw unreachable
+	as sub-float32
+		check3[float32]
+	as sub-float64
+		check3[float64]
+	as sub-pointer-and-nat64
+		assert type is-pointer
+		check[type, type, nat64]
+	as switch-fiber
+		check[void, a.type, b.type] # TODO: takes a `nat64 mut* mut*` and a `nat64 mut*` ---------------------------------------------------------------------------------------------------------
+	as unsafe-add-int8
+		check3[int8]
+	as unsafe-add-int16
+		check3[int16]
+	as unsafe-add-int32
+		check3[int32]
+	as unsafe-add-int64
+		check3[int64]
+	as unsafe-add-nat8
+		check3[nat8]
+	as unsafe-add-nat16
+		check3[nat16]
+	as unsafe-add-nat32
+		check3[nat32]
+	as unsafe-add-nat64
+		check3[nat64]
+	as unsafe-bit-shift-left-nat64
+		check3[nat64]
+	as unsafe-bit-shift-right-nat64
+		check3[nat64]
+	as unsafe-div-float32
+		check3[float32]
+	as unsafe-div-float64
+		check3[float64]
+	as unsafe-div-int8
+		check3[int8]
+	as unsafe-div-int16
+		check3[int16]
+	as unsafe-div-int32
+		check3[int32]
+	as unsafe-div-int64
+		check3[int64]
+	as unsafe-div-nat8
+		check3[nat8]
+	as unsafe-div-nat16
+		check3[nat16]
+	as unsafe-div-nat32
+		check3[nat32]
+	as unsafe-div-nat64
+		check3[nat64]
+	as unsafe-mod-nat64
+		check3[nat64]
+	as unsafe-mul-int8
+		check3[int8]
+	as unsafe-mul-int16
+		check3[int16]
+	as unsafe-mul-int32
+		check3[int32]
+	as unsafe-mul-int64
+		check3[int64]
+	as unsafe-mul-nat8
+		check3[nat8]
+	as unsafe-mul-nat16
+		check3[nat16]
+	as unsafe-mul-nat32
+		check3[nat32]
+	as unsafe-mul-nat64
+		check3[nat64]
+	as unsafe-sub-int8
+		check3[int8]
+	as unsafe-sub-int16
+		check3[int16]
+	as unsafe-sub-int32
+		check3[int32]
+	as unsafe-sub-int64
+		check3[int64]
+	as unsafe-sub-nat8
+		check3[nat8]
+	as unsafe-sub-nat16
+		check3[nat16]
+	as unsafe-sub-nat32
+		check3[nat32]
+	as unsafe-sub-nat64
+		check3[nat64]
+	as wrap-add-nat8
+		check3[nat8]
+	as wrap-add-nat16
+		check3[nat16]
+	as wrap-add-nat32
+		check3[nat32]
+	as wrap-add-nat64
+		check3[nat64]
+	as wrap-mul-nat8
+		check3[nat8]
+	as wrap-mul-nat16
+		check3[nat16]
+	as wrap-mul-nat32
+		check3[nat32]
+	as wrap-mul-nat64
+		check3[nat64]
+	as wrap-sub-nat8
+		check3[nat8]
+	as wrap-sub-nat16
+		check3[nat16]
+	as wrap-sub-nat32
+		check3[nat32]
+	as wrap-sub-nat64
+		check3[nat64]
+	as write-to-pointer
+		check[void, a.type, a.type.pointee-type]
 
--check-match-union-cases void(
-	ctx ctx,
-	type concrete-type,
-	union_ concrete-type,
-	member-indices integral-values,
-	cases concrete-match-union-case[],
-)
-	cases.size is member-indices.size
-	members = union_ union-members
-	for case-index, case_ : cases with-index
-		if local ?= case_ local
-			assert local.type == members[member-indices[case-index] as-unsigned]
-		ctx check-expr type, case_.then
+-check-builtin-java void(ctx ctx, type concrete-type, fun java-fun, args concrete-expr[])
+	bool = ctx.types bool
+	java = ctx.program.common-funs concrete-common-funs-java!
+	java-any concrete-type = by-val_, java.java-any
+	string = ctx.types string
+	match fun
+	as array-get
+		array, index = args only2
+		type is array.type.array-element-type
+		ctx check-expr array.type, array
+		ctx check-expr ctx.types.nat32, index
+	as array-set
+		array, index, value = args only3
+		type is ctx.types.void
+		ctx check-expr array.type, array
+		ctx check-expr ctx.types.nat32, index
+		ctx check-expr array.type.array-element-type, value
+	as as-java-any	
+		type is java-any
+		ctx check-expr args.only.type, args.only
+	as call-instance
+		for index, arg : args with-index
+			arg-type = index == 1 ? string : arg type
+			ctx check-expr arg-type, arg
+	as call-new
+		type is java-any
+		class_, args-array = args only2
+		ctx check-expr string, class_
+		ctx check-expr args-array.type, args-array # TODO: should be a java-any[] ---------------------------------------------------
+	as call-static
+		for index, arg : args with-index
+			arg-type = index < 2 ? string : arg type
+			ctx check-expr arg-type, arg
+	as call-static-varargs
+		class_, method, args-array = args only3
+		type is java-any
+		ctx check-expr string, class_
+		ctx check-expr string, method
+		ctx check-expr args-array.type, args-array # TODO: should be a java-any[] ---------------------------------------------------
+	as change-exclusion
+		throw todo
+	as cast
+		ctx check-expr java-any, args.only
+	as cur-exclusion
+		throw todo
+	as equal
+		type is bool
+		args.size is 2
+		for arg : args
+			ctx check-expr java-any, arg
+	as get-static-field
+		type is java-any
+		args.size is 2
+		for arg : args
+			ctx check-expr string, arg
+	as new-array
+		assert type.must-be-by-val is-array-or-mut-array
+		ctx check-expr ctx.types.nat32, args.only
+	as null
+		type is java-any
+		args.size is 0
 
-union-members concrete-type[](type concrete-type)
-	type.must-be-by-val.body.concrete-union! members
-
-check-expr-any-type void(ctx ctx, expr concrete-expr)
-	ctx check-expr expr.type, expr
+-check-builtin-js void(ctx ctx, type concrete-type, fun js-fun, args concrete-expr[])
+	bool = ctx.types bool
+	string = ctx.types string
+	void = ctx.types void
+	js = ctx.program.common-funs concrete-common-funs-js!
+	js-any = js js-any
+	match fun
+	as as-js-any
+		type is js-any
+		ctx check-expr args.only.type, args.only
+	as await
+		type is js-any
+		ctx check-expr js-any, args.only
+	as call
+		type is js-any
+		for index, arg : args with-index
+			ctx check-expr (index == 0 ? js-any : arg.type), arg
+	as call-new
+		type is js-any
+		for index, arg : args with-index
+			ctx check-expr (index == 0 ? js-any : arg.type), arg
+	as call-property
+		type is js-any
+		for index, arg : args with-index
+			arg-type = match index
+			as 0
+				js-any
+			as 1
+				string
+			else
+				arg type
+			ctx check-expr arg-type, arg
+	as call-property-spread
+		type is js-any
+		a, name, xs = args only3
+		ctx check-expr js-any, a
+		ctx check-expr string, name
+		assert xs.type.must-be-by-val is-array-or-mut-array
+		ctx check-expr xs.type, xs
+	as cast
+		ctx check-expr js-any, args.only
+	as eq-eq-eq
+		type is bool
+		args.size is 2
+		for arg : args
+			ctx check-expr js-any, arg
+	as get
+		type is js-any
+		a, key = args only2
+		ctx check-expr js-any, a
+		ctx check-expr string, key
+	as instanceof
+		type is bool
+		args.size is 2
+		for arg : args
+			ctx check-expr js-any, arg
+	as js-global
+		type is js-any
+		ctx check-expr string, args.only
+	as less
+		type is bool
+		args.size is 2
+		for arg : args
+			ctx check-expr js-any, arg
+	as plus
+		type is js-any
+		args.size is 2
+		for arg : args
+			ctx check-expr js-any, arg
+	as require
+		throw todo # If I'm not using this any more I should get rid of it .................................................
+	as set
+		type is void
+		a, key, value = args only3
+		ctx check-expr js-any, a
+		ctx check-expr string, key
+		ctx check-expr value.type, value
+	as typeof
+		type is string
+		ctx check-expr js-any, args.only

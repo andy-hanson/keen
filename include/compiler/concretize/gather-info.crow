@@ -70,7 +70,7 @@ gather-info concrete-fun-info(
 			to-propagate ~= x
 
 	for x : all-used-funs
-		if x is-intrinsically-yielding-fun
+		if x is-intrinsically-yielding-fun && x !is-always-non-yielding common-funs
 			add[x]
 	until to-propagate is-empty
 		fun = to-propagate pop!
@@ -81,16 +81,19 @@ gather-info concrete-fun-info(
 	res move-to
 
 -is-intrinsically-yielding-fun bool(a concrete-fun)
-	if builtin_ ?= a.body concrete-fun-body-builtin
-		match builtin_ kind
-		as js-fun x
-			x == await
-		as builtin-binary binary
-			binary == switch-fiber
-		as builtin-fun-call-lambda
-			true # Pessimistically assume that lambdas yield
-		else
-			false
+	match a body
+	as concrete-fun-body-builtin x
+		x.kind is-intrinsically-yielding
+	as concrete-fun-body-extern _
+		false
+	as concrete-expr x
+		x is-intrinsically-yielding
+	as concrete-fun-body-var-get _ # TODO: this should be an expression kind, not a function kind ----------------------------------------
+		false
+	as concrete-fun-body-var-set _
+		false
+	as concrete-fun-body-deferred
+		throw unreachable
 is-always-non-yielding bool(a concrete-fun, common-funs concrete-common-funs)
 	match common-funs
 	as concrete-common-funs-java _
@@ -99,6 +102,24 @@ is-always-non-yielding bool(a concrete-fun, common-funs concrete-common-funs)
 		false
 	as concrete-common-funs-native x
 		a == x.run-fiber
+
+-is-intrinsically-yielding bool(a concrete-expr)
+	here bool = match a kind
+	as builtin-concrete-expr x
+		x.fun is-intrinsically-yielding
+	else
+		false
+	here || a.direct-child-exprs exists x => x is-intrinsically-yielding
+-is-intrinsically-yielding bool(a builtin-fun)
+	match a
+	as builtin-binary binary
+		binary == switch-fiber
+	as builtin-fun-call-lambda
+		true # Pessimistically assume that lambdas yield
+	as js-fun x
+		x == await
+	else
+		false
 
 # Maps a function to all functions that call it.
 -called-by alias
