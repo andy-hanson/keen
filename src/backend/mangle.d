@@ -356,6 +356,7 @@ bool conflictsWithCName(Symbol a) {
 		case symbol!"sinhf".value:
 		case symbol!"sqrt".value:
 		case symbol!"sqrtf".value:
+		case symbol!"switch".value:
 		case symbol!"tan".value:
 		case symbol!"tanf".value:
 		case symbol!"tanh".value:
