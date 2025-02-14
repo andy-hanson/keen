@@ -9,15 +9,16 @@ write-java-ast (string, string)[](a java-ast)
 		out ~= ("Crow.java", crow-java)
 		out ~= ("Union.java", union-java)
 		out ~= ("Void.java", void-java)
-		for x : a classes
-			# TODO: should be able to write these inline ----------------------------------------------------------------------------
-			k string = "{x name}.java"
-			v string = with b : build; b write-class x
-			out ~= (k, v)
-		for x : a interfaces
-			# TODO: should be able to write these inline ----------------------------------------------------------------------------
-			k string = "{x name}.java"
-			v string = with b : build; b write-interface x
+		for decl : a
+			k string = "{decl name}.java"
+			v string = with b : build
+				match decl
+				as java-class x
+					b write-class x
+				as java-interface x
+					b write-interface x
+				as java-record x
+					b write-record x
 			out ~= (k, v)
 
 -crow-java string()
@@ -161,15 +162,7 @@ write-java-ast (string, string)[](a java-ast)
 }
 """
 union-java string()
-	"""class Union \{
-	int kind;
-	java.lang.Object value;
-	Union(int kind, java.lang.Object value) \{
-		this.kind = kind;
-		this.value = value;
-	}
-}
-"""
+	"record Union(int kind, java.lang.Object value) \{}"
 void-java string()
 	"""class Void \{
 	static Void instance = new Void();
@@ -183,6 +176,21 @@ void-java string()
 		out write-params method.params
 		out ~~= " throws Throwable;"
 	out ~~= "\n}\n"
+
+-write-record void(out string-builder, a java-record)
+	unless a.comment is-empty
+		out ~~= "// {a comment}\n"
+	out ~~= "record {a name}("
+	out ~~= ", " join for field : a fields
+		"{field type} {field name}"
+	out ~~= ")"
+	unless a.implements is-empty
+		out ~~= " implements {", " join a.implements}"
+	out ~~= " \{"
+	if a.static-fields !is-empty
+		for x : a static-fields
+			out write-field x
+	out ~~= "}\n"
 
 -write-class void(out string-builder, a java-class)
 	unless a.comment is-empty
@@ -199,14 +207,7 @@ void-java string()
 		out ~~= " implements {s}"
 	out ~~= " \{"
 	for field : a fields
-		out ~~= "\n\t"
-		out write-visibility field.visibility
-		out write-kind field.kind
-		out ~~= "{field type} {field name}"
-		if i ?= field initializer
-			out ~~= " = "
-			out write-expr 1, i
-		out ~= ";"
+		out write-field field
 	if x ?= a constructor
 		out ~~= "\n\t{a name}"
 		out write-params x.params
@@ -215,6 +216,16 @@ void-java string()
 		out ~~= "\n\t"
 		out write-method 1, method
 	out ~~= "\n}\n"
+
+-write-field void(out string-builder, field java-field)
+	out ~~= "\n\t"
+	out write-visibility field.visibility
+	out write-kind field.kind
+	out ~~= "{field type} {field name}"
+	if i ?= field initializer
+		out ~~= " = "
+		out write-expr 1, i
+	out ~= ";"
 
 -write-method void(out string-builder, indent nat, a java-method)
 	unless a.comment is-empty

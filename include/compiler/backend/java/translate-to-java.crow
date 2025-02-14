@@ -28,12 +28,14 @@ translate-to-java (string, string)[](
 		structs-for-integrals: concrete-program.get-structs-for-integrals
 		constant-names: ()
 
-	classes java-class[] = with out : build
-		out ~~= ctx translate-constants
+	classes java-type-decl[] = with out : build
+		for x : ctx translate-constants
+			out ~= x to
 		for struct : concrete-program all-structs
 			out ~~= ctx translate-struct struct
-		out ~~= ctx translate-functions-and-vars concrete-program
-		out ~= do
+		for x : ctx translate-functions-and-vars concrete-program
+			out ~= x to
+		main-class java-class = do
 			comment: ""
 			kind: final
 			name: "Main"
@@ -42,7 +44,8 @@ translate-to-java (string, string)[](
 			fields: ()
 			constructor: ()
 			methods: (ctx.call-main,)
-	((), classes) write-java-ast
+		out ~= main-class to
+	classes write-java-ast
 
 # Since having all constants in one class would be too big, put the constants with their struct
 -translate-constants java-class[](ctx to-java-ctx)
@@ -443,7 +446,7 @@ translate-to-java (string, string)[](
 	a.upcoming-temp-index +:= 1
 	res
 
--translate-struct java-class?(ctx to-java-ctx, struct concrete-struct)
+-translate-struct java-type-decl?(ctx to-java-ctx, struct concrete-struct)
 	super-class string? = match struct source
 	as concrete-struct-source-bogus
 		()
@@ -462,45 +465,70 @@ translate-to-java (string, string)[](
 				()
 			elif x.kind is-lambda-type
 				return-type, param-type = x.type-args only2
-				(comment lambda-class class-name, super-class, (ctx as-type return-type.struct), (ctx as-type param-type.struct)),
+				cls = comment lambda-class class-name, super-class, (ctx as-type return-type.struct), (ctx as-type param-type.struct)
+				cls to,
 			else
 				primitive-type java-type = x.kind.as-primitive-type! to
-				(comment boxing-class class-name, super-class, primitive-type),
+				(comment boxing-record class-name, super-class, primitive-type to),
 	as concrete-enum x
-		(comment boxing-class class-name, super-class, x.storage_.as-type),
+		(comment boxing-record class-name, super-class, x.storage_.as-type to),
 	as concrete-extern-type _
 		()
 	as concrete-flags x
-		(comment boxing-class class-name, super-class, x.storage_.as-type),
+		(comment boxing-record class-name, super-class, x.storage_.as-type to),
 	as concrete-record r
-		fields java-field[] = for field : r fields
-			visibility: internal
-			kind: instance
-			field-kind: field.is-mutable ? non-final : final
-			type: ctx as-type field.type
-			name: field.debug-name mangle
-			initializer: ()
-		all-fields = if struct is-empty-struct
-			# TODO: this has to deal with types that are supposed to be empty, but have a field, e.g. a type with a field that is 'void'.
-			# Should concretize be responsible for removing unnecessary fields? -----------------------------------------------
-			args java-expr[] = for field : r fields
-				field.type.struct gc-safe-value
-			instance java-field = do
+		if r.fields is-empty
+			instance java-field = class-name static-instance r
+			res java-class = do
+				comment: comment
+				kind: final
+				name: class-name
+				extends: super-class
+				implements: ()
+				fields: instance,
+				constructor: ()
+				methods: ()
+			res to,
+		elif super-class !is-empty || r is-some-field-mutable
+			fields java-field[] = for field : r fields
 				visibility: internal
-				kind: static
+				kind: instance
 				field-kind: final
-				type: class-name to
-				name: "instance"
-				initializer: (class-name java-new args),
-			fields ~ instance
+				type: ctx as-type field.type
+				name: field.debug-name mangle
+				initializer: ()
+			res java-class = comment basic-class class-name, super-class, fields
+			res to,
 		else
-			fields
-		(comment, final, class-name, super-class, (), all-fields, (fields.constructor-for-fields,), ()),
+			res java-record = do
+				comment: comment
+				name: class-name
+				fields: for field : r fields
+					forbid field is-mutable
+					type: ctx as-type field.type
+					name: field.debug-name mangle
+				implements: ()
+				static-fields: if struct is-empty-struct
+					(class-name static-instance r),
+			res to,
 	as concrete-union _
 		# Unions all compile to 'Union'
 		()
 	as concrete-struct-body-deferred
 		throw unreachable
+
+# Used to define a static 'instance' for an empty type
+-static-instance java-field(class-name string, r concrete-record)
+	# TODO: this has to deal with types that are supposed to be empty, but have a field, e.g. a type with a field that is 'void'.
+	# Should concretize be responsible for removing unnecessary fields? -----------------------------------------------
+	args java-expr[] = for field : r fields
+		field.type.struct gc-safe-value
+	visibility: internal
+	kind: static
+	field-kind: final
+	type: class-name to
+	name: "instance"
+	initializer: (class-name java-new args),
 
 -is-array-type bool(a builtin-type)
 	match a
@@ -645,12 +673,25 @@ translate-to-java (string, string)[](
 	constructor: ()
 	methods: (method,)
 
--boxing-class java-class(comment string, name string, super string?, primitive-type java-type)
-	value-field java-field = internal, instance, final, primitive-type, "value", ()
-	comment basic-class name, super, (value-field,)
+-boxing-record java-record(comment string, name string, extends string?, primitive-type java-type)
+	forbid _ ?= extends # TODO: if this happens, I need to make it a class instead ------------------------------------------
+	comment: comment
+	name: name
+	fields: (primitive-type, "value"),
+	implements: ()
+	static-fields: ()
 
 -basic-class java-class(comment string, name string, super-class string?, fields java-field[])
-	comment, final, name, super-class, (), fields, (fields.constructor-for-fields,), ()
+	methods java-method[] = for field : fields
+		body = field.name.java-local-access java-return-statement # TODO: this is not actually a local access but it uses the same syntax
+		comment: ""
+		visibility: internal
+		kind: instance
+		return-type: field type
+		name: field name
+		params: ()
+		body: (body,),
+	comment, final, name, super-class, (), fields, (fields.constructor-for-fields,), methods
 
 -constructor-for-fields java-constructor(fields java-field[])
 	assigns java-statement[] = for field : fields
@@ -821,7 +862,12 @@ translate-to-java (string, string)[](
 	elif _ ?= type as-java-lang-class
 		ctx as-type struct java-cast arg
 	else
-		arg java-property-access "value"
+		arg get-value
+
+-get-kind java-expr(a java-expr)
+	a java-call-instance-method "kind", ()
+-get-value java-expr(a java-expr)
+	a java-call-instance-method "value", ()
 
 -cast-and-unbox java-expr(ctx to-java-ctx, type concrete-struct, arg java-expr)
 	ctx unbox type, (ctx as-boxed-type type java-cast arg)
@@ -1079,7 +1125,7 @@ translate-to-java (string, string)[](
 				cases java-switch-case[] = for member-index, case_ : x.member-indices zip x.cases
 					case-type = x.union_.members[member-index as-unsigned]
 					decl java-statement[] = if local ?= case_ local
-						value = ctx.ctx cast-and-unbox case-type.struct, (matched java-property-access "value")
+						value = ctx.ctx cast-and-unbox case-type.struct, matched.get-value
 						(ctx as-type local.type.struct java-var-decl (ctx local-name local), (value,)),
 					expr = ctx translate-expr pos, case_.then
 					member-index.as-unsigned.to.java-literal-int32-or-less, (decl ~~ expr maybe-break-switch-case pos)
@@ -1087,7 +1133,7 @@ translate-to-java (string, string)[](
 					ctx translate-expr pos, e
 				else
 					throw-unreachable,
-				(matched java-property-access "kind" java-switch-statement cases, default),
+				(matched.get-kind java-switch-statement cases, default),
 			as nullable
 				###
 				if (matched === null) {
@@ -1113,7 +1159,7 @@ translate-to-java (string, string)[](
 				(cond java-if-statement then, else_),
 	as record-field-get-concrete-expr x
 		ctx with-temp x.record_, record_ =>
-			pos simple-expr (record_ java-property-access x.field.debug-name.mangle)
+			pos simple-expr (record_ java-call-instance-method x.field.debug-name.mangle, ())
 	as record-field-pointer-concrete-expr _
 		throw unreachable
 	as record-field-set-concrete-expr x
@@ -1201,7 +1247,7 @@ translate-to-java (string, string)[](
 			as direct
 				union_
 			as switch
-				union_ java-property-access "value"
+				union_ get-value
 			as nullable
 				throw todo
 			pos simple-expr (ctx.ctx cast-and-unbox x.case-type.struct, value)
@@ -1227,7 +1273,7 @@ translate-to-java (string, string)[](
 				res
 		as switch
 			ctx with-temp x.union_, union_ =>
-				pos simple-expr (union_ java-property-access "kind")
+				pos simple-expr union_.get-kind
 		as nullable
 			throw todo
 
