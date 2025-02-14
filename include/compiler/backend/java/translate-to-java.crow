@@ -27,6 +27,7 @@ translate-to-java (string, string)[](
 		mangled-names: concrete-program build-mangled-names
 		structs-for-integrals: concrete-program.get-structs-for-integrals
 		constant-names: ()
+		union-info: concrete-program plan-unions
 
 	classes java-type-decl[] = with out : build
 		for x : ctx translate-constants
@@ -39,13 +40,67 @@ translate-to-java (string, string)[](
 			comment: ""
 			kind: final
 			name: "Main"
-			extends: ()
-			implements: ()
+			supertypes: ()
 			fields: ()
 			constructor: ()
 			methods: (ctx.call-main,)
 		out ~= main-class to
 	classes write-java-ast
+
+-union-info record mut
+	union-to-representation union-representation[concrete-struct-id]
+	type-to-interfaces concrete-struct[][concrete-struct-id]
+-plan-unions union-info(program concrete-program )
+	union-to-representation union-representation mut[concrete-struct-id] = ()
+	type-to-interfaces concrete-struct mut[] mut[concrete-struct-id] = ()
+	for s : program all-structs
+		if u ?= s.body concrete-union
+			r = program choose-union-representation s, u
+			union-to-representation[s id] := r
+			if r == sealed-interface
+				for member : u members
+					type-to-interfaces ensure member.struct.id ~= s
+	union-to-representation: union-to-representation move-to
+	type-to-interfaces: for k, v : type-to-interfaces
+		k, v.move-to
+
+-choose-union-representation union-representation(program concrete-program, union_ concrete-struct, u concrete-union)
+	members = u members
+	members-set concrete-struct-id set = for x : members; x.struct id
+	if union_ == program.exception
+		direct
+	elif members-set.size != members.size
+		# Union has duplicate members, so can't use 'instanceof' to distinguish
+		switch
+	elif program.string.id in members-set && program.symbol.id in members-set
+		# These also can't be distinguished since they both compile to 'java.lang.String'
+		switch
+	elif members.size == 2 && members[0] is-empty-type && program !is-nullable-union members[1]
+		nullable
+	elif members exists x => x is-union
+		# TODO: Unions that compile to interfaces can implement interfaces too... but we need to check for overlap .......................
+		switch
+	elif members every x => x can-implement-interface
+		sealed-interface
+	elif members.size > 4
+		# It's slow to use a long sequence of 'instanceof' tests
+		switch
+	else
+		direct
+-is-nullable-union bool(program concrete-program, type concrete-type)
+	match type.struct body
+	as concrete-union u
+		(program choose-union-representation type.struct, u) == nullable
+	else
+		false
+-is-union bool(a concrete-type)
+	a.struct.body.concrete-union !is-empty
+-exception concrete-struct(a concrete-program)
+	a.common-funs.concrete-common-funs-java! exception
+-string concrete-struct(a concrete-program)
+	a.common-funs.concrete-common-funs-java! string
+-symbol concrete-struct(a concrete-program)
+	a.common-funs.concrete-common-funs-java! symbol
 
 # Since having all constants in one class would be too big, put the constants with their struct
 -translate-constants java-class[](ctx to-java-ctx)
@@ -99,6 +154,8 @@ translate-to-java (string, string)[](
 			v = match ctx union-representation x.union-type
 			as direct
 				ctx as-type x.union-type java-cast boxed-value
+			as sealed-interface
+				ctx as-type x.union-type java-cast boxed-value
 			as switch
 				"Union" java-new (x.value.member-index.to.java-literal-int32-or-less, boxed-value)
 			as nullable
@@ -119,7 +176,13 @@ translate-to-java (string, string)[](
 			initializer: value,
 
 	for class-name, fields : fields-per-class
-		"", final, class-name, (), (), fields.move-to, (), ()
+		comment: ""
+		kind: final
+		name: class-name
+		supertypes: ()
+		fields: fields move-to
+		constructor: ()
+		methods: ()
 
 # TODO: this may be simpler (and faster) as a single dictionary class-ane-member[nat][concrete-struct-id ----------------------------------------
 -constant-names record
@@ -286,13 +349,7 @@ translate-to-java (string, string)[](
 	0 java-literal-int32-or-less
 
 -exception concrete-struct(ctx to-java-ctx)
-	ctx.program.common-funs.concrete-common-funs-java!.exception
--string concrete-struct(ctx to-java-ctx)
-	ctx.program.common-funs.concrete-common-funs-java!.string
--symbol concrete-struct(ctx to-java-ctx)
-	ctx.program.common-funs.concrete-common-funs-java!.symbol
--is-exception bool(ctx to-java-ctx, type concrete-struct)
-	type == ctx.exception
+	ctx.program exception
 
 -translate-vars java-field[][uri](ctx to-java-ctx, program concrete-program)
 	res java-field mut[] mut[uri] = ()
@@ -315,8 +372,7 @@ translate-to-java (string, string)[](
 		comment: uri to
 		kind: final
 		name: ctx.mangled-names[uri]
-		extends: ()
-		implements: ()
+		supertypes: ()
 		fields: fields[uri] ?? ()
 		constructor: ()
 		methods: methods[uri] ?? ()
@@ -390,41 +446,22 @@ translate-to-java (string, string)[](
 	mangled-names java-mangled-names
 	structs-for-integrals concrete-struct[integral-type]
 	constant-names mut constant-names
+	union-info union-info
+
+-union-representation union-representation(ctx to-java-ctx, s concrete-struct)
+	ctx.union-info.union-to-representation[s id]!
+-union-representation union-representation(ctx to-expr-ctx, s concrete-type)
+	ctx.ctx union-representation s.struct
 
 -union-representation enum
-	| Upcast case types to the union type, and test using 'instanceof'
+	| This should only be used for exception
 	direct
+	sealed-interface
 	| Use a 'new Union(i, x)' where 'i' is the index of the case type
 	switch
 	| The union has 2 case types, and the first is empty. Use 'null' for the first case.
 	nullable
-
-# TODO:PERF compute this once up front for each union type (use a full-index-map) --------------------------------------------------------------------------
--union-representation union-representation(ctx to-expr-ctx, union_ concrete-type)
-	ctx.ctx union-representation union_.struct
--union-representation union-representation(ctx to-java-ctx, union_ concrete-struct)
-	assert u ?= union_.body concrete-union
-	members = u members
-	members-set concrete-struct-id set = for x : members; x.struct id
-	if union_ == ctx.exception
-		direct
-	elif members-set.size != members.size
-		# Union has duplicate members, so can't use 'instanceof' to distinguish
-		switch
-	elif members.size > 4
-		# It's slow to use a long sequence of 'instanceof' tests
-		switch
-	elif ctx.string.id in members-set && ctx.symbol.id in members-set
-		# These also can't be distinguished since they both compile to 'java.lang.String'
-		switch
-	elif members exists x => x is-union
-		switch
-	elif members.size == 2 && members[0] is-empty-type
-		nullable
-	else
-		direct
--is-union bool(a concrete-type)
-	a.struct.body.concrete-union !is-empty
+== bool(a union-representation, b union-representation)
 
 -get-structs-for-integrals concrete-struct[integral-type](a concrete-program)
 	res concrete-struct mut[integral-type] = ()
@@ -447,14 +484,17 @@ translate-to-java (string, string)[](
 	res
 
 -translate-struct java-type-decl?(ctx to-java-ctx, struct concrete-struct)
-	super-class string? = match struct source
-	as concrete-struct-source-bogus
-		()
-	as concrete-struct-source-inst inst
-		if inst.decl.sum-type-memberships exists x => x.sum-type == ctx.model-program.common-types.exception
-			"java.lang.Throwable",
-	as concrete-struct-source-lambda _
-		()
+	supertypes supertypes = do
+		extends: match struct source
+		as concrete-struct-source-bogus
+			()
+		as concrete-struct-source-inst inst
+			if inst.decl.sum-type-memberships exists x => x.sum-type == ctx.model-program.common-types.exception
+				"java.lang.Throwable",
+		as concrete-struct-source-lambda _
+			()
+		implements: for x : ctx.union-info.type-to-interfaces[struct id] ?? ()
+			ctx.mangled-names[x]
 
 	comment = ctx.show-ctx.show show-concrete-struct struct
 	class-name = ctx.mangled-names[struct]
@@ -465,17 +505,17 @@ translate-to-java (string, string)[](
 				()
 			elif x.kind is-lambda-type
 				return-type, param-type = x.type-args only2
-				cls = comment lambda-class class-name, super-class, (ctx as-type return-type.struct), (ctx as-type param-type.struct)
+				cls = comment lambda-class class-name, supertypes, (ctx as-type return-type.struct), (ctx as-type param-type.struct)
 				cls to,
 			else
 				primitive-type java-type = x.kind.as-primitive-type! to
-				(comment boxing-record class-name, super-class, primitive-type to),
+				(comment boxing-record class-name, supertypes, primitive-type to),
 	as concrete-enum x
-		(comment boxing-record class-name, super-class, x.storage_.as-type to),
+		(comment boxing-record class-name, supertypes, x.storage_.as-type to),
 	as concrete-extern-type _
 		()
 	as concrete-flags x
-		(comment boxing-record class-name, super-class, x.storage_.as-type to),
+		(comment boxing-record class-name, supertypes, x.storage_.as-type to),
 	as concrete-record r
 		if r.fields is-empty
 			instance java-field = class-name static-instance r
@@ -483,13 +523,12 @@ translate-to-java (string, string)[](
 				comment: comment
 				kind: final
 				name: class-name
-				extends: super-class
-				implements: ()
+				supertypes: supertypes
 				fields: instance,
 				constructor: ()
 				methods: ()
 			res to,
-		elif super-class !is-empty || r is-some-field-mutable
+		elif supertypes.extends !is-empty || r is-some-field-mutable
 			fields java-field[] = for field : r fields
 				visibility: internal
 				kind: instance
@@ -497,7 +536,7 @@ translate-to-java (string, string)[](
 				type: ctx as-type field.type
 				name: field.debug-name mangle
 				initializer: ()
-			res java-class = comment basic-class class-name, super-class, fields
+			res java-class = comment basic-class class-name, supertypes, fields
 			res to,
 		else
 			res java-record = do
@@ -507,13 +546,25 @@ translate-to-java (string, string)[](
 					forbid field is-mutable
 					type: ctx as-type field.type
 					name: field.debug-name mangle
-				implements: ()
+				implements: supertypes implements
 				static-fields: if struct is-empty-struct
 					(class-name static-instance r),
 			res to,
-	as concrete-union _
-		# Unions all compile to 'Union'
-		()
+	as concrete-union u
+		match ctx union-representation struct
+		as direct
+			()
+		as sealed-interface
+			res java-interface = do
+				name: class-name
+				permits: for m : u members
+					ctx as-boxed-type m.struct string!
+				methods: ()
+			res to,
+		as switch
+			()
+		as nullable
+			()
 	as concrete-struct-body-deferred
 		throw unreachable
 
@@ -650,7 +701,7 @@ translate-to-java (string, string)[](
 	else
 		false
 
--lambda-class java-class(comment string, name string, super string?, return-type java-type, param-type java-type)
+-lambda-class java-class(comment string, name string, supertypes supertypes, return-type java-type, param-type java-type)
 	###
 	abstract class foo {
 		abstract rt call(p x)
@@ -667,22 +718,27 @@ translate-to-java (string, string)[](
 	comment: comment
 	kind: abstract_
 	name: name
-	extends: super
-	implements: ()
+	supertypes: supertypes
 	fields: ()
 	constructor: ()
 	methods: (method,)
 
--boxing-record java-record(comment string, name string, extends string?, primitive-type java-type)
-	forbid _ ?= extends # TODO: if this happens, I need to make it a class instead ------------------------------------------
+-boxing-record java-record(comment string, name string, supertypes supertypes, primitive-type java-type)
+	forbid _ ?= supertypes extends # TODO: if this happens, I need to make it a class instead ------------------------------------------
 	comment: comment
 	name: name
 	fields: (primitive-type, "value"),
-	implements: ()
+	implements: supertypes implements
 	static-fields: ()
 
--basic-class java-class(comment string, name string, super-class string?, fields java-field[])
-	methods java-method[] = for field : fields
+-basic-class java-class(comment string, name string, supertypes supertypes, fields java-field[])
+	comment: comment
+	kind: final
+	name: name
+	supertypes: supertypes
+	fields: fields
+	constructor: fields.constructor-for-fields,
+	methods: for field : fields
 		body = field.name.java-local-access java-return-statement # TODO: this is not actually a local access but it uses the same syntax
 		comment: ""
 		visibility: internal
@@ -691,7 +747,6 @@ translate-to-java (string, string)[](
 		name: field name
 		params: ()
 		body: (body,),
-	comment, final, name, super-class, (), fields, (fields.constructor-for-fields,), methods
 
 -constructor-for-fields java-constructor(fields java-field[])
 	assigns java-statement[] = for field : fields
@@ -795,11 +850,12 @@ translate-to-java (string, string)[](
 	as concrete-union x
 		match ctx union-representation type
 		as direct
-			if ctx is-exception type
+			if type == ctx.exception
 				"java.lang.Throwable" to
 			else
-				# TODO: Ideally a crow 'interface' would become a java 'interface' so methods could be called directly --------------------------------------------------
-				"Object" to
+				"java.lang.Object" to
+		as sealed-interface
+			ctx.mangled-names[type] to
 		as switch
 			"Union" to
 		as nullable
@@ -879,6 +935,23 @@ translate-to-java (string, string)[](
 		x to
 	else
 		ctx.mangled-names[struct] to
+
+-can-implement-interface bool(a concrete-type)
+	match a.struct body
+	as concrete-builtin-type _
+		false # TODO: I guess 'nat' could ----------------------------------------------------------------------------------
+	as concrete-enum _
+		false # TODO: we could support this if each enum had its own type --------------------------------------------------
+	as concrete-extern-type
+		false
+	as concrete-flags _
+		false
+	as concrete-record _
+		true
+	as concrete-union _
+		false
+	as concrete-struct-body-deferred
+		throw unreachable
 
 -as-java-lang-class string?(a builtin-type)
 	match a
@@ -982,6 +1055,8 @@ translate-to-java (string, string)[](
 			boxed = ctx.ctx box x.arg.type.struct, arg
 			pos simple-expr match ctx union-representation a.type
 			as direct
+				boxed
+			as sealed-interface
 				boxed
 			as switch
 				"Union" java-new (x.member-index.to.java-literal-int32-or-less, boxed)
@@ -1111,6 +1186,18 @@ translate-to-java (string, string)[](
 					then = declare ~~ (ctx translate-expr pos, case_.then)
 					res := (cond java-if-statement then, res),
 				res
+			as sealed-interface
+				cases java-switch-on-type-case[] = for member-index, case_ : x.member-indices zip x.cases
+					case-type = x.union_.members[member-index as-unsigned]
+					local-name = if local ?= case_ local
+						ctx local-name local
+					else
+						"_"
+					then = ctx translate-expr pos, case_.then maybe-break-switch-case pos
+					(ctx as-type case-type.struct), local-name, then
+				default java-statement[]? = if e ?= x else_
+					(ctx translate-expr pos, e),
+				(matched java-switch-on-type cases, default),
 			as switch
 				###
 				matched = ...
@@ -1246,6 +1333,8 @@ translate-to-java (string, string)[](
 			value = match ctx union-representation x.union_.type
 			as direct
 				union_
+			as sealed-interface
+				union_
 			as switch
 				union_ get-value
 			as nullable
@@ -1271,6 +1360,13 @@ translate-to-java (string, string)[](
 					return-index = pos simple-expr case-index.to.java-literal-int32-or-less
 					res := (is-case java-if-statement return-index, res),
 				res
+		as sealed-interface
+			ctx with-temp x.union_, matched =>
+				cases java-switch-on-type-case[] = for i, case-type : x.union-members with-index
+					type: ctx as-type case-type.struct
+					local: "_"
+					body: pos simple-expr i.to.java-literal-int32-or-less maybe-break-switch-case pos
+				(matched java-switch-on-type cases, ()),
 		as switch
 			ctx with-temp x.union_, union_ =>
 				pos simple-expr union_.get-kind
