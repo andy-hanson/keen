@@ -1,4 +1,5 @@
 import
+	crow/col/mut-slice
 	../../model/ast
 	../../model/model
 	../../model/source-range
@@ -8,38 +9,32 @@ import
 	./expr-ctx
 	./instantiate
 
-single-inferring-type record mut
-	-type mut type?
-debug string(a single-inferring-type)
-	if x ?= a type
+-debug string(a type?)
+	if x ?= a
 		x debug
 	else
 		"uninferred"
-new single-inferring-type()
-	(),
-set-and-ignore-existing void(a single-inferring-type, type type)
-	a.type := type,
-try-get-inferred type?(a single-inferring-type)
-	a type
 
-# TODO: consider using alias instead of record? -------------------------------------------------------------------------------
-type-context record(args single-inferring-type[]) mut
+type-context alias
+	type? mut-slice
+
+type-context-for type-context(type-params type-params)
+	for _ : type-params; ()
 debug string(a type-context)
-	if a.args is-empty
+	if a is-empty
 		"non-inferring"
 	else
-		"inferring {" " join for x : a args; x debug}"
+		"inferring {" " join for x : a; x debug}"
 non-inferring type-context()
-	(),
+	()
 is-inferring bool(a type-context)
-	a.args !is-empty
+	a !is-empty
 
--try-get-inferring single-inferring-type?(a type-context, param type-param-index)
-	if a is-inferring
-		a.args[param index],
--try-get-inferred type?(a type-context, param type-param-index)
-	if x ?= a try-get-inferring param
-		x try-get-inferred
+-set-inferred void(a type-context, param type-param-index, type type)
+	forbid _ ?= a[param index]
+	a[param index] := type,
+-try-get-inferred type?(a type-context, param type-param-index) # TODO: just inline it ----------------------------------------------
+	a[param index]
 
 loop-info record mut
 	loop_ loop-expr
@@ -161,11 +156,11 @@ with-expect-option expr-and-option-type(
 )
 	type-args type[] = 0.type-param-index,
 	option-t type = instantiate-ctx instantiate-struct common-types.option, type-args to
-	inferring-types single-inferring-type[] = (),
-	expected-types type-and-context[] = (option-t, (inferring-types,)),
+	inferring-types type-context = (),
+	expected-types type-and-context[] = (option-t, inferring-types),
 	expected expected = expected-types to
 	option = cb[expected]
-	inner-type = inferring-types[0].try-get-inferred ?? bogus-type
+	inner-type = inferring-types[0] ?? bogus-type
 	option, inner-type
 
 with-expect-candidates type(candidates type-and-context[], cb void mut(x expected))
@@ -196,8 +191,8 @@ debug-show string(ctx expr-ctx, a expected)
 	as bogus-type 
 		"<<bogus>>"
 	as type-param-index x
-		desc string = if inferring ?= choice.context try-get-inferring x
-			if inferred ?= inferring try-get-inferred
+		desc string = if choice.context is-inferring
+			if inferred ?= choice.context try-get-inferred x
 				"inferred as {show-ctx show-type-unquoted (inferred, container)}"
 			else
 				"with no inferernce"
@@ -464,8 +459,8 @@ try-get-non-inferring-type type?(ctx instantiate-ctx, a type-and-context)
 	as bogus-type
 		bogus-type,
 	as type-param-index x
-		if ta ?= a.context try-get-inferring x
-			ta try-get-inferred
+		if a.context is-inferring
+			a.context try-get-inferred x
 		else
 			a.type,
 	as struct-inst i
@@ -495,8 +490,8 @@ apply-inferred type(ctx instantiate-ctx, a type-and-context)
 	as bogus-type
 		bogus-type
 	as type-param-index x
-		if ta ?= a.context try-get-inferring x
-			ta.try-get-inferred ?? bogus-type
+		if a.context is-inferring
+			a.context try-get-inferred x ?? bogus-type
 		else
 			x to
 	as struct-inst i
@@ -523,14 +518,14 @@ match-types bool(ctx instantiate-ctx, a type-and-context, b type-and-context)
 			ai.decl == bi.decl && (ai.type-args zip bi.type-args) every (arg-a, arg-b) =>
 				ctx match-types (arg-a, a.context), (arg-b, b.context)
 -match-types-type-param-a bool(ctx instantiate-ctx, a type-param-index, a-context type-context, b type-and-context)
-	if a-inferring ?= a-context try-get-inferring a
-		matches = if inferred ?= a-inferring try-get-inferred
+	if a-context is-inferring
+		matches = if inferred ?= a-context try-get-inferred a
 			ctx match-types (inferred, non-inferring), b
 		else
 			true
 		if matches
 			if b-inferred ?= ctx try-get-non-inferring-type b
-				a-inferring.type := b-inferred,
+				a-context[a.index] := b-inferred,
 		matches
 	else
 		# It's an outer type param (not in either inferring).
@@ -538,8 +533,8 @@ match-types bool(ctx instantiate-ctx, a type-and-context, b type-and-context)
 		as bogus-type
 			true
 		as type-param-index bp
-			if b-inferring ?= b.context try-get-inferring bp
-				if inferred ?= b-inferring try-get-inferred
+			if b.context is-inferring
+				if inferred ?= b.context try-get-inferred bp
 					if x ?= inferred.type-param-index
 						x == a
 				else
@@ -549,8 +544,8 @@ match-types bool(ctx instantiate-ctx, a type-and-context, b type-and-context)
 		as struct-inst _
 			false
 -match-types-type-param-b bool(ctx instantiate-ctx, a type-and-context, b type-param-index, b-context type-context)
-	if b-inferred ?= b-context try-get-inferring b
-		if inferred ?= b-inferred try-get-inferred
+	if b-context is-inferring
+		if inferred ?= b-context try-get-inferred b
 			ctx match-types a, inferred.non-inferring
 		else
 			true
@@ -571,10 +566,9 @@ infer-type-args-from void(ctx instantiate-ctx, a type, a-context type-context, b
 	as bogus-type
 		()
 	as type-param-index ap
-		a-inferring = a-context.args[ap index]
-		if a-inferring.try-get-inferred is-empty
+		unless _ ?= a-context try-get-inferred ap
 			if t ?= ctx try-get-non-inferring-type b2
-				a-inferring.type := t,
+				a-context set-inferred ap, t
 	as struct-inst ai
 		if bi ?= b2.type struct-inst
 			if ai.decl == bi.decl
@@ -582,9 +576,8 @@ infer-type-args-from void(ctx instantiate-ctx, a type, a-context type-context, b
 					ctx infer-type-args-from ta, a-context, (tb, b2.context)
 
 is-type-match-possible-for-completions bool(param-type type-with-container, actual-arg-type type)
-	inferring single-inferring-type[] = for _ : param-type.container.type-params
-		()
-	(param-type.type, (inferring,)) is-type-match-possible actual-arg-type.non-inferring
+	inferring type-context = param-type.container.type-params type-context-for
+	(param-type.type, inferring) is-type-match-possible actual-arg-type.non-inferring
 
 -is-type-match-possible bool(a type-and-context, b type-and-context)
 	if a is-inferring-non-inferred-type-param || b is-inferring-non-inferred-type-param
@@ -601,14 +594,13 @@ is-type-match-possible-for-completions bool(param-type type-with-container, actu
 | True for a type param with no inference yet
 -is-inferring-non-inferred-type-param bool(a type-and-context)
 	if x ?= a.type type-param-index
-		if inferring ?= a.context try-get-inferring x
-			inferring.try-get-inferred is-empty
+		a.context is-inferring && a.context try-get-inferred x is-empty
 
 maybe-inferred type-and-context(a type-and-context)
 	if x ?= a.type type-param-index
-		if inferring ?= a.context try-get-inferring x
-			# force because we tested 'isInferringNonInferredTypeParam' before
-			inferring.try-get-inferred! non-inferring
+		if a.context is-inferring
+			# force because we tested 'is-inferring-non-inferred-type-param' before
+			a.context try-get-inferred! x non-inferring
 		else
 			a
 	else
