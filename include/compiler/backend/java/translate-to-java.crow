@@ -28,24 +28,26 @@ translate-to-java (string, string)[](
 		structs-for-integrals: concrete-program.get-structs-for-integrals
 		constant-names: ()
 		union-info: concrete-program plan-unions
+		upcoming-lambda-impl-id: 0
+		all-classes: ()
 
-	classes java-type-decl[] = with out : build
-		for x : ctx translate-constants
-			out ~= x to
-		for struct : concrete-program all-structs
-			out ~~= ctx translate-struct struct
-		for x : ctx translate-functions-and-vars concrete-program
-			out ~= x to
-		main-class java-class = do
-			comment: ""
-			kind: final
-			name: "Main"
-			supertypes: ()
-			fields: ()
-			constructor: ()
-			methods: (ctx.call-main,)
-		out ~= main-class to
-	classes write-java-ast
+	out = ctx all-classes
+	for x : ctx translate-constants
+		out ~= x to
+	for struct : concrete-program all-structs
+		if s ?= ctx translate-struct struct
+			out ~= s
+	for x : ctx translate-functions-and-vars concrete-program
+		out ~= x to
+	main-class java-class = do
+		comment: ""
+		name: "Main"
+		supertypes: ()
+		fields: ()
+		constructor: ()
+		methods: (ctx.call-main,)
+	out ~= main-class to
+	out.move-to write-java-ast
 
 -union-info record mut
 	union-to-representation union-representation[concrete-struct-id]
@@ -177,7 +179,6 @@ translate-to-java (string, string)[](
 
 	for class-name, fields : fields-per-class
 		comment: ""
-		kind: final
 		name: class-name
 		supertypes: ()
 		fields: fields move-to
@@ -370,7 +371,6 @@ translate-to-java (string, string)[](
 	fields = ctx translate-vars program
 	for uri : methods.keys.to | fields.keys.to
 		comment: uri to
-		kind: final
 		name: ctx.mangled-names[uri]
 		supertypes: ()
 		fields: fields[uri] ?? ()
@@ -447,6 +447,13 @@ translate-to-java (string, string)[](
 	structs-for-integrals concrete-struct[integral-type]
 	constant-names mut constant-names
 	union-info union-info
+	upcoming-lambda-impl-id mut nat
+	all-classes java-type-decl mut[]
+
+-next-lambda-impl-id nat(a to-java-ctx)
+	res = a upcoming-lambda-impl-id
+	a.upcoming-lambda-impl-id +:= 1
+	res
 
 -union-representation union-representation(ctx to-java-ctx, s concrete-struct)
 	ctx.union-info.union-to-representation[s id]!
@@ -505,8 +512,8 @@ translate-to-java (string, string)[](
 				()
 			elif x.kind is-lambda-type
 				return-type, param-type = x.type-args only2
-				cls = comment lambda-class class-name, supertypes, (ctx as-type return-type.struct), (ctx as-type param-type.struct)
-				cls to,
+				interface_ = comment lambda-interface class-name, supertypes, (ctx as-type return-type.struct), (ctx as-type param-type.struct)
+				interface_ to,
 			else
 				primitive-type java-type = x.kind.as-primitive-type! to
 				(comment boxing-record class-name, supertypes, primitive-type to),
@@ -518,10 +525,9 @@ translate-to-java (string, string)[](
 		(comment boxing-record class-name, supertypes, x.storage_.as-type to),
 	as concrete-record r
 		if r.fields is-empty
-			instance java-field = class-name static-instance r
+			instance java-field = class-name static-instance r.fields
 			res java-class = do
 				comment: comment
-				kind: final
 				name: class-name
 				supertypes: supertypes
 				fields: instance,
@@ -548,7 +554,8 @@ translate-to-java (string, string)[](
 					name: field.debug-name mangle
 				implements: supertypes implements
 				static-fields: if struct is-empty-struct
-					(class-name static-instance r),
+					(class-name static-instance r.fields),
+				methods: ()
 			res to,
 	as concrete-union u
 		match ctx union-representation struct
@@ -556,6 +563,7 @@ translate-to-java (string, string)[](
 			()
 		as sealed-interface
 			res java-interface = do
+				comment: ""
 				name: class-name
 				permits: for m : u members
 					ctx as-boxed-type m.struct string!
@@ -569,10 +577,10 @@ translate-to-java (string, string)[](
 		throw unreachable
 
 # Used to define a static 'instance' for an empty type
--static-instance java-field(class-name string, r concrete-record)
+-static-instance java-field(class-name string, fields concrete-field[])
 	# TODO: this has to deal with types that are supposed to be empty, but have a field, e.g. a type with a field that is 'void'.
 	# Should concretize be responsible for removing unnecessary fields? -----------------------------------------------
-	args java-expr[] = for field : r fields
+	args java-expr[] = for field : fields
 		field.type.struct gc-safe-value
 	visibility: internal
 	kind: static
@@ -701,26 +709,20 @@ translate-to-java (string, string)[](
 	else
 		false
 
--lambda-class java-class(comment string, name string, supertypes supertypes, return-type java-type, param-type java-type)
+-lambda-interface java-interface(comment string, name string, supertypes supertypes, return-type java-type, param-type java-type)
 	###
 	abstract class foo {
 		abstract rt call(p x)
 	}
 	###
-	method java-method = do
-		comment: ""
-		visibility: internal
-		kind: abstract-instance
+	assert supertypes is-empty
+	method java-interface-method = do
 		return-type: return-type
 		name: "call"
 		params: ((param-type, "x"),)
-		body: ()
 	comment: comment
-	kind: abstract_
 	name: name
-	supertypes: supertypes
-	fields: ()
-	constructor: ()
+	permits: ()
 	methods: (method,)
 
 -boxing-record java-record(comment string, name string, supertypes supertypes, primitive-type java-type)
@@ -730,10 +732,10 @@ translate-to-java (string, string)[](
 	fields: (primitive-type, "value"),
 	implements: supertypes implements
 	static-fields: ()
+	methods: ()
 
 -basic-class java-class(comment string, name string, supertypes supertypes, fields java-field[])
 	comment: comment
-	kind: final
 	name: name
 	supertypes: supertypes
 	fields: fields
@@ -1095,9 +1097,35 @@ translate-to-java (string, string)[](
 				out ~= (local-type java-var-decl local, (write-to.java-local-access,))
 			out ~~= ctx translate-expr pos, x.then
 	as lambda-concrete-expr x
-		interface_ = ctx as-type type string!
 		return-type, param-type = type.source.concrete-struct-source-inst!.type-args.only2 # TODO: helper fn for this ------------
 		param-name = ctx local-name x.param
+		call-method java-method = do
+			comment: ""
+			visibility: public
+			kind: instance
+			return-type: ctx as-type return-type.struct
+			name: "call"
+			params: ((ctx as-type param-type.struct), param-name),
+			body: (ctx translate-expr return, x.body),
+		lambda-impl-name string = "lambda_impl_{ctx.ctx next-lambda-impl-id}" 
+		lambda-impl java-record = do
+			comment: ""
+			name: lambda-impl-name
+			fields: for local : x closure
+				type: ctx as-type local.type.struct
+				name: ctx local-name local
+			implements: (ctx.ctx as-class type),
+			static-fields: if x.closure is-empty
+				(lambda-impl-name static-instance ()),
+			methods: call-method,
+		ctx.ctx.all-classes ~= lambda-impl to
+		pos simple-expr if x.closure is-empty
+			lambda-impl-name get-instance
+		else
+			lambda-impl-name java-new for local : x closure
+				ctx local-name local java-local-access
+		###
+		----------------- OLD VERSION --------------------------------------------------------------------------------------------
 		aic java-anonymous-inner-class = do
 			interface_: interface_
 			method-return-type: ctx as-type return-type.struct
@@ -1106,6 +1134,7 @@ translate-to-java (string, string)[](
 			param-name: param-name
 			body: ctx translate-expr return, x.body
 		pos simple-expr aic.to
+		###
 	as local-get-concrete-expr x
 		pos simple-expr (ctx local-name x.local java-local-access)
 	as local-pointer-concrete-expr _
@@ -1235,7 +1264,7 @@ translate-to-java (string, string)[](
 				cond = eq-eq java-binary matched, java-null
 				declare-null java-statement[] = if local ?= case-null local
 					null-type = ctx.ctx as-class local.type.struct
-					instance = (null-type, "instance") java-access-static-field
+					instance = null-type get-instance
 					(null-type.to java-var-decl (ctx local-name local), (instance,)),
 				then = declare-null ~~ (ctx translate-expr pos, case-null.then)
 				declare-non-null java-statement[] = if local ?= case-non-null local
@@ -1607,7 +1636,9 @@ translate-to-java (string, string)[](
 -return-void java-statement()
 	void-expr java-return-statement
 -void-expr java-expr()
-	("Void", "instance") java-access-static-field
+	"Void" get-instance
+-get-instance java-expr(class_ string)
+	(class_, "instance") java-access-static-field
 
 -constant-float java-expr(is-float32 bool, a constant) # TODO: inilne -------------------------------------------------------
 	is-float32 java-literal-float a.as-float
