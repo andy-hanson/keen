@@ -408,6 +408,7 @@ FunBody inner(
 				: fail();
 		case symbol!"java-array-get".value:
 		case symbol!"java-array-set".value:
+		case symbol!"java-class-of".value:
 		case symbol!"java-cur-exclusion".value:
 		case symbol!"java-change-exclusion".value:
 		case symbol!"java-new-array".value:

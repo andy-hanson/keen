@@ -142,6 +142,8 @@ write-java-ast (string, string)[](a java-ast)
 		return true;
 	}
 	private static java.lang.Class classOf(Object a) \{
+		if (a == null)
+			return Object.class;
 		java.lang.Class res = a.getClass();
 		if (res == java.lang.Integer.class)
 			return int.class;
@@ -158,6 +160,27 @@ write-java-ast (string, string)[](a java-ast)
 			return java.io.InputStream.class;
 		else
 			return res;
+	}
+}
+final class CrowClassLoader extends ClassLoader \{
+	static final CrowClassLoader loader = new CrowClassLoader();
+
+	static Class<?> load(String name) \{
+		try \{
+			return loader.loadClass(name);
+		} catch (ClassNotFoundException e) \{
+			throw new Error(e);
+		}
+	}
+
+	static java.util.concurrent.ConcurrentHashMap<String, byte[]> classes = new java.util.concurrent.ConcurrentHashMap<>();
+	static void add(String name, byte[] bytes) \{
+		classes.put(name, bytes);
+	}
+
+	@Override public Class findClass(String name) \{
+		byte[] bytes = classes.remove(name.replace(".", "/"));
+		return bytes == null ? null : defineClass(name, bytes, 0, bytes.length);
 	}
 }
 """
@@ -362,11 +385,6 @@ void-java string()
 
 -write-expr void(out string-builder, indent nat, a java-expr)
 	match a
-	as java-anonymous-inner-class x
-		out ~~= "new {x interface_}() \{"
-		out ~~= "{indent + 1 newline}public {x method-return-type} {x method-name}({x param-type} {x param-name}) throws Throwable"
-		out write-block-statement indent + 1, x.body
-		out ~~= "{indent newline}}"
 	as java-access-static-field x
 		out ~~= "{x name}"
 	as java-array-get x

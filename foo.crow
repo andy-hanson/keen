@@ -1,0 +1,232 @@
+import
+	crow/java
+	./include/compiler/backend/java/class-builder
+	./include/compiler/backend/java/class-code-builder
+
+main void() unsafe, java extern
+	_ void = "CrowClassLoader" call-static "add", "GetX"::string, make-GetX.to
+	_ void = "CrowClassLoader" call-static "add", "Point"::string, make-Point.to
+	_ void = "CrowClassLoader" call-static "add", "Foo"::string, make-Foo.to
+	_ void = "CrowClassLoader" call-static "add", "Catcher"::string, make-catcher.to
+
+	Point java-any = "CrowClassLoader" call-static "load", "Point"::string
+	Foo java-any = "CrowClassLoader" call-static "load", "Foo"::string
+
+	int32-class = java-class-of@int32
+	point-make java-any = Point only-method-named "make"
+	args0 java-any[] = 42::int32.as-java, 45::int32.as-java
+	# This is a Point
+	the-point java-any = point-make call-instance "invoke", java-null, args0
+	
+	foo-methods java-any[] = Foo call-instance "getMethods"
+	info log "GONNA FIND 'foo'"
+	foo-foo = Foo only-method-named "foo"
+	args1 java-any[] = the-point,
+	res int32 = foo-foo call-instance "invoke", java-null, args1
+	info log "SHOULD BE 45: {res}"
+
+	Catcher java-any = "CrowClassLoader" call-static "load", "Catcher"::string
+	catcher = Catcher only-method-named "catcher"
+	args2 java-any[] = 3::int32.as-java,
+	res2 int32 = catcher call-instance "invoke", java-null, args2
+	info log "SHOULD BE 4: {res2}"
+	args3 java-any[] = 0::int32.as-java,
+	info log "SHOULD BE 42: {(catcher call-instance "invoke", java-null, args3)::int32}"
+
+	###
+	lookup java-any = "java.lang.invoke.MethodHandles" call-static "lookup"
+	the-type java-any = "java.lang.invoke.MethodType" call-static "methodType", int32-class, int32-class
+	the-method java-any = lookup call-instance "findStatic", the-class, "foo"::string, the-type
+	foo int32 = the-method call-instance "invoke", 3::int32
+	info log "RESULT IS {foo}"
+	###
+	()
+
+-only-method-named java-any(class_ java-any, name string) unsafe, java extern
+	(class_ call-instance "getMethods")::java-any[] find! method =>
+		(method call-instance "getName")::string == name
+
+-show-bytes string(bytes nat8[])
+	" " join for b : bytes
+		b.to-hex pad-left 2, "0"
+
+make-GetX ClassFile()
+	constants constants-builder = ()
+	Object = constants class_ "java/lang/Object"
+	GetX = constants class_ "GetX"
+	x-method-info method_info = do
+		access-flags: public | abstract_
+		name: constants["x"]
+		descriptor: constants["()I"]
+		attributes: ()
+	constant-pool: constants finish
+	access: public | interface_ | abstract_
+	this-class: GetX
+	super-class: Object
+	interfaces: ()
+	fields: ()
+	methods: x-method-info,
+	attributes: ()
+
+make-Point ClassFile()
+	constants constants-builder = ()
+	GetX = constants class_ "GetX"
+	Point = constants class_ "Point"
+	Object = constants class_ "java/lang/Object"
+	x-name = constants["x"]
+	y-name = constants["y"]
+	int-descriptor = constants["I"]
+	x-name-and-type = constants name-and-type "x", "I"
+	y-name-and-type = constants name-and-type "y", "I"
+	field-x = constants field Point, x-name-and-type
+	field-y = constants field Point, y-name-and-type
+	init-no-args-name-and-type = constants name-and-type "<init>", "()V"
+	init-two-args-name-and-type = constants name-and-type "<init>", "(II)V"
+	init-point = constants method-ref Point, init-two-args-name-and-type
+	object-init-method-ref = constants method-ref Object, init-no-args-name-and-type
+
+	init-code-attribute Code_attribute =  with out : constants build-code
+		out aload_0
+		out invokespecial object-init-method-ref
+		out aload_0
+		out iload_1
+		out putfield field-x
+		out aload_0
+		out iload_2
+		out putfield field-y
+		out return
+	init-method-info method_info = do
+		# <init> can't be final apparently
+		access-flags: public
+		name: constants["<init>"]
+		descriptor: constants["(II)V"]
+		attributes: init-code-attribute.to,
+	
+	x-code-attribute Code_attribute = with out : constants build-code
+		out aload_0
+		out getfield field-x
+		out ireturn
+	x-method-info method_info = do
+		access-flags: public | final
+		name: x-name
+		descriptor: constants["()I"]
+		attributes: x-code-attribute.to,
+	
+	y-code-attribute Code_attribute = with out : constants build-code
+		out aload_0
+		out getfield field-y
+		out ireturn
+	y-method-info method_info = do
+		access-flags: public | final
+		name: y-name
+		descriptor: constants["()I"]
+		attributes: y-code-attribute.to,
+
+	make-point-code-attribute Code_attribute = with out : constants build-code
+		out makenew Point
+		out dup
+		out iload_0
+		out iload_1
+		out invokespecial init-point
+		out areturn
+	make-method-info method_info = do
+		access-flags: public | static
+		name: constants["make"]
+		descriptor: constants["(II)LPoint;"]
+		attributes: make-point-code-attribute.to,
+
+	field-info-x field_info = do
+		access-flags: public | final
+		name: x-name
+		descriptor: int-descriptor
+		attributes: ()
+	field-info-y field_info = do
+		access-flags: public | final
+		name: y-name
+		descriptor: int-descriptor
+		attributes: ()
+
+	constant-pool: constants finish
+	access: public | final
+	this-class: Point
+	super-class: Object
+	interfaces: GetX,
+	fields: field-info-x, field-info-y
+	methods: init-method-info, x-method-info, y-method-info, make-method-info
+	attributes: () # TODO: Record_attribute
+
+make-Foo ClassFile()
+	constants constants-builder = ()
+	this-class = constants class_ "Foo"
+	object = constants class_ "java/lang/Object"
+	Point = constants class_ "Point"
+	y-name-and-type = constants name-and-type "y", "()I"
+	point-y = constants method-ref Point, y-name-and-type
+
+	###
+	This will do: x instanceof Point ? ((Point) x).y() : 1
+	###
+	code-attribute Code_attribute = with out : constants build-code
+		out aload_0
+		out instanceof Point
+		cur = out next-index
+		out ifeq 11 # TODO: find a way to delay this ..
+		out aload_0
+		out checkcast Point
+		out invokevirtual point-y
+		out ireturn
+		out.next-index - cur is 11
+		out add-to-stack-map out.next-index.to.same_frame
+		out iconst_1
+		out ireturn
+
+	the-method method_info = do
+		access-flags: public | static
+		name: constants["foo"]
+		descriptor: constants["(LGetX;)I"]
+		attributes: code-attribute.to,
+
+	constant-pool: constants finish
+	access: public | final
+	this-class: this-class
+	super-class: object
+	interfaces: ()
+	fields: ()
+	methods: the-method,
+	attributes: ()
+
+make-catcher ClassFile()
+	constants constants-builder = ()
+	Catcher = constants class_ "Catcher"
+	Object = constants class_ "java/lang/Object"
+	code-attribute Code_attribute = with out : constants build-code
+		# 12 / x
+		out bipush 12
+		out iload_0
+		before-div = out next-index
+		out idiv
+		after-div = out next-index
+		out ireturn
+		after-return = out next-index
+		# handler starts here
+		info log "before-div: {before-div}, after-div: {after-div}, after-return: {after-return}"
+		out add-to-exception-table (before-div, after-div, after-return, (constants class_ "java/lang/ArithmeticException"))
+		arith = constants class_ "java/lang/ArithmeticException"
+		out add-to-stack-map (out.next-index.to same_locals_1_stack_item_frame arith.Object_variable_info)
+		out pop # pop the exception
+		out bipush 42
+		out ireturn
+	method-info method_info = do
+		access-flags: public | static | final
+		name: constants["catcher"]
+		descriptor: constants["(I)I"]
+		attributes: code-attribute.to,
+	
+	constant-pool: constants finish
+	access: public | final
+	this-class: Catcher
+	super-class: Object
+	interfaces: ()
+	fields: ()
+	methods: method-info,
+	attributes: ()

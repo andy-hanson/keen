@@ -11,7 +11,9 @@ import
 	../mangle
 	./java-ast
 	./mangle-for-java
+	./union-representation
 	./write-java-ast
+	./util
 
 # Output is a map from file name to text
 translate-to-java (string, string)[](
@@ -49,61 +51,6 @@ translate-to-java (string, string)[](
 	out ~= main-class to
 	out.move-to write-java-ast
 
--union-info record mut
-	union-to-representation union-representation[concrete-struct-id]
-	type-to-interfaces concrete-struct[][concrete-struct-id]
--plan-unions union-info(program concrete-program )
-	union-to-representation union-representation mut[concrete-struct-id] = ()
-	type-to-interfaces concrete-struct mut[] mut[concrete-struct-id] = ()
-	for s : program all-structs
-		if u ?= s.body concrete-union
-			r = program choose-union-representation s, u
-			union-to-representation[s id] := r
-			if r == sealed-interface
-				for member : u members
-					type-to-interfaces ensure member.struct.id ~= s
-	union-to-representation: union-to-representation move-to
-	type-to-interfaces: for k, v : type-to-interfaces
-		k, v.move-to
-
--choose-union-representation union-representation(program concrete-program, union_ concrete-struct, u concrete-union)
-	members = u members
-	members-set concrete-struct-id set = for x : members; x.struct id
-	if union_ == program.exception
-		direct
-	elif members-set.size != members.size
-		# Union has duplicate members, so can't use 'instanceof' to distinguish
-		switch
-	elif program.string.id in members-set && program.symbol.id in members-set
-		# These also can't be distinguished since they both compile to 'java.lang.String'
-		switch
-	elif members.size == 2 && members[0] is-empty-type && program !is-nullable-union members[1]
-		nullable
-	elif members exists x => x is-union
-		# TODO: Unions that compile to interfaces can implement interfaces too... but we need to check for overlap .......................
-		switch
-	elif members every x => x can-implement-interface
-		sealed-interface
-	elif members.size > 4
-		# It's slow to use a long sequence of 'instanceof' tests
-		switch
-	else
-		direct
--is-nullable-union bool(program concrete-program, type concrete-type)
-	match type.struct body
-	as concrete-union u
-		(program choose-union-representation type.struct, u) == nullable
-	else
-		false
--is-union bool(a concrete-type)
-	a.struct.body.concrete-union !is-empty
--exception concrete-struct(a concrete-program)
-	a.common-funs.concrete-common-funs-java! exception
--string concrete-struct(a concrete-program)
-	a.common-funs.concrete-common-funs-java! string
--symbol concrete-struct(a concrete-program)
-	a.common-funs.concrete-common-funs-java! symbol
-
 # Since having all constants in one class would be too big, put the constants with their struct
 -translate-constants java-class[](ctx to-java-ctx)
 	constant-array-names class-and-member mut[nat] mut[concrete-struct-id] = ()
@@ -111,12 +58,12 @@ translate-to-java (string, string)[](
 	constant-union-names class-and-member mut[constant-union] mut[concrete-struct-id] = ()
 
 	cur-class-index mut nat = 0
-	cur-class-name mut string = "constants{cur-class-index}"
+	cur-class-name mut string = "_constants{cur-class-index}"
 	field-index mut nat = 0
 	ctx.show-ctx.show each-constant-in-dependency-order ctx.program, constant =>
 		if field-index >= max-constants-per-class
 			cur-class-index +:= 1
-			cur-class-name := "constants{cur-class-index}"
+			cur-class-name := "_constants{cur-class-index}"
 			field-index := 0
 		class-and-member class-and-member = cur-class-name, "x{field-index}"
 		field-index +:= 1
@@ -459,16 +406,6 @@ translate-to-java (string, string)[](
 	ctx.union-info.union-to-representation[s id]!
 -union-representation union-representation(ctx to-expr-ctx, s concrete-type)
 	ctx.ctx union-representation s.struct
-
--union-representation enum
-	| This should only be used for exception
-	direct
-	sealed-interface
-	| Use a 'new Union(i, x)' where 'i' is the index of the case type
-	switch
-	| The union has 2 case types, and the first is empty. Use 'null' for the first case.
-	nullable
-== bool(a union-representation, b union-representation)
 
 -get-structs-for-integrals concrete-struct[integral-type](a concrete-program)
 	res concrete-struct mut[integral-type] = ()
@@ -938,23 +875,6 @@ translate-to-java (string, string)[](
 	else
 		ctx.mangled-names[struct] to
 
--can-implement-interface bool(a concrete-type)
-	match a.struct body
-	as concrete-builtin-type _
-		false # TODO: I guess 'nat' could ----------------------------------------------------------------------------------
-	as concrete-enum _
-		false # TODO: we could support this if each enum had its own type --------------------------------------------------
-	as concrete-extern-type
-		false
-	as concrete-flags _
-		false
-	as concrete-record _
-		true
-	as concrete-union _
-		false
-	as concrete-struct-body-deferred
-		throw unreachable
-
 -as-java-lang-class string?(a builtin-type)
 	match a
 	as array
@@ -1124,17 +1044,6 @@ translate-to-java (string, string)[](
 		else
 			lambda-impl-name java-new for local : x closure
 				ctx local-name local java-local-access
-		###
-		----------------- OLD VERSION --------------------------------------------------------------------------------------------
-		aic java-anonymous-inner-class = do
-			interface_: interface_
-			method-return-type: ctx as-type return-type.struct
-			method-name: "call"
-			param-type: ctx as-type param-type.struct
-			param-name: param-name
-			body: ctx translate-expr return, x.body
-		pos simple-expr aic.to
-		###
 	as local-get-concrete-expr x
 		pos simple-expr (ctx local-name x.local java-local-access)
 	as local-pointer-concrete-expr _
@@ -1588,7 +1497,13 @@ translate-to-java (string, string)[](
 	as int64
 		int64 constant-integral a
 	as java-any
-		error["JAVA-ANY"]
+		match a
+		as constant-gc-safe-value
+			java-null
+		as constant-null
+			java-null
+		else
+			error["JAVA-ANY"]
 	as java-exclusion
 		error["JAVA-EXCLUSION"]
 	as js-any
@@ -2292,12 +2207,14 @@ translate-to-java (string, string)[](
 		pos simple-expr (ctx cast-and-unbox type, (("Crow", "callStaticVarargs") java-call-static-method args))
 	as cast
 		pos simple-expr (ctx cast-and-unbox type, args.only)
-	as cur-exclusion
-		args.size is 0
-		pos simple-expr (("Crow", "getExclusion") java-call-static-method ())
 	as change-exclusion
 		args.size is 1
 		pos simple-expr (("Crow", "changeExclusion") java-call-static-method args)
+	as class-of
+		pos simple-expr (ctx as-type type-args.only).java-class-expr
+	as cur-exclusion
+		args.size is 0
+		pos simple-expr (("Crow", "getExclusion") java-call-static-method ())
 	as equal
 		args.size is 2
 		pos simple-expr (eq-eq java-binary args[0], args[1])

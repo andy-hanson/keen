@@ -809,7 +809,9 @@ immutable struct StructDecl {
 	SymbolSet externSet() =>
 		optOrDefault!SymbolSet(extern_, () => emptySymbolSet);
 	Linkage linkage() scope =>
-		has(extern_) && force(extern_) != symbolSet(symbol!"js") ? Linkage.extern_ : Linkage.internal;
+		has(extern_) && force(extern_) != symbolSet(symbol!"js") && force(extern_) != symbolSet(symbol!"java")
+			? Linkage.extern_
+			: Linkage.internal;
 
 	DocCommentReferences docCommentReferences() return scope =>
 		lateGet(lateDocCommentReferences);

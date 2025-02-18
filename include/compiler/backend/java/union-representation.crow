@@ -1,0 +1,80 @@
+import
+	../../model/concrete-model
+	./util
+
+union-representation enum
+	| This should only be used for exception
+	direct
+	sealed-interface
+	| Use a 'new Union(i, x)' where 'i' is the index of the case type
+	switch
+	| The union has 2 case types, and the first is empty. Use 'null' for the first case.
+	nullable
+== bool(a union-representation, b union-representation)
+
+union-info record mut
+	union-to-representation union-representation[concrete-struct-id]
+	type-to-interfaces concrete-struct[][concrete-struct-id]
+plan-unions union-info(program concrete-program )
+	union-to-representation union-representation mut[concrete-struct-id] = ()
+	type-to-interfaces concrete-struct mut[] mut[concrete-struct-id] = ()
+	for s : program all-structs
+		if u ?= s.body concrete-union
+			r = program choose-union-representation s, u
+			union-to-representation[s id] := r
+			if r == sealed-interface
+				for member : u members
+					type-to-interfaces ensure member.struct.id ~= s
+	union-to-representation: union-to-representation move-to
+	type-to-interfaces: for k, v : type-to-interfaces
+		k, v.move-to
+
+-choose-union-representation union-representation(program concrete-program, union_ concrete-struct, u concrete-union)
+	members = u members
+	members-set concrete-struct-id set = for x : members; x.struct id
+	if union_ == program.exception
+		direct
+	elif members-set.size != members.size
+		# Union has duplicate members, so can't use 'instanceof' to distinguish
+		switch
+	elif program.string.id in members-set && program.symbol.id in members-set
+		# These also can't be distinguished since they both compile to 'java.lang.String'
+		switch
+	elif members.size == 2 && members[0] is-empty-type && program !is-nullable-union members[1]
+		nullable
+	elif members exists x => x is-union
+		# TODO: Unions that compile to interfaces can implement interfaces too... but we need to check for overlap .......................
+		switch
+	elif members every x => x can-implement-interface
+		sealed-interface
+	elif members.size > 4
+		# It's slow to use a long sequence of 'instanceof' tests
+		switch
+	else
+		direct
+
+-is-nullable-union bool(program concrete-program, type concrete-type)
+	match type.struct body
+	as concrete-union u
+		(program choose-union-representation type.struct, u) == nullable
+	else
+		false
+-is-union bool(a concrete-type)
+	a.struct.body.concrete-union !is-empty
+
+-can-implement-interface bool(a concrete-type)
+	match a.struct body
+	as concrete-builtin-type _
+		false # TODO: I guess 'nat' could ----------------------------------------------------------------------------------
+	as concrete-enum _
+		false # TODO: we could support this if each enum had its own type --------------------------------------------------
+	as concrete-extern-type
+		false
+	as concrete-flags _
+		false
+	as concrete-record _
+		true
+	as concrete-union _
+		false
+	as concrete-struct-body-deferred
+		throw unreachable

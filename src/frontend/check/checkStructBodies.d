@@ -817,7 +817,7 @@ Record checkRecord(
 	ref RecordAst ast,
 ) {
 	RecordModifiers modifiers = accumulateRecordModifiers(ctx, modifierAsts);
-	bool externForcesByVal = struct_.linkage != Linkage.internal && struct_.externSet != symbolSet(symbol!"js");
+	bool externForcesByVal = struct_.linkage != Linkage.internal && struct_.externSet != symbolSet(symbol!"js"); // TODO: something for java too?
 	Opt!ByValOrRef valOrRef = externForcesByVal
 		? some(ByValOrRef.byVal)
 		: has(modifiers.byValOrRef)

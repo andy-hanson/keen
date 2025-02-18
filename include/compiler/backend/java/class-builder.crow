@@ -1,0 +1,513 @@
+import
+	../../util/util
+
+| Reference to a {CONSTANT_Utf8_info}
+utf8-reference alias
+	nat16
+| Reference to a {CONSTANT_Class_info}
+class-reference alias
+	nat16
+class-reference-size nat()
+	2
+| Reference to a {CONSTANT_NameAndType_info}
+name-and-type-reference alias
+	nat16
+field-reference alias
+	nat16
+method-reference alias
+	nat16
+
+bytecode-out record mut
+	out nat8 array-builder
+next-index nat(a bytecode-out)
+	a.out size
+~= void(a bytecode-out, x nat8)
+	a.out ~= x
+~~= void(a bytecode-out, x nat8[])
+	a.out ~~= x
+~~= void(a bytecode-out, x nat16)
+	a ~= x >> 8 to
+	a ~= x & 0xff  to
+~~= void(a bytecode-out, x int16)
+	a ~~= x.wrap-to::nat16
+~~= void(a bytecode-out, x nat32)
+	a ~~= (x >> 16).to::nat16
+	a ~~= (x & 0xffff).to::nat16
+~~= void(a bytecode-out, x nat64)
+	a ~~= (x >> 32).to::nat32
+	a ~~= (x & 0xffffffff).to::nat32
+
+write-out[t] spec
+	~~= void(out bytecode-out, a t)
+write-array[t] void(out bytecode-out, xs t[]) t write-out
+	out ~~= xs.size.to::nat16
+	for x : xs
+		out ~~= x
+array-size[t] nat(xs t[]) t size
+	2 + (xs sum x => x size)
+
+| Based on https://docs.oracle.com/javase/specs/jvms/se23/html/jvms-4.html
+ClassFile record
+	constant-pool cp_info[]
+	access class-access
+	this-class class-reference
+	# Usually java/lang/Object
+	super-class class-reference
+	interfaces class-reference[]
+	fields field_info[]
+	methods method_info[]
+	attributes attribute_info[]
+to nat8[](a ClassFile)
+	with out : build
+		(out,)::bytecode-out ~~= a
+~~= void(out bytecode-out, a ClassFile)
+	out ~~= 0xcafebabe::nat32
+	out ~~= 0::nat16 # minor
+	out ~~= 67::nat16 # major
+	# Constant pool indices must be > 0, so add 1 here
+	out ~~= (a.constant-pool.size + 1).to::nat16
+	for x : a constant-pool
+		out ~~= x
+	out ~~= a.access.to::nat16
+	out ~~= a this-class
+	out ~~= a super-class
+	out write-array a.interfaces
+	out write-array a.fields
+	out write-array a.methods
+	out write-array a.attributes
+	
+
+class-access flags nat16 storage
+	public = 1
+	final = 0x10
+	super = 0x20
+	interface_ = 0x0200
+	abstract_ = 0x400
+	synthetic = 0x1000
+	annotation = 0x2000
+	enum_ = 0x4000
+to nat16(a class-access)
+
+field_info record
+	access-flags field-access-flags
+	name utf8-reference
+	descriptor utf8-reference
+	attributes attribute_info[]
+field-access-flags flags nat16 storage
+	public = 1
+	private = 2
+	protected = 4
+	static = 8
+	final = 0x10
+	volatile = 0x40
+	transient = 0x80
+	synthetic = 0x1000
+	enum_ = 0x4000
+to nat16(a field-access-flags)
+~~= void(out bytecode-out, a field_info)
+	out ~~= a.access-flags.to::nat16
+	out ~~= a name
+	out ~~= a descriptor
+	out write-array a.attributes
+
+method_info record
+	access-flags method-access-flags
+	name utf8-reference
+	descriptor utf8-reference
+	attributes attribute_info[]
+~~= void(out bytecode-out, a method_info)
+	out ~~= a.access-flags.to::nat16
+	out ~~= a name
+	out ~~= a descriptor
+	out write-array a.attributes
+method-access-flags flags nat16 storage
+	public = 1
+	private = 2
+	protected = 4
+	static = 8
+	final = 0x10
+	synhcronized = 0x20
+	bridge = 0x40
+	varargs = 0x80
+	native = 0x100
+	abstract_ = 0x400
+	strict = 0x800
+	synthetic = 0x1000
+to nat16(a method-access-flags)
+
+attribute_info union(
+	ConstantValue_attribute,
+	Code_attribute,
+	StackMapTable_attribute,
+	Record_attribute,
+	PermittedSubclasses_attribute
+)
+	size nat()
+	write void(out bytecode-out)
+~~= void(out bytecode-out, a attribute_info)
+	a write out
+
+ConstantValue_attribute record
+	| Must have value "ConstantValue"
+	attribute-name-index utf8-reference
+	constant-value-index nat16
+size nat(_ ConstantValue_attribute)
+	2 + 4 + 2
+write void(a ConstantValue_attribute, out bytecode-out)
+	out ~~= a attribute-name-index
+	out ~~= 2::nat32
+	out ~~= a constant-value-index
+
+Code_attribute record
+	| Must have value "Code"
+	attribute-name-index utf8-reference
+	max-stack nat16
+	max-locals nat16
+	code nat8[]
+	exception-table exception-table-entry[]
+	attributes attribute_info[]
+size nat(_ Code_attribute)
+	throw todo
+write void(a Code_attribute, out bytecode-out)
+	out ~~= a attribute-name-index
+	out ~~= do
+		exception-table-size nat = 2 + a.exception-table.size * exception-table-entry-size-bytes
+		size nat = 2 + 2 + 4 + a.code.size + exception-table-size + a.attributes.array-size
+		size.to::nat32
+	out ~~= a max-stack
+	out ~~= a max-locals
+	out ~~= a.code.size.to::nat32
+	out ~~= a.code
+	out write-array a.exception-table
+	out write-array a.attributes
+
+exception-table-entry record
+	start-pc nat16
+	end-pc nat16
+	handler-pc nat16
+	catch-type class-reference
+exception-table-entry-size-bytes nat()
+	2 * 4
+~~= void(out bytecode-out, a exception-table-entry)
+	out ~~= a start-pc
+	out ~~= a end-pc
+	out ~~= a handler-pc
+	out ~~= a catch-type
+
+StackMapTable_attribute record
+	| Must have value "StackMapTable"
+	attribute-name-index utf8-reference
+	entries stack_map_frame[]
+size nat(a StackMapTable_attribute)
+	2 + 4 + a.entries.array-size
+write void(a StackMapTable_attribute, out bytecode-out)
+	out ~~= a attribute-name-index
+	out ~~= a.entries.array-size.to::nat32
+	out write-array a.entries
+
+Record_attribute record
+	| Must be "Record"
+	attribute-name-index nat16
+	components record_component_info[]
+size nat(a Record_attribute)
+	2 + 4 + a.components.array-size
+write void(a Record_attribute, out bytecode-out)
+	out ~~= a attribute-name-index
+	out ~~= a.components.array-size.to::nat32
+	out write-array a.components
+
+record_component_info record
+	name-index utf8-reference
+	descriptor-index utf8-reference
+	attributes attribute_info[]
+size nat(a record_component_info)
+	2 + 2 + a.attributes.array-size
+~~= void(out bytecode-out, a record_component_info)
+	out ~~= a name-index
+	out ~~= a descriptor-index
+	out write-array a.attributes
+
+PermittedSubclasses_attribute record
+	| Must be "PermittedSubclasses"
+	attribute-name-index nat16
+	classes class-reference[]
+size nat(a PermittedSubclasses_attribute)
+	2 + 4 + 2 + a.classes.size * class-reference-size
+write void(a PermittedSubclasses_attribute, out bytecode-out)
+	out ~~= a attribute-name-index
+	out ~~= (2::nat + a.classes.size * class-reference-size).to::nat32
+	out write-array a.classes
+
+stack_map_frame union(same_frame, same_locals_1_stack_item_frame)
+	size nat()
+	write void(out bytecode-out)
+~~= void(out bytecode-out, a stack_map_frame)
+	a write out
+same_frame record(offset-delta nat8)
+size nat(_ same_frame)
+	1
+write void(a same_frame, out bytecode-out)
+	assert a.offset-delta <= 63
+	out ~= a.offset-delta
+same_locals_1_stack_item_frame record
+	offset-delta nat8
+	stack verification_type_info
+size nat(a same_locals_1_stack_item_frame)
+	1 + a.stack.size
+write void(a same_locals_1_stack_item_frame, out bytecode-out)
+	assert a.offset-delta <= 31
+	out ~= 64 + a.offset-delta
+	out ~~= a stack
+same_locals_1_stack_item_frame_extended record
+	offset-delta nat16
+	stack verification_type_info
+size nat(a same_locals_1_stack_item_frame_extended)
+	1 + a.stack.size
+write void(a same_locals_1_stack_item_frame_extended, out bytecode-out)
+	out ~= 247
+	out ~~= a offset-delta
+	out ~~= a stack
+chop_frame record
+	n-to-chop nat8
+	offset-delta nat16
+size nat(_ chop_frame)
+	3
+write void(a chop_frame, out bytecode-out)
+	assert 1::nat8 <= a.n-to-chop && a.n-to-chop <= 3
+	out ~= a.n-to-chop + 247
+	out ~~= a offset-delta
+same_frame_extended record(offset-delta nat)
+size nat(_ same_frame_extended)
+	3
+write void(a same_frame_extended, out bytecode-out)
+	out ~= 251
+	out ~~= a offset-delta
+append_frame record
+	offset-delta nat16
+	locals verification_type_info[]
+size nat(a append_frame)
+	1 + a.locals.array-size
+write void(a append_frame, out bytecode-out)
+	assert 1::nat <= a.locals.size && a.locals.size <= 3
+	out ~= 251 + a.locals.size.to
+	out ~~= a.offset-delta
+	for x : a locals
+		out ~~= x
+full_frame record
+	offset-delta nat16
+	locals verification_type_info[]
+	stack verification_type_info[]
+size nat(a full_frame)
+	1 + 2 + a.locals.array-size + a.stack.array-size
+write void(a full_frame, out bytecode-out)
+	out ~= 255
+	out ~~= a.offset-delta
+	out write-array a.locals
+	out write-array a.stack
+
+verification_type_info union(simple-variable-info, Object_variable_info, Uninitialized_variable_info)
+	size nat()
+	write void(out bytecode-out)
+~~= void(out bytecode-out, a verification_type_info)
+	a write out
+simple-variable-info record(tag nat8)
+size nat(_ simple-variable-info)
+	1
+write void(a simple-variable-info, out bytecode-out)
+	out ~= a tag
+top simple-variable-info()
+	0,
+integer simple-variable-info()
+	1,
+float simple-variable-info()
+	2,
+long simple-variable-info()
+	4,
+double simple-variable-info()
+	3,
+null simple-variable-info()
+	5,
+uninitialized-this simple-variable-info()
+	6,
+Object_variable_info record(class_ class-reference)
+size nat(_ Object_variable_info)
+	3
+write void(a Object_variable_info, out bytecode-out)
+	out ~= 7
+	out ~~= a.class_
+Uninitialized_variable_info record(offset nat16)
+size nat(_ Uninitialized_variable_info)
+	3
+write void(a Uninitialized_variable_info, out bytecode-out)
+	out ~= 8
+	out ~~= a offset
+
+cp_info union(
+	CONSTANT_Class_info,
+	CONSTANT_Fieldref_info,
+	CONSTANT_Methodref_info,
+	CONSTANT_InterfaceMethodref_info,
+	CONSTANT_String_info,
+	CONSTANT_Float_info,
+	CONSTANT_Long_info,
+	CONSTANT_Double_info,
+	CONSTANT_NameAndType_info,
+	CONSTANT_Utf8_info,
+	CONSTANT_MethodHandle_info,
+	CONSTANT_MethodType_info,
+	CONSTANT_InvokeDynamic_info
+)
+	| Most constants take a single slot, but long and double take 2
+	n-slots nat()
+	write void(out bytecode-out)
+~~= void(out bytecode-out, a cp_info)
+	a write out
+
+CONSTANT_Class_info record
+	name-index utf8-reference
+n-slots nat(_ CONSTANT_Class_info)
+	1
+write void(a CONSTANT_Class_info, out bytecode-out)
+	out ~= 7
+	out ~~= a name-index
+
+CONSTANT_Fieldref_info record
+	class-index class-reference
+	name-and-type-index name-and-type-reference
+n-slots nat(_ CONSTANT_Fieldref_info)
+	1
+write void(a CONSTANT_Fieldref_info, out bytecode-out)
+	out ~= 9
+	out ~~= a class-index
+	out ~~= a name-and-type-index
+
+CONSTANT_Methodref_info record
+	class-index class-reference
+	name-and-type-index name-and-type-reference
+n-slots nat(_ CONSTANT_Methodref_info)
+	1
+write void(a CONSTANT_Methodref_info, out bytecode-out)
+	out ~= 10
+	out ~~= a class-index
+	out ~~= a name-and-type-index
+
+CONSTANT_InterfaceMethodref_info record
+	class-index class-reference
+	name-and-type-index name-and-type-reference
+n-slots nat(_ CONSTANT_InterfaceMethodref_info)
+	1
+write void(a CONSTANT_InterfaceMethodref_info, out bytecode-out)
+	out ~~= a class-index
+	out ~~= a name-and-type-index
+
+CONSTANT_String_info record(string-index utf8-reference)
+n-slots nat(_ CONSTANT_String_info)
+	1
+write void(a CONSTANT_String_info, out bytecode-out)
+	out ~= 8
+	out ~~= a string-index
+
+CONSTANT_Float_info record(value float32)
+n-slots nat(_ CONSTANT_Float_info)
+	1
+write void(a CONSTANT_Float_info, out bytecode-out)
+	out ~= 4
+	out ~~= a.value.bits-of
+
+CONSTANT_Long_info record(value nat64)
+n-slots nat(_ CONSTANT_Long_info)
+	2
+write void(a CONSTANT_Long_info, out bytecode-out)
+	out ~= 5
+	out ~~= a value
+CONSTANT_Double_info record(value float64)
+n-slots nat(_ CONSTANT_Double_info)
+	2
+write void(a CONSTANT_Double_info, out bytecode-out)
+	out ~= 6
+	out ~~= a.value.bits-of
+
+CONSTANT_NameAndType_info record(name-index utf8-reference, descriptor-index utf8-reference)
+n-slots nat(_ CONSTANT_NameAndType_info)
+	1
+write void(a CONSTANT_NameAndType_info, out bytecode-out)
+	out ~= 12
+	out ~~= a.name-index
+	out ~~= a.descriptor-index
+
+CONSTANT_Utf8_info record(value string)
+n-slots nat(_ CONSTANT_Utf8_info)
+	1
+write void(a CONSTANT_Utf8_info, out bytecode-out)
+	out ~= 1
+	bytes nat8[] = a.value to
+	out ~~= bytes.size.to::nat16
+	out ~~= bytes
+
+| // See '4.4.8. The CONSTANT_MethodHandle_info Structure' here: https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
+CONSTANT_MethodHandle_info record
+	reference-kind reference-kind
+	| What this means depends on {reference-kind}
+	reference-index nat16
+reference-kind enum nat8 storage
+	REF_getField = 1
+	REF_getStatic = 2
+	REF_putField = 3
+	REF_putStatic = 4
+	REF_invokeVirtual = 5
+	REF_invokeStatic = 6
+	REF_invokeSpecial = 7
+	REF_newInvokeSpecial = 8
+	REF_invokeInterface = 9
+to nat8(a reference-kind)
+n-slots nat(_ CONSTANT_MethodHandle_info)
+	1
+write void(a CONSTANT_MethodHandle_info, out bytecode-out)
+	out ~= 15
+	out ~= a.reference-kind.to
+	out ~~= a.reference-index
+
+CONSTANT_MethodType_info record(descriptor-index utf8-reference)
+n-slots nat(_ CONSTANT_MethodType_info)
+	1
+write void(a CONSTANT_MethodType_info, out bytecode-out)
+	out ~= 16
+	out ~~= a descriptor-index
+
+CONSTANT_InvokeDynamic_info record
+	bootstrap-method-attr-index nat16
+	name-and-type-index name-and-type-reference
+n-slots nat(_ CONSTANT_InvokeDynamic_info)
+	1
+write void(a CONSTANT_InvokeDynamic_info, out bytecode-out)
+	out ~= 18
+	out ~~= a bootstrap-method-attr-index
+	out ~~= a name-and-type-index
+
+constants-builder record mut
+	-next-index mut nat16
+	-utf8-cache utf8-reference mut[symbol]
+	-constants cp_info mut[]
+new constants-builder()
+	1, (), ()
+
+-add nat16(a constants-builder, constant cp_info)
+	res = a next-index
+	a.next-index +:= constant.n-slots.to
+	a.constants ~= constant
+	res
+
+subscript utf8-reference(a constants-builder, value symbol)
+	a.utf8-cache ensure value, () =>
+		a add value.to.CONSTANT_Utf8_info
+class_ class-reference(a constants-builder, class-name symbol)
+	a add a[class-name].CONSTANT_Class_info
+name-and-type name-and-type-reference(a constants-builder, name symbol, type symbol)
+	a add (a[name] CONSTANT_NameAndType_info a[type])
+field field-reference(a constants-builder, class_ class-reference, name-and-type name-and-type-reference)
+	a add (class_ CONSTANT_Fieldref_info name-and-type)
+method-ref method-reference(a constants-builder, class_ class-reference, name-and-type name-and-type-reference)
+	a add (class_ CONSTANT_Methodref_info name-and-type)
+
+finish cp_info[](a constants-builder)
+	a.constants move-to

@@ -791,6 +791,7 @@ immutable string[] specialSymbols = [
 	"java-array-get",
 	"java-array-set",
 	"java-change-exclusion",
+	"java-class-of",
 	"java-cur-exclusion",
 	"java-exclusion",
 	"java-new-array",
