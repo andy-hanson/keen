@@ -348,6 +348,7 @@ cp_info union(
 	CONSTANT_Methodref_info,
 	CONSTANT_InterfaceMethodref_info,
 	CONSTANT_String_info,
+	CONSTANT_Integer_info,
 	CONSTANT_Float_info,
 	CONSTANT_Long_info,
 	CONSTANT_Double_info,
@@ -355,7 +356,10 @@ cp_info union(
 	CONSTANT_Utf8_info,
 	CONSTANT_MethodHandle_info,
 	CONSTANT_MethodType_info,
-	CONSTANT_InvokeDynamic_info
+	CONSTANT_Dynamic_info,
+	CONSTANT_InvokeDynamic_info,
+	CONSTANT_Module_info,
+	CONSTANT_Package_info
 )
 	| Most constants take a single slot, but long and double take 2
 	n-slots nat()
@@ -413,6 +417,13 @@ n-slots nat(_ CONSTANT_Float_info)
 write void(a CONSTANT_Float_info, out bytecode-out)
 	out ~= 4
 	out ~~= a.value.bits-of
+
+CONSTANT_Integer_info record(value nat32)
+n-slots nat(_ CONSTANT_Integer_info)
+	1
+write void(a CONSTANT_Integer_info, out bytecode-out)
+	out ~= 3
+	out ~~= a value
 
 CONSTANT_Long_info record(value nat64)
 n-slots nat(_ CONSTANT_Long_info)
@@ -474,6 +485,16 @@ write void(a CONSTANT_MethodType_info, out bytecode-out)
 	out ~= 16
 	out ~~= a descriptor-index
 
+CONSTANT_Dynamic_info record
+	bootstrap-method-attr-index nat16
+	name-and-type-index name-and-type-reference
+n-slots nat(_ CONSTANT_Dynamic_info)
+	1
+write void(a CONSTANT_Dynamic_info, out bytecode-out)
+	out ~= 17
+	out ~~= a bootstrap-method-attr-index
+	out ~~= a name-and-type-index
+
 CONSTANT_InvokeDynamic_info record
 	bootstrap-method-attr-index nat16
 	name-and-type-index name-and-type-reference
@@ -484,12 +505,50 @@ write void(a CONSTANT_InvokeDynamic_info, out bytecode-out)
 	out ~~= a bootstrap-method-attr-index
 	out ~~= a name-and-type-index
 
+CONSTANT_Module_info record(name-index nat16)
+n-slots nat(_ CONSTANT_Module_info)
+	1
+write void(a CONSTANT_Module_info, out bytecode-out)
+	out ~= 19
+	out ~~= a name-index
+
+CONSTANT_Package_info record(name-index nat16)
+n-slots nat(_ CONSTANT_Package_info)
+	1
+write void(a CONSTANT_Package_info, out bytecode-out)
+	out ~= 20
+	out ~~= a name-index
+
 constants-builder record mut
 	-next-index mut nat16
 	-utf8-cache utf8-reference mut[symbol]
+	-string-cache nat16 mut[utf8-reference]
+	-class-cache class-reference mut[symbol]
+	-name-and-type-cache name-and-type-reference mut[(symbol, symbol)]
+	# No worry about overlap since method types contain parentheses as in '()V' and field types don't
+	-field-and-method-cache field-reference mut[(class-reference, name-and-type-reference)]
+	-float32-cache nat16 mut[float32]
+	-float64-cache nat16 mut[float64]
+	-int32-cache nat16 mut[int32]
+	-int64-cache nat16 mut[int64]
 	-constants cp_info mut[]
 new constants-builder()
-	1, (), ()
+	1, (), (), (), (), (), (), (), (), (), ()
+
+float32 nat16(a constants-builder, constant float32)
+	a.float32-cache ensure constant, () =>
+		a add constant.CONSTANT_Float_info
+float64 nat16(a constants-builder, constant float64)
+	a.float64-cache ensure constant, () =>
+		a add constant.CONSTANT_Double_info
+int32 nat16(a constants-builder, constant int32)
+	# Use a cache
+	a.int32-cache ensure constant, () =>
+		a add constant.wrap-to.CONSTANT_Integer_info
+int64 nat16(a constants-builder, constant int64)
+	# Use a cache. NOTE: These will tkae up 2 constant pool entries
+	a.int64-cache ensure constant, () =>
+		a add constant.wrap-to.CONSTANT_Long_info
 
 -add nat16(a constants-builder, constant cp_info)
 	res = a next-index
@@ -501,13 +560,21 @@ subscript utf8-reference(a constants-builder, value symbol)
 	a.utf8-cache ensure value, () =>
 		a add value.to.CONSTANT_Utf8_info
 class_ class-reference(a constants-builder, class-name symbol)
-	a add a[class-name].CONSTANT_Class_info
+	a.class-cache ensure class-name, () =>
+		a add a[class-name].CONSTANT_Class_info
 name-and-type name-and-type-reference(a constants-builder, name symbol, type symbol)
-	a add (a[name] CONSTANT_NameAndType_info a[type])
+	a.name-and-type-cache ensure (name, type), () =>
+		a add (a[name] CONSTANT_NameAndType_info a[type])
 field field-reference(a constants-builder, class_ class-reference, name-and-type name-and-type-reference)
-	a add (class_ CONSTANT_Fieldref_info name-and-type)
+	a.field-and-method-cache ensure (class_, name-and-type), () =>
+		a add (class_ CONSTANT_Fieldref_info name-and-type)
 method-ref method-reference(a constants-builder, class_ class-reference, name-and-type name-and-type-reference)
-	a add (class_ CONSTANT_Methodref_info name-and-type)
+	a.field-and-method-cache ensure (class_, name-and-type), () =>
+		a add (class_ CONSTANT_Methodref_info name-and-type)
+string-ref nat16(a constants-builder, value symbol)
+	utf8 = a[value]
+	a.string-cache ensure utf8, () =>
+		a add utf8.CONSTANT_String_info
 
 finish cp_info[](a constants-builder)
 	a.constants move-to

@@ -6,7 +6,6 @@ import
 	../../model/show-low-model
 	../../model/uri
 	../../model/version-info
-	../../util/full-index-map
 	../../util/util
 	../mangle
 	./java-ast
@@ -15,8 +14,8 @@ import
 	./write-java-ast
 	./util
 
-# Output is a map from file name to text
-translate-to-java (string, string)[](
+# Output is a map from file name to content
+translate-to-java (string, nat8[])[](
 	program program,
 	concrete-program concrete-program,
 	show-ctx show-type-ctx,
@@ -27,7 +26,7 @@ translate-to-java (string, string)[](
 		show-ctx: show-ctx
 		funs-lookup: concrete-program.funs-lookup
 		mangled-names: concrete-program build-mangled-names
-		structs-for-integrals: concrete-program.get-structs-for-integrals
+		structs-for-integrals: concrete-program get-structs-for-integrals
 		constant-names: ()
 		union-info: concrete-program plan-unions
 		upcoming-lambda-impl-id: 0
@@ -82,25 +81,23 @@ translate-to-java (string, string)[](
 			k, v.move-to
 		unions: for k, v : constant-union-names
 			k, v.move-to
-	
+
 	fields-per-class java-field mut[] mut[string] = ()
 	ctx.show-ctx.show each-constant-in-dependency-order ctx.program, constant =>
-		name class-and-member, value java-expr = match constant
+		name = ctx.constant-names[constant]
+		value = match constant
 		as single-constant-array x
-			java-element-type = ctx as-type x.element-type
-			v = java-element-type java-literal-array for e : x.elements
+			ctx as-type x.element-type java-literal-array for e : x.elements
 				ctx translate-constant-reference x.element-type.struct, e
-			ctx.constant-names.arrays[constant.type id]![x index]!, v
 		as single-constant-record x
 			# TODO: I'm also generating '.instance' members for empty records, so don't redundantly generate those here -----------------------
-			v = ctx as-class x.record-type java-new for arg, field : x.args zip x.fields
+			ctx as-class x.record-type java-new for arg, field : x.args zip x.fields
 				ctx translate-constant-reference field.type.struct, arg
-			ctx.constant-names.records[constant.type id]![x constant]!, v
 		as single-constant-union x
 			case-type = x.member-type
 			value = ctx translate-constant-reference x.member-type, x.value.member
 			boxed-value = ctx box case-type, value
-			v = match ctx union-representation x.union-type
+			match ctx union-representation x.union-type
 			as direct
 				ctx as-type x.union-type java-cast boxed-value
 			as sealed-interface
@@ -115,7 +112,6 @@ translate-to-java (string, string)[](
 					boxed-value
 				else
 					throw unreachable
-			ctx.constant-names.unions[constant.type id]![x constant]!, v
 		fields-per-class ensure name.class_ ~= do
 			visibility: internal
 			kind: static
@@ -131,129 +127,6 @@ translate-to-java (string, string)[](
 		fields: fields move-to
 		constructor: ()
 		methods: ()
-
-# TODO: this may be simpler (and faster) as a single dictionary class-ane-member[nat][concrete-struct-id ----------------------------------------
--constant-names record
-	arrays class-and-member[nat][concrete-struct-id]
-	records class-and-member[constant-record][concrete-struct-id]
-	unions class-and-member[constant-union][concrete-struct-id] # TODO: could this be a full-index-map? ---------------------
--new constant-names()
-	(), (), ()
-
--max-constants-per-class nat()
-	# Java allows 65535 constants, but large arrays include many individual constants, so use this as a limit that seems to work
-	32
-
-# TODO: MOVE, will need this for the JS build too ------------------------------------------------------------------------------
--each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-program, emit void mut(x any-constant))
-	# TODO:PERF this could use a full-index-set -----------------------------------------------------------------------------
-	seen-arrays (concrete-struct-id, nat) mut-set = ()
-	seen-records (concrete-struct-id, constant-record) mut-set = ()
-	seen-unions (concrete-struct-id, constant-union) mut-set = ()
-	can-reference bool mut(type concrete-struct, c constant) = (type, c) =>
-		match c
-		as constant-array x
-			# TODO: We should stop storing strings as arrays!
-			type is-string || type is-symbol || (type.id, x.index) in seen-arrays
-		as constant-c-string _
-			true
-		as constant-float _
-			true
-		as constant-fun-pointer _
-			true
-		as integral-value _
-			true
-		as constant-record x
-			(type.id, x) in seen-records
-		as constant-union x
-			(type.id, x) in seen-unions
-		as constant-gc-safe-value
-			true
-		as constant-null
-			true
-
-	all-constants = program all-constants
-	did-something mut bool = true
-	while did-something
-		did-something := false
-		for arr : all-constants arrs
-			for array-id, xs : arr.constants with-index
-				key = arr.arr-type.id, array-id
-				guard key !in seen-arrays
-				guard xs every x => can-reference[arr.element-type.struct, x]
-				seen-arrays ~= key
-				emit[arr.arr-type single-constant-array arr.element-type, array-id, xs]
-				did-something := true
-		for struct-id, map : all-constants records
-			for constant, args : map
-				key = struct-id, constant
-				guard key !in seen-records
-				record-type = program.structs-by-id[struct-id]!
-				fields = record-type.body.concrete-record! fields
-				guard args zip fields every (arg, field) => can-reference[field.type.struct, arg]
-				seen-records ~= key
-				emit[record-type single-constant-record constant, args, fields]
-				did-something := true
-		for struct-id, map : all-constants unions
-			for constant, value : map
-				key = struct-id, constant
-				guard key !in seen-unions
-				union-type = program.structs-by-id[struct-id]!
-				members = union-type.body.concrete-union! members
-				member-type = members[value member-index]
-				guard can-reference[member-type.struct, value.member]
-				seen-unions ~= key
-				emit[union-type single-constant-union constant, value, member-type.struct]
-				did-something := true
-		
-	# TODO: RM this debugging code ------------------------------------------------------------------------------------------------------------------
-	for struct-id, map : all-constants records	
-		for constant, args : map
-			key = struct-id, constant
-			if key !in seen-records
-				record-type = program.structs-by-id[struct-id]!
-				fields = record-type.body.concrete-record! fields
-				error log "Could not emit constant record {show-ctx show-concrete-struct record-type}"
-				for arg, field : args zip fields
-					if !can-reference[field.type.struct, arg]
-						error log "  Can not emit field of type {show-ctx show-concrete-struct field.type.struct}"
-
-	n-constant-arrays = all-constants.arrs sum x => x.constants.size
-	n-constant-records = all-constants.records sum (_, map) => map.size
-	n-constant-unions = all-constants.unions sum (_, map) => map.size
-	seen-arrays.size is n-constant-arrays
-	seen-records.size is n-constant-records
-	seen-unions.size is n-constant-unions
-
--any-constant union(single-constant-array, single-constant-record, single-constant-union) mut
--type concrete-struct(a any-constant)
-	# TODO: this could be simplified if the type was always called 'type'! --------------------------------------------------
-	match a
-	as single-constant-array x
-		x array-type
-	as single-constant-record x
-		x record-type
-	as single-constant-union x
-		x union-type
--single-constant-array record mut
-	array-type concrete-struct
-	element-type concrete-type
-	index nat
-	elements constant[]
--single-constant-record record mut
-	record-type concrete-struct
-	constant constant-record
-	args constant[]
-	fields concrete-field[]
--single-constant-union record mut
-	union-type concrete-struct
-	constant constant-union
-	value constant-union-value
-	member-type concrete-struct
-
--funs-lookup concrete-fun[concrete-fun-id](a concrete-program)
-	for fun : a all-funs
-		fun.id, fun	
 
 -call-main java-method(ctx to-java-ctx)
 	# TODO: I don't think I need the catch ....................................................................................
@@ -406,15 +279,6 @@ translate-to-java (string, string)[](
 	ctx.union-info.union-to-representation[s id]!
 -union-representation union-representation(ctx to-expr-ctx, s concrete-type)
 	ctx.ctx union-representation s.struct
-
--get-structs-for-integrals concrete-struct[integral-type](a concrete-program)
-	res concrete-struct mut[integral-type] = ()
-	for struct : a all-structs
-		if builtin_ ?= struct.body concrete-builtin-type
-			if i ?= builtin_.kind.to::integral-type?
-				forbid i in res
-				res[i] := struct
-	res move-to
 
 -to-expr-ctx record mut
 	ctx to-java-ctx

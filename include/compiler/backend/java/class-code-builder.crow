@@ -7,7 +7,7 @@ with-block Code_attribute(a build-code, f void mut(a code-builder))
 	exception-table mut exception-table-entry[] = ()
 	stack-map mut stack_map_frame[] = ()
 	code nat8[] = with out : build
-		builder code-builder = (out,), (), ()
+		builder code-builder = (out,), a.constants, (), ()
 		f[builder]
 		exception-table := builder.exception-table move-to
 		stack-map := builder.stack-map move-to
@@ -21,6 +21,7 @@ with-block Code_attribute(a build-code, f void mut(a code-builder))
 # MOVE
 code-builder record mut
 	-out bytecode-out
+	-constants constants-builder
 	-exception-table exception-table-entry mut[]
 	-stack-map stack_map_frame mut[]
 add-to-exception-table void(a code-builder, entry exception-table-entry)
@@ -29,23 +30,105 @@ add-to-stack-map void(a code-builder, frame stack_map_frame)
 	a.stack-map ~= frame
 next-index nat16(a code-builder)
 	a.out.next-index to
-bipush void(a code-builder, value nat8)
-	a.out ~= 0x10
-	a.out ~= value
 dup void(a code-builder)
 	a.out ~= 0x59
-aload_0 void(a code-builder)
-	a.out ~= 0x2a
-iconst_1 void(a code-builder)
-	a.out ~= 0x4
+xload void(a code-builder, type java-primitive-type, index nat)
+	a xload (type,), index
+xload void(a code-builder, type java-primitive-type?, index nat)
+	if p ?= type
+		match p
+		as T_BOOLEAN
+			a iload index
+		as T_CHAR
+			a iload index
+		as T_FLOAT
+			a fload index
+		as T_DOUBLE
+			a dload index
+		as T_BYTE
+			a iload index
+		as T_SHORT
+			a iload index
+		as T_INT 
+			a iload index
+		as T_LONG 
+			a lload index
+	else
+		a aload index
+aload void(a code-builder, index nat)
+	if index < 4
+		a.out ~= 0x2a + index.to # aload_0, aload_1, aload_2, or aload_3
+	else
+		a.out ~= 0x19 # aload
+		a.out ~= index to
+-dload void(a code-builder, index nat)
+	if index < 4
+		a.out ~= 0x26 + index.to # dload_0, dload_1, dload_2, or dload_3
+	else
+		a.out ~= 0x18 # dload
+		a.out ~= index to
+-fload void(a code-builder, index nat)
+	if index < 4
+		a.out ~= 0x22 + index.to # fload_0, fload_1, fload_2, or fload_3
+	else
+		a.out ~= 0x17 # fload
+		a.out ~= index to
+-iload void(a code-builder, index nat)
+	if index < 4
+		a.out ~= 0x1a + index.to # iload_0, iload_1, iload_2, or iload_3
+	else
+		a.out ~= 0x15 # iload
+		a.out ~= index to
+-lload void(a code-builder, index nat)
+	if index < 4
+		a.out ~= 0x1e + index.to # lload_0, lload_1, lload_2, or lload_3
+	else
+		a.out ~= 0x16 # lload
+		a.out ~= index to
+aconst_null void(a code-builder)
+	a.out ~= 0x1
+dconst void(a code-builder, value float64)
+	if value == 0
+		a.out ~= 0xe
+	elif value == 1
+		a.out ~= 0xf
+	else
+		a ldc_w (a.constants float64 value)
+fconst void(a code-builder, value float32)
+	if value == 0
+		a.out ~= 0xb # fconst_0
+	elif value == 1
+		a.out ~= 0xc
+	elif value == 2
+		a.out ~= 0xd
+	else
+		a ldc (a.constants float32 value)
+iconst void(a code-builder, value int32)
+	if value == -1
+		a.out ~= 0x2
+	elif 0::int32 <= value && value <= 5
+		a.out ~= 0x3 + value.to::nat32.to
+	elif -128::int32 <= value && value <= 127
+		a.out ~= 0x10 # bipush
+		a.out ~= value.to.to::int8.wrap-to
+	else
+		a ldc (a.constants int32 value)
+lconst void(a code-builder, value int64)
+	if value == 0
+		a.out ~= 0x9
+	elif value == 1
+		a.out ~= 0xa
+	else
+		a ldc_w (a.constants int64 value)
+| 'reference' is a constant index, not the value itself
+ldc void(a code-builder, reference nat16)
+	a.out ~= 0x12
+	a.out ~~= reference
+-ldc_w void(a code-builder, reference nat16)
+	a.out ~= 0x13
+	a.out ~~= reference
 idiv void(a code-builder)
 	a.out ~= 0x6c
-iload_0 void(a code-builder)
-	a.out ~= 0x1a
-iload_1 void(a code-builder)
-	a.out ~= 0x1b
-iload_2 void(a code-builder)
-	a.out ~= 0x1c
 areturn void(a code-builder)
 	a.out ~= 0xb0
 ireturn void(a code-builder)
@@ -61,6 +144,12 @@ pop void(a code-builder)
 	a.out ~= 0x57
 putfield void(a code-builder, field field-reference)
 	a.out ~= 0xb5
+	a.out ~~= field
+getstatic void(a code-builder, field field-reference)
+	a.out ~= 0xb2
+	a.out ~~= field
+putstatic void(a code-builder, field field-reference)
+	a.out ~= 0xb3
 	a.out ~~= field
 invokespecial void(a code-builder, ref method-reference)
 	a.out ~= 0xb7
@@ -80,3 +169,61 @@ ifeq void(a code-builder, branch int16)
 checkcast void(a code-builder, class_ class-reference)
 	a.out ~= 0xc0
 	a.out ~~= class_
+newarray void(a code-builder, type java-primitive-type)
+	a.out ~= 0xbc
+	a.out ~= type to
+java-primitive-type enum nat8 storage
+	T_BOOLEAN = 4
+	T_CHAR = 5
+	T_FLOAT = 6
+	T_DOUBLE = 7
+	T_BYTE = 8
+	T_SHORT = 9
+	T_INT = 10
+	T_LONG = 11
+to nat8(a java-primitive-type)
+anewarray void(a code-builder, class_ class-reference)
+	a.out ~= 0xbd
+	a.out ~~= class_
+| Leave {primitive} null for a reference type
+xaload void(a code-builder, primitive java-primitive-type?)
+	a.out ~= if p ?= primitive
+		match p
+		as T_BOOLEAN
+			0x33 # baload
+		as T_CHAR
+			0x34 # caload
+		as T_FLOAT
+			0x30 # faload
+		as T_DOUBLE
+			0x31 # daload
+		as T_BYTE
+			0x33 # baload
+		as T_SHORT
+			0x35 # saload
+		as T_INT
+			0x2e # iaload
+		as T_LONG
+			0x2f # laload
+| Leave {primitive} null for a reference type
+astore void(a code-builder, primitive java-primitive-type?)
+	a.out ~= if p ?= primitive
+		match p
+		as T_BOOLEAN
+			0x54 # bastore
+		as T_CHAR
+			0x55 # castore
+		as T_FLOAT
+			0x51 # fastore
+		as T_DOUBLE
+			0x52 # dastore
+		as T_BYTE
+			0x54 # bastore
+		as T_SHORT
+			0x56 # sastore
+		as T_INT
+			0x4f # iastore
+		as T_LONG
+			0x50 # lastore
+	else
+		0x53 # aastore

@@ -1,5 +1,12 @@
 import
+	../../frontend/show-model
 	../../model/concrete-model
+	../../model/integral-values
+	../../model/model
+	../../model/show-low-model
+	../../util/full-index-map
+	../../util/util
+	./mangle-for-java
 
 exception concrete-struct(a concrete-program)
 	a.common-funs.concrete-common-funs-java! exception
@@ -7,3 +14,144 @@ string concrete-struct(a concrete-program)
 	a.common-funs.concrete-common-funs-java! string
 symbol concrete-struct(a concrete-program)
 	a.common-funs.concrete-common-funs-java! symbol
+
+# TODO: this may be simpler (and faster) as a single dictionary class-ane-member[nat][concrete-struct-id ----------------------------------------
+constant-names record
+	arrays class-and-member[nat][concrete-struct-id]
+	records class-and-member[constant-record][concrete-struct-id]
+	unions class-and-member[constant-union][concrete-struct-id] # TODO: could this be a full-index-map? ---------------------
+new constant-names()
+	(), (), ()
+subscript class-and-member(a constant-names, constant any-constant)
+	id = constant.type id
+	match constant
+	as single-constant-array x
+		a.arrays[id]![x index]!
+	as single-constant-record x
+		a.records[id]![x constant]!
+	as single-constant-union x
+		a.unions[id]![x constant]!
+
+max-constants-per-class nat()
+	# Java allows 65535 constants, but large arrays include many individual constants, so use this as a limit that seems to work
+	32
+
+# TODO: MOVE, will need this for the JS build too ------------------------------------------------------------------------------
+each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-program, emit void mut(x any-constant))
+	# TODO:PERF this could use a full-index-set -----------------------------------------------------------------------------
+	seen-arrays (concrete-struct-id, nat) mut-set = ()
+	seen-records (concrete-struct-id, constant-record) mut-set = ()
+	seen-unions (concrete-struct-id, constant-union) mut-set = ()
+	can-reference bool mut(type concrete-struct, c constant) = (type, c) =>
+		match c
+		as constant-array x
+			# TODO: We should stop storing strings as arrays!
+			type is-string || type is-symbol || (type.id, x.index) in seen-arrays
+		as constant-c-string _
+			true
+		as constant-float _
+			true
+		as constant-fun-pointer _
+			true
+		as integral-value _
+			true
+		as constant-record x
+			(type.id, x) in seen-records
+		as constant-union x
+			(type.id, x) in seen-unions
+		as constant-gc-safe-value
+			true
+		as constant-null
+			true
+
+	all-constants = program all-constants
+	did-something mut bool = true
+	while did-something
+		did-something := false
+		for arr : all-constants arrs
+			for array-id, xs : arr.constants with-index
+				key = arr.arr-type.id, array-id
+				guard key !in seen-arrays
+				guard xs every x => can-reference[arr.element-type.struct, x]
+				seen-arrays ~= key
+				emit[arr.arr-type single-constant-array arr.element-type, array-id, xs]
+				did-something := true
+		for struct-id, map : all-constants records
+			for constant, args : map
+				key = struct-id, constant
+				guard key !in seen-records
+				record-type = program.structs-by-id[struct-id]!
+				fields = record-type.body.concrete-record! fields
+				guard args zip fields every (arg, field) => can-reference[field.type.struct, arg]
+				seen-records ~= key
+				emit[record-type single-constant-record constant, args, fields]
+				did-something := true
+		for struct-id, map : all-constants unions
+			for constant, value : map
+				key = struct-id, constant
+				guard key !in seen-unions
+				union-type = program.structs-by-id[struct-id]!
+				members = union-type.body.concrete-union! members
+				member-type = members[value member-index]
+				guard can-reference[member-type.struct, value.member]
+				seen-unions ~= key
+				emit[union-type single-constant-union constant, value, member-type.struct]
+				did-something := true
+		
+	# TODO: RM this debugging code ------------------------------------------------------------------------------------------------------------------
+	for struct-id, map : all-constants records	
+		for constant, args : map
+			key = struct-id, constant
+			if key !in seen-records
+				record-type = program.structs-by-id[struct-id]!
+				fields = record-type.body.concrete-record! fields
+				error log "Could not emit constant record {show-ctx show-concrete-struct record-type}"
+				for arg, field : args zip fields
+					if !can-reference[field.type.struct, arg]
+						error log "  Can not emit field of type {show-ctx show-concrete-struct field.type.struct}"
+
+	n-constant-arrays = all-constants.arrs sum x => x.constants.size
+	n-constant-records = all-constants.records sum (_, map) => map.size
+	n-constant-unions = all-constants.unions sum (_, map) => map.size
+	seen-arrays.size is n-constant-arrays
+	seen-records.size is n-constant-records
+	seen-unions.size is n-constant-unions
+
+any-constant union(single-constant-array, single-constant-record, single-constant-union) mut
+type concrete-struct(a any-constant)
+	# TODO: this could be simplified if the type was always called 'type'! --------------------------------------------------
+	match a
+	as single-constant-array x
+		x array-type
+	as single-constant-record x
+		x record-type
+	as single-constant-union x
+		x union-type
+single-constant-array record mut
+	array-type concrete-struct
+	element-type concrete-type
+	index nat
+	elements constant[]
+single-constant-record record mut
+	record-type concrete-struct
+	constant constant-record
+	args constant[]
+	fields concrete-field[]
+single-constant-union record mut
+	union-type concrete-struct
+	constant constant-union
+	value constant-union-value
+	member-type concrete-struct
+
+funs-lookup concrete-fun[concrete-fun-id](a concrete-program)
+	for fun : a all-funs
+		fun.id, fun	
+
+get-structs-for-integrals concrete-struct[integral-type](a concrete-program)
+	res concrete-struct mut[integral-type] = ()
+	for struct : a all-structs
+		if builtin_ ?= struct.body concrete-builtin-type
+			if i ?= builtin_.kind.to::integral-type?
+				forbid i in res
+				res[i] := struct
+	res move-to

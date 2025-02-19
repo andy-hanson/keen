@@ -1,0 +1,634 @@
+import
+	../../frontend/show-model
+	../../model/concrete-model
+	../../model/integral-values
+	../../model/model
+	../../model/show-low-model
+	../../model/uri
+	../../model/version-info
+	../../util/full-index-map
+	../../util/util
+	../mangle
+	./class-builder
+	./class-code-builder
+	./mangle-for-java
+	./union-representation
+	./util
+
+translate-to-java-classes (string, nat8[])[](
+	program program,
+	concrete-program concrete-program,
+	show-ctx show-type-ctx,
+)
+	ctx to-java-ctx = do
+		res: ()
+		model-program: program
+		program: concrete-program
+		show-ctx: show-ctx
+		funs-lookup: concrete-program funs-lookup
+		mangled-names: concrete-program build-mangled-names
+		structs-for-integrals: concrete-program get-structs-for-integrals
+		constant-names: ()
+		union-info: concrete-program plan-unions
+		upcoming-lambda-impl-id: 0
+	ctx translate-constants
+	for struct : concrete-program all-structs
+		ctx translate-struct struct
+	# TODO: functions and vars
+	# TODO: 'Main' class
+	throw todo
+
+-to-java-ctx record mut
+	res ClassFile mut[string]
+	model-program program
+	program concrete-program
+	show-ctx show-type-ctx
+	funs-lookup concrete-fun[concrete-fun-id]
+	mangled-names java-mangled-names
+	structs-for-integrals concrete-struct[integral-type]
+	constant-names mut constant-names
+	union-info union-info
+	upcoming-lambda-impl-id mut nat
+-add-class void(ctx to-java-ctx, name string, class_ ClassFile)
+	forbid name in ctx.res
+	ctx.res[name] := class_
+-union-representation union-representation(ctx to-java-ctx, type concrete-struct)
+	ctx.union-info.union-to-representation[type id]!
+
+-expr-ctx record mut
+	ctx to-java-ctx
+	constants constants-builder
+-program concrete-program(a expr-ctx)
+	a.ctx program
+-union-representation union-representation(ctx expr-ctx, type concrete-struct)
+	ctx.ctx union-representation type
+
+# This sets 'constant-names' while emitting classes to contain constants
+-translate-constants void(ctx to-java-ctx)
+	# Since class files can't get too big, we must break up constants between several classes.
+	constant-array-names class-and-member mut[nat] mut[concrete-struct-id] = ()
+	constant-record-names class-and-member mut[constant-record] mut[concrete-struct-id] = ()
+	cur-class-index mut nat = 0
+	cur-class-name mut string = "_constants{cur-class-index}"
+	field-index mut nat = 0
+	cur-class-constants any-constant mut[] = ()
+
+	class-to-constants any-constant[] mut[string] = ()
+
+	ctx.show-ctx.show each-constant-in-dependency-order ctx.program, constant =>
+		if field-index >= max-constants-per-class
+			class-to-constants[cur-class-name] := cur-class-constants.move-to
+			cur-class-index +:= 1
+			cur-class-name := "_constants{cur-class-index}"
+			field-index := 0
+		class-and-member class-and-member = cur-class-name, "x{field-index}"
+		field-index +:= 1
+		cur-class-constants ~= constant
+		match constant
+		as single-constant-array x
+			(constant-array-names ensure constant.type.id)[x index] := class-and-member
+		as single-constant-record x
+			(constant-record-names ensure constant.type.id)[x constant] := class-and-member
+		as single-constant-union _
+			# Since the union member can just upcast to the union, no need to have a field for this
+			()
+
+	ctx.constant-names := do
+		arrays: for k, v : constant-array-names
+			k, v.move-to
+		records: for k, v : constant-record-names
+			k, v.move-to
+		unions: ()
+
+	for name, constants : class-to-constants
+		ctx add-class name, (ctx constants-class name, constants)
+
+-constants-class ClassFile(ctx to-java-ctx, name string, constants any-constant[])
+	pool constants-builder = ()
+	fields field_info[] = for x : constants
+		# Declare the field
+		access-flags: static | final
+		name: pool[ctx.constant-names[x].member to]
+		descriptor: pool[ctx descriptor-for-type x.type to]
+		attributes: ()
+	static-init method_info = do
+		code = with out : pool build-code
+			expr-ctx expr-ctx = ctx, pool
+			for constant : constants
+				out init-constant expr-ctx, constant
+			out return
+		access-flags: static | final | synthetic
+		name: pool["<clinit>"]
+		descriptor: pool["()V"]
+		attributes: code.to,
+	this-class = pool class_ name.to
+	Object = pool class_ "java/lang/Object"
+	constant-pool: pool finish
+	access: final
+	this-class: this-class
+	super-class: Object
+	interfaces: ()
+	fields: fields
+	methods: static-init,
+	attributes: ()
+
+-init-constant void(out code-builder, ctx expr-ctx, constant any-constant)
+	match constant
+	as single-constant-array x
+		out iconst x.elements.size.to
+		out new-array-for-type ctx, x.element-type.struct
+		for i, element : x.elements with-index
+			out dup
+			out iconst i.to
+			out push-constant ctx, element, x.element-type.struct
+			out astore x.element-type.struct.as-primitive-type
+	as single-constant-record x
+		class_ = ctx as-class-reference x.record-type
+		out makenew class_
+		out dup
+		for arg, field : x.args zip x.fields
+			out push-constant ctx, arg, field.type.struct
+		out invokespecial (ctx record-init-reference class_, x.fields)
+	as single-constant-union _
+		throw unreachable
+	out set-static-field ctx, ctx.ctx.constant-names[constant], constant.type
+
+-record-init-reference method-reference(ctx expr-ctx, class_ class-reference, fields concrete-field[])
+	descriptor string = with out : build
+		out ~= "("
+		for field : fields
+			out ~~= ctx.ctx descriptor-for-type field.type
+		out ~~= ")V"
+	name-and-type = ctx.constants name-and-type "<init>", descriptor.to
+	ctx.constants method-ref class_, name-and-type
+
+-static-field-descriptor field-reference(ctx expr-ctx, field class-and-member, type concrete-struct)
+	constants-class = ctx.constants class_ field.class_.to
+	field-name-and-type = ctx.constants name-and-type field.member.to, (ctx.ctx descriptor-for-type type to)
+	ctx.constants field constants-class, field-name-and-type
+
+-get-static-field void(out code-builder, ctx expr-ctx, field class-and-member, type concrete-struct)
+	out getstatic (ctx static-field-descriptor field, type)
+
+-set-static-field void(out code-builder, ctx expr-ctx, field class-and-member, type concrete-struct)
+	out putstatic (ctx static-field-descriptor field, type)
+
+-push-constant void(out code-builder, ctx expr-ctx, constant constant, type concrete-struct)
+	match type body
+	as concrete-builtin-type x
+		out push-constant-builtin ctx, constant, type, x
+	as concrete-enum x
+		out push-constant-integral ctx, x.storage_, constant
+	as concrete-extern-type
+		throw todo
+	as concrete-flags x
+		out push-constant-integral ctx, x.storage_, constant
+	as concrete-record _
+		match constant
+		as constant-record r
+			out get-static-field ctx, ctx.ctx.constant-names.records[type id]![r]!, type
+		as constant-gc-safe-value
+			out aconst_null
+		as constant-null
+			out aconst_null
+		else
+			throw unreachable
+	as concrete-union _
+		match constant
+		as constant-union u
+			value = ctx.program.all-constants.unions[type id]![u]
+			case-type = type.body.concrete-union!.members[1].struct
+			match ctx.ctx union-representation type
+			as direct
+				out push-constant ctx, value.member, case-type
+			as sealed-interface
+				out push-constant ctx, value.member, case-type
+			as switch
+				throw todo # Construct a 'new Union' now -000000000000000000000000000000000000000000000000000000000000000000
+			as nullable
+				match value member-index
+				as 0
+					out aconst_null
+				as 1
+					out push-constant ctx, value.member, case-type
+				else
+					throw unreachable
+		as constant-gc-safe-value
+			out aconst_null
+		as constant-null
+			out aconst_null
+		else
+			throw unreachable
+	as concrete-struct-body-deferred
+		throw unreachable
+
+-push-constant-builtin void(out code-builder, ctx expr-ctx, constant constant, type concrete-struct, builtin_ concrete-builtin-type)
+	array void mut() = () =>
+		field = ctx.ctx.constant-names.arrays[type id]![constant.constant-array!.index]!
+		out get-static-field ctx, field, type
+	string void mut() = () =>
+		value string = match constant
+		as constant-array ca # TODO: it should probably not do this for non-native builds (or for any builds?) -------------
+			elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: have a helper function for this
+			chars char8[] = for x : elements
+				x.as-integral.as-unsigned.to to
+			chars to
+		as constant-c-string x
+			ctx.program.all-constants.c-strings[x index]
+		as constant-gc-safe-value
+			"" # TODO: use null? ----------------------------------------------------------------------------------------------------------
+		else
+			throw unreachable
+		out ldc (ctx.constants string-ref value.to)
+	match builtin_ kind
+	as array
+		array[]
+	as bool
+		out push-constant-integral ctx, int8, constant
+	as catch-point
+		throw unreachable
+	as char8
+		out push-constant-integral ctx, int8, constant
+	as char32
+		out push-constant-integral ctx, int32, constant
+	as const-pointer
+		throw unreachable
+	as float32
+		out fconst constant.constant-float!.value.to
+	as float64
+		out dconst constant.constant-float!.value
+	as fun-pointer
+		# There should be a way to reference a MethodHandle
+		throw todo
+	as future
+		throw unreachable
+	as int8
+		out push-constant-integral ctx, int8, constant
+	as int16
+		out push-constant-integral ctx, int16, constant
+	as int32
+		out push-constant-integral ctx, int32, constant
+	as int64
+		out push-constant-integral ctx, int64, constant
+	as java-any
+		match constant
+		as constant-gc-safe-value
+			out aconst_null
+		as constant-null
+			out aconst_null
+		else
+			throw unreachable
+	as java-exclusion
+		throw unreachable
+	as js-any
+		throw unreachable
+	as fun-data
+		throw unreachable
+	as fun-mut
+		throw unreachable
+	as fun-shared
+		throw unreachable
+	as mut-array
+		throw unreachable
+	as mut-pointer
+		throw unreachable
+	as mut-slice
+		array[]
+	as nat8
+		out push-constant-integral ctx, nat8, constant
+	as nat16
+		out push-constant-integral ctx, nat16, constant
+	as nat32
+		out push-constant-integral ctx, nat32, constant
+	as nat64
+		out push-constant-integral ctx, nat64, constant
+	as option
+		throw unreachable
+	as string
+		string[]
+	as symbol
+		string[]
+	as void
+		()
+
+-push-constant-integral void(out code-builder, ctx expr-ctx, type integral-type, constant constant)
+	match constant
+	as integral-value x
+		value = x as-signed
+		match type to-signed
+		as int8
+			out iconst value.to
+		as int16
+			out iconst value.to
+		as int32
+			out iconst value.to
+		as int64
+			out lconst value
+	as constant-gc-safe-value
+		out iconst 0
+	else
+		throw unreachable
+
+-translate-struct void(ctx to-java-ctx, struct concrete-struct)
+	constants constants-builder = ()
+	super-class class-reference = constants class_ match struct source
+	as concrete-struct-source-bogus
+		"java/lang/Object"
+	as concrete-struct-source-inst inst
+		if inst.decl.sum-type-memberships exists x => x.sum-type == ctx.model-program.common-types.exception
+			"java/lang/Throwable"
+		else
+			"java/lang/Object"
+	as concrete-struct-source-lambda _
+		"java/lang/Object"
+	interfaces class-reference[] = for x : ctx.union-info.type-to-interfaces[struct id] ?? ()
+		constants class_ ctx.mangled-names[x].to
+	this-class = constants class_ ctx.mangled-names[struct].to
+	cls ClassFile? = match struct body
+	as concrete-builtin-type x
+		lambda ClassFile mut() = () =>
+			throw todo
+		match x kind
+		as array
+			()
+		as fun-data
+			lambda[],
+		as fun-mut
+			lambda[],
+		as fun-shared
+			lambda[],
+		else
+			# boxing record
+			field-name = constants["value"]
+			field field_info = do
+				access-flags: final
+				name: field-name
+				descriptor: ctx descriptor-for-type constants, struct
+				attributes: ()
+			Object = constants class_ "java/lang/Object"
+			init-no-args = constants name-and-type "<init>", "()V"
+			object-init = constants method-ref Object, init-no-args
+			field-ref = constants field this-class, field-name
+			code-attribute Code_attribute = with out : constants build-code
+				out aload 0
+				out invokespecial object-init
+				out aload 0
+				out xload struct.as-primitive-type, 0
+				out putfield field-ref
+				out return
+			constructor method_info = do
+				access-flags: final
+				name: constants["<init>"]
+				descriptor: constants["({ctx descriptor-for-type constants, struct})V"]
+				attributes: code-attribute.to,
+			res ClassFile = do
+				constant-pool: constants finish
+				access: interface_ | abstract_
+				this-class: this-class
+				super-class: super-class
+				interfaces: interfaces
+				fields: field,
+				methods: ()
+				attributes: ()
+			res,
+	as concrete-enum _
+		()
+	as concrete-extern-type
+		throw unreachable
+	as concrete-flags _
+		()
+	as concrete-record _
+		throw todo
+	as concrete-union _
+		throw todo
+	as concrete-struct-body-deferred
+		throw unreachable
+
+-is-array-type bool(a builtin-type)
+	match a
+	as array
+		true
+	as mut-slice
+		true
+	else
+		false
+
+-new-array-for-type void(out code-builder, ctx expr-ctx, type concrete-struct)
+	if p ?= type as-primitive-type
+		out newarray p
+	else
+		out anewarray (ctx as-class-reference type)
+
+-descriptor-for-type utf8-reference(ctx to-java-ctx, constants constants-builder, type concrete-type)
+	ctx descriptor-for-type constants, type.struct
+-descriptor-for-type utf8-reference(ctx to-java-ctx, constants constants-builder, type concrete-struct)
+	constants[ctx descriptor-for-type type to]
+-descriptor-for-type string(ctx to-java-ctx, type concrete-type)
+	ctx descriptor-for-type type.struct
+-descriptor-for-type string(ctx to-java-ctx, type concrete-struct)
+	if p ?= type as-primitive-type
+		p descriptor
+	else
+		name = ctx boxed-class-name type
+		if type is-array-or-mut-array
+			name
+		else
+			"L{name};"
+
+-descriptor string(a java-primitive-type)
+	match a
+	as T_BOOLEAN
+		"Z"
+	as T_CHAR
+		"C"
+	as T_FLOAT
+		"F"
+	as T_DOUBLE
+		"D"
+	as T_BYTE
+		"B"
+	as T_SHORT
+		"S"
+	as T_INT
+		"I"
+	as T_LONG
+		"J"
+
+-as-class-reference class-reference(ctx expr-ctx, type concrete-struct)
+	ctx.ctx as-class-reference ctx.constants, type
+-as-class-reference class-reference(ctx to-java-ctx, constants constants-builder, type concrete-struct)
+	constants class_ (ctx boxed-class-name type to)
+
+-boxed-class-name string(ctx to-java-ctx, type concrete-struct)
+	mangled string mut() = () =>
+		ctx.mangled-names[type]
+	match type body
+	as concrete-builtin-type x
+		match x kind
+		as array
+			"[{ctx descriptor-for-type x.type-args.only}"
+		as bool
+			"java/lang/Boolean"
+		as catch-point
+			throw unreachable
+		as char8
+			"java/lang/Byte"
+		as char32
+			"java/lang/Integer"
+		as const-pointer
+			throw unreachable
+		as float32
+			"java/lang/Float"
+		as float64
+			"java/lang/Double"
+		as fun-pointer
+			"java/lang/invoke/MethodHandle"
+		as future
+			"java/util/concurrent/Future"
+		as int8
+			"java/lang/Byte"
+		as int16
+			"java/lang/Short"
+		as int32
+			"java/lang/Integer"
+		as int64
+			"java/lang/Long"
+		as java-any
+			"java/lang/Object"
+		as java-exclusion
+			"java/util/concurrent/locks/ReentrantLock"
+		as js-any
+			"java/lang/Object"
+		as fun-data
+			mangled[]
+		as fun-mut
+			mangled[]
+		as fun-shared
+			mangled[]
+		as mut-array
+			throw unreachable
+		as mut-pointer
+			"java/lang/Object"
+		as mut-slice
+			"[{ctx descriptor-for-type x.type-args.only}"
+		as nat8
+			"java/lang/Byte"
+		as nat16
+			"java/lang/Short"
+		as nat32
+			"java/lang/Integer"
+		as nat64
+			"java/lang/Long"
+		as option
+			throw unreachable
+		as string
+			"java/lang/String"
+		as symbol
+			"java/lang/String"
+		as void
+			"V"
+	as concrete-enum x
+		x.storage_ boxed-class-for-integral
+	as concrete-extern-type
+		throw todo
+	as concrete-flags x
+		x.storage_ boxed-class-for-integral
+	as concrete-record _
+		mangled[]
+	as concrete-union x
+		match ctx union-representation type
+		as direct
+			if type == ctx.program.exception
+				"java/lang/Throwable"
+			else
+				"java/lang/Object"
+		as sealed-interface
+			mangled[]
+		as switch
+			"Union" # TODO: Generate a different one of these for each 'union .................................................
+		as nullable
+			_, non-null = x.members only2
+			ctx descriptor-for-type non-null
+	as concrete-struct-body-deferred
+		throw unreachable
+
+-boxed-class-for-integral string(type integral-type)
+	match type to-signed
+	as int8
+		"java/lang/Byte"
+	as int16
+		"java/lang/Short"
+	as int32
+		"java/lang/Integer"
+	as int64
+		"java/lang/Long"
+
+-signed-integral-type enum(int8, int16, int32, int64)
+-to-signed signed-integral-type(a integral-type)
+	match a
+	as int8
+		int8
+	as int16
+		int16
+	as int32
+		int32
+	as int64
+		int64
+	as nat8
+		int8
+	as nat16
+		int16
+	as nat32
+		int32
+	as nat64
+		int64
+
+-primitive-for-integral java-primitive-type(type integral-type)
+	match type to-signed
+	as int8
+		T_BYTE
+	as int16
+		T_SHORT
+	as int32
+		T_INT
+	as int64
+		T_LONG
+
+-as-primitive-type java-primitive-type?(type concrete-struct)
+	match type body
+	as concrete-builtin-type x
+		match x kind
+		as bool
+			T_BOOLEAN,
+		as char8
+			T_BYTE,
+		as char32
+			T_INT,
+		as float32
+			T_FLOAT,
+		as float64
+			T_DOUBLE,
+		as int8
+			T_BYTE,
+		as int16
+			T_SHORT,
+		as int32
+			T_INT,
+		as int64
+			T_LONG,
+		as nat8
+			T_BYTE,
+		as nat16
+			T_SHORT,
+		as nat32
+			T_INT,
+		as nat64
+			T_LONG,
+		else
+			()
+	as concrete-enum x
+		x.storage_.primitive-for-integral,
+	as concrete-flags x
+		x.storage_.primitive-for-integral,
+	else
+		()
