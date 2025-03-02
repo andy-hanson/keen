@@ -415,8 +415,6 @@ Token tokenForSymbol(Symbol a) {
 			return Token.case_;
 		case symbol!"catch".value:
 			return Token.catch_;
-		case symbol!"class".value:
-			return Token.reserved;
 		case symbol!"continue".value:
 			return Token.continue_;
 		case symbol!"data".value:

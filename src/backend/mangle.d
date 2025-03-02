@@ -300,8 +300,10 @@ bool conflictsWithCName(Symbol a) {
 		case symbol!"double".value:
 		case symbol!"float".value:
 		case symbol!"for".value:
+		case symbol!"goto".value:
 		case symbol!"inline".value:
 		case symbol!"int".value:
+		case symbol!"long".value:
 		case symbol!"nan".value: // defined by mathcalls.h
 		case symbol!"return".value:
 		case symbol!"signed".value:

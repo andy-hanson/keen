@@ -18,7 +18,14 @@ method-reference alias
 	nat16
 
 bytecode-out record mut
-	out nat8 array-builder
+	LOG bool # TODO:RM ------------------------------------------------------------------------------------------------------------------------
+	out nat8 mut[]
+new bytecode-out()
+	false, ()
+new bytecode-out(log bool)
+	log, ()
+finish nat8[](a bytecode-out)
+	a.out move-to
 next-index nat(a bytecode-out)
 	a.out size
 ~= void(a bytecode-out, x nat8)
@@ -48,6 +55,7 @@ array-size[t] nat(xs t[]) t size
 
 | Based on https://docs.oracle.com/javase/specs/jvms/se23/html/jvms-4.html
 ClassFile record
+	LOG bool # TODO:RM ---------------------------------------------------------------------------------------------------------------
 	constant-pool cp_info[]
 	access class-access
 	this-class class-reference
@@ -57,17 +65,24 @@ ClassFile record
 	fields field_info[]
 	methods method_info[]
 	attributes attribute_info[]
+to json(a ClassFile)
 to nat8[](a ClassFile)
-	with out : build
-		(out,)::bytecode-out ~~= a
+	builder bytecode-out = a.LOG,
+	builder ~~= a
+	builder finish
 ~~= void(out bytecode-out, a ClassFile)
 	out ~~= 0xcafebabe::nat32
 	out ~~= 0::nat16 # minor
 	out ~~= 67::nat16 # major
 	# Constant pool indices must be > 0, so add 1 here
-	out ~~= (a.constant-pool.size + 1).to::nat16
-	for x : a constant-pool
+	constant-pool-count nat = 1 + (a.constant-pool sum x => x n-entries)
+	out ~~= constant-pool-count.to::nat16
+	for i, x : a.constant-pool with-index
+		if out.LOG
+			info log "constant {i + 1} at offset {out.next-index to-hex}: {x.to::json}"
 		out ~~= x
+	if out.LOG
+		info log "constants done at {out.next-index to-hex}"
 	out ~~= a.access.to::nat16
 	out ~~= a this-class
 	out ~~= a super-class
@@ -75,7 +90,6 @@ to nat8[](a ClassFile)
 	out write-array a.fields
 	out write-array a.methods
 	out write-array a.attributes
-	
 
 class-access flags nat16 storage
 	public = 1
@@ -87,12 +101,14 @@ class-access flags nat16 storage
 	annotation = 0x2000
 	enum_ = 0x4000
 to nat16(a class-access)
+to json(a class-access)
 
 field_info record
 	access-flags field-access-flags
 	name utf8-reference
 	descriptor utf8-reference
 	attributes attribute_info[]
+to json(a field_info)
 field-access-flags flags nat16 storage
 	public = 1
 	private = 2
@@ -104,6 +120,7 @@ field-access-flags flags nat16 storage
 	synthetic = 0x1000
 	enum_ = 0x4000
 to nat16(a field-access-flags)
+to json(a field-access-flags)
 ~~= void(out bytecode-out, a field_info)
 	out ~~= a.access-flags.to::nat16
 	out ~~= a name
@@ -115,6 +132,7 @@ method_info record
 	name utf8-reference
 	descriptor utf8-reference
 	attributes attribute_info[]
+to json(a method_info)
 ~~= void(out bytecode-out, a method_info)
 	out ~~= a.access-flags.to::nat16
 	out ~~= a name
@@ -134,6 +152,7 @@ method-access-flags flags nat16 storage
 	strict = 0x800
 	synthetic = 0x1000
 to nat16(a method-access-flags)
+to json(a method-access-flags)
 
 attribute_info union(
 	ConstantValue_attribute,
@@ -144,6 +163,7 @@ attribute_info union(
 )
 	size nat()
 	write void(out bytecode-out)
+to json(a attribute_info)
 ~~= void(out bytecode-out, a attribute_info)
 	a write out
 
@@ -151,6 +171,7 @@ ConstantValue_attribute record
 	| Must have value "ConstantValue"
 	attribute-name-index utf8-reference
 	constant-value-index nat16
+to json(a ConstantValue_attribute)
 size nat(_ ConstantValue_attribute)
 	2 + 4 + 2
 write void(a ConstantValue_attribute, out bytecode-out)
@@ -166,26 +187,34 @@ Code_attribute record
 	code nat8[]
 	exception-table exception-table-entry[]
 	attributes attribute_info[]
+to json(a Code_attribute) 
 size nat(_ Code_attribute)
 	throw todo
 write void(a Code_attribute, out bytecode-out)
+	if out LOG
+		info log "There is a code attribute at index {out.next-index to-hex}"
 	out ~~= a attribute-name-index
-	out ~~= do
+	size nat = do
 		exception-table-size nat = 2 + a.exception-table.size * exception-table-entry-size-bytes
-		size nat = 2 + 2 + 4 + a.code.size + exception-table-size + a.attributes.array-size
-		size.to::nat32
+		2 + 2 + 4 + a.code.size + exception-table-size + a.attributes.array-size
+	out ~~= size.to::nat32
+	start = out next-index
 	out ~~= a max-stack
 	out ~~= a max-locals
 	out ~~= a.code.size.to::nat32
-	out ~~= a.code
+	out ~~= a code
 	out write-array a.exception-table
 	out write-array a.attributes
+	if out LOG
+		info log "And it ends at index {out.next-index to-hex}"
+	out.next-index - start is size
 
 exception-table-entry record
 	start-pc nat16
 	end-pc nat16
 	handler-pc nat16
 	catch-type class-reference
+to json(a exception-table-entry)
 exception-table-entry-size-bytes nat()
 	2 * 4
 ~~= void(out bytecode-out, a exception-table-entry)
@@ -198,6 +227,7 @@ StackMapTable_attribute record
 	| Must have value "StackMapTable"
 	attribute-name-index utf8-reference
 	entries stack_map_frame[]
+to json(a StackMapTable_attribute)
 size nat(a StackMapTable_attribute)
 	2 + 4 + a.entries.array-size
 write void(a StackMapTable_attribute, out bytecode-out)
@@ -209,6 +239,7 @@ Record_attribute record
 	| Must be "Record"
 	attribute-name-index nat16
 	components record_component_info[]
+to json(a Record_attribute)
 size nat(a Record_attribute)
 	2 + 4 + a.components.array-size
 write void(a Record_attribute, out bytecode-out)
@@ -220,6 +251,7 @@ record_component_info record
 	name-index utf8-reference
 	descriptor-index utf8-reference
 	attributes attribute_info[]
+to json(a record_component_info)
 size nat(a record_component_info)
 	2 + 2 + a.attributes.array-size
 ~~= void(out bytecode-out, a record_component_info)
@@ -231,6 +263,7 @@ PermittedSubclasses_attribute record
 	| Must be "PermittedSubclasses"
 	attribute-name-index nat16
 	classes class-reference[]
+to json(a PermittedSubclasses_attribute)
 size nat(a PermittedSubclasses_attribute)
 	2 + 4 + 2 + a.classes.size * class-reference-size
 write void(a PermittedSubclasses_attribute, out bytecode-out)
@@ -238,12 +271,22 @@ write void(a PermittedSubclasses_attribute, out bytecode-out)
 	out ~~= (2::nat + a.classes.size * class-reference-size).to::nat32
 	out write-array a.classes
 
-stack_map_frame union(same_frame, same_locals_1_stack_item_frame)
+stack_map_frame union(
+	same_frame,
+	same_locals_1_stack_item_frame,
+	same_locals_1_stack_item_frame_extended,
+	chop_frame,
+	same_frame_extended,
+	append_frame,
+	full_frame
+)
 	size nat()
 	write void(out bytecode-out)
+to json(a stack_map_frame)
 ~~= void(out bytecode-out, a stack_map_frame)
 	a write out
 same_frame record(offset-delta nat8)
+to json(a same_frame)
 size nat(_ same_frame)
 	1
 write void(a same_frame, out bytecode-out)
@@ -252,6 +295,7 @@ write void(a same_frame, out bytecode-out)
 same_locals_1_stack_item_frame record
 	offset-delta nat8
 	stack verification_type_info
+to json(a same_locals_1_stack_item_frame)
 size nat(a same_locals_1_stack_item_frame)
 	1 + a.stack.size
 write void(a same_locals_1_stack_item_frame, out bytecode-out)
@@ -261,6 +305,7 @@ write void(a same_locals_1_stack_item_frame, out bytecode-out)
 same_locals_1_stack_item_frame_extended record
 	offset-delta nat16
 	stack verification_type_info
+to json(a same_locals_1_stack_item_frame_extended)
 size nat(a same_locals_1_stack_item_frame_extended)
 	1 + a.stack.size
 write void(a same_locals_1_stack_item_frame_extended, out bytecode-out)
@@ -270,6 +315,7 @@ write void(a same_locals_1_stack_item_frame_extended, out bytecode-out)
 chop_frame record
 	n-to-chop nat8
 	offset-delta nat16
+to json(a chop_frame)
 size nat(_ chop_frame)
 	3
 write void(a chop_frame, out bytecode-out)
@@ -277,6 +323,7 @@ write void(a chop_frame, out bytecode-out)
 	out ~= a.n-to-chop + 247
 	out ~~= a offset-delta
 same_frame_extended record(offset-delta nat)
+to json(a same_frame_extended)
 size nat(_ same_frame_extended)
 	3
 write void(a same_frame_extended, out bytecode-out)
@@ -285,6 +332,7 @@ write void(a same_frame_extended, out bytecode-out)
 append_frame record
 	offset-delta nat16
 	locals verification_type_info[]
+to json(a append_frame)
 size nat(a append_frame)
 	1 + a.locals.array-size
 write void(a append_frame, out bytecode-out)
@@ -297,6 +345,7 @@ full_frame record
 	offset-delta nat16
 	locals verification_type_info[]
 	stack verification_type_info[]
+to json(a full_frame)
 size nat(a full_frame)
 	1 + 2 + a.locals.array-size + a.stack.array-size
 write void(a full_frame, out bytecode-out)
@@ -308,9 +357,11 @@ write void(a full_frame, out bytecode-out)
 verification_type_info union(simple-variable-info, Object_variable_info, Uninitialized_variable_info)
 	size nat()
 	write void(out bytecode-out)
+to json(a verification_type_info)
 ~~= void(out bytecode-out, a verification_type_info)
 	a write out
 simple-variable-info record(tag nat8)
+to json(a simple-variable-info)
 size nat(_ simple-variable-info)
 	1
 write void(a simple-variable-info, out bytecode-out)
@@ -330,12 +381,14 @@ null simple-variable-info()
 uninitialized-this simple-variable-info()
 	6,
 Object_variable_info record(class_ class-reference)
+to json(a Object_variable_info)
 size nat(_ Object_variable_info)
 	3
 write void(a Object_variable_info, out bytecode-out)
 	out ~= 7
 	out ~~= a.class_
 Uninitialized_variable_info record(offset nat16)
+to json(a Uninitialized_variable_info)
 size nat(_ Uninitialized_variable_info)
 	3
 write void(a Uninitialized_variable_info, out bytecode-out)
@@ -361,15 +414,17 @@ cp_info union(
 	CONSTANT_Module_info,
 	CONSTANT_Package_info
 )
-	| Most constants take a single slot, but long and double take 2
-	n-slots nat()
+	| Most constants take a single entry, but long and double take 2
+	n-entries nat()
 	write void(out bytecode-out)
+to json(a cp_info)
 ~~= void(out bytecode-out, a cp_info)
 	a write out
 
 CONSTANT_Class_info record
 	name-index utf8-reference
-n-slots nat(_ CONSTANT_Class_info)
+to json(a CONSTANT_Class_info)
+n-entries nat(_ CONSTANT_Class_info)
 	1
 write void(a CONSTANT_Class_info, out bytecode-out)
 	out ~= 7
@@ -378,7 +433,8 @@ write void(a CONSTANT_Class_info, out bytecode-out)
 CONSTANT_Fieldref_info record
 	class-index class-reference
 	name-and-type-index name-and-type-reference
-n-slots nat(_ CONSTANT_Fieldref_info)
+to json(a CONSTANT_Fieldref_info)
+n-entries nat(_ CONSTANT_Fieldref_info)
 	1
 write void(a CONSTANT_Fieldref_info, out bytecode-out)
 	out ~= 9
@@ -388,7 +444,8 @@ write void(a CONSTANT_Fieldref_info, out bytecode-out)
 CONSTANT_Methodref_info record
 	class-index class-reference
 	name-and-type-index name-and-type-reference
-n-slots nat(_ CONSTANT_Methodref_info)
+to json(a CONSTANT_Methodref_info)
+n-entries nat(_ CONSTANT_Methodref_info)
 	1
 write void(a CONSTANT_Methodref_info, out bytecode-out)
 	out ~= 10
@@ -398,56 +455,64 @@ write void(a CONSTANT_Methodref_info, out bytecode-out)
 CONSTANT_InterfaceMethodref_info record
 	class-index class-reference
 	name-and-type-index name-and-type-reference
-n-slots nat(_ CONSTANT_InterfaceMethodref_info)
+to json(a CONSTANT_InterfaceMethodref_info)
+n-entries nat(_ CONSTANT_InterfaceMethodref_info)
 	1
 write void(a CONSTANT_InterfaceMethodref_info, out bytecode-out)
 	out ~~= a class-index
 	out ~~= a name-and-type-index
 
 CONSTANT_String_info record(string-index utf8-reference)
-n-slots nat(_ CONSTANT_String_info)
+to json(a CONSTANT_String_info)
+n-entries nat(_ CONSTANT_String_info)
 	1
 write void(a CONSTANT_String_info, out bytecode-out)
 	out ~= 8
 	out ~~= a string-index
 
 CONSTANT_Float_info record(value float32)
-n-slots nat(_ CONSTANT_Float_info)
+to json(a CONSTANT_Float_info)
+n-entries nat(_ CONSTANT_Float_info)
 	1
 write void(a CONSTANT_Float_info, out bytecode-out)
 	out ~= 4
 	out ~~= a.value.bits-of
 
 CONSTANT_Integer_info record(value nat32)
-n-slots nat(_ CONSTANT_Integer_info)
+to json(a CONSTANT_Integer_info)
+n-entries nat(_ CONSTANT_Integer_info)
 	1
 write void(a CONSTANT_Integer_info, out bytecode-out)
 	out ~= 3
 	out ~~= a value
 
 CONSTANT_Long_info record(value nat64)
-n-slots nat(_ CONSTANT_Long_info)
+to json(a CONSTANT_Long_info)
+n-entries nat(_ CONSTANT_Long_info)
 	2
 write void(a CONSTANT_Long_info, out bytecode-out)
 	out ~= 5
 	out ~~= a value
 CONSTANT_Double_info record(value float64)
-n-slots nat(_ CONSTANT_Double_info)
+to json(a CONSTANT_Double_info)
+n-entries nat(_ CONSTANT_Double_info)
 	2
 write void(a CONSTANT_Double_info, out bytecode-out)
 	out ~= 6
 	out ~~= a.value.bits-of
 
 CONSTANT_NameAndType_info record(name-index utf8-reference, descriptor-index utf8-reference)
-n-slots nat(_ CONSTANT_NameAndType_info)
+to json(a CONSTANT_NameAndType_info)
+n-entries nat(_ CONSTANT_NameAndType_info)
 	1
 write void(a CONSTANT_NameAndType_info, out bytecode-out)
 	out ~= 12
-	out ~~= a.name-index
-	out ~~= a.descriptor-index
+	out ~~= a name-index
+	out ~~= a descriptor-index
 
 CONSTANT_Utf8_info record(value string)
-n-slots nat(_ CONSTANT_Utf8_info)
+to json(a CONSTANT_Utf8_info)
+n-entries nat(_ CONSTANT_Utf8_info)
 	1
 write void(a CONSTANT_Utf8_info, out bytecode-out)
 	out ~= 1
@@ -460,6 +525,7 @@ CONSTANT_MethodHandle_info record
 	reference-kind reference-kind
 	| What this means depends on {reference-kind}
 	reference-index nat16
+to json(a CONSTANT_MethodHandle_info)
 reference-kind enum nat8 storage
 	REF_getField = 1
 	REF_getStatic = 2
@@ -471,7 +537,8 @@ reference-kind enum nat8 storage
 	REF_newInvokeSpecial = 8
 	REF_invokeInterface = 9
 to nat8(a reference-kind)
-n-slots nat(_ CONSTANT_MethodHandle_info)
+to json(a reference-kind)
+n-entries nat(_ CONSTANT_MethodHandle_info)
 	1
 write void(a CONSTANT_MethodHandle_info, out bytecode-out)
 	out ~= 15
@@ -479,7 +546,8 @@ write void(a CONSTANT_MethodHandle_info, out bytecode-out)
 	out ~~= a.reference-index
 
 CONSTANT_MethodType_info record(descriptor-index utf8-reference)
-n-slots nat(_ CONSTANT_MethodType_info)
+to json(a CONSTANT_MethodType_info)
+n-entries nat(_ CONSTANT_MethodType_info)
 	1
 write void(a CONSTANT_MethodType_info, out bytecode-out)
 	out ~= 16
@@ -488,7 +556,8 @@ write void(a CONSTANT_MethodType_info, out bytecode-out)
 CONSTANT_Dynamic_info record
 	bootstrap-method-attr-index nat16
 	name-and-type-index name-and-type-reference
-n-slots nat(_ CONSTANT_Dynamic_info)
+to json(a CONSTANT_Dynamic_info)
+n-entries nat(_ CONSTANT_Dynamic_info)
 	1
 write void(a CONSTANT_Dynamic_info, out bytecode-out)
 	out ~= 17
@@ -498,7 +567,8 @@ write void(a CONSTANT_Dynamic_info, out bytecode-out)
 CONSTANT_InvokeDynamic_info record
 	bootstrap-method-attr-index nat16
 	name-and-type-index name-and-type-reference
-n-slots nat(_ CONSTANT_InvokeDynamic_info)
+to json(a CONSTANT_InvokeDynamic_info)
+n-entries nat(_ CONSTANT_InvokeDynamic_info)
 	1
 write void(a CONSTANT_InvokeDynamic_info, out bytecode-out)
 	out ~= 18
@@ -506,14 +576,16 @@ write void(a CONSTANT_InvokeDynamic_info, out bytecode-out)
 	out ~~= a name-and-type-index
 
 CONSTANT_Module_info record(name-index nat16)
-n-slots nat(_ CONSTANT_Module_info)
+to json(a CONSTANT_Module_info)
+n-entries nat(_ CONSTANT_Module_info)
 	1
 write void(a CONSTANT_Module_info, out bytecode-out)
 	out ~= 19
 	out ~~= a name-index
 
 CONSTANT_Package_info record(name-index nat16)
-n-slots nat(_ CONSTANT_Package_info)
+to json(a CONSTANT_Package_info)
+n-entries nat(_ CONSTANT_Package_info)
 	1
 write void(a CONSTANT_Package_info, out bytecode-out)
 	out ~= 20
@@ -521,10 +593,10 @@ write void(a CONSTANT_Package_info, out bytecode-out)
 
 constants-builder record mut
 	-next-index mut nat16
-	-utf8-cache utf8-reference mut[symbol]
+	-utf8-cache utf8-reference mut[string]
 	-string-cache nat16 mut[utf8-reference]
-	-class-cache class-reference mut[symbol]
-	-name-and-type-cache name-and-type-reference mut[(symbol, symbol)]
+	-class-cache class-reference mut[string]
+	-name-and-type-cache name-and-type-reference mut[(string, string)]
 	# No worry about overlap since method types contain parentheses as in '()V' and field types don't
 	-field-and-method-cache field-reference mut[(class-reference, name-and-type-reference)]
 	-float32-cache nat16 mut[float32]
@@ -546,23 +618,23 @@ int32 nat16(a constants-builder, constant int32)
 	a.int32-cache ensure constant, () =>
 		a add constant.wrap-to.CONSTANT_Integer_info
 int64 nat16(a constants-builder, constant int64)
-	# Use a cache. NOTE: These will tkae up 2 constant pool entries
+	# Use a cache. NOTE: These will take up 2 constant pool entries
 	a.int64-cache ensure constant, () =>
 		a add constant.wrap-to.CONSTANT_Long_info
 
 -add nat16(a constants-builder, constant cp_info)
 	res = a next-index
-	a.next-index +:= constant.n-slots.to
+	a.next-index +:= constant.n-entries.to
 	a.constants ~= constant
 	res
 
-subscript utf8-reference(a constants-builder, value symbol)
+subscript utf8-reference(a constants-builder, value string)
 	a.utf8-cache ensure value, () =>
-		a add value.to.CONSTANT_Utf8_info
-class_ class-reference(a constants-builder, class-name symbol)
+		a add value.CONSTANT_Utf8_info
+class_ class-reference(a constants-builder, class-name string)
 	a.class-cache ensure class-name, () =>
 		a add a[class-name].CONSTANT_Class_info
-name-and-type name-and-type-reference(a constants-builder, name symbol, type symbol)
+name-and-type name-and-type-reference(a constants-builder, name string, type string)
 	a.name-and-type-cache ensure (name, type), () =>
 		a add (a[name] CONSTANT_NameAndType_info a[type])
 field field-reference(a constants-builder, class_ class-reference, name-and-type name-and-type-reference)
@@ -571,7 +643,11 @@ field field-reference(a constants-builder, class_ class-reference, name-and-type
 method-ref method-reference(a constants-builder, class_ class-reference, name-and-type name-and-type-reference)
 	a.field-and-method-cache ensure (class_, name-and-type), () =>
 		a add (class_ CONSTANT_Methodref_info name-and-type)
-string-ref nat16(a constants-builder, value symbol)
+method-ref method-reference(a constants-builder, class_ string, name string, type string)
+	a method-ref (a class_ class_), (a name-and-type name, type)
+method-ref method-reference(a constants-builder, class_ class-reference, name string, type string)
+	a method-ref class_, (a name-and-type name, type)
+string-ref nat16(a constants-builder, value string)
 	utf8 = a[value]
 	a.string-cache ensure utf8, () =>
 		a add utf8.CONSTANT_String_info

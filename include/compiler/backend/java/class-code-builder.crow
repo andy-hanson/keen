@@ -4,38 +4,80 @@ import
 build-code record nominal, mut
 	constants constants-builder
 with-block Code_attribute(a build-code, f void mut(a code-builder))
-	exception-table mut exception-table-entry[] = ()
-	stack-map mut stack_map_frame[] = ()
-	code nat8[] = with out : build
-		builder code-builder = (out,), a.constants, (), ()
-		f[builder]
-		exception-table := builder.exception-table move-to
-		stack-map := builder.stack-map move-to
+	builder code-builder = (), a.constants, (), (), ()
+	f[builder]
+	code = builder.out finish
 	attribute-name-index: a.constants["Code"]
 	max-stack: 99
 	max-locals: 99
 	code: code
-	exception-table: exception-table
-	attributes: unless stack-map is-empty
-		(a.constants["StackMapTable"] StackMapTable_attribute stack-map),
+	exception-table: builder.exception-table move-to
+	attributes: unless builder.stack-map is-empty
+		(a.constants["StackMapTable"] StackMapTable_attribute builder.stack-map.move-to),
 # MOVE
 code-builder record mut
 	-out bytecode-out
-	-constants constants-builder
+	constants constants-builder
 	-exception-table exception-table-entry mut[]
+	-next-stack-frame-relative-to mut nat16
 	-stack-map stack_map_frame mut[]
+
+stack-frame record
+	locals verification_type_info[]
+	stack verification_type_info[]
+
+deferred-jump record mut
+	-jump-from nat16
+	# This is a byte index, but the jump offset is a nat16
+	-location-of-offset nat16
+| Call this when 'out' is at the postion where it should jump to
+jumps-to-here void(a deferred-jump, out code-builder, stack-frame stack-frame)
+	cur = out next-index
+	offset nat16 = cur - a.jump-from
+	out.out.out[a.location-of-offset to] := offset >> 8 to
+	out.out.out[a.location-of-offset.to + 1] := offset & 0xff to
+	out set-stack-frame stack-frame
+
+deferred-jump32 record mut
+	-jump-from nat32
+	-location-of-offset nat32
+jumps-to-here void(a deferred-jump32, out code-builder, stack-frame stack-frame)
+	cur = out next-index
+	offset nat32 = cur.to - a.jump-from
+	out.out.out[a.location-of-offset to] := offset >> 24 to
+	out.out.out[a.location-of-offset.to + 1] := ((offset >> 16) & 0xff) to
+	out.out.out[a.location-of-offset.to + 2] := ((offset >> 8) & 0xff) to
+	out.out.out[a.location-of-offset.to + 3] := (offset & 0xff) to
+	out set-stack-frame stack-frame
+
 add-to-exception-table void(a code-builder, entry exception-table-entry)
 	a.exception-table ~= entry
-add-to-stack-map void(a code-builder, frame stack_map_frame)
-	a.stack-map ~= frame
+-set-stack-frame void(a code-builder, frame stack-frame)
+	cur-pos = a next-index
+	guard cur-pos + 1 != a.next-stack-frame-relative-to # In that case it would be a duplicate
+	locals = frame locals
+	stack = frame stack
+	# TODO: for efficiency, use the simpler frames where possible and not always full_frame ----------------------------------
+	full full_frame = do
+		offset-delta: cur-pos - a.next-stack-frame-relative-to
+		locals: locals
+		stack: stack
+	a.stack-map ~= full.to
+	a.next-stack-frame-relative-to := cur-pos + 1
+
 next-index nat16(a code-builder)
 	a.out.next-index to
-dup void(a code-builder)
+dup32 void(a code-builder)
 	a.out ~= 0x59
-xload void(a code-builder, type java-primitive-type, index nat)
-	a xload (type,), index
-xload void(a code-builder, type java-primitive-type?, index nat)
-	if p ?= type
+dup64 void(a code-builder)
+	a.out ~= 0x5c
+dup_x1 void(a code-builder)
+	a.out ~= 0x5a
+xload void(a code-builder, type java-runtime-type, index nat)
+	match type
+	as void
+		()
+	as java-primitive-type p
 		match p
 		as T_BOOLEAN
 			a iload index
@@ -93,7 +135,7 @@ dconst void(a code-builder, value float64)
 	elif value == 1
 		a.out ~= 0xf
 	else
-		a ldc_w (a.constants float64 value)
+		a ldc T_DOUBLE.to, (a.constants float64 value)
 fconst void(a code-builder, value float32)
 	if value == 0
 		a.out ~= 0xb # fconst_0
@@ -102,7 +144,7 @@ fconst void(a code-builder, value float32)
 	elif value == 2
 		a.out ~= 0xd
 	else
-		a ldc (a.constants float32 value)
+		a ldc T_FLOAT.to, (a.constants float32 value)
 iconst void(a code-builder, value int32)
 	if value == -1
 		a.out ~= 0x2
@@ -112,36 +154,71 @@ iconst void(a code-builder, value int32)
 		a.out ~= 0x10 # bipush
 		a.out ~= value.to.to::int8.wrap-to
 	else
-		a ldc (a.constants int32 value)
+		a ldc T_INT.to, (a.constants int32 value)
 lconst void(a code-builder, value int64)
 	if value == 0
 		a.out ~= 0x9
 	elif value == 1
 		a.out ~= 0xa
 	else
-		a ldc_w (a.constants int64 value)
+		a ldc T_LONG.to, (a.constants int64 value)
 | 'reference' is a constant index, not the value itself
-ldc void(a code-builder, reference nat16)
-	a.out ~= 0x12
-	a.out ~~= reference
--ldc_w void(a code-builder, reference nat16)
-	a.out ~= 0x13
-	a.out ~~= reference
+ldc void(a code-builder, type java-runtime-type, reference nat16)
+	forbid reference == 0
+	if type is-double-size
+		a.out ~= 0x14 # ldc2_w
+		a.out ~~= reference
+	elif reference <= 0xff
+		a.out ~= 0x12 # ldc
+		a.out ~= reference.to
+	else
+		a.out ~= 0x13 # ldc_w
+		a.out ~~= reference
 idiv void(a code-builder)
 	a.out ~= 0x6c
-areturn void(a code-builder)
-	a.out ~= 0xb0
-ireturn void(a code-builder)
-	a.out ~= 0xac
+return void(a code-builder, type java-runtime-type)
+	match type
+	as void
+		a.out ~= 0xb1 # return
+	as java-primitive-type p
+		match p
+		as T_BOOLEAN
+			a.out ~= 0xac # ireturn
+		as T_CHAR
+			a.out ~= 0xac # ireturn
+		as T_FLOAT
+			a.out ~= 0xae # freturn
+		as T_DOUBLE
+			a.out ~= 0xaf # dreturn
+		as T_BYTE
+			a.out ~= 0xac # ireturn
+		as T_SHORT
+			a.out ~= 0xac # ireturn
+		as T_INT
+			a.out ~= 0xac # ireturn
+		as T_LONG
+			a.out ~= 0xad # lreturn
+	else
+		a.out ~= 0xb0 # areturn
+arraylength void(a code-builder)
+	a.out ~= 0xbe
 makenew void(a code-builder, class_ class-reference)
 	a.out ~= 0xbb
 	a.out ~~= class_
 getfield void(a code-builder, field field-reference)
 	a.out ~= 0xb4
 	a.out ~~= field
-| WARN: To pop a long or double, use pop2 instead
-pop void(a code-builder)
-	a.out ~= 0x57
+pop void(a code-builder, type java-runtime-type)
+	match type
+	as void
+		()
+	as java-primitive-type p
+		if p is-double-size
+			a.out ~= 0x58 # pop2
+		else
+			a.out ~= 0x57 # pop
+	else
+		a.out ~= 0x57 # pop
 putfield void(a code-builder, field field-reference)
 	a.out ~= 0xb5
 	a.out ~~= field
@@ -154,24 +231,61 @@ putstatic void(a code-builder, field field-reference)
 invokespecial void(a code-builder, ref method-reference)
 	a.out ~= 0xb7
 	a.out ~~= ref
+invokestatic void(a code-builder, ref method-reference)
+	a.out ~= 0xb8
+	a.out ~~= ref
 invokevirtual void(a code-builder, ref method-reference)
 	a.out ~= 0xb6
 	a.out ~~= ref
-| Returns 'void'
-return void(a code-builder)
-	a.out ~= 0xb1
 instanceof void(a code-builder, class_ class-reference)
 	a.out ~= 0xc1
 	a.out ~~= class_
-ifeq void(a code-builder, branch int16)
-	a.out ~= 0x99
-	a.out ~~= branch
+if_acmpeq deferred-jump(a code-builder)
+	jump-from = a.out next-index
+	a.out ~= 0xa5 # if_acmpeq
+	location-of-offset = a.out next-index
+	a.out ~~= 0xffff::nat16
+	jump-from.to, location-of-offset.to
+ifeq deferred-jump(a code-builder)
+	jump-from = a.out next-index
+	a.out ~= 0x99 # ifeq
+	location-of-offset = a.out next-index
+	a.out ~~= 0xffff::nat16
+	jump-from.to, location-of-offset.to
+ifne deferred-jump(a code-builder)
+	jump-from = a.out next-index
+	a.out ~= 0x9a # ifne
+	location-of-offset = a.out next-index
+	a.out ~~= 0xffff::nat16
+	jump-from.to, location-of-offset.to
+ifnonnull deferred-jump(a code-builder)
+	jump-from = a.out next-index
+	a.out ~= 0xc7 # ifnonnull
+	location-of-offset = a.out next-index
+	a.out ~~= 0xffff::nat16
+	jump-from.to, location-of-offset.to
+
 checkcast void(a code-builder, class_ class-reference)
 	a.out ~= 0xc0
 	a.out ~~= class_
 newarray void(a code-builder, type java-primitive-type)
 	a.out ~= 0xbc
 	a.out ~= type to
+
+java-runtime-type union(void, java-primitive-type, reference-type)
+== bool(a java-runtime-type, b java-runtime-type)
+is-double-size bool(a java-runtime-type)
+	match a
+	as void
+		throw unreachable
+	as java-primitive-type p
+		p is-double-size
+	as reference-type
+		false
+void java-runtime-type()
+	()::void to
+reference-type record
+== bool(a reference-type, b reference-type) 
 java-primitive-type enum nat8 storage
 	T_BOOLEAN = 4
 	T_CHAR = 5
@@ -181,14 +295,20 @@ java-primitive-type enum nat8 storage
 	T_SHORT = 9
 	T_INT = 10
 	T_LONG = 11
+== bool(a java-primitive-type, b java-primitive-type)
 to nat8(a java-primitive-type)
+is-double-size bool(a java-primitive-type)
+	a == T_DOUBLE || a == T_LONG
+
 anewarray void(a code-builder, class_ class-reference)
 	a.out ~= 0xbd
 	a.out ~~= class_
-| Leave {primitive} null for a reference type
-xaload void(a code-builder, primitive java-primitive-type?)
-	a.out ~= if p ?= primitive
-		match p
+xaload void(a code-builder, type java-runtime-type)
+	match type
+	as void
+		()
+	as java-primitive-type p
+		a.out ~= match p
 		as T_BOOLEAN
 			0x33 # baload
 		as T_CHAR
@@ -205,10 +325,14 @@ xaload void(a code-builder, primitive java-primitive-type?)
 			0x2e # iaload
 		as T_LONG
 			0x2f # laload
-| Leave {primitive} null for a reference type
-astore void(a code-builder, primitive java-primitive-type?)
-	a.out ~= if p ?= primitive
-		match p
+	as reference-type
+		a.out ~= 0x32 # aaload
+astore void(a code-builder, type java-runtime-type)
+	match type
+	as void
+		()
+	as java-primitive-type p
+		a.out ~= match p
 		as T_BOOLEAN
 			0x54 # bastore
 		as T_CHAR
@@ -226,4 +350,165 @@ astore void(a code-builder, primitive java-primitive-type?)
 		as T_LONG
 			0x50 # lastore
 	else
-		0x53 # aastore
+		a.out ~= 0x53 # aastore
+iadd void(a code-builder)
+	a.out ~= 0x60
+ladd void(a code-builder)
+	a.out ~= 0x61
+lshl void(a code-builder)
+	a.out ~= 0x79
+lshr void(a code-builder)
+	a.out ~= 0x7b
+iand void(a code-builder)
+	a.out ~= 0x7e
+ior void(a code-builder)
+	a.out ~= 0x80
+ixor void(a code-builder)
+	a.out ~= 0x82
+land void(a code-builder)
+	a.out ~= 0x7f
+lor void(a code-builder)
+	a.out ~= 0x81
+i2b void(a code-builder)
+	a.out ~= 0x91
+i2s void(a code-builder)
+	a.out ~= 0x93
+lxor void(a code-builder)
+	a.out ~= 0x83
+d2f void(a code-builder)
+	a.out ~= 0x90
+f2d void(a code-builder)
+	a.out ~= 0x8d
+l2d void(a code-builder)
+	a.out ~= 0x8a
+i2l void(a code-builder)
+	a.out ~= 0x85
+d2l void(a code-builder)
+	a.out ~= 0x8f
+l2i void(a code-builder)
+	a.out ~= 0x88
+
+swap void(a code-builder)
+	a.out ~= 0x5f
+
+fadd void(a code-builder)
+	a.out ~= 0x62
+dadd void(a code-builder)
+	a.out ~= 0x63
+fsub void(a code-builder)
+	a.out ~= 0x66
+dsub void(a code-builder)
+	a.out ~= 0x67
+fdiv void(a code-builder)
+	a.out ~= 0x6e
+ddiv void(a code-builder)
+	a.out ~= 0x6f
+frem void(a code-builder)
+	a.out ~= 0x72
+drem void(a code-builder)
+	a.out ~= 0x73
+fmul void(a code-builder)
+	a.out ~= 0x6a
+dmul void(a code-builder)
+	a.out ~= 0x6b
+imul void(a code-builder)
+	a.out ~= 0x68
+lmul void(a code-builder)
+	a.out ~= 0x69
+ldiv void(a code-builder)
+	a.out ~= 0x6d
+isub void(a code-builder)
+	a.out ~= 0x64
+lsub void(a code-builder)
+	a.out ~= 0x65
+
+jump-target record
+	offset nat16
+can-jump-back-to-here jump-target(a code-builder, stack-frame stack-frame)
+	a set-stack-frame stack-frame
+	a.next-index,
+go-back-to void(a code-builder, where jump-target)
+	assert where.offset < a.next-index
+	offset int16 = where.offset.to - a.next-index.to
+	a.out ~= 0xa7 # goto
+	a.out ~~= offset
+goto deferred-jump(a code-builder)
+	jump-from = a next-index
+	a.out ~= 0xa7 # goto
+	location-of-offset = a next-index
+	a.out ~~= 0xffff::nat16
+	jump-from: jump-from
+	location-of-offset: location-of-offset
+
+xstore void(a code-builder, type java-runtime-type, index nat)
+	match type
+	as void
+		()
+	as java-primitive-type p
+		match p
+		as T_BOOLEAN
+			a istore index
+		as T_CHAR
+			a istore index
+		as T_FLOAT
+			a fstore index
+		as T_DOUBLE
+			a dstore index
+		as T_BYTE
+			a istore index
+		as T_SHORT
+			a istore index
+		as T_INT
+			a istore index
+		as T_LONG
+			a lstore index
+	else
+		a astore index
+-astore void(a code-builder, index nat)
+	if index < 4
+		a.out ~= 0x4b + index.to # astore_0, astore_1, astore_2, or astore_3
+	else
+		a.out ~= 0x3a # astore
+		a.out ~= index to
+-dstore void(a code-builder, index nat)
+	if index < 4
+		a.out ~= 0x47 + index.to # dstore_0, dstore_1, dstore_2, or dstore_3
+	else
+		a.out ~= 0x39
+		a.out ~= index to
+-fstore void(a code-builder, index nat)
+	if index < 4
+		a.out ~= 0x43 + index.to # fstore_0, fstore_1, fstore_2, or fstore_3
+	else
+		a.out ~= 0x38 # fstore
+		a.out ~= index to
+-istore void(a code-builder, index nat)
+	if index < 4
+		a.out ~= 0x3b + index.to # istore_0, istore_1, istore_2, or istore_3
+	else
+		a.out ~= 0x36 # istore
+		a.out ~= index to
+-lstore void(a code-builder, index nat)
+	if index < 4
+		a.out ~= 0x3f + index.to # lstore_0, lstore_1, lstore_2, or lstore_3
+	else
+		a.out ~= 0x37 # lstore
+		a.out ~= index to
+
+lookupswitch (deferred-jump32[], deferred-jump32)(a code-builder, values nat32[])
+	jump-from nat32 = a.out.next-index to
+	a.out ~= 0xab # lookupswitch
+	until a.out.next-index % 4 == 0
+		a.out ~= 0
+	location-of-default nat32 = a.out.next-index to
+	a.out ~~= 0xffffffff::nat32
+	a.out ~~= values.size.to::nat32
+	jumps deferred-jump32[] = for value : values
+		a.out ~~= value
+		location-of-offset nat32 = a.out.next-index to
+		a.out ~~= 0xffffffff::nat32
+		jump-from, location-of-offset
+	jumps, (jump-from, location-of-default)
+
+athrow void(a code-builder)
+	a.out ~= 0xbf

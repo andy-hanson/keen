@@ -150,9 +150,12 @@ bin/crow.wasm: $(d_dependencies)
 	rm bin/crow-wasm.o
 	mv bin/crow-wasm.wasm bin/crow.wasm
 
-include_dependencies = $(shell find include -name '*.crow')
+include_dependencies = $(shell find include -name '*.crow') include/compiler/backend/java/lib/Crow.class
 
-bin/crowcrow: bin/crowd $(include_dependencies)
+include/compiler/backend/java/lib/Crow.class: include/compiler/backend/java/lib/*.java
+	javac include/compiler/backend/java/lib/*.java
+
+bin/crowcrow: bin/crowd $(include_dependencies) 
 	bin/crowd build include/compiler/app/main.crow --optimize --out bin/crowcrow
 
 bin/crowj: bin/crowcrow $(include_dependencies)
