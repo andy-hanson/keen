@@ -516,9 +516,31 @@ n-entries nat(_ CONSTANT_Utf8_info)
 	1
 write void(a CONSTANT_Utf8_info, out bytecode-out)
 	out ~= 1
-	bytes nat8[] = a.value to
+	bytes = a.value to-modified-utf8
 	out ~~= bytes.size.to::nat16
 	out ~~= bytes
+-to-modified-utf8 nat8[](s string) # TODO:PERF don't create this temporary array ---------------------------
+	# https://docs.oracle.com/javase/specs/jvms/se23/html/jvms-4.html#jvms-4.4.7
+	with out : build
+		for char : s
+			x nat32 = char to
+			if 1::nat32 <= x && x <= 0x7f
+				out ~= x.to
+			elif x <= 0x7ff # numbers up to 11 bits
+				out ~= 0b11000000 | (x >> 6).to # bits 10-6
+				out ~= 0b10000000 | (x & 0b111111).to # bits 5-0
+			elif x <= 0xffff # numbers up to 16 bits
+				out ~= 0b11100000 | (x >> 12).to # bits 15-12
+				out ~= 0b10000000 | ((x >> 6) & 0b111111).to # bits 11-6
+				out ~= 0b10000000 | (x & 0b111111).to # bits 5-0
+			else
+				assert x <= 0xfffff # numbers up to 20 bits
+				out ~= 0b11101101
+				out ~= 0b10100000 | ((x >> 16) - 1).to # bits 20-16
+				out ~= 0b10000000 | ((x >> 10) & 0b111111).to # bits 15-10
+				out ~= 0b11101101
+				out ~= 0b10110000 | ((x >> 6) & 0b1111).to # bits 9-6
+				out ~= 0b10000000 | (x & 0b111111).to # bits 5-0
 
 | // See '4.4.8. The CONSTANT_MethodHandle_info Structure' here: https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
 CONSTANT_MethodHandle_info record
@@ -608,11 +630,18 @@ new constants-builder()
 	1, (), (), (), (), (), (), (), (), (), ()
 
 float32 nat16(a constants-builder, constant float32)
-	a.float32-cache ensure constant, () =>
+	if constant is-nan
 		a add constant.CONSTANT_Float_info
+	else
+		a.float32-cache ensure constant, () =>
+			a add constant.CONSTANT_Float_info
 float64 nat16(a constants-builder, constant float64)
-	a.float64-cache ensure constant, () =>
+	# TODO: mut-map is broken for nan! ----------------------------------------------------------------------------------
+	if constant is-nan
 		a add constant.CONSTANT_Double_info
+	else
+		a.float64-cache ensure constant, () =>
+			a add constant.CONSTANT_Double_info
 int32 nat16(a constants-builder, constant int32)
 	# Use a cache
 	a.int32-cache ensure constant, () =>
@@ -632,6 +661,7 @@ subscript utf8-reference(a constants-builder, value string)
 	a.utf8-cache ensure value, () =>
 		a add value.CONSTANT_Utf8_info
 class_ class-reference(a constants-builder, class-name string)
+	forbid class-name == "V" # --------------------------------------------------------------------------------------------
 	a.class-cache ensure class-name, () =>
 		a add a[class-name].CONSTANT_Class_info
 name-and-type name-and-type-reference(a constants-builder, name string, type string)
@@ -640,6 +670,8 @@ name-and-type name-and-type-reference(a constants-builder, name string, type str
 field field-reference(a constants-builder, class_ class-reference, name-and-type name-and-type-reference)
 	a.field-and-method-cache ensure (class_, name-and-type), () =>
 		a add (class_ CONSTANT_Fieldref_info name-and-type)
+field field-reference(a constants-builder, class_ string, name string, descriptor string)
+	a field (a class_ class_), (a name-and-type name, descriptor)
 method-ref method-reference(a constants-builder, class_ class-reference, name-and-type name-and-type-reference)
 	a.field-and-method-cache ensure (class_, name-and-type), () =>
 		a add (class_ CONSTANT_Methodref_info name-and-type)

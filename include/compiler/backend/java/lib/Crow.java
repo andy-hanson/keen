@@ -104,14 +104,45 @@ class Crow {
 		return 0.5 * Math.log(Math.abs((x + 1) / (x - 1)));
 	}
 
-	static java.lang.invoke.MethodHandle funPointer(String className, String methodName, Class returnType, Class... args) {
+	static java.lang.invoke.MethodHandle funPointer(Class<?> class_, String methodName, Class<?> returnType) {
+		return funPointerInner(class_, methodName, returnType);
+	}
+	static java.lang.invoke.MethodHandle funPointer(Class<?> class_, String methodName, Class<?> returnType, Class<?> arg0) {
+		return funPointerInner(class_, methodName, returnType, arg0);
+	}
+	static java.lang.invoke.MethodHandle funPointer(Class<?> class_, String methodName, Class<?> returnType, Class<?> arg0, Class<?> arg1) {
+		return funPointerInner(class_, methodName, returnType, arg0, arg1);
+	}
+	private static java.lang.invoke.MethodHandle funPointerInner(Class<?> class_, String methodName, Class<?> returnType, Class<?>... args) {
 		try {
-			return lookup.findStatic(Class.forName(className), methodName, java.lang.invoke.MethodType.methodType(returnType, args));
+			var mt = java.lang.invoke.MethodType.methodType(returnType, args);
+			System.out.println("MT IS " + mt);
+			return lookup.findStatic(class_, methodName, mt);
 		} catch (Throwable e) {
-			throw new Error("Could not find function " + className + "." + methodName);
+			// ----------------------------------------------------------------------------------------------------------------
+			System.out.println("ERROR IS " + e);
+			String message = "Could not find function " + class_.getName() + "." + methodName;
+			message += " returning ";
+			message += returnType;
+			message += " with args (";
+			for (int i = 0; i < args.length; i++) {
+				if (i != 0) message += ", ";
+				message += args[i];
+			}
+			message += ") because:\n";
+			message += e;
+
+			System.out.println("returnType == void.class? " + (returnType == void.class));
+
+			System.out.println("All methods:");
+			for (java.lang.reflect.Method method : class_.getMethods()) {
+				System.out.println(method);
+			}
+
+			throw new Error(message);
 		}
 	}
-	private static java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup();
+	private static final java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup();
 
 	static Object getStaticField(String className, String fieldName) throws Throwable {
 		return Class.forName(className).getDeclaredField(fieldName).get(null);
@@ -131,6 +162,13 @@ class Crow {
 	static Object callInstance(Object object, String name, Object arg) throws Throwable {
 		return getMethod(classOf(object), name, arg).invoke(object, arg);
 	}
+
+	void assertNonNull(Object object) {
+		if (object == null) {
+			throw new NullPointerException();
+		}
+	}
+
 	private static java.lang.reflect.Constructor getConstructor(Class<?> class_, Object... args) throws Throwable {
 		Class<?>[] argClasses = classes(args);
 		try {
