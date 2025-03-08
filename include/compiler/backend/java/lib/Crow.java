@@ -59,6 +59,8 @@ class Crow {
 	}
 
 	static ThreadLocalReentrantLock curExclusion = new ThreadLocalReentrantLock();
+
+	// TODO: Remove and support catching 'exception' natively -----------------------------------------------------------------
 	// This must be public because it's called through reflection
 	public static Throwable catchAll(Object fn, java.lang.invoke.MethodHandle callIt) {
 		try {
@@ -94,14 +96,21 @@ class Crow {
 		return (a < 0 ? -1 : 1) * Math.round(Math.abs(a));
 	}
 
-	static double acosh(double x) {
-		return Math.log(x + Math.sqrt(x * x - 1.0));
+	static float atan2(float a, float b) {
+		return (float) Math.atan2((double) a, (double) b);
 	}
-	static double asinh(double x) {
-		return Math.log(x + Math.sqrt(x * x + 1.0));
+	static float pow(float a, float b) {
+		return (float) Math.pow((double) a, (double) b);
 	}
-	static double atanh(double x) {
-		return 0.5 * Math.log(Math.abs((x + 1) / (x - 1)));
+
+	static double acosh(double a) {
+		return Math.log(a + Math.sqrt(a * a - 1.0));
+	}
+	static double asinh(double a) {
+		return Math.log(a + Math.sqrt(a * a + 1.0));
+	}
+	static double atanh(double a) {
+		return 0.5 * Math.log(Math.abs((a + 1) / (a - 1)));
 	}
 
 	static java.lang.invoke.MethodHandle funPointer(Class<?> class_, String methodName, Class<?> returnType) {
@@ -115,9 +124,7 @@ class Crow {
 	}
 	private static java.lang.invoke.MethodHandle funPointerInner(Class<?> class_, String methodName, Class<?> returnType, Class<?>... args) {
 		try {
-			var mt = java.lang.invoke.MethodType.methodType(returnType, args);
-			System.out.println("MT IS " + mt);
-			return lookup.findStatic(class_, methodName, mt);
+			return lookup.findStatic(class_, methodName, java.lang.invoke.MethodType.methodType(returnType, args));
 		} catch (Throwable e) {
 			// ----------------------------------------------------------------------------------------------------------------
 			System.out.println("ERROR IS " + e);

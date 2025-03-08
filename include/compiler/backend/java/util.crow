@@ -51,8 +51,8 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 	can-reference bool mut(type concrete-struct, c constant) = (type, c) =>
 		match c
 		as constant-array x
-			# TODO: We should stop storing strings as arrays!
-			type is-string || type is-symbol || (type.id, x.index) in seen-arrays
+			# TODO: We should stop storing strings as arrays! ----------------------------------------------------------------------
+			type is-string-or-symbol || type.array-element-type.struct is-empty-struct || (type.id, x.index) in seen-arrays
 		as constant-c-string _
 			true
 		as constant-float _
@@ -62,7 +62,7 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 		as integral-value _
 			true
 		as constant-record x
-			(type.id, x) in seen-records
+			type is-empty-struct || (type.id, x) in seen-records
 		as constant-union x
 			(type.id, x) in seen-unions
 		as constant-gc-safe-value
@@ -75,24 +75,28 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 	while did-something
 		did-something := false
 		for arr : all-constants arrs
+			# TODO: We should stop storing strings as arrays! ----------------------------------------------------------------------
+			guard arr.array-type !is-string-or-symbol
+			guard arr.element-type.struct !is-empty-struct
 			for array-id, xs : arr.constants with-index
-				key = arr.arr-type.id, array-id
+				key = arr.array-type.id, array-id
 				guard key !in seen-arrays
 				guard xs every x => can-reference[arr.element-type.struct, x]
 				seen-arrays ~= key
-				emit[arr.arr-type single-constant-array arr.element-type, array-id, xs]
+				emit[arr.array-type single-constant-array arr.element-type, array-id, xs]
 				did-something := true
 		for struct-id, map : all-constants records
+			record-type = program.structs-by-id[struct-id]!
+			guard record-type !is-empty-struct
 			for constant, args : map
 				key = struct-id, constant
 				guard key !in seen-records
-				record-type = program.structs-by-id[struct-id]!
 				fields = record-type.body.concrete-record! fields
 				guard args zip fields every (arg, field) => can-reference[field.type.struct, arg]
 				seen-records ~= key
 				emit[record-type single-constant-record constant, args, fields]
 				did-something := true
-		for struct-id, map : all-constants unions
+		for struct-id, map : all-constants unions # TODO: RM, I'm just making these just in time (since usually it's just an upcast)
 			for constant, value : map
 				key = struct-id, constant
 				guard key !in seen-unions
@@ -106,22 +110,31 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 		
 	# TODO: RM this debugging code ------------------------------------------------------------------------------------------------------------------
 	for struct-id, map : all-constants records	
+		record-type = program.structs-by-id[struct-id]!
+		guard record-type !is-empty-struct
 		for constant, args : map
 			key = struct-id, constant
 			if key !in seen-records
-				record-type = program.structs-by-id[struct-id]!
 				fields = record-type.body.concrete-record! fields
 				error log "Could not emit constant record {show-ctx show-concrete-struct record-type}"
 				for arg, field : args zip fields
 					if !can-reference[field.type.struct, arg]
 						error log "  Can not emit field of type {show-ctx show-concrete-struct field.type.struct}"
 
-	n-constant-arrays = all-constants.arrs sum x => x.constants.size
-	n-constant-records = all-constants.records sum (_, map) => map.size
-	n-constant-unions = all-constants.unions sum (_, map) => map.size
+	n-constant-arrays = all-constants.arrs sum x =>
+		unless x.element-type.struct is-empty-struct
+			x.constants size
+	n-constant-records = all-constants.records sum (x, map) =>
+		unless program.structs-by-id[x]! is-empty-struct
+			map size
+	n-constant-unions = all-constants.unions sum (_, map) =>
+		map size
 	seen-arrays.size is n-constant-arrays
 	seen-records.size is n-constant-records
 	seen-unions.size is n-constant-unions
+
+-is-string-or-symbol bool(a concrete-struct)
+	a is-string || a is-symbol
 
 any-constant union(single-constant-array, single-constant-record, single-constant-union) mut
 type concrete-struct(a any-constant)
