@@ -154,20 +154,55 @@ class Crow {
 	static Object getStaticField(String className, String fieldName) throws Throwable {
 		return Class.forName(className).getDeclaredField(fieldName).get(null);
 	}
+	static Object callNew(String className) throws Throwable {
+		return callNewVarargs(className, new Object[] {});
+	}
 	static Object callNew(String className, Object arg) throws Throwable {
-		return getConstructor(Class.forName(className), arg).newInstance(arg);
+		return callNewVarargs(className, new Object[] { arg });
+	}
+	static Object callNew(String className, Object arg0, Object arg1) throws Throwable {
+		return callNewVarargs(className, new Object[] { arg0, arg1 });
+	}
+	static Object callNew(String className, Object arg0, Object arg1, Object arg2) throws Throwable {
+		return callNewVarargs(className, new Object[] { arg0, arg1, arg2 });
+	}
+	static Object callNewVarargs(String className, Object[] args) throws Throwable {
+		return getConstructor(Class.forName(className), args).newInstance(args);
+	}
+
+	static Object callStatic(String className, String methodName) throws Throwable {
+		return callStaticVarargs(className, methodName, new Object[] {});
 	}
 	static Object callStatic(String className, String methodName, Object arg) throws Throwable {
-		return getMethod(Class.forName(className), methodName, arg).invoke(null, arg);
+		return callStaticVarargs(className, methodName, new Object[] { arg });
 	}
 	static Object callStatic(String className, String methodName, Object arg0, Object arg1) throws Throwable {
-		return getMethod(Class.forName(className), methodName, arg0, arg1).invoke(null, arg0, arg1);
+		return callStaticVarargs(className, methodName, new Object[] { arg0, arg1 });
+	}
+	static Object callStatic(String className, String methodName, Object arg0, Object arg1, Object arg2) throws Throwable {
+		return callStaticVarargs(className, methodName, new Object[] { arg0, arg1, arg2 });
+	}
+	static Object callStatic(String className, String methodName, Object arg0, Object arg1, Object arg2, Object arg3) throws Throwable {
+		return callStaticVarargs(className, methodName, new Object[] { arg0, arg1, arg2, arg3 });
 	}
 	static Object callStaticVarargs(String className, String methodName, Object[] args) throws Throwable {
 		return getMethod(Class.forName(className), methodName, args).invoke(null, args);
 	}
+
+	static Object callInstance(Object object, String name) throws Throwable {
+		return callInstanceVarargs(object, name, new Object[] {});
+	}
 	static Object callInstance(Object object, String name, Object arg) throws Throwable {
-		return getMethod(classOf(object), name, arg).invoke(object, arg);
+		return callInstanceVarargs(object, name, new Object[] { arg });
+	}
+	static Object callInstance(Object object, String name, Object arg0, Object arg1) throws Throwable {
+		return callInstanceVarargs(object, name, new Object[] { arg0, arg1 });
+	}
+	static Object callInstance(Object object, String name, Object arg0, Object arg1, Object arg2) throws Throwable {
+		return callInstanceVarargs(object, name, new Object[] { arg0, arg1, arg2 });
+	}
+	static Object callInstanceVarargs(Object object, String name, Object[] args) throws Throwable {
+		return getMethod(classOf(object), name, args).invoke(object, args);
 	}
 
 	void assertNonNull(Object object) {
@@ -176,7 +211,7 @@ class Crow {
 		}
 	}
 
-	private static java.lang.reflect.Constructor getConstructor(Class<?> class_, Object... args) throws Throwable {
+	private static java.lang.reflect.Constructor getConstructor(Class<?> class_, Object[] args) throws Throwable {
 		Class<?>[] argClasses = classes(args);
 		try {
 			return class_.getConstructor(argClasses);
@@ -185,7 +220,7 @@ class Crow {
 		}
 	}
 
-	private static java.lang.reflect.Method getMethod(Class<?> class_, String methodName, Object... args) throws Throwable {
+	private static java.lang.reflect.Method getMethod(Class<?> class_, String methodName, Object[] args) throws Throwable {
 		Class<?>[] argClasses = classes(args);
 		try {
 			return class_.getMethod(methodName, argClasses);

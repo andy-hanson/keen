@@ -161,7 +161,7 @@ bin/crowcrow: bin/crowd $(include_dependencies)
 bin/crowj: bin/crowcrow $(include_dependencies)
 	rm -rf bin/crowjava
 	bin/crowcrow build include/compiler/app/main.crow --out java:bin/crowjava
-	cd bin/crowjava && jar --create --file=../crowj --main-class=Main *.class
+	cd bin/crowjava && jar --create --file=../crowj --main-class=Main *
 	chmod +x bin/crowj
 
 ### lint ###
