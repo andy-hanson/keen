@@ -25,6 +25,7 @@ translate-to-java-classes (string, nat8[])[](
 )
 	ctx to-java-ctx = do
 		res: ()
+		next-lambda-index: 0
 		next-resource-index: 0
 		model-program: program
 		program: concrete-program
@@ -64,7 +65,7 @@ translate-to-java-classes (string, nat8[])[](
 	this-class = constants class_ "Main"
 	main method_info = do
 		code = with out : constants build-code
-			expr-ctx expr-ctx = ctx, constants, this-class, ()
+			expr-ctx expr-ctx = ctx, constants, this-class, (), false, ()
 			main = ctx.program.common-funs.concrete-common-funs-java!.main
 			out aload 0
 			out call-concrete-fun expr-ctx, main
@@ -110,6 +111,7 @@ translate-to-java-classes (string, nat8[])[](
 
 -to-java-ctx record mut
 	res nat8[] mut[string]
+	next-lambda-index mut nat
 	next-resource-index mut nat
 	model-program program
 	program concrete-program
@@ -136,40 +138,54 @@ translate-to-java-classes (string, nat8[])[](
 	ctx to-java-ctx
 	constants constants-builder
 	this-class class-reference
+	closure field-reference[concrete-local-id]
 	stack concrete-struct mut-stack
-	# Does not include locals for parameters ..
+	has-this bool
+	| Does not include the 'this' param
 	locals concrete-local mut-stack
 	loop-pos mut jump-target?
 -new expr-ctx(
 	ctx to-java-ctx,
 	constants constants-builder,
 	this-class class-reference,
+	closure field-reference[concrete-local-id],
+	has-this bool,
 	locals concrete-local mut-stack,
 )
-	ctx, constants, this-class, (), locals, ()
+	for x : locals
+		forbid x.type.struct is-empty-struct
+	ctx, constants, this-class, closure, (), has-this, locals, ()
 -program concrete-program(a expr-ctx)
 	a.ctx program
 -union-representation union-representation(ctx expr-ctx, type concrete-struct)
 	ctx.ctx union-representation type
--index-for-local nat(a expr-ctx, local concrete-local)
-	res mut nat = 0
-	for x : a locals
-		if x == local
-			break
-		else
-			res +:= x.type.struct number-of-locals
-			continue
+| Index of a local, or reference to a closure field
+-local-or-closure union(nat, field-reference)
+-explain-local local-or-closure(a expr-ctx, local concrete-local)
+	if x ?= a.closure[local id]
+		x to
 	else
-		throw unreachable # We shouldn't get index-for-local for a local not already in a.locals
-	res
--next-local-index nat(a expr-ctx)
-	res mut nat = 0
-	for local : a locals
+		res mut nat = a.has-this to
+		for x : a locals
+			if x == local
+				break
+			else
+				res +:= x.type.struct number-of-locals
+				continue
+		else
+			throw unreachable # We shouldn't get index-for-local for a local not already in a.locals
+		res to
+-next-local-index nat(ctx expr-ctx)
+	res mut nat = ctx.has-this to
+	for local : ctx locals
 		res +:= local.type.struct number-of-locals
 	res
 -cur-stack-frame stack-frame(ctx expr-ctx)
-	locals: for x : ctx locals
-		ctx verification-type x.type.struct
+	locals: with out : build
+		if ctx has-this
+			out ~= ctx.this-class Object_variable_info
+		for x : ctx locals
+			out ~= ctx verification-type x.type.struct
 	stack: for x : ctx stack
 		ctx verification-type x
 
@@ -270,7 +286,7 @@ translate-to-java-classes (string, nat8[])[](
 	this-class = pool class_ name
 	static-init method_info = do
 		code = with out : pool build-code
-			expr-ctx expr-ctx = ctx, pool, this-class, ()
+			expr-ctx expr-ctx = ctx, pool, this-class, (), (), ()
 			for constant : filtered-constants
 				forbid constant.type is-empty-struct
 				out init-constant expr-ctx, constant
@@ -290,7 +306,7 @@ translate-to-java-classes (string, nat8[])[](
 	methods: static-init,
 	attributes: ()
 
--init-constant void(out code-builder, ctx expr-ctx, constant any-constant)
+-init-constant void(out code-builder, ctx expr-ctx, constant any-constant) # TODO: does this really need an expr-ctx? ---------
 	assert ctx.stack is-empty
 	match constant
 	as single-constant-array x
@@ -372,12 +388,15 @@ translate-to-java-classes (string, nat8[])[](
 	ctx must-peek array-type
 
 -record-init-reference method-reference(ctx expr-ctx, class_ class-reference, fields concrete-field[])
-	descriptor string = with out : build
+	ctx.constants method-ref class_, "<init>", (ctx.ctx record-init-descriptor for x : fields; x.type struct)
+-record-init-descriptor string(ctx to-java-ctx, fields concrete-struct[])
+	with out : build
 		out ~= "("
 		for field : fields
-			out ~~= ctx.ctx descriptor-for-param-type field.type.struct
+			out ~~= ctx descriptor-for-param-type field
 		out ~~= ")V"
-	ctx.constants method-ref class_, "<init>", descriptor
+-lambda-init-reference method-reference(ctx expr-ctx, class_ class-reference, closure concrete-local[])
+	ctx.constants method-ref class_, "<init>", (ctx.ctx record-init-descriptor for x : closure; x.type struct)
 
 # Static "instance" field on a singleton class
 -instance-field field-reference(constants constants-builder, class_ string)
@@ -517,23 +536,6 @@ translate-to-java-classes (string, nat8[])[](
 		fun = ctx.ctx.funs-lookup[id]!
 		method = out.constants method-ref ctx.ctx, fun
 		out ldc type.as-runtime-type, (out.constants method-handle REF_invokeStatic, method)
-		# TODO: instead, use a CONSTANT_MethodHandle_info ----------------------------------------------------------------------------
-		# Crow.funPointer(thisClass, name, returnType, argType0, etc...)
-		###
-		mangled = ctx.ctx.mangled-names[fun]
-		out ldc reference-type, (ctx.constants class_ mangled.class_)
-		out ldc reference-type, (ctx.constants string-ref mangled.member)
-		out push-unboxed-class-reference ctx, fun.return-type.struct
-		for param : fun params
-			unless param.type.struct is-empty-struct
-				out push-unboxed-class-reference ctx, param.type.struct
-		descriptor string = with d : build
-			d ~~= "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;"
-			for _ : fun params
-				d ~~= "Ljava/lang/Class;"
-			d ~~= ")Ljava/lang/invoke/MethodHandle;"
-		out call-static "Crow", "funPointer", descriptor
-		###
 	as future
 		throw unreachable
 	as int8
@@ -623,7 +625,7 @@ translate-to-java-classes (string, nat8[])[](
 	class_ ClassFile? = match struct body
 	as concrete-builtin-type x
 		lambda ClassFile mut() = () =>
-			ctx lambda-interface constants, x.type-args, this-class, super-class, interfaces
+			ctx lambda-class constants, struct, this-class, super-class, interfaces
 		match x kind
 		as array
 			()
@@ -663,29 +665,28 @@ translate-to-java-classes (string, nat8[])[](
 	if x ?= class_
 		ctx add-class this-class-name, x
 
--lambda-interface ClassFile(
+-lambda-class ClassFile(
 	ctx to-java-ctx,
 	constants constants-builder,
-	type-args concrete-type[],
+	struct concrete-struct,
 	this-class class-reference,
 	super-class class-reference,
 	interfaces class-reference[],
 )
-	return, param = type-args only2
+	init = constants record-initializer ctx, this-class, super-class, ()
 	call method_info = do
-		access-flags: public | abstract_
+		access-flags: abstract_
 		name: constants["call"]
-		descriptor: constants["({ctx descriptor-for-param-type param.struct}){ctx descriptor-for-return-type return.struct}"]
+		descriptor: constants[ctx lambda-call-descriptor struct]
 		attributes: ()
-	assert interfaces is-empty
 	LOG: false
 	constant-pool: constants finish
-	access: interface_ | abstract_
+	access: abstract_
 	this-class: this-class
 	super-class: super-class
 	interfaces: interfaces
 	fields: ()
-	methods: call,
+	methods: init, call
 	attributes: ()
 
 -union-sealed-interface ClassFile(
@@ -758,14 +759,10 @@ translate-to-java-classes (string, nat8[])[](
 	super-class class-reference,
 	interfaces class-reference[],
 )
-	fields field_info[] = with out : build
-		if struct is-empty-struct
-			out ~= do
-				access-flags: final | static
-				name: constants["instance"]
-				descriptor: constants["L{this-class-name};"]
-				attributes: ()
-		else
+	fields field_info[] = if struct is-empty-struct
+		(constants instance-field this-class-name),
+	else
+		with out : build
 			for field : concrete-fields
 				guard field.type.struct !is-empty-struct
 				out ~= do
@@ -773,41 +770,11 @@ translate-to-java-classes (string, nat8[])[](
 					name: constants[field.debug-name to]
 					descriptor: constants[ctx descriptor-for-field-type field.type.struct]
 					attributes: ()
-	constructor-descriptor string = with out : build
-		out ~= "("
-		for field : concrete-fields
-			out ~~= ctx descriptor-for-param-type field.type.struct
-		out ~~= ")V"
-	constructor-code Code_attribute = with out : constants build-code
-		out aload 0
-		out invokespecial (constants init-no-args super-class)
-		local-index mut nat = 1 # 0 is the object
-		for field : concrete-fields
-			unless field.type.struct is-empty-struct
-				out aload 0
-				out xload field.type.struct.as-runtime-type, local-index
-				local-index +:= field.type.struct.number-of-locals
-				out putfield (constants field-reference ctx, struct, field)
-		out return void
 	methods method_info[] = with methods-out : build
-		methods-out ~= do
-			access-flags: ()
-			name: constants["<init>"]
-			descriptor: constants[constructor-descriptor]
-			attributes: constructor-code.to,
+		methods-out ~= constants record-initializer ctx, this-class, super-class, for x : concrete-fields
+			x.debug-name.to, x.type.struct
 		if struct is-empty-struct
-			class-init-code Code_attribute = with out : constants build-code
-				out makenew this-class
-				out dup32
-				out invokespecial (constants init-no-args this-class)
-				name-and-type = out.constants name-and-type "instance", "L{this-class-name};"
-				out putstatic (out.constants field this-class, name-and-type)
-				out return void
-			methods-out ~= do
-				access-flags: static
-				name: constants["<clinit>"]
-				descriptor: constants["()V"]
-				attributes: class-init-code.to,
+			methods-out ~= constants clinit-for-instance-field this-class-name, this-class
 	LOG: false
 	constant-pool: constants finish
 	access: final
@@ -817,6 +784,47 @@ translate-to-java-classes (string, nat8[])[](
 	fields: fields
 	methods: methods
 	attributes: ()
+
+-instance-field field_info(constants constants-builder, this-class-name string)
+	access-flags: final | static
+	name: constants["instance"]
+	descriptor: constants["L{this-class-name};"]
+	attributes: ()
+-clinit-for-instance-field method_info(constants constants-builder, this-class-name string, this-class class-reference)
+	class-init-code Code_attribute = with out : constants build-code
+		out makenew this-class
+		out dup32
+		out invokespecial (constants init-no-args this-class)
+		name-and-type = out.constants name-and-type "instance", "L{this-class-name};"
+		out putstatic (out.constants field this-class, name-and-type)
+		out return void
+	access-flags: static
+	name: constants["<clinit>"]
+	descriptor: constants["()V"]
+	attributes: class-init-code.to,
+
+-record-initializer method_info(
+	constants constants-builder,
+	ctx to-java-ctx,
+	this-class class-reference,
+	super-class class-reference,
+	fields (symbol, concrete-struct)[],
+)
+	code = with out : constants build-code
+		out aload 0
+		out invokespecial (constants init-no-args super-class)
+		local-index mut nat = 1 # 0 is the object
+		for field-name, field-type : fields
+			unless field-type is-empty-struct
+				out aload 0
+				out xload field-type.as-runtime-type, local-index
+				local-index +:= field-type number-of-locals
+				out putfield (constants field-reference ctx, this-class, field-name.to, field-type)
+		out return void
+	access-flags: ()
+	name: constants["<init>"]
+	descriptor: constants[ctx record-init-descriptor (for _, type : fields; type)]
+	attributes: code.to,
 
 -init-no-args method-reference(constants constants-builder, class_ class-reference)
 	constants method-ref class_, "<init>", "()V"
@@ -939,10 +947,16 @@ translate-to-java-classes (string, nat8[])[](
 		"J"
 
 -field-reference field-reference(ctx expr-ctx, record_ concrete-struct, field concrete-field)
-	ctx.constants field-reference ctx.ctx, record_, field
--field-reference field-reference(constants constants-builder, ctx to-java-ctx, record_ concrete-struct, field concrete-field)
-	name-and-type = constants name-and-type field.debug-name.to, (ctx descriptor-for-field-type field.type.struct)
-	constants field (ctx as-boxed-class-reference constants, record_), name-and-type
+	ctx.constants field-reference ctx.ctx, (ctx.ctx as-boxed-class-reference ctx.constants, record_), field.debug-name.to, field.type.struct
+-field-reference field-reference(
+	constants constants-builder,
+	ctx to-java-ctx,
+	this-class class-reference,
+	field-name string,
+	field-type concrete-struct,
+)
+	name-and-type = constants name-and-type field-name, (ctx descriptor-for-field-type field-type)
+	constants field this-class, name-and-type
 
 -as-boxed-class-reference class-reference(ctx expr-ctx, type concrete-struct)
 	ctx.ctx as-boxed-class-reference ctx.constants, type
@@ -1208,17 +1222,11 @@ translate-to-java-classes (string, nat8[])[](
 		attributes: ()
 	methods method_info[] = for fun : funs
 		# info log "GONNA COMPILE {ctx.show-ctx.show show-concrete-fun-sig fun, false}" ------------------------------------------
-		expr-ctx expr-ctx = ctx, constants, this-class, (fun.params filter x => x.type.struct !is-empty-struct).to
+		expr-ctx expr-ctx = ctx, constants, this-class, (), (), (fun.params filter x => x.type.struct !is-empty-struct).to
 		code = with out : constants build-code
 			out emit-fun-body expr-ctx, fun
-		expr-ctx must-pop fun.return-type.struct
 		# ---------------------------------------------------------------------------------------------------------------------
-		unless expr-ctx.stack is-empty
-			error log "You left something on the stack: "
-			for x : expr-ctx.stack
-				error log "{ctx.show-ctx.show show-concrete-struct x}"
-		assert expr-ctx.stack is-empty
-		expr-ctx.locals.size is (fun.params count x => x.type.struct !is-empty-struct)
+		expr-ctx verify-expr-ctx-finished fun.return-type.struct, fun.params
 		access-flags: public | static # TODO: shouldn't need to be public ------------------------------------------------------------
 		name: constants[ctx.mangled-names[fun] member]
 		descriptor: constants[ctx method-descriptor fun]
@@ -1235,6 +1243,15 @@ translate-to-java-classes (string, nat8[])[](
 		methods: methods
 		attributes: ()
 	ctx add-class this-class-name, class_
+
+-verify-expr-ctx-finished void(expr-ctx expr-ctx, return-type concrete-struct, params concrete-local[])
+	expr-ctx must-pop return-type
+	unless expr-ctx.stack is-empty
+		error log "You left something on the stack: "
+		for x : expr-ctx.stack
+			error log "{expr-ctx.ctx.show-ctx.show show-concrete-struct x}"
+	assert expr-ctx.stack is-empty
+	expr-ctx.locals.size is (params count x => x.type.struct !is-empty-struct)
 
 -method-descriptor string(ctx to-java-ctx, fun concrete-fun)
 	with out : build
@@ -1392,13 +1409,23 @@ translate-to-java-classes (string, nat8[])[](
 	as let-concrete-expr x
 		out emit-and-continue ctx, x.value
 		out emit-with-local ctx, x.local, pos, x.then
-	as lambda-concrete-expr _
-		throw todo
+	as lambda-concrete-expr x
+		class-name = ctx.ctx create-lambda-implementation-class type, x
+		# All we do here is call 'new' or 'instance'
+		if x.closure is-empty
+			out getstatic (out.constants instance-field class-name)
+		else
+			class_ = out.constants class_ class-name
+			out makenew class_
+			out dup32
+			for local : x closure
+				out get-local ctx, local
+			out invokespecial (ctx lambda-init-reference class_, x.closure)
+		ctx pushed type
+		out handle-pos pos, type
 	as local-get-concrete-expr x
-		unless x.local.type.struct is-empty-struct
-			index = ctx index-for-local x.local
-			out xload x.local.type.struct.as-runtime-type, index
-			ctx pushed x.local.type.struct
+		out get-local ctx, x.local
+		ctx pushed type
 		out handle-pos pos, type
 	as local-pointer-concrete-expr _
 		throw unreachable
@@ -1406,8 +1433,11 @@ translate-to-java-classes (string, nat8[])[](
 		out emit-and-continue ctx, x.value
 		local-type = x.local.type struct
 		unless local-type is-empty-struct
-			index = ctx index-for-local x.local
-			out xstore local-type.as-runtime-type, index
+			match ctx explain-local x.local
+			as nat index
+				out xstore local-type.as-runtime-type, index
+			as field-reference field
+				out putfield field
 		ctx must-pop local-type
 		out handle-pos pos, type
 	as loop-concrete-expr x
@@ -1731,6 +1761,77 @@ translate-to-java-classes (string, nat8[])[](
 		as nullable
 			out call-static "Crow", "oneIfNotNull", "(Ljava/lang/Object;)L"
 
+-get-local void(out code-builder, ctx expr-ctx, local concrete-local)
+	unless local.type.struct is-empty-struct
+		match ctx explain-local local
+		as nat index
+			out xload local.type.struct.as-runtime-type, index
+		as field-reference field
+			out aload 0
+			out getfield field
+
+-lambda-call-descriptor string(ctx to-java-ctx, lambda-type concrete-struct)
+	builtin_ = lambda-type.body.concrete-builtin-type!
+	assert builtin_.kind is-lambda-type
+	return-type, param-type = builtin_.type-args only2
+	"({ctx descriptor-for-param-type param-type.struct}){ctx descriptor-for-return-type return-type.struct}"
+
+-create-lambda-implementation-class string(ctx to-java-ctx, lambda-type concrete-struct, a lambda-concrete-expr)
+	constants constants-builder = ()
+	this-class-name string = "LambdaImpl{ctx next-lambda-index}" # TODO: Maybe this should share the lambda-type name with an index at the end
+	ctx.next-lambda-index +:= 1
+	this-class = constants class_ this-class-name
+	closure field-reference[concrete-local-id] = for x : a closure
+		desc = ctx descriptor-for-field-type x.type.struct
+		field = constants field this-class, (constants name-and-type x.lambda-field-name.to, desc)
+		x.id, field
+	super-class = ctx as-boxed-class-reference constants, lambda-type
+	fields field_info[] = if a.closure is-empty
+		(constants instance-field this-class-name),
+	else
+		for x : a.closure
+			assert x.type.struct !is-empty-struct
+			access-flags: final
+			name: constants[x.lambda-field-name to]
+			descriptor: constants[ctx descriptor-for-field-type x.type.struct]
+			attributes: ()
+	methods method_info[] = with methods-out : build
+		methods-out ~= constants record-initializer ctx, this-class, super-class, for x : a closure
+			x.lambda-field-name, x.type.struct
+		if a.closure is-empty
+			methods-out ~= constants clinit-for-instance-field this-class-name, this-class
+		methods-out ~= do
+			expr-ctx expr-ctx = ctx, constants, this-class, closure, true, (!a.param.type.struct.is-empty-struct ? (a.param,))
+			code = with out : constants build-code
+				out emit-expr expr-ctx, return, a.body
+			expr-ctx verify-expr-ctx-finished a.body.type.struct, (a.param,)
+			access-flags: ()
+			name: constants["call"]
+			descriptor: constants[ctx lambda-call-descriptor lambda-type]
+			attributes: code.to,
+	ctx add-class this-class-name, do
+		LOG: false
+		constant-pool: constants finish
+		access: final
+		this-class: this-class
+		super-class: super-class
+		interfaces: ()
+		fields: fields
+		methods: methods
+		attributes: ()
+	this-class-name
+
+-lambda-field-name symbol(closure-field concrete-local)
+	match closure-field source
+	as local x
+		x name
+	as concrete-local-source-reference x
+		x.original name
+	as concrete-local-source-closure
+		throw unreachable # These are only used when compiling away cloures
+	as concrete-generated-local-kind _
+		throw unreachable
+
 -always-throws bool(a concrete-expr)
 	match a kind
 	as finally-concrete-expr x
@@ -1885,7 +1986,12 @@ translate-to-java-classes (string, nat8[])[](
 		as switch-fiber-initial
 			throw unreachable
 	as builtin-fun-call-lambda
-		throw todo
+		out function-like ctx, type, args, () =>
+			lambda, _ = args only2
+			lambda-class = ctx as-boxed-class-reference lambda.type.struct
+			descriptor = ctx.ctx lambda-call-descriptor lambda.type.struct
+			name-and-descriptor = ctx.constants name-and-type "call", descriptor
+			out invokevirtual (ctx.constants method-ref lambda-class, name-and-descriptor)
 	as builtin-fun-call-fun-pointer
 		out function-like ctx, type, args, () =>
 			# invoking MethodHandle will accept whatever descriptor you give it (and check dynamically)
