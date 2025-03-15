@@ -65,10 +65,9 @@ translate-to-java-classes (string, nat8[])[](
 	this-class = constants class_ "Main"
 	main method_info = do
 		code = with out : constants build-code
-			expr-ctx expr-ctx = ctx, constants, this-class, (), false, ()
 			main = ctx.program.common-funs.concrete-common-funs-java!.main
 			out aload 0
-			out call-concrete-fun expr-ctx, main
+			out call-concrete-fun ctx, main
 			out l2i # TODO: this throws away information ------------------------------------------------------------------------------------
 			out dup32
 			# If it's == 0, jump to end
@@ -320,8 +319,8 @@ translate-to-java-classes (string, nat8[])[](
 				e.integral-value!.as-unsigned to
 			out ldc reference-type, ctx.this-class
 			out ldc reference-type, (out.constants string-ref resource)
-			out call-instance "java/lang/Class", "getResourceAsStream", "(Ljava/lang/String;)Ljava/io/InputStream;"
-			out call-instance "java/io/InputStream", "readAllBytes", "()[B"
+			out call-virtual "java/lang/Class", "getResourceAsStream", "(Ljava/lang/String;)Ljava/io/InputStream;"
+			out call-virtual "java/io/InputStream", "readAllBytes", "()[B"
 			ctx pushed x.array-type
 		else
 			out make-array ctx, x.elements.size, x.array-type, x.element-type.struct, i =>
@@ -545,9 +544,10 @@ translate-to-java-classes (string, nat8[])[](
 	as float64
 		out dconst constant.constant-float!.value
 	as fun-pointer
+		# TODO: what if the function is a method? Do I need to make something wrapping it or can methodhandle handle it? -------------------
 		id = constant.constant-fun-pointer! fun
 		fun = ctx.ctx.funs-lookup[id]!
-		method = out.constants method-ref ctx.ctx, fun
+		method = out.constants static-method-ref ctx.ctx, fun
 		out ldc type.as-runtime-type, (out.constants method-handle REF_invokeStatic, method)
 	as future
 		throw unreachable
@@ -632,14 +632,26 @@ translate-to-java-classes (string, nat8[])[](
 	as concrete-struct-source-lambda _
 		"java/lang/Object"
 	interface-structs = ctx.union-info.type-to-interfaces[struct id] ?? ()
-	inherits-from-exception = interface-structs exists x => x is-exception
 	interfaces class-reference[] = for x : interface-structs
 		constants class_ ctx.mangled-names[x]
 	this-class-name = ctx.mangled-names[struct]
 	this-class = constants class_ this-class-name
+
+	method-impls method_info[] = with out : build
+		all-supertypes = if struct.id in ctx.union-info.exception-case-types
+			ctx.program.exception ~ interface-structs
+		else
+			interface-structs
+		for interface_ : all-supertypes
+			info = ctx.program.method-impls[interface_ id]!
+			unless info.methods is-empty
+				for method, impl : info.methods zip info.cases[struct id]!
+					out ~= ctx method-impl constants, method, impl
+
 	class_ ClassFile? = match struct body
 	as concrete-builtin-type x
 		lambda ClassFile mut() = () =>
+			assert method-impls is-empty : todo
 			ctx lambda-class constants, struct, this-class, super-class, interfaces
 		match x kind
 		as array
@@ -652,26 +664,31 @@ translate-to-java-classes (string, nat8[])[](
 			lambda[],
 		as void
 			# Can't use java.lang.Void since that has no instances
-			(ctx record-class constants, struct, false, (), this-class-name, this-class, super-class, interfaces),
+			(ctx record-class constants, struct, false, (), this-class-name, this-class, super-class, interfaces, method-impls),
 		else
 			() # TODO: could use a boxing-record for unsigned integer types ........................................................
 	as concrete-enum _
 		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
-		(constants boxing-record struct, this-class-name, this-class, super-class, interfaces),
+		(constants boxing-record struct, this-class-name, this-class, super-class, interfaces, method-impls),
 	as concrete-extern-type
 		()
 	as concrete-flags _
 		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
-		(constants boxing-record struct, this-class-name, this-class, super-class, interfaces),
+		(constants boxing-record struct, this-class-name, this-class, super-class, interfaces, method-impls),
 	as concrete-record x
-		(ctx record-class constants, struct, x.is-wrapper, x.fields, this-class-name, this-class, super-class, interfaces),
+		(ctx record-class constants, struct, x.is-wrapper, x.fields, this-class-name, this-class, super-class, interfaces, method-impls),
 	as concrete-union _
+		method-decls method_info[] = for m : ctx.program.method-impls[struct id]?.methods ?? ()
+			ctx interface-method-decl constants, m
+		all-methods = method-decls ~~ method-impls
 		match ctx union-representation struct
 		as direct
 			()
 		as sealed-interface
-			(constants union-sealed-interface this-class, super-class, interfaces),
+			(constants union-sealed-interface this-class, super-class, interfaces, all-methods),
 		as switch
+			assert all-methods is-empty : todo
+			assert ctx.program.method-impls[struct id]!.methods is-empty : todo # TODO: how do we handle methods for this unusual union?
 			(constants union-switchable this-class, super-class, interfaces),
 		as nullable
 			()
@@ -679,6 +696,26 @@ translate-to-java-classes (string, nat8[])[](
 		throw unreachable
 	if x ?= class_
 		ctx add-class this-class-name, x
+
+-interface-method-decl method_info(ctx to-java-ctx, constants constants-builder, method concrete-fun)
+	access-flags: public | abstract_
+	name: constants[method.instance-method-name to]
+	descriptor: constants[ctx instance-method-descriptor method]
+	attributes: ()
+
+| Creates the instance method that implements an interface method by calling a static function
+-method-impl method_info(ctx to-java-ctx, constants constants-builder, method concrete-fun, impl concrete-fun?)
+	code = with out : constants build-code
+		assert i ?= impl : todo # TODO: generate code that will throw an error --------------------------------------------------
+		for index, param : method.params with-index
+			forbid index == 0 && param.type.struct is-wrapper : todo # Need to unwrap it in this case ----------------------
+			out xload param.type.struct.as-runtime-type, index
+		out call-concrete-fun ctx, i
+		out return method.return-type.struct.as-runtime-type
+	access-flags: public | final
+	name: constants[method.instance-method-name to]
+	descriptor: constants[ctx instance-method-descriptor method]
+	attributes: code.to,
 
 -lambda-class ClassFile(
 	ctx to-java-ctx,
@@ -709,6 +746,7 @@ translate-to-java-classes (string, nat8[])[](
 	this-class class-reference,
 	super-class class-reference,
 	interfaces class-reference[],
+	methods method_info[],
 )
 	assert interfaces is-empty
 	LOG: false
@@ -718,7 +756,7 @@ translate-to-java-classes (string, nat8[])[](
 	super-class: super-class
 	interfaces: interfaces
 	fields: ()
-	methods: ()
+	methods: methods
 	attributes: ()
 
 -union-switchable ClassFile(
@@ -774,6 +812,7 @@ translate-to-java-classes (string, nat8[])[](
 	this-class class-reference,
 	super-class class-reference,
 	interfaces class-reference[],
+	method-impls method_info[],
 )
 	fields field_info[] = if struct is-empty-struct
 		(constants instance-field this-class-name),
@@ -797,9 +836,7 @@ translate-to-java-classes (string, nat8[])[](
 				field = concrete-fields only
 				field-ref = constants field-reference ctx, this-class, field.debug-name.to, field.type.struct
 				methods-out ~= constants make-getValue field-ref, p # TODO: it's wasteful to always generate this ...................................................
-		
-		if is-exception-case-type
-			asdf
+		methods-out ~~= method-impls
 
 	LOG: false
 	constant-pool: constants finish
@@ -862,6 +899,7 @@ translate-to-java-classes (string, nat8[])[](
 	this-class class-reference,
 	super-class class-reference,
 	interfaces class-reference[],
+	methods method_info[]
 )
 	field-name = constants["value"]
 	primitive = struct as-java-primitive-type!
@@ -894,7 +932,7 @@ translate-to-java-classes (string, nat8[])[](
 	super-class: super-class
 	interfaces: interfaces
 	fields: field,
-	methods: constructor, valueOf, getValue
+	methods: (constructor, valueOf, getValue)::method_info[] ~~ methods
 	attributes: ()
 
 -make-valueOf method_info(
@@ -1232,7 +1270,7 @@ translate-to-java-classes (string, nat8[])[](
 -unbox-if-necessary void(out code-builder, ctx to-java-ctx, type concrete-struct)
 	if p ?= type as-java-primitive-type
 		boxed = ctx boxed-class-name type
-		out call-instance boxed, p.primitive-getter, "(){ctx descriptor-for-return-type type}"
+		out call-virtual boxed, p.primitive-getter, "(){ctx descriptor-for-return-type type}"
 	elif field ?= type as-wrapper
 		class-ref = ctx as-boxed-class-reference out.constants, type
 		field-ref = out.constants field-reference ctx, class-ref, field.debug-name.to, field.type.struct
@@ -1265,22 +1303,25 @@ translate-to-java-classes (string, nat8[])[](
 		name: constants[ctx.mangled-names[var].member]
 		descriptor: constants[ctx descriptor-for-field-type var.type.struct]
 		attributes: ()
-	methods method_info[] = for fun : funs
-		# info log "GONNA COMPILE {ctx.show-ctx.show show-concrete-fun-sig fun, false}" ------------------------------------------
-		expr-ctx expr-ctx = ctx, constants, this-class, (), (), (fun.params filter x => x.type.struct !is-empty-struct).to
-		code = with out : constants build-code
-			out emit-fun-body expr-ctx, fun
-		# ---------------------------------------------------------------------------------------------------------------------
-		expr-ctx verify-expr-ctx-finished fun.return-type.struct, fun.params
-		access-flags: public | static # TODO: shouldn't need to be public ------------------------------------------------------------
-		name: constants[ctx.mangled-names[fun] member]
-		descriptor: constants[ctx method-descriptor fun]
-		attributes: code.to,
+	methods method_info[] = with methods-out : build
+		for fun : funs
+			guard fun.body.concrete-fun-body-method is-empty
+			# info log "GONNA COMPILE {ctx.show-ctx.show show-concrete-fun-sig fun, false}" ------------------------------------------
+			expr-ctx expr-ctx = ctx, constants, this-class, (), (), (fun.params filter x => x.type.struct !is-empty-struct).to
+			code = with out : constants build-code
+				out emit-fun-body expr-ctx, fun
+			# ---------------------------------------------------------------------------------------------------------------------
+			expr-ctx verify-expr-ctx-finished fun.return-type.struct, fun.params
+			methods-out ~= do
+				access-flags: static
+				name: constants[ctx.mangled-names[fun] member]
+				descriptor: constants[ctx method-descriptor fun]
+				attributes: code.to,
 	Object = constants class_ "java/lang/Object"
 	class_ ClassFile = do
 		LOG: false # rm this ---------------------------------------------------------------------------------------------------------
 		constant-pool: constants finish
-		access: public # TODO: shouldn't need to be public ------------------------------------------------------------------
+		access: ()
 		this-class: this-class
 		super-class: Object
 		interfaces: ()
@@ -1318,6 +1359,8 @@ translate-to-java-classes (string, nat8[])[](
 	as concrete-expr x
 		# info log "GONNA EMIT FUNCTION {ctx.ctx.show-ctx.show show-concrete-fun-sig fun, false}" -----------------------------------
 		out emit-expr ctx, return, x
+	as concrete-fun-body-method _
+		throw unreachable
 	as concrete-fun-body-var-get x # TODO: this should be a concrete-expr, not a fun kind ------------------------------------
 		fun.params.size is 0
 		match x.var kind
@@ -1374,8 +1417,8 @@ translate-to-java-classes (string, nat8[])[](
 	as return
 		out return type.as-runtime-type
 
--call-concrete-fun void(out code-builder, ctx expr-ctx, fun concrete-fun)
-	out invokestatic (out.constants method-ref ctx.ctx, fun)
+-call-concrete-fun void(out code-builder, ctx to-java-ctx, fun concrete-fun)
+	out invokestatic (out.constants static-method-ref ctx, fun)
 
 -emit-expr void(out code-builder, ctx expr-ctx, pos expr-pos, a concrete-expr)
 	type = a.type struct
@@ -1388,9 +1431,14 @@ translate-to-java-classes (string, nat8[])[](
 		match x.called body
 		as concrete-fun-body-builtin b
 			out translate-builtin ctx, b.kind, b.type-args, type, x.args
+		as concrete-fun-body-method _
+			count = x.args sum arg =>
+				arg.type.struct.as-runtime-type stack-entry-count
+			out function-like ctx, type, x.args, () =>
+				out invokeinterface (out.constants interface-method-ref ctx.ctx, x.called), count.to
 		else
 			out function-like ctx, type, x.args, () =>
-				out call-concrete-fun ctx, x.called
+				out call-concrete-fun ctx.ctx, x.called
 		out handle-pos pos, type
 	as cast-concrete-expr x
 		# This is currently only used to cast an enum to an integral. In Java we just use integrals for enums directly. --------
@@ -1578,7 +1626,7 @@ translate-to-java-classes (string, nat8[])[](
 					ctx pushed matched-type
 				out emit-and-continue ctx, case_.value
 				# TODO:PERF in the case of a 'string' or 'symbol' input, we could 'intern' and then just use refernce equality
-				out call-concrete-fun ctx, x.equals
+				out call-concrete-fun ctx.ctx, x.equals
 				ctx must-pop matched-type
 				ctx must-pop matched-type
 				# Jump to next if the equality test returned 0 (false)
@@ -1774,7 +1822,7 @@ translate-to-java-classes (string, nat8[])[](
 				# Get instance of the empty type
 				throw todo
 			as 1
-				out call-instance "Crow", "assertNonNull", "(Ljava/lang/Object;)V"
+				out call-virtual "Crow", "assertNonNull", "(Ljava/lang/Object;)V"
 			else
 				throw unreachable
 	as union-kind-concrete-expr x
@@ -2091,10 +2139,23 @@ translate-to-java-classes (string, nat8[])[](
 	as version-fun _
 		throw unreachable
 
--call-instance void(out code-builder, class_ string, method string, descriptor string)
+-call-virtual void(out code-builder, class_ string, method string, descriptor string)
 	out invokevirtual (out.constants method-ref class_, method, descriptor)
 
--method-ref method-reference(constants constants-builder, ctx to-java-ctx, fun concrete-fun)
+-interface-method-ref method-reference(constants constants-builder, ctx to-java-ctx, fun concrete-fun)
+	class_ = ctx as-boxed-class-reference constants, fun.params[0].type.struct
+	constants interface-method-ref class_, fun.instance-method-name.to, (ctx instance-method-descriptor fun)
+
+-instance-method-descriptor string(ctx to-java-ctx, fun concrete-fun)
+	assert _ ?= fun.body concrete-fun-body-method
+	with d : build
+		d ~= "("
+		for param : fun.params[1 .. end]
+			d ~~= ctx descriptor-for-param-type param.type.struct
+		d ~= ")"
+		d ~~= ctx descriptor-for-return-type fun.return-type.struct
+
+-static-method-ref method-reference(constants constants-builder, ctx to-java-ctx, fun concrete-fun)
 	m = ctx.mangled-names[fun]
 	# TODO:PERF build the descriptor only once and cache it ----------------------------------------------------------------------------------------
 	descriptor string = with d : build
@@ -2184,7 +2245,7 @@ translate-to-java-classes (string, nat8[])[](
 	as to-char8-from-nat8
 		()
 	as to-char8-array-from-string
-		out call-instance "java/lang/String", "getBytes", "()[B"
+		out call-virtual "java/lang/String", "getBytes", "()[B"
 	as to-float32-from-float64
 		out d2f
 	as to-float64-from-float32
@@ -2615,7 +2676,7 @@ translate-to-java-classes (string, nat8[])[](
 					d ~= ")"
 					d ~~= ctx.ctx descriptor-for-return-type type
 				instance-class = ctx.ctx boxed-class-name args[0].type.struct
-				out call-instance instance-class, method-name!, descriptor
+				out call-virtual instance-class, method-name!, descriptor
 		else
 			out function-like-convert-args-to-objects ctx, type, args, (index => index != 1), () =>
 				descriptor string = with d : build
