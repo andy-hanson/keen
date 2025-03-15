@@ -204,6 +204,7 @@ import model.model :
 	BuiltinFunConstant,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
+	BuiltinFunIsEmptyType,
 	BuiltinFunNewEmptyOption,
 	BuiltinFunNewNonEmptyOption,
 	BuiltinFunPointerCast,
@@ -1365,6 +1366,8 @@ LowExpr getCallBuiltinExpr(
 			assert(false),
 		(BuiltinFunInit x) =>
 			LowExpr(type, range, LowExprKind(x)),
+		(BuiltinFunIsEmptyType _) =>
+			assert(false),
 		(JsFun _) =>
 			assert(false),
 		(BuiltinFunMarkRoot _) =>

@@ -24,6 +24,7 @@ import model.model :
 	BuiltinFunConstant,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
+	BuiltinFunIsEmptyType,
 	BuiltinFunMarkRoot,
 	BuiltinFunMarkVisit,
 	BuiltinFunNewEmptyOption,
@@ -313,6 +314,8 @@ private bool isInlinedBuiltinFun(in BuiltinFun a) =>
 		(in BuiltinFunGcSafeValue _) =>
 			true,
 		(in BuiltinFunInit _) =>
+			true,
+		(in BuiltinFunIsEmptyType _) =>
 			true,
 		(in JsFun _) =>
 			true,

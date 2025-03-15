@@ -18,6 +18,7 @@ import model.model :
 	BuiltinFunConstantVoid,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
+	BuiltinFunIsEmptyType,
 	BuiltinFunMarkVisit,
 	BuiltinFunMarkRoot,
 	BuiltinFunNewEmptyOption,
@@ -381,6 +382,8 @@ FunBody inner(
 				: fail();
 		case symbol!"interpreter-backtrace".value:
 			return ternary(BuiltinTernary.interpreterBacktrace);
+		case symbol!"is-empty-type".value:
+			return FunBody(BuiltinFun(BuiltinFunIsEmptyType()));
 		case symbol!"is-less".value:
 			return binary(
 				isInt8(p0) ? BuiltinBinary.lessInt8 :

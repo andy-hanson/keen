@@ -24,6 +24,7 @@ import model.model :
 	BuiltinFunConstantVoid,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
+	BuiltinFunIsEmptyType,
 	BuiltinFunMarkRoot,
 	BuiltinFunMarkVisit,
 	BuiltinFunNewEmptyOption,
@@ -229,6 +230,8 @@ Json jsonOfBuiltin(ref Alloc alloc, in BuiltinFun a) =>
 					return jsonString!"init-per-thread";
 			}
 		},
+		(in BuiltinFunIsEmptyType _) =>
+			jsonString!"is-empty-type",
 		(in JsFun x) =>
 			jsonString(stringOfEnum(x)),
 		(in BuiltinFunMarkRoot _) =>

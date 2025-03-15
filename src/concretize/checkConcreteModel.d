@@ -66,6 +66,7 @@ import model.model :
 	BuiltinFunConstant,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
+	BuiltinFunIsEmptyType,
 	BuiltinFunMarkRoot,
 	BuiltinFunMarkVisit,
 	BuiltinFunNewEmptyOption,
@@ -321,6 +322,9 @@ void checkBuiltin(ref Ctx ctx, in ConcreteType type, in BuiltinConcreteExpr a) {
 			assert(false);
 		},
 		(BuiltinFunInit _) {
+			assert(false);
+		},
+		(BuiltinFunIsEmptyType _) {
 			assert(false);
 		},
 		(JsFun _) {

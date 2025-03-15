@@ -551,6 +551,7 @@ immutable string[] specialSymbols = [
 	"has-non-public-fields",
 	"interpreter-backtrace",
 	"is-big-endian",
+	"is-empty-type",
 	"is-interpreted",
 	"is-mutable",
 	"is-single-threaded",

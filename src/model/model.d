@@ -1198,6 +1198,7 @@ immutable struct BuiltinFun {
 		BuiltinFunConstant,
 		BuiltinFunGcSafeValue,
 		BuiltinFunInit,
+		BuiltinFunIsEmptyType,
 		JsFun,
 		BuiltinFunMarkRoot,
 		BuiltinFunMarkVisit,
@@ -1219,6 +1220,7 @@ immutable struct BuiltinFunConstantNull {}
 immutable struct BuiltinFunConstantVoid {}
 immutable struct BuiltinFunGcSafeValue {}
 enum BuiltinFunInit { global, perThread }
+immutable struct BuiltinFunIsEmptyType {}
 immutable struct BuiltinFunMarkRoot {}
 immutable struct BuiltinFunMarkVisit {}
 immutable struct BuiltinFunNewEmptyOption {}

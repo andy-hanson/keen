@@ -84,6 +84,7 @@ import model.model :
 	BuiltinFunConstantVoid,
 	BuiltinFunGcSafeValue,
 	BuiltinFunInit,
+	BuiltinFunIsEmptyType,
 	BuiltinFunMarkRoot,
 	BuiltinFunMarkVisit,
 	BuiltinFunNewEmptyOption,
@@ -609,6 +610,8 @@ private ExprResult translateCallBuiltin(
 			return expr(genNull(source));
 		},
 		(in BuiltinFunInit _) =>
+			assert(false),
+		(in BuiltinFunIsEmptyType _) =>
 			assert(false),
 		(in JsFun x) =>
 			translateCallJsFun(ctx.ctx, source, returnType, pos, x, nArgs, getArg),

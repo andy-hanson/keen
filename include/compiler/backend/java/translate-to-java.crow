@@ -213,7 +213,10 @@ translate-to-java-classes (string, nat8[])[](
 		as T_LONG
 			long to
 	as reference-type
-		ctx as-boxed-class-reference a Object_variable_info
+		if f ?= a as-wrapper
+			ctx verification-type f.type.struct
+		else
+			ctx as-boxed-class-reference a Object_variable_info
 
 # This sets 'constant-names' while emitting classes to contain constants
 -translate-constants void(ctx to-java-ctx)
@@ -241,6 +244,7 @@ translate-to-java-classes (string, nat8[])[](
 			true
 		as single-constant-record x
 			forbid x.record-type is-empty-struct
+			forbid x.record-type is-wrapper
 			(constant-record-names ensure constant.type.id)[x constant] := class-and-member
 			true
 		as single-constant-union _
@@ -277,7 +281,7 @@ translate-to-java-classes (string, nat8[])[](
 	pool constants-builder = ()
 	fields field_info[] = with out : build
 		for x : filtered-constants
-			forbid x.type is-empty-struct
+			forbid x.type is-empty-struct || x.type is-wrapper
 			out ~= do
 				access-flags: static | final
 				name: pool[ctx.constant-names[x].member]
@@ -288,7 +292,7 @@ translate-to-java-classes (string, nat8[])[](
 		code = with out : pool build-code
 			expr-ctx expr-ctx = ctx, pool, this-class, (), (), ()
 			for constant : filtered-constants
-				forbid constant.type is-empty-struct
+				forbid constant.type is-empty-struct || constant.type is-wrapper
 				out init-constant expr-ctx, constant
 			out return void
 		access-flags: static | final | synthetic
@@ -343,12 +347,16 @@ translate-to-java-classes (string, nat8[])[](
 	record-type concrete-struct,
 	emit-arg void mut(i nat, field concrete-field),
 )
-	fields = record-type.body.concrete-record! fields
+	record_ = record-type.body concrete-record!
+	fields = record_ fields
 	if record-type is-empty-struct
 		before = ctx.stack size
 		for i, field : fields with-index
 			emit-arg[i, field]
 		ctx.stack.size is before
+	elif field ?= record_ as-wrapper
+		emit-arg[0, field]
+		ctx must-refine field.type.struct, record-type
 	else
 		class_ = ctx as-boxed-class-reference record-type
 		out makenew class_
@@ -432,8 +440,13 @@ translate-to-java-classes (string, nat8[])[](
 		match constant
 		as constant-record r
 			unless type is-empty-struct
-				out get-static-field ctx, ctx.ctx.constant-names.records[type id]![r]!, type
-				ctx pushed type
+				if field ?= type as-wrapper
+					inner = ctx.program.all-constants.records[type id]![constant constant-record!] only
+					out push-constant ctx, inner, field.type.struct
+					ctx must-refine field.type.struct, type
+				else
+					out get-static-field ctx, ctx.ctx.constant-names.records[type id]![r]!, type
+					ctx pushed type
 		as constant-gc-safe-value
 			unless type is-empty-struct
 				out aconst_null
@@ -618,7 +631,9 @@ translate-to-java-classes (string, nat8[])[](
 			"java/lang/Object"
 	as concrete-struct-source-lambda _
 		"java/lang/Object"
-	interfaces class-reference[] = for x : ctx.union-info.type-to-interfaces[struct id] ?? ()
+	interface-structs = ctx.union-info.type-to-interfaces[struct id] ?? ()
+	inherits-from-exception = interface-structs exists x => x is-exception
+	interfaces class-reference[] = for x : interface-structs
 		constants class_ ctx.mangled-names[x]
 	this-class-name = ctx.mangled-names[struct]
 	this-class = constants class_ this-class-name
@@ -637,7 +652,7 @@ translate-to-java-classes (string, nat8[])[](
 			lambda[],
 		as void
 			# Can't use java.lang.Void since that has no instances
-			(ctx record-class constants, struct, (), this-class-name, this-class, super-class, interfaces),
+			(ctx record-class constants, struct, false, (), this-class-name, this-class, super-class, interfaces),
 		else
 			() # TODO: could use a boxing-record for unsigned integer types ........................................................
 	as concrete-enum _
@@ -649,7 +664,7 @@ translate-to-java-classes (string, nat8[])[](
 		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
 		(constants boxing-record struct, this-class-name, this-class, super-class, interfaces),
 	as concrete-record x
-		(ctx record-class constants, struct, x.fields, this-class-name, this-class, super-class, interfaces),
+		(ctx record-class constants, struct, x.is-wrapper, x.fields, this-class-name, this-class, super-class, interfaces),
 	as concrete-union _
 		match ctx union-representation struct
 		as direct
@@ -753,6 +768,7 @@ translate-to-java-classes (string, nat8[])[](
 	ctx to-java-ctx,
 	constants constants-builder,
 	struct concrete-struct,
+	is-wrapper bool,
 	concrete-fields concrete-field[],
 	this-class-name string,
 	this-class class-reference,
@@ -775,6 +791,16 @@ translate-to-java-classes (string, nat8[])[](
 			x.debug-name.to, x.type.struct
 		if struct is-empty-struct
 			methods-out ~= constants clinit-for-instance-field this-class-name, this-class
+		elif is-wrapper
+			methods-out ~= constants make-valueOf this-class-name, this-class, (ctx descriptor-for-param-type struct), struct.as-runtime-type
+			if p ?= concrete-fields.only.type.struct as-java-primitive-type
+				field = concrete-fields only
+				field-ref = constants field-reference ctx, this-class, field.debug-name.to, field.type.struct
+				methods-out ~= constants make-getValue field-ref, p # TODO: it's wasteful to always generate this ...................................................
+		
+		if is-exception-case-type
+			asdf
+
 	LOG: false
 	constant-pool: constants finish
 	access: final
@@ -859,27 +885,8 @@ translate-to-java-classes (string, nat8[])[](
 		name: constants["<init>"]
 		descriptor: constants[constructor-descriptor]
 		attributes: code.to,
-	valueOf method_info = do
-		# TODO: this should have a cache. For enums, statically generate all members. For flags or integrals, just cache the 10 most recent?
-		code = with out : constants build-code
-			out makenew this-class
-			out dup32
-			out xload struct.as-runtime-type, 0
-			out invokespecial (constants method-ref this-class, "<init>", constructor-descriptor)
-			out return reference-type
-		access-flags: static
-		name: constants["valueOf"]
-		descriptor: constants["({descriptor})L{this-class-name};"]
-		attributes: code.to,
-	getValue method_info = do
-		code = with out : constants build-code
-			out aload 0
-			out getfield field-ref
-			out return primitive.to
-		access-flags: final
-		name: constants[primitive primitive-getter]
-		descriptor: constants["(){descriptor}"]
-		attributes: code.to,
+	valueOf method_info = constants make-valueOf this-class-name, this-class, descriptor, struct.as-runtime-type
+	getValue method_info = constants make-getValue field-ref, primitive
 	LOG: false
 	constant-pool: constants finish
 	access: final
@@ -890,6 +897,35 @@ translate-to-java-classes (string, nat8[])[](
 	methods: constructor, valueOf, getValue
 	attributes: ()
 
+-make-valueOf method_info(
+	constants constants-builder,
+	this-class-name string,
+	this-class class-reference,
+	param-descriptor string,
+	param-runtime-type java-runtime-type,
+)
+	# TODO: this should have a cache. For enums, statically generate all members. For flags or integrals, just cache the 10 most recent?
+	code = with out : constants build-code
+		out makenew this-class
+		out dup32
+		out xload param-runtime-type, 0
+		out invokespecial (constants method-ref this-class, "<init>", "({param-descriptor})V")
+		out return reference-type
+	access-flags: static
+	name: constants["valueOf"]
+	descriptor: constants["({param-descriptor})L{this-class-name};"]
+	attributes: code.to,
+
+-make-getValue method_info(constants constants-builder, field-ref field-reference, primitive java-primitive-type)
+	code = with out : constants build-code
+		out aload 0
+		out getfield field-ref
+		out return primitive.to
+	access-flags: final
+	name: constants[primitive primitive-getter]
+	descriptor: constants["(){primitive descriptor}"]
+	attributes: code.to,
+
 -new-array-for-type void(out code-builder, ctx expr-ctx, element-type concrete-struct)
 	match element-type as-runtime-type
 	as void
@@ -898,7 +934,10 @@ translate-to-java-classes (string, nat8[])[](
 	as java-primitive-type p
 		out newarray p
 	as reference-type
-		out anewarray (ctx as-boxed-class-reference element-type)
+		if field ?= element-type as-wrapper
+			out new-array-for-type ctx, field.type.struct
+		else
+			out anewarray (ctx as-boxed-class-reference element-type)
 
 -descriptor-for-field-type string(ctx to-java-ctx, type concrete-struct)
 	forbid type is-empty-struct
@@ -919,13 +958,10 @@ translate-to-java-classes (string, nat8[])[](
 			array = type is-option ? type.unwrap-option-type.struct : type
 			element = array.array-element-type struct
 			"[{ctx descriptor-for-return-type element}"
+		elif field ?= type as-wrapper
+			ctx descriptor-for-return-type field.type.struct
 		else
-			res string = "L{ctx boxed-class-name type};"
-			if res ends-with ";;"
-				error log "BAD DESCRIPTOR {res}"
-				error log "type is {type.to::json}"
-			forbid res ends-with ";;" : "BAD DESCRIPTOR {res}" error # ----------------------------------------------------------------
-			res
+			"L{ctx boxed-class-name type};"
 
 -descriptor string(a java-primitive-type)
 	match a
@@ -1126,6 +1162,8 @@ translate-to-java-classes (string, nat8[])[](
 		p to
 	else
 		reference-type
+-is-java-primitive-type bool(type concrete-struct)
+	type.as-java-primitive-type !is-empty
 -as-java-primitive-type java-primitive-type?(type concrete-struct)
 	match type body
 	as concrete-builtin-type x
@@ -1168,12 +1206,15 @@ translate-to-java-classes (string, nat8[])[](
 		x.storage_.primitive-for-integral,
 	as concrete-flags x
 		x.storage_.primitive-for-integral,
+	as concrete-record x
+		if wrapped ?= x as-wrapper
+			wrapped.type.struct as-java-primitive-type
 	else
 		()
 
 -box void(out code-builder, ctx expr-ctx, in-type concrete-struct, out-type concrete-struct)
 	assert out-type.as-runtime-type == reference-type
-	if _ ?= in-type as-java-primitive-type
+	if in-type is-java-primitive-type || in-type is-wrapper
 		boxed = ctx.ctx boxed-class-name in-type
 		out call-static boxed, "valueOf", "({ctx.ctx descriptor-for-param-type in-type})L{boxed};"
 	elif in-type is-empty-struct
@@ -1192,6 +1233,10 @@ translate-to-java-classes (string, nat8[])[](
 	if p ?= type as-java-primitive-type
 		boxed = ctx boxed-class-name type
 		out call-instance boxed, p.primitive-getter, "(){ctx descriptor-for-return-type type}"
+	elif field ?= type as-wrapper
+		class-ref = ctx as-boxed-class-reference out.constants, type
+		field-ref = out.constants field-reference ctx, class-ref, field.debug-name.to, field.type.struct
+		out getfield field-ref
 -primitive-getter string(a java-primitive-type)
 	match a
 	as T_BOOLEAN
@@ -1644,7 +1689,8 @@ translate-to-java-classes (string, nat8[])[](
 				out emit-with-unboxed-opt-local ctx, matched-type, non-null-case.local, inner-pos, non-null-case.then
 	as record-field-get-concrete-expr x
 		out emit-and-continue ctx, x.record_
-		out getfield (ctx field-reference x.record_.type.struct, x.field)
+		unless x.record_.type.struct is-wrapper
+			out getfield (ctx field-reference x.record_.type.struct, x.field)
 		ctx must-pop x.record_.type.struct
 		ctx pushed x.field.type.struct
 		out handle-pos pos, type
@@ -2021,6 +2067,8 @@ translate-to-java-classes (string, nat8[])[](
 	as builtin-fun-gc-safe-value
 		throw unreachable
 	as builtin-fun-init _
+		throw unreachable
+	as builtin-fun-is-empty-type
 		throw unreachable
 	as java-fun x
 		out translate-java-fun ctx, x, type, type-args, args

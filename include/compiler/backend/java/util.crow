@@ -40,35 +40,16 @@ subscript class-and-member(a constant-names, constant any-constant)
 
 max-constants-per-class nat()
 	# Java allows 65535 constants, but large arrays include many individual constants, so use this as a limit that seems to work
-	256
+	1 # TODO: AT LEAST 256 -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 # TODO: MOVE, will need this for the JS build too ------------------------------------------------------------------------------
 each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-program, emit void mut(x any-constant))
 	# TODO:PERF this could use a full-index-set -----------------------------------------------------------------------------
 	seen-arrays (concrete-struct-id, nat) mut-set = ()
 	seen-records (concrete-struct-id, constant-record) mut-set = ()
-	seen-unions (concrete-struct-id, constant-union) mut-set = ()
+	seen-unions (concrete-struct-id, constant-union) mut-set = () # TODO:KILL ---------------------------------------------------------------------------
 	can-reference bool mut(type concrete-struct, c constant) = (type, c) =>
-		match c
-		as constant-array x
-			# TODO: We should stop storing strings as arrays! ----------------------------------------------------------------------
-			type is-string-or-symbol || type.array-element-type.struct is-empty-struct || (type.id, x.index) in seen-arrays
-		as constant-c-string _
-			true
-		as constant-float _
-			true
-		as constant-fun-pointer _
-			true
-		as integral-value _
-			true
-		as constant-record x
-			type is-empty-struct || (type.id, x) in seen-records
-		as constant-union x
-			(type.id, x) in seen-unions
-		as constant-gc-safe-value
-			true
-		as constant-null
-			true
+		program can-reference seen-arrays, seen-records, seen-unions, type, c
 
 	all-constants = program all-constants
 	did-something mut bool = true
@@ -87,7 +68,7 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 				did-something := true
 		for struct-id, map : all-constants records
 			record-type = program.structs-by-id[struct-id]!
-			guard record-type !is-empty-struct
+			guard record-type !is-empty-struct && record-type !is-wrapper
 			for constant, args : map
 				key = struct-id, constant
 				guard key !in seen-records
@@ -111,7 +92,7 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 	# TODO: RM this debugging code ------------------------------------------------------------------------------------------------------------------
 	for struct-id, map : all-constants records	
 		record-type = program.structs-by-id[struct-id]!
-		guard record-type !is-empty-struct
+		guard record-type !is-empty-struct && record-type !is-wrapper
 		for constant, args : map
 			key = struct-id, constant
 			if key !in seen-records
@@ -125,13 +106,48 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 		unless x.element-type.struct is-empty-struct
 			x.constants size
 	n-constant-records = all-constants.records sum (x, map) =>
-		unless program.structs-by-id[x]! is-empty-struct
+		struct = program.structs-by-id[x]!
+		unless struct is-empty-struct || struct is-wrapper # TODO: have a helper fn for this? -----------------------------------------------
 			map size
 	n-constant-unions = all-constants.unions sum (_, map) =>
 		map size
 	seen-arrays.size is n-constant-arrays
 	seen-records.size is n-constant-records
 	seen-unions.size is n-constant-unions
+
+-can-reference bool(
+	program concrete-program,
+	seen-arrays (concrete-struct-id, nat) mut-set,
+	seen-records (concrete-struct-id, constant-record) mut-set,
+	seen-unions (concrete-struct-id, constant-union) mut-set ,
+	type concrete-struct,
+	c constant,
+)
+	match c
+	as constant-array x
+		# TODO: We should stop storing strings as arrays! ----------------------------------------------------------------------
+		type is-string-or-symbol || type.array-element-type.struct is-empty-struct || (type.id, x.index) in seen-arrays
+	as constant-c-string _
+		true
+	as constant-float _
+		true
+	as constant-fun-pointer _
+		true
+	as integral-value _
+		true
+	as constant-record x
+		if type is-empty-struct
+			true
+		elif field ?= type as-wrapper
+			program can-reference seen-arrays, seen-records, seen-unions, field.type.struct, program.all-constants.records[type id]![x].only
+		else
+			(type.id, x) in seen-records
+	as constant-union x
+		(type.id, x) in seen-unions
+	as constant-gc-safe-value
+		true
+	as constant-null
+		true
 
 -is-string-or-symbol bool(a concrete-struct)
 	a is-string || a is-symbol
@@ -174,3 +190,15 @@ get-structs-for-integrals concrete-struct[integral-type](a concrete-program)
 				forbid i in res
 				res[i] := struct
 	res move-to
+
+# TODO:MOVE (also, could I do all this work in concretize to avoid doing it here? JS could benefit too) ----------------------------------------------------------------------------------------------------------------------------------
+is-wrapper bool(a concrete-struct)
+	a.as-wrapper !is-empty
+is-wrapper bool(a concrete-record)
+	a.as-wrapper !is-empty
+as-wrapper concrete-field?(a concrete-struct) # TODO: I don't think any uses of this actually use the field? -----------------------------
+	a.body.concrete-record?.as-wrapper
+as-wrapper concrete-field?(a concrete-record)
+	if f ?= a.fields opt-only
+		if f !is-mutable
+			f,
