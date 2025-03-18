@@ -5,6 +5,7 @@ import
 	../../model/integral-values
 	../../model/model
 	../../model/show-low-model
+	../../model/source-range
 	../../model/uri
 	../../model/version-info
 	../../util/full-index-map
@@ -643,8 +644,8 @@ translate-to-java-classes (string, nat8[])[](
 		else
 			interface-structs
 		for interface_ : all-supertypes
-			info = ctx.program.method-impls[interface_ id]!
-			unless info.methods is-empty
+			info = ctx.program.method-impls[interface_ id] ?? ()
+			unless info is-empty
 				for method, impl : info.methods zip info.cases[struct id]!
 					out ~= ctx method-impl constants, method, impl
 
@@ -678,8 +679,10 @@ translate-to-java-classes (string, nat8[])[](
 	as concrete-record x
 		(ctx record-class constants, struct, x.is-wrapper, x.fields, this-class-name, this-class, super-class, interfaces, method-impls),
 	as concrete-union _
-		method-decls method_info[] = for m : ctx.program.method-impls[struct id]?.methods ?? ()
-			ctx interface-method-decl constants, m
+		method-decls method_info[] = with out : build
+			for m : ctx.program.method-impls[struct id]?.methods ?? ()
+				if ctx uses-java-instance-method m
+					out ~= ctx interface-method-decl constants, m
 		all-methods = method-decls ~~ method-impls
 		match ctx union-representation struct
 		as direct
@@ -688,7 +691,6 @@ translate-to-java-classes (string, nat8[])[](
 			(constants union-sealed-interface this-class, super-class, interfaces, all-methods),
 		as switch
 			assert all-methods is-empty : todo
-			assert ctx.program.method-impls[struct id]!.methods is-empty : todo # TODO: how do we handle methods for this unusual union?
 			(constants union-switchable this-class, super-class, interfaces),
 		as nullable
 			()
@@ -699,7 +701,7 @@ translate-to-java-classes (string, nat8[])[](
 
 -interface-method-decl method_info(ctx to-java-ctx, constants constants-builder, method concrete-fun)
 	access-flags: public | abstract_
-	name: constants[method.instance-method-name to]
+	name: constants[ctx.mangled-names instance-method-name method to]
 	descriptor: constants[ctx instance-method-descriptor method]
 	attributes: ()
 
@@ -707,13 +709,19 @@ translate-to-java-classes (string, nat8[])[](
 -method-impl method_info(ctx to-java-ctx, constants constants-builder, method concrete-fun, impl concrete-fun?)
 	code = with out : constants build-code
 		assert i ?= impl : todo # TODO: generate code that will throw an error --------------------------------------------------
+		java-param-index mut nat = 0
 		for index, param : method.params with-index
-			forbid index == 0 && param.type.struct is-wrapper : todo # Need to unwrap it in this case ----------------------
-			out xload param.type.struct.as-runtime-type, index
+			if index == 0
+				out aload 0
+				out unbox-if-necessary ctx, i.params[0].type.struct
+			else
+				forbid index == 0 && param.type.struct is-wrapper : todo # Need to unwrap it in this case ----------------------
+				out xload param.type.struct.as-runtime-type, java-param-index
+			java-param-index +:= param.type.struct number-of-locals
 		out call-concrete-fun ctx, i
 		out return method.return-type.struct.as-runtime-type
 	access-flags: public | final
-	name: constants[method.instance-method-name to]
+	name: constants[ctx.mangled-names instance-method-name method to]
 	descriptor: constants[ctx instance-method-descriptor method]
 	attributes: code.to,
 
@@ -1305,7 +1313,7 @@ translate-to-java-classes (string, nat8[])[](
 		attributes: ()
 	methods method_info[] = with methods-out : build
 		for fun : funs
-			guard fun.body.concrete-fun-body-method is-empty
+			guard ctx !uses-java-instance-method fun
 			# info log "GONNA COMPILE {ctx.show-ctx.show show-concrete-fun-sig fun, false}" ------------------------------------------
 			expr-ctx expr-ctx = ctx, constants, this-class, (), (), (fun.params filter x => x.type.struct !is-empty-struct).to
 			code = with out : constants build-code
@@ -1319,6 +1327,7 @@ translate-to-java-classes (string, nat8[])[](
 				attributes: code.to,
 	Object = constants class_ "java/lang/Object"
 	class_ ClassFile = do
+		source SourceFile_attribute = constants["SourceFile"], constants[uri to]
 		LOG: false # rm this ---------------------------------------------------------------------------------------------------------
 		constant-pool: constants finish
 		access: ()
@@ -1327,8 +1336,21 @@ translate-to-java-classes (string, nat8[])[](
 		interfaces: ()
 		fields: fields
 		methods: methods
-		attributes: ()
+		attributes: source.to,
 	ctx add-class this-class-name, class_
+
+-uses-java-instance-method bool(ctx to-java-ctx, fun concrete-fun)
+	match fun body
+	as concrete-fun-body-method _
+		match ctx union-representation fun.params[0].type.struct
+		as direct
+			fun.name == ("show",) # TODO: it also needs to really be a 'toString' function -----------------------------------
+		as sealed-interface
+			true
+		else
+			false
+	else
+		false
 
 -verify-expr-ctx-finished void(expr-ctx expr-ctx, return-type concrete-struct, params concrete-local[])
 	expr-ctx must-pop return-type
@@ -1360,7 +1382,55 @@ translate-to-java-classes (string, nat8[])[](
 		# info log "GONNA EMIT FUNCTION {ctx.ctx.show-ctx.show show-concrete-fun-sig fun, false}" -----------------------------------
 		out emit-expr ctx, return, x
 	as concrete-fun-body-method _
-		throw unreachable
+		union_ = fun.params[0].type.struct
+		info = ctx.program.method-impls[union_ id]!
+		cases = info cases
+		method-index = info.methods index-of! fun
+
+		load-rest-params void mut() = () =>
+			local-index mut nat = 1
+			for param : fun.params[1 .. end]
+				out xload param.type.struct.as-runtime-type, local-index
+				local-index +:= param.type.struct number-of-locals
+		match ctx union-representation union_
+		as direct
+			jump mut deferred-jump? = ()
+			for case-index, (case-type-id, case-impls) : cases with-index
+				is-last-case = case-index == cases.size - 1
+				if j ?= jump
+					j jumps-to-here out, ctx.cur-stack-frame
+				case-type = ctx.program.structs-by-id[case-type-id]!
+				case-impl = case-impls[method-index] ?? throw todo # TODO: if missing, emit code that throws an exception -----------------------
+				unless is-last-case
+					out aload 0
+					out instanceof (ctx as-boxed-class-reference case-type)
+					jump := out.ifeq,
+				out aload 0
+				out cast-and-unbox-if-necessary ctx.ctx, case-type
+				load-rest-params[]
+				out call-concrete-fun ctx.ctx, case-impl
+				out return fun.return-type.struct.as-runtime-type
+			ctx pushed fun.return-type.struct
+		as sealed-interface
+			throw unreachable
+		as switch
+			out aload 0
+			out get-switchable-kind-int32 ctx, union_
+			jump-to-case, jump-to-default = out tableswitch 0 .. cases.size.to
+			for case-index, (case-type-id, case-impls) : cases with-index
+				jump-to-case[case-index] jumps-to-here out, ctx.cur-stack-frame
+				out aload 0
+				out get-switchable-value ctx, union_
+				out cast-and-unbox-if-necessary ctx.ctx, ctx.program.structs-by-id[case-type-id]!
+				load-rest-params[]
+				case-impl = case-impls[method-index] ?? throw todo
+				out call-concrete-fun-or-instance-method ctx.ctx, case-impl
+				out return fun.return-type.struct.as-runtime-type
+			jump-to-default jumps-to-here out, ctx.cur-stack-frame
+			out emit-unreachable
+			ctx pushed fun.return-type.struct
+		as nullable
+			throw todo
 	as concrete-fun-body-var-get x # TODO: this should be a concrete-expr, not a fun kind ------------------------------------
 		fun.params.size is 0
 		match x.var kind
@@ -1369,7 +1439,7 @@ translate-to-java-classes (string, nat8[])[](
 		as global_
 			out get-static-field ctx, ctx.ctx.mangled-names[x var], x.var.type.struct
 		ctx pushed x.var.type.struct
-		out return x.var.type.struct.as-runtime-type
+		out return fun.return-type.struct.as-runtime-type
 	as concrete-fun-body-var-set x # TODO: this should be a concrete-expr, not a fun kind ------------------------------------
 		param = fun.params only
 		out xload param.type.struct.as-runtime-type, 0
@@ -1378,7 +1448,7 @@ translate-to-java-classes (string, nat8[])[](
 			throw todo
 		as global_
 			out set-static-field ctx, ctx.ctx.mangled-names[x var], x.var.type.struct
-		out return void
+		out return fun.return-type.struct.as-runtime-type
 	as concrete-fun-body-deferred
 		throw unreachable
 
@@ -1417,10 +1487,24 @@ translate-to-java-classes (string, nat8[])[](
 	as return
 		out return type.as-runtime-type
 
--call-concrete-fun void(out code-builder, ctx to-java-ctx, fun concrete-fun)
+-call-concrete-fun void(out code-builder, ctx to-java-ctx, fun concrete-fun) # TODO: name should indicate that this only works for static methods?
+	forbid ctx uses-java-instance-method fun
 	out invokestatic (out.constants static-method-ref ctx, fun)
 
+-call-interface-fun void(out code-builder, ctx to-java-ctx, fun concrete-fun)
+	assert ctx uses-java-instance-method fun
+	count = fun.params sum param =>
+		param.type.struct.as-runtime-type stack-entry-count
+	out invokeinterface (out.constants interface-method-ref ctx, fun), count.to
+
+-call-concrete-fun-or-instance-method void(out code-builder, ctx to-java-ctx, fun concrete-fun)
+	if ctx uses-java-instance-method fun
+		out call-interface-fun ctx, fun
+	else
+		out call-concrete-fun ctx, fun
+
 -emit-expr void(out code-builder, ctx expr-ctx, pos expr-pos, a concrete-expr)
+	out mark-line-number ctx.ctx.show-ctx.line-and-character-getters[a range].range.start.line.to + 1
 	type = a.type struct
 	# remember to handle 'ctx.stack'!
 	match a kind
@@ -1432,10 +1516,8 @@ translate-to-java-classes (string, nat8[])[](
 		as concrete-fun-body-builtin b
 			out translate-builtin ctx, b.kind, b.type-args, type, x.args
 		as concrete-fun-body-method _
-			count = x.args sum arg =>
-				arg.type.struct.as-runtime-type stack-entry-count
 			out function-like ctx, type, x.args, () =>
-				out invokeinterface (out.constants interface-method-ref ctx.ctx, x.called), count.to
+				out call-concrete-fun-or-instance-method ctx.ctx, x.called
 		else
 			out function-like ctx, type, x.args, () =>
 				out call-concrete-fun ctx.ctx, x.called
@@ -1684,8 +1766,8 @@ translate-to-java-classes (string, nat8[])[](
 			out with-inner-pos ctx, pos, inner-pos =>
 				out dup32
 				out get-switchable-kind-int32 ctx, matched-type
-				jump-to-case, jump-to-default = out lookupswitch for index : x member-indices
-					index.as-unsigned to	
+				jump-to-case, jump-to-default = out lookupswitch for index : x member-indices # TODO: use a table switch usually
+					index.as-unsigned to
 				for target, member-index, case_ : jump-to-case zip3 x.member-indices, x.cases
 					target jumps-to-here out, ctx.cur-stack-frame
 					case-type = x.union_.members[member-index as-unsigned] struct
@@ -2144,7 +2226,7 @@ translate-to-java-classes (string, nat8[])[](
 
 -interface-method-ref method-reference(constants constants-builder, ctx to-java-ctx, fun concrete-fun)
 	class_ = ctx as-boxed-class-reference constants, fun.params[0].type.struct
-	constants interface-method-ref class_, fun.instance-method-name.to, (ctx instance-method-descriptor fun)
+	constants interface-method-ref class_, (ctx.mangled-names instance-method-name fun to), (ctx instance-method-descriptor fun)
 
 -instance-method-descriptor string(ctx to-java-ctx, fun concrete-fun)
 	assert _ ?= fun.body concrete-fun-body-method
