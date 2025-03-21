@@ -107,10 +107,40 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 	if concrete-called ?= ctx get-concrete-fun-from-called a.called
 		if concrete-called.return-type is-bogus
 			ctx concretize-bogus type, range
+		elif concrete-called is-array-op # TODO: it's a bit wasteful to give the function a body in get-concrete-fun-from-called only to ignore it here ....
+			in-array-arg, lambda-arg = a.args only2
+			in-array = ctx concretize-expr concrete-called.params[0].type, locals, in-array-arg
+			in-element-type = in-array.type array-element-type
+			out-element-type = type.is-void ? type : type array-element-type
+			match lambda-arg
+			as lambda-expr l
+				forbid _ ?= l.mut-type-for-explicit-shared # This won't happen because 'for-loop' takes a 'mut' lambda
+				rg uri-and-range = ctx.cur-uri, lambda-arg.range
+				body root-local-and-expr = ctx concretize-with-destructure out-element-type, rg, locals, l.param, inner-locals =>
+					ctx concretize-expr out-element-type, inner-locals, l.body
+				type, range, (in-array array-op-concrete-expr body.root-local, body.expr)
+			else
+				lambda-type = concrete-called.params[1].type
+				temp concrete-local = ctx.local-ids.take-next-id, member.to, lambda-type # TODO: use a new kind, not 'member'
+				lambda = ctx concretize-expr lambda-type, locals, lambda-arg
+				in-element concrete-local = ctx.local-ids.take-next-id, member.to, in-element-type # TODO: use a new kind, not 'member'
+				assert ctx preserve-lambdas : todo # If not: We need to find the lambda calling function and call it here ------------------
+				body = builtin-fun-call-lambda builtin-concrete-expr (out-element-type, in-element-type), ((range gen-local-get temp), (range gen-local-get in-element))
+				then concrete-expr = type, range, (in-array array-op-concrete-expr (in-element,), (out-element-type, range, body))
+				type gen-let range, temp, lambda, then
 		else
 			ctx concretize-call-inner type, range, locals, concrete-called, a.args
 	else
 		ctx concretize-bogus type, range
+
+-is-array-op bool(a concrete-fun)
+	# TODO: make sure this is the one in collection.crow and all the spec impls are as expected ----------------------------------------------------------------------
+	guard a.name == ("for-loop",)
+	guard a.return-type is-void || a.return-type is-array-or-mut-array
+	guard a.params.size == 2
+	guard a.params[0].type is-array-or-mut-array
+	guard _ ?= a.params[1].type as-fun-type
+	true
 
 -concretize-call-inner concrete-expr(
 	ctx concretize-expr-ctx,

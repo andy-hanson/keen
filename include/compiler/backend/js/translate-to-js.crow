@@ -1027,6 +1027,25 @@ translate-to-js js-and-map(
 	source source = ctx source a
 	type = a.type struct
 	match a kind
+	as array-op-concrete-expr x
+		xs = ctx to-js-expr x.in-array
+		if type is-void
+			local js-name = ctx local-or-ignore-name x.local
+			(source, (local js-for-of-statement xs, (ctx to-block-statement x.body))) to
+		else
+			# `xs.map(x => {... })` or `await Array.fromAsync(xs, async x => { ... })`
+			params js-params = if l ?= x local
+				((ctx local-name l to),) to
+			body = ctx to-expr-or-block-statement x.body
+			async = ctx is-cur-fun-async
+			arrow js-arrow-function = async, params, body
+			fn js-expr = source, arrow.to
+			match async
+			as sync
+				source gen-call-property-sync xs, "map".no-prefix, (fn,) to
+			as async
+				map = source gen-call-property-sync (source gen-global "Array"), "fromAsync".no-prefix, (xs, fn)
+				source gen-await map to
 	as builtin-concrete-expr x
 		ctx translate-builtin a.type, source, x.fun, x.type-args, for arg : x args
 			ctx to-js-expr arg
@@ -1328,6 +1347,12 @@ translate-to-js js-and-map(
 		index = ctx.temp-local-indices ensure a.id, () =>
 			ctx.temp-local-indices size
 		x.to.to temp index
+
+-local-or-ignore-name js-name(ctx to-expr-ctx, a concrete-local?)
+	if x ?= a
+		ctx local-name x
+	else
+		(none, "ignore", (ctx.take-next-temp-index,))
 
 -translate-constant js-expr(ctx to-js-ctx, source source, type concrete-struct, a constant)
 	match type body

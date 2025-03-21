@@ -16,16 +16,12 @@ import
 	./lower-util
 	./low-expr-helpers
 
--throw_ low-program()
-	throw todo
-
 lower low-program(
 	show-ctx show-ctx,
 	config-extern config-extern-uris,
 	program program,
 	a concrete-program,
 )
-	guard false : throw_ # Reducing code size -----------------------------------------------------------------------------------
 	get-low-type-ctx = a get-all-low-types # TODO: This should be renamed; it doesn't get all types up-front --------------------
 	cf = a.common-funs concrete-common-funs-native!
 	catch-point-const-pointer-type = get-low-type-ctx low-type-from-concrete-type cf.cur-catch-point.return-type
@@ -444,7 +440,7 @@ mut-concrete-fun-to-low-fun-index alias
 	range uri-and-range,
 	value low-expr,
 	then-may-yield bool,
-	then low-expr mut(pos expr-pos, get--local low-expr),
+	then low-expr mut(pos expr-pos, get-local low-expr),
 )
 	local = "temp" gen-local false, ctx.next-local-index, value.type
 	ctx gen-let-possibly-gc-root range, local, value, expr-pos, then-may-yield, inner =>
@@ -635,18 +631,18 @@ mut-concrete-fun-to-low-fun-index alias
 	expr-pos expr-pos,
 )
 	range = expr range
-	regular low-expr mut(x low-expr-kind) = x => # TODO: it seems that this was already generally inlined everywhere.... finish the job
-		ctx handle-expr-pos expr-pos, (type, range, x)
 	match expr kind
+	as array-op-concrete-expr x
+		ctx get-array-op-low-expr locals, expr-pos, type, range, x
 	as builtin-concrete-expr x
-		ctx get-call-builtin-expr locals, type, range, x.fun, x.type-args, x.args
+		ctx get-call-builtin-expr locals, type, range, x.fun, x.type-args, x.args # TODO: doesn't this need to handle expr-pos?
 	as call-concrete-expr x
 		ctx get-call-expr locals, expr-pos, type, range, x.called, x.args
 	as cast-concrete-expr x
 		# TODO: shouldn't this cause errors in the check phase? --------------------------------------------------------------------
 		ctx get-low-expr locals, type, x.inner, expr-pos
 	as constant x
-		regular[x to]
+		ctx handle-expr-pos expr-pos, (type, range, x.to)
 	as create-array-concrete-expr x
 		ctx get-create-array-expr expr-pos, locals, type, range, expr.type, x
 	as create-record-concrete-expr x
@@ -762,6 +758,79 @@ mut-concrete-fun-to-low-fun-index alias
 		false
 -never-has-side-effects bool(a builtin-unary)
 	a == deref
+
+-get-array-op-low-expr low-expr(
+	ctx get-low-expr-ctx,
+	locals locals,
+	expr-pos expr-pos,
+	type low-type,
+	range uri-and-range,
+	x array-op-concrete-expr,
+)
+	# ----------------------------------------------------------------------------------------
+	###
+	xs = ...
+	out = alloc(xs.length * T.sizeof)
+	i mut nat64 = 0
+	for i : 0 .. xs.size
+		out[i] = xs[i]
+	out
+	###
+	in-array-type = ctx.type-ctx low-type-from-concrete-type x.in-array.type
+	in-array-expr = ctx get-low-expr locals, in-array-type, x.in-array, non-tail
+	res = ctx gen-let-temp-possibly-gc-root expr-pos, range, in-array-expr, (ctx expression-may-yield x.body), (inner-pos, xs) =>
+		size = range gen-array-size xs
+		out-element-type low-type = type array-element-type
+		body low-expr mut(i low-expr) = i =>
+			if l ?= x local
+				ctx with-low-local locals, l, (inner-locals, low-local) =>
+					# Don't need a redundant GC root since this is an array element
+					body = ctx get-low-expr inner-locals, out-element-type, x.body, non-tail
+					range gen-let-no-gc-root low-local, (range gen-array-get xs, i), body
+			else
+				ctx get-low-expr locals, void.to, x.body, non-tail
+		if type is-void
+			loop_ = ctx gen-range-loop range, size, body, range.gen-void
+			ctx handle-expr-pos inner-pos, loop_
+		else
+			alloc-out = ctx gen-allocate-array range, out-element-type, size
+			assert alloc-out.type == type
+			ctx gen-let-temp-possibly-gc-root expr-pos, range, alloc-out, (ctx expression-may-yield x.body), (inner2-pos, out-array) =>
+				set-to-body low-expr mut(i low-expr) = i =>
+					range gen-array-set out-array, i, body[i]
+				assert out-array.type == type
+				loop_ = ctx gen-range-loop range, size, set-to-body, out-array
+				ctx handle-expr-pos inner2-pos, loop_
+	assert type == res.type
+	res
+
+-gen-range-loop low-expr(
+	ctx get-low-expr-ctx,
+	range uri-and-range,
+	n low-expr,
+	body low-expr mut(i low-expr),
+	finish low-expr,
+)
+	###
+	i mut nat64 = 0
+	loop
+		if i == xs.length
+			break <<result>>
+		else
+			<<body>>
+			i +:= 1
+			continue
+	###
+	zero low-expr = range gen-constant-nat64 0
+	i low-local = "temp" gen-local true, ctx.next-local-index, nat64.to
+	get-i low-expr = range gen-identifier i
+	i-eq-0 = range gen-nat64-equal get-i, n
+	break_ = finish.type gen-loop-break range, finish
+	incr-i = range gen-local-set i, (range gen-incr-nat64 get-i)
+	continue_ = range gen-seq body[get-i], incr-i, (finish.type gen-loop-continue range)
+	loop-body = range gen-if i-eq-0, break_, continue_
+	loop_ = finish.type gen-loop range, loop-body
+	range gen-let-no-gc-root i, zero, loop_
 
 -get-call-expr low-expr(
 	ctx get-low-expr-ctx,
@@ -923,9 +992,9 @@ mut-concrete-fun-to-low-fun-index alias
 			arg
 		match x
 		as array-pointer
-			type gen-record-field-get range, arg, 1
+			range gen-array-pointer arg
 		as array-size
-			type gen-record-field-get range, arg, 0
+			range gen-array-size arg
 		as as-future
 			same-type[]
 		as as-future-impl
@@ -1061,19 +1130,22 @@ mut-concrete-fun-to-low-fun-index alias
 		# *(ptr + 1) = arg1;
 		# return arr_foo{n, ptr};
 		element-type = ctx.type-ctx low-type-from-concrete-type concrete-arr-type.must-be-by-val.source.concrete-struct-source-inst!.type-args.only
-		element-pointer-type = ctx.type-ctx get-pointer-const element-type
-		element-size = ctx.all-types gen-size-of range, element-type
 		n-elements = range gen-constant-nat64 a.args.size
-		size-bytes = range gen-wrap-mul-nat64 element-size, n-elements
-		allocate-ptr = ctx get-allocate-expr range, element-pointer-type, size-bytes
+		allocate-ptr = ctx gen-allocate-array range, element-type, n-elements
 		ctx gen-let-temp-const-no-gc-root range, allocate-ptr, get-ptr =>
 			acc mut = arr-type gen-create-record-no-gc-roots range, (n-elements, get-ptr)
 			for index : 0::nat .. args.size reversed
 				arg = args[index]
-				element-pointer = element-pointer-type.low-pointer-const! gen-add-pointer range, get-ptr, (range gen-constant-nat64 index)
+				element-pointer = range gen-add-pointer get-ptr, (range gen-constant-nat64 index)
 				write-to-element = range gen-write-to-pointer element-pointer, arg
 				acc := range gen-seq write-to-element, acc
 			ctx handle-expr-pos inner-pos, acc
+
+-gen-allocate-array low-expr(ctx get-low-expr-ctx, range uri-and-range, element-type low-type, n-elements low-expr)
+	element-pointer-type = ctx.type-ctx get-pointer-const element-type
+	element-size = ctx.all-types gen-size-of range, element-type
+	size-bytes = range gen-wrap-mul-nat64 element-size, n-elements
+	ctx get-allocate-expr range, element-pointer-type, size-bytes
 
 -get-create-record-expr low-expr(
 	ctx get-low-expr-ctx,

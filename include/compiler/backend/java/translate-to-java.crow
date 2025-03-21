@@ -39,7 +39,7 @@ translate-to-java-classes (string, nat8[])[](
 		upcoming-lambda-impl-id: 0
 	ctx translate-constants
 	for struct : concrete-program all-structs
-		# info log "GONNA TRANSLATE STRUCT {show-ctx.show show-concrete-struct struct}" --------------------------------------
+		# info log "GONNA TRANSLATE STRUCT {show-ctx.show show-concrete-struct struct}" # --------------------------------------------------
 		ctx translate-struct struct
 	for uri, (funs, vars) : concrete-program funs-and-vars-by-uri
 		ctx translate-funs-for-uri uri, funs, vars
@@ -142,18 +142,30 @@ translate-to-java-classes (string, nat8[])[](
 	stack concrete-struct mut-stack
 	has-this bool
 	| Does not include the 'this' param
-	locals concrete-local mut-stack
+	locals local-entry mut-stack
 	loop-pos mut jump-target?
+| Use 'concrete-struct' for a synthetic local
+-local-entry union(concrete-local, concrete-struct) mut
+-to json(a local-entry)
+-struct concrete-struct(a local-entry)
+	match a
+	as concrete-local x
+		x.type struct
+	as concrete-struct x
+		x
+-== bool(a local-entry, b local-entry)
 -new expr-ctx(
 	ctx to-java-ctx,
 	constants constants-builder,
 	this-class class-reference,
 	closure field-reference[concrete-local-id],
 	has-this bool,
-	locals concrete-local mut-stack,
+	params concrete-local[],
 )
-	for x : locals
+	locals local-entry mut-stack = ()
+	for x : params
 		forbid x.type.struct is-empty-struct
+		locals ~= x to
 	ctx, constants, this-class, closure, (), has-this, locals, ()
 -program concrete-program(a expr-ctx)
 	a.ctx program
@@ -167,25 +179,25 @@ translate-to-java-classes (string, nat8[])[](
 	else
 		res mut nat = a.has-this to
 		for x : a locals
-			if x == local
+			if x == local.to
 				break
 			else
-				res +:= x.type.struct number-of-locals
+				res +:= x.struct number-of-locals
 				continue
 		else
 			throw unreachable # We shouldn't get index-for-local for a local not already in a.locals
 		res to
 -next-local-index nat(ctx expr-ctx)
 	res mut nat = ctx.has-this to
-	for local : ctx locals
-		res +:= local.type.struct number-of-locals
+	for x : ctx locals
+		res +:= x.struct number-of-locals
 	res
 -cur-stack-frame stack-frame(ctx expr-ctx)
 	locals: with out : build
 		if ctx has-this
 			out ~= ctx.this-class Object_variable_info
 		for x : ctx locals
-			out ~= ctx verification-type x.type.struct
+			out ~= ctx verification-type x.struct
 	stack: for x : ctx stack
 		ctx verification-type x
 
@@ -1062,8 +1074,10 @@ translate-to-java-classes (string, nat8[])[](
 	as concrete-builtin-type x
 		array-or-mut-slice string mut() = () =>
 			element = x.type-args.only.struct
-			forbid element is-empty-struct
-			"[{ctx descriptor-for-param-type element}"
+			if element is-empty-struct
+				"java/lang/Integer"
+			else
+				"[{ctx descriptor-for-param-type element}"
 		match x kind
 		as array
 			array-or-mut-slice[]
@@ -1314,11 +1328,10 @@ translate-to-java-classes (string, nat8[])[](
 	methods method_info[] = with methods-out : build
 		for fun : funs
 			guard ctx !uses-java-instance-method fun
-			# info log "GONNA COMPILE {ctx.show-ctx.show show-concrete-fun-sig fun, false}" ------------------------------------------
-			expr-ctx expr-ctx = ctx, constants, this-class, (), (), (fun.params filter x => x.type.struct !is-empty-struct).to
+			expr-ctx expr-ctx = ctx, constants, this-class, (), (), (fun.params filter x => x.type.struct !is-empty-struct)
+			# info log "GONNA TRANSLATE FUN {ctx.show-ctx.show show-concrete-fun-sig fun, false}" # ---------------------------------------------------------------------------------------------------------------------
 			code = with out : constants build-code
 				out emit-fun-body expr-ctx, fun
-			# ---------------------------------------------------------------------------------------------------------------------
 			expr-ctx verify-expr-ctx-finished fun.return-type.struct, fun.params
 			methods-out ~= do
 				access-flags: static
@@ -1508,6 +1521,73 @@ translate-to-java-classes (string, nat8[])[](
 	type = a.type struct
 	# remember to handle 'ctx.stack'!
 	match a kind
+	as array-op-concrete-expr x
+		###
+		in-array = ...
+		size = in-array.size
+		out-array = size new-array
+		index = 0
+		loop:
+		if index == size: goto end
+		local = in-array[index]
+		out-array[index] := ... body ...
+		index++
+		goto loop
+		end:
+		###
+		###
+		----------------------------------------------------------------------------------------------------------------------
+		TODO: it might be faster with 2 branches:
+		If input array size is 0, return a constant empty array and skip the rest. (This is also an important optimization!)
+		If input is non-0, we can have the condition at the bottom of the loop (instead of a 'goto')
+		###
+		out emit-and-continue ctx, x.in-array
+		ctx must-pop x.in-array.type.struct
+		in-array = out begin-synthetic-local ctx, x.in-array.type.struct
+		empty-out-elem = x.out-element.struct is-empty-struct
+		unless type is-void
+			out get-array-size x.in-element.struct, in-array
+			unless empty-out-elem
+				out new-array-for-type ctx, x.out-element.struct
+		out-array = out begin-synthetic-local ctx, type
+		out iconst 0
+		nat32 = ctx.ctx.program.common-funs.concrete-common-funs-java! nat32
+		jump-to-end mut deferred-jump? = ()
+		index = out begin-synthetic-local ctx, nat32
+		loop_ = out can-jump-back-to-here ctx.cur-stack-frame
+		out get-array-size x.in-element.struct, in-array
+		out iload index
+		out isub
+		jump-to-end := out.ifeq,
+		unless empty-out-elem
+			out aload out-array
+			ctx pushed type
+			out iload index
+			ctx pushed nat32
+		unless x.in-element.struct is-empty-struct
+			out aload in-array
+			out iload index
+			out xaload x.in-element.struct.as-runtime-type
+			ctx pushed x.in-element.struct
+		out emit-with-opt-local ctx, x.local, x.in-element.struct, continue_, x.body
+		unless empty-out-elem
+			out astore x.out-element.struct.as-runtime-type
+			ctx must-pop x.out-element.struct
+			ctx must-pop nat32
+			ctx must-pop type
+		out increment-int index
+		out go-back-to loop_
+		ctx end-synthetic-local nat32, index
+		# If there is no return type, make sure the stack frame does not include locals (since it may be the same bytecode pos as the beginning stack frame of a loop)
+		unless type is-void
+			jump-to-end! jumps-to-here out, ctx.cur-stack-frame
+			out xload type.as-runtime-type, out-array
+			ctx pushed type
+		ctx end-synthetic-local type, out-array
+		ctx end-synthetic-local x.in-array.type.struct, in-array
+		if type is-void
+			jump-to-end! jumps-to-here out, ctx.cur-stack-frame
+		out handle-pos pos, type # TODO: then there is a double jump in some cases, improve? -------------------
 	as builtin-concrete-expr x
 		out translate-builtin ctx, x.fun, x.type-args, type, x.args
 		out handle-pos pos, type
@@ -1937,6 +2017,12 @@ translate-to-java-classes (string, nat8[])[](
 		as nullable
 			out call-static "Crow", "oneIfNotNull", "(Ljava/lang/Object;)L"
 
+-increment-int void(out code-builder, local nat)
+	out iload local
+	out iconst 1
+	out iadd
+	out istore local
+
 -get-local void(out code-builder, ctx expr-ctx, local concrete-local)
 	unless local.type.struct is-empty-struct
 		match ctx explain-local local
@@ -2071,10 +2157,21 @@ translate-to-java-classes (string, nat8[])[](
 	unless local.type.struct is-empty-struct
 		out xstore local.type.struct.as-runtime-type, ctx.next-local-index
 		ctx must-pop local.type.struct
-		ctx.locals ~= local
+		ctx.locals ~= local.to
 	out emit-expr ctx, pos, expr
 	unless local.type.struct is-empty-struct
-		ctx.locals.pop! is local
+		ctx.locals.pop! is local.to
+
+-begin-synthetic-local nat(out code-builder, ctx expr-ctx, local-type concrete-struct)
+	local = ctx next-local-index
+	unless local-type is-empty-struct
+		out xstore local-type.as-runtime-type, local
+		ctx.locals ~= local-type to
+	local
+-end-synthetic-local void(ctx expr-ctx, local-type concrete-struct, local nat)
+	unless local-type is-empty-struct
+		ctx.locals.pop! is local-type.to
+	ctx.next-local-index is local
 
 -exception-case-type-from-index concrete-struct(ctx expr-ctx, exception-case-index integral-value)
 	exception-types = ctx.program.exception.body.concrete-union! members
@@ -2737,7 +2834,7 @@ translate-to-java-classes (string, nat8[])[](
 				out xaload type-args.only.struct.as-runtime-type
 	as array-set
 		out function-like ctx, type, args, () =>
-			element = type-args.only.struct
+			element = type-args.only struct
 			if element is-empty-struct
 				out pop T_INT.to
 				out pop reference-type
@@ -2857,6 +2954,13 @@ translate-to-java-classes (string, nat8[])[](
 		args.size is 0
 		out function-like ctx, type, args, () =>
 			out aconst_null
+
+-get-array-size void(out code-builder, element concrete-struct, local nat)
+	if element is-empty-struct
+		out iload local
+	else
+		out aload local
+		out arraylength
 
 -copy-of-range void(out code-builder, ctx expr-ctx, return-type concrete-struct) # TODO: this is HAX to deal with a generic method
 	element-type = return-type.array-element-type.struct

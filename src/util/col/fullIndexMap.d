@@ -118,7 +118,7 @@ immutable(FullIndexMap!(K, VOut)) mapFullIndexMap(K, VOut, VIn)(
 ) =>
 	fullIndexMapOfArr!(K, VOut)(
 		mapWithIndex!(immutable VOut, immutable VIn)(alloc, a.values, (size_t index, scope ref immutable VIn v) =>
-			cb(K(K.sizeof == 4 ? safeToUint(index) : safeToUshort(index)), v)));
+			cb(K(K.sizeof == 8 ? index : K.sizeof == 4 ? safeToUint(index) : safeToUshort(index)), v)));
 
 FullIndexMap!(K, VOut) mapFullIndexMap_mut(K, VOut, VIn)(
 	ref Alloc alloc,
@@ -127,4 +127,4 @@ FullIndexMap!(K, VOut) mapFullIndexMap_mut(K, VOut, VIn)(
 ) =>
 	fullIndexMapOfArr_mut!(K, VOut)(
 		mapWithIndex!(VOut, VIn)(alloc, a.values, (size_t index, scope ref immutable VIn v) =>
-			cb(K(K.sizeof == 4 ? safeToUint(index) : safeToUshort(index)), v)));
+			cb(K(K.sizeof == 8 ? index : K.sizeof == 4 ? safeToUint(index) : safeToUshort(index)), v)));

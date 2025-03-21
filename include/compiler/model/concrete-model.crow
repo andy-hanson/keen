@@ -210,8 +210,13 @@ is-nat8 bool(a concrete-struct)
 		x.kind == nat8
 	else
 		false
+is-array-or-mut-array bool(a concrete-type)
+	a.reference == by-val_ && a.struct is-array-or-mut-array
 is-array-or-mut-array bool(a concrete-struct) # TODO: should be 'is-array-or-mut-slice'? -------------------------------------------
 	a.special-kind == array-or-mut-array # TODO: do we even need this any more? Can just look at the builtin kind? -----------------------------------
+opt-array-element-type concrete-type?(array-type concrete-type)
+	if array-type is-array-or-mut-array
+		array-type.array-element-type,
 array-element-type concrete-type(array-type concrete-type) # TODO: this should return an option (and don't need to check is-array first)
 	assert array-type.must-be-by-val is-array-or-mut-array
 	array-type.must-be-by-val array-element-type
@@ -464,6 +469,7 @@ concrete-expr record mut
 to json(a concrete-expr)
 
 concrete-expr-kind union(
+	array-op-concrete-expr,
 	builtin-concrete-expr,
 	call-concrete-expr,
 	cast-concrete-expr,
@@ -495,6 +501,17 @@ concrete-expr-kind union(
 	union-as-concrete-expr,
 	union-kind-concrete-expr) mut
 to json(a concrete-expr-kind)
+| Specialization of `for local : in-array; inner` where the input and output collections are both arrays (or {mut-slice})
+| If the return type is 'void', this does not return an array.
+array-op-concrete-expr record mut
+	in-array concrete-expr
+	local concrete-local?
+	body concrete-expr
+in-element concrete-type(a array-op-concrete-expr)
+	a.in-array.type array-element-type
+out-element concrete-type(a array-op-concrete-expr)
+	a.body type
+to json(a array-op-concrete-expr)
 builtin-concrete-expr record(fun builtin-fun, type-args concrete-type[], args concrete-expr[]) mut
 to json(a builtin-concrete-expr)
 call-concrete-expr record(called concrete-fun, args concrete-expr[]) mut
@@ -543,8 +560,6 @@ match-enum-or-integral-concrete-expr record mut
 	case-values integral-values
 	case-exprs concrete-expr[]
 	else_ concrete-expr?
--to json(_ void)
-	()
 match-enum-or-integral-concrete-expr concrete-expr-kind(matched concrete-expr, case-values integral-values, case-exprs concrete-expr[], else_ concrete-expr?)
 	assert case-values is-sorted
 	case-values.size is case-exprs.size
@@ -747,6 +762,8 @@ fiber-reference-type concrete-type(a concrete-common-funs-native)
 direct-child-exprs record(expr concrete-expr) mut, nominal
 iterate bool(a direct-child-exprs, f bool mut(x concrete-expr))
 	match a.expr kind
+	as array-op-concrete-expr x
+		f[x in-array] || f[x body]
 	as builtin-concrete-expr x
 		x.args iterate f
 	as call-concrete-expr x
