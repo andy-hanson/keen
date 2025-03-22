@@ -63,6 +63,7 @@ import model.model :
 	isString,
 	isSymbol,
 	isVoid,
+	isWeakRef,
 	JsFun,
 	paramsArray,
 	pointeeType,
@@ -370,6 +371,10 @@ FunBody inner(
 				: failUnary);
 		case symbol!"gc-safe-value".value:
 			return FunBody(BuiltinFun(BuiltinFunGcSafeValue()));
+		case symbol!"get".value:
+			return arity == 1 && isWeakRef(p0)
+				? unary(BuiltinUnary.weakRefGet)
+				: fail();
 		case symbol!"get-static-field".value:
 			return FunBody(BuiltinFun(BuiltinFunGcSafeValue())); // -------------------------------------------------------------
 		case symbol!"global-init".value:
@@ -433,6 +438,14 @@ FunBody inner(
 		case symbol!"new".value:
 			return isOptionType(rt) ?
 				arity == 0
+					? FunBody(BuiltinFun(BuiltinFunNewEmptyOption()))
+					: arity == 1 && isTypeParam0(p0)
+					? FunBody(BuiltinFun(BuiltinFunNewNonEmptyOption()))
+					: fail()
+				: fail();
+		case symbol!"new-weak-ref".value:
+			return isWeakRef(rt)
+				? arity == 0
 					? FunBody(BuiltinFun(BuiltinFunNewEmptyOption()))
 					: arity == 1 && isTypeParam0(p0)
 					? FunBody(BuiltinFun(BuiltinFunNewNonEmptyOption()))

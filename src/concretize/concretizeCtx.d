@@ -63,6 +63,7 @@ import model.model :
 	isString,
 	isSymbol,
 	isTuple,
+	isWeakRef,
 	Local,
 	paramsArray,
 	Program,
@@ -351,7 +352,7 @@ ConcreteType getConcreteType_forStructInst(ref ConcretizeCtx ctx, StructInst* in
 		return char8ConstPointerType(ctx);
 
 	return withConcreteTypes(ctx, inst.typeArgs, typeArgsScope, (scope ConcreteType[] typeArgs) {
-		StructDecl* decl = inst.decl;
+		StructDecl* decl = isWeakRef(Type(inst)) ? ctx.commonTypes.option : inst.decl;
 		scope ConcreteStructSourceInst key = ConcreteStructSourceInst(decl, small!ConcreteType(typeArgs));
 		ValueAndDidAdd!(ConcreteStruct*) res =
 			getOrAddAndDidAdd!(ConcreteStruct*, ConcreteStructSourceInst, getStructKey)(

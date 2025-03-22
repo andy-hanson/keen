@@ -1168,6 +1168,8 @@ BuiltinType getBuiltinType(scope ref CheckCtx ctx, StructDecl* struct_) {
 			return BuiltinType.symbol;
 		case symbol!"void".value:
 			return BuiltinType.void_;
+		case symbol!"weak-ref".value:
+			return BuiltinType.option;
 		default:
 			addDiagAssertSameUri(ctx, struct_.nameRange, Diag(
 				DiagBuiltinUnsupported(DiagBuiltinUnsupportedKind.type, struct_.name)));

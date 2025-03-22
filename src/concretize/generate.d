@@ -73,7 +73,8 @@ import model.model :
 	IntegralType,
 	Record,
 	RecordField,
-	RecordFieldCall;
+	RecordFieldCall,
+	StructDecl;
 import model.sourceRange : UriAndRange;
 import util.alloc.alloc : Alloc;
 import util.col.array :
@@ -171,7 +172,8 @@ ConcreteType unwrapOptionType(in ConcretizeCtx ctx, ConcreteType optionType) {
 	return only(mustBeByVal(optionType).source.as!ConcreteStructSourceInst.typeArgs);
 }
 private void assertIsOptionType(in ConcretizeCtx ctx, ConcreteType optionType) {
-	assert(mustBeByVal(optionType).source.as!ConcreteStructSourceInst.decl == ctx.commonTypes.option);
+	StructDecl* decl = mustBeByVal(optionType).source.as!ConcreteStructSourceInst.decl;
+	assert(decl == ctx.commonTypes.option);
 }
 ConcreteExpr genVoid(ref ConcretizeCtx ctx, in UriAndRange range) =>
 	genConstant(voidType(ctx), range, constantZero);

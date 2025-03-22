@@ -1734,6 +1734,7 @@ WriteExprResult writeSpecialUnary(
 		specialCallUnary(writer, indent, ctx, writeKind, type, a.arg, name);
 
 	final switch (a.kind) {
+		// Done in lower
 		case BuiltinUnary.asFuture:
 		case BuiltinUnary.asFutureImpl:
 		case BuiltinUnary.asMutArray:
@@ -1742,7 +1743,10 @@ WriteExprResult writeSpecialUnary(
 		case BuiltinUnary.arraySize:
 		case BuiltinUnary.cStringOfSymbol:
 		case BuiltinUnary.symbolOfCString:
-			// Done in lower
+		case BuiltinUnary.weakRefGet:
+		// Concretize removes these calls
+		case BuiltinUnary.toChar8ArrayFromString:
+		case BuiltinUnary.trustAsString:
 			assert(false);
 		case BuiltinUnary.asAnyPointer:
 			return prefix("(uint8_t*) ");
@@ -1803,10 +1807,6 @@ WriteExprResult writeSpecialUnary(
 			return specialCall("jump_to_catch");
 		case BuiltinUnary.setupCatch:
 			return specialCall("setup_catch");
-		// Concretize removes these calls
-		case BuiltinUnary.toChar8ArrayFromString:
-		case BuiltinUnary.trustAsString:
-			assert(false);
 	}
 }
 

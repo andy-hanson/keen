@@ -1,44 +1,32 @@
 import
 	../model/model
+	../util/object-memoizer
 	../util/util
 
 all-insts record mut
-	-upcoming-id mut nat
-	-inst-for-id any-inst mut[inst-id]
-	-struct-insts struct-inst mut[(decl-id, type-id[])]
-	-spec-insts spec-inst mut[(decl-id, type-id[])]
-	-fun-insts fun-inst mut[fun-args]
-	-referenced-by (decl-or-inst-id, inst-id) mut-multi-map
+	-struct-insts struct-inst object-memoizer
+	-spec-insts spec-inst object-memoizer
+	-fun-insts fun-inst object-memoizer
+	upcoming-id mut nat64 # KILL -----------------------------------------------------------------------------------------------------------
 new all-insts()
-	1, (), (), (), (), ()
+	(), (), (), 1
 
-inst-for-id any-inst(a all-insts, id inst-id)
-	a.inst-for-id[id]!
-
-next-id decl-or-inst-id(a all-insts)
-	res = a upcoming-id
-	a.upcoming-id +:= 1
-	res,
-
-get-or-add-struct-inst struct-inst value-and-did-add(a all-insts, decl struct-decl, type-args type-args)
-	did-add mut = false
-	x = a.struct-insts ensure (decl.id, type-args.ids), () =>
-		did-add := true
-		res struct-inst = a.next-id, decl, type-args
-		a.inst-for-id[res.id] := res.to
-		a add-each-referenced res.to
-		res
-	x, did-add
+# TODO: just name this 'subscript' --------------------------------------------------------------------------------------------
+get-or-add-struct-inst struct-inst(a all-insts, decl struct-decl, type-args type-args)
+	hash = do
+		hasher hasher = ()
+		hasher hash-mix decl
+		hasher hash-mix type-args
+		hasher finish
+	a.struct-insts[decl, type-args, hash]
 
 get-or-add-spec-inst spec-inst value-and-did-add(a all-insts, decl spec-decl, type-args type-args)
-	did-add mut = false	
-	x = a.spec-insts ensure (decl.id, type-args.ids), () =>
-		did-add := true
-		res spec-inst = a.next-id, decl, type-args, ((), ())
-		a.inst-for-id[res id] := res to
-		a add-each-referenced res.to
-		res
-	x, did-add
+	hash = do
+		hasher hasher = ()
+		hasher hash-mix decl
+		hasher hash-mix type-args
+		hasher finish
+	a.spec-insts get-and-did-add (decl, type-args, hash, ())
 
 get-or-add-fun-inst fun-inst(
 	a all-insts,
@@ -47,219 +35,24 @@ get-or-add-fun-inst fun-inst(
 	spec-impls spec-impls, 
 	cb-return-and-param-types return-and-param-types mut(),
 )
-	a.fun-insts ensure (decl.id, type-args.ids, spec-impls.ids), () =>
-		res fun-inst = a.next-id, decl, type-args, spec-impls, cb-return-and-param-types[]
-		a.inst-for-id[res id] := res to
-		a add-each-referenced res.to
-		res
+	res = a.fun-insts get-and-did-add (decl, type-args, spec-impls, ((),))
+	if res did-add
+		res.value.instantiated-sig := cb-return-and-param-types[]
+	res value
 
-| Free all instantiations of structs/specs/funs from the module, as well as anything referencing them.
-free-instantiations-for-module void(a all-insts, module module)
-	to-process to-process = ()
-	a get-insts-to-process-from-module to-process, module
-	# Actually, the set of thing that have been added to 'to-process', whether they have been processed yet or not.
-	processed processed = ()
-	for x : to-process
-		processed ~= x id
-
-	while inst ?= to-process pop
-		a delete-any-inst-from-table inst
-		references = a.referenced-by remove-key inst.id
-		for reference : references
-			unless reference in processed
-				to-process ~= a inst-for-id reference
-		inst each-referenced x =>
-			_ = a.referenced-by remove-pair x.id, inst.id
-
-all-insts-arrays record
-	structs struct-inst[]
-	specs spec-inst[]
-	funs fun-inst[]
-test-get-all-insts-arrays all-insts-arrays(a all-insts)
-	(a.struct-insts.values sort x => x.id), \
-	(a.spec-insts.values sort x => x.id),
-	(a.fun-insts.values sort x => x.id)
--values[k, v] v[](a v mut[k]) k key
-	for _, v : a
-		v
-test-get-referenced-by inst-id set[decl-or-inst-id](a all-insts)
-	a.referenced-by.to
-
-get-all-future-and-mut-array-impls struct-inst[inst-id](
+get-all-future-and-mut-array-impls struct-inst[struct-inst](
 	a all-insts,
 	cb-make-future-impl struct-inst mut(args type-args),
 	cb-make-mut-array-impl struct-inst mut(args type-args),
 )
 	keys struct-inst[] = with out : build
-		for _, x : a struct-insts
+		for x : a struct-insts
 			if x is-future || x is-mut-array
 				out ~= x
 	for x : keys
-		x.id, if x is-future
+		x, if x is-future
 			cb-make-future-impl[x type-args]
 		elif x is-mut-array
 			cb-make-mut-array-impl[x type-args]
 		else
 			throw unreachable
-
-to-process alias
-	any-inst mut[]
-processed alias
-	inst-id mut-set
-
-any-decl-or-inst union(struct-decl, struct-inst, spec-decl, spec-inst, fun-decl, fun-inst)
-	id decl-or-inst-id()
-any-inst union(struct-inst, spec-inst, fun-inst)
-	id inst-id()
-
--get-insts-to-process-from-module void(a all-insts, out to-process, module module)
-	a get-insts-to-process-from-decls out, module.structs
-	a get-insts-to-process-from-decls out, module.specs
-	a get-insts-to-process-from-decls out, module.funs
-
--id[t] spec
-	id decl-or-inst-id(a t)
--get-insts-to-process-from-decls[decl] void(a all-insts, out to-process, decls decl[]) decl id
-	for decl : decls
-		for x : a.referenced-by remove-key decl.id
-			out ~= a inst-for-id x
-
--delete-any-inst-from-table void(a all-insts, inst any-inst)
-	match inst
-	as struct-inst x
-		if removed ?= a.struct-insts remove (x.decl.id, x.type-args.ids)
-			assert trusted removed reference-equal x
-	as spec-inst x
-		if removed ?= a.spec-insts remove (x.decl.id, x.type-args.ids)
-			assert trusted removed reference-equal x
-	as fun-inst x
-		if removed ?= a.fun-insts remove x.args
-			assert trusted removed reference-equal x
-
--add-each-referenced void(a all-insts, referenced any-inst)
-	referenced each-referenced x =>
-		a.referenced-by ~= (x.id, referenced.id)
-
-###
-We're not concerned about references in the *body* of the struct/spec/fun here, only type/spec arguments.
-We're concerned about the case where a module is freed, but another module *not dependent on it* was not freed,
-but a struct/spec/fun from that other module has an *instantiation* referencing the freed module.
-The *body* of a struct/spec/fun can't reference something in a module it doesn't depend on,
-except through a type arg or spec impl.
-
-(In addition, we use this same table to track all insts for a given decl.)
-
-(SO TODO: As an optimization, we could avoid adding a reference A -> B to referencedBy
-if the module of 'A' depends on the module of 'B'.)
-###
--each-referenced void(referencer any-inst, cb void mut(x any-decl-or-inst))
-	match referencer
-	as struct-inst x
-		cb[x.decl to]
-		x.type-args each-reference-in-type-args cb
-	as spec-inst x
-		cb[x.decl to]
-		x.type-args each-reference-in-type-args cb
-	as fun-inst x
-		cb[x.decl to]
-		x.type-args each-reference-in-type-args cb
-		x.spec-impls each-reference-in-spec-impls cb
--each-reference-in-type-args void(type-args type-args, cb void mut(x any-decl-or-inst))
-	for x : type-args
-		x each-reference-in-type cb
--each-reference-in-type void(type type, cb void mut(x any-decl-or-inst))
-	match type
-	as bogus-type
-		()
-	as type-param-index _
-		()
-	as struct-inst x
-		cb[x to]
--each-reference-in-spec-impls void(spec-impls spec-impls, cb void mut(x any-decl-or-inst))
-	for called : spec-impls
-		match called
-		as called-bogus x
-			x.return-type each-reference-in-type cb
-			for t : x param-types
-				t each-reference-in-type cb
-		as fun-inst x
-			cb[x to]
-		as called-spec-sig x
-			cb[x.spec-inst to]
-
-ids type-id[](a type[])
-	for x : a
-		x to
-
-to type-id(a type)
-	match a
-	as bogus-type
-		bogus-type
-	as type-param-index x
-		x to
-	as struct-inst x
-		x.id to
-
-type-id union(bogus-type, type-param-index, inst-id) # TODO:PERF store as a single number -----------------------------------
-== bool(a type-id, b type-id)
-<=> comparison(a type-id, b type-id)
-hash-mix void(hasher hasher, a type-id)
-	match a
-	as bogus-type
-		()
-	as type-param-index x
-		hasher hash-mix x.index
-	as inst-id x
-		hasher hash-mix x
-
-fun-args record by-val
-	fun-decl decl-id
-	type-args type-id[]
-	spec-impls called-id[]
-== bool(a fun-args, b fun-args)
-	# TODO: it seems there is some compiler bug where it wasn't comparing spec-impls! -----------------------------------------------------------
-	a.fun-decl == b.fun-decl && a.type-args == b.type-args && a.spec-impls == b.spec-impls
-<=> comparison(a fun-args, b fun-args)
-hash-mix void(hasher hasher, a fun-args)
-	hasher hash-mix a.fun-decl
-	for x : a type-args
-		hasher hash-mix x
-	# Don't bother hashing spec-impls, since it's usually determined by type-args
-
-args fun-args(a fun-inst)
-	a.decl.id, a.type-args.ids, a.spec-impls.ids
-ids called-id[](a spec-impls)
-	for x : a
-		x called-id
-
-called-id called-id(a called)
-	match a
-	as called-bogus _
-		called-id-bogus
-	as fun-inst x
-		x.id to
-	as called-spec-sig x
-		x.spec-inst.id spec-sig-id x.sig-index
-
-called-id union(called-id-bogus, inst-id, spec-sig-id) # TODO:PERF store as a single number --------------------------------------------------
-== bool(a called-id, b called-id)
-<=> comparison(a called-id, b called-id)
-hash-mix void(hasher hasher, a called-id)
-	match a
-	as called-id-bogus
-		()
-	as inst-id x
-		hasher hash-mix x
-	as spec-sig-id x
-		hasher hash-mix x
-
-called-id-bogus record
-== bool(a called-id-bogus, b called-id-bogus)
-<=> comparison(a called-id-bogus, b called-id-bogus)
-
-spec-sig-id record(spec-inst inst-id, sig-index nat)
-== bool(a spec-sig-id, b spec-sig-id)
-<=> comparison(a spec-sig-id, b spec-sig-id)
-hash-mix void(hasher hasher, a spec-sig-id)
-	hasher hash-mix a.spec-inst
-	hasher hash-mix a.sig-index

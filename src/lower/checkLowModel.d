@@ -318,6 +318,7 @@ ExpectUnary unaryExpected(
 		case BuiltinUnary.symbolOfCString:
 		case BuiltinUnary.toChar8ArrayFromString:
 		case BuiltinUnary.trustAsString:
+		case BuiltinUnary.weakRefGet:
 			// done in lower
 			assert(false);
 		case BuiltinUnary.referenceFromPointer:

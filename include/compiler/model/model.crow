@@ -53,10 +53,19 @@ specs alias
 
 type union(bogus-type, type-param-index, struct-inst)
 == bool(a type, b type)
+<=> comparison(a type, b type)
 to json(a type)
 bogus-type record
 == bool(a bogus-type, b bogus-type)
 <=> comparison(a bogus-type, b bogus-type)
+hash-mix void(hasher hasher, a type)
+	match a
+	as bogus-type
+		()
+	as type-param-index x
+		hasher hash-mix x.index
+	as struct-inst x
+		hasher hash-mix x
 to json(a bogus-type)
 | Represent type parameter as the index, so we don't generate different types for every 't[]'.
 | (These are disambiguated in the type checker using 'TypeAndContext')
@@ -183,6 +192,10 @@ is-void bool(a type)
 	a is-builtin-type void
 is-void bool(a struct-decl)
 	a is-builtin-type void
+is-weak-ref bool(a type)
+	a is-builtin-type weak-ref
+is-weak-ref bool(a struct-decl)
+	a is-builtin-type weak-ref
 
 as-integral-type integral-type?(a type)
 	if builtin_ ?= a as-builtin-type
@@ -513,6 +526,7 @@ builtin-type enum
 	string
 	symbol
 	void
+	weak-ref
 == bool(a builtin-type, b builtin-type)
 to symbol(a builtin-type)
 show string(a builtin-type)
@@ -643,6 +657,8 @@ struct-decl record force-data
 	body mut struct-body
 == bool(a struct-decl, b struct-decl)
 	trusted a reference-equal b
+hash-mix void(hasher hasher, a struct-decl)
+	hasher hash-mix a.id.value
 extern-set symbol-set(a struct-decl)
 	a.extern_ ?? ()
 linkage linkage(a struct-decl)
@@ -722,7 +738,7 @@ name-range source-range(a struct-decl-source)
 	as struct-decl-source-bogus _
 		()
 
-decl-or-inst-id record(value nat)
+decl-or-inst-id record(value nat) # kill -------------------------------------------------------------------------------------
 == bool(a decl-or-inst-id, b decl-or-inst-id)
 <=> comparison(a decl-or-inst-id, b decl-or-inst-id)
 hash-mix void(hasher hasher, a decl-or-inst-id)
@@ -733,9 +749,15 @@ inst-id alias
 	decl-or-inst-id
 
 | WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
-struct-inst record(id inst-id, decl struct-decl, type-args type-args)
+struct-inst record(decl struct-decl, type-args type-args, hash-content nat)
 == bool(a struct-inst, b struct-inst)
 	trusted a reference-equal b
+content-equals bool(a struct-inst, b struct-inst)
+	a.decl == b.decl && a.type-args == b.type-args
+<=> comparison(_ struct-inst, _ struct-inst)
+	throw todo
+hash-mix void(hasher hasher, a struct-inst)
+	hasher hash-mix a.hash-content
 to json(a struct-inst)
 	("decl", a.decl.name.to), ("type-args", a.type-args.to)
 linkage-range linkage-range(a struct-inst)
@@ -776,6 +798,8 @@ spec-decl record force-data
 	late-body mut spec-decl-body?
 == bool(a spec-decl, b spec-decl)
 	trusted a reference-equal b
+hash-mix void(hasher hasher, a spec-decl)
+	hasher hash-mix a.id.value
 doc-comment-ast doc-comment-ast(a spec-decl)
 	a.ast doc-comment
 doc-comment doc-comment(a spec-decl)
@@ -807,12 +831,16 @@ name-range uri-and-range(a spec-decl)
 
 | WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
 spec-inst record force-data
-	id inst-id
 	decl spec-decl
 	type-args type-args
+	hash-content nat
 	body mut spec-inst-body
-== bool(a spec-inst, b spec-inst)
-	a.id == b.id
+== bool(a spec-inst, b spec-inst) trusted
+	a reference-equal b
+hash-mix void(hasher hasher, a spec-inst)
+	hasher hash-mix a.hash-content
+content-equals bool(a spec-inst, b spec-inst)
+	a.decl == b.decl && a.type-args == b.type-args
 to json(a spec-inst)
 	("decl", a.decl.name.to), ("type-args", a.type-args.to)
 debug string(a spec-inst)
@@ -841,6 +869,8 @@ spec-inst-body record
 	parents specs
 	| These correspond to the signatures in decl.body
 	sig-types return-and-param-types[]
+new spec-inst-body()
+	(), ()
 
 flags-function enum
 	in
@@ -1091,6 +1121,8 @@ builtin-unary enum
 	unsafe-to-nat8-from-nat64
 	unsafe-to-nat16-from-nat64
 	unsafe-to-nat32-from-nat64
+	weak-ref-get
+	weak-ref-new
 == bool(a builtin-unary, b builtin-unary)
 to symbol(a builtin-unary)
 show string(a builtin-unary)
@@ -1454,7 +1486,7 @@ name-range uri-and-range(a fun-source-file-import)
 	a.module-uri, a.ast.range
 
 fun-decl record force-data
-	id decl-id
+	id decl-id # RM ------------------------------------------------------------------------------------------------------------
 	source fun-decl-source
 	visibility visibility
 	name symbol
@@ -1467,6 +1499,8 @@ fun-decl record force-data
 	body mut fun-body
 == bool(a fun-decl, b fun-decl)
 	trusted a reference-equal b
+hash-mix void(hasher hasher, a fun-decl)
+	hasher hash-mix a.id.value
 type-params type-params(a fun-decl)
 	a.source type-params
 module-uri uri(a fun-decl)
@@ -1547,17 +1581,26 @@ type-params type-params(_ test_)
 visibility visibility(_ test_)
 	public
 
-fun-decl-and-type-args record(decl fun-decl, type-args type-args)
-
 | WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
-fun-inst record
-	id inst-id
+fun-inst record force-data
 	decl fun-decl
 	type-args type-args
 	spec-impls spec-impls
-	instantiated-sig return-and-param-types
-== bool(a fun-inst, b fun-inst)
-	a.id == b.id
+	instantiated-sig mut return-and-param-types
+== bool(a fun-inst, b fun-inst) trusted
+	a reference-equal b
+hash-mix void(hasher hasher, a fun-inst)
+	hasher hash-mix a.decl
+	hasher hash-mix a.type-args
+	hasher hash-mix a.spec-impls
+content-equals bool(a fun-inst, b fun-inst)
+	a.decl == b.decl && a.type-args == b.type-args && a.spec-impls == b.spec-impls
+hash-content nat(a fun-inst)
+	hasher hasher = ()
+	hasher hash-mix a.decl
+	hasher hash-mix a.type-args
+	hasher hash-mix a.spec-impls
+	hasher finish
 to json(a fun-inst)
 	("decl", a.decl.name.to), ("type-args", a.type-args.to), ("spec-impls", a.spec-impls.to)
 name symbol(a fun-inst)
@@ -1576,6 +1619,10 @@ param-types type array-view(a return-and-param-types)
 	a.return-and-param-types[1 .. end]
 
 called-spec-sig record(spec-inst spec-inst, sig-index nat)
+== bool(a called-spec-sig, b called-spec-sig)
+hash-mix void(hasher hasher, a called-spec-sig)
+	hasher hash-mix a.spec-inst
+	hasher hash-mix a.sig-index
 to json(a called-spec-sig)
 instantiated-sig return-and-param-types(a called-spec-sig)
 	a.spec-inst.sig-types[a sig-index]
@@ -1606,6 +1653,14 @@ called-decl union(fun-decl, called-spec-sig)
 	return-type type()
 	arity arity()
 	doc-comment doc-comment()
+== bool(a called-decl, b called-decl)
+hash-mix void(hasher hasher, a called-decl)
+	match a
+	as fun-decl x
+		hasher hash-mix x.id
+	as called-spec-sig x
+		hasher hash-mix x
+
 to json(a called-decl)
 	match a
 	as fun-decl x
@@ -1633,8 +1688,24 @@ called union(called-bogus, fun-inst, called-spec-sig)
 	return-type type()
 	param-types type array-view()
 	arity arity()
+== bool(a called, b called)
+hash-mix void(hasher hasher, a called)
+	match a
+	as called-bogus x
+		hasher hash-mix x
+	as fun-inst x
+		hasher hash-mix x
+	as called-spec-sig x
+		hasher hash-mix x
 to json(a called)
-called-bogus record(decl called-decl, return-type type, param-types type array-view)
+called-bogus record(decl called-decl, return-type type, param-types_ type[])
+param-types type array-view(a called-bogus)
+	a.param-types_ to
+== bool(a called-bogus, b called-bogus)
+hash-mix void(hasher hasher, a called-bogus)
+	hasher hash-mix a.decl
+	hasher hash-mix a.return-type
+	hasher hash-mix a.param-types_
 to json(a called-bogus)
 arity arity(a called-bogus)
 	a.decl arity
@@ -1989,7 +2060,7 @@ subscript struct-inst(a common-types, type string-like-type)
 		a symbol
 
 other-types record
-	future-or-mut-array-to-impl struct-inst[inst-id]
+	future-or-mut-array-to-impl struct-inst[struct-inst]
 
 integral-types record
 	map (integral-type, struct-inst) enum-map
@@ -3663,6 +3734,7 @@ diag-shared-lambda-type-is-not-shared record
 diag-shared-lambda-type-is-not-shared-kind enum(param-type, return-type)
 diag-shared-lambda-unused record
 diag-shared-not-expected record(expected expected-for-diag)
+fun-decl-and-type-args record(decl fun-decl, type-args type-args)
 diag-spec-match-multiple record
 	# TODO: There are no nested type containers, so remove 'outermost' from names of things -------------------------------------------
 	outermost-type-container type-container

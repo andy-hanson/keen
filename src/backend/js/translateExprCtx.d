@@ -147,6 +147,7 @@ import util.opt : force, none, some;
 import util.symbol : Symbol, symbol;
 import util.union_ : TaggedUnion, Union;
 import util.uri : Uri;
+import util.util : todo;
 import versionInfo : isVersion, VersionFun;
 
 struct TranslateExprCtx {
@@ -853,6 +854,8 @@ private JsExpr translateBuiltinUnary(ref Alloc alloc, in Source source, BuiltinU
 				[
 					genNew(alloc, source, genGlobal(source, symbol!"Uint8Array"), [
 						genCallPropertySync(alloc, source, arg, JsMemberName.noPrefix(symbol!"map"), [Number])])]);
+		case BuiltinUnary.weakRefGet:
+			return todo!JsExpr("weakRef get");
 	}
 }
 private JsExpr genArrayFrom(ref Alloc alloc, in Source source, JsExpr arg) =>

@@ -1,0 +1,124 @@
+import
+	crow/col/mut-slice
+	../../crow/private/bootstrap: get, new-weak-ref, weak-ref
+	./util
+
+object-memoizer[t] record mut
+	entries mut t weak-ref mut-slice
+new[t] t object-memoizer() t memoizable
+	(new-weak-ref, new-weak-ref),
+
+memoizable[t] spec t data
+	content-equals bool(a t, b t)
+	hash-content nat(a t)
+	to json(a t)
+
+iterate[t] bool(a t object-memoizer, f bool mut(x t)) t memoizable # TODO: UNSAFE ------------------------------------------------
+	for entry : a entries
+		if got ?= entry get
+			if f[got]
+				break true
+	else
+		false
+
+subscript[t] t(a t object-memoizer, value t) t memoizable
+	a get-and-did-add value value
+
+get-and-did-add[t] t value-and-did-add(a t object-memoizer, value t) t memoizable
+	trusted if extern native
+		assert size-of@t == 8 # Must be a reference type (TODO: have a more specific function to test this) -------------------------------------
+	index-a, index-b = a.entries get-indices value
+	if res ?= a.entries[index-a] get-match value
+		res, false
+	elif res ?= a.entries[index-b] get-match value
+		res, false
+	else
+		a insert value
+		value, true
+
+-get-match[t] t?(a t weak-ref, value t) t memoizable
+	if got ?= a get
+		if got content-equals value	
+			got,
+
+-insert[t] void(a t object-memoizer, value t) t memoizable
+	until a.entries try-insert-in-place value, 8
+		a double-in-size
+
+-try-insert-in-place[t] bool(entries t weak-ref mut-slice, value t, depth-remaining nat) t memoizable
+	if depth-remaining == 0
+		false
+	else
+		index-a, index-b = entries get-indices value
+		index = depth-remaining is-even ? index-a : index-b
+		existing = entries[index]
+		ok = if got ?= existing get
+			entries try-insert-in-place got, depth-remaining - 1	
+		else
+			true
+		if ok
+			entries[index] := value new-weak-ref
+		ok
+
+-double-in-size[t] void(a t object-memoizer) t memoizable, trusted
+	forbid a.entries is-empty
+	new_ mut t weak-ref mut-slice = a.entries.size * 2 gc-safe-mut-slice
+	ok mut = false
+	for x : a
+		ok := ok && new_ try-insert-in-place x, 64
+	unless ok
+		new_ := a.entries.size * 4 gc-safe-mut-slice
+		for x : a
+			assert new_ try-insert-in-place x, 64
+		info log "expanded to {new_ size}"
+	a.entries := new_
+
+-get-indices[t] (nat, nat)(entries t weak-ref mut-slice, value t) t memoizable
+	hash = value hash-content
+	half = entries.size / 2
+	index-a = hash % half
+	index-b = half + (hash >> 32) % half
+	#info log "u r here: value={value.to::json}, hash={hash to-hex}, index-a={index-a to-hex}, index-b={index-b to-hex}"
+	index-a, index-b
+
+-my-memoizable-record record(x nat, y nat) by-ref
+-hash-content nat(a my-memoizable-record)
+	# Use a deliberately bad hash code to make this predictable
+	a x
+-content-equals bool(a my-memoizable-record, b my-memoizable-record)
+	a.x == b.x && a.y == b.y
+-== bool(a my-memoizable-record, b my-memoizable-record) trusted
+	a reference-equal b
+-to json(a my-memoizable-record)
+	("x", a.x.to), ("y", a.y.to)
+
+test trusted
+	a my-memoizable-record object-memoizer = ()
+	x0 = a must-insert (0, 0)
+	assert (a must-get (0, 0)) reference-equal x0
+	x1 = a must-insert (1, 1)
+	assert a[1, 1] == x1
+
+	x2 = a must-insert (2, 2)
+	assert a[0, 0] == x0
+	assert a[1, 1] == x1
+	assert a[2, 2] == x2
+	forbid x2 == x0 || x2 == x1
+
+	x01 = a must-insert (0, 1)
+	assert (a must-get (0, 0)) reference-equal x0
+	assert (a must-get (0, 1)) reference-equal x01
+
+-must-insert[t] t(a t object-memoizer, value t) trusted, t memoizable
+	res = a get-and-did-add value
+	assert res did-add
+	assert res.value reference-equal value
+	assert res.value content-equals value
+	res value
+
+-must-get[t] t(a t object-memoizer, value t) trusted, t memoizable
+	res = a get-and-did-add value
+	forbid res did-add
+	forbid res.value reference-equal value
+	assert res.value content-equals value
+	res value

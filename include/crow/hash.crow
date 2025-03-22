@@ -4,10 +4,16 @@
 | which require a `hash-mix` implementation for the key type.
 no-std
 import
+	./bits: >>, ^, rotate-left
 	./bool: bool, to
+	./compare: compare
+	./misc: data, new, void
 	./number: bits-of, float32, float64, int8, int16, int32, int64, nat8, nat16, nat32, nat64, to
-	./private/bootstrap: void
-	./private/number-low-level: unsafe-to, wrap-add
+	./option: new, option
+	./private/number-low-level: unsafe-to, wrap-add, wrap-mul
+
+| Spec for values that can be used as keys in a map or set.
++key[t] spec t data, t compare, t hash-mix
 
 | Spec that should be implemented for any type used as a map key.
 |
@@ -21,13 +27,40 @@ import
 
 | Get a hash code for any value.
 +hash[t] nat64(a t) t hash-mix
-	hasher hasher = 0,
+	hasher hasher = ()
 	hasher hash-mix a
-	hasher cur
+	hasher finish
 
 | Type that stores the state of hashing.
 +hasher record mut
-	-cur mut nat64
+	-h1 mut nat64
+	-h2 mut nat64
+	-first-half mut nat64?
++new hasher()
+	0, 0, ()
+
++finish nat64(a hasher)
+	if _ ?= a first-half
+		a hash-mix 0::nat64
+	forbid _ ?= a first-half
+	h1 mut = a h1
+	h2 mut = a h2
+	h1 wrap-add:= h2
+	h2 wrap-add:= h1
+	h1 := h1 fmix64
+	h2 := h2 fmix64
+	h1 wrap-add:= h2
+	h2 wrap-add:= h1
+	h1 ^ h2
+
+-fmix64 nat64(a nat64)
+	x mut = a
+	x ^:= x >> 33
+	x wrap-mul:= 0xff51afd7ed558ccd
+	x ^:= x >> 33
+	x wrap-mul:= 0xc4ceb9fe1a85ec53
+	x ^:= x >> 33
+	x
 
 +hash-mix void(hasher hasher, a nat8) bare
 	hasher hash-mix a.to::nat64
@@ -37,7 +70,36 @@ import
 	hasher hash-mix a.to::nat64
 +hash-mix void(hasher hasher, a nat64) bare
 	# TODO: better hash mixing algorithm
-	hasher.cur wrap-add:= a
+	if x ?= hasher first-half
+		hasher.first-half := ()
+		h1 mut = hasher h1
+		h2 mut = hasher h2
+		k1 mut = x
+		k2 mut = a
+		k1 wrap-mul:= c1
+		k1 rotate-left:= 31
+		k1 wrap-mul:= c2
+		h1 ^:= k1
+		h1 rotate-left:= 27
+		h1 wrap-add:= h2
+		h1 wrap-mul:= 5
+		h1 wrap-add:= 0x52dce729
+		k2 wrap-mul:= c2
+		k2 rotate-left:= 33
+		k2 wrap-mul:= c1
+		h2 ^:= k2
+		h2 rotate-left:= 31
+		h2 wrap-add:= h1
+		h2 wrap-mul:= 5
+		h2 wrap-add:= 0x38495ab5
+		hasher.h1 := h1
+		hasher.h2 := h2
+	else
+		hasher.first-half := a,
+-c1 nat64() bare
+	0x87c37b91114253d5
+-c2 nat64() bare
+	0x4cf5ad432745937f
 +hash-mix void(hasher hasher, a int8) bare
 	hasher hash-mix a.to::int64
 +hash-mix void(hasher hasher, a int16) bare

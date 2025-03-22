@@ -229,6 +229,8 @@ bool isVoid(in Type a) =>
 	isBuiltinType(a, BuiltinType.void_);
 bool isVoid(in StructDecl a) =>
 	isBuiltinType(a, BuiltinType.void_);
+bool isWeakRef(in Type a) =>
+	isBuiltinType(a, BuiltinType.option); // Using option instead of weakref to simplify implementation (and D impl is going away anyway)
 
 Opt!IntegralType asIntegralType(in Type a) {
 	Opt!BuiltinType builtin = asBuiltinType(a);
@@ -1285,6 +1287,7 @@ enum BuiltinUnary {
 	unsafeToNat8FromNat64,
 	unsafeToNat16FromNat64,
 	unsafeToNat32FromNat64,
+	weakRefGet,
 }
 
 enum BuiltinUnaryMath {

@@ -273,4 +273,11 @@ class Crow {
 		else
 			return res;
 	}
+
+	static java.lang.ref.WeakReference<?> newWeakRef(Object a) {
+		return new java.lang.ref.WeakReference<>(a);
+	}
+	static Object weakRefGet(java.lang.ref.WeakReference<?> a) {
+		return a == null ? null : a.get();
+	}
 }

@@ -340,10 +340,16 @@ ConcreteExpr concretizeCall(
 	if (has(binaryLazy))
 		return concretizeBuiltinBinaryLazy(ctx, type, range, locals, a.called.as!(FunInst*), force(binaryLazy), a.args);
 	else {
-		Opt!(ConcreteFun*) optConcreteCalled = getConcreteFunFromCalled(ctx, a.called);
-		return !has(optConcreteCalled) || isBogus(force(optConcreteCalled).returnType)
-			? concretizeBogus(ctx, type, range)
-			: concretizeCallInner(ctx, type, range, locals, force(optConcreteCalled), a.args);
+		Opt!BuiltinUnary u = asBuiltinUnary(a.called);
+		if (has(u) && force(u) == BuiltinUnary.weakRefGet)
+			// Weak reference is represented as an option. Not a real weak reference, but this D implementation is going away anyway.
+			return concretizeExpr(ctx, type, locals, only(a.args));
+		else {
+			Opt!(ConcreteFun*) optConcreteCalled = getConcreteFunFromCalled(ctx, a.called);
+			return !has(optConcreteCalled) || isBogus(force(optConcreteCalled).returnType)
+				? concretizeBogus(ctx, type, range)
+				: concretizeCallInner(ctx, type, range, locals, force(optConcreteCalled), a.args);
+		}
 	}
 }
 
@@ -354,6 +360,15 @@ Opt!BuiltinBinaryLazy asBuiltinBinaryLazy(Called a) {
 			body_.as!BuiltinFun.as!BuiltinBinaryLazy);
 	} else
 		return none!BuiltinBinaryLazy;
+}
+
+Opt!BuiltinUnary asBuiltinUnary(Called a) {
+	if (a.isA!(FunInst*)) {
+		FunBody body_ = a.as!(FunInst*).decl.body_;
+		return optIf(body_.isA!BuiltinFun && body_.as!BuiltinFun.isA!BuiltinUnary, () =>
+			body_.as!BuiltinFun.as!BuiltinUnary);
+	} else
+		return none!BuiltinUnary;
 }
 
 ConcreteExpr concretizeCallInner(
