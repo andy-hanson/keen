@@ -40,6 +40,7 @@ enum Token {
 	finally_, // 'finally'
 	flags, // 'flags'
 	for_, // 'for'
+	forceData, // 'force-data'
 	forceShared, // 'force-shared'
 	forbid, // 'forbid'
 	forceCtx, // 'force-ctx'

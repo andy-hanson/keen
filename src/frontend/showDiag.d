@@ -1852,6 +1852,8 @@ string describeTokenForUnexpected(Token token) {
 			return "Unexpected keyword 'flags'.";
 		case Token.for_:
 			return "Unexpected keyword 'for'.";
+		case Token.forceData:
+			return "Unexpected keyword 'force-data'.";
 		case Token.forceShared:
 			return "Unexpected keyword 'force-shared'.";
 		case Token.forbid:

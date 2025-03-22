@@ -32,7 +32,7 @@ translate-to-java-classes (string, nat8[])[](
 		program: concrete-program
 		show-ctx: show-ctx
 		funs-lookup: concrete-program funs-lookup
-		mangled-names: concrete-program build-mangled-names
+		mangled-names: show-ctx.show build-mangled-names concrete-program
 		structs-for-integrals: concrete-program get-structs-for-integrals
 		constant-names: ()
 		union-info: concrete-program plan-unions
@@ -145,7 +145,7 @@ translate-to-java-classes (string, nat8[])[](
 	locals local-entry mut-stack
 	loop-pos mut jump-target?
 | Use 'concrete-struct' for a synthetic local
--local-entry union(concrete-local, concrete-struct) mut
+-local-entry union(concrete-local, concrete-struct)
 -to json(a local-entry)
 -struct concrete-struct(a local-entry)
 	match a
@@ -323,6 +323,7 @@ translate-to-java-classes (string, nat8[])[](
 	attributes: ()
 
 -init-constant void(out code-builder, ctx expr-ctx, constant any-constant) # TODO: does this really need an expr-ctx? ---------
+	info log "GONNA INIT CONSTANT {ctx.ctx.show-ctx.show show-concrete-struct constant.type}"
 	assert ctx.stack is-empty
 	match constant
 	as single-constant-array x
@@ -449,26 +450,33 @@ translate-to-java-classes (string, nat8[])[](
 		out push-constant-integral x.storage_, constant
 		ctx pushed type
 	as concrete-record _
-		match constant
-		as constant-record r
-			unless type is-empty-struct
-				if field ?= type as-wrapper
-					inner = ctx.program.all-constants.records[type id]![constant constant-record!] only
-					out push-constant ctx, inner, field.type.struct
-					ctx must-refine field.type.struct, type
-				else
-					out get-static-field ctx, ctx.ctx.constant-names.records[type id]![r]!, type
-					ctx pushed type
-		as constant-gc-safe-value
-			unless type is-empty-struct
-				out aconst_null
-				ctx pushed type
-		as constant-null
-			unless type is-empty-struct # TODO: shouldn't really use null in that case! ---------------------------------------------------------
-				out aconst_null
-				ctx pushed type
+		guard type !is-empty-struct
+		if field ?= type as-wrapper
+			match constant
+			as constant-record cr
+				inner = ctx.program.all-constants.records[type id]![cr] only
+				out push-constant ctx, inner, field.type.struct
+				ctx must-refine field.type.struct, type
+			as constant-gc-safe-value
+				out push-constant ctx, constant-gc-safe-value, type
+			as constant-null
+				# TODO: a wrapper struct shouldn't really be nullable ..............................................................
+				out push-constant ctx, constant-gc-safe-value, type
+			else
+				throw unreachable
 		else
-			throw unreachable
+			match constant
+			as constant-record r
+				out get-static-field ctx, ctx.ctx.constant-names.records[type id]![r]!, type
+				ctx pushed type
+			as constant-gc-safe-value
+				out aconst_null
+				ctx pushed type
+			as constant-null
+				out aconst_null
+				ctx pushed type
+			else
+				throw unreachable
 	as concrete-union _
 		match constant
 		as constant-union u
@@ -1467,7 +1475,7 @@ translate-to-java-classes (string, nat8[])[](
 
 -expr-pos union(continue_, jump, return) mut
 | When the code is done, it should jump to the end (which will be determined after compiling the whole expression)
--continue_ record mut
+-continue_ record
 -jump record mut
 	jumps deferred-jump mut[]
 | When the code is done, it should return from the function

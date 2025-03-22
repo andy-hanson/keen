@@ -179,6 +179,7 @@ bool isExpressionStartToken(in TokenAndData a) {
 		case Token.endOfFile:
 		case Token.flags:
 		case Token.forceCtx:
+		case Token.forceData:
 		case Token.forceShared:
 		case Token.function_:
 		case Token.global:

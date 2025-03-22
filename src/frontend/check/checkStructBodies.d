@@ -535,7 +535,7 @@ StructModifiers getStructModifiers(ref CheckCtx ctx, DeclKind declKind, Modifier
 			ModifierKeywordAst keyword = *force(accum.purityAndForced);
 			Opt!PurityAndForced opt = purityAndForcedFromModifier(keyword.keyword);
 			PurityAndForced pf = force(opt);
-			if (pf.purity == defaultPurity)
+			if (pf.purity == defaultPurity && !pf.forced)
 				addDiag(ctx, keyword.keywordRange, Diag(
 					DiagModifierRedundantDueToDeclKind(keyword.keyword, declKind)));
 			return pf;
@@ -623,6 +623,8 @@ Opt!PurityAndForced purityAndForcedFromModifier(ModifierKeyword a) {
 	switch (a) {
 		case ModifierKeyword.data:
 			return some(PurityAndForced(Purity.data, false));
+		case ModifierKeyword.forceData:
+			return some(PurityAndForced(Purity.data, true));
 		case ModifierKeyword.forceShared:
 			return some(PurityAndForced(Purity.shared_, true));
 		case ModifierKeyword.mut:

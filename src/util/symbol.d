@@ -745,6 +745,7 @@ immutable string[] specialSymbols = [
 	"Float64Array",
 	"for-break",
 	"force-ctx",
+	"force-data",
 	"force-shared",
 	"for-loop",
 	"freeBlocks",

@@ -437,6 +437,8 @@ Token tokenForSymbol(Symbol a) {
 			return Token.flags;
 		case symbol!"for".value:
 			return Token.for_;
+		case symbol!"force-data".value:
+			return Token.forceData;
 		case symbol!"force-shared".value:
 			return Token.forceShared;
 		case symbol!"forbid".value:

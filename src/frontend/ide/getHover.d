@@ -238,6 +238,8 @@ void getHover(scope ref Writer writer, in ShowModelCtx ctx, in Position pos) =>
 					case ModifierKeyword.forceCtx:
 						return "This function uses the runtime, but 'bare' functions can call it. " ~
 							"(Don't use outside of the Crow runtime.)";
+					case ModifierKeyword.forceData:
+						return "This type is be considered 'data' even though it has 'shared' or 'mut' content.";
 					case ModifierKeyword.forceShared:
 						return "This type is be considered 'shared' even though it has 'mut' content.";
 					case ModifierKeyword.mut:

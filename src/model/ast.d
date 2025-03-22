@@ -1383,6 +1383,7 @@ enum ModifierKeyword : ubyte {
 	// so those will usually be a Extern instead
 	extern_,
 	forceCtx,
+	forceData,
 	forceShared,
 	mut,
 	newInternal,
@@ -1561,6 +1562,8 @@ string stringOfModifierKeyword(ModifierKeyword a) {
 			return "extern";
 		case ModifierKeyword.forceCtx:
 			return "force-ctx";
+		case ModifierKeyword.forceData:
+			return "force-data";
 		case ModifierKeyword.forceShared:
 			return "force-shared";
 		case ModifierKeyword.mut:
