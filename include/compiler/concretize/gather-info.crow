@@ -5,27 +5,21 @@ import
 
 concrete-fun-info record
 	all-used-funs concrete-fun[]
-	yielding-funs concrete-fun-id set
+	yielding-funs concrete-fun set
 
 gather-info concrete-fun-info(
 	show-ctx show-ctx, # TODO:KILL -----------------------------------------------------------------------------------------
 	common-funs concrete-common-funs,
 	all-constants all-constants-concrete,
 	all-concrete-funs concrete-fun[],
-	method-impls concrete-method-info[concrete-struct-id],
+	method-impls concrete-method-info[concrete-struct],
 )
 	calls, called-by = show-ctx build-called-by all-concrete-funs, all-constants, method-impls
-	funs-by-id concrete-fun[concrete-fun-id] = for x : all-concrete-funs
-		x.id, x
-	all-used-funs = common-funs get-used-funs calls, funs-by-id
+	all-used-funs = common-funs get-used-funs calls
 	yielding-funs = common-funs get-yielding-funs all-used-funs, called-by
 	all-used-funs, yielding-funs
 
--get-used-funs concrete-fun[](
-	common-funs concrete-common-funs,
-	calls concrete-fun-id[][concrete-fun-id],
-	funs-by-id concrete-fun[concrete-fun-id],
-)
+-get-used-funs concrete-fun[](common-funs concrete-common-funs, calls concrete-fun[][concrete-fun])
 	start-funs concrete-fun[] = match common-funs
 	as concrete-common-funs-java x
 		x.main, x.show-exception
@@ -45,29 +39,28 @@ gather-info concrete-fun-info(
 		x.throw-impl,
 		x.user-main
 	res concrete-fun mut[] = start-funs to
-	set concrete-fun-id mut-set = for x : start-funs; x id
+	set concrete-fun mut-set = start-funs to
 	to-propagate concrete-fun mut[] = start-funs to
 	until to-propagate is-empty
 		fun = to-propagate pop!
-		for called : calls[fun id] ?? ()
+		for called : calls[fun] ?? ()
 			if set try-add called
-				called-fun = funs-by-id[called]!
-				res ~= called-fun
-				to-propagate ~= called-fun
+				res ~= called
+				to-propagate ~= called
 	res move-to
 
--get-yielding-funs concrete-fun-id set(
+-get-yielding-funs concrete-fun set(
 	common-funs concrete-common-funs,
 	all-used-funs concrete-fun[],
-	called-by concrete-fun[][concrete-fun-id],
+	called-by concrete-fun[][concrete-fun],
 )
 	guard common-funs.concrete-common-funs-java is-empty
 
-	res concrete-fun-id mut-set = ()
+	res concrete-fun mut-set = ()
 	# These are functions known to yield that have been added to 'res' but not yet processed for callers.
 	to-propagate concrete-fun mut[] = ()
 	add void mut(x concrete-fun) = x =>
-		if res try-add x.id
+		if res try-add x
 			to-propagate ~= x
 
 	for x : all-used-funs
@@ -75,7 +68,7 @@ gather-info concrete-fun-info(
 			add[x]
 	until to-propagate is-empty
 		fun = to-propagate pop!
-		for caller : called-by[fun id] ?? ()
+		for caller : called-by[fun] ?? ()
 			unless caller is-always-non-yielding common-funs
 				add[caller]
 
@@ -126,16 +119,16 @@ is-always-non-yielding bool(a concrete-fun, common-funs concrete-common-funs)
 
 # Maps a function to all functions that call it.
 -called-by alias
-	concrete-fun[][concrete-fun-id]
+	concrete-fun[][concrete-fun]
 
--build-called-by (concrete-fun-id[][concrete-fun-id], called-by)(
+-build-called-by (concrete-fun[][concrete-fun], called-by)(
 	show-ctx show-ctx,
 	all-concrete-funs concrete-fun[],
 	all-constants all-constants-concrete,
-	method-impls concrete-method-info[concrete-struct-id],
+	method-impls concrete-method-info[concrete-struct],
 )
-	calls concrete-fun-id mut[] mut[concrete-fun-id] = ()
-	called-by concrete-fun mut[] mut[concrete-fun-id] = ()
+	calls concrete-fun mut[] mut[concrete-fun] = ()
+	called-by concrete-fun mut[] mut[concrete-fun] = ()
 	for fun : all-concrete-funs
 		match fun body
 		as concrete-fun-body-builtin _
@@ -145,13 +138,13 @@ is-always-non-yielding bool(a concrete-fun, common-funs concrete-common-funs)
 		as concrete-expr x
 			show-ctx build-called-by-recur all-constants, calls, called-by, fun, x
 		as concrete-fun-body-method x
-			method-info = method-impls[fun.params[0].type.struct id]!
+			method-info = method-impls[fun.params[0].type struct]!
 			new-method-index = method-info.methods index-of! fun
 			assert new-method-index <= x.method-index # some methods may be omitted
 			for _, impls : method-info.cases
 				if impl ?= impls[new-method-index]
-					calls ensure fun.id ~= impl.id
-					called-by ensure impl.id ~= fun
+					calls ensure fun ~= impl
+					called-by ensure impl ~= fun
 		as concrete-fun-body-var-get _
 			()
 		as concrete-fun-body-var-set _
@@ -162,14 +155,14 @@ is-always-non-yielding bool(a concrete-fun, common-funs concrete-common-funs)
 -build-called-by-recur void(
 	show-ctx show-ctx, #unused ---------------------------------------------------------------------------------------------------
 	all-constants all-constants-concrete,
-	calls concrete-fun-id mut[] mut[concrete-fun-id],
-	called-by concrete-fun mut[] mut[concrete-fun-id],
+	calls concrete-fun mut[] mut[concrete-fun],
+	called-by concrete-fun mut[] mut[concrete-fun],
 	f concrete-fun,
 	expr concrete-expr,
 )
 	handle-call void mut(called concrete-fun) = called =>
-		calls ensure f.id, (() => ()) ~= called.id
-		called-by ensure called.id, (() => ()) ~= f
+		calls ensure f, (() => ()) ~= called
+		called-by ensure called, (() => ()) ~= f
 	match expr kind
 	as call-concrete-expr x
 		handle-call[x called]
@@ -177,7 +170,7 @@ is-always-non-yielding bool(a concrete-fun, common-funs concrete-common-funs)
 		all-constants each-nested-constant expr.type, x, (_, c) =>
 			if ptr ?= c constant-fun-pointer
 				# Treat this as a call, since those are used to determine what is used
-				calls ensure f.id, (() => ()) ~= ptr.fun
+				calls ensure f, (() => ()) ~= ptr.fun
 	as match-string-like-concrete-expr x # TODO: we should not have this as its own type if it's just a combination of 'if' and '==' -------
 		handle-call[x equals]
 	else

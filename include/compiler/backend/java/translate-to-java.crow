@@ -31,7 +31,6 @@ translate-to-java-classes (string, nat8[])[](
 		model-program: program
 		program: concrete-program
 		show-ctx: show-ctx
-		funs-lookup: concrete-program funs-lookup
 		mangled-names: show-ctx.show build-mangled-names concrete-program
 		structs-for-integrals: concrete-program get-structs-for-integrals
 		constant-names: ()
@@ -116,7 +115,6 @@ translate-to-java-classes (string, nat8[])[](
 	model-program program
 	program concrete-program
 	show-ctx show-type-ctx
-	funs-lookup concrete-fun[concrete-fun-id]
 	mangled-names java-mangled-names
 	structs-for-integrals concrete-struct[integral-type]
 	constant-names mut constant-names
@@ -127,7 +125,7 @@ translate-to-java-classes (string, nat8[])[](
 	forbid name-dot-class in ctx.res
 	ctx.res[name-dot-class] := class_.to
 -union-representation union-representation(ctx to-java-ctx, type concrete-struct)
-	ctx.union-info.union-to-representation[type id]!
+	ctx.union-info.union-to-representation[type]!
 -add-resource string(ctx to-java-ctx, value nat8[])
 	name string = "_resource{ctx next-resource-index}.bin"
 	ctx.next-resource-index +:= 1
@@ -233,8 +231,8 @@ translate-to-java-classes (string, nat8[])[](
 # This sets 'constant-names' while emitting classes to contain constants
 -translate-constants void(ctx to-java-ctx)
 	# Since class files can't get too big, we must break up constants between several classes.
-	constant-array-names class-and-member mut[nat] mut[concrete-struct-id] = ()
-	constant-record-names class-and-member mut[constant-record] mut[concrete-struct-id] = ()
+	constant-array-names class-and-member mut[nat] mut[concrete-struct] = ()
+	constant-record-names class-and-member mut[constant-record] mut[concrete-struct] = ()
 	cur-class-index mut nat = 0
 	cur-class-name mut string = "_constants{cur-class-index}"
 	field-index mut nat = 0
@@ -252,12 +250,12 @@ translate-to-java-classes (string, nat8[])[](
 		ok = match constant
 		as single-constant-array x
 			forbid x.element-type.struct is-empty-struct
-			(constant-array-names ensure constant.type.id)[x index] := class-and-member
+			(constant-array-names ensure constant.type)[x index] := class-and-member
 			true
 		as single-constant-record x
 			forbid x.record-type is-empty-struct
 			forbid x.record-type is-wrapper
-			(constant-record-names ensure constant.type.id)[x constant] := class-and-member
+			(constant-record-names ensure constant.type)[x constant] := class-and-member
 			true
 		as single-constant-union _
 			# TODO: remove union from any-constant once I've removed the old translate-to-java ------------------------------------------------
@@ -453,7 +451,7 @@ translate-to-java-classes (string, nat8[])[](
 		if field ?= type as-wrapper
 			match constant
 			as constant-record cr
-				inner = ctx.program.all-constants.records[type id]![cr] only
+				inner = ctx.program.all-constants.records[type]![cr] only
 				out push-constant ctx, inner, field.type.struct
 				ctx must-refine field.type.struct, type
 			as constant-gc-safe-value
@@ -466,7 +464,7 @@ translate-to-java-classes (string, nat8[])[](
 		else
 			match constant
 			as constant-record r
-				out get-static-field ctx, ctx.ctx.constant-names.records[type id]![r]!, type
+				out get-static-field ctx, ctx.ctx.constant-names.records[type]![r]!, type
 				ctx pushed type
 			as constant-gc-safe-value
 				out aconst_null
@@ -479,7 +477,7 @@ translate-to-java-classes (string, nat8[])[](
 	as concrete-union _
 		match constant
 		as constant-union u
-			value = ctx.program.all-constants.unions[type id]![u]
+			value = ctx.program.all-constants.unions[type]![u]
 			out new-union ctx, type, value.member-index, case-type =>
 				out push-constant ctx, value.member, case-type
 		as constant-gc-safe-value
@@ -536,7 +534,7 @@ translate-to-java-classes (string, nat8[])[](
 	builtin_ concrete-builtin-type,
 )
 	array void mut() = () =>
-		field = ctx.ctx.constant-names.arrays[type id]![constant.constant-array!.index]!
+		field = ctx.ctx.constant-names.arrays[type]![constant.constant-array!.index]!
 		out get-static-field ctx, field, type
 	string void mut() = () =>
 		value = ctx.program as-string constant
@@ -565,8 +563,7 @@ translate-to-java-classes (string, nat8[])[](
 		out dconst constant.constant-float!.value
 	as fun-pointer
 		# TODO: what if the function is a method? Do I need to make something wrapping it or can methodhandle handle it? -------------------
-		id = constant.constant-fun-pointer! fun
-		fun = ctx.ctx.funs-lookup[id]!
+		fun = constant.constant-fun-pointer! fun
 		method = out.constants static-method-ref ctx.ctx, fun
 		out ldc type.as-runtime-type, (out.constants method-handle REF_invokeStatic, method)
 	as future
@@ -659,21 +656,21 @@ translate-to-java-classes (string, nat8[])[](
 			"java/lang/Object"
 	as concrete-struct-source-lambda _
 		"java/lang/Object"
-	interface-structs = ctx.union-info.type-to-interfaces[struct id] ?? ()
+	interface-structs = ctx.union-info.type-to-interfaces[struct] ?? ()
 	interfaces class-reference[] = for x : interface-structs
 		constants class_ ctx.mangled-names[x]
 	this-class-name = ctx.mangled-names[struct]
 	this-class = constants class_ this-class-name
 
 	method-impls method_info[] = with out : build
-		all-supertypes = if struct.id in ctx.union-info.exception-case-types
+		all-supertypes = if struct in ctx.union-info.exception-case-types
 			ctx.program.exception ~ interface-structs
 		else
 			interface-structs
 		for interface_ : all-supertypes
-			info = ctx.program.method-impls[interface_ id] ?? ()
+			info = ctx.program.method-impls[interface_] ?? ()
 			unless info is-empty
-				for method, impl : info.methods zip info.cases[struct id]!
+				for method, impl : info.methods zip info.cases[struct]!
 					out ~= ctx method-impl constants, method, impl
 
 	class_ ClassFile? = match struct body
@@ -707,7 +704,7 @@ translate-to-java-classes (string, nat8[])[](
 		(ctx record-class constants, struct, x.is-wrapper, x.fields, this-class-name, this-class, super-class, interfaces, method-impls),
 	as concrete-union _
 		method-decls method_info[] = with out : build
-			for m : ctx.program.method-impls[struct id]?.methods ?? ()
+			for m : ctx.program.method-impls[struct]?.methods ?? ()
 				if ctx uses-java-instance-method m
 					out ~= ctx interface-method-decl constants, m
 		all-methods = method-decls ~~ method-impls
@@ -1413,7 +1410,7 @@ translate-to-java-classes (string, nat8[])[](
 		out emit-expr ctx, return, x
 	as concrete-fun-body-method _
 		union_ = fun.params[0].type.struct
-		info = ctx.program.method-impls[union_ id]!
+		info = ctx.program.method-impls[union_]!
 		cases = info cases
 		method-index = info.methods index-of! fun
 
@@ -1425,11 +1422,10 @@ translate-to-java-classes (string, nat8[])[](
 		match ctx union-representation union_
 		as direct
 			jump mut deferred-jump? = ()
-			for case-index, (case-type-id, case-impls) : cases with-index
+			for case-index, (case-type, case-impls) : cases with-index
 				is-last-case = case-index == cases.size - 1
 				if j ?= jump
 					j jumps-to-here out, ctx.cur-stack-frame
-				case-type = ctx.program.structs-by-id[case-type-id]!
 				case-impl = case-impls[method-index] ?? throw todo # TODO: if missing, emit code that throws an exception -----------------------
 				unless is-last-case
 					out aload 0
@@ -1447,11 +1443,11 @@ translate-to-java-classes (string, nat8[])[](
 			out aload 0
 			out get-switchable-kind-int32 ctx, union_
 			jump-to-case, jump-to-default = out tableswitch 0 .. cases.size.to
-			for case-index, (case-type-id, case-impls) : cases with-index
+			for case-index, (case-type, case-impls) : cases with-index
 				jump-to-case[case-index] jumps-to-here out, ctx.cur-stack-frame
 				out aload 0
 				out get-switchable-value ctx, union_
-				out cast-and-unbox-if-necessary ctx.ctx, ctx.program.structs-by-id[case-type-id]!
+				out cast-and-unbox-if-necessary ctx.ctx, case-type
 				load-rest-params[]
 				case-impl = case-impls[method-index] ?? throw todo
 				out call-concrete-fun-or-instance-method ctx.ctx, case-impl

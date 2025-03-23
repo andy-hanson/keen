@@ -70,15 +70,14 @@ lower low-program(
 		element-type = ctx low-type-from-concrete-type x.element-type
 		array-type.low-record!, element-type, x.constants
 	records:  with out : build
-		for id, constants : program.all-constants records
-			assert struct ?= program.structs-by-id[id] : "Don't have the struct {id.value}" error # TODO: just assert -------------------------------
+		for struct, constants : program.all-constants records
 			type = ctx low-type-from-concrete-struct struct
 			unless type is-void
 				assert record_ ?= type low-record : "Got type, but it's not a record, it's {show-ctx show-low-type ctx.all-types, type}" error
-				out ~= (id, (record_, constants))
-	unions: for id, constants : program.all-constants unions
-		union_ = (ctx low-type-from-concrete-struct program.structs-by-id[id]!) low-union!
-		id, (union_, constants)
+				out ~= (struct, (record_, constants))
+	unions: for struct, constants : program.all-constants unions
+		union_ = (ctx low-type-from-concrete-struct struct) low-union!
+		struct, (union_, constants)
 
 -all-low-funs record
 	concrete-fun-to-low-fun-index concrete-fun-to-low-fun-index
@@ -91,7 +90,7 @@ lower low-program(
 	fun-pointer-types-builder low-fun-pointer-type mut[] = ()
 	records-builder low-record mut[] = ()
 	unions-builder low-union mut[] = ()
-	indices nat[concrete-struct-id] = with out : build
+	indices nat[concrete-struct] = with out : build
 		for source : program all-structs
 			guard source !is-empty-struct
 			id nat? = match source body
@@ -121,7 +120,7 @@ lower low-program(
 			as concrete-struct-body-deferred
 				throw unreachable
 			if x ?= id
-				out ~= (source.id, x)
+				out ~= (source, x)
 	
 	# TODO: these are only used to create the all-low-types, so just do that directly --------------------------------------------
 	all-extern-types (low-extern-type-index, low-extern-type) full-index-map = extern-types-builder.move-to,
@@ -171,7 +170,7 @@ lower low-program(
 			(for x : r.fields; x type),
 
 mut-concrete-fun-to-low-fun-index alias
-	low-fun-index mut[concrete-fun-id]
+	low-fun-index mut[concrete-fun]
 
 -get-all-low-funs all-low-funs(
 	show-ctx show-ctx,
@@ -232,14 +231,14 @@ mut-concrete-fun-to-low-fun-index alias
 		as concrete-fun-body-deferred
 			throw unreachable
 		if index ?= op-index
-			concrete-fun-to-low-fun-index[fun id] := index
+			concrete-fun-to-low-fun-index[fun] := index
 		
 	mark-ctx-type = mark-ctx-type-late ?? void-type
 	cf = program.common-funs concrete-common-funs-native!
 
 	user-main-fun-pointer-type = get-low-type-ctx low-type-from-concrete-type cf.rt-main.params[2].type
 	var-indices var-indices = for i, x : program.all-vars with-index
-		x.id, (i,)
+		x, (i,)
 
 	gc-root-mut-pointer-type = get-low-type-ctx low-type-from-concrete-type cf.gc-root.return-type
 	gc-root-type = gc-root-mut-pointer-type.low-pointer-mut!.pointee
@@ -247,20 +246,20 @@ mut-concrete-fun-to-low-fun-index alias
 	common-funs low-common-funs = do
 		map = concrete-fun-to-low-fun-index
 		common-types: common-types
-		alloc: map[cf.alloc id]!
-		cur-catch-point: map[cf.cur-catch-point id]!
-		set-cur-catch-point: map[cf.set-cur-catch-point id]!
-		cur-thrown: var-indices[cf.cur-thrown id]!
+		alloc: map[cf alloc]!
+		cur-catch-point: map[cf cur-catch-point]!
+		set-cur-catch-point: map[cf set-cur-catch-point]!
+		cur-thrown: var-indices[cf cur-thrown]!
 		exception-type: get-low-type-ctx low-type-from-concrete-type cf.cur-thrown.type
-		mark: map[cf.mark id]!
-		rethrow-current-exception: map[cf.rethrow-current-exception id]!
-		throw-impl: map[cf.throw-impl id]!
-		gc-root: map[cf.gc-root id]!
+		mark: map[cf mark]!
+		rethrow-current-exception: map[cf rethrow-current-exception]!
+		throw-impl: map[cf throw-impl]!
+		gc-root: map[cf gc-root]!
 		gc-root-type: gc-root-type
 		gc-root-mut-pointer-type: gc-root-mut-pointer-type
 		mark-root-fun-pointer-type: gc-root-type.low-record!.fields[1].type
-		set-gc-root: map[cf.set-gc-root id]!
-		pop-gc-root: map[cf.pop-gc-root id]!
+		set-gc-root: map[cf set-gc-root]!
+		pop-gc-root: map[cf pop-gc-root]!
 	
 	all-low-funs low-fun mut[] = ()
 	# New low-funs will be discovered while compiling and added to low-fun-cauess
@@ -270,7 +269,7 @@ mut-concrete-fun-to-low-fun-index alias
 			common-funs,  concrete-fun-to-low-fun-index, var-indices, low-fun-causes,
 			mark-visit-funs, mark-ctx-type, (index,), low-fun-causes[index]
 		index +:= 1
-	all-low-funs ~= get-low-type-ctx main-fun concrete-fun-to-low-fun-index[cf.rt-main id]!, cf.user-main, user-main-fun-pointer-type
+	all-low-funs ~= get-low-type-ctx main-fun concrete-fun-to-low-fun-index[cf rt-main]!, cf.user-main, user-main-fun-pointer-type
 
 	concrete-fun-to-low-fun-index: concrete-fun-to-low-fun-index move-to
 	all-low-funs: all-low-funs.move-to,
@@ -290,7 +289,7 @@ mut-concrete-fun-to-low-fun-index alias
 		x
 
 -var-indices alias
-	low-var-index[concrete-var-id]
+	low-var-index[concrete-var]
 
 # Functions that we need to generate calls to
 -low-common-funs record mut
@@ -410,7 +409,7 @@ mut-concrete-fun-to-low-fun-index alias
 			var-indices: var-indices
 			concrete-params: a params
 			low-params: params
-			cur-fun-is-yielding: a.id in concrete-program.yielding-funs
+			cur-fun-is-yielding: a in concrete-program.yielding-funs
 			has-setup-catch: false
 			has-tail-recur: false
 			local-index: a.params.size
@@ -569,7 +568,7 @@ mut-concrete-fun-to-low-fun-index alias
 		locals[local id]!
 
 -try-get-low-fun-index low-fun-index?(ctx get-low-expr-ctx, f concrete-fun)
-	ctx.concrete-fun-to-low-fun-index[f id]
+	ctx.concrete-fun-to-low-fun-index[f]
 
 -next-local-index nat(ctx get-low-expr-ctx)
 	res = ctx local-index
@@ -882,7 +881,7 @@ mut-concrete-fun-to-low-fun-index alias
 			update-params ~= (last-local, (ctx handle-expr-pos expr-pos, last-value))
 			type, range, update-params.move-to.tail-recur-low-expr
 	else
-		yields = ctx cur-fun-is-yielding && concrete-called.id in ctx.concrete-program.yielding-funs
+		yields = ctx cur-fun-is-yielding && concrete-called in ctx.concrete-program.yielding-funs
 		ctx with-push-all-gc-roots locals, range, expr-pos, yields, args, (inner, low-args) =>
 			ctx handle-expr-pos inner, (type gen-call-no-gc-roots range, called, low-args)
 
@@ -908,9 +907,9 @@ mut-concrete-fun-to-low-fun-index alias
 	as concrete-fun-body-method _
 		throw unreachable
 	as concrete-fun-body-var-get x
-		type gen-var-get range, ctx.var-indices[x.var id]!
+		type gen-var-get range, ctx.var-indices[x var]!
 	as concrete-fun-body-var-set x
-		range gen-var-set ctx.var-indices[x.var id]!, (ctx get-low-expr locals, args.only, non-tail)
+		range gen-var-set ctx.var-indices[x var]!, (ctx get-low-expr locals, args.only, non-tail)
 	as concrete-fun-body-deferred
 		throw unreachable
 
@@ -1187,7 +1186,7 @@ mut-concrete-fun-to-low-fun-index alias
 	ctx cur-fun-is-yielding && (ctx is-yielding-call a || a.direct-child-exprs exists child => ctx expression-may-yield child)
 -is-yielding-call bool(ctx get-low-expr-ctx, a concrete-expr)
 	if call ?= a.kind call-concrete-expr
-		call.called.id in ctx.concrete-program.yielding-funs
+		call.called in ctx.concrete-program.yielding-funs
 
 -get-match-integral-expr low-expr(
 	ctx get-low-expr-ctx,

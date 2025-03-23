@@ -39,17 +39,9 @@ is-packed bool(a concrete-struct)
 		if r ?= inst.decl.body record_
 			r.flags_ packed_
 
-concrete-type-id record(reference reference-kind, struct concrete-struct-id)
-== bool(a concrete-type-id, b concrete-type-id)
-<=> comparison(a concrete-type-id, b concrete-type-id)
-hash-mix void(a hasher, b concrete-type-id)
-	a hash-mix b.reference
-	a hash-mix b.struct
 # TODO: does this just always use the default-reference-kind? -------------------------------------------------------------
 concrete-type record(reference reference-kind, struct concrete-struct)
 to json(a concrete-type)
-id concrete-type-id(a concrete-type)
-	a.reference, a.struct.id
 reference-kind enum(by-val_, by-ref_)
 == bool(a reference-kind, b reference-kind)
 <=> comparison(a reference-kind, b reference-kind)
@@ -64,6 +56,11 @@ by-val_ concrete-type(struct concrete-struct)
 	by-val_, struct
 == bool(a concrete-type, b concrete-type)
 	a.reference == b.reference && a.struct == b.struct
+<=> comparison(_ concrete-type, _ concrete-type)
+	throw todo
+hash-mix void(hasher hasher, a concrete-type)
+	hasher hash-mix a.reference
+	hasher hash-mix a.struct
 is-bogus bool(a concrete-type)
 	a.reference == by-val_ && a.struct is-bogus
 is-java-any bool(a concrete-type)
@@ -126,11 +123,6 @@ concrete-struct-source-inst record
 == bool(a concrete-struct-source-inst, b concrete-struct-source-inst)
 	a.decl == b.decl && a.type-args == b.type-args
 concrete-struct-source-lambda record(containing-fun concrete-fun, index nat)
-concrete-struct-id record(value nat)
-== bool(a concrete-struct-id, b concrete-struct-id)
-<=> comparison(a concrete-struct-id, b concrete-struct-id)
-hash-mix void(a hasher, b concrete-struct-id)
-	a hash-mix b.value
 range uri-and-range(a concrete-struct-source)
 	match a
 	as concrete-struct-source-bogus
@@ -140,7 +132,7 @@ range uri-and-range(a concrete-struct-source)
 	as concrete-struct-source-lambda x
 		x.containing-fun range # TODO: more specific source -----------------------------------------------------------------------
 concrete-struct record force-data
-	id concrete-struct-id
+	hash nat
 	purity purity
 	special-kind concrete-struct-special-kind
 	source concrete-struct-source
@@ -159,9 +151,13 @@ to json(a concrete-struct)
 		x.decl name
 	as concrete-struct-source-lambda _
 		"lambda"
-	"{name} {a.id value}"::string to
+	"{name} {a hash}"::string to
 == bool(a concrete-struct, b concrete-struct)
-	a.id == b.id
+	trusted a reference-equal b
+<=> comparison(_ concrete-struct, _ concrete-struct)
+	throw todo
+hash-mix void(hasher hasher, a concrete-struct)
+	hasher hash-mix a.hash
 concrete-struct-special-kind enum
 	none
 	array-or-mut-array
@@ -385,27 +381,18 @@ concrete-fun-source-test record
 	test-index nat
 concrete-fun-source-wrap-main record(range uri-and-range)
 
-concrete-fun-id record(value nat)
-== bool(a concrete-fun-id, b concrete-fun-id)
-<=> comparison(a concrete-fun-id, b concrete-fun-id)
-hash-mix void(a hasher, b concrete-fun-id)
-	a hash-mix b.value
-to json(a concrete-fun-id)
-	a.value to
 concrete-fun record force-data
-	id concrete-fun-id
+	hash nat
 	source concrete-fun-source
 	return-type concrete-type
 	params concrete-local[]
-	-the-body mut concrete-fun-body
-	-dummy void # -----------------------------------------------------------------------------------------------------------------------
-new concrete-fun(id concrete-fun-id, source concrete-fun-source, return-type concrete-type, params concrete-local[], body concrete-fun-body)
-	match body
-	as concrete-expr x
-		assert x.type == return-type
-	else
-		()
-	id, source, return-type, params, body, ()
+	body mut concrete-fun-body
+== bool(a concrete-fun, b concrete-fun)
+	trusted a reference-equal b
+<=> comparison(_ concrete-fun, _ concrete-fun)
+	throw todo
+hash-mix void(hasher hasher, a concrete-fun)
+	hasher hash-mix a.hash
 to json(a concrete-fun)
 	name symbol = match a source
 	as concrete-fun-source-regular x
@@ -416,18 +403,7 @@ to json(a concrete-fun)
 		"test"
 	as concrete-fun-source-wrap-main _
 		"wrap-main"
-	"{name}{a.id value}"::string to
-body concrete-fun-body(a concrete-fun)
-	a the-body
-set-body void(a concrete-fun, value concrete-fun-body)
-	match value
-	as concrete-expr x
-		assert x.type == a.return-type
-	else
-		()
-	a.the-body := value
-== bool(a concrete-fun, b concrete-fun)
-	a.id == b.id
+	"{name}{a hash}"::string to
 module-uri uri(a concrete-fun)
 	a.range uri
 range uri-and-range(a concrete-fun)
@@ -439,8 +415,8 @@ concrete-fun-source-regular record
 	spec-impls concrete-fun[]
 concrete-fun-key record
 	decl fun-decl
-	type-args concrete-type-id[]
-	spec-impls concrete-fun-id[]
+	type-args concrete-type[]
+	spec-impls concrete-fun[]
 == bool(a concrete-fun-key, b concrete-fun-key)
 <=> comparison(_ concrete-fun-key, _ concrete-fun-key)
 	throw todo
@@ -689,15 +665,16 @@ all-constants-concrete record
 	arrs arr-type-and-constants-concrete[] # TODO: rename to 'arrays' ----------------------------------------------------------------
 	| Maps a {constant-record} to the record values.
 	| Note a constant record is always by-value, use 'pointers' for pointers.
-	records (constant-record, constant[]) full-index-map[concrete-struct-id]
-	unions (constant-union, constant-union-value) full-index-map[concrete-struct-id]
+	records (constant-record, constant[]) full-index-map[concrete-struct]
+	unions (constant-union, constant-union-value) full-index-map[concrete-struct]
 
-concrete-var-id record(value nat)
-== bool(a concrete-var-id, b concrete-var-id)
-<=> comparison(a concrete-var-id, b concrete-var-id)
-hash-mix void(a hasher, b concrete-var-id)
-	a hash-mix b.value
-concrete-var record(id concrete-var-id, source var-decl, type concrete-type)
+concrete-var record(source var-decl, type concrete-type) by-ref
+== bool(a concrete-var, b concrete-var)
+	trusted a reference-equal b
+<=> comparison(_ concrete-var, _ concrete-var)
+	throw todo
+hash-mix void(hasher hasher, a concrete-var)
+	hasher hash-mix a.source
 kind var-kind(a concrete-var)
 	a.source kind
 range uri-and-range(a concrete-var)
@@ -709,20 +686,18 @@ concrete-program record
 	version version-info
 	all-constants all-constants-concrete
 	all-structs concrete-struct[]
-	structs-by-id concrete-struct[concrete-struct-id]
 	all-vars concrete-var[]
 	all-funs concrete-fun[]
 	| Currently only used in a Java build (TODO: use in JS) -----------------------------------------------------------------
-	method-impls concrete-method-info[concrete-struct-id]
-	funs-by-id concrete-fun[concrete-fun-id] # TODO: I only needed this for debugging --------------------------------------
-	yielding-funs concrete-fun-id set	
+	method-impls concrete-method-info[concrete-struct]
+	yielding-funs concrete-fun set	
 	common-funs concrete-common-funs
 to json(_ concrete-program)
 	throw todo
 concrete-method-info record
 	| Note: This is not all methods, only the ones that were accessed
 	methods concrete-fun[]
-	cases concrete-fun?[][concrete-struct-id]
+	cases concrete-fun?[][concrete-struct]
 new concrete-method-info()
 	(), ()
 is-empty bool(a concrete-method-info)
@@ -903,11 +878,11 @@ each-nested-constant void(
 		()
 	as constant-record x
 		fields = type.struct.body.concrete-record! fields
-		args = all-constants.records[type.struct id]![x]
+		args = all-constants.records[type struct]![x]
 		for arg, field : args zip fields
 			all-constants each-nested-constant field.type, arg, f
 	as constant-union x
-		value = all-constants.unions[type.struct id]![x]
+		value = all-constants.unions[type struct]![x]
 		member-type = type.must-be-by-val.body.concrete-union!.members[value member-index]
 		all-constants each-nested-constant member-type, value.member, f 
 	as constant-gc-safe-value
@@ -916,7 +891,7 @@ each-nested-constant void(
 		()
 
 constant-array record
-	| Index of the array type in {all-constants-concrete}.{arrs} (TODO: maybe that should just be a map keyed by concrete-struct-id?)
+	| Index of the array type in {all-constants-concrete}.{arrs} (TODO: maybe that should just be a map keyed by {concrete-struct}?)
 	type-index nat
 	| Index within that array type
 	index nat
@@ -944,7 +919,7 @@ hash-mix void(hasher hasher, a constant-float)
 	hasher hash-mix a.value
 # TODO: handle Nan! -------------------------------------------------------------------------------------------------------------
 == bool(a constant-float, b constant-float)
-constant-fun-pointer record(fun concrete-fun-id)
+constant-fun-pointer record(fun concrete-fun)
 to json(a constant-fun-pointer)
 	a.fun to
 == bool(a constant-fun-pointer, b constant-fun-pointer)

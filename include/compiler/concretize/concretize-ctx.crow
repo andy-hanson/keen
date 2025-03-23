@@ -1,4 +1,5 @@
 import
+	crow/crypto/pseudo-random
 	../frontend/show-model
 	../model/ast
 	../model/concrete-model
@@ -37,7 +38,8 @@ specs-scope-for-fun specs-scope(a concrete-fun)
 
 concretize-ctx record mut
 	show-ctx show-ctx
-	-next-id-value mut nat
+	-upcoming-lambda-index mut nat
+	-prng prng
 	# TODO: more of these should probably be private -----------------------------------------------------------------------------
 	version-info version-info
 	program-with-main program-with-main
@@ -49,18 +51,18 @@ concretize-ctx record mut
 	late-new-json-from-pairs-function mut concrete-fun?
 	late-to-json-from-json-array-function mut concrete-fun?
 	all-constants all-constants-builder
-	non-lambda-concrete-structs concrete-struct mut[(struct-decl, concrete-type-id[])]
+	non-lambda-concrete-structs concrete-struct mut[(struct-decl, concrete-type[])]
 	all-concrete-structs concrete-struct mut[]
 	concrete-var-lookup concrete-var mut[var-decl]
 	non-lambda-concrete-funs concrete-fun mut[concrete-fun-key]
 	deferred-type-size concrete-struct mut[]
-	sum-type-to-methods concrete-fun mut[] mut[concrete-struct-id]
+	sum-type-to-methods concrete-fun mut[] mut[concrete-struct]
 	deferred-methods concrete-fun mut[]
 	all-concrete-funs concrete-fun mut[]
 	| Index in the array is the fun ID
-	lambda-structs (concrete-struct, concrete-lambda-impl mut[]) mut[concrete-struct-id]
+	lambda-structs (concrete-struct, concrete-lambda-impl mut[]) mut[concrete-struct]
 	| Maps a sum type to its cases
-	sum-types (concrete-struct, concrete-sum-type-case mut[]) mut[concrete-struct-id]
+	sum-types (concrete-struct, concrete-sum-type-case mut[]) mut[concrete-struct]
 	-late-bogus-type mut concrete-type?
 	-late-bool-type mut concrete-type?
 	-late-char8-array-type mut concrete-type?
@@ -80,7 +82,8 @@ new concretize-ctx(
 	fill-in-concrete-fun-body void mut(ctx concretize-ctx, fun concrete-fun),
 )
 	show-ctx: show-ctx
-	next-id-value: 0
+	upcoming-lambda-index: 0
+	prng: ()
 	version-info: version-info
 	program-with-main: program
 	file-content-getters: file-content-getters
@@ -143,17 +146,11 @@ common-types common-types(a concretize-ctx)
 	a.program common-types
 
 # TODO: rename to take-next-id 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-next-id concrete-fun-id(a concretize-ctx)
-	a take-next-id-value,
-next-id concrete-struct-id(a concretize-ctx)
-	a take-next-id-value,
-next-id concrete-var-id(a concretize-ctx)
-	a take-next-id-value,
+next-hash nat(a concretize-ctx)
+	a.prng next
 next-lambda-index nat(a concretize-ctx)
-	a take-next-id-value
--take-next-id-value nat(a concretize-ctx)
-	res = a next-id-value
-	a.next-id-value +:= 1
+	res = a upcoming-lambda-index
+	a.upcoming-lambda-index +:= 1
 	res
 
 concrete-lambda-impl record(closure-type concrete-type, impl concrete-fun)
@@ -165,7 +162,7 @@ finish-concrete-vars concrete-var[](ctx concretize-ctx)
 -bogus-type concrete-type(a concretize-ctx)
 	a late-bogus-type ?? do
 		bogus-body concrete-struct-body = false concrete-record ()
-		res concrete-struct = a.next-id, data_, none, concrete-struct-source-bogus, bogus-body, (), (), ()
+		res concrete-struct = a.next-hash, data_, none, concrete-struct-source-bogus, bogus-body, (), (), ()
 		a.all-concrete-structs ~= res
 		if a is-native
 			res.default-reference-kind := by-val_
@@ -270,13 +267,8 @@ constant-c-string constant(a concretize-ctx, value string)
 constant-symbol constant(a concretize-ctx, value symbol)
 	a.all-constants get-constant-symbol value
 
--ids concrete-type-id[](a concrete-type[])
-	for x : a; x id
--ids concrete-fun-id[](a concrete-fun[])
-	for x : a; x id
-
 get-concrete-fun concrete-fun(ctx concretize-ctx, decl fun-decl, type-args concrete-type[], spec-impls concrete-fun[])
-	key concrete-fun-key = decl, type-args.ids, spec-impls.ids
+	key concrete-fun-key = decl, type-args, spec-impls
 	res = ctx.non-lambda-concrete-funs get-or-add-and-did-add key, () =>
 		ctx get-concrete-fun-from-key decl, type-args, spec-impls
 	if res did-add
@@ -299,7 +291,7 @@ get-concrete-fun-for-lambda concrete-fun(
 )
 	forbid return-type is-bogus
 	res concrete-fun = do
-		id: ctx next-id
+		hash: ctx next-hash
 		source: containing-concrete-fun concrete-fun-source-lambda model-param, body-expr, index
 		return-type: return-type
 		params: params
@@ -311,7 +303,7 @@ get-concrete-fun-for-lambda concrete-fun(
 get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-inst, type-args-scope type-args-scope)
 	ctx concrete-type-special inst, type-args-scope ?? ctx with-concrete-types inst.type-args, type-args-scope, type-args =>
 		decl = inst decl
-		res = ctx.non-lambda-concrete-structs get-or-add-and-did-add (decl, type-args.ids), () =>
+		res = ctx.non-lambda-concrete-structs get-or-add-and-did-add (decl, type-args), () =>
 			purity mut = decl purity
 			for x : type-args
 				purity worse-purity:= x purity
@@ -329,7 +321,7 @@ get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-
 			else
 				none
 			res concrete-struct = do
-				id: ctx next-id
+				hash: ctx next-hash
 				purity: purity
 				special-kind: special-kind
 				source: decl concrete-struct-source-inst type-args
@@ -342,7 +334,7 @@ get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-
 		if res did-add
 			ctx initialize-concrete-struct inst, res.value, type-args
 			if ctx !preserve-lambdas && decl is-lambda-type
-				ctx.lambda-structs[res.value id] := res.value, ()
+				ctx.lambda-structs[res value] := res.value, ()
 		if ctx is-native && res.value !default-reference-kind-is-set
 			# The only way this would not be set is if we are still computing its the size.
 			# In that case, it's a recursive record, so it should be by-ref.
@@ -393,7 +385,7 @@ concrete-type-from-closure concrete-type(
 			forbid f is-mutable
 			purity worse-purity:= f.type purity
 		cs concrete-struct = do
-			id: ctx next-id
+			hash: ctx next-hash
 			purity: purity
 			special-kind: none
 			source: source
@@ -484,7 +476,7 @@ get-concrete-fun-from-called concrete-fun?(
 	return-type = ctx get-concrete-type decl.return-type, type-args
 	params concrete-local[] = for i, x : decl.params.params-array with-index
 		ctx concretize-param-destructure (i,), x, type-args
-	id: ctx next-id
+	hash: ctx next-hash
 	source: decl concrete-fun-source-regular type-args, spec-impls
 	return-type: return-type
 	params: params
@@ -604,7 +596,7 @@ add-concrete-fun void(ctx concretize-ctx, fun concrete-fun)
 			method-impls = ctx sum-type-method-impls-common member.method-impls, type-args
 			method-impls.size is x.methods.size
 			member-type, (method-impls,)
-		ctx.sum-types[res id] := res, cases
+		ctx.sum-types[res] := res, cases
 		if x.kind == union_
 			res finish-sum-type-cases cases
 
@@ -620,7 +612,7 @@ ensure-sum-type-case nat(ctx concretize-ctx, sum-type concrete-type, case-type c
 	if body has-members
 		body.members index-of! case-type
 	else
-		_, cases = ctx.sum-types[sum-type.must-be-by-val id]!
+		_, cases = ctx.sum-types[sum-type must-be-by-val]!
 		cases find-index (member => member.member-type == case-type) ?? do
 			res = cases size
 			case_ concrete-sum-type-case = case-type, ()

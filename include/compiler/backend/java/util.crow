@@ -21,33 +21,33 @@ string concrete-struct(a concrete-program)
 symbol concrete-struct(a concrete-program)
 	a.common-funs.concrete-common-funs-java! symbol
 
-# TODO: this may be simpler (and faster) as a single dictionary class-ane-member[nat][concrete-struct-id ----------------------------------------
+# TODO: this may be simpler (and faster) as a single dictionary class-and-member[nat][concrete-struct] ------------------------------------------
 constant-names record
-	arrays class-and-member[nat][concrete-struct-id]
-	records class-and-member[constant-record][concrete-struct-id]
-	unions class-and-member[constant-union][concrete-struct-id] # TODO: could this be a full-index-map? ---------------------
+	arrays class-and-member[nat][concrete-struct]
+	records class-and-member[constant-record][concrete-struct]
+	unions class-and-member[constant-union][concrete-struct] # TODO: could this be a full-index-map? ---------------------
 new constant-names()
 	(), (), ()
 subscript class-and-member(a constant-names, constant any-constant)
-	id = constant.type id
+	type = constant type
 	match constant
 	as single-constant-array x
-		a.arrays[id]![x index]!
+		a.arrays[type]![x index]!
 	as single-constant-record x
-		a.records[id]![x constant]!
+		a.records[type]![x constant]!
 	as single-constant-union x
-		a.unions[id]![x constant]!
+		a.unions[type]![x constant]!
 
 max-constants-per-class nat()
 	# Java allows 65535 constants, but large arrays include many individual constants, so use this as a limit that seems to work
-	1 # TODO: 32 ----------------------------------------------------------------------------------------------------------------------
+	32
 
 # TODO: MOVE, will need this for the JS build too ------------------------------------------------------------------------------
 each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-program, emit void mut(x any-constant))
 	# TODO:PERF this could use a full-index-set -----------------------------------------------------------------------------
-	seen-arrays (concrete-struct-id, nat) mut-set = ()
-	seen-records (concrete-struct-id, constant-record) mut-set = ()
-	seen-unions (concrete-struct-id, constant-union) mut-set = () # TODO:KILL ---------------------------------------------------------------------------
+	seen-arrays (concrete-struct, nat) mut-set = ()
+	seen-records (concrete-struct, constant-record) mut-set = ()
+	seen-unions (concrete-struct, constant-union) mut-set = () # TODO:KILL ---------------------------------------------------------------------------
 	can-reference bool mut(type concrete-struct, c constant) = (type, c) =>
 		program can-reference seen-arrays, seen-records, seen-unions, type, c
 
@@ -60,28 +60,26 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 			guard arr.array-type !is-string-or-symbol
 			guard arr.element-type.struct !is-empty-struct
 			for array-id, xs : arr.constants with-index
-				key = arr.array-type.id, array-id
+				key = arr.array-type, array-id
 				guard key !in seen-arrays
 				guard xs every x => can-reference[arr.element-type.struct, x]
 				seen-arrays ~= key
 				emit[arr.array-type single-constant-array arr.element-type, array-id, xs]
 				did-something := true
-		for struct-id, map : all-constants records
-			record-type = program.structs-by-id[struct-id]!
+		for record-type, map : all-constants records
 			guard record-type !is-empty-struct && record-type !is-wrapper
 			for constant, args : map
-				key = struct-id, constant
+				key = record-type, constant
 				guard key !in seen-records
 				fields = record-type.body.concrete-record! fields
 				guard args zip fields every (arg, field) => can-reference[field.type.struct, arg]
 				seen-records ~= key
 				emit[record-type single-constant-record constant, args, fields]
 				did-something := true
-		for struct-id, map : all-constants unions # TODO: RM, I'm just making these just in time (since usually it's just an upcast)
+		for union-type, map : all-constants unions # TODO: RM, I'm just making these just in time (since usually it's just an upcast)
 			for constant, value : map
-				key = struct-id, constant
+				key = union-type, constant
 				guard key !in seen-unions
-				union-type = program.structs-by-id[struct-id]!
 				members = union-type.body.concrete-union! members
 				member-type = members[value member-index]
 				guard can-reference[member-type.struct, value.member]
@@ -90,11 +88,10 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 				did-something := true
 		
 	# TODO: RM this debugging code ------------------------------------------------------------------------------------------------------------------
-	for struct-id, map : all-constants records	
-		record-type = program.structs-by-id[struct-id]!
+	for record-type, map : all-constants records	
 		guard record-type !is-empty-struct && record-type !is-wrapper
 		for constant, args : map
-			key = struct-id, constant
+			key = record-type, constant
 			if key !in seen-records
 				fields = record-type.body.concrete-record! fields
 				error log "Could not emit constant record {show-ctx show-concrete-struct record-type}"
@@ -105,8 +102,7 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 	n-constant-arrays = all-constants.arrs sum x =>
 		unless x.element-type.struct is-empty-struct
 			x.constants size
-	n-constant-records = all-constants.records sum (x, map) =>
-		struct = program.structs-by-id[x]!
+	n-constant-records = all-constants.records sum (struct, map) =>
 		unless struct is-empty-struct || struct is-wrapper # TODO: have a helper fn for this? -----------------------------------------------
 			map size
 	n-constant-unions = all-constants.unions sum (_, map) =>
@@ -117,16 +113,16 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 
 -can-reference bool(
 	program concrete-program,
-	seen-arrays (concrete-struct-id, nat) mut-set,
-	seen-records (concrete-struct-id, constant-record) mut-set,
-	seen-unions (concrete-struct-id, constant-union) mut-set ,
+	seen-arrays (concrete-struct, nat) mut-set,
+	seen-records (concrete-struct, constant-record) mut-set,
+	seen-unions (concrete-struct, constant-union) mut-set ,
 	type concrete-struct,
 	c constant,
 )
 	match c
 	as constant-array x
 		# TODO: We should stop storing strings as arrays! ----------------------------------------------------------------------
-		type is-string-or-symbol || type.array-element-type.struct is-empty-struct || (type.id, x.index) in seen-arrays
+		type is-string-or-symbol || type.array-element-type.struct is-empty-struct || (type, x.index) in seen-arrays
 	as constant-c-string _
 		true
 	as constant-float _
@@ -139,11 +135,11 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 		if type is-empty-struct
 			true
 		elif field ?= type as-wrapper
-			program can-reference seen-arrays, seen-records, seen-unions, field.type.struct, program.all-constants.records[type id]![x].only
+			program can-reference seen-arrays, seen-records, seen-unions, field.type.struct, program.all-constants.records[type]![x].only
 		else
-			(type.id, x) in seen-records
+			(type, x) in seen-records
 	as constant-union x
-		(type.id, x) in seen-unions
+		(type, x) in seen-unions
 	as constant-gc-safe-value
 		true
 	as constant-null
@@ -177,10 +173,6 @@ single-constant-union record
 	constant constant-union
 	value constant-union-value
 	member-type concrete-struct
-
-funs-lookup concrete-fun[concrete-fun-id](a concrete-program)
-	for fun : a all-funs
-		fun.id, fun	
 
 get-structs-for-integrals concrete-struct[integral-type](a concrete-program)
 	res concrete-struct mut[integral-type] = ()
