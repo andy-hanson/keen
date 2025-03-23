@@ -23,7 +23,7 @@ get-common-funs common-funs-and-diagnostics(
 	instantiate-type type mut(decl struct-decl, type-args type[]) = (decl, type-args) =>
 		ctx instantiate-struct decl, type-args to
 	get-fun-inner fun-inst mut(module module, name symbol, return-type type, params param-short[]) = (module, name, return-type, params) =>
-		ctx instantiate-non-template-fun (diags-builder get-fun-decl-inner module, name, (), return-type, params, 0)
+		ctx instantiate-non-template-fun (ctx get-fun-decl-inner diags-builder, module, name, (), return-type, params, 0)
 	get-fun fun-inst mut(module common-module, name symbol, return-type type, params param-short[]) = (module, name, return-type, params) =>
 		get-fun-inner[modules[module], name, return-type, params]
 	get-var var-decl mut(module common-module, name symbol, kind var-kind) = (module, name, kind) =>
@@ -70,11 +70,11 @@ get-common-funs common-funs-and-diagnostics(
 		allocate: get-fun[alloc, "allocate", nat8-mut-pointer-type, (("size-bytes", nat64-type),)]
 		create-error: get-fun[exception-low-level, "error", common-types.exception.to, (("a", string-type),)]
 		lambda-subscript: common-types get-lambda-subscript-funs modules[misc]
-		shared-of-mut-lambda: diags-builder get-fun-decl-inner modules[runtime], "shared-of-mut-lambda", two-type-params, r-shared-of-p, (("a", r-mut-of-p),), 2
+		shared-of-mut-lambda: ctx get-fun-decl-inner diags-builder, modules[runtime], "shared-of-mut-lambda", two-type-params, r-shared-of-p, (("a", r-mut-of-p),), 2
 		mark: get-fun[alloc, "mark", bool-type, (("ctx", mark-ctx-type), ("pointer", nat8-const-pointer-type), ("size-bytes", nat64-type))]
 		to-json-from-json: get-fun[json, "to", json-type, (("a", json-type),)]
-		to-json-from-t-array: diags-builder get-fun-decl modules[json], "to", (one-type-param, json-type, t-array-params, 1)
-		new-json-from-pairs: ctx instantiate-non-template-fun (diags-builder get-fun-decl modules[json], "new", ((), json-type, new-json-pairs-params.to, 0))
+		to-json-from-t-array: ctx get-fun-decl diags-builder, modules[json], "to", (one-type-param, json-type, t-array-params, 1)
+		new-json-from-pairs: ctx instantiate-non-template-fun (ctx get-fun-decl diags-builder, modules[json], "new", ((), json-type, new-json-pairs-params.to, 0))
 		run-fiber: get-fun[runtime, "run-fiber", void-type, (("gctx", global-ctx-mut-pointer), ("fiber", fiber))]
 		run-all-tests: get-fun[test-runner, "run-all-tests", void-type, ()]
 		rt-main: get-fun[runtime-main, "rt-main", int32-type, (("argc", int32-type), ("argv", c-string-const-pointer-type), ("main", main-pointer-type))]
@@ -82,12 +82,13 @@ get-common-funs common-funs-and-diagnostics(
 		equal-symbol: get-fun[symbol-low-level, "==", bool-type, (("a", symbol-type), ("b", symbol-type))]
 		rethrow-current-exception: get-fun[exception-low-level, "rethrow-current-exception", void-type, ()]
 		show-exception: get-fun[bootstrap, "show", string-type, (("a", common-types.exception.to),)]
-		concat-arrays: diags-builder get-fun-decl-inner modules[array], "~~", one-type-param, t-array, (("a", t-array), ("b", t-array)), 0
+		concat-arrays: ctx get-fun-decl-inner diags-builder, modules[array], "~~", one-type-param, t-array, (("a", t-array), ("b", t-array)), 0
 		gc-root: get-fun[alloc, "gc-root", gc-root-mut-pointer, ()]
 		set-gc-root: get-fun[alloc, "set-gc-root", void-type, (("value", gc-root-mut-pointer),)]
 		pop-gc-root: get-fun[alloc, "pop-gc-root", void-type, ()]
 	common-funs, diags-builder.move-to
 -get-fun-decl-inner fun-decl(
+	ctx instantiate-ctx,
 	diags-builder uri-and-diagnostic mut[],
 	module module,
 	name symbol,
@@ -96,7 +97,7 @@ get-common-funs common-funs-and-diagnostics(
 	params param-short[],
 	count-specs nat,
 )
-	diags-builder get-fun-decl module, name, (type-params, return-type, params.to, count-specs)
+	ctx get-fun-decl diags-builder, module, name, (type-params, return-type, params.to, count-specs)
 
 get-main-fun-and-diagnostics main-fun-and-diagnostics(
 	ctx instantiate-ctx,
@@ -223,14 +224,14 @@ make-params params(params param-short[])
 		#id decl-id = throw todo # ------------------------------------------------------------------------------------------------
 		#id, ast, module.uri, public, bogus-type, (), ()
 
--get-fun-decl fun-decl(diags-builder uri-and-diagnostic mut[], module module, name symbol, expected-sig type-params-and-sig)
-	diags-builder get-fun-decl-multi module, name, (expected-sig,) decl
+-get-fun-decl fun-decl(ctx instantiate-ctx, diags-builder uri-and-diagnostic mut[], module module, name symbol, expected-sig type-params-and-sig)
+	ctx get-fun-decl-multi diags-builder, module, name, (expected-sig,) decl
 
 -get-main-fun main-fun(ctx instantiate-ctx, diags-builder uri-and-diagnostic mut[], main-module module, common-types common-types)
 	args-params params-short = (("args", common-types.string-array.to),)::param-short[] to
 	sig0 type-params-and-sig = (), common-types.void.to, (), 0
 	sig1 type-params-and-sig = (), common-types.integrals.nat64.to, args-params, 0
-	decl = diags-builder get-fun-decl-multi main-module, "main", (sig0, sig1)
+	decl = ctx get-fun-decl-multi diags-builder, main-module, "main", (sig0, sig1)
 	inst = ctx instantiate-non-template-fun decl.decl
 	match decl sig-index
 	as 0
@@ -241,7 +242,7 @@ make-params params(params param-short[])
 		throw unreachable
 
 -fun-decl-and-sig-index record(decl fun-decl, sig-index nat)
--get-fun-decl-multi fun-decl-and-sig-index(diags-builder uri-and-diagnostic mut[], module module, name symbol, expected-sigs type-params-and-sig[])
+-get-fun-decl-multi fun-decl-and-sig-index(ctx instantiate-ctx, diags-builder uri-and-diagnostic mut[], module module, name symbol, expected-sigs type-params-and-sig[])
 	res mut fun-decl-and-sig-index? = ()
 	for x : module get-funs name
 		if index ?= expected-sigs find-index sig => x signature-matches-template sig
@@ -250,9 +251,8 @@ make-params params(params param-short[])
 			else
 				diags-builder ~= (x.range, name.diag-common-fun-duplicate)
 	res ?? do
-		id decl-id = 9999999999999999999, # 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 		decl fun-decl = do
-			id: id
+			hash: ctx next-hash
 			source: module.uri fun-source-bogus expected-sigs[0].type-params
 			visibility: public
 			name: name
