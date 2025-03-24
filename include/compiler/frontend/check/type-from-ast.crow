@@ -49,7 +49,18 @@ struct-or-alias-from-name struct-or-alias?(
 	structs-and-aliases-map structs-and-aliases-map,
 	no-diag bool,
 )
-	ctx try-find-t name, range, structs-and-aliases-map[name], type, (!no-diag ? (type,)), x => x struct-or-alias
+	res mut = structs-and-aliases-map[name]
+	for exports : ctx imports-and-re-exports
+		if x ?= exports.structs-and-aliases[name]
+			if _ ?= res
+				ctx add-diag range, (type diag-duplicate-imports name)
+			else
+				res := x,
+	if x ?= res
+		ctx mark-used x.to
+	elif !no-diag
+		ctx add-diag range, (type diag-name-not-found name)
+	res
 
 make-tuple-type type(ctx check-ctx, common-types common-types, args type[], cb-diag-range source-range data())
 	match args size
@@ -211,7 +222,18 @@ get-spec-from-common-module spec-decl?(
 			()
 
 try-find-spec spec-decl?(ctx check-ctx, name name-and-range, specs-map specs-map, no-diag bool)
-	ctx try-find-t name.name, name.range, specs-map[name.name], spec_, (!no-diag ? spec_,), x => x spec_
+	res mut = specs-map[name name]
+	for exports : ctx imports-and-re-exports
+		if x ?= exports.specs[name name]
+			if _ ?= res
+				ctx add-diag name.range, (spec_ diag-duplicate-imports name.name)
+			else
+				res := x,
+	if x ?= res
+		ctx mark-used x.to
+	elif !no-diag
+		ctx add-diag name.range, (spec_ diag-name-not-found name.name)
+	res
 
 type-from-destructure type?(
 	ctx check-ctx,
@@ -310,30 +332,3 @@ check-destructure destructure(
 			type = ctx make-tuple-type common-types, types, () =>
 				part-asts[0].range combine-ranges part-asts[end - 1].range
 			type destructure-split parts
-
--findable[t] spec
-	to any-decl(a t)
-	visibility visibility(a t)
--try-find-t[t] t?(
-	ctx check-ctx,
-	name symbol,
-	range source-range,
-	from-this-module t?,
-	duplicate-import-kind diag-duplicate-exports-kind,
-	name-not-found-kind diag-name-not-found-kind?,
-	get-from-name-referents t? data(x name-referents)
-) t findable
-	res mut = from-this-module
-	ctx.imports-and-re-exports each-import-and-re-export name, (visibility, referents) =>
-		if got ?= get-from-name-referents[referents]
-			if visibility import-can-see got.visibility
-				if _ ?= res
-					# TODO: include both modules in the diag
-					ctx add-diag range, (duplicate-import-kind diag-duplicate-imports name)
-				else
-					res := got,
-	if x ?= res
-		ctx mark-used x.to
-	elif kind ?= name-not-found-kind
-		ctx add-diag range, (kind diag-name-not-found name)
-	res

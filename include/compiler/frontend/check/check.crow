@@ -255,70 +255,94 @@ check module(
 		struct-aliases, structs, specs, vars, funs-and-map.funs, funs-and-map.tests
 	module-doc-comment-references = ctx check-doc-comment-references structs-and-aliases-map,
 		specs-map, funs-and-map.funs-map, (), (), ast.doc-comment
-	imports = ctx finish-imports
+	ctx finish-imports
 	ctx check-for-unused struct-aliases, structs, specs, funs-and-map.funs
+	public-exports, public-and-internal-exports = ctx get-all-exports imports-and-re-exports.module-re-exports, structs-and-aliases-map, specs-map, funs-and-map.funs-map
 	res module = do
 		uri: uri
 		config: config
 		ast: ast
 		diagnostics: ctx finish-diagnostics
-		imports: imports
-		re-exports: imports-and-re-exports module-re-exports
 		aliases: struct-aliases
 		structs: structs
 		vars: vars
 		specs: specs
 		funs: funs-and-map funs
 		tests: funs-and-map tests
-		exports: ctx get-all-exports imports-and-re-exports.module-re-exports, structs-and-aliases-map, specs-map, funs-and-map.funs-map
+		public-exports: public-exports
+		public-and-internal-exports: public-and-internal-exports
 		doc-comment-references: module-doc-comment-references
 	start end-check
 	res
 
--get-all-exports name-referents[symbol](
+-get-all-exports (exports, exports)(
 	ctx check-ctx,
 	re-exports import-or-export[],
 	structs-and-aliases-map structs-and-aliases-map,
 	specs-map specs-map,
 	funs-map funs-map,
 )
-	res name-referents mut[symbol] = ()
-	add-export void mut(to-add name-referents, range source-range mut()) = (to-add, range) =>
-		res[to-add name] := if prev ?= res[to-add name]
-			# TODO: factor this to a function ----------------------------------------------------------------------------------
-			kind diag-duplicate-exports-kind? = if prev.struct-or-alias !is-empty && to-add.struct-or-alias !is-empty
-				type,
-			elif prev.spec_ !is-empty && to-add.spec_ !is-empty
-				spec_,
-			if k ?= kind
-				ctx add-diag range[], (k diag-duplicate-exports to-add.name)
-			(prev struct-or-alias || to-add struct-or-alias), (prev spec_ || to-add spec_), (prev.funs ~~ to-add.funs)
+	exported-funs fun-decl mut[] mut[symbol] = ()
+	exported-types struct-or-alias mut[symbol] = ()
+	exported-specs spec-decl mut[symbol] = ()
+
+	# TODO: make these normal functions instead of closures -------------------------------------------------------------------
+	add-funs void mut(funs fun-decl[]) = funs-to-add =>
+		for f : funs-to-add
+			exported-funs ensure f.name ~= f
+	add-type void mut(type struct-or-alias, range source-range) = (x, range) =>
+		# TODO: do with a singlle map operation ---------------------------------------------------------------------------
+		if x.name in exported-types
+			ctx add-diag range, (type diag-duplicate-exports x.name)
 		else
-			to-add
-	
+			exported-types[x name] := x
+	add-spec void mut(x spec-decl, range source-range) = (x, range) =>
+		# TODO: do with a singlle map operation ---------------------------------------------------------------------------
+		if x.name in exported-specs
+			ctx add-diag range, (type diag-duplicate-exports x.name)
+		else
+			exported-specs[x name] := x
+
 	for e : re-exports
-		match e.source! kind
+		its-exports = match e.source! kind
 		as import-whole-module-ast _
-			# TODO: if this is a re-export of another library, only re-export the public members
-			for _, x : e.module exports
-				add-export[x, () => e.source!.path-range]
+			# TODO: if this is a re-export of another library, only re-export the public members ---------------------------
+			e.module public-and-internal-exports
 		as array _
-			for _, x : e.imported!
-				add-export[x, () => e.source!.path-range]
+			e named-imported
 		as import-file-ast _
 			throw unreachable
+		for _, x : its-exports funs
+			add-funs[x]
+		for _, x : its-exports structs-and-aliases
+			add-type[x, e.source!.path-range]
+		for _, x : its-exports specs
+			add-spec[x, e.source!.path-range]
 
 	for _, x : structs-and-aliases-map
 		if x.visibility != private
-			add-export[((x,), (), ()), () => x.range.range]
+			add-type[x, x.range.range]
 	for _, x : specs-map
 		if x.visibility != private
-			add-export[((), (x,), ()), () => x.range.range]
+			add-spec[x, x.range.range]
 	for _, funs : funs-map
 		fun-decls fun-decl[] = funs filter x => x.visibility != private
 		if fun-decls !is-empty
-			add-export[((), (), fun-decls), () => ()]
-	res move-to
+			add-funs[fun-decls]
+
+	public-and-internal-exports exports = do
+		funs: for name, funs : exported-funs; name, funs.move-to
+		structs-and-aliases: exported-types move-to
+		specs: exported-specs move-to
+	public-exports exports = do
+		funs: with out : build
+			for name, funs : public-and-internal-exports funs
+				filtered fun-decl[] = funs filter x => x.visibility == public
+				unless filtered is-empty
+					out ~= (name, filtered)
+		structs-and-aliases: public-and-internal-exports.structs-and-aliases filter (_, x) => x.visibility == public
+		specs: public-and-internal-exports.specs filter (_, x) => x.visibility == public
+	public-exports, public-and-internal-exports
 
 -check-worker (module, common-types)(
 	show-ctx show-ctx,
@@ -337,7 +361,7 @@ check module(
 		common-uris: common-uris
 		cur-uri: uri-and-ast uri
 		config: uri-and-ast config
-		imports-and-re-exports: imports-and-re-exports modules
+		imports-and-re-exports: imports-and-re-exports collect-imports-and-re-exports
 		diagnostics-builder: diags-builder
 		used: ()
 	# Since structs may refer to each other, first get a structs-and-aliases-map, *then* fill in bodies.
@@ -354,8 +378,26 @@ check module(
 	module-re-exports import-or-export[]
 	file-imports import-or-export-file[]
 	file-exports import-or-export-file[]
--modules import-and-re-export-modules(a imports-and-re-exports)
-	a.module-imports, a.module-re-exports
+-collect-imports-and-re-exports exports[](a imports-and-re-exports)
+	start = perf-now # TODO: I should probably precompute an exports[] and just loop over that instead of using this function
+	res exports[] = with out : build
+		for x : a module-imports
+			out ~= x exports-for-import
+		for x : a module-re-exports
+			out ~= x exports-for-import
+	start end-each-import
+	res
+-exports-for-import exports(import_ import-or-export)
+	if import_ is-std
+		import_.module public-exports
+	else
+		match import_.source! kind
+		as import-whole-module-ast
+			import_.module exports import_.import-visibility
+		as array _
+			import_ named-imported
+		as import-file-ast _
+			throw unreachable
 
 -check-imports-and-re-exports imports-and-re-exports(
 	diags-builder diagnostic mut[],
@@ -381,7 +423,7 @@ check module(
 		res = (*resolved-imports)[0]
 		*resolved-imports := (*resolved-imports)[1 .. end]
 		res
-	
+
 	handle-module-import void mut(source import-or-export-ast?, min-visibility export-visibility, cb-init-imported void mut(x import-or-export)) = (source, min-visibility, cb-init-imported) =>
 		match next-resolved-import[]
 		as module x
@@ -391,10 +433,10 @@ check module(
 			throw unreachable
 		as diag-import-file x
 			diags-builder ~= (source?.path-range ?? (), x.to)
-	
+
 	if include-std
 		handle-module-import[(), public, _ => ()]
-	
+
 	if a ?= ast
 		for import-ast : a paths
 			import-visibility = import-ast import-min-visibility
@@ -403,7 +445,7 @@ check module(
 				handle-module-import[(import-ast,), import-visibility, _ => ()]
 			as array names
 				cb void mut(x import-or-export) = x =>
-					x.imported := (diags-builder check-named-imports import-visibility, x.module, names),
+					x.named-imported := diags-builder check-named-imports import-visibility, x.module, names
 				handle-module-import[(import-ast,), import-visibility, cb]
 			as import-file-ast _
 				match next-resolved-import[]
@@ -413,7 +455,7 @@ check module(
 					file-imports ~= (import-ast, x)
 				as diag-import-file x
 					diags-builder ~= (import-ast.path-range, x.to)
-	
+
 	imports.move-to, file-imports.move-to
 
 -import-min-visibility export-visibility(a import-or-export-ast)
@@ -423,31 +465,28 @@ check module(
 	as rel-path _
 		internal
 
--check-named-imports imported-referents(
+-check-named-imports exports(
 	diags-builder diagnostic mut[],
 	import-visibility export-visibility,
 	module module,
 	names name-and-range[],
 )
-	res name-referents mut[symbol] = ()	
-	for name : names
-		if referents ?= module.exports[name.name]
-			if referents has-visibility import-visibility
-				if name.name in res
-					diags-builder ~= (name.range, name.name.diag-duplicate-import-name)
-				else
-					res[name.name] := referents
-			else
-				diags-builder ~= (name.range, name.name.diag-import-refers-to-nothing)
-		else
-			diags-builder ~= (name.range, name.name.diag-import-refers-to-nothing)
-	res move-to
-
--has-visibility bool(a name-referents, visibility export-visibility)
-	a.struct-or-alias exists (x => visibility import-can-see x.visibility) ||
-	a.spec_ exists (x => visibility import-can-see x.visibility) ||
-	a.funs exists x => visibility import-can-see x.visibility
-
--exists[t] bool(a t?, f bool mut(x t))
-	if x ?= a
-		f[x]
+	set symbol set = for x : names; x name # TODO: I don't use this as a set except to check the size ....................
+	exports = module exports import-visibility
+	if set.size != names.size
+		assert set.size < names.size
+		for name : names
+			if (names count x => x.name == name.name) != 1
+				diags-builder ~= (name.range, name.name.diag-duplicate-import-name)
+	for name : set
+		if name !in exports.funs && name !in exports.structs-and-aliases && name !in exports.specs
+			ast = names find! x => x.name == name
+			diags-builder ~= (ast.range, name.diag-import-refers-to-nothing)
+	funs: exports.funs choose-keys set
+	structs-and-aliases: exports.structs-and-aliases choose-keys set
+	specs: exports.specs choose-keys set
+-choose-keys[k, v] v[k](a v[k], keys k set) k key
+	with out : build
+		for k : keys
+			if v ?= a[k]
+				out ~= (k, v)

@@ -5,7 +5,6 @@ import
 	../../model/source-range
 	../../model/uri
 	../../util/enum-map
-	../../util/util
 	./instantiate
 
 check-ctx record mut
@@ -14,7 +13,7 @@ check-ctx record mut
 	common-uris common-uris
 	cur-uri uri
 	config config
-	imports-and-re-exports import-and-re-export-modules
+	imports-and-re-exports exports[]
 	diagnostics-builder diagnostic mut[]
 	used used-set
 
@@ -83,74 +82,46 @@ check-for-unused void(
 	if decl.visibility == private && !(ctx.used is-used decl || cb-alt-is-used[])
 		ctx add-diag-assert-same-uri decl.name-range, decl.name.diag-unused-private-decl
 
-finish-imports import-or-export[](ctx check-ctx)
-	for import_ : ctx.imports-and-re-exports.imports
-		if import_ is-std
-			import_.imported := (ctx collect-imported import_),
-		else
-			match import_.source! kind
-			as import-whole-module-ast
-				import_.imported := (ctx collect-imported import_),
-				if import_.imported! is-empty
-					ctx add-diag-unused import_, import_.source!.path-range, ()
-			as array names
-				for _, x : import_.imported!
-					if x !contains-used import_.import-visibility, ctx.used
-						range = names must-find (nr => nr.name == x.name) range
-						ctx add-diag-unused import_, range, (x.name,)
-			as import-file-ast _
-				throw unreachable
-	ctx.imports-and-re-exports imports
--add-diag-unused void(ctx check-ctx, import_ import-or-export, range source-range, name symbol?)
-	ctx add-diag range, (import_.module diag-unused-import name)
-
--collect-imported name-referents[symbol](ctx check-ctx, import_ import-or-export)
-	with out : build
-		for _, nr : import_.module.exports
-			if nr contains-used import_.import-visibility, ctx.used
-				out ~= (nr.name, nr)
-
--contains-used bool(a name-referents, import-visibility export-visibility, used used-set)
-	a contains-used-struct-or-alias import-visibility, used ||
-	a contains-used-spec import-visibility, used ||
-	a.funs exists x =>
-		import-visibility import-can-see x.visibility && used is-used x.to
--contains-used-struct-or-alias bool(a name-referents, import-visibility export-visibility, used used-set)
-	if x ?= a struct-or-alias
-		import-visibility import-can-see x.visibility && used is-used x.to
--contains-used-spec bool(a name-referents, import-visibility export-visibility, used used-set) 
-	if x ?= a spec_
-		import-visibility import-can-see x.visibility && used is-used x.to
-
-import-and-re-export-modules record(imports import-or-export[], re-exports import-or-export[])
-each-import-and-re-export void(
-	a import-and-re-export-modules,
-	name symbol,
-	# Caller is responsible for filtering by visibility
-	cb void mut(visibility export-visibility, referents name-referents),
-)
-	for x : a imports
-		x each-import-inner name, cb
-	for x : a re-exports
-		x each-import-inner name, cb
--each-import-inner void(
-	import_ import-or-export,
-	name symbol, 
-	cb void mut(visibility export-visibility, referents name-referents),
-)
-	if import_ is-std
-		if x ?= import_.module.exports[name]
-			cb[import_.import-visibility, x]
-	else
-		res name-referents? = match import_.source!.kind
+finish-imports void(_ check-ctx)
+	()
+	# TODO ------------------------------------------------------------------------------------------------------------------------
+	###
+	for import_ : ctx.imports-and-re-exports imports
+		guard import_ !is-std
+		match import_.source! kind
 		as import-whole-module-ast
-			import_.module.exports[name]
-		as array _
-			import_.imported![name]
+			# TODO: I need to add a new mechanism for tracking when a module is used -----------------------------------------------------
+			#unless import_ is-used
+			#	ctx add-diag-unused import_, import_.source!.path-range, ()
+			()
+		as array names
+			imported = import_ named-imported
+			for name : imported all-names
+				unless imported name-is-used name, ctx.used
+					range = names must-find (nr => nr.name == name) range
+					ctx add-diag-unused import_, range, (name,)
 		as import-file-ast _
 			throw unreachable
-		if x ?= res
-			cb[import_.import-visibility, x]
+	###
+###
+-all-names symbol set(a exports)
+	with out : build
+		for name, _ : a funs
+			out ~= name
+		for name, _ : a structs-and-aliases
+			out ~= name
+		for name, _ : a specs
+			out ~= name
+-name-is-used bool(a exports, name symbol, used used-set)
+	used-fun = (a.funs[name] ?? ()) exists fun => used is-used fun.to
+	used-struct = if x ?= a.structs-and-aliases[name]
+		used is-used x.to
+	used-spec = if x ?= a.specs[name]
+		used is-used x.to
+	used-fun || used-struct || used-spec
+-add-diag-unused void(ctx check-ctx, import_ import-or-export, range source-range, name symbol?)
+	ctx add-diag range, (import_.module diag-unused-import name)
+###
 
 add-diag-assert-same-uri void(ctx check-ctx, range uri-and-range, diag diag)
 	range.uri is ctx.cur-uri

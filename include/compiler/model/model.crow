@@ -53,6 +53,30 @@ specs alias
 
 type union(bogus-type, type-param-index, struct-inst)
 == bool(a type, b type)
+	if trusted extern native
+		# TODO: it's annoying that this is necessary, because the native version always represents unions as tag + body .....
+		match a
+		as bogus-type
+			match b
+			as bogus-type
+				true
+			else
+				false
+		as type-param-index x
+			match b
+			as type-param-index y
+				x == y
+			else
+				false
+		as struct-inst x
+			match b
+			as struct-inst y
+				x == y
+			else
+				false
+	else
+		# All 'type' cases are unique types
+		trusted a reference-equal b
 <=> comparison(_ type, _ type)
 	throw todo
 to json(a type)
@@ -70,8 +94,58 @@ hash-mix void(hasher hasher, a type)
 to json(a bogus-type)
 | Represent type parameter as the index, so we don't generate different types for every 't[]'.
 | (These are disambiguated in the type checker using 'TypeAndContext')
-type-param-index record(index nat)
+type-param-index record by-ref
+	-index_ nat
+	-dummy nat
+index nat(a type-param-index)
+	a index_
+new type-param-index(index nat)
+	# This silly-looking code ensures that each type-param-index value is a compile-time constant, avoiding runtime allocation
+	match index
+	as 0
+		0, 0
+	as 1
+		1, 1
+	as 2
+		2, 2
+	as 3
+		3, 3
+	as 4
+		4, 4
+	as 5
+		5, 5
+	as 6
+		6, 6
+	as 7
+		7, 7
+	as 8
+		8, 8
+	as 9
+		9, 9
+	as 10
+		10, 10
+	as 11
+		11, 11
+	as 12
+		12, 12
+	as 13
+		13, 13
+	as 14
+		14, 15
+	as 15
+		15, 15
+	else
+		throw unreachable
+type-param-index type(index nat)
+	(index,)::type-param-index to
+type-param-index doc-comment-reference(index nat)
+	(index,)::type-param-index to
 == bool(a type-param-index, b type-param-index)
+	trusted if extern native
+		# TODO: the old compiler doesn't handle constants as well, so have to do it this way
+		a.index == b.index
+	else
+		a reference-equal b
 <=> comparison(a type-param-index, b type-param-index)
 to json(a type-param-index)
 	a.index to
@@ -742,7 +816,7 @@ name-range source-range(a struct-decl-source)
 		()
 
 | WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
-struct-inst record(decl struct-decl, type-args type-args, hash-content nat)
+struct-inst record(decl struct-decl, type-args type-args, hash-content nat) by-ref
 == bool(a struct-inst, b struct-inst)
 	trusted a reference-equal b
 content-equals bool(a struct-inst, b struct-inst)
@@ -1763,15 +1837,15 @@ module record
 	ast file-ast
 	| WARN: This is not every diagnostic. See {each-diagnostic}.
 	diagnostics diagnostic[]
-	imports import-or-export[]
-	re-exports import-or-export[]
 	aliases struct-alias[]
 	structs struct-decl[]
 	vars var-decl[]
 	specs spec-decl[]
 	funs fun-decl[]
 	tests test_[]
-	exports name-referents[symbol]
+	| This is derived data based on the funs, specs, and structs/aliases in a module
+	public-exports exports
+	public-and-internal-exports exports
 	doc-comment-references doc-comment-references
 to json(_ module)
 	throw todo
@@ -1785,6 +1859,20 @@ doc-comment-ast doc-comment-ast(a module)
 	a.ast doc-comment
 doc-comment doc-comment(a module)
 	a.doc-comment-ast, a.doc-comment-references
+export-visibility enum(internal, public)
+exports exports(a module, visibility export-visibility)
+	match visibility
+	as public
+		a public-exports
+	as internal
+		a public-and-internal-exports
+
+exports record
+	funs fun-decl[][symbol]
+	structs-and-aliases struct-or-alias[symbol]
+	specs spec-decl[symbol]
+new exports()
+	(), (), ()
 
 | Excludes derived decls, e.g. FunDecl that is a record field getter
 each-decl void(a module, cb void mut(x any-decl))
@@ -1891,12 +1979,15 @@ is-import-or-export enum(import_, export_)
 each-import-or-re-export void(a module, cb void mut(x import-or-export))
 	a each-import-or-re-export-with-kind (_, x) =>
 		cb[x]
-each-import-or-re-export-with-kind void(a module, cb void mut(kind is-import-or-export, x import-or-export))
-	for x : a imports
-		cb[import_, x]
-	for x : a re-exports
-		cb[export_, x]
+each-import-or-re-export-with-kind void(_ module, _ void mut(kind is-import-or-export, x import-or-export))
+	()
+	# TODO ---------------------------------------------------------------------------------------------------------------------
+	#for x : a imports
+	#	cb[import_, x]
+	#for x : a re-exports
+	#	cb[export_, x]
 
+# TODO: this is not actualy stored on the model anywhere, should I move it to where it's used? -----------------------------------------
 import-or-export record force-data
 	| Empty for an automatic import of std
 	source import-or-export-ast?
@@ -1904,22 +1995,19 @@ import-or-export record force-data
 	| If this is {internal}, import internal and public exports.
 	| If this is {public}, import only public exports.
 	import-visibility export-visibility
+	# TODO: doc comment is out of date. This no longer tracks anything .....................................................................
 	| If the ast was {name-and-range}[], this will have an entry for each name (except when there was nothing to import).
 	| For an import of a whole module, this tracks what was actually used in this module.
 	| For a re-export of a whole module, this is not used.
-	imported mut imported-referents?
+	named-imported mut exports
 uri uri(a import-or-export)
 	a.module uri
-has-imported bool(a import-or-export)
-	a.imported !is-empty
 is-std bool(a import-or-export)
 	a.source is-empty
 is-relative-import bool(a import-or-export)
 	if x ?= a source
 		if _ ?= x.path rel-path
 			true
-imported-referents alias
-	name-referents[symbol]
 
 file-content record(bytes nat8[]) # TODO: does this really need to be its own types? ---------------------------------------------------
 new file-content()
@@ -3204,21 +3292,6 @@ range source-range(a typed-expr)
 	a.ast range
 type type(a typed-expr, common-types common-types?)
 	a.inner type common-types
-
-export-visibility enum(internal, public)
-== bool(a export-visibility, b export-visibility)
-<=> comparison(a export-visibility, b export-visibility)
-to export-visibility(a visibility)
-	match a
-	as private
-		throw unreachable
-	as internal
-		internal
-	as public
-		public
-
-import-can-see bool(import-visibility export-visibility, export-visibility visibility)
-	export-visibility.to::export-visibility >= import-visibility
 
 least-visibility visibility(a visibility, b visibility)
 	a min b
