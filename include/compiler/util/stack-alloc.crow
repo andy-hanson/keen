@@ -1,0 +1,147 @@
+import
+	crow/col/mut-slice
+
+stack-alloc[t] record mut
+	-entries t mut-slice
+	-cur mut nat
+
+get-state[t] nat(a t stack-alloc) unsafe
+	a cur
+restore-state[t] void(a t stack-alloc, state nat) unsafe
+	assert state <= a.cur
+	for i : state .. a.cur
+		a.entries[i] := gc-safe-value
+	a.cur := state
+
+| This array can shrink, but not grow.
+mut-stack-alloced-array[t] record mut
+	-entries t mut-slice
+	-start mut nat
+	-end mut nat
+
+new[t] t mut-stack-alloced-array()
+	(), 0, 0
+
+to[t] t[](a t mut-stack-alloced-array)
+	for x : a; x
+
+iterate[t] bool(a t mut-stack-alloced-array, f bool mut(x t))
+	0::nat .. a.size iterate i => f[a[i]]
+
+is-empty[t] bool(a t mut-stack-alloced-array)
+	a.start == a.end
+
+size[t] nat(a t mut-stack-alloced-array)
+	a.end - a.start
+
+clear[t] void(a t mut-stack-alloced-array)
+	a.end := a.start
+
+subscript[t] t(a t mut-stack-alloced-array, index nat)
+	full-index = a.start + index
+	assert full-index < a.end
+	a.entries[full-index]
+
+set-subscript[t] void(a t mut-stack-alloced-array, index nat, value t)
+	full-index = a.start + index
+	assert full-index < a.end
+	a.entries[full-index] := value
+
+pop[t] t?(a t mut-stack-alloced-array)
+	unless a is-empty
+		a.end -:= 1
+		a.entries[a.end],
+
+assert-empty[t] void(a t stack-alloc)
+	a.cur is 0
+
+new[t] t stack-alloc(max-size nat) trusted
+	max-size.gc-safe-mut-slice, 0
+
+
+allocate-gc-safe-values-without-stack-alloc[t] t mut-stack-alloced-array(size nat) unsafe
+	size.gc-safe-mut-slice, 0, size
+
+| Remember to 'return' the result
+allocate-gc-safe-values[t] t mut-stack-alloced-array(a t stack-alloc, size nat) unsafe
+	guard size != 0
+	res t mut-stack-alloced-array = a.entries, a.cur, a.cur + size
+	assert res.end <= a.entries.size
+	a.cur := res.end
+	res
+
+return[t] void(a t stack-alloc, array t mut-stack-alloced-array) unsafe # TODO: this one in particular can't be trusted -----------------------------------
+	guard array.entries !is-empty # Empty 'mut-stack-alloced-array' is not a slice of the alloc and does not need to be returned
+	assert array.end <= a.cur
+	for i : array.start .. a.cur
+		a.entries[i] := gc-safe-value
+	a.cur := array.start
+
+mut-stack-alloced-array-builder[t] record mut
+	-entries t mut-slice
+	-start nat
+	-end mut nat
+
+~=[t] void(a t mut-stack-alloced-array-builder, value t)
+	a.entries[a.end] := value
+	a.end +:= 1
+
+| Remember to 'return' the result
+build[t] t mut-stack-alloced-array(
+	a t stack-alloc,
+	f void mut(a t mut-stack-alloced-array-builder),
+) unsafe
+	builder t mut-stack-alloced-array-builder = a.entries, a.cur, a.cur
+	a.cur := a.entries.size # Prevent doing any other alloc while building
+	f[builder]
+	a.cur := builder end
+	a.entries, builder.start, builder.end
+
+test trusted
+	a string stack-alloc = 4,
+	a assert-empty
+	x = a allocate-gc-safe-values 2
+	assert x[0] reference-equal gc-safe-value
+	x.size is 2
+	a.cur is 2
+	x[0] := "a"
+	x[1] := "b"
+	a return x
+	a.cur is 0
+
+	y = a allocate-gc-safe-values 2
+	a.cur is 2
+	assert y[0] reference-equal gc-safe-value
+	a return y
+	a assert-empty
+
+test trusted
+	a string stack-alloc = 4,
+	a assert-empty
+	x = a build out =>
+		out ~= "a"
+		out ~= "b"
+	a.cur is 2
+	x.to::string[] is ("a", "b")
+	a return x
+	a assert-empty
+
+test trusted
+	a string stack-alloc = 4,
+	x = a allocate-gc-safe-values 1
+	x[0] := "a"
+	a.cur is 1
+	state = a get-state
+	y = a allocate-gc-safe-values 2
+	y[0] := "b"
+	y[1] := "c"
+	_ = a allocate-gc-safe-values 1
+	y[2] := "d"
+	a.cur is 4
+	a restore-state state
+	z = a allocate-gc-safe-values 3
+	for i : 0::nat .. 3
+		assert z[i] reference-equal gc-safe-value
+	a.cur is 1
+	a return x
+	a assert-empty

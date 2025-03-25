@@ -1,10 +1,11 @@
 import
-	crow/col/mut-slice
 	../../../../crow/col/mut-array: hint-size
 	../../../model/model
 	../../../model/source-range
+	../../../util/stack-alloc
 	../../../util/util
 	../../lang
+	../allocators
 	../check-ctx
 	../expr-ctx
 	../inferring-type
@@ -37,7 +38,7 @@ check-call-specs called(
 	diag-range source-range,
 	candidate candidate,
 )
-	check-specs-ctx check-specs-ctx = ctx.instantiate-ctx, funs-in-scope, false
+	check-specs-ctx check-specs-ctx = ctx, funs-in-scope, false
 	match check-specs-ctx get-called-from-candidate-after-type-checks candidate, 0.dummy-trace
 	as called x
 		if check-specs-ctx has-errors
@@ -59,8 +60,7 @@ check-spec-single-sig-ignore-parents called(
 	caller-externs symbol-set,
 	spec_ spec-inst,
 )
-	funs-in-scope funs-in-scope = caller-specs, funs-map, ctx
-	check-specs-ctx check-specs-ctx = ctx.instantiate-ctx, funs-in-scope, false
+	check-specs-ctx check-specs-ctx = ctx, (caller-specs, funs-map, ctx), false
 	trace real-trace = ctx, caller, diag-range, ()
 	spec-impls called mut[] = ()
 	spec-impls hint-size spec_.count-sigs
@@ -150,7 +150,7 @@ args-kind enum(empty, non-empty)
 	range source-range,
 	candidate candidate,
 )
-	check-specs-ctx check-specs-ctx = ctx.instantiate-ctx, funs-in-scope, false
+	check-specs-ctx check-specs-ctx = ctx, funs-in-scope, false
 	trace real-trace = ctx, type-container, range, ()
 	match check-specs-ctx get-called-from-candidate-after-type-checks candidate, trace.to
 	as called x
@@ -160,9 +160,11 @@ args-kind enum(empty, non-empty)
 		ctx.instantiate-ctx candidate-bogus-called common-types, candidate
 
 -check-specs-ctx record mut
-	instantiate-ctx instantiate-ctx
+	check-ctx check-ctx
 	funs-in-scope funs-in-scope
 	has-errors mut bool
+instantiate-ctx instantiate-ctx(a check-specs-ctx)
+	a.check-ctx instantiate-ctx
 
 -spec-result union(called, no-match)
 -no-match record
@@ -217,12 +219,13 @@ args-kind enum(empty, non-empty)
 		trace.depth no-match (trace spec-no-match (sig-decl spec-impl-not-found sig-type))
 
 -get-called-from-candidate-after-type-checks spec-result(ctx check-specs-ctx, candidate candidate, trace trace)
-	if candidate-type-args ?= for x : (trusted candidate.type-args.cast-immutable) map-or-none; x # TODO: do it without cast-immutable
+	if candidate.type-args every x => x !is-empty
 		match candidate called
 		as fun-decl f
 			if trace.depth >= max-spec-depth
 				trace.depth no-match (trace spec-no-match spec-too-deep)
 			else
+				candidate-type-args type[] = for x : candidate.type-args; x!
 				spec-impls called mut[] = ()
 				spec-impls hint-size f.count-spec-sigs
 				if no-match ?= spec-impls check-spec-impls ctx, f, candidate-type-args, trace
@@ -247,7 +250,7 @@ args-kind enum(empty, non-empty)
 	# TODO: perf avoid allocating this for dummy-trace? ------------------------------------------------------------------
 	multiple-matches called mut[] = ()
 	deepest-no-match mut no-match? = ()
-	ctx.funs-in-scope each-candidate sig-decl.name, sig-type.param-types.size, candidate =>
+	ctx.check-ctx each-candidate ctx.funs-in-scope, sig-decl.name, sig-type.param-types.size, candidate =>
 		match ctx check-candidate sig-decl, sig-type, candidate, trace
 		as called x
 			if _ ?= res

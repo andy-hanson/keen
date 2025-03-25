@@ -1,5 +1,4 @@
 import
-	crow/col/mut-slice
 	crow/java
 	crow/js
 	../../../crow/col/mut-array: hint-size
@@ -8,11 +7,13 @@ import
 	../../model/model
 	../../model/source-range
 	../../util/enum-map
+	../../util/stack-alloc
 	../../util/util
 	./check-call/candidates
 	./check-call/check-call
 	./check-call/check-call-specs
 	./check-ctx
+	./allocators
 	./check-util
 	./expr-ctx
 	./inferring-type
@@ -216,7 +217,7 @@ check-test-body expr(
 	as unpack-option-ast x
 		ctx check-unpack-option locals, x to
 -check-unpack-option unpack-option(ctx expr-ctx, locals locals-info, cond-ast unpack-option-ast)
-	res = ctx.instantiate-ctx with-expect-option ctx.common-types, expected =>
+	res = ctx.check-ctx.allocators.type-contexts with-expect-option ctx.instantiate-ctx, ctx.common-types, expected =>
 		ctx check-expr locals, cond-ast.option, expected
 	(ctx check-destructure cond-ast.destructure, res.non-option-type, local), res.option
 
@@ -1190,25 +1191,25 @@ integral-types integral-type[]()
 	expected-case-type type? mut(),
 )
 	guard declared-sum-type.decl == actual-sum-type.decl
-	inferring-context type-context = case_.type-params type-context-for
-	inferring-declared-sum-type type-and-context = declared-sum-type.to, inferring-context
-	guard ctx.instantiate-ctx match-types inferring-declared-sum-type, actual-sum-type.to.non-inferring
-	if inferring-context exists x => x is-empty
-		if t ?= expected-case-type[]
-			# Just using this for inference
-			_ = ctx.instantiate-ctx match-types ((ctx.instantiate-ctx instantiate-struct-with-own-type-params case_ to), inferring-context), t.non-inferring
-	
-	any-not-inferred mut bool = false
-	inferred-types type[] = for x : inferring-context
-		x ?? do
-			any-not-inferred := true
-			bogus-type
-	# TODO: NEATER (use map-opt?) ------------------------------------------------------------------------------------------------------------------
-	if any-not-inferred
-		ctx add-diag range, case_.diag-match-sum-type-cant-infer-type-args
-		sum-type-case-bogus,
-	else
-		(ctx.instantiate-ctx instantiate-struct case_, inferred-types to),
+	ctx.check-ctx.allocators.type-contexts with-type-context-for case_.type-params.size, inferring-context =>
+		inferring-declared-sum-type type-and-context = declared-sum-type.to, inferring-context
+		guard ctx.instantiate-ctx match-types inferring-declared-sum-type, actual-sum-type.to.non-inferring
+		if inferring-context exists x => x is-empty
+			if t ?= expected-case-type[]
+				# Just using this for inference
+				_ = ctx.instantiate-ctx match-types ((ctx.instantiate-ctx instantiate-struct-with-own-type-params case_ to), inferring-context), t.non-inferring
+		
+		any-not-inferred mut bool = false
+		inferred-types type[] = for x : inferring-context
+			x ?? do
+				any-not-inferred := true
+				bogus-type
+		# TODO: NEATER (use map-opt?) ------------------------------------------------------------------------------------------------------------------
+		if any-not-inferred
+			ctx add-diag range, case_.diag-match-sum-type-cant-infer-type-args
+			sum-type-case-bogus,
+		else
+			(ctx.instantiate-ctx instantiate-struct case_, inferred-types to),
 
 -check-match-char expr(
 	ctx expr-ctx,

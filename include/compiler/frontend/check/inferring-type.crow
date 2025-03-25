@@ -1,11 +1,12 @@
 import
-	crow/col/mut-slice
 	../../model/ast
 	../../model/model
 	../../model/source-range
 	../../model/uri
+	../../util/stack-alloc
 	../../util/util
 	../show-model
+	./allocators
 	./expr-ctx
 	./instantiate
 
@@ -15,11 +16,12 @@ import
 	else
 		"uninferred"
 
-type-context alias
-	type? mut-slice
-
-type-context-for type-context(type-params type-params)
-	for _ : type-params; ()
+type-context-for type-context(alloc type? stack-alloc, n-type-params nat) trusted # TODO: don't trust? this must be freed
+	alloc allocate-gc-safe-values n-type-params
+with-type-context-for[t] t(alloc type? stack-alloc, n-type-params nat, f t mut(x type-context)) trusted
+	context = alloc allocate-gc-safe-values n-type-params
+	finally alloc return context
+	f[context]
 debug string(a type-context)
 	if a is-empty
 		"non-inferring"
@@ -150,18 +152,19 @@ with-expect expr-and-type(type type, context type-context, cb expr mut(x expecte
 
 expr-and-option-type record(option expr, non-option-type type)
 with-expect-option expr-and-option-type(
+	alloc type? stack-alloc,
 	instantiate-ctx instantiate-ctx,
 	common-types common-types,
 	cb expr mut(x expected),
 )
 	type-args type[] = 0.type-param-index,
 	option-t type = instantiate-ctx instantiate-struct common-types.option, type-args to
-	inferring-types type-context = (),
-	expected-types type-and-context[] = (option-t, inferring-types),
-	expected expected = expected-types to
-	option = cb[expected]
-	inner-type = inferring-types[0] ?? bogus-type
-	option, inner-type
+	alloc with-type-context-for 1, inferring-types =>
+		expected-types type-and-context[] = (option-t, inferring-types),
+		expected expected = expected-types to
+		option = cb[expected]
+		inner-type = inferring-types[0] ?? bogus-type
+		option, inner-type
 
 with-expect-candidates type(candidates type-and-context[], cb void mut(x expected))
 	expected expected = candidates to
@@ -238,7 +241,7 @@ find-expected-struct-for-literal nat?(
 						multiple ~= struct
 			else
 				rslt := here,
-	
+
 	expected each-choice choice =>
 		match choice type
 		as bogus-type
@@ -256,7 +259,7 @@ find-expected-struct-for-literal nat?(
 				ambiguous := true
 		as struct-inst x
 			handle-struct[x]
-	
+
 	if ambiguous || rslt is-empty
 		ctx add-diag range, (ctx get-expected-for-diag expected).diag-literal-not-expected
 		()
@@ -575,8 +578,8 @@ infer-type-args-from void(ctx instantiate-ctx, a type, a-context type-context, b
 				for ta, tb : ai.type-args zip bi.type-args
 					ctx infer-type-args-from ta, a-context, (tb, b2.context)
 
-is-type-match-possible-for-completions bool(param-type type-with-container, actual-arg-type type)
-	inferring type-context = param-type.container.type-params type-context-for
+is-type-match-possible-for-completions bool(param-type type-with-container, actual-arg-type type) trusted
+	inferring type-context = param-type.container.type-params.size allocate-gc-safe-values-without-stack-alloc
 	(param-type.type, inferring) is-type-match-possible actual-arg-type.non-inferring
 
 -is-type-match-possible bool(a type-and-context, b type-and-context)
