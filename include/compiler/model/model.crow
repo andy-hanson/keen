@@ -206,7 +206,7 @@ is-tuple bool(common-types common-types, a type)
 	if x ?= a struct-inst
 		common-types is-tuple x.decl
 is-tuple bool(common-types common-types, a struct-decl)
-	if actual ?= common-types tuple a.type-params.size
+	if actual ?= common-types tuple a.n-type-params
 		actual == a
 
 as-tuple type[]?(common-types common-types, type type)
@@ -379,38 +379,31 @@ params-array destructure[](a params)
 assert-non-variadic destructure[](a params)
 	a.array!
 
--arity union(nat, arity-varargs)
-arity-varargs record
+| This is logically a union(nat, arity-varargs), but just using a 'nat' for performance
+arity record
+	-value nat
+is-variadic bool(a arity)
+	a.value == max-value
+to arity(a nat)
+	forbid a == max-value
+	a,
+arity-varargs arity()
+	max-value,
+n-params nat(a arity)
+	forbid a is-variadic
+	a value
 
 count-param-decls nat(a arity)
-	match a
-	as nat x
-		x
-	as arity-varargs
-		1
-is-variadic bool(a arity)
-	match a
-	as nat _
-		false
-	as arity-varargs
-		true
+	a.is-variadic ? 1 : a.n-params
 is-empty bool(a arity)
-	match a
-	as nat x
-		x == 0
-	as arity-varargs
-		false
+	a.value == 0
 arity-matches bool(sig-arity arity, n-args nat)
-	match sig-arity
-	as nat x
-		x == n-args
-	as arity-varargs
-		true
+	sig-arity.value == n-args || sig-arity is-variadic
 
 signature-container union(spec-decl, struct-decl)
 	module-uri uri()
 	name symbol()
-	type-params type-params()
+	type-param-asts type-params()
 to type-container(a signature-container)
 	match a
 	as spec-decl x
@@ -691,7 +684,9 @@ doc-comment doc-comment(a struct-alias)
 	a.doc-comment-ast, a.doc-comment-references
 name symbol(a struct-alias)
 	a.ast.name name
-type-params type-params(_ struct-alias)
+n-type-params nat(_ struct-alias)
+	0
+type-param-asts type-params(_ struct-alias)
 	()
 range uri-and-range(a struct-alias)
 	a.module-uri, a.ast.range
@@ -747,7 +742,9 @@ doc-comment-ast doc-comment-ast(a struct-decl)
 	a.source doc-comment
 doc-comment doc-comment(a struct-decl)
 	a.doc-comment-ast, a.doc-comment-references
-type-params type-params(a struct-decl)
+n-type-params nat(a struct-decl)
+	a.type-param-asts size # TODO: if this is called often, store it on the struct-decl ----------------------------------------
+type-param-asts type-params(a struct-decl)
 	a.source type-params
 name symbol(a struct-decl)
 	a.source name
@@ -758,7 +755,7 @@ keyword-range uri-and-range(a struct-decl)
 name-range uri-and-range(a struct-decl)
 	a.module-uri, a.source.name-range
 is-template bool(a struct-decl)
-	a.type-params !is-empty
+	a.n-type-params != 0
 
 must-be-enum-or-flags enum-or-flags-member[](a struct-decl)
 	if x ?= a.body enum_
@@ -873,7 +870,9 @@ doc-comment doc-comment(a spec-decl)
 	a.doc-comment-ast, a.doc-comment-references
 name symbol(a spec-decl)
 	a.ast.name name
-type-params type-params(a spec-decl)
+n-type-params nat(a spec-decl)
+	a.type-param-asts size
+type-param-asts type-params(a spec-decl)
 	a.ast type-params
 body-is-set bool(a spec-decl)
 	a.late-body !is-empty
@@ -1528,17 +1527,17 @@ type-params type-params(a fun-decl-source)
 	as fun-source-ast x
 		x.ast type-params
 	as enum-or-flags-member x
-		x.containing-enum type-params
+		x.containing-enum type-param-asts
 	as fun-source-file-import _
 		()
 	as record-field x
-		x.containing-record type-params
+		x.containing-record type-param-asts
 	as signature x
-		x.container type-params
+		x.container type-param-asts
 	as struct-decl x
-		x type-params
+		x type-param-asts
 	as var-decl x
-		x type-params
+		x type-param-asts
 fun-source-bogus record(module-uri uri, type-params type-params)
 name-range uri-and-range(a fun-source-bogus)
 	a.module-uri top-of-file
@@ -1557,6 +1556,7 @@ fun-decl record force-data
 	source fun-decl-source
 	visibility visibility
 	name symbol
+	n-type-params nat
 	return-type mut type
 	params mut params
 	flags_ fun-flags
@@ -1568,7 +1568,7 @@ fun-decl record force-data
 	trusted a reference-equal b
 hash-mix void(hasher hasher, a fun-decl)
 	hasher hash-mix a.hash
-type-params type-params(a fun-decl)
+type-param-asts type-params(a fun-decl)
 	a.source type-params
 module-uri uri(a fun-decl)
 	a.source module-uri
@@ -1605,7 +1605,7 @@ is-variadic bool(a fun-decl)
 	as varargs _
 		true
 is-template bool(a fun-decl)
-	a.type-params !is-empty || a.specs !is-empty
+	a.n-type-params != 0 || a.specs !is-empty
 arity arity(a fun-decl)
 	a.params arity
 each-spec-in-fun-including-parents bool(a fun-decl, cb bool mut(x spec-inst))
@@ -1644,7 +1644,9 @@ name symbol(_ test_)
 	"test"
 name-range uri-and-range(a test_)
 	a.module-uri, a.ast.keyword-range
-type-params type-params(_ test_)
+n-type-params nat(_ test_)
+	0
+type-param-asts type-params(_ test_)
 	()
 | Treat as public since 'run-all-tests' runs tests from other modules
 visibility visibility(_ test_)
@@ -1709,7 +1711,9 @@ range uri-and-range(a called-spec-sig)
 	a.non-instantiated-sig range
 arity arity(a called-spec-sig)
 	a.non-instantiated-sig.params.size to
-type-params type-params(_ called-spec-sig)
+n-type-params nat(_ called-spec-sig)
+	0
+type-param-asts type-params(_ called-spec-sig)
 	()
 doc-comment doc-comment(a called-spec-sig)
 	a.non-instantiated-sig doc-comment
@@ -1718,7 +1722,8 @@ doc-comment doc-comment(a called-spec-sig)
 called-decl union(fun-decl, called-spec-sig)
 	module-uri uri()
 	name symbol()
-	type-params type-params()
+	n-type-params nat()
+	type-param-asts type-params()
 	return-type type()
 	arity arity()
 	doc-comment doc-comment()
@@ -1750,8 +1755,6 @@ non-instantiated-params params(a called-decl)
 		x.non-instantiated-sig.params to
 is-variadic bool(a called-decl)
 	a.arity is-variadic
-n-type-params nat(a called-decl)
-	a.type-params size
 
 called union(called-bogus, fun-inst, called-spec-sig)
 	return-type type()
@@ -1797,7 +1800,8 @@ struct-or-alias union(struct-alias, struct-decl)
 	name-range uri-and-range()
 	visibility visibility()
 	name symbol()
-	type-params type-params()
+	n-type-params nat()
+	type-param-asts type-params()
 	to any-decl()
 
 | There is no 'var-inst' since these can't be templates
@@ -1821,7 +1825,9 @@ doc-comment doc-comment(a var-decl)
 	a.doc-comment-ast, a.doc-comment-references
 name symbol(a var-decl)
 	a.ast.name name
-type-params type-params(_ var-decl)
+n-type-params nat(_ var-decl)
+	0
+type-param-asts type-params(_ var-decl)
 	()
 kind var-kind(a var-decl)
 	a.ast kind
@@ -1851,7 +1857,9 @@ to json(_ module)
 	throw todo
 module-uri uri(a module)
 	a uri
-type-params type-params(_ module)
+n-type-params nat(_ module)
+	0
+type-param-asts type-params(_ module)
 	()
 range uri-and-range(a module)
 	a.uri top-of-file
@@ -1898,7 +1906,7 @@ any-decl union(fun-decl, spec-decl, struct-alias, struct-decl, test_, var-decl)
 	name-range uri-and-range()
 	doc-comment-ast doc-comment-ast()
 	doc-comment doc-comment()
-	type-params type-params()
+	type-param-asts type-params()
 	visibility visibility()
 == bool(a any-decl, b any-decl)
 hash-mix void(hasher hasher, b any-decl)
@@ -1926,7 +1934,8 @@ type-with-container record(type type, container type-container)
 | This is like AnyDecl, but also includes 'Module' which can have types in its doc comment.
 type-container union(fun-decl, module, spec-decl, struct-alias, struct-decl, test_, var-decl)
 	module-uri uri()
-	type-params type-params()
+	n-type-params nat()
+	type-param-asts type-params()
 	doc-comment doc-comment()
 debug string(a type-container)
 	match a

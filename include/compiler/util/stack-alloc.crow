@@ -1,147 +1,102 @@
 import
 	crow/col/mut-slice
 
-stack-alloc[t] record mut
-	-entries t mut-slice
-	-cur mut nat
+mut-slice-allocator[t] record mut # TODO: rename to mut-slice-allocator ------------------------------------------------------
+	-by-size t mut-slice mut[] mut[]
+	-count-allocated mut nat # TODO: RM (only for debugging) --------------------------------------------------------------
+	-builder t mut[]
+	-building mut bool # TODO: RM (only for debugging) --------------------------------------------------------------------
 
-get-state[t] nat(a t stack-alloc) unsafe
-	a cur
-restore-state[t] void(a t stack-alloc, state nat) unsafe
-	assert state <= a.cur
-	for i : state .. a.cur
-		a.entries[i] := gc-safe-value
-	a.cur := state
+new[t] t mut-slice-allocator()
+	(), 0, (), false
 
-| This array can shrink, but not grow.
-mut-stack-alloced-array[t] record mut
-	-entries t mut-slice
-	-start mut nat
-	-end mut nat
+assert-all-free[t] void(a t mut-slice-allocator)
+	a.count-allocated is 0
 
-new[t] t mut-stack-alloced-array()
-	(), 0, 0
-
-to[t] t[](a t mut-stack-alloced-array)
-	for x : a; x
-
-iterate[t] bool(a t mut-stack-alloced-array, f bool mut(x t))
-	0::nat .. a.size iterate i => f[a[i]]
-
-is-empty[t] bool(a t mut-stack-alloced-array)
-	a.start == a.end
-
-size[t] nat(a t mut-stack-alloced-array)
-	a.end - a.start
-
-clear[t] void(a t mut-stack-alloced-array)
-	a.end := a.start
-
-subscript[t] t(a t mut-stack-alloced-array, index nat)
-	full-index = a.start + index
-	assert full-index < a.end
-	a.entries[full-index]
-
-set-subscript[t] void(a t mut-stack-alloced-array, index nat, value t)
-	full-index = a.start + index
-	assert full-index < a.end
-	a.entries[full-index] := value
-
-pop[t] t?(a t mut-stack-alloced-array)
-	unless a is-empty
-		a.end -:= 1
-		a.entries[a.end],
-
-assert-empty[t] void(a t stack-alloc)
-	a.cur is 0
-
-new[t] t stack-alloc(max-size nat) trusted
-	max-size.gc-safe-mut-slice, 0
-
-
-allocate-gc-safe-values-without-stack-alloc[t] t mut-stack-alloced-array(size nat) unsafe
-	size.gc-safe-mut-slice, 0, size
-
-| Remember to 'return' the result
-allocate-gc-safe-values[t] t mut-stack-alloced-array(a t stack-alloc, size nat) unsafe
+allocate-gc-safe-values[t] t mut-slice(a t mut-slice-allocator, size nat) unsafe
 	guard size != 0
-	res t mut-stack-alloced-array = a.entries, a.cur, a.cur + size
-	assert res.end <= a.entries.size
-	a.cur := res.end
-	res
+	i = size - 1
+	until i < a.by-size.size
+		a.by-size ~= ()
+	xs = a.by-size[i]
+	if xs is-empty
+		xs ~= size gc-safe-mut-slice
+	a.count-allocated +:= 1
+	xs pop!
 
-return[t] void(a t stack-alloc, array t mut-stack-alloced-array) unsafe # TODO: this one in particular can't be trusted -----------------------------------
-	guard array.entries !is-empty # Empty 'mut-stack-alloced-array' is not a slice of the alloc and does not need to be returned
-	assert array.end <= a.cur
-	for i : array.start .. a.cur
-		a.entries[i] := gc-safe-value
-	a.cur := array.start
-
-mut-stack-alloced-array-builder[t] record mut
-	-entries t mut-slice
-	-start nat
-	-end mut nat
-
-~=[t] void(a t mut-stack-alloced-array-builder, value t)
-	a.entries[a.end] := value
-	a.end +:= 1
-
-| Remember to 'return' the result
-build[t] t mut-stack-alloced-array(
-	a t stack-alloc,
-	f void mut(a t mut-stack-alloced-array-builder),
-) unsafe
-	builder t mut-stack-alloced-array-builder = a.entries, a.cur, a.cur
-	a.cur := a.entries.size # Prevent doing any other alloc while building
-	f[builder]
-	a.cur := builder end
-	a.entries, builder.start, builder.end
+free[t] void(a t mut-slice-allocator, array t mut-slice) unsafe
+	guard array !is-empty
+	for i : 0::nat .. array.size
+		array[i] := gc-safe-value
+	a.by-size[array.size - 1] ~= array
+	a.count-allocated -:= 1
 
 test trusted
-	a string stack-alloc = 4,
-	a assert-empty
-	x = a allocate-gc-safe-values 2
-	assert x[0] reference-equal gc-safe-value
-	x.size is 2
-	a.cur is 2
-	x[0] := "a"
-	x[1] := "b"
-	a return x
-	a.cur is 0
-
-	y = a allocate-gc-safe-values 2
-	a.cur is 2
-	assert y[0] reference-equal gc-safe-value
-	a return y
-	a assert-empty
-
+	a string mut-slice-allocator = ()
+	x = a allocate-gc-safe-values 0
+	x.size is 0
+	a free x
+	assert a.by-size is-empty
 test trusted
-	a string stack-alloc = 4,
-	a assert-empty
-	x = a build out =>
-		out ~= "a"
-		out ~= "b"
-	a.cur is 2
-	x.to::string[] is ("a", "b")
-	a return x
-	a assert-empty
-
-test trusted
-	a string stack-alloc = 4,
+	a string mut-slice-allocator = ()
 	x = a allocate-gc-safe-values 1
-	x[0] := "a"
-	a.cur is 1
-	state = a get-state
-	y = a allocate-gc-safe-values 2
-	y[0] := "b"
-	y[1] := "c"
-	_ = a allocate-gc-safe-values 1
-	y[2] := "d"
-	a.cur is 4
-	a restore-state state
-	z = a allocate-gc-safe-values 3
-	for i : 0::nat .. 3
-		assert z[i] reference-equal gc-safe-value
-	a.cur is 1
-	a return x
-	a assert-empty
+	x.size is 1
+	assert x[0] reference-equal gc-safe-value
+	y = a allocate-gc-safe-values 1
+	y.size is 1
+	forbid y reference-equal x
+	assert y[0] reference-equal gc-safe-value
+	a free x
+	a free y
+	a.by-size.size is 1
+	a.by-size[0].size is 2
+	assert a.by-size[0][0] reference-equal x
+	assert a.by-size[0][1] reference-equal y
+
+# TODO: this is basically just a pool, that ensures that the arrays are empty ---------------------------------------------------------
+mut-array-allocator[t] record mut
+	-pool t mut[] mut[]
+	-count-allocated mut nat # TODO: RM (only for debugging) --------------------------------------------------------------
+
+new[t] t mut-array-allocator()
+	(), ()
+
+assert-all-free[t] void(a t mut-array-allocator)
+	a.count-allocated is 0
+
+allocate[t] t mut[](a t mut-array-allocator)
+	a.count-allocated +:= 1
+	a.pool.pop ?? ()
+
+free[t] void(a t mut-array-allocator, value t mut[])
+	assert value is-empty
+	a.pool ~= value
+	a.count-allocated -:= 1
+
+test trusted
+	a string mut-array-allocator = ()
+	xs = a allocate
+	ys = a allocate
+	forbid xs reference-equal ys
+	a.count-allocated is 2
+	a free xs
+	a free ys
+	a assert-all-free
+
+pool[t] record mut
+	-pool t mut[]
+	-count-allocated mut nat
+
+new[t] t pool()
+	(), ()
+
+assert-all-free[t] void(a t pool)
+	a.count-allocated is 0
+
+allocate[t] t(a t pool) t new
+	a.count-allocated +:= 1
+	a.pool.pop ?? ()
+
+free[t] void(a t pool, value t)
+	a.pool ~= value
+	a.count-allocated -:= 1

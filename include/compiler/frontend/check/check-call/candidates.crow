@@ -1,7 +1,6 @@
 import
 	../../../model/model
 	../../../util/perfhax
-	../../../util/stack-alloc
 	../allocators
 	../check-ctx
 	../expr-ctx
@@ -25,34 +24,27 @@ with-candidates[t] t(
 	funs funs-in-scope,
 	fun-name symbol,
 	actual-arity nat,
-	f t mut(candidates candidate mut-stack-alloced-array),
+	# WARN: It's important that this not overwrite candidates
+	f t mut(candidates candidate mut[]),
 ) trusted
 	start = perf-now
-	type-contexts = ctx.allocators type-contexts
-	state = type-contexts get-state
-	candidates = ctx.allocators.candidates build builder =>
-		funs each-fun-in-scope fun-name, called =>
-			if called.arity arity-matches actual-arity
-				builder ~= type-contexts init-candidate called
+	candidates = ctx.allocators allocate-candidates
+	funs each-fun-in-scope fun-name, called =>
+		if called.arity arity-matches actual-arity
+			candidates ~= ctx.allocators init-candidate called
 	start end-get-candidates
 	res = f[candidates]
-	ctx.allocators.candidates return candidates # TODO: this should be done 'finally', but test perf ---------------------------------------------------
-	type-contexts restore-state state # TODO: this should be done 'finally', but test perf ---------------------------------------------------
-	res
-
--init-candidate candidate(alloc type? stack-alloc, called called-decl)
-	start = perf-now
-	res candidate = called, (alloc type-context-for called.type-params.size)
-	start end-init-candidate
+	ctx.allocators free-candidates candidates # TODO: this should be done 'finally', but test perf ---------------------------------------------------
 	res
 
 each-candidate void(ctx check-ctx, funs funs-in-scope, fun-name symbol, actual-arity nat, f void mut(x candidate))
-	type-contexts = ctx.allocators type-contexts
-	state = trusted type-contexts get-state # TODO: it would be better to use 'with-type-context-for' in the loop, since only one is needed at once
+	allocators = ctx allocators
 	funs each-fun-in-scope fun-name, called =>
 		if called.arity arity-matches actual-arity
-			f[type-contexts init-candidate called]
-	trusted type-contexts restore-state state # TODO: this should be done 'finally', but test perf ---------------------------------------------------
+			trusted do
+				candidate = allocators init-candidate called
+				f[candidate]
+				allocators free-candidate candidate # TODO: 'finally' ----------------------------------------------------------
 
 funs-in-scope record mut
 	outermost-fun-specs spec-inst[]

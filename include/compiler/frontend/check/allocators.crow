@@ -1,23 +1,113 @@
 import
+	crow/col/mut-slice
 	../../model/model
 	../../util/stack-alloc
 
 allocators record mut
-	type-contexts type? stack-alloc
-	candidates candidate stack-alloc
+	-type-contexts type? mut-slice-allocator
+	-candidate-arrays candidate mut-array-allocator
+	# Mapping from n-type-params to a pool of candidates
+	-candidate-pools candidate mut[] mut[]
+	-n-live-candidates mut nat
 
 new allocators()
-	type-contexts: 4096,
-	candidates: 4096,
+	(), (), (), 0
 
 assert-empty void(a allocators)
-	a.type-contexts assert-empty
-	a.candidates assert-empty
+	a.type-contexts assert-all-free
+	a.candidate-arrays assert-all-free
+	a.n-live-candidates is 0
 
 type-context alias
-	type? mut-stack-alloced-array
+	type? mut-slice
 
-candidate record mut
-	called called-decl
+with-type-context-for[t] t(allocators allocators, n-type-params nat, f t mut(x type-context)) trusted
+	context = allocators.type-contexts allocate-gc-safe-values n-type-params
+	finally allocators.type-contexts free context
+	f[context]
+
+candidate record mut, -new
+	called -mut called-decl
 	| This is always empty if calling a {called-spec-sig}
-	type-args type-context
+	type-args type? mut-slice
+
+| Remember to call {free-candidate}
+init-candidate candidate(allocators allocators, called called-decl) unsafe
+	n-type-args = called n-type-params
+	while allocators.candidate-pools.size <= n-type-args
+		allocators.candidate-pools ~= ()
+	candidate-pool = allocators.candidate-pools[n-type-args]
+	res = if x ?= candidate-pool pop
+		x.called := called
+		x
+	else
+		called, n-type-args.gc-safe-mut-slice
+	allocators.n-live-candidates +:= 1
+	res
+free-candidate void(allocators allocators, candidate candidate) unsafe # TODO: ideally this would be private to this module ---------
+	candidate.called := gc-safe-value
+	n-type-args = candidate.type-args size
+	for i : 0::nat .. n-type-args
+		candidate.type-args[i] := ()
+	allocators.candidate-pools[n-type-args] ~= candidate
+	allocators.n-live-candidates -:= 1
+
+| Remember to call {free-candidates}
+allocate-candidates candidate mut[](allocators allocators) unsafe
+	allocators.candidate-arrays allocate
+free-candidates void(allocators allocators, candidates candidate mut[]) unsafe
+	for x : candidates
+		allocators free-candidate x
+	candidates clear
+	allocators.candidate-arrays free candidates
+
+clear-candidates void(candidates candidate mut[], allocators allocators) trusted # TODO: since ordinary mut[] operations are unsafe, maybe 'candidates' should be its own type. But test perf.
+	for x : candidates
+		allocators free-candidate x
+	candidates clear
+
+filter-candidates void(a candidate mut[], allocators allocators, f bool mut(x candidate)) trusted
+	i mut nat = 0
+	until i == a.size
+		if f[a[i]]
+			i +:= 1
+		elif i == a.size - 1
+			allocators free-candidate a.pop!
+		else
+			allocators free-candidate a[i]
+			a[i] := a.pop!
+
+| Dut does nothing if {f} returned false for every candidate.
+filter-candidates-but-dont-remove-all void(a candidate mut[], allocators allocators, f bool mut(x candidate)) trusted
+	i mut nat = 0
+	loop
+		if i == a.size
+			break
+		elif f[a[i]]
+			# All previous candidates failed the test
+			while i != 0
+				allocators free-candidate a.pop-left!
+				i -:= 1
+			# But this one passed
+			i +:= 1
+			until i == a.size
+				if f[a[i]]
+					i +:= 1
+				elif i == a.size - 1
+					allocators free-candidate a.pop!
+				else
+					allocators free-candidate a[i]
+					a[i] := a.pop!
+			break
+		else
+			i +:= 1
+			continue
+###
+TODO: RESTORE THIS TEST ---------------------------------------------------------------------------------------------------------
+test
+	xs nat mut[] = 1, 2, 3, 4, 5
+	xs filter-unordered-but-dont-remove-all x => x is-even
+	xs.to::nat[] is (2, 4)
+	xs filter-unordered-but-dont-remove-all x => x !is-even
+	xs.to::nat[] is (2, 4)
+###

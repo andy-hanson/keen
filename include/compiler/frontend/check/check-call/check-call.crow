@@ -1,10 +1,10 @@
 import
+	crow/col/mut-slice
 	../../../../crow/col/mut-array: hint-size
 	../../../model/ast
 	../../../model/model
 	../../../model/source-range
 	../../../util/perfhax
-	../../../util/stack-alloc
 	../../../util/util
 	../allocators
 	../check-ctx
@@ -150,7 +150,7 @@ check-call-special-cb2 expr(
 	expected expected,
 	cb-arg0 expr mut(x expected),
 	cb-arg1 expr mut(x expected),
-	cb-before-check bool mut(x candidate mut-stack-alloced-array),
+	cb-before-check bool mut(x candidate mut[]),
 )
 	check-arg expr mut(i nat, arg-expected expected) = (i, arg-expected) =>
 		match i
@@ -185,23 +185,22 @@ check-call-special-cb-n expr(
 	n-args nat,
 	cb-check-arg expr mut(i nat, arg-expected expected),
 	cb-additional-filter bool mut(candidate called-decl),
-	cb-before-check bool mut(candidates candidate mut-stack-alloced-array),
+	cb-before-check bool mut(candidates candidate mut[]),
 )
-	args expr mut[] = ()
-	args hint-size n-args
+	args expr mut-slice = trusted n-args gc-safe-mut-slice
 	check-arg void mut(i nat, arg-expected expected) = (i, arg-expected) =>
-		args ~= cb-check-arg[i, arg-expected]
+		args[i] := cb-check-arg[i, arg-expected]
 	match ctx check-call-cb locals, diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-additional-filter, cb-before-check
 	as called called
 		# Check should always succeed, but we need it to set the inferred type
-		ctx check expected, called.return-type, (source call-expr called, args.move-to)
+		ctx check expected, called.return-type, (source call-expr called, trusted args.cast-immutable)
 	as call-failure _
 		candidates = ctx get-candidate-decls-for-bogus fun-name
 		if candidates is-empty
 			expected bogus source.range
 		else
 			expected set-to-bogus-if-inferring
-			source bogus-call-expr candidates, args.move-to, expected.inferred
+			source bogus-call-expr candidates, (trusted args.cast-immutable), expected.inferred
 -get-candidate-decls-for-bogus called-decl[](ctx expr-ctx, fun-name symbol)
 	with out : build
 		ctx.funs-in-expr-scope each-fun-in-scope  fun-name, called =>
@@ -219,10 +218,10 @@ check-call-special-cb-n expr(
 	expected expected,
 	cb-check-arg cb-check-arg,
 	cb-additional-filter bool mut(x called-decl),
-	cb-before-check bool mut(x candidate mut-stack-alloced-array),
+	cb-before-check bool mut(x candidate mut[]),
 )
 	ctx.check-ctx with-candidates ctx.funs-in-expr-scope, fun-name, n-args, candidates =>
-		candidates filter-unordered candidate =>
+		candidates filter-candidates ctx.allocators, candidate =>
 			ctx.common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
 			ctx.instantiate-ctx match-expected-vs-return-type-no-diagnostic expected, (candidate.called.return-type, candidate.type-context-for-candidate) &&
 			cb-additional-filter[candidate called]
@@ -252,7 +251,7 @@ find-function-for-return-and-param-types called?(
 )
 	arity = return-and-param-types.param-types size
 	ctx with-candidates funs-in-scope, name, arity, candidates =>
-		candidates filter-unordered@(candidate mut-stack-alloced-array, candidate) candidate =>
+		candidates filter-candidates ctx.allocators, candidate =>
 			common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
 			ctx.instantiate-ctx test-candidate-for-spec-sig candidate, return-and-param-types, non-inferring
 		if x ?= candidates opt-only
@@ -302,7 +301,7 @@ find-function-for-return-and-param-types called?(
 	diag-range source-range,
 	fun-name symbol,
 	explicit-type-arg type?,
-	candidates candidate mut-stack-alloced-array,
+	candidates candidate mut[],
 	expected expected,
 	n-args nat,
 	cb-check-arg cb-check-arg,
@@ -312,24 +311,24 @@ find-function-for-return-and-param-types called?(
 	some-arg-is-bogus mut = false
 	for arg-idx : 0::nat .. n-args
 		guard candidates !is-empty : break
-		candidates filter-unordered-but-dont-remove-all x => ctx pre-check-candidate-specs x
+		candidates filter-candidates-but-dont-remove-all ctx.allocators, x => ctx pre-check-candidate-specs x
 		arg-type = ctx.instantiate-ctx with-param-expected candidates, arg-idx, arg-expected =>
 			cb-check-arg[arg-idx, arg-expected]
 		actual-arg-types ~= arg-type
 		# If it failed to check, don-t continue, just stop there
 		if arg-type is-bogus
 			some-arg-is-bogus := true
-			candidates clear
+			candidates clear-candidates ctx.allocators
 			break
 		else
-			candidates filter-unordered candidate =>
+			candidates filter-candidates ctx.allocators, candidate =>
 				ctx.instantiate-ctx test-candidate-param-type candidate, arg-idx, arg-type.non-inferring
 			continue
 	
 	guard !some-arg-is-bogus : call-failure
 
 	start = perf-now
-	candidates filter-unordered-but-dont-remove-all x => ctx pre-check-candidate-specs x
+	candidates filter-candidates-but-dont-remove-all ctx.allocators, x => ctx pre-check-candidate-specs x
 
 	res call-inner-result = if x ?= candidates opt-only
 		result = ctx.check-ctx check-call-after-choosing-overload ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope,
@@ -385,7 +384,7 @@ find-function-for-return-and-param-types called?(
 			candidate.type-args[i] := arg,
 	ok
 
--with-param-expected type(ctx instantiate-ctx, candidates candidate mut-stack-alloced-array, arg-idx nat, cb void mut(x expected)) # TODO: no need for 'with' --------------------------
+-with-param-expected type(ctx instantiate-ctx, candidates candidate mut[], arg-idx nat, cb void mut(x expected)) # TODO: no need for 'with' --------------------------
 	out type-and-context mut[] = ()
 	for candidate : candidates
 		expected = ctx get-candidate-expected-parameter-type candidate, arg-idx
@@ -424,7 +423,7 @@ find-function-for-return-and-param-types called?(
 -== bool(a continue-or-abort, b continue-or-abort)
 -infer-candidate-type-args-from-explicitly-typed-argument continue-or-abort(
 	ctx expr-ctx,
-	candidates candidate mut-stack-alloced-array,
+	candidates candidate mut[],
 	arg-index nat,
 	arg expr-ast,
 )
@@ -434,7 +433,7 @@ find-function-for-return-and-param-types called?(
 		continue_
 -infer-candidate-type-args-from-lambda-parameter continue-or-abort(
 	ctx expr-ctx,
-	candidates candidate mut-stack-alloced-array,
+	candidates candidate mut[],
 	arg-index nat,
 	param-ast destructure-ast,
 )
@@ -486,7 +485,7 @@ find-function-for-return-and-param-types called?(
 )
 	call-context = call-candidate type-context-for-candidate
 	ctx.check-ctx with-candidates ctx.funs-in-expr-scope, spec-sig.name, spec-sig.params.size, spec-candidates =>
-		spec-candidates filter-unordered x =>
+		spec-candidates filter-candidates ctx.allocators, x =>
 			ctx.instantiate-ctx test-candidate-for-spec-sig x, return-and-param-types, call-context
 		match spec-candidates size
 		as 0
