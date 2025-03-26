@@ -1,14 +1,13 @@
+# TODO: RENAME THIS FILE -------------------------------------------------------------------------------------------------
 import
 	crow/col/mut-slice
 
-mut-slice-allocator[t] record mut # TODO: rename to mut-slice-allocator ------------------------------------------------------
+mut-slice-allocator[t] record mut
 	-by-size t mut-slice mut[] mut[]
 	-count-allocated mut nat # TODO: RM (only for debugging) --------------------------------------------------------------
-	-builder t mut[]
-	-building mut bool # TODO: RM (only for debugging) --------------------------------------------------------------------
 
 new[t] t mut-slice-allocator()
-	(), 0, (), false
+	(), 0
 
 assert-all-free[t] void(a t mut-slice-allocator)
 	a.count-allocated is 0
@@ -19,10 +18,11 @@ allocate-gc-safe-values[t] t mut-slice(a t mut-slice-allocator, size nat) unsafe
 	until i < a.by-size.size
 		a.by-size ~= ()
 	xs = a.by-size[i]
-	if xs is-empty
-		xs ~= size gc-safe-mut-slice
 	a.count-allocated +:= 1
-	xs pop!
+	if xs is-empty
+		size gc-safe-mut-slice
+	else
+		xs pop!
 
 free[t] void(a t mut-slice-allocator, array t mut-slice) unsafe
 	guard array !is-empty
@@ -39,21 +39,26 @@ test trusted
 	assert a.by-size is-empty
 test trusted
 	a string mut-slice-allocator = ()
+	unless extern js # TODO: get constants working better in JS (so the reference-equal works) ----------------------------------
+		assert a allocate-gc-safe-values 0 reference-equal ()
 	x = a allocate-gc-safe-values 1
 	x.size is 1
-	assert x[0] reference-equal gc-safe-value
 	y = a allocate-gc-safe-values 1
 	y.size is 1
 	forbid y reference-equal x
-	assert y[0] reference-equal gc-safe-value
 	a free x
 	a free y
 	a.by-size.size is 1
 	a.by-size[0].size is 2
-	assert a.by-size[0][0] reference-equal x
-	assert a.by-size[0][1] reference-equal y
+	assert a.by-size[0][0] mut-slice-identical x
+	assert a.by-size[0][1] mut-slice-identical y
 
-# TODO: this is basically just a pool, that ensures that the arrays are empty ---------------------------------------------------------
+-mut-slice-identical[t] bool(a t mut-slice, b t mut-slice) bare, unsafe
+	if extern native
+		a.begin-pointer == b.begin-pointer && a.size == b.size
+	else
+		a reference-equal b
+
 mut-array-allocator[t] record mut
 	-pool t mut[] mut[]
 	-count-allocated mut nat # TODO: RM (only for debugging) --------------------------------------------------------------
@@ -82,21 +87,3 @@ test trusted
 	a free xs
 	a free ys
 	a assert-all-free
-
-pool[t] record mut
-	-pool t mut[]
-	-count-allocated mut nat
-
-new[t] t pool()
-	(), ()
-
-assert-all-free[t] void(a t pool)
-	a.count-allocated is 0
-
-allocate[t] t(a t pool) t new
-	a.count-allocated +:= 1
-	a.pool.pop ?? ()
-
-free[t] void(a t pool, value t)
-	a.pool ~= value
-	a.count-allocated -:= 1

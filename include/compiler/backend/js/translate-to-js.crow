@@ -99,7 +99,8 @@ translate-to-js js-and-map(
 	as concrete-flags _
 		(source gen-assert-integral get),
 	as concrete-record _
-		(source gen-assert-instanceof get, (ctx js-name a.struct)),
+		unless a.struct is-empty-struct
+			(source gen-assert-instanceof get, (ctx js-name a.struct)),
 	as concrete-union _
 		(source gen-assert-instanceof get, (ctx js-name a.struct)),
 	as concrete-struct-body-deferred
@@ -180,7 +181,7 @@ translate-to-js js-and-map(
 		# TODO: we should probably just eliminate these values from concrete-model! -----------------------------------------
 		typeof["undefined"]
 	as weak-ref
-		throw todo
+		instanceof["WeakRef"]
 -gen-assert-instanceof js-statement(source source, get js-expr, name js-name)
 	source gen-assert (source gen-instanceof get, (source gen-identifier name))
 -gen-assert-typeof js-statement(source source, get js-expr, type string)
@@ -597,9 +598,9 @@ translate-to-js js-and-map(
 	as unsafe-to-nat32-from-nat64
 		arg to
 	as weak-ref-get
-		throw todo
+		source throw-message "TODO: weak-ref-get" to
 	as weak-ref-new
-		throw todo
+		source throw-message "TODO: weak-ref-new" to
 
 -translate-builtin-unary-math js-expr-or-block-statement(source source, a builtin-unary-math, arg js-expr)
 	f32 js-expr-or-block-statement data(name string) = name =>
@@ -1026,24 +1027,29 @@ translate-to-js js-and-map(
 	type = a.type struct
 	match a kind
 	as array-op-concrete-expr x
-		xs = ctx to-js-expr x.in-array
-		if type is-void
-			local js-name = ctx local-or-ignore-name x.local
-			(source, (local js-for-of-statement xs, (ctx to-block-statement x.body))) to
-		else
-			# `xs.map(x => {... })` or `await Array.fromAsync(xs, async x => { ... })`
-			params js-params = if l ?= x local
-				((ctx local-name l to),) to
-			body = ctx to-expr-or-block-statement x.body
-			async = ctx is-cur-fun-async
-			arrow js-arrow-function = async, params, body
-			fn js-expr = source, arrow.to
-			match async
-			as sync
-				source gen-call-property-sync xs, "map".no-prefix, (fn,) to
-			as async
-				map = source gen-call-property-sync (source gen-global "Array"), "fromAsync".no-prefix, (xs, fn)
-				source gen-await map to
+		match x input-kind
+		as array
+			xs = ctx to-js-expr x.input
+			match x output-kind a.type
+			as array
+				# `xs.map(x => {... })` or `await Array.fromAsync(xs, async x => { ... })`
+				params js-params = if l ?= x local
+					((ctx local-name l to),) to
+				body = ctx to-expr-or-block-statement x.body
+				async = ctx is-cur-fun-async
+				arrow js-arrow-function = async, params, body
+				fn js-expr = source, arrow.to
+				match async
+				as sync
+					source gen-call-property-sync xs, "map".no-prefix, (fn,) to
+				as async
+					map = source gen-call-property-sync (source gen-global "Array"), "fromAsync".no-prefix, (xs, fn)
+					source gen-await map to
+			as void
+				local js-name = ctx local-or-ignore-name x.local
+				(source, (local js-for-of-statement xs, (ctx to-block-statement x.body))) to
+		as range
+			throw todo
 	as builtin-concrete-expr x
 		ctx translate-builtin a.type, source, x.fun, x.type-args, for arg : x args
 			ctx to-js-expr arg
@@ -1370,8 +1376,7 @@ translate-to-js js-and-map(
 			source gen-new class_, for field, arg : x.fields zip ctx.program.all-constants.records[type]![r] # TODO: use a global const instead of creating a new one each time
 				ctx translate-constant source, field.type.struct, arg
 		as constant-gc-safe-value
-			error log "TWAS A GC SAFE VALUE FOR RECORD?" # -----------------------------------------------------------------
-			throw unreachable
+			source gen-null
 		as constant-null
 			source gen-null
 		else
@@ -1489,7 +1494,13 @@ translate-to-js js-and-map(
 	as void
 		source gen-undefined
 	as weak-ref
-		throw todo
+		match a
+		as constant-gc-safe-value
+			source gen-null
+		as constant-null
+			source gen-null
+		else
+			throw unreachable
 
 -gc-safe-value-for-type js-expr(source source, type concrete-type)
 	match type.struct body

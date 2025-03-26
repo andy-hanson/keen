@@ -158,9 +158,16 @@ include/compiler/backend/java/lib/Crow.class: include/compiler/backend/java/lib/
 bin/crowcrow: bin/crowd $(include_dependencies) 
 	bin/crowd build include/compiler/app/main.crow --optimize --out bin/crowcrow
 
+bin/crow-lkg: bin/crowcrow
+	rm -rf bin/crowlkg
+	bin/crowcrow build include/compiler/app/main.crow --out java:bin/crowlkg
+	cd bin/crowlkg && jar --create --file=../crow-lkg --main-class=Main *
+	chmod +x bin/crow-lkg
+	rm -rf bin/crowlkg
+
 bin/crowj: bin/crowcrow $(include_dependencies)
 	rm -rf bin/crowjava
-	bin/crowcrow build include/compiler/app/main.crow --out java:bin/crowjava
+	bin/crowcrow build include/compiler/app/main.crow --out java:bin/crowjava # TODO: USE crow-lkg ----------------------------
 	cd bin/crowjava && jar --create --file=../crowj --main-class=Main *
 	chmod +x bin/crowj
 

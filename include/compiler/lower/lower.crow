@@ -632,7 +632,7 @@ mut-concrete-fun-to-low-fun-index alias
 	range = expr range
 	match expr kind
 	as array-op-concrete-expr x
-		ctx get-array-op-low-expr locals, expr-pos, type, range, x
+		ctx get-array-op-low-expr locals, expr-pos, type, expr.type, range, x
 	as builtin-concrete-expr x
 		ctx get-call-builtin-expr locals, type, range, x.fun, x.type-args, x.args # TODO: doesn't this need to handle expr-pos?
 	as call-concrete-expr x
@@ -763,6 +763,7 @@ mut-concrete-fun-to-low-fun-index alias
 	locals locals,
 	expr-pos expr-pos,
 	type low-type,
+	concrete-type concrete-type,
 	range uri-and-range,
 	x array-op-concrete-expr,
 )
@@ -775,33 +776,38 @@ mut-concrete-fun-to-low-fun-index alias
 		out[i] = xs[i]
 	out
 	###
-	in-array-type = ctx.type-ctx low-type-from-concrete-type x.in-array.type
-	in-array-expr = ctx get-low-expr locals, in-array-type, x.in-array, non-tail
-	res = ctx gen-let-temp-possibly-gc-root expr-pos, range, in-array-expr, (ctx expression-may-yield x.body), (inner-pos, xs) =>
-		size = range gen-array-size xs
-		out-element-type low-type = type array-element-type
-		body low-expr mut(i low-expr) = i =>
-			if l ?= x local
-				ctx with-low-local locals, l, (inner-locals, low-local) =>
-					# Don't need a redundant GC root since this is an array element
-					body = ctx get-low-expr inner-locals, out-element-type, x.body, non-tail
-					range gen-let-no-gc-root low-local, (range gen-array-get xs, i), body
-			else
-				ctx get-low-expr locals, void.to, x.body, non-tail
-		if type is-void
-			loop_ = ctx gen-range-loop range, size, body, range.gen-void
-			ctx handle-expr-pos inner-pos, loop_
-		else
-			alloc-out = ctx gen-allocate-array range, out-element-type, size
-			assert alloc-out.type == type
-			ctx gen-let-temp-possibly-gc-root expr-pos, range, alloc-out, (ctx expression-may-yield x.body), (inner2-pos, out-array) =>
-				set-to-body low-expr mut(i low-expr) = i =>
-					range gen-array-set out-array, i, body[i]
-				assert out-array.type == type
-				loop_ = ctx gen-range-loop range, size, set-to-body, out-array
-				ctx handle-expr-pos inner2-pos, loop_
-	assert type == res.type
-	res
+	match x input-kind
+	as array
+		in-array-type = ctx.type-ctx low-type-from-concrete-type x.input.type
+		in-array-expr = ctx get-low-expr locals, in-array-type, x.input, non-tail
+		res = ctx gen-let-temp-possibly-gc-root expr-pos, range, in-array-expr, (ctx expression-may-yield x.body), (inner-pos, xs) =>
+			size = range gen-array-size xs
+			out-element-type low-type = type array-element-type
+			body low-expr mut(i low-expr) = i =>
+				if l ?= x local
+					ctx with-low-local locals, l, (inner-locals, low-local) =>
+						# Don't need a redundant GC root since this is an array element
+						body = ctx get-low-expr inner-locals, out-element-type, x.body, non-tail
+						range gen-let-no-gc-root low-local, (range gen-array-get xs, i), body
+				else
+					ctx get-low-expr locals, void.to, x.body, non-tail
+			match x output-kind concrete-type
+			as array
+				alloc-out = ctx gen-allocate-array range, out-element-type, size
+				assert alloc-out.type == type
+				ctx gen-let-temp-possibly-gc-root expr-pos, range, alloc-out, (ctx expression-may-yield x.body), (inner2-pos, out-array) =>
+					set-to-body low-expr mut(i low-expr) = i =>
+						range gen-array-set out-array, i, body[i]
+					assert out-array.type == type
+					loop_ = ctx gen-range-loop range, size, set-to-body, out-array
+					ctx handle-expr-pos inner2-pos, loop_
+			as void
+				loop_ = ctx gen-range-loop range, size, body, range.gen-void
+				ctx handle-expr-pos inner-pos, loop_
+		assert type == res.type
+		res
+	as range
+		throw todo
 
 -gen-range-loop low-expr(
 	ctx get-low-expr-ctx,

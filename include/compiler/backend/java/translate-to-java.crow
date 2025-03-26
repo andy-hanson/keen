@@ -1536,10 +1536,11 @@ translate-to-java-classes (string, nat8[])[](
 	match a kind
 	as array-op-concrete-expr x
 		###
-		in-array = ...
-		size = in-array.size
+		input = ...
+		index = 0 (for array) or input.low (for range)
+		end = input.length (for array) or input.high (for range)
+		size = end (for array) or end - index (for range)
 		out-array = size new-array
-		index = 0
 		loop:
 		if index == size: goto end
 		local = in-array[index]
@@ -1554,53 +1555,47 @@ translate-to-java-classes (string, nat8[])[](
 		If input array size is 0, return a constant empty array and skip the rest. (This is also an important optimization!)
 		If input is non-0, we can have the condition at the bottom of the loop (instead of a 'goto')
 		###
-		out emit-and-continue ctx, x.in-array
-		ctx must-pop x.in-array.type.struct
-		in-array = out begin-synthetic-local ctx, x.in-array.type.struct
+		out emit-and-continue ctx, x.input
+		ctx must-pop x.input.type.struct
+		input = out begin-synthetic-local ctx, x.input.type.struct
 		empty-out-elem = x.out-element.struct is-empty-struct
-		unless type is-void
-			out get-array-size x.in-element.struct, in-array
+		is-void = match x output-kind a.type
+		as array
+			false
+		as void
+			true
+		unless is-void
+			out get-array-size x.in-element.struct, input
 			unless empty-out-elem
 				out new-array-for-type ctx, x.out-element.struct
 		out-array = out begin-synthetic-local ctx, type
 		out iconst 0
+		out get-array-size x.in-element.struct, input
 		nat32 = ctx.ctx.program.common-funs.concrete-common-funs-java! nat32
-		jump-to-end mut deferred-jump? = ()
-		index = out begin-synthetic-local ctx, nat32
-		loop_ = out can-jump-back-to-here ctx.cur-stack-frame
-		out get-array-size x.in-element.struct, in-array
-		out iload index
-		out isub
-		jump-to-end := out.ifeq,
-		unless empty-out-elem
-			out aload out-array
-			ctx pushed type
-			out iload index
-			ctx pushed nat32
-		unless x.in-element.struct is-empty-struct
-			out aload in-array
-			out iload index
-			out xaload x.in-element.struct.as-runtime-type
-			ctx pushed x.in-element.struct
-		out emit-with-opt-local ctx, x.local, x.in-element.struct, continue_, x.body
-		unless empty-out-elem
-			out astore x.out-element.struct.as-runtime-type
-			ctx must-pop x.out-element.struct
-			ctx must-pop nat32
-			ctx must-pop type
-		out increment-int index
-		out go-back-to loop_
-		ctx end-synthetic-local nat32, index
-		# If there is no return type, make sure the stack frame does not include locals (since it may be the same bytecode pos as the beginning stack frame of a loop)
-		unless type is-void
-			jump-to-end! jumps-to-here out, ctx.cur-stack-frame
-			out xload type.as-runtime-type, out-array
-			ctx pushed type
-		ctx end-synthetic-local type, out-array
-		ctx end-synthetic-local x.in-array.type.struct, in-array
-		if type is-void
-			jump-to-end! jumps-to-here out, ctx.cur-stack-frame
-		out handle-pos pos, type # TODO: then there is a double jump in some cases, improve? -------------------
+		loop-body void mut(index local-index) = index =>
+			unless empty-out-elem
+				out aload out-array
+				ctx pushed type
+				out iload index
+				ctx pushed nat32
+			unless x.in-element.struct is-empty-struct
+				out aload input
+				out iload index
+				out xaload x.in-element.struct.as-runtime-type
+				ctx pushed x.in-element.struct
+			out emit-with-opt-local ctx, x.local, x.in-element.struct, continue_, x.body
+			unless empty-out-elem
+				out astore x.out-element.struct.as-runtime-type
+				ctx must-pop x.out-element.struct
+				ctx must-pop nat32
+				ctx must-pop type
+		out loop-range ctx, pos, type, nat32, loop-body, () =>
+			# If there is no return type, make sure the stack frame does not include locals (since it may be the same bytecode pos as the beginning stack frame of a loop)
+			unless is-void
+				out xload type.as-runtime-type, out-array
+				ctx pushed type
+			ctx end-synthetic-local type, out-array
+			ctx end-synthetic-local x.input.type.struct, input
 	as builtin-concrete-expr x
 		out translate-builtin ctx, x.fun, x.type-args, type, x.args
 		out handle-pos pos, type
@@ -2030,11 +2025,69 @@ translate-to-java-classes (string, nat8[])[](
 		as nullable
 			out call-static "Crow", "oneIfNotNull", "(Ljava/lang/Object;)L"
 
--increment-int void(out code-builder, local nat)
-	out iload local
-	out iconst 1
-	out iadd
-	out istore local
+| Caller should push two integrals 'cur' and 'end' on the stack before calling this.
+-loop-range void(
+	out code-builder,
+	ctx expr-ctx,
+	pos expr-pos,
+	type concrete-struct,
+	integral-type concrete-struct,
+	loop-body void mut(index local-index),
+	after-loop void mut()
+)
+	###
+	if cur == end: goto bottom
+	loop:
+	<<loop body>>
+	cur++
+	if cur != end: goto loop
+	bottom:
+	###
+	end = out begin-synthetic-local ctx, integral-type
+	cur = out begin-synthetic-local ctx, integral-type
+	cur-minus-end void mut() = () =>
+		out xload integral-type.as-runtime-type, cur
+		out xload integral-type.as-runtime-type, end
+		out xsub integral-type
+	cur-minus-end[]
+	goto-bottom = out ifeq
+	
+	loop_ = out can-jump-back-to-here ctx.cur-stack-frame
+	loop-body[cur]
+
+	out increment-integral cur, integral-type
+	cur-minus-end[]
+	out ifne loop_
+
+	# If it's void, 'after-loop' may do nothing
+	ctx end-synthetic-local integral-type, cur
+	ctx end-synthetic-local integral-type, end
+	goto-bottom jumps-to-here out, ctx.cur-stack-frame
+	before = out next-index
+	after-loop[]
+	if out.next-index == before
+		# Give it space for a stack frame after the loop
+		out nop
+	out handle-pos pos, type # TODO: then there is a double jump in some cases, improve? -------------------
+
+-xsub void(out code-builder, integral-type concrete-struct)
+	match integral-type.as-runtime-type java-primitive-type!
+	as T_LONG
+		out lsub 
+	else
+		out isub
+
+-increment-integral void(out code-builder, local nat, integral-type concrete-struct)
+	java-type = integral-type as-runtime-type
+	out xload java-type, local
+	match java-type java-primitive-type!
+	as T_LONG
+		out lconst 1
+		out ladd
+	else
+		out iconst 1
+		out iadd
+	out xstore java-type, local
 
 -get-local void(out code-builder, ctx expr-ctx, local concrete-local)
 	unless local.type.struct is-empty-struct
@@ -2175,6 +2228,8 @@ translate-to-java-classes (string, nat8[])[](
 	unless local.type.struct is-empty-struct
 		ctx.locals.pop! is local.to
 
+-local-index alias
+	nat
 -begin-synthetic-local nat(out code-builder, ctx expr-ctx, local-type concrete-struct)
 	local = ctx next-local-index
 	unless local-type is-empty-struct
