@@ -14,11 +14,10 @@ import
 
 concretize-fun-body concrete-expr(ctx concretize-ctx, cf concrete-fun, expr expr)
 	cf with-params params =>
-		expr-ctx concretize-expr-ctx = ctx, cf, (cf.params.size,)
-		locals locals = ()
+		expr-ctx concretize-expr-ctx = ctx, cf, (), (cf.params.size,)
 		# Ignore closure param, which is never destructured.
 		params-to-destructure = cf.params[(params.size + 1 == cf.params.size ? 1 : 0) .. end]
-		expr-ctx concretize-with-param-destructures cf.return-type, locals, params.to, params-to-destructure, expr
+		expr-ctx concretize-with-param-destructures cf.return-type, params.to, params-to-destructure, expr
 
 # TODO: no need for 'with' -----------------------------------------------------------------------------------------------------------
 -with-params[t] t(cf concrete-fun, f t mut(x destructure[]))
@@ -38,30 +37,22 @@ concretize-fun-body concrete-expr(ctx concretize-ctx, cf concrete-fun, expr expr
 -concretize-with-param-destructures concrete-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
-	locals locals,
 	params destructure array-view,
 	concrete-params concrete-local array-view,
 	expr expr,
 )
-	params.size is concrete-params.size
-	if params is-empty
-		ctx concretize-expr type, locals, expr
-	else
-		# TODO: PERF inline this --------------------------------------------------------------------------------------------------
-		rest concrete-expr mut(inner-locals locals) = inner-locals =>
-			ctx concretize-with-param-destructures type, inner-locals, params[1 .. end], concrete-params[1 .. end], expr
-		match params[0]
-		as destructure-ignore _
-			rest[locals]
-		as local local
-			rest[locals add-local local, concrete-params[0].to]
-		as destructure-split x
-			ctx concretize-with-destructure-split type, (ctx to-uri-and-range params[0].range), locals, x, concrete-params[0], rest
+	for param, concrete-param : params zip concrete-params
+		ctx begin-param-destructure param, concrete-param
+	res mut = ctx concretize-expr type, expr
+	for param, concrete-param : params zip concrete-params
+		res := ctx end-param-destructure type, (ctx to-uri-and-range param.range), param, concrete-param, res
+	res
 
 concretize-expr-ctx record mut
 	concretize-ctx concretize-ctx
 	| This is the concrete-fun for a lambda, not its containing fun. (TODO: Actually, when preserving lambdas, it's the containing fun) -----
 	cur-fun concrete-fun
+	locals local-or-constant mut[local]
 	local-ids concrete-local-ids
 preserve-lambdas bool(a concretize-expr-ctx)
 	a.concretize-ctx preserve-lambdas
@@ -101,7 +92,6 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a call-expr,
 )
 	if concrete-called ?= ctx get-concrete-fun-from-called a.called
@@ -109,27 +99,27 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 			ctx concretize-bogus type, range
 		elif concrete-called is-array-op # TODO: it's a bit wasteful to give the function a body in get-concrete-fun-from-called only to ignore it here ....
 			input-arg, lambda-arg = a.args only2
-			input = ctx concretize-expr concrete-called.params[0].type, locals, input-arg
+			input = ctx concretize-expr concrete-called.params[0].type, input-arg
 			in-element-type = input.type is-range ? input.type.range-element-type : input.type array-element-type
 			out-element-type = type.is-void ? type : type array-element-type
 			match lambda-arg
 			as lambda-expr l
 				forbid _ ?= l.mut-type-for-explicit-shared # This won't happen because 'for-loop' takes a 'mut' lambda
 				rg uri-and-range = ctx.cur-uri, lambda-arg.range
-				body root-local-and-expr = ctx concretize-with-destructure out-element-type, rg, locals, l.param, inner-locals =>
-					ctx concretize-expr out-element-type, inner-locals, l.body
+				body = ctx concretize-with-destructure out-element-type, rg, l.param, () =>
+					ctx concretize-expr out-element-type, l.body
 				type, range, (input array-op-concrete-expr body.root-local, body.expr)
 			else
 				lambda-type = concrete-called.params[1].type
 				temp concrete-local = ctx.local-ids.take-next-id, member.to, lambda-type # TODO: use a new kind, not 'member'
-				lambda = ctx concretize-expr lambda-type, locals, lambda-arg
+				lambda = ctx concretize-expr lambda-type, lambda-arg
 				in-element concrete-local = ctx.local-ids.take-next-id, member.to, in-element-type # TODO: use a new kind, not 'member'
 				assert ctx preserve-lambdas : todo # If not: We need to find the lambda calling function and call it here ------------------
 				body = builtin-fun-call-lambda builtin-concrete-expr (out-element-type, in-element-type), ((range gen-local-get temp), (range gen-local-get in-element))
 				then concrete-expr = type, range, (input array-op-concrete-expr (in-element,), (out-element-type, range, body))
 				type gen-let range, temp, lambda, then
 		else
-			ctx concretize-call-inner type, range, locals, concrete-called, a.args
+			ctx concretize-call-inner type, range, concrete-called, a.args
 	else
 		ctx concretize-bogus type, range
 
@@ -155,12 +145,11 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	concrete-called concrete-fun,
 	args expr[],
 )
 	assert concrete-called.return-type == type
-	concrete-args = ctx get-concrete-args range, locals, concrete-called, args
+	concrete-args = ctx get-concrete-args range, concrete-called, args
 	type, range, match concrete-args
 	as constants constants
 		if constant ?= ctx.concretize-ctx try-eval-constant concrete-called, constants.constants, ctx.concretize-ctx.version-info
@@ -195,7 +184,6 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 -get-concrete-args constants-or-exprs(
 	ctx concretize-expr-ctx, 
 	range uri-and-range,
-	locals locals,
 	concrete-called concrete-fun,
 	args expr[],
 )
@@ -204,11 +192,11 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 		array-type = concrete-called.params.only type
 		element-type = array-type array-element-type
 		pre = args-may-be-constants as-constants-or-exprs-if for arg : args
-			ctx concretize-expr element-type, locals, arg
+			ctx concretize-expr element-type, arg
 		ctx constants-or-exprs-arr range, array-type, pre
 	else
 		args-may-be-constants as-constants-or-exprs-if for param, arg : concrete-called.params zip args
-			ctx concretize-expr param.type, locals, arg
+			ctx concretize-expr param.type, arg
 
 -concretize-builtin-binary-lazy concrete-expr-kind(
 	ctx concretize-expr-ctx,
@@ -235,7 +223,6 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a call-option-expr,
 )
 	assert type is-option
@@ -244,13 +231,13 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 	guard called ?= ctx get-concrete-fun-from-called a.called : ctx concretize-bogus type, range
 	# TODO: should get-concrete-fun-from-called just return nothing if the return type is bogus? -----------------------------------
 	guard called.return-type !is-bogus : ctx concretize-bogus type, range
-	option = ctx concretize-expr locals, a.first-arg
+	option = ctx concretize-expr a.first-arg
 	local concrete-local = ctx.local-ids.take-next-id, destruct::concrete-generated-local-kind.to, called.params[0].type
 	a.rest-args.size + 1 is called.params.size
 	all-args concrete-expr[] = with out : 1 + a.rest-args.size build # TODO: just inline below ----------------------------------
 		out ~= range gen-local-get local
 		for i, x : a.rest-args with-index
-			out ~= ctx concretize-expr called.params[i + 1].type, locals, x
+			out ~= ctx concretize-expr called.params[i + 1].type, x
 	call = range gen-call called, all-args
 	some-call = if call.type == type
 		call
@@ -272,11 +259,10 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a closure-get-expr,
 )
 	if ctx preserve-lambdas
-		ctx concretize-local-get type, range, locals, a.local
+		ctx concretize-local-get type, range, a.local
 	else
 		info = ctx get-closure-field-info a.closure-ref
 		get-field = ctx get-closure-field range, a.closure-ref
@@ -299,17 +285,16 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a closure-set-expr,
 )
 	if ctx preserve-lambdas
-		ctx concretize-local-set range, locals, a.local, a.value
+		ctx concretize-local-set range, a.local, a.value
 	else
 		assert a.closure-ref.closure-reference-kind == allocated
 		info = ctx get-closure-field-info a.closure-ref
 		assert info.reference-kind == allocated
 		field = ctx get-closure-field range, a.closure-ref
-		value = ctx concretize-expr info.referenced-type, locals, a.value
+		value = ctx concretize-expr info.referenced-type, a.value
 		assert type is-void
 		ctx.concretize-ctx gen-reference-write range, field, value
 
@@ -361,7 +346,6 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	e lambda-expr,
 )
 	if ctx preserve-lambdas
@@ -369,14 +353,14 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 			forbid e.kind == explicit-shared : todo # For Java, we need to do something for these ---------------------------------------------
 		return-type = ctx get-concrete-type e.return-type
 		param-type = ctx get-concrete-type e.param.type
-		body = ctx concretize-expr-with-destructure return-type, range, locals, e.param, e.body
+		body = ctx concretize-expr-with-destructure return-type, range, e.param, e.body
 		param = body.root-local ?? do
 			id: ctx.local-ids take-next-id
 			source: args::concrete-generated-local-kind to
 			type: param-type
 		closure concrete-local[] = with out : build
 			for x : e closure
-				match locals[x name]!
+				match ctx.locals[x local]!
 				as concrete-local l
 					out ~= l
 				as typed-constant _
@@ -384,18 +368,17 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		type, range, (closure lambda-concrete-expr param, body.expr)
 	elif e.kind == explicit-shared
 		inner-type = ctx get-concrete-type e.mut-type-for-explicit-shared!.to
-		inner = ctx concretize-lambda-inner inner-type, range, locals, e
+		inner = ctx concretize-lambda-inner inner-type, range, e
 		lambda-type-args = inner-type.struct.source.concrete-struct-source-inst! type-args
 		shared-of-mut-lambda = ctx.concretize-ctx get-concrete-fun ctx.concretize-ctx.program.common-funs.shared-of-mut-lambda, lambda-type-args, ()
 		range gen-call shared-of-mut-lambda, (inner,)
 	else
-		ctx concretize-lambda-inner type, range, locals, e
+		ctx concretize-lambda-inner type, range, e
 
 -concretize-lambda-inner concrete-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	e lambda-expr,
 )
 	forbid ctx preserve-lambdas
@@ -407,7 +390,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	params = ctx.concretize-ctx concretize-lambda-params closure-type, e.param, ctx.type-scope
 	lambda-struct = type must-be-by-val
 	closure-args concrete-expr[] = for x : e closure
-		ctx concretize-variable-ref-for-closure range, locals, x
+		ctx concretize-variable-ref-for-closure range, x
 	closure = if closure-args is-empty && ctx.concretize-ctx !require-unique-union-types
 		ctx.concretize-ctx gen-void range
 	else
@@ -426,37 +409,26 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	impls ~= impl
 	res
 
-# TODO: using a mutable map on the ctx would be faster and I wouldn't need a separate param! ----------------------------------
--locals alias
-	local-or-constant[symbol]
--add-local locals(a locals, local local, lc local-or-constant)
-	forbid local.name in a
-	a ~ (local name, lc)
--get-local local-or-constant(a locals, local local)
-	a[local name]!
-
 -concretize-let concrete-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	e let-expr,
 )
 	local-type = ctx get-concrete-type e.destructure.type
-	value = ctx concretize-expr local-type, locals, e.value
-	ctx concretize-with-destructure-and-let type, range, locals, e.destructure, value, inner-locals =>
-		ctx concretize-expr type, inner-locals, e.then
+	value = ctx concretize-expr local-type, e.value
+	ctx concretize-with-destructure-and-let type, range, e.destructure, value, () =>
+		ctx concretize-expr type, e.then
 
 -concretize-expr-with-destructure root-local-and-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	destructure destructure,
 	expr expr,
 )
-	ctx concretize-with-destructure type, range, locals, destructure, inner-locals =>
-		ctx concretize-expr type, inner-locals, expr
+	ctx concretize-with-destructure type, range, destructure, () =>
+		ctx concretize-expr type, expr
 
 -root-local-and-expr record(root-local concrete-local?, expr concrete-expr)
 
@@ -464,12 +436,11 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	destructure destructure,
 	value concrete-expr,
-	f concrete-expr mut(inner locals),
+	f concrete-expr mut(),
 )
-	then = ctx concretize-with-destructure type, range, locals, destructure, f
+	then = ctx concretize-with-destructure type, range, destructure, f
 	if root ?= then root-local
 		type gen-let range, root, value, then.expr
 	elif _ ?= value.kind constant
@@ -481,31 +452,100 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	destructure destructure,
-	f concrete-expr mut(inner locals),
+	f concrete-expr mut(),
+)
+	ctx begin-destructure destructure
+	res = f[]
+	ctx end-destructure type, range, destructure, res
+
+-begin-destructure void(ctx concretize-expr-ctx, destructure destructure)
+	match destructure
+	as destructure-ignore _
+		()
+	as local local
+		root-local concrete-local = ctx.local-ids.take-next-id, local.to, (ctx get-concrete-type local.type)
+		ctx.locals[local] := if ctx is-allocated local
+			reference-type = ctx get-concrete-type local.closure-reference-type!.to
+			reference-local concrete-local = ctx.local-ids.take-next-id, local.concrete-local-source-reference, reference-type
+			reference-local to
+		else
+			root-local to
+	as destructure-split x
+		if x is-valid-destructure ctx.common-types
+			for part : x parts
+				ctx begin-destructure part
+-begin-param-destructure void(ctx concretize-expr-ctx, destructure destructure, concrete-param concrete-local)
+	match destructure
+	as destructure-ignore _
+		()
+	as local local
+		ctx.locals[local] := concrete-param to
+	as destructure-split _
+		ctx begin-destructure destructure
+-end-destructure root-local-and-expr(
+	ctx concretize-expr-ctx,
+	type concrete-type,
+	range uri-and-range,
+	destructure destructure,
+	expr concrete-expr,
 )
 	match destructure
 	as destructure-ignore _
-		then = f[locals]
-		(), then
+		(), expr
 	as local local
-		root-local concrete-local = ctx.local-ids.take-next-id, local.to, (ctx get-concrete-type local.type)
-		expr = if ctx is-allocated local
-			reference-type = ctx get-concrete-type local.closure-reference-type!.to
-			reference-local concrete-local = ctx.local-ids.take-next-id, local.concrete-local-source-reference, reference-type
-			then = f[locals add-local local, reference-local.to]
-			value = ctx.concretize-ctx gen-reference-create reference-type, range, (range gen-local-get root-local)
-			type gen-let range, reference-local, value, then			
+		concrete-local = ctx.locals remove! local concrete-local!
+		if ctx is-allocated local
+			root-local concrete-local = ctx.local-ids.take-next-id, local.to, (ctx get-concrete-type local.type)
+			value = ctx.concretize-ctx gen-reference-create concrete-local.type, range, (range gen-local-get root-local)
+			(root-local,), (type gen-let range, concrete-local, value, expr)
 		else
-			f[locals add-local local, root-local.to]
-		(root-local,), expr
+			(concrete-local,), expr
 	as destructure-split x
 		if x is-valid-destructure ctx.common-types
-			temp concrete-local = ctx.local-ids.take-next-id, destruct.to, (ctx get-concrete-type destructure.type)
-			(temp,), (ctx concretize-with-destructure-split type, range, locals, x, temp, f)
+			root-local concrete-local = ctx.local-ids.take-next-id, destruct.to, (ctx get-concrete-type destructure.type)
+			res = ctx end-destructure-split type, range, expr, x, root-local
+			(root-local,), res
 		else
 			(), (ctx concretize-bogus type, range)
+-end-param-destructure concrete-expr(
+	ctx concretize-expr-ctx,
+	type concrete-type,
+	range uri-and-range,
+	destructure destructure,
+	root-local concrete-local,
+	expr concrete-expr,
+)
+	match destructure
+	as destructure-ignore _
+		expr
+	as local x
+		forbid ctx is-allocated x
+		expr
+	as destructure-split x
+		ctx end-destructure-split type, range, expr, x, root-local
+-end-destructure-split concrete-expr(
+	ctx concretize-expr-ctx,
+	type concrete-type,
+	range uri-and-range,
+	expr concrete-expr,
+	x destructure-split,
+	root-local concrete-local
+)
+	guard x is-valid-destructure ctx.common-types : ctx concretize-bogus type, range # TODO: we should detect this earlier and make the entire expression fail
+	get-root-local = range gen-local-get root-local
+	res mut = expr
+	for part-index, part : x.parts with-index
+		part-range = ctx to-uri-and-range part.range
+		value-type = root-local.type.must-be-by-val.body.concrete-record!.fields[part-index] type
+		expected-type = ctx get-concrete-type part.type
+		assert value-type == expected-type : todo # If they don't match, we shoudln't have compiled the destructure at all, the whole thing should be bogus
+		its-value = ctx.concretize-ctx gen-record-field-get value-type, part-range, get-root-local, part-index
+		its-root-local-and-expr = ctx end-destructure type, part-range, part, res
+		res := its-root-local-and-expr expr
+		if l ?= its-root-local-and-expr root-local
+			res := type gen-let part-range, l, its-value, res
+	res
 
 -is-allocated bool(ctx concretize-expr-ctx, a local)
 	match a mutability
@@ -514,59 +554,25 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	as mut_
 		a is-used-in-closure && ctx allocate-mutable-closure-variables
 
--concretize-with-destructure-split concrete-expr(
-	ctx concretize-expr-ctx,
-	type concrete-type,
-	range uri-and-range,
-	locals locals,
-	split destructure-split,
-	destructured concrete-local,
-	f concrete-expr mut(inner locals),
-)
-	ctx concretize-with-destructure-parts-recur type, locals, (range gen-local-get destructured), split.parts, 0, f
--concretize-with-destructure-parts-recur concrete-expr(
-	ctx concretize-expr-ctx,
-	type concrete-type,
-	locals locals,
-	get-temp concrete-expr,
-	parts destructure[],
-	part-index nat,
-	f concrete-expr mut(locals locals),
-)
-	if part-index == parts.size
-		f[locals]
-	else
-		part = parts[part-index]
-		range = ctx to-uri-and-range part.range
-		value-type = get-temp.type.must-be-by-val.body.concrete-record!.fields[part-index] type
-		expected-type = ctx get-concrete-type part.type
-		if expected-type == value-type
-			value = ctx.concretize-ctx gen-record-field-get value-type, range, get-temp, part-index
-			ctx concretize-with-destructure-and-let type, range, locals, part, value, inner =>
-				ctx concretize-with-destructure-parts-recur type, inner, get-temp, parts, part-index + 1, f
-		else
-			ctx concretize-bogus type, range
-
 -concretize-if concrete-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a if-expr,
 )
 	match a condition
 	as expr expr
-		cond = ctx concretize-expr ctx.bool-type, locals, expr
+		cond = ctx concretize-expr ctx.bool-type, expr
 		if constant ?= cond.kind constant
-			ctx concretize-expr type, locals, (constant.as-bool ? a true-branch : a false-branch)
+			ctx concretize-expr type, (constant.as-bool ? a true-branch : a false-branch)
 		else
-			true-branch = ctx concretize-expr type, locals, a.true-branch
-			false-branch = ctx concretize-expr type, locals, a.false-branch
+			true-branch = ctx concretize-expr type, a.true-branch
+			false-branch = ctx concretize-expr type, a.false-branch
 			type, range, (cond if-concrete-expr true-branch, false-branch)
 	as unpack-option unpack
-		option = ctx concretize-expr locals, unpack.option
-		true-branch = ctx concretize-expr-with-destructure type, range, locals, unpack.destructure, a.true-branch
-		false-branch = ctx concretize-expr type, locals, a.false-branch
+		option = ctx concretize-expr unpack.option
+		true-branch = ctx concretize-expr-with-destructure type, range, unpack.destructure, a.true-branch
+		false-branch = ctx concretize-expr type, a.false-branch
 		range gen-if-option option, true-branch, false-branch
 
 -gen-if-option concrete-expr(
@@ -609,10 +615,9 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	local local,
 )
-	match locals get-local local
+	match ctx.locals[local]!
 	as concrete-local x
 		get = range gen-local-get x
 		if x.type is-bogus
@@ -628,11 +633,10 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a local-pointer-expr,
 )
 	guard ctx is-native : ctx concretize-bogus type, range # TODO: We should never get here unless native ...........................
-	match locals get-local a.local
+	match ctx.locals[a local]!
 	as concrete-local local
 		if ctx is-allocated a.local
 			type gen-record-field-pointer range, (range gen-local-get local), 0
@@ -644,16 +648,15 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 -concretize-local-set concrete-expr(
 	ctx concretize-expr-ctx,
 	range uri-and-range,
-	locals locals,
 	local local,
 	value expr,
 )
-	concrete-local = locals get-local local concrete-local!
+	concrete-local = ctx.locals[local]! concrete-local!
 	value-type = if ctx is-allocated local
 		ctx.concretize-ctx get-referenced-type concrete-local.type
 	else
 		concrete-local.type
-	concrete-value = ctx concretize-expr value-type, locals, value
+	concrete-value = ctx concretize-expr value-type, value
 	if ctx is-allocated local
 		ctx.concretize-ctx gen-reference-write range, (range gen-local-get concrete-local), concrete-value
 	else
@@ -663,7 +666,6 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	expr loop-while-or-until-expr,
 )
 	assert ctx.void-type is-void # TODO: sanity check -------------------------------------------------------------------------------
@@ -683,9 +685,9 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 				break
 		after
 		###
-		condition = ctx concretize-expr ctx.bool-type, locals, x
+		condition = ctx concretize-expr ctx.bool-type, x
 		assert void.type is-void # TODO: sanity check -------------------------------------------------------------------------------
-		body = ctx concretize-expr void.type, locals, expr.body
+		body = ctx concretize-expr void.type, expr.body
 		assert body.type is-void # TODO: sanity check -------------------------------------------------------------------------------
 		do-and-continue = void.type gen-do-and-continue range, body
 		break_ = range gen-break void
@@ -694,12 +696,12 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		else
 			range gen-if condition, do-and-continue, break_
 		loop_ = void.type gen-loop range, if_
-		range gen-seq loop_, (ctx concretize-expr type, locals, expr.after)
+		range gen-seq loop_, (ctx concretize-expr type, expr.after)
 	as unpack-option unpack
-		option = ctx concretize-expr locals, unpack.option
+		option = ctx concretize-expr unpack.option
 		if expr is-until
-			after = ctx concretize-expr-with-destructure type, range, locals, unpack.destructure, expr.after
-			body = ctx concretize-expr void.type, locals, expr.body
+			after = ctx concretize-expr-with-destructure type, range, unpack.destructure, expr.after
+			body = ctx concretize-expr void.type, expr.body
 			if root ?= after root-local
 				###
 				until x ?= xs
@@ -750,27 +752,26 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 					break
 			after
 			###
-			body = ctx concretize-expr-with-destructure void.type, range, locals, unpack.destructure, expr.body
+			body = ctx concretize-expr-with-destructure void.type, range, unpack.destructure, expr.body
 			if_ = range gen-if-option option, (body.root-local, (void.type gen-do-and-continue range, body.expr)), (range gen-break void)
 			loop_ = void.type gen-loop range, if_
-			range gen-seq loop_, (ctx concretize-expr type, locals, expr.after)
+			range gen-seq loop_, (ctx concretize-expr type, expr.after)
 
 -concretize-match-enum concrete-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a match-enum-expr,
 )
 	guard a.cases !is-empty : ctx concretize-bogus type, range
-	matched = ctx concretize-expr locals, a.matched
+	matched = ctx concretize-expr a.matched
 	values-unsorted integral-value[] = for x : a cases; x.member value
 	# TODO: If matched is a constant, just compile the relevant case
 	cases-unsorted concrete-expr[] = for value : values-unsorted
 		case_ = a.cases find! x => x.member.value == value
-		ctx concretize-expr type, locals, case_.then
+		ctx concretize-expr type, case_.then
 	else_ concrete-expr? = if x ?= a else_
-		(ctx concretize-expr type, locals, x),
+		(ctx concretize-expr type, x),
 	values, cases = values-unsorted sort-by-first cases-unsorted
 	type gen-match-enum-or-integral range, matched, values, cases, else_
 
@@ -778,16 +779,15 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a match-integral-expr,
 )
-	matched = ctx concretize-expr locals, a.matched
+	matched = ctx concretize-expr a.matched
 	values-unsorted integral-value[] = for x : a cases; x value
 	# TODO: If matched is a constant, just compile the relevant case
 	cases-unsorted concrete-expr[] = for value : values-unsorted
 		case_ = a.cases find! x => x.value == value
-		ctx concretize-expr type, locals, case_.then
-	else_ = ctx concretize-expr type, locals, a.else_
+		ctx concretize-expr type, case_.then
+	else_ = ctx concretize-expr type, a.else_
 	values, cases = values-unsorted sort-by-first cases-unsorted
 	type gen-match-enum-or-integral range, matched, values, cases, (else_,)
 
@@ -795,35 +795,32 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a match-string-like-expr,
 )
 	guard equals ?= ctx get-concrete-fun-from-called a.equals : ctx concretize-bogus type, range
-	matched = ctx concretize-expr locals, a.matched
+	matched = ctx concretize-expr a.matched
 	cases concrete-match-string-like-case[] = for case_ : a cases
 		value = ctx concretize-literal-string-like matched.type, range, a.string-type, case_.value
-		value, (ctx concretize-expr type, locals, case_.then)
-	else_ = ctx concretize-expr type, locals, a.else_
+		value, (ctx concretize-expr type, case_.then)
+	else_ = ctx concretize-expr type, a.else_
 	type, range, (matched match-string-like-concrete-expr equals, cases, else_)
 
 -concretize-match-sum-type concrete-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a match-sum-type-expr,
 )
 	guard a.cases !is-empty : ctx concretize-bogus type, range
-	matched = ctx concretize-expr locals, a.matched
-	values, cases = ctx concretize-match-sum-type-cases type, range, locals, matched.type, a.cases
+	matched = ctx concretize-expr a.matched
+	values, cases = ctx concretize-match-sum-type-cases type, range, matched.type, a.cases
 	else_ concrete-expr? = if x ?= a else_
-		(ctx concretize-expr type, locals, x),
+		(ctx concretize-expr type, x),
 	type, range, (matched match-union-concrete-expr values, cases, else_)
 -concretize-match-sum-type-cases (integral-values, concrete-match-union-case[])(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	variant-type concrete-type,
 	cases match-sum-type-case[],
 )
@@ -831,7 +828,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		ctx member-index-for-match-sum-type-case variant-type, x
 	concrete-cases concrete-match-union-case[] = for value : values
 		case_ = cases find! x => (ctx member-index-for-match-sum-type-case variant-type, x) == value
-		then = ctx concretize-expr-with-destructure type, range, locals, case_.destructure, case_.then
+		then = ctx concretize-expr-with-destructure type, range, case_.destructure, case_.then
 		then to-match-union-case
 	values sort-by-first concrete-cases
 -to-match-union-case concrete-match-union-case(a root-local-and-expr) # TODO: should these be the same type? ----------------------
@@ -846,12 +843,11 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 -concretize-variable-ref-for-closure concrete-expr(
 	ctx concretize-expr-ctx,
 	range uri-and-range,
-	locals locals,
 	a variable-ref,
 )
 	match a
 	as local x
-		match locals get-local x
+		match ctx.locals[x]!
 		as concrete-local local
 			# If it's a reference, leave it that way
 			range gen-local-get local
@@ -864,7 +860,6 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a assert-or-forbid-expr,
 )
 	default-thrown concrete-expr mut() = () =>
@@ -872,47 +867,47 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		ctx.concretize-ctx gen-error range, message
 	throw-no-destructure concrete-expr mut() = () =>
 		type gen-throw range, if x ?= a thrown
-			ctx concretize-expr ctx.concretize-ctx.exception-type, locals, x
+			ctx concretize-expr ctx.concretize-ctx.exception-type, x
 		else
 			default-thrown[]
 	match a condition
 	as expr x
-		condition = ctx concretize-expr ctx.bool-type, locals, x
+		condition = ctx concretize-expr ctx.bool-type, x
 		if constant ?= condition.kind constant
 			if constant.as-bool xor a.is-forbid
-				ctx concretize-expr type, locals, a.after
+				ctx concretize-expr type, a.after
 			else
 				throw-no-destructure[]
 		else
 			throw_ = throw-no-destructure[]
-			after = ctx concretize-expr type, locals, a.after
+			after = ctx concretize-expr type, a.after
 			type, range, if a is-forbid
 				condition if-concrete-expr throw_, after
 			else
 				condition if-concrete-expr after, throw_
 	as unpack-option x
-		option = ctx concretize-expr locals, x.option
+		option = ctx concretize-expr x.option
 		if a is-forbid
 			thrown = if thrown ?= a thrown
-				ctx concretize-expr-with-destructure ctx.concretize-ctx.exception-type, range, locals, x.destructure, thrown
+				ctx concretize-expr-with-destructure ctx.concretize-ctx.exception-type, range, x.destructure, thrown
 			else
 				(), default-thrown[]
-			after = ctx concretize-expr type, locals, a.after
+			after = ctx concretize-expr type, a.after
 			range gen-if-option option, (thrown.root-local, (type gen-throw range, thrown.expr)), after
 		else
-			then = ctx concretize-expr-with-destructure type, range, locals, x.destructure, a.after
+			then = ctx concretize-expr-with-destructure type, range, x.destructure, a.after
 			range gen-if-option option, then, throw-no-destructure[]
 
--concretize-expr concrete-expr(ctx concretize-expr-ctx, locals locals, a expr)
+-concretize-expr concrete-expr(ctx concretize-expr-ctx, a expr)
 	type = ctx get-concrete-type (a type (ctx.common-types,))
-	ctx concretize-expr type, locals, a
+	ctx concretize-expr type, a
 
--concretize-expr concrete-expr(ctx concretize-expr-ctx, type concrete-type, locals locals, a expr)
+-concretize-expr concrete-expr(ctx concretize-expr-ctx, type concrete-type, a expr)
 	range uri-and-range = ctx.cur-uri, a.range
 	guard type !is-bogus : ctx concretize-bogus type, range
 	match a
 	as assert-or-forbid-expr x
-		ctx concretize-assert-or-forbid type, range, locals, x
+		ctx concretize-assert-or-forbid type, range, x
 	as bogus-call-expr _
 		ctx concretize-bogus type, range
 	as bogus-expr _
@@ -920,25 +915,25 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	as bogus-wrong-type-expr _
 		ctx concretize-bogus type, range
 	as call-expr x
-		ctx concretize-call type, range, locals, x
+		ctx concretize-call type, range, x
 	as call-option-expr x
-		ctx concretize-call-option type, range, locals, x
+		ctx concretize-call-option type, range, x
 	as closure-get-expr x
-		ctx concretize-closure-get type, range, locals, x
+		ctx concretize-closure-get type, range, x
 	as closure-set-expr x
-		ctx concretize-closure-set type, range, locals, x
+		ctx concretize-closure-set type, range, x
 	as extern-expr x
 		type, range, (x.names is-subset-of ctx.concretize-ctx.all-externs).constant-bool.to
 	as finally-expr x
-		ctx concretize-finally type, range, locals, x
+		ctx concretize-finally type, range, x
 	as fun-pointer-expr x
 		ctx concretize-fun-pointer type, range, x
 	as if-expr x
-		ctx concretize-if type, range, locals, x
+		ctx concretize-if type, range, x
 	as lambda-expr x
-		ctx concretize-lambda type, range, locals, x
+		ctx concretize-lambda type, range, x
 	as let-expr x
-		ctx concretize-let type, range, locals, x
+		ctx concretize-let type, range, x
 	as literal-float-expr x
 		type gen-constant range, x.value.constant-float	
 	as literal-integral-expr x
@@ -946,49 +941,49 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	as literal-string-like-expr x
 		ctx concretize-literal-string-like type, range, x.string-type, x.value
 	as local-get-expr x
-		ctx concretize-local-get type, range, locals, x.local
+		ctx concretize-local-get type, range, x.local
 	as local-pointer-expr x
-		ctx concretize-ptr-to-local type, range, locals, x
+		ctx concretize-ptr-to-local type, range, x
 	as local-set-expr x
-		ctx concretize-local-set range, locals, x.local, x.value
+		ctx concretize-local-set range, x.local, x.value
 	as loop-expr x
-		type gen-loop range, (ctx concretize-expr type, locals, x.body)
+		type gen-loop range, (ctx concretize-expr type, x.body)
 	as loop-break-expr x
-		range gen-break (ctx concretize-expr type, locals, x.value)
+		range gen-break (ctx concretize-expr type, x.value)
 	as loop-continue-expr _
 		type gen-continue range
 	as loop-while-or-until-expr x
-		ctx concretize-loop-while-or-until type, range, locals, x
+		ctx concretize-loop-while-or-until type, range, x
 	as match-enum-expr x
-		ctx concretize-match-enum type, range, locals, x
+		ctx concretize-match-enum type, range, x
 	as match-integral-expr x
-		ctx concretize-match-integral type, range, locals, x
+		ctx concretize-match-integral type, range, x
 	as match-string-like-expr x
-		ctx concretize-match-string-like type, range, locals, x
+		ctx concretize-match-string-like type, range, x
 	as match-sum-type-expr x
-		ctx concretize-match-sum-type type, range, locals, x
+		ctx concretize-match-sum-type type, range, x
 	as record-field-pointer-expr x
 		assert ctx is-native
-		target = ctx concretize-expr locals, x.target
+		target = ctx concretize-expr x.target
 		type gen-record-field-pointer range, target, x.field-index
 	as seq-expr x
-		first = ctx concretize-expr ctx.void-type, locals, x.first
-		then = ctx concretize-expr type, locals, x.then
+		first = ctx concretize-expr ctx.void-type, x.first
+		then = ctx concretize-expr type, x.then
 		if _ ?= first.kind constant
 			then
 		else
 			type, range, (first seq-concrete-expr then)
 	as throw-expr x
-		thrown = ctx concretize-expr ctx.concretize-ctx.exception-type, locals, x.thrown
+		thrown = ctx concretize-expr ctx.concretize-ctx.exception-type, x.thrown
 		type, range, thrown.throw-concrete-expr
 	as trusted-expr x
-		ctx concretize-expr type, locals, x.inner
+		ctx concretize-expr type, x.inner
 	as try-expr x
-		ctx concretize-try type, range, locals, x
+		ctx concretize-try type, range, x
 	as try-let-expr x
-		ctx concretize-try-let type, range, locals, x
+		ctx concretize-try-let type, range, x
 	as typed-expr x
-		ctx concretize-expr type, locals, x.inner
+		ctx concretize-expr type, x.inner
 
 # TODO: this returns an array with a single array in it, why was I doing this? ------------------------------------------------------
 -constants-or-exprs-arr constants-or-exprs(
@@ -1087,29 +1082,26 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a finally-expr,
 )
-	right = ctx concretize-expr ctx.void-type, locals, a.right
-	below = ctx concretize-expr type, locals, a.below
+	right = ctx concretize-expr ctx.void-type, a.right
+	below = ctx concretize-expr type, a.below
 	type, range, (right finally-concrete-expr below)
 
 -concretize-try concrete-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a try-expr,
 )
-	tried = ctx concretize-expr type, locals, a.tried
-	values, cases = ctx concretize-match-sum-type-cases type, range, locals, ctx.concretize-ctx.exception-type, a.catches
+	tried = ctx concretize-expr type, a.tried
+	values, cases = ctx concretize-match-sum-type-cases type, range, ctx.concretize-ctx.exception-type, a.catches
 	type, range, (tried try-concrete-expr values, cases)
 
 -concretize-try-let concrete-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
-	locals locals,
 	a try-let-expr,
 )
 	###
@@ -1121,8 +1113,8 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	then
 	###
 	local-type = ctx get-concrete-type a.destructure.type
-	value = ctx concretize-expr local-type, locals, a.value
+	value = ctx concretize-expr local-type, a.value
 	catch-member-index = ctx member-index-for-match-sum-type-case ctx.concretize-ctx.exception-type, a.catch_
-	catch-expr = ctx concretize-expr-with-destructure type, range, locals, a.catch_.destructure, a.catch_.then to-match-union-case
-	then = ctx concretize-expr-with-destructure type, range, locals, a.destructure, a.then
+	catch-expr = ctx concretize-expr-with-destructure type, range, a.catch_.destructure, a.catch_.then to-match-union-case
+	then = ctx concretize-expr-with-destructure type, range, a.destructure, a.then
 	type, range, (then.root-local try-let-concrete-expr value, catch-member-index, catch-expr, then.expr)
