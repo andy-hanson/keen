@@ -1532,70 +1532,9 @@ translate-to-java-classes (string, nat8[])[](
 -emit-expr void(out code-builder, ctx expr-ctx, pos expr-pos, a concrete-expr)
 	out mark-line-number ctx.ctx.show-ctx.line-and-character-getters[a range].range.start.line.to + 1
 	type = a.type struct
-	# remember to handle 'ctx.stack'!
 	match a kind
 	as array-op-concrete-expr x
-		###
-		input = ...
-		index = 0 (for array) or input.low (for range)
-		end = input.length (for array) or input.high (for range)
-		size = end (for array) or end - index (for range)
-		out-array = size new-array
-		loop:
-		if index == size: goto end
-		local = in-array[index]
-		out-array[index] := ... body ...
-		index++
-		goto loop
-		end:
-		###
-		###
-		----------------------------------------------------------------------------------------------------------------------
-		TODO: it might be faster with 2 branches:
-		If input array size is 0, return a constant empty array and skip the rest. (This is also an important optimization!)
-		If input is non-0, we can have the condition at the bottom of the loop (instead of a 'goto')
-		###
-		out emit-and-continue ctx, x.input
-		ctx must-pop x.input.type.struct
-		input = out begin-synthetic-local ctx, x.input.type.struct
-		empty-out-elem = x.out-element.struct is-empty-struct
-		is-void = match x output-kind a.type
-		as array
-			false
-		as void
-			true
-		unless is-void
-			out get-array-size x.in-element.struct, input
-			unless empty-out-elem
-				out new-array-for-type ctx, x.out-element.struct
-		out-array = out begin-synthetic-local ctx, type
-		out iconst 0
-		out get-array-size x.in-element.struct, input
-		nat32 = ctx.ctx.program.common-funs.concrete-common-funs-java! nat32
-		loop-body void mut(index local-index) = index =>
-			unless empty-out-elem
-				out aload out-array
-				ctx pushed type
-				out iload index
-				ctx pushed nat32
-			unless x.in-element.struct is-empty-struct
-				out aload input
-				out iload index
-				out xaload x.in-element.struct.as-runtime-type
-				ctx pushed x.in-element.struct
-			out emit-with-opt-local ctx, x.local, x.in-element.struct, continue_, x.body
-			unless empty-out-elem
-				out astore x.out-element.struct.as-runtime-type
-				ctx must-pop x.out-element.struct
-				ctx must-pop nat32
-				ctx must-pop type
-		out loop-range ctx, pos, type, nat32, loop-body, () =>
-			# If there is no return type, make sure the stack frame does not include locals (since it may be the same bytecode pos as the beginning stack frame of a loop)
-			unless is-void
-				out xload type.as-runtime-type, out-array
-				ctx pushed type
-			ctx end-synthetic-local type, out-array
-			ctx end-synthetic-local x.input.type.struct, input
+		out emit-for-loop ctx, pos, a, x
 	as builtin-concrete-expr x
 		out translate-builtin ctx, x.fun, x.type-args, type, x.args
 		out handle-pos pos, type
@@ -2025,6 +1964,163 @@ translate-to-java-classes (string, nat8[])[](
 		as nullable
 			out call-static "Crow", "oneIfNotNull", "(Ljava/lang/Object;)L"
 
+-emit-for-loop void(out code-builder, ctx expr-ctx, pos expr-pos, a concrete-expr, x array-op-concrete-expr)
+	###
+	input = ...
+	index = 0 (for array) or input.low (for range)
+	end = input.length (for array) or input.high (for range)
+	size = end (for array) or end - index (for range)
+	out-array = size new-array
+	loop:
+	if index == size: goto end
+	local = in-array[index]
+	out-array[index] := ... body ...
+	index++
+	goto loop
+	end:
+	###
+
+	###
+	----------------------------------------------------------------------------------------------------------------------
+	TODO: it might be faster with 2 branches:
+	If input array size is 0, return a constant empty array and skip the rest. (This is also an important optimization!)
+	If input is non-0, we can have the condition at the bottom of the loop (instead of a 'goto')
+	###
+	type = a.type struct
+	out emit-and-continue ctx, x.input
+	input-type = x.input.type struct
+	ctx must-pop input-type
+	in-array local-index? = match x input-kind
+	as array
+		(out begin-synthetic-local ctx, input-type),
+	as range
+		()
+
+	range-fields = if x.input-kind == range
+		x.input.type.struct.body.concrete-record! fields
+
+	empty-out-elem = x.out-element.struct is-empty-struct
+	is-void = match x output-kind a.type
+	as array
+		false
+	as void
+		true
+
+	in-element = x.in-element struct
+
+	nat32 = ctx.program nat32
+	integral-type = match x input-kind
+	as array
+		nat32
+	as range
+		in-element
+	ir = integral-type as-runtime-type # TODO: NAME --------------------------------------------------------------------------------
+
+	match x input-kind
+	as array
+		out iconst 0
+	as range
+		out dup32
+		out getfield (ctx field-reference input-type, range-fields[0])
+	cur = out begin-synthetic-local ctx, integral-type
+
+	match x input-kind
+	as array
+		out get-array-size x.in-element.struct, in-array!
+	as range
+		# Don't dup, this finishes using the range
+		out getfield (ctx field-reference input-type, range-fields[1])
+	end = out begin-synthetic-local ctx, integral-type
+
+	unless is-void
+		out xload ir, end
+		match x input-kind
+		as array
+			()
+		as range
+			# size is end - cur
+			out xload ir, cur
+			out xsub ir
+		out checked-to-nat32 integral-type
+		unless empty-out-elem
+			out new-array-for-type ctx, x.out-element.struct
+	out-array = out begin-synthetic-local ctx, type
+
+	out-offset local-index? = match x input-kind
+	as array
+		()
+	as range
+		unless is-void
+			out xload ir, cur
+			(out begin-synthetic-local ctx, integral-type),
+
+	loop-body void mut() = () =>
+		unless empty-out-elem
+			out aload out-array
+			ctx pushed type
+			out xload ir, cur
+			if o ?= out-offset
+				out xload ir, o
+				out xsub ir
+			out unchecked-to-nat32 integral-type
+			ctx pushed nat32
+		match x input-kind
+		as array
+			unless x.in-element.struct is-empty-struct
+				out aload in-array!
+				out xload ir, cur
+				out unchecked-to-nat32 integral-type
+				out xaload x.in-element.struct.as-runtime-type
+				ctx pushed x.in-element.struct
+		as range
+			out xload ir, cur
+			ctx pushed integral-type
+		# TODO: in the case of looping over a range, it could be more efficient to reuse 'cur' as the local for 'x.local' instead of copying it to a new local
+		out emit-with-opt-local ctx, x.local, x.in-element.struct, continue_, x.body
+		unless empty-out-elem
+			out astore x.out-element.struct.as-runtime-type
+			ctx must-pop x.out-element.struct
+			ctx must-pop nat32
+			ctx must-pop type
+	out loop-range ctx, pos, type, integral-type, cur, end, loop-body, () => # TODO: now that there is only one caller of this, maybe I should inline it ....
+		# If there is no return type, make sure the stack frame does not include locals (since it may be the same bytecode pos as the beginning stack frame of a loop)
+		unless is-void
+			out xload type.as-runtime-type, out-array
+			ctx pushed type
+		if o ?= out-offset
+			ctx end-synthetic-local integral-type, o
+		ctx end-synthetic-local type, out-array
+		ctx end-synthetic-local integral-type, end
+		ctx end-synthetic-local integral-type, cur
+		if i ?= in-array
+			ctx end-synthetic-local input-type, i
+
+-xsub void(out code-builder, type java-runtime-type)
+	match type java-primitive-type!
+	as T_INT
+		out isub
+	as T_LONG
+		out lsub
+	else
+		throw unreachable
+
+-checked-to-nat32 void(out code-builder, integral-type concrete-struct)
+	match integral-type.as-runtime-type java-primitive-type!
+	as T_LONG
+		out call-static "Crow", "nat32FromNat64", "(J)I"
+	as T_INT
+		()
+	else
+		throw unreachable
+-unchecked-to-nat32 void(out code-builder, integral-type concrete-struct)
+	match integral-type.as-runtime-type java-primitive-type!
+	as T_LONG
+		out l2i
+	as T_INT
+		()
+	else
+		throw unreachable
+
 | Caller should push two integrals 'cur' and 'end' on the stack before calling this.
 -loop-range void(
 	out code-builder,
@@ -2032,7 +2128,9 @@ translate-to-java-classes (string, nat8[])[](
 	pos expr-pos,
 	type concrete-struct,
 	integral-type concrete-struct,
-	loop-body void mut(index local-index),
+	cur local-index,
+	end local-index,
+	loop-body void mut(),
 	after-loop void mut()
 )
 	###
@@ -2043,25 +2141,37 @@ translate-to-java-classes (string, nat8[])[](
 	if cur != end: goto loop
 	bottom:
 	###
-	end = out begin-synthetic-local ctx, integral-type
-	cur = out begin-synthetic-local ctx, integral-type
-	cur-minus-end void mut() = () =>
-		out xload integral-type.as-runtime-type, cur
-		out xload integral-type.as-runtime-type, end
-		out xsub integral-type
-	cur-minus-end[]
-	goto-bottom = out ifeq
-	
+
+	ir = integral-type as-runtime-type
+	cur-and-end void mut() = () =>
+		out xload ir, cur
+		out xload ir, end
+	is-64-bit = match ir java-primitive-type!
+	as T_LONG
+		true
+	as T_INT
+		false
+	else
+		throw unreachable
+
+	cur-and-end[]
+	goto-bottom = if is-64-bit
+		out lcmp
+		out ifeq
+	else
+		out if_icmpeq
+
 	loop_ = out can-jump-back-to-here ctx.cur-stack-frame
-	loop-body[cur]
+	loop-body[]
 
 	out increment-integral cur, integral-type
-	cur-minus-end[]
-	out ifne loop_
+	cur-and-end[]
+	if is-64-bit
+		out lcmp
+		out ifne loop_
+	else
+		out if_icmpne loop_
 
-	# If it's void, 'after-loop' may do nothing
-	ctx end-synthetic-local integral-type, cur
-	ctx end-synthetic-local integral-type, end
 	goto-bottom jumps-to-here out, ctx.cur-stack-frame
 	before = out next-index
 	after-loop[]
@@ -2070,13 +2180,6 @@ translate-to-java-classes (string, nat8[])[](
 		out nop
 	out handle-pos pos, type # TODO: then there is a double jump in some cases, improve? -------------------
 
--xsub void(out code-builder, integral-type concrete-struct)
-	match integral-type.as-runtime-type java-primitive-type!
-	as T_LONG
-		out lsub 
-	else
-		out isub
-
 -increment-integral void(out code-builder, local nat, integral-type concrete-struct)
 	java-type = integral-type as-runtime-type
 	out xload java-type, local
@@ -2084,9 +2187,11 @@ translate-to-java-classes (string, nat8[])[](
 	as T_LONG
 		out lconst 1
 		out ladd
-	else
+	as T_INT
 		out iconst 1
 		out iadd
+	else
+		throw unreachable
 	out xstore java-type, local
 
 -get-local void(out code-builder, ctx expr-ctx, local concrete-local)

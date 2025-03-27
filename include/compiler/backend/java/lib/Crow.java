@@ -51,6 +51,13 @@ class Crow {
 		return Long.compareUnsigned(a, b) < 0;
 	}
 
+	static int nat32FromNat64(long a) {
+		if (0 <= a && a <= 0xffffffffL)
+			return (int) a;
+		else
+			throw new java.lang.OutOfMemoryError();
+	}
+
 	static boolean fitsInNat32(long l) {
 		return 0 <= l && l <= 0xffffffffL;
 	}
