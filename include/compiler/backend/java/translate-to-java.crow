@@ -1969,27 +1969,6 @@ translate-to-java-classes (string, nat8[])[](
 			out call-static "Crow", "oneIfNotNull", "(Ljava/lang/Object;)L"
 
 -emit-for-loop void(out code-builder, ctx expr-ctx, pos expr-pos, a concrete-expr, x array-op-concrete-expr)
-	###
-	input = ...
-	index = 0 (for array) or input.low (for range)
-	end = input.length (for array) or input.high (for range)
-	size = end (for array) or end - index (for range)
-	out-array = size new-array
-	loop:
-	if index == size: goto end
-	local = in-array[index]
-	out-array[index] := ... body ...
-	index++
-	goto loop
-	end:
-	###
-
-	###
-	----------------------------------------------------------------------------------------------------------------------
-	TODO: it might be faster with 2 branches:
-	If input array size is 0, return a constant empty array and skip the rest. (This is also an important optimization!)
-	If input is non-0, we can have the condition at the bottom of the loop (instead of a 'goto')
-	###
 	type = a.type struct
 	out emit-and-continue ctx, x.input
 	input-type = x.input.type struct
@@ -2004,7 +1983,8 @@ translate-to-java-classes (string, nat8[])[](
 		x.input.type.struct.body.concrete-record! fields
 
 	empty-out-elem = x.out-element.struct is-empty-struct
-	is-void = match x output-kind a.type
+	output-kind = x output-kind a.type
+	is-void = match output-kind
 	as array
 		false
 	as void
@@ -2036,6 +2016,27 @@ translate-to-java-classes (string, nat8[])[](
 		out getfield (ctx field-reference input-type, range-fields[1])
 	end = out begin-synthetic-local ctx, integral-type
 
+	match output-kind
+	as void
+		()
+	as array
+		out push-constant ctx, x.empty-out-array!.to, type
+	out-array = out begin-synthetic-local ctx, type
+
+	# If cur == end: goto bottom
+	# TODO: helper function for this (compares two integrals) --------------------------------------------------------------
+	out xload ir, cur
+	out xload ir, end
+	match ir java-primitive-type!
+	as T_LONG
+		out lcmp
+	as T_INT
+		out isub
+	else
+		throw unreachable
+	goto-bottom = out ifeq
+
+	# If non-empty: assign out-array to a non-empty array
 	unless is-void
 		out xload ir, end
 		match x input-kind
@@ -2048,7 +2049,8 @@ translate-to-java-classes (string, nat8[])[](
 		out checked-to-nat32 integral-type
 		unless empty-out-elem
 			out new-array-for-type ctx, x.out-element.struct
-	out-array = out begin-synthetic-local ctx, type
+		out xstore type.as-runtime-type, out-array
+		ctx must-pop type
 
 	out-offset local-index? = match x input-kind
 	as array
@@ -2086,13 +2088,14 @@ translate-to-java-classes (string, nat8[])[](
 			ctx must-pop x.out-element.struct
 			ctx must-pop nat32
 			ctx must-pop type
-	out loop-range ctx, pos, type, integral-type, cur, end, loop-body, () => # TODO: now that there is only one caller of this, maybe I should inline it ....
+	out loop-non-empty-range ctx, pos, type, integral-type, cur, end, loop-body, () => # TODO: now that there is only one caller of this, maybe I should inline it ....
 		# If there is no return type, make sure the stack frame does not include locals (since it may be the same bytecode pos as the beginning stack frame of a loop)
+		if o ?= out-offset
+			ctx end-synthetic-local integral-type, o
+		goto-bottom jumps-to-here out, ctx.cur-stack-frame
 		unless is-void
 			out xload type.as-runtime-type, out-array
 			ctx pushed type
-		if o ?= out-offset
-			ctx end-synthetic-local integral-type, o
 		ctx end-synthetic-local type, out-array
 		ctx end-synthetic-local integral-type, end
 		ctx end-synthetic-local integral-type, cur
@@ -2126,7 +2129,7 @@ translate-to-java-classes (string, nat8[])[](
 		throw unreachable
 
 | Caller should push two integrals 'cur' and 'end' on the stack before calling this.
--loop-range void(
+-loop-non-empty-range void(
 	out code-builder,
 	ctx expr-ctx,
 	pos expr-pos,
@@ -2138,12 +2141,10 @@ translate-to-java-classes (string, nat8[])[](
 	after-loop void mut()
 )
 	###
-	if cur == end: goto bottom
 	loop:
 	<<loop body>>
 	cur++
 	if cur != end: goto loop
-	bottom:
 	###
 
 	ir = integral-type as-runtime-type
@@ -2158,13 +2159,6 @@ translate-to-java-classes (string, nat8[])[](
 	else
 		throw unreachable
 
-	cur-and-end[]
-	goto-bottom = if is-64-bit
-		out lcmp
-		out ifeq
-	else
-		out if_icmpeq
-
 	loop_ = out can-jump-back-to-here ctx.cur-stack-frame
 	loop-body[]
 
@@ -2176,7 +2170,6 @@ translate-to-java-classes (string, nat8[])[](
 	else
 		out if_icmpne loop_
 
-	goto-bottom jumps-to-here out, ctx.cur-stack-frame
 	before = out next-index
 	after-loop[]
 	if out.next-index == before

@@ -1025,31 +1025,87 @@ translate-to-js js-and-map(
 -to-expr-or-block-statement js-expr-or-block-statement(ctx to-expr-ctx, a concrete-expr)
 	source source = ctx source a
 	type = a.type struct
+	async = ctx is-cur-fun-async
 	match a kind
 	as array-op-concrete-expr x
+		input-expr = ctx to-js-expr x.input
 		match x input-kind
 		as array
-			xs = ctx to-js-expr x.input
 			match x output-kind a.type
 			as array
+				# TODO: PERF I should probably not use 'map' here, do a loop like I do for range ------------------------------------------------------------
 				# `xs.map(x => {... })` or `await Array.fromAsync(xs, async x => { ... })`
 				params js-params = if l ?= x local
 					((ctx local-name l to),) to
 				body = ctx to-expr-or-block-statement x.body
-				async = ctx is-cur-fun-async
 				arrow js-arrow-function = async, params, body
 				fn js-expr = source, arrow.to
 				match async
 				as sync
-					source gen-call-property-sync xs, "map".no-prefix, (fn,) to
+					source gen-call-property-sync input-expr, "map".no-prefix, (fn,) to
 				as async
-					map = source gen-call-property-sync (source gen-global "Array"), "fromAsync".no-prefix, (xs, fn)
+					map = source gen-call-property-sync (source gen-global "Array"), "fromAsync".no-prefix, (input-expr, fn)
 					source gen-await map to
 			as void
 				local js-name = ctx local-or-ignore-name x.local
-				(source, (local js-for-of-statement xs, (ctx to-block-statement x.body))) to
+				(source, (local js-for-of-statement input-expr, (ctx to-block-statement x.body))) to
 		as range
-			throw todo
+			low, high = x.input.type range-fields
+			cur-name js-name = temp, "cur", (ctx.take-next-temp-index,)
+			end-name js-name = temp, "end", (ctx.take-next-temp-index,)
+			get-cur = source gen-identifier cur-name
+			get-end = source gen-identifier end-name
+			cur-less-end = source gen-less get-cur, get-end
+			match x output-kind a.type
+			as array
+				###
+				const { low: start, high: end } = range
+				const out = new Array(Number(end - start))
+				let cur = start
+				while (cur < end) {
+					out[cur - start] = ...
+					cur = cur + 1n
+				}
+				return out
+				###
+				start-name js-name = temp, "start", (ctx.take-next-temp-index,)
+				get-start = source gen-identifier start-name
+				out-name js-name = temp, "out", (ctx.take-next-temp-index,)
+				get-out = source gen-identifier out-name
+				range-destructure js-object-destructure = ((low.debug-name.to.no-prefix, start-name.to), (high.debug-name.to.no-prefix, end-name.to)),
+				declare-start-end = source gen-const range-destructure.to, (ctx to-js-expr x.input)
+				Array = source gen-global "Array"
+				Number = source gen-global "Number"
+				size = source gen-call-sync Number, ((source gen-minus get-end, get-start),)
+				new-array = source gen-new Array, (size,)
+				declare-out = source gen-const out-name, new-array
+				declare-cur = source gen-let cur-name.to, get-start
+				body js-statement[] = with out : build
+					if l ?= x local
+						out ~= (source gen-const (ctx local-name l to), get-cur)
+					out-at-index = source gen-property-access-computed get-out, (source gen-minus get-cur, get-start)
+					out ~= source gen-assign out-at-index, (ctx to-js-expr x.body)
+					out ~= source gen-increment-integer cur-name
+				while_ = source gen-while cur-less-end, body.to
+				return-out = source gen-return get-out
+				(declare-start-end, declare-out, declare-cur, while_, return-out) js-block-statement
+			as void
+				range-destructure js-object-destructure = ((low.debug-name.to.no-prefix, cur-name.to), (high.debug-name.to.no-prefix, end-name.to)),
+				declare-cur-end = source gen-let range-destructure.to, (ctx to-js-expr x.input)
+				###
+				let { low: cur, high:end } = range
+				while (cur < end) {
+					<<body>>
+					cur = cur + 1n
+				}
+				###
+				body js-statement[] = with out : build
+					if l ?= x local
+						out ~= (source gen-const (ctx local-name l to), get-cur)
+					out ~~= (ctx to-block-statement x.body).statements
+					out ~= source gen-increment-integer cur-name
+				while_ = source gen-while cur-less-end, body.to
+				(declare-cur-end, while_) js-block-statement
 	as builtin-concrete-expr x
 		ctx translate-builtin a.type, source, x.fun, x.type-args, for arg : x args
 			ctx to-js-expr arg

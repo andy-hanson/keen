@@ -19,24 +19,14 @@ debug-dmd: bin/crow-dmd
 
 ### test ###
 
-test: unit-test crow-unit-tests test-extern-library end-to-end-test
+test: crow-unit-tests test-extern-library end-to-end-test
 
-unit-test: bin/crow-debug
-	./bin/crow-debug self-test
-
-crow-unit-tests: crow-unit-tests-interpreter crow-unit-tests-jit crow-unit-tests-aot crow-unit-tests-node-js
-crow-unit-tests-interpreter: bin/crow
-	bin/crow test include/crow-config.json
-crow-unit-tests-jit: bin/crow
-ifdef JIT
-	bin/crow test include/crow-config.json --jit
-	# TODO: test with '--optimize' too
-endif
-crow-unit-tests-aot: bin/crow
-	bin/crow test include/crow-config.json --aot
-	bin/crow test include/crow-config.json --aot --optimize
-crow-unit-tests-node-js: bin/crow
-	bin/crow test include/crow-config.json --node-js
+crow-unit-tests:
+	bin/crowj build include/crow-config.json --test --out java:bin/test
+	bin/test
+	bin/crowj build include/crow-config.json --test --out node-js:bin/test.js
+	bin/test.js
+	# TODO: NATIVE ---------------------------------------------------------------------------------------------------------------
 
 test-extern-library: bin/crow bin/libexample.so
 	bin/crow test/test-extern-library/main.crow
@@ -158,22 +148,18 @@ include/compiler/backend/java/lib/Crow.class: include/compiler/backend/java/lib/
 bin/crowcrow: bin/crowd $(include_dependencies) 
 	bin/crowd build include/compiler/app/main.crow --optimize --out bin/crowcrow
 
-bin/crow-lkg: bin/crowcrow
-	# TODO: eventually there won't be any build step for the lkg. But there will be an 'update-lkg' command that copies crowj over it.
-	rm -rf bin/crowlkg
-	bin/crowcrow build include/compiler/app/main.crow --out java:bin/crowlkg
-	cd bin/crowlkg && jar --create --file=../crow-lkg --main-class=Main *
-	chmod +x bin/crow-lkg
-	rm -rf bin/crowlkg
-
 update-lkg:
 	cp bin/crowj bin/crow-lkg
+	# Make sure it can compile itself
+	rm bin/crowj
+	make bin/crowj
 
 bin/crowj: $(include_dependencies)
-	rm -rf bin/crowjava
-	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crowjava # TODO: USE crow-lkg ----------------------------
-	cd bin/crowjava && jar --create --file=../crowj --main-class=Main *
-	chmod +x bin/crowj
+	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crowj --perf
+
+profile:
+	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crowj check include/compiler/app/main.crow --perf
+	jmc
 
 ### lint ###
 

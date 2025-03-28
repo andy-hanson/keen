@@ -1,3 +1,5 @@
+// Note: This file is inlined into 'bin/crow'.
+// So if you edit this file, you need to build twice: 'make bin/crow && make update-lkg && rm bin/crow && make bin/crow' (TODO: can I make this happen automatically?)
 class Crow {
 	static boolean referenceEqual(Object a, Object b) {
 		return a == b;		
@@ -223,7 +225,19 @@ class Crow {
 		try {
 			return class_.getConstructor(argClasses);
 		} catch (NoSuchMethodException e) {
-			throw new Error("TODO: advanced search for correct constructor to call");
+			// TODO: this is the same as the code in getMethod, share code ------------------------------------------------------------------------
+			java.lang.reflect.Constructor[] constructors = class_.getConstructors();
+			java.lang.reflect.Constructor res = null;
+			for (java.lang.reflect.Constructor ctor : constructors) {
+				if (ctor.getParameterCount() == args.length && canCallMethod(ctor.getParameterTypes(), argClasses)) {
+					if (res == null)
+						res = ctor;
+					else
+						throw new Error("Multiple constructors could match the given arguments");
+				}
+			}
+			if (res == null) throw e;
+			return res;
 		}
 	}
 
@@ -234,11 +248,10 @@ class Crow {
 		} catch (NoSuchMethodException e) {
 			java.lang.reflect.Method[] methods = class_.getMethods();
 			java.lang.reflect.Method res = null;
-			for (int i = 0; i < methods.length; i++) {
-				java.lang.reflect.Method method = methods[i];
+			for (java.lang.reflect.Method method : methods) {
 				if (method.getName().equals(methodName) && method.getParameterCount() == args.length && canCallMethod(method.getParameterTypes(), argClasses)) {
 					if (res == null)
-						res = methods[i];
+						res = method;
 					else
 						throw new Error("Multiple methods could match the given arguments");
 				}
