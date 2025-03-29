@@ -1,6 +1,5 @@
 import
 	crow/col/mut-slice
-	../../../../crow/col/mut-array: hint-size
 	../../../model/ast
 	../../../model/model
 	../../../model/source-range
@@ -266,8 +265,7 @@ find-function-for-return-and-param-types called?(
 -check-option-call expr(ctx expr-ctx, locals locals-info, ast call-ast, outer-expected expected) check-expr
 	ctx check-with-modify-expected outer-expected, (x => x try-spread-option-type), inner-expected =>
 		assert ast.args.size != 0
-		args expr mut[] = ()
-		args hint-size ast.args.size
+		args expr mut-slice = trusted ast.args.size gc-safe-mut-slice
 		check-arg void mut(index nat, arg-expected expected) = (index, arg-expected) =>
 			arg-ast = ast.args[index]
 			if index == 0
@@ -276,15 +274,15 @@ find-function-for-return-and-param-types called?(
 				_ = ctx check-with-modify-expected arg-expected, (x => ctx make-option-type x), optional-arg-expected =>
 					expr = ctx check-expr locals, arg-ast, optional-arg-expected
 					option = optional-arg-expected inferred
-					args ~= expr
+					args[index] := expr
 					expr, option.must-unwrap-option-type-or-bogus
 			else
-				args ~= ctx check-expr locals, arg-ast, arg-expected
+				args[index] := ctx check-expr locals, arg-ast, arg-expected
 		res = ctx check-call-cb locals, ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, (_ => true), _ => true
 		match res
 		as called called
 			type = ctx.instantiate-ctx make-option-if-not-already ctx.common-types, called.return-type
-			(ast call-option-expr called, args.move-to, type), type.to
+			(ast call-option-expr called, (trusted args cast-immutable), type), type.to
 		as call-failure _
 			(inner-expected bogus ast.range), bogus-type
 -try-spread-option-type type[]?(a type)
@@ -306,15 +304,14 @@ find-function-for-return-and-param-types called?(
 	n-args nat,
 	cb-check-arg cb-check-arg,
 )
-	actual-arg-types type mut[] = ()
-	actual-arg-types hint-size n-args
+	actual-arg-types type mut-slice = trusted n-args gc-safe-mut-slice
 	some-arg-is-bogus mut = false
 	for arg-idx : 0::nat .. n-args
 		guard candidates !is-empty : break
 		candidates filter-candidates-but-dont-remove-all ctx.allocators, x => ctx pre-check-candidate-specs x
-		arg-type = ctx.instantiate-ctx with-param-expected candidates, arg-idx, arg-expected =>
+		arg-type = ctx.allocators with-param-expected ctx.instantiate-ctx, candidates, arg-idx, arg-expected =>
 			cb-check-arg[arg-idx, arg-expected]
-		actual-arg-types ~= arg-type
+		actual-arg-types[arg-idx] := arg-type
 		# If it failed to check, don-t continue, just stop there
 		if arg-type is-bogus
 			some-arg-is-bogus := true
@@ -337,7 +334,7 @@ find-function-for-return-and-param-types called?(
 	else
 		ctx add-diag diag-range, if candidates is-empty
 			all-candidates = ctx get-all-candidates-as-called-decls fun-name
-			ctx.type-container diag-call-no-match fun-name, (ctx get-expected-for-diag expected), (ctx.common-types get-n-type-args-for-diagnostic explicit-type-arg), n-args, actual-arg-types.move-to, all-candidates
+			ctx.type-container diag-call-no-match fun-name, (ctx get-expected-for-diag expected), (ctx.common-types get-n-type-args-for-diagnostic explicit-type-arg), n-args, (trusted actual-arg-types cast-immutable), all-candidates
 		else
 			fun-name diag-call-multiple-matches ctx.type-container, candidates.to.candidates-for-diag
 		call-failure
@@ -384,14 +381,17 @@ find-function-for-return-and-param-types called?(
 			candidate.type-args[i] := arg,
 	ok
 
--with-param-expected type(ctx instantiate-ctx, candidates candidate mut[], arg-idx nat, cb void mut(x expected)) # TODO: no need for 'with' --------------------------
-	out type-and-context mut[] = ()
+-with-param-expected type(allocators allocators, ctx instantiate-ctx, candidates candidate mut[], arg-idx nat, cb void mut(x expected)) # TODO: no need for 'with' --------------------------
+	out type-and-context mut[] = allocators allocate
 	for candidate : candidates
 		expected = ctx get-candidate-expected-parameter-type candidate, arg-idx
 		is-duplicate = expected.context !is-inferring && out exists x => (x.context !is-inferring && x.type == expected.type)
 		unless is-duplicate
 			out ~= expected
-	out.move-to with-expect-candidates cb
+	res = out with-expect-candidates cb
+	out clear
+	allocators free out
+	res
 
 -infer-candidate-type-args-from-checked-spec-sig void(
 	ctx instantiate-ctx,

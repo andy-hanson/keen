@@ -166,18 +166,19 @@ check-test-body expr(
 		ctx check-with-destructure locals, params[0], inner-locals =>
 			ctx check-with-param-destructures-recur inner-locals, params[1 .. end], cb
 
--check-and-infer expr-and-type(ctx expr-ctx, locals locals-info, ast expr-ast)
-	(expected => ctx check-expr locals, ast, expected) with-infer
+-check-and-infer (expr, type)(ctx expr-ctx, locals locals-info, ast expr-ast)
+	expected expected = infer
+	expr = ctx check-expr locals, ast, expected
+	expr, expected.inferred
 
--check-and-expect-or-infer expr-and-type(ctx expr-ctx, locals locals-info, ast expr-ast, opt-expected type?)
+-check-and-expect-or-infer (expr, type)(ctx expr-ctx, locals locals-info, ast expr-ast, opt-expected type?)
 	if e ?= opt-expected
 		(ctx check-and-expect locals, ast, e), e
 	else
 		ctx check-and-infer locals, ast
 
 -check-and-expect expr(ctx expr-ctx, locals locals-info, ast expr-ast, expected type)
-	expected with-expect e =>
-		ctx check-expr locals, ast, e
+	ctx check-expr locals, ast, expected.expect
 
 -void-type type(ctx expr-ctx)
 	ctx.common-types.void to
@@ -256,9 +257,8 @@ check-test-body expr(
 	thrown expr? = if thrown-ast ?= ast thrown
 		if x ?= thrown-ast.expr throw-ast
 			ctx add-diag x.keyword-range, diag-assert-or-forbid-message-is-throw
-		res = ctx.common-types.exception.to with-expect expect-thrown =>
-			ctx with-extern-from-condition condition, !is-forbid, () =>
-				ctx check-expr-with-opt-destructure locals, (is-forbid ? destructure), thrown-ast.expr, expect-thrown
+		res = ctx with-extern-from-condition condition, !is-forbid, () =>
+			ctx check-expr-with-opt-destructure locals, (is-forbid ? destructure), thrown-ast.expr, ctx.common-types.exception.to.expect
 		res,
 	after = ctx with-extern-from-condition condition, is-forbid, () =>
 		ctx check-expr-with-opt-destructure locals, (!is-forbid ? destructure), ast.after, expected
@@ -435,7 +435,7 @@ check-test-body expr(
 			ctx add-diag source.range, var.variable-ref.diag-local-not-mutable
 			expected bogus source.range
 		as mut_
-			value = var.type with-expect cb-right
+			value = cb-right[var.type.expect]
 			match var variable-ref
 			as local local
 				ctx check expected, ctx.void-type, (source.range local-set-expr local, value)
@@ -914,29 +914,28 @@ integral-types integral-type[]()
 	# Checking the body of the lambda may fill in candidate type args
 	# if the expected return type contains candidate's type params
 	body-locals locals-info = (lambda-info,), ()
-	body-and-type = non-instantiated-return-type with-expect return-type-context, return-type-inferrer =>
-		ctx check-expr-with-destructure body-locals, param, body-ast, return-type-inferrer
-	inst-fun-struct = ctx.instantiate-ctx instantiate-struct fun-struct, (body-and-type.type, param.type)
-	lambda.body := body-and-type expr
+	body-expected = non-instantiated-return-type expect-with-context return-type-context
+	lambda.body := ctx check-expr-with-destructure body-locals, param, body-ast, body-expected
+	body-type = body-expected inferred
+	inst-fun-struct = ctx.instantiate-ctx instantiate-struct fun-struct, (body-type, param.type)
 	lambda.closure := for x : lambda-info.closure-fields
 		x variable-ref
 	lambda.type := inst-fun-struct
 	# TODO: this check should never fail, so could just set inferred directly with no check ----------------------------------------
 	res = ctx check expected, inst-fun-struct.to, lambda.to
-	res, body-and-type.type
+	res, body-type
 
 -check-let expr(ctx expr-ctx, locals locals-info, ast let-ast, expected expected)
-	value = ctx check-and-expect-or-infer locals, ast.value, (ctx type-from-destructure ast.destructure)
-	destructure = ctx check-destructure ast.destructure, value.type, local
+	value-expr, value-type = ctx check-and-expect-or-infer locals, ast.value, (ctx type-from-destructure ast.destructure)
+	destructure = ctx check-destructure ast.destructure, value-type, local
 	then = ctx check-expr-with-destructure locals, destructure, ast.then, expected
-	ast let-expr destructure, value.expr, then
+	ast let-expr destructure, value-expr, then
 
 -check-loop expr(ctx expr-ctx, locals locals-info, ast loop-ast, expected expected)
 	if type ?= ctx.instantiate-ctx try-get-non-inferring-type expected
 		loop_ loop-expr = ast, type, (ast.range bogus-expr bogus-type)
 		info loop-info = loop_, type, false
-		loop_.body := info with-expect-loop body-expected =>
-			ctx check-expr locals, ast.body, body-expected
+		loop_.body := ctx check-expr locals, ast.body, info.to
 		if info !has-break
 			ctx add-diag ast.keyword-range, diag-loop-without-break
 		loop_ to
@@ -961,15 +960,12 @@ integral-types integral-type[]()
 -check-loop-while-or-until expr(ctx expr-ctx, locals locals-info, ast loop-while-or-until-ast, expected expected)
 	condition = ctx check-condition locals, ast.condition
 	destructure = condition opt-destructure
-	body = ctx.void-type with-expect body-expected =>
-		ctx check-expr-with-opt-destructure locals, (ast !is-until ? destructure), ast.body, body-expected
+	body = ctx check-expr-with-opt-destructure locals, (ast !is-until ? destructure), ast.body, ctx.void-type.expect
 	after = ctx check-expr-with-opt-destructure locals, (ast is-until ? destructure), ast.after, expected
 	ast loop-while-or-until-expr condition, body, after
 
 -check-match expr(ctx expr-ctx, locals locals-info, ast match-ast, expected expected)
-	matched-and-type expr-and-type = ctx check-and-infer locals, ast.matched
-	matched = matched-and-type expr
-	matched-type = matched-and-type type
+	matched, matched-type = ctx check-and-infer locals, ast.matched
 	# Use an arbitrary non-matchable inst as default
 	inst = matched-type.struct-inst ?? ctx.common-types.void
 	decl = inst decl
@@ -1485,11 +1481,11 @@ integral-types integral-type[]()
 		ast try-expr body, catches
 
 -check-try-let expr(ctx expr-ctx, locals locals-info, ast try-let-ast, expected expected)
-	value expr-and-type = ctx check-and-expect-or-infer locals, ast.value, (ctx type-from-destructure ast.destructure)
-	destructure = ctx check-destructure ast.destructure, value.type, local
+	value-expr, value-type = ctx check-and-expect-or-infer locals, ast.value, (ctx type-from-destructure ast.destructure)
+	destructure = ctx check-destructure ast.destructure, value-type, local
 	guard catch_ ?= ctx check-match-sum-type-case locals, ctx.common-types.exception, ast.catch-member, ast.catch_, expected : expected bogus ast.range
 	then = ctx check-expr-with-destructure locals, destructure, ast.then, expected
-	ast try-let-expr destructure, value.expr, catch_, then
+	ast try-let-expr destructure, value-expr, catch_, then
 
 -check-typed expr(ctx expr-ctx, locals locals-info, ast typed-ast, expected expected)
 	type = ctx type-from-ast ast.type

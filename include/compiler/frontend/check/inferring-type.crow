@@ -10,21 +10,32 @@ import
 	./expr-ctx
 	./instantiate
 
--debug string(a type?)
-	if x ?= a
-		x debug
-	else
-		"uninferred"
+| This is logically a *union* of its fields. At most one should be set, or none for inferring.
+| Since unions can't be mutable we would have had to wrap, and using a single record is more performant as it avoids indirection.
+expected record mut, -new
+	| If empty, use 'choices'
+	opt-inferred mut type?
+	| If empty, use 'loop'
+	opt-choices mut type-and-context mut[]?
+	| If empty, this is purely inferring
+	opt-loop loop-info?
+infer expected()
+	(), (), ()
+expect expected(type type)
+	(type,), (), ()
+expect-with-context expected(type type, context type-context)
+	(), (((type, context),),), ()
+| Also writes to {info}.{has-break}
+to expected(info loop-info)
+	(), (), (info,)
 
-debug string(a type-context)
-	if a is-empty
-		"non-inferring"
-	else
-		"inferring {" " join for x : a; x debug}"
-non-inferring type-context()
-	()
-is-inferring bool(a type-context)
-	a !is-empty
+loop-info record mut
+	loop_ loop-expr
+	type type
+	has-break mut bool
+
+to expected(a type-and-context[])
+	(), (a.to,), ()
 
 -set-inferred void(a type-context, param type-param-index, type type)
 	forbid _ ?= a[param index]
@@ -32,67 +43,10 @@ is-inferring bool(a type-context)
 -try-get-inferred type?(a type-context, param type-param-index) # TODO: just inline it ----------------------------------------------
 	a[param index]
 
-loop-info record mut
-	loop_ loop-expr
-	type type
-	has-break mut bool
-
-type-and-context record(type type, context type-context) mut
-debug string(a type-and-context)
-	"({a.type debug}, {a.context debug})"
-non-inferring type-and-context(a type)
-	a, non-inferring
-
-| type-param-index (and type params in type args of struct-inst) are in the context of the function being checked
-expected record(value mut expected-kind) mut
-expected-kind union(
-	expected-infer,
-	bogus-type,
-	type-param-index,
-	struct-inst,
-	type-and-context[],
-	loop-info
-) mut
-expected-infer record
-infer expected()
-	expected-infer,
-to expected(a type-and-context[])
-	a.to,
-to expected-kind(a type)
-	match a
-	as bogus-type x
-		x to
-	as type-param-index x
-		x to
-	as struct-inst x
-		x to
-
-# TODO: maybe just combine-type by default! --------------------------------------------------------------------------------------
-expected-combine-type union(expected-infer, type, type-and-context[], loop-info) mut
-combine-type expected-combine-type(a expected)
-	match a value
-	as expected-infer x
-		x to
-	as bogus-type x
-		x.to to
-	as type-param-index x
-		x.to to
-	as struct-inst x
-		x.to to
-	as array x
-		x to
-	as loop-info x
-		x to
-
 | In the type checker, an expression 'type' funciton might not be callable due to late initialization/
 | For example, a {closure-get-expr} accesses its type from the lambda, which might not be initialized yet.
 | So we instead pass the type explicitly.
 expr-and-type record(expr expr, type type)
-# TODO: use a 'with-block' ---------------------------------------------------------------------------------------------------------------
-with-infer expr-and-type(cb expr mut(x expected))
-	expected expected = infer
-	expr = cb[expected]
-	expr, expected.inferred
 
 check-with-modify-expected expr(
 	ctx expr-ctx,
@@ -102,11 +56,7 @@ check-with-modify-expected expr(
 	# This can return a modified type. E.g., if expecting a non-option, it would return the option.
 	cb-inner expr-and-type mut(x expected),
 )
-	match outer combine-type
-	as expected-infer
-		inner expected = infer
-		ctx check outer, cb-inner[inner]
-	as type x
+	if x ?= outer opt-inferred
 		if new-expected ?= cb-modify-expected-type[x]
 			with-context type-and-context[] = for xx : new-expected; xx non-inferring
 			inner expected = with-context to
@@ -114,7 +64,7 @@ check-with-modify-expected expr(
 		else
 			inner expected = infer
 			ctx check outer, cb-inner[inner]
-	as array outer-types
+	elif outer-types ?= outer opt-choices
 		modified-types type-and-context[] = with out : build
 			for outer-type : outer-types
 				if new-expected ?= cb-modify-expected-type[outer-type type]
@@ -125,24 +75,22 @@ check-with-modify-expected expr(
 		else
 			modified-types to
 		ctx check outer, cb-inner[inner]
-	as loop-info _
+	elif _ ?= outer opt-loop
 		cb-inner[outer] expr
+	else
+		inner expected = infer
+		ctx check outer, cb-inner[inner]
 
-# TODO: This doesn't need to take a callback, just return the 'expected' normally --------------------------------------------------
 with-expect expr(type type, cb expr mut(x expected)			)
-	expected expected = match type
-	as bogus-type x
-		x.to,
-	as type-param-index x
-		x.to,
-	as struct-inst x
-		x.to,
+	expected = infer
+	expected.opt-inferred := type,
 	cb[expected]
 with-expect expr-and-type(type type, context type-context, cb expr mut(x expected))
-	t type-and-context[] = (type, context),
-	expected expected = t to
-	res = cb[expected]
-	res, expected.inferred
+	t type-and-context mut[] = (type, context),
+	expected = infer
+	expected.opt-choices := t,
+	expr = cb[expected]
+	expr, expected.inferred
 
 expr-and-option-type record(option expr, non-option-type type)
 with-expect-option expr-and-option-type(
@@ -154,35 +102,28 @@ with-expect-option expr-and-option-type(
 	type-args type[] = 0.type-param-index,
 	option-t type = instantiate-ctx instantiate-struct common-types.option, type-args to
 	allocators with-type-context-for 1, inferring-types =>
-		expected-types type-and-context[] = (option-t, inferring-types),
-		expected expected = expected-types to
-		option = cb[expected]
+		inner = cb[option-t expect-with-context inferring-types]
 		inner-type = inferring-types[0] ?? bogus-type
-		option, inner-type
+		inner, inner-type
 
-with-expect-candidates type(candidates type-and-context[], cb void mut(x expected))
-	expected expected = candidates to
+with-expect-candidates type(candidates type-and-context mut[], cb void mut(x expected)) # TODO: avoid the 'with'? -----------------------------
+	expected = infer
+	expected.opt-choices := candidates,
 	cb[expected]
 	expected inferred
 
-| Also writes to {info}.{has-break}
-with-expect-loop expr(info loop-info, cb expr mut(x expected))
-	expected expected = info.to,
-	cb[expected]
-
 debug-show string(ctx expr-ctx, a expected)
 	show-ctx show-type-ctx = ((), (), (), (false,)), ctx.common-types
-	match a combine-type
-	as expected-infer
-		"<<infer>>"
-	as type x
+	if x ?= a opt-inferred
 		"local type {show-ctx show-type-unquoted (ctx type-with-container x)}"
-	as array choices
+	elif choices ?= a opt-choices
 		x string = ", " join for choice : choices
 			show-ctx debug-show-expected-choice ctx.type-container, choice
 		"choices: {x}"
-	as loop-info x
+	elif x ?= a opt-loop
 		"loop returning {show-ctx show-type-unquoted (ctx type-with-container x.type)}"
+	else
+		"<<inferring>>"
 -debug-show-expected-choice string(show-ctx show-type-ctx, container type-container, choice type-and-context)
 	match choice type
 	as bogus-type 
@@ -209,7 +150,7 @@ debug-show string(ctx expr-ctx, a expected)
 				"({args}) {name}"
 
 try-get-loop loop-info?(a expected)
-	a.value loop-info
+	a opt-loop
 
 | Returns an index into {choices} if it is the only allowed choice.
 | If there is no unambiguous choice, adds a diagnostic and returns an empty option.
@@ -264,19 +205,19 @@ find-expected-struct-for-literal nat?(
 		()
 
 -set-to-type void(a expected, type type)
-	a.value := type to
+	a.opt-inferred := type,
+
 -set-to-bogus void(a expected)
-	a.value := bogus-type
+	a set-to-type bogus-type
 set-to-bogus-if-inferring void(a expected)
-	match a combine-type
-	as expected-infer
-		a set-to-bogus
-	as type _
+	if _ ?= a opt-inferred
 		()
-	as array _
+	elif _ ?= a opt-choices
 		a set-to-bogus
-	as loop-info _
+	elif _ ?= a opt-loop
 		()
+	else
+		a set-to-bogus
 
 expected-lambda-type record(type-context type-context, fun-type fun-type, instantiated-param-type type) mut
 get-expected-lambda expected-lambda-type?(
@@ -339,47 +280,34 @@ get-expected-lambda expected-lambda-type?(
 		()
 
 -each-choice void(a expected, cb void mut(x type-and-context))
-	match a combine-type
-	as expected-infer
-		()
-	as type x
+	if x ?= a opt-inferred
 		cb[x non-inferring]
-	as array choices
-		choices for-loop cb
-	as loop-info _
-		()
+	elif x ?= a opt-choices
+		x for-loop cb
 
 try-get-non-inferring-type-including-loop type?(ctx instantiate-ctx, expected expected)
-	if x ?= expected.value loop-info
+	if x ?= expected opt-loop
 		x.type,
 	else
 		ctx try-get-non-inferring-type expected
 
 try-get-non-inferring-type type?(ctx instantiate-ctx, expected expected)
-	match expected combine-type
-	as expected-infer
-		()
-	as type x
+	if x ?= expected opt-inferred
 		x,
-	as array choices
-		if choices.size == 1
-			ctx try-get-non-inferring-type choices.only
-	as loop-info _
-		()
+	elif x ?= expected opt-choices
+		if x.size == 1
+			ctx try-get-non-inferring-type x.only
 
 match-expected-vs-return-type-no-diagnostic bool(
 	ctx instantiate-ctx,
 	expected expected,
 	candidate-return-type type-and-context,
 )
-	match expected combine-type
-	as expected-infer
-		true
-	as type x
+	if x ?= expected opt-inferred
 		# We have a particular expected type, so infer its type args
 		# TODO: Above comment isn't right, in D the expected is 'const' .......................................................
 		ctx match-types candidate-return-type, x.non-inferring
-	as array choices
+	elif choices ?= expected opt-choices
 		match choices none-or-one-or-many x => x is-type-match-possible candidate-return-type
 		as none
 			false
@@ -388,8 +316,10 @@ match-expected-vs-return-type-no-diagnostic bool(
 		as many
 			# Else don't infer any type args; multiple candidates and multiple possible return types.
 			true
-	as loop-info _
+	elif _ ?= expected opt-loop
 		false
+	else
+		true
 
 bogus expr(expected expected, ast expr-ast)
 	expected bogus ast.range
@@ -398,16 +328,12 @@ bogus expr(expected expected, range source-range)
 	range bogus-expr expected.inferred
 
 inferred type(expected expected)
-	match expected combine-type
-	as expected-infer
-		throw unreachable
-	as type x
+	if x ?= expected opt-inferred
 		x
-	as array choices
-		# If there were multiple, we should have set the expected.
+	elif choices ?= expected opt-choices
 		choices.only type
-	as loop-info x
-		x type
+	else
+		expected.opt-loop! type
 
 check expr(ctx expr-ctx, expected expected, expr-type type, expr expr)
 	ctx check expected, (expr, expr-type)
@@ -421,25 +347,20 @@ check expr(ctx expr-ctx, expected expected, expr-type type, expr expr)
 		a.expr bogus-wrong-type-expr expected.inferred
 
 get-expected-for-diag expected-for-diag(ctx expr-ctx, expected expected)
-	match expected combine-type
-	as expected-infer
-		expected-for-diag-infer
-	as type x
+	if x ?= expected opt-inferred
 		(x,) expected-for-diag-choices ctx.type-container
-	as array choices
+	elif choices ?= expected opt-choices
 		(for x : choices; ctx.instantiate-ctx apply-inferred x) expected-for-diag-choices ctx.type-container
-	as loop-info _
+	elif _ ?= expected opt-loop
 		expected-for-diag-loop
+	else
+		expected-for-diag-infer
 
-# NOTE: This may infer type parameters
+| This may infer type parameters
 -set-type-no-diagnostic bool(ctx instantiate-ctx, expected expected, actual type)
-	match expected combine-type
-	as expected-infer
-		expected set-to-type actual
-		true
-	as type x
+	if x ?= expected opt-inferred
 		ctx match-types x.non-inferring, actual.non-inferring
-	as array choices
+	elif choices ?= expected opt-choices
 		# TODO: this could use 'exists'...........................................................................................
 		any-ok mut = false
 		for x : choices
@@ -448,8 +369,11 @@ get-expected-for-diag expected-for-diag(ctx expr-ctx, expected expected)
 		if any-ok
 			expected set-to-type actual
 		any-ok
-	as loop-info _
+	elif _ ?= expected opt-loop
 		false
+	else
+		expected set-to-type actual
+		true
 
 try-get-non-inferring-type type?(ctx instantiate-ctx, a type-and-context)
 	match a type
