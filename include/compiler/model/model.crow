@@ -1075,7 +1075,7 @@ method-index nat(a fun-body-method, fun fun-decl)
 record-field-call record(field record-field, fun-kind fun-kind)
 record-field-get record(field record-field)
 record-field-pointer record(field record-field)
-record-field-set record(field record-field)
+record-field-set record(field record-field, is-set-deref bool)
 sum-type-member-get record
 var-get record(var var-decl)
 var-set record(var var-decl)
@@ -1581,7 +1581,7 @@ fun-safety enum(safe, trusted_, unsafe_)
 
 fun-decl-source union(
 	fun-source-bogus,
-	fun-source-ast,
+	fun-decl-ast,
 	enum-or-flags-member,
 	fun-source-file-import,
 	record-field,
@@ -1596,8 +1596,8 @@ range uri-and-range(a fun-decl-source)
 	match a
 	as fun-source-bogus x
 		x.module-uri, ()
-	as fun-source-ast x
-		x.module-uri, x.ast.range
+	as fun-decl-ast x
+		x.module-uri, x.range
 	as enum-or-flags-member x
 		x.module-uri, x.range
 	as fun-source-file-import x
@@ -1611,14 +1611,14 @@ range uri-and-range(a fun-decl-source)
 	as var-decl x
 		x range
 doc-comment-ast doc-comment-ast(a fun-decl-source)
-	if x ?= a fun-source-ast
-		x.ast doc-comment
+	if x ?= a fun-decl-ast
+		x doc-comment
 type-params type-params(a fun-decl-source)
 	match a
 	as fun-source-bogus x
 		x type-params
-	as fun-source-ast x
-		x.ast type-params
+	as fun-decl-ast x
+		x type-params
 	as enum-or-flags-member x
 		x.containing-enum type-param-asts
 	as fun-source-file-import _
@@ -1631,16 +1631,15 @@ type-params type-params(a fun-decl-source)
 		x type-param-asts
 	as var-decl x
 		x type-param-asts
-fun-source-bogus record(module-uri uri, type-params type-params)
+fun-source-bogus record(module-uri uri, name symbol, type-params type-params)
 name-range uri-and-range(a fun-source-bogus)
 	a.module-uri top-of-file
-fun-source-ast record(module-uri uri, ast fun-decl-ast)
-name-range uri-and-range(a fun-source-ast)
-	a.module-uri, a.ast.name-range
 fun-source-file-import record
 	| This is the importing module, not imported
 	module-uri uri
 	ast import-or-export-ast
+name symbol(a fun-source-file-import)
+	a.ast.kind.import-file-ast!.name name
 name-range uri-and-range(a fun-source-file-import)
 	a.module-uri, a.ast.range
 
@@ -1648,7 +1647,6 @@ fun-decl record force-data, -new
 	hash nat32 # TODO: USED? ---------------------------------------------------------------------------------------------------------
 	source fun-decl-source
 	visibility visibility
-	name symbol
 	n-type-params-storage nat8
 	return-type mut type
 	params mut params
@@ -1660,11 +1658,61 @@ fun-decl record force-data, -new
 	insts mut fun-decl-insts
 | For a non-template, this will be its only {fun-inst}.
 fun-decl-insts union(fun-inst, fun-inst object-memoizer) mut
+name symbol(a fun-decl)
+	match a source
+	as fun-source-bogus x
+		x name
+	as fun-decl-ast x
+		x.name name
+	as enum-or-flags-member x
+		x name
+	as fun-source-file-import x
+		x name
+	as record-field x
+		if s ?= a.body record-field-set
+			"set-{s.is-set-deref ? "deref-"::string}{x name}"
+		else
+			x name
+	as signature x
+		x name
+	as struct-decl struct
+		match a body
+		as create-extern
+			"new"
+		as create-record
+			struct.body.record_!.flags_.nominal_ ? struct.name : "new"
+		as create-record-and-convert-to-sum-type x
+			x.member.decl name
+		as create-sum-type
+			"to"
+		as flags-function x
+			match x
+			as in
+				"in"
+			as intersect
+				"&"
+			as negate
+				"~"
+			as none
+				"new"
+			as union_
+				"|"
+		as sum-type-member-get
+			a.return-type.must-unwrap-option-type.struct-inst!.decl name
+		else
+			throw unreachable
+	as var-decl x
+		match a body
+		as var-get _
+			x name
+		as var-set _
+			"set-{x name}"
+		else
+			throw unreachable
 new fun-decl(
 	hash nat32,
 	source fun-decl-source,
 	visibility visibility,
-	name symbol,
 	n-type-params nat, # TODO: this comes from source so it doesn't need to be a constructor param ---------------------------------
 	return-type type,
 	params params,
@@ -1674,7 +1722,7 @@ new fun-decl(
 	doc-comment-references doc-comment-references,
 	body fun-body
 )
-	res fun-decl = hash, source, visibility, name, n-type-params.to, return-type, params, flags_, externs, specs, doc-comment-references, body, trusted gc-safe-value
+	res fun-decl = hash, source, visibility, n-type-params.to, return-type, params, flags_, externs, specs, doc-comment-references, body, trusted gc-safe-value
 	res.insts := if res is-template
 		()::(fun-inst object-memoizer) to
 	else
@@ -1843,12 +1891,18 @@ doc-comment doc-comment(a called-spec-sig)
 | Like 'Called', but not fully instantiated. (This is used for Candidate when checking a call expr.)
 called-decl union(fun-decl, called-spec-sig)
 	module-uri uri()
-	name symbol()
 	n-type-params nat()
 	type-param-asts type-params()
 	return-type type()
 	arity arity()
 	doc-comment doc-comment()
+# TODO: should be a method, but concretize has bugs --------------------------------------------------------------------------
+name symbol(a called-decl)
+	match a
+	as fun-decl x
+		x name
+	as called-spec-sig x
+		x name
 == bool(a called-decl, b called-decl)
 hash-mix void(hasher hasher, a called-decl)
 	match a
@@ -2015,7 +2069,7 @@ each-decl void(a module, cb void mut(x any-decl))
 	for x : a specs
 		cb[x to]
 	for x : a funs
-		if _ ?= x.source fun-source-ast
+		if _ ?= x.source fun-decl-ast
 			cb[x to]
 	for x : a tests
 		cb[x to]
@@ -2023,13 +2077,27 @@ each-decl void(a module, cb void mut(x any-decl))
 any-decl union(fun-decl, spec-decl, struct-alias, struct-decl, test_, var-decl)
 	hash nat32()
 	module-uri uri()
-	name symbol()
 	range uri-and-range()
 	name-range uri-and-range()
 	doc-comment-ast doc-comment-ast()
 	doc-comment doc-comment()
 	type-param-asts type-params()
 	visibility visibility()
+# TODO: should be a method, but there are bugs in concretize -----------------------------------------------------------------
+name symbol(a any-decl)
+	match a
+	as fun-decl x
+		x name
+	as spec-decl x
+		x name
+	as struct-alias x
+		x name
+	as struct-decl x
+		x name
+	as test_ x
+		x name
+	as var-decl x
+		x name
 == bool(a any-decl, b any-decl)
 hash-mix void(hasher hasher, b any-decl)
 	hasher hash-mix b.hash
