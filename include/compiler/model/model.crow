@@ -691,7 +691,7 @@ type-size record(size-bytes nat, alignment-bytes nat)
 to json(a type-size)
 
 struct-alias record force-data
-	hash nat
+	hash nat32 # TODO: USED? ---------------------------------------------------------------------------------------------------------
 	ast struct-alias-ast
 	module-uri uri
 	visibility visibility
@@ -739,7 +739,7 @@ is-linkage-always-compatible bool(referencer linkage, referenced linkage-range)
 	referenced.least-strict >= referencer
 
 struct-decl record force-data
-	hash nat
+	hash nat32
 	source struct-decl-source
 	module-uri uri
 	visibility visibility
@@ -756,7 +756,7 @@ struct-decl record force-data
 | For a non-template, this will be its only {struct-inst}
 struct-decl-insts union(struct-inst, struct-inst object-memoizer) mut
 new struct-decl(
-	hash nat,
+	hash nat32,
 	source struct-decl-source,
 	module-uri uri,
 	visibility visibility,
@@ -905,7 +905,7 @@ to symbol(a builtin-spec)
 		"shared"
 
 spec-decl record force-data
-	hash nat
+	hash nat32
 	module-uri uri
 	ast spec-decl-ast
 	visibility visibility
@@ -1510,29 +1510,71 @@ to json(a builtin-ternary)
 builtin-4ary enum(switch-fiber-initial)
 to json(a builtin-4ary)
 
-fun-flags record
-	bare_ bool
-	summon_ bool
-	safety fun-safety
-	ok-if-unused bool
-	force-ctx_ bool
-with-ok-if-unused fun-flags(a fun-flags)
-	a.bare_, a.summon_, a.safety, true, a.force-ctx_
-with-summon fun-flags(a fun-flags)
-	a with-summon true
-with-summon fun-flags(a fun-flags, summon_ bool)
-	a.bare_, summon_, a.safety, a.ok-if-unused, a.force-ctx_
+fun-flags flags nat8 storage
+	bare_
+	summon_
+	trusted_
+	unsafe_
+	ok-if-unused
+	force-ctx_
+new fun-flags(is-bare bool, is-summon bool, safety fun-safety, is-ok-if-unused bool, is-force-ctx bool)
+	res mut fun-flags = ()
+	if is-bare
+		res |:= bare_
+	if is-summon
+		res |:= summon_
+	match safety
+	as safe
+		()
+	as unsafe_
+		res |:= unsafe_
+	as trusted_
+		res |:= trusted_
+	if is-ok-if-unused
+		res |:= ok-if-unused
+	if is-force-ctx
+		res |:= force-ctx_
+	res
+bare_ bool(a fun-flags) # TODO: DON'T NEED A FN -------------------------------------------------------------------------------
+	bare_::fun-flags in a
+summon_ bool(a fun-flags) # TODO: DON'T NEED A FN -------------------------------------------------------------------------------
+	summon_::fun-flags in a
+safety fun-safety(a fun-flags) # TODO: DON'T NEED A FN -------------------------------------------------------------------------------
+	if trusted_::fun-flags in a
+		forbid unsafe_::fun-flags in a
+		trusted_
+	elif unsafe_::fun-flags in a
+		unsafe_
+	else
+		safe
+ok-if-unused bool(a fun-flags) # TODO: DON'T NEED A FN -------------------------------------------------------------------------------
+	ok-if-unused::fun-flags in a
+force-ctx_ bool(a fun-flags) # TODO: DON'T NEED A FN -------------------------------------------------------------------------------
+	force-ctx_::fun-flags in a
+with-ok-if-unused fun-flags(a fun-flags) # TODO: DON'T NEED A FN -----------------------------------------------------------------
+	a | ok-if-unused
+with-summon fun-flags(a fun-flags) # TODO: DON'T NEED A FN -----------------------------------------------------------------
+	a | summon_
+with-summon fun-flags(a fun-flags, is-summon bool) # TODO: DON'T NEED A FN -----------------------------------------------------------------
+	if is-summon
+		a | summon_
+	else
+		a & ~summon_
 
-regular fun-flags(bare_ bool, summon_ bool, safety fun-safety, force-ctx_ bool)
-	bare_, summon_, safety, false, force-ctx_
-none fun-flags()
-	false, false, safe, false, false
-generated-bare fun-flags()
-	true, false, safe, true, false
-generated-bare-unsafe fun-flags()
-	true, false, unsafe_, true, false
-generated fun-flags()
-	false, false, safe, true, false
+regular fun-flags(is-bare bool, is-summon bool, safety fun-safety, is-force-ctx bool) # TODO: just call this 'new' ----------------
+	is-bare: is-bare
+	is-summon: is-summon
+	safety: safety
+	is-ok-if-unused: false
+	is-force-ctx: is-force-ctx
+none fun-flags() # TODO: DON'T NEED A FN -----------------------------------------------------------------
+	()
+generated-bare fun-flags() # TODO: DON'T NEED A FN -----------------------------------------------------------------
+	bare_ | ok-if-unused
+generated-bare-unsafe fun-flags() # TODO: DON'T NEED A FN -----------------------------------------------------------------
+	bare_ | unsafe_ | ok-if-unused
+generated fun-flags() # TODO: DON'T NEED A FN -----------------------------------------------------------------
+	ok-if-unused
 
 fun-safety enum(safe, trusted_, unsafe_)
 == bool(a fun-safety, b fun-safety)
@@ -1603,11 +1645,11 @@ name-range uri-and-range(a fun-source-file-import)
 	a.module-uri, a.ast.range
 
 fun-decl record force-data, -new
-	hash nat
+	hash nat32 # TODO: USED? ---------------------------------------------------------------------------------------------------------
 	source fun-decl-source
 	visibility visibility
 	name symbol
-	n-type-params nat
+	n-type-params-storage nat8
 	return-type mut type
 	params mut params
 	flags_ fun-flags
@@ -1619,7 +1661,7 @@ fun-decl record force-data, -new
 | For a non-template, this will be its only {fun-inst}.
 fun-decl-insts union(fun-inst, fun-inst object-memoizer) mut
 new fun-decl(
-	hash nat,
+	hash nat32,
 	source fun-decl-source,
 	visibility visibility,
 	name symbol,
@@ -1632,7 +1674,7 @@ new fun-decl(
 	doc-comment-references doc-comment-references,
 	body fun-body
 )
-	res fun-decl = hash, source, visibility, name, n-type-params, return-type, params, flags_, externs, specs, doc-comment-references, body, trusted gc-safe-value
+	res fun-decl = hash, source, visibility, name, n-type-params.to, return-type, params, flags_, externs, specs, doc-comment-references, body, trusted gc-safe-value
 	res.insts := if res is-template
 		()::(fun-inst object-memoizer) to
 	else
@@ -1642,7 +1684,8 @@ new fun-decl(
 				b ~= x type
 		(res, (), (), (return-and-param-types,))::fun-inst to
 	res
-
+n-type-params nat(a fun-decl)
+	a.n-type-params-storage to
 == bool(a fun-decl, b fun-decl)
 	trusted a reference-equal b
 hash-mix void(hasher hasher, a fun-decl)
@@ -1704,7 +1747,7 @@ each-spec-sig-and-impl void(a fun-decl, impls spec-impls, cb void mut(x spec-ins
 	impl-index is impls.size
 
 test_ record force-data
-	hash nat # TODO: USED? ---------------------------------------------------------------------------------------------------------
+	hash nat32 # TODO: USED? ---------------------------------------------------------------------------------------------------------
 	ast test-ast
 	module-uri uri
 	flags_ fun-flags
@@ -1885,7 +1928,7 @@ struct-or-alias union(struct-alias, struct-decl)
 
 | There is no 'var-inst' since these can't be templates
 var-decl record force-data
-	hash nat
+	hash nat32 # TODO: USED? ---------------------------------------------------------------------------------------------------------
 	ast var-decl-ast
 	module-uri uri
 	visibility visibility
@@ -1978,7 +2021,7 @@ each-decl void(a module, cb void mut(x any-decl))
 		cb[x to]
 
 any-decl union(fun-decl, spec-decl, struct-alias, struct-decl, test_, var-decl)
-	hash nat()
+	hash nat32()
 	module-uri uri()
 	name symbol()
 	range uri-and-range()
