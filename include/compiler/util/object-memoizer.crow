@@ -11,11 +11,20 @@ object-memoizer[t] record mut
 	| Greatest distance of any entry from its home
 	-max-cost mut nat64
 	-capacity-log-2 mut nat
+	| Mask to convert hash codes to indices = {capacity-log-2} 1 bits
+	-index-mask mut nat
 	-entries mut t weak-ref mut-slice
-new[t] t object-memoizer() t memoizable
-	trusted if extern native
+new[t] t object-memoizer() t memoizable, trusted
+	if extern native
 		assert size-of@t == 8 # Must be a reference type (TODO: have a more specific function to test this) -------------------------------------
-	0, 1, (new-weak-ref, new-weak-ref)
+	0, 10, 10.index-mask-for, 1024.gc-safe-mut-slice
+
+-index-mask-for nat(capacity-log-2 nat)
+	capacity-log-2.low-n-bits
+
+perf-report[t] json(a t object-memoizer)
+	size = a.entries count x => x.get !is-empty
+	("size", size.to), ("capacity", a.entries.size.to), ("max-cost", a.max-cost.to)
 
 iterate[t] bool(a t object-memoizer, f bool mut(x t)) t memoizable # TODO: UNSAFE ------------------------------------------------
 	for entry : a entries
@@ -29,12 +38,12 @@ subscript[t] t(a t object-memoizer, value t) t memoizable
 	a get-and-did-add value value
 
 get-and-did-add[t] t value-and-did-add(a t object-memoizer, value t) t memoizable
-	assert (1::nat << a.capacity-log-2) == a.entries.size # TODO: RM (for perf) ----------------------------------------------
-	if x ?= a find value
+	res t value-and-did-add = if x ?= a find value
 		x, false
 	else
 		a must-insert value
 		value, true
+	res
 
 -find[t] t?(a t object-memoizer, value t) t memoizable
 	i mut = a ideal-index value
@@ -72,7 +81,7 @@ get-and-did-add[t] t value-and-did-add(a t object-memoizer, value t) t memoizabl
 			cost +:= 1
 			if cost >= a.max-cost
 				a.max-cost := cost
-				if a.max-cost > a.capacity-log-2
+				if a.max-cost > a.max-max-cost
 					a increase-capacity
 					i := a ideal-index value
 					cost := 0
@@ -81,20 +90,23 @@ get-and-did-add[t] t value-and-did-add(a t object-memoizer, value t) t memoizabl
 			a.entries[i] := value.new-weak-ref
 			break
 
+-max-max-cost[t] nat(a t object-memoizer)
+	a.capacity-log-2 / 2
+
 -increase-capacity[t] void(a t object-memoizer) t memoizable
 	old-entries = a entries
 	a.max-cost := 0
 	a.capacity-log-2 +:= 1
+	a.index-mask := a.capacity-log-2 index-mask-for
 	a.entries := trusted (1 << a.capacity-log-2) gc-safe-mut-slice
 	for x : old-entries
 		if v ?= x get
 			a must-insert v
 
 -ideal-index[t] nat(a t object-memoizer, value t) t memoizable
-	value.hash-content % a.entries.size # TODO: use capacity-log-2 -----------------------------------------------------------
+	value.hash-content & a.index-mask
 -next-index[t] nat(a t object-memoizer, index nat)
-	res = index wrap-add 1
-	res == a.entries.size ? 0 : res
+	(index wrap-add 1) & a.index-mask
 -cost[t] nat(a t object-memoizer, ideal-index nat, actual-index nat)
 	if ideal-index <= actual-index
 		actual-index - ideal-index

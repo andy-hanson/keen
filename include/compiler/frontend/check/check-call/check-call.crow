@@ -309,8 +309,7 @@ find-function-for-return-and-param-types called?(
 	for arg-idx : 0::nat .. n-args
 		guard candidates !is-empty : break
 		candidates filter-candidates-but-dont-remove-all ctx.allocators, x => ctx pre-check-candidate-specs x
-		arg-type = ctx.allocators with-param-expected ctx.instantiate-ctx, candidates, arg-idx, arg-expected =>
-			cb-check-arg[arg-idx, arg-expected]
+		arg-type = ctx.allocators with-param-expected ctx.instantiate-ctx, candidates, arg-idx, cb-check-arg
 		actual-arg-types[arg-idx] := arg-type
 		# If it failed to check, don-t continue, just stop there
 		if arg-type is-bogus
@@ -321,11 +320,12 @@ find-function-for-return-and-param-types called?(
 			candidates filter-candidates ctx.allocators, candidate =>
 				ctx.instantiate-ctx test-candidate-param-type candidate, arg-idx, arg-type.non-inferring
 			continue
-	
+
 	guard !some-arg-is-bogus : call-failure
 
 	start = perf-now
 	candidates filter-candidates-but-dont-remove-all ctx.allocators, x => ctx pre-check-candidate-specs x
+	start end-pre-check-candidate-specs
 
 	res call-inner-result = if x ?= candidates opt-only
 		result = ctx.check-ctx check-call-after-choosing-overload ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope,
@@ -381,14 +381,22 @@ find-function-for-return-and-param-types called?(
 			candidate.type-args[i] := arg,
 	ok
 
--with-param-expected type(allocators allocators, ctx instantiate-ctx, candidates candidate mut[], arg-idx nat, cb void mut(x expected)) # TODO: no need for 'with' --------------------------
+-with-param-expected type(
+	allocators allocators,
+	ctx instantiate-ctx,
+	candidates candidate mut[],
+	arg-index nat,
+	cb-check-arg void mut(arg-index nat, x expected),
+)
 	out type-and-context mut[] = allocators allocate
 	for candidate : candidates
-		expected = ctx get-candidate-expected-parameter-type candidate, arg-idx
+		expected = ctx get-candidate-expected-parameter-type candidate, arg-index
 		is-duplicate = expected.context !is-inferring && out exists x => (x.context !is-inferring && x.type == expected.type)
 		unless is-duplicate
 			out ~= expected
-	res = out with-expect-candidates cb
+	arg-expected expected = out to
+	cb-check-arg[arg-index, arg-expected]
+	res = arg-expected inferred
 	out clear
 	allocators free out
 	res
