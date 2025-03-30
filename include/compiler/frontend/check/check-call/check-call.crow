@@ -306,11 +306,13 @@ find-function-for-return-and-param-types called?(
 )
 	actual-arg-types type mut-slice = trusted n-args gc-safe-mut-slice
 	some-arg-is-bogus mut = false
-	for arg-idx : 0::nat .. n-args
+	arg-index mut nat = 0
+	loop
+		guard arg-index != n-args : break
 		guard candidates !is-empty : break
 		candidates filter-candidates-but-dont-remove-all ctx.allocators, x => ctx pre-check-candidate-specs x
-		arg-type = ctx.allocators with-param-expected ctx.instantiate-ctx, candidates, arg-idx, cb-check-arg
-		actual-arg-types[arg-idx] := arg-type
+		arg-type = ctx.allocators with-param-expected ctx.instantiate-ctx, candidates, arg-index, cb-check-arg
+		actual-arg-types[arg-index] := arg-type
 		# If it failed to check, don-t continue, just stop there
 		if arg-type is-bogus
 			some-arg-is-bogus := true
@@ -318,7 +320,8 @@ find-function-for-return-and-param-types called?(
 			break
 		else
 			candidates filter-candidates ctx.allocators, candidate =>
-				ctx.instantiate-ctx test-candidate-param-type candidate, arg-idx, arg-type.non-inferring
+				ctx.instantiate-ctx test-candidate-param-type candidate, arg-index, arg-type.non-inferring
+			arg-index +:= 1
 			continue
 
 	guard !some-arg-is-bogus : call-failure
@@ -334,7 +337,15 @@ find-function-for-return-and-param-types called?(
 	else
 		ctx add-diag diag-range, if candidates is-empty
 			all-candidates = ctx get-all-candidates-as-called-decls fun-name
-			ctx.type-container diag-call-no-match fun-name, (ctx get-expected-for-diag expected), (ctx.common-types get-n-type-args-for-diagnostic explicit-type-arg), n-args, (trusted actual-arg-types cast-immutable), all-candidates
+			diag diag-call-no-match = do
+				type-container: ctx type-container
+				fun-name: fun-name
+				expected-return-type: ctx get-expected-for-diag expected
+				actual-n-type-args: ctx.common-types get-n-type-args-for-diagnostic explicit-type-arg
+				actual-arity: n-args
+				actual-arg-types: (trusted actual-arg-types cast-immutable)[0 .. arg-index].to
+				all-candidates: all-candidates
+			diag to 
 		else
 			fun-name diag-call-multiple-matches ctx.type-container, candidates.to.candidates-for-diag
 		call-failure
