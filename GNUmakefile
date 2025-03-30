@@ -149,13 +149,15 @@ bin/crowcrow: bin/crowd $(include_dependencies)
 	bin/crowd build include/compiler/app/main.crow --optimize --out bin/crowcrow
 
 update-lkg: bin/crowj
+	mv bin/crow-lkg bin/crow-lkg-BACKUP
 	mv bin/crowj bin/crow-lkg
 	# Make sure it is self-compiled
 	make bin/crowj
-	cp bin/crowj bin/crow-lkg
+	mv bin/crowj bin/crow-lkg
+	make bin/crowj
 
 bin/crowj: $(include_dependencies)
-	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crowj --perf
+	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crowj
 
 profile:
 	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crowj check include/compiler/app/main.crow --times 10 --perf

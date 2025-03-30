@@ -679,6 +679,11 @@ translate-to-java-classes (string, nat8[])[](
 		else
 			interface-structs
 		for interface_ : all-supertypes
+			if (ctx union-representation interface_) == sealed-interface
+				case-index = interface_.body.concrete-union!.members find-index! x => x.struct == struct
+				method-name = ctx.mangled-names case-index-method-name interface_
+				# Implement the case-type-index-method
+				out ~= constants case-index-method-impl method-name, case-index
 			info = ctx.program.method-impls[interface_] ?? ()
 			unless info is-empty
 				for method, impl : info.methods zip info.cases[struct]!
@@ -723,7 +728,7 @@ translate-to-java-classes (string, nat8[])[](
 		as direct
 			()
 		as sealed-interface
-			(constants union-sealed-interface this-class, super-class, interfaces, all-methods),
+			(constants union-sealed-interface this-class, super-class, interfaces, all-methods, (ctx.mangled-names case-index-method-name struct)),
 		as switch
 			assert all-methods is-empty : todo
 			(constants union-switchable this-class, super-class, interfaces),
@@ -790,7 +795,9 @@ translate-to-java-classes (string, nat8[])[](
 	super-class class-reference,
 	interfaces class-reference[],
 	methods method_info[],
+	case-type-method-name string,
 )
+	all-methods = methods ~ (constants case-index-method-decl case-type-method-name)
 	assert interfaces is-empty
 	LOG: false
 	constant-pool: constants finish
@@ -799,8 +806,28 @@ translate-to-java-classes (string, nat8[])[](
 	super-class: super-class
 	interfaces: interfaces
 	fields: ()
-	methods: methods
+	methods: all-methods
 	attributes: ()
+
+-case-index-method-decl method_info(constants constants-builder, name string)
+	access-flags: public | abstract_
+	name: constants[name]
+	descriptor: constants["()I"]
+	attributes: ()
+
+-case-index-method-impl method_info(constants constants-builder, name string, index nat)
+	code = with out : constants build-code
+		out iconst index.to
+		out return T_INT.to
+	access-flags: public | final
+	name: constants[name]
+	descriptor: constants["()I"]
+	attributes: code.to,
+
+-call-case-index void(out code-builder, ctx expr-ctx, union-type concrete-struct)
+	name-and-descriptor = ctx.constants name-and-type (ctx.ctx.mangled-names case-index-method-name union-type), "()I"
+	case-index-method = ctx.constants interface-method-ref (ctx as-boxed-class-reference union-type), name-and-descriptor
+	out invokeinterface case-index-method, 1
 
 -union-switchable ClassFile(
 	constants constants-builder,
@@ -1452,7 +1479,7 @@ translate-to-java-classes (string, nat8[])[](
 			throw unreachable
 		as switch
 			out aload 0
-			out get-switchable-kind-int32 ctx, union_
+			out get-switchable-kind-nat32 ctx, union_
 			jump-to-case, jump-to-default = out tableswitch 0 .. cases.size.to
 			for case-index, (case-type, case-impls) : cases with-index
 				jump-to-case[case-index] jumps-to-here out, ctx.cur-stack-frame
@@ -1764,97 +1791,7 @@ translate-to-java-classes (string, nat8[])[](
 			jump! jumps-to-here out, ctx.cur-stack-frame
 			out emit-expr ctx, inner-pos, x.else_
 	as match-union-concrete-expr x
-		out emit-and-continue ctx, x.matched
-		matched-type = x.matched.type struct
-		ctx must-peek matched-type
-		use-instanceof void mut() = () =>
-			out with-inner-pos ctx, pos, inner-pos =>
-				for member-index, case_ : x.member-indices zip x.cases
-					case-type = x.union_.members[member-index as-unsigned] struct
-					# TODO: we could avoid the dup for the last case (see match-string-like-concrete-expr) --------------------
-					out dup32
-					out instanceof (ctx as-boxed-class-reference case-type)
-					# Jump to next if the equality test returned 0 (false)
-					jump = out ifeq
-					# The case comsumes that matched value. The next case will still have it since it jumped over this.
-					ctx must-refine matched-type, case-type
-					out cast-and-unbox-if-necessary ctx.ctx, case-type
-					out emit-with-opt-local ctx, case_.local, case-type, inner-pos, case_.then
-
-					# Change the stack to have the state from before 'jump'
-					ctx must-pop type
-					ctx pushed matched-type
-					jump jumps-to-here out, ctx.cur-stack-frame
-				out pop reference-type
-				ctx must-pop matched-type
-				if e ?= x else_
-					out emit-expr ctx, inner-pos, e
-					ctx must-peek type
-				else
-					# TODO: If the type is 'exception' and we're calling 'show', we should call 'toString' in this case? -----------
-					out emit-unreachable
-					# Treat the stack effect as if it was successful
-					ctx pushed type
-		match ctx union-representation matched-type
-		as direct
-			use-instanceof[]
-		as sealed-interface
-			use-instanceof[]
-		as switch
-			out with-inner-pos ctx, pos, inner-pos =>
-				out dup32
-				out get-switchable-kind-int32 ctx, matched-type
-				jump-to-case, jump-to-default = out lookupswitch for index : x member-indices # TODO: use a table switch usually
-					index.as-unsigned to
-				for target, member-index, case_ : jump-to-case zip3 x.member-indices, x.cases
-					target jumps-to-here out, ctx.cur-stack-frame
-					case-type = x.union_.members[member-index as-unsigned] struct
-					if l ?= case_ local
-						out get-switchable-value ctx, matched-type
-						out cast-and-unbox-if-necessary ctx.ctx, case-type
-						ctx must-refine matched-type, case-type
-						out emit-with-local ctx, l, inner-pos, case_.then
-					else
-						out pop reference-type
-						ctx must-pop matched-type
-						out emit-expr ctx, inner-pos, case_.then
-
-					# Change the stack to have the state from before 'jump'
-					ctx must-pop type
-					ctx pushed matched-type
-				
-				# default case
-				jump-to-default jumps-to-here out,  ctx.cur-stack-frame
-				out pop reference-type
-				ctx must-pop matched-type
-				if e ?= x else_
-					out emit-expr ctx, inner-pos, e
-					ctx must-peek type
-				else
-					out emit-unreachable
-					ctx pushed type
-		as nullable
-			out with-inner-pos ctx, pos, inner-pos =>
-				null-case concrete-match-union-case, non-null-case concrete-match-union-case = if x.member-indices[0] == (0::nat,)
-					x.member-indices is ((0::nat,), (1::nat,))
-					x.cases only2
-				else
-					x.member-indices is ((1::nat,), (0::nat,))
-					x.cases[1], x.cases[0]
-				forbid _ ?= x else_
-
-				out dup32
-				jump = out ifnonnull
-				# Null types are always empty types. Don't leave a 'null' on the stack, just pop it.
-				out pop reference-type
-				ctx must-pop matched-type
-				out emit-expr ctx, inner-pos, null-case.then # ignore null-case.local since it is an empty type
-
-				# Change the stack to have the state from before the jump
-				ctx must-pop type
-				ctx pushed matched-type
-				jump jumps-to-here out, ctx.cur-stack-frame
-				out emit-with-unboxed-opt-local ctx, matched-type, non-null-case.local, inner-pos, non-null-case.then
+		out emit-match-union ctx, pos, type, x
 	as record-field-get-concrete-expr x
 		out emit-and-continue ctx, x.record_
 		unless x.record_.type.struct is-wrapper
@@ -1946,6 +1883,7 @@ translate-to-java-classes (string, nat8[])[](
 			else
 				throw unreachable
 	as union-kind-concrete-expr x
+		assert type.body.concrete-builtin-type!.kind == nat64
 		out emit-and-continue ctx, x.union_
 		union-type = x.union_.type struct
 		check-instanceof void mut() = () =>
@@ -1967,9 +1905,12 @@ translate-to-java-classes (string, nat8[])[](
 		as direct
 			check-instanceof[]
 		as sealed-interface
-			check-instanceof[] # TODO: For a sealed interface, we could generate a 'kind' method for each member ---------------
+			out call-case-index ctx, union-type
+			out i2l
+			ctx must-pop union-type
+			ctx pushed type
 		as switch
-			out get-switchable-kind-int64 ctx, union-type
+			out get-switchable-kind-nat64 ctx, union-type
 			ctx must-pop union-type
 			ctx pushed type
 		as nullable
@@ -2108,6 +2049,119 @@ translate-to-java-classes (string, nat8[])[](
 		ctx end-synthetic-local integral-type, cur
 		if i ?= in-array
 			ctx end-synthetic-local input-type, i
+
+-emit-match-union void(out code-builder, ctx expr-ctx, pos expr-pos, type concrete-struct, x match-union-concrete-expr)
+	out emit-and-continue ctx, x.matched
+	matched-type = x.matched.type struct
+	ctx must-peek matched-type
+	match ctx union-representation matched-type
+	as direct
+		out emit-match-union-using-instanceof ctx, pos, type, x
+	as sealed-interface
+		out emit-match-union-using-instanceof ctx, pos, type, x
+	as switch
+		out dup32
+		out get-switchable-kind-nat32 ctx, matched-type
+		out swap
+		out get-switchable-value ctx, matched-type
+		out swap
+		ctx must-refine matched-type, ctx.program.java-any
+		ctx pushed ctx.program.nat32
+		out emit-match-union-using-switch ctx, pos, type, ctx.program.java-any, x
+	as nullable
+		out with-inner-pos ctx, pos, inner-pos =>
+			null-case concrete-match-union-case, non-null-case concrete-match-union-case = if x.member-indices[0] == (0::nat,)
+				x.member-indices is ((0::nat,), (1::nat,))
+				x.cases only2
+			else
+				x.member-indices is ((1::nat,), (0::nat,))
+				x.cases[1], x.cases[0]
+			forbid _ ?= x else_
+
+			out dup32
+			jump = out ifnonnull
+			# Null types are always empty types. Don't leave a 'null' on the stack, just pop it.
+			out pop reference-type
+			ctx must-pop matched-type
+			out emit-expr ctx, inner-pos, null-case.then # ignore null-case.local since it is an empty type
+
+			# Change the stack to have the state from before the jump
+			ctx must-pop type
+			ctx pushed matched-type
+			jump jumps-to-here out, ctx.cur-stack-frame
+			out emit-with-unboxed-opt-local ctx, matched-type, non-null-case.local, inner-pos, non-null-case.then
+
+-emit-match-union-using-instanceof void(out code-builder, ctx expr-ctx, pos expr-pos, type concrete-struct, x match-union-concrete-expr)
+	# Note: I tested using a 'switch' on the 'case-index' method, but it didn't improve performance.
+	matched-type = x.matched.type struct
+	out with-inner-pos ctx, pos, inner-pos =>
+		for member-index, case_ : x.member-indices zip x.cases
+			case-type = x.union_.members[member-index as-unsigned] struct
+			# TODO: we could avoid the dup for the last case (see match-string-like-concrete-expr) --------------------
+			out dup32
+			out instanceof (ctx as-boxed-class-reference case-type)
+			# Jump to next if the equality test returned 0 (false)
+			jump = out ifeq
+			# The case comsumes that matched value. The next case will still have it since it jumped over this.
+			ctx must-refine matched-type, case-type
+			out cast-and-unbox-if-necessary ctx.ctx, case-type
+			out emit-with-opt-local ctx, case_.local, case-type, inner-pos, case_.then
+
+			# Change the stack to have the state from before 'jump'
+			ctx must-pop type
+			ctx pushed matched-type
+			jump jumps-to-here out, ctx.cur-stack-frame
+		out pop reference-type
+		ctx must-pop matched-type
+		if e ?= x else_
+			out emit-expr ctx, inner-pos, e
+			ctx must-peek type
+		else
+			# TODO: If the type is 'exception' and we're calling 'show', we should call 'toString' in this case? -----------
+			out emit-unreachable
+			# Treat the stack effect as if it was successful
+			ctx pushed type
+
+| Stack before calling this should be the value and its kind
+-emit-match-union-using-switch void(
+	out code-builder,
+	ctx expr-ctx,
+	pos expr-pos,
+	type concrete-struct,
+	matched-type concrete-struct,
+	x match-union-concrete-expr,
+)
+	out with-inner-pos ctx, pos, inner-pos =>
+		# This consumes 'kind'
+		ctx must-pop ctx.program.nat32
+		jump-to-case, jump-to-default = out lookupswitch for index : x member-indices # TODO: use a table switch usually
+			index.as-unsigned to
+		for target, member-index, case_ : jump-to-case zip3 x.member-indices, x.cases
+			target jumps-to-here out, ctx.cur-stack-frame
+			case-type = x.union_.members[member-index as-unsigned] struct
+			if l ?= case_ local # TODO: should I use a 'with-opt-local' helper? ----------------------------------------------------
+				out cast-and-unbox-if-necessary ctx.ctx, case-type
+				ctx must-refine matched-type, case-type
+				out emit-with-local ctx, l, inner-pos, case_.then
+			else
+				out pop reference-type
+				ctx must-pop matched-type
+				out emit-expr ctx, inner-pos, case_.then
+
+			# Change the stack to have the state from before 'jump'
+			ctx must-pop type
+			ctx pushed matched-type
+		
+		# default case
+		jump-to-default jumps-to-here out,  ctx.cur-stack-frame
+		out pop reference-type
+		ctx must-pop matched-type
+		if e ?= x else_
+			out emit-expr ctx, inner-pos, e
+			ctx must-peek type
+		else
+			out emit-unreachable
+			ctx pushed type
 
 -xsub void(out code-builder, type java-runtime-type)
 	match type java-primitive-type!
@@ -2280,10 +2334,10 @@ translate-to-java-classes (string, nat8[])[](
 	else
 		false
 
--get-switchable-kind-int64 void(out code-builder, ctx expr-ctx, union-type concrete-struct)
-	out get-switchable-kind-int32 ctx, union-type
+-get-switchable-kind-nat64 void(out code-builder, ctx expr-ctx, union-type concrete-struct)
+	out get-switchable-kind-nat32 ctx, union-type
 	out i2l
--get-switchable-kind-int32 void(out code-builder, ctx expr-ctx, union-type concrete-struct)
+-get-switchable-kind-nat32 void(out code-builder, ctx expr-ctx, union-type concrete-struct)
 	out getfield (ctx switchable-kind-field union-type)
 -switchable-kind-field field-reference(ctx expr-ctx, union-type concrete-struct)
 	ctx union-representation union-type is switch
