@@ -1,5 +1,6 @@
 import
 	../util/enum-map
+	../util/object-memoizer
 	../util/util
 	./ast
 	./integral-values
@@ -751,7 +752,28 @@ struct-decl record force-data
 	sum-type-memberships mut sum-type-membership[]
 	body mut struct-body
 	| For perf, non-templates store their only instance directly
-	non-template-inst mut struct-inst?
+	insts mut struct-decl-insts
+| For a non-template, this will be its only {struct-inst}
+struct-decl-insts union(struct-inst, struct-inst object-memoizer) mut
+new struct-decl(
+	hash nat,
+	source struct-decl-source,
+	module-uri uri,
+	visibility visibility,
+	extern_ symbol-set?,
+	is-summon bool,
+	purity purity,
+	purity-is-forced bool,
+	doc-comment-references doc-comment-references,
+	sum-type-memberships sum-type-membership[],
+	body struct-body
+)
+	res struct-decl = hash, source, module-uri, visibility, extern_, is-summon, purity, purity-is-forced, doc-comment-references, sum-type-memberships, body, trusted gc-safe-value
+	res.insts := if res is-template
+		()::(struct-inst object-memoizer) to
+	else
+		(res, ())::struct-inst to
+	res
 == bool(a struct-decl, b struct-decl)
 	trusted a reference-equal b
 <=> comparison(_ struct-decl, _ struct-decl)
@@ -840,11 +862,13 @@ name-range source-range(a struct-decl-source)
 		()
 
 | WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
-struct-inst record(decl struct-decl, type-args type-args, hash-content nat) by-ref
+struct-inst record(decl struct-decl, type-args type-args) by-ref
 == bool(a struct-inst, b struct-inst)
 	trusted a reference-equal b
 content-equals bool(a struct-inst, b struct-inst)
-	a.decl == b.decl && a.type-args == b.type-args
+	a.type-args == b.type-args
+hash-content nat(a struct-inst)
+	a.type-args hash-content
 <=> comparison(_ struct-inst, _ struct-inst)
 	throw todo
 hash-mix void(hasher hasher, a struct-inst)
@@ -1578,7 +1602,7 @@ fun-source-file-import record
 name-range uri-and-range(a fun-source-file-import)
 	a.module-uri, a.ast.range
 
-fun-decl record force-data
+fun-decl record force-data, -new
 	hash nat
 	source fun-decl-source
 	visibility visibility
@@ -1591,13 +1615,15 @@ fun-decl record force-data
 	specs specs
 	doc-comment-references mut doc-comment-references
 	body mut fun-body
-	non-template-inst mut fun-inst?
+	insts mut fun-decl-insts
+| For a non-template, this will be its only {fun-inst}.
+fun-decl-insts union(fun-inst, fun-inst object-memoizer) mut
 new fun-decl(
 	hash nat,
 	source fun-decl-source,
 	visibility visibility,
 	name symbol,
-	n-type-params nat,
+	n-type-params nat, # TODO: this comes from source so it doesn't need to be a constructor param ---------------------------------
 	return-type type,
 	params params,
 	flags_ fun-flags,
@@ -1606,9 +1632,15 @@ new fun-decl(
 	doc-comment-references doc-comment-references,
 	body fun-body
 )
-	res fun-decl = hash, source, visibility, name, n-type-params, return-type, params, flags_, externs, specs, doc-comment-references, body, ()
-	unless res is-template
-		res.non-template-inst := ()
+	res fun-decl = hash, source, visibility, name, n-type-params, return-type, params, flags_, externs, specs, doc-comment-references, body, trusted gc-safe-value
+	res.insts := if res is-template
+		()::(fun-inst object-memoizer) to
+	else
+		return-and-param-types type[] = with b : build
+			b ~= return-type
+			for x : params params-array
+				b ~= x type
+		(res, (), (), (return-and-param-types,))::fun-inst to
 	res
 
 == bool(a fun-decl, b fun-decl)
@@ -1708,14 +1740,14 @@ fun-inst record force-data
 == bool(a fun-inst, b fun-inst) trusted
 	a reference-equal b
 hash-mix void(hasher hasher, a fun-inst)
-	hasher hash-mix a.decl
+	hasher hash-mix a.decl # TODO:REMOVE --------------------------------------------------------------------------------------
 	hasher hash-mix a.type-args
 	hasher hash-mix a.spec-impls
 content-equals bool(a fun-inst, b fun-inst)
-	a.decl == b.decl && a.type-args == b.type-args && a.spec-impls == b.spec-impls
+	a.decl == b.decl && a.type-args == b.type-args && a.spec-impls == b.spec-impls # TODO: no need to compare decl ---------------------
 hash-content nat(a fun-inst)
 	hasher hasher = ()
-	hasher hash-mix a.decl
+	hasher hash-mix a.decl # TODO: REMOVE ----------------------------------------------------------------------------------------
 	hasher hash-mix a.type-args
 	hasher hash-mix a.spec-impls
 	hasher finish
