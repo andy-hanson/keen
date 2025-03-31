@@ -3,6 +3,7 @@ import
 	../../model/model
 	../../model/source-range
 	../../model/uri
+	../../util/multi-set
 	../../util/perfhax
 	../../util/util
 	../all-insts
@@ -285,14 +286,11 @@ check module(
 	specs-map specs-map,
 	funs-map funs-map,
 )
-	exported-funs fun-decl mut[] mut[symbol] = ()
+	exported-funs fun-decl mut[] = ()
 	exported-types struct-or-alias mut[symbol] = ()
 	exported-specs spec-decl mut[symbol] = ()
 
-	# TODO: make these normal functions instead of closures -------------------------------------------------------------------
-	add-funs void mut(funs fun-decl[]) = funs-to-add =>
-		for f : funs-to-add
-			exported-funs ensure f.name ~= f
+	# TODO:PERF make these normal functions instead of closures -------------------------------------------------------------------
 	add-type void mut(type struct-or-alias, range source-range) = (x, range) =>
 		# TODO: do with a singlle map operation ---------------------------------------------------------------------------
 		if x.name in exported-types
@@ -315,8 +313,8 @@ check module(
 			e named-imported
 		as import-file-ast _
 			throw unreachable
-		for _, x : its-exports funs
-			add-funs[x]
+		for x : its-exports funs
+			exported-funs ~= x
 		for _, x : its-exports structs-and-aliases
 			add-type[x, e.source!.path-range]
 		for _, x : its-exports specs
@@ -328,21 +326,17 @@ check module(
 	for _, x : specs-map
 		if x.visibility != private
 			add-spec[x, x.range.range]
-	for _, funs : funs-map
-		fun-decls fun-decl[] = funs filter x => x.visibility != private
-		if fun-decls !is-empty
-			add-funs[fun-decls]
+	# TODO: in the usual case, there are no re-exports. In that case we can simply filter funs-map to get the export maps.
+	for x : funs-map
+		if x.visibility != private
+			exported-funs ~= x
 
 	public-and-internal-exports exports = do
-		funs: for name, funs : exported-funs; name, funs.move-to
+		funs: exported-funs move-to
 		structs-and-aliases: exported-types move-to
 		specs: exported-specs move-to
 	public-exports exports = do
-		funs: with out : build
-			for name, funs : public-and-internal-exports funs
-				filtered fun-decl[] = funs filter x => x.visibility == public
-				unless filtered is-empty
-					out ~= (name, filtered)
+		funs: public-and-internal-exports.funs filter x => x.visibility == public
 		structs-and-aliases: public-and-internal-exports.structs-and-aliases filter (_, x) => x.visibility == public
 		specs: public-and-internal-exports.specs filter (_, x) => x.visibility == public
 	public-exports, public-and-internal-exports
