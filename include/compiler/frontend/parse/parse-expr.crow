@@ -2,6 +2,7 @@ import
 	../../model/ast
 	../../model/parse-diag
 	../../model/source-range
+	../../util/sym
 	./lexer
 	./lex-string
 	./lex-token
@@ -104,8 +105,8 @@ parse-fun-expr-body expr-ast(lexer lexer)
 		a.as-symbol is-prefix-unary-operator
 	else
 		false
--is-prefix-unary-operator bool(a symbol)
-	match a
+-is-prefix-unary-operator bool(a sym)
+	match a matchable
 	as "!"
 		true
 	as "-"
@@ -165,7 +166,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 -parse-calls-after-comma expr-ast(lexer lexer, start pos, lhs expr-ast, comma-pos pos, arg-ctx arg-ctx)
 	args = lexer parse-args (arg-ctx require-precedence-gt comma-precedence), lhs
 	range = lexer range start
-	range call-ast comma, comma-pos, (range.start, "new"), args, ()
+	range call-ast comma, comma-pos, (range.start, sym-new), args, ()
 
 -parse-named-calls expr-ast(lexer lexer, start pos, lhs expr-ast, arg-ctx arg-ctx)
 	pos = lexer cur-pos
@@ -198,17 +199,17 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	else
 		lexer range start call-ast infix, 0, fun-name, args, type-arg
 	res = if fun-token == name-after-bang
-		lexer range start make-augment fun-name.range.start - 1, "not", expr
+		lexer range start make-augment fun-name.range.start - 1, sym-not, expr
 	elif fun-token == name-bang
-		lexer range start make-augment fun-name.range.end, "force", expr
+		lexer range start make-augment fun-name.range.end, sym-force, expr
 	else
 		expr
 	lexer parse-calls start, res, arg-ctx
 
--make-augment expr-ast(range source-range, pos pos, name symbol, inner expr-ast)
+-make-augment expr-ast(range source-range, pos pos, name sym, inner expr-ast)
 	range call-ast augment, pos, (pos, name), (inner,), ()
 
--name-and-precedence record(token token, name symbol, precedence int)
+-name-and-precedence record(token token, name sym, precedence int)
 -try-take-name-and-precedence name-and-precedence?(lexer lexer, arg-ctx arg-ctx)
 	x = lexer get-peek-token-and-data
 	if x is-symbol
@@ -238,9 +239,9 @@ parse-fun-expr-body expr-ast(lexer lexer)
 
 -name-precedence int()
 	0
--symbol-precedence int(a symbol, is-assignment bool)
+-symbol-precedence int(a sym, is-assignment bool)
 	guard !is-assignment : -4
-	match a
+	match a matchable
 	as "||"
 		-3
 	as "&&"
@@ -312,7 +313,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 		lexer try-parse-dots-and-subscripts (initial typed-ast dot-pos, type)
 	elif token == bang
 		lexer must-take-token bang
-		call = lexer range start call-ast suffix-bang, 0, (dot-pos, "force"), (initial,), ()
+		call = lexer range start call-ast suffix-bang, 0, (dot-pos, sym-force), (initial,), ()
 		lexer try-parse-dots-and-subscripts call
 	else
 		initial
@@ -324,7 +325,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 		name-start = lexer cur-pos
 		name name-and-range = name-start, lexer.get-peek-token-and-data.as-symbol
 		lexer must-take-token name-bang
-		lexer range start make-augment name.range.end, "force", call[name, ()]
+		lexer range start make-augment name.range.end, sym-force, call[name, ()]
 	elif name ?= lexer try-take-name-and-range-or-diag
 		call[name, lexer.try-parse-type-arg-for-expr]
 	else
@@ -332,12 +333,12 @@ parse-fun-expr-body expr-ast(lexer lexer)
 
 -parse-subscript expr-ast(lexer lexer, initial expr-ast, subscript-pos pos, is-question-bracket bool)
 	arg = if lexer try-take-token bracket-right
-		lexer range subscript-pos call-ast empty-parens, 0, (subscript-pos, "new"), (), ()
+		lexer range subscript-pos call-ast empty-parens, 0, (subscript-pos, sym-new), (), ()
 	else
 		res = lexer parse-expr-no-block
 		_ = lexer take-or-add-diag-expected-token bracket-right, closing-bracket
 		res
-	call = lexer range initial.range.start call-ast (is-question-bracket ? question-subscript : subscript), subscript-pos, (subscript-pos, "subscript"), (initial, arg), ()
+	call = lexer range initial.range.start call-ast (is-question-bracket ? question-subscript : subscript), subscript-pos, (subscript-pos, sym-subscript), (initial, arg), ()
 	lexer try-parse-dots-and-subscripts call
 
 -parse-match expr-ast(lexer lexer, start pos)
@@ -515,7 +516,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	lexer lexer,
 	start pos,
 	allowed-block allowed-block,
-	param-name symbol,
+	param-name sym,
 	arrow-pos pos,
 )
 	lexer parse-lambda-after-arrow start, allowed-block, ((start, param-name) single-destructure-ast (), ()), arrow-pos
@@ -578,7 +579,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	as paren-left
 		if lexer try-take-token paren-right
 			# TODO: range is wrong
-			expr = lexer range start call-ast empty-parens, 0, (start, "new"), (), ()
+			expr = lexer range start call-ast empty-parens, 0, (start, sym-new), (), ()
 			lexer try-parse-dots-and-subscripts expr
 		else
 			inner = lexer parse-expr-no-block
@@ -593,7 +594,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 		lexer try-parse-dots-and-subscripts quote
 	as bang
 		inner = lexer parse-expr-before-call no
-		lexer range start call-ast prefix-bang, 0, (start, "not"), (inner,), ()
+		lexer range start call-ast prefix-bang, 0, (start, sym-not), (inner,), ()
 	as break_
 		lexer parse-loop-break start
 	as continue_
@@ -617,15 +618,15 @@ parse-fun-expr-body expr-ast(lexer lexer)
 			lexer handle-name start, (start, name)
 	as name-after-bang
 		inner expr-ast = start name-and-range token.as-symbol
-		lexer range start make-augment start, "not", (lexer try-parse-dots-and-subscripts inner)
+		lexer range start make-augment start, sym-not, (lexer try-parse-dots-and-subscripts inner)
 	as name-bang
 		name-bang-range = lexer range start
 		inner expr-ast = start name-and-range token.as-symbol
-		lexer try-parse-dots-and-subscripts (name-bang-range make-augment name-bang-range.end - 1, "force", inner)
+		lexer try-parse-dots-and-subscripts (name-bang-range make-augment name-bang-range.end - 1, sym-force, inner)
 	as operator
 		operator = token as-symbol
 		if operator is-prefix-unary-operator
-			if operator == "&"
+			if operator == sym-amp
 				start ptr-ast (lexer parse-expr-before-call no)
 			else
 				lexer handle-prefix-unary-operator allowed-block, start, operator
@@ -648,7 +649,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	as underscore
 		arrow-pos = lexer cur-pos
 		if lexer try-take-token arrow-lambda
-			lexer parse-lambda-after-name-and-arrow start, allowed-block, "_", arrow-pos
+			lexer parse-lambda-after-name-and-arrow start, allowed-block, sym-underscore, arrow-pos
 		else
 			lexer bad-token start, token
 	as unless_
@@ -662,7 +663,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	lexer add-diag-unexpected-cur-token start, token
 	lexer skip-rest-of-line-and-return-bogus-no-diag start
 
--handle-prefix-unary-operator expr-ast(lexer lexer, allowed-block allowed-block, start pos, operator symbol)
+-handle-prefix-unary-operator expr-ast(lexer lexer, allowed-block allowed-block, start pos, operator sym)
 	arg = lexer parse-expr-before-call allowed-block
 	lexer range start call-ast prefix-operator, 0, (start, operator), (arg,), ()
 

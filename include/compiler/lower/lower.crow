@@ -10,6 +10,7 @@ import
 	../model/type-layout
 	../model/version-info
 	../util/full-index-map
+	../util/sym
 	../util/util
 	./check-low-model
 	./generate-mark-visit-fun
@@ -186,8 +187,8 @@ mut-concrete-fun-to-low-fun-index alias
 	mark-ctx-type-late mut low-type? = ()
 
 	# Applies to both funs and vars
-	extern-library-to-names symbol mut[] mut[symbol] = ()
-	add-extern-symbol void mut(library-name symbol, symbol-name symbol) = (library-name, symbol-name) =>
+	extern-library-to-names sym mut[] mut[sym] = ()
+	add-extern-symbol void mut(library-name sym, symbol-name sym) = (library-name, symbol-name) =>
 		extern-library-to-names ensure library-name ~= symbol-name
 
 	for _, x : all-vars
@@ -207,15 +208,15 @@ mut-concrete-fun-to-low-fun-index alias
 				low-fun-causes get-mark-visit-for-type mark-visit-funs, (get-low-type-ctx low-type-from-concrete-type x.type-args.only)
 			else
 				if program.version !is-version is-interpreted && (x.kind.builtin-unary-math !is-empty || x.kind.builtin-binary-math !is-empty)
-					name symbol = match x kind
+					name sym = match x kind
 					as builtin-unary-math m
-						m.builtin-for-unary-math to
+						m.builtin-for-unary-math.to sym-of-symbol
 					as builtin-binary-math m
-						m.builtin-for-binary-math to
+						m.builtin-for-binary-math.to sym-of-symbol
 					else
 						error log "UNREACHABLE kind of concrete-fun-body-builtin" # -------------------------------------------------------------------------------------------
 						throw unreachable
-					add-extern-symbol["m", name]
+					add-extern-symbol["m" sym-of-string, name]
 				()
 		as concrete-fun-body-extern x
 			add-extern-symbol[x.library-name, fun.name!]
@@ -277,7 +278,7 @@ mut-concrete-fun-to-low-fun-index alias
 	all-extern-libraries: extern-library-to-names get-extern-libraries config-extern
 
 -get-extern-libraries extern-libraries(
-	extern-library-to-names symbol mut[] mut[symbol],
+	extern-library-to-names sym mut[] mut[sym],
 	config-extern config-extern-uris,
 )
 	with out : build
@@ -343,12 +344,12 @@ mut-concrete-fun-to-low-fun-index alias
 	user-main-fun-pointer-type low-type,
 )
 	char8-pointer-pointer = ctx get-pointer-const (ctx get-pointer-const char8-type)
-	params low-local[] = ("argc" gen-local false, 0, int32-type), ("argv" gen-local false, 1, char8-pointer-pointer)
+	params low-local[] = ("argc".sym-of-string gen-local false, 0, int32-type), ("argv".sym-of-string gen-local false, 1, char8-pointer-pointer)
 	p0 = () gen-identifier params[0]
 	p1 = () gen-identifier params[1]
 	user-main-fun-pointer = user-main-fun-pointer-type gen-fun-pointer (), user-main
 	call = int32-type gen-call-no-gc-roots (), rt-main-index, (p0, p1, user-main-fun-pointer)
-	source: "main" low-fun-source-generated ()
+	source: sym-main low-fun-source-generated ()
 	return-type: int32-type
 	params: params
 	body: () low-fun-expr-body call
@@ -363,9 +364,9 @@ mut-concrete-fun-to-low-fun-index alias
 	as concrete-local-source-reference x
 		x.original.name low-local-source-generated false
 	as concrete-local-source-closure
-		"closure" low-local-source-generated false
+		"closure".sym-of-string low-local-source-generated false
 	as concrete-generated-local-kind x
-		x.to low-local-source-generated false
+		x.to.sym-of-symbol low-local-source-generated false
 
 # TODO: no need for 'with' ---------------------------------------------------------------------------------------------------------------
 -with-low-local[t] t(
@@ -441,7 +442,7 @@ mut-concrete-fun-to-low-fun-index alias
 	then-may-yield bool,
 	then low-expr mut(pos expr-pos, get-local low-expr),
 )
-	local = "temp" gen-local false, ctx.next-local-index, value.type
+	local = sym-temp gen-local false, ctx.next-local-index, value.type
 	ctx gen-let-possibly-gc-root range, local, value, expr-pos, then-may-yield, inner =>
 		then[inner, (range gen-identifier local)]
 
@@ -528,7 +529,7 @@ mut-concrete-fun-to-low-fun-index alias
 	###
 	local-pointer = ctx.type-ctx get-pointer-const void-type gen-pointer-cast range, pointer-to-local
 	init-root = ctx.common-funs.gc-root-type gen-create-record-no-gc-roots range, (local-pointer, mark-root-function, (ctx gen-get-gc-root range))
-	root = "root" gen-local false, ctx.next-local-index, ctx.common-funs.gc-root-type
+	root = "root".sym-of-string gen-local false, ctx.next-local-index, ctx.common-funs.gc-root-type
 	set-root = ctx gen-set-gc-root range, (ctx.common-funs.gc-root-mut-pointer-type gen-local-pointer range, root)
 	range gen-let-no-gc-root root, init-root, (range gen-seq set-root, f[expr-pos with-incr-n-gc-roots])
 
@@ -827,7 +828,7 @@ mut-concrete-fun-to-low-fun-index alias
 			continue
 	###
 	zero low-expr = range gen-constant-nat64 0
-	i low-local = "temp" gen-local true, ctx.next-local-index, nat64.to
+	i low-local = sym-temp gen-local true, ctx.next-local-index, nat64.to
 	get-i low-expr = range gen-identifier i
 	i-eq-0 = range gen-nat64-equal get-i, n
 	break_ = finish.type gen-loop-break range, finish
@@ -1336,7 +1337,7 @@ mut-concrete-fun-to-low-fun-index alias
 	###
 	ctx with-restorable-catch-point range, restore-cur-catch-point =>
 		ctx with-restorable-gc-root range, restore-gc-root =>
-			err = "err" gen-local true, ctx.next-local-index, bool-type
+			err = "err".sym-of-string gen-local true, ctx.next-local-index, bool-type
 			below = ctx get-low-expr locals, a.below, non-tail
 			set-err = range gen-local-set err, range.gen-true
 			res = ctx gen-setup-catch range, below, (range gen-seq restore-gc-root, set-err, (type gen-gc-safe-value range))
@@ -1451,7 +1452,7 @@ mut-concrete-fun-to-low-fun-index alias
 		cur-catch-point := &store
 		tried
 	###
-	store = "store" gen-local true, ctx.next-local-index, ctx.common-types.catch-point
+	store = "store".sym-of-string gen-local true, ctx.next-local-index, ctx.common-types.catch-point
 	setup-catch = bool-type gen-unary range, setup-catch, (ctx.common-types.catch-point-mut-pointer gen-local-pointer range, store)
 	set-catch-point = ctx gen-set-cur-catch-point range, (ctx.common-types.catch-point-const-pointer gen-local-pointer range, store)
 	else_ = range gen-seq set-catch-point, tried

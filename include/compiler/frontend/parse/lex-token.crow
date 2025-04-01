@@ -3,6 +3,7 @@ import
 	../../model/integral-values
 	../../model/source-range
 	../../util/string-walker
+	../../util/sym
 	./lex-whitespace
 	./token
 
@@ -10,7 +11,7 @@ token-and-data record
 	-dummy void
 	token token
 	token-data token-data
-token-data union(void, symbol, extra-dedents, literal-float, literal-integral, char32, source-range)
+token-data union(void, sym, extra-dedents, literal-float, literal-integral, char32, source-range)
 extra-dedents record(extra-dedents nat)
 
 new token-and-data(token token)
@@ -21,7 +22,7 @@ new token-and-data(token token)
 	forbid token == unexpected-character
 	forbid token == region_
 	(), token, ()::void.to
-new token-and-data(token token, s symbol)
+new token-and-data(token token, s sym)
 	assert token is-symbol-token
 	(), token, s.to
 new token-and-data(token token, d extra-dedents)
@@ -42,9 +43,9 @@ new token-and-data(token token, r source-range)
 
 is-symbol bool(a token-and-data)
 	a.token is-symbol-token
-as-symbol symbol(a token-and-data)
+as-symbol sym(a token-and-data)
 	assert a.token is-symbol-token
-	a.token-data symbol!
+	a.token-data sym!
 as-extra-dedents nat(a token-and-data)
 	assert a.token is-newline-token
 	a.token-data.extra-dedents! extra-dedents
@@ -122,26 +123,26 @@ lex-token token-and-data(
 	as "\n"
 		ptr newline-token newline-same-indent, indent-kind, cur-indent, add-diag
 	as "~"
-		ptr operator-token (ptr try-take-char "~" ? "~~" : "~")
+		ptr operator-token (ptr try-take-char "~" ? sym-tilde-tilde : sym-tilde)
 	as "@"
 		at plain-token
 	as "!"
 		if ptr !starts-with "==" && ptr try-take-char "="
-			ptr operator-token "!="
+			ptr operator-token sym-bang-eq
 		else
 			before-name = ptr pos
 			if ptr try-take-identifier
-				name-after-bang, (ptr string-from before-name).to::symbol
+				name-after-bang, (ptr symbol-from before-name)
 			else
 				bang plain-token
 	as "%"
-		ptr operator-token "%"
+		ptr operator-token sym-mod
 	as "^"
-		ptr operator-token "^"
+		ptr operator-token sym-exp
 	as "&"
-		ptr operator-token (ptr try-take-char "&" ? "&&" : "&")
+		ptr operator-token (ptr try-take-char "&" ? sym-amp-amp : sym-amp)
 	as "*"
-		ptr operator-token (ptr try-take-char "*" ? "**" : "*")
+		ptr operator-token (ptr try-take-char "*" ? sym-star-star : sym-star)
 	as "("
 		paren-left plain-token
 	as ")"
@@ -160,24 +161,24 @@ lex-token token-and-data(
 		elif ptr try-take-char ">"
 			arrow-access plain-token
 		else
-			ptr operator-token "-"
+			ptr operator-token sym-minus
 	as "="
 		if ptr try-take-char ">"
 			arrow-lambda plain-token
 		elif ptr try-take-char "="
-			ptr operator-token "=="
+			ptr operator-token sym-eq-eq
 		else
 			equal plain-token
 	as "+"
 		if *ptr is-decimal-digit
 			ptr take-number-after-sign (plus,)
 		else
-			ptr operator-token "+"
+			ptr operator-token sym-plus
 	as "|"
 		if prev-token is-newline-token && *ptr is-whitespace
 			quote-bar plain-token
 		else
-			ptr operator-token (ptr try-take-char "|" ? "||" : "|")
+			ptr operator-token (ptr try-take-char "|" ? sym-bar-bar : sym-bar)
 	as ":"
 		if ptr try-take-char "="
 			colon-equal plain-token
@@ -193,28 +194,28 @@ lex-token token-and-data(
 		comma plain-token
 	as "<"
 		ptr operator-token if ptr try-take-char "="
-			ptr try-take-char ">" ? "<=>" : "<="
+			ptr try-take-char ">" ? sym-lt-eq-gt : sym-lt-eq
 		elif ptr try-take-char "<"
-			"<<"
+			sym-lt-lt
 		else
-			"<"
+			sym-lt
 	as ">"
 		ptr operator-token if ptr try-take-char "="
-			">="
+			sym-gt-eq
 		elif ptr try-take-char ">"
-			">>"
+			sym-gt-gt
 		else
-			">"
+			sym-gt
 	as "."
 		if ptr try-take-char "."
 			if ptr try-take-char "."
 				dot3 plain-token
 			else
-				ptr operator-token ".."
+				ptr operator-token sym-dot-dot
 		else
 			dot plain-token
 	as "/"
-		ptr operator-token "/"
+		ptr operator-token sym-slash
 	as "?"
 		if ptr try-take-char "="
 			question-equal plain-token
@@ -223,7 +224,7 @@ lex-token token-and-data(
 		elif ptr try-take-char "["
 			question-bracket plain-token
 		elif ptr try-take-char "?"
-			ptr operator-token "??"
+			ptr operator-token sym-q-q
 		else
 			question plain-token
 	else
@@ -236,7 +237,7 @@ lex-token token-and-data(
 -lex-identifier-like token-and-data(ptr string-walker)
 	start = ptr pos
 	if ptr try-take-identifier
-		symbol symbol = ptr string-from start to
+		symbol = ptr symbol-from start
 		token = symbol token-for-symbol
 		match token
 		as name
@@ -334,12 +335,12 @@ lookahead-elif-or-else elif-or-else?(start string-walker)
 	extra-dedents nat = delta < 0 ? delta.abs - 1 : 0
 	token, (extra-dedents,)::extra-dedents
 
--operator-token token-and-data(ptr string-walker, value symbol)
+-operator-token token-and-data(ptr string-walker, value sym)
 	ptr name-like-token value, operator
 
--name-like-token token-and-data(ptr string-walker, value symbol, regular-token token)
+-name-like-token token-and-data(ptr string-walker, value sym, regular-token token)
 	if ptr !starts-with "==" && ptr try-take-char "="
-		name-or-operator-equals, (value.to ~~ "=").to::symbol
+		name-or-operator-equals, "{value}=".sym-of-string
 	else
 		token = if regular-token == name && ptr try-take-char "!"
 			name-bang
@@ -349,8 +350,8 @@ lookahead-elif-or-else elif-or-else?(start string-walker)
 			regular-token
 		token, value
 
--token-for-symbol token(a symbol)
-	match a
+-token-for-symbol token(a sym)
+	match a matchable
 	as "abstract"
 		reserved
 	as "alias"

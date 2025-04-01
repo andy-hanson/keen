@@ -8,6 +8,7 @@ import
 	../../model/model
 	../../model/source-range
 	../../util/enum-map
+	../../util/sym
 	../../util/util
 	./check-call/candidates
 	./check-call/check-call
@@ -185,7 +186,7 @@ check-test-body expr(
 
 -check-arrow-access expr(ctx expr-ctx, locals locals-info, ast arrow-access-ast, expected expected)
 	ctx check-call-special-cb1 locals, ast.to, ast.arrow-range, ast.name.name, expected, arg-expected =>
-		ctx check-call-special locals, ast.to, ast.arrow-range, "*", (ast.left,), arg-expected
+		ctx check-call-special locals, ast.to, ast.arrow-range, sym-star, (ast.left,), arg-expected
 
 -check-if expr(ctx expr-ctx, locals locals-info, ast if-ast, expected expected)
 	if ast.first-branch is-throw || (ast.second-branch is-throw && ast !is-else-of-parent)
@@ -277,13 +278,13 @@ check-test-body expr(
 	as name-and-range x
 		ctx check-assign-identifier locals, x, keyword-range, x.name, expected, cb-right
 	as call-ast left-call
-		name symbol? = match left-call style
+		name sym? = match left-call style
 		as dot
-			"set-{left-call.fun-name name}",
+			"set-{left-call.fun-name name}".sym-of-string,
 		as prefix-operator
-			left-call.fun-name.name == "*" ? "set-deref",
+			left-call.fun-name.name == sym-star ? sym-set-deref,
 		as subscript
-			"set-subscript",
+			sym-set-subscript,
 		else
 			()
 		if x ?= name
@@ -298,7 +299,7 @@ check-test-body expr(
 	as arrow-access-ast left-arrow
 		check-arg expr mut(x expected) = arg-expected =>
 			ctx check-expr locals, left-arrow.left, arg-expected
-		ctx check-call-special-cb2 locals, source, keyword-range, "set-deref-{left-arrow.name name}", expected, check-arg, cb-right, _ => true
+		ctx check-call-special-cb2 locals, source, keyword-range, "set-deref-{left-arrow.name name}".sym-of-string, expected, check-arg, cb-right, _ => true
 	else
 		ctx add-diag left.range, diag-assignment-not-allowed
 		expected bogus source.range
@@ -308,16 +309,16 @@ check-test-body expr(
 		ctx check-call-special locals, ast.to, ast.fun-name.range, ast.fun-name.name, (ast.left, ast.right), arg-expected
 
 -check-empty-new expr(ctx expr-ctx, locals locals-info, source call-expr-source, range source-range, expected expected)
-	ctx check-call-special locals, source, range, "new", (), expected
+	ctx check-call-special locals, source, range, sym-new, (), expected
 
 -check-interpolated expr(ctx expr-ctx, locals locals-info, ast interpolated-ast, expected expected)
-	ctx check-call-special-cb-n locals, ast.to, ast.range[0 .. 1], "interpolate", expected, ast.parts.size, (i, arg-expected) =>
+	ctx check-call-special-cb-n locals, ast.to, ast.range[0 .. 1], sym-interpolate, expected, ast.parts.size, (i, arg-expected) =>
 		part = ast.parts[i]
 		match part
 		as literal-string-ast x
 			ctx check-literal-string x, arg-expected
 		else
-			ctx check-call-special locals, ast.to, part.range, "show", (part,), arg-expected
+			ctx check-call-special locals, ast.to, part.range, sym-show, (part,), arg-expected
 
 -variable-ref-and-type record mut
 	variable-ref variable-ref
@@ -334,7 +335,7 @@ check-test-body expr(
 	locals locals-info,
 	# if missing, no diags
 	diag-range source-range?,
-	name symbol, 
+	name sym, 
 	access-kind local-access-kind,
 )
 	from-locals = if x ?= locals locals
@@ -344,7 +345,7 @@ check-test-body expr(
 		(node.local.to, node.local.mutability, (node.is-used,), node.local.type),
 	elif x ?= locals lambda
 		ctx get-identifier-from-lambda diag-range, name, x, access-kind.access-kind-in-closure
--get-identifier-in-locals local-node?(node local-node, name symbol, access-kind local-access-kind)
+-get-identifier-in-locals local-node?(node local-node, name sym, access-kind local-access-kind)
 	if node.local.name == name
 		node,
 	elif prev ?= node prev
@@ -352,7 +353,7 @@ check-test-body expr(
 -get-identifier-from-lambda variable-ref-and-type?(
 	ctx expr-ctx,
 	diag-range source-range?,
-	name symbol,
+	name sym,
 	info lambda-info,
 	access-kind local-access-kind,
 )
@@ -374,7 +375,7 @@ check-test-body expr(
 	ctx expr-ctx,
 	diag-range source-range,
 	lambda-kind lambda-kind,
-	name symbol,
+	name sym,
 	mutability mutability,
 	type type,
 )
@@ -404,7 +405,7 @@ check-test-body expr(
 	as set-through-closure
 		set-through-closure
 
--name-is-parameter-or-local-in-scope bool(ctx expr-ctx, locals locals-info, name symbol)
+-name-is-parameter-or-local-in-scope bool(ctx expr-ctx, locals locals-info, name sym)
 	ctx get-identifier-non-call locals, (), name, get-on-stack !is-empty
 
 -check-identifier expr(ctx expr-ctx, locals locals-info, ast name-and-range, expected expected)
@@ -425,7 +426,7 @@ check-test-body expr(
 	locals locals-info,
 	source name-and-range,
 	keyword-range source-range,
-	left symbol,
+	left sym,
 	expected expected,
 	cb-right expr mut(x expected),
 )
@@ -442,7 +443,7 @@ check-test-body expr(
 			as closure-ref x
 				ctx check expected, ctx.void-type, (source.range closure-set-expr x, value)
 	else
-		ctx check-call-special-cb1 locals, source.to, keyword-range, "set-{left}", expected, cb-right
+		ctx check-call-special-cb1 locals, source.to, keyword-range, "set-{left}".sym-of-string, expected, cb-right
 
 -check-literal-float expr(ctx expr-ctx, ast literal-float-and-range, expected expected)
 	allowed-types struct-inst[] = ctx.common-types.float32, ctx.common-types.float64
@@ -551,7 +552,7 @@ integral-types integral-type[]()
 		as symbol
 			check-no-nul[symbol-contains-nul],
 		as js-any
-			if "js"::symbol in ctx.externs
+			if sym-js in ctx.externs
 				value,
 			else
 				ctx add-diag range, not-extern-js.to
@@ -692,7 +693,7 @@ integral-types integral-type[]()
 	expected-mutability pointer-mutability,
 	expected expected,
 )
-	if "native"::symbol !in ctx.externs
+	if sym-native !in ctx.externs
 		ctx add-diag source, diag-pointer-is-native
 		expected bogus source
 	else
@@ -797,7 +798,7 @@ integral-types integral-type[]()
 	guard called ?= ctx find-function-for-pointer locals, name, type-arg, expected-pointee : expected bogus ast.range
 	param-type = ctx.check-ctx make-tuple-type ctx.common-types, called.param-types.to, () => ast.range
 	struct-inst = ctx.instantiate-ctx instantiate-struct ctx.common-types.fun-pointer-struct, (called.return-type, param-type)
-	if "js"::symbol !in ctx.externs && called !is-bare-for-function-pointer
+	if sym-js !in ctx.externs && called !is-bare-for-function-pointer
 		ctx add-diag ast.range, diag-fun-pointer-not-bare
 	ctx check expected, struct-inst.to, (ast fun-pointer-expr called, struct-inst)
 
@@ -949,13 +950,13 @@ integral-types integral-type[]()
 		value = ctx check-and-expect locals, ast.value, loop_.type
 		ast loop-break-expr loop_.loop_, value
 	else
-		ctx check-call-special locals, ast.to, ast.keyword-range, "loop-break", (ast.value,), expected
+		ctx check-call-special locals, ast.to, ast.keyword-range, sym-loop-break, (ast.value,), expected
 
 -check-loop-continue expr(ctx expr-ctx, locals locals-info, ast loop-continue-ast, expected expected)
 	if loop_ ?= expected try-get-loop
 		ast loop-continue-expr loop_.loop_
 	else
-		ctx check-call-special locals, ast.to, ast.keyword-range, "loop-continue", (), expected
+		ctx check-call-special locals, ast.to, ast.keyword-range, sym-loop-continue, (), expected
 
 -check-loop-while-or-until expr(ctx expr-ctx, locals locals-info, ast loop-while-or-until-ast, expected expected)
 	condition = ctx check-condition locals, ast.condition
@@ -1034,7 +1035,7 @@ integral-types integral-type[]()
 			index = body.members must-have-index-of-pointer member
 			if seen[index]
 				has-case-diag := true
-				ctx add-diag case-ast.name-range, name!.to::diag-match-case-duplicate.to
+				ctx add-diag case-ast.name-range, name!.symbol-of-sym.to::diag-match-case-duplicate.to
 			else
 				seen[index] := true
 				name-ast = as-name!
@@ -1109,7 +1110,7 @@ integral-types integral-type[]()
 				if seen try-add res.case-type
 					out ~= res
 				else
-					ctx add-diag case-ast.name-range, res.case-type.decl.name.to::diag-match-case-duplicate.to
+					ctx add-diag case-ast.name-range, res.case-type.decl.name.symbol-of-sym.to::diag-match-case-duplicate.to
 
 -check-match-sum-type-case match-sum-type-case?(
 	ctx  expr-ctx,
@@ -1140,7 +1141,7 @@ integral-types integral-type[]()
 -get-sum-type-case-from-name struct-inst?(
 	ctx expr-ctx,
 	sum-type struct-inst,
-	name symbol,
+	name sym,
 	name-range source-range,
 	expected-member-type type? mut(),
 )
@@ -1286,7 +1287,7 @@ integral-types integral-type[]()
 	matched expr,
 	string-type string-like-type,
 )
-	guard spec_ ?= ctx.check-ctx get-spec-from-common-module ctx.specs-map, ast.keyword-range, "equal", compare : expected bogus ast.range
+	guard spec_ ?= ctx.check-ctx get-spec-from-common-module ctx.specs-map, ast.keyword-range, sym-equal, compare : expected bogus ast.range
 
 	equals = ctx.check-ctx check-spec-single-sig-ignore-parents ctx.funs-map, ast.keyword-range, ctx.type-container,
 		ctx.outermost-fun-specs, ctx.outermost-fun-flags, ctx.externs,
@@ -1446,7 +1447,7 @@ integral-types integral-type[]()
 		false
 
 -check-for expr(ctx expr-ctx, locals locals-info, ast for-ast, expected expected)
-	fun-name symbol = ast.body has-break-or-continue ? "for-break" : "for-loop"
+	fun-name sym = ast.body has-break-or-continue ? sym-for-break : sym-for-loop
 	keyword-range = ast for-keyword-range
 	if else_ ?= ast else_
 		ctx check-call-arg-and-2-lambdas locals, ast.to, ast.to, keyword-range, fun-name,
@@ -1459,7 +1460,7 @@ integral-types integral-type[]()
 	keyword-range = ast with-keyword-range
 	if _ ?= ast else_
 		ctx add-diag keyword-range, diag-with-has-else
-	ctx check-call-arg-and-lambda locals, ast.to, ast.to, keyword-range, "with-block",
+	ctx check-call-arg-and-lambda locals, ast.to, ast.to, keyword-range, sym-with-block,
 		ast.arg, ast.param, ast.body, expected
 
 -check-finally expr(ctx expr-ctx, locals locals-info, ast finally-ast, expected expected)

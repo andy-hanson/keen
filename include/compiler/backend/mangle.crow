@@ -5,6 +5,7 @@ import
 	../model/model
 	../util/full-index-map
 	../util/string-walker
+	../util/sym
 	./builtin-math
 
 # TODO: every low-fun should have an associated concrete-fun, so we could just wrap concrete-mangled-names? -----------------------------------
@@ -16,12 +17,12 @@ mangled-names record
 build-mangled-names mangled-names(program low-program)
 	# The first time we see a fun with a name, we'll store the fun-pointer here in case it's not overloaded.
 	# After that, we'll start putting them in fun-to-name-index, and store the next index here.
-	fun-name-to-index concrete-fun prev-or-index mut[symbol] = ()
+	fun-name-to-index concrete-fun prev-or-index mut[sym] = ()
 	# This will not have an entry for uniquely-named funs.
 	# TODO: these variable names (fun-name-to-index vs fun-to-name-index) are too similar ---------------------------------------------------------------
 	fun-to-name-index nat mut[concrete-fun] = ()
 	# HAS: Ensure 'main' has that name.
-	fun-name-to-index["main"] := 0 to
+	fun-name-to-index[sym-main] := 0 to
 	for index, fun : program all-funs
 		match fun source
 		as concrete-fun cf
@@ -38,7 +39,7 @@ build-mangled-names mangled-names(program low-program)
 		as low-fun-source-generated _
 			()
 	
-	struct-name-to-index concrete-struct prev-or-index mut[symbol] = ()
+	struct-name-to-index concrete-struct prev-or-index mut[sym] = ()
 	# This will not have an entry for uniquely-named structs.
 	struct-to-name-index nat mut[concrete-struct] = ()
 
@@ -65,7 +66,7 @@ build-mangled-names mangled-names(program low-program)
 -make-var-to-name-index (low-var-index, nat) full-index-map(
 	vars (low-var-index, low-var) full-index-map,
 )
-	counts nat mut[symbol] = ()
+	counts nat mut[sym] = ()
 	for _, x : vars
 		index = counts ensure x.name, () => 0
 		counts[x name] := index + 1
@@ -101,7 +102,7 @@ low-fun-mangled-name string(mangled-names mangled-names, fun-index low-fun-index
 	as concrete-fun x
 		mangled-names concrete-fun-mangled-name x
 	as low-fun-source-generated x
-		suffix string = unless x.name == "main" # TODO:HAX
+		suffix string = unless x.name == sym-main # TODO:HAX
 			"_{fun-index index}"
 		"{mangled-names mangled-name x.name}{suffix}"
 
@@ -147,10 +148,10 @@ constant-record-name string(
 -prev[t] record(value t)
 
 -add-to-prev-or-index[id] void(
-	name-to-index id prev-or-index mut[symbol],
+	name-to-index id prev-or-index mut[sym],
 	to-name-index nat mut[id], 
 	cur id,
-	name symbol,
+	name sym,
 ) id key
 	name-to-index[name] := if value ?= name-to-index[name]
 		match value
@@ -164,14 +165,16 @@ constant-record-name string(
 	else
 		cur prev
 
-mangled-name string(_ mangled-names, a symbol)
+mangled-name string(_ mangled-names, a sym)
 	# TODO: this applies to any C function. Maybe crow functions should have a common prefix.
-	if a == "errno"
+	match a matchable
+	as errno
 		"_crow_errno"
-	elif a conflicts-with-c-name
-		"_{a}"
 	else
-		a.to mangle-name-common
+		if a conflicts-with-c-name
+			"_{a}"
+		else
+			a.to mangle-name-common
 
 # Used for both JS and C
 mangle-name-common string(a string)
@@ -183,8 +186,8 @@ mangle-name-common string(a string)
 				out ~~= "__"
 				out ~~= "{x.to::nat32}"
 
--conflicts-with-c-name bool(a symbol)
-	match a
+-conflicts-with-c-name bool(a sym)
+	match a matchable
 	as atomic-bool # avoid conflicting with c's "atomic_bool" type
 		true
 	as abs # conflicts with corecrt_math.h on Windows
@@ -241,4 +244,4 @@ mangle-name-common string(a string)
 	as write
 		true
 	else
-		a.to::builtin-function? !is-empty
+		a.to-symbol.to::builtin-function? !is-empty

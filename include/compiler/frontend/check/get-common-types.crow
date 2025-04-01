@@ -4,6 +4,7 @@ import
 	../../model/source-range
 	../../model/uri
 	../../util/enum-map
+	../../util/sym
 	./instantiate
 	./maps
 
@@ -13,28 +14,28 @@ get-common-types common-types(
 	structs-and-aliases-map structs-and-aliases-map,
 )
 	ctx common-types-ctx = instantiate-ctx, diagnostics-builder, structs-and-aliases-map
-	char8 = ctx non-template "char8"
-	char32 = ctx non-template "char32"
-	symbol = ctx non-template "symbol"
-	void = ctx non-template "void"
-	array = ctx get-decl "array", 1
-	pointer-const = ctx get-decl "const-pointer", 1
-	integrals integral-types = (for type : make-enum-map; ctx non-template type.to),
-	string = ctx non-template "string"
+	char8 = ctx non-template "char8".sym-of-string
+	char32 = ctx non-template "char32".sym-of-string
+	symbol = ctx non-template "symbol".sym-of-string
+	void = ctx non-template "void".sym-of-string
+	array = ctx get-decl sym-array, 1
+	pointer-const = ctx get-decl sym-const-pointer, 1
+	integrals integral-types = (for type : make-enum-map; ctx non-template type.to.sym-of-symbol),
+	string = ctx non-template "string".sym-of-string
 
-	bool: ctx non-template "bool"
+	bool: ctx non-template "bool".sym-of-string
 	char8: char8
 	char32: char32
 	c-string: ctx instantiate1 pointer-const, char8
-	exception: ctx non-template "exception"
-	fiber: ctx non-template "fiber"
-	float32: ctx non-template "float32"
-	float64: ctx non-template "float64"
-	future: ctx get-decl "future", 1
+	exception: ctx non-template "exception".sym-of-string
+	fiber: ctx non-template "fiber".sym-of-string
+	float32: ctx non-template "float32".sym-of-string
+	float64: ctx non-template "float64".sym-of-string
+	future: ctx get-decl "future".sym-of-string, 1
 	integrals: integrals
-	java-any: ctx non-template "java-any"
-	js-any: ctx non-template "js-any"
-	none: ctx non-template "none"
+	java-any: ctx non-template "java-any".sym-of-string
+	js-any: ctx non-template "js-any".sym-of-string
+	none: ctx non-template "none".sym-of-string
 	string: string
 	symbol: symbol
 	symbol-array: ctx instantiate1 array, symbol
@@ -45,45 +46,45 @@ get-common-types common-types(
 	char32-array: ctx instantiate1 array, char32
 	nat8-array: ctx instantiate1 array, integrals.nat8
 	string-array: ctx instantiate1 array, string
-	option: ctx get-decl "option", 1
+	option: ctx get-decl "option".sym-of-string, 1
 	pointer-const: pointer-const
-	pointer-mut: ctx get-decl "mut-pointer", 1
-	reference: ctx get-decl "reference", 1
+	pointer-mut: ctx get-decl "mut-pointer".sym-of-string, 1
+	reference: ctx get-decl "reference".sym-of-string, 1
 	tuples-2-through-9: for i : 2::nat .. 10
 		ctx get-tuple i
 	fun-structs: for kind : make-enum-map
-		ctx get-decl (kind == function_ ? "fun-pointer" : "fun-{kind}"), 2
+		ctx get-decl (kind == function_ ? "fun-pointer".sym-of-string : "fun-{kind}".sym-of-string), 2
 
 -common-types-ctx record mut
 	instantiate-ctx instantiate-ctx
 	diagnostics-builder diagnostic mut[]
 	structs-and-aliases-map structs-and-aliases-map
 
--add-diag-missing void(ctx common-types-ctx, name symbol)
+-add-diag-missing void(ctx common-types-ctx, name sym)
 	ctx.diagnostics-builder ~= ((), name.diag-common-type-missing)
 
--get-decl struct-decl(ctx common-types-ctx, name symbol, n-type-parameters nat)
+-get-decl struct-decl(ctx common-types-ctx, name sym, n-type-parameters nat)
 	ctx.structs-and-aliases-map get-common-template-type name, n-type-parameters ?? do
 		ctx add-diag-missing name
 		ctx.instantiate-ctx bogus-struct-decl name, n-type-parameters
 
--non-template struct-inst(ctx common-types-ctx, name symbol)
+-non-template struct-inst(ctx common-types-ctx, name sym)
 	ctx.instantiate-ctx get-common-non-template-type ctx.structs-and-aliases-map, name ?? do
 		ctx add-diag-missing name
 		ctx.instantiate-ctx instantiate-non-template-struct-decl (ctx.instantiate-ctx bogus-struct-decl name, 0)
 
 -get-tuple struct-decl(ctx common-types-ctx, n nat)
-	ctx get-decl "tuple{n}", n
+	ctx get-decl "tuple{n}".sym-of-symbol, n
 
 -instantiate1 struct-inst(ctx common-types-ctx, decl struct-decl, type-arg struct-inst)
 	ctx.instantiate-ctx instantiate-struct decl, (type-arg.to,)
 
--get-common-template-type struct-decl?(structs-and-aliases-map structs-and-aliases-map, name symbol, expected-type-params nat)
+-get-common-template-type struct-decl?(structs-and-aliases-map structs-and-aliases-map, name sym, expected-type-params nat)
 	if decl ?= structs-and-aliases-map[name]?.struct-decl
 		if decl.n-type-params == expected-type-params
 			decl,
 
--get-common-non-template-type struct-inst?(ctx instantiate-ctx, structs-and-aliases-map structs-and-aliases-map, name symbol)
+-get-common-non-template-type struct-inst?(ctx instantiate-ctx, structs-and-aliases-map structs-and-aliases-map, name sym)
 	if x ?= structs-and-aliases-map[name]
 		(ctx instantiate-non-template-struct-or-alias x),
 
@@ -98,10 +99,10 @@ get-common-types common-types(
 -instantiate-non-template-struct-decl struct-inst(ctx instantiate-ctx, struct-decl struct-decl)
 	ctx instantiate-struct struct-decl, ()
 
-bogus-struct-decl struct-decl(ctx instantiate-ctx, name symbol, n-type-parameters nat)
+bogus-struct-decl struct-decl(ctx instantiate-ctx, name sym, n-type-parameters nat)
 	hash: ctx next-hash
-	source: name struct-decl-source-bogus for _ : 0::nat .. n-type-parameters
-		0, ""
+	source: name struct-decl-source-bogus for i : 0::nat .. n-type-parameters
+		0, "t{i}".sym-of-string
 	module-uri: ()
 	visibility: public
 	extern_: ()
