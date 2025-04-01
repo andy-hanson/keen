@@ -1,26 +1,29 @@
 import
 	crow/crypto/pseudo-random
+	../../crow/col/experimental/object-memoizer
 	../model/model
-	../util/object-memoizer
-	../util/util
 
 all-insts record mut
 	-prng prng
-	-type-arrays type-array object-memoizer
-	-spec-insts spec-inst object-memoizer
+	-type-arrays (type-array, type-array-key) object-memoizer
 new all-insts()
-	(), (), ()
+	(), ()
 
 perf-report json[symbol](a all-insts)
-	("type-arrays", a.type-arrays.perf-report), \
-	("spec-insts", a.spec-insts.perf-report)
+	("type-arrays", a.type-arrays.perf.to),
+
+-to json(a object-memoizer-perf)
 
 next-hash nat32(a all-insts)
 	a.prng next
 
 get-or-add-type-array type-array(a all-insts, types type[])
 	unless types is-empty
-		a.type-arrays[types, types.get-hash]
+		hash = do
+			hasher hasher = ()
+			hasher hash-mix types
+			hasher finish
+		trusted a.type-arrays memoize (types, hash), () => (types, hash)
 
 # TODO: just name this 'subscript' --------------------------------------------------------------------------------------------
 get-or-add-struct-inst struct-inst(a all-insts, decl struct-decl, type-args type[])
@@ -30,16 +33,15 @@ get-or-add-struct-inst struct-inst(a all-insts, decl struct-decl, type-args type
 		x
 	as object-memoizer x
 		types = a get-or-add-type-array type-args
-		x[decl, types]
+		trusted x memoize types, () => (decl, types)
 
-get-or-add-spec-inst spec-inst value-and-did-add(a all-insts, decl spec-decl, type-args type[])
+get-or-add-spec-inst (spec-inst, bool)(a all-insts, decl spec-decl, type-args type[])
 	types = a get-or-add-type-array type-args
-	hash = do
-		hasher hasher = ()
-		hasher hash-mix decl
-		hasher hash-mix types
-		hasher finish
-	a.spec-insts get-and-did-add (decl, types, hash, ())
+	did-add mut = false
+	res = trusted decl.insts memoize types, () =>
+		did-add := true
+		decl, types, ()
+	res, did-add
 
 get-or-add-fun-inst fun-inst(
 	a all-insts,
@@ -52,11 +54,9 @@ get-or-add-fun-inst fun-inst(
 	as fun-inst x
 		x
 	as object-memoizer x
-		res = x get-and-did-add (decl, (a get-or-add-type-array type-args), spec-impls, ((),))
-		if res did-add
-			res.value.instantiated-sig := cb-return-and-param-types[]
-		res value
-
+		types = a get-or-add-type-array type-args
+		trusted x memoize (types, spec-impls), () =>
+			decl, types, spec-impls, cb-return-and-param-types[]
 get-all-future-and-mut-array-impls struct-inst[struct-inst](
 	future struct-decl,
 	mut-array struct-decl,
@@ -64,9 +64,9 @@ get-all-future-and-mut-array-impls struct-inst[struct-inst](
 	cb-make-mut-array-impl struct-inst mut(args type-args),
 )
 	keys struct-inst[] = with out : build
-		for x : future.insts object-memoizer!
+		trusted for x : future.insts object-memoizer!
 			out ~= x
-		for x : mut-array.insts object-memoizer!
+		trusted for x : mut-array.insts object-memoizer!
 			out ~= x
 	for x : keys
 		x, if x is-future

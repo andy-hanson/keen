@@ -1,0 +1,122 @@
+no-std
+import
+	crow/bits
+	crow/bool
+	crow/col/collection
+	crow/col/mut-slice
+	crow/col/util
+	crow/compare
+	crow/misc
+	crow/number
+	crow/option
+	crow/pointer
+	../../private/bootstrap: get, new-weak-ref, weak-ref
+
+memoizable[t, k] spec t data, k data, k equal
+	memoizer-key k(a t)
+	hash nat(a k) # TODO: this is not the usual hashing interface, see if the usual 'hash-mix' is just as fast -----------------
+
+object-memoizer[t, k] record mut
+	| Greatest distance of any entry from its home
+	-max-cost mut nat64
+	-capacity-log-2 mut nat
+	| Mask to convert hash codes to indices = {capacity-log-2} 1 bits
+	-index-mask mut nat
+	-entries mut t weak-ref mut-slice
+new[t, k] (t, k) object-memoizer() (t, k) memoizable, trusted
+	if extern native
+		assert size-of@t == 8 # Must be a reference type (TODO: have a more specific function to test this) -------------------------------------
+	0, 1, 1.index-mask-for, 2.gc-safe-mut-slice
+
+object-memoizer-perf record
+	size nat
+	capacity nat
+	max-cost nat
+perf[t, k] object-memoizer-perf(a (t, k) object-memoizer)
+	size: a.entries count x => x.get !is-empty
+	capacity: a.entries size
+	max-cost: a max-cost
+
+-index-mask-for nat(capacity-log-2 nat)
+	capacity-log-2 low-n-bits
+
+iterate[t, k] bool(a (t, k) object-memoizer, f bool mut(x t)) unsafe, (t, k) memoizable
+	for entry : a entries
+		if got ?= entry get
+			if f[got]
+				break true
+	else
+		false
+
+memoize[t, k] t(a (t, k) object-memoizer, key k, make-value t mut()) unsafe, (t, k) memoizable
+	a find key ?? do
+		value = make-value[]
+		a must-insert value
+		value
+
+-find[t, k] t?(a (t, k) object-memoizer, key k) (t, k) memoizable
+	i mut = a ideal-index key
+	cost mut nat = 0
+	loop
+		guard cost <= a.max-cost : break
+		entry = a.entries[i]
+		if v ?= entry get
+			if v.memoizer-key == key
+				break v,
+			else
+				i := a next-index i
+				cost +:= 1
+				continue
+		else
+			i := a next-index i
+			cost +:= 1
+			continue
+
+| For this function, the caller guarantees that 'value' is not already in 'a'
+-must-insert[t, k] void(a (t, k) object-memoizer, top-value t) (t, k) memoizable
+	value mut = top-value
+	i mut = a ideal-index value.memoizer-key
+	cost mut nat = 0
+	loop
+		if v ?= a.entries[i] get
+			its-home = a ideal-index v.memoizer-key
+			its-cost = a cost its-home, i
+			if cost > its-cost
+				a.entries[i] := value.new-weak-ref
+				value := v
+				cost := its-cost
+			i := a next-index i
+			cost +:= 1
+			if cost >= a.max-cost
+				a.max-cost := cost
+				if a.max-cost > a.max-max-cost
+					a increase-capacity
+					i := a ideal-index value.memoizer-key
+					cost := 0
+			continue
+		else
+			a.entries[i] := value.new-weak-ref
+			break
+
+-max-max-cost[t, k] nat(a (t, k) object-memoizer)
+	a.capacity-log-2 / 2
+
+-increase-capacity[t, k] void(a (t, k) object-memoizer) (t, k) memoizable
+	old-entries = a entries
+	a.max-cost := 0
+	a.capacity-log-2 +:= 1
+	a.index-mask := a.capacity-log-2 index-mask-for
+	a.entries := trusted (1 << a.capacity-log-2) gc-safe-mut-slice
+	for x : old-entries
+		if v ?= x get
+			a must-insert v
+
+-ideal-index[t, k] nat(a (t, k) object-memoizer, key k) (t, k) memoizable
+	key.hash & a.index-mask
+-next-index[t, k] nat(a (t, k) object-memoizer, index nat)
+	(index wrap-add 1) & a.index-mask
+-cost[t, k] nat(a (t, k) object-memoizer, ideal-index nat, actual-index nat)
+	if ideal-index <= actual-index
+		actual-index - ideal-index
+	else
+		a.entries.size - ideal-index + actual-index

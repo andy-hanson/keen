@@ -1,11 +1,11 @@
 no-std
 import
+	../../crow/col/experimental/object-memoizer
 	crow/bool
 	crow/col/array
 	crow/col/collection
 	crow/col/set
 	crow/compare
-	crow/exception
 	crow/hash
 	crow/misc
 	crow/number
@@ -13,19 +13,23 @@ import
 	crow/json
 	crow/string
 	crow/symbol
-	./object-memoizer
-	./util
 
-sym record -new, force-data
-	# WARN: If a Sym is garbage collected, it may reappear with a different ID.
+sym record
+	| Arbitrary unique ID.
+	| WARN: If a Sym is garbage collected, it may reappear with a different ID.
 	id nat32
-	hash-content nat
-	chars mut char8 array-view
-	symbol-of-sym mut symbol
+	hash nat
+	-chars char8[]
+	symbol-of-sym symbol
+-sym-key record
+	hash nat # Saved for perf ---------------------------------------------------------------------------------
+	chars char8 array-view
+memoizer-key sym-key(a sym)
+	a.hash, a.chars[0 .. end]
+-== bool(a sym-key, b sym-key)
+	a.chars == b.chars
 == bool(a sym, b sym)
 	trusted a reference-equal b
--content-equals bool(a sym, b sym)
-	a.chars == b.chars
 -== bool(a char8 array-view, b char8 array-view)
 	size = a.size
 	guard size == b.size
@@ -48,8 +52,6 @@ to string(a sym)
 	a.symbol-of-sym to
 to json(a sym)
 	a.to::string to
-hash nat(a sym)
-	a hash-content
 hash-mix void(hasher hasher, a sym)
 	hasher hash-mix a.id
 
@@ -59,7 +61,7 @@ length-char8s nat(a sym)
 matchable symbol(a sym) # TODO: rm, compiler should support matching on symbols -------------------------------------------------------
 	a symbol-of-sym
 
--lookup global(sym object-memoizer)
+-lookup global((sym, sym-key) object-memoizer)
 -next-id global(nat32)
 
 init-sym void() trusted
@@ -82,20 +84,15 @@ sym-of-chars sym(a char8[])
 	a[0 .. end] to
 
 to sym(a char8 array-view) trusted
-	assert extern java : todo
-	hash nat = do
+	hash = do
 		hasher hasher = ()
 		for x : a
 			hasher hash-mix x
 		hasher finish
-	res = lookup get-and-did-add (next-id, hash, a, "")
-	if res did-add
-		# To save memory, copy the chars instead of maintaining a reference to the view
-		chars = a.to::char8[]
-		res.value.chars := chars[0 .. end]
-		res.value.symbol-of-sym := chars.to::string.to
+	lookup memoize (hash, a), () =>
+		res sym = next-id, hash, a.to, a.to::string.to
 		next-id +:= 1
-	res value
+		res
 
 symbol-set alias
 	sym set

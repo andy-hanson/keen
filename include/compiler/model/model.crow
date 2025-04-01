@@ -1,7 +1,7 @@
 import
+	../../crow/col/experimental/object-memoizer
 	../util/enum-map
 	../util/multi-set
-	../util/object-memoizer
 	../util/sym
 	../util/util
 	./ast
@@ -47,7 +47,14 @@ worse-purity purity(a purity, b purity)
 
 type-array record
 	inner type[]
-	hash-content nat
+	hash nat
+type-array-key record
+	inner type[]
+	hash nat
+== bool(a type-array-key, b type-array-key)
+	a.inner == b.inner
+memoizer-key type-array-key(a type-array)
+	a.inner, a.hash
 new type-array()
 	(), 0
 is-empty bool(a type-array)
@@ -61,9 +68,7 @@ only2 (type, type)(a type-array)
 == bool(a type-array, b type-array)
 	trusted a.inner reference-equal b.inner
 hash-mix void(hasher hasher, a type-array)
-	hasher hash-mix a.hash-content
-content-equals bool(a type-array, b type-array)
-	a.inner == b.inner
+	hasher hash-mix a.hash
 to json(a type-array)
 	a.inner to
 
@@ -71,7 +76,7 @@ type-params alias
 	name-and-range[]
 type-args alias
 	type-array
-spec-impls alias
+spec-impls alias # TODO: memoize this like we do for type-args ------------------------------------------------------------------
 	called[]
 specs alias
 	spec-inst[]
@@ -756,7 +761,7 @@ struct-decl record force-data
 	| For perf, non-templates store their only instance directly
 	insts mut struct-decl-insts
 | For a non-template, this will be its only {struct-inst}
-struct-decl-insts union(struct-inst, struct-inst object-memoizer) mut
+struct-decl-insts union(struct-inst, (struct-inst, type-args) object-memoizer) mut
 new struct-decl(
 	hash nat32,
 	source struct-decl-source,
@@ -772,7 +777,7 @@ new struct-decl(
 )
 	res struct-decl = hash, source, module-uri, visibility, extern_, is-summon, purity, purity-is-forced, doc-comment-references, sum-type-memberships, body, trusted gc-safe-value
 	res.insts := if res is-template
-		()::(struct-inst object-memoizer) to
+		()::((struct-inst, type-args) object-memoizer) to
 	else
 		(res, ())::struct-inst to
 	res
@@ -865,16 +870,16 @@ name-range source-range(a struct-decl-source)
 
 | WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
 struct-inst record(decl struct-decl, type-args type-args) by-ref
+memoizer-key type-args(a struct-inst)
+	a type-args
 == bool(a struct-inst, b struct-inst)
 	trusted a reference-equal b
-content-equals bool(a struct-inst, b struct-inst)
-	a.type-args == b.type-args
-hash-content nat(a struct-inst)
-	a.type-args hash-content
 <=> comparison(_ struct-inst, _ struct-inst)
 	throw todo
 hash-mix void(hasher hasher, a struct-inst)
-	hasher hash-mix a.hash-content
+	# TODO: just use identity -------------------------------------------------------------------------------------------------------
+	hasher hash-mix a.decl
+	hasher hash-mix a.type-args
 to json(a struct-inst)
 	("decl", a.decl.name.to), ("type-args", a.type-args.to)
 linkage-range linkage-range(a struct-inst)
@@ -913,6 +918,7 @@ spec-decl record force-data
 	visibility visibility
 	doc-comment-references mut doc-comment-references
 	late-body mut spec-decl-body?
+	insts (spec-inst, type-args) object-memoizer
 == bool(a spec-decl, b spec-decl)
 	trusted a reference-equal b
 hash-mix void(hasher hasher, a spec-decl)
@@ -952,14 +958,15 @@ name-range uri-and-range(a spec-decl)
 spec-inst record force-data
 	decl spec-decl
 	type-args type-args
-	hash-content nat
 	body mut spec-inst-body
+memoizer-key type-args(a spec-inst)
+	a type-args
 == bool(a spec-inst, b spec-inst) trusted
 	a reference-equal b
 hash-mix void(hasher hasher, a spec-inst)
-	hasher hash-mix a.hash-content
-content-equals bool(a spec-inst, b spec-inst)
-	a.decl == b.decl && a.type-args == b.type-args
+	# TODO: just use identity ------------------------------------------------------------------------------------------------------
+	hasher hash-mix a.decl
+	hasher hash-mix a.type-args
 to json(a spec-inst)
 	("decl", a.decl.name.to), ("type-args", a.type-args.to)
 debug string(a spec-inst)
@@ -1659,7 +1666,7 @@ fun-decl record force-data, -new
 	body mut fun-body
 	insts mut fun-decl-insts
 | For a non-template, this will be its only {fun-inst}.
-fun-decl-insts union(fun-inst, fun-inst object-memoizer) mut
+fun-decl-insts union(fun-inst, (fun-inst, fun-inst-key) object-memoizer) mut
 name sym(a fun-decl)
 	match a source
 	as fun-source-bogus x
@@ -1726,7 +1733,7 @@ new fun-decl(
 )
 	res fun-decl = hash, source, visibility, n-type-params.to, return-type, params, flags_, externs, specs, doc-comment-references, body, trusted gc-safe-value
 	res.insts := if res is-template
-		()::(fun-inst object-memoizer) to
+		()::((fun-inst, fun-inst-key) object-memoizer) to
 	else
 		return-and-param-types type[] = with b : build
 			b ~= return-type
@@ -1832,19 +1839,27 @@ fun-inst record force-data
 	type-args type-args
 	spec-impls spec-impls
 	instantiated-sig mut return-and-param-types
+fun-inst-key record
+	type-args type-args
+	spec-impls spec-impls
+== bool(a fun-inst-key, b fun-inst-key)
+hash nat(a fun-inst-key)
+	hasher hasher = ()
+	hasher hash-mix a.type-args
+	hasher hash-mix a.spec-impls
+	hasher finish
+memoizer-key fun-inst-key(a fun-inst)
+	a.type-args, a.spec-impls
 == bool(a fun-inst, b fun-inst) trusted
 	a reference-equal b
-hash-mix void(hasher hasher, a fun-inst)
-	hasher hash-mix a.decl # TODO:REMOVE --------------------------------------------------------------------------------------
+hash-mix void(hasher hasher, a fun-inst) # TODO: just use identity-hash ---------------------------------------------------
+	hasher hash-mix a.decl
 	hasher hash-mix a.type-args
 	hasher hash-mix a.spec-impls
-content-equals bool(a fun-inst, b fun-inst)
-	a.decl == b.decl && a.type-args == b.type-args && a.spec-impls == b.spec-impls # TODO: no need to compare decl ---------------------
-hash-content nat(a fun-inst)
+hash nat((type-args type-args, spec-impls spec-impls))
 	hasher hasher = ()
-	hasher hash-mix a.decl # TODO: REMOVE ----------------------------------------------------------------------------------------
-	hasher hash-mix a.type-args
-	hasher hash-mix a.spec-impls
+	hasher hash-mix type-args
+	hasher hash-mix spec-impls
 	hasher finish
 to json(a fun-inst)
 	("decl", a.decl.name.to), ("type-args", a.type-args.to), ("spec-impls", a.spec-impls.to)
