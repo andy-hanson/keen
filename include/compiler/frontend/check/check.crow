@@ -5,6 +5,7 @@ import
 	../../model/source-range
 	../../model/uri
 	../../util/multi-set
+	../../util/perfect-hash
 	../../util/perfhax
 	../../util/sym
 	../../util/util
@@ -133,10 +134,18 @@ check module(
 			throw unreachable
 
 -build-structs-and-aliases-map structs-and-aliases-map(
-	ctx check-ctx,
+	_ check-ctx,
 	structs struct-decl[],
 	aliases struct-alias[],
 )
+	temp struct-or-alias[] = with out : build # TODO: define a builder for 'by-name' ----------------------------------------------------------
+		for x : structs
+			out ~= x to
+		for x : aliases
+			out ~= x to
+	temp to
+	###
+	------------------------------------------------------------------------------------------------------------------------------
 	res struct-or-alias mut[sym] = ()
 	add void mut(sa struct-or-alias) = sa =>
 		ctx add-to-decls-map res, sa.name, sa, struct-or-alias, x => x name-range
@@ -145,6 +154,7 @@ check module(
 	for x : aliases
 		add[x to]
 	res move-to
+	###
 
 -check-var-decl var-decl(
 	ctx check-ctx,
@@ -190,6 +200,8 @@ check module(
 			ctx add-diag x.range, kind.to.diag-spec-use-invalid
 	extern-library-name
 
+###
+---------------------------------------------------------------------------------------------------------------------------------------
 -add-to-decls-map[t] void(
 	ctx check-ctx,
 	builder t mut[sym],
@@ -202,6 +214,7 @@ check module(
 		ctx add-diag-assert-same-uri cb-name-range[value], (kind diag-duplicate-declaration name)
 	else
 		builder[name] := value
+###
 
 -spec-flags-and-parents record(is-builtin bool, parents spec-inst[])
 -check-spec-modifiers spec-flags-and-parents(
@@ -231,11 +244,8 @@ check module(
 					out ~= spec_
 	is-builtin, parents
 
--build-specs-map specs-map(ctx check-ctx, specs spec-decl[])
-	res spec-decl mut[sym] = ()
-	for x : specs
-		ctx add-to-decls-map res, x.name, x, spec_, y => y name-range
-	res move-to
+-build-specs-map specs-map(_ check-ctx, specs spec-decl[])
+	specs to
 
 -check-worker-after-common-types module(
 	ctx check-ctx,
@@ -282,29 +292,35 @@ check module(
 	res
 
 -get-all-exports (exports, exports)(
-	ctx check-ctx,
+	_ check-ctx,
 	re-exports import-or-export[],
 	structs-and-aliases-map structs-and-aliases-map,
 	specs-map specs-map,
 	funs-map funs-map,
 )
 	exported-funs fun-decl mut[] = ()
-	exported-types struct-or-alias mut[sym] = ()
-	exported-specs spec-decl mut[sym] = ()
+	exported-types struct-or-alias mut[] = ()
+	exported-specs spec-decl mut[] = ()
 
 	# TODO:PERF make these normal functions instead of closures -------------------------------------------------------------------
-	add-type void mut(type struct-or-alias, range source-range) = (x, range) =>
+	add-type void mut(type struct-or-alias, range source-range) = (x, _) =>
 		# TODO: do with a singlle map operation ---------------------------------------------------------------------------
+		###
 		if x.name in exported-types
 			ctx add-diag range, (type diag-duplicate-exports x.name)
 		else
 			exported-types[x name] := x
-	add-spec void mut(x spec-decl, range source-range) = (x, range) =>
+		###
+		exported-types ~= x
+	add-spec void mut(x spec-decl, range source-range) = (x, _) =>
 		# TODO: do with a singlle map operation ---------------------------------------------------------------------------
+		###
 		if x.name in exported-specs
 			ctx add-diag range, (type diag-duplicate-exports x.name)
 		else
 			exported-specs[x name] := x
+		###
+		exported-specs ~= x
 
 	for e : re-exports
 		its-exports = match e.source! kind
@@ -317,15 +333,15 @@ check module(
 			throw unreachable
 		for x : its-exports funs
 			exported-funs ~= x
-		for _, x : its-exports structs-and-aliases
+		for x : its-exports structs-and-aliases
 			add-type[x, e.source!.path-range]
-		for _, x : its-exports specs
+		for x : its-exports specs
 			add-spec[x, e.source!.path-range]
 
-	for _, x : structs-and-aliases-map
+	for x : structs-and-aliases-map
 		if x.visibility != private
 			add-type[x, x.range.range]
-	for _, x : specs-map
+	for x : specs-map
 		if x.visibility != private
 			add-spec[x, x.range.range]
 	# TODO: in the usual case, there are no re-exports. In that case we can simply filter funs-map to get the export maps.
@@ -339,8 +355,8 @@ check module(
 		specs: exported-specs move-to
 	public-exports exports = do
 		funs: public-and-internal-exports.funs filter x => x.visibility == public
-		structs-and-aliases: public-and-internal-exports.structs-and-aliases filter (_, x) => x.visibility == public
-		specs: public-and-internal-exports.specs filter (_, x) => x.visibility == public
+		structs-and-aliases: public-and-internal-exports.structs-and-aliases filter x => x.visibility == public
+		specs: public-and-internal-exports.specs filter x => x.visibility == public
 	public-exports, public-and-internal-exports
 
 -check-worker (module, common-types)(
@@ -485,8 +501,8 @@ check module(
 	funs: exports.funs choose-keys set
 	structs-and-aliases: exports.structs-and-aliases choose-keys set
 	specs: exports.specs choose-keys set
--choose-keys[k, v] v[k](a v[k], keys k set) k key
+-choose-keys[t] t by-name(a t by-name, keys sym set) t name
 	with out : build
 		for k : keys
-			if v ?= a[k]
-				out ~= (k, v)
+			if x ?= a[k]
+				out ~= x

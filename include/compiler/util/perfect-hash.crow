@@ -1,0 +1,189 @@
+# TODO: RENAME THIS FILE --------------------------------------------------------------------------------------------------
+import
+	crow/col/mut-slice
+	./sym
+	./util
+
+name[t] spec
+	name sym(a t)
+
+by-name[t] record by-ref
+	values t[]
+	-next nat32[]
+
+new[t] t by-name()
+	(), ()
+
+is-empty[t] bool(a t by-name)
+	trusted a reference-equal ()
+
+iterate[t] bool(a t by-name, f bool mut(x t))
+	a.values iterate f
+
+# Entry in {next} that indicates that we are at the end of the chain.
+-no-next nat32()
+	max-value
+# This special value is used temporarily in {to}. The final {next} has no unused values.
+-unused nat32()
+	max-value - 1
+
+move-to[t] t by-name(values t mut[]) t name
+	values.move-to to
+
+to[t] t by-name(values t[]) t name
+	guard values !is-empty
+
+	n = values size
+	res t mut-slice = trusted n gc-safe-mut-slice
+
+	next nat32 mut-slice = n n-of unused
+	delay t mut[] = ()
+
+	for x : values
+		i = x.name.id % n
+		if next[i] == unused
+			res[i] := x
+			next[i] := no-next
+		else
+			delay ~= x
+
+	unused-spots nat32 mut[] = ()
+	for i, x : next with-index
+		if x == unused
+			unused-spots ~= i to
+
+	# Try to minimize the maximum cost. Cost = the length of the chain that we would create.
+	max-cost mut nat = 2
+	until delay is-empty
+		delay filter-unordered x =>
+			i = x.name.id % n
+			if j ?= i walk-to-end next, max-cost
+				z = unused-spots pop!
+				next[j] := z
+				res[z to] := x
+				next[z to] := no-next
+				false
+			else
+				true
+		max-cost +:= 1
+	trusted res.cast-immutable, next.cast-immutable
+
+-walk-to-end nat?(i nat, next nat32 mut-slice, max-cost nat)
+	cur mut = i
+	cost mut nat = 1
+	loop
+		forbid next[cur] == unused
+		if next[cur] == no-next
+			break cur,
+		elif cost == max-cost
+			break
+		else
+			cur := next[cur] to
+			cost +:= 1
+			continue
+
+subscript[t] t?(a t by-name, name sym) t name
+	guard a !is-empty
+	i mut = name.id % a.values.size
+	loop
+		value = a.values[i]
+		if value.name == name
+			break value,
+		else
+			next = a.next[i]
+			if next == no-next
+				break
+			else
+				i := next to
+				continue
+
+in[t] bool(name sym, a t by-name) t name
+	a[name] !is-empty
+
+build[t] t by-name(a build-options, f void mut(out t array-builder)) t name
+	a build f to
+
+test
+	init-sym
+	r0 r = sym-equal, 1
+	_ = sym-java # Just to get the ID
+	r1 r = sym-compare, 2
+	a r by-name = (r0, r1) to
+	a[sym-equal] is (r0,)
+	a[sym-compare] is (r1,)
+	a[sym-java] is ()
+-r record
+	name sym
+	whatever nat
+-== bool(a r, b r)
+-to json(a r)
+
+multi-by-name[t] record
+	# TODO:PERF combine these into a single array -----------------------------------------------------------------------------------------
+	starts nat32[]
+	next nat32[]
+	| All values stored contiguously. Indices don't correspond to {starts}/{next}
+	values t[]
+
+new[t] t multi-by-name()
+	(), (), ()
+
+is-empty[t] bool(a t multi-by-name)
+	trusted a reference-equal ()
+
+to[t] t multi-by-name(values t[]) t name
+	guard values !is-empty
+	groups = values group-by-name
+	groups-by-name t array-view by-name = groups to
+	starts nat32 mut-slice = trusted groups.size gc-safe-mut-slice
+	out-values t mut-slice = trusted values.size gc-safe-mut-slice
+	next-value mut nat = 0
+	for i, subarray : groups-by-name.values with-index
+		starts[i] := next-value to
+		values-end = next-value + subarray.size
+		out-values[next-value .. values-end] := subarray
+		next-value := values-end
+	(trusted starts cast-immutable), groups-by-name.next, (trusted out-values cast-immutable)
+| Sorts the array and returns subarrays of that with the same name
+-group-by-name[t] t array-view[](values t[]) t name
+	sorted = values sort x => x name
+	with out : build
+		cur-name mut = sorted[0] name
+		start mut nat = 0
+		for i : 1::nat .. sorted.size
+			if sorted[i].name != cur-name
+				out ~= sorted[start .. i]
+				cur-name := sorted[i] name
+				start := i
+		out ~= sorted[start .. end]
+-name[t] sym(a t array-view) t name
+	a[0] name
+
+subscript[t] t array-view(a t multi-by-name, name sym) t name
+	guard a !is-empty
+	cur mut = name.id % a.next.size
+	loop
+		start nat = a.starts[cur] to
+		if a.values[start].name == name
+			end = cur + 1 == a.starts.size ? a.values.size : a.starts[cur + 1] to
+			break a.values[start .. end]
+		elif a.next[cur] == no-next
+			break
+		else
+			cur := a.next[cur] to
+			continue
+
+iterate[t] bool(a t multi-by-name, f bool mut(x t))
+	a.values iterate f
+
+test
+	r0 r = sym-equal, 1
+	_ = sym-json
+	r1 r = sym-compare, 2
+	r2 r = sym-equal, 3
+	groups r[][] = for x : (r0, r1, r2).group-by-name; x to
+	groups is ((r0, r2), (r1,))
+	a r multi-by-name = (r0, r1, r2) to
+	a[sym-equal].to::r[] is (r0, r2)
+	a[sym-compare].to::r[] is (r1,)
+	a[sym-json].to::r[] is ()
