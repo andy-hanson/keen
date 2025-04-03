@@ -183,8 +183,10 @@ Opt!Range takeCommaSeparatedNames(ref Lexer lexer, ref ArrayBuilder!NameAndRange
 		: none!Range;
 }
 
-Symbol takePathComponent(ref Lexer lexer) =>
-	takePathComponentRest(lexer, takeName(lexer));
+Symbol takePathComponent(ref Lexer lexer) {
+	Symbol name = tryTakeToken(lexer, Token.unsafe) ? symbol!"unsafe" : takeName(lexer); 
+	return takePathComponentRest(lexer, name);
+}
 Symbol takePathComponentRest(ref Lexer lexer, Symbol cur) {
 	if (tryTakeToken(lexer, Token.dot)) {
 		Symbol extension = takeName(lexer);
