@@ -159,7 +159,7 @@ update-lkg: bin/crowj
 bin/crowj: $(include_dependencies)
 	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crowj
 
-profile:
+profile: bin/crowj
 	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crowj check include/compiler/app/main.crow --times 10 --perf
 	jmc
 
