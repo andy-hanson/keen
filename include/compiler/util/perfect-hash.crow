@@ -8,18 +8,27 @@ import
 name[t] spec
 	name sym(a t)
 
-by-name[t] record by-ref
+by-name[t] record
+	-impl t impl
+-impl[t] union(t[], t large-by-name)
+
+-large-by-name[t] record by-ref
 	values t[]
-	-next nat32[]
+	next nat32[]
 
 new[t] t by-name()
-	(), ()
+	()::t[].to,
 
-is-empty[t] bool(a t by-name)
-	trusted a reference-equal ()
+| This does not allocate
+to[t] t[](a t by-name)
+	match a impl
+	as array x
+		x
+	as large-by-name x
+		x values
 
 iterate[t] bool(a t by-name, f bool mut(x t))
-	a.values iterate f
+	a.to::t[] iterate f
 
 # Entry in {next} that indicates that we are at the end of the chain.
 -no-next nat32()
@@ -29,11 +38,15 @@ iterate[t] bool(a t by-name, f bool mut(x t))
 	max-value - 1
 
 move-to[t] t by-name(values t mut[]) t name
-	values.move-to to
+	values.move-to to-by-name
 
-to[t] t by-name(values t[]) t name
-	guard values !is-empty
+to-by-name[t] t by-name(values t[]) t name
+	if values.size <= 4
+		values.to,
+	else
+		values.to-large-by-name.to,
 
+-to-large-by-name[t] t large-by-name(values t[]) t name
 	n = values size
 	res t mut-slice = trusted n gc-safe-mut-slice
 
@@ -84,32 +97,37 @@ to[t] t by-name(values t[]) t name
 			continue
 
 subscript[t] t?(a t by-name, name sym) t name
-	guard a !is-empty
-	i mut = name.id % a.values.size
-	loop
-		value = a.values[i]
-		if value.name == name
-			break value,
-		else
-			next = a.next[i]
-			if next == no-next
-				break
+	match a impl
+	as array xs
+		for x : xs
+			if x.name == name
+				break x
+	as large-by-name l
+		i mut = name.id % l.values.size
+		loop
+			value = l.values[i]
+			if value.name == name
+				break value,
 			else
-				i := next to
-				continue
+				next = l.next[i]
+				if next == no-next
+					break
+				else
+					i := next to
+					continue
 
 in[t] bool(name sym, a t by-name) t name
 	a[name] !is-empty
 
 build[t] t by-name(a build-options, f void mut(out t array-builder)) t name
-	a build f to
+	a build f to-by-name
 
 test
 	init-sym
 	r0 r = sym-equal, 1
 	_ = sym-java # Just to get the ID
 	r1 r = sym-compare, 2
-	a r by-name = (r0, r1) to
+	a r by-name = (r0, r1) to-by-name
 	a[sym-equal] is (r0,)
 	a[sym-compare] is (r1,)
 	a[sym-java] is ()
@@ -120,23 +138,31 @@ test
 -to json(a r)
 
 multi-by-name[t] record
+	-impl t multi-by-name-impl
+-multi-by-name-impl[t] union(t[], t large-multi-by-name)
+-large-multi-by-name[t] record
 	# Each nat64 is effectively (start nat32, next nat32)
 	starts-and-nexts nat64[]
 	| All values stored contiguously
 	values t[]
 
-new[t] t multi-by-name()
-	(), ()
+| This does not allocate
+to[t] t[](a t multi-by-name)
+	match a impl
+	as array x
+		x
+	as large-multi-by-name x
+		x values
 
-is-empty[t] bool(a t multi-by-name)
-	trusted a reference-equal ()
+new[t] t multi-by-name()
+	()::t[].to,
 
 move-to[t] t multi-by-name(values t mut[]) t name
 	values.move-to to
 to[t] t multi-by-name(values t[]) t name
-	guard values !is-empty
+	guard values.size > 8 : (values sort x => x name).to,
 	groups = values group-by-name
-	groups-by-name t[] by-name = groups to
+	groups-by-name t[] large-by-name = groups to-large-by-name
 	starts nat32 mut-slice = trusted groups.size gc-safe-mut-slice
 	out-values t mut-slice = trusted values.size gc-safe-mut-slice
 	next-value mut nat = 0
@@ -148,7 +174,7 @@ to[t] t multi-by-name(values t[]) t name
 	starts-and-nexts nat64 mut-slice = trusted starts.size gc-safe-mut-slice
 	for i : 0::nat .. starts-and-nexts.size
 		starts-and-nexts[i] := (starts[i].to << 32) | groups-by-name.next[i].to
-	trusted starts-and-nexts.cast-immutable, out-values.cast-immutable
+	(trusted starts-and-nexts.cast-immutable large-multi-by-name out-values.cast-immutable),
 -group-by-name[t] t[][](values t[]) t name
 	res t mut[] mut[sym] = values.size mut-map-with-capacity
 	for x : values
@@ -175,26 +201,39 @@ TODO:PERF consider this instead, once I have a faster 'sort' -------------------
 ###
 
 subscript[t] t array-view(a t multi-by-name, name sym) t name
-	guard a !is-empty
-	cur mut = name.id % a.starts-and-nexts.size
-	loop
-		start-and-next = a.starts-and-nexts[cur]
-		start = start-and-next >> 32
-		next = start-and-next & 0xffffffff
-		if a.values[start].name == name
-			end = cur + 1 == a.starts-and-nexts.size ? a.values.size : a.starts-and-nexts[cur + 1] >> 32
-			break a.values[start .. end]
-		elif next == no-next.to
-			break
-		else
-			cur := next
-			continue
+	match a impl
+	as array xs
+		i mut nat = 0
+		loop
+			guard i != xs.size : break
+			if xs[i].name == name
+				j mut nat = i + 1
+				until j == xs.size || xs[j].name != name
+					j +:= 1
+				break xs[i .. j]
+			else
+				i +:= 1
+				continue
+	as large-multi-by-name l
+		cur mut = name.id % l.starts-and-nexts.size
+		loop
+			start-and-next = l.starts-and-nexts[cur]
+			start = start-and-next >> 32
+			next = start-and-next & 0xffffffff
+			if l.values[start].name == name
+				end = cur + 1 == l.starts-and-nexts.size ? l.values.size : l.starts-and-nexts[cur + 1] >> 32
+				break l.values[start .. end]
+			elif next == no-next.to
+				break
+			else
+				cur := next
+				continue
 
 in[t] bool(name sym, a t multi-by-name) t name
 	a[name] !is-empty
 
 iterate[t] bool(a t multi-by-name, f bool mut(x t))
-	a.values iterate f
+	a.to iterate f
 
 build[t] t multi-by-name(a build-options, f void mut(out t array-builder)) t name
 	a build f to
