@@ -37,16 +37,40 @@ iterate[t] bool(a t by-name, f bool mut(x t))
 -unused nat32()
 	max-value - 1
 
-move-to[t] t by-name(values t mut[]) t name
-	values.move-to to-by-name
+move-to-by-name[t] t by-name(values t mut[], on-duplicate void mut(x t, y t)) t name
+	values.move-to to-by-name on-duplicate
 
-to-by-name[t] t by-name(values t[]) t name
+| If two have the same name, reports both in 'on-duplicate' and omits an arbitrary one from the result
+to-by-name[t] t by-name(values t[], on-duplicate void mut(x t, y t)) t name
 	if values.size <= 4
-		values.to,
+		if i, j ?= values find-duplicate-small
+			on-duplicate[values[i], values[j]]
+			values remove-at j to-by-name on-duplicate
+		else
+			values.to,
 	else
-		values.to-large-by-name.to,
+		values to-large-by-name on-duplicate to,
 
--to-large-by-name[t] t large-by-name(values t[]) t name
+filter[t] t by-name(a t by-name, f bool mut(x t)) t name
+	match a impl
+	as array xs
+		(xs filter f)::t[].to,
+	as large-by-name l
+		l.values filter f to-by-name _ => throw unreachable
+
+choose-keys[t] t by-name(a t by-name, keys sym set) t name
+	xs t[] = for k : keys and-concat
+		if x ?= a[k]
+			x,
+	xs to-by-name _ => throw unreachable
+
+-find-duplicate-small[t] (nat, nat)?(values t[]) t name
+	0::nat .. values.size first i =>
+		i + 1 .. values.size first j =>
+			if values[i].name == values[j].name
+				(i, j),
+
+-to-large-by-name[t] t large-by-name(values t[], on-duplicate void mut(x t, y t)) t name
 	n = values size
 	res t mut-slice = trusted n gc-safe-mut-slice
 
@@ -70,27 +94,26 @@ to-by-name[t] t by-name(values t[]) t name
 	max-cost mut nat = 2
 	until delay is-empty
 		delay filter-unordered x =>
-			i = x.name.id % n
-			if j ?= i walk-to-end next, max-cost
-				z = unused-spots pop!
-				next[j] := z
-				res[z to] := x
-				next[z to] := no-next
-				false
-			else
-				true
+			res !place-delayed next, x, unused-spots, max-cost, on-duplicate
 		max-cost +:= 1
 	trusted res.cast-immutable, next.cast-immutable
-
--walk-to-end nat?(i nat, next nat32 mut-slice, max-cost nat)
-	cur mut = i
+-place-delayed[t] bool(res t mut-slice, next nat32 mut-slice, x t, unused-spots nat32 mut[], max-cost nat, on-duplicate void mut(x t, y t)) t name
+	cur mut = x.name.id % res.size
 	cost mut nat = 1
 	loop
 		forbid next[cur] == unused
-		if next[cur] == no-next
-			break cur,
+		if x.name == res[cur].name
+			on-duplicate[res[cur], x]
+			break true
+		elif next[cur] == no-next
+			# Found the end
+			dest = unused-spots pop!
+			next[cur] := dest
+			res[dest to] := x
+			next[dest to] := no-next
+			break true
 		elif cost == max-cost
-			break
+			break false
 		else
 			cur := next[cur] to
 			cost +:= 1
@@ -119,15 +142,12 @@ subscript[t] t?(a t by-name, name sym) t name
 in[t] bool(name sym, a t by-name) t name
 	a[name] !is-empty
 
-build[t] t by-name(a build-options, f void mut(out t array-builder)) t name
-	a build f to-by-name
-
 test
 	init-sym
 	r0 r = sym-equal, 1
 	_ = sym-java # Just to get the ID
 	r1 r = sym-compare, 2
-	a r by-name = (r0, r1) to-by-name
+	a r by-name = (r0, r1) to-by-name _ => throw unreachable
 	a[sym-equal] is (r0,)
 	a[sym-compare] is (r1,)
 	a[sym-java] is ()
@@ -162,7 +182,7 @@ move-to[t] t multi-by-name(values t mut[]) t name
 to[t] t multi-by-name(values t[]) t name
 	guard values.size > 8 : (values sort x => x name).to,
 	groups = values group-by-name
-	groups-by-name t[] large-by-name = groups to-large-by-name
+	groups-by-name t[] large-by-name = groups to-large-by-name _ => throw unreachable
 	starts nat32 mut-slice = trusted groups.size gc-safe-mut-slice
 	out-values t mut-slice = trusted values.size gc-safe-mut-slice
 	next-value mut nat = 0
