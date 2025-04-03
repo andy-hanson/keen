@@ -4,30 +4,31 @@ import
 	../../util/stack-alloc
 	../lang
 
-allocators record mut
-	-type-contexts type? mut-slice-allocator
-	-candidate-arrays candidate mut-array-allocator
-	# Mapping from n-type-params to a pool of candidates
-	-candidate-pools candidate mut[][]
-	-n-live-candidates mut nat
-	-type-and-context-arrays type-and-context mut-array-allocator
+-type-contexts global(type? mut-slice-allocator)
+-candidate-arrays global(candidate mut-array-allocator)
+-candidate-pools global(candidate mut[][])
+-n-live-candidates global(nat)
+-type-and-context-arrays global(type-and-context mut-array-allocator)
 
-new allocators()
-	candidate-pools candidate mut[][] = for _ : 0::nat .. max-type-args + 1; ()
-	(), (), candidate-pools, 0, ()
+init-allocators void() trusted
+	type-contexts := ()
+	candidate-arrays := ()
+	candidate-pools := for _ : 0::nat .. max-type-args + 1; ()
+	n-live-candidates := ()
+	type-and-context-arrays := ()
 
-assert-empty void(a allocators)
-	a.type-contexts assert-all-free
-	a.candidate-arrays assert-all-free
-	a.n-live-candidates is 0
-	a.type-and-context-arrays assert-all-free
+assert-all-allocated-freed void() trusted
+	type-contexts assert-all-free
+	candidate-arrays assert-all-free
+	n-live-candidates is 0
+	type-and-context-arrays assert-all-free
 
 type-context alias
 	type? mut-slice
 
-with-type-context-for[t] t(allocators allocators, n-type-params nat, f t mut(x type-context)) trusted
-	context = allocators.type-contexts allocate-gc-safe-values n-type-params
-	finally allocators.type-contexts free context
+with-type-context-for[t] t(n-type-params nat, f t mut(x type-context)) trusted
+	context = type-contexts allocate-gc-safe-values n-type-params
+	finally type-contexts free context
 	f[context]
 
 candidate record mut, -new
@@ -36,51 +37,51 @@ candidate record mut, -new
 	type-args type? mut-slice
 
 | Remember to call {free-candidate}
-init-candidate candidate(allocators allocators, called called-decl) unsafe
+init-candidate candidate(called called-decl) unsafe
 	n-type-args = called n-type-params
-	candidate-pool = allocators.candidate-pools[n-type-args]
+	candidate-pool = candidate-pools[n-type-args]
 	res = if x ?= candidate-pool pop
 		x.called := called
 		x
 	else
 		called, n-type-args.gc-safe-mut-slice
-	allocators.n-live-candidates +:= 1
+	n-live-candidates +:= 1
 	res
-free-candidate void(allocators allocators, candidate candidate) unsafe # TODO: ideally this would be private to this module ---------
+free-candidate void(candidate candidate) unsafe # TODO: ideally this would be private to this module ---------
 	candidate.called := gc-safe-value
 	n-type-args = candidate.type-args size
 	for i : 0::nat .. n-type-args
 		candidate.type-args[i] := ()
-	allocators.candidate-pools[n-type-args] ~= candidate
-	allocators.n-live-candidates -:= 1
+	candidate-pools[n-type-args] ~= candidate
+	n-live-candidates -:= 1
 
 | Remember to call {free-candidates}
-allocate-candidates candidate mut[](allocators allocators) unsafe
-	allocators.candidate-arrays allocate
-free-candidates void(allocators allocators, candidates candidate mut[]) unsafe
+allocate-candidates candidate mut[]() unsafe
+	candidate-arrays allocate
+free-candidates void(candidates candidate mut[]) unsafe
 	for x : candidates
-		allocators free-candidate x
+		x free-candidate
 	candidates clear
-	allocators.candidate-arrays free candidates
+	candidate-arrays free candidates
 
-clear-candidates void(candidates candidate mut[], allocators allocators) trusted # TODO: since ordinary mut[] operations are unsafe, maybe 'candidates' should be its own type. But test perf.
+clear-candidates void(candidates candidate mut[]) trusted # TODO: since ordinary mut[] operations are unsafe, maybe 'candidates' should be its own type. But test perf.
 	for x : candidates
-		allocators free-candidate x
+		x free-candidate
 	candidates clear
 
-filter-candidates void(a candidate mut[], allocators allocators, f bool mut(x candidate)) trusted
+filter-candidates void(a candidate mut[], f bool mut(x candidate)) trusted
 	i mut nat = 0
 	until i == a.size
 		if f[a[i]]
 			i +:= 1
 		elif i == a.size - 1
-			allocators free-candidate a.pop!
+			a.pop! free-candidate
 		else
-			allocators free-candidate a[i]
+			a[i] free-candidate
 			a[i] := a.pop!
 
 | Does nothing if {f} returned false for every candidate.
-filter-candidates-but-dont-remove-all void(a candidate mut[], allocators allocators, f bool mut(x candidate)) trusted
+filter-candidates-but-dont-remove-all void(a candidate mut[], f bool mut(x candidate)) trusted
 	i mut nat = 0
 	loop
 		if i == a.size
@@ -88,7 +89,7 @@ filter-candidates-but-dont-remove-all void(a candidate mut[], allocators allocat
 		elif f[a[i]]
 			# All previous candidates failed the test
 			while i != 0
-				allocators free-candidate a.pop-left!
+				a.pop-left! free-candidate
 				i -:= 1
 			# But this one passed
 			i +:= 1
@@ -96,9 +97,9 @@ filter-candidates-but-dont-remove-all void(a candidate mut[], allocators allocat
 				if f[a[i]]
 					i +:= 1
 				elif i == a.size - 1
-					allocators free-candidate a.pop!
+					a.pop! free-candidate
 				else
-					allocators free-candidate a[i]
+					a[i] free-candidate
 					a[i] := a.pop!
 			break
 		else
@@ -119,10 +120,10 @@ type-and-context record mut
 	context -mut type-context
 non-inferring type-and-context(type type)
 	type, ()
-allocate type-and-context mut[](a allocators)
-	a.type-and-context-arrays allocate
-free void(a allocators, value type-and-context mut[])
-	a.type-and-context-arrays free value
+allocate type-and-context mut[]() trusted
+	type-and-context-arrays allocate
+free void(value type-and-context mut[]) trusted
+	type-and-context-arrays free value
 
 -debug string(a type?)
 	if x ?= a
