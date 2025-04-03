@@ -120,14 +120,13 @@ test
 -to json(a r)
 
 multi-by-name[t] record
-	# TODO:PERF combine these into a single array -----------------------------------------------------------------------------------------
-	starts nat32[]
-	next nat32[]
-	| All values stored contiguously. Indices don't correspond to {starts}/{next}
+	# Each nat64 is effectively (start nat32, next nat32)
+	starts-and-nexts nat64[]
+	| All values stored contiguously
 	values t[]
 
 new[t] t multi-by-name()
-	(), (), ()
+	(), ()
 
 is-empty[t] bool(a t multi-by-name)
 	trusted a reference-equal ()
@@ -146,7 +145,10 @@ to[t] t multi-by-name(values t[]) t name
 		values-end = next-value + subarray.size
 		out-values[next-value .. values-end] := subarray
 		next-value := values-end
-	(trusted starts cast-immutable), groups-by-name.next, (trusted out-values cast-immutable)
+	starts-and-nexts nat64 mut-slice = trusted starts.size gc-safe-mut-slice
+	for i : 0::nat .. starts-and-nexts.size
+		starts-and-nexts[i] := (starts[i].to << 32) | groups-by-name.next[i].to
+	trusted starts-and-nexts.cast-immutable, out-values.cast-immutable
 -group-by-name[t] t[][](values t[]) t name
 	res t mut[] mut[sym] = values.size mut-map-with-capacity
 	for x : values
@@ -155,7 +157,7 @@ to[t] t multi-by-name(values t[]) t name
 -name[t] sym(a t[]) t name
 	a[0] name
 ###
-TODO: consider this instead, once I have a faster 'sort' -----------------------------------------------------------------------
+TODO:PERF consider this instead, once I have a faster 'sort' -----------------------------------------------------------------------
 | Sorts the array and returns subarrays of that with the same name
 -group-by-name[t] t array-view[](values t[]) t name
 	sorted = values sort x => x name
@@ -174,16 +176,18 @@ TODO: consider this instead, once I have a faster 'sort' -----------------------
 
 subscript[t] t array-view(a t multi-by-name, name sym) t name
 	guard a !is-empty
-	cur mut = name.id % a.next.size
+	cur mut = name.id % a.starts-and-nexts.size
 	loop
-		start nat = a.starts[cur] to
+		start-and-next = a.starts-and-nexts[cur]
+		start = start-and-next >> 32
+		next = start-and-next & 0xffffffff
 		if a.values[start].name == name
-			end = cur + 1 == a.starts.size ? a.values.size : a.starts[cur + 1] to
+			end = cur + 1 == a.starts-and-nexts.size ? a.values.size : a.starts-and-nexts[cur + 1] >> 32
 			break a.values[start .. end]
-		elif a.next[cur] == no-next
+		elif next == no-next.to
 			break
 		else
-			cur := a.next[cur] to
+			cur := next
 			continue
 
 in[t] bool(name sym, a t multi-by-name) t name

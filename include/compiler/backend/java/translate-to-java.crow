@@ -141,6 +141,7 @@ translate-to-java-classes (string, nat8[])[](
 	ctx to-java-ctx
 	constants constants-builder
 	this-class class-reference
+	cur-fun-for-debug concrete-fun?
 	closure field-reference[concrete-local-id]
 	stack concrete-struct mut-stack
 	has-this bool
@@ -161,6 +162,7 @@ translate-to-java-classes (string, nat8[])[](
 	ctx to-java-ctx,
 	constants constants-builder,
 	this-class class-reference,
+	cur-fun concrete-fun?,
 	closure field-reference[concrete-local-id],
 	has-this bool,
 	params concrete-local[],
@@ -169,7 +171,7 @@ translate-to-java-classes (string, nat8[])[](
 	for x : params
 		forbid x.type.struct is-empty-struct
 		locals ~= x to
-	ctx, constants, this-class, closure, (), has-this, locals, ()
+	ctx, constants, this-class, cur-fun, closure, (), has-this, locals, ()
 -program concrete-program(a expr-ctx)
 	a.ctx program
 -union-representation union-representation(ctx expr-ctx, type concrete-struct)
@@ -305,7 +307,7 @@ translate-to-java-classes (string, nat8[])[](
 	this-class = pool class_ name
 	static-init method_info = do
 		code = with out : pool build-code
-			expr-ctx expr-ctx = ctx, pool, this-class, (), (), ()
+			expr-ctx expr-ctx = ctx, pool, this-class, (), (), (), ()
 			for constant : filtered-constants
 				forbid constant.type is-empty-struct || constant.type is-wrapper
 				out init-constant expr-ctx, constant
@@ -1381,7 +1383,7 @@ translate-to-java-classes (string, nat8[])[](
 	methods method_info[] = with methods-out : build
 		for fun : funs
 			guard ctx !uses-java-instance-method fun
-			expr-ctx expr-ctx = ctx, constants, this-class, (), (), (fun.params filter x => x.type.struct !is-empty-struct)
+			expr-ctx expr-ctx = ctx, constants, this-class, (fun,), (), (), (fun.params filter x => x.type.struct !is-empty-struct)
 			# info log "GONNA TRANSLATE FUN {ctx.show-ctx.show show-concrete-fun-sig fun, false}" # ---------------------------------------------------------------------------------------------------------------------
 			code = with out : constants build-code
 				out emit-fun-body expr-ctx, fun
@@ -1651,7 +1653,7 @@ translate-to-java-classes (string, nat8[])[](
 		out emit-and-continue ctx, x.value
 		out emit-with-local ctx, x.local, pos, x.then
 	as lambda-concrete-expr x
-		class-name = ctx.ctx create-lambda-implementation-class type, x
+		class-name = ctx.ctx create-lambda-implementation-class a.range.uri, ctx.cur-fun-for-debug!, type, x
 		# All we do here is call 'new' or 'instance'
 		if x.closure is-empty
 			out getstatic (out.constants instance-field class-name)
@@ -2268,9 +2270,15 @@ translate-to-java-classes (string, nat8[])[](
 	return-type, param-type = builtin_.type-args only2
 	"({ctx descriptor-for-param-type param-type.struct}){ctx descriptor-for-return-type return-type.struct}"
 
--create-lambda-implementation-class string(ctx to-java-ctx, lambda-type concrete-struct, a lambda-concrete-expr)
+-create-lambda-implementation-class string(
+	ctx to-java-ctx,
+	uri uri,
+	containing-fun concrete-fun,
+	lambda-type concrete-struct,
+	a lambda-concrete-expr,
+)
 	constants constants-builder = ()
-	this-class-name string = "LambdaImpl{ctx next-lambda-index}" # TODO: Maybe this should share the lambda-type name with an index at the end
+	this-class-name string = ctx.mangled-names lambda-name containing-fun, ctx.next-lambda-index
 	ctx.next-lambda-index +:= 1
 	this-class = constants class_ this-class-name
 	closure field-reference[concrete-local-id] = for x : a closure
@@ -2293,7 +2301,7 @@ translate-to-java-classes (string, nat8[])[](
 		if a.closure is-empty
 			methods-out ~= constants clinit-for-instance-field this-class-name, this-class
 		methods-out ~= do
-			expr-ctx expr-ctx = ctx, constants, this-class, closure, true, (!a.param.type.struct.is-empty-struct ? (a.param,))
+			expr-ctx expr-ctx = ctx, constants, this-class, (containing-fun,), closure, true, (!a.param.type.struct.is-empty-struct ? (a.param,))
 			code = with out : constants build-code
 				out emit-expr expr-ctx, return, a.body
 			expr-ctx verify-expr-ctx-finished a.body.type.struct, (a.param,)
@@ -2302,6 +2310,7 @@ translate-to-java-classes (string, nat8[])[](
 			descriptor: constants[ctx lambda-call-descriptor lambda-type]
 			attributes: code.to,
 	ctx add-class this-class-name, do
+		source SourceFile_attribute = constants["SourceFile"], constants[uri to]
 		LOG: false
 		constant-pool: constants finish
 		access: final
@@ -2310,7 +2319,7 @@ translate-to-java-classes (string, nat8[])[](
 		interfaces: ()
 		fields: fields
 		methods: methods
-		attributes: ()
+		attributes: source.to,
 	this-class-name
 
 -lambda-field-name sym(closure-field concrete-local)
