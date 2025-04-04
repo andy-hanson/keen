@@ -78,7 +78,7 @@ check-call-special expr(
 	ctx check-call-special-cb-n locals, source, diag-range, fun-name, expected, type-arg, arg-asts.size,
 		((i, arg-expected) => ctx check-expr locals, arg-asts[i], arg-expected),
 		cb-additional-filter,
-		candidates => arg-asts.with-index every (arg-idx, arg) => (ctx infer-candidate-type-args-from-explicitly-typed-argument candidates, arg-idx, arg) == continue_
+		candidates => arg-asts.with-index every (arg-idx, arg) => ctx infer-candidate-type-args-from-explicitly-typed-argument candidates, arg-idx, arg
 
 check-call-arg-and-lambda expr(
 	ctx expr-ctx,
@@ -95,7 +95,7 @@ check-call-arg-and-lambda expr(
 	ctx check-call-special-cb2 locals, call-source, diag-range, fun-name, expected,
 		(arg-expected => ctx check-expr locals, arg-ast, arg-expected),
 		(arg-expected => ctx check-lambda locals, lambda-source, param-ast, body-ast, arg-expected),
-		candidates => (ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast) == continue_
+		candidates => ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast
 
 check-call-arg-and-2-lambdas expr(
 	ctx expr-ctx,
@@ -124,7 +124,7 @@ check-call-arg-and-2-lambdas expr(
 	ctx check-call-special-cb-n locals, call-source, diag-range, fun-name, expected, (), 3,
 		check-arg,
 		(_ => true),
-		candidates => (ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast) == continue_
+		candidates => ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast
 -void-destructure destructure-ast()
 	() void-destructure-ast
 
@@ -190,11 +190,10 @@ check-call-special-cb-n expr(
 	args expr mut-slice = trusted n-args gc-safe-mut-slice
 	check-arg void mut(i nat, arg-expected expected) = (i, arg-expected) =>
 		args[i] := cb-check-arg[i, arg-expected]
-	match ctx check-call-cb locals, diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-additional-filter, cb-before-check
-	as called called
+	if called ?= ctx check-call-cb locals, diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-additional-filter, cb-before-check
 		# Check should always succeed, but we need it to set the inferred type
 		ctx check expected, called.return-type, (source call-expr called, trusted args.cast-immutable)
-	as call-failure _
+	else
 		candidates = ctx get-candidate-decls-for-bogus fun-name
 		if candidates is-empty
 			expected bogus source.range
@@ -208,7 +207,7 @@ check-call-special-cb-n expr(
 
 -cb-check-arg alias
 	void mut(arg-index nat, arg-expected expected)
--check-call-cb call-inner-result(
+-check-call-cb called?(
 	ctx expr-ctx,
 	locals locals-info,
 	diag-range source-range,
@@ -227,8 +226,6 @@ check-call-special-cb-n expr(
 	ctx.funs-in-expr-scope with-candidates fun-name, n-args, initial-filter, candidates =>
 		if cb-before-check[candidates]
 			ctx check-call-inner locals, diag-range, fun-name, type-arg, candidates, expected, n-args, cb-check-arg
-		else
-			call-failure
 
 check-call-identifier expr(ctx expr-ctx, locals locals-info, ast name-and-range, expected expected) check-expr
 	if ast.name == sym-new
@@ -279,22 +276,18 @@ find-function-for-return-and-param-types called?(
 					expr, option.must-unwrap-option-type-or-bogus
 			else
 				args[index] := ctx check-expr locals, arg-ast, arg-expected
-		res = ctx check-call-cb locals, ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, (_ => true), _ => true
-		match res
-		as called called
+		if called ?= ctx check-call-cb locals, ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, (_ => true), _ => true
 			type = ctx.instantiate-ctx make-option-if-not-already ctx.common-types, called.return-type
 			(ast call-option-expr called, (trusted args cast-immutable), type), type.to
-		as call-failure _
-			(inner-expected bogus ast.range), bogus-type
+		else
+			(inner-expected bogus ast.fun-name.range), bogus-type
 -try-spread-option-type type[]?(a type)
 	if inner ?= a try-unwrap-option-type
 		(inner, a),
 -make-option-type type[]?(ctx expr-ctx, a type)
 	((ctx.instantiate-ctx make-option-type ctx.common-types, a to),),
 
--call-inner-result union(called, call-failure)
--call-failure record
--check-call-inner call-inner-result(
+-check-call-inner called?(
 	ctx expr-ctx,
 	locals locals-info,
 	diag-range source-range,
@@ -305,22 +298,20 @@ find-function-for-return-and-param-types called?(
 	n-args nat,
 	cb-check-arg cb-check-arg,
 )
-	actual-arg-types type mut-slice = trusted n-args gc-safe-mut-slice
+	# actual-arg-types type mut-slice = trusted n-args gc-safe-mut-slice ------------------------------------------------------------------------------------
 	some-arg-is-bogus mut = false
 	arg-index mut nat = 0
 	loop
 		guard arg-index != n-args : break
 		guard candidates !is-empty : break
-		start = perf-now
 		candidates filter-candidates-but-dont-remove-all candidate =>
 			# The point of this function is to infer one type arg from another,
 			# e.g. given type params `[col, elem]` and spec `(col, elem) iterate` infer `elem` from `col`.
 			# There's no point to doing this if we haven't inferred any type args.
 			guard candidate has-some-inferred : true
 			ctx pre-check-candidate-specs candidate
-		start end-pre-check-candidate-specs
 		arg-type = ctx.instantiate-ctx with-param-expected candidates, arg-index, cb-check-arg
-		actual-arg-types[arg-index] := arg-type
+		# actual-arg-types[arg-index] := arg-type ------------------------------------------------------------------------------------
 		# If it failed to check, don-t continue, just stop there
 		if arg-type is-bogus
 			some-arg-is-bogus := true
@@ -332,16 +323,14 @@ find-function-for-return-and-param-types called?(
 			arg-index +:= 1
 			continue
 
-	guard !some-arg-is-bogus : call-failure
+	guard !some-arg-is-bogus
 
-	start = perf-now
 	candidates filter-candidates-but-dont-remove-all x => ctx pre-check-candidate-specs x
-	start end-pre-check-candidate-specs
 
-	res call-inner-result = if x ?= candidates opt-only
+	if x ?= candidates opt-only
 		result = ctx.check-ctx check-call-after-choosing-overload ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope,
 			ctx.outermost-fun-flags, ctx.externs, locals, x, diag-range, n-args, () => ctx check-can-do-unsafe
-		result to
+		result,
 	else
 		ctx add-diag diag-range, if candidates is-empty
 			all-candidates = ctx get-all-candidates-as-called-decls fun-name
@@ -351,14 +340,12 @@ find-function-for-return-and-param-types called?(
 				expected-return-type: ctx get-expected-for-diag expected
 				actual-n-type-args: ctx.common-types get-n-type-args-for-diagnostic explicit-type-arg
 				actual-arity: n-args
-				actual-arg-types: (trusted actual-arg-types cast-immutable)[0 .. arg-index].to
+				actual-arg-types: () # TODO: (trusted actual-arg-types cast-immutable)[0 .. arg-index].to ------------------------
 				all-candidates: all-candidates
 			diag to 
 		else
 			fun-name diag-call-multiple-matches ctx.type-container, candidates.to.candidates-for-diag
-		call-failure
-	start end-finish-check-call
-	res
+		()
 
 -check-call-should-use-syntax void(ctx expr-ctx, ast call-ast)
 	if ast.style == dot || ast.style == infix
@@ -430,9 +417,7 @@ find-function-for-return-and-param-types called?(
 	for arg-idx : 0::nat .. spec-sig.params.size
 		ctx infer-type-args-from sig-types.param-types[arg-idx], call-inferring-type-args, (ctx get-candidate-expected-parameter-type spec-candidate, arg-idx)
 
--continue-or-abort enum(continue_, abort)
--== bool(a continue-or-abort, b continue-or-abort)
--infer-candidate-type-args-from-explicitly-typed-argument continue-or-abort(
+-infer-candidate-type-args-from-explicitly-typed-argument bool(
 	ctx expr-ctx,
 	candidates candidate mut[],
 	arg-index nat,
@@ -441,8 +426,8 @@ find-function-for-return-and-param-types called?(
 	if lambda ?= arg lambda-ast
 		ctx infer-candidate-type-args-from-lambda-parameter candidates, arg-index, lambda.param
 	else
-		continue_
--infer-candidate-type-args-from-lambda-parameter continue-or-abort(
+		true
+-infer-candidate-type-args-from-lambda-parameter bool(
 	ctx expr-ctx,
 	candidates candidate mut[],
 	arg-index nat,
@@ -452,14 +437,14 @@ find-function-for-return-and-param-types called?(
 	# leading to duplicate diagnostics
 	if lambda-param-type  ?= ctx type-from-destructure param-ast
 		if lambda-param-type is-bogus
-			abort
+			false
 		else
 			for candidate : candidates
 				param-type = ctx.instantiate-ctx get-candidate-expected-parameter-type candidate, arg-index
 				ctx.instantiate-ctx infer-type-args-from-lambda-parameter-type param-type.type, candidate.type-context-for-candidate, lambda-param-type
-			continue_	
+			true
 	else
-		continue_
+		true
 
 # This is not the final check, but we do filter out some candidates or infer type arguments early based on specs.
 -pre-check-candidate-specs bool(ctx expr-ctx, candidate candidate)
@@ -470,11 +455,7 @@ find-function-for-return-and-param-types called?(
 	as called-spec-sig _
 		true
 -has-some-inferred bool(a candidate)
-	res mut = false
-	for arg : a type-args
-		if _ ?= arg
-			res := true
-	res
+	a.type-args exists x => x !is-empty
 
 -pre-check-candidate-spec bool(ctx expr-ctx, call-candidate candidate, called fun-decl, spec_ spec-inst)
 	guard spec_.parents every parent => ctx pre-check-candidate-spec call-candidate, called, parent
