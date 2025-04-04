@@ -1,11 +1,10 @@
 import
 	crow/col/mut-slice
-	../../../../crow/col/mut-array: hint-size
 	../../../model/model
 	../../../model/source-range
 	../../../util/perfhax
 	../../../util/sym
-	../../../util/util
+	../../all-insts
 	../../lang
 	../allocators
 	../check-ctx
@@ -66,13 +65,9 @@ check-spec-and-get-last-impl called(
 )
 	check-specs-ctx check-specs-ctx = ctx, (caller-specs, funs-map, ctx), false
 	trace real-trace = ctx, caller, diag-range, ()
-	spec-impls called mut[] = ()
-	spec-impls hint-size spec_.count-sigs
-	if no-match ?= spec-impls check-spec-impl-inner check-specs-ctx, trace.to, spec_
-		ctx add-diag diag-range, no-match.diag!
-		sig called-spec-sig = spec_, 0
-		sig.to called-bogus sig.return-type, sig.param-types.to
-	else
+	specs = ctx.instantiate-ctx.all-insts get-or-add-specs (spec_,)
+	match check-specs-ctx check-spec-impls-inner trace.to, specs
+	as array spec-impls
 		res = spec-impls[end - 1]
 		locals locals-info = ()
 		ok = ctx check-called diag-range, res, caller-flags, caller-externs, locals, non-empty, () =>
@@ -81,6 +76,11 @@ check-spec-and-get-last-impl called(
 			res
 		else
 			res.to-called-decl called-bogus res.return-type, res.param-types.to
+	as no-match no-match
+		ctx add-diag diag-range, no-match.diag!
+		throw todo
+		#sig called-spec-sig = throw todo
+		#sig.to called-bogus sig.return-type, sig.param-types.to
 -to-called-decl called-decl(a called)
 	match a
 	as called-bogus x
@@ -214,7 +214,7 @@ instantiate-ctx instantiate-ctx(a check-specs-ctx)
 
 -check-candidate spec-result(
 	ctx check-specs-ctx,
-	sig-decl signature,
+	sig-decl signature, # TODO: I think I could avoid passing this all the way down here .......................................
 	sig-type return-and-param-types,
 	candidate candidate,
 	trace trace,
@@ -230,18 +230,14 @@ instantiate-ctx instantiate-ctx(a check-specs-ctx)
 	match candidate called
 	as fun-decl f
 		guard trace.depth < max-spec-depth : trace.depth no-match (trace spec-no-match spec-too-deep)
-		candidate-type-args type[] = for x : candidate type-args; x!
-		spec-impls called mut[] = ()
-		spec-impls hint-size f.count-spec-sigs
-		if no-match ?= spec-impls check-spec-impls ctx, f, candidate-type-args, trace
-			no-match to
-		else
-			(ctx.instantiate-ctx instantiate-fun f, candidate-type-args, spec-impls.move-to to) to
+		candidate-type-args type-args = ctx.instantiate-ctx.all-insts get-or-add-type-array for x : candidate type-args; x!
+		match ctx check-spec-impls f, candidate-type-args, trace
+		as array spec-impls
+			(ctx.instantiate-ctx instantiate-fun f, candidate-type-args, spec-impls to) to
+		as no-match x
+			x to
 	as called-spec-sig x
 		x.to to
-
--count-spec-sigs nat(a fun-decl)
-	a.specs.inner sum x => x count-sigs
 
 -find-spec-sig-implementation spec-result(
 	ctx check-specs-ctx,
@@ -306,52 +302,29 @@ instantiate-ctx instantiate-ctx(a check-specs-ctx)
 -builtin-spec-provides-purity bool(kind builtin-spec, expected purity)
 	expected is-purity-compatible kind.purity-of-builtin-spec
 
--check-spec-impls no-match?(
-	out called mut[],
-	ctx check-specs-ctx,
-	called fun-decl,
-	called-type-args type[],
-	trace trace,
-)
-	called.specs.inner first spec-inst =>
-		# spec-inst was instantiated potentially based on f's params.
-		# Need to instantiate it again.
-		inst2 = ctx.instantiate-ctx instantiate-spec-inst spec-inst, called-type-args, no-delay-spec-insts
-		out check-spec-impl ctx, called, trace, inst2
-
--check-spec-impl no-match?(
-	out called mut[],
-	ctx check-specs-ctx,
-	called fun-decl,
-	trace trace,
-	spec-inst-instantiated spec-inst,
-)
-	trace trace-push (called, spec-inst-instantiated.type-args)
-	res = out check-spec-impl-inner ctx, trace, spec-inst-instantiated
+-specs-result union(called[], no-match)
+-check-spec-impls specs-result(ctx check-specs-ctx, called fun-decl, called-type-args type-args, trace trace)
+	trace trace-push (called, called-type-args)
+	specs = ctx.instantiate-ctx instantiate-specs called.specs, called-type-args
+	res = ctx check-spec-impls-inner trace, specs
 	trace trace-pop
 	res
 
--check-spec-impl-inner no-match?(
-	out called mut[],
-	ctx check-specs-ctx,
-	trace trace,
-	spec-inst-instantiated spec-inst,
-)
-	body = spec-inst-instantiated body
-	for b, t : body builtin_
+-check-spec-impls-inner specs-result(ctx check-specs-ctx, trace trace, specs specs)
+	for b, t : specs all-builtin
 		if ctx !check-builtin-spec b, t
 			diag = trace spec-no-match (b spec-builtin-not-satisfied t)
-			break (trace.depth, diag),
+			break trace.depth no-match diag
 	else
-		i mut nat = 0
-		loop
-			guard i != body.all-sigs.size : break
-			sig-decl = body.all-sigs[i]
-			sig-type = body.sig-types[i]
-			match ctx find-spec-sig-implementation sig-decl, sig-type, trace
+		sigs = specs instantiated-sigs
+		res called mut-slice = trusted sigs.size gc-safe-mut-slice
+		for i : 0::nat .. sigs.size
+			sig = sigs[i]
+			match ctx find-spec-sig-implementation sig.non-instantiated-sig, sig.instantiated-sig, trace
 			as called x
-				out ~= x
-				i +:= 1
+				res[i] := x
 				continue
 			as no-match x
-				break x,
+				break x to
+		else
+			(trusted res cast-immutable) to
