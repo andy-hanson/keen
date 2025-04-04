@@ -311,7 +311,14 @@ find-function-for-return-and-param-types called?(
 	loop
 		guard arg-index != n-args : break
 		guard candidates !is-empty : break
-		candidates filter-candidates-but-dont-remove-all x => ctx pre-check-candidate-specs x
+		start = perf-now
+		candidates filter-candidates-but-dont-remove-all candidate =>
+			# The point of this function is to infer one type arg from another,
+			# e.g. given type params `[col, elem]` and spec `(col, elem) iterate` infer `elem` from `col`.
+			# There's no point to doing this if we haven't inferred any type args.
+			guard candidate has-some-inferred : true
+			ctx pre-check-candidate-specs candidate
+		start end-pre-check-candidate-specs
 		arg-type = ctx.instantiate-ctx with-param-expected candidates, arg-index, cb-check-arg
 		actual-arg-types[arg-index] := arg-type
 		# If it failed to check, don-t continue, just stop there
@@ -423,21 +430,6 @@ find-function-for-return-and-param-types called?(
 	for arg-idx : 0::nat .. spec-sig.params.size
 		ctx infer-type-args-from sig-types.param-types[arg-idx], call-inferring-type-args, (ctx get-candidate-expected-parameter-type spec-candidate, arg-idx)
 
--type-args-inference-state enum(none, partial, all)
--== bool(a type-args-inference-state, b type-args-inference-state)
--get-inference-state type-args-inference-state(type-args type-context)
-	has-inferred mut = false
-	has-uninferred mut = true # TODO: this is wrong, but it's how the D code did it! which means this function would never return 'all' anyway!
-	for x : type-args
-		if _ ?= x
-			has-inferred := true
-		else
-			has-uninferred := true
-	if has-inferred
-		has-uninferred ? partial : all
-	else
-		none
-
 -continue-or-abort enum(continue_, abort)
 -== bool(a continue-or-abort, b continue-or-abort)
 -infer-candidate-type-args-from-explicitly-typed-argument continue-or-abort(
@@ -471,26 +463,21 @@ find-function-for-return-and-param-types called?(
 
 # This is not the final check, but we do filter out some candidates or infer type arguments early based on specs.
 -pre-check-candidate-specs bool(ctx expr-ctx, candidate candidate)
-	# For performance, don't bother unless we have something to infer from already
-	state = candidate.type-args get-inference-state
-	state == none || match candidate called
+	match candidate called
 	as fun-decl called
 		called.specs every spec_ =>
-			ctx pre-check-candidate-spec candidate, called, spec_, state
+			ctx pre-check-candidate-spec candidate, called, spec_
 	as called-spec-sig _
 		true
+-has-some-inferred bool(a candidate)
+	res mut = false
+	for arg : a type-args
+		if _ ?= arg
+			res := true
+	res
 
--pre-check-candidate-spec bool(
-	ctx expr-ctx,
-	call-candidate candidate,
-	called fun-decl,
-	spec_ spec-inst,
-	state type-args-inference-state,
-)
-	guard spec_.parents every parent => ctx pre-check-candidate-spec call-candidate, called, parent, state
-	# TODO: PERF If we're only doing anything for 'partial', check for that earlier??? ---------------------------------------------------------------
-	# (but see other TODO, it seems it's always 'partial')
-	guard state == partial : true
+-pre-check-candidate-spec bool(ctx expr-ctx, call-candidate candidate, called fun-decl, spec_ spec-inst)
+	guard spec_.parents every parent => ctx pre-check-candidate-spec call-candidate, called, parent
 	i mut nat = 0
 	loop
 		guard i != spec_.decl.sigs.size : break true
