@@ -52,9 +52,9 @@ check-call-specs called(
 	start end-check-call-specs
 	res
 
-check-spec-single-sig-ignore-parents called(ctx check-ctx, funs-map funs-map, decl fun-decl, spec_ spec-inst)
-	ctx check-spec-single-sig-ignore-parents funs-map, decl.name-range.range, decl.to, decl.specs, decl.flags_, decl.externs, spec_
-check-spec-single-sig-ignore-parents called(
+check-spec-and-get-last-impl called(ctx check-ctx, funs-map funs-map, decl fun-decl, spec_ spec-inst)
+	ctx check-spec-and-get-last-impl funs-map, decl.name-range.range, decl.to, decl.specs, decl.flags_, decl.externs, spec_
+check-spec-and-get-last-impl called(
 	ctx check-ctx,
 	funs-map funs-map,
 	diag-range source-range,
@@ -68,7 +68,6 @@ check-spec-single-sig-ignore-parents called(
 	trace real-trace = ctx, caller, diag-range, ()
 	spec-impls called mut[] = ()
 	spec-impls hint-size spec_.count-sigs
-	spec_.sig-types.size is 1
 	if no-match ?= spec-impls check-spec-impl-inner check-specs-ctx, trace.to, spec_
 		ctx add-diag diag-range, no-match.diag!
 		sig called-spec-sig = spec_, 0
@@ -292,9 +291,6 @@ instantiate-ctx instantiate-ctx(a check-specs-ctx)
 	as shared_
 		ctx.funs-in-scope.outermost-fun-specs is-purity-always-compatible-considering-specs type-arg, shared_
 
--some-spec-including-parents bool(inst spec-inst, cb bool mut(x spec-inst))
-	cb[inst] || inst.parents exists parent => parent some-spec-including-parents cb
-
 -purity-of-builtin-spec purity(kind builtin-spec)
 	match kind
 	as data_
@@ -304,9 +300,8 @@ instantiate-ctx instantiate-ctx(a check-specs-ctx)
 
 | Whether {inst} tells us that {type} has purity at least {expected}
 -spec-provides-purity bool(inst spec-inst, type type, expected purity)
-	inst some-spec-including-parents x =>
-		if builtin_ ?= x.decl builtin_
-			x.type-args.only == type && builtin_ builtin-spec-provides-purity expected
+	inst.body.builtin_ exists (builtin_, type-arg) =>
+		type-arg == type && builtin_ builtin-spec-provides-purity expected
 
 -builtin-spec-provides-purity bool(kind builtin-spec, expected purity)
 	expected is-purity-compatible kind.purity-of-builtin-spec
@@ -342,25 +337,21 @@ instantiate-ctx instantiate-ctx(a check-specs-ctx)
 	trace trace,
 	spec-inst-instantiated spec-inst,
 )
-	decl = spec-inst-instantiated decl
-	type-args = spec-inst-instantiated type-args
-	if decl.builtin_ !is-empty && ctx !check-builtin-spec decl.builtin_!, type-args.only
-		diag = trace spec-no-match (decl.builtin_! spec-builtin-not-satisfied type-args.only)
-		(trace.depth, diag),
+	body = spec-inst-instantiated body
+	for b, t : body builtin_
+		if ctx !check-builtin-spec b, t
+			diag = trace spec-no-match (b spec-builtin-not-satisfied t)
+			break (trace.depth, diag),
 	else
-		for parent : spec-inst-instantiated parents
-			if no-match ?= out check-spec-impl-inner ctx, trace, parent
-				break no-match,
-		else
-			i mut nat = 0
-			loop
-				guard i != decl.sigs.size : break
-				sig-decl = decl.sigs[i]
-				sig-type = spec-inst-instantiated.sig-types[i]
-				match ctx find-spec-sig-implementation sig-decl, sig-type, trace
-				as called x
-					out ~= x
-					i +:= 1
-					continue
-				as no-match x
-					break x,
+		i mut nat = 0
+		loop
+			guard i != body.all-sigs.size : break
+			sig-decl = body.all-sigs[i]
+			sig-type = body.sig-types[i]
+			match ctx find-spec-sig-implementation sig-decl, sig-type, trace
+			as called x
+				out ~= x
+				i +:= 1
+				continue
+			as no-match x
+				break x,
