@@ -46,15 +46,32 @@ is-purity-possibly-compatible bool(referencer purity, referenced purity-range)
 worse-purity purity(a purity, b purity)
 	a max b
 
+-type-arrays global((type-array, type-array-key) object-memoizer)
+-type-params-type-arrays global(type-array[])
+-spec-arrays global((specs, specs-key) object-memoizer)
+
+init-model-globals void() trusted
+	if type-arrays reference-equal gc-safe-value
+		type-arrays := ()
+		spec-arrays := ()
+		type-params-type-arrays := for n : 0::nat .. 10 # TODO: use lang/max-type-args here ----------------------------------------
+			(for i : 0::nat .. n; i type-param-index)::type[] to
+
+to type-array(type type)
+	(type,) to
+to type-array(types type[])
+	guard types !is-empty
+	hash = types get-hash
+	trusted type-arrays memoize (types, hash), () => (types, hash)
 type-array record
 	inner type[]
 	hash nat
-type-array-key record # TODO: move this to all-insts.crow? -----------------------------------------------------------------------------
+-type-array-key record
 	inner type[]
 	hash nat
-== bool(a type-array-key, b type-array-key)
+-== bool(a type-array-key, b type-array-key)
 	a.inner == b.inner
-memoizer-key type-array-key(a type-array)
+-memoizer-key type-array-key(a type-array)
 	a.inner, a.hash
 new type-array()
 	(), 0
@@ -62,25 +79,33 @@ is-empty bool(a type-array)
 	a.inner is-empty # TODO:PERF could do 'a reference-equal ()' -------------------------------------------------------------------
 size nat(a type-array)
 	a.inner size
-only type(a type-array)
-	a.inner only
-only2 (type, type)(a type-array)
-	a.inner only2
+subscript type(a type-array, index nat)
+	a.inner[index]
+subscript type array-view(a type-array, indices nat range)
+	a.inner[indices]
 == bool(a type-array, b type-array)
 	trusted a.inner reference-equal b.inner
 hash-mix void(hasher hasher, a type-array)
 	hasher hash-mix a.hash
 to json(a type-array)
 	a.inner to
+-type-params-type-array type-array(n nat)
+	trusted type-params-type-arrays[n]
 
 type-params alias
 	name-and-range[]
 type-args alias # TODO: this is silly to have two names for the same ytpe --------------------------------------------------------
 	type-array
+| This could be the same object as a 'type-args', even though they have different meaning
+return-and-param-types alias
+	type[]
+return-type type(a return-and-param-types)
+	a[0]
+param-types type array-view(a return-and-param-types)
+	a[1 .. end]
 spec-impls alias # TODO: memoize this like we do for type-args ------------------------------------------------------------------
 	called[]
-| WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
-specs record
+specs record -new
 	inner spec-inst[]
 	hash nat
 	all-builtin (builtin-spec, type)[]
@@ -89,13 +114,31 @@ new specs()
 	(), 0, (), ()
 is-empty bool(a specs)
 	a.inner is-empty # TODO:PERF could do 'a reference-equal ()' -------------------------------------------------------------------
-specs-key record # TODO: move this to all-insts.crow? -----------------------------------------------------------------------------
+-specs-key record # TODO: move this to all-insts.crow? -----------------------------------------------------------------------------
 	inner spec-inst[]
 	hash nat
-== bool(a specs-key, b specs-key)
+-== bool(a specs-key, b specs-key)
 	a.inner == b.inner
-memoizer-key specs-key(a specs)
+-memoizer-key specs-key(a specs)
 	a.inner, a.hash
+get-or-add-specs specs(specs spec-inst[])
+	guard specs !is-empty
+	hash = do
+		hasher hasher = ()
+		hasher hash-mix specs
+		hasher finish
+	trusted spec-arrays memoize (specs, hash), () =>
+		inner: specs
+		hash: hash
+		all-builtin: for x : specs and-concat
+			x.body builtin_
+		instantiated-sigs: do
+			index mut nat = 0
+			for x : specs and-concat
+				for sig, sig-type : x.body.all-sigs zip x.body.sig-types
+					res called-spec-sig = index, x.decl, sig, sig-type
+					index +:= 1
+					res
 
 type union(bogus-type, type-param-index, struct-inst)
 == bool(a type, b type)
@@ -142,10 +185,10 @@ hash-mix void(hasher hasher, a type)
 			hasher hash-mix x
 to json(a bogus-type)
 | Represent type parameter as the index, so we don't generate different types for every 't[]'.
-| (These are disambiguated in the type checker using 'TypeAndContext')
+| (These are disambiguated in the type checker using 'type-and-context')
 type-param-index record by-ref
 	-index_ nat
-	-dummy nat
+	-dummy nat # TODO: needed? I think I was using this to force it to not be a wrapper type, should 'by-ref' do that? ---------------------------------
 index nat(a type-param-index)
 	a index_
 new type-param-index(index nat)
@@ -774,10 +817,13 @@ struct-decl record force-data
 	doc-comment-references mut doc-comment-references
 	sum-type-memberships mut sum-type-membership[]
 	body mut struct-body
+	| This is e.g. a `(t0, t1) foo`
+	instantiated-with-own-type-params -mut struct-inst
 	| For perf, non-templates store their only instance directly
-	insts mut struct-decl-insts
-| For a non-template, this will be its only {struct-inst}
-struct-decl-insts union(struct-inst, (struct-inst, type-args) object-memoizer) mut
+	insts -mut (struct-inst, type-args) object-memoizer?
+only-inst struct-inst(a struct-decl)
+	forbid a is-template
+	a instantiated-with-own-type-params
 new struct-decl(
 	hash nat32,
 	source struct-decl-source,
@@ -791,11 +837,12 @@ new struct-decl(
 	sum-type-memberships sum-type-membership[],
 	body struct-body
 )
-	res struct-decl = hash, source, module-uri, visibility, extern_, is-summon, purity, purity-is-forced, doc-comment-references, sum-type-memberships, body, trusted gc-safe-value
-	res.insts := if res is-template
-		()::((struct-inst, type-args) object-memoizer) to
+	res struct-decl = hash, source, module-uri, visibility, extern_, is-summon, purity, purity-is-forced, doc-comment-references, sum-type-memberships, body, (trusted gc-safe-value), ()
+	if res is-template
+		res.insts := (),
+		res.instantiated-with-own-type-params := res[res.n-type-params.type-params-type-array]
 	else
-		(res, ())::struct-inst to
+		res.instantiated-with-own-type-params := (res, ())
 	res
 == bool(a struct-decl, b struct-decl)
 	trusted a reference-equal b
@@ -884,8 +931,16 @@ name-range source-range(a struct-decl-source)
 	as struct-decl-source-bogus _
 		()
 
-| WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
-struct-inst record(decl struct-decl, type-args type-args) by-ref
+struct-inst record(decl struct-decl, type-args type-args) by-ref, -new
+subscript struct-inst(decl struct-decl, type-arg type)
+	decl[type-arg.to::type-args]
+subscript struct-inst(decl struct-decl, type-args type[])
+	decl[type-args.to::type-args]
+subscript struct-inst(decl struct-decl, type-args type-args)
+	if type-args is-empty
+		decl instantiated-with-own-type-params
+	else
+		trusted decl.insts! memoize type-args, () => decl, type-args
 memoizer-key type-args(a struct-inst)
 	a type-args
 == bool(a struct-inst, b struct-inst)
@@ -927,7 +982,7 @@ to symbol(a builtin-spec)
 	as shared_
 		"shared"
 
-spec-decl record force-data
+spec-decl record force-data, -new
 	hash nat32
 	module-uri uri
 	ast spec-decl-ast
@@ -935,6 +990,13 @@ spec-decl record force-data
 	doc-comment-references mut doc-comment-references
 	late-body mut spec-decl-body?
 	insts (spec-inst, type-args) object-memoizer
+new spec-decl(
+	hash nat32,
+	module-uri uri,
+	ast spec-decl-ast,
+	visibility visibility,
+)
+	hash, module-uri, ast, visibility, (), (), ()
 == bool(a spec-decl, b spec-decl)
 	trusted a reference-equal b
 hash-mix void(hasher hasher, a spec-decl)
@@ -970,12 +1032,18 @@ range uri-and-range(a spec-decl)
 name-range uri-and-range(a spec-decl)
 	a.module-uri, a.ast.name-range
 
-| WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
-spec-inst record force-data
+spec-inst record by-ref, force-data, -new
 	decl spec-decl
 	type-args type-args
 	body mut spec-inst-body # TODO: inline these to save space -----------------------------------------------------------
-memoizer-key type-args(a spec-inst)
+get-or-add-spec-inst (spec-inst, bool)(decl spec-decl, type-args type[])
+	types type-array = type-args to
+	did-add mut = false
+	res = trusted decl.insts memoize types, () =>
+		did-add := true
+		decl, types, ()
+	res, did-add
+-memoizer-key type-args(a spec-inst)
 	a type-args
 == bool(a spec-inst, b spec-inst) trusted
 	a reference-equal b
@@ -1744,7 +1812,7 @@ new fun-decl(
 			b ~= return-type
 			for x : params params-array
 				b ~= x type
-		(res, (), (), (return-and-param-types,))::fun-inst to
+		(res, (), (), return-and-param-types)::fun-inst to
 	res
 get-key sym(a fun-decl)
 	a name
@@ -1823,22 +1891,32 @@ type-param-asts type-params(_ test_)
 visibility visibility(_ test_)
 	public
 
-| WARN: Do not create directly. Go through the functions in 'instantiate.crow'.
-fun-inst record force-data
+fun-inst record by-ref, force-data, -new
 	decl fun-decl
 	type-args type-args
 	spec-impls spec-impls
 	instantiated-sig mut return-and-param-types
-fun-inst-key record
+get-or-add-fun-inst fun-inst(
+	decl fun-decl,
+	type-args type-args,
+	spec-impls spec-impls, 
+	cb-return-and-param-types return-and-param-types mut(),
+)
+	if type-args is-empty && spec-impls is-empty
+		decl.insts fun-inst!
+	else
+		trusted decl.insts.object-memoizer! memoize (type-args, spec-impls), () =>
+			decl, type-args, spec-impls, cb-return-and-param-types[]
+-fun-inst-key record
 	type-args type-args
 	spec-impls spec-impls
-== bool(a fun-inst-key, b fun-inst-key)
-hash nat(a fun-inst-key)
+-== bool(a fun-inst-key, b fun-inst-key)
+-hash nat(a fun-inst-key)
 	hasher hasher = ()
 	hasher hash-mix a.type-args
 	hasher hash-mix a.spec-impls
 	hasher finish
-memoizer-key fun-inst-key(a fun-inst)
+-memoizer-key fun-inst-key(a fun-inst)
 	a.type-args, a.spec-impls
 == bool(a fun-inst, b fun-inst) trusted
 	a reference-equal b
@@ -1861,15 +1939,6 @@ param-types type array-view(a fun-inst)
 	a.instantiated-sig param-types
 arity arity(a fun-inst)
 	a.decl arity
-
-return-and-param-types record(return-and-param-types type[])
-== bool(a return-and-param-types, b return-and-param-types)
-hash-mix void(hasher hasher, a return-and-param-types)
-	hasher hash-mix a.return-and-param-types
-return-type type(a return-and-param-types)
-	a.return-and-param-types[0]
-param-types type array-view(a return-and-param-types)
-	a.return-and-param-types[1 .. end]
 
 | Represents calling the n'th signature on this function's {specs}
 called-spec-sig record
