@@ -321,17 +321,9 @@ check-test-body expr(
 		else
 			ctx check-call-special locals, ast.to, part.range, sym-show, (part,), arg-expected
 
--variable-ref-and-type record mut
-	variable-ref variable-ref
-	mutability mutability
-	# Empty for Param
-	is-used (local-access-kind, bool) mut-enum-map?
-	type type
--set-is-used void(a variable-ref-and-type, kind local-access-kind)
-	if x ?= a is-used
-		x[kind] := true
+-local-access-kind enum(read, write)
 
--get-identifier-non-call variable-ref-and-type?(
+-get-identifier-non-call variable-ref?(
 	ctx expr-ctx,
 	locals locals-info,
 	# if missing, no diags
@@ -339,19 +331,18 @@ check-test-body expr(
 	name sym, 
 	access-kind local-access-kind,
 )
-	from-locals = if x ?= locals locals
-		x get-identifier-in-locals name, access-kind
-	if node ?= from-locals
-		node.is-used[access-kind] := true
-		(node.local.to, node.local.mutability, (node.is-used,), node.local.type),
+	if local ?= locals.locals find x => x.name == name
+		local mark-accessed access-kind
+		local.to,
 	elif x ?= locals lambda
-		ctx get-identifier-from-lambda diag-range, name, x, access-kind.access-kind-in-closure
--get-identifier-in-locals local-node?(node local-node, name sym, access-kind local-access-kind)
-	if node.local.name == name
-		node,
-	elif prev ?= node prev
-		prev get-identifier-in-locals name, access-kind
--get-identifier-from-lambda variable-ref-and-type?(
+		ctx get-identifier-from-lambda diag-range, name, x, access-kind
+-mark-accessed void(local local, access-kind local-access-kind)
+	match access-kind
+	as read
+		local.is-read := true
+	as write
+		local.is-written := true
+-get-identifier-from-lambda variable-ref?(
 	ctx expr-ctx,
 	diag-range source-range?,
 	name sym,
@@ -359,19 +350,18 @@ check-test-body expr(
 	access-kind local-access-kind,
 )
 	for index, field : info.closure-fields with-index
-		if field.name == name
-			field set-is-used access-kind
-			ref variable-ref = info.lambda closure-ref index
-			break (ref, field.mutability, field.is-used, field.type),
+		guard field.name == name
+		field.local mark-accessed access-kind
+		break (info.lambda closure-ref index, field.local),
 	else
-		if outer ?= ctx get-identifier-non-call info.outer, diag-range, name, access-kind
-			closure-field-index = info.closure-fields size
-			if x ?= diag-range
-				ctx check-closure-mutability x, info.lambda.kind, name, outer.mutability, outer.type
-			info.closure-fields ~= (name, outer.mutability, outer.is-used, outer.type, outer.variable-ref)
-			outer set-is-used access-kind
-			ref variable-ref = info.lambda closure-ref closure-field-index
-			(ref, outer.mutability, outer.is-used, outer.type),
+		guard outer ?= ctx get-identifier-non-call info.outer, diag-range, name, access-kind
+		closure-field-index = info.closure-fields size
+		if x ?= diag-range
+			ctx check-closure-mutability x, info.lambda.kind, name, outer.mutability, outer.type
+		info.closure-fields ~= (name, outer.mutability, outer.type, outer)
+		outer.local.is-used-in-closure := true
+		outer.local mark-accessed access-kind # TODO: we're just doing this in every branch, combine ------------------------------
+		(info.lambda closure-ref closure-field-index, outer.local),
 -check-closure-mutability void(
 	ctx expr-ctx,
 	diag-range source-range,
@@ -395,23 +385,12 @@ check-test-body expr(
 		elif ctx.outermost-fun-specs !is-purity-always-compatible-considering-specs type, expected-purity
 			ctx add-diag diag-range, (lambda-kind diag-lambda-closure-purity name, type.purity-range.worst-case, ((ctx type-with-container type),))
 
--access-kind-in-closure local-access-kind(a local-access-kind)
-	match a
-	as get-on-stack
-		get-through-closure
-	as get-through-closure
-		get-through-closure
-	as set-on-stack
-		set-through-closure
-	as set-through-closure
-		set-through-closure
-
 -name-is-parameter-or-local-in-scope bool(ctx expr-ctx, locals locals-info, name sym)
-	ctx get-identifier-non-call locals, (), name, get-on-stack !is-empty
+	ctx get-identifier-non-call locals, (), name, read !is-empty
 
 -check-identifier expr(ctx expr-ctx, locals locals-info, ast name-and-range, expected expected)
-	if res ?= ctx get-identifier-non-call locals, (ast.range,), ast.name, get-on-stack
-		ctx check expected, res.type, (ast.range expr-for-variable-ref res.variable-ref)
+	if res ?= ctx get-identifier-non-call locals, (ast.range,), ast.name, read
+		ctx check expected, res.type, (ast.range expr-for-variable-ref res)
 	else
 		ctx check-call-identifier locals, ast, expected
 
@@ -431,14 +410,14 @@ check-test-body expr(
 	expected expected,
 	cb-right expr mut(x expected),
 )
-	if var ?= ctx get-identifier-non-call locals, (source.range,), left, set-on-stack
+	if var ?= ctx get-identifier-non-call locals, (source.range,), left, write
 		match var mutability
 		as immut
-			ctx add-diag source.range, var.variable-ref.diag-local-not-mutable
+			ctx add-diag source.range, var.diag-local-not-mutable
 			expected bogus source.range
 		as mut_
 			value = cb-right[var.type.expect]
-			match var variable-ref
+			match var
 			as local local
 				ctx check expected, ctx.void-type, (source.range local-set-expr local, value)
 			as closure-ref x
@@ -635,21 +614,17 @@ integral-types integral-type[]()
 	if ctx name-is-parameter-or-local-in-scope locals, local.name
 		ctx add-diag local.local-must-have-name-range, (param-or-local diag-duplicate-declaration local.name)
 	
-	local-node local-node = locals.locals, (), local
-	new-locals locals-info = locals.lambda, (local-node,)
-	res = cb[new-locals]
-	local.is-used-in-closure := local-node.is-used[get-through-closure] || local-node.is-used[set-through-closure]
-	needs-allocate = local is-used-in-closure && local is-mutable
-	if needs-allocate
-		local.closure-reference-type := (ctx.common-types.reference[local.type]),
-	ctx add-unused-local-diags local, local-node
+	locals.locals ~= local
+	res = cb[locals]
+	assert locals.locals.pop! == local
+	if local is-used-in-closure && local is-mutable
+		local.closure-reference-type := (ctx.common-types.reference[local type]),
+	ctx add-unused-local-diags local
 	res
 
--add-unused-local-diags void(ctx expr-ctx, local local, node local-node)
-	is-got = node.is-used[get-on-stack] || node.is-used[get-through-closure]
-	is-set = node.is-used[set-on-stack] || node.is-used[set-through-closure]
-	if !is-got || (!is-set && local is-mutable)
-		ctx add-diag local.local-must-have-name-range, (local diag-unused-local is-got, is-set)
+-add-unused-local-diags void(ctx expr-ctx, local local)
+	if local !is-read || (local !is-written && local is-mutable)
+		ctx add-diag local.local-must-have-name-range, local.diag-unused-local
 
 -check-pointer expr(ctx expr-ctx, locals locals-info, source expr-ast, ast ptr-ast, expected expected)
 	match ctx get-expected-pointee expected
@@ -705,7 +680,7 @@ integral-types integral-type[]()
 			if expected-mutability != read-only && x.local !is-mutable
 				ctx add-diag source, local::diag-pointer-mut-to-const.to
 			if expected-mutability == writeable
-				locals mark-is-used-set-on-stack x.local
+				x.local.is-written := true
 			ctx check expected, pointer-type.to, (ast local-pointer-expr x.local, pointer-type)
 		as call-expr x
 			ctx check-pointer-of-call ast, x, pointer-type, expected-mutability, expected
