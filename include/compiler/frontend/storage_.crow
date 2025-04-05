@@ -80,15 +80,13 @@ set-file-assume-utf8 file-info(a storage_, uri uri, content char8[])
 	_ = a.diags remove uri
 	_ = a.successes remove uri
 
-change-file file-info(a storage_, uri uri, changes text-document-content-change-event[])
-	for change : changes[0 .. end]
-		_ = a change-file uri, change
-	a change-file uri, changes[end - 1]
-
 change-file file-info(a storage_, uri uri, change text-document-content-change-event)
+	a change-file uri, (change,)
+
+change-file file-info(a storage_, uri uri, changes text-document-content-change-event[])
 	info = a file-or-diag uri file-info!
 	text = info as-text-file!
-	new-content = text.as-string apply-change text.line-and-character-getter, change
+	new-content = text.as-string apply-changes text.line-and-character-getter, changes
 	a set-file-assume-utf8 uri, new-content
 
 -init-file-info file-info(uri uri, input nat8[])
@@ -177,15 +175,21 @@ line-and-column-getters line-and-column-getters(a storage_)
 				out ~= (uri, x.line-and-column-getter)
 	map,
 
--apply-change char8[](input char8[], lc line-and-character-getter, event text-document-content-change-event)
-	if r ?= event range
-		range source-range = lc[r]
-		with out : build
-			out ~~= input[0 .. range.start.to].to
-			out ~~= event.text to
-			out ~~= input[range.end.to .. end].to
-	else
-		event.text to
+-apply-changes char8[](input char8[], lc line-and-character-getter, events text-document-content-change-event[])
+	cur mut = input
+	cur-lc mut = lc
+	for i, event : events with-index
+		if r ?= event range
+			range source-range = cur-lc[r]
+			cur := with out : build
+				out ~~= cur[0 .. range.start.to].to
+				out ~~= event.text to
+				out ~~= cur[range.end.to .. end].to
+		else
+			cur := event.text to
+		if i != events.size - 1
+			cur-lc := cur line-and-character-getter-for-text # TODO:PERF It would actually e faster not to make this at all, and just walk the text ....
+	cur
 
 test
 	s storage_ = ()
@@ -194,11 +198,16 @@ test
 		file0 = s set-file-assume-utf8 uri-a, "a"
 		file0.crow-file-info!.content.content is "a"
 	do
-		change1 text-document-content-change-event = (), "a\nb\nc"
-		file1 = s change-file uri-a, (change1,)
+		change0 text-document-content-change-event = (), "a\nb\nc"
+		file1 = s change-file uri-a, (change0,)
 		file1.crow-file-info!.content.content is "a\nb\nc"
 	do
 		range line-and-character-range = (1, 0), (1, 1)
-		change2 text-document-content-change-event = (range,), "x"
-		file2 = s change-file uri-a, (change2,)
-		file2.crow-file-info!.content.content is "a\nx\nc"
+		change1 text-document-content-change-event = (range,), "y"
+		file2 = s change-file uri-a, (change1,)
+		file2.crow-file-info!.content.content is "a\ny\nc"
+	do
+		change2 text-document-content-change-event = (((0, 0), (0, 1)),), "x"
+		change3 text-document-content-change-event = (((2, 0), (2, 1)),), "z"
+		file2 = s change-file uri-a, (change2, change3)
+		file2.crow-file-info!.content.content is "x\ny\nz"

@@ -4,6 +4,7 @@ If editing this file, run 'make install-vscode-extension' for the changes to tak
 */
 
 const childProcess = require("child_process")
+const fs = require("fs")
 const path = require("path")
 /** @typedef {import("vscode").ExtensionContext} ExtensionContext */
 /** @typedef {import("vscode").TextDocument} TextDocument */
@@ -15,11 +16,20 @@ const { LanguageClient } = require("vscode-languageclient/lib/node/main.js")
 /** @type {LanguageClient} */
 let client
 
+// VSCode likes to destroy the log on error (Why?), so write out own
+const logFile = '/home/andy/crow-log.txt' // TODO:RM (or put behind a flag) ---------------------------------------------------------------------
+fs.writeFileSync(logFile, '')
+
 /** @type {function(ExtensionContext): void} */
 exports.activate = context => {
 	/** @type {ServerOptions} */
-	const serverOptions = () =>
-		Promise.resolve(childProcess.spawn("crow", ["lsp"], {stdio:'pipe'}))
+	const serverOptions = () => {
+		const child = childProcess.spawn("crow", ["lsp"], { stdio: 'pipe' })
+		child.stderr.on('data', data => {
+			fs.appendFileSync(logFile, data + '\n')
+		})
+		return Promise.resolve(child)
+	}
 
 	/** @type {LanguageClientOptions} */
 	const clientOptions = {
@@ -57,6 +67,7 @@ const withLogErrors = (description, cb) => {
 
 /** @type {function(string): void} */
 const logError = message => {
+	fs.appendFileSync(logFile, message + '\n')
 	client.outputChannel.appendLine(message)
 }
 
