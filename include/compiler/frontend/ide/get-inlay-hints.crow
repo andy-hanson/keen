@@ -7,7 +7,9 @@ import
 	../../model/source-range
 	../../model/uri
 	../../util/exit-code
-	./import-references
+	../../util/sym
+	../../util/util
+	../walk-model
 
 get-inlay-hints inlay-hint-result(
 	program program,
@@ -15,101 +17,145 @@ get-inlay-hints inlay-hint-result(
 	test-states test-states,
 	params inlay-hint-params,
 )
+	uri = params textDocument
+	module = program module-at-uri uri
+
+	fun-refs uri mut-set[fun-decl] = for x : module funs; x, ()
+	struct-refs uri mut-set[struct-decl] = for x : module structs; x, ()
+	spec-refs uri mut-set[spec-decl] = for x : module specs; x, ()
+	# TODO: record field refs, enum member refs, spec sigs --------------------------------------------------------------------------------
+	program walk-program (where, what) =>
+		match what
+		as fun-decl x
+			if set ?= fun-refs[x]
+				set ~= where uri
+		as struct-decl x
+			if set ?= struct-refs[x]
+				set ~= where uri
+		as spec-decl x
+			if set ?= spec-refs[x]
+				set ~= where uri
+		else
+			()
+
+	lcg = program.line-and-character-getters[uri]
 	res inlay-hint[] = with out : build
-		uri = params textDocument
-		module = program module-at-uri uri
-		# TODO --------------------------------------------------------------------------------------------------------------
-		#for x : module imports
-		#	if s ?= x source
-		#		out ~~= (show-ctx.line-and-character-getters inlay-hint-for-import uri, s, x)
-		module each-decl x =>
-			out get-inlay-hints-for-decl program, show-ctx, test-states, x
+		out inlay-hints-for-imports program, module
+		for x : module funs
+			out add-inlay-hints-for-ref lcg, x.to, fun-refs[x]!.move-to
+			out get-inlay-hints-for-fun show-ctx, x
+		for x : module structs
+			out add-inlay-hints-for-ref lcg, x.to, struct-refs[x]!.move-to
+		for x : module specs
+			out add-inlay-hints-for-ref lcg, x.to, spec-refs[x]!.move-to
+		for x : module tests
+			out get-inlay-hints-for-test lcg, test-states, x
 	(res sort x => x.position),
 
-###
+# For this, just track the location of the first thing
+-inlay-hints-for-imports void(out inlay-hint array-builder, program program, module module)
+	# Maps a module URI to a map from imported names to the first import location
+	imports uri-and-range mut[sym] mut[uri] = ()
+	program.common-types walk-module module, (_, what) =>
+		guard uri ?= what uri
+		guard name ?= what name
+		guard uri != module.uri
+		x = imports ensure uri
+		loc = what range
+		if existing ?= x[name]
+			if loc < existing
+				x[name] := loc
+		else
+			x[name] := loc
+	module zip-ast-and-module-imports (ast, imported) =>
+		match ast kind
+		as import-whole-module-ast _
+			sorted (sym, uri-and-range)[] = (imports[imported.uri] ?? ()).to sort (x, _) => x
+			if x ?= program.line-and-character-getters inlay-hint-for-import module.uri, ast, sorted
+				out ~= x
+		as array _
+			()
+		as import-file-ast _
+			throw unreachable
+-range uri-and-range(a doc-comment-reference)
+	match a
+	as doc-comment-reference-bogus
+		throw unreachable
+	as called-spec-sig x
+		x range
+	as enum-or-flags-member x
+		x range
+	as fun-decl x
+		x range
+	as local _
+		throw unreachable
+	as record-field x
+		x range
+	as signature x
+		x range
+	as struct-alias x
+		x range
+	as struct-decl x
+		x range
+	as spec-decl x
+		x range
+	as type-param-index _
+		throw unreachable
+	as var-decl x
+		x range
+
+-zip-ast-and-module-imports void(module module, f void mut(ast import-or-export-ast, imported module))
+	i mut nat = module.ast no-std_ ? 0 : 1
+	walk void mut(ast imports-or-exports-ast?) = ast =>
+		for x : ast?.paths ?? ()
+			unless _ ?= x.kind import-file-ast
+				f[x, module.imports-and-re-exports[i]]
+				i +:= 1
+	walk[module.ast imports]
+	walk[module.ast re-exports]
+	i is module.imports-and-re-exports.size
+
+-add-inlay-hints-for-ref void(out inlay-hint array-builder, lcg line-and-character-getter, decl any-decl, uses uri set)
+	guard uses !is-empty
+	parts inlay-hint-label-part[] = "Used by " uris-or-count-label-parts uses, 3
+	out ~= do
+		position: lcg end-of-line-for-decl decl
+		label: parts to
+		kind: ()
+		paddingLeft: true
+
 -inlay-hint-for-import inlay-hint?(
 	lcgs line-and-character-getters,
 	importer-uri uri,
 	ast import-or-export-ast,
-	a import-or-export,
+	imported (sym, uri-and-range)[]
 )
 	guard _ ?= ast.kind import-whole-module-ast
-	names symbol[] = (for name, _ : a imported!; name) sort
-	parts inlay-hint-label-part[] = if names.size > 5
-		("{names size} imported names", ((", " join for x : names; x to),), (), ()),
+	parts inlay-hint-label-part[] = if imported.size > 5
+		("{imported size} imported names", ((", " join for x, _ : imported; x to),), (), ()),
 	else
-		lcgs imported-name-label-parts a, names
+		lcgs imported-name-label-parts imported
 	((lcgs[importer-uri] end-of-line ast.range.start), parts.to, (), true),
-###
-
-###
--imported-name-label-parts inlay-hint-label-part[](
-	lcgs line-and-character-getters,
-	a import-or-export,
-	names symbol[],
-)
-	parts inlay-hint-label-part[] = for name : names
+-imported-name-label-parts inlay-hint-label-part[](lcgs line-and-character-getters, imported (sym, uri-and-range)[])
+	parts inlay-hint-label-part[] = for name, range : imported
 		value: name to
 		tooltip: ()
-		location: lcgs[a.imported[name]!.main-location-for-name-referents],
+		location: lcgs[range],
 		command: ()
 	parts with-commas
--main-location-for-name-referents uri-and-range(a name-referents)
-	if x ?= a struct-or-alias
-		x name-range
-	elif x ?= a spec_
-		x name-range
-	else
-		a.funs[0] name-range
-###
 
--get-inlay-hints-for-decl void(
-	out inlay-hint array-builder,
-	program program,
-	show-ctx show-model-ctx,
-	test-states test-states,
-	decl any-decl,
-)
-	uri = decl module-uri
-	lcg = show-ctx.line-and-character-getters[uri]
-	imports = program imports-and-re-exports-of decl # TODO: RENAME ------------------------------------------------------------
-	if imports !is-empty
-		max-uris nat = 3
-		parts inlay-hint-label-part[] = with b : build
-			if imports.re-exports !is-empty
-				b write-uris-or-count-label-parts "Exported by ", imports.re-exports, max-uris
-			if imports.imports !is-empty
-				b write-uris-or-count-label-parts (imports.re-exports.is-empty ? "Used by " : "; Used by"), imports.imports, max-uris
-		out ~= do
-			position: lcg end-of-line-for-decl decl
-			label: parts.to
-			kind: ()
-			paddingLeft: true
-	
-	match decl
-	as fun-decl x
-		out get-inlay-hints-for-fun show-ctx, x
-	as test_ x
-		out get-inlay-hints-for-test lcg, test-states, x
-	else
-		()
-
--write-uris-or-count-label-parts void(
-	out inlay-hint-label-part array-builder,
-	description string,
-	uris uri[],
-	max-uris nat,
-)
-	if uris.size > max-uris
-		out ~= do
-			value: "{description}{uris size} other modules"
-			tooltip: (", " join for x : uris; x base-name),
-	else
-		out ~= (description,)
-		parts inlay-hint-label-part[] = for uri : uris
-			value: uri base-name
-			location: uri.top-of-file,
-		out ~~= parts with-commas
+-uris-or-count-label-parts inlay-hint-label-part[](description string, uris uri set, max-uris nat)
+	with out : build
+		if uris.size > max-uris
+			out ~= do
+				value: "{description}{uris size} other modules"
+				tooltip: (", " join for x : uris sort; x base-name),
+		else
+			out ~= (description,)
+			parts inlay-hint-label-part[] = for uri : uris sort
+				value: uri base-name
+				location: uri.top-of-file,
+			out ~~= parts with-commas
 
 -with-commas inlay-hint-label-part[](a inlay-hint-label-part[])
 	# TODO: std function to help?

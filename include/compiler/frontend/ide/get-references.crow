@@ -6,138 +6,122 @@ import
 	../../model/uri
 	../../util/sym
 	../../util/util
+	../walk-model
 	./get-definition
 	./get-target
 	./ide-util
-	./import-references
 	./position
 
 get-document-highlights-for-position document-highlight-result?(program program, pos position)
-	guard target ?= pos target-for-position
 	uri = pos.module uri
 	highlights document-highlight[] = with out : build
-		program each-reference-for-target uri, target, include, x =>
+		for x : program get-references-for-position pos
 			if x.uri == uri
-				out ~= (program.line-and-character-getters[x].range, Read)
+				out ~= (x.range, Read)
 	(uri, (highlights sort x => x.range.start)),
 
 get-references-for-position uri-and-line-and-character-range[](program program, pos position)
 	guard target ?= pos target-for-position
-	res uri-and-line-and-character-range[] = with out : build
-		program each-reference-for-target pos.module.uri, target, exclude, x =>
-			out ~= program.line-and-character-getters[x]
-	res sort cur =>
-		(cur.uri, cur.range.start)::uri-line-and-character
-
-include-imports enum(exclude, include)
-each-reference-for-target void(
-	program program,
-	cur-uri uri,
-	target target,
-	include-imports include-imports,
-	f reference-cb,
-)
-	match include-imports
-	as include
-		if importable ?= target as-uri-and-name
-			program each-named-import (program module-at-uri importable.module-uri), importable.name, (where, _) =>
-				f[where]
-	as exclude
-		()
-	cur-uri definition-for-target target, f
-	program references-for-target cur-uri, target, f
-
--as-uri-and-name uri-and-name?(a target)
-	match a
-	as enum-or-flags-member x
-		(x.module-uri, x.name),
-	as fun-decl x
-		(x.module-uri, x.name),
+	match target
 	as position-imported-name _
-		() # This would be redundant
-	as position-local _
-		()
-	as loop-target _
-		()
-	as module _
-		()
-	as record-field x
-		(x.module-uri, x.name),
-	as spec-decl x
-		(x.module-uri, x.name),
-	as signature x
-		match x.container
-		as struct-decl _
-			(x.module-uri, x.name),
-		as spec-decl _
-			# A spec signature can't be imported, only a variant method (through its calling function)
-			()
-	as struct-alias x
-		(x.module-uri, x.name),
-	as struct-decl x
-		(x.module-uri, x.name),
-	as type-param-with-container _
-		()
-	as var-decl x
-		(x.module-uri, x.name),
-
--references-for-target void(program program, cur-uri uri, a target, f reference-cb)
-	match a
-	as enum-or-flags-member x
-		program references-for-enum-or-flags-member x, f
-	as fun-decl x
-		program references-for-fun-decl x, f
-	as position-imported-name x
-		program references-for-imported-name x, f
+		# TODO: Walk everything in this module. If it matches the name and comes from this module, count it as a reference.
+		throw todo
 	as position-local x
-		cur-uri references-for-local x, f
+		for ref : x references-for-local
+			program.line-and-character-getters[pos.module.uri, ref]
 	as loop-target x
-		cur-uri references-for-loop x, f
-	as module x
-		program references-for-module x, f
-	as record-field x
-		program references-for-record-field x, f
-	as spec-decl x
-		program references-for-spec-decl x, f
-	as signature x
-		program references-for-signature x, f
-	as struct-alias x
-		program references-for-struct-alias x, f
-	as struct-decl x
-		program references-for-struct-decl x, f
+		for ref : x.loop_ references-for-loop
+			program.line-and-character-getters[pos.module.uri, ref]
+	as module _
+		throw todo
 	as type-param-with-container x
-		program.common-types references-for-type-param cur-uri, x, f
+		with out : build
+			program.common-types walk-any-decl x.container, (where, what) =>
+				guard y ?= what type-param-index
+				guard y == x.type-param
+				out ~= program.line-and-character-getters[pos.module.uri, where]
+	else
+		with out : build
+			program walk-program (where, thing) =>
+				guard thing references target
+				out ~= program.line-and-character-getters[where]
+
+-references bool(ref doc-comment-reference, target target)
+	match target
+	as enum-or-flags-member _
+		throw todo # -----------------------------------------------------------------------------------------------------------------------
+	as fun-decl x
+		if f ?= ref fun-decl
+			f == x
+	as position-imported-name _
+		throw unreachable
+	as position-local _
+		throw unreachable
+	as loop-target _
+		throw unreachable
+	as module _
+		throw unreachable
+	as record-field x
+		match ref
+		as fun-decl f
+			match f body
+			as record-field-call y
+				y.field == x
+			as record-field-get y
+				y.field == x
+			as record-field-set y
+				y.field == x
+			else
+				false
+		as record-field y
+			y == x
+		else
+			false
+	as spec-decl x
+		guard y ?= ref spec-decl
+		y == x
+	as signature x
+		guard c ?= ref called-spec-sig
+		c.non-instantiated-sig == x
+	as struct-alias x
+		guard y ?= ref struct-decl
+		# TODO: Make sure the name matches too ----------------------------------------------------------------------------------
+		y == x.target.decl
+	as struct-decl x
+		guard y ?= ref struct-decl
+		y == x
+	as type-param-with-container _
+		throw unreachable
 	as var-decl x
-		program references-for-var-decl x, f
+		match ref
+		as fun-decl f
+			match f body
+			as var-get y
+				y.var == x
+			as var-set y
+				y.var == x
+			else
+				false
+		as var-decl y
+			y == x
+		else
+			false
 
--references-for-struct-alias void(program program, a struct-alias, f reference-cb)
-	on-ref cb-doc-comment-reference = (module, ast, ref) =>
-		if x ?= ref struct-alias
-			if x == a
-				f[module.uri, ast.range] 
-	program each-type-in-program a.visibility, a.module-uri, on-ref, (module, t, ast) =>
-		if x ?= t struct-inst
-			if x == a.target
-				if n ?= ast name-and-range
-					if n.name == a.name
-						f[module.uri, ast.range]
-
--references-for-imported-name void(program program, a position-imported-name, f reference-cb)
-	program each-named-import a.exporting-module, a.name, (where, _) =>
-		f[where]
-	guard refs ?= a referents
-	if sa ?= refs struct-or-alias
-		match sa
-		as struct-alias x
-			program references-for-struct-alias x, f
-		as struct-decl x
-			program references-for-struct-decl x, f
-	if s ?= refs spec_
-		program references-for-spec-decl s, f
-	program references-for-fun-decls refs.funs, f
-
--references-for-local void(cur-uri uri, a position-local, f reference-cb)
-	opt-body container-and-body? = match a container
+-references-for-local source-range[](a position-local)
+	guard container, body ?= a.container container-and-body
+	with out : build
+		container.doc-comment walk-doc-comment (where, ref) =>
+			guard local ?= ref local
+			guard local.local-must-have-name-range == a.local.local-must-have-name-range
+			out ~= where
+		# Deduplicate the 'local-get' and 'local-set' in `x +:= 1`
+		seen pos mut-set = ()
+		body each-descendent-expr-including x =>
+			guard ref ?= x expr-local-reference
+			guard ref.local == a.local && seen try-add x.start
+			out ~= ref name-range
+-container-and-body (expr-container, expr)?(a local-container)
+	match a
 	as fun-decl x
 		if e ?= x.body expr
 			(x.to, e),
@@ -147,18 +131,6 @@ each-reference-for-target void(
 		()
 	as struct-decl _
 		()
-	guard body ?= opt-body
-	body.container.doc-comment each-doc-comment-reference (ast, ref) =>
-		guard local ?= ref local
-		guard local.local-must-have-name-range == a.local.local-must-have-name-range
-		f[cur-uri, ast.range]
-	# Deduplicate the 'local-get' and 'local-set' in `x +:= 1`
-	seen pos mut-set = ()
-	body.body each-descendent-expr-including x =>
-		if ref ?= x expr-local-reference
-			if ref.local.local-must-have-name-range == a.local.local-must-have-name-range && seen try-add x.start
-				f[body.container.module-uri, ref.name-range]
--container-and-body record(container expr-container, body expr)
 
 -local-reference record(local local, name-range source-range)
 -expr-local-reference local-reference?(a expr)
@@ -169,494 +141,18 @@ each-reference-for-target void(
 		(x.local, x.assignee-range),
 	as local-get-expr x
 		(x.local, x.range),
-	as local-pointer-expr _
-		() # TODO -----------------------------------------------------------------------------------------------------------
 	as local-set-expr x
 		(x.local, x.assignee-range),
 	else
 		()
 
--references-for-loop void(cur-uri uri, a loop-target, f reference-cb)
-	a.loop_.to each-descendent-expr-excluding child =>
-		match child
-		as loop-break-expr x
-			f[cur-uri, x.range]
-		as loop-continue-expr x
-			f[cur-uri, x.range]
-		else
-			()
-	
--references-for-type-param void(
-	common-types common-types,
-	cur-uri uri,
-	a type-param-with-container,
-	ref-cb reference-cb,
-)
-	a.container.doc-comment each-doc-comment-reference (ast, ref) =>
-		if x ?= ref type-param-index
-			if x == a.type-param
-				ref-cb[cur-uri, ast.range]
-		else
-			()
-	type-cb type-cb = (type, ast) =>
-		if type == a.type-param.to
-			ref-cb[cur-uri, ast.range]
-	match a container
-	as fun-decl x
-		common-types each-type-in-fun x, type-cb
-	as spec-decl x
-		x each-type-in-spec type-cb
-	as struct-alias _
-		throw unreachable # TODO: then that shouldnt' be allowed in the container type ...................................
-	as struct-decl x
-		common-types each-type-in-struct x, type-cb
-	as test_ _
-		throw unreachable
-	as var-decl _
-		throw unreachable
-
--each-type-in-module void(common-types common-types, a module, f type-cb)
-	for x : a structs
-		common-types each-type-in-struct x, f
-	for x : a vars
-		f[x.type, x.ast.type]
-	for x : a specs
-		x each-type-in-spec f
-	for x : a funs
-		common-types each-type-in-fun x, f
-	for x : a tests
-		common-types each-type-in-expr x.body, f
-
--each-type-in-fun void(common-types common-types, a fun-decl, f type-cb)
-	if ast ?= a.source fun-decl-ast
-		f[a.return-type, ast.return-type]
-		a.params each-type-in-params ast.params, f
-		a each-fun-spec (spec_, spec-ast) =>
-			spec_.type-args each-packed-type-arg spec-ast.type-arg, f
-		if body ?= a.body expr
-			common-types each-type-in-expr body, f
-
--each-type-in-spec void(a spec-decl, f type-cb)
-	a each-spec-parent (parent, ast) =>
-		parent.type-args each-packed-type-arg ast.type-arg, f
-	for sig : a sigs
-		sig each-type-in-signature f
-
--each-type-in-signature void(a signature, f type-cb)
-	f[a.return-type, a.ast.return-type]
-	a.params.to each-type-in-params a.ast.params, f
-
--each-type-in-struct void(common-types common-types, a struct-decl, f type-cb)
-	match a source
-	as struct-decl-ast x
-		a.sum-type-memberships each-type-in-struct-modifiers x.modifiers, f
-		common-types each-type-in-struct-body a.body, x, x.body, f
-	as struct-decl-source-bogus _
-		()
-# TODO: rename 'variants' 0---------------------------------------------------------------------------------------------------------
--each-type-in-struct-modifiers void(variants sum-type-membership[], modifiers modifier-ast[], f type-cb)
-	case-modifiers modifier-keyword-ast[] = for mod : modifiers and-concat
-		if k ?= mod modifier-keyword-ast
-			if k.keyword == case_
-				k,
-	case-modifiers zip-if-size-eq variants, (mod, x) =>
-		f[x.sum-type.to, mod.type-arg!]
--each-type-in-struct-body void(
-	common-types common-types,
-	body struct-body,
-	struct-ast struct-decl-ast,
-	ast struct-body-ast,
-	f type-cb,
-)
-	match body
-	as struct-body-bogus
-		()
-	as builtin-type _
-		()
-	as enum_ x
-		common-types each-type-in-enum-or-flags struct-ast, x.storage_, f
-	as extern-type _
-		()
-	as flags_ x
-		common-types each-type-in-enum-or-flags struct-ast, x.storage_, f
-	as record_ x
-		x each-type-in-record ast.record-ast!, f
-	as sum-type x
-		x each-type-in-sum-type ast.sum-type-ast!, f
--each-type-in-enum-or-flags void(
-	common-types common-types,
-	struct struct-decl-ast,
-	storage-type integral-type,
-	f type-cb,
-)
-	for modifier : struct modifiers
-		guard k ?= modifier modifier-keyword-ast
-		guard k.keyword == storage_
-		guard t ?= k type-arg
-		f[common-types[storage-type].to, t]
--each-type-in-record void(a record_, ast record-ast, f type-cb)
-	if params ?= ast.params?.array
-		for field, field-ast : a.fields zip params
-			guard type ?= field-ast.single-destructure-ast?.type
-			f[field.type, type]
--each-type-in-sum-type void(a sum-type, ast sum-type-ast, f type-cb)
-	a.listed-members zip-if-size-eq ast.types, (member, type-ast) =>
-		f[member.member.to, type-ast]
-	for method : a methods
-		method each-type-in-signature f
-
--each-type-in-params void(a params, asts params-ast, f type-cb)
-	for param, ast : a.params-array zip asts.params-array
-		param each-type-in-destructure ast, f
-
--each-type-in-destructure void(a destructure, ast destructure-ast, f type-cb)
-	handle-single void mut(type type) = type =>
-		if type-ast ?= ast.single-destructure-ast!.type
-			f[type, type-ast]
-	match a
-	as destructure-ignore x
-		unless _ ?= ast void-destructure-ast
-			handle-single[x type]
-	as local x
-		handle-single[x type]
-	as destructure-split x
-		for part, part-ast : x.parts zip ast.array!
-			part each-type-in-destructure part-ast, f
-
--each-type-in-expr void(common-types common-types, expr expr, f type-cb)
-	expr each-descendent-expr-including x =>
-		common-types each-type-directly-in-expr x, f
-
--each-type-directly-in-expr void(common-types common-types, a expr, f type-cb)
-	match a
-	as assert-or-forbid-expr x
-		x.condition each-type-in-condition x.ast.condition, f
-	as bogus-call-expr _
-		()
-	as bogus-expr _
-		()
-	as bogus-wrong-type-expr _
-		()
-	as call-expr x
-		if type-arg ?= x.ast.call-ast?.type-arg
-			x.called.fun-inst!.type-args each-packed-type-arg type-arg, f
-	as call-option-expr _
-		()
-	as closure-get-expr _
-		()
-	as closure-set-expr _
-		()
-	as extern-expr _
-		()
-	as finally-expr _
-		()
-	as fun-pointer-expr _
-		()
-	as if-expr x
-		x.condition each-type-in-condition x.ast.condition, f
-	as lambda-expr x
-		unless x is-ignore
-			x.param each-type-in-destructure x.ast.param, f
-	as let-expr x
-		x.destructure each-type-in-destructure x.ast.destructure, f
-	as literal-float-expr _
-		()
-	as literal-integral-expr _
-		()
-	as literal-string-like-expr _
-		()
-	as local-get-expr _
-		()
-	as local-pointer-expr _
-		()
-	as local-set-expr _
-		()
-	as loop-expr _
-		()
-	as loop-break-expr _
-		()
-	as loop-continue-expr _
-		()
-	as loop-while-or-until-expr x
-		x.condition each-type-in-condition x.ast.condition, f
-	as match-enum-expr _
-		()
-	as match-integral-expr _
-		()
-	as match-string-like-expr _
-		()
-	as match-sum-type-expr x
-		x.cases each-type-in-match-sum-type x.ast.cases, f
-	as record-field-pointer-expr _
-		()
-	as seq-expr _
-		()
-	as throw-expr _
-		()
-	as trusted-expr _
-		()
-	as try-expr x
-		x.catches each-type-in-match-sum-type x.ast.catches, f
-	as try-let-expr x
-		x.catch_ each-type-in-match-sum-type-case x.ast.catch-member, f
-	as typed-expr x
-		f[(a type common-types), x.ast.type]
-
--each-type-in-match-sum-type void(cases match-sum-type-case[], case-asts case-ast[], f type-cb)
-	cases zip-if-size-eq case-asts, (case_, case-ast) =>
-		case_ each-type-in-match-sum-type-case case-ast.member, f
--each-type-in-match-sum-type-case void(case_ match-sum-type-case, member-ast case-member-ast, f type-cb)
-	match member-ast
-	as as-name-ast x
-		if d ?= x destructure
-			case_.destructure each-type-in-destructure d, f
-	as literal-integral-and-range _
-		()
-	as as-string-ast _
-		()
-	as as-bogus-ast _
-		()
-
--each-type-in-condition void(condition condition, ast condition-ast, f type-cb)
-	match condition
-	as expr _
-		()
-	as unpack-option x
-		x.destructure each-type-in-destructure ast.unpack-option-ast!.destructure, f
-
--references-for-fun-decl void(program program, decl fun-decl, f reference-cb)
-	program references-for-fun-decls (decl,), f
-
--references-for-fun-decls void(program program, decls fun-decl[], f reference-cb)
-	guard decls !is-empty
-	uris uri set = for x : decls; x module-uri
-	for its-module-uri : uris
-		its-module = program module-at-uri its-module-uri
-		max-visibility mut visibility = private
-		for decl : decls
-			if decl.module-uri == its-module-uri
-				max-visibility max:= decl.visibility
-		on-ref cb-doc-comment-reference = (module, ast, ref) =>
-			if fun ?= ref fun-decl
-				if fun in decls
-					f[module.uri, ast.range]
-		program each-expr-that-may-reference max-visibility, its-module, on-ref, (module, x) =>
-			module each-fun-reference-at-expr x, decls, f
-
--cb-doc-comment-reference alias
-	void mut(module module, ast name-and-range, ref doc-comment-reference)
--each-doc-comment-reference void(module module, f cb-doc-comment-reference)
-	module each-doc-comment x =>
-		x each-doc-comment-reference (ast, ref) =>
-			f[module, ast, ref]
-
--each-doc-comment-reference void(
-	a doc-comment,
-	f void mut(name name-and-range, ref doc-comment-reference),
-)
-	a.ast.references zip a.references for-loop f
-
--each-doc-comment void(module module, f void mut(x doc-comment))
-	f[module doc-comment]
-	for x : module aliases
-		f[x doc-comment]
-	for x : module structs
-		f[x doc-comment]
-		match x body
-		as struct-body-bogus
-			()
-		as builtin-type _
-			()
-		as enum_ enum_
-			for member : enum_ members
-				f[member doc-comment]
-		as extern-type _
-			()
-		as flags_ flags_
-			for member : flags_ members
-				f[member doc-comment]
-		as record_ record_
-			for field : record_ fields
-				f[field doc-comment]
-		as sum-type sum-type
-			for method : sum-type methods
-				f[method doc-comment]
-	for x : module vars
-		f[x doc-comment]
-	for x : module specs
-		f[x doc-comment]
-		for sig : x sigs
-			f[sig doc-comment]
-	for x : module funs
-		f[x doc-comment]
-	for x : module tests
-		f[x doc-comment]
-
--each-fun-reference-at-expr void(module module, x expr, decls fun-decl[], f reference-cb)
-	guard called ?= x get-called-at-expr
-	guard inst ?= called.called fun-inst
-	guard inst.decl in decls
-	f[module.uri, called.name-range]
-
--each-expr-that-may-reference void(
-	program program,
-	visibility visibility,
-	exporting-module module,
-	cb-doc-comment-reference cb-doc-comment-reference,
-	f void mut(module module, expr expr),
-)
-	program each-module-that-may-reference visibility, exporting-module, module =>
-		module each-doc-comment-reference cb-doc-comment-reference
-		for fun : module funs
-			if body ?= fun.body expr
-				body each-descendent-expr-including x =>
-					f[module, x]
-		for test_ : module tests
-			test_.body each-descendent-expr-including x =>
-				f[module, x]
-
--each-module-that-may-reference void(
-	program program,
-	visibility visibility,
-	containing-module module,
-	f void mut(x module),
-)
-	f[containing-module]
-	if visibility != private
-		program each-module-referencing containing-module, (x, _, _) =>
-			f[x]
-
--references-for-signature void(program program, a signature, f reference-cb)
-	match a container
-	as spec-decl spec_
-		on-ref cb-doc-comment-reference = (module, ast, x) =>
-			if sig ?= x signature
-				if sig.range == a.range
-					f[module.uri, ast.range]
-		program each-expr-that-may-reference spec_.visibility, (program module-at-uri a.module-uri), on-ref, (module, x) =>
-			guard called ?= x get-called-at-expr
-			guard sig ?= called.called called-spec-sig
-			guard sig.non-instantiated-sig == a
-			f[module.uri, called.name-range]
-	as struct-decl _
-		program references-for-fun-decl (program method-caller a), f
-		# TODO: Also find all structs that implement the variant and their implementations for this sig.
-
--references-for-record-field void(program program, field record-field, f reference-cb)
-	program with-record-field-functions field, funs =>
-		program references-for-fun-decls funs, f
-
--references-for-enum-or-flags-member void(program program, member enum-or-flags-member, f reference-cb)
-	enum_ = member containing-enum
-	declaring-module module = program module-at-uri enum_.module-uri
-	ctor = declaring-module must-find-fun-named member.name, fun =>
-		if create ?= fun.body create-enum-or-flags
-			create.member == member
-	on-ref cb-doc-comment-reference = (module, ast, ref) =>
-		if m ?= ref enum-or-flags-member
-			if m == member
-				f[module.uri, ast.range]
-	program each-expr-that-may-reference member.visibility, declaring-module, on-ref, (module, expr) =>
-		match expr
-		as match-enum-expr match_
-			if match_.enum_ == enum_
-				for case-index, case_ : match_.cases with-index
-					if case_.member == member
-						f[module.uri, match_.ast.cases[case-index].name-range]
-		else
-			module each-fun-reference-at-expr expr, (ctor,), f
-
--references-for-var-decl void(program program, a var-decl, f reference-cb)
-	declaring-module = program module-at-uri a.module-uri
-	funs = declaring-module must-find-funs-named a.name, fun =>
-		match fun.body
-		as var-get x
-			x.var == a
-		as var-set x
-			x.var == a
-		else
-			false
-	program references-for-fun-decls funs, f
-
-# TODO: don't need 'with', just return them (and use must-find-funs-named) -------------------------------------------------------------------------------------------------------
--with-record-field-functions void(
-	program program,
-	field record-field,
-	f void mut(funs fun-decl[]),
-)
-	funs fun-decl[] = with out : build
-		program module-at-uri field.containing-record.module-uri each-fun-named field.name, fun =>
-			if fun.body is-record-field-function
-				param-type = fun.params.array!.only type
-				# TODO: for RecordFieldPointer we need to look for pointer to the struct
-				if inst ?= param-type struct-inst
-					if inst.decl == field.containing-record
-						out ~= fun
-	f[funs]
-
--must-find-funs-named fun-decl[](module module, name sym, f bool mut(x fun-decl))
+-references-for-loop source-range[](loop_ loop-expr)
 	with out : build
-		module each-fun-named name, fun =>
-			if f[fun]
-				out ~= fun
-
--each-fun-named void(module module, name sym, f void mut(x fun-decl))
-	for fun : module funs
-		if fun.name == name
-			f[fun]
-
--is-record-field-function bool(a fun-body)
-	match a
-	as record-field-get _
-		true
-	as record-field-pointer _
-		true
-	as record-field-set _
-		true
-	else
-		false
-
--references-for-spec-decl void(program program, a spec-decl, ref-cb reference-cb)
-	program each-module-that-may-reference a.visibility, (program module-at-uri a.module-uri), module =>
-		module each-doc-comment-reference (referencing-module, ast, ref) =>
-			assert referencing-module.uri == module.uri # TODO: if this passes, just ignore that parameter ------------------------------------------
-			guard spec_ ?= ref spec-decl
-			guard spec_ == a
-			ref-cb[referencing-module.uri, ast.range]
-		cb void mut(spec_ spec-inst, ast spec-use-ast) = (spec_, ast) =>
-			if spec_.decl == a
-				ref-cb[module.uri, ast.range]
-		for spec_ : module specs
-			spec_ each-spec-parent cb
-		for fun : module funs
-			fun each-fun-spec cb
-
--references-for-struct-decl void(program program, a struct-decl, f reference-cb)
-	on-ref cb-doc-comment-reference = (module, ast, ref) =>
-		guard decl ?= ref struct-decl
-		guard decl == a
-		f[module.uri, ast.range]
-	program each-type-in-program a.visibility, a.module-uri, on-ref, (module, type, ast) =>
-		guard inst ?= type struct-inst
-		guard inst.decl == a
-		f[module.uri, ast.name-range-or-range]
-
--each-type-in-program void(
-	program program,
-	visibility visibility,
-	module-uri uri,
-	cb-doc-comment-reference cb-doc-comment-reference,
-	f void mut(module module, type type, ast type-ast),
-)
-	program each-module-that-may-reference visibility, (program module-at-uri module-uri), module =>
-		module each-doc-comment-reference cb-doc-comment-reference
-		program.common-types each-type-in-module module, (type, ast) =>
-			type each-type-in-type ast, (type-inner, ast-inner) =>
-				f[module, type-inner, ast-inner]
-
--each-type-in-type void(a type, ast type-ast, f type-cb)
-	f[a, ast]
-	res bool? = a each-type-component ast, (x, y) =>
-		x each-type-in-type y, f
-		()		
-	res is ()
+		loop_.to each-descendent-expr-excluding child =>
+			match child
+			as loop-break-expr x
+				out ~= x range
+			as loop-continue-expr x
+				out ~= x range
+			else
+				()

@@ -17,17 +17,19 @@ const { LanguageClient } = require("vscode-languageclient/lib/node/main.js")
 let client
 
 // VSCode likes to destroy the log on error (Why?), so write out own
-const logFile = '/home/andy/crow-log.txt' // TODO:RM (or put behind a flag) ---------------------------------------------------------------------
-fs.writeFileSync(logFile, '')
+const logFile = null // '/home/andy/crow-log.txt' // TODO:RM (or put behind a flag) ---------------------------------------------------------------------
+if (logFile) fs.writeFileSync(logFile, '')
 
 /** @type {function(ExtensionContext): void} */
 exports.activate = context => {
 	/** @type {ServerOptions} */
 	const serverOptions = () => {
 		const child = childProcess.spawn("crow", ["lsp"], { stdio: 'pipe' })
-		child.stderr.on('data', data => {
-			fs.appendFileSync(logFile, data + '\n')
-		})
+		if (logFile) {
+			child.stderr.on('data', data => {
+				fs.appendFileSync(logFile, data + '\n')
+			})
+		}
 		return Promise.resolve(child)
 	}
 
@@ -67,7 +69,9 @@ const withLogErrors = (description, cb) => {
 
 /** @type {function(string): void} */
 const logError = message => {
-	fs.appendFileSync(logFile, message + '\n')
+	if (logFile) {
+		fs.appendFileSync(logFile, message + '\n')
+	}
 	client.outputChannel.appendLine(message)
 }
 
