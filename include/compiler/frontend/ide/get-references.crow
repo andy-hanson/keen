@@ -1,15 +1,11 @@
 import
 	../../lib/lsp/lsp-types
-	../../model/ast
 	../../model/model
 	../../model/source-range
 	../../model/uri
-	../../util/sym
-	../../util/util
 	../walk-model
 	./get-definition
 	./get-target
-	./ide-util
 	./position
 
 get-document-highlights-for-position document-highlight-result?(program program, pos position)
@@ -22,34 +18,46 @@ get-document-highlights-for-position document-highlight-result?(program program,
 
 get-references-for-position uri-and-line-and-character-range[](program program, pos position)
 	guard target ?= pos target-for-position
-	match target
-	as position-imported-name _
-		# TODO: Walk everything in this module. If it matches the name and comes from this module, count it as a reference.
-		throw todo
-	as position-local x
-		for ref : x references-for-local
-			program.line-and-character-getters[pos.module.uri, ref]
-	as loop-target x
-		for ref : x.loop_ references-for-loop
-			program.line-and-character-getters[pos.module.uri, ref]
-	as module _
-		throw todo
-	as type-param-with-container x
-		with out : build
-			program.common-types walk-any-decl x.container, (where, what) =>
+	lcgs = program line-and-character-getters
+	with out : build
+		pos.module.uri definition-for-target target, where =>
+			out ~= lcgs[where]
+		match target
+		as position-imported-name _
+			# TODO: Walk everything in this module. If it matches the name and comes from this module, count it as a reference.
+			throw todo
+		as position-local x
+			for ref : x references-for-local
+				out ~= lcgs[pos.module.uri, ref]
+		as loop-target x
+			for ref : x.loop_ references-for-loop
+				out ~= lcgs[pos.module.uri, ref]
+		as module _
+			throw todo
+		as type-param-with-container x
+			program.common-types walk-any-decl x.container, (where, _, what) =>
 				guard y ?= what type-param-index
 				guard y == x.type-param
-				out ~= program.line-and-character-getters[pos.module.uri, where]
-	else
-		with out : build
-			program walk-program (where, thing) =>
+				out ~= lcgs[pos.module.uri, where]
+		else
+			program walk-program (where, _, thing) =>
 				guard thing references target
-				out ~= program.line-and-character-getters[where]
+				out ~= lcgs[where]
 
 -references bool(ref doc-comment-reference, target target)
 	match target
-	as enum-or-flags-member _
-		throw todo # -----------------------------------------------------------------------------------------------------------------------
+	as enum-or-flags-member x
+		match ref
+		as fun-decl f
+			match f body
+			as create-enum-or-flags y
+				y.member == x
+			else
+				()
+		as enum-or-flags-member y
+			y == x
+		else
+			()	
 	as fun-decl x
 		if f ?= ref fun-decl
 			f == x
@@ -72,11 +80,11 @@ get-references-for-position uri-and-line-and-character-range[](program program, 
 			as record-field-set y
 				y.field == x
 			else
-				false
+				()
 		as record-field y
 			y == x
 		else
-			false
+			()
 	as spec-decl x
 		guard y ?= ref spec-decl
 		y == x
@@ -101,16 +109,16 @@ get-references-for-position uri-and-line-and-character-range[](program program, 
 			as var-set y
 				y.var == x
 			else
-				false
+				()
 		as var-decl y
 			y == x
 		else
-			false
+			()
 
 -references-for-local source-range[](a position-local)
 	guard container, body ?= a.container container-and-body
 	with out : build
-		container.doc-comment walk-doc-comment (where, ref) =>
+		container.doc-comment walk-doc-comment (where, _, ref) =>
 			guard local ?= ref local
 			guard local.local-must-have-name-range == a.local.local-must-have-name-range
 			out ~= where

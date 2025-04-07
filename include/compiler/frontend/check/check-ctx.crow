@@ -15,7 +15,6 @@ check-ctx record mut
 	config config
 	imports-and-re-exports exports[]
 	diagnostics-builder diagnostic mut[]
-	used used-set
 
 next-hash nat32(a check-ctx)
 	a.instantiate-ctx next-hash
@@ -44,84 +43,6 @@ to nat32(a common-module)
 members common-module[]()
 common-uris alias
 	(common-module, uri) enum-map
-
-used-set record(used any-decl mut-set) mut
-new used-set()
-	(),
-
--is-used bool(a used-set, used any-decl)
-	used in a.used
-
--mark-used void(a used-set, used any-decl)
-	a.used ~= used
-mark-used  void(ctx check-ctx, used any-decl)
-	ctx.used mark-used used
-
-check-for-unused void(
-	ctx check-ctx,
-	aliases struct-alias[],
-	structs struct-decl[],
-	specs spec-decl[],
-	funs fun-decl[],
-)
-	for x : aliases
-		ctx check-unused-decl x.to
-	for x : structs
-		ctx check-unused-decl x.to, () =>
-			# Even if the struct is not used as a type, it's used if it's accessed as a sumtype member
-			x.sum-type-memberships exists m =>
-				ctx.used is-used (funs sum-type-member-getter x, m to)
-	for x : specs
-		ctx check-unused-decl x.to
-	for x : funs
-		if x !ok-if-unused
-			ctx check-unused-decl x.to
--check-unused-decl void(ctx check-ctx, decl any-decl)
-	ctx check-unused-decl decl, () => false
--check-unused-decl void(ctx check-ctx, decl any-decl, cb-alt-is-used bool mut())
-	if decl.visibility == private && !(ctx.used is-used decl || cb-alt-is-used[])
-		ctx add-diag-assert-same-uri decl.name-range, decl.name.diag-unused-private-decl
-
-finish-imports void(_ check-ctx)
-	()
-	# TODO ------------------------------------------------------------------------------------------------------------------------
-	###
-	for import_ : ctx.imports-and-re-exports imports
-		guard import_ !is-std
-		match import_.source! kind
-		as import-whole-module-ast
-			# TODO: I need to add a new mechanism for tracking when a module is used -----------------------------------------------------
-			#unless import_ is-used
-			#	ctx add-diag-unused import_, import_.source!.path-range, ()
-			()
-		as array names
-			imported = import_ named-imported
-			for name : imported all-names
-				unless imported name-is-used name, ctx.used
-					range = names must-find (nr => nr.name == name) range
-					ctx add-diag-unused import_, range, (name,)
-		as import-file-ast _
-			throw unreachable
-	###
-###
--all-names symbol set(a exports)
-	with out : build
-		for name, _ : a funs
-			out ~= name
-		for name, _ : a structs-and-aliases
-			out ~= name
-		for name, _ : a specs
-			out ~= name
--name-is-used bool(a exports, name symbol, used used-set)
-	used-fun = (a.funs[name] ?? ()) exists fun => used is-used fun.to
-	used-struct = if x ?= a.structs-and-aliases[name]
-		used is-used x.to
-	used-spec = if x ?= a.specs[name]
-		used is-used x.to
-	used-fun || used-struct || used-spec
--add-diag-unused void(ctx check-ctx, import_ import-or-export, range source-range, name symbol?)
-	ctx add-diag range, (import_.module diag-unused-import name)
-###
 
 add-diag-assert-same-uri void(ctx check-ctx, range uri-and-range, diag diag)
 	range.uri is ctx.cur-uri

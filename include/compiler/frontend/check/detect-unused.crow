@@ -1,0 +1,112 @@
+import
+	../../model/ast
+	../../model/model
+	../../util/by-name
+	../../util/sym
+	../walk-model
+	./check-ctx
+
+detect-unused void(ctx check-ctx, common-types common-types, module module)
+	used = common-types gather-used module
+	for fun : module funs
+		guard fun.visibility == private
+		guard fun !ok-if-unused
+		guard fun !in used
+		ctx add-diag-assert-same-uri fun.name-range, fun.name.diag-unused-private-decl
+	for struct : module structs
+		guard struct.visibility == private
+		guard struct !in used
+		guard struct.sum-type-memberships !exists m => module.funs sum-type-member-getter struct, m in used
+		ctx add-diag-assert-same-uri struct.name-range, struct.name.diag-unused-private-decl
+	for spec_ : module specs
+		guard spec_.visibility == private
+		guard spec_ !in used
+		ctx add-diag-assert-same-uri spec_.name-range, spec_.name.diag-unused-private-decl
+
+	# TODO: for vars we need to look for the getter function ---------------------------------------------------------------------
+	#for var : module vars
+	#	guard var.visibility == private
+	#	guard var !in used
+	#	ctx add-diag-assert-same-uri var.name-range, var.name.diag-unused-private-decl
+
+	module zip-ast-and-module-imports (ast, imported) =>
+		match ast kind
+		as import-whole-module-ast
+			unless imported has used
+				ctx add-diag ast.range, (imported diag-unused-import ())
+		as array names
+			for name : names
+				unless imported has-for-name name.name, used
+					ctx add-diag name.range, (imported diag-unused-import (name.name,))
+		as import-file-ast _
+			()
+
+-used record
+	funs fun-decl set
+	structs struct-decl set
+	specs spec-decl set
+	vars var-decl set
+-in bool(a fun-decl, used used)
+	a in used.funs
+-in bool(a struct-decl, used used)
+	a in used.structs
+-in bool(a spec-decl, used used)
+	a in used.specs
+
+-gather-used used(common-types common-types, module module)
+	funs fun-decl mut-set = ()
+	structs struct-decl mut-set = ()
+	specs spec-decl mut-set = ()
+	vars var-decl mut-set = ()
+	common-types walk-module module, (_, _, ref) =>
+		match ref
+		as doc-comment-reference-bogus
+			()
+		as called-spec-sig _
+			()
+		as enum-or-flags-member _
+			()
+		as fun-decl x
+			funs ~= x
+		as local _
+			()
+		as record-field _
+			()
+		as signature _
+			()
+		as struct-alias _
+			()
+		as struct-decl x
+			structs ~= x
+		as spec-decl x
+			specs ~= x
+		as type-param-index _
+			()
+		as var-decl x
+			vars ~= x
+	funs.move-to, structs.move-to, specs.move-to, vars.move-to
+
+-has bool(module module, used used)
+	exports = module public-and-internal-exports
+	a = exports.funs exists x => x in used
+	b = exports.structs-and-aliases exists x =>
+		match x
+		as struct-decl s
+			s in used
+		as struct-alias s
+			s.target.decl in used
+	c = exports.specs exists x => x in used
+	a || b || c
+
+-has-for-name bool(module module, name sym, used used)
+	exports = module public-and-internal-exports
+	a = exports.funs[name] exists x => x in used
+	b = if x ?= exports.structs-and-aliases[name]
+		match x
+		as struct-decl s
+			s in used
+		as struct-alias s
+			s.target.decl in used
+	c = if x ?= exports.specs[name]
+		x in used
+	a || b || c || name == sym-compare || name == sym-equal # TODO: 'equal' and 'compare' these are needed when checking certain auto-funs. Maybe I can avoid that?
