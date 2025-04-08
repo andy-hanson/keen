@@ -8,6 +8,7 @@ import
 	../../model/integral-values
 	../../model/model
 	../../model/source-range
+	../../util/by-name
 	../../util/enum-map
 	../../util/sym
 	../../util/util
@@ -997,7 +998,7 @@ integral-types integral-type[]()
 	matched-enum struct-decl,
 	body enum_,
 )
-	seen bool mut[] = for _ : body members; false
+	remaining enum-or-flags-member mut-set = body.members to
 	has-case-diag mut = false
 	cases match-enum-case mut[] = ()
 	cases hint-size ast.cases.size
@@ -1008,16 +1009,14 @@ integral-types integral-type[]()
 		opt-member enum-member? = if x ?= name
 			body.members-by-name[x]
 		if member ?= opt-member
-			index = body.members must-have-index-of-pointer member
-			if seen[index]
-				has-case-diag := true
-				ctx add-diag case-ast.name-range, name!.symbol-of-sym.to::diag-match-case-duplicate.to
-			else
-				seen[index] := true
+			if remaining remove member
 				name-ast = as-name!
 				if d ?= name-ast destructure
 					ctx add-diag d.range, (matched-enum,).diag-match-case-no-value-for-enum-or-symbol
 				cases ~= (member, (ctx check-expr locals, case-ast.then, expected))
+			else
+				has-case-diag := true
+				ctx add-diag case-ast.name-range, name!.symbol-of-sym.to::diag-match-case-duplicate.to
 		else
 			has-case-diag := true
 			if n ?= name
@@ -1025,18 +1024,14 @@ integral-types integral-type[]()
 
 	guard !has-case-diag : expected bogus ast.range
 	
-	else_ expr? = if seen every x => x
+	else_ expr? = if remaining is-empty
 		if x ?= ast else_
 			ctx add-diag x.keyword-range, diag-match-unnecessary-else
 		()
 	elif x ?= ast else_
 		(ctx check-expr locals, x.expr, expected),
 	else
-		unhandled-cases enum-member[] = with out : build
-			for i : 0::nat .. body.members.size
-				unless seen[i]
-					out ~= body.members[i]
-		ctx add-diag ast.keyword-range, unhandled-cases.diag-match-unhandled-enum-members
+		ctx add-diag ast.keyword-range, remaining.to.diag-match-unhandled-enum-members
 		(expected bogus ast.range),
 
 	ast match-enum-expr matched, cases.move-to, else_

@@ -162,7 +162,7 @@ bin/crowj: $(include_dependencies)
 	mv bin/crow-tmp bin/crowj
 
 profile: bin/crowj
-	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crowj check include/compiler/app/main.crow --times 10 --perf
+	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crowj check include/compiler/app/main.crow --times 20 --perf
 	jmc
 
 ### lint ###

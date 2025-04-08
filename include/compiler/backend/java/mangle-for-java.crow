@@ -13,31 +13,39 @@ java-mangled-names record
 	-struct-to-name string[concrete-struct]
 
 build-mangled-names java-mangled-names(show-ctx show-ctx, program concrete-program) # TODO: UNUSED? ------------------------------------------------
-	var-to-name string[concrete-var] = for x : program all-vars
-		x, "v{x get-hash}" # TODO: include the name in it -------------------------------------------------------------------------------------
 	module-to-class-name string mut[uri] = ()
-	# TODO: do something fancier -------------------------------------------------------------------------------------------------
+	struct-to-name string[concrete-struct] = for type : program all-structs
+		# TODO: if there is only 1 struct with the name (globally), just use the decl name
+		type, (module-to-class-name gen-struct-name type)
 	fun-to-name string[concrete-fun] = for fun : program all-funs
-		module-to-class-name add-module-name fun.module-uri
+		_ = module-to-class-name add-module-name fun.module-uri
 		fun, match fun source
 		as concrete-fun-source-regular x
-			x.decl.name do-mangle
+			base = x.decl.name do-mangle
+			module = program.model-program module-at-uri fun.module-uri
+			if x.decl !is-template && (module.funs count f => f.name == x.decl.name) == 1 # TODO:PERF module should store funs-by-name (a multi-by-name)
+				base
+			else
+				"{base}{fun hash}"
 		as concrete-fun-source-lambda _
 			throw unreachable
 		as concrete-fun-source-test _
 			"$test{fun hash}"
 		as concrete-fun-source-wrap-main _
 			"$wrap-main"
-	struct-to-name string[concrete-struct] = for type : program all-structs
-		type, type.gen-struct-name
+	var-to-name string[concrete-var] = for x : program all-vars
+		x, "{x.source.name do-mangle}{x get-hash}" # TODO: If only one var of this name in the module, no need to include the hash
 	show-ctx, var-to-name, module-to-class-name.move-to, fun-to-name, struct-to-name
 
--gen-struct-name string(a concrete-struct)
+-gen-struct-name string(module-to-class-name string mut[uri], a concrete-struct)
 	match a source
 	as concrete-struct-source-bogus
 		"$bogus{a hash}"
 	as concrete-struct-source-inst x
-		"{x.decl.name do-mangle}{"" join for arg : x type-args; "_{arg.struct gen-struct-name}"}"
+		base string = "{module-to-class-name add-module-name x.decl.module-uri}{x.decl.name do-mangle}"
+		type-args string = 	"" join for arg : x type-args
+			"_{module-to-class-name gen-struct-name arg.struct}"
+		"{base}{type-args}"
 	as concrete-struct-source-lambda _
 		throw unreachable
 
@@ -55,12 +63,20 @@ build-mangled-names java-mangled-names(show-ctx show-ctx, program concrete-progr
 		"$greater-or-equal"
 	as "<=>"
 		"$compare"
+	as ".."
+		"$range"
+	as "/"
+		"$divide"
+	as "<<"
+		"$shift-left"
+	as ">>"
+		"$shift-right"
 	else
 		a to
 
--add-module-name void(a string mut[uri], uri uri)
-	_ = a ensure uri, () =>
-		"{uri base-name}{a size}"
+-add-module-name string(a string mut[uri], uri uri)
+	a ensure uri, () =>
+		"{uri.base-name try-remove-end! ".crow"}{a size}"
 
 class-and-member record(class_ string, member string)
 to json(a class-and-member)
