@@ -157,7 +157,9 @@ update-lkg: bin/crowj
 	make bin/crowj
 
 bin/crowj: $(include_dependencies)
-	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crowj
+	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crow-tmp
+	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
+	mv bin/crow-tmp bin/crowj
 
 profile: bin/crowj
 	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crowj check include/compiler/app/main.crow --times 10 --perf
