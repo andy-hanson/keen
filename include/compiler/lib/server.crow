@@ -1,12 +1,11 @@
 import
 	crow/io/print
-	../../../bin/d-imports/date.txt as build-date string
-	../../../bin/d-imports/commit-hash.txt as commit-hash string
+	../../../bin/imports/date.txt as build-date string
+	../../../bin/imports/commit-hash.txt as commit-hash string
 	../app/command
 	../backend/js/source-map
 	../backend/java/translate-to-java
 	../backend/js/translate-to-js
-	../backend/write-to-c
 	../concretize/concretize
 	../document/document
 	../frontend/frontend-compile
@@ -29,41 +28,15 @@ import
 	../frontend/show-diag
 	../frontend/show-model
 	../frontend/storage_
-	../interpret/extern_
-	../interpret/fake-extern
-	../interpret/generate-bytecode
-	../interpret/run-bytecode
 	../lib/lsp/lsp-types
-	../lower/lower
 	../model/ast
 	../model/concrete-model
-	../model/low-model
 	../model/model
 	../model/parse-diag
 	../model/source-range
 	../model/uri
 	../model/version-info
 	../util/exit-code
-
-build-and-interpret exit-code-or-signal(
-	server server,
-	extern_ extern_,
-	write-error write-error,
-	program program-with-main,
-	os os,
-	version version-options,
-	diagnostics-only-for-uris uri[]?,
-	all-args string[],
-)
-	_ = diagnostics-only-for-uris # TODO
-	assert server.files-state == all-loaded
-	low-program = server build-to-low-program (os version-info-for-interpret version), program
-	if extern-pointers ?= extern_ load-extern-pointers low-program.extern-libraries, write-error
-		bytecode = program.program generate-bytecode low-program, extern-pointers, extern_.aggregate-cbs, extern_.make-synthetic-fun-pointers
-		server.get-show-ctx run-bytecode extern_.do-dyn-call, low-program, bytecode, all-args to
-	else
-		write-error["Failed to load external libraries\n"]
-		error
 
 handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	match message
@@ -253,7 +226,7 @@ folding-ranges folding-range-result(server server, uri uri)
 		respond[(server get-rename-for-program program, x)?.to ?? null-lsp-out-result]
 	as run-params x
 		writes write mut[] = ()
-		pwm = program-with-main[(x.uri main-kind-main-function ()), fake-extern]
+		pwm = program-with-main[(x.uri main-kind-main-function ()), java]
 		if pwm has-any-diagnostics
 			writes ~= (err, (server show-diagnostics pwm, x.diagnosticsOnlyForUris?.to))
 		exit exit-code-or-signal = server run-from-lsp pwm, x.diagnosticsOnlyForUris, (pipe, text) =>
@@ -281,7 +254,7 @@ folding-ranges folding-range-result(server server, uri uri)
 	match params
 	as run-test x
 		main-kind = false main-kind-tests-at-uri x.where.uri, (x.where.line.to,)
-		pwm = server.frontend program-with-main-from-program program, main-kind, (fake-extern,)
+		pwm = server.frontend program-with-main-from-program program, main-kind, (java,)
 		writes write mut[] = ()
 		exit = server run-from-lsp pwm, (), (pipe, text) =>
 			writes ~= (pipe, text)
@@ -291,21 +264,17 @@ folding-ranges folding-range-result(server server, uri uri)
 		(message0, message1), ()
 
 run-from-lsp exit-code-or-signal(
-	server server,
+	_ server,
 	program program-with-main,
-	diagnostics-only-for-uris uri[]?,
-	write-cb write-cb,
+	_ uri[]?, # diagnostics-only-for-uris
+	write-cb void mut(pipe pipe, text string),
 )
 	if program has-fatal-diagnostics
 		write-cb[err, "Can't run due to compile errors"]
 		error
 	else
-		extern_ = write-cb fake-extern
-		all-args string[] = "/usr/bin/fake-executable",
-		version-options version-options = do
-			is-single-threaded: true
-			stack-trace-enabled: true
-		server build-and-interpret extern_, (x => write-cb[err, x]), program, none, version-options, diagnostics-only-for-uris, all-args
+		()
+		throw todo # TODO: load it in and run as a Java program. We should probably sandbox it too! ----------------------------
 
 server record mut
 	include-dir uri
@@ -493,11 +462,8 @@ print-ast diags-and-result-json(server server, uri uri)
 json-of-model json(_ server, program program, uri uri)
 	program module-at-uri uri to
 
-json-of-concrete-model json(server server, version-info version-info, program program-with-main)
-	server.get-show-ctx concretize version-info, program to
-
-json-of-low-model json(server server, version-info version-info, program program-with-main)
-	server build-to-low-program version-info, program to
+json-of-concrete-model json(server server, target build-target, program program-with-main)
+	server.get-show-ctx concretize target, program to
 
 json-for-print-ide-at-pos json(
 	server server,
@@ -548,31 +514,9 @@ decoded-tokens json(server server, uri uri)
 	file = server get-crow-file-for-tokens uri
 	file.tokens-of-ast json-of-decoded-tokens
 
-build-to-low-program low-program(
-	server server,
-	version-info version-info,
-	program program-with-main,
-)
-	forbid program has-fatal-diagnostics
-	ctx = server get-show-ctx
-	concrete-program = ctx concretize version-info, program
-	ctx lower program.main-config.extern_, program.program, concrete-program
-
-build-to-c-result record(write-to-c-result write-to-c-result, extern-libraries extern-libraries)
-build-to-c build-to-c-result(
-	server server,
-	os os,
-	version version-options,
-	params write-to-c-params,
-	program program-with-main,
-)
-	low-program = server build-to-low-program (os version-info-for-build-to-c version), program
-	write = server.get-show-ctx write-to-c low-program, params
-	write, low-program.extern-libraries
-
 build-to-java (string, nat8[])[](server server, program program-with-main)
 	show-ctx = server get-show-diag-ctx program.program, true
-	concrete-program = show-ctx.show concretize version-info-for-build-to-java, program
+	concrete-program = show-ctx.show concretize java, program
 	program.program translate-to-java-classes concrete-program, show-ctx
 
 build-to-js js-and-map(
@@ -583,7 +527,7 @@ build-to-js js-and-map(
 )
 	forbid program has-fatal-diagnostics
 	show-ctx = server get-show-diag-ctx program.program, true
-	concrete-program = show-ctx.show concretize target.version-info-for-build-to-js, program
+	concrete-program = show-ctx.show concretize target.to, program
 	program translate-to-js concrete-program, show-ctx, target, source-map-name
 
 get-show-diag-ctx show-diag-ctx(server server, program program)

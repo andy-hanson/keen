@@ -1,204 +1,80 @@
 # This file is for Linux.
 # WARN: If editing this file, you might need to change NMakefile too.
 
-.PHONY: confirm-upload-site debug debug-dmd end-to-end-test end-to-end-test-overwrite serve prepare-site \
-	show-dependencies test unit-test
+.PHONY: check confirm-upload-site end-to-end-test end-to-end-test-overwrite serve prepare-site test unit-test unit-test-java unit-test-js
+
+all_include = $(shell find include -name '*.crow')
 
 # WARN: Does not clean `dyncall` as that takes too long to restore
 # Also does not clean `node_modules` for the VSCode plugin
 clean:
+	mv bin/crow-lkg crow-lkg
 	rm -rf bin site demo/webapp/db demo/*/index.js demo/*/index.js.map
+	mkdir bin
+	mv crow-lkg bin/crow-lkg
 
 all: clean test lint serve
 
-debug: bin/crow-debug
-	gdb ./bin/crow-debug
+test: unit-test end-to-end-test
 
-debug-dmd: bin/crow-dmd
-	gdb ./bin/crow-dmd
-
-### test ###
-
-test: crow-unit-tests test-extern-library end-to-end-test
-
-crow-unit-tests:
-	bin/crowj build include/crow-config.json --test --out java:bin/test
+unit-test: unit-test-java unit-test-js
+unit-test-java: bin/crow $(all_include)
+	bin/crow build include/crow-config.json --test --out java:bin/test
 	bin/test
-	bin/crowj build include/crow-config.json --test --out node-js:bin/test.js
+unit-test-js: bin/crow $(all_include)
+	bin/crow build include/crow-config.json --test --out node-js:bin/test.js
 	bin/test.js
-	# TODO: NATIVE ---------------------------------------------------------------------------------------------------------------
-
-test-extern-library: bin/crow bin/libexample.so
-	bin/crow test/test-extern-library/main.crow
-	# TODO: bin/crow run test/test-extern-library/main.crow --jit
-	bin/crow run test/test-extern-library/main.crow --aot
-
-bin/libexample.so: test/test-extern-library/example.c
-	mkdir -p bin
-	cc test/test-extern-library/example.c -Werror -Wextra -Wall -ansi -pedantic -shared -o bin/libexample.so
 
 end-to-end-test: bin/crow
-ifdef JIT
-	bin/crow test/end-to-end/main.crow --include-jit
-else
 	bin/crow test/end-to-end/main.crow
-endif
 
 end-to-end-test-overwrite: bin/crow
 	bin/crow test/end-to-end/main.crow --overwrite-output
 
-### external dependencies ###
-
-dyncall/dyncall/libdyncall_s.a: dyncall
-	cd dyncall && ./configure
-	cd dyncall && make
-
-dyncall:
-	hg clone https://dyncall.org/pub/dyncall/dyncall/
-
-### D build ###
-
-all_src_files = src/*.d \
-	src/app/*.d \
-	src/backend/*.c \
-	src/backend/*.d \
-	src/backend/*/*.d \
-	src/concretize/*.d \
-	src/document/*.d \
-	src/frontend/*.d \
-	src/frontend/check/*.d \
-	src/frontend/check/checkCall/*.d \
-	src/frontend/ide/*.d \
-	src/frontend/parse/*.d \
-	src/interpret/*.d \
-	src/lib/*.d \
-	src/lib/lsp/*.d \
-	src/lower/*.d \
-	src/model/*.d \
-	src/test/*.d \
-	src/test/*/* \
-	src/util/*.d \
-	src/util/alloc/*.d \
-	src/util/col/*.d
-d_dependencies = $(all_src_files) bin/d-imports/date.txt bin/d-imports/commit-hash.txt dyncall/dyncall/libdyncall_s.a
-
-d_flags_common = -w -betterC -preview=dip1000 -preview=in -J=bin/d-imports -Jsrc/backend -J=src/test -J=include
-dmd_flags_common = $(d_flags_common)
-ldc_flags_common = $(d_flags_common)
-ifdef JIT
-	dmd_flags_common += -version=GccJitAvailable
-	ldc_flags_common += --d-version=GccJitAvailable
-endif
-
-dmd_flags_assert = $(dmd_flags_common) -check=on -boundscheck=on
-dmd_flags_debug = -debug -g -version=Debug -version=Test
-ldc_flags_assert = $(ldc_flags_common) --enable-asserts=true --boundscheck=on
-ldc_wasm_flags = -mtriple=wasm32-unknown-unknown-wasm -L-allow-undefined
-ldc_fast_flags_no_tail_call = -O2 -L=--strip-all
-ldc_fast_flags = $(ldc_fast_flags_no_tail_call) --d-version=TailRecursionAvailable
-app_link = -L=-ldyncall_s -L=-ldyncallback_s -L=-ldynload_s -L=-lunwind \
-	-L=-L./dyncall/dyncall -L=-L./dyncall/dyncallback -L=-L./dyncall/dynload
-ifdef JIT
-	app_link += -L=-lgccjit
-endif
-
 today = $(shell date --iso-8601 --utc)
 
-bin/d-imports/date.txt:
-	mkdir -p bin/d-imports
-	echo $(today) > bin/d-imports/date.txt
+bin/imports/date.txt:
+	mkdir -p bin/imports
+	echo $(today) > bin/imports/date.txt
 
-bin/d-imports/commit-hash.txt:
-	mkdir -p bin/d-imports
-	git rev-parse --short HEAD > bin/d-imports/commit-hash.txt
-
-debug_flags = --d-debug -g --d-version=Debug
-
-bin/crow-debug: $(d_dependencies)
-	ldc2 -ofbin/crow-debug $(ldc_flags_assert) $(debug_flags) --d-version=Test src/app/main.d -I=src -i $(app_link)
-	rm bin/crow-debug.o
-
-# This isn't used anywhere, but you could use it to test things out quickly, since compilation with DMD is much faster.
-bin/crow-dmd: $(d_dependencies)
-	dmd -ofbin/crow-dmd -m64 $(dmd_flags_assert) -debug -g -version=Debug -version=Test \
-		src/app/main.d -I=src -i $(app_link)
-	rm -f bin/crow-dmd.o
-
-bin/crowd: $(d_dependencies)
-	ldc2 -ofbin/crowd $(ldc_flags_assert) $(ldc_fast_flags) src/app/main.d -I=src -i $(app_link)
-	rm bin/crowd.o
-
-# This isn't used anywhere, but you can rename the result to 'crow.wasm' to help debugging in the browser
-bin/crow-debug.wasm: $(d_dependencies)
-	# For some reason, Chrome crashes if this is not at least -O1
-	ldc2 -ofbin/crow-debug.wasm $(debug_flags) $(ldc_flags_assert) $(ldc_wasm_flags) -O1 src/wasm.d -I=src -i
-	rm bin/crow-debug.o
-
-bin/crow.wasm: $(d_dependencies)
-	# Build with a different name so it doesn't use the same '.o' file as 'bin/crow'
-	ldc2 -ofbin/crow-wasm.wasm $(ldc_flags_assert) $(ldc_wasm_flags) $(ldc_fast_flags_no_tail_call) src/wasm.d -I=src -i
-	rm bin/crow-wasm.o
-	mv bin/crow-wasm.wasm bin/crow.wasm
-
-include_dependencies = $(shell find include -name '*.crow') include/compiler/backend/java/lib/Crow.class
+bin/imports/commit-hash.txt:
+	mkdir -p bin/imports
+	git rev-parse --short HEAD > bin/imports/commit-hash.txt
 
 include/compiler/backend/java/lib/Crow.class: include/compiler/backend/java/lib/*.java
 	javac include/compiler/backend/java/lib/*.java
 
-bin/crowcrow: bin/crowd $(include_dependencies) 
-	bin/crowd build include/compiler/app/main.crow --optimize --out bin/crowcrow
-
-update-lkg: bin/crowj
+update-lkg: bin/crow
 	mv bin/crow-lkg bin/crow-lkg-BACKUP
-	mv bin/crowj bin/crow-lkg
+	mv bin/crow bin/crow-lkg
 	# Make sure it is self-compiled
-	make bin/crowj
-	mv bin/crowj bin/crow-lkg
-	make bin/crowj
+	make bin/crow
+	mv bin/crow bin/crow-lkg
+	make bin/crow
 
-bin/crowj: $(include_dependencies)
+check:
+	bin/crow check include/compiler/app/main.crow
+
+bin/crow: $(all_include) include/compiler/backend/java/lib/Crow.class bin/imports/date.txt bin/imports/commit-hash.txt
 	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crow-tmp
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
-	mv bin/crow-tmp bin/crowj
+	mv bin/crow-tmp bin/crow
 
-profile: bin/crowj
-	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crowj check include/compiler/app/main.crow --times 20 --perf
+profile: bin/crow
+	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow check include/compiler/app/main.crow --times 20 --perf
 	jmc
-
-### lint ###
-
-lint: lint-basic lint-dscanner lint-d-imports-exports bin/dependencies.dot
-
-lint-basic: bin/crow
-	bin/crow test/lint-basic.crow
-
-lint-dscanner:
-	dub run dscanner --quiet -- --styleCheck src
-
-lint-d-imports-exports: bin/crow
-	bin/crow test/lint-d-imports-exports.crow
-
-show-dependencies: bin/dependencies.svg
-	open bin/dependencies.svg
-
-bin/dependencies.svg: bin/dependencies.dot
-	dot -Tsvg -o bin/dependencies.svg bin/dependencies.dot
-
-bin/dependencies.dot: bin/crow src test/dependencies.crow
-	bin/crow test/dependencies.crow
 
 ### site ###
 
-prepare-site: bin/crow bin/crow.wasm bin/crow-x64.deb bin/crow-linux-x64.tar.xz bin/crow-demo.tar.xz bin/crow.vsix \
-		site/index.js
-	bin/crow run site-src/site.crow --aot
+prepare-site: bin/crow bin/crow-x64.deb bin/crow-demo.tar.xz bin/crow.vsix site/index.js
+	bin/crow site-src/site.crow
 
 site/index.js: bin/crow site-src/script/*.crow site-src/script/*/*.crow
 	mkdir -p site
 	bin/crow build site-src/script/index.crow --out site/index.js
 
 serve: prepare-site
-	bin/crow run site-src/serve.crow --aot
+	bin/crow site-src/serve.crow
 
 ### publish ###
 

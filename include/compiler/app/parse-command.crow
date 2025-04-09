@@ -16,8 +16,7 @@ parse-command command(cwd file-path, os os, args string[])
 	arg0 string = args is-empty ? "" : args[0]
 	if arg0 ends-with ".crow"
 		main main-kind = (cwd parse-uri-with-cwd arg0) main-kind-main-function args[1 .. end].to
-		options run-options = false interpret-run-options default
-		kind command-kind = main run-command options
+		kind command-kind = main run-command ()
 		kind, ()
 	elif name ?= arg0 command-name
 		cwd parse-command-from-name os, name, args[1 .. end]
@@ -312,8 +311,6 @@ default-executable-extension symbol(os os)
 		args expect-empty-args print-model
 	as concrete-model
 		args expect-empty-args print-concrete-model
-	as low-model
-		args expect-empty-args print-low-model
 	else
 		if kind-at-pos ?= a ide-at-pos-kind
 			args expect-line-and-column lc =>
@@ -357,29 +354,14 @@ parse-line-and-column line-and-column?(a string)
 -parse-build-command command-kind(cwd file-path, diags diags, os os, args split-args)
 	diags expect-empty-after-dash-dash args.after-dash-dash
 	out mut single-build-output[] = ()
-	optimize mut = false
-	is-c99 mut = false
-	no-stack-trace mut = false
-	single-threaded mut = false
 	test_ mut = false
 	all mut = false
 	diags warn-duplicates args.parts
 	for part : args parts
 		match part tag
-		as "--c99"
-			diags expect-flag part
-			is-c99 := true
-		as "--no-stack-trace"
-			diags expect-flag part
-			no-stack-trace := true
 		as "--out"
+			# TODO: warn if we get this option twice ----------------------------------------------------------------------------
 			out := cwd parse-build-out os, diags, part
-		as "--optimize"
-			diags expect-flag part
-			optimize := true
-		as "--single-threaded"
-			diags expect-flag part
-			single-threaded := true
 		as "--test"
 			diags expect-flag part
 			test_ := true
@@ -388,7 +370,7 @@ parse-line-and-column line-and-column?(a string)
 			all := true
 		else
 			diags ~= part.tag unexpected-part
-	
+
 	if all && !test_
 		diags ~= "--all".unexpected-part
 	
@@ -397,17 +379,11 @@ parse-line-and-column line-and-column?(a string)
 	else
 		cwd parse-main-uri diags, args.before-first-part main-kind-main-function ()
 	res-out single-build-output[] = if out is-empty
-		(executable, (main default-executable-path-for-main cwd, os)),
+		(java, (main default-executable-path-for-main cwd, os)),
 	else
 		out
 	options crow-build-options = do
-		version: do
-			is-single-threaded: single-threaded
-			stack-trace-enabled: !no-stack-trace
 		out: res-out
-		c-compile-options: do
-			optimization-level: optimize ? o2 : none
-			c-version: is-c99 ? c99 : c11
 	main build-command options
 
 -warn-duplicates void(diags diags, parts args-part[])
@@ -431,14 +407,7 @@ parse-line-and-column line-and-column?(a string)
 
 -run-options-and-all record(run-options run-options, all bool)
 -parse-run-options run-options-and-all(diags diags, arg-parts args-part[], allow-all bool)
-	no-stack-trace mut = false
-	aot mut = false
-	jit mut = false
-	node-js mut = false
-	optimize mut = false
-	single-threaded mut = false
 	all mut = false
-	fake-extern mut = false
 	diags warn-duplicates arg-parts
 	for part : arg-parts
 		match part tag
@@ -448,53 +417,9 @@ parse-line-and-column line-and-column?(a string)
 				all := true
 			else
 				diags ~= part.tag unexpected-part
-		as "--aot"
-			diags expect-flag part
-			aot := true
-		as "--fake-extern"
-			diags expect-flag part
-			fake-extern := true
-		as "--jit"
-			diags expect-flag part
-			jit := true
-		as "--node-js"
-			diags expect-flag part
-			node-js := true
-		as "--no-stack-trace"
-			diags expect-flag part
-			no-stack-trace := true
-		as "--optimize"
-			diags expect-flag part
-			optimize := true
-		as "--single-threaded"
-			diags expect-flag part
-			single-threaded := true
 		else
 			diags ~= part.tag unexpected-part
-	
-	if fake-extern && (aot || jit || node-js)
-		diags ~= "--fake-extern" unexpected-part
-	if fake-extern && single-threaded
-		diags ~= "--single-threaded" redundant-part "--fake-extern"
-	if aot.to::nat + jit.to + node-js.to > 1
-		diags ~= aot run-kind-incompatible jit, node-js
-	if !aot && !jit && optimize
-		diags ~= run-optimize-needs-aot-or-jit
-	if node-js && (single-threaded || optimize || no-stack-trace)
-		arg string = single-threaded ? "--single-threaded" : optimize ? "--optimize" : "--no-stack-trace"
-		diags ~= arg run-arg-not-supported-in-node-js
-	version version-options = do
-		is-single-threaded: fake-extern || single-threaded
-		stack-trace-enabled: !no-stack-trace
-	res run-options = if aot
-		version aot-run-options ((optimize ? o2 : none), c11)
-	elif jit
-		version jit-run-options ((optimize ? o2 : none),)
-	elif node-js
-		node-js-run-options
-	else
-		fake-extern interpret-run-options version
-	res, all
+	(), all
 
 -expect-nat nat(_ diags, args string array-view)
 	assert arg ?= args opt-only : todo # -------------------------------------------------------------------------------------------------------
@@ -547,13 +472,11 @@ parse-line-and-column line-and-column?(a string)
 		()
 -build-kind-from-extension single-build-output-kind?(extension symbol, os os)
 	match extension
-	as ".c"
-		c,
 	as ".js"
 		js-script,
 	else
 		if extension == os.default-executable-extension
-			executable,
+			java,
 
 -parse-file-path-with-cwd-or-diag file-path(diags diags, cwd file-path, arg string)
 	cwd parse-file-path-with-cwd arg ?? do
@@ -665,11 +588,8 @@ default-executable-path file-path(base file-path, os os)
 		"\nOptions are:" ~~
 		"\n\t--out : Output path. Defaults to the input path with the extension changed." ~~
 		"\n\t\tIf this has a '.c' extension, it will output C source code instead." ~~
-		"\n\t--optimize : Enables optimizations." ~~
 		"\n\t--test: Ignore the 'main' function and compile a program that runs tests." ~~
-		"\n\t\t--all: Works with '--test'. Runs all tests in all included files." ~~
-		"\n\t--c99 : Compile to C99. (Default is C11 which is less verbose.)" ~~
-		build-run-common-options
+		"\n\t\t--all: Works with '--test'. Runs all tests in all included files."
 	as check
 		"Prints any diagnostics for the module(s) at PATH(s) or their imports.\nNo options."
 	as document
@@ -681,7 +601,6 @@ default-executable-path file-path(base file-path, os os)
 		"\ncrow print ast PATH" ~~
 		"\ncrow print model PATH" ~~
 		"\ncrow print concrete-model PATH" ~~
-		"\ncrow print low-model PATH" ~~
 		"\n" ~~
 		"\ncrow print code-lenses PATH" ~~
 		"\ncrow print definition PATH LINE:COLUMN" ~~
@@ -695,13 +614,7 @@ default-executable-path file-path(base file-path, os os)
 		"\ncrow print tokens PATH" ~~
 		"\ncrow print type-definition PATH LINE:COLUMN"
 	as run
-		"Runs the program at PATH." ~~
-		"\nArguments after '--' will be sent to the program." ~~
-		"\nOptions are:\n" ~~
-		"\n\t--aot : Instead of interpreting the program, builds an executable, runs it, then deletes it." ~~
-		"\n\t--optimize : Use with '--aot'. Enables optimizations." ~~
-		build-run-common-options ~~
-		"\nWith no options, 'crow run foo.crow' is equivalent to 'crow foo.crow'."
+		"Runs the program at PATH. Equivalent to 'crow foo.crow'."
 	as test_
 		"Runs tests at PATH." ~~
 		"\nIf PATH is a 'crow-config' file, searches its directory (recursively) for '.crow' files" ~~
@@ -711,6 +624,3 @@ default-executable-path file-path(base file-path, os os)
 		"\nIf '--all' is specified, runs all tests in reachable files, including library tests."
 	as version
 		"Prints information about the version of 'crow'.\nNo options."
--build-run-common-options string()
-	"\n\t--single-threaded : See documentation for 'is-single-threaded' in 'crow/version'." ~~
-	"\n\t--no-stack-trace : See documentation for 'is-stack-trace-enabled' in 'crow/version'."

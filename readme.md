@@ -12,11 +12,8 @@ For information about the language itself, visit the [website](https://crow-lang
 
 To work on Crow, you'll need these tools:
 
+* [`java`](https://www.java.com/en/download/manual.jsp): Used to run Crow.
 * [`git`](https://git-scm.com): Used to get this repository.
-* [`hg`](https://mercurial-scm.org): Used to clone the `dyncall` library.
-* [`ldc`](https://github.com/ldc-developers/ldc#installation): Used to compile `bin/crow`.
-	- Don't use the Visual D installer as it uses an older compiler.
-	Download the latest [release](https://github.com/ldc-developers/ldc/releases) instead.
 * [`node`](https://nodejs.org/): Used to test JS builds and to build the VSCode extension.
 * Also install dependencies listed on the [download](https://crow-lang.org/download.html) page.
 * On Linux: Optionally, [GraphViz](https://graphviz.org/download/) to support `make show-dependencies`.

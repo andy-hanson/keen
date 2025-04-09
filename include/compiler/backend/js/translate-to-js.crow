@@ -3,7 +3,7 @@ import
 	../../model/concrete-model
 	../../model/integral-values
 	../../model/model
-	../../model/show-low-model
+	../../model/show-concrete-model
 	../../model/source-range
 	../../model/uri
 	../../model/version-info
@@ -387,7 +387,7 @@ translate-to-js js-and-map(
 	as builtin-fun-all-tests
 		source throw-message "Reached builtin-fun-all-tests?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-unary x
-		source translate-builtin-unary x, args.only
+		ctx translate-builtin-unary type, source, x, args.only
 	as builtin-unary-math x
 		source translate-builtin-unary-math x, args.only
 	as builtin-binary x
@@ -450,10 +450,8 @@ translate-to-js js-and-map(
 		source throw-message "Reached builtin-fun-size-of?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 	as builtin-fun-static-symbols
 		source throw-message "Reached builtin-fun-static-symbols?????" to # TODO: should be unreachable ----------------------------------------------------------------------
-	as version-fun _
-		source throw-message "Reached builtin-fun version-fun?????" to # TODO: should be unreachable ----------------------------------------------------------------------
 
--translate-builtin-unary js-expr-or-block-statement(source source, a builtin-unary, arg js-expr)
+-translate-builtin-unary js-expr-or-block-statement(ctx to-expr-ctx, type concrete-type, source source, a builtin-unary, arg js-expr)
 	unary js-expr mut(op js-unary-kind) = op =>
 		source gen-unary op, arg
 	match a
@@ -599,9 +597,21 @@ translate-to-js js-and-map(
 	as unsafe-to-nat32-from-nat64
 		arg to
 	as weak-ref-get
-		source throw-message "TODO: weak-ref-get" to
+		###
+		const got = arg?.get()
+		return new Option(got === undefined ? 0 : 1, got)
+		###
+		arg-get js-expr = source gen-optional-call-property-sync arg, "deref".no-prefix, ()
+		ctx with-temp "got", source, arg-get, got =>
+			got-eq-undefined = source gen-eq-eq-eq got, source.gen-undefined
+			zero = source gen-integer-unsigned 0
+			one = source gen-integer-unsigned 1
+			index = source gen-ternary got-eq-undefined, zero, one
+			option = ctx to-ref source, type.struct
+			(source gen-return (source gen-new option, (index, got))),
 	as weak-ref-new
-		source throw-message "TODO: weak-ref-new" to
+		WeakRef = source gen-global "WeakRef"
+		source gen-new WeakRef, (arg,) to
 
 -translate-builtin-unary-math js-expr-or-block-statement(source source, a builtin-unary-math, arg js-expr)
 	f32 js-expr-or-block-statement data(name string) = name =>
@@ -1577,7 +1587,13 @@ translate-to-js js-and-map(
 		throw unreachable
 
 -constant-integral js-expr(source source, type integral-type, a constant)
-	value = a as-integral
+	value = match a
+	as integral-value x
+		x
+	as constant-gc-safe-value
+		0::nat,
+	else
+		throw unreachable
 	if type is-signed
 		source gen-integer-signed value.as-signed
 	else
