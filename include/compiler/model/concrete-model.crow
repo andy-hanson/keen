@@ -164,7 +164,6 @@ concrete-struct-special-kind enum
 	none
 	array-or-mut-array
 	catch-point
-	pointer # mut or const
 	tuple
 == bool(a concrete-struct-special-kind, b concrete-struct-special-kind)
 is-self-mutable bool(a concrete-struct)
@@ -237,15 +236,6 @@ unwrap-weak-ref concrete-type(a concrete-struct)
 is-weak-ref bool(a concrete-struct)
 	if inst ?= a.source concrete-struct-source-inst
 		inst.decl is-weak-ref
-is-pointer bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-pointer
-is-pointer bool(a concrete-struct)
-	a.special-kind == pointer
-pointee-type concrete-type(pointer-type concrete-type)
-	assert pointer-type.must-be-by-val is-pointer
-	pointer-type.must-be-by-val.source.concrete-struct-source-inst!.type-args only
-pointee-type-if-is-pointer concrete-type(a concrete-type)
-	a is-pointer ? a pointee-type : a
 is-bogus bool(a concrete-struct)
 	a.source.concrete-struct-source-bogus !is-empty
 is-string bool(a concrete-type)
@@ -273,7 +263,6 @@ try-unpack-tuple concrete-type[]?(a concrete-type)
 unpack-tuple concrete-type[](a concrete-type)
 	a try-unpack-tuple!
 	
-
 has-size-or-pointer-size-bytes bool(a concrete-type)
 	match a reference
 	as by-val_
@@ -465,7 +454,6 @@ concrete-expr-kind union(
 	let-concrete-expr,
 	lambda-concrete-expr,
 	local-get-concrete-expr,
-	local-pointer-concrete-expr,
 	local-set-concrete-expr,
 	loop-concrete-expr,
 	loop-break-concrete-expr,
@@ -474,7 +462,6 @@ concrete-expr-kind union(
 	match-string-like-concrete-expr,
 	match-union-concrete-expr,
 	record-field-get-concrete-expr,
-	record-field-pointer-concrete-expr,
 	record-field-set-concrete-expr,
 	seq-concrete-expr,
 	throw-concrete-expr,
@@ -552,8 +539,6 @@ to json(a lambda-concrete-expr)
 # For a JS target, this can get a local through a closure.
 local-get-concrete-expr record(local concrete-local)
 to json(a local-get-concrete-expr)
-local-pointer-concrete-expr record(local concrete-local)
-to json(a local-pointer-concrete-expr)
 local-set-concrete-expr record(local concrete-local, value concrete-expr)
 to json(a local-set-concrete-expr)
 loop-concrete-expr record(body concrete-expr)
@@ -620,29 +605,13 @@ record-field-get-concrete-expr record(record_ concrete-expr, field-index nat)
 to json(a record-field-get-concrete-expr)
 field concrete-field(a record-field-get-concrete-expr)
 	a.record_.type.struct.body.concrete-record!.fields[a field-index]
-record-field-pointer-concrete-expr record(record_ concrete-expr, field-index nat)
-to json(a record-field-pointer-concrete-expr)
-record-type concrete-struct(a record-field-pointer-concrete-expr)
-	type = a.record_ type
-	match type reference
-	as by-val_
-		type.pointee-type must-be-by-val
-	as by-ref_
-		type struct
-field concrete-field(a record-field-pointer-concrete-expr)
-	a.record-type.body.concrete-record!.fields[a field-index]
 record-field-set-concrete-expr record
 	record_ concrete-expr
 	field-index nat
 	value concrete-expr
 to json(a record-field-set-concrete-expr)
-record-type concrete-type(a record-field-set-concrete-expr)
-	struct = a.record_.type struct
-	if builtin_ ?= struct.body concrete-builtin-type
-		assert builtin_.kind == mut-pointer
-		builtin_.type-args only
-	else
-		a.record_ type
+record-type concrete-type(a record-field-set-concrete-expr) # TODO: inline -----------------------------------------------------
+	a.record_ type
 field concrete-field(a record-field-set-concrete-expr)
 	a.record-type.struct.body.concrete-record!.fields[a field-index]
 seq-concrete-expr record(first concrete-expr, then concrete-expr)
@@ -687,7 +656,6 @@ all-constants-concrete record
 	static-symbols constant
 	arrs arr-type-and-constants-concrete[] # TODO: rename to 'arrays' ----------------------------------------------------------------
 	| Maps a {constant-record} to the record values.
-	| Note a constant record is always by-value, use 'pointers' for pointers.
 	records (constant-record, constant[]) full-index-map[concrete-struct]
 	unions (constant-union, constant-union-value) full-index-map[concrete-struct]
 
@@ -778,8 +746,6 @@ iterate bool(a direct-child-exprs, f bool mut(x concrete-expr))
 		f[x value] || f[x then]
 	as local-get-concrete-expr _
 		false
-	as local-pointer-concrete-expr _
-		false
 	as local-set-concrete-expr x
 		f[x value]
 	as loop-concrete-expr x
@@ -800,8 +766,6 @@ iterate bool(a direct-child-exprs, f bool mut(x concrete-expr))
 		x.else_ cb-option f
 	as record-field-get-concrete-expr x
 		f[x record_]
-	as record-field-pointer-concrete-expr x
-		f[x record_]
 	as record-field-set-concrete-expr x
 		f[x record_] || f[x value]
 	as seq-concrete-expr x
@@ -820,12 +784,10 @@ iterate bool(a direct-child-exprs, f bool mut(x concrete-expr))
 | The type of a constant is implicit (given by context).
 | This means two constants that look equal may not be the same constant if they have different types
 | (e.g., IntegralValue has different sizes.)
-| WARN: A Constant.Record is *by value* even if the record usually isn't. Use Constant.Pointer for a pointer.
 constant union(
 	constant-array,
 	constant-c-string,
 	constant-float,
-	constant-fun-pointer,
 	integral-value,
 	constant-record,
 	constant-union,
@@ -844,8 +806,6 @@ hash-mix void(hasher hasher, a constant)
 	as constant-c-string x
 		hasher hash-mix x
 	as constant-float x
-		hasher hash-mix x
-	as constant-fun-pointer x
 		hasher hash-mix x
 	as integral-value x
 		hasher hash-mix x
@@ -876,8 +836,6 @@ each-nested-constant void(
 		()
 	as constant-float _
 		()
-	as constant-fun-pointer _
-		()
 	as integral-value _
 		()
 	as constant-record x
@@ -905,7 +863,7 @@ to json(a constant-array)
 hash-mix void(hasher hasher, a constant-array)
 	hasher hash-mix a.type-index
 	hasher hash-mix a.index
-| Nul-terminated string identified only by its begin pointer.
+| TODO: I've been reusing this for native JS and Java strings. I should rename it. ----------------------------------------------------
 constant-c-string record
 	| Index into {all-constants-concrete}.{c-strings}
 	index nat
@@ -923,13 +881,6 @@ hash-mix void(hasher hasher, a constant-float)
 	hasher hash-mix a.value
 # TODO: handle Nan! -------------------------------------------------------------------------------------------------------------
 == bool(a constant-float, b constant-float)
-# TODO: This is no longer a language feature .... except I need it for unit-tests. I should probably just synthesize a function that runs them all.
-constant-fun-pointer record(fun concrete-fun)
-to json(a constant-fun-pointer)
-	a.fun to
-== bool(a constant-fun-pointer, b constant-fun-pointer)
-hash-mix void(hasher hasher, a constant-fun-pointer)
-	hasher hash-mix a.fun
 | Index into {all-constants-concrete}.{records}
 constant-record record(index nat)
 == bool(a constant-record, b constant-record)

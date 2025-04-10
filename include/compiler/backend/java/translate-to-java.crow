@@ -566,16 +566,10 @@ translate-to-java-classes (string, nat8[])[](
 		out push-constant-integral int8, constant
 	as char32
 		out push-constant-integral int32, constant
-	as const-pointer
-		throw unreachable
 	as float32
 		out fconst constant.constant-float!.value.to
 	as float64
 		out dconst constant.constant-float!.value
-	as fun-pointer
-		fun = constant.constant-fun-pointer! fun
-		method = out.constants static-method-ref ctx.ctx, fun
-		out ldc type.as-runtime-type, (out.constants method-handle REF_invokeStatic, method)
 	as future
 		throw unreachable
 	as int8
@@ -605,8 +599,6 @@ translate-to-java-classes (string, nat8[])[](
 	as fun-shared
 		throw unreachable
 	as mut-array
-		throw unreachable
-	as mut-pointer
 		throw unreachable
 	as mut-slice
 		array[]
@@ -1140,14 +1132,10 @@ translate-to-java-classes (string, nat8[])[](
 			"java/lang/Byte"
 		as char32
 			"java/lang/Integer"
-		as const-pointer
-			"java/lang/Void" # Use Void since it's a type with no instances
 		as float32
 			"java/lang/Float"
 		as float64
 			"java/lang/Double"
-		as fun-pointer
-			"java/lang/invoke/MethodHandle"
 		as future
 			"java/util/concurrent/Future"
 		as int8
@@ -1172,8 +1160,6 @@ translate-to-java-classes (string, nat8[])[](
 			mangled[]
 		as mut-array
 			throw unreachable
-		as mut-pointer
-			"java/lang/Object"
 		as mut-slice
 			array-or-mut-slice[]
 		as nat8
@@ -1668,8 +1654,6 @@ translate-to-java-classes (string, nat8[])[](
 		out get-local ctx, x.local
 		ctx pushed type
 		out handle-pos pos, type
-	as local-pointer-concrete-expr _
-		throw unreachable
 	as local-set-concrete-expr x
 		out emit-and-continue ctx, x.value
 		local-type = x.local.type struct
@@ -1800,8 +1784,6 @@ translate-to-java-classes (string, nat8[])[](
 		ctx must-pop x.record_.type.struct
 		ctx pushed x.field.type.struct
 		out handle-pos pos, type
-	as record-field-pointer-concrete-expr _
-		throw unreachable
 	as record-field-set-concrete-expr x
 		out emit-and-continue ctx, x.record_
 		out emit-and-continue ctx, x.value
@@ -2494,30 +2476,6 @@ translate-to-java-classes (string, nat8[])[](
 			descriptor = ctx.ctx lambda-call-descriptor lambda.type.struct
 			name-and-descriptor = ctx.constants name-and-type "call", descriptor
 			out invokevirtual (ctx.constants method-ref lambda-class, name-and-descriptor)
-	as builtin-fun-call-fun-pointer
-		out function-like ctx, type, args, () =>
-			# invoking MethodHandle will accept whatever descriptor you give it (and check dynamically)
-			return-type, param-type = type-args only2
-			args.size is 2
-			if param-type is-tuple
-				# TODO: if the argument is a record create expr, do the call immediately
-				fields = param-type.struct.body.concrete-record! fields
-				tuple-local-index = ctx next-local-index
-				out xstore reference-type, tuple-local-index
-				for field : fields
-					out xload reference-type, tuple-local-index
-					out getfield (ctx field-reference param-type.struct, field)
-			descriptor string = with d : build
-				d ~= "("
-				param-types concrete-type[] = param-type.try-unpack-tuple ?? (param-type,)
-				for x : param-types
-					d ~~= ctx.ctx descriptor-for-param-type x.struct
-				d ~= ")"
-				d ~~= ctx.ctx descriptor-for-return-type return-type.struct
-			name-and-descriptor = ctx.constants name-and-type "invoke", descriptor
-			MethodHandle = ctx.constants class_ "java/lang/invoke/MethodHandle"
-			method = ctx.constants method-ref MethodHandle, name-and-descriptor
-			out invokevirtual method
 	as builtin-fun-constant _
 		throw unreachable
 	as builtin-fun-gc-safe-value
@@ -2579,14 +2537,10 @@ translate-to-java-classes (string, nat8[])[](
 
 -translate-builtin-unary void(out code-builder, ctx to-java-ctx, kind builtin-unary, type-args concrete-type[])
 	match kind
-	as array-pointer
-		throw unreachable
 	as array-size
 		unless type-args.only.struct is-empty-struct
 			out arraylength
 		out i2l
-	as as-any-pointer
-		throw unreachable
 	as as-future
 		throw unreachable
 	as as-future-impl
@@ -2616,10 +2570,6 @@ translate-to-java-classes (string, nat8[])[](
 	as count-ones-nat64
 		out call-static "java/lang/Long", "bitCount", "(J)I"
 		out i2l
-	as deref
-		throw unreachable
-	as drop
-		throw unreachable
 	as float32-from-bits
 		out call-static "java/lang/Float", "intBitsToFloat", "(I)F"
 	as float64-from-bits
@@ -2668,10 +2618,6 @@ translate-to-java-classes (string, nat8[])[](
 		out i2l
 		out lconst 0xffffffff
 		out land
-	as to-nat64-from-ptr
-		throw unreachable
-	as to-ptr-from-nat64
-		throw unreachable
 	as truncate-to-int64-from-float64
 		out d2l
 	as trust-as-string
@@ -2804,8 +2750,6 @@ translate-to-java-classes (string, nat8[])[](
 		out fadd
 	as add-float64
 		out dadd
-	as add-pointer-and-nat64
-		throw unreachable
 	as bitwise-and-int8
 		out iand
 	as bitwise-and-int16
@@ -2878,8 +2822,6 @@ translate-to-java-classes (string, nat8[])[](
 		out call-static "Crow", "equalInt32", "(II)Z"
 	as equal-nat64
 		out call-static "Crow", "equalInt64", "(JJ)Z"
-	as equal-pointer
-		throw unreachable
 	as less-char8
 		out call-static "Crow", "lessNat8", "(BB)Z"
 	as less-float32
@@ -2902,24 +2844,16 @@ translate-to-java-classes (string, nat8[])[](
 		out call-static "Crow", "lessNat32", "(II)Z"
 	as less-nat64
 		out call-static "Crow", "lessNat64", "(JJ)Z"
-	as less-pointer
-		throw unreachable
 	as mul-float32
 		out fmul
 	as mul-float64
 		out dmul
-	as new-array
-		throw unreachable
 	as reference-equal
 		out call-static "Crow", "referenceEqual", "(Ljava/lang/Object;Ljava/lang/Object;)Z"
-	as seq
-		throw unreachable
 	as sub-float32
 		out fsub
 	as sub-float64
 		out dsub
-	as sub-pointer-and-nat64
-		throw unreachable
 	as unsafe-add-int8
 		out iadd
 	as unsafe-add-int16
@@ -3020,8 +2954,6 @@ translate-to-java-classes (string, nat8[])[](
 		out isub
 	as wrap-sub-nat64
 		out lsub
-	as write-to-pointer
-		throw unreachable
 
 -translate-builtin-binary-math void(out code-builder, kind builtin-binary-math)
 	Math string = "java/lang/Math"
