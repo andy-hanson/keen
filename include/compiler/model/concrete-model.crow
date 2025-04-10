@@ -136,7 +136,6 @@ range uri-and-range(a concrete-struct-source)
 concrete-struct record force-data
 	hash nat
 	purity purity
-	special-kind concrete-struct-special-kind
 	source concrete-struct-source
 	body mut concrete-struct-body
 	| For a JS build, this will always be unset 
@@ -160,12 +159,6 @@ to json(a concrete-struct)
 	throw todo
 hash-mix void(hasher hasher, a concrete-struct)
 	hasher hash-mix a.hash
-concrete-struct-special-kind enum
-	none
-	array-or-mut-array
-	catch-point
-	tuple
-== bool(a concrete-struct-special-kind, b concrete-struct-special-kind)
 is-self-mutable bool(a concrete-struct)
 	if r ?= a.body concrete-record
 		r is-some-field-mutable
@@ -208,11 +201,13 @@ is-nat8 bool(a concrete-struct)
 		false
 is-array-or-mut-array bool(a concrete-type)
 	a.reference == by-val_ && a.struct is-array-or-mut-array
-is-array-or-mut-array bool(a concrete-struct) # TODO: should be 'is-array-or-mut-slice'? -------------------------------------------
-	a.special-kind == array-or-mut-array # TODO: do we even need this any more? Can just look at the builtin kind? -----------------------------------
+is-array-or-mut-array bool(a concrete-struct) # TODO: should be 'is-array-or-mut-slice' -------------------------------------------
+	guard b ?= a.body concrete-builtin-type
+	b.kind == array || b.kind == mut-slice
+
 opt-array-element-type concrete-type?(array-type concrete-type)
-	if array-type is-array-or-mut-array
-		array-type.array-element-type,
+	guard array-type is-array-or-mut-array
+	array-type.array-element-type,
 array-element-type concrete-type(array-type concrete-type) # TODO: this should return an option (and don't need to check is-array first)
 	assert array-type.must-be-by-val is-array-or-mut-array
 	array-type.must-be-by-val array-element-type
@@ -253,15 +248,6 @@ is-js-any bool(a concrete-type)
 is-js-any bool(a concrete-struct)
 	if x ?= a.source concrete-struct-source-inst
 		x.decl is-js-any
-is-tuple bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-tuple
-is-tuple bool(a concrete-struct)
-	a.special-kind == tuple
-try-unpack-tuple concrete-type[]?(a concrete-type)
-	if a is-tuple
-		a.struct.source.concrete-struct-source-inst!.type-args,
-unpack-tuple concrete-type[](a concrete-type)
-	a try-unpack-tuple!
 	
 has-size-or-pointer-size-bytes bool(a concrete-type)
 	match a reference
@@ -791,8 +777,7 @@ constant union(
 	integral-value,
 	constant-record,
 	constant-union,
-	constant-gc-safe-value, # TODO: could I get rid of this and just use a constant of the appropriate type? ---------------------------------
-	constant-null # Needed for gc-safe-value of certain types
+	constant-gc-safe-value
 )
 to json(a constant)
 # This assumes the constants are for the same type
@@ -815,8 +800,6 @@ hash-mix void(hasher hasher, a constant)
 		hasher hash-mix x
 	as constant-gc-safe-value x
 		hasher hash-mix x
-	as constant-null
-		()
 each-nested-constant void(
 	all-constants all-constants-concrete,
 	type concrete-type,
@@ -848,8 +831,6 @@ each-nested-constant void(
 		member-type = type.must-be-by-val.body.concrete-union!.members[value member-index]
 		all-constants each-nested-constant member-type, value.member, f 
 	as constant-gc-safe-value
-		()
-	as constant-null
 		()
 
 constant-array record
@@ -903,17 +884,10 @@ constant-union-value record(member-index nat, member constant)
 hash-mix void(hasher hasher, a constant-union-value)
 	hasher hash-mix a.member-index
 	hasher hash-mix a.member
-# TODO: Shouldn't ever need this, just constant-null! -----------------------------------------------------------------------------
 constant-gc-safe-value record
 == bool(a constant-gc-safe-value, b constant-gc-safe-value)
 to json(a constant-gc-safe-value)
 hash-mix void(_ hasher, _ constant-gc-safe-value)
-	()
-| Also works for 'void'
-constant-null record
-== bool(a constant-null, b constant-null)
-to json(a constant-null)
-hash-mix void(_ hasher, _ constant-null)
 	()
 
 constant-bool constant(a bool)
