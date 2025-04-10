@@ -11,7 +11,6 @@ import
 	../../util/enum-map
 	../../util/sym
 	../../util/util
-	./check-call/candidates
 	./check-call/check-call
 	./check-call/check-call-specs
 	./check-ctx
@@ -498,9 +497,9 @@ integral-types integral-type[]()
 	range = ast range
 	value = ast value
 	types = ctx common-types
-	allowed-types struct-inst[] = types.char8, types.char32, types.char8-array, types.char32-array, types.c-string, types.js-any, types.string, types.symbol
+	allowed-types struct-inst[] = types.char8, types.char32, types.char8-array, types.char32-array, types.js-any, types.string, types.symbol
 	# First 2 kinds won't be used
-	kinds string-like-type[] = c-string, c-string, char8-array, char32-array, c-string, js-any, string, symbol
+	kinds string-like-type[] = string, string, char8-array, char32-array, js-any, string, symbol
 	guard type-index ?= ctx find-expected-struct-for-literal range, expected, allowed-types : expected bogus range
 	expr expr? = if type-index == 0
 		(range literal-integral-expr char8.to, ((ctx char8-literal-value range, value).to,)),
@@ -519,8 +518,6 @@ integral-types integral-type[]()
 			value,
 		as char32-array
 			value,
-		as c-string
-			check-no-nul[c-string-contains-nul],
 		as string
 			check-no-nul[string-contains-nul],
 		as symbol
@@ -620,182 +617,9 @@ integral-types integral-type[]()
 	if local !is-read || (local !is-written && local is-mutable)
 		ctx add-diag local.local-must-have-name-range, local.diag-unused-local
 
--check-pointer expr(ctx expr-ctx, locals locals-info, source expr-ast, ast ptr-ast, expected expected)
-	match ctx get-expected-pointee expected
-	as expected-pointee-none _
-		ctx add-diag source, pointer::diag-needs-expected-type.to
-		expected bogus source
-	as expected-pointee-fun-pointer x
-		ctx check-fun-pointer locals, ast, x, expected
-	as expected-pointee-pointer x
-		ctx check-pointer-inner locals, source, ast, x.pointer, x.pointee, x.mutability, expected
-
--expected-pointee union(expected-pointee-none, expected-pointee-fun-pointer, expected-pointee-pointer)
--expected-pointee-none record
--expected-pointee-fun-pointer record(return-type type, param-types type)
--expected-pointee-pointer record(pointer struct-inst, pointee type, mutability pointer-mutability)
-
--pointer-mutability enum(read-only, writeable) # TODO: names should probably be 'const' and 'mut' ---------------------------------
-== bool(a pointer-mutability, b pointer-mutability)
-<=> comparison(a pointer-mutability, b pointer-mutability)
-
--get-expected-pointee expected-pointee(ctx expr-ctx, expected expected)
-	if inst ?= (ctx.instantiate-ctx try-get-non-inferring-type expected)?.struct-inst
-		if inst.decl == ctx.common-types.pointer-const # TODO: could use is-pointer-const 000000000000000000000000000000000000
-			inst expected-pointee-pointer inst.type-args.only, read-only
-		elif inst.decl == ctx.common-types.pointer-mut # TODO: could use is-pointer-mut 00000000000000000000000000000000000000
-			inst expected-pointee-pointer inst.type-args.only, writeable
-		elif inst.decl == ctx.common-types.fun-pointer-struct
-			r, p = inst.type-args only2
-			r expected-pointee-fun-pointer p
-		else
-			expected-pointee-none
-	else
-		expected-pointee-none
-
--check-pointer-inner expr(
-	ctx expr-ctx,
-	locals locals-info,
-	source expr-ast,
-	ast ptr-ast,
-	pointer-type struct-inst,
-	pointee-type type,
-	expected-mutability pointer-mutability,
-	expected expected,
-)
-	if sym-native !in ctx.externs
-		ctx add-diag source, diag-pointer-is-native
-		expected bogus source
-	else
-		if ctx !check-can-do-unsafe
-			ctx add-diag source, diag-pointer-is-unsafe
-		match ctx check-and-expect locals, ast.inner, pointee-type
-		as local-get-expr x
-			if expected-mutability != read-only && x.local !is-mutable
-				ctx add-diag source, local::diag-pointer-mut-to-const.to
-			if expected-mutability == writeable
-				x.local.is-written := true
-			ctx check expected, pointer-type.to, (ast local-pointer-expr x.local, pointer-type)
-		as call-expr x
-			ctx check-pointer-of-call ast, x, pointer-type, expected-mutability, expected
-		else
-			ctx add-diag source, other::diag-pointer-unsupported.to
-			expected bogus source
-	
--check-pointer-of-call expr(
-	ctx expr-ctx,
-	ast ptr-ast,
-	call call-expr,
-	pointer-type struct-inst,
-	expected-mutability pointer-mutability,
-	expected expected,
-)
-	range = ast range
-	fail expr mut(diag diag-pointer-unsupported) = diag =>
-		ctx add-diag range, diag.to
-		expected bogus range
-	
-	guard get-field-fun ?= call.called fun-inst : fail[other]
-	guard rfg ?= get-field-fun.decl.body record-field-get : fail[other]
-	target = call.args only
-	record-type = get-field-fun.param-types.only struct-inst!
-	# TODO: if it's privatley mutable, we shouldn't be able to get a mut-pointer to it ------------------------------------------
-	field-mutability = rfg.field.mutability is-empty ? read-only : writeable
-	if record-type is-definitely-by-ref
-		if field-mutability < expected-mutability
-			ctx add-diag range, field-of-by-ref::diag-pointer-mut-to-const.to
-		ctx check expected, pointer-type.to, (ast record-field-pointer-expr target, rfg.field, pointer-type)
-	elif target-call ?= target call-expr
-		called = target-call called
-		guard deref-fun ?= called fun-inst : fail[other]
-		guard deref-fun is-deref-function : fail[other]
-		derefed-type = deref-fun.param-types only
-		pointer-mutability = ctx mutability-for-ptr-decl derefed-type.struct-inst!.decl
-		target-ptr = target-call.args only
-		# Ignore fieldMutability -- allow mutating a non-mut field from a mut pointer.
-		# But do not allow any mutation from a non-mut pointer even for mutable fields.
-		if pointer-mutability < expected-mutability
-			ctx add-diag range, field-of-by-val::diag-pointer-mut-to-const.to
-			expected bogus range
-		else
-			ctx check expected, pointer-type.to, (ast record-field-pointer-expr target-ptr, rfg.field, pointer-type)
-	else
-		fail[record-not-by-ref]
-
--is-deref-function bool(a fun-inst)
-	if b ?= a.decl.body builtin-fun
-		if u ?= b builtin-unary
-			u == deref
-
--mutability-for-ptr-decl pointer-mutability(ctx expr-ctx, a struct-decl)
-	# TODO: should not need ctx ----------------------------------------------------------------------------------------------------
-	if a == ctx.common-types.pointer-const
-		read-only
-	else
-		assert a == ctx.common-types.pointer-mut
-		writeable
-
--check-fun-pointer expr(
-	ctx expr-ctx,
-	locals locals-info,
-	ast ptr-ast,
-	expected-pointee expected-pointee-fun-pointer,
-	expected expected,
-)
-	if name, type-arg ?= ast.inner get-name-and-type-arg
-		ctx check-fun-pointer-inner locals, ast, name, type-arg, expected-pointee, expected
-	else
-		ctx add-diag ast.range, diag-fun-pointer-expr-must-be-name
-		expected bogus ast.range
--get-name-and-type-arg (name-and-range, type-ast?)?(ast expr-ast)
-	match ast
-	as name-and-range x		
-		(x, ()),
-	as call-ast x
-		if x.style == single && x.args is-empty
-			(x.fun-name, x.type-arg),
-	else
-		()
--check-fun-pointer-inner expr(
-	ctx expr-ctx,
-	locals locals-info,
-	ast ptr-ast,
-	name name-and-range,
-	type-arg type-ast?,
-	expected-pointee expected-pointee-fun-pointer,
-	expected expected,
-)
-	guard called ?= ctx find-function-for-pointer locals, name, type-arg, expected-pointee : expected bogus ast.range
-	param-type = ctx.check-ctx make-tuple-type ctx.common-types, called.param-types.to, () => ast.range
-	struct-inst = ctx.common-types.fun-pointer-struct[called.return-type, param-type]
-	if sym-js !in ctx.externs && called !is-bare-for-function-pointer
-		ctx add-diag ast.range, diag-fun-pointer-not-bare
-	ctx check expected, struct-inst.to, (ast fun-pointer-expr called, struct-inst)
-
--is-bare-for-function-pointer bool(a called)
-	match a
-	as called-bogus _
-		true
-	as fun-inst x
-		x.decl is-bare-or-force-ctx && x.spec-impls every i => i is-bare-for-function-pointer
-	as called-spec-sig _
-		false
-
--return-and-param-types return-and-param-types(common-types common-types, a expected-pointee-fun-pointer)
-	a.return-type ~ (common-types unpack-tuple a.param-types)
-
--find-function-for-pointer called?(
-	ctx expr-ctx,
-	locals locals-info,
-	name name-and-range,
-	type-arg-ast type-ast?,
-	expected expected-pointee-fun-pointer,
-)
-	type-arg type? = if x ?= type-arg-ast
-		(ctx type-from-ast x),
-	return-and-param-types = ctx.common-types return-and-param-types expected
-	ctx.check-ctx find-function-for-return-and-param-types ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope, ctx.outermost-fun-flags, ctx.externs,
-		locals, name.name, name.range, type-arg, return-and-param-types, () => ctx check-can-do-unsafe
+-check-pointer expr(ctx expr-ctx, _ locals-info, source expr-ast, _ ptr-ast, expected expected)
+	ctx add-diag source, diag-pointers-not-supported
+	expected bogus source
 
 -check-shared expr(ctx expr-ctx, locals locals-info, ast shared-ast, expected expected)
 	diag void mut(diag diag) = diag =>
