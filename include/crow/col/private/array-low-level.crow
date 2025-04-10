@@ -1,7 +1,7 @@
 no-std
 import
 	../../bits: round-up-to-power-of-two
-	../../bool: &&, ||, bool, false, true
+	../../bool: bool, false, true
 	../../compare: <, <=, >
 	../collection: build, index-too-big, with-block
 	../../java: ==, as-java, call-static, java-array-get, java-array-set, java-cast, java-new-array
@@ -9,54 +9,25 @@ import
 	../../misc: new, subscript, void
 	../../number: ==, <=>, +, -, *, nat32, nat64, to
 	../../option: option
-	../../pointer:
-		==, <=>, +, -, *, as-const, const-pointer, mem-copy, mut-pointer, null,
-		pointer-cast, set-subscript, size-of, subscript
 	../../range: ==, .., difference, is-empty, high, low, range, size, subscript
-	../../unsafe: gc-safe-value
-	../../private/bootstrap: array-pointer, array-size, mut-slice, new-array
+	../../private/bootstrap: array-size, mut-slice
 	../../private/number-low-level: max-value, unsafe-to
 	./build: build-options, size-hint
 export
 	../../private/bootstrap: array, todo
 
-~new-mut-slice[t] t mut-slice(size nat64, pointer t mut*) builtin, bare, native extern
 ~mut-slice-size[t] nat64(a t mut-slice) builtin, bare
-~mut-slice-pointer[t] t mut*(a t mut-slice) builtin, bare, unsafe, native extern
 
-array-reference-equal[t] bool(a t[], b t[]) bare, unsafe
-	if extern native
-		a.array-pointer == b.array-pointer && a.array-size == b.array-size
-	elif extern java
+array-reference-equal[t] bool(a t[], b t[]) bare, unsafe # RM, this is just 'reference-equal' ...................................
+	if extern java
 		a.as-java == b.as-java
 	elif extern js
 		a.as-js == b.as-js
 	else
 		todo
 
-+begin-pointer[t] t*(a t[]) bare, unsafe, native extern
-	a array-pointer
-
-# Pointer to the end of an array.
-+end-pointer[t] t*(a t[]) bare, unsafe, native extern
-	a.array-pointer + a.array-size
-
-###
-Arr or the range from begin to end.
-`begin` is inclusive and `end` is exclusive.
-UB if begin > end.
-###
-+as-array[t] t[](pointers t* range) bare, unsafe, native extern
-	pointers.size new-array pointers.low
-
-+pointers[t] t* range(a t[]) bare, unsafe, native extern
-	a.begin-pointer .. a.end-pointer
-
-array-cast[out, in] out[](a in[]) bare, unsafe
-	if extern native
-		assert size-of@out == size-of@in
-		a.array-size new-array a.begin-pointer.pointer-cast
-	elif extern java
+array-cast[out, in] out[](a in[]) bare, unsafe # TODO: RM ----------------------------------------------------------------------------
+	if extern java
 		a java-cast
 	elif extern js
 		a js-cast
@@ -65,18 +36,12 @@ array-cast[out, in] out[](a in[]) bare, unsafe
 
 +subscript[t] t(a t[], index nat64) bare, trusted
 	assert index < a.array-size : index index-too-big a.array-size
-	if extern native
-		a.array-pointer[index]
-	elif extern java
+	if extern java
 		a java-array-get index.to
 	elif extern js
 		a.as-js[index] cast
 	else
 		todo
-
-# Create an array from a range of pointers.
-+subscript[t] t[](a t*, r nat64 range) bare, unsafe, native extern
-	r.size new-array a + r.low
 
 ###
 Equivalent to calling `f[a[0]]`, `f[a[1]]`, etc.
@@ -84,55 +49,25 @@ Equivalent to calling `f[a[0]]`, `f[a[1]]`, etc.
 Calls `f` for each element in `a`.
 ###
 +iterate[t] bool(a t[], f bool mut(elem t)) trusted
-	if extern native
-		if size-of@t == 0
-			i mut nat64 = 0
-			loop
-				if i == a.array-size
-					break false
-				elif f[gc-safe-value]
-					break true
-				else
-					i +:= 1
-					continue
+	i mut nat64 = 0
+	loop
+		if i == a.array-size
+			break false
+		elif f[a[i]]
+			break true
 		else
-			cur mut = a begin-pointer
-			end = a end-pointer
-			loop
-				if cur == end
-					break false
-				elif f[*cur]
-					break true
-				else
-					cur +:= 1
-					continue
-	else
-		i mut nat64 = 0
-		loop
-			if i == a.array-size
-				break false
-			elif f[a[i]]
-				break true
-			else
-				i +:= 1
-				continue
+			i +:= 1
+			continue
 
 +array-builder[t] record mut
 	-buffer mut t mut-slice
 	| Not used in JS
 	-cur-size mut nat64
 +build[t] t[](a build-options, f void mut(out t array-builder)) trusted
-	if extern native || extern java
+	if extern java
 		builder t array-builder = a.size-hint.gc-safe-mut-slice, 0
 		f[builder]
-		res t[] = if extern native
-			builder.cur-size new-array builder.buffer.mut-slice-pointer.as-const
-		elif extern java
-			"java.util.Arrays" call-static "copyOfRange", builder.buffer, 0::nat32, builder.cur-size.to::nat32
-		else
-			throw todo
-		if extern native
-			builder.buffer := 0 new-mut-slice null
+		res t[] = "java.util.Arrays" call-static "copyOfRange", builder.buffer, 0::nat32, builder.cur-size.to::nat32
 		builder.cur-size := max-value
 		res
 	elif extern js
@@ -155,26 +90,16 @@ Calls `f` for each element in `a`.
 		a cur-size
 
 +~=[t] void(a t array-builder, value t) trusted
-	if extern native || extern java
+	if extern java
 		forbid a.cur-size == max-value
 		capacity = a.buffer mut-slice-size
 		if a.cur-size == capacity
 			new-capacity nat64 = capacity == 0 ? 4 : capacity * 2
 			new-buffer t mut-slice = new-capacity gc-safe-mut-slice
-			if extern native
-				new-buffer.mut-slice-pointer mem-copy a.buffer.mut-slice-pointer.as-const, a.cur-size
-			elif extern java
-				unless is-empty-type@t
-					"java.lang.System" call-static "arraycopy", a.buffer, 0::nat32, new-buffer, 0::nat32, a.cur-size.to::nat32
-			else
-				throw todo
+			unless is-empty-type@t
+				"java.lang.System" call-static "arraycopy", a.buffer, 0::nat32, new-buffer, 0::nat32, a.cur-size.to::nat32
 			a.buffer := new-buffer
-		if extern native
-			a.buffer.mut-slice-pointer[a cur-size] := value
-		elif extern java
-			a.buffer java-array-set a.cur-size.to, value
-		else
-			throw todo
+		a.buffer java-array-set a.cur-size.to, value
 		a.cur-size +:= 1
 	elif extern js
 		a.buffer.as-js call-property "push", value cast
@@ -190,18 +115,13 @@ Calls `f` for each element in `a`.
 +~~=[t] void(a t array-builder, values t[]) trusted
 	a ~~= values.to
 +~~=[t] void(a t array-builder, values t array-view) trusted
-	if extern native || extern java
+	if extern java
 		forbid a.cur-size == max-value
 		capacity = a.buffer mut-slice-size
 		if a.cur-size + values.size > capacity
 			a expand-capacity (a.cur-size + values.size).round-up-to-power-of-two
-		if extern native
-			a.buffer.mut-slice-pointer + a.cur-size mem-copy values.begin-pointer, values.size
-		elif extern java
-			unless is-empty-type@t
-				"java.lang.System" call-static "arraycopy", values.inner, values.indices.low.to::nat32, a.buffer, a.cur-size.to::nat32, values.size.to::nat32
-		else
-			throw todo
+		unless is-empty-type@t
+			"java.lang.System" call-static "arraycopy", values.inner, values.indices.low.to::nat32, a.buffer, a.cur-size.to::nat32, values.size.to::nat32
 		a.cur-size +:= values size
 	elif extern js
 		_ = values iterate x =>
@@ -212,13 +132,9 @@ Calls `f` for each element in `a`.
 -expand-capacity[t] void(a t array-builder, new-capacity nat64) trusted
 	assert new-capacity > a.cur-size
 	new-buffer t mut-slice = new-capacity gc-safe-mut-slice
-	if extern native
-		new-buffer.mut-slice-pointer mem-copy a.buffer.mut-slice-pointer.as-const, a.cur-size
-	elif extern java
-		unless is-empty-type@t
-			"java.lang.System" call-static "arraycopy", a.buffer, 0::nat32, new-buffer, 0::nat32, a.cur-size.to::nat32
-	else
-		throw todo
+	unless is-empty-type@t
+		assert extern java : todo
+		"java.lang.System" call-static "arraycopy", a.buffer, 0::nat32, new-buffer, 0::nat32, a.cur-size.to::nat32
 	a.buffer := new-buffer
 
 -gc-safe-mut-slice[t] t mut-slice(size nat64) unsafe
@@ -240,8 +156,6 @@ region Views
 +to[t] t[](a t array-view)
 	if a.indices == (0 .. a.inner.array-size)
 		a inner
-	elif trusted extern native
-		trusted a.size new-array a.begin-pointer
 	else
 		with out : a.size build
 			out ~~= a
@@ -266,5 +180,3 @@ region Views
 		else
 			i +:= 1
 			continue
-+begin-pointer[t] t*(a t array-view) bare, unsafe, native extern
-	a.inner.begin-pointer + a.indices.low

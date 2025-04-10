@@ -5,18 +5,14 @@ import
 	../java: call-static, java-array-get, java-array-set, java-cast, java-new-array
 	../js: as-js, call, call-property, cast, js-cast, js-global, subscript, set-subscript
 	../misc: new, subscript, void
-	../number: ==, <=>, +, -, *, /, %, float64, int32, nat64, next, to
+	../number: ==, <=>, +, -, float64, int32, nat64, next, to
 	../option: new, option
-	../pointer:
-		==, <=>, +, -, as-const, as-mut, mem-clear, mem-move, mut-pointer, pointer-cast,
-		set-subscript, size-of, subscript
-	../private/bootstrap: new-array, todo
+	../private/bootstrap: todo
 	../range: .., difference, is-empty, iterate, high, low, range, size, subscript
 	../tuple: new
 	../unsafe: gc-safe-value
-	./array: ~=, ~~=, array, array-builder, array-view, begin-pointer, build, iterate, size, subscript
-	./private/array-low-level:
-		array-reference-equal, indices, inner, new-mut-slice, mut-slice-pointer, mut-slice-size, new
+	./array: ~=, ~~=, array, array-builder, array-view, build, iterate, size, subscript
+	./private/array-low-level: array-reference-equal, indices, inner, mut-slice-size, new
 	./collection:
 		.., build-options, end, for-loop, index-too-big, iterator-not-comparable,
 		range-relative-to-end, slice-out-of-order, subscript, to-range
@@ -33,11 +29,6 @@ export
 	# A spread argument is always a new array
 	a cast-mutable
 
-| Slice from `{a}[{indices} {low}]` (inclusive) to `{a}[{indices} {high}]` (exclusive).
-| This is O(1) because it does not copy anything.
-+subscript[t] t mut-slice(a t mut*, indices nat64 range) bare, unsafe, native extern
-	a.as-const[indices] cast-mutable
-
 +mut-slice-view[t] record by-val, mut # TODO: this is a silly name --------------------------------------------------------------------------
 	-inner t mut-slice
 	-indices nat64 range
@@ -48,10 +39,6 @@ export
 +to[t] t[](a t mut-slice-view)
 	for x : a; x
 
-+begin-pointer[t] t mut*(a t mut-slice-view) bare, unsafe, native extern
-	a.inner.begin-pointer + a.indices.low
-+end-pointer[t] t mut*(a t mut-slice-view) bare, unsafe, native extern
-	a.begin-pointer + a.size
 +is-empty[t] bool(a t mut-slice-view) bare
 	a.indices is-empty
 
@@ -99,15 +86,6 @@ export
 +to[t] t[](a t mut-slice) trusted
 	for x : a; x
 
-| Creates a slice from `{a} {low}` (inclusive) to `{a} {high}` (exclusive).
-| This is O(1) because it does not copy anything.
-+as-mut-slice[t] t mut-slice(a t mut* range) bare, unsafe, native extern
-	assert a.low <= a.high
-	(a.high - a.low) new-mut-slice a.low
-
-+pointers[t] t mut* range(a t mut-slice) bare, unsafe, native extern
-	a.begin-pointer .. a.end-pointer
-
 | Number of elements.
 +size[t] nat64(a t mut-slice) bare
 	a mut-slice-size
@@ -116,16 +94,6 @@ export
 +is-empty[t] bool(a t mut-slice) bare
 	a.size == 0
 
-| Pointer to the first element of the `mut-slice`.
-| WARN: Not a valid pointer if `{a} {is-empty}`.
-+begin-pointer[t] t mut*(a t mut-slice) bare, unsafe, native extern
-	a mut-slice-pointer
-
-| Pointer to the end of the `mut-slice`.
-| This is one past the last valid pointer.
-+end-pointer[t] t mut*(a t mut-slice) bare, unsafe, native extern
-	a.begin-pointer + a.size
-
 | Copies the elements to a new `mut-slice`.
 | This is O({a} {size}).
 +copy[t] t mut-slice(a t mut-slice)
@@ -133,9 +101,7 @@ export
 
 +subscript[t] t(a t mut-slice, index nat64) bare, trusted
 	assert index < a.size : index index-too-big a.size
-	if extern native
-		a.begin-pointer[index]
-	elif extern java
+	if extern java
 		a java-array-get index.to
 	elif extern js
 		a.as-js[index] cast
@@ -144,9 +110,7 @@ export
 
 +set-subscript[t] void(a t mut-slice, index nat64, value t) bare, trusted
 	assert index < a.size : index index-too-big a.size
-	if extern native
-		a.begin-pointer[index] := value
-	elif extern java
+	if extern java
 		a java-array-set index.to, value
 	elif extern js
 		a.as-js[index] := value
@@ -198,10 +162,8 @@ export
 	dest copy-from trusted source temp-as-array-view
 -copy-from[t] void(dest t mut-slice-view, source t array-view) bare
 	assert dest.size == source.size
-	trusted if extern native
-		dest.begin-pointer mem-move source.begin-pointer, source.size
-	elif extern java
-		_ void = "java.lang.System" call-static "arraycopy", source.inner, source.indices.low.to::int32, dest.inner, dest.indices.low.to::int32, dest.size.to::int32
+	if trusted extern java
+		trusted "java.lang.System" call-static "arraycopy", source.inner, source.indices.low.to::int32, dest.inner, dest.indices.low.to::int32, dest.size.to::int32
 	else
 		i mut nat64 = 0
 		until i == source.size
@@ -250,21 +212,16 @@ region unsafe
 
 | Sets every element to {gc-safe-value}.
 +clear-memory[t] void(a t mut-slice-view) bare, unsafe
-	if extern native
-		a.begin-pointer mem-clear a.size
-	else
-		i mut nat64 = 0
-		until i == a.size
-			a[i] := gc-safe-value
-			i +:= 1
+	i mut nat64 = 0
+	until i == a.size
+		a[i] := gc-safe-value
+		i +:= 1
 
 | Unsafe cast to an immutable array.
 | This is O(1).
 | WARN: It's undefined behavior if {a} is ever written to again.
 +cast-immutable[t] t[](a t mut-slice) bare, unsafe
-	if extern native
-		a.size new-array a.begin-pointer.as-const
-	elif extern java
+	if extern java
 		a java-cast
 	elif extern js
 		a js-cast
@@ -272,9 +229,7 @@ region unsafe
 		todo
 
 ~cast-mutable[t] t mut-slice(a t[]) bare, unsafe
-	if extern native
-		a.size new-mut-slice a.begin-pointer.as-mut
-	elif extern java
+	if extern java
 		a java-cast
 	elif extern js
 		a js-cast
@@ -287,17 +242,6 @@ region unsafe
 	a.temp-as-array[0 .. end]
 ~temp-as-array-view[t] t array-view(a t mut-slice-view) bare, unsafe
 	a.inner.temp-as-array, a.indices
-
-| Casts elements to a different type.
-| This is O(1).
-| If the element type is different, adjusts the size so that the number of bytes is the same.
-+cast-mut-slice[out, in] out mut-slice(a in mut-slice) bare, unsafe, native extern
-	assert size-of@in != 0 && size-of@out != 0
-	size-bytes = a.size * size-of@in
-	assert size-bytes % size-of@out == 0
-	size-out = size-bytes / size-of@out
-	# TODO: shouldn't need parentheses
-	(a.begin-pointer.pointer-cast::out mut*)[0 .. size-out]
 
 region spec impls (see collection.crow)
 
