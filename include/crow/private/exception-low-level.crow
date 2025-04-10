@@ -1,76 +1,24 @@
 no-std
 import
-	../bool: bool, false, true
+	../bool: false, true
 	../java: as-java, call-static
 	../js:
 		+, as-js, await, call, call-property, cast, eval, instanceof, js-any, js-global, subscript
 	../misc: new, subscript, void
-	../pointer: const-pointer, mut-pointer, pointer-cast
 	../result: new, ok, result, to
 	../unsafe: gc-safe-value
-	./alloc: gc-root, set-gc-root, try-get-cur-gc-ctx
-	./backtrace: native-backtrace
-	./bootstrap:
-		abandon, array, catch-point, cur-fiber, cur-catch-point, hard-unreachable, must-cur-fiber,
-		set-cur-catch-point, string
+	./bootstrap: abandoned, string
 export
 	./bootstrap: exception, show
 
-+exception-and-backtrace record by-val
++exception-and-backtrace record by-val # TODO: RM, just use 'exception' directly. ---------------------------------------------------
 	exception exception
-	# This will be empty for JS
-	~backtrace native-backtrace
 
 | Thrown when an exception is not specified in an `assert` or `forbid`.
 +error record(show string) by-val, exception case
 
-| {setup-catch} is like `setjmp` and {jump-to-catch} is like `longjmp`.
-| (`setjmp` and `longjmp` don't work with fibers on Windows.)
-| This is visible for use by the compiler, which uses it in `try` expressions.
-~setup-catch bool(env catch-point mut*) bare, builtin
-~jump-to-catch void(env catch-point*) bare, builtin
-
-| Just use a thread-local for these, since they will be handled immediately
-| (not giving the fiber a chance to yield)
--cur-thrown thread-local(exception)
--cur-backtrace thread-local(native-backtrace)
-
-| Visible for use by compiler
-~cur-catch-point catch-point*() unsafe, native extern
-	must-cur-fiber cur-catch-point
-~set-cur-catch-point void(value catch-point*) unsafe, native extern
-	must-cur-fiber.cur-catch-point := value.pointer-cast
-
-| Used by the compiler when implementing `try-catch` and `finally`
-rethrow-current-exception void() bare, unsafe
-	if fiber ?= cur-fiber
-		fiber.cur-catch-point jump-to-catch
-	else
-		# Throwing outside of a fiber aborts
-		abandon
-
 +catch-all[t] (t, exception-and-backtrace) result(tried t mut()) trusted # TODO: just support catching 'exception' so we don't need this
-	if extern native
-		old-gc-root = gc-root
-		old-catch-point = cur-catch-point
-		store mut catch-point = gc-safe-value
-		if &store setup-catch
-			# Get here if something is thrown
-			cur-catch-point := old-catch-point
-			gc-root := old-gc-root
-			thrown = cur-thrown
-			cur-thrown := gc-safe-value
-			backtrace = cur-backtrace
-			cur-backtrace := gc-safe-value
-			((thrown, backtrace),) to
-		else
-			# Get here after initial call to 'setup-catch'
-			cur-catch-point := &store
-			# If it throws, we'll go to the above branch.
-			res = tried[]
-			cur-catch-point := old-catch-point
-			res ok
-	elif extern java
+	if extern java
 		res mut t = gc-safe-value
 		ok mut = false
 		cb void mut() = () =>
@@ -82,7 +30,7 @@ rethrow-current-exception void() bare, unsafe
 		if ok
 			res ok
 		else
-			((caught, ()),) to
+			((caught,),) to
 	elif extern js
 		f (t, exception-and-backtrace) result mut() = () =>
 			tried[] ok
@@ -90,9 +38,9 @@ rethrow-current-exception void() bare, unsafe
 			sample-error exception = "e" error
 			exception-class = sample-error.as-js.prototype["constructor"]
 			if e instanceof exception-class
-				((e.cast, ()),) to
+				((e.cast,),) to
 			else
-				((e.threw-non-exception, ()),) to
+				((e.threw-non-exception,),) to
 		("""
 			async (f, error) => \{
 				try \{
@@ -103,7 +51,7 @@ rethrow-current-exception void() bare, unsafe
 			}
 		""".eval call f, error).await cast
 	else
-		hard-unreachable
+		throw abandoned # This should throw 'todo' ------------------------------------------------------------------------------------
 
 -call-it void(f void mut()) force-ctx
 	f[]
@@ -124,24 +72,8 @@ rethrow-current-exception void() bare, unsafe
 +unreachable[t] t() bare
 	throw "Should be unreachable" error
 
-| This is called by the compiler on `throw`.
-~throw-impl void(a exception) bare, native extern
-	backtrace = trusted if ctx ?= try-get-cur-gc-ctx
-		ctx native-backtrace 1
-	(a, backtrace) rethrow
-
--new[t] t[](...a t[]) bare
-	a
-
 | Throw an existing exception object.
 | This is useful for `catch` branches that want to change their mind and not catch the exception.
 | Rethrowing an exception does not modify its backtrace.
-+rethrow[t] t(e exception-and-backtrace) bare, trusted
-	if extern native
-		cur-thrown := e exception
-		cur-backtrace := e backtrace
-		rethrow-current-exception
-		hard-unreachable
-	else
-		forbid extern js : e.exception
-		hard-unreachable
++rethrow[t] t(e exception-and-backtrace) bare, trusted # TODO: rm, I don't need this, can just use 'throw' directly .......
+	throw e.exception

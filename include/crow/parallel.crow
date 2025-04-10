@@ -4,44 +4,24 @@ import
 	./col/array: ~~, ~=, array, build, iterate, new, size, subscript
 	./col/collection: build, flatten, for-loop, iterate, size, with-block, with-index
 	./col/util: groupable, groups-of
-	./exception: catch-all, exception-and-backtrace, rethrow, show
+	./exception: exception
 	./java: call-static
 	./js: as-js, await, call, call-new, cast, call-property, js-any, js-cast, js-global
-	./log: error, log
 	./number: float, nat64
 	./misc: new, shared, subscript, void
-	./pointer: any-mut-pointer, as-any-mut-pointer, reference-from-pointer
-	./private/bootstrap: add-to-queue, await-future, fiber, new, to, todo
-	./private/future-low-level:
-		as-future, as-future-impl, future-impl, get-result, reject, rejected, resolve, resolved,
-		try-add-awaiting-fiber, unresolved
-	./private/runtime: add-new-fiber, get-global-ctx, yield-this-fiber
-	./result: fail, ok, result, value
-	./string: interpolate
+	./private/bootstrap: todo
 export
 	./private/bootstrap: future
 
 +await[t] t(a t future) trusted
-	if extern native
-		match a await-result
-		as ok x
-			x value
-		as fail x
-			x.value rethrow
-	elif extern js
+	if extern js
 		a.as-js.await cast
 	else
 		todo
 
--await-result[t] (t, exception-and-backtrace) result(a t future) trusted, native extern
-	(a.as-any-mut-pointer, &add-awaiting-fiber-for-t@t)::await-future.to yield-this-fiber
-	a.as-future-impl get-result
-
 | Just yields the fiber temporarily. It may be restarted immediately.
 +yield-fiber void() trusted
-	if extern native
-		add-to-queue yield-this-fiber
-	elif extern java
+	if extern java
 		_ void = "Crow" call-static "yieldFiber"
 	elif extern js
 		resolver void mut(resolve void mut()) = resolve =>
@@ -50,41 +30,24 @@ export
 	else
 		todo
 
-add-awaiting-fiber-for-t[t] bool(future any-mut-pointer, fiber fiber) bare, unsafe, native extern
-	typed t future-impl = future reference-from-pointer
-	typed try-add-awaiting-fiber fiber
-
 | Converts a value to a future resolved with that value.
 +new[t] t future(value t) trusted
-	if extern native
-		value.resolved as-future
-	elif extern js
+	if extern js
 		"Promise".js-global call-property "resolve", value cast
 	else
 		todo
 
 | Future resolved with an exception.
-+rejected[t] t future(err exception-and-backtrace) trusted
-	if extern native
-		err.rejected as-future
-	elif extern js
++rejected[t] t future(err exception) trusted
+	if extern js
 		"Promise".js-global call-property "rejected", err cast
 	else
-		todo
+		todo # TODO: JAVA VERSION --------------------------------------------------------------------------------------------
 
 +parallel record nominal
 | Run {f} in a new fiber with a new exclusion and return a future for its result.
 +with-block[t] t future(_ parallel, f t shared()) trusted
-	if extern native
-		res t future-impl = unresolved
-		get-global-ctx add-new-fiber () =>
-			match (() => f[]) catch-all
-			as ok x
-				res resolve x.value
-			as fail e
-				res reject e.value
-		res as-future
-	elif extern js
+	if extern js
 		# `Promise.resolve().then(f)`; this ensures 'f' is not run immediately
 		"Promise".js-global call-property "resolve" call-property "then", f cast
 	else
@@ -93,7 +56,7 @@ add-awaiting-fiber-for-t[t] bool(future any-mut-pointer, fiber fiber) bare, unsa
 | This is like running something with `parallel` and then waiting on it.
 | The purpose is to allow other fibers with the current exclusion to run while waiting.
 +new-exclusion record nominal
-+with-block[t] t(_ new-exclusion, f t shared()) native extern
++with-block[t] t(_ new-exclusion, f t shared())
 	parallel with-block f await
 
 +later record nominal
@@ -106,14 +69,7 @@ add-awaiting-fiber-for-t[t] bool(future any-mut-pointer, fiber fiber) bare, unsa
 
 | Does not await the future, but will log any exceptions from the future once it is done.
 +forget[t] void(a t future) trusted
-	if extern native
-		get-global-ctx add-new-fiber () =>
-			match a await-result
-			as ok _
-				()
-			as fail e
-				error log "{e value}"
-	elif extern js
+	if extern js
 		cb void mut(x js-any) = error =>
 			_ = "console".js-global call-property "error", error
 		_ = a.as-js call-property "catch", cb
@@ -133,29 +89,15 @@ add-awaiting-fiber-for-t[t] bool(future any-mut-pointer, fiber fiber) bare, unsa
 	a in-col parallel-collection,
 	f out-elem shared(elem in-elem),
 ) out-elem shared, in-elem shared, (in-col, in-elem) iterate, in-col size
-	if trusted extern native
-		futures out-elem future[] = for x : a collection
-			with : parallel
-				f[x]
-		for x : futures
-			x await
-	else
-		for x : a.collection
-			f[x]
+	_ = a
+	_ = f
+	throw todo
 | Same as the above but returning 'void'.
 +for-loop[in-col, in-elem] void(
-	a in-col parallel-collection,
-	f void shared(elem in-elem),
+	_ in-col parallel-collection,
+	_ void shared(elem in-elem),
 ) (in-col, in-elem) iterate, in-col size, in-elem shared
-	if trusted extern native
-		futures void future[] = for x : a collection
-			with : parallel
-				f[x]
-		for x : futures
-			x await
-	else
-		for x : a.collection
-			f[x]
+	throw todo
 
 +parallel-concat[col] record(collection col) nominal
 | Runs {f} in parallel for each element of {a} and concatenates results.
@@ -169,7 +111,7 @@ add-awaiting-fiber-for-t[t] bool(future any-mut-pointer, fiber fiber) bare, unsa
 +filter[out-col, in-col, elem, builder] out-col(
 	a in-col parallel-collection,
 	f bool shared(elem elem),
-) (in-col, elem) iterate, in-col size, (out-col, elem, builder) build, elem shared, native extern
+) (in-col, elem) iterate, in-col size, (out-col, elem, builder) build, elem shared
 	bools bool[] = a for-loop f
 	with out : build
 		for i, x : a.collection with-index
@@ -191,26 +133,16 @@ add-awaiting-fiber-for-t[t] bool(future any-mut-pointer, fiber fiber) bare, unsa
 	a in-col chunked-parallel,
 	f out-elem shared(elem in-elem),
 ) out-elem shared, (chunk, in-col, in-iter, in-elem) chunkable
-	if trusted extern native
-		for chunk : a.collection groups-of a.chunk-size parallel-concat
-			for x : chunk
-				f[x]
-	else
-		# TODO: parallelism in Java! -------------------------------------------------------------------------------------------
-		for x : a collection
+	for chunk : a.collection groups-of a.chunk-size parallel-concat
+		for x : chunk
 			f[x]
 
 +for-loop[chunk, in-col, in-iter, in-elem] void(
 	a in-col chunked-parallel,
 	f void shared(elem in-elem),
 ) (chunk, in-col, in-iter, in-elem) chunkable
-	if trusted extern native
-		for chunk : a.collection groups-of a.chunk-size parallel
-			for x : chunk
-				f[x]
-	else
-		# TODO: parallelism in Java! -------------------------------------------------------------------------------------------
-		for x : a collection
+	for chunk : a.collection groups-of a.chunk-size parallel
+		for x : chunk
 			f[x]
 
 +filter[out-col, chunk, in-col, in-iter, elem, builder] out-col(
