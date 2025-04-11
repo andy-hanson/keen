@@ -24,8 +24,6 @@ concretize-fun-body concrete-expr(ctx concretize-ctx, cf concrete-fun, expr expr
 	match cf source
 	as concrete-fun-source-regular x
 		f[x.decl.params params-array]
-	as concrete-fun-source-lambda x
-		f[x.param,]
 	as concrete-fun-source-test _
 		f[]
 	as concrete-fun-source-wrap-main _
@@ -54,10 +52,8 @@ concretize-expr-ctx record mut
 	cur-fun concrete-fun
 	locals local-or-constant mut[local]
 	local-ids concrete-local-ids
-preserve-lambdas bool(a concretize-expr-ctx)
-	a.concretize-ctx preserve-lambdas
 allocate-mutable-closure-variables bool(a concretize-expr-ctx)
-	a !preserve-lambdas || a is-java
+	a is-java
 is-java bool(a concretize-expr-ctx)
 	a.concretize-ctx is-java
 is-js bool(a concretize-expr-ctx)
@@ -114,7 +110,6 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 				temp concrete-local = ctx.local-ids.take-next-id, member.to, lambda-type # TODO: use a new kind, not 'member'
 				lambda = ctx concretize-expr lambda-type, lambda-arg
 				in-element concrete-local = ctx.local-ids.take-next-id, member.to, in-element-type # TODO: use a new kind, not 'member'
-				assert ctx preserve-lambdas : todo # If not: We need to find the lambda calling function and call it here ------------------
 				body = builtin-fun-call-lambda builtin-concrete-expr (out-element-type, in-element-type), ((range gen-local-get temp), (range gen-local-get in-element))
 				then concrete-expr = type, range, (input array-op-concrete-expr (in-element,), empty-out-array, (out-element-type, range, body))
 				type gen-let range, temp, lambda, then
@@ -161,10 +156,7 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 			as builtin-binary-lazy x
 				ctx concretize-builtin-binary-lazy type, range, x, exprs.exprs
 			as builtin-fun-call-lambda
-				if ctx preserve-lambdas
-					builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
-				else
-					concrete-called gen-call-kind exprs.exprs
+				builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
 			# These functions are nontrivial, so don't inline them
 			as builtin-fun-mark-visit
 				concrete-called gen-call-kind exprs.exprs
@@ -249,77 +241,12 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called called)
 	ctx.concretize-ctx get-concrete-fun-from-called ctx.type-scope, ctx.specs-scope, called
 
--concretize-closure-get concrete-expr(
-	ctx concretize-expr-ctx,
-	type concrete-type,
-	range uri-and-range,
-	a closure-get-expr,
-)
-	if ctx preserve-lambdas
-		ctx concretize-local-get type, range, a.local
-	else
-		info = ctx get-closure-field-info a.closure-ref
-		get-field = ctx get-closure-field range, a.closure-ref
-		match info reference-kind
-		as direct
-			assert info.field-type == info.referenced-type
-			assert info.field-type == type
-			get-field
-		as allocated
-			assert info.referenced-type == type
-			ctx.concretize-ctx gen-reference-read range, get-field
-
-| This does not dereference it if allocated; {concretize-closure-get} does that.
--get-closure-field concrete-expr(ctx concretize-expr-ctx, range uri-and-range, a closure-ref)
-	forbid ctx preserve-lambdas
-	info = ctx get-closure-field-info a
-	ctx.concretize-ctx gen-record-field-get info.field-type, range, (range gen-param-get info.closure-param), info.field-index
-
--concretize-closure-set concrete-expr(
-	ctx concretize-expr-ctx,
-	type concrete-type,
-	range uri-and-range,
-	a closure-set-expr,
-)
-	if ctx preserve-lambdas
-		ctx concretize-local-set range, a.local, a.value
-	else
-		assert a.closure-ref.closure-reference-kind == allocated
-		info = ctx get-closure-field-info a.closure-ref
-		assert info.reference-kind == allocated
-		field = ctx get-closure-field range, a.closure-ref
-		value = ctx concretize-expr info.referenced-type, a.value
-		assert type is-void
-		ctx.concretize-ctx gen-reference-write range, field, value
-
--closure-field-info record
-	closure-param concrete-local
-	field-index nat
-	| This may be wrapped in a 'reference'
-	field-type concrete-type
-	| If field is a reference, this is the type of its value.
-	referenced-type concrete-type
-	reference-kind closure-reference-kind
--get-closure-field-info closure-field-info(ctx concretize-expr-ctx, a closure-ref)
-	closure-param concrete-local = ctx.cur-fun.params[0]
-	closure-type = closure-param type
-	record_ = closure-type.body concrete-record!
-	reference-kind = a closure-reference-kind
-	field-type = record_.fields[a index] type
-	pointee-type = match reference-kind
-	as direct
-		field-type
-	as allocated
-		ctx.concretize-ctx get-referenced-type field-type
-	closure-param, a.index, field-type, pointee-type, reference-kind
-
 -concretize-lambda concrete-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
 	e lambda-expr,
 )
-	assert ctx preserve-lambdas
 	if ctx is-java
 		forbid e.kind == explicit-shared : todo # For Java, we need to do something for these ---------------------------------------------
 	return-type = ctx get-concrete-type e.return-type
@@ -810,9 +737,9 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	as call-option-expr x
 		ctx concretize-call-option type, range, x
 	as closure-get-expr x
-		ctx concretize-closure-get type, range, x
+		ctx concretize-local-get type, range, x.local
 	as closure-set-expr x
-		ctx concretize-closure-set type, range, x
+		ctx concretize-local-set range, x.local, x.value
 	as extern-expr x
 		type, range, (x.names is-subset-of ctx.concretize-ctx.all-externs).constant-bool.to
 	as finally-expr x

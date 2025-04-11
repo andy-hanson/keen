@@ -18,8 +18,6 @@ type-args-scope-for-fun type-args-scope(a concrete-fun)
 	match a source
 	as concrete-fun-source-regular x
 		x type-args
-	as concrete-fun-source-lambda x
-		x.containing-fun type-args-scope-for-fun
 	as concrete-fun-source-test _
 		()
 	as concrete-fun-source-wrap-main _
@@ -30,8 +28,6 @@ specs-scope-for-fun specs-scope(a concrete-fun)
 	match a source
 	as concrete-fun-source-regular x
 		x.decl.specs, x.spec-impls
-	as concrete-fun-source-lambda x
-		x.containing-fun specs-scope-for-fun
 	as concrete-fun-source-test _
 		(), ()
 	as concrete-fun-source-wrap-main _
@@ -59,8 +55,6 @@ concretize-ctx record mut
 	sum-type-to-methods concrete-fun mut[] mut[concrete-type]
 	deferred-methods concrete-fun mut[]
 	all-concrete-funs concrete-fun mut[]
-	| Index in the array is the fun ID
-	lambda-structs (concrete-type, concrete-lambda-impl mut[]) mut[concrete-type] # TODO: this was only used by the native compile --------
 	| Maps a sum type to its cases
 	sum-types (concrete-type, concrete-sum-type-case mut[]) mut[concrete-type]
 	-late-bogus-type mut concrete-type?
@@ -100,7 +94,6 @@ new concretize-ctx(
 	sum-type-to-methods: ()
 	deferred-methods: ()
 	all-concrete-funs: ()
-	lambda-structs: ()
 	sum-types: ()
 	late-bogus-type: ()
 	late-bool-type: ()
@@ -125,8 +118,6 @@ is-js bool(a concretize-ctx)
 		true
 require-unique-union-types bool(a concretize-ctx) # TODO: is this still needed? ----------------------------------------------------------------------------
 	a is-java
-preserve-lambdas bool(a concretize-ctx)
-	a is-js || a is-java
 preserve-methods bool(a concretize-ctx)
 	a is-java # TODO: also JS -----------------------------------------------------------------------------------------------------------------
 create-error-function concrete-fun(a concretize-ctx)
@@ -270,26 +261,6 @@ get-non-template-concrete-fun concrete-fun(ctx concretize-ctx, inst fun-inst)
 	assert inst.decl !is-template
 	ctx get-concrete-fun inst.decl, (), ()
 
-get-concrete-fun-for-lambda concrete-fun(
-	ctx concretize-ctx,
-	containing-concrete-fun concrete-fun,
-	index nat,
-	return-type concrete-type,
-	model-param destructure,
-	params concrete-local[],
-	body-expr expr,
-)
-	forbid return-type is-bogus
-	res concrete-fun = do
-		hash: ctx next-hash
-		source: containing-concrete-fun concrete-fun-source-lambda model-param, body-expr, index
-		return-type: return-type
-		params: params
-		body: concrete-fun-body-deferred
-	ctx.fill-in-concrete-fun-body[ctx, res]
-	ctx add-concrete-fun res
-	res
-
 get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-inst, type-args-scope type-args-scope)
 	ctx concrete-type-special inst, type-args-scope ?? ctx with-concrete-types inst.type-args, type-args-scope, type-args =>
 		decl = inst decl
@@ -306,8 +277,6 @@ get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-
 			res
 		if res did-add
 			ctx initialize-concrete-type inst, res.value, type-args
-			if ctx !preserve-lambdas && decl is-lambda-type
-				ctx.lambda-structs[res value] := res.value, ()
 		res value
 
 -concrete-type-special concrete-type?(ctx concretize-ctx, inst struct-inst, type-args-scope type-args-scope) # TODO: better name
@@ -372,15 +341,6 @@ get-concrete-fun-from-called concrete-fun?(
 	return-type: return-type
 	params: params
 	body: concrete-fun-body-deferred
-
-concretize-lambda-params concrete-local[](
-	ctx concretize-ctx,
-	closure-type concrete-type,
-	param destructure,
-	type-args-scope type-args-scope,
-)
-	forbid ctx preserve-lambdas
-	((0,), concrete-local-source-closure, closure-type), (ctx concretize-param-destructure (1,), param, type-args-scope)
 
 -concretize-param-destructure concrete-local(ctx concretize-ctx, id concrete-local-id, a destructure, type-args-scope type-args-scope)
 	source concrete-local-source = match a
