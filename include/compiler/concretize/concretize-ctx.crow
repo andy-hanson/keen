@@ -115,12 +115,8 @@ new concretize-ctx(
 	late-string-type: ()
 	late-symbol-type: ()
 
-is-native bool(_ concretize-ctx) # TODO: RM ----------------------------------------------------------------------------------
-	false
 is-java bool(a concretize-ctx)
 	a.target == java
-is-native-or-java bool(a concretize-ctx) # TODO: KILL (just use is-java) ----------------------------------------------------------------
-	a is-native || a is-java
 is-js bool(a concretize-ctx)
 	match a target
 	as java
@@ -169,10 +165,6 @@ finish-concrete-vars concrete-var[](ctx concretize-ctx)
 		bogus-body concrete-struct-body = false concrete-record ()
 		res concrete-struct = a.next-hash, data_, concrete-struct-source-bogus, bogus-body, (), (), ()
 		a.all-concrete-structs ~= res
-		if a is-native
-			res.default-reference-kind := by-val_
-			res.type-size := 0, 1
-			res.field-offsets := ()
 		a.late-bogus-type := res.by-val_,
 		res by-val_
 
@@ -321,15 +313,7 @@ get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-
 			ctx initialize-concrete-struct inst, res.value, type-args
 			if ctx !preserve-lambdas && decl is-lambda-type
 				ctx.lambda-structs[res value] := res.value, ()
-		if ctx is-native && res.value !default-reference-kind-is-set
-			# The only way this would not be set is if we are still computing its the size.
-			# In that case, it's a recursive record, so it should be by-ref.
-			res.value.default-reference-kind := by-ref_
-		ref = if ctx is-native
-			res.value.default-reference-kind
-		else
-			by-val_
-		ref, res.value
+		by-val_, res.value
 
 -concrete-type-special concrete-type?(ctx concretize-ctx, inst struct-inst, type-args-scope type-args-scope) # TODO: better name
 	if inst is-mut-array && ctx is-java
@@ -374,33 +358,9 @@ concrete-type-from-closure concrete-type(
 			late-default-reference-kind: ()
 			late-type-size: ()
 			field-offsets: ()
-		if ctx is-native
-			ctx set-concrete-struct-record-size-or-defer cs
 		ctx.all-concrete-structs ~= cs
 		# TODO: consider passing closure by value
 		by-ref_, cs
-
--set-concrete-struct-record-size-or-defer void(ctx concretize-ctx, cs concrete-struct)
-	assert ctx is-native
-	if cs can-get-record-size
-		cs set-concrete-struct-record-size
-	else
-		ctx.deferred-type-size ~= cs
-
--can-get-record-size bool(a concrete-struct)
-	a.body.concrete-record!.fields every field =>
-		field.type has-size-or-pointer-size-bytes
-
--set-concrete-struct-record-size void(a concrete-struct)
-	fields-type fields-type = if _ ?= a.source concrete-struct-source-lambda
-		closure
-	else
-		record_
-	size = a.body.concrete-record!.fields record-size
-	unless a default-reference-kind-is-set
-		a.default-reference-kind := size.type-size get-default-reference-kind-for-fields a.is-self-mutable, fields-type
-	a.type-size := size type-size
-	a.field-offsets := size field-offsets
 
 get-concrete-fun-from-called concrete-fun?(
 	ctx concretize-ctx,
@@ -466,48 +426,9 @@ concretize-lambda-params concrete-local[](
 add-concrete-fun void(ctx concretize-ctx, fun concrete-fun)
 	ctx.all-concrete-funs ~= fun
 
--can-get-union-size bool(members concrete-type[])
-	members every type =>
-		type has-size-or-pointer-size-bytes
-
--union-size type-size(members concrete-type[])
-	union-align nat = 8
-	max-member mut nat = 0
-	for x : members
-		max-member max:= x.size-or-pointer-size-bytes size-bytes
-	size-bytes = 8 + max-member round-up-to union-align
-	size-bytes, union-align
-
--get-default-reference-kind-for-fields reference-kind(type-size type-size, is-self-mutable bool, type fields-type)
-	max-size nat = match type
-	as record_
-		8 * 2
-	as closure
-		8
-	is-self-mutable || type-size.size-bytes > max-size ? by-ref_ : by-val_
-
--fields-type enum(record_, closure)
-
 -concrete-struct-body-for-fields concrete-struct-body(fields concrete-field[])
 	is-some-field-mutable = fields exists x => x is-mutable
 	is-some-field-mutable concrete-record fields
-
--type-size-and-field-offsets record(type-size type-size, field-offsets nat[])
--record-size type-size-and-field-offsets(fields concrete-field[]) # THIS MUST BE ELIMINATED -------------------------------------------
-	max-field-size mut nat = 1
-	max-field-alignment mut nat = 1
-	offset-bytes mut nat = 0
-	field-offsets nat[] = for field : fields
-		field-size = field.type size-or-pointer-size-bytes
-		max-field-size max:= field-size size-bytes
-		if field-size.alignment-bytes != 0
-			max-field-alignment max:= field-size alignment-bytes
-			offset-bytes round-up-to:= field-size	alignment-bytes
-		field-offset = offset-bytes
-		offset-bytes +:= field-size size-bytes
-		field-offset
-	type-size type-size = (offset-bytes round-up-to max-field-alignment), max-field-alignment
-	type-size, field-offsets
 
 -initialize-concrete-struct void(
 	ctx concretize-ctx,
@@ -522,32 +443,16 @@ add-concrete-fun void(ctx concretize-ctx, fun concrete-fun)
 		ctx initialize-concrete-struct-for-builtin res, type-args, x
 	as enum_ x
 		res.body := x.storage_ concrete-enum
-		if ctx is-native
-			res.default-reference-kind := by-val_
-			res.type-size := x.storage_ type-size-for-enum-or-flags
-	as extern-type x
-		res.body := concrete-extern-type
-		if ctx is-native
-			res.default-reference-kind := by-val_
-			res.type-size := x.size ?? (0, 0)
 	as flags_ x
 		res.body := x.storage_ concrete-flags
-		if ctx is-native
-			res.default-reference-kind := by-val_
-			res.type-size := x.storage_ type-size-for-enum-or-flags
 	as record_ r
 		fields concrete-field[] = for f : r fields
 			debug-name: f name
 			is-mutable: f.mutability !is-empty
 			type: ctx get-concrete-type f.type, type-args
 		res.body := fields concrete-struct-body-for-fields
-		if ctx is-native
-			ctx set-concrete-struct-record-size-or-defer res
 	as sum-type x
 		res.body := () concrete-union
-		if ctx is-native
-			res.default-reference-kind := by-val_
-			ctx.deferred-type-size ~= res
 		cases concrete-sum-type-case mut[] = for member : x listed-members
 			member-type = ctx get-concrete-type-for-struct-inst member.member, type-args
 			method-impls = ctx sum-type-method-impls-common member.method-impls, type-args
@@ -603,8 +508,6 @@ finish-sum-type-cases void(sum-type concrete-struct, cases concrete-sum-type-cas
 	type-args concrete-type[],
 	type builtin-type,
 )
-	if ctx is-native
-		struct.default-reference-kind := by-val_
 	match type
 	# TODO: why do we handle 'option' specially here but 'array' specially elsewhere? -----------------------------------------------
 	as option
@@ -612,117 +515,6 @@ finish-sum-type-cases void(sum-type concrete-struct, cases concrete-sum-type-cas
 		# Maybe we could use an impossible type instead. I could declare `-none record` in bootstrap.crow, which would be guaranteed to not be used anywhere.
 		struct.body := ((ctx.none-type, type-args.only),) concrete-union
 		assert struct.body.concrete-union! has-members # TODO: RM (sanity check) ----------------------------------------------
-		if ctx is-native
-			ctx.deferred-type-size ~= struct
 	else
-		unless ctx is-native && type is-lambda-type # Lambda types handled in 'finish-lambdas'
-			# TODO: isn't that big expression the same as the local 'type-args'? ---------------------------------------------------
-			struct.body := type concrete-builtin-type struct.source.concrete-struct-source-inst!.type-args
-			if ctx is-native
-				struct.type-size := type get-builtin-struct-size
-
--type-size-for-enum-or-flags type-size(a integral-type)
-	size nat = a size-for-enum-or-flags
-	size, size
--size-for-enum-or-flags nat(a integral-type)
-	match a
-	as int8
-		1
-	as nat8
-		1
-	as int16
-		2
-	as nat16
-		2
-	as int32
-		4
-	as nat32
-		4
-	as int64
-		8
-	as nat64
-		8
-
-deferred-fill-record-and-union-bodies void(ctx concretize-ctx)
-	unless ctx is-native
-		assert ctx.deferred-type-size is-empty
-	until ctx.deferred-type-size is-empty
-		could-get-something mut = false
-		ctx.deferred-type-size filter-unordered struct =>
-			can-get mut = false
-			match struct body
-			as concrete-record _
-				can-get := struct can-get-record-size
-				if can-get
-					struct set-concrete-struct-record-size
-			as concrete-union u
-				can-get := u.members can-get-union-size
-				if can-get
-					struct.type-size := u.members union-size
-			else
-				throw unreachable
-			if can-get
-				could-get-something := true
-			!can-get
-		assert could-get-something
-
--get-builtin-struct-size type-size(kind builtin-type)
-	# TODO: SORT CASES ----------------------------------------------------------------------------------------------------
-	match kind
-	as bool
-		1, 1
-	as char8
-		1, 1
-	as int8
-		1, 1
-	as nat8
-		1, 1
-	as int16
-		2, 2
-	as nat16
-		2, 2
-	as char32
-		4, 4
-	as float32
-		4, 4
-	as int32
-		4, 4
-	as nat32
-		4, 4
-	as float64
-		8, 8
-	as int64
-		8, 8
-	as nat64
-		8, 8
-	as symbol
-		8, 8
-	as future
-		throw unreachable
-	as fun-data
-		throw unreachable
-	as fun-mut
-		throw unreachable
-	as fun-shared
-		throw unreachable
-	as option
-		throw unreachable
-	as mut-array
-		throw unreachable
-	as array
-		16, 8
-	as mut-slice
-		16, 8
-	as string
-		16, 8
-	as java-exclusion
-		throw unreachable
-	as java-any
-		0, 1
-	as js-any
-		# JS builds don't use concretize. But JS type may appear in a union.
-		0, 1
-	as void
-		0, 1
-	as weak-ref
-		8, 8
+		# TODO: isn't that big expression the same as the local 'type-args'? ----------------------------------------------------
+		struct.body := type concrete-builtin-type struct.source.concrete-struct-source-inst!.type-args
