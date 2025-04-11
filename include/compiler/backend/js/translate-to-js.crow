@@ -29,8 +29,8 @@ translate-to-js js-and-map(
 	as node
 		node
 	classes js-class-decl[] = with out : build
-		for struct : concrete-program all-structs
-			out ~~= ctx translate-struct struct
+		for type : concrete-program all-structs
+			out ~~= ctx translate-type type
 	vars js-var-decl[] = with out : build
 		for var : concrete-program all-vars
 			destructure js-destructure = ctx js-name var to
@@ -72,7 +72,7 @@ translate-to-js js-and-map(
 	for uri, _ : program.program all-modules
 		uri, uri.to
 
--translate-struct js-class-decl?(ctx to-js-ctx, a concrete-struct)
+-translate-type js-class-decl?(ctx to-js-ctx, a concrete-type)
 	match a body
 	as concrete-builtin-type _
 		()
@@ -84,11 +84,11 @@ translate-to-js js-and-map(
 		(ctx class-for-record a, x),
 	as concrete-union x
 		(ctx class-for-union a, x),
-	as concrete-struct-body-deferred
+	as concrete-type-body-deferred
 		throw unreachable
 
 -gen-type-assert js-statement?(ctx to-js-ctx, source source, get js-expr, a concrete-type) # TODO: Once it's working, put type assertions behind a flag
-	match a.struct body
+	match a body
 	as concrete-builtin-type x
 		source gen-assert-builtin-type get, x
 	as concrete-enum _
@@ -96,11 +96,11 @@ translate-to-js js-and-map(
 	as concrete-flags _
 		(source gen-assert-integral get),
 	as concrete-record _
-		unless a.struct is-empty-struct
-			(source gen-assert-instanceof get, (ctx js-name a.struct)),
+		unless a is-empty-type
+			(source gen-assert-instanceof get, (ctx js-name a)),
 	as concrete-union _
-		(source gen-assert-instanceof get, (ctx js-name a.struct)),
-	as concrete-struct-body-deferred
+		(source gen-assert-instanceof get, (ctx js-name a)),
+	as concrete-type-body-deferred
 		throw unreachable
 
 -gen-assert-builtin-type js-statement?(source source, get js-expr, a concrete-builtin-type)
@@ -192,9 +192,9 @@ translate-to-js js-and-map(
 -throw-unreachable js-statement(source source)
 	source throw-message "Unreachable"
 
--source source(ctx to-js-ctx, a concrete-struct)
+-source source(ctx to-js-ctx, a concrete-type)
 	range uri-and-range = a.source range
-	range.uri, (ctx.show-ctx show-concrete-struct a).sym-of-string, ctx.line-and-character-getters[range].range.start
+	range.uri, (ctx.show-ctx show-concrete-type a).sym-of-string, ctx.line-and-character-getters[range].range.start
 -source source(ctx to-js-ctx, a concrete-fun)
 	range = a range
 	range.uri, (ctx debug-name a), ctx.line-and-character-getters[range].range.start
@@ -204,7 +204,7 @@ translate-to-js js-and-map(
 -debug-name sym(ctx to-js-ctx, a concrete-fun)
 	ctx.show-ctx show-concrete-fun-name a sym-of-string
 
--class-for-record js-class-decl(ctx to-js-ctx, a concrete-struct ,r concrete-record)
+-class-for-record js-class-decl(ctx to-js-ctx, a concrete-type ,r concrete-record)
 	###
 	class R {
 		constructor(x, y) {
@@ -219,10 +219,10 @@ translate-to-js js-and-map(
 		field.debug-name to
 	constructor js-class-member = source gen-constructor (), names, (index, get) =>
 		ctx gen-type-assert source, get, r.fields[index].type
-	comment = ctx.show-ctx show-concrete-struct a
+	comment = ctx.show-ctx show-concrete-type a
 	comment, (ctx js-name a), (), (constructor,)
 
--class-for-union js-class-decl(ctx to-js-ctx, a concrete-struct, _ concrete-union)
+-class-for-union js-class-decl(ctx to-js-ctx, a concrete-type, _ concrete-union)
 	# TODO: for most unions, we could just use the 'value' directly with no class and use 'instanceof' checks for matching
 	###
 	class U {
@@ -242,7 +242,7 @@ translate-to-js js-and-map(
 		expr = source gen-call-sync super, (message,)
 		expr.expr-statement,
 	constructor = source gen-constructor super, ("index", "value"), _ => ()
-	comment = ctx.show-ctx show-concrete-struct a
+	comment = ctx.show-ctx show-concrete-type a
 	comment, (ctx js-name a), extends, (constructor,)
 
 -gen-constructor js-class-member(
@@ -270,13 +270,13 @@ translate-to-js js-and-map(
 	ctx.mangled-names[fun] no-prefix
 -js-name js-name(ctx to-js-ctx, var concrete-var)
 	ctx.mangled-names[var] no-prefix
--js-name js-name(ctx to-js-ctx, type concrete-struct)
+-js-name js-name(ctx to-js-ctx, type concrete-type)
 	ctx.mangled-names[type] no-prefix
 -to-ref js-expr(ctx to-js-ctx, source source, fun concrete-fun)
 	source gen-identifier (ctx js-name fun)
 -to-ref js-expr(ctx to-js-ctx, source source, var concrete-var)
 	source gen-identifier (ctx js-name var)
--to-ref js-expr(ctx to-js-ctx, source source, type concrete-struct)
+-to-ref js-expr(ctx to-js-ctx, source source, type concrete-type)
 	source gen-identifier (ctx js-name type)
 
 -to-js-ctx record
@@ -290,14 +290,14 @@ translate-to-js js-and-map(
 	a.show-ctx line-and-character-getters
 -common-funs concrete-common-funs-js(a to-js-ctx)
 	a.program.common-funs concrete-common-funs-js!
--exception concrete-struct(a to-js-ctx)
-	a.common-funs.exception struct
--string concrete-struct(a to-js-ctx)
-	a.common-funs.string struct
--symbol concrete-struct(a to-js-ctx)
-	a.common-funs.symbol struct
+-exception concrete-type(a to-js-ctx)
+	a.common-funs exception
+-string concrete-type(a to-js-ctx)
+	a.common-funs string
+-symbol concrete-type(a to-js-ctx)
+	a.common-funs symbol
 -is-string-or-symbol bool(ctx to-js-ctx, a concrete-type)
-	a.struct == ctx.string || a.struct == ctx.symbol
+	a == ctx.string || a == ctx.symbol
 
 -to-expr-ctx record mut
 	ctx to-js-ctx
@@ -315,7 +315,7 @@ translate-to-js js-and-map(
 	ctx.ctx to-ref source, fun
 -to-ref js-expr(ctx to-expr-ctx, source source, var concrete-var)
 	ctx.ctx to-ref source, var
--to-ref js-expr(ctx to-expr-ctx, source source, type concrete-struct)
+-to-ref js-expr(ctx to-expr-ctx, source source, type concrete-type)
 	ctx.ctx to-ref source, type
 
 -source source(ctx to-expr-ctx, a concrete-expr)
@@ -518,7 +518,7 @@ translate-to-js js-and-map(
 			zero = source gen-integer-unsigned 0
 			one = source gen-integer-unsigned 1
 			index = source gen-ternary got-eq-undefined, zero, one
-			option = ctx to-ref source, type.struct
+			option = ctx to-ref source, type
 			(source gen-return (source gen-new option, (index, got))),
 	as weak-ref-new
 		WeakRef = source gen-global "WeakRef"
@@ -926,14 +926,14 @@ translate-to-js js-and-map(
 
 -to-expr-or-block-statement js-expr-or-block-statement(ctx to-expr-ctx, a concrete-expr)
 	source source = ctx source a
-	type = a.type struct
+	type = a type
 	async = ctx is-cur-fun-async
 	match a kind
 	as array-op-concrete-expr x
 		input-expr = ctx to-js-expr x.input
 		match x input-kind
 		as array
-			match x output-kind a.type
+			match x output-kind type
 			as array
 				# TODO: PERF I should probably not use 'map' here, do a loop like I do for range ------------------------------------------------------------
 				# `xs.map(x => {... })` or `await Array.fromAsync(xs, async x => { ... })`
@@ -958,7 +958,7 @@ translate-to-js js-and-map(
 			get-cur = source gen-identifier cur-name
 			get-end = source gen-identifier end-name
 			cur-less-end = source gen-less get-cur, get-end
-			match x output-kind a.type
+			match x output-kind type
 			as array
 				###
 				const { low: start, high: end } = range
@@ -1009,7 +1009,7 @@ translate-to-js js-and-map(
 				while_ = source gen-while cur-less-end, body.to
 				(declare-cur-end, while_) js-block-statement
 	as builtin-concrete-expr x
-		ctx translate-builtin a.type, source, x.fun, for arg : x args
+		ctx translate-builtin type, source, x.fun, for arg : x args
 			ctx to-js-expr arg
 	as call-concrete-expr x
 		call-async = ctx.ctx is-async x.called
@@ -1170,7 +1170,7 @@ translate-to-js js-and-map(
 		union_ = ctx to-js-expr x.union_
 		source gen-property-access union_, "index".no-prefix to
 
--translate-try js-block-statement(ctx to-expr-ctx, source source, type concrete-struct, a try-concrete-expr)
+-translate-try js-block-statement(ctx to-expr-ctx, source source, type concrete-type, a try-concrete-expr)
 	###
 	try
 		tried
@@ -1205,7 +1205,7 @@ translate-to-js js-and-map(
 	if_ = source gen-if instanceof-exception, switch.to, throw-error
 	source gen-try-catch tried, error, if_.to to
 
--translate-try-let js-block-statement(ctx to-expr-ctx, source source, type concrete-struct, a try-let-concrete-expr)
+-translate-try-let js-block-statement(ctx to-expr-ctx, source source, type concrete-type, a try-let-concrete-expr)
 	# TODO: dup code in handler for 'translate-try' ------------------------------------------------------------------------
 	error js-name = "error" special-local
 	get-error = source gen-identifier error
@@ -1262,7 +1262,7 @@ translate-to-js js-and-map(
 
 -translate-case js-switch-case(
 	ctx to-expr-ctx,
-	type concrete-struct,
+	type concrete-type,
 	source source,
 	member-index integral-value,
 	case_ concrete-match-union-case,
@@ -1278,7 +1278,7 @@ translate-to-js js-and-map(
 		then
 	value, (source maybe-break-switch-case type, then-block)
 
--maybe-break-switch-case js-block-statement(source source, type concrete-struct, a js-block-statement)
+-maybe-break-switch-case js-block-statement(source source, type concrete-type, a js-block-statement)
 	if type is-void
 		a ~ source.gen-break-no-label
 	else
@@ -1312,7 +1312,7 @@ translate-to-js js-and-map(
 	else
 		(none, "ignore", (ctx.take-next-temp-index,))
 
--translate-constant js-expr(ctx to-js-ctx, source source, type concrete-struct, a constant)
+-translate-constant js-expr(ctx to-js-ctx, source source, type concrete-type, a constant)
 	match type body
 	as concrete-builtin-type x
 		ctx translate-constant-builtin source, x, a
@@ -1326,7 +1326,7 @@ translate-to-js js-and-map(
 		match a
 		as constant-record r
 			source gen-new class_, for field, arg : x.fields zip ctx.program.all-constants.records[type]![r] # TODO: use a global const instead of creating a new one each time
-				ctx translate-constant source, field.type.struct, arg
+				ctx translate-constant source, field.type, arg
 		as constant-gc-safe-value
 			source gen-null
 		else
@@ -1339,13 +1339,13 @@ translate-to-js js-and-map(
 			uv = ctx.program.all-constants.unions[type]![constant]
 			case-type = u.members[uv member-index]
 			index = source gen-integer-unsigned uv.member-index
-			value = ctx translate-constant source, case-type.struct, uv.member
+			value = ctx translate-constant source, case-type, uv.member
 			source gen-new (ctx to-ref source, type), (index, value)
 		as constant-gc-safe-value
 			source gen-null
 		else
 			throw unreachable
-	as concrete-struct-body-deferred
+	as concrete-type-body-deferred
 		throw unreachable
 
 -translate-constant-builtin js-expr(ctx to-js-ctx, source source, builtin_ concrete-builtin-type, a constant)
@@ -1372,7 +1372,7 @@ translate-to-js js-and-map(
 			elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: I type this a lot. have a helper function.
 			element-type = builtin_.type-args[0]
 			source gen-array for x : elements
-				ctx translate-constant source, element-type.struct, x
+				ctx translate-constant source, element-type, x
 		as constant-gc-safe-value
 			source gen-array ()
 		else
@@ -1434,7 +1434,7 @@ translate-to-js js-and-map(
 		source gen-null
 
 -gc-safe-value-for-type js-expr(source source, type concrete-type)
-	match type.struct body
+	match type body
 	as concrete-builtin-type _
 		source gen-integer-unsigned 0 # TODO: not all builtins are numbers ................................................
 	as concrete-enum _
@@ -1445,7 +1445,7 @@ translate-to-js js-and-map(
 		source gen-null
 	as concrete-union _
 		source gen-null
-	as concrete-struct-body-deferred
+	as concrete-type-body-deferred
 		throw unreachable
 
 -constant-integral js-expr(source source, type integral-type, a constant)

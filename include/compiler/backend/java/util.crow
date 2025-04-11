@@ -8,24 +8,24 @@ import
 	../../util/util
 	./mangle-for-java
 
-exception concrete-struct(a concrete-program)
+exception concrete-type(a concrete-program)
 	a.common-funs.concrete-common-funs-java! exception
-java-any concrete-struct(a concrete-program)
+java-any concrete-type(a concrete-program)
 	a.common-funs.concrete-common-funs-java! java-any
-bool concrete-struct(a concrete-program)
+bool concrete-type(a concrete-program)
 	a.common-funs.concrete-common-funs-java! bool
-nat32 concrete-struct(a concrete-program)
+nat32 concrete-type(a concrete-program)
 	a.common-funs.concrete-common-funs-java! nat32
-string concrete-struct(a concrete-program)
+string concrete-type(a concrete-program)
 	a.common-funs.concrete-common-funs-java! string
-symbol concrete-struct(a concrete-program)
+symbol concrete-type(a concrete-program)
 	a.common-funs.concrete-common-funs-java! symbol
 
-# TODO: this may be simpler (and faster) as a single dictionary class-and-member[nat][concrete-struct] ------------------------------------------
+# TODO: this may be simpler (and faster) as a single dictionary class-and-member[nat][concrete-type] ------------------------------------------
 constant-names record
-	arrays class-and-member[nat][concrete-struct]
-	records class-and-member[constant-record][concrete-struct]
-	unions class-and-member[constant-union][concrete-struct] # TODO: could this be a full-index-map? ---------------------
+	arrays class-and-member[nat][concrete-type]
+	records class-and-member[constant-record][concrete-type]
+	unions class-and-member[constant-union][concrete-type] # TODO: could this be a full-index-map? ---------------------
 new constant-names()
 	(), (), ()
 subscript class-and-member(a constant-names, constant any-constant)
@@ -45,10 +45,10 @@ max-constants-per-class nat()
 # TODO: MOVE, will need this for the JS build too ------------------------------------------------------------------------------
 each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-program, emit void mut(x any-constant))
 	# TODO:PERF this could use a full-index-set -----------------------------------------------------------------------------
-	seen-arrays (concrete-struct, nat) mut-set = ()
-	seen-records (concrete-struct, constant-record) mut-set = ()
-	seen-unions (concrete-struct, constant-union) mut-set = () # TODO:KILL ---------------------------------------------------------------------------
-	can-reference bool mut(type concrete-struct, c constant) = (type, c) =>
+	seen-arrays (concrete-type, nat) mut-set = ()
+	seen-records (concrete-type, constant-record) mut-set = ()
+	seen-unions (concrete-type, constant-union) mut-set = () # TODO:KILL ---------------------------------------------------------------------------
+	can-reference bool mut(type concrete-type, c constant) = (type, c) =>
 		program can-reference seen-arrays, seen-records, seen-unions, type, c
 
 	all-constants = program all-constants
@@ -58,21 +58,21 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 		for arr : all-constants arrs
 			# TODO: We should stop storing strings as arrays! ----------------------------------------------------------------------
 			guard arr.array-type !is-string-or-symbol
-			guard arr.element-type.struct !is-empty-struct
+			guard arr.element-type !is-empty-type
 			for array-id, xs : arr.constants with-index
 				key = arr.array-type, array-id
 				guard key !in seen-arrays
-				guard xs every x => can-reference[arr.element-type.struct, x]
+				guard xs every x => can-reference[arr.element-type, x]
 				seen-arrays ~= key
 				emit[arr.array-type single-constant-array arr.element-type, array-id, xs]
 				did-something := true
 		for record-type, map : all-constants records
-			guard record-type !is-empty-struct && record-type !is-wrapper
+			guard record-type !is-empty-type && record-type !is-wrapper
 			for constant, args : map
 				key = record-type, constant
 				guard key !in seen-records
 				fields = record-type.body.concrete-record! fields
-				guard args zip fields every (arg, field) => can-reference[field.type.struct, arg]
+				guard args zip fields every (arg, field) => can-reference[field.type, arg]
 				seen-records ~= key
 				emit[record-type single-constant-record constant, args, fields]
 				did-something := true
@@ -82,28 +82,28 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 				guard key !in seen-unions
 				members = union-type.body.concrete-union! members
 				member-type = members[value member-index]
-				guard can-reference[member-type.struct, value.member]
+				guard can-reference[member-type, value.member]
 				seen-unions ~= key
-				emit[union-type single-constant-union constant, value, member-type.struct]
+				emit[union-type single-constant-union constant, value, member-type]
 				did-something := true
 		
 	# TODO: RM this debugging code ------------------------------------------------------------------------------------------------------------------
 	for record-type, map : all-constants records	
-		guard record-type !is-empty-struct && record-type !is-wrapper
+		guard record-type !is-empty-type && record-type !is-wrapper
 		for constant, args : map
 			key = record-type, constant
 			if key !in seen-records
 				fields = record-type.body.concrete-record! fields
-				error log "Could not emit constant record {show-ctx show-concrete-struct record-type}"
+				error log "Could not emit constant record {show-ctx show-concrete-type record-type}"
 				for arg, field : args zip fields
-					if !can-reference[field.type.struct, arg]
-						error log "  Can not emit field of type {show-ctx show-concrete-struct field.type.struct}"
+					if !can-reference[field.type, arg]
+						error log "  Can not emit field of type {show-ctx show-concrete-type field.type}"
 
 	n-constant-arrays = all-constants.arrs sum x =>
-		unless x.element-type.struct is-empty-struct
+		unless x.element-type is-empty-type
 			x.constants size
 	n-constant-records = all-constants.records sum (struct, map) =>
-		unless struct is-empty-struct || struct is-wrapper # TODO: have a helper fn for this? -----------------------------------------------
+		unless struct is-empty-type || struct is-wrapper # TODO: have a helper fn for this? -----------------------------------------------
 			map size
 	n-constant-unions = all-constants.unions sum (_, map) =>
 		map size
@@ -113,16 +113,16 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 
 -can-reference bool(
 	program concrete-program,
-	seen-arrays (concrete-struct, nat) mut-set,
-	seen-records (concrete-struct, constant-record) mut-set,
-	seen-unions (concrete-struct, constant-union) mut-set ,
-	type concrete-struct,
+	seen-arrays (concrete-type, nat) mut-set,
+	seen-records (concrete-type, constant-record) mut-set,
+	seen-unions (concrete-type, constant-union) mut-set,
+	type concrete-type,
 	c constant,
 )
 	match c
 	as constant-array x
 		# TODO: We should stop storing strings as arrays! ----------------------------------------------------------------------
-		type is-string-or-symbol || type.array-element-type.struct is-empty-struct || (type, x.index) in seen-arrays
+		type is-string-or-symbol || type.array-element-type is-empty-type || (type, x.index) in seen-arrays
 	as constant-c-string _
 		true
 	as constant-float _
@@ -130,10 +130,10 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 	as integral-value _
 		true
 	as constant-record x
-		if type is-empty-struct
+		if type is-empty-type
 			true
 		elif field ?= type as-wrapper
-			program can-reference seen-arrays, seen-records, seen-unions, field.type.struct, program.all-constants.records[type]![x].only
+			program can-reference seen-arrays, seen-records, seen-unions, field.type, program.all-constants.records[type]![x].only
 		else
 			(type, x) in seen-records
 	as constant-union x
@@ -141,11 +141,11 @@ each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-progr
 	as constant-gc-safe-value
 		true
 
--is-string-or-symbol bool(a concrete-struct)
+-is-string-or-symbol bool(a concrete-type)
 	a is-string || a is-symbol
 
 any-constant union(single-constant-array, single-constant-record, single-constant-union)
-type concrete-struct(a any-constant)
+type concrete-type(a any-constant)
 	# TODO: this could be simplified if the type was always called 'type'! --------------------------------------------------
 	match a
 	as single-constant-array x
@@ -155,23 +155,23 @@ type concrete-struct(a any-constant)
 	as single-constant-union x
 		x union-type
 single-constant-array record
-	array-type concrete-struct
+	array-type concrete-type
 	element-type concrete-type
 	index nat
 	elements constant[]
 single-constant-record record
-	record-type concrete-struct
+	record-type concrete-type
 	constant constant-record
 	args constant[]
 	fields concrete-field[]
 single-constant-union record
-	union-type concrete-struct
+	union-type concrete-type
 	constant constant-union
 	value constant-union-value
-	member-type concrete-struct
+	member-type concrete-type
 
-get-structs-for-integrals concrete-struct[integral-type](a concrete-program)
-	res concrete-struct mut[integral-type] = ()
+get-structs-for-integrals concrete-type[integral-type](a concrete-program)
+	res concrete-type mut[integral-type] = ()
 	for struct : a all-structs
 		if builtin_ ?= struct.body concrete-builtin-type
 			if i ?= builtin_.kind.to::integral-type?
@@ -180,11 +180,11 @@ get-structs-for-integrals concrete-struct[integral-type](a concrete-program)
 	res move-to
 
 # TODO:MOVE (also, could I do all this work in concretize to avoid doing it here? JS could benefit too) ----------------------------------------------------------------------------------------------------------------------------------
-is-wrapper bool(a concrete-struct)
+is-wrapper bool(a concrete-type)
 	a.as-wrapper !is-empty
 is-wrapper bool(a concrete-record)
 	a.as-wrapper !is-empty
-as-wrapper concrete-field?(a concrete-struct) # TODO: I don't think any uses of this actually use the field? -----------------------------
+as-wrapper concrete-field?(a concrete-type) # TODO: I don't think any uses of this actually use the field? -----------------------------
 	a.body.concrete-record?.as-wrapper
 as-wrapper concrete-field?(a concrete-record)
 	if f ?= a.fields opt-only

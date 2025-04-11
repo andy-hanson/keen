@@ -10,13 +10,13 @@ import
 	../util/sym
 	../util/util
 
-concrete-struct-body union(
+concrete-type-body union(
 	concrete-builtin-type,
 	concrete-enum,
 	concrete-flags,
 	concrete-record,
 	concrete-union,
-	concrete-struct-body-deferred)
+	concrete-type-body-deferred)
 concrete-builtin-type record(kind builtin-type, type-args concrete-type[])
 concrete-enum record(storage_ integral-type)
 concrete-flags record(storage_ integral-type)
@@ -26,7 +26,7 @@ concrete-record record(is-some-field-mutable bool, fields concrete-field[])
 concrete-union record force-data
 	| This may be an empty array for a lambda type with no implementations.
 	late-members mut concrete-type[]?
-concrete-struct-body-deferred record
+concrete-type-body-deferred record
 has-members bool(a concrete-union)
 	a.late-members !is-empty
 members concrete-type[](a concrete-union)
@@ -34,47 +34,16 @@ members concrete-type[](a concrete-union)
 set-members void(a concrete-union, members concrete-type[])
 	a.late-members := (members,)
 
-# TODO: does this just always use the default-reference-kind? -------------------------------------------------------------
-concrete-type record(reference reference-kind, struct concrete-struct)
-to json(a concrete-type)
-reference-kind enum(by-val_, by-ref_)
-== bool(a reference-kind, b reference-kind)
-<=> comparison(a reference-kind, b reference-kind)
-to nat32(a reference-kind)
-to symbol(a reference-kind)
-show string(a reference-kind)
-	a.to::symbol to
-to json(a reference-kind)
-hash-mix void(a hasher, b reference-kind)
-	a hash-mix b.to::nat32
-by-val_ concrete-type(struct concrete-struct)
-	by-val_, struct
-== bool(a concrete-type, b concrete-type)
-	a.reference == b.reference && a.struct == b.struct
-<=> comparison(_ concrete-type, _ concrete-type)
-	throw todo
-hash-mix void(hasher hasher, a concrete-type)
-	hasher hash-mix a.reference
-	hasher hash-mix a.struct
-is-bogus bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-bogus
 is-java-any bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-java-any
-is-java-any bool(a concrete-struct)
 	match a body
 	as concrete-builtin-type x
 		x.kind == java-any
 	else
 		false
 is-void bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-void
-is-void bool(a concrete-struct)
 	if b ?= a.body concrete-builtin-type
 		b.kind == void
 is-empty-type bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-empty-struct
-is-empty-struct bool(a concrete-struct)
-	# Don't rely on type-size since that may not be set yet
 	match a body
 	as concrete-builtin-type x
 		x.kind == void
@@ -86,173 +55,106 @@ is-empty-struct bool(a concrete-struct)
 		x.fields every f => f.type is-empty-type
 	as concrete-union _
 		false
-	as concrete-struct-body-deferred
+	as concrete-type-body-deferred
 		false
 is-flags bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-flags
-is-flags bool(a concrete-struct)
 	a.body.concrete-flags !is-empty
-purity purity(a concrete-type)
-	a.struct purity
-must-be-by-val concrete-struct(a concrete-type)
-	assert a.reference == by-val_
-	a struct
 must-be-enum-or-flags enum-or-flags-member[](a concrete-type)
-	a.must-be-by-val.source.concrete-struct-source-inst!.decl must-be-enum-or-flags
+	a.source.concrete-type-source-inst!.decl must-be-enum-or-flags
 must-be-enum enum-or-flags-member[](a concrete-type)
-	a.must-be-by-val.source.concrete-struct-source-inst!.decl.body.enum_! members
+	a.source.concrete-type-source-inst!.decl.body.enum_! members
 must-be-flags flags_(a concrete-type)
-	a.must-be-by-val.source.concrete-struct-source-inst!.decl.body flags_!	
+	a.source.concrete-type-source-inst!.decl.body flags_!	
 
-concrete-struct-source union(
-	concrete-struct-source-bogus,
-	concrete-struct-source-inst,
-	concrete-struct-source-lambda
+concrete-type-source union(
+	concrete-type-source-bogus,
+	concrete-type-source-inst,
+	concrete-type-source-lambda
 )
-concrete-struct-source-bogus record
-concrete-struct-source-inst record
+concrete-type-source-bogus record
+concrete-type-source-inst record
 	decl struct-decl
 	type-args concrete-type[]
-== bool(a concrete-struct-source-inst, b concrete-struct-source-inst)
+== bool(a concrete-type-source-inst, b concrete-type-source-inst)
 	a.decl == b.decl && a.type-args == b.type-args
-concrete-struct-source-lambda record(containing-fun concrete-fun, index nat)
-range uri-and-range(a concrete-struct-source)
+concrete-type-source-lambda record(containing-fun concrete-fun, index nat)
+range uri-and-range(a concrete-type-source)
 	match a
-	as concrete-struct-source-bogus
+	as concrete-type-source-bogus
 		()
-	as concrete-struct-source-inst x
+	as concrete-type-source-inst x
 		x.decl range
-	as concrete-struct-source-lambda x
+	as concrete-type-source-lambda x
 		x.containing-fun range # TODO: more specific source -----------------------------------------------------------------------
-concrete-struct record force-data
+concrete-type record force-data
 	hash nat
 	purity purity
-	source concrete-struct-source
-	body mut concrete-struct-body
-	| For a JS build, this will always be unset 
-	late-default-reference-kind mut reference-kind?
-	| For a JS build, this will always be unset 
-	late-type-size mut type-size?
-	| Only set for records (and native build only) (TODO: Could this go in lower instead?) ---------------------------------------------------------------
-	field-offsets mut nat[]
-to json(a concrete-struct)
+	source concrete-type-source
+	body mut concrete-type-body
+to json(a concrete-type)
 	name string = match a source
-	as concrete-struct-source-bogus _
+	as concrete-type-source-bogus _
 		"BOGUS"
-	as concrete-struct-source-inst x
+	as concrete-type-source-inst x
 		x.decl.name to
-	as concrete-struct-source-lambda _
+	as concrete-type-source-lambda _
 		"lambda"
 	"{name} {a hash}"::string to
-== bool(a concrete-struct, b concrete-struct)
+== bool(a concrete-type, b concrete-type)
 	trusted a reference-equal b
-<=> comparison(_ concrete-struct, _ concrete-struct)
+<=> comparison(_ concrete-type, _ concrete-type)
 	throw todo
-hash-mix void(hasher hasher, a concrete-struct)
+hash-mix void(hasher hasher, a concrete-type)
 	hasher hash-mix a.hash
-is-self-mutable bool(a concrete-struct)
+is-self-mutable bool(a concrete-type)
 	if r ?= a.body concrete-record
 		r is-some-field-mutable
-type-size-is-set bool(a concrete-struct)
-	a.late-type-size !is-empty
-type-size type-size(a concrete-struct)
-	unless _ ?= a late-type-size
-		desc string = match a source
-		as concrete-struct-source-inst x
-			x.decl.name to
-		as concrete-struct-source-bogus
-			"BOGUS"
-		as concrete-struct-source-lambda _
-			"some lambda"
-		info log "Missing type-size for {desc}" # ----------------------------------------------------------------------------------
-	a late-type-size!
-set-type-size void(a concrete-struct, type-size type-size)
-	a.late-type-size := type-size,
-default-reference-kind-is-set bool(a concrete-struct)
-	a.late-default-reference-kind !is-empty
-default-reference-kind reference-kind(a concrete-struct)
-	a late-default-reference-kind!
-set-default-reference-kind void(a concrete-struct, value reference-kind)
-	a.late-default-reference-kind := value,
 
 # Returns return and param types
 as-fun-type (concrete-type, concrete-type)?(a concrete-type)
-	if a.reference == by-val_
-		a.struct as-fun-type
-as-fun-type (concrete-type, concrete-type)?(a concrete-struct)
 	guard x ?= a.body concrete-builtin-type
 	assert x.kind is-lambda-type
 	x.type-args.only2,
 
-is-nat8 bool(a concrete-struct)
+is-nat8 bool(a concrete-type)
 	match a body
 	as concrete-builtin-type x
 		x.kind == nat8
 	else
 		false
-is-array-or-mut-array bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-array-or-mut-array
-is-array-or-mut-array bool(a concrete-struct) # TODO: should be 'is-array-or-mut-slice' -------------------------------------------
+is-array-or-mut-array bool(a concrete-type) # TODO: should be 'is-array-or-mut-slice' ----------------------------------------------
 	guard b ?= a.body concrete-builtin-type
 	b.kind == array || b.kind == mut-slice
 
 opt-array-element-type concrete-type?(array-type concrete-type)
 	guard array-type is-array-or-mut-array
 	array-type.array-element-type,
-array-element-type concrete-type(array-type concrete-type) # TODO: this should return an option (and don't need to check is-array first)
-	assert array-type.must-be-by-val is-array-or-mut-array
-	array-type.must-be-by-val array-element-type
-array-element-type concrete-type(array-type concrete-struct)
-	array-type.source.concrete-struct-source-inst!.type-args only
+array-element-type concrete-type(array-type concrete-type)
+	assert array-type is-array-or-mut-array
+	array-type.source.concrete-type-source-inst!.type-args only
 is-option bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-option
-is-option bool(a concrete-struct)
-	if inst ?= a.source concrete-struct-source-inst
+	if inst ?= a.source concrete-type-source-inst
 		inst.decl is-option-type
-unwrap-option-type concrete-type(option-type concrete-type) # TODO: this should return an option (instead of needing is-option)
-	option-type.must-be-by-val unwrap-option-type
-unwrap-option-type concrete-type(option-type concrete-struct)
+unwrap-option-type concrete-type(option-type concrete-type)
 	assert option-type is-option
-	option-type.source.concrete-struct-source-inst!.type-args only
+	option-type.source.concrete-type-source-inst!.type-args only
 unwrap-weak-ref concrete-type(a concrete-type)
-	a.must-be-by-val unwrap-weak-ref
-unwrap-weak-ref concrete-type(a concrete-struct)
 	assert a is-weak-ref
-	a.source.concrete-struct-source-inst!.type-args only
-is-weak-ref bool(a concrete-struct)
-	if inst ?= a.source concrete-struct-source-inst
+	a.source.concrete-type-source-inst!.type-args only
+is-weak-ref bool(a concrete-type)
+	if inst ?= a.source concrete-type-source-inst
 		inst.decl is-weak-ref
-is-bogus bool(a concrete-struct)
-	a.source.concrete-struct-source-bogus !is-empty
+is-bogus bool(a concrete-type)
+	a.source.concrete-type-source-bogus !is-empty
 is-string bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-string
-is-string bool(a concrete-struct)
-	if x ?= a.source concrete-struct-source-inst
+	if x ?= a.source concrete-type-source-inst
 		x.decl is-string
 is-symbol bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-symbol
-is-symbol bool(a concrete-struct)
-	if x ?= a.source concrete-struct-source-inst
+	if x ?= a.source concrete-type-source-inst
 		x.decl is-symbol
 is-js-any bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-js-any
-is-js-any bool(a concrete-struct)
-	if x ?= a.source concrete-struct-source-inst
+	if x ?= a.source concrete-type-source-inst
 		x.decl is-js-any
-	
-has-size-or-pointer-size-bytes bool(a concrete-type)
-	match a reference
-	as by-val_
-		a.struct type-size-is-set
-	as by-ref_
-		true
-
-size-or-pointer-size-bytes type-size(a concrete-type)
-	match a reference
-	as by-val_
-		a.struct type-size
-	as by-ref_
-		8, 8
 
 concrete-field record
 	debug-name sym # TODO: rename to just 'name' .........................................................................
@@ -478,7 +380,7 @@ range-element-type concrete-type(range-type concrete-type)
 	low.type is high.type
 	low.type
 range-fields (concrete-field, concrete-field)(range-type concrete-type)
-	range-type.must-be-by-val.body.concrete-record!.fields only2
+	range-type.body.concrete-record!.fields only2
 out-element concrete-type(a array-op-concrete-expr)
 	a.body type
 to json(a array-op-concrete-expr)
@@ -491,7 +393,6 @@ cast-concrete-expr record(inner concrete-expr) # TODO: this is only used to cast
 to json(a cast-concrete-expr)
 create-array-concrete-expr record(args concrete-expr[])
 to json(a create-array-concrete-expr)
-# Note: This can create a by-ref record too
 create-record-concrete-expr record(args concrete-expr[])
 to json(a create-record-concrete-expr)
 create-union-concrete-expr record(member-index nat, arg concrete-expr)
@@ -534,7 +435,7 @@ match-enum-or-integral-concrete-expr concrete-expr-kind(matched concrete-expr, c
 	() match-enum-or-integral-concrete-expr matched, case-values, case-exprs, else_
 to json(a match-enum-or-integral-concrete-expr)
 matched-integral-type char-or-integral-type(a match-enum-or-integral-concrete-expr)
-	match a.matched.type.struct.body
+	match a.matched.type body
 	as concrete-builtin-type x
 		x.kind to!
 	as concrete-enum x
@@ -573,13 +474,13 @@ match-union-concrete-expr concrete-expr-kind(
 	(matched, member-indices, cases, else_)::match-union-concrete-expr to
 to json(a match-union-concrete-expr)
 union_ concrete-union(a match-union-concrete-expr)
-	a.matched.type.must-be-by-val.body.concrete-union!
+	a.matched.type.body.concrete-union!
 concrete-match-union-case record(local concrete-local?, then concrete-expr)
 to json(a concrete-match-union-case)
 record-field-get-concrete-expr record(record_ concrete-expr, field-index nat)
 to json(a record-field-get-concrete-expr)
 field concrete-field(a record-field-get-concrete-expr)
-	a.record_.type.struct.body.concrete-record!.fields[a field-index]
+	a.record_.type.body.concrete-record!.fields[a field-index]
 record-field-set-concrete-expr record
 	record_ concrete-expr
 	field-index nat
@@ -588,7 +489,7 @@ to json(a record-field-set-concrete-expr)
 record-type concrete-type(a record-field-set-concrete-expr) # TODO: inline -----------------------------------------------------
 	a.record_ type
 field concrete-field(a record-field-set-concrete-expr)
-	a.record-type.struct.body.concrete-record!.fields[a field-index]
+	a.record-type.body.concrete-record!.fields[a field-index]
 seq-concrete-expr record(first concrete-expr, then concrete-expr)
 to json(a seq-concrete-expr)
 throw-concrete-expr record(thrown concrete-expr)
@@ -610,29 +511,29 @@ to json(a try-let-concrete-expr)
 union-as-concrete-expr record(union_ concrete-expr, member-index nat)
 to json(a union-as-concrete-expr)
 case-type concrete-type(a union-as-concrete-expr)
-	a.union_.type.must-be-by-val.body.concrete-union!.members[a member-index]
+	a.union_.type.body.concrete-union!.members[a member-index]
 | Internal operation for getting the 'kind' of a union. (This is the member index.)
 union-kind-concrete-expr record(union_ concrete-expr)
 to json(a union-kind-concrete-expr)
 union-members concrete-type[](a union-kind-concrete-expr)
-	a.union_.type.must-be-by-val.body.concrete-union! members
+	a.union_.type.body.concrete-union! members
 
 return-type concrete-type(a call-concrete-expr)
 	a.called return-type
 
 arr-type-and-constants-concrete record
-	array-type concrete-struct
+	array-type concrete-type
 	element-type concrete-type # TODO: don't need to store this, can get it from arr-type ----------------------------------------
 	constants constant[][]
 
-# TODO: rename -- this is not all constants, just the ones by-ref
+# TODO: rename -- this is not all constants (such as constant nats), just the ones that we want to ensure a single unique instance of ---------------------------
 all-constants-concrete record
 	c-strings string[]
 	static-symbols constant
 	arrs arr-type-and-constants-concrete[] # TODO: rename to 'arrays' ----------------------------------------------------------------
 	| Maps a {constant-record} to the record values.
-	records (constant-record, constant[]) full-index-map[concrete-struct]
-	unions (constant-union, constant-union-value) full-index-map[concrete-struct]
+	records (constant-record, constant[]) full-index-map[concrete-type]
+	unions (constant-union, constant-union-value) full-index-map[concrete-type]
 
 concrete-var record(source var-decl, type concrete-type)
 == bool(a concrete-var, b concrete-var)
@@ -652,11 +553,11 @@ concrete-program record
 	model-program program
 	target build-target
 	all-constants all-constants-concrete
-	all-structs concrete-struct[]
+	all-structs concrete-type[] # RENAME TO ALL-TYPES ------------------------------------------------------------------------
 	all-vars concrete-var[]
 	all-funs concrete-fun[]
 	| Currently only used in a Java build (TODO: use in JS) -----------------------------------------------------------------
-	method-impls concrete-method-info[concrete-struct]
+	method-impls concrete-method-info[concrete-type]
 	yielding-funs concrete-fun set	
 	common-funs concrete-common-funs
 to json(_ concrete-program)
@@ -664,7 +565,7 @@ to json(_ concrete-program)
 concrete-method-info record
 	| Note: This is not all methods, only the ones that were accessed
 	methods concrete-fun[]
-	cases concrete-fun?[][concrete-struct]
+	cases concrete-fun?[][concrete-type]
 new concrete-method-info()
 	(), ()
 is-empty bool(a concrete-method-info)
@@ -673,17 +574,17 @@ is-empty bool(a concrete-method-info)
 	res
 concrete-common-funs union(concrete-common-funs-java, concrete-common-funs-js)
 concrete-common-funs-java record
-	exception concrete-struct
-	java-any concrete-struct
-	bool concrete-struct
-	nat32 concrete-struct
+	exception concrete-type
+	java-any concrete-type
+	bool concrete-type
+	nat32 concrete-type
 	show-exception concrete-fun
-	string concrete-struct
-	symbol concrete-struct
+	string concrete-type
+	symbol concrete-type
 	main concrete-fun
 concrete-common-funs-js record
 	exception concrete-type
-	string concrete-type # TODO: these should probably be concrete-structs ------------------------------------------------------
+	string concrete-type
 	symbol concrete-type
 	js-await concrete-fun
 	main concrete-fun
@@ -811,19 +712,19 @@ each-nested-constant void(
 	as integral-value _
 		()
 	as constant-record x
-		fields = type.struct.body.concrete-record! fields
-		args = all-constants.records[type struct]![x]
+		fields = type.body.concrete-record! fields
+		args = all-constants.records[type]![x]
 		for arg, field : args zip fields
 			all-constants each-nested-constant field.type, arg, f
 	as constant-union x
-		value = all-constants.unions[type struct]![x]
-		member-type = type.must-be-by-val.body.concrete-union!.members[value member-index]
+		value = all-constants.unions[type]![x]
+		member-type = type.body.concrete-union!.members[value member-index]
 		all-constants each-nested-constant member-type, value.member, f 
 	as constant-gc-safe-value
 		()
 
 constant-array record
-	| Index of the array type in {all-constants-concrete}.{arrs} (TODO: maybe that should just be a map keyed by {concrete-struct}?)
+	| Index of the array type in {all-constants-concrete}.{arrs} (TODO: maybe that should just be a map keyed by {concrete-type}?)
 	type-index nat
 	| Index within that array type
 	index nat

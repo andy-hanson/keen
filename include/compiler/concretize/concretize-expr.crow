@@ -101,7 +101,7 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 			in-element-type = input.type is-range ? input.type.range-element-type : input.type array-element-type
 			out-element-type = type.is-void ? type : type array-element-type
 			empty-out-array constant-array? = unless type is-void
-				(ctx.all-constants get-constant-array type.must-be-by-val, ()).constant-array!,
+				(ctx.all-constants get-constant-array type, ()).constant-array!,
 			match lambda-arg
 			as lambda-expr l
 				forbid _ ?= l.mut-type-for-explicit-shared # This won't happen because 'for-loop' takes a 'mut' lambda
@@ -134,9 +134,7 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 	true
 
 -is-range bool(a concrete-type)
-	a.reference == by-val_ && a.struct is-range
--is-range bool(a concrete-struct)
-	guard inst ?= a.source concrete-struct-source-inst
+	guard inst ?= a.source concrete-type-source-inst
 	decl = inst decl
 	# TODO: base this on more than just the name ... uri too? -----------------------------------------------------
 	decl.name == sym-range
@@ -305,7 +303,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 -get-closure-field-info closure-field-info(ctx concretize-expr-ctx, a closure-ref)
 	closure-param concrete-local = ctx.cur-fun.params[0]
 	closure-type = closure-param type
-	record_ = closure-type.struct.body concrete-record!
+	record_ = closure-type.body concrete-record!
 	reference-kind = a closure-reference-kind
 	field-type = record_.fields[a index] type
 	pointee-type = match reference-kind
@@ -315,84 +313,30 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		ctx.concretize-ctx get-referenced-type field-type
 	closure-param, a.index, field-type, pointee-type, reference-kind
 
--concretize-closure-fields concrete-field[](ctx concretize-expr-ctx, closure variable-ref[])
-	forbid ctx preserve-lambdas
-	for x : closure
-		base-type = ctx get-concrete-type x.type
-		type = match x closure-reference-kind
-		as direct
-			base-type
-		as allocated
-			ctx get-concrete-type x.local.closure-reference-type!.to
-		# Even if the variable is mutable, it's a const field holding a mut pointer
-		x.name, false, type
-
 -concretize-lambda concrete-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
 	range uri-and-range,
 	e lambda-expr,
 )
-	if ctx preserve-lambdas
-		if ctx is-java
-			forbid e.kind == explicit-shared : todo # For Java, we need to do something for these ---------------------------------------------
-		return-type = ctx get-concrete-type e.return-type
-		param-type = ctx get-concrete-type e.param.type
-		body = ctx concretize-expr-with-destructure return-type, range, e.param, e.body
-		param = body.root-local ?? do
-			id: ctx.local-ids take-next-id
-			source: args::concrete-generated-local-kind to
-			type: param-type
-		closure concrete-local[] = with out : build
-			for x : e closure
-				match ctx.locals[x local]!
-				as concrete-local l
-					out ~= l
-				as typed-constant _
-					()
-		type, range, (closure lambda-concrete-expr param, body.expr)
-	elif e.kind == explicit-shared
-		inner-type = ctx get-concrete-type e.mut-type-for-explicit-shared!.to
-		inner = ctx concretize-lambda-inner inner-type, range, e
-		lambda-type-args = inner-type.struct.source.concrete-struct-source-inst! type-args
-		shared-of-mut-lambda = ctx.concretize-ctx get-concrete-fun ctx.concretize-ctx.program.common-funs.shared-of-mut-lambda, lambda-type-args, ()
-		range gen-call shared-of-mut-lambda, (inner,)
-	else
-		ctx concretize-lambda-inner type, range, e
-
--concretize-lambda-inner concrete-expr(
-	ctx concretize-expr-ctx,
-	type concrete-type,
-	range uri-and-range,
-	e lambda-expr,
-)
-	forbid ctx preserve-lambdas
-	# TODO: handle constants in closure
-	# (do *not* include in the closure type, instead remember them for when compiling the lambda fn)
-	lambda-index = ctx.concretize-ctx next-lambda-index
-	closure-fields = ctx concretize-closure-fields e.closure
-	closure-type = ctx.concretize-ctx concrete-type-from-closure closure-fields, (ctx.cur-fun concrete-struct-source-lambda lambda-index)
-	params = ctx.concretize-ctx concretize-lambda-params closure-type, e.param, ctx.type-scope
-	lambda-struct = type must-be-by-val
-	closure-args concrete-expr[] = for x : e closure
-		ctx concretize-variable-ref-for-closure range, x
-	closure = if closure-args is-empty && ctx.concretize-ctx !require-unique-union-types
-		ctx.concretize-ctx gen-void range
-	else
-		ctx.concretize-ctx gen-create-record closure-type, range, closure-args
+	assert ctx preserve-lambdas
+	if ctx is-java
+		forbid e.kind == explicit-shared : todo # For Java, we need to do something for these ---------------------------------------------
 	return-type = ctx get-concrete-type e.return-type
-	guard return-type !is-bogus : ctx concretize-bogus type, range
-	fun = ctx.concretize-ctx get-concrete-fun-for-lambda ctx.cur-fun, lambda-index, return-type, e.param, params, e.body
-	impl concrete-lambda-impl = closure-type, fun
-	ctx.concretize-ctx gen-create-union type, range, (ctx.concretize-ctx next-lambda-impl-id lambda-struct, impl), closure
-
--next-lambda-impl-id nat(ctx concretize-ctx, lambda-struct concrete-struct, impl concrete-lambda-impl)
-	forbid ctx preserve-lambdas
-	impl next-lambda-impl-id-inner ctx.lambda-structs[lambda-struct]!.b
--next-lambda-impl-id-inner nat(impl concrete-lambda-impl, impls concrete-lambda-impl mut[])
-	res = impls size
-	impls ~= impl
-	res
+	param-type = ctx get-concrete-type e.param.type
+	body = ctx concretize-expr-with-destructure return-type, range, e.param, e.body
+	param = body.root-local ?? do
+		id: ctx.local-ids take-next-id
+		source: args::concrete-generated-local-kind to
+		type: param-type
+	closure concrete-local[] = with out : build
+		for x : e closure
+			match ctx.locals[x local]!
+			as concrete-local l
+				out ~= l
+			as typed-constant _
+				()
+	type, range, (closure lambda-concrete-expr param, body.expr)
 
 -concretize-let concrete-expr(
 	ctx concretize-expr-ctx,
@@ -522,7 +466,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	res mut = expr
 	for part-index, part : x.parts with-index
 		part-range = ctx to-uri-and-range part.range
-		value-type = root-local.type.must-be-by-val.body.concrete-record!.fields[part-index] type
+		value-type = root-local.type.body.concrete-record!.fields[part-index] type
 		expected-type = ctx get-concrete-type part.type
 		assert value-type == expected-type : todo # If they don't match, we shoudln't have compiled the destructure at all, the whole thing should be bogus
 		its-value = ctx.concretize-ctx gen-record-field-get value-type, part-range, get-root-local, part-index
@@ -803,22 +747,6 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 )
 	(ctx.concretize-ctx ensure-sum-type-case variant-type, (ctx get-concrete-type a.destructure.type)),
 
--concretize-variable-ref-for-closure concrete-expr(
-	ctx concretize-expr-ctx,
-	range uri-and-range,
-	a variable-ref,
-)
-	match a
-	as local x
-		match ctx.locals[x]!
-		as concrete-local local
-			# If it's a reference, leave it that way
-			range gen-local-get local
-		as typed-constant constant
-			constant.type gen-constant range, constant.value
-	as closure-ref x
-		ctx get-closure-field range, x
-
 -concretize-assert-or-forbid concrete-expr(
 	ctx concretize-expr-ctx,
 	type concrete-type,
@@ -949,7 +877,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 )
 	match args
 	as constants constants
-		array = ctx.all-constants get-constant-array array-type.must-be-by-val, constants.constants
+		array = ctx.all-constants get-constant-array array-type, constants.constants
 		(array,) constants
 	as exprs exprs
 		array concrete-expr = array-type, range, exprs.exprs.create-array-concrete-expr
@@ -968,7 +896,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 		as builtin-unary x
 			x try-eval-constant-unary args.only
 		as builtin-fun-is-empty-type
-			only-type-arg[].struct.is-empty-struct.to.integral-value,
+			only-type-arg[].is-empty-type.to.integral-value,
 		as builtin-fun-gc-safe-value
 			throw unreachable # compiles to a constant
 		else
@@ -988,7 +916,7 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 	as constant x
 		x,
 	as create-record-concrete-expr x
-		unless a.type.struct.body.concrete-record! is-some-field-mutable
+		unless a.type.body.concrete-record! is-some-field-mutable
 			if args ?= for arg : x.args map-or-none; ctx eval-as-constant fn, arg, fn-args
 				(ctx.all-constants get-constant-record a.type, args),
 	# TODO: unions ----------------------------------------------------------------------------------------------------------------------------------------------
