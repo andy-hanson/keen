@@ -15,28 +15,27 @@ import
 	./check-call-specs
 
 check-expr spec
-	check-expr expr(ctx expr-ctx, locals locals-info, ast expr-ast, expected expected)
+	check-expr expr(ctx expr-ctx, ast expr-ast, expected expected)
 check-lambda spec
 	check-lambda expr(
 		ctx expr-ctx,
-		locals locals-info,
 		source lambda-source,
 		param-ast destructure-ast,
 		body-ast expr-ast,
 		expected expected,
 	)
 
-check-call expr(ctx expr-ctx, locals locals-info, ast call-ast, expected expected) check-expr
+check-call expr(ctx expr-ctx, ast call-ast, expected expected) check-expr
 	ctx check-call-should-use-syntax ast
 	if ast.style == question-subscript || ast.style == question-dot
-		ctx check-option-call locals, ast, expected
+		ctx check-option-call ast, expected
 	else
 		type-arg type? = if x ?= ast type-arg
 			(ctx type-from-ast x),
-		ctx check-call-common expected, ast.to, locals, ast.name-range, ast.fun-name.name, type-arg, ast.args, _ => true
+		ctx check-call-common expected, ast.to, ast.name-range, ast.fun-name.name, type-arg, ast.args, _ => true
 
-check-call-named expr(ctx expr-ctx, locals locals-info, ast call-named-ast, expected expected) check-expr
-	ctx check-call-common expected, ast.to, locals, ast.range, sym-new, (), ast.args, x => x parameter-names-are ast.names
+check-call-named expr(ctx expr-ctx, ast call-named-ast, expected expected) check-expr
+	ctx check-call-common expected, ast.to, ast.range, sym-new, (), ast.args, x => x parameter-names-are ast.names
 
 -parameter-names-are bool(a called-decl, names name-and-range[])
 	forbid names is-empty
@@ -54,34 +53,31 @@ check-call-named expr(ctx expr-ctx, locals locals-info, ast call-named-ast, expe
 
 check-call-special expr(
 	ctx expr-ctx,
-	locals locals-info,
 	source call-expr-source,
 	range source-range,
 	fun-name sym,
 	args expr-ast[],
 	expected expected,
 ) check-expr
-	ctx check-call-common expected, source, locals, range, fun-name, (), args, _ => true
+	ctx check-call-common expected, source, range, fun-name, (), args, _ => true
 
 -check-call-common expr(
 	ctx expr-ctx,
 	expected expected,
 	source call-expr-source,
-	locals locals-info,
 	diag-range source-range,
 	fun-name sym,
 	type-arg type?,
 	arg-asts expr-ast[],
 	cb-additional-filter bool mut(candidate called-decl),
 ) check-expr
-	ctx check-call-special-cb-n locals, source, diag-range, fun-name, expected, type-arg, arg-asts.size,
-		((i, arg-expected) => ctx check-expr locals, arg-asts[i], arg-expected),
+	ctx check-call-special-cb-n source, diag-range, fun-name, expected, type-arg, arg-asts.size,
+		((i, arg-expected) => ctx check-expr arg-asts[i], arg-expected),
 		cb-additional-filter,
 		candidates => arg-asts.with-index every (arg-idx, arg) => ctx infer-candidate-type-args-from-explicitly-typed-argument candidates, arg-idx, arg
 
 check-call-arg-and-lambda expr(
 	ctx expr-ctx,
-	locals locals-info,
 	call-source call-expr-source,
 	lambda-source lambda-source,
 	diag-range source-range,
@@ -91,14 +87,13 @@ check-call-arg-and-lambda expr(
 	body-ast expr-ast,
 	expected expected,
 ) check-expr, check-lambda
-	ctx check-call-special-cb2 locals, call-source, diag-range, fun-name, expected,
-		(arg-expected => ctx check-expr locals, arg-ast, arg-expected),
-		(arg-expected => ctx check-lambda locals, lambda-source, param-ast, body-ast, arg-expected),
+	ctx check-call-special-cb2 call-source, diag-range, fun-name, expected,
+		(arg-expected => ctx check-expr arg-ast, arg-expected),
+		(arg-expected => ctx check-lambda lambda-source, param-ast, body-ast, arg-expected),
 		candidates => ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast
 
 check-call-arg-and-2-lambdas expr(
 	ctx expr-ctx,
-	locals locals-info,
 	call-source call-expr-source,
 	lambda-source lambda-source,
 	diag-range source-range,
@@ -113,14 +108,14 @@ check-call-arg-and-2-lambdas expr(
 	check-arg expr mut(i nat, arg-expected expected) = (i, arg-expected) =>
 		match i
 		as 0
-			ctx check-expr locals, arg-ast, arg-expected
+			ctx check-expr arg-ast, arg-expected
 		as 1
-			ctx check-lambda locals, lambda-source, param-ast, body-ast, arg-expected
+			ctx check-lambda lambda-source, param-ast, body-ast, arg-expected
 		as 2
-			ctx check-lambda locals, lambda-source, void-destructure, body-2-ast, arg-expected
+			ctx check-lambda lambda-source, void-destructure, body-2-ast, arg-expected
 		else
 			throw unreachable
-	ctx check-call-special-cb-n locals, call-source, diag-range, fun-name, expected, (), 3,
+	ctx check-call-special-cb-n call-source, diag-range, fun-name, expected, (), 3,
 		check-arg,
 		(_ => true),
 		candidates => ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast
@@ -129,20 +124,18 @@ check-call-arg-and-2-lambdas expr(
 
 check-call-special-cb1 expr(
 	ctx expr-ctx,
-	locals locals-info,
 	source call-expr-source,
 	diag-range source-range,
 	fun-name sym,
 	expected expected,
 	cb-arg expr mut(x expected),
 )
-	ctx check-call-special-cb-n locals, source, diag-range, fun-name, expected, 1, (i, arg-expected) =>
+	ctx check-call-special-cb-n source, diag-range, fun-name, expected, 1, (i, arg-expected) =>
 		i is 0
 		cb-arg[arg-expected]
 
 check-call-special-cb2 expr(
 	ctx expr-ctx,
-	locals locals-info,
 	source call-expr-source,
 	diag-range source-range,
 	fun-name sym,
@@ -159,12 +152,10 @@ check-call-special-cb2 expr(
 			cb-arg1[arg-expected]
 		else
 			throw unreachable
-	ctx check-call-special-cb-n locals, source, diag-range, fun-name, expected, (), 2,
-		check-arg, (_ => true), cb-before-check
+	ctx check-call-special-cb-n source, diag-range, fun-name, expected, (), 2, check-arg, (_ => true), cb-before-check
 
 check-call-special-cb-n expr(
 	ctx expr-ctx,
-	locals locals-info,
 	source call-expr-source,
 	diag-range source-range,
 	fun-name sym,
@@ -172,10 +163,9 @@ check-call-special-cb-n expr(
 	n-args nat,
 	cb-check-arg expr mut(i nat, arg-expected expected),
 )
-	ctx check-call-special-cb-n locals, source, diag-range, fun-name, expected, (), n-args, cb-check-arg, (_ => true), _ => true
+	ctx check-call-special-cb-n source, diag-range, fun-name, expected, (), n-args, cb-check-arg, (_ => true), _ => true
 -check-call-special-cb-n expr(
 	ctx expr-ctx,
-	locals locals-info,
 	source call-expr-source,
 	diag-range source-range,
 	fun-name sym,
@@ -189,7 +179,7 @@ check-call-special-cb-n expr(
 	args expr mut-slice = trusted n-args gc-safe-mut-slice
 	check-arg void mut(i nat, arg-expected expected) = (i, arg-expected) =>
 		args[i] := cb-check-arg[i, arg-expected]
-	if called ?= ctx check-call-cb locals, diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-additional-filter, cb-before-check
+	if called ?= ctx check-call-cb diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-additional-filter, cb-before-check
 		# Check should always succeed, but we need it to set the inferred type
 		ctx check expected, called.return-type, (source call-expr called, trusted args.cast-immutable)
 	else
@@ -208,7 +198,6 @@ check-call-special-cb-n expr(
 	void mut(arg-index nat, arg-expected expected)
 -check-call-cb called?(
 	ctx expr-ctx,
-	locals locals-info,
 	diag-range source-range,
 	fun-name sym,
 	type-arg type?,
@@ -224,12 +213,12 @@ check-call-special-cb-n expr(
 		cb-additional-filter[candidate called]
 	ctx.funs-in-expr-scope with-candidates fun-name, n-args, initial-filter, candidates =>
 		if cb-before-check[candidates]
-			ctx check-call-inner locals, diag-range, fun-name, type-arg, candidates, expected, n-args, cb-check-arg
+			ctx check-call-inner diag-range, fun-name, type-arg, candidates, expected, n-args, cb-check-arg
 
-check-call-identifier expr(ctx expr-ctx, locals locals-info, ast name-and-range, expected expected) check-expr
+check-call-identifier expr(ctx expr-ctx, ast name-and-range, expected expected) check-expr
 	if ast.name == sym-new
 		ctx add-diag ast.range, (0 diag-call-should-use-syntax new_)
-	ctx check-call-special locals, ast.to, ast.range, ast.name, (), expected
+	ctx check-call-special ast.to, ast.range, ast.name, (), expected
 
 find-function-for-return-and-param-types called?(
 	ctx check-ctx,
@@ -238,7 +227,6 @@ find-function-for-return-and-param-types called?(
 	funs-in-scope funs-in-scope,
 	outermost-fun-flags fun-flags,
 	externs symbol-set,
-	locals locals-info,
 	name sym,
 	diag-range source-range,
 	type-arg type?,
@@ -251,7 +239,7 @@ find-function-for-return-and-param-types called?(
 		ctx.instantiate-ctx test-candidate-for-spec-sig candidate, return-and-param-types, non-inferring
 	funs-in-scope with-candidates name, arity, initial-filter, candidates =>
 		if x ?= candidates opt-only
-			(ctx check-call-after-choosing-overload common-types, type-container, funs-in-scope, outermost-fun-flags, externs, locals, x, diag-range, can-do-unsafe),
+			(ctx check-call-after-choosing-overload common-types, type-container, funs-in-scope, outermost-fun-flags, externs, x, diag-range, can-do-unsafe),
 		else
 			ctx add-diag diag-range, if candidates is-empty
 				name diag-function-with-signature-not-found type-container, return-and-param-types
@@ -259,7 +247,7 @@ find-function-for-return-and-param-types called?(
 				name diag-call-multiple-matches type-container, for x : candidates; x called
 			()
 
--check-option-call expr(ctx expr-ctx, locals locals-info, ast call-ast, outer-expected expected) check-expr
+-check-option-call expr(ctx expr-ctx, ast call-ast, outer-expected expected) check-expr
 	ctx check-with-modify-expected outer-expected, (x => x try-spread-option-type), inner-expected =>
 		assert ast.args.size != 0
 		args expr mut-slice = trusted ast.args.size gc-safe-mut-slice
@@ -269,13 +257,13 @@ find-function-for-return-and-param-types called?(
 				# For the first argument: It's opposite of for the return type.
 				# The call is expecting a non-option, but change that to be expecting an option.
 				_ = ctx check-with-modify-expected arg-expected, (x => ctx make-option-type x), optional-arg-expected =>
-					expr = ctx check-expr locals, arg-ast, optional-arg-expected
+					expr = ctx check-expr arg-ast, optional-arg-expected
 					option = optional-arg-expected inferred
 					args[index] := expr
 					expr, option.must-unwrap-option-type-or-bogus
 			else
-				args[index] := ctx check-expr locals, arg-ast, arg-expected
-		if called ?= ctx check-call-cb locals, ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, (_ => true), _ => true
+				args[index] := ctx check-expr arg-ast, arg-expected
+		if called ?= ctx check-call-cb ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, (_ => true), _ => true
 			type = ctx.instantiate-ctx make-option-if-not-already ctx.common-types, called.return-type
 			(ast call-option-expr called, (trusted args cast-immutable), type), type.to
 		else
@@ -288,7 +276,6 @@ find-function-for-return-and-param-types called?(
 
 -check-call-inner called?(
 	ctx expr-ctx,
-	locals locals-info,
 	diag-range source-range,
 	fun-name sym,
 	explicit-type-arg type?,
@@ -328,7 +315,7 @@ find-function-for-return-and-param-types called?(
 
 	if x ?= candidates opt-only
 		result = ctx.check-ctx check-call-after-choosing-overload ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope,
-			ctx.outermost-fun-flags, ctx.externs, locals, x, diag-range, () => ctx check-can-do-unsafe
+			ctx.cur-flags, ctx.externs, x, diag-range, () => ctx check-can-do-unsafe
 		result,
 	else
 		ctx add-diag diag-range, if candidates is-empty
@@ -482,12 +469,11 @@ check-call-after-choosing-overload called(
 	funs-in-scope funs-in-scope,
 	outermost-fun-flags fun-flags,
 	externs symbol-set,
-	locals locals-info,
 	candidate candidate,
 	diag-range source-range,
 	can-do-unsafe bool mut(),
 )
 	called = ctx check-call-specs common-types, type-container, funs-in-scope, diag-range, candidate
 	# TODO: should we really ignore this? ------------------------------------------------------------------------------------------------------------
-	_ = ctx check-called diag-range, called, outermost-fun-flags, externs, locals, can-do-unsafe
+	_ = ctx check-called diag-range, called, outermost-fun-flags, externs, can-do-unsafe
 	called

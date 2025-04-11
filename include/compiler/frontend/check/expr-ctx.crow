@@ -8,33 +8,11 @@ import
 	./maps
 	./type-from-ast
 
-closure-field-builder record mut
-	| name, mutability, and type are eventually redundant to the variable-ref,
-	| but are needed before the lambda has its Late fields filled in
-	name sym
-	mutability mutability
-	| References 'is-used' for the captured variable. Empty for a Param.
-	type type
-	variable-ref variable-ref
-local local(a closure-field-builder)
-	a.variable-ref local
-
 lambda-info record mut
-	outer locals-info
-	| WARN: Only 'lambda.kind' will be initialized while checking the lambda
-	lambda lambda-expr
-	closure-fields closure-field-builder mut[]
-
-locals-info record mut
-	lambda mut lambda-info?
-	locals local mut[]
-new locals-info()
-	(), ()
-is-in-lambda bool(a locals-info)
-	a.lambda !is-empty
-is-in-data-lambda bool(a locals-info)
-	if x ?= a lambda
-		x.lambda.kind == data_ || x.outer is-in-data-lambda
+	kind lambda-kind
+	# Index into locals on expr-ctx. This is the first local inside the lambda (or an inner lambda).
+	first-local-index nat
+	closure local mut[]
 
 expr-ctx record mut
 	check-ctx check-ctx
@@ -48,11 +26,14 @@ expr-ctx record mut
 	# TODO: this name is redundant. Crow doesn't have nested functions, so the function is always the outermost .........................
 	outermost-fun-specs specs
 	outermost-fun-type-params type-params
-	outermost-fun-flags fun-flags
+	cur-flags mut fun-flags
 	externs mut symbol-set
 	# TODO: make these private --------------------------------------------------------------------------------------------------
 	is-in-trusted mut bool
 	used-trusted mut bool
+	locals local mut[]
+	# When we access a local in a lambda, we need to make sure it's added to the closure of each lambda it's in
+	lambdas lambda-info mut[]
 instantiate-ctx instantiate-ctx(a expr-ctx)
 	a.check-ctx instantiate-ctx
 
@@ -61,7 +42,7 @@ type-with-container type-with-container(ctx expr-ctx, a type)
 
 # TODO: use a 'with-block' --------------------------------------------------------------------------------------------------------------
 with-trusted[out] out(ctx expr-ctx, ast trusted-ast, cb out mut())
-	reason diag-trusted-unnecessary? = if ctx.outermost-fun-flags.safety != safe
+	reason diag-trusted-unnecessary? = if ctx.cur-flags.safety != safe
 		in-unsafe-function,
 	elif ctx is-in-trusted
 		in-trusted,
@@ -78,7 +59,7 @@ with-trusted[out] out(ctx expr-ctx, ast trusted-ast, cb out mut())
 		res
 
 check-can-do-unsafe bool(ctx expr-ctx)
-	if ctx.outermost-fun-flags.safety allows-unsafe
+	if ctx.cur-flags.safety allows-unsafe
 		true
 	else
 		res = ctx is-in-trusted
