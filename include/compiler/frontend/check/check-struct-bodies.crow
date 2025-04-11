@@ -58,8 +58,6 @@ check-struct-bodies void(
 			ctx check-no-type-params ast.type-params, enum_
 			storage_ = ctx check-enum-or-flags-modifiers common-types, structs-and-aliases-map, struct, enum_, ast.modifiers, false
 			ctx check-enum struct, ast.range, x, storage_
-		as extern-type-ast x
-			ctx check-extern ast, x to
 		as flags-ast x
 			ctx check-no-type-params ast.type-params, flags_
 			storage_ = ctx check-enum-or-flags-modifiers common-types, structs-and-aliases-map, struct, flags_, ast.modifiers, true
@@ -220,7 +218,7 @@ check-method-impls void(ctx check-ctx, common-types common-types, funs-map funs-
 		called = ctx find-function-for-return-and-param-types common-types, type-container,
 			(ctx funs-in-non-expr-scope funs-map),
 			(none with-summon member.is-summon),
-			member.extern-set,
+			member.extern_,
 			(),
 			sig.name,
 			diag-range,
@@ -232,90 +230,24 @@ check-method-impls void(ctx check-ctx, common-types common-types, funs-map funs-
 				ctx add-diag diag-range, (member diag-method-impl-visibility sum-type, fun)
 		called
 
--check-extern extern-type(ctx check-ctx, decl-ast struct-decl-ast, body-ast extern-type-ast)
-	ctx check-no-type-params decl-ast.type-params, extern_
-	ctx check-only-common-modifiers extern_, decl-ast.modifiers
-	(ctx get-extern-type-size body-ast),
-
--get-extern-type-size type-size?(ctx check-ctx, body-ast extern-type-ast)
-	if size-ast ?= body-ast size
-		size = ctx get-size-value size-ast
-		default = size default-alignment
-		alignment = if alignment-ast ?= body-ast alignment
-			alignment = ctx get-size-value alignment-ast
-			if alignment is-valid-alignment
-				if alignment == default
-					ctx add-diag alignment-ast.range, alignment-is-default::diag-extern-type-error.to
-				alignment
-			else
-				ctx add-diag alignment-ast.range, bad-alignment::diag-extern-type-error.to
-				default
-		else
-			default
-		(size, alignment),
-	else
-		assert body-ast.alignment is-empty
-		()
-
--get-size-value nat(ctx check-ctx, ast literal-integral-and-range)
-	(ctx check-literal-integral-value nat64, ast).as-unsigned
-
--is-valid-alignment bool(alignment nat)
-	match alignment
-	as 1
-		true
-	as 2
-		true
-	as 4
-		true
-	as 8
-		true
-	as 16
-		true
-	else
-		false
-
--default-alignment nat(size nat)
-	if size == 0
-		0
-	elif size is-multiple-of 8
-		8
-	elif size is-multiple-of 4
-		4
-	elif size is-multiple-of 2
-		2
-	else
-		1
-
--struct-modifiers record(extern_ symbol-set?, is-summon bool, purity-and-forced purity-and-forced)
+-struct-modifiers record(extern_ symbol-set, is-summon bool, purity-and-forced purity-and-forced)
 -purity-and-forced record(purity purity, forced bool)
 
 # Purity is taken for granted here, and verified later when we check the body.
 -get-struct-modifiers struct-modifiers(ctx check-ctx, decl-kind decl-kind, modifiers modifier-ast[])
 	accum struct-modifier-asts = ctx accumulate-struct-modifiers modifiers
-	default-extern symbol-set? = decl-kind == extern_ ? ((),) : ()
-	extern_ symbol-set? = if keyword ?= accum extern_
-		if decl-kind is-sum-type
-			ctx add-diag keyword.keyword-range, diag-extern-sum-type
-			default-extern
-		else
-			set = ctx get-externs-from-modifier keyword, false
-			if _ ?= default-extern
-				ctx add-diag keyword.keyword-range, (keyword.keyword diag-modifier-redundant-due-to-decl-kind decl-kind)
-			set,
-	else
-		default-extern
+	extern_ symbol-set = if keyword ?= accum extern_
+		ctx get-externs-from-modifier keyword
 	is-summon = if x ?= accum.summon_
 		ctx modifier-type-arg-invalid x
 		true
-	default-purity = decl-kind default-purity
 	purity = if keyword ?= accum purity-and-forced
 		pf = keyword.keyword purity-and-forced-from-modifier!
-		if pf.purity == default-purity && pf !forced
+		if pf.purity == data_ && pf !forced
 			ctx add-diag keyword.keyword-range, (keyword.keyword diag-modifier-redundant-due-to-decl-kind decl-kind)
 		pf
 	else
-		default-purity, false
+		data_, false
 	extern_, is-summon, purity
 
 -struct-modifier-asts record
@@ -340,7 +272,7 @@ check-method-impls void(ctx check-ctx, common-types common-types, funs-map funs-
 				ctx accumulate-modifier ref, kw
 	ctx modifier-type-arg-invalid (*purity-and-forced,)
 	*extern_, *summon_, *purity-and-forced
-		
+
 -decl-kind-for-sum-type decl-kind(a sum-type-kind)
 	match a
 	as interface_
@@ -350,58 +282,12 @@ check-method-impls void(ctx check-ctx, common-types common-types, funs-map funs-
 	as variant_
 		variant_
 
--is-sum-type bool(a decl-kind)
-	match a
-	as interface_
-		true
-	as union_
-		true
-	as variant_
-		true
-	else
-		false
-
--default-purity purity(a decl-kind)
-	match a
-	as alias_
-		throw unreachable
-	as builtin_
-		data_
-	as enum_
-		data_
-	as extern_
-		mut_
-	as extern-function
-		throw unreachable
-	as flags_
-		data_
-	as function_
-		throw unreachable
-	as global_
-		throw unreachable
-	as interface_
-		data_
-	as record_
-		data_
-	as spec_
-		throw unreachable
-	as test_
-		throw unreachable
-	as thread-local_
-		throw unreachable
-	as union_
-		data_
-	as variant_
-		data_
-
 -get-decl-kind decl-kind(a struct-body-ast)
 	match a
 	as builtin-type-ast _
 		builtin_
 	as enum-ast _
 		enum_
-	as extern-type-ast _
-		extern_
 	as flags-ast _
 		flags_
 	as record-ast _
@@ -584,14 +470,8 @@ check-method-impls void(ctx check-ctx, common-types common-types, funs-map funs-
 	ast record-ast,
 )
 	modifiers = ctx accumulate-record-modifiers modifier-asts
-	extern-forces-by-val = struct.linkage != internal && struct.extern-set != (sym-js,)
-	val-or-ref by-val-or-ref? = if extern-forces-by-val
-		by-val_,
-	elif x ?= modifiers by-val-or-ref
+	val-or-ref by-val-or-ref? = if x ?= modifiers by-val-or-ref
 		x.keyword.to!,
-	if extern-forces-by-val
-		if x ?= modifiers.by-val-or-ref
-			ctx add-diag x.keyword-range, struct.diag-extern-record-implicitly-by-val
 
 	fields = ctx check-record-fields common-types, structs-and-aliases-map, struct, ast
 	flags_ record-flags = do
@@ -697,7 +577,7 @@ check-method-impls void(ctx check-ctx, common-types common-types, funs-map funs-
 	else
 		ctx add-diag name.range, name.name.diag-record-field-needs-type
 		bogus-type
-	ctx check-reference-linkage-and-purity record_, source.range, member-type
+	ctx check-reference-purity record_, source.range, member-type
 	
 	visibility = ctx visibility-from-default-with-diag record_.visibility, visibility-ast, (record_ visibility-warning-field name.name)
 	mutability visibility? = if x ?= mutability-ast
@@ -782,11 +662,6 @@ check-enum-or-flags-modifiers integral-type(
 	
 	ctx modifier-type-arg-invalid (*by-val-or-ref, *new-visibility, *nominal-keyword, *packed-keyword)
 	*by-val-or-ref, *new-visibility, *nominal-keyword, *packed-keyword
-
--check-reference-linkage-and-purity void(ctx check-ctx, struct struct-decl, range source-range, referenced-type type)
-	unless struct.linkage is-linkage-possibly-compatible referenced-type.linkage-range
-		ctx add-diag range, (struct diag-linkage-worse-than-containing-type referenced-type)
-	ctx check-reference-purity struct, range, referenced-type
 
 -check-reference-purity void(ctx check-ctx, struct struct-decl, range source-range, referenced-type type)
 	unless struct.purity is-purity-possibly-compatible referenced-type.purity-range || struct purity-is-forced

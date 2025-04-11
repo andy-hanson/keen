@@ -396,15 +396,6 @@ purity-range purity-range(a type)
 best-case-purity purity(a type)
 	a.purity-range best-case
 
-linkage-range linkage-range(a type)
-	match a
-	as bogus-type
-		extern_, extern_
-	as type-param-index _
-		internal, extern_
-	as struct-inst x
-		x linkage-range
-
 params union(destructure[], varargs)
 new params()
 	()::destructure[] to
@@ -744,32 +735,13 @@ range uri-and-range(a struct-alias)
 name-range uri-and-range(a struct-alias)
 	a.module-uri, a.ast.name-range
 
-# Sorted least strict to most strict
-linkage enum(internal, extern_)
-== bool(a linkage, b linkage)
-<=> comparison(a linkage, b linkage)
-to symbol(a linkage)
-show string(a linkage)
-	a.to::symbol to
-
-| Range of possible linkage
-linkage-range record(least-strict linkage, most-strict linkage)
-show string(a linkage-range)
-	"{a least-strict}-{a most-strict}"
-combine-linkage-range linkage-range(referencer linkage-range, referenced linkage-range)
-	(referencer.least-strict min referenced.least-strict), (referencer.most-strict min referenced.most-strict)
-is-linkage-possibly-compatible bool(referencer linkage, referenced linkage-range)
-	referenced.most-strict >= referencer
-is-linkage-always-compatible bool(referencer linkage, referenced linkage-range)
-	referenced.least-strict >= referencer
-
 struct-decl record force-data
 	hash nat32
 	source struct-decl-source
 	module-uri uri
 	visibility visibility
-	extern_ symbol-set?
-	is-summon bool
+	extern_ symbol-set 
+	is-summon bool # TODO:PERF Maybe I should merge this into 'extern_'? It works basically the same way. ---------------------------------------
 	| Warn: purity on the decl does not take type args into account
 	purity purity
 	purity-is-forced bool
@@ -788,7 +760,7 @@ new struct-decl(
 	source struct-decl-source,
 	module-uri uri,
 	visibility visibility,
-	extern_ symbol-set?,
+	extern_ symbol-set,
 	is-summon bool,
 	purity purity,
 	purity-is-forced bool,
@@ -809,13 +781,6 @@ new struct-decl(
 	throw todo
 hash-mix void(hasher hasher, a struct-decl)
 	hasher hash-mix a.hash
-extern-set symbol-set(a struct-decl)
-	a.extern_ ?? ()
-linkage linkage(a struct-decl)
-	if e ?= a extern_
-		e == (sym-js,) || e == (sym-java,) ? internal : extern_
-	else
-		internal
 doc-comment-ast doc-comment-ast(a struct-decl)
 	a.source doc-comment
 doc-comment doc-comment(a struct-decl)
@@ -912,11 +877,6 @@ hash-mix void(hasher hasher, a struct-inst)
 	hasher hash-mix a.type-args
 to json(a struct-inst)
 	("decl", a.decl.name.to), ("type-args", a.type-args.to)
-linkage-range linkage-range(a struct-inst)
-	res mut linkage-range = a.decl.linkage, a.decl.linkage
-	for x : a.type-args inner
-		res combine-linkage-range:= x linkage-range
-	res
 purity-range purity-range(a struct-inst)
 	res mut purity-range = a.decl.purity, a.decl.purity
 	for x : a.type-args inner
@@ -1062,7 +1022,6 @@ fun-body union(
 	create-record-and-convert-to-sum-type,
 	create-sum-type,
 	expr,
-	fun-body-extern,
 	fun-body-file-import,
 	flags-function,
 	fun-body-method,
@@ -1083,8 +1042,6 @@ fun-body union(
 		false
 	as expr _
 		false
-	as fun-body-extern _
-		false
 	as fun-body-file-import _
 		false
 	else
@@ -1099,7 +1056,6 @@ create-record-and-convert-to-sum-type record
 	| This is the sum-type's case type, and the record type
 	member struct-inst
 create-sum-type record
-fun-body-extern record(library-name sym)
 fun-body-file-import record(content import-file-content)
 fun-body-method record(method-index nat, method signature)
 sum-type sum-type(_ fun-body-method, fun fun-decl)
@@ -1714,12 +1670,6 @@ doc-comment-ast doc-comment-ast(a fun-decl)
 	a.source doc-comment-ast
 doc-comment doc-comment(a fun-decl)
 	a.doc-comment-ast, a.doc-comment-references
-linkage linkage(a fun-decl)
-	match a body
-	as fun-body-extern _
-		extern_
-	else
-		internal
 is-generated bool(a fun-decl)
 	a.body is-generated
 is-summon bool(a fun-decl)
@@ -1945,7 +1895,6 @@ var-decl record force-data
 	module-uri uri
 	visibility visibility
 	type type
-	extern-library-name sym?
 	doc-comment-references mut doc-comment-references
 == bool(a var-decl, b var-decl)
 	trusted a reference-equal b
@@ -3603,8 +3552,6 @@ decl-kind enum
 	alias_
 	builtin_
 	enum_
-	extern_
-	extern-function
 	flags_
 	function_
 	global_
@@ -3659,12 +3606,7 @@ diag union(
 	diag-extern-invalid-name,
 	diag-extern-is-unsafe,
 	diag-extern-redundant,
-	diag-extern-fun-variadic,
-	diag-extern-has-unnecessary-library-name,
 	diag-extern-missing-library-name,
-	diag-extern-record-implicitly-by-val,
-	diag-extern-sum-type,
-	diag-extern-type-error,
 	diag-flags-signed,
 	diag-function-with-signature-not-found,
 	diag-if-throw,
@@ -3677,8 +3619,6 @@ diag union(
 	diag-lambda-not-expected,
 	diag-lambda-type-missing-param-type,
 	diag-lambda-type-variadic,
-	diag-linkage-worse-than-containing-fun,
-	diag-linkage-worse-than-containing-type,
 	diag-literal-float-accuracy,
 	diag-literal-multiple-match,
 	diag-literal-not-expected,
@@ -3842,13 +3782,7 @@ diag-extern-body-multiple record
 diag-extern-invalid-name record(name sym)
 diag-extern-is-unsafe record
 diag-extern-redundant record(name sym)
-diag-extern-fun-variadic record
-diag-extern-has-unnecessary-library-name record
 diag-extern-missing-library-name record
-# TODO: rename 'struct' to 'record' ------------------------------------------------------------------------------------------------
-diag-extern-record-implicitly-by-val record(struct struct-decl)
-diag-extern-type-error enum(alignment-is-default, bad-alignment, too-big)
-diag-extern-sum-type record
 diag-flags-signed record
 diag-function-with-signature-not-found record
 	name sym
@@ -3885,14 +3819,6 @@ diag-lambda-multiple-match record
 diag-lambda-not-expected record(expected expected-for-diag)
 diag-lambda-type-missing-param-type record
 diag-lambda-type-variadic record
-diag-linkage-worse-than-containing-fun record
-	containing-fun fun-decl
-	referenced-type type
-	| Empty for return type
-	param destructure?
-diag-linkage-worse-than-containing-type record
-	containing-type struct-decl
-	referenced-type type
 diag-literal-float-accuracy record(type float-type)
 diag-literal-multiple-match record(type-container type-container, types struct-inst[])
 diag-literal-not-expected record(expected expected-for-diag)
