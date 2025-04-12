@@ -47,8 +47,11 @@ check-function-body expr(
 		used-trusted: false
 		locals: ()
 		lambdas: ()
-	expr-ctx check-with-param-destructures ast, fun.params.params-array, () =>
-		expr-ctx check-and-expect ast, fun.return-type
+	for param : fun.params params-array
+		expr-ctx add-locals-for-destructure param
+	res = expr-ctx check-and-expect ast, fun.return-type
+	expr-ctx restore-locals 0
+	res
 
 check-test-body expr(
 	check-ctx check-ctx,
@@ -148,17 +151,6 @@ check-test-body expr(
 		ctx check-typed x, expected
 	as with-ast x
 		ctx check-with x, expected
-
--check-with-param-destructures expr(ctx expr-ctx, ast expr-ast, params destructure[], cb expr mut()) # TODO: don't need 'with' ------------------------------------------
-	ctx check-with-param-destructures-recur params.to, (() => cb[],) ?? do
-		ast.range bogus-expr bogus-type
-# TODO: I think this recursion is unnecessary now. 'check-with-destructure' could just return the inner locals normally. ------------------------
--check-with-param-destructures-recur expr?(ctx expr-ctx, params destructure array-view, cb expr? mut())
-	if params is-empty
-		cb[]
-	else
-		ctx check-with-destructure params[0], () =>
-			ctx check-with-param-destructures-recur params[1 .. end], cb
 
 -check-and-infer (expr, type)(ctx expr-ctx, ast expr-ast)
 	expected expected = infer
@@ -524,38 +516,35 @@ integral-types integral-type[]()
 	ast expr-ast,
 	expected expected,
 )
-	res = ctx check-with-destructure destructure, () =>
-		(ctx check-expr ast, expected),
-	res ?? expected bogus ast
+	restore = ctx.locals size
+	ctx add-locals-for-destructure destructure
+	res = ctx check-expr ast, expected
+	ctx restore-locals restore
+	res
 
--check-with-destructure expr?(ctx expr-ctx, destructure destructure, cb expr? mut())
+-add-locals-for-destructure void(ctx expr-ctx, destructure destructure)
 	match destructure
 	as destructure-ignore _
-		cb[]
+		()
 	as local x
-		ctx check-with-local x, cb
+		ctx add-local x
 	as destructure-split x
-		ctx check-with-destructure-parts x.parts.to, cb
-# TODO: This awkward recursion is probalby unnecessary now! I can just push to locals and pop when done! ----------------------------------
--check-with-destructure-parts expr?(ctx expr-ctx, parts destructure array-view, cb expr? mut())
-	if x ?= parts opt-only
-		ctx check-with-destructure x, cb
-	else
-		ctx check-with-destructure parts[0], () =>
-			ctx check-with-destructure-parts parts[1 .. end], cb
+		for part : x parts
+			ctx add-locals-for-destructure part
 
--check-with-local expr?(ctx expr-ctx, local local, cb expr? mut()) # TODO: Don't need 'with' --------------------------------------------------
+-add-local void(ctx expr-ctx, local local)
 	if ctx.locals exists x => x.name == local.name
 		ctx add-diag local.local-must-have-name-range, (param-or-local diag-duplicate-declaration local.name)
-	
 	ctx.locals ~= local
-	res = cb[]
-	assert ctx.locals.pop! == local
+-restore-locals void(ctx expr-ctx, size nat)
+	while ctx.locals.size > size
+		ctx pop-local
+-pop-local void(ctx expr-ctx)
+	local = ctx.locals pop!
 	if local is-used-in-closure && local is-mutable
 		local.closure-reference-type := (ctx.common-types.reference[local type]),
 	if local !is-read || (local !is-written && local is-mutable)
 		ctx add-diag local.local-must-have-name-range, local.diag-unused-local
-	res
 
 -check-shared expr(ctx expr-ctx, ast shared-ast, expected expected)
 	diag void mut(diag diag) = diag =>
