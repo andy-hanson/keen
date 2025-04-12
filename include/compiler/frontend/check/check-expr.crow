@@ -22,65 +22,33 @@ import
 	./maps
 	./type-from-ast
 
-check-function-body expr(
+check-fun-or-test-body expr(
 	check-ctx check-ctx,
 	structs-and-aliases-map structs-and-aliases-map,
 	common-types common-types,
 	specs-map specs-map,
 	funs-map funs-map,
-	fun fun-decl,
-	ast expr-ast,
-)
-	forbid fun.return-type is-bogus
-	expr-ctx expr-ctx = do
-		check-ctx: check-ctx
-		structs-and-aliases-map: structs-and-aliases-map
-		specs-map: specs-map
-		funs-map: funs-map
-		common-types: common-types
-		type-container: fun to
-		outermost-fun-specs: fun specs
-		outermost-fun-type-params: fun type-param-asts
-		cur-flags: fun flags_
-		externs: fun externs
-		is-in-trusted: false
-		used-trusted: false
-		locals: ()
-		lambdas: ()
-	for param : fun.params params-array
-		expr-ctx add-locals-for-destructure param
-	res = expr-ctx check-and-expect ast, fun.return-type
-	expr-ctx restore-locals 0
-	res
-
-check-test-body expr(
-	check-ctx check-ctx,
-	structs-and-aliases-map structs-and-aliases-map,
-	common-types common-types,
-	specs-map specs-map,
-	funs-map funs-map,
-	type-container type-container,
+	container expr-container,
+	return-type type,
+	params params,
 	flags_ fun-flags,
 	externs symbol-set,
 	ast expr-ast,
 )
 	expr-ctx expr-ctx = do
-		# TODO: try to share code with check-function-body ..........................................................................
 		check-ctx: check-ctx
 		structs-and-aliases-map: structs-and-aliases-map
 		specs-map: specs-map
 		funs-map: funs-map
 		common-types: common-types
-		type-container: type-container
-		outermost-fun-specs: ()
-		outermost-fun-type-params: ()
-		cur-flags: flags_
+		container: container
+		flags_: flags_
 		externs: externs
-		is-in-trusted: false
-		used-trusted: false
-		locals: ()
-		lambdas: ()
-	expr-ctx check-and-expect ast, common-types.void.to
+	for param : params params-array
+		expr-ctx add-locals-for-destructure param
+	res = expr-ctx check-and-expect ast, return-type
+	expr-ctx restore-locals 0
+	res
 
 -check-expr expr(ctx expr-ctx, ast expr-ast, expected expected)
 	match ast
@@ -346,7 +314,7 @@ check-test-body expr(
 	if expected-purity != mut_
 		if local.mutability != immut
 			ctx add-diag diag-range, (lambda-kind diag-lambda-closure-purity local.name, mut_, ())
-		elif ctx.outermost-fun-specs !is-purity-always-compatible-considering-specs local.type, expected-purity
+		elif ctx.specs !is-purity-always-compatible-considering-specs local.type, expected-purity
 			ctx add-diag diag-range, (lambda-kind diag-lambda-closure-purity local.name, local.type.purity-range.worst-case, ((ctx type-with-container local.type),))
 
 -check-identifier expr(ctx expr-ctx, ast name-and-range, expected expected)
@@ -564,13 +532,13 @@ integral-types integral-type[]()
 		et.fun-type.fun-struct,
 		explicit-shared
 	
-	if ctx.outermost-fun-specs !is-shared et.instantiated-param-type
+	if ctx.specs !is-shared et.instantiated-param-type
 		diag[param-type diag-shared-lambda-type-is-not-shared (ctx type-with-container et.instantiated-param-type)]
-	if ctx.outermost-fun-specs !is-shared res.return-type
+	if ctx.specs !is-shared res.return-type
 		diag[return-type diag-shared-lambda-type-is-not-shared (ctx type-with-container res.return-type)]
 	
 	all-shared = res.expr.lambda-expr!.closure every x =>
-		x.mutability == immut && ctx.outermost-fun-specs is-shared x.type
+		x.mutability == immut && ctx.specs is-shared x.type
 	if all-shared
 		diag[diag-shared-lambda-unused]
 	res expr
@@ -685,7 +653,7 @@ integral-types integral-type[]()
 	inst = matched-type.struct-inst ?? ctx.common-types.void
 	decl = inst decl
 	not-matchable expr mut() = () =>
-		if matched !type-is-bogus # TODO: why not just use matched-type? -------------------------------------------------
+		if matched-type !is-bogus
 			ctx add-diag ast.matched.range, (ctx type-with-container matched-type).diag-match-on-non-matchable
 		expected bogus ast.matched
 	match decl body
@@ -990,7 +958,7 @@ integral-types integral-type[]()
 	guard spec_ ?= ctx.check-ctx get-spec-from-common-module ctx.specs-map, ast.keyword-range, sym-equal, compare : expected bogus ast.range
 
 	equals = ctx.check-ctx check-spec-and-get-last-impl ctx.funs-map, ast.keyword-range, ctx.type-container,
-		ctx.outermost-fun-specs, ctx.cur-flags, ctx.externs,
+		ctx.specs, ctx.cur-flags, ctx.externs,
 		(ctx.instantiate-ctx instantiate-spec spec_, ((matched type (ctx.common-types,)),))
 	seen string mut-set = ()
 	cases match-string-like-case[] = with out : build

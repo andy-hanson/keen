@@ -61,7 +61,7 @@ bin/crow: $(all_include) include/compiler/backend/java/lib/Crow.class bin/import
 	mv bin/crow-tmp bin/crow
 
 profile: bin/crow
-	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow check include/compiler/app/main.crow --times 20 --perf
+	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow check include/compiler/app/main.crow --times 30 --perf
 	jmc
 
 ### site ###
