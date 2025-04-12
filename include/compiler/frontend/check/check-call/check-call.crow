@@ -209,7 +209,7 @@ check-call-special-cb-n expr(
 )
 	initial-filter bool mut(x candidate) = candidate =>
 		ctx.common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
-		ctx.instantiate-ctx match-expected-vs-return-type-no-diagnostic expected, (candidate.called.return-type, candidate.type-context-for-candidate) &&
+		ctx.instantiate-ctx test-candidate-return-type expected, candidate, allow-conversions &&
 		cb-additional-filter[candidate called]
 	ctx.funs-in-expr-scope with-candidates fun-name, n-args, initial-filter, candidates =>
 		if cb-before-check[candidates]
@@ -287,6 +287,7 @@ find-function-for-return-and-param-types called?(
 	# actual-arg-types type mut-slice = trusted n-args gc-safe-mut-slice ------------------------------------------------------------------------------------
 	some-arg-is-bogus mut = false
 	arg-index mut nat = 0
+	arg-types type mut-slice = trusted n-args gc-safe-mut-slice #TODO:PERF consider just getting this from the args. ............................................
 	loop
 		guard arg-index != n-args : break
 		guard candidates !is-empty : break
@@ -304,14 +305,28 @@ find-function-for-return-and-param-types called?(
 			candidates clear-candidates
 			break
 		else
-			candidates filter-candidates candidate =>
-				ctx.instantiate-ctx test-candidate-param-type candidate, arg-index, arg-type.non-inferring
+			arg-types[arg-index] := arg-type
+			candidates filter-candidates-tri candidate =>
+				# TODO:PERF have a version of 'test-candidate-param-type' that returns tri result -------------------------------------------------------
+				if ctx.instantiate-ctx test-candidate-param-type candidate, arg-index, arg-type.non-inferring, no-conversions
+					prefer
+				elif ctx.instantiate-ctx test-candidate-param-type candidate, arg-index, arg-type.non-inferring, allow-conversions
+					allow
+				else
+					reject
 			arg-index +:= 1
 			continue
 
 	guard !some-arg-is-bogus
 
 	candidates filter-candidates-but-dont-remove-all x => ctx pre-check-candidate-specs x
+
+	if candidates.size > 1
+		# If there are multiple candidates, prefer the one with no implicit conversions.
+		candidates filter-candidates-but-dont-remove-all candidate =>
+			ctx.instantiate-ctx test-candidate-return-type expected, candidate, no-conversions &&
+			0::nat .. arg-types.size every i =>
+				ctx.instantiate-ctx test-candidate-param-type candidate, i, arg-types[i].non-inferring, no-conversions
 
 	if x ?= candidates opt-only
 		result = ctx.check-ctx check-call-after-choosing-overload ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope,
