@@ -6,21 +6,21 @@ import
 	../lang
 
 -type-contexts global(type? mut-slice-allocator)
--candidate-arrays global(candidate mut-array-allocator)
+-the-candidates global(candidates) 
 -candidate-pools global(candidate mut[][])
 -n-live-candidates global(nat)
 -type-and-context-arrays global(type-and-context mut-array-allocator)
 
 init-allocators void() trusted
 	type-contexts := ()
-	candidate-arrays := ()
+	the-candidates := 1024.gc-safe-mut-slice, 0, 0
 	candidate-pools := for _ : 0::nat .. max-type-args + 1; ()
 	n-live-candidates := ()
 	type-and-context-arrays := ()
 
 assert-all-allocated-freed void() trusted
 	type-contexts assert-all-free
-	candidate-arrays assert-all-free
+	the-candidates assert-all-free
 	n-live-candidates is 0
 	type-and-context-arrays assert-all-free
 
@@ -56,66 +56,6 @@ free-candidate void(candidate candidate) unsafe # TODO: ideally this would be pr
 	candidate-pools[n-type-args] ~= candidate
 	n-live-candidates -:= 1
 
-| Remember to call {free-candidates}
-allocate-candidates candidate mut[]() unsafe
-	candidate-arrays allocate
-free-candidates void(candidates candidate mut[]) unsafe
-	for x : candidates
-		x free-candidate
-	candidates clear
-	candidate-arrays free candidates
-
-clear-candidates void(candidates candidate mut[]) trusted # TODO: since ordinary mut[] operations are unsafe, maybe 'candidates' should be its own type. But test perf.
-	for x : candidates
-		x free-candidate
-	candidates clear
-
-filter-candidates void(a candidate mut[], f bool mut(x candidate)) trusted
-	i mut nat = 0
-	until i == a.size
-		if f[a[i]]
-			i +:= 1
-		elif i == a.size - 1
-			a.pop! free-candidate
-		else
-			a[i] free-candidate
-			a[i] := a.pop!
-
-| Does nothing if {f} returned false for every candidate.
-filter-candidates-but-dont-remove-all void(a candidate mut[], f bool mut(x candidate)) trusted
-	i mut nat = 0
-	loop
-		if i == a.size
-			break
-		elif f[a[i]]
-			# All previous candidates failed the test
-			while i != 0
-				a.pop-left! free-candidate
-				i -:= 1
-			# But this one passed
-			i +:= 1
-			until i == a.size
-				if f[a[i]]
-					i +:= 1
-				elif i == a.size - 1
-					a.pop! free-candidate
-				else
-					a[i] free-candidate
-					a[i] := a.pop!
-			break
-		else
-			i +:= 1
-			continue
-###
-TODO: RESTORE THIS TEST ---------------------------------------------------------------------------------------------------------
-test
-	xs nat mut[] = 1, 2, 3, 4, 5
-	xs filter-unordered-but-dont-remove-all x => x is-even
-	xs.to::nat[] is (2, 4)
-	xs filter-unordered-but-dont-remove-all x => x !is-even
-	xs.to::nat[] is (2, 4)
-###
-
 type-and-context record mut
 	type -mut type
 	context -mut type-context
@@ -141,3 +81,109 @@ non-inferring type-context()
 	()
 is-inferring bool(a type-context)
 	a !is-empty
+
+
+| These must be allocated and freed in a stack-like fashion.
+candidates record mut
+	| Remember to access this between {cur-array-start} and {cur-array-end}
+	-all-entries candidate mut-slice
+	-cur-array-start mut nat
+	-cur-array-end mut nat
+
+assert-all-free void(a candidates)
+	a.cur-array-start is 0
+	a.cur-array-end is 0
+
+iterate bool(a candidates, f bool mut(x candidate))
+	a.cur-array-start .. a.cur-array-end iterate i =>
+		f[a.all-entries[i]]
+
+is-empty bool(a candidates)
+	a.cur-array-start == a.cur-array-end
+
+size nat(a candidates)
+	a.cur-array-end - a.cur-array-start
+
+only candidate(a candidates)
+	assert a.size == 1
+	a.all-entries[a.cur-array-start]
+
+opt-only candidate?(a candidates)
+	if a.size == 1
+		a.only,
+
+| Remember to call {free-candidates}
+allocate-candidates (candidates, nat)() unsafe
+	restore = the-candidates push-context
+	the-candidates, restore
+
+free-candidates void(candidates candidates, restore nat) unsafe
+	assert candidates reference-equal the-candidates
+	the-candidates pop-context restore
+
+clear-candidates void(a candidates) trusted
+	for i : a.cur-array-start .. a.cur-array-end
+		a.all-entries[i] free-candidate
+		a.all-entries[i] := gc-safe-value
+	a.cur-array-end := a.cur-array-start
+
+| Returns the restore info. Pass this into {pop-context}.
+push-context nat(a candidates)
+	res = a cur-array-start
+	a.cur-array-start := a cur-array-end
+	res
+
+pop-context void(a candidates, restore nat) trusted
+	a clear-candidates
+	a.cur-array-start := restore
+
+~= void(a candidates, value candidate)
+	a.all-entries[a cur-array-end] := value
+	a.cur-array-end +:= 1
+
+filter-candidates void(a candidates, f bool mut(x candidate))
+	i mut = a cur-array-start
+	until i == a.cur-array-end
+		if f[a.all-entries[i]]
+			i +:= 1
+		else
+			a remove-at-unordered i
+
+filter-candidates-but-dont-remove-all void(a candidates, f bool mut(x candidate))
+	i mut nat = a cur-array-start
+	loop
+		if i == a.cur-array-end
+			# Got to the end and no candidate passed the test
+			break
+		elif f[a.all-entries[i]]
+			# All previous candidates failed the test
+			while i != a.cur-array-start
+				a remove-at-unordered i - 1
+				i -:= 1
+			# We already confirmed that this one passes the test
+			i +:= 1
+			until i == a.cur-array-end
+				if f[a.all-entries[i]]
+					i +:= 1
+				else
+					a remove-at-unordered i
+			break
+		else
+			i +:= 1
+			continue
+###
+TODO: RESTORE THIS TEST ---------------------------------------------------------------------------------------------------------
+test
+	xs nat mut[] = 1, 2, 3, 4, 5
+	xs filter-unordered-but-dont-remove-all x => x is-even
+	xs.to::nat[] is (2, 4)
+	xs filter-unordered-but-dont-remove-all x => x !is-even
+	xs.to::nat[] is (2, 4)
+###
+
+-remove-at-unordered void(a candidates, i nat) trusted
+	a.all-entries[i] free-candidate
+	take-from = a.cur-array-end - 1
+	a.all-entries[i] := a.all-entries[take-from]
+	a.all-entries[take-from] := gc-safe-value
+	a.cur-array-end := take-from
