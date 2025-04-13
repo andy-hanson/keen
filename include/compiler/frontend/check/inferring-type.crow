@@ -40,12 +40,6 @@ loop-info record mut
 to expected(a type-and-context[])
 	(), (a.to,), ()
 
--set-inferred void(a type-context, param type-param-index, type type)
-	forbid _ ?= a[param index]
-	a[param index] := type,
--try-get-inferred type?(a type-context, param type-param-index) # TODO: just inline it ----------------------------------------------
-	a[param index]
-
 # TODO: see if it would be faster to just return the 'expr' and call it to get its 'type' (reason it might not be: That sometimes requires delving throught it)
 expr-and-type record(expr expr, type type)
 
@@ -99,7 +93,7 @@ with-expect-option expr-and-option-type(common-types common-types, cb expr mut(x
 	option-t type = common-types.option[type-args] to
 	1 with-type-context-for inferring-types =>
 		inner = cb[option-t expect-with-context inferring-types]
-		inner-type = inferring-types[0] ?? bogus-type
+		inner-type = inferring-types[0]?.type ?? bogus-type
 		inner, inner-type
 
 debug-show string(ctx expr-ctx, a expected)
@@ -120,12 +114,12 @@ debug-show string(ctx expr-ctx, a expected)
 		"<<bogus>>"
 	as type-param-index x
 		desc string = if choice.context is-inferring
-			if inferred ?= choice.context try-get-inferred x
-				"inferred as {show-ctx show-type-unquoted (inferred, container)}"
+			if inferred ?= choice.context[x index]
+				"inferred as {show-ctx show-type-unquoted (inferred.type, container)} {inferred kind}"
 			else
-				"with no inferernce"
+				"with no inferernce yet"
 		else
-			"with no inference"
+			"(non-inferring context)"
 		"type param {x index} {desc}"
 	as struct-inst x
 		name = x.decl name
@@ -151,12 +145,12 @@ find-expected-struct-for-literal nat?(
 	choices struct-inst[],
 )
 	rslt mut nat? = ()
-	ambiguous mut = false
 	# For diag
 	multiple struct-inst mut[] = ()
 
-	handle-struct void mut(x struct-inst) = struct =>
-		if here ?= choices index-of struct
+	expected each-choice choice =>
+		choice each-narrowed-struct struct =>
+			guard here ?= choices index-of struct
 			if x ?= rslt
 				rslt-struct = choices[x]
 				if struct != rslt-struct
@@ -167,25 +161,7 @@ find-expected-struct-for-literal nat?(
 			else
 				rslt := here,
 
-	expected each-choice choice =>
-		match choice type
-		as bogus-type
-			ambiguous := true
-		as type-param-index index
-			if inferred ?= choice.context try-get-inferred index
-				match inferred
-				as bogus-type
-					ambiguous := true
-				as type-param-index _
-					()
-				as struct-inst x
-					handle-struct[x]
-			else
-				ambiguous := true
-		as struct-inst x
-			handle-struct[x]
-
-	if ambiguous || rslt is-empty
+	if rslt is-empty
 		ctx add-diag range, (ctx get-expected-for-diag expected).diag-literal-not-expected
 		()
 	elif multiple is-empty
@@ -193,6 +169,26 @@ find-expected-struct-for-literal nat?(
 	else
 		ctx add-diag range, (ctx.type-container diag-literal-multiple-match multiple.move-to)
 		()
+
+-each-narrowed-struct void(a type-and-context, f void mut(x struct-inst))
+	match a type
+	as bogus-type
+		()
+	as type-param-index x
+		guard a.context is-inferring
+		guard inferred ?= a.context[x index]
+		inferred.type.non-inferring each-narrowed-struct f
+	as struct-inst x
+		if x is-option-type
+			(x.must-unwrap-option-type, a.context) each-narrowed-struct f
+		else
+			f[x]
+-can-widen-to bool(narrow struct-inst, wide struct-inst)
+	res mut = false # TODO:PERF -------------------------------------------------------------------------------
+	(wide.to, ()) each-narrowed-struct x =>
+		if x == narrow
+			res := true
+	res
 
 -set-to-type void(a expected, type type)
 	a.opt-inferred := type,
@@ -221,13 +217,14 @@ get-expected-lambda expected-lambda-type?(
 	multiple type mut[] = ()
 	any-diag bool reference = false,
 	expected each-choice choice =>
-		if fun-type ?= ctx get-expected-fun-type diag-range, choice
+		choice each-narrowed-struct struct =>
+			guard fun-type ?= struct get-fun-type
 			if actual-param-type ?= ctx get-expected-param-type-from-fun-type diag-range, choice.context, declared-param-type, fun-type, any-diag
 				if x ?= res
 					if multiple is-empty
 						prev = x
-						multiple ~= ctx.instantiate-ctx apply-inferred (prev.fun-type.struct-inst.to, prev.type-context)
-					multiple ~= ctx.instantiate-ctx apply-inferred choice
+						multiple ~= (prev.fun-type.struct-inst.to, prev.type-context) apply-inferred
+					multiple ~= choice apply-inferred
 					*any-diag := true
 				res := (choice.context, fun-type, actual-param-type),
 
@@ -240,17 +237,6 @@ get-expected-lambda expected-lambda-type?(
 			ctx add-diag diag-range, (ctx get-expected-for-diag expected).diag-lambda-not-expected
 		res
 
--get-expected-fun-type fun-type?(ctx expr-ctx, diag-range source-range, choice type-and-context)
-	t type? = if x ?= choice.type type-param-index
-		choice.context try-get-inferred x
-	else
-		choice.type,
-	if x ?= t
-		x get-fun-type
-	else
-		ctx add-diag diag-range, diag-lambda-cant-infer-param-type
-		()
-
 -get-expected-param-type-from-fun-type type?(
 	ctx expr-ctx,
 	diag-range source-range,
@@ -259,7 +245,7 @@ get-expected-lambda expected-lambda-type?(
 	fun-type fun-type,
 	any-diag bool reference,
 )
-	if expected-param-type ?= ctx.instantiate-ctx try-get-non-inferring-type (fun-type.param-type, type-context)
+	if expected-param-type ?= (fun-type.param-type, type-context) try-get-inexact-non-inferring-type
 		if declared-param-type is-empty || expected-param-type == declared-param-type! # TODO: simplify (just use == on options)
 			expected-param-type,
 	elif x ?= declared-param-type
@@ -275,24 +261,28 @@ get-expected-lambda expected-lambda-type?(
 	elif x ?= a opt-choices
 		x for-loop cb
 
-try-get-non-inferring-type-including-loop type?(ctx instantiate-ctx, expected expected)
+try-get-inexact-non-inferring-type-including-loop type?(expected expected)
 	if x ?= expected opt-loop
 		x.type,
 	else
-		ctx try-get-non-inferring-type expected
+		expected try-get-inexact-non-inferring-type
 
-try-get-non-inferring-type type?(ctx instantiate-ctx, expected expected)
+try-get-exact-non-inferring-type type?(expected expected)
 	if x ?= expected opt-inferred
 		x,
 	elif x ?= expected opt-choices
-		if x.size == 1
-			ctx try-get-non-inferring-type x.only
+		x.opt-only?.try-get-exact-non-inferring-type
+
+try-get-inexact-non-inferring-type type?(expected expected)
+	if x ?= expected opt-inferred
+		x,
+	elif x ?= expected opt-choices
+		x.opt-only?.try-get-inexact-non-inferring-type
 
 allow-implicit-conversions enum
 	no-conversions
 	allow-conversions
 match-expected-vs-return-type-no-diagnostic bool(
-	ctx instantiate-ctx,
 	expected expected,
 	candidate-return-type type-and-context,
 	conversions allow-implicit-conversions,
@@ -304,13 +294,13 @@ match-expected-vs-return-type-no-diagnostic bool(
 		a-to-b
 	if x ?= expected opt-inferred
 		# We have a particular expected type, so infer candidate-return-type's type args
-		ctx match-types candidate-return-type, x.non-inferring, conv
+		candidate-return-type match-types x.non-inferring, conv
 	elif choices ?= expected opt-choices
 		match choices none-or-one-or-many x => x is-type-match-possible candidate-return-type, conv
 		as none
 			false
 		as one x
-			ctx match-types candidate-return-type, x.value, conv
+			candidate-return-type match-types x.value, conv
 		as many
 			# Else don't infer any type args; multiple candidates and multiple possible return types.
 			true
@@ -336,7 +326,7 @@ inferred type(expected expected)
 check expr(ctx expr-ctx, expected expected, expr-type type, expr expr)
 	ctx check expected, (expr, expr-type)
 -check expr(ctx expr-ctx, expected expected, a expr-and-type)
-	if ctx.instantiate-ctx set-type-no-diagnostic expected, a.type
+	if expected set-type-no-diagnostic a.type
 		a expr
 	else
 		ctx add-diag a.expr.range, do
@@ -348,21 +338,21 @@ get-expected-for-diag expected-for-diag(ctx expr-ctx, expected expected)
 	if x ?= expected opt-inferred
 		(x,) expected-for-diag-choices ctx.type-container
 	elif choices ?= expected opt-choices
-		(for x : choices; ctx.instantiate-ctx apply-inferred x) expected-for-diag-choices ctx.type-container
+		(for x : choices; x apply-inferred) expected-for-diag-choices ctx.type-container
 	elif _ ?= expected opt-loop
 		expected-for-diag-loop
 	else
 		expected-for-diag-infer
 
 | This may infer type parameters
--set-type-no-diagnostic bool(ctx instantiate-ctx, expected expected, actual type)
+-set-type-no-diagnostic bool(expected expected, actual type)
 	if x ?= expected opt-inferred
-		ctx match-types x.non-inferring, actual.non-inferring, b-to-a
+		x.non-inferring match-types actual.non-inferring, b-to-a
 	elif choices ?= expected opt-choices
 		# TODO: this could use 'exists'...........................................................................................
 		any-ok mut = false
 		for x : choices
-			if ctx match-types x, actual.non-inferring, b-to-a
+			if x match-types actual.non-inferring, b-to-a
 				any-ok := true
 		if any-ok
 			expected set-to-type actual
@@ -373,13 +363,19 @@ get-expected-for-diag expected-for-diag(ctx expr-ctx, expected expected)
 		expected set-to-type actual
 		true
 
-try-get-non-inferring-type type?(ctx instantiate-ctx, a type-and-context)
+try-get-exact-non-inferring-type type?(a type-and-context)
+	a try-get-exact-or-inexact-non-inferring-type true
+try-get-inexact-non-inferring-type type?(a type-and-context)
+	a try-get-exact-or-inexact-non-inferring-type false
+-try-get-exact-or-inexact-non-inferring-type type?(a type-and-context, require-exact bool)
 	match a type
 	as bogus-type
 		bogus-type,
 	as type-param-index x
 		if a.context is-inferring
-			a.context try-get-inferred x
+			guard inferred ?= a.context[x index]
+			guard inferred.kind == exact || !require-exact
+			inferred.type,
 		else
 			a.type,
 	as struct-inst i
@@ -387,9 +383,27 @@ try-get-non-inferring-type type?(ctx instantiate-ctx, a type-and-context)
 			a.type,
 		else
 			new-type-args = for x : i.type-args.inner map-or-none
-				ctx try-get-non-inferring-type (x, a.context)
+				(x, a.context) try-get-exact-or-inexact-non-inferring-type require-exact
 			if x ?= new-type-args
 				i.decl[x].to,
+
+-try-get-non-inferring inference?(a type-and-context)
+	match a type
+	as bogus-type
+		(exact, a.type),
+	as type-param-index p
+		if a.context is-inferring
+			a.context[p index]
+		else
+			(exact, a.type),
+	as struct-inst i
+		if i.type-args is-empty
+			(exact, a.type),
+		else
+			new-type-args type[]? = for x : i.type-args.inner map-or-none
+				(x, a.context) try-get-exact-non-inferring-type
+			if ta ?= new-type-args
+				(exact, i.decl[ta].to),
 
 fun-type record(kind fun-kind, struct-inst struct-inst)
 fun-struct struct-decl(a fun-type)
@@ -400,156 +414,82 @@ param-type type(a fun-type)
 	a.struct-inst.type-args.only2 b
 
 get-fun-type fun-type?(a type)
-	if struct-inst ?= a struct-inst
-		if x ?= struct-inst.decl.body builtin-type
-			if kind ?= x fun-kind-from-builtin-type
-				(kind, struct-inst),
+	a.struct-inst?.get-fun-type
+get-fun-type fun-type?(a struct-inst)
+	guard x ?= a.decl.body builtin-type
+	guard kind ?= x fun-kind-from-builtin-type
+	(kind, a), # TODO: returning its own input is kind of silly......................................................................
 
 | For diagnostics. Applies types that have been inferred, otherwise uses {bogus-type}.
-| This is like {try-get-non-inferring-type} but returns a type with {bogus-type} in it instead of an empty option.
-apply-inferred type(ctx instantiate-ctx, a type-and-context)
+| This is like {try-get-inexact-non-inferring-type} but returns a type with {bogus-type} in it instead of an empty option.
+apply-inferred type(a type-and-context)
 	match a type
 	as bogus-type
 		bogus-type
 	as type-param-index x
 		if a.context is-inferring
-			a.context try-get-inferred x ?? bogus-type
+			a.context[x index]?.type ?? bogus-type
 		else
 			x to
 	as struct-inst i
 		args type[] = for x : i.type-args inner
-			ctx apply-inferred (x, a.context)
+			(x, a.context) apply-inferred
 		i.decl[args] to
 
 implicit-conversions enum
 	| No implicit conversions
 	exact
-	| 'a' may be a union, allow converting 'b' to it
-	b-to-a
 	| 'b' may be a union, allow converting 'a' to it
 	a-to-b
-| Tries to find a way for {a} and {b} to be the same type.
-| It can fill in type arguments for {a}. But for unknown types in {b} it will assume compatibility.
-match-types bool(ctx instantiate-ctx, a type-and-context, b type-and-context, implicit-conversions implicit-conversions)
-	match a type
-	as bogus-type
-		# TODO: make sure to infer type params in this case!
-		()
-	as type-param-index pa
-		ctx match-types-type-param-a pa, a.context, b, implicit-conversions
-	as struct-inst ai
-		match b type
-		as bogus-type
-			true
-		as type-param-index pb
-			ctx match-types-type-param-b a, pb, b.context, implicit-conversions
-		as struct-inst bi
-			if ai.decl == bi.decl
-				i mut nat = 0
-				loop
-					guard i != ai.type-args.size : break true
-					arg-a = ai.type-args.inner[i]
-					arg-b = bi.type-args.inner[i]
-					guard ctx match-types (arg-a, a.context), (arg-b, b.context), exact : break false
-					i +:= 1
-					continue
-			else
-				match implicit-conversions
-				as exact
-					false
-				as a-to-b
-					if bi.decl is-option-type
-						ctx match-types a, (bi.must-unwrap-option-type, b.context), implicit-conversions
-				as b-to-a
-					if ai.decl is-option-type
-						ctx match-types (ai.must-unwrap-option-type, a.context), b, implicit-conversions
+	| 'a' may be a union, allow converting 'b' to it
+	b-to-a
 
--match-types-type-param-a bool(ctx instantiate-ctx, a type-param-index, a-context type-context, b type-and-context, implicit-conversions implicit-conversions)
-	if a-context is-inferring
-		matches = if inferred ?= a-context try-get-inferred a
-			ctx match-types (inferred, non-inferring), b, implicit-conversions
-		else
-			true
-		if matches
-			if b-inferred ?= ctx try-get-non-inferring-type b
-				a-context[a.index] := b-inferred,
-		matches
-	else
-		# It's an outer type param (not in either inferring).
-		match b type
-		as bogus-type
-			true
-		as type-param-index bp
-			if b.context is-inferring
-				if inferred ?= b.context try-get-inferred bp
-					if x ?= inferred.type-param-index
-						x == a
-				else
-					true
-			else
-				a == bp
-		as struct-inst _
-			false
--match-types-type-param-b bool(ctx instantiate-ctx, a type-and-context, b type-param-index, b-context type-context, implicit-conversions implicit-conversions) # TODO: inline
-	if b-context is-inferring
-		if inferred ?= b-context try-get-inferred b
-			ctx match-types a, inferred.non-inferring, implicit-conversions
-		else
-			true
-
+| TODO: this would probably be more readable if it took a {type-and-context} ----------------------------------------------------
 infer-type-args-from-lambda-parameter-type void(
-	ctx instantiate-ctx,
 	a type,
 	a-context type-context,
 	lambda-parameter-type type,
 )
 	if fun-type ?= a get-fun-type
-		ctx infer-type-args-from fun-type.param-type, a-context, lambda-parameter-type.non-inferring
-# Infers to 'a-context'. Doesn't change 'b'.
-infer-type-args-from void(ctx instantiate-ctx, a type, a-context type-context, b type-and-context)
+		fun-type.param-type infer-type-args-from a-context, lambda-parameter-type.non-inferring
+| Infers to {a-context}. Doesn't change {b}.
+infer-type-args-from void(a type, a-context type-context, b type-and-context)
 	guard b !is-inferring-non-inferred-type-param
 	b2 = b maybe-inferred
 	match a
 	as bogus-type
 		()
 	as type-param-index ap
-		unless _ ?= a-context try-get-inferred ap
-			if t ?= ctx try-get-non-inferring-type b2
-				a-context set-inferred ap, t
+		unless _ ?= a-context[ap index] # TODO: are there situations where we want to refine it if the kind is not 'exact'?
+			if t ?= b2 try-get-inexact-non-inferring-type
+				a-context[ap index] := (exact, t),
 	as struct-inst ai
 		guard bi ?= b2.type struct-inst
 		guard ai.decl == bi.decl
 		for i : 0::nat .. ai.type-args.size
 			ta = ai.type-args.inner[i]
 			tb = bi.type-args.inner[i]
-			ctx infer-type-args-from ta, a-context, (tb, b2.context)
+			ta infer-type-args-from a-context, (tb, b2.context)
 
 is-type-match-possible-for-completions bool(param-type type-with-container, actual-arg-type type) trusted
 	inferring type-context = param-type.container.n-type-params gc-safe-mut-slice
 	(param-type.type, inferring) is-type-match-possible actual-arg-type.non-inferring, b-to-a
 
 -is-type-match-possible bool(a type-and-context, b type-and-context, conv implicit-conversions)
-	if a is-inferring-non-inferred-type-param || b is-inferring-non-inferred-type-param
-		true
-	else
-		a2 = a maybe-inferred
-		b2 = b maybe-inferred
-		(a2.type == b2.type && a2.context !is-inferring && b2.context !is-inferring) ||
-		a2.type is-bogus ||
-		b2.type is-bogus ||
-		a2.type types-are-corresponding-struct-insts b2.type, conv, (x, y) =>
-			(x, a2.context) is-type-match-possible (y, b2.context), conv
+	# TODO: PERF Avoid the clone! -----------------------------------------------------------------------------------------------
+	a-clone type-and-context = a.type, a.context.copy
+	a-clone match-types b, conv
 
 | True for a type param with no inference yet
 -is-inferring-non-inferred-type-param bool(a type-and-context)
 	if x ?= a.type type-param-index
-		a.context is-inferring && a.context try-get-inferred x is-empty
+		a.context is-inferring && a.context[x index] is-empty
 
-maybe-inferred type-and-context(a type-and-context)
+-maybe-inferred type-and-context(a type-and-context)
 	if x ?= a.type type-param-index
 		if a.context is-inferring
 			# force because we tested 'is-inferring-non-inferred-type-param' before
-			a.context try-get-inferred! x non-inferring
+			a.context[x index]!.type non-inferring
 		else
 			a
 	else
@@ -558,15 +498,198 @@ maybe-inferred type-and-context(a type-and-context)
 types-are-corresponding-struct-insts bool(a type, b type, conv implicit-conversions, types-correspond bool mut(x type, y type))
 	guard sa ?= a struct-inst
 	guard sb ?= b struct-inst
+	sa match-struct-insts sb, conv, types-correspond, types-correspond
+
+| Returns true if 'a' and 'b' are possibly compatible.
+| 'a' may have its type args be inferred, 'b' may not. Unknown types in 'b' are always possibly compatible.
+match-types bool(a type-and-context, b type-and-context, conv implicit-conversions)
+	guard a.context is-inferring || b.context is-inferring : (exact, a.type) match-types-no-context b.type, conv !is-empty
+	guard b.context is-inferring : a match-types-no-b-context b.type, conv
+	guard a.context is-inferring : (exact, a.type) match-types-no-a-context b, conv !is-empty
+	match b type
+	as bogus-type
+		true
+	as type-param-index pb
+		if b-inferred ?= b.context[pb index]
+			a match-types-no-b-context b-inferred.type, conv
+		else
+			true
+	as struct-inst sb
+		match a type
+		as bogus-type
+			false
+		as type-param-index pa
+			if a-inferred ?= a.context[pa index]
+				if x ?= a-inferred match-types-no-a-context b, conv
+					a.context[pa index] := x
+					true
+			elif x ?= b try-get-non-inferring
+				if x.kind == exact
+					kind inference-kind = match conv
+					as exact
+						exact
+					as a-to-b
+						allow-wider
+					as b-to-a
+						allow-narrower
+					a.context[pa index] := (kind, x.type),
+				true
+			else
+				true
+		as struct-inst sa
+			sa match-struct-insts sb, conv, ((x, y) => (x, a.context) match-types (y, b.context), exact), (x, y) =>
+				(x, a.context) match-types (y, b.context), conv
+
+| Returns new inference value for 'a'.
+-match-types-no-a-context inference?(a inference, b type-and-context, conv implicit-conversions)
+	match b type
+	as bogus-type
+		a,
+	as type-param-index pb
+		# This function isn't called when 'b' is non-inferring
+		assert b.context is-inferring
+		if b-inferred ?= b.context[pb index]
+			a match-types-no-context b-inferred.type, conv
+		else
+			# We haven't inferred anything about 'b', so it could match
+			a,
+	as struct-inst sb
+		match a type
+		as bogus-type
+			()
+		as type-param-index _
+			()
+		as struct-inst sa
+			if sa.decl == sb.decl
+				res = sa.type-args.inner zip sb.type-args.inner every (x, y) =>
+					(exact, x) match-types-no-a-context (y, b.context), conv !is-empty
+				if res
+					(exact, a.type),
+			elif x ?= b try-get-inexact-non-inferring-type
+				a match-types-no-context x, conv
+
+-match-types-no-b-context bool(a type-and-context, b type, conv implicit-conversions)
+	match a type
+	as bogus-type
+		false
+	as type-param-index pa
+		if a.context is-inferring
+			if a-inferred ?= a.context[pa index]
+				if new-a ?= a-inferred match-types-no-context b, conv
+					a.context[pa index] := new-a
+					true
+			else
+				kind inference-kind = match conv
+				as exact
+					exact
+				as a-to-b
+					allow-narrower
+				as b-to-a
+					allow-wider
+				a.context[pa index] := (kind, b),
+				true
+		else
+			b == a.type
+	as struct-inst sa
+		match b
+		as bogus-type
+			true
+		as type-param-index _
+			false
+		as struct-inst sb
+			sa match-struct-insts sb, conv, ((x, y) => (x, a.context) match-types-no-b-context y, exact), (x, y) =>
+				(x, a.context) match-types-no-b-context y, conv
+
+-match-struct-insts bool(
+	sa struct-inst,
+	sb struct-inst,
+	conv implicit-conversions,
+	# TODO: it seems that these callbacks are often nearly the same, is there a better way to do it? ----------------------------
+	match-type-args bool mut(x type, y type),
+	match-after-unwrap bool mut(x type, y type),
+)
 	if sa.decl == sb.decl
-		(sa.type-args.inner zip sb.type-args.inner) every types-correspond
+		sa.type-args.inner zip sb.type-args.inner every match-type-args
 	else
 		match conv
 		as exact
 			false
 		as a-to-b
-			if sb.decl is-option-type
-				a types-are-corresponding-struct-insts sb.must-unwrap-option-type, conv, types-correspond
+			sb.decl is-option-type && match-after-unwrap[sa.to, sb.must-unwrap-option-type]
 		as b-to-a
-			if sa.decl is-option-type
-				sa.must-unwrap-option-type types-are-corresponding-struct-insts b, conv, types-correspond
+			sa.decl is-option-type && match-after-unwrap[sa.must-unwrap-option-type, sb.to]
+
+| Returns new inference value for 'a', or none if they can't match
+-match-types-no-context inference?(a inference, b type, conv implicit-conversions)
+	match a type
+	as bogus-type
+		()
+	as type-param-index pa
+		match b
+		as bogus-type
+			a,
+		as type-param-index pb
+			if pa == pb
+				a,
+		as struct-inst _
+			()
+	as struct-inst sa
+		match b
+		as bogus-type
+			a,
+		as type-param-index _
+			()
+		as struct-inst sb
+			# TODO: this is just the code in 'match-types-no-a-context' without accounting for b context....................
+			if sa.decl == sb.decl
+				if sa.type-args == sb.type-args
+					# Need to choose the new inference kind based on 'a.kind' and 'conv'
+					((a.kind kind-combine conv), a.type),
+			else
+				# TODO: I'm pretty sure this code can be written shorter without explicitly listing all branches ---------------------
+				match conv
+				as exact
+					match a kind
+					as exact
+						()
+					as allow-wider
+						if sa can-widen-to sb
+							(exact, b),
+					as allow-narrower
+						if sb can-widen-to sa
+							(exact, b),
+				as a-to-b
+					if sa can-widen-to sb
+						match a kind
+						as exact
+							a,
+						as allow-wider
+							(exact, b),
+						as allow-narrower
+							(exact, a.type),
+				as b-to-a
+					if sb can-widen-to sa
+						match a kind
+						as exact
+							a,
+						as allow-wider
+							(exact, a.type),
+						as allow-narrower
+							(exact, b),
+
+-kind-combine inference-kind(a inference-kind, conv implicit-conversions)
+	match a
+	as exact
+		exact
+	as allow-wider
+		match conv
+		as a-to-b
+			allow-wider
+		else
+			exact
+	as allow-narrower
+		match conv
+		as b-to-a
+			allow-narrower
+		else
+			exact

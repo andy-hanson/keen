@@ -177,7 +177,7 @@ check-fun-or-test-body expr(
 	(ctx check-destructure cond-ast.destructure, res.non-option-type, local), res.option
 
 -check-throw expr(ctx expr-ctx, ast throw-ast, expected expected)
-	if type ?= ctx.instantiate-ctx try-get-non-inferring-type-including-loop expected
+	if type ?= expected try-get-inexact-non-inferring-type-including-loop
 		thrown = ctx check-and-expect ast.thrown, ctx.common-types.exception.to
 		ast throw-expr thrown, type
 	else
@@ -615,7 +615,7 @@ integral-types integral-type[]()
 	ast let-expr destructure, value-expr, then
 
 -check-loop expr(ctx expr-ctx, ast loop-ast, expected expected)
-	if type ?= ctx.instantiate-ctx try-get-non-inferring-type expected
+	if type ?= expected try-get-inexact-non-inferring-type
 		loop_ loop-expr = ast, type, (ast.range bogus-expr bogus-type)
 		info loop-info = loop_, type, false
 		loop_.body := ctx check-expr ast.body, info.to
@@ -859,15 +859,17 @@ integral-types integral-type[]()
 	guard declared-sum-type.decl == actual-sum-type.decl
 	case_.n-type-params with-type-context-for inferring-context =>
 		inferring-declared-sum-type type-and-context = declared-sum-type.to, inferring-context
-		guard ctx.instantiate-ctx match-types inferring-declared-sum-type, actual-sum-type.to.non-inferring, exact
+		guard inferring-declared-sum-type match-types actual-sum-type.to.non-inferring, exact
 		if inferring-context exists x => x is-empty
 			if t ?= expected-case-type[]
 				# Just using this for inference
-				_ = ctx.instantiate-ctx match-types ((case_.instantiated-with-own-type-params to), inferring-context), t.non-inferring, exact
+				_ = ((case_.instantiated-with-own-type-params to), inferring-context) match-types t.non-inferring, exact
 		
 		any-not-inferred mut bool = false
-		inferred-types type[] = for x : inferring-context
-			x ?? do
+		inferred-types type[] = for inf : inferring-context
+			if x ?= inf
+				x type
+			else
 				any-not-inferred := true
 				bogus-type
 		# TODO: NEATER (use map-opt?) ------------------------------------------------------------------------------------------------------------------
@@ -1152,9 +1154,5 @@ integral-types integral-type[]()
 -check-typed expr(ctx expr-ctx, ast typed-ast, expected expected)
 	type = ctx type-from-ast ast.type
 	guard type !is-bogus : expected bogus ast.range
-	if inferred ?= ctx.instantiate-ctx try-get-non-inferring-type expected
-		# If inferred != type, we'll fail in 'check'
-		if inferred == type
-			ctx add-diag ast.keyword-and-type-range, (ctx type-with-container type).diag-type-annotation-unnecessary
 	expr = ctx check-and-expect ast.expr, type
 	ctx check expected, type, (ast typed-expr expr)

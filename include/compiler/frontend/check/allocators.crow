@@ -5,7 +5,7 @@ import
 	../../util/stack-alloc
 	../lang
 
--type-contexts global(type? mut-slice-allocator)
+-type-contexts global(inference? mut-slice-allocator)
 -all-candidates global(candidates) 
 -candidate-pools global(candidate mut[][])
 -n-live-candidates global(nat)
@@ -24,8 +24,30 @@ assert-all-allocated-freed void() trusted
 	n-live-candidates is 0
 	type-and-context-arrays assert-all-free
 
+# TODO: for 'allow-wider' and 'allow-narrower', the type will always be a 'struct-inst'. Maybe I should make this a union to clarify. ---
+inference-kind enum
+	| The type must be exactly as specified
+	exact
+	| The type may be widened (for example, from `nat` to `nat?`).
+	| Suppose we are calling `push[t] void(value t, a t mut[])`.
+	| When we check the first arg, we might infer the type as `nat allow-wider`.
+	| Then if the argument turns out to be a `nat? mut[]`, we would upgrade `t` to `nat?` with `exact`.
+	allow-wider
+	| The type may be narrowed (for example, from `nat?` to `nat`).
+	| Suppose we are calling `first[t] t(a t[])` and the expected type is `nat?`.
+	| We would check the return type first. Then `t` would be inferred at `nat?` with `allow-narrower`.
+	| Then if the argument turns out to be a `nat[]`, we would upgrade `t` to `nat` with `exact`.
+	allow-narrower
+== bool(a inference-kind, b inference-kind)
+to symbol(a inference-kind)
+show string(a inference-kind)
+	a.to::symbol to
+inference record
+	kind inference-kind
+	type type
+
 type-context alias
-	type? mut-slice
+	inference? mut-slice
 
 with-type-context-for[t] t(n-type-params nat, f t mut(x type-context)) trusted
 	context = type-contexts allocate-gc-safe-values n-type-params
@@ -35,7 +57,7 @@ with-type-context-for[t] t(n-type-params nat, f t mut(x type-context)) trusted
 candidate record mut, -new
 	called -mut called-decl
 	| This is always empty if calling a {called-spec-sig}
-	type-args type? mut-slice
+	type-args type-context
 
 | Remember to call {free-candidate}
 init-candidate candidate(called called-decl) unsafe
@@ -66,17 +88,16 @@ allocate type-and-context mut[]() trusted
 free void(value type-and-context mut[]) trusted
 	type-and-context-arrays free value
 
--debug string(a type?)
-	if x ?= a
-		x debug
-	else
-		"uninferred"
-
 debug string(a type-context)
 	if a is-empty
 		"non-inferring"
 	else
 		"inferring {" " join for x : a; x debug}"
+-debug string(a inference?)
+	if x ?= a
+		"{x kind} {x.type debug}"
+	else
+		"uninferred"
 non-inferring type-context()
 	()
 is-inferring bool(a type-context)

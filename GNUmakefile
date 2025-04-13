@@ -56,7 +56,9 @@ check:
 	bin/crow-lkg check include/compiler/app/main.crow
 
 bin/crow: $(all_include) include/compiler/backend/java/lib/Crow.class bin/imports/date.txt bin/imports/commit-hash.txt
-	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crow-tmp
+	# TODO: make it work with the default stack size! ---------------------------------------------------------------------------------
+	#bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crow-tmp
+	java -Xss4m -jar bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crow-tmp
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
 	mv bin/crow-tmp bin/crow
 

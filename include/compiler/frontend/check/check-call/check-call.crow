@@ -209,7 +209,7 @@ check-call-special-cb-n expr(
 )
 	initial-filter bool mut(x candidate) = candidate =>
 		ctx.common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
-		ctx.instantiate-ctx test-candidate-return-type expected, candidate, allow-conversions &&
+		expected test-candidate-return-type candidate, allow-conversions &&
 		cb-additional-filter[candidate called]
 	ctx.funs-in-expr-scope with-candidates fun-name, n-args, initial-filter, candidates =>
 		if cb-before-check[candidates]
@@ -236,7 +236,7 @@ find-function-for-return-and-param-types called?(
 	arity = return-and-param-types.size - 1
 	initial-filter bool mut(x candidate) = candidate =>
 		common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
-		ctx.instantiate-ctx test-candidate-for-spec-sig candidate, return-and-param-types, non-inferring
+		candidate test-candidate-for-spec-sig return-and-param-types, non-inferring
 	funs-in-scope with-candidates name, arity, initial-filter, candidates =>
 		if x ?= candidates opt-only
 			(ctx check-call-after-choosing-overload common-types, type-container, funs-in-scope, outermost-fun-flags, externs, x, diag-range, can-do-unsafe),
@@ -297,7 +297,7 @@ find-function-for-return-and-param-types called?(
 			# There's no point to doing this if we haven't inferred any type args.
 			guard candidate has-some-inferred : true
 			ctx pre-check-candidate-specs candidate
-		arg-type = ctx.instantiate-ctx with-param-expected candidates, arg-index, cb-check-arg
+		arg-type = candidates with-param-expected arg-index, cb-check-arg
 		# actual-arg-types[arg-index] := arg-type ------------------------------------------------------------------------------------
 		# If it failed to check, don-t continue, just stop there
 		if arg-type is-bogus
@@ -308,9 +308,9 @@ find-function-for-return-and-param-types called?(
 			arg-types[arg-index] := arg-type
 			candidates filter-candidates-tri candidate =>
 				# TODO:PERF have a version of 'test-candidate-param-type' that returns tri result -------------------------------------------------------
-				if ctx.instantiate-ctx test-candidate-param-type candidate, arg-index, arg-type.non-inferring, no-conversions
+				if candidate test-candidate-param-type arg-index, arg-type.non-inferring, no-conversions
 					prefer
-				elif ctx.instantiate-ctx test-candidate-param-type candidate, arg-index, arg-type.non-inferring, allow-conversions
+				elif candidate test-candidate-param-type arg-index, arg-type.non-inferring, allow-conversions
 					allow
 				else
 					reject
@@ -324,9 +324,9 @@ find-function-for-return-and-param-types called?(
 	if candidates.size > 1
 		# If there are multiple candidates, prefer the one with no implicit conversions.
 		candidates filter-candidates-but-dont-remove-all candidate =>
-			ctx.instantiate-ctx test-candidate-return-type expected, candidate, no-conversions &&
+			expected test-candidate-return-type candidate, no-conversions &&
 			0::nat .. arg-types.size every i =>
-				ctx.instantiate-ctx test-candidate-param-type candidate, i, arg-types[i].non-inferring, no-conversions
+				candidate test-candidate-param-type i, arg-types[i].non-inferring, no-conversions
 
 	if x ?= candidates opt-only
 		result = ctx.check-ctx check-call-after-choosing-overload ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope,
@@ -385,18 +385,17 @@ find-function-for-return-and-param-types called?(
 	ok = args.size == n-type-params
 	if ok
 		for i, arg : args with-index
-			candidate.type-args[i] := arg,
+			candidate.type-args[i] := (exact, arg),
 	ok
 
 -with-param-expected type(
-	ctx instantiate-ctx,
 	candidates candidates,
 	arg-index nat,
 	cb-check-arg void mut(arg-index nat, x expected),
 )
 	out type-and-context mut[] = allocate
 	for candidate : candidates
-		expected = ctx get-candidate-expected-parameter-type candidate, arg-index
+		expected = candidate get-candidate-expected-parameter-type arg-index
 		is-duplicate = expected.context !is-inferring && out exists x => (x.context !is-inferring && x.type == expected.type)
 		unless is-duplicate
 			out ~= expected
@@ -408,15 +407,14 @@ find-function-for-return-and-param-types called?(
 	res
 
 -infer-candidate-type-args-from-checked-spec-sig void(
-	ctx instantiate-ctx,
 	spec-candidate candidate,
 	spec-sig signature,
 	sig-types return-and-param-types,
 	call-inferring-type-args type-context,
 )
-	ctx infer-type-args-from sig-types[0], call-inferring-type-args, (spec-candidate.called.return-type, spec-candidate.type-context-for-candidate)
+	sig-types[0] infer-type-args-from call-inferring-type-args, (spec-candidate.called.return-type, spec-candidate.type-context-for-candidate)
 	for arg-idx : 0::nat .. spec-sig.params.size
-		ctx infer-type-args-from sig-types[arg-idx + 1], call-inferring-type-args, (ctx get-candidate-expected-parameter-type spec-candidate, arg-idx)
+		sig-types[arg-idx + 1] infer-type-args-from call-inferring-type-args, (spec-candidate get-candidate-expected-parameter-type arg-idx)
 
 -infer-candidate-type-args-from-explicitly-typed-argument bool(
 	ctx expr-ctx,
@@ -441,8 +439,8 @@ find-function-for-return-and-param-types called?(
 			false
 		else
 			for candidate : candidates
-				param-type = ctx.instantiate-ctx get-candidate-expected-parameter-type candidate, arg-index
-				ctx.instantiate-ctx infer-type-args-from-lambda-parameter-type param-type.type, candidate.type-context-for-candidate, lambda-param-type
+				param-type = candidate get-candidate-expected-parameter-type arg-index
+				param-type.type infer-type-args-from-lambda-parameter-type candidate.type-context-for-candidate, lambda-param-type
 			true
 	else
 		true
@@ -466,13 +464,13 @@ find-function-for-return-and-param-types called?(
 )
 	call-context = call-candidate type-context-for-candidate
 	initial-filter bool mut(x candidate) = candidate =>
-		ctx.instantiate-ctx test-candidate-for-spec-sig candidate, return-and-param-types, call-context
+		candidate test-candidate-for-spec-sig return-and-param-types, call-context
 	ctx.funs-in-expr-scope with-candidates spec-sig.name, spec-sig.params.size, initial-filter, spec-candidates =>
 		match spec-candidates size
 		as 0
 			false
 		as 1
-			ctx.instantiate-ctx infer-candidate-type-args-from-checked-spec-sig spec-candidates.only, spec-sig, return-and-param-types, call-context
+			spec-candidates.only infer-candidate-type-args-from-checked-spec-sig spec-sig, return-and-param-types, call-context
 			true
 		else
 			true
