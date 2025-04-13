@@ -17,7 +17,7 @@ const { LanguageClient } = require("vscode-languageclient/lib/node/main.js")
 let client
 
 // VSCode likes to destroy the log on error (Why?), so write out own
-const logFile = '/home/andy/crow-log.txt' // TODO:RM (or put behind a flag) ---------------------------------------------------------------------
+const logFile = null // '/home/andy/crow-log.txt' // TODO:RM (or put behind a flag) ---------------------------------------------------------------------
 if (logFile) fs.writeFileSync(logFile, '')
 
 /** @type {function(ExtensionContext): void} */
