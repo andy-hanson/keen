@@ -443,6 +443,9 @@ implicit-conversions enum
 	a-to-b
 	| 'a' may be a union, allow converting 'b' to it
 	b-to-a
+to symbol(a implicit-conversions)
+show string(a implicit-conversions)
+	a.to::symbol show
 
 | TODO: this would probably be more readable if it took a {type-and-context} ----------------------------------------------------
 infer-type-args-from-lambda-parameter-type void(
@@ -500,18 +503,41 @@ types-are-corresponding-struct-insts bool(a type, b type, conv implicit-conversi
 	guard sb ?= b struct-inst
 	sa match-struct-insts sb, conv, types-correspond, types-correspond
 
+# RM --------------------------------------------------------------------------------------------------------------------------
+enable-inference-log void() trusted
+	LOG := true
+disable-inference-log void() trusted
+	LOG := false
+
+-LOG global(bool)
+
 | Returns true if 'a' and 'b' are possibly compatible.
 | 'a' may have its type args be inferred, 'b' may not. Unknown types in 'b' are always possibly compatible.
 match-types bool(a type-and-context, b type-and-context, conv implicit-conversions)
+	if trusted LOG
+		info log "match-types a=({a debug}) b=({b debug}) conv={conv}"
 	guard a.context is-inferring || b.context is-inferring : (exact, a.type) match-types-no-context b.type, conv !is-empty
 	guard b.context is-inferring : a match-types-no-b-context b.type, conv
 	guard a.context is-inferring : (exact, a.type) match-types-no-a-context b, conv !is-empty
-	match b type
+	res = match b type
 	as bogus-type
 		true
 	as type-param-index pb
 		if b-inferred ?= b.context[pb index]
-			a match-types-no-b-context b-inferred.type, conv
+			inner-conv implicit-conversions = match conv
+			as exact
+				match b-inferred kind
+				as exact
+					exact
+				as allow-narrower
+					a-to-b
+				as allow-wider
+					b-to-a
+			as a-to-b
+				a-to-b
+			as b-to-a
+				b-to-a
+			a match-types-no-b-context b-inferred.type, inner-conv
 		else
 			true
 	as struct-inst sb
@@ -539,6 +565,9 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 		as struct-inst sa
 			sa match-struct-insts sb, conv, ((x, y) => (x, a.context) match-types (y, b.context), exact), (x, y) =>
 				(x, a.context) match-types (y, b.context), conv
+	if trusted LOG
+		info log "match-types returns {res} from a=({a debug}) b=({b debug}) conv={conv}"
+	res
 
 | Returns new inference value for 'a'.
 -match-types-no-a-context inference?(a inference, b type-and-context, conv implicit-conversions)
@@ -569,7 +598,9 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 				a match-types-no-context x, conv
 
 -match-types-no-b-context bool(a type-and-context, b type, conv implicit-conversions)
-	match a type
+	if trusted LOG
+		info log "match-types-no-b-context a=({a debug}) b=({b debug}) conv={conv}"
+	res = match a type
 	as bogus-type
 		false
 	as type-param-index pa
@@ -599,6 +630,9 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 		as struct-inst sb
 			sa match-struct-insts sb, conv, ((x, y) => (x, a.context) match-types-no-b-context y, exact), (x, y) =>
 				(x, a.context) match-types-no-b-context y, conv
+	if trusted LOG
+		info log "match-types-no-b-context returns {res} for a=({a debug}) b=({b debug}) conv={conv}"
+	res
 
 -match-struct-insts bool(
 	sa struct-inst,
@@ -621,7 +655,9 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 
 | Returns new inference value for 'a', or none if they can't match
 -match-types-no-context inference?(a inference, b type, conv implicit-conversions)
-	match a type
+	if trusted LOG
+		info log "match-types-no-context a={a debug} b={b debug} conv={conv}"
+	res inference? = match a type
 	as bogus-type
 		()
 	as type-param-index pa
@@ -629,6 +665,7 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 		as bogus-type
 			a,
 		as type-param-index pb
+			# TODO: we might also widen 'a' if 'b' is an option type! ---------------------------------------------------------------
 			if pa == pb
 				a,
 		as struct-inst _
@@ -638,7 +675,16 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 		as bogus-type
 			a,
 		as type-param-index _
-			()
+			# A type param could widen to an option type
+			can-widen-b = match conv
+			as exact
+				a.kind == allow-narrower
+			as a-to-b
+				false
+			as b-to-a
+				true
+			if can-widen-b && sa is-option-type
+				(a.kind, sa.must-unwrap-option-type) match-types-no-context b, conv
 		as struct-inst sb
 			# TODO: this is just the code in 'match-types-no-a-context' without accounting for b context....................
 			if sa.decl == sb.decl
@@ -676,6 +722,17 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 							(exact, a.type),
 						as allow-narrower
 							(exact, b),
+	if trusted LOG
+		info log "match-types-no-context returns {res debug} for a={a debug} b={b debug} conv={conv}"
+	res
+
+-debug string(a inference?)
+	if x ?= a
+		x debug
+	else
+		"none"
+-debug string(a inference)
+	"{a kind} {a.type debug}"
 
 -kind-combine inference-kind(a inference-kind, conv implicit-conversions)
 	match a
