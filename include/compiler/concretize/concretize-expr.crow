@@ -143,31 +143,34 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 	concrete-called concrete-fun,
 	args expr[],
 )
-	assert concrete-called.return-type == type
-	concrete-args = ctx get-concrete-args range, concrete-called, args
-	type, range, match concrete-args
-	as constants constants
-		if constant ?= ctx.concretize-ctx try-eval-constant concrete-called, constants.constants
-			constant to
-		else
-			concrete-called gen-call-kind for p, x : concrete-called.params zip constants.constants
-				p.type, range, x.to
-	as exprs exprs
-		if builtin_ ?= concrete-called.body concrete-fun-body-builtin
-			match builtin_ kind
-			as builtin-binary-lazy x
-				ctx concretize-builtin-binary-lazy type, range, x, exprs.exprs
-			as builtin-fun-call-lambda
-				builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
-			# These functions are nontrivial, so don't inline them
-			as builtin-fun-mark-visit
-				concrete-called gen-call-kind exprs.exprs
-			as builtin-fun-mark-root
-				concrete-called gen-call-kind exprs.exprs
+	# We need to widen again even though it was done already in 'concretize-expr',
+	# because we may be calling a spec-impl that has a narrower type than the spec.
+	# (The call expr's type can't reflect this and uses the spec's declared type.)
+	ctx may-widen-type type, concrete-called.return-type, range, actual-type =>
+		concrete-args = ctx get-concrete-args range, concrete-called, args
+		actual-type, range, match concrete-args
+		as constants constants
+			if constant ?= ctx.concretize-ctx try-eval-constant concrete-called, constants.constants
+				constant to
 			else
-				builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
-		else
-			concrete-called gen-call-kind exprs.exprs
+				concrete-called gen-call-kind for p, x : concrete-called.params zip constants.constants
+					p.type, range, x.to
+		as exprs exprs
+			if builtin_ ?= concrete-called.body concrete-fun-body-builtin
+				match builtin_ kind
+				as builtin-binary-lazy x
+					ctx concretize-builtin-binary-lazy type, range, x, exprs.exprs
+				as builtin-fun-call-lambda
+					builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
+				# These functions are nontrivial, so don't inline them
+				as builtin-fun-mark-visit
+					concrete-called gen-call-kind exprs.exprs
+				as builtin-fun-mark-root
+					concrete-called gen-call-kind exprs.exprs
+				else
+					builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
+			else
+				concrete-called gen-call-kind exprs.exprs
 
 -get-concrete-args constants-or-exprs(
 	ctx concretize-expr-ctx, 
@@ -724,19 +727,27 @@ get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called calle
 
 -concretize-expr concrete-expr(ctx concretize-expr-ctx, type concrete-type, a expr)
 	actual-type = ctx get-concrete-type (a type ctx.common-types)
-	if type == actual-type
-		ctx concretize-expr-inner type, a
+	ctx may-widen-type type, actual-type, (ctx.cur-uri, a.range), (inner-type) =>
+		ctx concretize-expr-inner inner-type, a
+
+-may-widen-type concrete-expr(
+	ctx concretize-expr-ctx,
+	expected-type concrete-type,
+	actual-type concrete-type,
+	range uri-and-range,
+	actual-expr concrete-expr mut(type concrete-type),
+)
+	if expected-type == actual-type
+		actual-expr[expected-type]
 	else
-		non-option = type unwrap-option-type
-		range uri-and-range = ctx.cur-uri, a.range
-		show-ctx = ctx.concretize-ctx show-ctx
-		where = show-ctx.line-and-column-getters[range]
+		non-option = expected-type unwrap-option-type
 		if non-option != actual-type
-			error log "You messed up! At: {where}, expected type: {show-ctx show-concrete-type type}, actual: {show-ctx show-concrete-type actual-type}"
-			error log "Expr is: {a.to::json}"
+			show-ctx = ctx.concretize-ctx show-ctx
+			where = show-ctx.line-and-column-getters[range]
+			error log "You messed up! At: {where}, expected type: {show-ctx show-concrete-type expected-type}, actual: {show-ctx show-concrete-type actual-type}"
 		non-option is actual-type
-		inner = ctx concretize-expr-inner non-option, a
-		ctx.concretize-ctx gen-some type, range, inner
+		inner = actual-expr[non-option]
+		ctx.concretize-ctx gen-some expected-type, range, inner
 
 -concretize-expr-inner concrete-expr(ctx concretize-expr-ctx, type concrete-type, a expr)
 	range uri-and-range = ctx.cur-uri, a.range
