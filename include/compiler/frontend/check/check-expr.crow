@@ -35,6 +35,14 @@ check-fun-or-test-body expr(
 	externs symbol-set,
 	ast expr-ast,
 )
+	logit = match container
+	as fun-decl x
+		x.name == "LOGME".sym-of-string
+	as test_ _
+		false
+	if logit
+		enable-inference-log
+
 	expr-ctx expr-ctx = do
 		check-ctx: check-ctx
 		structs-and-aliases-map: structs-and-aliases-map
@@ -48,6 +56,8 @@ check-fun-or-test-body expr(
 		expr-ctx add-locals-for-destructure param
 	res = expr-ctx check-and-expect ast, return-type
 	expr-ctx restore-locals 0
+	if logit
+		disable-inference-log
 	res
 
 -check-expr expr(ctx expr-ctx, ast expr-ast, expected expected)
@@ -142,6 +152,8 @@ check-fun-or-test-body expr(
 		ctx check-call-special ast.to, ast.arrow-range, sym-star, (ast.left,), arg-expected
 
 -check-if expr(ctx expr-ctx, ast if-ast, expected expected)
+	if is-inference-log-enabled
+		error log "top of check-if: expected is {expected debug}"
 	if ast.first-branch is-throw || (ast.second-branch is-throw && ast !is-else-of-parent)
 		ctx add-diag ast.first-keyword-range, diag-if-throw
 	condition = ctx check-condition ast.condition
@@ -151,6 +163,8 @@ check-fun-or-test-body expr(
 	first-branch = ctx with-extern-from-condition condition, is-negated, () =>
 		ctx check-expr-with-opt-destructure-or-empty-new ast.to,
 			(!is-negated ? destructure), ast.first-branch, empty-new-range, expected
+	if is-inference-log-enabled
+		error log "check-if after first branch: expected is {expected debug}"
 	second-branch = ctx with-extern-from-condition condition, !is-negated, () =>
 		ctx check-expr-with-opt-destructure-or-empty-new ast.to,
 			(is-negated ? destructure), ast.second-branch, empty-new-range, expected
@@ -163,7 +177,7 @@ check-fun-or-test-body expr(
 	as expr _
 		()
 	as unpack-option x
-		x.destructure,
+		x destructure
 
 -check-condition condition(ctx expr-ctx, ast condition-ast)
 	match ast
@@ -211,9 +225,8 @@ check-fun-or-test-body expr(
 	thrown expr? = if thrown-ast ?= ast thrown
 		if x ?= thrown-ast.expr throw-ast
 			ctx add-diag x.keyword-range, diag-assert-or-forbid-message-is-throw
-		res = ctx with-extern-from-condition condition, !is-forbid, () =>
-			ctx check-expr-with-opt-destructure (is-forbid ? destructure), thrown-ast.expr, ctx.common-types.exception.to.expect
-		res,
+		ctx with-extern-from-condition condition, !is-forbid, () =>
+			ctx check-expr-with-opt-destructure (is-forbid ? destructure), thrown-ast.expr, ctx.common-types.exception.to.expect	
 	after = ctx with-extern-from-condition condition, is-forbid, () =>
 		ctx check-expr-with-opt-destructure (!is-forbid ? destructure), ast.after, expected
 	ast assert-or-forbid-expr is-forbid, condition, thrown, after
@@ -232,11 +245,11 @@ check-fun-or-test-body expr(
 	as call-ast left-call
 		name sym? = match left-call style
 		as dot
-			"set-{left-call.fun-name name}".sym-of-string,
+			"set-{left-call.fun-name name}" sym-of-string
 		as prefix-operator
-			left-call.fun-name.name == sym-star ? sym-set-deref,
+			left-call.fun-name.name == sym-star ? sym-set-deref
 		as subscript
-			sym-set-subscript,
+			sym-set-subscript
 		else
 			()
 		if x ?= name
@@ -284,13 +297,13 @@ check-fun-or-test-body expr(
 				until i == 0 || index >= ctx.lambdas[i - 1].first-local-index
 					ctx add-to-closure diag-range, ctx.lambdas[i - 1], local
 					i -:= 1
-				local,
+				local
 		else
 			lambda = ctx.lambdas[i - 1]
 			if local ?= lambda.closure find x => x.name == name
 				for j : i .. ctx.lambdas.size
 					ctx add-to-closure diag-range, ctx.lambdas[j], local
-				break local,
+				break local
 			else
 				i -:= 1
 				continue
@@ -315,7 +328,8 @@ check-fun-or-test-body expr(
 		if local.mutability != immut
 			ctx add-diag diag-range, (lambda-kind diag-lambda-closure-purity local.name, mut_, ())
 		elif ctx.specs !is-purity-always-compatible-considering-specs local.type, expected-purity
-			ctx add-diag diag-range, (lambda-kind diag-lambda-closure-purity local.name, local.type.purity-range.worst-case, ((ctx type-with-container local.type),))
+			ctx add-diag diag-range, do
+				lambda-kind diag-lambda-closure-purity local.name, local.type.purity-range.worst-case, (ctx type-with-container local.type)
 
 -check-identifier expr(ctx expr-ctx, ast name-and-range, expected expected)
 	if local ?= ctx access-local ast.range, ast.name
@@ -409,7 +423,7 @@ integral-types integral-type[]()
 				catch unary-out-of-range _
 					overflow := true
 					0
-			ctx as-float ast.range, float-types[type-index - integral-types.size], number-type, (!overflow ? ((value, 0),)), expected
+			ctx as-float ast.range, float-types[type-index - integral-types.size], number-type, (!overflow ? value, 0), expected
 	else
 		expected bogus ast.range
 
@@ -422,9 +436,9 @@ integral-types integral-type[]()
 	kinds string-like-type[] = string, string, char8-array, char32-array, js-any, string, symbol
 	guard type-index ?= ctx find-expected-struct-for-literal range, expected, allowed-types : expected bogus range
 	expr expr? = if type-index == 0
-		(range literal-integral-expr char8.to, ((ctx char8-literal-value range, value).to,)),
+		range literal-integral-expr char8.to, ((ctx char8-literal-value range, value).to,)
 	elif type-index == 1
-		(range literal-integral-expr char32.to, ((ctx char32-literal-value range, value).to,)),
+		range literal-integral-expr char32.to, ((ctx char32-literal-value range, value).to,)
 	else
 		check-no-nul string mut(diag diag-string-literal-invalid) = diag =>
 			if index ?= value index-of "\0"
@@ -435,21 +449,21 @@ integral-types integral-type[]()
 		string-type = kinds[type-index]
 		fixed-value string? = match string-type
 		as char8-array
-			value,
+			value
 		as char32-array
-			value,
+			value
 		as string
-			check-no-nul[string-contains-nul],
+			check-no-nul[string-contains-nul]
 		as symbol
-			check-no-nul[symbol-contains-nul],
+			check-no-nul[symbol-contains-nul]
 		as js-any
 			if sym-js in ctx.externs
-				value,
+				value
 			else
 				ctx add-diag range, not-extern-js.to
 				()
 		if x ?= fixed-value
-			(range literal-string-like-expr string-type, x),
+			(range literal-string-like-expr string-type, x)
 	if x ?= expr
 		ctx check expected, allowed-types[type-index].to, x
 	else
@@ -510,7 +524,7 @@ integral-types integral-type[]()
 -pop-local void(ctx expr-ctx)
 	local = ctx.locals pop!
 	if local is-used-in-closure && local is-mutable
-		local.closure-reference-type := (ctx.common-types.reference[local type]),
+		local.closure-reference-type := ctx.common-types.reference[local type]
 	if local !is-read || (local !is-written && local is-mutable)
 		ctx add-diag local.local-must-have-name-range, local.diag-unused-local
 
@@ -525,7 +539,7 @@ integral-types integral-type[]()
 	guard et ?= ctx get-expected-lambda ast.range, (ctx type-from-destructure inner.param), expected : expected bogus ast.range
 	guard et.fun-type.kind == shared_ : diag-bogus[ctx get-expected-for-diag expected diag-shared-not-expected]
 	res = ctx check-lambda-inner inner.to, inner.param, inner.body, expected,
-		(ctx.common-types.fun-structs[mut_][et.fun-type.struct-inst.type-args],),
+		ctx.common-types.fun-structs[mut_][et.fun-type.struct-inst.type-args],
 		et.instantiated-param-type,
 		et.fun-type.return-type,
 		et.type-context,
@@ -715,7 +729,7 @@ integral-types integral-type[]()
 				if remaining remove member
 					name-ast = as-name!
 					if d ?= name-ast destructure
-						ctx add-diag d.range, (matched-enum,).diag-match-case-no-value-for-enum-or-symbol
+						ctx add-diag d.range, matched-enum.diag-match-case-no-value-for-enum-or-symbol
 					out ~= (member, (ctx check-expr case-ast.then, expected))
 				else
 					has-case-diag := true
@@ -732,10 +746,10 @@ integral-types integral-type[]()
 			ctx add-diag x.keyword-range, diag-match-unnecessary-else
 		()
 	elif x ?= ast else_
-		(ctx check-expr x.expr, expected),
+		ctx check-expr x.expr, expected
 	else
 		ctx add-diag ast.keyword-range, remaining.to.diag-match-unhandled-enum-members
-		(expected bogus ast.range),
+		expected bogus ast.range
 
 	ast match-enum-expr matched, cases, else_, expected.inferred
 
@@ -755,11 +769,10 @@ integral-types integral-type[]()
 				ctx add-diag x.keyword-range, diag-match-unnecessary-else
 			()
 		else
-			e = ctx check-match-else-required ast, expected, () =>
+			ctx check-match-else-required ast, expected, () =>
 				(sum-type list-missing-union-cases body, cases) diag-match-unhandled-union-case-types
-			e,
 	else
-		(ctx check-match-else-required ast, expected, variant_),
+		ctx check-match-else-required ast, expected, variant_
 	ast match-sum-type-expr matched, cases, else_, expected.inferred
 -list-missing-union-cases struct-inst[](union_ struct-inst, body sum-type, cases match-sum-type-case[])
 	with out : build
@@ -807,7 +820,7 @@ integral-types integral-type[]()
 		member-ast.to destructure-ignore member-ast.name-range.start, case-type.to
 	if destructure.type !is-bogus
 		expr = ctx check-expr-with-destructure destructure, then-ast, expected
-		(destructure, expr),
+		destructure, expr
 
 -get-sum-type-case-from-name struct-inst?(
 	ctx expr-ctx,
@@ -832,14 +845,14 @@ integral-types integral-type[]()
 		# TODO: NEATER -------------------------------------------------------------------------------------------------------------------
 		from-listed struct-inst? = listed-members first x =>
 			if x.member.decl == decl
-				(x.member instantiate-struct-inst sum-type.type-args.inner),
+				x.member instantiate-struct-inst sum-type.type-args.inner
 		from-membership instantiated-sum-type-case-or-bogus? mut() = () =>
 			decl.sum-type-memberships first x =>
 				ctx compare-sum-types name-range, decl, x.sum-type, sum-type, expected-member-type
 		if res ?= from-listed?.to::instantiated-sum-type-case-or-bogus? || from-membership[]
 			match res
 			as struct-inst x
-				x,
+				x
 			as sum-type-case-bogus
 				()
 		else
@@ -877,9 +890,9 @@ integral-types integral-type[]()
 		# TODO: NEATER (use map-opt?) ------------------------------------------------------------------------------------------------------------------
 		if any-not-inferred
 			ctx add-diag range, case_.diag-match-sum-type-cant-infer-type-args
-			sum-type-case-bogus,
+			sum-type-case-bogus
 		else
-			case_[inferred-types].to,
+			case_[inferred-types] to
 
 -check-match-char expr(
 	ctx expr-ctx,
@@ -921,7 +934,7 @@ integral-types integral-type[]()
 				ctx add-diag x.name.range, numeric::diag-match-case-for-type.to
 				()
 			as literal-integral-and-range x
-				(ctx.check-ctx check-literal-integral-value integral-type, x),
+				ctx.check-ctx check-literal-integral-value integral-type, x
 			as as-string-ast x
 				ctx add-diag x.range, numeric::diag-match-case-for-type.to
 				()
@@ -941,16 +954,16 @@ integral-types integral-type[]()
 -get-matchable-string-like-from-builtin string-like-type?(a builtin-type)
 	match a
 	as string
-		string,
+		string
 	as symbol
-		symbol,
+		symbol
 	else
 		()
 -get-matchable-string-like-from-record string-like-type?(common-types common-types, inst struct-inst)
 	if inst == common-types.char32-array
-		char32-array,
+		char32-array
 	elif inst == common-types.char8-array
-		char8-array,
+		char8-array
 
 -check-match-string-like expr(
 	ctx expr-ctx,
@@ -963,7 +976,7 @@ integral-types integral-type[]()
 
 	equals = ctx.check-ctx check-spec-and-get-last-impl ctx.funs-map, ast.keyword-range, ctx.type-container,
 		ctx.specs, ctx.cur-flags, ctx.externs,
-		(ctx.instantiate-ctx instantiate-spec spec_, ((matched type (ctx.common-types,)),))
+		(ctx.instantiate-ctx instantiate-spec spec_, ((matched type ctx.common-types),))
 	seen string mut-set = ()
 	cases match-string-like-case[] = with out : build
 		for case-ast : ast cases
@@ -1022,12 +1035,12 @@ integral-types integral-type[]()
 	as as-name-ast x
 		if d ?= x destructure
 			ctx add-diag d.range, ().diag-match-case-no-value-for-enum-or-symbol
-		x.name.name.to,
+		x.name.name to
 	as literal-integral-and-range x
 		ctx add-diag x.range, string-like::diag-match-case-for-type.to
 		()
 	as as-string-ast x
-		x.value,
+		x value
 	as as-bogus-ast _
 		()
 

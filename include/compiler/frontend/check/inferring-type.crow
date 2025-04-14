@@ -96,42 +96,18 @@ with-expect-option expr-and-option-type(common-types common-types, cb expr mut(x
 		inner-type = inferring-types[0]?.type ?? bogus-type
 		inner, inner-type
 
-debug-show string(ctx expr-ctx, a expected)
-	show-ctx show-type-ctx = ((), (), (), (false,)), ctx.common-types
+debug string(a expected)
+	#show-ctx show-type-ctx = ((), (), (), (false,)), ctx.common-types
 	if x ?= a opt-inferred
-		"local type {show-ctx show-type-unquoted (ctx type-with-container x)}"
+		"local type {x debug}"
 	elif choices ?= a opt-choices
 		x string = ", " join for choice : choices
-			show-ctx debug-show-expected-choice ctx.type-container, choice
+			choice debug
 		"choices: {x}"
 	elif x ?= a opt-loop
-		"loop returning {show-ctx show-type-unquoted (ctx type-with-container x.type)}"
+		"loop returning {x.type debug}"
 	else
 		"<<inferring>>"
--debug-show-expected-choice string(show-ctx show-type-ctx, container type-container, choice type-and-context)
-	match choice type
-	as bogus-type 
-		"<<bogus>>"
-	as type-param-index x
-		desc string = if choice.context is-inferring
-			if inferred ?= choice.context[x index]
-				"inferred as {show-ctx show-type-unquoted (inferred.type, container)} {inferred kind}"
-			else
-				"with no inferernce yet"
-		else
-			"(non-inferring context)"
-		"type param {x index} {desc}"
-	as struct-inst x
-		name = x.decl name
-		if x.type-args is-empty
-			"{name}"
-		else
-			args string = ", " join for type-arg : x.type-args inner
-				show-ctx debug-show-expected-choice container, (type-arg, choice.context)
-			if x.type-args.size == 1
-				"{args} {name}"
-			else
-				"({args}) {name}"
 
 try-get-loop loop-info?(a expected)
 	a opt-loop
@@ -205,7 +181,10 @@ set-to-bogus-if-inferring void(a expected)
 	else
 		a set-to-bogus
 
-expected-lambda-type record(type-context type-context, fun-type fun-type, instantiated-param-type type) mut
+expected-lambda-type record mut
+	type-context type-context
+	fun-type fun-type
+	instantiated-param-type type
 get-expected-lambda expected-lambda-type?(
 	ctx expr-ctx,
 	diag-range source-range,
@@ -233,9 +212,35 @@ get-expected-lambda expected-lambda-type?(
 			ctx add-diag diag-range, (multiple.move-to, ctx.type-container).diag-lambda-multiple-match
 		()
 	else
-		if res is-empty
+		if x ?= res
+			x freeze-expected-return-type
+		else
 			ctx add-diag diag-range, (ctx get-expected-for-diag expected).diag-lambda-not-expected
 		res
+
+###
+If we have an expected type, we should freeze it at this point (to forbid narrowing).
+If the user wrote `xs nat?[] = for x : xs ...`, they presumably want the body to have a type of `nat?` not `nat`.
+###
+-freeze-expected-return-type void(a expected-lambda-type)
+	if trusted LOG
+		error log "top of freeze-expected-return-type: it is {a.fun-type.return-type debug}"
+	match a.fun-type return-type
+	as bogus-type
+		()
+	as type-param-index tp
+		if trusted LOG
+			error log "is it inferring? {a.type-context is-inferring}"
+		guard a.type-context is-inferring
+		guard inferred ?= a.type-context[tp index]
+		if trusted LOG
+			error log "inferred {inferred debug}"
+		guard inferred.kind != exact
+		if trusted LOG
+			error log "overwrite with {(exact, inferred.type)::inference debug}"
+		a.type-context[tp index] := exact, inferred.type
+	as struct-inst _
+		()
 
 -get-expected-param-type-from-fun-type type?(
 	ctx expr-ctx,
@@ -289,6 +294,7 @@ match-expected-vs-return-type-no-diagnostic bool(
 )
 	if trusted LOG
 		error log "top of match-expected-vs-return-type-no-diagnostic"
+		error log "expected is {expected debug}, candidate-return-type is {candidate-return-type debug}"
 	conv implicit-conversions = match conversions
 	as no-conversions
 		exact
@@ -324,6 +330,7 @@ inferred type(expected expected)
 	if x ?= expected opt-inferred
 		x
 	elif choices ?= expected opt-choices
+		# TODO: shouldn't this apply the context? ------------------------------------------------------------------------------
 		choices.only type
 	else
 		expected.opt-loop! type
@@ -356,12 +363,20 @@ get-expected-for-diag expected-for-diag(ctx expr-ctx, expected expected)
 	elif choices ?= expected opt-choices
 		# TODO: this could use 'exists'...........................................................................................
 		any-ok mut = false
-		for x : choices
-			if x match-types actual.non-inferring, b-to-a
-				any-ok := true
-		if any-ok
+		# TODO:PERF -------------------------------------------------------------------------------------------------------
+		matching-choices type-and-context[] = choices filter x =>
+			x match-types actual.non-inferring, b-to-a
+		match matching-choices size
+		as 0
+			false
+		as 1
+			# If we're expecting 't' that is inferred to 'nat? exact' preserve that instead of unnecessarily narrowing.
+			# TODO: maybe we should just not have 'choices' in the case where there is a single type .................................
+			expected set-to-type (matching-choices.only.try-get-inexact-non-inferring-type ?? actual)
+			true
+		else
 			expected set-to-type actual
-		any-ok
+			true
 	elif _ ?= expected opt-loop
 		false
 	else
@@ -442,7 +457,7 @@ apply-inferred type(a type-and-context)
 		i.decl[args] to
 
 implicit-conversions enum
-	| No implicit conversions
+	| The type parameter should not be changed any more.
 	exact
 	| 'b' may be a union, allow converting 'a' to it
 	a-to-b
@@ -513,6 +528,8 @@ enable-inference-log void() trusted
 	LOG := true
 disable-inference-log void() trusted
 	LOG := false
+is-inference-log-enabled bool() trusted
+	LOG
 
 -LOG global(bool)
 
