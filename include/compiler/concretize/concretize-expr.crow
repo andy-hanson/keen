@@ -116,7 +116,34 @@ do
 				then concrete-expr = type, range, (input array-op-concrete-expr in-element, empty-out-array, (out-element-type, range, body))
 				type gen-let range, temp, lambda, then
 		else
-			ctx concretize-call-inner type, range, concrete-called, a.args
+			concrete-args = ctx get-concrete-args range, concrete-called, a.args
+			# We need to widen again even though it was done already in 'concretize-expr',
+			# because we may be calling a spec-impl that has a narrower type than the spec.
+			# (The call expr's type can't reflect this and uses the spec's declared type.)
+			ctx may-widen-type type, concrete-called.return-type, range, actual-type =>
+				actual-type, range, match concrete-args
+				as constants constants
+					if constant ?= ctx.concretize-ctx try-eval-constant concrete-called, constants.constants
+						constant to
+					else
+						concrete-called gen-call-kind for p, x : concrete-called.params zip constants.constants
+							p.type, range, x.to
+				as exprs exprs
+					if builtin_ ?= concrete-called.body concrete-fun-body-builtin
+						match builtin_ kind
+						as builtin-binary-lazy x
+							ctx concretize-builtin-binary-lazy type, range, x, exprs.exprs
+						as builtin-fun-call-lambda
+							builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
+						# These functions are nontrivial, so don't inline them
+						as builtin-fun-mark-visit
+							concrete-called gen-call-kind exprs.exprs
+						as builtin-fun-mark-root
+							concrete-called gen-call-kind exprs.exprs
+						else
+							builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
+					else
+						concrete-called gen-call-kind exprs.exprs
 	else
 		ctx concretize-bogus type, range
 
@@ -136,58 +163,23 @@ do
 	# TODO: base this on more than just the name ... uri too? -----------------------------------------------------
 	decl.name == sym-range
 
--concretize-call-inner concrete-expr
-	ctx concretize-expr-ctx
-	type concrete-type
-	range uri-and-range
-	concrete-called concrete-fun
-	args expr[]
-do
-	# We need to widen again even though it was done already in 'concretize-expr',
-	# because we may be calling a spec-impl that has a narrower type than the spec.
-	# (The call expr's type can't reflect this and uses the spec's declared type.)
-	ctx may-widen-type type, concrete-called.return-type, range, actual-type =>
-		concrete-args = ctx get-concrete-args range, concrete-called, args
-		actual-type, range, match concrete-args
-		as constants constants
-			if constant ?= ctx.concretize-ctx try-eval-constant concrete-called, constants.constants
-				constant to
-			else
-				concrete-called gen-call-kind for p, x : concrete-called.params zip constants.constants
-					p.type, range, x.to
-		as exprs exprs
-			if builtin_ ?= concrete-called.body concrete-fun-body-builtin
-				match builtin_ kind
-				as builtin-binary-lazy x
-					ctx concretize-builtin-binary-lazy type, range, x, exprs.exprs
-				as builtin-fun-call-lambda
-					builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
-				# These functions are nontrivial, so don't inline them
-				as builtin-fun-mark-visit
-					concrete-called gen-call-kind exprs.exprs
-				as builtin-fun-mark-root
-					concrete-called gen-call-kind exprs.exprs
-				else
-					builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
-			else
-				concrete-called gen-call-kind exprs.exprs
-
 -get-concrete-args constants-or-exprs
 	ctx concretize-expr-ctx
 	range uri-and-range
 	concrete-called concrete-fun
 	args expr[]
 do
+	params = concrete-called params
 	args-may-be-constants = args.is-empty || (concrete-called !is-summon && concrete-called.return-type.purity == data_)
 	if concrete-called is-variadic
-		array-type = concrete-called.params.only type
+		array-type = params.only type
 		element-type = array-type array-element-type
 		pre = args-may-be-constants as-constants-or-exprs-if for arg : args
 			ctx concretize-expr element-type, arg
 		ctx constants-or-exprs-arr range, array-type, pre
 	else
-		args-may-be-constants as-constants-or-exprs-if for param, arg : concrete-called.params zip args
-			ctx concretize-expr param.type, arg
+		args-may-be-constants as-constants-or-exprs-if for i : 0::nat .. params.size
+			ctx concretize-expr params[i].type, args[i]
 
 -concretize-builtin-binary-lazy concrete-expr-kind
 	ctx concretize-expr-ctx
@@ -725,10 +717,78 @@ do
 	type = ctx get-concrete-type (a type ctx.common-types)
 	ctx concretize-expr type, a
 
--concretize-expr concrete-expr(ctx concretize-expr-ctx, type concrete-type, a expr)
+-concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type, a expr)
 	actual-type = ctx get-concrete-type (a type ctx.common-types)
-	ctx may-widen-type type, actual-type, (ctx.cur-uri, a.range), (inner-type) =>
-		ctx concretize-expr-inner inner-type, a
+	ctx may-widen-type outer-type, actual-type, (ctx.cur-uri, a.range), type =>
+		range uri-and-range = ctx.cur-uri, a.range
+		guard type !is-bogus : ctx concretize-bogus type, range
+		match a
+		as assert-or-forbid-expr x
+			ctx concretize-assert-or-forbid type, range, x
+		as bogus-call-expr _
+			ctx concretize-bogus type, range
+		as bogus-expr _
+			ctx concretize-bogus type, range
+		as bogus-wrong-type-expr _
+			ctx concretize-bogus type, range
+		as call-expr x
+			ctx concretize-call type, range, x
+		as call-option-expr x
+			ctx concretize-call-option type, range, x
+		as extern-expr x
+			type, range, (x.names is-subset-of ctx.concretize-ctx.all-externs).constant-bool.to
+		as finally-expr x
+			ctx concretize-finally type, range, x
+		as if-expr x
+			ctx concretize-if type, range, x
+		as lambda-expr x
+			ctx concretize-lambda type, range, x
+		as let-expr x
+			ctx concretize-let type, range, x
+		as literal-float-expr x
+			type gen-constant range, x.value.constant-float	
+		as literal-integral-expr x
+			type gen-constant range, x.value.to
+		as literal-string-like-expr x
+			ctx concretize-literal-string-like type, range, x.string-type, x.value
+		as local-get-expr x
+			ctx concretize-local-get type, range, x.local
+		as local-set-expr x
+			ctx concretize-local-set range, x.local, x.value
+		as loop-expr x
+			type gen-loop range, (ctx concretize-expr type, x.body)
+		as loop-break-expr x
+			range gen-break (ctx concretize-expr type, x.value)
+		as loop-continue-expr _
+			type gen-continue range
+		as loop-while-or-until-expr x
+			ctx concretize-loop-while-or-until type, range, x
+		as match-enum-expr x
+			ctx concretize-match-enum type, range, x
+		as match-integral-expr x
+			ctx concretize-match-integral type, range, x
+		as match-string-like-expr x
+			ctx concretize-match-string-like type, range, x
+		as match-sum-type-expr x
+			ctx concretize-match-sum-type type, range, x
+		as seq-expr x
+			first = ctx concretize-expr ctx.void-type, x.first
+			then = ctx concretize-expr type, x.then
+			if _ ?= first.kind constant
+				then
+			else
+				type, range, (first seq-concrete-expr then)
+		as throw-expr x
+			thrown = ctx concretize-expr ctx.concretize-ctx.exception-type, x.thrown
+			type, range, thrown.throw-concrete-expr
+		as trusted-expr x
+			ctx concretize-expr type, x.inner
+		as try-expr x
+			ctx concretize-try type, range, x
+		as try-let-expr x
+			ctx concretize-try-let type, range, x
+		as typed-expr x
+			ctx concretize-expr type, x.inner
 
 -may-widen-type concrete-expr
 	ctx concretize-expr-ctx
@@ -748,77 +808,6 @@ do
 		non-option is actual-type
 		inner = actual-expr[non-option]
 		ctx.concretize-ctx gen-some expected-type, range, inner
-
--concretize-expr-inner concrete-expr(ctx concretize-expr-ctx, type concrete-type, a expr)
-	range uri-and-range = ctx.cur-uri, a.range
-	guard type !is-bogus : ctx concretize-bogus type, range
-	match a
-	as assert-or-forbid-expr x
-		ctx concretize-assert-or-forbid type, range, x
-	as bogus-call-expr _
-		ctx concretize-bogus type, range
-	as bogus-expr _
-		ctx concretize-bogus type, range
-	as bogus-wrong-type-expr _
-		ctx concretize-bogus type, range
-	as call-expr x
-		ctx concretize-call type, range, x
-	as call-option-expr x
-		ctx concretize-call-option type, range, x
-	as extern-expr x
-		type, range, (x.names is-subset-of ctx.concretize-ctx.all-externs).constant-bool.to
-	as finally-expr x
-		ctx concretize-finally type, range, x
-	as if-expr x
-		ctx concretize-if type, range, x
-	as lambda-expr x
-		ctx concretize-lambda type, range, x
-	as let-expr x
-		ctx concretize-let type, range, x
-	as literal-float-expr x
-		type gen-constant range, x.value.constant-float	
-	as literal-integral-expr x
-		type gen-constant range, x.value.to
-	as literal-string-like-expr x
-		ctx concretize-literal-string-like type, range, x.string-type, x.value
-	as local-get-expr x
-		ctx concretize-local-get type, range, x.local
-	as local-set-expr x
-		ctx concretize-local-set range, x.local, x.value
-	as loop-expr x
-		type gen-loop range, (ctx concretize-expr type, x.body)
-	as loop-break-expr x
-		range gen-break (ctx concretize-expr type, x.value)
-	as loop-continue-expr _
-		type gen-continue range
-	as loop-while-or-until-expr x
-		ctx concretize-loop-while-or-until type, range, x
-	as match-enum-expr x
-		ctx concretize-match-enum type, range, x
-	as match-integral-expr x
-		ctx concretize-match-integral type, range, x
-	as match-string-like-expr x
-		ctx concretize-match-string-like type, range, x
-	as match-sum-type-expr x
-		ctx concretize-match-sum-type type, range, x
-	as seq-expr x
-		first = ctx concretize-expr ctx.void-type, x.first
-		then = ctx concretize-expr type, x.then
-		if _ ?= first.kind constant
-			then
-		else
-			type, range, (first seq-concrete-expr then)
-	as throw-expr x
-		thrown = ctx concretize-expr ctx.concretize-ctx.exception-type, x.thrown
-		type, range, thrown.throw-concrete-expr
-	as trusted-expr x
-		ctx concretize-expr type, x.inner
-	as try-expr x
-		ctx concretize-try type, range, x
-	as try-let-expr x
-		ctx concretize-try-let type, range, x
-	as typed-expr x
-		ctx concretize-expr type, x.inner
 
 # TODO: this returns an array with a single array in it, why was I doing this? ------------------------------------------------------
 -constants-or-exprs-arr constants-or-exprs
