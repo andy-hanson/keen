@@ -3,6 +3,7 @@ import
 	../../model/parse-diag
 	../../model/source-range
 	../../util/sym
+	../../util/util
 	./lexer
 	./lex-token
 	./parse-util
@@ -29,13 +30,10 @@ try-parse-type-arg-for-expr type-ast?(lexer lexer)
 		lexer.parse-type-for-typed-expr,
 
 -parse-types-with-commas-then-closing-paren type-ast[](lexer lexer)
-	with out : build
-		lexer parse-types-with-commas-then-closing-paren out
-
--parse-types-with-commas-then-closing-paren void(lexer lexer, res type-ast array-builder)
-	unless lexer try-take-token paren-right
-		lexer parse-with-separator comma, () => res ~= lexer parse-type # TODO: might be neater if 'parse-with-separator' just returned the array ------
-		_ = lexer take-or-add-diag-expected-token paren-right, closing-paren
+	guard lexer !try-take-token paren-right
+	res type-ast[] = lexer parse-with-separator comma, () => lexer parse-type
+	_ = lexer take-or-add-diag-expected-token paren-right, closing-paren
+	res
 
 parse-type type-ast(lexer lexer)
 	lexer parse-type-suffixes (lexer parse-type-before-suffixes unnecessary)
@@ -110,15 +108,8 @@ parse-destructure-require-parens destructure-ast(lexer lexer)
 	a is-newline-token
 
 parse-destructure-no-require-parens destructure-ast(lexer lexer)
-	first = lexer parse-destructure-require-parens
-	if lexer try-take-token comma
-		parts destructure-ast[] = with out : build
-			out ~= first
-			lexer parse-with-separator comma, () =>
-				out ~= lexer parse-destructure-require-parens
-		parts to
-	else
-		first
+	parts destructure-ast[] = lexer parse-with-separator comma, () => lexer parse-destructure-require-parens
+	parts.opt-only ?? parts to
 
 try-parse-sum-type-listed-types-parenthesized type-ast[]?(lexer lexer)
 	if lexer try-take-token paren-left
@@ -126,7 +117,7 @@ try-parse-sum-type-listed-types-parenthesized type-ast[]?(lexer lexer)
 
 try-parse-params-parenthesized params-ast?(lexer lexer)
 	if lexer peek-token paren-left
-		lexer.parse-params-parenthesized,
+		lexer parse-params-parenthesized
 
 params-kind enum(indented, parenthesized)
 parse-params (params-ast, params-kind)(lexer lexer)
@@ -147,19 +138,14 @@ parse-params-parenthesized params-ast(lexer lexer)
 		() to
 	elif lexer try-take-token dot3
 		param = lexer parse-destructure-require-parens
-		_ = lexer take-or-add-diag-expected-token paren-right, closing-paren
+		unless lexer take-or-add-diag-expected-token paren-right, closing-paren
+			lexer skip-until-newline-no-diag
 		param varargs-ast
 	else
-		parts destructure-ast[] = with out : build # TODO: is this just parse-with-separator? --------------------------------
-			loop
-				out ~= lexer parse-destructure-require-parens
-				if lexer try-take-token paren-right
-					break
-				elif lexer !take-or-add-diag-expected-token comma, comma
-					lexer skip-until-newline-no-diag
-					break
-				else
-					continue
+		parts destructure-ast[] = lexer parse-with-separator comma, () =>
+			lexer parse-destructure-require-parens
+		unless lexer take-or-add-diag-expected-token paren-right, closing-paren
+			lexer skip-until-newline-no-diag
 		parts to
 
 -parentheses-necessary enum(unnecessary, necessary)
