@@ -62,7 +62,7 @@ to type-array(type type)
 to type-array(types type[])
 	guard types !is-empty
 	hash = types get-hash
-	trusted type-arrays memoize (types, hash), () => (types, hash)
+	trusted type-arrays memoize (types, hash), () => types, hash
 type-array record
 	inner type[]
 	hash nat
@@ -114,7 +114,9 @@ specs record -new
 new specs()
 	(), 0, (), ()
 is-empty bool(a specs)
-	a.inner is-empty # TODO:PERF could do 'a reference-equal ()' -------------------------------------------------------------------
+	res = a.inner is-empty # TODO:PERF could do 'a reference-equal ()' -------------------------------------------------------------------
+	assert res == trusted a reference-equal ()
+	res
 -specs-key record # TODO: move this to all-insts.crow? -----------------------------------------------------------------------------
 	inner spec-inst[]
 	hash nat
@@ -151,7 +153,7 @@ bogus-type record
 <=> comparison(a bogus-type, b bogus-type)
 hash-mix void(hasher hasher, a type)
 	if trusted extern java
-		hasher hash-mix (trusted a identity-hash)
+		hasher hash-mix trusted a identity-hash # TODO: Is this actually any faster than the below? ----------------------------------
 	else
 		match a
 		as bogus-type
@@ -1101,7 +1103,6 @@ builtin-fun union
 	builtin-unary-math
 	builtin-binary
 	builtin-binary-lazy
-	builtin-binary-math
 	builtin-fun-call-lambda
 	builtin-fun-constant
 	builtin-fun-is-empty-type
@@ -1355,6 +1356,7 @@ builtin-binary enum
 	unsafe-div-nat16
 	unsafe-div-nat32
 	unsafe-div-nat64
+	unsafe-mod-float64
 	unsafe-mod-nat64
 	wrap-add-int8
 	wrap-add-int16
@@ -1391,31 +1393,6 @@ builtin-binary-lazy enum
 	option-question-2
 == bool(a builtin-binary-lazy, b builtin-binary-lazy)
 to json(a builtin-binary-lazy)
-
-# TODO: these don't really need to be builtins. Can just do 'if extern java ... "java/lang/Math" call-static ... elif extern js ... "Math".js-global call ...
-builtin-binary-math enum
-	atan2-float32
-	atan2-float64
-	| Like the C 'fmod' function, this is not a true modulo; it keeps negative numbers negative
-	fmod-float32
-	fmod-float64
-	unsafe-pow-float32
-	unsafe-pow-float64
-to json(a builtin-binary-math)
-type float-type(a builtin-binary-math)
-	match a
-	as atan2-float32
-		float32
-	as atan2-float64
-		float64
-	as fmod-float32
-		float32
-	as fmod-float64
-		float64
-	as unsafe-pow-float32
-		float32
-	as unsafe-pow-float64
-		float64
 
 fun-flags flags nat8 storage
 	summon_
@@ -1776,12 +1753,17 @@ called-spec-sig record
 	containing-spec spec-decl
 	non-instantiated-sig signature
 	instantiated-sig return-and-param-types
-== bool(a called-spec-sig, b called-spec-sig)
+== bool(a called-spec-sig, b called-spec-sig) # TODO: could we just compare index-in-specs? Maybe called-spec-sig should just be that and the rest should be stored elsewhere. -----------------------------------------
 hash-mix void(hasher hasher, a called-spec-sig)
+	hasher hash-mix a.index-in-specs
+	hasher hash-mix a.containing-spec
 	hasher hash-mix a.non-instantiated-sig.name
 	hasher hash-mix a.instantiated-sig
-to json(_ called-spec-sig)
-	throw todo
+to json(a called-spec-sig)
+	("index-in-specs", a.index-in-specs.to), \
+	("spec", a.containing-spec.name.to),
+	("sig", a.non-instantiated-sig.name.to),
+	("instantiated-sig", a.instantiated-sig.to)
 return-type type(a called-spec-sig)
 	a.instantiated-sig return-type
 param-types type array-view(a called-spec-sig)
