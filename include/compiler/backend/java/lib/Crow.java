@@ -112,16 +112,6 @@ class Crow {
 		return (float) Math.pow((double) a, (double) b);
 	}
 
-	static double acosh(double a) {
-		return Math.log(a + Math.sqrt(a * a - 1.0));
-	}
-	static double asinh(double a) {
-		return Math.log(a + Math.sqrt(a * a + 1.0));
-	}
-	static double atanh(double a) {
-		return 0.5 * Math.log(Math.abs((a + 1) / (a - 1)));
-	}
-
 	static java.lang.invoke.MethodHandle funPointer(Class<?> class_, String methodName, Class<?> returnType) {
 		return funPointerInner(class_, methodName, returnType);
 	}
