@@ -610,7 +610,14 @@ do
 		0
 	else
 		throw unreachable
-	is-large = match type to-signed
+	if type is-64-bit
+		out lconst value
+	else
+		# Use 'wrap-to' instead of 'to' since we may actually be dealing with an unsigned type
+		out iconst value.wrap-to
+
+-is-64-bit bool(a integral-type)
+	match a to-signed
 	as int8
 		false
 	as int16
@@ -619,11 +626,6 @@ do
 		false
 	as int64
 		true
-	if is-large
-		out lconst value
-	else
-		# Use 'wrap-to' instead of 'to' since we may actually be dealing with an unsigned type
-		out iconst value.wrap-to
 
 -translate-type void(ctx to-java-ctx, type concrete-type)
 	constants constants-builder = ()
@@ -2421,7 +2423,7 @@ do
 			out translate-builtin-unary ctx.ctx, x, type-args
 	as builtin-binary x
 		out function-like ctx, type, args, () =>
-			out translate-builtin-binary x
+			out translate-builtin-binary type, args[0].type, x
 	as builtin-binary-lazy _
 		throw unreachable
 	as builtin-fun-call-lambda
@@ -2596,196 +2598,147 @@ do
 	as wrap-to-nat32-from-nat64
 		out l2i
 
--translate-builtin-binary void(out code-builder, kind builtin-binary)
+-translate-builtin-binary void(out code-builder, return-type concrete-type, param0-type concrete-type, kind builtin-binary)
 	match kind
-	as add-float32
-		out fadd
-	as add-float64
-		out dadd
-	as bitwise-and-int8
-		out iand
-	as bitwise-and-int16
-		out iand
-	as bitwise-and-int32
-		out iand
-	as bitwise-and-int64
-		out land
-	as bitwise-and-nat8
-		out iand
-	as bitwise-and-nat16
-		out iand
-	as bitwise-and-nat32
-		out iand
-	as bitwise-and-nat64
-		out land
-	as bitwise-or-int8
-		out ior
-	as bitwise-or-int16
-		out ior
-	as bitwise-or-int32
-		out ior
-	as bitwise-or-int64
-		out lor
-	as bitwise-or-nat8
-		out ior
-	as bitwise-or-nat16
-		out ior
-	as bitwise-or-nat32
-		out ior
-	as bitwise-or-nat64
-		out lor
-	as bitwise-xor-int8
-		out ixor
-	as bitwise-xor-int16
-		out ixor
-	as bitwise-xor-int32
-		out ixor
-	as bitwise-xor-int64
-		out lxor
-	as bitwise-xor-nat8
-		out ixor
-	as bitwise-xor-nat16
-		out ixor
-	as bitwise-xor-nat32
-		out ixor
-	as bitwise-xor-nat64
-		out lxor
-	as equal-bool
-		out call-static "Crow", "equalInt8", "(BB)Z"
-	as equal-char8
-		out call-static "Crow", "equalInt8", "(BB)Z"
-	as equal-char32
-		out call-static "Crow", "equalInt32", "(II)Z"
-	as equal-float32
-		out call-static "Crow", "equalFloat32", "(FF)Z"
-	as equal-float64
-		out call-static "Crow", "equalFloat64", "(DD)Z"
-	as equal-int8
-		out call-static "Crow", "equalInt8", "(BB)Z"
-	as equal-int16
-		out call-static "Crow", "equalInt16", "(SS)Z"
-	as equal-int32
-		out call-static "Crow", "equalInt32", "(II)Z"
-	as equal-int64
-		out call-static "Crow", "equalInt64", "(JJ)Z"
-	as equal-nat8
-		out call-static "Crow", "equalInt8", "(BB)Z"
-	as equal-nat16
-		out call-static "Crow", "equalInt16", "(SS)Z"
-	as equal-nat32
-		out call-static "Crow", "equalInt32", "(II)Z"
-	as equal-nat64
-		out call-static "Crow", "equalInt64", "(JJ)Z"
-	as less-char8
-		out call-static "Crow", "lessNat8", "(BB)Z"
-	as less-float32
-		out call-static "Crow", "lessFloat32", "(FF)Z"
-	as less-float64
-		out call-static "Crow", "lessFloat64", "(DD)Z"
-	as less-int8
-		out call-static "Crow", "lessInt8", "(BB)Z"
-	as less-int16
-		out call-static "Crow", "lessInt16", "(SS)Z"
-	as less-int32
-		out call-static "Crow", "lessInt32", "(II)Z"
-	as less-int64
-		out call-static "Crow", "lessInt64", "(JJ)Z"
-	as less-nat8
-		out call-static "Crow", "lessNat8", "(BB)Z"
-	as less-nat16
-		out call-static "Crow", "lessNat16", "(SS)Z"
-	as less-nat32
-		out call-static "Crow", "lessNat32", "(II)Z"
-	as less-nat64
-		out call-static "Crow", "lessNat64", "(JJ)Z"
-	as mul-float32
-		out fmul
-	as mul-float64
-		out dmul
+	as add-float
+		match return-type as-float-type!
+		as float32
+			out fadd
+		as float64
+			out dadd
+	as bitwise-and
+		if return-type.as-integral-type! is-64-bit
+			out land
+		else
+			out iand
+	as bitwise-or
+		if return-type.as-integral-type! is-64-bit
+			out lor
+		else
+			out ior
+	as bitwise-xor
+		if return-type.as-integral-type! is-64-bit
+			out lxor
+		else
+			out ixor
+	as equal
+		if f ?= param0-type as-float-type
+			match f
+			as float32
+				out call-static "Crow", "equalFloat32", "(FF)Z"
+			as float64
+				out call-static "Crow", "equalFloat64", "(DD)Z"
+		else 
+			match param0-type.as-integral-type-allow-bool-char! to-signed
+			as int8
+				out call-static "Crow", "equalInt8", "(BB)Z"
+			as int16
+				out call-static "Crow", "equalInt16", "(SS)Z"
+			as int32
+				out call-static "Crow", "equalInt32", "(II)Z"
+			as int64
+				out call-static "Crow", "equalInt64", "(JJ)Z"
+	as less
+		if f ?= param0-type as-float-type
+			match f
+			as float32
+				out call-static "Crow", "lessFloat32", "(FF)Z"
+			as float64
+				out call-static "Crow", "lessFloat64", "(DD)Z"
+		else
+			match param0-type.as-integral-type-allow-bool-char!
+			as int8
+				out call-static "Crow", "lessInt8", "(BB)Z"
+			as int16
+				out call-static "Crow", "lessInt16", "(SS)Z"
+			as int32
+				out call-static "Crow", "lessInt32", "(II)Z"
+			as int64
+				out call-static "Crow", "lessInt64", "(JJ)Z"
+			as nat8
+				out call-static "Crow", "lessNat8", "(BB)Z"
+			as nat16
+				out call-static "Crow", "lessNat16", "(SS)Z"
+			as nat32
+				out call-static "Crow", "lessNat32", "(II)Z"
+			as nat64
+				out call-static "Crow", "lessNat64", "(JJ)Z"
+	as mul-float
+		match return-type as-float-type!
+		as float32
+			out fmul
+		as float64
+			out dmul
 	as reference-equal
 		out call-static "Crow", "referenceEqual", "(Ljava/lang/Object;Ljava/lang/Object;)Z"
-	as sub-float32
-		out fsub
-	as sub-float64
-		out dsub
+	as sub-float
+		match return-type as-float-type!
+		as float32
+			out fsub
+		as float64
+			out dsub
 	as unsafe-bit-shift-left-nat64
 		out l2i # second argument must be an int. TODO: then make that the function signature for unsafe-bit-shift-left?????
 		out lshl
 	as unsafe-bit-shift-right-nat64
 		out l2i # second argument must be an int. TODO: then make that the function signature for unsafe-bit-shift-left?????
 		out lushr
-	as unsafe-div-float32
-		out fdiv
-	as unsafe-div-float64
-		out ddiv
-	as unsafe-div-int8
-		out idiv
-	as unsafe-div-int16
-		out idiv
-	as unsafe-div-int32
-		out idiv
-	as unsafe-div-int64
-		out ldiv
-	as unsafe-div-nat8
-		out call-static "java/lang/Byte", "divideUnsigned", "(BB)B"
-	as unsafe-div-nat16
-		out call-static "java/lang/Short", "divideUnsigned", "(SS)S"
-	as unsafe-div-nat32
-		out call-static "java/lang/Integer", "divideUnsigned", "(II)I"
-	as unsafe-div-nat64
-		out call-static "java/lang/Long", "divideUnsigned", "(JJ)J"
+	as unsafe-div
+		if f ?= return-type as-float-type
+			match f
+			as float32
+				out fdiv
+			as float64
+				out ddiv
+		else
+			match return-type as-integral-type!
+			as int8
+				out idiv
+			as int16
+				out idiv
+			as int32
+				out idiv
+			as int64
+				out ldiv
+			as nat8
+				out call-static "java/lang/Byte", "divideUnsigned", "(BB)B"
+			as nat16
+				out call-static "java/lang/Short", "divideUnsigned", "(SS)S"
+			as nat32
+				out call-static "java/lang/Integer", "divideUnsigned", "(II)I"
+			as nat64
+				out call-static "java/lang/Long", "divideUnsigned", "(JJ)J"
 	as unsafe-mod-float64
 		out drem
 	as unsafe-mod-nat64
 		out call-static "java/lang/Long", "remainderUnsigned", "(JJ)J"
-	as wrap-add-int8
-		out iadd
-	as wrap-add-int16
-		out iadd
-	as wrap-add-int32
-		out iadd
-	as wrap-add-int64
-		out ladd
-	as wrap-add-nat8
-		out iadd
-	as wrap-add-nat16
-		out iadd
-	as wrap-add-nat32
-		out iadd
-	as wrap-add-nat64
-		out ladd
-	as wrap-mul-int8
-		out imul
-	as wrap-mul-int16
-		out imul
-	as wrap-mul-int32
-		out imul
-	as wrap-mul-int64
-		out lmul
-	as wrap-mul-nat8
-		out imul
-	as wrap-mul-nat16
-		out imul
-	as wrap-mul-nat32
-		out imul
-	as wrap-mul-nat64
-		out lmul
-	as wrap-sub-int8
-		out isub
-	as wrap-sub-int16
-		out isub
-	as wrap-sub-int32
-		out isub
-	as wrap-sub-int64
-		out lsub
-	as wrap-sub-nat8
-		out isub
-	as wrap-sub-nat16
-		out isub
-	as wrap-sub-nat32
-		out isub
-	as wrap-sub-nat64
-		out lsub
+	as wrap-add
+		if return-type.as-integral-type! is-64-bit
+			out ladd
+		else
+			out iadd
+	as wrap-mul
+		if return-type.as-integral-type! is-64-bit
+			out lmul
+		else
+			out imul
+	as wrap-sub
+		if return-type.as-integral-type! is-64-bit
+			out lsub
+		else
+			out isub
+
+-as-integral-type-allow-bool-char integral-type?(a concrete-type)
+	if a is-bool
+		nat8
+	elif x ?= a as-char-type
+		match x
+		as char8
+			nat8
+		as char32
+			nat32
+	else
+		a as-integral-type
 
 -translate-java-fun void(out code-builder, ctx expr-ctx, kind java-fun, type concrete-type, type-args concrete-type[], args concrete-expr[])
 	match kind

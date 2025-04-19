@@ -5,8 +5,6 @@
 
 all_include = $(shell find include -name '*.crow')
 
-# WARN: Does not clean `dyncall` as that takes too long to restore
-# Also does not clean `node_modules` for the VSCode plugin
 clean:
 	mv bin/crow-lkg crow-lkg
 	rm -rf bin site demo/webapp/db demo/*/index.js demo/*/index.js.map
