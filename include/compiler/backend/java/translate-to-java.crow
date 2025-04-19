@@ -1177,24 +1177,29 @@ do
 	"java/util/concurrent/locks/ReentrantLock"
 
 -signed-integral-type enum(int8, int16, int32, int64)
+-== bool(a signed-integral-type, b signed-integral-type)
+-<=> comparison(a signed-integral-type, b signed-integral-type)
 -to-signed signed-integral-type(a integral-type)
+	res, _ = a.to-signed-and-is-signed
+	res
+-to-signed-and-is-signed (signed-integral-type, bool)(a integral-type)
 	match a
 	as int8
-		int8
+		int8, true
 	as int16
-		int16
+		int16, true
 	as int32
-		int32
+		int32, true
 	as int64
-		int64
+		int64, true
 	as nat8
-		int8
+		int8, false
 	as nat16
-		int16
+		int16, false
 	as nat32
-		int32
+		int32, false
 	as nat64
-		int64
+		int64, false
 
 -primitive-for-integral java-primitive-type(type integral-type)
 	match type to-signed
@@ -2420,7 +2425,7 @@ do
 	match fun
 	as builtin-unary x
 		out function-like ctx, type, args, () =>
-			out translate-builtin-unary ctx.ctx, type, x, type-args
+			out translate-builtin-unary ctx.ctx, type, args.only.type, x, type-args
 	as builtin-binary x
 		out function-like ctx, type, args, () =>
 			out translate-builtin-binary type, args[0].type, x
@@ -2478,7 +2483,7 @@ do
 -call-init void(out code-builder, class_ string, constructor-descriptor string) # TODO: move to class-code-builder.crow
 	out invokespecial (out.constants method-ref class_, "<init>", constructor-descriptor)
 
--translate-builtin-unary void(out code-builder, ctx to-java-ctx, return-type concrete-type, kind builtin-unary, type-args concrete-type[])
+-translate-builtin-unary void(out code-builder, ctx to-java-ctx, return-type concrete-type, arg-type concrete-type, kind builtin-unary, type-args concrete-type[])
 	match kind
 	as array-size
 		unless type-args.only is-empty-type
@@ -2534,28 +2539,6 @@ do
 		out l2d
 	as to-float64-from-nat64
 		out call-static "Crow", "float64FromNat64", "(J)D"
-	as to-int64-from-int8
-		out i2l
-	as to-int64-from-int16
-		out i2l
-	as to-int64-from-int32
-		out i2l
-	as to-nat8-from-char8
-		()
-	as to-nat32-from-char32
-		()
-	as to-nat64-from-nat8
-		out i2l
-		out lconst 0xff
-		out land
-	as to-nat64-from-nat16
-		out i2l
-		out lconst 0xffff
-		out land
-	as to-nat64-from-nat32
-		out i2l
-		out lconst 0xffffffff
-		out land
 	as truncate-to-int64-from-float64
 		out d2l
 	as trust-as-string
@@ -2564,38 +2547,77 @@ do
 		# Stack is now: String, bytes, String
 		out swap
 		out call-init "java/lang/String", "([B)V"
-	as unsafe-to-char32-from-char8
-		out iconst 0xff
-		out iand
-	as unsafe-to-char32-from-nat32
-		()
 	as weak-ref-get
 		out call-static "Crow", "weakRefGet", "(Ljava/lang/ref/WeakReference;)Ljava/lang/Object;"
 		out cast-and-unbox-if-necessary ctx, type-args.only
 	as weak-ref-new
 		out call-static "Crow", "newWeakRef", "(Ljava/lang/Object;)Ljava/lang/ref/WeakReference;"
-	as wrap-to-nat32-from-int32
-		()
-	as wrap-to-int8-from-int64
-		out l2i
-		out i2b
-	as wrap-to-int16-from-int64
-		out l2i
-		out i2s
-	as wrap-to-int32-from-int64
-		out l2i
-	as wrap-to-nat64-from-int64
-		()
-	as wrap-to-int64-from-nat64
-		()
-	as wrap-to-nat8-from-nat64
-		out l2i
-		out i2b
-	as wrap-to-nat16-from-nat64
-		out l2i
-		out i2s
-	as wrap-to-nat32-from-nat64
-		out l2i
+	as wrap-convert-integral
+		out convert-integral return-type.as-integral-type-allow-char!, arg-type.as-integral-type-allow-char!
+
+-convert-integral void(out code-builder, return-type integral-type, arg-type integral-type)
+	return-signed = return-type to-signed
+	arg-signed, arg-is-signed = arg-type to-signed-and-is-signed
+	if arg-is-signed
+		out convert-signed-integral return-signed, arg-signed
+	else
+		out convert-unsigned-integral return-signed, arg-signed
+	# If the sign differs, just let it wrap
+-convert-unsigned-integral void(out code-builder, return-type signed-integral-type, arg-type signed-integral-type)
+	out convert-signed-integral return-type, arg-type
+	guard return-type > arg-type
+	match arg-type
+	as int8
+		if return-type == int64
+			out lconst 0xff
+			out land
+		else
+			out iconst 0xff
+			out iand
+	as int16
+		if return-type == int64
+			out lconst 0xffff
+			out land
+		else
+			out iconst 0xffff
+			out iand
+	as int32
+		assert return-type == int64
+		out lconst 0xffffffff
+		out land
+	as int64
+		throw unreachable
+-convert-signed-integral void(out code-builder, return-type signed-integral-type, arg-type signed-integral-type)
+	match return-type
+	as int8
+		match arg-type
+		as int8
+			()
+		as int16
+			# There's no 's2b' because integers are always stored as int32 at miminum
+			out i2b
+		as int32
+			out i2b
+		as int64
+			out l2i
+			out i2b
+	as int16
+		match arg-type
+		as int8
+			()
+		as int16
+			()
+		as int32
+			out i2s
+		as int64
+			out l2i
+			out i2s
+	as int32
+		if arg-type == int64
+			out l2i
+	as int64
+		if arg-type != int64
+			out i2l
 
 -translate-builtin-binary void(out code-builder, return-type concrete-type, param0-type concrete-type, kind builtin-binary)
 	match kind
@@ -2730,14 +2752,8 @@ do
 -as-integral-type-allow-bool-char integral-type?(a concrete-type)
 	if a is-bool
 		nat8
-	elif x ?= a as-char-type
-		match x
-		as char8
-			nat8
-		as char32
-			nat32
 	else
-		a as-integral-type
+		a as-integral-type-allow-char
 
 -translate-java-fun void(out code-builder, ctx expr-ctx, kind java-fun, type concrete-type, type-args concrete-type[], args concrete-expr[])
 	match kind
