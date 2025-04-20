@@ -8,6 +8,7 @@ import
 	../allocators
 	../check-ctx
 	../expr-ctx
+	../inferring-type
 	../instantiate
 	../maps
 	./candidates
@@ -203,8 +204,9 @@ instantiate-ctx instantiate-ctx(a check-specs-ctx)
 	sig-type return-and-param-types
 	candidate candidate
 	trace trace
+	conv allow-implicit-conversions
 do
-	if candidate test-candidate-for-spec-sig sig-type, non-inferring
+	if candidate test-candidate-for-spec-sig sig-type, non-inferring, conv
 		ctx get-called-from-candidate-after-type-checks candidate, trace
 	else
 		trace.depth no-match (trace spec-no-match (sig-decl spec-impl-not-found sig-type))
@@ -234,28 +236,43 @@ do
 	# TODO: perf avoid allocating this for dummy-trace? ------------------------------------------------------------------
 	multiple-matches called mut[] = ()
 	deepest-no-match mut no-match? = ()
-	ctx.funs-in-scope each-candidate sig-decl.name, sig-type.size - 1, candidate =>
-		match ctx check-candidate sig-decl, sig-type, candidate, trace
-		as called x
-			if _ ?= res
-				multiple-matches ~= x
-			else
-				res := x
-		as no-match x
-			if d ?= deepest-no-match
-				if d.depth < x.depth
+	doit void mut(x allow-implicit-conversions) = allow-implicit-conversions =>
+		ctx.funs-in-scope each-candidate sig-decl.name, sig-type.size - 1, candidate =>
+			match ctx check-candidate sig-decl, sig-type, candidate, trace, allow-implicit-conversions
+			as called x
+				if _ ?= res
+					multiple-matches ~= x
+				else
+					res := x
+			as no-match x
+				if d ?= deepest-no-match
+					if d.depth < x.depth
+						deepest-no-match := x
+				else
 					deepest-no-match := x
-			else
-				deepest-no-match := x
-	
+	doit[allow-conversions]
+	unless multiple-matches is-empty
+		# TODO:PERF can I do this in a single pass? Would need to track the quality of each result ................................
+		res := ()
+		deepest-no-match := ()
+		multiple-matches clear
+		doit[no-conversions]
+		if res is-empty
+			# The multiple matches error is more useful
+			assert multiple-matches is-empty
+			res := ()
+			deepest-no-match := ()
+			doit[allow-conversions]
+
 	if result ?= res
+		unless multiple-matches is-empty
+			ctx.has-errors := true
 		match trace
 		as dummy-trace _
 			()
 		as real-trace x
 			unless multiple-matches is-empty
 				multiple-matches ~= result
-				ctx.has-errors := true
 				diag = x.type-container diag-spec-match-multiple sig-decl.name, multiple-matches.move-to, x.trace.to
 				x.check-ctx add-diag x.range, diag
 		result to

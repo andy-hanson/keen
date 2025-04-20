@@ -153,16 +153,42 @@ do
 		guard inferred ?= a.context[x index]
 		inferred.type.non-inferring each-narrowed-struct f
 	as struct-inst x
-		if x is-option-type
-			(x.must-unwrap-option-type, a.context) each-narrowed-struct f
+		match x.decl body
+		as builtin-type b
+			if b == option
+				(x.must-unwrap-option-type, a.context) each-narrowed-struct f
+			else
+				f[x]
+		as sum-type s
+			if s.kind == union_
+				for m : s listed-members
+					# TODO:PERF It would probably help to have all instantiated members precomputed! ---------------------------------------------------------
+					inst = m.member instantiate-struct-inst x.type-args.inner
+					(inst, a.context) each-narrowed-struct f
+			else
+				f[x]
 		else
 			f[x]
 -can-widen-to bool(narrow struct-inst, wide struct-inst)
-	res mut = false # TODO:PERF -------------------------------------------------------------------------------
-	(wide.to, ()) each-narrowed-struct x =>
-		if x == narrow
-			res := true
-	res
+	# 'narrow' can widen to 'wide' if 'wide' is 'narrow?', or 'wide' is a sum-type containing 'narrow', or transitive
+	match wide.decl body
+	as builtin-type b
+		guard b == option
+		guard s ?= wide.type-args.only struct-inst
+		narrow is-or-can-widen-to s
+	as sum-type s
+		if s.kind == union_
+			s.listed-members exists x =>
+				member-decl = x member
+				# TODO:PERF It would probably help to have all instantiated members precomputed! ---------------------------------------------------------
+				member = member-decl instantiate-struct-inst wide.type-args.inner
+				narrow is-or-can-widen-to member
+		else
+			false # TODO: sum types ------------------------------------------------------------------------------------------------------
+	else
+		false
+-is-or-can-widen-to bool(narrow struct-inst, wide struct-inst)
+	narrow == wide || narrow can-widen-to wide
 
 -set-to-type void(a expected, type type)
 	a.opt-inferred := type

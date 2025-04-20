@@ -108,25 +108,25 @@ do
 			# We need to widen again even though it was done already in 'concretize-expr',
 			# because we may be calling a spec-impl that has a narrower type than the spec.
 			# (The call expr's type can't reflect this and uses the spec's declared type.)
-			ctx may-widen-type type, concrete-called.return-type, range, actual-type =>
-				actual-type, range, match concrete-args
-				as constants constants
-					if constant ?= ctx.concretize-ctx try-eval-constant concrete-called, constants.constants
-						constant to
+			the-call concrete-expr = concrete-called.return-type, range, match concrete-args
+			as constants constants
+				if constant ?= ctx.concretize-ctx try-eval-constant concrete-called, constants.constants
+					constant to
+				else
+					concrete-called gen-call-kind for p, x : concrete-called.params zip constants.constants
+						p.type, range, x.to
+			as exprs exprs
+				if builtin_ ?= concrete-called.body concrete-fun-body-builtin
+					match builtin_ kind
+					as builtin-binary-lazy x
+						ctx concretize-builtin-binary-lazy type, range, x, exprs.exprs
+					as builtin-fun-call-lambda
+						builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
 					else
-						concrete-called gen-call-kind for p, x : concrete-called.params zip constants.constants
-							p.type, range, x.to
-				as exprs exprs
-					if builtin_ ?= concrete-called.body concrete-fun-body-builtin
-						match builtin_ kind
-						as builtin-binary-lazy x
-							ctx concretize-builtin-binary-lazy type, range, x, exprs.exprs
-						as builtin-fun-call-lambda
-							builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
-						else
-							builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
-					else
-						concrete-called gen-call-kind exprs.exprs
+						builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
+				else
+					concrete-called gen-call-kind exprs.exprs
+			ctx may-widen-type concrete-called.return-type, the-call
 	else
 		ctx concretize-bogus type, range
 
@@ -703,96 +703,100 @@ do
 	ctx concretize-expr type, a
 
 -concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type, a expr)
-	actual-type = ctx get-concrete-type (a type ctx.common-types)
-	ctx may-widen-type outer-type, actual-type, (ctx.cur-uri, a.range), type =>
-		range uri-and-range = ctx.cur-uri, a.range
-		guard type !is-bogus : ctx concretize-bogus type, range
-		match a
-		as assert-or-forbid-expr x
-			ctx concretize-assert-or-forbid type, range, x
-		as bogus-call-expr _
-			ctx concretize-bogus type, range
-		as bogus-expr _
-			ctx concretize-bogus type, range
-		as bogus-wrong-type-expr _
-			ctx concretize-bogus type, range
-		as call-expr x
-			ctx concretize-call type, range, x
-		as call-option-expr x
-			ctx concretize-call-option type, range, x
-		as extern-expr x
-			type, range, (x.names is-subset-of ctx.concretize-ctx.all-externs).constant-bool.to
-		as finally-expr x
-			ctx concretize-finally type, range, x
-		as if-expr x
-			ctx concretize-if type, range, x
-		as lambda-expr x
-			ctx concretize-lambda type, range, x
-		as let-expr x
-			ctx concretize-let type, range, x
-		as literal-float-expr x
-			type gen-constant range, x.value.constant-float	
-		as literal-integral-expr x
-			type gen-constant range, x.value.to
-		as literal-string-like-expr x
-			ctx concretize-literal-string-like type, range, x.string-type, x.value
-		as local-get-expr x
-			ctx concretize-local-get type, range, x.local
-		as local-set-expr x
-			ctx concretize-local-set range, x.local, x.value
-		as loop-expr x
-			type gen-loop range, (ctx concretize-expr type, x.body)
-		as loop-break-expr x
-			range gen-break (ctx concretize-expr type, x.value)
-		as loop-continue-expr _
-			type gen-continue range
-		as loop-while-or-until-expr x
-			ctx concretize-loop-while-or-until type, range, x
-		as match-enum-expr x
-			ctx concretize-match-enum type, range, x
-		as match-integral-expr x
-			ctx concretize-match-integral type, range, x
-		as match-string-like-expr x
-			ctx concretize-match-string-like type, range, x
-		as match-sum-type-expr x
-			ctx concretize-match-sum-type type, range, x
-		as seq-expr x
-			first = ctx concretize-expr ctx.void-type, x.first
-			then = ctx concretize-expr type, x.then
-			if _ ?= first.kind constant
-				then
-			else
-				type, range, (first seq-concrete-expr then)
-		as throw-expr x
-			thrown = ctx concretize-expr ctx.concretize-ctx.exception-type, x.thrown
-			type, range, thrown.throw-concrete-expr
-		as trusted-expr x
-			ctx concretize-expr type, x.inner
-		as try-expr x
-			ctx concretize-try type, range, x
-		as try-let-expr x
-			ctx concretize-try-let type, range, x
-		as typed-expr x
-			ctx concretize-expr type, x.inner
+	type = ctx get-concrete-type (a type ctx.common-types)
+	range uri-and-range = ctx.cur-uri, a.range
+	guard type !is-bogus : ctx concretize-bogus type, range
+	res = match a
+	as assert-or-forbid-expr x
+		ctx concretize-assert-or-forbid type, range, x
+	as bogus-call-expr _
+		ctx concretize-bogus type, range
+	as bogus-expr _
+		ctx concretize-bogus type, range
+	as bogus-wrong-type-expr _
+		ctx concretize-bogus type, range
+	as call-expr x
+		ctx concretize-call type, range, x
+	as call-option-expr x
+		ctx concretize-call-option type, range, x
+	as extern-expr x
+		type, range, (x.names is-subset-of ctx.concretize-ctx.all-externs).constant-bool.to
+	as finally-expr x
+		ctx concretize-finally type, range, x
+	as if-expr x
+		ctx concretize-if type, range, x
+	as lambda-expr x
+		ctx concretize-lambda type, range, x
+	as let-expr x
+		ctx concretize-let type, range, x
+	as literal-float-expr x
+		type gen-constant range, x.value.constant-float	
+	as literal-integral-expr x
+		type gen-constant range, x.value.to
+	as literal-string-like-expr x
+		ctx concretize-literal-string-like type, range, x.string-type, x.value
+	as local-get-expr x
+		ctx concretize-local-get type, range, x.local
+	as local-set-expr x
+		ctx concretize-local-set range, x.local, x.value
+	as loop-expr x
+		type gen-loop range, (ctx concretize-expr type, x.body)
+	as loop-break-expr x
+		range gen-break (ctx concretize-expr type, x.value)
+	as loop-continue-expr _
+		type gen-continue range
+	as loop-while-or-until-expr x
+		ctx concretize-loop-while-or-until type, range, x
+	as match-enum-expr x
+		ctx concretize-match-enum type, range, x
+	as match-integral-expr x
+		ctx concretize-match-integral type, range, x
+	as match-string-like-expr x
+		ctx concretize-match-string-like type, range, x
+	as match-sum-type-expr x
+		ctx concretize-match-sum-type type, range, x
+	as seq-expr x
+		first = ctx concretize-expr ctx.void-type, x.first
+		then = ctx concretize-expr type, x.then
+		if _ ?= first.kind constant
+			then
+		else
+			type, range, (first seq-concrete-expr then)
+	as throw-expr x
+		thrown = ctx concretize-expr ctx.concretize-ctx.exception-type, x.thrown
+		type, range, thrown.throw-concrete-expr
+	as trusted-expr x
+		ctx concretize-expr type, x.inner
+	as try-expr x
+		ctx concretize-try type, range, x
+	as try-let-expr x
+		ctx concretize-try-let type, range, x
+	as typed-expr x
+		ctx concretize-expr type, x.inner
+	ctx may-widen-type outer-type, res
 
 -may-widen-type concrete-expr
 	ctx concretize-expr-ctx
 	expected-type concrete-type
-	actual-type concrete-type
-	range uri-and-range
-	actual-expr concrete-expr mut(type concrete-type)
+	actual concrete-expr
 do
-	if expected-type == actual-type
-		actual-expr[expected-type]
-	else
-		non-option = expected-type unwrap-option-type
-		if non-option != actual-type
-			show-ctx = ctx.concretize-ctx show-ctx
-			where = show-ctx.line-and-column-getters[range]
-			error log "You messed up! At: {where}, expected type: {show-ctx show-concrete-type expected-type}, actual: {show-ctx show-concrete-type actual-type}"
-		non-option is actual-type
-		inner = actual-expr[non-option]
-		ctx.concretize-ctx gen-some expected-type, range, inner
+	ctx.concretize-ctx try-widen expected-type, actual ?? do
+		show-ctx = ctx.concretize-ctx show-ctx
+		where = show-ctx.line-and-column-getters[actual range]
+		error log "You messed up! At: {where}, expected type: {show-ctx show-concrete-type expected-type}, actual: {show-ctx show-concrete-type actual.type}"
+		throw todo
+
+# This goes in reverse, from 'to' to 'from'. So must reverse the path at the end.
+-try-widen concrete-expr?(ctx concretize-ctx, expected concrete-type, actual concrete-expr)
+	if actual.type == expected
+		actual
+	elif expected is-option
+		if res ?= ctx try-widen expected.unwrap-option-type, actual
+			ctx gen-some expected, actual.range, res
+	elif u ?= expected.body concrete-union
+		for member-index, member : u.members with-index
+			if res ?= ctx try-widen member, actual
+				break ctx gen-create-union expected, actual.range, member-index, res
 
 # TODO: this returns an array with a single array in it, why was I doing this? ------------------------------------------------------
 -constants-or-exprs-arr constants-or-exprs
