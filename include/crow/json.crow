@@ -24,28 +24,44 @@ import
 	./tuple: a, b, new
 
 | JSON data.
-+json union(null, bool, float64, string, json-array, json-object)
++json record
+	-inner json-inner
+-json-inner union(null, bool, float64, string, json-array, json-object)
 +json-array record(elements json[])
 +== bool(a json-array, b json-array)
 +json-object record(fields json[symbol])
 +== bool(a json-object, b json-object)
 
 +== bool(a json, b json)
+-== bool(a json-inner, b json-inner)
+
++string string?(a json)
+	a.inner string
++object json[symbol]?(a json)
+	a.inner.json-object?.fields
 
 +null record
 +== bool(a null, b null)
++to json(a null)
+	null,
 
 +new json(...pairs (symbol, json)[])
-	pairs.to json-object
+	(pairs.to,)::json-object,
 
++null json()
+	null,
 +to json(a json)
 	a
 +to json(_ void)
 	()
++to json(a bool)
+	a::json-inner,
 +to json(a char8)
 	a.to::string to
 +to json(a char32)
 	a.to::string to
++to json(a string)
+	a,
 +to json(a nat8)
 	a.to::nat64 to
 +to json(a nat16)
@@ -64,27 +80,30 @@ import
 	a.to::float64 to
 +to json(a float32)
 	a.to::float64 to
++to json(a float64)
+	a,
 +to json(a symbol)
 	a.to::string to
 +to[t] json(a t[]) (json, t) to
-	(for x : a; x to) json-array
+	xs json[] = for x : a; x to
+	(xs,)::json-array,
 +to[t] json(a t array-view) (json, t) to
-	(for x : a; x to) json-array
+	(for x : a; x to)::json[] to
 +to[t] json(a t mut[]) (json, t) to
-	(for x : a; x to) json-array
+	(for x : a; x to)::json[] to
 +to[t] json(a t set) (json, t) to, t key
-	(for x : a; x to) json-array
+	(for x : a; x to)::json[] to
 +to[k, v] json(a v[k]) k key, (symbol, k) to, (json, v) to
-	(for k, v : a; k.to, v.to) json-object
+	((for k, v : a; k.to, v.to),)::json-object,
 to json(a index-set)
-	(for x : a; x to) json-array
+	(for x : a; x to)::json[] to
 +to[t] json(a t?) (json, t) to
 	if x ?= a
 		x to
 	else
 		null
 +to[t, u] json(a (t, u)) (json, t) to, (json, u) to
-	(a.a.to, a.b.to) json-array
+	(a.a.to, a.b.to)::json[] to
 +to json(a comparison)
 +to[t, u] json(a (t, u) result) (json, t) to, (json, u) to
 	match a
@@ -94,7 +113,7 @@ to json(a index-set)
 		("err"::symbol, e.value.to),
 
 +symbol symbol?(a json)
-	a.string?.to
+	a.inner.string?.to
 
 | If {a} is an `object` containing the key {key}, returns the associated value.
 | Returns `null` if one of these is true:
@@ -105,32 +124,32 @@ to json(a index-set)
 | Most code does not care about this distinction.
 | If you do, you can test `if obj ?= {a} object` or `if {key} in a`.
 +subscript json(a json, key symbol)
-	a.json-object?.fields?[key] ?? null
+	a.inner.json-object?.fields?[key] ?? null
 
 | {true} if {a} is an object and {key} is one of its keys.
 +in bool(key symbol, a json)
-	if obj ?= a json-object
+	if obj ?= a.inner json-object
 		key in obj.fields
 
 | `a bool-or-null` is like `a bool`, but treats {null} as {false}.
 +bool-or-null bool?(a json)
-	a == null ? false : a bool
+	a == null ? false : a.inner bool
 
 +array json[]?(a json)
-	a.json-array?.elements
+	a.inner.json-array?.elements
 
 | `a array-or-null` is like `a array`, but treats {null} as an empty array.
 +array-or-null json[]?(a json)
 	if a == null
 		()::json[]
 	else
-		a.json-array?.elements
+		a.inner.json-array?.elements
 
 +json json grammar()
 	spaces ~~ json-inner ~~ spaces
 -json-inner json grammar()
 	with : lazy
-		(json-object map x => x to) / (json-array map x => x json-array) / json-primitive
+		(json-object map x => x to) / (json-array map x => x to) / json-primitive
 -json-object json[symbol] grammar()
 	quoted-symbol symbol grammar = quoted-string map s => s.to
 	pair (symbol, json) grammar = quoted-symbol ~~ spaces ~~ ":" ~~ spaces ~~ json
@@ -144,17 +163,17 @@ to json(a index-set)
 	(quoted-string map x => x.to) / (float map x => x.to) / literal
 
 +to[t] t[](a json) (t, json) to
-	for x : a.json-array! elements
+	for x : a.inner.json-array! elements
 		x to
 
 +to nat32(a json)
 	a.to::nat64 to
 +to nat64(a json)
-	a.float64! to
+	a.inner.float64! to
 
 | Renders a {json} value to JSON.
 +show string(a json)
-	match a
+	match a inner
 	as null
 		"null"
 	as bool b
@@ -173,7 +192,7 @@ to json(a index-set)
 
 | Converts from a {json} value to the corresponding JavaScript object.
 +to js-any(a json) trusted, js extern
-	match a
+	match a inner
 	as null
 		null
 	as bool x
