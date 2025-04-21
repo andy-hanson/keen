@@ -97,9 +97,9 @@ do
 				type, range, (input array-op-concrete-expr body.root-local, empty-out-array, body.expr)
 			else
 				lambda-type = concrete-called.params[1].type
-				temp concrete-local = ctx.local-ids.take-next-id, member.to, lambda-type # TODO: use a new kind, not 'member'
+				temp concrete-local = ctx.local-ids.take-next-id, member, lambda-type # TODO: use a new kind, not 'member'
 				lambda = ctx concretize-expr lambda-type, lambda-arg
-				in-element concrete-local = ctx.local-ids.take-next-id, member.to, in-element-type # TODO: use a new kind, not 'member'
+				in-element concrete-local = ctx.local-ids.take-next-id, member, in-element-type # TODO: use a new kind, not 'member'
 				body = builtin-fun-call-lambda builtin-concrete-expr (out-element-type, in-element-type), ((range gen-local-get temp), (range gen-local-get in-element))
 				then concrete-expr = type, range, (input array-op-concrete-expr in-element, empty-out-array, (out-element-type, range, body))
 				type gen-let range, temp, lambda, then
@@ -111,10 +111,10 @@ do
 			the-call concrete-expr = concrete-called.return-type, range, match concrete-args
 			as constants constants
 				if constant ?= ctx.concretize-ctx try-eval-constant concrete-called, constants.constants
-					constant to
+					constant
 				else
 					concrete-called gen-call-kind for p, x : concrete-called.params zip constants.constants
-						p.type, range, x.to
+						p.type, range, x
 			as exprs exprs
 				if builtin_ ?= concrete-called.body concrete-fun-body-builtin
 					match builtin_ kind
@@ -182,7 +182,7 @@ do
 		# TODO: this should use a let expr to ensure 'a' is only evaluated once! -------------------------------------------------
 		arg0 gen-if-option-kind ((), arg0), arg1
 	as option-question-2
-		local concrete-local = ctx.local-ids.take-next-id, member::concrete-generated-local-kind.to, type
+		local concrete-local = ctx.local-ids.take-next-id, member::concrete-generated-local-kind, type
 		arg0 gen-if-option-kind (local, (range gen-local-get local)), arg1
 
 -concretize-call-option concrete-expr
@@ -198,7 +198,7 @@ do
 	# TODO: should get-concrete-fun-from-called just return nothing if the return type is bogus? -----------------------------------
 	guard called.return-type !is-bogus : ctx concretize-bogus type, range
 	option = ctx concretize-expr a.first-arg
-	local concrete-local = ctx.local-ids.take-next-id, destruct::concrete-generated-local-kind.to, called.params[0].type
+	local concrete-local = ctx.local-ids.take-next-id, destruct::concrete-generated-local-kind, called.params[0].type
 	a.rest-args.size + 1 is called.params.size
 	all-args concrete-expr[] = with out : 1 + a.rest-args.size build # TODO: just inline below ----------------------------------
 		out ~= range gen-local-get local
@@ -234,7 +234,7 @@ do
 	body = ctx concretize-expr-with-destructure return-type, range, e.param, e.body
 	param = body.root-local ?? do
 		id: ctx.local-ids take-next-id
-		source: args::concrete-generated-local-kind to
+		source: args::concrete-generated-local-kind
 		type: param-type
 	closure concrete-local[] = with out : build
 		for x : e closure
@@ -300,13 +300,12 @@ do
 	as destructure-ignore _
 		()
 	as local local
-		root-local concrete-local = ctx.local-ids.take-next-id, local.to, (ctx get-concrete-type local.type)
+		root-local concrete-local = ctx.local-ids.take-next-id, local, (ctx get-concrete-type local.type)
 		ctx.locals[local] := if ctx is-allocated local
-			reference-type = ctx get-concrete-type local.closure-reference-type!.to
-			reference-local concrete-local = ctx.local-ids.take-next-id, local.concrete-local-source-reference, reference-type
-			reference-local to
+			reference-type = ctx get-concrete-type local.closure-reference-type!
+			ctx.local-ids.take-next-id, local.concrete-local-source-reference, reference-type
 		else
-			root-local to
+			root-local
 	as destructure-split x
 		if x is-valid-destructure ctx.common-types
 			for part : x parts
@@ -316,7 +315,7 @@ do
 	as destructure-ignore _
 		()
 	as local local
-		ctx.locals[local] := concrete-param to
+		ctx.locals[local] := concrete-param
 	as destructure-split _
 		ctx begin-destructure destructure
 -end-destructure root-local-and-expr
@@ -332,14 +331,14 @@ do
 	as local local
 		concrete-local = ctx.locals remove! local concrete-local!
 		if ctx is-allocated local
-			root-local concrete-local = ctx.local-ids.take-next-id, local.to, (ctx get-concrete-type local.type)
+			root-local concrete-local = ctx.local-ids.take-next-id, local, (ctx get-concrete-type local.type)
 			value = ctx.concretize-ctx gen-reference-create concrete-local.type, range, (range gen-local-get root-local)
 			root-local, (type gen-let range, concrete-local, value, expr)
 		else
 			concrete-local, expr
 	as destructure-split x
 		if x is-valid-destructure ctx.common-types
-			root-local concrete-local = ctx.local-ids.take-next-id, destruct.to, (ctx get-concrete-type destructure.type)
+			root-local concrete-local = ctx.local-ids.take-next-id, destruct, (ctx get-concrete-type destructure.type)
 			res = ctx end-destructure-split type, range, expr, x, root-local
 			root-local, res
 		else
@@ -439,7 +438,7 @@ do
 	as string
 		ctx.concretize-ctx gen-string-literal range, value
 	as symbol
-		type, range, (ctx.concretize-ctx constant-symbol value.sym-of-string).to
+		type, range, do ctx.concretize-ctx constant-symbol value.sym-of-string
 
 -concretize-local-get concrete-expr
 	ctx concretize-expr-ctx
@@ -457,7 +456,7 @@ do
 		else
 			get
 	as typed-constant x
-		type, range, x.value.to
+		type, range, x.value
 
 -concretize-local-set concrete-expr
 	ctx concretize-expr-ctx
@@ -720,7 +719,7 @@ do
 	as call-option-expr x
 		ctx concretize-call-option type, range, x
 	as extern-expr x
-		type, range, (x.names is-subset-of ctx.concretize-ctx.all-externs).constant-bool.to
+		type, range, do x.names is-subset-of ctx.concretize-ctx.all-externs constant-bool
 	as finally-expr x
 		ctx concretize-finally type, range, x
 	as if-expr x
@@ -734,7 +733,7 @@ do
 	as literal-float-expr x
 		type gen-constant range, x.value.constant-float	
 	as literal-integral-expr x
-		type gen-constant range, x.value.to
+		type gen-constant range, x.value
 	as literal-string-like-expr x
 		ctx concretize-literal-string-like type, range, x.string-type, x.value
 	as local-get-expr x
@@ -759,11 +758,12 @@ do
 		ctx concretize-match-sum-type type, range, x
 	as seq-expr x
 		first = ctx concretize-expr ctx.void-type, x.first
-		then = ctx concretize-expr type, x.then
+		# See comment on 'as let-expr' for why we use 'outer-type' instead of 'type'
+		then = ctx concretize-expr outer-type, x.then
 		if _ ?= first.kind constant
 			then
 		else
-			type, range, (first seq-concrete-expr then)
+			outer-type, range, do first seq-concrete-expr then
 	as throw-expr x
 		thrown = ctx concretize-expr ctx.concretize-ctx.exception-type, x.thrown
 		type, range, thrown.throw-concrete-expr
