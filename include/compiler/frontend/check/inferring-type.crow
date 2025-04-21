@@ -175,8 +175,13 @@ do
 	match wide.decl body
 	as builtin-type b
 		guard b == option
-		guard s ?= wide.type-args.only struct-inst
-		narrow is-or-can-widen-to s
+		match wide.type-args.only
+		as bogus-type
+			true
+		as type-param-index _
+			false
+		as struct-inst s
+			narrow is-or-can-widen-to s
 	as sum-type s
 		if s.kind == union_
 			s.listed-members exists x =>
@@ -430,15 +435,30 @@ try-get-inexact-non-inferring-type type?(a type-and-context)
 			guard inferred.kind == exact || !require-exact
 			inferred type
 		else
-			a type
+			x
 	as struct-inst i
 		if i.type-args is-empty
-			a type
+			i
 		else
 			new-type-args = for x : i.type-args.inner map-or-none
 				(x, a.context) try-get-exact-or-inexact-non-inferring-type require-exact
 			if x ?= new-type-args
 				i.decl[x]
+
+-replace-uninferred-with-bogus type(a type-and-context)
+	match a type
+	as bogus-type
+		bogus-type
+	as type-param-index x
+		assert a.context is-inferring
+		if inferred ?= a.context[x index]
+			inferred type
+		else
+			bogus-type
+	as struct-inst i
+		new-type-args type[] = for x : i.type-args inner
+			(x, a.context) replace-uninferred-with-bogus
+		i.decl[new-type-args]
 
 -try-get-non-inferring inference?(a type-and-context)
 	match a type
@@ -626,6 +646,8 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 
 | Returns new inference value for 'a'.
 -match-types-no-a-context inference?(a inference, b type-and-context, conv implicit-conversions)
+	if trusted LOG
+		error log "match-types-no-a-context a={a debug} b={b debug} conv={conv}"
 	match b type
 	as bogus-type
 		a
@@ -649,8 +671,8 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 					(exact, x) match-types-no-a-context (y, b.context), conv !is-empty
 				if res
 					exact, a.type
-			elif x ?= b try-get-inexact-non-inferring-type
-				a match-types-no-context x, conv
+			else
+				a match-types-no-context b.replace-uninferred-with-bogus, conv
 
 -match-types-no-b-context bool(a type-and-context, b type, conv implicit-conversions)
 	if trusted LOG
@@ -697,6 +719,8 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 	match-type-args bool mut(x type, y type)
 	match-after-unwrap bool mut(x type, y type)
 do
+	if trusted LOG
+		error log "match-struct-insts {sa.to::json} {sb.to::json}"
 	if sa.decl == sb.decl
 		sa.type-args.inner zip sb.type-args.inner every match-type-args
 	else
