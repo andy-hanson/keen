@@ -3,25 +3,22 @@ import
 	crow/unsafe
 	../../model/model
 	../../util/stack-alloc
-	../lang
 
 -type-contexts global(inference? mut-slice-allocator)
--all-candidates global(candidates) 
--candidate-pools global(candidate mut[][])
--n-live-candidates global(nat)
+-all-candidates global(candidates)
+-n-live-stack-array global(nat)
 -type-and-context-arrays global(type-and-context mut-array-allocator)
 
 init-allocators void() trusted
 	type-contexts := ()
-	all-candidates := 0x1000.gc-safe-mut-slice, 0, 0
-	candidate-pools := for _ : 0::nat .. max-type-args + 1; ()
-	n-live-candidates := ()
+	all-candidates := 0x1000,
+	n-live-stack-array := ()
 	type-and-context-arrays := ()
 
 assert-all-allocated-freed void() trusted
 	type-contexts assert-all-free
 	all-candidates assert-all-free
-	n-live-candidates is 0
+	n-live-stack-array is 0
 	type-and-context-arrays assert-all-free
 
 # TODO: for 'allow-wider' and 'allow-narrower', the type will always be a 'struct-inst'. Maybe I should make this a union to clarify. ---
@@ -59,24 +56,9 @@ candidate record mut, -new
 	| This is always empty if calling a {called-spec-sig}
 	type-args type-context
 
-| Remember to call {free-candidate}
-init-candidate candidate(called called-decl) unsafe
+init-candidate candidate(called called-decl)
 	n-type-args = called n-type-params
-	candidate-pool = candidate-pools[n-type-args]
-	res = if x ?= candidate-pool pop
-		x.called := called
-		x
-	else
-		called, n-type-args.gc-safe-mut-slice
-	n-live-candidates +:= 1
-	res
-free-candidate void(candidate candidate) unsafe # TODO: ideally this would be private to this module ---------
-	candidate.called := gc-safe-value
-	n-type-args = candidate.type-args size
-	for i : 0::nat .. n-type-args
-		candidate.type-args[i] := ()
-	candidate-pools[n-type-args] ~= candidate
-	n-live-candidates -:= 1
+	called, trusted n-type-args gc-safe-mut-slice # TODO: just use 'n-type-args n-of ()' -----------------------------------------------------------------
 
 type-and-context record mut
 	type -mut type
@@ -106,67 +88,74 @@ non-inferring type-context()
 is-inferring bool(a type-context)
 	a !is-empty
 
-| This is used for candidates arrays.
-| Since only one candidates array is active at a time, we store them all together concatenated.
-candidates record mut
+| This is used for stack-array arrays.
+| Since only one stack-array array is active at a time, we store them all together concatenated.
+stack-array[t] record mut # TODO: come up with a name that is more generic ------------------------------------------------------
 	| Remember to access this between {cur-array-start} and {cur-array-end}
-	-all-entries candidate mut-slice
+	-all-entries t mut-slice
 	-cur-array-start mut nat
 	-cur-array-end mut nat
+-new[t] t stack-array(capacity nat) unsafe
+	capacity.gc-safe-mut-slice, 0, 0
+candidates alias
+	candidate stack-array
+-to[t] t[](a t stack-array)
+	a.all-entries[a.cur-array-start .. a.cur-array-end] to
 
-assert-all-free void(a candidates)
+assert-all-free[t] void(a t stack-array)
 	a.cur-array-start is 0
 	a.cur-array-end is 0
 
-iterate bool(a candidates, f bool mut(x candidate))
+iterate[t] bool(a t stack-array, f bool mut(x t))
 	a.cur-array-start .. a.cur-array-end iterate i =>
 		f[a.all-entries[i]]
 
-is-empty bool(a candidates)
+is-empty[t] bool(a t stack-array)
 	a.cur-array-start == a.cur-array-end
 
-size nat(a candidates)
+size[t] nat(a t stack-array)
 	a.cur-array-end - a.cur-array-start
 
-only candidate(a candidates)
+only[t] t(a t stack-array)
 	assert a.size == 1
-	a.all-entries[a.cur-array-start]
+	a.all-entries[a cur-array-start]
 
-opt-only candidate?(a candidates)
+opt-only[t] t?(a t stack-array)
 	if a.size == 1
 		a only
 
 | Remember to call {free-candidates}
-allocate-candidates (candidates, nat)() unsafe
+allocate-candidates (candidate stack-array, nat)() unsafe
 	restore = all-candidates push-context
 	all-candidates, restore
 
-free-candidates void(candidates candidates, restore nat) unsafe
+free-candidates void(candidates candidates, restore nat) unsafe # TODO: no need for this, just use pop-context ----------
 	assert candidates reference-equal all-candidates
 	all-candidates pop-context restore
 
-clear-candidates void(a candidates) trusted
+clear-candidates[t] void(a t stack-array) trusted
 	for i : a.cur-array-start .. a.cur-array-end
-		a.all-entries[i] free-candidate
 		a.all-entries[i] := gc-safe-value
 	a.cur-array-end := a.cur-array-start
 
 | Returns the restore info. Pass this into {pop-context}.
-push-context nat(a candidates)
+push-context[t] nat(a t stack-array)
 	res = a cur-array-start
 	a.cur-array-start := a cur-array-end
 	res
 
-pop-context void(a candidates, restore nat) trusted
+pop-context[t] void(a t stack-array, restore nat) trusted
 	a clear-candidates
 	a.cur-array-start := restore
 
-~= void(a candidates, value candidate)
+~=[t] void(a t stack-array, value t)
 	a.all-entries[a cur-array-end] := value
 	a.cur-array-end +:= 1
 
-filter-candidates void(a candidates, f bool mut(x candidate))
-	i mut = a cur-array-start
+filter-unordered[t] void(a t stack-array, f bool mut(x t))
+	a filter-unordered-starting-from a.cur-array-start, f
+-filter-unordered-starting-from[t] void(a t stack-array, start nat, f bool mut(x t))
+	i mut = start
 	until i == a.cur-array-end
 		if f[a.all-entries[i]]
 			i +:= 1
@@ -178,50 +167,42 @@ tri-state enum # TODO: better name ---------------------------------------------
 	allow
 	reject
 == bool(a tri-state, b tri-state)
-filter-candidates-tri void(a candidates, f tri-state mut(x candidate))
+filter-unordered-tri[t] void(a t stack-array, f tri-state mut(x t))
 	# TODO:PERF do it in a single pass -----------------------------------------------------------------------------------------------------
 	if a exists x => f[x] == prefer
-		a filter-candidates x => f[x] == prefer
+		a filter-unordered x => f[x] == prefer
 	else
-		a filter-candidates x => f[x] != reject
+		a filter-unordered x => f[x] != reject
 
-filter-candidates-but-dont-remove-all void(a candidates, f bool mut(x candidate))
+filter-unordered-but-dont-remove-all[t] void(a t stack-array, f bool mut(x t))
 	i mut nat = a cur-array-start
 	loop
 		if i == a.cur-array-end
-			# Got to the end and no candidate passed the test
+			# Got to the end and no candidate passed the test. In this case we have done nothing.
 			break
 		elif f[a.all-entries[i]]
-			for j : a.cur-array-start .. i
-				trusted a.all-entries[j] free-candidate
-			out mut = a.cur-array-start
-			a.all-entries[out] := a.all-entries[i]
-			out +:= 1
-			for in : i + 1 .. a.cur-array-end
-				if f[a.all-entries[in]]
-					a.all-entries[out] := a.all-entries[in]
-					out +:= 1
-				else
-					trusted a.all-entries[in] free-candidate
-			for j : out .. a.cur-array-end
-				a.all-entries[j] := trusted gc-safe-value
-			a.cur-array-end := out
+			if i != a.cur-array-start
+				a.all-entries[a.cur-array-start] := a.all-entries[i]
+				a remove-at-unordered i
+				for j : a.cur-array-start + 1 .. i
+					a remove-at-unordered j
+			a filter-unordered-starting-from a.cur-array-start + 1, f
 			break
 		else
 			i +:= 1
 			continue
-###
-TODO: RESTORE THIS TEST ---------------------------------------------------------------------------------------------------------
 test
-	xs nat mut[] = 1, 2, 3, 4, 5
+	xs nat stack-array = trusted 10,
+	for x nat : 1 .. 5
+		xs ~= x
 	xs filter-unordered-but-dont-remove-all x => x is-even
 	xs.to::nat[] is (2, 4)
 	xs filter-unordered-but-dont-remove-all x => x !is-even
 	xs.to::nat[] is (2, 4)
-###
+	xs filter-unordered-but-dont-remove-all x => x < 3
+	xs.to::nat[] is (2,)
 
--remove-at-unordered void(a candidates, i nat) trusted
-	a.all-entries[i] free-candidate # TODO: should probably wait to free until after we definitely no longer reference it
+-remove-at-unordered[t] void(a t stack-array, i nat) trusted
 	take-from = a.cur-array-end - 1
 	a.all-entries[i] := a.all-entries[take-from]
 	a.all-entries[take-from] := gc-safe-value
