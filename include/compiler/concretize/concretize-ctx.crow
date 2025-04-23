@@ -45,7 +45,6 @@ concretize-ctx record mut
 	file-content-getters file-content-getters
 	all-externs symbol-set
 	fill-in-concrete-fun-body void mut(ctx concretize-ctx, fun concrete-fun) # TODO: I could use a spec instead? -----------------------------
-	late-create-error-function mut concrete-fun?
 	late-equal-symbol-function mut concrete-fun?
 	late-new-json-from-pairs-function mut concrete-fun?
 	late-to-json-from-json-array-function mut concrete-fun?
@@ -58,11 +57,12 @@ concretize-ctx record mut
 	deferred-methods concrete-fun mut[]
 	all-concrete-funs concrete-fun mut[]
 	| Maps a sum type to its cases
-	sum-types (concrete-type, concrete-sum-type-case mut[]) mut[concrete-type]
+	sum-types concrete-sum-type-case mut[] mut[concrete-type]
 	-late-bogus-type mut concrete-type?
 	-late-bool-type mut concrete-type?
 	-late-char8-array-type mut concrete-type?
 	-late-char32-array-type mut concrete-type?
+	-late-error-type mut concrete-type?
 	-late-exception-type mut concrete-type?
 	-late-none-type mut concrete-type?
 	-late-void-type mut concrete-type?
@@ -84,7 +84,6 @@ do
 	file-content-getters: file-content-getters
 	all-externs: program all-externs target
 	fill-in-concrete-fun-body: fill-in-concrete-fun-body
-	late-create-error-function: ()
 	late-equal-symbol-function: ()
 	late-new-json-from-pairs-function: ()
 	late-to-json-from-json-array-function: ()
@@ -101,6 +100,7 @@ do
 	late-bool-type: ()
 	late-char8-array-type: ()
 	late-char32-array-type: ()
+	late-error-type: ()
 	late-exception-type: ()
 	late-none-type: ()
 	late-void-type: ()
@@ -122,8 +122,6 @@ require-unique-union-types bool(a concretize-ctx) # TODO: is this still needed? 
 	a is-java
 preserve-methods bool(a concretize-ctx)
 	a is-java # TODO: also JS -----------------------------------------------------------------------------------------------------------------
-create-error-function concrete-fun(a concretize-ctx)
-	a late-create-error-function!
 equal-symbol-function concrete-fun(a concretize-ctx)
 	a late-equal-symbol-function!
 new-json-from-pairs-function concrete-fun(a concretize-ctx)
@@ -146,7 +144,7 @@ next-lambda-index nat(a concretize-ctx)
 	res
 
 concrete-lambda-impl record(closure-type concrete-type, impl concrete-fun)
-concrete-sum-type-case record(member-type concrete-type, method-impls mut concrete-fun?[]?) mut
+concrete-sum-type-case record(member-type concrete-type, method-impls mut concrete-fun?[]?) mut # TODO: rename 'member-type' to 'case-type'
 
 finish-concrete-vars concrete-var[](ctx concretize-ctx)
 	for _, v : ctx.concrete-var-lookup; v
@@ -216,6 +214,13 @@ float-types (float-type, concrete-type) enum-map(a concretize-ctx)
 			a get-concrete-type-for-struct-inst a.common-types.float32, ()
 		as float64
 			a get-concrete-type-for-struct-inst a.common-types.float64, ()
+
+error-type concrete-type(a concretize-ctx)
+	# TODO: is this really an optimization / necessary? ---------------------------------------------------------------------------
+	a late-error-type ?? do
+		res = a get-concrete-type-for-struct-inst a.common-funs.error, ()
+		a.late-error-type := res
+		res
 
 exception-type concrete-type(a concretize-ctx)
 	a late-exception-type ?? do
@@ -386,16 +391,20 @@ do
 			method-impls = ctx sum-type-method-impls-common member.method-impls, type-args
 			method-impls.size is x.methods.size
 			member-type, method-impls
-		ctx.sum-types[res] := res, cases
+		ctx.sum-types[res] := cases
 		if x.kind == union_
 			res finish-sum-type-cases cases
+	
+	for x : inst.decl sum-type-memberships
+		sum-type = ctx get-concrete-type x.sum-type, type-args
+		_ = ctx ensure-sum-type-case sum-type, res
 
 ensure-sum-type-case nat(ctx concretize-ctx, sum-type concrete-type, case-type concrete-type)
 	body = sum-type.body concrete-union!
 	if body has-members
 		body.members index-of! case-type
 	else
-		_, cases = ctx.sum-types[sum-type]!
+		cases = ctx.sum-types[sum-type]! 
 		cases find-index (member => member.member-type == case-type) ?? do
 			res = cases size
 			case_ concrete-sum-type-case = case-type, ()

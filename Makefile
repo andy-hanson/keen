@@ -3,7 +3,10 @@
 
 .PHONY: check confirm-upload-site end-to-end-test end-to-end-test-overwrite serve prepare-site test unit-test unit-test-java unit-test-js
 
-all_include = $(shell find include -name '*.crow')
+all_include_crow = $(shell find include/crow -name '*.crow')
+all_include_compiler = $(shell find include/compiler -name '*.crow')
+all_include_test = $(shell find include/test -name '*.crow')
+all_include = $(all_include_crow) $(all_include_compiler) $(all_include_test)
 
 clean:
 	mv bin/crow-lkg crow-lkg
@@ -53,7 +56,7 @@ update-lkg: bin/crow
 check:
 	bin/crow-lkg check include/compiler/app/main.crow
 
-bin/crow: $(all_include) include/compiler/backend/java/lib/Crow.class bin/imports/date.txt bin/imports/commit-hash.txt
+bin/crow: $(all_include_crow) $(all_include_compiler) include/compiler/backend/java/lib/Crow.class bin/imports/date.txt bin/imports/commit-hash.txt
 	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crow-tmp
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
 	mv bin/crow-tmp bin/crow
