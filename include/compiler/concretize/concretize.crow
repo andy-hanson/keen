@@ -4,10 +4,13 @@ import
 	../model/concrete-model
 	../model/version-info
 	../util/perfhax
+	../util/util
 	./all-constants-builder
 	./check-concrete-model
 	./concretize-ctx
+	./concretize-expr
 	./concretize-fun-body
+	./constants-or-exprs
 	./gather-info
 	./generate
 
@@ -23,7 +26,7 @@ concretize concrete-program(show-ctx show-ctx, target build-target, program prog
 		program: program
 		target: target
 		file-content-getters: show-ctx file-content-getters
-		fill-in-concrete-fun-body: (ctx, fun) => ctx fill-in-concrete-fun-body fun
+		quick-fill-in-concrete-fun-body: (ctx, fun) => ctx quick-fill-in-concrete-fun-body fun
 	common-funs = program.program common-funs
 	ctx.late-equal-symbol-function := ctx get-non-template-concrete-fun common-funs.equal-symbol
 	ctx.late-new-json-from-pairs-function := ctx get-non-template-concrete-fun common-funs.new-json-from-pairs
@@ -48,6 +51,25 @@ concretize concrete-program(show-ctx show-ctx, target build-target, program prog
 		main: ctx concretize-main-fun program.main-fun
 	else
 		throw unreachable
+	
+	loop
+		any mut = false
+		for fun : ctx all-concrete-funs
+			if _ ?= fun.body concrete-fun-body-deferred
+				match fun fun-body-decl
+				as expr x
+					fun.body := ctx concretize-fun-body fun, x
+					any := true
+				as fun-body-method _
+					()
+				else
+					throw unreachable	
+		if any
+			continue
+		else
+			break
+	
+	ctx replace-constants
 
 	method-impls = ctx finish-variants
 
@@ -111,3 +133,221 @@ concretize concrete-program(show-ctx show-ctx, target build-target, program prog
 -select-indices[t] t[](a t[], indices nat[])
 	for i : indices
 		a[i]
+
+# TODO: this is not ideal, it can't detect all constants (such as '2 + 2') ......................................................
+-replace-constants void(ctx concretize-ctx)
+	constants-map constant mut[concrete-fun] = with out : build
+		for fun : ctx all-concrete-funs
+			guard e ?= fun.body concrete-expr
+			guard c ?= e.kind constant
+			out ~= fun, c
+	# TODO: instead of a loop, we could use the called-by map to identify which function to process next (but then we'd have to regenerate the map after this)
+	loop
+		added-any-new-constants mut = false
+		for fun : ctx all-concrete-funs
+			guard e ?= fun.body concrete-expr
+			if new-body ?= (ctx, constants-map, ()) replace-constants-expr e
+				fun.body := new-body
+				if c ?= new-body.kind constant
+					constants-map[fun] := c
+					added-any-new-constants := true
+		if added-any-new-constants
+			continue
+		else
+			break
+
+-replace-constants-ctx record mut
+	ctx concretize-ctx
+	constants-map constant mut[concrete-fun]
+	constant-locals constant mut[concrete-local]
+-replace-constants concrete-expr-kind?(ctx replace-constants-ctx, a concrete-expr)
+	match a kind
+	as array-op-concrete-expr x
+		guard input, body ?= ctx replace-constants-in-args-exprs x.input, x.body
+		input array-op-concrete-expr x.local, x.empty-out-array, body
+	as builtin-concrete-expr x
+		guard args ?= ctx replace-constants-in-args-exprs x.args
+		x.fun builtin-concrete-expr x.type-args, args
+	as call-concrete-expr x
+		if res ?= ctx.constants-map[x called]
+			res
+		elif args ?= ctx replace-constants-in-args-exprs x.args
+			if constants ?= args as-constants
+				if constant ?= ctx.ctx try-eval-constant x.called, constants
+					constant
+				else
+					x.called call-concrete-expr  args
+			else
+				x.called call-concrete-expr args
+		else
+			# TODO: if they are already constants, we should have already propagated them? ------------------------------------------
+			if constants ?= x.args as-constants
+				if constant ?= ctx.ctx try-eval-constant x.called, constants
+					constant
+	as cast-concrete-expr _
+		()
+	as constant _
+		()
+	as create-array-concrete-expr x
+		forbid x.args is-empty
+		guard args ?= ctx replace-constants-in-args x.args
+		match args
+		as constants c
+			ctx.ctx.all-constants get-constant-array a.type, c.constants
+		as exprs e
+			e.exprs create-array-concrete-expr
+	as create-record-concrete-expr x
+		guard args ?= ctx replace-constants-in-args x.args, !a.type.body.concrete-record!.is-some-field-mutable
+		match args
+		as constants c
+			ctx.ctx.all-constants get-constant-record a.type, c.constants
+		as exprs e
+			e.exprs create-record-concrete-expr
+	as create-union-concrete-expr x
+		guard arg ?= ctx replace-constants-expr x.arg
+		if c ?= arg.kind constant
+			ctx.ctx.all-constants get-constant-union a.type, x.member-index, c
+		else
+			x.member-index create-union-concrete-expr arg
+	as drop-concrete-expr x
+		guard arg ?= ctx replace-constants-expr x.arg
+		arg drop-concrete-expr
+	as finally-concrete-expr x
+		guard right, below ?= ctx replace-constants-in-args-exprs x.right, x.below
+		right finally-concrete-expr below
+	as if-concrete-expr x
+		guard cond, then, else_ ?= ctx replace-constants-in-args x.cond, x.then, x.else_
+		if constant-cond ?= cond.kind constant
+			constant-cond as-bool ? then kind : else_ kind
+		else
+			cond if-concrete-expr then, else_
+	as let-concrete-expr x
+		guard value ?= ctx replace-constants-expr x.value
+		if v ?= (x.local !is-mutable ? value.kind constant) # TODO: ideally I could write 'if x.local is-mutable && v ?= value.kind constant'
+			ctx.constant-locals[x local] := v
+			ctx replace-constants x.then
+		else
+			then = ctx replace-constants-expr x.then ?? x.then
+			x.local let-concrete-expr value, then
+	as lambda-concrete-expr x
+		guard body ?= ctx replace-constants-expr x.body
+		x.closure lambda-concrete-expr x.param, body # TODO: remove things from closure that are constants ------------------------------
+	as local-get-concrete-expr x
+		if res ?= ctx.constant-locals[x local]; res # TODO: could this be an implicit conversion? --------------------------------------------------------------------------
+	as local-set-concrete-expr x
+		guard value ?= ctx replace-constants-expr x.value
+		x.local local-set-concrete-expr value
+	as loop-concrete-expr x
+		guard body ?= ctx replace-constants-expr x.body
+		body loop-concrete-expr
+	as loop-break-concrete-expr x
+		guard value ?= ctx replace-constants-expr x.value
+		value loop-break-concrete-expr
+	as loop-continue-concrete-expr
+		()
+	as match-enum-or-integral-concrete-expr x
+		matched = ctx replace-constants-expr x.matched
+		cases = ctx replace-constants-in-args-exprs x.case-exprs
+		else_ concrete-expr? = ctx replace-constants-optional-expr x.else_
+		guard matched !is-empty || cases !is-empty || else_ !is-empty
+		# TODO: if 'matched' is a constant, use just that branch -------------------------------------------------------------------
+		(matched ?? x.matched) match-enum-or-integral-concrete-expr x.case-values, (cases ?? x.case-exprs), (else_ || x.else_)
+	as match-string-like-concrete-expr x
+		matched = ctx replace-constants-expr x.matched
+		# TODO: if 'matched' is a constant, use just that branch -------------------------------------------------------------------
+		updated-case mut = false
+		cases concrete-match-string-like-case[] = for case_ : x cases
+			value = ctx replace-constants-expr case_.value
+			then = ctx replace-constants-expr case_.then
+			updated-case := updated-case || value !is-empty || then !is-empty
+			(value ?? case_.value), (then ?? case_.then)
+		else_ concrete-expr? = ctx replace-constants-expr x.else_
+		guard matched !is-empty || updated-case || else_ !is-empty
+		(matched ?? x.matched) match-string-like-concrete-expr x.equals, cases, (else_ ?? x.else_)
+	as match-union-concrete-expr x
+		matched = ctx replace-constants-expr x.matched
+		# TODO: if 'matched' is a constant, use just that branch -------------------------------------------------------------------
+		cases = ctx replace-constants-in-match-union-cases x.cases
+		else_ = ctx replace-constants-optional-expr x.else_
+		guard matched !is-empty || cases !is-empty || else_ !is-empty
+		(matched ?? x.matched) match-union-concrete-expr x.member-indices, (cases ?? x.cases), (else_ || x.else_)
+	as record-field-get-concrete-expr x
+		guard record_ ?= ctx replace-constants-expr x.record_
+		# TODO: For a constant record, get the constant field value! ---------------------------------------------------------
+		record_ record-field-get-concrete-expr x.field-index
+	as record-field-set-concrete-expr x
+		guard record_, value ?= ctx replace-constants-in-args-exprs x.record_, x.value
+		record_ record-field-set-concrete-expr x.field-index, value
+	as seq-concrete-expr x
+		first = ctx replace-constants-expr x.first
+		then = ctx replace-constants-expr x.then
+		guard first !is-empty || then !is-empty
+		if _ ?= first?.kind?.constant
+			(then ?? x.then) kind
+		else
+			(first ?? x.first) seq-concrete-expr (then ?? x.then)
+	as throw-concrete-expr x
+		guard thrown ?= ctx replace-constants-expr x.thrown
+		thrown throw-concrete-expr
+	as try-concrete-expr x
+		tried = ctx replace-constants-expr x.tried
+		cases = ctx replace-constants-in-match-union-cases x.catch-cases
+		guard tried !is-empty || cases !is-empty
+		(tried ?? x.tried) try-concrete-expr x.exception-member-indices, (cases ?? x.catch-cases)
+	as try-let-concrete-expr x
+		# TODO: if value is constant, the local is constant too -------------------------------------------------------------------
+		value = ctx replace-constants-expr x.value
+		catch-then = ctx replace-constants-expr x.catch_.then
+		then = ctx replace-constants-expr x.then
+		guard value !is-empty || catch-then !is-empty || then !is-empty
+		catch_ concrete-match-union-case = if t ?= catch-then
+			x.catch_.local, t
+		else
+			x catch_
+		x.local try-let-concrete-expr (value ?? x.value), x.exception-member-index, catch_, (then ?? x.then)
+	as var-get-concrete-expr _
+		()
+	as var-set-concrete-expr x
+		guard value ?= ctx replace-constants-expr x.value
+		x.var var-set-concrete-expr value
+	as union-as-concrete-expr x
+		guard union_ ?= ctx replace-constants-expr x.union_
+		union_ union-as-concrete-expr x.member-index
+	as union-kind-concrete-expr x
+		guard union_ ?= ctx replace-constants-expr x.union_
+		union_ union-kind-concrete-expr
+
+-replace-constants-in-match-union-cases concrete-match-union-case[]?(ctx replace-constants-ctx, cases concrete-match-union-case[])
+	any mut = false
+	res concrete-match-union-case[] = for case_ : cases
+		then = ctx replace-constants-expr case_.then
+		any := any || then !is-empty
+		case_.local, (then ?? case_.then)
+	any ? res
+
+-replace-constants-in-args constants-or-exprs?(ctx replace-constants-ctx, a concrete-expr[])
+	ctx replace-constants-in-args a, true
+-replace-constants-in-args constants-or-exprs?(ctx replace-constants-ctx, a concrete-expr[], allow-constants bool)
+	if x ?= ctx replace-constants-in-args-exprs a
+		allow-constants ? x as-constants-or-exprs : x exprs
+-replace-constants-expr concrete-expr?(ctx replace-constants-ctx, a concrete-expr)
+	guard res ?= ctx replace-constants a
+	a.type, a.range, res
+-replace-constants-optional-expr concrete-expr?(ctx replace-constants-ctx, a concrete-expr?)
+	if x ?= a
+		ctx replace-constants-expr x
+-replace-constants-in-args-exprs (concrete-expr, concrete-expr)?(ctx replace-constants-ctx, a concrete-expr, b concrete-expr)
+	guard res ?= ctx replace-constants-in-args-exprs (a, b)
+	res only2
+-replace-constants-in-args (concrete-expr, concrete-expr, concrete-expr)?(ctx replace-constants-ctx, a concrete-expr, b concrete-expr, c concrete-expr)
+	guard res ?= ctx replace-constants-in-args-exprs (a, b, c)
+	res only3
+-replace-constants-in-args-exprs concrete-expr[]?(ctx replace-constants-ctx, a concrete-expr[])
+	any mut = false
+	res concrete-expr[] = for x : a
+		if updated ?= ctx replace-constants-expr x
+			any := true
+			updated
+		else
+			x
+	any ? res

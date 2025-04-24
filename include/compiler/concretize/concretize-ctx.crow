@@ -4,6 +4,7 @@ import
 	../model/ast
 	../model/concrete-model
 	../model/model
+	../model/show-concrete-model
 	../model/source-range
 	../model/version-info
 	../util/enum-map
@@ -44,7 +45,7 @@ concretize-ctx record mut
 	program-with-main program-with-main
 	file-content-getters file-content-getters
 	all-externs symbol-set
-	fill-in-concrete-fun-body void mut(ctx concretize-ctx, fun concrete-fun) # TODO: I could use a spec instead? -----------------------------
+	quick-fill-in-concrete-fun-body void mut(ctx concretize-ctx, fun concrete-fun) # TODO: I could use a spec instead? -----------------------------
 	late-equal-symbol-function mut concrete-fun?
 	late-new-json-from-pairs-function mut concrete-fun?
 	late-to-json-from-json-array-function mut concrete-fun?
@@ -74,7 +75,7 @@ new concretize-ctx
 	program program-with-main
 	target build-target
 	file-content-getters file-content-getters
-	fill-in-concrete-fun-body void mut(ctx concretize-ctx, fun concrete-fun)
+	quick-fill-in-concrete-fun-body void mut(ctx concretize-ctx, fun concrete-fun)
 do
 	show-ctx: show-ctx
 	upcoming-lambda-index: 0
@@ -83,7 +84,7 @@ do
 	program-with-main: program
 	file-content-getters: file-content-getters
 	all-externs: program all-externs target
-	fill-in-concrete-fun-body: fill-in-concrete-fun-body
+	quick-fill-in-concrete-fun-body: quick-fill-in-concrete-fun-body
 	late-equal-symbol-function: ()
 	late-new-json-from-pairs-function: ()
 	late-to-json-from-json-array-function: ()
@@ -118,8 +119,6 @@ is-js bool(a concretize-ctx)
 		true
 	as web
 		true
-require-unique-union-types bool(a concretize-ctx) # TODO: is this still needed? ----------------------------------------------------------------------------
-	a is-java
 preserve-methods bool(a concretize-ctx)
 	a is-java # TODO: also JS -----------------------------------------------------------------------------------------------------------------
 equal-symbol-function concrete-fun(a concretize-ctx)
@@ -261,7 +260,7 @@ get-concrete-fun concrete-fun(ctx concretize-ctx, decl fun-decl, type-args concr
 		ctx get-concrete-fun-from-key decl, type-args, spec-impls
 	if res did-add
 		ctx add-concrete-fun res.value
-		ctx.fill-in-concrete-fun-body[ctx, res.value]
+		ctx.quick-fill-in-concrete-fun-body[ctx, res.value]
 	res value
 
 get-non-template-concrete-fun concrete-fun(ctx concretize-ctx, inst fun-inst)
@@ -354,7 +353,7 @@ do
 		x
 	as destructure-split _
 		destruct::concrete-generated-local-kind
-	id, source, (ctx get-concrete-type a.type, type-args-scope)
+	id, source, do ctx get-concrete-type a.type, type-args-scope
 
 add-concrete-fun void(ctx concretize-ctx, fun concrete-fun)
 	ctx.all-concrete-funs ~= fun
@@ -394,7 +393,7 @@ do
 		ctx.sum-types[res] := cases
 		if x.kind == union_
 			res finish-sum-type-cases cases
-	
+
 	for x : inst.decl sum-type-memberships
 		sum-type = ctx get-concrete-type x.sum-type, type-args
 		cases = ctx.sum-types[sum-type]!
@@ -408,7 +407,11 @@ sum-type-case-index nat(ctx concretize-ctx, sum-type concrete-type, case-type co
 	if body has-members
 		body.members index-of! case-type
 	else
-		ctx.sum-types[sum-type]! find-index! member => member.member-type == case-type
+		assert st ?= ctx.sum-types[sum-type] : "Could not find members for sum type {ctx.show-ctx show-concrete-type sum-type}" error
+		res = st find-index member => member.member-type == case-type
+		res ?? do
+			error log "Could not find sum type member {ctx.show-ctx show-concrete-type case-type} for {ctx.show-ctx show-concrete-type sum-type}"
+			throw todo
 
 -sum-type-body-from-type sum-type(a concrete-type)
 	a.source.concrete-type-source-inst!.decl.body sum-type!
