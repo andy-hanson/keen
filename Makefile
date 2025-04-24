@@ -4,9 +4,8 @@
 .PHONY: check confirm-upload-site end-to-end-test end-to-end-test-overwrite serve prepare-site test unit-test unit-test-java unit-test-js
 
 all_include_crow = $(shell find include/crow -name '*.crow')
-all_include_compiler = $(shell find include/compiler -name '*.crow')
-all_include_test = $(shell find include/test -name '*.crow')
-all_include = $(all_include_crow) $(all_include_compiler) $(all_include_test)
+all_include_compiler = $(shell find include/compiler -name '*.crow' -not -path 'include/compiler/test/*')
+all_include = $(shell find include -name '*.crow')
 
 clean:
 	mv bin/crow-lkg crow-lkg
