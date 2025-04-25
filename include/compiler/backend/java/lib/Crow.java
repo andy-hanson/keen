@@ -17,16 +17,34 @@ class Crow {
 		return a == b;
 	}
 	static boolean equalFloat32(float a, float b) {
-		return a == b;
+		return Float.floatToIntBits(a) == Float.floatToIntBits(b);
 	}
 	static boolean equalFloat64(double a, double b) {
+		return Double.doubleToLongBits(a) == Double.doubleToLongBits(b);
+	}
+	static boolean equalFloat32IEEE(float a, float b) {
 		return a == b;
 	}
-	static boolean lessFloat32(float a, float b) {
+	static boolean equalFloat64IEEE(double a, double b) {
+		return a == b;
+	}
+	static boolean lessFloat32IEEE(float a, float b) {
 		return a < b;
 	}
-	static boolean lessFloat64(double a, double b) {
+	static boolean lessFloat64IEEE(double a, double b) {
 		return a < b;
+	}
+	static boolean isNegative0(float a) {
+		return Float.floatToIntBits(a) == 0x80000000;
+	}
+	static boolean isPositive0(float a) {
+		return Float.floatToIntBits(a) == 0;
+	}
+	static boolean isNegative0(double a) {
+		return Double.doubleToLongBits(a) == 0x8000000000000000L;
+	}
+	static boolean isPositive0(double a) {
+		return Double.doubleToLongBits(a) == 0;
 	}
 	static boolean lessInt8(byte a, byte b) {
 		return a < b;

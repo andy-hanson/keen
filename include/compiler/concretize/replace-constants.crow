@@ -1,9 +1,9 @@
 import
 	../model/concrete-model
+	../model/model
 	../util/util
 	./all-constants-builder
 	./concretize-ctx
-	./concretize-expr
 	./constants-or-exprs
 
 replace-constants void(ctx concretize-ctx)
@@ -224,3 +224,65 @@ replace-constants void(ctx concretize-ctx)
 		else
 			x
 	any ? res
+
+-try-eval-constant constant?(ctx concretize-ctx, fn concrete-fun, args constant[])
+	match fn body
+	as concrete-fun-body-builtin builtin_
+		match builtin_ kind
+		as builtin-binary x
+			fn.return-type try-eval-constant-binary x, args.only2
+		as builtin-binary-lazy x
+			x eval-constant-binary-lazy args.only2
+		as builtin-unary x
+			x try-eval-constant-unary args.only
+		as builtin-fun-is-empty-type
+			throw unreachable # compiles to a constant
+		as builtin-fun-constant _
+			throw unreachable # compiles to a constant
+		else
+			()
+	as concrete-expr x
+		ctx eval-as-constant fn, x, args
+	as concrete-fun-body-method _
+		()
+	as concrete-fun-body-deferred _
+		()
+# TODO: This is duplicated by 'replace-constants' ... though we want to be more conservative here since we don't want to inline every function just because the args are constants, unless the whole function would become a single constant...
+# So maybe instead of this separate function, have an option on 'replace-constants' where it will only continue if it is producing constants (not just simplified exprs)
+-eval-as-constant constant?(ctx concretize-ctx, fn concrete-fun, a concrete-expr, fn-args constant[])
+	match a kind
+	as constant x
+		x
+	as create-record-concrete-expr x
+		unless a.type.body.concrete-record! is-some-field-mutable
+			if args ?= for arg : x.args map-or-none; ctx eval-as-constant fn, arg, fn-args
+				ctx.all-constants get-constant-record a.type, args
+	# TODO: unions ----------------------------------------------------------------------------------------------------------------------------------------------
+	as local-get-concrete-expr x
+		assert index ?= fn.params index-of x.local
+		fn-args[index]
+	else
+		()
+-eval-constant-binary-lazy constant(fn builtin-binary-lazy, (arg0 constant, arg1 constant))
+	match fn
+	as bool-and
+		(arg0.as-bool && arg1.as-bool) constant-bool
+	as bool-or
+		(arg0.as-bool || arg1.as-bool) constant-bool
+	as option-or
+		throw todo
+	as option-question-2
+		throw todo
+-try-eval-constant-binary constant?(type concrete-type, fn builtin-binary, (arg0 constant, arg1 constant)) # TODO: probably no longer needed
+	match fn
+	as equal
+		if type is-nat64
+			arg0.as-nat64 == arg1.as-nat64 constant-bool
+	else
+		()
+-try-eval-constant-unary constant?(fn builtin-unary, arg constant)
+	match fn
+	as not
+		!arg.as-bool constant-bool
+	else
+		()
