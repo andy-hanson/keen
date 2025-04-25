@@ -1,5 +1,4 @@
 import
-	../frontend/show-model
 	../model/concrete-model
 	../model/model
 
@@ -8,19 +7,17 @@ concrete-fun-info record
 	yielding-funs concrete-fun set
 
 gather-info concrete-fun-info
-	show-ctx show-ctx # TODO:KILL -----------------------------------------------------------------------------------------
 	common-funs concrete-common-funs
-	all-constants all-constants-concrete
 	all-funs concrete-fun[]
 	all-vars concrete-var[]
 	method-impls concrete-method-info[concrete-type]
 do
-	calls, called-by = show-ctx build-called-by all-funs, all-constants, method-impls
-	all-used-funs = common-funs get-used-funs all-vars, calls
+	calls, var-calls, called-by = all-funs build-called-by all-vars, method-impls
+	all-used-funs = common-funs get-used-funs all-vars, calls, var-calls
 	yielding-funs = common-funs get-yielding-funs all-used-funs, called-by
 	all-used-funs, yielding-funs
 
--get-used-funs concrete-fun[](common-funs concrete-common-funs, vars concrete-var[], calls concrete-fun[][concrete-fun])
+-get-used-funs concrete-fun[](common-funs concrete-common-funs, all-vars concrete-var[], calls concrete-fun[][concrete-fun], var-calls concrete-fun[][concrete-var])
 	start-funs concrete-fun set = with out : build
 		from-common-funs concrete-fun[] = match common-funs
 		as concrete-common-funs-java x
@@ -29,16 +26,8 @@ do
 			x.main,
 		out ~~= from-common-funs
 		# TODO: We should first find which vars are used .......................................................................
-		for var : vars
-			# HACK: Currently it's always a function call or bogus -------------------------------------------------------------
-			match var.initializer kind
-			as throw-concrete-expr _
-				()
-			as call-concrete-expr x
-				out ~= x called
-			else
-				throw unreachable
-
+		for var : all-vars
+			out ~~= var-calls[var] ?? ()
 	res concrete-fun mut[] = start-funs.to::concrete-fun[] to
 	set concrete-fun mut-set = start-funs to
 	to-propagate concrete-fun mut[] = start-funs.to::concrete-fun[] to
@@ -120,20 +109,19 @@ is-always-non-yielding bool(_ concrete-fun, common-funs concrete-common-funs) # 
 -called-by alias
 	concrete-fun[][concrete-fun]
 
--build-called-by (concrete-fun[][concrete-fun], called-by)
-	show-ctx show-ctx
-	all-concrete-funs concrete-fun[]
-	all-constants all-constants-concrete
+-build-called-by (concrete-fun[][concrete-fun], concrete-fun[][concrete-var], called-by)
+	all-funs concrete-fun[]
+	all-vars concrete-var[]
 	method-impls concrete-method-info[concrete-type]
 do
 	calls concrete-fun mut[] mut[concrete-fun] = ()
 	called-by concrete-fun mut[] mut[concrete-fun] = ()
-	for fun : all-concrete-funs
+	for fun : all-funs
 		match fun body
 		as concrete-fun-body-builtin _
 			()
 		as concrete-expr x
-			show-ctx build-called-by-recur all-constants, calls, called-by, fun, x
+			calls build-called-by-recur called-by, fun, x
 		as concrete-fun-body-method x
 			method-info = method-impls[fun.params[0] type]!
 			new-method-index = method-info.methods index-of! fun
@@ -144,24 +132,28 @@ do
 					called-by ensure impl ~= fun
 		as concrete-fun-body-deferred
 			throw unreachable
-	(for k, v : calls; k, v.move-to), (for k, v : called-by; k, v.move-to)
+	var-calls concrete-fun mut[] mut[concrete-var] = ()
+	for var : all-vars
+		var.initializer each-call called =>
+			var-calls ensure var ~= called
+	(for k, v : calls; k, v.move-to), (for k, v : var-calls; k, v.move-to), (for k, v : called-by; k, v.move-to)
 -build-called-by-recur void
-	show-ctx show-ctx #unused ---------------------------------------------------------------------------------------------------
-	all-constants all-constants-concrete
 	calls concrete-fun mut[] mut[concrete-fun]
 	called-by concrete-fun mut[] mut[concrete-fun]
 	f concrete-fun
 	expr concrete-expr
 do
-	handle-call void mut(called concrete-fun) = called =>
+	expr each-call called =>
 		calls ensure f, (() => ()) ~= called
 		called-by ensure called, (() => ()) ~= f
+
+-each-call void(expr concrete-expr, f void mut(x concrete-fun))
 	match expr kind
 	as call-concrete-expr x
-		handle-call[x called]
-	as match-string-like-concrete-expr x # TODO: we should not have this as its own type if it's just a combination of 'if' and '==' -------
-		handle-call[x equals]
+		f[x called]
+	as match-string-like-concrete-expr x
+		f[x equals]
 	else
 		()
 	for child : expr direct-child-exprs
-		show-ctx build-called-by-recur all-constants, calls, called-by, f, child
+		child each-call f
