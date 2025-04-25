@@ -78,57 +78,59 @@ get-concrete-type concrete-type(a concretize-expr-ctx, t type)
 	range uri-and-range
 	a call-expr
 do
-	if concrete-called ?= ctx get-concrete-fun-from-called a.called
-		if concrete-called.return-type is-bogus
-			ctx concretize-bogus type, range
-		elif concrete-called is-array-op # TODO: it's a bit wasteful to give the function a body in get-concrete-fun-from-called only to ignore it here ....
-			input-arg, lambda-arg = a.args only2
-			input = ctx concretize-expr concrete-called.params[0].type, input-arg
-			in-element-type = input.type is-range ? input.type.range-element-type : input.type array-element-type
-			out-element-type = type.is-void ? type : type array-element-type
-			empty-out-array constant-array? = unless type is-void
-				ctx.all-constants get-constant-array type, () constant-array!
-			match lambda-arg
-			as lambda-expr l
-				forbid _ ?= l.mut-type-for-explicit-shared # This won't happen because 'for-loop' takes a 'mut' lambda
-				rg uri-and-range = ctx.cur-uri, lambda-arg.range
-				body = ctx concretize-with-destructure out-element-type, rg, l.param, () =>
-					ctx concretize-expr out-element-type, l.body
-				type, range, (input array-op-concrete-expr body.root-local, empty-out-array, body.expr)
-			else
-				lambda-type = concrete-called.params[1].type
-				temp concrete-local = ctx.local-ids.take-next-id, member, lambda-type # TODO: use a new kind, not 'member'
-				lambda = ctx concretize-expr lambda-type, lambda-arg
-				in-element concrete-local = ctx.local-ids.take-next-id, member, in-element-type # TODO: use a new kind, not 'member'
-				body = builtin-fun-call-lambda builtin-concrete-expr (out-element-type, in-element-type), ((range gen-local-get temp), (range gen-local-get in-element))
-				then concrete-expr = type, range, (input array-op-concrete-expr in-element, empty-out-array, (out-element-type, range, body))
-				type gen-let range, temp, lambda, then
+	guard concrete-called ?= ctx get-concrete-fun-from-called a.called : ctx concretize-bogus type, range
+	if concrete-called.return-type is-bogus
+		ctx concretize-bogus type, range
+	elif concrete-called is-array-op # TODO: it's a bit wasteful to give the function a body in get-concrete-fun-from-called only to ignore it here ....
+		input-arg, lambda-arg = a.args only2
+		input = ctx concretize-expr concrete-called.params[0].type, input-arg
+		in-element-type = input.type is-range ? input.type.range-element-type : input.type array-element-type
+		out-element-type = type.is-void ? type : type array-element-type
+		empty-out-array constant-array? = unless type is-void
+			ctx.all-constants get-constant-array type, () constant-array!
+		match lambda-arg
+		as lambda-expr l
+			forbid _ ?= l.mut-type-for-explicit-shared # This won't happen because 'for-loop' takes a 'mut' lambda
+			rg uri-and-range = ctx.cur-uri, lambda-arg.range
+			body = ctx concretize-with-destructure out-element-type, rg, l.param, () =>
+				ctx concretize-expr out-element-type, l.body
+			type, range, (input array-op-concrete-expr body.root-local, empty-out-array, body.expr)
 		else
-			concrete-args = ctx get-concrete-args range, concrete-called, a.args
+			lambda-type = concrete-called.params[1].type
+			temp concrete-local = ctx.local-ids.take-next-id, member, lambda-type # TODO: use a new kind, not 'member'
+			lambda = ctx concretize-expr lambda-type, lambda-arg
+			in-element concrete-local = ctx.local-ids.take-next-id, member, in-element-type # TODO: use a new kind, not 'member'
+			body = builtin-fun-call-lambda builtin-concrete-expr (out-element-type, in-element-type), ((range gen-local-get temp), (range gen-local-get in-element))
+			then concrete-expr = type, range, (input array-op-concrete-expr in-element, empty-out-array, (out-element-type, range, body))
+			type gen-let range, temp, lambda, then
+	else
+		args concrete-expr[] = if concrete-called is-variadic
+			array-type = concrete-called.params.only type
+			element-type = array-type array-element-type
+			elements concrete-expr[] = for arg : a args
+				ctx concretize-expr element-type, arg
+			(array-type, range, elements.create-array-concrete-expr),
+		else
+			for i : 0 .. a.args.size
+				ctx concretize-expr concrete-called.params[i].type, a.args[i]
+		# It's important to do this here to handle '!', '||', and '&&' to avoid compiling code that is blocked by 'if extern ...'
+		as-constant constant? = if x ?= args as-constants
+			ctx.concretize-ctx try-eval-constant concrete-called, x
+		expr = ctx may-widen-type concrete-called.return-type, if x ?= as-constant
+			concrete-called.return-type, range, x
+		else
 			# We need to widen again even though it was done already in 'concretize-expr',
 			# because we may be calling a spec-impl that has a narrower type than the spec.
 			# (The call expr's type can't reflect this and uses the spec's declared type.)
-			the-call concrete-expr = concrete-called.return-type, range, match concrete-args
-			as constants constants
-				if constant ?= ctx.concretize-ctx try-eval-constant concrete-called, constants.constants
-					constant
+			concrete-called.return-type, range, if builtin_ ?= concrete-called.body concrete-fun-body-builtin
+				match builtin_ kind
+				as builtin-binary-lazy x
+					ctx concretize-builtin-binary-lazy type, range, x, args
 				else
-					concrete-called gen-call-kind for p, x : concrete-called.params zip constants.constants
-						p.type, range, x
-			as exprs exprs
-				if builtin_ ?= concrete-called.body concrete-fun-body-builtin
-					match builtin_ kind
-					as builtin-binary-lazy x
-						ctx concretize-builtin-binary-lazy type, range, x, exprs.exprs
-					as builtin-fun-call-lambda
-						builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
-					else
-						builtin_.kind builtin-concrete-expr builtin_.type-args, exprs.exprs
-				else
-					concrete-called gen-call-kind exprs.exprs
-			ctx may-widen-type concrete-called.return-type, the-call
-	else
-		ctx concretize-bogus type, range
+					builtin_.kind builtin-concrete-expr builtin_.type-args, args
+			else
+				concrete-called call-concrete-expr args
+		ctx may-widen-type concrete-called.return-type, expr # TODO: 'may-widen-type' should be done for all concrete-exprs, not just calls!
 
 -is-array-op bool(a concrete-fun)
 	# TODO: make sure this is the one in collection.crow and all the spec impls are as expected ----------------------------------------------------------------------
@@ -146,24 +148,6 @@ do
 	# TODO: base this on more than just the name ... uri too? -----------------------------------------------------
 	decl.name == sym-range
 
--get-concrete-args constants-or-exprs
-	ctx concretize-expr-ctx
-	range uri-and-range
-	concrete-called concrete-fun
-	args expr[]
-do
-	params = concrete-called params
-	args-may-be-constants = args.is-empty || (concrete-called !is-summon && concrete-called.return-type.purity == data_)
-	if concrete-called is-variadic
-		array-type = params.only type
-		element-type = array-type array-element-type
-		pre = args-may-be-constants as-constants-or-exprs-if for arg : args
-			ctx concretize-expr element-type, arg
-		ctx constants-or-exprs-arr range, array-type, pre
-	else
-		args-may-be-constants as-constants-or-exprs-if for i : 0::nat .. params.size
-			ctx concretize-expr params[i].type, args[i]
-
 -concretize-builtin-binary-lazy concrete-expr-kind
 	ctx concretize-expr-ctx
 	type concrete-type
@@ -172,7 +156,6 @@ do
 	args concrete-expr[]
 do
 	arg0, arg1 = args only2
-	# TODO: handle constants here (false && whatever -> false, etc.) ------------------------------------------------------------------------------------------------------
 	match kind
 	as bool-and
 		ctx.concretize-ctx gen-and-kind range, arg0, arg1
@@ -211,12 +194,6 @@ do
 		ctx.concretize-ctx gen-some type, range, call
 	assert some-call.type == type
 	range gen-if-option option, (local, some-call), (ctx.concretize-ctx gen-none type, range)
-
--as-constants-or-exprs-if constants-or-exprs(may-be-constants bool, exprs concrete-expr[])
-	if may-be-constants
-		exprs as-constants-or-exprs
-	else
-		exprs exprs
 
 get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called called)
 	ctx.concretize-ctx get-concrete-fun-from-called ctx.type-scope, ctx.specs-scope, called
@@ -579,7 +556,6 @@ do
 	guard a.cases !is-empty : ctx concretize-bogus type, range
 	matched = ctx concretize-expr a.matched
 	values-unsorted integral-value[] = for x : a cases; x.member value
-	# TODO: If matched is a constant, just compile the relevant case
 	cases-unsorted concrete-expr[] = for value : values-unsorted
 		case_ = a.cases find! x => x.member.value == value
 		ctx concretize-expr type, case_.then
@@ -804,21 +780,6 @@ do
 			for member-index, x : ctx.sum-types[expected]! with-index
 				if res ?= ctx try-widen x.member-type, actual
 					break ctx gen-create-union expected, actual.range, member-index, res
-
-# TODO: this returns an array with a single array in it, why was I doing this? ------------------------------------------------------
--constants-or-exprs-arr constants-or-exprs
-	ctx concretize-expr-ctx
-	range uri-and-range
-	array-type concrete-type
-	args constants-or-exprs
-do
-	match args
-	as constants constants
-		array = ctx.all-constants get-constant-array array-type, constants.constants
-		(array,) constants
-	as exprs exprs
-		array concrete-expr = array-type, range, exprs.exprs.create-array-concrete-expr
-		(array,) exprs
 
 try-eval-constant constant?(ctx concretize-ctx, fn concrete-fun, args constant[])
 	match fn body
