@@ -31,15 +31,23 @@ do
 	classes js-class-decl[] = with out : build
 		for type : concrete-program all-structs
 			out ~~= ctx translate-type type
-	vars js-var-decl[] = with out : build
-		for var : concrete-program all-vars
-			destructure js-destructure = ctx js-name var
-			value = ctx source var gc-safe-value-for-type var.type
-			out ~= let, destructure, value
 	functions js-fun-decl[] = for x : concrete-program all-funs
 		ctx to-js-function x
+	vars js-var-decl[] = with out : build
+		for var : concrete-program all-vars
+			match var kind
+			as thread-local_
+				throw todo
+			as global_
+				destructure js-destructure = ctx js-name var
+				expr-ctx to-expr-ctx = do
+					ctx: ctx
+					is-cur-fun-async: async
+					cur-fun-debug-name: var.source.name
+				value = expr-ctx to-js-expr var.initializer
+				out ~= let, destructure, value
 	statements js-statement[] = (ctx gen-call-main concrete-program.common-funs.concrete-common-funs-js!.main),
-	ast js-script-ast = shebang, classes, vars, functions, statements
+	ast js-script-ast = shebang, classes, functions, vars, statements
 	module-paths module-paths = program module-paths
 	show-ctx write-js-ast module-paths, ast, source-map-name
 
@@ -197,9 +205,6 @@ do
 -source source(ctx to-js-ctx, a concrete-fun)
 	range = a range
 	range.uri, (ctx debug-name a), ctx.line-and-character-getters[range].range.start
--source source(ctx to-js-ctx, a concrete-var)
-	range = a range
-	range.uri, a.source.name, ctx.line-and-character-getters[range].range.start
 -debug-name sym(ctx to-js-ctx, a concrete-fun)
 	ctx.show-ctx show-concrete-fun-name a sym-of-string
 
@@ -299,10 +304,13 @@ do
 
 -to-expr-ctx record mut
 	ctx to-js-ctx
-	cur-fun concrete-fun
+	is-cur-fun-async sync-or-async
+	cur-fun-debug-name sym
 	cur-loop-label mut js-name?
 	temp-local-indices nat mut[concrete-local-id]
 	next-generated-temp-index mut nat
+-new to-expr-ctx(ctx to-js-ctx, is-cur-fun-async sync-or-async, cur-fun-debug-name sym)
+	ctx, is-cur-fun-async, cur-fun-debug-name, (), (), ()
 -show-ctx show-ctx(a to-expr-ctx)
 	a.ctx show-ctx
 -take-next-temp-index nat(a to-expr-ctx)
@@ -318,22 +326,18 @@ do
 
 -source source(ctx to-expr-ctx, a concrete-expr)
 	range = a range
-	range.uri, (ctx.ctx debug-name ctx.cur-fun), ctx.show-ctx.line-and-character-getters[range].range.start
+	range.uri, ctx.cur-fun-debug-name, ctx.show-ctx.line-and-character-getters[range].range.start
 
 -is-async sync-or-async(ctx to-js-ctx, a concrete-fun)
 	a in ctx.program.yielding-funs ? async : sync
--is-cur-fun-async sync-or-async(ctx to-expr-ctx)
-	ctx.ctx is-async ctx.cur-fun
 
 -to-js-function js-fun-decl(ctx to-js-ctx, a concrete-fun)
 	async sync-or-async = ctx is-async a
 	name js-name = ctx js-name a
-	expr-ctx to-expr-ctx = ctx, a, (), (), 0
+	expr-ctx to-expr-ctx = ctx, (ctx is-async a), (ctx debug-name a)
 	params js-destructure[] = for param : a params
 		expr-ctx local-name param
-	#info log "TRANSLATE FUNCTION {ctx.show-ctx show-concrete-fun-sig a, false} {a.range.to::json}" # -------------------------------------------------------------------------------
 	body = expr-ctx to-block-statement a
-	#info log "DONE" # ---------------------------------------------------------------------------------------------------------
 	comment = ctx.show-ctx show-concrete-fun-sig a, ((ctx is-async a) == async)
 	comment, name, (async, (params, ()), body)
 
@@ -1115,21 +1119,6 @@ do
 	as weak-ref
 		assert _ ?= a constant-gc-safe-value
 		source gen-null
-
--gc-safe-value-for-type js-expr(source source, type concrete-type)
-	match type body
-	as concrete-builtin-type _
-		source gen-integer-unsigned 0 # TODO: not all builtins are numbers ................................................
-	as concrete-enum _
-		source gen-integer-unsigned 0
-	as concrete-flags _
-		source gen-integer-unsigned 0
-	as concrete-record _
-		source gen-null
-	as concrete-union _
-		source gen-null
-	as concrete-type-body-deferred
-		throw unreachable
 
 -constant-integral js-expr(source source, type integral-type, a constant)
 	value = match a

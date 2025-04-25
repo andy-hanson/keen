@@ -10,6 +10,8 @@ import
 	../lang
 	../show-model
 	./allocators
+	./check-call/candidates
+	./check-call/check-call
 	./check-doc-comments
 	./check-funs
 	./check-ctx
@@ -145,7 +147,7 @@ do
 	xs to-by-name (_, y) =>
 		ctx add-diag-assert-same-uri y.name-range, (struct-or-alias diag-duplicate-declaration y.name)
 
--check-var-decl var-decl
+-check-var-initial var-decl
 	ctx check-ctx
 	common-types common-types
 	structs-and-aliases-map structs-and-aliases-map
@@ -158,6 +160,7 @@ do
 	module-uri: ctx cur-uri
 	visibility: ast.visibility visibility-from-explicit-top-level
 	type: ctx type-from-ast-no-type-params common-types, structs-and-aliases-map, ast.type
+	initializer: ()
 	doc-comment-references: ()
 -to decl-kind(a var-kind)
 	match a
@@ -172,6 +175,23 @@ do
 			ctx add-diag x.range, (x.keyword diag-modifier-invalid kind.to)
 		as spec-use-ast x
 			ctx add-diag x.range, kind.to.diag-spec-use-invalid
+-check-var-initializer void
+	ctx check-ctx
+	common-types common-types
+	var var-decl
+	funs-map funs-map
+do
+	funs-in-scope = ctx funs-in-non-expr-scope funs-map
+	initializer = ctx find-function-for-return-and-param-types common-types, var,
+		funs-in-scope, (summon_ | unsafe_), (), sym-new, var.range.range, (), (var.type,), () => true
+	var.initializer := if i ?= initializer
+		match i
+		as called-bogus _
+			()
+		as fun-inst x
+			x
+		as called-spec-sig _
+			throw unreachable
 
 -spec-flags-and-parents record(is-builtin bool, parents specs)
 -check-spec-modifiers spec-flags-and-parents
@@ -215,13 +235,15 @@ do
 	start = perf-now
 	ctx check-struct-bodies common-types, structs-and-aliases-map, structs, ast.structs
 	vars var-decl[] = for x : ast vars
-		ctx check-var-decl common-types, structs-and-aliases-map, x
+		ctx check-var-initial common-types, structs-and-aliases-map, x
 	specs = ctx check-spec-decls-initial ast.specs
 	specs-map = specs to-by-name (_, y) =>
 		ctx add-diag-assert-same-uri y.range, (spec_ diag-duplicate-declaration y.name)
 	ctx check-spec-bodies common-types, structs-and-aliases-map, specs-map, ast.specs, specs
 	funs-and-map = ctx check-funs common-types, specs-map, structs, structs-and-aliases-map, vars,
 		imports-and-re-exports.file-imports, imports-and-re-exports.file-exports, ast.funs, ast.tests
+	for var : vars
+		ctx check-var-initializer common-types, var, funs-and-map.funs-map
 	ctx check-doc-comments structs-and-aliases-map, specs-map, funs-and-map.funs-map,
 		struct-aliases, structs, specs, vars, funs-and-map.funs, funs-and-map.tests
 	module-doc-comment-references = ctx check-doc-comment-references structs-and-aliases-map,

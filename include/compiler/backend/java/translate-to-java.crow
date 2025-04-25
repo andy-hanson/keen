@@ -95,7 +95,6 @@ do
 	fields: ()
 	methods: main,
 	attributes: ()
-	
 
 -funs-and-vars-by-uri (concrete-fun[], concrete-var[])[uri](a concrete-program)
 	res (concrete-fun mut[], concrete-var mut[]) mut[uri] = ()
@@ -347,7 +346,7 @@ do
 			out push-constant ctx, x.args[i], field.type
 	as single-constant-union _
 		throw unreachable
-	out set-static-field ctx, ctx.ctx.constant-names[constant], constant.type
+	out set-static-field ctx.ctx, ctx.ctx.constant-names[constant], constant.type
 	ctx must-pop constant.type
 	assert ctx.stack is-empty
 
@@ -427,16 +426,16 @@ do
 	name-and-type = constants name-and-type "instance", "L{class_};"
 	constants field (constants class_ class_), name-and-type
 
--static-field-descriptor field-reference(ctx expr-ctx, field class-and-member, type concrete-type)
-	constants-class = ctx.constants class_ field.class_
-	field-name-and-type = ctx.constants name-and-type field.member, (ctx.ctx descriptor-for-field-type type)
-	ctx.constants field constants-class, field-name-and-type
+-static-field-descriptor field-reference(ctx to-java-ctx, constants constants-builder, field class-and-member, type concrete-type)
+	constants-class = constants class_ field.class_
+	field-name-and-type = constants name-and-type field.member, (ctx descriptor-for-field-type type)
+	constants field constants-class, field-name-and-type
 
--get-static-field void(out code-builder, ctx expr-ctx, field class-and-member, type concrete-type)
-	out getstatic (ctx static-field-descriptor field, type)
+-get-static-field void(out code-builder, ctx to-java-ctx, field class-and-member, type concrete-type)
+	out getstatic do ctx static-field-descriptor out.constants, field, type
 
--set-static-field void(out code-builder, ctx expr-ctx, field class-and-member, type concrete-type)
-	out putstatic (ctx static-field-descriptor field, type)
+-set-static-field void(out code-builder, ctx to-java-ctx, field class-and-member, type concrete-type)
+	out putstatic do ctx static-field-descriptor out.constants, field, type
 
 -push-constant void(out code-builder, ctx expr-ctx, constant constant, type concrete-type)
 	match type body
@@ -465,7 +464,7 @@ do
 		else
 			match constant
 			as constant-record r
-				out get-static-field ctx, ctx.ctx.constant-names.records[type]![r]!, type
+				out get-static-field ctx.ctx, ctx.ctx.constant-names.records[type]![r]!, type
 				ctx pushed type
 			as constant-gc-safe-value
 				out aconst_null
@@ -537,7 +536,7 @@ do
 			out aconst_null
 		else
 			field = ctx.ctx.constant-names.arrays[type]![constant.constant-array!.index]!
-			out get-static-field ctx, field, type
+			out get-static-field ctx.ctx, field, type
 	string void mut() = () =>
 		value = ctx.program as-string constant
 		out ldc reference-type, (ctx.constants string-ref value)
@@ -1331,10 +1330,14 @@ do
 	this-class-name = ctx.mangled-names[uri]
 	this-class = constants class_ this-class-name
 	fields field_info[] = for var : vars
-		access-flags: static
-		name: constants[ctx.mangled-names[var].member]
-		descriptor: constants[ctx descriptor-for-field-type var.type]
-		attributes: ()
+		match var kind
+		as thread-local_
+			throw todo
+		as global_
+			access-flags: static
+			name: constants[ctx.mangled-names[var].member]
+			descriptor: constants[ctx descriptor-for-field-type var.type]
+			attributes: ()
 	methods method_info[] = with methods-out : build
 		for fun : funs
 			guard ctx !uses-java-instance-method fun
@@ -1348,6 +1351,7 @@ do
 				name: constants[ctx.mangled-names[fun] member]
 				descriptor: constants[ctx method-descriptor fun]
 				attributes: code,
+		methods-out ~= ctx init-vars constants, this-class, vars
 	Object = constants class_ "java/lang/Object"
 	class_ ClassFile = do
 		source SourceFile_attribute = constants["SourceFile"], constants[uri to]
@@ -1360,6 +1364,31 @@ do
 		methods: methods
 		attributes: source,
 	ctx add-class this-class-name, class_
+
+-init-vars method_info(ctx to-java-ctx, constants constants-builder, this-class class-reference, vars concrete-var[])
+	expr-ctx expr-ctx = do
+		ctx: ctx
+		constants: constants
+		this-class: this-class
+		cur-fun: ()
+		closure: ()
+		has-this: false
+		params: ()
+	code = with out : constants build-code
+		for var : vars
+			match var kind
+			as thread-local_
+				throw todo
+			as global_
+				out emit-and-continue expr-ctx, var.initializer
+				out set-static-field ctx, ctx.mangled-names[var], var.type
+				expr-ctx must-pop var.type
+			assert expr-ctx.stack is-empty
+		out return void
+	access-flags: static | final
+	name: constants["<clinit>"]
+	descriptor: constants["()V"]
+	attributes: code,
 
 -uses-java-instance-method bool(ctx to-java-ctx, fun concrete-fun)
 	match fun body
@@ -1794,7 +1823,7 @@ do
 		as thread-local_
 			throw todo
 		as global_
-			out get-static-field ctx, ctx.ctx.mangled-names[x var], type
+			out get-static-field ctx.ctx, ctx.ctx.mangled-names[x var], type
 		ctx pushed type
 		out handle-pos pos, type
 	as var-set-concrete-expr x
@@ -1803,7 +1832,7 @@ do
 		as thread-local_
 			throw todo
 		as global_
-			out set-static-field ctx, ctx.ctx.mangled-names[x var], x.var.type
+			out set-static-field ctx.ctx, ctx.ctx.mangled-names[x var], x.var.type
 			ctx must-pop x.value.type
 		out handle-pos pos, type
 	as union-as-concrete-expr x
