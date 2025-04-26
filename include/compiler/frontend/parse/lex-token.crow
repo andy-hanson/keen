@@ -3,7 +3,6 @@ import
 	../../model/integral-values
 	../../model/source-range
 	../../util/string-walker
-	../../util/sym
 	./lex-whitespace
 	./token
 
@@ -11,7 +10,7 @@ token-and-data record
 	-dummy void
 	token token
 	token-data token-data
-token-data union(void, sym, extra-dedents, literal-float, literal-integral, char32, source-range)
+token-data union(void, symbol, extra-dedents, literal-float, literal-integral, char32, source-range)
 extra-dedents record(extra-dedents nat)
 
 new token-and-data(token token)
@@ -22,7 +21,7 @@ new token-and-data(token token)
 	forbid token == unexpected-character
 	forbid token == region_
 	(), token, ()::void
-new token-and-data(token token, s sym)
+new token-and-data(token token, s symbol)
 	assert token is-symbol-token
 	(), token, s
 new token-and-data(token token, d extra-dedents)
@@ -43,9 +42,9 @@ new token-and-data(token token, r source-range)
 
 is-symbol bool(a token-and-data)
 	a.token is-symbol-token
-as-symbol sym(a token-and-data) # TODO: have a function returning an option instead of using an 'is' and 'as' pair -------------
+as-symbol symbol(a token-and-data) # TODO: have a function returning an option instead of using an 'is' and 'as' pair -------------
 	assert a.token is-symbol-token
-	a.token-data sym!
+	a.token-data symbol!
 as-extra-dedents nat(a token-and-data)
 	assert a.token is-newline-token
 	a.token-data.extra-dedents! extra-dedents
@@ -123,12 +122,12 @@ do
 	as "\n"
 		ptr newline-token newline-same-indent, indent-kind, cur-indent, add-diag
 	as "~"
-		ptr operator-token (ptr try-take-char "~" ? sym-tilde-tilde : sym-tilde)
+		ptr operator-token do ptr try-take-char "~" ? "~~" : "~"
 	as "@"
 		at plain-token
 	as "!"
-		if ptr !starts-with "==" && ptr try-take-char "="
-			ptr operator-token sym-bang-eq
+		if ptr !starts-with "==" && ptr try-take-char "=" # TODO: what was this about? There's no '!==" operator ------------------------------------------------------------------------------
+			ptr operator-token "!="
 		else
 			before-name = ptr pos
 			if ptr try-take-identifier
@@ -136,13 +135,13 @@ do
 			else
 				bang plain-token
 	as "%"
-		ptr operator-token sym-mod
+		ptr operator-token "%"
 	as "^"
-		ptr operator-token sym-exp
+		ptr operator-token "^"
 	as "&"
-		ptr operator-token (ptr try-take-char "&" ? sym-amp-amp : sym-amp)
+		ptr operator-token do ptr try-take-char "&" ? "&&" : "&"
 	as "*"
-		ptr operator-token (ptr try-take-char "*" ? sym-star-star : sym-star)
+		ptr operator-token do ptr try-take-char "*" ? "**" : "*"
 	as "("
 		paren-left plain-token
 	as ")"
@@ -161,24 +160,24 @@ do
 		elif ptr try-take-char ">"
 			arrow-access plain-token
 		else
-			ptr operator-token sym-minus
+			ptr operator-token "-"
 	as "="
 		if ptr try-take-char ">"
 			arrow-lambda plain-token
 		elif ptr try-take-char "="
-			ptr operator-token sym-eq-eq
+			ptr operator-token "=="
 		else
 			equal plain-token
 	as "+"
 		if *ptr is-decimal-digit
 			ptr take-number-after-sign plus
 		else
-			ptr operator-token sym-plus
+			ptr operator-token "+"
 	as "|"
 		if prev-token is-newline-token && *ptr is-whitespace
 			quote-bar plain-token
 		else
-			ptr operator-token (ptr try-take-char "|" ? sym-bar-bar : sym-bar)
+			ptr operator-token do ptr try-take-char "|" ? "||" : "|"
 	as ":"
 		if ptr try-take-char "="
 			colon-equal plain-token
@@ -194,28 +193,28 @@ do
 		comma plain-token
 	as "<"
 		ptr operator-token if ptr try-take-char "="
-			ptr try-take-char ">" ? sym-lt-eq-gt : sym-lt-eq
+			ptr try-take-char ">" ? "<=>" : "<="
 		elif ptr try-take-char "<"
-			sym-lt-lt
+			"<<"
 		else
-			sym-lt
+			"<"
 	as ">"
 		ptr operator-token if ptr try-take-char "="
-			sym-gt-eq
+			">="
 		elif ptr try-take-char ">"
-			sym-gt-gt
+			">>"
 		else
-			sym-gt
+			">"
 	as "."
 		if ptr try-take-char "."
 			if ptr try-take-char "."
 				dot3 plain-token
 			else
-				ptr operator-token sym-dot-dot
+				ptr operator-token ".."
 		else
 			dot plain-token
 	as "/"
-		ptr operator-token sym-slash
+		ptr operator-token "/"
 	as "?"
 		if ptr try-take-char "="
 			question-equal plain-token
@@ -224,7 +223,7 @@ do
 		elif ptr try-take-char "["
 			question-bracket plain-token
 		elif ptr try-take-char "?"
-			ptr operator-token sym-q-q
+			ptr operator-token "??"
 		else
 			question plain-token
 	else
@@ -335,12 +334,12 @@ do
 	extra-dedents nat = delta < 0 ? delta.abs - 1 : 0
 	token, (extra-dedents,)::extra-dedents
 
--operator-token token-and-data(ptr string-walker, value sym)
+-operator-token token-and-data(ptr string-walker, value symbol)
 	ptr name-like-token value, operator
 
--name-like-token token-and-data(ptr string-walker, value sym, regular-token token)
+-name-like-token token-and-data(ptr string-walker, value symbol, regular-token token)
 	if ptr !starts-with "==" && ptr try-take-char "="
-		name-or-operator-equals, "{value}=".sym-of-string
+		name-or-operator-equals, "{value}="
 	else
 		token = if regular-token == name && ptr try-take-char "!"
 			name-bang
@@ -350,8 +349,8 @@ do
 			regular-token
 		token, value
 
--token-for-symbol token(a sym)
-	match a matchable
+-token-for-symbol token(a symbol)
+	match a
 	as "abstract"
 		reserved-abstract
 	as "alias"
