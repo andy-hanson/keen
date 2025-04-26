@@ -236,6 +236,9 @@ do
 
 # This sets 'constant-names' while emitting classes to contain constants
 -translate-constants void(ctx to-java-ctx)
+	# Do symbols first ...
+	ctx add-class constant-symbols-class-name, do ctx constant-symbols-class
+
 	# Since class files can't get too big, we must break up constants between several classes.
 	constant-array-names class-and-member mut[nat] mut[concrete-type] = ()
 	constant-record-names class-and-member mut[constant-record] mut[concrete-type] = ()
@@ -282,7 +285,48 @@ do
 		unions: ()
 
 	for name, constants : class-to-constants
-		ctx add-class name, (ctx constants-class name, constants)
+		ctx add-class name, do ctx constants-class name, constants
+
+-constant-symbols-class-name string()
+	"_constant_symbols"
+-constant-symbol-name string(index nat)
+	"s{index}"
+-constant-symbol-field field-reference(ctx to-java-ctx, constants constants-builder, index nat)
+	symbol-type = ctx descriptor-for-field-type ctx.program.symbol
+	name-and-type = constants name-and-type index.constant-symbol-name, symbol-type
+	constants field (constants class_ constant-symbols-class-name), name-and-type
+
+-constant-symbols-class ClassFile(ctx to-java-ctx)
+	constants constants-builder = ()
+	constant-symbols = ctx.program.all-constants symbols
+	symbol-descriptor = constants[ctx descriptor-for-field-type ctx.program.symbol]
+	to-symbol-ref = constants static-method-ref ctx, ctx.program.common-funs.concrete-common-funs-java!.to-symbol-from-string
+	fields field_info[] = for index : 0 .. constant-symbols.size
+		access-flags: static | final
+		name: constants[index constant-symbol-name]
+		descriptor: symbol-descriptor
+		attributes: ()
+	this-class = constants class_ constant-symbols-class-name
+	static-init method_info = do
+		code = with out : constants build-code
+			for index, symbol : constant-symbols with-index
+				out ldc reference-type, do out.constants string-ref symbol.to
+				out invokestatic to-symbol-ref
+				out putstatic do ctx constant-symbol-field constants, index
+			out return void
+		access-flags: static | final | synthetic
+		name: constants["<clinit>"]
+		descriptor: constants["()V"]
+		attributes: code,
+	Object = constants class_ "java/lang/Object"
+	constant-pool: constants finish
+	access: final
+	this-class: this-class
+	super-class: Object
+	interfaces: ()
+	fields: fields
+	methods: static-init,
+	attributes: ()
 
 -constants-class ClassFile(ctx to-java-ctx, name string, constants any-constant[])
 	filtered-constants any-constant[] = constants filter x =>
@@ -428,7 +472,7 @@ do
 
 -static-field-descriptor field-reference(ctx to-java-ctx, constants constants-builder, field class-and-member, type concrete-type)
 	constants-class = constants class_ field.class_
-	field-name-and-type = constants name-and-type field.member, (ctx descriptor-for-field-type type)
+	field-name-and-type = constants name-and-type field.member, do ctx descriptor-for-field-type type
 	constants field constants-class, field-name-and-type
 
 -get-static-field void(out code-builder, ctx to-java-ctx, field class-and-member, type concrete-type)
@@ -537,9 +581,6 @@ do
 		else
 			field = ctx.ctx.constant-names.arrays[type]![constant.constant-array!.index]!
 			out get-static-field ctx.ctx, field, type
-	string void mut() = () =>
-		value = ctx.program as-string constant
-		out ldc reference-type, (ctx.constants string-ref value)
 	match builtin_ kind
 	as array
 		if type.array-element-type is-empty-type
@@ -596,9 +637,10 @@ do
 	as option
 		throw unreachable
 	as string
-		string[]
+		value = ctx.program as-string constant
+		out ldc reference-type, do ctx.constants string-ref value
 	as symbol
-		string[]
+		out getstatic do ctx.ctx constant-symbol-field ctx.constants, constant.constant-symbol!.index
 	as void
 		()
 	as weak-ref
@@ -922,7 +964,7 @@ do
 		out return void
 	access-flags: ()
 	name: constants["<init>"]
-	descriptor: constants[ctx record-init-descriptor (for _, type : fields; type)]
+	descriptor: constants[ctx record-init-descriptor for _, type : fields; type]
 	attributes: code,
 
 -init-no-args method-reference(constants constants-builder, class_ class-reference)
@@ -1061,7 +1103,7 @@ do
 	field-name string
 	field-type concrete-type
 do
-	name-and-type = constants name-and-type field-name, (ctx descriptor-for-field-type field-type)
+	name-and-type = constants name-and-type field-name, do ctx descriptor-for-field-type field-type
 	constants field this-class, name-and-type
 
 -as-boxed-class-reference class-reference(ctx expr-ctx, type concrete-type)
@@ -1519,7 +1561,7 @@ do
 
 -call-concrete-fun void(out code-builder, ctx to-java-ctx, fun concrete-fun) # TODO: name should indicate that this only works for static methods?
 	forbid ctx uses-java-instance-method fun
-	out invokestatic (out.constants static-method-ref ctx, fun)
+	out invokestatic do out.constants static-method-ref ctx, fun
 
 -call-interface-fun void(out code-builder, ctx to-java-ctx, fun concrete-fun)
 	assert ctx uses-java-instance-method fun
