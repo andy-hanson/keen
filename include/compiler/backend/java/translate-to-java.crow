@@ -73,8 +73,15 @@ do
 	this-class = constants class_ "Main"
 	main method_info = do
 		code = with out : constants build-code
-			main = ctx.program.common-funs.concrete-common-funs-java!.main
 			out aload 0
+			match ctx.program.string body
+			as concrete-builtin-type b
+				b.kind is string
+			as concrete-record _
+				out call-static "Crow", "stringArrayFromJavaStringArray", "([Ljava/lang/String;)[[B"
+			else
+				throw unreachable
+			main = ctx.program.common-funs.concrete-common-funs-java! main
 			out call-concrete-fun ctx, main
 			out l2i # TODO: this throws away information ------------------------------------------------------------------------------------
 			out dup32
@@ -318,6 +325,13 @@ do
 		code = with out : constants build-code
 			for index, symbol : constant-symbols with-index
 				out ldc reference-type, do out.constants string-ref symbol.to
+				match ctx.program.string body
+				as concrete-builtin-type b
+					b.kind is string
+				as concrete-record _
+					out call-virtual "java/lang/String", "getBytes", "()[B"
+				else
+					throw unreachable
 				out invokestatic to-symbol-ref
 				out putstatic do ctx constant-symbol-field constants, index
 			out return void
@@ -2868,7 +2882,7 @@ do
 				descriptor string = with d : build
 					d ~= "("
 					for index, _ : args with-index
-						d ~~= index == 1 ? "Ljava/lang/String;" : "Ljava/lang/Object;"
+						d ~~= index == 1 ? ctx.ctx.string-descriptor : "Ljava/lang/Object;"
 					d ~~= ")Ljava/lang/Object;"
 				out call-static "Crow", "callInstance", descriptor.to
 				out cast-and-unbox-if-necessary ctx.ctx, type
@@ -2890,7 +2904,7 @@ do
 				descriptor string = with d : build
 					d ~= "("
 					for index, _ : args with-index
-						d ~~= index == 0 ? "Ljava/lang/String;" : "Ljava/lang/Object;"
+						d ~~= index == 0 ? ctx.ctx.string-descriptor : "Ljava/lang/Object;"
 					d ~~= ")Ljava/lang/Object;"
 				out call-static "Crow", "callNew", descriptor.to
 	as call-static
@@ -2917,13 +2931,13 @@ do
 				descriptor string = with d : build
 					d ~= "("
 					for index, _ : args with-index
-						d ~~= index < 2 ? "Ljava/lang/String;" : "Ljava/lang/Object;"
+						d ~~= index < 2 ? ctx.ctx.string-descriptor : "Ljava/lang/Object;"
 					d ~~= ")Ljava/lang/Object;"
 				out call-static "Crow", "callStatic", descriptor.to
 				out cast-and-unbox-if-necessary ctx.ctx, type
 	as call-static-varargs
 		out function-like ctx, type, args, () =>
-			out call-static "Crow", "callStaticVarargs", "(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;"
+			out call-static "Crow", "callStaticVarargs", "({ctx.ctx.string-descriptor}{ctx.ctx.string-descriptor}[Ljava/lang/Object;)Ljava/lang/Object;"
 			out cast-and-unbox-if-necessary ctx.ctx, type
 	as cast
 		out function-like ctx, type, args, () =>
@@ -2953,7 +2967,7 @@ do
 		#		class_ = out.constants class
 		#else
 		out function-like ctx, type, args, () =>
-			out call-static "Crow", "getStaticField", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;"
+			out call-static "Crow", "getStaticField", "({ctx.ctx string-descriptor}{ctx.ctx string-descriptor})Ljava/lang/Object;"
 	as new-array
 		out function-like ctx, type, args, () =>
 			out new-array-for-type ctx, type-args.only
@@ -2961,6 +2975,16 @@ do
 		args.size is 0
 		out function-like ctx, type, args, () =>
 			out aconst_null
+
+-string-descriptor string(ctx to-java-ctx)
+	match ctx.program.string body
+	as concrete-builtin-type b
+		b.kind is string
+		"Ljava/lang/String;"
+	as concrete-record _
+		"[B"
+	else
+		throw unreachable
 
 -can-call-static bool(class-name symbol, method-name symbol, args concrete-expr[])
 	if class-name == "java.lang.System" && method-name == "identityHashCode"
@@ -2991,20 +3015,25 @@ do
 	a.to replace-all ".", "/" to
 
 -as-constant-string symbol?(ctx expr-ctx, a concrete-expr)
-	guard a.type is-string
+	guard a.type == ctx.program.string
 	guard x ?= a.kind constant
 	ctx.program as-string x to
 
 -as-string string(program concrete-program, constant constant)
 	match constant
-	as constant-array ca
-		elements = program.all-constants.arrs[ca type-index].constants[ca index] # TODO: have a helper function for this!
-		chars char8[] = for x : elements
-			x.as-integral.as-unsigned.to to
-		chars to
+	as constant-array ca # TODO: This won't be reachable! --------------------------------------------------------------------
+		program char8-array-as-string ca	
 	as constant-c-string x
 		program.all-constants.c-strings[x index]
 	as constant-gc-safe-value
 		""
+	as constant-record x
+		program char8-array-as-string program.all-constants.records[program.string]![x].only.constant-array!
 	else
 		throw unreachable
+
+-char8-array-as-string string(program concrete-program, constant constant-array)
+	elements = program.all-constants.arrs[constant type-index].constants[constant index] # TODO: have a helper function for this!
+	chars char8[] = for x : elements
+		x.as-integral.as-unsigned.to to
+	chars to

@@ -1,6 +1,17 @@
 // Note: This file is inlined into 'bin/crow'.
 // So if you edit this file, you need to build twice: 'make bin/crow && make update-lkg && rm bin/crow && make bin/crow' (TODO: can I make this happen automatically?)
 class Crow {
+	static java.nio.file.Path toJavaPath(byte[] a) { // rm ---------------------------------------------------------------------
+		return java.nio.file.Paths.get(new String(a));
+	}
+
+	static byte[][] stringArrayFromJavaStringArray(String[] a) {
+		byte[][] res = new byte[a.length][];
+		for (int i = 0; i < res.length; i++)
+			res[i] = a[i].getBytes();
+		return res;
+	}
+
 	static boolean referenceEqual(Object a, Object b) {
 		return a == b;		
 	}
@@ -168,55 +179,107 @@ class Crow {
 	}
 	private static final java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup();
 
+	// TODO: remove the String overloads, these should now always take a byte[] -----------------------------------------------------------------------
+	static Object getStaticField(byte[] className, byte[] fieldName) throws Throwable {
+		return getStaticField(new String(className), new String(fieldName));
+	}
 	static Object getStaticField(String className, String fieldName) throws Throwable {
 		return Class.forName(className).getDeclaredField(fieldName).get(null);
+	}
+	static Object callNew(byte[] className) throws Throwable {
+		return callNew(new String(className));
 	}
 	static Object callNew(String className) throws Throwable {
 		return callNewVarargs(className, new Object[] {});
 	}
+	static Object callNew(byte[] className, Object arg) throws Throwable {
+		return callNew(new String(className), arg);
+	}
 	static Object callNew(String className, Object arg) throws Throwable {
 		return callNewVarargs(className, new Object[] { arg });
+	}
+	static Object callNew(byte[] className, Object arg0, Object arg1) throws Throwable {
+		return callNew(new String(className), arg0, arg1);
 	}
 	static Object callNew(String className, Object arg0, Object arg1) throws Throwable {
 		return callNewVarargs(className, new Object[] { arg0, arg1 });
 	}
+	static Object callNew(byte[] className, Object arg0, Object arg1, Object arg2) throws Throwable {
+		return callNew(new String(className), arg0, arg1, arg2);
+	}
 	static Object callNew(String className, Object arg0, Object arg1, Object arg2) throws Throwable {
 		return callNewVarargs(className, new Object[] { arg0, arg1, arg2 });
+	}
+	static Object callNewVarargs(byte[] className, Object[] args) throws Throwable {
+		return callNewVarargs(new String(className), args);
 	}
 	static Object callNewVarargs(String className, Object[] args) throws Throwable {
 		return getConstructor(Class.forName(className), args).newInstance(args);
 	}
 
+	static Object callStatic(byte[] className, byte[] methodName) throws Throwable {
+		return callStatic(new String(className), new String(methodName));
+	}
 	static Object callStatic(String className, String methodName) throws Throwable {
 		return callStaticVarargs(className, methodName, new Object[] {});
+	}
+	static Object callStatic(byte[] className, byte[] methodName, Object arg0) throws Throwable {
+		return callStatic(new String(className), new String(methodName), arg0);
 	}
 	static Object callStatic(String className, String methodName, Object arg) throws Throwable {
 		return callStaticVarargs(className, methodName, new Object[] { arg });
 	}
+	static Object callStatic(byte[] className, byte[] methodName, Object arg0, Object arg1) throws Throwable {
+		return callStatic(new String(className), new String(methodName), arg0, arg1);
+	}
 	static Object callStatic(String className, String methodName, Object arg0, Object arg1) throws Throwable {
 		return callStaticVarargs(className, methodName, new Object[] { arg0, arg1 });
+	}
+	static Object callStatic(byte[] className, byte[] methodName, Object arg0, Object arg1, Object arg2) throws Throwable {
+		return callStatic(new String(className), new String(methodName), arg0, arg1, arg2);
 	}
 	static Object callStatic(String className, String methodName, Object arg0, Object arg1, Object arg2) throws Throwable {
 		return callStaticVarargs(className, methodName, new Object[] { arg0, arg1, arg2 });
 	}
+	static Object callStatic(byte[] className, byte[] methodName, Object arg0, Object arg1, Object arg2, Object arg3) throws Throwable {
+		return callStatic(new String(className), new String(methodName), arg0, arg1, arg2, arg3);
+	}
 	static Object callStatic(String className, String methodName, Object arg0, Object arg1, Object arg2, Object arg3) throws Throwable {
 		return callStaticVarargs(className, methodName, new Object[] { arg0, arg1, arg2, arg3 });
+	}
+	static Object callStaticVarargs(byte[] className, byte[] methodName, Object[] args) throws Throwable {
+		return callStaticVarargs(new String(className), new String(methodName), args);
 	}
 	static Object callStaticVarargs(String className, String methodName, Object[] args) throws Throwable {
 		return getMethod(Class.forName(className), methodName, args).invoke(null, args);
 	}
 
+	static Object callInstance(Object object, byte[] name) throws Throwable {
+		return callInstance(object, new String(name));
+	}
 	static Object callInstance(Object object, String name) throws Throwable {
 		return callInstanceVarargs(object, name, new Object[] {});
+	}
+	static Object callInstance(Object object, byte[] name, Object arg) throws Throwable {
+		return callInstance(object, new String(name), arg);
 	}
 	static Object callInstance(Object object, String name, Object arg) throws Throwable {
 		return callInstanceVarargs(object, name, new Object[] { arg });
 	}
+	static Object callInstance(Object object, byte[] name, Object arg0, Object arg1) throws Throwable {
+		return callInstance(object, new String(name), arg0, arg1);
+	}
 	static Object callInstance(Object object, String name, Object arg0, Object arg1) throws Throwable {
 		return callInstanceVarargs(object, name, new Object[] { arg0, arg1 });
 	}
+	static Object callInstance(Object object, byte[] name, Object arg0, Object arg1, Object arg2) throws Throwable {
+		return callInstance(object, new String(name), arg0, arg1, arg2);
+	}
 	static Object callInstance(Object object, String name, Object arg0, Object arg1, Object arg2) throws Throwable {
 		return callInstanceVarargs(object, name, new Object[] { arg0, arg1, arg2 });
+	}
+	static Object callInstanceVarargs(Object object, byte[] name, Object[] args) throws Throwable {
+		return callInstanceVarargs(object, new String(name), args);
 	}
 	static Object callInstanceVarargs(Object object, String name, Object[] args) throws Throwable {
 		return getMethod(classOf(object), name, args).invoke(object, args);
