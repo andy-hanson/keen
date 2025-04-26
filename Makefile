@@ -60,8 +60,13 @@ bin/crow: $(all_include_crow) $(all_include_compiler) include/compiler/backend/j
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
 	mv bin/crow-tmp bin/crow
 
-profile: bin/crow
+profile-check: bin/crow
 	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow check include/compiler/app/main.crow --times 30 --perf
+	jmc
+
+profile-translate-to-java: bin/crow
+	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow build include/compiler/app/main.crow --out bin/temp --times 10 --perf
+	rm bin/temp
 	jmc
 
 ### site ###
