@@ -12,7 +12,7 @@ import
 	./instantiate
 	./type-from-ast
 	
-check-auto-fun fun-body(ctx check-ctx, specs-map specs-map, funs-map funs-map, fun fun-decl)
+check-auto-fun fun-body(ctx check-ctx, common-types common-types, specs-map specs-map, funs-map funs-map, fun fun-decl)
 	wrong fun-body mut(diag diag) = diag =>
 		ctx add-diag fun.name-range.range, diag
 		fun-body-bogus
@@ -20,11 +20,14 @@ check-auto-fun fun-body(ctx check-ctx, specs-map specs-map, funs-map funs-map, f
 		wrong[kind diag-auto-fun-wrong-params]
 	wrong-return-type fun-body mut(kind auto-fun-name) = kind =>
 		wrong[kind diag-auto-fun-wrong-return-type]
-	
+
+	symbol = common-types symbol
+	symbol-array = common-types.array[symbol]
+
 	match fun.name matchable
 	as "=="
 		if spec_ ?= ctx get-spec-from-common-module specs-map, fun.name-range.range, sym-equal, compare
-			if param-type ?= ctx get-auto-fun-param-type equals, fun, 2
+			if param-type ?= ctx get-auto-fun-param-type common-types, equals, fun, 2
 				ctx check-auto-fun-with-spec funs-map, fun, param-type, equals, equals, spec_, (), ()
 			else
 				fun-body-bogus
@@ -32,17 +35,17 @@ check-auto-fun fun-body(ctx check-ctx, specs-map specs-map, funs-map funs-map, f
 			fun-body-bogus
 	as "<=>"
 		if spec_ ?= ctx get-spec-from-common-module specs-map, fun.name-range.range, sym-compare, compare
-			if param-type ?= ctx get-auto-fun-param-type compare, fun, 2
+			if param-type ?= ctx get-auto-fun-param-type common-types, compare, fun, 2
 				ctx check-auto-fun-with-spec funs-map, fun, param-type, compare, compare, spec_, (), ()
 			else
 				fun-body-bogus
 		else
 			fun-body-bogus
 	as "to"
-		if param-type ?= ctx get-auto-fun-param-type to, fun, 1
+		if param-type ?= ctx get-auto-fun-param-type common-types, to, fun, 1
 			returned-integral = fun.return-type as-integral-type
 			param-integral = param-type as-integral-type
-			if fun.return-type is-enum-or-flags-option && param-type is-symbol
+			if fun.return-type is-enum-or-flags-option && param-type == symbol
 				symbol-to-opt-enum-or-flags auto-fun ()
 			elif fun.return-type is-enum-or-flags-option && param-integral !is-empty && param-integral! == fun.return-type.must-unwrap-option-type.as-enum-or-flags.storage_
 				integral-to-opt-enum-or-flags auto-fun ()
@@ -51,9 +54,9 @@ check-auto-fun fun-body(ctx check-ctx, specs-map specs-map, funs-map funs-map, f
 					wrong[param-type.struct-inst!.decl diag-auto-fun-enum-or-flags-to-wrong-storage param-type.as-enum-or-flags.storage_, returned-integral!]
 				else
 					enum-or-flags-to-integral auto-fun ()
-			elif fun.return-type is-symbol && param-type is-enum
+			elif fun.return-type == symbol && param-type is-enum
 				enum-to-symbol auto-fun ()
-			elif fun.return-type is-symbol-array && param-type is-flags
+			elif fun.return-type == symbol-array && param-type is-flags
 				flags-to-symbol-array auto-fun ()
 			elif spec_ ?= ctx get-spec-from-common-module specs-map, fun.name-range.range, sym-to, misc
 				ctx check-auto-fun-with-spec funs-map, fun, param-type, to, to-json, spec_, (ctx is-json fun.return-type), fun.return-type
@@ -75,9 +78,6 @@ check-auto-fun fun-body(ctx check-ctx, specs-map specs-map, funs-map funs-map, f
 -is-enum-or-flags-array bool(a type)
 	if x ?= a array-element-type
 		x is-enum-or-flags
--is-symbol-array bool(a type)
-	if x ?= a array-element-type
-		x is-symbol
 -is-enum-or-flags-option bool(a type)
 	a is-option-type && a.must-unwrap-option-type is-enum-or-flags
 -is-enum-or-flags bool(a type)
@@ -136,7 +136,7 @@ do
 			check-spec-for-component[m member]
 	fun-kind auto-fun members
 
-get-auto-fun-param-type type?(ctx check-ctx, fun-name auto-fun-name, fun fun-decl, count-params nat)
+get-auto-fun-param-type type?(ctx check-ctx, common-types common-types, fun-name auto-fun-name, fun fun-decl, count-params nat)
 	fail type? mut(diag diag) = diag =>
 		ctx add-diag fun.name-range.range, diag
 		()
@@ -148,7 +148,7 @@ get-auto-fun-param-type type?(ctx check-ctx, fun-name auto-fun-name, fun fun-dec
 		()
 
 	guard res ?= opt : fail[fun-name diag-auto-fun-wrong-params]
-	if ctx !is-fully-visible res
+	if ctx !is-fully-visible res && res != common-types.symbol
 		fail[diag-auto-fun-type-not-fully-visible]
 	elif fun.params.array! !every x => x.local !is-empty
 		fail[diag-auto-fun-param-not-simple]
