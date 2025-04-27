@@ -356,6 +356,7 @@ do
 		ctx translate-builtin a.return-type, source, x.kind, for param : a params
 			ctx get-local source, param
 	as concrete-expr x
+		# error log "LET'S TRANSLATE {ctx.ctx.show-ctx show-concrete-fun-sig a, false}" # -------------------------------------
 		body = ctx to-block-statement x
 		statements js-statement[] = with out: build
 			for param : a params
@@ -544,7 +545,7 @@ do
 	binary js-expr-or-block-statement mut(kind js-binary-kind) = kind =>
 		source gen-binary kind, args.only2
 	prop01 js-expr mut() = () =>
-		source gen-property-access-computed args[0], args[1]
+		source gen-property-access-computed args[0], do source convert-to-js-string args[1] # TODO: ideally, we'd leave args[1] as a string literal if it were one already
 	match a
 	as as-js-any
 		args.only
@@ -583,7 +584,8 @@ do
 	as plus
 		binary[plus]
 	as require
-		source gen-call-sync (source gen-global "require"), (args.only,)
+		arg = source convert-to-js-string args.only
+		source gen-call-sync (source gen-global "require"), (arg,)
 	as set
 		args.size is 3
 		source gen-assign prop01[], args[2] to
@@ -591,6 +593,17 @@ do
 		unary[typeof]
 	as undefined
 		source gen-undefined
+
+-convert-to-js-string js-expr(source source, arg js-expr)
+	# new TextDecoder().decode(new Uint8Array(arg.chars.map(Number)))
+	Number = source gen-global "Number"
+	TextDecoder = source gen-global "TextDecoder"
+	Uint8Array = source gen-global "Uint8Array"
+	text-decoder = source gen-new TextDecoder, ()
+	chars = source gen-property-access arg, "chars".no-prefix
+	numbers = source gen-call-property-sync chars, "map".no-prefix, (Number,)
+	array = source gen-new Uint8Array, (numbers,)
+	source gen-call-property-sync text-decoder, "decode".no-prefix, (array,)
 
 -to-js-expr js-expr(ctx to-expr-ctx, a concrete-expr)
 	ctx to-expr (ctx source a), (ctx to-expr-or-block-statement a)
@@ -1061,22 +1074,6 @@ do
 		throw unreachable
 
 -translate-constant-builtin js-expr(ctx to-js-ctx, source source, builtin_ concrete-builtin-type, a constant)
-	error js-expr mut(message string) = message => # TODO: none of these should be reachable -------------------------------
-		source gen-iife sync, (source throw-message "CONSTANT {message}" to)
-	string js-expr mut() = () =>
-		source gen-string match a
-		as constant-array ca
-			elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: have a helper function for this
-			chars char8[] = for x : elements
-				x.as-integral.as-unsigned.to to
-			chars to
-		as constant-c-string x
-			# TODO: 'get-constant-symbol' is hardcoded to generate a c-string. It made sense for the native build but not any more ...
-			ctx.program.all-constants.c-strings[x index]
-		as constant-gc-safe-value
-			""
-		else
-			throw unreachable
 	match builtin_ kind
 	as array
 		match a
@@ -1086,6 +1083,7 @@ do
 			source gen-array for x : elements
 				ctx translate-constant source, element-type, x
 		as constant-gc-safe-value
+			# TODO: use null instead. A gc-safe-value is allowed to be any value that doesn't break the GC! -------------------
 			source gen-array ()
 		else
 			throw unreachable
@@ -1100,7 +1098,7 @@ do
 	as float64
 		source gen-number64 a.as-float
 	as future
-		error["FUTURE"]
+		throw unreachable
 	as int8
 		source constant-integral int8, a
 	as int16
@@ -1114,17 +1112,17 @@ do
 	as java-exclusion
 		throw unreachable
 	as js-any
-		string[]
+		source gen-string ctx.program.all-constants.symbols[a.constant-symbol! index].to
 	as fun-data
-		error["FUN-DATA"]
+		throw unreachable
 	as fun-mut
-		error["FUN-MUT"]
+		throw unreachable
 	as fun-shared
-		error["FUN-SHARED"]
+		throw unreachable
 	as mut-array
-		error["MUT-ARRAY"]
+		throw unreachable
 	as mut-slice
-		error["MUT-SLICE"]
+		throw unreachable
 	as nat8
 		source constant-integral nat8, a
 	as nat16
@@ -1134,9 +1132,9 @@ do
 	as nat64
 		source constant-integral nat64, a
 	as option
-		error["OPTION"]
+		throw unreachable
 	as string
-		string[]
+		throw unreachable
 	as void
 		source gen-undefined
 	as weak-ref
