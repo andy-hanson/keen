@@ -47,10 +47,12 @@ do
 				out ~= let, destructure, value
 		to-symbol = ctx.program.common-funs.concrete-common-funs-js! to-symbol-from-string
 		source = ctx source to-symbol
+		string = ctx.program string
 		to-symbol-is-async = ctx is-async to-symbol
 		to-symbol-ref = ctx to-ref source, to-symbol
 		for index, sym : concrete-program.all-constants.symbols with-index
-			args js-expr[] = (source gen-string sym.to),
+			# TODO: repeating the to-string-from-js-string logic over and over is verbose .......................................
+			args js-expr[] = (ctx to-string-from-js-string string, source, do source gen-string sym.to),
 			out ~= const, index.constant-symbol-name, do source gen-call to-symbol-is-async, to-symbol-ref, args
 
 	statements js-statement[] = (ctx gen-call-main concrete-program.common-funs.concrete-common-funs-js!.main),
@@ -187,7 +189,8 @@ do
 	as weak-ref
 		instanceof["WeakRef"]
 -gen-assert-instanceof js-statement(source source, get js-expr, name js-name)
-	source gen-assert (source gen-instanceof get, (source gen-identifier name))
+	source gen-assert do
+		source gen-or (source gen-instanceof get, do source gen-identifier name), (source gen-eq-eq-eq get, source.gen-null)
 -gen-assert-typeof js-statement(source source, get js-expr, type string)
 	source gen-assert (source gen-eq-eq-eq (source gen-typeof get), (source gen-string type))
 -gen-assert-integral js-statement(source source, get js-expr)
@@ -354,7 +357,7 @@ do
 	match a body
 	as concrete-fun-body-builtin x
 		ctx translate-builtin a.return-type, source, x.kind, for param : a params
-			ctx get-local source, param
+			param.type, a.range, param.local-get-concrete-expr # TODO: use param range, not a.range ---------------------------------------
 	as concrete-expr x
 		# error log "LET'S TRANSLATE {ctx.ctx.show-ctx show-concrete-fun-sig a, false}" # -------------------------------------
 		body = ctx to-block-statement x
@@ -373,19 +376,19 @@ do
 	type concrete-type
 	source source
 	fun builtin-fun
-	args js-expr[]
+	args concrete-expr[]
 do
 	match fun
 	as builtin-unary x
-		ctx translate-builtin-unary type, source, x, args.only
+		ctx translate-builtin-unary type, source, x, do ctx to-js-expr args.only
 	as builtin-binary x
-		source translate-builtin-binary type, x, args.only2
+		arg0, arg1 = args only2
+		source translate-builtin-binary type, x, ((ctx to-js-expr arg0), (ctx to-js-expr arg1))
 	as builtin-binary-lazy _
 		throw unreachable
 	as builtin-fun-call-lambda
 		arg0, arg1 = args only2
-		call = source gen-call-sync arg0, (arg1,)
-		source gen-await call
+		source gen-await do source gen-call-sync (ctx to-js-expr arg0), ((ctx to-js-expr arg1),)
 	as builtin-fun-constant _
 		throw unreachable
 	as builtin-fun-is-empty-type
@@ -393,7 +396,7 @@ do
 	as java-fun _
 		throw unreachable
 	as js-fun x
-		ctx translate-js-fun source, x, args
+		ctx translate-js-fun source, x, type, args
 
 -translate-builtin-unary js-expr-or-block-statement(ctx to-expr-ctx, type concrete-type, source source, a builtin-unary, arg js-expr)
 	unary js-expr mut(op js-unary-kind) = op =>
@@ -425,13 +428,7 @@ do
 	as to-char8-from-nat8
 		arg
 	as to-char8-array-from-string
-		# Array.from(new TextEncoder().encode(arg)).map(BigInt)
-		BigInt = source gen-global "BigInt"
-		TextEncoder = source gen-global "TextEncoder"
-		text-encoder = source gen-new TextEncoder, ()
-		encoded = source gen-call-property-sync text-encoder, "encode".no-prefix, (arg,)
-		array = source gen-array-from encoded
-		source gen-call-property-sync array, "map".no-prefix, (BigInt,)
+		source convert-to-char8-array-from-js-string arg
 	as to-float32-from-float64
 		source gen-as-float32 arg
 	as to-float64-from-float32
@@ -444,14 +441,7 @@ do
 		trunc = source gen-call-math "trunc", arg
 		source gen-call-sync (source gen-global "BigInt"), (trunc,)
 	as trust-as-string
-		# new TextDecoder().decode(new Uint8Array(arg.map(Number)))
-		Number = source gen-global "Number"
-		TextDecoder = source gen-global "TextDecoder"
-		Uint8Array = source gen-global "Uint8Array"
-		text-decoder = source gen-new TextDecoder, ()
-		numbers = source gen-call-property-sync arg, "map".no-prefix, (Number,)
-		array = source gen-new Uint8Array, (numbers,)
-		source gen-call-property-sync text-decoder, "decode".no-prefix, (array,)
+		source convert-to-js-string arg
 	as weak-ref-get
 		###
 		const got = arg?.get()
@@ -539,31 +529,44 @@ do
 	as wrap-sub
 		source gen-as-integral type.as-integral-type!, binary[minus]
 
--translate-js-fun js-expr-or-block-statement(ctx to-expr-ctx, source source, a js-fun, args js-expr[])
-	unary js-expr-or-block-statement mut(kind js-unary-kind) = kind =>
-		source gen-unary kind, args.only
-	binary js-expr-or-block-statement mut(kind js-binary-kind) = kind =>
-		source gen-binary kind, args.only2
+-translate-js-fun js-expr-or-block-statement(ctx to-expr-ctx, source source, a js-fun, return-type concrete-type, args concrete-expr[])
+	arg0 js-expr mut() = () =>
+		ctx to-js-expr args[0]
+	args-after js-expr[] mut(first nat) = first =>
+		for arg : args[first .. end]
+			ctx to-js-expr arg
+	only-arg js-expr mut() = () =>
+		ctx to-js-expr args.only
+	only2-args (js-expr, js-expr) mut() = () =>
+		x, y = args only2
+		(ctx to-js-expr x), (ctx to-js-expr y)
+	unary js-expr mut(kind js-unary-kind) = kind =>
+		source gen-unary kind, only-arg[]
+	binary js-expr mut(kind js-binary-kind) = kind =>
+		source gen-binary kind, only2-args[]
 	prop01 js-expr mut() = () =>
-		source gen-property-access-computed args[0], do source convert-to-js-string args[1] # TODO: ideally, we'd leave args[1] as a string literal if it were one already
+		source gen-property-access-computed (ctx to-js-expr args[0]), do ctx to-js-key args[1] # TODO: ideally, we'd leave args[1] as a string literal if it were one already
 	match a
 	as as-js-any
-		args.only
+		only-arg[]
 	as await
-		source gen-await args.only
+		source gen-await only-arg[]
 	as call
-		source gen-call-sync args[0], args[1 .. end].to
+		source gen-call-sync arg0[], args-after[1]
 	as call-new
-		source gen-new args[0], args[1 .. end].to
+		source gen-new arg0[], args-after[1]
 	as call-property
-		source gen-call-sync prop01[], args[2 .. end].to
+		source gen-call-sync prop01[], args-after[2]
 	as call-property-spread
 		args.size is 3
-		source gen-call-with-spread sync, prop01[], (), args[2]
+		source gen-call-with-spread sync, prop01[], (), (ctx to-js-expr args[2])
 	as cast
-		args.only
+		only-arg[]
 	as eq-eq-eq
 		binary[eq-eq-eq]
+	as eval
+		code = ctx to-js-string args.only
+		source gen-call-sync (source gen-global "eval"), do code,
 	as get
 		args.size is 2
 		prop01[]
@@ -584,17 +587,47 @@ do
 	as plus
 		binary[plus]
 	as require
-		arg = source convert-to-js-string args.only
+		arg = source convert-to-js-string only-arg[]
 		source gen-call-sync (source gen-global "require"), (arg,)
 	as set
 		args.size is 3
-		source gen-assign prop01[], args[2] to
+		source gen-assign prop01[], (ctx to-js-expr args[2]) to
 	as typeof
-		unary[typeof]
+		ctx.ctx to-string-from-js-string return-type, source, unary[typeof]
 	as undefined
 		source gen-undefined
 
+-to-js-key js-expr(ctx to-expr-ctx, arg concrete-expr)
+	if arg.type is-nat64 || arg.type is-float64
+		ctx to-js-expr arg
+	else
+		ctx to-js-string arg
+
+-to-js-string js-expr(ctx to-expr-ctx, arg concrete-expr)
+	program = ctx.ctx program
+	arg.type is program.string
+	source = ctx source arg
+	if c ?= arg.kind constant
+		source gen-string do program as-string c
+	else
+		source convert-to-js-string do ctx to-js-expr arg
+
+-to-string-from-js-string js-expr(ctx to-js-ctx, string concrete-type, source source, arg js-expr)
+	chars = source convert-to-char8-array-from-js-string arg
+	source gen-new (ctx to-ref source, string), (chars,)
+
+-convert-to-char8-array-from-js-string js-expr(source source, arg js-expr)
+	# TODO: just have this call 'string-of-js-string' from string.crow! ------------------------------------------------------
+	# new string(Array.from(new TextEncoder().encode(arg)).map(BigInt))
+	BigInt = source gen-global "BigInt"
+	TextEncoder = source gen-global "TextEncoder"
+	text-encoder = source gen-new TextEncoder, ()
+	encoded = source gen-call-property-sync text-encoder, "encode".no-prefix, (arg,)
+	array = source gen-array-from encoded
+	source gen-call-property-sync array, "map".no-prefix, (BigInt,)
+
 -convert-to-js-string js-expr(source source, arg js-expr)
+	# TODO: just have this call 'to-js-string' from string.crow! ------------------------------------------------------------------
 	# new TextDecoder().decode(new Uint8Array(arg.chars.map(Number)))
 	Number = source gen-global "Number"
 	TextDecoder = source gen-global "TextDecoder"
@@ -629,7 +662,7 @@ do
 		expr.source gen-return expr to
 
 -to-expr-or-block-statement js-expr-or-block-statement(ctx to-expr-ctx, a concrete-expr)
-	source source = ctx source a
+	source = ctx source a
 	type = a type
 	async = ctx is-cur-fun-async
 	match a kind
@@ -713,8 +746,7 @@ do
 				while_ = source gen-while cur-less-end, body.to
 				(declare-cur-end, while_) js-block-statement
 	as builtin-concrete-expr x
-		ctx translate-builtin type, source, x.fun, for arg : x args
-			ctx to-js-expr arg
+		ctx translate-builtin type, source, x.fun, x.args
 	as call-concrete-expr x
 		call-async = ctx.ctx is-async x.called
 		if call-async == async
@@ -735,9 +767,8 @@ do
 	as create-record-concrete-expr x
 		# new R(x, y, z)
 		record_ = ctx to-ref source, type
-		args js-expr[] = for arg : x args
+		source gen-new record_, for arg : x args
 			ctx to-js-expr arg
-		source gen-new record_, args
 	as create-union-concrete-expr x
 		# new U(index, value)
 		union_ = ctx to-ref source, type

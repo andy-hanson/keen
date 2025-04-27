@@ -37,21 +37,14 @@ export
 	for x : a; x
 
 +~~ string(a string, b string)
-	if trusted extern js
-		trusted a.as-js + b.as-js cast
-	else
-		a.to::char8[] ~~ b.to to
+	a.to::char8[] ~~ b.to to
 +~ string(a char32, b string)
 	a.to ~~ b
 +~ string(a string, b char32)
 	a ~~ b.to
 
 +interpolate string(...parts string[])
-	if trusted extern js
-		# This makes sure it's synchronous, and faster
-		trusted parts.as-js call-property "join", ""::string cast
-	else
-		"" join parts
+	"" join parts
 
 | Same as `""`.
 +new string()
@@ -71,10 +64,7 @@ export
 	res
 
 +== bool(a string, b string)
-	if trusted extern js
-		trusted a.as-js == b.as-js
-	else
-		a.to::char8[] == b.to
+	a.to::char8[] == b.to # TODO: this is the same as the auto fun would be, so just use that? ----------------------------------------------------------------------
 +== bool(a char32, b char32) builtin
 +to nat32(a char32) builtin
 | This is unsafe because a {char32} should be a valid unicode character.
@@ -84,31 +74,19 @@ export
 	trusted a unsafe-to
 
 +<=> comparison(a string, b string)
-	if trusted extern js
-		if trusted a.as-js < b.as-js
-			less
-		elif a == b
-			equal
-		else
-			greater
-	else
-		a.to::char8[] <=> b.to
+	a.to::char8[] <=> b.to # TODO: this is same as the auto fun, so just use that? --------------------------------------------------------
 +<=> comparison(a char8, b char8)
 	a.to::nat8 <=> b.to
 +<=> comparison(a char32, b char32)
 	a.to::nat32 <=> b.to
 
 +hash-mix void(hasher hasher, a string)
-	# TODO: this makes the hashing result depend on the backend ..........................................................
-	if trusted extern java
-		n nat32 = trusted a call-instance "hashCode"
-		hasher hash-mix n
-	else
-		chars char8[] = a to
-		i mut nat64 = 0
-		until i == chars.size
-			hasher hash-mix chars[i]
-			i +:= 1
+	# TODO: 'hasher hash-mix a.chars' # ------------------------------------------------------------------------------------------------
+	chars char8[] = a to
+	i mut nat64 = 0
+	until i == chars.size
+		hasher hash-mix chars[i]
+		i +:= 1
 +hash-mix void(hasher hasher, a char8)
 	hasher hash-mix a.to::nat8.to::nat64
 +hash-mix void(hasher hasher, a char32)
@@ -179,10 +157,7 @@ region conversion
 | Converts a {nat64} to a {string}.
 | Returns only digits without punctuation, e.g. `1234`.
 +show string(a nat64)
-	if trusted extern js
-		trusted a js-to-string
-	else
-		a to-base 10
+	a to-base 10
 
 -js-to-string[t] string(a t) unsafe, js extern
 	"String".js-global call a string-of-js-string
@@ -272,9 +247,7 @@ region conversion
 	a.to::int64 show
 
 +show string(a int64)
-	if trusted extern js
-		trusted a js-to-string
-	elif a == min-value
+	if a == min-value
 		"-9223372036854775808"
 	else
 		s string = "{a abs}"
@@ -589,14 +562,20 @@ region conversion
 ~string-of-java-string string(a java-any) trusted, java extern
 	chars char8[] = a call-instance "getBytes"
 	chars to
--string-of-js-string string(a js-any) trusted, js extern
+~string-of-js-string string(a js-any) trusted, js extern
 	# Array.from(new TextEncoder().encode(arg)).map(BigInt)
 	# TODO:PERF Use Uint8Array for these instead of a regular array -------------------------------------------------------------
 	encoded = "TextEncoder".js-global.call-new call-property "encode", a
-	"Array".js-global call-property "from", encoded call-property "map", "BigInt".js-global cast
+	chars char8[] = "Array".js-global call-property "from", encoded call-property "map", "BigInt".js-global cast
+	chars to
 
 ~to-java-string java-any(a string) trusted, java extern
 	chars char8[] = a to
 	"java.lang.String" call-new chars
-~to-js-string js-any(_ string)
-	throw todo
+~to-js-string js-any(a string) trusted, js extern
+	# TODO: this would be much improved if we just stored char8[] as a Uint8Array already --------------------------------------------
+	# new TextDecoder().decode(new Uint8Array(arg.chars.map(Number)))
+	chars char8[] = a to
+	numbers = chars.as-js call-property "map", "Number".js-global
+	uint8s = "Uint8Array".js-global call-new numbers
+	"TextDecoder".js-global.call-new call-property "decode", uint8s
