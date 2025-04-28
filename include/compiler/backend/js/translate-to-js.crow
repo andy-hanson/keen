@@ -181,8 +181,6 @@ do
 		# TODO: for most types, we could represent this as `t` or `null`.
 		# The exceptions would be options of 'js-any' or of other options.
 		instanceof["Array"]
-	as string
-		typeof["string"]
 	as void
 		# TODO: we should probably just eliminate these values from concrete-model! -----------------------------------------
 		typeof["undefined"]
@@ -427,8 +425,6 @@ do
 		source gen-not arg
 	as to-char8-from-nat8
 		arg
-	as to-char8-array-from-string
-		source convert-to-char8-array-from-js-string arg
 	as to-float32-from-float64
 		source gen-as-float32 arg
 	as to-float64-from-float32
@@ -440,8 +436,6 @@ do
 	as truncate-to-int64-from-float64
 		trunc = source gen-call-math "trunc", arg
 		source gen-call-sync (source gen-global "BigInt"), (trunc,)
-	as trust-as-string
-		source convert-to-js-string arg
 	as weak-ref-get
 		###
 		const got = arg?.get()
@@ -545,7 +539,7 @@ do
 	binary js-expr mut(kind js-binary-kind) = kind =>
 		source gen-binary kind, only2-args[]
 	prop01 js-expr mut() = () =>
-		source gen-property-access-computed (ctx to-js-expr args[0]), do ctx to-js-key args[1] # TODO: ideally, we'd leave args[1] as a string literal if it were one already
+		source gen-property-access-computed (ctx to-js-expr args[0]), do ctx to-js-key args[1]
 	match a
 	as as-js-any
 		only-arg[]
@@ -573,13 +567,23 @@ do
 	as instanceof
 		binary[instanceof]
 	as js-global
-		args.size is 0
-		name string = match ctx.ctx target
+		global-name string = match ctx.ctx target
 		as browser
 			"window"
 		as node
 			"global"
-		source gen-global name
+		global_ = source gen-global global-name
+		match args size
+		as 0
+			global_
+		as 1
+			match ctx to-js-string-or-constant args.only
+			as js-expr x
+				source gen-property-access-computed global_, x
+			as string x
+				source gen-global x
+		else
+			throw unreachable
 	as less
 		binary[less]
 	as null
@@ -604,13 +608,20 @@ do
 		ctx to-js-string arg
 
 -to-js-string js-expr(ctx to-expr-ctx, arg concrete-expr)
+	match ctx to-js-string-or-constant arg
+	as js-expr x
+		x
+	as string x
+		ctx source arg gen-string x
+
+-js-expr-or-string union(js-expr, string)
+-to-js-string-or-constant js-expr-or-string(ctx to-expr-ctx, arg concrete-expr)
 	program = ctx.ctx program
 	arg.type is program.string
-	source = ctx source arg
 	if c ?= arg.kind constant
-		source gen-string do program as-string c
+		program as-string c
 	else
-		source convert-to-js-string do ctx to-js-expr arg
+		ctx source arg convert-to-js-string do ctx to-js-expr arg
 
 -to-string-from-js-string js-expr(ctx to-js-ctx, string concrete-type, source source, arg js-expr)
 	chars = source convert-to-char8-array-from-js-string arg
@@ -857,26 +868,17 @@ do
 		unless ctx.ctx is-string-or-symbol x.matched.type
 			error log "Match on char8[] or char32[]?"
 		assert ctx.ctx is-string-or-symbol x.matched.type : todo
-		if x.matched.type is-builtin-string
-			matched = ctx to-js-expr x.matched
-			cases js-switch-case[] = for case_ : x cases
+		ctx with-temp "matched", x.matched, matched =>
+			res mut = ctx to-block-statement x.else_
+			equals = ctx to-ref source, x.equals
+			equals-async = ctx.ctx is-async x.equals
+			for case_ : x.cases reverse
 				value = ctx to-js-expr case_.value
+				cond = source gen-call equals-async, equals, (matched, value)
 				then = ctx to-block-statement case_.then
-				value, (source maybe-break-switch-case type, then)
-			default = ctx to-block-statement x.else_
-			source gen-switch matched, cases, default to
-		else
-			ctx with-temp "matched", x.matched, matched =>
-				res mut = ctx to-block-statement x.else_
-				equals = ctx to-ref source, x.equals
-				equals-async = ctx.ctx is-async x.equals
-				for case_ : x.cases reverse
-					value = ctx to-js-expr case_.value
-					cond = source gen-call equals-async, equals, (matched, value)
-					then = ctx to-block-statement case_.then
-					if_ = source gen-if cond, then, (source, res)
-					res := if_ to
-				res.statements
+				if_ = source gen-if cond, then, (source, res)
+				res := if_ to
+			res.statements
 	as match-union-concrete-expr x
 		###
 		const temp = u
@@ -1163,8 +1165,6 @@ do
 	as nat64
 		source constant-integral nat64, a
 	as option
-		throw unreachable
-	as string
 		throw unreachable
 	as void
 		source gen-undefined
