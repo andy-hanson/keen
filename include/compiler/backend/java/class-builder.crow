@@ -1,4 +1,6 @@
 import
+	../../../crow/col/private/array-low-level: array-cast
+	../../../crow/string: unicode-decode
 	../../util/util
 
 | Reference to a {CONSTANT_Utf8_info}
@@ -551,11 +553,46 @@ n-entries nat(_ CONSTANT_Utf8_info)
 	1
 write void(a CONSTANT_Utf8_info, out bytecode-out)
 	out ~= 1
-	bytes = a.value to-modified-utf8
-	out ~~= bytes.size.to::nat16
-	out ~~= bytes
--to-modified-utf8 nat8[](s string) # TODO:PERF don't create this temporary array ---------------------------
+	char8s char8[] = a.value to
+	# JVM uses a modified UTF8, but it's the same as UTF8 for most chars.
 	# https://docs.oracle.com/javase/specs/jvms/se23/html/jvms-4.html#jvms-4.4.7
+	if char8s every x => x !is-supplementary-character
+		out ~~= char8s.size.to::nat16
+		out ~~= trusted char8s.array-cast::nat8[]
+	else
+		bytes = char8s to-modified-utf8
+		out ~~= bytes.size.to::nat16
+		out ~~= bytes
+-to-modified-utf8 nat8[](char8s char8[])
+	with out : build
+		i mut nat = 0
+		loop
+			guard i != char8s.size : break
+			x = char8s[i]
+			if x is-supplementary-character
+				# This is a high character and must be re-encoded
+				iter char8 array-iterator = char8s.begin + i
+				char32, next = x unicode-decode iter
+				out jvm-encode-supplementary-character char32.to
+				i := next next-index
+				continue
+			else
+				out ~= x to
+				i +:= 1
+				continue
+-is-supplementary-character bool(a char8)
+	a.to::nat8 has-all-bits 0b11110000
+-jvm-encode-supplementary-character void(out nat8 array-builder, x nat32)
+	assert x <= 0xfffff # numbers up to 20 bits
+	out ~= 0b11101101
+	out ~= 0b10100000 | ((x >> 16) - 1).to # bits 20-16
+	out ~= 0b10000000 | ((x >> 10) & 0b111111).to # bits 15-10
+	out ~= 0b11101101
+	out ~= 0b10110000 | ((x >> 6) & 0b1111).to # bits 9-6
+	out ~= 0b10000000 | (x & 0b111111).to # bits 5-0
+
+
+	###
 	with out : build
 		for char : s
 			x nat32 = char to
@@ -576,6 +613,7 @@ write void(a CONSTANT_Utf8_info, out bytecode-out)
 				out ~= 0b11101101
 				out ~= 0b10110000 | ((x >> 6) & 0b1111).to # bits 9-6
 				out ~= 0b10000000 | (x & 0b111111).to # bits 5-0
+	###
 
 | // See '4.4.8. The CONSTANT_MethodHandle_info Structure' here: https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
 CONSTANT_MethodHandle_info record
