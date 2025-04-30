@@ -5,6 +5,7 @@ import
 	../../model/model
 	../../model/uri
 	../../util/util
+	./class-builder
 	./class-code-builder
 	./union-representation
 	./util
@@ -18,6 +19,10 @@ java-mangled-names record
 	-type-to-descriptor symbol[concrete-type]
 	program concrete-program # TODO: RM, this should only be used when building it ---------------------------------------------------
 	union-info union-info # TODO: RM, this should only be used when building it ---------------------------------------------------
+
+mangled-names-with-constants record mut
+	mangled-names java-mangled-names
+	constants constants-builder
 
 build-mangled-names java-mangled-names
 	show-ctx show-ctx
@@ -105,6 +110,41 @@ subscript symbol(a java-mangled-names, type concrete-type)
 
 lambda-name symbol(a java-mangled-names, containing-fun concrete-fun, lambda-index nat)
 	"{a[containing-fun module-uri]}_{a.fun-to-name[containing-fun]!}_lambda{lambda-index}"
+
+# Static "instance" field on a singleton class
+instance-field field-reference(constants constants-builder, class_ symbol)
+	name-and-type = constants name-and-type "instance", "L{class_};"
+	constants field (constants class_ class_), name-and-type
+
+lambda-field-reference field-reference
+	a mangled-names-with-constants
+	lambda-class class-reference
+	closure-local concrete-local
+do
+	name-and-type = a.constants name-and-type closure-local.lambda-field-name, do
+		a.mangled-names descriptor-for-field-type closure-local.type
+	a.constants field lambda-class, name-and-type
+
+lambda-field-name symbol(closure-field concrete-local)
+	match closure-field source
+	as local x
+		x name
+	as concrete-local-source-reference x
+		x.original name
+	as concrete-local-source-closure
+		throw unreachable # These are only used when compiling away cloures
+	as concrete-generated-local-kind _
+		throw unreachable
+
+field-reference field-reference
+	a mangled-names-with-constants
+	containing-record concrete-type
+	field concrete-field
+do
+	class-ref = a.constants class_ do a.mangled-names boxed-class-name containing-record
+	name-and-type = a.constants name-and-type field.debug-name, do
+		a.mangled-names descriptor-for-field-type field.type
+	a.constants field class-ref, name-and-type
 
 case-index-method-name symbol(a java-mangled-names, struct concrete-type)
 	"{a[struct]}_index"
@@ -207,6 +247,12 @@ record-init-descriptor symbol(a java-mangled-names, fields concrete-type[])
 			out ~~= a descriptor-for-param-type field
 		out ~~= ")V"
 	res to
+
+lambda-call-descriptor symbol(a java-mangled-names, lambda-type concrete-type)
+	builtin_ = lambda-type.body.concrete-builtin-type!
+	assert builtin_.kind is-lambda-type
+	return-type, param-type = builtin_.type-args only2
+	"({a descriptor-for-param-type param-type}){a descriptor-for-return-type return-type}"
 
 descriptor-for-field-type symbol(a java-mangled-names, type concrete-type)
 	forbid type is-empty-type

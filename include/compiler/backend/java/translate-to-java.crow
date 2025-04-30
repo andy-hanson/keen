@@ -154,6 +154,8 @@ do
 	| Does not include the 'this' param
 	locals local-entry mut-stack
 	loop-pos mut jump-target?
+-mangled-names mangled-names-with-constants(a expr-ctx)
+	a.ctx.mangled-names, a.constants
 | Use 'concrete-type' for a synthetic local
 -local-entry union(concrete-local, concrete-type)
 -to json(a local-entry)
@@ -469,11 +471,6 @@ do
 	ctx.constants method-ref class_, "<init>", do
 		ctx.ctx.mangled-names record-init-descriptor for x : closure; x type
 
-# Static "instance" field on a singleton class
--instance-field field-reference(constants constants-builder, class_ symbol)
-	name-and-type = constants name-and-type "instance", "L{class_};"
-	constants field (constants class_ class_), name-and-type
-
 -static-field-descriptor field-reference(ctx to-java-ctx, constants constants-builder, field class-and-member, type concrete-type)
 	constants-class = constants class_ field.class_
 	field-name-and-type = constants name-and-type field.member, do ctx.mangled-names descriptor-for-field-type type
@@ -675,6 +672,7 @@ do
 
 -translate-type void(ctx to-java-ctx, type concrete-type)
 	constants constants-builder = ()
+	mangled-names mangled-names-with-constants = ctx.mangled-names, constants
 	super-class = constants class_ match type source
 	as concrete-type-source-bogus
 		"java/lang/Object"
@@ -709,7 +707,7 @@ do
 	as concrete-builtin-type x
 		lambda ClassFile mut() = () =>
 			assert method-impls is-empty : todo
-			ctx lambda-class constants, type, this-class, super-class, interfaces
+			mangled-names lambda-class type, this-class, super-class, interfaces
 		match x kind
 		as array
 			()
@@ -721,7 +719,7 @@ do
 			lambda[]
 		as void
 			# Can't use java.lang.Void since that has no instances
-			ctx record-class constants, type, false, (), this-class-name, this-class, super-class, interfaces, method-impls
+			mangled-names record-class type, false, (), this-class-name, this-class, super-class, interfaces, method-impls
 		else
 			() # TODO: could use a boxing-record for unsigned integer types ........................................................
 	as concrete-enum _
@@ -731,7 +729,7 @@ do
 		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
 		constants boxing-record type, this-class-name, this-class, super-class, interfaces, method-impls
 	as concrete-record x
-		ctx record-class constants, type, x.is-wrapper, x.fields, this-class-name, this-class, super-class, interfaces, method-impls
+		mangled-names record-class type, x.is-wrapper, x.fields, this-class-name, this-class, super-class, interfaces, method-impls
 	as concrete-union _
 		method-decls method_info[] = with out : build
 			for m : ctx.program.method-impls[type]?.methods ?? ()
@@ -780,20 +778,19 @@ do
 	attributes: code,
 
 -lambda-class ClassFile
-	ctx to-java-ctx
-	constants constants-builder
+	mangled-names mangled-names-with-constants
 	type concrete-type
 	this-class class-reference
 	super-class class-reference
 	interfaces class-reference[]
 do
-	init = constants record-initializer ctx, this-class, super-class, ()
+	init = mangled-names record-initializer super-class, (), mangled-names.constants["()V"]
 	call method_info = do
 		access-flags: abstract_
-		name: constants["call"]
-		descriptor: constants[ctx lambda-call-descriptor type]
+		name: mangled-names.constants["call"]
+		descriptor: mangled-names.constants[mangled-names.mangled-names lambda-call-descriptor type]
 		attributes: ()
-	constant-pool: constants finish
+	constant-pool: mangled-names.constants finish
 	access: abstract_
 	this-class: this-class
 	super-class: super-class
@@ -884,8 +881,7 @@ do
 	attributes: ()
 
 -record-class ClassFile
-	ctx to-java-ctx
-	constants constants-builder
+	mangled-names mangled-names-with-constants
 	type concrete-type
 	is-wrapper bool
 	concrete-fields concrete-field[]
@@ -895,6 +891,7 @@ do
 	interfaces class-reference[]
 	method-impls method_info[]
 do
+	constants = mangled-names constants
 	fields field_info[] = if type is-empty-type
 		(constants instance-field this-class-name),
 	else
@@ -904,18 +901,22 @@ do
 				out ~= do
 					access-flags: field.is-mutable ? () : final
 					name: constants[field.debug-name to]
-					descriptor: constants[ctx.mangled-names descriptor-for-field-type field.type]
+					descriptor: constants[mangled-names.mangled-names descriptor-for-field-type field.type]
 					attributes: ()
 	methods method_info[] = with methods-out : build
-		methods-out ~= constants record-initializer ctx, this-class, super-class, for x : concrete-fields
-			x.debug-name, x.type
+		field-refs (field-reference, java-runtime-type)[] = with out : build
+			for x : concrete-fields
+				# TODO: we should just not concretize empty fields --------------------------------------------------------------
+				guard x.type !is-empty-type
+				out ~= (mangled-names field-reference type, x), x.type.as-runtime-type
+		methods-out ~= mangled-names record-initializer super-class, field-refs, do mangled-names.constants[mangled-names.mangled-names record-init-descriptor (for x : concrete-fields; x type)]
 		if type is-empty-type
 			methods-out ~= constants clinit-for-instance-field this-class-name, this-class
 		elif is-wrapper
-			methods-out ~= constants make-valueOf this-class-name, this-class, (ctx.mangled-names descriptor-for-param-type type), type.as-runtime-type
+			methods-out ~= constants make-valueOf this-class-name, this-class, (mangled-names.mangled-names descriptor-for-param-type type), type.as-runtime-type
 			if p ?= concrete-fields.only.type as-java-primitive-type
 				field = concrete-fields only
-				field-ref = constants field-reference ctx, this-class, field.debug-name.to, field.type
+				field-ref = mangled-names field-reference type, field
 				methods-out ~= constants make-getValue field-ref, p # TODO: it's wasteful to always generate this ...................................................
 		methods-out ~~= method-impls
 	constant-pool: constants finish
@@ -936,9 +937,8 @@ do
 	class-init-code Code_attribute = with out : constants build-code
 		out makenew this-class
 		out dup32
-		out invokespecial (constants init-no-args this-class)
-		name-and-type = out.constants name-and-type "instance", "L{this-class-name};"
-		out putstatic (out.constants field this-class, name-and-type)
+		out invokespecial do constants init-no-args this-class
+		out putstatic do out.constants instance-field this-class-name
 		out return void
 	access-flags: static
 	name: constants["<clinit>"]
@@ -946,26 +946,24 @@ do
 	attributes: class-init-code,
 
 -record-initializer method_info
-	constants constants-builder
-	ctx to-java-ctx
-	this-class class-reference
+	mangled-names mangled-names-with-constants
 	super-class class-reference
-	fields (symbol, concrete-type)[]
+	fields (field-reference, java-runtime-type)[]
+	descriptor utf8-reference
 do
-	code = with out : constants build-code
+	code = with out : mangled-names.constants build-code
 		out aload 0
-		out invokespecial (constants init-no-args super-class)
+		out invokespecial do mangled-names.constants init-no-args super-class
 		local-index mut nat = 1 # 0 is the object
-		for field-name, field-type : fields
-			unless field-type is-empty-type
-				out aload 0
-				out xload field-type.as-runtime-type, local-index
-				local-index +:= field-type number-of-locals
-				out putfield (constants field-reference ctx, this-class, field-name.to, field-type)
+		for field, field-type : fields
+			out aload 0
+			out xload field-type, local-index
+			local-index +:= field-type number-of-locals
+			out putfield field
 		out return void
 	access-flags: ()
-	name: constants["<init>"]
-	descriptor: constants[ctx.mangled-names record-init-descriptor for _, type : fields; type]
+	name: mangled-names.constants["<init>"]
+	descriptor: descriptor
 	attributes: code,
 
 -init-no-args method-reference(constants constants-builder, class_ class-reference)
@@ -1055,18 +1053,6 @@ do
 		else
 			out anewarray (ctx as-boxed-class-reference element-type)
 
--field-reference field-reference(ctx expr-ctx, record_ concrete-type, field concrete-field)
-	ctx.constants field-reference ctx.ctx, (ctx.ctx as-boxed-class-reference ctx.constants, record_), field.debug-name.to, field.type
--field-reference field-reference
-	constants constants-builder
-	ctx to-java-ctx
-	this-class class-reference
-	field-name symbol
-	field-type concrete-type
-do
-	name-and-type = constants name-and-type field-name, do ctx.mangled-names descriptor-for-field-type field-type
-	constants field this-class, name-and-type
-
 -as-boxed-class-reference class-reference(ctx expr-ctx, type concrete-type)
 	ctx.ctx as-boxed-class-reference ctx.constants, type
 -as-boxed-class-reference class-reference(ctx to-java-ctx, constants constants-builder, type concrete-type)
@@ -1075,6 +1061,7 @@ do
 -push-unboxed-class-reference void(out code-builder, ctx expr-ctx, type concrete-type)
 	match type as-runtime-type
 	as void
+		# TODO: this contradicts earlier comment '# Can't use java.lang.Void since that has no instances' -------------------------------------------------
 		out getstatic do out.constants field "java/lang/Void", "TYPE", "Ljava/lang/Class;"
 	as java-primitive-type _
 		class-name = ctx.ctx.mangled-names boxed-class-name type
@@ -1083,7 +1070,9 @@ do
 		out ldc reference-type, do ctx as-boxed-class-reference type
 
 -number-of-locals nat(type concrete-type)
-	match type as-runtime-type
+	type.as-runtime-type number-of-locals
+-number-of-locals nat(type java-runtime-type)
+	match type
 	as void
 		0
 	as java-primitive-type p
@@ -1119,8 +1108,7 @@ do
 		boxed = ctx.mangled-names boxed-class-name type
 		out call-virtual boxed, p.primitive-getter, "(){ctx.mangled-names descriptor-for-return-type type}"
 	elif field ?= type as-wrapper
-		class-ref = ctx as-boxed-class-reference out.constants, type
-		field-ref = out.constants field-reference ctx, class-ref, field.debug-name.to, field.type
+		field-ref = (ctx.mangled-names, out.constants) field-reference type, field
 		out getfield field-ref
 -primitive-getter symbol(a java-primitive-type)
 	match a
@@ -1567,14 +1555,14 @@ do
 	as record-field-get-concrete-expr x
 		out emit-and-continue ctx, x.record_
 		unless x.record_.type is-wrapper
-			out getfield (ctx field-reference x.record_.type, x.field)
+			out getfield do ctx.mangled-names field-reference x.record_.type, x.field
 		ctx must-pop x.record_.type
 		ctx pushed x.field.type
 		out handle-pos pos, type
 	as record-field-set-concrete-expr x
 		out emit-and-continue ctx, x.record_
 		out emit-and-continue ctx, x.value
-		out putfield (ctx field-reference x.record_.type, x.field)
+		out putfield do ctx.mangled-names field-reference x.record_.type, x.field
 		ctx must-pop x.value.type
 		ctx must-pop x.record_.type
 		out handle-pos pos, type
@@ -1738,7 +1726,7 @@ do
 		out iconst 0
 	as range
 		out dup32
-		out getfield (ctx field-reference input-type, range-fields[0])
+		out getfield do ctx.mangled-names field-reference input-type, range-fields[0]
 	cur = out begin-synthetic-local ctx, integral-type
 
 	match x input-kind
@@ -1746,7 +1734,7 @@ do
 		out get-array-size x.in-element, in-array!
 	as range
 		# Don't dup, this finishes using the range
-		out getfield (ctx field-reference input-type, range-fields[1])
+		out getfield do ctx.mangled-names field-reference input-type, range-fields[1]
 	end = out begin-synthetic-local ctx, integral-type
 
 	match output-kind
@@ -2046,12 +2034,6 @@ do
 		out aload 0
 		out getfield field
 
--lambda-call-descriptor symbol(ctx to-java-ctx, lambda-type concrete-type)
-	builtin_ = lambda-type.body.concrete-builtin-type!
-	assert builtin_.kind is-lambda-type
-	return-type, param-type = builtin_.type-args only2
-	"({ctx.mangled-names descriptor-for-param-type param-type}){ctx.mangled-names descriptor-for-return-type return-type}"
-
 -create-lambda-implementation-class symbol
 	ctx to-java-ctx
 	uri uri
@@ -2060,6 +2042,7 @@ do
 	a lambda-concrete-expr
 do
 	constants constants-builder = ()
+	mangled-names mangled-names-with-constants = ctx.mangled-names, constants
 	this-class-name = ctx.mangled-names lambda-name containing-fun, ctx.next-lambda-index
 	ctx.next-lambda-index +:= 1
 	this-class = constants class_ this-class-name
@@ -2078,8 +2061,12 @@ do
 			descriptor: constants[ctx.mangled-names descriptor-for-field-type x.type]
 			attributes: ()
 	methods method_info[] = with methods-out : build
-		methods-out ~= constants record-initializer ctx, this-class, super-class, for x : a closure
-			x.lambda-field-name, x.type
+		field-refs (field-reference, java-runtime-type)[] = for x : a closure
+			assert x.type !is-empty-type
+			(mangled-names lambda-field-reference this-class, x), x.type.as-runtime-type
+		field-types concrete-type[] = for x : a closure; x type
+		init-descriptor = mangled-names.constants[mangled-names.mangled-names record-init-descriptor field-types]
+		methods-out ~= mangled-names record-initializer super-class, field-refs, init-descriptor
 		if a.closure is-empty
 			methods-out ~= constants clinit-for-instance-field this-class-name, this-class
 		methods-out ~= do
@@ -2089,7 +2076,7 @@ do
 			expr-ctx verify-expr-ctx-finished a.body.type, (a.param,)
 			access-flags: ()
 			name: constants["call"]
-			descriptor: constants[ctx lambda-call-descriptor lambda-type]
+			descriptor: constants[mangled-names.mangled-names lambda-call-descriptor lambda-type]
 			attributes: code,
 	ctx add-class this-class-name, do
 		source SourceFile_attribute = constants["SourceFile"], constants[uri to]
@@ -2102,17 +2089,6 @@ do
 		methods: methods
 		attributes: source,
 	this-class-name
-
--lambda-field-name symbol(closure-field concrete-local)
-	match closure-field source
-	as local x
-		x name
-	as concrete-local-source-reference x
-		x.original name
-	as concrete-local-source-closure
-		throw unreachable # These are only used when compiling away cloures
-	as concrete-generated-local-kind _
-		throw unreachable
 
 -always-throws bool(a concrete-expr)
 	match a kind
@@ -2270,9 +2246,9 @@ do
 		out function-like ctx, type, args, () =>
 			lambda, _ = args only2
 			lambda-class = ctx as-boxed-class-reference lambda.type
-			descriptor = ctx.ctx lambda-call-descriptor lambda.type
+			descriptor = ctx.ctx.mangled-names lambda-call-descriptor lambda.type
 			name-and-descriptor = ctx.constants name-and-type "call", descriptor
-			out invokevirtual (ctx.constants method-ref lambda-class, name-and-descriptor)
+			out invokevirtual do ctx.constants method-ref lambda-class, name-and-descriptor
 	as builtin-fun-constant _
 		throw unreachable
 	as builtin-fun-is-empty-type
