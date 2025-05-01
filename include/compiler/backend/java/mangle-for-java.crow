@@ -1,7 +1,6 @@
 import
 	../../frontend/show-model
 	../../model/concrete-model
-	../../model/show-concrete-model
 	../../model/model
 	../../model/uri
 	../../util/util
@@ -17,6 +16,7 @@ java-mangled-names record
 	-fun-to-name symbol[concrete-fun]
 	-type-to-name symbol[concrete-type]
 	-type-to-descriptor symbol[concrete-type]
+	-type-to-boxed-class-name symbol[concrete-type]
 	program concrete-program # TODO: RM, this should only be used when building it ---------------------------------------------------
 	union-info union-info # TODO: RM, this should only be used when building it ---------------------------------------------------
 
@@ -33,8 +33,6 @@ do
 	type-to-name symbol[concrete-type] = for type : program all-structs
 		# TODO: if there is only 1 struct with the name (globally), just use the decl name ----------------------------------
 		type, do module-to-class-name gen-type-name type
-	type-to-descriptor symbol[concrete-type] = for type : program all-structs
-		type, do type generate-descriptor-for-return-type type-to-name, union-info, program
 	fun-to-name symbol[concrete-fun] = for fun : program all-funs
 		_ = module-to-class-name add-module-name fun.module-uri
 		fun, match fun source
@@ -42,16 +40,37 @@ do
 			base = x.decl.name do-mangle
 			module = program.model-program module-at-uri fun.module-uri
 			if x.decl !is-template && (module.funs count f => f.name == x.decl.name) == 1 # TODO:PERF module should store funs-by-name (a multi-by-name)
-				base to
+				base
 			else
 				"{base}{fun hash}"
 		as concrete-fun-source-test _
 			"$test{fun hash}"
 		as concrete-fun-source-wrap-main _
 			"$wrap-main"
-	var-to-name symbol[concrete-var] = for x : program all-vars
+	show-ctx: show-ctx
+	var-to-name: for x : program all-vars
 		x, "{x.source.name do-mangle}{x get-hash}" # TODO: If only one var of this name in the module, no need to include the hash
-	show-ctx, var-to-name, module-to-class-name.move-to, fun-to-name, type-to-name, type-to-descriptor, program, union-info
+	module-to-class-name: module-to-class-name move-to
+	fun-to-name: fun-to-name
+	type-to-name: type-to-name
+	type-to-descriptor: for type : program all-structs
+		type, do (program, union-info, type-to-name) generate-descriptor-for-return-type type
+	type-to-boxed-class-name: for type : program all-structs
+		type, do (program, union-info, type-to-name) generate-boxed-class-name type
+	program: program
+	union-info: union-info
+
+constant-symbols-class-name symbol()
+	"_constant_symbols"
+constant-symbols-class class-reference(a mangled-names-with-constants)
+	a.constants class_ "_constant_symbols"
+constant-symbol-name utf8-reference(a mangled-names-with-constants, index nat)
+	a.constants["s{index}"]
+
+constant-symbol-field field-reference(a mangled-names-with-constants, symbol concrete-type, index nat)
+	symbol-type = a.constants[a.mangled-names descriptor-for-field-type symbol]
+	name-and-type = a.constants name-and-type (a constant-symbol-name index), symbol-type
+	a.constants field a.constant-symbols-class, name-and-type
 
 -gen-type-name symbol(module-to-class-name symbol mut[uri], a concrete-type)
 	match a source
@@ -63,7 +82,7 @@ do
 			"_{module-to-class-name gen-type-name arg}"
 		"{base}{type-args}"
 
--do-mangle string(a symbol)
+-do-mangle symbol(a symbol)
 	# Only a few names are not allowed in the JVM:
 	# https://docs.oracle.com/javase/specs/jvms/se23/html/jvms-4.html#jvms-4.2
 	match a
@@ -86,7 +105,7 @@ do
 	as ">>"
 		"$shift-right"
 	else
-		a to
+		a
 
 -add-module-name symbol(a symbol mut[uri], uri uri)
 	a ensure uri, () =>
@@ -94,22 +113,17 @@ do
 		name = base-name try-remove-end! (base-name ends-with ".json" ? ".json" : ".crow")
 		"{name}{a size}"
 
-subscript symbol(a java-mangled-names, uri uri)
+module-class-name symbol(a java-mangled-names, uri uri)
 	a.module-to-class-name[uri]!
 subscript class-and-member(a java-mangled-names, var concrete-var)
-	a[var module-uri], a.var-to-name[var]!
+	(a module-class-name var.module-uri), a.var-to-name[var]!
 subscript class-and-member(a java-mangled-names, fun concrete-fun)
-	# should always have it ----------------------------------------------------------------------------------------------------------
-	if _ ?= a.fun-to-name[fun]
-		a[fun module-uri], a.fun-to-name[fun]!
-	else
-		error log "Looking for fun {a.show-ctx show-concrete-fun-sig fun, false}"
-		"ERROR", "ERROR"
-subscript symbol(a java-mangled-names, type concrete-type)
+	(a module-class-name fun.module-uri), a.fun-to-name[fun]!
+-subscript symbol(a java-mangled-names, type concrete-type)
 	a.type-to-name[type]!
 
 lambda-name symbol(a java-mangled-names, containing-fun concrete-fun, lambda-index nat)
-	"{a[containing-fun module-uri]}_{a.fun-to-name[containing-fun]!}_lambda{lambda-index}"
+	"{a module-class-name containing-fun.module-uri}_{a.fun-to-name[containing-fun]!}_lambda{lambda-index}"
 
 # Static "instance" field on a singleton class
 instance-field field-reference(constants constants-builder, class_ symbol)
@@ -121,16 +135,16 @@ lambda-field-reference field-reference
 	lambda-class class-reference
 	closure-local concrete-local
 do
-	name-and-type = a.constants name-and-type closure-local.lambda-field-name, do
-		a.mangled-names descriptor-for-field-type closure-local.type
+	name-and-type = a.constants name-and-type (a lambda-field-name closure-local), do
+		a descriptor-for-field-type closure-local.type
 	a.constants field lambda-class, name-and-type
 
-lambda-field-name symbol(closure-field concrete-local)
+lambda-field-name utf8-reference(a mangled-names-with-constants, closure-field concrete-local)
 	match closure-field source
 	as local x
-		x name
+		a.constants[x name]
 	as concrete-local-source-reference x
-		x.original name
+		a.constants[x.original name]
 	as concrete-local-source-closure
 		throw unreachable # These are only used when compiling away cloures
 	as concrete-generated-local-kind _
@@ -154,32 +168,66 @@ do
 
 class_ class-reference(a mangled-names-with-constants, type concrete-type)
 	a.constants class_ do a.mangled-names boxed-class-name type	
+class-name symbol(a mangled-names-with-constants, type concrete-type)
+	a.mangled-names[type]
 
 case-index-method method-reference(a mangled-names-with-constants, union-type concrete-type)
-	a.constants interface-method-ref (a class_ union-type), do a.constants name-and-type (a.mangled-names case-index-method-name union-type), "()I"
+	a.constants interface-method-ref (a class_ union-type), do
+		a.constants name-and-type (a case-index-method-name union-type), a.constants["()I"]
 
-case-index-method-name symbol(a java-mangled-names, struct concrete-type)
-	"{a[struct]}_index"
+case-index-method-name utf8-reference(a mangled-names-with-constants, struct concrete-type)
+	a.constants["{a.mangled-names[struct]}_index"]
 
-crow-call-instance-descriptor symbol(n-args nat)
-	res string = with out : build
+crow-call-instance method-reference(a mangled-names-with-constants, n-args nat)
+	descriptor string = with out : build
 		out ~= "("
 		for index : 0 .. n-args
 			out ~~= index == 1 ? string-descriptor : "Ljava/lang/Object;"
 		out ~~= ")Ljava/lang/Object;"
-	res to
+	a.constants method-ref "Crow", "callInstance", descriptor.to
 
-string-descriptor string() # TODO: INLINE? _----------------------------------------------------------------------------------------
+crow-call-static method-reference(a mangled-names-with-constants, n-args nat)
+	descriptor string = with d : build
+		d ~= "("
+		for index : 0 .. n-args
+			d ~~= index < 2 ? string-descriptor : "Ljava/lang/Object;"
+		d ~~= ")Ljava/lang/Object;"
+	a.constants method-ref "Crow", "callStatic", descriptor.to
+
+crow-call-static-varargs method-reference(a mangled-names-with-constants)
+	a.constants method-ref "Crow", "callStaticVarargs", "({string-descriptor}{string-descriptor}[Ljava/lang/Object;)Ljava/lang/Object;"
+
+crow-get-exclusion method-reference(a mangled-names-with-constants)
+	a.constants method-ref "Crow", "getExclusion", "()L{exclusion-class};"
+crow-change-exclusion method-reference(a mangled-names-with-constants)
+	a.constants method-ref "Crow", "changeExclusion", "(L{exclusion-class};)V"
+crow-reference-equal method-reference(a mangled-names-with-constants)
+	a.constants method-ref "Crow", "referenceEqual", "(Ljava/lang/Object;Ljava/lang/Object;)Z"
+crow-get-static-field method-reference(a mangled-names-with-constants)
+	a.constants method-ref "Crow", "getStaticField", "({string-descriptor}{string-descriptor})Ljava/lang/Object;"
+
+arrays-copy-of-range-for-primitive method-reference(a mangled-names-with-constants, p java-primitive-type)
+	a.constants method-ref "java/util/Arrays", "copyOfRange", "([{p descriptor}II)[{p descriptor}"
+arrays-copy-of-range-for-object method-reference(a mangled-names-with-constants)
+	a.constants method-ref "java/util/Arrays", "copyOfRange", "([Ljava/lang/Object;II)[Ljava/lang/Object;"
+
+-string-descriptor string() # TODO: INLINE? _----------------------------------------------------------------------------------------
 	"[B"
 
-extern-instance-method-descriptor symbol(a java-mangled-names, return-type concrete-type, param-types concrete-type[])
-	res string = with out : build
+extern-instance-method method-reference
+	a mangled-names-with-constants
+	method-name symbol
+	return-type concrete-type
+	object-type concrete-type
+	param-types concrete-type[]
+do
+	descriptor string = with out : build
 		out ~= "("
 		for x : param-types
-			out ~~= a descriptor-for-param-type x
+			out ~~= a.mangled-names descriptor-for-param-type x
 		out ~= ")"
-		out ~~= a descriptor-for-return-type return-type
-	res to
+		out ~~= a.mangled-names descriptor-for-return-type return-type
+	a.constants method-ref (a class_ object-type), method-name, descriptor.to
 
 extern-constructor-descriptor symbol(a java-mangled-names, param-types concrete-type[])
 	res string = with out : build
@@ -204,14 +252,6 @@ extern-static-method-descriptor symbol(a java-mangled-names, return-type concret
 			out ~~= a descriptor-for-param-type x
 		out ~= ")"
 		out ~~= a descriptor-for-return-type return-type
-	res to
-
-crow-call-static-descriptor symbol(n-args nat)
-	res string = with d : build
-		d ~= "("
-		for index : 0 .. n-args
-			d ~~= index < 2 ? string-descriptor : "Ljava/lang/Object;"
-		d ~~= ")Ljava/lang/Object;"
 	res to
 
 interface-method-ref method-reference(a mangled-names-with-constants, fun concrete-fun)
@@ -244,7 +284,7 @@ static-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
 
 instance-method-descriptor utf8-reference(a mangled-names-with-constants, fun concrete-fun)
 	a.constants[a.mangled-names instance-method-descriptor fun]
-instance-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
+-instance-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
 	assert (a.union-info java-method-representation fun) == instance
 	res string = with d : build # TODO: support building symbols -------------------------------------------------------------
 		d ~= "("
@@ -254,6 +294,8 @@ instance-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
 		d ~~= a descriptor-for-return-type fun.return-type
 	res to
 
+record-init-descriptor utf8-reference(a mangled-names-with-constants, fields concrete-field[])
+	a.constants[a.mangled-names record-init-descriptor fields]
 record-init-descriptor symbol(a java-mangled-names, fields concrete-field[])
 	res string = with out : build
 		out ~= "("
@@ -271,8 +313,9 @@ lambda-init-descriptor symbol(a java-mangled-names, lambda lambda-concrete-expr)
 	res to
 
 record-init-reference method-reference(a mangled-names-with-constants, record_ concrete-type)
-	a.constants method-ref (a class_ record_), "<init>", do
-		a.mangled-names record-init-descriptor record_.body.concrete-record!.fields
+	descriptor = a record-init-descriptor record_.body.concrete-record!.fields
+	name-and-type = a.constants name-and-type a.constants["<init>"], descriptor
+	a.constants method-ref (a class_ record_), name-and-type
 
 lambda-init-reference method-reference(a mangled-names-with-constants, class_ class-reference, lambda lambda-concrete-expr)
 	a.constants method-ref class_, "<init>", do a.mangled-names lambda-init-descriptor lambda
@@ -283,23 +326,20 @@ lambda-call-descriptor symbol(a java-mangled-names, lambda-type concrete-type)
 	return-type, param-type = builtin_.type-args only2
 	"({a descriptor-for-param-type param-type}){a descriptor-for-return-type return-type}"
 
+descriptor-for-field-type utf8-reference(a mangled-names-with-constants, type concrete-type)
+	a.constants[a.mangled-names descriptor-for-field-type type]
 descriptor-for-field-type symbol(a java-mangled-names, type concrete-type)
 	forbid type is-empty-type
 	a descriptor-for-return-type type to
 descriptor-for-param-type string(a java-mangled-names, type concrete-type)
 	unless type is-empty-type
 		a descriptor-for-return-type type
--generate-descriptor-for-param-type string(type concrete-type, program concrete-program, union-info union-info, type-to-name symbol[concrete-type])
+-generate-descriptor-for-param-type string(ctx gen-ctx, type concrete-type)
 	unless type is-empty-type
-		type generate-descriptor-for-return-type type-to-name, union-info, program to
+		ctx generate-descriptor-for-return-type type to
 descriptor-for-return-type string(a java-mangled-names, type concrete-type)
 	a.type-to-descriptor[type]! to
--generate-descriptor-for-return-type symbol
-	type concrete-type
-	type-to-name symbol[concrete-type]
-	union-info union-info
-	program concrete-program
-do
+-generate-descriptor-for-return-type symbol(ctx gen-ctx, type concrete-type)
 	match type as-runtime-type
 	as void
 		"V"
@@ -308,11 +348,11 @@ do
 	as reference-type
 		if type is-array-or-mut-array || (type is-option && type.unwrap-option-type is-array-or-mut-array)
 			array = type is-option ? type.unwrap-option-type : type
-			"[{array.array-element-type generate-descriptor-for-return-type type-to-name, union-info, program}"
+			"[{ctx generate-descriptor-for-return-type array.array-element-type}"
 		elif field ?= type as-wrapper
-			field.type generate-descriptor-for-return-type type-to-name, union-info, program
+			ctx generate-descriptor-for-return-type field.type
 		else
-			"L{type get-boxed-class-name type-to-name, union-info, program};"
+			"L{ctx generate-boxed-class-name type};"
 
 descriptor symbol(a java-primitive-type)
 	match a
@@ -334,15 +374,15 @@ descriptor symbol(a java-primitive-type)
 		"J"
 
 boxed-class-name symbol(a java-mangled-names, type concrete-type)
-	type get-boxed-class-name a.type-to-name, a.union-info, a.program
+	a.type-to-boxed-class-name[type]!
 
--get-boxed-class-name symbol
-	type concrete-type
-	type-to-name symbol[concrete-type]
-	union-info union-info
+-gen-ctx record
 	program concrete-program
-do
-	mangled symbol data() = () => type-to-name[type]!
+	union-info union-info
+	type-to-name symbol[concrete-type]
+
+-generate-boxed-class-name symbol(ctx gen-ctx, type concrete-type)
+	mangled symbol mut() = () => ctx.type-to-name[type]!
 	match type body
 	as concrete-builtin-type x
 		array-or-mut-slice symbol mut() = () =>
@@ -350,7 +390,7 @@ do
 			if element is-empty-type
 				"java/lang/Integer"
 			else
-				"[{element generate-descriptor-for-param-type program, union-info, type-to-name}"
+				"[{ctx generate-descriptor-for-param-type element}"
 		match x kind
 		as array
 			array-or-mut-slice[]
@@ -411,9 +451,9 @@ do
 	as concrete-record _
 		mangled[]
 	as concrete-union x
-		match union-info.union-to-representation[type]!
+		match ctx.union-info.union-to-representation[type]!
 		as direct
-			if type == program.exception
+			if type == ctx.program.exception
 				"java/lang/Throwable"
 			else
 				"java/lang/Object"
@@ -423,9 +463,9 @@ do
 			mangled[]
 		as nullable
 			_, non-null = x.members only2
-			non-null get-boxed-class-name type-to-name, union-info, program
+			ctx generate-boxed-class-name non-null
 	as concrete-type-body-deferred
 		throw unreachable
 
-exclusion-class symbol()
+-exclusion-class symbol()
 	"java/util/concurrent/locks/ReentrantLock"
