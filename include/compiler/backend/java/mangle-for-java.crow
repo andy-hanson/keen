@@ -136,15 +136,27 @@ lambda-field-name symbol(closure-field concrete-local)
 	as concrete-generated-local-kind _
 		throw unreachable
 
+switchable-kind-field field-reference(a mangled-names-with-constants, union-type concrete-type)
+	a.mangled-names.union-info union-representation union-type is switch
+	a.constants field (a class_ union-type), do a.constants name-and-type "kind", "I"
+switchable-value-field field-reference(a mangled-names-with-constants, union-type concrete-type)
+	a.mangled-names.union-info union-representation union-type is switch
+	a.constants field (a class_ union-type), do a.constants name-and-type "value", "Ljava/lang/Object;"
+
 field-reference field-reference
 	a mangled-names-with-constants
 	containing-record concrete-type
 	field concrete-field
 do
-	class-ref = a.constants class_ do a.mangled-names boxed-class-name containing-record
 	name-and-type = a.constants name-and-type field.debug-name, do
 		a.mangled-names descriptor-for-field-type field.type
-	a.constants field class-ref, name-and-type
+	a.constants field (a class_ containing-record), name-and-type
+
+class_ class-reference(a mangled-names-with-constants, type concrete-type)
+	a.constants class_ do a.mangled-names boxed-class-name type	
+
+case-index-method method-reference(a mangled-names-with-constants, union-type concrete-type)
+	a.constants interface-method-ref (a class_ union-type), do a.constants name-and-type (a.mangled-names case-index-method-name union-type), "()I"
 
 case-index-method-name symbol(a java-mangled-names, struct concrete-type)
 	"{a[struct]}_index"
@@ -202,6 +214,13 @@ crow-call-static-descriptor symbol(n-args nat)
 		d ~~= ")Ljava/lang/Object;"
 	res to
 
+interface-method-ref method-reference(a mangled-names-with-constants, fun concrete-fun)
+	class_ = a class_ fun.params[0].type
+	a.constants interface-method-ref class_, do a.constants name-and-type (a instance-method-name fun), (a instance-method-descriptor fun)
+
+instance-method-name utf8-reference(a mangled-names-with-constants, fun concrete-fun)
+	a.constants[a.mangled-names instance-method-name fun]
+
 instance-method-name symbol(a java-mangled-names, fun concrete-fun)
 	res = fun.source.concrete-fun-source-regular!.decl name
 	if res == "show" # TODO: also check that it has no params and returns void ----------------------------------------------
@@ -209,8 +228,12 @@ instance-method-name symbol(a java-mangled-names, fun concrete-fun)
 	else
 		"{a[fun.params[0].type]}_{res}"
 
+static-method-ref method-reference(a mangled-names-with-constants, fun concrete-fun)
+	m = a.mangled-names[fun]
+	a.constants method-ref m.class_, m.member, do a.mangled-names static-method-descriptor fun
+
 static-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
-	# TODO:PERF build the descriptor only once and cache it ----------------------------------------------------------------------------------------
+	assert (a.union-info java-method-representation fun) == static
 	res string = with out : build
 		out ~= "("
 		for param : fun params
@@ -219,9 +242,10 @@ static-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
 		out ~~= a descriptor-for-return-type fun.return-type
 	res to
 
-# TODO: combine with method-descriptor ------------------------------------------------------------------------------------------
+instance-method-descriptor utf8-reference(a mangled-names-with-constants, fun concrete-fun)
+	a.constants[a.mangled-names instance-method-descriptor fun]
 instance-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
-	assert _ ?= fun.body concrete-fun-body-method
+	assert (a.union-info java-method-representation fun) == instance
 	res string = with d : build # TODO: support building symbols -------------------------------------------------------------
 		d ~= "("
 		for param : fun.params[1 .. end]
@@ -230,23 +254,28 @@ instance-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
 		d ~~= a descriptor-for-return-type fun.return-type
 	res to
 
-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
-	# TODO:PERF build the descriptor only once and cache it ----------------------------------------------------------------------------------------
+record-init-descriptor symbol(a java-mangled-names, fields concrete-field[])
 	res string = with out : build
 		out ~= "("
-		for param : fun params
-			out ~~= a descriptor-for-param-type param.type
-		out ~= ")"
-		out ~~= a descriptor-for-return-type fun.return-type
-	res to
-
-record-init-descriptor symbol(a java-mangled-names, fields concrete-type[])
-	res string = with out : build # TODO: support building a symbol? -------------------------------------------------------
-		out ~= "("
 		for field : fields
-			out ~~= a descriptor-for-param-type field
+			out ~~= a descriptor-for-param-type field.type
 		out ~~= ")V"
 	res to
+
+lambda-init-descriptor symbol(a java-mangled-names, lambda lambda-concrete-expr)
+	res string = with out : build
+		out ~= "("
+		for x : lambda closure
+			out ~~= a descriptor-for-param-type x.type
+		out ~~= ")V"
+	res to
+
+record-init-reference method-reference(a mangled-names-with-constants, record_ concrete-type)
+	a.constants method-ref (a class_ record_), "<init>", do
+		a.mangled-names record-init-descriptor record_.body.concrete-record!.fields
+
+lambda-init-reference method-reference(a mangled-names-with-constants, class_ class-reference, lambda lambda-concrete-expr)
+	a.constants method-ref class_, "<init>", do a.mangled-names lambda-init-descriptor lambda
 
 lambda-call-descriptor symbol(a java-mangled-names, lambda-type concrete-type)
 	builtin_ = lambda-type.body.concrete-builtin-type!
