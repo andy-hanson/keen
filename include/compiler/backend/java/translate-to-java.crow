@@ -35,9 +35,7 @@ do
 		show-ctx: show-ctx
 		names: show-ctx.show build-mangled-names concrete-program, union-info
 		structs-for-integrals: concrete-program get-structs-for-integrals
-		constant-names: ()
 		union-info: union-info
-		upcoming-lambda-impl-id: 0
 	start-constants = perf-now
 	ctx translate-constants
 	start-constants end-translate-constants
@@ -71,18 +69,19 @@ do
 	}
 	###
 	constants constants-builder = ()
+	names mangled-names-with-constants = ctx.names, constants
 	this-class = constants class_ "Main"
 	main method_info = do
 		code = with out : constants build-code
 			out aload 0
-			out call-static "Crow", "stringArrayFromJavaStringArray", "([Ljava/lang/String;)[[B"
+			out invokestatic names.crow-string-array-from-java-string-array 
 			main = ctx.program.common-funs.concrete-common-funs-java! main
 			out call-concrete-fun ctx, main
 			out l2i # TODO: this throws away information ------------------------------------------------------------------------------------
 			out dup32
 			# If it's == 0, jump to end
 			jmp = out ifeq
-			out call-static "java/lang/System", "exit", "(I)V"
+			out invokestatic names.java-System-exit
 			out return void
 			jmp jumps-to-here out, do
 				locals: ()
@@ -125,9 +124,9 @@ do
 	show-ctx show-type-ctx
 	names java-mangled-names
 	structs-for-integrals concrete-type[integral-type]
-	constant-names mut constant-names
 	union-info union-info
-	upcoming-lambda-impl-id mut nat
+-constant-names constant-names(a to-java-ctx)
+	a.names constant-names
 -add-class void(ctx to-java-ctx, name symbol, class_ ClassFile)
 	name-dot-class symbol = "{name}.class"
 	forbid name-dot-class in ctx.res : "Already have class {name-dot-class}" error
@@ -243,76 +242,28 @@ do
 		else
 			ctx.names class_ a Object_variable_info
 
-# This sets 'constant-names' while emitting classes to contain constants
 -translate-constants void(ctx to-java-ctx)
 	ctx add-class constant-symbols-class-name, do ctx constant-symbols-class
-
-	# Since class files can't get too big, we must break up constants between several classes.
-	constant-array-names class-and-member mut[nat] mut[concrete-type] = ()
-	constant-record-names class-and-member mut[constant-record] mut[concrete-type] = ()
-	cur-class-index mut nat = 0
-	cur-class-name mut symbol = "_constants{cur-class-index}"
-	field-index mut nat = 0
-	cur-class-constants any-constant mut[] = ()
-	class-to-constants any-constant[] mut[symbol] = ()
-
-	ctx.show-ctx.show each-constant-in-dependency-order ctx.program, constant =>
-		forbid constant.type is-empty-type
-		if field-index >= max-constants-per-class
-			class-to-constants[cur-class-name] := cur-class-constants.move-to
-			cur-class-index +:= 1
-			cur-class-name := "_constants{cur-class-index}"
-			field-index := 0
-		class-and-member class-and-member = cur-class-name, "x{field-index}"
-		ok = match constant
-		as single-constant-array x
-			forbid x.element-type is-empty-type
-			(constant-array-names ensure constant.type)[x index] := class-and-member
-			true
-		as single-constant-record x
-			forbid x.record-type is-empty-type
-			forbid x.record-type is-wrapper
-			(constant-record-names ensure constant.type)[x constant] := class-and-member
-			true
-		as single-constant-union _
-			# TODO: remove union from any-constant once I've removed the old translate-to-java ------------------------------------------------
-			# Since the union member can just upcast to the union, no need to have a field for this
-			false
-		if ok
-			field-index +:= 1
-			cur-class-constants ~= constant
-
-	unless cur-class-constants is-empty
-		class-to-constants[cur-class-name] := cur-class-constants.move-to
-
-	ctx.constant-names := do
-		arrays: for k, v : constant-array-names
-			k, v.move-to
-		records: for k, v : constant-record-names
-			k, v.move-to
-		unions: ()
-
-	for name, constants : class-to-constants
+	for name, constants : ctx.constant-names class-to-constants
 		ctx add-class name, do ctx constants-class name, constants
 
 -constant-symbols-class ClassFile(ctx to-java-ctx)
 	constants constants-builder = ()
 	names mangled-names-with-constants = ctx.names, constants
 	constant-symbols = ctx.program.all-constants symbols
-	symbol-descriptor = constants[ctx.names descriptor-for-field-type ctx.program.symbol]
-	to-symbol-ref = names static-method-ref ctx.program.common-funs.concrete-common-funs-java!.to-symbol-from-string
 	fields field_info[] = for index : 0 .. constant-symbols.size
 		access-flags: static | final
 		name: names constant-symbol-name index
-		descriptor: symbol-descriptor
+		descriptor: names descriptor-for-field-type ctx.program.symbol
 		attributes: ()
 	this-class = names constant-symbols-class
 	static-init method_info = do
 		code = with out : constants build-code
 			for index, symbol : constant-symbols with-index
 				out ldc do out.constants string-ref symbol.to
-				out call-virtual "java/lang/String", "getBytes", "()[B"
-				out invokestatic to-symbol-ref
+				out invokevirtual names.java-String-getBytes
+				out invokestatic do
+					names static-method-ref ctx.program.common-funs.concrete-common-funs-java!.to-symbol-from-string
 				out putstatic do names constant-symbol-field ctx.program.symbol, index
 			out return void
 		access-flags: static | final | synthetic
@@ -340,13 +291,14 @@ do
 		as single-constant-union _
 			throw unreachable
 	pool constants-builder = ()
+	names mangled-names-with-constants = ctx.names, pool
 	fields field_info[] = with out : build
 		for x : filtered-constants
 			forbid x.type is-empty-type || x.type is-wrapper
 			out ~= do
 				access-flags: static | final
-				name: pool[ctx.constant-names[x].member]
-				descriptor: pool[ctx.names descriptor-for-field-type x.type]
+				name: names constant-name x
+				descriptor: names descriptor-for-field-type x.type
 				attributes: ()
 	this-class = pool class_ name
 	static-init method_info = do
@@ -357,10 +309,10 @@ do
 				out init-constant expr-ctx, constant
 			out return void
 		access-flags: static | final | synthetic
-		name: pool["<clinit>"]
-		descriptor: pool["()V"]
+		name: names clinit
+		descriptor: names init-no-args-descriptor
 		attributes: code,
-	Object = pool class_ "java/lang/Object"
+	Object = names java-Object
 	constant-pool: pool finish
 	access: final
 	this-class: this-class
@@ -380,8 +332,8 @@ do
 				e.integral-value!.as-unsigned to
 			out ldc ctx.this-class
 			out ldc do out.constants string-ref resource
-			out call-virtual "java/lang/Class", "getResourceAsStream", "(Ljava/lang/String;)Ljava/io/InputStream;"
-			out call-virtual "java/io/InputStream", "readAllBytes", "()[B"
+			out invokevirtual ctx.names.java-Class-getResourceAsStream
+			out invokevirtual ctx.names.java-InputStream-readAllBytes
 			ctx pushed x.array-type
 		else
 			out make-array ctx, x.elements.size, x.array-type, x.element-type, i =>
@@ -391,15 +343,15 @@ do
 			out push-constant ctx, x.args[i], field.type
 	as single-constant-union _
 		throw unreachable
-	out set-static-field ctx.ctx, ctx.ctx.constant-names[constant], constant.type
+	out putstatic do ctx.names constant-field constant
 	ctx must-pop constant.type
 	assert ctx.stack is-empty
 
--emit-unreachable void(out code-builder)
-	class_ = out.constants class_ "java/lang/Error"
-	out makenew class_
+-emit-unreachable void(out code-builder, names mangled-names-with-constants)
+	Error = names java-Error
+	out makenew Error
 	out dup32
-	out call-init class_, "()V"
+	out invokespecial do names init-no-args Error
 	out athrow
 
 -new-record void
@@ -455,17 +407,6 @@ do
 		ctx must-pop array-type
 	ctx must-peek array-type
 
--static-field-descriptor field-reference(ctx to-java-ctx, constants constants-builder, field class-and-member, type concrete-type)
-	constants-class = constants class_ field.class_
-	field-name-and-type = constants name-and-type field.member, do ctx.names descriptor-for-field-type type
-	constants field constants-class, field-name-and-type
-
--get-static-field void(out code-builder, ctx to-java-ctx, field class-and-member, type concrete-type)
-	out getstatic do ctx static-field-descriptor out.constants, field, type
-
--set-static-field void(out code-builder, ctx to-java-ctx, field class-and-member, type concrete-type)
-	out putstatic do ctx static-field-descriptor out.constants, field, type
-
 -push-constant void(out code-builder, ctx expr-ctx, constant constant, type concrete-type)
 	match type body
 	as concrete-builtin-type x
@@ -494,7 +435,7 @@ do
 		else
 			match constant
 			as constant-record r
-				out get-static-field ctx.ctx, ctx.ctx.constant-names.records[type]![r]!, type
+				out getstatic do ctx.names constant-record-field type, r
 			as constant-gc-safe-value
 				out aconst_null
 			as constant-symbol x
@@ -542,7 +483,7 @@ do
 		out dup32
 		out push-constant-integral nat32, member-index.integral-value
 		out aload local
-		out call-init union-class , "(ILjava/lang/Object;)V"
+		out invokespecial do ctx.names init-union-switch union-class
 	as nullable
 		match member-index
 		as 0
@@ -563,11 +504,12 @@ do
 do
 	array void mut() = () =>
 		match constant
+		as constant-array x
+			out getstatic do ctx.names constant-array-field type, x
 		as constant-gc-safe-value
 			out aconst_null
 		else
-			field = ctx.ctx.constant-names.arrays[type]![constant.constant-array!.index]!
-			out get-static-field ctx.ctx, field, type
+			throw unreachable
 	match builtin_ kind
 	as array
 		if type.array-element-type is-empty-type
@@ -657,14 +599,14 @@ do
 -translate-type void(ctx to-java-ctx, type concrete-type)
 	constants constants-builder = ()
 	names mangled-names-with-constants = ctx.names, constants
-	super-class = constants class_ match type source
+	super-class = match type source
 	as concrete-type-source-bogus
-		"java/lang/Object"
+		names java-Object
 	as concrete-type-source-inst inst
 		if inst.decl.sum-type-memberships exists x => x.sum-type == ctx.model-program.common-types.exception
-			"java/lang/Throwable"
+			names java-Throwable
 		else
-			"java/lang/Object"
+			names java-Object
 	interface-structs = ctx.union-info.type-to-interfaces[type] ?? ()
 	interfaces class-reference[] = for x : interface-structs; names class_ x
 	this-class-name = names class-name type
@@ -706,10 +648,10 @@ do
 			() # TODO: could use a boxing-record for unsigned integer types ........................................................
 	as concrete-enum _
 		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
-		constants boxing-record type, this-class-name, this-class, super-class, interfaces, method-impls
+		names boxing-record type, super-class, interfaces, method-impls
 	as concrete-flags _
 		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
-		constants boxing-record type, this-class-name, this-class, super-class, interfaces, method-impls
+		names boxing-record type, super-class, interfaces, method-impls
 	as concrete-record x
 		names record-class type, x.is-wrapper, x.fields, this-class-name, this-class, super-class, interfaces, method-impls
 	as concrete-union _
@@ -725,7 +667,7 @@ do
 			constants union-sealed-interface this-class, super-class, interfaces, all-methods, do names case-index-method-name type
 		as switch
 			assert all-methods is-empty : todo
-			constants union-switchable this-class, super-class, interfaces
+			names union-switchable this-class, super-class, interfaces
 		as nullable
 			()
 	as concrete-type-body-deferred
@@ -771,7 +713,7 @@ do
 	call method_info = do
 		access-flags: abstract_
 		name: names.constants["call"]
-		descriptor: names.constants[names.mangled-names lambda-call-descriptor type]
+		descriptor: names lambda-call-descriptor type
 		attributes: ()
 	constant-pool: names.constants finish
 	access: abstract_
@@ -820,11 +762,12 @@ do
 	out invokeinterface (ctx.names case-index-method union-type), 1
 
 -union-switchable ClassFile
-	constants constants-builder
+	names mangled-names-with-constants
 	this-class class-reference
 	super-class class-reference
 	interfaces class-reference[]
 do
+	constants = names constants
 	kind field_info = do
 		access-flags: final
 		name: constants["kind"]
@@ -834,13 +777,13 @@ do
 	value field_info = do
 		access-flags: final
 		name: constants["value"]
-		descriptor: constants["Ljava/lang/Object;"]
+		descriptor: names java-Object-descriptor
 		attributes: ()
 	value-field = constants field this-class, (constants name-and-type "value", "Ljava/lang/Object;")
 	constructor method_info = do
 		code Code_attribute = with out : constants build-code
 			out aload 0
-			out invokespecial (constants init-no-args super-class)
+			out invokespecial do names init-no-args super-class
 			out aload 0
 			out xload T_INT, 1
 			out putfield kind-field
@@ -849,7 +792,7 @@ do
 			out putfield value-field
 			out return void
 		access-flags: ()
-		name: constants["<init>"]
+		name: names init
 		descriptor: constants["(ILjava/lang/Object;)V"]
 		attributes: code,
 	constant-pool: constants finish
@@ -882,7 +825,7 @@ do
 				out ~= do
 					access-flags: field.is-mutable ? () : final
 					name: constants[field.debug-name to]
-					descriptor: constants[names.mangled-names descriptor-for-field-type field.type]
+					descriptor: names descriptor-for-field-type field.type
 					attributes: ()
 	methods method_info[] = with methods-out : build
 		field-refs (field-reference, java-runtime-type)[] = with out : build
@@ -893,13 +836,13 @@ do
 		methods-out ~= names record-initializer super-class, field-refs, do
 			names record-init-descriptor concrete-fields
 		if type is-empty-type
-			methods-out ~= constants clinit-for-instance-field this-class-name, this-class
+			methods-out ~= names clinit-for-instance-field this-class-name, this-class
 		elif is-wrapper
-			methods-out ~= constants make-valueOf this-class-name, this-class, (names.mangled-names descriptor-for-param-type type), type.as-runtime-type
+			methods-out ~= names make-valueOf type
 			if p ?= concrete-fields.only.type as-java-primitive-type
 				field = concrete-fields only
 				field-ref = names field-reference type, field
-				methods-out ~= constants make-getValue field-ref, p # TODO: it's wasteful to always generate this ...................................................
+				methods-out ~= names make-getValue field-ref, p # TODO: it's wasteful to always generate this ...................................................
 		methods-out ~~= method-impls
 	constant-pool: constants finish
 	access: final
@@ -915,16 +858,16 @@ do
 	name: constants["instance"]
 	descriptor: constants["L{this-class-name};"]
 	attributes: ()
--clinit-for-instance-field method_info(constants constants-builder, this-class-name symbol, this-class class-reference)
-	class-init-code Code_attribute = with out : constants build-code
+-clinit-for-instance-field method_info(names mangled-names-with-constants, this-class-name symbol, this-class class-reference)
+	class-init-code Code_attribute = with out : names.constants build-code
 		out makenew this-class
 		out dup32
-		out invokespecial do constants init-no-args this-class
-		out putstatic do constants instance-field this-class-name
+		out invokespecial do names init-no-args this-class
+		out putstatic do names instance-field this-class, this-class-name
 		out return void
 	access-flags: static
-	name: constants["<clinit>"]
-	descriptor: constants["()V"]
+	name: names clinit
+	descriptor: names.constants["()V"]
 	attributes: class-init-code,
 
 -record-initializer method_info
@@ -935,7 +878,7 @@ do
 do
 	code = with out : names.constants build-code
 		out aload 0
-		out invokespecial do names.constants init-no-args super-class
+		out invokespecial do names init-no-args super-class
 		local-index mut nat = 1 # 0 is the object
 		for field, field-type : fields
 			out aload 0
@@ -948,42 +891,38 @@ do
 	descriptor: descriptor
 	attributes: code,
 
--init-no-args method-reference(constants constants-builder, class_ class-reference)
-	constants method-ref class_, "<init>", "()V"
-
 -boxing-record ClassFile
-	constants constants-builder
+	names mangled-names-with-constants
 	type concrete-type
-	this-class-name symbol
-	this-class class-reference
 	super-class class-reference
 	interfaces class-reference[]
 	methods method_info[]
 do
-	field-name = constants["value"]
+	constants = names constants
+	this-class = names class_ type
 	primitive = type as-java-primitive-type!
-	descriptor = primitive descriptor
+	descriptor = names primitive-descriptor primitive
 	field field_info = do
 		access-flags: final
-		name: field-name
-		descriptor: constants[descriptor]
+		name: names value
+		descriptor: descriptor
 		attributes: ()
-	field-ref = constants field this-class, (constants name-and-type "value", descriptor)
-	constructor-descriptor symbol = "({descriptor})V"
+	field-ref = names boxed-class-value type
+	constructor-descriptor = names boxed-class-init-descriptor type
 	constructor method_info = do
 		code = with out : constants build-code
 			out aload 0
-			out invokespecial do constants init-no-args super-class
+			out invokespecial do names init-no-args super-class
 			out aload 0
 			out xload type.as-runtime-type, 1
 			out putfield field-ref
 			out return void
 		access-flags: ()
-		name: constants["<init>"]
-		descriptor: constants[constructor-descriptor]
+		name: names init
+		descriptor: constructor-descriptor
 		attributes: code,
-	valueOf method_info = constants make-valueOf this-class-name, this-class, descriptor.to, type.as-runtime-type
-	getValue method_info = constants make-getValue field-ref, primitive
+	valueOf = names make-valueOf type
+	getValue = names make-getValue field-ref, primitive
 	constant-pool: constants finish
 	access: final
 	this-class: this-class
@@ -994,32 +933,30 @@ do
 	attributes: ()
 
 -make-valueOf method_info
-	constants constants-builder
-	this-class-name symbol
-	this-class class-reference
-	param-descriptor string
-	param-runtime-type java-runtime-type
+	names mangled-names-with-constants
+	type concrete-type
 do
+	this-class = names class_ type
 	# TODO: this should have a cache. For enums, statically generate all members. For flags or integrals, just cache the 10 most recent?
-	code = with out : constants build-code
+	code = with out : names.constants build-code
 		out makenew this-class
 		out dup32
-		out xload param-runtime-type, 0
-		out invokespecial (constants method-ref this-class, "<init>", "({param-descriptor})V")
+		out xload type.as-runtime-type, 0
+		out invokespecial do names boxed-class-init type
 		out return reference-type
 	access-flags: static
-	name: constants["valueOf"]
-	descriptor: constants["({param-descriptor})L{this-class-name};"]
+	name: names valueOf
+	descriptor: names boxed-class-valueOf-descriptor type
 	attributes: code,
 
--make-getValue method_info(constants constants-builder, field-ref field-reference, primitive java-primitive-type)
-	code = with out : constants build-code
+-make-getValue method_info(names mangled-names-with-constants, field-ref field-reference, primitive java-primitive-type)
+	code = with out : names.constants build-code
 		out aload 0
 		out getfield field-ref
 		out return primitive
 	access-flags: final
-	name: constants[primitive primitive-getter]
-	descriptor: constants["(){primitive descriptor}"]
+	name: names primitive-getter-name primitive
+	descriptor: names primitive-getter-descriptor primitive
 	attributes: code,
 
 -new-array-for-type void(out code-builder, ctx expr-ctx, element-type concrete-type)
@@ -1066,48 +1003,30 @@ do
 -box void(out code-builder, ctx expr-ctx, in-type concrete-type, out-type concrete-type)
 	assert out-type.as-runtime-type == reference-type
 	if in-type is-java-primitive-type || in-type is-wrapper
-		boxed = ctx.ctx.names boxed-class-name in-type
-		out call-static boxed, "valueOf", "({ctx.ctx.names descriptor-for-param-type in-type})L{boxed};"
+		out invokestatic do ctx.names boxed-class-valueOf in-type
 	elif in-type is-empty-type
-		out getstatic (ctx.constants instance-field (ctx.ctx.names boxed-class-name in-type))
+		out getstatic do ctx.names instance-field in-type
 	ctx must-refine in-type, out-type
 
--cast-and-unbox-if-necessary void(out code-builder, ctx to-java-ctx, type concrete-type)
+-cast-and-unbox-if-necessary void(out code-builder, ctx expr-ctx, type concrete-type)
 	guard type !is-java-any
 	if type is-empty-type
 		out pop reference-type
 	else
-		out checkcast do out.constants class_ do ctx.names boxed-class-name type
-		out unbox-if-necessary ctx, type
+		out checkcast do ctx.names class_ type
+		out unbox-if-necessary ctx.ctx, type
 
 -unbox-if-necessary void(out code-builder, ctx to-java-ctx, type concrete-type)
+	names mangled-names-with-constants = ctx.names, out.constants
 	if p ?= type as-java-primitive-type
-		boxed = ctx.names boxed-class-name type
-		out call-virtual boxed, p.primitive-getter, "(){ctx.names descriptor-for-return-type type}"
+		out invokevirtual do names primitive-unboxer type, p
 	elif field ?= type as-wrapper
-		field-ref = (ctx.names, out.constants) field-reference type, field
+		field-ref = names field-reference type, field
 		out getfield field-ref
--primitive-getter symbol(a java-primitive-type)
-	match a
-	as T_BOOLEAN
-		"booleanValue"
-	as T_CHAR
-		throw todo
-	as T_FLOAT
-		"floatValue"
-	as T_DOUBLE
-		"doubleValue"
-	as T_BYTE
-		"byteValue"
-	as T_SHORT
-		"shortValue"
-	as T_INT
-		"intValue"
-	as T_LONG
-		"longValue"
 
 -translate-funs-for-uri void(ctx to-java-ctx, uri uri, funs concrete-fun[], vars concrete-var[])
 	constants constants-builder = ()
+	names mangled-names-with-constants = ctx.names, constants
 	this-class-name = ctx.names module-class-name uri
 	this-class = constants class_ this-class-name
 	fields field_info[] = for var : vars
@@ -1117,7 +1036,7 @@ do
 		as global_
 			access-flags: static
 			name: constants[ctx.names[var].member]
-			descriptor: constants[ctx.names descriptor-for-field-type var.type]
+			descriptor: names descriptor-for-field-type var.type
 			attributes: ()
 	methods method_info[] = with methods-out : build
 		for fun : funs
@@ -1130,12 +1049,12 @@ do
 			methods-out ~= do
 				access-flags: static
 				name: constants[ctx.names[fun] member]
-				descriptor: constants[ctx.names static-method-descriptor fun]
+				descriptor: names static-method-descriptor fun
 				attributes: code,
 		methods-out ~= ctx init-vars constants, this-class, vars
-	Object = constants class_ "java/lang/Object"
-	class_ ClassFile = do
-		source SourceFile_attribute = constants["SourceFile"], constants[uri to]
+	Object = names java-Object
+	source SourceFile_attribute = constants["SourceFile"], constants[uri to]
+	ctx add-class this-class-name, do		
 		constant-pool: constants finish
 		access: ()
 		this-class: this-class
@@ -1144,9 +1063,9 @@ do
 		fields: fields
 		methods: methods
 		attributes: source,
-	ctx add-class this-class-name, class_
 
 -init-vars method_info(ctx to-java-ctx, constants constants-builder, this-class class-reference, vars concrete-var[])
+	names mangled-names-with-constants = ctx.names, constants
 	expr-ctx expr-ctx = do
 		ctx: ctx
 		constants: constants
@@ -1162,7 +1081,7 @@ do
 				throw todo
 			as global_
 				out emit-and-continue expr-ctx, var.initializer
-				out set-static-field ctx, ctx.names[var], var.type
+				out putstatic do names var-field var
 				expr-ctx must-pop var.type
 			assert expr-ctx.stack is-empty
 		out return void
@@ -1214,7 +1133,7 @@ do
 					out instanceof do ctx.names class_ case-type
 					jump := out ifeq
 				out aload 0
-				out cast-and-unbox-if-necessary ctx.ctx, case-type
+				out cast-and-unbox-if-necessary ctx, case-type
 				load-rest-params[]
 				out call-concrete-fun ctx.ctx, case-impl
 				out return fun.return-type.as-runtime-type
@@ -1229,13 +1148,13 @@ do
 				jump-to-case[case-index] jumps-to-here out, ctx.cur-stack-frame
 				out aload 0
 				out get-switchable-value ctx, union_
-				out cast-and-unbox-if-necessary ctx.ctx, case-type
+				out cast-and-unbox-if-necessary ctx, case-type
 				load-rest-params[]
 				case-impl = case-impls[method-index] ?? throw todo
 				out call-concrete-fun-or-instance-method ctx.ctx, case-impl
 				out return fun.return-type.as-runtime-type
 			jump-to-default jumps-to-here out, ctx.cur-stack-frame
-			out emit-unreachable
+			out emit-unreachable ctx.names
 			ctx pushed fun.return-type
 		as nullable
 			throw todo
@@ -1295,6 +1214,7 @@ do
 		out call-concrete-fun ctx, fun
 
 -emit-expr void(out code-builder, ctx expr-ctx, pos expr-pos, a concrete-expr)
+	names = ctx names
 	out mark-line-number ctx.ctx.show-ctx.line-and-character-getters[a range].range.start.line.to + 1
 	type = a type
 	match a kind
@@ -1355,7 +1275,7 @@ do
 				ctx must-pop type
 				exception = ctx.program exception
 				ctx pushed exception
-				out add-to-exception-table start-pc, end-pc, (ctx.names class_ exception), ctx.cur-stack-frame
+				out add-to-exception-table start-pc, end-pc, (names class_ exception), ctx.cur-stack-frame
 				out emit-and-continue ctx, x.right
 				# 'x.right' is void, so the exception should be at the top of the stack.
 				ctx must-pop exception
@@ -1378,16 +1298,16 @@ do
 		out emit-with-local ctx, x.local, pos, x.then
 	as lambda-concrete-expr x
 		class-name = ctx.ctx create-lambda-implementation-class a.range.uri, ctx.cur-fun-for-debug!, type, x
+		class_ = out.constants class_ class-name
 		# All we do here is call 'new' or 'instance'
 		if x.closure is-empty
-			out getstatic do out.constants instance-field class-name
+			out getstatic do names instance-field class_, class-name
 		else
-			class_ = out.constants class_ class-name
 			out makenew class_
 			out dup32
 			for local : x closure
 				out get-local ctx, local
-			out invokespecial do ctx.names lambda-init-reference class_, x
+			out invokespecial do names lambda-init-reference class_, x
 		ctx pushed type
 		out handle-pos pos, type
 	as local-get-concrete-expr x
@@ -1448,14 +1368,14 @@ do
 			jump-to-pop-then-default deferred-jump? = match matched-type integral-type ?? nat8
 			as nat64
 				out dup64
-				out call-static "Crow", "fitsInNat32", "(J)Z"
+				out invokestatic names.crow-fits-in-nat32
 				# If false, go to an instruction just before 'default' that pops
 				res = out ifeq
 				out l2i
 				res
 			as int64
 				out dup64
-				out call-static "Crow", "fitsInInt32", "(J)Z"
+				out invokestatic names.crow-fits-in-int32
 				res = out ifeq
 				out l2i
 				res
@@ -1482,7 +1402,7 @@ do
 			if e ?= x else_
 				out emit-expr ctx, inner-pos, e
 			else
-				out emit-unreachable
+				out emit-unreachable names
 				ctx pushed type
 	as match-string-like-concrete-expr x
 		out emit-and-continue ctx, x.matched
@@ -1520,14 +1440,14 @@ do
 	as record-field-get-concrete-expr x
 		out emit-and-continue ctx, x.record_
 		unless x.record_.type is-wrapper
-			out getfield do ctx.names field-reference x.record_.type, x.field
+			out getfield do names field-reference x.record_.type, x.field
 		ctx must-pop x.record_.type
 		ctx pushed x.field.type
 		out handle-pos pos, type
 	as record-field-set-concrete-expr x
 		out emit-and-continue ctx, x.record_
 		out emit-and-continue ctx, x.value
-		out putfield do ctx.names field-reference x.record_.type, x.field
+		out putfield do names field-reference x.record_.type, x.field
 		ctx must-pop x.value.type
 		ctx must-pop x.record_.type
 		out handle-pos pos, type
@@ -1557,7 +1477,7 @@ do
 				ctx must-pop type
 				catch-type = ctx exception-case-type-from-index exception-case-index
 				frame-before = ctx cur-stack-frame
-				boxed-catch-type = ctx.names class_ catch-type
+				boxed-catch-type = names class_ catch-type
 				out add-to-exception-table start, end, boxed-catch-type, do
 					locals: frame-before locals
 					stack: frame-before.stack ~ boxed-catch-type.Object_variable_info
@@ -1573,7 +1493,7 @@ do
 			ctx must-pop type
 			catch-type = ctx exception-case-type-from-index x.exception-member-index
 			frame-before = ctx cur-stack-frame
-			boxed-catch-type = ctx.names class_ catch-type
+			boxed-catch-type = names class_ catch-type
 			out add-to-exception-table start, end, boxed-catch-type, do
 				locals: frame-before locals
 				stack: frame-before.stack ~ boxed-catch-type.Object_variable_info
@@ -1584,7 +1504,7 @@ do
 		as thread-local_
 			throw todo
 		as global_
-			out get-static-field ctx.ctx, ctx.ctx.names[x var], type
+			out getstatic do ctx.names var-field x.var
 		ctx pushed type
 		out handle-pos pos, type
 	as var-set-concrete-expr x
@@ -1593,13 +1513,13 @@ do
 		as thread-local_
 			throw todo
 		as global_
-			out set-static-field ctx.ctx, ctx.ctx.names[x var], x.var.type
+			out putstatic do ctx.names var-field x.var
 			ctx must-pop x.value.type
 		out handle-pos pos, type
 	as union-as-concrete-expr x
 		out emit-and-continue ctx, x.union_
 		cast void mut() = () =>
-			out checkcast do ctx.names class_ x.case-type
+			out checkcast do names class_ x.case-type
 			out unbox-if-necessary ctx.ctx, x.case-type
 			ctx must-refine x.union_.type, x.case-type
 			out handle-pos pos, type
@@ -1619,7 +1539,7 @@ do
 				# Get instance of the empty type
 				throw todo
 			as 1
-				out call-virtual "Crow", "assertNonNull", "(Ljava/lang/Object;)V"
+				out invokevirtual names.crow-assert-non-null
 			else
 				throw unreachable
 	as union-kind-concrete-expr x
@@ -1639,7 +1559,7 @@ do
 					jump jumps-to-here out, ctx.cur-stack-frame
 				out pop reference-type # TODO:PERF the very last case could just not dup it ----------------------------------
 				ctx must-pop union-type
-				out emit-unreachable
+				out emit-unreachable names
 				ctx pushed type
 		match ctx union-representation union-type
 		as direct
@@ -1654,7 +1574,7 @@ do
 			ctx must-pop union-type
 			ctx pushed type
 		as nullable
-			out call-static "Crow", "oneIfNotNull", "(Ljava/lang/Object;)L"
+			out invokestatic names.crow-one-if-not-null
 
 -emit-for-loop void(out code-builder, ctx expr-ctx, pos expr-pos, a concrete-expr, x array-op-concrete-expr)
 	type = a type
@@ -1732,7 +1652,7 @@ do
 			# size is end - cur
 			out xload ir, cur
 			out xsub ir
-		out checked-to-nat32 integral-type
+		out checked-to-nat32 ctx.names, integral-type
 		unless empty-out-elem
 			out new-array-for-type ctx, x.out-element
 		out xstore type.as-runtime-type, out-array
@@ -1842,7 +1762,7 @@ do
 			jump = out ifeq
 			# The case comsumes that matched value. The next case will still have it since it jumped over this.
 			ctx must-refine matched-type, case-type
-			out cast-and-unbox-if-necessary ctx.ctx, case-type
+			out cast-and-unbox-if-necessary ctx, case-type
 			out emit-with-opt-local ctx, case_.local, case-type, inner-pos, case_.then
 
 			# Change the stack to have the state from before 'jump'
@@ -1856,7 +1776,7 @@ do
 			ctx must-peek type
 		else
 			# TODO: If the type is 'exception' and we're calling 'show', we should call 'toString' in this case? -----------
-			out emit-unreachable
+			out emit-unreachable ctx.names
 			# Treat the stack effect as if it was successful
 			ctx pushed type
 
@@ -1878,7 +1798,7 @@ do
 			target jumps-to-here out, ctx.cur-stack-frame
 			case-type = x.union_.members[member-index as-unsigned]
 			if l ?= case_ local # TODO: should I use a 'with-opt-local' helper? ----------------------------------------------------
-				out cast-and-unbox-if-necessary ctx.ctx, case-type
+				out cast-and-unbox-if-necessary ctx, case-type
 				ctx must-refine matched-type, case-type
 				out emit-with-local ctx, l, inner-pos, case_.then
 			else
@@ -1898,7 +1818,7 @@ do
 			out emit-expr ctx, inner-pos, e
 			ctx must-peek type
 		else
-			out emit-unreachable
+			out emit-unreachable ctx.names
 			ctx pushed type
 
 -xsub void(out code-builder, type java-runtime-type)
@@ -1910,10 +1830,10 @@ do
 	else
 		throw unreachable
 
--checked-to-nat32 void(out code-builder, integral-type concrete-type)
+-checked-to-nat32 void(out code-builder, names mangled-names-with-constants, integral-type concrete-type)
 	match integral-type.as-runtime-type java-primitive-type!
 	as T_LONG
-		out call-static "Crow", "nat32FromNat64", "(J)I"
+		out invokestatic names.crow-nat32-from-nat64
 	as T_INT
 		()
 	else
@@ -2008,7 +1928,7 @@ do
 do
 	constants constants-builder = ()
 	names mangled-names-with-constants = ctx.names, constants
-	this-class-name = ctx.names lambda-name containing-fun, ctx.next-lambda-index
+	this-class-name = ctx.names lambda-impl-class-name containing-fun, ctx.next-lambda-index
 	ctx.next-lambda-index +:= 1
 	this-class = constants class_ this-class-name
 	closure field-reference[concrete-local-id] = for x : a closure
@@ -2029,10 +1949,9 @@ do
 		field-refs (field-reference, java-runtime-type)[] = for x : a closure
 			assert x.type !is-empty-type
 			(names lambda-field-reference this-class, x), x.type.as-runtime-type
-		init-descriptor = names.constants[names.mangled-names lambda-init-descriptor a]
-		methods-out ~= names record-initializer super-class, field-refs, init-descriptor
+		methods-out ~= names record-initializer super-class, field-refs, do names lambda-init-descriptor a
 		if a.closure is-empty
-			methods-out ~= constants clinit-for-instance-field this-class-name, this-class
+			methods-out ~= names clinit-for-instance-field this-class-name, this-class
 		methods-out ~= do
 			expr-ctx expr-ctx = ctx, constants, this-class, containing-fun, closure, true, (!a.param.type.is-empty-type ? (a.param,))
 			code = with out : constants build-code
@@ -2040,7 +1959,7 @@ do
 			expr-ctx verify-expr-ctx-finished a.body.type, (a.param,)
 			access-flags: ()
 			name: constants["call"]
-			descriptor: constants[names.mangled-names lambda-call-descriptor lambda-type]
+			descriptor: names lambda-call-descriptor lambda-type
 			attributes: code,
 	ctx add-class this-class-name, do
 		source SourceFile_attribute = constants["SourceFile"], constants[uri to]
@@ -2192,19 +2111,16 @@ do
 	match fun
 	as builtin-unary x
 		out function-like ctx, type, args, () =>
-			out translate-builtin-unary ctx.ctx, type, args.only.type, x, type-args
+			out translate-builtin-unary ctx, type, args.only.type, x, type-args
 	as builtin-binary x
 		out function-like ctx, type, args, () =>
-			out translate-builtin-binary type, args[0].type, x
+			out translate-builtin-binary ctx.names, type, args[0].type, x
 	as builtin-binary-lazy _
 		throw unreachable
 	as builtin-fun-call-lambda
 		out function-like ctx, type, args, () =>
 			lambda, _ = args only2
-			lambda-class = ctx.names class_ lambda.type
-			descriptor = ctx.ctx.names lambda-call-descriptor lambda.type
-			name-and-descriptor = ctx.constants name-and-type "call", descriptor
-			out invokevirtual do ctx.constants method-ref lambda-class, name-and-descriptor
+			out invokevirtual do ctx.names lambda-call lambda.type
 	as builtin-fun-constant _
 		throw unreachable
 	as builtin-fun-is-empty-type
@@ -2214,16 +2130,8 @@ do
 	as js-fun _
 		throw unreachable
 
--call-virtual void(out code-builder, class_ symbol, method symbol, descriptor symbol)
-	out invokevirtual do out.constants method-ref class_, method, descriptor
-
--call-static void(out code-builder, class_ symbol, method symbol, descriptor symbol) # TODO: move to class-code-builder.crow ---------
-	out invokestatic do out.constants method-ref class_, method, descriptor
-
--call-init void(out code-builder, class_ class-reference, constructor-descriptor symbol) # TODO: move to class-code-builder.crow
-	out invokespecial do out.constants method-ref class_, do out.constants name-and-type "<init>", constructor-descriptor
-
--translate-builtin-unary void(out code-builder, ctx to-java-ctx, return-type concrete-type, arg-type concrete-type, kind builtin-unary, type-args concrete-type[])
+-translate-builtin-unary void(out code-builder, ctx expr-ctx, return-type concrete-type, arg-type concrete-type, kind builtin-unary, type-args concrete-type[])
+	names = ctx names
 	match kind
 	as array-size
 		unless type-args.only is-empty-type
@@ -2234,9 +2142,9 @@ do
 	as as-mut-array-impl
 		()
 	as bits-of-float32
-		out call-static "java/lang/Float", "floatToRawIntBits", "(F)I"
+		out invokestatic names.java-floatToRawIntBits
 	as bits-of-float64
-		out call-static "java/lang/Double", "doubleToRawLongBits", "(D)J"
+		out invokestatic names.java-doubleToRawLongBits
 	as bitwise-not
 		match return-type.as-integral-type! to-signed
 		as int8
@@ -2254,9 +2162,9 @@ do
 			out lconst -1
 			out lxor
 	as float32-from-bits
-		out call-static "java/lang/Float", "intBitsToFloat", "(I)F"
+		out invokestatic names.java-intBitsToFloat
 	as float64-from-bits
-		out call-static "java/lang/Double", "longBitsToDouble", "(J)D"
+		out invokestatic names.java-longBitsToDouble
 	as not
 		# Negate all bits, then mask back to a single bit
 		out iconst -1
@@ -2272,14 +2180,14 @@ do
 	as to-float64-from-int64
 		out l2d
 	as to-float64-from-nat64
-		out call-static "Crow", "float64FromNat64", "(J)D"
+		out invokestatic names.crow-float64FromNat64
 	as truncate-to-int64-from-float64
 		out d2l
 	as weak-ref-get
-		out call-static "Crow", "weakRefGet", "(Ljava/lang/ref/WeakReference;)Ljava/lang/Object;"
+		out invokestatic names.crow-weakRefGet
 		out cast-and-unbox-if-necessary ctx, type-args.only
 	as weak-ref-new
-		out call-static "Crow", "newWeakRef", "(Ljava/lang/Object;)Ljava/lang/ref/WeakReference;"
+		out invokestatic names.crow-newWeakRef
 	as wrap-convert-integral
 		out convert-integral return-type.as-integral-type-allow-char!, arg-type.as-integral-type-allow-char!
 
@@ -2347,7 +2255,7 @@ do
 		if arg-type != int64
 			out i2l
 
--translate-builtin-binary void(out code-builder, return-type concrete-type, param0-type concrete-type, kind builtin-binary)
+-translate-builtin-binary void(out code-builder, names mangled-names-with-constants, return-type concrete-type, param0-type concrete-type, kind builtin-binary)
 	match kind
 	as add-float
 		match return-type as-float-type!
@@ -2371,52 +2279,16 @@ do
 		else
 			out ixor
 	as equal
-		if f ?= param0-type as-float-type
-			match f
-			as float32
-				out call-static "Crow", "equalFloat32", "(FF)Z"
-			as float64
-				out call-static "Crow", "equalFloat64", "(DD)Z"
+		out invokestatic if f ?= param0-type as-float-type
+			names crow-equal-float f
 		else 
-			match param0-type.as-integral-type-allow-bool-char! to-signed
-			as int8
-				out call-static "Crow", "equalInt8", "(BB)Z"
-			as int16
-				out call-static "Crow", "equalInt16", "(SS)Z"
-			as int32
-				out call-static "Crow", "equalInt32", "(II)Z"
-			as int64
-				out call-static "Crow", "equalInt64", "(JJ)Z"
+			names crow-equal-integral param0-type.as-integral-type-allow-bool-char!
 	as equal-float-ieee
-		match param0-type as-float-type!
-		as float32
-			out call-static "Crow", "equalFloat32IEEE", "(FF)Z"
-		as float64
-			out call-static "Crow", "equalFloat64IEEE", "(DD)Z"
+		out invokestatic do names crow-equal-float-ieee param0-type.as-float-type!
 	as less
-		match param0-type.as-integral-type-allow-bool-char!
-		as int8
-			out call-static "Crow", "lessInt8", "(BB)Z"
-		as int16
-			out call-static "Crow", "lessInt16", "(SS)Z"
-		as int32
-			out call-static "Crow", "lessInt32", "(II)Z"
-		as int64
-			out call-static "Crow", "lessInt64", "(JJ)Z"
-		as nat8
-			out call-static "Crow", "lessNat8", "(BB)Z"
-		as nat16
-			out call-static "Crow", "lessNat16", "(SS)Z"
-		as nat32
-			out call-static "Crow", "lessNat32", "(II)Z"
-		as nat64
-			out call-static "Crow", "lessNat64", "(JJ)Z"
+		out invokestatic do names crow-less-integral param0-type.as-integral-type-allow-bool-char!
 	as less-float-ieee
-		match param0-type as-float-type!
-		as float32
-			out call-static "Crow", "lessFloat32IEEE", "(FF)Z"
-		as float64
-			out call-static "Crow", "lessFloat64IEEE", "(DD)Z"
+		out invokestatic do names crow-less-float-ieee param0-type.as-float-type!
 	as mul-float
 		match return-type as-float-type!
 		as float32
@@ -2424,7 +2296,7 @@ do
 		as float64
 			out dmul
 	as reference-equal
-		out call-static "Crow", "referenceEqual", "(Ljava/lang/Object;Ljava/lang/Object;)Z"
+		out invokestatic names.crow-reference-equal
 	as sub-float
 		match return-type as-float-type!
 		as float32
@@ -2445,27 +2317,18 @@ do
 			as float64
 				out ddiv
 		else
-			match return-type as-integral-type!
-			as int8
-				out idiv
-			as int16
-				out idiv
-			as int32
-				out idiv
-			as int64
-				out ldiv
-			as nat8
-				out call-static "java/lang/Byte", "divideUnsigned", "(BB)B"
-			as nat16
-				out call-static "java/lang/Short", "divideUnsigned", "(SS)S"
-			as nat32
-				out call-static "java/lang/Integer", "divideUnsigned", "(II)I"
-			as nat64
-				out call-static "java/lang/Long", "divideUnsigned", "(JJ)J"
+			i = return-type as-integral-type!
+			if i is-signed
+				if i == int64
+					out ldiv
+				else
+					out idiv
+			else
+				out invokestatic do names java-divideUnsigned i.to-signed
 	as unsafe-mod-float64
 		out drem
 	as unsafe-mod-nat64
-		out call-static "java/lang/Long", "remainderUnsigned", "(JJ)J"
+		out invokestatic do names java-remainderUnsigned int64
 	as wrap-add
 		if return-type.as-integral-type! is-64-bit
 			out ladd
@@ -2518,7 +2381,7 @@ do
 		else
 			out function-like-convert-args-to-objects ctx, type, args, (index => index != 1), () =>
 				out invokestatic do ctx.names crow-call-instance args.size
-				out cast-and-unbox-if-necessary ctx.ctx, type
+				out cast-and-unbox-if-necessary ctx, type
 	as call-new
 		class-name-with-dots = ctx as-constant-string args[0]
 		if args every (arg => arg.type !is-java-any) && class-name-with-dots !is-empty
@@ -2526,10 +2389,10 @@ do
 			out makenew class_
 			out dup32
 			out function-like ctx, type, args[1 .. end].to, () =>
-				out call-init class_, do ctx.ctx.names extern-constructor-descriptor for x : args[1 .. end]; x type
+				out invokespecial do ctx.names extern-constructor class_, for x : args[1 .. end]; x type
 		else
 			out function-like-convert-args-to-objects ctx, type, args, (index => index != 0), () =>
-				out call-static "Crow", "callNew", args.size.crow-call-new-descriptor
+				out invokestatic do ctx.names crow-call-new args.size
 	as call-static
 		class-name = ctx as-constant-string args[0]
 		method-name = ctx as-constant-string args[1]
@@ -2538,23 +2401,18 @@ do
 				if class-name! == "java.util.Arrays" && method-name! == "copyOfRange"
 					out copy-of-range ctx, type
 				else
-					descriptor symbol = if class-name! == "java.lang.System" && method-name! == "arraycopy"
-						# TODO: HAX. In this case we need to specify the type as Object and not an array type. A Java compiler would of course do this upcast implicitly.
-						"(Ljava/lang/Object;ILjava/lang/Object;II)V"
-					else
-						ctx.ctx.names extern-static-method-descriptor type, for x : args[2 .. end]; x type
-					out call-static class-name!.dots-to-slashes, method-name!.dots-to-slashes, descriptor
+					out invokestatic do ctx.names extern-static-method class-name!.dots-to-slashes, method-name!, type, for x : args[2 .. end]; x type
 		else
 			out function-like-convert-args-to-objects ctx, type, args, (index => index >= 2), () =>
 				out invokestatic do ctx.names crow-call-static args.size
-				out cast-and-unbox-if-necessary ctx.ctx, type
+				out cast-and-unbox-if-necessary ctx, type
 	as call-static-varargs
 		out function-like ctx, type, args, () =>
 			out invokestatic ctx.names.crow-call-static-varargs
-			out cast-and-unbox-if-necessary ctx.ctx, type
+			out cast-and-unbox-if-necessary ctx, type
 	as cast
 		out function-like ctx, type, args, () =>
-			out cast-and-unbox-if-necessary ctx.ctx, type
+			out cast-and-unbox-if-necessary ctx, type
 	as change-exclusion
 		out function-like ctx, type, args, () =>
 			out invokestatic ctx.names.crow-change-exclusion

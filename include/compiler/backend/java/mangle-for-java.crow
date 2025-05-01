@@ -19,6 +19,7 @@ java-mangled-names record
 	-type-to-boxed-class-name symbol[concrete-type]
 	program concrete-program # TODO: RM, this should only be used when building it ---------------------------------------------------
 	union-info union-info # TODO: RM, this should only be used when building it ---------------------------------------------------
+	constant-names constant-names
 
 mangled-names-with-constants record mut
 	mangled-names java-mangled-names
@@ -59,6 +60,56 @@ do
 		type, do (program, union-info, type-to-name) generate-boxed-class-name type
 	program: program
 	union-info: union-info
+	constant-names: show-ctx get-constant-names program
+
+-get-constant-names constant-names(show-ctx show-ctx, program concrete-program)
+	# Since class files can't get too big, we must break up constants between several classes.
+	constant-array-names class-and-member mut[nat] mut[concrete-type] = ()
+	constant-record-names class-and-member mut[constant-record] mut[concrete-type] = ()
+	cur-class-index mut nat = 0
+	cur-class-name mut symbol = "_constants{cur-class-index}"
+	field-index mut nat = 0
+	cur-class-constants any-constant mut[] = ()
+	class-to-constants any-constant[] mut[symbol] = ()
+
+	show-ctx each-constant-in-dependency-order program, constant =>
+		forbid constant.type is-empty-type
+		if field-index >= max-constants-per-class
+			class-to-constants[cur-class-name] := cur-class-constants.move-to
+			cur-class-index +:= 1
+			cur-class-name := "_constants{cur-class-index}"
+			field-index := 0
+		class-and-member class-and-member = cur-class-name, "x{field-index}"
+		ok = match constant
+		as single-constant-array x
+			forbid x.element-type is-empty-type
+			(constant-array-names ensure constant.type)[x index] := class-and-member
+			true
+		as single-constant-record x
+			forbid x.record-type is-empty-type
+			forbid x.record-type is-wrapper
+			(constant-record-names ensure constant.type)[x constant] := class-and-member
+			true
+		as single-constant-union _
+			# TODO: remove union from any-constant once I've removed the old translate-to-java ------------------------------------------------
+			# Since the union member can just upcast to the union, no need to have a field for this
+			false
+		if ok
+			field-index +:= 1
+			cur-class-constants ~= constant
+
+	unless cur-class-constants is-empty
+		class-to-constants[cur-class-name] := cur-class-constants.move-to
+
+	arrays: for k, v : constant-array-names
+		k, v.move-to
+	records: for k, v : constant-record-names
+		k, v.move-to
+	unions: ()
+	class-to-constants: class-to-constants to
+
+constant-name utf8-reference(a mangled-names-with-constants, constant any-constant)
+	a.constants[a.mangled-names.constant-names[constant] member]
 
 constant-symbols-class-name symbol()
 	"_constant_symbols"
@@ -122,13 +173,15 @@ subscript class-and-member(a java-mangled-names, fun concrete-fun)
 -subscript symbol(a java-mangled-names, type concrete-type)
 	a.type-to-name[type]!
 
-lambda-name symbol(a java-mangled-names, containing-fun concrete-fun, lambda-index nat)
+lambda-impl-class-name symbol(a java-mangled-names, containing-fun concrete-fun, lambda-index nat)
 	"{a module-class-name containing-fun.module-uri}_{a.fun-to-name[containing-fun]!}_lambda{lambda-index}"
 
 # Static "instance" field on a singleton class
-instance-field field-reference(constants constants-builder, class_ symbol)
-	name-and-type = constants name-and-type "instance", "L{class_};"
-	constants field (constants class_ class_), name-and-type
+instance-field field-reference(a mangled-names-with-constants, type concrete-type)
+	a instance-field (a class_ type), do a.mangled-names boxed-class-name type
+instance-field field-reference(a mangled-names-with-constants, class_ class-reference, class-name symbol)
+	name-and-type = a.constants name-and-type "instance", "L{class-name};"
+	a.constants field class_, name-and-type
 
 lambda-field-reference field-reference
 	a mangled-names-with-constants
@@ -184,7 +237,7 @@ crow-call-instance method-reference(a mangled-names-with-constants, n-args nat)
 		for index : 0 .. n-args
 			out ~~= index == 1 ? string-descriptor : "Ljava/lang/Object;"
 		out ~~= ")Ljava/lang/Object;"
-	a.constants method-ref "Crow", "callInstance", descriptor.to
+	a crow-method "callInstance", descriptor.to
 
 crow-call-static method-reference(a mangled-names-with-constants, n-args nat)
 	descriptor string = with d : build
@@ -192,22 +245,22 @@ crow-call-static method-reference(a mangled-names-with-constants, n-args nat)
 		for index : 0 .. n-args
 			d ~~= index < 2 ? string-descriptor : "Ljava/lang/Object;"
 		d ~~= ")Ljava/lang/Object;"
-	a.constants method-ref "Crow", "callStatic", descriptor.to
+	a crow-method "callStatic", descriptor.to
 
 crow-call-static-varargs method-reference(a mangled-names-with-constants)
-	a.constants method-ref "Crow", "callStaticVarargs", "({string-descriptor}{string-descriptor}[Ljava/lang/Object;)Ljava/lang/Object;"
+	a crow-method "callStaticVarargs", "({string-descriptor}{string-descriptor}[Ljava/lang/Object;)Ljava/lang/Object;"
 
 crow-get-exclusion method-reference(a mangled-names-with-constants)
-	a.constants method-ref "Crow", "getExclusion", "()L{exclusion-class};"
+	a crow-method "getExclusion", "()L{exclusion-class};"
 crow-change-exclusion method-reference(a mangled-names-with-constants)
-	a.constants method-ref "Crow", "changeExclusion", "(L{exclusion-class};)V"
+	a crow-method "changeExclusion", "(L{exclusion-class};)V"
 crow-reference-equal method-reference(a mangled-names-with-constants)
-	a.constants method-ref "Crow", "referenceEqual", "(Ljava/lang/Object;Ljava/lang/Object;)Z"
+	a crow-method "referenceEqual", "(Ljava/lang/Object;Ljava/lang/Object;)Z"
 crow-get-static-field method-reference(a mangled-names-with-constants)
-	a.constants method-ref "Crow", "getStaticField", "({string-descriptor}{string-descriptor})Ljava/lang/Object;"
+	a crow-method "getStaticField", "({string-descriptor}{string-descriptor})Ljava/lang/Object;"
 
 arrays-copy-of-range-for-primitive method-reference(a mangled-names-with-constants, p java-primitive-type)
-	a.constants method-ref "java/util/Arrays", "copyOfRange", "([{p descriptor}II)[{p descriptor}"
+	a.constants method-ref "java/util/Arrays", "copyOfRange", "([{p primitive-descriptor}II)[{p primitive-descriptor}"
 arrays-copy-of-range-for-object method-reference(a mangled-names-with-constants)
 	a.constants method-ref "java/util/Arrays", "copyOfRange", "([Ljava/lang/Object;II)[Ljava/lang/Object;"
 
@@ -229,30 +282,78 @@ do
 		out ~~= a.mangled-names descriptor-for-return-type return-type
 	a.constants method-ref (a class_ object-type), method-name, descriptor.to
 
-extern-constructor-descriptor symbol(a java-mangled-names, param-types concrete-type[])
-	res string = with out : build
+extern-constructor method-reference(a mangled-names-with-constants, class_ class-reference, param-types concrete-type[])
+	descriptor string = with out : build
 		out ~= "("
 		for x : param-types
-			out ~~= a descriptor-for-param-type x
+			out ~~= a.mangled-names descriptor-for-param-type x
 		out ~~= ")V"
-	res to
+	a.constants method-ref class_, do a.constants name-and-type "<init>", descriptor.to
 
-crow-call-new-descriptor symbol(n-params nat)
-	res string = with out : build
+clinit utf8-reference(a mangled-names-with-constants)
+	a.constants["<clinit>"]
+
+crow-call-new method-reference(a mangled-names-with-constants, n-params nat)
+	descriptor string = with out : build
 		out ~= "("
 		for index : 0 .. n-params
 			out ~~= index == 0 ? string-descriptor : "Ljava/lang/Object;"
 		out ~~= ")Ljava/lang/Object;"
-	res to
+	a crow-method "callNew", descriptor.to
 
-extern-static-method-descriptor symbol(a java-mangled-names, return-type concrete-type, param-types concrete-type[])
-	res string = with out : build
-		out ~= "("
-		for x : param-types
-			out ~~= a descriptor-for-param-type x
-		out ~= ")"
-		out ~~= a descriptor-for-return-type return-type
-	res to
+valueOf utf8-reference(a mangled-names-with-constants)
+	a.constants["valueOf"]
+boxed-class-valueOf-descriptor utf8-reference(a mangled-names-with-constants, type concrete-type)
+	param = a.mangled-names descriptor-for-param-type type
+	return = a.mangled-names boxed-class-name type
+	a.constants["({param})L{return};"]
+boxed-class-valueOf method-reference(a mangled-names-with-constants, type concrete-type)
+	a.constants method-ref (a class_ type), a.constants["valueOf"], do a boxed-class-valueOf-descriptor type
+primitive-unboxer method-reference(a mangled-names-with-constants, type concrete-type, p java-primitive-type)
+	a.constants method-ref (a class_ type), (a primitive-getter-name p), (a primitive-getter-descriptor p)
+primitive-getter-name utf8-reference(a mangled-names-with-constants, type java-primitive-type)
+	name symbol = match type
+	as T_BOOLEAN
+		"booleanValue"
+	as T_CHAR
+		throw todo
+	as T_FLOAT
+		"floatValue"
+	as T_DOUBLE
+		"doubleValue"
+	as T_BYTE
+		"byteValue"
+	as T_SHORT
+		"shortValue"
+	as T_INT
+		"intValue"
+	as T_LONG
+		"longValue"
+	a.constants[name]
+primitive-getter-descriptor utf8-reference(a mangled-names-with-constants, type java-primitive-type)
+	a.constants["(){type primitive-descriptor}"]
+
+array-copy method-reference(a mangled-names-with-constants)
+	a.constants method-ref "java/lang/System", "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V"
+
+extern-static-method method-reference
+	a mangled-names-with-constants
+	class-name symbol
+	method-name symbol
+	return-type concrete-type
+	param-types concrete-type[]
+do
+	descriptor string = if class-name == "java/lang/System" && method-name == "arraycopy"
+		# HAX: In this case we need to specify the type as Object and not an array type. A Java compiler would do this upcast implicitly.
+		"(Ljava/lang/Object;ILjava/lang/Object;II)V"
+	else
+		with out : build
+			out ~= "("
+			for x : param-types
+				out ~~= a.mangled-names descriptor-for-param-type x
+			out ~= ")"
+			out ~~= a.mangled-names descriptor-for-return-type return-type
+	a.constants method-ref class-name, method-name, descriptor.to
 
 interface-method-ref method-reference(a mangled-names-with-constants, fun concrete-fun)
 	class_ = a class_ fun.params[0].type
@@ -260,8 +361,7 @@ interface-method-ref method-reference(a mangled-names-with-constants, fun concre
 
 instance-method-name utf8-reference(a mangled-names-with-constants, fun concrete-fun)
 	a.constants[a.mangled-names instance-method-name fun]
-
-instance-method-name symbol(a java-mangled-names, fun concrete-fun)
+-instance-method-name symbol(a java-mangled-names, fun concrete-fun)
 	res = fun.source.concrete-fun-source-regular!.decl name
 	if res == "show" # TODO: also check that it has no params and returns void ----------------------------------------------
 		"toString"
@@ -270,9 +370,10 @@ instance-method-name symbol(a java-mangled-names, fun concrete-fun)
 
 static-method-ref method-reference(a mangled-names-with-constants, fun concrete-fun)
 	m = a.mangled-names[fun]
-	a.constants method-ref m.class_, m.member, do a.mangled-names static-method-descriptor fun
-
-static-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
+	a.constants method-ref (a.constants class_  m.class_), a.constants[m.member], do a static-method-descriptor fun
+static-method-descriptor utf8-reference(a mangled-names-with-constants, fun concrete-fun)
+	a.constants[a.mangled-names static-method-descriptor fun]
+-static-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
 	assert (a.union-info java-method-representation fun) == static
 	res string = with out : build
 		out ~= "("
@@ -294,21 +395,20 @@ instance-method-descriptor utf8-reference(a mangled-names-with-constants, fun co
 		d ~~= a descriptor-for-return-type fun.return-type
 	res to
 
+boxed-class-init method-reference(a mangled-names-with-constants, type concrete-type)
+	a.constants method-ref (a class_ type), a.init, do a boxed-class-init-descriptor type
+boxed-class-init-descriptor utf8-reference(a mangled-names-with-constants, type concrete-type)
+	a.constants["({a.mangled-names descriptor-for-param-type type})V"]
+boxed-class-value field-reference(a mangled-names-with-constants, type concrete-type)
+	a.constants field (a class_ type), do a.constants name-and-type a.constants["value"], do a descriptor-for-field-type type
+
 record-init-descriptor utf8-reference(a mangled-names-with-constants, fields concrete-field[])
 	a.constants[a.mangled-names record-init-descriptor fields]
-record-init-descriptor symbol(a java-mangled-names, fields concrete-field[])
+-record-init-descriptor symbol(a java-mangled-names, fields concrete-field[])
 	res string = with out : build
 		out ~= "("
 		for field : fields
 			out ~~= a descriptor-for-param-type field.type
-		out ~~= ")V"
-	res to
-
-lambda-init-descriptor symbol(a java-mangled-names, lambda lambda-concrete-expr)
-	res string = with out : build
-		out ~= "("
-		for x : lambda closure
-			out ~~= a descriptor-for-param-type x.type
 		out ~~= ")V"
 	res to
 
@@ -318,9 +418,23 @@ record-init-reference method-reference(a mangled-names-with-constants, record_ c
 	a.constants method-ref (a class_ record_), name-and-type
 
 lambda-init-reference method-reference(a mangled-names-with-constants, class_ class-reference, lambda lambda-concrete-expr)
-	a.constants method-ref class_, "<init>", do a.mangled-names lambda-init-descriptor lambda
+	a.constants method-ref class_, a.constants["<init>"], do a lambda-init-descriptor lambda
+lambda-init-descriptor utf8-reference(a mangled-names-with-constants, lambda lambda-concrete-expr)
+	a.constants[a.mangled-names lambda-init-descriptor lambda]
+-lambda-init-descriptor symbol(a java-mangled-names, lambda lambda-concrete-expr)
+	res string = with out : build
+		out ~= "("
+		for x : lambda closure
+			out ~~= a descriptor-for-param-type x.type
+		out ~~= ")V"
+	res to
 
-lambda-call-descriptor symbol(a java-mangled-names, lambda-type concrete-type)
+lambda-call method-reference(a mangled-names-with-constants, lambda-type concrete-type)
+	lambda-class = a class_ lambda-type
+	a.constants method-ref lambda-class, a.constants["call"], do a lambda-call-descriptor lambda-type
+lambda-call-descriptor utf8-reference(a mangled-names-with-constants, lambda-type concrete-type)
+	a.constants[a.mangled-names lambda-call-descriptor lambda-type]
+-lambda-call-descriptor symbol(a java-mangled-names, lambda-type concrete-type)
 	builtin_ = lambda-type.body.concrete-builtin-type!
 	assert builtin_.kind is-lambda-type
 	return-type, param-type = builtin_.type-args only2
@@ -328,23 +442,23 @@ lambda-call-descriptor symbol(a java-mangled-names, lambda-type concrete-type)
 
 descriptor-for-field-type utf8-reference(a mangled-names-with-constants, type concrete-type)
 	a.constants[a.mangled-names descriptor-for-field-type type]
-descriptor-for-field-type symbol(a java-mangled-names, type concrete-type)
+-descriptor-for-field-type symbol(a java-mangled-names, type concrete-type)
 	forbid type is-empty-type
 	a descriptor-for-return-type type to
-descriptor-for-param-type string(a java-mangled-names, type concrete-type)
+-descriptor-for-param-type string(a java-mangled-names, type concrete-type)
 	unless type is-empty-type
 		a descriptor-for-return-type type
 -generate-descriptor-for-param-type string(ctx gen-ctx, type concrete-type)
 	unless type is-empty-type
 		ctx generate-descriptor-for-return-type type to
-descriptor-for-return-type string(a java-mangled-names, type concrete-type)
+-descriptor-for-return-type string(a java-mangled-names, type concrete-type)
 	a.type-to-descriptor[type]! to
 -generate-descriptor-for-return-type symbol(ctx gen-ctx, type concrete-type)
 	match type as-runtime-type
 	as void
 		"V"
 	as java-primitive-type p
-		p.descriptor to
+		p.primitive-descriptor to
 	as reference-type
 		if type is-array-or-mut-array || (type is-option && type.unwrap-option-type is-array-or-mut-array)
 			array = type is-option ? type.unwrap-option-type : type
@@ -354,7 +468,9 @@ descriptor-for-return-type string(a java-mangled-names, type concrete-type)
 		else
 			"L{ctx generate-boxed-class-name type};"
 
-descriptor symbol(a java-primitive-type)
+primitive-descriptor utf8-reference(a mangled-names-with-constants, type java-primitive-type)
+	a.constants[type primitive-descriptor]
+-primitive-descriptor symbol(a java-primitive-type)
 	match a
 	as T_BOOLEAN
 		"Z"
@@ -469,3 +585,148 @@ boxed-class-name symbol(a java-mangled-names, type concrete-type)
 
 -exclusion-class symbol()
 	"java/util/concurrent/locks/ReentrantLock"
+
+-crow-method method-reference(a mangled-names-with-constants, (name symbol, descriptor symbol))
+	a crow-method name, descriptor
+-crow-method method-reference(a mangled-names-with-constants, name symbol, descriptor symbol)
+	a.constants method-ref "Crow", name, descriptor
+
+crow-equal-float method-reference(a mangled-names-with-constants, type float-type)
+	a crow-method match type
+	as float32
+		"equalFloat32", "(FF)Z"
+	as float64
+		"equalFloat64", "(DD)Z"
+crow-equal-float-ieee method-reference(a mangled-names-with-constants, type float-type)
+	a crow-method match type
+	as float32
+		"equalFloat32IEEE", "(FF)Z"
+	as float64
+		"equalFloat64IEEE", "(DD)Z"
+crow-equal-integral method-reference(a mangled-names-with-constants, type integral-type)
+	a crow-method match type to-signed
+	as int8
+		"equalInt8", "(BB)Z"
+	as int16
+		"equalInt16", "(SS)Z"
+	as int32
+		"equalInt32", "(II)Z"
+	as int64
+		"equalInt64", "(JJ)Z"
+crow-less-float-ieee method-reference(a mangled-names-with-constants, type float-type)
+	a crow-method match type
+	as float32
+		"lessFloat32IEEE", "(FF)Z"
+	as float64
+		"lessFloat64IEEE", "(DD)Z"
+crow-less-integral method-reference(a mangled-names-with-constants, type integral-type)
+	a crow-method match type
+	as int8
+		"lessInt8", "(BB)Z"
+	as int16
+		"lessInt16", "(SS)Z"
+	as int32
+		"lessInt32", "(II)Z"
+	as int64
+		"lessInt64", "(JJ)Z"
+	as nat8
+		"lessNat8", "(BB)Z"
+	as nat16
+		"lessNat16", "(SS)Z"
+	as nat32
+		"lessNat32", "(II)Z"
+	as nat64
+		"lessNat64", "(JJ)Z"
+
+java-Error class-reference(a mangled-names-with-constants)
+	a.constants class_ "java/lang/Error"
+
+crow-fits-in-nat32 method-reference(a mangled-names-with-constants)
+	a crow-method "fitsInNat32", "(J)Z"
+crow-fits-in-int32 method-reference(a mangled-names-with-constants)
+	a crow-method "fitsInInt32", "(J)Z"	
+crow-float64FromNat64 method-reference(a mangled-names-with-constants)
+	a crow-method "float64FromNat64", "(J)D"
+crow-assert-non-null method-reference(a mangled-names-with-constants)
+	a crow-method "assertNonNull", "(Ljava/lang/Object;)V"
+crow-one-if-not-null method-reference(a mangled-names-with-constants)
+	a crow-method "oneIfNotNull", "(Ljava/lang/Object;)L"
+crow-nat32-from-nat64 method-reference(a mangled-names-with-constants)
+	a crow-method "nat32FromNat64", "(J)I"
+crow-string-array-from-java-string-array method-reference(a mangled-names-with-constants)
+	a crow-method "stringArrayFromJavaStringArray", "([Ljava/lang/String;)[[B"
+crow-weakRefGet method-reference(a mangled-names-with-constants)
+	a crow-method "weakRefGet", "(Ljava/lang/ref/WeakReference;)Ljava/lang/Object;"
+crow-newWeakRef method-reference(a mangled-names-with-constants)
+	a crow-method "newWeakRef", "(Ljava/lang/Object;)Ljava/lang/ref/WeakReference;"
+java-divideUnsigned method-reference(a mangled-names-with-constants, type signed-integral-type)
+	match type
+	as int8
+		a.constants method-ref "java/lang/Byte", "divideUnsigned", "(BB)B"
+	as int16
+		a.constants method-ref "java/lang/Short", "divideUnsigned", "(SS)S"
+	as int32
+		a.constants method-ref "java/lang/Integer", "divideUnsigned", "(II)I"
+	as int64
+		a.constants method-ref "java/lang/Long", "divideUnsigned", "(JJ)J"
+java-remainderUnsigned method-reference(a mangled-names-with-constants, type signed-integral-type)
+	match type
+	as int8
+		throw todo
+	as int16
+		throw todo
+	as int32
+		throw todo
+	else
+		a.constants method-ref "java/lang/Long", "remainderUnsigned", "(JJ)J"
+java-Class-getResourceAsStream method-reference(a mangled-names-with-constants)
+	a.constants method-ref "java/lang/Class", "getResourceAsStream", "(Ljava/lang/String;)Ljava/io/InputStream;"
+# TODO: take a float-type -------------------------------------------------------------------------------------------------
+java-doubleToRawLongBits method-reference(a mangled-names-with-constants)
+	a.constants method-ref "java/lang/Double", "doubleToRawLongBits", "(D)J"
+java-floatToRawIntBits method-reference(a mangled-names-with-constants)
+	a.constants method-ref "java/lang/Float", "floatToRawIntBits", "(F)I"
+java-InputStream-readAllBytes method-reference(a mangled-names-with-constants)
+	a.constants method-ref "java/io/InputStream", "readAllBytes", "()[B"
+java-intBitsToFloat method-reference(a mangled-names-with-constants)
+	a.constants method-ref "java/lang/Float", "intBitsToFloat", "(I)F"
+java-longBitsToDouble method-reference(a mangled-names-with-constants)
+	a.constants method-ref "java/lang/Double", "longBitsToDouble", "(J)D"
+java-Object class-reference(a mangled-names-with-constants)
+	a.constants class_ "java/lang/Object"
+java-Object-descriptor utf8-reference(a mangled-names-with-constants)
+	a.constants["Ljava/lang/Object;"]
+java-String-getBytes method-reference(a mangled-names-with-constants)
+	a.constants method-ref "java/lang/String", "getBytes", "()[B"
+java-System-exit method-reference(a mangled-names-with-constants)
+	a.constants method-ref "java/lang/System", "exit", "(I)V"
+java-Throwable class-reference(a mangled-names-with-constants)
+	a.constants class_ "java/lang/Throwable"
+
+init-no-args method-reference(a mangled-names-with-constants, class_ class-reference)
+	a.constants method-ref class_, a.init, a.init-no-args-descriptor
+init utf8-reference(a mangled-names-with-constants)
+	a.constants["<init>"]
+init-no-args-descriptor utf8-reference(a mangled-names-with-constants)
+	a.constants["()V"]
+init-union-switch method-reference(a mangled-names-with-constants, class_ class-reference)
+	a.constants method-ref class_, "<init>", "(ILjava/lang/Object;)V"
+
+value utf8-reference(a mangled-names-with-constants)
+	a.constants["value"]
+
+constant-field field-reference(a mangled-names-with-constants, constant any-constant)
+	a field a.mangled-names.constant-names[constant], constant.type
+constant-array-field field-reference(a mangled-names-with-constants, type concrete-type, value constant-array)
+	a field a.mangled-names.constant-names.arrays[type]![value index]!, type
+constant-record-field field-reference(a mangled-names-with-constants, type concrete-type, value constant-record)
+	a field a.mangled-names.constant-names.records[type]![value]!, type
+
+var-field field-reference(a mangled-names-with-constants, var concrete-var)
+	a field a.mangled-names[var], var.type
+
+-field field-reference(a mangled-names-with-constants, name class-and-member, type concrete-type)
+	typedesc = a descriptor-for-field-type type
+	name-and-type = a.constants name-and-type a.constants[name.member], typedesc
+	class_ = a.constants class_ name.class_
+	a.constants field class_, name-and-type
