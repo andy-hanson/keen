@@ -147,7 +147,7 @@ do
 	constants constants-builder
 	this-class class-reference
 	cur-fun-for-debug concrete-fun?
-	closure field-reference[concrete-local-id]
+	closure field-reference[concrete-local]
 	stack concrete-type mut-stack
 	has-this bool
 	| Does not include the 'this' param
@@ -170,7 +170,7 @@ do
 	constants constants-builder
 	this-class class-reference
 	cur-fun concrete-fun?
-	closure field-reference[concrete-local-id]
+	closure field-reference[concrete-local]
 	has-this bool
 	params concrete-local[]
 do
@@ -186,7 +186,7 @@ do
 | Index of a local, or reference to a closure field
 -local-or-closure union(nat, field-reference)
 -explain-local local-or-closure(a expr-ctx, local concrete-local)
-	if x ?= a.closure[local id]
+	if x ?= a.closure[local]
 		x
 	else
 		res mut nat = a.has-this to
@@ -830,7 +830,7 @@ do
 			for x : concrete-fields
 				# TODO: we should just not concretize empty fields --------------------------------------------------------------
 				guard x.type !is-empty-type
-				out ~= (names field-reference type, x), x.type.as-runtime-type
+				out ~= (names record-field type, x), x.type.as-runtime-type
 		methods-out ~= names record-initializer super-class, field-refs, do
 			names record-init-descriptor concrete-fields
 		if type is-empty-type
@@ -839,7 +839,7 @@ do
 			methods-out ~= names make-valueOf type
 			if p ?= concrete-fields.only.type as-java-primitive-type
 				field = concrete-fields only
-				field-ref = names field-reference type, field
+				field-ref = names record-field type, field
 				methods-out ~= names make-getValue field-ref, p # TODO: it's wasteful to always generate this ...................................................
 		methods-out ~~= method-impls
 	constant-pool: constants finish
@@ -1018,8 +1018,7 @@ do
 	if p ?= type as-java-primitive-type
 		out invokevirtual do names primitive-unboxer type, p
 	elif field ?= type as-wrapper
-		field-ref = names field-reference type, field
-		out getfield field-ref
+		out getfield do names record-field type, field # TODO: doesn't this need to apply recursively? ----------------------
 
 -translate-funs-for-uri void(ctx to-java-ctx, uri uri, funs concrete-fun[], vars concrete-var[])
 	constants constants-builder = ()
@@ -1599,7 +1598,7 @@ do
 		out iconst 0
 	as range
 		out dup32
-		out getfield do names field-reference input-type, range-fields[0]
+		out getfield do names record-field input-type, range-fields[0]
 	cur = out begin-synthetic-local ctx, integral-type
 
 	match x input-kind
@@ -1607,7 +1606,7 @@ do
 		out get-array-size x.in-element, in-array!
 	as range
 		# Don't dup, this finishes using the range
-		out getfield do names field-reference input-type, range-fields[1]
+		out getfield do names record-field input-type, range-fields[1]
 	end = out begin-synthetic-local ctx, integral-type
 
 	match output-kind
@@ -1919,10 +1918,9 @@ do
 	this-class-name = ctx.names lambda-impl-class-name containing-fun, ctx.next-lambda-index
 	ctx.next-lambda-index +:= 1
 	this-class = constants class_ this-class-name
-	closure field-reference[concrete-local-id] = for x : a closure
-		desc = names descriptor-for-field-type x.type
-		field = constants field this-class, do constants name-and-type (names lambda-field-name x), desc
-		x.id, field
+	closure field-reference[concrete-local] = for x : a closure
+		assert x.type !is-empty-type
+		x, do names lambda-impl-field this-class, x
 	super-class = names class_ lambda-type
 	fields field_info[] = if a.closure is-empty
 		(constants instance-field this-class-name),
@@ -1930,13 +1928,12 @@ do
 		for x : a.closure
 			assert x.type !is-empty-type
 			access-flags: final
-			name: names lambda-field-name x
+			name: names lambda-impl-field-name x
 			descriptor: names descriptor-for-field-type x.type
 			attributes: ()
 	methods method_info[] = with methods-out : build
-		field-refs (field-reference, java-runtime-type)[] = for x : a closure
-			assert x.type !is-empty-type
-			(names lambda-field-reference this-class, x), x.type.as-runtime-type
+		field-refs (field-reference, java-runtime-type)[] = for local, field : closure
+			field, local.type.as-runtime-type
 		methods-out ~= names record-initializer super-class, field-refs, do names lambda-init-descriptor a
 		if a.closure is-empty
 			methods-out ~= names clinit-for-instance-field this-class-name, this-class

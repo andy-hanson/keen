@@ -40,19 +40,18 @@ concretize-expr-ctx record mut
 	type-scope type-args-scope
 	specs-scope specs-scope
 	locals local-or-constant mut[local]
-	local-ids concrete-local-ids
 new concretize-expr-ctx
 	concretize-ctx concretize-ctx
 	fun concrete-fun
 do
-	concretize-ctx, fun.module-uri, fun.type-args-scope-for-fun, fun.specs-scope-for-fun, (), (fun.params.size,)
+	concretize-ctx, fun.module-uri, fun.type-args-scope-for-fun, fun.specs-scope-for-fun, ()
 new concretize-expr-ctx
 	concretize-ctx concretize-ctx
 	cur-uri uri
 	type-scope type-args-scope
 	specs-scope specs-scope
 do
-	concretize-ctx, cur-uri, type-scope, specs-scope, (), (0,)
+	concretize-ctx, cur-uri, type-scope, specs-scope, ()
 allocate-mutable-closure-variables bool(a concretize-expr-ctx)
 	a is-java
 is-java bool(a concretize-expr-ctx)
@@ -102,9 +101,9 @@ do
 			type, range, (input array-op-concrete-expr body.root-local, empty-out-array, body.expr)
 		else
 			lambda-type = concrete-called.params[1].type
-			temp concrete-local = ctx.local-ids.take-next-id, member, lambda-type # TODO: use a new kind, not 'member'
+			temp concrete-local = member, lambda-type # TODO: use a new kind, not 'member' --------------------------------------
 			lambda = ctx concretize-expr lambda-type, lambda-arg
-			in-element concrete-local = ctx.local-ids.take-next-id, member, in-element-type # TODO: use a new kind, not 'member'
+			in-element concrete-local = member, in-element-type # TODO: use a new kind, not 'member' ----------------------------
 			body = builtin-fun-call-lambda builtin-concrete-expr (out-element-type, in-element-type), ((range gen-local-get temp), (range gen-local-get in-element))
 			then concrete-expr = type, range, (input array-op-concrete-expr in-element, empty-out-array, (out-element-type, range, body))
 			type gen-let range, temp, lambda, then
@@ -187,7 +186,7 @@ do
 		# TODO: this should use a let expr to ensure 'a' is only evaluated once! -------------------------------------------------
 		arg0 gen-if-option-kind ((), arg0), arg1
 	as option-question-2
-		local concrete-local = ctx.local-ids.take-next-id, member::concrete-generated-local-kind, type
+		local concrete-local = member::concrete-generated-local-kind, type
 		arg0 gen-if-option-kind (local, (range gen-local-get local)), arg1
 
 -concretize-call-option concrete-expr
@@ -203,7 +202,7 @@ do
 	# TODO: should get-concrete-fun-from-called just return nothing if the return type is bogus? -----------------------------------
 	guard called.return-type !is-bogus : ctx concretize-bogus type, range
 	option = ctx concretize-expr a.first-arg
-	local concrete-local = ctx.local-ids.take-next-id, destruct::concrete-generated-local-kind, called.params[0].type
+	local concrete-local = destruct::concrete-generated-local-kind, called.params[0].type
 	a.rest-args.size + 1 is called.params.size
 	all-args concrete-expr[] = with out : 1 + a.rest-args.size build # TODO: just inline below ----------------------------------
 		out ~= range gen-local-get local
@@ -231,10 +230,7 @@ do
 	return-type = ctx get-concrete-type e.return-type
 	param-type = ctx get-concrete-type e.param.type
 	body = ctx concretize-expr-with-destructure return-type, range, e.param, e.body
-	param = body.root-local ?? do
-		id: ctx.local-ids take-next-id
-		source: args::concrete-generated-local-kind
-		type: param-type
+	param = body.root-local ?? args::concrete-generated-local-kind, param-type
 	closure concrete-local[] = with out : build
 		for x : e closure
 			match ctx.locals[x]!
@@ -299,10 +295,10 @@ do
 	as destructure-ignore _
 		()
 	as local local
-		root-local concrete-local = ctx.local-ids.take-next-id, local, (ctx get-concrete-type local.type)
+		root-local concrete-local = local, do ctx get-concrete-type local.type
 		ctx.locals[local] := if ctx is-allocated local
 			reference-type = ctx get-concrete-type local.closure-reference-type!
-			ctx.local-ids.take-next-id, local.concrete-local-source-reference, reference-type
+			local.concrete-local-source-reference, reference-type
 		else
 			root-local
 	as destructure-split x
@@ -330,14 +326,14 @@ do
 	as local local
 		concrete-local = ctx.locals remove! local concrete-local!
 		if ctx is-allocated local
-			root-local concrete-local = ctx.local-ids.take-next-id, local, (ctx get-concrete-type local.type)
-			value = ctx.concretize-ctx gen-reference-create concrete-local.type, range, (range gen-local-get root-local)
+			root-local concrete-local = local, do ctx get-concrete-type local.type
+			value = ctx.concretize-ctx gen-reference-create concrete-local.type, range, do range gen-local-get root-local
 			root-local, (type gen-let range, concrete-local, value, expr)
 		else
 			concrete-local, expr
 	as destructure-split x
 		if x is-valid-destructure ctx.common-types
-			root-local concrete-local = ctx.local-ids.take-next-id, destruct, (ctx get-concrete-type destructure.type)
+			root-local concrete-local = destruct, do ctx get-concrete-type destructure.type
 			res = ctx end-destructure-split type, range, expr, x, root-local
 			root-local, res
 		else
@@ -528,9 +524,9 @@ do
 						continue
 				after
 				###
-				temp concrete-local = ctx.local-ids.take-next-id, root.source, root.type
-				break_ = range gen-break (range gen-local-get temp)
-				if_ = range gen-if-option option, (temp, break_), (root.type gen-do-and-continue range, body)
+				temp concrete-local = root.source, root.type
+				break_ = range gen-break do range gen-local-get temp
+				if_ = range gen-if-option option, (temp, break_), do root.type gen-do-and-continue range, body
 				loop_ = root.type gen-loop range, if_
 				type gen-let range, root, loop_, after.expr
 			else
