@@ -12,10 +12,11 @@ import
 	../../util/util
 	./class-builder
 	./class-code-builder
+	./java-names: build-mangled-names, constant-names, java-names
 	./lib/Crow.class as Crow-class nat8 array
 	./lib/CrowClassLoader.class as CrowClassLoader-class nat8 array
 	./lib/ThreadLocalReentrantLock.class as ThreadLocalReentrantLock-class nat8 array
-	./mangle-for-java
+	./java-refs
 	./union-representation
 	./util
 
@@ -68,7 +69,7 @@ do
 		}
 	}
 	###
-	names mangled-names-with-constants = ctx.names start-new-class
+	names java-refs = ctx.names start-new-class
 	this-class = names.constants class_ "Main"
 	main method_info = do
 		code = with out : names build-code
@@ -121,11 +122,9 @@ do
 	model-program program
 	program concrete-program
 	show-ctx show-type-ctx
-	names java-mangled-names
+	names java-names
 	structs-for-integrals concrete-type[integral-type]
 	union-info union-info
--constant-names constant-names(a to-java-ctx)
-	a.names constant-names
 -add-class void(ctx to-java-ctx, name symbol, class_ ClassFile)
 	name-dot-class symbol = "{name}.class"
 	forbid name-dot-class in ctx.res : "Already have class {name-dot-class}" error
@@ -143,7 +142,7 @@ do
 
 -expr-ctx record mut
 	ctx to-java-ctx
-	names mangled-names-with-constants
+	names java-refs
 	this-class class-reference
 	cur-fun-for-debug concrete-fun?
 	closure field-reference[concrete-local]
@@ -164,7 +163,7 @@ do
 -== bool(a local-entry, b local-entry)
 -new expr-ctx
 	ctx to-java-ctx
-	names mangled-names-with-constants
+	names java-refs
 	this-class class-reference
 	cur-fun concrete-fun?
 	closure field-reference[concrete-local]
@@ -241,11 +240,11 @@ do
 
 -translate-constants void(ctx to-java-ctx)
 	ctx add-class constant-symbols-class-name, do ctx constant-symbols-class
-	for name, constants : ctx.constant-names class-to-constants
+	for name, constants : ctx.names.constant-names class-to-constants
 		ctx add-class name, do ctx constants-class name, constants
 
 -constant-symbols-class ClassFile(ctx to-java-ctx)
-	names mangled-names-with-constants = ctx.names start-new-class
+	names java-refs = ctx.names start-new-class
 	constant-symbols = ctx.program.all-constants symbols
 	fields field_info[] = for index : 0 .. constant-symbols.size
 		access-flags: static | final
@@ -285,7 +284,7 @@ do
 			true
 		as single-constant-union _
 			throw unreachable
-	names mangled-names-with-constants = ctx.names start-new-class
+	names java-refs = ctx.names start-new-class
 	fields field_info[] = with out : build
 		for x : filtered-constants
 			forbid x.type is-empty-type || x.type is-wrapper
@@ -341,7 +340,7 @@ do
 	ctx must-pop constant.type
 	assert ctx.stack is-empty
 
--emit-unreachable void(out code-builder, names mangled-names-with-constants)
+-emit-unreachable void(out code-builder, names java-refs)
 	Error = names java-Error
 	out makenew Error
 	out dup32
@@ -591,7 +590,7 @@ do
 		true
 
 -translate-type void(ctx to-java-ctx, type concrete-type)
-	names mangled-names-with-constants = ctx.names start-new-class
+	names java-refs = ctx.names start-new-class
 	super-class = match type source
 	as concrete-type-source-bogus
 		names java-Object
@@ -668,14 +667,14 @@ do
 	if x ?= class_
 		ctx add-class this-class-name, x
 
--interface-method-decl method_info(names mangled-names-with-constants, method concrete-fun)
+-interface-method-decl method_info(names java-refs, method concrete-fun)
 	access-flags: public | abstract_
 	name: names instance-method-name method
 	descriptor: names instance-method-descriptor method
 	attributes: ()
 
 | Creates the instance method that implements an interface method by calling a static function
--method-impl method_info(names mangled-names-with-constants, method concrete-fun, impl concrete-fun?)
+-method-impl method_info(names java-refs, method concrete-fun, impl concrete-fun?)
 	code = with out : names build-code
 		assert i ?= impl : todo # TODO: generate code that will throw an error --------------------------------------------------
 		java-param-index mut nat = 0
@@ -695,7 +694,7 @@ do
 	attributes: code,
 
 -lambda-class ClassFile
-	names mangled-names-with-constants
+	names java-refs
 	type concrete-type
 	this-class class-reference
 	super-class class-reference
@@ -717,7 +716,7 @@ do
 	attributes: ()
 
 -union-sealed-interface ClassFile
-	names mangled-names-with-constants
+	names java-refs
 	this-class class-reference
 	super-class class-reference
 	interfaces class-reference[]
@@ -739,7 +738,7 @@ do
 	methods: all-methods
 	attributes: ()
 
--case-index-method-impl method_info(names mangled-names-with-constants, sum-type concrete-type, index nat)
+-case-index-method-impl method_info(names java-refs, sum-type concrete-type, index nat)
 	code = with out : names.constants build-code
 		out iconst index.to
 		out return T_INT
@@ -752,7 +751,7 @@ do
 	out invokeinterface (ctx.names case-index-method union-type), 1
 
 -union-switchable ClassFile
-	names mangled-names-with-constants
+	names java-refs
 	this-class class-reference
 	super-class class-reference
 	interfaces class-reference[]
@@ -795,7 +794,7 @@ do
 	attributes: ()
 
 -record-class ClassFile
-	names mangled-names-with-constants
+	names java-refs
 	type concrete-type
 	is-wrapper bool
 	concrete-fields concrete-field[]
@@ -843,12 +842,12 @@ do
 	methods: methods
 	attributes: ()
 
--instance-field field_info(names mangled-names-with-constants, this-class-name symbol)
+-instance-field field_info(names java-refs, this-class-name symbol)
 	access-flags: final | static
 	name: names instance-field-name
 	descriptor: names instance-field-descriptor this-class-name
 	attributes: ()
--clinit-for-instance-field method_info(names mangled-names-with-constants, this-class-name symbol, this-class class-reference)
+-clinit-for-instance-field method_info(names java-refs, this-class-name symbol, this-class class-reference)
 	class-init-code Code_attribute = with out : names.constants build-code
 		out makenew this-class
 		out dup32
@@ -861,7 +860,7 @@ do
 	attributes: class-init-code,
 
 -record-initializer method_info
-	names mangled-names-with-constants
+	names java-refs
 	super-class class-reference
 	fields (field-reference, java-runtime-type)[]
 	descriptor utf8-reference
@@ -882,7 +881,7 @@ do
 	attributes: code,
 
 -boxing-record ClassFile
-	names mangled-names-with-constants
+	names java-refs
 	type concrete-type
 	super-class class-reference
 	interfaces class-reference[]
@@ -923,7 +922,7 @@ do
 	attributes: ()
 
 -make-valueOf method_info
-	names mangled-names-with-constants
+	names java-refs
 	type concrete-type
 do
 	this-class = names class_ type
@@ -939,7 +938,7 @@ do
 	descriptor: names boxed-class-valueOf-descriptor type
 	attributes: code,
 
--make-getValue method_info(names mangled-names-with-constants, field-ref field-reference, primitive java-primitive-type)
+-make-getValue method_info(names java-refs, field-ref field-reference, primitive java-primitive-type)
 	code = with out : names.constants build-code
 		out aload 0
 		out getfield field-ref
@@ -963,7 +962,7 @@ do
 			out anewarray do ctx.names class_ element-type
 
 # Pushes a reference to the Class for this type
--push-unboxed-class-reference void(out code-builder, names mangled-names-with-constants, type concrete-type)
+-push-unboxed-class-reference void(out code-builder, names java-refs, type concrete-type)
 	match type as-runtime-type
 	as void
 		out getstatic names.java-Void-TYPE
@@ -1005,14 +1004,14 @@ do
 		out checkcast do ctx.names class_ type
 		out unbox-if-necessary ctx.names, type
 
--unbox-if-necessary void(out code-builder, names mangled-names-with-constants, type concrete-type)
+-unbox-if-necessary void(out code-builder, names java-refs, type concrete-type)
 	if p ?= type as-java-primitive-type
 		out invokevirtual do names primitive-unboxer type, p
 	elif field ?= type as-wrapper
 		out getfield do names record-field type, field # TODO: doesn't this need to apply recursively? ----------------------
 
 -translate-funs-for-uri void(ctx to-java-ctx, uri uri, funs concrete-fun[], vars concrete-var[])
-	names mangled-names-with-constants = ctx.names start-new-class
+	names java-refs = ctx.names start-new-class
 	this-class-name = names module-class-name uri
 	this-class = names module-class uri
 	fields field_info[] = for var : vars
@@ -1050,7 +1049,7 @@ do
 		methods: methods
 		attributes: source,
 
--init-vars method_info(ctx to-java-ctx, names mangled-names-with-constants, this-class class-reference, vars concrete-var[])
+-init-vars method_info(ctx to-java-ctx, names java-refs, this-class class-reference, vars concrete-var[])
 	expr-ctx expr-ctx = do
 		ctx: ctx
 		names: names
@@ -1182,7 +1181,7 @@ do
 	as return
 		out return type.as-runtime-type
 
--call-concrete-fun void(out code-builder, names mangled-names-with-constants, fun concrete-fun)
+-call-concrete-fun void(out code-builder, names java-refs, fun concrete-fun)
 	match names.union-info java-method-representation fun
 	as instance
 		count = fun.params sum param =>
@@ -1806,7 +1805,7 @@ do
 	else
 		throw unreachable
 
--checked-to-nat32 void(out code-builder, names mangled-names-with-constants, integral-type concrete-type)
+-checked-to-nat32 void(out code-builder, names java-refs, integral-type concrete-type)
 	match integral-type.as-runtime-type java-primitive-type!
 	as T_LONG
 		out invokestatic names.crow-nat32-from-nat64
@@ -1902,7 +1901,7 @@ do
 	lambda-type concrete-type
 	a lambda-concrete-expr
 do
-	names mangled-names-with-constants = ctx.names start-new-class
+	names java-refs = ctx.names start-new-class
 	this-class-name = names lambda-impl-class-name containing-fun, ctx.next-lambda-index
 	ctx.next-lambda-index +:= 1
 	this-class = names.constants class_ this-class-name
@@ -2228,7 +2227,7 @@ do
 		if arg-type != int64
 			out i2l
 
--translate-builtin-binary void(out code-builder, names mangled-names-with-constants, return-type concrete-type, param0-type concrete-type, kind builtin-binary)
+-translate-builtin-binary void(out code-builder, names java-refs, return-type concrete-type, param0-type concrete-type, kind builtin-binary)
 	match kind
 	as add-float
 		match return-type as-float-type!
