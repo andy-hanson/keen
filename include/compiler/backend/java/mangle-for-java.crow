@@ -24,6 +24,8 @@ java-mangled-names record
 mangled-names-with-constants record mut
 	mangled-names java-mangled-names
 	constants constants-builder
+union-info union-info(a mangled-names-with-constants)
+	a.mangled-names union-info
 
 build-mangled-names java-mangled-names
 	show-ctx show-ctx
@@ -164,6 +166,10 @@ constant-symbol-field field-reference(a mangled-names-with-constants, symbol con
 		name = base-name try-remove-end! (base-name ends-with ".json" ? ".json" : ".crow")
 		"{name}{a size}"
 
+module-class class-reference(a mangled-names-with-constants, uri uri)
+	a.constants class_ do a.mangled-names module-class-name uri
+module-class-name symbol(a mangled-names-with-constants, uri uri)
+	a.mangled-names module-class-name uri
 module-class-name symbol(a java-mangled-names, uri uri)
 	a.module-to-class-name[uri]!
 subscript class-and-member(a java-mangled-names, var concrete-var)
@@ -204,11 +210,19 @@ lambda-field-name utf8-reference(a mangled-names-with-constants, closure-field c
 		throw unreachable
 
 switchable-kind-field field-reference(a mangled-names-with-constants, union-type concrete-type)
-	a.mangled-names.union-info union-representation union-type is switch
-	a.constants field (a class_ union-type), do a.constants name-and-type "kind", "I"
-switchable-value-field field-reference(a mangled-names-with-constants, union-type concrete-type)
-	a.mangled-names.union-info union-representation union-type is switch
-	a.constants field (a class_ union-type), do a.constants name-and-type "value", "Ljava/lang/Object;"
+	a.union-info union-representation union-type is switch
+	a switchable-kind-field do a class_ union-type
+switchable-kind-field field-reference(a mangled-names-with-constants, sum-type class-reference)
+	a.constants field sum-type, do a.constants name-and-type a.switchable-kind-name, a.switchable-kind-descriptor
+switchable-kind-name utf8-reference(a mangled-names-with-constants)
+	a.constants["kind"]
+switchable-kind-descriptor utf8-reference(a mangled-names-with-constants)
+	a.constants["I"]
+switchable-value-field field-reference(a mangled-names-with-constants, sum-type concrete-type)
+	a.union-info union-representation sum-type is switch
+	a switchable-value-field do a class_ sum-type
+switchable-value-field field-reference(a mangled-names-with-constants, sum-type class-reference)
+	a.constants field sum-type, do a.constants name-and-type a.value, a.java-Object-descriptor
 
 field-reference field-reference
 	a mangled-names-with-constants
@@ -226,10 +240,13 @@ class-name symbol(a mangled-names-with-constants, type concrete-type)
 
 case-index-method method-reference(a mangled-names-with-constants, union-type concrete-type)
 	a.constants interface-method-ref (a class_ union-type), do
-		a.constants name-and-type (a case-index-method-name union-type), a.constants["()I"]
+		a.constants name-and-type (a case-index-method-name union-type), a.case-index-method-descriptor
 
-case-index-method-name utf8-reference(a mangled-names-with-constants, struct concrete-type)
-	a.constants["{a.mangled-names[struct]}_index"]
+case-index-method-descriptor utf8-reference(a mangled-names-with-constants)
+	a.constants["()I"]
+
+case-index-method-name utf8-reference(a mangled-names-with-constants, sum-type concrete-type)
+	a.constants["{a.mangled-names[sum-type]}_index"]
 
 crow-call-instance method-reference(a mangled-names-with-constants, n-args nat)
 	descriptor string = with out : build
@@ -289,9 +306,6 @@ extern-constructor method-reference(a mangled-names-with-constants, class_ class
 			out ~~= a.mangled-names descriptor-for-param-type x
 		out ~~= ")V"
 	a.constants method-ref class_, do a.constants name-and-type "<init>", descriptor.to
-
-clinit utf8-reference(a mangled-names-with-constants)
-	a.constants["<clinit>"]
 
 crow-call-new method-reference(a mangled-names-with-constants, n-params nat)
 	descriptor string = with out : build
@@ -356,6 +370,7 @@ do
 	a.constants method-ref class-name, method-name, descriptor.to
 
 interface-method-ref method-reference(a mangled-names-with-constants, fun concrete-fun)
+	a.union-info java-method-representation fun is instance
 	class_ = a class_ fun.params[0].type
 	a.constants interface-method-ref class_, do a.constants name-and-type (a instance-method-name fun), (a instance-method-descriptor fun)
 
@@ -368,13 +383,16 @@ instance-method-name utf8-reference(a mangled-names-with-constants, fun concrete
 	else
 		"{a[fun.params[0].type]}_{res}"
 
+fun-name utf8-reference(a mangled-names-with-constants, fun concrete-fun)
+	a.constants[a.mangled-names[fun] member]
 static-method-ref method-reference(a mangled-names-with-constants, fun concrete-fun)
+	a.union-info java-method-representation fun is static
 	m = a.mangled-names[fun]
 	a.constants method-ref (a.constants class_  m.class_), a.constants[m.member], do a static-method-descriptor fun
 static-method-descriptor utf8-reference(a mangled-names-with-constants, fun concrete-fun)
 	a.constants[a.mangled-names static-method-descriptor fun]
 -static-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
-	assert (a.union-info java-method-representation fun) == static
+	a.union-info java-method-representation fun is static
 	res string = with out : build
 		out ~= "("
 		for param : fun params
@@ -384,6 +402,7 @@ static-method-descriptor utf8-reference(a mangled-names-with-constants, fun conc
 	res to
 
 instance-method-descriptor utf8-reference(a mangled-names-with-constants, fun concrete-fun)
+	a.union-info java-method-representation fun is instance
 	a.constants[a.mangled-names instance-method-descriptor fun]
 -instance-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
 	assert (a.union-info java-method-representation fun) == instance
@@ -416,6 +435,13 @@ record-init-reference method-reference(a mangled-names-with-constants, record_ c
 	descriptor = a record-init-descriptor record_.body.concrete-record!.fields
 	name-and-type = a.constants name-and-type a.constants["<init>"], descriptor
 	a.constants method-ref (a class_ record_), name-and-type
+
+record-field field-reference(a mangled-names-with-constants, record_ concrete-type, field concrete-field)
+	a field (a.mangled-names[record_], field.debug-name), field.type
+record-field-name utf8-reference(a mangled-names-with-constants, field concrete-field)
+	a.constants[field debug-name]
+record-field-descriptor utf8-reference(a mangled-names-with-constants, field concrete-field)
+	a descriptor-for-field-type field.type
 
 lambda-init-reference method-reference(a mangled-names-with-constants, class_ class-reference, lambda lambda-concrete-expr)
 	a.constants method-ref class_, a.constants["<init>"], do a lambda-init-descriptor lambda
@@ -702,15 +728,29 @@ java-System-exit method-reference(a mangled-names-with-constants)
 	a.constants method-ref "java/lang/System", "exit", "(I)V"
 java-Throwable class-reference(a mangled-names-with-constants)
 	a.constants class_ "java/lang/Throwable"
+java-Void-TYPE field-reference(a mangled-names-with-constants)
+	a.constants field "java/lang/Void", "TYPE", "Ljava/lang/Class;"
+java-primitive-TYPE field-reference(a mangled-names-with-constants, type concrete-type)
+	assert _ ?= type.as-runtime-type java-primitive-type
+	a.constants field (a class_ type), do a.constants name-and-type "TYPE", "Ljava/lang/Class;"
+
+SourceFile utf8-reference(a mangled-names-with-constants)
+	a.constants["SourceFile"]
 
 init-no-args method-reference(a mangled-names-with-constants, class_ class-reference)
 	a.constants method-ref class_, a.init, a.init-no-args-descriptor
 init utf8-reference(a mangled-names-with-constants)
 	a.constants["<init>"]
+clinit utf8-reference(a mangled-names-with-constants)
+	a.constants["<clinit>"]
+call utf8-reference(a mangled-names-with-constants)
+	a.constants["call"]
 init-no-args-descriptor utf8-reference(a mangled-names-with-constants)
 	a.constants["()V"]
 init-union-switch method-reference(a mangled-names-with-constants, class_ class-reference)
-	a.constants method-ref class_, "<init>", "(ILjava/lang/Object;)V"
+	a.constants method-ref class_, a.init, a.init-union-switch-descriptor
+init-union-switch-descriptor utf8-reference(a mangled-names-with-constants)
+	a.constants["(ILjava/lang/Object;)V"]
 
 value utf8-reference(a mangled-names-with-constants)
 	a.constants["value"]
@@ -724,6 +764,8 @@ constant-record-field field-reference(a mangled-names-with-constants, type concr
 
 var-field field-reference(a mangled-names-with-constants, var concrete-var)
 	a field a.mangled-names[var], var.type
+var-name utf8-reference(a mangled-names-with-constants, var concrete-var)
+	a.constants[a.mangled-names[var] member]
 
 -field field-reference(a mangled-names-with-constants, name class-and-member, type concrete-type)
 	typedesc = a descriptor-for-field-type type
