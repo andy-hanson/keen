@@ -13,7 +13,7 @@ java-mangled-names record
 	-show-ctx show-ctx # RM --------------------------------------------------------------------------------------------------------
 	-var-to-name symbol[concrete-var]
 	-module-to-class-name symbol[uri]
-	-fun-to-name symbol[concrete-fun]
+	-fun-to-name-and-descriptor (symbol, symbol)[concrete-fun]
 	-type-to-name symbol[concrete-type]
 	-type-to-descriptor symbol[concrete-type]
 	-type-to-boxed-class-name symbol[concrete-type]
@@ -22,8 +22,16 @@ java-mangled-names record
 	constant-names constant-names
 
 mangled-names-with-constants record mut
-	mangled-names java-mangled-names
+	-mangled-names java-mangled-names
 	constants constants-builder
+start-new-class mangled-names-with-constants(mangled-names java-mangled-names)
+	mangled-names, ()
+
+build-code build-code(a mangled-names-with-constants)
+	a.constants build-code
+finish cp_info[](a mangled-names-with-constants)
+	a.constants finish
+
 union-info union-info(a mangled-names-with-constants)
 	a.mangled-names union-info
 
@@ -36,9 +44,11 @@ do
 	type-to-name symbol[concrete-type] = for type : program all-structs
 		# TODO: if there is only 1 struct with the name (globally), just use the decl name ----------------------------------
 		type, do module-to-class-name gen-type-name type
-	fun-to-name symbol[concrete-fun] = for fun : program all-funs
+	type-to-descriptor symbol[concrete-type] = for type : program all-structs
+		type, do (program, union-info, type-to-name) generate-descriptor-for-return-type type
+	fun-to-name-and-descriptor (symbol, symbol)[concrete-fun] = for fun : program all-funs
 		_ = module-to-class-name add-module-name fun.module-uri
-		fun, match fun source
+		name = match fun source
 		as concrete-fun-source-regular x
 			base = x.decl.name do-mangle
 			module = program.model-program module-at-uri fun.module-uri
@@ -50,14 +60,20 @@ do
 			"$test{fun hash}"
 		as concrete-fun-source-wrap-main _
 			"$wrap-main"
+		descriptor string = with out : build
+			out ~= "("
+			for param : fun params
+				out ~~= type-to-descriptor descriptor-for-param-type param.type
+			out ~= ")"
+			out ~~= type-to-descriptor descriptor-for-return-type fun.return-type
+		fun, (name, descriptor.to)
 	show-ctx: show-ctx
 	var-to-name: for x : program all-vars
 		x, "{x.source.name do-mangle}{x get-hash}" # TODO: If only one var of this name in the module, no need to include the hash
 	module-to-class-name: module-to-class-name move-to
-	fun-to-name: fun-to-name
+	fun-to-name-and-descriptor: fun-to-name-and-descriptor
 	type-to-name: type-to-name
-	type-to-descriptor: for type : program all-structs
-		type, do (program, union-info, type-to-name) generate-descriptor-for-return-type type
+	type-to-descriptor: type-to-descriptor
 	type-to-boxed-class-name: for type : program all-structs
 		type, do (program, union-info, type-to-name) generate-boxed-class-name type
 	program: program
@@ -172,22 +188,27 @@ module-class-name symbol(a mangled-names-with-constants, uri uri)
 	a.mangled-names module-class-name uri
 module-class-name symbol(a java-mangled-names, uri uri)
 	a.module-to-class-name[uri]!
-subscript class-and-member(a java-mangled-names, var concrete-var)
+-subscript class-and-member(a java-mangled-names, var concrete-var)
 	(a module-class-name var.module-uri), a.var-to-name[var]!
-subscript class-and-member(a java-mangled-names, fun concrete-fun)
-	(a module-class-name fun.module-uri), a.fun-to-name[fun]!
+-subscript class-and-member(a java-mangled-names, fun concrete-fun)
+	(a module-class-name fun.module-uri), a.fun-to-name-and-descriptor[fun]!.a
 -subscript symbol(a java-mangled-names, type concrete-type)
 	a.type-to-name[type]!
 
-lambda-impl-class-name symbol(a java-mangled-names, containing-fun concrete-fun, lambda-index nat)
-	"{a module-class-name containing-fun.module-uri}_{a.fun-to-name[containing-fun]!}_lambda{lambda-index}"
+lambda-impl-class-name symbol(a mangled-names-with-constants, containing-fun concrete-fun, lambda-index nat)
+	"{a module-class-name containing-fun.module-uri}_{a.mangled-names.fun-to-name-and-descriptor[containing-fun]!.a}_lambda{lambda-index}"
 
 # Static "instance" field on a singleton class
 instance-field field-reference(a mangled-names-with-constants, type concrete-type)
 	a instance-field (a class_ type), do a.mangled-names boxed-class-name type
 instance-field field-reference(a mangled-names-with-constants, class_ class-reference, class-name symbol)
-	name-and-type = a.constants name-and-type "instance", "L{class-name};"
-	a.constants field class_, name-and-type
+	a instance-field class_, do a instance-field-descriptor class-name
+-instance-field field-reference(a mangled-names-with-constants, class_ class-reference, descriptor utf8-reference)
+	a.constants field class_, do a.constants name-and-type a.instance-field-name, descriptor
+instance-field-name utf8-reference(a mangled-names-with-constants)
+	a.constants["instance"]
+instance-field-descriptor utf8-reference(a mangled-names-with-constants, class-name symbol)
+	a.constants["L{class-name};"]
 
 lambda-impl-field field-reference
 	a mangled-names-with-constants
@@ -381,14 +402,7 @@ static-method-ref method-reference(a mangled-names-with-constants, fun concrete-
 static-method-descriptor utf8-reference(a mangled-names-with-constants, fun concrete-fun)
 	a.constants[a.mangled-names static-method-descriptor fun]
 -static-method-descriptor symbol(a java-mangled-names, fun concrete-fun)
-	a.union-info java-method-representation fun is static
-	res string = with out : build
-		out ~= "("
-		for param : fun params
-			out ~~= a descriptor-for-param-type param.type
-		out ~= ")"
-		out ~~= a descriptor-for-return-type fun.return-type
-	res to
+	a.fun-to-name-and-descriptor[fun]!.b
 
 instance-method-descriptor utf8-reference(a mangled-names-with-constants, fun concrete-fun)
 	a.union-info java-method-representation fun is instance
@@ -461,13 +475,18 @@ descriptor-for-field-type utf8-reference(a mangled-names-with-constants, type co
 	forbid type is-empty-type
 	a descriptor-for-return-type type to
 -descriptor-for-param-type string(a java-mangled-names, type concrete-type)
+	a.type-to-descriptor descriptor-for-param-type type
+-descriptor-for-param-type string(type-to-descriptor symbol[concrete-type], type concrete-type)
 	unless type is-empty-type
-		a descriptor-for-return-type type
+		type-to-descriptor descriptor-for-return-type type
 -generate-descriptor-for-param-type string(ctx gen-ctx, type concrete-type)
 	unless type is-empty-type
 		ctx generate-descriptor-for-return-type type to
+
 -descriptor-for-return-type string(a java-mangled-names, type concrete-type)
-	a.type-to-descriptor[type]! to
+	a.type-to-descriptor descriptor-for-return-type type
+-descriptor-for-return-type string(type-to-descriptor symbol[concrete-type], type concrete-type)
+	type-to-descriptor[type]! to
 -generate-descriptor-for-return-type symbol(ctx gen-ctx, type concrete-type)
 	match type as-runtime-type
 	as void
@@ -504,7 +523,7 @@ primitive-descriptor utf8-reference(a mangled-names-with-constants, type java-pr
 	as T_LONG
 		"J"
 
-boxed-class-name symbol(a java-mangled-names, type concrete-type)
+-boxed-class-name symbol(a java-mangled-names, type concrete-type)
 	a.type-to-boxed-class-name[type]!
 
 -gen-ctx record

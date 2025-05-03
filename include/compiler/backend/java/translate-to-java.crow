@@ -68,11 +68,10 @@ do
 		}
 	}
 	###
-	constants constants-builder = ()
-	names mangled-names-with-constants = ctx.names, constants
-	this-class = constants class_ "Main"
+	names mangled-names-with-constants = ctx.names start-new-class
+	this-class = names.constants class_ "Main"
 	main method_info = do
-		code = with out : constants build-code
+		code = with out : names build-code
 			out aload 0
 			out invokestatic names.crow-string-array-from-java-string-array 
 			main = ctx.program.common-funs.concrete-common-funs-java! main
@@ -89,11 +88,11 @@ do
 			out pop T_INT # ignore the exit code since it's 0
 			out return void
 		access-flags: public | static | synthetic
-		name: constants["main"]
-		descriptor: constants["([Ljava/lang/String;)V"]
+		name: names.constants["main"]
+		descriptor: names.constants["([Ljava/lang/String;)V"]
 		attributes: code,
 	Object = names java-Object
-	constant-pool: constants finish
+	constant-pool: names finish
 	access: final
 	this-class: this-class
 	super-class: Object
@@ -144,7 +143,7 @@ do
 
 -expr-ctx record mut
 	ctx to-java-ctx
-	constants constants-builder
+	names mangled-names-with-constants
 	this-class class-reference
 	cur-fun-for-debug concrete-fun?
 	closure field-reference[concrete-local]
@@ -153,8 +152,6 @@ do
 	| Does not include the 'this' param
 	locals local-entry mut-stack
 	loop-pos mut jump-target?
--names mangled-names-with-constants(a expr-ctx)
-	a.ctx.names, a.constants
 | Use 'concrete-type' for a synthetic local
 -local-entry union(concrete-local, concrete-type)
 -to json(a local-entry)
@@ -167,7 +164,7 @@ do
 -== bool(a local-entry, b local-entry)
 -new expr-ctx
 	ctx to-java-ctx
-	constants constants-builder
+	names mangled-names-with-constants
 	this-class class-reference
 	cur-fun concrete-fun?
 	closure field-reference[concrete-local]
@@ -178,7 +175,7 @@ do
 	for x : params
 		forbid x.type is-empty-type
 		locals ~= x
-	ctx, constants, this-class, cur-fun, closure, (), has-this, locals, ()
+	ctx, names, this-class, cur-fun, closure, (), has-this, locals, ()
 -program concrete-program(a expr-ctx)
 	a.ctx program
 -union-representation union-representation(ctx expr-ctx, type concrete-type)
@@ -248,8 +245,7 @@ do
 		ctx add-class name, do ctx constants-class name, constants
 
 -constant-symbols-class ClassFile(ctx to-java-ctx)
-	constants constants-builder = ()
-	names mangled-names-with-constants = ctx.names, constants
+	names mangled-names-with-constants = ctx.names start-new-class
 	constant-symbols = ctx.program.all-constants symbols
 	fields field_info[] = for index : 0 .. constant-symbols.size
 		access-flags: static | final
@@ -258,12 +254,11 @@ do
 		attributes: ()
 	this-class = names constant-symbols-class
 	static-init method_info = do
-		code = with out : constants build-code
+		code = with out : names build-code
 			for index, symbol : constant-symbols with-index
 				out ldc do out.constants string-ref symbol.to
 				out invokevirtual names.java-String-getBytes
-				out invokestatic do
-					names static-method-ref ctx.program.common-funs.concrete-common-funs-java!.to-symbol-from-string
+				out call-concrete-fun names, ctx.program.common-funs.concrete-common-funs-java!.to-symbol-from-string
 				out putstatic do names constant-symbol-field ctx.program.symbol, index
 			out return void
 		access-flags: static | final | synthetic
@@ -271,7 +266,7 @@ do
 		descriptor: names init-no-args-descriptor
 		attributes: code,
 	Object = names java-Object
-	constant-pool: constants finish
+	constant-pool: names finish
 	access: final
 	this-class: this-class
 	super-class: Object
@@ -290,8 +285,7 @@ do
 			true
 		as single-constant-union _
 			throw unreachable
-	pool constants-builder = ()
-	names mangled-names-with-constants = ctx.names, pool
+	names mangled-names-with-constants = ctx.names start-new-class
 	fields field_info[] = with out : build
 		for x : filtered-constants
 			forbid x.type is-empty-type || x.type is-wrapper
@@ -300,10 +294,10 @@ do
 				name: names constant-name x
 				descriptor: names descriptor-for-field-type x.type
 				attributes: ()
-	this-class = pool class_ name
+	this-class = names.constants class_ name
 	static-init method_info = do
-		code = with out : pool build-code
-			expr-ctx expr-ctx = ctx, pool, this-class, (), (), (), ()
+		code = with out : names build-code
+			expr-ctx expr-ctx = ctx, names, this-class, (), (), (), ()
 			for constant : filtered-constants
 				forbid constant.type is-empty-type || constant.type is-wrapper
 				out init-constant expr-ctx, constant
@@ -313,7 +307,7 @@ do
 		descriptor: names init-no-args-descriptor
 		attributes: code,
 	Object = names java-Object
-	constant-pool: pool finish
+	constant-pool: names finish
 	access: final
 	this-class: this-class
 	super-class: Object
@@ -597,8 +591,7 @@ do
 		true
 
 -translate-type void(ctx to-java-ctx, type concrete-type)
-	constants constants-builder = ()
-	names mangled-names-with-constants = ctx.names, constants
+	names mangled-names-with-constants = ctx.names start-new-class
 	super-class = match type source
 	as concrete-type-source-bogus
 		names java-Object
@@ -625,7 +618,7 @@ do
 			info = ctx.program.method-impls[interface_] ?? ()
 			unless info is-empty
 				for method, impl : info.methods zip info.cases[type]!
-					out ~= ctx method-impl constants, method, impl
+					out ~= names method-impl method, impl
 
 	class_ ClassFile? = match type body
 	as concrete-builtin-type x
@@ -682,15 +675,14 @@ do
 	attributes: ()
 
 | Creates the instance method that implements an interface method by calling a static function
--method-impl method_info(ctx to-java-ctx, constants constants-builder, method concrete-fun, impl concrete-fun?)
-	names mangled-names-with-constants = ctx.names, constants
-	code = with out : constants build-code
+-method-impl method_info(names mangled-names-with-constants, method concrete-fun, impl concrete-fun?)
+	code = with out : names build-code
 		assert i ?= impl : todo # TODO: generate code that will throw an error --------------------------------------------------
 		java-param-index mut nat = 0
 		for index, param : method.params with-index
 			if index == 0
 				out aload 0
-				out unbox-if-necessary ctx, i.params[0].type
+				out unbox-if-necessary names, i.params[0].type
 			else
 				forbid index == 0 && param.type is-wrapper : todo # Need to unwrap it in this case ----------------------
 				out xload param.type.as-runtime-type, java-param-index
@@ -815,7 +807,7 @@ do
 do
 	constants = names constants
 	fields field_info[] = if type is-empty-type
-		(constants instance-field this-class-name),
+		(names instance-field this-class-name),
 	else
 		with out : build
 			for field : concrete-fields
@@ -851,10 +843,10 @@ do
 	methods: methods
 	attributes: ()
 
--instance-field field_info(constants constants-builder, this-class-name symbol)
+-instance-field field_info(names mangled-names-with-constants, this-class-name symbol)
 	access-flags: final | static
-	name: constants["instance"]
-	descriptor: constants["L{this-class-name};"]
+	name: names instance-field-name
+	descriptor: names instance-field-descriptor this-class-name
 	attributes: ()
 -clinit-for-instance-field method_info(names mangled-names-with-constants, this-class-name symbol, this-class class-reference)
 	class-init-code Code_attribute = with out : names.constants build-code
@@ -865,7 +857,7 @@ do
 		out return void
 	access-flags: static
 	name: names clinit
-	descriptor: names.constants["()V"]
+	descriptor: names init-no-args-descriptor
 	attributes: class-init-code,
 
 -record-initializer method_info
@@ -885,7 +877,7 @@ do
 			out putfield field
 		out return void
 	access-flags: ()
-	name: names.constants["<init>"]
+	name: names init
 	descriptor: descriptor
 	attributes: code,
 
@@ -1011,18 +1003,16 @@ do
 		out pop reference-type
 	else
 		out checkcast do ctx.names class_ type
-		out unbox-if-necessary ctx.ctx, type
+		out unbox-if-necessary ctx.names, type
 
--unbox-if-necessary void(out code-builder, ctx to-java-ctx, type concrete-type)
-	names mangled-names-with-constants = ctx.names, out.constants
+-unbox-if-necessary void(out code-builder, names mangled-names-with-constants, type concrete-type)
 	if p ?= type as-java-primitive-type
 		out invokevirtual do names primitive-unboxer type, p
 	elif field ?= type as-wrapper
 		out getfield do names record-field type, field # TODO: doesn't this need to apply recursively? ----------------------
 
 -translate-funs-for-uri void(ctx to-java-ctx, uri uri, funs concrete-fun[], vars concrete-var[])
-	constants constants-builder = ()
-	names mangled-names-with-constants = ctx.names, constants
+	names mangled-names-with-constants = ctx.names start-new-class
 	this-class-name = names module-class-name uri
 	this-class = names module-class uri
 	fields field_info[] = for var : vars
@@ -1037,9 +1027,9 @@ do
 	methods method_info[] = with methods-out : build
 		for fun : funs
 			guard (ctx.union-info java-method-representation fun) == static
-			expr-ctx expr-ctx = ctx, constants, this-class, fun, (), (), (fun.params filter x => x.type !is-empty-type)
+			expr-ctx expr-ctx = ctx, names, this-class, fun, (), (), (fun.params filter x => x.type !is-empty-type)
 			# error log "GONNA TRANSLATE FUN {ctx.show-ctx.show show-concrete-fun-sig fun, false}" # ---------------------------------------------------------------------------------------------------------------------
-			code = with out : constants build-code
+			code = with out : names build-code
 				out emit-fun-body expr-ctx, fun
 			expr-ctx verify-expr-ctx-finished fun.return-type, fun.params
 			methods-out ~= do
@@ -1047,11 +1037,11 @@ do
 				name: names fun-name fun
 				descriptor: names static-method-descriptor fun
 				attributes: code,
-		methods-out ~= ctx init-vars constants, this-class, vars
+		methods-out ~= ctx init-vars names, this-class, vars
 	Object = names java-Object
-	source SourceFile_attribute = names.SourceFile, constants[uri to]
+	source SourceFile_attribute = names.SourceFile, names.constants[uri to]
 	ctx add-class this-class-name, do		
-		constant-pool: constants finish
+		constant-pool: names finish
 		access: ()
 		this-class: this-class
 		super-class: Object
@@ -1060,17 +1050,16 @@ do
 		methods: methods
 		attributes: source,
 
--init-vars method_info(ctx to-java-ctx, constants constants-builder, this-class class-reference, vars concrete-var[])
-	names mangled-names-with-constants = ctx.names, constants
+-init-vars method_info(ctx to-java-ctx, names mangled-names-with-constants, this-class class-reference, vars concrete-var[])
 	expr-ctx expr-ctx = do
 		ctx: ctx
-		constants: constants
+		names: names
 		this-class: this-class
 		cur-fun: ()
 		closure: ()
 		has-this: false
 		params: ()
-	code = with out : constants build-code
+	code = with out : names build-code
 		for var : vars
 			match var kind
 			as thread-local_
@@ -1506,7 +1495,7 @@ do
 		out emit-and-continue ctx, x.union_
 		cast void mut() = () =>
 			out checkcast do names class_ x.case-type
-			out unbox-if-necessary ctx.ctx, x.case-type
+			out unbox-if-necessary names, x.case-type
 			ctx must-refine x.union_.type, x.case-type
 			out handle-pos pos, type
 		match ctx union-representation x.union_.type
@@ -1913,17 +1902,16 @@ do
 	lambda-type concrete-type
 	a lambda-concrete-expr
 do
-	constants constants-builder = ()
-	names mangled-names-with-constants = ctx.names, constants
-	this-class-name = ctx.names lambda-impl-class-name containing-fun, ctx.next-lambda-index
+	names mangled-names-with-constants = ctx.names start-new-class
+	this-class-name = names lambda-impl-class-name containing-fun, ctx.next-lambda-index
 	ctx.next-lambda-index +:= 1
-	this-class = constants class_ this-class-name
+	this-class = names.constants class_ this-class-name
 	closure field-reference[concrete-local] = for x : a closure
 		assert x.type !is-empty-type
 		x, do names lambda-impl-field this-class, x
 	super-class = names class_ lambda-type
 	fields field_info[] = if a.closure is-empty
-		(constants instance-field this-class-name),
+		(names instance-field this-class-name),
 	else
 		for x : a.closure
 			assert x.type !is-empty-type
@@ -1938,8 +1926,8 @@ do
 		if a.closure is-empty
 			methods-out ~= names clinit-for-instance-field this-class-name, this-class
 		methods-out ~= do
-			expr-ctx expr-ctx = ctx, constants, this-class, containing-fun, closure, true, (!a.param.type.is-empty-type ? (a.param,))
-			code = with out : constants build-code
+			expr-ctx expr-ctx = ctx, names, this-class, containing-fun, closure, true, (!a.param.type.is-empty-type ? (a.param,))
+			code = with out : names build-code
 				out emit-expr expr-ctx, return, a.body
 			expr-ctx verify-expr-ctx-finished a.body.type, (a.param,)
 			access-flags: ()
@@ -1947,8 +1935,8 @@ do
 			descriptor: names lambda-call-descriptor lambda-type
 			attributes: code,
 	ctx add-class this-class-name, do
-		source SourceFile_attribute = names.SourceFile, constants[uri to]
-		constant-pool: constants finish
+		source SourceFile_attribute = names.SourceFile, names.constants[uri to]
+		constant-pool: names finish
 		access: final
 		this-class: this-class
 		super-class: super-class
@@ -1992,7 +1980,7 @@ do
 do
 	assert unboxed-type.as-runtime-type == reference-type
 	if l ?= local
-		out unbox-if-necessary ctx.ctx, l.type
+		out unbox-if-necessary ctx.names, l.type
 		ctx must-refine unboxed-type, l.type
 		out emit-with-local ctx, l, pos, expr
 	else
