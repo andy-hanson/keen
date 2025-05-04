@@ -28,21 +28,26 @@ build-mangled-names java-names
 	union-info union-info
 do
 	module-to-class-name symbol mut[uri] = ()
-	type-to-name symbol[concrete-type] = for type : program all-structs
+	type-to-name symbol[concrete-type] = for type : program all-types-including-extern
 		# TODO: if there is only 1 struct with the name (globally), just use the decl name ----------------------------------
 		type, do module-to-class-name gen-type-name type
-	type-to-descriptor symbol[concrete-type] = for type : program all-structs
+	type-to-descriptor symbol[concrete-type] = for type : program all-types-including-extern
 		type, do (program, union-info, type-to-name) generate-descriptor-for-return-type type
-	fun-to-name-and-descriptor (symbol, symbol)[concrete-fun] = for fun : program all-funs
-		_ = module-to-class-name add-module-name fun.module-uri
+	fun-to-name-and-descriptor (symbol, symbol)[concrete-fun] = for fun : program all-funs-including-extern
+		if fun.body.fun-body-extern-java is-empty
+			_ = module-to-class-name add-module-name fun.module-uri
 		name = match fun source
 		as concrete-fun-source-regular x
 			base = x.decl.name do-mangle
-			module = program.model-program module-at-uri fun.module-uri
-			if x.decl !is-template && (module.funs count f => f.name == x.decl.name) == 1 # TODO:PERF module should store funs-by-name (a multi-by-name)
+			match fun body
+			as fun-body-extern-java _
 				base
 			else
-				"{base}{fun hash}"
+				module = program.model-program module-at-uri fun.module-uri
+				if x.decl !is-template && (module.funs count f => f.name == x.decl.name) == 1 # TODO:PERF module should store funs-by-name (a multi-by-name)
+					base
+				else
+					"{base}{fun hash}"
 		as concrete-fun-source-test _
 			"$test{fun hash}"
 		as concrete-fun-source-wrap-main _
@@ -61,7 +66,7 @@ do
 	fun-to-name-and-descriptor: fun-to-name-and-descriptor
 	type-to-name: type-to-name
 	type-to-descriptor: type-to-descriptor
-	type-to-boxed-class-name: for type : program all-structs
+	type-to-boxed-class-name: for type : program all-types-including-extern
 		type, do (program, union-info, type-to-name) generate-boxed-class-name type
 	program: program
 	union-info: union-info
@@ -73,7 +78,12 @@ module-class-name symbol(a java-names, uri uri)
 subscript class-and-member(a java-names, var concrete-var)
 	(a module-class-name var.module-uri), a.var-to-name[var]!
 subscript class-and-member(a java-names, fun concrete-fun)
-	(a module-class-name fun.module-uri), a.fun-to-name-and-descriptor[fun]!.a
+	# TODO:PERF do this all in a single lookup ------------------------------------------------------------------------------------
+	match fun body
+	as fun-body-extern-java x
+		x.class_.to, fun.source.concrete-fun-source-regular!.decl.name
+	else
+		(a module-class-name fun.module-uri), a.fun-to-name-and-descriptor[fun]!.a
 subscript symbol(a java-names, type concrete-type)
 	a.type-to-name[type]!
 
@@ -81,19 +91,24 @@ lambda-impl-class-name symbol(a java-names, containing-fun concrete-fun, lambda-
 	"{a module-class-name containing-fun.module-uri}_{a.fun-to-name-and-descriptor[containing-fun]!.a}_lambda{lambda-index}"
 
 -gen-type-name symbol(module-to-class-name symbol mut[uri], a concrete-type)
-	match a source
-	as concrete-type-source-bogus
-		"$bogus{a hash}"
-	as concrete-type-source-inst x
-		base string = "{module-to-class-name add-module-name x.decl.module-uri}{x.decl.name do-mangle}"
-		type-args string = 	"" join for arg : x type-args
-			"_{module-to-class-name gen-type-name arg}"
-		"{base}{type-args}"
+	match a body
+	as struct-body-extern-java e
+		e.path to
+	else
+		match a source
+		as concrete-type-source-bogus
+			"$bogus{a hash}"
+		as concrete-type-source-inst x
+			base string = "{module-to-class-name add-module-name x.decl.module-uri}{x.decl.name do-mangle}"
+			# TODO: it would be simpler to just use an index -----------------------------------------------------------------------
+			type-args string = 	"" join for arg : x type-args
+				"_{module-to-class-name gen-type-name arg}"
+			"{base}{type-args}"
 
 -add-module-name symbol(a symbol mut[uri], uri uri)
 	a ensure uri, () =>
 		base-name = uri base-name
-		name = base-name try-remove-end! (base-name ends-with ".json" ? ".json" : ".crow")
+		name = base-name try-remove-end! do base-name ends-with ".json" ? ".json" : ".crow"
 		"{name}{a size}"
 
 -do-mangle symbol(a symbol)
@@ -125,13 +140,14 @@ static-method-descriptor symbol(a java-names, fun concrete-fun)
 	a.fun-to-name-and-descriptor[fun]!.b
 
 instance-method-name symbol(a java-names, fun concrete-fun)
-	res = fun.source.concrete-fun-source-regular!.decl name
-	if res == "show" # TODO: also check that it has no params and returns void ----------------------------------------------
-		"toString"
+	base = fun.source.concrete-fun-source-regular!.decl name
+	match fun body
+	as fun-body-extern-java _
+		base
 	else
-		"{a[fun.params[0].type]}_{res}"
+		"{a[fun.params[0].type]}_{base}"
 instance-method-descriptor symbol(a java-names, fun concrete-fun) # TODO: cache this too! -------------------------------------
-	assert (a.union-info java-method-representation fun) == instance
+	assert a.union-info java-method-kind fun is-instance
 	res string = with d : build # TODO: support building symbols -------------------------------------------------------------
 		d ~= "("
 		for param : fun.params[1 .. end]
@@ -179,7 +195,6 @@ lambda-call-descriptor symbol(a java-names, lambda-type concrete-type)
 
 boxed-class-name symbol(a java-names, type concrete-type)
 	a.type-to-boxed-class-name[type]!
-
 
 -gen-ctx record
 	program concrete-program
@@ -251,6 +266,8 @@ boxed-class-name symbol(a java-names, type concrete-type)
 			"java/lang/ref/WeakReference"
 	as concrete-enum _
 		mangled[]
+	as struct-body-extern-java x
+		x.path to
 	as concrete-flags _
 		mangled[]
 	as concrete-record _

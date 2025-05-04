@@ -41,7 +41,7 @@ do
 	ctx translate-constants
 	start-constants end-translate-constants
 	start-types = perf-now
-	for type : concrete-program all-structs
+	for type : concrete-program all-non-extern-types
 		ctx translate-type type
 	start-types end-translate-types
 	start-funs = perf-now
@@ -104,7 +104,7 @@ do
 
 -funs-and-vars-by-uri (concrete-fun[], concrete-var[])[uri](a concrete-program)
 	res (concrete-fun mut[], concrete-var mut[]) mut[uri] = ()
-	for x : a all-funs
+	for x : a all-non-extern-funs
 		funs, _ = res ensure x.module-uri
 		funs ~= x
 	for x : a all-vars
@@ -408,6 +408,8 @@ do
 	as concrete-enum x
 		out push-constant-integral x.storage_, constant
 		ctx pushed type
+	as struct-body-extern-java _
+		throw unreachable
 	as concrete-flags x
 		out push-constant-integral x.storage_, constant
 		ctx pushed type
@@ -617,6 +619,7 @@ do
 			info = ctx.program.method-impls[interface_] ?? ()
 			unless info is-empty
 				for method, impl : info.methods zip info.cases[type]!
+					guard ctx.union-info java-method-kind method is-instance
 					out ~= names method-impl method, impl
 
 	class_ ClassFile? = match type body
@@ -641,6 +644,8 @@ do
 	as concrete-enum _
 		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
 		names boxing-record type, super-class, interfaces, method-impls
+	as struct-body-extern-java _
+		throw unreachable
 	as concrete-flags _
 		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
 		names boxing-record type, super-class, interfaces, method-impls
@@ -649,8 +654,13 @@ do
 	as concrete-union _
 		method-decls method_info[] = with out : build
 			for m : ctx.program.method-impls[type]?.methods ?? ()
-				if (ctx.union-info java-method-representation m) == instance
+				match ctx.union-info java-method-kind m
+				as interface_
 					out ~= names interface-method-decl m
+				as virtual
+					throw todo
+				as static
+					()
 		all-methods = method-decls ~~ method-impls
 		match ctx union-representation type
 		as direct
@@ -1025,7 +1035,7 @@ do
 			attributes: ()
 	methods method_info[] = with methods-out : build
 		for fun : funs
-			guard (ctx.union-info java-method-representation fun) == static
+			guard (ctx.union-info java-method-kind fun) == static
 			expr-ctx expr-ctx = ctx, names, this-class, fun, (), (), (fun.params filter x => x.type !is-empty-type)
 			# error log "GONNA TRANSLATE FUN {ctx.show-ctx.show show-concrete-fun-sig fun, false}" # ---------------------------------------------------------------------------------------------------------------------
 			code = with out : names build-code
@@ -1094,6 +1104,8 @@ do
 	as concrete-expr x
 		# info log "GONNA EMIT FUNCTION {ctx.ctx.show-ctx.show show-concrete-fun-sig fun, false}" -----------------------------------
 		out emit-expr ctx, return, x
+	as fun-body-extern-java _
+		throw unreachable
 	as concrete-fun-body-method _
 		union_ = fun.params[0] type
 		info = ctx.program.method-impls[union_]!
@@ -1182,11 +1194,13 @@ do
 		out return type.as-runtime-type
 
 -call-concrete-fun void(out code-builder, names java-refs, fun concrete-fun)
-	match names.union-info java-method-representation fun
-	as instance
+	match names.union-info java-method-kind fun
+	as interface_
 		count = fun.params sum param =>
 			param.type.as-runtime-type stack-entry-count
 		out invokeinterface (names interface-method-ref fun), count.to
+	as virtual
+		out invokevirtual do names virtual-method-ref fun
 	as static
 		out invokestatic do names static-method-ref fun
 
@@ -1919,8 +1933,8 @@ do
 			descriptor: names descriptor-for-field-type x.type
 			attributes: ()
 	methods method_info[] = with methods-out : build
-		field-refs (field-reference, java-runtime-type)[] = for local, field : closure
-			field, local.type.as-runtime-type
+		field-refs (field-reference, java-runtime-type)[] = for local : a.closure
+			closure[local]!, local.type.as-runtime-type
 		methods-out ~= names record-initializer super-class, field-refs, do names lambda-init-descriptor a
 		if a.closure is-empty
 			methods-out ~= names clinit-for-instance-field this-class-name, this-class
