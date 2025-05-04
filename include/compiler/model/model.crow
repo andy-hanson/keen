@@ -565,12 +565,13 @@ doc-comment-ast doc-comment-ast(a enum-or-flags-member)
 doc-comment doc-comment(a enum-or-flags-member)
 	a.doc-comment-ast, a.doc-comment-references
 
-struct-body union(struct-body-bogus, builtin-type, enum_, flags_, record_, sum-type)
+struct-body union(struct-body-bogus, builtin-type, enum_, struct-body-extern-java, flags_, record_, sum-type)
 struct-body-bogus record
 enum_ record
 	storage_ integral-type
 	members enum-or-flags-member[]
 	members-by-name enum-or-flags-member by-name
+struct-body-extern-java record(path path)
 flags_ record(storage_ integral-type, members enum-or-flags-member[])
 record_ record
 	new-visibility visibility
@@ -819,37 +820,50 @@ sum-type-kind sum-type-kind(a sum-type-membership)
 sum-type-decl-methods signature[](a sum-type-membership)
 	a.sum-type-body methods
 
-struct-decl-source union(struct-decl-ast, struct-decl-source-bogus)
+struct-decl-source union(struct-decl-ast, struct-decl-source-java, struct-decl-source-bogus)
 	type-params type-params()
+struct-decl-source-java record(path path)
+type-params name-and-range[](_ struct-decl-source-java)
+	()
 struct-decl-source-bogus record(name symbol, type-params type-params)
 range source-range(a struct-decl-source)
 	match a
 	as struct-decl-ast x
 		x range
+	as struct-decl-source-java _
+		()
 	as struct-decl-source-bogus	_
 		()
 name symbol(a struct-decl-source)
 	match a
 	as struct-decl-ast x
 		x.name name
+	as struct-decl-source-java x
+		x.path.base-name to
 	as struct-decl-source-bogus x
 		x name
 doc-comment doc-comment-ast(a struct-decl-source)
 	match a
 	as struct-decl-ast x
 		x doc-comment
+	as struct-decl-source-java _
+		()
 	as struct-decl-source-bogus _
 		()
 keyword-range source-range(a struct-decl-source)
 	match a
 	as struct-decl-ast x
 		x keyword-range
+	as struct-decl-source-java _
+		()
 	as struct-decl-source-bogus _
 		()
 name-range source-range(a struct-decl-source)
 	match a
 	as struct-decl-ast x
 		x name-range
+	as struct-decl-source-java _
+		()
 	as struct-decl-source-bogus _
 		()
 
@@ -1010,6 +1024,7 @@ to json(a auto-fun-kind)
 fun-body union
 	fun-body-uninitialized
 	fun-body-bogus
+	fun-body-extern-java
 	auto-fun
 	builtin-fun
 	create-enum-or-flags
@@ -1043,6 +1058,11 @@ fun-body-uninitialized record
 to json(a fun-body-uninitialized)
 fun-body-bogus record
 to json(a fun-body-bogus)
+fun-body-extern-java record(kind java-method-kind)
+to json(a fun-body-extern-java)
+java-method-kind enum(static, virtual, interface_)
+== bool(a java-method-kind, b java-method-kind)
+to json(a java-method-kind)
 create-enum-or-flags record(member enum-or-flags-member)
 to json(a create-enum-or-flags)
 create-record record(nominal_ bool)
@@ -1256,6 +1276,7 @@ fun-safety enum(safe, trusted_, unsafe_)
 
 fun-decl-source union
 	fun-source-bogus
+	fun-source-java
 	fun-decl-ast
 	enum-or-flags-member
 	fun-source-file-import
@@ -1270,6 +1291,8 @@ do
 range uri-and-range(a fun-decl-source)
 	match a
 	as fun-source-bogus x
+		x.module-uri, ()
+	as fun-source-java x
 		x.module-uri, ()
 	as fun-decl-ast x
 		x.module-uri, x.range
@@ -1292,6 +1315,8 @@ type-params type-params(a fun-decl-source)
 	match a
 	as fun-source-bogus x
 		x type-params
+	as fun-source-java _
+		()
 	as fun-decl-ast x
 		x type-params
 	as enum-or-flags-member x
@@ -1308,6 +1333,9 @@ type-params type-params(a fun-decl-source)
 		x type-param-asts
 fun-source-bogus record(module-uri uri, name symbol, type-params type-params)
 name-range uri-and-range(a fun-source-bogus)
+	a.module-uri top-of-file
+fun-source-java record(module-uri uri, name symbol)
+name-range uri-and-range(a fun-source-java)
 	a.module-uri top-of-file
 fun-source-file-import record
 	| This is the importing module, not imported
@@ -1338,6 +1366,8 @@ fun-decl-insts union(fun-inst, (fun-inst, fun-inst-key) object-memoizer) mut
 -fun-name symbol(return-type type, source fun-decl-source, body fun-body)
 	match source
 	as fun-source-bogus x
+		x name
+	as fun-source-java x
 		x name
 	as fun-decl-ast x
 		x.name name
@@ -1720,7 +1750,22 @@ range uri-and-range(a var-decl)
 name-range uri-and-range(a var-decl)
 	a.module-uri, a.ast.name-range
 
-module record force-data
+module union(crow-module, java-class-module)
+	name string()
+	public-exports exports()
+	public-and-internal-exports exports()
+
+# Synthetic module generated from a Java class
+java-class-module record
+	| E.g., 'java/util/Foo'
+	path path
+	public-exports exports
+name string(a java-class-module)
+	a.path base-name
+public-and-internal-exports exports(a java-class-module)
+	a public-exports
+
+crow-module record force-data
 	uri uri
 	| The config closest to this module. (Not necessarily the main config.)
 	config config
@@ -1739,21 +1784,23 @@ module record force-data
 	public-exports exports
 	public-and-internal-exports exports
 	doc-comment-references doc-comment-references
-== bool(a module, b module)
+== bool(a crow-module, b crow-module)
 	trusted a reference-equal b
-to json(_ module)
+to json(_ crow-module)
 	throw todo
-module-uri uri(a module)
+module-uri uri(a crow-module)
 	a uri
-n-type-params nat(_ module)
+name string(a crow-module)
+	a.uri base-name
+n-type-params nat(_ crow-module)
 	0
-type-param-asts type-params(_ module)
+type-param-asts type-params(_ crow-module)
 	()
-range uri-and-range(a module)
+range uri-and-range(a crow-module)
 	a.uri top-of-file
-doc-comment-ast doc-comment-ast(a module)
+doc-comment-ast doc-comment-ast(a crow-module)
 	a.ast doc-comment
-doc-comment doc-comment(a module)
+doc-comment doc-comment(a crow-module)
 	a.doc-comment-ast, a.doc-comment-references
 export-visibility enum(internal, public)
 exports exports(a module, visibility export-visibility)
@@ -1771,7 +1818,7 @@ new exports()
 	(), (), ()
 
 | Excludes derived decls, e.g. FunDecl that is a record field getter
-each-decl void(a module, cb void mut(x any-decl))
+each-decl void(a crow-module, cb void mut(x any-decl))
 	for x : a aliases
 		cb[x]
 	for x : a structs
@@ -1787,11 +1834,12 @@ each-decl void(a module, cb void mut(x any-decl))
 		cb[x]
 
 | Does not walk re-exports
-zip-ast-and-module-imports void(module module, f void mut(ast import-or-export-ast, imported module))
-	ast-total = module.ast.imports.count-non-file-imports + module.ast.re-exports.count-non-file-imports + (module.ast no-std_ ? 0 : 1)
+zip-ast-and-module-imports void(module crow-module, f void mut(ast import-or-export-ast, imported module))
+	ast = module ast
+	ast-total = ast.imports.count-non-file-imports + ast.re-exports.count-non-file-imports + (ast no-std_ ? 0 : 1)
 	guard ast-total == module.imports-and-re-exports.size
-	i mut nat = module.ast no-std_ ? 0 : 1
-	for x : module.ast.imports?.paths ?? ()
+	i mut nat = ast no-std_ ? 0 : 1
+	for x : ast.imports?.paths ?? ()
 		unless _ ?= x.kind import-file-ast
 			f[x, module.imports-and-re-exports[i]]
 			i +:= 1
@@ -1847,7 +1895,7 @@ type-with-container record(type type, container type-container)
 
 | Since a type parameter is represented as its index, we need a context to know where to find it.
 | This is like AnyDecl, but also includes 'Module' which can have types in its doc comment.
-type-container union(fun-decl, module, spec-decl, struct-alias, struct-decl, test_, var-decl)
+type-container union(fun-decl, crow-module, spec-decl, struct-alias, struct-decl, test_, var-decl)
 	module-uri uri()
 	n-type-params nat()
 	type-param-asts type-params()
@@ -1856,7 +1904,7 @@ debug string(a type-container)
 	match a
 	as fun-decl x
 		"fun {x name}"
-	as module x
+	as crow-module x
 		"module {x uri}"
 	as spec-decl x
 		"spec {x name}"
@@ -1872,7 +1920,7 @@ forbid-module any-decl(a type-container)
 	match a
 	as fun-decl x
 		x
-	as module _
+	as crow-module _
 		throw unreachable
 	as spec-decl x
 		x
@@ -1900,10 +1948,10 @@ to type-container(a any-decl)
 		x
 
 is-import-or-export enum(import_, export_)
-each-import-or-re-export void(a module, cb void mut(x import-or-export))
+each-import-or-re-export void(a crow-module, cb void mut(x import-or-export))
 	a each-import-or-re-export-with-kind (_, x) =>
 		cb[x]
-each-import-or-re-export-with-kind void(_ module, _ void mut(kind is-import-or-export, x import-or-export))
+each-import-or-re-export-with-kind void(_ crow-module, _ void mut(kind is-import-or-export, x import-or-export))
 	()
 	# TODO ---------------------------------------------------------------------------------------------------------------------
 	#for x : a imports
@@ -1924,8 +1972,6 @@ import-or-export record force-data
 	| For an import of a whole module, this tracks what was actually used in this module.
 	| For a re-export of a whole module, this is not used.
 	named-imported mut exports
-uri uri(a import-or-export)
-	a.module uri
 is-std bool(a import-or-export)
 	a.source is-empty
 is-relative-import bool(a import-or-export)
@@ -1999,6 +2045,7 @@ common-types record
 	symbol-array struct-inst
 	void struct-inst
 	array struct-decl
+	mut-slice struct-decl
 	char8-array struct-inst
 	char32-array struct-inst
 	nat8-array struct-inst
@@ -2319,7 +2366,7 @@ has-any-diagnostics bool(a program-with-main)
 
 program record
 	all-configs config[uri]
-	all-modules module[uri] # TODO: the module stores its uri, so this could be a hash-table --------------------------------------------
+	all-modules crow-module[uri] # TODO: the module stores its uri, so this could be a hash-table --------------------------------------------
 	file-content-getters file-content-getters
 	line-and-column-getters line-and-column-getters
 	common-funs-and-diagnostics common-funs-and-diagnostics
@@ -2331,7 +2378,7 @@ common-funs common-funs(a program)
 	a.common-funs-and-diagnostics common-funs
 config-at-uri config(a program, uri uri)
 	a.all-configs[uri]!
-module-at-uri module(a program, uri uri)
+module-at-uri crow-module(a program, uri uri)
 	a.all-modules[uri]!
 
 has-any-diagnostics bool(a program)
@@ -3225,12 +3272,12 @@ sum-type-member-getter fun-decl(funs fun-decl[], struct struct-decl, x sum-type-
 		if _ ?= fun.body sum-type-member-get
 			fun.params.params-array.only.type == x.sum-type &&
 			fun.source.struct-decl! == struct
-method-caller fun-decl(program program, a signature)
+method-caller fun-decl(program program, a signature) # TODO: UNUSED ---------------------------------------------------------------------
 	program module-at-uri a.module-uri must-find-fun-named a.name, fun =>
 		if x ?= fun.source signature
 			trusted x reference-equal a
 
-must-find-fun-named fun-decl(module module, name symbol, cb bool mut(x fun-decl))
+must-find-fun-named fun-decl(module crow-module, name symbol, cb bool mut(x fun-decl)) # TODO: this is slow! ------------------------------
 	module.funs must-find-fun-named name, cb
 must-find-fun-named fun-decl(funs fun-decl[], name symbol, cb bool mut(x fun-decl))
 	funs must-find fun => fun.name == name && cb[fun]

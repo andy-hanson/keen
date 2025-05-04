@@ -12,13 +12,16 @@ import
 	./check/check-ctx
 	./check/get-common-funs
 	./check/instantiate
+	./java-externs
 	./lang
 	./show-model
 	./storage_
 
 frontend record mut
+	# TODO: what here can be private? -------------------------------------------------------------------------------------------------
 	# TODO: I wonder if 'storage' should be combined into frontend .......................................................................
 	storage_ storage_
+	java-externs java-externs
 	crow-include-dir uri
 	common-uris common-uris
 	common-files mut (common-module, crow-file) enum-map
@@ -48,6 +51,7 @@ init-frontend frontend(storage_ storage_, crow-include-dir uri)
 	crow-files crow-file mut[uri] = ()
 	res frontend = do
 		storage_: storage_
+		java-externs: ()
 		crow-include-dir: crow-include-dir
 		common-uris: common-uris
 		common-files: for _, uri : common-uris
@@ -77,10 +81,10 @@ init-frontend frontend(storage_ storage_, crow-include-dir uri)
 	resolved-imports mut mostly-resolved-import[]?
 	| Uris are for {crow-file}s
 	referenced-by uri mut-set
-	module mut module?
+	module mut crow-module?
 has-module bool(a crow-file) # TODO: inline ----------------------------------------------------------------------------------
 	a.module !is-empty
-must-have-module module(a crow-file)
+must-have-module crow-module(a crow-file)
 	a.module!
 
 -ast-or-diag union(file-ast, read-file-diag)
@@ -103,7 +107,7 @@ do
 
 make-program program(a frontend)
 	assert a.storage_.files-state == all-loaded
-	common-modules (common-module, module) enum-map = for _, x : a common-files
+	common-modules (common-module, crow-module) enum-map = for _, x : a common-files
 		x must-have-module
 	ctx instantiate-ctx = a.all-insts,
 	common-types = a common-types!
@@ -240,7 +244,7 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 	index = values index-of! first-value
 	values[index .. end] ~~ values[0 .. index]
 
--compile-non-bootstrap-module module(a frontend, file crow-file)
+-compile-non-bootstrap-module crow-module(a frontend, file crow-file)
 	assert file is-workable
 	forbid a.common-types is-empty # bootstrap must be compiled first
 	ast uri-and-ast = file.uri, file.config!, file.ast-or-diag.to-ast
@@ -318,6 +322,8 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 	match a
 	as crow-file x
 		x has-module
+	as imports-java _
+		true # TODO: only if 'common-types' has been set! ---------------------------------------------------------------------------------
 	as other-file x
 		x.content !is-empty
 	as diag-import-file x
@@ -392,6 +398,8 @@ do
 				file must-have-module
 			as read-file-diag d
 				file.uri read-error d
+		as imports-java x
+			a.java-externs get-java-module (a.all-insts,), a.common-types!, x.path
 		as other-file file
 			match a.storage_ file-or-diag file.uri
 			as file-info _
@@ -450,15 +458,21 @@ do
 		as symbol
 			include-crow / "symbol.crow"
 
--uri-or-diag union(uri, diag-import-file)
-
 | For an unknown/loading file, this will still be a {crow-file} or {other-file}
--mostly-resolved-import union(crow-file, other-file, diag-import-file) mut
+-mostly-resolved-import union mut
+	crow-file
+	imports-java
+	other-file
+	diag-import-file
+imports-java record(path path)
 
 -get-referenced-by uri mut-set?(import_ mostly-resolved-import)
 	match import_
 	as crow-file x
 		x referenced-by
+	as imports-java _
+		# We don't watch for changes to these, so never need to know what references them
+		()
 	as other-file x
 		x referenced-by
 	as diag-import-file _
@@ -470,36 +484,41 @@ do
 	from-uri uri
 	ast import-or-export-ast
 do
-	base uri-or-diag = match ast path
+	match ast path
 	as path path
 		library-name, rest = path first-and-rest
 		if library-name == "crow" || library-name == "system"
-			a.crow-include-dir concat-uri-and-path path
+			a try-resolve-import-from-uri ast, do a.crow-include-dir concat-uri-and-path path
+		elif library-name == "java"
+			path imports-java
 		elif from-config ?= config.include[library-name]
-			if r ?= rest
+			uri = if r ?= rest
 				from-config concat-uri-and-path r
 			else
 				from-config
+			a try-resolve-import-from-uri ast, uri
 		else
 			library-name library-not-configured
 	as rel-path rel-path
 		if rel ?= from-uri resolve-uri-from-file rel-path
-			rel
+			a try-resolve-import-from-uri ast, rel
 		else
 			rel-path relative-import-reaches-past-root
-	match base
-	as uri uri
-		crow-file mostly-resolved-import mut() = () =>
-			a ensure-crow-file (uri add-extension ".crow")
-		match ast kind
-		as import-whole-module-ast
-			crow-file[]
-		as array _
-			crow-file[]
-		as import-file-ast _
-			if uri.file-type == crow
-				cant-import-crow-as-text
-			else
-				a ensure-other-file uri
-	as diag-import-file x
-		x
+
+-try-resolve-import-from-uri mostly-resolved-import
+	a frontend
+	ast import-or-export-ast
+	uri uri
+do
+	crow-file mostly-resolved-import mut() = () =>
+		a ensure-crow-file do uri add-extension ".crow"
+	match ast kind
+	as import-whole-module-ast
+		crow-file[]
+	as array _
+		crow-file[]
+	as import-file-ast _
+		if uri.file-type == crow
+			cant-import-crow-as-text
+		else
+			a ensure-other-file uri

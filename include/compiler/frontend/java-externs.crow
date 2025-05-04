@@ -1,0 +1,143 @@
+import
+	crow/java
+	crow/unsafe
+	../../crow/string: string-of-java-string, to-java-string
+	../model/ast
+	../model/model
+	../model/uri
+	../util/by-name
+	./check/instantiate
+
+java-externs record mut
+	-java-class-types struct-decl mut[path]
+	-java-class-modules java-class-module mut[path]
+new java-externs()
+	(), ()
+
+get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, path path)
+	a.java-class-modules ensure path, () =>
+		class_ = a struct-for-java-class instantiate-ctx, path
+		funs = a funs-for-java-class instantiate-ctx, common-types, path
+		public-exports exports = do
+			funs: funs to
+			structs-and-aliases: (class_,) to-by-name _ => throw unreachable
+			specs: ()
+		_ = public-exports
+		path: path
+		public-exports: public-exports
+		###
+		uri: class_ module-uri
+		config: ()
+		ast: ()
+		imports-and-re-exports: ()
+		diagnostics: ()
+		aliases: ()
+		structs: class_,
+		vars: ()
+		specs: ()
+		funs: funs
+		tests: ()
+		public-exports: public-exports
+		public-and-internal-exports: public-exports
+		doc-comment-references: ()
+		###
+
+-struct-for-java-class struct-decl(a java-externs, instantiate-ctx instantiate-ctx, path path) trusted
+	assert extern java
+	a.java-class-types ensure path, () =>
+		hash: instantiate-ctx next-hash
+		source: path struct-decl-source-java
+		module-uri: path to-java-uri
+		visibility: public # TODO: get this from the Java visibility ---------------------------------------------------
+		extern_: "java",
+		is-summon: true
+		purity: mut_
+		purity-is-forced: false
+		doc-comment-references: ()
+		sum-type-memberships: () # TODO: get this from declared interfaces ------------------------------------------------
+		body: path struct-body-extern-java
+
+-to-java-uri uri(a path)
+	"java://".must-parse-uri concat-uri-and-path a
+
+-funs-for-java-class fun-decl[](a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, path path) trusted
+	assert extern java
+	class_ java-any = "java.lang.Class" call-static "forName", path.path-to-java-name.to-java-string # TODO: this can throw an exception, catch and make a diagnostic
+	class-is-interface = class_ class-is-interface
+	methods java-any[] = class_ call-instance "getDeclaredMethods"
+	with out : build
+		for method : methods
+			name = method call-instance "getName" string-of-java-string
+			return-type = a as-type instantiate-ctx, common-types, (method call-instance "getReturnType")
+			is-static = method method-is-static
+			kind java-method-kind = if is-static
+				static
+			elif class-is-interface
+				interface_
+			else
+				virtual
+			# TODO: get parameter names too, using 'getParameters'  https://docs.oracle.com/en/java/javase/23/docs/api/java.base/java/lang/reflect/Executable.html#getParameters()
+			java-params java-any[] = method call-instance "getParameterTypes"
+			params destructure[] = with p : build
+				if kind != static
+					p ~= "this".local-source-generated, immut, do a as-type instantiate-ctx, common-types, class_
+				for i, x : java-params with-index
+					p ~= "p{i}".local-source-generated, immut, do a as-type instantiate-ctx, common-types, x
+			out ~= do
+				hash: instantiate-ctx next-hash
+				source: path.to-java-uri fun-source-java name.to
+				visibility: public # TODO: use the method's visibility ----------------------------------------------------------
+				n-type-params: 0
+				return-type: return-type
+				params: params
+				flags_: summon_ | unsafe_
+				externs: "java",
+				specs: ()
+				doc-comment-references: ()
+				body: kind fun-body-extern-java
+
+-as-type type(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, class_ java-any) trusted, java extern
+	if class_ call-instance "isPrimitive"
+		common-types type-from-primitive class_
+	elif class_ call-instance "isArray"
+		elem = a as-type instantiate-ctx, common-types, do class_ call-instance "componentType"
+		common-types.mut-slice[elem]
+	else
+		name = class_ call-instance "getName" string-of-java-string
+		struct = a struct-for-java-class instantiate-ctx, name.java-name-to-path
+		struct only-inst
+
+-path-to-java-name string(path path)
+	path.to::string replace-all "/", "."
+-java-name-to-path path(a string)
+	a replace-all ".", "/" as-path
+
+-type-from-primitive type(common-types common-types, class_ java-any) trusted, java extern
+	i = common-types integrals
+	if class_ reference-equal do "java.lang.Boolean" get-static-field "TYPE"
+		common-types bool
+	elif class_ reference-equal do "java.lang.Character" get-static-field "TYPE"
+		i nat16
+	elif class_ reference-equal do "java.lang.Byte" get-static-field "TYPE"
+		i int8
+	elif class_ reference-equal do "java.lang.Short" get-static-field "TYPE"
+		i int16
+	elif class_ reference-equal do "java.lang.Integer" get-static-field "TYPE"
+		i int32
+	elif class_ reference-equal do "java.lang.Long" get-static-field "TYPE"
+		i int64
+	elif class_ reference-equal do "java.lang.Float" get-static-field "TYPE"
+		common-types float32
+	elif class_ reference-equal do "java.lang.Double" get-static-field "TYPE"
+		common-types float64
+	elif class_ reference-equal do "java.lang.Void" get-static-field "TYPE"
+		common-types void
+	else
+		throw unreachable
+
+-class-is-interface bool(a java-any) trusted, java extern # a is a Class
+	a call-instance "isInterface"
+
+-method-is-static bool(a java-any) trusted, java extern # a is a Method
+	mods java-any = a call-instance "getModifiers"
+	"java.lang.reflect.Modifier" call-static "isStatic", mods
