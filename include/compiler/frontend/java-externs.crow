@@ -1,6 +1,9 @@
 import
-	crow/java
-	crow/unsafe
+	crow/col/mut-slice
+	java/lang/Class
+	java/lang/reflect/Field
+	java/lang/reflect/Method
+	java/lang/reflect/Modifier
 	../model/ast
 	../model/model
 	../model/uri
@@ -61,31 +64,51 @@ get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ct
 
 -funs-for-java-class fun-decl[](a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, path path) trusted
 	assert extern java
-	class_ java-any = "java.lang.Class" call-static "forName", path.path-to-java-name.to-java-string # TODO: this can throw an exception, catch and make a diagnostic
-	class-is-interface = class_ class-is-interface
-	methods java-any[] = class_ call-instance "getDeclaredMethods"
+	class_ Class = path.path-to-java-name.to-java-string forName # TODO: this can throw an exception, so catch and make a diagnostic
+	class-is-interface = class_ isInterface
+	methods = class_ getDeclaredMethods
 	with out : build
+		fields = class_ getDeclaredFields
+		for field : fields
+			# TODO: ENSURE IT'S PUBLIC ------------------------------------------------------------------------------------
+			name = field.getName string-of-java-string
+			type = a as-type instantiate-ctx, common-types, field.getType
+			is-static = field.getModifiers isStatic
+			guard is-static # TODO: support instance fields -----------------------------------------------------------------
+			out ~= do
+				hash: instantiate-ctx next-hash
+				source: path.to-java-uri fun-source-java name.to
+				visibility: public
+				n-type-params: 0
+				return-type: type
+				params: ()
+				flags_: summon_ | unsafe_
+				externs: "java",
+				specs: ()
+				doc-comment-references: ()
+				body: static-field fun-body-extern-java path
+
 		for method : methods
-			name = method call-instance "getName" string-of-java-string
-			return-type = a as-type instantiate-ctx, common-types, (method call-instance "getReturnType")
-			is-static = method method-is-static
+			# TODO: ENSURE IT'S PUBLIC ------------------------------------------------------------------------------------
+			name = method.getName string-of-java-string
+			return-type = a as-type instantiate-ctx, common-types, method.getReturnType
+			is-static = method.getModifiers isStatic
 			kind java-method-kind = if is-static
 				static
 			elif class-is-interface
 				interface_
 			else
 				virtual
-			# TODO: get parameter names too, using 'getParameters'  https://docs.oracle.com/en/java/javase/23/docs/api/java.base/java/lang/reflect/Executable.html#getParameters()
-			java-params java-any[] = method call-instance "getParameterTypes"
 			params destructure[] = with p : build
 				if kind != static
 					p ~= "this".local-source-generated, immut, do a as-type instantiate-ctx, common-types, class_
-				for i, x : java-params with-index
+				# TODO: get parameter names too, using 'getParameters'  https://docs.oracle.com/en/java/javase/23/docs/api/java.base/java/lang/reflect/Executable.html#getParameters()
+				for i, x : method.getParameterTypes with-index
 					p ~= "p{i}".local-source-generated, immut, do a as-type instantiate-ctx, common-types, x
 			out ~= do
 				hash: instantiate-ctx next-hash
 				source: path.to-java-uri fun-source-java name.to
-				visibility: public # TODO: use the method's visibility ----------------------------------------------------------
+				visibility: public
 				n-type-params: 0
 				return-type: return-type
 				params: params
@@ -95,14 +118,14 @@ get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ct
 				doc-comment-references: ()
 				body: kind fun-body-extern-java path
 
--as-type type(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, class_ java-any) trusted, java extern
-	if class_ call-instance "isPrimitive"
+-as-type type(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, class_ Class) trusted, java extern
+	if class_ isPrimitive
 		common-types type-from-primitive class_
-	elif class_ call-instance "isArray"
-		elem = a as-type instantiate-ctx, common-types, do class_ call-instance "componentType"
+	elif class_ isArray
+		elem = a as-type instantiate-ctx, common-types, class_.componentType
 		common-types.mut-slice[elem]
 	else
-		name = class_ call-instance "getName" string-of-java-string
+		name = class_.getName string-of-java-string
 		struct = a struct-for-java-class instantiate-ctx, name.java-name-to-path
 		struct only-inst
 
@@ -111,32 +134,26 @@ get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ct
 -java-name-to-path path(a string)
 	a replace-all ".", "/" as-path
 
--type-from-primitive type(common-types common-types, class_ java-any) trusted, java extern
+-type-from-primitive type(common-types common-types, class_ Class) trusted, java extern
 	i = common-types integrals
-	if class_ reference-equal do "java.lang.Boolean" get-static-field "TYPE"
+	match class_.getName string-of-java-string
+	as boolean
 		common-types bool
-	elif class_ reference-equal do "java.lang.Character" get-static-field "TYPE"
+	as char
 		i nat16
-	elif class_ reference-equal do "java.lang.Byte" get-static-field "TYPE"
+	as byte
 		i int8
-	elif class_ reference-equal do "java.lang.Short" get-static-field "TYPE"
+	as short
 		i int16
-	elif class_ reference-equal do "java.lang.Integer" get-static-field "TYPE"
+	as int
 		i int32
-	elif class_ reference-equal do "java.lang.Long" get-static-field "TYPE"
+	as long
 		i int64
-	elif class_ reference-equal do "java.lang.Float" get-static-field "TYPE"
+	as float
 		common-types float32
-	elif class_ reference-equal do "java.lang.Double" get-static-field "TYPE"
+	as double
 		common-types float64
-	elif class_ reference-equal do "java.lang.Void" get-static-field "TYPE"
+	as void
 		common-types void
 	else
 		throw unreachable
-
--class-is-interface bool(a java-any) trusted, java extern # a is a Class
-	a call-instance "isInterface"
-
--method-is-static bool(a java-any) trusted, java extern # a is a Method
-	mods java-any = a call-instance "getModifiers"
-	"java.lang.reflect.Modifier" call-static "isStatic", mods

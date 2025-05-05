@@ -4,10 +4,21 @@ import
 	crow/java
 	crow/js
 	crow/result
+	java/io/BufferedOutputStream
+	java/io/File
+	java/io/FileOutputStream
+	java/io/OutputStream
+	java/nio/file/attribute/PosixFilePermission
 	java/nio/file/Files
 	java/nio/file/Path
 	java/nio/file/Paths
 	java/lang/Object
+	java/util/jar/Attributes
+	java/util/jar/JarEntry
+	java/util/jar/JarOutputStream
+	java/util/jar/Manifest
+	java/util/zip/ZipEntry
+	java/util/zip/ZipOutputStream
 	java/util/stream/Stream
 	../frontend/storage_
 	../model/model
@@ -26,7 +37,7 @@ show string(a exit)
 path-exists bool(path file-path) summon, trusted
 	if extern java
 		file java-any = "java.io.File" call-new path.to::string.to-java-string
-		file call-instance "exists"
+		file.cast exists
 	elif extern js
 		fs call-property "existsSync", path.to::string cast
 	else
@@ -34,12 +45,7 @@ path-exists bool(path file-path) summon, trusted
 
 ensure-directory void(path file-path) summon, trusted
 	assert extern java : todo
-	attrs = "java.nio.file.attribute.FileAttribute" empty-array-of
-	"java.nio.file.Files" call-static "createDirectories", path.to-java-path, attrs
-
--empty-array-of java-any[](class-name string) unsafe, java extern
-	class_ java-any = "java.lang.Class" call-static "forName", class-name.to-java-string
-	"java.lang.reflect.Array" call-static "newInstance", class_, 0::int32
+	_ = path.to-java-path createDirectories ()
 
 -do-write-file void(path string, content nat8[]) summon, trusted
 	if extern java
@@ -64,51 +70,55 @@ write-file void(path file-path, content string, permissions permissions, overwri
 
 set-permissions void(path file-path, permissions file-permissions) summon, trusted
 	if extern java
-		args java-any[] = for name : permissions java-permission-names
-			"java.nio.file.attribute.PosixFilePermission" get-static-field name
-		perms java-any = "java.util.EnumSet" call-static-varargs "of", args
+		args = permissions java-permissions
+		perms java-any = "java.util.EnumSet" call-static-varargs "of", args.as-java.cast::java-any[]
 		"java.nio.file.Files" call-static "setPosixFilePermissions", path.to-java-path, perms
 	elif extern js
 		_ = fs call-property "chmodSync", path.to::string, permissions.to::nat.to::float
 	else
 		throw todo
 
--java-permission-names string[](a file-permissions)
+-java-permissions PosixFilePermission[](a file-permissions) summon, trusted, java extern
 	with out : build
-		for x : a.user java-permission-names
-			out ~= "OWNER_{x}"
-		for x : a.group java-permission-names
-			out ~= "GROUP_{x}"
-		for x : a.public java-permission-names
-			out ~= "OTHERS_{x}"
--java-permission-names string[](a permissions)
-	with out : build
-		if a read
-			out ~= "READ"
-		if a write
-			out ~= "WRITE"
-		if a execute
-			out ~= "EXECUTE"
+		if a.user read
+			out ~= OWNER_READ
+		if a.user write
+			out ~= OWNER_WRITE
+		if a.user execute
+			out ~= OWNER_EXECUTE
+		if a.group read
+			out ~= GROUP_READ
+		if a.group write
+			out ~= GROUP_WRITE
+		if a.group execute
+			out ~= GROUP_EXECUTE
+		if a.public read
+			out ~= OTHERS_READ
+		if a.public write
+			out ~= OTHERS_WRITE
+		if a.public execute
+			out ~= OTHERS_EXECUTE
 
 write-jar void(path file-path, files (string, nat8[])[]) summon, trusted
 	assert extern java : todo
 	start = perf-now
-	manifest java-any = "java.util.jar.Manifest" call-new
-	attr java-any = manifest call-instance "getMainAttributes"
-	_ java-any = attr call-instance "putValue", "Manifest-Version"::string.to-java-string, "1.0"::string.to-java-string
-	_ java-any = attr call-instance "putValue", "Main-Class"::string.to-java-string, "Main"::string.to-java-string
+	manifest Manifest = "java.util.jar.Manifest".call-new::java-any cast
+	attr = manifest getMainAttributes
+	_ = attr putValue "Manifest-Version"::string.to-java-string, "1.0"::string.to-java-string
+	_ = attr putValue "Main-Class"::string.to-java-string, "Main"::string.to-java-string
 	do
-		file-out java-any = "java.io.FileOutputStream" call-new path.to::string.to-java-string
-		finally file-out call-instance "close"
-		buf-out java-any = "java.io.BufferedOutputStream" call-new file-out
-		jar-out java-any = "java.util.jar.JarOutputStream" call-new buf-out, manifest
+		file-out FileOutputStream = ("java.io.FileOutputStream" call-new path.to::string.to-java-string)::java-any cast
+		finally file-out close
+		buf-out BufferedOutputStream = ("java.io.BufferedOutputStream" call-new file-out.java-cast::OutputStream)::java-any cast
+		jar-out JarOutputStream = ("java.util.jar.JarOutputStream" call-new buf-out.java-cast::OutputStream, manifest)::java-any cast
 		for name, content : files
-			entry java-any = "java.util.jar.JarEntry" call-new name.to-java-string
-			jar-out call-instance "putNextEntry", entry
-			jar-out call-instance "write", content
-			jar-out call-instance "closeEntry"
-		jar-out call-instance "finish"
-		buf-out call-instance "flush"
+			entry JarEntry = ("java.util.jar.JarEntry" call-new name.to-java-string)::java-any cast
+			jar-out putNextEntry entry.java-cast::ZipEntry # TODO: this casts JarEntry to ZipEntry. Crow should realize that as an implicit conversion?
+			content2 int8 mut-slice = for x : content; x wrap-to # TODO:PERF do a cast instead since these have the same representation
+			jar-out.java-cast::OutputStream write content2
+			jar-out.java-cast::ZipOutputStream closeEntry
+		jar-out.java-cast::ZipOutputStream finish
+		buf-out flush
 	path set-permissions all.user-only
 	start end-write-jar
 
@@ -152,8 +162,7 @@ get-paths-in-dir file-path[](dir-path file-path) summon, trusted
 		stream = dir-path.to-java-path list
 		paths = stream toArray
 		for path : paths
-			str = path.toString.as-java string-of-java-string
-			str must-parse-file-path
+			path.toString.string-of-java-string must-parse-file-path
 	elif extern js
 		# TODO: handle dir not found exception ------------------------------------------------------------------------------
 		names string[] = fs call-property "readdirSync", dir-path.to::string js-cast
@@ -175,8 +184,7 @@ try-read-file read-file-result(uri uri) summon
 
 cwd file-path() summon, trusted
 	if extern java
-		path java-any = "".to-java-path call-instance "toAbsolutePath"
-		(path call-instance "toString" string-of-java-string) must-parse-file-path
+		"".to-java-path.toAbsolutePath.toString.string-of-java-string must-parse-file-path
 	elif extern js
 		res string = process call-property "cwd" cast
 		res must-parse-file-path
