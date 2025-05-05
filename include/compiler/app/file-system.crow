@@ -1,8 +1,14 @@
 import
+	crow/col/mut-slice
 	crow/io/file
 	crow/java
 	crow/js
 	crow/result
+	java/nio/file/Files
+	java/nio/file/Path
+	java/nio/file/Paths
+	java/lang/Object
+	java/util/stream/Stream
 	../frontend/storage_
 	../model/model
 	../model/parse-diag
@@ -38,7 +44,8 @@ ensure-directory void(path file-path) summon, trusted
 -do-write-file void(path string, content nat8[]) summon, trusted
 	if extern java
 		# TODO: catch exceptions -----------------------------------------------------------------------------------------		
-		_ void = "java.nio.file.Files" call-static "write", path.to-java-path, content, "java.nio.file.OpenOption".empty-array-of
+		content2 int8 mut-slice = for x : content; x wrap-to # TODO:PERF do a cast instead since these have the same representation
+		_ = path.to-java-path write content2, ()
 	elif extern js
 		fs call-property "writeFileSync", path, content cast
 	else
@@ -122,10 +129,9 @@ do summon
 get-path-kind path-kind(path file-path) summon, trusted
 	if extern java
 		jpath = path to-java-path
-		link-options = "java.nio.file.LinkOption" empty-array-of
-		if "java.nio.file.Files" call-static "isRegularFile", jpath, link-options
+		if jpath isRegularFile ()
 			file
-		elif "java.nio.file.Files" call-static "isDirectory", jpath, link-options
+		elif jpath isDirectory ()
 			directory
 		else
 			other
@@ -143,10 +149,10 @@ get-path-kind path-kind(path file-path) summon, trusted
 
 get-paths-in-dir file-path[](dir-path file-path) summon, trusted
 	if extern java
-		stream java-any = "java.nio.file.Files" call-static "list", dir-path.to-java-path
-		paths java-any[] = stream call-instance "toArray"
+		stream = dir-path.to-java-path list
+		paths = stream toArray
 		for path : paths
-			str = path call-instance "toString" string-of-java-string
+			str = path.toString.as-java string-of-java-string
 			str must-parse-file-path
 	elif extern js
 		# TODO: handle dir not found exception ------------------------------------------------------------------------------
@@ -199,7 +205,8 @@ do-read-file nat8[](path string) summon, trusted
 	if extern java
 		# TODO: would be better to catch a file-not-found exception
 		assert path.must-parse-file-path path-exists : path path-not-found
-		"java.nio.file.Files" call-static "readAllBytes", path.to-java-path
+		res = path.to-java-path readAllBytes
+		for x : res; x wrap-to # TODO:PERF this converts an int8 mut-slice to a nat8[], but that could actually just be a cast?
 	elif extern js
 		match (() => fs call-property "readFileSync", path) catch-all
 		as ok x
@@ -215,8 +222,7 @@ do-read-file nat8[](path string) summon, trusted
 	else
 		throw todo
 
--to-java-path java-any(a file-path) java extern
+-to-java-path Path(a file-path) java extern
 	a.to::string to-java-path
--to-java-path java-any(a string) trusted, java extern
-	#"Crow" call-static "toJavaPath", a.to::char8[]
-	"java.nio.file.Paths" call-static "get", a.to-java-string, "java.lang.String".empty-array-of
+-to-java-path Path(a string) trusted, java extern
+	a.to-java-string get ()
