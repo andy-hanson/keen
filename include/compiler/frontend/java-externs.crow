@@ -1,6 +1,7 @@
 import
 	crow/col/mut-slice
 	java/lang/Class
+	java/lang/reflect/Constructor
 	java/lang/reflect/Field
 	java/lang/reflect/Method
 	java/lang/reflect/Modifier
@@ -59,14 +60,9 @@ get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ct
 		sum-type-memberships: () # TODO: get this from declared interfaces ------------------------------------------------
 		body: path struct-body-extern-java
 
--to-java-uri uri(a path)
-	"java://".must-parse-uri concat-uri-and-path a
-
 -funs-for-java-class fun-decl[](a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, path path) trusted
 	assert extern java
 	class_ Class = path.path-to-java-name.to-java-string forName # TODO: this can throw an exception, so catch and make a diagnostic
-	class-is-interface = class_ isInterface
-	methods = class_ getDeclaredMethods
 	with out : build
 		fields = class_ getDeclaredFields
 		for field : fields
@@ -77,7 +73,7 @@ get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ct
 			guard is-static # TODO: support instance fields -----------------------------------------------------------------
 			out ~= do
 				hash: instantiate-ctx next-hash
-				source: path.to-java-uri fun-source-java name.to
+				source: path fun-source-java name.to
 				visibility: public
 				n-type-params: 0
 				return-type: type
@@ -88,26 +84,49 @@ get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ct
 				doc-comment-references: ()
 				body: static-field fun-body-extern-java path
 
-		for method : methods
+		class-type type mut() = () =>
+			a as-type instantiate-ctx, common-types, class_
+
+		for ctor : class_ getDeclaredConstructors
+			# TODO: ensure it's public ---------------------------------------------------------------------------------------------
+			# TODO: include parameter names, using 'getParameters' --------------------------------------------------------------------
+			params destructure[] = for i, x : ctor.getParameterTypes with-index
+				"p{i}".local-source-generated, immut, do a as-type instantiate-ctx, common-types, x
+			out ~= do
+				# TODO: share code with the fun-decl creation for method ------------------------------------------------------
+				hash: instantiate-ctx next-hash
+				source: path fun-source-java "new"
+				visibility: public
+				n-type-params: 0
+				return-type: class-type[]
+				params: params
+				flags_: summon_ | unsafe_
+				externs: "java",
+				specs: ()
+				doc-comment-references: ()
+				body: constructor fun-body-extern-java path
+			()
+
+		for method : class_ getDeclaredMethods
 			# TODO: ENSURE IT'S PUBLIC ------------------------------------------------------------------------------------
 			name = method.getName string-of-java-string
 			return-type = a as-type instantiate-ctx, common-types, method.getReturnType
 			is-static = method.getModifiers isStatic
 			kind java-method-kind = if is-static
 				static
-			elif class-is-interface
+			elif class_ isInterface
 				interface_
 			else
 				virtual
 			params destructure[] = with p : build
 				if kind != static
-					p ~= "this".local-source-generated, immut, do a as-type instantiate-ctx, common-types, class_
+					p ~= "this".local-source-generated, immut, class-type[]
 				# TODO: get parameter names too, using 'getParameters'  https://docs.oracle.com/en/java/javase/23/docs/api/java.base/java/lang/reflect/Executable.html#getParameters()
 				for i, x : method.getParameterTypes with-index
 					p ~= "p{i}".local-source-generated, immut, do a as-type instantiate-ctx, common-types, x
 			out ~= do
 				hash: instantiate-ctx next-hash
-				source: path.to-java-uri fun-source-java name.to
+				source: path fun-source-java name.to
 				visibility: public
 				n-type-params: 0
 				return-type: return-type
