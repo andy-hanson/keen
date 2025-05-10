@@ -358,7 +358,7 @@ do
 	source = ctx.ctx source a
 	match a body
 	as concrete-fun-body-builtin x
-		ctx translate-builtin a.return-type, source, x.kind, for param : a params
+		ctx translate-builtin a.return-type, source, x.kind, x.type-args, for param : a params
 			param.type, a.range, param.local-get-concrete-expr # TODO: use param range, not a.range ---------------------------------------
 	as concrete-expr x
 		# error log "LET'S TRANSLATE {ctx.ctx.show-ctx show-concrete-fun-sig a, false}" # -------------------------------------
@@ -380,14 +380,15 @@ do
 	type concrete-type
 	source source
 	fun builtin-fun
+	type-args concrete-type[]
 	args concrete-expr[]
 do
 	match fun
 	as builtin-unary x
-		ctx translate-builtin-unary type, source, x, do ctx to-js-expr args.only
+		ctx translate-builtin-unary type, source, x, type-args, do ctx to-js-expr args.only
 	as builtin-binary x
 		arg0, arg1 = args only2
-		source translate-builtin-binary type, x, ((ctx to-js-expr arg0), (ctx to-js-expr arg1))
+		source translate-builtin-binary type, x, do (ctx to-js-expr arg0), (ctx to-js-expr arg1)
 	as builtin-binary-lazy _
 		throw unreachable
 	as builtin-fun-call-lambda
@@ -402,7 +403,7 @@ do
 	as js-fun x
 		ctx translate-js-fun source, x, type, args
 
--translate-builtin-unary js-expr-or-block-statement(ctx to-expr-ctx, type concrete-type, source source, a builtin-unary, arg js-expr)
+-translate-builtin-unary js-expr-or-block-statement(ctx to-expr-ctx, type concrete-type, source source, a builtin-unary, type-args concrete-type[], arg js-expr)
 	unary js-expr mut(op js-unary-kind) = op =>
 		source gen-unary op, arg
 	match a
@@ -427,6 +428,12 @@ do
 		source gen-convert 4, "Uint32Array", "Float32Array", (source gen-call-sync Number, (arg,))
 	as float64-from-bits
 		source gen-convert 8, "BigInt64Array", "Float64Array", arg
+	as gc-safe-mut-slice
+		# Array(size).fill(null)
+		Array = source gen-global "Array"
+		array = source gen-call-sync Array, (arg,)
+		elem = ctx.ctx translate-constant source, type-args.only, constant-gc-safe-value
+		source gen-call-property-sync array, "fill".no-prefix, (elem,)
 	as not
 		source gen-not arg
 	as to-char8-from-nat8
@@ -763,7 +770,7 @@ do
 				while_ = source gen-while cur-less-end, body.to
 				(declare-cur-end, while_) js-block-statement
 	as builtin-concrete-expr x
-		ctx translate-builtin type, source, x.fun, x.args
+		ctx translate-builtin type, source, x.fun, x.type-args, x.args
 	as call-concrete-expr x
 		call-async = ctx.ctx is-async x.called
 		if call-async == async
