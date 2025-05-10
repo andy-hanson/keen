@@ -538,11 +538,6 @@ do
 		out push-constant-integral int32, constant
 	as int64
 		out push-constant-integral int64, constant
-	as java-any
-		assert _ ?= constant constant-gc-safe-value
-		out aconst_null
-	as java-exclusion
-		throw unreachable
 	as js-any
 		throw unreachable
 	as fun-data
@@ -983,16 +978,6 @@ do
 		else
 			out anewarray do ctx.names class_ element-type
 
-# Pushes a reference to the Class for this type
--push-unboxed-class-reference void(out code-builder, names java-refs, type concrete-type)
-	match type as-runtime-type
-	as void
-		out getstatic names.java-Void-TYPE
-	as java-primitive-type _
-		out getstatic do names java-primitive-TYPE type
-	as reference-type
-		out ldc do names class_ type
-
 -number-of-locals nat(type concrete-type)
 	type.as-runtime-type number-of-locals
 -number-of-locals nat(type java-runtime-type)
@@ -1019,7 +1004,6 @@ do
 	ctx must-refine in-type, out-type
 
 -cast-and-unbox-if-necessary void(out code-builder, ctx expr-ctx, type concrete-type)
-	guard type !is-java-any
 	if type is-empty-type
 		out pop reference-type
 	else
@@ -1758,9 +1742,10 @@ do
 		out swap
 		out get-switchable-value ctx, matched-type
 		out swap
-		ctx must-refine matched-type, ctx.program.java-any
+		value-type = ctx.program Object
+		ctx must-refine matched-type, value-type
 		ctx pushed ctx.program.nat32
-		out emit-match-union-using-switch ctx, pos, type, ctx.program.java-any, x
+		out emit-match-union-using-switch ctx, pos, type, value-type, x
 	as nullable
 		out with-inner-pos ctx, pos, inner-pos =>
 			null-case concrete-match-union-case, non-null-case concrete-match-union-case = if x.member-indices[0] == (0::nat,)
@@ -2091,9 +2076,6 @@ do
 -popped-args void(ctx expr-ctx, args concrete-expr[])
 	for arg : args reversed
 		ctx must-pop arg.type
--popped-object-args void(ctx expr-ctx, args concrete-expr[])
-	for _ : args
-		_ = ctx.stack.pop!
 -pushed void(ctx expr-ctx, type concrete-type)
 	unless type is-empty-type
 		ctx.stack ~= type
@@ -2115,21 +2097,6 @@ do
 	out emit-args ctx, args
 	f[]
 	ctx popped-args args
-	ctx pushed return-type
--function-like-convert-args-to-objects void
-	out code-builder
-	ctx expr-ctx
-	return-type concrete-type
-	args concrete-expr[]
-	should-convert-to-object bool data(index nat)
-	f void mut()
-do
-	for index, arg : args with-index
-		out emit-and-continue ctx, arg
-		if should-convert-to-object[index]
-			out box ctx, arg.type, ctx.program.java-any
-	f[]
-	ctx popped-object-args args
 	ctx pushed return-type
 
 -translate-builtin void
@@ -2159,8 +2126,6 @@ do
 		throw unreachable
 	as builtin-fun-is-empty-type
 		throw unreachable
-	as java-fun x
-		out translate-java-fun ctx, x, type, type-args, args
 	as js-fun _
 		throw unreachable
 
@@ -2437,131 +2402,9 @@ do
 	else
 		a as-integral-type-allow-char
 
--translate-java-fun void(out code-builder, ctx expr-ctx, kind java-fun, type concrete-type, type-args concrete-type[], args concrete-expr[])
-	match kind
-	as array-get
-		out function-like ctx, type, args, () =>
-			if type is-empty-type
-				out pop T_INT
-			else
-				out xaload type-args.only.as-runtime-type
-	as array-set
-		out function-like ctx, type, args, () =>
-			element = type-args only
-			if element is-empty-type
-				out pop T_INT
-				out pop reference-type
-			else
-				out astore element.as-runtime-type
-	as as-java-any
-		out function-like-convert-args-to-objects ctx, type, args, (_ => true), () =>
-			()
-	as call-instance
-		# TODO: if args are string literals, specialize
-		method-name = ctx as-constant-string args[1]
-		if type !is-java-any && args every (arg => arg.type !is-java-any) && method-name !is-empty
-			out function-like-convert-args-to-objects ctx, type, (args omit-index 1), (index => index == 0), () =>
-				param-types concrete-type[] = for x : args[2 .. end]; x type
-				method = ctx.names extern-instance-method method-name!, type, args[0].type, param-types
-				out invokevirtual method
-		else
-			out function-like-convert-args-to-objects ctx, type, args, (index => index != 1), () =>
-				out invokestatic do ctx.names crow-call-instance args.size
-				out cast-and-unbox-if-necessary ctx, type
-	as call-new
-		class-name-with-dots = ctx as-constant-string args[0]
-		if args every (arg => arg.type !is-java-any) && class-name-with-dots !is-empty
-			class_ = out.constants class_ class-name-with-dots!.dots-to-slashes
-			out makenew class_
-			out dup32
-			out function-like ctx, type, args[1 .. end].to, () =>
-				out invokespecial do ctx.names extern-constructor class_, for x : args[1 .. end]; x type
-		else
-			out function-like-convert-args-to-objects ctx, type, args, (index => index != 0), () =>
-				out invokestatic do ctx.names crow-call-new args.size
-	as call-static
-		class-name = ctx as-constant-string args[0]
-		method-name = ctx as-constant-string args[1]
-		if class-name !is-empty && method-name !is-empty && type !is-java-any && class-name! can-call-static method-name!, args
-			out function-like ctx, type, args[2 .. end].to, () =>
-				if class-name! == "java.util.Arrays" && method-name! == "copyOfRange"
-					out copy-of-range ctx, type
-				else
-					out invokestatic do ctx.names extern-static-method class-name!.dots-to-slashes, method-name!, type, for x : args[2 .. end]; x type
-		else
-			out function-like-convert-args-to-objects ctx, type, args, (index => index >= 2), () =>
-				out invokestatic do ctx.names crow-call-static args.size
-				out cast-and-unbox-if-necessary ctx, type
-	as call-static-varargs
-		out function-like ctx, type, args, () =>
-			out invokestatic ctx.names.crow-call-static-varargs
-			out cast-and-unbox-if-necessary ctx, type
-	as cast
-		out function-like ctx, type, args, () =>
-			out cast-and-unbox-if-necessary ctx, type
-	as change-exclusion
-		out function-like ctx, type, args, () =>
-			out invokestatic ctx.names.crow-change-exclusion
-	as class-of
-		args.size is 0
-		out function-like ctx, type, args, () =>
-			out push-unboxed-class-reference ctx.names, type-args.only
-	as cur-exclusion
-		args.size is 0
-		out function-like ctx, type, args, () =>
-			out invokestatic ctx.names.crow-get-exclusion
-	as equal
-		out function-like ctx, type, args, () =>
-			out invokestatic ctx.names.crow-reference-equal
-	as get-static-field
-		# TODO: we can avoid reflection if we know the return type ......................................................
-		#class-name-expr, field-name-expr = args only2
-		#class-name = ctx as-constant-string class-name-expr
-		#field-name = ctx as-constant-string field-name-expr
-		#if class-name !is-empty && field-name !is-empty
-		#	out function-like ctx, type, (), () =>
-		#		out get-static-field class-name!.to, field-name!.to, 
-		#		class_ = out.constants class
-		#else
-		out function-like ctx, type, args, () =>
-			out invokestatic ctx.names.crow-get-static-field
-	as new-array
-		out function-like ctx, type, args, () =>
-			out new-array-for-type ctx, type-args.only
-	as null
-		args.size is 0
-		out function-like ctx, type, args, () =>
-			out aconst_null
-
--can-call-static bool(class-name symbol, method-name symbol, args concrete-expr[])
-	if class-name == "java.lang.System" && method-name == "identityHashCode"
-		true
-	else
-		args every (arg => arg.type !is-java-any)
-
 -get-array-size void(out code-builder, element concrete-type, local nat)
 	if element is-empty-type
 		out iload local
 	else
 		out aload local
 		out arraylength
-
--copy-of-range void(out code-builder, ctx expr-ctx, return-type concrete-type) # TODO: this is HAX to deal with a generic method
-	element-type = return-type array-element-type
-	match element-type as-runtime-type
-	as void
-		()
-	as java-primitive-type p
-		out invokestatic do ctx.names arrays-copy-of-range-for-primitive p
-	as reference-type
-		out invokestatic ctx.names.arrays-copy-of-range-for-object
-		unless element-type is-java-any
-			out checkcast do ctx.names class_ return-type
-
--dots-to-slashes symbol(a symbol)
-	a.to replace-all ".", "/" to
-
--as-constant-string symbol?(ctx expr-ctx, a concrete-expr)
-	guard a.type == ctx.program.string
-	guard x ?= a.kind constant
-	ctx.program as-string x to
