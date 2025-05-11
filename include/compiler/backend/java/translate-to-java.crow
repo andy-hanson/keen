@@ -58,26 +58,16 @@ do
 	("Crow.class", Crow-class), ("CrowClassLoader.class", CrowClassLoader-class), ("ThreadLocalReentrantLock.class", ThreadLocalReentrantLock-class)
 
 -main-class ClassFile(ctx to-java-ctx)
-	###
-	public static void main(String[] args) \{
-		try {
-			int exit = (int) MainModule.main123(args);
-			if (exit != 0) System.exit(exit);
-		} catch (crow_exception e) {
-			System.err.println(show(e));
-			e.printStackTrace();
-			System.exit(1);
-		}
-	}
-	###
 	names java-refs = ctx.names start-new-class
 	this-class = names.constants class_ "Main"
 	main method_info = do
 		code = with out : names build-code
 			out aload 0
 			out invokestatic names.crow-string-array-from-java-string-array 
-			main = ctx.program.common-funs.concrete-common-funs-java! main
-			out call-concrete-fun names, main
+			funs = ctx.program.common-funs concrete-common-funs-java!
+			out call-concrete-fun names, funs.start-runtime
+			out call-concrete-fun names, funs.main
+			out call-concrete-fun names, funs.stop-runtime
 			out l2i # TODO: this throws away information ------------------------------------------------------------------------------------
 			out dup32
 			# If it's == 0, jump to end
@@ -626,10 +616,7 @@ do
 	as concrete-builtin-type x
 		lambda ClassFile mut() = () =>
 			assert method-impls is-empty : todo
-			assert r, p ?= type as-fun-type
-			more-interfaces class-reference[] = if r is-void && p is-void
-				names.java-Runnable,
-			names lambda-class type, this-class, super-class, interfaces ~~ more-interfaces
+			names lambda-class type, this-class, super-class, interfaces
 		match x kind
 		as array
 			()
@@ -720,9 +707,11 @@ do
 	super-class class-reference
 	interfaces class-reference[]
 do
+	is-runnable = type lambda-type-is-runnable
+	all-interfaces = is-runnable ? names.java-Runnable ~ interfaces : interfaces
 	init = names record-initializer super-class, (), names.init-no-args-descriptor
 	call method_info = do
-		access-flags: abstract_
+		access-flags: abstract_ | (is-runnable ? public : ())
 		name: names run
 		descriptor: names lambda-call-descriptor type
 		attributes: ()
@@ -730,10 +719,14 @@ do
 	access: abstract_
 	this-class: this-class
 	super-class: super-class
-	interfaces: interfaces
+	interfaces: all-interfaces
 	fields: ()
 	methods: init, call
 	attributes: ()
+
+-lambda-type-is-runnable bool(type concrete-type)
+	assert r, p ?= type as-fun-type
+	r is-void && p is-void
 
 -union-sealed-interface ClassFile
 	names java-refs
@@ -1978,7 +1971,7 @@ do
 			code = with out : names build-code
 				out emit-expr expr-ctx, return, a.body
 			expr-ctx verify-expr-ctx-finished a.body.type, (a.param,)
-			access-flags: ()
+			access-flags: lambda-type.lambda-type-is-runnable ? public : ()
 			name: names run
 			descriptor: names lambda-call-descriptor lambda-type
 			attributes: code,
