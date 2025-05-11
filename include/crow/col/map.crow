@@ -17,6 +17,7 @@ import
 	./collection:
 		.., -, build, build-options, end, every, find-index, flatten, for-break, for-loop, n-of,
 		subscript, with-block, with-index
+	./experimental/frozen-map
 	./mut-slice: ~=, build, cast-immutable, mut-slice, set-subscript, subscript
 
 | Immutable unordered map type.
@@ -30,7 +31,10 @@ import
 		if bv ?= b[k]
 			bv == v
 
--node[k, v] union((k, v) inner-node, (k, v)[])
+-node[k, v] union
+	(k, v) frozen-map
+	(k, v) inner-node
+	(k, v)[]
 -inner-node[k, v] record(nodes (k, v) node[])
 
 -empty-leaf-node[k, v] (k, v) node()
@@ -45,9 +49,6 @@ import
 -leaf-max-size nat64()
 	8
 
-empty-map[k, v] v[k]()
-	empty-leaf-node,
-
 | Creates a new map from the given key-value pairs.
 | Later pairs overwrite earlier pairs with the same key.
 +new[k, v] v[k](...a (k, v)[]) k key
@@ -56,15 +57,15 @@ empty-map[k, v] v[k]()
 | Converts a list of pairs to a map.
 | Later pairs overwrite earlier pairs with the same key.
 +to[k, v] v[k](a (k, v)[]) k key
-	a.to to
+	if a.size <= 4 && a.to !has-duplicate-keys
+		a,
+	else
+		a.to::((k, v) frozen-map),
 +to[k, v] v[k](a (k, v) array-view) k key
 	if a.size <= 4 && a !has-duplicate-keys
 		a.to::(k, v)[],
 	else
-		res mut v[k] = empty-leaf-node::((k, v) node),
-		for x : a
-			res ~:= x
-		res
+		a.to::((k, v) frozen-map),
 
 | Returns all pairs in the map.
 +to[k, v] (k, v)[](a v[k]) k key
@@ -74,9 +75,9 @@ empty-map[k, v] v[k]()
 -has-duplicate-keys[k, v] bool(a (k, v) array-view) k key
 	match a size
 	as 0
-		true
+		false
 	as 1
-		true
+		false
 	as 2
 		a[0].a == a[1].a
 	as 3
@@ -91,6 +92,8 @@ empty-map[k, v] v[k]()
 	a.root node-is-empty
 -node-is-empty[k, v] bool(a (k, v) node)
 	match a
+	as frozen-map x
+		x is-empty
 	as inner-node _
 		false
 	as array x
@@ -101,6 +104,8 @@ empty-map[k, v] v[k]()
 	a.root size
 -size[k, v] nat64(a (k, v) node)
 	match a
+	as frozen-map x
+		x size
 	as inner-node i
 		acc mut nat64 = 0
 		for child : i nodes
@@ -112,10 +117,20 @@ empty-map[k, v] v[k]()
 | Gets the value associated with a key.
 | Returns an empty option unless `{key} in {a}`.
 +subscript[k, v] v?(a v[k], key k) k key
-	cur mut = a root
+	match a root
+	as frozen-map x
+		x[key]
+	as inner-node i
+		i subscript-inner key
+	as array x
+		x lookup key
+-subscript-inner[k, v] v?(a (k, v) inner-node, key k) k key
+	cur mut (k, v) node = a
 	remaining-hash mut = key get-hash
 	loop
 		match cur
+		as frozen-map _
+			throw unreachable
 		as inner-node i
 			which = remaining-hash low-bits
 			guard which < i.nodes.size : break
@@ -123,9 +138,11 @@ empty-map[k, v] v[k]()
 			remaining-hash >>:= inner-node-n-bits
 			continue
 		as array xs
-			break for k, v : xs
-				if k == key
-					break v
+			break xs lookup key
+-lookup[k, v] v?(a (k, v)[], key k) k key
+	for k, v : a
+		if k == key
+			break v
 
 | {true} if the key is in the map.
 +in[k, v] bool(key k, a v[k]) k key
@@ -208,6 +225,8 @@ empty-map[k, v] v[k]()
 do k key
 	hash = key get-hash
 	match a root
+	as frozen-map x
+		x.to get-or-update-leaf key, hash, 0, f
 	as inner-node _
 		a.root get-or-update-recur key, hash, 0, f
 	as array x
@@ -221,6 +240,8 @@ do k key
 	f v get-or-update-action mut(old-value v?)
 do k key
 	match a
+	as frozen-map _
+		throw unreachable
 	as inner-node i
 		which = remaining-hash low-bits
 		if which < i.nodes.size
@@ -279,6 +300,8 @@ do k key
 	total-size mut nat64 = 0
 	for child-index, child : a with-index
 		total-size := match child-index == which ? new-child : child
+		as frozen-map _
+			throw unreachable
 		as inner-node _
 			leaf-max-size + 1
 		as array x
@@ -288,6 +311,8 @@ do k key
 		pairs (k, v)[] = with out : total-size build
 			for child-index, child : a with-index
 				match child-index == which ? new-child : child
+				as frozen-map _
+					throw unreachable
 				as inner-node _
 					throw unreachable
 				as array x
@@ -345,6 +370,8 @@ do k key
 		for k, v : a
 			x = k.get-hash >> hash-shift low-bits
 			res[x] := match res[x]
+			as frozen-map _
+				throw unreachable
 			as inner-node _
 				throw unreachable
 			as array xs
@@ -357,6 +384,8 @@ region spec impls (see collection.crow)
 	a.root iterate-recur f
 -iterate-recur[k, v] bool(a (k, v) node, f bool mut(key k, value v))
 	match a
+	as frozen-map x
+		x iterate f
 	as inner-node i
 		i.nodes iterate child =>
 			child iterate-recur f
@@ -374,6 +403,8 @@ dbg[k, v] string(a v[k]) k show, v show
 	a.root dbg ""
 -dbg[k, v] string(a (k, v) node, path string) k show, v show
 	match a
+	as frozen-map _
+		"TODO" # -----------------------------------------------------------------------------------------------------------------------
 	as inner-node i
 		parts string[][] = for index, child : i.nodes with-index
 			unless child node-is-empty
