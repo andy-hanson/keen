@@ -1,5 +1,6 @@
 no-std
 import
+	java/util/Arrays
 	java/lang/String
 	./bits
 	./bool
@@ -18,6 +19,7 @@ import
 	./private/bootstrap: chars
 	./range
 	./tuple
+	./unsafe
 export
 	./private/bootstrap: char8, char32, string
 
@@ -45,7 +47,20 @@ export
 	a ~~ b.to
 
 +interpolate string(...parts string[])
-	"" join parts
+	parts interpolate
+~interpolate string(parts string[])
+	# TODO: this could just use 'flatten' from collection.crow if that had better perf .......................................
+	res-size mut nat64 = 0
+	for part : parts
+		res-size +:= part.to::char8[].size
+	res char8 mut-slice = trusted res-size gc-safe-mut-slice
+	out-i mut nat64 = 0
+	for part : parts
+		chars char8[] = part to
+		res[out-i .. out-i + chars.size] := chars
+		out-i +:= chars.size
+	assert out-i == res-size
+	trusted res.cast-immutable to
 
 | Same as `""`.
 +new string()
@@ -55,7 +70,7 @@ export
 +is-empty bool(a string)
 	a.to::char8[] is-empty
 
-+size-char8s nat64(a string)
++size-char8s nat64(a string) # TODO: RM, this is just a.to::char8[].size and that is easier to understand ---------------------
 	a.to::char8[] size
 +size nat64(a string)
 	res mut nat64 = 0
@@ -64,7 +79,11 @@ export
 	res
 
 +== bool(a string, b string)
-	a.to::char8[] == b.to # TODO: this is the same as the auto fun would be, so just use that? ----------------------------------------------------------------------
+	if trusted extern java
+		trusted a.to::char8[].reinterpret-cast::(int8 mut-slice) equals b.to::char8[].reinterpret-cast
+	else
+		# TODO: ideally, this would have just as good performance. Would require letting it specialize on types.
+		a.to::char8[] == b.to
 +== bool(a char32, b char32) builtin
 +to nat32(a char32) builtin
 | This is unsafe because a {char32} should be a valid unicode character.
@@ -440,13 +459,7 @@ region utilities
 		parts[0]
 	else
 		joiner join-with-multiple-parts parts
--join-with-multiple-parts string(joiner string, parts string[]) # TODO: INLINE ------------------------------------------------
-	# TODO: for perf --------------------------------------------------------------------------------------------------------------------
-	#res-size mut = joiner.size-char8s * (parts.size - 1)
-	#for part : parts
-	#	res-size +:= part.size-char8s
-	# NOTE: parts can only be a list because otherwise
-	# `" " join for x : xs; "{x}"` is ambiguous (the 'for' could return any collection)
+-join-with-multiple-parts string(joiner string, parts string[])
 	first mut = true
 	with out : build
 		for x : parts
