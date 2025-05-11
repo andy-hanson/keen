@@ -65,7 +65,7 @@ profile-check: bin/crow
 	jmc
 
 profile-translate-to-java: bin/crow
-	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow build include/compiler/app/main.crow --out bin/temp --times 10 --perf
+	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow build include/compiler/app/main.crow --out bin/temp --times 30 --perf
 	rm bin/temp
 	jmc
 
