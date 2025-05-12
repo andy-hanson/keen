@@ -1,17 +1,24 @@
 no-std
 import
 	java/lang/Runnable
+	java/util/concurrent/CompletableFuture
 	java/util/concurrent/Future
 	java/util/concurrent/ExecutorService
-	./bool: bool, true
-	./col/array: ~~, ~=, array, build, iterate, new, size, subscript
-	./col/collection: build, flatten, for-loop, iterate, size, with-block, with-index
-	./col/util: groupable, groups-of
-	./exception: exception, todo
-	./js: as-js, await, call, call-new, cast, call-property, js-any, js-cast, js-global
-	./misc: new, shared, subscript, void
-	./number: float, nat64
+	./bool
+	./col/array
+	./col/mut-array
+	./col/collection
+	./col/sort
+	./col/util
+	./exception
+	./js
+	./json
+	./misc
+	./number
 	./private/runtime
+	./range
+	./string
+	./test-util
 	./unsafe
 
 | In Java, this is a `java.util.concurrent.Future`.
@@ -28,33 +35,87 @@ import
 		throw todo
 
 | Just yields the fiber temporarily. It may be restarted immediately.
-+yield-fiber void() trusted
-	# TODO: JAVA IMPLEMENTATION -------------------------------------------------------------------------------------------------
-	assert extern js : todo
-	resolver void mut(resolve void mut()) = resolve =>
-		_ = "setTimeout".js-global call resolve, 0::float
-	_ = "Promise".js-global call-new resolver await
++yield-fiber void()
+	trusted if extern java
+		with : unlocked-exclusion
+			()
+	elif extern js
+		resolver void mut(resolve void mut()) = resolve =>
+			_ = "setTimeout".js-global call resolve, 0::float
+		_ = "Promise".js-global call-new resolver await
+	else
+		throw todo
 
 | Converts a value to a future resolved with that value.
 +new[t] t future(value t) trusted
-	assert extern js : todo
-	"Promise".js-global call-property "resolve", value cast
+	if extern java
+		res CompletableFuture = ()
+		ok = res complete value.reinterpret-cast
+		assert ok
+		res reinterpret-cast
+	elif extern js
+		"Promise".js-global call-property "resolve", value cast
+	else
+		throw todo
+test
+	x nat future = 1,
+	x.await is 1
 
 | Future resolved with an exception.
 +rejected[t] t future(err exception) trusted
-	assert extern js : todo
-	"Promise".js-global call-property "rejected", err cast
+	if extern java
+		res CompletableFuture = ()
+		ok = res completeExceptionally err.reinterpret-cast
+		assert ok
+		res reinterpret-cast
+	elif extern js
+		"Promise".js-global call-property "reject", err cast
+	else
+		throw todo
+test
+	guard trusted !(extern java) # TODO: this doesn't work because the exception gets wrapped in an ExecutionException .....
+	fut nat future = "foo".error rejected
+	try
+		_ = fut await
+		should-throw
+	catch error e
+		e.show is "foo"
 
 +parallel record
 | Run {f} in a new fiber with a new exclusion and return a future for its result.
 +with-block[t] t future(_ parallel, f t shared()) trusted
 	if extern java
-		get-executor submit f.reinterpret-cast::Runnable reinterpret-cast
+		future CompletableFuture = ()
+		fill-it void mut() = () =>
+			ok = future complete f[].reinterpret-cast
+			assert ok == true
+		# Ignore this void turue
+		_ Future = get-executor submit fill-it.reinterpret-cast::Runnable
+		future reinterpret-cast
 	elif extern js
 		# `Promise.resolve().then(f)`; this ensures 'f' is not run immediately
 		"Promise".js-global call-property "resolve" call-property "then", f cast
 	else
 		throw todo
+# Test single future awaited by multiple fibers at once
+test
+	f nat future = with : later
+		1
+	a0 nat future = with : parallel
+		f.await + 1
+	a1 nat future = with : parallel
+		f.await + 2
+	a0.await is 2
+	a1.await is 3
+# This tests 'shared-of-mut-lambda', which the compiler uses to implement 'shared' lambdas.
+test
+	out nat mut[] = ()
+	f void shared(x nat) = shared x =>
+		out ~= x
+		()
+	for x : 0::nat .. 10 parallel
+		f[x]
+	out.move-to.sort::nat[] is for x : 0::nat .. 10; x
 
 | This is like running something with `parallel` and then waiting on it.
 | The purpose is to allow other fibers with the current exclusion to run while waiting.
@@ -65,14 +126,19 @@ import
 +later record
 | Run {f} in a new fiber with the current exclusion. So it can't run until the current fiber yields.
 +with-block[t] t future(_ later, f t mut()) t shared
-	parallel with-block if trusted extern js
-		trusted f js-cast
-	else
-		shared () => f[]
+	parallel with-block f.shared-of-mut-lambda
+test
+	out nat mut[] = ()
+	f void future = with : later
+		out ~= 2
+	out ~= 1
+	out.to::nat[] is (1,) # this is guaranteed to not have changed yet
+	f await
+	out.to::nat[] is (1, 2)
 
 | Does not await the future, but will log any exceptions from the future once it is done.
 +forget[t] void(a t future) trusted
-	assert extern js : todo
+	assert extern js : todo # --------------------------------------------------------------------------------------------
 	cb void mut(x js-any) = error =>
 		_ = "console".js-global call-property "error", error
 	_ = a.as-js call-property "catch", cb
@@ -90,18 +156,33 @@ import
 	a in-col parallel-collection
 	f out-elem shared(elem in-elem)
 do out-elem shared, in-elem shared, (in-col, in-elem) iterate, in-col size
-	assert trusted extern js : todo
 	promises out-elem future[] = for x : a collection
 		with : parallel
 			f[x]
-	trusted "Promise".js-global call-property "all", promises cast
+	if trusted extern js
+		promise = trusted "Promise".js-global call-property "all", promises
+		trusted promise.await cast
+	else
+		for x : promises
+			x await
+test
+	xs nat[] = for x : 0::nat .. 5 parallel
+		x * 2
+	xs is (0, 2, 4, 6, 8)
+
 | Same as the above but returning 'void'.
 +for-loop[in-col, in-elem] void
 	a in-col parallel-collection
 	f void shared(elem in-elem)
 do (in-col, in-elem) iterate, in-col size, in-elem shared
-	assert trusted extern js : todo
-	_ void[] = a for-loop f
+	if trusted extern js
+		_ void[] = a for-loop f
+	else
+		promises void future[] = for x : a collection
+			with : parallel
+				f[x]
+		for x : promises
+			x await
 
 +parallel-concat[col] record(collection col)
 | Runs {f} in parallel for each element of {a} and concatenates results.
