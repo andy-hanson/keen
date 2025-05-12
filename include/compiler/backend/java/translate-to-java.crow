@@ -14,8 +14,7 @@ import
 	./class-code-builder
 	./java-names: build-mangled-names, constant-names, java-names
 	./lib/Crow.class as Crow-class nat8 array
-	./lib/CrowClassLoader.class as CrowClassLoader-class nat8 array
-	./lib/ThreadLocalReentrantLock.class as ThreadLocalReentrantLock-class nat8 array
+	./lib/CrowClassLoader.class as CrowClassLoader-class nat8 array # TODO: USED? -------------------------------------------------
 	./java-refs
 	./union-representation
 	./util
@@ -55,30 +54,32 @@ do
 	res
 
 -lib-classes (string, nat8[])[]()
-	("Crow.class", Crow-class), ("CrowClassLoader.class", CrowClassLoader-class), ("ThreadLocalReentrantLock.class", ThreadLocalReentrantLock-class)
+	("Crow.class", Crow-class), ("CrowClassLoader.class", CrowClassLoader-class)
 
 -main-class ClassFile(ctx to-java-ctx)
 	names java-refs = ctx.names start-new-class
 	this-class = names.constants class_ "Main"
 	main method_info = do
 		code = with out : names build-code
+			# TODO: break this out into its own function --------------------------------------------------------------------------
 			out aload 0
 			out invokestatic names.crow-string-array-from-java-string-array 
 			funs = ctx.program.common-funs concrete-common-funs-java!
 			out call-concrete-fun names, funs.start-runtime
+			start-pc = out next-index
 			out call-concrete-fun names, funs.main
+			end-pc = out next-index
 			out call-concrete-fun names, funs.stop-runtime
-			out l2i # TODO: this throws away information ------------------------------------------------------------------------------------
-			out dup32
-			# If it's == 0, jump to end
-			jmp = out ifeq
-			out invokestatic names.java-System-exit
 			out return void
-			jmp jumps-to-here out, do
+
+			# Catch exceptions (temporarily) and ensure the runtime still shuts down. This is basically a 'finally'.
+			out add-to-exception-table start-pc, end-pc, names.java-Throwable, do
 				locals: ()
-				stack: integer,
-			out pop T_INT # ignore the exit code since it's 0
-			out return void
+				stack: names.java-Throwable.Object_variable_info,
+			# Shut down the runtime with a 0 exit code so it doesn't call System.exit, then throw the exception so it fails anyway
+			out lconst 0
+			out call-concrete-fun names, funs.stop-runtime
+			out athrow
 		access-flags: public | static | synthetic
 		name: names.constants["main"]
 		descriptor: names.constants["([Ljava/lang/String;)V"]
@@ -398,7 +399,9 @@ do
 		out push-constant-integral x.storage_, constant
 		ctx pushed type
 	as struct-body-extern-java _
-		throw unreachable
+		assert _ ?= constant constant-gc-safe-value
+		out aconst_null
+		ctx pushed type
 	as concrete-flags x
 		out push-constant-integral x.storage_, constant
 		ctx pushed type
@@ -1286,7 +1289,6 @@ do
 				# Edge case: empty code below the 'finally'. Since empty code can't throw, don't handle exceptions
 				()
 			else
-				# TODO: there might be a more efficient way than to emit it twice ...................................................
 				ctx must-pop type
 				exception = ctx.program exception
 				ctx pushed exception
