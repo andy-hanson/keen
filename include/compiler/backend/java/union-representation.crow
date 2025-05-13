@@ -4,8 +4,8 @@ import
 	./util
 
 union-representation enum
-	| This should only be used for exception
-	direct
+	| Reserved for exceptions (java/lang/Throwable)
+	exception
 	sealed-interface
 	| Use a 'new Union(i, x)' where 'i' is the index of the case type
 	switch
@@ -43,51 +43,44 @@ java-method-kind java-method-kind(a union-info, fun concrete-fun)
 	match fun body
 	as concrete-fun-body-method _
 		match a union-representation fun.params[0].type
-		as direct
+		as exception
 			static
 		as sealed-interface
 			interface_
-		else
+		as switch
+			static
+		as nullable
 			static
 	as fun-body-extern-java x
 		x kind
 	else
 		static
 
--choose-union-representation union-representation(program concrete-program, union_ concrete-type, u concrete-union)
+-choose-union-representation union-representation(program concrete-program, type concrete-type, u concrete-union)
 	members = u members
-	members-set concrete-type set = members to
-	if union_ == program.exception
-		direct
-	elif members-set.size != members.size
-		# Union has duplicate members, so can't use 'instanceof' to distinguish (TODO: does this ever happen? -----------------------------------)
-		switch
-	elif program.string in members-set && program.symbol in members-set
-		# These also can't be distinguished since they both compile to 'java.lang.String' (TODO: so give them proper types!) ----------
-		switch
-	elif members.size == 2 && members[0] is-empty-type && program !is-nullable-union members[1]
+	if type == program.exception
+		exception
+	elif u is-nullable-union
 		nullable
-	elif members exists x => x is-union
-		# TODO: Unions that compile to interfaces can implement interfaces too... but we need to check for overlap .......................
-		switch
 	elif members every x => x can-implement-interface
 		sealed-interface
-	elif members.size > 4
-		# It's slow to use a long sequence of 'instanceof' tests (TODO: check if this is true) ---------------------------------
-		switch
 	else
-		direct
+		switch
 
--is-nullable-union bool(program concrete-program, type concrete-type)
+-is-nullable-union bool(type concrete-type)
 	guard u ?= type.body concrete-union
-	(program choose-union-representation type, u) == nullable
--is-union bool(a concrete-type)
-	a.body.concrete-union !is-empty
+	u is-nullable-union
+-is-nullable-union bool(u concrete-union)
+	members = u members
+	guard members.size == 2
+	guard members[0] is-empty-type
+	non-null = members[1]
+	non-null !is-empty-type && non-null !is-nullable-union
 
 -can-implement-interface bool(a concrete-type)
 	match a body
 	as concrete-builtin-type _
-		false # TODO: I guess 'nat' could ----------------------------------------------------------------------------------
+		false # TODO: I guess these actually all could, if I make my own interfaces instead of reusing Java's =============================
 	as concrete-enum _
 		true
 	as struct-body-extern-java _
@@ -97,6 +90,6 @@ java-method-kind java-method-kind(a union-info, fun concrete-fun)
 	as concrete-record _
 		true
 	as concrete-union _
-		false
+		false # TODO: Unions that compile to interfaces can implement interfaces too... but we need to check for overlap .......................
 	as concrete-type-body-deferred
 		throw unreachable

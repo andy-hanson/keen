@@ -457,7 +457,7 @@ do
 		out box ctx, case-type, type
 	repr = ctx.ctx union-representation type
 	match repr
-	as direct
+	as exception
 		emit-member-object[]
 	as sealed-interface
 		emit-member-object[]
@@ -663,7 +663,7 @@ do
 					throw unreachable
 		all-methods = method-decls ~~ method-impls
 		match ctx union-representation type
-		as direct
+		as exception
 			()
 		as sealed-interface
 			names union-sealed-interface this-class, super-class, interfaces, all-methods, do names case-index-method-name type
@@ -693,7 +693,6 @@ do
 				out aload 0
 				out unbox-if-necessary names, i.params[0].type
 			else
-				forbid index == 0 && param.type is-wrapper : todo # Need to unwrap it in this case ----------------------
 				out xload param.type.as-runtime-type, java-param-index
 			java-param-index +:= param.type number-of-locals
 		out call-concrete-fun names, i
@@ -999,10 +998,10 @@ do
 
 -box-no-refine void(out code-builder, names java-refs, in-type concrete-type, out-type concrete-type)
 	assert out-type.as-runtime-type == reference-type
-	if in-type is-java-primitive-type || in-type is-wrapper
-		out invokestatic do names boxed-class-valueOf in-type
-	elif in-type is-empty-type
+	if in-type is-empty-type
 		out getstatic do names instance-field in-type
+	elif in-type is-java-primitive-type || in-type is-wrapper
+		out invokestatic do names boxed-class-valueOf in-type
 
 -cast-and-unbox-if-necessary void(out code-builder, ctx expr-ctx, type concrete-type)
 	if type is-empty-type
@@ -1115,14 +1114,14 @@ do
 				out xload param.type.as-runtime-type, local-index
 				local-index +:= param.type number-of-locals
 		match ctx union-representation union_
-		as direct
+		as exception
 			jump mut deferred-jump? = ()
 			for case-index, case-impls : cases with-index
 				case-type = union_.body.concrete-union!.members[case-index]
 				is-last-case = case-index == cases.size - 1
 				if j ?= jump
 					j jumps-to-here out, ctx.cur-stack-frame
-				case-impl = case-impls[method-index] ?? throw todo # TODO: if missing, emit code that throws an exception -----------------------
+				case-impl = case-impls[method-index] ?? throw todo # TODO: if missing, return a sensible default message (there is only one exception method, must be 'show')
 				unless is-last-case
 					out aload 0
 					out instanceof do names class_ case-type
@@ -1544,7 +1543,7 @@ do
 			ctx must-refine x.union_.type, x.case-type
 			out handle-pos pos, type
 		match ctx union-representation x.union_.type
-		as direct
+		as exception
 			cast[]
 		as sealed-interface
 			cast[]
@@ -1566,24 +1565,9 @@ do
 		assert type.body.concrete-builtin-type!.kind == nat64
 		out emit-and-continue ctx, x.union_
 		union-type = x.union_ type
-		check-instanceof void mut() = () =>
-			# TODO: this should probably be emitted into a helper method?
-			out with-inner-pos ctx, pos, inner-pos =>
-				for case-index, case-type : x.union-members with-index
-					out dup32
-					out instanceof do names class_ case-type
-					jump = out ifeq
-					out pop reference-type
-					out lconst case-index.to
-					out handle-pos inner-pos, type
-					jump jumps-to-here out, ctx.cur-stack-frame
-				out pop reference-type # TODO:PERF the very last case could just not dup it ----------------------------------
-				ctx must-pop union-type
-				out emit-unreachable names
-				ctx pushed type
 		match ctx union-representation union-type
-		as direct
-			check-instanceof[]
+		as exception
+			throw unreachable
 		as sealed-interface
 			out call-case-index ctx, union-type
 			out i2l
@@ -1734,7 +1718,7 @@ do
 	matched-type = x.matched type
 	ctx must-peek matched-type
 	match ctx union-representation matched-type
-	as direct
+	as exception
 		out emit-match-union-using-instanceof ctx, pos, type, x
 	as sealed-interface
 		out emit-match-union-using-instanceof ctx, pos, type, x
