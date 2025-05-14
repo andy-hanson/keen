@@ -53,7 +53,7 @@ update-lkg: bin/crow
 	make bin/crow
 
 check:
-	bin/crow-lkg check include/compiler/app/main.crow
+	bin/crow-lkg check include/crow-config.json
 
 bin/crow: $(all_include_crow) $(all_include_compiler) include/compiler/backend/java/lib/Crow.class bin/imports/date.txt bin/imports/commit-hash.txt
 	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crow-tmp
