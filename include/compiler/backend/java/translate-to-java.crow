@@ -585,25 +585,15 @@ do
 
 -translate-type void(ctx to-java-ctx, type concrete-type)
 	names java-refs = ctx.names start-new-class
-	super-class = match type source
-	as concrete-type-source-bogus
-		names java-Object
-	as concrete-type-source-inst inst
-		if inst.decl.sum-type-memberships exists x => x.sum-type == ctx.model-program.common-types.exception
-			names java-Throwable
-		else
-			names java-Object
+	is-exception-case = type in ctx.union-info.exception-case-types
+	super-class = is-exception-case ? names.java-Throwable : names.java-Object
 	interface-structs = ctx.union-info.type-to-interfaces[type] ?? ()
 	interfaces class-reference[] = for x : interface-structs; names class_ x
 	this-class-name = names class-name type
 	this-class = names class_ type
 
 	method-impls method_info[] = with out : build
-		all-supertypes = if type in ctx.union-info.exception-case-types
-			ctx.program.exception ~ interface-structs
-		else
-			interface-structs
-		for interface_ : all-supertypes
+		for interface_ : interface-structs
 			if (ctx union-representation interface_) == sealed-interface
 				case-index = interface_.body.concrete-union!.members index-of! type
 				# Implement the case-type-index-method
@@ -612,8 +602,14 @@ do
 			unless info is-empty
 				index = interface_.body.concrete-union!.members index-of! type # TODO:PERF have the index handy so we don't have to search for it again
 				for method, impl : info.methods zip info.cases[index]!
-					guard ctx.union-info java-method-kind method is-instance
-					out ~= names method-impl method, impl
+					if ctx.union-info java-method-kind method is-instance
+						out ~= names method-impl method, impl
+		if is-exception-case
+			impls = ctx.program.method-impls[ctx.program.exception]!
+			case-index = ctx.program.exception.body.concrete-union!.members index-of! type # TODO:PERF have the index handy so we don't have to search for it again
+			# 'show' is not a Java method (since we don't control the Throwable type), but while we're here, define 'toString' in terms of it
+			if impl ?= impls.cases[case-index] only
+				out ~= names toString-method-impl impl
 
 	class_ ClassFile? = match type body
 	as concrete-builtin-type x
@@ -700,6 +696,22 @@ do
 	access-flags: public | final
 	name: names instance-method-name method
 	descriptor: names instance-method-descriptor method
+	attributes: code,
+
+-toString-method-impl method_info(names java-refs, show concrete-fun)
+	code = with out : names build-code
+		out makenew names.java-String
+		out dup32
+		case-type = show.params.only type
+		unless case-type is-empty-type
+			out aload 0
+			out unbox-if-necessary names, case-type
+		out call-concrete-fun names, show
+		out invokespecial names.java-String-init-from-bytes
+		out return reference-type
+	access-flags: public | final
+	name: names toString
+	descriptor: names.constants["()Ljava/lang/String;"]
 	attributes: code,
 
 -lambda-class ClassFile
