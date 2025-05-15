@@ -1,26 +1,68 @@
 no-std
 import
-	./bool: &&, bool, false, not, true
-	./col/array: ~, ~=, array, build, iterate, new, size
-	./col/collection: build, exists, for-break, for-loop, is-at-end, with-block
-	./col/set: in, new, set
-	./compare: <=, equal
-	./exception: exception
-	./misc: loop-break, loop-continue, new, subscript, void
-	./number: ==, <=>, +, -, *, **, float64, int64, nat32, nat64, to
-	./option: is-empty, new, option
-	./string:
-		==, <=>, ~=, begin, build, char32, hash-mix, interpolate, is-empty, iterate, join, next,
-		show, string, string-iterator, to
-	./tuple: a, b, new
+	./bool
+	./col/array
+	./col/collection
+	./compare
+	./exception
+	./misc
+	./number
+	./option
+	./range
+	./string
+	./tuple
+
++string-mut-iterator record mut
+	char8s char8[] # TODO: should this be private? Having this exposed makes it possible for the parser to look backwards -------
+	char8-index mut nat64
++to string-mut-iterator(a string-iterator)
+	a.inner.collection, a.next-char8-index
++to string-iterator(a string-mut-iterator)
+	(a.char8s, a.char8-index),
++new string-mut-iterator(a string)
+	a.begin to
++copy string-mut-iterator(a string-mut-iterator)
+	a.char8s, a.char8-index
++is-at-end bool(a string-mut-iterator)
+	a.char8-index == a.char8s.size
++* char8(a string-mut-iterator)
+	if a is-at-end
+		"\0"
+	else
+		a.char8s[a char8-index]
++advance void(a string-mut-iterator)
+	forbid a is-at-end # TODO: throw a parse-error? ----------------------------------------------------------------------------------
+	a.char8-index +:= 1
++take-char8 char8(a string-mut-iterator)
+	forbid a is-at-end # TODO: throw a parse-error? ----------------------------------------------------------------------------------
+	res = *a
+	a advance
+	res
++take-char32 char32(a string-mut-iterator)
+	iter char8 array-iterator = a.char8s.begin + a.char8-index
+	assert res, next ?= (iter,)::string-iterator next
+	a.char8-index := next next-char8-index
+	res
++peek char32?(a string-mut-iterator)
+	guard a !is-at-end
+	iter char8 array-iterator = a.char8s.begin + a.char8-index
+	assert res, _ ?= (iter,)::string-iterator next
+	res
++try-take bool(a string-mut-iterator, exact string)
+	if a starts-with exact
+		a.char8-index +:= exact.to::char8[].size
+		true
++starts-with bool(a string-mut-iterator, start string)
+	char8s char8[] = start to
+	a.char8-index + char8s.size <= a.char8s.size && 0::nat .. char8s.size every i =>
+		a.char8s[a.char8-index + i] == char8s[i]
 
 | Opaque grammar type parsing a {t} value.
 | Use the functions in this module to build a grammar.
 # TODO: this should probably be an interface, not a record with a lambda in it ----------------------------------------------
 +grammar[t] record mut
-	# TODO: should be 'data' not 'mut'
-	~func (string-iterator, t inner-parse-result) mut(iter string-iterator)
--fn[t] (string-iterator, t inner-parse-result)(a t grammar, iter string-iterator)
+	func t mut(iter string-mut-iterator)
+-fn[t] t(a t grammar, iter string-mut-iterator)
 	a.func[iter]
 
 | Match a string against a grammar.
@@ -28,21 +70,20 @@ import
 | If the string has leading or trailing spaces you must use a grammar that includes those.
 | Throws a {parse-error} on failure.
 +parse[t] t(a t grammar, text string)
-	result = a fn text.begin
-	iter = result a
-	match result b
-	as ok v
-		assert iter is-at-end : text parse-error iter, "string continues past end of parse"
-		v value
-	as inner-parse-error e
-		throw text parse-error iter, e.expected
+	iter string-mut-iterator = text,
+	try
+		res = a fn iter
+		assert iter is-at-end : text parse-error iter.to, "string continues past end of parse"
+		res
+	catch inner-parse-error e
+		throw text parse-error iter.to, e.expected
 
 +parse-error record exception case
 	| The argument passed to {parse}.
 	input string
 	| Position where the parse error happened.
 	| This will be `{input}.end` if the error was end of input.
-	iter string-iterator
+	iter string-iterator # TODO: would be simpler to just use a nat? ----------------------------------------------------------
 	| Description of what was expected.
 	expected string
 +== bool(a parse-error, b parse-error)
@@ -54,22 +95,9 @@ import
 		"EOF"
 	"Expected {a expected}, got {peek}"
 
-~inner-parse-result[t] union(t ok, inner-parse-error)
-~ok[t] record(value t)
-
--then[out, in] out inner-parse-result(a in inner-parse-result, f out mut(x in))
-	match a
-	as ok v
-		f[v value] ok
-	as inner-parse-error e
-		e
--then[out, in] (string-iterator, out inner-parse-result)
-	a (string-iterator, in inner-parse-result)
-	f out mut(x in)
-do
-	a.a, (a.b then f)
-
-~inner-parse-error record(expected string)
+~inner-parse-error record(expected string) exception case
+~show string(a inner-parse-error)
+	"Expected {a expected}"
 
 | This is like {grammar} but produces no result.
 +grammar-skip record(inner void grammar) mut
@@ -77,15 +105,6 @@ do
 | Grammar matching empty strings
 +new grammar-skip()
 	"" exact
-
--make-grammar record
--with-block[t] t grammar
-	_ make-grammar
-	f (string-iterator, t inner-parse-result) mut(iter string-iterator)
-do
-	f,
-
-region basic building blocks
 
 | Use to discard the result of any {grammar}.
 +skip[t] grammar-skip(a t grammar)
@@ -101,82 +120,41 @@ region basic building blocks
 	(ending,) text-not-containing-any
 
 +text-not-containing-any string grammar(possible-endings string[])
-	with start : make-grammar
-		iter mut = start
+	func: iter =>
 		res string = with out : build
 			loop
-				if possible-endings exists x => iter try-take-exact x !is-empty
+				if possible-endings exists x => iter starts-with x
 					break
-				elif x, rest ?= iter next
-					out ~= x
-					iter := rest
+				elif iter !is-at-end
+					out ~= iter take-char32
 					continue
 				else
 					break
-		if res is-empty
-			desc = ", " join for x : possible-endings; "'{x}'"
-			iter, ("expected text ending in one of {desc}",)::inner-parse-error
-		else
-			iter, res.ok
+		forbid res is-empty : "expected text ending in one of {", " join for x : possible-endings; "'{x}'"}" inner-parse-error
+		res
 
 | Grammar for a single character matching the predicate.
 -char-matching-predicate char32 grammar(description string, predicate bool data(x char32))
-	with start : make-grammar
-		guard x, rest ?= start next : start, (description,)::inner-parse-error
-		guard predicate[x] : rest, (description,)::inner-parse-error
-		rest, x.ok
-
--try-take-exact string-iterator?(iter string-iterator, expect string)
-	cur mut = iter
-	for expected : expect
-		guard x, rest ?= cur next : break
-		guard x == expected : break
-		cur := rest
-		continue
-	else
-		cur
+	func: iter =>
+		assert res ?= iter peek : description inner-parse-error
+		assert predicate[res] : description inner-parse-error
+		iter advance # TODO: this only advances past a char8. Should advance the whole char32. ----------------------------------------------
+		res
 
 | Expects to parse {a} followed by {b}.
 | By default this does not allow spaces in between. For that, use `a ~~ spaces ~~ b`.
 +~~[t, u] (t, u) grammar(a t grammar, b u grammar)
-	with start : make-grammar
-		iter, res = a fn start
-		match res
-		as ok x
-			iter2, res2 = b fn iter
-			iter2, match res2
-			as ok y
-				(x.value, y.value).ok
-			as inner-parse-error e
-				e
-		as inner-parse-error e
-			iter, e
+	func: iter =>
+		(a fn iter), (b fn iter)
 +~~[t] t grammar(a t grammar, b grammar-skip)
-	with start : make-grammar
-		iter, res = a fn start
-		match res
-		as ok x
-			iter2, res2 = b.inner fn iter
-			iter2, match res2
-			as ok _
-				x
-			as inner-parse-error e
-				e
-		as inner-parse-error e
-			iter, e
+	func: iter =>
+		res = a fn iter
+		b.inner fn iter
+		res
 +~~[t] t grammar(a grammar-skip, b t grammar)
-	with start : make-grammar
-		iter, res = a.inner fn start
-		match res
-		as ok _
-			iter2, res2 = b fn iter
-			iter2, match res2
-			as ok x
-				x
-			as inner-parse-error e
-				e
-		as inner-parse-error e
-			iter, e
+	func: iter =>
+		a.inner fn iter
+		b fn iter
 +~~ grammar-skip(a grammar-skip, b grammar-skip)
 	a.inner ~~ b,
 | Skips an exact string, then parses {b}.
@@ -191,49 +169,47 @@ region basic building blocks
 	a ~~ b.exact
 
 | Tries to parse with {a}, and if that fails, tries to parse with {b} instead.
+# TODO: I should probably remove this. This is the only rule that involves backtracing. -----------------------------------------
 +/[t] t grammar(a t grammar, b t grammar)
-	with start : make-grammar
-		iter, res = a fn start
-		match res
-		as ok v
-			iter, v.value.ok
-		as inner-parse-error _
-			b fn start
+	func: iter =>
+		restore = iter char8-index
+		try
+			a fn iter
+		catch inner-parse-error _
+			iter.char8-index := restore
+			b fn iter
 
-# TODO: use 'f' should be 'data', not 'mut'
+# TODO: 'f' should be 'data', not 'mut' -----------------------------------------------------------------------------------
 | Uses a function to transform the result if parsing is successful.
 +map[out, in] out grammar(a in grammar, f out mut(x in))
-	with start : make-grammar
-		a fn start then f
+	func: iter =>
+		f[a fn iter]
 
 | Allows parsing to fail, returning an empty option if it does.
 +optional[t] t? grammar(a t grammar)
-	with start : make-grammar
-		iter, res = a fn start
-		iter, match res
-		as ok v
-			v.value ok
-		as inner-parse-error _
-			() ok
+	func: iter =>
+		restore = iter char8-index
+		try
+			a fn iter
+		catch inner-parse-error _
+			iter.char8-index := restore
+			()
 | Optionally skips an exact string.
 +optional grammar-skip(a string)
 	a.exact.inner.optional skip
 
 | Parses the same grammar as many times as possible (including 0 times).
 +many[t] t[] grammar(a t grammar)
-	with start : make-grammar
-		iter mut = start
-		res t[] = with out : build
-			loop
-				iter2, res2 = a fn iter
-				match res2
-				as ok v
-					iter := iter2
-					out ~= v value
-					continue
-				as inner-parse-error _
-					break
-		iter, res.ok
+	func: iter =>
+		with out : build
+			restore mut = iter char8-index
+			try
+				while true
+					restore := iter char8-index
+					v = a fn iter
+					out ~= v
+			catch inner-parse-error _
+				iter.char8-index := restore
 
 +many grammar-skip(a grammar-skip)
 	inner void[] grammar = a.inner many
@@ -252,110 +228,89 @@ region basic building blocks
 |
 | This does not allow a trailing separator;
 | it is a parse error to have a separator not followed by another {a}.
+| This does allow to parse nothing, returning an empty array.
 +separated-by[t] t[] grammar(a t grammar, separator string)
 	a separated-by separator.exact
 +separated-by[t] t[] grammar(a t grammar, separator grammar-skip)
-	with start : make-grammar
-		iter mut = start
-		iter1, res1 = a fn iter
-		match res1
-		as ok first
-			iter := iter1
-			error mut inner-parse-error? = ()
-			res t[] = with out : build
-				out ~= first value
-				loop
-					iter2, res2 = separator.inner fn iter
-					match res2
-					as ok _
-						iter := iter2
-						iter3, res3 = a fn iter
-						iter := iter3
-						match res3
-						as ok v
-							out ~= v value
-							continue
-						as inner-parse-error e
-							error := e
-							break
-					as inner-parse-error _
-						break
-			iter, if e ?= error
-				e
-			else
-				res ok
-		as inner-parse-error _
-			start, ().ok
+	func: iter =>
+		guard first ?= a try-parse iter
+		with out : build
+			out ~= first
+			while separator try-parse iter
+				out ~= a fn iter
+
+-try-parse bool(a grammar-skip, iter string-mut-iterator)
+	a.inner try-parse iter !is-empty
+
+-try-parse[t] t?(a t grammar, iter string-mut-iterator)
+	restore = iter char8-index
+	try
+		a fn iter
+	catch inner-parse-error _
+		iter.char8-index := restore
+		()
 
 | Use this to allow recursive grammars.
 +lazy record
 +with-block[t] t grammar(_ lazy, f t grammar data())
-	with start : make-grammar
-		# TODO: actually be lazy (cache it)
+	func: iter =>
+		# TODO: actually be lazy (cache it) -----------------------------------------------------------------------------------------------------------
 		grammar = f[]
-		grammar fn start
-
-region basic elements
+		grammar fn iter
 
 | Matches {a} exactly.
 +exact grammar-skip(a string)
-	res void grammar = with start : make-grammar
-		if next ?= start try-take-exact a
-			next, ().ok
-		else
-			start, ("expected '{a}'",)::inner-parse-error
-	res,
+	inner: do
+		func: iter =>
+			assert iter try-take a : "expected '{a}'" inner-parse-error
 
 | Equivalent to `{a}.{exact} {map} _ => {value}`
 +exact[t] t grammar(a string, value t)
 	a.exact.inner map _ => value
 
-| Matches any amount of whitespace (including none) and discards it.
-+spaces grammar-skip()
-	("" char-matching-predicate (x => x.is-space)).many skip
-
--is-space bool(a char32)
-	a in space-chars
--space-chars char32 set()
-	" ", "\r", "\n", "\t"
++whitespace grammar-skip()
+	inner: do
+		func: iter =>
+			iter skip-whitespace
++skip-whitespace void(a string-mut-iterator)
+	while *a is-space
+		a advance
++is-space bool(a char8)
+	match a
+	as " "
+		true
+	as "\r"
+		true
+	as "\n"
+		true
+	as "\t"
+		true
+	else
+		false
 
 | A double-quoted string as in JSON, including escape sequences.
 +quoted-string string grammar()
-	with start : make-grammar
-		if after-quote ?= start try-take "\""
-			after-quote take-quoted-string-rest
-		else
-			start, ("quoted string",)::inner-parse-error
--take-quoted-string-rest (string-iterator, string inner-parse-result)(start string-iterator)
-	iter mut = start
-	error mut bool = false
-	res string = with out : build
+	func: iter => iter take-quoted-string
+~take-quoted-string string(iter string-mut-iterator)
+	assert iter try-take "\"" : "quoted string" inner-parse-error
+	iter take-quoted-string-after-quote
+~take-quoted-string-after-quote string(iter string-mut-iterator)
+	with out : build
 		loop
-			if x, rest ?= iter next
-				iter := rest
-				match x
-				as "\""
-					break
-				as "\\"
-					guard x2, rest2 ?= iter next : break
-					iter := rest2
-					if esc ?= x2 escape
-						out ~= esc
-						continue
-					else
-						error := true
-						break
-				else
-					out ~= x
-					continue
-			else
-				error := true
+			forbid iter is-at-end : ("quoted string",) inner-parse-error
+			x = iter take-char32
+			match x
+			as "\""
 				break
-	iter, if error
-		("quoted string",)::inner-parse-error
-	else
-		res ok
--escape char32?(a char32)
+			as "\\"
+				guard iter !is-at-end : break
+				assert esc ?= iter.take-char8 escape : ("quoted string",) inner-parse-error
+				out ~= esc
+				continue
+			else
+				out ~= x
+				continue
+-escape char32?(a char8)
 	match a
 	as "n"
 		"\n"
@@ -391,11 +346,8 @@ region basic elements
 | Parses a natural number in decimal format.
 | This allows leading 0s which have no effect.
 +nat nat64 grammar()
-	with start : make-grammar
-		if x ?= start take-nat-and-count-digits
-			x.end, x.value.ok
-		else
-			start, ("natural number",)::inner-parse-error
+	func: iter =>
+		iter.take-nat ?? throw "natural number" inner-parse-error
 
 | Parses a signed integer in decimal format.
 | This allows e.g. "1", "+23", "-45".
@@ -403,55 +355,46 @@ region basic elements
 	("+".optional ~~ (nat map x => x.to)) / ("+" ~~ (nat map x => -x.to))
 
 -nat-and-count-digits record
-	end string-iterator
 	value nat64
 	count-digits nat64
--take-nat-and-count-digits nat-and-count-digits?(start string-iterator)
+-take-nat nat64?(iter string-mut-iterator)
+	iter.take-nat-and-count-digits?.value
+-take-nat-and-count-digits nat-and-count-digits?(iter string-mut-iterator)
 	acc mut nat64 = 0
 	count-digits mut nat64 = 0
-	iter mut = start
-	while x, rest ?= iter next-digit
-		iter := rest
+	while x ?= iter next-digit
 		acc *:= 10
 		acc +:= x
 		count-digits := count-digits + 1
 	unless count-digits == 0
-		iter, acc, count-digits
--next-digit (nat64, string-iterator)?(a string-iterator)
-	guard x, rest ?= a next
-	guard digit ?= x char-to-nat64
-	digit, rest
+		acc, count-digits
+-next-digit nat64?(a string-mut-iterator)
+	guard digit ?= *a char-to-nat64
+	a advance
+	digit
 
--char-to-nat64 nat64?(c char32)
-	if "0"::char32.to::nat32 <= c.to && c.to::nat32 <= "9"::char32.to
-		c.to - "0"::char32.to to
+-char-to-nat64 nat64?(c char8)
+	if "0"::char8 <= c && c <= "9"
+		c.to - "0".to to
 
 | Parse a decimal number.
 | This allows e.g. "+1.23".
 +float float64 grammar()
-	with start : make-grammar
-		iter mut = start
-		sign float64 = if n ?= iter try-take "-"
-			iter := n
-			-1
+	# TODO: instead of computing the number this way, just gather it as a string and use 'to float(a string)' (which uses Java builtin) -------------------
+	func: iter => iter take-float
+~take-float float64(iter string-mut-iterator)
+	sign float64 = if iter try-take "-"
+		-1
+	else
+		_ = iter try-take "+"
+		1
+	assert whole-nat ?= iter take-nat : "float" inner-parse-error
+	whole-part float64 = whole-nat to
+	if iter try-take "."
+		if after-dot ?= iter take-nat-and-count-digits
+			# TODO: use the builtin string to float function----------------------------------------------------------------------------
+			sign * (whole-part + after-dot.value.to * 0.1 ** after-dot.count-digits.to)
 		else
-			if n ?= iter try-take "+"
-				iter := n
-			1
-		guard whole-nat ?= iter take-nat-and-count-digits : start, ("float",)::inner-parse-error
-		iter := whole-nat end
-		whole-part float64 = whole-nat.value to
-		if after-dot ?= iter try-take "."
-			if nd ?= after-dot take-nat-and-count-digits
-				# TODO: use the builtin string to float function----------------------------------------------------------------------------
-				res = sign * (whole-part + nd.value.to * 0.1 ** nd.count-digits.to)
-				nd.end, res.ok
-			else
-				iter, (sign * whole-part).ok
-		else
-			iter, (sign * whole-part).ok
-
--try-take string-iterator?(a string-iterator, c char32)
-	guard x, rest ?= a next
-	guard x == c
-	rest
+			sign * whole-part
+	else
+		sign * whole-part
