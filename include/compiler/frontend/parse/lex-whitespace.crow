@@ -1,4 +1,5 @@
 import
+	crow/parse/string-mut-iterator
 	../../model/parse-diag
 	../../model/source-range
 	../../util/string-walker
@@ -13,8 +14,8 @@ to symbol(a indent-kind)
 show string(a indent-kind)
 	a.to::symbol to
 
-detect-indent-kind indent-kind(a char8[])
-	ptr string-walker = a,
+detect-indent-kind indent-kind(a string)
+	ptr string-mut-iterator = a,
 	loop
 		begin = ptr pos
 		match *ptr
@@ -36,18 +37,18 @@ detect-indent-kind indent-kind(a char8[])
 				ptr advance
 			continue
 
-skip-until-newline void(a string-walker)
+skip-until-newline void(a string-mut-iterator)
 	while a !is-at-end && *a != "\n"
 		a advance
 
 | Used to lex the tokens that appear between AST nodes for syntax highlighting.
 lex-tokens-between-asts void
-	source char8[]
+	source string
 	range source-range
 	cb-comment void mut(x source-range)
 	cb-keyword void mut(x source-range)
 do
-	ptr string-walker = source,
+	ptr string-mut-iterator = source,
 	ptr advance range.start.to
 	end = range end
 	while ptr.pos < end
@@ -60,7 +61,7 @@ do
 			cb-keyword[start, ptr.pos]
 
 | Does not skip newlines (unless within a comment), only spaces within a line
-skip-spaces-and-comments void(ptr string-walker, cb-comment cb-comment, add-diag add-diag)
+skip-spaces-and-comments void(ptr string-mut-iterator, cb-comment cb-comment, add-diag add-diag)
 	loop
 		start = ptr pos
 		if *ptr is-whitespace-non-newline
@@ -85,7 +86,7 @@ skip-spaces-and-comments void(ptr string-walker, cb-comment cb-comment, add-diag
 			break
 
 skip-blank-lines-and-get-indent-delta int
-	ptr string-walker
+	ptr string-mut-iterator
 	indent-kind indent-kind
 	cur-indent nat reference
 	add-diag add-diag
@@ -111,7 +112,7 @@ do
 			*cur-indent := new-indent
 			break delta
 
-may-continue-onto-next-line bool(ptr string-walker, indent-kind indent-kind, min-indent nat)
+may-continue-onto-next-line bool(ptr string-mut-iterator, indent-kind indent-kind, min-indent nat)
 	start = ptr pos
 	while ptr try-take-char " "
 		()
@@ -125,7 +126,7 @@ may-continue-onto-next-line bool(ptr string-walker, indent-kind indent-kind, min
 			ptr.pos := start
 			false
 
--try-take-line-continuation bool(ptr string-walker, cb-comment cb-comment)
+-try-take-line-continuation bool(ptr string-mut-iterator, cb-comment cb-comment)
 	if *ptr == "\\"
 		ptr2 = ptr copy
 		ptr2 advance
@@ -140,7 +141,7 @@ may-continue-onto-next-line bool(ptr string-walker, indent-kind indent-kind, min
 -ignore-char-for-tokens bool(a char8)
 	a is-whitespace || a == "\\" || a == "#" || a is-non-keyword-punctuation
 
--skip-for-tokens void(ptr string-walker, end pos, cb-comment cb-comment)
+-skip-for-tokens void(ptr string-mut-iterator, end pos, cb-comment cb-comment)
 	loop
 		guard ptr.pos < end : break
 		start = ptr pos
@@ -161,13 +162,13 @@ may-continue-onto-next-line bool(ptr string-walker, indent-kind indent-kind, min
 | Used for completions and signature help.
 | Walks to the left skipping whitespace on the same line. Can also skip a single '.'.
 walk-backwards-for-position pos(source-text char8[], pos pos)
-	ptr string-walker = source-text, pos.to
+	ptr string-mut-iterator = source-text, pos.to
 	ptr skip-whitespace-backwards
 	if ptr.pos != 0 && ptr[-1] == "."
 		ptr.pos -:= 1
 		ptr skip-whitespace-backwards
 	ptr pos
--skip-whitespace-backwards void(a string-walker)
+-skip-whitespace-backwards void(a string-mut-iterator)
 	loop
 		if a.pos != 0 && a[-1] == " "
 			a.pos -:= 1
@@ -180,7 +181,7 @@ walk-backwards-for-position pos(source-text char8[], pos pos)
 	a == "." || a == "," || a == "(" || a == ")" || a == "[" || a == "]"
 
 -skip-blank-lines void
-	ptr string-walker
+	ptr string-mut-iterator
 	cb-start-of-loop void mut()
 	cb-comment cb-comment
 	add-diag add-diag
@@ -205,18 +206,18 @@ do
 		else
 			break
 
--skip-rest-of-line-and-newline void(ptr string-walker)
+-skip-rest-of-line-and-newline void(ptr string-mut-iterator)
 	ptr skip-until-newline
 	_ = ptr try-take-newline
 
--try-take-newline bool(ptr string-walker)
+-try-take-newline bool(ptr string-mut-iterator)
 	if ptr try-take-char "\r"
 		_ = ptr try-take-char "\n"
 		true
 	else
 		ptr try-take-char "\n"
 
--take-indent-amount-after-newline nat(ptr string-walker, indent-kind indent-kind, add-diag add-diag)
+-take-indent-amount-after-newline nat(ptr string-mut-iterator, indent-kind indent-kind, add-diag add-diag)
 	match indent-kind
 	as tabs
 		begin = ptr pos
@@ -237,7 +238,7 @@ do
 			()
 		0
 
--take-indent-amount-after-newline-spaces nat(ptr string-walker, n-spaces-per-indent nat, add-diag add-diag)
+-take-indent-amount-after-newline-spaces nat(ptr string-mut-iterator, n-spaces-per-indent nat, add-diag add-diag)
 	begin = ptr pos
 	while ptr try-take-char " "
 		()
@@ -252,7 +253,7 @@ do
 		add-diag[begin, (n-spaces parse-diag-indent-not-divisible n-spaces-per-indent)]
 	res
 
--try-take-triple-hash-then-newline bool(ptr string-walker)
+-try-take-triple-hash-then-newline bool(ptr string-mut-iterator)
 	ptr2 = ptr copy
 	if ptr2 try-take-chars "###"
 		while ptr2 try-take-char " "
@@ -262,7 +263,7 @@ do
 			true
 
 | Returns the end of the comment text (ptr will be advanced further, past the '###')
-skip-rest-of-block-comment void(ptr string-walker, add-diag add-diag)
+skip-rest-of-block-comment void(ptr string-mut-iterator, add-diag add-diag)
 	loop
 		while ptr try-take-char "\t" || ptr try-take-char " "
 			()

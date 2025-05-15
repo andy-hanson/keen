@@ -1,4 +1,5 @@
 import
+	crow/parse/string-mut-iterator
 	../../model/ast
 	../../model/integral-values
 	../../model/source-range
@@ -94,12 +95,12 @@ is-symbol-token bool(a token)
 	else
 		false
 
-lex-initial-token token-and-data(ptr string-walker, indent-kind indent-kind, cur-indent nat reference, add-diag add-diag)
+lex-initial-token token-and-data(ptr string-mut-iterator, indent-kind indent-kind, cur-indent nat reference, add-diag add-diag)
 	ptr newline-token newline-same-indent, indent-kind, cur-indent, add-diag
 
 | Advances {ptr} to lex a single token.
 lex-token token-and-data
-	ptr string-walker
+	ptr string-mut-iterator
 	indent-kind indent-kind
 	prev-token token
 	cur-indent nat reference
@@ -129,7 +130,7 @@ do
 		if ptr !starts-with "==" && ptr try-take-char "=" # TODO: what was this about? There's no '!==" operator ------------------------------------------------------------------------------
 			ptr operator-token "!="
 		else
-			before-name = ptr index
+			before-name = ptr char8-index
 			if ptr try-take-identifier
 				name-after-bang, do ptr symbol-from before-name
 			else
@@ -233,7 +234,7 @@ do
 		else
 			ptr lex-identifier-like
 
--lex-identifier-like token-and-data(ptr string-walker)
+-lex-identifier-like token-and-data(ptr string-mut-iterator)
 	start = ptr pos
 	if ptr try-take-identifier
 		symbol = ptr symbol-from start.to
@@ -249,7 +250,7 @@ do
 	else
 		unexpected-character, ptr.must-take-one-unicode-char
 
-lookahead-equals bool(start string-walker)
+lookahead-equals bool(start string-mut-iterator)
 	ptr = start copy
 	loop
 		if ptr try-take-char " "
@@ -262,13 +263,13 @@ lookahead-equals bool(start string-walker)
 		else
 			break false
 
-lookahead-colon bool(start string-walker)
+lookahead-colon bool(start string-mut-iterator)
 	ptr = start copy
 	while ptr try-take-char " "
 		()
 	ptr try-take-char ":" && *ptr != ":" && *ptr != "="
 
-lookahead-question-equals bool(start string-walker)
+lookahead-question-equals bool(start string-mut-iterator)
 	ptr = start copy
 	loop
 		if ptr try-take-char " "
@@ -282,7 +283,7 @@ lookahead-question-equals bool(start string-walker)
 		else
 			break false
 
-lookahead-lambda-after-paren-left bool(start string-walker)
+lookahead-lambda-after-paren-left bool(start string-mut-iterator)
 	ptr = start copy
 	open-parens mut nat = 1
 	loop
@@ -305,20 +306,20 @@ lookahead-lambda-after-paren-left bool(start string-walker)
 			else
 				break false
 
-lookahead-keyword bool(start string-walker, expected char8[])
+lookahead-keyword bool(start string-mut-iterator, expected char8[])
 	ptr = start copy
 	if ptr try-take-chars expected
 		*ptr !is-probably-identifier-char-for-lookahead
 
 elif-or-else enum(elif_, else_)
-lookahead-elif-or-else elif-or-else?(start string-walker)
+lookahead-elif-or-else elif-or-else?(start string-mut-iterator)
 	if start lookahead-keyword "elif"
 		elif_
 	elif start lookahead-keyword "else"
 		else_
 
 -newline-token token-and-data
-	ptr string-walker
+	ptr string-mut-iterator
 	newline-or-eof token
 	indent-kind indent-kind
 	cur-indent nat reference
@@ -334,10 +335,10 @@ do
 	extra-dedents nat = delta < 0 ? delta.abs - 1 : 0
 	token, (extra-dedents,)::extra-dedents
 
--operator-token token-and-data(ptr string-walker, value symbol)
+-operator-token token-and-data(ptr string-mut-iterator, value symbol)
 	ptr name-like-token value, operator
 
--name-like-token token-and-data(ptr string-walker, value symbol, regular-token token)
+-name-like-token token-and-data(ptr string-mut-iterator, value symbol, regular-token token)
 	if ptr !starts-with "==" && ptr try-take-char "="
 		name-or-operator-equals, "{value}="
 	else
@@ -458,7 +459,7 @@ do
 	else
 		name
 
--take-number-after-sign token-and-data(ptr string-walker, sign sign?)
+-take-number-after-sign token-and-data(ptr string-mut-iterator, sign sign?)
 	base nat = if ptr try-take-chars "0x"
 		16
 	elif ptr try-take-chars "0o"
@@ -479,10 +480,10 @@ do
 	else
 		literal-integral, n.to-literal-integral
 
--peek-decimal-point bool(ptr string-walker)
+-peek-decimal-point bool(ptr string-mut-iterator)
 	*ptr == "." && ptr[1] is-decimal-digit
 
--take-float high-precision-float?(ptr string-walker, sign sign, nat-part nat, base nat)
+-take-float high-precision-float?(ptr string-mut-iterator, sign sign, nat-part nat, base nat)
 	before-e = ptr take-nat-continue base, nat-part
 	guard value ?= before-e value
 	exp int = -before-e.count-digits.to
@@ -511,9 +512,9 @@ nat-and-overflow record(value nat?, count-digits nat)
 -to-literal-integral literal-integral(a nat-and-overflow)
 	plus, a.value
 
-take-nat nat-and-overflow(ptr string-walker, base nat)
+take-nat nat-and-overflow(ptr string-mut-iterator, base nat)
 	ptr take-nat-continue base, 0
--take-nat-continue nat-and-overflow(ptr string-walker, base nat64, starting nat)
+-take-nat-continue nat-and-overflow(ptr string-mut-iterator, base nat64, starting nat)
 	value mut = starting
 	overflow mut = false
 	count-digits mut nat = 0
@@ -534,7 +535,7 @@ take-nat nat-and-overflow(ptr string-walker, base nat)
 			break
 	(!overflow ? value), count-digits
 
-try-take-identifier bool(ptr string-walker)
+try-take-identifier bool(ptr string-mut-iterator)
 	if ptr try-take-initial-identifier-char
 		loop
 			before-hyphen = ptr pos
@@ -546,9 +547,9 @@ try-take-identifier bool(ptr string-walker)
 				ptr.pos := before-hyphen
 				break
 		true
--try-take-initial-identifier-char bool(ptr string-walker)
+-try-take-initial-identifier-char bool(ptr string-mut-iterator)
 	*ptr !is-decimal-digit && *ptr != "-" && ptr try-take-one-identifier-char
--try-take-one-identifier-char bool(ptr string-walker)
+-try-take-one-identifier-char bool(ptr string-mut-iterator)
 	if *ptr is-single-byte-identifier-char
 		ptr advance
 		true
@@ -626,7 +627,7 @@ try-take-identifier bool(ptr string-walker)
 	elif 0xac00::nat32 <= a && a <= 0xd7a3
 		true
 
--try-skip-type-char bool(ptr string-walker)
+-try-skip-type-char bool(ptr string-mut-iterator)
 	if *ptr is-type-char
 		ptr advance
 		true
