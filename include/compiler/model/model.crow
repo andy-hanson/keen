@@ -88,15 +88,11 @@ to json(a type-array)
 
 type-params alias
 	name-and-range[]
-type-args alias # TODO: this is silly to have two names for the same ytpe --------------------------------------------------------
+type-args alias # TODO: this is silly to have two names for the same type --------------------------------------------------------
 	type-array
-| This could be the same object as a 'type-args', even though they have different meaning
-return-and-param-types alias
-	type[]
-return-type type(a return-and-param-types)
-	a[0]
-param-types type array-view(a return-and-param-types)
-	a[1 .. end]
+return-and-param-types record
+	return-type type
+	param-types type[]
 # It doesn't seem to be worth memoizing these
 spec-impls alias
 	called[]
@@ -1347,6 +1343,7 @@ fun-decl record force-data, -new
 	n-type-params-storage nat8
 	return-type mut type
 	params mut params
+	param-types mut type[]
 	flags_ fun-flags
 	externs symbol-set
 	specs specs
@@ -1424,6 +1421,7 @@ do
 		n-type-params-storage: n-type-params to
 		return-type: return-type
 		params: params
+		param-types: for x : params params-array; x type
 		flags_: flags_
 		externs: externs
 		specs: specs
@@ -1434,11 +1432,9 @@ do
 	res.insts := if res is-template
 		()::((fun-inst, fun-inst-key) object-memoizer)
 	else
-		return-and-param-types type[] = with b : build
-			b ~= return-type
-			for x : params params-array
-				b ~= x type
-		(res, (), (), return-and-param-types)::fun-inst
+		:: fun-inst
+		param-types type[] = for x : params params-array; x type
+		res, (), (), return-type, param-types
 	res
 get-key symbol(a fun-decl)
 	a name
@@ -1533,7 +1529,8 @@ fun-inst record force-data, -new
 	decl fun-decl
 	type-args type-args
 	spec-impls spec-impls
-	instantiated-sig mut return-and-param-types
+	return-type mut type
+	param-types mut type[]
 get-or-add-fun-inst fun-inst
 	decl fun-decl
 	type-args type-args
@@ -1544,7 +1541,8 @@ do
 		decl.insts fun-inst!
 	else
 		trusted decl.insts.object-memoizer! memoize (type-args, spec-impls), () =>
-			decl, type-args, spec-impls, cb-return-and-param-types[]
+			rp = cb-return-and-param-types[]
+			decl, type-args, spec-impls, rp.return-type, rp.param-types
 -fun-inst-key record
 	type-args type-args
 	spec-impls spec-impls
@@ -1571,10 +1569,6 @@ to json(a fun-inst)
 	("decl", a.decl.name.to), ("type-args", a.type-args.to), ("spec-impls", a.spec-impls.to)
 name symbol(a fun-inst)
 	a.decl name
-return-type type(a fun-inst)
-	a.instantiated-sig return-type
-param-types type array-view(a fun-inst)
-	a.instantiated-sig param-types
 arity arity(a fun-inst)
 	a.decl arity
 
@@ -1583,22 +1577,30 @@ called-spec-sig record
 	index-in-specs nat
 	containing-spec spec-decl
 	non-instantiated-sig signature
-	instantiated-sig return-and-param-types
+	return-type type
+	param-types type[]
+new called-spec-sig
+	index-in-specs nat
+	containing-spec spec-decl
+	non-instantiated-sig signature
+	sig return-and-param-types
+do
+	index-in-specs, containing-spec, non-instantiated-sig, sig.return-type, sig.param-types
 == bool(a called-spec-sig, b called-spec-sig) # TODO: could we just compare index-in-specs? Maybe called-spec-sig should just be that and the rest should be stored elsewhere. -----------------------------------------
 hash-mix void(hasher hasher, a called-spec-sig)
 	hasher hash-mix a.index-in-specs
 	hasher hash-mix a.containing-spec
 	hasher hash-mix a.non-instantiated-sig.name
-	hasher hash-mix a.instantiated-sig
+	hasher hash-mix a.return-type
+	hasher hash-mix a.param-types
 to json(a called-spec-sig)
 	("index-in-specs", a.index-in-specs.to), \
 	("spec", a.containing-spec.name.to),
 	("sig", a.non-instantiated-sig.name.to),
-	("instantiated-sig", a.instantiated-sig.to)
-return-type type(a called-spec-sig)
-	a.instantiated-sig return-type
-param-types type array-view(a called-spec-sig)
-	a.instantiated-sig param-types
+	("return-type", a.return-type.to),
+	("param-types", a.param-types.to)
+instantiated-sig return-and-param-types(a called-spec-sig)
+	a.return-type, a.param-types
 module-uri uri(a called-spec-sig)
 	a.non-instantiated-sig module-uri
 name symbol(a called-spec-sig)
@@ -1660,7 +1662,7 @@ is-variadic bool(a called-decl)
 
 called union(called-bogus, fun-inst, called-spec-sig)
 	return-type type()
-	param-types type array-view()
+	param-types type[]()
 	arity arity()
 == bool(a called, b called)
 hash-mix void(hasher hasher, a called)
@@ -1672,14 +1674,12 @@ hash-mix void(hasher hasher, a called)
 	as called-spec-sig x
 		hasher hash-mix x
 to json(a called)
-called-bogus record(decl called-decl, return-type type, param-types_ type[])
-param-types type array-view(a called-bogus)
-	a.param-types_ to
+called-bogus record(decl called-decl, return-type type, param-types type[])
 == bool(a called-bogus, b called-bogus)
 hash-mix void(hasher hasher, a called-bogus)
 	hasher hash-mix a.decl
 	hasher hash-mix a.return-type
-	hasher hash-mix a.param-types_
+	hasher hash-mix a.param-types
 to json(a called-bogus)
 arity arity(a called-bogus)
 	a.decl arity
