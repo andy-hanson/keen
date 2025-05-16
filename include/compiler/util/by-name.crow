@@ -1,7 +1,8 @@
 import
-	../../crow/col/mut-map: mut-map-with-capacity
-	../../crow/symbol: id
 	crow/col/mut-slice
+	crow/unsafe
+	../../crow/col/mut-map: mut-map-with-capacity # TODO: this should probably be publicly exposed somehow ----------------
+	../../crow/symbol: id # TODO: measure -- is this actually any faster than hash? -------------------------------------------
 	./util
 
 name[t] spec
@@ -18,6 +19,8 @@ by-name[t] record
 new[t] t by-name()
 	()::t[],
 
+size[t] nat(a t by-name)
+	a.to::t[] size
 | This does not allocate
 to[t] t[](a t by-name)
 	match a impl
@@ -48,7 +51,22 @@ to-by-name[t] t by-name(values t[], on-duplicate void mut(x t, y t)) t name
 		else
 			values,
 	else
-		(values to-large-by-name on-duplicate),
+		try
+			values.to-large-by-name,
+		catch duplicate d
+			name = d name
+			value-with-name mut t? = ()
+			new-values t[] = values filter value =>
+				if value.name == name
+					if x ?= value-with-name
+						on-duplicate[x, value]
+						false
+					else
+						value-with-name := value
+						true
+				else
+					true
+			new-values to-by-name on-duplicate
 
 filter[t] t by-name(a t by-name, f bool mut(x t)) t name
 	match a impl
@@ -69,7 +87,7 @@ choose-keys[t] t by-name(a t by-name, keys symbol set) t name
 			if values[i].name == values[j].name
 				i, j
 
--to-large-by-name[t] t large-by-name(values t[], on-duplicate void mut(x t, y t)) t name
+-to-large-by-name[t] t large-by-name(values t[]) t name
 	n = values size
 	res t mut-slice = trusted n gc-safe-mut-slice
 
@@ -93,18 +111,34 @@ choose-keys[t] t by-name(a t by-name, keys symbol set) t name
 	max-cost mut nat = 2
 	until delay is-empty
 		delay filter-unordered x =>
-			res !place-delayed next, x, unused-spots, max-cost, on-duplicate
+			res !place-delayed next, x, unused-spots, max-cost
 		max-cost +:= 1
+
+	# RM ---------------------------------------------------------------------------------------------------------------------------
+	for x : res
+		trusted if x reference-equal gc-safe-value
+			names symbol[] = for v : values; v name
+			error log "Failed with these names: {names.to::json}"
+		forbid trusted x reference-equal gc-safe-value
+
 	trusted res.cast-immutable, next.cast-immutable
--place-delayed[t] bool(res t mut-slice, next nat32 mut-slice, x t, unused-spots nat32 mut[], max-cost nat, on-duplicate void mut(x t, y t)) t name
+-duplicate record(name symbol) exception case
+-show string(_ duplicate)
+	throw unreachable
+| Returns true if the value was placed, false if it should be delayed.
+-place-delayed[t] bool
+	res t mut-slice
+	next nat32 mut-slice
+	x t
+	unused-spots nat32 mut[]
+	max-cost nat
+do t name
 	cur mut = trusted x.name.id % res.size
 	cost mut nat = 1
 	loop
 		forbid next[cur] == unused
-		if x.name == res[cur].name
-			on-duplicate[res[cur], x]
-			break true
-		elif next[cur] == no-next
+		forbid x.name == res[cur].name : x.name duplicate
+		if next[cur] == no-next
 			# Found the end
 			dest = unused-spots pop!
 			next[cur] := dest
@@ -142,12 +176,39 @@ in[t] bool(name symbol, a t by-name) t name
 	a[name] !is-empty
 
 test
-	r0 r = "a", 1
-	r1 r = "b", 2
-	a r by-name = (r0, r1) to-by-name _ => throw unreachable
-	a["a"] is r0
-	a["b"] is r1
-	a["c"] is ()
+	rs r[] = do
+		- "a", 0
+		- "b", 1
+		- "b", 2
+		- "c", 3
+	duplicates (r, r) mut[] = ()
+	a r by-name = rs to-by-name x => duplicates ~= x
+	duplicates.to::(r, r)[] is ((("b", 1), ("b", 2)),)
+	assert _ ?= a.impl array
+	a["a"] is ("a", 0)
+	a["b"] is ("b", 1)
+	a["c"] is ("c", 3)
+	a["d"] is ()
+test
+	rs r[] = do
+		- "a", 0
+		- "b", 1
+		- "c", 2
+		- "d", 3
+		- "e", 4
+		- "e", 5
+	duplicates (r, r) mut[] = ()
+	a r by-name = rs to-by-name x => duplicates ~= x
+	duplicates.to::(r, r)[] is ((("e", 4), ("e", 5)),)
+	assert _ ?= a.impl large-by-name # Make sure we are testing this case
+	a.size is 5
+	for r : rs
+		a[r name] is if r.name == "e"
+			"e", 4
+		else
+			r
+	a["f"] is ()
+	
 -r record
 	name symbol
 	whatever nat
@@ -179,7 +240,7 @@ move-to[t] t multi-by-name(values t mut[]) t name
 to[t] t multi-by-name(values t[]) t name
 	guard values.size > 8 : (values sort x => x name)::t[],
 	groups = values group-by-name
-	groups-by-name t[] large-by-name = groups to-large-by-name _ => throw unreachable
+	groups-by-name t[] large-by-name = groups to-large-by-name
 	starts nat32 mut-slice = trusted groups.size gc-safe-mut-slice
 	out-values t mut-slice = trusted values.size gc-safe-mut-slice
 	next-value mut nat = 0
