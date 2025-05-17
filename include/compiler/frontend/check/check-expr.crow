@@ -162,12 +162,12 @@ do
 	is-negated = ast is-condition-negated
 	empty-new-range = ast first-keyword-range
 	first-branch = ctx with-extern-from-condition condition, is-negated, () =>
-		ctx check-expr-with-opt-destructure-or-empty-new ast,
+		ctx check-expr-with-opt-destructure-or-empty-new ast, \
 			(!is-negated ? destructure), ast.first-branch, empty-new-range, expected
 	if is-inference-log-enabled
 		error log "check-if after first branch: expected is {expected debug}"
 	second-branch = ctx with-extern-from-condition condition, !is-negated, () =>
-		ctx check-expr-with-opt-destructure-or-empty-new ast,
+		ctx check-expr-with-opt-destructure-or-empty-new ast, \
 			(is-negated ? destructure), ast.second-branch, empty-new-range, expected
 	ast if-expr condition, (is-negated ? second-branch : first-branch), (is-negated ? first-branch : second-branch), expected.inferred
 -is-throw bool(a expr-ast?)
@@ -396,6 +396,7 @@ do
 	res
 
 # TODO: these could use 'mebmers'? --------------------------------------------------------------------------------------------
+# ALSO, it's important that this matches the order of 'integral-type' in model.crow -----------------------------------------------
 -nat-types integral-type[]()
 	nat8, nat16, nat32, nat64
 -int-types integral-type[]()
@@ -407,9 +408,7 @@ integral-types integral-type[]()
 
 -check-literal-integral expr(ctx expr-ctx, ast literal-integral-and-range, expected expected)
 	integrals = ctx.common-types integrals
-	allowed-types struct-inst[] = integrals.nat8, integrals.nat16, integrals.nat32, integrals.nat64,
-		integrals.int8, integrals.int16, integrals.int32, integrals.int64,
-		ctx.common-types.float32, ctx.common-types.float64
+	allowed-types struct-inst[] = integrals.all ~~ ctx.common-types.all-floats
 	if type-index ?= ctx find-expected-struct-for-literal ast.range, expected, allowed-types
 		number-type = allowed-types[type-index]
 		if type-index < integral-types.size
@@ -535,12 +534,12 @@ do
 	guard inner ?= ast.inner lambda-ast : diag-bogus[diag-shared-arg-is-not-lambda]
 	guard et ?= ctx get-expected-lambda ast.range, (ctx type-from-destructure inner.param), expected : expected bogus ast.range
 	guard et.fun-type.kind == shared_ : diag-bogus[ctx get-expected-for-diag expected diag-shared-not-expected]
-	res = ctx check-lambda-inner inner, inner.param, inner.body, expected,
-		ctx.common-types.fun-structs[mut_][et.fun-type.struct-inst.type-args],
-		et.instantiated-param-type,
-		et.fun-type.return-type,
-		et.type-context,
-		et.fun-type.fun-struct,
+	res = ctx check-lambda-inner inner, inner.param, inner.body, expected, \
+		ctx.common-types.fun-structs[mut_][et.fun-type.struct-inst.type-args], \
+		et.instantiated-param-type, \
+		et.fun-type.return-type, \
+		et.type-context, \
+		et.fun-type.fun-struct, \
 		explicit-shared
 	
 	if ctx.specs !is-shared et.instantiated-param-type
@@ -564,7 +563,7 @@ do
 	diag-range = source range
 	guard et ?= ctx get-expected-lambda diag-range, (ctx type-from-destructure param-ast), expected : expected bogus diag-range
 	kind = et.fun-type kind
-	res = ctx check-lambda-inner source, param-ast, body-ast, expected, (),
+	res = ctx check-lambda-inner source, param-ast, body-ast, expected, (), \
 		et.instantiated-param-type, et.fun-type.return-type, et.type-context, et.fun-type.fun-struct, kind.to-lambda-kind
 	res expr
 
@@ -971,8 +970,8 @@ do
 do
 	guard spec_ ?= ctx.check-ctx get-spec-from-common-module ctx.specs-map, ast.keyword-range, "equal", compare : expected bogus ast.range
 
-	equals = ctx.check-ctx check-spec-and-get-last-impl ctx.funs-map, ast.keyword-range, ctx.type-container,
-		ctx.specs, ctx.cur-flags, ctx.externs,
+	equals = ctx.check-ctx check-spec-and-get-last-impl ctx.funs-map, ast.keyword-range, ctx.type-container, \
+		ctx.specs, ctx.cur-flags, ctx.externs, \
 		(ctx.instantiate-ctx instantiate-spec spec_, ((matched type ctx.common-types),))
 	seen string mut-set = ()
 	cases match-string-like-case[] = with out : build
@@ -1125,18 +1124,17 @@ do
 	fun-name symbol = ast.body has-break-or-continue ? "for-break" : "for-loop"
 	keyword-range = ast for-keyword-range
 	if else_ ?= ast else_
-		ctx check-call-arg-and-2-lambdas ast, ast, keyword-range, fun-name,
+		ctx check-call-arg-and-2-lambdas ast, ast, keyword-range, fun-name, \
 			ast.collection, ast.param, ast.body, else_, expected
 	else
-		ctx check-call-arg-and-lambda ast, ast, keyword-range, fun-name,
+		ctx check-call-arg-and-lambda ast, ast, keyword-range, fun-name, \
 			ast.collection, ast.param, ast.body, expected
 
 -check-with expr(ctx expr-ctx, ast with-ast, expected expected)
 	keyword-range = ast with-keyword-range
 	if _ ?= ast else_
 		ctx add-diag keyword-range, diag-with-has-else
-	ctx check-call-arg-and-lambda ast, ast, keyword-range, "with-block",
-		ast.arg, ast.param, ast.body, expected
+	ctx check-call-arg-and-lambda ast, ast, keyword-range, "with-block", ast.arg, ast.param, ast.body, expected
 
 -check-finally expr(ctx expr-ctx, ast finally-ast, expected expected)
 	if _ ?= expected try-get-loop
