@@ -3,7 +3,6 @@ import
 	../../../model/ast
 	../../../model/model
 	../../../model/source-range
-	../../../util/util
 	../allocators
 	../check-ctx
 	../expr-ctx
@@ -30,24 +29,11 @@ check-call expr(ctx expr-ctx, ast call-ast, expected expected) check-expr
 	else
 		type-arg type? = if x ?= ast type-arg
 			ctx type-from-ast x
-		ctx check-call-common expected, ast, ast.name-range, ast.fun-name.name, type-arg, ast.args, _ => true
+		ctx check-call-common expected, ast, ast.name-range, ast.fun-name.name, type-arg, ast.args
 
 check-call-named expr(ctx expr-ctx, ast call-named-ast, expected expected) check-expr
-	ctx check-call-common expected, ast, ast.range, "new", (), ast.args, x => x parameter-names-are ast.names
-
--parameter-names-are bool(a called-decl, names name-and-range[])
-	forbid names is-empty
-	actual = match a
-	as fun-decl x
-		match x params
-		as array y
-			y
-		as varargs _
-			# will always fail because 'names' is always non-empty
-			()
-	as called-spec-sig x
-		x.non-instantiated-sig params
-	actual arrays-correspond names, (x, y) => x.name == y.name
+	n named-new = (for x : ast.names; x name), ctx.common-types
+	ctx check-call-common expected, ast, ast.range, n, (), ast.args
 
 check-call-special expr
 	ctx expr-ctx
@@ -57,27 +43,20 @@ check-call-special expr
 	args expr-ast[]
 	expected expected
 do check-expr
-	ctx check-call-common expected, source, range, fun-name, (), args, _ => true
+	ctx check-call-common expected, source, range, fun-name, (), args
 
 -check-call-common expr
 	ctx expr-ctx
 	expected expected
 	source call-expr-source
 	diag-range source-range
-	fun-name symbol
+	fun-name fun-name
 	type-arg type?
 	arg-asts expr-ast[]
-	cb-additional-filter bool mut(candidate called-decl)
 do check-expr
-	if is-inference-log-enabled
-		error log "=== GONNA CHECK CALL {fun-name} ===" # -------------------------------------------------------------------------------
-	res = ctx check-call-special-cb-n source, diag-range, fun-name, expected, type-arg, arg-asts.size,
+	ctx check-call-special-cb-n source, diag-range, fun-name, expected, type-arg, arg-asts.size,
 		((i, arg-expected) => ctx check-expr arg-asts[i], arg-expected),
-		cb-additional-filter,
 		candidates => arg-asts.with-index every (arg-idx, arg) => ctx infer-candidate-type-args-from-explicitly-typed-argument candidates, arg-idx, arg
-	if is-inference-log-enabled
-		error log "=== DID CHECK CALL {fun-name} ==="
-	res
 
 check-call-arg-and-lambda expr
 	ctx expr-ctx
@@ -120,7 +99,6 @@ do check-expr, check-lambda
 			throw unreachable
 	ctx check-call-special-cb-n call-source, diag-range, fun-name, expected, (), 3,
 		check-arg,
-		(_ => true),
 		candidates => ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast
 -void-destructure destructure-ast()
 	() void-destructure-ast
@@ -155,7 +133,7 @@ do
 			cb-arg1[arg-expected]
 		else
 			throw unreachable
-	ctx check-call-special-cb-n source, diag-range, fun-name, expected, (), 2, check-arg, (_ => true), cb-before-check
+	ctx check-call-special-cb-n source, diag-range, fun-name, expected, (), 2, check-arg, cb-before-check
 
 check-call-special-cb-n expr
 	ctx expr-ctx
@@ -166,25 +144,24 @@ check-call-special-cb-n expr
 	n-args nat
 	cb-check-arg expr mut(i nat, arg-expected expected)
 do
-	ctx check-call-special-cb-n source, diag-range, fun-name, expected, (), n-args, cb-check-arg, (_ => true), _ => true
+	ctx check-call-special-cb-n source, diag-range, fun-name, expected, (), n-args, cb-check-arg, _ => true
 -check-call-special-cb-n expr
 	ctx expr-ctx
 	source call-expr-source
 	diag-range source-range
-	fun-name symbol
+	fun-name fun-name
 	expected expected
 	type-arg type?
 	n-args nat
 	cb-check-arg expr mut(i nat, arg-expected expected)
-	cb-additional-filter bool mut(candidate called-decl)
 	cb-before-check bool mut(candidates candidates)
 do
 	args expr mut-slice = trusted n-args gc-safe-mut-slice
 	check-arg void mut(i nat, arg-expected expected) = (i, arg-expected) =>
 		args[i] := cb-check-arg[i, arg-expected]
-	if called ?= ctx check-call-cb diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-additional-filter, cb-before-check
+	if called ?= ctx check-call-cb diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-before-check
 		# Check should always succeed, but we need it to set the inferred type
-		ctx check expected, called.return-type, (source call-expr called, trusted args.cast-immutable)
+		ctx check expected, called.return-type, do source make-call called, trusted args.cast-immutable
 	else
 		candidates = ctx get-candidate-decls-for-bogus fun-name
 		if candidates is-empty
@@ -192,28 +169,43 @@ do
 		else
 			expected set-to-bogus-if-inferring
 			source bogus-call-expr candidates, (trusted args.cast-immutable), expected.inferred
--get-candidate-decls-for-bogus called-decl[](ctx expr-ctx, fun-name symbol)
+-get-candidate-decls-for-bogus called-decl[](ctx expr-ctx, fun-name fun-name)
 	with out : build
-		ctx.funs-in-expr-scope each-fun-in-scope  fun-name, called =>
-			out ~= called
+		match fun-name
+		as symbol x
+			ctx.funs-in-expr-scope each-fun-in-scope x, called =>
+				out ~= called
+		as named-new _
+			() # TODO ------------------------------------------------------------------------------------------------------
+
+-make-call expr(source call-expr-source, called called, args expr[])
+	match source
+	as call-named-ast x
+		match called name
+		as new
+			source call-expr called, args
+		as named-new
+			x call-named-new-expr called, args
+		else
+			throw unreachable
+	else
+		source call-expr called, args
 
 -cb-check-arg alias
 	void mut(arg-index nat, arg-expected expected)
 -check-call-cb called?
 	ctx expr-ctx
 	diag-range source-range
-	fun-name symbol
+	fun-name fun-name
 	type-arg type?
 	n-args nat
 	expected expected
 	cb-check-arg cb-check-arg
-	cb-additional-filter bool mut(x called-decl)
 	cb-before-check bool mut(x candidates)
 do
 	initial-filter bool mut(x candidate) = candidate =>
 		ctx.common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
-		expected test-candidate-return-type candidate, allow-conversions &&
-		cb-additional-filter[candidate called]
+		expected test-candidate-return-type candidate, allow-conversions
 	ctx.funs-in-expr-scope with-candidates fun-name, n-args, initial-filter, candidates =>
 		if cb-before-check[candidates]
 			ctx check-call-inner diag-range, fun-name, type-arg, candidates, expected, n-args, cb-check-arg
@@ -234,7 +226,7 @@ find-function-for-return-and-param-types called?
 	diag-range source-range
 	type-arg type?
 	return-and-param-types return-and-param-types
-	is-trusted bool mut()
+	is-trusted bool mut() # TODO: I think this is always false ----------------------------------------------------------------
 do
 	arity = return-and-param-types.param-types size
 	initial-filter bool mut(x candidate) = candidate =>
@@ -266,7 +258,7 @@ do
 					expr, option.must-unwrap-option-type-or-bogus
 			else
 				args[index] := ctx check-expr arg-ast, arg-expected
-		if called ?= ctx check-call-cb ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, (_ => true), _ => true
+		if called ?= ctx check-call-cb ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, _ => true
 			type = ctx.instantiate-ctx make-option-if-not-already ctx.common-types, called.return-type
 			(ast call-option-expr called, (trusted args cast-immutable), type), type
 		else
@@ -275,7 +267,7 @@ do
 -check-call-inner called?
 	ctx expr-ctx
 	diag-range source-range
-	fun-name symbol
+	fun-name fun-name
 	explicit-type-arg type?
 	candidates candidates
 	expected expected

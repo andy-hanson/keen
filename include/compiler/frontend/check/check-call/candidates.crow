@@ -1,6 +1,7 @@
 import
 	../../../model/model
 	../../../util/by-name
+	../../../util/util
 	../allocators
 	../check-ctx
 	../expr-ctx
@@ -11,30 +12,78 @@ candidates-for-diag called-decl[](candidates candidates)
 	for x : candidates
 		x called
 
-get-all-candidates-as-called-decls called-decl[](ctx expr-ctx, fun-name symbol)
+get-all-candidates-as-called-decls called-decl[](ctx expr-ctx, fun-name fun-name) # TODO: name should indicate that this is only for error reporting
 	with out : build
-		ctx each-fun-in-expr-scope fun-name, called =>
-			out ~= called
+		match fun-name
+		as symbol x
+			ctx each-fun-in-expr-scope x, called =>
+				out ~= called
+		as named-new _
+			ctx each-fun-in-expr-scope "new", called =>
+				out ~= called
+			ctx each-fun-in-expr-scope "named-new", called =>
+				if _ ?= called as-named-new ctx.common-types
+					out ~= called
 type-context-for-candidate type-context(a candidate) # TODO: INLINE --------------------------------------------------------
 	a type-args
 
 # TODO: use 'with-block' -------------------------------------------------------------------------------------------------------------
 with-candidates[t] t
 	funs funs-in-scope
-	fun-name symbol
+	fun-name fun-name
 	actual-arity nat
 	initial-filter bool mut(x candidate)
 	f t mut(candidates candidates)
 do trusted
 	candidates, restore = allocate-candidates
-	funs each-fun-in-scope fun-name, called =>
-		if called.arity arity-matches actual-arity
+	match fun-name
+	as symbol name
+		funs each-fun-in-scope name, called =>
+			guard called.arity arity-matches actual-arity
 			candidate = called init-candidate actual-arity
-			if initial-filter[candidate]
-				candidates ~= candidate
+			guard initial-filter[candidate]
+			candidates ~= candidate
+	as named-new x
+		funs each-fun-in-scope "new", called =>
+			guard called.arity arity-matches x.names.size && called parameter-names-are x.names
+			candidate = called init-candidate x.names.size
+			guard initial-filter[candidate]
+			candidates ~= candidate
+		funs each-fun-in-scope "named-new", called =>
+			guard element-type ?= called as-named-new x.common-types
+			candidate = called init-candidate-for-named-new x.names.size, element-type
+			guard initial-filter[candidate]
+			candidates ~= candidate
 	res = f[candidates]
 	candidates free-candidates restore
 	res
+
+# Returns `t` if the signature matches `(names symbol[], values t[])`.
+-as-named-new type?(called called-decl, common-types common-types)
+	param-types type[]? = match called
+	as fun-decl x
+		unless x is-variadic
+			x param-types
+	as called-spec-sig x
+		x param-types
+	guard x, y ?= param-types?.opt-only2
+	guard sym ?= x array-element-type
+	guard sym == common-types.symbol
+	y array-element-type
+
+-parameter-names-are bool(a called-decl, names symbol[])
+	forbid names is-empty
+	actual = match a
+	as fun-decl x
+		match x params
+		as array y
+			y
+		as varargs _
+			# will always fail because 'names' is always non-empty
+			()
+	as called-spec-sig x
+		x.non-instantiated-sig params
+	actual arrays-correspond names, (x, y) => x.name == y
 
 each-candidate void(funs funs-in-scope, fun-name symbol, actual-arity nat, f void mut(x candidate))
 	funs each-fun-in-scope fun-name, called =>
