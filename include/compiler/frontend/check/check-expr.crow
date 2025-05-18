@@ -285,11 +285,10 @@ do
 
 -check-interpolated expr(ctx expr-ctx, ast interpolated-ast, expected expected)
 	ctx check-call-special-cb-n ast, ast.range[0 .. 1], "interpolate", expected, ast.parts.size, (i, arg-expected) =>
-		part = ast.parts[i]
-		match part
+		match ast.parts[i]
 		as literal-string-ast x
 			ctx check-literal-string x, arg-expected
-		else
+		else part
 			ctx check-call-special ast, part.range, "show", (part,), arg-expected
 
 -access-local local?(ctx expr-ctx, diag-range source-range, name symbol)
@@ -761,16 +760,16 @@ do
 	cases = ctx check-match-sum-type-cases sum-type, ast.cases, expected
 	body = sum-type.decl.body sum-type!
 	is-union = body.kind == union_
-	else_ expr? = if is-union
+	else_ match-else? = if is-union
 		if cases.size == body.listed-members.size
 			if x ?= ast.else_
 				ctx add-diag x.keyword-range, diag-match-unnecessary-else
 			()
 		else
-			ctx check-match-else-required ast, expected, () =>
+			ctx check-match-else-required-allow-destructure ast, expected, sum-type, () =>
 				(sum-type list-missing-union-cases body, cases) diag-match-unhandled-union-case-types
 	else
-		ctx check-match-else-required ast, expected, variant_
+		ctx check-match-else-required-allow-destructure ast, expected, sum-type, () => variant_
 	ast match-sum-type-expr matched, cases, else_, expected.inferred
 -list-missing-union-cases struct-inst[](union_ struct-inst, body sum-type, cases match-sum-type-case[])
 	with out : build
@@ -915,7 +914,7 @@ do
 				out ~= value, (ctx check-expr case-ast.then, expected)
 			else
 				ctx add-diag case-ast.name-range, string-value::diag-match-case-duplicate
-	else_ = ctx check-match-else-required ast, expected, integral
+	else_ = ctx check-match-else-required-no-destructure ast, expected, integral
 	ast match-integral-expr char-type, matched, cases, else_, expected.inferred
 
 -check-match-integral expr
@@ -948,7 +947,7 @@ do
 						value.as-signed::diag-match-case-duplicate
 					else
 						value.as-unsigned::diag-match-case-duplicate
-	else_ = ctx check-match-else-required ast, expected, integral
+	else_ = ctx check-match-else-required-no-destructure ast, expected, integral
 	ast match-integral-expr integral-type, matched, cases, else_, expected.inferred
 
 -get-matchable-string-like-from-record string-like-type?(common-types common-types, inst struct-inst)
@@ -981,27 +980,36 @@ do
 					out ~= value, (ctx check-expr case-ast.then, expected)
 				else
 					ctx add-diag case-ast.name-range, value::diag-match-case-duplicate
-	else_ = ctx check-match-else-required ast, expected, string-like
+	else_ = ctx check-match-else-required-no-destructure ast, expected, string-like
 	ast match-string-like-expr string-type, matched, equals, cases, else_, expected.inferred
 
--check-match-else-required expr
+-check-match-else-required-no-destructure expr
 	ctx expr-ctx
 	ast match-ast
 	expected expected
 	kind diag-match-needs-else
 do
-	ctx check-match-else-required ast, expected, () => kind
--check-match-else-required expr
+	if else_ ?= ast else_
+		forbid _ ?= else_ destructure : todo # TODO: actually, there's really no reason to not allow a local here in all cases!
+		ctx check-expr else_.expr, expected
+	else
+		ctx add-diag ast.keyword-range, kind
+		expected bogus ast.range
+-check-match-else-required-allow-destructure match-else
 	ctx expr-ctx
 	ast match-ast
 	expected expected
+	matched-type struct-inst
 	cb-diag diag mut()
 do
-	if x ?= ast else_
-		ctx check-expr x.expr, expected
+	if else_ ?= ast else_
+		destructure destructure? = if d ?= else_ destructure
+			ctx check-destructure d, matched-type, local
+		destructure, do ctx check-expr-with-opt-destructure destructure, else_.expr, expected
 	else
 		ctx add-diag ast.keyword-range, cb-diag[]
-		expected bogus ast.range
+		(), do expected bogus ast.range
+
 
 # TODO: use a with-block ---------------------------------------------------------------------------------------------------------
 -with-extern-from-condition[out] out(ctx expr-ctx, condition condition, is-negated bool, cb out mut())

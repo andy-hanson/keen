@@ -282,6 +282,18 @@ do
 	ctx concretize-with-destructure-and-let type, range, e.destructure, value, () =>
 		ctx concretize-expr type, e.then
 
+-concretize-expr-with-opt-destructure root-local-and-expr
+	ctx concretize-expr-ctx
+	type concrete-type
+	range uri-and-range
+	destructure destructure?
+	expr expr
+do
+	if d ?= destructure
+		ctx concretize-with-destructure type, range, d, () =>
+			ctx concretize-expr type, expr
+	else
+		(), do ctx concretize-expr type, expr
 -concretize-expr-with-destructure root-local-and-expr
 	ctx concretize-expr-ctx
 	type concrete-type
@@ -649,14 +661,27 @@ do
 	range uri-and-range
 	a match-sum-type-expr
 do
-	else_ concrete-expr? = if x ?= a else_
-		ctx concretize-expr type, x
+	matched = ctx concretize-expr a.matched
+	else_ root-local-and-expr? = if x ?= a else_
+		ctx concretize-expr-with-opt-destructure type, range, x.destructure, x.then
+	# TODO: I think this could be greatly simplified to not have so many different branches -------------------------------
 	if a.cases is-empty
-		else_ ?? ctx concretize-bogus type, range
+		if e ?= else_
+			if r ?= e root-local
+				type gen-let range, r, matched, e.expr
+			else
+				e expr
+		else
+			ctx concretize-bogus type, range
 	else
-		matched = ctx concretize-expr a.matched
 		values, cases = ctx concretize-match-sum-type-cases type, range, matched.type, a.cases
-		type, range, (matched match-union-concrete-expr values, cases, else_)
+		if e ?= else_
+			if r ?= e root-local
+				type gen-let range, r, matched, do type, range, do matched match-union-concrete-expr values, cases, e.expr
+			else
+				type, range, do matched match-union-concrete-expr values, cases, e.expr
+		else
+			type, range, do matched match-union-concrete-expr values, cases, ()
 -concretize-match-sum-type-cases (integral-values, concrete-match-union-case[])
 	ctx concretize-expr-ctx
 	type concrete-type
@@ -850,7 +875,7 @@ do
 do
 	tried = ctx concretize-expr type, a.tried
 	values, cases = ctx concretize-match-sum-type-cases type, range, ctx.concretize-ctx.exception-type, a.catches
-	type, range, (tried try-concrete-expr values, cases)
+	type, range, do tried try-concrete-expr values, cases
 
 -concretize-try-let concrete-expr
 	ctx concretize-expr-ctx
