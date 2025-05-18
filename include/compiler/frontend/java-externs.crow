@@ -1,5 +1,6 @@
 import
 	crow/col/mut-slice
+	crow/unsafe
 	java/lang/Class
 	java/lang/reflect/Constructor
 	java/lang/reflect/Field
@@ -17,12 +18,12 @@ java-externs record mut
 new java-externs()
 	(), ()
 
-Object struct-inst(a java-externs, instantiate-ctx instantiate-ctx)
-	a struct-for-java-class instantiate-ctx, "java/lang/Object".as-path only-inst
+Object struct-inst(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types)
+	a struct-for-java-class instantiate-ctx, common-types, "java/lang/Object".as-path only-inst
 
 get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, path path)
 	a.java-class-modules ensure path, () =>
-		class_ = a struct-for-java-class instantiate-ctx, path
+		class_ = a struct-for-java-class instantiate-ctx, common-types, path
 		funs = a funs-for-java-class instantiate-ctx, common-types, path
 		public-exports exports =
 			funs: funs to
@@ -32,9 +33,10 @@ get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ct
 		path: path
 		public-exports: public-exports
 
--struct-for-java-class struct-decl(a java-externs, instantiate-ctx instantiate-ctx, path path) trusted
+-struct-for-java-class struct-decl(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, path path) trusted
 	assert extern java
 	a.java-class-types ensure path, () =>
+		class_ = path get-class
 		hash: instantiate-ctx next-hash
 		source: path struct-decl-source-java
 		module-uri: path to-java-uri
@@ -44,12 +46,27 @@ get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ct
 		purity: mut_
 		purity-is-forced: false
 		doc-comment-references: ()
-		sum-type-memberships: () # TODO: get this from declared interfaces ------------------------------------------------
+		sum-type-memberships: with out : build
+			supers = class_ superclasses
+			if supers exists x => x.getName.string-of-java-string == "java.lang.Throwable"
+				out ~= (), common-types.exception, ((),) # Since we won't actually emit this type, use bogus method-impls
+			# TODO: get more this from declared interfaces ------------------------------------------------
+			()
 		body: path struct-body-extern-java
+
+-superclasses Class[](a Class) java extern
+	trusted with out : build
+		cur mut = a getSuperclass
+		while cur !reference-equal gc-safe-value
+			out ~= cur
+			cur := cur getSuperclass
+
+-get-class Class(path path) java extern
+	trusted path.path-to-java-name.to-java-string forName # TODO: this can throw an exception, so catch and make a diagnostic
 
 -funs-for-java-class fun-decl[](a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, path path) trusted
 	assert extern java
-	class_ Class = path.path-to-java-name.to-java-string forName # TODO: this can throw an exception, so catch and make a diagnostic
+	class_ = path get-class
 	with out : build
 		fields = class_ getDeclaredFields
 		for field : fields
@@ -132,7 +149,7 @@ get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ct
 		common-types.mut-slice[elem]
 	else
 		name = class_.getName string-of-java-string
-		struct = a struct-for-java-class instantiate-ctx, name.java-name-to-path
+		struct = a struct-for-java-class instantiate-ctx, common-types, name.java-name-to-path
 		struct only-inst
 
 -path-to-java-name string(path path)
