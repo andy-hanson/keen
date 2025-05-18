@@ -1,77 +1,45 @@
 no-std
 import
 	java/lang/System
-	../bits: round-up-to-power-of-two
-	../bool: &&, bool, false, not, true
-	../compare: !=, <, <=, >, equal
-	../exception: todo
-	../js: as-js, call, call-property, cast, eval, js-cast, set-subscript, subscript
-	../misc: new, subscript, void
+	../bits
+	../bool
+	../compare
+	../misc
 	../number
-	../option: force, new, option
+	../option
 	../range
-	../tuple: new
+	../tuple
 	../unsafe
-	./array: array, array-view, size, subscript, to
-	./collection:
-		.., -, build, build-options, end, for-loop, index-too-big, iterator-not-comparable,
-		size-hint, slice-out-of-order, subscript, with-block
-	./mut-slice: ~=, build, cast-immutable, clear-memory, gc-safe-mut-slice, mut-slice, mut-slice-view, new, set-subscript, size, subscript, to
+	./array
+	./collection
+	./mut-slice
 	./private/array-low-level: inner, view-indices
 
 | Mutable array type that can change in size.
 | Appending (or removing) elements to the end is amortized O(1),
 | but appending (or removing) from the beginning is always O(N).
-+mut-array[t] builtin mut
-
-# WARN: not implemented for JS backend ---------------------------------------------------------------------------------------------
--as-mut-array-impl[t] t mut-array-impl(a t mut[]) builtin
--as-mut-array[t] t mut[](a t mut-array-impl) builtin
-
--mut-array-impl[t] record mut
++mut-array[t] record mut
 	| {backing}.{size} is the capacity.
 	| For the GC's sake, unused parts of backing are filled with 'gc-safe-value'
-	backing mut t mut-slice
+	-backing mut t mut-slice
 	| Not used for JS
-	size mut nat64
-
--backing[t] t mut-slice(a t mut[]) unsafe
-	forbid extern js
-	a.as-mut-array-impl backing
--set-backing[t] void(a t mut[], value t mut-slice) unsafe
-	forbid extern js
-	a.as-mut-array-impl.backing := value
+	-size_ mut nat64
 
 | {true} if `{a}.{size} == 0`.
 +is-empty[t] bool(a t mut[])
 	a.size == 0
 
 +size[t] nat64(a t mut[])
-	trusted if extern java
-		a.as-mut-array-impl size
-	elif extern js
-		a.as-js["length"].cast::float64 to
-	else
-		throw todo
+	a size_
 -set-size[t] void(a t mut[], size nat64)
-	a.as-mut-array-impl.size := size
+	a.size_ := size
 
 +subscript[t] t(a t mut[], index nat64)
 	a check-index index
-	trusted if extern java
-		a.backing[index]
-	elif extern js
-		a.as-js[index] cast
-	else
-		throw todo
+	a.backing[index]
 +set-subscript[t] void(a t mut[], index nat64, value t)
 	a check-index index
-	trusted if extern java
-		a.backing[index] := value
-	elif extern js
-		a.as-js[index] := value
-	else
-		throw todo
+	a.backing[index] := value
 
 | {true} if {a} and {b} are the exact same reference.
 | This is O(1) as it does not need to look at the elements.
@@ -81,12 +49,7 @@ import
 
 | Creates a new {mut-array} with the given elements.
 +new[t] t mut[](...a t[]) trusted
-	if extern java
-		(a.to, a.size) as-mut-array
-	elif extern js
-		a.as-js call-property "slice" cast
-	else
-		throw todo
+	a.to, a.size
 
 | Copy elements to a new {mut-array}.
 +to[t] t mut[](a t[])
@@ -102,20 +65,13 @@ import
 | This is O(1).
 +reduce-size-to[t] void(a t mut[], new-size nat64)
 	assert new-size <= a.size
-	trusted if extern java
+	trusted
 		a.backing[new-size .. a.size] clear-memory
 		a.size := new-size
-	elif extern js
-		a.as-js["length"] := new-size.to::float64
-	else
-		throw todo
 
 | Copies elements to a new {mut-array}.
 +copy[t] t mut[](a t mut[])
-	if trusted extern js
-		trusted a.as-js call-property "slice" cast
-	else
-		a.begin slice a.end
+	a.begin slice a.end
 
 | Copies elements to a new {array}.
 | The result is immutable and won't be affected by future writes to {a}.
@@ -128,55 +84,30 @@ import
 +move-to[t] t[](a t mut[])
 	trusted a.move-to cast-immutable
 +move-to[t] t mut-slice(a t mut[])
-	trusted if extern java
-		res t mut-slice = if a.backing.size == a.size
-			a backing
-		else
-			with out : a.size build
-				for i : 0::nat64 .. a.size
-					out ~= a.backing[i]
-		a.backing := ()
-		a.size := 0
-		res
-	elif extern js
-		res t mut-slice = a.as-js call-property "slice" cast
-		a clear
-		res
+	res t mut-slice = if a.backing.size == a.size
+		a backing
 	else
-		throw todo
+		with out : a.size build
+			for i : 0::nat64 .. a.size
+				out ~= a.backing[i]
+	a.backing := ()
+	a.size := 0
+	res
 +move-to[t] t mut[](a t mut[])
-	trusted if extern java
-		res t mut[] = (a.backing, a.size) as-mut-array
-		a.backing := ()
-		a.size := 0
-		res
-	elif extern js
-		a.move-to::(t mut-slice) js-cast
-	else
-		throw todo
+	res t mut[] = a.backing, a.size
+	a.backing := ()
+	a.size := 0
+	res
 
 | Swap the contents of two arrays.
 | This is O(1) normally. In JS it is likely O(n).
 +swap[t] void(a t mut[], b t mut[])
-	trusted if extern java
-		a-backing = a backing
-		a-size = a size
-		a.backing := b backing
-		a.size := b size
-		b.backing := a-backing
-		b.size := a-size
-	elif extern js
-		_ = """
-			(a, b) => \{
-				const temp = a.slice()
-				a.length = 0
-				a.push(...b)
-				b.length = 0
-				b.push(...temp)
-			}
-		""".eval call a, b
-	else
-		throw todo
+	a-backing = a backing
+	a-size = a size
+	a.backing := b backing
+	a.size := b size
+	b.backing := a-backing
+	b.size := a-size
 
 +swap[t] void(a t mut[], i nat64, j nat64)
 	temp = a[i]
@@ -195,16 +126,11 @@ import
 | Returns an empty option if `{a} {is-empty}`.
 +pop[t] t?(a t mut[])
 	guard a !is-empty
-	if trusted extern java
-		new-size = a.size - 1
-		res = a[new-size]
-		a[new-size] := trusted gc-safe-value
-		a.size := new-size
-		res
-	elif trusted extern js
-		(trusted a.as-js call-property "pop" cast)::t
-	else
-		throw todo
+	new-size = a.size - 1
+	res = a[new-size]
+	a[new-size] := trusted gc-safe-value
+	a.size := new-size
+	res
 
 | Removes the first element and returns it.
 | Returns an empty option if `{a} {is-empty}`.
@@ -218,55 +144,35 @@ import
 +pop-n[t] t[](a t mut[], n nat64)
 	assert n <= a.size : n index-too-big a.size
 	new-size = a.size - n
-	trusted if extern java
-		res t[] = a.backing[new-size .. a.size] to
-		a.size := new-size
-		res
-	elif extern js
-		res t[] = (a.js-cast::t[])[new-size .. a.size] to
-		a.as-js["length"] := new-size.to::float64
-		res
-	else
-		throw todo
+	res t[] = a.backing[new-size .. a.size] to
+	a.size := new-size
+	res
 
 | Removes the first {n} elements and returns them as an array.
 | The result is guaranteed to be of size {n}.
 | Throws {index-too-big} if there are not at least {n} elements.
 +pop-n-left[t] t[](a t mut[], n nat64)
 	assert n <= a.size : n index-too-big a.size
-	trusted if extern java
-		res t[] = a.backing[0 .. n] to
-		a.backing[0 .. end - n] := a.backing[n .. end]
-		a.size -:= n
-		res
-	elif extern js
-		a.as-js call-property "splice", 0::float64, n.to::float64 cast
-	else
-		throw todo
+	res t[] = a.backing[0 .. n] to
+	a.backing[0 .. end - n] := a.backing[n .. end]
+	a.size -:= n
+	res
 
 | Push a value onto the beginning of the array.
 | This is O(n).
 +prepend=[t] void(a t mut[], value t)
-	trusted if extern java
+	trusted
 		a ensure-room-for-one-more
 		a.backing[1 .. a.size + 1] := a.backing[0 .. a.size]
 		a[0] := value
 		a.size +:= 1
-	elif extern js
-		_ = a.as-js call-property "unshift", value
-	else
-		throw todo
 
 | Push a value onto the end of the array.
 +~=[t] void(a t mut[], value t)
-	trusted if extern java
+	trusted
 		a ensure-room-for-one-more
 		a.backing[a size] := value
 		a.size +:= 1
-	elif extern js
-		_ = a.as-js call-property "push", value
-	else
-		throw todo
 
 | Push multiple values onto the end of the array.
 +~~=[t] void(a t mut[], values t[])
@@ -308,8 +214,7 @@ import
 | There is no unsafety if the array grows bigger than {eventual-size}.
 | This takes O({eventual-size}) time if {eventual-size} > {a}.{size}.
 ~hint-size[t] void(a t mut[], eventual-size nat64)
-	if trusted extern java
-		a ensure-capacity-exact eventual-size
+	a ensure-capacity-exact eventual-size
 
 -ensure-capacity-round-up[t] void(a t mut[], min-capacity nat64)
 	a ensure-capacity-exact min-capacity.round-up-to-power-of-two
@@ -335,16 +240,12 @@ import
 | This is O(a.size - index) due to having to move a[index .. end] to the right by 1.
 +insert-at[t] void(a t mut[], index nat64, value t)
 	assert index <= a.size : index index-too-big a.size
-	trusted if extern java
+	trusted
 		a ensure-room-for-one-more
 		a.backing[index + 1 .. a.size + 1] := a.backing[index .. a.size]
 		a.size +:= 1
 		assert a.size <= a.capacity
 		a[index] := value
-	elif extern js
-		_ = a.as-js call-property "splice", index.to::float64, 0::float64, value
-	else
-		throw todo
 
 | The new contents of {a} will be `a[0 .. index] ~~ a[index + 1 .. end]`.
 | Returns the old `a[index]` which will have been removed.
@@ -352,13 +253,8 @@ import
 +remove-at[t] t(a t mut[], index nat64)
 	a check-index index
 	res = a[index]
-	trusted if extern java
-		a.backing[index .. a.size - 1] := a.backing[index + 1 .. a.size]
-		a.size -:= 1
-	elif extern js
-		_ = a.as-js call-property "splice", index.to::float64, 1::float64
-	else
-		throw todo
+	a.backing[index .. a.size - 1] := a.backing[index + 1 .. a.size]
+	a.size -:= 1
 	res
 
 +in[t] bool(value t, xs t mut[]) t equal
@@ -399,36 +295,20 @@ region unsafe
 
 | Pushes {n} of {gc-safe-value} to the mut-array.
 | This can be useful to prepare the array for being written by low-level code.
+# TODO: This should probably not be public ------------------------------------------------------------------------------------
 +push-gc-safe-values[t] void(a t mut[], n nat64) unsafe
-	if extern java
-		new-size = a.size + n
-		a ensure-capacity-round-up new-size
-		a.size := new-size
-	elif extern js
-		new-size = a.size + n
-		while a.size != new-size
-			_ = a.as-js call-property "push", gc-safe-value::t
-	else
-		throw todo
+	new-size = a.size + n
+	a ensure-capacity-round-up new-size
+	a.size := new-size
 
 | Returns a {mut-slice} of all elements currently in the `mut-array`.
 |
 | WARN: The result is temporary.
 | It's undefined behavior to modify {a} while the result of this function is still in use.
 ~temp-as-mut-slice[t] t mut-slice-view(a t mut[]) unsafe # TODO: RENAME ------------------------------------------------
-	if extern java
-		a.backing[0 .. a.size]
-	elif extern js
-		(a.js-cast::(t mut-slice))[0 .. end]
-	else
-		throw todo
+	a.backing[0 .. a.size]
 ~temp-as-array-view[t] t array-view(a t mut[]) unsafe
-	if extern java
-		a.backing.cast-immutable[0 .. a.size]
-	elif extern js
-		(a.js-cast::t[])[0 .. end]
-	else
-		throw todo
+	a.backing.cast-immutable[0 .. a.size]
 
 is-at-capacity[t] bool(a t mut[]) unsafe
 	a.capacity == a.size
@@ -492,13 +372,7 @@ region spec impls (see collection.crow)
 +slice[t] t mut[](begin t mut-array-iterator, end t mut-array-iterator)
 	assert begin.collection == end.collection : iterator-not-comparable
 	assert begin.next-index <= end.next-index : slice-out-of-order
-	col = begin collection
-	low = begin next-index
-	high = end next-index
-	trusted if extern js
-		col.as-js call-property "slice", low.to::float64, high.to::float64 cast
-	else
-		col.backing[begin.next-index .. end.next-index].to to # TODO: avoid the double copy ------------------------------------
+	begin.collection.backing[begin.next-index .. end.next-index].to to # TODO:PERF avoid the double copy -----------------------------------------
 
 +build[t] t mut[](a build-options, f void mut(out t mut[]))
 	res t mut[] = ()
