@@ -1514,7 +1514,7 @@ do
 					locals: frame-before locals
 					stack: frame-before.stack ~ boxed-catch-type.Object_variable_info
 				ctx pushed ctx.program.exception # just use an arbitrary type here, we're about to pop it
-				out emit-with-unboxed-opt-local ctx, ctx.program.exception, case_.local, inner-pos, case_.then
+				out emit-with-unboxed-opt-local ctx, ctx.program.exception, case_.local, inner-pos, case_.expr
 			if else_ ?= x catch-else
 				ctx must-pop type
 				# TODO: this is basicaly the same as for other cases, share code ----------------------------------------------------------------------------
@@ -1524,7 +1524,7 @@ do
 					locals: frame-before locals
 					stack: frame-before.stack ~ exception.Object_variable_info
 				ctx pushed ctx.program.exception
-				out emit-with-unboxed-opt-local ctx, ctx.program.exception, else_.local, inner-pos, else_.then
+				out emit-with-unboxed-opt-local ctx, ctx.program.exception, else_.local, inner-pos, else_.expr
 	as try-let-concrete-expr x
 		start = out next-index
 		out emit-and-continue ctx, x.value
@@ -1540,7 +1540,7 @@ do
 				locals: frame-before locals
 				stack: frame-before.stack ~ boxed-catch-type.Object_variable_info
 			ctx pushed ctx.program.exception # just use an arbitrary type here, we're about to pop it
-			out emit-with-unboxed-opt-local ctx, ctx.program.exception, x.catch_.local, inner-pos, x.catch_.then
+			out emit-with-unboxed-opt-local ctx, ctx.program.exception, x.catch_.local, inner-pos, x.catch_.expr
 	as var-get-concrete-expr x
 		match x.var kind
 		as thread-local_
@@ -1736,15 +1736,15 @@ do
 		if i ?= in-array
 			ctx end-synthetic-local input-type, i
 
--emit-match-union void(out code-builder, ctx expr-ctx, pos expr-pos, type concrete-type, x match-union-concrete-expr)
-	out emit-and-continue ctx, x.matched
-	matched-type = x.matched type
+-emit-match-union void(out code-builder, ctx expr-ctx, pos expr-pos, type concrete-type, a match-union-concrete-expr)
+	out emit-and-continue ctx, a.matched
+	matched-type = a.matched type
 	ctx must-peek matched-type
 	match ctx union-representation matched-type
 	as exception
-		out emit-match-union-using-instanceof ctx, pos, type, x
+		out emit-match-union-using-instanceof ctx, pos, type, a
 	as sealed-interface
-		out emit-match-union-using-instanceof ctx, pos, type, x
+		out emit-match-union-using-instanceof ctx, pos, type, a
 	as switch
 		out dup32
 		out get-switchable-kind-nat32 ctx, matched-type
@@ -1754,29 +1754,29 @@ do
 		value-type = ctx.program Object
 		ctx must-refine matched-type, value-type
 		ctx pushed ctx.program.nat32
-		out emit-match-union-using-switch ctx, pos, type, value-type, x
+		out emit-match-union-using-switch ctx, pos, type, value-type, a
 	as nullable
 		out with-inner-pos ctx, pos, inner-pos =>
-			null-case concrete-match-union-case, non-null-case concrete-match-union-case = if x.member-indices[0] == (0::nat,)
-				x.member-indices is ((0::nat,), (1::nat,))
-				x.cases only2
+			null-case, non-null-case = if a.member-indices[0] == (0::nat,)
+				a.member-indices is ((0::nat,), (1::nat,))
+				a.cases only2
 			else
-				x.member-indices is ((1::nat,), (0::nat,))
-				x.cases[1], x.cases[0]
-			forbid _ ?= x else_
+				a.member-indices is ((1::nat,), (0::nat,))
+				a.cases[1], a.cases[0]
+			forbid _ ?= a else_
 
 			out dup32
 			jump = out ifnonnull
 			# Null types are always empty types. Don't leave a 'null' on the stack, just pop it.
 			out pop reference-type
 			ctx must-pop matched-type
-			out emit-expr ctx, inner-pos, null-case.then # ignore null-case.local since it is an empty type
+			out emit-expr ctx, inner-pos, null-case.expr # ignore null-case.local since it is an empty type
 
 			# Change the stack to have the state from before the jump
 			ctx must-pop type
 			ctx pushed matched-type
 			jump jumps-to-here out, ctx.cur-stack-frame
-			out emit-with-unboxed-opt-local ctx, matched-type, non-null-case.local, inner-pos, non-null-case.then
+			out emit-with-unboxed-opt-local ctx, matched-type, non-null-case.local, inner-pos, non-null-case.expr
 
 -emit-match-union-using-instanceof void(out code-builder, ctx expr-ctx, pos expr-pos, type concrete-type, x match-union-concrete-expr)
 	# Note: I tested using a 'switch' on the 'case-index' method, but it didn't improve performance.
@@ -1792,18 +1792,18 @@ do
 			# The case comsumes that matched value. The next case will still have it since it jumped over this.
 			ctx must-refine matched-type, case-type
 			out cast-and-unbox-if-necessary ctx, case-type
-			out emit-with-opt-local ctx, case_.local, case-type, inner-pos, case_.then
+			out emit-with-opt-local ctx, case-type, inner-pos, case_
 
 			# Change the stack to have the state from before 'jump'
 			ctx must-pop type
 			ctx pushed matched-type
 			jump jumps-to-here out, ctx.cur-stack-frame
-		out pop reference-type
-		ctx must-pop matched-type
 		if e ?= x else_
-			out emit-expr ctx, inner-pos, e
+			out emit-with-opt-local ctx, matched-type, inner-pos, e
 			ctx must-peek type
 		else
+			out pop reference-type
+			ctx must-pop matched-type
 			# TODO: If the type is 'exception' and we're calling 'show', we should call 'toString' in this case? -----------
 			out emit-unreachable ctx.names
 			# Treat the stack effect as if it was successful
@@ -1829,11 +1829,11 @@ do
 			if l ?= case_ local # TODO: should I use a 'with-opt-local' helper? ----------------------------------------------------
 				out cast-and-unbox-if-necessary ctx, case-type
 				ctx must-refine matched-type, case-type
-				out emit-with-local ctx, l, inner-pos, case_.then
+				out emit-with-local ctx, l, inner-pos, case_.expr
 			else
 				out pop reference-type
 				ctx must-pop matched-type
-				out emit-expr ctx, inner-pos, case_.then
+				out emit-expr ctx, inner-pos, case_.expr
 
 			# Change the stack to have the state from before 'jump'
 			ctx must-pop type
@@ -1841,12 +1841,12 @@ do
 		
 		# default case
 		jump-to-default jumps-to-here out,  ctx.cur-stack-frame
-		out pop reference-type
-		ctx must-pop matched-type
 		if e ?= x else_
-			out emit-expr ctx, inner-pos, e
+			out emit-with-opt-local ctx, matched-type, inner-pos, e
 			ctx must-peek type
 		else
+			out pop reference-type
+			ctx must-pop matched-type
 			out emit-unreachable ctx.names
 			ctx pushed type
 
@@ -2040,7 +2040,9 @@ do
 		out pop reference-type
 		ctx must-pop unboxed-type
 		out emit-expr ctx, pos, expr
-			
+
+-emit-with-opt-local void(out code-builder, ctx expr-ctx, local-type concrete-type, pos expr-pos, case_ concrete-local-and-expr)
+	out emit-with-opt-local ctx, case_.local, local-type, pos, case_.expr
 -emit-with-opt-local void(out code-builder, ctx expr-ctx, local concrete-local?, local-type concrete-type, pos expr-pos, expr concrete-expr)
 	if l ?= local
 		l.type is local-type

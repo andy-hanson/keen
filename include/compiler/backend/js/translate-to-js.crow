@@ -906,15 +906,14 @@ do
 			...
 		}
 		###
-		ctx with-temp "matched", x.matched, matched =>
+		ctx with-temp-or-local "matched", x.matched, x.else_?.local, matched =>
 			index = source gen-property-access matched, "index".no-prefix
 			cases js-switch-case[] = for member-index, case_ : x.member-indices zip x.cases
 				ctx translate-case type, source, member-index, case_, matched
-			default = if e ?= x else_
-				ctx to-block-statement e
+			- source gen-switch index, cases, if e ?= x else_
+				ctx to-block-statement e.expr
 			else
 				source.throw-unreachable to
-			(source gen-switch index, cases, default),
 	as record-field-get-concrete-expr x
 		source gen-property-access (ctx to-js-expr x.record_), x.field.debug-name.to.no-prefix
 	as record-field-set-concrete-expr x
@@ -970,7 +969,7 @@ do
 		"error" special-local
 	get-error = source gen-identifier error
 	default = if e ?= a catch-else
-		ctx to-block-statement e.then
+		ctx to-block-statement e.expr
 	else
 		source gen-throw get-error to
 	exception = ctx to-ref source, ctx.ctx.exception
@@ -1026,11 +1025,8 @@ do
 	}
 	if (ok) then
 	###
-	when-caught js-statement[] = with out : build
-		if l ?= a.catch_ local
-			out ~= source gen-const (ctx local-name l), error-value
-		out ~~= ctx to-block-statement a.catch_.then statements
-	if_ = source gen-if is-caught-error, when-caught.to, throw-error
+	when-caught = ctx to-block-statement-with-root-local source, error-value, a.catch_
+	if_ = source gen-if is-caught-error, when-caught, throw-error
 	try_ = source gen-try-catch tried.to, error, if_.to
 	then = ctx to-block-statement a.then
 	if-ok-then js-block-statement = if x ?= ok
@@ -1044,18 +1040,25 @@ do
 	type concrete-type
 	source source
 	member-index integral-value
-	case_ concrete-match-union-case
+	case_ concrete-local-and-expr
 	matched js-expr
 do
 	matched-value = source gen-property-access matched, "value".no-prefix
 	value = source gen-integer-unsigned member-index.as-unsigned
-	then = ctx to-block-statement case_.then
-	then-block js-block-statement = if l ?= case_ local
-		declare = source gen-const (ctx local-name l), matched-value
-		(declare ~ then.statements),
+	then = ctx to-block-statement-with-root-local source, matched-value, case_
+	value, do source maybe-break-switch-case type, then
+-to-block-statement-with-root-local js-block-statement
+	ctx to-expr-ctx
+	source source
+	value js-expr
+	a concrete-local-and-expr
+do
+	res = ctx to-block-statement a.expr
+	if l ?= a local
+		declare = source gen-const (ctx local-name l), value
+		(declare ~ res.statements),
 	else
-		then
-	value, (source maybe-break-switch-case type, then-block)
+		res
 
 -maybe-break-switch-case js-block-statement(source source, type concrete-type, a js-block-statement)
 	if type is-void
@@ -1206,6 +1209,22 @@ do
 	else
 		source gen-integer-unsigned value.as-unsigned
 
+# TODO: use a 'with-block' ----------------------------------------------------------------------------------------------------
+-with-temp-or-local js-expr-or-block-statement
+	ctx to-expr-ctx
+	name string
+	expr concrete-expr
+	root concrete-local?
+	f js-statement[] mut(get-temp js-expr)
+do
+	js-name js-name = if r ?= root
+		ctx local-name r
+	else
+		temp, name, ctx.take-next-temp-index
+	source = ctx source expr
+	declare = source gen-const js-name, do ctx to-js-expr expr
+	then = f[source gen-identifier js-name]
+	(declare ~ then,)
 -with-temp js-expr-or-block-statement
 	ctx to-expr-ctx
 	name string

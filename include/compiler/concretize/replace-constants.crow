@@ -139,9 +139,16 @@ replace-constants void(ctx concretize-ctx)
 		matched = ctx replace-constants-expr x.matched
 		# TODO: if 'matched' is a constant, use just that branch -------------------------------------------------------------------
 		cases = ctx replace-constants-in-match-union-cases x.cases
-		else_ = ctx replace-constants-optional-expr x.else_
+		else_ = ctx replace-constants-optional-expr x.else_?.expr
 		guard matched !is-empty || cases !is-empty || else_ !is-empty
-		(matched ?? x.matched) match-union-concrete-expr x.member-indices, (cases ?? x.cases), (else_ || x.else_)
+		:: match-union-concrete-expr
+		matched: matched ?? x.matched
+		member-indices: x member-indices
+		cases: cases ?? x.cases
+		else_: if e ?= else_
+			x.else_!.local, e
+		else
+			x else_
 	as record-field-get-concrete-expr x
 		guard record_ ?= ctx replace-constants-expr x.record_
 		# TODO: For a constant record, get the constant field value! ---------------------------------------------------------
@@ -164,20 +171,16 @@ replace-constants void(ctx concretize-ctx)
 		tried = ctx replace-constants-expr x.tried
 		cases = ctx replace-constants-in-match-union-cases x.catch-cases
 		else_ = if e ?= x catch-else
-			ctx replace-constants-in-match-union-case e
+			ctx replace-constants-in-local-and-expr e
 		guard tried !is-empty || cases !is-empty || else_ !is-empty
 		(tried ?? x.tried) try-concrete-expr x.exception-member-indices, (cases ?? x.catch-cases), (else_ || x.catch-else)
 	as try-let-concrete-expr x
 		# TODO: if value is constant, the local is constant too -------------------------------------------------------------------
 		value = ctx replace-constants-expr x.value
-		catch-then = ctx replace-constants-expr x.catch_.then
+		catch_ = ctx replace-constants-in-local-and-expr x.catch_
 		then = ctx replace-constants-expr x.then
-		guard value !is-empty || catch-then !is-empty || then !is-empty
-		catch_ concrete-match-union-case = if t ?= catch-then
-			x.catch_.local, t
-		else
-			x catch_
-		x.local try-let-concrete-expr (value ?? x.value), x.exception-member-index, catch_, (then ?? x.then)
+		guard value !is-empty || catch_ !is-empty || then !is-empty
+		x.local try-let-concrete-expr (value ?? x.value), x.exception-member-index, (catch_ ?? x.catch_), (then ?? x.then)
 	as var-get-concrete-expr _
 		()
 	as var-set-concrete-expr x
@@ -190,16 +193,16 @@ replace-constants void(ctx concretize-ctx)
 		guard union_ ?= ctx replace-constants-expr x.union_
 		union_ union-kind-concrete-expr
 
--replace-constants-in-match-union-cases concrete-match-union-case[]?(ctx replace-constants-ctx, cases concrete-match-union-case[])
+-replace-constants-in-match-union-cases concrete-local-and-expr[]?(ctx replace-constants-ctx, cases concrete-local-and-expr[])
 	any mut = false
-	res concrete-match-union-case[] = for case_ : cases
-		replaced = ctx replace-constants-in-match-union-case case_
+	res concrete-local-and-expr[] = for case_ : cases
+		replaced = ctx replace-constants-in-local-and-expr case_
 		any := any || replaced !is-empty
 		replaced ?? case_
 	any ? res
--replace-constants-in-match-union-case concrete-match-union-case?(ctx replace-constants-ctx, case_ concrete-match-union-case)
-	guard then ?= ctx replace-constants-expr case_.then
-	case_.local, then
+-replace-constants-in-local-and-expr concrete-local-and-expr?(ctx replace-constants-ctx, case_ concrete-local-and-expr)
+	guard expr ?= ctx replace-constants-expr case_.expr
+	case_.local, expr
 
 -replace-constants-in-args constants-or-exprs?(ctx replace-constants-ctx, a concrete-expr[])
 	ctx replace-constants-in-args a, true
