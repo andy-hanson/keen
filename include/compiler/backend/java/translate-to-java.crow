@@ -1385,8 +1385,6 @@ do
 		ctx pushed type # Treat the stack effect as if the loop completed
 	as match-enum-or-integral-concrete-expr x
 		# TODO: If <= 3 cases, it's probably better to just use ifeq instructions --------------------------------------------------------------------
-		# TODO: if integer values are dense, use a table switch
-		# TODO: handle integers larger than 2>>32
 		out emit-and-continue ctx, x.matched
 		out with-inner-pos ctx, pos, inner-pos =>
 			matched-type = x matched-integral-type
@@ -1396,7 +1394,7 @@ do
 					value.as-signed fits-in-int32
 				else
 					value.as-unsigned fits-in-nat32
-			assert ok : todo # If some values don't fit in 32 bits, we can't use a switch
+			assert ok : todo # If some values don't fit in 32 bits, we can't use a switch. Just use jumps instead. ----------------------------------
 			if l ?= x.else_?.local
 				out dup l.type.as-runtime-type
 				ctx pushed l.type
@@ -1419,13 +1417,14 @@ do
 			else
 				()
 			assert x.case-values is-sorted
+			int-values int32[] = for v : x.case-values; v.as-signed to
+			permutation = int-values get-sort-permutation
 			jump-to-case, jump-to-default = if x.case-values is-range
 				out tableswitch 0 .. x.case-values.size.to
 			else
-				out lookupswitch for value : x case-values
-					value.as-signed to
+				out lookupswitch do int-values apply-permutation permutation
 			ctx must-pop x.matched.type
-			for target, expr : jump-to-case zip x.case-exprs
+			for target, expr : jump-to-case zip do x.case-exprs apply-permutation permutation
 				target jumps-to-here out, ctx.cur-stack-frame
 				out emit-expr ctx, inner-pos, expr
 				ctx must-pop type
