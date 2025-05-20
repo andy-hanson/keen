@@ -104,6 +104,10 @@ do
 		elif ast.name-range has-pos pos
 			container position-spec-use spec_
 
+-position-in-opt-destructure position-kind?(ctx expr-ctx, a destructure?, ast destructure-ast?, pos pos)
+	guard x ?= a
+	guard y ?= ast
+	ctx position-in-destructure x, y, pos
 -position-in-destructure position-kind?(ctx expr-ctx, a destructure, ast destructure-ast, pos pos)
 	ctx.container.to position-in-destructure a, ast, pos
 -position-in-destructure position-kind?
@@ -554,25 +558,30 @@ do
 
 -position-at-match-enum position-kind?(ctx expr-ctx, a match-enum-expr, pos pos)
 	ctx position-at-match-keyword a, a.type, a.ast, pos ||
-	a.cases first-zip-if-size-eq a.ast.cases, (case_, case-ast) =>
-		if case-ast.keyword-and-member-name-range has-pos pos
-			case_.member position-match-enum-case
+	a.cases position-at-match-cases a.ast, pos, (x => x.member position-match-enum-case) ||
+	ctx position-in-opt-destructure a.else_?.destructure, a.ast.else_?.destructure, pos
 
 -position-at-match-integral position-kind?(ctx expr-ctx, a match-integral-expr, pos pos)
 	ctx position-at-match-keyword a, a.type, a.ast, pos ||
-	a.cases first-zip-if-size-eq a.ast.cases, (case_, case-ast) =>
-		if case-ast.keyword-and-member-name-range has-pos pos
-			a.integral-type position-match-integral-case case_.value
+	a.cases position-at-match-cases a.ast, pos, \
+		(x => a.integral-type position-match-integral-case x.value) ||
+	ctx position-in-opt-destructure a.else_.destructure, a.ast.else_?.destructure, pos
 
 -position-at-match-string-like position-kind?(ctx expr-ctx, a match-string-like-expr, pos pos)
 	ctx position-at-match-keyword a, a.type, a.ast, pos ||
-	a.cases first-zip-if-size-eq a.ast.cases, (case_, case-ast) =>
+	a.cases position-at-match-cases a.ast, pos, \
+		(x => (a.matched-type, ctx.container.to) position-match-string-like-case x.value) ||
+	ctx position-in-opt-destructure a.else_.destructure, a.ast.else_?.destructure, pos
+
+-position-at-match-cases[t] position-kind?(cases t[], ast match-ast,pos pos, get-position position-kind data(case_ t))
+	cases first-zip-if-size-eq ast.cases, (case_, case-ast) =>
 		if case-ast.keyword-and-member-name-range has-pos pos
-			(a.matched-type, ctx.container.to) position-match-string-like-case case_.value
+			get-position[case_]
 
 -position-at-match-sum-type position-kind?(ctx expr-ctx, a match-sum-type-expr, pos pos)
 	ctx position-at-match-keyword a, a.type, a.ast, pos ||
-	ctx position-at-match-sum-type-cases a.cases, a.ast.cases, pos
+	ctx position-at-match-sum-type-cases a.cases, a.ast.cases, pos ||
+	ctx position-in-opt-destructure a.else_?.destructure, a.ast.else_?.destructure, pos
 
 -position-at-match-sum-type-cases position-kind?
 	ctx expr-ctx
@@ -595,9 +604,7 @@ do
 	ast case-member-ast
 	pos pos
 do
-	if name ?= ast as-name-ast
-		if d ?= name destructure
-			ctx position-in-destructure destructure, d, pos
+	ctx position-in-opt-destructure destructure, ast.as-name-ast?.destructure, pos
 
 -position-at-match-keyword position-kind?
 	ctx expr-ctx
