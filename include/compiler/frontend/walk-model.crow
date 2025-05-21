@@ -7,8 +7,10 @@ import
 cb-thing alias
 	void mut(range source-range, kind reference-kind, x doc-comment-reference)
 reference-kind enum
-	| Reference is explicit
-	explicit
+	| Reference is explicit. We distinguish these if they are part of a declaration.
+	explicit-public
+	explicit-internal
+	explicit-private
 	| Function is used as a method implementation
 	sum-type-method-impl
 	| Function is called by an 'auto' fun
@@ -63,12 +65,21 @@ walk-module void(common-types common-types, module crow-module, f cb-thing)
 
 -walk-struct-alias void(a struct-alias, f cb-thing)
 	a.doc-comment walk-doc-comment f
-	a.ast.target walk-type a.target, f
+	a.ast.target walk-type a.target, a.visibility.explicit-kind-for-visibility, f
+
+-explicit-kind-for-visibility reference-kind(a visibility)
+	match a
+	as private
+		explicit-private
+	as internal
+		explicit-internal
+	as public
+		explicit-public
 
 -walk-struct-decl void(ctx walk-ctx, a struct-decl, f cb-thing)
 	guard ast ?= a.source struct-decl-ast
 	a.doc-comment walk-doc-comment f
-	ast.modifiers walk-struct-modifiers a.sum-type-memberships, f
+	ast.modifiers walk-struct-modifiers a, f
 	match ast body
 	as builtin-type-ast
 		()
@@ -79,159 +90,164 @@ walk-module void(common-types common-types, module crow-module, f cb-thing)
 	as record-ast x
 		x walk-record a.body.record_!, f
 	as sum-type-ast x
-		x walk-sum-type a.body.sum-type!, f
+		x walk-sum-type a.body.sum-type!, a.visibility, f
 
--walk-struct-modifiers void(modifiers modifier-ast[], memberships sum-type-membership[], f cb-thing)
+-walk-struct-modifiers void(modifiers modifier-ast[], struct struct-decl, f cb-thing)
 	case-modifiers modifier-keyword-ast[] = for mod : modifiers and-concat
 		guard k ?= mod modifier-keyword-ast
 		guard k.keyword == case_
 		k,
-	case-modifiers zip-if-size-eq memberships, (mod, x) =>
+	case-modifiers zip-if-size-eq struct.sum-type-memberships, (mod, x) =>
 		for opt : x method-impls
 			guard called ?= opt
 			called handle-call mod.range, (), sum-type-method-impl, f
-		mod.type-arg! walk-type x.sum-type, f
+		mod.type-arg! walk-type x.sum-type, struct.visibility.explicit-kind-for-visibility, f
 
 -walk-enum-storage void(ctx walk-ctx, modifiers modifier-ast[], storage-type integral-type, f cb-thing)
 	for mod : modifiers
 		guard kw ?= mod modifier-keyword-ast
 		guard kw.keyword == storage_
 		guard type-arg ?= kw type-arg
-		f[type-arg.range, explicit, ctx.common-types[storage-type].decl]
+		f[type-arg.range, explicit-private, ctx.common-types[storage-type].decl]
 
 -walk-record void(ast record-ast, record_ record_, f cb-thing)
 	if params ?= ast params
 		guard params-array ?= params array
 		for field-ast, field : params-array zip record_.fields
 			guard type-ast ?= field-ast.single-destructure-ast?.type
-			type-ast walk-type field.type, f
+			type-ast walk-type field.type, field.visibility.explicit-kind-for-visibility, f
 	else
 		for field-ast, field : ast.fields zip record_.fields
 			guard t ?= field-ast type
-			t walk-type field.type, f
+			t walk-type field.type, field.visibility.explicit-kind-for-visibility, f
 
--walk-sum-type void(ast sum-type-ast, a sum-type, f cb-thing)
+-walk-sum-type void(ast sum-type-ast, a sum-type, struct-visibility visibility, f cb-thing)
 	ast.types zip-if-size-eq a.listed-members, (type-ast, member) =>
-		type-ast walk-type member.member, f
+		type-ast walk-type member.member, struct-visibility.explicit-kind-for-visibility, f
+		for opt : member method-impls
+			guard called ?= opt
+			called handle-call type-ast.range, (), sum-type-method-impl, f
 	for method : a methods
-		method walk-signature f
+		method walk-signature struct-visibility, f
 
 -walk-var-decl void(a var-decl, f cb-thing)
 	a.doc-comment walk-doc-comment f
-	a.ast.type walk-type a.type, f
+	a.ast.type walk-type a.type, a.visibility.explicit-kind-for-visibility, f
 	a.initializer walk-expr f
 
 -walk-spec void(a spec-decl, f cb-thing)
 	a.doc-comment walk-doc-comment f
-	a.ast.modifiers walk-spec-uses a.body.parents, f
+	a.ast.modifiers walk-spec-uses a.body.parents, a.visibility, f
 	for sig : a sigs
-		sig walk-signature f
+		sig walk-signature a.visibility, f
 
--walk-spec-uses void(modifiers modifier-ast[], specs specs, f cb-thing)
+-walk-spec-uses void(modifiers modifier-ast[], specs specs, visibility visibility, f cb-thing)
 	modifiers.spec-uses zip-if-size-eq specs.inner, (mod, parent) =>
+		kind = visibility explicit-kind-for-visibility
 		if arg ?= mod type-arg
-			arg walk-type-args-may-unpack-tuple parent.type-args, f
-		f[mod.name-range, explicit, parent.decl]
+			arg walk-type-args-may-unpack-tuple parent.type-args, kind, f
+		f[mod.name-range, kind, parent.decl]
 
 -spec-uses spec-use-ast[](modifiers modifier-ast[])
 	for mod : modifiers and-concat
 		guard use ?= mod spec-use-ast
 		use,
 
--walk-signature void(a signature, f cb-thing)
+-walk-signature void(a signature, visibility visibility, f cb-thing)
 	a.doc-comment walk-doc-comment f
-	a.ast.return-type walk-type a.return-type, f
+	kind = visibility explicit-kind-for-visibility
+	a.ast.return-type walk-type a.return-type, kind, f
 	match a.ast params
 	as array params
 		for param-ast, param : params zip a.params
-			param-ast walk-destructure param, f
+			param-ast walk-destructure param, kind, f
 	as varargs-ast _
 		()
 
--walk-params void(ast params-ast, params params, f cb-thing)
+-walk-params void(ast params-ast, params params, kind reference-kind, f cb-thing)
 	match ast
 	as array asts
 		for x, y : asts zip params.params-array
-			x walk-destructure y, f
+			x walk-destructure y, kind, f
 	as varargs-ast x
-		x.param walk-destructure params.varargs!.param, f
+		x.param walk-destructure params.varargs!.param, kind, f
 
 walk-doc-comment void(a doc-comment, f cb-thing)
 	for name, ref : a.ast.references zip a.references
 		f[name.range, comment, ref]
 
--walk-type void(ast type-ast, type type, f cb-thing)
+-walk-type void(ast type-ast, type type, kind reference-kind, f cb-thing)
 	match type
 	as bogus-type _
 		()
 	as type-param-index x
-		f[ast.range, explicit, x]
+		f[ast.range, kind, x]
 	as struct-inst x
-		f[ast.name-range-or-range, explicit, x.decl]
-		ast walk-type-args x.type-args, f
--walk-type-args void(ast type-ast, type-args type-args, f cb-thing)
+		f[ast.name-range-or-range, kind, x.decl]
+		ast walk-type-args x.type-args, kind, f
+-walk-type-args void(ast type-ast, type-args type-args, kind reference-kind, f cb-thing)
 	match ast
 	as bogus-type-ast _
 		()
 	as fun-type-ast x
 		return-type, param-type = type-args only2
-		x.return-type walk-type return-type, f
-		x.params walk-fun-type-parameters param-type, f
+		x.return-type walk-type return-type, kind, f
+		x.params walk-fun-type-parameters param-type, kind, f
 	as map-type-ast x
 		guard type-args.size == 2
 		key, value = type-args only2
-		x.key walk-type key, f
-		x.value walk-type value, f
+		x.key walk-type key, kind, f
+		x.value walk-type value, kind, f
 	as name-and-range _
 		# For a type alias, 'typeArgs' may be non-empty as it comes from the alias' target type.
 		# But ignore them in any case.
 		()
 	as suffix-name-type-ast x
-		x.left walk-type-args-may-unpack-tuple type-args, f
+		x.left walk-type-args-may-unpack-tuple type-args, kind, f
 	as suffix-special-type-ast x
-		x.left walk-type-args-may-unpack-tuple type-args, f
+		x.left walk-type-args-may-unpack-tuple type-args, kind, f
 	as tuple-type-ast x
 		for member, arg : x.members zip type-args.inner
-			member walk-type arg, f
--walk-fun-type-parameters void(params-ast params-ast, params-type type, f cb-thing)
+			member walk-type arg, kind, f
+-walk-fun-type-parameters void(params-ast params-ast, params-type type, kind reference-kind, f cb-thing)
 	match params-ast
 	as array params
 		if p ?= params opt-only
-			p walk-destructure params-type, f
+			p walk-destructure params-type, kind, f
 		else
-			params walk-destructure-parts params-type, f
+			params walk-destructure-parts params-type, kind, f
 	as varargs-ast _
 		() # TODO ---------------------------------------------------------------------------------------------------------
--walk-type-args-may-unpack-tuple void(ast type-ast, type-args type-args, f cb-thing)
+-walk-type-args-may-unpack-tuple void(ast type-ast, type-args type-args, kind reference-kind, f cb-thing)
 	type-arg-asts type-ast[] = if type-args.size == 1
 		ast,
 	else
 		ast.tuple-type-ast! members
 	for member, arg: type-arg-asts zip type-args.inner
-		member walk-type arg, f
+		member walk-type arg, kind, f
 
--walk-destructure void(ast destructure-ast, destructure destructure, f cb-thing)
-	ast walk-destructure destructure.type, f
--walk-destructure void(ast destructure-ast, type type, f cb-thing)
+-walk-destructure void(ast destructure-ast, destructure destructure, kind reference-kind, f cb-thing)
+	ast walk-destructure destructure.type, kind, f
+-walk-destructure void(ast destructure-ast, type type, kind reference-kind, f cb-thing)
 	match ast
 	as single-destructure-ast x
 		if t ?= x type
-			t walk-type type, f
+			t walk-type type, kind, f
 	as void-destructure-ast _
 		()
 	as array parts
-		parts walk-destructure-parts type, f
--walk-destructure-parts void(parts destructure-ast[], type type, f cb-thing)
+		parts walk-destructure-parts type, kind, f
+-walk-destructure-parts void(parts destructure-ast[], type type, kind reference-kind, f cb-thing)
 	guard type !is-bogus
 	parts zip-if-size-eq type.struct-inst!.type-args.inner, (part, type-arg) =>
-		part walk-destructure type-arg, f
+		part walk-destructure type-arg, kind, f
 
 -walk-fun void(a fun-decl, f cb-thing)
 	guard ast ?= a.source fun-decl-ast
 	a.doc-comment walk-doc-comment f
-	ast.return-type walk-type a.return-type, f
-	ast.params walk-params a.params, f
-	ast.modifiers walk-spec-uses a.specs, f
+	ast.return-type walk-type a.return-type, a.visibility.explicit-kind-for-visibility, f
+	ast.params walk-params a.params, a.visibility.explicit-kind-for-visibility, f
+	ast.modifiers walk-spec-uses a.specs, a.visibility, f
 	match a body
 	as auto-fun af
 		for c : af members
@@ -257,11 +273,11 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 		as bogus-wrong-type-expr _
 			()
 		as call-expr x
-			x.called handle-call x.ast.name-range, x.ast.call-ast?.type-arg, explicit, f
+			x.called handle-call x.ast.name-range, x.ast.call-ast?.type-arg, explicit-private, f
 		as call-named-new-expr x
-			x.called handle-call x.ast.name-range, (), explicit, f # TODO: name-range doesn't make sense for named-new ........
+			x.called handle-call x.ast.name-range, (), explicit-private, f # TODO: name-range doesn't make sense for named-new ........
 		as call-option-expr x
-			x.called handle-call x.ast.name-range, x.ast.type-arg, explicit, f
+			x.called handle-call x.ast.name-range, x.ast.type-arg, explicit-private, f
 		as extern-expr _
 			()
 		as finally-expr _
@@ -270,9 +286,9 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 			x.ast.condition handle-condition x.condition, f
 		as lambda-expr x
 			unless x is-ignore
-				x.ast.param walk-destructure x.param, f
+				x.ast.param walk-destructure x.param, explicit-private, f
 		as let-expr x
-			x.ast.destructure walk-destructure x.destructure, f
+			x.ast.destructure walk-destructure x.destructure, explicit-private, f
 		as literal-float-expr _
 			()
 		as literal-integral-expr _
@@ -293,7 +309,7 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 			x.ast.condition handle-condition x.condition, f
 		as match-enum-expr x
 			x.ast.cases zip-if-size-eq x.cases, (case-ast, case_) =>
-				f[case-ast.name-range, explicit, case_.member]
+				f[case-ast.name-range, explicit-private, case_.member]
 		as match-integral-expr _
 			()
 		as match-string-like-expr _
@@ -311,7 +327,7 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 		as try-let-expr x
 			x.ast.catch-member handle-match-sum-type-case x.catch_, f
 		as typed-expr x
-			x.ast.type walk-type x.type, f
+			x.ast.type walk-type x.type, explicit-private, f
 
 -handle-call void(called called, range source-range, type-arg type-ast?, kind reference-kind, f cb-thing)
 	match called
@@ -320,7 +336,7 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 	as fun-inst inst
 		f[range, kind, inst.decl]
 		if x ?= type-arg
-			x walk-type-args-may-unpack-tuple called.fun-inst!.type-args, f
+			x walk-type-args-may-unpack-tuple called.fun-inst!.type-args, explicit-private, f
 		for impl : inst spec-impls
 			impl handle-call range, (), spec-impl, f
 	as called-spec-sig sig
@@ -338,12 +354,12 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 	as expr _
 		()
 	as unpack-option x
-		ast.unpack-option-ast!.destructure walk-destructure x.destructure, f
+		ast.unpack-option-ast!.destructure walk-destructure x.destructure, explicit-private, f
 
 -handle-match-sum-type-cases void(case-asts case-ast[], cases match-sum-type-case[], f cb-thing)
 	case-asts zip-if-size-eq cases, (case-ast, case_) =>
 		case-ast.member handle-match-sum-type-case case_, f
 -handle-match-sum-type-case void(ast case-member-ast, case_ match-sum-type-case, f cb-thing)
-	f[ast.name-range, explicit, case_.destructure.type.struct-inst!.decl]
+	f[ast.name-range, explicit-private, case_.destructure.type.struct-inst!.decl]
 	if destructure-ast ?= ast.as-name-ast?.destructure
-		destructure-ast walk-destructure case_.destructure, f
+		destructure-ast walk-destructure case_.destructure, explicit-private, f
