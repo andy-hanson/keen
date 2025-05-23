@@ -1,29 +1,26 @@
 import
-	../frontend/show-model
 	../model/concrete-model
 	../model/integral-values
 	../model/model
-	../model/show-concrete-model
 	../model/version-info
 	../util/enum-map
-	../util/full-index-map
 	../util/util
 
-check-concrete-program void(show-ctx show-ctx, types concrete-common-types, a concrete-program)
-	guard false # reducing code size -----------------------------------------------------------------------------------------------------------------------
-	ctx ctx = show-ctx, a, types
+check-concrete-program void(a concrete-program, types concrete-common-types)
+	ctx ctx = a, types
 	if a.target == java
-		# Java requires that union types be unique (TODO: we have 'switchable' for this, so don't need to check here?) ----------------
 		for struct : a all-non-extern-types
 			match struct body
 			as concrete-union u
-				for index, member : u.members with-index
-					assert (u.members index-of! member) == index : "Union {show-ctx show-concrete-type struct} has multiple members of type {show-ctx show-concrete-type member}" error
+				assert u.members are-unique
 			else
 				()
 	for fun : a all-non-extern-funs
 		if e ?= fun.body concrete-expr
 			ctx check-expr fun.return-type, e
+
+-are-unique[t] bool(a t[]) t key
+	a.to::(t set).size == a.size
 
 concrete-common-types record
 	bool concrete-type
@@ -49,7 +46,6 @@ concrete-common-types record
 	a.char-types[char8]
 
 -ctx record
-	show-ctx show-ctx # TODO: not used? -------------------------------------------------------------------------------------------
 	program concrete-program
 	types concrete-common-types
 
@@ -74,13 +70,8 @@ concrete-common-types record
 	as constant x
 		ctx.program.all-constants each-nested-constant type, x, (constant-type, c) =>
 			match c
-			as constant-record r
-				if _  ?= constant-type.body concrete-record
-					()
-				else
-					error log "Not a record: {ctx.show-ctx show-concrete-type constant-type}"
-					args = ctx.program.all-constants.records[constant-type]![r]
-					throw "Not a record: {ctx.show-ctx show-concrete-type constant-type} (has {args size} args)" error # TODO: make just an assert -----------------------------------------------------------------------
+			as constant-record _
+				assert _ ?= constant-type.body concrete-record
 			else
 				# TODO
 				()
@@ -278,7 +269,7 @@ do
 	as truncate-to-int64-from-float64
 		check[int64, float64]
 	as weak-ref-get
-		type is a.type.unwrap-weak-ref
+		type.unwrap-option-type is a.type.unwrap-weak-ref
 		ctx check-expr a.type, a
 	as weak-ref-new
 		a.type is type.unwrap-weak-ref
@@ -434,7 +425,8 @@ do
 		type is js-any
 		a, key = args only2
 		ctx check-expr js-any, a
-		ctx check-expr string, key
+		assert key.type is-js-key ctx.types
+		ctx check-expr key.type, key
 	as instanceof
 		type is bool
 		args.size is 2
@@ -442,7 +434,7 @@ do
 			ctx check-expr js-any, arg
 	as js-global
 		type is js-any
-		ctx check-expr string, args.only
+		args.size is 0
 	as less
 		type is bool
 		args.size is 2
@@ -462,7 +454,8 @@ do
 		type is void
 		a, key, value = args only3
 		ctx check-expr js-any, a
-		ctx check-expr string, key
+		assert key.type is-js-key ctx.types
+		ctx check-expr key.type, key
 		ctx check-expr value.type, value
 	as typeof
 		type is string
@@ -470,3 +463,6 @@ do
 	as undefined
 		type is js-any
 		assert args is-empty
+
+-is-js-key bool(a concrete-type, common-types concrete-common-types)
+	a == common-types.string || a is-nat64 || a is-float64

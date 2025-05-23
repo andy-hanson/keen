@@ -13,9 +13,9 @@ import
 	./parse-util
 	./token
 
-parse-file file-ast(uri uri, source string)
+parse-file file-ast(uri uri, source string, lcg line-and-column-getter)
 	start = perf-now
-	res = uri create-lexer source parse-file-inner
+	res = uri create-lexer source parse-file-inner lcg
 	start end-parse
 	res
 
@@ -211,7 +211,7 @@ do
 	initializer = lexer parse-fun-expr-body
 	doc-comment, (lexer range start), visibility, name, type-params, kind-pos, kind, type, modifiers, initializer
 
--parse-file-inner file-ast(lexer lexer)
+-parse-file-inner file-ast(lexer lexer, lcg line-and-column-getter)
 	module-doc-comment mut = lexer try-take-doc-comment
 	no-std_ = lexer try-take-token no-std_
 	lexer skip-blank-lines
@@ -251,4 +251,18 @@ do
 		else
 			lexer parse-spec-or-struct-or-fun-or-test specs, struct-aliases, structs, funs, tests, vars, doc-comment
 
-	lexer.finish-diagnostics, module-doc-comment, no-std_, imports, exports, regions.move-to, specs.move-to, struct-aliases.move-to, structs.move-to, funs.move-to, tests.move-to, vars.move-to
+	max-columns nat = 200 # TODO: CONFIGURABLE (and default should be more like 100)
+	for diag : lcg lines-over-n-columns max-columns
+		lexer add-diag diag.range, do diag.actual-columns parse-diag-line-too-long max-columns
+	parse-diagnostics: lexer finish-diagnostics
+	doc-comment: module-doc-comment
+	no-std_: no-std_
+	imports: imports
+	re-exports: exports
+	regions: regions move-to
+	specs: specs move-to
+	struct-aliases: struct-aliases move-to
+	structs: structs move-to
+	funs: funs move-to
+	tests: tests move-to
+	vars: vars move-to
