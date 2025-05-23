@@ -1,42 +1,64 @@
 import
 	crow/parse
+	crow/parse-command
 	../frontend/lang
 	../frontend/parse/lex-token
+	../model/model: build-target, java, js
 	../model/source-range
 	../model/uri
-	../model/version-info
 	../util/exit-code
 	../util/string-walker
 	../util/util
 	./command
 
-# TODO: this module should make use of crow's standard parse-command module instead of inventing its own! -----------------------------
+-os enum(posix, windows)
+-get-os os() trusted, summon
+	if extern windows
+		windows
+	else
+		posix
 
-parse-command command(cwd file-path, os os, args string[])
+parse-command command(cwd file-path, args string[]) summon
+	cwd parse-command-inner get-os, args
+
+parse-command-inner command(cwd file-path, os os, args string[])
 	arg0 string = args is-empty ? "" : args[0]
 	if arg0 ends-with ".crow"
 		main main-kind = (cwd parse-uri-with-cwd arg0) main-kind-main-function args[1 .. end].to
 		kind command-kind = main run-command ()
 		kind, ()
 	elif name ?= arg0 command-name
-		cwd parse-command-from-name os, name, args[1 .. end]
+		cwd parse-command-from-name os, name, args[1 .. end].to.parse-command
 	else
 		exit exit-code = arg0 == "help" || arg0 == "--help" ? ok : error
 		(help-all-text help-command exit), ()
 
--parse-command-from-name command(cwd file-path, os os, name command-name, args string array-view)
-	split = args split-args
-	if split help
-		(name.help-for-command help-command ok), split.options
+-parse-command-from-name command(cwd file-path, os os, name command-name, all-args parsed-command)
+	args, help, options = all-args extract-options
+	if help
+		(name.help-for-command help-command ok), options
 	else
 		diags diags = ()
-		res = cwd parse-command-kind os, name, split.args, diags
+		res = cwd parse-command-kind os, name, args, diags
 		if diags is-empty
-			res, split.options
+			res, options
 		else
 			show-diags string = "\n" join for x : diags; "{x}"
-			help string = "Command syntax error:\n{show-diags}\n{name help-for-command}"
-			(help help-command error), split.options
+			help-str string = "Command syntax error:\n{show-diags}\n{name help-for-command}"
+			(help-str help-command error), options
+
+-extract-options (parsed-command, bool, command-options)(a parsed-command)
+	args2, help = a extract "help"
+	args3, perf = args2 extract "perf"
+	- args3
+	- help !is-empty
+	- (perf !is-empty),
+
+-extract (parsed-command, string[]?)(a parsed-command, name symbol)
+	if value, rest ?= a.named try-remove name
+		(a.nameless, rest, a.after), value
+	else
+		a, ()
 
 -bogus command-kind()
 	"This should not appear" help-command error
@@ -95,8 +117,6 @@ parse-command command(cwd file-path, os os, args string[])
 	diag mut[]
 -diag union
 	build-out-bad-file-extension
-	build-out-bad-prefix
-	duplicate-part
 	expected-crow-uri
 	expected-crow-or-crow-config-uri
 	expected-nat
@@ -105,16 +125,11 @@ parse-command command(cwd file-path, os os, args string[])
 	parse-file-path
 	print-kind-invalid
 	redundant-part
-	run-arg-not-supported-in-node-js
-	run-kind-incompatible
-	run-optimize-needs-aot-or-jit
 	test-line-number-invalid
 	unexpected-part
 	unexpected-part-args
 	unexpected-before
 -build-out-bad-file-extension record(executable-extension symbol)
--build-out-bad-prefix record(prefix string)
--duplicate-part record(tag string)
 -expected-crow-uri record(actual string)
 -expected-crow-or-crow-config-uri record(actual string)
 -expected-nat record(actual string)
@@ -126,22 +141,15 @@ parse-command command(cwd file-path, os os, args string[])
 	redundant-tag string
 	| This causes {redundant-tag} to be redundant
 	other-tag string
--run-arg-not-supported-in-node-js record(arg string)
--run-kind-incompatible record(aot bool, jit bool, node-js bool)
--run-optimize-needs-aot-or-jit record
 -test-line-number-invalid record
--unexpected-part record(tag string)
--unexpected-part-args record(part args-part)
+-unexpected-part record(tag symbol)
+-unexpected-part-args record(tag symbol, args string[])
 -unexpected-before record(arg string)
 
 -show string(a diag)
 	match a
 	as build-out-bad-file-extension x
 		"Build output must be a '.c', '.java', '.js', or '{x.executable-extension}' file."
-	as build-out-bad-prefix x
-		"Unrecognized output prefix {x.prefix quote}. An output can start with 'js:' or 'node-js:'."
-	as duplicate-part x
-		"Argument {x.tag quote} appears twice."
 	as expected-crow-uri x
 		"Expected path to a '.crow' file, instead got {x.actual quote}."
 	as expected-crow-or-crow-config-uri x
@@ -150,7 +158,7 @@ parse-command command(cwd file-path, os os, args string[])
 		"Expected argument to be a natural number, instead got {x.actual quote}."
 	as expected-paths x
 		if tag ?= x tag
-			"Argument {tag} expects a list of paths."
+			"Argument '--{tag}' expects a list of paths."
 		else
 			"This command expects a list of paths."
 	as needs-single-path x
@@ -163,95 +171,75 @@ parse-command command(cwd file-path, os os, args string[])
 	as print-kind-invalid
 		"Not a valid print command."
 	as redundant-part x
-		"{x.redundant-tag quote} is redundant given {x.other-tag quote}."
-	as run-arg-not-supported-in-node-js x
-		"Running with node.js does not support the {x.arg quote} option."
-	as run-kind-incompatible x
-		kinds string[] = (x.aot ? ("--aot",))::string[] ~~ (x.jit ? ("--jit",)) ~~ (x.node-js ? ("--node-js",))
-		"Can not specify both {kinds join-with-commas-and-and}."
-	as run-optimize-needs-aot-or-jit
-		"'--optimize' must be combined with '--aot' or '--jit'."
+		"{x.redundant-tag quote} is redundant given '--{x other-tag}'."
 	as test-line-number-invalid
 		"Specifying a test line number only works when there is a single test file."
 	as unexpected-part x
-		"Unexpected argument {x.tag quote}."
+		"Unexpected argument '--{x tag}'."
 	as unexpected-part-args x
-		"Arugument {x.part.tag quote} is a flag and should not have any values (starting with {x.part.args[0] quote}."
+		"Argument '--{x tag}' is a flag and should not have any values (starting with {x.args[0] quote}."
 	as unexpected-before x
 		"Unexpected un-named argument {x.arg quote}."
-
--join-with-commas-and-and string(a string[])
-	if a.size == 2
-		"{a[0]} and {a[1]}"
-	else
-		with out : build
-			for i, x : a with-index
-				if i != 0
-					out ~~= i == a.size - 1 ? ", and " : ", "
-				out ~~= x
 
 -parse-command-kind command-kind
 	cwd file-path
 	os os
 	command-name command-name
-	args split-args
+	args parsed-command
 	diags diags
 do
 	match command-name
 	as build
 		cwd parse-build-command diags, os, args
 	as check
-		options = diags parse-check-options args.parts
-		diags expect-empty-after-dash-dash args.after-dash-dash
-		paths = cwd parse-root-uris diags, args.before-first-part
+		options = diags parse-check-options args.named
+		diags expect-empty-after-dash-dash args.after
+		paths = cwd parse-root-uris diags, args.nameless
 		paths check-command options.times
 	as document
-		diags expect-empty-parts args.parts
-		diags expect-empty-after-dash-dash args.after-dash-dash
-		cwd parse-root-uris diags, args.before-first-part document-command
+		diags expect-empty-parts args.named
+		diags expect-empty-after-dash-dash args.after
+		cwd parse-root-uris diags, args.nameless document-command
 	as lsp
 		diags expect-all-empty args
 		lsp-command
 	as print
 		cwd parse-print-command diags, args
 	as run
-		options = diags parse-run-options args.parts, false run-options
-		main = cwd parse-main-uri diags, args.before-first-part
-		main-kind main-kind = main main-kind-main-function (args.after-dash-dash?.to ?? ())
-		main-kind run-command options
+		options = diags parse-run-options args.named, false run-options
+		main = cwd parse-main-uri diags, args.nameless
+		main main-kind-main-function args.after run-command options
 	as test_
-		options = diags parse-run-options args.parts, true
-		diags expect-empty-after-dash-dash args.after-dash-dash
-		main = cwd parse-main-kind-for-test diags, args.before-first-part, options.all
+		options = diags parse-run-options args.named, true
+		diags expect-empty-after-dash-dash args.after
+		main = cwd parse-main-kind-for-test diags, args.nameless, options.all
 		main run-command options.run-options
 	as version
 		diags expect-all-empty args
 		version-command
 
--expect-all-empty void(diags diags, args split-args)
-	diags expect-empty-before args.before-first-part
-	diags expect-empty-parts args.parts
-	diags expect-empty-after-dash-dash args.after-dash-dash
--expect-empty-before void(diags diags, before string array-view)
+-expect-all-empty void(diags diags, args parsed-command)
+	diags expect-empty-before args.nameless
+	diags expect-empty-parts args.named
+	diags expect-empty-after-dash-dash args.after
+-expect-empty-before void(diags diags, before string[])
 	unless before is-empty
 		diags ~= before[0] unexpected-before
--expect-empty-parts void(diags diags, parts args-part[])
-	for part : parts
-		diags ~= part.tag unexpected-part
--expect-empty-after-dash-dash void(diags diags, after string array-view?)
-	if _ ?= after
+-expect-empty-parts void(diags diags, parts string[][symbol])
+	for tag, _ : parts
+		diags ~= tag unexpected-part
+-expect-empty-after-dash-dash void(diags diags, after string[])
+	unless after is-empty
 		diags ~= "--" unexpected-part
 
 default-executable-extension symbol(os os)
 	match os
-	as none
-		""
-	as linux
+	as posix
 		""
 	as windows
 		".exe"
 
--parse-main-kind-for-test main-kind(cwd file-path, diags diags, args string array-view, all bool)
+-parse-main-kind-for-test main-kind(cwd file-path, diags diags, args string[], all bool)
 	line nat? = if args.size == 2
 		args[1] parse-line
 	if args.size == 2 && line is-empty
@@ -276,7 +264,7 @@ default-executable-extension symbol(os os)
 -bogus main-kind()
 	() main-kind-tests-at-uri (), ()
 
--parse-main-uri uri(cwd file-path, diags diags, args string array-view)
+-parse-main-uri uri(cwd file-path, diags diags, args string[])
 	if arg ?= args opt-only
 		cwd parse-crow-uri diags, arg
 	else
@@ -298,24 +286,24 @@ default-executable-extension symbol(os os)
 	type = a file-type
 	type in (crow, crow-config)::file-type[]
 
--parse-root-uris uri[](cwd file-path, diags diags, args string array-view)
+-parse-root-uris uri[](cwd file-path, diags diags, args string[])
 	if args is-empty
 		diags ~= () expected-paths
 	for arg : args
 		cwd parse-crow-or-crow-config-uri diags, arg
 
--parse-print-command command-kind(cwd file-path, diags diags, args split-args)
-	diags expect-empty-parts args.parts
-	diags expect-empty-after-dash-dash args.after-dash-dash
-	kind = if args.before-first-part.size >= 2
-		args.before-first-part[0] parse-print-kind args.before-first-part[2 .. end]
+-parse-print-command command-kind(cwd file-path, diags diags, args parsed-command)
+	diags expect-empty-parts args.named
+	diags expect-empty-after-dash-dash args.after
+	kind = if args.nameless.size >= 2
+		args.nameless[0] parse-print-kind args.nameless[2 .. end].to
 	if k ?= kind
-		k print-command do cwd parse-crow-uri diags, args.before-first-part[1]
+		k print-command do cwd parse-crow-uri diags, args.nameless[1]
 	else
 		diags ~= print-kind-invalid
 		bogus
 
--parse-print-kind print-kind?(a string, args string array-view)
+-parse-print-kind print-kind?(a string, args string[])
 	match a
 	as ast
 		args expect-empty-args print-ast
@@ -329,10 +317,10 @@ default-executable-extension symbol(os os)
 				kind-at-pos print-ide-at-pos lc
 		elif kind-whole-file ?= a ide-whole-file-kind
 			args expect-empty-args kind-whole-file
--expect-empty-args print-kind?(args string array-view, x print-kind)
+-expect-empty-args print-kind?(args string[], x print-kind)
 	if args is-empty
 		x
--expect-line-and-column print-kind?(args string array-view, f print-kind data(x line-and-column))
+-expect-line-and-column print-kind?(args string[], f print-kind data(x line-and-column))
 	if lc ?= args.opt-only?.parse-line-and-column
 		f[lc]
 # TODO: INLINE ------------------------------------------------------------------------------------------------------------------------------
@@ -363,130 +351,100 @@ parse-line-and-column line-and-column?(a string) # TODO: make it neater using a 
 	if *a is-decimal-digit
 		a take-nat 10 value
 
--parse-build-command command-kind(cwd file-path, diags diags, os os, args split-args)
-	diags expect-empty-after-dash-dash args.after-dash-dash
+-parse-build-command command-kind(cwd file-path, diags diags, os os, args parsed-command)
+	diags expect-empty-after-dash-dash args.after
 	out mut single-build-output[] = ()
 	test_ mut = false
 	all mut = false
 	times mut nat = 1
-	diags warn-duplicates args.parts
-	for part : args parts
-		match part tag
-		as "--out"
-			# TODO: warn if we get this option twice ----------------------------------------------------------------------------
-			out := cwd parse-build-out os, diags, part
-		as "--test"
+	for part : args named
+		tag, values = part
+		match tag
+		as out
+			out := cwd parse-build-out os, diags, values
+		as "test"
 			diags expect-flag part
 			test_ := true
-		as "--all"
+		as all
 			diags expect-flag part
 			all := true
-		as "--times"
-			times := diags expect-nat part.args
+		as times
+			times := diags expect-nat part
 		else
-			diags ~= part.tag unexpected-part
+			diags ~= tag unexpected-part
 
 	if all && !test_
-		diags ~= "--all".unexpected-part
+		diags ~= "all" unexpected-part
 	
 	main main-kind = if test_
-		cwd parse-main-kind-for-test diags, args.before-first-part, all
+		cwd parse-main-kind-for-test diags, args.nameless, all
 	else
-		cwd parse-main-uri diags, args.before-first-part main-kind-main-function ()
+		cwd parse-main-uri diags, args.nameless main-kind-main-function ()
 	res-out single-build-output[] = if out is-empty
-		(java, (main default-executable-path-for-main cwd, os)),
+		- (main default-executable-path-for-main cwd, os), java
 	else
 		out
-	main build-command (res-out,), times
-
--warn-duplicates void(diags diags, parts args-part[])
-	seen string mut-set = ()
-	for part : parts
-		tag = part tag
-		if tag in seen
-			diags ~= tag duplicate-part
-		seen ~= tag
+	main build-command res-out, times
 
 -check-options record(times nat)
--parse-check-options check-options(diags diags, arg-parts args-part[])
+-parse-check-options check-options(diags diags, args string[][symbol])
 	times mut nat = 1
-	for part : arg-parts
-		match part tag
-		as "--times"
-			times := diags expect-nat part.args
+	for part : args
+		tag, _ = part
+		match tag
+		as times
+			times := diags expect-nat part
 		else
-			diags ~= part.tag unexpected-part
+			diags ~= tag unexpected-part
 	times,
 
 -run-options-and-all record(run-options run-options, all bool)
--parse-run-options run-options-and-all(diags diags, arg-parts args-part[], allow-all bool)
+-parse-run-options run-options-and-all(diags diags, args string[][symbol], allow-all bool)
 	all mut = false
-	diags warn-duplicates arg-parts
-	for part : arg-parts
-		match part tag
-		as "--all"
+	for part : args
+		tag, _ = part
+		match tag
+		as all
 			if allow-all
 				diags expect-flag part
 				all := true
 			else
-				diags ~= part.tag unexpected-part
+				diags ~= tag unexpected-part
 		else
-			diags ~= part.tag unexpected-part
+			diags ~= tag unexpected-part
 	(), all
 
--expect-nat nat(_ diags, args string array-view)
+-expect-nat nat(_ diags, (_ symbol, args string[]))
 	assert arg ?= args opt-only : todo # -------------------------------------------------------------------------------------------------------
 	try
 		nat parse arg
 	catch parse-error _
 		throw todo # -------------------------------------------------------------------------------------------------------
 
--expect-flag void(diags diags, part args-part)
-	unless part.args is-empty
-		diags ~= part unexpected-part-args
+-expect-flag void(diags diags, (tag symbol, args string[]))
+	unless args is-empty
+		diags ~= tag unexpected-part-args args
 
--parse-build-out single-build-output[](cwd file-path, os os, diags diags, part args-part)
-	if part.args is-empty
-		diags ~= part.tag expected-paths
+-parse-build-out single-build-output[](cwd file-path, os os, diags diags, args string[])
+	if args is-empty
+		diags ~= "out" expected-paths
 	with out : build
-		for arg : part args
+		for arg : args
 			out ~~= cwd parse-single-build-out os, diags, arg
 -parse-single-build-out single-build-output?(cwd file-path, os os, diags diags, arg string)
-	if prefix, rest ?= arg try-split-once ":"
-		path = diags parse-file-path-with-cwd-or-diag cwd, rest
-		if kind ?= prefix build-kind-from-prefix path.get-extension
-			kind, path
-		else
-			diags ~= prefix build-out-bad-prefix
-			()
+	path = diags parse-file-path-with-cwd-or-diag cwd, arg
+	if kind ?= path.get-extension build-kind-from-extension os
+		path, kind
 	else
-		path = diags parse-file-path-with-cwd-or-diag cwd, arg
-		if kind ?= path.get-extension build-kind-from-extension os
-			kind, path
-		else
-			diags ~= os.default-executable-extension build-out-bad-file-extension
-			()
-
--build-kind-from-prefix single-build-output-kind?(prefix string, extension symbol)
-	match prefix
-	as java
-		java
-	as js
-		if extension == ".js"
-			js-script
-		else
-			js-modules
-	as node-js
-		if extension == ".js"
-			node-js-script
-		else
-			node-js-modules
-	else
+		diags ~= os.default-executable-extension build-out-bad-file-extension
 		()
--build-kind-from-extension single-build-output-kind?(extension symbol, os os)
+
+-build-kind-from-extension build-target?(extension symbol, os os)
 	match extension
+	as ".jar"
+		java
 	as ".js"
-		js-script
+		js
 	else
 		if extension == os.default-executable-extension
 			java
@@ -505,59 +463,14 @@ parse-line-and-column line-and-column?(a string) # TODO: make it neater using a 
 default-executable-path file-path(base file-path, os os)
 	base alter-extension os.default-executable-extension
 
--args-part record
-	tag string # TODO: the code would be more readable if this did not start with "--" ----------------------------------------
-	args string array-view
-
--split-args record
-	before-first-part string array-view
-	parts args-part[]
-	| After seeing a '--' we stop parsing and just return the rest raw.
-	after-dash-dash string array-view?
-
--split-args-and-options record
-	args split-args
-	options command-options
-	help bool
-
--split-args split-args-and-options(args string array-view)
-	if first-arg-index ?= args find-index arg => arg starts-with "--"
-		before-args = args[0 .. first-arg-index]
-		dash-dash = args[first-arg-index .. end] index-of "--"
-		before-dash-dash string array-view, after-dash-dash string array-view? = if x ?= dash-dash
-			args[first-arg-index .. first-arg-index + x], args[first-arg-index + x .. end]
-		else
-			args[first-arg-index .. end], ()
-		named-args = before-dash-dash split-named-args
-		(before-args, named-args.parts, after-dash-dash), named-args.options, named-args.help
-	else
-		(args, (), ()), (), ()
-
--named-args record
-	parts args-part[]
-	options command-options
-	help bool
--split-named-args named-args(args string array-view)
-	help mut = false
-	perf mut = false
-	parts args-part[] = with out : build
-		assert args is-empty || args[0] starts-with "--"
-		cur-part-start mut nat? = ()
-		finish-part void mut(i nat) = i =>
-			if x ?= cur-part-start
-				out ~= args[x], args[x + 1 .. i]
-				cur-part-start := ()
-		for i, arg : args with-index
-			guard arg starts-with "--"
-			finish-part[i]
-			if arg == "--help"
-				help := true
-			elif arg == "--perf"
-				perf := true
-			else
-				cur-part-start := i
-		finish-part[args size]
-	parts, (perf,), help
+-main-uri-for-all-args uri(a main-kind)
+	match a
+	as main-kind-main-function x
+		x uri
+	as main-kind-tests-in-config x
+		x config-uri
+	as main-kind-tests-at-uri x
+		x crow-uri
 
 -help-all-text string()
 	commands string = "" join for name : members::command-name[]

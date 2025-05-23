@@ -16,7 +16,6 @@ import
 	../model/parse-diag
 	../model/source-range
 	../model/uri
-	../model/version-info
 	../util/exit-code
 	../util/perfhax
 	./command
@@ -27,7 +26,7 @@ main nat(args string[]) summon
 	start = perf-now
 	cwd = cwd
 	this-executable = this-executable # TODO: just move to where its' used? -----------------------------------------------------
-	command = cwd parse-command get-os, args
+	command = cwd parse-command args
 	server-settings server-settings =
 		include-dir: this-executable.get-crow-include-dir to
 		cwd: cwd to
@@ -153,8 +152,8 @@ main nat(args string[]) summon
 do summon
 	match command
 	as build-command x
-		server with-program-for-main x.main, x.targets-for-build, program =>
-			server build-all-outputs x.options, x.times, program
+		server with-program-for-main x.main, (for t : x out; t kind), program =>
+			server build-all-outputs x.out, x.times, program
 	as check-command x
 		for _ : 0::nat .. x.times
 			server with-program-for-roots x.root-uris, program =>
@@ -218,47 +217,27 @@ do summon
 
 -build-all-outputs void
 	server server
-	options crow-build-options
+	outputs single-build-output[]
 	times nat
 	program program-with-main
 do summon
-	build-js-script void mut(path file-path, target js-target) = (path, target) =>
-		server write-to-js program, path, target, true
-	
-	for out : options out
-		match out kind
+	for x : outputs
+		match x kind
 		as java
-			out.path write-jar do server build-to-java program, times
-		# TODO: NEATER -- just have node-ness be a flag ------------------------------------------------------------------------
-		as js-modules # TODO: remove this option ----------------------------------------------------------------------------------------
-			throw todo
-		as js-script
-			build-js-script[out.path, browser]
-		as node-js-modules # TODO: remove this option ----------------------------------------------------------------------------------------
-			throw todo
-		as node-js-script
-			build-js-script[out.path, node]
-	
-# TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
+			x.path write-jar do server build-to-java program, times
+		as js
+			server write-to-js program, x.path, true
+
 -write-to-js void
 	server server
 	program program-with-main
 	out-file file-path
-	target js-target
 	include-source-map bool
 do summon
 	source-map-path file-path? = if include-source-map
 		out-file add-extension ".map"
-	result = server build-to-js program, target, source-map-path?.base-name
-	main-permissions permissions =
-		read: true
-		write: true
-		execute: match target
-		as browser
-			false
-		as node
-			true
-	out-file write-file result.js, main-permissions, allow
+	result = server build-to-js program, source-map-path?.base-name
+	out-file write-file result.js, all, allow
 	if map ?= source-map-path
 		map write-file result.map!, read-write, allow
 
@@ -266,7 +245,7 @@ do summon
 -with-program-for-main void
 	server server
 	main main-kind
-	targets build-target[]
+	targets build-target set
 	f void mut(x program-with-main)
 do summon
 	server load-all-files-for-main main

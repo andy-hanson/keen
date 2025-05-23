@@ -19,10 +19,10 @@ test: unit-test end-to-end-test
 
 unit-test: unit-test-java unit-test-js
 unit-test-java: bin/crow $(all_include)
-	bin/crow build include/crow-config.json --test --out java:bin/test
+	bin/crow build include/crow-config.json --test --out bin/test
 	bin/test
 unit-test-js: bin/crow $(all_include)
-	bin/crow build include/crow-config.json --test --out node-js:bin/test.js
+	bin/crow build include/crow-config.json --test --out bin/test.js
 	bin/test.js
 
 end-to-end-test: bin/crow
@@ -56,7 +56,7 @@ check:
 	bin/crow-lkg check include/crow-config.json
 
 bin/crow: $(all_include_crow) $(all_include_compiler) include/compiler/backend/java/lib/Crow.class bin/imports/date.txt bin/imports/commit-hash.txt
-	bin/crow-lkg build include/compiler/app/main.crow --out java:bin/crow-tmp
+	bin/crow-lkg build include/compiler/app/main.crow --out bin/crow-tmp
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
 	mv bin/crow-tmp bin/crow
 
