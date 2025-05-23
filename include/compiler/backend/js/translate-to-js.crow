@@ -8,6 +8,7 @@ import
 	../../model/uri
 	../../util/full-index-map
 	../../util/util
+	../java/util
 	./js-ast
 	./mangle-for-js
 	./source-map
@@ -65,8 +66,8 @@ do
 	###
 	source = ctx source main
 	process = source gen-global "process"
-	process-argv = source gen-property-access process, "argv".no-prefix
-	process-argv-slice = source gen-call-property-sync process-argv, "slice".no-prefix, ((source gen-number64 2),)
+	process-argv = source gen-property-access process, "argv"
+	process-argv-slice = source gen-call-property-sync process-argv, "slice", ((source gen-number64 2),)
 	call-main = source gen-call-sync (ctx to-ref source, main), (process-argv-slice,)
 	
 	exit js-name = "exit" no-prefix
@@ -74,11 +75,11 @@ do
 	get-exit = source gen-identifier exit
 	Number = source gen-global "Number"
 	number-exit = source gen-call-sync Number, (get-exit,)
-	call-exit = source gen-call-property-sync process, "exit".no-prefix, (number-exit,)
-	exit-neq-0 = source gen-not-eq-eq get-exit, (source gen-integer-unsigned 0)
+	call-exit = source gen-call-property-sync process, "exit", do number-exit,
+	exit-neq-0 = source gen-not-eq-eq get-exit, do source gen-number64 0
 	body js-statement = source gen-if exit-neq-0, call-exit.expr-statement.to
 	fn = source gen-arrow-function sync, params, body.to
-	source gen-call-property-sync call-main, "then".no-prefix, (fn,) expr-statement
+	source gen-call-property-sync call-main, "then", (fn,) expr-statement
 
 # TODO: this does expose the URIs on the build machine ......................................................................
 -module-paths module-paths(program program-with-main)
@@ -106,12 +107,12 @@ do
 	match a body
 	as concrete-builtin-type x
 		source gen-assert-builtin-type get, x
-	as concrete-enum _
-		source gen-assert-integral get
+	as concrete-enum x
+		source gen-assert-integral x.storage_, get
 	as struct-body-extern-java _
 		throw unreachable
-	as concrete-flags _
-		source gen-assert-integral get
+	as concrete-flags x
+		source gen-assert-integral x.storage_, get
 	as concrete-record _
 		unless a is-empty-type
 			source gen-assert-instanceof get, (ctx js-name a)
@@ -125,8 +126,6 @@ do
 		source gen-assert-instanceof get, x.no-prefix
 	typeof js-statement? mut(x string) = x =>
 		source gen-assert-typeof get, x
-	integral js-statement? mut() = () =>
-		typeof["bigint"]
 	match a kind
 	as array
 		# TODO: we could use Uint8Array for `nat8[]`s or `char8[]`s to improve performance for those.
@@ -134,9 +133,9 @@ do
 	as bool
 		typeof["boolean"]
 	as char8
-		integral[]
+		typeof["number"]
 	as char32
-		integral[]
+		typeof["number"]
 	as float32
 		typeof["number"]
 	as float64
@@ -144,13 +143,13 @@ do
 	as future
 		instanceof["Promise"]
 	as int8
-		integral[]
+		typeof["number"]
 	as int16
-		integral[]
+		typeof["number"]
 	as int32
-		integral[]
+		typeof["number"]
 	as int64
-		integral[]
+		typeof["bigint"]
 	as js-any
 		()
 	as fun-data
@@ -162,13 +161,13 @@ do
 	as mut-slice
 		instanceof["Array"]
 	as nat8
-		integral[]
+		typeof["number"]
 	as nat16
-		integral[]
+		typeof["number"]
 	as nat32
-		integral[]
+		typeof["number"]
 	as nat64
-		integral[]
+		typeof["bigint"]
 	as option
 		# TODO: for most types, we could represent this as `t` or `null`.
 		# The exceptions would be options of 'js-any' or of other options.
@@ -184,17 +183,17 @@ do
 		source gen-or is-instance, do source gen-eq-eq-eq get, source.gen-null # TODO: Allowing null is usually wrong. I think I added it because gc-safe-value could be null...
 -gen-assert-typeof js-statement(source source, get js-expr, type string)
 	source gen-assert (source gen-eq-eq-eq (source gen-typeof get), (source gen-string type))
--gen-assert-integral js-statement(source source, get js-expr)
-	source gen-assert-typeof get, "bigint"
+-gen-assert-integral js-statement(source source, type integral-type, get js-expr)
+	source gen-assert-typeof get, do type is-64-bit ? "bigint" : "number"
 -gen-assert js-statement(source source, expr js-expr)
 	cond = source gen-not expr
 	source gen-if cond, source.gen-throw-error.to
 -gen-throw-error js-statement(source source)
-	Error = source gen-identifier "Error".no-prefix
+	Error = source gen-global "Error"
 	thrown = source gen-new Error, ()
 	source gen-throw thrown
 -throw-message js-statement(source source, message string)
-	Error = source gen-identifier "Error".no-prefix
+	Error = source gen-global "Error"
 	string = source gen-string message
 	thrown = source gen-new Error, (string,)
 	source gen-throw thrown
@@ -266,10 +265,10 @@ do
 		for index, value : identifiers with-index
 			out ~~= check-field[index, value]
 		for name, identifier : names zip identifiers
-			this_x = source gen-property-access this, name.no-prefix
+			this_x = source gen-property-access this, name
 			out ~= source gen-assign this_x, identifier
 	kind = sync js-class-method params.to, statements.to
-	source, instance, "constructor".no-prefix, kind
+	source, instance, "constructor", kind
 
 -js-name js-name(ctx to-js-ctx, fun concrete-fun)
 	ctx.mangled-names[fun] no-prefix
@@ -373,7 +372,7 @@ do
 do
 	match fun
 	as builtin-unary x
-		ctx translate-builtin-unary type, source, x, type-args, do ctx to-js-expr args.only
+		ctx translate-builtin-unary type, source, x, type-args, args.only
 	as builtin-binary x
 		arg0, arg1 = args only2
 		source translate-builtin-binary type, x, do (ctx to-js-expr arg0), (ctx to-js-expr arg1)
@@ -392,18 +391,19 @@ do
 	as js-fun x
 		ctx translate-js-fun source, x, type, args
 
--translate-builtin-unary js-expr-or-block-statement(ctx to-expr-ctx, type concrete-type, source source, a builtin-unary, type-args concrete-type[], arg js-expr)
+-translate-builtin-unary js-expr-or-block-statement(ctx to-expr-ctx, type concrete-type, source source, a builtin-unary, type-args concrete-type[], arg-expr concrete-expr)
+	arg-type = arg-expr type
+	arg = ctx to-js-expr arg-expr
 	unary js-expr mut(op js-unary-kind) = op =>
 		source gen-unary op, arg
 	match a
 	as array-size
 		# BigInt(arg.length)
 		BigInt = source gen-global "BigInt"
-		length = source gen-property-access arg, "length".no-prefix
+		length = source gen-property-access arg, "length"
 		source gen-call-sync BigInt, (length,)
 	as bits-of-float32
-		number = source gen-convert 4, "Float32Array", "Uint32Array", arg
-		source gen-call-sync (source gen-global "BigInt"), (number,)
+		source gen-convert 4, "Float32Array", "Uint32Array", arg
 	as bits-of-float64
 		source gen-convert 8, "Float64Array", "BigInt64Array", arg
 	as bitwise-not
@@ -420,7 +420,7 @@ do
 		number-arg = source gen-call-sync Number, (arg,)
 		array = source gen-call-sync Array, (number-arg,)
 		elem = ctx.ctx translate-constant source, type-args.only, constant-gc-safe-value
-		source gen-call-property-sync array, "fill".no-prefix, (elem,)
+		source gen-call-property-sync array, "fill", (elem,)
 	as not
 		source gen-not arg
 	as reinterpret-cast
@@ -443,27 +443,39 @@ do
 		const got = arg?.get()
 		return new Option(got === undefined ? 0 : 1, got)
 		###
-		arg-get js-expr = source gen-optional-call-property-sync arg, "deref".no-prefix, ()
+		arg-get js-expr = source gen-optional-call-property-sync arg, "deref", ()
 		ctx with-temp "got", source, arg-get, got =>
 			got-eq-undefined = source gen-eq-eq-eq got, source.gen-undefined
-			zero = source gen-integer-unsigned 0
-			one = source gen-integer-unsigned 1
+			zero = source gen-number64 0
+			one = source gen-number64 1
 			index = source gen-ternary got-eq-undefined, zero, one
 			option = ctx to-ref source, type
-			(source gen-return (source gen-new option, (index, got))),
+			- source gen-return do source gen-new option, do index, got
 	as weak-ref-new
 		WeakRef = source gen-global "WeakRef"
-		source gen-new WeakRef, (arg,)
+		source gen-new WeakRef, do arg,
 	as wrap-convert-integral
-		# TODO: for a strictly widening conversion with same sign (e.g. nat8 to nat16) we could omit this -----------------------------------------------------
-		source gen-as-integral type.as-integral-type-allow-char!, arg
+		out = type as-integral-type-allow-char!
+		in = arg-type as-integral-type-allow-char!
+		source gen-as-integral out, if in is-64-bit
+			if out is-64-bit
+				arg
+			else
+				source gen-call-sync (source gen-global "Number"), (arg,)
+		else
+			if out is-64-bit
+				source gen-call-sync (source gen-global "BigInt"), (arg,)
+			else
+				arg
 
 -gen-array-from js-expr(source source, arg js-expr)
-	source gen-call-property-sync (source gen-global "Array"), "from".no-prefix, (arg,)
+	source gen-call-property-sync (source gen-global "Array"), "from", (arg,)
 
 -translate-builtin-binary js-expr-or-block-statement(source source, type concrete-type, a builtin-binary, (arg0 js-expr, arg1 js-expr))
 	binary js-expr data(op js-binary-kind) = op =>
 		source gen-binary op, arg0, arg1
+	Object-is js-expr data() = () =>
+		source gen-call-property-sync (source gen-global "Object"), "is", do arg0, arg1
 	match a
 	as add-float
 		match type as-float-type!
@@ -481,7 +493,7 @@ do
 	as bitwise-xor
 		binary[bitwise-xor]
 	as equal
-		source gen-call-property-sync (source gen-global "Object"), "is".no-prefix, (arg0, arg1)
+		Object-is[]
 	as equal-float-ieee
 		binary[eq-eq-eq]
 	as less
@@ -495,7 +507,7 @@ do
 		as float64
 			binary[times]
 	as reference-equal
-		binary[eq-eq-eq]
+		Object-is[]
 	as sub-float
 		match type as-float-type!
 		as float32
@@ -503,9 +515,9 @@ do
 		as float64
 			binary[minus]
 	as unsafe-bit-shift-left-nat64
-		source gen-as-nat 64, binary[bit-shift-left]
+		source gen-as-nat64 binary[bit-shift-left]
 	as unsafe-bit-shift-right-nat64
-		source gen-as-nat 64, binary[bit-shift-right]
+		source gen-as-nat64 binary[bit-shift-right]
 	as unsafe-div
 		if f ?= type as-float-type
 			match f
@@ -549,7 +561,7 @@ do
 	binary js-expr mut(kind js-binary-kind) = kind =>
 		source gen-binary kind, only2-args[]
 	prop01 js-expr mut() = () =>
-		source gen-property-access-computed (ctx to-js-expr args[0]), do ctx to-js-key args[1]
+		ctx property-access source, args[0], args[1]
 	match a
 	as as-js-any
 		only-arg[]
@@ -574,6 +586,9 @@ do
 	as get
 		args.size is 2
 		prop01[]
+	as import_
+		arg = source convert-to-js-string only-arg[]
+		source gen-call-sync (source gen-global "import"), (arg,) # TODO: 'import' should be its own kind of experssion ........
 	as instanceof
 		binary[instanceof]
 	as js-global
@@ -595,9 +610,6 @@ do
 		source gen-null
 	as plus
 		binary[plus]
-	as require
-		arg = source convert-to-js-string only-arg[]
-		source gen-call-sync (source gen-global "require"), (arg,)
 	as set
 		args.size is 3
 		source gen-assign prop01[], (ctx to-js-expr args[2]) to
@@ -605,6 +617,9 @@ do
 		ctx.ctx to-string-from-js-string return-type, source, unary[typeof]
 	as undefined
 		source gen-undefined
+
+-property-access js-expr(ctx to-expr-ctx, source source, object concrete-expr, key concrete-expr)
+	source gen-property-access-computed (ctx to-js-expr object), do ctx to-js-key key
 
 -to-js-key js-expr(ctx to-expr-ctx, arg concrete-expr)
 	if arg.type is-nat64 || arg.type is-float64
@@ -633,14 +648,10 @@ do
 	source gen-new (ctx to-ref source, string), (chars,)
 
 -convert-to-char8-array-from-js-string js-expr(source source, arg js-expr)
-	# TODO: just have this call 'string-of-js-string' from string.crow! ------------------------------------------------------
-	# new string(Array.from(new TextEncoder().encode(arg)).map(BigInt))
-	BigInt = source gen-global "BigInt"
+	# Array.from(new TextEncoder().encode(arg))
 	TextEncoder = source gen-global "TextEncoder"
 	text-encoder = source gen-new TextEncoder, ()
-	encoded = source gen-call-property-sync text-encoder, "encode".no-prefix, (arg,)
-	array = source gen-array-from encoded
-	source gen-call-property-sync array, "map".no-prefix, (BigInt,)
+	source gen-array-from do source gen-call-property-sync text-encoder, "encode", (arg,)
 
 -convert-to-js-string js-expr(source source, arg js-expr)
 	# TODO: just have this call 'to-js-string' from string.crow! ------------------------------------------------------------------
@@ -649,10 +660,10 @@ do
 	TextDecoder = source gen-global "TextDecoder"
 	Uint8Array = source gen-global "Uint8Array"
 	text-decoder = source gen-new TextDecoder, ()
-	chars = source gen-property-access arg, "chars".no-prefix
-	numbers = source gen-call-property-sync chars, "map".no-prefix, (Number,)
+	chars = source gen-property-access arg, "chars"
+	numbers = source gen-call-property-sync chars, "map", (Number,)
 	array = source gen-new Uint8Array, (numbers,)
-	source gen-call-property-sync text-decoder, "decode".no-prefix, (array,)
+	source gen-call-property-sync text-decoder, "decode", (array,)
 
 -to-js-expr js-expr(ctx to-expr-ctx, a concrete-expr)
 	ctx to-expr (ctx source a), (ctx to-expr-or-block-statement a)
@@ -697,9 +708,9 @@ do
 				fn js-expr = source, arrow
 				match async
 				as sync
-					source gen-call-property-sync input-expr, "map".no-prefix, (fn,)
+					source gen-call-property-sync input-expr, "map", (fn,)
 				as async
-					map = source gen-call-property-sync (source gen-global "Array"), "fromAsync".no-prefix, (input-expr, fn)
+					map = source gen-call-property-sync (source gen-global "Array"), "fromAsync", (input-expr, fn)
 					source gen-await map
 			as void
 				local js-name = ctx local-or-ignore-name x.local
@@ -727,7 +738,7 @@ do
 				get-start = source gen-identifier start-name
 				out-name js-name = temp, "out", ctx.take-next-temp-index
 				get-out = source gen-identifier out-name
-				range-destructure js-object-destructure = ((low.debug-name.to.no-prefix, start-name), (high.debug-name.to.no-prefix, end-name)),
+				range-destructure js-object-destructure = ((low.debug-name.to, start-name), (high.debug-name.to, end-name)),
 				declare-start-end = source gen-const range-destructure, (ctx to-js-expr x.input)
 				Array = source gen-global "Array"
 				Number = source gen-global "Number"
@@ -740,12 +751,12 @@ do
 						out ~= source gen-const (ctx local-name l), get-cur
 					out-at-index = source gen-property-access-computed get-out, (source gen-minus get-cur, get-start)
 					out ~= source gen-assign out-at-index, (ctx to-js-expr x.body)
-					out ~= source gen-increment-integer cur-name
+					out ~= source gen-increment-bigint cur-name
 				while_ = source gen-while cur-less-end, body.to
 				return-out = source gen-return get-out
 				(declare-start-end, declare-out, declare-cur, while_, return-out) js-block-statement
 			as void
-				range-destructure js-object-destructure = ((low.debug-name.to.no-prefix, cur-name), (high.debug-name.to.no-prefix, end-name)),
+				range-destructure js-object-destructure = ((low.debug-name.to, cur-name), (high.debug-name.to, end-name)),
 				declare-cur-end = source gen-let range-destructure, (ctx to-js-expr x.input)
 				###
 				let { low: cur, high:end } = range
@@ -758,7 +769,7 @@ do
 					if l ?= x local
 						out ~= source gen-const (ctx local-name l), get-cur
 					out ~~= ctx to-block-statement x.body statements
-					out ~= source gen-increment-integer cur-name
+					out ~= source gen-increment-bigint cur-name
 				while_ = source gen-while cur-less-end, body.to
 				(declare-cur-end, while_) js-block-statement
 	as builtin-concrete-expr x
@@ -788,7 +799,7 @@ do
 	as create-union-concrete-expr x
 		# new U(index, value)
 		union_ = ctx to-ref source, type
-		index = source gen-integer-unsigned x.member-index
+		index = source gen-number64 x.member-index.to
 		value = ctx to-js-expr x.arg
 		source gen-new union_, (index, value)
 	as drop-concrete-expr x
@@ -857,13 +868,9 @@ do
 		source.gen-continue to
 	as match-enum-or-integral-concrete-expr x
 		ctx with-temp-or-local "matched", x.matched, x.else_?.local, matched =>
-			is-signed = x.matched-integral-type is-signed
 			cases js-switch-case[] = for value, expr : x.case-values zip x.case-exprs
-				integer = if is-signed
-					source gen-integer-signed value.as-signed
-				else
-					source gen-integer-unsigned value.as-unsigned
-				integer, (source maybe-break-switch-case type, (ctx to-block-statement expr))
+				- source constant-integral x.matched-integral-type, value
+				- source maybe-break-switch-case type, do ctx to-block-statement expr
 			- source gen-switch matched, cases, if e ?= x else_
 				ctx to-block-statement e.expr
 			else
@@ -895,7 +902,7 @@ do
 		}
 		###
 		ctx with-temp-or-local "matched", x.matched, x.else_?.local, matched =>
-			index = source gen-property-access matched, "index".no-prefix
+			index = source gen-property-access matched, "index"
 			cases js-switch-case[] = for member-index, case_ : x.member-indices zip x.cases
 				ctx translate-case type, source, member-index, case_, matched
 			- source gen-switch index, cases, if e ?= x else_
@@ -903,11 +910,11 @@ do
 			else
 				source.throw-unreachable to
 	as record-field-get-concrete-expr x
-		source gen-property-access (ctx to-js-expr x.record_), x.field.debug-name.to.no-prefix
+		source gen-property-access (ctx to-js-expr x.record_), x.field.debug-name.to
 	as record-field-set-concrete-expr x
 		record_ = ctx to-js-expr x.record_
 		value = ctx to-js-expr x.value
-		access = source gen-property-access record_, x.field.debug-name.to.no-prefix
+		access = source gen-property-access record_, x.field.debug-name.to
 		source gen-assign access, value to
 	as seq-concrete-expr x
 		:: js-block-statement
@@ -925,10 +932,10 @@ do
 		source gen-assign (ctx to-ref source, x.var), (ctx to-js-expr x.value) to
 	as union-as-concrete-expr x
 		union_ = ctx to-js-expr x.union_
-		source gen-property-access union_, "value".no-prefix
+		source gen-property-access union_, "value"
 	as union-kind-concrete-expr x
 		union_ = ctx to-js-expr x.union_
-		source gen-property-access union_, "index".no-prefix
+		source gen-property-access union_, "index"
 
 -translate-try js-block-statement(ctx to-expr-ctx, source source, type concrete-type, a try-concrete-expr)
 	###
@@ -964,7 +971,7 @@ do
 		source gen-throw get-error to
 	exception = ctx to-ref source, ctx.ctx.exception
 	instanceof-exception = source gen-instanceof get-error, exception
-	error-index = source gen-property-access get-error, "index".no-prefix
+	error-index = source gen-property-access get-error, "index"
 	cases js-switch-case[] = for member-index, case_ : a.exception-member-indices zip a.catch-cases
 		ctx translate-case type, source, member-index, case_, get-error
 	switch = source gen-switch error-index, cases, default
@@ -978,8 +985,8 @@ do
 	throw-error = source gen-throw get-error
 	exception = ctx to-ref source, ctx.ctx.exception
 	instanceof-exception = source gen-instanceof get-error, exception
-	error-index = source gen-property-access get-error, "index".no-prefix
-	error-value = source gen-property-access get-error, "value".no-prefix
+	error-index = source gen-property-access get-error, "index"
+	error-value = source gen-property-access get-error, "value"
 	local js-name? = if l ?= a local
 		ctx local-name l
 	let-local js-statement[] = if l ?= local
@@ -995,7 +1002,7 @@ do
 			ctx to-block-statement a.value statements
 		if x ?= ok
 			out ~= source gen-assign x, (source gen-bool true)
-	index-matches = source gen-eq-eq-eq error-index, (source gen-integer-unsigned a.exception-member-index.as-unsigned)
+	index-matches = source gen-eq-eq-eq error-index, do source gen-number64 a.exception-member-index.as-unsigned.to
 	is-caught-error = source gen-and instanceof-exception, index-matches
 	###
 	x = try value catch err local : catch_
@@ -1033,8 +1040,8 @@ do
 	case_ concrete-local-and-expr
 	matched js-expr
 do
-	matched-value = source gen-property-access matched, "value".no-prefix
-	value = source gen-integer-unsigned member-index.as-unsigned
+	matched-value = source gen-property-access matched, "value"
+	value = source gen-number64 member-index.as-unsigned.to
 	then = ctx to-block-statement-with-root-local source, matched-value, case_
 	value, do source maybe-break-switch-case type, then
 -to-block-statement-with-root-local js-block-statement
@@ -1112,7 +1119,7 @@ do
 			# new U(index, value)
 			uv = ctx.program.all-constants.unions[type]![constant]
 			case-type = u.members[uv member-index]
-			index = source gen-integer-unsigned uv.member-index
+			index = source gen-number64 uv.member-index.to
 			value = ctx translate-constant source, case-type, uv.member
 			source gen-new (ctx to-ref source, type), (index, value)
 		as constant-gc-safe-value
@@ -1187,17 +1194,26 @@ do
 		source gen-null
 
 -constant-integral js-expr(source source, type integral-type, a constant)
-	value = match a
+	source constant-integral type, match a
 	as integral-value x
 		x
 	as constant-gc-safe-value
 		0::nat,
 	else
 		throw unreachable
+-constant-integral js-expr(source source, type char-or-integral-type, value integral-value)
+	source constant-integral type.as-integral, value
+-constant-integral js-expr(source source, type integral-type, value integral-value)
 	if type is-signed
-		source gen-integer-signed value.as-signed
+		if type == int64
+			source gen-bigint-signed value.as-signed
+		else
+			source gen-number64 value.as-signed.to
 	else
-		source gen-integer-unsigned value.as-unsigned
+		if type == nat64
+			source gen-bigint-unsigned value.as-unsigned
+		else
+			source gen-number64 value.as-unsigned.to
 
 # TODO: use a 'with-block' ----------------------------------------------------------------------------------------------------
 -with-temp-or-local js-block-statement
@@ -1231,31 +1247,37 @@ do
 	then = f[source gen-identifier js-name]
 	(declare ~ then,)
 
-# TODO: move to a helpers module? -------------------------------------------------------------------------------------------------
+| This function is run after an arithmetic operation to keep an integral type within its expected range.
 -gen-as-integral js-expr(source source, type integral-type, arg js-expr)
 	match type
 	as int8
-		source gen-as-int 8, arg
+		source gen-shift-and-unshift arg, 24
 	as int16
-		source gen-as-int 16, arg
+		source gen-shift-and-unshift arg, 16
 	as int32
-		source gen-as-int 32, arg
+		source gen-binary bitwise-or, arg, do source gen-number64 0
 	as int64
-		source gen-as-int 64, arg
+		source gen-as-int64 arg
 	as nat8
-		source gen-as-nat 8, arg
+		source gen-mod arg, type.max-value.to::float64
 	as nat16
-		source gen-as-nat 16, arg
+		source gen-mod arg, type.max-value.to::float64
 	as nat32
-		source gen-as-nat 32, arg
+		source gen-binary bit-shift-right-unsigned, arg, do source gen-number64 0
 	as nat64
-		source gen-as-nat 64, arg
--gen-as-int js-expr(source source, n-bits nat, arg js-expr)
+		source gen-as-nat64 arg
+-gen-shift-and-unshift js-expr(source source, arg js-expr, amount float64)
+	amount-expr = source gen-number64 amount
+	x = source gen-binary bit-shift-left, arg, amount-expr
+	source gen-binary bit-shift-right, x, amount-expr
+-gen-mod js-expr(source source, arg js-expr, modulo float64)
+	source gen-mod arg, do source gen-number64 modulo
+-gen-as-int64 js-expr(source source, arg js-expr)
 	BigInt = source gen-global "BigInt"
-	source gen-call-property-sync BigInt, "asIntN".no-prefix, ((source gen-number64 n-bits.to), arg)
--gen-as-nat js-expr(source source, n-bits nat, arg js-expr)
+	source gen-call-property-sync BigInt, "asIntN", do (source gen-number64 64), arg
+-gen-as-nat64 js-expr(source source, arg js-expr)
 	BigInt = source gen-global "BigInt"
-	source gen-call-property-sync BigInt, "asUintN".no-prefix, ((source gen-number64 n-bits.to), arg)
+	source gen-call-property-sync BigInt, "asUintN", do (source gen-number64 64), arg
 
 -gen-as-float32 js-expr(source source, arg js-expr)
 	source gen-call-math "fround", arg
@@ -1263,7 +1285,7 @@ do
 -gen-call-math js-expr(source source, name string, arg js-expr)
 	source gen-call-math name, (arg,)
 -gen-call-math js-expr(source source, name string, args js-expr[])
-	source gen-call-property-sync (source gen-global "Math"), name.no-prefix, args
+	source gen-call-property-sync (source gen-global "Math"), name, args
 
 -gen-convert js-expr
 	source source

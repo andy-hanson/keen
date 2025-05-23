@@ -34,10 +34,6 @@ special-local js-name(name string)
 temp js-name(name string, index nat)
 	temp, name, index
 
-js-member-name record(crow-name string) # TODO: there are now never any prefixes. I should remove 'js-member-name' completely and just use string directly.
-no-prefix js-member-name(name string)
-	name,
-
 js-fun-decl record(comment string, name js-name, fun js-arrow-function)
 
 js-class-decl record(comment string, name js-name, extends js-name?, members js-class-member[])
@@ -45,7 +41,7 @@ js-class-decl record(comment string, name js-name, extends js-name?, members js-
 js-class-member record
 	source source
 	is-static js-class-member-static
-	name js-member-name
+	name string
 	kind js-class-member-kind
 js-class-member-static enum(instance, static) # TODO: everything should be instance now ........................................................
 js-class-member-kind union(js-class-method, js-expr)
@@ -63,7 +59,8 @@ js-expr-or-block-statement union(js-expr, js-block-statement)
 
 js-destructure union(js-name, js-default-destructure, js-object-destructure) # TODO: Do I use non-simple destructures anywhere?
 js-default-destructure record(left js-destructure, default js-expr)
-js-object-destructure record(fields (js-member-name, js-destructure)[])
+js-object-destructure record
+	fields (string, js-destructure)[]
 
 js-statement record(source source, kind js-statement-kind)
 js-statement-kind union
@@ -121,7 +118,6 @@ js-expr-kind union
 	js-name
 	js-new-expr
 	js-null-expr
-	js-object1-expr
 	js-optional-property-access-expr
 	js-property-access-expr
 	js-property-access-computed-expr
@@ -134,6 +130,7 @@ js-binary-kind enum
 	and
 	bit-shift-left
 	bit-shift-right
+	bit-shift-right-unsigned
 	bitwise-and
 	bitwise-or
 	bitwise-xor
@@ -156,10 +153,9 @@ js-literal-number record(type float-type, value float)
 js-literal-string record(value string)
 js-new-expr record(class_ js-expr, arguments js-expr[])
 js-null-expr record
-js-object1-expr record(key js-member-name, value js-expr)
 # `obj?.prop`
-js-optional-property-access-expr record(object js-expr, property-name js-member-name)
-js-property-access-expr record(object js-expr, property-name js-member-name) # TODO: I think this is not needed. Just get a string and always use js-property-access-computed-expr
+js-optional-property-access-expr record(object js-expr, property-name string)
+js-property-access-expr record(object js-expr, property-name string) # TODO: I think this is not needed. Just get a string and always use js-property-access-computed-expr
 js-property-access-computed-expr record(object js-expr, property-name js-expr)
 js-ternary-expr record(condition js-expr, then js-expr, else_ js-expr) # TODO: is this ever used? ------------------------------------
 js-this-expr record
@@ -211,9 +207,9 @@ gen-call-sync js-expr(source source, called js-expr, args js-expr[])
 	source, (called js-call-expr args)
 gen-call-with-spread js-expr(source source, await sync-or-async, called js-expr, args js-expr[], spread-arg js-expr)
 	source gen-await-if await, (source, (called js-call-with-spread-expr args, spread-arg))
-gen-call-property-sync js-expr(source source, object js-expr, property js-member-name, args js-expr[])
+gen-call-property-sync js-expr(source source, object js-expr, property string, args js-expr[])
 	source gen-call-sync (source gen-property-access object, property), args
-gen-optional-call-property-sync js-expr(source source, object js-expr, property js-member-name, args js-expr[])
+gen-optional-call-property-sync js-expr(source source, object js-expr, property string, args js-expr[])
 	source gen-call-sync (source gen-optional-property-access object, property), args
 gen-continue js-statement(source source)
 	source, js-continue-statement
@@ -225,12 +221,12 @@ gen-if js-statement(source source, cond js-expr, then js-block-statement, else_ 
 	source, (cond js-if-statement then, else_)
 gen-instanceof js-expr(source source, arg0 js-expr, arg1 js-expr)
 	source gen-binary instanceof, arg0, arg1
-gen-integer js-expr(source source, is-signed bool, value integral-value)
-	source, (is-signed js-literal-integer value)
-gen-integer-signed js-expr(source source, value int)
-	source gen-integer true, (value,)
-gen-integer-unsigned js-expr(source source, value nat)
-	source gen-integer false, (value,)
+gen-bigint js-expr(source source, is-signed bool, value integral-value)
+	source, do is-signed js-literal-integer value
+gen-bigint-signed js-expr(source source, value int)
+	source gen-bigint true, (value,)
+gen-bigint-unsigned js-expr(source source, value nat)
+	source gen-bigint false, (value,)
 gen-not js-expr(source source, arg js-expr)
 	source gen-unary not, arg
 gen-not-eq-eq js-expr(source source, left js-expr, right js-expr)
@@ -249,15 +245,17 @@ gen-or js-expr(source source, arg0 js-expr, arg1 js-expr)
 	source gen-binary plus, arg0, arg1
 gen-minus js-expr(source source, arg0 js-expr, arg1 js-expr)
 	source gen-binary minus, arg0, arg1
-gen-property-access js-expr(source source, arg js-expr, property-name js-member-name)
+gen-mod js-expr(source source, arg0 js-expr, arg1 js-expr)
+	source gen-binary modulo, arg0, arg1
+gen-property-access js-expr(source source, arg js-expr, property-name string)
 	source, (arg js-property-access-expr property-name)
 gen-property-access-computed js-expr(source source, object js-expr, property-name js-expr)
 	match property-name kind
 	as js-literal-string x
-		source gen-property-access object, x.value.no-prefix
+		source gen-property-access object, x.value
 	else
 		source, (object js-property-access-computed-expr property-name)
-gen-optional-property-access js-expr(source source, object js-expr, property-name js-member-name)
+gen-optional-property-access js-expr(source source, object js-expr, property-name string)
 	source, (object js-optional-property-access-expr property-name) 
 gen-return js-statement(source source, arg js-expr)
 	source, arg.js-return-statement
@@ -307,6 +305,6 @@ gen-while js-statement(source source, label js-name?, condition js-expr, body js
 gen-while-true js-statement(source source, label js-name?, body js-block-statement)
 	source gen-while label, (source gen-bool true), body
 
-gen-increment-integer js-statement(source source, name js-name)
+gen-increment-bigint js-statement(source source, name js-name)
 	source gen-assign name,
-		source gen-plus (source gen-identifier name), (source gen-integer-unsigned 1)
+		source gen-plus (source gen-identifier name), do source gen-bigint-unsigned 1
