@@ -8,7 +8,7 @@ import
 	../../model/uri
 	../../util/full-index-map
 	../../util/util
-	../java/util
+	../util
 	./js-ast
 	./mangle-for-js
 	./source-map
@@ -128,8 +128,7 @@ do
 		source gen-assert-typeof get, x
 	match a kind
 	as array
-		# TODO: we could use Uint8Array for `nat8[]`s or `char8[]`s to improve performance for those.
-		instanceof["Array"]
+		instanceof[a.type-args.only array-for-element-type]
 	as bool
 		typeof["boolean"]
 	as char8
@@ -159,7 +158,7 @@ do
 	as fun-shared
 		typeof["function"]
 	as mut-slice
-		instanceof["Array"]
+		instanceof[a.type-args.only array-for-element-type]
 	as nat8
 		typeof["number"]
 	as nat16
@@ -169,9 +168,7 @@ do
 	as nat64
 		typeof["bigint"]
 	as option
-		# TODO: for most types, we could represent this as `t` or `null`.
-		# The exceptions would be options of 'js-any' or of other options.
-		instanceof["Array"]
+		throw unreachable
 	as void
 		# TODO: we should probably just eliminate these values from concrete-model! -----------------------------------------
 		typeof["undefined"]
@@ -345,7 +342,7 @@ do
 	source = ctx.ctx source a
 	match a body
 	as concrete-fun-body-builtin x
-		ctx translate-builtin a.return-type, source, x.kind, x.type-args, for param : a params
+		ctx translate-builtin a.return-type, source, x.kind, for param : a params
 			param.type, a.range, param.local-get-concrete-expr # TODO: use param range, not a.range ---------------------------------------
 	as concrete-expr x
 		# error log "LET'S TRANSLATE {ctx.ctx.show-ctx show-concrete-fun-sig a, false}" # -------------------------------------
@@ -367,12 +364,11 @@ do
 	type concrete-type
 	source source
 	fun builtin-fun
-	type-args concrete-type[]
 	args concrete-expr[]
 do
 	match fun
 	as builtin-unary x
-		ctx translate-builtin-unary type, source, x, type-args, args.only
+		ctx translate-builtin-unary type, source, x, args.only
 	as builtin-binary x
 		arg0, arg1 = args only2
 		source translate-builtin-binary type, x, do (ctx to-js-expr arg0), (ctx to-js-expr arg1)
@@ -391,7 +387,7 @@ do
 	as js-fun x
 		ctx translate-js-fun source, x, type, args
 
--translate-builtin-unary js-expr-or-block-statement(ctx to-expr-ctx, type concrete-type, source source, a builtin-unary, type-args concrete-type[], arg-expr concrete-expr)
+-translate-builtin-unary js-expr-or-block-statement(ctx to-expr-ctx, type concrete-type, source source, a builtin-unary, arg-expr concrete-expr)
 	arg-type = arg-expr type
 	arg = ctx to-js-expr arg-expr
 	unary js-expr mut(op js-unary-kind) = op =>
@@ -414,13 +410,16 @@ do
 	as float64-from-bits
 		source gen-convert 8, "BigInt64Array", "Float64Array", arg
 	as gc-safe-mut-slice
-		# Array(size).fill(null)
-		Array = source gen-global "Array"
+		Array = type.array-for-array-type
 		Number = source gen-global "Number"
 		number-arg = source gen-call-sync Number, (arg,)
-		array = source gen-call-sync Array, (number-arg,)
-		elem = ctx.ctx translate-constant source, type-args.only, constant-gc-safe-value
-		source gen-call-property-sync array, "fill", (elem,)
+		array = source gen-new (source gen-global Array), (number-arg,)
+		if Array == "Array"
+			# new Array(size).fill(null)
+			source gen-call-property-sync array, "fill", (source.gen-null,)
+		else
+			# new Uint8Array(size)
+			array
 	as not
 		source gen-not arg
 	as reinterpret-cast
@@ -467,9 +466,6 @@ do
 				source gen-call-sync (source gen-global "BigInt"), (arg,)
 			else
 				arg
-
--gen-array-from js-expr(source source, arg js-expr)
-	source gen-call-property-sync (source gen-global "Array"), "from", (arg,)
 
 -translate-builtin-binary js-expr-or-block-statement(source source, type concrete-type, a builtin-binary, (arg0 js-expr, arg1 js-expr))
 	binary js-expr data(op js-binary-kind) = op =>
@@ -648,10 +644,10 @@ do
 	source gen-new (ctx to-ref source, string), (chars,)
 
 -convert-to-char8-array-from-js-string js-expr(source source, arg js-expr)
-	# Array.from(new TextEncoder().encode(arg))
+	# new TextEncoder().encode(arg)
 	TextEncoder = source gen-global "TextEncoder"
 	text-encoder = source gen-new TextEncoder, ()
-	source gen-array-from do source gen-call-property-sync text-encoder, "encode", (arg,)
+	source gen-call-property-sync text-encoder, "encode", (arg,)
 
 -convert-to-js-string js-expr(source source, arg js-expr)
 	# TODO: just have this call 'to-js-string' from string.crow! ------------------------------------------------------------------
@@ -706,12 +702,27 @@ do
 				body = ctx to-expr-or-block-statement x.body
 				arrow js-arrow-function = async, params, body
 				fn js-expr = source, arrow
+				in-array-type = x.input.type array-for-array-type
+				out-array-type = type array-for-array-type
+				out-from js-expr data(x js-expr) = input =>
+					source gen-call-property-sync (source gen-global out-array-type), "from", (input,)
 				match async
 				as sync
-					source gen-call-property-sync input-expr, "map", (fn,)
+					map js-expr data(x js-expr) = input =>
+						source gen-call-property-sync input, "map", (fn,)
+					if in-array-type == out-array-type
+						map[input-expr]
+					elif in-array-type == "Array"
+						out-from[map[input-expr]]
+					else
+						in-array = source gen-call-property-sync (source gen-global "Array"), "from", (input-expr,)
+						out-from[map[in-array]]						
 				as async
-					map = source gen-call-property-sync (source gen-global "Array"), "fromAsync", (input-expr, fn)
-					source gen-await map
+					mapped = source gen-await do source gen-call-property-sync (source gen-global "Array"), "fromAsync", (input-expr, fn)
+					if out-array-type == "Array"
+						mapped
+					else
+						out-from[mapped]
 			as void
 				local js-name = ctx local-or-ignore-name x.local
 				(source, (local js-for-of-statement input-expr, (ctx to-block-statement x.body))) to
@@ -740,7 +751,7 @@ do
 				get-out = source gen-identifier out-name
 				range-destructure js-object-destructure = ((low.debug-name.to, start-name), (high.debug-name.to, end-name)),
 				declare-start-end = source gen-const range-destructure, (ctx to-js-expr x.input)
-				Array = source gen-global "Array"
+				Array = source array-for-array-type type
 				Number = source gen-global "Number"
 				size = source gen-call-sync Number, ((source gen-minus get-end, get-start),)
 				new-array = source gen-new Array, (size,)
@@ -773,7 +784,7 @@ do
 				while_ = source gen-while cur-less-end, body.to
 				(declare-cur-end, while_) js-block-statement
 	as builtin-concrete-expr x
-		ctx translate-builtin type, source, x.fun, x.type-args, x.args
+		ctx translate-builtin type, source, x.fun, x.args
 	as call-concrete-expr x
 		call-async = ctx.ctx is-async x.called
 		if call-async == async
@@ -787,17 +798,13 @@ do
 	as constant x
 		ctx.ctx translate-constant source, type, x
 	as create-array-concrete-expr x
-		# [x, y]
-		args js-expr[] = for arg : x args
+		source array-literal type, for arg : x args
 			ctx to-js-expr arg
-		source gen-array args
 	as create-record-concrete-expr x
-		# new R(x, y, z)
 		record_ = ctx to-ref source, type
 		source gen-new record_, for arg : x args
 			ctx to-js-expr arg
 	as create-union-concrete-expr x
-		# new U(index, value)
 		union_ = ctx to-ref source, type
 		index = source gen-number64 x.member-index.to
 		value = ctx to-js-expr x.arg
@@ -936,6 +943,14 @@ do
 	as union-kind-concrete-expr x
 		union_ = ctx to-js-expr x.union_
 		source gen-property-access union_, "index"
+
+-array-literal js-expr(source source, array-type concrete-type, elements js-expr[])
+	array = source gen-array elements
+	type = array-type array-for-array-type
+	if type == "Array"
+		array
+	else
+		source gen-new (source gen-global type), (array,)
 
 -translate-try js-block-statement(ctx to-expr-ctx, source source, type concrete-type, a try-concrete-expr)
 	###
@@ -1092,7 +1107,7 @@ do
 -translate-constant js-expr(ctx to-js-ctx, source source, type concrete-type, a constant)
 	match type body
 	as concrete-builtin-type x
-		ctx translate-constant-builtin source, x, a
+		ctx translate-constant-builtin source, type, x, a
 	as concrete-enum x
 		source constant-integral x.storage_, a
 	as struct-body-extern-java _
@@ -1129,18 +1144,17 @@ do
 	as concrete-type-body-deferred
 		throw unreachable
 
--translate-constant-builtin js-expr(ctx to-js-ctx, source source, builtin_ concrete-builtin-type, a constant)
+-translate-constant-builtin js-expr(ctx to-js-ctx, source source, type concrete-type, builtin_ concrete-builtin-type, a constant)
 	match builtin_ kind
 	as array
 		match a
 		as constant-array ca
 			elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: I type this a lot. have a helper function.
 			element-type = builtin_.type-args[0]
-			source gen-array for x : elements
+			source array-literal type,  for x : elements
 				ctx translate-constant source, element-type, x
 		as constant-gc-safe-value
-			# TODO: use null instead. A gc-safe-value is allowed to be any value that doesn't break the GC! -------------------
-			source gen-array ()
+			source gen-null
 		else
 			throw unreachable
 	as bool
@@ -1317,3 +1331,91 @@ do
 -gen-iife js-expr(source source, async sync-or-async, block js-block-statement)
 	fn js-expr = source, (async js-arrow-function (), block)
 	source gen-call async, fn, ()
+
+-array-for-array-type js-expr(source source, array-type concrete-type)
+	source array-for-element-type array-type.array-element-type
+-array-for-element-type js-expr(source source, element concrete-type)
+	source gen-global element.array-for-element-type
+
+-array-for-array-type string(array-type concrete-type)
+	array-type.array-element-type array-for-element-type
+-array-for-element-type string(element concrete-type)
+	match element body
+	as concrete-builtin-type b
+		match b kind
+		as array
+			"Array"
+		as bool
+			"Array"
+		as char8
+			"Uint8Array"
+		as char32
+			"Uint32Array"
+		as float32
+			"Float32Array"
+		as float64
+			"Float64Array"
+		as future
+			"Array"
+		as int8
+			"Int8Array"
+		as int16
+			"Int16Array"
+		as int32
+			"Int32Array"
+		as int64
+			"BigInt64Array"
+		as js-any
+			"Array"
+		as fun-data
+			"Array"
+		as fun-mut
+			"Array"
+		as fun-shared
+			"Array"
+		as mut-slice
+			"Array"
+		as nat8
+			"Uint8Array"
+		as nat16
+			"Uint16Array"
+		as nat32
+			"Uint32Array"
+		as nat64
+			"BigInt64Array"
+		as option
+			throw unreachable
+		as void
+			"Array"
+		as weak-ref
+			"Array"
+	as concrete-enum x
+		x.storage_ array-for-integral-type
+	as concrete-flags x
+		x.storage_ array-for-integral-type
+	as concrete-record _
+		"Array"
+	as concrete-union _
+		"Array"
+	as struct-body-extern-java _
+		throw unreachable
+	as concrete-type-body-deferred
+		throw unreachable
+-array-for-integral-type string(a integral-type)
+	match a
+	as int8
+		"Int8Array"
+	as int16
+		"Int16Array"
+	as int32
+		"Int32Array"
+	as int64
+		"BigInt64Array"
+	as nat8
+		"Uint8Array"
+	as nat16
+		"Uint16Array"
+	as nat32
+		"Uint32Array"
+	as nat64
+		"BigUint64Array"
