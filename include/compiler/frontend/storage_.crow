@@ -1,5 +1,4 @@
 import
-	../../crow/col/private/array-low-level: array-cast
 	../lib/lsp/lsp-types
 	../model/ast
 	../model/model
@@ -31,12 +30,11 @@ file-info union(crow-file-info, crow-config-file-info, other-file-info)
 		()
 
 text-file-content record
-	content char8[]
 	line-and-column-getter line-and-column-getter
 new text-file-content()
-	(), ()
-as-string char8[](a text-file-content)
-	a content
+	(),
+content string(a text-file-content)
+	a.line-and-column-getter.line-and-character-getter.source-text to
 line-and-character-getter line-and-character-getter(a text-file-content)
 	a.line-and-column-getter line-and-character-getter
 
@@ -58,8 +56,8 @@ set-file-bytes file-info(a storage_, uri uri, content nat8[])
 	a.successes[uri] := info
 	info
 # TODO: We don't need 'assume-utf8', we'll throw na exception and the test will fail if it's not valid utf8 ----------------------------------
-set-file-assume-utf8 file-info(a storage_, uri uri, content char8[])
-	a set-file-bytes uri, trusted content array-cast
+set-file-assume-utf8 file-info(a storage_, uri uri, content string)
+	a set-file-bytes uri, content.to-bytes
 -set-file-diag void(a storage_, uri uri, diag read-file-diag)
 	a prepare-set-file uri
 	forbid uri in a.diags
@@ -71,24 +69,23 @@ set-file-assume-utf8 file-info(a storage_, uri uri, content char8[])
 change-file file-info(a storage_, uri uri, changes text-document-content-change-event[])
 	info = a file-or-diag uri file-info!
 	text = info as-text-file!
-	new-content = text.as-string apply-changes text.line-and-character-getter, changes
+	new-content = text.content apply-changes text.line-and-character-getter, changes
 	a set-file-assume-utf8 uri, new-content
 
 -init-file-info file-info(uri uri, input nat8[])
 	content file-content = input,
-	string char8[]? = try
-		_ = input as-string
-		trusted input array-cast
+	string string? = try
+		input as-string
 	catch unicode-decode-error _
 		()
 	text-file-content text-file-content mut() = () =>
 		if x ?= string
-			x, x.line-and-column-getter-for-text
+			- x line-and-column-getter-for-text
 	match uri file-type
 	as crow
 		tfc = text-file-content[]
 		tfc crow-file-info if x ?= string
-			uri parse-file x.to, tfc.line-and-column-getter
+			uri parse-file x, tfc.line-and-column-getter
 		else
 			parse-diag-file-not-utf8 file-ast-for-diag
 	as crow-config
@@ -134,16 +131,15 @@ mark-unknown-if-not-exist void(a storage_, uri uri)
 read-file-result union(file-content, read-file-diag)
 
 file-content-getters file-content-getters(a storage_)
-	map char8[][uri] = with out : build
+	- with out : build
 		for uri, file : a successes
 			match file
 			as crow-file-info x
-				out ~= uri, x.content.as-string
+				out ~= uri, x.content.content
 			as crow-config-file-info x
-				out ~= uri, x.content.as-string
+				out ~= uri, x.content.content
 			else
 				()
-	map,
 line-and-character-getter line-and-character-getter(a storage_, uri uri)
 	a line-and-column-getter uri line-and-character-getter
 line-and-column-getter line-and-column-getter(a storage_, uri uri)
@@ -155,8 +151,8 @@ line-and-column-getters line-and-column-getters(a storage_)
 				out ~= uri, x.line-and-column-getter
 	map,
 
--apply-changes char8[](input char8[], lc line-and-character-getter, events text-document-content-change-event[])
-	cur mut = input
+-apply-changes string(input string, lc line-and-character-getter, events text-document-content-change-event[])
+	cur mut char8[] = input to
 	cur-lc mut = lc
 	for i, event : events with-index
 		if r ?= event range
@@ -168,8 +164,8 @@ line-and-column-getters line-and-column-getters(a storage_)
 		else
 			cur := event.text to
 		if i != events.size - 1
-			cur-lc := cur line-and-character-getter-for-text # TODO:PERF It would actually e faster not to make this at all, and just walk the text ....
-	cur
+			cur-lc := cur.to line-and-character-getter-for-text # TODO:PERF It would actually e faster not to make this at all, and just walk the text ....
+	cur to
 
 test
 	s storage_ = ()

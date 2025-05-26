@@ -6,11 +6,13 @@ import
 	../../model/show-concrete-model
 	../../model/source-range
 	../../model/uri
+	../../util/full-index-map
 	../../util/util
 	../util
 	./js-ast
 	./mangle-for-js
 	./source-map
+	./union-representation
 	./write-js-ast
 
 translate-to-js js-and-map
@@ -19,7 +21,12 @@ translate-to-js js-and-map
 	show-ctx show-type-ctx
 	source-map-name string?
 do
-	ctx to-js-ctx = show-ctx, program, program.build-mangled-names, do program gen-constant-names show-ctx.show
+	ctx to-js-ctx =
+		show-type-ctx: show-ctx
+		program: program
+		union-info: program plan-unions
+		mangled-names: program build-mangled-names
+		constant-names: program gen-constant-names show-ctx.show
 	shebang shebang = node
 	classes js-class-decl[] = with out : build
 		for type : program all-non-extern-types
@@ -138,32 +145,39 @@ do
 	as concrete-type-body-deferred
 		throw unreachable
 
--gen-type-assert js-statement?(ctx to-js-ctx, source source, get js-expr, a concrete-type) # TODO: Once it's working, put type assertions behind a flag
+-gen-is-type js-expr?(ctx to-js-ctx, source source, get js-expr, a concrete-type)
 	match a body
 	as concrete-builtin-type x
-		source gen-assert-builtin-type get, x
+		source gen-is-builtin-type get, x
 	as concrete-enum x
-		source gen-assert-integral x.storage_, get
+		source gen-is-integral get, x.storage_
 	as struct-body-extern-java _
-		throw unreachable
+		source gen-bool false
 	as concrete-flags x
-		source gen-assert-integral x.storage_, get
+		source gen-is-integral get, x.storage_
 	as concrete-record _
-		unless a is-empty-type
-			source gen-assert-instanceof get, (ctx js-name a)
+		source gen-instanceof get, do ctx to-ref source, a
 	as concrete-union _
-		source gen-assert-instanceof get, (ctx js-name a)
+		()
 	as concrete-type-body-deferred
 		throw unreachable
 
--gen-assert-builtin-type js-statement?(source source, get js-expr, a concrete-builtin-type)
-	instanceof js-statement? mut(x string) = x =>
-		source gen-assert-instanceof get, x.no-prefix
-	typeof js-statement? mut(x string) = x =>
-		source gen-assert-typeof get, x
+-gen-type-assert js-statement?(ctx to-js-ctx, source source, get js-expr, a concrete-type) # TODO: Once it's working, put type assertions behind a flag
+	guard is-type ?= ctx gen-is-type source, get, a
+	# Allow 'gc-safe-value'
+	is-type-or-null = source gen-or is-type, do source gen-eq-eq-eq get, source.gen-null
+	source gen-call-sync (source gen-identifier "_assert".no-prefix), (is-type-or-null,) expr-statement
+
+-gen-is-builtin-type js-expr?(source source, get js-expr, a concrete-builtin-type)
+	instanceof js-expr mut(x string) = x =>
+		source gen-instanceof get, do source gen-identifier x.no-prefix
+	typeof js-expr mut(x string) = x =>
+		source gen-typeof-is get, x
+	array js-expr mut() = () =>
+		instanceof[a.type-args.only.js-array-type-for-element-type to]
 	match a kind
 	as array
-		instanceof[a.type-args.only array-for-element-type]
+		array[]
 	as bool
 		typeof["boolean"]
 	as char8
@@ -174,6 +188,12 @@ do
 		typeof["number"]
 	as float64
 		typeof["number"]
+	as fun-data
+		typeof["function"]
+	as fun-mut
+		typeof["function"]
+	as fun-shared
+		typeof["function"]
 	as future
 		instanceof["Promise"]
 	as int8
@@ -186,14 +206,8 @@ do
 		typeof["bigint"]
 	as js-any
 		()
-	as fun-data
-		typeof["function"]
-	as fun-mut
-		typeof["function"]
-	as fun-shared
-		typeof["function"]
 	as mut-slice
-		instanceof[a.type-args.only array-for-element-type]
+		array[]
 	as nat8
 		typeof["number"]
 	as nat16
@@ -205,32 +219,36 @@ do
 	as option
 		throw unreachable
 	as void
-		# TODO: we should probably just eliminate these values from concrete-model! -----------------------------------------
 		typeof["undefined"]
 	as weak-ref
 		instanceof["WeakRef"]
--gen-assert-instanceof js-statement(source source, get js-expr, name js-name)
-	source gen-assert
-		is-instance = source gen-instanceof get, do source gen-identifier name
-		source gen-or is-instance, do source gen-eq-eq-eq get, source.gen-null # TODO: Allowing null is usually wrong. I think I added it because gc-safe-value could be null...
--gen-assert-typeof js-statement(source source, get js-expr, type string)
-	source gen-assert (source gen-eq-eq-eq (source gen-typeof get), (source gen-string type))
--gen-assert-integral js-statement(source source, type integral-type, get js-expr)
-	source gen-assert-typeof get, do type is-64-bit ? "bigint" : "number"
--gen-assert js-statement(source source, expr js-expr)
-	cond = source gen-not expr
-	source gen-if cond, source.gen-throw-error.to
--gen-throw-error js-statement(source source)
-	Error = source gen-global "Error"
-	thrown = source gen-new Error, ()
-	source gen-throw thrown
--throw-message js-statement(source source, message string)
-	Error = source gen-global "Error"
-	string = source gen-string message
-	thrown = source gen-new Error, (string,)
-	source gen-throw thrown
+
+-gen-is-integral js-expr(source source, get js-expr, type integral-type)
+	source gen-typeof-is get, match type
+	as int8
+		"number"
+	as int16
+		"number"
+	as int32
+		"number"
+	as int64
+		"bigint"
+	as nat8
+		"number"
+	as nat16
+		"number"
+	as nat32
+		"number"
+	as nat64
+		"bigint"
+
+-gen-typeof-is js-expr(source source, get js-expr, expected string)
+	source gen-eq-eq-eq (source gen-typeof get), (source gen-string expected)
+
 -throw-unreachable js-statement(source source)
-	source throw-message "Unreachable"
+	source gen-throw
+		source gen-new (source gen-global "Error"),
+			- source gen-string "Unreachable"
 
 -source source(ctx to-js-ctx, a concrete-type)
 	range uri-and-range = a.source range
@@ -262,8 +280,8 @@ do
 	comment = ctx.show-ctx show-concrete-type a
 	comment, (ctx js-name a), (), (constructor,)
 
--class-for-union js-class-decl(ctx to-js-ctx, a concrete-type, _ concrete-union)
-	# TODO: for most unions, we could just use the 'value' directly with no class and use 'instanceof' checks for matching
+-class-for-union js-class-decl?(ctx to-js-ctx, a concrete-type, _ concrete-union)
+	guard (ctx union-representation a) == switch
 	###
 	class U {
 		constructor(index, value) {
@@ -279,8 +297,7 @@ do
 	super js-statement? = if is-exception
 		super = source gen-global "super" # TODO: give this an AST kind? --------------------------------------------------------
 		message = source gen-string "Crow exception"
-		expr = source gen-call-sync super, (message,)
-		expr expr-statement
+		source gen-call-sync super, (message,) expr-statement
 	constructor = source gen-constructor super, ("index", "value"), _ => ()
 	comment = ctx.show-ctx show-concrete-type a
 	comment, (ctx js-name a), extends, (constructor,)
@@ -323,6 +340,7 @@ do
 -to-js-ctx record
 	show-type-ctx show-type-ctx
 	program concrete-program
+	union-info union-info
 	mangled-names js-mangled-names
 	constant-names nat constant-names
 -show-ctx show-ctx(a to-js-ctx)
@@ -361,6 +379,10 @@ do
 	ctx.ctx to-ref source, var
 -to-ref js-expr(ctx to-expr-ctx, source source, type concrete-type)
 	ctx.ctx to-ref source, type
+-union-representation union-representation(a to-js-ctx, union_ concrete-type)
+	a.union-info union-representation union_
+-union-representation union-representation(a to-expr-ctx, union_ concrete-type)
+	a.ctx union-representation union_
 
 -source source(ctx to-expr-ctx, a concrete-expr)
 	range = a range
@@ -396,7 +418,7 @@ do
 	params js-destructure[] = for param : a params
 		expr-ctx local-name param
 	body = expr-ctx to-block-statement a
-	comment = ctx.show-ctx show-concrete-fun-sig a, ((ctx is-async a) == async)
+	comment = ctx.show-ctx show-concrete-fun-name a
 	comment, name, no-memoize, do async, (params, ()), body
 
 -to-block-statement js-expr-or-block-statement(ctx to-expr-ctx, a concrete-fun)
@@ -471,14 +493,15 @@ do
 	as float64-from-bits
 		source gen-convert 8, "BigInt64Array", "Float64Array", arg
 	as gc-safe-mut-slice
-		Array = type.array-for-array-type
-		Number = source gen-global "Number"
-		number-arg = source gen-call-sync Number, (arg,)
-		array = source gen-new (source gen-global Array), (number-arg,)
-		if Array == "Array"
-			# new Array(size).fill(null)
+		array-type = type js-array-type
+		array = source gen-new (source gen-global array-type.to),
+			- source gen-call-sync (source gen-global "Number"), (arg,)
+		match array-type
+		as Array
+			# In JS, a 'new Array' has *missing* values, which perform worse than null values
 			source gen-call-property-sync array, "fill", (source.gen-null,)
 		else
+			# All other array types have sensible default values
 			# new Uint8Array(size)
 			array
 	as not
@@ -501,16 +524,16 @@ do
 	as weak-ref-get
 		###
 		const got = arg?.get()
-		return new Option(got === undefined ? 0 : 1, got)
+		return got === undefined ? new Option(0) : new Option(1, got)
 		###
 		arg-get js-expr = source gen-optional-call-property-sync arg, "deref", ()
 		ctx with-temp "got", source, arg-get, got =>
 			got-eq-undefined = source gen-eq-eq-eq got, source.gen-undefined
-			zero = source gen-number64 0
-			one = source gen-number64 1
-			index = source gen-ternary got-eq-undefined, zero, one
-			option = ctx to-ref source, type
-			- source gen-return do source gen-new option, do index, got
+			none-type = type.body.concrete-union!.members[0]
+			new-none = source gen-new (ctx to-ref source, none-type), () # TODO:PERF don't construct it every time ------------
+			none = ctx.ctx gen-create-union source, type, 0, new-none
+			some = ctx.ctx gen-create-union source, type, 1, got
+			- source gen-return do source gen-ternary got-eq-undefined, none, some
 	as weak-ref-new
 		WeakRef = source gen-global "WeakRef"
 		source gen-new WeakRef, do arg,
@@ -763,24 +786,24 @@ do
 				body = ctx to-expr-or-block-statement x.body
 				arrow js-arrow-function = async, params, body
 				fn js-expr = source, arrow
-				in-array-type = x.input.type array-for-array-type
-				out-array-type = type array-for-array-type
+				in-array-type = x.input.type js-array-type
+				out-array-type = type js-array-type
 				out-from js-expr data(x js-expr) = input =>
-					source gen-call-property-sync (source gen-global out-array-type), "from", (input,)
+					source gen-call-property-sync (source gen-global out-array-type.to), "from", (input,)
 				match async
 				as sync
 					map js-expr data(x js-expr) = input =>
 						source gen-call-property-sync input, "map", (fn,)
 					if in-array-type == out-array-type
 						map[input-expr]
-					elif in-array-type == "Array"
+					elif in-array-type == Array
 						out-from[map[input-expr]]
 					else
 						in-array = source gen-call-property-sync (source gen-global "Array"), "from", (input-expr,)
 						out-from[map[in-array]]						
 				as async
 					mapped = source gen-await do source gen-call-property-sync (source gen-global "Array"), "fromAsync", (input-expr, fn)
-					if out-array-type == "Array"
+					if out-array-type == Array
 						mapped
 					else
 						out-from[mapped]
@@ -866,10 +889,7 @@ do
 		source gen-new record_, for arg : x args
 			ctx to-js-expr arg
 	as create-union-concrete-expr x
-		union_ = ctx to-ref source, type
-		index = source gen-number64 x.member-index.to
-		value = ctx to-js-expr x.arg
-		source gen-new union_, (index, value)
+		ctx.ctx gen-create-union source, type, x.member-index, do ctx to-js-expr x.arg
 	as drop-concrete-expr x
 		value = ctx to-js-expr x.arg
 		source gen-unary void, value
@@ -960,23 +980,7 @@ do
 				res := if_ to
 			res.statements
 	as match-union-concrete-expr x
-		###
-		const temp = u
-		switch (temp.index) {
-			case 0:
-				use(temp.value);
-				break;
-			...
-		}
-		###
-		ctx with-temp-or-local "matched", x.matched, x.else_?.local, matched =>
-			index = source gen-property-access matched, "index"
-			cases js-switch-case[] = for member-index, case_ : x.member-indices zip x.cases
-				ctx translate-case type, source, member-index, case_, matched
-			- source gen-switch index, cases, if e ?= x else_
-				ctx to-block-statement e.expr
-			else
-				source.throw-unreachable to
+		ctx translate-match-union source, type, x
 	as record-field-get-concrete-expr x
 		source gen-property-access (ctx to-js-expr x.record_), x.field.debug-name.to
 	as record-field-set-concrete-expr x
@@ -991,7 +995,7 @@ do
 	as throw-concrete-expr x
 		source gen-throw (ctx to-js-expr x.thrown) to
 	as try-concrete-expr x
-		ctx translate-try source, type, x
+		ctx translate-try source, x
 	as try-let-concrete-expr x
 		ctx translate-try-let source, type, x
 	as var-get-concrete-expr x
@@ -1003,34 +1007,95 @@ do
 	as var-set-concrete-expr x
 		source gen-assign (ctx to-ref source, x.var), (ctx to-js-expr x.value) to
 
+-gen-create-union js-expr(ctx to-js-ctx, source source, union_ concrete-type, member-index nat, value js-expr)
+	match ctx union-representation union_
+	as direct
+		value
+	as switch
+		index = source gen-number64 member-index.to
+		source gen-new (ctx to-ref source, union_), (index, value)
+
 -var-needs-getter bool(a concrete-var)
 	a.initializer.kind.constant is-empty
 
 -array-literal js-expr(source source, array-type concrete-type, elements js-expr[])
 	array = source gen-array elements
-	type = array-type array-for-array-type
-	if type == "Array"
+	match array-type js-array-type
+	as Array
 		array
-	else
-		source gen-new (source gen-global type), (array,)
+	else x
+		source gen-new (source gen-global x.to), (array,)
 
--translate-try js-block-statement(ctx to-expr-ctx, source source, type concrete-type, a try-concrete-expr)
+-translate-match-union js-block-statement(ctx to-expr-ctx, source source, type concrete-type, x match-union-concrete-expr)
+	else-block = if e ?= x else_
+		ctx to-block-statement e.expr
+	else
+		source.throw-unreachable to
+	match ctx union-representation x.union-type
+	as direct
+		###
+		const matched = ...
+		if (matched instanceof foo) {
+			const x = matched
+			...
+		} else if (typeof matched === "number") {
+			const x = matched
+			...
+		} else {
+			...
+		}
+		###
+		ctx with-temp-or-local "matched", x.matched, x.else_?.local, matched =>
+			ctx translate-match-union-direct source, matched, else-block, x.union_, x.member-indices, x.cases
+	as switch
+		###
+		const matched = ...
+		switch (match.index) {
+			case 0:
+				use(match.value);
+				break;
+			...
+		}
+		###
+		ctx with-temp-or-local "matched", x.matched, x.else_?.local, matched =>
+			index = source gen-property-access matched, "index"
+			cases js-switch-case[] = for member-index, case_ : x.member-indices zip x.cases
+				ctx translate-case type, source, member-index, case_, matched
+			- source gen-switch index, cases, else-block
+
+-translate-match-union-direct js-statement[]
+	ctx to-expr-ctx
+	source source
+	matched js-expr
+	else-block js-block-statement
+	union_ concrete-union
+	member-indices integral-values
+	cases concrete-local-and-expr[]
+do
+	res mut = else-block
+	for member-index, case_ : member-indices zip cases reverse
+		block = ctx to-block-statement case_.expr
+		full-block js-block-statement = if l ?= case_.local
+			(source gen-const (ctx local-name l), matched) ~ block
+		else
+			block
+		cond = ctx.ctx gen-is-type! source, matched, union_.members[member-index.as-unsigned]
+		res := source gen-if cond, full-block, (source, res) to
+	res statements
+
+-translate-try js-block-statement(ctx to-expr-ctx, source source, a try-concrete-expr)
 	###
 	try
 		tried
 	catch foo x
-		x use
+		...
 	==>
 	try {
 		tried()
 	} catch (error) {
-		if (error instanceof crow_exception) {
-			switch (error.index) {
-				case foo_index:
-					return use(error.value)
-				default:
-					throw error
-			}
+		if (error instanceof foo) {
+			const x = error
+			...
 		} else {
 			throw error
 		}
@@ -1042,28 +1107,33 @@ do
 	else
 		"error" special-local
 	get-error = source gen-identifier error
-	default = if e ?= a catch-else
+	else-block = if e ?= a catch-else
 		ctx to-block-statement e.expr
 	else
 		source gen-throw get-error to
-	exception = ctx to-ref source, ctx.ctx.exception
-	instanceof-exception = source gen-instanceof get-error, exception
-	error-index = source gen-property-access get-error, "index"
-	cases js-switch-case[] = for member-index, case_ : a.exception-member-indices zip a.catch-cases
-		ctx translate-case type, source, member-index, case_, get-error
-	switch = source gen-switch error-index, cases, default
-	if_ = source gen-if instanceof-exception, switch.to, (source, default)
-	source gen-try-catch tried, error, if_.to to
+	catch_ = ctx translate-match-union-direct source, get-error, else-block, ctx.ctx.program.exception.body.concrete-union!, a.exception-member-indices, a.catch-cases
+	source gen-try-catch tried, error, catch_.to to
 
 -translate-try-let js-block-statement(ctx to-expr-ctx, source source, type concrete-type, a try-let-concrete-expr)
-	# TODO: dup code in handler for 'translate-try' ------------------------------------------------------------------------
-	error js-name = "error" special-local
-	get-error = source gen-identifier error
-	throw-error = source gen-throw get-error
-	exception = ctx to-ref source, ctx.ctx.exception
-	instanceof-exception = source gen-instanceof get-error, exception
-	error-index = source gen-property-access get-error, "index"
-	error-value = source gen-property-access get-error, "value"
+	###
+	x = try value catch err local : catch_
+	then
+	==>
+	let local, ok
+	try {
+		local = value
+		ok = true
+	} catch (error) {
+		if (error instanceof foo)
+			const catch_local = error
+			// For a void output, this won't return and will instead continue to the bottom. That's why it checks 'if (ok)'
+			return catch_then
+		} else {
+			throw error
+		}
+	}
+	if (ok) then
+	###
 	local js-name? = if l ?= a local
 		ctx local-name l
 	let-local js-statement[] = if l ?= local
@@ -1079,28 +1149,14 @@ do
 			ctx to-block-statement a.value statements
 		if x ?= ok
 			out ~= source gen-assign x, (source gen-bool true)
-	index-matches = source gen-eq-eq-eq error-index, do source gen-number64 a.exception-member-index.as-unsigned.to
-	is-caught-error = source gen-and instanceof-exception, index-matches
-	###
-	x = try value catch err local : catch_
-	then
-	==>
-	let local, ok
-	try {
-		local = value
-		ok = true
-	} catch (error) {
-		if (error instanceof crow_exception && e.index == exception_member_index) {
-			const catch_local = error.value
-			return catch_then
-		} else {
-			throw error
-		}
-	}
-	if (ok) then
-	###
-	when-caught = ctx to-block-statement-with-root-local source, error-value, a.catch_
-	if_ = source gen-if is-caught-error, when-caught, throw-error
+	error js-name = if l ?= a.catch_ local
+		ctx local-name l
+	else
+		"error" special-local
+	get-error = source gen-identifier error
+	instanceof-caught-type = ctx.ctx gen-is-type! source, get-error, do a caught-type ctx.ctx.program.exception
+	catch_ = ctx to-block-statement a.catch_.expr
+	if_ = source gen-if instanceof-caught-type, catch_, do source gen-throw get-error
 	try_ = source gen-try-catch tried.to, error, if_.to
 	then = ctx to-block-statement a.then
 	if-ok-then js-block-statement = if x ?= ok
@@ -1109,7 +1165,7 @@ do
 		then
 	let-local.to ~~ let-ok.to ~~ try_.to ~~ if-ok-then
 
--translate-case js-switch-case
+-translate-case js-switch-case # TODO:INLINE? ---------------------------------------------------------------------------------
 	ctx to-expr-ctx
 	type concrete-type
 	source source
@@ -1180,11 +1236,6 @@ do
 		class_ = ctx to-ref source, x.type
 		source gen-new class_, for field, arg : x.fields zip x.args
 			ctx translate-constant source, field.type, arg
-	as single-constant-union x
-		case-type = x member-type
-		source gen-new (ctx to-ref source, x.union-type),
-			- source gen-number64 x.value.member-index.to
-			- ctx translate-constant source, case-type, x.value.member
 
 -translate-constant js-expr(ctx to-js-ctx, source source, type concrete-type, a constant)
 	match type body
@@ -1209,7 +1260,10 @@ do
 	as concrete-union _
 		match a
 		as constant-union u
-			source gen-get-constant do ctx.constant-names union-name type, u
+			v = ctx.program.all-constants.unions[type]![u]
+			case-type = type.body.concrete-union!.members[v member-index]
+			ctx gen-create-union source, type, v.member-index,
+				ctx translate-constant source, case-type, v.member
 		as constant-gc-safe-value
 			source gen-null
 		else
@@ -1408,87 +1462,103 @@ do
 -array-for-array-type js-expr(source source, array-type concrete-type)
 	source array-for-element-type array-type.array-element-type
 -array-for-element-type js-expr(source source, element concrete-type)
-	source gen-global element.array-for-element-type
+	source gen-global element.js-array-type-for-element-type.to
 
--array-for-array-type string(array-type concrete-type)
-	array-type.array-element-type array-for-element-type
--array-for-element-type string(element concrete-type)
+-js-array-type enum
+	Array
+	BigInt64Array
+	BigUint64Array
+	Int8Array
+	Int16Array
+	Int32Array
+	Uint8Array
+	Uint16Array
+	Uint32Array
+	Float32Array
+	Float64Array
+-== bool(a js-array-type, b js-array-type)
+-to symbol(a js-array-type)
+-to string(a js-array-type)
+	a.to::symbol to
+-js-array-type js-array-type(array-type concrete-type)
+	array-type.array-element-type js-array-type-for-element-type
+-js-array-type-for-element-type js-array-type(element concrete-type)
 	match element body
 	as concrete-builtin-type b
 		match b kind
 		as array
-			"Array"
+			Array
 		as bool
-			"Array"
+			Array
 		as char8
-			"Uint8Array"
+			Uint8Array
 		as char32
-			"Uint32Array"
+			Uint32Array
 		as float32
-			"Float32Array"
+			Float32Array
 		as float64
-			"Float64Array"
+			Float64Array
 		as future
-			"Array"
+			Array
 		as int8
-			"Int8Array"
+			Int8Array
 		as int16
-			"Int16Array"
+			Int16Array
 		as int32
-			"Int32Array"
+			Int32Array
 		as int64
-			"BigInt64Array"
+			BigInt64Array
 		as js-any
-			"Array"
+			Array
 		as fun-data
-			"Array"
+			Array
 		as fun-mut
-			"Array"
+			Array
 		as fun-shared
-			"Array"
+			Array
 		as mut-slice
-			"Array"
+			Array
 		as nat8
-			"Uint8Array"
+			Uint8Array
 		as nat16
-			"Uint16Array"
+			Uint16Array
 		as nat32
-			"Uint32Array"
+			Uint32Array
 		as nat64
-			"BigInt64Array"
+			BigUint64Array
 		as option
 			throw unreachable
 		as void
-			"Array"
+			Array
 		as weak-ref
-			"Array"
+			Array
 	as concrete-enum x
 		x.storage_ array-for-integral-type
 	as concrete-flags x
 		x.storage_ array-for-integral-type
 	as concrete-record _
-		"Array"
+		Array
 	as concrete-union _
-		"Array"
+		Array
 	as struct-body-extern-java _
 		throw unreachable
 	as concrete-type-body-deferred
 		throw unreachable
--array-for-integral-type string(a integral-type)
+-array-for-integral-type js-array-type(a integral-type)
 	match a
 	as int8
-		"Int8Array"
+		Int8Array
 	as int16
-		"Int16Array"
+		Int16Array
 	as int32
-		"Int32Array"
+		Int32Array
 	as int64
-		"BigInt64Array"
+		BigInt64Array
 	as nat8
-		"Uint8Array"
+		Uint8Array
 	as nat16
-		"Uint16Array"
+		Uint16Array
 	as nat32
-		"Uint32Array"
+		Uint32Array
 	as nat64
-		"BigUint64Array"
+		BigUint64Array
