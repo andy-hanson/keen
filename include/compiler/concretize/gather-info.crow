@@ -8,6 +8,7 @@ import
 concrete-fun-info record
 	all-used-funs concrete-fun[]
 	yielding-funs concrete-fun set
+	yielding-var-initializers concrete-var set
 
 gather-info concrete-fun-info
 	show-ctx show-ctx
@@ -18,8 +19,8 @@ gather-info concrete-fun-info
 do
 	calls, var-calls, called-by = show-ctx build-called-by all-funs, all-vars, method-impls
 	all-used-funs = common-funs get-used-funs all-vars, calls, var-calls
-	yielding-funs = common-funs get-yielding-funs all-used-funs, called-by
-	all-used-funs, yielding-funs
+	yielding-funs, yielding-var-initializers = common-funs get-yielding-funs all-used-funs, all-vars, called-by
+	all-used-funs, yielding-funs, yielding-var-initializers
 
 -get-used-funs concrete-fun[](common-funs concrete-common-funs, all-vars concrete-var[], calls concrete-fun[][concrete-fun], var-calls concrete-fun[][concrete-var])
 	start-funs concrete-fun set = with out : build
@@ -44,12 +45,13 @@ do
 	res move-to
 
 # TODO: call this 'get-async-funs' and only run it if we are doing a JS build ------------------------------------------------------------
--get-yielding-funs concrete-fun set
+-get-yielding-funs (concrete-fun set, concrete-var set)
 	common-funs concrete-common-funs
 	all-used-funs concrete-fun[]
+	all-used-vars concrete-var[]
 	called-by concrete-fun[][concrete-fun]
 do
-	guard common-funs.concrete-common-funs-java is-empty
+	guard common-funs.concrete-common-funs-java is-empty : (), ()
 
 	res concrete-fun mut-set = ()
 	# These are functions known to yield that have been added to 'res' but not yet processed for callers.
@@ -74,7 +76,21 @@ do
 		# Force this to be async for consistency
 		res ~= x.main
 
-	res move-to
+	rez concrete-fun set = res move-to
+	# TODO: this is not right. The correct way to do this is basically consider each concrete-var as if it is a fun, since accessing it might run the initializer.
+	yielding-var-initializers concrete-var set = all-used-vars filter x =>
+		x.initializer contains-any-yielding rez
+	rez, yielding-var-initializers
+
+-contains-any-yielding bool(a concrete-expr, yielding-funs concrete-fun set)
+	here bool = match a kind
+	as builtin-concrete-expr x
+		x.fun is-intrinsically-yielding
+	as call-concrete-expr x
+		x.called in yielding-funs
+	else
+		false
+	here || a.direct-child-exprs exists x => x contains-any-yielding yielding-funs
 
 -is-intrinsically-yielding-fun bool(a concrete-fun)
 	match a body

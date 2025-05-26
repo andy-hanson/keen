@@ -5,6 +5,7 @@ import
 	../../model/show-concrete-model
 	../../model/uri
 	../../util/util
+	../util
 	./class-code-builder
 	./union-representation
 	./util
@@ -21,7 +22,7 @@ java-names record
 	-type-to-boxed-class-name symbol[concrete-type]
 	-program concrete-program # TODO: RM, this should only be used when building it ---------------------------------------------------
 	union-info union-info # TODO: RM, this should only be used when building it ---------------------------------------------------
-	constant-names constant-names
+	constant-names java-constant-names
 
 build-mangled-names java-names
 	show-ctx show-ctx
@@ -71,7 +72,7 @@ do
 		type, do (program, union-info, type-to-name) generate-boxed-class-name type
 	program: program
 	union-info: union-info
-	constant-names: show-ctx get-constant-names program
+	constant-names: show-ctx java-constant-names program
 
 module-class-name symbol(a java-names, uri uri)
 	a.module-to-class-name[uri]!
@@ -318,48 +319,43 @@ primitive-descriptor symbol(a java-primitive-type)
 	as T_LONG
 		"J"
 
--get-constant-names constant-names(show-ctx show-ctx, program concrete-program)
+-java-constant-names java-constant-names(show-ctx show-ctx, program concrete-program)
 	# Since class files can't get too big, we must break up constants between several classes.
-	constant-array-names class-and-member mut[nat] mut[concrete-type] = ()
-	constant-record-names class-and-member mut[constant-record] mut[concrete-type] = ()
 	cur-class-index mut nat = 0
 	cur-class-name mut symbol = "_constants{cur-class-index}"
 	field-index mut nat = 0
 	cur-class-constants any-constant mut[] = ()
 	class-to-constants any-constant[] mut[symbol] = ()
 
+	out class-and-member constant-names-builder = ()
+
 	show-ctx each-constant-in-dependency-order program, constant =>
 		forbid constant.type is-empty-type
+		ok = match constant
+		as single-constant-array x
+			forbid x.element-type is-empty-type
+			true
+		as single-constant-record x
+			forbid x.record-type is-empty-type
+			forbid x.record-type is-wrapper
+			true
+		as single-constant-union _
+			# TODO: remove union from any-constant once I've removed the old translate-to-java ------------------------------------------------
+			# Since the union member can just upcast to the union, no need to have a field for this
+			false
+		guard ok # TODO: should be able to 'guard match...' ----------------------------------------------------------------
 		if field-index >= max-constants-per-class
 			class-to-constants[cur-class-name] := cur-class-constants.move-to
 			cur-class-index +:= 1
 			cur-class-name := "_constants{cur-class-index}"
 			field-index := 0
 		class-and-member class-and-member = cur-class-name, "x{field-index}"
-		ok = match constant
-		as single-constant-array x
-			forbid x.element-type is-empty-type
-			(constant-array-names ensure constant.type)[x index] := class-and-member
-			true
-		as single-constant-record x
-			forbid x.record-type is-empty-type
-			forbid x.record-type is-wrapper
-			(constant-record-names ensure constant.type)[x constant] := class-and-member
-			true
-		as single-constant-union _
-			# TODO: remove union from any-constant once I've removed the old translate-to-java ------------------------------------------------
-			# Since the union member can just upcast to the union, no need to have a field for this
-			false
-		if ok
-			field-index +:= 1
-			cur-class-constants ~= constant
+		out[constant] := class-and-member
+		field-index +:= 1
+		cur-class-constants ~= constant
 
 	unless cur-class-constants is-empty
 		class-to-constants[cur-class-name] := cur-class-constants.move-to
 
-	arrays: for k, v : constant-array-names
-		k, v.move-to
-	records: for k, v : constant-record-names
-		k, v.move-to
-	unions: ()
+	names: out finish
 	class-to-constants: class-to-constants to

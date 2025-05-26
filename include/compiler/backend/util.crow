@@ -1,5 +1,197 @@
 import
+	../frontend/show-model
+	../model/concrete-model
+	../model/integral-values
 	../model/model
+	../model/show-concrete-model
+	../util/full-index-map
+	../util/util
+
+is-wrapper bool(a concrete-type)
+	a.as-wrapper !is-empty
+is-wrapper bool(a concrete-record)
+	a.as-wrapper !is-empty
+as-wrapper concrete-field?(a concrete-type)
+	a.body.concrete-record?.as-wrapper
+as-wrapper concrete-field?(a concrete-record)
+	guard f ?= a.fields opt-only
+	guard f !is-mutable
+	f
+
+# TODO: MOVE, will need this for the JS build too ------------------------------------------------------------------------------
+each-constant-in-dependency-order void(show-ctx show-ctx, program concrete-program, emit void mut(x any-constant))
+	# TODO:PERF this could use a full-index-set -----------------------------------------------------------------------------
+	seen-arrays (concrete-type, nat) mut-set = ()
+	seen-records (concrete-type, constant-record) mut-set = ()
+	seen-unions (concrete-type, constant-union) mut-set = () # TODO:KILL ---------------------------------------------------------------------------
+	can-reference bool mut(type concrete-type, c constant) = (type, c) =>
+		program can-reference seen-arrays, seen-records, seen-unions, type, c
+
+	target = program target
+	all-constants = program all-constants
+	did-something mut bool = true
+	while did-something
+		did-something := false
+		for arr : all-constants arrs
+			guard arr array-needs-constant target
+			for array-id, xs : arr.constants with-index
+				key = arr.array-type, array-id
+				guard key !in seen-arrays
+				guard xs every x => can-reference[arr.element-type, x]
+				seen-arrays ~= key
+				emit[arr.array-type single-constant-array arr.element-type, array-id, xs]
+				did-something := true
+		for record-type, map : all-constants records
+			guard record-type record-needs-constant target
+			for constant, args : map
+				key = record-type, constant
+				guard key !in seen-records
+				fields = record-type.body.concrete-record! fields
+				guard args zip fields every (arg, field) => can-reference[field.type, arg]
+				seen-records ~= key
+				emit[record-type single-constant-record constant, args, fields]
+				did-something := true
+		for union-type, map : all-constants unions # TODO: RM, I'm just making these just in time (since usually it's just an upcast)
+			guard target union-needs-constant
+			for constant, value : map
+				key = union-type, constant
+				guard key !in seen-unions
+				members = union-type.body.concrete-union! members
+				member-type = members[value member-index]
+				guard can-reference[member-type, value.member]
+				seen-unions ~= key
+				emit[union-type single-constant-union constant, value, member-type]
+				did-something := true
+		
+	# TODO: RM this debugging code ------------------------------------------------------------------------------------------------------------------
+	for record-type, map : all-constants records	
+		guard record-type record-needs-constant target
+		for constant, args : map
+			key = record-type, constant
+			if key !in seen-records
+				fields = record-type.body.concrete-record! fields
+				error log "Could not emit constant record {show-ctx show-concrete-type record-type}"
+				for arg, field : args zip fields
+					if !can-reference[field.type, arg]
+						error log "  Can not emit field of type {show-ctx show-concrete-type field.type}"
+
+	n-constant-arrays = all-constants.arrs sum x =>
+		guard x array-needs-constant target
+		x.constants size
+	n-constant-records = all-constants.records sum (record-type, map) =>
+		guard record-type record-needs-constant target
+		map size
+	n-constant-unions = all-constants.unions sum (_, map) =>
+		guard target union-needs-constant
+		map size
+	seen-arrays.size is n-constant-arrays
+	seen-records.size is n-constant-records
+	seen-unions.size is n-constant-unions
+
+-array-needs-constant bool(array arr-type-and-constants-concrete, target build-target)
+	target != java || array.element-type !is-empty-type
+-record-needs-constant bool(record-type concrete-type, target build-target)
+	target != java || (record-type !is-empty-type && record-type !is-wrapper)
+-union-needs-constant bool(target build-target)
+	true # TODO: target != java -------------------------------------------------------------------------------------------------
+
+-can-reference bool
+	program concrete-program
+	seen-arrays (concrete-type, nat) mut-set
+	seen-records (concrete-type, constant-record) mut-set
+	seen-unions (concrete-type, constant-union) mut-set
+	type concrete-type
+	c constant
+do
+	match c
+	as constant-array x
+		type.array-element-type is-empty-type || (type, x.index) in seen-arrays
+	as constant-float _
+		true
+	as integral-value _
+		true
+	as constant-record x
+		if type is-empty-type
+			true
+		elif field ?= type as-wrapper
+			program can-reference seen-arrays, seen-records, seen-unions, field.type, program.all-constants.records[type]![x].only
+		else
+			(type, x) in seen-records
+	as constant-symbol _
+		true
+	as constant-union x
+		(type, x) in seen-unions
+	as constant-gc-safe-value
+		true
+
+# TODO: this may be simpler (and faster) as a single dictionary class-and-member[nat][concrete-type] ------------------------------------------
+constant-names[name] record
+	arrays name[nat][concrete-type]
+	records name[constant-record][concrete-type]
+	unions name[constant-union][concrete-type]
+subscript[name] name(a name constant-names, constant any-constant)
+	type = constant type
+	match constant
+	as single-constant-array x
+		a.arrays[type]![x index]!
+	as single-constant-record x
+		a.records[type]![x constant]!
+	as single-constant-union x
+		a.unions[type]![x constant]!
+array-name[name] name(a name constant-names, type concrete-type, value constant-array)
+	a.arrays[type]![value index]!
+record-name[name] name(a name constant-names, type concrete-type, value constant-record)
+	a.records[type]![value]!
+union-name[name] name(a name constant-names, type concrete-type, value constant-union)
+	a.unions[type]![value]!
+
+constant-names-builder[name] record mut
+	-arrays name mut[nat] mut[concrete-type]
+	-records name mut[constant-record] mut[concrete-type]
+	-unions name mut[constant-union] mut[concrete-type]
+new[name] name constant-names-builder()
+	(), (), ()
+set-subscript[name] void(a name constant-names-builder, constant any-constant, name name)
+	match constant
+	as single-constant-array x
+		(a.arrays ensure constant.type)[x index] := name
+	as single-constant-record x
+		(a.records ensure constant.type)[x constant] := name
+	as single-constant-union x
+		(a.unions ensure constant.type)[x constant] := name
+finish[name] name constant-names(a name constant-names-builder)
+	arrays: for k, v : a arrays
+		k, v.move-to
+	records: for k, v : a records
+		k, v.move-to
+	unions: for k, v : a unions
+		k, v.move-to
+
+any-constant union(single-constant-array, single-constant-record, single-constant-union)
+type concrete-type(a any-constant)
+	# TODO: this could be simplified if the type was always called 'type'! --------------------------------------------------
+	match a
+	as single-constant-array x
+		x array-type
+	as single-constant-record x
+		x record-type
+	as single-constant-union x
+		x union-type
+single-constant-array record
+	array-type concrete-type
+	element-type concrete-type
+	index nat
+	elements constant[]
+single-constant-record record
+	record-type concrete-type
+	constant constant-record
+	args constant[]
+	fields concrete-field[]
+single-constant-union record
+	union-type concrete-type
+	constant constant-union
+	value constant-union-value
+	member-type concrete-type # TODO: rename to 'case-type' -------------------------------------------------------------------
 
 signed-integral-type enum(int8, int16, int32, int64)
 == bool(a signed-integral-type, b signed-integral-type)

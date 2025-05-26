@@ -6,7 +6,6 @@ import
 	../../model/show-concrete-model
 	../../model/source-range
 	../../model/uri
-	../../util/full-index-map
 	../../util/util
 	../util
 	./js-ast
@@ -15,45 +14,81 @@ import
 	./write-js-ast
 
 translate-to-js js-and-map
-	program program-with-main
-	concrete-program concrete-program
+	model-program program-with-main
+	program concrete-program
 	show-ctx show-type-ctx
 	source-map-name string?
 do
-	ctx to-js-ctx = show-ctx, concrete-program, concrete-program.build-mangled-names
+	ctx to-js-ctx = show-ctx, program, program.build-mangled-names, do program gen-constant-names show-ctx.show
 	shebang shebang = node
 	classes js-class-decl[] = with out : build
-		for type : concrete-program all-non-extern-types
+		for type : program all-non-extern-types
 			out ~~= ctx translate-type type
-	functions js-fun-decl[] = for x : concrete-program all-non-extern-funs
-		ctx to-js-function x
-	vars js-var-decl[] = with out : build
-		for var : concrete-program all-vars
+	functions js-fun-decl[] = with out : build
+		for x : program all-non-extern-funs
+			out ~= ctx to-js-function x
+		for var : program all-vars
 			match var kind
 			as thread-local_
 				throw todo
 			as global_
-				destructure js-destructure = ctx js-name var
-				expr-ctx to-expr-ctx =
-					ctx: ctx
-					is-cur-fun-async: async # TODO: actually detect whether it needs to be async ----------------------------------------------
-					cur-fun-debug-name: var.source.name
-				value = expr-ctx to-js-expr var.initializer
-				out ~= let, destructure, value
-		to-symbol = ctx.program.common-funs.concrete-common-funs-js! to-symbol-from-string
+				if var var-needs-getter
+					out ~= ctx gen-var-getter var
+		show-ctx.show each-constant-in-dependency-order program, x =>
+			source = ctx source program.common-funs.concrete-common-funs-js!.to-symbol-from-string # TODO: This is just an arbitrary source. there should be a way to have a null source?
+			out ~= ctx constant-getter source, x
+
+	vars js-var-decl[] = with out : build
+		for var : program all-vars
+			match var kind
+			as thread-local_
+				throw todo
+			as global_
+				if var var-needs-getter
+					out ~= let, (ctx js-name var), ()
+				elif var has-simple-initializer
+					out ~= ctx gen-var-no-getter var	
+		to-symbol = program.common-funs.concrete-common-funs-js! to-symbol-from-string
 		source = ctx source to-symbol
-		string = ctx.program string
+		string = program string
 		to-symbol-is-async = ctx is-async to-symbol
 		to-symbol-ref = ctx to-ref source, to-symbol
-		for index, sym : concrete-program.all-constants.symbols with-index
+		for index, sym : program.all-constants.symbols with-index
 			# TODO: repeating the to-string-from-js-string logic over and over is verbose .......................................
 			args js-expr[] = (ctx to-string-from-js-string string, source, do source gen-string sym.to),
 			out ~= const, index.constant-symbol-name, do source gen-call to-symbol-is-async, to-symbol-ref, args
+		for var : program all-vars
+			match var kind
+			as thread-local_
+				throw todo
+			as global_
+				guard var !var-needs-getter && var !has-simple-initializer
+				out ~= ctx gen-var-no-getter var
 
-	statements js-statement[] = (ctx gen-call-main concrete-program.common-funs.concrete-common-funs-js!.main),
+	statements js-statement[] = (ctx gen-call-main program.common-funs.concrete-common-funs-js!.main),
 	ast js-script-ast = shebang, classes, functions, vars, statements
-	module-paths module-paths = program module-paths
+	module-paths module-paths = model-program module-paths
 	show-ctx write-js-ast module-paths, ast, source-map-name
+
+# Emit vars with simple initializers before symbols (this happens to be the only kind of constants that requires)
+-has-simple-initializer bool(a concrete-var)
+	guard x ?= a.initializer.kind constant
+	x.integral-value !is-empty
+
+-gen-var-no-getter js-var-decl(ctx to-js-ctx, var concrete-var)
+	expr-ctx to-expr-ctx =
+		ctx: ctx
+		is-cur-fun-async: async # TODO: actually detect whether it needs to be async ----------------------------------------------
+		cur-fun-debug-name: var.source name
+	let, (ctx js-name var), do expr-ctx to-js-expr var.initializer
+
+-gen-constant-names nat constant-names(program concrete-program, show-ctx show-ctx)
+	out nat constant-names-builder = ()
+	constant-index mut nat = 0
+	show-ctx each-constant-in-dependency-order program, x =>
+		out[x] := constant-index
+		constant-index +:= 1
+	out finish
 
 -constant-symbol-name js-name(index nat)
 	"_symbol{index}" no-prefix
@@ -203,6 +238,9 @@ do
 -source source(ctx to-js-ctx, a concrete-fun)
 	range = a range
 	range.uri, (ctx debug-name a), ctx.line-and-character-getters[range].range.start
+-source source(ctx to-js-ctx, a concrete-var)
+	range = a range
+	range.uri, a.source.name, ctx.line-and-character-getters[range].range.start
 -debug-name symbol(ctx to-js-ctx, a concrete-fun)
 	ctx.show-ctx show-concrete-fun-name a to
 
@@ -271,19 +309,22 @@ do
 	ctx.mangled-names[fun] no-prefix
 -js-name js-name(ctx to-js-ctx, var concrete-var)
 	ctx.mangled-names[var] no-prefix
+-var-getter-name js-name(ctx to-js-ctx, var concrete-var)
+	"_varget_{ctx.mangled-names[var]}" no-prefix
 -js-name js-name(ctx to-js-ctx, type concrete-type)
 	ctx.mangled-names[type] no-prefix
 -to-ref js-expr(ctx to-js-ctx, source source, fun concrete-fun)
-	source gen-identifier (ctx js-name fun)
+	source gen-identifier do ctx js-name fun
 -to-ref js-expr(ctx to-js-ctx, source source, var concrete-var)
-	source gen-identifier (ctx js-name var)
+	source gen-identifier do ctx js-name var
 -to-ref js-expr(ctx to-js-ctx, source source, type concrete-type)
-	source gen-identifier (ctx js-name type)
+	source gen-identifier do ctx js-name type
 
 -to-js-ctx record
 	show-type-ctx show-type-ctx
 	program concrete-program
 	mangled-names js-mangled-names
+	constant-names nat constant-names
 -show-ctx show-ctx(a to-js-ctx)
 	a.show-type-ctx show
 -line-and-character-getters line-and-character-getters(a to-js-ctx)
@@ -327,16 +368,36 @@ do
 
 -is-async sync-or-async(ctx to-js-ctx, a concrete-fun)
 	a in ctx.program.yielding-funs ? async : sync
+-is-async-initializer sync-or-async(ctx to-js-ctx, a concrete-var)
+	a in ctx.program.yielding-var-initializers ? async : sync
+
+-gen-var-getter js-fun-decl(ctx to-js-ctx, a concrete-var)
+	async = ctx is-async-initializer a
+	name = ctx var-getter-name a
+	expr-ctx to-expr-ctx = ctx, async, a.source.name
+	initializer = expr-ctx to-js-expr a.initializer
+	###
+	if (x === undefined) x = initializer
+	return x
+	###
+	source source = ctx source a
+	x = ctx to-ref source, a
+	body js-statement[] =
+		x-eq-undefined = source gen-eq-eq-eq x, source.gen-undefined
+		initialize = source gen-assign x, initializer
+		- source gen-if x-eq-undefined, initialize.to
+		- source gen-return x
+	"", name, no-memoize, do async, (), body.to
 
 -to-js-function js-fun-decl(ctx to-js-ctx, a concrete-fun)
 	async sync-or-async = ctx is-async a
 	name js-name = ctx js-name a
-	expr-ctx to-expr-ctx = ctx, (ctx is-async a), (ctx debug-name a)
+	expr-ctx to-expr-ctx = ctx, async, (ctx debug-name a)
 	params js-destructure[] = for param : a params
 		expr-ctx local-name param
 	body = expr-ctx to-block-statement a
 	comment = ctx.show-ctx show-concrete-fun-sig a, ((ctx is-async a) == async)
-	comment, name, (async, (params, ()), body)
+	comment, name, no-memoize, do async, (params, ()), body
 
 -to-block-statement js-expr-or-block-statement(ctx to-expr-ctx, a concrete-fun)
 	source = ctx.ctx source a
@@ -934,7 +995,11 @@ do
 	as try-let-concrete-expr x
 		ctx translate-try-let source, type, x
 	as var-get-concrete-expr x
-		ctx to-ref source, x.var
+		if x.var var-needs-getter
+			getter = source gen-identifier do ctx.ctx var-getter-name x.var
+			source gen-call (ctx.ctx is-async-initializer x.var), getter, ()
+		else
+			ctx to-ref source, x.var
 	as var-set-concrete-expr x
 		source gen-assign (ctx to-ref source, x.var), (ctx to-js-expr x.value) to
 	as union-as-concrete-expr x
@@ -943,6 +1008,9 @@ do
 	as union-kind-concrete-expr x
 		union_ = ctx to-js-expr x.union_
 		source gen-property-access union_, "index"
+
+-var-needs-getter bool(a concrete-var)
+	a.initializer.kind.constant is-empty
 
 -array-literal js-expr(source source, array-type concrete-type, elements js-expr[])
 	array = source gen-array elements
@@ -1104,6 +1172,26 @@ do
 	else
 		none, "ignore", ctx.take-next-temp-index
 
+-constant-getter js-fun-decl(ctx to-js-ctx, source source, a any-constant)
+	name = "_constant{ctx.constant-names[a]}" no-prefix # TODO: using a manual prefix with 'no-prefix' is silly! --------------------------------------------
+	"", name, memoize, do sync, (), do ctx gen-init-constant source, a
+-gen-init-constant js-expr(ctx to-js-ctx, source source, a any-constant)
+	match a
+	as single-constant-array x
+		elements = x elements
+		element-type = x element-type
+		source array-literal a.type,  for e : elements
+			ctx translate-constant source, element-type, e
+	as single-constant-record x
+		class_ = ctx to-ref source, x.type
+		source gen-new class_, for field, arg : x.fields zip x.args
+			ctx translate-constant source, field.type, arg
+	as single-constant-union x
+		case-type = x member-type
+		source gen-new (ctx to-ref source, x.union-type),
+			- source gen-number64 x.value.member-index.to
+			- ctx translate-constant source, case-type, x.value.member
+
 -translate-constant js-expr(ctx to-js-ctx, source source, type concrete-type, a constant)
 	match type body
 	as concrete-builtin-type x
@@ -1114,29 +1202,20 @@ do
 		throw unreachable
 	as concrete-flags x
 		source constant-integral x.storage_, a
-	as concrete-record x
-		# TODO:PERF Since these are allocated, we should probably make them global 'const' values too --------------------------
-		class_ = ctx to-ref source, type
+	as concrete-record _
 		match a
 		as constant-record r
-			source gen-new class_, for field, arg : x.fields zip ctx.program.all-constants.records[type]![r] # TODO: use a global const instead of creating a new one each time
-				ctx translate-constant source, field.type, arg
+			source gen-get-constant do ctx.constant-names record-name type, r
 		as constant-gc-safe-value
 			source gen-null
 		as constant-symbol s
 			source gen-identifier s.index.constant-symbol-name
 		else
 			throw unreachable
-	as concrete-union u
+	as concrete-union _
 		match a
-		as constant-union constant
-			# TODO:PERF Since these are allocated, we should probably make them global 'const' values too -------------------------
-			# new U(index, value)
-			uv = ctx.program.all-constants.unions[type]![constant]
-			case-type = u.members[uv member-index]
-			index = source gen-number64 uv.member-index.to
-			value = ctx translate-constant source, case-type, uv.member
-			source gen-new (ctx to-ref source, type), (index, value)
+		as constant-union u
+			source gen-get-constant do ctx.constant-names union-name type, u
 		as constant-gc-safe-value
 			source gen-null
 		else
@@ -1148,11 +1227,8 @@ do
 	match builtin_ kind
 	as array
 		match a
-		as constant-array ca
-			elements = ctx.program.all-constants.arrs[ca type-index].constants[ca index] # TODO: I type this a lot. have a helper function.
-			element-type = builtin_.type-args[0]
-			source array-literal type,  for x : elements
-				ctx translate-constant source, element-type, x
+		as constant-array x
+			source gen-get-constant do ctx.constant-names array-name type, x
 		as constant-gc-safe-value
 			source gen-null
 		else
@@ -1206,6 +1282,9 @@ do
 	as weak-ref
 		assert _ ?= a constant-gc-safe-value
 		source gen-null
+
+-gen-get-constant js-expr(source source, name nat)
+	source gen-call-sync (source gen-identifier "_constant{name}".no-prefix), ()
 
 -constant-integral js-expr(source source, type integral-type, a constant)
 	source constant-integral type, match a
