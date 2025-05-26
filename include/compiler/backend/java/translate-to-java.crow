@@ -581,10 +581,6 @@ do
 
 	method-impls method_info[] = with out : build
 		for interface_ : interface-structs
-			if (ctx union-representation interface_) == sealed-interface
-				case-index = interface_.body.concrete-union!.members index-of! type
-				# Implement the case-type-index-method
-				out ~= names case-index-method-impl interface_, case-index
 			info = ctx.program.method-impls[interface_] ?? ()
 			unless info is-empty
 				index = interface_.body.concrete-union!.members index-of! type # TODO:PERF have the index handy so we don't have to search for it again
@@ -649,7 +645,7 @@ do
 		as exception
 			()
 		as sealed-interface
-			names union-sealed-interface this-class, super-class, interfaces, all-methods, do names case-index-method-name type
+			names union-sealed-interface this-class, super-class, interfaces, all-methods
 		as switch
 			assert all-methods is-empty : todo
 			names union-switchable this-class, super-class, interfaces
@@ -735,33 +731,15 @@ do
 	super-class class-reference
 	interfaces class-reference[]
 	methods method_info[]
-	case-type-method-name utf8-reference
 do
-	all-methods = methods ~
-		access-flags: public | abstract_
-		name: case-type-method-name
-		descriptor: names case-index-method-descriptor
-		attributes: ()
 	constant-pool: names.constants finish
 	access: interface_ | abstract_
 	this-class: this-class
 	super-class: super-class
 	interfaces: interfaces
 	fields: ()
-	methods: all-methods
+	methods: methods
 	attributes: ()
-
--case-index-method-impl method_info(names java-refs, sum-type concrete-type, index nat)
-	code = with out : names.constants build-code
-		out iconst index.to
-		out return T_INT
-	access-flags: public | final
-	name: names case-index-method-name sum-type
-	descriptor: names case-index-method-descriptor
-	attributes: code,
-
--call-case-index void(out code-builder, ctx expr-ctx, union-type concrete-type)
-	out invokeinterface (ctx.names case-index-method union-type), 1
 
 -union-switchable ClassFile
 	names java-refs
@@ -1139,7 +1117,7 @@ do
 			throw unreachable
 		as switch
 			out aload 0
-			out get-switchable-kind-nat32 ctx, union_
+			out get-switchable-kind ctx, union_
 			jump-to-case, jump-to-default = out tableswitch 0 .. cases.size.to
 			for case-index, case-impls : cases with-index
 				case-type = union_.body.concrete-union!.members[case-index]
@@ -1550,50 +1528,6 @@ do
 			out putstatic do names var-field x.var
 			ctx must-pop x.value.type
 		out handle-pos pos, type
-	as union-as-concrete-expr x
-		out emit-and-continue ctx, x.union_
-		cast void mut() = () =>
-			out checkcast do names class_ x.case-type
-			out unbox-if-necessary names, x.case-type
-			ctx must-refine x.union_.type, x.case-type
-			out handle-pos pos, type
-		match ctx union-representation x.union_.type
-		as exception
-			cast[]
-		as sealed-interface
-			cast[]
-		as switch
-			# This is an unsafe operation, so no need to check the 'kind'
-			out get-switchable-value ctx, x.union_.type
-			cast[]
-		as nullable
-			out dup32
-			match x member-index
-			as 0
-				# Get instance of the empty type
-				throw todo
-			as 1
-				out invokevirtual names.crow-assert-non-null
-			else
-				throw unreachable
-	as union-kind-concrete-expr x
-		assert type.body.concrete-builtin-type!.kind == nat64
-		out emit-and-continue ctx, x.union_
-		union-type = x.union_ type
-		match ctx union-representation union-type
-		as exception
-			throw unreachable
-		as sealed-interface
-			out call-case-index ctx, union-type
-			out i2l
-			ctx must-pop union-type
-			ctx pushed type
-		as switch
-			out get-switchable-kind-nat64 ctx, union-type
-			ctx must-pop union-type
-			ctx pushed type
-		as nullable
-			out invokestatic names.crow-one-if-not-null
 
 -emit-for-loop void(out code-builder, ctx expr-ctx, pos expr-pos, a concrete-expr, x array-op-concrete-expr)
 	names = ctx names
@@ -1739,7 +1673,7 @@ do
 		out emit-match-union-using-instanceof ctx, pos, type, a
 	as switch
 		out dup32
-		out get-switchable-kind-nat32 ctx, matched-type
+		out get-switchable-kind ctx, matched-type
 		out swap
 		out get-switchable-value ctx, matched-type
 		out swap
@@ -2002,10 +1936,7 @@ do
 	else
 		false
 
--get-switchable-kind-nat64 void(out code-builder, ctx expr-ctx, union-type concrete-type)
-	out get-switchable-kind-nat32 ctx, union-type
-	out i2l
--get-switchable-kind-nat32 void(out code-builder, ctx expr-ctx, union-type concrete-type)
+-get-switchable-kind void(out code-builder, ctx expr-ctx, union-type concrete-type)
 	out getfield do ctx.names switchable-kind-field union-type
 -get-switchable-value void(out code-builder, ctx expr-ctx, union-type concrete-type)
 	out getfield do ctx.names switchable-value-field union-type

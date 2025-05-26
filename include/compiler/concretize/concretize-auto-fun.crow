@@ -368,19 +368,77 @@ do
 	members concrete-type[]
 	member-compares called[]
 do
-	members.size is member-compares.size
 	guard members !is-empty : comparison gen-comparison-equal range
 	p0 = range gen-param-get param0
 	p1 = range gen-param-get param1
-	p0-kind = ctx.concretize-ctx gen-union-kind range, p0
-	p1-kind = ctx.concretize-ctx gen-union-kind range, p1
 	less = comparison gen-comparison-less range
 	greater = comparison gen-comparison-greater range
-	# p0.kind < p1.kind ? less : p1.kind < p0.kind ? greater : match p0.kind ...
-	kind-is-less = ctx.concretize-ctx gen-less-integral range, p0-kind, p1-kind
-	kind-is-greater = ctx.concretize-ctx gen-less-integral range, p1-kind, p0-kind
-	match-same = ctx match-unions-same-kind range, comparison, p0, p1, members, member-compares
-	range gen-if kind-is-less, less, (range gen-if kind-is-greater, greater, match-same)
+	###
+	Generate code like:
+	match param0
+	as case0 xa
+		match param1
+		as case0 xb
+			xa <=> xb
+		else
+			less
+	as case1 xa
+		match param1
+		as case0 _
+			greater
+		as case1 xb
+			xa <=> xb
+		else
+			less
+	...
+	###
+	if members.size <= 4
+		comparison gen-match-union range, members, p0, (member-index, get-member) =>
+			same-case = ctx gen-compare-same-case range, members, member-compares, member-index, get-member
+			# To keep the number of cases down, use 'default' for the bigger half
+			more-cases-are-greater = member-index < members.size / 2
+			member-indices nat64 range = more-cases-are-greater ? 0 .. member-index + 1 : member-index .. members.size
+			cases concrete-local-and-expr[] = for i : member-indices
+				i == member-index ? same-case : (), (more-cases-are-greater ? greater : less)
+			default concrete-local-and-expr? = unless cases.size == members.size
+				(), (more-cases-are-greater ? less : greater)
+			comparison, range, do p1 match-union-concrete-expr member-indices.to, cases, default
+	else
+		nat = ctx.concretize-ctx nat64-type
+		b-case-index concrete-local = union-kind::concrete-generated-local-kind, nat
+		get-b-case-index = range gen-local-get b-case-index
+		init-b-case-index concrete-expr =
+			cases concrete-local-and-expr[] = for member-index : 0 .. members.size
+				(), do nat, range, (member-index,)::integral-value
+			nat, range, do p1 match-union-concrete-expr (0 .. members.size).to, cases, ()
+		match_ concrete-expr = comparison gen-match-union range, members, p0, (member-index, get-member) =>
+			same-case = ctx gen-compare-same-case range, members, member-compares, member-index, get-member
+			###
+			match p1
+			as foo xb
+				xa <=> xb
+			else
+				42 < b-kind ? less : greater
+			###
+			cases concrete-local-and-expr[] = same-case,
+			a-case-index concrete-expr = nat, range, (member-index,)::integral-value
+			a-kind-less = ctx.concretize-ctx gen-less-integral range, a-case-index, get-b-case-index
+			default = range gen-if a-kind-less, less, greater
+			comparison, range, do p1 match-union-concrete-expr member-index.to, cases, ((), default)
+		comparison gen-let range, b-case-index, init-b-case-index, match_
+
+-gen-compare-same-case concrete-local-and-expr
+	ctx concretize-expr-ctx
+	range uri-and-range
+	members concrete-type[]
+	member-compares called[]
+	member-index nat
+	get-member concrete-expr
+do
+	local concrete-local = member2::concrete-generated-local-kind, members[member-index]
+	local, do ctx concretize-and-call member-compares[member-index], range,
+		- get-member
+		- range gen-local-get local
 
 -concretize-equal-record concrete-expr
 	ctx concretize-expr-ctx
@@ -403,26 +461,14 @@ do
 	guard members !is-empty : ctx.concretize-ctx gen-true range
 	p0 = range gen-param-get param0
 	p1 = range gen-param-get param1
-	kind0 = ctx.concretize-ctx gen-union-kind range, p0
-	kind1 = ctx.concretize-ctx gen-union-kind range, p1
-	kind-equal = ctx.concretize-ctx gen-equal-integral range, kind0, kind1
-	match-same = ctx match-unions-same-kind range, bool-type, p0, p1, members, member-equals
-	ctx.concretize-ctx gen-and range, kind-equal, match-same
-
-# Caller should guarantee that the unions have the same kind
--match-unions-same-kind concrete-expr
-	ctx concretize-expr-ctx
-	range uri-and-range
-	return-type concrete-type
-	p0 concrete-expr
-	p1 concrete-expr
-	members concrete-type[]
-	calleds called[]
-do
-	members.size is calleds.size
-	return-type gen-match-union range, members, p0, (member-index, get-member) =>
-		p1-as-member = get-member.type gen-union-as range, p1, member-index
-		ctx concretize-and-call calleds[member-index], range, (get-member, p1-as-member)
+	bool-type gen-match-union range, members, p0, (member-index, get-member) =>
+		cases concrete-local-and-expr[] =
+			local concrete-local = member2::concrete-generated-local-kind, members[member-index]
+			- local, do ctx concretize-and-call member-equals[member-index], range,
+				- get-member
+				- range gen-local-get local
+		default = ctx.concretize-ctx gen-false range
+		bool-type, range, do p1 match-union-concrete-expr member-index.to, cases, ((), default)
 
 -concretize-record-to-json concrete-expr
 	ctx concretize-expr-ctx

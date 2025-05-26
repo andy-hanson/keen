@@ -96,12 +96,6 @@ class Crow {
 		return a < 0 ? (double) a + Math.pow(2, 64) : (double) a;
 	}
 
-	void assertNonNull(Object object) {
-		if (object == null) {
-			throw new NullPointerException();
-		}
-	}
-
 	static java.lang.ref.WeakReference<?> newWeakRef(Object a) {
 		return new java.lang.ref.WeakReference<>(a);
 	}
