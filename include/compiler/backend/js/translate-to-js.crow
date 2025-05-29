@@ -33,7 +33,7 @@ do
 			out ~~= ctx translate-type type
 	functions js-fun-decl[] = with out : build
 		for x : program all-non-extern-funs
-			out ~= ctx to-js-function x
+			out ~~= ctx to-js-functions x
 		for var : program all-vars
 			match var kind
 			as thread-local_
@@ -58,12 +58,11 @@ do
 		to-symbol = program.common-funs.concrete-common-funs-js! to-symbol-from-string
 		source = ctx source to-symbol
 		string = program string
-		to-symbol-is-async = ctx is-async to-symbol
-		to-symbol-ref = ctx to-ref source, to-symbol
+		to-symbol-ref = ctx to-ref source, to-symbol, sync
 		for index, sym : program.all-constants.symbols with-index
 			# TODO: repeating the to-string-from-js-string logic over and over is verbose .......................................
 			args js-expr[] = (ctx to-string-from-js-string string, source, do source gen-string sym.to),
-			out ~= const, index.constant-symbol-name, do source gen-call to-symbol-is-async, to-symbol-ref, args
+			out ~= const, index.constant-symbol-name, do source gen-call-sync to-symbol-ref, args
 		for var : program all-vars
 			match var kind
 			as thread-local_
@@ -110,7 +109,7 @@ do
 	process = source gen-global "process"
 	process-argv = source gen-property-access process, "argv"
 	process-argv-slice = source gen-call-property-sync process-argv, "slice", ((source gen-number64 2),)
-	call-main = source gen-call-sync (ctx to-ref source, main), (process-argv-slice,)
+	call-main = source gen-call-sync (ctx to-ref source, main, async), (process-argv-slice,)
 	
 	exit js-name = "exit" no-prefix
 	params js-params = (exit,), ()
@@ -322,16 +321,16 @@ do
 	kind = sync js-class-method params.to, statements.to
 	source, instance, "constructor", kind
 
--js-name js-name(ctx to-js-ctx, fun concrete-fun)
-	ctx.mangled-names[fun] no-prefix
+-js-name js-name(ctx to-js-ctx, fun concrete-fun, async sync-or-async)
+	ctx.mangled-names[fun, async] no-prefix
 -js-name js-name(ctx to-js-ctx, var concrete-var)
 	ctx.mangled-names[var] no-prefix
 -var-getter-name js-name(ctx to-js-ctx, var concrete-var)
 	"_varget_{ctx.mangled-names[var]}" no-prefix
 -js-name js-name(ctx to-js-ctx, type concrete-type)
 	ctx.mangled-names[type] no-prefix
--to-ref js-expr(ctx to-js-ctx, source source, fun concrete-fun)
-	source gen-identifier do ctx js-name fun
+-to-ref js-expr(ctx to-js-ctx, source source, fun concrete-fun, async sync-or-async)
+	source gen-identifier do ctx js-name fun, async
 -to-ref js-expr(ctx to-js-ctx, source source, var concrete-var)
 	source gen-identifier do ctx js-name var
 -to-ref js-expr(ctx to-js-ctx, source source, type concrete-type)
@@ -373,8 +372,8 @@ do
 	res = a next-generated-temp-index
 	a.next-generated-temp-index +:= 1
 	res
--to-ref js-expr(ctx to-expr-ctx, source source, fun concrete-fun)
-	ctx.ctx to-ref source, fun
+-to-ref js-expr(ctx to-expr-ctx, source source, fun concrete-fun, async sync-or-async)
+	ctx.ctx to-ref source, fun, async
 -to-ref js-expr(ctx to-expr-ctx, source source, var concrete-var)
 	ctx.ctx to-ref source, var
 -to-ref js-expr(ctx to-expr-ctx, source source, type concrete-type)
@@ -388,8 +387,16 @@ do
 	range = a range
 	range.uri, ctx.cur-fun-debug-name, ctx.show-ctx.line-and-character-getters[range].range.start
 
--is-async sync-or-async(ctx to-js-ctx, a concrete-fun)
-	a in ctx.program.async-funs ? async : sync
+-is-async sync-or-async(ctx to-expr-ctx, a concrete-fun)
+	if x ?= ctx.ctx.program.async-funs[a]
+		match x
+		as always-async
+			assert ctx.is-cur-fun-async == async # TODO: hmm, this implies that I can just return 'ctx.is-cur-fun-async' unconditionally..................
+			async
+		as sync-and-async
+			ctx is-cur-fun-async
+	else
+		sync
 -is-async-initializer sync-or-async(ctx to-js-ctx, a concrete-var)
 	a in ctx.program.async-var-initializers ? async : sync
 
@@ -411,9 +418,18 @@ do
 		- source gen-return x
 	"", name, no-memoize, do async, (), body.to
 
--to-js-function js-fun-decl(ctx to-js-ctx, a concrete-fun)
-	async sync-or-async = ctx is-async a
-	name js-name = ctx js-name a
+-to-js-functions js-fun-decl[](ctx to-js-ctx, a concrete-fun)
+	if x ?= ctx.program.async-funs[a]
+		match x
+		as always-async
+			- ctx to-js-function a, async
+		as sync-and-async
+			- ctx to-js-function a, sync
+			- ctx to-js-function a, async
+	else
+		- ctx to-js-function a, sync
+-to-js-function js-fun-decl(ctx to-js-ctx, a concrete-fun, async sync-or-async)
+	name = ctx js-name a, async
 	expr-ctx to-expr-ctx = ctx, async, (ctx debug-name a)
 	params js-destructure[] = for param : a params
 		expr-ctx local-name param
@@ -462,7 +478,12 @@ do
 		throw unreachable
 	as builtin-fun-call-lambda
 		arg0, arg1 = args only2
-		source gen-await do source gen-call-sync (ctx to-js-expr arg0), ((ctx to-js-expr arg1),)
+		call = source gen-call-sync (ctx to-js-expr arg0), ((ctx to-js-expr arg1),)
+		match ctx is-cur-fun-async
+		as sync
+			call
+		as async
+			source gen-await call
 	as builtin-fun-constant _
 		throw unreachable
 	as builtin-fun-is-empty-type
@@ -870,13 +891,10 @@ do
 	as builtin-concrete-expr x
 		ctx translate-builtin type, source, x.fun, x.args
 	as call-concrete-expr x
-		call-async = ctx.ctx is-async x.called
-		if call-async == async
-			assert ctx.is-cur-fun-async == async
-		called = ctx to-ref source, x.called
-		args js-expr[] = for arg : x args
+		call-async = ctx is-async x.called
+		called = ctx to-ref source, x.called, call-async
+		source gen-call call-async, called, for arg : x args
 			ctx to-js-expr arg
-		source gen-call call-async, called, args
 	as cast-concrete-expr x
 		ctx to-expr-or-block-statement x.inner
 	as constant x
@@ -970,8 +988,8 @@ do
 		assert ctx.ctx is-string-or-symbol x.matched.type : todo
 		ctx with-temp-or-local "matched", x.matched, x.else_.local, matched =>
 			res mut = ctx to-block-statement x.else_.expr
-			equals = ctx to-ref source, x.equals
-			equals-async = ctx.ctx is-async x.equals
+			equals-async = ctx is-async x.equals
+			equals = ctx to-ref source, x.equals, equals-async
 			for case_ : x.cases reverse
 				value = ctx to-js-expr case_.value
 				cond = source gen-call equals-async, equals, (matched, value)

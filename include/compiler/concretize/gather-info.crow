@@ -6,9 +6,13 @@ import
 	../model/model
 
 concrete-fun-info record
-	all-used-funs concrete-fun[]
-	async-funs concrete-fun set
+	all-used-funs concrete-fun set
+	async-funs async-kind[concrete-fun]
 	async-var-initializers concrete-var set
+
+temp-async-kind enum(depends-on-caller, always-async) # better name? -----------------------------------------------------------------------
+== bool(a temp-async-kind, b temp-async-kind)
+<=> comparison(a temp-async-kind, b temp-async-kind)
 
 gather-info concrete-fun-info
 	show-ctx show-ctx
@@ -17,12 +21,12 @@ gather-info concrete-fun-info
 	all-vars concrete-var[]
 	method-impls concrete-method-info[concrete-type]
 do
-	calls, var-calls, called-by = show-ctx build-called-by all-funs, all-vars, method-impls
-	all-used-funs = common-funs get-used-funs all-vars, calls, var-calls
+	called-by = show-ctx build-called-by all-funs, all-vars, method-impls
+	all-used-funs = common-funs get-used-funs all-vars, called-by
 	async-funs, async-var-initializers = common-funs get-async-funs all-used-funs, all-vars, called-by
 	all-used-funs, async-funs, async-var-initializers
 
--get-used-funs concrete-fun[](common-funs concrete-common-funs, all-vars concrete-var[], calls concrete-fun[][concrete-fun], var-calls concrete-fun[][concrete-var])
+-get-used-funs concrete-fun set(common-funs concrete-common-funs, all-vars concrete-var[], called-by foo)
 	start-funs concrete-fun set = with out : build
 		from-common-funs concrete-fun[] = match common-funs
 		as concrete-common-funs-java x
@@ -32,113 +36,191 @@ do
 		out ~~= from-common-funs
 		# TODO: We should first find which vars are used .......................................................................
 		for var : all-vars
-			out ~~= var-calls[var] ?? ()
+			for v : called-by.var-calls[var] ?? ()
+				out ~= v called
 	res concrete-fun mut[] = start-funs.to::concrete-fun[] to
 	set concrete-fun mut-set = start-funs to
 	to-propagate concrete-fun mut[] = start-funs.to::concrete-fun[] to
 	until to-propagate is-empty
 		fun = to-propagate pop!
-		for called : calls[fun] ?? ()
+		for x : called-by.calls[fun] ?? ()
+			called = x called
 			if set try-add called
 				res ~= called
 				to-propagate ~= called
-	res move-to
+	res.move-to to
 
 # TODO: call this 'get-async-funs' and only run it if we are doing a JS build ------------------------------------------------------------
--get-async-funs (concrete-fun set, concrete-var set)
+-get-async-funs (async-kind[concrete-fun], concrete-var set)
 	common-funs concrete-common-funs
-	all-used-funs concrete-fun[]
+	all-used-funs concrete-fun set
 	all-used-vars concrete-var[]
-	called-by concrete-fun[][concrete-fun]
+	called-by foo
 do
-	guard common-funs.concrete-common-funs-java is-empty : (), ()
+	guard _ ?= common-funs.concrete-common-funs-js : (), () # TODO: if this is the only use of 'common-funs', we should just not call this for a non-js target
 
-	res concrete-fun mut-set = ()
-	# These are functions known to be async that have been added to 'res' but not yet processed for callers.
+	temp-kinds temp-async-kind mut[concrete-fun] = ()
 	to-propagate concrete-fun mut[] = ()
-	add void mut(x concrete-fun) = x =>
-		if res try-add x
-			to-propagate ~= x
 
-	for x : all-used-funs
-		if x is-intrinsically-async-fun && x !is-always-sync common-funs
-			add[x]
+	# TODO:PERF we already went over all funs when generating 'called-by'. Should do this as part of that to avoid having to walk all funs again.
+	for fun : all-used-funs
+		kind = fun find-direct-async
+		if kind > temp-kinds[fun]
+			temp-kinds[fun] := kind!
+			to-propagate ~= fun
+
 	until to-propagate is-empty
 		fun = to-propagate pop!
-		for caller : called-by[fun] ?? ()
-			unless caller is-always-sync common-funs
-				add[caller]
+		its-kind = temp-kinds[fun]!
+		for caller : called-by.called-by[fun] ?? ()
+			guard caller.caller in all-used-funs # TODO: can we just not put these in callers then? -----------------------------------------------------
+			new-kind = its-kind propagation-kind caller
+			if new-kind > temp-kinds[caller caller]
+				temp-kinds[caller caller] := new-kind!
+				to-propagate ~= caller caller
 
-	match common-funs
-	as concrete-common-funs-java _
-		()
-	as concrete-common-funs-js x
-		# Force this to be async for consistency
-		res ~= x.main
+	used-depends-on-caller = all-used-funs calc-used-depends-on-caller called-by, temp-kinds
 
-	rez concrete-fun set = res move-to
+	async-funs async-kind[concrete-fun] = with out : build
+		for fun, kind : temp-kinds
+			out-kind async-kind? = match kind
+			as depends-on-caller
+				uses = used-depends-on-caller[fun]!
+				if uses == used-sync | used-async
+					sync-and-async
+				elif uses == used-sync
+					()
+				elif uses == used-async
+					always-async
+				else
+					throw unreachable
+			as always-async
+				always-async
+			if x ?= out-kind
+				out ~= fun, x
 	# TODO: this is not right. The correct way to do this is basically consider each concrete-var as if it is a fun, since accessing it might run the initializer.
 	async-var-initializers concrete-var set = all-used-vars filter x =>
-		x.initializer contains-any-async rez
-	rez, async-var-initializers
+		# TODO: This should use 'called-by.var-calls' instead of searching again
+		x.initializer search-async async-funs
+	async-funs, async-var-initializers
 
--contains-any-async bool(a concrete-expr, async-funs concrete-fun set)
+-uses flags(used-sync, used-async)
+-== bool(a uses, b uses)
+-calc-used-depends-on-caller uses[concrete-fun](all-used-funs concrete-fun set, called-by foo, async-kinds temp-async-kind mut[concrete-fun])
+	# This will only contain 'depends-on-caller' functions
+	to-propagate concrete-fun mut[] = ()
+	res uses mut[concrete-fun] = ()
+
+	for fun : all-used-funs
+		guard calls ?= called-by.calls[fun]
+		opt-use uses? = if ak ?= async-kinds[fun]
+			match ak
+			as depends-on-caller
+				() # Do nothing so far
+			as always-async
+				used-async
+		else
+			used-sync
+		guard use ?= opt-use # TODO: should be able to put the entire 'if' expression in the 'guard' ------------------
+		for x : calls
+			called = x called
+			if async-kinds[called] == depends-on-caller && res try-add called, use
+				to-propagate ~= called
+
+	until to-propagate is-empty
+		fun = to-propagate pop!
+		guard calls ?= called-by.calls[fun]
+		uses = res[fun]!
+		for x : calls
+			called = x called
+			if async-kinds[called] == depends-on-caller && res try-add called, uses
+				to-propagate ~= called
+	
+	res move-to
+
+-try-add bool(res uses mut[concrete-fun], key concrete-fun, used uses)
+	should-add = if cur ?= res[key]
+		x = used !in cur
+		assert x == (cur | used != cur) # TODO: rm -------------------------------------------------------------------------------
+		x
+	else
+		true
+	if should-add
+		res[key] := (res[key] ?? ()) | used
+	should-add	
+
+-search-async bool(a concrete-expr, async-funs async-kind[concrete-fun])
 	here bool = match a kind
 	as builtin-concrete-expr x
-		x.fun is-intrinsically-async
+		x.fun intrinsic-async-kind x.args, () !is-empty
 	as call-concrete-expr x
 		x.called in async-funs
 	else
 		false
-	here || a.direct-child-exprs exists x => x contains-any-async async-funs
+	here || a.direct-child-exprs exists x => x search-async async-funs
 
--is-intrinsically-async-fun bool(a concrete-fun)
+-find-direct-async temp-async-kind?(a concrete-fun)
 	match a body
-	as concrete-fun-body-builtin x
-		x.kind is-intrinsically-async
+	as concrete-fun-body-builtin b
+		match b kind
+		as builtin-fun-call-lambda
+			depends-on-caller
+		as js-fun x
+			x intrinsic-async-kind
+		else
+			()
 	as concrete-expr x
-		x is-intrinsically-async
+		x intrinsic-async-kind a.params
 	as fun-body-extern-java _
-		false # OTDO: we shouldn't even get here for a Java build ---------------------------------------------------------------
+		() # TODO: we shouldn't even get here for a JS build ---------------------------------------------------------------
 	as concrete-fun-body-method _
 		throw todo
 	as concrete-fun-body-deferred
 		throw unreachable
-is-always-sync bool(_ concrete-fun, common-funs concrete-common-funs) # RM --------------------------------------------
-	match common-funs
-	as concrete-common-funs-java _
-		throw unreachable
-	as concrete-common-funs-js _
-		false
 
--is-intrinsically-async bool(a concrete-expr)
-	here bool = match a kind
-	as builtin-concrete-expr x
-		x.fun is-intrinsically-async
+-intrinsic-async-kind temp-async-kind?(a concrete-expr, params concrete-local[])
+	here temp-async-kind? = match a kind
+	as builtin-concrete-expr b
+		b.fun intrinsic-async-kind b.args, params
 	else
-		false
-	here || a.direct-child-exprs exists x => x is-intrinsically-async
--is-intrinsically-async bool(a builtin-fun)
+		()
+	from-children = a.direct-child-exprs max-of x => x intrinsic-async-kind params
+	here max (from-children ?? ())
+-intrinsic-async-kind temp-async-kind?(a builtin-fun, args concrete-expr[], params concrete-local[])
 	match a
-	as builtin-fun-call-lambda
-		true # Pessimistically assume that lambdas are async (TODO: this is too pessimistic) ----------------------------------------
+	as builtin-fun-call-lambda _
+		match args[0] kind
+		as local-get-concrete-expr g
+			if g.local in params
+				depends-on-caller
+			else
+				always-async # TODO: if this accesses a local variable which is initialized in this function, we can ignore it (since we will process the lambda body anyway)
+		else
+			always-async
 	as js-fun x
-		x == await || x == import_
+		x intrinsic-async-kind
 	else
-		false
+		()
+-intrinsic-async-kind temp-async-kind?(a js-fun)
+	a == await || a == import_ ? always-async
 
 # Maps a function to all functions that call it.
 -called-by alias
 	concrete-fun[][concrete-fun]
 
--build-called-by (concrete-fun[][concrete-fun], concrete-fun[][concrete-var], called-by)
+-foo record # NAME ------------------------------------------------------------------------------------------------------------
+	calls call-kind[][concrete-fun]
+	var-calls call-kind[][concrete-var]
+	called-by caller[][concrete-fun]
+
+-build-called-by foo
 	show-ctx show-ctx
 	all-funs concrete-fun[]
 	all-vars concrete-var[]
 	method-impls concrete-method-info[concrete-type]
 do
-	calls concrete-fun mut[] mut[concrete-fun] = ()
-	called-by concrete-fun mut[] mut[concrete-fun] = ()
+	calls call-kind mut[] mut[concrete-fun] = ()
+	called-by caller mut[] mut[concrete-fun] = ()
 	for fun : all-funs
 		match fun body
 		as concrete-fun-body-builtin _
@@ -157,32 +239,84 @@ do
 			assert new-method-index <= x.method-index # some methods may be omitted
 			for impls : method-info.cases
 				if impl ?= impls[new-method-index]
-					calls ensure fun ~= impl
-					called-by ensure impl ~= fun
+					calls ensure fun ~= impl call-kind-method-impl
+					called-by ensure impl ~= fun, impl.call-kind-method-impl
 		as concrete-fun-body-deferred
 			throw unreachable
-	var-calls concrete-fun mut[] mut[concrete-var] = ()
+	var-calls call-kind mut[] mut[concrete-var] = ()
 	for var : all-vars
 		var.initializer each-call called =>
 			var-calls ensure var ~= called
-	(for k, v : calls; k, v.move-to), (for k, v : var-calls; k, v.move-to), (for k, v : called-by; k, v.move-to)
+	calls: for k, v : calls; k, v.move-to
+	var-calls: for k, v : var-calls; k, v.move-to
+	called-by: for k, v : called-by; k, v.move-to
 -build-called-by-recur void
-	calls concrete-fun mut[] mut[concrete-fun]
-	called-by concrete-fun mut[] mut[concrete-fun]
+	calls call-kind mut[] mut[concrete-fun]
+	called-by caller mut[] mut[concrete-fun]
 	f concrete-fun
 	expr concrete-expr
 do
-	expr each-call called =>
-		calls ensure f, (() => ()) ~= called
-		called-by ensure called, (() => ()) ~= f
+	expr each-call x =>
+		calls ensure f, (() => ()) ~= x
+		called-by ensure x.called, (() => ()) ~= (f, x)
 
--each-call void(expr concrete-expr, f void mut(x concrete-fun))
+-each-call void(expr concrete-expr, f void mut(x call-kind))
 	match expr kind
 	as call-concrete-expr x
-		f[x called]
+		f[x]
 	as match-string-like-concrete-expr x
-		f[x equals]
+		f[x]
 	else
 		()
 	for child : expr direct-child-exprs
 		child each-call f
+
+-caller record
+	caller concrete-fun
+	call-expr call-kind
+
+-call-kind union
+	call-concrete-expr
+	match-string-like-concrete-expr
+	call-kind-method-impl
+-call-kind-method-impl record(impl concrete-fun)
+-called concrete-fun(a call-kind)
+	match a
+	as call-concrete-expr x
+		x called
+	as match-string-like-concrete-expr x
+		x equals
+	as call-kind-method-impl x
+		x impl
+
+-propagation-kind temp-async-kind?(called-kind temp-async-kind, caller caller)
+	match caller call-expr
+	as call-concrete-expr call
+		match called-kind
+		as depends-on-caller
+			res mut temp-async-kind? = ()
+			# TODO: res = call.args max-of ..................................................................................................
+			for arg : call args
+				res max:= if arg.type is-lambda-type
+					match arg kind
+					as local-get-concrete-expr x
+						if x.local in caller.caller.params
+							depends-on-caller
+						else
+							# Calling into one of caller's locals, which will be scanned anyway
+							()
+					as lambda-concrete-expr _
+						# We scan the body of the lambda anyway
+						()
+					else
+						always-async
+				else
+					()
+			res
+		as always-async
+			always-async
+	as match-string-like-concrete-expr _
+		called-kind
+	as call-kind-method-impl _
+		called-kind
+
