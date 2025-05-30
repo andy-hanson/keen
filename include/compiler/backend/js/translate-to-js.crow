@@ -70,9 +70,9 @@ do
 			as global_
 				guard var !var-needs-getter && var !has-simple-initializer
 				out ~= ctx gen-var-no-getter var
-
-	statements js-statement[] = (ctx gen-call-main program.common-funs.concrete-common-funs-js!.main),
-	ast js-script-ast = shebang, classes, functions, vars, statements
+		
+	ast js-script-ast = shebang, classes, functions, vars,
+		- ctx gen-call-main program.common-funs.concrete-common-funs-js!.main
 	module-paths module-paths = model-program module-paths
 	show-ctx write-js-ast module-paths, ast, source-map-name
 
@@ -101,9 +101,16 @@ do
 
 -gen-call-main js-statement(ctx to-js-ctx, main concrete-fun)
 	###
-	main(process.argv.slice(2)).then(exit => {
-		if (exit !== 0n) process.exit(Number(exit))
-	})
+	main(process.argv.slice(2))
+		.then(exit => {
+			if (exit !== 0n) process.exit(Number(exit))
+		})
+		.catch(error => {
+			if (error instanceof Exception) {
+				error.message = new TextDecoder().decode(show4720165156077201834(e).chars)
+			}
+			console.error(e.stack)
+		})
 	###
 	source = ctx source main
 	process = source gen-global "process"
@@ -113,19 +120,34 @@ do
 	call-main = source gen-call-sync (ctx to-ref source, main, main-async), (process-argv-slice,)
 	main-promise = match main-async
 	as sync
-		source gen-call-property-sync (source gen-global "Promise"), "resolve", (call-main,)
+		# TODO: this should be `Promise.resolve().then(() => main(process.argv))` to ensure exceptions are caught- ----------------------
+		source gen-call-property-sync (source gen-global "Promise"), "resolve", (call-main,) 
 	as async
 		call-main
-	exit js-name = "exit" no-prefix
-	params js-params = (exit,), ()
-	get-exit = source gen-identifier exit
-	Number = source gen-global "Number"
-	number-exit = source gen-call-sync Number, (get-exit,)
-	call-exit = source gen-call-property-sync process, "exit", do number-exit,
-	exit-neq-0 = source gen-not-eq-eq get-exit, do source gen-number64 0
-	body js-statement = source gen-if exit-neq-0, call-exit.expr-statement.to
-	fn = source gen-arrow-function sync, params, body.to
-	source gen-call-property-sync main-promise, "then", (fn,) expr-statement
+	then = source gen-call-property-sync main-promise, "then",
+		exit js-name = "exit" no-prefix
+		params js-params = (exit,), ()
+		get-exit = source gen-identifier exit
+		exit-neq-0 = source gen-not-eq-eq get-exit, do source gen-number64 0
+		number-exit = source gen-call-sync (source gen-global "Number"), (get-exit,)
+		call-exit = source gen-call-property-sync process, "exit", do number-exit,
+		body = source gen-if exit-neq-0, call-exit.expr-statement.to
+		- source gen-arrow-function sync, params, body.to
+	catch_ = source gen-call-property-sync then, "catch",
+		error js-name = "error" no-prefix
+		params js-params = (error,), ()
+		get-error = source gen-identifier error
+		error-is-exception = source gen-instanceof get-error, do ctx to-ref source, ctx.exception
+		show-error = source gen-call-sync (ctx to-ref source, ctx.program.common-funs.show-exception, sync), (get-error,)
+		decode-show = source convert-to-js-string show-error
+		error-message = source gen-property-access get-error, "message"
+		set-message = source gen-assign error-message, decode-show
+		maybe-set-message = source gen-if error-is-exception, set-message.to
+		log-stack = source gen-call-property-sync (source gen-global "console"), "error",
+			- source gen-property-access get-error, "stack"
+		body js-statement[] = maybe-set-message, log-stack.expr-statement
+		- source gen-arrow-function sync, params, body.to
+	catch_  expr-statement
 
 # TODO: this does expose the URIs on the build machine ......................................................................
 -module-paths module-paths(program program-with-main)
@@ -133,6 +155,9 @@ do
 		uri, uri.to
 
 -translate-type js-class-decl?(ctx to-js-ctx, a concrete-type)
+	is-exception = a in ctx.union-info.exception-case-types
+	extends js-name? = if is-exception
+		ctx js-name ctx.exception
 	match a body
 	as concrete-builtin-type _
 		()
@@ -143,9 +168,9 @@ do
 	as concrete-flags _
 		()
 	as concrete-record x
-		ctx class-for-record a, x
-	as concrete-union x
-		ctx class-for-union a, x
+		ctx class-for-record a, extends, x
+	as concrete-union _
+		ctx class-for-union a, extends
 	as concrete-type-body-deferred
 		throw unreachable
 
@@ -266,7 +291,7 @@ do
 -debug-name symbol(ctx to-js-ctx, a concrete-fun)
 	ctx.show-ctx show-concrete-fun-name a to
 
--class-for-record js-class-decl(ctx to-js-ctx, a concrete-type ,r concrete-record)
+-class-for-record js-class-decl(ctx to-js-ctx, a concrete-type, extends js-name?, r concrete-record)
 	###
 	class R {
 		constructor(x, y) {
@@ -279,36 +304,35 @@ do
 	source = ctx source a
 	names string[] = for field : r fields
 		field.debug-name to
-	constructor js-class-member = source gen-constructor (), names, (index, get) =>
-		ctx gen-type-assert source, get, r.fields[index].type
 	comment = ctx.show-ctx show-concrete-type a
-	comment, (ctx js-name a), (), (constructor,)
+	comment, (ctx js-name a), extends, unless r.fields is-empty
+		- source gen-constructor !extends.is-empty, names, (index, get) =>
+			ctx gen-type-assert source, get, r.fields[index].type
 
--class-for-union js-class-decl?(ctx to-js-ctx, a concrete-type, _ concrete-union)
-	guard (ctx union-representation a) == switch
-	###
-	class U {
-		constructor(index, value) {
-			this.index = index
-			this.value = value
+-class-for-union js-class-decl?(ctx to-js-ctx, a concrete-type, extends js-name?)
+	match ctx union-representation a
+	as direct
+		if a == ctx.exception
+			name = ctx js-name a
+			assert extends is-empty
+			"", name, "Error".no-prefix, ()
+	as switch
+		###
+		class U {
+			constructor(index, value) {
+				this.index = index
+				this.value = value
+			}
 		}
-	}
-	###
-	source = ctx source a
-	is-exception = a == ctx.exception
-	extends js-name? = if is-exception
-		"Error" no-prefix
-	super js-statement? = if is-exception
-		super = source gen-global "super" # TODO: give this an AST kind? --------------------------------------------------------
-		message = source gen-string "Crow exception"
-		source gen-call-sync super, (message,) expr-statement
-	constructor = source gen-constructor super, ("index", "value"), _ => ()
-	comment = ctx.show-ctx show-concrete-type a
-	comment, (ctx js-name a), extends, (constructor,)
+		###
+		source = ctx source a
+		constructor = source gen-constructor !extends.is-empty, ("index", "value"), _ => ()
+		comment = ctx.show-ctx show-concrete-type a
+		comment, (ctx js-name a), extends, (constructor,)
 
 -gen-constructor js-class-member
 	source source
-	super js-statement?
+	call-super bool
 	names string[]
 	check-field js-statement? mut(index nat, value js-expr)
 do
@@ -317,7 +341,8 @@ do
 	identifiers js-expr[] = for name : names
 		source gen-identifier name.no-prefix
 	statements js-statement[] = with out : build
-		out ~~= super
+		if call-super
+			out ~= source gen-call-sync (source gen-global "super"), () expr-statement
 		for index, value : identifiers with-index
 			out ~~= check-field[index, value]
 		for name, identifier : names zip identifiers
@@ -1134,7 +1159,7 @@ do
 		ctx to-block-statement e.expr
 	else
 		source gen-throw get-error to
-	catch_ = ctx translate-match-union-direct source, get-error, else-block, ctx.ctx.program.exception.body.concrete-union!, a.exception-member-indices, a.catch-cases
+	catch_ = ctx translate-match-union-direct source, get-error, else-block, ctx.ctx.exception.body.concrete-union!, a.exception-member-indices, a.catch-cases
 	source gen-try-catch tried, error, catch_.to to
 
 -translate-try-let js-block-statement(ctx to-expr-ctx, source source, type concrete-type, a try-let-concrete-expr)
@@ -1177,7 +1202,7 @@ do
 	else
 		"error" special-local
 	get-error = source gen-identifier error
-	instanceof-caught-type = ctx.ctx gen-is-type! source, get-error, do a caught-type ctx.ctx.program.exception
+	instanceof-caught-type = ctx.ctx gen-is-type! source, get-error, do a caught-type ctx.ctx.exception
 	catch_ = ctx to-block-statement a.catch_.expr
 	if_ = source gen-if instanceof-caught-type, catch_, do source gen-throw get-error
 	try_ = source gen-try-catch tried.to, error, if_.to
