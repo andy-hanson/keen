@@ -109,8 +109,13 @@ do
 	process = source gen-global "process"
 	process-argv = source gen-property-access process, "argv"
 	process-argv-slice = source gen-call-property-sync process-argv, "slice", ((source gen-number64 2),)
-	call-main = source gen-call-sync (ctx to-ref source, main, async), (process-argv-slice,)
-	
+	main-async sync-or-async = ctx.program.async-funs[main] == always-async ? async : sync
+	call-main = source gen-call-sync (ctx to-ref source, main, main-async), (process-argv-slice,)
+	main-promise = match main-async
+	as sync
+		source gen-call-property-sync (source gen-global "Promise"), "resolve", (call-main,)
+	as async
+		call-main
 	exit js-name = "exit" no-prefix
 	params js-params = (exit,), ()
 	get-exit = source gen-identifier exit
@@ -120,7 +125,7 @@ do
 	exit-neq-0 = source gen-not-eq-eq get-exit, do source gen-number64 0
 	body js-statement = source gen-if exit-neq-0, call-exit.expr-statement.to
 	fn = source gen-arrow-function sync, params, body.to
-	source gen-call-property-sync call-main, "then", (fn,) expr-statement
+	source gen-call-property-sync main-promise, "then", (fn,) expr-statement
 
 # TODO: this does expose the URIs on the build machine ......................................................................
 -module-paths module-paths(program program-with-main)

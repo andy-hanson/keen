@@ -72,12 +72,13 @@ do
 	until to-propagate is-empty
 		fun = to-propagate pop!
 		its-kind = temp-kinds[fun]!
-		for caller : called-by.called-by[fun] ?? ()
-			guard caller.caller in all-used-funs # TODO: can we just not put these in callers then? -----------------------------------------------------
-			new-kind = its-kind propagation-kind caller
-			if new-kind > temp-kinds[caller caller]
-				temp-kinds[caller caller] := new-kind!
-				to-propagate ~= caller caller
+		for x : called-by.called-by[fun] ?? ()
+			caller = x caller
+			guard caller in all-used-funs # TODO: can we just not put these in callers then? -----------------------------------------------------
+			new-kind = its-kind propagation-kind x
+			if new-kind > temp-kinds[caller]
+				temp-kinds[caller] := new-kind!
+				to-propagate ~= caller
 
 	used-depends-on-caller = all-used-funs calc-used-depends-on-caller called-by, temp-kinds
 
@@ -152,7 +153,7 @@ do
 -search-async bool(a concrete-expr, async-funs async-kind[concrete-fun])
 	here bool = match a kind
 	as builtin-concrete-expr x
-		x.fun intrinsic-async-kind x.args, () !is-empty
+		x.fun intrinsic-async-kind x.args, (), () !is-empty
 	as call-concrete-expr x
 		x.called in async-funs
 	else
@@ -170,7 +171,7 @@ do
 		else
 			()
 	as concrete-expr x
-		x intrinsic-async-kind a.params
+		x intrinsic-async-kind a.params.to, ()
 	as fun-body-extern-java _
 		() # TODO: we shouldn't even get here for a JS build ---------------------------------------------------------------
 	as concrete-fun-body-method _
@@ -178,23 +179,37 @@ do
 	as concrete-fun-body-deferred
 		throw unreachable
 
--intrinsic-async-kind temp-async-kind?(a concrete-expr, params concrete-local[])
-	here temp-async-kind? = match a kind
+-intrinsic-async-kind temp-async-kind?(a concrete-expr, params concrete-local set, local-lambda-locals concrete-local set)
+	from-children temp-async-kind? mut() = () =>
+		from-children temp-async-kind? ? = a.direct-child-exprs max-of x => x intrinsic-async-kind params, local-lambda-locals # TODO: should be able to write '??'
+		from-children ?? ()
+	match a kind
 	as builtin-concrete-expr b
-		b.fun intrinsic-async-kind b.args, params
+		here = b.fun intrinsic-async-kind b.args, params, local-lambda-locals
+		here max from-children[]
+	as let-concrete-expr x
+		from-value = x.value intrinsic-async-kind params, local-lambda-locals
+		new-locals = match x.value kind
+		as lambda-concrete-expr _
+			local-lambda-locals ~ x.local
+		else
+			local-lambda-locals
+		from-value max do x.then intrinsic-async-kind params, new-locals
 	else
-		()
-	from-children = a.direct-child-exprs max-of x => x intrinsic-async-kind params
-	here max (from-children ?? ())
--intrinsic-async-kind temp-async-kind?(a builtin-fun, args concrete-expr[], params concrete-local[])
+		from-children[]
+-intrinsic-async-kind temp-async-kind?(a builtin-fun, args concrete-expr[], params concrete-local set, local-lambda-locals concrete-local set)
 	match a
 	as builtin-fun-call-lambda _
 		match args[0] kind
 		as local-get-concrete-expr g
 			if g.local in params
 				depends-on-caller
+			elif g.local in local-lambda-locals
+				# Function is calling a lambda it defined, and we trace its body anyway
+				()
 			else
-				always-async # TODO: if this accesses a local variable which is initialized in this function, we can ignore it (since we will process the lambda body anyway)
+				# Unhandled case, pessimistically assume this is async
+				always-async
 		else
 			always-async
 	as js-fun x
