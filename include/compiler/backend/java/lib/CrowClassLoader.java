@@ -1,22 +1,16 @@
-
 final class CrowClassLoader extends ClassLoader {
-	static final CrowClassLoader loader = new CrowClassLoader();
+	private final java.util.concurrent.ConcurrentHashMap<String, byte[]> classes = new java.util.concurrent.ConcurrentHashMap<>();
 
-	static Class<?> load(String name) {
-		try {
-			return loader.loadClass(name);
-		} catch (ClassNotFoundException e) {
-			throw new Error(e);
-		}
+	public CrowClassLoader(ClassLoader parent) {
+		super(parent);
 	}
 
-	static java.util.concurrent.ConcurrentHashMap<String, byte[]> classes = new java.util.concurrent.ConcurrentHashMap<>();
-	static void add(String name, byte[] bytes) {
+	public void addClassBytecode(String name, byte[] bytes) {
 		classes.put(name, bytes);
 	}
 
-	@Override public Class findClass(String name) {
-		byte[] bytes = classes.remove(name.replace(".", "/"));
-		return bytes == null ? null : defineClass(name, bytes, 0, bytes.length);
+	@Override public Class findClass(String name) throws ClassNotFoundException {
+		byte[] bytes = classes.get(name.replace(".", "/")); // TODO:PERF classes.remove(name.replace(".", "/")); --------------
+		return bytes == null ? super.findClass(name) : defineClass(name, bytes, 0, bytes.length);
 	}
 }

@@ -21,23 +21,25 @@ java-names record
 	-type-to-descriptor symbol[concrete-type]
 	-type-to-boxed-class-name symbol[concrete-type]
 	-program concrete-program # TODO: RM, this should only be used when building it ---------------------------------------------------
+	class-prefix string
 	union-info union-info # TODO: RM, this should only be used when building it ---------------------------------------------------
 	constant-names java-constant-names
 
 build-mangled-names java-names
 	show-ctx show-ctx
 	program concrete-program
+	class-prefix string
 	union-info union-info
 do
 	module-to-class-name symbol mut[uri] = ()
 	type-to-name symbol[concrete-type] = for type : program all-types-including-extern
 		# TODO: if there is only 1 struct with the name (globally), just use the decl name ----------------------------------
-		type, do module-to-class-name gen-type-name type
+		type, do module-to-class-name gen-type-name type, class-prefix
 	type-to-descriptor symbol[concrete-type] = for type : program all-types-including-extern
 		type, do (program, union-info, type-to-name) generate-descriptor-for-return-type type
 	fun-to-name-and-descriptor (symbol, symbol)[concrete-fun] = for fun : program all-funs-including-extern
 		if fun.body.fun-body-extern-java is-empty
-			_ = module-to-class-name add-module-name fun.module-uri
+			_ = module-to-class-name add-module-name fun.module-uri, class-prefix
 		name symbol = match fun source
 		as concrete-fun-source-regular x
 			base = x.decl.name do-mangle
@@ -71,8 +73,12 @@ do
 	type-to-boxed-class-name: for type : program all-types-including-extern
 		type, do (program, union-info, type-to-name) generate-boxed-class-name type
 	program: program
+	class-prefix: class-prefix
 	union-info: union-info
-	constant-names: show-ctx java-constant-names program
+	constant-names: show-ctx java-constant-names program, class-prefix
+
+constant-symbols-class-name symbol(a java-names)
+	"{a class-prefix}_constant_symbols"
 
 module-class-name symbol(a java-names, uri uri)
 	a.module-to-class-name[uri]!
@@ -93,7 +99,7 @@ subscript symbol(a java-names, type concrete-type)
 lambda-impl-class-name symbol(a java-names, containing-fun concrete-fun, lambda-index nat)
 	"{a module-class-name containing-fun.module-uri}_{a.fun-to-name-and-descriptor[containing-fun]!.a}_lambda{lambda-index}"
 
--gen-type-name symbol(module-to-class-name symbol mut[uri], a concrete-type)
+-gen-type-name symbol(module-to-class-name symbol mut[uri], a concrete-type, class-prefix string)
 	match a body
 	as struct-body-extern-java e
 		e.path to
@@ -102,17 +108,17 @@ lambda-impl-class-name symbol(a java-names, containing-fun concrete-fun, lambda-
 		as concrete-type-source-bogus
 			"$bogus{a hash}"
 		as concrete-type-source-inst x
-			base string = "{module-to-class-name add-module-name x.decl.module-uri}{x.decl.name do-mangle}"
+			base string = "{module-to-class-name add-module-name x.decl.module-uri, class-prefix}{x.decl.name do-mangle}"
 			if x.type-args !is-empty
 				"{base}{a hash}"
 			else
 				base to
 
--add-module-name symbol(a symbol mut[uri], uri uri)
+-add-module-name symbol(a symbol mut[uri], uri uri, class-prefix string)
 	a ensure uri, () =>
 		base-name = uri base-name
 		name = base-name try-remove-end! do base-name ends-with ".json" ? ".json" : ".crow"
-		"{name}{a size}"
+		"{class-prefix}{name}{a size}"
 
 -do-mangle symbol(a symbol)
 	# Only a few names are not allowed in the JVM:
@@ -319,10 +325,10 @@ primitive-descriptor symbol(a java-primitive-type)
 	as T_LONG
 		"J"
 
--java-constant-names java-constant-names(show-ctx show-ctx, program concrete-program)
+-java-constant-names java-constant-names(show-ctx show-ctx, program concrete-program, class-prefix string)
 	# Since class files can't get too big, we must break up constants between several classes.
 	cur-class-index mut nat = 0
-	cur-class-name mut symbol = "_constants{cur-class-index}"
+	cur-class-name mut symbol = "{class-prefix}_constants{cur-class-index}"
 	field-index mut nat = 0
 	cur-class-constants any-constant mut[] = ()
 	class-to-constants any-constant[] mut[symbol] = ()
@@ -341,7 +347,7 @@ primitive-descriptor symbol(a java-primitive-type)
 		if field-index >= max-constants-per-class
 			class-to-constants[cur-class-name] := cur-class-constants.move-to
 			cur-class-index +:= 1
-			cur-class-name := "_constants{cur-class-index}"
+			cur-class-name := "{class-prefix}_constants{cur-class-index}"
 			field-index := 0
 		class-and-member class-and-member = cur-class-name, "x{field-index}"
 		out[constant] := class-and-member

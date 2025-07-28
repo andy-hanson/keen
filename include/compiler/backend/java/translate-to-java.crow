@@ -13,17 +13,18 @@ import
 	../util
 	./class-builder
 	./class-code-builder
-	./java-names: build-mangled-names, constant-names, java-names
+	./java-names: build-mangled-names, constant-names, constant-symbols-class-name, java-names
 	./lib/Crow.class as Crow-class nat8 array
 	./lib/CrowClassLoader.class as CrowClassLoader-class nat8 array # TODO: USED? -------------------------------------------------
 	./java-refs
 	./union-representation
 	./util
 
-translate-to-java-classes (string, nat8[])[]
+translate-to-java-classes java-compiled-class[]
 	program program
 	concrete-program concrete-program
 	show-ctx show-type-ctx
+	class-prefix string
 do
 	start = perf-now
 	union-info = show-ctx.show plan-unions concrete-program
@@ -34,7 +35,7 @@ do
 		model-program: program
 		program: concrete-program
 		show-ctx: show-ctx
-		names: show-ctx.show build-mangled-names concrete-program, union-info
+		names: show-ctx.show build-mangled-names concrete-program, class-prefix, union-info
 		structs-for-integrals: concrete-program get-types-for-integrals
 		union-info: union-info
 	start-constants = perf-now
@@ -48,18 +49,22 @@ do
 	for uri, (funs, vars) : concrete-program funs-and-vars-by-uri
 		ctx translate-funs-for-uri uri, funs, vars
 	start-funs end-translate-funs
-	ctx add-class "Main", ctx.main-class
-	ctx.res ~~= lib-classes
-	res (string, nat8[])[] = ctx.res move-to
+	main-name symbol = "{class-prefix}Main"
+	ctx add-class main-name, do ctx main-class main-name
+	if class-prefix == ""
+		ctx.res ~~= lib-classes
+	res java-compiled-class[] = ctx.res move-to
 	start end-translate-to-java
 	res
 
--lib-classes (string, nat8[])[]()
-	("Crow.class", Crow-class), ("CrowClassLoader.class", CrowClassLoader-class)
+# TODO: CrowClassLoader is only needed for Crow itself, shouldn't be included in other programs built by Crow -----------------
+-lib-classes java-compiled-class[]()
+	- "Crow.class", Crow-class
+	- "CrowClassLoader.class", CrowClassLoader-class
 
--main-class ClassFile(ctx to-java-ctx)
+-main-class ClassFile(ctx to-java-ctx, name symbol)
 	names java-refs = ctx.names start-new-class
-	this-class = names.constants class_ "Main"
+	this-class = names.constants class_ name
 	main method_info =
 		code = with out : names build-code
 			# TODO: break this out into its own function --------------------------------------------------------------------------
@@ -87,7 +92,7 @@ do
 		attributes: code,
 	Object = names java-Object
 	constant-pool: names finish
-	access: final
+	access: final | public
 	this-class: this-class
 	super-class: Object
 	interfaces: ()
@@ -109,7 +114,7 @@ do
 	(), ()
 
 -to-java-ctx record mut
-	res (string, nat8[]) mut[]
+	res java-compiled-class mut[]
 	next-lambda-index mut nat
 	next-resource-index mut nat
 	model-program program
@@ -230,7 +235,7 @@ do
 			ctx.names class_ a Object_variable_info
 
 -translate-constants void(ctx to-java-ctx)
-	ctx add-class constant-symbols-class-name, do ctx constant-symbols-class
+	ctx add-class ctx.names.constant-symbols-class-name, do ctx constant-symbols-class
 	for name, constants : ctx.names.constant-names class-to-constants
 		ctx add-class name, do ctx constants-class name, constants
 

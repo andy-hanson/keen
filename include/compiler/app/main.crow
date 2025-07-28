@@ -1,9 +1,18 @@
 import
+	CrowClassLoader.class
 	crow/col/mut-queue
+	crow/col/mut-slice
 	crow/io/file
 	crow/io/print
 	crow/io/stdin
 	crow/parse
+	crow/unsafe
+	java/lang/Class
+	java/lang/ClassLoader
+	java/lang/String
+	java/lang/reflect/Method
+	../../crow/col/private/array-low-level: array-cast
+	../../crow/col/mut-slice: cast-mutable
 	../backend/js/source-map
 	../frontend/get-diagnostic-severity
 	../frontend/lang
@@ -171,14 +180,24 @@ do summon
 	as print-command x
 		server do-print x
 	as run-command x
-		server run x
+		assert trusted extern java : "Can only run code from a Java build" error
+		trusted server run x
 	as version-command
 		out print "{this-executable crow-version}"
 
--run void(server server, run run-command) summon
-	server with-program-for-main run.main, (java,), _ =>
-		# TODO: load the bytecode locally and invoke it!
-		throw todo
+-run void(server server, run run-command) summon, unsafe, java extern
+	server with-program-for-main run.main, (java,), program =>
+		loader CrowClassLoader = getSystemClassLoader,
+		for class_ : server build-to-java program, "crowrun_"
+			ints int8[] = class_.bytecode array-cast
+			loader addClassBytecode class_.name-without-extension.to-java-string, ints.cast-mutable
+		Main = loader.reinterpret-cast::ClassLoader loadClass "crowrun_Main".to-java-string
+		String = "java.lang.String".to-java-string forName
+		String-array Class = String arrayType
+		main = Main getMethod "main".to-java-string, (String-array,)
+		args String mut-slice = for arg : run.main program-args; arg to-java-string
+		# First argument is ignored, so pass an arbitrary object
+		_ = main invoke Main.reinterpret-cast, (args.reinterpret-cast,)
 
 -get-crow-include-dir file-path(this-executable file-path) summon
 	this-dir = this-executable parent-or-empty
@@ -224,7 +243,7 @@ do summon
 	for x : outputs
 		match x kind
 		as java
-			x.path write-jar do server build-to-java program, times
+			x.path write-jar do server build-to-java program, "", times
 		as js
 			server write-to-js program, x.path, true
 
