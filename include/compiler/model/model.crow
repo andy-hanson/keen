@@ -713,6 +713,7 @@ struct-decl record force-data
 	source struct-decl-source
 	module-uri uri # TODO: could get this from the 'source' -------------------------------------------------------------------
 	visibility visibility
+	n-type-params_ nat8
 	extern_ symbol-set 
 	is-summon bool # TODO:PERF Maybe I should merge this into 'extern_'? It works basically the same way. ---------------------------------------
 	| Warn: purity on the decl does not take type args into account
@@ -753,7 +754,22 @@ new struct-decl
 	sum-type-memberships sum-type-membership[]
 	body struct-body
 do
-	res struct-decl = hash, source, module-uri, visibility, extern_, is-summon, purity, purity-is-forced, doc-comment-references, sum-type-memberships, body, (trusted gc-safe-value), ()
+	res struct-decl =
+		hash: hash
+		source: source
+		module-uri: module-uri
+		visibility: visibility
+		n-type-params_: if source can-have-type-params
+			source.type-params.size to
+		extern_: extern_
+		is-summon: is-summon
+		purity: purity
+		purity-is-forced: purity-is-forced
+		doc-comment-references: doc-comment-references
+		sum-type-memberships: sum-type-memberships
+		body: body
+		instantiated-with-own-type-params: trusted gc-safe-value
+		insts: ()
 	if res is-template
 		res.insts := ()::((struct-inst, type-args) object-memoizer)
 		res.instantiated-with-own-type-params := res[res.n-type-params.type-params-type-array]
@@ -771,9 +787,10 @@ doc-comment-ast doc-comment-ast(a struct-decl)
 doc-comment doc-comment(a struct-decl)
 	a.doc-comment-ast, a.doc-comment-references
 n-type-params nat(a struct-decl)
-	a.type-param-asts size # TODO: if this is called often, store it on the struct-decl ----------------------------------------
+	a.n-type-params_ to
 type-param-asts type-params(a struct-decl)
-	a.source type-params
+	unless a.n-type-params == 0
+		a.source type-params
 name symbol(a struct-decl)
 	a.source name
 range uri-and-range(a struct-decl)
@@ -862,6 +879,26 @@ name-range source-range(a struct-decl-source)
 		()
 	as struct-decl-source-bogus _
 		()
+can-have-type-params bool(a struct-decl-source)
+	match a
+	as struct-decl-ast x
+		x can-have-type-params
+	as struct-decl-source-java _
+		true
+	as struct-decl-source-bogus _
+		false
+can-have-type-params bool(a struct-decl-ast)
+	match a body
+	as builtin-type-ast _
+		true
+	as enum-ast _
+		false
+	as flags-ast _
+		false
+	as record-ast _
+		true
+	as sum-type-ast _
+		true
 
 struct-inst record(decl struct-decl, type-args type-args) -new
 subscript struct-inst(decl struct-decl, type-arg type)
@@ -1287,8 +1324,8 @@ type-params type-params(a fun-decl-source)
 		()
 	as fun-decl-ast x
 		x type-params
-	as enum-or-flags-member x
-		x.containing-enum type-param-asts
+	as enum-or-flags-member _
+		()
 	as fun-source-file-import _
 		()
 	as record-field x
@@ -2089,8 +2126,6 @@ hash-mix void(a hasher, b integral-type)
 	a hash-mix b.to::nat32
 to symbol(a integral-type)
 to string(a integral-type)
-	a.to::symbol to
-show string(a integral-type)
 	a.to::symbol to
 to json(a integral-type)
 members integral-type[]()
