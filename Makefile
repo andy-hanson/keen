@@ -26,10 +26,10 @@ unit-test-js: bin/crow $(all_include)
 	bin/test.js
 
 end-to-end-test: bin/crow
-	bin/crow test/end-to-end/main.crow
+	cd test/end-to-end && ./main.sh	
 
 end-to-end-test-overwrite: bin/crow
-	bin/crow test/end-to-end/main.crow --overwrite-output
+	bin/crow check test/diagnostics/crow-config.json --no-color --all-errors 2> test/diagnostics/expected.txt || true
 
 today = $(shell date --iso-8601 --utc)
 
