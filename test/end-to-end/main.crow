@@ -1,0 +1,188 @@
+#!/usr/bin/env crow
+import
+	crow/io/file
+	crow/io/path
+	crow/io/print
+	crow/io/process
+	crow/parse-command
+	../failure
+
+main nat(args string[]) summon
+	if values ?= args parse-named-args ("print-tests", "overwrite-output", "match")
+		print-tests-strs, overwrite-output-strs, match-test-strs = \
+			values as-tuple3
+		options test-options =
+			print-tests: print-tests-strs !is-empty
+			overwrite-output: if strs ?= overwrite-output-strs
+				assert strs is-empty
+				true
+			match-test: if strs ?= match-test-strs
+				assert strs.size == 1
+				strs[0]
+		options do-test
+	else
+		print-help
+		1
+
+-as-tuple3[t] (t, t, t)(a t[])
+	assert a.size == 3
+	a[0], a[1], a[2]
+
+-print-help void() summon
+	out print """options:
+	--print-tests: Print every test before it runs.
+	--overwrite-output: Overwrite '.out' files instead of failing
+	--match [STR]: Print tests that have STR in the name.
+"""
+
+-test-options record(print-tests bool, overwrite-output bool, match-test string)
+
+-paths record(cwd string, path-to-crow string)
+
+-do-test nat(options test-options) summon
+	crow-dir string = "."
+	path-to-crow = crow-dir crow-path
+	paths paths =
+		cwd: current-directory
+		path-to-crow: path-to-crow
+	tests = "./test/end-to-end/tests" list-tests options.match-test
+	# TODO: parallelism ----------------------------------------------------------------------------------------------------------------
+	#failures failure[] = for x : tests parallel-concat
+	#	paths run-single-crow-test x, options
+	failures failure[] = for x : tests and-concat
+		paths run-single-crow-test x, options
+	if failures is-empty
+		out print "Ran {tests size} crow tests"
+		0
+	else
+		err print failures.show-failures
+		failures size
+
+-crow-path string(crow-dir string)
+	crow-dir child-path "bin" child-path "crow" ~~ (trusted extern windows ? ".exe" : "")
+
+-list-tests string[](path string, match-test string) summon
+	res string mut[] = ()
+	# TODO: I no longer need this to be recursive ..............................................................................
+	path each-child-recursive child =>
+		if child contains-seq match-test && child ext-is-crow
+			res ~= child
+	res move-to
+
+-ext-is-crow bool(a string)
+	if ext ?= a.base-name get-extension
+		ext == "crow"
+
+-run-single-crow-test failure[]
+	paths paths
+	path string
+	options test-options
+do summon
+	overwrite = options overwrite-output
+	if options print-tests
+		out print "crow run {path}"
+	for kind : members::run-kind[]
+		failures = paths run-single path, kind, overwrite
+		unless failures is-empty
+			break failures
+	else
+		()
+
+-run-kind enum(java, js)
+-to symbol(a run-kind)
+-show string(a run-kind)
+	a.to::symbol show
+-members run-kind[]()
+
+-run-single failure[]
+	paths paths
+	path string
+	run-kind run-kind
+	overwrite-output bool
+do summon
+	args string[] = match run-kind
+	as java
+		"run", path
+	as js
+		"run", path, "--node-js"
+	info log "{paths.path-to-crow} {" " join args}"
+	res = paths.path-to-crow spawn-and-wait-result args
+	out-pre = res format-output
+	out = match run-kind
+	as java
+		out-pre replace-all paths.cwd, "CWD"
+	as js
+		out-pre.normalize-js-temp-paths remove-node-js-footer
+	path handle-output "{path}.{run-kind}.out", out, overwrite-output, run-kind
+
+-normalize-js-temp-paths string(a string)
+	# Replace '/tmp/crow-123.js' with 'TMP.js'
+	# TODO: I should also replace line numbers ------------------------------------------------------------------------------
+	cur mut = a
+	with out : build
+		loop
+			if before, after ?= cur try-split-once "/tmp/crow-"
+				out ~~= before
+				out ~~= "TMP"
+				line, rest = after drop-while (x => x is-digit) try-split-once! "\n"
+				prev-was-digit mut = false
+				for x : line
+					if x is-digit
+						unless prev-was-digit
+							out ~= "1"
+							prev-was-digit := true
+					else
+						out ~= x
+						prev-was-digit := false
+				out ~= "\n"
+				cur := rest
+				continue
+			else
+				out ~~= cur
+				break
+-remove-node-js-footer string(a string)
+	a try-remove-end "\nNode.js v22.13.0\n" ?? a # TODO: I need to adapt this to handle any version number. Just check if the final line starts with "Node.js"
+
+-is-digit bool(a char32)
+	"0"::char32 <= a && a <= "9"
+
+-format-output string(a process-result)
+	if a has-error
+		exit-code = match a exit
+		as exited x
+			x exit-code
+		as signaled x
+			x signal
+		exit-string string = exit-code != 0 && exit-code != 1 ? "big" : "{exit-code}"
+		"exit code: {exit-string}\n{a format-stdout-stderr}"
+	else
+		a.stdout remove-colors
+
+-format-stdout-stderr string(a process-result)
+	stdout string = a.stdout == "" ? "" : "stdout:\n{a.stdout remove-colors}"
+	"{stdout}stderr:\n{a.stderr remove-colors}"
+
+-remove-colors string(a string)
+	if before, rest ?= a try-split-once "\x1b"
+		before ~~ if _, after ?= rest try-split-once "m"
+			after remove-colors
+	else
+		a
+
+-handle-output failure[]
+	original-path string
+	output-path string
+	actual string
+	overwrite-output bool
+	kind run-kind
+do summon
+	text string = output-path read-file-or-empty
+	if actual.normalize-newlines == text.normalize-newlines # TODO: shouldn't need to normalize newlines ------------------------------------
+		()
+	elif overwrite-output
+		output-path write-file actual
+		()
+	else
+		-
+			path: original-path
+			message: "For {kind.to::symbol}: {output-path} was not as expected. Actual:\n{actual}"

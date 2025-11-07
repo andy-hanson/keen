@@ -1,7 +1,4 @@
-# This file is for Linux.
-# WARN: If editing this file, you might need to change NMakefile too.
-
-.PHONY: check confirm-upload-site end-to-end-test end-to-end-test-overwrite serve prepare-site test unit-test unit-test-java unit-test-js
+.PHONY: check confirm-upload-site test-end-to-end test-end-to-end-overwrite serve prepare-site test unit-test unit-test-java unit-test-js
 
 all_include_crow = $(shell find include/crow -name '*.crow')
 all_include_compiler = $(shell find include/compiler -name '*.crow' -not -path 'include/compiler/test/*')
@@ -13,9 +10,9 @@ clean:
 	mkdir bin
 	mv crow-lkg bin/crow-lkg
 
-all: clean test lint serve
+all: clean test serve
 
-test: unit-test end-to-end-test
+test: unit-test test-end-to-end
 
 unit-test: unit-test-java unit-test-js
 unit-test-java: bin/crow $(all_include)
@@ -25,11 +22,16 @@ unit-test-js: bin/crow $(all_include)
 	bin/crow build include/crow-config.json --test --out bin/test.js
 	bin/test.js
 
-end-to-end-test: bin/crow
-	cd test/end-to-end && ./main.sh	
+test-diagnostics: bin/crow
+	cd test/diagnostics && bash -c 'diff <(../../bin/crow check crow-config.json --no-color --all-errors 2>&1) expected.txt'
 
-end-to-end-test-overwrite: bin/crow
-	bin/crow check test/diagnostics/crow-config.json --no-color --all-errors 2> test/diagnostics/expected.txt || true
+test-diagnostics-overwrite: bin/crow
+	cd test/diagnostics && ../../bin/crow check crow-config.json --no-color --all-errors 2> expected.txt || true
+
+test-end-to-end: bin/crow
+	./test/end-to-end/main.crow
+test-end-to-end-overwrite: bin/crow
+	./test/end-to-end/main.crow --overwrite-output
 
 today = $(shell date --iso-8601 --utc)
 

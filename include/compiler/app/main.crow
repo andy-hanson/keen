@@ -4,6 +4,7 @@ import
 	crow/col/mut-slice
 	crow/io/file
 	crow/io/print
+	crow/io/process
 	crow/io/stdin
 	crow/parse
 	crow/unsafe
@@ -12,6 +13,8 @@ import
 	java/lang/String
 	java/lang/reflect/InvocationTargetException
 	java/lang/reflect/Method
+	java/lang/StackTraceElement
+	java/lang/Throwable
 	../../crow/col/private/array-low-level: array-cast
 	../../crow/col/mut-slice: cast-mutable
 	../backend/js/source-map
@@ -192,21 +195,43 @@ do summon
 		out print "{this-executable crow-version}"
 
 -run void(server server, run run-command) summon, unsafe, java extern
-	server with-program-for-main run.main, (java,), program =>
-		loader CrowClassLoader = getSystemClassLoader,
-		for class_ : server build-to-java program, "crowrun_"
-			ints int8[] = class_.bytecode array-cast
-			loader addClassBytecode class_.name-without-extension.to-java-string, ints.cast-mutable
-		Main = loader.reinterpret-cast::ClassLoader loadClass "crowrun_Main".to-java-string
-		String = "java.lang.String".to-java-string forName
-		String-array Class = String arrayType
-		main = Main getMethod "main".to-java-string, (String-array,)
-		args String mut-slice = for arg : run.main program-args; arg to-java-string
-		# First argument is ignored, so pass an arbitrary object
-		try
-			_ = main invoke Main.reinterpret-cast, (args.reinterpret-cast,)
-		catch InvocationTargetException e
-			throw e.getCause reinterpret-cast
+	is-js = run.options node-js
+	server with-program-for-main run.main, ((is-js ? js : java),), program =>
+		if is-js
+			server run-node-js program, run.main
+		else
+			server run-java program, run.main
+
+-run-java void(server server, program program-with-main, run-main main-kind) summon, unsafe, java extern
+	loader CrowClassLoader = getSystemClassLoader,
+	for class_ : server build-to-java program, "crowrun_"
+		ints int8[] = class_.bytecode array-cast
+		loader addClassBytecode class_.name-without-extension.to-java-string, ints.cast-mutable
+	Main = loader.reinterpret-cast::ClassLoader loadClass "crowrun_Main".to-java-string
+	String = "java.lang.String".to-java-string forName
+	String-array Class = String arrayType
+	main = Main getMethod "main".to-java-string, (String-array,)
+	args String mut-slice = for arg : run-main program-args; arg to-java-string
+	# First argument is ignored, so pass an arbitrary object
+	try
+		_ = main invoke Main.reinterpret-cast, (args.reinterpret-cast,)
+	catch InvocationTargetException e
+		cause = e.getCause
+		cause omit-runtime-stack-trace
+		throw cause reinterpret-cast
+
+-omit-runtime-stack-trace void(a Throwable) summon, unsafe, java extern
+	original StackTraceElement[] = a.getStackTrace to
+	if i ?= original find-index cur => cur.getMethodName.string-of-java-string == "run__45java"
+		a setStackTrace original[0 .. i - 2].to
+
+-run-node-js void(server server, program program-with-main, run-main main-kind) summon, unsafe
+	with temp : "crow-" temp-file ".js"
+		js = server build-to-js program, ()
+		temp write-file js.js
+		args string[] = ("node", temp)::string[] ~~ run-main.program-args
+		exit = "/usr/bin/env" spawn-and-inherit-io args
+		assert exit == 0 : exit exit
 
 -get-crow-include-dir file-path(this-executable file-path) summon
 	this-dir = this-executable parent-or-empty
