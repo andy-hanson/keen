@@ -27,16 +27,16 @@ Object struct-inst(a java-externs, instantiate-ctx instantiate-ctx, common-types
 get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, path path)
 	assert trusted extern java : todo
 	a.java-class-modules ensure path, () =>
-		a with-defer-interface-methods instantiate-ctx, common-types, defer-interface-methods =>
-			class_ = defer-interface-methods struct-for-java-class a, instantiate-ctx, common-types, path
-			funs = defer-interface-methods funs-for-java-class a, instantiate-ctx, common-types, path
-			public-exports exports =
-				funs: funs to
-				structs-and-aliases: (class_,) to-by-name _ => throw unreachable
-				specs: ()
-			_ = public-exports
-			path: path
-			public-exports: public-exports
+		class_ = a with-defer-interface-methods instantiate-ctx, common-types, defer-interface-methods =>
+			defer-interface-methods struct-for-java-class a, instantiate-ctx, common-types, path
+		# It needs to fill in the interface methods for class_ here so we can generate all funs
+		funs = a with-defer-interface-methods instantiate-ctx, common-types, defer-interface-methods =>
+			defer-interface-methods funs-for-java-class a, instantiate-ctx, common-types, path
+		path: path
+		public-exports:
+			funs: funs to
+			structs-and-aliases: (class_,) to-by-name _ => throw unreachable
+			specs: ()
 
 # TODO: obviously this should be a 'with' function --------------------------------------------------------------------------
 -with-defer-interface-methods[t] t
@@ -152,8 +152,7 @@ do trusted
 				doc-comment-references: ()
 				body: static-field fun-body-extern-java path
 
-		class-type type mut() = () =>
-			defer-interface-methods as-type a, instantiate-ctx, common-types, class_
+		class-type = defer-interface-methods as-type a, instantiate-ctx, common-types, class_
 
 		for ctor : class_ getDeclaredConstructors
 			# TODO: ensure it's public ---------------------------------------------------------------------------------------------
@@ -166,7 +165,7 @@ do trusted
 				source: path fun-source-java "new"
 				visibility: public
 				n-type-params: 0
-				return-type: class-type[]
+				return-type: class-type
 				params: params
 				flags_: summon_ | unsafe_
 				externs: "java",
@@ -179,28 +178,37 @@ do trusted
 			# TODO: ENSURE IT'S PUBLIC ------------------------------------------------------------------------------------
 			name = method.getName string-of-java-string
 			is-static = method.getModifiers isStatic
-			kind java-method-kind = if is-static
-				static
-			elif class_ isInterface
-				interface_
-			else
-				virtual
 			return-type, most-params = defer-interface-methods method-return-type-and-params a, instantiate-ctx, common-types, method
+			# TODO: NEATER (should be able to declare 'body' on this line ...) -----------------------------------------------
+			opt-body fun-body? = if is-static
+				static fun-body-extern-java path
+			elif class_ isInterface
+				()
+			else
+				virtual fun-body-extern-java path
+			guard body ?= opt-body
 			out ~=
 				hash: instantiate-ctx next-hash
 				source: path fun-source-java name.to
 				visibility: public
 				n-type-params: 0
 				return-type: return-type
-				params: if kind == static
+				params: if is-static
 					most-params
 				else
-					("this".local-source-generated, immut, class-type[]) ~ most-params
+					("this".local-source-generated, immut, class-type) ~ most-params
 				flags_: summon_ | unsafe_
 				externs: "java",
 				specs: ()
 				doc-comment-references: ()
-				body: kind fun-body-extern-java path
+				body: body
+		
+		struct = class-type.struct-inst! decl
+		if sum ?= struct.body sum-type
+			sum.kind is java-interface
+			forbid sum.methods is-empty # TODO: this is theoretically possible, using it as a sanity check for now --------
+			for index, method : sum.methods with-index
+				out ~= instantiate-ctx fun-for-method struct, index, method
 
 -method-return-type-and-params (type, destructure[])
 	defer-interface-methods path mut[]
