@@ -19,6 +19,10 @@ java-externs record mut
 new java-externs()
 	(), ()
 
+finish java-class-module[uri](a java-externs)
+	for path, module : a java-class-modules
+		path.to-java-uri, module
+
 Object struct-inst(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types)
 	assert trusted extern java : todo
 	a with-defer-interface-methods instantiate-ctx, common-types, defer-interface-methods =>
@@ -26,33 +30,48 @@ Object struct-inst(a java-externs, instantiate-ctx instantiate-ctx, common-types
 
 get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, path path)
 	assert trusted extern java : todo
+	a with-defer-interface-methods instantiate-ctx, common-types, deferred =>
+		deferred get-java-module-inner a, instantiate-ctx, common-types, path
+
+-get-java-module-inner java-class-module(deferred deferred, a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, path path) java extern
 	a.java-class-modules ensure path, () =>
-		class_ = a with-defer-interface-methods instantiate-ctx, common-types, defer-interface-methods =>
-			defer-interface-methods struct-for-java-class a, instantiate-ctx, common-types, path
+		class_ = deferred struct-for-java-class a, instantiate-ctx, common-types, path
 		# It needs to fill in the interface methods for class_ here so we can generate all funs
-		funs = a with-defer-interface-methods instantiate-ctx, common-types, defer-interface-methods =>
-			defer-interface-methods funs-for-java-class a, instantiate-ctx, common-types, path
+		deferred fill-all-interface-methods a, instantiate-ctx, common-types
+		funs = deferred funs-for-java-class a, instantiate-ctx, common-types, path
 		path: path
 		public-exports:
 			funs: funs to
 			structs-and-aliases: (class_,) to-by-name _ => throw unreachable
 			specs: ()
 
+-deferred record mut
+	interface-methods path mut[]
+	interface-modules path mut[]
+
 # TODO: obviously this should be a 'with' function --------------------------------------------------------------------------
 -with-defer-interface-methods[t] t
 	a java-externs
 	instantiate-ctx instantiate-ctx
 	common-types common-types
-	f t mut(defer-interface-methods path mut[])
+	f t mut(x deferred)
 do java extern
-	defer-interface-methods path mut[] = ()
-	res = f[defer-interface-methods]
-	while deferred ?= defer-interface-methods pop
-		defer-interface-methods fill-interface-methods a, instantiate-ctx, common-types, deferred
+	deferred deferred = (), ()
+	res = f[deferred]
+	loop
+		deferred fill-all-interface-methods a, instantiate-ctx, common-types
+		# The backend expects every interface to have an associated module with caller functions
+		guard path ?= deferred.interface-modules pop : break
+		_ = deferred get-java-module-inner a, instantiate-ctx, common-types, path
+		continue
 	res
 
+-fill-all-interface-methods void(deferred deferred, a java-externs, instantiate-ctx instantiate-ctx, common-types common-types) java extern
+	while path ?= deferred.interface-methods pop
+		deferred fill-interface-methods a, instantiate-ctx, common-types, path
+
 -struct-for-java-class struct-decl
-	defer-interface-methods path mut[]
+	deferred deferred
 	a java-externs
 	instantiate-ctx instantiate-ctx
 	common-types common-types
@@ -76,13 +95,14 @@ do trusted, java extern
 			# TODO: get more this from declared interfaces ------------------------------------------------
 			()
 		body: if class_ isInterface
-			defer-interface-methods ~= path
+			deferred.interface-methods ~= path
+			deferred.interface-modules ~= path
 			struct-body-bogus
 		else
 			path struct-body-extern-java
 
 -fill-interface-methods void
-	defer-interface-methods path mut[]
+	deferred deferred
 	a java-externs
 	instantiate-ctx instantiate-ctx
 	common-types common-types
@@ -104,7 +124,7 @@ do trusted, java extern
 					info log "LE NAME: {method.getName.string-of-java-string}"
 					info log "LE MODS: {method.getModifiers}"
 					todo
-				return-type, params = defer-interface-methods method-return-type-and-params a, instantiate-ctx, common-types, method
+				return-type, params = deferred method-return-type-and-params a, instantiate-ctx, common-types, method
 				out ~=
 					container: type
 					source: method.getName.string-of-java-string.to signature-source-java
@@ -123,7 +143,7 @@ do trusted, java extern
 	trusted path.path-to-java-name.to-java-string forName # TODO: this can throw an exception, so catch and make a diagnostic
 
 -funs-for-java-class fun-decl[]
-	defer-interface-methods path mut[]
+	deferred deferred
 	a java-externs
 	instantiate-ctx instantiate-ctx
 	common-types common-types
@@ -136,7 +156,7 @@ do trusted
 		for field : fields
 			# TODO: ENSURE IT'S PUBLIC ------------------------------------------------------------------------------------
 			name = field.getName string-of-java-string
-			type = defer-interface-methods as-type a, instantiate-ctx, common-types, field.getType
+			type = deferred as-type a, instantiate-ctx, common-types, field.getType
 			is-static = field.getModifiers isStatic
 			guard is-static # TODO: support instance fields -----------------------------------------------------------------
 			out ~=
@@ -152,13 +172,13 @@ do trusted
 				doc-comment-references: ()
 				body: static-field fun-body-extern-java path
 
-		class-type = defer-interface-methods as-type a, instantiate-ctx, common-types, class_
+		class-type = deferred as-type a, instantiate-ctx, common-types, class_
 
 		for ctor : class_ getDeclaredConstructors
 			# TODO: ensure it's public ---------------------------------------------------------------------------------------------
 			# TODO: include parameter names, using 'getParameters' --------------------------------------------------------------------
 			params destructure[] = for i, x : ctor.getParameterTypes with-index
-				"p{i}".local-source-generated, immut, do defer-interface-methods as-type a, instantiate-ctx, common-types, x
+				"p{i}".local-source-generated, immut, do deferred as-type a, instantiate-ctx, common-types, x
 			out ~=
 				# TODO: share code with the fun-decl creation for method ------------------------------------------------------
 				hash: instantiate-ctx next-hash
@@ -178,7 +198,7 @@ do trusted
 			# TODO: ENSURE IT'S PUBLIC ------------------------------------------------------------------------------------
 			name = method.getName string-of-java-string
 			is-static = method.getModifiers isStatic
-			return-type, most-params = defer-interface-methods method-return-type-and-params a, instantiate-ctx, common-types, method
+			return-type, most-params = deferred method-return-type-and-params a, instantiate-ctx, common-types, method
 			# TODO: NEATER (should be able to declare 'body' on this line ...) -----------------------------------------------
 			opt-body fun-body? = if is-static
 				static fun-body-extern-java path
@@ -206,24 +226,24 @@ do trusted
 		struct = class-type.struct-inst! decl
 		if sum ?= struct.body sum-type
 			sum.kind is java-interface
-			forbid sum.methods is-empty # TODO: this is theoretically possible, using it as a sanity check for now --------
+			# forbid sum.methods is-empty # TODO: this is theoretically possible, using it as a sanity check for now --------
 			for index, method : sum.methods with-index
 				out ~= instantiate-ctx fun-for-method struct, index, method
 
 -method-return-type-and-params (type, destructure[])
-	defer-interface-methods path mut[]
+	deferred deferred
 	a java-externs
 	instantiate-ctx instantiate-ctx
 	common-types common-types
 	method Method
 do trusted, java extern
-	- defer-interface-methods as-type a, instantiate-ctx, common-types, method.getReturnType
+	- deferred as-type a, instantiate-ctx, common-types, method.getReturnType
 	# TODO: get parameter names too, using 'getParameters'  https://docs.oracle.com/en/java/javase/23/docs/api/java.base/java/lang/reflect/Executable.html#getParameters()
 	- for i, x : method.getParameterTypes with-index
-		"p{i}".local-source-generated, immut, do defer-interface-methods as-type a, instantiate-ctx, common-types, x
+		"p{i}".local-source-generated, immut, do deferred as-type a, instantiate-ctx, common-types, x
 
 -as-type type
-	defer-interface-methods path mut[]
+	deferred deferred
 	a java-externs
 	instantiate-ctx instantiate-ctx
 	common-types common-types
@@ -232,11 +252,11 @@ do trusted, java extern
 	if class_ isPrimitive
 		common-types type-from-primitive class_
 	elif class_ isArray
-		elem = defer-interface-methods as-type a, instantiate-ctx, common-types, class_.componentType
+		elem = deferred as-type a, instantiate-ctx, common-types, class_.componentType
 		common-types.mut-slice[elem]
 	else
 		name = class_.getName string-of-java-string
-		struct = defer-interface-methods struct-for-java-class a, instantiate-ctx, common-types, name.java-name-to-path
+		struct = deferred struct-for-java-class a, instantiate-ctx, common-types, name.java-name-to-path
 		struct only-inst
 
 -path-to-java-name string(path path)
