@@ -166,21 +166,21 @@ main nat(args string[]) summon
 do summon
 	match command
 	as build-command x
-		server with-program-for-main x.main, (for t : x out; t kind), program =>
-			server build-all-outputs x.out, x.times, program
+		program = server check-main-and-print-diags x.main, for t : x out; t kind
+		server build-all-outputs x.out, x.times, program
 	as check-command x
 		for _ : 0::nat .. x.times
 			options show-diags-options =
 				only-for-uris: ()
-				show-color: x show-color
+				show-options: x.show-color,
 				show-all-diagnostics: x show-all-diagnostics
-			server with-program-for-roots x.root-uris, options, program =>
-				forbid program has-any-diagnostics : exit
-				out print "OK"
+			program = server check-and-print-diags x.root-uris, options
+			forbid program has-any-diagnostics : exit
+			out print "OK"
 			server reset
 	as document-command x
-		server with-program-for-roots x.root-uris, program =>
-			out print "{server document program, x.root-uris}"
+		program = server check-and-print-diags x.root-uris
+		out print "{server document program, x.root-uris}"
 	as help-command x
 		out print x.help-text
 		throw x.exit-code.value.to exit
@@ -196,11 +196,12 @@ do summon
 
 -run void(server server, run run-command) summon, unsafe, java extern
 	is-js = run.options node-js
-	server with-program-for-main run.main, ((is-js ? js : java),), program =>
-		if is-js
-			server run-node-js program, run.main
-		else
-			server run-java program, run.main
+	program = server check-main-and-print-diags run.main,
+		- is-js ? js : java
+	if is-js
+		server run-node-js program, run.main
+	else
+		server run-java program, run.main
 
 -run-java void(server server, program program-with-main, run-main main-kind) summon, unsafe, java extern
 	loader CrowClassLoader = getSystemClassLoader,
@@ -256,17 +257,17 @@ do summon
 		server load-single-file main-uri
 		server print-ast main-uri print-diags-and-json
 	as print-model
-		server with-program-for-roots (main-uri,), program =>
-			out print "{server json-of-model program, main-uri}"
+		program = server check-and-print-diags (main-uri,)
+		out print "{server json-of-model program, main-uri}"
 	as print-concrete-model
-		server with-program-for-main (main-uri main-kind-main-function ()), (), program =>
-			out print "{server json-of-concrete-model java, program}"
+		program = server check-main-and-print-diags (main-uri main-kind-main-function ()), ()
+		out print "{server json-of-concrete-model java, program}"
 	as print-ide-at-pos x
-		server with-program-for-roots (main-uri,), program =>
-			out print "{server json-for-print-ide-at-pos program, (main-uri, x.line-and-column), x.kind}"
+		program = server check-and-print-diags (main-uri,)
+		out print "{server json-for-print-ide-at-pos program, (main-uri, x.line-and-column), x.kind}"
 	as print-ide-whole-file x
-		server with-program-for-roots (main-uri,), program =>
-			out print "{server json-for-print-ide-whole-file program, main-uri, x}"
+		program = server check-and-print-diags (main-uri,)
+		out print "{server json-for-print-ide-whole-file program, main-uri, x}"
 
 -build-all-outputs void
 	server server
@@ -294,12 +295,10 @@ do summon
 	if map ?= source-map-path
 		map write-file result.map!, read-write, allow
 
-# TODO: no need for 'with' ----------------------------------------------------------------------------------------------------
--with-program-for-main void
+-check-main-and-print-diags program-with-main
 	server server
 	main main-kind
 	targets build-target set
-	f void mut(x program-with-main)
 do summon
 	server load-all-files-for-main main
 	program = server get-program-for-main main, targets
@@ -308,18 +307,17 @@ do summon
 	if program has-fatal-diagnostics
 		err print "Stopping due to compile errors."
 		throw exit
-	f[program]
+	program
 
-# TODO: no need for 'with'. Also, the name of this function should indicate that it prints diags ----------------------------------------------------------------------------------------------------
--with-program-for-roots void(server server, roots uri[], f void mut(x program)) summon
-	server with-program-for-roots roots, (), f
--with-program-for-roots void(server server, roots uri[], options show-diags-options, f void mut(x program)) summon
+-check-and-print-diags program(server server, roots uri[]) summon
+	server check-and-print-diags roots, ()
+-check-and-print-diags program(server server, roots uri[], options show-diags-options) summon
 	server load-all-files roots
 	crow-configs uri set = roots filter x => x is-crow-config
 	program = server get-program crow-configs
 	if program has-any-diagnostics
 		err print do server show-diagnostics program, options
-	f[program]
+	program
 
 -print-diags-and-json void(a diags-and-result-json) summon
 	unless a.diagnostics is-empty

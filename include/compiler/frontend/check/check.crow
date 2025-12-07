@@ -214,17 +214,24 @@ do
 					out ~= spec_
 	is-builtin, parents.get-or-add-specs
 
--check-worker-after-common-types crow-module
-	ctx check-ctx
-	common-types common-types
+types record
 	structs-and-aliases-map structs-and-aliases-map
 	struct-aliases struct-alias[]
 	structs struct-decl[]
+	common-types common-types
+
+-check-worker-after-common-types crow-module
+	ctx check-ctx
+	types types
 	uri uri
 	config config
 	imports-and-re-exports imports-and-re-exports
 	ast file-ast
 do
+	structs-and-aliases-map = types structs-and-aliases-map
+	struct-aliases = types struct-aliases
+	structs = types structs
+	common-types = types common-types
 	start = perf-now
 	ctx check-struct-bodies common-types, structs-and-aliases-map, structs, ast.structs
 	vars var-decl[] = for x : ast vars
@@ -341,7 +348,12 @@ do
 	structs-and-aliases-map = ctx build-structs-and-aliases-map structs, struct-aliases
 	common-types = get-common-types[ctx, structs-and-aliases-map]
 	ctx check-struct-alias-targets common-types, structs-and-aliases-map, struct-aliases, ast.struct-aliases
-	res = ctx check-worker-after-common-types common-types, structs-and-aliases-map, struct-aliases, structs, uri-and-ast.uri, uri-and-ast.config, imports-and-re-exports, ast
+	types types =
+		structs-and-aliases-map: structs-and-aliases-map
+		struct-aliases: struct-aliases
+		structs: structs
+		common-types: common-types
+	res = ctx check-worker-after-common-types types, uri-and-ast.uri, uri-and-ast.config, imports-and-re-exports, ast
 	assert-all-allocated-freed
 	res, common-types
 
@@ -393,29 +405,18 @@ do
 		*resolved-imports := (*resolved-imports)[1 .. end]
 		res
 
-	handle-module-import void mut(source import-or-export-ast?, min-visibility export-visibility, cb-init-imported void mut(x import-or-export)) = (source, min-visibility, cb-init-imported) =>
-		match next-resolved-import[]
-		as module x
-			imports ~= source, x, min-visibility, ()
-			cb-init-imported[imports peek!]
-		as file-content _
-			throw unreachable
-		as diag-import-file x
-			diags-builder ~= (source?.path-range ?? ()), x
-
 	if include-std
-		handle-module-import[(), public, _ => ()]
+		diags-builder handle-module-import imports, next-resolved-import[], (), public, _ => ()
 
 	if a ?= ast
 		for import-ast : a paths
 			import-visibility = import-ast import-min-visibility
 			match import-ast kind
 			as import-whole-module-ast _
-				handle-module-import[import-ast, import-visibility, _ => ()]
+				diags-builder handle-module-import imports, next-resolved-import[], import-ast, import-visibility, _ => ()
 			as array names
-				cb void mut(x import-or-export) = x =>
+				diags-builder handle-module-import imports, next-resolved-import[], import-ast, import-visibility, x =>
 					x.named-imported := diags-builder check-named-imports import-visibility, x.module, names
-				handle-module-import[import-ast, import-visibility, cb]
 			as import-file-ast _
 				match next-resolved-import[]
 				as module _
@@ -426,6 +427,22 @@ do
 					diags-builder ~= import-ast.path-range, x
 
 	imports.move-to, file-imports.move-to
+-handle-module-import void
+	diags-builder diagnostic mut[]
+	imports import-or-export mut[]
+	resolved-import resolved-import
+	source import-or-export-ast?
+	min-visibility export-visibility
+	cb-init-imported void mut(x import-or-export)
+do
+	match resolved-import
+	as module x
+		imports ~= source, x, min-visibility, ()
+		cb-init-imported[imports peek!]
+	as file-content _
+		throw unreachable
+	as diag-import-file x
+		diags-builder ~= (source?.path-range ?? ()), x
 
 -import-min-visibility export-visibility(a import-or-export-ast)
 	match a path
