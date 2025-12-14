@@ -57,6 +57,8 @@ concretize-ctx record mut
 	all-concrete-funs concrete-fun mut[]
 	| Maps a sum type to its cases
 	sum-types concrete-sum-type-case mut[] mut[concrete-type]
+	| The nth case type needs its method impls filled in
+	deferred-sum-type-method-impls (concrete-type, nat, sum-type-member-kind) mut[]
 	-late-bogus-type mut concrete-type?
 	-late-bool-type mut concrete-type?
 	-late-char8-array-type mut concrete-type?
@@ -95,6 +97,7 @@ do
 	deferred-java-interfaces: ()
 	all-concrete-funs: ()
 	sum-types: ()
+	deferred-sum-type-method-impls: ()
 	late-bogus-type: ()
 	late-bool-type: ()
 	late-char8-array-type: ()
@@ -106,6 +109,7 @@ do
 	late-integral-types: ()
 	late-string-type: ()
 	late-symbol-type: ()
+-sum-type-member-kind enum(declared-on-sum-type, declared-on-case-type)
 
 is-java bool(a concretize-ctx)
 	a.target == java
@@ -374,11 +378,10 @@ do
 			:: concrete-union
 			java-interface: x.kind == java-interface ? inst.decl.source.struct-decl-source-java!.path
 			late-members: ()
-		cases concrete-sum-type-case mut[] = for member : x listed-members
+		cases concrete-sum-type-case mut[] = for index, member : x.listed-members with-index
 			member-type = ctx get-concrete-type-for-struct-inst member.member, type-args
-			method-impls = ctx sum-type-method-impls-common member.method-impls, type-args
-			method-impls.size is x.methods.size
-			member-type, method-impls
+			ctx.deferred-sum-type-method-impls ~= res, index, declared-on-sum-type
+			member-type, ()
 		ctx.sum-types[res] := cases
 		match x kind
 		as interface_
@@ -392,11 +395,10 @@ do
 
 	for x : inst.decl sum-type-memberships
 		sum-type = ctx get-concrete-type x.sum-type, type-args
-		cases = ctx.sum-types[sum-type]! # TODO: can't I inline this to where it is used?????????????????????????????????????????????
-		case_ concrete-sum-type-case = res, ()
-		cases ~= case_
-		case_.method-impls := ctx sum-type-membership-method-impls sum-type, res
-		case_.method-impls!.size is sum-type.sum-type-body-from-type.methods.size
+		case-types = ctx.sum-types[sum-type]!
+		index = case-types size
+		case-types ~= (res, ())
+		ctx.deferred-sum-type-method-impls ~= sum-type, index, declared-on-case-type
 
 sum-type-case-index nat(ctx concretize-ctx, sum-type concrete-type, case-type concrete-type)
 	body = sum-type.body concrete-union!
@@ -409,24 +411,25 @@ sum-type-case-index nat(ctx concretize-ctx, sum-type concrete-type, case-type co
 			error log "Could not find sum type member {ctx.show-ctx show-concrete-type case-type} for {ctx.show-ctx show-concrete-type sum-type}"
 			throw todo
 
--sum-type-body-from-type sum-type(a concrete-type)
+sum-type-body-from-type sum-type(a concrete-type)
 	a.source.concrete-type-source-inst!.decl.body sum-type!
 
 finish-sum-type-cases void(sum-type concrete-type, cases concrete-sum-type-case mut[])
 	sum-type.body.concrete-union!.members := for x : cases
 		x member-type
 
--sum-type-membership-method-impls concrete-fun?[]
+sum-type-membership-method-impls concrete-fun?[]
 	ctx concretize-ctx
 	sum-type concrete-type
 	member-type concrete-type
 do
-	sum-type-decl struct-decl = sum-type.source.concrete-type-source-inst! decl
+	sum-type-decl = sum-type.source.concrete-type-source-inst! decl
 	member-source = member-type.source concrete-type-source-inst!
-	membership = member-source.decl.sum-type-memberships must-find-only x => x.sum-type.decl == sum-type-decl
+	membership = member-source.decl.sum-type-memberships must-find-only x =>
+		x.sum-type.decl == sum-type-decl
 	ctx sum-type-method-impls-common membership.method-impls, member-source.type-args
 
--sum-type-method-impls-common concrete-fun?[]
+sum-type-method-impls-common concrete-fun?[]
 	ctx concretize-ctx
 	method-impls called?[]
 	type-args type-args-scope
