@@ -55,18 +55,16 @@ do
 
 -check-spec-decl-body spec-decl-body
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-	specs-map specs-map
+	types types-and-specs
 	spec_ spec-decl
 	type-params type-params
 	delay-spec-insts delay-spec-insts
 	ast spec-decl-ast
 do
-	modifiers = ctx check-spec-modifiers common-types, structs-and-aliases-map, specs-map, delay-spec-insts, ast.type-params, ast.modifiers
+	modifiers = ctx check-spec-modifiers types, delay-spec-insts, ast.type-params, ast.modifiers
 	builtin_ builtin-spec? = if modifiers is-builtin
 		ctx get-builtin-spec ast.name-range, ast.name.name
-	sigs = ctx check-signatures common-types, structs-and-aliases-map, spec_, type-params, ast.sigs
+	sigs = ctx check-signatures types.types, spec_, type-params, ast.sigs
 	builtin_, modifiers.parents, sigs
 
 -check-spec-decls-initial spec-decl[](ctx check-ctx, asts spec-decl-ast[])
@@ -76,9 +74,7 @@ do
 
 -check-spec-bodies void
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-	specs-map specs-map
+	types types-and-specs
 	asts spec-decl-ast[]
 	specs spec-decl[]
 do
@@ -86,8 +82,7 @@ do
 	for i : 0::nat .. specs.size
 		spec_ = specs[i]
 		ast = asts[i]
-		spec_.body := ctx check-spec-decl-body common-types, structs-and-aliases-map, specs-map, \
-			spec_, ast.type-params, delay-spec-insts, ast
+		spec_.body := ctx check-spec-decl-body types, spec_, ast.type-params, delay-spec-insts, ast
 	for decl : specs
 		ctx detect-and-fix-spec-recursion decl
 	while x ?= delay-spec-insts pop
@@ -115,18 +110,17 @@ do
 
 -check-struct-alias-targets void
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	aliases struct-alias[]
 	asts struct-alias-ast[]
 do
 	for i : 0::nat .. aliases.size
 		struct-alias = aliases[i]
 		ast = asts[i]
-		type = ctx type-from-ast common-types, structs-and-aliases-map, ast.target, ast.type-params, different-module
+		type = ctx type-from-ast types, ast.target, ast.type-params, different-module
 		struct-alias.target := match type
 		as bogus-type _
-			common-types void	
+			types.common-types void	
 		as struct-inst x
 			x
 		as type-param-index _
@@ -145,13 +139,8 @@ do
 	xs to-by-name (_, y) =>
 		ctx add-diag-assert-same-uri y.name-range, (struct-or-alias diag-duplicate-declaration y.name)
 
--check-var-initial var-decl
-	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-	ast var-decl-ast
-do
-	type = ctx type-from-ast-no-type-params common-types, structs-and-aliases-map, ast.type
+-check-var-initial var-decl(ctx check-ctx, types types-get, ast var-decl-ast)
+	type = ctx type-from-ast-no-type-params types, ast.type
 	ctx check-no-type-params ast.type-params, ast.kind.to
 	ctx check-var-modifiers ast.kind, ast.modifiers
 	hash: ctx next-hash
@@ -176,22 +165,16 @@ do
 			ctx add-diag x.range, kind.to.diag-spec-use-invalid
 -check-var-initializer void # TODO: probably inline ---------------------------------------------------------------------------
 	ctx check-ctx
-	structs-and-aliases-map structs-and-aliases-map
-	common-types common-types
-	specs-map specs-map
+	types types-and-specs
 	funs-map funs-map
 	var var-decl
 do
-	var.initializer := ctx check-fun-or-test-body structs-and-aliases-map, common-types, \
-		specs-map, funs-map, \
-		var, var.type, (), (summon_ | unsafe_), (), var.ast.initializer
+	var.initializer := ctx check-fun-or-test-body types, funs-map, var, var.type, (), (summon_ | unsafe_), (), var.ast.initializer
 
 -spec-flags-and-parents record(is-builtin bool, parents specs)
 -check-spec-modifiers spec-flags-and-parents
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-	specs-map specs-map
+	types types-and-specs
 	delay-spec-insts delay-spec-insts
 	type-params-scope type-params
 	asts modifier-ast[]
@@ -210,11 +193,11 @@ do
 				else
 					ctx add-diag x.keyword-range, (x.keyword diag-modifier-invalid spec_)
 			as spec-use-ast x
-				if spec_ ?= ctx spec-from-ast common-types, structs-and-aliases-map, specs-map, type-params-scope, x, delay-spec-insts
+				if spec_ ?= ctx spec-from-ast types, type-params-scope, x, delay-spec-insts
 					out ~= spec_
 	is-builtin, parents.get-or-add-specs
 
-types record
+-types record
 	structs-and-aliases-map structs-and-aliases-map
 	struct-aliases struct-alias[]
 	structs struct-decl[]
@@ -233,22 +216,24 @@ do
 	structs = types structs
 	common-types = types common-types
 	start = perf-now
-	ctx check-struct-bodies common-types, structs-and-aliases-map, structs, ast.structs
+	types-get types-get = types.common-types, types.structs-and-aliases-map
+	ctx check-struct-bodies types-get, structs, ast.structs
 	vars var-decl[] = for x : ast vars
-		ctx check-var-initial common-types, structs-and-aliases-map, x
+		ctx check-var-initial types-get, x
 	specs = ctx check-spec-decls-initial ast.specs
 	specs-map = specs to-by-name (_, y) =>
 		ctx add-diag-assert-same-uri y.range, (spec_ diag-duplicate-declaration y.name)
-	ctx check-spec-bodies common-types, structs-and-aliases-map, specs-map, ast.specs, specs
-	funs-and-map = ctx check-funs common-types, specs-map, structs, structs-and-aliases-map, vars, \
-		imports-and-re-exports.file-imports, imports-and-re-exports.file-exports, ast.funs, ast.tests
+	ts types-and-specs = types-get, specs-map
+	ctx check-spec-bodies ts, ast.specs, specs
+	funs-and-map = ctx check-funs ts, structs, vars, imports-and-re-exports.file-imports, imports-and-re-exports.file-exports, ast.funs, ast.tests
 	for var : vars
-		ctx check-var-initializer structs-and-aliases-map, common-types, specs-map, funs-and-map.funs-map, var
+		ctx check-var-initializer ts, funs-and-map.funs-map, var
 	ctx check-doc-comments structs-and-aliases-map, specs-map, funs-and-map.funs-map, \
 		struct-aliases, structs, specs, vars, funs-and-map.funs, funs-and-map.tests
 	module-doc-comment-references = ctx check-doc-comment-references structs-and-aliases-map, \
 		specs-map, funs-and-map.funs-map, (), (), ast.doc-comment
-	public-exports, public-and-internal-exports = ctx get-all-exports imports-and-re-exports.module-re-exports, structs-and-aliases-map, specs-map, funs-and-map.funs-map
+	public-exports, public-and-internal-exports =
+		ctx get-all-exports imports-and-re-exports.module-re-exports, structs-and-aliases-map, specs-map, funs-and-map.funs-map
 	res crow-module =
 		uri: uri
 		config: config
@@ -347,7 +332,7 @@ do
 	struct-aliases = ctx check-struct-aliases-initial ast.struct-aliases
 	structs-and-aliases-map = ctx build-structs-and-aliases-map structs, struct-aliases
 	common-types = get-common-types[ctx, structs-and-aliases-map]
-	ctx check-struct-alias-targets common-types, structs-and-aliases-map, struct-aliases, ast.struct-aliases
+	ctx check-struct-alias-targets (common-types, structs-and-aliases-map), struct-aliases, ast.struct-aliases
 	types types =
 		structs-and-aliases-map: structs-and-aliases-map
 		struct-aliases: struct-aliases

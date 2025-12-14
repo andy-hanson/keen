@@ -11,22 +11,33 @@ import
 	./instantiate
 	./maps
 
+types-get record
+	common-types common-types
+	structs-and-aliases-map structs-and-aliases-map
+types-and-specs record
+	common-types common-types
+	structs-and-aliases-map structs-and-aliases-map
+	specs-map specs-map
+new types-and-specs(types types-get, specs-map specs-map)
+	types.common-types, types.structs-and-aliases-map, specs-map
+types types-get(a types-and-specs)
+	a.common-types, a.structs-and-aliases-map
+
 alias-allowed enum(different-module, yes)
 
 inst-struct-from-ast type
 	ctx check-ctx
-	common-types common-types
+	types types-get
 	name symbol
 	suffix-range source-range
 	type-args-ast type-ast?
-	structs-and-aliases-map structs-and-aliases-map
 	type-params-scope type-params
 	alias-allowed alias-allowed
 do
-	guard s-or-a ?= ctx struct-or-alias-from-name name, suffix-range, structs-and-aliases-map, false : bogus-type
+	guard s-or-a ?= ctx struct-or-alias-from-name name, suffix-range, types.structs-and-aliases-map, false : bogus-type
 	type-arg type? = if x ?= type-args-ast
-		ctx type-from-ast common-types, structs-and-aliases-map, x, type-params-scope, alias-allowed
-	guard type-args ?= ctx get-type-args-if-number-matches common-types, suffix-range, name, s-or-a.n-type-params, type-arg : bogus-type
+		ctx type-from-ast types, x, type-params-scope, alias-allowed
+	guard type-args ?= ctx get-type-args-if-number-matches types.common-types, suffix-range, name, s-or-a.n-type-params, type-arg : bogus-type
 	match s-or-a
 	as struct-alias alias_
 		assert type-args is-empty
@@ -106,18 +117,12 @@ check-type-params void(ctx check-ctx, asts name-and-range[])
 		if x.name == y.name
 			ctx add-diag y.range, (type-param diag-duplicate-declaration y.name)
 
-type-from-ast-no-type-params type
-	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-	ast type-ast
-do
-	ctx type-from-ast common-types, structs-and-aliases-map, ast, (), yes
+type-from-ast-no-type-params type(ctx check-ctx, types types-get, ast type-ast)
+	ctx type-from-ast types, ast, (), yes
 
 type-from-ast type
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	ast type-ast
 	type-params-scope type-params
 	alias-allowed alias-allowed
@@ -126,14 +131,15 @@ do
 	as bogus-type-ast _
 		bogus-type
 	as fun-type-ast x
-		ctx type-from-fun-ast common-types, x, structs-and-aliases-map, type-params-scope, alias-allowed
+		ctx type-from-fun-ast types, x, type-params-scope, alias-allowed
 	as map-type-ast x
-		ctx type-from-map-ast common-types, x, structs-and-aliases-map, type-params-scope, alias-allowed
+		type-arg type-ast = () tuple-type-ast (x.key, x.value)
+		ctx inst-struct-from-ast types, x.kind.to, x.range, type-arg, type-params-scope, alias-allowed
 	as name-and-range name
 		if type-param ?= type-params-scope find-type-param name.name
 			type-param
 		else
-			ctx inst-struct-from-ast common-types, name.name, name.range, (), structs-and-aliases-map, type-params-scope, alias-allowed
+			ctx inst-struct-from-ast types, name.name, name.range, (), type-params-scope, alias-allowed
 	as suffix-name-type-ast x
 		if syntax ?= x.name.name type-syntax-kind
 			ctx add-diag x.suffix-range, syntax
@@ -141,28 +147,26 @@ do
 			ctx add-diag x.suffix-range, diag-type-param-cant-have-type-args
 			type-param
 		else
-			ctx inst-struct-from-ast common-types, x.name.name, x.suffix-range, x.left, structs-and-aliases-map, type-params-scope, alias-allowed
+			ctx inst-struct-from-ast types, x.name.name, x.suffix-range, x.left, type-params-scope, alias-allowed
 	as suffix-special-type-ast x
-		ctx inst-struct-from-ast common-types, x.kind.to, x.suffix-range, x.left, structs-and-aliases-map, type-params-scope, alias-allowed
+		ctx inst-struct-from-ast types, x.kind.to, x.suffix-range, x.left, type-params-scope, alias-allowed
 	as tuple-type-ast x
 		members type[] = for member : x.members
-			ctx type-from-ast common-types, structs-and-aliases-map, member, type-params-scope, alias-allowed
-		ctx make-tuple-type common-types, members, () =>
+			ctx type-from-ast types, member, type-params-scope, alias-allowed
+		ctx make-tuple-type types.common-types, members, () =>
 			x.members[0].range combine-ranges x.members[end - 1].range
 
 spec-from-ast spec-inst?
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-	specs-map specs-map
+	types types-and-specs
 	type-params-scope type-params
 	ast spec-use-ast
 	delay-spec-insts may-delay-spec-insts
 do
-	if spec_ ?= ctx try-find-spec ast.name, specs-map, false
+	if spec_ ?= ctx try-find-spec ast.name, types.specs-map, false
 		type-arg type? = if x ?= ast type-arg
-			ctx type-from-ast common-types, structs-and-aliases-map, x, type-params-scope, yes
-		if type-args ?= ctx get-type-args-if-number-matches common-types, ast.name.range, spec_.name, spec_.n-type-params, type-arg
+			ctx type-from-ast types.types, x, type-params-scope, yes
+		if type-args ?= ctx get-type-args-if-number-matches types.common-types, ast.name.range, spec_.name, spec_.n-type-params, type-arg
 			ctx.instantiate-ctx instantiate-spec spec_, type-args, delay-spec-insts
 
 -find-type-param type-param-index?(type-params-scope type-params, name symbol)
@@ -171,16 +175,15 @@ do
 
 -type-from-fun-ast type
 	ctx check-ctx
-	common-types common-types
+	types types-get
 	ast fun-type-ast
-	structs-and-aliases-map structs-and-aliases-map
 	type-params-scope type-params
 	alias-allowed alias-allowed
 do
-	return-type = ctx type-from-ast common-types, structs-and-aliases-map, ast.return-type, type-params-scope, alias-allowed
+	return-type = ctx type-from-ast types, ast.return-type, type-params-scope, alias-allowed
 	param-type = match ast params
 	as array params
-		if res ?= ctx type-from-destructures common-types, structs-and-aliases-map, type-params-scope, params
+		if res ?= ctx type-from-destructures types, type-params-scope, params
 			res
 		else
 			ctx add-diag ast.params-range, diag-lambda-type-missing-param-type
@@ -188,19 +191,7 @@ do
 	as varargs-ast x
 		ctx add-diag x.param.range, diag-lambda-type-variadic
 		bogus-type
-	common-types.fun-structs[ast kind][return-type, param-type]
-
-# TODO: INLINE? ------------------------------------------------------------------------------------------------------------
--type-from-map-ast type
-	ctx check-ctx
-	common-types common-types
-	ast map-type-ast
-	structs-and-aliases-map structs-and-aliases-map
-	type-params-scope type-params
-	alias-allowed alias-allowed
-do
-	type-arg type-ast = () tuple-type-ast (ast.key, ast.value)
-	ctx inst-struct-from-ast common-types, ast.kind.to, ast.range, type-arg, structs-and-aliases-map, type-params-scope, alias-allowed
+	types.common-types.fun-structs[ast kind][return-type, param-type]
 
 get-spec-from-common-module spec-decl?
 	ctx check-ctx
@@ -230,38 +221,35 @@ try-find-spec spec-decl?(ctx check-ctx, name name-and-range, specs-map specs-map
 
 type-from-destructure type?
 	ctx check-ctx
-	common-types common-types
+	types types-get
 	ast destructure-ast
-	structs-and-aliases-map structs-and-aliases-map
 	type-params-scope type-params
 do
 	match ast
 	as single-destructure-ast x
 		if t ?= x type
-			ctx type-from-ast common-types, structs-and-aliases-map, t, type-params-scope, yes
+			ctx type-from-ast types, t, type-params-scope, yes
 	as void-destructure-ast _
-		common-types void
+		types.common-types void
 	as array parts
-		ctx type-from-destructures common-types, structs-and-aliases-map, type-params-scope, parts
+		ctx type-from-destructures types, type-params-scope, parts
 
 -type-from-destructures type?
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types-get types-get
 	type-params-scope type-params
 	parts destructure-ast[]
 do
-	types type[]? = for part : parts map-or-none
-		ctx type-from-destructure common-types, part, structs-and-aliases-map, type-params-scope
+	types type[]? = parts map-or-none part =>
+		ctx type-from-destructure types-get, part, type-params-scope
 	guard x ?= types
-	ctx make-tuple-type common-types, x, () => parts[0].range combine-ranges parts[end - 1].range
+	ctx make-tuple-type types-get.common-types, x, () => parts[0].range combine-ranges parts[end - 1].range
 
 destructure-kind enum(local, param)
 == bool(a destructure-kind, b destructure-kind)
 check-destructure destructure
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	type-container type-container
 	# 'typeContainer' may be uninitialized, so pass 'typeParamsScope' separately
 	type-params-scope type-params
@@ -270,6 +258,7 @@ check-destructure destructure
 	destructured-type type?
 	kind destructure-kind
 do
+	common-types = types common-types
 	type-with-container type-with-container mut(x type) = x => x, type-container
 	# TODO: move to function -----------------------------------------------------------------------------------------------------------
 	get-type type mut(declared-type type?) = declared-type =>
@@ -287,7 +276,7 @@ do
 	match ast
 	as single-destructure-ast x
 		declared-type type? = if t ?= x type
-			ctx type-from-ast common-types, structs-and-aliases-map, t, type-params-scope, yes
+			ctx type-from-ast types, t, type-params-scope, yes
 		type = get-type[declared-type]
 		if x.name.name == "_"
 			if _ ?= x mut_
@@ -312,17 +301,17 @@ do
 				parts destructure[] = for i : 0::nat .. part-asts.size
 					part = part-asts[i]
 					field-type = field-types!.inner[i]
-					ctx check-destructure common-types, structs-and-aliases-map, type-container, type-params-scope, part, field-type, kind
+					ctx check-destructure types, type-container, type-params-scope, part, field-type, kind
 				tuple-type destructure-split parts
 			else
 				ctx add-diag ast.range, (part-asts.size.destructure-expected-tuple diag-destructure-type-mismatch type-with-container[tuple-type])
 				# TODO: this could share code with the above if it generated an array of bogus types? --------------------------------
 				tuple-type destructure-split for part : part-asts
-					ctx check-destructure common-types, structs-and-aliases-map, type-container, type-params-scope, part, bogus-type, kind
+					ctx check-destructure types, type-container, type-params-scope, part, bogus-type, kind
 		else
 			parts destructure[] = for part : part-asts
-				ctx check-destructure common-types, structs-and-aliases-map, type-container, type-params-scope, part, (), kind
-			types type[] = for part : parts; part type
-			type = ctx make-tuple-type common-types, types, () =>
+				ctx check-destructure types, type-container, type-params-scope, part, (), kind
+			part-types type[] = for part : parts; part type
+			type = ctx make-tuple-type common-types, part-types, () =>
 				part-asts[0].range combine-ranges part-asts[end - 1].range
 			type destructure-split parts

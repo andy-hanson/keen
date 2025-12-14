@@ -161,14 +161,14 @@ do
 		args[i] := cb-check-arg[i, arg-expected]
 	if called ?= ctx check-call-cb diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-before-check
 		# Check should always succeed, but we need it to set the inferred type
-		ctx check expected, called.return-type, do source make-call called, trusted args.cast-immutable
+		ctx check expected, called.return-type, do source make-call called, trusted args cast-immutable
 	else
 		candidates = ctx get-candidate-decls-for-bogus fun-name
 		if candidates is-empty
 			expected bogus source.range
 		else
 			expected set-to-bogus-if-inferring
-			source bogus-call-expr candidates, (trusted args.cast-immutable), expected.inferred
+			source bogus-call-expr candidates, (trusted args cast-immutable), expected.inferred
 -get-candidate-decls-for-bogus called-decl[](ctx expr-ctx, fun-name fun-name)
 	with out : build
 		match fun-name
@@ -206,7 +206,7 @@ do
 	initial-filter bool mut(x candidate) = candidate =>
 		ctx.common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
 		expected test-candidate-return-type candidate, allow-conversions
-	ctx.funs-in-expr-scope with-candidates fun-name, n-args, initial-filter, candidates =>
+	with candidates : ctx.funs-in-expr-scope candidates-scope fun-name, n-args, initial-filter
 		if cb-before-check[candidates]
 			ctx check-call-inner diag-range, fun-name, type-arg, candidates, expected, n-args, cb-check-arg
 
@@ -232,7 +232,7 @@ do
 	initial-filter bool mut(x candidate) = candidate =>
 		common-types filter-candidate-by-explicit-type-arg candidate, type-arg &&
 		candidate test-candidate-for-spec-sig return-and-param-types, non-inferring, no-conversions # TODO: allow conversions here (and prefer exact)
-	funs-in-scope with-candidates name, arity, initial-filter, candidates =>
+	with candidates : funs-in-scope candidates-scope name, arity, initial-filter
 		if x ?= candidates opt-only
 			ctx check-call-after-choosing-overload common-types, type-container, funs-in-scope, fun-flags, externs, x, diag-range, is-trusted
 		else
@@ -279,10 +279,10 @@ do
 	n-args nat
 	cb-check-arg cb-check-arg
 do
-	# actual-arg-types type mut-slice = trusted n-args gc-safe-mut-slice ------------------------------------------------------------------------------------
 	some-arg-is-bogus mut = false
 	arg-index mut nat = 0
-	arg-types type mut-slice = trusted n-args gc-safe-mut-slice #TODO:PERF consider just getting this from the args. ............................................
+	# TODO:PERF Since this is only needed conditionally, consider getting this from the args
+	arg-types type mut-slice = trusted n-args gc-safe-mut-slice
 	loop
 		guard arg-index != n-args : break
 		guard candidates !is-empty : break
@@ -293,7 +293,6 @@ do
 			guard candidate has-some-inferred : true
 			ctx pre-check-candidate-specs candidate
 		arg-type = candidates with-param-expected arg-index, cb-check-arg
-		# actual-arg-types[arg-index] := arg-type ------------------------------------------------------------------------------------
 		# If it failed to check, don-t continue, just stop there
 		if arg-type is-bogus
 			some-arg-is-bogus := true
@@ -334,7 +333,7 @@ do
 			expected-return-type: ctx get-expected-for-diag expected
 			actual-n-type-args: ctx.common-types get-n-type-args-for-diagnostic explicit-type-arg
 			actual-arity: n-args
-			actual-arg-types: () # TODO: (trusted actual-arg-types cast-immutable)[0 .. arg-index].to ------------------------
+			actual-arg-types: arg-types to
 			all-candidates: all-candidates
 		else
 			fun-name diag-call-multiple-matches ctx.type-container, candidates.candidates-for-diag
@@ -457,7 +456,7 @@ do
 	call-context = call-candidate type-context-for-candidate
 	initial-filter bool mut(x candidate) = candidate =>
 		candidate test-candidate-for-spec-sig return-and-param-types, call-context, allow-conversions # TODO: prefer a candidate that converts exactly
-	ctx.funs-in-expr-scope with-candidates spec-sig.name, spec-sig.params.size, initial-filter, spec-candidates =>
+	with spec-candidates : ctx.funs-in-expr-scope candidates-scope spec-sig.name, spec-sig.params.size, initial-filter
 		match spec-candidates size
 		as 0
 			false

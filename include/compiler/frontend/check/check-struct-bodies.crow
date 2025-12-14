@@ -39,55 +39,52 @@ check-structs-initial struct-decl[](ctx check-ctx, asts struct-decl-ast[])
 		body: struct-body-bogus
 check-struct-bodies void
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	structs struct-decl[]
 	asts struct-decl-ast[]
 do
 	for i : structs indices
 		struct = structs[i]
 		ast = asts[i]
-		struct.sum-type-memberships := ctx check-sum-type-memberships-initial common-types, structs-and-aliases-map, struct, ast
+		struct.sum-type-memberships := ctx check-sum-type-memberships-initial types, struct, ast
 		struct.body := match ast body
 		as builtin-type-ast _
 			ctx check-only-common-modifiers builtin_, ast.modifiers
 			ctx get-builtin-type struct
 		as enum-ast x
 			ctx check-no-type-params ast.type-params, enum_
-			storage_ = ctx check-enum-or-flags-modifiers common-types, structs-and-aliases-map, struct, enum_, ast.modifiers, false
+			storage_ = ctx check-enum-or-flags-modifiers types, struct, enum_, ast.modifiers, false
 			ctx check-enum struct, ast.range, x, storage_
 		as flags-ast x
 			ctx check-no-type-params ast.type-params, flags_
-			storage_ = ctx check-enum-or-flags-modifiers common-types, structs-and-aliases-map, struct, flags_, ast.modifiers, true
+			storage_ = ctx check-enum-or-flags-modifiers types, struct, flags_, ast.modifiers, true
 			ctx check-flags struct, x, storage_
 		as record-ast x
-			ctx check-record common-types, structs-and-aliases-map, struct, ast.modifiers, x
+			ctx check-record types, struct, ast.modifiers, x
 		as sum-type-ast x
-			ctx check-sum-type common-types, structs-and-aliases-map, struct, ast, x
+			ctx check-sum-type types, struct, ast, x
 
 -check-sum-type sum-type
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types-get types-get
 	struct struct-decl
 	ast struct-decl-ast
 	ast-body sum-type-ast
 do
 	ctx check-only-common-modifiers ast-body.kind.decl-kind-for-sum-type, ast.modifiers
-	listed-members = ctx check-sum-type-listed-members-initial common-types, structs-and-aliases-map, struct, ast-body
-	sigs = ctx check-signatures common-types, structs-and-aliases-map, struct, ast.type-params, ast-body.methods
+	listed-members = ctx check-sum-type-listed-members-initial types-get, struct, ast-body
+	sigs = ctx check-signatures types-get, struct, ast.type-params, ast-body.methods
 	ast-body.kind, listed-members, sigs
 
 check-signatures signature[]
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	container signature-container
 	type-params type-params
 	asts signature-ast[]
 do
 	for ast : asts
-		return-type, params = ctx check-return-type-and-params common-types, container.to, ast.return-type, ast.params, type-params, structs-and-aliases-map
+		return-type, params = ctx check-return-type-and-params types, container.to, ast.return-type, ast.params, type-params
 		params-array = match params
 		as array x
 			x
@@ -98,8 +95,7 @@ do
 
 -check-sum-type-listed-members-initial sum-type-member-and-method-impls[]
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	sum-type struct-decl
 	ast sum-type-ast
 do
@@ -108,7 +104,7 @@ do
 			ctx add-diag sum-type.keyword-range.range, diag-empty-enum-or-union
 		res sum-type-member-and-method-impls mut[] = ()
 		for type-ast : ast types
-			type = ctx type-from-ast common-types, structs-and-aliases-map, type-ast, sum-type.type-param-asts, yes
+			type = ctx type-from-ast types, type-ast, sum-type.type-param-asts, yes
 			if member ?= type struct-inst
 				if res exists x => x.member.decl == member.decl
 					ctx add-diag type-ast.range, (union-member diag-duplicate-declaration member.decl.name)
@@ -124,14 +120,13 @@ do
 
 -check-sum-type-memberships-initial sum-type-membership[]
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	struct struct-decl
 	ast struct-decl-ast
 do
 	res sum-type-membership mut[] = ()
 	for mod : ast modifiers
-		guard membership ?= ctx sum-type-membership-from-modifier common-types, structs-and-aliases-map, struct, mod
+		guard membership ?= ctx sum-type-membership-from-modifier types, struct, mod
 		if struct is-template
 			ctx add-diag mod.range, struct.diag-case-type-is-template
 		elif res exists x => x.sum-type.decl == membership.sum-type.decl
@@ -141,15 +136,14 @@ do
 	res move-to
 -sum-type-membership-from-modifier sum-type-membership?
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	struct struct-decl
 	mod modifier-ast
 do
 	guard kw ?= mod modifier-keyword-ast
 	guard kw.keyword == case_
 	if type-ast ?= kw type-arg
-		type = ctx type-from-ast common-types, structs-and-aliases-map, type-ast, struct.type-param-asts, yes
+		type = ctx type-from-ast types, type-ast, struct.type-param-asts, yes
 		if type is-interface-or-variant
 			kw, type.struct-inst!, ()
 		else
@@ -462,52 +456,41 @@ do
 
 -check-record record_
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	struct struct-decl
 	modifier-asts modifier-ast[]
 	ast record-ast
 do
 	modifiers = ctx accumulate-record-modifiers modifier-asts
-	fields = ctx check-record-fields common-types, structs-and-aliases-map, struct, ast
+	fields = ctx check-record-fields types, struct, ast
 	new-visibility: ctx record-new-visibility struct, fields, modifiers
 	fields: fields
 
 -check-record-fields record-field[]
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	struct struct-decl
 	ast record-ast
 do
 	if ast.params !is-empty && ast.fields !is-empty
 		ctx add-diag struct.name-range.range, (struct diag-struct-params-syntax-error has-params-and-fields)
-	res = if x ?= ast params
-		ctx record-fields-from-params common-types, structs-and-aliases-map, struct, x
+	res record-field[] = if params ?= ast params
+		match params
+		as array destructures
+			with out : build
+				for param : destructures
+					if field ?= ctx record-field-from-param types, struct, param
+						out ~= field
+		as varargs-ast x
+			ctx add-diag x.param.range, (struct diag-struct-params-syntax-error variadic)
+			()
 	else
 		for x : ast fields
-			ctx check-record-field common-types, structs-and-aliases-map, struct, x, x.visibility, x.name, x.mutability, x.type
+			ctx check-record-field types, struct, x, x.visibility, x.name, x.mutability, x.type
 	res each-pair (x, y) =>
 		if x.name == y.name
 			ctx add-diag-assert-same-uri y.range, (record-field diag-duplicate-declaration y.name)
 	res
-# TODO: INLINE --------------------------------------------------------------------------------------------------------------------------
--record-fields-from-params record-field[]
-	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-	struct struct-decl
-	ast params-ast
-do
-	match ast
-	as array destructures
-		with out : build
-			for param : destructures
-				if field ?= ctx record-field-from-param common-types, structs-and-aliases-map, struct, param
-					out ~= field
-	as varargs-ast x
-		ctx add-diag x.param.range, (struct diag-struct-params-syntax-error variadic)
-		()
 
 # TODO: move closer to where it is used? ------------------------------------------------------------------------------------------
 -enum-member-from-param enum-or-flags-member?
@@ -528,15 +511,14 @@ do
 
 -record-field-from-param record-field?
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	record_ struct-decl
 	ast destructure-ast
 do
 	if single ?= ast single-destructure-ast
 		mutability field-mutability-ast? = if x ?= single mut_
 			x, ()
-		ctx check-record-field common-types, structs-and-aliases-map, record_, single, (), single.name, mutability, single.type
+		ctx check-record-field types, record_, single, (), single.name, mutability, single.type
 	else
 		ctx add-diag ast.range, (record_ diag-struct-params-syntax-error destructure)
 		()
@@ -544,8 +526,7 @@ do
 # Shared in common between {single-destructure-ast} and {record-field-ast}
 -check-record-field record-field
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	record_ struct-decl
 	source record-field-source
 	visibility-ast visibility-and-range?
@@ -554,7 +535,7 @@ do
 	type-ast type-ast?
 do
 	member-type = if x ?= type-ast
-		ctx type-from-ast common-types, structs-and-aliases-map, x, record_.type-param-asts, yes
+		ctx type-from-ast types, x, record_.type-param-asts, yes
 	else
 		ctx add-diag name.range, name.name.diag-record-field-needs-type
 		bogus-type
@@ -571,8 +552,7 @@ do
 | TODO: {is-flags} is redundant to the declKind -------------------------------------------------------------------------------
 check-enum-or-flags-modifiers integral-type
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
+	types types-get
 	struct struct-decl
 	decl-kind decl-kind
 	modifiers modifier-ast[]
@@ -594,8 +574,8 @@ do
 	
 	if x ?= storage-modifier
 		if type-ast ?= x type-arg
-			type = ctx type-from-ast common-types, structs-and-aliases-map, type-ast, (), yes
-			res = ctx get-enum-type-from-type struct, type-ast.range, common-types, type
+			type = ctx type-from-ast types, type-ast, (), yes
+			res = ctx get-enum-type-from-type struct, type-ast.range, types.common-types, type
 			if is-flags && res is-signed
 				ctx add-diag x.keyword-range, diag-flags-signed
 			res

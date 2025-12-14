@@ -22,41 +22,38 @@ funs-and-map record # RENAME, this now includes tests --------------------------
 	funs-map funs-map
 check-funs funs-and-map
 	ctx check-ctx
-	common-types common-types
-	specs-map specs-map
+	types types-and-specs
 	structs struct-decl[]
-	structs-and-aliases-map structs-and-aliases-map
 	vars var-decl[]
 	file-imports import-or-export-file[]
 	file-exports import-or-export-file[]
 	asts fun-decl-ast[]
 	test-asts test-ast[]
 do
-	funs = ctx check-funs-initial common-types, specs-map, structs, structs-and-aliases-map, vars, file-imports, file-exports, asts
+	funs = ctx check-funs-initial types, structs, vars, file-imports, file-exports, asts
 	assert funs.size >= asts.size
 	funs-map funs-map = funs to
-	ctx check-method-impls common-types, funs-map, structs
-	ctx check-funs-with-asts common-types, structs-and-aliases-map, specs-map, funs-map, funs[0 .. asts.size], asts
+	ctx check-method-impls types.common-types, funs-map, structs
+	ctx check-funs-with-asts types, funs-map, funs[0 .. asts.size], asts
 	for i, f : file-imports with-index
 		ctx set-file-import-function-body funs[asts.size + i], f
 	for i, f : file-exports with-index
 		ctx set-file-import-function-body funs[asts.size + file-imports.size + i], f
-	funs, (ctx check-tests common-types, structs-and-aliases-map, specs-map, funs-map, test-asts), funs-map
+	funs, (ctx check-tests types, funs-map, test-asts), funs-map
 
 -check-funs-initial fun-decl[]
 	ctx check-ctx
-	common-types common-types
-	specs-map specs-map
+	types types-and-specs
 	structs struct-decl[]
-	structs-and-aliases-map structs-and-aliases-map
 	vars var-decl[]
 	file-imports import-or-export-file[]
 	file-exports import-or-export-file[]
 	asts fun-decl-ast[]
 do
+	common-types = types common-types
 	with out : build
 		for fun-ast : asts
-			out ~= ctx check-fun common-types, specs-map, structs-and-aliases-map, fun-ast
+			out ~= ctx check-fun types, fun-ast
 		for f : file-imports
 			out ~= ctx fun-decl-for-file-import-or-export common-types, f, private
 		for f : file-exports
@@ -66,15 +63,9 @@ do
 		for var : vars
 			ctx add-funs-for-var out, common-types, var
 
--check-fun fun-decl
-	ctx check-ctx
-	common-types common-types
-	specs-map specs-map
-	structs-and-aliases-map structs-and-aliases-map
-	fun-ast fun-decl-ast
-do
+-check-fun fun-decl(ctx check-ctx, types types-and-specs, fun-ast fun-decl-ast)
 	has-body = fun-ast.body.empty-ast is-empty
-	flags-and-specs = ctx check-fun-modifiers common-types, structs-and-aliases-map, specs-map, fun-ast.type-params, fun-ast.name-range, has-body, fun-ast.modifiers
+	flags-and-specs = ctx check-fun-modifiers types, fun-ast.type-params, fun-ast.name-range, has-body, fun-ast.modifiers
 	fun fun-decl =
 		hash: ctx next-hash
 		source: fun-ast
@@ -88,7 +79,7 @@ do
 		doc-comment-references: ()
 		body: fun-body-uninitialized
 	ctx check-type-params fun-ast.type-params
-	return-type, params = ctx check-return-type-and-params common-types, fun, fun-ast.return-type, fun-ast.params, fun-ast.type-params, structs-and-aliases-map
+	return-type, params = ctx check-return-type-and-params types.types, fun, fun-ast.return-type, fun-ast.params, fun-ast.type-params
 	fun.return-type := return-type
 	fun.params := params
 	param-types type[] = for x : params params-array; x type
@@ -102,7 +93,7 @@ do
 	if flags-and-specs is-builtin
 		if has-body
 			ctx add-diag fun-ast.name-range, diag-builtin-fun-cant-have-body
-		fun.body := ctx get-builtin-fun common-types, fun
+		fun.body := ctx get-builtin-fun types.common-types, fun
 	fun
 
 -set-file-import-function-body void(ctx check-ctx, fun fun-decl, a import-or-export-file)
@@ -152,9 +143,7 @@ do
 	specs specs
 -check-fun-modifiers fun-modifiers
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-	specs-map specs-map
+	types types-and-specs
 	type-params-scope type-params
 	range source-range
 	has-body bool
@@ -181,16 +170,14 @@ do
 					all-flags |:= flag
 				()
 			as spec-use-ast x
-				if inst ?= ctx spec-from-ast common-types, structs-and-aliases-map, specs-map, type-params-scope, x, no-delay-spec-insts
+				if inst ?= ctx spec-from-ast types, type-params-scope, x, no-delay-spec-insts
 					out ~= inst
 	flags_ = ctx check-fun-flags range, all-flags, (!has-body && externs !is-empty)
 	flags_, (builtin_::collected-fun-flags in all-flags), externs, specs.get-or-add-specs
 
 -check-tests test_[]
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-	specs-map specs-map
+	types types-and-specs
 	funs-map funs-map
 	test-asts test-ast[]
 do
@@ -199,8 +186,7 @@ do
 		test_ test_ = ctx.next-hash, ast, ctx.cur-uri, modifiers.flags_, modifiers.externs, (() bogus-expr bogus-type), ()
 		if _ ?= ast.body empty-ast
 			ctx add-diag ast.range, diag-test-missing-body
-		test_.body := ctx check-fun-or-test-body structs-and-aliases-map, common-types, specs-map, funs-map, \
-			test_, common-types.void, (), modifiers.flags_, modifiers.externs, ast.body
+		test_.body := ctx check-fun-or-test-body types, funs-map, test_, types.common-types.void, (), modifiers.flags_, modifiers.externs, ast.body
 		test_
 
 -test-modifiers record(flags_ fun-flags, externs symbol-set)
@@ -282,9 +268,7 @@ do
 
 -check-funs-with-asts void
 	ctx check-ctx
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-	specs-map specs-map
+	types types-and-specs
 	funs-map funs-map
 	funs-with-asts fun-decl array-view
 	asts fun-decl-ast[]
@@ -294,9 +278,8 @@ do
 		fun-ast = asts[i]
 		guard _ ?= fun.body fun-body-uninitialized
 		fun.body := if _ ?= fun-ast.body empty-ast
-			ctx check-auto-fun common-types, specs-map, funs-map, fun
+			ctx check-auto-fun types.common-types, types.specs-map, funs-map, fun
 		elif fun.return-type is-bogus
 			fun-body-bogus
 		else
-			ctx check-fun-or-test-body structs-and-aliases-map, common-types, specs-map, funs-map, \
-				fun, fun.return-type, fun.params, fun.flags_, fun.externs, fun-ast.body
+			ctx check-fun-or-test-body types, funs-map, fun, fun.return-type, fun.params, fun.flags_, fun.externs, fun-ast.body
