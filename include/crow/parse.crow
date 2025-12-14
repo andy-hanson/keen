@@ -1,10 +1,12 @@
 no-std
 import
+	java/lang/Double
 	./bool
 	./col/array
 	./col/collection
 	./compare
 	./exception
+	./js
 	./misc
 	./number
 	./option
@@ -43,6 +45,10 @@ import
 	assert res, next ?= (iter,)::string-iterator next
 	a.char8-index := next next-char8-index
 	res
+# Private because this can return an invalid char8. Use only if validating the result.
+-peek8 char8?(a string-mut-iterator)
+	guard a !is-at-end
+	a.char8s[a char8-index]
 +peek char32?(a string-mut-iterator)
 	guard a !is-at-end
 	iter char8 array-iterator = a.char8s.begin + a.char8-index
@@ -253,10 +259,11 @@ import
 | Use this to allow recursive grammars.
 +lazy record
 +with-block[t] t grammar(_ lazy, f t grammar data())
+	grammar mut t grammar? = ()
 	func: iter =>
-		# TODO: actually be lazy (cache it) -----------------------------------------------------------------------------------------------------------
-		grammar = f[]
-		grammar fn iter
+		if grammar is-empty
+			grammar := f[]
+		grammar! fn iter
 
 | Matches {a} exactly.
 +exact grammar-skip(a string)
@@ -297,13 +304,13 @@ import
 ~take-quoted-string-after-quote string(iter string-mut-iterator)
 	with out : build
 		loop
-			forbid iter is-at-end : ("quoted string",) inner-parse-error
+			forbid iter is-at-end : "quoted string" inner-parse-error
 			match iter take-char32
 			as "\""
 				break
 			as "\\"
 				guard iter !is-at-end : break
-				assert esc ?= iter.take-char8 escape : ("quoted string",) inner-parse-error
+				assert esc ?= iter.take-char8 escape : "quoted string" inner-parse-error
 				out ~= esc
 				continue
 			else x
@@ -372,6 +379,8 @@ import
 	a advance
 	digit
 
+-is-digit bool(a char8)
+	a.char-to-nat64 !is-empty
 -char-to-nat64 nat64?(c char8)
 	if "0"::char8 <= c && c <= "9"
 		c.to - "0".to to
@@ -379,21 +388,26 @@ import
 | Parse a decimal number.
 | This allows e.g. "+1.23".
 +float float64 grammar()
-	# TODO: instead of computing the number this way, just gather it as a string and use 'to float(a string)' (which uses Java builtin) -------------------
 	func: iter => iter take-float
 ~take-float float64(iter string-mut-iterator)
-	sign float64 = if iter try-take "-"
-		-1
-	else
-		_ = iter try-take "+"
-		1
-	assert whole-nat ?= iter take-nat : "float" inner-parse-error
-	whole-part float64 = whole-nat to
+	index = iter char8-index
+	_ = iter try-take "-" || iter try-take "+"
+	assert iter peek-digit : "float" inner-parse-error
+	while iter peek-digit
+		_ = iter take-char8
 	if iter try-take "."
-		if after-dot ?= iter take-nat-and-count-digits
-			# TODO: use the builtin string to float function----------------------------------------------------------------------------
-			sign * (whole-part + after-dot.value.to * 0.1 ** after-dot.count-digits.to)
-		else
-			sign * whole-part
+		while iter peek-digit
+			_ = iter take-char8
+	iter.char8s[index .. iter.char8-index].to string-to-float
+
+-peek-digit bool(a string-mut-iterator)
+	guard x ?= a peek8
+	x is-digit
+
+-string-to-float float64(a string)
+	trusted if extern java
+		a.to-java-string parseDouble
+	elif extern js
+		"Number".js-global call a.to-js-string cast
 	else
-		sign * whole-part
+		throw todo
