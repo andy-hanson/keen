@@ -105,6 +105,57 @@ do check-expr, check-lambda
 -void-destructure destructure-ast()
 	() void-destructure-ast
 
+###
+check-list expr(ctx expr-ctx, ast list-ast, expected expected) check-expr
+	# TODO:PERF use a mut-slice initialized to the perfect size (since we know it based on the AST) ----------------------------------------------------------0
+	parts list-expr-part mut[] = ()
+	check-arg void mut(i nat, arg-expected expected) = (i, arg-expected) =>
+		part = ast.parts[i]
+		match part
+		as expr-ast x
+			parts ~= ctx check-expr x, arg-expected
+		as list-ast-part-multi x
+			info log "OK, GONNA MODIFY THAT EXPECTED"
+			arg = ctx check-with-modify-expected arg-expected, (t => ctx.common-types.array[t]), expected-array =>
+				info log "expected-array is {expected-array.debug}"
+				res = ctx check-expr x.arg, expected-array
+				info log "RES TYPE IS {(res type ctx.common-types).to::json}"
+				res, (res type ctx.common-types)
+			parts ~= arg list-expr-part-multi
+	cb-before-check bool mut(candidates candidates) = candidates =>
+		candidates filter-unordered candidate =>
+			if x ?= candidate.called fun-decl
+				x is-variadic
+		candidates !is-empty
+	if called ?= ctx check-call-cb ast.range, "new", (), ast.parts.size, expected, check-arg, cb-before-check
+		parts.size is ast.parts.size
+		ast list-expr called, parts.move-to
+	else
+		expected bogus ast.range
+###
+
+find-function-for-list-new called?
+	ctx expr-ctx
+	diag-range source-range
+	return-type type
+do
+	initial-filter bool mut(x candidate) = candidate =>
+		called = candidate called
+		guard x ?= called fun-decl
+		guard x is-variadic
+		(called.return-type, candidate.type-context-for-candidate) match-types (return-type, non-inferring), a-to-b
+	# Passing '0' for actual-arity here because it doesn't matter; we will not use candidate.param-types
+	with candidates : ctx.funs-in-expr-scope candidates-scope "new", 0, initial-filter
+		if x ?= candidates opt-only
+			ctx.check-ctx check-call-after-choosing-overload ctx.common-types, \
+				ctx.type-container, ctx.funs-in-expr-scope, ctx.cur-flags, ctx.externs, x, diag-range, () => ctx check-is-trusted
+		else
+			ctx add-diag diag-range, if candidates is-empty
+				ctx type-with-container return-type diag-call-no-match-for-list
+			else
+				"new" diag-call-multiple-matches ctx.type-container, for x : candidates; x called
+			()
+
 check-call-special-cb1 expr
 	ctx expr-ctx
 	source call-expr-source
@@ -320,7 +371,7 @@ do
 		# If there are multiple candidates, prefer the one with no implicit conversions.
 		candidates filter-unordered-but-dont-remove-all candidate =>
 			expected test-candidate-return-type candidate, no-conversions &&
-			0::nat .. arg-types.size every i =>
+			0::nat .. arg-index every i =>
 				candidate test-candidate-param-type i, arg-types[i].non-inferring, no-conversions
 
 	if x ?= candidates opt-only
@@ -335,7 +386,7 @@ do
 			expected-return-type: ctx get-expected-for-diag expected
 			actual-n-type-args: ctx.common-types get-n-type-args-for-diagnostic explicit-type-arg
 			actual-arity: n-args
-			actual-arg-types: arg-types to
+			actual-arg-types: arg-types[0 .. arg-index] to
 			all-candidates: all-candidates
 		else
 			fun-name diag-call-multiple-matches ctx.type-container, candidates.candidates-for-diag

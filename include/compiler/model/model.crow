@@ -2557,6 +2557,7 @@ expr union
 	if-expr
 	lambda-expr
 	let-expr
+	list-expr
 	literal-float-expr
 	literal-integral-expr
 	literal-string-like-expr
@@ -2609,9 +2610,11 @@ type type(a expr, common-types common-types?)
 	as if-expr x
 		x type common-types
 	as lambda-expr x
-		x.type
+		x type
 	as let-expr x
 		x type common-types
+	as list-expr x
+		x array-type
 	as literal-float-expr x
 		x type common-types
 	as literal-integral-expr x
@@ -2734,6 +2737,7 @@ call-expr-source union
 	for-ast
 	if-ast
 	interpolated-ast
+	list-ast
 	loop-break-ast
 	loop-continue-ast
 	name-and-range
@@ -2762,6 +2766,8 @@ name-range source-range(a call-expr-source)
 		x first-keyword-range
 	as interpolated-ast x
 		x range
+	as list-ast x
+		x range # TODO: maybe limit it to just the first line?? Or the first '-' or '--'??? -------------------------------------------------------------------
 	as loop-break-ast x
 		x range
 	as loop-continue-ast x
@@ -2901,6 +2907,34 @@ range source-range(a let-expr)
 	a.destructure.start, a.then.end
 type type(a let-expr, common-types common-types?)
 	a.then type common-types
+
+list-expr record
+	ast list-ast
+	| Variadic function that the array is passed to
+	called called
+	parts list-expr-part[]
+range source-range(a list-expr)
+	a.ast range
+to json(a list-expr)
+	range: a.range to
+	called: a.called to
+	parts: a.parts to
+array-type type(a list-expr)
+	a.called.param-types only
+list-expr-part union(expr, list-expr-part-multi)
+to json(a list-expr-part)
+	match a
+	as expr x
+		single: x to
+	as list-expr-part-multi x
+		multi: x.arg to
+list-expr-part-multi record(arg expr)
+arg expr(a list-expr-part)
+	match a
+	as expr x
+		x
+	as list-expr-part-multi x
+		x arg
 
 literal-float-expr record(range source-range, float-type float-type, value float)
 to json(a literal-float-expr)
@@ -3146,6 +3180,9 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 		cb[x body]
 	as let-expr x
 		cb[x value] || cb[x then]
+	as list-expr x
+		x.parts first part =>
+			cb[part arg]
 	as literal-float-expr _
 		()
 	as literal-integral-expr _
@@ -3268,6 +3305,7 @@ diag union
 	diag-call-missing-extern
 	diag-call-multiple-matches
 	diag-call-no-match
+	diag-call-no-match-for-list
 	diag-call-option-non-option
 	diag-call-should-use-syntax
 	diag-cant-call
@@ -3414,6 +3452,8 @@ diag-call-no-match record
 	actual-arg-types type[]
 	| All candidates, including those with wrong arity
 	all-candidates called-decl[]
+diag-call-no-match-for-list record
+	expected-return-type type-with-container
 diag-call-option-non-option record(actual type-with-container)
 diag-call-should-use-syntax record(arity nat, kind diag-call-should-use-syntax-kind)
 diag-call-should-use-syntax-kind enum
@@ -3544,7 +3584,7 @@ diag-modifier-type-arg-invalid record
 diag-mut-field-not-allowed record
 diag-name-not-found record(kind diag-name-not-found-kind, name symbol)
 diag-name-not-found-kind enum(doc-comment-reference, spec_, type)
-diag-needs-expected-type enum(loop_, pointer, throw_)
+diag-needs-expected-type enum(list, loop_, throw_)
 diag-param-missing-type record
 diag-param-mutable record
 diag-purity-worse-than-parent record(parent struct-decl, child struct-inst)

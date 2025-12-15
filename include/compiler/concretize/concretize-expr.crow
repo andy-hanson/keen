@@ -282,6 +282,43 @@ do
 	ctx concretize-with-destructure-and-let type, range, e.destructure, value, () =>
 		ctx concretize-expr type, e.then
 
+-concretize-list concrete-expr
+	ctx concretize-expr-ctx
+	type concrete-type
+	range uri-and-range
+	a list-expr
+do
+	guard called ?= ctx get-concrete-fun-from-called a.called : ctx concretize-bogus type, range
+	array-type = ctx get-concrete-type a.array-type
+	inner = ctx concretize-list-inner array-type, range, a.parts
+	called.return-type, range, do called call-concrete-expr (inner,)
+
+-concretize-list-inner concrete-expr
+	ctx concretize-expr-ctx
+	array-type concrete-type
+	range uri-and-range
+	parts list-expr-part[]
+do
+	element = array-type array-element-type!
+	arrays concrete-expr mut[] = ()
+	cur-list concrete-expr mut[] = ()
+	finish-list void mut() = () =>
+		arrays ~= array-type, range, cur-list.move-to.create-array-concrete-expr
+	for part : parts
+		match part
+		as expr x
+			cur-list ~= ctx concretize-expr element, x
+		as list-expr-part-multi x
+			finish-list[]
+			arrays ~= ctx concretize-expr array-type, x.arg
+	finish-list[]
+
+	finished-arrays concrete-expr[] = arrays move-to
+	res mut = finished-arrays[0]
+	for x : finished-arrays[1 .. end]
+		res := ctx.concretize-ctx gen-concat-array range, res, x
+	res
+
 -concretize-expr-with-opt-destructure concrete-local-and-expr
 	ctx concretize-expr-ctx
 	type concrete-type
@@ -778,6 +815,8 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 		# Use 'outer-type' instead of 'type' here to make the conversion be in the 'then' expression instead of wrapping the whole 'let'.
 		# This leads to simpler generated code.
 		ctx concretize-let outer-type, range, x
+	as list-expr x
+		ctx concretize-list type, range, x
 	as literal-float-expr x
 		type gen-constant range, x.value.constant-float	
 	as literal-integral-expr x

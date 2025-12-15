@@ -12,7 +12,7 @@ clean:
 
 all: clean test serve
 
-test: unit-test test-end-to-end
+test: unit-test test-diagnostics test-end-to-end
 
 unit-test: unit-test-java unit-test-js
 unit-test-java: bin/crow $(all_include)
