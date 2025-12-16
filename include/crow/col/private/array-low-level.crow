@@ -1,6 +1,7 @@
 no-std
 import
 	java/lang/IndexOutOfBoundsException
+	java/lang/Object
 	java/lang/System
 	../../bits
 	../../bool
@@ -32,7 +33,6 @@ array-cast[out, in] out[](a in[]) unsafe # TODO: RM. This is only used to conver
 		assert index < a.array-size : index index-too-big a.array-size
 		a array-get index
 -array-get[t] t(a t[], index nat64) builtin, unsafe
--array-get[t] t(a t mut-slice, index nat64) builtin, unsafe
 
 ###
 Equivalent to calling `f[a[0]]`, `f[a[1]]`, etc.
@@ -62,12 +62,11 @@ Calls `f` for each element in `a`.
 	buffer = builder buffer
 	builder.buffer := 0 gc-safe-mut-slice
 	if buffer.mut-slice-size == size
-		buffer reinterpret-cast
+		buffer cast-immutable
 	elif extern java
 		res t mut-slice = size gc-safe-mut-slice
-		unless is-empty-type@t
-			buffer.reinterpret-cast arraycopy 0, res.reinterpret-cast, 0, size.wrap-to
-		res reinterpret-cast
+		res copy-from 0 .. size, buffer.cast-immutable, 0 .. size
+		res cast-immutable
 	elif extern js
 		buffer.as-js call-property "slice", 0::nat32, size.wrap-to::nat32 cast  
 	else
@@ -94,25 +93,16 @@ Calls `f` for each element in `a`.
 +~~=[t] void(a t array-builder, values t array-view)
 	forbid a.cur-size == max-value
 	capacity = a.buffer mut-slice-size
-	if a.cur-size + values.size > capacity
+	new-size = a.cur-size + values.size
+	if new-size > capacity
 		a expand-capacity (a.cur-size + values.size).round-up-to-power-of-two
-	trusted if extern java
-		unless is-empty-type@t
-			values.inner.reinterpret-cast arraycopy values.view-indices.low.wrap-to, a.buffer.reinterpret-cast, a.cur-size.wrap-to, values.size.wrap-to
-	else
-		for i : 0 .. values.size
-			a.buffer array-set a.cur-size + i, values[i]
+	a.buffer copy-from a.cur-size .. new-size, values.inner, values.view-indices
 	a.cur-size +:= values size
 -expand-capacity[t] void(a t array-builder, new-capacity nat64)
-	# assert new-capacity > a.cur-size # TODO -----------------------------------------------------------------------------------
 	trusted
+	# assert new-capacity > a.cur-size # TODO -----------------------------------------------------------------------------------
 	new-buffer t mut-slice = new-capacity gc-safe-mut-slice
-	if extern java
-		unless is-empty-type@t
-			a.buffer.reinterpret-cast arraycopy 0, new-buffer.reinterpret-cast, 0, a.cur-size.wrap-to # TODO: shouldn't need cast? ---------------
-	else
-		for i nat64 : 0 .. a.cur-size
-			new-buffer array-set i, do a.buffer array-get i
+	new-buffer copy-from 0 .. a.cur-size, a.buffer.cast-immutable, 0 .. a.cur-size
 	a.buffer := new-buffer
 
 -wrap-to int32(a nat64)
@@ -158,3 +148,21 @@ region Views
 		else
 			i +:= 1
 			continue
+
+-cast-immutable[t] t[](a t mut-slice) unsafe
+	a reinterpret-cast
+
+~copy-from[t] void(dest t mut-slice, dest-range nat range, src t[], src-range nat range)
+	trusted
+	guard !(is-empty-type@t) # TODO: should not need parentheses
+	size = dest-range size
+	assert src-range.size == size
+	assert dest-range.high <= dest.mut-slice-size
+	assert src-range.high <= src.array-size
+	dl = dest-range low
+	sl = src-range low
+	if extern java
+		src.reinterpret-cast::Object arraycopy sl.wrap-to, dest.reinterpret-cast::Object, dl.wrap-to, size.wrap-to
+	else
+		for i : 0 .. size
+			dest array-set dl + i, do src array-get sl + i

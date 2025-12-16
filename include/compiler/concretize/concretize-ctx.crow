@@ -47,10 +47,10 @@ concretize-ctx record mut
 	late-new-json-from-pairs-function mut concrete-fun?
 	late-to-json-from-json-array-function mut concrete-fun?
 	all-constants all-constants-builder
-	non-lambda-concrete-types concrete-type mut[(struct-decl, concrete-type[])] # TODO: Rename, since I removed the lambda concrete-types ----------------------
-	all-concrete-types concrete-type mut[] # TODO: Now 'non-lambda-concrete-types' should contain them all ..........................
+	concrete-types concrete-type mut[(struct-decl, concrete-type[])]
+	all-concrete-types concrete-type mut[] # TODO:PERF 'concrete-types' contains them all, except the bogus type
 	concrete-var-lookup concrete-var mut[var-decl]
-	non-lambda-concrete-funs concrete-fun mut[concrete-fun-key] # TODO: lambdas are always preserved now, so rename ---------------------------------
+	concrete-funs concrete-fun mut[concrete-fun-key]
 	sum-type-to-methods concrete-fun mut[] mut[concrete-type]
 	deferred-methods concrete-fun mut[]
 	deferred-java-interfaces struct-decl mut[]
@@ -88,10 +88,10 @@ do
 	late-new-json-from-pairs-function: ()
 	late-to-json-from-json-array-function: ()
 	all-constants: ()
-	non-lambda-concrete-types: ()
+	concrete-types: ()
 	all-concrete-types: ()
 	concrete-var-lookup: ()
-	non-lambda-concrete-funs: ()
+	concrete-funs: ()
 	sum-type-to-methods: ()
 	deferred-methods: ()
 	deferred-java-interfaces: ()
@@ -248,7 +248,7 @@ constant-symbol constant(a concretize-ctx, value symbol)
 
 get-concrete-fun concrete-fun(ctx concretize-ctx, decl fun-decl, type-args concrete-type[], spec-impls concrete-fun[])
 	key concrete-fun-key = decl, type-args, spec-impls
-	res = ctx.non-lambda-concrete-funs get-or-add-and-did-add key, () =>
+	res = ctx.concrete-funs get-or-add-and-did-add key, () =>
 		ctx get-concrete-fun-from-key decl, type-args, spec-impls
 	if res did-add
 		ctx add-concrete-fun res.value
@@ -262,7 +262,7 @@ get-non-template-concrete-fun concrete-fun(ctx concretize-ctx, inst fun-inst)
 get-concrete-type-for-struct-inst concrete-type(ctx concretize-ctx, inst struct-inst, type-args-scope type-args-scope)
 	type-args = ctx get-concrete-types inst.type-args, type-args-scope
 	decl = inst decl
-	res = ctx.non-lambda-concrete-types get-or-add-and-did-add (decl, type-args), () =>
+	res = ctx.concrete-types get-or-add-and-did-add (decl, type-args), () =>
 		purity mut = decl purity
 		for x : type-args
 			purity worse-purity:= x purity
@@ -445,15 +445,10 @@ do
 	builtin_ builtin-type
 do
 	match builtin_
-	# TODO: why do we handle 'option' specially here but 'array' specially elsewhere? -----------------------------------------------
 	as option
-		# TODO: this potentially creates a '(void, void)' union, which is the only place it would have the same type multiple times ........
-		# Maybe we could use an impossible type instead. I could declare `-none record` in bootstrap.crow, which would be guaranteed to not be used anywhere.
 		type.body :=
 			:: concrete-union
 			java-interface: ()
 			late-members: ctx.none-type, type-args.only
-		assert type.body.concrete-union! has-members # TODO: RM (sanity check) ----------------------------------------------
 	else
-		# TODO: isn't that big expression the same as the local 'type-args'? ----------------------------------------------------
-		type.body := builtin_ concrete-builtin-type type.source.concrete-type-source-inst!.type-args
+		type.body := builtin_ concrete-builtin-type type-args
