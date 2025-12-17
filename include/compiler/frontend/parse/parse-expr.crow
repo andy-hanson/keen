@@ -141,42 +141,37 @@ parse-fun-expr-body expr-ast(lexer lexer)
 -parse-calls expr-ast(lexer lexer, start pos, lhs expr-ast, arg-ctx arg-ctx)
 	before-call = lexer cur-pos
 	precedence = arg-ctx.allowed-calls min-precedence-exclusive
-	# TODO: USE A MATCH ---------------------------------------------------------------------------------------------------------------------------------------
+	log = lexer.get-peek-token as-logical-ast-kind
 	if comma-precedence > precedence and lexer try-take-token comma
-		lexer parse-calls-after-comma start, lhs, before-call, arg-ctx
-	elif or-precedence > precedence and lexer peek-token or_
+		args = lexer parse-args (arg-ctx require-precedence-gt comma-precedence), lhs
+		range = lexer range start
+		range call-ast comma, before-call, (range.start, "new"), args, ()
+	elif log !is-empty and log!.precedence > precedence # TODO: `if log ?= ... and log.precedence > precedence` -----------------------------------------------
 		_ = lexer take-next-token-may-continue-onto-next-line
-		expr = lhs logical-ast or_, before-call,
-			lexer parse-expr-and-calls do arg-ctx require-precedence-gt or-precedence
-		lexer parse-calls start, expr, arg-ctx
-	elif and-precedence > precedence and lexer peek-token and_
-		_ = lexer take-next-token-may-continue-onto-next-line
-		expr = lhs logical-ast and_, before-call,
-			lexer parse-expr-and-calls do arg-ctx require-precedence-gt and-precedence
-		lexer parse-calls start, expr, arg-ctx
-	elif else-precedence > precedence and lexer peek-token else_
-		_ = lexer take-next-token
-		expr = lhs logical-ast else_, before-call,
-			lexer parse-expr-and-calls do arg-ctx require-precedence-gt else-precedence
+		expr = lhs logical-ast log!, before-call,
+			lexer parse-expr-and-calls do arg-ctx require-precedence-gt log!.precedence
 		lexer parse-calls start, expr, arg-ctx
 	elif ternary-precedence > precedence and lexer try-take-token question
-		lexer parse-calls-after-question start, lhs, before-call, arg-ctx
+		then = lexer parse-expr-and-calls arg-ctx
+		colon-pos = lexer cur-pos
+		has-colon = lexer try-take-token colon
+		else_ expr-ast? = if has-colon
+			lexer parse-expr-and-calls arg-ctx
+		kind = has-colon ? ternary-with-else : ternary-without-else
+		start if-ast kind, false, before-call, colon-pos, lhs, then, else_
 	else
 		lexer parse-named-calls start, lhs, arg-ctx
 
--parse-calls-after-question expr-ast(lexer lexer, start pos, lhs expr-ast, question-pos pos, arg-ctx arg-ctx)
-	then = lexer parse-expr-and-calls arg-ctx
-	colon-pos = lexer cur-pos
-	has-colon = lexer try-take-token colon
-	else_ expr-ast? = if has-colon
-		lexer parse-expr-and-calls arg-ctx
-	kind = has-colon ? ternary-with-else : ternary-without-else
-	start if-ast kind, false, question-pos, colon-pos, lhs, then, else_
-
--parse-calls-after-comma expr-ast(lexer lexer, start pos, lhs expr-ast, comma-pos pos, arg-ctx arg-ctx)
-	args = lexer parse-args (arg-ctx require-precedence-gt comma-precedence), lhs
-	range = lexer range start
-	range call-ast comma, comma-pos, (range.start, "new"), args, ()
+-as-logical-ast-kind logical-ast-kind?(token token)
+	match token
+	as and_
+		and_
+	as else_
+		else_
+	as or_
+		or_
+	else
+		()
 
 -parse-named-calls expr-ast(lexer lexer, start pos, lhs expr-ast, arg-ctx arg-ctx)
 	pos = lexer cur-pos
@@ -248,25 +243,21 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	0
 | Precedence for '?' and ':' in 'a ? b : c'
 -ternary-precedence int()
-	-5
--or-precedence int()
-	-3
--and-precedence int()
-	-2
--else-precedence int()
 	-4
+-precedence int(a logical-ast-kind)
+	match a
+	as and_
+		-1
+	as else_
+		-3
+	as or_
+		-2
 
 -name-precedence int()
 	0
 -symbol-precedence int(a symbol, is-assignment bool)
-	guard !is-assignment : -6
+	guard !is-assignment : -5
 	match a
-	as "||"
-		-3
-	as "&&"
-		-2
-	as "??"
-		-1
 	as ".."
 		1
 	as "~"
