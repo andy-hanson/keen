@@ -632,12 +632,54 @@ do
 	ast, called, parts
 
 -check-logical expr(ctx expr-ctx, ast logical-ast, expected expected)
-	bool =  ctx.common-types bool
-	ctx check expected, ctx.common-types.bool,
-		:: logical-expr
-		ast: ast
-		left: ctx check-and-expect ast.left, bool
-		right: ctx check-and-expect ast.right, bool
+	common-types = ctx common-types
+	bool =  common-types bool
+	match ast kind
+	as and_
+		ctx check expected, bool,
+			:: logical-expr
+			ast: ast
+			kind: bool-and-bool
+			type: bool
+			left: ctx check-and-expect ast.left, bool
+			right: ctx check-and-expect ast.right, bool
+	else
+		option = ctx.common-types option
+		if expected-type ?= expected try-get-inexact-non-inferring-type
+			# TODO: Share some code here .......................................................................................................................
+			if expected-type == bool
+				ast, bool-or-bool, bool, (ctx check-and-expect ast.left, expected-type), (ctx check-and-expect ast.right, expected-type)
+			elif expected-type is-option-type
+				left = ctx check-and-expect ast.left, expected-type
+				left-type = left type common-types
+				unless left-type is-option-type
+					ctx add-diag ast.range,
+						ctx type-with-container left-type diag-or-left-non-option
+				right = ctx check-and-expect ast.right, expected-type
+				ast, option-or-option, expected-type, left, right
+			else
+				left = ctx check-and-expect ast.left, option[expected-type]
+				left-type = left type common-types
+				unless left-type is-option-type
+					ctx add-diag ast.range,
+						ctx type-with-container left-type diag-or-left-non-option
+				right = ctx check-and-expect ast.right, expected-type
+				ast, option-or-default, expected-type, left, right
+		else
+			# No expected type. Can proceed with inference.
+			left, left-type = ctx check-and-infer ast.left
+			if left-type == bool
+				ctx check expected, bool,
+					ast, bool-or-bool, bool, left, (ctx check-and-expect ast.right, bool)
+			elif left-type is-option-type
+				right = ctx check-and-expect ast.right, left-type
+				right-type = right type common-types
+				kind = right-type is-option-type ? option-or-option : option-or-default
+				ctx check expected, right-type, (ast, kind, right-type, left, right)
+			else
+				ctx add-diag ast.range,
+					ctx type-with-container left-type diag-or-left-non-option
+				expected bogus ast
 
 -check-loop expr(ctx expr-ctx, ast loop-ast, expected expected)
 	if type ?= expected try-get-inexact-non-inferring-type

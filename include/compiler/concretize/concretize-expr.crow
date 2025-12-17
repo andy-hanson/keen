@@ -785,7 +785,8 @@ do
 	ctx concretize-expr type, a
 
 concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type, a expr)
-	type = ctx get-concrete-type (a type ctx.common-types)
+	model-type = a type ctx.common-types
+	type = ctx get-concrete-type model-type
 	range uri-and-range = ctx.cur-uri, a.range
 	guard type !is-bogus : ctx concretize-bogus type, range
 	res = match a
@@ -828,13 +829,30 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 	as local-set-expr x
 		ctx concretize-local-set range, x.local, x.value
 	as logical-expr x
-		left = ctx concretize-expr type, x.left
+		left-type = match x kind
+		as bool-and-bool
+			type
+		as bool-or-bool
+			type
+		as option-or-default
+			model-type is-option-type ? type : ctx get-concrete-type ctx.common-types.option[model-type]
+		as option-or-option
+			outer-type
+		left = ctx concretize-expr left-type, x.left
 		right = ctx concretize-expr type, x.right
 		match x kind
-		as and_
+		as bool-and-bool
 			ctx.concretize-ctx gen-and range, left, right
-		as or_
+		as bool-or-bool
 			ctx.concretize-ctx gen-or range, left, right
+		as option-or-default
+			local concrete-local = member::concrete-generated-local-kind, type
+			range gen-if-option left, (local, (range gen-local-get local)), right
+		as option-or-option
+			temp concrete-local = member::concrete-generated-local-kind, type
+			get-temp = range gen-local-get temp
+			type gen-let range, temp, left,
+				range gen-if-option get-temp, ((), get-temp), right
 	as loop-expr x
 		type gen-loop range, (ctx concretize-expr type, x.body)
 	as loop-break-expr x
