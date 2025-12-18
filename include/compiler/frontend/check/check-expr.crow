@@ -324,7 +324,6 @@ do
 
 -check-identifier expr(ctx expr-ctx, ast name-and-range, expected expected)
 	if local ?= ctx access-local ast.range, ast.name
-		local.is-read := true
 		ctx check expected, local.type, (ast.range local-get-expr local)
 	else
 		ctx check-call-identifier ast, expected
@@ -343,7 +342,6 @@ do
 			ctx add-diag source.range, local.diag-local-not-mutable
 			expected bogus source.range
 		as mut_
-			local.is-written := true
 			value = cb-right[local.type.expect]
 			ctx check expected, ctx.void-type, (source.range local-set-expr local, value)
 	else
@@ -369,7 +367,7 @@ do
 	ctx check expected, inst, do range literal-float-expr float-type, (value else ()).to
 
 -to float(a high-precision-float)
-	s string = "{a sign}{a unsigned-value else 0}e{a exponent}"
+	s string = "{a sign}{a unsigned-value}e{a exponent}"
 	trusted
 	res float = if extern js
 		"Number".js-global call s.to-js-string cast
@@ -511,8 +509,6 @@ do
 	local = ctx.locals pop!
 	if local is-used-in-closure and local is-mutable
 		local.closure-reference-type := ctx.common-types.reference[local type]
-	if local !is-read or local !is-written and local is-mutable
-		ctx add-diag local.local-must-have-name-range, local.diag-unused-local
 
 -check-shared expr(ctx expr-ctx, ast shared-ast, expected expected)
 	diag void mut(diag diag) = diag =>
@@ -647,39 +643,34 @@ do
 	as else_
 		option = common-types option
 		left = ctx check-with-modify-expected expected, (t => option[t]), inner =>
-			res = ctx check-expr ast.left, inner
-			res, (res type common-types).unwrap-option-or-same
-		# TODO: Warn if 'left' is not an option
+			l = ctx check-expr ast.left, inner
+			left-type = l type common-types
+			un-option = left-type try-unwrap-option-type else
+				ctx add-diag ast.keyword-range,
+					ctx type-with-container left-type diag-option-else-left-non-option
+				left-type
+			l, un-option
 		right = ctx check-expr ast.right, expected
 		ast, option-else, expected.inferred, left, right
 	as or_
-		if expected-type ?= expected try-get-inexact-non-inferring-type
-			# TODO: Share some code here .......................................................................................................................
-			if expected-type == bool
-				ast, bool-or-bool, bool, (ctx check-and-expect ast.left, expected-type), (ctx check-and-expect ast.right, expected-type)
-			else
-				left = ctx check-and-expect ast.left, expected-type
-				left-type = left type common-types
-				unless left-type is-option-type
-					ctx add-diag ast.range,
-						ctx type-with-container left-type diag-or-left-non-option
-				right = ctx check-and-expect ast.right, expected-type
-				ast, option-or, expected-type, left, right
+		# Whether this is a bool-or or option-or, both sides should have the same type as the expected type
+		left = ctx check-expr ast.left, expected
+		right = ctx check-expr ast.right, expected
+		type = expected inferred
+		# TODO: Share some code here .......................................................................................................................
+		kind = if type == bool
+			bool-or-bool
 		else
-			# No expected type. Can proceed with inference.
-			left, left-type = ctx check-and-infer ast.left
-			if left-type == bool
-				ctx check expected, bool,
-					ast, bool-or-bool, bool, left, (ctx check-and-expect ast.right, bool)
-			elif left-type is-option-type
-				# TODO: warn if 'right' is not an option (should be 'else')
-				right = ctx check-and-expect ast.right, left-type
-				ctx check expected, left-type,
-					ast, option-or, left-type, left, right
-			else
+			left-type = left type ctx.common-types
+			right-type = right type ctx.common-types
+			if left-type !is-option-type
 				ctx add-diag ast.range,
-					ctx type-with-container left-type diag-or-left-non-option
-				expected bogus ast
+					ctx type-with-container left-type diag-option-or-left-non-option
+			elif right-type !is-option-type
+				ctx add-diag ast.range,
+					ctx type-with-container right-type diag-option-or-right-non-option
+			option-or
+		ast, kind, type, left, right
 
 -check-loop expr(ctx expr-ctx, ast loop-ast, expected expected)
 	if type ?= expected try-get-inexact-non-inferring-type

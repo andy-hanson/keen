@@ -23,6 +23,17 @@ detect-unused-private void(ctx check-ctx, common-types common-types, module crow
 		guard spec_.visibility == private
 		guard spec_ !in used
 		ctx add-diag-assert-same-uri spec_.name-range, spec_.name.diag-unused-private-decl
+	
+	for x : used unused-locals
+		kind = if x.mutability == mut_
+			x in used.unused-mut-locals ? completely-unused : write-only
+		else
+			completely-unused
+		ctx add-diag x.local-must-have-name-range, (x diag-unused-local kind)
+	for x : used unused-mut-locals
+		unless x in used.unused-locals
+			ctx add-diag x.local-must-have-name-range, (x diag-unused-local read-only)
+
 	# TODO: for vars we need to look for the getter function ---------------------------------------------------------------------
 	#for var : module vars
 	#	guard var.visibility == private
@@ -85,6 +96,8 @@ ok-if-unused bool(a fun-decl)
 	structs struct-decl set
 	specs spec-decl set
 	vars var-decl set
+	unused-locals local set
+	unused-mut-locals local set
 -in bool(a fun-decl, used used)
 	a in used.funs
 -in bool(a struct-decl, used used)
@@ -97,7 +110,11 @@ ok-if-unused bool(a fun-decl)
 	structs struct-decl mut-set = ()
 	specs spec-decl mut-set = ()
 	vars var-decl mut-set = ()
-	common-types walk-module module, (_, _, ref) =>
+
+	unused-locals local mut-set = ()
+	unused-mut-locals local mut-set = ()
+
+	common-types walk-module module, (_, kind, ref) =>
 		match ref
 		as doc-comment-reference-bogus
 			()
@@ -107,8 +124,21 @@ ok-if-unused bool(a fun-decl)
 			()
 		as fun-decl x
 			funs ~= x
-		as local _
-			()
+		as local x
+			match kind
+			as declare-local
+				unused-locals ~= x
+				if x.mutability == mut_
+					unused-mut-locals ~= x
+			as get-local
+				_ = unused-locals remove x
+			as set-local
+				_ = unused-mut-locals remove x
+			as comment
+				()
+			else
+				info log "LE KIND: {kind}"
+				throw unreachable
 		as record-field _
 			()
 		as signature _
@@ -123,7 +153,7 @@ ok-if-unused bool(a fun-decl)
 			()
 		as var-decl x
 			vars ~= x
-	funs.move-to, structs.move-to, specs.move-to, vars.move-to
+	funs.move-to, structs.move-to, specs.move-to, vars.move-to, unused-locals.move-to, unused-mut-locals.move-to
 
 -has bool(module module, used used)
 	exports = module public-and-internal-exports

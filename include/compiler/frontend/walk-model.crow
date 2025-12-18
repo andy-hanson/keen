@@ -21,7 +21,13 @@ reference-kind enum
 	var-initializer
 	| Thing is referenced in a doc comment
 	comment
+	declare-local
+	get-local
+	set-local
 == bool(a reference-kind, b reference-kind)
+to symbol(a reference-kind)
+show string(a reference-kind)
+	a.to::symbol to
 
 walk-program void(a program, f void mut(where uri-and-range, kind reference-kind, x doc-comment-reference))
 	for _, module : a all-modules
@@ -161,17 +167,17 @@ walk-module void(common-types common-types, module crow-module, f cb-thing)
 	match ast params
 	as array params
 		for param-ast, param : params zip a.params
-			param-ast walk-destructure param, kind, f
+			param-ast walk-destructure param, kind, ignore-locals, f
 	as varargs-ast _
 		()
 
--walk-params void(ast params-ast, params params, kind reference-kind, f cb-thing)
+-walk-params void(ast params-ast, params params, kind reference-kind, include-locals include-locals, f cb-thing)
 	match ast
 	as array asts
 		for x, y : asts zip params.params-array
-			x walk-destructure y, kind, f
+			x walk-destructure y, kind, include-locals, f
 	as varargs-ast x
-		x.param walk-destructure params.varargs!.param, kind, f
+		x.param walk-destructure params.varargs!.param, kind, include-locals, f
 
 walk-doc-comment void(a doc-comment, f cb-thing)
 	for name, ref : a.ast.references zip a.references
@@ -213,10 +219,18 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 -walk-fun-type-parameters void(params-ast params-ast, params-type type, kind reference-kind, f cb-thing)
 	match params-ast
 	as array params
+		_ = params
+		_ = params-type
+		_ = kind
+		_ = f
+		# TODO ------------------------------------------------------------------------------------------------------------------------------------------------
+		###
 		if p ?= params opt-only
 			p walk-destructure params-type, kind, f
 		else
 			params walk-destructure-parts params-type, kind, f
+		###
+		()
 	as varargs-ast _
 		() # TODO ---------------------------------------------------------------------------------------------------------
 -walk-type-args-may-unpack-tuple void(ast type-ast, type-args type-args, kind reference-kind, f cb-thing)
@@ -228,27 +242,42 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 	for member, arg: type-arg-asts zip type-args.inner
 		member walk-type arg, kind, f
 
--walk-destructure void(ast destructure-ast, destructure destructure, kind reference-kind, f cb-thing)
-	ast walk-destructure destructure.type, kind, f
--walk-destructure void(ast destructure-ast, type type, kind reference-kind, f cb-thing)
+-include-locals enum(include-locals, ignore-locals)
+-walk-destructure void(ast destructure-ast, destructure destructure, kind reference-kind, include-locals include-locals, f cb-thing)
 	match ast
 	as single-destructure-ast x
+		match destructure
+		as destructure-ignore _
+			()
+		as local local
+			match include-locals
+			as include-locals
+				f[x.range, declare-local, local]
+			as ignore-locals
+				()
+		as destructure-split _
+			throw unreachable
 		if t ?= x type
-			t walk-type type, kind, f
+			t walk-type destructure.type, kind, f
 	as void-destructure-ast _
 		()
 	as array parts
-		parts walk-destructure-parts type, kind, f
--walk-destructure-parts void(parts destructure-ast[], type type, kind reference-kind, f cb-thing)
-	guard type !is-bogus
-	parts zip-if-size-eq type.struct-inst!.type-args.inner, (part, type-arg) =>
-		part walk-destructure type-arg, kind, f
+		parts walk-destructure-parts destructure, kind, include-locals, f
+-walk-destructure-parts void(parts destructure-ast[], destructure destructure, kind reference-kind, include-locals include-locals, f cb-thing)
+	guard destructure.type !is-bogus
+	parts zip-if-size-eq destructure.destructure-split!.parts, (part-ast, part) =>
+		part-ast walk-destructure part, kind, include-locals, f
 
 -walk-fun void(a fun-decl, f cb-thing)
 	guard ast ?= a.source fun-decl-ast
 	a.doc-comment walk-doc-comment f
 	ast.return-type walk-type a.return-type, a.visibility.explicit-kind-for-visibility, f
-	ast.params walk-params a.params, a.visibility.explicit-kind-for-visibility, f
+	include-locals = match a body
+	as expr _
+		include-locals
+	else
+		ignore-locals
+	ast.params walk-params a.params, a.visibility.explicit-kind-for-visibility, include-locals, f
 	ast.modifiers walk-spec-uses a.specs, a.visibility, f
 	match a body
 	as auto-fun af
@@ -288,9 +317,9 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 			x.ast.condition handle-condition x.condition, f
 		as lambda-expr x
 			unless x is-ignore
-				x.ast.param walk-destructure x.param, explicit-private, f
+				x.ast.param walk-destructure x.param, explicit-private, include-locals, f
 		as let-expr x
-			x.ast.destructure walk-destructure x.destructure, explicit-private, f
+			x.ast.destructure walk-destructure x.destructure, explicit-private, include-locals, f
 		as list-expr _
 			()
 		as literal-float-expr _
@@ -299,10 +328,10 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 			()
 		as literal-string-like-expr _
 			()
-		as local-get-expr _
-			()
-		as local-set-expr _
-			()
+		as local-get-expr x
+			f[e.range, get-local, x.local]
+		as local-set-expr x
+			f[e.range, set-local, x.local]
 		as logical-expr _
 			()
 		as loop-expr _
@@ -366,7 +395,7 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 		and_.left handle-unpack-option x.left, f
 		and_.right handle-condition x.right, f
 -handle-unpack-option void(ast unpack-option-ast, a unpack-option, f cb-thing)
-	ast.unpack-option-ast!.destructure walk-destructure a.destructure, explicit-private, f
+	ast.unpack-option-ast!.destructure walk-destructure a.destructure, explicit-private, include-locals, f
 
 -handle-match-sum-type-cases void(case-asts case-ast[], cases match-sum-type-case[], f cb-thing)
 	case-asts zip-if-size-eq cases, (case-ast, case_) =>
@@ -374,4 +403,4 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 -handle-match-sum-type-case void(ast case-member-ast, case_ match-sum-type-case, f cb-thing)
 	f[ast.name-range, explicit-private, case_.destructure.type.struct-inst!.decl]
 	if destructure-ast ?= ast.as-name-ast?.destructure
-		destructure-ast walk-destructure case_.destructure, explicit-private, f
+		destructure-ast walk-destructure case_.destructure, explicit-private, include-locals, f
