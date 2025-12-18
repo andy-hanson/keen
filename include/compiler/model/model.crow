@@ -2649,10 +2649,24 @@ type type(a expr, common-types common-types?)
 	as typed-expr x
 		x type
 
-condition union(expr, unpack-option)
+condition union(expr, unpack-option, and-condition)
 to json(a condition)
 unpack-option record(destructure destructure, option expr)
 to json(a unpack-option)
+and-condition record(left unpack-option, right condition)
+to json(a and-condition)
+
+destructures destructure[](a condition)
+	match a
+	as expr _
+		()
+	as unpack-option x
+		- x destructure
+	as and-condition x
+		# TODO: PERF ------------------------------------------------------------------------------------------------------------------------------------------
+		- x.left destructure
+		-- x.right destructures
+
 extern-condition record
 	is-negated bool
 	| If isNegated is set, this means !(x and y and ...)
@@ -2710,6 +2724,8 @@ default-assert-or-forbid-message string(cur-uri uri, a assert-or-forbid-expr, co
 		(a.is-forbid ? "Forbidden expression is true: " : "Asserted expression is false: "), condition.range
 	as unpack-option-ast unpack
 		(a.is-forbid ? "Forbidden option is non-empty: " : "Asserted option is empty: "), unpack.option.range
+	as and-condition-ast _
+		throw todo # ------------------------------------------------------------------------------------------------------------------------------------------
 	prefix ~~ content[cur-uri, range].to
 
 bogus-expr record(range source-range, expected-type type)
@@ -3170,7 +3186,7 @@ each-direct-child-expr void(a expr, cb void mut(x expr))
 find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	match a
 	as assert-or-forbid-expr x
-		cb[x.condition direct-child-in-condition] or x.thrown cb-option cb or cb[x after]
+		x.condition direct-children-in-condition cb or x.thrown cb-option cb or cb[x after]
 	as bogus-call-expr _
 		()
 	as bogus-expr _
@@ -3188,7 +3204,7 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	as finally-expr x
 		cb[x right] or cb[x below]
 	as if-expr x
-		cb[x.condition direct-child-in-condition] or cb[x first-branch] or cb[x second-branch]
+		x.condition direct-children-in-condition cb or cb[x first-branch] or cb[x second-branch]
 	as lambda-expr x
 		cb[x body]
 	as let-expr x
@@ -3215,7 +3231,7 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	as loop-continue-expr _
 		()
 	as loop-while-or-until-expr x
-		cb[x.condition direct-child-in-condition] or cb[x body] or cb[x after]
+		x.condition direct-children-in-condition cb or cb[x body] or cb[x after]
 	as match-enum-expr x
 		cb[x matched] or (x.cases first y => cb[y then]) or x.else_?.then cb-option cb
 	as match-integral-expr x
@@ -3236,12 +3252,14 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 		cb[x value] or cb[x.catch_ then] or cb[x then]
 	as typed-expr x
 		cb[x inner]
--direct-child-in-condition expr(a condition)
+-direct-children-in-condition[t] t?(a condition, cb t? mut(x expr))
 	match a
 	as expr x
-		x
+		cb[x]
 	as unpack-option x
-		x option
+		cb[x option]
+	as and-condition x
+		cb[x.left option] or x.right direct-children-in-condition cb
 -direct-child-in-match-sum-type-cases[t] t?(cases match-sum-type-case[], cb t? mut(x expr))
 	cases first x => cb[x then]
 

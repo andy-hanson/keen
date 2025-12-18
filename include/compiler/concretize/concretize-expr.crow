@@ -444,6 +444,58 @@ do
 		true-branch = ctx concretize-expr-with-destructure type, range, unpack.destructure, a.true-branch
 		false-branch = ctx concretize-expr type, a.false-branch
 		range gen-if-option option, true-branch, false-branch
+	as and-condition x
+		option-type = ctx get-concrete-type ctx.common-types.option[a type ctx.common-types]
+		option-true-branch = ctx concretize-complex-condition option-type, range, x, () =>
+			ctx concretize-expr option-type, a.true-branch
+		false-branch = ctx concretize-expr type, a.false-branch
+		type gen-option-else range, option-true-branch, false-branch
+
+###
+For a complex condition like:
+	if x ?= o1 and y ?= o2
+		true-branch
+	else
+		false-branch
+
+It will compile to:
+	result t? = if x ?= o1
+		if y ?= o2
+			true-branch
+	result else false-branch
+
+This strategy avoids repeating 'false-branch' twice.
+The function concretize-complex-condition just handles the true part of this.
+###
+-concretize-complex-condition concrete-expr
+	ctx concretize-expr-ctx
+	option-type concrete-type
+	range uri-and-range
+	a condition
+	# This expression should be of type 'option-type' and the value should be a non-empty option.
+	true-branch concrete-expr mut()
+do
+	none = ctx.concretize-ctx gen-none option-type, range
+	match a
+	as expr expr
+		condition = ctx concretize-expr ctx.bool-type, expr
+		range gen-if condition, true-branch[], none
+	as unpack-option unpack
+		option = ctx concretize-expr unpack.option
+		true_ = ctx concretize-with-destructure option-type, range, unpack.destructure, true-branch
+		range gen-if-option option, true_, none
+	as and-condition x
+		ctx concretize-complex-condition option-type, range, x.left, () =>
+			ctx concretize-complex-condition option-type, range, x.right, true-branch
+
+-gen-option-else concrete-expr
+	type concrete-type
+	range uri-and-range
+	option concrete-expr
+	else_ concrete-expr
+do
+	local concrete-local = member::concrete-generated-local-kind, type
+	range gen-if-option option, (local, (range gen-local-get local)), else_
 
 -gen-if-option concrete-expr
 	range uri-and-range
@@ -610,6 +662,8 @@ do
 			if_ = range gen-if-option option, (body.local, (void.type gen-do-and-continue range, body.expr)), (range gen-break void)
 			loop_ = void.type gen-loop range, if_
 			range gen-seq loop_, (ctx concretize-expr type, expr.after)
+	as and-condition _
+		throw todo
 
 -concretize-match-enum concrete-expr
 	ctx concretize-expr-ctx
@@ -739,6 +793,8 @@ do
 		else
 			then = ctx concretize-expr-with-destructure type, range, x.destructure, a.after
 			range gen-if-option option, then, throw-no-destructure[]
+	as and-condition _
+		throw todo
 
 -concretize-expr concrete-expr(ctx concretize-expr-ctx, a expr)
 	type = ctx get-concrete-type (a type ctx.common-types)
@@ -806,8 +862,7 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 		as bool-or-bool
 			ctx.concretize-ctx gen-or range, left, right
 		as option-else
-			local concrete-local = member::concrete-generated-local-kind, type
-			range gen-if-option left, (local, (range gen-local-get local)), right
+			type gen-option-else range, left, right
 		as option-or
 			temp concrete-local = member::concrete-generated-local-kind, type
 			get-temp = range gen-local-get temp

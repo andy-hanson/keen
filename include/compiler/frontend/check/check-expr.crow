@@ -153,27 +153,20 @@ do
 	if (ast.first-branch is-throw or ast.second-branch is-throw) and ast !is-else-of-parent
 		ctx add-diag ast.first-keyword-range, diag-if-throw
 	condition = ctx check-condition ast.condition
-	destructure = condition opt-destructure
+	destructures = condition destructures
 	is-negated = ast is-condition-negated
 	empty-new-range = ast first-keyword-range
 	first-branch = ctx with-extern-from-condition condition, is-negated, () =>
-		ctx check-expr-with-opt-destructure-or-empty-new ast, \
-			(!is-negated ? destructure), ast.first-branch, empty-new-range, expected
+		ctx check-expr-with-destructures-or-empty-new ast, \
+			(!is-negated ? destructures), ast.first-branch, empty-new-range, expected
 	if is-inference-log-enabled
 		error log "check-if after first branch: expected is {expected debug}"
 	second-branch = ctx with-extern-from-condition condition, !is-negated, () =>
-		ctx check-expr-with-opt-destructure-or-empty-new ast, \
-			(is-negated ? destructure), ast.second-branch, empty-new-range, expected
+		ctx check-expr-with-destructures-or-empty-new ast, \
+			(is-negated ? destructures), ast.second-branch, empty-new-range, expected
 	ast if-expr condition, (is-negated ? second-branch : first-branch), (is-negated ? first-branch : second-branch), expected.inferred
 -is-throw bool(a expr-ast?)
 	a?.throw-ast !is-empty
-
--opt-destructure destructure?(a condition)
-	match a
-	as expr _
-		()
-	as unpack-option x
-		x destructure
 
 -check-condition condition(ctx expr-ctx, ast condition-ast)
 	match ast
@@ -181,6 +174,10 @@ do
 		ctx check-and-expect x, ctx.common-types.bool
 	as unpack-option-ast x
 		ctx check-unpack-option x
+	as and-condition-ast x
+		left = ctx check-unpack-option x.left
+		ctx with-destructure left.destructure, () =>
+			left and-condition do ctx check-condition x.right
 -check-unpack-option unpack-option(ctx expr-ctx, cond-ast unpack-option-ast)
 	expr, type = ctx check-and-infer cond-ast.option
 	destructure: ctx check-destructure cond-ast.destructure, type.unwrap-option-or-same, local
@@ -221,15 +218,15 @@ do
 
 -check-assert-or-forbid expr(ctx expr-ctx, ast assert-or-forbid-ast, expected expected)
 	condition = ctx check-condition ast.condition
-	destructure = condition opt-destructure
+	destructures = condition destructures
 	is-forbid = ast is-forbid
 	thrown expr? = if thrown-ast ?= ast thrown
 		if x ?= thrown-ast.expr throw-ast
 			ctx add-diag x.keyword-range, diag-assert-or-forbid-message-is-throw
 		ctx with-extern-from-condition condition, !is-forbid, () =>
-			ctx check-expr-with-opt-destructure (is-forbid ? destructure), thrown-ast.expr, ctx.common-types.exception.expect	
+			ctx check-expr-with-destructures (is-forbid ? destructures), thrown-ast.expr, ctx.common-types.exception.expect	
 	after = ctx with-extern-from-condition condition, is-forbid, () =>
-		ctx check-expr-with-opt-destructure (!is-forbid ? destructure), ast.after, expected
+		ctx check-expr-with-destructures (!is-forbid ? destructures), ast.after, expected
 	ast assert-or-forbid-expr is-forbid, condition, thrown, after
 
 -check-assignment expr
@@ -465,28 +462,33 @@ integral-types integral-type[]()
 -decode-as-single-unicode-char char32?(a string)
 	a.to::char32[] opt-only
 
--check-expr-with-opt-destructure expr
+-check-expr-with-destructures expr
 	ctx expr-ctx
-	destructure destructure?
+	destructures destructure[]
 	ast expr-ast
 	expected expected
 do
-	if x ?= destructure
-		ctx check-expr-with-destructure x, ast, expected
-	else
-		ctx check-expr ast, expected
-
+	restore = ctx.locals size
+	for destructure : destructures
+		ctx add-locals-for-destructure destructure
+	finally ctx restore-locals restore
+	ctx check-expr ast, expected
 -check-expr-with-destructure expr
 	ctx expr-ctx
 	destructure destructure
 	ast expr-ast
 	expected expected
 do
+	ctx check-expr-with-destructures (destructure,), ast, expected
+-with-destructure[t] t # TODO: use a with-block ------------------------------------------------------------------------------------------------------------
+	ctx expr-ctx
+	destructure destructure
+	f t mut()
+do
 	restore = ctx.locals size
 	ctx add-locals-for-destructure destructure
-	res = ctx check-expr ast, expected
-	ctx restore-locals restore
-	res
+	finally ctx restore-locals restore
+	f[]
 
 -add-locals-for-destructure void(ctx expr-ctx, destructure destructure)
 	match destructure
@@ -707,9 +709,9 @@ do
 
 -check-loop-while-or-until expr(ctx expr-ctx, ast loop-while-or-until-ast, expected expected)
 	condition = ctx check-condition ast.condition
-	destructure = condition opt-destructure
-	body = ctx check-expr-with-opt-destructure (ast !is-until ? destructure), ast.body, ctx.void-type.expect
-	after = ctx check-expr-with-opt-destructure (ast is-until ? destructure), ast.after, expected
+	destructures = condition destructures
+	body = ctx check-expr-with-destructures (ast !is-until ? destructures), ast.body, ctx.void-type.expect
+	after = ctx check-expr-with-destructures (ast is-until ? destructures), ast.after, expected
 	ast loop-while-or-until-expr condition, body, after
 
 -check-match expr(ctx expr-ctx, ast match-ast, expected expected)
@@ -1049,7 +1051,7 @@ do
 do
 	destructure destructure? = if d ?= destructure-ast
 		ctx check-destructure d, matched-type, local
-	destructure, do ctx check-expr-with-opt-destructure destructure, then-ast, expected
+	destructure, do ctx check-expr-with-destructures destructure.from-option, then-ast, expected
 
 # TODO: use a with-block ---------------------------------------------------------------------------------------------------------
 -with-extern-from-condition[out] out(ctx expr-ctx, condition condition, is-negated bool, cb out mut())
@@ -1061,16 +1063,16 @@ do
 	ctx.externs := original-externs
 	res
 
--check-expr-with-opt-destructure-or-empty-new expr
+-check-expr-with-destructures-or-empty-new expr
 	ctx expr-ctx
 	parent call-expr-source
-	destructure destructure?
+	destructures destructure[]
 	ast expr-ast?
 	empty-new-range source-range
 	expected expected
 do
 	if x ?= ast
-		ctx check-expr-with-opt-destructure destructure, x, expected
+		ctx check-expr-with-destructures destructures, x, expected
 	else
 		ctx check-empty-new parent, empty-new-range, expected
 
