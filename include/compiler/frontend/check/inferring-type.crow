@@ -112,13 +112,16 @@ do
 			else
 				rslt := here
 
-	if rslt is-empty
-		ctx add-diag range, (ctx get-expected-for-diag expected).diag-literal-not-expected
-		()
-	elif multiple is-empty
-		rslt
+	if _ ?= rslt
+		if multiple is-empty
+			rslt
+		else
+			ctx add-diag range,
+				ctx.type-container diag-literal-multiple-match multiple.move-to
+			()
 	else
-		ctx add-diag range, (ctx.type-container diag-literal-multiple-match multiple.move-to)
+		ctx add-diag range,
+			ctx get-expected-for-diag expected diag-literal-not-expected
 		()
 
 -each-narrowed-struct void(a type-and-context, f void mut(x struct-inst))
@@ -263,7 +266,7 @@ If the user wrote `xs nat?[] = for x : xs ...`, they presumably want the body to
 	any-diag bool reference
 do
 	if expected-param-type ?= (fun-type.param-type, type-context) try-get-inexact-non-inferring-type
-		if declared-param-type is-empty or expected-param-type == declared-param-type! # TODO: simplify (just use == on options) ------------------------------
+		unless x ?= declared-param-type and expected-param-type != x
 			expected-param-type
 	elif x ?= declared-param-type
 		x
@@ -536,7 +539,7 @@ is-type-match-possible-for-completions bool(param-type type-with-container, actu
 | True for a type param with no inference yet
 -is-inferring-non-inferred-type-param bool(a type-and-context)
 	if x ?= a.type type-param-index
-		a.context is-inferring and a.context[x index] is-empty
+		a.context is-inferring and !(_ ?= a.context[x index])
 
 -maybe-inferred type-and-context(a type-and-context)
 	if x ?= a.type type-param-index
@@ -547,11 +550,6 @@ is-type-match-possible-for-completions bool(param-type type-with-container, actu
 			a
 	else
 		a
-
-types-are-corresponding-struct-insts bool(a type, b type, conv implicit-conversions, types-correspond bool mut(x type, y type))
-	guard sa ?= a struct-inst
-	guard sb ?= b struct-inst
-	sa match-struct-insts sb, conv, types-correspond, types-correspond
 
 # RM --------------------------------------------------------------------------------------------------------------------------
 enable-inference-log void()
@@ -571,9 +569,10 @@ is-inference-log-enabled bool()
 match-types bool(a type-and-context, b type-and-context, conv implicit-conversions)
 	if trusted LOG
 		error log "match-types a=({a debug}) b=({b debug}) conv={conv}"
-	guard a.context is-inferring or b.context is-inferring : (exact, a.type) match-types-no-context b.type, conv !is-empty
+	guard a.context is-inferring or b.context is-inferring :
+		_ ?= (exact, a.type) match-types-no-context b.type, conv
 	guard b.context is-inferring : a match-types-no-b-context b.type, conv
-	guard a.context is-inferring : (exact, a.type) match-types-no-a-context b, conv !is-empty
+	guard a.context is-inferring : _ ?= (exact, a.type) match-types-no-a-context b, conv
 	res = match b type
 	as bogus-type
 		true
@@ -648,7 +647,7 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 		as struct-inst sa
 			if sa.decl == sb.decl
 				res = sa.type-args.inner zip sb.type-args.inner every (x, y) =>
-					(exact, x) match-types-no-a-context (y, b.context), conv !is-empty
+					_ ?= (exact, x) match-types-no-a-context (y, b.context), conv
 				if res
 					exact, a.type
 			else
