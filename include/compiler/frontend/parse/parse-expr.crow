@@ -142,10 +142,14 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	before-call = lexer cur-pos
 	precedence = arg-ctx.allowed-calls min-precedence-exclusive
 	log = lexer.get-peek-token as-logical-ast-kind
-	if comma-precedence > precedence and lexer try-take-token comma
+	if question-equals-precedence > precedence and lexer try-take-token question-equal
+		unpack = lexer parse-unpack-option lhs, before-call, arg-ctx
+		lexer parse-calls start, unpack, arg-ctx
+	elif comma-precedence > precedence and lexer try-take-token comma
 		args = lexer parse-args (arg-ctx require-precedence-gt comma-precedence), lhs
 		range = lexer range start
-		range call-ast comma, before-call, (range.start, "new"), args, ()
+		res = range call-ast comma, before-call, (range.start, "new"), args, ()
+		lexer parse-calls start, res, arg-ctx
 	elif log !is-empty and log!.precedence > precedence # TODO: `if log ?= ... and log.precedence > precedence` -----------------------------------------------
 		_ = lexer take-next-token-may-continue-onto-next-line
 		expr = lhs logical-ast log!, before-call,
@@ -243,20 +247,22 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	0
 | Precedence for '?' and ':' in 'a ? b : c'
 -ternary-precedence int()
-	-4
+	-5
 -precedence int(a logical-ast-kind)
 	match a
 	as and_
-		-1
-	as else_
-		-3
-	as or_
 		-2
+	as else_
+		-4
+	as or_
+		-3
+-question-equals-precedence int()
+	-1
 
 -name-precedence int()
 	0
 -symbol-precedence int(a symbol, is-assignment bool)
-	guard !is-assignment : -5
+	guard !is-assignment : -6
 	match a
 	as ".."
 		1
@@ -658,7 +664,7 @@ do
 		if lexer try-take-token arrow-lambda
 			lexer parse-lambda-after-name-and-arrow start, allowed-block, "_", arrow-pos
 		else
-			lexer bad-token start, token
+			start underscore-ast
 	as unless_
 		lexer parse-unless start, allowed-block
 	as with_
@@ -689,13 +695,8 @@ do
 	else
 		lexer try-parse-dots-and-subscripts name
 
--parse-condition expr-ast(lexer lexer)
-	if lexer lookahead-question-equals-complex
-		start = lexer cur-pos
-		left = lexer parse-unpack-option (no, allow-all-calls)
-		lexer parse-calls start, left, (no, allow-all-calls)
-	else
-		lexer parse-expr-no-block
+-parse-condition expr-ast(lexer lexer) # INLINE ---------------------------------------------------------------------------------------------------------------
+	lexer parse-expr-no-block
 
 -parse-expr-no-block expr-ast(lexer lexer)
 	lexer parse-expr-and-all-calls no
@@ -705,18 +706,28 @@ do
 
 -parse-expr-and-calls expr-ast(lexer lexer, arg-ctx arg-ctx)
 	start = lexer cur-pos
-	left = if lexer lookahead-question-equals-immediate
-		lexer parse-unpack-option arg-ctx
-	else
-		lexer parse-expr-before-call arg-ctx.allowed-block
+	left = lexer parse-expr-before-call arg-ctx.allowed-block
 	lexer parse-calls start, left, arg-ctx
 
--parse-unpack-option expr-ast(lexer lexer, arg-ctx arg-ctx)
-	left = lexer parse-destructure-no-require-parens
-	question-equal-pos = lexer cur-pos
-	_ = lexer take-or-add-diag-expected-token question-equal, question-equal
-	left unpack-option-ast question-equal-pos,
+-parse-unpack-option expr-ast(lexer lexer, left expr-ast, question-equal-pos pos, arg-ctx arg-ctx)
+	l = left to-destructure else
+		lexer add-diag left.range, parse-diag-question-equals-left
+		(left.start, "_") single-destructure-ast (), ()
+	l unpack-option-ast question-equal-pos,
 		lexer parse-expr-and-calls do arg-ctx require-precedence-gt and_.precedence
+
+-to-destructure destructure-ast?(a expr-ast)
+	match a
+	as call-ast x
+		if x.style == comma
+			parts destructure-ast[]? = x.args map-or-none arg => arg to-destructure
+			if res ?= parts; res
+	as name-and-range x
+		x single-destructure-ast (), ()
+	as underscore-ast x
+		(x.start, "_") single-destructure-ast (), ()
+	else
+		()
 
 -parse-expr-no-let expr-ast(lexer lexer)
 	lexer parse-expr-and-all-calls yes
