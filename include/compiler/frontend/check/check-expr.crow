@@ -83,6 +83,8 @@ do
 		ctx check-extern x, expected
 	as finally-ast x
 		ctx check-finally x, expected
+	as force-ast x
+		ctx check-force x, expected
 	as for-or-with-ast x
 		ctx check-for-or-with x, expected
 	as name-and-range x
@@ -197,6 +199,16 @@ do
 		range = ast.option range
 		ctx add-diag range, do ctx type-with-container type diag-unpack-option-must-be-option
 		range bogus-expr ctx.common-types.option[type]
+
+-check-force expr(ctx expr-ctx, ast force-ast, expected expected)
+	is-option mut = true # TODO: NEATER -----------------------------------------------------------------------------------------------------------------------
+	arg = ctx check-with-modify-expected-option ast.arg, expected, actual =>
+		is-option := false
+		ctx add-diag ast.keyword-range, actual.diag-option-force-non-option
+	if is-option
+		ast force-expr arg
+	else
+		arg
 
 -check-throw expr(ctx expr-ctx, ast throw-ast, expected expected)
 	if type ?= expected try-get-inexact-non-inferring-type-including-loop
@@ -652,15 +664,8 @@ do
 			left: ctx check-and-expect ast.left, bool
 			right: ctx check-and-expect ast.right, bool
 	as else_
-		option = common-types option
-		left = ctx check-with-modify-expected expected, (t => option[t]), inner =>
-			l = ctx check-expr ast.left, inner
-			left-type = l type common-types
-			un-option = left-type try-unwrap-option-type else
-				ctx add-diag ast.keyword-range,
-					ctx type-with-container left-type diag-option-else-left-non-option
-				left-type
-			l, un-option
+		left = ctx check-with-modify-expected-option ast.left, expected, actual =>
+			ctx add-diag ast.keyword-range, actual.diag-option-else-left-non-option
 		right = ctx check-expr ast.right, expected
 		ast, option-else, expected.inferred, left, right
 	as or_
@@ -681,6 +686,21 @@ do
 					ctx type-with-container right-type diag-option-or-right-non-option
 			option-or
 		ast, kind, type, left, right
+
+| Outer expected is 't?', inner expected is 't'
+-check-with-modify-expected-option expr
+	ctx expr-ctx
+	ast expr-ast
+	outer expected
+	warn-non-option void mut(actual type-with-container)
+do
+	ctx check-with-modify-expected outer, (t => ctx.common-types.option[t]), inner =>
+		arg = ctx check-expr ast, inner
+		arg-type = arg type ctx.common-types
+		un-option = arg-type try-unwrap-option-type else
+			warn-non-option[ctx type-with-container arg-type]
+			arg-type
+		arg, un-option
 
 -check-loop expr(ctx expr-ctx, ast loop-ast, expected expected)
 	if type ?= expected try-get-inexact-non-inferring-type

@@ -496,6 +496,7 @@ implicit-conversions enum
 	a-to-b
 	| 'a' may be a union, allow converting 'b' to it
 	b-to-a
+== bool(a implicit-conversions, b implicit-conversions)
 to symbol(a implicit-conversions)
 show string(a implicit-conversions)
 	a.to::symbol show
@@ -617,7 +618,7 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 			else
 				true
 		as struct-inst sa
-			sa match-struct-insts sb, conv, ((x, y) => (x, a.context) match-types (y, b.context), exact), (x, y) =>
+			sa match-struct-insts sb, conv, ((x, y, conv2) => (x, a.context) match-types (y, b.context), conv2), (x, y) =>
 				(x, a.context) match-types (y, b.context), conv
 	if trusted LOG
 		error log "match-types returns {res} from a=({a debug}) b=({b debug}) conv={conv}"
@@ -682,9 +683,10 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 		as bogus-type
 			true
 		as type-param-index _
-			false
+			if sa.decl is-option and conv == b-to-a
+				(sa.type-args.only, a.context) match-types-no-b-context b, conv
 		as struct-inst sb
-			sa match-struct-insts sb, conv, ((x, y) => (x, a.context) match-types-no-b-context y, exact), (x, y) =>
+			sa match-struct-insts sb, conv, ((x, y, conv2) => (x, a.context) match-types-no-b-context y, conv2), (x, y) =>
 				(x, a.context) match-types-no-b-context y, conv
 	if trusted LOG
 		error log "match-types-no-b-context returns {res} for a=({a debug}) b=({b debug}) conv={conv}"
@@ -695,13 +697,15 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 	sb struct-inst
 	conv implicit-conversions
 	# TODO: it seems that these callbacks are often nearly the same, is there a better way to do it? ----------------------------
-	match-type-args bool mut(x type, y type)
+	match-type-args bool mut(x type, y type, conv implicit-conversions)
 	match-after-unwrap bool mut(x type, y type)
 do
 	if trusted LOG
 		error log "match-struct-insts {sa.to::json} {sb.to::json}"
 	if sa.decl == sb.decl
-		sa.type-args.inner zip sb.type-args.inner every match-type-args
+		conv2 = sa.decl is-option ? conv : exact
+		sa.type-args.inner zip sb.type-args.inner every (x, y) =>
+			match-type-args[x, y, conv2]
 	else
 		match conv
 		as exact
@@ -773,6 +777,11 @@ do
 				if sa.type-args == sb.type-args
 					# Need to choose the new inference kind based on 'a.kind' and 'conv'
 					(a.kind kind-combine conv), a.type
+				elif sa.decl is-option and conv != exact
+					if trusted LOG
+						error log "YES WE ARE HERE"
+					if inner ?= (a.kind, sa.type-args.only) match-types-no-context sb.type-args.only, conv
+						inner.kind, sa.decl[inner.type]
 			else
 				match conv
 				as exact

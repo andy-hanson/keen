@@ -259,7 +259,7 @@ do
 	range uri-and-range
 	parts list-expr-part[]
 do
-	element = array-type array-element-type!
+	element = array-type array-element-type
 	arrays concrete-expr mut[] = ()
 	cur-list concrete-expr mut[] = ()
 	finish-list void mut() = () =>
@@ -681,7 +681,7 @@ do
 			locals = cond locals
 			tuple-option = cond tuple-option
 			both = cond expr
-			tuple-type = tuple-option unwrap-option-type
+			tuple-type = tuple-option unwrap-option-type!
 			loop_ =
 				body = ctx concretize-expr void.type, expr.body
 				body-and-continue = tuple-type gen-do-and-continue range, body
@@ -771,7 +771,7 @@ do
 	else
 		tuple struct-inst = ctx.common-types tuple! (for x : model-locals; x type)
 		ctx get-concrete-type ctx.common-types.option[tuple]
-	concrete-tuple-type = concrete-tuple-option unwrap-option-type
+	concrete-tuple-type = concrete-tuple-option unwrap-option-type!
 	local-types concrete-type[] = if model-locals.size == 0
 		()
 	elif model-locals.size == 1
@@ -897,6 +897,22 @@ do
 do
 	(ctx.concretize-ctx sum-type-case-index variant-type, (ctx get-concrete-type a.destructure.type)),
 
+-concretize-force concrete-expr
+	ctx concretize-expr-ctx
+	type concrete-type
+	range uri-and-range
+	a force-expr
+do
+	arg = ctx concretize-expr a.arg
+	then concrete-local-and-expr =
+		# TODO: helper fn for this, this pattern appears in a few places --------------------------------------------------------------------------------------
+		temp concrete-local = member::concrete-generated-local-kind, type
+		temp, (range gen-local-get temp)
+	range gen-if-option arg, then,
+		type gen-throw range,
+			ctx.concretize-ctx gen-error range,
+				"Option was empty: '{ctx.concretize-ctx.file-content-getters[arg range].to::string}'"
+
 -concretize-assert-or-forbid concrete-expr
 	ctx concretize-expr-ctx
 	type concrete-type
@@ -968,6 +984,8 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 		type, range, do x.names is-subset-of ctx.concretize-ctx.all-externs constant-bool
 	as finally-expr x
 		ctx concretize-finally type, range, x
+	as force-expr x
+		ctx concretize-force type, range, x
 	as if-expr x
 		ctx concretize-if type, range, x
 	as lambda-expr x
@@ -1075,9 +1093,16 @@ do
 -try-widen concrete-expr?(ctx concretize-ctx, expected concrete-type, actual concrete-expr)
 	if actual.type == expected
 		actual
-	elif expected is-option
-		if res ?= ctx try-widen expected.unwrap-option-type, actual
+	elif expected-unwrapped ?= expected unwrap-option-type
+		if res ?= ctx try-widen expected-unwrapped, actual
 			ctx gen-some expected, actual.range, res
+		elif actual-unwrapped ?= actual.type unwrap-option-type
+			# 'actual' generates an option.
+			temp concrete-local = member::concrete-generated-local-kind, actual-unwrapped
+			range = actual range
+			if widen-temp ?= ctx try-widen expected-unwrapped, do range gen-local-get temp
+				some = ctx gen-some expected, range, widen-temp
+				range gen-if-option actual, (temp, some), (ctx gen-none expected, range)
 	elif u ?= expected.body concrete-union
 		if u has-members
 			for member-index, member : u.members with-index
