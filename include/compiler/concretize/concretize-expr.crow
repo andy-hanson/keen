@@ -413,7 +413,7 @@ do
 		part-range = ctx to-uri-and-range part.range
 		value-type = root-local.type.body.concrete-record!.fields[part-index] type
 		expected-type = ctx get-concrete-type part.type
-		assert value-type == expected-type : todo
+		assert value-type == expected-type : todo # -----------------------------------------------------------------------------------------------------------
 		its-value = ctx.concretize-ctx gen-record-field-get value-type, part-range, get-root-local, part-index
 		its-local-and-expr = ctx end-destructure type, part-range, part, res
 		res := its-local-and-expr expr
@@ -445,48 +445,60 @@ do
 		false-branch = ctx concretize-expr type, a.false-branch
 		range gen-if-option option, true-branch, false-branch
 	as and-condition x
+		###
+		For a complex condition like:
+			if x ?= o1 and y ?= o2
+				true-branch
+			else
+				false-branch
+
+		It will compile to:
+			result t? = if x ?= o1
+				if y ?= o2
+					true-branch
+			result else false-branch
+
+		This strategy avoids repeating 'false-branch' twice.
+		The function concretize-complex-condition just handles the true part of this.
+		###
 		option-type = ctx get-concrete-type ctx.common-types.option[a type ctx.common-types]
-		option-true-branch = ctx concretize-complex-condition option-type, range, x, () =>
-			ctx concretize-expr option-type, a.true-branch
+		option-true-branch = ctx concretize-complex-condition option-type, range, x, (() => ctx concretize-expr option-type, a.true-branch),
+			() => ctx.concretize-ctx gen-none option-type, range
 		false-branch = ctx concretize-expr type, a.false-branch
 		type gen-option-else range, option-true-branch, false-branch
 
 ###
-For a complex condition like:
-	if x ?= o1 and y ?= o2
-		true-branch
+Compiles to code like:
+	if x ?= expr1
+		if y ?= expr2
+			true-branch
+		else
+			false-branch
 	else
 		false-branch
-
-It will compile to:
-	result t? = if x ?= o1
-		if y ?= o2
-			true-branch
-	result else false-branch
-
-This strategy avoids repeating 'false-branch' twice.
-The function concretize-complex-condition just handles the true part of this.
 ###
 -concretize-complex-condition concrete-expr
 	ctx concretize-expr-ctx
-	option-type concrete-type
+	result-type concrete-type
 	range uri-and-range
 	a condition
 	# This expression should be of type 'option-type' and the value should be a non-empty option.
 	true-branch concrete-expr mut()
+	# WARN: This code will end up repeated
+	false-branch concrete-expr mut()
 do
-	none = ctx.concretize-ctx gen-none option-type, range
 	match a
 	as expr expr
 		condition = ctx concretize-expr ctx.bool-type, expr
-		range gen-if condition, true-branch[], none
+		range gen-if condition, true-branch[], false-branch[]
 	as unpack-option unpack
 		option = ctx concretize-expr unpack.option
-		true_ = ctx concretize-with-destructure option-type, range, unpack.destructure, true-branch
-		range gen-if-option option, true_, none
+		true_ = ctx concretize-with-destructure result-type, range, unpack.destructure, true-branch
+		range gen-if-option option, true_, false-branch[]
 	as and-condition x
-		ctx concretize-complex-condition option-type, range, x.left, () =>
-			ctx concretize-complex-condition option-type, range, x.right, true-branch
+		inner concrete-expr mut() = () =>
+			ctx concretize-complex-condition result-type, range, x.right, true-branch, false-branch
+		ctx concretize-complex-condition result-type, range, x.left, inner, false-branch
 
 -gen-option-else concrete-expr
 	type concrete-type
@@ -661,9 +673,140 @@ do
 			body = ctx concretize-expr-with-destructure void.type, range, unpack.destructure, expr.body
 			if_ = range gen-if-option option, (body.local, (void.type gen-do-and-continue range, body.expr)), (range gen-break void)
 			loop_ = void.type gen-loop range, if_
-			range gen-seq loop_, (ctx concretize-expr type, expr.after)
-	as and-condition _
-		throw todo
+			range gen-seq loop_, do ctx concretize-expr type, expr.after
+	as and-condition x
+		if expr is-until
+			###
+			until x ?= xs and y ?= ys
+				body
+			after
+			==>
+			root = loop
+				# This variable will actually be inlined
+				# NOTE: all destructures from the original are flattened into 'both'
+				both (nat, nat)? = if x ?= xs
+					if y ?= ys
+						x, y
+					else
+						()
+				else
+					()
+				if b ?= both
+					break b
+				else
+					body
+					continue
+			x = root item0
+			y = root item1
+			after
+			###
+			cond = ctx complex-condition-to-option x
+			locals = cond locals
+			tuple-option = cond tuple-option
+			both = cond expr
+			tuple-type = tuple-option unwrap-option-type
+			loop_ =
+				body = ctx concretize-expr void.type, expr.body
+				body-and-continue = tuple-type gen-do-and-continue range, body
+				b concrete-local = member, tuple-type
+				break-b = range gen-break do range gen-local-get b
+				loop-body = range gen-if-option both, (b, break-b), body-and-continue
+				tuple-type gen-loop range, loop-body
+			root concrete-local = member2, tuple-type
+			get-root = range gen-local-get root
+			after mut = ctx concretize-with-locals-from-condition cond, type, expr.after
+			for index, local : locals with-index
+				get-it = if locals.size == 1
+					get-root
+				else
+					ctx.concretize-ctx gen-record-field-get local.type, range, get-root, index
+				after := type gen-let range, local, get-it, after
+			type gen-let range, root, loop_, after
+		else
+			###
+			while x ?= xs and y ?= ys
+				body
+			after
+			==>
+			loop
+				if x ?= xs
+					if y ?= ys
+						body
+						continue
+					else
+						break
+				else
+					break
+			after
+			###
+			true-branch concrete-expr mut() = () =>
+				body = ctx concretize-expr void.type, expr.body
+				void.type gen-do-and-continue range, body
+			loop-body = ctx concretize-complex-condition void.type, range, x, true-branch, () =>
+				range gen-break void
+			loop_ = void.type gen-loop range, loop-body
+			range gen-seq loop_, do ctx concretize-expr type, expr.after
+
+-complex-condition-option-result record
+	model-locals local[]
+	locals concrete-local[]
+	tuple-option concrete-type
+	expr concrete-expr
+-complex-condition-to-option complex-condition-option-result
+	ctx concretize-expr-ctx
+	a condition
+do
+	range = ctx to-uri-and-range a.range
+	model-locals local[] = for* x : a destructures
+		for local : x locals
+			local
+
+	concrete-tuple-option concrete-type = if model-locals.size == 0
+		error log "LE TODO"
+		throw todo # use a bool instead of option? ------------------------------------------------------------------------------------------------------------
+	elif model-locals.size == 1
+		ctx get-concrete-type ctx.common-types.option[model-locals[0].type]
+	else
+		tuple struct-inst = ctx.common-types tuple! (for x : model-locals; x type)
+		ctx get-concrete-type ctx.common-types.option[tuple]
+	concrete-tuple-type = concrete-tuple-option unwrap-option-type
+	local-types concrete-type[] = if model-locals.size == 0
+		()
+	elif model-locals.size == 1
+		concrete-tuple-type,
+	else
+		concrete-tuple-type.source.concrete-type-source-inst! type-args
+	local-types.size is model-locals.size
+	concrete-locals mut concrete-local[] = ()
+	true_ concrete-expr mut() = () =>
+		concrete-locals := for local : model-locals; ctx.locals[local]! concrete-local!
+		exprs concrete-expr[] = for type, local : local-types zip model-locals
+			ctx concretize-local-get type, range, local
+		tuple-expr concrete-expr = if model-locals.size == 0
+			ctx.concretize-ctx gen-void range
+		elif model-locals.size == 1
+			exprs only
+		else
+			ctx.concretize-ctx gen-create-record concrete-tuple-type, range, exprs
+		ctx.concretize-ctx gen-some concrete-tuple-option, range, tuple-expr
+	expr = ctx concretize-complex-condition concrete-tuple-option, range, a, true_, () =>
+		ctx.concretize-ctx gen-none concrete-tuple-option, range
+	model-locals: model-locals
+	locals: concrete-locals
+	tuple-option: concrete-tuple-option
+	expr: expr
+-concretize-with-locals-from-condition concrete-expr
+	ctx concretize-expr-ctx
+	cond complex-condition-option-result
+	type concrete-type
+	expr expr
+do
+	for model-local, concrete-local : cond.model-locals zip cond.locals
+		ctx.locals[model-local] := concrete-local
+	finally
+		for model-local : cond model-locals
+			_ = ctx.locals remove! model-local
+	ctx concretize-expr type, expr
 
 -concretize-match-enum concrete-expr
 	ctx concretize-expr-ctx
