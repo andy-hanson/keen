@@ -129,6 +129,8 @@ do
 		ctx check-try-let x, expected
 	as typed-ast x
 		ctx check-typed x, expected
+	as unpack-option-ast x
+		ctx check expected, ctx.common-types.bool, do ctx check-unpack-option x
 
 -check-and-infer (expr, type)(ctx expr-ctx, ast expr-ast)
 	expected expected = infer
@@ -153,7 +155,7 @@ do
 	if (ast.first-branch is-throw or ast.second-branch is-throw) and ast !is-else-of-parent
 		ctx add-diag ast.first-keyword-range, diag-if-throw
 	condition = ctx check-condition ast.condition
-	destructures = condition destructures
+	destructures = condition condition-destructures
 	is-negated = ast is-condition-negated
 	empty-new-range = ast first-keyword-range
 	first-branch = ctx with-extern-from-condition condition, is-negated, () =>
@@ -168,23 +170,28 @@ do
 -is-throw bool(a expr-ast?)
 	a?.throw-ast !is-empty
 
--check-condition condition(ctx expr-ctx, ast condition-ast)
+-check-condition expr(ctx expr-ctx, ast expr-ast)
 	match ast
-	as expr-ast x
-		ctx check-and-expect x, ctx.common-types.bool
 	as unpack-option-ast x
 		ctx check-unpack-option x
-	as and-condition-ast x
-		left = ctx check-unpack-option x.left
-		ctx with-destructure left.destructure, () =>
-			left and-condition do ctx check-condition x.right
--check-unpack-option unpack-option(ctx expr-ctx, cond-ast unpack-option-ast)
-	expr, type = ctx check-and-infer cond-ast.option
-	destructure: ctx check-destructure cond-ast.destructure, type.unwrap-option-or-same, local
+	as logical-ast x
+		match x kind
+		as and_
+			left = ctx check-condition x.left
+			ctx with-destructures left.condition-destructures, () =>
+				x logical-expr bool-and-bool, ctx.common-types.bool, left, do ctx check-condition x.right
+		else
+			ctx check-and-expect ast, ctx.common-types.bool	
+	else
+		ctx check-and-expect ast, ctx.common-types.bool
+-check-unpack-option unpack-option(ctx expr-ctx, ast unpack-option-ast)
+	expr, type = ctx check-and-infer ast.option
+	ast: ast
+	destructure: ctx check-destructure ast.destructure, type.unwrap-option-or-same, local
 	option: if type is-option-type
 		expr
 	else
-		range = cond-ast.option range
+		range = ast.option range
 		ctx add-diag range, do ctx type-with-container type diag-unpack-option-must-be-option
 		range bogus-expr ctx.common-types.option[type]
 
@@ -218,7 +225,7 @@ do
 
 -check-assert-or-forbid expr(ctx expr-ctx, ast assert-or-forbid-ast, expected expected)
 	condition = ctx check-condition ast.condition
-	destructures = condition destructures
+	destructures = condition condition-destructures
 	is-forbid = ast is-forbid
 	thrown expr? = if thrown-ast ?= ast thrown
 		if x ?= thrown-ast.expr throw-ast
@@ -478,13 +485,14 @@ do
 	expected expected
 do
 	ctx check-expr-with-destructures (destructure,), ast, expected
--with-destructure[t] t # TODO: use a with-block ------------------------------------------------------------------------------------------------------------
+-with-destructures[t] t # TODO: use a with-block ------------------------------------------------------------------------------------------------------------
 	ctx expr-ctx
-	destructure destructure
+	destructures destructure[]
 	f t mut()
 do
 	restore = ctx.locals size
-	ctx add-locals-for-destructure destructure
+	for x : destructures
+		ctx add-locals-for-destructure x
 	finally ctx restore-locals restore
 	f[]
 
@@ -699,7 +707,7 @@ do
 
 -check-loop-while-or-until expr(ctx expr-ctx, ast loop-while-or-until-ast, expected expected)
 	condition = ctx check-condition ast.condition
-	destructures = condition destructures
+	destructures = condition condition-destructures
 	body = ctx check-expr-with-destructures (ast !is-until ? destructures), ast.body, ctx.void-type.expect
 	after = ctx check-expr-with-destructures (ast is-until ? destructures), ast.after, expected
 	ast loop-while-or-until-expr condition, body, after
@@ -1044,7 +1052,7 @@ do
 	destructure, do ctx check-expr-with-destructures destructure.from-option, then-ast, expected
 
 # TODO: use a with-block ---------------------------------------------------------------------------------------------------------
--with-extern-from-condition[out] out(ctx expr-ctx, condition condition, is-negated bool, cb out mut())
+-with-extern-from-condition[out] out(ctx expr-ctx, condition expr, is-negated bool, cb out mut())
 	guard extern_ ?= condition as-extern : cb[]
 	guard !(is-negated xor extern_.is-negated) : cb[]
 	original-externs = ctx externs

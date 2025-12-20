@@ -393,20 +393,6 @@ parse-fun-expr-body expr-ast(lexer lexer)
 		lexer skip-until-newline-no-diag
 		lexer range-for-cur-token start as-bogus-ast
 
--parse-condition condition-ast(lexer lexer)
-	if lexer lookahead-question-equals
-		lhs = lexer parse-destructure-no-require-parens
-		question-equal-pos = lexer cur-pos
-		_ = lexer take-or-add-diag-expected-token question-equal, question-equal
-		option = lexer parse-expr-and-calls (no, (and_.precedence,))
-		unpack = lhs unpack-option-ast question-equal-pos, option
-		if lexer try-take-token and_
-			unpack and-condition-ast lexer.parse-condition
-		else
-			unpack
-	else
-		lexer parse-expr-and-all-calls no
-
 -parse-if expr-ast(lexer lexer, start pos, is-else-of-parent bool, allowed-block allowed-block)
 	condition = lexer parse-condition
 	if lexer try-take-token semicolon
@@ -457,7 +443,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	start trusted-ast do lexer parse-expr-and-all-calls allowed-block
 
 -parse-assert-or-forbid expr-ast(lexer lexer, start pos, is-forbid bool)
-	condition condition-ast = lexer parse-condition
+	condition = lexer parse-condition
 	colon-pos = lexer cur-pos
 	thrown assert-or-forbid-thrown-ast? = if lexer try-take-token-and-may-continue-onto-next-line colon
 		colon-pos, lexer.parse-expr-no-let
@@ -703,6 +689,14 @@ do
 	else
 		lexer try-parse-dots-and-subscripts name
 
+-parse-condition expr-ast(lexer lexer)
+	if lexer lookahead-question-equals-complex
+		start = lexer cur-pos
+		left = lexer parse-unpack-option (no, allow-all-calls)
+		lexer parse-calls start, left, (no, allow-all-calls)
+	else
+		lexer parse-expr-no-block
+
 -parse-expr-no-block expr-ast(lexer lexer)
 	lexer parse-expr-and-all-calls no
 
@@ -711,8 +705,18 @@ do
 
 -parse-expr-and-calls expr-ast(lexer lexer, arg-ctx arg-ctx)
 	start = lexer cur-pos
-	left = lexer parse-expr-before-call arg-ctx.allowed-block
+	left = if lexer lookahead-question-equals-immediate
+		lexer parse-unpack-option arg-ctx
+	else
+		lexer parse-expr-before-call arg-ctx.allowed-block
 	lexer parse-calls start, left, arg-ctx
+
+-parse-unpack-option expr-ast(lexer lexer, arg-ctx arg-ctx)
+	left = lexer parse-destructure-no-require-parens
+	question-equal-pos = lexer cur-pos
+	_ = lexer take-or-add-diag-expected-token question-equal, question-equal
+	left unpack-option-ast question-equal-pos,
+		lexer parse-expr-and-calls do arg-ctx require-precedence-gt and_.precedence
 
 -parse-expr-no-let expr-ast(lexer lexer)
 	lexer parse-expr-and-all-calls yes

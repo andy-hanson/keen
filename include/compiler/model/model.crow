@@ -2575,6 +2575,7 @@ expr union
 	try-expr
 	try-let-expr
 	typed-expr
+	unpack-option
 do
 	range source-range()
 to json(a expr)
@@ -2653,37 +2654,25 @@ type type(a expr, common-types common-types?)
 		x type
 	as typed-expr x
 		x type
+	as unpack-option _
+		common-types! bool
 
-condition union(expr, unpack-option, and-condition)
-	range source-range()
-to json(a condition)
-unpack-option record(destructure destructure, option expr)
-range source-range(a unpack-option)
-	a.destructure.start, a.option.end
-to json(a unpack-option)
-and-condition record(left unpack-option, right condition)
-range source-range(a and-condition)
-	a.left.range.start, a.right.range.end
-to json(a and-condition)
-
-destructures destructure[](a condition)
+condition-destructures destructure[](a expr)
 	match a
-	as expr _
-		()
+	as logical-expr x
+		if x.kind == bool-and-bool
+			-- x.left condition-destructures
+			-- x.right condition-destructures
 	as unpack-option x
 		- x destructure
-	as and-condition x
-		- x.left destructure
-		-- x.right destructures
+	else
+		()
 
 extern-condition record
 	is-negated bool
 	| If isNegated is set, this means !(x and y and ...)
 	required-externs symbol-set
-as-extern extern-condition?(a condition)
-	if x ?= a expr
-		x as-extern
--as-extern extern-condition?(a expr)
+as-extern extern-condition?(a expr)
 	e = a skip-trusted
 	match e
 	as call-expr call
@@ -2693,7 +2682,7 @@ as-extern extern-condition?(a condition)
 	as extern-expr x
 		false, x.names
 	as logical-expr x
-		if x.kind == bool-or-bool
+		if x.kind == bool-and-bool
 			guard left ?= x.left as-extern
 			guard right ?= x.right as-extern
 			guard left !is-negated and right !is-negated
@@ -2721,24 +2710,20 @@ as-extern extern-condition?(a condition)
 assert-or-forbid-expr record
 	ast assert-or-forbid-ast
 	is-forbid bool
-	condition condition
+	condition expr
 	thrown expr?
 	after expr
 to json(a assert-or-forbid-expr)
 range source-range(a assert-or-forbid-expr)
 	a.ast range
 default-assert-or-forbid-message string(cur-uri uri, a assert-or-forbid-expr, content file-content-getters)
-	prefix string, range source-range = match a.ast condition
-	as expr-ast condition
-		- a is-forbid ? "Forbidden expression is true: " : "Asserted expression is false: "
-		- condition range
-	as unpack-option-ast unpack
+	prefix string, range source-range = match a condition
+	as unpack-option unpack
 		- a is-forbid ? "Forbidden option is non-empty: " : "Asserted option is empty: "
 		- unpack.option range
-	as and-condition-ast _
-		# TODO: Automatically turn 'assert x and y' into multiple asserts
+	else
 		- a is-forbid ? "Forbidden expression is true: " : "Asserted expression is false: "
-		- a range		
+		- a.condition range
 	prefix ~~ content[cur-uri, range].to
 
 bogus-expr record(range source-range, expected-type type)
@@ -2873,7 +2858,7 @@ type type(a finally-expr, common-types common-types?)
 | Expression for an IfAst -- see that for all kinds of syntax this corresponds to
 if-expr record
 	ast if-ast
-	condition condition
+	condition expr
 	true-branch expr
 	false-branch expr
 	type type
@@ -3033,7 +3018,7 @@ range source-range(a loop-continue-expr)
 
 loop-while-or-until-expr record
 	ast loop-while-or-until-ast
-	condition condition
+	condition expr
 	| Always of type 'void'
 	body expr
 	after expr
@@ -3184,6 +3169,11 @@ to json(a typed-expr)
 range source-range(a typed-expr)
 	a.ast range
 
+unpack-option record(ast unpack-option-ast, destructure destructure, option expr)
+to json(a unpack-option)
+range source-range(a unpack-option)
+	a.destructure.start, a.option.end
+
 each-descendent-expr-including void(a expr, cb void mut(x expr))
 	cb[a]
 	a each-descendent-expr-excluding cb
@@ -3199,7 +3189,7 @@ each-direct-child-expr void(a expr, cb void mut(x expr))
 find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	match a
 	as assert-or-forbid-expr x
-		x.condition direct-children-in-condition cb or x.thrown cb-option cb or cb[x after]
+		cb[x condition] or x.thrown cb-option cb or cb[x after]
 	as bogus-call-expr _
 		()
 	as bogus-expr _
@@ -3217,7 +3207,7 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	as finally-expr x
 		cb[x right] or cb[x below]
 	as if-expr x
-		x.condition direct-children-in-condition cb or cb[x first-branch] or cb[x second-branch]
+		cb[x condition] or cb[x first-branch] or cb[x second-branch]
 	as lambda-expr x
 		cb[x body]
 	as let-expr x
@@ -3244,7 +3234,7 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	as loop-continue-expr _
 		()
 	as loop-while-or-until-expr x
-		x.condition direct-children-in-condition cb or cb[x body] or cb[x after]
+		cb[x condition] or cb[x body] or cb[x after]
 	as match-enum-expr x
 		cb[x matched] or (x.cases first y => cb[y then]) or x.else_?.then cb-option cb
 	as match-integral-expr x
@@ -3265,14 +3255,8 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 		cb[x value] or cb[x.catch_ then] or cb[x then]
 	as typed-expr x
 		cb[x inner]
--direct-children-in-condition[t] t?(a condition, cb t? mut(x expr))
-	match a
-	as expr x
-		cb[x]
 	as unpack-option x
 		cb[x option]
-	as and-condition x
-		cb[x.left option] or x.right direct-children-in-condition cb
 -direct-child-in-match-sum-type-cases[t] t?(cases match-sum-type-case[], cb t? mut(x expr))
 	cases first x => cb[x then]
 

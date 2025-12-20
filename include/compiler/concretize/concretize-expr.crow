@@ -430,21 +430,20 @@ do
 	range uri-and-range
 	a if-expr
 do
-	match a condition
-	as expr expr
-		cond = ctx concretize-expr ctx.bool-type, expr
+	if unpack ?= a.condition unpack-option
+		option = ctx concretize-expr unpack.option
+		true-branch = ctx concretize-expr-with-destructure type, range, unpack.destructure, a.true-branch
+		false-branch = ctx concretize-expr type, a.false-branch
+		range gen-if-option option, true-branch, false-branch
+	elif a.condition.condition-destructures is-empty
+		cond = ctx concretize-expr ctx.bool-type, a.condition
 		if constant ?= cond.kind constant
 			ctx concretize-expr type, (constant.as-bool ? a true-branch : a false-branch)
 		else
 			true-branch = ctx concretize-expr type, a.true-branch
 			false-branch = ctx concretize-expr type, a.false-branch
 			type, range, (cond if-concrete-expr true-branch, false-branch)
-	as unpack-option unpack
-		option = ctx concretize-expr unpack.option
-		true-branch = ctx concretize-expr-with-destructure type, range, unpack.destructure, a.true-branch
-		false-branch = ctx concretize-expr type, a.false-branch
-		range gen-if-option option, true-branch, false-branch
-	as and-condition x
+	else
 		###
 		For a complex condition like:
 			if x ?= o1 and y ?= o2
@@ -462,7 +461,7 @@ do
 		The function concretize-complex-condition just handles the true part of this.
 		###
 		option-type = ctx get-concrete-type ctx.common-types.option[a type ctx.common-types]
-		option-true-branch = ctx concretize-complex-condition option-type, range, x, (() => ctx concretize-expr option-type, a.true-branch),
+		option-true-branch = ctx concretize-complex-condition option-type, range, a.condition, (() => ctx concretize-expr option-type, a.true-branch),
 			() => ctx.concretize-ctx gen-none option-type, range
 		false-branch = ctx concretize-expr type, a.false-branch
 		type gen-option-else range, option-true-branch, false-branch
@@ -481,24 +480,29 @@ Compiles to code like:
 	ctx concretize-expr-ctx
 	result-type concrete-type
 	range uri-and-range
-	a condition
+	a expr
 	# This expression should be of type 'option-type' and the value should be a non-empty option.
 	true-branch concrete-expr mut()
 	# WARN: This code will end up repeated
 	false-branch concrete-expr mut()
 do
 	match a
-	as expr expr
-		condition = ctx concretize-expr ctx.bool-type, expr
-		range gen-if condition, true-branch[], false-branch[]
+	as logical-expr x
+		if x.kind == bool-and-bool
+			inner concrete-expr mut() = () =>
+				ctx concretize-complex-condition result-type, range, x.right, true-branch, false-branch
+			ctx concretize-complex-condition result-type, range, x.left, inner, false-branch
+		else
+			# TODO: duplicate code ...
+			condition = ctx concretize-expr ctx.bool-type, x
+			range gen-if condition, true-branch[], false-branch[]
 	as unpack-option unpack
 		option = ctx concretize-expr unpack.option
 		true_ = ctx concretize-with-destructure result-type, range, unpack.destructure, true-branch
 		range gen-if-option option, true_, false-branch[]
-	as and-condition x
-		inner concrete-expr mut() = () =>
-			ctx concretize-complex-condition result-type, range, x.right, true-branch, false-branch
-		ctx concretize-complex-condition result-type, range, x.left, inner, false-branch
+	else
+		condition = ctx concretize-expr ctx.bool-type, a
+		range gen-if condition, true-branch[], false-branch[]
 
 -gen-option-else concrete-expr
 	type concrete-type
@@ -588,34 +592,7 @@ do
 do
 	assert ctx.void-type is-void # TODO: sanity check -------------------------------------------------------------------------------
 	void = ctx.concretize-ctx gen-void range
-	match expr condition
-	as expr x
-		###
-		while cond
-			body
-		after
-		==>
-		loop
-			if cond
-				body
-				continue
-			else
-				break
-		after
-		###
-		condition = ctx concretize-expr ctx.bool-type, x
-		assert void.type is-void # TODO: sanity check -------------------------------------------------------------------------------
-		body = ctx concretize-expr void.type, expr.body
-		assert body.type is-void # TODO: sanity check -------------------------------------------------------------------------------
-		do-and-continue = void.type gen-do-and-continue range, body
-		break_ = range gen-break void
-		if_ = if expr is-until
-			range gen-if condition, break_, do-and-continue
-		else
-			range gen-if condition, do-and-continue, break_
-		loop_ = void.type gen-loop range, if_
-		range gen-seq loop_, (ctx concretize-expr type, expr.after)
-	as unpack-option unpack
+	if unpack ?= expr.condition unpack-option
 		option = ctx concretize-expr unpack.option
 		if expr is-until
 			after = ctx concretize-expr-with-destructure type, range, unpack.destructure, expr.after
@@ -674,7 +651,7 @@ do
 			if_ = range gen-if-option option, (body.local, (void.type gen-do-and-continue range, body.expr)), (range gen-break void)
 			loop_ = void.type gen-loop range, if_
 			range gen-seq loop_, do ctx concretize-expr type, expr.after
-	as and-condition x
+	elif expr.condition.condition-destructures !is-empty
 		if expr is-until
 			###
 			until x ?= xs and y ?= ys
@@ -700,7 +677,7 @@ do
 			y = root item1
 			after
 			###
-			cond = ctx complex-condition-to-option x
+			cond = ctx complex-condition-to-option expr.condition
 			locals = cond locals
 			tuple-option = cond tuple-option
 			both = cond expr
@@ -742,10 +719,36 @@ do
 			true-branch concrete-expr mut() = () =>
 				body = ctx concretize-expr void.type, expr.body
 				void.type gen-do-and-continue range, body
-			loop-body = ctx concretize-complex-condition void.type, range, x, true-branch, () =>
+			loop-body = ctx concretize-complex-condition void.type, range, expr.condition, true-branch, () =>
 				range gen-break void
 			loop_ = void.type gen-loop range, loop-body
 			range gen-seq loop_, do ctx concretize-expr type, expr.after
+	else
+		###
+		while cond
+			body
+		after
+		==>
+		loop
+			if cond
+				body
+				continue
+			else
+				break
+		after
+		###
+		condition = ctx concretize-expr ctx.bool-type, expr.condition
+		assert void.type is-void # TODO: sanity check -------------------------------------------------------------------------------
+		body = ctx concretize-expr void.type, expr.body
+		assert body.type is-void # TODO: sanity check -------------------------------------------------------------------------------
+		do-and-continue = void.type gen-do-and-continue range, body
+		break_ = range gen-break void
+		if_ = if expr is-until
+			range gen-if condition, break_, do-and-continue
+		else
+			range gen-if condition, do-and-continue, break_
+		loop_ = void.type gen-loop range, if_
+		range gen-seq loop_, (ctx concretize-expr type, expr.after)
 
 -complex-condition-option-result record
 	model-locals local[]
@@ -754,12 +757,11 @@ do
 	expr concrete-expr
 -complex-condition-to-option complex-condition-option-result
 	ctx concretize-expr-ctx
-	a condition
+	a expr
 do
 	range = ctx to-uri-and-range a.range
-	model-locals local[] = for* x : a destructures
-		for local : x locals
-			local
+	model-locals local[] = for* x : a condition-destructures
+		for local : x locals; local
 
 	concrete-tuple-option concrete-type = if model-locals.size == 0
 		error log "LE TODO"
@@ -909,9 +911,20 @@ do
 			ctx concretize-expr ctx.concretize-ctx.exception-type, x
 		else
 			default-thrown[]
-	match a condition
-	as expr x
-		condition = ctx concretize-expr ctx.bool-type, x
+	if x ?= a.condition unpack-option
+		option = ctx concretize-expr x.option
+		if a is-forbid
+			thrown = if thrown ?= a thrown
+				ctx concretize-expr-with-destructure ctx.concretize-ctx.exception-type, range, x.destructure, thrown
+			else
+				(), default-thrown[]
+			after = ctx concretize-expr type, a.after
+			range gen-if-option option, (thrown.local, (type gen-throw range, thrown.expr)), after
+		else
+			after = ctx concretize-expr-with-destructure type, range, x.destructure, a.after
+			range gen-if-option option, after, throw-no-destructure[]
+	elif a.condition.condition-destructures is-empty
+		condition = ctx concretize-expr ctx.bool-type, a.condition
 		if constant ?= condition.kind constant
 			if constant.as-bool xor a.is-forbid
 				ctx concretize-expr type, a.after
@@ -924,19 +937,7 @@ do
 				condition if-concrete-expr throw_, after
 			else
 				condition if-concrete-expr after, throw_
-	as unpack-option x
-		option = ctx concretize-expr x.option
-		if a is-forbid
-			thrown = if thrown ?= a thrown
-				ctx concretize-expr-with-destructure ctx.concretize-ctx.exception-type, range, x.destructure, thrown
-			else
-				(), default-thrown[]
-			after = ctx concretize-expr type, a.after
-			range gen-if-option option, (thrown.local, (type gen-throw range, thrown.expr)), after
-		else
-			then = ctx concretize-expr-with-destructure type, range, x.destructure, a.after
-			range gen-if-option option, then, throw-no-destructure[]
-	as and-condition _
+	else
 		throw todo
 
 -concretize-expr concrete-expr(ctx concretize-expr-ctx, a expr)
@@ -1046,6 +1047,12 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 		ctx concretize-try-let type, range, x
 	as typed-expr x
 		ctx concretize-expr type, x.inner
+	as unpack-option x
+		info log "THIS SHOULD NOT HAPPEN OFTEN RIGHT?"
+		option = ctx concretize-expr x.option
+		# TODO: should this call '!is-empty' instead of generating a match expression every time? =============================================================
+		range gen-if-option option, ((), (ctx.concretize-ctx gen-true range)), (ctx.concretize-ctx gen-false range)
+		# This appears outside of a condition, so just check is-empty
 	ctx may-widen-type outer-type, res
 
 -as-seq concrete-expr[](a concrete-expr)
