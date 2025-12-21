@@ -46,7 +46,7 @@ do
 	module.specs first (x => x position-in-spec pos) or
 	module.funs first (x => ctx position-in-fun x, pos, pos-kind) or
 	module.tests first (x => ctx position-in-test x, pos, pos-kind) or
-	(pos == 0 ? position-module)	# We need a definition at position 0, because inlay hints for "Used by" have that as their location.
+	(pos == 0 and position-module)	# We need a definition at position 0, because inlay hints for "Used by" have that as their location.
 
 -position-in-doc-comment position-kind?(a doc-comment-container, pos pos)
 	if index ?= a.doc-comment.ast.references find-index x => x.range has-pos pos
@@ -56,7 +56,7 @@ do
 	guard ast ?= a.source fun-decl-ast
 	a position-in-decl pos, () =>
 		a position-in-visibility ast.visibility, pos or
-		(ast.name.range has-pos pos ? a) or
+		ast.name.range has-pos pos and a or
 		a position-in-type-params ast.type-params, pos or
 		a position-in-type a.return-type, ast.return-type, pos or
 		a position-in-params a.params, ast.params, pos or
@@ -168,8 +168,8 @@ do
 -position-in-var position-kind?(a var-decl, pos pos)
 	a position-in-decl pos, () =>
 		a position-in-visibility a.ast.visibility, pos or
-		(a.name-range.range has-pos pos ? a) or
-		(a.ast.keyword-range has-pos pos ? a.kind.to) or
+		a.name-range.range has-pos pos and a or
+		a.ast.keyword-range has-pos pos and a.kind to or
 		a position-in-type a.type, a.ast.type, pos
 -to position-keyword(a var-kind)
 	match a
@@ -181,8 +181,8 @@ do
 -position-in-alias position-kind?(a struct-alias, pos pos)
 	a position-in-decl pos, () =>
 		a position-in-visibility a.ast.visibility, pos or
-		(a.name-range.range has-pos pos ? a) or
-		(a.ast.keyword-range has-pos pos ? alias_) or
+		a.name-range.range has-pos pos and a or
+		a.ast.keyword-range has-pos pos and alias_ or
 		a position-in-type a.target, a.ast.target, pos
 
 -position-in-struct position-kind?(a struct-decl, pos pos)
@@ -196,8 +196,8 @@ do
 -position-in-struct position-kind?(a struct-decl, ast struct-decl-ast, pos pos)
 	a position-in-decl pos, () =>
 		a position-in-visibility ast.visibility, pos or
-		(a.name-range.range has-pos pos ? a) or
-		(ast.keyword-range has-pos pos ? ast.body keyword-kind-for-struct-body) or
+		a.name-range.range has-pos pos and a or
+		ast.keyword-range has-pos pos and ast.body keyword-kind-for-struct-body or
 		a position-in-type-params ast.type-params, pos or
 		a position-in-modifiers (), ast.modifiers, pos or
 		a position-in-struct-body ast.body, pos
@@ -236,9 +236,9 @@ do
 -position-in-spec position-kind?(a spec-decl, pos pos)
 	a position-in-decl pos, () =>
 		a position-in-visibility a.ast.visibility, pos or
-		(a.ast.name.range has-pos pos ? a) or
+		a.ast.name.range has-pos pos and a or
 		a position-in-type-params a.ast.type-params, pos or
-		(a.ast.keyword-range has-pos pos ? spec_) or
+		a.ast.keyword-range has-pos pos and spec_ or
 		a position-in-modifiers a.parents, a.ast.modifiers, pos or
 		a.sigs position-in-signatures a.ast.sigs, pos
 
@@ -248,7 +248,7 @@ do
 
 -position-in-signature position-kind?(sig signature, ast signature-ast, pos pos)
 	sig position-in-doc-comment pos or
-	(ast.name-and-range.range has-pos pos ? sig) or
+	ast.name-and-range.range has-pos pos and sig or
 	sig.container.to position-in-type sig.return-type, ast.return-type, pos or
 	sig.container.to position-in-params sig.params, ast.params, pos
 
@@ -333,7 +333,7 @@ do
 		members zip member-asts first (member, member-ast) =>
 			member position-in-enum-or-flags-member member-ast, pos
 -position-in-enum-or-flags-member position-kind?(member enum-or-flags-member, ast enum-or-flags-member-ast, pos pos)
-	member position-in-doc-comment pos or (ast.name-range has-pos pos ? member)
+	member position-in-doc-comment pos or ast.name-range has-pos pos and member
 
 -position-in-expr position-kind?
 	ctx ctx
@@ -371,6 +371,9 @@ do
 			expression-position[kind]
 
 	match a
+	as and-expr x
+		if x.keyword-range has-pos pos
+			expression-position[x]
 	as assert-or-forbid-expr x
 		if x.ast.keyword-range has-pos pos
 			expression-position[x]
@@ -387,8 +390,8 @@ do
 	as call-named-new-expr x
 		call[x.ast, x]
 	as call-option-expr x
-		keyword-at[x.ast.keyword-range!, question-dot-or-subscript] or if x.ast pos-is-at-call pos
-			expression-position[x]
+		keyword-at[x.ast.keyword-range!, question-dot-or-subscript] or
+		x.ast pos-is-at-call pos and expression-position[x]
 	as extern-expr x
 		expression-position[x]
 	as finally-expr x
@@ -396,14 +399,13 @@ do
 	as force-expr x
 		keyword-at[x.ast.keyword-range, force]
 	as if-expr x
-		(x.ast.first-keyword-range has-pos pos ? expression-position[x]) or
-		if sk ?= x.ast second-keyword-range
-			keyword-at[sk, x.ast.kind.if-second-keyword]
+		x.ast.first-keyword-range has-pos pos and expression-position[x] or
+		sk ?= x.ast second-keyword-range and keyword-at[sk, x.ast.kind.if-second-keyword]
 	as lambda-expr x
 		match x ast
 		as for-or-with-ast ast
 			# 'for' keyword is handled in 'as call-expr'
-			(x !is-ignore ? ctx position-in-destructure x.param, ast.param, pos) or
+			x !is-ignore and ctx position-in-destructure x.param, ast.param, pos or
 			keyword-at[ast.colon-range, colon-in-for-or-with]
 		as lambda-ast ast
 			if ast.arrow-range has-pos pos
@@ -514,6 +516,8 @@ do
 		# This is the call to `interpolate` or `show`, which we don't have a position for.
 		()
 	as list-ast _
+		()
+	as logical-ast _
 		()
 	as loop-break-ast x
 		x range
@@ -742,8 +746,7 @@ do
 do
 	match ast
 	as single-destructure-ast x
-		if t ?= x type
-			f[type, t]
+		t ?= x type and f[type, t]
 	as void-destructure-ast _
 		()
 	as array parts
