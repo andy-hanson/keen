@@ -149,6 +149,19 @@ parse-fun-expr-body expr-ast(lexer lexer)
 		range = lexer range start
 		res = range call-ast comma, before-call, (range.start, "new"), args, ()
 		lexer parse-calls start, res, arg-ctx
+	elif and-precedence > precedence and lexer.get-peek-token == and_
+		and-pos = lexer cur-pos
+		_ = lexer take-next-token-may-continue-onto-next-line
+		then_ = lexer parse-expr-and-calls do arg-ctx require-precedence-gt and-precedence
+		else-pos = lexer cur-pos
+		else_ expr-ast? = if lexer try-take-token else_
+			lexer parse-expr-and-calls do arg-ctx require-precedence-gt and-precedence
+		kind if-ast-kind = if _ ?= else_
+			and-else
+		else
+			and_
+		expr = start if-ast kind, false, and-pos, else-pos, lhs, then_, else_
+		lexer parse-calls start, expr, arg-ctx
 	elif log ?= lexer.get-peek-token as-logical-ast-kind and log.precedence > precedence
 		_ = lexer take-next-token-may-continue-onto-next-line
 		expr = lhs logical-ast log, before-call,
@@ -167,8 +180,6 @@ parse-fun-expr-body expr-ast(lexer lexer)
 
 -as-logical-ast-kind logical-ast-kind?(token token)
 	match token
-	as and_
-		and_
 	as else_
 		else_
 	as or_
@@ -247,10 +258,10 @@ parse-fun-expr-body expr-ast(lexer lexer)
 | Precedence for '?' and ':' in 'a ? b : c'
 -ternary-precedence int()
 	-5
+-and-precedence int()
+	-2
 -precedence int(a logical-ast-kind)
 	match a
-	as and_
-		-2
 	as else_
 		-4
 	as or_
@@ -400,48 +411,35 @@ parse-fun-expr-body expr-ast(lexer lexer)
 
 -parse-if expr-ast(lexer lexer, start pos, is-else-of-parent bool, allowed-block allowed-block)
 	condition = lexer parse-expr-no-block
-	then-pos = lexer cur-pos
-	if lexer try-take-token semicolon # TODO: remove support for this. Always use 'then'. ---------------------------------------------------------------------
-		then_ = lexer parse-expr-no-block
-		start if-ast if-without-else, is-else-of-parent, start, 0, condition, then_, ()
-	elif !is-else-of-parent and lexer try-take-token then_
-		then_ = lexer parse-expr-and-calls (no, (else_.precedence,))
-		else_ expr-ast? = if lexer try-take-token else_
-			lexer parse-expr-and-calls (yes, (else_.precedence,))
-		start if-ast if-then-else, false, start, then-pos, condition, then_, else_
-	else
-		match allowed-block
-		as no
-			lexer expr-block-not-allowed start, if_
-		as yes
-			then_ = lexer parse-indented-statements
-			elif-or-else = lexer try-take-newline-then-elif-or-else
-			else_ expr-ast? = if x ?= elif-or-else
-				match x kind
-				as elif_
-					lexer parse-if x.pos, true, allowed-block
-				as else_
-					lexer parse-indented-statements
-			kind = if x ?= elif-or-else
-				match x kind
-				as elif_
-					if-elif
-				as else_
-					if-else
-			else
-				if-without-else
-			start if-ast kind, is-else-of-parent, start, (elif-or-else?.pos else 0), condition, then_, else_
+	match allowed-block
+	as no
+		lexer expr-block-not-allowed start, if_
+	as yes
+		then_ = lexer parse-indented-statements
+		elif-or-else = lexer try-take-newline-then-elif-or-else
+		else_ expr-ast? = if x ?= elif-or-else
+			match x kind
+			as elif_
+				lexer parse-if x.pos, true, allowed-block
+			as else_
+				lexer parse-indented-statements
+		kind = if x ?= elif-or-else
+			match x kind
+			as elif_
+				if-elif
+			as else_
+				if-else
+		else
+			if-without-else
+		start if-ast kind, is-else-of-parent, start, (elif-or-else?.pos else 0), condition, then_, else_
 
 -parse-unless expr-ast(lexer lexer, start pos, allowed-block allowed-block)
 	condition = lexer parse-expr-no-block
-	body = if lexer try-take-token semicolon
-		lexer parse-expr-no-block
-	else
-		match allowed-block
-		as no
-			lexer expr-block-not-allowed start, unless_
-		as yes
-			lexer parse-indented-statements
+	body = match allowed-block
+	as no
+		lexer expr-block-not-allowed start, unless_
+	as yes
+		lexer parse-indented-statements
 	start if-ast unless_, false, start, 0, condition, body, ()
 
 -parse-trusted expr-ast(lexer lexer, start pos, allowed-block allowed-block)
@@ -698,7 +696,7 @@ do
 		lexer add-diag left.range, parse-diag-question-equals-left
 		(left.start, "_") single-destructure-ast (), ()
 	l unpack-option-ast question-equal-pos,
-		lexer parse-expr-and-calls do arg-ctx require-precedence-gt and_.precedence
+		lexer parse-expr-and-calls do arg-ctx require-precedence-gt and-precedence
 
 -to-destructure destructure-ast?(a expr-ast)
 	match a
