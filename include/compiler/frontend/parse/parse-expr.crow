@@ -226,14 +226,17 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	precedence int
 -try-take-name-and-precedence name-and-precedence?(lexer lexer, arg-ctx arg-ctx)
 	x = lexer get-peek-token-and-data
-	guard x is-symbol
-	precedence = x.as-symbol symbol-precedence (x.token == name-or-operator-equals or x.token == name-or-operator-colon-equals)
+	guard x is-symbol or x.token == in_
+	name symbol = x.token == in_ and "in" else x as-symbol
+	precedence = name symbol-precedence (x.token == name-or-operator-equals or x.token == name-or-operator-colon-equals)
 	guard precedence > arg-ctx.allowed-calls.min-precedence-exclusive
 	_ = if x.token token-has-continuation
 		lexer take-next-token-may-continue-onto-next-line
 	else
 		lexer take-next-token
-	x.token, x.as-symbol, precedence
+	token: x token
+	name: name
+	precedence: precedence
 
 -token-has-continuation bool(a token)
 	a == operator or a == name-or-operator-colon-equals or a == name-or-operator-equals
@@ -469,7 +472,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	kind for-or-with-ast-keyword
 	block-kind parse-diag-needs-block-ctx
 do
-	param, colon = lexer parse-for-or-with-parameter colon, colon
+	param, colon = lexer parse-for-or-with-parameter
 	arg = lexer parse-expr-no-block
 	if lexer try-take-token semicolon
 		start for-or-with-ast kind, param, colon, arg, lexer.parse-expr-no-block, ()
@@ -498,15 +501,19 @@ do
 	_ = lexer take-or-add-diag-expected-token arrow-lambda, lambda-arrow
 	lexer parse-lambda-after-arrow start, allowed-block, parameter, arrow-pos
 
--parse-for-or-with-parameter (destructure-ast, pos)(lexer lexer, end-token token, expected-end-token parse-diag-expected) # TODO: INLINE
+-parse-for-or-with-parameter (destructure-ast, pos)(lexer lexer) # TODO: INLINE -------------------------------------------------------------------------------
 	pos = lexer cur-pos
-	if lexer try-take-token end-token
+	if lexer try-take-colon-or-in
 		(lexer range pos void-destructure-ast), pos
 	else
 		res = lexer parse-destructure-no-require-parens
 		end-token-pos = lexer cur-pos
-		_ = lexer take-or-add-diag-expected-token-and-may-continue-onto-next-line end-token, expected-end-token
+		unless lexer try-take-colon-or-in
+			lexer add-diag-at-char in_::parse-diag-expected
 		res, end-token-pos
+
+-try-take-colon-or-in bool(lexer lexer) # TODO:INLINE ---------------------------------------------------------------------------------------------------------
+	lexer try-take-token colon or lexer try-take-token in_
 
 -parse-lambda-after-name-and-arrow expr-ast
 	lexer lexer
@@ -587,12 +594,15 @@ do
 		lexer parse-expr-and-all-calls allowed-block
 	as extern_
 		lexer parse-extern start
-	as if_
-		lexer parse-if start, false, allowed-block
 	as for_
 		lexer parse-for-or-with start, allowed-block, for_, for_
 	as for-star
 		lexer parse-for-or-with start, allowed-block, for-star, for-star
+	as if_
+		lexer parse-if start, false, allowed-block
+	as in_
+		# It's allowed to access 'in' just in order to access Java's `System.in`
+		lexer handle-name start, (start, "in")
 	as match_
 		if-allow-block[match_, () => lexer parse-match start]
 	as name
