@@ -107,8 +107,9 @@ do
 			body = builtin-fun-call-lambda builtin-concrete-expr (out-element-type, in-element-type),
 				- range gen-local-get temp
 				- range gen-local-get in-element
-			then concrete-expr = type, range, (input array-op-concrete-expr in-element, empty-out-array, (out-element-type, range, body))
-			type gen-let range, temp, lambda, then
+			then_ concrete-expr = type, range,
+				input array-op-concrete-expr in-element, empty-out-array, (out-element-type, range, body)
+			type gen-let range, temp, lambda, then_
 	else
 		args concrete-expr[] = if concrete-called is-variadic
 			array-type = concrete-called.params.only type
@@ -240,7 +241,7 @@ do
 	local-type = ctx get-concrete-type e.destructure.type
 	value = ctx concretize-expr local-type, e.value
 	ctx concretize-with-destructure-and-let type, range, e.destructure, value, () =>
-		ctx concretize-expr type, e.then
+		ctx concretize-expr type, e.then_
 
 -concretize-list concrete-expr
 	ctx concretize-expr-ctx
@@ -287,9 +288,9 @@ do
 do
 	if d ?= a destructure
 		ctx concretize-with-destructure type, range, d, () =>
-			ctx concretize-expr type, a.then
+			ctx concretize-expr type, a.then_
 	else
-		(), do ctx concretize-expr type, a.then
+		(), do ctx concretize-expr type, a.then_
 -concretize-expr-with-destructure concrete-local-and-expr
 	ctx concretize-expr-ctx
 	type concrete-type
@@ -313,13 +314,13 @@ do
 -use-root-local concrete-expr
 	ctx concretize-ctx
 	value concrete-expr
-	then concrete-local-and-expr
+	then_ concrete-local-and-expr
 do
-	expr = then expr
-	if root ?= then local
+	expr = then_ expr
+	if root ?= then_ local
 		expr.type gen-let expr.range, root, value, expr
 	elif _ ?= value.kind constant
-		then expr
+		then_ expr
 	else
 		ctx gen-drop-then expr.range, value, expr
 
@@ -515,18 +516,18 @@ do
 -gen-if-option concrete-expr
 	range uri-and-range
 	option concrete-expr
-	then concrete-local-and-expr
+	then_ concrete-local-and-expr
 	else_ concrete-expr
 do
-	else_.type, range, (option gen-if-option-kind then, else_)
+	else_.type, range, do option gen-if-option-kind then_, else_
 -gen-if-option-kind concrete-expr-kind
 	option concrete-expr
-	then concrete-local-and-expr
+	then_ concrete-local-and-expr
 	else_ concrete-expr
 do
 	cases concrete-local-and-expr[] =
 		- (), else_
-		- then.local, then.expr
+		- then_.local, then_.expr
 	option match-union-concrete-expr 2.integral-values-range, cases, ()
 
 -concretize-literal-string-like concrete-expr
@@ -820,7 +821,7 @@ do
 	values-unsorted integral-value[] = for x : a cases; x.member value
 	cases-unsorted concrete-expr[] = for value : values-unsorted
 		case_ = a.cases find! x => x.member.value == value
-		ctx concretize-expr type, case_.then
+		ctx concretize-expr type, case_.then_
 	else_ concrete-local-and-expr? = if x ?= a else_
 		ctx concretize-expr-with-opt-destructure type, range, x
 	values, cases = values-unsorted sort-by-first cases-unsorted
@@ -837,7 +838,7 @@ do
 	# TODO: If matched is a constant, just compile the relevant case
 	cases-unsorted concrete-expr[] = for value : values-unsorted
 		case_ = a.cases find! x => x.value == value
-		ctx concretize-expr type, case_.then
+		ctx concretize-expr type, case_.then_
 	else_ = ctx concretize-expr-with-opt-destructure type, range, a.else_
 	values, cases = values-unsorted sort-by-first cases-unsorted
 	type gen-match-enum-or-integral range, matched, values, cases, else_
@@ -852,7 +853,7 @@ do
 	matched = ctx concretize-expr a.matched
 	cases concrete-match-string-like-case[] = for case_ : a cases
 		value = ctx concretize-literal-string-like matched.type, range, a.string-type, case_.value
-		value, do ctx concretize-expr type, case_.then
+		value, do ctx concretize-expr type, case_.then_
 	else_ = ctx concretize-expr-with-opt-destructure type, range, a.else_
 	type, range, do matched match-string-like-concrete-expr equals, cases, else_
 
@@ -887,7 +888,7 @@ do
 	concrete-cases concrete-local-and-expr[] = for value : values
 		case_ = cases find! x =>
 			(ctx member-index-for-match-sum-type-case variant-type, x) == value
-		ctx concretize-expr-with-destructure type, range, case_.destructure, case_.then
+		ctx concretize-expr-with-destructure type, range, case_.destructure, case_.then_
 	values sort-by-first concrete-cases
 -member-index-for-match-sum-type-case integral-value
 	ctx concretize-expr-ctx
@@ -903,11 +904,11 @@ do
 	a force-expr
 do
 	arg = ctx concretize-expr a.arg
-	then concrete-local-and-expr =
+	then_ concrete-local-and-expr =
 		# TODO: helper fn for this, this pattern appears in a few places --------------------------------------------------------------------------------------
 		temp concrete-local = member::concrete-generated-local-kind, type
 		temp, (range gen-local-get temp)
-	range gen-if-option arg, then,
+	range gen-if-option arg, then_,
 		type gen-throw range,
 			ctx.concretize-ctx gen-error range,
 				"Option was empty: '{ctx.concretize-ctx.file-content-getters[arg range].to::string}'"
@@ -1047,11 +1048,11 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 	as seq-expr x
 		first = ctx concretize-expr ctx.void-type, x.first
 		# See comment on 'as let-expr' for why we use 'outer-type' instead of 'type'
-		then = ctx concretize-expr outer-type, x.then
+		then_ = ctx concretize-expr outer-type, x.then_
 		if _ ?= first.kind constant
-			then
+			then_
 		else
-			outer-type, range, do first.as-seq ~~ then.as-seq seq-concrete-expr
+			outer-type, range, do first.as-seq ~~ then_.as-seq seq-concrete-expr
 	as throw-expr x
 		thrown = ctx concretize-expr ctx.concretize-ctx.exception-type, x.thrown
 		type, range, thrown.throw-concrete-expr
@@ -1141,6 +1142,7 @@ do
 	local-type = ctx get-concrete-type a.destructure.type
 	value = ctx concretize-expr local-type, a.value
 	catch-member-index = ctx member-index-for-match-sum-type-case ctx.concretize-ctx.exception-type, a.catch_
-	catch-expr = ctx concretize-expr-with-destructure type, range, a.catch_.destructure, a.catch_.then
-	then = ctx concretize-expr-with-destructure type, range, a.destructure, a.then
-	type, range, do then.local try-let-concrete-expr value, catch-member-index, catch-expr, then.expr
+	catch-expr = ctx concretize-expr-with-destructure type, range, a.catch_.destructure, a.catch_.then_
+	then_ = ctx concretize-expr-with-destructure type, range, a.destructure, a.then_
+	type, range,
+		then_.local try-let-concrete-expr value, catch-member-index, catch-expr, then_.expr
