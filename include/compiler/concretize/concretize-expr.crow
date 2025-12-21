@@ -194,9 +194,9 @@ do
 	some-call = if call.type == type
 		call
 	else
-		ctx.concretize-ctx gen-some type, range, call
+		ctx.concretize-ctx gen-option type, range, call
 	assert some-call.type == type
-	range gen-if-option option, (local, some-call), (ctx.concretize-ctx gen-none type, range)
+	range gen-if-option option, (local, some-call), (ctx.concretize-ctx gen-empty-option type, range)
 
 get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called called)
 	ctx.concretize-ctx get-concrete-fun-from-called ctx.type-scope, ctx.specs-scope, called
@@ -412,8 +412,7 @@ do
 	for part-index, part : x.parts with-index
 		part-range = ctx to-uri-and-range part.range
 		value-type = root-local.type.body.concrete-record!.fields[part-index] type
-		expected-type = ctx get-concrete-type part.type
-		assert value-type == expected-type : todo # -----------------------------------------------------------------------------------------------------------
+		assert value-type == (ctx get-concrete-type part.type)
 		its-value = ctx.concretize-ctx gen-record-field-get value-type, part-range, get-root-local, part-index
 		its-local-and-expr = ctx end-destructure type, part-range, part, res
 		res := its-local-and-expr expr
@@ -462,7 +461,7 @@ do
 		###
 		option-type = ctx get-concrete-type ctx.common-types.option[a type ctx.common-types]
 		option-true-branch = ctx concretize-complex-condition option-type, range, a.condition, (() => ctx concretize-expr option-type, a.true-branch),
-			() => ctx.concretize-ctx gen-none option-type, range
+			() => ctx.concretize-ctx gen-empty-option option-type, range
 		false-branch = ctx concretize-expr type, a.false-branch
 		type gen-option-else range, option-true-branch, false-branch
 
@@ -790,9 +789,9 @@ do
 			exprs only
 		else
 			ctx.concretize-ctx gen-create-record concrete-tuple-type, range, exprs
-		ctx.concretize-ctx gen-some concrete-tuple-option, range, tuple-expr
+		ctx.concretize-ctx gen-option concrete-tuple-option, range, tuple-expr
 	expr = ctx concretize-complex-condition concrete-tuple-option, range, a, true_, () =>
-		ctx.concretize-ctx gen-none concrete-tuple-option, range
+		ctx.concretize-ctx gen-empty-option concrete-tuple-option, range
 	model-locals: model-locals
 	locals: concrete-locals
 	tuple-option: concrete-tuple-option
@@ -1007,29 +1006,33 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 	as local-set-expr x
 		ctx concretize-local-set range, x.local, x.value
 	as logical-expr x
-		left-type = match x kind
-		as bool-and-bool
-			type
-		as bool-or-bool
-			type
-		as option-else
-			model-type is-option-type ? type : ctx get-concrete-type ctx.common-types.option[model-type]
-		as option-or
-			outer-type
-		left = ctx concretize-expr left-type, x.left
-		right = ctx concretize-expr type, x.right
-		match x kind
-		as bool-and-bool
-			ctx.concretize-ctx gen-and range, left, right
-		as bool-or-bool
-			ctx.concretize-ctx gen-or range, left, right
-		as option-else
-			type gen-option-else range, left, right
-		as option-or
-			temp concrete-local = member::concrete-generated-local-kind, type
-			get-temp = range gen-local-get temp
-			type gen-let range, temp, left,
-				range gen-if-option get-temp, ((), get-temp), right
+		if x.kind == bool-and-bool
+			ctx concretize-complex-condition type, range, x.left, (() => ctx concretize-expr x.right), () =>
+				ctx.concretize-ctx gen-false range
+		else
+			left-type concrete-type = match x kind
+			as bool-and-bool
+				throw unreachable
+			as bool-or-bool
+				type
+			as option-else
+				model-type is-option-type ? type : ctx get-concrete-type ctx.common-types.option[model-type]
+			as option-or
+				outer-type
+			left = ctx concretize-expr left-type, x.left
+			right = ctx concretize-expr type, x.right
+			match x kind
+			as bool-and-bool
+				throw unreachable
+			as bool-or-bool
+				ctx.concretize-ctx gen-or range, left, right
+			as option-else
+				type gen-option-else range, left, right
+			as option-or
+				temp concrete-local = member::concrete-generated-local-kind, type
+				get-temp = range gen-local-get temp
+				type gen-let range, temp, left,
+					range gen-if-option get-temp, ((), get-temp), right
 	as loop-expr x
 		type gen-loop range, (ctx concretize-expr type, x.body)
 	as loop-break-expr x
@@ -1095,14 +1098,14 @@ do
 		actual
 	elif expected-unwrapped ?= expected unwrap-option-type
 		if res ?= ctx try-widen expected-unwrapped, actual
-			ctx gen-some expected, actual.range, res
+			ctx gen-option expected, actual.range, res
 		elif actual-unwrapped ?= actual.type unwrap-option-type
 			# 'actual' generates an option.
 			temp concrete-local = member::concrete-generated-local-kind, actual-unwrapped
 			range = actual range
 			if widen-temp ?= ctx try-widen expected-unwrapped, do range gen-local-get temp
-				some = ctx gen-some expected, range, widen-temp
-				range gen-if-option actual, (temp, some), (ctx gen-none expected, range)
+				some = ctx gen-option expected, range, widen-temp
+				range gen-if-option actual, (temp, some), (ctx gen-empty-option expected, range)
 	elif u ?= expected.body concrete-union
 		if u has-members
 			for member-index, member : u.members with-index
