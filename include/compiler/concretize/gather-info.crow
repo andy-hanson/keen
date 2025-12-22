@@ -29,7 +29,7 @@ do
 	called-by foo
 	method-impls concrete-method-info[concrete-type]
 do
-	start-funs concrete-fun set = with out : build
+	start-funs concrete-fun set = with out in build
 		# TODO: it would be simpler to have 'start-runtime' and 'stop-runtime' on all backends. Then these cases would be identical.
 		from-common-funs concrete-fun[] = match common-funs
 		as concrete-common-funs-java x
@@ -38,11 +38,11 @@ do
 			x.main, x.show-exception, x.to-symbol-from-string
 		out ~~= from-common-funs
 		# TODO: We should first find which vars are used .......................................................................
-		for var : all-vars
-			for v : called-by.var-calls[var] else ()
+		for var in all-vars
+			for v in called-by.var-calls[var] else ()
 				out ~= v called
 		# All Java interface methods might be used, so force generating implementations
-		for sum-type, impls : method-impls
+		for sum-type, impls in method-impls
 			guard sum-type.source.concrete-type-source-inst!.decl.body.sum-type!.kind == java-interface # TODO: have a helper fn for this
 			out ~~= impls methods
 	res concrete-fun mut[] = start-funs.to::concrete-fun[] to
@@ -50,7 +50,7 @@ do
 	to-propagate concrete-fun mut[] = start-funs.to::concrete-fun[] to
 	until to-propagate is-empty
 		fun = to-propagate pop!
-		for x : called-by.calls[fun] else ()
+		for x in called-by.calls[fun] else ()
 			called = x called
 			if set try-add called
 				res ~= called
@@ -70,7 +70,7 @@ do
 	to-propagate concrete-fun mut[] = ()
 
 	# TODO:PERF we already went over all funs when generating 'called-by'. Should do this as part of that to avoid having to walk all funs again.
-	for fun : all-used-funs
+	for fun in all-used-funs
 		kind = fun find-direct-async
 		if kind > temp-kinds[fun]
 			temp-kinds[fun] := kind!
@@ -79,7 +79,7 @@ do
 	until to-propagate is-empty
 		fun = to-propagate pop!
 		its-kind = temp-kinds[fun]!
-		for x : called-by.called-by[fun] else ()
+		for x in called-by.called-by[fun] else ()
 			caller = x caller
 			guard caller in all-used-funs # TODO: can we just not put these in callers then? -----------------------------------------------------
 			new-kind = its-kind propagation-kind x
@@ -89,7 +89,7 @@ do
 
 	used-depends-on-caller = all-used-funs calc-used-depends-on-caller called-by, temp-kinds
 
-	async-funs async-kind[concrete-fun] = for* fun, kind : temp-kinds
+	async-funs async-kind[concrete-fun] = for* fun, kind in temp-kinds
 		out-kind async-kind? = match kind
 		as depends-on-caller
 			uses = used-depends-on-caller[fun]!
@@ -119,7 +119,7 @@ do
 	to-propagate concrete-fun mut[] = ()
 	res uses mut[concrete-fun] = ()
 
-	for fun : all-used-funs
+	for fun in all-used-funs
 		guard calls ?= called-by.calls[fun]
 		opt-use uses? = if ak ?= async-kinds[fun]
 			match ak
@@ -130,7 +130,7 @@ do
 		else
 			used-sync
 		guard use ?= opt-use # TODO: should be able to put the entire 'if' expression in the 'guard' ------------------
-		for x : calls
+		for x in calls
 			called = x called
 			if async-kinds[called] == depends-on-caller and res try-add called, use
 				to-propagate ~= called
@@ -139,7 +139,7 @@ do
 		fun = to-propagate pop!
 		guard calls ?= called-by.calls[fun]
 		uses = res[fun]!
-		for x : calls
+		for x in calls
 			called = x called
 			if async-kinds[called] == depends-on-caller and res try-add called, uses
 				to-propagate ~= called
@@ -189,7 +189,7 @@ do
 -intrinsic-async-kind temp-async-kind?(a concrete-expr, params concrete-local set, local-lambda-locals concrete-local set)
 	from-children temp-async-kind? mut() = () =>
 		max mut temp-async-kind? = ()
-		for x : a direct-child-exprs
+		for x in a direct-child-exprs
 			max := max max do x intrinsic-async-kind params, local-lambda-locals
 		max
 	match a kind
@@ -246,7 +246,7 @@ do
 do
 	calls call-kind mut[] mut[concrete-fun] = ()
 	called-by caller mut[] mut[concrete-fun] = ()
-	for fun : all-funs
+	for fun in all-funs
 		match fun body
 		as concrete-fun-body-builtin _
 			()
@@ -262,19 +262,19 @@ do
 			method-info = method-impls[fun.params[0] type]!
 			new-method-index = method-info.methods index-of! fun
 			assert new-method-index <= x.method-index # some methods may be omitted
-			for impls : method-info.cases
+			for impls in method-info.cases
 				if impl ?= impls[new-method-index]
 					calls ensure fun ~= impl call-kind-method-impl
 					called-by ensure impl ~= fun, impl.call-kind-method-impl
 		as concrete-fun-body-deferred
 			throw unreachable
 	var-calls call-kind mut[] mut[concrete-var] = ()
-	for var : all-vars
+	for var in all-vars
 		var.initializer each-call called =>
 			var-calls ensure var ~= called
-	calls: for k, v : calls; k, v.move-to
-	var-calls: for k, v : var-calls; k, v.move-to
-	called-by: for k, v : called-by; k, v.move-to
+	calls: for k, v in calls; k, v.move-to
+	var-calls: for k, v in var-calls; k, v.move-to
+	called-by: for k, v in called-by; k, v.move-to
 -build-called-by-recur void
 	calls call-kind mut[] mut[concrete-fun]
 	called-by caller mut[] mut[concrete-fun]
@@ -293,7 +293,7 @@ do
 		f[x]
 	else
 		()
-	for child : expr direct-child-exprs
+	for child in expr direct-child-exprs
 		child each-call f
 
 -caller record
@@ -321,7 +321,7 @@ do
 		as depends-on-caller
 			res mut temp-async-kind? = ()
 			# TODO: res = call.args max-of ..................................................................................................
-			for arg : call args
+			for arg in call args
 				res max:= if arg.type is-lambda-type
 					match arg kind
 					as local-get-concrete-expr x
