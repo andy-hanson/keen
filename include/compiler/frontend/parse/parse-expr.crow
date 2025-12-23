@@ -443,18 +443,11 @@ parse-fun-expr-body expr-ast(lexer lexer)
 -parse-trusted expr-ast(lexer lexer, start pos, allowed-block allowed-block)
 	start trusted-ast do lexer parse-expr-and-all-calls allowed-block
 
--parse-assert-or-forbid expr-ast(lexer lexer, start pos, is-forbid bool)
-	condition = lexer parse-expr-no-block
-	colon-pos = lexer cur-pos
-	thrown assert-or-forbid-thrown-ast? = if lexer try-take-token colon
-		colon-pos, lexer.parse-expr-no-let
-	after = lexer parse-next-lines-or-empty
-	start assert-or-forbid-ast is-forbid, condition, thrown, after
-
--parse-finally expr-ast(lexer lexer, start pos)
-	right = lexer parse-single-statement-or-block
-	below = lexer parse-next-lines-or-empty
-	start finally-ast right, below
+-try-take-assert-or-forbid bool?(lexer lexer)
+	if lexer try-take-token assert_
+		false
+	elif lexer try-take-token forbid_
+		true
 
 -parse-single-statement-or-block expr-ast(lexer lexer)
 	if lexer try-take-token newline-indent
@@ -462,13 +455,28 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	else
 		lexer parse-actually-single-statement-line
 
--parse-guard expr-ast(lexer lexer, start pos)
+-parse-guard if-ast(lexer lexer, start pos)
+	res = lexer parse-assert-forbid-or-guard
+	start: start
+	kind: _ ?= res else_ and guard-with-colon else guard-without-colon
+	is-else-of-parent: false
+	first-keyword-pos: start
+	second-keyword-pos_: res.else_?.else-pos else max-value
+	condition: res condition
+	first-branch: res.else_?.expr
+	second-branch: res after
+
+-assert-forbid-or-guard record
+	condition expr-ast
+	else_ assert-or-forbid-thrown-ast?
+	after expr-ast
+-parse-assert-forbid-or-guard assert-forbid-or-guard(lexer lexer)
 	condition = lexer parse-expr-and-calls (yes, (else_.precedence,))
 	else-pos = lexer cur-pos
-	first-branch expr-ast? = lexer try-take-token else_ and lexer parse-expr-no-let
-	second-branch = lexer parse-next-lines-or-empty
-	kind = _ ?= first-branch and guard-with-colon else guard-without-colon
-	start if-ast kind, false, start, else-pos, condition, first-branch, second-branch
+	condition: condition
+	else_: if lexer try-take-token else_
+		else-pos, lexer.parse-expr-no-let
+	after: lexer parse-next-lines-or-empty
 
 -parse-for-or-with expr-ast
 	lexer lexer
@@ -477,10 +485,10 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	kind for-or-with-ast-keyword
 	block-kind parse-diag-needs-block-ctx
 do
-	param, colon = lexer parse-for-or-with-parameter
+	param, in-pos = lexer parse-for-or-with-parameter
 	arg = lexer parse-expr-no-block
 	if lexer try-take-token semicolon
-		start for-or-with-ast kind, param, colon, arg, lexer.parse-expr-no-block, ()
+		start for-or-with-ast kind, param, in-pos, arg, lexer.parse-expr-no-block, ()
 	else
 		match allowed-block
 		as no
@@ -490,7 +498,7 @@ do
 				body = lexer parse-statements-and-dedent
 				else_ expr-ast? = if _ ?= lexer try-take-newline-then-else
 					lexer parse-indented-statements
-				start for-or-with-ast kind, param, colon, arg, body, else_
+				start for-or-with-ast kind, param, in-pos, arg, body, else_
 
 -parse-loop-while-or-until expr-ast(lexer lexer, start pos, is-until bool)
 	condition = lexer parse-expr-no-block
@@ -723,7 +731,9 @@ parse-single-statement-line expr-ast(lexer lexer)
 		after typed-ast start, type
 	as finally_
 		lexer must-take-token finally_
-		lexer parse-finally start
+		right = lexer parse-single-statement-or-block
+		below = lexer parse-next-lines-or-empty
+		start finally-ast right, below
 	as guard_
 		lexer must-take-token guard_
 		lexer parse-guard start
@@ -747,13 +757,9 @@ parse-single-statement-line expr-ast(lexer lexer)
 			lexer parse-actually-single-statement-line
 -parse-actually-single-statement-line expr-ast(lexer lexer)
 	start = lexer cur-pos
-	match lexer get-peek-token
-	as assert_
-		lexer must-take-token assert_
-		lexer parse-assert-or-forbid start, false
-	as forbid_
-		lexer must-take-token forbid_
-		lexer parse-assert-or-forbid start, true
+	if is-forbid ?= lexer try-take-assert-or-forbid
+		res = lexer parse-assert-forbid-or-guard
+		start assert-or-forbid-ast is-forbid, res.condition, res.else_, res.after
 	else
 		if lexer lookahead-name-colon
 			lexer parse-named-call start
