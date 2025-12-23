@@ -32,15 +32,8 @@ check-fun-or-test-body expr
 	externs symbol-set
 	ast expr-ast
 do
-	# ---------------------------------------------------------------------------------------------------------------------------------------------------------
-	logit = match container
-	as fun-decl x
-		x.name == "LOGME"
-	as test_ _
-		false
-	as var-decl _
-		false
-	if logit
+	logged = container.fun-decl?.name == "LOGME"
+	if logged
 		enable-inference-log
 
 	expr-ctx expr-ctx =
@@ -56,7 +49,7 @@ do
 		expr-ctx add-locals-for-destructure param
 	res = expr-ctx check-and-expect ast, return-type
 	expr-ctx restore-locals 0
-	if logit
+	if logged
 		disable-inference-log
 	res
 
@@ -161,7 +154,7 @@ do
 		error log "top of check-if: expected is {expected debug}"
 	if (ast.first-branch is-throw or ast.second-branch is-throw) and ast !is-else-of-parent
 		ctx add-diag ast.first-keyword-range, diag-if-throw
-	condition = ctx check-condition ast.condition
+	condition = ctx check-and-expect ast.condition, ctx.common-types.bool
 	destructures = condition condition-destructures
 	is-negated = ast is-condition-negated
 	empty-new-range = ast first-keyword-range
@@ -177,9 +170,6 @@ do
 -is-throw bool(a expr-ast?)
 	_ ?= a?.throw-ast
 
--check-condition expr(ctx expr-ctx, ast expr-ast)
-	# TODO: INLINE --------------------------------------------------------------------------------------------------------------------------------------------
-	ctx check-and-expect ast, ctx.common-types.bool
 -check-unpack-option unpack-option(ctx expr-ctx, ast unpack-option-ast)
 	expr, type = ctx check-and-infer ast.option
 	ast: ast
@@ -192,14 +182,11 @@ do
 		range bogus-expr ctx.common-types.option[type]
 
 -check-force expr(ctx expr-ctx, ast force-ast, expected expected)
-	is-option mut = true # TODO: NEATER -----------------------------------------------------------------------------------------------------------------------
+	is-option mut = true
 	arg = ctx check-with-modify-expected-option ast.arg, expected, actual =>
 		is-option := false
 		ctx add-diag ast.keyword-range, actual.diag-option-force-non-option
-	if is-option
-		ast force-expr arg
-	else
-		arg
+	is-option and ast force-expr arg else arg
 
 -check-throw expr(ctx expr-ctx, ast throw-ast, expected expected)
 	if type ?= expected try-get-inexact-non-inferring-type-including-loop
@@ -230,7 +217,7 @@ do
 		expected bogus ast.range
 
 -check-assert-or-forbid expr(ctx expr-ctx, ast assert-or-forbid-ast, expected expected)
-	condition = ctx check-condition ast.condition
+	condition = ctx check-and-expect ast.condition, ctx.common-types.bool
 	destructures = condition condition-destructures
 	is-forbid = ast is-forbid
 	thrown expr? = if thrown-ast ?= ast thrown
@@ -707,7 +694,7 @@ do
 		ctx check-call-special ast, ast.keyword-range, "loop-continue", (), expected
 
 -check-loop-while-or-until expr(ctx expr-ctx, ast loop-while-or-until-ast, expected expected)
-	condition = ctx check-condition ast.condition
+	condition = ctx check-and-expect ast.condition, ctx.common-types.bool
 	destructures = condition condition-destructures
 	body = ctx check-expr-with-destructures (ast !is-until and destructures), ast.body, ctx.void-type.expect
 	after = ctx check-expr-with-destructures (ast is-until and destructures), ast.after, expected
