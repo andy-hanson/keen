@@ -86,6 +86,10 @@ do
 		ctx check-if x, expected
 	as interpolated-ast x
 		ctx check-interpolated x, expected
+	as it-ast x
+		ctx check-it x, expected
+	as it-scope-ast x
+		ctx check-it-scope x, expected
 	as lambda-ast x
 		ctx check-lambda x, x.param, x.body, expected
 	as let-ast x
@@ -324,7 +328,7 @@ do
 
 -check-identifier expr(ctx expr-ctx, ast name-and-range, expected expected)
 	if local ?= ctx access-local ast.range, ast.name
-		ctx check expected, local.type, (ast.range local-get-expr local)
+		ctx check expected, local.type, do ast.range local-get-expr local
 	else
 		ctx check-call-identifier ast, expected
 
@@ -533,6 +537,31 @@ do
 		diag[diag-shared-lambda-unused]
 	res expr
 
+-check-it expr
+	ctx expr-ctx
+	ast it-ast
+	expected expected
+do
+	local = ctx access-local! ast.range, "it"
+	ctx check expected, local.type, do ast.range local-get-expr local
+
+-check-it-scope expr
+	ctx expr-ctx
+	ast it-scope-ast
+	expected expected
+do
+	if _ ?= ast.inner it-ast
+		ctx add-diag ast.range, diag-it-identity
+		expected bogus ast
+	else
+		diag-range = ast range
+		guard et ?= ctx get-expected-lambda diag-range, (), expected else
+			expected bogus diag-range
+		kind = et.fun-type kind
+		param local = ast, immut, false, (), et.instantiated-param-type
+		res = ctx check-lambda-inner2 ast, param, ast.inner, expected, (), et.fun-type.return-type, et.type-context, et.fun-type.fun-struct, kind.to-lambda-kind
+		res expr
+
 -check-lambda expr
 	ctx expr-ctx
 	source lambda-source
@@ -573,6 +602,22 @@ do
 	kind lambda-kind
 do
 	param = ctx check-destructure param-ast, param-type, param
+	ctx check-lambda-inner2 source, param, body-ast, expected, mut-type-for-explicit-shared, non-instantiated-return-type, return-type-context, fun-struct, kind
+
+# TODO:NEATER -------------------------------------------------------------------------------------------------------------------------------------------------
+-check-lambda-inner2 lambda-and-return-type
+	ctx expr-ctx
+	source lambda-source
+	param destructure
+	body-ast expr-ast
+	expected expected
+	mut-type-for-explicit-shared struct-inst?
+	# TODO: Pass these together as a type-and-context? ---------------------------------------------------------------------------
+	non-instantiated-return-type type
+	return-type-context type-context
+	fun-struct struct-decl
+	kind lambda-kind
+do
 	lambda-info lambda-info = kind, ctx.locals.size, ()
 	# Checking the body of the lambda may fill in candidate type args
 	# if the expected return type contains candidate's type params
