@@ -208,40 +208,6 @@ do (out-col, out-elem, out-builder) build, (in-col, in-elem) iterate, in-col siz
 			out ~= f[x]
 			false
 
-| Calls {f-loop} for each element in {a} until there is a `break`, then returns the result of that.
-| If there was no `break`, calls {f-else} instead.
-+for-break[out, col, elem] out
-	a col
-	f-loop out break-or-continue mut(elem elem)
-	f-else out mut()
-do (col, elem) iterate
-	a for-break f-loop else f-else[]
-
-+for-break[col, elem] void(a col, f-loop void break-or-continue mut(elem elem)) (col, elem) iterate
-	_ = a iterate x =>
-		match f-loop[x]
-		as loop-break _
-			true
-		else
-			false
-
-| Call {f} for each element in the collection, but stop and return the result of the first `break`.
-| If there was no `break`, return an empty option instead.
-+for-break[out, col, elem] out?
-	a col
-	f out break-or-continue mut(elem elem)
-do (col, elem) iterate
-	res mut out? = ()
-	broke = a iterate x =>
-		match f[x]
-		as loop-break b
-			res := b value
-			true
-		as loop-continue
-			false
-	assert broke == (_ ?= res)
-	res
-
 | Calls {f} for each element in the input collection,
 | and returns an output collection of the elements for which {f} returned {true}.
 +filter[out-col, elem, out-builder, in-col] out-col
@@ -422,23 +388,28 @@ do (iter, col) end, (elem, iter) prev, elem equal
 		else
 			break
 
+| Returns the first non-empty result of {f}.
++first[out, col, elem] out?(a col, f out? mut(elem elem)) (col, elem) iterate
+	res mut out? = ()
+	_ = a iterate x =>
+		res := f[x]
+		_ ?= res
+	res
+
 | Returns the first element for which {f} returns {true},
 | or an empty option if {f} always returned {false}.
 +find[col, elem] elem?(a col, f bool mut(elem elem)) (col, elem) iterate
-	for x in a
+	res mut elem? = ()
+	_ = a iterate x =>
 		if f[x]
-			break x
+			res := x
+			true
+	res
 
 | Returns the first index `i` for which `{f}[{a}[i]]` is true.
 | Returns an empty option if {f} returned {false} for every element of {a}.
 +find-index[col, elem] nat64?(a col, f bool mut(elem elem)) (col, elem) iterate
-	i mut nat64 = 0
-	for x in a
-		if f[x]
-			break i
-		else
-			i +:= 1
-			continue
+	a.with-index first (i, x) => f[x] and i
 
 +find-last-iter[col, iter, elem] iter?
 	a col
@@ -563,15 +534,21 @@ region with-index
 +indices[col] nat64 range(a col) col size
 	0 .. a.size
 
-+with-index[col] record
-	-inner col
-+with-index[col] col with-index(a col)
-	a,
++with-index[col] record(inner col)
++first[out, col, elem] out?(a col with-index, f out? mut(index nat64, elem elem)) (col, elem) iterate
+	i mut nat64 = 0
+	res mut out? = ()
+	_ = a.inner iterate x =>
+		res := f[i, x]
+		i +:= 1
+		_ ?= res
+	res
 +for-loop[col, elem] void(a col with-index, f void mut(index nat64, elem elem)) (col, elem) iterate
 	i mut nat64 = 0
-	for x in a inner
+	_ = a.inner iterate x =>
 		f[i, x]
 		i +:= 1
+		false
 +for-loop[out-col, out-elem, out-builder, in-col, in-elem] out-col
 	a in-col with-index
 	f out-elem mut(index nat64, elem in-elem)
@@ -590,49 +567,6 @@ do (out-col, out-elem, out-builder) build-in-chunks, (in-col, in-elem) iterate
 		for x in a inner
 			out ~~= f[i, x]
 			i +:= 1
-+for-break[col, elem] void
-	a col with-index
-	f void break-or-continue mut(index nat64, elem elem)
-do (col, elem) iterate
-	i mut nat64 = 0
-	_ = a.inner iterate x =>
-		match f[i, x]
-		as loop-break _
-			true
-		as loop-continue
-			i +:= 1
-			false
-+for-break[out, col, elem] out?
-	a col with-index
-	f out break-or-continue mut(index nat64, elem elem)
-do (col, elem) iterate
-	i mut nat64 = 0
-	res mut out? = ()
-	_ = a.inner iterate x =>
-		match f[i, x]
-		as loop-break b
-			res := b value
-			true
-		as loop-continue
-			i +:= 1
-			false
-	res
-+for-break[out, col, elem] out
-	a col with-index
-	f out break-or-continue mut(index nat64, elem elem)
-	f-else out mut()
-do (col, elem) iterate
-	i mut nat64 = 0
-	res mut out? = ()
-	_ = a.inner iterate x =>
-		match f[i, x]
-		as loop-break b
-			res := b value
-			true
-		as loop-continue
-			i +:= 1
-			false
-	res else f-else[]
 +exists[col, elem] bool(a col with-index, f bool mut(index nat64, elem elem)) (col, elem) iterate
 	i mut nat64 = 0
 	a.inner iterate x =>
@@ -641,6 +575,21 @@ do (col, elem) iterate
 		res
 +every[col, elem] bool(a col with-index, f bool mut(index nat64, elem elem)) (col, elem) iterate
 	a !exists x => !f[x]
+
+| Only returns a result if {f} returned a non-empty option every time.
++map-every[out-col, out-elem, out-builder, in-col, in-elem] out-col?
+	a in-col
+	f out-elem? mut(x in-elem)
+do (out-col, out-elem, out-builder) build, in-col size, (in-col, in-elem) iterate
+	nope mut = false
+	res out-col = with out in a.size build
+		nope := a iterate x =>
+			if y ?= f[x]
+				out ~= y
+				false
+			else
+				true
+	!nope and res
 
 +corresponds[col0, iter0, elem0, col1, iter1, elem1] bool
 	a col0
