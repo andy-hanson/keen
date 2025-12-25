@@ -54,10 +54,11 @@ do check-expr
 	type-arg type?
 	arg-asts expr-ast[]
 do check-expr
-	cb-before-check bool mut(candidates candidates) = candidates =>
-		arg-asts.with-index every (arg-idx, arg) => ctx infer-candidate-type-args-from-explicitly-typed-argument candidates, arg-idx, arg
+	cb-before-check bool mut(candidates candidates) = of candidates
+		arg-asts.with-index every of arg-idx, arg
+			ctx infer-candidate-type-args-from-explicitly-typed-argument candidates, arg-idx, arg
 	ctx check-call-special-cb-n source, diag-range, fun-name, expected, type-arg, arg-asts.size, \
-		((i, arg-expected) => ctx check-expr arg-asts[i], arg-expected), \
+		(of i, arg-expected then ctx check-expr arg-asts[i], arg-expected), \
 		cb-before-check
 
 check-call-arg-and-lambda expr
@@ -72,16 +73,16 @@ check-call-arg-and-lambda expr
 	expected expected
 do check-expr, check-lambda
 	ctx check-call-special-cb2 call-source, diag-range, fun-name, expected, \
-		(arg-expected => ctx check-expr arg-ast, arg-expected), \
-		(arg-expected => ctx check-lambda lambda-source, param-ast, body-ast, arg-expected), \
-		candidates => ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast
+		(of arg-expected then ctx check-expr arg-ast, arg-expected), \
+		(of arg-expected then ctx check-lambda lambda-source, param-ast, body-ast, arg-expected), \
+		of candidates then ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast
 
 find-function-for-list-new called?
 	ctx expr-ctx
 	diag-range source-range
 	return-type type
 do
-	initial-filter bool mut(x candidate) = candidate =>
+	initial-filter bool mut(x candidate) = of candidate
 		called = candidate called
 		guard x ?= called fun-decl
 		guard x is-variadic
@@ -90,7 +91,7 @@ do
 	with candidates in ctx.funs-in-expr-scope candidates-scope "new", 0, initial-filter
 		if x ?= candidates opt-only
 			ctx.check-ctx check-call-after-choosing-overload ctx.common-types, \
-				ctx.type-container, ctx.funs-in-expr-scope, ctx.cur-flags, ctx.externs, x, diag-range, () => ctx check-is-trusted
+				ctx.type-container, ctx.funs-in-expr-scope, ctx.cur-flags, ctx.externs, x, diag-range, of then ctx check-is-trusted
 		else
 			ctx add-diag diag-range, if candidates is-empty
 				ctx type-with-container return-type diag-call-no-match-for-list
@@ -106,7 +107,7 @@ check-call-special-cb1 expr
 	expected expected
 	cb-arg expr mut(x expected)
 do
-	ctx check-call-special-cb-n source, diag-range, fun-name, expected, 1, (i, arg-expected) =>
+	ctx check-call-special-cb-n source, diag-range, fun-name, expected, 1, of i, arg-expected
 		i is 0
 		cb-arg[arg-expected]
 
@@ -120,7 +121,7 @@ check-call-special-cb2 expr
 	cb-arg1 expr mut(x expected)
 	cb-before-check bool mut(x candidates)
 do
-	check-arg expr mut(i nat, arg-expected expected) = (i, arg-expected) =>
+	check-arg expr mut(i nat, arg-expected expected) = of i, arg-expected
 		match i
 		as 0
 			cb-arg0[arg-expected]
@@ -139,7 +140,7 @@ check-call-special-cb-n expr
 	n-args nat
 	cb-check-arg expr mut(i nat, arg-expected expected)
 do
-	ctx check-call-special-cb-n source, diag-range, fun-name, expected, (), n-args, cb-check-arg, _ => true
+	ctx check-call-special-cb-n source, diag-range, fun-name, expected, (), n-args, cb-check-arg, of _ then true
 -check-call-special-cb-n expr
 	ctx expr-ctx
 	source call-expr-source
@@ -152,7 +153,7 @@ do
 	cb-before-check bool mut(candidates candidates)
 do
 	args expr mut-slice = trusted n-args gc-safe-mut-slice
-	check-arg void mut(i nat, arg-expected expected) = (i, arg-expected) =>
+	check-arg void mut(i nat, arg-expected expected) = of i, arg-expected
 		args[i] := cb-check-arg[i, arg-expected]
 	if called ?= ctx check-call-cb diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-before-check
 		# Check should always succeed, but we need it to set the inferred type
@@ -168,7 +169,7 @@ do
 	with out in build
 		match fun-name
 		as symbol x
-			ctx.funs-in-expr-scope each-fun-in-scope x, called =>
+			ctx.funs-in-expr-scope each-fun-in-scope x, of called
 				out ~= called
 		as named-new _
 			() # TODO ------------------------------------------------------------------------------------------------------
@@ -198,7 +199,7 @@ do
 	cb-check-arg cb-check-arg
 	cb-before-check bool mut(x candidates)
 do
-	initial-filter bool mut(x candidate) = candidate =>
+	initial-filter bool mut(x candidate) = of candidate
 		ctx.common-types filter-candidate-by-explicit-type-arg candidate, type-arg and
 		expected test-candidate-return-type candidate, allow-conversions
 	with candidates in ctx.funs-in-expr-scope candidates-scope fun-name, n-args, initial-filter
@@ -224,7 +225,7 @@ find-function-for-return-and-param-types called?
 	is-trusted bool mut() # TODO: I think this is always false ----------------------------------------------------------------
 do
 	arity = return-and-param-types.param-types size
-	initial-filter bool mut(x candidate) = candidate =>
+	initial-filter bool mut(x candidate) = of candidate
 		common-types filter-candidate-by-explicit-type-arg candidate, type-arg and
 		candidate test-candidate-for-spec-sig return-and-param-types, non-inferring, no-conversions # TODO: allow conversions here (and prefer exact)
 	with candidates in funs-in-scope candidates-scope name, arity, initial-filter
@@ -238,22 +239,22 @@ do
 			()
 
 -check-option-call expr(ctx expr-ctx, ast call-ast, outer-expected expected) check-expr
-	ctx check-with-modify-expected outer-expected, (x => x is-option-type and x), inner-expected =>
+	ctx check-with-modify-expected outer-expected, (of x then x is-option-type and x), of inner-expected
 		assert ast.args.size != 0
 		args expr mut-slice = trusted ast.args.size gc-safe-mut-slice
-		check-arg void mut(index nat, arg-expected expected) = (index, arg-expected) =>
+		check-arg void mut(index nat, arg-expected expected) = of index, arg-expected
 			arg-ast = ast.args[index]
 			if index == 0
 				# For the first argument: It's opposite of for the return type.
 				# The call is expecting a non-option, but change that to be expecting an option.
-				_ = ctx check-with-modify-expected arg-expected, (x => ctx.common-types.option[x]), optional-arg-expected =>
+				_ = ctx check-with-modify-expected arg-expected, ctx.common-types.option[it], of optional-arg-expected
 					expr = ctx check-expr arg-ast, optional-arg-expected
 					option = optional-arg-expected inferred
 					args[index] := expr
 					expr, option.must-unwrap-option-type-or-bogus
 			else
 				args[index] := ctx check-expr arg-ast, arg-expected
-		if called ?= ctx check-call-cb ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, _ => true
+		if called ?= ctx check-call-cb ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, of _ then true
 			type = ctx.instantiate-ctx make-option-if-not-already ctx.common-types, called.return-type
 			arg0-type = args[0] type ctx.common-types
 			if arg0-type is-option-type
@@ -281,7 +282,7 @@ do
 	loop
 		guard arg-index != n-args else break
 		guard candidates !is-empty else break
-		candidates filter-unordered-but-dont-remove-all candidate =>
+		candidates filter-unordered-but-dont-remove-all of candidate
 			# The point of this function is to infer one type arg from another,
 			# e.g. given type params `[col, elem]` and spec `(col, elem) iterate` infer `elem` from `col`.
 			# There's no point to doing this if we haven't inferred any type args.
@@ -297,7 +298,7 @@ do
 			break
 		else
 			arg-types[arg-index] := arg-type
-			candidates filter-unordered-tri candidate =>
+			candidates filter-unordered-tri of candidate
 				if candidate test-candidate-param-type arg-index, arg-type.non-inferring, no-conversions
 					prefer
 				elif candidate test-candidate-param-type arg-index, arg-type.non-inferring, allow-conversions
@@ -309,18 +310,19 @@ do
 
 	guard !some-arg-is-bogus
 
-	candidates filter-unordered-but-dont-remove-all x => ctx pre-check-candidate-specs x
+	candidates filter-unordered-but-dont-remove-all of x
+		ctx pre-check-candidate-specs x
 
 	if candidates.size > 1
 		# If there are multiple candidates, prefer the one with no implicit conversions.
-		candidates filter-unordered-but-dont-remove-all candidate =>
+		candidates filter-unordered-but-dont-remove-all of candidate
 			expected test-candidate-return-type candidate, no-conversions and
-			0::nat .. arg-index every i =>
+			0::nat .. arg-index every of i
 				candidate test-candidate-param-type i, arg-types[i].non-inferring, no-conversions
 
 	if x ?= candidates opt-only
 		ctx.check-ctx check-call-after-choosing-overload ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope, \
-			ctx.cur-flags, ctx.externs, x, diag-range, () => ctx check-is-trusted
+			ctx.cur-flags, ctx.externs, x, diag-range, of then ctx check-is-trusted
 	else
 		ctx add-diag diag-range, if candidates is-empty
 			all-candidates = ctx get-all-candidates-as-called-decls fun-name
@@ -337,9 +339,10 @@ do
 		()
 
 -check-call-should-use-syntax void(ctx expr-ctx, ast call-ast)
-	if ast.style == dot or ast.style == infix
-		if kind ?= ast should-use-syntax-kind
-			ctx add-diag ast.fun-name.range, (ast.args.size diag-call-should-use-syntax kind)
+	guard ast.style == dot or ast.style == infix
+	guard kind ?= ast should-use-syntax-kind
+	ctx add-diag ast.fun-name.range,
+		ast.args.size diag-call-should-use-syntax kind
 -should-use-syntax-kind diag-call-should-use-syntax-kind?(ast call-ast)
 	match ast.fun-name name
 	as force
@@ -361,7 +364,14 @@ do
 	else
 		()
 -second-arg-is-lambda bool(a call-ast)
-	a.args.size == 2 and _ ?= a.args[1] lambda-ast
+	guard a.args.size == 2
+	match a.args[1]
+	as it-scope-ast _
+		true
+	as lambda-ast _
+		true
+	else
+		false
 
 -filter-candidate-by-explicit-type-arg bool(common-types common-types, candidate candidate, opt-type-arg type?)
 	guard type-arg ?= opt-type-arg else true
@@ -383,7 +393,8 @@ do
 		expected = candidate get-candidate-expected-parameter-type arg-index
 		is-duplicate =
 			expected.context !is-inferring and
-			out exists x => x.context !is-inferring and x.type == expected.type
+			out exists of x
+				x.context !is-inferring and x.type == expected.type
 		unless is-duplicate
 			out ~= expected
 	arg-expected expected = out to
@@ -437,12 +448,12 @@ do
 -pre-check-candidate-specs bool(ctx expr-ctx, candidate candidate)
 	match candidate called
 	as fun-decl called
-		called.specs.instantiated-sigs every sig =>
+		called.specs.instantiated-sigs every of sig
 			ctx infer-candidate-type-args-from-spec-sig candidate, sig.non-instantiated-sig, sig.instantiated-sig
 	as called-spec-sig _
 		true
 -has-some-inferred bool(a candidate)
-	a.type-args exists x => _ ?= x
+	a.type-args exists (_ ?= it)
 
 -infer-candidate-type-args-from-spec-sig bool
 	ctx expr-ctx
@@ -451,7 +462,7 @@ do
 	return-and-param-types return-and-param-types
 do
 	call-context = call-candidate type-context-for-candidate
-	initial-filter bool mut(x candidate) = candidate =>
+	initial-filter bool mut(x candidate) = of candidate
 		candidate test-candidate-for-spec-sig return-and-param-types, call-context, allow-conversions # TODO: prefer a candidate that converts exactly
 	with spec-candidates in ctx.funs-in-expr-scope candidates-scope spec-sig.name, spec-sig.params.size, initial-filter
 		match spec-candidates size

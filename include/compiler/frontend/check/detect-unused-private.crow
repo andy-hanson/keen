@@ -12,16 +12,17 @@ detect-unused-private void(ctx check-ctx, common-types common-types, module crow
 	for fun in module funs
 		guard fun.visibility == private
 		guard fun !ok-if-unused
-		guard fun !in used
+		guard !used[fun]
 		ctx add-diag-assert-same-uri fun.name-range, fun.name.diag-unused-private-decl
 	for struct in module structs
 		guard struct.visibility == private
-		guard struct !in used
-		guard struct.sum-type-memberships !exists m => module.funs sum-type-member-getter struct, m in used
+		guard !used[struct]
+		guard struct.sum-type-memberships !exists of m
+			used[module.funs sum-type-member-getter struct, m]
 		ctx add-diag-assert-same-uri struct.name-range, struct.name.diag-unused-private-decl
 	for spec_ in module specs
 		guard spec_.visibility == private
-		guard spec_ !in used
+		guard !used[spec_]
 		ctx add-diag-assert-same-uri spec_.name-range, spec_.name.diag-unused-private-decl
 	
 	for x in used unused-locals
@@ -40,7 +41,7 @@ detect-unused-private void(ctx check-ctx, common-types common-types, module crow
 	#	guard var !in used
 	#	ctx add-diag-assert-same-uri var.name-range, var.name.diag-unused-private-decl
 
-	module zip-ast-and-module-imports (ast, imported) =>
+	module zip-ast-and-module-imports of ast, imported
 		match ast kind
 		as import-whole-module-ast
 			unless imported has used
@@ -98,12 +99,12 @@ ok-if-unused bool(a fun-decl)
 	vars var-decl set
 	unused-locals local set
 	unused-mut-locals local set
--in bool(a fun-decl, used used)
-	a in used.funs
--in bool(a struct-decl, used used)
-	a in used.structs
--in bool(a spec-decl, used used)
-	a in used.specs
+-subscript bool(a used, x fun-decl)
+	a.funs[x]
+-subscript bool(a used, x struct-decl)
+	a.structs[x]
+-subscript bool(a used, x spec-decl)
+	a.specs[x]
 
 -gather-used used(common-types common-types, module crow-module)
 	funs fun-decl mut-set = ()
@@ -114,7 +115,7 @@ ok-if-unused bool(a fun-decl)
 	unused-locals local mut-set = ()
 	unused-mut-locals local mut-set = ()
 
-	common-types walk-module module, (_, kind, ref) =>
+	common-types walk-module module, of _, kind, ref
 		match ref
 		as doc-comment-reference-bogus
 			()
@@ -157,25 +158,19 @@ ok-if-unused bool(a fun-decl)
 
 -has bool(module module, used used)
 	exports = module public-and-internal-exports
-	exports.funs exists (x => x in used) or
-	exports.structs-and-aliases exists (x => x in used) or
-	exports.specs exists x => x in used
--in bool(a struct-or-alias, used used)
-	match a
+	exports.funs exists used[it] or
+	exports.structs-and-aliases exists used[it] or
+	exports.specs exists used[it]
+-subscript bool(a used, sa struct-or-alias)
+	match sa
 	as struct-decl x
-		x in used
+		a[x]
 	as struct-alias x
-		x.target.decl in used
+		a[x.target decl]
 
 -has-for-name bool(module module, name symbol, used used)
 	exports = module public-and-internal-exports
-	a = exports.funs[name] exists x => x in used
-	b = if x ?= exports.structs-and-aliases[name]
-		match x
-		as struct-decl s
-			s in used
-		as struct-alias s
-			s.target.decl in used
-	c = if x ?= exports.specs[name]
-		x in used
-	a or b or c or name == "compare" or name == "equal" # 'equal' and 'compare' are needed when checking certain auto-funs
+	exports.funs[name] exists used[it] or
+	x ?= exports.structs-and-aliases[name] and used[x] or
+	x ?= exports.specs[name] and used[x] or
+	name == "compare" or name == "equal" # 'equal' and 'compare' are needed when checking certain auto-funs

@@ -29,7 +29,7 @@ check-bootstrap (crow-module, common-types)
 	common-uris common-uris
 	uri-and-ast uri-and-ast
 do
-	show-ctx check-worker all-insts, common-uris, (), uri-and-ast, (ctx, structs-and-aliases-map) =>
+	show-ctx check-worker all-insts, common-uris, (), uri-and-ast, of ctx, structs-and-aliases-map
 		ctx.instantiate-ctx get-common-types ctx.diagnostics-builder, structs-and-aliases-map
 
 check crow-module
@@ -40,7 +40,7 @@ check crow-module
 	imports resolved-import[]
 	common-types common-types
 do
-	module, _ = show-ctx check-worker all-insts, common-uris, imports, uri-and-ast, (_ => common-types)
+	module, _ = show-ctx check-worker all-insts, common-uris, imports, uri-and-ast, (of _ then common-types)
 	module
 
 -get-builtin-spec builtin-spec?(ctx check-ctx, range source-range, name symbol)
@@ -95,7 +95,7 @@ do
 		decl overwrite-parents-to-empty
 -recur-detect-spec-recursion bool(cur spec-decl, trace spec-decl mut[])
 	cur.parents !is-empty and trace.size >= max-spec-depth or
-	cur.parents.inner exists parent =>
+	cur.parents.inner exists of parent
 		trace ~= parent decl
 		if parent.decl recur-detect-spec-recursion trace
 			true
@@ -136,8 +136,9 @@ do
 			out ~= x
 		for x in aliases
 			out ~= x
-	xs to-by-name (_, y) =>
-		ctx add-diag-assert-same-uri y.name-range, (struct-or-alias diag-duplicate-declaration y.name)
+	xs to-by-name of _, y
+		ctx add-diag-assert-same-uri y.name-range,
+			struct-or-alias diag-duplicate-declaration y.name
 
 -check-var-initial var-decl(ctx check-ctx, types types-get, ast var-decl-ast)
 	type = ctx type-from-ast-no-type-params types, ast.type
@@ -221,8 +222,9 @@ do
 	vars var-decl[] = for x in ast vars
 		ctx check-var-initial types-get, x
 	specs = ctx check-spec-decls-initial ast.specs
-	specs-map = specs to-by-name (_, y) =>
-		ctx add-diag-assert-same-uri y.range, (spec_ diag-duplicate-declaration y.name)
+	specs-map = specs to-by-name of _, y
+		ctx add-diag-assert-same-uri y.range,
+			spec_ diag-duplicate-declaration y.name
 	ts types-and-specs = types-get, specs-map
 	ctx check-spec-bodies ts, ast.specs, specs
 	funs-and-map = ctx check-funs ts, structs, vars, imports-and-re-exports.file-imports, imports-and-re-exports.file-exports, ast.funs, ast.tests
@@ -297,14 +299,16 @@ do
 
 	public-and-internal-exports exports =
 		funs: exported-funs move-to
-		structs-and-aliases: exported-types move-to-by-name (_, y) =>
-			ctx add-diag-assert-same-uri y.range, (type diag-duplicate-exports y.name)
-		specs: exported-specs move-to-by-name (_, y) =>
-			ctx add-diag-assert-same-uri y.range, (type diag-duplicate-exports y.name)
+		structs-and-aliases: exported-types move-to-by-name of _, y
+			ctx add-diag-assert-same-uri y.range,
+				type diag-duplicate-exports y.name
+		specs: exported-specs move-to-by-name of _, y
+			ctx add-diag-assert-same-uri y.range,
+				type diag-duplicate-exports y.name
 	public-exports exports =
-		funs: public-and-internal-exports.funs filter x => x.visibility == public
-		structs-and-aliases: public-and-internal-exports.structs-and-aliases filter x => x.visibility == public
-		specs: public-and-internal-exports.specs filter x => x.visibility == public
+		funs: public-and-internal-exports.funs filter it.visibility == public
+		structs-and-aliases: public-and-internal-exports.structs-and-aliases filter it.visibility == public
+		specs: public-and-internal-exports.specs filter it.visibility == public
 	public-exports, public-and-internal-exports
 
 -check-worker (crow-module, common-types)
@@ -385,22 +389,22 @@ do
 do
 	imports import-or-export mut[] = ()
 	file-imports import-or-export-file mut[] = ()
-	next-resolved-import resolved-import mut() = () =>
+	next-resolved-import resolved-import mut() = of
 		res = resolved-imports.get[0]
 		resolved-imports set resolved-imports.get[1 .. end]
 		res
 
 	if include-std
-		diags-builder handle-module-import imports, next-resolved-import[], (), public, _ => ()
+		diags-builder handle-module-import imports, next-resolved-import[], (), public, of _ then ()
 
 	if a ?= ast
 		for import-ast in a paths
 			import-visibility = import-ast import-min-visibility
 			match import-ast kind
 			as import-whole-module-ast _
-				diags-builder handle-module-import imports, next-resolved-import[], import-ast, import-visibility, _ => ()
+				diags-builder handle-module-import imports, next-resolved-import[], import-ast, import-visibility, of _ then ()
 			as array names
-				diags-builder handle-module-import imports, next-resolved-import[], import-ast, import-visibility, x =>
+				diags-builder handle-module-import imports, next-resolved-import[], import-ast, import-visibility, of x
 					x.named-imported := diags-builder check-named-imports import-visibility, x.module, names
 			as import-file-ast _
 				match next-resolved-import[]
@@ -447,11 +451,11 @@ do
 	if set.size != names.size
 		assert set.size < names.size
 		for name in names
-			if (names count x => x.name == name.name) != 1
+			if (names count it.name == name.name) != 1
 				diags-builder ~= name.range, name.name.diag-duplicate-import-name
 	for name in set
 		if name !in exports.funs and name !in exports.structs-and-aliases and name !in exports.specs
-			ast = names find! x => x.name == name
+			ast = names find! it.name == name
 			diags-builder ~= ast.range, name.diag-import-refers-to-nothing
 	funs: exports.funs choose-keys set
 	structs-and-aliases: exports.structs-and-aliases choose-keys set

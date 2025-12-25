@@ -58,7 +58,7 @@ do
 	as assert-or-forbid-ast x
 		ctx check-assert-or-forbid x, expected
 	as assignment-ast x
-		ctx check-assignment x, x.left, x.keyword-range, expected, right-expected =>
+		ctx check-assignment x, x.left, x.keyword-range, expected, of right-expected
 			ctx check-expr x.right, right-expected
 	as assignment-call-ast x
 		ctx check-assignment-call x, expected
@@ -162,12 +162,12 @@ do
 	destructures = condition condition-destructures
 	is-negated = ast is-condition-negated
 	empty-new-range = ast first-keyword-range
-	first-branch = ctx with-extern-from-condition condition, is-negated, () =>
+	first-branch = ctx with-extern-from-condition condition, is-negated, of
 		ctx check-expr-with-destructures-or-empty-new ast, \
 			(!is-negated and destructures), ast.first-branch, empty-new-range, expected
 	if is-inference-log-enabled
 		error log "check-if after first branch: expected is {expected debug}"
-	second-branch = ctx with-extern-from-condition condition, !is-negated, () =>
+	second-branch = ctx with-extern-from-condition condition, !is-negated, of
 		ctx check-expr-with-destructures-or-empty-new ast, \
 			(is-negated and destructures), ast.second-branch, empty-new-range, expected
 	ast if-expr condition, (is-negated and second-branch else first-branch), (is-negated and first-branch else second-branch), expected.inferred
@@ -187,7 +187,7 @@ do
 
 -check-force expr(ctx expr-ctx, ast force-ast, expected expected)
 	is-option mut = true
-	arg = ctx check-with-modify-expected-option ast.arg, expected, actual =>
+	arg = ctx check-with-modify-expected-option ast.arg, expected, of actual
 		is-option := false
 		ctx add-diag ast.keyword-range, actual.diag-option-force-non-option
 	is-option and ast force-expr arg else arg
@@ -200,10 +200,9 @@ do
 		ctx add-diag ast.range, throw_::diag-needs-expected-type
 		expected bogus ast.range
 
--check-trusted expr(ctx expr-ctx, ast trusted-ast, expected expected)
-	inner = ctx with-trusted ast, () =>
+-check-trusted trusted-expr(ctx expr-ctx, ast trusted-ast, expected expected)
+	ast, do ctx with-trusted ast, of
 		ctx check-expr ast.inner, expected
-	ast trusted-expr inner
 
 -check-extern expr(ctx expr-ctx, ast extern-ast, expected expected)
 	unless ctx check-can-do-unsafe
@@ -227,9 +226,9 @@ do
 	thrown expr? = if thrown-ast ?= ast thrown
 		if x ?= thrown-ast.expr throw-ast
 			ctx add-diag x.keyword-range, diag-assert-or-forbid-message-is-throw
-		ctx with-extern-from-condition condition, !is-forbid, () =>
+		ctx with-extern-from-condition condition, !is-forbid, of
 			ctx check-expr-with-destructures (is-forbid and destructures), thrown-ast.expr, ctx.common-types.exception.expect	
-	after = ctx with-extern-from-condition condition, is-forbid, () =>
+	after = ctx with-extern-from-condition condition, is-forbid, of
 		ctx check-expr-with-destructures (!is-forbid and destructures), ast.after, expected
 	ast assert-or-forbid-expr is-forbid, condition, thrown, after
 
@@ -253,7 +252,7 @@ do
 		else
 			()
 		if x ?= name
-			ctx check-call-special-cb-n source, keyword-range, x, expected, left-call.args.size + 1, (i, arg-expected) =>
+			ctx check-call-special-cb-n source, keyword-range, x, expected, left-call.args.size + 1, of i, arg-expected
 				if i == left-call.args.size
 					cb-right[arg-expected]
 				else
@@ -266,14 +265,14 @@ do
 		expected bogus source.range
 
 -check-assignment-call expr(ctx expr-ctx, ast assignment-call-ast, expected expected)
-	ctx check-assignment ast, ast.left, ast.keyword-range, expected, arg-expected =>
+	ctx check-assignment ast, ast.left, ast.keyword-range, expected, of arg-expected
 		ctx check-call-special ast, ast.fun-name.range, ast.fun-name.name, (ast.left, ast.right), arg-expected
 
 -check-empty-new expr(ctx expr-ctx, source call-expr-source, range source-range, expected expected)
 	ctx check-call-special source, range, "new", (), expected
 
 -check-interpolated expr(ctx expr-ctx, ast interpolated-ast, expected expected)
-	ctx check-call-special-cb-n ast, ast.range[0 .. 1], "interpolate", expected, ast.parts.size, (i, arg-expected) =>
+	ctx check-call-special-cb-n ast, ast.range[0 .. 1], "interpolate", expected, ast.parts.size, of i, arg-expected
 		match ast.parts[i]
 		as literal-string-ast x
 			ctx check-literal-string x, arg-expected
@@ -286,7 +285,7 @@ do
 	i mut = ctx.lambdas size
 	loop
 		if i == 0
-			break if index ?= ctx.locals find-index x => x.name == name
+			break if index ?= ctx.locals find-index it.name == name
 				local = ctx.locals[index]
 				i := ctx.lambdas size
 				until i == 0 or index >= ctx.lambdas[i - 1].first-local-index
@@ -295,7 +294,7 @@ do
 				local
 		else
 			lambda = ctx.lambdas[i - 1]
-			if local ?= lambda.closure find x => x.name == name
+			if local ?= lambda.closure find it.name == name
 				for j in i .. ctx.lambdas.size
 					ctx add-to-closure diag-range, ctx.lambdas[j], local
 				break local
@@ -304,7 +303,7 @@ do
 				continue
 
 -add-to-closure void(ctx expr-ctx, diag-range source-range, lambda lambda-info, local local)
-	forbid lambda.closure exists x => x.name == local.name # RM -----------------------------------------------------------------------
+	forbid lambda.closure exists it.name == local.name # RM -----------------------------------------------------------------------
 	lambda.closure ~= local
 	local.is-used-in-closure := true
 	ctx check-lambda-can-reference-local diag-range, lambda.kind, local
@@ -424,7 +423,7 @@ integral-types integral-type[]()
 	elif type-index == 1
 		range literal-integral-expr char32, ((ctx char32-literal-value range, value).to,)
 	else
-		check-no-nul string mut(diag diag-string-literal-invalid) = diag =>
+		check-no-nul string mut(diag diag-string-literal-invalid) = of diag
 			if index ?= value.to::char8[] index-of "\0"
 				ctx add-diag range, diag
 				(value.to::char8[])[0 .. index] to
@@ -495,7 +494,7 @@ do
 			ctx add-locals-for-destructure part
 
 -add-local void(ctx expr-ctx, local local)
-	if ctx.locals exists x => x.name == local.name
+	if ctx.locals exists it.name == local.name
 		ctx add-diag local.local-must-have-name-range, (param-or-local diag-duplicate-declaration local.name)
 	ctx.locals ~= local
 -restore-locals void(ctx expr-ctx, size nat)
@@ -507,9 +506,9 @@ do
 		local.closure-reference-type := ctx.common-types.reference[local type]
 
 -check-shared expr(ctx expr-ctx, ast shared-ast, expected expected)
-	diag void mut(diag diag) = diag =>
+	diag void mut(diag diag) = of diag
 		ctx add-diag ast.keyword-range, diag
-	diag-bogus expr mut(diag diag) = x =>
+	diag-bogus expr mut(diag diag) = of x
 		ctx add-diag ast.keyword-range, x
 		expected bogus ast.range
 
@@ -531,7 +530,7 @@ do
 	if ctx.specs !is-shared res.return-type
 		diag[return-type diag-shared-lambda-type-is-not-shared (ctx type-with-container res.return-type)]
 	
-	all-shared = res.expr.lambda-expr!.closure every x =>
+	all-shared = res.expr.lambda-expr!.closure every of x
 		x.mutability == immut and ctx.specs is-shared x.type
 	if all-shared
 		diag[diag-shared-lambda-unused]
@@ -674,7 +673,7 @@ do
 	bool =  common-types bool
 	match ast kind
 	as else_
-		left = ctx check-with-modify-expected-option ast.left, expected, actual =>
+		left = ctx check-with-modify-expected-option ast.left, expected, of actual
 			ctx add-diag ast.keyword-range, actual.diag-option-else-left-non-option
 		right = ctx check-expr ast.right, expected
 		ast, option-else, expected.inferred, left, right
@@ -704,7 +703,7 @@ do
 	outer expected
 	warn-non-option void mut(actual type-with-container)
 do
-	ctx check-with-modify-expected outer, (t => ctx.common-types.option[t]), inner =>
+	ctx check-with-modify-expected outer, ctx.common-types.option[it], of inner
 		arg = ctx check-expr ast, inner
 		arg-type = arg type ctx.common-types
 		un-option = arg-type try-unwrap-option-type else
@@ -750,7 +749,7 @@ do
 	# Use an arbitrary non-matchable inst as default
 	inst = matched-type struct-inst else ctx.common-types void
 	decl = inst decl
-	not-matchable expr mut() = () =>
+	not-matchable expr mut() = of
 		if matched-type !is-bogus
 			ctx add-diag ast.matched.range, (ctx type-with-container matched-type).diag-match-on-non-matchable
 		expected bogus ast.matched
@@ -831,7 +830,7 @@ do
 			ctx add-diag x.keyword-range, diag-match-unnecessary-else
 		()
 	else
-		ctx check-match-else-required ast, expected, matched-type, () =>
+		ctx check-match-else-required ast, expected, matched-type, of
 			remaining.to diag-match-unhandled-enum-members
 	ast match-enum-expr matched, cases, else_, expected.inferred
 
@@ -851,15 +850,16 @@ do
 				ctx add-diag x.keyword-range, diag-match-unnecessary-else
 			()
 		else
-			ctx check-match-else-required ast, expected, sum-type, () =>
+			ctx check-match-else-required ast, expected, sum-type, of
 				(sum-type list-missing-union-cases body, cases) diag-match-unhandled-union-case-types
 	else
-		ctx check-match-else-required ast, expected, sum-type, () => variant_::diag-match-needs-else
+		ctx check-match-else-required ast, expected, sum-type, of
+			variant_::diag-match-needs-else
 	ast match-sum-type-expr matched, cases, else_, expected.inferred
 -list-missing-union-cases struct-inst[](union_ struct-inst, body sum-type, cases match-sum-type-case[])
 	for* member in body listed-members
 		member-inst = member.member instantiate-struct-inst union_.type-args.inner
-		if cases !exists x => x.case-type == member-inst
+		if cases !exists it.case-type == member-inst
 			- member-inst
 
 -check-match-sum-type-cases match-sum-type-case[]
@@ -888,9 +888,8 @@ do
 	as-name = ctx name-from-case-member-ast member-ast
 	name = as-name?.name?.name
 	opt-case-type struct-inst? = if n ?= name
-		ctx get-sum-type-case-from-name matched-variant, n, member-ast.name-range, () =>
-			if d ?= as-name?.destructure
-				ctx type-from-destructure d
+		ctx get-sum-type-case-from-name matched-variant, n, member-ast.name-range, of
+			d ?= as-name?.destructure and ctx type-from-destructure d
 	guard case-type ?= opt-case-type
 	
 	destructure = if ast ?= member-ast.as-name-ast!.destructure
@@ -915,8 +914,8 @@ do
 	match sa
 	as struct-alias alias_
 		target = alias_ target
-		is-listed = listed-members exists x => x.member == target
-		has-membership = target.decl.sum-type-memberships exists x => x.sum-type == sum-type
+		is-listed = listed-members exists it.member == target
+		has-membership = target.decl.sum-type-memberships exists it.sum-type == sum-type
 		if is-listed or has-membership
 			target
 		else
@@ -924,13 +923,12 @@ do
 			()
 	as struct-decl decl
 		# TODO: NEATER -------------------------------------------------------------------------------------------------------------------
-		from-listed struct-inst? = listed-members first x =>
-			if x.member.decl == decl
-				x.member instantiate-struct-inst sum-type.type-args.inner
+		from-listed struct-inst? = listed-members first of x
+			x.member.decl == decl and x.member instantiate-struct-inst sum-type.type-args.inner
 		if x ?= from-listed
 			x
 		else
-			from-membership = decl.sum-type-memberships first x =>
+			from-membership = decl.sum-type-memberships first of x
 				ctx compare-sum-types name-range, decl, x.sum-type, sum-type, expected-member-type
 			if res ?= from-membership
 				match res
@@ -955,14 +953,14 @@ do
 	expected-case-type type? mut()
 do
 	guard declared-sum-type.decl == actual-sum-type.decl
-	case_.n-type-params with-type-context-for inferring-context =>
+	case_.n-type-params with-type-context-for of inferring-context
 		inferring-declared-sum-type type-and-context = declared-sum-type, inferring-context
 		guard inferring-declared-sum-type match-types actual-sum-type.non-inferring, exact
-		if inferring-context exists x => !(_ ?= x)
+		if inferring-context exists !(_ ?= it)
 			if t ?= expected-case-type[]
 				# Just using this for inference
 				_ = (case_.instantiated-with-own-type-params, inferring-context) match-types t.non-inferring, exact
-		if inferred-types ?= (inferring-context map-every x => x?.type)::type[]?
+		if inferred-types ?= (inferring-context map-every it?.type)::type[]?
 			case_[inferred-types]
 		else
 			ctx add-diag range, case_.diag-match-sum-type-cant-infer-type-args
@@ -990,7 +988,8 @@ do
 				out ~= value, do ctx check-expr case-ast.then_, expected
 			else
 				ctx add-diag case-ast.name-range, string-value::diag-match-case-duplicate
-	else_ = ctx check-match-else-required ast, expected, matched-type, () => integral::diag-match-needs-else
+	else_ = ctx check-match-else-required ast, expected, matched-type, of
+		integral::diag-match-needs-else
 	ast match-integral-expr char-type, matched, cases, else_, expected.inferred
 
 -check-match-integral expr
@@ -1024,7 +1023,8 @@ do
 						value.as-signed::diag-match-case-duplicate
 					else
 						value.as-unsigned::diag-match-case-duplicate
-	else_ = ctx check-match-else-required ast, expected, matched-type, () => integral::diag-match-needs-else
+	else_ = ctx check-match-else-required ast, expected, matched-type, of
+		integral::diag-match-needs-else
 	ast match-integral-expr integral-type, matched, cases, else_, expected.inferred
 
 -get-matchable-string-like-from-record string-like-type?(common-types common-types, inst struct-inst)
@@ -1059,7 +1059,8 @@ do
 					out ~= value, do ctx check-expr case-ast.then_, expected
 				else
 					ctx add-diag case-ast.name-range, value::diag-match-case-duplicate
-	else_ = ctx check-match-else-required ast, expected, matched-type, () => string-like::diag-match-needs-else
+	else_ = ctx check-match-else-required ast, expected, matched-type, of
+		string-like::diag-match-needs-else
 	ast match-string-like-expr string-type, matched, equals, cases, else_, expected.inferred
 
 -check-match-else-required match-else
