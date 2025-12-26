@@ -38,82 +38,34 @@ parse-fun-expr-body expr-ast(lexer lexer)
 				out ~= lexer parse-expr-and-calls ctx
 
 -peek-token-expression bool(lexer lexer, allowed-block bool)
-	lexer.get-peek-token-and-data is-expression-start-token allowed-block
-
--is-expression-start-token bool(a token-and-data, allowed-block bool)
-	match a.token
-	as assert_
-		true
-	as bang
-		true
-	as bracket-left
-		true
-	as break_
-		true
-	as continue_
-		true
-	as do_
-		true
-	as extern_
-		true
-	as forbid_
-		true
-	as guard_
-		true
-	as if_
-		true
-	as it_
-		true
-	as finally_
-		true
-	as for_
-		true
-	as for-star
-		true
-	as literal-float
-		true
-	as literal-integral
-		true
-	as loop_
-		true
-	as match_
-		true
-	as name
-		true
-	as name-after-bang
-		true
-	as name-bang
-		true
+	match lexer get-peek-token
+	as and_
+		false
+	as else_
+		false
+	as brace-right
+		false
+	as bracket-right
+		false
+	as catch_
+		false
+	as end-of-file
+		false
+	as paren-right
+		false
 	as newline-indent
 		allowed-block
-	as of_
-		true
-	as paren-left
-		true
-	as quote-bar
-		true
-	as quote-double
-		true
-	as quote-double3
-		true
-	as shared_
-		true
-	as throw_
-		true
-	as trusted_
-		true
-	as try_
-		true
-	as underscore
-		true
-	as unless_
-		true
-	as with_
-		true
-	as operator
-		a.as-symbol is-prefix-unary-operator
-	else
+	as newline-dedent
 		false
+	as newline-same-indent
+		false
+	as or_
+		false
+	as then_
+		false
+	else
+		true
+
 -is-prefix-unary-operator bool(a symbol)
 	a == "-" or a == "~"
 
@@ -139,7 +91,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	elif comma-precedence > precedence and lexer try-take-token comma
 		args = lexer parse-args (arg-ctx require-precedence-gt comma-precedence), lhs
 		range = lexer range start
-		res = args with-it-scope of args2
+		res = with args2 in args it-scope
 			range call-ast comma, before-call, (range.start, "new"), args2, ()
 		lexer parse-calls start, res, arg-ctx
 	elif and-precedence > precedence and lexer.get-peek-token == and_
@@ -206,7 +158,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 			args.size is 2
 			fun-name assignment-call-ast args[0], args[1]
 	else
-		args with-it-scope-if precedence > 0, of args2
+		with args2 in args it-scope-if precedence > 0
 			lexer range start call-ast infix, 0, fun-name, args2, type-arg
 	res = if fun-token == name-after-bang
 		lexer range start make-augment fun-name.range.start - 1, "not", expr
@@ -322,41 +274,44 @@ parse-fun-expr-body expr-ast(lexer lexer)
 		lexer must-take-token token
 		lexer parse-subscript initial, dot-pos, token == question-bracket
 	elif token == colon2
-		lexer try-parse-dots-and-subscripts do initial with-it-scope of initial2
+		lexer try-parse-dots-and-subscripts with initial2 in initial it-scope
 			lexer must-take-token colon2
 			type = lexer parse-type-for-typed-expr
 			initial2 typed-ast dot-pos, type
 	elif token == bang
-		lexer try-parse-dots-and-subscripts do initial with-it-scope of initial2
+		lexer try-parse-dots-and-subscripts with initial2 in initial it-scope
 			lexer must-take-token bang
 			initial2 force-ast dot-pos
 	else
 		initial
 
-# TODO: use a with-block --------------------------------------------------------------------------------------------------------------------------------------
--with-it-scope-if expr-ast(inner expr-ast[], ok bool, f expr-ast mut(inner expr-ast[]))
-	if ok and inner exists (_ ?= it.it-scope-ast::it-scope-ast?)
-		f[inner map of x then x.it-scope-ast?.inner else x] it-scope-ast
+-it-scope-if record(args expr-ast[], allow-it bool)
+-it-scope it-scope-if(args expr-ast[])
+	args, true
+-with-block expr-ast(a it-scope-if, f expr-ast mut(args expr-ast[]))
+	if a.allow-it and a.args exists (_ ?= it.it-scope-ast::it-scope-ast?)
+		f[a.args map of x then x.it-scope-ast?.inner else x] it-scope-ast
 	else
-		f[inner]
--with-it-scope expr-ast(inner expr-ast[], f expr-ast mut(inner expr-ast[]))
-	inner with-it-scope-if true, f
--with-it-scope expr-ast(inner expr-ast, f expr-ast mut(inner expr-ast))
-	match inner
+		f[a args]
+-it-scope-single record(arg expr-ast)
+-it-scope it-scope-single(arg expr-ast)
+	- arg
+-with-block expr-ast(a it-scope-single, f expr-ast mut(arg expr-ast))
+	match a arg
 	as it-scope-ast x
 		f[x inner] it-scope-ast
 	else
-		f[inner]
+		f[a arg]
 
 -handle-dot-or-question-dot expr-ast(lexer lexer, initial expr-ast, start pos, dot-pos pos, is-question-dot bool)
 	call expr-ast mut(name name-and-range, type-arg type-ast?) = of name, type-arg
-		initial with-it-scope of initial2
+		with initial2 in initial it-scope-single
 			(lexer range start) call-ast (is-question-dot and question-dot else dot), dot-pos, name, (initial2,), type-arg
 	lexer try-parse-dots-and-subscripts if lexer peek-token name-bang
 		name-start = lexer cur-pos
 		name name-and-range = name-start, lexer.get-peek-token-and-data.as-symbol
 		lexer must-take-token name-bang
-		call[name, ()] with-it-scope of x
+		with x in call[name, ()] it-scope
 			x force-ast name.range.end
 	elif name ?= lexer try-take-name-and-range-or-diag
 		call[name, lexer.try-parse-type-arg-for-expr]
@@ -370,7 +325,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 		res = lexer parse-expr-no-block
 		_ = lexer take-or-add-diag-expected-token bracket-right, closing-bracket
 		res
-	expr = (initial, arg) with-it-scope of args
+	expr = with args in (initial, arg) it-scope
 		:: call-ast
 		range: lexer range initial.range.start
 		style: is-question-bracket and question-subscript else subscript
@@ -561,7 +516,7 @@ do
 		quote = lexer parse-string start, double3, of then lexer parse-expr-no-block
 		lexer try-parse-dots-and-subscripts quote
 	as bang
-		lexer parse-expr-before-call false with-it-scope of inner
+		with inner in lexer parse-expr-before-call false it-scope
 			lexer range start call-ast prefix-bang, 0, (start, "not"), (inner,), ()
 	as break_
 		start loop-break-ast if lexer peek-end-of-line
@@ -595,7 +550,7 @@ do
 			(start + 1).it-ast it-scope-ast
 		else
 			start + 1 name-and-range name
-		inner with-it-scope of inner2
+		with inner2 in inner it-scope
 			lexer range start call-ast prefix-bang, start, (start, "not"), (inner2,), ()
 	as name-bang
 		lexer try-parse-dots-and-subscripts
@@ -647,7 +602,7 @@ do
 	lexer skip-rest-of-line-and-return-bogus-no-diag start
 
 -handle-prefix-unary-operator expr-ast(lexer lexer, allowed-block bool, start pos, operator symbol)
-	lexer parse-expr-before-call allowed-block with-it-scope of arg
+	with arg in lexer parse-expr-before-call allowed-block it-scope
 		lexer range start call-ast prefix-operator, 0, (start, operator), (arg,), ()
 
 -parse-extern expr-ast(lexer lexer, start pos)
@@ -681,7 +636,7 @@ do
 		lexer add-diag left.range, parse-diag-question-equals-left
 		(left.start, "_") single-destructure-ast (), ()
 	right = lexer parse-expr-and-calls do arg-ctx require-precedence-gt and-precedence
-	right with-it-scope of r
+	with r in right it-scope
 		l unpack-option-ast question-equal-pos, r
 
 -to-destructure destructure-ast?(a expr-ast)

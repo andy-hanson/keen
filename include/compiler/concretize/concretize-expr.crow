@@ -467,8 +467,9 @@ do
 		The function concretize-complex-condition just handles the true part of this.
 		###
 		option-type = ctx get-concrete-type ctx.common-types.option[a type ctx.common-types]
-		option-true-branch = ctx concretize-complex-condition option-type, range, a.condition, (of then ctx concretize-expr option-type, a.true-branch),
-			of then ctx.concretize-ctx gen-empty-option option-type, range
+		option-true-branch = ctx concretize-complex-condition option-type, range, a.condition,
+			true-branch: of then ctx concretize-expr option-type, a.true-branch
+			false-branch: of then ctx.concretize-ctx gen-empty-option option-type, range
 		false-branch = ctx concretize-expr type, a.false-branch
 		type gen-option-else range, option-true-branch, false-branch
 
@@ -483,27 +484,29 @@ Compiles to code like:
 	else
 		false-branch
 ###
+-branches record mut
+	true-branch concrete-expr mut()
+	false-branch concrete-expr mut()
+| WARN: This duplicates the false branch.
 -concretize-complex-condition concrete-expr
 	ctx concretize-expr-ctx
 	result-type concrete-type
 	range uri-and-range
 	a expr
-	# This expression should be of type 'option-type' and the value should be a non-empty option.
-	true-branch concrete-expr mut()
-	# WARN: This code will end up repeated
-	false-branch concrete-expr mut()
+	# Both branches should have type {result-type}.
+	branches branches
 do
 	if x ?= a if-expr and x.ast.kind == and_
 		inner concrete-expr mut() = of
-			ctx concretize-complex-condition result-type, range, x.first-branch, true-branch, false-branch
-		ctx concretize-complex-condition result-type, range, x.condition, inner, false-branch
+			ctx concretize-complex-condition result-type, range, x.first-branch, branches
+		ctx concretize-complex-condition result-type, range, x.condition, (inner, branches.false-branch)
 	elif unpack ?= a unpack-option
 		option = ctx concretize-expr unpack.option
-		true_ = ctx concretize-with-destructure result-type, range, unpack.destructure, true-branch
-		range gen-if-option option, true_, false-branch[]
+		true_ = ctx concretize-with-destructure result-type, range, unpack.destructure, branches.true-branch
+		range gen-if-option option, true_, branches.false-branch[]
 	else
 		condition = ctx concretize-expr ctx.bool-type, a
-		range gen-if condition, true-branch[], false-branch[]
+		range gen-if condition, branches.true-branch[], branches.false-branch[]
 
 -gen-option-else concrete-expr
 	type concrete-type
@@ -717,11 +720,12 @@ do
 					break
 			after
 			###
-			true-branch concrete-expr mut() = of
-				body = ctx concretize-expr void.type, expr.body
-				void.type gen-do-and-continue range, body
-			loop-body = ctx concretize-complex-condition void.type, range, expr.condition, true-branch, of
-				range gen-break void
+			loop-body = ctx concretize-complex-condition void.type, range, expr.condition,
+				true-branch: of
+					body = ctx concretize-expr void.type, expr.body
+					void.type gen-do-and-continue range, body
+				false-branch: of
+					range gen-break void
 			loop_ = void.type gen-loop range, loop-body
 			range gen-seq loop_, do ctx concretize-expr type, expr.after
 	else
@@ -778,19 +782,20 @@ do
 		concrete-tuple-type.source.concrete-type-source-inst! type-args
 	local-types.size is model-locals.size
 	concrete-locals mut concrete-local[] = ()
-	true_ concrete-expr mut() = of
-		concrete-locals := for local in model-locals then ctx.locals[local]! concrete-local!
-		exprs concrete-expr[] = for type, local in local-types zip model-locals
-			ctx concretize-local-get type, range, local
-		tuple-expr concrete-expr = if model-locals.size == 0
-			ctx.concretize-ctx gen-void range
-		elif model-locals.size == 1
-			exprs only
-		else
-			ctx.concretize-ctx gen-create-record concrete-tuple-type, range, exprs
-		ctx.concretize-ctx gen-option concrete-tuple-option, range, tuple-expr
-	expr = ctx concretize-complex-condition concrete-tuple-option, range, a, true_, of
-		ctx.concretize-ctx gen-empty-option concrete-tuple-option, range
+	expr = ctx concretize-complex-condition concrete-tuple-option, range, a,
+		true-branch: of
+			concrete-locals := for local in model-locals then ctx.locals[local]! concrete-local!
+			exprs concrete-expr[] = for type, local in local-types zip model-locals
+				ctx concretize-local-get type, range, local
+			tuple-expr concrete-expr = if model-locals.size == 0
+				ctx.concretize-ctx gen-void range
+			elif model-locals.size == 1
+				exprs only
+			else
+				ctx.concretize-ctx gen-create-record concrete-tuple-type, range, exprs
+			ctx.concretize-ctx gen-option concrete-tuple-option, range, tuple-expr
+		false-branch: of
+			ctx.concretize-ctx gen-empty-option concrete-tuple-option, range
 	model-locals: model-locals
 	locals: concrete-locals
 	tuple-option: concrete-tuple-option
