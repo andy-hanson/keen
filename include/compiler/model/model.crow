@@ -2409,13 +2409,13 @@ mutability enum(immut, mut_) nat8 storage
 
 destructure union(destructure-ignore, local, destructure-split)
 to json(a destructure)
-| This can come from '_' or '()' (which is the same as '_ void')
-# TODO: isn't 'pos' redundant to the source? ------------------------------------------------------------------------------------
-destructure-ignore record(source destructure-ignore-source, pos pos, type type)
+destructure-ignore record(source destructure-ignore-source, type type)
 to json(a destructure-ignore)
-	pos: a.pos to
 	type: a.type to
-destructure-ignore-source union(case-member-ast, struct-decl, single-destructure-ast, void-destructure-ast)
+| A {case-member-ast} may implicitly ignore the value: 'as foo' is equivalent to 'as foo _' (but may have a diagnostic for a non-empty type).
+| {struct-decl} only comes up from generated code.
+| {void-destructure-ast} is treated as a 'destructure-ignore' in the model since it behaves the same as '_ void'.
+destructure-ignore-source union(case-member-ast, struct-decl, ignore-destructure-ast, void-destructure-ast)
 destructure-split record
 	| This will be the type attempted to destructure.
 	| If it can't be destructured, each of 'parts' will have a bogus type.
@@ -2423,8 +2423,7 @@ destructure-split record
 	parts destructure[]
 to json(a destructure-split)
 is-valid-destructure bool(a destructure-split, common-types common-types)
-	if types ?= common-types as-tuple a.destructured-type
-		types.size == a.parts.size
+	types ?= common-types as-tuple a.destructured-type and types.size == a.parts.size
 
 name symbol?(a destructure)
 	match a
@@ -2437,13 +2436,23 @@ name symbol?(a destructure)
 range source-range(a destructure)
 	match a
 	as destructure-ignore x
-		x.pos range-of-start-and-length "_"
+		match x source
+		as case-member-ast _
+			()
+		as struct-decl _
+			()
+		as ignore-destructure-ast ast
+			ast range
+		as void-destructure-ast ast
+			ast range
 	as local x
 		x local-must-have-range
 	as destructure-split x
-		x.parts[0].range combine-ranges x.parts[end - 1].range
+		x.parts[0].start, x.parts[end - 1].end
 start pos(a destructure)
 	a.range start
+end pos(a destructure)
+	a.range end
 type type(a destructure)
 	match a
 	as destructure-ignore x
@@ -2985,15 +2994,20 @@ to json(a string-like-type)
 type struct-inst(a literal-string-like-expr, common-types common-types?)
 	common-types![a string-type]
 
-local-get-expr record(range source-range, local local)
+local-get-expr record(ast local-get-source, local local)
+local-get-source union(it-ast, name-and-range)
+	range source-range()
 to json(a local-get-expr)
+	local: a.local.name.to
+range source-range(a local-get-expr)
+	a.ast range
 type type(a local-get-expr)
 	a.local type
 
-local-set-expr record(assignee-range source-range, local local, value expr)
+local-set-expr record(assignee-ast name-and-range, local local, value expr)
 to json(a local-set-expr)
 range source-range(a local-set-expr)
-	a.assignee-range combine-ranges a.value.range
+	a.assignee-ast.start, a.value.end
 
 logical-expr record
 	ast logical-ast
@@ -3401,7 +3415,6 @@ diag union
 	diag-literal-multiple-match
 	diag-literal-not-expected
 	diag-literal-overflow
-	diag-local-ignored-but-mutable
 	diag-local-not-mutable
 	diag-loop-break-or-continue-outside-loop
 	diag-loop-disallowed-body
@@ -3607,7 +3620,6 @@ diag-literal-float-accuracy record(type float-type)
 diag-literal-multiple-match record(type-container type-container, types struct-inst[])
 diag-literal-not-expected record(expected expected-for-diag)
 diag-literal-overflow record(type integral-type)
-diag-local-ignored-but-mutable record
 diag-local-not-mutable record(local local)
 diag-loop-break-or-continue-outside-loop enum(break_, continue_)
 diag-loop-disallowed-body enum(finally_, try_)

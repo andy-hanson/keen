@@ -161,7 +161,7 @@ do
 		members type[] = for member in x.members
 			ctx type-from-ast types, member, type-params-scope, alias-allowed
 		ctx make-tuple-type types.common-types, members, of
-			x.members[0].range combine-ranges x.members[end - 1].range
+			x.members[0].range.start, x.members[end - 1].end
 
 spec-from-ast spec-inst?
 	ctx check-ctx
@@ -236,6 +236,9 @@ do
 	as single-destructure-ast x
 		if t ?= x type
 			ctx type-from-ast types, t, type-params-scope, yes
+	as ignore-destructure-ast x
+		if t ?= x type
+			ctx type-from-ast types, t, type-params-scope, yes
 	as void-destructure-ast _
 		types.common-types void
 	as array parts
@@ -251,7 +254,7 @@ do
 		ctx type-from-destructure types-get, part, type-params-scope
 	guard x ?= types
 	ctx make-tuple-type types-get.common-types, x, of
-		parts[0].range combine-ranges parts[end - 1].range
+		parts[0].start, parts[end - 1].end
 
 destructure-kind enum(local, param)
 == bool(a destructure-kind, b destructure-kind)
@@ -280,28 +283,24 @@ do
 		else
 			ctx add-diag ast.range, diag-param-missing-type
 			bogus-type
-	
+	get-type-from-ast type mut(ast type-ast?) = of type-ast
+		get-type[if t ?= type-ast then ctx type-from-ast types, t, type-params-scope, yes]
 	match ast
 	as single-destructure-ast x
-		declared-type type? = if t ?= x type
-			ctx type-from-ast types, t, type-params-scope, yes
-		type = get-type[declared-type]
-		if x.name.name == "_"
-			if _ ?= x mut_
-				ctx add-diag ast.range, diag-local-ignored-but-mutable
-			x destructure-ignore x.name.start, type
-		else
-			mutability mutability = if _ ?= x mut_
-				if kind == param
-					ctx add-diag x.mut-range!, diag-param-mutable
-					immut
-				else
-					mut_
-			else
+		source: x
+		mutability: if _ ?= x mut_
+			if kind == param
+				ctx add-diag x.mut-range!, diag-param-mutable
 				immut
-			x, mutability, type
+			else
+				mut_
+		else
+			immut
+		type: get-type-from-ast[x type]
+	as ignore-destructure-ast x
+		x destructure-ignore get-type-from-ast[x type]
 	as void-destructure-ast x
-		x destructure-ignore x.range.start, get-type[common-types void]
+		x destructure-ignore get-type[common-types void]
 	as array part-asts
 		if tuple-type ?= destructured-type
 			if field-types ?= common-types as-tuple tuple-type and field-types.size == part-asts.size
@@ -320,5 +319,5 @@ do
 				ctx check-destructure types, type-container, type-params-scope, part, (), kind
 			part-types type[] = for part in parts then part type
 			type = ctx make-tuple-type common-types, part-types, of
-				part-asts[0].range combine-ranges part-asts[end - 1].range
+				part-asts[0].range.start, part-asts[end - 1].end
 			type destructure-split parts
