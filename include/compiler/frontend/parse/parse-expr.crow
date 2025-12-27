@@ -363,13 +363,19 @@ parse-fun-expr-body expr-ast(lexer lexer)
 -parse-if expr-ast(lexer lexer, start pos, is-else-of-parent bool, allowed-block bool)
 	condition = lexer parse-expr-no-block
 	then-pos = lexer cur-pos
-	if lexer try-take-token then_
-		forbid is-else-of-parent else todo # ------------------------------------------------------------------------------------------------------------------
+	if !is-else-of-parent and lexer try-take-token then_
 		then_ = lexer parse-expr-and-calls (false, else_.precedence)
+		else-pos = lexer cur-pos
 		else_ expr-ast? = if lexer try-take-token else_
 			lexer parse-expr-no-block
-		kind = if _ ?= else_ then if-then-else else if-then
-		start if-ast kind, false, start, then-pos, condition, then_, else_
+		start: start
+		kind: if _ ?= else_ then if-then-else else if-then
+		is-else-of-parent: false
+		second-keyword-pos: then-pos
+		third-keyword-pos: if _ ?= else_ then else-pos else max-value
+		condition: condition
+		first-branch: then_
+		second-branch: else_
 	else
 		then_ = lexer parse-indented-statements start, allowed-block, if_
 		elif-or-else = if allowed-block then lexer try-take-newline-then-elif-or-else
@@ -379,7 +385,8 @@ parse-fun-expr-body expr-ast(lexer lexer)
 				lexer parse-if x.pos, true, allowed-block
 			as else_
 				lexer parse-indented-statements
-		kind = if x ?= elif-or-else
+		start: start
+		kind: if x ?= elif-or-else
 			match x kind
 			as elif_
 				if-elif
@@ -387,12 +394,24 @@ parse-fun-expr-body expr-ast(lexer lexer)
 				if-else
 		else
 			if-without-else
-		start if-ast kind, is-else-of-parent, start, (elif-or-else?.pos else 0), condition, then_, else_
+		is-else-of-parent: is-else-of-parent
+		second-keyword-pos: elif-or-else?.pos else 0
+		third-keyword-pos: max-value
+		condition: condition
+		first-branch: then_
+		second-branch: else_
 
 -parse-unless if-ast(lexer lexer, start pos, allowed-block bool)
 	condition = lexer parse-expr-no-block
-	body = lexer parse-then-or-indented-statements start, allowed-block, unless_
-	start, unless_, false, start, 0, condition, body, ()
+	then-pos, body = lexer parse-then-or-indented-statements start, allowed-block, unless_
+	start: start
+	kind: if then-pos == max-value then unless_ else unless-then
+	is-else-of-parent: false
+	second-keyword-pos: then-pos
+	third-keyword-pos: max-value
+	condition: condition
+	first-branch: body
+	second-branch: ()
 
 -parse-trusted expr-ast(lexer lexer, start pos, allowed-block bool)
 	start trusted-ast do lexer parse-expr-and-all-calls allowed-block
@@ -414,8 +433,8 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	start: start
 	kind: if _ ?= res else_ then guard-with-else else guard-without-else
 	is-else-of-parent: false
-	first-keyword-pos: start
-	second-keyword-pos_: res.else_?.else-pos else max-value
+	second-keyword-pos: res.else_?.else-pos else max-value
+	third-keyword-pos: max-value
 	condition: res condition
 	first-branch: res.else_?.expr
 	second-branch: res after
@@ -441,8 +460,14 @@ parse-fun-expr-body expr-ast(lexer lexer)
 do
 	param, in-pos = lexer parse-for-or-with-parameter
 	arg = lexer parse-expr-no-block
-	start, kind, param, in-pos, arg,
-		lexer parse-then-or-indented-statements start, allowed-block, block-kind
+	then-pos, body = lexer parse-then-or-indented-statements start, allowed-block, block-kind
+	start: start
+	keyword: kind
+	param: param
+	in-pos: in-pos
+	then-pos: then-pos
+	arg: arg
+	body: body
 
 -parse-loop-while-or-until expr-ast(lexer lexer, start pos, is-until bool)
 	condition = lexer parse-expr-no-block
@@ -558,8 +583,8 @@ do
 			lexer range pos void-destructure-ast
 		else
 			lexer parse-destructure-no-require-parens
-		body = lexer parse-then-or-indented-statements start, allowed-block, of_
-		start lambda-ast param, body
+		then-pos, body = lexer parse-then-or-indented-statements start, allowed-block, of_
+		start lambda-ast param, then-pos, body
 	as operator
 		operator = token as-symbol
 		if operator is-prefix-unary-operator
@@ -774,16 +799,19 @@ parse-single-statement-line expr-ast(lexer lexer)
 	lexer take-indent-or-fail-expr of
 		lexer parse-statements-and-dedent
 	
--parse-then-or-indented-statements expr-ast
+# Returns position of 'then' (or max-value no 'then' keyword) and the body.
+-parse-then-or-indented-statements (pos, expr-ast)
 	lexer lexer
 	start pos
 	allow-block bool
 	block-kind parse-diag-needs-block-ctx
 do
+	then-pos = lexer cur-pos
 	if lexer try-take-token then_
-		lexer parse-expr-no-block
+		then-pos, lexer.parse-expr-no-block
 	else
-		lexer parse-indented-statements start, allow-block, block-kind
+		- max-value
+		- lexer parse-indented-statements start, allow-block, block-kind
 
 -parse-indented-statements expr-ast
 	lexer lexer
