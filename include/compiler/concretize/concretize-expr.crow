@@ -497,10 +497,10 @@ Compiles to code like:
 	# Both branches should have type {result-type}.
 	branches branches
 do
-	if x ?= a if-expr and x.ast.kind == and_
+	if x ?= a logical-expr and x.kind == bool-and-bool
 		inner concrete-expr mut() = of
-			ctx concretize-complex-condition result-type, range, x.first-branch, branches
-		ctx concretize-complex-condition result-type, range, x.condition, (inner, branches.false-branch)
+			ctx concretize-complex-condition result-type, range, x.right, branches
+		ctx concretize-complex-condition result-type, range, x.left, (inner, branches.false-branch)
 	elif unpack ?= a unpack-option
 		option = ctx concretize-expr unpack.option
 		true_ = ctx concretize-with-destructure result-type, range, unpack.destructure, branches.true-branch
@@ -1008,28 +1008,37 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 	as local-set-expr x
 		ctx concretize-local-set range, x.local, x.value
 	as logical-expr x
-		left-type concrete-type = match x kind
-		as bool-or-bool
-			type
-		as option-else
-			if model-type is-option-type
+		if x.kind == bool-and-bool
+			ctx concretize-complex-condition type, range, x.left,
+				true-branch: of then ctx concretize-expr type, x.right
+				false-branch: of then ctx.concretize-ctx gen-false range
+		else
+			left-type concrete-type = match x kind
+			as bool-and-bool
+				throw unreachable
+			as bool-or-bool
 				type
-			else
-				ctx get-concrete-type ctx.common-types.option[model-type]
-		as option-or
-			outer-type
-		left = ctx concretize-expr left-type, x.left
-		right = ctx concretize-expr type, x.right
-		match x kind
-		as bool-or-bool
-			ctx.concretize-ctx gen-or range, left, right
-		as option-else
-			type gen-option-else range, left, right
-		as option-or
-			temp concrete-local = member::concrete-generated-local-kind, type
-			get-temp = range gen-local-get temp
-			type gen-let range, temp, left,
-				range gen-if-option get-temp, ((), get-temp), right
+			as option-else
+				if model-type is-option-type
+					type
+				else
+					ctx get-concrete-type ctx.common-types.option[model-type]
+			as option-or
+				outer-type
+			left = ctx concretize-expr left-type, x.left
+			right = ctx concretize-expr type, x.right
+			match x kind
+			as bool-and-bool
+				throw unreachable
+			as bool-or-bool
+				ctx.concretize-ctx gen-or range, left, right
+			as option-else
+				type gen-option-else range, left, right
+			as option-or
+				temp concrete-local = member::concrete-generated-local-kind, type
+				get-temp = range gen-local-get temp
+				type gen-let range, temp, left,
+					range gen-if-option get-temp, ((), get-temp), right
 	as loop-expr x
 		type gen-loop range, (ctx concretize-expr type, x.body)
 	as loop-break-expr x
