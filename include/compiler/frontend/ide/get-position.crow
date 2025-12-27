@@ -46,7 +46,7 @@ do
 	module.specs first (of x then x position-in-spec pos) or
 	module.funs first (of x then ctx position-in-fun x, pos, pos-kind) or
 	module.tests first (of x then ctx position-in-test x, pos, pos-kind) or
-	(pos == 0 and position-module)	# We need a definition at position 0, because inlay hints for "Used by" have that as their location.
+	if pos == 0 then position-module # We need a definition at position 0, because inlay hints for "Used by" have that as their location.
 
 -position-in-doc-comment position-kind?(a doc-comment-container, pos pos)
 	if index ?= a.doc-comment.ast.references find-index of x then x.range has-pos pos
@@ -56,7 +56,7 @@ do
 	guard ast ?= a.source fun-decl-ast
 	a position-in-decl pos, of
 		a position-in-visibility ast.visibility, pos or
-		ast.name.range has-pos pos and a or
+		(if ast.name.range has-pos pos then a) or
 		a position-in-type-params ast.type-params, pos or
 		a position-in-type a.return-type, ast.return-type, pos or
 		a position-in-params a.params, ast.params, pos or
@@ -168,8 +168,8 @@ do
 -position-in-var position-kind?(a var-decl, pos pos)
 	a position-in-decl pos, of
 		a position-in-visibility a.ast.visibility, pos or
-		a.name-range.range has-pos pos and a or
-		a.ast.keyword-range has-pos pos and a.kind to or
+		(if a.name-range.range has-pos pos then a) or
+		(if a.ast.keyword-range has-pos pos then a.kind to) or
 		a position-in-type a.type, a.ast.type, pos
 -to position-keyword(a var-kind)
 	match a
@@ -181,8 +181,8 @@ do
 -position-in-alias position-kind?(a struct-alias, pos pos)
 	a position-in-decl pos, of
 		a position-in-visibility a.ast.visibility, pos or
-		a.name-range.range has-pos pos and a or
-		a.ast.keyword-range has-pos pos and alias_ or
+		(if a.name-range.range has-pos pos then a) or
+		(if a.ast.keyword-range has-pos pos then alias_) or
 		a position-in-type a.target, a.ast.target, pos
 
 -position-in-struct position-kind?(a struct-decl, pos pos)
@@ -196,8 +196,8 @@ do
 -position-in-struct position-kind?(a struct-decl, ast struct-decl-ast, pos pos)
 	a position-in-decl pos, of
 		a position-in-visibility ast.visibility, pos or
-		a.name-range.range has-pos pos and a or
-		ast.keyword-range has-pos pos and ast.body keyword-kind-for-struct-body or
+		(if a.name-range.range has-pos pos then a) or
+		(if ast.keyword-range has-pos pos then ast.body keyword-kind-for-struct-body) or
 		a position-in-type-params ast.type-params, pos or
 		a position-in-modifiers (), ast.modifiers, pos or
 		a position-in-struct-body ast.body, pos
@@ -236,9 +236,9 @@ do
 -position-in-spec position-kind?(a spec-decl, pos pos)
 	a position-in-decl pos, of
 		a position-in-visibility a.ast.visibility, pos or
-		a.ast.name.range has-pos pos and a or
+		(if a.ast.name.range has-pos pos then a) or
 		a position-in-type-params a.ast.type-params, pos or
-		a.ast.keyword-range has-pos pos and spec_ or
+		(if a.ast.keyword-range has-pos pos then spec_) or
 		a position-in-modifiers a.parents, a.ast.modifiers, pos or
 		a.sigs position-in-signatures a.ast.sigs, pos
 
@@ -248,7 +248,7 @@ do
 
 -position-in-signature position-kind?(sig signature, ast signature-ast, pos pos)
 	sig position-in-doc-comment pos or
-	ast.name-and-range.range has-pos pos and sig or
+	(if ast.name-and-range.range has-pos pos then sig) or
 	sig.container.to position-in-type sig.return-type, ast.return-type, pos or
 	sig.container.to position-in-params sig.params, ast.params, pos
 
@@ -327,12 +327,12 @@ do
 	guard members !is-empty
 	if params ?= params-ast
 		members zip params.array! first of member, param
-			param.range has-pos pos and member
+			if param.range has-pos pos then member
 	else
 		members zip member-asts first of member, member-ast
 			member position-in-enum-or-flags-member member-ast, pos
 -position-in-enum-or-flags-member position-kind?(member enum-or-flags-member, ast enum-or-flags-member-ast, pos pos)
-	member position-in-doc-comment pos or ast.name-range has-pos pos and member
+	member position-in-doc-comment pos or if ast.name-range has-pos pos then member
 
 -position-in-expr position-kind?
 	ctx ctx
@@ -355,7 +355,7 @@ do
 		ctx.container expression-position (a type ctx.common-types), x
 	keyword position-kind mut(k expr-keyword) = expression-position[it]
 	keyword-at position-kind? mut(range source-range, k expr-keyword) = of range, k
-		range has-pos pos and keyword[k]
+		if range has-pos pos then keyword[k]
 	local position-kind mut(kind local-ref-kind, local local) = of kind, local
 		expression-position[kind local-ref local]
 	call position-kind? mut(ast call-expr-source, kind expression-position-kind) = of ast, kind
@@ -385,7 +385,7 @@ do
 		call[x.ast, x]
 	as call-option-expr x
 		keyword-at[x.ast.keyword-range!, question-dot-or-subscript] or
-		x.ast pos-is-at-call pos and expression-position[x]
+		if x.ast pos-is-at-call pos then expression-position[x]
 	as extern-expr x
 		expression-position[x]
 	as finally-expr x
@@ -393,17 +393,17 @@ do
 	as force-expr x
 		keyword-at[x.ast.keyword-range, force]
 	as if-expr x
-		x.ast.first-keyword-range has-pos pos and expression-position[x] or
-		sk ?= x.ast second-keyword-range and keyword-at[sk, x.ast.kind.if-second-keyword]
+		(if x.ast.first-keyword-range has-pos pos then expression-position[x]) or
+		if sk ?= x.ast second-keyword-range then keyword-at[sk, x.ast.kind.if-second-keyword]
 	as lambda-expr x
 		match x ast
 		as for-or-with-ast ast
 			# 'for' keyword is handled in 'as call-expr'
-			x !is-ignore and ctx position-in-destructure x.param, ast.param, pos or
+			(unless x is-ignore then ctx position-in-destructure x.param, ast.param, pos) or
 			keyword-at[ast.in-range, colon-in-for-or-with]
 		as it-scope-ast ast
 			ast.its first of it_
-				it_.range has-pos pos and expression-position[x]
+				if it_.range has-pos pos then expression-position[x]
 		as lambda-ast ast
 			if ast.keyword-range has-pos pos
 				expression-position[x]
@@ -746,7 +746,7 @@ do
 do
 	match ast
 	as single-destructure-ast x
-		t ?= x type and f[type, t]
+		if t ?= x type then f[type, t]
 	as void-destructure-ast _
 		()
 	as array parts

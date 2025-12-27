@@ -152,10 +152,6 @@ do
 	ctx.common-types void
 
 -check-if expr(ctx expr-ctx, ast if-ast, expected expected)
-	#if ast.kind == ternary-without-else or ast.kind == ternary-with-else
-	#	ctx add-diag ast.first-keyword-range, diag-shared-lambda-unused
-	if is-inference-log-enabled
-		error log "top of check-if: expected is {expected debug}"
 	if (ast.first-branch is-throw or ast.second-branch is-throw) and ast !is-else-of-parent
 		ctx add-diag ast.first-keyword-range, diag-if-throw
 	condition = ctx check-and-expect ast.condition, ctx.common-types.bool
@@ -164,12 +160,12 @@ do
 	empty-new-range = ast first-keyword-range
 	first-branch = ctx with-extern-from-condition condition, is-negated, of
 		ctx check-expr-with-destructures-or-empty-new ast, \
-			(!is-negated and destructures), ast.first-branch, empty-new-range, expected
+			(unless is-negated then destructures), ast.first-branch, empty-new-range, expected
 	if is-inference-log-enabled
 		error log "check-if after first branch: expected is {expected debug}"
 	second-branch = ctx with-extern-from-condition condition, !is-negated, of
 		ctx check-expr-with-destructures-or-empty-new ast, \
-			(is-negated and destructures), ast.second-branch, empty-new-range, expected
+			(if is-negated then destructures), ast.second-branch, empty-new-range, expected
 	ast: ast
 	condition: condition
 	true-branch: if is-negated then second-branch else first-branch
@@ -231,9 +227,9 @@ do
 		if x ?= thrown-ast.expr throw-ast
 			ctx add-diag x.keyword-range, diag-assert-or-forbid-message-is-throw
 		ctx with-extern-from-condition condition, !is-forbid, of
-			ctx check-expr-with-destructures (is-forbid and destructures), thrown-ast.expr, ctx.common-types.exception.expect	
+			ctx check-expr-with-destructures (if is-forbid then destructures), thrown-ast.expr, ctx.common-types.exception.expect	
 	after = ctx with-extern-from-condition condition, is-forbid, of
-		ctx check-expr-with-destructures (!is-forbid and destructures), ast.after, expected
+		ctx check-expr-with-destructures (unless is-forbid then destructures), ast.after, expected
 	ast assert-or-forbid-expr is-forbid, condition, thrown, after
 
 -check-assignment expr
@@ -730,8 +726,8 @@ do
 -check-loop-while-or-until expr(ctx expr-ctx, ast loop-while-or-until-ast, expected expected)
 	condition = ctx check-and-expect ast.condition, ctx.common-types.bool
 	destructures = condition condition-destructures
-	body = ctx check-expr-with-destructures (ast !is-until and destructures), ast.body, ctx.void-type.expect
-	after = ctx check-expr-with-destructures (ast is-until and destructures), ast.after, expected
+	body = ctx check-expr-with-destructures (unless ast is-until then destructures), ast.body, ctx.void-type.expect
+	after = ctx check-expr-with-destructures (if ast is-until then destructures), ast.after, expected
 	ast loop-while-or-until-expr condition, body, after
 
 -check-match expr(ctx expr-ctx, ast match-ast, expected expected)
@@ -879,7 +875,7 @@ do
 	name = as-name?.name?.name
 	opt-case-type struct-inst? = if n ?= name
 		ctx get-sum-type-case-from-name matched-variant, n, member-ast.name-range, of
-			d ?= as-name?.destructure and ctx type-from-destructure d
+			if d ?= as-name?.destructure then ctx type-from-destructure d
 	guard case-type ?= opt-case-type
 	
 	destructure = if ast ?= member-ast.as-name-ast!.destructure
@@ -914,7 +910,8 @@ do
 	as struct-decl decl
 		# TODO: NEATER -------------------------------------------------------------------------------------------------------------------
 		from-listed struct-inst? = listed-members first of x
-			x.member.decl == decl and x.member instantiate-struct-inst sum-type.type-args.inner
+			if x.member.decl == decl
+				x.member instantiate-struct-inst sum-type.type-args.inner
 		if x ?= from-listed
 			x
 		else
