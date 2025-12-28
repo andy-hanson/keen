@@ -7,24 +7,33 @@ import
 	java/io/File
 	java/io/FileOutputStream
 	java/io/OutputStream
+	java/net/URI
 	java/net/URL
 	java/net/URLDecoder
 	java/nio/file/attribute/PosixFilePermission
 	java/nio/file/Files
+	java/nio/file/FileSystem
+	java/nio/file/FileSystems
 	java/nio/file/Path
 	java/nio/file/Paths
 	java/lang/Class
 	java/lang/Enum
+	java/lang/Module
+	java/lang/module/ModuleFinder
+	java/lang/module/ModuleReference
 	java/lang/Object
+	java/lang/System
 	java/security/CodeSource
 	java/security/ProtectionDomain
 	java/util/Arrays
 	java/util/Collection
+	java/util/Collections
 	java/util/EnumSet
 	java/util/jar/Attributes
 	java/util/jar/JarEntry
 	java/util/jar/JarOutputStream
 	java/util/jar/Manifest
+	java/util/Optional
 	java/util/stream/Stream
 	java/util/zip/ZipEntry
 	java/util/zip/ZipOutputStream
@@ -142,18 +151,15 @@ bytes-cast nat8[](a int8 mut-slice)
 	trusted a reinterpret-cast
 
 # TODO: have this in std- -------------------------------------------------------------------------------------------------------------
-each-file-in-directory-recursive void
-	dir-path file-path
-	f void mut(x file-path)
-do summon
-	for path in dir-path get-paths-in-dir
+files-in-directory-recursive file-path[](dir-path file-path) summon
+	for* path in dir-path get-paths-in-dir
 		match path get-path-kind
 		as other
 			()
 		as file
-			f[path]
+			- path
 		as directory
-			path each-file-in-directory-recursive f
+			path files-in-directory-recursive
 
 -get-path-kind path-kind(path file-path) summon
 	trusted
@@ -192,14 +198,63 @@ get-paths-in-dir file-path[](dir-path file-path) summon
 	else
 		throw todo
 
-try-read-file read-file-result(uri uri) summon
-	guard uri uri-is-file else not-found
+file-reader record mut
+	path-to-crow file-path
+	base-jmod file-path
+	read-file-inner read-file-result mut(path string)
+	read-from-jmod read-file-result mut(jmod-path file-path, class-path path)
+	files-in-directory-recursive file-path[] mut(root file-path)
+new file-reader(path-to-crow file-path) summon
+	assert trusted extern java
+	path-to-crow: path-to-crow
+	base-jmod: find-java-base-jmod
+	read-file-inner: it.read-file-inner
+	read-from-jmod: of jmod, class_ then jmod read-from-jmod class_
+	files-in-directory-recursive: it.files-in-directory-recursive
+
+-find-java-base-jmod file-path() summon, java extern
+	trusted
+	Object Class = "java.lang.Object".to-java-string forName
+	module = Object getModule
+	assert module isNamed
+	finder ModuleFinder = ofSystem
+	ref ModuleReference = (finder find module.getName).get reinterpret-cast
+	uri URI = ref.location.get reinterpret-cast
+	# e.g. "java.base"
+	jmod-name = uri.toString.to::string try-remove-start! "jrt:/"
+	java-home string = "java.home".to-java-string.getProperty to
+	"{java-home}/jmods/{jmod-name}.jmod" must-parse-file-path
+
+-read-from-jmod read-file-result(jmod file-path, class_ path) summon, java extern
+	trusted
+	jar-uri URI = "jar:file://{jmod}".to-java-string create
+	file-system FileSystem = jar-uri newFileSystem emptyMap
+	finally file-system close
+	path = file-system getPath "/classes/{class_}.class".to-java-string, ()
+	- path.readAllBytes.cast-immutable safe-reinterpret-cast
+
+try-read-file read-file-result(a file-reader, uri uri)
+	if path ?= uri as-java-uri
+		a try-read-java-class path
+	elif uri uri-is-file
+		a.read-file-inner[uri.as-file-path.to]
+	else
+		not-found
+
+try-read-java-class read-file-result(a file-reader, path path)
+	# TODO: extract from the ZIP ----------------------------------------------------------------------------------------------------------------
+	assert trusted extern java
+	if path.to::symbol == "CrowClassLoader"
+		full-path string = "{a.path-to-crow.parent!.parent!.to::string}/include/compiler/backend/java/lib/CrowClassLoader.class"
+		a.read-file-inner[full-path]
+	else
+		a.read-from-jmod[a.base-jmod, path]
+
+-read-file-inner read-file-result(path string) summon
 	try
-		uri.as-file-path.to.do-read-file,
+		- path do-read-file
 	catch path-not-found _
 		not-found
-	catch not-a-text-file _ # TODO: this wouldn't be thrown if we're reading a nat8[] ! --------------------------------------------------
-		error
 	catch file-system-error _
 		error
 

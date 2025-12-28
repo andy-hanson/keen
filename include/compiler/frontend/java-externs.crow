@@ -1,171 +1,86 @@
 import
-	crow/bits
-	crow/col/mut-slice
-	crow/unsafe
-	java/lang/Class
-	java/lang/reflect/Constructor
-	java/lang/reflect/Executable
-	java/lang/reflect/Field
-	java/lang/reflect/Method
-	java/lang/reflect/Modifier
-	java/lang/reflect/Parameter
 	../model/ast
 	../model/model
 	../model/uri
 	../util/by-name
 	./check/instantiate
+	./parse-java-class
+	../util/java-bytecode-types
 
-java-externs record mut
-	-java-class-types struct-decl mut[path]
-	-java-class-modules java-class-module mut[path]
-new java-externs()
-	(), ()
-
-finish java-class-module[uri](a java-externs)
-	for path, module in a java-class-modules
-		path.to-java-uri, module
-
-Object struct-inst(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types)
-	assert (trusted extern java) else todo
-	a with-defer-interface-methods instantiate-ctx, common-types, of defer-interface-methods
-		defer-interface-methods struct-for-java-class a, instantiate-ctx, common-types, "java/lang/Object".as-path only-inst
-
-get-java-module java-class-module(a java-externs, instantiate-ctx instantiate-ctx, common-types common-types, path path)
-	assert (trusted extern java) else todo
-	a with-defer-interface-methods instantiate-ctx, common-types, of deferred
-		deferred get-java-module-inner a, instantiate-ctx, common-types, path
-
--get-java-module-inner java-class-module
-	deferred deferred
-	a java-externs
+java-ctx record mut
 	instantiate-ctx instantiate-ctx
 	common-types common-types
+	ensure-java-class struct-decl mut(path path)
+
+get-java-module java-class-module(ctx java-ctx, path path, class_ parsed-java-class)
+	struct = ctx.ensure-java-class[path]
+	ctx fill-supertypes class_, struct
+	ctx fill-interface-methods class_, struct
+	funs = ctx funs-for-java-class path, class_, struct
+	path: path
+	public-exports:
+		funs: funs to
+		structs-and-aliases: (struct,) to-by-name of _ then throw unreachable
+		specs: ()
+
+initial-struct-for-java-class struct-decl
+	instantiate-ctx instantiate-ctx
 	path path
-do java extern
-	a.java-class-modules ensure path, of
-		class_ = deferred struct-for-java-class a, instantiate-ctx, common-types, path
-		# It needs to fill in the interface methods for class_ here so we can generate all funs
-		deferred fill-all-interface-methods a, instantiate-ctx, common-types
-		funs = deferred funs-for-java-class a, instantiate-ctx, common-types, path
-		path: path
-		public-exports:
-			funs: funs to
-			structs-and-aliases: (class_,) to-by-name of _ then throw unreachable
-			specs: ()
+do
+	hash: instantiate-ctx next-hash
+	source: path struct-decl-source-java
+	module-uri: path to-java-uri
+	visibility: public # TODO: get this from the Java visibility? -------------------------------------------------------------------------
+	extern_: "java",
+	is-summon: true
+	purity: mut_
+	purity-is-forced: false
+	doc-comment-references: ()
+	sum-type-memberships: ()
+	body: path struct-body-extern-java
 
--deferred record mut
-	interface-methods path mut[]
-	interface-modules path mut[]
+-fill-supertypes void(ctx java-ctx, class_ parsed-java-class, type struct-decl)
+	# TODO: do a lot more here! I'd like all Java subclasses to implicitly convert to their superclasses! -------------------------------------------
+	is-throwable = if super ?= class_ super-class
+		super == "java/lang/Throwable".parse-path or ctx is-throwable ctx.ensure-java-class[super]
+	if is-throwable
+		type.sum-type-memberships :=
+			-
+				ast: ()
+				sum-type: ctx.common-types.exception
+				method-impls: ((),) # The type will not actually be emitted, so don't bother with this
+-is-throwable bool(ctx java-ctx, a struct-decl)
+	a.sum-type-memberships exists it.sum-type == ctx.common-types.exception
 
-# TODO: obviously this should be a 'with' function --------------------------------------------------------------------------
--with-defer-interface-methods[t] t
-	a java-externs
-	instantiate-ctx instantiate-ctx
-	common-types common-types
-	f t mut(x deferred)
-do java extern
-	deferred deferred = (), ()
-	res = f[deferred]
-	loop
-		deferred fill-all-interface-methods a, instantiate-ctx, common-types
-		# The backend expects every interface to have an associated module with caller functions
-		if path ?= deferred.interface-modules pop
-			_ = deferred get-java-module-inner a, instantiate-ctx, common-types, path
-			continue
-		else
-			break
-	res
-
--fill-all-interface-methods void(deferred deferred, a java-externs, instantiate-ctx instantiate-ctx, common-types common-types) java extern
-	while path ?= deferred.interface-methods pop
-		deferred fill-interface-methods a, instantiate-ctx, common-types, path
-
--struct-for-java-class struct-decl
-	deferred deferred
-	a java-externs
-	instantiate-ctx instantiate-ctx
-	common-types common-types
-	path path
-do java extern
-	a.java-class-types ensure path, of
-		class_ = path get-class
-		hash: instantiate-ctx next-hash
-		source: path struct-decl-source-java
-		module-uri: path to-java-uri
-		visibility: public # TODO: get this from the Java visibility ---------------------------------------------------
-		extern_: "java",
-		is-summon: true
-		purity: mut_
-		purity-is-forced: false
-		doc-comment-references: ()
-		sum-type-memberships:
-			supers = class_ superclasses
-			if supers exists of x then (trusted x getName).to::string == "java.lang.Throwable"
-				- (), common-types.exception, ((),) # Since we won't actually emit this type, use bogus method-impls
-			# TODO: get more this from declared interfaces ------------------------------------------------
-		body: if trusted class_ isInterface
-			deferred.interface-methods ~= path
-			deferred.interface-modules ~= path
-			struct-body-bogus
-		else
-			path struct-body-extern-java
-
--fill-interface-methods void
-	deferred deferred
-	a java-externs
-	instantiate-ctx instantiate-ctx
-	common-types common-types
-	path path
-do java extern
-	trusted
-	class_ = path get-class
-	assert class_ isInterface
-	type = a.java-class-types[path]!
+-fill-interface-methods void(ctx java-ctx, class_ parsed-java-class, type struct-decl)
+	guard interface_::class-access in class_.access
 	type.body :=
 		:: sum-type
 		kind: java-interface
 		listed-members: ()
-		methods: for* method in class_ getDeclaredMethods
-			guard (method.getModifiers & ABSTRACT) != 0
-			assert (method.getModifiers & ~TRANSIENT) == (ABSTRACT | PUBLIC)
-			return-type, params = deferred method-return-type-and-params a, instantiate-ctx, common-types, method
+		methods: for* method in class_ methods
+			guard abstract_::method-access-flags in method.access-flags
+			# Ignore varargs; they just become normal array parameters
+			(method.access-flags & ~varargs) is (abstract_ | public)
+			return-type, params = ctx method-return-type-and-params method
 			-
 				container: type
-				source: method.getName.to signature-source-java
+				source: method.name signature-source-java
 				return-type: return-type
 				params: params
 				doc-comment-references: ()
 
--superclasses Class[](a Class) java extern
-	trusted with out in build
-		cur mut = a getSuperclass
-		while cur !reference-equal gc-safe-value
-			out ~= cur
-			cur := cur getSuperclass
-
--get-class Class(path path) java extern
-	trusted path.path-to-java-name.to-java-string forName # TODO: this can throw an exception, so catch and make a diagnostic
-
--funs-for-java-class fun-decl[]
-	deferred deferred
-	a java-externs
-	instantiate-ctx instantiate-ctx
-	common-types common-types
-	path path
-do
-	trusted
-	assert extern java
-	class_ = path get-class
+-funs-for-java-class fun-decl[](ctx java-ctx, path path, class_ parsed-java-class, struct struct-decl)
+	class-type = struct only-inst
+	is-interface = interface_::class-access in class_.access
 	with out in build
-		fields = class_ getDeclaredFields
-		for field in fields
+		for field in class_ fields
 			# TODO: ENSURE IT'S PUBLIC ------------------------------------------------------------------------------------
-			type = deferred as-type a, instantiate-ctx, common-types, field.getType
-			is-static = field.getModifiers isStatic
-			guard is-static # TODO: support instance fields -----------------------------------------------------------------
+			type = ctx to-type field.type
+			guard static::field-access-flags in field.access-flags # TODO: support instance fields
 			out ~=
-				hash: instantiate-ctx next-hash
-				source: path fun-source-java field.getName.to
+				hash: ctx.instantiate-ctx next-hash
+				source: path fun-source-java field.name
 				visibility: public
 				n-type-params: 0
 				return-type: type
@@ -174,123 +89,82 @@ do
 				externs: "java",
 				specs: ()
 				doc-comment-references: ()
-				body: static-field fun-body-extern-java path
+				body:
+					:: fun-body-extern-java
+					static-field, path
 
-		class-type = deferred as-type a, instantiate-ctx, common-types, class_
-
-		for ctor in class_ getDeclaredConstructors
-			# TODO: ensure it's public ---------------------------------------------------------------------------------------------
-			# TODO: include parameter names, using 'getParameters' --------------------------------------------------------------------
-			params destructure[] = for i, x in ctor.getParameterTypes with-index
-				"p{i}".local-source-generated, immut, do deferred as-type a, instantiate-ctx, common-types, x
-			out ~=
-				# TODO: share code with the fun-decl creation for method ------------------------------------------------------
-				hash: instantiate-ctx next-hash
-				source: path fun-source-java "new"
-				visibility: public
-				n-type-params: 0
-				return-type: class-type
-				params: params
-				flags_: summon_ | unsafe_
-				externs: "java",
-				specs: ()
-				doc-comment-references: ()
-				body: constructor fun-body-extern-java path
-			()
-
-		for method in class_ getDeclaredMethods
+		for method in class_ methods
+			is-constructor = method.name == "<init>"
 			# TODO: ENSURE IT'S PUBLIC ------------------------------------------------------------------------------------
-			is-static = method.getModifiers isStatic
-			return-type, most-params = deferred method-return-type-and-params a, instantiate-ctx, common-types, method
+			is-static = static::method-access-flags in method.access-flags
+			return-type, most-params = ctx method-return-type-and-params method
 			# TODO: NEATER (should be able to declare 'body' on this line ...) -----------------------------------------------
-			opt-body fun-body? = if is-static
-				static fun-body-extern-java path
-			elif class_ isInterface
+			opt-body fun-body-extern-java? = if is-static
+				kind: if is-interface then static-method-of-interface else static-method-of-class
+				class_: path
+			elif is-constructor
+				constructor, path
+			elif is-interface
 				()
 			else
-				virtual fun-body-extern-java path
+				virtual, path
 			guard body ?= opt-body
 			out ~=
-				hash: instantiate-ctx next-hash
-				source: path fun-source-java method.getName.to
+				hash: ctx.instantiate-ctx next-hash
+				source: path fun-source-java if is-constructor then "new" else method.name
 				visibility: public
 				n-type-params: 0
-				return-type: return-type
-				params: if is-static
+				return-type: if is-constructor then class-type else return-type
+				params: if is-static or is-constructor
 					most-params
 				else
-					("this".local-source-generated, immut, class-type) ~ most-params
+					- "this".local-source-generated, immut, class-type
+					-- most-params
 				flags_: summon_ | unsafe_
 				externs: "java",
 				specs: ()
 				doc-comment-references: ()
 				body: body
 		
-		struct = class-type.struct-inst! decl
 		if sum ?= struct.body sum-type
 			sum.kind is java-interface
-			# forbid sum.methods is-empty # TODO: this is theoretically possible, using it as a sanity check for now --------
 			for index, method in sum.methods with-index
-				out ~= instantiate-ctx fun-for-method struct, index, method
+				out ~= ctx.instantiate-ctx fun-for-method struct, index, method
 
--method-return-type-and-params (type, destructure[])
-	deferred deferred
-	a java-externs
-	instantiate-ctx instantiate-ctx
-	common-types common-types
-	method Method
-do java extern
-	trusted
-	parameters = method.reinterpret-cast::Executable getParameters
-	- deferred as-type a, instantiate-ctx, common-types, method.getReturnType
-	- for i, x in method.getParameterTypes with-index
+-method-return-type-and-params (type, destructure[])(ctx java-ctx, method parsed-method)
+	- ctx to-type method.descriptor.return-type
+	- for i, x in method.descriptor.param-types with-index
 		:: local
-		source: parameters[i].getName.to local-source-generated
+		source: "p{i}" local-source-generated # TODO: there should be a way to get parameter names from the attributes ------------------------------
 		mutability: immut
-		type: deferred as-type a, instantiate-ctx, common-types, x
--as-type type
-	deferred deferred
-	a java-externs
-	instantiate-ctx instantiate-ctx
-	common-types common-types
-	class_ Class
-do java extern
-	trusted
-	if class_ isPrimitive
-		common-types type-from-primitive class_
-	elif class_ isArray
-		elem = deferred as-type a, instantiate-ctx, common-types, class_.componentType
-		common-types.mut-slice[elem]
-	else
-		path = class_.getName.to java-name-to-path
-		struct = deferred struct-for-java-class a, instantiate-ctx, common-types, path
-		struct only-inst
+		type: ctx to-type x
 
--path-to-java-name string(path path)
-	path.to::string replace-all "/", "."
--java-name-to-path path(a string)
-	a replace-all ".", "/" as-path
-
--type-from-primitive type(common-types common-types, class_ Class) java extern
-	i = common-types integrals
-	match (trusted class_ getName).to::symbol
-	as boolean
-		common-types bool
-	as char
-		i nat16
-	as byte
-		i int8
-	as short
-		i int16
-	as int
-		i int32
-	as long
-		i int64
-	as float
-		common-types float32
-	as double
-		common-types float64
+-to-type type(ctx java-ctx, type java-type)
+	match type
 	as void
-		common-types void
-	else
-		throw unreachable
+		ctx.common-types void
+	as java-primitive-type x
+		ctx.common-types type-from-primitive x
+	as java-array-type x
+		ctx.common-types.mut-slice[ctx to-type x.element]
+	as path x
+		ctx.ensure-java-class[x] only-inst
+-type-from-primitive type(common-types common-types, type java-primitive-type)
+	i = common-types integrals
+	match type
+	as T_BOOLEAN
+		common-types bool
+	as T_CHAR
+		i nat16
+	as T_FLOAT
+		common-types float32
+	as T_DOUBLE
+		common-types float64
+	as T_BYTE
+		i int8
+	as T_SHORT
+		i int16
+	as T_INT
+		i int32
+	as T_LONG
+		i int64

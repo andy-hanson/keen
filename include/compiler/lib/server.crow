@@ -1,4 +1,5 @@
 import
+	crow/col/mut-queue
 	crow/io/print
 	../../../bin/imports/date.txt as build-date string
 	../../../bin/imports/commit-hash.txt as commit-hash string
@@ -36,6 +37,34 @@ import
 	../model/source-range
 	../model/uri
 	../util/exit-code
+
+handle-one-lsp-message exit-code?
+	server server
+	message-in lsp-in-message
+	read-file-locally read-file-result-params mut(uri uri)?
+	output void mut(x lsp-out-message)
+do
+	buffered-messages lsp-in-message mut-queue = ()
+	buffered-messages ~= message-in
+	loop
+		message = buffered-messages dequeue!
+		action = server handle-lsp-message message
+		for out-message in action out-messages
+			if server.lsp-state !supports-unknown-uris and out-message is-unknown-uris
+				error log "Server will load unknown URIs itself (since client does not support them)"
+				for uri in out-message.lsp-out-notification!.unknown-uris! unknownUris
+					buffered-messages ~= read-file-locally![uri]
+			else
+				output[out-message]
+		if exit ?= action.exit-code
+			break exit
+		elif buffered-messages is-empty
+			break ()
+		else
+			continue
+# TODO: it would be better to return an option ...............................................................................
+-is-unknown-uris bool(a lsp-out-message)
+	_ ?= a.lsp-out-notification?.unknown-uris
 
 handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	match message
@@ -123,7 +152,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	as implementation-params _
 		()
 	as initialize-params x
-		server.lsp-state.supports-unknown-uris := x.initializationOptions unknownUris
+		server.lsp-state.supports-unknown-uris := server.lsp-state.supports-unknown-uris or x.initializationOptions unknownUris
 		initialize-capabilities initialize-result
 	as inlay-hint-params _
 		()
@@ -448,15 +477,10 @@ do
 	if where.uri in program.all-modules
 		program get-position where, kind
 
-diags-and-result-json record(diagnostics string, result json)
-
--print-for-ast diags-and-result-json(server server, uri uri, ast file-ast, result json)
-	diagnostics: server.get-show-ctx show-parse-diagnostics uri, ast.parse-diagnostics
-	result: result
-
-print-ast diags-and-result-json(server server, uri uri)
+print-ast (string, json)(server server, uri uri)
 	file = server get-crow-file-for-tokens uri
-	server print-for-ast uri, file.ast, file.ast.to
+	- server.get-show-ctx show-parse-diagnostics uri, file.ast.parse-diagnostics
+	- file.ast to
 
 -get-crow-file-for-tokens crow-file-info(server server, uri uri)
 	match server.storage_ file-or-diag uri

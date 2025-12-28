@@ -100,16 +100,22 @@ do
 
 -gen-call-main js-expr(ctx to-js-ctx, main concrete-fun)
 	###
-	main(process.argv.slice(2)).then(exit => {
+	main(typeof process === 'undefined' ? [] : process.argv.slice(2)).then(exit => {
 		if (exit !== 0n) process.exit(Number(exit))
 	})
 	###
 	source = ctx source main
 	process = source gen-global "process"
-	process-argv = source gen-property-access process, "argv"
-	process-argv-slice = source gen-call-property-sync process-argv, "slice", ((source gen-number64 2),)
+	argv =
+		typeof-process = source gen-typeof process
+		process-is-undefined = source gen-eq-eq-eq typeof-process, do source gen-string "undefined"
+		empty-array = source gen-array ()
+		process-argv-slice =
+			process-argv = source gen-property-access process, "argv"
+			source gen-call-property-sync process-argv, "slice", ((source gen-number64 2),)
+		source gen-ternary process-is-undefined, empty-array, process-argv-slice
 	main-async sync-or-async = if ctx.async.funs[main] == always-async then async else sync
-	call-main = source gen-call-sync (ctx to-ref source, main, main-async), (process-argv-slice,)
+	call-main = source gen-call-sync (ctx to-ref source, main, main-async), (argv,)
 	main-promise = match main-async
 	as sync
 		# TODO: this should be `Promise.resolve().then(() => main(process.argv))` to ensure exceptions are caught- ----------------------
@@ -120,7 +126,7 @@ do
 		exit js-name = "exit" no-prefix
 		params js-params = (exit,), ()
 		get-exit = source gen-identifier exit
-		exit-neq-0 = source gen-not-eq-eq get-exit, do source gen-number64 0
+		exit-neq-0 = source gen-not-eq-eq get-exit, do source gen-bigint-unsigned 0
 		number-exit = source gen-call-sync (source gen-global "Number"), (get-exit,)
 		call-exit = source gen-call-property-sync process, "exit", do number-exit,
 		body = source gen-if exit-neq-0, call-exit.to

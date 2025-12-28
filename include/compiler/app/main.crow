@@ -1,6 +1,5 @@
 import
 	CrowClassLoader.class
-	crow/col/mut-queue
 	crow/col/mut-slice
 	crow/io/file
 	crow/io/print
@@ -45,49 +44,37 @@ main nat(args string[]) summon
 		cwd: cwd to
 		show-options:
 			color: !(_ ?= command.kind lsp-command)
+	reader file-reader = this-executable,
 	server server = server-settings,
+	ctx main-ctx =
+		server: server
+		reader: reader
+		print: of pipe, text then pipe print text
 	try
-		server go this-executable, command.kind
+		ctx go this-executable, command.kind
 		if command.options perf
 			info log "Performance: {start perf-report}"
 		0
 	catch exit x
 		x.exit-code to
 
--run-lsp void(server server, this-executable file-path) summon
+main-ctx record mut
+	server server
+	reader file-reader
+	print void mut(pipe pipe, text string)
+print void(a main-ctx, pipe pipe, text string)
+	a.print[pipe, text]
+
+-run-lsp void(server server, reader file-reader, this-executable file-path) summon
 	error log this-executable.crow-version.show
 	error log "Running language server protocol"
-	e exit-code = loop
-		log-lsp = true # TODO: get this from specified trace level ---------------------------------------------------------------
-		if exit ?= server handle-one-message-in log-lsp
-			break exit
-		else
-			continue
-	throw e.value.to exit
-
--handle-one-message-in exit-code?(server server, log-lsp bool) summon
-	buffered-messages lsp-in-message mut-queue = ()
-	buffered-messages ~= log-lsp lsp-read
-	loop
-		message = buffered-messages dequeue!
-		action = server handle-lsp-message message
-		for out-message in action out-messages
-			if server.lsp-state !supports-unknown-uris and out-message is-unknown-uris
-				error log "Server will load unknown URIs itself (since client does not support them)"
-				for uri in out-message.lsp-out-notification!.unknown-uris! unknownUris
-					buffered-messages ~= uri read-file-locally
-			else
-				out-message.to lsp-write log-lsp
-		if exit ?= action.exit-code
-			break exit
-		elif buffered-messages is-empty
-			break ()
-		else
-			continue
-
-# TODO: it would be better to return an option ...............................................................................
--is-unknown-uris bool(a lsp-out-message)
-	_ ?= a.lsp-out-notification?.unknown-uris
+	log-lsp = true # TODO: get this from specified trace level ---------------------------------------------------------------
+	until exit ?= server handle-one-message-in reader, log-lsp
+		()
+	throw exit.value.to exit
+-handle-one-message-in exit-code?(server server, reader file-reader, log-lsp bool) summon
+	server handle-one-lsp-message log-lsp.lsp-read, (of x then reader read-file-locally x), of message
+		message.to lsp-write log-lsp
 
 -lsp-read lsp-in-message(log-lsp bool) summon
 	line0 = read-stdin
@@ -106,36 +93,36 @@ main nat(args string[]) summon
 		err print "LSP out: {content-string}"
 	out print-no-newline "Content-Length: {content-string.size}\r\n\r\n{content-string}"
 
--load-all-files-for-main void(server server, main main-kind) summon
+-load-all-files-for-main void(ctx main-ctx, main main-kind)
 	match main
 	as main-kind-main-function x
-		server load-all-files (x.uri,)
+		ctx load-all-files (x.uri,)
 	as main-kind-tests-in-config x
-		server load-all-files-for-config x.config-uri
+		ctx load-all-files-for-config x.config-uri
 	as main-kind-tests-at-uri x
-		server load-all-files (x.crow-uri,)
+		ctx load-all-files (x.crow-uri,)
 
--load-all-files-for-config void(server server, config-uri uri) summon
+-load-all-files-for-config void(ctx main-ctx, config-uri uri)
 	if config-uri !uri-is-file
-		err print "Can't list test files at non-file URI {config-uri}"
+		ctx print err, "Can't list test files at non-file URI {config-uri}"
 		throw exit
-	config-uri.as-file-path.parent! each-file-in-directory-recursive of file
+	for file in ctx.reader.files-in-directory-recursive[config-uri.as-file-path parent!]
 		if file.get-extension == ".crow"
-			server load-single-file file.to
-	server load-until-no-unknown-uris
+			ctx.server load-single-file ctx.reader, file.to
+	ctx.server load-until-no-unknown-uris ctx.reader
 
--load-all-files void(server server, root-uris uri[]) summon
+-load-all-files void(ctx main-ctx, root-uris uri[])
 	start = perf-now
 	for uri in root-uris
 		if uri is-crow-config
-			server load-all-files-for-config uri
+			ctx load-all-files-for-config uri
 		else
-			server load-single-file uri
-	server load-until-no-unknown-uris
+			ctx.server load-single-file ctx.reader, uri
+	ctx.server load-until-no-unknown-uris ctx.reader
 	start end-load-all-files
 
--read-file-locally read-file-result-params(uri uri) summon
-	match uri try-read-file
+-read-file-locally read-file-result-params(reader file-reader, uri uri)
+	match reader try-read-file uri
 	as file-content x
 		uri, ok, x.bytes
 	as read-file-diag x
@@ -150,22 +137,19 @@ main nat(args string[]) summon
 			error
 		uri, type, ()
 
--load-until-no-unknown-uris void(server server) summon
+-load-until-no-unknown-uris void(server server, reader file-reader)
 	until server.files-state == all-loaded
 		for uri in server all-unknown-uris
-			server load-single-file uri
+			server load-single-file reader, uri
 
--load-single-file void(server server, uri uri) summon
-	server set-file uri, uri.try-read-file
+-load-single-file void(server server, reader file-reader, uri uri)
+	server set-file uri, do reader try-read-file uri
 
--go void
-	server server
-	this-executable file-path
-	command command-kind
-do summon
+-go void(ctx main-ctx, this-executable file-path, command command-kind) summon
+	server = ctx server
 	match command
 	as build-command x
-		program = server check-main-and-print-diags x.main, for t in x out then t kind
+		program = ctx check-main-and-print-diags x.main, do x.out map it.kind
 		server build-all-outputs x.out, x.times, program
 	as check-command x
 		for _ in 0::nat .. x.times
@@ -173,34 +157,34 @@ do summon
 				only-for-uris: ()
 				show-options: x.show-color,
 				show-all-diagnostics: x show-all-diagnostics
-			program = server check-and-print-diags x.root-uris, options
+			program = ctx check-and-print-diags x.root-uris, options
 			forbid program has-any-diagnostics else exit
 			out print "OK"
 			server reset
 	as document-command x
-		program = server check-and-print-diags x.root-uris
+		program = ctx check-and-print-diags x.root-uris
 		out print "{server document program, x.root-uris}"
 	as help-command x
 		out print x.help-text
 		throw x.exit-code.value.to exit
 	as lsp-command
-		server run-lsp this-executable
+		server run-lsp ctx.reader, this-executable
 	as print-command x
-		server do-print x
+		ctx do-print x
 	as run-command x
 		assert (trusted extern java) else "Can only run code from a Java build" error
-		trusted server run x
+		trusted ctx run x
 	as version-command
 		out print "{this-executable crow-version}"
 
--run void(server server, run run-command) summon, unsafe, java extern
+-run void(ctx main-ctx, run run-command) summon, unsafe, java extern
 	is-js = run.options node-js
-	program = server check-main-and-print-diags run.main,
+	program = ctx check-main-and-print-diags run.main,
 		- if is-js then js else java
 	if is-js
-		server run-node-js program, run.main
+		ctx.server run-node-js program, run.main
 	else
-		server run-java program, run.main
+		ctx.server run-java program, run.main
 
 -run-java void(server server, program program-with-main, run-main main-kind) summon, unsafe, java extern
 	loader CrowClassLoader = getSystemClassLoader,
@@ -235,7 +219,7 @@ do summon
 		exit = "/usr/bin/env" spawn-and-inherit-io args
 		assert exit == 0 else exit exit
 
--get-crow-include-dir file-path(this-executable file-path) summon
+-get-crow-include-dir file-path(this-executable file-path)
 	this-dir = this-executable parent-or-empty
 	this-dir-dir = this-dir parent-or-empty
 	if trusted extern windows
@@ -251,24 +235,28 @@ do summon
 			this-dir-dir.base-name is "crow"
 			this-dir-dir / "include"
 
--do-print void(server server, command print-command) summon
+-do-print void(ctx main-ctx, command print-command)
+	server = ctx server
 	main-uri = command main-uri
 	match command kind
 	as print-ast
-		server load-single-file main-uri
-		server print-ast main-uri print-diags-and-json
+		server load-single-file ctx.reader, main-uri
+		diagnostics, json = server print-ast main-uri
+		unless diagnostics is-empty
+			ctx print err, diagnostics
+		ctx print out, "{json}"
 	as print-model
-		program = server check-and-print-diags (main-uri,)
-		out print "{server json-of-model program, main-uri}"
+		program = ctx check-and-print-diags (main-uri,)
+		ctx print out, "{server json-of-model program, main-uri}"
 	as print-concrete-model
-		program = server check-main-and-print-diags (main-uri main-kind-main-function ()), ()
-		out print "{server json-of-concrete-model java, program}"
+		program = ctx check-main-and-print-diags (main-uri main-kind-main-function ()), ()
+		ctx print out, "{server json-of-concrete-model java, program}"
 	as print-ide-at-pos x
-		program = server check-and-print-diags (main-uri,)
-		out print "{server json-for-print-ide-at-pos program, (main-uri, x.line-and-column), x.kind}"
+		program = ctx check-and-print-diags (main-uri,)
+		ctx print out, "{server json-for-print-ide-at-pos program, (main-uri, x.line-and-column), x.kind}"
 	as print-ide-whole-file x
-		program = server check-and-print-diags (main-uri,)
-		out print "{server json-for-print-ide-whole-file program, main-uri, x}"
+		program = ctx check-and-print-diags (main-uri,)
+		ctx print out, "{server json-for-print-ide-whole-file program, main-uri, x}"
 
 -build-all-outputs void
 	server server
@@ -296,31 +284,22 @@ do summon
 	if map ?= source-map-path
 		map write-file result.map!, read-write, allow
 
--check-main-and-print-diags program-with-main
-	server server
-	main main-kind
-	targets build-target set
-do summon
-	server load-all-files-for-main main
-	program = server get-program-for-main main, targets
+-check-main-and-print-diags program-with-main(ctx main-ctx, main main-kind, targets build-target set)
+	ctx load-all-files-for-main main
+	program = ctx.server get-program-for-main main, targets
 	if program has-any-diagnostics
-		err print do server show-diagnostics program
+		ctx print err, do ctx.server show-diagnostics program
 	if program has-fatal-diagnostics
-		err print "Stopping due to compile errors."
+		ctx print err, "Stopping due to compile errors."
 		throw exit
 	program
 
--check-and-print-diags program(server server, roots uri[]) summon
-	server check-and-print-diags roots, ()
--check-and-print-diags program(server server, roots uri[], options show-diags-options) summon
-	server load-all-files roots
+-check-and-print-diags program(ctx main-ctx, roots uri[])
+	ctx check-and-print-diags roots, ()
+-check-and-print-diags program(ctx main-ctx, roots uri[], options show-diags-options)
+	ctx load-all-files roots
 	crow-configs uri set = roots filter it.is-crow-config
-	program = server get-program crow-configs
+	program = ctx.server get-program crow-configs
 	if program has-any-diagnostics
-		err print do server show-diagnostics program, options
+		ctx print err, do ctx.server show-diagnostics program, options
 	program
-
--print-diags-and-json void(a diags-and-result-json) summon
-	unless a.diagnostics is-empty
-		err print a.diagnostics
-	out print "{a.result}"

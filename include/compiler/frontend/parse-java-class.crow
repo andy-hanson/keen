@@ -1,0 +1,247 @@
+import
+	crow/bits
+	crow/parse
+	../model/uri
+	../util/java-bytecode-types
+
+parsed-java-class record
+	access class-access
+	this-class path
+	super-class path?
+	interfaces path[]
+	fields parsed-field[]
+	methods parsed-method[]
+parse-java-class parsed-java-class(content nat8[])
+	reader bytes-mut-iterator = content,
+	reader.read32 is 0xcafebabe
+	version = reader read32
+	assert version >= 69
+	constants = reader read-constant-pool
+	access class-access = reader.read16.to!
+	this-class = reader read-class-reference constants
+	super-class = reader read-optional-class-reference constants
+	interfaces = reader read-array of then reader read-class-reference constants
+	fields = reader read-array of then reader read-field constants
+	methods = reader read-array of then reader read-method constants
+	_ = reader read-attributes constants
+	reader assert-finished
+	access: access
+	this-class: this-class
+	super-class: super-class
+	interfaces: interfaces
+	fields: fields
+	methods: methods
+
+-read-array[t] t[](reader bytes-mut-iterator, f t mut())
+	for _ nat in 0 .. reader.read16.to
+		f[]
+
+parsed-field record
+	access-flags field-access-flags
+	name symbol
+	type java-type
+	attributes read-attribute[]
+-read-field parsed-field(reader bytes-mut-iterator, constants constants)
+	access-flags: reader.read16 to!
+	name: reader read-utf8-reference constants to
+	type: reader read-utf8-reference constants parse-type
+	attributes: reader read-attributes constants
+
+-constants record
+	constant-strings string[nat16]
+	constant-classes path[nat16]
+-get-string string(a constants, index nat16)
+	a.constant-strings[index]!
+-get-class path(a constants, index nat16)
+	a.constant-classes[index]!
+
+parsed-method record
+	access-flags method-access-flags
+	name symbol
+	descriptor method-descriptor
+-read-method parsed-method(reader bytes-mut-iterator, constants constants)
+	access-flags method-access-flags = reader.read16 to!
+	name symbol = reader read-utf8-reference constants to
+	descriptor = reader read-utf8-reference constants parse-method-descriptor
+	_ = reader read-attributes constants
+	access-flags: access-flags
+	name: name
+	descriptor: descriptor
+
+method-descriptor record
+	return-type java-type
+	param-types java-type[]
+| string is a class path such as "java/lang/Object"
+java-type union(void, java-primitive-type, java-array-type, path)
+	show string()
+java-array-type record(element java-type)
+show string(_ void)
+	"void"
+show string(a java-array-type)
+	"{a.element.show}[]"
+-parse-type java-type(a string)
+	ptr string-mut-iterator = a,
+	res = ptr read-type
+	assert ptr is-at-end
+	res
+-parse-method-descriptor method-descriptor(a string)
+	ptr string-mut-iterator = a,
+	ptr.take-char8 is "("
+	param-types java-type[] = with out in build
+		until ptr try-take ")"
+			out ~= ptr read-type
+	return-type = ptr read-type
+	assert ptr is-at-end	
+	return-type, param-types
+read-type java-type(a string-mut-iterator)
+	char = a take-char8
+	match char
+	as B
+		T_BYTE
+	as C
+		T_CHAR
+	as D
+		T_DOUBLE
+	as F
+		T_FLOAT
+	as I
+		T_INT
+	as J
+		T_LONG
+	as L
+		s string = with out in build
+			loop
+				x = a take-char32
+				if x == ";"
+					break
+				else
+					out ~= x
+					continue
+		s parse-path
+	as S
+		T_SHORT
+	as V
+		()::void
+	as Z
+		T_BOOLEAN
+	as "["
+		a.read-type java-array-type
+	else
+		error log "THE TYPE IS {char}"
+		throw unreachable
+
+-read-attribute record
+	attribute-name string
+-read-attributes read-attribute[](reader bytes-mut-iterator, constants constants)
+	reader read-array of
+		reader read-attribute constants
+-read-attribute read-attribute(reader bytes-mut-iterator, constants constants)
+	attribute-name = reader read-utf8-reference constants
+	reader skip-n-bytes reader.read32.to
+	attribute-name: attribute-name
+
+-read-utf8-reference string(reader bytes-mut-iterator, constants constants)
+	constants get-string reader.read16
+-read-class-reference path(reader bytes-mut-iterator, constants constants)
+	constants get-class reader.read16
+-read-optional-class-reference path?(reader bytes-mut-iterator, constants constants)
+	index = reader read16
+	unless index == 0
+		constants get-class index
+
+# https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.4
+-read-constant-pool constants(reader bytes-mut-iterator)
+	constants-pool-count = reader read16
+	constant-pool-index mut nat16 = 1
+	constant-strings-builder string mut[nat16] = ()
+	constant-classes nat16 mut[nat16] = ()
+	while constant-pool-index < constants-pool-count
+		kind = reader read8
+		constant-pool-index +:= match kind
+		as 1
+			# CONSTANT_Utf8_info
+			bytes = reader read-n-bytes reader.read16.to
+			# Java does not really use standard UTF8, but this shouldn't matter for method and type names
+			constant-strings-builder[constant-pool-index] := bytes as-string
+			1
+		as 3
+			# CONSTANT_Integer_info
+			_ = reader skip-n-bytes 4
+			1
+		as 4
+			# CONSTANT_Float_info
+			_ = reader skip-n-bytes 4
+			1
+		as 5
+			# CONSTANT_Long_info
+			_ = reader skip-n-bytes 8
+			2
+		as 6
+			# CONSTANT_Double_info
+			_ = reader skip-n-bytes 8
+			2
+		as 7
+			# CONSTANT_Class_info
+			constant-classes[constant-pool-index] := reader read16
+			1
+		as 8
+			# CONSTANT_String_info
+			_ = reader skip-n-bytes 2
+			1
+		as 9
+			# CONSTANT_Fieldref_info
+			_ = reader skip-n-bytes 4
+			1
+		as 10
+			# CONSTANT_Methodref_info
+			_ = reader skip-n-bytes 4
+			1
+		as 11
+			# CONSTANT_InterfaceMethodref_info
+			_ = reader skip-n-bytes 4
+			1
+		as 12
+			# CONSTANT_NameAndType_info
+			_ = reader skip-n-bytes 4
+			1
+		as 15
+			# CONSTANT_MethodHandle_info
+			reader skip-n-bytes 3
+			1
+		as 16
+			# CONSTANT_MethodType_info
+			reader skip-n-bytes 2
+			1
+		as 18
+			# CONSTANT_InvokeDynamic_info
+			reader skip-n-bytes 4
+			1
+		else
+			error log "Unexpected constant kind {kind}"
+			throw todo
+	constant-pool-index is constants-pool-count
+	constant-strings string[nat16] = constant-strings-builder move-to
+	constant-strings: constant-strings
+	constant-classes: for k, v in constant-classes then k, constant-strings[v]!.parse-path
+
+-bytes-mut-iterator record mut
+	content nat8[]
+	index mut nat
+-new bytes-mut-iterator(content nat8[])
+	content, 0
+-assert-finished void(a bytes-mut-iterator)
+	a.index is a.content.size
+-read8 nat8(a bytes-mut-iterator)
+	res = a.content[a index]
+	a.index +:= 1
+	res
+-read16 nat16(a bytes-mut-iterator)
+	(a.read8.to << 8) | a.read8.to
+-read32 nat32(a bytes-mut-iterator)
+	(a.read16.to << 16) | a.read16.to
+-read-n-bytes nat8[](a bytes-mut-iterator, n-bytes nat)
+	res = a.content[a.index .. a.index + n-bytes]
+	a.index +:= n-bytes
+	res to
+-skip-n-bytes void(a bytes-mut-iterator, n-bytes nat)
+	a.index +:= n-bytes

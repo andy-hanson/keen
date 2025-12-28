@@ -14,6 +14,7 @@ import
 	./check/instantiate
 	./java-externs
 	./lang
+	./parse-java-class
 	./show-model
 	./storage_
 
@@ -21,7 +22,6 @@ frontend record mut
 	# TODO: what here can be private? -------------------------------------------------------------------------------------------------
 	# TODO: I wonder if 'storage' should be combined into frontend .......................................................................
 	storage_ storage_
-	java-externs java-externs
 	crow-include-dir uri
 	common-uris common-uris
 	common-files mut (common-module, crow-file) enum-map
@@ -31,12 +31,15 @@ frontend record mut
 	crow-files crow-file mut[uri]
 	| Number of crow-files without {module} set
 	count-uncompiled-crow-files mut nat
+	| Key is the Java class path such as "java/lang/Object"
+	java-class-files java-class-file mut[path]
 	other-files other-file mut[uri]
 	| Set of crow files which are ready to compile immediately.
 	| (Parsing and resolving imports is always done immediately.)
 	| This doesn't include files whose imports are not yet compiled.
 	| If all import uris are resolved but nothing is workable, there must be a circular import.
-	workable uri mut-set
+	workable-java path mut-set
+	workable-crow uri mut-set
 show-ctx show-ctx(a frontend) # TODO: THIS ONE IS JUST FOR DEBUG _----------------------------------------------------------------
 	a show-ctx (), ()
 show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
@@ -48,10 +51,8 @@ show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
 # TODO: just call it 'new' ------------------------------------------------------------------------------------------------------
 init-frontend frontend(storage_ storage_, crow-include-dir uri)
 	common-uris = crow-include-dir common-uris
-	crow-files crow-file mut[uri] = ()
 	res frontend =
 		storage_: storage_
-		java-externs: ()
 		crow-include-dir: crow-include-dir
 		common-uris: common-uris
 		common-files: for _, uri in common-uris
@@ -64,10 +65,12 @@ init-frontend frontend(storage_ storage_, crow-include-dir uri)
 			module: ()
 		all-insts: ()
 		common-types: ()
-		crow-files: crow-files
+		crow-files: ()
 		count-uncompiled-crow-files: 0
+		java-class-files: ()
 		other-files: ()
-		workable: ()
+		workable-java: ()
+		workable-crow: ()
 	res.common-files := for _, uri in common-uris
 		res ensure-crow-file uri
 	res
@@ -84,8 +87,17 @@ init-frontend frontend(storage_ storage_, crow-include-dir uri)
 	module mut crow-module?
 has-module bool(a crow-file) # TODO: inline ----------------------------------------------------------------------------------
 	_ ?= a module
-must-have-module crow-module(a crow-file)
+must-have-module crow-module(a crow-file) # TODO: inline ----------------------------------------------------------------------------------
 	a.module!
+
+-java-class-file record mut
+	type struct-decl
+	parsed mut parsed-java-class?
+	module mut java-class-module?
+	| Uris are for {crow-file}s
+	referenced-by-crow uri mut-set
+	| Subclasses or interface implementers must be processed after their supertypes.
+	inheritors path mut-set
 
 -ast-or-diag union(file-ast, read-file-diag)
 
@@ -124,16 +136,34 @@ make-program program(a frontend, fully-loaded-configs uri set)
 	unused-diagnostics = all-modules detect-unused-internal common-types, fully-loaded-configs
 	all-configs: a get-all-configs
 	all-modules: all-modules
-	java-modules: a.java-externs finish
+	java-modules: for k, v in a java-class-files
+		k.to-java-uri, v.module!
 	additional-diagnostics: common-funs-diagnostics ~~ unused-diagnostics
 	file-content-getters: a.storage_ file-content-getters
 	line-and-column-getters: a.storage_ line-and-column-getters
 	common-funs: common-funs
 	common-types: common-types
-	other-types: (a.java-externs Object ctx, common-types),
+	other-types:
+		java-Object: a.java-class-files["java/lang/Object" parse-path]!.type only-inst
 
 on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 	match uri file-type
+	as class_
+		path = uri as-java-uri!
+		file = a ensure-java-class-file path
+		match info
+		as file-info file-info
+			forbid _ ?= file parsed or _ ?= file module
+			file.parsed := file-info.other-file-info!.content.bytes parse-java-class
+			if s ?= file.parsed! super-class
+				(a ensure-java-class-file s).inheritors ~= path
+			a add-to-workable-if-so path, file
+		as read-file-diag x
+			forbid x == unknown
+			unless x == loading
+				error log "ERROR READING JAVA CLASS? {path} {x.to::json}"
+				# A missing Java module should probably be treated just like a missing Crow module
+				throw todo # ------------------------------------------------------------------------------------------------------------------------
 	as crow
 		file = a ensure-crow-file uri
 		file.ast-or-diag := match info
@@ -145,7 +175,7 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 			x
 		a updated-ast-or-config file
 	as crow-config
-		# TODO: I shouldn't need this copy. mut-map should be safe to walk, if there is a mutation it should throw. --------------------------
+		# TODO: I shouldn't need this copy. mut-map should be safe to walk, if there is a mutation it should throw. ---------------------------------
 		files crow-file[] = for _, v in a crow-files then v
 		for file in files
 			a update-file-on-config-change file
@@ -187,6 +217,15 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 		referenced-by: ()
 		module: ()
 
+-ensure-java-class-file java-class-file(a frontend, path path)
+	a.java-class-files ensure path, of
+		a.storage_ mark-unknown-if-not-exist path.to-java-uri
+		type: (a.all-insts,) initial-struct-for-java-class path
+		parsed: ()
+		module: ()
+		referenced-by-crow: ()
+		inheritors: ()
+
 -ensure-other-file other-file(a frontend, uri uri)
 	forbid uri.file-type == crow
 	a.other-files ensure uri, of
@@ -204,7 +243,7 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 -do-dirty-work void(a frontend)
 	start = perf-now
 	bootstrap = a.common-files[bootstrap]
-	if a.workable remove bootstrap.uri
+	if a.workable-crow remove bootstrap.uri
 		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.ast-or-diag.to-ast
 		module, common-types = a.show-ctx check-bootstrap a.all-insts, a.common-uris, fa
 		a.common-types := common-types
@@ -214,7 +253,20 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 
 	guard _ ?= a common-types
 	loop
-		if uri ?= a.workable pop-arbitrary
+		if path ?= a.workable-java pop-arbitrary
+			file = a.java-class-files[path]!
+			ctx java-ctx =
+				instantiate-ctx: a.all-insts,
+				common-types: a common-types!
+				ensure-java-class: of x
+					a ensure-java-class-file x type
+			file.module := ctx get-java-module path, file.parsed!
+			for x in file referenced-by-crow
+				a add-to-workable-if-so a.crow-files[x]!
+			for x in file inheritors
+				a add-to-workable-if-so x, a.java-class-files[x]!
+			continue
+		elif uri ?= a.workable-crow pop-arbitrary
 			file = a.crow-files[uri]!
 			file.module := a compile-non-bootstrap-module file
 			a.count-uncompiled-crow-files -:= 1
@@ -280,9 +332,9 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 	circular-import = if _ ?= file resolved-imports
 		file clear-resolved-imports
 	file.resolved-imports := a resolve-imports file.ast-or-diag, file.config!, file.uri
-	for x in file.resolved-imports!
+	for x in file resolved-imports!
 		if rb ?= x get-referenced-by
-			rb ~= file.uri
+			rb ~= file uri
 
 	if circ ?= circular-import
 		if file.resolved-imports! !has-circular-import
@@ -313,10 +365,20 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 	if a is-circular-import
 		a.diag-import-file!.circular-import! cycle
 
+-add-to-workable-if-so void(a frontend, path path, file java-class-file)
+	if a is-workable file
+		a.workable-java ~= path
 -add-to-workable-if-so void(a frontend, file crow-file)
 	if file is-workable
-		a.workable ~= file uri
+		a.workable-crow ~= file uri
 
+-is-workable bool(a frontend, file java-class-file)
+	forbid _ ?= file module
+	assert parsed ?= file parsed
+	if super ?= parsed super-class
+		_ ?= a ensure-java-class-file super module
+	else
+		true
 -is-workable bool(a crow-file)
 	forbid a has-module
 	a !is-unknown-or-loading and
@@ -326,8 +388,8 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 	match a
 	as crow-file x
 		x has-module
-	as imports-java _
-		true # TODO: only if 'common-types' has been set! ---------------------------------------------------------------------------------
+	as java-class-file x
+		_ ?= x module
 	as other-file x
 		_ ?= x content
 	as diag-import-file x
@@ -387,7 +449,7 @@ do
 	for uri, x in a crow-files
 		if uri != bootstrap.uri
 			a mark-module-dirty x
-	a.workable clear
+	a.workable-crow clear
 	for uri, x in a crow-files
 		if uri != bootstrap.uri
 			a add-to-workable-if-so x
@@ -408,8 +470,8 @@ do
 				file must-have-module
 			as read-file-diag d
 				file.uri read-error d
-		as imports-java x
-			a.java-externs get-java-module (a.all-insts,), a.common-types!, x.path
+		as java-class-file x
+			x module!
 		as other-file file
 			match a.storage_ file-or-diag file.uri
 			as file-info _
@@ -473,18 +535,16 @@ do
 | For an unknown/loading file, this will still be a {crow-file} or {other-file}
 -mostly-resolved-import union mut
 	crow-file
-	imports-java
+	java-class-file
 	other-file
 	diag-import-file
-imports-java record(path path)
 
 -get-referenced-by uri mut-set?(import_ mostly-resolved-import)
 	match import_
 	as crow-file x
 		x referenced-by
-	as imports-java _
-		# We don't watch for changes to these, so never need to know what references them
-		()
+	as java-class-file x
+		x referenced-by-crow
 	as other-file x
 		x referenced-by
 	as diag-import-file _
@@ -502,9 +562,9 @@ do
 		if library-name == "crow" or library-name == "system"
 			a try-resolve-import-from-uri ast, do a.crow-include-dir concat-uri-and-path path
 		elif path.get-extension == ".class"
-			path.without-extension imports-java
+			a ensure-java-class-file path.without-extension
 		elif library-name is-java-library
-			path imports-java
+			a ensure-java-class-file path
 		elif from-config ?= config.include[library-name]
 			uri = if r ?= rest
 				from-config concat-uri-and-path r
