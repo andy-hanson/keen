@@ -1,60 +1,24 @@
 import { basicSetup } from "codemirror"
+import { indentWithTab } from "@codemirror/commands"
 import { LSPClient, languageServerExtensions } from "@codemirror/lsp-client"
-import { EditorView } from "@codemirror/view"
+import { EditorView, keymap } from "@codemirror/view"
 
 const worker = new Worker("worker.js", { type: "module" })
 worker.onmessage = async (event) => {
-	const { data } = event
-	console.log("LE DATA", data)
-	const object = JSON.parse(data)
-	if (object.method === "custom/unknownUris") {
-		for (const uri of object.params.unknownUris) {
-			// TODO: do this in parallel
-			const message = JSON.stringify({
-				method: "custom/readFileResult",
-				params: await getIt(uri),
-			})
-			console.log("GONNA SEND UNKNOWN URIS RESPONSE", message)
-			worker.postMessage(message)
-		}
+	const object = JSON.parse(event.data)
+	if (perfReportIds.has(object.id)) {
+		console.log(object.result)
 	} else {
 		for (const handler of handlers) {
-			handler(data)
+			handler(event.data)
 		}
 	}
 }
-
-const getIt = async (uri) => {
-	const path = mapUriToFetchPath(uri)
-	if (path === null) return { uri, type: 'notFound' }
-
-	const response = await fetch(path)
-	if (response.status === 200) {
-		return { uri, type: "ok", content: await response.text() }
-	} else {
-		debugger
-		return { uri, type: response.status === 404 ? "notFound" : "error" }
-	}
-}
-
-const mapUriToFetchPath = uri => {
-	if (uri.endsWith("crow-config.json"))
-		// Don't waste time looking for these
-		return null
-	else if (uri.startsWith(includePrefix))
-		return `include/${uri.slice(includePrefix.length)}`
-	else if (uri.startsWith(tutorialPrefix))
-		return `tutorial/${uri.slice(tutorialPrefix)}`
-	else
-		return null
-}
-const includePrefix = 'file:///usr/local/bin/crow/include/'
-const tutorialPrefix = 'file:///home/me/tutorial/'
 
 let handlers = []
 const myTransport = {
 	send(message) {
-		console.log("GONNA SEND", message)
+		// console.log("GONNA SEND", message)
 		worker.postMessage(message)
 	},
 	subscribe(handler) {
@@ -68,13 +32,30 @@ const myTransport = {
 // https://codemirror.net/docs/ref/#lsp-client.LSPClientConfig
 const client = new LSPClient({
 	extensions: languageServerExtensions(),
+	timeout: 60_000,
 })
 client.connect(myTransport)
 
 const view = new EditorView({
-	doc: "Start document",
+	doc: 'main void()\n\tinfo log something\n',
 	parent: document.body,
-	extensions: [basicSetup, client.plugin("file:///main.crow")],
+	extensions: [
+		basicSetup,
+		client.plugin("file:///main.crow"),
+		keymap.of([indentWithTab]),
+	],
 })
 
-console.log("I am the index")
+const perfReportButton = document.createElement('button')
+perfReportButton.textContent = 'Report perf (see console)'
+document.body.append(perfReportButton)
+const perfReportIds = new Set()
+perfReportButton.onclick = () => {
+	const id = 1000000 + Math.floor(Math.random() * 1000000)
+	perfReportIds.add(id)
+	worker.postMessage(JSON.stringify({
+		id: id,
+		method: 'custom/perf-report',
+		params: {},
+	}))
+}

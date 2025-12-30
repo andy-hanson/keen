@@ -61,7 +61,8 @@ do
 		to-symbol-ref = ctx to-ref source, to-symbol, sync
 		for index, sym in program.all-constants.symbols with-index
 			# TODO: repeating the to-string-from-js-string logic over and over is verbose .......................................
-			args js-expr[] = (ctx to-string-from-js-string string, source, do source gen-string sym.to),
+			args js-expr[] =
+				- ctx to-string-from-js-string string, source, do source gen-string sym.to
 			out ~= const, index.constant-symbol-name, do source gen-call-sync to-symbol-ref, args
 		for var in program all-vars
 			match var kind
@@ -100,7 +101,7 @@ do
 
 -gen-call-main js-expr(ctx to-js-ctx, main concrete-fun)
 	###
-	main(typeof process === 'undefined' ? [] : process.argv.slice(2)).then(exit => {
+	main(typeof process === 'undefined' ? [] : process.argv.slice(2).map(x => toString(x)).then(exit => {
 		if (exit !== 0n) process.exit(Number(exit))
 	})
 	###
@@ -113,7 +114,14 @@ do
 		process-argv-slice =
 			process-argv = source gen-property-access process, "argv"
 			source gen-call-property-sync process-argv, "slice", ((source gen-number64 2),)
-		source gen-ternary process-is-undefined, empty-array, process-argv-slice
+		#to-string-from-js-string
+		to-string-lambda =
+			x js-name = "x" no-prefix
+			params js-params = (x,), ()
+			body = ctx to-string-from-js-string ctx.common-funs.string, source, (source gen-identifier x)
+			source gen-arrow-function sync, params, body
+		process-argv-mapped = source gen-call-property-sync process-argv-slice, "map", (to-string-lambda,)
+		source gen-ternary process-is-undefined, empty-array, process-argv-mapped
 	main-async sync-or-async = if ctx.async.funs[main] == always-async then async else sync
 	call-main = source gen-call-sync (ctx to-ref source, main, main-async), (argv,)
 	main-promise = match main-async
@@ -604,6 +612,9 @@ do
 -translate-builtin-binary js-expr-or-block-statement(source source, type concrete-type, a builtin-binary, (arg0 js-expr, arg1 js-expr))
 	binary js-expr data(op js-binary-kind) = of op
 		source gen-binary op, arg0, arg1
+	bitwise js-expr data(op js-binary-kind) = of op
+		res = binary[op]
+		if type is-nat32 then source gen-to-nat32 res else res
 	Object-is js-expr data() = of
 		source gen-call-property-sync (source gen-global "Object"), "is", do arg0, arg1
 	match a
@@ -617,11 +628,11 @@ do
 	as array-get
 		source gen-property-access-computed arg0, arg1
 	as bitwise-and
-		binary[bitwise-and]
+		bitwise[bitwise-and]
 	as bitwise-or
-		binary[bitwise-or]
+		bitwise[bitwise-or]
 	as bitwise-xor
-		binary[bitwise-xor]
+		bitwise[bitwise-xor]
 	as equal-exact
 		Object-is[]
 	as equal-float-ieee
@@ -771,6 +782,7 @@ do
 	else
 		ctx source arg convert-to-js-string do ctx to-js-expr arg
 
+# TODO: instead of repeating this logic, just call 'string-of-js-string' from 'string.crow' ---------------------------------------------------------
 -to-string-from-js-string js-expr(ctx to-js-ctx, string concrete-type, source source, arg js-expr)
 	chars = source convert-to-char8-array-from-js-string arg
 	source gen-new (ctx to-ref source, string), (chars,)
@@ -1441,19 +1453,19 @@ do
 	as int64
 		source gen-as-int64 arg
 	as nat8
-		source gen-mod arg, type.max-value.to::float64
+		source gen-bitwise-and arg, do source gen-number64 type.max-value.to::float64
 	as nat16
-		source gen-mod arg, type.max-value.to::float64
+		source gen-bitwise-and arg, do source gen-number64 type.max-value.to::float64
 	as nat32
-		source gen-binary bit-shift-right-unsigned, arg, do source gen-number64 0
+		source gen-to-nat32 arg
 	as nat64
 		source gen-as-nat64 arg
+-gen-to-nat32 js-expr(source source, arg js-expr)
+	source gen-binary bit-shift-right-unsigned, arg, do source gen-number64 0
 -gen-shift-and-unshift js-expr(source source, arg js-expr, amount float64)
 	amount-expr = source gen-number64 amount
 	x = source gen-binary bit-shift-left, arg, amount-expr
 	source gen-binary bit-shift-right, x, amount-expr
--gen-mod js-expr(source source, arg js-expr, modulo float64)
-	source gen-mod arg, do source gen-number64 modulo
 -gen-as-int64 js-expr(source source, arg js-expr)
 	BigInt = source gen-global "BigInt"
 	source gen-call-property-sync BigInt, "asIntN", do (source gen-number64 64), arg

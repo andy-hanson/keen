@@ -2,6 +2,7 @@ import
 	crow/col/mut-slice
 	crow/io/file
 	crow/js
+	crow/js/util
 	crow/unsafe
 	java/io/BufferedOutputStream
 	java/io/File
@@ -173,7 +174,7 @@ files-in-directory-recursive file-path[](dir-path file-path) summon
 			other
 	elif extern js
 		# TODO: handle dir not found exception ------------------------------------------------------------------------------
-		stat = fs call-property "lstatSync", path.to::string
+		stat = fs call-property "lstatSync", path.to::string.to-js-string
 		if stat call-property "isDirectory" js-cast
 			directory
 		elif stat call-property "isFile" js-cast
@@ -200,38 +201,81 @@ get-paths-in-dir file-path[](dir-path file-path) summon
 
 file-reader record mut
 	path-to-crow file-path
-	base-jmod file-path
-	read-file-inner read-file-result mut(path string)
-	read-from-jmod read-file-result mut(jmod-path file-path, class-path path)
-	files-in-directory-recursive file-path[] mut(root file-path)
-new file-reader(path-to-crow file-path) summon
-	assert trusted extern java
-	path-to-crow: path-to-crow
-	base-jmod: find-java-base-jmod
-	read-file-inner: it.read-file-inner
-	read-from-jmod: of jmod, class_ then jmod read-from-jmod class_
-	files-in-directory-recursive: it.files-in-directory-recursive
+	-base-jmod file-path
+	-read-file-inner read-file-result mut(path string)
+	-read-from-jmod read-file-result mut(jmod-path file-path, class-path path)
+	-files-in-directory-recursive file-path[] mut(root file-path)
+with-file-reader record(path-to-crow file-path)
+file-reader with-file-reader(path-to-crow file-path)
+	- path-to-crow
+with-block[t] t(a with-file-reader, f t mut(a file-reader)) summon
+	jmods FileSystem mut[file-path] = ()
+	reader file-reader =
+		path-to-crow: a path-to-crow
+		base-jmod: find-java-base-jmod
+		read-file-inner: it.read-file-inner
+		read-from-jmod: of jmod, class_ then jmod read-from-jmod class_, a.path-to-crow, jmods
+		files-in-directory-recursive: it.files-in-directory-recursive
+	finally
+		trusted
+		if extern java
+			for _, fs in jmods
+				fs close
+	f[reader]
 
--find-java-base-jmod file-path() summon, java extern
-	trusted
-	Object Class = "java.lang.Object".to-java-string forName
-	module = Object getModule
-	assert module isNamed
-	finder ModuleFinder = ofSystem
-	ref ModuleReference = (finder find module.getName).get reinterpret-cast
-	uri URI = ref.location.get reinterpret-cast
-	# e.g. "java.base"
-	jmod-name = uri.toString.to::string try-remove-start! "jrt:/"
-	java-home string = "java.home".to-java-string.getProperty to
-	"{java-home}/jmods/{jmod-name}.jmod" must-parse-file-path
+files-in-directory-recursive file-path[](a file-reader, root file-path)
+	a.files-in-directory-recursive[root]
 
--read-from-jmod read-file-result(jmod file-path, class_ path) summon, java extern
+-find-java-base-jmod file-path() summon
 	trusted
-	jar-uri URI = "jar:file://{jmod}".to-java-string create
-	file-system FileSystem = jar-uri newFileSystem emptyMap
-	finally file-system close
-	path = file-system getPath "/classes/{class_}.class".to-java-string, ()
-	- path.readAllBytes.cast-immutable safe-reinterpret-cast
+	if extern java
+		Object Class = "java.lang.Object".to-java-string forName
+		module = Object getModule
+		assert module isNamed
+		finder ModuleFinder = ofSystem
+		ref ModuleReference = (finder find module.getName).get reinterpret-cast
+		uri URI = ref.location.get reinterpret-cast
+		# e.g. "java.base"
+		jmod-name = uri.toString.to::string try-remove-start! "jrt:/"
+		java-home string = "java.home".to-java-string.getProperty to
+		"{java-home}/jmods/{jmod-name}.jmod" must-parse-file-path
+	elif extern js
+		"/usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod" must-parse-file-path # TODO -------------------------------------------------------
+	else
+		throw todo
+
+-read-from-jmod read-file-result(jmod file-path, class_ path, this-executable file-path, jmods FileSystem mut[file-path]) summon
+	start = perf-now
+	finally start end-read-file
+	trusted
+	inner-path string = "classes/{class_}.class"
+	if extern java
+		file-system = jmods ensure jmod, of
+			jar-uri URI = "jar:file://{jmod}".to-java-string create
+			jar-uri newFileSystem emptyMap
+		path = file-system getPath inner-path.to-java-string, ()
+		- path.readAllBytes.cast-immutable safe-reinterpret-cast
+	elif extern js
+		# This is much faster than trying to extract from a ZIP -------------------------------------------------------------------------------------
+		"{this-executable.parent!.parent!}/site2/java/classes/{class_}.class" read-file-inner
+		# TODO: this has no error handling. The command 'fails' because of a warning that isn't important ... so how to distinguish from a real error?
+		###
+		exec = "child_process".js-import.await["default"]["exec"]
+		promisify = "util".js-import.await["default"]["promisify"]
+		exec-promise = promisify call exec
+		command string = "unzip -p {jmod.to::json} {inner-path.to::json} || true"
+		res = exec-promise call command.to-js-string,
+			encoding: "binary" to-js-string
+		stdout = res.await["stdout"]
+		buf = "Buffer".js-global call-property "from", stdout, "binary".to-js-string
+		uints = "Uint8Array".js-global call-property "from", buf
+		- uints.reinterpret-cast::nat8[]
+		###
+	else
+		throw todo
+
+array-from-buffer nat8[](buffer js-any) unsafe, js extern
+	"Uint8Array".js-global call-property "from", buffer reinterpret-cast
 
 try-read-file read-file-result(a file-reader, uri uri)
 	if path ?= uri as-java-uri
@@ -243,7 +287,6 @@ try-read-file read-file-result(a file-reader, uri uri)
 
 try-read-java-class read-file-result(a file-reader, path path)
 	# TODO: extract from the ZIP ----------------------------------------------------------------------------------------------------------------
-	assert trusted extern java
 	if path.to::symbol == "CrowClassLoader"
 		full-path string = "{a.path-to-crow.parent!.parent!.to::string}/include/compiler/backend/java/lib/CrowClassLoader.class"
 		a.read-file-inner[full-path]
@@ -251,6 +294,8 @@ try-read-java-class read-file-result(a file-reader, path path)
 		a.read-from-jmod[a.base-jmod, path]
 
 -read-file-inner read-file-result(path string) summon
+	start = perf-now
+	finally start end-read-file
 	try
 		- path do-read-file
 	catch path-not-found _
@@ -263,8 +308,7 @@ cwd file-path() summon
 	if extern java
 		"".to-java-path.toAbsolutePath.toString.to must-parse-file-path
 	elif extern js
-		res string = process call-property "cwd" cast
-		res must-parse-file-path
+		(process call-property "cwd" string-of-js-string) must-parse-file-path
 	else
 		throw todo
 
@@ -272,16 +316,21 @@ cwd file-path() summon
 	trusted "process" js-global
 
 -fs js-any() js extern
+	# TODO: don't I need to await it? ---------------------------------------------------------------------------------------------------------------
 	trusted "fs" js-import
 
 -js-import js-any(name string) builtin, unsafe, js extern # TODO: MOVE --------------------------------------------------------
 
 this-executable file-path() summon
 	trusted
-	assert extern java else todo
-	class_ = "Crow".to-java-string forName
-	path = class_.getProtectionDomain.getCodeSource.getLocation.getPath decode "UTF-8".to-java-string
-	path.to must-parse-file-path
+	if extern java
+		class_ = "Crow".to-java-string forName
+		path = class_.getProtectionDomain.getCodeSource.getLocation.getPath decode "UTF-8".to-java-string
+		path.to must-parse-file-path
+	elif extern js
+		process["argv"]["1"].string-of-js-string must-parse-file-path
+	else
+		throw todo
 
 do-read-file nat8[](path string) summon # TODO: better name --------------------------------------------------------------
 	trusted
@@ -291,9 +340,7 @@ do-read-file nat8[](path string) summon # TODO: better name --------------------
 		path.to-java-path.readAllBytes bytes-cast
 	elif extern js
 		try
-			buffer = fs call-property "readFileSync", path.to-js-string
-			bytes float64[] = "Array".js-global call-property "from", buffer cast
-			for byte in bytes then byte to
+			fs call-property "readFileSync", path.to-js-string array-from-buffer
 		catch else exception
 			code string = exception.as-js["code"] string-of-js-string # TODO: first check if the property exists??????????????????????????????
 			throw if code == "ENOENT"

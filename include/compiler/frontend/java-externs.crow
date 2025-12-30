@@ -6,6 +6,7 @@ import
 	./check/instantiate
 	./parse-java-class
 	../util/java-bytecode-types
+	../util/perfhax
 
 java-ctx record mut
 	instantiate-ctx instantiate-ctx
@@ -13,6 +14,8 @@ java-ctx record mut
 	ensure-java-class struct-decl mut(path path)
 
 get-java-module java-class-module(ctx java-ctx, path path, class_ parsed-java-class)
+	start = perf-now
+	finally start end-get-java-module
 	struct = ctx.ensure-java-class[path]
 	ctx fill-supertypes class_, struct
 	ctx fill-interface-methods class_, struct
@@ -30,7 +33,7 @@ do
 	hash: instantiate-ctx next-hash
 	source: path struct-decl-source-java
 	module-uri: path to-java-uri
-	visibility: public # TODO: get this from the Java visibility? -------------------------------------------------------------------------
+	visibility: public
 	extern_: "java",
 	is-summon: true
 	purity: mut_
@@ -75,15 +78,14 @@ do
 	is-interface = interface_::class-access in class_.access
 	with out in build
 		for field in class_ fields
-			# TODO: ENSURE IT'S PUBLIC ------------------------------------------------------------------------------------
-			type = ctx to-type field.type
+			guard public::field-access-flags in field.access-flags
 			guard static::field-access-flags in field.access-flags # TODO: support instance fields
 			out ~=
 				hash: ctx.instantiate-ctx next-hash
 				source: path fun-source-java field.name
 				visibility: public
 				n-type-params: 0
-				return-type: type
+				return-type: ctx to-type field.type
 				params: ()
 				flags_: summon_ | unsafe_
 				externs: "java",
@@ -94,9 +96,9 @@ do
 					static-field, path
 
 		for method in class_ methods
-			is-constructor = method.name == "<init>"
-			# TODO: ENSURE IT'S PUBLIC ------------------------------------------------------------------------------------
+			guard public::method-access-flags in method.access-flags
 			is-static = static::method-access-flags in method.access-flags
+			is-constructor = method.name == "<init>"
 			return-type, most-params = ctx method-return-type-and-params method
 			# TODO: NEATER (should be able to declare 'body' on this line ...) -----------------------------------------------
 			opt-body fun-body-extern-java? = if is-static

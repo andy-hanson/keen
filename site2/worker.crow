@@ -1,27 +1,104 @@
 import
+	crow/format/binary
 	crow/js
+	crow/js/browser
 	crow/js/util
+	crow/parallel
 	crow/parse
 	../include/compiler/lib/server
 	../include/compiler/frontend/show-model
 	../include/compiler/lib/lsp/lsp-parse
 	../include/compiler/lib/lsp/lsp-types
 	../include/compiler/model/uri
+	../include/compiler/util/perfhax
 
 main void() summon, unsafe, js extern
+	preloaded = with in parallel
+		preload
 	server-settings server-settings =
 		include-dir: "file:///usr/local/bin/crow/include" must-parse-uri
 		cwd: "file:///home/me/demo" must-parse-uri
 		show-options:
 			color: false
 	server server = server-settings,
-	server.lsp-state.supports-unknown-uris := true
 	on-message void mut(event js-any) = of event
-		data_ = event["data"].string-of-js-string
-		info log "GOT MESSAGE: {data_}"
+		# Wait until we're actually set up
+		data_ = event["data"] string-of-js-string
 		input lsp-in-message = json parse data_ to
-		exit = server handle-one-lsp-message input, (), of x
-			info log "GONNA RESPOND: {x.to::json}"
+		files = preloaded await
+		read-file-locally read-file-result-params mut(uri uri) = of uri
+			files read-file-locally uri
+		exit = server handle-one-lsp-message input, read-file-locally, of x
 			_ = "postMessage".js-global call x.to::json.show.to-js-string
 		forbid _ ?= exit else todo
 	self["onmessage"] := on-message
+
+-preloaded-files record
+	java-classes nat8 array-view[symbol]
+	crow-include nat8 array-view[symbol]
+-preload preloaded-files() summon, js extern
+	start = perf-now
+	finally start end-read-file
+	# TODO: just use something in perfhax for this! -------------------------------------------------------------------------------------------------
+	java-classes = "java-classes.tar".fetch read-entire-tar
+	info log "java-classes number of files: {java-classes.size}"
+	crow-include = "crow-include.tar".fetch read-entire-tar
+	info log "crow-include number of files: {crow-include.size}"
+	java-classes, crow-include
+
+-read-file-locally read-file-result-params(files preloaded-files, uri uri)
+	start = perf-now
+	finally start end-read-file
+	s = uri show
+	content nat8 array-view? = if path ?= s try-remove-start "file:///usr/local/bin/crow/include/crow/"
+		files.crow-include[path to]
+	elif path ?= s try-remove-start "java:///"
+		files.java-classes["{path}.class"]
+	if x ?= content
+		uri, ok, x.to
+	else
+		unless s ends-with "/crow-config.json"
+			error log "not found: {uri}" # ----------------------------------------------------------------------------------------------------------
+		uri, notFound, ()
+
+-read-entire-tar nat8 array-view[symbol](a nat8[])
+	iter nat8 array-mut-iterator = a,
+	with out in build
+		while pair ?= iter take-one-file
+			out ~= pair
+# https://www.fileformat.info/format/tar/corion.htm
+| Returns an empty option if this is the empty record. That indicates the end of the archive.
+-take-one-file (symbol, nat8 array-view)?(a nat8 array-mut-iterator)
+	loop
+		file-name = a take-string 100
+		guard file-name != "" else break
+		a skip-n 24 # mode, owner, group
+		file-size = a take-octal 12, true
+		a skip-n 20 # modification time and checksum
+		linkflag char8 = a.take.to::char8
+		is-file = linkflag == "0"
+		a skip-n 100 # linkname
+		magic = a take-string 8
+		magic is "ustar  "
+		a skip-to-next-record
+		file = a take-n file-size
+		a skip-to-next-record
+		if is-file
+			break (file-name try-remove-start! "./").to, file
+		else
+			continue
+-skip-to-next-record void(a nat8 array-mut-iterator)
+	offset = a.index % 512
+	unless offset == 0
+		a skip-n (512 - offset)
+-take-octal nat(a nat8 array-mut-iterator, n-bytes nat, has-trailing-nul bool)
+	res mut nat = 0
+	for _ nat in 0 .. n-bytes - has-trailing-nul.to
+		res *:= 8
+		res +:= a.take.to.octal-digit.to
+	if has-trailing-nul
+		a.take is 0
+	res
+-octal-digit nat8(a char8)
+	assert "0"::char8 <= a and a <= "7"
+	a.to - "0".to

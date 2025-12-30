@@ -60,6 +60,10 @@ bin/crow: $(all_include) include/compiler/backend/java/lib/Crow.class bin/import
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
 	mv bin/crow-tmp bin/crow
 
+# Just for fun
+bin/crow.js: $(all_include) bin/imports/date.txt bin/imports/commit-hash.txt
+	bin/crow build include/compiler/app/main.crow --out bin/crow.js
+
 profile-check: bin/crow
 	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow check include/compiler/app/main.crow --times 30 --perf
 	jmc
@@ -107,7 +111,15 @@ confirm-upload-site: prepare-site
 upload-site: prepare-site confirm-upload-site
 	$(aws_upload_command)
 
-serve-site2: site2/worker.js
+site2/crow-include.tar:
+	tar -cf site2/crow-include.tar -C include/crow .
+site2/java-classes.tar:
+	# This avoids storing the 'jdk' classes which take up a lot of space and aren't in any public API
+	unzip -qq /usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod 'classes/java/*' 'classes/javax/*' -d site2/java-classes || true
+	tar -cf site2/java-classes.tar -C site2/java-classes/classes .
+	rm -r site2/java-classes
+
+serve-site2: site2/crow-include.tar site2/java-classes.tar site2/worker.js
 	cd site2 && ./serve.py
 site2/worker.js: bin/crow site2/worker.crow
 	bin/crow build site2/worker.crow --out site2/worker.js
