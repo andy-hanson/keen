@@ -1,6 +1,7 @@
 import
 	crow/bits
 	crow/col/mut-slice
+	crow/js
 	crow/unsafe
 	java/io/File
 	java/lang/System
@@ -120,15 +121,31 @@ import
 	assert extern java else todo
 	_ = path.to-java-path write content.reinterpret-cast::(int8 mut-slice), ()
 
+-fs js-any() js extern
+	trusted "fs" js-import
+
 +read-file nat8[](path string) summon
 	trusted
-	assert extern java else todo
-	p Path = path.to-java-string get ()
-	try
-		bytes int8 mut-slice = p readAllBytes
-		bytes reinterpret-cast # TODO: I should have a safe function somewhere for doing this conversion ----------------------------------
-	catch NoSuchFileException _
-		throw path path-not-found
+	if extern java
+		p Path = path.to-java-string get ()
+		try
+			p.readAllBytes.cast-immutable safe-reinterpret-cast
+		catch NoSuchFileException _
+			throw path path-not-found
+	elif extern js
+		try
+			fs call-property "readFileSync", path.to-js-string array-from-buffer
+		catch else exception
+			code string = exception.as-js["code"] string-of-js-string # TODO: first check if the property exists??????????????????????????????
+			throw if code == "ENOENT"
+				path path-not-found
+			else
+				exception
+	else
+		throw todo
+
+-array-from-buffer nat8[](buffer js-any) unsafe, js extern
+	"Uint8Array".js-global call-property "from", buffer reinterpret-cast
 
 -to-java-path Path(a string) java extern
 	trusted

@@ -14,7 +14,6 @@ import
 	java/lang/reflect/Method
 	java/lang/StackTraceElement
 	java/lang/Throwable
-	../../crow/col/mut-slice: cast-mutable
 	../backend/js/source-map
 	../frontend/get-diagnostic-severity
 	../frontend/lang
@@ -113,13 +112,13 @@ print void(a main-ctx, pipe pipe, text string)
 
 -load-all-files void(ctx main-ctx, root-uris uri[])
 	start = perf-now
+	finally start end-load-all-files
 	for uri in root-uris
 		if uri is-crow-config
 			ctx load-all-files-for-config uri
 		else
 			ctx.server load-single-file ctx.reader, uri
 	ctx.server load-until-no-unknown-uris ctx.reader
-	start end-load-all-files
 
 -read-file-locally read-file-result-params(reader file-reader, uri uri)
 	match reader try-read-file uri
@@ -150,7 +149,7 @@ print void(a main-ctx, pipe pipe, text string)
 	match command
 	as build-command x
 		program = ctx check-main-and-print-diags x.main, do x.out map it.kind
-		server build-all-outputs x.out, x.times, program
+		server build-all-outputs x.out, x.options, x.times, program
 	as check-command x
 		for _ in 0::nat .. x.times
 			options show-diags-options =
@@ -213,7 +212,7 @@ print void(a main-ctx, pipe pipe, text string)
 
 -run-node-js void(server server, program program-with-main, run-main main-kind) summon, unsafe
 	with temp in "crow-" temp-file ".js"
-		js = server build-to-js program, ()
+		js = server build-to-js program, no-sanity-checks, ()
 		temp write-file js.js
 		args string[] = ("node", temp)::string[] ~~ run-main.program-args
 		exit = "/usr/bin/env" spawn-and-inherit-io args
@@ -261,6 +260,7 @@ print void(a main-ctx, pipe pipe, text string)
 -build-all-outputs void
 	server server
 	outputs single-build-output[]
+	options build-command-options
 	times nat
 	program program-with-main
 do summon
@@ -269,17 +269,18 @@ do summon
 		as java
 			x.path write-jar do server build-to-java program, "", times
 		as js
-			server write-to-js program, x.path, true
+			server write-to-js program, options, x.path, true
 
 -write-to-js void
 	server server
 	program program-with-main
+	options build-command-options
 	out-file file-path
 	include-source-map bool
 do summon
 	source-map-path file-path? = if include-source-map
 		out-file add-extension ".map"
-	result = server build-to-js program, source-map-path?.base-name
+	result = server build-to-js program, options.sanity-checks, source-map-path?.base-name
 	out-file write-file result.js, all, allow
 	if map ?= source-map-path
 		map write-file result.map!, read-write, allow

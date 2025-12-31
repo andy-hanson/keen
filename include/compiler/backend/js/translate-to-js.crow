@@ -1,4 +1,5 @@
 import
+	../../app/command
 	../../frontend/show-model
 	../../model/concrete-model
 	../../model/integral-values
@@ -7,6 +8,7 @@ import
 	../../model/source-range
 	../../model/uri
 	../../util/full-index-map
+	../../util/perfhax
 	../../util/util
 	../util
 	./js-ast
@@ -19,11 +21,15 @@ translate-to-js js-and-map
 	model-program program-with-main
 	program concrete-program
 	show-ctx show-type-ctx
+	sanity-checks sanity-checks
 	source-map-name string?
 do
+	start = perf-now
+	finally start end-translate-to-js
 	ctx to-js-ctx =
 		show-type-ctx: show-ctx
 		program: program
+		sanity-checks: sanity-checks
 		union-info: program plan-unions
 		mangled-names: program build-mangled-names
 		constant-names: program gen-constant-names show-ctx.show
@@ -75,7 +81,7 @@ do
 	ast js-script-ast = shebang, classes, functions, vars,
 		- ctx gen-call-main program.common-funs.concrete-common-funs-js!.main to
 	module-paths module-paths = model-program module-paths
-	show-ctx write-js-ast module-paths, ast, source-map-name
+	show-ctx write-js-ast module-paths, ast, sanity-checks, source-map-name
 
 # Emit vars with simple initializers before symbols (this happens to be the only kind of constants that requires)
 -has-simple-initializer bool(a concrete-var)
@@ -183,6 +189,7 @@ do
 		throw unreachable
 
 -gen-type-assert js-statement?(ctx to-js-ctx, source source, get js-expr, a concrete-type)
+	guard ctx.sanity-checks == all-sanity-checks
 	guard is-type ?= ctx gen-is-type source, get, a
 	# Allow 'gc-safe-value'
 	is-type-or-null = source gen-or is-type, do source gen-eq-eq-eq get, source.gen-null
@@ -383,6 +390,7 @@ do
 -to-js-ctx record
 	show-type-ctx show-type-ctx
 	program concrete-program
+	sanity-checks sanity-checks
 	union-info union-info
 	mangled-names js-mangled-names
 	constant-names nat constant-names
@@ -485,7 +493,6 @@ do
 		ctx translate-builtin a.return-type, source, x.kind, for param in a params
 			param.type, a.range, param.local-get-concrete-expr # TODO: use param range, not a.range ---------------------------------------
 	as concrete-expr x
-		# error log "LET'S TRANSLATE {ctx.ctx.show-ctx show-concrete-fun-sig a, false}" # -------------------------------------
 		body = ctx to-block-statement x
 		statements js-statement[] = with out in build
 			for param in a params

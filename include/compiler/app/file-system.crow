@@ -43,6 +43,7 @@ import
 	../model/parse-diag
 	../model/uri
 	../util/perfhax
+	../util/tar
 
 # TODO: most of this code should be moved to the std library ------------------------------------------------------------------
 
@@ -134,7 +135,7 @@ write-jar void(path file-path, files java-compiled-class[]) summon
 		for class_ in files
 			entry JarEntry = class_.name-including-class.to-java-string,
 			jar-out putNextEntry entry.reinterpret-cast::ZipEntry
-			jar-out.reinterpret-cast::OutputStream write class_.bytecode.bytes-cast
+			jar-out.reinterpret-cast::OutputStream write class_.bytecode.safe-reinterpret-cast.cast-mutable
 			jar-out.reinterpret-cast::ZipOutputStream closeEntry
 		jar-out.reinterpret-cast::ZipOutputStream finish
 		buf-out flush
@@ -145,11 +146,6 @@ write-jar void(path file-path, files java-compiled-class[]) summon
 	a map it.wrap-to
 -wrap-to int8(a char8)
 	a.to::nat8 wrap-to
-
-bytes-cast int8 mut-slice(a nat8[])
-	trusted a reinterpret-cast
-bytes-cast nat8[](a int8 mut-slice)
-	trusted a reinterpret-cast
 
 # TODO: have this in std- -------------------------------------------------------------------------------------------------------------
 files-in-directory-recursive file-path[](dir-path file-path) summon
@@ -201,27 +197,46 @@ get-paths-in-dir file-path[](dir-path file-path) summon
 
 file-reader record mut
 	path-to-crow file-path
-	-base-jmod file-path
 	-read-file-inner read-file-result mut(path string)
-	-read-from-jmod read-file-result mut(jmod-path file-path, class-path path)
+	-read-java-class read-file-result mut(class-path path)
 	-files-in-directory-recursive file-path[] mut(root file-path)
 with-file-reader record(path-to-crow file-path)
 file-reader with-file-reader(path-to-crow file-path)
 	- path-to-crow
 with-block[t] t(a with-file-reader, f t mut(a file-reader)) summon
-	jmods FileSystem mut[file-path] = ()
-	reader file-reader =
-		path-to-crow: a path-to-crow
-		base-jmod: find-java-base-jmod
-		read-file-inner: it.read-file-inner
-		read-from-jmod: of jmod, class_ then jmod read-from-jmod class_, a.path-to-crow, jmods
-		files-in-directory-recursive: it.files-in-directory-recursive
-	finally
-		trusted
-		if extern java
-			for _, fs in jmods
-				fs close
-	f[reader]
+	with read-java-class in a.path-to-crow with-java-class-reader
+		reader file-reader =
+			path-to-crow: a path-to-crow
+			read-file-inner: it.read-file-inner
+			read-java-class: read-java-class
+			files-in-directory-recursive: it.files-in-directory-recursive
+		f[reader]
+
+java-class-reader alias
+	read-file-result mut(path path)
+with-java-class-reader record(path-to-crow file-path)
+with-block[t] t(a with-java-class-reader, f t mut(a java-class-reader)) # TODO: use a with-block ------------------------------------------
+	trusted
+	if extern java
+		base-jmod = find-java-base-jmod
+		jmods FileSystem mut[file-path] = ()
+		finally for _, fs in jmods
+			fs close
+		f[of path then base-jmod read-java-class path, jmods]
+	elif extern js
+		tar-path = a.path-to-crow.parent!.parent! / "site2" / "java-classes.tar"
+		tar = tar-path.to.read-file read-entire-tar
+		poop java-class-reader = of path
+			if content ?= tar["{path}.class"]
+				content.to,
+			else
+				error log "Could not find {path}.class"
+				keys symbol[] = tar map it.a
+				error log "Actual keys: {keys.to::json}"
+				not-found
+		f[poop]
+	else
+		throw todo
 
 files-in-directory-recursive file-path[](a file-reader, root file-path)
 	a.files-in-directory-recursive[root]
@@ -244,38 +259,14 @@ files-in-directory-recursive file-path[](a file-reader, root file-path)
 	else
 		throw todo
 
--read-from-jmod read-file-result(jmod file-path, class_ path, this-executable file-path, jmods FileSystem mut[file-path]) summon
-	start = perf-now
-	finally start end-read-file
+-read-java-class read-file-result(jmod file-path, class_ path, jmods FileSystem mut[file-path]) summon, java extern
 	trusted
 	inner-path string = "classes/{class_}.class"
-	if extern java
-		file-system = jmods ensure jmod, of
-			jar-uri URI = "jar:file://{jmod}".to-java-string create
-			jar-uri newFileSystem emptyMap
-		path = file-system getPath inner-path.to-java-string, ()
-		- path.readAllBytes.cast-immutable safe-reinterpret-cast
-	elif extern js
-		# This is much faster than trying to extract from a ZIP -------------------------------------------------------------------------------------
-		"{this-executable.parent!.parent!}/site2/java/classes/{class_}.class" read-file-inner
-		# TODO: this has no error handling. The command 'fails' because of a warning that isn't important ... so how to distinguish from a real error?
-		###
-		exec = "child_process".js-import.await["default"]["exec"]
-		promisify = "util".js-import.await["default"]["promisify"]
-		exec-promise = promisify call exec
-		command string = "unzip -p {jmod.to::json} {inner-path.to::json} || true"
-		res = exec-promise call command.to-js-string,
-			encoding: "binary" to-js-string
-		stdout = res.await["stdout"]
-		buf = "Buffer".js-global call-property "from", stdout, "binary".to-js-string
-		uints = "Uint8Array".js-global call-property "from", buf
-		- uints.reinterpret-cast::nat8[]
-		###
-	else
-		throw todo
-
-array-from-buffer nat8[](buffer js-any) unsafe, js extern
-	"Uint8Array".js-global call-property "from", buffer reinterpret-cast
+	file-system = jmods ensure jmod, of
+		jar-uri URI = "jar:file://{jmod}".to-java-string create
+		jar-uri newFileSystem emptyMap
+	path = file-system getPath inner-path.to-java-string, ()
+	- path.readAllBytes.cast-immutable safe-reinterpret-cast
 
 try-read-file read-file-result(a file-reader, uri uri)
 	if path ?= uri as-java-uri
@@ -286,18 +277,20 @@ try-read-file read-file-result(a file-reader, uri uri)
 		not-found
 
 try-read-java-class read-file-result(a file-reader, path path)
-	# TODO: extract from the ZIP ----------------------------------------------------------------------------------------------------------------
 	if path.to::symbol == "CrowClassLoader"
-		full-path string = "{a.path-to-crow.parent!.parent!.to::string}/include/compiler/backend/java/lib/CrowClassLoader.class"
+		crow string = a.path-to-crow.parent!.parent! to
+		full-path string = "{crow}/include/compiler/backend/java/lib/CrowClassLoader.class"
 		a.read-file-inner[full-path]
 	else
-		a.read-from-jmod[a.base-jmod, path]
+		start = perf-now
+		finally start end-read-file
+		a.read-java-class[path]
 
 -read-file-inner read-file-result(path string) summon
 	start = perf-now
 	finally start end-read-file
 	try
-		- path do-read-file
+		- path read-file
 	catch path-not-found _
 		not-found
 	catch file-system-error _
@@ -316,10 +309,7 @@ cwd file-path() summon
 	trusted "process" js-global
 
 -fs js-any() js extern
-	# TODO: don't I need to await it? ---------------------------------------------------------------------------------------------------------------
 	trusted "fs" js-import
-
--js-import js-any(name string) builtin, unsafe, js extern # TODO: MOVE --------------------------------------------------------
 
 this-executable file-path() summon
 	trusted
@@ -329,24 +319,6 @@ this-executable file-path() summon
 		path.to must-parse-file-path
 	elif extern js
 		process["argv"]["1"].string-of-js-string must-parse-file-path
-	else
-		throw todo
-
-do-read-file nat8[](path string) summon # TODO: better name --------------------------------------------------------------
-	trusted
-	if extern java
-		# TODO: would be better to catch a file-not-found exception
-		assert path.must-parse-file-path path-exists else path path-not-found
-		path.to-java-path.readAllBytes bytes-cast
-	elif extern js
-		try
-			fs call-property "readFileSync", path.to-js-string array-from-buffer
-		catch else exception
-			code string = exception.as-js["code"] string-of-js-string # TODO: first check if the property exists??????????????????????????????
-			throw if code == "ENOENT"
-				path path-not-found
-			else
-				exception
 	else
 		throw todo
 

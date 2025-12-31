@@ -3,12 +3,17 @@ import { indentWithTab } from "@codemirror/commands"
 import { LSPClient, languageServerExtensions } from "@codemirror/lsp-client"
 import { EditorView, keymap } from "@codemirror/view"
 
+let start = +new Date()
 const worker = new Worker("worker.js", { type: "module" })
 worker.onmessage = async (event) => {
 	const object = JSON.parse(event.data)
 	if (perfReportIds.has(object.id)) {
 		console.log(object.result)
 	} else {
+		if (start !== null && object.method === 'textDocument/publishDiagnostics') {
+			console.log(`time to diagnostics: ${(+new Date() - start) / 1000} seconds`)
+			start = null
+		}
 		for (const handler of handlers) {
 			handler(event.data)
 		}
