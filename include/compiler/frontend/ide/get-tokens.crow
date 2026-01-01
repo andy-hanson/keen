@@ -29,15 +29,7 @@ tokens-of-ast semantic-tokens(file crow-file-info)
 	ctx.tokens.encoded.move-to,
 
 json-of-decoded-tokens json(a semantic-tokens)
-	xs json[] = with out in build
-		a decode-tokens of lc, length, type, modifiers
-			out ~=
-				line: lc.line to
-				character: lc.character to
-				length: length to
-				type: type to
-				modifiers: modifiers to
-	xs to
+	(a.decode-semantic-tokens map it.to)::json[] to
 
 get-tokens-legend json()
 	token-types json[] = for x in members::token-type[]
@@ -49,26 +41,43 @@ get-tokens-legend json()
 
 -ctx record(tokens tokens-builder) mut # TODO: don't need any more context, so just pass the tokens-builder around directly -----------
 
--decode-tokens void(a semantic-tokens, f void mut(l line-and-character, length nat, type token-type, modifiers token-modifiers))
+token record
+	line nat32
+	character nat32
+	length nat32
+	type token-type
+	modifiers token-modifiers
+to json(a token)
+decode-semantic-tokens record(inner semantic-tokens)
+to token[](a decode-semantic-tokens)
+	a map it.identity
+size nat(a decode-semantic-tokens)
+	a.inner.data_.size / 5
+iterate bool(a decode-semantic-tokens, f bool mut(x token))
 	line mut nat32 = 0
 	character mut nat32 = 0
 	i mut nat = 0
-	while i < a.data_.size
-		delta-line nat32 = a.data_[i] to
-		delta-character nat32 = a.data_[i + 1] to
-		length = a.data_[i + 2]
-		type token-type = a.data_[i + 3] to!
-		modifiers token-modifiers = a.data_[i + 4] to!
+	data_ = a.inner data_
+	loop
+		guard i != data_.size else break
+		delta-line nat32 = data_[i] to
+		delta-character nat32 = data_[i + 1] to
+		length nat32 = data_[i + 2] to
+		type token-type = data_[i + 3] to!
+		modifiers token-modifiers = data_[i + 4] to!
 		if delta-line == 0
 			character +:= delta-character
 		else
 			line +:= delta-line
 			character := delta-character
-		f[(line, character), length, type, modifiers]
-		i +:= 5
+		if f[line, character, length, type, modifiers]
+			break
+		else
+			i +:= 5
+			continue
 
 | https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#semanticTokenTypes
--token-type enum nat storage
+token-type enum nat storage
 	comment
 	enum_
 	enumMember
@@ -86,7 +95,9 @@ get-tokens-legend json()
 -to token-type?(a nat64)
 -to nat(a token-type)
 -members token-type[]()
--to string(a token-type)
+show string(a token-type)
+	a to
+to string(a token-type)
 	match a
 	as comment
 		"comment"
@@ -116,7 +127,7 @@ get-tokens-legend json()
 		"typeParameter"
 	as variable
 		"variable"
--to json(a token-type)
+to json(a token-type)
 	a.to::string to
 
 -token-modifiers flags(declaration) nat storage
@@ -124,6 +135,7 @@ get-tokens-legend json()
 -members token-modifiers[]()
 -to token-modifiers?(a nat)
 -to json(a token-modifiers)
+to symbol[](a token-modifiers)
 
 -tokens-builder record mut
 	source string

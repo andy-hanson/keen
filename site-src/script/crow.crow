@@ -1,316 +1,123 @@
 import
-	crow/io/duration: nanoseconds, milliseconds
-	crow/js:
-		==, as-js, await, call, call-property, cast, eval, js-any, js-global, new, null,
-		set-subscript, subscript, typeof, undefined
-	crow/js/util: cast-option, json-parse, json-stringify
-	crow/result
-	./decode-tokens: decode-tokens
-	./lsp-types:
-		diagnostic, exit-code, line-and-character, new, run-result, stderr, stdout, to, to-js,
-		token, tokens-legend, write
-	./util/DataView-util: DataView, new, read-c-string, view-c-string, wasm32, write-c-string
-	./util/util: fetch-js-object
+	crow/parse
+	crow/js
+	crow/js/util
+	../../include/compiler/frontend/ide/get-tokens
+	../../include/compiler/lib/lsp/lsp-types
+	../../include/compiler/model/source-range
+	../../include/compiler/model/uri
+	./deferred
 
 crow-server record mut
-	-lsp-server crow-lsp-server
-	-tokens-legend tokens-legend
-	-diagnostics-per-uri diagnostic[] mut[uri]
+	-worker js-any
+	-responses json deferred mut[nat]
+	-next-id mut nat
+	-diagnostics-per-uri lsp-diagnostic[] mut[uri]
 
-make-crow-server crow-server() summon, trusted, js extern
-	lsp = make-lsp-server
-	tokens-legend tokens-legend =
-		(lsp request "initialize", ())["capabilities"]["semanticTokensProvider"]["legend"] to
-	res crow-server = lsp, tokens-legend, ()
-	res init
-	res
-
-uri alias
-	string
-
-open-file diagnostic[](a crow-server, uri uri, text string) summon, trusted, js extern
-	item js-any = ("uri", uri.as-js), ("text", text.as-js)
-	params js-any = ("textDocument", item),
-	response = a.lsp-server handle-message ("textDocument/didOpen" make-message params)
-	a get-diagnostics uri, response
-
-change-file diagnostic[](a crow-server, uri uri, text string) summon, trusted, js extern
-	textDocument js-any = ("uri", uri.as-js),
-	contentChanges js-any[] = (("text", text.as-js),),
-	params js-any = ("textDocument", textDocument), ("contentChanges", contentChanges.as-js)
-	response = a.lsp-server handle-message ("textDocument/didChange" make-message params)
-	a get-diagnostics uri, response
-
-mark-unknown-files-not-found void(a crow-server) summon, trusted, js extern
-	for uri : a get-unloaded-uris
-		assert uri ends-with "/crow-config.json"
-		params js-any = ("uri", uri.as-js), ("type", "notFound")
-		_ = a.lsp-server handle-message ("custom/readFileResult" make-message params)
-	assert a.get-unloaded-uris is-empty
-
--get-diagnostics diagnostic[](a crow-server, uri uri, response response) trusted, js extern
-	for message : response.messages
-		method string = message["method"] cast
-		if method != "custom/unknownUris"
-			method is "textDocument/publishDiagnostics"
-			params = message["params"]
-			diagnostics js-any[] = params["diagnostics"] cast
-			a.diagnostics-per-uri[params["uri"] cast] := for x : diagnostics; x to
-	a.diagnostics-per-uri[uri] else ()
-
-get-hover string(a crow-server, uri uri, position line-and-character) trusted, js extern
-	args js-any = ("textDocument", (("uri", uri.as-js),)), ("position", position.to-js)
-	res = a request "textDocument/hover", args
-	if res != null
-		res["contents"]["value"] cast
-
-get-tokens token[](a crow-server, uri uri) trusted, js extern
-	args js-any = ("textDocument", (("uri", uri.as-js),)),
-	encoded = (a request "textDocument/semanticTokens/full", args)["data"]
-	encoded decode-tokens a.tokens-legend
-
-syntax-translate string(
-	crow crow-server,
-	from-lang string,
-	source string,
-	to-lang string,
-) trusted, js extern
-	args js-any = ("source", source.as-js), ("from", from-lang.as-js), ("to", to-lang.as-js)
-	response js-any = crow request "custom/syntaxTranslate", args
-	diagnostics nat[] = response["diagnostics"] cast
-	if diagnostics is-empty
-		response["output"].cast
-	else
-		"Parse error at ${diagnostics[0]}"
-
-run run-result(a crow-server, main-uri uri) trusted, js extern
-	uris = (main-uri.as-js,)::js-any[] as-js
-	args js-any = ("uri", main-uri.as-js), ("diagnosticsOnlyForUris", uris)
-	a request "custom/run", args to
-
-run-js run-result(a crow-server, main-uri uri) trusted, js extern
-	uris = (main-uri.as-js,)::js-any[] as-js
-	args js-any = ("uri", main-uri.as-js), ("diagnosticsOnlyForUris", uris)
-	response = a request "custom/build-js-script", args
-	response["script"].cast-option run-script response["diagnostics"].cast
-
--run-script run-result(script string?, diagnostics string) unsafe, js extern
-	console = "console".js-global
-	old-info = console["info"]
-	old-error = console["error"]
-	finally do
-		console["info"] := old-info
-		console["error"] := old-error
-	writes write mut[] = ()
-	unless diagnostics is-empty
-		writes ~= (stderr, "{diagnostics}\n")
-	new-info void mut(x string) = x =>
-		writes ~= (stdout, "{x}\n")
-	new-error void mut(x string) = x =>
-		writes ~= (stderr, "{x}\n")
-	console["info"] := new-info
-	console["error"] := new-error
-	exit nat = if x ?= script
-		match (() => x.eval await) catch-all
-		as ok _
-			0
-		as fail e
-			writes ~= (stderr, "{e.value show-exception}")
-			1
-	else
-		1
-	writes.move-to, exit.exit-code
-
--show-exception string(a exception-and-backtrace) unsafe, js extern
-	if x ?= a.exception.threw-non-exception
-		# It might be the script's exception type.
-		stack = x.thrown["stack"]
-		if stack.typeof == "string"
-			stack cast
+make-crow-server crow-server() summon, js extern
+	trusted
+	worker = "Worker".js-global call-new "worker.js".to-js-string,
+		:: js-any
+		type: "module" to-js-string
+	
+	responses json deferred mut[nat] = ()
+	diagnostics-per-uri lsp-diagnostic[] mut[uri] = ()
+	on-message void mut(event js-any) = of event
+		object = json parse event["data"].string-of-js-string
+		if "id"::symbol in object
+			responses[object["id"] to]! resolve object["result"]
 		else
-			"{a}"
+			method symbol = object["method"] to
+			params = object["params"]
+			if method == "textDocument/publishDiagnostics"
+				p publish-diagnostics-params = params to
+				diagnostics-per-uri[p.uri] := p.diagnostics
+			else
+				error log "What do we do with this?"
+				error log method.show
+				error log object.show
+				throw todo
+	worker["onmessage"] := on-message
+
+	server crow-server =
+		worker: worker
+		responses: responses
+		next-id: 1
+		diagnostics-per-uri: diagnostics-per-uri
+	_ = server request "initialize", ()
+	server
+
+-send-message void(server crow-server, method symbol, params json) unsafe, js extern
+	msg json =
+		method: method to
+		params: params
+	_ = server.worker call-property "postMessage", msg.to::json.show.to-js-string
+
+-request json(server crow-server, method symbol, params json) js extern
+	trusted
+	id = server.next-id
+	server.next-id +:= 1
+	msg json =
+		id: id.show to
+		method: method to
+		params: params
+	deferred json deferred = ()
+	server.responses[id] := deferred
+	_ = server.worker call-property "postMessage", msg.to::json.show.to-js-string
+	deferred await
+
+open-file void(a crow-server, uri uri, text string) unsafe, summon, js extern
+	params did-open-text-document-params =
+		textDocument:
+			uri: uri
+			text: text
+	a send-message "textDocument/didOpen", params.to
+
+change-file void(a crow-server, uri uri, text string) unsafe, summon, js extern
+	params did-change-text-document-params =
+		textDocument:
+			uri: uri
+		contentChanges:
+			-
+				text: text
+	a send-message "textDocument/didChange", params.to
+
+get-hover string(a crow-server, uri uri, position line-and-character) js extern
+	params hover-params =
+		params:
+			textDocument:
+				uri: uri
+			position: position
+	res = a request "textDocument/hover", params.to
+	unless res == null
+		res["contents"]["value"] string!
+
+highlightable-token record
+	line nat32
+	character nat32
+	length nat
+	type symbol[]
+	modifiers symbol set
+
+get-tokens token[](a crow-server, uri uri) js extern
+	params semantic-tokens-params =
+		textDocument:
+			uri: uri
+	data_ nat[] = (a request "textDocument/semanticTokens/full", params.to)["data"].array! map it.to
+	(data_,).decode-semantic-tokens to
+
+syntax-translate string
+	server crow-server
+	from-lang language
+	source string
+	to-lang language
+do js extern
+	params syntax-translate-params =
+		source: source
+		from-language: from-lang
+		to-language: to-lang
+	response syntax-translate-result = server request "custom/syntaxTranslate", params.to to
+	if response.diagnostics is-empty
+		response output
 	else
-		"{a}"
-
--request js-any(a crow-server, method symbol, params js-any) unsafe, js extern
-	a.lsp-server request method, params
-
--init void(a crow-server) trusted, summon, js extern
-	include-all = "/include-all.json" fetch-js-object
-	for entry : ("Object".js-global call-property "entries", include-all).cast::js-any[]
-		path string = entry["0"] cast
-		text string = entry["1"] cast
-		_ = a open-file "{include-dir}/{path}", text
-	_ = a open-file "file:///crow-config.json", "\{}"
-	_ = a open-file "file:///hello.txt", "Hello, world!"
-	a mark-unknown-files-not-found
-
--include-dir string()
-	"file:///include"
-
-region LSP server
-
--math-keys string[]()
-	"acos", "acosh", "asin", "asinh", "atan", "atanh", "atan2",
-	"ceil", "cos", "cosh", "floor", "log", "pow", "sin", "sinh", "sqrt", "tan", "tanh"
-
--imports js-any(crow crow-lsp-server) summon, trusted, js extern
-	res js-any = ()
-	res["getTimeNanos"] := (&get-time-nanos)::(nat function()) as-js
-	res["perfLogMeasure"] := (&perf-log-measure)::(void function(
-		a crow-lsp-server,
-		name view-c-string,
-		count wasm32,
-		nanos nat,
-		bytes wasm32,
-	)).as-js partial crow.as-js
-	res["perfLogFinish"] := (&perf-log-finish)::(void function(
-		a crow-lsp-server,
-		name view-c-string,
-		total-nanos nat,
-	)).as-js partial crow.as-js
-	res["debugLog"] := (&debug-log)::(void function(
-		a crow-lsp-server,
-		text view-c-string,
-	)).as-js partial crow.as-js
-	for key : math-keys
-		value = "Math".js-global[key]
-		res[key] := value
-		res["{key}f"] := value
-	res["round"] := (&round)::(float function(x float)) as-js
-	res["roundf"] := (&round)::(float32 function(x float32)) as-js
-	res["fmod"] := (&fmod)::(float function(x float, y float)) as-js
-	res["fmodf"] := (&fmodf)::(float32 function(x float32, y float32)) as-js
-	res["__assert"] := (&__assert)::(void function(
-		a crow-lsp-server,
-		asserted view-c-string,
-		file view-c-string,
-		line float,
-	)).as-js partial crow.as-js
-	res
--partial js-any(fn js-any, arg js-any) unsafe, js extern
-	fn call-property "bind", null::js-any, arg
-
--fmodf float32(a float32, b float32) unsafe, js extern
-	a.to fmod b.to to
--fmod float(a float, b float) unsafe, js extern
-	# Crow's % handles negative numbers differently than fmod, but JS's % is the same
-	"""(x, y) => x % y""".eval call a, b cast
-
--get-time-nanos nat() summon, trusted, js extern
-	msec float = "performance".js-global call-property "now" cast
-	msec * 1000000 to
-
--perf-measure record(name string, count nat, msec float, bytes-allocated nat)
--to json(a perf-measure)
-
--perf-log-measure void(
-	a crow-lsp-server,
-	name-ptr view-c-string,
-	count wasm32,
-	nanoseconds nat,
-	bytes-allocated wasm32,
-) trusted, summon, js extern
-	a.perf-measures ~=
-		((a.view read-c-string name-ptr), count.to, nanoseconds.to-msec, bytes-allocated.to)
--perf-log-finish void(
-	a crow-lsp-server,
-	name view-c-string,
-	total-nanos nat,
-) trusted, summon, js extern
-	info log "performance for {a.view read-c-string name}"
-	info log "TOTAL: {total-nanos.to-msec}"
-	for measure : a.perf-measures
-		info log measure.to::json.show
-	a.perf-measures clear
--to-msec float(nsec nat)
-	nsec.to.nanoseconds.milliseconds
-
--debug-log void(a crow-lsp-server, text view-c-string) summon, trusted, js extern
-	info log (a.view read-c-string text)
-
--__assert void(
-	a crow-lsp-server,
-	asserted view-c-string,
-	file view-c-string,
-	line float,
-) summon, trusted, js extern
-	message = a.view read-c-string asserted
-	throw "Assertion {message} failed on {a.view read-c-string file} line {line}" error
-
--wasm-exports record mut
-	getParameterBufferPointer view-c-string function()
-	getParameterBufferLength float function()
-	newServer wasm32 mut(params view-c-string)
-	# TODO: Can't make this a function for 2 reasons:
-	# - Crow functions of 2 arguments actually take a tuple.
-	#	JS functions of two arguments take 2 arguments.
-	# - Making it a function causes an 'async' call,
-	#	but we need to read pointers immediately after calling this, before it's called again.
-	handleLspMessage js-any
-	memory js-any
--uninit wasm-exports() unsafe, js extern
-	&fake-getParameterBufferPointer, &fake-getParameterBufferPointer,
-		(_ => throw not-implemented), null,
-		null
--fake-getParameterBufferPointer view-c-string()
-	throw not-implemented
-
--as-wasm-exports wasm-exports(a js-any) unsafe, js extern
-	a["getParameterBufferPointer"].cast, \
-	a["getParameterBufferLength"].cast,
-	a["newServer"].cast,
-	a["handleLspMessage"],
-	a["memory"]
-
--make-lsp-server crow-lsp-server() summon, trusted, js extern
-	res crow-lsp-server = (), 0, 0, uninit, 0, ()
-	res.wasm := "../bin/crow.wasm" wasm-instantiate res.imports as-wasm-exports
-	buffer js-any = res.wasm.memory["buffer"]
-	res.view := (buffer,)
-	res.parameters-begin := res.wasm getParameterBufferPointer
-	res.parameters-length := res.wasm.getParameterBufferLength to
-	server-params js-any = ("includeDir", include-dir.as-js), ("cwd", "file:///")
-	server-params-string = res write-parameters server-params
-	res.server := res.wasm.newServer[server-params-string]
-	res
--wasm-instantiate js-any(url string, imports js-any) unsafe, js extern
-	fetched = "fetch".js-global call url
-	options js-any = ("env", imports),
-	result = "WebAssembly".js-global call-property "instantiateStreaming", fetched, options await
-	result["instance"]["exports"]
-
--crow-lsp-server record mut
-	view mut DataView
-	parameters-begin mut float
-	parameters-length mut nat
-	wasm mut wasm-exports
-	server mut wasm32
-	perf-measures perf-measure mut[]
-
--response record(messages js-any[], exitCode nat?)
--handle-message response(a crow-lsp-server, message js-any) unsafe, js extern
-	response-str wasm32 = a.wasm.handleLspMessage call a.server, (a write-parameters message) cast
-	response = a.view read-c-string response-str json-parse
-	messages js-any[] = response["messages"] cast
-	exit-code js-any = response["exit-code"] cast
-	messages, unless exit-code == undefined
-		exit-code.cast::float.to,
-
--write-parameters view-c-string(a crow-lsp-server, params js-any) unsafe, js extern
-	params-string string = params json-stringify
-	a.view write-c-string a.parameters-begin, a.parameters-length, params-string
-
-request js-any(a crow-lsp-server, method symbol, params js-any) unsafe, js extern
-	res = a handle-message (("id", 1::float.as-js), ("method", method.as-js), ("params", params))
-	assert res.exitCode is-empty
-	res.messages.size is 1
-	message = res.messages[0]
-	message["id"].cast::float is 1
-	message["result"]
-
--make-message js-any(method string, params js-any) trusted, js extern
-	("method", method.as-js), ("params", params)
-
--get-unloaded-uris uri[](a crow-server) summon, trusted, js extern
-	(a.lsp-server request "custom/unloadedUris", ())["unloadedUris"] cast
+		"Parse error at ${response.diagnostics[0]}"

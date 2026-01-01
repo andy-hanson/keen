@@ -1,20 +1,24 @@
 import
-	crow/experimental/observable: get, mut-observable, observable, new, now-and-subscribe, set
+	crow/experimental/observable
+	crow/format/base64
+	crow/io/print
 	crow/js
 	crow/js/dom
-	./crow: crow-server, get-hover, get-tokens, open-file, run, run-js
-	./crow-text: create-crow-text, new
-	./icon: copy-icon, download-icon, link-icon, play-icon, up-icon
-	./loading-spinner: create-loading-spinner
-	./lsp-types
-	./util/browser-util:
-		copy-text-to-clipboard, download-text, get-url-search, location, origin, pathname,
-		push-history
-	./util/util: from-base-64, get-child-text, to-base-64
+	crow/unsafe
+	../../include/compiler/frontend/ide/get-tokens
+	../../include/compiler/lib/lsp/lsp-types
+	../../include/compiler/model/uri
+	../../include/compiler/util/exit-code
+	./crow
+	./crow-text
+	./icon
+	./loading-spinner
+	./util/browser-util
+	./util/util
 
 define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 	names names = ()
-	trusted "crow-runnable" define-custom-element (x => x.is-play.css), x =>
+	trusted "crow-runnable" define-custom-element it.is-play.css, of x
 		x connected crow, names
 
 -names record(seen string mut-set, next-index mut nat) mut
@@ -33,83 +37,91 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 	name
 
 -get-crow-runnable-initial-text string(play bool, node node) summon, unsafe, js extern
-	(play ? get-code-from-url) else node get-child-text
+	(if play then get-code-from-url) else node get-child-text
 -get-code-from-url string?() summon, unsafe, js extern
 	if code ?= "code" get-url-search
-		code.from-base-64,
+		code.base64-decode as-string
 
 -copy-play-link-from-text void(text string) summon, unsafe, js extern
-	url string = "{location origin}{location pathname}?code={text to-base-64}"
+	url string = "{location origin}{location pathname}?code={text base64-encode}"
 	url push-history
 	url copy-text-to-clipboard
 
 -is-play bool(a custom-element-node) unsafe, js extern
-	a.attributes["play"] !is-empty
+	_ ?= a.attributes["play"]
 
 -connected void(a custom-element-node, crow crow-server, names names) summon, unsafe, js extern
 	name = names get-crow-runnable-name a.attributes["name"]
-	no-run = a.attributes["no-run"] !is-empty
-	run-js = a.attributes["run-js"] !is-empty
+	no-run = _ ?= a.attributes["no-run"]
+	run-js = _ ?= a.attributes["run-js"]
 	play = a is-play
 	initial-text = play get-crow-runnable-initial-text a.as-node
-	main-uri string = "file:///{name}"
+	main-uri uri = "file:///{name}" must-parse-uri
 	text-mut string mut-observable = initial-text,
 	text = text-mut observable
-	tokens-and-diagnostics tokens-and-diagnostics mut-observable = (),
-	get-hover string mut(x line-and-character) = position => crow get-hover main-uri, position
-	crow-text = (get-hover, tokens-and-diagnostics.observable, text-mut) create-crow-text
+	tokens-observable token[] mut-observable = ()
+	diagnostics-observable lsp-diagnostic[] mut-observable = ()
+	crow-text-props crow-text-props =
+		getHover: of position
+			crow get-hover main-uri, position
+		tokensAndDiagnostics: for tokens, diagnostics in tokens-observable.observable join diagnostics-observable.observable
+			tokens, diagnostics
+		text: text-mut
+	crow-text = crow-text-props create-crow-text
 
-	text now-and-subscribe shared value =>
-		diagnostics = crow open-file main-uri, value
-		tokens = crow get-tokens main-uri
-		error-diagnostics diagnostic[] = diagnostics filter x => x.severity <= 1
-		tokens-and-diagnostics set (tokens, error-diagnostics)
+	text now-and-subscribe shared of value
+		crow open-file main-uri, value
+		tokens-observable set do crow get-tokens main-uri
+	# TODO: also subscribe to diagnostisc!
 
 	output output = ()
 
-	collapse-button mut node = gc-safe-value
-	collapse-button := "Hide output" create-button "collapsed", (up-icon,), () =>
+	collapse-button mut node = gc-safe-value # TODO: just use an option ---------------------------------------------------------------------
+	collapse-button := "Hide output" create-button "collapsed", (up-icon,), of ()
 		output hide
 		collapse-button.classes ~= "collapsed"
 	collapse-button.style["float"] := "right"
 
 	run-button node? = unless no-run
-		button = "Run" create-button "run", (play-icon,), () =>
+		button = "Run" create-button "run", (play-icon,), of
 			output start-running
 			collapse-button remove-class "collapsed"
-			yield-fiber # Allow to show loading before 'crow run'locks up the UI
-			output finish-running if run-js
-				crow run-js main-uri
-			else
-				crow run main-uri
-		button,
+			# TODO: I'm going to totally change how 'run' works. The server will build JS and send it to us to run.
+			throw todo
+			#output finish-running if run-js
+			#	crow run-js main-uri
+			#else
+			#	crow run main-uri
+		button
 
-	copy-button = "Copy to clipboard" create-button "", (copy-icon,), () =>
+	copy-button = "Copy to clipboard" create-button "", (copy-icon,), of
 		text.get copy-text-to-clipboard
-	download-button = "Download" create-button "", (download-icon,), () =>
+	download-button = "Download" create-button "", (download-icon,), of
 		name download-text text.get
 	link-button node? = if play
-		button = "Copy link to clipboard" create-button "", (link-icon,), () =>
+		"Copy link to clipboard" create-button "", (link-icon,), of
 			text.get copy-play-link-from-text
-		button,
 
 	buttons node[] =
-		run-button.to ~~ (copy-button, download-button) ~~ link-button.to ~~ (collapse-button,)
-	bottom = "bottom" create-div buttons
-	container = "outer-container" create-div (crow-text, output.container, bottom)
-	a.shadow-root ~= container
+		-- run-button from-option
+		- copy-button
+		- download-button
+		-- link-button from-option
+		- collapse-button
+	a.shadow-root ~= "outer-container" create-div
+		- crow-text
+		- output container
+		- "bottom" create-div buttons
 
 -output record(container node) mut
 -new output() js extern
-	trusted
-	res output = ("output" create-div ()),
+	res output =
+		- "output" create-div ()
 	res hide
 	res
 -hide void(a output) js extern
-	trusted
 	a.container.style["height"] := "0"
 -start-running void(a output) js extern
-	trusted
 	a.container.classes := "output", "running"
 	a.container.style["height"] := "2em"
 	a.container remove-all-children
@@ -123,47 +135,41 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 -add-spans-for-writes void(container node, run-result run-result) js extern
 	cur-pipe mut string? = ()
 	cur-line mut string = ""
-	finish-line void mut() = () =>
+	finish-line void mut() = of
 		unless trusted container.as-js["textContent"].cast::string is-empty
 			container ~= "br".create-node
 		container ~= cur-pipe!.show create-span (cur-line.create-text-node,)
 		cur-line := ""
 
-	for write : run-result writes
-		pipe string = write.pipe.to::symbol to
+	for write in run-result writes
+		pipe string = write.pipe to
 		text = write text
 		if x ?= cur-pipe
 			if x != pipe and cur-line != ""
 				finish-line[]
 
-		cur-pipe := pipe,
+		cur-pipe := pipe
 		parts = text split "\n"
 		cur-line ~~:= parts[0]
-		for part : parts[1 .. end]
+		for part in parts[1 .. end]
 			finish-line[]
 			cur-line ~~:= part
 	if cur-line != ""
 		finish-line[]
 
 	if run-result.exit !is-ok
-		cur-pipe := "exit-code",
-		cur-line := match run-result exit
-		as exit-code x
-			"Exit code: {x code}"
-		as signal x
-			"Exited with signal: {x signal}"
+		cur-pipe := "exit-code"
+		cur-line := "Exit code: {run-result.exit value}"
 		finish-line[]
 	elif run-result.writes is-empty
-		cur-pipe := "stdout",
+		cur-pipe := "stdout"
 		cur-line := "<<no output>>"
 		finish-line[]
-
--to symbol(a pipe)
 
 -css string(play bool)
 	"""
 .outer-container \{
-	max-width: {play ? 60::nat : 40}em;
+	max-width: {if play then 60::nat else 40}em;
 	margin-left: auto;
 	margin-right: auto;
 }

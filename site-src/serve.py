@@ -3,6 +3,9 @@ from http.server import SimpleHTTPRequestHandler
 import socketserver
 
 class MyHTTPRequestHandler(SimpleHTTPRequestHandler):
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, directory="site", **kwargs)
+
 	def end_headers(self):
 		if self.path.endswith('.js'):
 			self.send_header('Content-Type', 'application/javascript')

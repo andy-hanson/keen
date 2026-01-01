@@ -1,22 +1,24 @@
 import
 	crow/col/mut-stack
-	crow/experimental/observable: get, mut-observable, now-and-subscribe, observable, set
-	crow/io/duration: milliseconds
-	crow/js:
-		+, as-js, call, call-property, cast, js-any, js-global, set-subscript, subscript
-	crow/js/dom:
-		~~=, ~=, add-event-listener, attributes, create-div, create-node, create-span,
-		create-text-node, custom-element-node, define-custom-element, node, remove-all-children,
-		shadow-root, set-subscript, set-text-content, style
-	./lsp-types:
-		==, <=>, character, diagnostic, diagnostics, end, length, line, line-and-character, message,
-		modifiers, new, range, start, tokens, tokens-and-diagnostics, type
-	./util/util: debouncer, new, with-block
+	crow/experimental/observable
+	crow/io/duration
+	crow/js
+	crow/js/dom
+	../../include/compiler/frontend/ide/get-tokens
+	../../include/compiler/lib/lsp/lsp-types
+	../../include/compiler/model/source-range
+	./util/util
 
 -line-height-px float()
 	20
 -tab-size nat()
 	4
+
+tokens-and-diagnostics record
+	tokens token[]
+	diagnostics lsp-diagnostic[]
+new tokens-and-diagnostics()
+	(), ()
 
 crow-text-props record mut
 	getHover string mut(where line-and-character)
@@ -24,7 +26,8 @@ crow-text-props record mut
 	text string mut-observable
 
 define-crow-text-custom-element void() summon, js extern
-	"crow-text" define-custom-element css, x => trusted x connected
+	"crow-text" define-custom-element css, of x
+		trusted x connected
 
 create-crow-text node(props crow-text-props) js extern
 	trusted
@@ -32,46 +35,52 @@ create-crow-text node(props crow-text-props) js extern
 	res.as-js["props"] := props
 	res
 
--connected void(a custom-element-node) unsafe, js extern
+-connected void(a custom-element-node) unsafe, summon, js extern
 	props crow-text-props = a.as-js["props"] cast
 	highlight-div = "highlight" create-div
 	ta = "textarea" create-node
 	ta.as-js["value"] := props.text.observable get
 	ta.attributes["spellcheck"] := "false"
-	ta add-event-listener "keydown", e =>
+	ta add-event-listener "keydown", of e
 		insert string? = match e["key"].cast::string
 		as Enter
-			"\n{ta.as-js indentation-at-selection}",
+			"\n{ta.as-js indentation-at-selection}"
 		as Tab
-			"\t",
+			"\t"
 		else
 			()
 		if i ?= insert
 			_ = e call-property "preventDefault"
-			props.text set (ta.as-js insert-text-area-text i)
-	ta add-event-listener "input", _ =>
+			props.text set do ta.as-js insert-text-area-text i
+	ta add-event-listener "input", of _
 		_ = props.text set ta.as-js["value"].cast
 
-	measurer-span = "" create-span ("a".create-text-node,)
-	measurer = "measurer" create-div (measurer-span,)
+	# TODO: would be neater to inline some of these .................................................................................................
+	measurer-span = "" create-span
+		- "a".create-text-node
+	measurer = "measurer" create-div
+		- measurer-span
 	line-numbers = "line-numbers" create-div
-	text-container = "code" create-div (measurer, highlight-div, ta)
+	text-container = "code" create-div
+		- measurer
+		- highlight-div
+		- ta
 	root = "root" create-div (line-numbers, text-container)
 
 	state crow-text-state = props, ta, measurer-span, text-container
-	ta add-event-listener "mouseout", _ =>
+	ta add-event-listener "mouseout", of _
 		state.mouse-is-in := false
 		state remove-tooltip
-	ta add-event-listener "mousemove", e =>
+	ta add-event-listener "mousemove", of e
 		state mouse-move e
 
 	diag-debounce debouncer = 100.milliseconds,
-	props.tokensAndDiagnostics now-and-subscribe shared x =>
+	props.tokensAndDiagnostics now-and-subscribe shared of x
 		text = props.text.observable get
 		(x.tokens, ()) highlight highlight-div, text
-		line-numbers.text-content := "\n" join for i : 0::nat .. (text split "\n").size
+		line-numbers.text-content := "\n" join for i nat in 0 .. (text split "\n").size
 			"{i + 1}"
-		with : diag-debounce
+		with in diag-debounce
 			x highlight highlight-div, text
 
 	a.shadow-root ~= root
@@ -101,25 +110,26 @@ create-crow-text node(props crow-text-props) js extern
 	column-width float = state.measurer-span.as-js["offsetWidth"] cast
 	line nat = (offset-y / line-height-px).round-down clamp-to
 	column-pre nat = (offset-x / column-width).round-down clamp-to
-	line-text = line < lines.size ? lines[line] : ""
+	line-text = if line < lines.size then lines[line]
 	leading-tabs = line-text count-leading-tabs
 	tabs-fix = leading-tabs * (tab-size - 1)
-	character nat = line-text == "" ? 0 : (column-pre clamp-sub tabs-fix) min line-text.size - 1
+	character nat = unless line-text == ""
+		column-pre clamp-sub tabs-fix min line-text.size - 1
 	state.mouse-move-index +:= 1
 
 	if state.mouse-move-index == 2 ** 16
 		state.mouse-move-index := 0
 	save-mouse-move-index = state.mouse-move-index
-	timeout void mut() = () =>
-		if state mouse-is-in and state mouse-move-index == save-mouse-move-index
-			hover = state.props.getHover[line, character]
-			if hover != ""
-				hover-tooltip = "hover-tooltip" create-div (hover.create-text-node,)
-				_ = state.text-container.as-js call-property "append", hover-tooltip
-				hover-tooltip.style["left"] := "{offset-x}px"
-				hover-tooltip.style["top"] := "{offset-y}px"
-				assert state.tooltip.is-empty
-				state.tooltip := hover-tooltip,
+	timeout void mut() = of
+		guard state mouse-is-in and state.mouse-move-index == save-mouse-move-index
+		hover = state.props.getHover[line.to, character.to]
+		guard hover != ""
+		hover-tooltip = "hover-tooltip" create-div (hover.create-text-node,)
+		_ = state.text-container.as-js call-property "append", hover-tooltip
+		hover-tooltip.style["left"] := "{offset-x}px"
+		hover-tooltip.style["top"] := "{offset-y}px"
+		forbid _ ?= state tooltip
+		state.tooltip := hover-tooltip
 
 	_ = "setTimeout".js-global call timeout, 200::float
 
@@ -153,12 +163,12 @@ create-crow-text node(props crow-text-props) js extern
 
 -count-leading-tabs nat(a string)
 	res mut nat = 0
-	for x : a
+	_ = a iterate of x
 		if x == "\t"
 			res +:= 1
-			continue
+			false
 		else
-			break
+			true
 	res
 
 -highlight void(td tokens-and-diagnostics, highlight-div node, text string) js extern
@@ -169,11 +179,14 @@ create-crow-text node(props crow-text-props) js extern
 -tokens-and-diags-to-nodes node[](td tokens-and-diagnostics, text string) js extern
 	a node-builder = td.diagnostics, text
 	a start-line
-	for token : td tokens
+	for token in td tokens
 		a walk-to (token.line, token.character)
 		_ = a maybe-start-diag
-		class-name string = "{token.type} {" " join for x : token.modifiers; x.to}"
-		a add-span class-name, (token.line, token.character + token.length)
+		modifiers = " " join (token.modifiers.to::symbol[] map it.to)
+		class-name string = "{token type} {modifiers}"
+		a add-span class-name,
+			line: token line
+			character: token.character + token.length
 		a maybe-stop-diag
 
 	a walk-to a.lines.last-position
@@ -183,12 +196,17 @@ create-crow-text node(props crow-text-props) js extern
 
 -node-builder record mut
 	lines line[]
-	diagnostics diagnostic[]
+	diagnostics lsp-diagnostic[]
 	pos mut line-and-character
 	container-stack container mut-stack
 	diag-index mut nat
--new node-builder(diagnostics diagnostic[], text string)
-	(for x : text split "\n"; x to), diagnostics, (0, 0), (().all-container,), 0
+-new node-builder(diagnostics lsp-diagnostic[], text string)
+	lines: text split "\n" map it.to
+	diagnostics: diagnostics
+	pos: 0, 0
+	container-stack:
+		- () all-container
+	diag-index: 0
 
 -pop-container void(a node-builder) js extern
 	popped = a.container-stack.pop!
@@ -234,7 +252,7 @@ create-crow-text node(props crow-text-props) js extern
 			# Ignore nested diags
 			unless a.container-stack.peek!.is-diag
 				a finish-text
-				a.container-stack ~= ((), end, message)::diag-container to
+				a.container-stack ~= ((), end, message)::diag-container
 			a.diag-index +:= 1
 			true
 
@@ -277,7 +295,7 @@ create-crow-text node(props crow-text-props) js extern
 	if a.pos != end-pos
 		parts = a.lines slice-lines a.pos, end-pos
 		a.container-stack.peek!.children ~= class-name create-span (parts[0].to.create-text-node,)
-		for part : parts[1 .. end]
+		for part in parts[1 .. end]
 			a next-line
 			a.container-stack.peek!.children ~= class-name create-span (part.to.create-text-node,)
 		a.pos := end-pos
@@ -295,12 +313,13 @@ create-crow-text node(props crow-text-props) js extern
 -text-container record mut
 	text string
 
+# TODO: inline these --------------------------------------------------------------------------------------------------------------------------------
 -is-line bool(a container)
-	a.line-container !is-empty
+	_ ?= a line-container
 -is-diag bool(a container)
-	a.diag-container !is-empty
+	_ ?= a diag-container
 -is-text bool(a container)
-	a.text-container !is-empty
+	_ ?= a text-container
 
 -children node mut[](a container)
 	match a
@@ -318,26 +337,28 @@ line alias
 
 -slice-lines line[](lines line[], start line-and-character, end line-and-character)
 	if start.line == end.line
-		(lines slice-line start, end),
+		- lines slice-line start, end
 	else
-		(lines slice-line-from start) ~ lines[start.line .. end.line] ~ (lines slice-line-to end)
+		- lines slice-line-from start
+		-- lines[start.line.to .. end.line.to] to # TODO: should not need 'to' at the end here. Should be able to spread in an array-view..
+		- lines slice-line-to end
 -slice-line line(lines line[], start line-and-character, end line-and-character)
 	assert start.line == end.line
-	lines[start.line][start.character .. end.character]
+	lines[start.line to][start.character.to .. end.character.to] to
 -slice-line-from line(lines line[], start line-and-character)
-	line = lines[start line]
-	line[start.character .. end]
+	line = lines[start.line to]
+	line[start.character.to .. end] to
 -slice-line-to line(lines line[], end line-and-character)
-	lines[end.line][0 .. end.character]
+	lines[end.line.to][0 .. end.character.to] to
 
 -next-position line-and-character(lines line[], pos line-and-character)
-	if pos.character >= lines[pos.line].size
+	if pos.character >= lines[pos.line to].size.to
 		pos.line + 1, 0
 	else
 		pos.line, pos.character + 1
 
 -last-position line-and-character(lines line[])
-	lines.size - 1, lines[end - 1].size
+	lines.size.to - 1, lines[end - 1].size.to
 
 -css string()
 	"""

@@ -75,7 +75,7 @@ profile-translate-to-java: bin/crow
 
 ### site ###
 
-prepare-site: bin/crow bin/crow-demo.tar.xz bin/crow.vsix site/index.js
+prepare-site: bin/crow bin/crow.tar.xz bin/crow-demo.tar.xz bin/crow.vsix site/index.js site/crow-include.tar site/java-classes.tar
 	bin/crow site-src/site.crow
 
 site/index.js: bin/crow site-src/script/*.crow site-src/script/*/*.crow
@@ -83,7 +83,7 @@ site/index.js: bin/crow site-src/script/*.crow site-src/script/*/*.crow
 	bin/crow build site-src/script/index.crow --out site/index.js
 
 serve: prepare-site
-	bin/crow site-src/serve.crow
+	./site-src/serve.py
 
 ### publish ###
 
@@ -111,15 +111,10 @@ confirm-upload-site: prepare-site
 upload-site: prepare-site confirm-upload-site
 	$(aws_upload_command)
 
-site2/crow-include.tar:
-	tar -cf site2/crow-include.tar -C include/crow .
-site2/java-classes.tar:
+site/crow-include.tar:
+	tar -cf site/crow-include.tar -C include/crow .
+site/java-classes.tar:
 	# This avoids storing the 'jdk' classes which take up a lot of space and aren't in any public API
-	unzip -qq /usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod 'classes/java/*' 'classes/javax/*' -d site2/java-classes || true
-	tar -cf site2/java-classes.tar -C site2/java-classes/classes .
-	rm -r site2/java-classes
-
-serve-site2: site2/crow-include.tar site2/java-classes.tar site2/worker.js
-	cd site2 && ./serve.py
-site2/worker.js: bin/crow site2/worker.crow
-	bin/crow build site2/worker.crow --out site2/worker.js
+	unzip -qq /usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod 'classes/java/*' 'classes/javax/*' -d site/java-classes || true
+	tar -cf site/java-classes.tar -C site/java-classes/classes .
+	rm -r site/java-classes

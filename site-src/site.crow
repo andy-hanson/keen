@@ -1,30 +1,27 @@
 import
 	crow/io/file
-	crow/io/path: child-path, parent-path
-	crow/io/print: out, print
-	crow/test-util/test-runner: run-all-tests
-	./document: documentation
-	./pages: pages
-	./path-and-content: content, out-path, new, path-and-content
-	./search-dir-recursive: search-dir-recursive
+	crow/io/path
+	crow/io/print
+	./pages
+	./path-and-content
+	./search-dir-recursive
 
-main void() summon, native extern
-	run-all-tests
-	all-content = documentation ~~ pages ~~ include-all
-	for content : all-content parallel
+main void() summon
+	all-content = pages
+	for content in all-content # TODO: parallel -----------------------------------------------------------------------------------------------------
 		content ensure-up-to-date
 	cwd = current-directory
-	for x : all-to-link parallel
+	for x in all-to-link # TODO: parallel -----------------------------------------------------------------------------------------------------------
 		x ensure-link cwd
 
--ensure-up-to-date void(a path-and-content) summon, native extern
+-ensure-up-to-date void(a path-and-content) summon
 	full-out-path = "site" child-path a.out-path
 	unless full-out-path is-up-to-date a.content
 		full-out-path.parent-path ensure-directory-recursive
+		info log "write to {full-out-path}"
 		full-out-path write-file a.content
-		()
 
--ensure-link void(a link, cwd string) summon, native extern
+-ensure-link void(a link, cwd string) summon
 	full-out-path = "site" child-path a.link-path
 	# TODO: check that link target is up to date
 	unless full-out-path path-exists
@@ -34,10 +31,10 @@ main void() summon, native extern
 		full-out-path make-symlink-to full-target
 		()
 
--is-up-to-date bool(path string, content string) summon, native extern
+-is-up-to-date bool(path string, content string) summon
 	path.read-file-or-empty == content
 
--ensure-directory-recursive void(path string) summon, native extern
+-ensure-directory-recursive void(path string) summon
 	unless path == "" or path path-exists
 		path.parent-path ensure-directory-recursive
 		path ensure-directory
@@ -46,54 +43,22 @@ link record(target string, link-path string)
 same link(a string)
 	a, a
 
--all-to-link link[]() summon, native extern
-	in-src-paths link[] = for x : ("crow.svg", "index.css", "tutorial/example.json")::string[]
-		("site-src" child-path x), x
-
-	script-paths = "site-src/script" search-dir-recursive x => x ends-with ".js"
-	script = script-paths to-links "site-src/"
-
-	font-paths = "site-src/font" search-dir-recursive
-	font = font-paths to-links "site-src/"
-	in-src-paths ~~ script ~~ font ~~ other-links
-
-other-links link[]()
-	with out : build
-		if trusted extern windows
-			out ~= "bin/crow-windows-x64.tar.xz" same
-			out ~= "bin/crow-demo-windows.tar.xz" same
-		else
-			out ~= "bin/crow-linux-x64.tar.xz" same
-			out ~= "bin/crow-demo.tar.xz" same
-			out ~= "bin/crow-x64.deb" same
-		out ~= "bin/crow.wasm" same
-		out ~= ("editor/crow.sublime-syntax", "bin/crow.sublime-syntax")
-		out ~= "bin/crow.vsix" same
-
--include-all path-and-content[]() summon, native extern
-	include = "include" search-all-with-content ""
-	pairs string[symbol] = for x : include
-		x.out-path.remove-include.to, x.content
-	content string = "{pairs.to::json}"
-	("include-all.json", content),
-
--remove-include string(a string)
-	a try-remove-start! "include/"
-
--search-all-with-content path-and-content[](path string, remove-prefix string) summon, native extern
-	paths = path search-dir-recursive (dir => dir != "test"), _ => true
-	paths to-paths-and-contents remove-prefix
+-all-to-link link[]() summon
+	plain-files string[] =
+		- "crow.svg"
+		- "index.css"
+		- "tutorial/example.json"
+	-- for x in plain-files
+		target: "site-src" child-path x
+		link-path: x
+	--
+		"site-src/font".search-dir-recursive to-links "site-src/"
+	- "bin/crow.tar.xz" same
+	- "bin/crow-demo.tar.xz" same
+	- "bin/crow.vsix" same
 
 -to-links link[](targets string[], remove-prefix string)
-	for target : targets
-		target, target try-remove-start remove-prefix ??
+	for target in targets
+		target: target
+		link-path: target try-remove-start remove-prefix else
 			throw "{target} didn't start with {remove-prefix}" error
-
--to-paths-and-contents path-and-content[](
-	paths string[],
-	remove-prefix string,
-) summon, native extern
-	for path : paths parallel
-		assert rel-path ?= path try-remove-start remove-prefix :
-			"{path} didn't start with {remove-prefix}".error
-		rel-path, path.read-file
