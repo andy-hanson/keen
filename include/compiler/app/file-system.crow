@@ -17,6 +17,10 @@ import
 	java/nio/file/FileSystems
 	java/nio/file/Path
 	java/nio/file/Paths
+	java/nio/file/StandardWatchEventKinds
+	java/nio/file/WatchEvent
+	java/nio/file/WatchKey
+	java/nio/file/WatchService
 	java/lang/Class
 	java/lang/Enum
 	java/lang/Module
@@ -34,6 +38,7 @@ import
 	java/util/jar/JarEntry
 	java/util/jar/JarOutputStream
 	java/util/jar/Manifest
+	java/util/List
 	java/util/Optional
 	java/util/stream/Stream
 	java/util/zip/ZipEntry
@@ -197,25 +202,86 @@ get-paths-in-dir file-path[](dir-path file-path) summon
 
 file-reader record mut
 	path-to-crow file-path
+	| Only used when '--watch' is passed
+	-watch-service WatchService?
+	-watched-files file-path mut-set
+	-watched-dirs WatchKey mut[file-path]
 	-read-file-inner read-file-result mut(path string)
 	-read-java-class read-file-result mut(class-path path)
 	-files-in-directory-recursive file-path[] mut(root file-path)
-with-file-reader record(path-to-crow file-path)
-file-reader with-file-reader(path-to-crow file-path)
-	- path-to-crow
+with-file-reader record(path-to-crow file-path, watch bool)
+file-reader with-file-reader(path-to-crow file-path, watch bool)
+	path-to-crow, watch
 with-block[t] t(a with-file-reader, f t mut(a file-reader)) summon
 	with read-java-class in a.path-to-crow with-java-class-reader
+		watch-service WatchService? = if a watch
+			trusted
+			assert extern java else todo
+			system FileSystem = getDefault
+			system newWatchService
+		finally if w ?= watch-service
+			trusted
+			assert extern java
+			w close
 		reader file-reader =
 			path-to-crow: a path-to-crow
+			watch-service: watch-service
+			watched-files: ()
+			watched-dirs: ()
 			read-file-inner: it.read-file-inner
 			read-java-class: read-java-class
 			files-in-directory-recursive: it.files-in-directory-recursive
 		f[reader]
 
-java-class-reader alias
+-watch-file void(a file-reader, file file-path) # TODO: better name. This won't watch the file if we don't have watch-service set up. ---------------
+	guard service ?= a watch-service
+	guard a.watched-files try-add file
+	dir = file parent!
+	_ = a.watched-dirs ensure dir, of
+		trusted
+		assert extern java else todo
+		dir.to-java-path register service, (ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY), ()
+
+| Returns the path of watched files that changed.
+wait-for-change file-path set(a file-reader)
+	trusted
+	assert extern java else todo
+	assert service ?= a watch-service
+	loop
+		key = service take
+		files mut = a take-events key
+		if files is-empty
+			continue
+		else
+			while extra ?= a poll-and-take-events
+				files |:= extra
+			break files
+
+-poll-and-take-events file-path set?(a file-reader) java extern
+	trusted
+	polled = a.watch-service! poll
+	if polled !reference-equal null
+		a take-events polled
+
+-take-events file-path set(a file-reader, key WatchKey) java extern
+	trusted
+	watchable = key watchable
+	dir file-path = watchable.reinterpret-cast::Path to # TODO: this is a Java downcast, don't call it 'reinterpret-cast'
+	events = key.pollEvents toArray
+	assert key reset
+	key.pollEvents.size is 0 # Sanity check -----------------------------------------------------------------------------------------------------
+	for* o in events
+		event WatchEvent = o reinterpret-cast
+		# TODO: this is a regular Java cast, so maybe don't call it 'reinterpret-cast'? ------------------
+		name string = event.context.reinterpret-cast::Path.toString.to
+		file-path = dir / name
+		if file-path in a.watched-files
+			- file-path
+
+-java-class-reader alias
 	read-file-result mut(path path)
-with-java-class-reader record(path-to-crow file-path)
-with-block[t] t(a with-java-class-reader, f t mut(a java-class-reader)) # TODO: use a with-block ------------------------------------------
+-with-java-class-reader record(path-to-crow file-path)
+-with-block[t] t(a with-java-class-reader, f t mut(a java-class-reader)) # TODO: use a with-block ------------------------------------------
 	trusted
 	if extern java
 		base-jmod = find-java-base-jmod
@@ -271,8 +337,10 @@ files-in-directory-recursive file-path[](a file-reader, root file-path)
 try-read-file read-file-result(a file-reader, uri uri)
 	if path ?= uri as-java-uri
 		a try-read-java-class path
-	elif uri uri-is-file
-		a.read-file-inner[uri.as-file-path.to]
+	elif uri uri-is-file # TODO: 'is-as' is not as good as 'as' returning an option -----------------------------------------------------------------
+		file = uri as-file-path
+		a watch-file file
+		a.read-file-inner[file to]
 	else
 		not-found
 
@@ -326,3 +394,5 @@ this-executable file-path() summon
 	a.to::string to-java-path
 -to-java-path Path(a string) java extern
 	trusted a.to-java-string get ()
+-to file-path(a Path) java extern
+	(trusted a toString).to must-parse-file-path

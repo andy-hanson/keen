@@ -29,6 +29,7 @@ import
 	../model/uri
 	../util/exit-code
 	../util/perfhax
+	../util/util
 	./command
 	./file-system
 	./parse-command
@@ -43,7 +44,7 @@ main nat(args string[]) summon
 		cwd: cwd to
 		show-options:
 			color: !(_ ?= command.kind lsp-command)
-	with reader in this-executable file-reader
+	with reader in this-executable file-reader command.kind.needs-watch
 		server server = server-settings,
 		ctx main-ctx =
 			server: server
@@ -56,6 +57,13 @@ main nat(args string[]) summon
 			0
 		catch exit x
 			x.exit-code to
+
+-needs-watch bool(a command-kind)
+	match a
+	as build-command x
+		x watch
+	else
+		false
 
 main-ctx record mut
 	server server
@@ -95,11 +103,13 @@ print void(a main-ctx, pipe pipe, text string)
 -load-all-files-for-main void(ctx main-ctx, main main-kind)
 	match main
 	as main-kind-main-function x
-		ctx load-all-files (x.uri,)
+		ctx load-all-files
+			- x uri
 	as main-kind-tests-in-config x
 		ctx load-all-files-for-config x.config-uri
 	as main-kind-tests-at-uri x
-		ctx load-all-files (x.crow-uri,)
+		ctx load-all-files
+			- x crow-uri
 
 -load-all-files-for-config void(ctx main-ctx, config-uri uri)
 	if config-uri !uri-is-file
@@ -148,11 +158,18 @@ print void(a main-ctx, pipe pipe, text string)
 	server = ctx server
 	match command
 	as build-command x
-		program = ctx check-main-and-print-diags x.main, do x.out map it.kind
+		ctx load-all-files-for-main x.main
 		do-build void mut() = of
+			program = ctx just-check-main-and-print-diags x.main, do x.out map it.kind
 			server build-all-outputs x.out, x.options, x.times, program
-		forbid x watch else todo
 		do-build[]
+		if x watch
+			info log "built, now watching..."
+			for in infinite
+				changed = ctx.reader wait-for-change
+				info log "{changed get-arbitrary!} changed, building again..."
+				ctx load-all-files do changed map it.to
+				do-build[]
 	as check-command x
 		for _ in 0::nat .. x.times
 			options show-diags-options =
@@ -290,6 +307,9 @@ do summon
 
 -check-main-and-print-diags program-with-main(ctx main-ctx, main main-kind, targets build-target set)
 	ctx load-all-files-for-main main
+	ctx just-check-main-and-print-diags main, targets
+# TODO: better name ---------------------------------------------------------------------------------------------------------------------------------
+-just-check-main-and-print-diags program-with-main(ctx main-ctx, main main-kind, targets build-target set)
 	program = ctx.server get-program-for-main main, targets
 	if program has-any-diagnostics
 		ctx print err, do ctx.server show-diagnostics program

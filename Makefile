@@ -83,7 +83,7 @@ site/index.js: bin/crow site-src/script/*.crow site-src/script/*/*.crow
 	bin/crow build site-src/script/index.crow --out site/index.js
 
 serve: prepare-site
-	./site-src/serve.py
+	bin/crow build site-src/script/index.crow --out site/index.js --watch & ./site-src/serve.py
 
 ### publish ###
 
