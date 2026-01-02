@@ -159,12 +159,18 @@ print void(a main-ctx, pipe pipe, text string)
 	match command
 	as build-command x
 		ctx load-all-files-for-main x.main
+		targets build-target set = x.out map it.kind
 		do-build void mut() = of
-			program = ctx just-check-main-and-print-diags x.main, do x.out map it.kind
-			server build-all-outputs x.out, x.options, x.times, program
+			program = ctx just-check-main-and-print-diags x.main, targets
+			if program has-fatal-diagnostics
+				err print "Due to compile errors, nothing will be built."
+				for out in x out
+					out.path.to remove-file
+			else
+				server build-all-outputs x.out, x.options, x.times, program
 		do-build[]
 		if x watch
-			info log "built, now watching..."
+			info log "watching for changes..."
 			for in infinite
 				changed = ctx.reader wait-for-change
 				info log "{changed get-arbitrary!} changed, building again..."
@@ -200,6 +206,9 @@ print void(a main-ctx, pipe pipe, text string)
 	is-js = run.options node-js
 	program = ctx check-main-and-print-diags run.main,
 		- if is-js then js else java
+	forbid program has-fatal-diagnostics else
+		err print "Stopping due to compile errors."
+		exit
 	if is-js
 		ctx.server run-node-js program, run.main
 	else
@@ -313,9 +322,6 @@ do summon
 	program = ctx.server get-program-for-main main, targets
 	if program has-any-diagnostics
 		ctx print err, do ctx.server show-diagnostics program
-	if program has-fatal-diagnostics
-		ctx print err, "Stopping due to compile errors."
-		throw exit
 	program
 
 -check-and-print-diags program(ctx main-ctx, roots uri[])

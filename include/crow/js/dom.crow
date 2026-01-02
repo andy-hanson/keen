@@ -11,12 +11,12 @@ region Create nodes
 
 | Create a new DOM node with the given tag.
 +create-node node(tag-name symbol) js extern
-	trusted "document".js-global call-property "createElement", tag-name cast
+	trusted "document".js-global call-property "createElement", tag-name.to-js-string cast
 | Create a new node with the given tag and HTML attributes.
 +create-node node(tag-name symbol, attr string[symbol]) js extern
 	node = tag-name create-node
 	for key, value in attr
-		_ = trusted node.as-js call-property "setAttribute", key, value
+		_ = trusted node.as-js call-property "setAttribute", key.to-js-string, value.to-js-string
 	node
 +create-node node
 	tag-name symbol
@@ -26,7 +26,7 @@ region Create nodes
 do js extern
 	trusted
 	node = tag-name create-node attr
-	node.as-js["className"] := class-name
+	node.as-js["className"] := class-name to-js-string
 	_ = node.as-js call-property-spread "append", children
 	node js-cast
 
@@ -53,11 +53,11 @@ do js extern
 	trusted
 	a.as-js["className"] := (" " join class-names)::string
 +remove-class void(a node, class-name string) js extern
-	_ = trusted a.as-js["classList"] call-property "remove", class-name
+	_ = trusted a.as-js["classList"] call-property "remove", class-name.to-js-string
 
 +set-text-content void(a node, text string) js extern
 	trusted
-	a.as-js["textContent"] := text
+	a.as-js["textContent"] := text to-js-string
 
 +add-event-listener void(a node, event-name string, fn void mut(event js-any)) js extern
 	trusted
@@ -82,10 +82,10 @@ do js extern
 	"span" create-node attr, class-name, children
 
 +create-text-node node(text string) js extern
-	trusted "document".js-global call-property "createTextNode", text cast
+	trusted "document".js-global call-property "createTextNode", text.to-js-string
 
 +document node() summon, js extern
-	trusted "document".js-global cast
+	trusted "document" js-global
 
 region Node properties
 
@@ -95,16 +95,19 @@ region Node properties
 +attributes record(node node) mut
 +subscript string?(a attributes, attr-name symbol) js extern
 	trusted
-	res = a.node.as-js call-property "getAttribute", attr-name
+	res = a.node.as-js call-property "getAttribute", attr-name.to-js-string
 	unless res == null
-		res cast
+		res string-of-js-string
 +set-subscript void(a attributes, attr-name symbol, value string) js extern
 	trusted
-	_ = a.node.as-js call-property "setAttribute", attr-name, value
+	_ = a.node.as-js call-property "setAttribute", attr-name.to-js-string, value.to-js-string
 
 | Gets the value for an input node, or "" if it's not an input node.
 +value string(a node) js extern
-	trusted a.as-js["value"] cast-option else ""
+	trusted
+	value = a["value"]
+	unless value == undefined
+		value string-of-js-string
 | You can set a 'value' on any node, but it will only make a visual difference for input nodes.
 +set-value void(a node, value string) js extern
 	trusted
@@ -114,45 +117,48 @@ region Node queries
 
 | Calls 'querySelector'
 +query node?(parent node, selector string) js extern
-	trusted parent.as-js call-property "querySelector", selector cast-option
+	trusted
+	res = parent.as-js call-property "querySelector", selector.to-js-string
+	unless res == null then res
 
 +query-all node[](selector string) js extern
-	trusted "document".js-global call-property "querySelectorAll", selector array-of-node-list
+	trusted "document".js-global call-property "querySelectorAll", selector.to-js-string array-of-node-list
 
 +child-nodes node[](a node) js extern
-	trusted a.as-js["childNodes"] array-of-node-list
+	trusted a["childNodes"] array-of-node-list
 
 -array-of-node-list node[](node-list js-any) js extern
 	trusted "Array".js-global call-property "from", node-list cast
 
 | Calls 'getElementById'
 +element node?(parent node, id string) js extern
-	trusted parent.as-js call-property "getElementById", id cast-option
+	trusted
+	res = parent call-property "getElementById", id.to-js-string
+	unless res == null then res
 
 +first-child node?(a node) js extern
 	trusted
 	res = a.as-js["firstChild"]
-	unless res == null
-		res
+	unless res == null then res
 
 region Events
 
 +on-click void(a node, fn void mut()) summon, js extern
-	_ = trusted a.as-js call-property "addEventListener", "click"::string, fn
+	_ = trusted a.as-js call-property "addEventListener", "click"::js-any, fn
 
 +on-mouse-down void(a node, fn void mut()) summon, js extern
-	_ = trusted a.as-js call-property "addEventListener", "mousedown"::string, fn
+	_ = trusted a.as-js call-property "addEventListener", "mousedown"::js-any, fn
 
 +on-mouse-up void(a node, fn void mut()) summon, js extern
-	_ = trusted a.as-js call-property "addEventListener", "mouseup"::string, fn
+	_ = trusted a.as-js call-property "addEventListener", "mouseup"::js-any, fn
 
 region Mutations
 
 +id string(a node) js extern
-	trusted a.as-js["id"] cast
+	trusted a.as-js["id"] string-of-js-string
 +set-id void(a node, value string) js extern
 	trusted
-	a.as-js["id"] := value
+	a.as-js["id"] := value to-js-string
 
 | Append a child node.
 +~= void(a node, b node) js extern
@@ -195,9 +201,10 @@ do summon, js extern
 		root.cast set-style-sheet style-sheet[this cast] as-js
 	connected-callback method = of this, _
 		connected[this cast] as-js
-	methods method[symbol] = ("connectedCallback", connected-callback),
+	methods method[symbol] =
+		connectedCallback: connected-callback
 	cls = "HTMLElement".js-global make-class constructor, methods
-	_ = "customElements".js-global call-property "define", element-name, cls
+	_ = "customElements".js-global call-property "define", element-name.to-js-string, cls
 
 +connected-callback alias
 	void mut(this custom-element-node)
@@ -215,10 +222,10 @@ do summon, js extern
 -set-style-sheet void(shadow-root node, css string) js extern
 	trusted
 	style = "CSSStyleSheet".js-global call-new
-	_ = style call-property "replace", css await
+	_ = style call-property "replace", css.to-js-string await
 	shadow-root.as-js["adoptedStyleSheets"] := (style,)::js-any[]
 
 +wait-until-window-loaded void() summon, js extern
 	trusted
-	unless "document".js-global["readyState"].cast::string == "complete"
-		"new Promise(resolve => window.addEventListener('load', resolve))".eval.await cast
+	unless "document".js-global["readyState"].string-of-js-string == "complete"
+		_ = "new Promise(resolve => window.addEventListener('load', resolve))".eval await
