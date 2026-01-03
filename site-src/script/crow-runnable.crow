@@ -53,26 +53,23 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 -connected void(a custom-element-node, crow crow-server, names names) summon, unsafe, js extern
 	name = names get-crow-runnable-name a.attributes["name"]
 	no-run = _ ?= a.attributes["no-run"]
-	run-js = _ ?= a.attributes["run-js"]
 	play = a is-play
 	initial-text = play get-crow-runnable-initial-text a.as-node
 	main-uri uri = "file:///{name}" must-parse-uri
 	text-mut string mut-observable = initial-text,
 	text = text-mut observable
 	tokens-observable token[] mut-observable = ()
-	diagnostics-observable lsp-diagnostic[] mut-observable = ()
 	crow-text-props crow-text-props =
 		getHover: of position
 			crow get-hover main-uri, position
-		tokensAndDiagnostics: for tokens, diagnostics in tokens-observable.observable join diagnostics-observable.observable
-			tokens, diagnostics
+		tokensAndDiagnostics: for tokens, diagnostics in tokens-observable.observable join crow.diagnostics
+			tokens, (diagnostics[main-uri] else ())
 		text: text-mut
 	crow-text = crow-text-props create-crow-text
 
 	text now-and-subscribe shared of value
 		crow open-file main-uri, value
 		tokens-observable set do crow get-tokens main-uri
-	# TODO: also subscribe to diagnostisc!
 
 	output output = ()
 
@@ -87,11 +84,7 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 			output start-running
 			collapse-button remove-class "collapsed"
 			# TODO: I'm going to totally change how 'run' works. The server will build JS and send it to us to run.
-			throw todo
-			#output finish-running if run-js
-			#	crow run-js main-uri
-			#else
-			#	crow run main-uri
+			output finish-running do crow build-js-script main-uri run-js
 		button
 
 	copy-button = "Copy to clipboard" create-button "", (copy-icon,), of
@@ -204,3 +197,40 @@ button \{
 div.icon svg \{ height: 1.5em; }
 button.collapsed \{ display: none; }
 """
+
+-run-js run-result(build build-js-script-result) js extern
+	trusted
+	console = "console" js-global
+	old-info = console["info"]
+	old-error = console["error"]
+	finally
+		console["info"] := old-info
+		console["error"] := old-error
+	writes write mut[] = ()
+	unless build.diagnostics is-empty
+		error log "IT HAS DIAGNOSTICS!"
+		writes ~= err, "{build diagnostics}\n"
+	new-info void mut(x js-any) = of x
+		writes ~= out, "{x.to::string}\n"
+	new-error void mut(x js-any) = of x
+		writes ~= err, "{x.to::string}\n"
+	console["info"] := new-info to
+	console["error"] := new-error to
+
+	# TODO: we might need to provide a global 'process' ---------------------------------------------------------------------------------------------
+	exit exit-code = if script ?= build script
+		encoded = "encodeURIComponent".js-global call script.to
+		data-url = "data:text/javascript;charset=utf-8,"::js-any + encoded
+		try
+			_ = data-url.js-import await
+			ok
+		catch else e
+			writes ~=
+				pipe: err
+				text: e.as-js call-property "toString" to
+			error
+	else
+		error
+	exit: exit
+	writes: writes move-to
+	

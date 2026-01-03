@@ -75,7 +75,8 @@ profile-translate-to-java: bin/crow
 
 ### site ###
 
-prepare-site: bin/crow bin/crow.tar.xz bin/crow-demo.tar.xz bin/crow.vsix site/index.js site/worker.js site/crow-include.tar site/java-classes.tar
+# TODO: bin/crow.tar.xz bin/crow-demo.tar.xz bin/crow.vsix
+prepare-site: bin/crow site/index.js site/worker.js site/crow-include.tar site/java-classes.tar
 	bin/crow site-src/site.crow
 
 site/index.js: bin/crow site-src/script/*.crow site-src/script/*/*.crow
@@ -84,7 +85,7 @@ site/worker.js: bin/crow site-src/script/worker.crow $(all_include)
 	bin/crow build site-src/script/worker.crow --out site/worker.js
 
 serve: prepare-site
-	bin/crow build site-src/script/index.crow --out site/index.js --watch & ./site-src/serve.crow
+	( trap 'kill 0' INT; bin/crow build site-src/script/index.crow --out site/index.js --watch & ./site-src/serve.crow & wait )
 
 ### publish ###
 
@@ -112,7 +113,7 @@ confirm-upload-site: prepare-site
 upload-site: prepare-site confirm-upload-site
 	$(aws_upload_command)
 
-site/crow-include.tar:
+site/crow-include.tar: $(all_include)
 	tar -cf site/crow-include.tar -C include/crow .
 site/java-classes.tar:
 	# This avoids storing the 'jdk' classes which take up a lot of space and aren't in any public API

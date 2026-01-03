@@ -1,4 +1,5 @@
 import
+	crow/experimental/observable
 	crow/parse
 	crow/js
 	crow/js/util
@@ -12,7 +13,10 @@ crow-server record mut
 	-worker js-any
 	-responses json deferred mut[nat]
 	-next-id mut nat
-	-diagnostics-per-uri lsp-diagnostic[] mut[uri]
+	-diagnostics lsp-diagnostic[][uri] mut-observable
+
+diagnostics lsp-diagnostic[][uri] observable(a crow-server)
+	a.diagnostics observable
 
 make-crow-server crow-server() summon, js extern
 	trusted
@@ -21,7 +25,7 @@ make-crow-server crow-server() summon, js extern
 		type: "module"
 	
 	responses json deferred mut[nat] = ()
-	diagnostics-per-uri lsp-diagnostic[] mut[uri] = ()
+	diagnostics lsp-diagnostic[][uri] mut-observable = ()
 	on-message void mut(event js-any) = of event
 		object = json parse event["data"].to
 		if "id"::symbol in object
@@ -31,7 +35,8 @@ make-crow-server crow-server() summon, js extern
 			params = object["params"]
 			if method == "textDocument/publishDiagnostics"
 				p publish-diagnostics-params = params to
-				diagnostics-per-uri[p.uri] := p.diagnostics
+				diagnostics modify of x
+					x ~ (p.uri, p.diagnostics)
 			else
 				error log "What do we do with this?"
 				error log method.show
@@ -43,7 +48,7 @@ make-crow-server crow-server() summon, js extern
 		worker: worker
 		responses: responses
 		next-id: 1
-		diagnostics-per-uri: diagnostics-per-uri
+		diagnostics: diagnostics
 	_ = server request "initialize", ()
 	server
 
@@ -121,3 +126,9 @@ do js extern
 		response output
 	else
 		"Parse error at ${response.diagnostics[0]}"
+
+build-js-script build-js-script-result(server crow-server, main uri) js extern
+	params build-js-script-params =
+		uri: main
+		diagnosticsOnlyForUris: ()
+	server request "custom/build-js-script", params.to to
