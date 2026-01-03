@@ -351,7 +351,7 @@ do
 		ctx check-call-special-cb1 source, keyword-range, "set-{left}", expected, cb-right
 
 -check-literal-float expr(ctx expr-ctx, ast literal-float-and-range, expected expected)
-	allowed-types struct-inst[] = ctx.common-types.float32, ctx.common-types.float64
+	allowed-types struct-inst[] = ctx.common-types.float32, ctx.common-types.float64, ctx.common-types.js-any
 	if index ?= ctx find-expected-struct-for-literal ast.range, expected, allowed-types
 		ctx as-float ast.range, float-types[index], allowed-types[index], ast.literal.value, expected
 	else
@@ -360,7 +360,7 @@ do
 -as-float expr
 	ctx expr-ctx
 	range source-range
-	float-type float-type
+	float-type float-type-or-js
 	inst struct-inst
 	value high-precision-float?
 	expected expected
@@ -387,14 +387,18 @@ do
 	nat8, nat16, nat32, nat64
 -int-types integral-type[]()
 	int8, int16, int32, int64
-integral-types integral-type[]()
+-integral-types integral-type[]()
 	nat-types ~~ int-types
--float-types float-type[]()
-	float32, float64
+-float-types float-type-or-js[]()
+	members
 
 -check-literal-integral expr(ctx expr-ctx, ast literal-integral-and-range, expected expected)
 	integrals = ctx.common-types integrals
-	allowed-types struct-inst[] = integrals.all ~~ ctx.common-types.all-floats
+	integrals.all.size is integral-types.size
+	allowed-types struct-inst[] =
+		-- integrals all
+		-- ctx.common-types all-floats
+		- ctx.common-types js-any
 	if type-index ?= ctx find-expected-struct-for-literal ast.range, expected, allowed-types
 		number-type = allowed-types[type-index]
 		if type-index < integral-types.size
@@ -413,48 +417,47 @@ integral-types integral-type[]()
 	range = ast range
 	value = ast value
 	types = ctx common-types
-	allowed-types struct-inst[] = types.char8, types.char32, types.char8-array, types.char32-array, types.js-any, types.string, types.symbol
+	allowed-types struct-inst[] =
+		- types char8
+		- types char32
+		- types char8-array
+		- types char32-array
+		- types js-any
+		- types string
+		- types symbol
 	# First 2 kinds won't be used
 	kinds string-like-type[] = string, string, char8-array, char32-array, js-any, string, symbol
 	guard type-index ?= ctx find-expected-struct-for-literal range, expected, allowed-types else
 		expected bogus range
 	expr expr? = if type-index == 0
-		range literal-integral-expr char8, ((ctx char8-literal-value range, value).to,)
+		range literal-integral-expr char8, do ctx char8-literal-value range, value
 	elif type-index == 1
-		range literal-integral-expr char32, ((ctx char32-literal-value range, value).to,)
+		range literal-integral-expr char32, do ctx char32-literal-value range, value
 	else
 		string-type = kinds[type-index]
-		diag diag-string-literal-invalid? = match string-type
-		as char8-array
-			()
-		as char32-array
-			()
-		as string
-			()
-		as symbol
-			()
-		as js-any
-			unless "js"::symbol in ctx.externs
-				not-extern-js
-		if d ?= diag
-			ctx add-diag range, d
-			()
-		else
-			range literal-string-like-expr string-type, value
+		if string-type != js-any or ctx check-is-js range
+			range literal-string-like-expr string-type, value		
 	if x ?= expr
 		ctx check expected, allowed-types[type-index], x
 	else
 		expected bogus range
 
--char8-literal-value char8(ctx expr-ctx, diag-range source-range, value string)
-	char8s = value.to::char8[]
-	char8s opt-only else
+-check-is-js bool(ctx expr-ctx, range source-range)
+	res = "js"::symbol in ctx.externs
+	unless res
+		ctx add-diag range, not-extern-js
+	res
+
+-char8-literal-value integral-value(ctx expr-ctx, diag-range source-range, value string)
+	res = value.to::char8[] opt-only else
 		ctx add-diag diag-range, diag-char-literal-must-be-one-char
 		"a"
--char32-literal-value char32(ctx expr-ctx, diag-range source-range, value string)
-	value decode-as-single-unicode-char else
+	- res to
+-char32-literal-value integral-value(ctx expr-ctx, diag-range source-range, value string)
+	res = value decode-as-single-unicode-char else
 		ctx add-diag diag-range, diag-char-literal-must-be-one-char
 		"a"
+	- res to
 -decode-as-single-unicode-char char32?(a string)
 	a.to::char32[] opt-only
 
@@ -967,9 +970,9 @@ do
 			guard string-value ?= ctx string-from-case-ast case-ast.member
 			value integral-value = match char-type
 			as char8
-				(ctx char8-literal-value case-ast.name-range, string-value).to,
+				ctx char8-literal-value case-ast.name-range, string-value
 			as char32
-				(ctx char32-literal-value case-ast.name-range, string-value).to,
+				ctx char32-literal-value case-ast.name-range, string-value
 			if seen try-add value
 				out ~= value, do ctx check-expr case-ast.then_, expected
 			else
