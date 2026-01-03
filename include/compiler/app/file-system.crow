@@ -64,15 +64,15 @@ show string(a exit)
 	if extern java
 		(path.to,)::File exists
 	elif extern js
-		fs call-property "existsSync", path.to-js-string cast
+		fs call-property "existsSync", path.to to
 	else
 		throw todo
 
 -to String(a file-path) java extern
 	a.to to
 
--to-js-string js-any(a file-path) js extern
-	a.to::string to-js-string
+-to js-any(a file-path) js extern
+	a.to::string to
 
 -do-write-file void(path string, content nat8[]) summon
 	trusted
@@ -81,7 +81,7 @@ show string(a exit)
 		content2 int8 mut-slice = for x in content then x wrap-to # TODO:PERF do a cast instead since these have the same representation
 		_ = path.to-java-path write content2, ()
 	elif extern js
-		fs call-property "writeFileSync", path.to-js-string, content.as-js cast
+		fs call-property "writeFileSync", path.to, content.to to
 	else
 		throw todo
 
@@ -104,7 +104,7 @@ write-file void(path file-path, content string, permissions permissions, overwri
 		perms EnumSet = values.reinterpret-cast::(Object mut-slice).asList.reinterpret-cast::Collection copyOf
 		_ = path.to-java-path setPosixFilePermissions perms.reinterpret-cast # TODO: most reinterpret-casts in this file should be unnecssary
 	elif extern js
-		_ = fs call-property "chmodSync", path.to-js-string, permissions.to::nat.to::float.as-js
+		_ = fs call-property "chmodSync", path.to, permissions.to::nat.to::float.as-js
 	else
 		throw todo
 
@@ -135,17 +135,17 @@ write-jar void(path file-path, files java-compiled-class[]) summon
 	start = perf-now
 	manifest Manifest = ()
 	attr = manifest getMainAttributes
-	_ = attr putValue "Manifest-Version"::string.to-java-string, "1.0"::string.to-java-string
-	_ = attr putValue "Main-Class"::string.to-java-string, "Main"::string.to-java-string
+	_ = attr putValue "Manifest-Version", "1.0"
+	_ = attr putValue "Main-Class", "Main"
 	do
-		file-out FileOutputStream = path.to::string.to-java-string,
+		file-out FileOutputStream = path.to,
 		finally file-out close
 		buf-out BufferedOutputStream = file-out.reinterpret-cast::OutputStream,
 		out-out = buf-out.reinterpret-cast::OutputStream
 		out-out write "#!/usr/bin/java -jar\n"::char8[].to
 		jar-out JarOutputStream = out-out, manifest
 		for class_ in files
-			entry JarEntry = class_.name-including-class.to-java-string,
+			entry JarEntry = class_.name-including-class.to,
 			jar-out putNextEntry entry.reinterpret-cast::ZipEntry
 			jar-out.reinterpret-cast::OutputStream write class_.bytecode.safe-reinterpret-cast.cast-mutable
 			jar-out.reinterpret-cast::ZipOutputStream closeEntry
@@ -182,10 +182,10 @@ files-in-directory-recursive file-path[](dir-path file-path) summon
 			other
 	elif extern js
 		# TODO: handle dir not found exception ------------------------------------------------------------------------------
-		stat = fs call-property "lstatSync", path.to::string.to-js-string
-		if stat call-property "isDirectory" js-cast
+		stat = fs call-property "lstatSync", path.to
+		if stat call-property "isDirectory" to
 			directory
-		elif stat call-property "isFile" js-cast
+		elif stat call-property "isFile" to
 			file
 		else
 			other
@@ -196,14 +196,13 @@ get-paths-in-dir file-path[](dir-path file-path) summon
 	trusted
 	if extern java
 		stream = dir-path.to-java-path list
-		paths = stream toArray
-		for path in paths
+		for path in stream toArray
 			path.toString.to must-parse-file-path
 	elif extern js
 		# TODO: handle dir not found exception ------------------------------------------------------------------------------
-		names js-any[] = fs call-property "readdirSync", dir-path.to::string.to-js-string cast
+		names js-any[] = fs call-property "readdirSync", dir-path.to to
 		for name in names
-			dir-path / name.string-of-js-string
+			dir-path / name.to
 	else
 		throw todo
 
@@ -316,7 +315,7 @@ files-in-directory-recursive file-path[](a file-reader, root file-path)
 -find-java-base-jmod file-path() summon
 	trusted
 	if extern java
-		Object Class = "java.lang.Object".to-java-string forName
+		Object Class = "java.lang.Object" forName
 		module = Object getModule
 		assert module isNamed
 		finder ModuleFinder = ofSystem
@@ -324,7 +323,7 @@ files-in-directory-recursive file-path[](a file-reader, root file-path)
 		uri URI = ref.location.get reinterpret-cast
 		# e.g. "java.base"
 		jmod-name = uri.toString.to::string try-remove-start! "jrt:/"
-		java-home string = "java.home".to-java-string.getProperty to
+		java-home string = "java.home".getProperty to
 		"{java-home}/jmods/{jmod-name}.jmod" must-parse-file-path
 	elif extern js
 		"/usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod" must-parse-file-path # TODO -------------------------------------------------------
@@ -338,11 +337,9 @@ files-in-directory-recursive file-path[](a file-reader, root file-path)
 		"/usr/lib/jvm/java-25-openjdk-amd64/jmods/jdk.httpserver.jmod" must-parse-file-path
 	else
 		base-jmod
-	inner-path string = "classes/{class_}.class"
 	file-system = jmods ensure jmod, of
-		jar-uri URI = "jar:file://{jmod}".to-java-string create
-		jar-uri newFileSystem emptyMap
-	path = file-system getPath inner-path.to-java-string, ()
+		"jar:file://{jmod}".create newFileSystem emptyMap
+	path = file-system getPath "classes/{class_}.class", ()
 	- path.readAllBytes.cast-immutable safe-reinterpret-cast
 
 try-read-file read-file-result(a file-reader, uri uri)
@@ -380,7 +377,7 @@ cwd file-path() summon
 	if extern java
 		"".to-java-path.toAbsolutePath.toString.to must-parse-file-path
 	elif extern js
-		(process call-property "cwd" string-of-js-string) must-parse-file-path
+		(process call-property "cwd" to) must-parse-file-path
 	else
 		throw todo
 
@@ -393,17 +390,17 @@ cwd file-path() summon
 this-executable file-path() summon
 	trusted
 	if extern java
-		class_ = "Crow".to-java-string forName
-		path = class_.getProtectionDomain.getCodeSource.getLocation.getPath decode "UTF-8".to-java-string
+		class_ = "Crow".forName
+		path = class_.getProtectionDomain.getCodeSource.getLocation.getPath decode "UTF-8"
 		path.to must-parse-file-path
 	elif extern js
-		process["argv"]["1"].string-of-js-string must-parse-file-path
+		process["argv"]["1"].to must-parse-file-path
 	else
 		throw todo
 
 -to-java-path Path(a file-path) java extern
 	a.to::string to-java-path
 -to-java-path Path(a string) java extern
-	trusted a.to-java-string get ()
+	trusted a.to get ()
 -to file-path(a Path) java extern
 	(trusted a toString).to must-parse-file-path
