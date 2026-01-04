@@ -1,6 +1,8 @@
 import
+	crow/col/mut-slice
 	crow/format/binary
-	crow/parse
+	crow/unsafe
+	../../crow/col/private/array-low-level: view-indices
 	../model/uri
 	../util/java-bytecode-types
 	../util/perfhax
@@ -19,7 +21,7 @@ parse-java-class parsed-java-class(content nat8[])
 	reader.take32 is 0xcafebabe
 	version = reader take32
 	assert version >= 69
-	constants = reader read-constant-pool
+	constants = content.safe-reinterpret-cast read-constant-pool reader
 	access class-access = reader.take16.to!
 	this-class = reader read-class-reference constants
 	super-class = reader read-optional-class-reference constants
@@ -51,12 +53,14 @@ parsed-field record
 	attributes: reader read-attributes constants
 
 -constants record
-	constant-strings string[nat16]
-	constant-classes path[nat16]
--get-string string(a constants, index nat16)
-	a.constant-strings[index]!
+	# Use arrays instead of maps for faster lookups
+	all-char8s char8[]
+	constant-strings nat32 range[]
+	constant-classes path[]
+-get-string nat32 range(a constants, index nat16)
+	a.constant-strings[index to]
 -get-class path(a constants, index nat16)
-	a.constant-classes[index]!
+	a.constant-classes[index to]
 
 parsed-method record
 	access-flags method-access-flags
@@ -65,7 +69,7 @@ parsed-method record
 -read-method parsed-method(reader nat8 array-mut-iterator, constants constants)
 	access-flags method-access-flags = reader.take16 to!
 	name symbol = reader read-utf8-reference constants to
-	descriptor = reader read-utf8-reference constants parse-method-descriptor
+	descriptor = constants.all-char8s parse-method-descriptor do reader read-utf8-reference-2 constants
 	_ = reader read-attributes constants
 	access-flags: access-flags
 	name: name
@@ -82,23 +86,58 @@ show string(_ void)
 	"void"
 show string(a java-array-type)
 	"{a.element.show}[]"
--parse-type java-type(a string)
-	ptr string-mut-iterator = a,
-	res = ptr read-type
-	assert ptr is-at-end
-	res
--parse-method-descriptor method-descriptor(a string)
-	ptr string-mut-iterator = a,
-	ptr.take-char8 is "("
+
+-parse-method-descriptor method-descriptor(all-char8s char8[], a nat32 range)
+	index mut nat = a.low to
+	all-char8s[index] is "("
+	index +:= 1
 	param-types java-type[] = with out in build
-		until ptr try-take ")"
-			out ~= ptr read-type
-	return-type = ptr read-type
-	assert ptr is-at-end	
+		until all-char8s[index] == ")"
+			p, new-index = all-char8s read-type index
+			out ~= p
+			index := new-index
+		index +:= 1
+	return-type, new-index2 = all-char8s read-type index
+	new-index2 is a.high.to
 	return-type, param-types
-read-type java-type(a string-mut-iterator)
-	char = a take-char8
+-wrap-arrays java-type(type java-type, arrays nat)
+	if arrays == 0 then type else type.java-array-type wrap-arrays arrays - 1
+-parse-type java-type(a char8 array-view)
+	char = a[0]
 	match char
+	as L
+		a[end - 1] is ";"
+		a[1 .. end - 1] as-path
+	as "["
+		a[1 .. end].parse-type java-array-type
+	else
+		char single-char-type
+-read-type (java-type, nat)(all-char8s char8[], start nat)
+	arrays mut nat = 0
+	index mut nat = start
+	loop
+		char = all-char8s[index]
+		match char
+		as L
+			end = all-char8s must-find index + 1, ";"
+			break do # TODO: should be able to just write 'break' ...................................................................................
+				- all-char8s[index + 1 .. end].as-path wrap-arrays arrays
+				- end + 1
+		as "["
+			index +:= 1
+			arrays +:= 1
+			continue
+		else
+			break (char.single-char-type wrap-arrays arrays), index + 1
+
+-must-find nat(xs char8[], start nat, to-find char8)
+	index mut = start
+	until xs[index] == to-find
+		index +:= 1
+	index
+
+-single-char-type java-type(a char8)
+	match a
 	as B
 		T_BYTE
 	as C
@@ -111,39 +150,29 @@ read-type java-type(a string-mut-iterator)
 		T_INT
 	as J
 		T_LONG
-	as L
-		s string = with out in build
-			loop
-				x = a take-char32
-				if x == ";"
-					break
-				else
-					out ~= x
-					continue
-		s parse-path
 	as S
 		T_SHORT
 	as V
 		()::void
 	as Z
 		T_BOOLEAN
-	as "["
-		a.read-type java-array-type
 	else
-		error log "THE TYPE IS {char}"
 		throw unreachable
 
 -read-attribute record
-	attribute-name string
+	attribute-name symbol
 -read-attributes read-attribute[](reader nat8 array-mut-iterator, constants constants)
 	reader read-array of
 		reader read-attribute constants
 -read-attribute read-attribute(reader nat8 array-mut-iterator, constants constants)
 	attribute-name = reader read-utf8-reference constants
 	reader skip-n reader.take32.to
-	attribute-name: attribute-name
+	attribute-name: attribute-name to
 
--read-utf8-reference string(reader nat8 array-mut-iterator, constants constants)
+-read-utf8-reference char8 array-view(reader nat8 array-mut-iterator, constants constants)
+	range = reader read-utf8-reference-2 constants
+	constants.all-char8s[range.low.to .. range.high.to]
+-read-utf8-reference-2 nat32 range(reader nat8 array-mut-iterator, constants constants) # TODO:NAME -------------------------------------------------
 	constants get-string reader.take16
 -read-class-reference path(reader nat8 array-mut-iterator, constants constants)
 	constants get-class reader.take16
@@ -153,11 +182,11 @@ read-type java-type(a string-mut-iterator)
 		constants get-class index
 
 # https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.4
--read-constant-pool constants(reader nat8 array-mut-iterator)
+-read-constant-pool constants(all-char8s char8[], reader nat8 array-mut-iterator)
 	constants-pool-count = reader take16
 	constant-pool-index mut nat16 = 1
-	constant-strings-builder string mut[nat16] = ()
-	constant-classes nat16 mut[nat16] = ()
+	constant-strings-builder nat32 range mut-slice = constants-pool-count.to fill 0 .. 0
+	constant-classes nat16 mut-slice = constants-pool-count.to fill 0
 	while constant-pool-index < constants-pool-count
 		kind = reader take
 		constant-pool-index +:= match kind
@@ -165,7 +194,8 @@ read-type java-type(a string-mut-iterator)
 			# CONSTANT_Utf8_info
 			bytes = reader take-n reader.take16.to
 			# Java does not really use standard UTF8, but this shouldn't matter for method and type names
-			constant-strings-builder[constant-pool-index] := bytes as-string
+			indices = bytes view-indices
+			constant-strings-builder[constant-pool-index to] := indices.low.to .. indices.high.to
 			1
 		as 3
 			# CONSTANT_Integer_info
@@ -185,7 +215,7 @@ read-type java-type(a string-mut-iterator)
 			2
 		as 7
 			# CONSTANT_Class_info
-			constant-classes[constant-pool-index] := reader take16
+			constant-classes[constant-pool-index to] := reader take16
 			1
 		as 8
 			# CONSTANT_String_info
@@ -223,6 +253,11 @@ read-type java-type(a string-mut-iterator)
 			error log "Unexpected constant kind {kind}"
 			throw todo
 	constant-pool-index is constants-pool-count
-	constant-strings string[nat16] = constant-strings-builder move-to
-	constant-strings: constant-strings
-	constant-classes: constant-classes map-values constant-strings[it]!.parse-path
+	all-char8s: all-char8s
+	constant-strings: trusted constant-strings-builder cast-immutable
+	constant-classes: for x in constant-classes
+		if x == 0
+			"" as-path
+		else
+			range = constant-strings-builder[x to]
+			all-char8s[range.low.to .. range.high.to] as-path
