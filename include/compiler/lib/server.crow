@@ -9,7 +9,7 @@ import
 	../backend/js/translate-to-js
 	../concretize/concretize
 	../document/document
-	../frontend/frontend-compile
+	../frontend/frontend
 	../frontend/get-diagnostic-severity
 	../frontend/ide/get-code-lenses
 	../frontend/ide/get-completion
@@ -28,7 +28,6 @@ import
 	../frontend/lang
 	../frontend/show-diag
 	../frontend/show-model
-	../frontend/storage_
 	../lib/lsp/lsp-types
 	../model/ast
 	../model/concrete-model
@@ -89,7 +88,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	as did-close-text-document-params _
 		()
 	as did-open-text-document-params x
-		server set-file-assume-utf8 x.textDocument.uri, x.textDocument.text
+		server set-file x.textDocument.uri, x.textDocument.text
 		server handle-file-changed
 	as did-save-text-document-params _
 		()
@@ -98,13 +97,13 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	as initialized-params
 		initialized-action
 	as read-file-result-params x
-		match x type
+		server set-file x.uri, match x type
 		as ok
-			server set-file x.uri, x.content
+			(x.content,)::read-file-result
 		as notFound
-			server set-file x.uri, not-found
+			not-found
 		as error
-			server set-file x.uri, error
+			error
 		server handle-file-changed
 	as set-trace-params _
 		# TODO: implement this
@@ -113,10 +112,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 -handle-file-changed lsp-out-action(server server)
 	match server files-state
 	as has-unknown
-		unknown = server all-unknown-uris
-		for uri in unknown
-			server set-file uri, loading
-		(unknown.unknown-uris,), ()
+		(server.flush-all-unknown-uris.unknown-uris,), ()
 	as has-loading
 		()
 	as all-loaded
@@ -167,7 +163,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	as run-params _
 		()
 	as semantic-tokens-params x
-		server get-crow-file-for-tokens x.textDocument.uri tokens-of-ast
+		server encoded-tokens x.textDocument.uri
 	as shutdown-params
 		null-lsp-out-result
 	as signature-help-params _
@@ -204,7 +200,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	typeDefinitionProvider: ()
 
 folding-ranges folding-range-result(server server, uri uri)
-	(server get-crow-file-for-tokens uri) folding-ranges-of-ast
+	server.frontend get-ast uri folding-ranges-of-ast
 
 -single-response lsp-out-action(request lsp-in-request, response lsp-out-result)
 	((request message-for-response response),), ()
@@ -314,7 +310,6 @@ server record mut
 	include-dir uri
 	uris-info uris-info
 	show-options show-options
-	storage_ storage_
 	lsp-state lsp-state
 	frontend mut frontend
 server-settings record
@@ -322,22 +317,14 @@ server-settings record
 	cwd uri
 	show-options show-options
 new server(settings server-settings)
-	storage_ storage_ = ()
 	include-dir: settings include-dir
-	uris-info: settings.cwd,
+	uris-info:
+		cwd: settings cwd
 	show-options: settings show-options
-	storage_: storage_
 	lsp-state: ()
-	frontend: storage_ init-frontend settings.include-dir
-reset void(a server)
-	a.storage_ reset
-	a.frontend := a.storage_ init-frontend a.frontend.crow-include-dir
-file-content-getters file-content-getters(a server)
-	a.storage_ file-content-getters
-line-and-character-getter line-and-character-getter(a server, uri uri)
-	a.storage_ line-and-character-getter uri
-line-and-column-getter line-and-column-getter(a server, uri uri)
-	a.storage_ line-and-column-getter uri
+	frontend: settings.include-dir,
+reset void(a server) # TODO: why not just get a new server? -----------------------------------------------------------------------------------------
+	a.frontend := a.frontend.crow-include-dir,
 
 lsp-state record mut
 	supports-unknown-uris mut bool
@@ -357,21 +344,17 @@ crow-version json(this-executable file-path)
 
 set-file void(server server, uri uri, result read-file-result)
 	server content-changed
-	server.frontend on-file-changed uri, do server.storage_ set-file uri, result
-set-file-assume-utf8 void(server server, uri uri, result string)
-	server content-changed
-	server.frontend on-file-changed uri, do server.storage_ set-file-assume-utf8 uri, result
-set-file void(server server, uri uri, result nat8[])
-	server content-changed
-	server.frontend on-file-changed uri, do server.storage_ set-file-bytes uri, result
+	server.frontend set-file uri, result
+set-file void(server server, uri uri, result string)
+	server set-file uri, (result.to-bytes,)
 change-file void(server server, uri uri, changes text-document-content-change-event[])
 	server content-changed
-	server.frontend on-file-changed uri, do server.storage_ change-file uri, changes
+	server.frontend change-file uri, changes
 
 files-state files-state(server server)
-	server.storage_ files-state
-all-unknown-uris uri[](server server)
-	server.storage_ all-uris-with-file-diag (unknown,)
+	server.frontend files-state
+flush-all-unknown-uris uri[](server server)
+	server.frontend flush-all-unknown-uris
 
 show-diagnostics string(server server, program program)
 	server show-diagnostics-common program.as-program-with-opt-main, ()
@@ -478,16 +461,9 @@ do
 		program get-position where.to, kind
 
 print-ast (string, json)(server server, uri uri)
-	file = server get-crow-file-for-tokens uri
-	- server.get-show-ctx show-parse-diagnostics uri, file.ast.parse-diagnostics
-	- file.ast to
-
--get-crow-file-for-tokens crow-file-info(server server, uri uri)
-	match server.storage_ file-or-diag uri
-	as file-info x
-		x crow-file-info!
-	as read-file-diag x
-		(), x.file-ast-for-diag
+	file = server.frontend get-ast uri
+	- server.get-show-ctx show-parse-diagnostics uri, file.parse-diagnostics
+	- file to
 
 json-of-model json(_ server, program program, uri uri)
 	program module-at-uri uri to
@@ -504,7 +480,7 @@ do
 	params text-document-position-params =
 		textDocument:
 			uri: where uri
-		position: server line-and-column-getter where.uri to-line-and-character where.pos
+		position: server.frontend.line-and-column-getters[where.uri]! to-line-and-character where.pos
 	match kind
 	as completion
 		(server get-completion-for-program program, (params,))?.to else null
@@ -537,10 +513,9 @@ do
 			textDocument: uri,
 		res to
 	as folding-ranges
-		file = server get-crow-file-for-tokens uri
-		file.folding-ranges-of-ast to
+		server folding-ranges uri to
 	as inlay-hints
-		range line-and-character-range = (0, 0), (0, 0)
+		range line-and-character-range = top-of-file
 		res = server get-inlay-hints-for-program program,
 			textDocument: uri,
 			range: range
@@ -549,8 +524,9 @@ do
 		server decoded-tokens uri
 
 decoded-tokens json(server server, uri uri)
-	file = server get-crow-file-for-tokens uri
-	file.tokens-of-ast json-of-decoded-tokens
+	server encoded-tokens uri json-of-decoded-tokens
+encoded-tokens semantic-tokens(server server, uri uri)
+	server.frontend get-ast uri tokens-of-ast
 
 build-to-java java-compiled-class[](server server, program program-with-main, prefix string)
 	server build-to-java program, prefix, 1
@@ -598,7 +574,7 @@ get-show-ctx show-ctx(server server, force-no-color bool)
 	ctx = server get-show-diag-ctx program
 	for ud in all
 		diagnostics lsp-diagnostic[] = for x in ud diagnostics
-			where = (server line-and-character-getter ud.uri)[x.range]
+			where = (server.frontend line-and-character-getter ud.uri)[x.range]
 			severity = x.kind.get-diagnostic-severity to-lsp-diagnostic-severity
 			where, severity, do ctx string-of-diag x.kind
 		res ~= ud.uri publish-diagnostics-params diagnostics

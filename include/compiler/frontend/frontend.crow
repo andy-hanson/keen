@@ -1,7 +1,10 @@
 import
+	crow/unsafe
+	../lib/lsp/lsp-types
 	../model/ast
 	../model/model
 	../model/parse-diag
+	../model/source-range
 	../model/uri
 	../util/enum-map
 	../util/perfhax
@@ -12,25 +15,28 @@ import
 	./check/detect-unused-internal
 	./check/get-common-funs
 	./check/instantiate
+	./config
 	./java-externs
 	./lang
+	./parse/parse
 	./parse-java-class
 	./show-model
-	./storage_
 
 frontend record mut
 	# TODO: what here can be private? -------------------------------------------------------------------------------------------------
-	# TODO: I wonder if 'storage' should be combined into frontend .......................................................................
-	storage_ storage_
 	crow-include-dir uri
 	common-uris common-uris
 	common-files mut (common-module, crow-file) enum-map
+	unknown uri mut-set
+	loading uri mut-set
 	all-insts all-insts
+	line-and-column-getters mut line-and-column-getter[uri]
 	| Set after 'bootstrap.crow' is compiled
 	common-types mut common-types?
 	crow-files crow-file mut[uri]
 	| Number of crow-files without {module} set
 	count-uncompiled-crow-files mut nat
+	config-files config-file mut[uri]
 	| Key is the Java class path such as "java/lang/Object"
 	java-class-files java-class-file mut[path]
 	other-files other-file mut[uri]
@@ -43,30 +49,33 @@ frontend record mut
 show-ctx show-ctx(a frontend) # TODO: THIS ONE IS JUST FOR DEBUG _----------------------------------------------------------------
 	a show-ctx (), ()
 show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
-	line-and-column-getters: a.storage_ line-and-column-getters
-	file-content-getters: a.storage_ file-content-getters
+	line-and-column-getters: a.line-and-column-getters my-line-and-column-getters
+	file-content-getters: a.line-and-column-getters my-file-content-getters
 	uris-info: uris-info
 	options: options
 
-# TODO: just call it 'new' ------------------------------------------------------------------------------------------------------
-init-frontend frontend(storage_ storage_, crow-include-dir uri)
+new frontend(crow-include-dir uri)
 	common-uris = crow-include-dir common-uris
 	res frontend =
-		storage_: storage_
 		crow-include-dir: crow-include-dir
 		common-uris: common-uris
 		common-files: for _, uri in common-uris
 			# Dummy value, about to get overwritten
 			uri: uri
+			referenced-by: ()
 			ast-or-diag: unknown
+			config-file: trusted gc-safe-value # TODO: do something safe ......................................................................................
 			config: ()
 			resolved-imports: ()
-			referenced-by: ()
 			module: ()
+		unknown: ()
+		loading: ()
 		all-insts: ()
+		line-and-column-getters: ()
 		common-types: ()
 		crow-files: ()
 		count-uncompiled-crow-files: 0
+		config-files: ()
 		java-class-files: ()
 		other-files: ()
 		workable-java: ()
@@ -75,35 +84,47 @@ init-frontend frontend(storage_ storage_, crow-include-dir uri)
 		res ensure-crow-file uri
 	res
 
+| Note: This is initially empty and the fields fill in from top to bottom in various steps.
+| First the file gets content, then it gets parsed, then its config is determined, then imports are resolved, then a module is built.
 -crow-file record mut
 	uri uri
-	ast-or-diag mut ast-or-diag
-	| This will be empty if not yet computed and `(default-config,)` if there is no config file on the path.
+	| Uris are for {crow-file}s
+	referenced-by uri mut-set
+	ast-or-diag mut ast-or-diag # TODO: I could just store the AST which has a set of diagnostics on it already ...............................................
+	config-file config-file
 	config mut config?
 	| Also includes re-exports. Set once we have config.
 	resolved-imports mut mostly-resolved-import[]?
-	| Uris are for {crow-file}s
-	referenced-by uri mut-set
 	module mut crow-module?
 has-module bool(a crow-file) # TODO: inline ----------------------------------------------------------------------------------
 	_ ?= a module
 must-have-module crow-module(a crow-file) # TODO: inline ----------------------------------------------------------------------------------
 	a.module!
 
+-config-file record mut
+	# If this is 'not-found' (and it usually is not-found), we will ignore it and use the parent
+	config mut config-or-diag
+	# Missing only for the root file
+	parent config-file?
+	# TODO: referenced-by uri mut-set ---------------------------------------------------------------------------------------------------------------
+-config-or-diag union(config, read-file-diag)
+
 -java-class-file record mut
 	type struct-decl
-	parsed mut parsed-java-class?
+	parsed mut java-class-or-diag
 	module mut java-class-module?
 	| Uris are for {crow-file}s
 	referenced-by-crow uri mut-set
 	| Subclasses or interface implementers must be processed after their supertypes.
 	inheritors path mut-set
 
+-java-class-or-diag union(parsed-java-class, read-file-diag)
+
 -ast-or-diag union(file-ast, read-file-diag)
 
 -other-file record mut
 	uri uri
-	content mut file-content?
+	content mut read-file-result
 	| Uris are for {crow-file}s
 	referenced-by uri mut-set
 
@@ -127,103 +148,189 @@ do
 make-program program(a frontend, fully-loaded-configs uri set)
 	start = perf-now
 	finally start end-make-program
-	assert a.storage_.files-state == all-loaded
+	assert a.files-state == all-loaded
 	common-modules (common-module, crow-module) enum-map = for _, x in a common-files
-		x must-have-module
+		x module!
 	ctx instantiate-ctx = a.all-insts,
 	common-types = a common-types!
 	common-funs, common-funs-diagnostics = ctx get-common-funs common-types, common-modules
 	all-modules crow-module[uri] = for uri, file in a crow-files
 		uri, file.must-have-module
 	unused-diagnostics = all-modules detect-unused-internal common-types, fully-loaded-configs
-	all-configs: a get-all-configs
+	all-configs: for* uri, x in a config-files
+		if config ?= x.config config
+			- uri, config
 	all-modules: all-modules
 	java-modules: for k, v in a java-class-files
 		k.to-java-uri, v.module!
 	additional-diagnostics: common-funs-diagnostics ~~ unused-diagnostics
-	file-content-getters: a.storage_ file-content-getters
-	line-and-column-getters: a.storage_ line-and-column-getters
+	file-content-getters: a.line-and-column-getters my-file-content-getters
+	line-and-column-getters: a.line-and-column-getters my-line-and-column-getters
 	common-funs: common-funs
 	common-types: common-types
 	other-types:
 		java-Object: a.java-class-files["java/lang/Object" parse-path]!.type only-inst
 
-on-file-changed void(a frontend, uri uri, info file-info-or-diag)
+# TODO: there's no real need for file-content-getters to even be an interface ----------------------------------------------------------------------
+-my-file-content-getters record(line-and-column-getters line-and-column-getter[uri]) file-content-getters case
+-subscript string(a my-file-content-getters, uri uri)
+	a.line-and-column-getters[uri]!.line-and-character-getter.source-text to
+
+# TODO: There's no reason for that to be an interface -----------------------------------------------------------------------------------------------
+-my-line-and-column-getters record(lookup line-and-column-getter[uri]) line-and-column-getters case
+-subscript line-and-column-getter(a my-line-and-column-getters, uri uri)
+	a.lookup[uri]!
+
+get-ast file-ast(a frontend, uri uri)
+	match a.crow-files[uri]!.ast-or-diag
+	as file-ast x
+		x
+	as read-file-diag x
+		x file-ast-for-diag
+line-and-character-getter line-and-character-getter(a frontend, uri uri)
+	a get-ast uri line-and-character-getter
+
+| Changes them to loading
+flush-all-unknown-uris uri[](a frontend)
+	res uri[] = a.unknown move-to
+	a.loading ~~= res
+	res
+
+files-state enum(has-unknown, has-loading, all-loaded)
+== bool(a files-state, b files-state)
+to json(a files-state)
+files-state files-state(a frontend)
+	if a.unknown !is-empty
+		has-unknown
+	elif a.loading !is-empty
+		has-loading
+	else
+		all-loaded
+
+change-file void(a frontend, uri uri, changes text-document-content-change-event[])
+	a set-file uri,
+		- a.line-and-column-getters[uri]!.line-and-character-getter apply-changes changes to-bytes
+
+-apply-changes string(lc line-and-character-getter, events text-document-content-change-event[])
+	cur mut char8[] = lc source-text
+	cur-lc mut = lc
+	for i, event in events with-index
+		if r ?= event range
+			range source-range = cur-lc[r]
+			cur :=
+				-- cur[0 .. range.start.to] to
+				-- event.text to
+				-- cur[range.end.to .. end] to
+		else
+			cur := event.text to
+		if i != events.size - 1
+			cur-lc := cur.to line-and-character-getter-for-text
+	cur to
+
+read-file-result union(file-content, read-file-diag)
+set-file void(a frontend, uri uri, result read-file-result)
+	# Files don't change *to* unknown, only change out of that state
+	if d ?= result read-file-diag
+		forbid d == unknown
+
 	match uri file-type
 	as class_
 		path = uri as-java-uri!
 		file = a ensure-java-class-file path
-		match info
-		as file-info file-info
-			forbid _ ?= file parsed or _ ?= file module
-			file.parsed := file-info.other-file-info!.content.bytes parse-java-class
-			if s ?= file.parsed! super-class
-				(a ensure-java-class-file s).inheritors ~= path
+		match result
+		as file-content content
+			file.parsed := content.bytes parse-java-class
+			if super ?= file.parsed.parsed-java-class! super-class
+				(a ensure-java-class-file super).inheritors ~= path
 			a add-to-workable-if-so path, file
 		as read-file-diag x
-			forbid x == unknown
-			unless x == loading
-				error log "ERROR READING JAVA CLASS? {path} {x.to::json}"
-				# A missing Java module should probably be treated just like a missing Crow module
-				throw todo # ------------------------------------------------------------------------------------------------------------------------
+			error log "ERROR READING JAVA CLASS? {path} {x.to::json}"
+			# A missing Java module should probably be treated just like a missing Crow module
+			throw todo # ------------------------------------------------------------------------------------------------------------------------
 	as crow
 		file = a ensure-crow-file uri
-		file.ast-or-diag := match info
-		as file-info x
-			x.crow-file-info! ast
+		file.ast-or-diag := match result
+		as file-content content
+			text = content as-string
+			uri parse-file text, text.line-and-column-getter-for-text
 		as read-file-diag x
-			# Files don't change *to* unknown, only change out of that state
-			forbid x == unknown
 			x
+		a.line-and-column-getters ~:= uri, file.ast-or-diag.line-and-column-getter
 		a updated-ast-or-config file
 	as crow-config
-		# TODO: I shouldn't need this copy. mut-map should be safe to walk, if there is a mutation it should throw. ---------------------------------
+		config-file = a ensure-config-file-for uri
+		config-file.config := match result
+		as file-content x
+			uri parse-config x.as-string
+		as read-file-diag x
+			match x
+			as unknown
+				throw unreachable
+			as not-found
+				x
+			as error
+				uri config-for-diag error
+		a.line-and-column-getters ~:= uri, config-file.config.line-and-column-getter
+		# TODO: Use config-file referenced-by instead! --------------------------------------------------------------------------------------------------------
 		files crow-file[] = for _, v in a crow-files then v
 		for file in files
 			a update-file-on-config-change file
 	as other
-		is-loading = match info
-		as file-info _
-			false
-		as read-file-diag x
-			forbid x == unknown
-			x == loading
 		file = a ensure-other-file uri
-		unless is-loading
-			file.content := match info
-			as file-info x
-				x.other-file-info! content
-			as read-file-diag _
-				()::file-content
-			for x in file referenced-by
-				a add-to-workable-if-so a.crow-files[x]!
+		file.content := result
+		for x in file referenced-by
+			a add-to-workable-if-so a.crow-files[x]!
+
+	if a.unknown remove uri
+		forbid uri in a.loading
+	else
+		a.loading -= uri
+
 	a do-dirty-work
 
--get-all-configs config[uri](a frontend)
-	res config mut[uri] = ()
-	for _, file in a crow-files
-		config = file config!
-		if uri ?= config config-uri
-			_ = res ensure uri, of then config
-	res move-to
+-line-and-column-getter line-and-column-getter(a ast-or-diag)
+	match a
+	as file-ast x
+		x line-and-column-getter
+	as read-file-diag _
+		()
+-line-and-column-getter line-and-column-getter(a config-or-diag)
+	match a
+	as config x
+		x line-and-column-getter
+	as read-file-diag _
+		()
 
 -ensure-crow-file crow-file(a frontend, uri uri)
 	assert uri.file-type == crow
 	a.crow-files ensure uri, of
-		a.storage_ mark-unknown-if-not-exist uri
+		a.unknown ~= uri
 		a.count-uncompiled-crow-files +:= 1
+		config-file = a ensure-config-file-for uri
 		uri: uri
-		ast-or-diag: unknown
-		config: a.storage_ try-find-config uri.parent-or-empty
-		resolved-imports: ()
 		referenced-by: ()
+		ast-or-diag: unknown
+		config-file: config-file
+		config: config-file find-config
+		resolved-imports: ()
 		module: ()
+
+-ensure-config-file-for config-file(a frontend, crow-uri uri)
+	a ensure-config-file crow-uri.parent! / crow-config-base-name
+-ensure-config-file config-file(a frontend, uri uri)
+	dir = uri parent!
+	parent config-file? = if parent-dir ?= dir parent
+		a ensure-config-file parent-dir / crow-config-base-name
+	a.config-files ensure uri, of
+		a.unknown ~= uri
+		config: unknown
+		parent: parent
 
 -ensure-java-class-file java-class-file(a frontend, path path)
 	a.java-class-files ensure path, of
-		a.storage_ mark-unknown-if-not-exist path.to-java-uri
+		a.unknown ~= path.to-java-uri
 		type: (a.all-insts,) initial-struct-for-java-class path
-		parsed: ()
+		parsed: unknown
 		module: ()
 		referenced-by-crow: ()
 		inheritors: ()
@@ -231,15 +338,15 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 -ensure-other-file other-file(a frontend, uri uri)
 	forbid uri.file-type == crow
 	a.other-files ensure uri, of
-		a.storage_ mark-unknown-if-not-exist uri
-		uri, (), ()
+		a.unknown ~= uri
+		uri, unknown, ()
 
 -to-ast file-ast(a ast-or-diag)
 	match a
 	as file-ast x
 		x
 	as read-file-diag x
-		forbid x is-unknown-or-loading
+		forbid x == unknown
 		x file-ast-for-diag
 
 -do-dirty-work void(a frontend)
@@ -265,7 +372,7 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 				common-types: a common-types!
 				ensure-java-class: of x
 					a ensure-java-class-file x type
-			file.module := ctx get-java-module path, file.parsed!
+			file.module := ctx get-java-module path, file.parsed.parsed-java-class!
 			for x in file referenced-by-crow
 				a add-to-workable-if-so a.crow-files[x]!
 			for x in file inheritors
@@ -278,7 +385,7 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 			for importer in file referenced-by
 				a add-to-workable-if-so a.crow-files[importer]!
 			continue
-		elif a.storage_.files-state == all-loaded and a.count-uncompiled-crow-files != 0
+		elif a.files-state == all-loaded and a.count-uncompiled-crow-files != 0
 			a fix-circular-imports
 			continue
 		else
@@ -290,7 +397,7 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 	cycle-builder uri mut[] = ()
 	_ = a fix-circular-imports-recur cycle-builder, file
 -fix-circular-imports-recur uri[](a frontend, cycle-builder uri mut[], file crow-file)
-	forbid file has-module
+	forbid _ ?= file module
 	cycle-builder ~= file uri
 	import-index = file.resolved-imports! find-index! !it.is-import-workable
 	next = file.resolved-imports![import-index] crow-file!
@@ -312,24 +419,35 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 	assert file is-workable
 	assert common-types ?= a common-types # bootstrap must be compiled first
 	ast uri-and-ast = file.uri, file.config!, file.ast-or-diag.to-ast
-	imports = a fully-resolve-imports file.resolved-imports!
+	imports = file.resolved-imports! fully-resolve-imports
 	a.show-ctx check a.all-insts, a.common-uris, ast, imports, common-types
 
 -update-file-on-config-change void(a frontend, file crow-file)
-	guard best-config ?= a.storage_ try-find-config file.uri.parent-or-empty
+	guard best-config ?= file.config-file find-config
 	unless config ?= file config and config.config-uri == best-config.config-uri
 		file.config := best-config
 		a updated-ast-or-config file
+-find-config config?(a config-file)
+	match a config
+	as config x
+		x
+	as read-file-diag d
+		match d
+		as unknown
+			()
+		as not-found
+			if p ?= a parent
+				p find-config
+			else
+				default-config
+		as error
+			throw unreachable # It will be a config with diagnostics in this case
 
 -updated-ast-or-config void(a frontend, file crow-file)
-	if file is-unknown-or-loading or !(_ ?= file config)
-		assert !(_ ?= file resolved-imports) and file !has-module
-	else
+	if _ ?= file config
 		a recompute-resolved-imports file
-
--is-unknown-or-loading bool(a crow-file)
-	if x ?= a.ast-or-diag read-file-diag
-		x is-unknown-or-loading
+	else
+		forbid _ ?= file resolved-imports or _ ?= file module
 
 -recompute-resolved-imports void(a frontend, file crow-file)
 	a mark-module-dirty file
@@ -378,39 +496,27 @@ on-file-changed void(a frontend, uri uri, info file-info-or-diag)
 
 -is-workable bool(a frontend, file java-class-file)
 	forbid _ ?= file module
-	assert parsed ?= file parsed
+	assert parsed ?= file.parsed parsed-java-class
 	if super ?= parsed super-class
 		_ ?= a ensure-java-class-file super module
 	else
 		true
 -is-workable bool(a crow-file)
 	forbid a has-module
-	a !is-unknown-or-loading and
+	a.ast-or-diag.read-file-diag != unknown and
 	_ ?= a config and
 	a.resolved-imports! every it.is-import-workable
 -is-import-workable bool(a mostly-resolved-import)
 	match a
 	as crow-file x
-		x has-module
+		_ ?= x module
 	as java-class-file x
 		_ ?= x module
 	as other-file x
-		_ ?= x content
+		_ ?= x.content file-content
 	as diag-import-file x
 		if r ?= x read-error
-			# Unknown/loading files still have a CrowFile*, Config*, or OtherFile*
-			forbid r.diag is-unknown-or-loading
-		true
-
--is-unknown-or-loading bool(a read-file-diag)
-	match a
-	as error
-		false
-	as not-found
-		false
-	as loading
-		true
-	as unknown
+			forbid r.diag == unknown
 		true
 
 -resolve-imports mostly-resolved-import[]
@@ -459,13 +565,13 @@ do
 			a add-to-workable-if-so x
 
 -mark-module-dirty void(a frontend, file crow-file)
-	if file has-module
+	if _ ?= file module
 		file.module := ()
 		a.count-uncompiled-crow-files +:= 1
 		for x in file referenced-by
 			a mark-module-dirty a.crow-files[x]!
 
--fully-resolve-imports resolved-import[](a frontend, imports mostly-resolved-import[])
+-fully-resolve-imports resolved-import[](imports mostly-resolved-import[])
 	for import_ in imports
 		match import_
 		as crow-file file
@@ -477,35 +583,13 @@ do
 		as java-class-file x
 			x module!
 		as other-file file
-			match a.storage_ file-or-diag file.uri
-			as file-info _
-				file content!
+			match file content
+			as file-content x
+				x
 			as read-file-diag diag
 				file.uri read-error diag
 		as diag-import-file x
 			x
-
-| Returns empty if the config file is still loading.
-| If the file truly has no config, returns a default config.
--try-find-config config?(storage_ storage_, config-dir uri)
-	match storage_ file-or-diag config-dir / crow-config-base-name
-	as file-info x
-		x.crow-config-file-info! config
-	as read-file-diag x
-		match x
-		as not-found
-			if par ?= config-dir parent
-				storage_ try-find-config par
-			else
-				()::config
-		as error
-			throw todo
-		else # TODO: `as unknown, loading` ----------------------------------------------------------------------------------
-			assert x == loading or x == unknown
-			# Query all possible configs to ensure they are loaded early
-			if par ?= config-dir parent
-				_ = storage_ try-find-config par
-			()
 
 -common-uris common-uris(include-dir uri)
 	include-crow = include-dir / "crow"
