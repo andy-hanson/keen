@@ -437,19 +437,30 @@ do
 	range uri-and-range
 	a if-expr
 do
-	if unpack ?= a.condition unpack-option
+	true-branch concrete-expr mut() = of then ctx concretize-expr type, a.true-branch
+	false-branch concrete-expr mut() = of then ctx concretize-expr type, a.false-branch
+	ctx concretize-if type, (a type ctx.common-types), range, a.condition, true-branch, false-branch
+
+-concretize-if concrete-expr
+	ctx concretize-expr-ctx
+	type concrete-type
+	model-type type
+	range uri-and-range
+	condition expr
+	cb-true-branch concrete-expr mut()
+	cb-false-branch concrete-expr mut()
+do
+	if unpack ?= condition unpack-option
 		option = ctx concretize-expr unpack.option
-		true-branch = ctx concretize-expr-with-destructure type, range, unpack.destructure, a.true-branch
-		false-branch = ctx concretize-expr type, a.false-branch
+		true-branch = ctx concretize-with-destructure type, range, unpack.destructure, cb-true-branch
+		false-branch = cb-false-branch[]
 		range gen-if-option option, true-branch, false-branch
-	elif a.condition.condition-destructures is-empty
-		cond = ctx concretize-expr ctx.bool-type, a.condition
+	elif condition.condition-destructures is-empty
+		cond = ctx concretize-expr ctx.bool-type, condition
 		if constant ?= cond.kind constant
-			ctx concretize-expr type, if constant as-bool then a true-branch else a false-branch
+			if constant as-bool then cb-true-branch[] else cb-false-branch[]
 		else
-			true-branch = ctx concretize-expr type, a.true-branch
-			false-branch = ctx concretize-expr type, a.false-branch
-			type, range, do cond if-concrete-expr true-branch, false-branch
+			type, range, do cond if-concrete-expr cb-true-branch[], cb-false-branch[]
 	else
 		###
 		For a complex condition like:
@@ -467,12 +478,18 @@ do
 		This strategy avoids repeating 'false-branch' twice.
 		The function concretize-complex-condition just handles the true part of this.
 		###
-		option-type = ctx get-concrete-type ctx.common-types.option[a type ctx.common-types]
-		option-true-branch = ctx concretize-complex-condition option-type, range, a.condition,
-			true-branch: of then ctx concretize-expr option-type, a.true-branch
-			false-branch: of then ctx.concretize-ctx gen-empty-option option-type, range
-		false-branch = ctx concretize-expr type, a.false-branch
-		type gen-option-else range, option-true-branch, false-branch
+		option-type = ctx get-concrete-type ctx.common-types.option[model-type]
+		option-true-branch = ctx concretize-complex-condition option-type, range, condition,
+			true-branch: of
+				true_ = cb-true-branch[]
+				if _ ?= true_.kind throw-concrete-expr
+					# Avoid wrapping a 'throw' expression in an option, since the JVM complains about unreachable code
+					option-type, range, true_.kind
+				else
+					ctx.concretize-ctx gen-option option-type, range, true_
+			false-branch: of
+				ctx.concretize-ctx gen-empty-option option-type, range
+		type gen-option-else range, option-true-branch, cb-false-branch[]
 
 ###
 WARN: This duplicates 'false-branch'.
@@ -922,42 +939,18 @@ do
 	range uri-and-range
 	a assert-or-forbid-expr
 do
-	default-thrown concrete-expr mut() = of
-		message = ctx.cur-uri default-assert-or-forbid-message a, ctx.concretize-ctx.file-content-getters
-		ctx.concretize-ctx gen-error range, message
-	throw-no-destructure concrete-expr mut() = of
+	model-type = a type ctx.common-types
+	throw_ concrete-expr mut() = of
 		type gen-throw range, if x ?= a thrown
 			ctx concretize-expr ctx.concretize-ctx.exception-type, x
 		else
-			default-thrown[]
-	if x ?= a.condition unpack-option
-		option = ctx concretize-expr x.option
-		if a is-forbid
-			thrown = if thrown ?= a thrown
-				ctx concretize-expr-with-destructure ctx.concretize-ctx.exception-type, range, x.destructure, thrown
-			else
-				(), default-thrown[]
-			after = ctx concretize-expr type, a.after
-			range gen-if-option option, (thrown.local, (type gen-throw range, thrown.expr)), after
-		else
-			after = ctx concretize-expr-with-destructure type, range, x.destructure, a.after
-			range gen-if-option option, after, throw-no-destructure[]
-	elif a.condition.condition-destructures is-empty
-		condition = ctx concretize-expr ctx.bool-type, a.condition
-		if constant ?= condition.kind constant
-			if constant.as-bool xor a.is-forbid
-				ctx concretize-expr type, a.after
-			else
-				throw-no-destructure[]
-		else
-			throw_ = throw-no-destructure[]
-			after = ctx concretize-expr type, a.after
-			type, range, if a is-forbid
-				condition if-concrete-expr throw_, after
-			else
-				condition if-concrete-expr after, throw_
-	else
-		throw todo
+			ctx.concretize-ctx gen-error range,
+				ctx.cur-uri default-assert-or-forbid-message a, ctx.concretize-ctx.file-content-getters
+	after concrete-expr mut() = of
+		ctx concretize-expr a.after
+	true-branch concrete-expr mut(), false-branch concrete-expr mut() =
+		if a is-forbid then throw_, after else after, throw_
+	ctx concretize-if type, model-type, range, a.condition, true-branch, false-branch
 
 -concretize-expr concrete-expr(ctx concretize-expr-ctx, a expr)
 	type = ctx get-concrete-type (a type ctx.common-types)

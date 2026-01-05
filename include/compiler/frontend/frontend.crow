@@ -50,7 +50,7 @@ show-ctx show-ctx(a frontend) # TODO: THIS ONE IS JUST FOR DEBUG _--------------
 	a show-ctx (), ()
 show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
 	line-and-column-getters: a.line-and-column-getters my-line-and-column-getters
-	file-content-getters: a.line-and-column-getters my-file-content-getters
+	file-content-getters: a file-content-getters
 	uris-info: uris-info
 	options: options
 
@@ -164,7 +164,7 @@ make-program program(a frontend, fully-loaded-configs uri set)
 	java-modules: for k, v in a java-class-files
 		k.to-java-uri, v.module!
 	additional-diagnostics: common-funs-diagnostics ~~ unused-diagnostics
-	file-content-getters: a.line-and-column-getters my-file-content-getters
+	file-content-getters: a file-content-getters
 	line-and-column-getters: a.line-and-column-getters my-line-and-column-getters
 	common-funs: common-funs
 	common-types: common-types
@@ -172,14 +172,18 @@ make-program program(a frontend, fully-loaded-configs uri set)
 		java-Object: a.java-class-files["java/lang/Object" parse-path]!.type only-inst
 
 # TODO: there's no real need for file-content-getters to even be an interface ----------------------------------------------------------------------
+-file-content-getters file-content-getters(a frontend)
+	a.line-and-column-getters my-file-content-getters
 -my-file-content-getters record(line-and-column-getters line-and-column-getter[uri]) file-content-getters case
 -subscript string(a my-file-content-getters, uri uri)
-	a.line-and-column-getters[uri]!.line-and-character-getter.source-text to
+	(a.line-and-column-getters[uri] else ()).line-and-character-getter.source-text to
+-get-file-content string(a frontend, uri uri)
+	a.file-content-getters[uri]
 
 # TODO: There's no reason for that to be an interface -----------------------------------------------------------------------------------------------
 -my-line-and-column-getters record(lookup line-and-column-getter[uri]) line-and-column-getters case
 -subscript line-and-column-getter(a my-line-and-column-getters, uri uri)
-	a.lookup[uri]!
+	a.lookup[uri] else ()
 
 get-ast file-ast(a frontend, uri uri)
 	match a.crow-files[uri]!.ast-or-diag
@@ -209,7 +213,7 @@ files-state files-state(a frontend)
 
 change-file void(a frontend, uri uri, changes text-document-content-change-event[])
 	a set-file uri,
-		- a.line-and-column-getters[uri]!.line-and-character-getter apply-changes changes to-bytes
+		a.line-and-column-getters[uri]!.line-and-character-getter apply-changes changes to
 
 -apply-changes string(lc line-and-character-getter, events text-document-content-change-event[])
 	cur mut char8[] = lc source-text
@@ -227,7 +231,8 @@ change-file void(a frontend, uri uri, changes text-document-content-change-event
 			cur-lc := cur.to line-and-character-getter-for-text
 	cur to
 
-read-file-result union(file-content, read-file-diag)
+read-file-result union(nat8[], read-file-diag)
+== bool(a read-file-result, b read-file-result)
 set-file void(a frontend, uri uri, result read-file-result)
 	# Files don't change *to* unknown, only change out of that state
 	if d ?= result read-file-diag
@@ -238,8 +243,8 @@ set-file void(a frontend, uri uri, result read-file-result)
 		path = uri as-java-uri!
 		file = a ensure-java-class-file path
 		match result
-		as file-content content
-			file.parsed := content.bytes parse-java-class
+		as array content
+			file.parsed := content parse-java-class
 			if super ?= file.parsed.parsed-java-class! super-class
 				(a ensure-java-class-file super).inheritors ~= path
 			a add-to-workable-if-so path, file
@@ -250,7 +255,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 	as crow
 		file = a ensure-crow-file uri
 		file.ast-or-diag := match result
-		as file-content content
+		as array content
 			text = content as-string
 			uri parse-file text, text.line-and-column-getter-for-text
 		as read-file-diag x
@@ -260,7 +265,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 	as crow-config
 		config-file = a ensure-config-file-for uri
 		config-file.config := match result
-		as file-content x
+		as array x
 			uri parse-config x.as-string
 		as read-file-diag x
 			match x
@@ -513,10 +518,9 @@ set-file void(a frontend, uri uri, result read-file-result)
 	as java-class-file x
 		_ ?= x module
 	as other-file x
-		_ ?= x.content file-content
+		x.content != unknown
 	as diag-import-file x
-		if r ?= x read-error
-			forbid r.diag == unknown
+		forbid r ?= x read-error and r.diag == unknown
 		true
 
 -resolve-imports mostly-resolved-import[]
@@ -584,7 +588,7 @@ do
 			x module!
 		as other-file file
 			match file content
-			as file-content x
+			as array x
 				x
 			as read-file-diag diag
 				file.uri read-error diag
@@ -693,3 +697,23 @@ do
 			cant-import-crow-as-text
 		else
 			a ensure-other-file uri
+
+test
+	a frontend = "test://bin/crow".must-parse-uri,
+	uri-a = "test://src/a.crow" must-parse-uri
+	do
+		a set-file uri-a, "a".to
+		a get-file-content uri-a is "a"
+	do
+		a change-file uri-a,
+			- "a\nb\nc",
+		a get-file-content uri-a is "a\nb\nc"
+	do
+		a change-file uri-a,
+			- ((1, 0), (1, 1)), "y"
+		a get-file-content uri-a is "a\ny\nc"
+	do
+		a change-file uri-a,
+			- ((0, 0), (0, 1)), "x"
+			- ((2, 0), (2, 1)), "z"
+		a get-file-content uri-a is "x\ny\nz"
