@@ -24,18 +24,19 @@ parse-imports-or-exports imports-or-exports-ast?(lexer lexer, keyword token)
 			as dedent
 				break
 
--parse-import-path path-or-rel-path(lexer lexer)
+-parse-import-path (path-or-rel-path, bool)(lexer lexer)
 	n-parents nat? = if lexer try-take-token dot
 		_ = lexer take-or-add-diag-expected-operator "/", slash
 		0
 	elif lexer try-take-operator ".."
 		_ = lexer take-or-add-diag-expected-operator "/", slash
 		lexer take-dot-dot-slashes
-	path = lexer add-path-components lexer.take-path-component.root-path
+	first-component, first-colon = lexer take-path-component
+	path, colon = lexer add-path-components (first-component.root-path, first-colon)
 	if n ?= n-parents
-		n rel-path path
+		(n rel-path path), colon
 	else
-		path
+		path, colon
 
 -take-dot-dot-slashes nat(lexer lexer)
 	acc mut nat = 1
@@ -44,21 +45,23 @@ parse-imports-or-exports imports-or-exports-ast?(lexer lexer, keyword token)
 		acc +:= 1
 	acc
 
--add-path-components path(lexer lexer, start path)
-	acc mut = start
-	while lexer try-take-operator "/"
-		acc /:= lexer.take-path-component to
-	acc
+-add-path-components (path, bool)(lexer lexer, start (path, bool))
+	acc mut, colon mut = start
+	while !colon and lexer try-take-operator "/"
+		name, new-colon = lexer take-path-component
+		acc /:= name to
+		colon := new-colon
+	acc, colon
 
 -parse-single-module-import-on-own-line import-or-export-ast(lexer lexer)
 	start = lexer cur-pos
-	path = lexer parse-import-path
+	path, ends-with-colon = lexer parse-import-path
 	path-range = lexer range start
-	kind = lexer parse-import-or-export-kind start
+	kind = lexer parse-import-or-export-kind start, ends-with-colon
 	(lexer range start), path, path-range, kind
 
--parse-import-or-export-kind import-or-export-ast-kind(lexer lexer, start pos)
-	if lexer try-take-token colon
+-parse-import-or-export-kind import-or-export-ast-kind(lexer lexer, start pos, colon bool)
+	if colon
 		if lexer peek-name-or-operator
 			lexer take-comma-separated-names-diag-trailing-comma
 		else
@@ -88,8 +91,7 @@ parse-imports-or-exports imports-or-exports-ast?(lexer lexer, keyword token)
 	if x ?= a suffix-name-type-ast
 		x.left is-simple-name type-arg-name and x.name.name == name
 
--parse-indented-import-names import-or-export-ast-kind(lexer lexer, start pos)
-	:: name-and-range[]
+-parse-indented-import-names name-and-range[](lexer lexer, start pos)
 	with out in build
 		loop
 			trailing-comma = lexer take-comma-separated-names out
@@ -102,11 +104,21 @@ parse-imports-or-exports imports-or-exports-ast?(lexer lexer, keyword token)
 				lexer add-diag-if-trailing-comma trailing-comma
 				break
 
--take-path-component symbol(lexer lexer)
-	cur mut symbol = if lexer try-take-token unsafe_ then "unsafe" else lexer take-name
-	while p ?= lexer take-path-component-punctuation
-		cur := "{cur}{p}{lexer take-name-allow-name-like-keywords}"
-	cur
+-take-path-component (symbol, bool)(lexer lexer)
+	cur mut, colon mut = lexer take-path-component-name
+	while !colon and p ?= lexer take-path-component-punctuation
+		name, new-colon = lexer take-path-component-name
+		cur := "{cur}{p}{name}"
+		colon := new-colon
+	cur, colon
+
+-take-path-component-name (symbol, bool)(lexer lexer)
+	if x ?= lexer try-take-name-colon
+		x, true
+	elif lexer try-take-token unsafe_
+		"unsafe", false
+	else
+		lexer.take-name-allow-name-like-keywords, false
 
 -take-path-component-punctuation string?(lexer lexer)
 	if lexer try-take-token dollar

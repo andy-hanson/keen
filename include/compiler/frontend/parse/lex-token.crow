@@ -1,7 +1,6 @@
 import
 	crow/parse
 	../../model/ast
-	../../model/integral-values
 	../../model/source-range
 	../../util/parse-util
 	./lex-whitespace
@@ -85,6 +84,8 @@ is-symbol-token bool(a token)
 	as name-after-bang
 		true
 	as name-bang
+		true
+	as name-colon
 		true
 	as name-or-operator-equals
 		true
@@ -184,7 +185,7 @@ do
 		else
 			colon plain-token
 	as "\""
-		(if ptr try-take-chars "\"\"" then quote-double3 else quote-double) plain-token
+		(if ptr try-take "\"\"" then quote-double3 else quote-double) plain-token
 	as ","
 		comma plain-token
 	as "<"
@@ -233,16 +234,19 @@ do
 	start = ptr pos
 	if ptr try-take-identifier
 		symbol = ptr symbol-from start.to
-		match symbol token-for-symbol
-		as name
-			ptr name-like-token symbol, name
-		as region_
-			ptr skip-until-newline
-			region_, (start, ptr.pos)
-		as for_
-			(if ptr try-take "*" then for-star else for_) plain-token
-		else x
-			x plain-token
+		if ptr try-take-just-colon
+			name-colon, symbol
+		else
+			match symbol token-for-symbol
+			as name
+				ptr name-like-token symbol, name
+			as region_
+				ptr skip-until-newline
+				region_, (start, ptr.pos)
+			as for_
+				(if ptr try-take "*" then for-star else for_) plain-token
+			else x
+				x plain-token
 	else
 		unexpected-character, ptr.must-take-one-unicode-char
 
@@ -259,15 +263,9 @@ lookahead-equals bool(start string-mut-iterator)
 		else
 			break false
 
-lookahead-colon bool(start string-mut-iterator)
+lookahead-keyword bool(start string-mut-iterator, expected string)
 	ptr = start copy
-	while ptr try-take-char " "
-		()
-	ptr try-take-char ":" and ptr.peek8 != ":" and ptr.peek8 != "="
-
-lookahead-keyword bool(start string-mut-iterator, expected char8[])
-	ptr = start copy
-	ptr try-take-chars expected and ptr.peek8 !is-probably-identifier-char-for-lookahead
+	ptr try-take expected and ptr.peek8 !is-probably-identifier-char-for-lookahead
 
 elif-or-else enum(elif_, else_)
 lookahead-elif-or-else elif-or-else?(start string-mut-iterator)
@@ -302,11 +300,19 @@ do
 	else
 		token = if regular-token == name and ptr try-take-char "!"
 			name-bang
-		elif ptr try-take-chars ":="
+		elif ptr try-take ":="
 			name-or-operator-colon-equals
 		else
 			regular-token
 		token, value
+
+-try-take-just-colon bool(a string-mut-iterator)
+	if a.peek == ":" and a.peek-next != ":" and a.peek-next != "="
+		_ = a take-char
+		true
+
+-peek-next char8(a string-mut-iterator)
+	a.char8s[a.char8-index + 1]
 
 -token-for-symbol token(a symbol)
 	match a
@@ -430,11 +436,11 @@ do
 		name
 
 -take-number-after-sign token-and-data(ptr string-mut-iterator, sign sign?)
-	base nat = if ptr try-take-chars "0x"
+	base nat = if ptr try-take "0x"
 		16
-	elif ptr try-take-chars "0o"
+	elif ptr try-take "0o"
 		8
-	elif ptr try-take-chars "0b"
+	elif ptr try-take "0b"
 		2
 	else
 		10
