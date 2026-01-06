@@ -1,5 +1,4 @@
 import
-	crow/unsafe
 	../lib/lsp/lsp-types
 	../model/ast
 	../model/model
@@ -23,36 +22,38 @@ import
 	./show-model
 
 frontend record mut
-	# TODO: what here can be private? -------------------------------------------------------------------------------------------------
-	crow-include-dir uri
-	common-uris common-uris
-	common-files mut (common-module, crow-file) enum-map
-	unknown uri mut-set
-	loading uri mut-set
-	all-insts all-insts
-	line-and-column-getters mut line-and-column-getter[uri]
+	-crow-include-dir uri
+	-common-uris common-uris
+	-common-files mut (common-module, crow-file) enum-map
+	-unknown uri mut-set
+	-loading uri mut-set
+	-all-insts all-insts
+	-line-and-column-getters-map mut line-and-column-getter[uri]
 	| Set after 'bootstrap.crow' is compiled
-	common-types mut common-types?
-	crow-files crow-file mut[uri]
+	-common-types mut common-types?
+	-crow-files crow-file mut[uri]
 	| Number of crow-files without {module} set
-	count-uncompiled-crow-files mut nat
-	config-files config-file mut[uri]
+	-count-uncompiled-crow-files mut nat
+	-config-files config-file mut[uri]
 	| Key is the Java class path such as "java/lang/Object"
-	java-class-files java-class-file mut[path]
-	other-files other-file mut[uri]
+	-java-class-files java-class-file mut[path]
+	-other-files other-file mut[uri]
 	| Set of crow files which are ready to compile immediately.
 	| (Parsing and resolving imports is always done immediately.)
 	| This doesn't include files whose imports are not yet compiled.
 	| If all import uris are resolved but nothing is workable, there must be a circular import.
-	workable-java path mut-set
-	workable-crow uri mut-set
+	-workable-java path mut-set
+	-workable-crow uri mut-set
 show-ctx show-ctx(a frontend) # TODO: THIS ONE IS JUST FOR DEBUG _----------------------------------------------------------------
 	a show-ctx (), ()
 show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
-	line-and-column-getters: a.line-and-column-getters my-line-and-column-getters
+	line-and-column-getters: a line-and-column-getters
 	file-content-getters: a file-content-getters
 	uris-info: uris-info
 	options: options
+
+line-and-column-getters line-and-column-getters(a frontend)
+	a.line-and-column-getters-map my-line-and-column-getters
 
 new frontend(crow-include-dir uri)
 	common-uris = crow-include-dir common-uris
@@ -64,14 +65,14 @@ new frontend(crow-include-dir uri)
 			uri: uri
 			referenced-by: ()
 			ast-or-diag: unknown
-			config-file: trusted gc-safe-value # TODO: do something safe ......................................................................................
+			config-file: unknown, ()
 			config: ()
 			resolved-imports: ()
 			module: ()
 		unknown: ()
 		loading: ()
 		all-insts: ()
-		line-and-column-getters: ()
+		line-and-column-getters-map: ()
 		common-types: ()
 		crow-files: ()
 		count-uncompiled-crow-files: 0
@@ -90,7 +91,7 @@ new frontend(crow-include-dir uri)
 	uri uri
 	| Uris are for {crow-file}s
 	referenced-by uri mut-set
-	ast-or-diag mut ast-or-diag # TODO: I could just store the AST which has a set of diagnostics on it already ...............................................
+	ast-or-diag mut ast-or-diag
 	config-file config-file
 	config mut config?
 	| Also includes re-exports. Set once we have config.
@@ -106,7 +107,6 @@ must-have-module crow-module(a crow-file) # TODO: inline -----------------------
 	config mut config-or-diag
 	# Missing only for the root file
 	parent config-file?
-	# TODO: referenced-by uri mut-set ---------------------------------------------------------------------------------------------------------------
 -config-or-diag union(config, read-file-diag)
 
 -java-class-file record mut
@@ -165,7 +165,7 @@ make-program program(a frontend, fully-loaded-configs uri set)
 		k.to-java-uri, v.module!
 	additional-diagnostics: common-funs-diagnostics ~~ unused-diagnostics
 	file-content-getters: a file-content-getters
-	line-and-column-getters: a.line-and-column-getters my-line-and-column-getters
+	line-and-column-getters: a.line-and-column-getters-map my-line-and-column-getters
 	common-funs: common-funs
 	common-types: common-types
 	other-types:
@@ -173,7 +173,7 @@ make-program program(a frontend, fully-loaded-configs uri set)
 
 # TODO: there's no real need for file-content-getters to even be an interface ----------------------------------------------------------------------
 -file-content-getters file-content-getters(a frontend)
-	a.line-and-column-getters my-file-content-getters
+	a.line-and-column-getters-map my-file-content-getters
 -my-file-content-getters record(line-and-column-getters line-and-column-getter[uri]) file-content-getters case
 -subscript string(a my-file-content-getters, uri uri)
 	(a.line-and-column-getters[uri] else ()).line-and-character-getter.source-text to
@@ -186,11 +186,9 @@ make-program program(a frontend, fully-loaded-configs uri set)
 	a.lookup[uri] else ()
 
 get-ast file-ast(a frontend, uri uri)
-	match a.crow-files[uri]!.ast-or-diag
-	as file-ast x
-		x
-	as read-file-diag x
-		x file-ast-for-diag
+	a.crow-files[uri]! get-ast
+-get-ast file-ast(a crow-file)
+	a.ast-or-diag to-ast
 line-and-character-getter line-and-character-getter(a frontend, uri uri)
 	a get-ast uri line-and-character-getter
 
@@ -213,7 +211,7 @@ files-state files-state(a frontend)
 
 change-file void(a frontend, uri uri, changes text-document-content-change-event[])
 	a set-file uri,
-		a.line-and-column-getters[uri]!.line-and-character-getter apply-changes changes to
+		a.line-and-column-getters-map[uri]!.line-and-character-getter apply-changes changes to
 
 -apply-changes string(lc line-and-character-getter, events text-document-content-change-event[])
 	cur mut char8[] = lc source-text
@@ -260,7 +258,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 			uri parse-file text, text.line-and-column-getter-for-text
 		as read-file-diag x
 			x
-		a.line-and-column-getters ~:= uri, file.ast-or-diag.line-and-column-getter
+		a.line-and-column-getters-map ~:= uri, file.ast-or-diag.line-and-column-getter
 		a updated-ast-or-config file
 	as crow-config
 		config-file = a ensure-config-file-for uri
@@ -275,8 +273,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 				x
 			as error
 				uri config-for-diag error
-		a.line-and-column-getters ~:= uri, config-file.config.line-and-column-getter
-		# TODO: Use config-file referenced-by instead! --------------------------------------------------------------------------------------------------------
+		a.line-and-column-getters-map ~:= uri, config-file.config.line-and-column-getter
 		files crow-file[] = for _, v in a crow-files then v
 		for file in files
 			a update-file-on-config-change file
@@ -351,7 +348,6 @@ set-file void(a frontend, uri uri, result read-file-result)
 	as file-ast x
 		x
 	as read-file-diag x
-		forbid x == unknown
 		x file-ast-for-diag
 
 -do-dirty-work void(a frontend)
@@ -360,7 +356,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 
 	bootstrap = a.common-files[bootstrap]
 	if a.workable-crow remove bootstrap.uri
-		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.ast-or-diag.to-ast
+		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.get-ast
 		String = a ensure-java-class-file "java/lang/String".parse-path type
 		module, common-types = a.show-ctx check-bootstrap a.all-insts, a.common-uris, fa, String.only-inst
 		a.common-types := common-types
@@ -423,7 +419,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 -compile-non-bootstrap-module crow-module(a frontend, file crow-file)
 	assert file is-workable
 	assert common-types ?= a common-types # bootstrap must be compiled first
-	ast uri-and-ast = file.uri, file.config!, file.ast-or-diag.to-ast
+	ast uri-and-ast = file.uri, file.config!, file.get-ast
 	imports = file.resolved-imports! fully-resolve-imports
 	a.show-ctx check a.all-insts, a.common-uris, ast, imports, common-types
 
@@ -458,7 +454,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 	a mark-module-dirty file
 	circular-import = if _ ?= file resolved-imports
 		file clear-resolved-imports
-	file.resolved-imports := a resolve-imports file.ast-or-diag, file.config!, file.uri
+	file.resolved-imports := a resolve-imports file.get-ast, file.config!, file.uri
 	for x in file resolved-imports!
 		if rb ?= x get-referenced-by
 			rb ~= file uri
@@ -523,19 +519,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 		forbid r ?= x read-error and r.diag == unknown
 		true
 
--resolve-imports mostly-resolved-import[]
-	a frontend
-	ast-or-diag ast-or-diag
-	config config
-	uri uri
-do
-	match ast-or-diag
-	as file-ast x
-		a resolve-imports-for-ast x, config, uri
-	as read-file-diag _
-		()
-
--resolve-imports-for-ast mostly-resolved-import[](a frontend, ast file-ast, config config, uri uri)
+-resolve-imports mostly-resolved-import[](a frontend, ast file-ast, config config, uri uri)
 	with out in ast.count-imports-and-re-exports build
 		unless ast no-std_
 			out ~= a.common-files[std]

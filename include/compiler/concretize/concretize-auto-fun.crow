@@ -36,8 +36,7 @@ concretize-auto-fun concrete-expr(concretize-ctx concretize-ctx, fun concrete-fu
 	as enum-or-flags-members
 		elements constant[] = for member in return-type.array-element-type enum-or-flags-members
 			member value
-		res = ctx.all-constants get-constant-array return-type, elements
-		return-type, range, res
+		ctx.all-constants gen-constant-array return-type, range, elements
 	as enum-or-flags-to-integral
 		return-type gen-cast range, param0[]
 	as enum-to-symbol
@@ -473,14 +472,26 @@ do
 	fields concrete-field[]
 	field-to-json called[]
 do
-	fields.size is field-to-json.size
 	get-param = range gen-param-get param
 	record-fields = get-param.type.struct-body.record_! fields
-	elements concrete-expr[] = for index, (field, called) in record-fields zip field-to-json with-index
-		field-value = ctx.concretize-ctx gen-record-field-get fields[index].type, range, get-param, index
-		field-json = ctx concretize-and-call called, range, (field-value,)
-		ctx.concretize-ctx gen-symbol-json-tuple range, field.name, field-json
-	ctx.concretize-ctx gen-new-json range, elements
+	names symbol[] = record-fields map it.name
+	values concrete-expr[] = for index, (field, called) in fields zip field-to-json with-index
+		ctx concretize-and-call called, range,
+			- ctx.concretize-ctx gen-record-field-get field.type, range, get-param, index
+	ctx.concretize-ctx gen-new-json-object range, names, values
+
+-gen-new-json-object concrete-expr(ctx concretize-ctx, range uri-and-range, names symbol[], values concrete-expr[])
+	names.size is values.size
+	named-new = ctx json-named-new-function
+	symbol-array, json-array = named-new.params only2
+	range gen-call named-new,
+		- ctx.all-constants gen-constant-array symbol-array.type, range, for name in names
+			ctx constant-symbol name
+		- ctx gen-create-array json-array.type, range, values
+
+-gen-constant-array concrete-expr(constants all-constants-builder, array-type concrete-type, range uri-and-range, elements constant[])
+	array-type, range,
+		constants get-constant-array array-type, elements
 
 -concretize-union-to-json concrete-expr
 	ctx concretize-expr-ctx
@@ -493,10 +504,10 @@ do
 	member-types.size is members.size
 	member-to-json.size is members.size
 	get-param = range gen-param-get param
-	field = ctx.concretize-ctx.symbol-json-tuple-type gen-match-union range, member-types, get-param, of member-index, get-member
-		member-json = ctx concretize-and-call member-to-json[member-index], range, (get-member,)
-		ctx.concretize-ctx gen-symbol-json-tuple range, members[member-index].member.decl.name, member-json
-	ctx.concretize-ctx gen-new-json range, (field,)
+	ctx.concretize-ctx.json-type gen-match-union range, member-types, get-param, of member-index, get-member
+		name = members[member-index].member.decl name
+		value = ctx concretize-and-call member-to-json[member-index], range, (get-member,)
+		ctx.concretize-ctx gen-new-json-object range, (name,), (value,)
 
 -struct-body struct-body(a concrete-type)
 	a.source.concrete-type-source-inst!.decl body
@@ -511,21 +522,6 @@ do
 		range gen-call fun, args
 	else
 		ctx.concretize-ctx gen-bogus (ctx get-concrete-type called.return-type), range
-
--gen-new-json concrete-expr(ctx concretize-ctx, range uri-and-range, elements concrete-expr[])
-	ctx gen-call-variadic range, ctx.new-json-from-pairs-function, elements
-
--symbol-json-tuple-type concrete-type(ctx concretize-ctx)
-	ctx.new-json-from-pairs-function.params.only.type array-element-type
-
--gen-symbol-json-tuple concrete-expr
-	ctx concretize-ctx
-	range uri-and-range
-	symbol symbol
-	value concrete-expr
-do
-	constant-symbol = ctx gen-constant-symbol range, symbol
-	ctx gen-create-record ctx.symbol-json-tuple-type, range, (constant-symbol, value)
 
 -gen-comparison-less concrete-expr(comparison-type concrete-type, range uri-and-range)
 	comparison-type gen-constant range, 0.integral-value

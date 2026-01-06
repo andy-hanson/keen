@@ -579,16 +579,16 @@ do
 		length = source gen-property-access arg, "length"
 		source gen-call-sync BigInt, (length,)
 	as bits-of-float32
-		source gen-convert 4, "Float32Array", "Uint32Array", arg
+		ctx gen-convert source, 4, "Float32Array", "Uint32Array", arg
 	as bits-of-float64
-		source gen-convert 8, "Float64Array", "BigInt64Array", arg
+		ctx gen-convert source, 8, "Float64Array", "BigInt64Array", arg
 	as bitwise-not
 		source gen-as-integral type.as-integral-type!, unary[bitwise-not]
 	as float32-from-bits
 		Number = source gen-global "Number"
-		source gen-convert 4, "Uint32Array", "Float32Array", (source gen-call-sync Number, (arg,))
+		ctx gen-convert source, 4, "Uint32Array", "Float32Array", (source gen-call-sync Number, (arg,))
 	as float64-from-bits
-		source gen-convert 8, "BigInt64Array", "Float64Array", arg
+		ctx gen-convert source, 8, "BigInt64Array", "Float64Array", arg
 	as gc-safe-mut-slice
 		array-type = type js-array-type
 		array = source gen-new (source gen-global array-type.to),
@@ -881,12 +881,12 @@ do
 					else
 						out-from[mapped]
 			as void
-				local js-name = ctx local-or-ignore-name x.local
+				local = ctx local-or-temp x.local, "ignore"
 				(source, (local js-for-of-statement input-expr, (ctx to-block-statement x.body))) to
 		as range
 			low, high = x.input.type range-fields
-			cur-name js-name = temp, "cur", ctx.take-next-temp-index
-			end-name js-name = temp, "end", ctx.take-next-temp-index
+			cur-name = ctx make-temp-local "cur"
+			end-name = ctx make-temp-local "end"
 			get-cur = source gen-identifier cur-name
 			get-end = source gen-identifier end-name
 			cur-less-end = source gen-less get-cur, get-end
@@ -902,11 +902,14 @@ do
 				}
 				return out
 				###
-				start-name js-name = temp, "start", ctx.take-next-temp-index
+				start-name = ctx make-temp-local "start"
 				get-start = source gen-identifier start-name
-				out-name js-name = temp, "out", ctx.take-next-temp-index
+				out-name = ctx make-temp-local "out"
 				get-out = source gen-identifier out-name
-				range-destructure js-object-destructure = ((low.debug-name.to, start-name), (high.debug-name.to, end-name)),
+				range-destructure js-object-destructure =
+					fields:
+						- low.debug-name.to, start-name
+						- high.debug-name.to, end-name
 				declare-start-end = source gen-const range-destructure, (ctx to-js-expr x.input)
 				Array = source array-for-array-type type
 				Number = source gen-global "Number"
@@ -1009,8 +1012,7 @@ do
 				return 42
 		}
 		###
-		label js-name? = if type is-void
-			none, "loop", ctx.take-next-temp-index
+		label js-name? = if type is-void then ctx make-temp-local "loop"
 		prev = ctx cur-loop-label
 		ctx.cur-loop-label := label
 		res = source gen-while-true label, (ctx to-block-statement x.body)
@@ -1206,10 +1208,7 @@ do
 	}
 	###
 	tried = ctx to-block-statement a.tried
-	error js-name = if e ?= a.catch-else?.local
-		ctx local-name e
-	else
-		"error" special-local
+	error = ctx local-or-temp a.catch-else?.local, "error"
 	get-error = source gen-identifier error
 	else-block = if e ?= a catch-else
 		ctx to-block-statement e.expr
@@ -1245,7 +1244,7 @@ do
 	let-local js-statement[] = if l ?= local
 		- source gen-let l
 	# Only needed if void, otherwise 'catch_then' will return
-	ok js-name? = if type is-void then "ok" special-local
+	ok js-name? = if type is-void then ctx make-temp-local "ok"
 	let-ok js-statement[] = if o ?= ok
 		- source gen-let o
 	tried js-statement[] =
@@ -1255,10 +1254,7 @@ do
 			ctx to-block-statement a.value statements
 		-- if x ?= ok
 			- source gen-assign x, (source gen-bool true)
-	error js-name = if l ?= a.catch_ local
-		ctx local-name l
-	else
-		"error" special-local
+	error = ctx local-or-temp a.catch_.local, "error"
 	get-error = source gen-identifier error
 	instanceof-caught-type = ctx.ctx gen-is-type! source, get-error, do a caught-type ctx.ctx.exception
 	catch_ = ctx to-block-statement a.catch_.expr
@@ -1291,11 +1287,11 @@ do
 		x.to::symbol
 	local, name.to, index
 
--local-or-ignore-name js-name(ctx to-expr-ctx, a concrete-local?)
+-local-or-temp js-name(ctx to-expr-ctx, a concrete-local?, temp-base-name string)
 	if x ?= a
 		ctx local-name x
 	else
-		none, "ignore", ctx.take-next-temp-index
+		ctx make-temp-local temp-base-name
 
 -constant-getter js-fun-decl(ctx to-js-ctx, source source, a any-constant)
 	comment: ""
@@ -1444,15 +1440,12 @@ do
 # TODO: use a 'with-block' --------------------------------------------------------------------------------------------------------------------------
 -with-temp-or-local js-expr-or-block-statement
 	ctx to-expr-ctx
-	name string
+	temp-base-name string
 	expr concrete-expr
 	root concrete-local?
 	f js-expr-or-block-statement mut(get-temp js-expr)
 do
-	js-name js-name = if r ?= root
-		ctx local-name r
-	else
-		temp, name, ctx.take-next-temp-index
+	js-name = ctx local-or-temp root, temp-base-name
 	ctx with-temp-common js-name, (ctx source expr), (ctx to-js-expr expr), f
 -with-temp js-expr-or-block-statement
 	ctx to-expr-ctx
@@ -1461,8 +1454,9 @@ do
 	expr js-expr
 	f js-expr-or-block-statement mut(get-temp js-expr)
 do
-	js-name js-name = temp, name, ctx.take-next-temp-index
-	ctx with-temp-common js-name, source, expr, f
+	ctx with-temp-common (ctx make-temp-local name), source, expr, f
+-make-temp-local js-name(ctx to-expr-ctx, base string)
+	temp, base, ctx.take-next-temp-index 
 -with-temp-common js-expr-or-block-statement
 	ctx to-expr-ctx
 	local js-name
@@ -1531,6 +1525,7 @@ add-local-and-assign js-expr(ctx to-expr-ctx, source source, local js-name, valu
 	source gen-call-property-sync (source gen-global "Math"), name, args
 
 -gen-convert js-expr
+	ctx to-expr-ctx
 	source source
 	size-bytes nat
 	input-array-type string
@@ -1542,8 +1537,8 @@ do
 	(new InputArray(buf))[0] = arg
 	return (new OutputArray(buf))[0]
 	###
-	buf-name js-name = "buf" special-local
-	buf js-expr = source gen-identifier buf-name
+	buf-name = ctx make-temp-local "buf"
+	buf = source gen-identifier buf-name
 	ArrayBuffer = source gen-global "ArrayBuffer"
 	new-buf = source gen-new ArrayBuffer, ((source gen-number64 size-bytes.to),)
 	declare-buf = source gen-const buf-name, new-buf
