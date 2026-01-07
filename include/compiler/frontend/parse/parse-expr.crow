@@ -117,7 +117,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	pos = lexer cur-pos
 	guard name ?= lexer try-take-name-and-precedence arg-ctx else lhs
 	fun-token = name token
-	fun-name name-and-range = pos + (fun-token == name-after-bang).to, name.name
+	fun-name name-and-range = pos + (fun-token == name-after-bang or fun-token == name-after-question).to, name.name
 	precedence = name precedence
 	assignment assignment-kind? = match fun-token
 	as name-or-operator-colon-equals
@@ -144,10 +144,16 @@ parse-fun-expr-body expr-ast(lexer lexer)
 			fun-name assignment-call-ast args[0], args[1]
 	else
 		with args2 in args it-scope-if precedence > 0
-			lexer range start call-ast infix, 0, fun-name, args2, type-arg
-	res = if fun-token == name-after-bang
+			range: lexer range start
+			style: if fun-token == name-after-question then question-name else infix
+			keyword-pos: if fun-token == name-after-question then pos
+			fun-name: fun-name
+			args: args2
+			type-arg: type-arg
+	res = match fun-token
+	as name-after-bang
 		lexer range start make-augment fun-name.range.start - 1, "not", expr
-	elif fun-token == name-bang
+	as name-bang
 		expr force-ast fun-name.range.end
 	else
 		expr
@@ -164,7 +170,8 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	x = lexer get-peek-token-and-data
 	guard x is-symbol or x.token == in_
 	name symbol = if x.token == in_ then "in" else x as-symbol
-	precedence = name symbol-precedence (x.token == name-or-operator-equals or x.token == name-or-operator-colon-equals)
+	precedence = name symbol-precedence
+		x.token == name-or-operator-equals or x.token == name-or-operator-colon-equals
 	guard precedence > arg-ctx.min-precedence-exclusive
 	_ = if x.token token-has-continuation
 		lexer take-next-token-may-continue-onto-next-line
@@ -252,9 +259,9 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	dot-pos = lexer cur-pos
 	token = lexer get-peek-token
 	# TODO: use a match -----------------------------------------------------------------------------------------------------------
-	if token == dot or token == question-dot
+	if token == dot
 		lexer must-take-token token
-		lexer handle-dot-or-question-dot initial, start, dot-pos, token == question-dot
+		lexer handle-dot initial, start, dot-pos
 	elif token == bracket-left or token == question-bracket
 		lexer must-take-token token
 		lexer parse-subscript initial, dot-pos, token == question-bracket
@@ -275,7 +282,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	args, true
 -with-block expr-ast(a it-scope-if, f expr-ast mut(args expr-ast[]))
 	if a.allow-it and a.args exists (_ ?= it.it-scope-ast::it-scope-ast?)
-		f[a.args map of x then x.it-scope-ast?.inner else x] it-scope-ast
+		f[a.args map of x then x.it-scope-ast ?inner else x] it-scope-ast
 	else
 		f[a args]
 -it-scope-single record(arg expr-ast)
@@ -288,24 +295,33 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	else
 		f[a arg]
 
--handle-dot-or-question-dot expr-ast(lexer lexer, initial expr-ast, start pos, dot-pos pos, is-question-dot bool)
-	call expr-ast mut(name name-and-range, type-arg type-ast?) = of name, type-arg
+-handle-dot expr-ast(lexer lexer, initial expr-ast, start pos, dot-pos pos)
+	call expr-ast mut(style call-ast-style, name name-and-range, type-arg type-ast?) = of style, name, type-arg
 		with initial2 in initial it-scope-single
-			(lexer range start) call-ast (if is-question-dot then question-dot else dot), dot-pos, name, (initial2,), type-arg
-	lexer try-parse-dots-and-subscripts if lexer peek-token name-bang
-		name-start = lexer cur-pos
-		name name-and-range = name-start, lexer.get-peek-token-and-data.as-symbol
-		lexer must-take-token name-bang
-		with x in call[name, ()] it-scope
+			range: lexer range start
+			style: style
+			keyword-pos: dot-pos
+			fun-name: name
+			args: initial2,
+			type-arg: type-arg
+	lexer try-parse-dots-and-subscripts if name ?= lexer try-take-name-like-token name-bang
+		with x in call[dot, name, ()] it-scope
 			x force-ast name.range.end
+	elif name ?= lexer try-take-name-like-token name-after-question
+		call[dot-question, name, ()]
 	elif name ?= lexer try-take-name-and-range-or-diag
-		call[name, lexer.try-parse-type-arg-for-expr]
+		call[dot, name, lexer.try-parse-type-arg-for-expr]
 	else
 		initial
 
 -parse-subscript expr-ast(lexer lexer, initial expr-ast, subscript-pos pos, is-question-bracket bool)
 	arg expr-ast = if lexer try-take-token bracket-right
-		lexer range subscript-pos call-ast empty-parens, 0, (subscript-pos, "new"), (), ()
+		range: lexer range subscript-pos
+		style: empty-parens
+		keyword-pos: 0
+		fun-name: subscript-pos, "new"
+		args: ()
+		type-arg: ()
 	else
 		res = lexer parse-expr-no-block
 		_ = lexer take-or-add-diag-expected-token bracket-right, closing-bracket
@@ -395,7 +411,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 		else
 			if-without-else
 		is-else-of-parent: is-else-of-parent
-		second-keyword-pos: elif-or-else?.pos else 0
+		second-keyword-pos: elif-or-else ?pos else 0
 		third-keyword-pos: max-value
 		condition: condition
 		first-branch: then_
@@ -433,10 +449,10 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	start: start
 	kind: if _ ?= res else_ then guard-with-else else guard-without-else
 	is-else-of-parent: false
-	second-keyword-pos: res.else_?.else-pos else max-value
+	second-keyword-pos: res.else_ ?else-pos else max-value
 	third-keyword-pos: max-value
 	condition: res condition
-	first-branch: res.else_?.expr
+	first-branch: res.else_ ?expr
 	second-branch: res after
 
 -assert-forbid-or-guard record

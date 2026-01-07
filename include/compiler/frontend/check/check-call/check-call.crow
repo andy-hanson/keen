@@ -24,7 +24,7 @@ check-lambda spec
 
 check-call expr(ctx expr-ctx, ast call-ast, expected expected) check-expr
 	ctx check-call-should-use-syntax ast
-	if ast.style == question-subscript or ast.style == question-dot
+	if ast.style is-option-call
 		ctx check-option-call ast, expected
 	else
 		type-arg type? = if x ?= ast type-arg
@@ -239,7 +239,7 @@ do
 			()
 
 -check-option-call expr(ctx expr-ctx, ast call-ast, outer-expected expected) check-expr
-	ctx check-with-modify-expected outer-expected, it.as-option-type, of inner-expected
+	ctx check-with-modify-expected outer-expected, it.as-void-or-option-type, of inner-expected
 		assert ast.args.size != 0
 		args expr mut-slice = trusted ast.args.size gc-safe-mut-slice
 		check-arg void mut(index nat, arg-expected expected) = of index, arg-expected
@@ -255,17 +255,24 @@ do
 			else
 				args[index] := ctx check-expr arg-ast, arg-expected
 		if called ?= ctx check-call-cb ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, of _ then true
-			type = ctx.instantiate-ctx make-option-if-not-already ctx.common-types, called.return-type
-			arg0-type = args[0] type ctx.common-types
-			if arg0-type is-option-type
-				(ast call-option-expr called, (trusted args cast-immutable), type), type
+			type = if called.return-type is-void
+				called return-type
 			else
-				ctx add-diag args[0].range, (ctx type-with-container arg0-type).diag-call-option-non-option
-				(ast call-expr called, (trusted args cast-immutable)), called.return-type
+				ctx.instantiate-ctx make-option-if-not-already ctx.common-types, called.return-type
+			arg0-type = args[0] type ctx.common-types
+			all-args = trusted args cast-immutable
+			if arg0-type is-option-type
+				- ast call-option-expr called, all-args, type
+				- type
+			else
+				ctx add-diag args[0].range,
+					called.name diag-call-option-non-option do ctx type-with-container arg0-type
+				- ast call-expr called, all-args
+				- called return-type
 		else
 			(inner-expected bogus ast.fun-name.range), bogus-type
--as-option-type type?(a type)
-	if a is-option-type then a
+-as-void-or-option-type type?(a type)
+	if a is-void or a is-option-type then a
 
 -check-call-inner called?
 	ctx expr-ctx
