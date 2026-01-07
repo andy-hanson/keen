@@ -1,6 +1,8 @@
 import
 	crow/experimental/observable
+	crow/io/time
 	crow/parse
+	crow/parallel
 	crow/js
 	crow/js/util
 	../../include/compiler/frontend/ide/get-tokens
@@ -20,28 +22,27 @@ diagnostics lsp-diagnostic[][uri] observable(a crow-server)
 
 make-crow-server crow-server() summon, js extern
 	trusted
+	start = get-monotime-msec
 	worker = "Worker".js-global call-new "worker.js"::js-any,
 		:: js-any
 		type: "module"
 	
 	responses json deferred mut[nat] = ()
+	loaded void deferred = ()
 	diagnostics lsp-diagnostic[][uri] mut-observable = ()
 	on-message void mut(event js-any) = of event
 		object = json parse event["data"].to
 		if "id"::symbol in object
-			responses[object["id"] to]! resolve object["result"]
+			id nat = object["id"] to
+			if id == 2
+				loaded resolve ()
+			responses[id]! resolve object["result"]
 		else
 			method symbol = object["method"] to
 			params = object["params"]
-			if method == "textDocument/publishDiagnostics"
-				p publish-diagnostics-params = params to
-				diagnostics modify of x
-					x ~ (p.uri, p.diagnostics)
-			else
-				error log "What do we do with this?"
-				error log method.show
-				error log object.show
-				throw todo
+			assert method == "textDocument/publishDiagnostics" else todo
+			p publish-diagnostics-params = params to
+			diagnostics modify of x then x ~ (p.uri, p.diagnostics)
 	worker["onmessage"] := on-message as-js
 
 	server crow-server =
@@ -50,6 +51,12 @@ make-crow-server crow-server() summon, js extern
 		next-id: 1
 		diagnostics: diagnostics
 	_ = server request "initialize", ()
+
+	_ = fire-and-forget with-block shared of # TODO: Support 'shared with' ---------------------------------------------------------------------
+		loaded await
+		info log "Took {get-monotime-msec - start}msec to load Crow server"
+		json = server request "custom/perf-report", ()
+		info log json.show
 	server
 
 -send-message void(server crow-server, method symbol, params json) unsafe, js extern

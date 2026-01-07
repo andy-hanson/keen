@@ -6,7 +6,7 @@ import
 	../model/source-range
 	../model/uri
 	../util/enum-map
-	../util/perfhax
+	../util/perf
 	../util/util
 	./all-insts
 	./check/check
@@ -211,10 +211,11 @@ files-state files-state(a frontend)
 
 change-file void(a frontend, uri uri, changes text-document-content-change-event[])
 	a set-file uri,
-		a.line-and-column-getters-map[uri]!.line-and-character-getter apply-changes changes to
+		string = a.line-and-column-getters-map[uri]!.line-and-character-getter apply-changes changes
+		string.to::nat8[] to
 
 -apply-changes string(lc line-and-character-getter, events text-document-content-change-event[])
-	cur mut char8[] = lc source-text
+	cur mut char8 array-view = lc source-text
 	cur-lc mut = lc
 	for i, event in events with-index
 		if r ?= event range
@@ -226,11 +227,13 @@ change-file void(a frontend, uri uri, changes text-document-content-change-event
 		else
 			cur := event.text to
 		if i != events.size - 1
-			cur-lc := cur.to line-and-character-getter-for-text
+			cur-lc := cur line-and-character-getter-for-text
 	cur to
 
-read-file-result union(nat8[], read-file-diag)
+read-file-result union(nat8 array-view, read-file-diag)
 == bool(a read-file-result, b read-file-result)
+set-file void(a frontend, uri uri, string string)
+	a set-file uri, string.to::nat8[].to::(nat8 array-view)
 set-file void(a frontend, uri uri, result read-file-result)
 	# Files don't change *to* unknown, only change out of that state
 	if d ?= result read-file-diag
@@ -241,7 +244,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 		path = uri as-java-uri!
 		file = a ensure-java-class-file path
 		match result
-		as array content
+		as array-view content
 			file.parsed := content parse-java-class
 			if super ?= file.parsed.parsed-java-class! super-class
 				(a ensure-java-class-file super).inheritors ~= path
@@ -253,8 +256,8 @@ set-file void(a frontend, uri uri, result read-file-result)
 	as crow
 		file = a ensure-crow-file uri
 		file.ast-or-diag := match result
-		as array content
-			text = content as-string
+		as array-view content
+			text char8 array-view = content safe-reinterpret-cast
 			uri parse-file text, text.line-and-column-getter-for-text
 		as read-file-diag x
 			x
@@ -263,7 +266,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 	as crow-config
 		config-file = a ensure-config-file-for uri
 		config-file.config := match result
-		as array x
+		as array-view x
 			uri parse-config x.as-string
 		as read-file-diag x
 			match x
@@ -572,8 +575,8 @@ set-file void(a frontend, uri uri, result read-file-result)
 			x module!
 		as other-file file
 			match file content
-			as array x
-				x
+			as array-view x
+				x to
 			as read-file-diag diag
 				file.uri read-error diag
 		as diag-import-file x
@@ -686,7 +689,7 @@ test
 	a frontend = "test://bin/crow".must-parse-uri,
 	uri-a = "test://src/a.crow" must-parse-uri
 	do
-		a set-file uri-a, "a".to
+		a set-file uri-a, "a"
 		a get-file-content uri-a is "a"
 	do
 		a change-file uri-a,
