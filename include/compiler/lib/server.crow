@@ -52,8 +52,8 @@ do
 		message = buffered-messages dequeue!
 		action = server handle-lsp-message message
 		for out-message in action out-messages
-			if server.lsp-state !supports-unknown-uris and out-message is-unknown-uris
-				for uri in out-message.lsp-out-notification!.unknown-uris! unknownUris
+			if u ?= out-message.lsp-out-notification ?unknown-uris
+				for uri in u unknownUris
 					buffered-messages ~= read-file-locally[uri]
 			else
 				output[out-message]
@@ -63,9 +63,6 @@ do
 			break ()
 		else
 			continue
-# TODO: it would be better to return an option ...............................................................................
--is-unknown-uris bool(a lsp-out-message)
-	_ ?= a.lsp-out-notification ?unknown-uris
 
 handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	match message
@@ -149,8 +146,7 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		()
 	as implementation-params _
 		()
-	as initialize-params x
-		server.lsp-state.supports-unknown-uris := server.lsp-state.supports-unknown-uris or x.initializationOptions unknownUris
+	as initialize-params _
 		initialize-capabilities initialize-result
 	as inlay-hint-params _
 		()
@@ -160,8 +156,6 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 		()
 	as perf-report-params _
 		perf-report perf-report-result
-	as run-params _
-		()
 	as semantic-tokens-params x
 		server encoded-tokens x.textDocument.uri
 	as shutdown-params
@@ -259,14 +253,6 @@ do
 		respond[server get-references-for-program program, x ranges-result]
 	as rename-params x
 		respond[if res ?= server get-rename-for-program program, x then res]
-	as run-params x
-		writes write mut[] = ()
-		pwm = program-with-main[(x.uri main-kind-main-function ()), java]
-		if pwm has-any-diagnostics
-			writes ~= err, do server show-diagnostics pwm, x.diagnosticsOnlyForUris.?to
-		exit = server run-from-lsp pwm, x.diagnosticsOnlyForUris, of pipe, text
-			writes ~= pipe, text
-		respond[exit run-result writes.move-to]
 	as semantic-tokens-params _
 		throw unreachable
 	as shutdown-params _
@@ -310,30 +296,28 @@ do
 		throw todo # TODO: load it in and run as a Java program. We should probably sandbox it too! ----------------------------
 
 server record mut
-	include-dir uri
-	uris-info uris-info
-	show-options show-options
+	settings server-settings
 	lsp-state lsp-state
 	frontend frontend
+show-options show-options(a server)
+	a.settings show-options
+uris-info uris-info(a server)
+	cwd: a.settings cwd
 server-settings record
 	include-dir uri
 	cwd uri
 	show-options show-options
 new server(settings server-settings)
-	include-dir: settings include-dir
-	uris-info:
-		cwd: settings cwd
-	show-options: settings show-options
+	settings: settings
 	lsp-state: ()
 	frontend: settings.include-dir,
 
 lsp-state record mut
-	supports-unknown-uris mut bool
 	uris-with-diagnostics mut uri[]
 	pending-requests lsp-in-request mut[]
 	test-states test-states
 -new lsp-state()
-	false, (), (), ()
+	(), (), ()
 
 crow-version json(this-executable file-path)
 	path: this-executable.to::string to

@@ -112,13 +112,23 @@ must-have-module crow-module(a crow-file) # TODO: inline -----------------------
 -java-class-file record mut
 	type struct-decl
 	parsed mut java-class-or-diag
+	work-needed mut java-work-kind
+	has-filled-in-supertypes mut bool
+	| This will be an empty option if we don't need to import this Java class as a module
 	module mut java-class-module?
 	| Uris are for {crow-file}s
 	referenced-by-crow uri mut-set
 	| Subclasses or interface implementers must be processed after their supertypes.
 	inheritors path mut-set
 
--java-class-or-diag union(parsed-java-class, read-file-diag)
+| If a Java class has only come up as a type, we can process the header only.
+| If it is imported as a module, we must process the entire class including methods.
+-java-work-kind enum(header-only, all)
+-== bool(a java-work-kind, b java-work-kind)
+-<=> comparison(a java-work-kind, b java-work-kind)
+-to json(a java-work-kind)
+
+-java-class-or-diag union(parsed-java-class-header, read-file-diag)
 
 -ast-or-diag union(file-ast, read-file-diag)
 
@@ -161,8 +171,9 @@ make-program program(a frontend, fully-loaded-configs uri set)
 		if config ?= x.config config
 			- uri, config
 	all-modules: all-modules
-	java-modules: for k, v in a java-class-files
-		k.to-java-uri, v.module!
+	java-modules: for* k, v in a java-class-files
+		if m ?= v module
+			- k.to-java-uri, m
 	additional-diagnostics: common-funs-diagnostics ~~ unused-diagnostics
 	file-content-getters: a file-content-getters
 	line-and-column-getters: a.line-and-column-getters-map my-line-and-column-getters
@@ -242,12 +253,12 @@ set-file void(a frontend, uri uri, result read-file-result)
 	match uri file-type
 	as class_
 		path = uri as-java-uri!
-		file = a ensure-java-class-file path
+		file = a ensure-java-class-file path, header-only
 		match result
 		as array-view content
 			file.parsed := content parse-java-class
-			if super ?= file.parsed.parsed-java-class! super-class
-				(a ensure-java-class-file super).inheritors ~= path
+			if super ?= file.parsed.parsed-java-class-header! super-class
+				(a ensure-java-class-file super, header-only).inheritors ~= path
 			a add-to-workable-if-so path, file
 		as read-file-diag x
 			error log "ERROR READING JAVA CLASS? {path} {x.to::json}"
@@ -331,14 +342,20 @@ set-file void(a frontend, uri uri, result read-file-result)
 		config: unknown
 		parent: parent
 
--ensure-java-class-file java-class-file(a frontend, path path)
-	a.java-class-files ensure path, of
+-ensure-java-class-file java-class-file(a frontend, path path, work-needed java-work-kind)
+	res = a.java-class-files ensure path, of
 		a.unknown ~= path.to-java-uri
 		type: (a.all-insts,) initial-struct-for-java-class path
 		parsed: unknown
+		work-needed: work-needed
+		has-filled-in-supertypes: ()
 		module: ()
 		referenced-by-crow: ()
 		inheritors: ()
+	if res.work-needed < work-needed
+		res.work-needed := work-needed
+		a add-to-workable-if-so path, res
+	res
 
 -ensure-other-file other-file(a frontend, uri uri)
 	forbid uri.file-type == crow
@@ -360,7 +377,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 	bootstrap = a.common-files[bootstrap]
 	if a.workable-crow remove bootstrap.uri
 		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.get-ast
-		String = a ensure-java-class-file "java/lang/String".parse-path type
+		String = a ensure-java-class-file "java/lang/String".parse-path, header-only type
 		module, common-types = a.show-ctx check-bootstrap a.all-insts, a.common-uris, fa, String.only-inst
 		a.common-types := common-types
 		bootstrap.module := module
@@ -375,12 +392,25 @@ set-file void(a frontend, uri uri, result read-file-result)
 				instantiate-ctx: a.all-insts,
 				common-types: a common-types!
 				ensure-java-class: of x
-					a ensure-java-class-file x type
-			file.module := ctx get-java-module path, file.parsed.parsed-java-class!
+					a ensure-java-class-file x, header-only type
+			header = file.parsed parsed-java-class-header!
+			unless file has-filled-in-supertypes
+				ctx fill-java-class-supertypes path, header
+				file.has-filled-in-supertypes := true
+
+			match file work-needed
+			as header-only
+				()
+			as all
+				file.module := ctx get-java-module path, header
+
 			for x in file referenced-by-crow
+				file.work-needed is all
 				a add-to-workable-if-so a.crow-files[x]!
 			for x in file inheritors
-				a add-to-workable-if-so x, a.java-class-files[x]!
+				inheritor = a.java-class-files[x]!
+				unless _ ?= inheritor module
+					a add-to-workable-if-so x, inheritor
 			continue
 		elif uri ?= a.workable-crow pop-arbitrary
 			file = a.crow-files[uri]!
@@ -500,9 +530,9 @@ set-file void(a frontend, uri uri, result read-file-result)
 
 -is-workable bool(a frontend, file java-class-file)
 	forbid _ ?= file module
-	assert parsed ?= file.parsed parsed-java-class
+	guard parsed ?= file.parsed parsed-java-class-header
 	if super ?= parsed super-class
-		_ ?= a ensure-java-class-file super module
+		a ensure-java-class-file super, header-only has-filled-in-supertypes
 	else
 		true
 -is-workable bool(a crow-file)
@@ -576,7 +606,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 		as other-file file
 			match file content
 			as array-view x
-				x to
+				x
 			as read-file-diag diag
 				file.uri read-error diag
 		as diag-import-file x
@@ -641,9 +671,9 @@ do
 		if library-name == "crow"
 			a try-resolve-import-from-uri ast, do a.crow-include-dir concat-uri-and-path path
 		elif path.get-extension == ".class"
-			a ensure-java-class-file path.without-extension
+			a ensure-java-class-file path.without-extension, all
 		elif library-name is-java-library
-			a ensure-java-class-file path
+			a ensure-java-class-file path, all
 		elif from-config ?= config.include[library-name]
 			uri = if r ?= rest
 				from-config concat-uri-and-path r

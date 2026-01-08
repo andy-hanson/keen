@@ -13,13 +13,19 @@ java-ctx record mut
 	common-types common-types
 	ensure-java-class struct-decl mut(path path)
 
-get-java-module java-class-module(ctx java-ctx, path path, class_ parsed-java-class)
+fill-java-class-supertypes void(ctx java-ctx, path path, class_ parsed-java-class-header)
 	start = perf-now
-	finally start end-get-java-module
+	finally start end-fill-java-class-supertypes
 	struct = ctx.ensure-java-class[path]
 	ctx fill-supertypes class_, struct
-	ctx fill-interface-methods class_, struct
-	funs = ctx funs-for-java-class path, class_, struct
+
+get-java-module java-class-module(ctx java-ctx, path path, class_ parsed-java-class-header)
+	start = perf-now
+	finally start end-get-java-module
+	body = class_ parse-java-class-body
+	struct = ctx.ensure-java-class[path]
+	ctx fill-interface-methods class_, body.methods, struct
+	funs = ctx funs-for-java-class path, class_, body, struct
 	path: path
 	public-exports:
 		funs: funs to
@@ -47,7 +53,7 @@ do
 	sum-type-memberships: ()
 	body: path struct-body-extern-java
 
--fill-supertypes void(ctx java-ctx, class_ parsed-java-class, type struct-decl)
+-fill-supertypes void(ctx java-ctx, class_ parsed-java-class-header, type struct-decl)
 	# TODO: do a lot more here! I'd like all Java subclasses to implicitly convert to their superclasses! -------------------------------------------
 	is-throwable = if super ?= class_ super-class
 		super == "java/lang/Throwable".parse-path or ctx is-throwable ctx.ensure-java-class[super]
@@ -60,13 +66,13 @@ do
 -is-throwable bool(ctx java-ctx, a struct-decl)
 	a.sum-type-memberships exists it.sum-type == ctx.common-types.exception
 
--fill-interface-methods void(ctx java-ctx, class_ parsed-java-class, type struct-decl)
+-fill-interface-methods void(ctx java-ctx, class_ parsed-java-class-header, parsed-methods parsed-method[], type struct-decl)
 	guard interface_::class-access in class_.access
 	type.body :=
 		:: sum-type
 		kind: java-interface
 		listed-members: ()
-		methods: for* method in class_ methods
+		methods: for* method in parsed-methods
 			guard abstract_::method-access-flags in method.access-flags
 			# Ignore varargs; they just become normal array parameters
 			(method.access-flags & ~varargs) is (abstract_ | public)
@@ -78,9 +84,9 @@ do
 				params: params
 				doc-comment-references: ()
 
--funs-for-java-class fun-decl[](ctx java-ctx, path path, class_ parsed-java-class, struct struct-decl)
+-funs-for-java-class fun-decl[](ctx java-ctx, path path, header parsed-java-class-header, class_ parsed-java-class-body, struct struct-decl)
 	class-type = struct only-inst
-	is-interface = interface_::class-access in class_.access
+	is-interface = interface_::class-access in header.access
 	with out in build
 		for field in class_ fields
 			guard public::field-access-flags in field.access-flags
