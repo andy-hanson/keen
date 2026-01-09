@@ -21,7 +21,7 @@ import
 	./parse-java-class
 	./show-model
 
-frontend record mut
+frontend record mut, java-ctx case
 	-crow-include-dir uri
 	-common-uris common-uris
 	-common-files mut (common-module, crow-file) enum-map
@@ -30,7 +30,7 @@ frontend record mut
 	-all-insts all-insts
 	-line-and-column-getters-map mut line-and-column-getter[uri]
 	| Set after 'bootstrap.crow' is compiled
-	-common-types mut common-types?
+	-common-types-option mut common-types?
 	-crow-files crow-file mut[uri]
 	| Number of crow-files without {module} set
 	-count-uncompiled-crow-files mut nat
@@ -44,6 +44,13 @@ frontend record mut
 	| If all import uris are resolved but nothing is workable, there must be a circular import.
 	-workable-java path mut-set
 	-workable-crow uri mut-set
+instantiate-ctx instantiate-ctx(a frontend)
+	- a all-insts
+common-types common-types(a frontend)
+	a common-types-option!
+ensure-java-class struct-decl(a frontend, path path)
+	a ensure-java-class-file path, header-only type
+
 show-ctx show-ctx(a frontend) # TODO: THIS ONE IS JUST FOR DEBUG _----------------------------------------------------------------
 	a show-ctx (), ()
 show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
@@ -73,7 +80,7 @@ new frontend(crow-include-dir uri)
 		loading: ()
 		all-insts: ()
 		line-and-column-getters-map: ()
-		common-types: ()
+		common-types-option: ()
 		crow-files: ()
 		count-uncompiled-crow-files: 0
 		config-files: ()
@@ -162,7 +169,7 @@ make-program program(a frontend, fully-loaded-configs uri set)
 	common-modules (common-module, crow-module) enum-map = for _, x in a common-files
 		x module!
 	ctx instantiate-ctx = a.all-insts,
-	common-types = a common-types!
+	common-types = a common-types
 	common-funs, common-funs-diagnostics = ctx get-common-funs common-types, common-modules
 	all-modules crow-module[uri] = for uri, file in a crow-files
 		uri, file.must-have-module
@@ -379,31 +386,25 @@ set-file void(a frontend, uri uri, result read-file-result)
 		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.get-ast
 		String = a ensure-java-class-file "java/lang/String".parse-path, header-only type
 		module, common-types = a.show-ctx check-bootstrap a.all-insts, a.common-uris, fa, String.only-inst
-		a.common-types := common-types
+		a.common-types-option := common-types
 		bootstrap.module := module
 		a.count-uncompiled-crow-files -:= 1
 		a mark-all-non-bootstrap-modules-dirty bootstrap # since they all use common-types
 
-	guard _ ?= a common-types
+	guard _ ?= a common-types-option
 	loop
 		if path ?= a.workable-java pop-arbitrary
 			file = a.java-class-files[path]!
-			ctx java-ctx =
-				instantiate-ctx: a.all-insts,
-				common-types: a common-types!
-				ensure-java-class: of x
-					a ensure-java-class-file x, header-only type
 			header = file.parsed parsed-java-class-header!
 			unless file has-filled-in-supertypes
-				ctx fill-java-class-supertypes path, header
+				a fill-java-class-supertypes file.type, header
 				file.has-filled-in-supertypes := true
 
 			match file work-needed
 			as header-only
 				()
 			as all
-				file.module := ctx get-java-module path, header
-
+				file.module := a get-java-module path, file.type, header
 			for x in file referenced-by-crow
 				file.work-needed is all
 				a add-to-workable-if-so a.crow-files[x]!
@@ -451,7 +452,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 
 -compile-non-bootstrap-module crow-module(a frontend, file crow-file)
 	assert file is-workable
-	assert common-types ?= a common-types # bootstrap must be compiled first
+	assert common-types ?= a common-types-option # bootstrap must be compiled first
 	ast uri-and-ast = file.uri, file.config!, file.get-ast
 	imports = file.resolved-imports! fully-resolve-imports
 	a.show-ctx check a.all-insts, a.common-uris, ast, imports, common-types

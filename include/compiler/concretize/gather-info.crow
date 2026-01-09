@@ -71,7 +71,8 @@ do
 
 	# TODO:PERF we already went over all funs when generating 'called-by'. Should do this as part of that to avoid having to walk all funs again.
 	for fun in all-used-funs
-		kind = fun find-direct-async
+		reason = fun find-direct-async
+		kind temp-async-kind? = reason ?to
 		if kind > temp-kinds[fun]
 			temp-kinds[fun] := kind!
 			to-propagate ~= fun
@@ -167,12 +168,24 @@ do
 		false
 	here or a.direct-child-exprs exists of x then x search-async async-funs
 
--find-direct-async temp-async-kind?(a concrete-fun)
+-directly-async-reason enum(calls-lambda-parameter, calls-other-lambda, js-await)
+-to temp-async-kind(a directly-async-reason)
+	match a
+	as calls-lambda-parameter
+		depends-on-caller
+	as calls-other-lambda
+		always-async
+	as js-await
+		always-async
+-== bool(a directly-async-reason, b directly-async-reason)
+-<=> comparison(a directly-async-reason, b directly-async-reason)
+
+-find-direct-async directly-async-reason?(a concrete-fun)
 	match a body
 	as concrete-fun-body-builtin b
 		match b kind
 		as builtin-fun-call-lambda
-			depends-on-caller
+			calls-lambda-parameter
 		as js-fun x
 			x intrinsic-async-kind
 		else
@@ -186,9 +199,9 @@ do
 	as concrete-fun-body-deferred
 		throw unreachable
 
--intrinsic-async-kind temp-async-kind?(a concrete-expr, params concrete-local set, local-lambda-locals concrete-local set)
-	from-children temp-async-kind? mut() = of
-		max mut temp-async-kind? = ()
+-intrinsic-async-kind directly-async-reason?(a concrete-expr, params concrete-local set, local-lambda-locals concrete-local set)
+	from-children directly-async-reason? mut() = of
+		max mut directly-async-reason? = ()
 		for x in a direct-child-exprs
 			max := max max do x intrinsic-async-kind params, local-lambda-locals
 		max
@@ -206,28 +219,28 @@ do
 		from-value max do x.then_ intrinsic-async-kind params, new-locals
 	else
 		from-children[]
--intrinsic-async-kind temp-async-kind?(a builtin-fun, args concrete-expr[], params concrete-local set, local-lambda-locals concrete-local set)
+-intrinsic-async-kind directly-async-reason?(a builtin-fun, args concrete-expr[], params concrete-local set, local-lambda-locals concrete-local set)
 	match a
 	as builtin-fun-call-lambda _
 		match args[0] kind
 		as local-get-concrete-expr g
 			if g.local in params
-				depends-on-caller
+				calls-lambda-parameter
 			elif g.local in local-lambda-locals
 				# Function is calling a lambda it defined, and we trace its body anyway
 				()
 			else
 				# Unhandled case, pessimistically assume this is async
-				always-async
+				calls-other-lambda
 		else
-			always-async
+			calls-other-lambda
 	as js-fun x
 		x intrinsic-async-kind
 	else
 		()
--intrinsic-async-kind temp-async-kind?(a js-fun)
+-intrinsic-async-kind directly-async-reason?(a js-fun)
 	if a == await or a == import_
-		always-async
+		js-await
 
 # Maps a function to all functions that call it.
 -called-by alias

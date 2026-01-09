@@ -4,76 +4,9 @@ import
 	../model/model
 	../model/source-range
 	../model/uri
-	../util/util
-	./all-constants-builder
-	./concretize-auto-fun
 	./concretize-ctx
 	./concretize-expr
 	./generate
-
-fun-body-decl fun-body(fun concrete-fun)
-	fun.source.concrete-fun-source-regular!.decl body
-
-# Fills in simple function bodies
-quick-fill-in-concrete-fun-body void(ctx concretize-ctx, cf concrete-fun)
-	assert _ ?= cf.body concrete-fun-body-deferred
-	fun-body = cf fun-body-decl
-	return-type = cf return-type
-	range = cf range
-	concrete-params = cf params
-	cf.body := match fun-body
-	as fun-body-bogus
-		ctx gen-bogus return-type, range
-	as fun-body-extern-java x
-		x
-	as auto-fun x
-		ctx concretize-auto-fun cf, x
-	as builtin-fun x
-		ctx concretize-builtin-fun cf, x
-	as create-enum-or-flags x
-		return-type gen-constant range, x.member.value
-	as create-record _
-		if concrete-params is-empty and return-type.body.concrete-record! !prevent-constant
-			constant = ctx.all-constants get-constant-record return-type, ()
-			return-type concrete-expr range, constant
-		else
-			ctx gen-create-record return-type, range, for param in concrete-params
-				range gen-local-get param
-	as expr _
-		concrete-fun-body-deferred
-	as fun-body-file-import x
-		ctx concretize-file-import cf, x
-	as flags-function x
-		ctx concretize-flags-function cf, x
-	as fun-body-method x
-		if ctx preserve-methods
-			ctx.sum-type-to-methods ensure cf.params[0].type ~= cf
-			x.method-index concrete-fun-body-method
-		else
-			ctx.deferred-methods ~= cf
-			concrete-fun-body-deferred
-	as record-field-get x
-		record_ = range gen-local-get concrete-params.only
-		index = record_.type field-index-from-field x.field
-		ctx gen-record-field-get return-type, range, record_, index
-	as record-field-set x
-		param0, param1 = concrete-params only2
-		p0 = range gen-local-get param0
-		p1 = range gen-local-get param1
-		index = p0.type field-index-from-field x.field
-		ctx gen-record-field-set range, p0, index, p1
-	as sum-type-member-get
-		case_ = ctx sum-type-case-index concrete-params.only.type, (ctx unwrap-option-type return-type)
-		ctx gen-union-member-get cf, case_
-	as var-get x
-		assert concrete-params is-empty
-		expr = ctx get-var x.var var-get-concrete-expr
-		return-type, range, expr
-	as var-set x
-		value = range gen-local-get concrete-params.only
-		return-type, range, do ctx get-var x.var var-set-concrete-expr value
-	as fun-body-uninitialized
-		throw unreachable
 
 concrete-fun-for-wrap-main concrete-fun(ctx concretize-ctx, model-main fun-inst)
 	string-array-type = ctx get-concrete-type-for-struct-inst ctx.common-types.string-array, ()
@@ -96,47 +29,6 @@ concrete-fun-for-wrap-main concrete-fun(ctx concretize-ctx, model-main fun-inst)
 		body: body
 	ctx add-concrete-fun res
 	res
-
--concretize-builtin-fun concrete-fun-body(ctx concretize-ctx, cf concrete-fun, a builtin-fun)
-	return-type = cf return-type
-	range = cf range
-	type-args concrete-type[] data() = of
-		cf.source.concrete-fun-source-regular! type-args
-	match a
-	as builtin-fun-constant x
-		return-type gen-constant range, do ctx to-constant return-type, x
-	as builtin-fun-is-empty-type _
-		constant constant = type-args[].only.is-empty-type.to integral-value
-		return-type concrete-expr range, constant
-	else
-		a concrete-fun-body-builtin type-args[]
--to-constant constant(ctx concretize-ctx, type concrete-type, a builtin-fun-constant)
-	match a
-	as bool x
-		x constant-bool
-	as float x
-		x constant-float
-	as builtin-fun-constant-empty-option
-		ctx gen-constant-none type
-	as builtin-fun-constant-gc-safe-value
-		constant-gc-safe-value
-
--concretize-file-import concrete-expr(ctx concretize-ctx, cf concrete-fun, import_ fun-body-file-import)
-	cf.return-type, cf.range, match import_ type
-	as nat8-array
-		ctx constant-of-bytes cf.return-type, import_.content
-	as string
-		ctx gen-string-literal-kind import_.content.as-string
-
-get-var concrete-var(ctx concretize-ctx, decl var-decl)
-	ctx.concrete-var-lookup ensure decl, of
-		type = ctx get-concrete-type decl.type, ()
-		expr-ctx concretize-expr-ctx =
-			concretize-ctx: ctx
-			cur-uri: decl module-uri
-			type-scope: ()
-			specs-scope: ()
-		decl, do expr-ctx concretize-expr type, decl.initializer
 
 concrete-fun-for-all-tests concrete-fun(ctx concretize-ctx, selector test-selector)
 	range uri-and-range = selector.main-uri, ()

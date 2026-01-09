@@ -7,11 +7,117 @@ import
 	../model/model
 	../model/show-concrete-model
 	../model/source-range
-	../model/uri
 	../util/util
 	./all-constants-builder
+	./concretize-auto-fun
 	./concretize-ctx
+	./concretize-expr-ctx
 	./generate
+
+fun-body-decl fun-body(fun concrete-fun)
+	fun.source.concrete-fun-source-regular!.decl body
+
+# Fills in simple function bodies
+quick-fill-in-concrete-fun-body void(ctx concretize-ctx, cf concrete-fun)
+	assert _ ?= cf.body concrete-fun-body-deferred
+	fun-body = cf fun-body-decl
+	return-type = cf return-type
+	range = cf range
+	concrete-params = cf params
+	cf.body := match fun-body
+	as fun-body-bogus
+		ctx gen-bogus return-type, range
+	as fun-body-extern-java x
+		x
+	as auto-fun x
+		ctx concretize-auto-fun cf, x
+	as builtin-fun x
+		ctx concretize-builtin-fun cf, x
+	as create-enum-or-flags x
+		return-type gen-constant range, x.member.value
+	as create-record _
+		if concrete-params is-empty and return-type.body.concrete-record! !prevent-constant
+			constant = ctx.all-constants get-constant-record return-type, ()
+			return-type concrete-expr range, constant
+		else
+			ctx gen-create-record return-type, range, for param in concrete-params
+				range gen-local-get param
+	as expr _
+		concrete-fun-body-deferred
+	as fun-body-file-import x
+		ctx concretize-file-import cf, x
+	as flags-function x
+		ctx concretize-flags-function cf, x
+	as fun-body-method x
+		if ctx preserve-methods
+			ctx.sum-type-to-methods ensure cf.params[0].type ~= cf
+			x.method-index concrete-fun-body-method
+		else
+			ctx.deferred-methods ~= cf
+			concrete-fun-body-deferred
+	as record-field-get x
+		record_ = range gen-local-get concrete-params.only
+		index = record_.type field-index-from-field x.field
+		ctx gen-record-field-get return-type, range, record_, index
+	as record-field-set x
+		param0, param1 = concrete-params only2
+		p0 = range gen-local-get param0
+		p1 = range gen-local-get param1
+		index = p0.type field-index-from-field x.field
+		ctx gen-record-field-set range, p0, index, p1
+	as sum-type-member-get
+		case_ = ctx sum-type-case-index concrete-params.only.type, (ctx unwrap-option-type return-type)
+		ctx gen-union-member-get cf, case_
+	as var-get x
+		assert concrete-params is-empty
+		expr = ctx get-var x.var var-get-concrete-expr
+		return-type, range, expr
+	as var-set x
+		value = range gen-local-get concrete-params.only
+		return-type, range, do ctx get-var x.var var-set-concrete-expr value
+	as fun-body-uninitialized
+		throw unreachable
+
+-concretize-builtin-fun concrete-fun-body(ctx concretize-ctx, cf concrete-fun, a builtin-fun)
+	return-type = cf return-type
+	range = cf range
+	type-args concrete-type[] data() = of
+		cf.source.concrete-fun-source-regular! type-args
+	match a
+	as builtin-fun-constant x
+		return-type gen-constant range, do ctx to-constant return-type, x
+	as builtin-fun-is-empty-type _
+		constant constant = type-args[].only.is-empty-type.to integral-value
+		return-type concrete-expr range, constant
+	else
+		a concrete-fun-body-builtin type-args[]
+-to-constant constant(ctx concretize-ctx, type concrete-type, a builtin-fun-constant)
+	match a
+	as bool x
+		x constant-bool
+	as float x
+		x constant-float
+	as builtin-fun-constant-empty-option
+		ctx gen-constant-none type
+	as builtin-fun-constant-gc-safe-value
+		constant-gc-safe-value
+
+-concretize-file-import concrete-expr(ctx concretize-ctx, cf concrete-fun, import_ fun-body-file-import)
+	cf.return-type, cf.range, match import_ type
+	as nat8-array
+		ctx constant-of-bytes cf.return-type, import_.content
+	as string
+		ctx gen-string-literal-kind import_.content.as-string
+
+get-var concrete-var(ctx concretize-ctx, decl var-decl)
+	ctx.concrete-var-lookup ensure decl, of
+		type = ctx get-concrete-type decl.type, ()
+		expr-ctx concretize-expr-ctx =
+			concretize-ctx: ctx
+			cur-uri: decl module-uri
+			type-scope: ()
+			specs-scope: ()
+		decl, do expr-ctx concretize-expr type, decl.initializer
 
 concretize-fun-body concrete-expr(ctx concretize-ctx, cf concrete-fun, expr expr)
 	params = match cf source
@@ -35,46 +141,13 @@ concretize-fun-body concrete-expr(ctx concretize-ctx, cf concrete-fun, expr expr
 -concretize-bogus concrete-expr(ctx concretize-expr-ctx, type concrete-type, range uri-and-range)
 	ctx.concretize-ctx gen-bogus type, range
 
-concretize-expr-ctx record mut
-	concretize-ctx concretize-ctx
-	cur-uri uri
-	type-scope type-args-scope
-	specs-scope specs-scope
-	locals local-or-constant mut[local]
-new concretize-expr-ctx
-	concretize-ctx concretize-ctx
-	fun concrete-fun
-do
-	concretize-ctx, fun.module-uri, fun.type-args-scope-for-fun, fun.specs-scope-for-fun, ()
-new concretize-expr-ctx
-	concretize-ctx concretize-ctx
-	cur-uri uri
-	type-scope type-args-scope
-	specs-scope specs-scope
-do
-	concretize-ctx, cur-uri, type-scope, specs-scope, ()
-allocate-mutable-closure-variables bool(a concretize-expr-ctx)
-	a is-java
-is-java bool(a concretize-expr-ctx)
-	a.concretize-ctx is-java
-is-js bool(a concretize-expr-ctx)
-	a.concretize-ctx is-js
--common-types common-types(a concretize-expr-ctx)
-	a.concretize-ctx common-types
-all-constants all-constants-builder(a concretize-expr-ctx)
-	a.concretize-ctx all-constants
--bool-type concrete-type(a concretize-expr-ctx)
-	a.concretize-ctx bool-type
--void-type concrete-type(a concretize-expr-ctx)
-	a.concretize-ctx void-type
--to-uri-and-range uri-and-range(ctx concretize-expr-ctx, a source-range)
-	ctx.cur-uri, a
-
--typed-constant record(type concrete-type, value constant)
--local-or-constant union(concrete-local, typed-constant)
-
-get-concrete-type concrete-type(a concretize-expr-ctx, t type)
-	a.concretize-ctx get-concrete-type t, a.type-scope
+-with-temp-if-necessary concrete-expr(range uri-and-range, value concrete-expr, f concrete-expr mut(get-temp concrete-expr))
+	if get ?= value.kind local-get-concrete-expr and get.local !is-mutable
+		f[value]
+	else
+		temp concrete-local = member, value.type
+		res = f[range gen-local-get temp]
+		res.type gen-let range, temp, value, res
 
 -concretize-call concrete-expr
 	ctx concretize-expr-ctx
@@ -100,15 +173,14 @@ do
 			type, range, (input array-op-concrete-expr body.local, empty-out-array, body.expr)
 		else
 			lambda-type = concrete-called.params[1].type
-			temp concrete-local = member, lambda-type # TODO: use a new kind, not 'member' --------------------------------------
 			lambda = ctx concretize-expr lambda-type, lambda-arg
-			in-element concrete-local = member, in-element-type # TODO: use a new kind, not 'member' ----------------------------
-			body = builtin-fun-call-lambda builtin-concrete-expr (out-element-type, in-element-type),
-				- range gen-local-get temp
-				- range gen-local-get in-element
-			then_ concrete-expr = type, range,
-				input array-op-concrete-expr in-element, empty-out-array, (out-element-type, range, body)
-			type gen-let range, temp, lambda, then_
+			range with-temp-if-necessary lambda, of get-lambda
+				in-element concrete-local = member, in-element-type # TODO: use a new kind, not 'member' ----------------------------
+				body = builtin-fun-call-lambda builtin-concrete-expr (out-element-type, in-element-type),
+					- get-lambda
+					- range gen-local-get in-element
+				type, range,
+					input array-op-concrete-expr in-element, empty-out-array, (out-element-type, range, body)
 	else
 		args concrete-expr[] = if concrete-called is-variadic
 			array-type = concrete-called.params.only type
@@ -196,11 +268,6 @@ do
 		ctx.concretize-ctx gen-void range
 	else
 		ctx.concretize-ctx gen-empty-option type, range
-
-get-concrete-fun-from-called concrete-fun?(ctx concretize-expr-ctx, called called)
-	guard res ?= ctx.concretize-ctx get-concrete-fun-from-called ctx.type-scope, ctx.specs-scope, called
-	guard res.return-type !is-bogus
-	res
 
 -concretize-lambda concrete-expr
 	ctx concretize-expr-ctx
@@ -475,16 +542,15 @@ do
 		The function concretize-complex-condition just handles the true part of this.
 		###
 		option-type = ctx get-concrete-type ctx.common-types.option[model-type]
-		option-true-branch = ctx concretize-complex-condition option-type, range, condition,
-			true-branch: of
-				true_ = cb-true-branch[]
-				if _ ?= true_.kind throw-concrete-expr
-					# Avoid wrapping a 'throw' expression in an option, since the JVM complains about unreachable code
-					option-type, range, true_.kind
-				else
-					ctx.concretize-ctx gen-option option-type, range, true_
-			false-branch: of
-				ctx.concretize-ctx gen-empty-option option-type, range
+		true-branch concrete-expr mut() = of
+			true_ = cb-true-branch[]
+			if _ ?= true_.kind throw-concrete-expr
+				# Avoid wrapping a 'throw' expression in an option, since the JVM complains about unreachable code
+				option-type, range, true_.kind
+			else
+				ctx.concretize-ctx gen-option option-type, range, true_
+		option-true-branch = ctx concretize-complex-condition option-type, range, condition, true-branch, of
+			ctx.concretize-ctx gen-empty-option option-type, range
 		type gen-option-else range, option-true-branch, cb-false-branch[]
 
 ###
@@ -498,29 +564,26 @@ Compiles to code like:
 	else
 		false-branch
 ###
--branches record mut
-	true-branch concrete-expr mut()
-	false-branch concrete-expr mut()
 | WARN: This duplicates the false branch.
 -concretize-complex-condition concrete-expr
 	ctx concretize-expr-ctx
 	result-type concrete-type
 	range uri-and-range
 	a expr
-	# Both branches should have type {result-type}.
-	branches branches
+	true-branch concrete-expr mut()
+	false-branch concrete-expr mut()
 do
 	if x ?= a logical-expr and x.kind == bool-and-bool
 		inner concrete-expr mut() = of
-			ctx concretize-complex-condition result-type, range, x.right, branches
-		ctx concretize-complex-condition result-type, range, x.left, (inner, branches.false-branch)
+			ctx concretize-complex-condition result-type, range, x.right, true-branch, false-branch
+		ctx concretize-complex-condition result-type, range, x.left, inner, false-branch
 	elif unpack ?= a unpack-option
 		option = ctx concretize-expr unpack.option
-		true_ = ctx concretize-with-destructure result-type, range, unpack.destructure, branches.true-branch
-		range gen-if-option option, true_, branches.false-branch[]
+		true_ = ctx concretize-with-destructure result-type, range, unpack.destructure, true-branch
+		range gen-if-option option, true_, false-branch[]
 	else
 		condition = ctx concretize-expr ctx.bool-type, a
-		range gen-if condition, branches.true-branch[], branches.false-branch[]
+		range gen-if condition, true-branch[], false-branch[]
 
 -gen-option-else concrete-expr
 	type concrete-type
@@ -736,12 +799,11 @@ do
 					break
 			after
 			###
-			loop-body = ctx concretize-complex-condition void.type, range, expr.condition,
-				true-branch: of
-					body = ctx concretize-expr void.type, expr.body
-					void.type gen-do-and-continue range, body
-				false-branch: of
-					range gen-break void
+			true-branch concrete-expr mut() = of
+				body = ctx concretize-expr void.type, expr.body
+				void.type gen-do-and-continue range, body
+			loop-body = ctx concretize-complex-condition void.type, range, expr.condition, true-branch, of
+				range gen-break void
 			loop_ = void.type gen-loop range, loop-body
 			range gen-seq loop_, do ctx concretize-expr type, expr.after
 	else
@@ -798,20 +860,19 @@ do
 		concrete-tuple-type.source.concrete-type-source-inst! type-args
 	local-types.size is model-locals.size
 	concrete-locals mut concrete-local[] = ()
-	expr = ctx concretize-complex-condition concrete-tuple-option, range, a,
-		true-branch: of
-			concrete-locals := for local in model-locals then ctx.locals[local]! concrete-local!
-			exprs concrete-expr[] = for type, local in local-types zip model-locals
-				ctx concretize-local-get type, range, local
-			tuple-expr concrete-expr = if model-locals.size == 0
-				ctx.concretize-ctx gen-void range
-			elif model-locals.size == 1
-				exprs only
-			else
-				ctx.concretize-ctx gen-create-record concrete-tuple-type, range, exprs
-			ctx.concretize-ctx gen-option concrete-tuple-option, range, tuple-expr
-		false-branch: of
-			ctx.concretize-ctx gen-empty-option concrete-tuple-option, range
+	true-branch concrete-expr mut() = of
+		concrete-locals := for local in model-locals then ctx.locals[local]! concrete-local!
+		exprs concrete-expr[] = for type, local in local-types zip model-locals
+			ctx concretize-local-get type, range, local
+		tuple-expr concrete-expr = if model-locals.size == 0
+			ctx.concretize-ctx gen-void range
+		elif model-locals.size == 1
+			exprs only
+		else
+			ctx.concretize-ctx gen-create-record concrete-tuple-type, range, exprs
+		ctx.concretize-ctx gen-option concrete-tuple-option, range, tuple-expr
+	expr = ctx concretize-complex-condition concrete-tuple-option, range, a, true-branch, of
+		ctx.concretize-ctx gen-empty-option concrete-tuple-option, range
 	model-locals: model-locals
 	locals: concrete-locals
 	tuple-option: concrete-tuple-option
@@ -1000,9 +1061,8 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 		ctx concretize-local-set range, x.local, x.value
 	as logical-expr x
 		if x.kind == bool-and-bool
-			ctx concretize-complex-condition type, range, x.left,
-				true-branch: of then ctx concretize-expr type, x.right
-				false-branch: of then ctx.concretize-ctx gen-false range
+			true-branch concrete-expr mut() = of then ctx concretize-expr type, x.right
+			ctx concretize-complex-condition type, range, x.left, true-branch, of then ctx.concretize-ctx gen-false range
 		else
 			left-type concrete-type = match x kind
 			as bool-and-bool
