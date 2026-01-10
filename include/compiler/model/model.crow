@@ -1,5 +1,6 @@
 import
 	crow/bits
+	crow/col/mut-slice
 	crow/unsafe
 	../../crow/col/experimental/object-memoizer
 	../util/enum-map
@@ -49,17 +50,20 @@ worse-purity purity(a purity, b purity)
 	10
 
 -type-arrays global((type-array, type-array-key) object-memoizer)
--type-params-type-arrays global(type-array[])
+-type-params-type-args global(type-args[])
 	for n nat in 0 .. max-type-args
 		types type[] = for i nat in 0 .. n
 			(i,)::type-param-index
-		types to
+		types to-type-args
 -spec-arrays global((specs, specs-key) object-memoizer)
 
-to type-array(type type)
-	(type,) to
-to type-array(types type[])
-	guard types !is-empty
+| This should only be called if there is nothing from the 'model' alive any more.
+clear-object-memoizers void() unsafe
+	type-arrays := ()
+	spec-arrays := ()
+
+to-type-array type-array(types type[])
+	assert types.size >= 2
 	hash = types get-hash
 	trusted type-arrays memoize (types, hash), of then types, hash
 type-array record
@@ -72,27 +76,195 @@ type-array record
 	a.inner == b.inner
 -memoizer-key type-array-key(a type-array)
 	a.inner, a.hash
-new type-array()
-	(), 0
-is-empty bool(a type-array)
-	a.inner is-empty # TODO:PERF could do 'a reference-equal ()' -------------------------------------------------------------------
 size nat(a type-array)
 	a.inner size
 subscript type(a type-array, index nat)
 	a.inner[index]
-== bool(a type-array, b type-array)
-	trusted a.inner reference-equal b.inner
+map-type-array type-array(a type-array, f type mut(x type))
+	(a.inner map f)::type[] to-type-array
 hash-mix void(hasher hasher, a type-array)
 	hasher hash-mix a.hash
 to json(a type-array)
 	a.inner to
--type-params-type-array type-array(n nat)
-	trusted type-params-type-arrays[n]
+-type-params-type-args type-args(n nat) # TODO: MOVE? -----------------------------------------------------------------------------------------------
+	trusted type-params-type-args[n]
 
 type-params alias
 	name-and-range[]
-type-args alias # TODO: this is silly to have two names for the same type --------------------------------------------------------
-	type-array
+| No type args, one type arg, or many type args.
+| This is more efficient than always allocating an array, since most types have <= 1 type args.
+# TODO: I'd like to just use `no-type-args, type, type-array`. But currently unions-of-unions have inefficient representation.
+type-args union(no-type-args, bogus-type, type-param-index, struct-inst, type-array)
+type type?(a type-args)
+	match a
+	as no-type-args _
+		()
+	as bogus-type x
+		x
+	as type-param-index x
+		x
+	as struct-inst x
+		x
+	as type-array _
+		()
+as-type-args type-args(a type)
+	match a
+	as bogus-type x
+		x
+	as type-param-index x
+		x
+	as struct-inst x
+		x
+hash nat(a type-args)
+	match a
+	as no-type-args
+		0
+	as bogus-type
+		0
+	as type-param-index x
+		x index
+	as struct-inst x
+		x hash
+	as type-array x
+		x hash
+to json(a type-args)
+	match a
+	as no-type-args
+		null
+	as bogus-type x
+		x to
+	as type-param-index x
+		x to
+	as struct-inst x
+		x to
+	as type-array x
+		x to
+no-type-args record
+new type-args()
+	no-type-args
+make-type-args[input] type-args(inputs input[], f type mut(x input))
+	match inputs size
+	as 0
+		()
+	as 1
+		f[inputs only] as-type-args
+	else
+		inputs map f to-type-array
+make-type-args[input] type-args(inputs input mut-slice, f type mut(x input)) # TODO: combine these functions using 'array-like' ......................
+	(trusted inputs cast-immutable) make-type-args f
+map-type-args type-args(a type-args, f type mut(x type)) # TODO: this is basically just 'make-type-args' ............................................
+	match a
+	as no-type-args
+		()
+	as bogus-type x
+		f[x] as-type-args
+	as type-param-index x
+		f[x] as-type-args
+	as struct-inst x
+		f[x] as-type-args
+	as type-array array
+		array map-type-array f
+| Most code should avoid calling this as it means allocating an array
+slow-to-array type[](a type-args)
+	match a
+	as no-type-args
+		()
+	as bogus-type x
+		- x
+	as type-param-index x
+		- x
+	as struct-inst x
+		- x
+	as type-array x
+		x inner
+-to-type-args type-args(a type[])
+	match a size
+	as 0
+		()
+	as 1
+		a[0] as-type-args
+	else
+		a to-type-array
+== bool(a type-args, b type-args)
+	trusted a reference-equal b
+hash-mix void(hasher hasher, a type-args)
+	match a
+	as no-type-args
+		()
+	as bogus-type x
+		hasher hash-mix x
+	as type-param-index x
+		hasher hash-mix x
+	as struct-inst x
+		hasher hash-mix x
+	as type-array x
+		hasher hash-mix x
+is-empty bool(a type-args)
+	_ ?= a no-type-args
+subscript type(a type-args, index nat)
+	match a
+	as no-type-args
+		throw unreachable
+	as bogus-type x
+		index is 0
+		x
+	as type-param-index x
+		index is 0
+		x
+	as struct-inst x
+		index is 0
+		x
+	as type-array x
+		x[index]
+map-every-type-args[col, elem] type-args?
+	a col
+	f type? mut(x elem)
+do (col, elem) array-like, (col, elem) iterate
+	match a size
+	as 0
+		no-type-args
+	as 1
+		f[a[0]] ?as-type-args
+	else
+		if res ?= (a map-every f)::type[]?
+			res to-type-array
+zip-every-type-args bool(a type-args, b type-args, f bool mut(x type, y type))
+	match a
+	as no-type-args
+		assert _ ?= b no-type-args
+		true
+	as bogus-type x
+		f[x, b.type!]
+	as type-param-index x
+		f[x, b.type!]
+	as struct-inst x
+		f[x, b.type!]
+	as type-array xs
+		xs.inner zip b.type-array!.inner every f
+iterate bool(a type-args, f bool mut(x type))
+	match a
+	as no-type-args
+		false
+	as bogus-type x
+		f[x]
+	as type-param-index x
+		f[x]
+	as struct-inst x
+		f[x]
+	as type-array xs
+		xs.inner iterate f
+size nat(a type-args)
+	match a
+	as no-type-args
+		0
+	as bogus-type _
+		1
+	as type-param-index _
+		1
+	as struct-inst _
+		1
+	as type-array x
+		x.inner size
 return-and-param-types record
 	return-type type
 	param-types type[]
@@ -136,18 +308,23 @@ get-or-add-specs specs(specs spec-inst[])
 					res
 
 type union(bogus-type, type-param-index, struct-inst)
+	hash nat()
+hash-mix void(hasher hasher, a type)
+	match a
+	as bogus-type x
+		hasher hash-mix x
+	as type-param-index x
+		hasher hash-mix x
+	as struct-inst x
+		hasher hash-mix x
 == bool(a type, b type)
 	trusted a reference-equal b
 to json(a type)
 bogus-type record
-hash-mix void(hasher hasher, a type)
-	match a
-	as bogus-type
-		()
-	as type-param-index x
-		hasher hash-mix x.index
-	as struct-inst x
-		hasher hash-mix x
+hash nat(_ bogus-type)
+	0
+hash-mix void(_ hasher, _ bogus-type)
+	()
 to json(a bogus-type)
 | Represent type parameter as the index, so we don't generate different types for every 't[]'.
 | (These are disambiguated in the type checker using 'type-and-context')
@@ -155,6 +332,10 @@ type-param-index record
 	-index_ nat
 	# This is needed to force this type to be wrapped and not use 'nat' directly.
 	-dummy nat
+hash nat(a type-param-index)
+	a index
+hash-mix void(hasher hasher, a type-param-index)
+	hasher hash-mix a.index
 index nat(a type-param-index)
 	a index_
 new type-param-index(index nat)
@@ -214,7 +395,7 @@ debug string(a struct-inst)
 	else
 		"{a.type-args debug-type-args} {name}"
 debug-type-args string(a type-args)
-	args string[] = for x in a inner then x debug
+	args string[] = a map it.debug
 	match args size
 	as 0
 		""
@@ -782,7 +963,7 @@ do
 		insts: ()
 	if res is-template
 		res.insts := ()::((struct-inst, type-args) object-memoizer)
-		res.instantiated-with-own-type-params := res[res.n-type-params type-params-type-array]
+		res.instantiated-with-own-type-params := res[res.n-type-params type-params-type-args]
 	else
 		res.instantiated-with-own-type-params := (res, ())
 	res
@@ -911,10 +1092,6 @@ can-have-type-params bool(a struct-decl-ast)
 		true
 
 struct-inst record(decl struct-decl, type-args type-args) -new
-subscript struct-inst(decl struct-decl, type-arg type)
-	decl[type-arg.to::type-args]
-subscript struct-inst(decl struct-decl, type-args type[])
-	decl[type-args.to::type-args]
 subscript struct-inst(decl struct-decl, type-args type-args)
 	if type-args is-empty
 		decl instantiated-with-own-type-params
@@ -926,6 +1103,10 @@ memoizer-key type-args(a struct-inst)
 	trusted a reference-equal b
 <=> comparison(_ struct-inst, _ struct-inst)
 	throw todo
+hash nat(a struct-inst)
+	hasher hasher = ()
+	hasher hash-mix a
+	hasher finish
 hash-mix void(hasher hasher, a struct-inst)
 	# TODO: just use identity -------------------------------------------------------------------------------------------------------
 	hasher hash-mix a.decl
@@ -935,7 +1116,7 @@ to json(a struct-inst)
 	type-args: a.type-args to
 purity-range purity-range(a struct-inst)
 	res mut purity-range = a.decl.purity, a.decl.purity
-	for x in a.type-args inner
+	for x in a type-args
 		res combine-purity-range:= x purity-range
 	res
 
@@ -1017,12 +1198,11 @@ spec-inst record force-data, -new
 	all-sigs mut signature[]
 	| Corresponds to all-sigs
 	sig-types mut return-and-param-types[]
-get-or-add-spec-inst (spec-inst, bool)(decl spec-decl, type-args type[])
-	types type-array = type-args to
+get-or-add-spec-inst (spec-inst, bool)(decl spec-decl, type-args type-args)
 	did-add mut = false
-	res = trusted decl.insts memoize types, of
+	res = trusted decl.insts memoize type-args, of
 		did-add := true
-		decl, types, (), (), ()
+		decl, type-args, (), (), ()
 	res, did-add
 -memoizer-key type-args(a spec-inst)
 	a type-args
@@ -1986,9 +2166,8 @@ common-types record
 tuple struct-decl?(a common-types, arity nat)
 	if arity in 2 .. 10
 		a.tuples-2-through-9[arity - 2]
-tuple struct-inst?(a common-types, types type[])
-	if decl ?= a tuple types.size
-		decl[types]
+tuple struct-inst?(a common-types, types type-args)
+	(a tuple types.size)?[types]
 max-tuple-size nat(_ common-types)
 	9
 subscript struct-inst(a common-types, type char-type)
@@ -2935,7 +3114,7 @@ to json(a lambda-kind)
 range source-range(a lambda-expr)
 	a.ast range
 return-type type(a lambda-expr)
-	a.type.type-args.inner[0]
+	a.type.type-args[0]
 | We don't know whether this lambda is for the main body or for the optional 'else'.
 | But if it is from the 'else', this function will return true.
 is-ignore bool(a lambda-expr)

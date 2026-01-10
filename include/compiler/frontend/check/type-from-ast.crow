@@ -72,20 +72,24 @@ do
 		ctx add-diag range, (type diag-name-not-found name)
 	res
 
-make-tuple-type type(ctx check-ctx, common-types common-types, args type[], cb-diag-range source-range data())
-	match args size
-	as 0
+make-tuple-type type(ctx check-ctx, common-types common-types, args type-args, cb-diag-range source-range data())
+	match args
+	as no-type-args
 		common-types void
-	as 1
-		args only
-	else
-		if decl ?= common-types tuple args.size
-			decl[args]
+	as bogus-type x
+		x
+	as type-param-index x
+		x
+	as struct-inst x
+		x
+	as type-array args-array
+		if decl ?= common-types tuple args-array.size
+			decl[args-array]
 		else
-			ctx add-diag cb-diag-range[], (args.size diag-tuple-too-big common-types.max-tuple-size)
+			ctx add-diag cb-diag-range[], (args-array.size diag-tuple-too-big common-types.max-tuple-size)
 			bogus-type
 
--get-type-args-if-number-matches type[]?
+-get-type-args-if-number-matches type-args?
 	ctx check-ctx
 	common-types common-types
 	range source-range
@@ -103,13 +107,13 @@ do
 		()
 
 | Tries to return array of length 'nExpectedTypeArgs', but may fail
-unpack-tuple-if-needed type[](common-types common-types, n-expected-type-args nat, type type)
+unpack-tuple-if-needed type-args(common-types common-types, n-expected-type-args nat, type type)
 	if n-expected-type-args == 1
-		- type
+		type as-type-args
 	elif x ?= common-types as-tuple type
-		x inner
+		x
 	else
-		- type
+		type as-type-args
 
 get-n-type-args-for-diagnostic nat(common-types common-types, explicit-type-arg type?)
 	guard x ?= explicit-type-arg
@@ -158,7 +162,7 @@ do
 	as suffix-special-type-ast x
 		ctx inst-struct-from-ast types, x.kind.to, x.suffix-range, x.left, type-params-scope, alias-allowed
 	as tuple-type-ast x
-		members type[] = for member in x.members
+		members = x.members make-type-args of member
 			ctx type-from-ast types, member, type-params-scope, alias-allowed
 		ctx make-tuple-type types.common-types, members, of
 			x.members[0].range.start, x.members[end - 1].end
@@ -198,7 +202,7 @@ do
 	as varargs-ast x
 		ctx add-diag x.param.range, diag-lambda-type-variadic
 		bogus-type
-	types.common-types.fun-structs[ast kind][return-type, param-type]
+	types.common-types.fun-structs[ast kind][(return-type, param-type).to-type-array]
 
 get-spec-from-common-module spec-decl?
 	ctx check-ctx
@@ -250,10 +254,9 @@ do
 	type-params-scope type-params
 	parts destructure-ast[]
 do
-	types type[]? = parts map-every of part
+	guard types ?= parts map-every-type-args of part
 		ctx type-from-destructure types-get, part, type-params-scope
-	guard x ?= types
-	ctx make-tuple-type types-get.common-types, x, of
+	ctx make-tuple-type types-get.common-types, types, of
 		parts[0].start, parts[end - 1].end
 
 destructure-kind enum(local, param)
@@ -306,7 +309,7 @@ do
 			if field-types ?= common-types as-tuple tuple-type and field-types.size == part-asts.size
 				parts destructure[] = for i in 0::nat .. part-asts.size
 					part = part-asts[i]
-					field-type = field-types.inner[i]
+					field-type = field-types[i]
 					ctx check-destructure types, type-container, type-params-scope, part, field-type, kind
 				tuple-type destructure-split parts
 			else
@@ -317,7 +320,7 @@ do
 		else
 			parts destructure[] = for part in part-asts
 				ctx check-destructure types, type-container, type-params-scope, part, (), kind
-			part-types type[] = for part in parts then part type
+			part-types = parts make-type-args of part then part type
 			type = ctx make-tuple-type common-types, part-types, of
 				part-asts[0].range.start, part-asts[end - 1].end
 			type destructure-split parts

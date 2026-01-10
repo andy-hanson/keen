@@ -14,18 +14,24 @@ memoizable[t, k] spec t data, k data, k equal
 	hash nat(a k) # TODO: this is not the usual hashing interface, see if the usual 'hash-mix' is just as fast -----------------
 
 object-memoizer[t, k] record mut
+	# This uses a Robin Hood hash.
 	| Greatest distance of any entry from its home
 	-max-cost mut nat64
+	| 2 ** capacity-log-2 is entries.size
 	-capacity-log-2 mut nat
 	| Mask to convert hash codes to indices = {capacity-log-2} 1 bits
 	-index-mask mut nat
 	-entries mut t weak-ref mut-slice
 new[t, k] (t, k) object-memoizer() (t, k) memoizable
-	0, 1, 1.index-mask-for, trusted 2 gc-safe-mut-slice
+	max-cost: 0
+	capacity-log-2: 1
+	index-mask: 1 index-mask-for
+	entries: trusted 2 gc-safe-mut-slice
 
 -index-mask-for nat(capacity-log-2 nat)
 	capacity-log-2 low-n-bits
 
+| WARN: 'make-value' should be a simple function. It should not access {a}.
 memoize[t, k] t(a (t, k) object-memoizer, key k, make-value t mut()) unsafe, (t, k) memoizable
 	a find key else
 		value = make-value[]
@@ -37,14 +43,8 @@ memoize[t, k] t(a (t, k) object-memoizer, key k, make-value t mut()) unsafe, (t,
 	cost mut nat = 0
 	loop
 		guard cost <= a.max-cost else break
-		entry = a.entries[i]
-		if v ?= entry get
-			if v.memoizer-key == key
-				break v
-			else
-				i := a next-index i
-				cost +:= 1
-				continue
+		if v ?= a.entries[i] get and v.memoizer-key == key
+			break v
 		else
 			i := a next-index i
 			cost +:= 1
