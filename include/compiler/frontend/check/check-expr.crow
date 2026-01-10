@@ -1,8 +1,8 @@
 import
 	crow/col/mut-slice
 	../../../crow/col/mut-set: hint-size
+	../../../crow/parse: parse-float
 	../../model/ast
-	../../model/integral-values
 	../../model/model
 	../../model/source-range
 	../../util/by-name
@@ -94,10 +94,8 @@ do
 		ctx check-let x, expected
 	as list-ast x
 		ctx check-list x, expected
-	as literal-float-and-range x
-		ctx check-literal-float x, expected
-	as literal-integral-and-range x
-		ctx check-literal-integral x, expected
+	as literal-number x
+		ctx check-literal-number x.range, expected
 	as literal-string-ast x
 		ctx check-literal-string x, expected
 	as logical-ast x
@@ -348,24 +346,15 @@ do
 	else
 		ctx check-call-special-cb1 source, keyword-range, "set-{left}", expected, cb-right
 
--check-literal-float expr(ctx expr-ctx, ast literal-float-and-range, expected expected)
-	allowed-types struct-inst[] = ctx.common-types.float32, ctx.common-types.float64, ctx.common-types.js-any
-	if index ?= ctx find-expected-struct-for-literal ast.range, expected, allowed-types
-		ctx as-float ast.range, float-types[index], allowed-types[index], ast.literal.value, expected
-	else
-		expected bogus ast.range
-
 -as-float expr
 	ctx expr-ctx
 	range source-range
 	float-type float-type-or-js
 	inst struct-inst
-	value high-precision-float?
 	expected expected
 do
-	unless _ ?= value
-		ctx add-diag range, float-type.diag-literal-float-accuracy
-	ctx check expected, inst, do range literal-float-expr float-type, (value else ()).to
+	ctx check expected, inst,
+		range literal-scalar-expr float-type, do (ctx.check-ctx get-text range parse-float) to
 
 # TODO: these could use 'mebmers'? --------------------------------------------------------------------------------------------
 # ALSO, it's important that this matches the order of 'integral-type' in model.crow -----------------------------------------------
@@ -378,26 +367,25 @@ do
 -float-types float-type-or-js[]()
 	members
 
--check-literal-integral expr(ctx expr-ctx, ast literal-integral-and-range, expected expected)
+-check-literal-number expr(ctx expr-ctx, range source-range, expected expected)
 	integrals = ctx.common-types integrals
 	integrals.all.size is integral-types.size
+	# TODO:PERF this array is always the same, so precompute it! ------------------------------------------------------------------------------------
 	allowed-types struct-inst[] =
 		-- integrals all
 		-- ctx.common-types all-floats
 		- ctx.common-types js-any
-	if type-index ?= ctx find-expected-struct-for-literal ast.range, expected, allowed-types
+	if type-index ?= ctx find-expected-struct-for-literal range, expected, allowed-types
 		number-type = allowed-types[type-index]
 		if type-index < integral-types.size
 			integral-type = integral-types[type-index]
-			value = ctx.check-ctx check-literal-integral-value integral-type, ast
-			ctx check expected, number-type, do ast.range literal-integral-expr integral-type, value
+			value = ctx.check-ctx check-literal-integral-value integral-type, range
+			ctx check expected, number-type, do range literal-scalar-expr integral-type, value
 		else
 			float-type = float-types[type-index - integral-types.size]
-			float-literal high-precision-float? = if u ?= ast.literal unsigned-value
-				ast.literal.sign, u, 0
-			ctx as-float ast.range, float-type, number-type, float-literal, expected
+			ctx as-float range, float-type, number-type, expected
 	else
-		expected bogus ast.range
+		expected bogus range
 
 -check-literal-string expr(ctx expr-ctx, ast literal-string-ast, expected expected)
 	range = ast range
@@ -418,9 +406,9 @@ do
 	guard type-index ?= ctx find-expected-struct-for-literal range, expected, allowed-types else
 		expected bogus range
 	expr expr? = if type-index == 0
-		range literal-integral-expr char8, do ctx char8-literal-value range, value
+		range literal-scalar-expr char8, do ctx char8-literal-value range, value
 	elif type-index == 1
-		range literal-integral-expr char32, do ctx char32-literal-value range, value
+		range literal-scalar-expr char32, do ctx char32-literal-value range, value
 	else
 		string-type = kinds[type-index]
 		if string-type != js-any or ctx check-is-js range
@@ -436,16 +424,16 @@ do
 		ctx add-diag range, not-extern-js
 	res
 
--char8-literal-value integral-value(ctx expr-ctx, diag-range source-range, value string)
+-char8-literal-value scalar-value(ctx expr-ctx, diag-range source-range, value string)
 	res = value.to::char8[] opt-only else
 		ctx add-diag diag-range, diag-char-literal-must-be-one-char
 		"a"
-	- res to
--char32-literal-value integral-value(ctx expr-ctx, diag-range source-range, value string)
+	res to
+-char32-literal-value scalar-value(ctx expr-ctx, diag-range source-range, value string)
 	res = value decode-as-single-unicode-char else
 		ctx add-diag diag-range, diag-char-literal-must-be-one-char
 		"a"
-	- res to
+	res to
 -decode-as-single-unicode-char char32?(a string)
 	a.to::char32[] opt-only
 
@@ -738,7 +726,7 @@ do
 		if char-type ?= builtin_.to::char-type?
 			ctx check-match-char ast, expected, matched, matched-type, char-type
 		elif integral ?= builtin_.to::integral-type?
-			ctx check-match-integral ast, expected, matched, matched-type, integral
+			ctx check-match-scalar ast, expected, matched, matched-type, integral
 		else
 			not-matchable[]
 	as enum_ x
@@ -951,12 +939,12 @@ do
 	matched-type type
 	char-type char-type
 do
-	seen integral-value mut-set = ()
+	seen scalar-value mut-set = ()
 	seen hint-size ast.cases.size
-	cases match-integral-case[] = with out in ast.cases.size build
+	cases match-scalar-case[] = with out in ast.cases.size build
 		for case-ast in ast cases
 			guard string-value ?= ctx string-from-case-ast case-ast.member
-			value integral-value = match char-type
+			value scalar-value = match char-type
 			as char8
 				ctx char8-literal-value case-ast.name-range, string-value
 			as char32
@@ -967,9 +955,9 @@ do
 				ctx add-diag case-ast.name-range, string-value::diag-match-case-duplicate
 	else_ = ctx check-match-else-required ast, expected, matched-type, of
 		integral::diag-match-needs-else
-	ast match-integral-expr char-type, matched, cases, else_, expected.inferred
+	ast match-scalar-expr char-type, matched, cases, else_, expected.inferred
 
--check-match-integral expr
+-check-match-scalar expr
 	ctx expr-ctx
 	ast match-ast
 	expected expected
@@ -977,16 +965,16 @@ do
 	matched-type type
 	integral-type integral-type
 do
-	seen integral-value mut-set = ()
+	seen scalar-value mut-set = ()
 	seen hint-size ast.cases.size
-	cases match-integral-case[] = with out in build
+	cases match-scalar-case[] = with out in build
 		for case-ast in ast cases
-			opt-value integral-value? = match case-ast member
+			opt-value scalar-value? = match case-ast member
 			as as-name-ast x
 				ctx add-diag x.name.range, numeric::diag-match-case-for-type
 				()
-			as literal-integral-and-range x
-				ctx.check-ctx check-literal-integral-value integral-type, x
+			as literal-number x
+				ctx.check-ctx check-literal-integral-value integral-type, x.range
 			as as-string-ast x
 				ctx add-diag x.range, numeric::diag-match-case-for-type
 				()
@@ -997,12 +985,12 @@ do
 					out ~= value, do ctx check-expr case-ast.then_, expected
 				else
 					ctx add-diag case-ast.name-range, if integral-type is-signed
-						value.as-signed::diag-match-case-duplicate
+						value.to::int64::diag-match-case-duplicate
 					else
-						value.as-unsigned::diag-match-case-duplicate
+						value.to::nat64::diag-match-case-duplicate
 	else_ = ctx check-match-else-required ast, expected, matched-type, of
 		integral::diag-match-needs-else
-	ast match-integral-expr integral-type, matched, cases, else_, expected.inferred
+	ast match-scalar-expr integral-type, matched, cases, else_, expected.inferred
 
 -get-matchable-string-like-from-record string-like-type?(common-types common-types, inst struct-inst)
 	if inst == common-types.char32-array
@@ -1061,7 +1049,8 @@ do
 do
 	destructure destructure? = if d ?= destructure-ast
 		ctx check-destructure d, matched-type, local
-	destructure, do ctx check-expr-with-destructures destructure.from-option, then-ast, expected
+	destructure: destructure
+	then_: ctx check-expr-with-destructures destructure.from-option, then-ast, expected
 
 # TODO: use a with-block ---------------------------------------------------------------------------------------------------------
 -with-extern-from-condition[out] out(ctx expr-ctx, condition expr, is-negated bool, cb out mut())
@@ -1092,7 +1081,7 @@ do
 		if d ?= x destructure
 			ctx add-diag d.range, ().diag-match-case-no-value-for-enum-or-symbol
 		x.name.name to
-	as literal-integral-and-range x
+	as literal-number x
 		ctx add-diag x.range, string-like::diag-match-case-for-type
 		()
 	as as-string-ast x

@@ -3,7 +3,6 @@ import
 	../frontend/show-model
 	../model/ast
 	../model/concrete-model
-	../model/integral-values
 	../model/model
 	../model/show-concrete-model
 	../model/source-range
@@ -87,16 +86,16 @@ quick-fill-in-concrete-fun-body void(ctx concretize-ctx, cf concrete-fun)
 	as builtin-fun-constant x
 		return-type gen-constant range, do ctx to-constant return-type, x
 	as builtin-fun-is-empty-type _
-		constant constant = type-args[].only.is-empty-type.to integral-value
+		constant constant = type-args[].only.is-empty-type.to::scalar-value
 		return-type concrete-expr range, constant
 	else
 		a concrete-fun-body-builtin type-args[]
 -to-constant constant(ctx concretize-ctx, type concrete-type, a builtin-fun-constant)
 	match a
 	as bool x
-		x constant-bool
+		x.to::scalar-value
 	as float x
-		x constant-float
+		x.to::scalar-value
 	as builtin-fun-constant-empty-option
 		ctx gen-constant-none type
 	as builtin-fun-constant-gc-safe-value
@@ -191,7 +190,7 @@ do
 			for i in 0 .. a.args.size
 				ctx concretize-expr concrete-called.params[i].type, a.args[i]
 		if concrete-called is-not and constant ?= args.only.kind constant
-			concrete-called.return-type, range, do !constant.as-bool constant-bool
+			concrete-called.return-type, range, do !constant.as-bool to
 		else
 			# We need to widen again even though it was done already in 'concretize-expr',
 			# because we may be calling a spec-impl that has a narrower type than the spec.
@@ -608,7 +607,7 @@ do
 	cases concrete-local-and-expr[] =
 		- (), else_
 		- then_.local, then_.expr
-	option match-union-concrete-expr 2.integral-values-range, cases, ()
+	option match-union-concrete-expr (0 .. 2).to, cases, ()
 
 -concretize-literal-string-like concrete-expr
 	ctx concretize-expr-ctx
@@ -899,30 +898,30 @@ do
 do
 	guard a.cases !is-empty else ctx concretize-bogus type, range
 	matched = ctx concretize-expr a.matched
-	values-unsorted integral-value[] = for x in a cases then x.member value
+	values-unsorted scalar-value[] = a.cases map it.member.value
 	cases-unsorted concrete-expr[] = for value in values-unsorted
 		case_ = a.cases find! it.member.value == value
 		ctx concretize-expr type, case_.then_
 	else_ concrete-local-and-expr? = if x ?= a else_
 		ctx concretize-expr-with-opt-destructure type, range, x
 	values, cases = values-unsorted sort-by-first cases-unsorted
-	type gen-match-enum-or-integral range, matched, values, cases, else_
+	type gen-match-enum-or-integral range, matched, values.to, cases, else_
 
 -concretize-match-integral concrete-expr
 	ctx concretize-expr-ctx
 	type concrete-type
 	range uri-and-range
-	a match-integral-expr
+	a match-scalar-expr
 do
 	matched = ctx concretize-expr a.matched
-	values-unsorted integral-value[] = for x in a cases then x value
+	values-unsorted scalar-values = a.cases map it.value to
 	# TODO: If matched is a constant, just compile the relevant case
 	cases-unsorted concrete-expr[] = for value in values-unsorted
 		case_ = a.cases find! it.value == value
 		ctx concretize-expr type, case_.then_
 	else_ = ctx concretize-expr-with-opt-destructure type, range, a.else_
-	values, cases = values-unsorted sort-by-first cases-unsorted
-	type gen-match-enum-or-integral range, matched, values, cases, else_
+	values, cases = values-unsorted.values sort-by-first cases-unsorted
+	type gen-match-enum-or-integral range, matched, values.to, cases, else_
 
 -concretize-match-string-like concrete-expr
 	ctx concretize-expr-ctx
@@ -955,29 +954,29 @@ do
 		else
 			ctx concretize-bogus type, range
 	else
-		values, cases = ctx concretize-match-sum-type-cases type, range, matched.type, a.cases
-		type, range, do matched match-union-concrete-expr values, cases, else_
+		member-indices, cases = ctx concretize-match-sum-type-cases type, range, matched.type, a.cases
+		type, range, do matched match-union-concrete-expr member-indices.to, cases, else_
 
--concretize-match-sum-type-cases (integral-values, concrete-local-and-expr[])
+-concretize-match-sum-type-cases (nat[], concrete-local-and-expr[])
 	ctx concretize-expr-ctx
 	type concrete-type
 	range uri-and-range
 	variant-type concrete-type
 	cases match-sum-type-case[]
 do
-	values integral-values = for x in cases
+	member-indices nat[] = for x in cases
 		ctx member-index-for-match-sum-type-case variant-type, x
-	concrete-cases concrete-local-and-expr[] = for value in values
+	concrete-cases concrete-local-and-expr[] = for member-index in member-indices
 		case_ = cases find! of x
-			(ctx member-index-for-match-sum-type-case variant-type, x) == value
+			(ctx member-index-for-match-sum-type-case variant-type, x) == member-index
 		ctx concretize-expr-with-destructure type, range, case_.destructure, case_.then_
-	values sort-by-first concrete-cases
--member-index-for-match-sum-type-case integral-value
+	member-indices sort-by-first concrete-cases
+-member-index-for-match-sum-type-case nat
 	ctx concretize-expr-ctx
 	variant-type concrete-type
 	a match-sum-type-case
 do
-	(ctx.concretize-ctx sum-type-case-index variant-type, (ctx get-concrete-type a.destructure.type)),
+	ctx.concretize-ctx sum-type-case-index variant-type, do ctx get-concrete-type a.destructure.type
 
 -concretize-force concrete-expr
 	ctx concretize-expr-ctx
@@ -1035,7 +1034,7 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 	as call-option-expr x
 		ctx concretize-call-option type, range, x
 	as extern-expr x
-		type, range, do x.names is-subset-of ctx.concretize-ctx.all-externs constant-bool
+		type, range, do x.names is-subset-of ctx.concretize-ctx.all-externs to
 	as finally-expr x
 		ctx concretize-finally type, range, x
 	as force-expr x
@@ -1050,9 +1049,7 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 		ctx concretize-let outer-type, range, x
 	as list-expr x
 		ctx concretize-list type, range, x
-	as literal-float-expr x
-		type gen-constant range, x.value.constant-float	
-	as literal-integral-expr x
+	as literal-scalar-expr x
 		type gen-constant range, x.value
 	as literal-string-like-expr x
 		ctx concretize-literal-string-like type, range, x.string-type, x.value
@@ -1101,7 +1098,7 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 		ctx concretize-loop-while-or-until type, range, x
 	as match-enum-expr x
 		ctx concretize-match-enum type, range, x
-	as match-integral-expr x
+	as match-scalar-expr x
 		ctx concretize-match-integral type, range, x
 	as match-string-like-expr x
 		ctx concretize-match-string-like type, range, x
@@ -1190,8 +1187,9 @@ do
 	a try-expr
 do
 	tried = ctx concretize-expr type, a.tried
-	values, cases = ctx concretize-match-sum-type-cases type, range, ctx.concretize-ctx.exception-type, a.catches
-	type, range, do tried try-concrete-expr values, cases, if x ?= a catch-else
+	member-indices, cases =
+		ctx concretize-match-sum-type-cases type, range, ctx.concretize-ctx.exception-type, a.catches
+	type, range, do tried try-concrete-expr member-indices.to, cases, if x ?= a catch-else
 		ctx concretize-expr-with-opt-destructure type, range, x
 
 -concretize-try-let concrete-expr

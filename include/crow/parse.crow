@@ -47,6 +47,8 @@ import
 | Uses "\0" to indicate the end.
 +peek8 char8(a string-mut-iterator)
 	if a is-at-end then "\0" else a.char8s[a char8-index]
+-peek8-plus-1 char8(a string-mut-iterator)
+	if a.char8-index + 1 <= a.char8s.size then a.char8s[a.char8-index + 1] else "\0"
 +peek char32?(a string-mut-iterator)
 	guard a !is-at-end
 	iter char8 array-iterator = a.char8s.begin + a.char8-index
@@ -352,38 +354,60 @@ import
 | Parses a natural number in decimal format.
 | This allows leading 0s which have no effect.
 +nat nat64 grammar()
-	func: of iter
-		iter take-nat else throw "natural number" inner-parse-error
+	func: it.take-nat
 
 | Parses a signed integer in decimal format.
 | This allows e.g. "1", "+23", "-45".
 +int int64 grammar()
 	("+".optional ~~ (nat transform it.to)) / ("+" ~~ (nat transform -it.to))
+~parse-int int64(a char8 array-view)
+	forbid a is-empty else "integer" inner-parse-error
+	if a[0] == "+"
+		a[1 .. end].parse-nat to
+	elif a[0] == "-"
+		-a[1 .. end].parse-nat
+	else
+		a.parse-nat to
 
--nat-and-count-digits record
-	value nat64
-	count-digits nat64
--take-nat nat64?(iter string-mut-iterator)
-	iter.take-nat-and-count-digits ?value
--take-nat-and-count-digits nat-and-count-digits?(iter string-mut-iterator)
-	acc mut nat64 = 0
-	count-digits mut nat64 = 0
-	while x ?= iter next-digit
-		acc *:= 10
-		acc +:= x
-		count-digits := count-digits + 1
-	unless count-digits == 0
-		acc, count-digits
--next-digit nat64?(a string-mut-iterator)
-	guard digit ?= a.peek8 char-to-nat64
+~take-nat nat64(iter string-mut-iterator)
+	if iter try-take "0b"
+		iter take-nat 2
+	elif iter try-take "0o"
+		iter take-nat 8
+	elif iter try-take "0x"
+		iter take-nat 16
+	else
+		iter take-nat 10
+-take-nat nat64(iter string-mut-iterator, base nat64)
+	try
+		acc mut nat64 = iter next-digit base else throw "natural number" inner-parse-error
+		while x ?= iter next-digit base
+			acc *:= base
+			acc +:= x
+		acc
+	catch unary-out-of-range _
+		throw "number that fits in a nat64" inner-parse-error
+-next-digit nat64?(a string-mut-iterator, base nat)
+	a skip-underscore-if-before-digit
+	guard digit ?= a.peek8 char-to-nat64 base
 	_ = a take-char8
 	digit
+~parse-nat nat64(a char8 array-view)
+	iter string-mut-iterator = a,
+	res = iter take-nat
+	assert iter is-at-end else todo
+	res
 
 -is-digit bool(a char8)
-	_ ?= a char-to-nat64
--char-to-nat64 nat64?(c char8)
+	_ ?= a char-to-nat64 10
+-char-to-nat64 nat64?(c char8, base nat64)
+	assert base <= 36
 	if "0"::char8 <= c and c <= "9"
-		c.to - "0"::char8.to to
+		res nat64 = c.to - "0"::char8.to to
+		if res < base then res
+	elif "a"::char8 <= c and c <= "z"
+		res nat64 = 10 + (c.to - "a"::char8.to to)
+		if res < base then res
 
 | Parse a decimal number.
 | This allows e.g. "+1.23".
@@ -395,18 +419,31 @@ import
 	assert iter peek-digit else "float" inner-parse-error
 	while iter peek-digit
 		_ = iter take-char8
-	if iter try-take "."
+		iter skip-underscore-if-before-digit
+	if iter.peek8 == "." and iter.peek8-plus-1 is-digit
+		_ = iter take-char8
 		while iter peek-digit
 			_ = iter take-char8
-	iter.char8s[index .. iter.char8-index].to string-to-float
+			iter skip-underscore-if-before-digit
+	iter.char8s[index .. iter.char8-index] parse-float
 
 -peek-digit bool(a string-mut-iterator)
 	a.peek8 is-digit
 
--string-to-float float64(a string)
+-skip-underscore-if-before-digit void(a string-mut-iterator)
+	if a.peek8 == "_" and a.peek8-plus-1 is-digit
+		_ = a take-char8
+
+~parse-float float64(a char8 array-view)
 	trusted if extern java
-		a.to parseDouble
+		fixed char8[] = if a exists it == "_" # TODO: "_"::char8 in a -----------------------------------------------------------
+			for* x in a
+				unless x == "_"
+					- x
+		else
+			a to
+		fixed.to::string.to parseDouble
 	elif extern js
-		"Number".js-global call a.to to
+		"Number".js-global call a.to::string.to to
 	else
 		throw todo

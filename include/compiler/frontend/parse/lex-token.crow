@@ -1,6 +1,5 @@
 import
-	crow/parse
-	../../model/ast
+	../../../crow/parse
 	../../model/source-range
 	../../util/parse-util
 	./lex-whitespace
@@ -10,14 +9,12 @@ token-and-data record
 	-dummy void
 	token token
 	token-data token-data
-token-data union(void, symbol, extra-dedents, literal-float, literal-integral, char32, source-range)
+token-data union(void, symbol, extra-dedents, char32, source-range)
 extra-dedents record(extra-dedents nat)
 
 new token-and-data(token token)
 	forbid token is-symbol-token
 	forbid token is-newline-token
-	forbid token == literal-float
-	forbid token == literal-integral
 	forbid token == unexpected-character
 	forbid token == region_
 	(), token, ()::void
@@ -27,12 +24,6 @@ new token-and-data(token token, name symbol)
 new token-and-data(token token, d extra-dedents)
 	assert token is-newline-token
 	(), token, d
-new token-and-data(token token, l literal-float)
-	assert token == literal-float
-	(), token, l
-new token-and-data(token token, l literal-integral)
-	assert token == literal-integral
-	(), token, l
 new token-and-data(token token, c char32)
 	assert token == unexpected-character
 	(), token, c
@@ -48,12 +39,6 @@ as-symbol symbol(a token-and-data) # TODO: have a function returning an option i
 as-extra-dedents nat(a token-and-data)
 	assert a.token is-newline-token
 	a.token-data.extra-dedents! extra-dedents
-as-literal-float literal-float(a token-and-data)
-	assert a.token == literal-float
-	a.token-data literal-float!
-as-literal-integral literal-integral(a token-and-data)
-	assert a.token == literal-integral
-	a.token-data literal-integral!
 as-unexpected-character char32(a token-and-data)
 	assert a.token == unexpected-character
 	a.token-data char32!
@@ -159,7 +144,7 @@ do
 		brace-right plain-token
 	as "-"
 		if ptr.peek8 is-decimal-digit
-			ptr take-number-after-sign minus
+			ptr take-number-after-sign
 		elif ptr try-take-char "-"
 			ptr operator-token "--"
 		else
@@ -171,7 +156,7 @@ do
 			equal plain-token
 	as "+"
 		if ptr.peek8 is-decimal-digit
-			ptr take-number-after-sign plus
+			ptr take-number-after-sign
 		else
 			ptr operator-token "+"
 	as "|"
@@ -230,7 +215,7 @@ do
 	else x
 		ptr.pos := start
 		if x is-decimal-digit
-			ptr take-number-after-sign ()
+			ptr take-number-after-sign
 		else
 			ptr lex-identifier-like
 
@@ -439,82 +424,12 @@ do
 	else
 		name
 
--take-number-after-sign token-and-data(ptr string-mut-iterator, sign sign?)
-	base nat = if ptr try-take "0x"
-		16
-	elif ptr try-take "0o"
-		8
-	elif ptr try-take "0b"
-		2
+-take-number-after-sign token-and-data(ptr string-mut-iterator)	
+	if ptr starts-with "0b" or ptr starts-with "0o" or ptr starts-with "0x"
+		_ = ptr take-nat
 	else
-		10
-	n = ptr take-nat base
-	if ptr peek-decimal-point
-		_ = ptr take-char8
-		literal-float, if v ?= n value
-			(ptr take-float (sign else plus), v, base),
-		else
-			(),
-	elif s ?= sign
-		literal-integral, (s, n.value)::literal-integral
-	else
-		literal-integral, n.to-literal-integral
-
--peek-decimal-point bool(ptr string-mut-iterator)
-	ptr.peek8 == "." and ptr[1] is-decimal-digit
-
--take-float high-precision-float?(ptr string-mut-iterator, sign sign, nat-part nat, base nat)
-	before-e = ptr take-nat-continue base, nat-part
-	guard value ?= before-e value
-	exp int = -before-e.count-digits.to
-	exponent int? = if ptr try-take-char "e"
-		power-sign = if ptr try-take-char "-" then minus else plus
-		guard power ?= ptr take-nat 10 value
-		guard signed-power ?= power-sign signed power
-		exp + signed-power
-	else
-		exp
-	guard e ?= exponent # TODO: support parsing `guard exponent ?= ...` 000000000000000000000000000000000000000000000000
-	sign, value, e
-
--signed int?(sign sign, value nat)
-	match sign
-	as plus
-		if value <= max-value::int.to
-			value to
-	as minus
-		if value <= max-value::int.to
-			-value.to
-		elif value == max-value::int.to + 1
-			min-value
-
-nat-and-overflow record(value nat?, count-digits nat)
--to-literal-integral literal-integral(a nat-and-overflow)
-	plus, a.value
-
-take-nat nat-and-overflow(ptr string-mut-iterator, base nat)
-	ptr take-nat-continue base, 0
--take-nat-continue nat-and-overflow(ptr string-mut-iterator, base nat64, starting nat)
-	value mut = starting
-	overflow mut = false
-	count-digits mut nat = 0
-	loop
-		digit = ptr.peek8 decode-hex-digit
-		if d ?= digit
-			if d.to::nat < base
-				count-digits +:= 1
-				_ = ptr take-char8
-				new-value = value * base + d.to
-				_ = ptr try-take-char "_"
-				overflow := overflow or new-value / base != value
-				value := new-value
-				continue
-			else
-				break
-		else
-			break
-	- unless overflow then value
-	- count-digits
+		_ = ptr take-float
+	literal-number,
 
 try-take-identifier bool(ptr string-mut-iterator)
 	if ptr try-take-initial-identifier-char

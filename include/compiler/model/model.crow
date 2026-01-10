@@ -7,7 +7,6 @@ import
 	../util/by-name
 	../util/util
 	./ast
-	./integral-values
 	./parse-diag
 	./source-range
 	./uri
@@ -692,7 +691,7 @@ enum-member alias
 enum-or-flags-member record force-data
 	source enum-member-source
 	containing-enum struct-decl
-	value integral-value
+	value scalar-value
 	doc-comment-references mut doc-comment-references
 == bool(a enum-or-flags-member, b enum-or-flags-member)
 	a.source == b.source
@@ -762,11 +761,11 @@ as-union sum-type-member-and-method-impls[](a sum-type)
 	assert a.kind == union_
 	a listed-members
 
-get-all-flags-value integral-value(body flags_)
+get-all-flags-value nat(body flags_)
 	res mut nat = 0
 	for member in body members
-		res |:= member.value as-unsigned
-	res,
+		res |:= member.value to
+	res
 
 builtin-type enum
 	array
@@ -897,7 +896,7 @@ range uri-and-range(a struct-alias)
 name-range uri-and-range(a struct-alias)
 	a.module-uri, a.ast.name-range
 
-symbol-set alias # TODO: I should intern these like I do for integral-values --------------------------------------------------
+symbol-set alias # TODO: I should intern these
 	symbol set
 
 struct-decl record force-data
@@ -2178,12 +2177,6 @@ subscript struct-inst(a common-types, type char-type)
 		a char32
 subscript struct-inst(a common-types, type integral-type)
 	a.integrals[type]
-subscript struct-inst(a common-types, type char-or-integral-type)
-	match type
-	as char-type x
-		a[x]
-	as integral-type x
-		a[x]
 subscript struct-inst(a common-types, type float-type-or-js)
 	match type
 	as float32
@@ -2250,7 +2243,6 @@ to nat32(a float-type)
 members float-type[]()
 float-type-or-js enum(float32, float64, js-any)
 members float-type-or-js[]()
-to symbol(a float-type-or-js)
 to json(a float-type-or-js)
 as-integral integral-type(a char-type)
 	match a
@@ -2307,6 +2299,8 @@ to builtin-type(a integral-type)
 	as int64
 		int64
 
+char-or-integral-or-float-type union(char-type, integral-type, float-type-or-js)
+	to json()
 char-or-integral-type union(char-type, integral-type)
 	show string()
 	to json()
@@ -2770,8 +2764,7 @@ expr union
 	lambda-expr
 	let-expr
 	list-expr
-	literal-float-expr
-	literal-integral-expr
+	literal-scalar-expr
 	literal-string-like-expr
 	local-get-expr
 	local-set-expr
@@ -2781,7 +2774,7 @@ expr union
 	loop-continue-expr
 	loop-while-or-until-expr
 	match-enum-expr
-	match-integral-expr
+	match-scalar-expr
 	match-string-like-expr
 	match-sum-type-expr
 	seq-expr
@@ -2835,9 +2828,7 @@ type type(a expr, types available-types?)
 		x type types
 	as list-expr x
 		x array-type
-	as literal-float-expr x
-		x type types
-	as literal-integral-expr x
+	as literal-scalar-expr x
 		x type types
 	as literal-string-like-expr x
 		x type types
@@ -2857,7 +2848,7 @@ type type(a expr, types available-types?)
 		x.after type types
 	as match-enum-expr x
 		x type
-	as match-integral-expr x
+	as match-scalar-expr x
 		x type
 	as match-string-like-expr x
 		x type
@@ -3133,7 +3124,7 @@ let-expr record(ast let-ast, destructure destructure, value expr, then_ expr)
 to json(a let-expr)
 	destructure: a.destructure to
 	value: a.value to
-	then_: a.then_ to
+	then: a.then_ to
 range source-range(a let-expr)
 	a.destructure.start, a.then_.end
 type type(a let-expr, types available-types?)
@@ -3167,18 +3158,80 @@ arg expr(a list-expr-part)
 	as list-expr-part-multi x
 		x arg
 
-literal-float-expr record(range source-range, float-type float-type-or-js, value float)
-to json(a literal-float-expr)
-type struct-inst(a literal-float-expr, types available-types?)
-	types!.common-types[a float-type]
+scalar-value record
+	-bits nat64
+to json(a scalar-value)
+== bool(a scalar-value, b scalar-value)
+<=> comparison(a scalar-value, b scalar-value)
+	a.bits <=> b.bits
+hash-mix void(hasher hasher, a scalar-value)
+	hasher hash-mix a.bits
+to scalar-value(a bool)
+	a.to,
+to bool(a scalar-value)
+	match a.to::nat64
+	as 0
+		false
+	as 1
+		true
+	else
+		throw unreachable
+to scalar-value(a nat8)
+	a.to,
+to scalar-value(a char8)
+	a.to,
+to scalar-value(a char32)
+	a.to,
+to char32(a scalar-value)
+	a.to::nat64.to::nat32 to
+to scalar-value(a int64)
+	a.wrap-to,
+to int64(a scalar-value)
+	a.bits wrap-to
+to scalar-value(a nat64)
+	a,
+to nat8(a scalar-value)
+	a.to::nat64 to
+to nat64(a scalar-value)
+	a bits
+to scalar-value(a float64)
+	a.bits-of,
+to float64(a scalar-value)
+	a.bits from-bits
 
-literal-integral-expr record
+scalar-values record
+	-bits nat64[]
+subscript scalar-value(a scalar-values, index nat)
+	a.bits[index] to
+== bool(a scalar-values, b scalar-values)
+	a.bits == b.bits
+to json(a scalar-values)
+	a.bits to
+size nat(a scalar-values)
+	a.bits size
+iterate bool(a scalar-values, f bool mut(x scalar-value))
+	a.bits iterate f[it.to]
+to scalar-values(values scalar-value[])
+	bits: values map it.to
+values scalar-value[](a scalar-values)
+	a.bits map it.to
+is-range bool(a scalar-values)
+	a.with-index every of i, x
+		i == x.to
+
+literal-scalar-expr record
 	range source-range
-	integral-type char-or-integral-type
-	value integral-value
-to json(a literal-integral-expr)
-type struct-inst(a literal-integral-expr, types available-types?) # TODO: INLINE? -------------------------------------------------------------------
-	types!.common-types[a integral-type]
+	type char-or-integral-or-float-type
+	value scalar-value
+to json(a literal-scalar-expr)
+type struct-inst(a literal-scalar-expr, types available-types?) # TODO: INLINE? -------------------------------------------------------------------
+	match a type
+	as char-type x
+		types!.common-types[x]
+	as integral-type x
+		types!.common-types[x]
+	as float-type-or-js x
+		types!.common-types[x]
 
 literal-string-like-expr record
 	range source-range
@@ -3272,33 +3325,33 @@ match-enum-expr record
 to json(a match-enum-expr)
 	matched: a.matched to
 	cases: a.cases to
-	else_: a.else_ to # TODO: use "else" as the key ------------------------------------------------------------------------------------------------
+	else: a.else_ to
 match-enum-case record(member enum-or-flags-member, then_ expr)
 to json(a match-enum-case)
 	member: a.member.name to
-	then_: a.then_ to
+	then: a.then_ to
 range source-range(a match-enum-expr)
 	a.ast range
 enum-type struct-inst(a match-enum-expr)
 	a.matched.type-not-common struct-inst!
 
-match-integral-expr record
+match-scalar-expr record
 	ast match-ast
 	integral-type char-or-integral-type
 	matched expr
-	cases match-integral-case[]
+	cases match-scalar-case[]
 	else_ match-else
 	type type
-to json(a match-integral-expr)
+to json(a match-scalar-expr)
 	integral-type: a.integral-type to
 	matched: a.matched to
 	cases: a.cases to
-	else_: a.else_ to # TODO: use "else" as the key ------------------------------------------------------------------------------------------------
-match-integral-case record(value integral-value, then_ expr)
-to json(a match-integral-case)
-range source-range(a match-integral-expr)
+	else: a.else_ to
+match-scalar-case record(value scalar-value, then_ expr)
+to json(a match-scalar-case)
+range source-range(a match-scalar-expr)
 	a.ast range
-matched-type struct-inst(a match-integral-expr)
+matched-type struct-inst(a match-scalar-expr)
 	a.matched.type-not-common struct-inst!
 
 match-string-like-expr record
@@ -3313,7 +3366,7 @@ match-string-like-expr record
 to json(a match-string-like-expr)
 	matched: a.matched to
 	cases: a.cases to
-	else_: a.else_ to # TODO: use "else" as the key ------------------------------------------------------------------------------------------------
+	else: a.else_ to
 match-string-like-case record(value string, then_ expr)
 to json(a match-string-like-case)
 range source-range(a match-string-like-expr)
@@ -3331,7 +3384,7 @@ match-sum-type-expr record
 to json(a match-sum-type-expr)
 	matched: a.matched to
 	cases: a.cases to
-	else_: a.else_ to # TODO: use "else" as the key ------------------------------------------------------------------------------------------------
+	else: a.else_ to
 match-sum-type-case record(destructure destructure, then_ expr)
 to json(a match-sum-type-case)
 match-else record(destructure destructure?, then_ expr)
@@ -3389,8 +3442,8 @@ try-let-expr record
 to json(a try-let-expr)
 	destructure: a.destructure to
 	value: a.value to
-	catch_: a.catch_ to
-	then_: a.then_ to
+	catch: a.catch_ to
+	then: a.then_ to
 range source-range(a try-let-expr)
 	a.ast range
 
@@ -3448,9 +3501,7 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 		cb[x value] or cb[x then_]
 	as list-expr x
 		x.parts first cb[it.arg]
-	as literal-float-expr _
-		()
-	as literal-integral-expr _
+	as literal-scalar-expr _
 		()
 	as literal-string-like-expr _
 		()
@@ -3470,7 +3521,7 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 		cb[x condition] or cb[x body] or cb[x after]
 	as match-enum-expr x
 		cb[x matched] or (x.cases first cb[it.then_]) or x.else_.?then_ cb-option cb
-	as match-integral-expr x
+	as match-scalar-expr x
 		cb[x matched] or (x.cases first cb[it.then_]) or cb[x.else_ then_]
 	as match-string-like-expr x
 		cb[x matched] or (x.cases first cb[it.then_]) or cb[x.else_ then_]
@@ -3610,7 +3661,6 @@ diag union
 	diag-lambda-not-expected
 	diag-lambda-type-missing-param-type
 	diag-lambda-type-variadic
-	diag-literal-float-accuracy
 	diag-literal-multiple-match
 	diag-literal-not-expected
 	diag-literal-overflow
@@ -3773,7 +3823,7 @@ diag-duplicate-imports record(kind diag-duplicate-exports-kind, name symbol)
 diag-empty-enum-or-union record
 # TODO: RENAME (since it is called a 'storage' type) --------------------------------------------------------------------------------
 diag-enum-backing-type-invalid record(enum_ struct-decl, actual type)
-diag-enum-duplicate-value record(signed bool, value integral-value)
+diag-enum-duplicate-value record(signed bool, value scalar-value)
 diag-expected-type-is-not-a-lambda record(expected-type type-with-container?)
 diag-extern-body-multiple record
 diag-extern-invalid-name record(name symbol)
@@ -3816,7 +3866,6 @@ diag-lambda-multiple-match record
 diag-lambda-not-expected record(expected expected-for-diag)
 diag-lambda-type-missing-param-type record
 diag-lambda-type-variadic record
-diag-literal-float-accuracy record(type float-type-or-js)
 diag-literal-multiple-match record(type-container type-container, types struct-inst[])
 diag-literal-not-expected record(expected expected-for-diag)
 diag-literal-overflow record(type integral-type)

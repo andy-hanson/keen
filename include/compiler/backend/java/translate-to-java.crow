@@ -2,7 +2,6 @@ import
 	crow/col/mut-stack
 	../../frontend/show-model
 	../../model/concrete-model
-	../../model/integral-values
 	../../model/model
 	../../model/show-concrete-model
 	../../model/source-range
@@ -303,7 +302,7 @@ do
 		element = x element-type
 		if element is-nat8 and x.elements.size > 16
 			resource = ctx.ctx add-resource for e in x elements
-				e.integral-value!.as-unsigned to
+				e.scalar-value! to
 			out ldc ctx.this-class
 			out ldc do out.constants string-ref resource
 			out invokevirtual ctx.names.java-Class-getResourceAsStream
@@ -462,7 +461,7 @@ do
 		union-class = ctx.names class_ type
 		out makenew union-class
 		out dup32
-		out push-constant-integral nat32, member-index.integral-value
+		out push-constant-integral nat32, member-index.to
 		out aload local
 		out invokespecial do ctx.names init-union-switch union-class
 	as nullable
@@ -488,9 +487,9 @@ do
 			out push-constant-integral nat32, match constant
 			as constant-array ca
 				elements = ctx.ctx.program.all-constants.arrays[ca type-index].constants[ca index] # TODO: have a helper function for this!
-				elements.size integral-value
+				elements.size to
 			as constant-gc-safe-value
-				0 integral-value
+				0::nat to
 			else
 				throw unreachable
 		else
@@ -511,9 +510,9 @@ do
 	as char32
 		out push-constant-integral int32, constant
 	as float32
-		out fconst constant.constant-float!.value.to
+		out fconst constant.scalar-value!.to::float64.to
 	as float64
-		out dconst constant.constant-float!.value
+		out dconst constant.scalar-value!.to::float64
 	as future
 		throw unreachable
 	as int8
@@ -551,9 +550,9 @@ do
 		out aconst_null
 
 -push-constant-integral void(out code-builder, type integral-type, constant constant)
-	value = match constant
-	as integral-value x
-		x as-signed
+	value int = match constant
+	as scalar-value x
+		x to
 	as constant-gc-safe-value
 		0
 	else
@@ -1349,7 +1348,7 @@ do
 	as loop-continue-concrete-expr
 		out go-back-to ctx.loop-pos!
 		ctx pushed type # Treat the stack effect as if the loop completed
-	as match-enum-or-integral-concrete-expr x
+	as match-scalar-concrete-expr x
 		# TODO:PERF If <= 3 cases, it's probably better to just use ifeq instructions
 		out emit-and-continue ctx, x.matched
 		out with-inner-pos ctx, pos, of inner-pos
@@ -1357,9 +1356,9 @@ do
 			is-signed = matched-type is-signed
 			ok = x.case-values every of value
 				if is-signed
-					value.as-signed fits-in-int32
+					value.to::int64 fits-in-int32
 				else
-					value.as-unsigned fits-in-nat32
+					value.to::nat64 fits-in-nat32
 			assert ok else todo # If some values don't fit in 32 bits, we can't use a switch. Just use jumps instead.
 			if l ?= x.else_ ?local
 				out dup l.type.as-runtime-type
@@ -1383,7 +1382,7 @@ do
 			else
 				()
 			assert x.case-values is-sorted
-			int-values int32[] = for v in x case-values then v.as-signed to
+			int-values int32[] = for v in x case-values then v.to::int64 to
 			permutation = int-values get-sort-permutation
 			jump-to-case, jump-to-default = if x.case-values is-range
 				out tableswitch 0 .. x.case-values.size.to
@@ -1473,7 +1472,7 @@ do
 			start = out next-index
 			out emit-expr ctx, inner-pos, x.tried
 			end = out next-index
-			for exception-case-index, case_ in x.exception-member-indices zip x.catch-cases
+			for exception-case-index, case_ in x.exception-member-indices.to-array zip x.catch-cases
 				ctx must-pop type
 				catch-type = ctx exception-case-type-from-index exception-case-index
 				frame-before = ctx cur-stack-frame
@@ -1684,11 +1683,12 @@ do
 		out emit-match-union-using-switch ctx, pos, type, value-type, a
 	as nullable
 		out with-inner-pos ctx, pos, of inner-pos
-			null-case, non-null-case = if a.member-indices[0] == (0::nat,)
-				a.member-indices is ((0::nat,), (1::nat,))
+			null-case, non-null-case = if a.member-indices[0] == 0
+				a.member-indices is (0, 1).to
 				a.cases only2
 			else
-				a.member-indices is ((1::nat,), (0::nat,))
+				a.member-indices is (1, 0).to
+				a.cases.size is 2
 				a.cases[1], a.cases[0]
 			forbid _ ?= a else_
 
@@ -1709,8 +1709,8 @@ do
 	# Note: I tested using a 'switch' on the 'case-index' method, but it didn't improve performance.
 	matched-type = x.matched type
 	out with-inner-pos ctx, pos, of inner-pos
-		for member-index, case_ in x.member-indices zip x.cases
-			case-type = x.union_.members[member-index as-unsigned]
+		for member-index, case_ in x.member-indices.to-array zip x.cases
+			case-type = x.union_.members[member-index]
 			# TODO: we could avoid the dup for the last case (see match-string-like-concrete-expr) --------------------
 			out dup32
 			out instanceof do ctx.names class_ case-type
@@ -1748,11 +1748,10 @@ do
 	out with-inner-pos ctx, pos, of inner-pos
 		# This consumes 'kind'
 		ctx must-pop ctx.program.nat32
-		jump-to-case, jump-to-default = out lookupswitch for index in x member-indices # TODO: use a table switch usually
-			index.as-unsigned to
-		for target, member-index, case_ in jump-to-case zip3 x.member-indices, x.cases
+		jump-to-case, jump-to-default = out lookupswitch (x.member-indices map it.to) # TODO: use a table switch usually
+		for target, member-index, case_ in jump-to-case zip3 x.member-indices.to-array, x.cases
 			target jumps-to-here out, ctx.cur-stack-frame
-			case-type = x.union_.members[member-index as-unsigned]
+			case-type = x.union_.members[member-index]
 			if l ?= case_ local # TODO: should I use a 'with-opt-local' helper? ----------------------------------------------------
 				out cast-and-unbox-if-necessary ctx, case-type
 				ctx must-refine matched-type, case-type
@@ -2002,9 +2001,8 @@ do
 		ctx.locals.pop! is local-type
 	ctx.next-local-index is local
 
--exception-case-type-from-index concrete-type(ctx expr-ctx, exception-case-index integral-value)
-	exception-types = ctx.program.exception.body.concrete-union! members
-	exception-types[exception-case-index as-unsigned]
+-exception-case-type-from-index concrete-type(ctx expr-ctx, exception-case-index nat)
+	ctx.program.exception.body.concrete-union!.members[exception-case-index]
 
 | Used before an instruction that will use the args
 -emit-args void(out code-builder, ctx expr-ctx, args concrete-expr[])

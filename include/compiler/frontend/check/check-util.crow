@@ -1,38 +1,34 @@
 import
+	../../../crow/parse
 	../../model/ast
-	../../model/integral-values
 	../../model/model
+	../../model/source-range
 	../../util/util
 	./check-ctx
 	./type-from-ast
 
-check-literal-integral-value integral-value(ctx check-ctx, type integral-type, ast literal-integral-and-range)
-	res integral-value? = if u ?= ast.literal unsigned-value
-		value integral-value? = match ast.literal sign
-		as plus
-			u,
-		as minus
-			if u <= max-value::int.to
-				-u.to,
-			elif u == max-value::int.to + 1
-				min-value::int,
-		if v ?= value
-			unless type literal-nat-or-int-overflows ast.literal.sign, v
-				v
-	res else
-		ctx add-diag ast.range, type.diag-literal-overflow
-		0::nat,
-
--literal-nat-or-int-overflows bool(type integral-type, sign sign, value integral-value)
-	if type is-signed
-		i = value as-signed
-		i < type.min-value or (i > 0 and i.to::nat64 > type.max-value)
-	else
-		match sign
-		as minus
-			true
-		as plus
-			value.as-unsigned > type.max-value
+check-literal-integral-value scalar-value(ctx check-ctx, type integral-type, range source-range)
+	text = ctx get-text range
+	is-negative = text[0] == "-"
+	value scalar-value? = try
+		if text exists it == "." # TODO: "."::char8 in text -------------------------------------------------------------------------------
+			()
+		elif is-negative
+			res = text parse-int
+			ok = if type is-signed
+				res >= type.min-value and (res < 0 or res.to::nat64 <= type.max-value)
+			else
+				res >= 0 and res.to::nat <= type.max-value
+			if ok then res to
+		else
+			text2 = if text[0] == "+" then text[1 .. end] else text
+			res = text2 parse-nat
+			if res <= type.max-value then res to
+	catch inner-parse-error _
+		()
+	value else
+		ctx add-diag range, type.diag-literal-overflow
+		0::nat to
 
 check-return-type-and-params (type, params)
 	ctx check-ctx

@@ -2,7 +2,6 @@ import
 	crow/unsafe
 	../util/full-index-map
 	../util/util
-	./integral-values
 	./ast
 	./model
 	./source-range
@@ -365,7 +364,7 @@ concrete-expr-kind union
 	loop-concrete-expr
 	loop-break-concrete-expr
 	loop-continue-concrete-expr
-	match-enum-or-integral-concrete-expr
+	match-scalar-concrete-expr
 	match-string-like-concrete-expr
 	match-union-concrete-expr
 	record-field-get-concrete-expr
@@ -452,23 +451,24 @@ loop-break-concrete-expr record(value concrete-expr)
 to json(a loop-break-concrete-expr)
 loop-continue-concrete-expr record
 to json(a loop-continue-concrete-expr)
-match-enum-or-integral-concrete-expr record
+
+match-scalar-concrete-expr record # TODO: RENAME TO MATCH_SCALAR -----------------------------------------------------
 	-dummy void # TODO:KILL ----------------------------------------------------------------------------------------------
 	matched concrete-expr
-	case-values integral-values
+	case-values scalar-values
 	case-exprs concrete-expr[]
 	else_ concrete-local-and-expr?
-new match-enum-or-integral-concrete-expr
+new match-scalar-concrete-expr
 	matched concrete-expr
-	case-values integral-values
+	case-values scalar-values
 	case-exprs concrete-expr[]
 	else_ concrete-local-and-expr?
 do
 	assert case-values is-sorted
 	case-values.size is case-exprs.size
 	(), matched, case-values, case-exprs, else_
-to json(a match-enum-or-integral-concrete-expr)
-matched-integral-type char-or-integral-type(a match-enum-or-integral-concrete-expr)
+to json(a match-scalar-concrete-expr)
+matched-integral-type char-or-integral-type(a match-scalar-concrete-expr)
 	match a.matched.type body
 	as concrete-builtin-type x
 		x.kind to!
@@ -476,6 +476,7 @@ matched-integral-type char-or-integral-type(a match-enum-or-integral-concrete-ex
 		x storage_
 	else
 		throw unreachable
+
 match-string-like-concrete-expr record
 	matched concrete-expr
 	equals concrete-fun
@@ -485,15 +486,37 @@ to json(a match-string-like-concrete-expr)
 # TODO: shouldn't 'value' be a constant? ------------------------------------------------------------------------------------------------
 concrete-match-string-like-case record(value concrete-expr, then_ concrete-expr)
 to json(a concrete-match-string-like-case)
+
+indices record(values scalar-values)
+new indices(...values nat64[])
+	values: values map it.to to
+== bool(a indices, b indices)
+to json(a indices)
+	a.values to
+to indices(a nat)
+	values: (a.to::scalar-value,).to::scalar-values
+to indices(a nat range)
+	values: (a map it.to)::scalar-value[] to
+to indices(a nat[])
+	values: (a map it.to)::scalar-value[] to
+size nat(a indices)
+	a.values size
+iterate bool(a indices, f bool mut(x nat))
+	a.values iterate f[it.to]
+subscript nat(a indices, index nat)
+	a.values[index] to
+to-array nat[](a indices)
+	a.values map it.to
+
 match-union-concrete-expr record
 	-dummy void
 	matched concrete-expr
-	member-indices integral-values
+	member-indices indices
 	cases concrete-local-and-expr[]
 	else_ concrete-local-and-expr?
 new match-union-concrete-expr
 	matched concrete-expr
-	member-indices integral-values
+	member-indices indices
 	cases concrete-local-and-expr[]
 	else_ concrete-local-and-expr?
 do
@@ -502,7 +525,7 @@ do
 	(), matched, member-indices, cases, else_
 match-union-concrete-expr concrete-expr-kind
 	matched concrete-expr
-	member-indices integral-values
+	member-indices indices
 	cases concrete-local-and-expr[]
 	else_ concrete-local-and-expr?
 do
@@ -537,7 +560,7 @@ throw-concrete-expr record(thrown concrete-expr)
 to json(a throw-concrete-expr)
 try-concrete-expr record
 	tried concrete-expr
-	exception-member-indices integral-values
+	exception-member-indices indices
 	catch-cases concrete-local-and-expr[]
 	| For this, the local type is always 'exception'
 	catch-else concrete-local-and-expr?
@@ -546,11 +569,11 @@ to json(a try-concrete-expr)
 try-let-concrete-expr record
 	local concrete-local?
 	value concrete-expr
-	exception-member-index integral-value
+	exception-member-index nat
 	catch_ concrete-local-and-expr
 	then_ concrete-expr
 caught-type concrete-type(a try-let-concrete-expr, exception concrete-type)
-	exception.body.concrete-union!.members[a.exception-member-index as-unsigned]
+	exception.body.concrete-union!.members[a exception-member-index]
 
 to json(a try-let-concrete-expr)
 var-get-concrete-expr record(var concrete-var)
@@ -714,7 +737,7 @@ iterate bool(a direct-child-exprs, f bool mut(x concrete-expr))
 		f[x value]
 	as loop-continue-concrete-expr _
 		false
-	as match-enum-or-integral-concrete-expr x
+	as match-scalar-concrete-expr x
 		f[x matched] or x.case-exprs iterate f or x.else_.?expr cb-option f
 	as match-string-like-concrete-expr x
 		f[x matched] or
@@ -748,10 +771,9 @@ iterate bool(a direct-child-exprs, f bool mut(x concrete-expr))
 | (e.g., IntegralValue has different sizes.)
 constant union
 	constant-array
-	constant-float
-	integral-value
 	constant-native-string
 	constant-record
+	scalar-value
 	constant-symbol
 	constant-union
 	constant-gc-safe-value
@@ -764,13 +786,11 @@ hash-mix void(hasher hasher, a constant)
 	match a
 	as constant-array x
 		hasher hash-mix x
-	as constant-float x
-		hasher hash-mix x
-	as integral-value x
-		hasher hash-mix x
 	as constant-native-string x
 		hasher hash-mix x
 	as constant-record x
+		hasher hash-mix x
+	as scalar-value x
 		hasher hash-mix x
 	as constant-symbol x
 		hasher hash-mix x
@@ -790,10 +810,6 @@ do
 		elem = type array-element-type
 		for x in all-constants.arrays[xs type-index].constants[xs index]
 			all-constants each-nested-constant elem, x, f
-	as constant-float _
-		()
-	as integral-value _
-		()
 	as constant-native-string _
 		()
 	as constant-record x
@@ -801,6 +817,8 @@ do
 		args = all-constants.records[type]![x]
 		for arg, field in args zip fields
 			all-constants each-nested-constant field.type, arg, f
+	as scalar-value _
+		()
 	as constant-symbol _
 		()
 	as constant-union x
@@ -820,15 +838,6 @@ to json(a constant-array)
 hash-mix void(hasher hasher, a constant-array)
 	hasher hash-mix a.type-index
 	hasher hash-mix a.index
-| Used for float32 or float64
-# TODO: using a wrapper type shouldn't be necessary any mroe ..................................................................
-constant-float record(value float)
-to json(a constant-float)
-	a.value to
-hash-mix void(hasher hasher, a constant-float)
-	hasher hash-mix a.value
-# TODO: handle Nan! -------------------------------------------------------------------------------------------------------------
-== bool(a constant-float, b constant-float)
 | Constant Java or JS string
 constant-native-string record(value string)
 == bool(a constant-native-string, b constant-native-string)
@@ -868,22 +877,9 @@ to json(a constant-gc-safe-value)
 hash-mix void(_ hasher, _ constant-gc-safe-value)
 	()
 
-constant-bool constant(a bool)
-	(a.to::nat,)::integral-value
 as-bool bool(a constant)
-	match a.as-integral as-unsigned
-	as 0
-		false
-	as 1
-		true
-	else
-		throw unreachable
-
+	a.scalar-value! to
 as-nat64 nat(a constant)
-	a.as-integral as-unsigned
-
+	a.scalar-value! to
 as-float float64(a constant)
-	a.constant-float! value
-
-as-integral integral-value(a constant)
-	a integral-value!
+	a.scalar-value! to
