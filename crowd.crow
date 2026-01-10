@@ -1,0 +1,191 @@
+import
+	crow/parse
+	./include/compiler/util/parse-util
+	./include/compiler/frontend/parse/lexer
+	./include/compiler/frontend/parse/lex-string
+	./include/compiler/frontend/parse/lex-token
+	./include/compiler/frontend/parse/parse-util
+	./include/compiler/frontend/parse/token
+	./include/compiler/model/ast
+	./include/compiler/model/source-range
+	./include/compiler/model/uri
+
+main void()
+	"1" roundtrip 1::nat.to
+	"false" roundtrip false.to
+	"true" roundtrip true.to
+	"\"hello\"" roundtrip "hello"::string.to
+	"- 1" roundtrip (1::nat.to,)
+	"a: 1" roundtrip
+		a: 1::nat to
+	"""
+- 1
+- 2
+	""" roundtrip (1::nat.to, 2::nat.to)
+	"""
+a: 1
+b: 2
+c: 3
+	""" roundtrip
+		a: 1::nat.to
+		b: 2::nat.to
+		c: 3::nat.to
+
+	crowd parse """
+k:
+	1
+	""" is
+		k: 1::nat.to
+
+	"""
+k:
+	- "v"
+	""" roundtrip
+		k: "v"::string.to,
+	"""
+a:
+	b:
+		c: 1
+	d: 2
+	""" roundtrip do
+		a:
+			b:
+				c: 1::nat.to
+			d: 2::nat.to
+
+-roundtrip void(text string, value json)
+	crowd parse text is value
+	value.to-crowd is text.strip
+
+-to-json string(a json)
+	a show
+
+-to-crowd string(a json) # TODO: this should just be 'show' ------------------------------------------------------------------------------------------
+	with out in build
+		out to-crowd a, 0
+
+-to-crowd void(out string-builder, a json, indent nat)
+	if xs ?= a array
+		first mut = true
+		for x in xs
+			if first
+				first := false
+			else
+				out ~~= indent.newline
+			out ~= "-"
+			out to-crowd-inner x, indent
+	elif pairs ?= a object
+		first mut = true
+		for key, value in pairs
+			if first
+				first := false
+			else
+				out ~~= indent.newline
+			out ~~= "{key}:"
+			out to-crowd-inner value, indent
+	else
+		out ~~= a to-json
+-to-crowd-inner void(out string-builder, a json, indent nat)
+	if _ ?= a array or _ ?= a object
+		out ~~= indent + 1 newline
+		out to-crowd a, indent + 1
+	else
+		out ~= " "
+		out ~~= a to-json
+
+-newline string(indent nat)
+	"\n" ~~ ("\t" repeat indent)
+
+crowd json grammar()
+	func: of iter
+		lexer lexer = (), iter
+		try
+			while lexer try-take-token newline-same-indent
+				()
+			res = lexer parse-crowd false
+			while lexer try-take-token newline-same-indent
+				()
+			assert lexer try-take-token end-of-file else "End of file" inner-parse-error
+			res
+		catch crowd-parse-error x
+			info log "ERROR AT {x pos}"
+			iter set-pos x.pos
+			throw "Crowd value" inner-parse-error
+
+| Starting on a fresh line, parse a Crowd value, allowing multi-line values.
+-parse-crowd json(lexer lexer, is-inner bool)
+	start = lexer cur-pos
+	token = lexer take-next-token
+	match token token
+	as quote-double
+		x = lexer take-initial-string-part double
+		assert x.after == done else start crowd-parse-error
+		x.text to
+	as literal-integral
+		# TODO: the json 'number' type should just have an option for 'nat'! -----------------------------------------------------------------------------
+		x = token as-literal-integral
+		assert value ?= x unsigned-value else start crowd-parse-error
+		float float = match x sign
+		as minus
+			-(value to)
+		as plus
+			value to
+		float to
+	as literal-float
+		x = token as-literal-float
+		assert value ?= x value else start crowd-parse-error
+		value.to::float to
+	as name
+		token.as-symbol value-from-name else throw start crowd-parse-error
+	as name-colon
+		assert !is-inner else start crowd-parse-error
+		lexer parse-object token.as-symbol to
+	as operator
+		assert !is-inner and token.as-symbol == "-" else start crowd-parse-error
+		lexer.parse-list to
+	as newline-indent
+		assert is-inner else start crowd-parse-error
+		res = lexer parse-crowd false
+		assert lexer try-take-token newline-dedent else start crowd-parse-error
+		res
+	else
+		throw start crowd-parse-error
+| Parse a Crowd value that may appear in the middle of the line, such as after 'foo: '.
+-parse-crowd-inner json(lexer lexer)
+	lexer parse-crowd true
+
+-crowd-parse-error record(pos pos) exception case
+-show string(_ crowd-parse-error)
+	throw unreachable
+
+-value-from-name json?(name symbol)
+	match name
+	as false
+		false to
+	as true
+		true to
+	as null
+		null
+	else
+		()
+
+-parse-list json[](lexer lexer)
+	with out in build
+		out ~= lexer parse-crowd-inner
+		while lexer try-take-token newline-same-indent and lexer !try-take-token end-of-file
+			assert lexer try-take-operator "-" else lexer.cur-pos crowd-parse-error
+			out ~= lexer parse-crowd-inner
+
+-parse-object json[symbol](lexer lexer, first-name symbol)
+	with out in build
+		out ~= first-name, lexer.parse-crowd-inner
+		while lexer try-take-token newline-same-indent and lexer !try-take-token end-of-file
+			start = lexer cur-pos
+			token = lexer take-next-token
+			assert token.token == name-colon else start crowd-parse-error
+			out ~= token.as-symbol, lexer.parse-crowd-inner
+
+take-identifier symbol(ptr string-mut-iterator)
+	start nat32 = ptr.char8-index to
+	assert ptr try-take-identifier else "identifier" inner-parse-error
+	ptr symbol-from start

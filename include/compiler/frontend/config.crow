@@ -7,10 +7,9 @@ import
 
 parse-config config(config-uri uri, text string)
 	line-and-column-getter = text line-and-column-getter-for-text
-	try x = text parse-json catch inner-parse-error _ then config-uri config-for-diag diag-config-invalid-json
-	assert o ?= x object else todo
+	try json = text parse-json catch inner-parse-error _ then config-uri config-for-diag diag-config-invalid-json
 	diags diagnostic mut[] = ()
-	content = config-uri.parent-or-empty parse-config-recur diags, o
+	content = config-uri.parent-or-empty parse-config-inner diags, json
 	config-uri: config-uri
 	diagnostics: diags move-to
 	line-and-column-getter: line-and-column-getter
@@ -18,31 +17,16 @@ parse-config config(config-uri uri, text string)
 	extern_: content extern_
 
 -config-content record(include config-import-uris, extern_ config-extern-uris)
--new config-content()
-	(), ()
--with-include config-content(a config-content, include config-import-uris)
-	include, a.extern_
--with-extern config-content(a config-content, extern_ config-extern-uris)
-	a.include, extern_
-
--parse-config-recur config-content(dir-containing-config uri, diags diagnostic mut[], obj json[symbol])
-	res mut config-content = ()
-	for key, value in obj
-		res := match key
-		as include
-			res with-include (dir-containing-config parse-include diags, value)
-		as "extern"
-			res with-extern (dir-containing-config parse-extern diags, value)
-		else
-			throw todo
-	res
+-parse-config-inner config-content(dir-containing-config uri, diags diagnostic mut[], obj json)
+	include: dir-containing-config parse-include diags, obj["include"]
+	extern_: dir-containing-config parse-extern diags, obj["exclude"]
 
 -parse-include config-import-uris(dir-containing-config uri, diags diagnostic mut[], json json)
-	diags parse-symbol-map json, of value
+	json.to::json[symbol] map-values of value
 		dir-containing-config parse-uri-or-bogus diags, value
 
 -parse-extern config-extern-uris(dir-containing-config uri, diags diagnostic mut[], json json)
-	diags parse-symbol-map json, of value
+	json.to::json[symbol] map-values of value
 		if value != null
 			dir-containing-config parse-uri-or-bogus diags, value
 
@@ -50,14 +34,4 @@ parse-config config(config-uri uri, text string)
 	dir-containing-config parse-uri diags, value else bogus-uri
 -parse-uri uri?(dir-containing-config uri, diags diagnostic mut[], json json)
 	_ = diags
-	assert x ?= json string else todo
-	dir-containing-config parse-uri-with-cwd x
-
--parse-symbol-map[t] t[symbol](diags diagnostic mut[], json json, cb-value t mut(x json))
-	_ = diags
-	res t mut[symbol] = ()
-	if o ?= json object
-		for key, json-value in o
-			forbid key in res else todo
-			res[key] := cb-value[json-value]
-	res move-to
+	dir-containing-config parse-uri-with-cwd json.to::string

@@ -7,6 +7,7 @@ import
 	./col/map
 	./col/mut-array
 	./col/set
+	./exception
 	./hash
 	./parse
 	./misc
@@ -18,21 +19,52 @@ import
 	./tuple
 
 | JSON data.
+| The representation is deliberately opaque to allow precise representation of numbers.
+| Generally you should use 'to::t' to read a JSON value as the type you expect it to be.
+| If you really need to match on a json value, use {simplify}.
 +json record
 	inner json-inner
-+json-inner union(null, bool, float64, string, json-array, json-object)
-+json-array record(elements json[])
-+== bool(a json-array, b json-array)
-+json-object record(fields json[symbol])
-+== bool(a json-object, b json-object)
+-json-inner union(null, bool, nat64, int64, float64, string, json[], json[symbol])
+
++deserialize-error record(value json) exception case
++show string(a deserialize-error)
+	"The json value {a.value show-short} cannot be interpreted as this type."
+-show-short string(a json)
+	match a inner
+	as array _
+		"[ ... ]"
+	as map _
+		"\{ ... }"
+	else
+		a show
+
++json-simplified union(null, bool, float64, string, json[], json[symbol])
++== bool(a json-simplified, b json-simplified)
++simplify json-simplified(a json)
+	match a inner
+	as null
+		null
+	as bool x
+		x
+	as nat x
+		x.to::float64
+	as int x
+		x.to::float64
+	as float x
+		x
+	as string x
+		x
+	as array x
+		x
+	as map x
+		x
 
 +== bool(a json, b json)
--== bool(a json-inner, b json-inner)
+	# TODO: We should actually just use the auto fun. But make sure '1' parses as a nat consistently!
+	a.simplify == b.simplify
 
-+string string?(a json)
-	a.inner string
-+object json[symbol]?(a json)
-	a.inner.json-object ?fields
++to string(a json)
+	a.inner.string else throw a deserialize-error
 
 +null record
 +== bool(a null, b null)
@@ -45,7 +77,7 @@ import
 	if args is-empty
 		null
 	else
-		- args json-array
+		- args
 +named-new json(keys symbol[], values json[])
 	assert keys.size == values.size
 	map json[symbol] = for i in 0 .. keys.size
@@ -53,19 +85,19 @@ import
 	map to
 
 +null json()
-	()::null,
+	inner: ()::null
 +to json(a json)
 	a
 +to json(_ void)
 	null
 +to json(a bool)
-	a::json-inner,
+	inner: a
 +to json(a char8)
 	a.to::string to
 +to json(a char32)
 	a.to::string to
 +to json(a string)
-	a,
+	inner: a
 +to json(a nat8)
 	a.to::nat64 to
 +to json(a nat16)
@@ -73,7 +105,7 @@ import
 +to json(a nat32)
 	a.to::nat64 to
 +to json(a nat64)
-	a.to::float64 to
+	inner: a
 +to json(a int8)
 	a.to::int64 to
 +to json(a int16)
@@ -81,26 +113,33 @@ import
 +to json(a int32)
 	a.to::int64 to
 +to json(a int64)
-	a.to::float64 to
+	inner: a
 +to json(a float32)
 	a.to::float64 to
 +to json(a float64)
-	a,
+	inner: a
 +to json(a symbol)
 	a.to::string to
 +to[t] json(a t[]) (json, t) to
-	xs json[] = for x in a then x to
-	(xs,)::json-array,
+	- (a map it.to)::json[]
 +to[t] json(a t array-view) (json, t) to
-	(for x in a then x to)::json[] to
+	- (a map it.to)::json[]
 +to[t] json(a t mut[]) (json, t) to
-	(for x in a then x to)::json[] to
+	- (a map it.to)::json[]
 +to[t] json(a t set) (json, t) to, t key
-	(for x in a then x to)::json[] to
+	- (a map it.to)::json[]
 +to[k, v] json(a v[k]) k key, (symbol, k) to, (json, v) to
 	inner:
-		:: json-object
-		- for k, v in a then k.to, v.to
+		:: json[symbol]
+		for k, v in a then k.to, v.to
++to[v] v[symbol](a json) (v, json) to
+	match a inner
+	as null
+		()
+	as map x
+		x map-values it.to
+	else
+		throw a deserialize-error
 +to[t] json(a t?) (json, t) to
 	if x ?= a
 		x to
@@ -109,9 +148,6 @@ import
 +to[t, u] json(a (t, u)) (json, t) to, (json, u) to
 	a.a.to, a.b.to
 +to json(a comparison)
-
-+symbol symbol?(a json)
-	a.inner.string ?to
 
 | If {a} is an `object` containing the key {key}, returns the associated value.
 | Returns `null` if one of these is true:
@@ -122,29 +158,59 @@ import
 | Most code does not care about this distinction.
 | If you do, you can test `if obj ?= {a} object` or `if {key} in a`.
 +subscript json(a json, key symbol)
-	a.inner.json-object.?fields?[key] else null
+	a.inner.map?[key] else null
 
 | {true} if {a} is an object and {key} is one of its keys.
 +in bool(key symbol, a json)
-	if obj ?= a.inner json-object
-		key in obj.fields
+	x ?= a.inner map and key in x
 
 | `a bool-or-null` is like `a bool`, but treats {null} as {false}.
-+bool-or-null bool?(a json)
-	if a == null
++to bool(a json)
+	a.inner bool else
+		assert a == null else a deserialize-error
 		false
-	else
-		a.inner bool
 
-+array json[]?(a json)
-	a.inner.json-array ?elements
-
-| `a array-or-null` is like `a array`, but treats {null} as an empty array.
-+array-or-null json[]?(a json)
-	if a == null
-		()::json[]
++to[t] t[](a json) (t, json) to
+	match a inner
+	as null
+		()
+	as array xs
+		xs map it.to
 	else
-		a.inner.json-array ?elements
+		throw a deserialize-error
+
++to nat32(a json)
+	a.to::nat64 to
++to nat64(a json)
+	a.inner.float64! to
++to symbol(a json)
+	a.to::string to
+
+| Renders a {json} value to JSON.
++show string(a json)
+	match a inner
+	as null
+		"null"
+	as bool b
+		"{b}"
+	as nat64 x
+		"{x}"
+	as int64 x
+		"{x}"
+	as float64 f
+		"{f}"
+	as string s
+		s quote
+	as array xs
+		parts = "," join for x in xs then "{x}"
+		"[{parts}]"
+	as map xs
+		parts = "," join for k, v in xs
+			"{k.to quote}:{v}"
+		"\{{parts}}"
+
++build json(a build-options, f void mut(out json array-builder))
+	(a build f)::json[] to
 
 +json json grammar()
 	func: of iter
@@ -205,56 +271,3 @@ import
 	value = a parse-json
 	a skip-whitespace
 	key.to, value
-
-# TODO: use the below if performance is just as good (it probably isn't though) -----------------------------------------------------------------
-###
-+json json grammar()
-	spaces ~~ json-inner ~~ spaces
--json-inner json grammar()
-	with in lazy
-		(json-object transform it.to) / (json-array transform it.to) / json-primitive
--json-object json[symbol] grammar()
-	quoted-symbol symbol grammar = quoted-string transform it.to
-	pair (symbol, json) grammar = quoted-symbol ~~ spaces ~~ ":" ~~ spaces ~~ json
-	pairs (symbol, json)[] grammar = pair separated-by "," ~~ spaces
-	pairs2 json[symbol] grammar = pairs transform it.to
-	"\{" ~~ spaces ~~ pairs2 ~~ spaces ~~ "}"
--json-array json[] grammar()
-	"[" ~~ spaces ~~ (json separated-by "," ~~ spaces) ~~ spaces ~~ "]"
--json-primitive json grammar()
-	literal json grammar = (bool transform it.to) / ("null" exact null)
-	(quoted-string transform it.to) / (float transform it.to) / literal
-###
-
-+to[t] t[](a json) (t, json) to
-	for x in a.inner.json-array! elements
-		x to
-
-+to nat32(a json)
-	a.to::nat64 to
-+to nat64(a json)
-	a.inner.float64! to
-+to symbol(a json)
-	a.string! to
-
-| Renders a {json} value to JSON.
-+show string(a json)
-	match a inner
-	as null
-		"null"
-	as bool b
-		"{b}"
-	as float64 f
-		"{f}"
-	as string s
-		s quote
-	as json-array xs
-		parts = "," join for x in xs elements then "{x}"
-		"[{parts}]"
-	as json-object o
-		parts = "," join for k, v in o fields
-			"{k.to quote}:{v}"
-		"\{{parts}}"
-
-+build json(a build-options, f void mut(out json array-builder))
-	(a build f)::json[] to

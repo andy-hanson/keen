@@ -24,7 +24,7 @@ to symbol(a purity)
 	as mut_
 		"mut"
 to string(a purity)
-	a.to to
+	a.to::symbol to
 to json(a purity)
 	a.to::string to
 
@@ -492,18 +492,19 @@ array-or-mut-slice-element-type type?(a type)
 		a.struct-inst!.type-args only
 
 try-unwrap-option-type type?(a type)
-	if a is-option-type or a is-bogus
-		a must-unwrap-option-type-or-bogus
+	if a is-bogus
+		a
+	else
+		a unwrap-option
+unwrap-if-option-type type(a type)
+	a unwrap-option else a
 unwrap-option-or-same type(a type)
 	a try-unwrap-option-type else a
-must-unwrap-option-type-or-bogus type(a type)
-	if a is-bogus then bogus-type else a must-unwrap-option-type
-must-unwrap-option-type type(a type)
-	assert a is-option-type
-	a.struct-inst! must-unwrap-option-type
-must-unwrap-option-type type(a struct-inst)
-	assert a is-option-type
-	a.type-args only
+unwrap-option type?(a type)
+	a.struct-inst ?unwrap-option
+unwrap-option type?(a struct-inst)
+	if a is-option-type
+		a.type-args only
 
 is-option-type bool(a type)
 	a is-builtin-type option
@@ -1572,7 +1573,7 @@ fun-decl-insts union(fun-inst, (fun-inst, fun-inst-key) object-memoizer) mut
 			as union_
 				"|"
 		as sum-type-member-get
-			return-type.must-unwrap-option-type.struct-inst!.decl name
+			return-type.unwrap-option!.struct-inst!.decl name
 		else
 			throw unreachable
 	as var-decl x
@@ -2124,10 +2125,9 @@ is-std bool(a import-or-export)
 
 common-funs record
 	error struct-inst
+	json-array struct-inst
 	lambda-subscript (fun-kind, fun-decl) enum-map
 	shared-of-mut-lambda fun-decl
-	to-json-from-json fun-inst
-	to-json-from-t-array fun-decl
 	to-symbol-from-string fun-inst
 	json-named-new fun-inst
 	equal-symbol fun-inst
@@ -2192,20 +2192,22 @@ subscript struct-inst(a common-types, type float-type-or-js)
 		a float64
 	as js-any
 		a js-any
-subscript struct-inst(a common-types, type string-like-type)
+subscript struct-inst(a available-types, type string-like-type)
 	match type
 	as char8-array
-		a char8-array
+		a.common-types char8-array
 	as char32-array
-		a char32-array
+		a.common-types char32-array
 	as java-String
-		a java-String
+		a.common-types java-String
 	as js-any
-		a js-any
+		a.common-types js-any
 	as string
-		a string
+		a.common-types string
 	as symbol
-		a symbol
+		a.common-types symbol
+	as json
+		a json!
 all-floats struct-inst[](a common-types)
 	a.float32, a.float64
 
@@ -2240,7 +2242,7 @@ char-type enum(char8, char32)
 to nat32(a char-type)
 to symbol(a char-type)
 show string(a char-type)
-	a.to to
+	a.to::symbol to
 members char-type[]()
 to json(a char-type)
 float-type enum(float32, float64)
@@ -2265,7 +2267,7 @@ hash-mix void(a hasher, b integral-type)
 	a hash-mix b.to::nat32
 to symbol(a integral-type)
 show string(a integral-type)
-	a.to to
+	a.to::symbol to
 to json(a integral-type)
 members integral-type[]()
 is-signed bool(a integral-type)
@@ -2484,6 +2486,9 @@ program record
 	common-funs common-funs
 	common-types common-types
 	other-types other-types
+available-types available-types(a program)
+	common-types: a common-types
+	json: a.common-funs.json-named-new.return-type struct-inst!
 line-and-character-getters line-and-character-getters(a program)
 	a.line-and-column-getters line-and-character-getters
 config-at-uri config(a program, uri uri)
@@ -2794,12 +2799,16 @@ start pos(a expr)
 end pos(a expr)
 	a.range end
 
+available-types record # TODO: better name ----------------------------------------------------------------------------------------------------------
+	common-types common-types
+	json struct-inst?
 -type-not-common type(a expr)
 	a type ()
-type type(a expr, common-types common-types?)
+type type(a expr, types available-types?)
+	common-types = types ?common-types
 	match a
 	as assert-or-forbid-expr x
-		x.after type common-types
+		x.after type types
 	as bogus-call-expr x
 		x expected-type
 	as bogus-expr x
@@ -2815,23 +2824,23 @@ type type(a expr, common-types common-types?)
 	as extern-expr _
 		common-types! bool
 	as finally-expr x
-		x type common-types
+		x type types
 	as force-expr x
-		x type common-types
+		x type types
 	as if-expr x
-		x type common-types
+		x type types
 	as lambda-expr x
 		x type
 	as let-expr x
-		x type common-types
+		x type types
 	as list-expr x
 		x array-type
 	as literal-float-expr x
-		x type common-types
+		x type types
 	as literal-integral-expr x
-		x type common-types
+		x type types
 	as literal-string-like-expr x
-		x type common-types
+		x type types
 	as local-get-expr x
 		x type
 	as local-set-expr _
@@ -2845,7 +2854,7 @@ type type(a expr, common-types common-types?)
 	as loop-continue-expr x
 		x.loop_ type
 	as loop-while-or-until-expr x
-		x.after type common-types
+		x.after type types
 	as match-enum-expr x
 		x type
 	as match-integral-expr x
@@ -2855,11 +2864,11 @@ type type(a expr, common-types common-types?)
 	as match-sum-type-expr x
 		x type
 	as seq-expr x
-		x type common-types
+		x type types
 	as throw-expr x
 		x type
 	as trusted-expr x
-		x type common-types
+		x type types
 	as try-expr x
 		x type
 	as try-let-expr x
@@ -3057,15 +3066,15 @@ finally-expr record(ast finally-ast, right expr, below expr)
 to json(a finally-expr)
 range source-range(a finally-expr)
 	a.ast range
-type type(a finally-expr, common-types common-types?)
-	a.below type common-types
+type type(a finally-expr, types available-types?)
+	a.below type types
 
 force-expr record(ast force-ast, arg expr)
 to json(a force-expr)
 range source-range(a force-expr)
 	a.ast range
-type type(a force-expr, common-types common-types?)
-	a.arg type common-types must-unwrap-option-type
+type type(a force-expr, types available-types?)
+	a.arg type types unwrap-option!
 
 if-expr record
 	ast if-ast
@@ -3080,7 +3089,7 @@ first-branch expr(a if-expr)
 	if a.ast is-condition-negated then a false-branch else a true-branch
 second-branch expr(a if-expr)
 	if a.ast is-condition-negated then a true-branch else a false-branch
-type type(a if-expr, _ common-types?)
+type type(a if-expr, _ available-types?)
 	a type
 
 lambda-source union(for-or-with-ast, it-scope-ast, lambda-ast)
@@ -3127,8 +3136,8 @@ to json(a let-expr)
 	then_: a.then_ to
 range source-range(a let-expr)
 	a.destructure.start, a.then_.end
-type type(a let-expr, common-types common-types?)
-	a.then_ type common-types
+type type(a let-expr, types available-types?)
+	a.then_ type types
 
 list-expr record
 	ast list-ast
@@ -3160,16 +3169,16 @@ arg expr(a list-expr-part)
 
 literal-float-expr record(range source-range, float-type float-type-or-js, value float)
 to json(a literal-float-expr)
-type struct-inst(a literal-float-expr, common-types common-types?)
-	common-types![a float-type]
+type struct-inst(a literal-float-expr, types available-types?)
+	types!.common-types[a float-type]
 
 literal-integral-expr record
 	range source-range
 	integral-type char-or-integral-type
 	value integral-value
 to json(a literal-integral-expr)
-type struct-inst(a literal-integral-expr, common-types common-types?)
-	common-types![a integral-type]
+type struct-inst(a literal-integral-expr, types available-types?) # TODO: INLINE? -------------------------------------------------------------------
+	types!.common-types[a integral-type]
 
 literal-string-like-expr record
 	range source-range
@@ -3177,11 +3186,11 @@ literal-string-like-expr record
 	| For char32-array, this will be decoded in concretize.
 	value string
 to json(a literal-string-like-expr)
-string-like-type enum(char8-array, char32-array, java-String, js-any, string, symbol)
+string-like-type enum(char8-array, char32-array, java-String, js-any, string, symbol, json)
 == bool(a string-like-type, b string-like-type)
 to json(a string-like-type)
-type struct-inst(a literal-string-like-expr, common-types common-types?)
-	common-types![a string-type]
+type struct-inst(a literal-string-like-expr, types available-types?)
+	types![a string-type]
 
 local-get-expr record(ast local-get-source, local local)
 local-get-source union(it-ast, name-and-range)
@@ -3340,8 +3349,8 @@ seq-expr record(first expr, then_ expr)
 to json(a seq-expr)
 range source-range(a seq-expr)
 	a.first.start, a.then_.end
-type type(a seq-expr, common-types common-types?)
-	a.then_ type common-types
+type type(a seq-expr, types available-types?)
+	a.then_ type types
 
 throw-expr record(ast throw-ast, thrown expr, type type)
 to json(a throw-expr)
@@ -3355,8 +3364,8 @@ to json(a trusted-expr)
 	inner: a.inner to
 range source-range(a trusted-expr)
 	a.ast range
-type type(a trusted-expr, common-types common-types?)
-	a.inner type common-types
+type type(a trusted-expr, types available-types?)
+	a.inner type types
 
 try-expr record
 	ast try-ast
