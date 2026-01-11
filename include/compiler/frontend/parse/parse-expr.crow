@@ -356,25 +356,28 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	elif number ?= lexer try-take-literal-number
 		number
 	else
-		lexer parse-string-literal-for-match-case
+		start = lexer cur-pos
+		lexer parse-string-literal-forbid-interpolated parse-diag-match-case-interpolated else
+			lexer range-for-cur-token start as-bogus-ast
 
 -parse-optional-destructure destructure-ast?(lexer lexer)
 	unless lexer peek-end-of-line or lexer peek-token then_
 		lexer parse-destructure-no-require-parens
 
--parse-string-literal-for-match-case case-member-ast(lexer lexer)
+-parse-string-literal-forbid-interpolated literal-string-ast?(lexer lexer, diag parse-diag)
 	start = lexer cur-pos
-	if lexer take-or-add-diag-expected-token quote-double, match-case
+	res literal-string-ast? = if lexer try-take-token quote-double
 		part = lexer take-initial-string-part double
 		match part after
 		as done
-			()
+			range: lexer range start
+			value: part text
 		as lbrace
-			lexer add-diag (lexer range start), parse-diag-match-case-interpolated
-		lexer range start as-string-ast part.text
-	else
+			()
+	unless _ ?= res
 		lexer skip-until-newline-no-diag
-		lexer range-for-cur-token start as-bogus-ast
+		lexer add-diag (lexer range start), diag # TODO: DIAG SHOULD BE A PARAMETER _-----------------------------------------------
+	res
 
 -parse-if expr-ast(lexer lexer, start pos, is-else-of-parent bool, allowed-block bool)
 	condition = lexer parse-expr-no-block
@@ -723,30 +726,33 @@ parse-single-statement-line expr-ast(lexer lexer)
 	if is-forbid ?= lexer try-take-assert-or-forbid
 		res = lexer parse-assert-forbid-or-guard
 		start assert-or-forbid-ast is-forbid, res.condition, res.else_, res.after
+	elif name ?= lexer try-take-name-colon-and-range
+		lexer parse-named-call name
+	elif first-part ?= lexer try-take-list-part-kind
+		lexer parse-list-call start, first-part
 	else
-		if lexer peek-token name-colon
-			lexer parse-named-call start
-		elif first-part ?= lexer try-take-list-part-kind
-			lexer parse-list-call start, first-part
+		expr = lexer parse-expr-before-call true
+		assignment-pos = lexer cur-pos
+		if first-name ?= expr literal-string-ast and lexer try-take-token colon
+			lexer parse-named-call first-name
+		elif lexer try-take-token-and-may-continue-onto-next-line colon-equal
+			lexer parse-assignment expr, assignment-pos
 		else
-			expr = lexer parse-expr-before-call true
-			assignment-pos = lexer cur-pos
-			if lexer try-take-token-and-may-continue-onto-next-line colon-equal
-				lexer parse-assignment expr, assignment-pos
-			else
-				lexer parse-calls start, expr, allow-everything
+			lexer parse-calls start, expr, allow-everything
 
--parse-named-call expr-ast(lexer lexer, start pos)
-	names name-and-range mut[] = ()
-	values expr-ast mut[] = ()
-	lexer parse-with-separator newline-same-indent, of
-		if name ?= lexer take-name-colon-or-skip-rest-of-line
+-parse-named-call call-named-ast(lexer lexer, first-name name-or-string)
+	names name-or-string mut[] = first-name,
+	values expr-ast mut[] = lexer.parse-expr-no-let,
+	while lexer try-take-token newline-same-indent
+		opt-name name-or-string? = lexer try-take-name-colon-and-range or
+			string = lexer parse-string-literal-forbid-interpolated parse-diag-named-new-key
+			if _ ?= string
+				_ = lexer take-or-add-diag-expected-token colon, colon
+			string
+		if name ?= opt-name
 			names ~= name
 			values ~= lexer parse-expr-no-let
-	if names is-empty
-		lexer range start bogus-ast
-	else
-		names.move-to call-named-ast values.move-to
+	names.move-to, values.move-to
 
 -parse-list-call expr-ast(lexer lexer, start pos, first-part list-part-kind)
 	parts list-ast-part[] = with out in build
