@@ -1,6 +1,6 @@
 import
 	crow/parse
-	../util/parse-util
+	../../crow/private/parse-util
 	./uri
 
 pos alias
@@ -271,26 +271,28 @@ line-and-character-getter-for-text line-and-character-getter(text char8 array-vi
 line-and-column-getter-for-text line-and-column-getter(text string)
 	text.to::char8[].to::(char8 array-view) line-and-column-getter-for-text
 line-and-column-getter-for-text line-and-column-getter(text char8 array-view)
-	ptr string-mut-iterator = text,
+	iter string-mut-iterator = text,
 	line-to-pos pos mut[] = 0,
-	line-to-n-tabs nat8 mut[] = ptr.advance-and-get-n-tabs,
+	line-to-n-tabs nat8 mut[] = iter.advance-and-get-n-tabs,
 	uses-crlf mut bool = false
-	until ptr is-at-end
-		x = ptr take-char8
-		if x == "\r" and ptr.peek8 == "\n"
+	until iter is-at-end
+		if iter.peek8 == "\r"
 			uses-crlf := true
-		if x == "\n" or x == "\r" and ptr.peek8 != "\n"
-			line-to-pos ~= ptr pos
-			line-to-n-tabs ~= ptr advance-and-get-n-tabs
-	
-	lc line-and-character-getter = text, line-to-pos.move-to, uses-crlf
-	lc, line-to-n-tabs.move-to
+		if iter try-take-newline
+			line-to-pos ~= iter pos
+			line-to-n-tabs ~= iter advance-and-get-n-tabs
+		else
+			_ = iter take-char8
+	line-and-character-getter: text, line-to-pos.move-to, uses-crlf
+	line-to-n-tabs: line-to-n-tabs move-to
 
 advance-and-get-n-tabs nat8(a string-mut-iterator)
 	begin = a pos
-	while a.peek8 == "\t"
-		_ = a take-char8
-	a.pos - begin to
+	while a try-take-char8 "\t"
+		()
+	a.pos - begin clamp-to
+-clamp-to nat8(a nat32)
+	a.to::nat64 clamp-to
 
 line-length-in-characters nat(a line-and-character-getter, line nat)
 	if line < a.line-to-pos.size - 1
@@ -352,11 +354,6 @@ pos-kind enum(start-of-range, end-of-range)
 region test
 
 test
-	"a\n\tbb\nc\n" test-lf-or-cr
-	"a\r\tbb\rc\r" test-lf-or-cr
-	"a\r\n\tbb\r\nc\r\n" test-crlf
-
-test
 	assert "$"::char8[].size == 1
 	assert "¥"::char8[].size == 2
 	assert "₿"::char8[].size == 3
@@ -393,8 +390,8 @@ test
 		- 0, 11
 	"₿₿₿₿₿₿₿₿₿".line-and-column-getter-for-text lines-over-n-columns 10 is ()
 
--test-lf-or-cr void(text string)
-	lcg = text line-and-column-getter-for-text
+test
+	lcg = "a\n\tbb\nc\n" line-and-column-getter-for-text
 	lcg verify-convert 0, 0, 0 # a
 	lcg verify-convert 1, 0, 1 # \n or \r
 	lcg verify-convert 2, 1, 0 # \t
@@ -407,8 +404,8 @@ test
 	lcg verify-convert 8, 3, 0 # end
 	lcg common false
 
--test-crlf void(text string)
-	lcg = text line-and-column-getter-for-text
+test
+	lcg = "a\r\n\tbb\r\nc\r\n" line-and-column-getter-for-text
 	lcg verify-convert 0, 0, 0 # a
 	lcg verify-convert 1, 0, 1 # \r
 	lcg verify-convert 2, start-of-range, 0, 1, 1, 1 # \n

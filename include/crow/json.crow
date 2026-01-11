@@ -13,6 +13,7 @@ import
 	./misc
 	./number
 	./option
+	./private/parse-util
 	./range
 	./string
 	./symbol
@@ -242,23 +243,17 @@ import
 			out ~~= "empty-object"
 		else
 			first mut bool = true
-			for key, value in pairs
+			for key-symbol, value in pairs
 				if first
 					first := false
 				else
 					out ~~= options newline
-				out ~~= if key.to is-identifier then key to else key.to quote
+				key string = key-symbol to
+				out ~~= if key is-crow-identifier then key else key quote
 				out ~= ":"
 				out to-crowd-inner value, options
 	else
 		out ~~= a to-json
-
--is-identifier bool(a char8[])
-	a[0] is-letter and a[1 .. end] every of x
-		x is-letter or x is-digit
--is-letter bool(a char8)
-	"a"::char8 <= a and a <= "z" or
-	"A"::char8 <= a and a <= "Z"
 
 -to-crowd-inner void(out string-builder, a json, options to-crowd-options)
 	if a is-scalar
@@ -339,3 +334,132 @@ import
 	value = a parse-json
 	a skip-whitespace
 	key.to, value
+
+# TODO: PRIVATE -------------------------------------------------------------------------------------------------------------------------------------
+~try-take-number json?(iter string-mut-iterator)
+	if iter.peek8 is-digit or iter.peek8 == "-" and iter.peek8-next is-digit
+		# TODO: could take an int or nat
+		iter.take-float to
+
++crowd json grammar()
+	func: of iter
+		indent-kind = iter detect-indent-kind
+		iter skip-all-whitespace
+		res, dedent = iter parse-crowd (indent-kind,), false, 0
+		# End of file counts as a dedent
+		assert dedent == 1
+		res
+
+-ctx record(indent-kind indent-kind)
+
+-parse-crowd (json, nat)(iter string-mut-iterator, ctx ctx, is-inner bool, indent nat32)
+	if name ?= iter try-take-crow-identifier
+		if iter try-take-char8 ":"
+			iter parse-crowd-object ctx, name, indent
+		else
+			- name value-from-name
+			- iter take-dedents ctx, indent
+	elif !is-inner and iter try-take-list-start
+		iter parse-crowd-list ctx, indent
+	elif x ?= iter try-take-quoted-string
+		if iter try-take-char8 ":"
+			iter parse-crowd-object ctx, x.to, indent
+		else
+			- x to
+			- iter take-dedents ctx, indent
+	elif x ?= iter try-take-number
+		- x
+		- iter take-dedents ctx, indent
+	elif iter try-take-newline
+		assert is-inner else "Crowd value" inner-parse-error
+		delta = iter take-indent-delta-after-newline ctx, indent
+		assert delta == 1 else "Crowd value" inner-parse-error
+		res, res-dedent = iter parse-crowd ctx, false, indent + 1
+		try
+			res, res-dedent - 1
+		catch unary-out-of-range _
+			throw "Crowd value" inner-parse-error
+	else
+		throw "Crowd value" inner-parse-error
+
+| Parse a Crowd value that may appear in the middle of the line, such as after 'foo: '.
+-parse-crowd-inner (json, nat)(iter string-mut-iterator, ctx ctx, indent nat32)
+	iter skip-spaces
+	iter parse-crowd ctx, true, indent
+
+-value-from-name json(name symbol)
+	match name
+	as false
+		false
+	as true
+		true
+	as null
+		null
+	as empty-array
+		()::json[] to
+	as empty-object
+		()::json[symbol] to
+	else
+		throw "Crowd value" inner-parse-error
+
+-parse-crowd-list (json, nat)(iter string-mut-iterator, ctx ctx, indent nat32)
+	dedent mut nat = 0
+	res json[] = with out in build
+		first-value, first-dedent = iter parse-crowd-inner ctx, indent
+		out ~= first-value
+		dedent := first-dedent
+		while dedent == 0
+			assert iter try-take-list-start else "List item" inner-parse-error
+			next-value, next-dedent = iter parse-crowd-inner ctx, indent
+			out ~= next-value
+			dedent := next-dedent
+	res.to, dedent
+
+-try-take-list-start bool(iter string-mut-iterator)
+	if iter starts-with-then-whitespace "-"
+		_ = iter take-char8
+		true
+
+-parse-crowd-object (json, nat)(iter string-mut-iterator, ctx ctx, first-name symbol, indent nat32)
+	dedent mut nat = 0
+	res json[symbol] = with out in build
+		first-value, first-dedent = iter parse-crowd-inner ctx, indent
+		dedent := first-dedent
+		out ~= first-name, first-value
+		while dedent == 0
+			name = iter take-name-colon-or-string-colon
+			next-value, next-dedent = iter parse-crowd-inner ctx, indent
+			out ~= name, next-value
+			dedent := next-dedent
+	res.to, dedent
+
+-take-name-colon-or-string-colon symbol(iter string-mut-iterator)
+	assert res ?= (iter try-take-crow-identifier or iter.try-take-quoted-string ?to) else
+		"Identifier or string, then ':'" inner-parse-error
+	assert iter try-take-char8 ":" else "Colon after identifier" inner-parse-error
+	res
+
+-skip-all-whitespace void(iter string-mut-iterator)
+	while iter.peek8 is-whitespace
+		_ = iter take-char8
+-skip-spaces void(iter string-mut-iterator)
+	while iter.peek8 is-whitespace-non-newline
+		_ = iter take-char8
+-try-take-quoted-string string?(iter string-mut-iterator)
+	if iter try-take-char8 "\"" then iter take-quoted-string-after-quote
+
+-take-dedents nat(iter string-mut-iterator, ctx ctx, cur-indent nat32)
+	assert iter try-take-newline or iter is-at-end else "Newline" inner-parse-error
+	delta = iter take-indent-delta-after-newline ctx, cur-indent
+	forbid delta > 0 else "Cannot indent here" inner-parse-error
+	-delta to
+-take-indent-delta-after-newline int32(iter string-mut-iterator, ctx ctx, cur-indent nat32)
+	loop
+		new-indent = iter take-indent-amount-after-newline ctx.indent-kind, of _
+			throw "Indent by {ctx.indent-kind}" inner-parse-error
+		if iter is-at-end
+			break -cur-indent - 1
+		elif iter try-take-newline
+			continue
+		else
+			break new-indent.to - cur-indent.to

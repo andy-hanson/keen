@@ -1,41 +1,13 @@
 import
 	crow/parse
+	../../../crow/private/parse-util
 	../../model/parse-diag
 	../../model/source-range
-	../../util/parse-util
 
 add-diag alias
 	void mut(pos pos, diag parse-diag)
 cb-comment alias
 	void mut(pos pos)
-
-indent-kind enum(tabs, spaces-2, spaces-4, ignore)
-
-detect-indent-kind indent-kind(a string-mut-iterator)
-	ptr string-mut-iterator = a copy
-	loop
-		begin = ptr pos
-		match ptr peek8
-		as "\0"
-			break tabs
-		as "\t"
-			break tabs
-		as " "
-			while ptr try-take-char " "
-				()
-			n = ptr.pos - begin
-			break if n == 2
-				spaces-2
-			else
-				spaces-4
-		else
-			ptr skip-until-newline
-			_ = ptr try-take-char "\n"
-			continue
-
-skip-until-newline void(a string-mut-iterator)
-	while a !is-at-end and a.peek8 != "\n"
-		_ = a take-char8
 
 | Used to lex the tokens that appear between AST nodes for syntax highlighting.
 lex-tokens-between-asts void
@@ -63,17 +35,14 @@ skip-spaces-and-comments void(ptr string-mut-iterator, cb-comment cb-comment, ad
 		if ptr.peek8 is-whitespace-non-newline
 			_ = ptr take-char8
 			continue
-		elif ptr.peek8 == "\\"
-			if ptr try-take-line-continuation cb-comment
-				continue
-			else
-				break
+		elif ptr try-take-line-continuation cb-comment
+			continue
 		elif ptr.peek8 == "#"
 			if ptr try-take-triple-hash-then-newline
 				ptr skip-rest-of-block-comment add-diag
 				cb-comment[start]
 			else
-				while ptr try-take-char " "
+				while ptr try-take-char8 " "
 					()
 				ptr skip-until-newline
 				cb-comment[start]
@@ -81,25 +50,26 @@ skip-spaces-and-comments void(ptr string-mut-iterator, cb-comment cb-comment, ad
 		else
 			break
 
-skip-blank-lines-and-get-indent-delta int
+skip-blank-lines-and-get-indent-delta int32
 	ptr string-mut-iterator
 	indent-kind indent-kind
-	cur-indent nat reference
+	cur-indent nat32 reference
 	add-diag add-diag
 do
 	loop
 		start mut = ptr pos
-		new-indent mut nat = 0
+		new-indent mut nat32 = 0
 		cb-start-of-loop void mut() = of
 			start := ptr pos
-			new-indent := ptr take-indent-amount-after-newline indent-kind, add-diag
+			new-indent := ptr take-indent-amount-after-newline indent-kind, of pos
+				add-diag[pos, indent-kind.parse-diag-indent-wrong]
 		ptr skip-blank-lines cb-start-of-loop, it.noop, add-diag
 		if ptr is-at-end
 			# Ignore indent before end of file
 			new-indent := 0
 		
 		# If we got here, we're looking at a non-empty line (or end of file)
-		delta int = new-indent.to - cur-indent.get.to
+		delta int32 = new-indent.to - cur-indent.get.to
 		if delta > 1
 			add-diag[start, parse-diag-indent-too-much]
 			ptr skip-rest-of-line-and-newline
@@ -108,33 +78,18 @@ do
 			cur-indent set new-indent
 			break delta
 
--may-continue-onto-next-line bool(ptr string-mut-iterator, indent-kind indent-kind, min-indent nat)
-	start = ptr pos
-	while ptr try-take-char " "
-		()
-	if ptr try-take-newline
-		diag mut bool = false
-		new-indent = ptr take-indent-amount-after-newline indent-kind, of _
-			diag := true
-		if new-indent >= min-indent and !diag
-			true
-		else
-			ptr.pos := start
-			false
-	else
-		false
-
 -try-take-line-continuation bool(ptr string-mut-iterator, cb-comment cb-comment)
-	if ptr.peek8 == "\\"
-		ptr2 = ptr copy
-		_ = ptr2 take-char8
-		res = ptr2 may-continue-onto-next-line ignore, 0
-		if res
-			start = ptr pos
-			_ = ptr take-char8
-			cb-comment[start]
-			ptr.pos := ptr2.pos
-		res
+	guard ptr.peek8 == "\\"
+	ptr2 = ptr copy
+	_ = ptr2 take-char8
+	while ptr2 try-take-char8 " "
+		()
+	guard ptr2 try-take-newline
+	start = ptr pos
+	_ = ptr take-char8
+	cb-comment[start]
+	ptr.pos := ptr2 pos
+	true
 
 -ignore-char-for-tokens bool(a char8)
 	a is-whitespace or a == "\\" or a == "#" or a is-non-keyword-punctuation
@@ -194,8 +149,8 @@ do
 			ptr skip-rest-of-block-comment add-diag
 			cb-comment[before]
 			continue
-		elif ptr try-take-char "#"
-			while ptr try-take-char " "
+		elif ptr try-take-char8 "#"
+			while ptr try-take-char8 " "
 				()
 			ptr skip-until-newline
 			cb-comment[before]
@@ -209,53 +164,10 @@ do
 	ptr skip-until-newline
 	_ = ptr try-take-newline
 
--try-take-newline bool(ptr string-mut-iterator)
-	if ptr try-take-char "\r"
-		_ = ptr try-take-char "\n"
-		true
-	else
-		ptr try-take-char "\n"
-
--take-indent-amount-after-newline nat(ptr string-mut-iterator, indent-kind indent-kind, add-diag add-diag)
-	match indent-kind
-	as tabs
-		begin = ptr pos
-		while ptr try-take-char "\t"
-			()
-		if ptr.peek8 == " "
-			start-spaces = ptr pos
-			while ptr try-take-char " "
-				()
-			add-diag[start-spaces, true.parse-diag-indent-wrong-character]
-		ptr.pos - begin to
-	as spaces-2
-		ptr take-indent-amount-after-newline-spaces 2, add-diag
-	as spaces-4
-		ptr take-indent-amount-after-newline-spaces 4, add-diag
-	as ignore
-		while ptr try-take-char "\t" or ptr try-take-char " "
-			()
-		0
-
--take-indent-amount-after-newline-spaces nat(ptr string-mut-iterator, n-spaces-per-indent nat, add-diag add-diag)
-	begin = ptr pos
-	while ptr try-take-char " "
-		()
-	if ptr.peek8 == "\t"
-		start-tabs = ptr pos
-		while ptr try-take-char "\t"
-			()
-		add-diag[start-tabs, false.parse-diag-indent-wrong-character]
-	n-spaces nat = ptr.pos - begin to
-	res = n-spaces / n-spaces-per-indent
-	if res * n-spaces-per-indent != n-spaces
-		add-diag[begin, (n-spaces parse-diag-indent-not-divisible n-spaces-per-indent)]
-	res
-
 -try-take-triple-hash-then-newline bool(ptr string-mut-iterator)
 	ptr2 = ptr copy
 	if ptr2 try-take "###"
-		while ptr2 try-take-char " "
+		while ptr2 try-take-char8 " "
 			()
 		if ptr2 try-take-newline or ptr2 is-at-end
 			ptr.pos := ptr2 pos
@@ -264,7 +176,7 @@ do
 | Returns the end of the comment text (ptr will be advanced further, past the '###')
 skip-rest-of-block-comment void(ptr string-mut-iterator, add-diag add-diag)
 	loop
-		while ptr try-take-char "\t" or ptr try-take-char " "
+		while ptr try-take-char8 "\t" or ptr try-take-char8 " "
 			()
 		if ptr try-take-triple-hash-then-newline
 			break

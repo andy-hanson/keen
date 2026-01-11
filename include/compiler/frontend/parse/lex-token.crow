@@ -1,7 +1,7 @@
 import
 	../../../crow/parse
+	../../../crow/private/parse-util
 	../../model/source-range
-	../../util/parse-util
 	./lex-whitespace
 	./token
 
@@ -10,7 +10,7 @@ token-and-data record
 	token token
 	token-data token-data
 token-data union(void, symbol, extra-dedents, char32, source-range)
-extra-dedents record(extra-dedents nat)
+extra-dedents record(extra-dedents nat32)
 
 new token-and-data(token token)
 	forbid token is-symbol-token
@@ -36,7 +36,7 @@ is-symbol bool(a token-and-data)
 as-symbol symbol(a token-and-data) # TODO: have a function returning an option instead of using an 'is' and 'as' pair -------------
 	assert a.token is-symbol-token
 	a.token-data symbol!
-as-extra-dedents nat(a token-and-data)
+as-extra-dedents nat32(a token-and-data)
 	assert a.token is-newline-token
 	a.token-data.extra-dedents! extra-dedents
 as-unexpected-character char32(a token-and-data)
@@ -83,7 +83,7 @@ is-symbol-token bool(a token)
 	else
 		false
 
-lex-initial-token token-and-data(ptr string-mut-iterator, indent-kind indent-kind, cur-indent nat reference, add-diag add-diag)
+lex-initial-token token-and-data(ptr string-mut-iterator, indent-kind indent-kind, cur-indent nat32 reference, add-diag add-diag)
 	ptr newline-token newline-same-indent, indent-kind, cur-indent, add-diag
 
 | Advances {ptr} to lex a single token.
@@ -91,13 +91,13 @@ lex-token token-and-data
 	ptr string-mut-iterator
 	indent-kind indent-kind
 	prev-token token
-	cur-indent nat reference
+	cur-indent nat32 reference
 	add-diag add-diag
 do
 	guard ptr !is-at-end else ptr newline-token end-of-file, indent-kind, cur-indent, add-diag
 
 	start = ptr pos
-	match ptr take-char
+	match ptr take-char8
 	# skip-spaces-and-comments will prevent these characters from being next
 	as " "
 		throw unreachable
@@ -110,18 +110,16 @@ do
 	as "\n"
 		ptr newline-token newline-same-indent, indent-kind, cur-indent, add-diag
 	as "~"
-		ptr operator-token if ptr try-take-char "~" then "~~" else "~"
+		ptr operator-token if ptr try-take-char8 "~" then "~~" else "~"
 	as "@"
 		at plain-token
 	as "!"
-		if ptr try-take-char "="
+		if ptr try-take-char8 "="
 			ptr operator-token "!="
+		elif name ?= ptr try-take-crow-identifier
+			name-after-bang, name
 		else
-			before-name = ptr pos
-			if ptr try-take-identifier
-				name-after-bang, do ptr symbol-from before-name
-			else
-				bang plain-token
+			bang plain-token
 	as "%"
 		ptr operator-token "%"
 	as "^"
@@ -129,7 +127,7 @@ do
 	as "&"
 		ptr operator-token "&"
 	as "*"
-		ptr operator-token if ptr try-take-char "*" then "**" else "*"
+		ptr operator-token if ptr try-take-char8 "*" then "**" else "*"
 	as "("
 		paren-left plain-token
 	as ")"
@@ -143,19 +141,19 @@ do
 	as "}"
 		brace-right plain-token
 	as "-"
-		if ptr.peek8 is-decimal-digit
+		if ptr.peek8 is-digit
 			ptr take-number-after-sign
-		elif ptr try-take-char "-"
+		elif ptr try-take-char8 "-"
 			ptr operator-token "--"
 		else
 			ptr operator-token "-"
 	as "="
-		if ptr try-take-char "="
+		if ptr try-take-char8 "="
 			ptr operator-token "=="
 		else
 			equal plain-token
 	as "+"
-		if ptr.peek8 is-decimal-digit
+		if ptr.peek8 is-digit
 			ptr take-number-after-sign
 		else
 			ptr operator-token "+"
@@ -165,9 +163,9 @@ do
 		else
 			ptr operator-token "|"
 	as ":"
-		if ptr try-take-char "="
+		if ptr try-take-char8 "="
 			colon-equal plain-token
-		elif ptr try-take-char ":"
+		elif ptr try-take-char8 ":"
 			colon2 plain-token
 		else
 			colon plain-token
@@ -176,22 +174,22 @@ do
 	as ","
 		comma plain-token
 	as "<"
-		ptr operator-token if ptr try-take-char "="
-			if ptr try-take-char ">" then "<=>" else "<="
-		elif ptr try-take-char "<"
+		ptr operator-token if ptr try-take-char8 "="
+			if ptr try-take-char8 ">" then "<=>" else "<="
+		elif ptr try-take-char8 "<"
 			"<<"
 		else
 			"<"
 	as ">"
-		ptr operator-token if ptr try-take-char "="
+		ptr operator-token if ptr try-take-char8 "="
 			">="
-		elif ptr try-take-char ">"
+		elif ptr try-take-char8 ">"
 			">>"
 		else
 			">"
 	as "."
-		if ptr try-take-char "."
-			if ptr try-take-char "."
+		if ptr try-take-char8 "."
+			if ptr try-take-char8 "."
 				dot3 plain-token
 			else
 				ptr operator-token ".."
@@ -202,27 +200,24 @@ do
 	as "/"
 		ptr operator-token "/"
 	as "?"
-		name-start = ptr pos
-		if ptr try-take-char "="
+		if ptr try-take-char8 "="
 			question-equal plain-token
-		elif ptr try-take-char "["
+		elif ptr try-take-char8 "["
 			question-bracket plain-token
-		elif ptr try-take-identifier
-			token: name-after-question
-			name: ptr symbol-from name-start
+		elif name ?= ptr try-take-crow-identifier
+			name-after-question, name
 		else
 			question plain-token
 	else x
 		ptr.pos := start
-		if x is-decimal-digit
+		if x is-digit
 			ptr take-number-after-sign
 		else
 			ptr lex-identifier-like
 
 -lex-identifier-like token-and-data(ptr string-mut-iterator)
 	start = ptr pos
-	if ptr try-take-identifier
-		symbol = ptr symbol-from start
+	if symbol ?= ptr try-take-crow-identifier
 		if ptr try-take-just-colon
 			name-colon, symbol
 		else
@@ -242,7 +237,7 @@ do
 lookahead-equals bool(start string-mut-iterator)
 	ptr = start copy
 	loop
-		if ptr try-take-char " "
+		if ptr try-take-char8 " "
 			if ptr starts-with-then-whitespace "="
 				break true
 			else
@@ -267,7 +262,7 @@ lookahead-elif-or-else elif-or-else?(start string-mut-iterator)
 	ptr string-mut-iterator
 	newline-or-eof token
 	indent-kind indent-kind
-	cur-indent nat reference
+	cur-indent nat32 reference
 	add-diag add-diag
 do
 	delta = ptr skip-blank-lines-and-get-indent-delta indent-kind, cur-indent, add-diag
@@ -284,10 +279,10 @@ do
 	ptr name-like-token value, operator
 
 -name-like-token token-and-data(ptr string-mut-iterator, value symbol, regular-token token)
-	if ptr !starts-with "==" and ptr try-take-char "="
+	if ptr !starts-with "==" and ptr try-take-char8 "="
 		name-or-operator-equals, "{value}="
 	else
-		token = if regular-token == name and ptr try-take-char "!"
+		token = if regular-token == name and ptr try-take-char8 "!"
 			name-bang
 		elif ptr try-take ":="
 			name-or-operator-colon-equals
@@ -296,12 +291,9 @@ do
 		token, value
 
 -try-take-just-colon bool(a string-mut-iterator)
-	if a.peek == ":" and a.peek-next != ":" and a.peek-next != "="
-		_ = a take-char
+	if a.peek8 == ":" and a.peek8-next != ":" and a.peek8-next != "="
+		_ = a take-char8
 		true
-
--peek-next char8(a string-mut-iterator)
-	a.char8s[a.char8-index + 1]
 
 -token-for-symbol token(a symbol)
 	match a
@@ -425,103 +417,8 @@ do
 		name
 
 -take-number-after-sign token-and-data(ptr string-mut-iterator)	
-	if ptr starts-with "0b" or ptr starts-with "0o" or ptr starts-with "0x"
-		_ = ptr take-nat
-	else
-		_ = ptr take-float
+	ptr take-number-after-sign
 	literal-number,
-
-try-take-identifier bool(ptr string-mut-iterator)
-	if ptr try-take-initial-identifier-char
-		loop
-			before-hyphen = ptr pos
-			while ptr try-take-char "-"
-				()
-			if ptr try-take-one-identifier-char
-				continue
-			else
-				ptr.pos := before-hyphen
-				break
-		true
--try-take-initial-identifier-char bool(ptr string-mut-iterator)
-	ptr.peek8 !is-decimal-digit and ptr.peek8 != "-" and ptr try-take-one-identifier-char
--try-take-one-identifier-char bool(ptr string-mut-iterator)
-	if ptr.peek8 is-single-byte-identifier-char
-		_ = ptr take-char8
-		true
-	elif ptr.peek8 is-utf8-initial-or-continue-code
-		before = ptr pos
-		x = ptr must-take-one-unicode-char
-		if x is-allowed-unicode-identifier-char
-			true
-		else
-			ptr.pos := before
-			false
-
--is-single-byte-identifier-char bool(a char8)
-	"a"::char8 <= a and a <= "z" or
-	"A"::char8 <= a and a <= "Z" or
-	a == "-" or
-	a == "_" or
-	a is-decimal-digit
-
--is-probably-identifier-char-for-lookahead bool(a char8)
-	a is-single-byte-identifier-char or a is-utf8-initial-or-continue-code
-
--is-allowed-unicode-identifier-char bool(a char32)
-	a.to::nat32 is-allowed-unicode-identifier-char
--is-allowed-unicode-identifier-char bool(a nat32)
-	# Latin extended
-	if 0xc0::nat32 <= a and a <= 0xff and a != "×"::char32.to and a != "÷"::char32.to
-		true
-	# Greek and Coptic
-	elif 0x370::nat32 <= a and a <= 0x3ff
-		true
-	# Cyrillic
-	elif 0x400::nat32 <= a and a <= 0x4ff
-		true
-	# Hebrew
-	elif 0x591::nat32 <= a and a <= 0x5f4
-		true
-	# Arabic
-	elif 0x600::nat32 <= a and a <= 0x6ff
-		true
-	# Devanagari
-	elif 0x904::nat32 <= a and a <= 0x97f and !(0x964::nat32 <= a and a <= 0x971)
-		true
-	# Bengali
-	elif 0x985::nat32 <= a and a <= 0x9e3
-		true
-	# Gurmukhi
-	elif 0xa01::nat32 <= a and a <= 0xa5e
-		true
-	# Gujarati
-	elif 0xa81::nat32 <= a and a <= 0xaff
-		true
-	# Tamil
-	elif 0xb82::nat32 <= a and a <= 0xbfa
-		true
-	# Telugu
-	elif 0xc00::nat32 <= a and a <= 0xc7f
-		true
-	# Tibetan
-	elif 0xf00::nat32 <= a and a <= 0xfda
-		true
-	# Latin extended additional
-	elif 0x1e00::nat32 <= a and a <= 0x1eff
-		true
-	# Hiragana
-	elif 0x3041::nat32 <= a and a <= 0x309f
-		true
-	# Katakana
-	elif 0x30a0::nat32 <= a and a <= 0x30ff
-		true
-	# CJK Unified Ideographs
-	elif 0x4e00::nat32 <= a and a <= 0x9fff
-		true
-	# Hangul
-	elif 0xac00::nat32 <= a and a <= 0xd7a3
-		true
 
 -try-skip-type-char bool(ptr string-mut-iterator)
 	if ptr.peek8 is-type-char

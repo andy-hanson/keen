@@ -1,0 +1,260 @@
+| Parsing utilities common to both Crow and Crowd.
+| Since this will be used in `json.crow`, its dependencies must be minimal.
+
+no-std
+import
+	crow/bits
+	crow/bool
+	crow/col/array
+	crow/compare
+	crow/misc
+	crow/number
+	crow/option
+	../../crow/parse
+	crow/range
+	crow/string
+	crow/symbol
+
+pos nat32(a string-mut-iterator)
+	a.char8-index - a.begin-index to
+set-pos void(a string-mut-iterator, pos nat32)
+	new-index nat = a.begin-index + pos.to
+	assert new-index <= a.end-index
+	a.char8-index := new-index
+
+peek8-next char8(a string-mut-iterator)
+	a.char8s[a.char8-index + 1]
+
+advance void(a string-mut-iterator, n nat)
+	new-index = a.char8-index + n
+	assert new-index <= a.char8s.size
+	a.char8-index := new-index
+
+take-char8-or-nul char8(a string-mut-iterator)
+	if a is-at-end
+		"\0"
+	else
+		a take-char8
+try-take-char8 bool(a string-mut-iterator, x char8)
+	if a.peek8 == x
+		_ = a take-char8
+		true
+
+starts-with-then-whitespace bool(a string-mut-iterator, chars char8[])
+	guard a.char8-index + chars.size < a.end-index
+	guard a starts-with chars.to
+	a.char8s[a.char8-index + chars.size] is-whitespace
+
+string-from string(a string-mut-iterator, start-pos nat32)
+	a slice-from start-pos to
+symbol-from symbol(a string-mut-iterator, start-pos nat32)
+	a slice-from start-pos to
+slice-from char8 array-view(a string-mut-iterator, start-pos nat32)
+	a.char8s[a.begin-index + start-pos.to .. a.char8-index]
+
+is-utf8-initial-or-continue-code bool(a char8)
+	(a.to::nat8 & top-bit) != 0
+-top-bit nat8()
+	0b10000000
+
+must-take-one-unicode-char char32(a string-mut-iterator)
+	try
+		a take-char32
+	catch unicode-decode-error _
+		_ = a take-char8
+		"�"
+
+decode-hex-digit nat8?(a char8)
+	if "0"::char8 <= a and a <= "9"
+		a.to - "0"::char8.to
+	elif "a"::char8 <= a and a <= "f"
+		10 + (a.to - "a"::char8.to)
+	elif "A"::char8 <= a and a <= "F"
+		10 + (a.to - "A"::char8.to)
+
+| This does not check for keywords
+try-take-crow-identifier symbol?(iter string-mut-iterator)
+	start = iter pos
+	if iter try-take-initial-identifier-char
+		iter take-identifier-rest
+		iter symbol-from start
+-take-identifier-rest void(ptr string-mut-iterator)
+	loop
+		before-hyphen = ptr pos
+		while ptr try-take-char8 "-"
+			()
+		if ptr try-take-one-identifier-char
+			continue
+		else
+			ptr.pos := before-hyphen
+			break
+-try-take-initial-identifier-char bool(ptr string-mut-iterator)
+	ptr.peek8 !is-digit and ptr.peek8 != "-" and ptr try-take-one-identifier-char
+-try-take-one-identifier-char bool(ptr string-mut-iterator)
+	if ptr.peek8 is-single-byte-identifier-char
+		_ = ptr take-char8
+		true
+	elif ptr.peek8 is-utf8-initial-or-continue-code
+		before = ptr pos
+		x = ptr must-take-one-unicode-char
+		if x is-allowed-unicode-identifier-char
+			true
+		else
+			ptr.pos := before
+			false
+
+| True even for keywords
+is-crow-identifier bool(a string)
+	iter string-mut-iterator = a,
+	_ ?= iter try-take-crow-identifier and iter is-at-end
+
+-is-single-byte-identifier-char bool(a char8)
+	a is-letter-or-digit or
+	a == "-" or
+	a == "_"
+is-letter-or-digit bool(a char8)
+	a is-letter or a is-digit
+is-letter bool(a char8)
+	a is-lower-case-letter or a is-upper-case-letter
+-is-lower-case-letter bool(a char8)
+	"a"::char8 <= a and a <= "z"
+-is-upper-case-letter bool(a char8)
+	"A"::char8 <= a and a <= "Z"
+
+is-probably-identifier-char-for-lookahead bool(a char8)
+	a is-single-byte-identifier-char or a is-utf8-initial-or-continue-code
+
+-is-allowed-unicode-identifier-char bool(a char32)
+	a.to::nat32 is-allowed-unicode-identifier-char
+-is-allowed-unicode-identifier-char bool(a nat32)
+	# Latin extended
+	if 0xc0::nat32 <= a and a <= 0xff and a != "×"::char32.to and a != "÷"::char32.to
+		true
+	# Greek and Coptic
+	elif 0x370::nat32 <= a and a <= 0x3ff
+		true
+	# Cyrillic
+	elif 0x400::nat32 <= a and a <= 0x4ff
+		true
+	# Hebrew
+	elif 0x591::nat32 <= a and a <= 0x5f4
+		true
+	# Arabic
+	elif 0x600::nat32 <= a and a <= 0x6ff
+		true
+	# Devanagari
+	elif 0x904::nat32 <= a and a <= 0x97f and !(0x964::nat32 <= a and a <= 0x971)
+		true
+	# Bengali
+	elif 0x985::nat32 <= a and a <= 0x9e3
+		true
+	# Gurmukhi
+	elif 0xa01::nat32 <= a and a <= 0xa5e
+		true
+	# Gujarati
+	elif 0xa81::nat32 <= a and a <= 0xaff
+		true
+	# Tamil
+	elif 0xb82::nat32 <= a and a <= 0xbfa
+		true
+	# Telugu
+	elif 0xc00::nat32 <= a and a <= 0xc7f
+		true
+	# Tibetan
+	elif 0xf00::nat32 <= a and a <= 0xfda
+		true
+	# Latin extended additional
+	elif 0x1e00::nat32 <= a and a <= 0x1eff
+		true
+	# Hiragana
+	elif 0x3041::nat32 <= a and a <= 0x309f
+		true
+	# Katakana
+	elif 0x30a0::nat32 <= a and a <= 0x30ff
+		true
+	# CJK Unified Ideographs
+	elif 0x4e00::nat32 <= a and a <= 0x9fff
+		true
+	# Hangul
+	elif 0xac00::nat32 <= a and a <= 0xd7a3
+		true
+
+take-number-after-sign void(iter string-mut-iterator)
+	if iter starts-with "0b" or iter starts-with "0o" or iter starts-with "0x"
+		_ = iter take-nat
+	else
+		_ = iter take-float
+
+indent-kind enum(tabs, spaces-2, spaces-4)
+show string(a indent-kind)
+	match a
+	as tabs
+		"tabs"
+	as spaces-2
+		"groups of 2 spaces"
+	as spaces-4
+		"groups of 4 spaces"
+
+detect-indent-kind indent-kind(a string-mut-iterator)
+	ptr string-mut-iterator = a copy
+	loop
+		begin = ptr pos
+		match ptr peek8
+		as "\0"
+			break tabs
+		as "\t"
+			break tabs
+		as " "
+			while ptr try-take-char8 " "
+				()
+			n = ptr.pos - begin
+			break if n == 2
+				spaces-2
+			else
+				spaces-4
+		else
+			ptr skip-until-newline
+			_ = ptr try-take-char8 "\n"
+			continue
+
+skip-until-newline void(a string-mut-iterator)
+	while a !is-at-end and a.peek8 != "\n"
+		_ = a take-char8
+
+take-indent-amount-after-newline nat32
+	iter string-mut-iterator
+	indent-kind indent-kind
+	add-diag void mut(pos nat32)
+do
+	match indent-kind
+	as tabs
+		iter take-indent-chars "\t", " ", add-diag
+	as spaces-2
+		iter take-indent-spaces 2, add-diag
+	as spaces-4
+		iter take-indent-spaces 4, add-diag
+-take-indent-spaces nat32(iter string-mut-iterator, n nat32, add-diag void mut(pos nat32))
+	start = iter pos
+	n-spaces = iter take-indent-chars " ", "\t", add-diag
+	res = n-spaces / n
+	if res * n != n-spaces
+		add-diag[start]
+	res
+-take-indent-chars nat32(iter string-mut-iterator, right-indent char8, wrong-indent char8, add-diag void mut(pos nat32))
+	start = iter pos
+	while iter try-take-char8 right-indent
+		()
+	res = iter.pos - start
+	mid = iter pos
+	if iter try-take-char8 wrong-indent
+		while iter try-take-char8 wrong-indent
+			()
+		add-diag[mid]
+	res
+
+try-take-newline bool(ptr string-mut-iterator)
+	if ptr try-take-char8 "\r"
+		_ = ptr try-take-char8 "\n"
+		true
+	else
+		ptr try-take-char8 "\n"
