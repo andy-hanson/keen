@@ -1,4 +1,5 @@
 import
+	crow/format/crowd
 	crow/io/file
 	crow/parse
 	crow/unsafe
@@ -83,14 +84,14 @@ test
 		_ = gc-safe-value::any-decl visibility
 
 test summon
-	server, tests-by-dir = ide-tests-for-crow-and-json-files
+	server, tests-by-dir = ide-tests-for-crow-and-crow-files
 	program = server get-program ()
 	ctx = server get-show-diag-ctx program
 	for dir-name, tests in tests-by-dir
 		match dir-name
 		as code-lens
 			for test_ in tests
-				(program get-code-lenses ((test_.uri,),)).to::json is test_.json
+				(program get-code-lenses ((test_.uri,),)).to::json is test_.expected
 		as completion
 			for test_ in tests
 				ctx test-at-positions test_, of where
@@ -99,10 +100,10 @@ test summon
 					res to
 		as folding-ranges
 			for test_ in tests
-				(server folding-ranges test_.uri).to::json is test_.json
+				(server folding-ranges test_.uri).to::json is test_.expected
 		as hover
 			for test_ in tests
-				ctx hover-result program, test_.uri is test_.json
+				ctx hover-result program, test_.uri is test_.expected
 		as implementation
 			for test_ in tests
 				ctx test-at-positions test_, of where
@@ -114,7 +115,7 @@ test summon
 				hints = program get-inlay-hints ctx, (),
 					textDocument: test_.uri,
 					range: range
-				hints.to::json is-with-description test_.json, of
+				hints.to::json is-with-description test_.expected, of
 					"For {test_ uri}"
 		as references
 			for test_ in tests
@@ -135,16 +136,16 @@ test summon
 					res to
 		as tokens
 			for test_ in tests
-				server decoded-tokens test_.uri is test_.json
+				server decoded-tokens test_.uri is test_.expected
 		else
 			throw todo
 
--ide-tests-for-crow-and-json-files (server, crow-json-test[][symbol])() summon
+-ide-tests-for-crow-and-crow-files (server, crow-json-test[][symbol])() summon
 	# We can't store the tests here, because the '.crow' files would be picked up when running all tests in 'include'.
 	base-path = this-executable.parent!.parent! / "editor" / "test"
 	tests crow-json-test[][symbol] = for* dir in base-path get-paths-in-dir
 		guard dir.base-name != "readme.md"
-		tests = dir crow-and-json-files
+		tests = dir crow-and-crowd-files
 		- dir.base-name.to, tests
 	server = test-server
 	server setup-test-server for* _, x in tests
@@ -152,30 +153,32 @@ test summon
 			y.uri, y.crow
 	server, tests
 
--crow-and-json-files crow-json-test[](dir file-path) summon
+-crow-and-crowd-files crow-json-test[](dir file-path) summon
 	files = dir get-paths-in-dir
 	crow-files file-path mut[] = ()
-	json-files file-path mut[] = ()
+	crowd-files file-path mut[] = ()
 	for file in files
 		match file get-extension
 		as ".crow"
 			crow-files ~= file
-		as ".json"
-			json-files ~= file
+		as ".crowd"
+			crowd-files ~= file
 		else
 			throw "Unexpected file {file}" error
-	json-files.size is crow-files.size
+	crowd-files.size is crow-files.size
 
 	for crow-file in crow-files
 		uri: "test:".must-parse-uri / dir.base-name / crow-file.base-name
 		crow: crow-file.to read-file
-		json: json parse (crow-file alter-extension ".json").to.read-file.as-string
+		expected:
+			le-text = (crow-file alter-extension ".crowd").to.read-file.as-string
+			crowd parse le-text
 
--crow-json-test record(uri uri, crow string, json json)
+-crow-json-test record(uri uri, crow string, expected json)
 
 -test-at-positions void(ctx show-model-ctx, test_ crow-json-test, f json mut(where uri-line-and-character))
 	uri = test_ uri
-	for key, value in test_.json.to::json[symbol]
+	for key, value in test_.expected.to::json[symbol]
 		line-and-column = key.to parse-line-and-column!
 		line-and-character = ctx.line-and-column-getters[uri] to-line-and-character line-and-column
 		f[uri, line-and-character] is-with-description value, of

@@ -6,10 +6,11 @@ import
 	../../compiler/frontend/parse/lex-token
 	../../compiler/frontend/parse/parse-util
 	../../compiler/frontend/parse/token
+	../../compiler/model/parse-diag
 	../../compiler/model/source-range
 	../../compiler/model/uri
 
-crowd json grammar()
++crowd json grammar()
 	func: of iter
 		lexer lexer = (), iter
 		try
@@ -19,9 +20,12 @@ crowd json grammar()
 			while lexer try-take-token newline-same-indent
 				()
 			assert lexer try-take-token end-of-file else "End of file" inner-parse-error
+			diagnostics = lexer finish-diagnostics
+			assert diagnostics is-empty else
+				error log diagnostics.to::json.to-json
+				todo # We should not call functions that add to diagnostics
 			res
 		catch crowd-parse-error x
-			info log "ERROR AT {x pos}"
 			iter set-pos x.pos
 			throw "Crowd value" inner-parse-error
 
@@ -33,9 +37,11 @@ crowd json grammar()
 	token = lexer take-next-token
 	match token token
 	as quote-double
-		x = lexer take-initial-string-part double
-		assert x.after == done else start crowd-parse-error
-		x.text to
+		s = lexer take-simple-string-after-quote
+		if lexer try-take-token colon
+			lexer parse-object s.to to
+		else
+			s to
 	as literal-number
 		text = lexer.ptr string-from start
 		text.to.parse-float to
@@ -58,6 +64,25 @@ crowd json grammar()
 -parse-crowd-inner json(lexer lexer)
 	lexer parse-crowd true
 
+-parse-name-colon-or-string-colon symbol(lexer lexer)
+	start = lexer cur-pos
+	token = lexer take-next-token
+	match token token
+	as name-colon
+		token as-symbol
+	as quote-double
+		res symbol = lexer.take-simple-string-after-quote to
+		assert lexer try-take-token colon else start crowd-parse-error
+		res
+	else
+		throw start crowd-parse-error
+
+-take-simple-string-after-quote string(lexer lexer)
+	start = lexer cur-pos
+	x = lexer take-initial-string-part double
+	assert x.after == done else start crowd-parse-error
+	x text
+
 -crowd-parse-error record(pos pos) exception case
 -show string(_ crowd-parse-error)
 	throw unreachable
@@ -70,6 +95,10 @@ crowd json grammar()
 		true
 	as null
 		null
+	as empty-array
+		()::json[] to
+	as empty-object
+		()::json[symbol] to
 	else
 		()
 
@@ -84,20 +113,22 @@ crowd json grammar()
 	with out in build
 		out ~= first-name, lexer.parse-crowd-inner
 		while lexer try-take-token newline-same-indent and lexer !try-take-token end-of-file
-			start = lexer cur-pos
-			token = lexer take-next-token
-			assert token.token == name-colon else start crowd-parse-error
-			out ~= token.as-symbol, lexer.parse-crowd-inner
-
+			out ~= lexer.parse-name-colon-or-string-colon, lexer.parse-crowd-inner
 
 test
-	"1" roundtrip 1
+	"null" roundtrip null
 	"false" roundtrip false
 	"true" roundtrip true
+	"1" roundtrip 1
+	"-1" roundtrip -1
 	"\"hello\"" roundtrip "hello"
+	"empty-array" roundtrip ()::json[].to
+	"empty-object" roundtrip ()::json[symbol].to
 	"- 1" roundtrip (1,)
 	"a: 1" roundtrip
 		a: 1
+	"\"big key\": 1" roundtrip
+		"big key": 1
 	"""
 - 1
 - 2
