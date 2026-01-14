@@ -80,6 +80,7 @@ prepare-site: bin/crow site/index.js site/worker.js site/crow-include.tar site/j
 	bin/crow site-src/site.crow
 
 site/index.js: bin/crow site-src/script/*.crow site-src/script/*/*.crow
+	mkdir -p site
 	bin/crow build site-src/script/index.crow --out site/index.js
 site/worker.js: bin/crow site-src/script/worker.crow $(all_include)
 	bin/crow build site-src/script/worker.crow --out site/worker.js
