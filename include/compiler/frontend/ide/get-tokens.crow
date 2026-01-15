@@ -1,9 +1,31 @@
 import
+	../../../crow/json: try-take-number, try-take-quoted-string # TODO: move this stuff to parse-util ----------------------------------
+	../../../crow/private/parse-util
+	crow/parse
 	../../frontend/parse/lex-whitespace
 	../../lib/lsp/lsp-types
 	../../model/ast
 	../../model/source-range
 	../../util/util
+
+tokens-of-crowd semantic-tokens(line-and-character-getter line-and-character-getter)
+	# For Crowd, we will  just retokenize the whole file
+	out tokens-builder = line-and-character-getter,
+	iter string-mut-iterator = line-and-character-getter.source-text,
+	until iter is-at-end
+		start = iter pos
+		if _ ?= iter try-take-number
+			out ~= number, (start, iter.pos)
+		elif _ ?= iter try-take-quoted-string
+			out ~= string, (start, iter.pos)
+		elif _ ?= iter try-take-crow-identifier
+			end = iter pos
+			if iter try-take-char8 ":"
+				out ~= parameter, (start, end)
+		else
+			# Just skip past anything else
+			_ = iter take-char8
+	out finish
 
 tokens-of-ast semantic-tokens(file file-ast)
 	out tokens-builder = file.line-and-character-getter,
@@ -25,7 +47,7 @@ tokens-of-ast semantic-tokens(file file-ast)
 		as var-decl-ast x
 			out add-var-decl-tokens x
 	out add-last-tokens
-	out.encoded.move-to,
+	out finish
 
 json-of-decoded-tokens json(a semantic-tokens)
 	(a.decode-semantic-tokens map it.to)::json[] to
@@ -135,6 +157,8 @@ to json(a token-type)
 	prev-pos: 0
 	prev-line: 0
 	prev-character: 0
+-finish semantic-tokens(a tokens-builder)
+	data_: a.encoded move-to
 
 -~= void(a tokens-builder, (type token-type, range source-range))
 	guard range.length != 0 # This can happen for missing names

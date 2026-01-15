@@ -1,4 +1,5 @@
 import
+	../../crow/json: crowd-parse-error, expected, parse-crowd, pos
 	../lib/lsp/lsp-types
 	../model/ast
 	../model/model
@@ -34,6 +35,7 @@ frontend record mut, java-ctx case
 	-crow-files crow-file mut[uri]
 	| Number of crow-files without {module} set
 	-count-uncompiled-crow-files mut nat
+	-crowd-files crowd-file mut[uri]
 	-config-files config-file mut[uri]
 	| Key is the Java class path such as "java/lang/Object"
 	-java-class-files java-class-file mut[path]
@@ -83,6 +85,7 @@ new frontend(crow-include-dir uri)
 		common-types-option: ()
 		crow-files: ()
 		count-uncompiled-crow-files: 0
+		crowd-files: ()
 		config-files: ()
 		java-class-files: ()
 		other-files: ()
@@ -109,6 +112,10 @@ has-module bool(a crow-file) # TODO: inline ------------------------------------
 must-have-module crow-module(a crow-file) # TODO: inline ----------------------------------------------------------------------------------
 	a.module!
 
+-crowd-file record mut
+	line-and-column-getter mut line-and-column-getter
+	parsed mut json?
+	diagnostics mut diagnostic[]
 -config-file record mut
 	# If this is 'not-found' (and it usually is not-found), we will ignore it and use the parent
 	config mut config-or-diag
@@ -174,6 +181,8 @@ make-program program(a frontend, fully-loaded-configs uri set)
 	all-modules crow-module[uri] = for uri, file in a crow-files
 		uri, file.must-have-module
 	unused-diagnostics = all-modules detect-unused-internal common-types, fully-loaded-configs
+	crowd-diagnostics uri-and-diagnostic[] = for* uri, file in a crowd-files
+		file.diagnostics map (uri, it)
 	all-configs: for* uri, x in a config-files
 		if config ?= x.config config
 			- uri, config
@@ -181,7 +190,7 @@ make-program program(a frontend, fully-loaded-configs uri set)
 	java-modules: for* k, v in a java-class-files
 		if m ?= v module
 			- k.to-java-uri, m
-	additional-diagnostics: common-funs-diagnostics ~~ unused-diagnostics
+	additional-diagnostics: common-funs-diagnostics ~~ unused-diagnostics ~~ crowd-diagnostics
 	file-content-getters: a file-content-getters
 	line-and-column-getters: a.line-and-column-getters-map my-line-and-column-getters
 	common-funs: common-funs
@@ -203,12 +212,14 @@ make-program program(a frontend, fully-loaded-configs uri set)
 -subscript line-and-column-getter(a my-line-and-column-getters, uri uri)
 	a.lookup[uri] else ()
 
+get-crowd-file line-and-character-getter(a frontend, uri uri)
+	a.crowd-files[uri]!.line-and-column-getter line-and-character-getter
 get-ast file-ast(a frontend, uri uri)
 	a.crow-files[uri]! get-ast
 -get-ast file-ast(a crow-file)
 	a.ast-or-diag to-ast
 line-and-character-getter line-and-character-getter(a frontend, uri uri)
-	a get-ast uri line-and-character-getter
+	a.line-and-column-getters-map[uri]! line-and-character-getter
 
 | Changes them to loading
 flush-all-unknown-uris uri[](a frontend)
@@ -281,6 +292,25 @@ set-file void(a frontend, uri uri, result read-file-result)
 			x
 		a.line-and-column-getters-map ~:= uri, file.ast-or-diag.line-and-column-getter
 		a updated-ast-or-config file
+	as crowd
+		file = a ensure-crowd-file uri
+		match result
+		as array-view content
+			text char8 array-view = content safe-reinterpret-cast
+			file.line-and-column-getter := text line-and-column-getter-for-text
+			match text parse-crowd
+			as json x
+				file.parsed := x
+				file.diagnostics := ()
+			as crowd-parse-error x
+				file.parsed := null
+				file.diagnostics :=
+					- range: (x.pos, x.pos + 1), kind: x.expected.parse-diag-crowd
+		as read-file-diag x
+			file.parsed := null
+			file.diagnostics :=
+				- (), x
+		a.line-and-column-getters-map ~:= uri, file.line-and-column-getter
 	as crow-config
 		config-file = a ensure-config-file-for uri
 		config-file.config := match result
@@ -325,7 +355,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 		()
 
 -ensure-crow-file crow-file(a frontend, uri uri)
-	assert uri.file-type == crow
+	uri.file-type is crow
 	a.crow-files ensure uri, of
 		a.unknown ~= uri
 		a.count-uncompiled-crow-files +:= 1
@@ -337,6 +367,14 @@ set-file void(a frontend, uri uri, result read-file-result)
 		config: config-file find-config
 		resolved-imports: ()
 		module: ()
+
+-ensure-crowd-file crowd-file(a frontend, uri uri)
+	uri.file-type is crowd
+	a.crowd-files ensure uri, of
+		a.unknown ~= uri
+		line-and-column-getter: ()
+		parsed: ()
+		diagnostics: ()
 
 -ensure-config-file-for config-file(a frontend, crow-uri uri)
 	a ensure-config-file crow-uri.parent! / crow-config-base-name

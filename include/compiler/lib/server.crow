@@ -197,7 +197,13 @@ handle-lsp-message lsp-out-action(server server, message lsp-in-message)
 	typeDefinitionProvider: true
 
 folding-ranges folding-range-result(server server, uri uri)
-	server.frontend get-ast uri folding-ranges-of-ast
+	match uri file-type
+	as crow
+		server.frontend get-ast uri folding-ranges-of-ast
+	as crowd
+		()
+	else
+		throw unreachable
 
 -single-response lsp-out-action(request lsp-in-request, response lsp-out-result)
 	((request message-for-response response),), ()
@@ -509,7 +515,13 @@ do
 decoded-tokens json(server server, uri uri)
 	server encoded-tokens uri json-of-decoded-tokens
 encoded-tokens semantic-tokens(server server, uri uri)
-	server.frontend get-ast uri tokens-of-ast
+	match uri file-type
+	as crow
+		server.frontend get-ast uri tokens-of-ast
+	as crowd
+		server.frontend get-crowd-file uri tokens-of-crowd
+	else
+		throw unreachable
 
 build-to-java java-compiled-class[](server server, program program-with-main, prefix string)
 	server build-to-java program, prefix, 1
@@ -547,20 +559,19 @@ get-show-ctx show-ctx(server server, force-no-color bool)
 -notify-diagnostics void(res lsp-out-message mut[], server server, program program)
 	diags = program.as-program-with-opt-main sorted-diagnostics
 	state = server lsp-state
-	new-uris uri[] = for x in diags then x uri
+	new-uris uri set = for x in diags then x uri
 	all uri-and-diagnostics[] =
 		-- diags
 		-- for* uri in state uris-with-diagnostics
 			unless uri in new-uris
 				- uri, ()
-	state.uris-with-diagnostics := new-uris
+	state.uris-with-diagnostics := new-uris to
 	ctx = server get-show-diag-ctx program
 	for ud in all
-		diagnostics lsp-diagnostic[] = for x in ud diagnostics
-			where = (server.frontend line-and-character-getter ud.uri)[x.range]
-			severity = x.kind.get-diagnostic-severity to-lsp-diagnostic-severity
-			where, severity, do ctx string-of-diag x.kind
-		res ~= ud.uri publish-diagnostics-params diagnostics
+		res ~= ud.uri publish-diagnostics-params for x in ud diagnostics
+			range: (server.frontend line-and-character-getter ud.uri)[x.range]
+			severity: x.kind.get-diagnostic-severity to-lsp-diagnostic-severity
+			message: ctx string-of-diag x.kind
 
 -to-lsp-diagnostic-severity lsp-diagnostic-severity(a diagnostic-severity)
 	match a
