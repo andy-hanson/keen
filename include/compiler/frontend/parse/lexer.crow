@@ -1,6 +1,7 @@
 import
 	crow/parse
 	../../../crow/private/parse-util
+	../../model/ast
 	../../model/parse-diag
 	../../model/source-range
 	../../model/uri
@@ -111,7 +112,7 @@ take-next-token-may-continue-onto-next-line token-and-data(lexer lexer)
 	res
 
 -read-next-token void(lexer lexer)
-	lexer.prev-token-end := lexer.ptr pos
+	lexer.prev-token-end := lexer pos-at-ptr
 	lexer.ptr skip-spaces-and-comments it.noop, of diag
 		lexer add-diag-from-pointer diag
 	lexer.next-token-pos := lexer pos-at-ptr
@@ -125,24 +126,51 @@ get-peek-token token(lexer lexer)
 
 take-closing-brace-then-string-part string-part(lexer lexer, quote-kind quote-kind)
 	if lexer.get-peek-token != brace-right
-		start = lexer pos-at-ptr
 		lexer add-diag-at-char close-interpolated
-		lexer skip-until-newline-no-diag
-		(start, lexer.pos-at-ptr), "", done
-	else
-		lexer take-string-part-common quote-kind
+		lexer.ptr.pos := lexer prev-token-end
+		# Recover previous indent level (this matters for indented strings)
+		match lexer get-peek-token
+		as newline-dedent
+			extra = lexer.get-peek-token-and-data as-extra-dedents
+			restore = lexer.cur-indent.get + 1 + extra
+			lexer.cur-indent set restore
+		as newline-indent
+			restore = lexer.cur-indent.get - 1
+			lexer.cur-indent set restore
+		else
+			()
+		lexer.next-token := brace-right,
+	lexer take-string-part-common quote-kind
 
 take-initial-string-part string-part(lexer lexer, quote-kind quote-kind)
-	lexer.get-peek-token is quoted-text
+	lexer.get-peek-token is if quote-kind == indented then newline-indent else quoted-text
 	lexer take-string-part-common quote-kind
 
 -take-string-part-common string-part(lexer lexer, quote-kind quote-kind)
-	res = lexer.ptr take-string-part quote-kind, of diag
+	if quote-kind == indented
+		lexer take-indented-string-inner
+	else
+		res = lexer.ptr take-string-part quote-kind, of diag
+			lexer add-diag-from-pointer diag
+		# Don't skip newline token (which is a parse error)
+		unless lexer.get-peek-token is-newline-token
+			_ = lexer take-next-token
+		res
+
+-take-indented-string-inner string-part(lexer lexer)
+	range, text, after = lexer.ptr take-indented-quote-part lexer.indent-kind, lexer.cur-indent, of diag
 		lexer add-diag-from-pointer diag
-	# Don't skip newline token (which is a parse error)
-	unless lexer.get-peek-token is-newline-token
+	after2 = match after
+	as nat32 dedents
+		assert dedents > 0
+		lexer.prev-token-end := lexer pos-at-ptr
+		lexer.next-token-pos := lexer pos-at-ptr
+		lexer.next-token := newline-dedent, (dedents - 1,)::extra-dedents
+		done
+	as lbrace
 		_ = lexer take-next-token
-	res
+		lbrace
+	range, text, after2
 
 list-part-kind enum(single, multi)
 -as-list-part-kind list-part-kind?(a symbol)

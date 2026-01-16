@@ -144,14 +144,14 @@ to json(a token-type)
 	a.to::string to
 
 -tokens-builder record mut
-	source string
+	source char8 array-view
 	line-and-character-getter line-and-character-getter
 	encoded nat mut[]
 	prev-pos mut pos
 	prev-line mut nat32
 	prev-character mut nat32
 -new tokens-builder(line-and-character-getter line-and-character-getter)
-	source: line-and-character-getter.source-text to
+	source: line-and-character-getter source-text
 	line-and-character-getter: line-and-character-getter
 	encoded: ()
 	prev-pos: 0
@@ -163,7 +163,7 @@ to json(a token-type)
 -~= void(a tokens-builder, (type token-type, range source-range))
 	guard range.length != 0 # This can happen for missing names
 	a advance-to range.start
-	assert range.end <= a.source.size-char8s.to
+	assert range.end <= a.source.size.to
 	a.prev-pos := range.end
 	a add-inner range, type
 
@@ -172,7 +172,7 @@ to json(a token-type)
 	a.prev-pos := pos
 
 -add-last-tokens void(a tokens-builder)
-	a advance-to a.source.size-char8s.to
+	a advance-to a.source.size.to
 
 -add-inner void(a tokens-builder, range source-range, type token-type)
 	lc-range = a.line-and-character-getter[range]
@@ -443,15 +443,22 @@ do
 		if f ?= x.first-branch then out add-expr-tokens f
 		if s ?= x.second-branch then out add-expr-tokens s
 	as interpolated-ast x
-		for i, part in x.parts with-index
-			match part
-			as literal-string-ast s
-				out ~= string,
-					# Extend the range to include the opening or closing '"'
-					start: if i == 0 then x start else s.range start
-					end: if i == x.parts.size - 1 then x end else s.range end
-			else
+		match x quote-kind
+		as indented
+			for part in x.parts
 				out add-expr-tokens part
+		else
+			for i, part in x.parts with-index
+				match part
+				as literal-string-ast s
+					out ~= string, s.range
+				else
+					# Highlight the opening/closing quote sign
+					if i == 0
+						out ~= string, (x.start, part.start)
+					out add-expr-tokens part
+					if i == x.parts.size - 1
+						out ~= string, (part.end, x.end)
 	as it-ast _
 		()
 	as it-scope-ast x
@@ -469,7 +476,11 @@ do
 	as literal-number x
 		out ~= number, x.range
 	as literal-string-ast x
-		out ~= string, x.range
+		match x kind
+		as indented
+			out ~= string, (x.range.start + "quote\n".size.to, x.range.end)
+		else
+			out ~= string, x.range
 	as logical-ast x
 		out add-expr-tokens x.left
 		out add-expr-tokens x.right
