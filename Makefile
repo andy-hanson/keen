@@ -76,7 +76,9 @@ profile-translate-to-java: bin/crow
 ### site ###
 
 # TODO: bin/crow.tar.xz bin/crow-demo.tar.xz bin/crow.vsix
-prepare-site: bin/crow site/index.js site/worker.js site/crow-include.tar site/java-classes.tar
+site-dependencies: bin/crow site/index.js site/worker.js site/crow-include.tar site/java-classes.tar
+
+prepare-site: site-dependencies
 	bin/crow site-src/build/site.crow
 
 site/index.js: bin/crow site-src/script/*.crow site-src/script/*/*.crow
@@ -85,8 +87,8 @@ site/index.js: bin/crow site-src/script/*.crow site-src/script/*/*.crow
 site/worker.js: bin/crow site-src/script/worker.crow $(all_include)
 	bin/crow build site-src/script/worker.crow --out site/worker.js
 
-serve: prepare-site
-	( trap 'kill 0' INT; bin/crow build site-src/script/index.crow --out site/index.js --watch & ./site-src/build/serve.crow & wait )
+serve: site-dependencies
+	( trap 'kill 0' INT; bin/crow run site-src/build/site.crow --watch & bin/crow build site-src/script/index.crow --out site/index.js --watch & ./site-src/build/serve.crow & wait )
 
 ### publish ###
 

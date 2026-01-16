@@ -61,6 +61,8 @@ main nat(args string[]) summon
 	match a
 	as build-command x
 		x watch
+	as run-command x
+		x.options watch
 	else
 		false
 
@@ -154,9 +156,8 @@ print void(a main-ctx, pipe pipe, text string)
 -go void(ctx main-ctx, this-executable file-path, command command-kind) summon
 	match command
 	as build-command x
-		ctx load-all-files-for-main x.main
 		targets build-target set = x.out map it.kind
-		do-build void mut() = of
+		ctx do-and-watch x.main, x.watch, of
 			program = ctx just-check-main-and-print-diags x.main, targets
 			if program has-fatal-diagnostics
 				err print "Due to compile errors, nothing will be built."
@@ -165,16 +166,9 @@ print void(a main-ctx, pipe pipe, text string)
 						out.path.to remove-file
 					catch path-not-found _
 						()
+				throw exit
 			else
 				ctx.server build-all-outputs x.out, x.options, x.times, program
-		do-build[]
-		if x watch
-			info log "watching for changes..."
-			for in infinite
-				changed = ctx.reader wait-for-change
-				info log "{changed get-arbitrary!} changed, building again..."
-				ctx load-all-files do changed map it.to
-				do-build[]
 	as check-command x
 		for _ in 0::nat .. x.times
 			options show-diags-options =
@@ -195,28 +189,43 @@ print void(a main-ctx, pipe pipe, text string)
 	as print-command x
 		ctx do-print x
 	as run-command x
-		assert (trusted extern java) else "Can only run code from a Java build" error
-		trusted ctx run x
+		ctx do-and-watch x.main, x.options.watch, of then ctx run x
 	as version-command
 		out print "{this-executable crow-version}"
 
--run void(ctx main-ctx, run run-command) summon, unsafe, java extern
+-do-and-watch void(ctx main-ctx, main main-kind, watch bool, f void mut())
+	ctx load-all-files-for-main main
+	f[]
+	guard watch
+	info log "watching for changes..."
+	for in infinite
+		changed = ctx.reader wait-for-change
+		info log "{changed get-arbitrary!} changed, building again..."
+		ctx load-all-files do changed map it.to
+		f[]
+
+-run void(ctx main-ctx, run run-command) summon
 	is-js = run.options node-js
-	program = ctx check-main-and-print-diags run.main,
+	program = ctx just-check-main-and-print-diags run.main,
 		- if is-js then js else java
 	forbid program has-fatal-diagnostics else
 		err print "Stopping due to compile errors."
 		exit
-	if is-js
+	trusted if is-js
 		ctx.server run-node-js program, run.main
 	else
+		assert extern java else "This is a JS build, so 'run' only works when the '--node-js' option is passed." error
 		ctx.server run-java program, run.main
 
 -run-java void(server server, program program-with-main, run-main main-kind) summon, unsafe, java extern
 	loader CrowClassLoader = getSystemClassLoader,
-	for class_ in server build-to-java program, "crowrun_"
-		ints int8 mut-slice = class_.bytecode.safe-reinterpret-cast cast-mutable
-		loader addClassBytecode class_.name-without-extension.to, ints
+	for file in server build-to-java program, "crowrun_"
+		bytes int8 mut-slice = file.bytes.safe-reinterpret-cast cast-mutable
+		if x ?= file.path try-remove-end ".class"
+			loader addClassBytecode x.to, bytes
+		else
+			loader addResource file.path.to, bytes
+
 	Main = loader.reinterpret-cast::ClassLoader loadClass "crowrun_Main"
 	main = Main getMethod "main",
 		- "java.lang.String".forName arrayType

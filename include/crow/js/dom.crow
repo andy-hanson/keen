@@ -1,5 +1,7 @@
 import
 	crow/js
+	crow/js/browser
+	crow/parallel
 	crow/unsafe: reinterpret-cast
 	./util
 
@@ -182,23 +184,33 @@ region Mutations
 
 region Custom elements
 
++custom-element-options record
+	style-uris string[]
++new custom-element-options()
+	style-uris: ()
++new custom-element-options(style-uri string)
+	style-uris: style-uri,
 +define-custom-element void(element-name string, connected connected-callback) summon, js extern
-	element-name define-custom-element "", connected
+	element-name define-custom-element (), connected
 +define-custom-element void
 	element-name string
-	style-sheet string
-	connected connected-callback
-do summon, js extern
-	element-name define-custom-element (of _ then style-sheet), connected
-+define-custom-element void
-	element-name string
-	style-sheet string mut(this custom-element-node)
+	options custom-element-options
 	connected connected-callback
 do summon, js extern
 	trusted
+	style-sheets js-any future? = if options.style-uris !is-empty
+		with in parallel
+			sheets js-any[] = for style-uri in options style-uris
+				style = "CSSStyleSheet".js-global call-new
+				_ = style call-property "replace", style-uri.fetch::string.to
+				style
+			sheets to
 	constructor method = of this, _
 		root = this call-property "attachShadow", mode: "open"
-		root set-style-sheet style-sheet[this as-custom-element-node] to
+		if s ?= style-sheets
+			with in fire-and-forget
+				root["adoptedStyleSheets"] := s await
+		()::void to # TODO: just '()' should do .....................................................................................
 	connected-callback method = of this, _
 		connected[this as-custom-element-node] as-js
 	cls = "HTMLElement".js-global make-class constructor, connectedCallback: connected-callback
@@ -218,12 +230,6 @@ do summon, js extern
 	a.as-node attributes
 +shadow-root node(a custom-element-node) js extern
 	trusted a.as-node["shadowRoot"]
-
--set-style-sheet void(shadow-root node, css string) js extern
-	trusted
-	style = "CSSStyleSheet".js-global call-new
-	_ = style call-property "replace", css.to await
-	shadow-root["adoptedStyleSheets"] := (style,)::js-any[] to
 
 +wait-until-window-loaded void() summon, js extern
 	trusted
