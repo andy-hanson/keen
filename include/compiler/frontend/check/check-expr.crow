@@ -270,12 +270,16 @@ do
 	ctx check-call-special source, range, "new", (), expected
 
 -check-interpolated expr(ctx expr-ctx, ast interpolated-ast, expected expected)
-	ctx check-call-special-cb-n ast, ast.range[0 .. 1], "interpolate", expected, ast.parts.size, of i, arg-expected
-		match ast.parts[i]
-		as literal-string-ast x
-			ctx check-literal-string x, arg-expected
-		else part
-			ctx check-call-special ast, part.range, "show", (part,), arg-expected
+	ctx check-call-special-cb-n ast, ast.range[0 .. 1], "interpolate", expected, ast.template.size + ast.interpolated.size, of arg-index, inner
+		if arg-index is-even
+			part = ast.template[arg-index / 2]
+			range = if part.range is-empty then part range else part.range[0 .. 1]
+			ctx check-call-special-cb1 part, range, "interpolate-string", inner, of inner2
+				ctx check-literal-string-only-string part, inner2
+		else
+			part = ast.interpolated[arg-index / 2]
+			range = if part.range is-empty then part range else part.range[0 .. 1]
+			ctx check-call-special ast, range, "interpolate-value", (part,), inner
 
 -access-local local?(ctx expr-ctx, diag-range source-range, name symbol)
 	# This traverses from the innermost lambda outwards, checking if it was already added to a closure.
@@ -390,35 +394,51 @@ do
 	else
 		expected bogus range
 
+-allowed-literal-string-types struct-inst[](ctx expr-ctx, include-chars bool)
+	types = ctx common-types
+	-- if include-chars
+		- types char8
+		- types char32
+	- types char8-array
+	- types char32-array
+	- types java-String
+	- types js-any
+	- types string
+	- types symbol
+	-- ctx.check-ctx.json-type from-option
+
 -check-literal-string expr(ctx expr-ctx, ast literal-string-ast, expected expected)
 	range = ast range
 	value = ast value
-	types = ctx common-types
-	# TODO:PERF this array is always the same, so precompute it! ------------------------------------------------------------------------------------
-	allowed-types struct-inst[] =
-		- types char8
-		- types char32
-		- types char8-array
-		- types char32-array
-		- types java-String
-		- types js-any
-		- types string
-		- types symbol
-		-- ctx.check-ctx.json-type from-option
-	# First 2 kinds won't be used
-	kinds string-like-type[] = string, string, char8-array, char32-array, java-String, js-any, string, symbol, json
-	guard type-index ?= ctx find-expected-struct-for-literal range, expected, allowed-types else
-		expected bogus range
-	expr expr? = if type-index == 0
-		range literal-scalar-expr char8, do ctx char8-literal-value range, value
-	elif type-index == 1
-		range literal-scalar-expr char32, do ctx char32-literal-value range, value
+	allowed-types struct-inst[] = ctx allowed-literal-string-types true
+	if type-index ?= ctx find-expected-struct-for-literal-allow-none range, expected, allowed-types
+		if type-index == 0
+			range literal-scalar-expr char8, do ctx char8-literal-value range, value
+		elif type-index == 1
+			range literal-scalar-expr char32, do ctx char32-literal-value range, value
+		else
+			ctx check-literal-string-inner ast, type-index - 2, expected
 	else
-		string-type = kinds[type-index]
-		if string-type != js-any or ctx check-is-js range
-			range literal-string-like-expr string-type, value		
-	if x ?= expr
-		ctx check expected, allowed-types[type-index], x
+		# "foo".interpolate-string interpolate
+		ctx check-call-special-cb1 ast, ast.range[0 .. 1], "interpolate", expected, of inner
+			ctx check-call-special-cb1 ast, ast.range[0 .. 1], "interpolate-string", inner, of inner2
+				ctx check-literal-string-only-string ast, inner2
+
+-check-literal-string-only-string expr(ctx expr-ctx, ast literal-string-ast, expected expected)
+	allowed-types = ctx allowed-literal-string-types false
+	if type-index ?= ctx find-expected-struct-for-literal ast.range, expected, allowed-types
+		ctx check-literal-string-inner ast, type-index, expected
+	else
+		expected bogus ast
+
+-check-literal-string-inner expr(ctx expr-ctx, ast literal-string-ast, type-index nat, expected expected)
+	range = ast range
+	value = ast value
+	kinds string-like-type[] = char8-array, char32-array, java-String, js-any, string, symbol, json
+	string-type = kinds[type-index]
+	if string-type != js-any or ctx check-is-js range
+		ctx check expected, (ctx allowed-literal-string-types false)[type-index],
+			range literal-string-like-expr string-type, value
 	else
 		expected bogus range
 
