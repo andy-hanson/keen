@@ -1,68 +1,38 @@
 import
 	./page-template
-	../index.html as index string
-	../download.html as download string
-	../play.html as play string
-	../tutorial/index.html as tutorial-index string
-	../tutorial/functions.html as tutorial-functions string
-	../tutorial/local-variables.html as local-variables string
-	../tutorial/conditionals.html as conditionals string
-	../tutorial/loops.html as loops string
-	../tutorial/types .html as types string
-	../tutorial/type-inference.html as type-inference string
-	../tutorial/special-call-syntax.html as special-call-syntax string
-	../tutorial/options.html as options string
-	../tutorial/records.html as records string
-	../tutorial/unions.html as unions string
-	../tutorial/variants.html as variants string
-	../tutorial/purity.html as purity string
-	../tutorial/collections.html as collections string
-	../tutorial/lambdas.html as lambdas string
-	../tutorial/for-and-with.html as for-and-with string
-	../tutorial/exceptions.html as exceptions string
-	../tutorial/fibers.html as fibers string
-	../tutorial/io.html as io string
-	../tutorial/modules.html as modules string
-	../tutorial/templates.html as templates string
-	../tutorial/specs.html as specs string
-	../tutorial/auto-functions.html as auto-functions string
-	../tutorial/enums.html as enums string
-	../tutorial/low-level.html as low-level string
-	../tutorial/js.html as js string
-	# TODO: fix parsing imports so this is allowed to be 'extern'--------------------
-	../tutorial/extern_.html as extern_ string
-	../tutorial/config.html as config string
-	../tutorial/doc.html as doc string
-	../tutorial/test_.html as test_ string
-	../tutorial/misc.html as misc string
+	./html
+	./pages/download
+	./pages/index
+	./pages/tutorial/index
+	./pages/tutorial/functions
 
 path-and-content record
 	# relative to 'site'
 	out-path string
 	content nat8[]
 
--template path-and-content(path string, title string, content string)
+-template path-and-content(path string, title string, options page-template-options)
 	out-path: path
-	content: path page-template title, content to
+	content: (path page-template-html title, options).render to
 
 pages path-and-content[]()
-	- "index.html" template "index", index
-	- "download.html" template "download", download
-	- "play.html" template "play", play
+	- "index.html", index.render.to
+	- "download.html", download.render.to
+	#- "play.html" template "play", play
 	-- tutorial-pages
 
 tutorial-pages path-and-content[]()
 	tutorials = tutorials
-	title-lookup string[symbol] = for x in tutorials then x.key, x.title
 	for index, tutorial in tutorials with-index
 		next tutorial? = unless index + 1 == tutorials.size
 			tutorials[index + 1]
-		"tutorial" tutorial-template tutorial, tutorials, title-lookup, tutorial.content, next
+		"tutorial" tutorial-template tutorial, tutorials, tutorial.content, next
 
 -tutorials tutorial[]()
 	index symbol = if 1::nat < 2 then "index" else "" # TODO: this silly thing makes this not a constant array which causes bugs in translate-to-java
 	- index, "Running crow programs", tutorial-index
 	- "functions", "Functions", tutorial-functions
+	###
 	- "local-variables", "Local variables", local-variables
 	- "conditionals", "Conditional expressions", conditionals
 	- "loops", "Loop expressions", loops
@@ -92,66 +62,32 @@ tutorial-pages path-and-content[]()
 	- "doc", "Doc comments", doc
 	- "test", "Tests", test_
 	- "misc", "Miscellaneous", misc
--tutorial record(key symbol, title string, content string)
+	###
+-tutorial record(key symbol, title string, content html[])
 
 -path string(tutorial-dir string, a tutorial)
 	"{tutorial-dir}/{a key}.html"
 
--tutorial-nav string(tutorial-dir string, cur-path string, tutorial-metas tutorial[])
-	lines = "" join for x in tutorial-metas
-		path = tutorial-dir path x
-		cur string = if path == cur-path then " class=\"current\""
-		"<li><a href=\"/{path}\"{cur}>{x title}</a></li>"
-	"<nav><ul>{lines}</ul></nav>"
+-tutorial-nav html-node(tutorial-dir string, cur-path string, tutorial-metas tutorial[])
+	"nav" node (),
+		- "ul" node (),
+			for x in tutorial-metas
+				path = tutorial-dir path x
+				"li" node (),
+					- "/{path}" link (if path == cur-path then class: "current"), "{x title}"
 
 -tutorial-template path-and-content
 	tutorial-dir string
 	meta tutorial
 	tutorial-metas tutorial[]
-	tutorial-title-lookup string[symbol]
-	content string
+	content html[]
 	next tutorial?
 do
-	next-link string = if n ?= next
-		"<a id=\"next\" href=\"/{tutorial-dir path n}\">next: {n title}</a>"
 	page-path = tutorial-dir path meta
-	content-with-links = content create-links of link
-		tutorial-title-lookup convert-link link
-	page-path template meta.title, quote
-		<div id="side-nav-wrapper">
-			{tutorial-dir tutorial-nav page-path, tutorial-metas}
-			<main>
-				<h1>{meta title}</h1>
-				{content-with-links}
-				{next-link}
-			</main>
-		</div>
-
--create-links string(content string, fill-link string data(link string))
-	if left, rest ?= content try-split-once "\{\{"
-		if link, right ?= rest try-split-once "}}"
-			left ~~ fill-link[link] ~~ (right create-links fill-link)
-	else
-		content
-
--convert-link string(tutorial-title-lookup string[symbol], str string)
-	link = str parse-link
-	match link kind
-	as "doc"
-		# TODO: validate the name
-		"<a href=\"/doc/crow/{link name}.html\">{link name}</a>"
-	as "tutorial"
-		assert title ?= tutorial-title-lookup[link name] else
-			"Linked to '{link name}' but no tutorial page has that name." error
-		"<a href=\"/tutorial/{link name}.html{link hash}\">{title}</a>"
-	else
-		throw "Unexpected link kind {link kind}" error
-
--link record(kind symbol, name symbol, hash string)
--parse-link link(a string)
-	assert kind, rest ?= a try-split-once "/" else
-		"Link \"{a}\" needs to begin with \"doc/\" or \"tutorial/\"." error
-	name, hash = rest try-split-once "#" else (rest, "")
-	kind: kind to
-	name: name to
-	hash: unless hash == "" then "#{hash}"
+	page-path template meta.title,
+		nav: tutorial-dir tutorial-nav page-path, tutorial-metas
+		main:
+			- meta.title h1
+			-- content
+			- if n ?= next
+				"/{tutorial-dir path n}" link (id: "next"), "next: {n title}"

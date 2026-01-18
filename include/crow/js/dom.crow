@@ -1,7 +1,5 @@
 import
 	crow/js
-	crow/js/browser
-	crow/parallel
 	crow/unsafe: reinterpret-cast
 	./util
 
@@ -52,11 +50,16 @@ do js extern
 +classes record(node node) mut
 +~= void(a classes, class-name string) js extern
 	_ = trusted a.node["classList"] call-property "add", class-name.to
++-= void(a classes, class-name string) js extern
+	_ = trusted a.node["classList"] call-property "remove", class-name.to
 +set-classes void(a node, class-names string[]) js extern
 	trusted
 	a["className"] := " " join class-names to
-+remove-class void(a node, class-name string) js extern
-	_ = trusted a["classList"] call-property "remove", class-name.to
++set-subscript void(a classes, class-name string, value bool) js extern
+	if value
+		a ~= class-name
+	else
+		a -= class-name
 
 +set-text-content void(a node, text string) js extern
 	trusted
@@ -106,6 +109,9 @@ region Node properties
 +set-subscript void(a attributes, attr-name symbol, value bool) js extern
 	trusted
 	_ = a.node call-property "setAttribute", attr-name.to, value.to
++-= void(a attributes, attr-name symbol) js extern
+	trusted
+	_ = a.node call-property "removeAttribute", attr-name.to
 
 | Gets the value for an input node, or "" if it's not an input node.
 +value string(a node) js extern
@@ -185,32 +191,25 @@ region Mutations
 region Custom elements
 
 +custom-element-options record
-	style-uris string[]
-+new custom-element-options()
-	style-uris: ()
-+new custom-element-options(style-uri string)
-	style-uris: style-uri,
+	styles string[]
++new custom-element-options(style string)
+	styles: style,
 +define-custom-element void(element-name string, connected connected-callback) summon, js extern
-	element-name define-custom-element (), connected
+	element-name define-custom-element (styles: ()), connected
 +define-custom-element void
 	element-name string
 	options custom-element-options
 	connected connected-callback
 do summon, js extern
 	trusted
-	style-sheets js-any future? = if options.style-uris !is-empty
-		with in parallel
-			sheets js-any[] = for style-uri in options style-uris
-				style = "CSSStyleSheet".js-global call-new
-				_ = style call-property "replace", style-uri.fetch::string.to
-				style
-			sheets to
 	constructor method = of this, _
 		root = this call-property "attachShadow", mode: "open"
-		if s ?= style-sheets
-			with in fire-and-forget
-				root["adoptedStyleSheets"] := s await
-		()::void to # TODO: just '()' should do .....................................................................................
+		sheets js-any[] = for style in options styles
+			sheet = "CSSStyleSheet".js-global call-new
+			_ = sheet call-property "replace", style.to
+			sheet
+		root["adoptedStyleSheets"] := sheets to
+		()::void to # TODO: just '()' should do ......................................................................................................................
 	connected-callback method = of this, _
 		connected[this as-custom-element-node] as-js
 	cls = "HTMLElement".js-global make-class constructor, connectedCallback: connected-callback

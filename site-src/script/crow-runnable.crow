@@ -9,6 +9,8 @@ import
 	../../include/compiler/lib/lsp/lsp-types
 	../../include/compiler/model/uri
 	../../include/compiler/util/exit-code
+	../style/colors.css as colors-css string
+	../style/crow-runnable.css as crow-runnable-css string
 	./crow
 	./crow-text
 	./icon
@@ -18,12 +20,7 @@ import
 
 define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 	names names = ()
-	options custom-element-options =
-		# TODO: some wierd parse error with "/style/colors.css", "/style/crow-runnable.css"
-		style-uris:
-			- "/style/colors.css"
-			- "/style/crow-runnable.css"
-	trusted "crow-runnable" define-custom-element options, of x
+	trusted "crow-runnable" define-custom-element (styles: colors-css, crow-runnable-css), of x
 		x connected crow, names
 
 -names record(seen string mut-set, next-index mut nat) mut
@@ -63,18 +60,17 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 	main-uri uri = "file:///{name}" must-parse-uri
 	text-mut string mut-observable = initial-text,
 	text = text-mut observable
-	tokens-observable token[] mut-observable = ()
+	tokens-observable token[] observable = text map-non-blocking (), shared of value
+		crow open-file main-uri, value
+		crow get-tokens main-uri
+
 	crow-text-props crow-text-props =
-		getHover: of position
+		get-hover: of position
 			crow get-hover main-uri, position
-		tokensAndDiagnostics: for tokens, diagnostics in tokens-observable.observable join crow.diagnostics
+		tokens-and-diagnostics: for tokens, diagnostics in tokens-observable join crow.diagnostics
 			tokens, (diagnostics[main-uri] else ())
 		text: text-mut
 	crow-text = crow-text-props create-crow-text
-
-	text now-and-subscribe shared of value
-		crow open-file main-uri, value
-		tokens-observable set do crow get-tokens main-uri
 
 	output output = ()
 
@@ -85,10 +81,9 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 	collapse-button.style["float"] := "right"
 
 	run-button node? = unless no-run
-		button = "Run" create-button "run", (play-icon,), of
+		button = "Run" create-button "", (play-icon,), of
 			output start-running
-			collapse-button remove-class "collapsed"
-			# TODO: I'm going to totally change how 'run' works. The server will build JS and send it to us to run.
+			collapse-button.classes -= "collapsed"
 			output finish-running do crow build-js-script main-uri run-js
 		button
 
@@ -100,7 +95,7 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 		-- run-button from-option
 		-- link-button from-option
 		- collapse-button
-	a.shadow-root ~= "outer-container" create-div
+	a.shadow-root ~~=
 		- crow-text
 		- output container
 		- "bottom" create-div buttons
@@ -119,7 +114,7 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 	a.container remove-all-children
 	a.container ~= create-loading-spinner
 -finish-running void(a output, run-result run-test-result) unsafe, js extern
-	a.container remove-class "running"
+	a.container.classes -= "running"
 	a.container.style["height"] := ""
 	a.container remove-all-children
 	a.container add-spans-for-writes run-result
@@ -178,7 +173,10 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 
 	# TODO: we might need to provide a global 'process' ---------------------------------------------------------------------------------------------
 	exit exit-code = if script ?= build script
-		encoded = "encodeURIComponent".js-global call script.to
+		# Ensure the script is unique, so that side effects happen on js-import even if the same script runs twice
+		unique-script js-any = "{script}\n// ensure unique: {next-script-id}"
+		next-script-id +:= 1
+		encoded = "encodeURIComponent".js-global call unique-script
 		data-url = "data:text/javascript;charset=utf-8,"::js-any + encoded
 		try
 			_ = data-url.js-import await
@@ -192,4 +190,5 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js extern
 		error
 	exit: exit
 	writes: writes move-to
-	
+
+-next-script-id global(nat)
