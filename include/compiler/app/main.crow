@@ -198,8 +198,27 @@ print void(a main-ctx, pipe pipe, text string)
 		throw x.exit-code.value.to exit
 	as lsp-command
 		ctx.server run-lsp ctx.reader, this-executable
-	as print-command x
-		ctx do-print x
+	as print-ast-command x
+		ctx.server load-single-file ctx.reader, x.uri
+		diagnostics, json = ctx.server print-ast x.uri
+		unless diagnostics is-empty
+			ctx print err, diagnostics
+		ctx print out, "{json}"
+	as print-concrete-model-command x
+		program = ctx check-main-and-print-diags (x.main main-kind-main-function ()), ()
+		ctx print out, "{ctx.server json-of-concrete-model java, program}"
+	as print-dependencies-command x
+		program = ctx check-and-print-diags x.root-uris
+		ctx print out, do ctx.server print-dependencies program, x.format
+	as print-ide-at-pos-command x
+		program = ctx check-and-print-diags (x.where.uri,)
+		ctx print out, "{ctx.server json-for-print-ide-at-pos program, x.where, x.kind}"
+	as print-ide-whole-file-command x
+		program = ctx check-and-print-diags (x.uri,)
+		ctx print out, "{ctx.server json-for-print-ide-whole-file program, x.uri, x.kind}"
+	as print-model-command x
+		program = ctx check-and-print-diags x.root-uris
+		ctx print out, "{ctx.server json-of-model program, x.root-uris}"
 	as run-command x
 		ctx do-and-watch x.main, x.options.watch, of then ctx run x
 	as version-command
@@ -282,29 +301,6 @@ print void(a main-ctx, pipe pipe, text string)
 			this-dir-dir.base-name is "crow"
 			this-dir-dir / "include"
 
--do-print void(ctx main-ctx, command print-command)
-	server = ctx server
-	main-uri = command main-uri
-	match command kind
-	as print-ast
-		server load-single-file ctx.reader, main-uri
-		diagnostics, json = server print-ast main-uri
-		unless diagnostics is-empty
-			ctx print err, diagnostics
-		ctx print out, "{json}"
-	as print-model
-		program = ctx check-and-print-diags (main-uri,)
-		ctx print out, "{server json-of-model program, main-uri}"
-	as print-concrete-model
-		program = ctx check-main-and-print-diags (main-uri main-kind-main-function ()), ()
-		ctx print out, "{server json-of-concrete-model java, program}"
-	as print-ide-at-pos x
-		program = ctx check-and-print-diags (main-uri,)
-		ctx print out, "{server json-for-print-ide-at-pos program, (main-uri, x.line-and-column), x.kind}"
-	as print-ide-whole-file x
-		program = ctx check-and-print-diags (main-uri,)
-		ctx print out, "{server json-for-print-ide-whole-file program, main-uri, x}"
-
 -build-all-outputs void
 	server server
 	outputs single-build-output[]
@@ -352,3 +348,16 @@ do summon
 	if program has-any-diagnostics
 		ctx print err, do ctx.server show-diagnostics program, options
 	program
+
+-print-dependencies string(server server, program program, format print-dependencies-format)
+	ctx = server get-show-diag-ctx program
+	match format
+	as dot
+		deps string[] = for* from, to in program all-dependencies
+			for t in to
+				"{ctx show-uri from quoted} -> {ctx show-uri t quoted}"
+		"digraph \{\n\t{"\n\t" join deps.sort}\n}"
+	as flat
+		uris string[] = for uri in program all-uris
+			ctx show-uri uri
+		"\n" join uris.sort

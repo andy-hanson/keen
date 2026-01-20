@@ -1,5 +1,4 @@
 import
-	crow/col/mut-stack
 	crow/experimental/observable
 	crow/io/duration
 	crow/js
@@ -11,6 +10,7 @@ import
 	../../include/compiler/model/source-range
 	../style/colors.css as colors-css string
 	../style/crow-text.css as crow-text-css string
+	./highlight-tokens
 	./util/util
 
 -line-height-px float()
@@ -173,7 +173,6 @@ do unsafe, js extern
 		res, false
 
 find-the-span node?(highlight-div node, position line-and-character) js extern
-	# TODO: handle line and character out of bounds -----------------------------------------------------------------------------------------------------
 	lines = highlight-div child-nodes
 	guard position.line < lines.size.to
 	line = lines[position.line to]
@@ -259,197 +258,4 @@ find-the-span node?(highlight-div node, position line-and-character) js extern
 
 -highlight void(td tokens-and-diagnostics, highlight-div node, text string) js extern
 	highlight-div remove-all-children
-	highlight-div ~~= td tokens-and-diags-to-nodes text
-
--tokens-and-diags-to-nodes node[](td tokens-and-diagnostics, text string) js extern # TODO: this whole thing could go in its own file ..................................
-	a node-builder = td.diagnostics, text
-	a start-line
-	for token in td tokens
-		a walk-to (token.line, token.character)
-		_ = a maybe-start-diag
-		a add-span token.type.to,
-			line: token line
-			character: token.character + token.length
-		a maybe-stop-diag
-
-	a walk-to a.lines.last-position
-	a end-line
-	assert a.container-stack.size == 1
-	a.container-stack[0].all-container!.nodes move-to
-
--node-builder record mut
-	lines line[]
-	diagnostics lsp-diagnostic[]
-	pos mut line-and-character
-	container-stack container mut-stack
-	diag-index mut nat
--new node-builder(diagnostics lsp-diagnostic[], text string)
-	lines: text split "\n" map it.to
-	diagnostics: diagnostics
-	pos: 0, 0
-	container-stack:
-		- () all-container
-	diag-index: 0
-
--pop-container void(a node-builder) js extern
-	popped = a.container-stack.pop!
-	child node = match popped
-	as line-container x
-		"line" create-div x.nodes.move-to
-	as diag-container x
-		"diagnostic" create-span (), x.children.move-to
-	else
-		throw unreachable
-	last-container = a.container-stack.peek!
-	# text can't contain other nodes
-	forbid last-container is-text
-	last-container.children ~= child
-
--start-line void(a node-builder)
-	a.container-stack ~= () line-container
--end-line void(a node-builder) js extern
-	until a.container-stack.peek! is-line
-		a pop-container
-	a pop-container
--next-line void(a node-builder) js extern
-	a end-line
-	a start-line
-
--finish-text void(a node-builder) js extern
-	last = a.container-stack.peek!
-	if text ?= last text-container
-		_ = a.container-stack.pop!
-		new-last = a.container-stack.peek!
-		# text can't contain other nodes
-		forbid new-last is-text
-		new-last.children ~= "no-token" create-span (text.text.create-text-node,)
-
--maybe-start-diag bool(a node-builder) js extern
-	if a.diag-index < a.diagnostics.size
-		diag = a.diagnostics[a.diag-index]
-		message = diag message
-		range = diag range
-		start = range start
-		end = range end
-		if start <= a.pos
-			# Ignore nested diags
-			unless a.container-stack.peek! is-diag
-				a finish-text
-				a.container-stack ~= ((), end, message)::diag-container
-			a.diag-index +:= 1
-			true
-
--should-stop-diag bool(a node-builder)
-	last-container = a.container-stack.peek!
-	if x ?= last-container.diag-container
-		x.end <= a.pos
-
--maybe-stop-diag void(a node-builder) js extern
-	if a should-stop-diag
-		a pop-container
-
--no-token-node node(a node-builder, start-pos line-and-character) js extern
-	assert start-pos < a.pos
-	"no-token" create-span ((a.lines slice-line start-pos, a.pos).to.create-text-node,)
-
--walk-to void(a node-builder, end-pos line-and-character) js extern
-	start-pos mut = a.pos
-	while a.pos < end-pos
-		if a maybe-start-diag
-			if start-pos < a.pos
-				a.container-stack[end - 2].children ~= a no-token-node start-pos
-			start-pos := a.pos
-		next-pos = a.lines next-position a.pos
-		if next-pos.line != a.pos.line
-			if start-pos != a.pos
-				a.container-stack.peek!.children ~= a no-token-node start-pos
-			start-pos := next-pos
-			a next-line
-		a.pos := next-pos
-		if a should-stop-diag
-			a.container-stack.peek!.children ~= a no-token-node start-pos
-			start-pos := a.pos
-			a pop-container
-	if start-pos < a.pos
-		a.container-stack.peek!.children ~= a no-token-node start-pos
-
--add-span void(a node-builder, class-name string, end-pos line-and-character) js extern
-	guard a.pos < end-pos
-	parts = a.lines slice-lines a.pos, end-pos
-	a.container-stack.peek!.children ~= class-name create-span (parts[0].to.create-text-node,)
-	for part in parts[1 .. end]
-		a next-line
-		a.container-stack.peek!.children ~= class-name create-span (part.to.create-text-node,)
-	a.pos := end-pos
-
--container union(all-container, line-container, diag-container, text-container) mut
--all-container record(nodes node mut[]) mut
--line-container record(nodes node mut[]) mut
--diag-container record mut
-	children node mut[]
-	end line-and-character
-	message string
--text-container record mut
-	text string
-
-# TODO: inline these --------------------------------------------------------------------------------------------------------------------------------
--is-line bool(a container)
-	_ ?= a line-container
--is-diag bool(a container)
-	_ ?= a diag-container
--is-text bool(a container)
-	_ ?= a text-container
-
--children node mut[](a container)
-	match a
-	as all-container x
-		x nodes
-	as line-container x
-		x nodes
-	as diag-container x
-		x children
-	as text-container _
-		throw unreachable
-
-line alias
-	char32[]
-
--slice-lines line[](lines line[], start line-and-character, end line-and-character)
-	if start.line == end.line
-		- lines slice-line start, end
-	else
-		- lines slice-line-from start
-		-- lines[start.line.to .. end.line.to] to # TODO: should not need 'to' at the end here. Should be able to spread in an array-view..
-		- lines slice-line-to end
--slice-line line(lines line[], start line-and-character, end line-and-character)
-	assert start.line == end.line
-	# Since diagnostics may be out of date, we need to make sure to handle invalid start/end positions
-	lines safe-at start.line.to safe-slice start.character.to .. end.character.to
--slice-line-from line(lines line[], start line-and-character)
-	lines safe-at start.line.to safe-slice-from start.character.to
--slice-line-to line(lines line[], end line-and-character)
-	lines safe-at end.line.to safe-slice-to end.character.to
-
--safe-at[t] t(xs t[], index nat) t new
-	if index < xs.size
-		xs[index]
--safe-slice[t] t[](xs t[], range nat range)
-	guard range.low < xs.size
-	xs[range.low .. (range.high min xs.size)] to
--safe-slice-from[t] t[](xs t[], index nat)
-	if index < xs.size
-		xs[index .. end] to
--safe-slice-to[t] t[](xs t[], index nat)
-	if index < xs.size
-		xs[0 .. index] to
-	else
-		xs
-
--next-position line-and-character(lines line[], pos line-and-character)
-	if pos.character >= lines[pos.line to].size.to
-		pos.line + 1, 0
-	else
-		pos.line, pos.character + 1
-
--last-position line-and-character(lines line[])
-	lines.size.to - 1, lines[end - 1].size.to
+	highlight-div ~~= td.tokens tokens-and-diags-to-nodes td.diagnostics, text

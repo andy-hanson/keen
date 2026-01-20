@@ -310,44 +310,45 @@ default-executable-extension symbol(os os)
 		cwd parse-crow-or-crow-config-uri diags, arg
 
 -parse-print-command command-kind(cwd file-path, diags diags, args parsed-command)
-	diags expect-empty-parts args.named
 	diags expect-empty-after-dash-dash args.after
-	kind = if args.nameless.size >= 2
-		args.nameless[0] parse-print-kind args.nameless[2 .. end].to
-	if k ?= kind
-		k print-command if k.print-ide-whole-file == tokens
-			cwd parse-crow-or-crowd-uri diags, args.nameless[1]
-		else
-			cwd parse-crow-uri diags, args.nameless[1]
+	subcommand = args.nameless[0]
+	res command-kind? = match subcommand
+	as ast
+		guard args.named is-empty
+		cwd parse-main-uri diags, args.nameless print-ast-command
+	as dependencies
+		uris = cwd parse-root-uris diags, args.nameless[1 .. end].to
+		guard format ?= if args.named is-empty
+			# TODO: `guard format print-dependencies-format? ?= ...` would be more readable
+			dot::print-dependencies-format?
+		elif args.named.size == 1
+			args.named["format"].?opt-only ?to
+		uris print-dependencies-command format
+	as model
+		guard args.named is-empty
+		uris = cwd parse-root-uris diags, args.nameless[1 .. end].to
+		uris print-model-command
+	as concrete-model
+		guard args.named is-empty
+		main = cwd parse-main-uri diags, args.nameless
+		main print-concrete-model-command
 	else
+		guard args.named is-empty
+		if kind ?= subcommand.to::print-ide-at-pos-kind?
+			guard args.nameless.size == 3
+			guard lc ?= args.nameless[2] parse-line-and-column
+			main = cwd parse-main-uri diags, args.nameless[1 .. 2].to
+			kind print-ide-at-pos-command (main, lc)
+		elif kind ?= subcommand.to::print-ide-whole-file-kind?
+			guard args.nameless.size == 2
+			arg = args.nameless[1]
+			kind print-ide-whole-file-command if kind == tokens
+				cwd parse-crow-or-crowd-uri diags, arg
+			else
+				cwd parse-crow-uri diags, arg
+	res else
 		diags ~= print-kind-invalid
 		bogus
-
--parse-print-kind print-kind?(a string, args string[])
-	match a
-	as ast
-		args expect-empty-args print-ast
-	as model
-		args expect-empty-args print-model
-	as concrete-model
-		args expect-empty-args print-concrete-model
-	else
-		if kind-at-pos ?= a ide-at-pos-kind
-			args expect-line-and-column of lc
-				kind-at-pos print-ide-at-pos lc
-		elif kind-whole-file ?= a ide-whole-file-kind
-			args expect-empty-args kind-whole-file
--expect-empty-args print-kind?(args string[], x print-kind)
-	if args is-empty
-		x
--expect-line-and-column print-kind?(args string[], f print-kind data(x line-and-column))
-	if lc ?= args.opt-only ?parse-line-and-column
-		f[lc]
-# TODO: INLINE ------------------------------------------------------------------------------------------------------------------------------
--ide-at-pos-kind print-ide-at-pos-kind?(a string)
-	a.to to
--ide-whole-file-kind print-ide-whole-file?(a string)
-	a.to to
 
 parse-line-and-column line-and-column?(a string) # TODO: make it neater using a grammar -------------------------------------------------------
 	ptr string-mut-iterator = a,
@@ -559,43 +560,65 @@ default-executable-path file-path(base file-path, os os)
 -command-description string(name command-name)
 	match name
 	as build
-		"Compiles the program at PATH." ~~
-		"\nOptions are:" ~~
-		"\n\t--out : Output path. Defaults to the input path with the extension changed." ~~
-		"\n\t\tIf this has a '.c' extension, it will output C source code instead." ~~
-		"\n\t--test: Ignore the 'main' function and compile a program that runs tests." ~~
-		"\n\t\t--all: Works with '--test'. Runs all tests in all included files."
+		quote
+			Compiles the program at PATH.
+			Options are:
+				--out: Output path. Defaults to the input path with the extension removed.
+					This normally produces an executable JAR.
+					If this has a '.js' extension, it will output JS source code instead.
+				--test: Ignore the 'main' function and compile a program that runs tests.
+					(You probably don't need this and should just use `crow test`.)
+				--all: Works with '--test'. Runs all tests in all included files.
 	as check
-		"Prints any diagnostics for the module(s) at PATH(s) or their imports.\nNo options."
+		quote
+			Prints any diagnostics for the module(s) at PATH(s) or their imports.
+			No options.
 	as document
-		"Generates JSON documentation for the module(s) at PATH(s).\nNo options."
+		quote
+			Generates JSON documentation for the module(s) at PATH(s).
+			No options.
 	as lsp
-		"This runs the Language Server Protocol through stdin/stdout.\nNo options."
+		quote
+			This runs the Language Server Protocol through stdin/stdout.
+			No options.
 	as print
-		"Internal command for debugging. This should be one of:" ~~
-		"\ncrow print ast PATH" ~~
-		"\ncrow print model PATH" ~~
-		"\ncrow print concrete-model PATH" ~~
-		"\n" ~~
-		"\ncrow print code-lenses PATH" ~~
-		"\ncrow print definition PATH LINE:COLUMN" ~~
-		"\ncrow print document-highlights PATH LINE:COLUMN" ~~
-		"\ncrow print folding-ranges PATH" ~~
-		"\ncrow print hover PATH LINE:COLUMN" ~~
-		"\ncrow print inlay-hints PATH" ~~
-		"\ncrow print references PATH LINE:COLUMN" ~~
-		"\ncrow print rename PATH LINE:COLUMN" ~~
-		"\ncrow print signature-help PATH LINE:COLUMN" ~~
-		"\ncrow print tokens PATH" ~~
-		"\ncrow print type-definition PATH LINE:COLUMN"
+		quote
+			Prints various information about the program.
+
+			crow print dependencies PATH [--format flat]
+				Outputs all dependencies. By default this uses the '.dot' format.
+				With '--format flat', this just lists all files that were included.
+
+			The following print internal compiler data:
+				crow print ast PATH
+				crow print model PATH
+				crow print concrete-model PATH
+
+			The following perform a single LSP query and print the result:
+				crow print code-lenses PATH
+				crow print definition PATH LINE:COLUMN
+				crow print document-highlights PATH LINE:COLUMN
+				crow print folding-ranges PATH
+				crow print hover PATH LINE:COLUMN
+				crow print inlay-hints PATH
+				crow print references PATH LINE:COLUMN
+				crow print rename PATH LINE:COLUMN
+				crow print signature-help PATH LINE:COLUMN
+				crow print tokens PATH
+				crow print type-definition PATH LINE:COL
 	as run
-		"Runs the program at PATH. Equivalent to 'crow foo.crow'."
+		quote
+			Runs the program at PATH.
+			Command-line arguments to the program should come after a `--`, as in `crow run foo.crow -- arg1 arg2`.
+			This can equivalently be written as `crow foo.crow arg1 arg2`.
 	as test_
-		"Runs tests at PATH." ~~
-		"\nIf PATH is a 'crow-config' file, searches its directory (recursively) for '.crow' files" ~~
-		" that would have it as their config." ~~
-		"\nIf PATH is a file, runs tests in that file." ~~
-		"\nYou can also specify the line number of a 'test' keyword to run only that test." ~~
-		"\nIf '--all' is specified, runs all tests in reachable files, including library tests."
+		quote
+			Runs tests at PATH.
+			If PATH is a 'crow-config' file, searches its directory (recursively) for '.crow' files that would have it as their config.
+			If PATH is a file, runs tests in that file.
+			You can also specify the line number of a 'test' keyword to run only that test.
+			If '--all' is specified, runs all tests in reachable files, including library tests.
 	as version
-		"Prints information about the version of 'crow'.\nNo options."
+		quote
+			Prints information about the version of 'crow'.
+			No options.

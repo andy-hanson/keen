@@ -1,4 +1,4 @@
-.PHONY: check confirm-upload-site test-end-to-end test-end-to-end-overwrite serve prepare-site test unit-test unit-test-java unit-test-js
+.PHONY: check confirm-upload-site test-end-to-end test-end-to-end-overwrite serve prepare-site test unit-test unit-test-java unit-test-js view-dependencies
 
 all_include = $(shell find include -name '*.crow')
 
@@ -60,7 +60,8 @@ bin/crow: $(all_include) include/compiler/backend/java/lib/Crow.class bin/import
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
 	mv bin/crow-tmp bin/crow
 
-# Just for fun
+### Optional commands ###
+
 bin/crow.js: $(all_include) bin/imports/date.txt bin/imports/commit-hash.txt
 	bin/crow build include/compiler/app/main.crow --out bin/crow.js
 
@@ -72,6 +73,10 @@ profile-translate-to-java: bin/crow
 	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow build include/compiler/app/main.crow --out bin/temp --times 30 --perf
 	rm bin/temp
 	jmc
+
+view-dependencies: bin/crow
+	bin/crow print dependencies include/crow-config.json | dot -Tsvg > bin/dependencies.svg
+	xdg-open bin/dependencies.svg
 
 ### site ###
 
@@ -119,7 +124,13 @@ upload-site: prepare-site confirm-upload-site
 site/crow-include.tar: $(all_include)
 	tar -cf site/crow-include.tar -C include/crow .
 site/java-classes.tar:
-	# This avoids storing the 'jdk' classes which take up a lot of space and aren't in any public API
-	unzip -qq /usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod 'classes/java/*' 'classes/javax/*' -d site/java-classes || true
+	rm -r site/java-classes
+	mkdir site/java-classes
+	bin/crow print dependencies include/crow-config.json --format flat | \
+		grep 'java:///java' | \
+		sed 's|^java:///java/|classes/java/|' | \
+		sed 's|%24|\$$|' | \
+		sed 's|$$|.class|' | \
+		xargs -d '\n' unzip -qq /usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod -d site/java-classes || true
 	tar -cf site/java-classes.tar -C site/java-classes/classes .
 	rm -r site/java-classes
