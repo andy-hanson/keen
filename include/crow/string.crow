@@ -10,7 +10,6 @@ import
 	./col/mut-array
 	./col/mut-slice
 	./col/private/array-low-level: inner, view-indices
-	./col/util
 	./exception
 	./hash
 	./js
@@ -27,20 +26,6 @@ export
 +to char8(a nat8) builtin
 +to nat8(a char8) builtin
 +== bool(a char8, b char8) builtin
-
-+to char8[](a string)
-	a chars
-+to char8 array-view(a string)
-	a.chars to
-
--unsafe-to char32(a char8) builtin
-+to char32(a char8)
-	assert a is-valid-single-byte-character
-	a unsafe-to
-+to char8(a char32)
-	a.to::nat32.to::nat8.to
-+to char32[](a string)
-	for x in a then x
 
 +~~ string(a string, b string)
 	a.to::char8[] ~~ b.to to
@@ -81,8 +66,7 @@ export
 +is-empty bool(a string)
 	a.to::char8[] is-empty
 
-+size-char8s nat64(a string) # TODO: RM, this is just a.to::char8[].size and that is easier to understand ---------------------
-	a.to::char8[] size
+| Number of {char32}s in the string. This must walk and decode the string to count them.
 +size nat64(a string)
 	res mut nat64 = 0
 	for _ in a
@@ -124,6 +108,19 @@ export
 
 region conversion
 
+-unsafe-to char32(a char8) builtin
++to char32(a char8)
+	assert a is-valid-single-byte-character
+	a unsafe-to
++to char8(a char32)
+	a.to::nat32.to::nat8.to
+
++to char8[](a string)
+	a chars
++to char8 array-view(a string)
+	a.chars to
++to char32[](a string)
+	for x in a then x
 +to string(a char32[])
 	a.to to
 +to string(a char32 array-view)
@@ -345,106 +342,10 @@ region utilities
 +show string(_ unicode-decode-error)
 	"Error decoding bytes as UTF-8"
 
-+lines string[](a string)
-	# TODO:PERF should be better (or at least just as good) with just `a split "\n"`
-	for x in a.to::char32[] split ("\n",)
-		(x try-remove-end "\r".to else x) to
-
-| Lower cases every character in {a}.
-+lower-case string(a string)
-	for x in a then x lower-case
-
-+lower-case char32(a char32)
-	diff = a.to::nat32 wrap-sub "A"::char32.to
-	if diff < 26
-		trusted "a"::char32.to + diff unsafe-to
-	else
-		a
-
-| Capitalizes every character in {a}.
-+upper-case string(a string)
-	for x in a then x upper-case
-
-+upper-case char32(a char32)
-	diff = a.to::nat32 wrap-sub "a"::char32.to
-	if diff < 26
-		trusted "A"::char32.to + diff unsafe-to
-	else
-		a
-
 +in bool(a char32, b string)
 	b exists it == a
 
-| Replaces every instance of the substring {find} with {replace-with}.
-+replace-all string(a string, find string, replace-with string)
-	# TODO:PERF
-	if l, r ?= a try-split-once find
-		l ~~ replace-with ~~ (r replace-all find, replace-with)
-	else
-		a
-
-+pad-left string(a string, min-size nat64, padding char32)
-	chars char32[] = a to
-	if chars.size < min-size
-		(min-size - chars.size n-of padding)::char32[] ~~ chars to
-	else
-		a
-+pad-right string(a string, min-size nat64, padding char32)
-	chars char32[] = a to
-	if chars.size < min-size
-		chars ~~ (min-size - chars.size n-of padding) to
-	else
-		a
-
-| Strips whitespace from both ends.
-+strip string(a string)
-	a.strip-left strip-right
-
-| Strips whitespace from the front.
-+strip-left string(a string)
-	a drop-while it.is-whitespace
-
-| Strips whitespace from the end.
-+strip-right string(a string)
-	a drop-right-while it.is-whitespace
-
-+is-whitespace bool(a char32) # TODO: duplicate code in parse.crow
-	match a
-	as " "
-		true
-	as "\r"
-		true
-	as "\n"
-		true
-	as "\t"
-		true
-	else
-		false
-
-| Enclose a string in quotes and escape special characters.
-+quoted string(a string)
-	with out in build
-		out ~= "\""
-		for x in a
-			match x
-			as "\""
-				out ~~= "\\\""
-			as "\n"
-				out ~~= "\\n"
-			as "\r"
-				out ~~= "\\r"
-			as "\t"
-				out ~~= "\\t"
-			as "\\"
-				out ~~= "\\\\"
-			else
-				out ~= x
-		out ~= "\""
-
-+unindent string(a string)
-	a replace-all "\t", ""
-
-| Equivalent to `{parts}[0] ~~ {joiner} ~~ parts[1] ~~ {joiner} ~~ ... ~~ {parts}[end - 1]`.
+| Equivalent to `{parts}[0] ~~ {joiner} ~~ {parts}[1] ~~ {joiner} ~~ ... ~~ {parts}[end - 1]`.
 +join string(joiner string, parts string[])
 	match parts size
 	as 0
@@ -547,7 +448,7 @@ do
 -is-first-byte bool(a char8)
 	a.to::nat8 has-all-bits first-byte-flags
 
--is-valid-single-byte-character bool(a char8)
+~is-valid-single-byte-character bool(a char8)
 	a.to::nat8 < 0b1000_0000
 
 -byte-top-bit nat8()
@@ -574,23 +475,6 @@ region conversion
 	- a.chars.safe-reinterpret-cast::int8[] cast-mutable
 +to js-any(a string) js extern
 	trusted "TextDecoder".js-global.call-new call-property "decode", a.chars.as-js
-
-+string-reverse record(inner string)
-+reverse string-reverse(a string)
-	a,
-+size nat64(a string-reverse)
-	a.inner size
-+iterate bool(a string-reverse, f bool mut(x char32))
-	iter mut = a.inner end
-	loop
-		guard prev, x ?= iter prev else break
-		if f[x]
-			break true
-		else
-			iter := prev
-			continue
-+to string(a string-reverse)
-	for x in a then x
 
 +safe-reinterpret-cast char8 array-view(a nat8 array-view)
 	inner: a.inner safe-reinterpret-cast
