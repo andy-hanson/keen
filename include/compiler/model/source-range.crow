@@ -156,9 +156,8 @@ subscript uri-line-and-column-range(a line-and-column-getters, range uri-and-ran
 line-and-character-getter record
 	source-text char8 array-view
 	line-to-pos nat32[]
-	uses-crlf bool
 new line-and-character-getter()
-	""::char8[].to, (0,), false
+	""::char8[].to, (0,)
 is-empty bool(a line-and-character-getter)
 	a.source-text is-empty
 subscript pos(a line-and-character-getter, lc line-and-character)
@@ -181,11 +180,8 @@ subscript line-and-character(a line-and-character-getter, (start-pos pos, kind p
 		pos -:= 1
 	line-start = a.line-to-pos[line]
 	assert pos >= line-start and line == a.line-to-pos.size - 1 or pos <= a.line-to-pos[line + 1]
-	character mut nat32 = a get-line-text line character-index-of-byte-index (pos - line-start).to to
-	# Don't include a column for the '\r' in '\r\n'
-	if a.uses-crlf and line + 1 < a.line-to-pos.size and pos + 1 == a.line-to-pos[line + 1]
-		character -:= 1
-	line.to, character
+	line: line to
+	character: a get-line-text line character-index-of-byte-index (pos - line-start).to to
 
 get-line-text string(a line-and-character-getter, line nat)
 	range nat range = a.line-to-pos[line].to .. (a next-line-pos line to)
@@ -277,16 +273,13 @@ line-and-column-getter-for-text line-and-column-getter(text char8 array-view)
 	iter string-mut-iterator = text,
 	line-to-pos pos mut[] = 0,
 	line-to-n-tabs nat8 mut[] = iter.advance-and-get-n-tabs,
-	uses-crlf mut bool = false
 	until iter is-at-end
-		if iter.peek8 == "\r"
-			uses-crlf := true
-		if iter try-take-newline
+		if iter try-take-char8 "\n"
 			line-to-pos ~= iter pos
 			line-to-n-tabs ~= iter advance-and-get-n-tabs
 		else
 			_ = iter take-char8
-	line-and-character-getter: text, line-to-pos.move-to, uses-crlf
+	line-and-character-getter: text, line-to-pos.move-to
 	line-to-n-tabs: line-to-n-tabs move-to
 
 advance-and-get-n-tabs nat8(a string-mut-iterator)
@@ -301,7 +294,7 @@ line-length-in-characters nat(a line-and-character-getter, line nat)
 	if line < a.line-to-pos.size - 1
 		next = a.line-to-pos[line + 1]
 		here = a.line-to-pos[line]
-		next.to - here.to - 1 - a.uses-crlf.to
+		next.to - here.to - 1
 	elif line == a.line-to-pos.size - 1
 		a.source-text.size - a.line-to-pos[line].to
 
@@ -395,42 +388,21 @@ test
 test
 	lcg = "a\n\tbb\nc\n" line-and-column-getter-for-text
 	lcg verify-convert 0, 0, 0 # a
-	lcg verify-convert 1, 0, 1 # \n or \r
+	lcg verify-convert 1, 0, 1 # \n
 	lcg verify-convert 2, 1, 0 # \t
 	lcg verify-convert 2, end-of-range, 0, 1, 1, 1
 	lcg verify-convert 3, 1, 1, 4 # b
 	lcg verify-convert 4, 1, 2, 5 # b
-	lcg verify-convert 5, 1, 3, 6 # \n or \r
+	lcg verify-convert 5, 1, 3, 6 # \n
 	lcg verify-convert 6, 2, 0 # c
-	lcg verify-convert 7, 2, 1 # \n or \r
+	lcg verify-convert 7, 2, 1 # \n
 	lcg verify-convert 8, 3, 0 # end
-	lcg common false
 
-test
-	lcg = "a\r\n\tbb\r\nc\r\n" line-and-column-getter-for-text
-	lcg verify-convert 0, 0, 0 # a
-	lcg verify-convert 1, 0, 1 # \r
-	lcg verify-convert 2, start-of-range, 0, 1, 1, 1 # \n
-	lcg verify-convert 2, end-of-range, 0, 1, 1, 1
-	lcg verify-convert 3, 1, 0 # \t
-	lcg verify-convert 3, end-of-range, 0, 1, 1, 1
-	lcg verify-convert 4, 1, 1, 4 # b
-	lcg verify-convert 5, 1, 2, 5 # b
-	lcg verify-convert 6, 1, 3, 6 # \r
-	lcg verify-convert 7, start-of-range, 1, 3, 6, 6 # \n
-	lcg verify-convert 8, 2, 0 # c
-	lcg verify-convert 9, 2, 1, 1 # \t
-	lcg verify-convert 10, start-of-range, 2, 1, 1, 9 # \n
-	lcg verify-convert 11, 3, 0 # end
-	lcg common true
-
--common void(lcg line-and-column-getter, crlf bool)
 	chg = lcg line-and-character-getter
-	crlfn nat32 = crlf.to::nat to
-	lcg[(0, 99)::line-and-column] is 1 + crlfn
-	chg[(0, 99)::line-and-character] is 1 + crlfn
-	lcg[(99, 99)::line-and-column] is 8 + crlfn * 3
-	chg[(99, 99)::line-and-character] is 8 + crlfn * 3
+	lcg[(0, 99)::line-and-column] is 1 
+	chg[(0, 99)::line-and-character] is 1
+	lcg[(99, 99)::line-and-column] is 8
+	chg[(99, 99)::line-and-character] is 8
 
 	chg line-length-in-characters 0 is 1
 	chg line-length-in-characters 1 is 3
