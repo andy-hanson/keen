@@ -16,20 +16,19 @@ lex-tokens-between-asts void
 	cb-comment void mut(x source-range)
 	cb-keyword void mut(x source-range)
 do
-	ptr string-mut-iterator = source,
-	ptr advance range.start.to
 	end = range end
-	while ptr.pos < end
-		ptr skip-for-tokens end, of pos
-			cb-comment[pos, ptr.pos]
-		if ptr.pos < end
-			start = ptr pos
-			while ptr.peek8 !ignore-char-for-tokens and ptr.pos < end
-				_ = ptr take-char8
-			cb-keyword[start, ptr.pos]
+	iter string-iterator = source[range.start.to .. end.to] begin
+	until iter is-at-end
+		iter skip-for-tokens of pos
+			cb-comment[range.start + pos, range.start + iter.pos]
+		unless iter is-at-end
+			start = iter pos
+			until iter is-at-end or iter.peek8 ignore-char-for-tokens
+				_ = iter take-char8
+			cb-keyword[range.start + start, range.start + iter.pos]
 
 | Does not skip newlines (unless within a comment), only spaces within a line
-skip-spaces-and-comments void(ptr string-mut-iterator, cb-comment cb-comment, add-diag add-diag)
+skip-spaces-and-comments void(ptr string-iterator, cb-comment cb-comment, add-diag add-diag)
 	loop
 		start = ptr pos
 		if ptr.peek8 is-whitespace-non-newline
@@ -51,7 +50,7 @@ skip-spaces-and-comments void(ptr string-mut-iterator, cb-comment cb-comment, ad
 			break
 
 skip-blank-lines-and-get-indent-delta int32
-	ptr string-mut-iterator
+	ptr string-iterator
 	indent-kind indent-kind
 	cur-indent nat32 reference
 	add-diag add-diag
@@ -78,7 +77,7 @@ do
 			cur-indent set new-indent
 			break delta
 
--try-take-line-continuation bool(ptr string-mut-iterator, cb-comment cb-comment)
+-try-take-line-continuation bool(ptr string-iterator, cb-comment cb-comment)
 	guard ptr.peek8 == "\\"
 	ptr2 = ptr copy
 	_ = ptr2 take-char8
@@ -94,19 +93,21 @@ do
 -ignore-char-for-tokens bool(a char8)
 	a is-whitespace or a == "\\" or a == "#" or a is-non-keyword-punctuation
 
--skip-for-tokens void(ptr string-mut-iterator, end pos, cb-comment cb-comment)
+-skip-for-tokens void(ptr string-iterator, cb-comment cb-comment)
 	loop
-		guard ptr.pos < end else break
 		start = ptr pos
-		while ptr.peek8 is-non-keyword-punctuation and ptr.pos < end
-			_ = ptr take-char8
-		if ptr.pos < end
+		unless ptr is-at-end
+			while ptr.peek8 is-non-keyword-punctuation
+				_ = ptr take-char8
+		unless ptr is-at-end
 			ptr skip-spaces-and-comments cb-comment, it.noop
-		if ptr.pos < end and ptr.peek8 == "\\"
-			# Non-comment '\', skip this too
-			_ = ptr take-char8
-		if ptr.pos < end
+		unless ptr is-at-end
+			if ptr.peek8 == "\\"
+				# Non-comment '\', skip this too
+				_ = ptr take-char8
+		unless ptr is-at-end
 			ptr skip-blank-lines it.noop, cb-comment, it.noop
+		# TODO: allow 'if ptr.pos == start then break else continue'
 		if ptr.pos == start
 			break
 		else
@@ -135,7 +136,7 @@ walk-backwards-for-position pos(source-text char8 array-view, pos pos)
 	a == "." or a == "," or a == "(" or a == ")" or a == "[" or a == "]"
 
 -skip-blank-lines void
-	ptr string-mut-iterator
+	ptr string-iterator
 	cb-start-of-loop void mut()
 	cb-comment cb-comment
 	add-diag add-diag
@@ -160,11 +161,11 @@ do
 		else
 			break
 
--skip-rest-of-line-and-newline void(ptr string-mut-iterator)
+-skip-rest-of-line-and-newline void(ptr string-iterator)
 	ptr skip-until-newline
 	_ = ptr try-take-char8 "\n"
 
--try-take-triple-hash-then-newline bool(ptr string-mut-iterator)
+-try-take-triple-hash-then-newline bool(ptr string-iterator)
 	ptr2 = ptr copy
 	if ptr2 try-take "###"
 		while ptr2 try-take-char8 " "
@@ -174,7 +175,7 @@ do
 			true
 
 | Returns the end of the comment text (ptr will be advanced further, past the '###')
-skip-rest-of-block-comment void(ptr string-mut-iterator, add-diag add-diag)
+skip-rest-of-block-comment void(ptr string-iterator, add-diag add-diag)
 	loop
 		while ptr try-take-char8 "\t" or ptr try-take-char8 " "
 			()

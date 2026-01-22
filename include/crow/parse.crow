@@ -4,71 +4,42 @@ import
 	./bool
 	./col/array
 	./col/collection
-	./col/private/array-low-level: inner, view-indices
 	./compare
 	./exception
 	./js
 	./misc
 	./number
 	./option
-	./range
 	./string
 	./tuple
 
-+string-mut-iterator record mut
-	char8s char8[] # TODO: should this be private? Having this exposed makes it possible for the parser to look backwards -------
-	begin-index nat64
-	char8-index mut nat64
-	end-index nat64
-+to string-mut-iterator(a string-iterator)
-	a.inner.collection, 0, a.next-char8-index, a.inner.collection.size
-+to string-iterator(a string-mut-iterator)
-	(a.char8s, a.char8-index),
-+new string-mut-iterator(a string)
-	a.begin to
-+new string-mut-iterator(a char8 array-view)
-	a.inner, a.view-indices.low, a.view-indices.low, a.view-indices.high
-+copy string-mut-iterator(a string-mut-iterator)
-	a.char8s, a.begin-index, a.char8-index, a.end-index
-+is-at-end bool(a string-mut-iterator)
-	forbid a.char8-index > a.end-index
-	a.char8-index == a.end-index
-+take-char8 char8(a string-mut-iterator)
-	forbid a is-at-end # TODO: throw a parse-error? ----------------------------------------------------------------------------------
-	res = a peek8
-	a.char8-index +:= 1
-	res
-+take-char32 char32(a string-mut-iterator)
-	iter char8 array-iterator = a.char8s.begin + a.char8-index
-	assert res, next ?= (iter,)::string-iterator next
-	a.char8-index := next next-char8-index
-	res
 | WARN: This peeks the next byte, which could be an invalid char8.
 | Uses "\0" to indicate the end.
-+peek8 char8(a string-mut-iterator)
-	if a is-at-end then "\0" else a.char8s[a char8-index]
--peek8-plus-1 char8(a string-mut-iterator)
-	if a.char8-index + 1 <= a.char8s.size then a.char8s[a.char8-index + 1] else "\0"
-+peek char32?(a string-mut-iterator)
-	guard a !is-at-end
-	iter char8 array-iterator = a.char8s.begin + a.char8-index
-	assert res, _ ?= (iter,)::string-iterator next
-	res
-+try-take bool(a string-mut-iterator, exact string)
-	if a starts-with exact
-		a.char8-index +:= exact.to::char8[].size
-		true
-+starts-with bool(a string-mut-iterator, start string)
-	char8s char8[] = start to
-	a.char8-index + char8s.size <= a.end-index and 0::nat .. char8s.size every of i
-		a.char8s[a.char8-index + i] == char8s[i]
++peek8 char8(a string-iterator)
+	try
+		a.copy take-char8
+	catch iterator-out-of-bounds
+		"\0"
+-peek8-plus-1 char8(a string-iterator)
+	try
+		copy = a copy
+		_ = copy take-char8
+		copy take-char8
+	catch iterator-out-of-bounds
+		"\0"
++peek char32?(a string-iterator)
+	a.copy try-take-next
++try-take bool(a string-iterator, start string)
+	a.inner try-take-all start.to::char8[]
++starts-with bool(a string-iterator, start string)
+	a.copy try-take start
 
 | Opaque grammar type parsing a {t} value.
 | Use the functions in this module to build a grammar.
 # TODO: this should probably be an interface, not a record with a lambda in it ----------------------------------------------
 +grammar[t] record mut
-	func t mut(iter string-mut-iterator)
--fn[t] t(a t grammar, iter string-mut-iterator)
+	func t mut(iter string-iterator)
+-fn[t] t(a t grammar, iter string-iterator)
 	a.func[iter]
 
 | Match a string against a grammar.
@@ -76,29 +47,26 @@ import
 | If the string has leading or trailing spaces you must use a grammar that includes those.
 | Throws a {parse-error} on failure.
 +parse[t] t(a t grammar, text string)
-	iter string-mut-iterator = text,
+	iter string-iterator = text begin
 	try
 		res = a fn iter
-		assert iter is-at-end else text parse-error iter.to, "string continues past end of parse"
+		assert iter is-at-end else text parse-error iter.char8-index, "string continues past end of parse"
 		res
 	catch inner-parse-error e
-		throw text parse-error iter.to, e.expected
+		throw text parse-error iter.char8-index, e.expected
 
 +parse-error record exception case
 	| The argument passed to {parse}.
 	input string
 	| Position where the parse error happened.
 	| This will be `{input}.end` if the error was end of input.
-	iter string-iterator # TODO: would be simpler to just use a nat? ----------------------------------------------------------
+	char8-index nat
 	| Description of what was expected.
 	expected string
 +== bool(a parse-error, b parse-error)
 +show string(a parse-error)
-	# TODO: show where it is
-	peek string = if x, _ ?= a.iter next
-		"'{x}'"
-	else
-		"EOF"
+	# TODO: show where it is. Also handle funny characters
+	peek string = if a.char8-index == a.input.size then "EOF" else "'{(a.input.to::char8[])[a char8-index]}'"
 	"Expected {a expected}, got {peek}"
 
 +inner-parse-error record(expected string) exception case # TODO: it's annoying to have this, could parsers throw 'parse-error' directly?
@@ -132,7 +100,7 @@ import
 				if possible-endings exists of x then iter starts-with x
 					break
 				elif iter !is-at-end
-					out ~= iter take-char32
+					out ~= iter take-next
 					continue
 				else
 					break
@@ -248,10 +216,10 @@ import
 			while separator try-parse iter
 				out ~= a fn iter
 
--try-parse bool(a grammar-skip, iter string-mut-iterator)
+-try-parse bool(a grammar-skip, iter string-iterator)
 	_ ?= a.inner try-parse iter
 
--try-parse[t] t?(a t grammar, iter string-mut-iterator)
+-try-parse[t] t?(a t grammar, iter string-iterator)
 	restore = iter char8-index
 	try
 		a fn iter
@@ -279,7 +247,7 @@ import
 
 +whitespace grammar-skip()
 	inner: func: it.skip-whitespace
-+skip-whitespace void(a string-mut-iterator)
++skip-whitespace void(a string-iterator)
 	while a.peek8 is-space
 		_ = a take-char8
 +is-space bool(a char8)
@@ -298,24 +266,26 @@ import
 | A double-quoted string as in JSON, including escape sequences.
 +quoted-string string grammar()
 	func: it.take-quoted-string
-~take-quoted-string string(iter string-mut-iterator)
+~take-quoted-string string(iter string-iterator)
 	assert iter try-take "\"" else "quoted string" inner-parse-error
 	iter take-quoted-string-after-quote
-~take-quoted-string-after-quote string(iter string-mut-iterator)
-	with out in build
+~take-quoted-string-after-quote string(iter string-iterator)
+	chars char8[] = with out in build
 		loop
 			forbid iter is-at-end else "quoted string" inner-parse-error
-			match iter take-char32
+			match iter take-char8
 			as "\""
 				break
 			as "\\"
 				guard iter !is-at-end else break
 				assert esc ?= iter.take-char8 escape else "Valid escape sequence" inner-parse-error
-				out ~= esc
+				esc.to unicode-encode of x
+					out ~= x.to
 				continue
 			else x
 				out ~= x
 				continue
+	chars to
 -escape char32?(a char8)
 	match a
 	as "n"
@@ -370,7 +340,7 @@ import
 	else
 		a.parse-nat to
 
-~take-nat nat64(iter string-mut-iterator)
+~take-nat nat64(iter string-iterator)
 	if iter try-take "0b"
 		iter take-nat 2
 	elif iter try-take "0o"
@@ -379,7 +349,7 @@ import
 		iter take-nat 16
 	else
 		iter take-nat 10
--take-nat nat64(iter string-mut-iterator, base nat64)
+-take-nat nat64(iter string-iterator, base nat64)
 	try
 		acc mut nat64 = iter next-digit base else throw "natural number" inner-parse-error
 		while x ?= iter next-digit base
@@ -388,13 +358,13 @@ import
 		acc
 	catch unary-out-of-range _
 		throw "number that fits in a nat64" inner-parse-error
--next-digit nat64?(a string-mut-iterator, base nat)
+-next-digit nat64?(a string-iterator, base nat)
 	a skip-underscore-if-before-digit
 	guard digit ?= a.peek8 char-to-nat64 base
 	_ = a take-char8
 	digit
 ~parse-nat nat64(a char8 array-view)
-	iter string-mut-iterator = a,
+	iter string-iterator = a begin
 	res = iter take-nat
 	assert iter is-at-end else todo
 	res
@@ -414,8 +384,8 @@ is-digit bool(a char8)
 | This allows e.g. "+1.23".
 +float float64 grammar()
 	func: it.take-float
-~take-float float64(iter string-mut-iterator)
-	index = iter char8-index
+~take-float float64(iter string-iterator)
+	start = iter copy
 	_ = iter try-take "-" or iter try-take "+"
 	assert iter peek-digit else "float" inner-parse-error
 	while iter peek-digit
@@ -426,12 +396,12 @@ is-digit bool(a char8)
 		while iter peek-digit
 			_ = iter take-char8
 			iter skip-underscore-if-before-digit
-	iter.char8s[index .. iter.char8-index] parse-float
+	start.inner slice iter.inner parse-float
 
--peek-digit bool(a string-mut-iterator)
+-peek-digit bool(a string-iterator)
 	a.peek8 is-digit
 
--skip-underscore-if-before-digit void(a string-mut-iterator)
+-skip-underscore-if-before-digit void(a string-iterator)
 	if a.peek8 == "_" and a.peek8-plus-1 is-digit
 		_ = a take-char8
 

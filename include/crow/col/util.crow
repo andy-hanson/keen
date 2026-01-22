@@ -4,27 +4,28 @@ import
 	../compare
 	../misc
 	../number
+	../option
+	../range
 	./array
 	./collection
 
-+split[out-col, in-col, in-iter, in-elem] out-col[]
++split[out-col, in-col, in-iter, elem] out-col[]
 	a in-col
 	b in-col
-do (in-iter, in-col) begin-end, (in-elem, in-iter) next, (out-col, in-iter) slice, in-elem equal
+do (in-col, in-iter, elem) basic-iter, in-iter skip-next-n, (out-col, in-iter) slice, elem equal
 	with out in build
 		part-start mut = a begin
-		ai mut = part-start
+		iter = part-start copy
 		loop
-			if after ?= ai iter-starts-with b
-				out ~= part-start slice ai
-				part-start := after
-				ai := part-start
+			before = iter copy
+			if iter try-take-all b
+				out ~= part-start slice before
+				part-start := iter copy
 				continue
-			elif _, next ?= ai next
-				ai := next
+			elif _ ?= iter try-take-next
 				continue
 			else
-				out ~= part-start slice ai
+				out ~= part-start slice iter
 				break
 
 +count[col, elem] nat(a col, f bool mut(x elem)) (col, elem) iterate
@@ -48,3 +49,113 @@ do (in-iter, in-col) begin-end, (in-elem, in-iter) next, (out-col, in-iter) slic
 +iterate[t] bool(a t infinite, f bool mut(x t))
 	until f[a value]
 		()
+
++reverse[col] record(inner col)
++size[col] nat(a col reverse) col size
+	a.inner size
++iterate[col, elem] bool(a col reverse, f bool mut(x elem)) (col, elem) iterate-reverse
+	a.inner iterate-reverse f
++to[out-col, in-col, elem, builder] out-col
+	a in-col reverse
+do (out-col, elem, builder) build, in-col size, (in-col, elem) iterate-reverse
+	with out in a.inner.size build
+		_ = a.inner iterate-reverse of x
+			out ~= x
+			false
+
++index-of-sequence[col, iter, elem] nat?
+	a col
+	seq col
+do (col, iter, elem) basic-iter, iter skip-next-n, elem equal
+	index mut nat = 0
+	iter = a begin
+	loop
+		if iter try-take-all seq
+			break index
+		elif _ ?= iter try-take-next
+			index +:= 1
+			continue
+		else
+			break
+
++swap-at[col, elem] void(a col, i nat64, j nat64) (col, elem) at-index, (col, elem) set-at-index
+	temp = a[i]
+	a[i] := a[j]
+	a[j] := temp
++swap-at[col, elem] void
+	a col
+	i nat64
+	j index-relative-to-end
+do (col, elem) mut-array-like
+	a swap-at i, (a to-index j)
++swap-at[col, elem] void
+	a col
+	i index-relative-to-end
+	j index-relative-to-end
+do (col, elem) mut-array-like
+	a swap-at (a to-index i), (a to-index j)
+
++reverse-in-place[col, elem] void(a col) col size, (col, elem) at-index, (col, elem) set-at-index
+	for i in 0::nat64 .. a.size / 2
+		a swap-at i, a.size - 1 - i
+
++set-reverse[col, elem] void
+	a col
+do (col, elem) mut-array-like
+	guard a.size != 0
+	lo mut nat = 0
+	hi mut nat = a.size - 1
+	while hi - lo > 1
+		a swap-at lo, hi
+		lo +:= 1
+		hi -:= 1
+
++take-while[out-col, in-col, in-iter, elem] out-col
+	a in-col
+	f bool mut(x elem)
+do (in-iter, in-col) begin, (elem, in-iter) take-next, in-iter copy, (out-col, in-iter) slice
+	iter = a begin
+	loop
+		before = iter copy
+		if x ?= iter try-take-next and f[x]
+			continue
+		else
+			break a.begin slice before
+
++take-right-while[out-col, in-col, in-iter, elem] out-col
+	a in-col
+	f bool mut(x elem)
+do (in-iter, in-col) end, (elem, in-iter) take-prev, in-iter copy, (out-col, in-iter) slice
+	iter = a end
+	loop
+		before = iter copy
+		if x ?= iter try-take-prev and f[x]
+			continue
+		else
+			break before slice a.end
+
++drop-while[out-col, in-col, in-iter, elem] out-col
+	a in-col
+	f bool mut(x elem)
+do (in-iter, in-col) begin, (in-iter, in-col) end, (elem, in-iter) take-next, in-iter copy, (out-col, in-iter) slice
+	iter = a begin
+	loop
+		before = iter copy
+		# TODO: should be able to do `x ?= iter try-take-next and f[x]`
+		guard x ?= iter try-take-next else
+			break before slice a.end
+		guard f[x] else
+			break before slice a.end
+		continue
+
++drop-right-while[out-col, in-col, in-iter, elem] out-col
+	a in-col
+	f bool mut(x elem)
+do (in-iter, in-col) begin, (in-iter, in-col) end, (elem, in-iter) take-prev, in-iter copy, (out-col , in-iter) slice
+	iter = a end
+	loop
+		before = iter copy
+		# TODO: should be able to do `x ?= iter try-take-prev and f[x]`
+		guard x ?= iter try-take-prev else break a.begin slice before
+		guard f[x] else break a.begin slice before
+		continue

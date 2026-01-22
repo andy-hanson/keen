@@ -18,7 +18,7 @@ parsed-java-class-header record
 parse-java-class parsed-java-class-header(content nat8 array-view)
 	start = perf-now
 	finally start end-parse-java-class
-	reader nat8 array-mut-iterator = content,
+	reader = content begin
 	reader.take32 is 0xcafebabe
 	version = reader take32
 	assert version >= 69
@@ -39,8 +39,8 @@ parsed-java-class-body record
 	fields parsed-field[]
 	methods parsed-method[]
 parse-java-class-body parsed-java-class-body(header parsed-java-class-header)
-	reader nat8 array-mut-iterator = header.content,
-	reader skip-n header.start-of-fields
+	reader = header.content begin
+	reader skip-next-n header.start-of-fields
 	constants = header constants
 	fields = reader read-array of then reader read-field constants
 	methods = reader read-array of then reader read-method constants
@@ -48,7 +48,7 @@ parse-java-class-body parsed-java-class-body(header parsed-java-class-header)
 	assert reader is-at-end
 	fields, methods
 
--read-array[t] t[](reader nat8 array-mut-iterator, f t mut())
+-read-array[t] t[](reader nat8 array-iterator, f t mut())
 	for _ nat in 0 .. reader.take16.to
 		f[]
 
@@ -57,7 +57,7 @@ parsed-field record
 	name symbol
 	type java-type
 	attributes read-attribute[]
--read-field parsed-field(reader nat8 array-mut-iterator, constants constants)
+-read-field parsed-field(reader nat8 array-iterator, constants constants)
 	access-flags: reader.take16 to!
 	name: reader read-utf8-reference constants to
 	type: reader read-utf8-reference constants parse-type
@@ -77,7 +77,7 @@ parsed-method record
 	access-flags method-access-flags
 	name symbol
 	descriptor method-descriptor
--read-method parsed-method(reader nat8 array-mut-iterator, constants constants)
+-read-method parsed-method(reader nat8 array-iterator, constants constants)
 	access-flags method-access-flags = reader.take16 to!
 	name symbol = reader read-utf8-reference constants to
 	descriptor = constants.all-char8s parse-method-descriptor do reader read-utf8-reference-2 constants
@@ -172,57 +172,57 @@ show string(a java-array-type)
 
 -read-attribute record
 	attribute-name symbol
--read-attributes read-attribute[](reader nat8 array-mut-iterator, constants constants)
+-read-attributes read-attribute[](reader nat8 array-iterator, constants constants)
 	reader read-array of
 		reader read-attribute constants
--read-attribute read-attribute(reader nat8 array-mut-iterator, constants constants)
+-read-attribute read-attribute(reader nat8 array-iterator, constants constants)
 	attribute-name = reader read-utf8-reference constants
-	reader skip-n reader.take32.to
+	reader skip-next-n reader.take32.to
 	attribute-name: attribute-name to
 
--read-utf8-reference char8 array-view(reader nat8 array-mut-iterator, constants constants)
+-read-utf8-reference char8 array-view(reader nat8 array-iterator, constants constants)
 	range = reader read-utf8-reference-2 constants
 	constants.all-char8s[range.low.to .. range.high.to]
--read-utf8-reference-2 nat32 range(reader nat8 array-mut-iterator, constants constants) # TODO:NAME -------------------------------------------------
+-read-utf8-reference-2 nat32 range(reader nat8 array-iterator, constants constants) # TODO:NAME -------------------------------------------------
 	constants get-string reader.take16
--read-class-reference path(reader nat8 array-mut-iterator, constants constants)
+-read-class-reference path(reader nat8 array-iterator, constants constants)
 	constants get-class reader.take16
--read-optional-class-reference path?(reader nat8 array-mut-iterator, constants constants)
+-read-optional-class-reference path?(reader nat8 array-iterator, constants constants)
 	index = reader take16
 	unless index == 0
 		constants get-class index
 
 # https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.4
--read-constant-pool constants(all-char8s char8[], reader nat8 array-mut-iterator)
+-read-constant-pool constants(all-char8s char8[], reader nat8 array-iterator)
 	constants-pool-count = reader take16
 	constant-pool-index mut nat16 = 1
 	constant-strings-builder nat32 range mut-slice = constants-pool-count.to fill 0 .. 0
 	constant-classes nat16 mut-slice = constants-pool-count.to fill 0
 	while constant-pool-index < constants-pool-count
-		kind = reader take
+		kind = reader take-next
 		constant-pool-index +:= match kind
 		as 1
 			# CONSTANT_Utf8_info
-			bytes = reader take-n reader.take16.to
+			bytes = reader take-next-n reader.take16.to
 			# Java does not really use standard UTF8, but this shouldn't matter for method and type names
 			indices = bytes view-indices
 			constant-strings-builder[constant-pool-index to] := indices.low.to .. indices.high.to
 			1
 		as 3
 			# CONSTANT_Integer_info
-			reader skip-n 4
+			reader skip-next-n 4
 			1
 		as 4
 			# CONSTANT_Float_info
-			reader skip-n 4
+			reader skip-next-n 4
 			1
 		as 5
 			# CONSTANT_Long_info
-			reader skip-n 8
+			reader skip-next-n 8
 			2
 		as 6
 			# CONSTANT_Double_info
-			reader skip-n 8
+			reader skip-next-n 8
 			2
 		as 7
 			# CONSTANT_Class_info
@@ -230,35 +230,35 @@ show string(a java-array-type)
 			1
 		as 8
 			# CONSTANT_String_info
-			reader skip-n 2
+			reader skip-next-n 2
 			1
 		as 9
 			# CONSTANT_Fieldref_info
-			reader skip-n 4
+			reader skip-next-n 4
 			1
 		as 10
 			# CONSTANT_Methodref_info
-			reader skip-n 4
+			reader skip-next-n 4
 			1
 		as 11
 			# CONSTANT_InterfaceMethodref_info
-			reader skip-n 4
+			reader skip-next-n 4
 			1
 		as 12
 			# CONSTANT_NameAndType_info
-			reader skip-n 4
+			reader skip-next-n 4
 			1
 		as 15
 			# CONSTANT_MethodHandle_info
-			reader skip-n 3
+			reader skip-next-n 3
 			1
 		as 16
 			# CONSTANT_MethodType_info
-			reader skip-n 2
+			reader skip-next-n 2
 			1
 		as 18
 			# CONSTANT_InvokeDynamic_info
-			reader skip-n 4
+			reader skip-next-n 4
 			1
 		else
 			error log "Unexpected constant kind {kind}"

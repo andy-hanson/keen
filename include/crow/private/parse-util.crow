@@ -6,63 +6,59 @@ import
 	crow/bits
 	crow/bool
 	crow/col/array
+	../../crow/col/collection
 	crow/compare
 	crow/misc
 	crow/number
 	crow/option
 	../../crow/parse
-	crow/range
-	crow/string
+	../../crow/string
 	crow/symbol
 
-pos nat32(a string-mut-iterator)
-	a.char8-index - a.begin-index to
-set-pos void(a string-mut-iterator, pos nat32)
-	new-index nat = a.begin-index + pos.to
-	assert new-index <= a.end-index
-	a.char8-index := new-index
+pos nat32(a string-iterator)
+	a.char8-index to
+set-pos void(a string-iterator, pos nat32)
+	a.char8-index := pos to
 
-peek8-next char8(a string-mut-iterator)
-	if a.char8-index + 1 < a.end-index
-		a.char8s[a.char8-index + 1]
-	else
+peek8-next char8(a string-iterator)
+	try
+		copy = a copy
+		_ = copy take-char8
+		copy take-char8
+	catch iterator-out-of-bounds
 		"\0"
 
-advance void(a string-mut-iterator, n nat)
-	new-index = a.char8-index + n
-	assert new-index <= a.char8s.size
-	a.char8-index := new-index
-
-take-char8-or-nul char8(a string-mut-iterator)
-	if a is-at-end
-		"\0"
-	else
+take-char8-or-nul char8(a string-iterator)
+	try
 		a take-char8
-try-take-char8 bool(a string-mut-iterator, x char8)
+	catch iterator-out-of-bounds
+		"\0"
+try-take-char8 bool(a string-iterator, x char8)
 	if a.peek8 == x
 		_ = a take-char8
 		true
 
-starts-with-then-whitespace bool(a string-mut-iterator, chars char8[])
-	guard a.char8-index + chars.size < a.end-index
-	guard a starts-with chars.to
-	a.char8s[a.char8-index + chars.size] is-whitespace
+starts-with-then-whitespace bool(a string-iterator, start string)
+	copy = a copy
+	copy try-take start and copy.peek8 is-whitespace
 
-string-from string(a string-mut-iterator, start-pos nat32)
+string-from string(a string-iterator, start-pos nat32)
 	a slice-from start-pos to
-symbol-from symbol(a string-mut-iterator, start-pos nat32)
+symbol-from symbol(a string-iterator, start-pos nat32)
 	a slice-from start-pos to
-slice-from char8 array-view(a string-mut-iterator, start-pos nat32)
-	a.char8s[a.begin-index + start-pos.to .. a.char8-index]
+slice-from char8 array-view(a string-iterator, start-pos nat32)
+	start = a copy
+	start.pos := start-pos
+	start.inner slice a.inner
 
 is-utf8-initial-or-continue-code bool(a char8)
 	(a.to::nat8 & top-bit) != 0
 -top-bit nat8()
 	0b10000000
 
-must-take-one-unicode-char char32(a string-mut-iterator)
+must-take-one-unicode-char char32(a string-iterator)
 	try
-		a take-char32
+		a take-next
 	catch unicode-decode-error _
 		_ = a take-char8
 		"�"
@@ -76,12 +72,12 @@ decode-hex-digit nat8?(a char8)
 		10 + (a.to - "A"::char8.to)
 
 | This does not check for keywords
-try-take-crow-identifier symbol?(iter string-mut-iterator)
+try-take-crow-identifier symbol?(iter string-iterator)
 	start = iter pos
 	if iter try-take-initial-identifier-char
 		iter take-identifier-rest
 		iter symbol-from start
--take-identifier-rest void(ptr string-mut-iterator)
+-take-identifier-rest void(ptr string-iterator)
 	loop
 		before-hyphen = ptr pos
 		while ptr try-take-char8 "-"
@@ -91,9 +87,9 @@ try-take-crow-identifier symbol?(iter string-mut-iterator)
 		else
 			ptr.pos := before-hyphen
 			break
--try-take-initial-identifier-char bool(ptr string-mut-iterator)
+-try-take-initial-identifier-char bool(ptr string-iterator)
 	ptr.peek8 !is-digit and ptr.peek8 != "-" and ptr try-take-one-identifier-char
--try-take-one-identifier-char bool(ptr string-mut-iterator)
+-try-take-one-identifier-char bool(ptr string-iterator)
 	if ptr.peek8 is-single-byte-identifier-char
 		_ = ptr take-char8
 		true
@@ -108,7 +104,7 @@ try-take-crow-identifier symbol?(iter string-mut-iterator)
 
 | True even for keywords
 is-crow-identifier bool(a string)
-	iter string-mut-iterator = a,
+	iter = a begin
 	_ ?= iter try-take-crow-identifier and iter is-at-end
 
 -is-single-byte-identifier-char bool(a char8)
@@ -192,8 +188,8 @@ show string(a indent-kind)
 	as spaces-4
 		"groups of 4 spaces"
 
-detect-indent-kind indent-kind(a string-mut-iterator)
-	ptr string-mut-iterator = a copy
+detect-indent-kind indent-kind(a string-iterator)
+	ptr string-iterator = a copy
 	loop
 		begin = ptr pos
 		match ptr peek8
@@ -214,12 +210,12 @@ detect-indent-kind indent-kind(a string-mut-iterator)
 			_ = ptr try-take-char8 "\n"
 			continue
 
-skip-until-newline void(a string-mut-iterator)
+skip-until-newline void(a string-iterator)
 	while a !is-at-end and a.peek8 != "\n"
 		_ = a take-char8
 
 take-indent-amount-after-newline nat32
-	iter string-mut-iterator
+	iter string-iterator
 	indent-kind indent-kind
 	add-diag void mut(pos nat32)
 do
@@ -230,14 +226,14 @@ do
 		iter take-indent-spaces 2, add-diag
 	as spaces-4
 		iter take-indent-spaces 4, add-diag
--take-indent-spaces nat32(iter string-mut-iterator, n nat32, add-diag void mut(pos nat32))
+-take-indent-spaces nat32(iter string-iterator, n nat32, add-diag void mut(pos nat32))
 	start = iter pos
 	n-spaces = iter take-indent-chars " ", "\t", add-diag
 	res = n-spaces / n
 	if res * n != n-spaces
 		add-diag[start]
 	res
--take-indent-chars nat32(iter string-mut-iterator, right-indent char8, wrong-indent char8, add-diag void mut(pos nat32))
+-take-indent-chars nat32(iter string-iterator, right-indent char8, wrong-indent char8, add-diag void mut(pos nat32))
 	start = iter pos
 	while iter try-take-char8 right-indent
 		()

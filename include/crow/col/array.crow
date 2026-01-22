@@ -9,7 +9,6 @@ import
 	../option
 	../private/bootstrap: array-size
 	../range
-	../tuple
 	../unsafe
 	./collection
 	./private/array-low-level: inner, view-indices
@@ -88,6 +87,9 @@ export
 	else
 		a sequence-compare b
 
++array-like[col, elem] spec col size, (col, elem) at-index
++mut-array-like[col, elem] spec (col, elem) array-like, (col, elem) set-at-index
+
 region basic array operations
 
 | Returns a new array like {a} but where `{a}[{index}]` is replaced with {new-value}.
@@ -95,6 +97,8 @@ region basic array operations
 |
 | {index} must be a valid index into {a}. This can't be used to add a value to the end.
 +update-at[t] t[](a t[], index nat64, new-value t)
+	a.to update-at index, new-value
++update-at[t] t[](a t array-view, index nat64, new-value t)
 	assert index < a.size else index index-too-big a.size
 	with out in a.size build
 		out ~~= a[0 .. index]
@@ -105,6 +109,8 @@ region basic array operations
 | Moves all elements that were at {index} or after to the right.
 | Unlike for {update-at}, {index} can be `{a}.{size}`, though it still can't be higher.
 +insert-at[t] t[](a t[], index nat64, value t)
+	a.to insert-at index, value
++insert-at[t] t[](a t array-view, index nat64, value t)
 	assert index <= a.size else index index-too-big a.size
 	with out in a.size + 1 build
 		out ~~= a[0 .. index]
@@ -113,81 +119,19 @@ region basic array operations
 
 | Removes the element at {index}, shifting all later elements to the left.
 +remove-at[t] t[](a t[], index nat64)
+	a.to remove-at index
++remove-at[t] t[](a t array-view, index nat64)
 	assert index < a.size else index index-too-big a.size
 	a[0 .. index] ~~ a[index + 1 .. end]
 
 region Other utilities
 
 +in[t] bool(value t, xs t[]) t equal
+	value in xs.to
++in[t] bool(value t, xs t array-view) t equal
 	xs iterate it == value
 
 region spec impls (see collection.crow)
-
-+array-iterator[t] record(collection t[], next-index nat64)
-
-+==[t] bool(a t array-iterator, b t array-iterator) t equal
-	assert a.collection == b.collection else iterator-not-comparable
-	a.next-index == b.next-index
-+<=>[t] comparison(a t array-iterator, b t array-iterator) t equal
-	assert a.collection == b.collection else iterator-not-comparable
-	a.next-index <=> b.next-index
-
-+-[t] t array-iterator(a t array-iterator, n nat64)
-	a.collection, a.next-index - n
-
-+-[t] nat64(a t array-iterator, b t array-iterator)
-	a.next-index - b.next-index
-
-+ +[t] t array-iterator(a t array-iterator, n nat64)
-	new-index = a.next-index + n
-	assert new-index <= a.collection.size
-	a.collection, new-index
-
-+begin[t] t array-iterator(a t[])
-	a, 0
-
-+end[t] t array-iterator(a t[])
-	a, a.size
-
-+prev[t] (t array-iterator, t)?(a t array-iterator)
-	guard a.next-index != 0
-	new-index = a.next-index - 1
-	assert new-index < a.collection.size
-	value = a.collection[new-index]
-	rest t array-iterator = a.collection, new-index
-	rest, value
-
-+next[t] (t, t array-iterator)?(a t array-iterator)
-	guard a.next-index != a.collection.size
-	assert a.next-index < a.collection.size
-	value = a.collection[a next-index]
-	rest t array-iterator = a.collection, a.next-index + 1
-	value, rest
-
-+slice[t] t array-view(begin t array-iterator, end t array-iterator)
-	begin.collection[begin.next-index .. end.next-index]
-
-+array-view-iterator[t] record(collection t array-view, next-index nat64)
-
-+begin[t] t array-view-iterator(a t array-view)
-	a, 0
-+end[t] t array-view-iterator(a t array-view)
-	a, a.size
-+prev[t] (t array-view-iterator, t)?(a t array-view-iterator)
-	guard a.next-index != 0
-	new-index = a.next-index - 1
-	assert new-index < a.collection.size
-	value = a.collection[new-index]
-	rest t array-view-iterator = a.collection, new-index
-	rest, value
-+next[t] (t, t array-view-iterator)?(a t array-view-iterator)
-	guard a.next-index != a.collection.size
-	assert a.next-index < a.collection.size
-	value = a.collection[a next-index]
-	rest t array-view-iterator = a.collection, a.next-index + 1
-	value, rest
-+slice[t] t array-view(begin t array-view-iterator, end t array-view-iterator)
-	begin.collection[begin.next-index .. end.next-index]
 
 +hash-mix[t] void(hasher hasher, a t[]) t hash-mix
 	i mut nat64 = 0
@@ -195,49 +139,73 @@ region spec impls (see collection.crow)
 		hasher hash-mix a[i]
 		i +:= 1
 
-+array-reverse[t] record(inner t[])
-+reverse[t] t array-reverse(a t[])
-	a,
-+size[t] nat64(a t array-reverse)
-	a.inner size
-+iterate[t] bool(a t array-reverse, f bool mut(x t))
-	i mut = a size
++iterate-reverse[t] bool(a t[], f bool mut(x t))
+	a.to iterate-reverse f
++iterate-reverse[t] bool(a t array-view, f bool mut(x t))
+	guard a !is-empty
+	i mut = a.view-indices.high - 1
 	loop
-		guard i != 0 else break
-		i -:= 1
 		if f[a.inner[i]]
 			break true
+		elif i == a.view-indices.low
+			break false
 		else
+			i -:= 1
 			continue
-+to[t] t[](a t array-reverse)
-	for x in a then x
 
-+array-mut-iterator[t] record mut
++array-iterator[t] record mut
 	-array t[]
 	-start nat64
 	-cur mut nat64
 	-end nat64
-+new[t] t array-mut-iterator(a t[])
++begin[t] t array-iterator(a t[])
 	a, 0, 0, a.size
-+new[t] t array-mut-iterator(a t array-view)
++begin[t] t array-iterator(a t array-view)
 	a.inner, a.view-indices.low, a.view-indices.low, a.view-indices.high
-+is-at-end[t] bool(a t array-mut-iterator)
++end[t] t array-iterator(a t[])
+	a, 0, a.size, a.size
++end[t] t array-iterator(a t array-view)
+	a.inner, a.view-indices.low, a.view-indices.high, a.view-indices.high
++copy[t] t array-iterator(a t array-iterator)
+	a.array, a.start, a.cur, a.end
++is-at-end[t] bool(a t array-iterator)
+	assert a.cur <= a.end
 	a.cur == a.end
 | If {a} iterates an {array-view}, this is the index relative to the view.
-+index[t] nat64(a t array-mut-iterator)
++index[t] nat64(a t array-iterator)
 	a.cur - a.start
-| Size of the array or array-view iterated. This does not change.
-+size[t] nat64(a t array-mut-iterator)
-	a.end - a.start
-+take[t] t(a t array-mut-iterator)
-	assert a.cur < a.end
++set-index[t] void(a t array-iterator, index nat)
+	assert a.start + index <= a.end
+	a.cur := a.start + index
++take-prev[t] t(a t array-iterator)
+	assert a.cur > a.start else iterator-out-of-bounds
+	a.cur -:= 1
+	a.array[a cur]
++peek[t] t?(a t array-iterator)
+	if a.cur < a.end
+		a.array[a cur]
++peek-prev[t] t?(a t array-iterator)
+	if a.cur > a.start
+		a.array[a.cur - 1]
++take-next[t] t(a t array-iterator)
+	assert a.cur < a.end else iterator-out-of-bounds
 	res = a.array[a cur]
 	a.cur +:= 1
 	res
-+take-n[t] t array-view(a t array-mut-iterator, n nat64)
-	assert a.cur + n <= a.end
++take-next-n[t] t array-view(a t array-iterator, n nat64)
+	assert a.cur + n <= a.end else iterator-out-of-bounds
 	res = a.array[a.cur .. a.cur + n]
 	a.cur +:= n
 	res
-+skip-n[t] void(a t array-mut-iterator, n nat64)
-	_ = a take-n n
++take-prev-n[t] t array-view(a t array-iterator, n nat64)
+	assert a.start + n <= a.cur else iterator-out-of-bounds
+	end = a cur
+	a.cur -:= n
+	a.array[a.cur .. end]
++skip-next-n[t] void(a t array-iterator, n nat64)
+	_ = a take-next-n n
++skip-prev-n[t] void(a t array-iterator, n nat64)
+	_ = a take-prev-n n
++slice[t] t array-view(begin t array-iterator, end t array-iterator)
+	assert begin.start == end.start and begin.end == end.end
+	begin.array[begin.cur .. end.cur]

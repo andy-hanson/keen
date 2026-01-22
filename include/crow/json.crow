@@ -320,14 +320,14 @@ import
 		res = iter parse-json
 		iter skip-whitespace
 		res
-| Expose an alternate version to void 'parse' which is an async fun
+| Expose an alternate version to avoid 'parse' which is an async fun
 ~parse-json json(a string)
-	iter string-mut-iterator = a,
+	iter = a begin
 	res = iter parse-json
 	iter skip-whitespace
-	assert iter is-at-end else a parse-error iter.to, "string continues past end of parse"
+	assert iter is-at-end else a parse-error iter.char8-index, "string continues past end of parse"
 	res
--parse-json json(a string-mut-iterator)
+-parse-json json(a string-iterator)
 	a skip-whitespace
 	if a try-take "false"
 		false
@@ -365,7 +365,7 @@ import
 			a.take-float to
 		catch inner-parse-error _
 			throw "JSON value" inner-parse-error
--take-key-value (symbol, json)(a string-mut-iterator)
+-take-key-value (symbol, json)(a string-iterator)
 	a skip-whitespace
 	key = a take-quoted-string
 	a skip-whitespace
@@ -376,7 +376,7 @@ import
 	key.to, value
 
 # TODO: PRIVATE -------------------------------------------------------------------------------------------------------------------------------------
-~try-take-number json?(iter string-mut-iterator)
+~try-take-number json?(iter string-iterator)
 	if iter.peek8 is-digit or iter.peek8 == "-" and iter.peek8-next is-digit
 		# TODO: could take an int or nat
 		iter.take-float to
@@ -387,7 +387,7 @@ import
 ~crowd-parse-error record(pos nat32, expected string)
 ~parse-crowd-result union(json, crowd-parse-error)
 ~parse-crowd parse-crowd-result(text char8 array-view)
-	iter string-mut-iterator = text,
+	iter string-iterator = text begin
 	try
 		res = iter parse-crowd
 		assert iter is-at-end else "Crowd value" inner-parse-error
@@ -396,7 +396,7 @@ import
 		pos: iter pos
 		expected: x expected
 
--parse-crowd json(iter string-mut-iterator)
+-parse-crowd json(iter string-iterator)
 	indent-kind = iter detect-indent-kind
 	iter skip-all-whitespace
 	ctx ctx = indent-kind: indent-kind
@@ -410,7 +410,7 @@ import
 	-1
 
 | Returns the expression, and optionally the new indent amount (which will be <= {indent})
--parse-crowd-line (json, int32)(iter string-mut-iterator, ctx ctx, indent int32)
+-parse-crowd-line (json, int32)(iter string-iterator, ctx ctx, indent int32)
 	if iter try-take-list-start
 		iter parse-crowd-multi-line-list ctx, indent
 	else
@@ -428,7 +428,7 @@ import
 -to (json, int32?)((j json, i int32))
 	j, i
 
--parse-crowd-inner-including-list (json, int32?)(iter string-mut-iterator, ctx ctx, indent int32)
+-parse-crowd-inner-including-list (json, int32?)(iter string-iterator, ctx ctx, indent int32)
 	res, new-indent = iter parse-crowd-inner ctx, indent
 	- if !(_ ?= new-indent) and iter try-take-char8 ","
 		iter parse-crowd-single-line-list-after-value-and-comma res
@@ -437,7 +437,7 @@ import
 	- new-indent
 
 | This does not take commas for lists. Caller is responsible.
--parse-crowd-inner (json, int32?)(iter string-mut-iterator, ctx ctx, indent int32)
+-parse-crowd-inner (json, int32?)(iter string-iterator, ctx ctx, indent int32)
 	iter skip-spaces
 	if iter try-take-char8 "\n"
 		new-indent = iter take-next-indent-after-newline ctx
@@ -451,13 +451,13 @@ import
 		as symbol name
 			iter parse-crowd-single-line-object ctx, name, indent to
 
--parse-crowd-single-line-list-after-value-and-comma json(iter string-mut-iterator, first json)
+-parse-crowd-single-line-list-after-value-and-comma json(iter string-iterator, first json)
 	iter skip-spaces
 	if iter peek-end-of-line or iter.peek8 == ")"
 		- first
 	else
 		iter parse-crowd-single-line-list-after-value-comma-value first, iter.parse-crowd-simple-no-colon
--parse-crowd-single-line-list-after-value-comma-value json(iter string-mut-iterator, first json, second json)
+-parse-crowd-single-line-list-after-value-comma-value json(iter string-iterator, first json, second json)
 	values json[] = with out in build
 		out ~= first
 		out ~= second
@@ -466,7 +466,7 @@ import
 			out ~= iter parse-crowd-simple-no-colon
 	values to
 
--parse-crowd-multi-line-list (json, int32)(iter string-mut-iterator, ctx ctx, indent int32)
+-parse-crowd-multi-line-list (json, int32)(iter string-iterator, ctx ctx, indent int32)
 	new-indent mut int32 = ()
 	res json[] = with out in build
 		first-value, first-indent = iter parse-crowd-inner-including-list ctx, indent 
@@ -479,12 +479,12 @@ import
 			new-indent := next-indent else iter take-next-indent ctx, indent
 	res.to, new-indent
 
--try-take-list-start bool(iter string-mut-iterator)
+-try-take-list-start bool(iter string-iterator)
 	if iter starts-with-then-whitespace "-"
 		_ = iter take-char8
 		true
 
--parse-crowd-single-line-object (json, int32)(iter string-mut-iterator, ctx ctx, first-name symbol, indent int32)
+-parse-crowd-single-line-object (json, int32)(iter string-iterator, ctx ctx, first-name symbol, indent int32)
 	first-value, first-indent = iter parse-crowd-inner ctx, indent
 	if x ?= first-indent
 		res json[symbol] = (first-name, first-value),
@@ -492,7 +492,7 @@ import
 	else
 		iter parse-crowd-single-line-object-inner ctx, first-name, first-value, indent
 
--parse-crowd-single-or-multi-line-object (json, int32)(iter string-mut-iterator, ctx ctx, first-name symbol, indent int32)
+-parse-crowd-single-or-multi-line-object (json, int32)(iter string-iterator, ctx ctx, first-name symbol, indent int32)
 	first-value, first-indent = iter parse-crowd-inner ctx, indent
 	guard x ?= first-indent else iter parse-crowd-single-line-object-inner ctx, first-name, first-value, indent
 	new-indent mut int32 = x
@@ -505,7 +505,7 @@ import
 			out ~= next-name, next-value
 	res.to, new-indent
 
--parse-crowd-single-line-object-inner (json, int32)(iter string-mut-iterator, ctx ctx, first-name symbol, first-value json, indent int32)
+-parse-crowd-single-line-object-inner (json, int32)(iter string-iterator, ctx ctx, first-name symbol, first-value json, indent int32)
 	new-indent mut int32? = ()
 	cur-name mut = first-name
 	cur-value mut = first-value
@@ -525,7 +525,7 @@ import
 	- res to
 	- new-indent else iter take-next-indent ctx, indent
 
--parse-crowd-simple-no-colon json(iter string-mut-iterator)
+-parse-crowd-simple-no-colon json(iter string-iterator)
 	if iter try-take-char8 "("
 		iter after-paren
 	elif name ?= iter try-take-crow-identifier
@@ -537,7 +537,7 @@ import
 	else
 		throw "Crowd value" inner-parse-error
 
--after-paren json(iter string-mut-iterator)
+-after-paren json(iter string-iterator)
 	if iter try-take-char8 ")"
 		null
 	else
@@ -548,7 +548,7 @@ import
 
 # 'json' for a simple value; 'symbol' for a name followed by a colon
 -crowd-simple union(json, symbol)
--parse-crowd-simple crowd-simple(iter string-mut-iterator)
+-parse-crowd-simple crowd-simple(iter string-iterator)
 	if iter try-take-char8 "("
 		iter after-paren
 	elif name ?= iter try-take-crow-identifier
@@ -579,34 +579,34 @@ import
 	else
 		throw "Crowd value" inner-parse-error
 
--peek-end-of-line bool(a string-mut-iterator)
+-peek-end-of-line bool(a string-iterator)
 	a is-at-end or a.peek8 == "\n"
 
--take-name-colon-or-string-colon symbol(iter string-mut-iterator)
+-take-name-colon-or-string-colon symbol(iter string-iterator)
 	assert res ?= (iter try-take-crow-identifier or iter.try-take-quoted-string ?to) else
 		"Identifier or string, then ':'" inner-parse-error
 	assert iter try-take-char8 ":" else "Colon after identifier" inner-parse-error
 	res
 
--skip-all-whitespace void(iter string-mut-iterator)
+-skip-all-whitespace void(iter string-iterator)
 	while iter.peek8 is-whitespace
 		_ = iter take-char8
--skip-spaces void(iter string-mut-iterator)
+-skip-spaces void(iter string-iterator)
 	while iter.peek8 is-whitespace-non-newline
 		_ = iter take-char8
-~try-take-quoted-string string?(iter string-mut-iterator)
+~try-take-quoted-string string?(iter string-iterator)
 	if iter try-take-char8 "\"" then iter take-quoted-string-after-quote
 
--try-take-next-indent int32?(iter string-mut-iterator, ctx ctx, cur-indent int32)
+-try-take-next-indent int32?(iter string-iterator, ctx ctx, cur-indent int32)
 	if iter peek-end-of-line
 		iter take-next-indent ctx, cur-indent
--take-next-indent int32(iter string-mut-iterator, ctx ctx, cur-indent int32) # TODO: not sure we actually need cur-indent here ......................
+-take-next-indent int32(iter string-iterator, ctx ctx, cur-indent int32) # TODO: not sure we actually need cur-indent here ......................
 	iter skip-spaces
 	assert iter try-take-char8 "\n" or iter is-at-end else "Newline" inner-parse-error
 	res = iter take-next-indent-after-newline ctx
 	assert res <= cur-indent else "Cannot indent here" inner-parse-error
 	res
--take-next-indent-after-newline int32(iter string-mut-iterator, ctx ctx)
+-take-next-indent-after-newline int32(iter string-iterator, ctx ctx)
 	loop
 		new-indent = iter take-indent-amount-after-newline ctx.indent-kind, of _
 			throw "Indent by {ctx.indent-kind}" inner-parse-error

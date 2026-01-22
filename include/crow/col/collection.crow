@@ -42,6 +42,8 @@ export
 
 +iterate[col, elem] spec
 	iterate bool(a col, f bool mut(elem elem))
++iterate-reverse[col, elem] spec
+	iterate-reverse bool(a col, f bool mut(elem elem))
 
 +begin[iter, col] spec
 	begin iter(a col)
@@ -51,11 +53,33 @@ export
 +collection[col, iter] spec
 	collection col(a iter)
 
-+prev[elem, iter] spec
-	prev (iter, elem)?(a iter)
-+next[elem, iter] spec
-	next (elem, iter)?(a iter)
-+prev-next[elem, iter] spec (elem, iter) prev, (elem, iter) next
++take-prev[elem, iter] spec
+	take-prev elem(a iter)
++take-next[elem, iter] spec
+	take-next elem(a iter)
++take-prev-next[elem, iter] spec (elem, iter) take-prev, (elem, iter) take-next
++peek[elem, iter] spec
+	peek elem?(a iter)
++peek-prev[elem, iter] spec
+	peek-prev elem?(a iter)
++skip-next-n[iter] spec
+	skip-next-n void(a iter, n nat)
++skip-prev-n[iter] spec
+	skip-prev-n void(a iter, n nat)
+
++basic-iter[col, iter, elem] spec (col, elem) iterate, col size, (iter, col) begin, iter copy, (elem, iter) take-next
++basic-reverse-iter[col, iter, elem] spec (col, elem) iterate-reverse, col size, (iter, col) end, iter copy, (elem, iter) take-prev
+
++try-take-prev[elem, iter] elem?(a iter) (elem, iter) take-prev
+	try
+		a take-prev
+	catch iterator-out-of-bounds
+		()
++try-take-next[elem, iter] elem?(a iter) (elem, iter) take-next
+	try
+		a take-next
+	catch iterator-out-of-bounds
+		()
 
 +set-prev[iter, elem] spec
 	set-prev void(a iter, value elem)
@@ -75,16 +99,11 @@ export
 	+ iter(a iter, n nat64)
 +skip-prev-next[iter] spec iter skip-prev, iter skip-next
 
-+is-at-begin[iter, elem] bool(a iter) (elem, iter) prev
-	!(_ ?= a prev)
-+is-at-end[iter, elem] bool(a iter) (elem, iter) next
-	!(_ ?= a next)
-
 | Represents an index relative to the size of a collection.
 +index-relative-to-end record(subtract nat64)
 +end index-relative-to-end()
 	0,
--to-index[col] nat64(a col, index index-relative-to-end) col size
+~to-index[col] nat64(a col, index index-relative-to-end) col size
 	a.size - index.subtract
 
 +- index-relative-to-end(a index-relative-to-end, n nat64)
@@ -104,15 +123,6 @@ export
 	value elem
 do (col, elem) set-at-index, col size
 	a[(a to-index index)] := value
-
-+fill[col, iter, elem] void
-	a col
-	value elem
-do (iter, col) begin, (elem, iter) next, (iter, elem) set-next
-	iter mut = a begin
-	while _, next ?= iter next
-		iter set-next value
-		iter := next
 
 +range-relative-to-end record(low nat64, high index-relative-to-end)
 
@@ -143,40 +153,6 @@ do (in-col, iter) collection, (iter, in-col) begin, (out-col, iter) slice
 	a iter
 do (in-col, iter) collection, (iter, in-col) end, (out-col, iter) slice
 	a slice a.collection.end
-
-+set-reverse[col, iter, elem] void
-	a col
-do (iter, col) begin-end, (elem, iter) prev-next, iter difference, (iter, elem) set-prev-next
-	lo mut = a begin
-	hi mut = a end
-	while (hi difference lo) > 1
-		pair0 = lo next!
-		pair1 = hi prev!
-		lo set-next pair1.b
-		hi set-prev pair0.a
-		lo := pair0 b
-		hi := pair1 a
-
-+swap-at[col, elem] void(a col, i nat64, j nat64) (col, elem) at-index, (col, elem) set-at-index
-	temp = a[i]
-	a[i] := a[j]
-	a[j] := temp
-+swap-at[col, elem] void
-	a col
-	i nat64
-	j index-relative-to-end
-do col size, (col, elem) at-index, (col, elem) set-at-index
-	a swap-at i, (a to-index j)
-+swap-at[col, elem] void
-	a col
-	i index-relative-to-end
-	j index-relative-to-end
-do col size, (col, elem) at-index, (col, elem) set-at-index
-	a swap-at (a to-index i), (a to-index j)
-
-+reverse-in-place[col, elem] void(a col) col size, (col, elem) at-index, (col, elem) set-at-index
-	for i in 0::nat64 .. a.size / 2
-		a swap-at i, a.size - 1 - i
 
 region 'for' loops
 
@@ -238,69 +214,61 @@ do (out-col, elem, out-builder) build, (in-col, elem) iterate
 			if f[x]
 				out ~= x
 
-sequence-equal[col, iter, elem] bool
+~sequence-equal[col, iter, elem] bool
 	a col
 	b col
-do col size, (iter, col) begin, (elem, iter) next, elem equal
+do col size, (iter, col) begin, (elem, iter) take-next, elem equal
 	guard a.size == b.size
-	ai mut = a begin
-	bi mut = b begin
-	loop
-		if na ?= ai next
-			nb = bi next!
-			if na.a == nb.a
-				ai := na b
-				bi := nb b
-				continue
-			else
-				break false
-		else
-			assert bi is-at-end
-			break true
+	ai = a begin
+	bi = b begin
+	res = 0 .. a.size every of _
+		ax = ai take-next
+		bx = bi take-next
+		ax == bx
+	forbid _ ?= ai try-take-next
+	forbid _ ?= bi try-take-next
+	res
 
-sequence-compare[col, iter, elem] comparison
+~sequence-compare[col, iter, elem] comparison
 	a col
 	b col
-do (iter, col) begin, (elem, iter) next, elem compare
-	ai mut = a begin
-	bi mut = b begin
+do (iter, col) begin, (elem, iter) take-next, elem compare
+	ai = a begin
+	bi = b begin
 	loop
-		guard na ?= ai next else break if bi is-at-end then equal else less
-		guard nb ?= bi next else break greater
-		match na.a <=> nb.a
-		as less
-			break less
-		as equal
-			ai := na b
-			bi := nb b
-			continue
-		as greater
+		guard ax ?= ai try-take-next else
+			break if _ ?= bi try-take-next then less else equal
+		guard bx ?= bi try-take-next else
 			break greater
+		res = ax <=> bx
+		if res == equal then continue else break res
 
-+starts-with[col, iter, elem] bool(a col, b col) (iter, col) begin, (elem, iter) next, elem equal
-	_ ?= a.begin iter-starts-with b
++starts-with[col, iter, elem] bool(a col, b col) (col, iter, elem) basic-iter, iter skip-next-n, elem equal
+	a.begin try-take-all b
 
-+ends-with[col, iter, elem] bool(a col, b col) (iter, col) end, (elem, iter) prev, elem equal
-	_ ?= a.end iter-ends-with b
++ends-with[col, iter, elem] bool(a col, b col) (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
+	a.end try-take-all-prev b
 
 +try-remove-start[out-col, in-col, in-iter, in-elem] out-col?
 	a in-col
 	start in-col
-do (in-iter, in-col) begin-end, (in-elem, in-iter) next, (out-col, in-iter) slice, in-elem equal
-	if after ?= a.begin iter-starts-with start
-		after slice a.end
+do (in-col, in-iter, in-elem) basic-iter, (in-iter, in-col) end, in-iter skip-next-n, (out-col, in-iter) slice, in-elem equal
+	iter = a begin
+	if iter try-take-all start
+		iter slice a.end
 +try-remove-end[out-col, in-col, in-iter, in-elem] out-col?
 	a in-col
 	end in-col
-do (in-iter, in-col) begin-end, (in-elem, in-iter) prev, (out-col, in-iter) slice, in-elem equal
-	if before ?= a.end iter-ends-with end
-		a.begin slice before
+do (in-col, in-iter, in-elem) basic-reverse-iter, (in-iter, in-col) begin, in-iter skip-prev-n, (out-col, in-iter) slice, in-elem equal
+	iter = a end
+	if iter try-take-all-prev end
+		a.begin slice iter
 
 | Removes all occurrences of {b} from the front of {a}.
 +strip-left[col, iter, elem] col
 	a col
 	b col
-do (iter, col) begin-end, (elem, iter) next, (col, iter) slice, elem equal
+do (col, iter, elem) basic-iter, (iter, col) end, iter skip-next-n, (col, iter) slice, elem equal
 	if x ?= a try-remove-start b
 		x strip-left b
 	else
@@ -309,44 +277,41 @@ do (iter, col) begin-end, (elem, iter) next, (col, iter) slice, elem equal
 +strip-right[col, iter, elem] col
 	a col
 	b col
-do (iter, col) begin-end, (elem, iter) prev, (col, iter) slice, elem equal
+do (col, iter, elem) basic-reverse-iter, (iter, col) begin, iter skip-prev-n, (col, iter) slice, elem equal
 	if x ?= a try-remove-end b
 		x strip-right b
 	else
 		a
 
-| Returns an iterator after {start} if {a} starts with {start}.
-~iter-starts-with[col, iter, elem] iter?
+| If the next elements in {a} all match {start}, skips them all and returns true.
+| Otherwise, does nothing and returns false.
+~try-take-all[col, iter, elem] bool
 	a iter
 	start col
-do (iter, col) begin, (elem, iter) next, elem equal
-	ai mut = a
-	bi mut = start begin
-	loop
-		guard bp ?= bi next else break ai
-		guard ap ?= ai next else break
-		guard ap.a == bp.a else break
-		ai := ap b
-		bi := bp b
-		continue
-~iter-ends-with[col, iter, elem] iter?
+do (col, iter, elem) basic-iter, iter skip-next-n, elem equal
+	copy = a copy
+	stopped = start iterate of x
+		try value = copy take-next catch iterator-out-of-bounds then true
+		value != x
+	unless stopped
+		a skip-next-n start.size
+		true
+~try-take-all-prev[col, iter, elem] bool
 	a iter
 	end col
-do (iter, col) end, (elem, iter) prev, elem equal
-	ai mut = a
-	bi mut = end end
-	loop
-		guard bp ?= bi prev else break ai
-		guard ap ?= ai prev else break
-		guard ap.b == bp.b else break
-		ai := ap a
-		bi := bp a
-		continue
+do (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
+	copy = a copy
+	stopped = end iterate-reverse of x
+		try value = copy take-prev catch iterator-out-of-bounds then true
+		value != x
+	unless stopped
+		a skip-prev-n end.size
+		true
 
 | {true} if {b} is contained in {a}.
 |
 | That means: The elements in {b} appear in {a}, in order, without interruptions.
-+contains-seq[col, iter, elem] bool(a col, b col) (iter, col) begin, (elem, iter) next, elem equal
++contains-seq[col, iter, elem] bool(a col, b col) (col, iter, elem) basic-iter, iter skip-next-n, elem equal
 	_ ?= a iters-of-seq b
 
 | Finds the first appearance of {b} in {a},
@@ -356,27 +321,30 @@ do (iter, col) end, (elem, iter) prev, elem equal
 +try-split-once[out-col, in-col, in-iter, in-elem] (out-col, out-col)?
 	a in-col
 	b in-col
-do (in-iter, in-col) begin-end, (in-elem, in-iter) next, (out-col, in-iter) slice, in-elem equal
+do (in-iter, in-col) end, (in-col, in-iter, in-elem) basic-iter, in-iter skip-next-n, (out-col, in-iter) slice, in-elem equal
 	if l, r ?= a iters-of-seq b
-		(a.begin slice l), (r slice a.end)
+		- a.begin slice l
+		- r slice a.end
 
-+try-split-once-right[out-col, in-col, iter, elem] (out-col, out-col)?
++try-split-once-right[out-col, in-col, in-iter, in-elem] (out-col, out-col)?
 	a in-col
 	b in-col
-do (iter, in-col) begin-end, (elem, iter) prev, (out-col, iter) slice, elem equal
+do (in-iter, in-col) begin, (in-col, in-iter, in-elem) basic-reverse-iter, in-iter skip-prev-n, (out-col, in-iter) slice, in-elem equal
 	if l, r ?= a iters-of-seq-right b
-		(a.begin slice l), (r slice a.end)
+		- a.begin slice l
+		- r slice a.end
 
--iters-of-seq[col, iter, elem] (iter, iter)?
+| Tries to find a subsequence {b} within {a}. If so, returns an iterator before and after {b}.
+~iters-of-seq[col, iter, elem] (iter, iter)?
 	a col
 	b col
-do (iter, col) begin, (elem, iter) next, elem equal
-	ai mut = a begin
+do (col, iter, elem) basic-iter, iter skip-next-n, elem equal
+	iter = a begin
 	loop
-		if after ?= ai iter-starts-with b
-			break ai, after
-		elif _, next ?= ai next
-			ai := next
+		before = iter copy
+		if iter try-take-all b
+			break before, iter
+		elif _ ?= iter try-take-next
 			continue
 		else
 			break
@@ -384,13 +352,13 @@ do (iter, col) begin, (elem, iter) next, elem equal
 -iters-of-seq-right[col, iter, elem] (iter, iter)?
 	a col
 	b col
-do (iter, col) end, (elem, iter) prev, elem equal
-	ai mut = a end
+do (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
+	iter = a end
 	loop
-		if before ?= ai iter-ends-with b
-			break before, ai
-		elif prev, _ ?= ai prev
-			ai := prev
+		before = iter copy
+		if iter try-take-all-prev b
+			break iter, before
+		elif _ ?= iter try-take-prev
 			continue
 		else
 			break
@@ -422,11 +390,11 @@ do (iter, col) end, (elem, iter) prev, elem equal
 +find-last-iter[col, iter, elem] iter?
 	a col
 	f bool mut(elem elem)
-do (iter, col) end, (elem, iter) prev
-	iter mut = a end
+do (iter, col) end, (elem, iter) take-prev
+	iter = a end
 	loop
-		guard prev, x ?= iter prev else break
-		iter := prev
+		guard x ?= iter try-take-prev else break
+		# TODO: parse 'if f[x] then break iter else continue'
 		if f[x]
 			break iter
 		else
@@ -435,7 +403,7 @@ do (iter, col) end, (elem, iter) prev
 +last-iter-of[col, iter, elem] iter?
 	a col
 	value elem
-do (iter, col) end, (elem, iter) prev, elem equal
+do (iter, col) end, (elem, iter) take-prev, elem equal
 	a find-last-iter it == value
 
 | If {search-value} is in {a}, return its index.
@@ -464,58 +432,6 @@ do (iter, col) end, (elem, iter) prev, elem equal
 | Returns {true} if {f} returned {true} every time.
 +every[col, elem] bool(a col, f bool mut(elem elem)) (col, elem) iterate
 	a !iterate !f[it]
-
-| Drops elements from the left until {f} returns {false}.
-| Returns an empty collection if {f} always returned {true}.
-+drop-while[out-col, in-col, in-iter, elem] out-col
-	a in-col
-	f bool mut(elem elem)
-do (in-iter, in-col) begin-end, (elem, in-iter) next, (out-col, in-iter) slice
-	iter mut = a begin
-	loop
-		guard x, next ?= iter next else break
-		guard f[x] else break
-		iter := next
-		continue
-	iter slice a.end
-
-| Drops elements from the right until {f} returns {false}.
-| Returns an empty collection if {f} always returned {true}.
-+drop-right-while[out-col, in-col, in-iter, elem] out-col
-	a in-col
-	f bool mut(elem elem)
-do (in-iter, in-col) begin-end, (elem, in-iter) prev, (out-col, in-iter) slice
-	iter mut = a end
-	loop
-		guard prev, x ?= iter prev else break
-		guard f[x] else break
-		iter := prev
-		continue
-	a.begin slice iter
-
-+take-while[col, iter, elem] col
-	a col
-	f bool mut(elem elem)
-do (iter, col) begin, (elem, iter) next, (col, iter) slice
-	iter mut = a begin
-	loop
-		guard x, next ?= iter next else break
-		guard f[x] else break
-		iter := next
-		continue
-	a.begin slice iter
-
-+take-right-while[col, iter, elem] col
-	a col
-	f bool mut(elem elem)
-do (iter, col) end, (elem, iter) prev, (col, iter) slice
-	iter mut = a end
-	loop
-		guard prev, x ?= iter prev else break
-		guard f[x] else break
-		iter := prev
-		continue
-	iter slice a.end
 
 +concatenate[t] spec
 	~~ t(a t, b t)
@@ -598,29 +514,6 @@ do (out-col, out-elem, out-builder) build, in-col size, (in-col, in-elem) iterat
 			else
 				true
 	if ok then res
-
-+corresponds[col0, iter0, elem0, col1, iter1, elem1] bool
-	a col0
-	b col1
-	f bool mut(x elem0, y elem1)
-do col0 size, (iter0, col0) begin, (elem0, iter0) next, col1 size, (iter1, col1) begin, (elem1, iter1) next
-	if a.size == b.size
-		i0 mut = a begin
-		i1 mut = b begin
-		res mut = true
-		loop
-			if x, i0n ?= i0 next
-				i0 := i0n
-				y, i1n = i1 next!
-				i1 := i1n
-				if f[x, y]
-					continue
-				else
-					res := false
-					break
-			else
-				break
-		res
 
 +max[col, elem] elem?(a col) (col, elem) iterate, elem compare
 	a max-by it.identity

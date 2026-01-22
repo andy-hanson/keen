@@ -161,7 +161,10 @@ region conversion
 +to string(a char8)
 	a.to::char32 to
 +show string(a char8)
-	a to
+	if a is-valid-single-byte-character
+		a to
+	else
+		"\\u{a.to::nat8 to-hex}"
 +to string(a char32)
 	with out in build
 		out ~= a
@@ -283,45 +286,65 @@ region conversion
 region spec impls (see collection.crow)
 
 +iterate bool(a string, f bool mut(x char32))
-	iter mut = a begin
+	iter = a.to::char8[] begin
 	loop
-		guard x, next ?= iter next else break false
+		next char32? = try
+			iter unicode-decode
+		catch iterator-out-of-bounds
+			()
+		guard x ?= next else break false
+		# TODO: `if f[x] then break true else continue` should parse
 		if f[x]
 			break true
 		else
-			iter := next
+			continue
++iterate-reverse bool(a string, f bool mut(x char32))
+	iter = a.to::char8[] end
+	loop
+		prev char32? = try
+			iter unicode-decode-prev
+		catch iterator-out-of-bounds
+			()
+		guard x ?= prev else break false
+		# TODO: `if f[x] then break true else continue` should parse
+		if f[x]
+			break true
+		else
 			continue
 
-+string-iterator record
-	inner char8 array-iterator
-
-+== bool(a string-iterator, b string-iterator)
-+<=> comparison(a string-iterator, b string-iterator)
-
-+next-char8-index nat64(a string-iterator)
-	a.inner next-index
-
+| NOTE: More helpful functions are in 'crow/parse'
++string-iterator record mut
+	~inner char8 array-iterator
 +begin string-iterator(a string)
-	a.to.begin,
-
+	a.to::(char8 array-view) begin
++begin string-iterator(a char8 array-view)
+	a.begin,
 +end string-iterator(a string)
-	a.to.end,
-
-+collection string(a string-iterator)
-	a.inner.collection to
-
+	a.to::(char8 array-view) end	
++end string-iterator(a char8 array-view)
+	a.end,
++copy string-iterator(a string-iterator)
+	a.inner.copy,
++is-at-end bool(a string-iterator) # TODO: this should be a generic function on iterators .......................................................
+	a.inner is-at-end
++take-char8 char8(a string-iterator)
+	a.inner take-next
++take-next char32(a string-iterator)
+	a.inner unicode-decode
++take-prev char32(a string-iterator)
+	a.inner unicode-decode-prev
++skip-next-n void(a string-iterator, n nat)
+	for _ in 0 .. n
+		_ = a take-next
++skip-prev-n void(a string-iterator, n nat)
+	for _ in 0 .. n
+		_ = a take-prev
++char8-index nat(a string-iterator)
+	a.inner index
++set-char8-index void(a string-iterator, index nat)
+	a.inner.index := index
 +slice string(a string-iterator, b string-iterator)
 	a.inner slice b.inner to
-
-+next (char32, string-iterator)?(a string-iterator)
-	guard x, next ?= a.inner next
-	char, next2 = x unicode-decode next
-	char, (next2,)
-
-+prev (string-iterator, char32)?(a string-iterator)
-	guard prev, x ?= a.inner prev
-	prev2, char = prev unicode-decode-prev x
-	(prev2,), char
 
 +string-builder record mut
 	-inner char8 array-builder
@@ -384,26 +407,25 @@ region utilities
 -push-byte void(out string-builder, a nat8)
 	out.inner ~= a to
 
-~unicode-decode (char32, char8 array-iterator)(first-char char8, original-iter char8 array-iterator)
+~unicode-decode char32(iter char8 array-iterator)
+	first-char = iter take-next
 	if first-char is-valid-single-byte-character
-		first-char.to, original-iter
+		first-char to
 	else
 		assert first-char is-first-byte else unicode-decode-error
-		iter mut = original-iter
 		res mut nat32 = first-char.to::nat8 to
 		flag mut nat8 = first-char.to << 1
-		result (char32, char8 array-iterator)? = 1::nat64 .. 4 first of i
-			next-char, next-iter = iter next else throw unicode-decode-error
+		result char32? = 1::nat64 .. 4 first of i
+			next-char = iter try-take-next else throw unicode-decode-error
 			code nat8 = next-char to
 			assert (code & first-byte-flags) == byte-top-bit else unicode-decode-error
-			iter := next-iter
 			res := (res << 6) | code.to.last-6-bits
 			flag <<:= 1
 			guard (flag & 0x80) == 0
 			assert res bits-intersect ~(i - 1).mask else unicode-decode-error
 			res &:= i.mask
 			assert res is-valid-unicode-character else unicode-decode-error
-			res.to, iter
+			res to
 		result else throw unicode-decode-error
 
 -mask nat32(i nat64)
@@ -419,23 +441,15 @@ region utilities
 	else
 		throw unreachable
 
--unicode-decode-prev (char8 array-iterator, char32)
-	original-iter char8 array-iterator
-	first-char char8
-do
+-unicode-decode-prev char32(iter char8 array-iterator)
+	first-char = iter take-prev
 	if first-char is-valid-single-byte-character
-		original-iter, first-char.to
+		first-char to
 	else
-		iter mut = original-iter
 		result = 1::nat64 .. 4 first of _
-			prev-iter, prev-char = iter prev else throw unicode-decode-error
+			prev-char = iter try-take-prev else throw unicode-decode-error
 			if prev-char is-first-byte
-				res, end-iter = prev-char unicode-decode iter
-				assert end-iter == original-iter.next!.b
-				prev-iter, res
-			else
-				iter := prev-iter
-				()
+				iter.copy unicode-decode
 		result else throw unicode-decode-error
 
 -last-6-bits nat32(a nat32)
