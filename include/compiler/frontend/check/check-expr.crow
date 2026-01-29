@@ -270,16 +270,24 @@ do
 	ctx check-call-special source, range, "new", (), expected
 
 -check-interpolated expr(ctx expr-ctx, ast interpolated-ast, expected expected)
-	ctx check-call-special-cb-n ast, ast.range[0 .. 1], "interpolate", expected, ast.template.size + ast.interpolated.size, of arg-index, inner
+	guard result-type ?= expected try-get-inexact-non-inferring-type else # TODO: very similar code in check-list, share code! -------------------------------------
+		ctx add-diag ast.range, interpolated::diag-needs-expected-type
+		expected bogus ast.range
+	guard called ?= ctx find-function-for-interpolate ast.range, result-type else
+		expected bogus ast.range
+	arg-element-type = called.param-types.only array-element-type!
+	arg-expected = arg-element-type expect
+	args expr[] = for arg-index in 0 .. ast.template.size + ast.interpolated.size
 		if arg-index is-even
 			part = ast.template[arg-index / 2]
 			range = if part.range is-empty then part range else part.range[0 .. 1]
-			ctx check-call-special-cb1 part, range, "interpolate-string", inner, of inner2
+			ctx check-call-special-cb1 part, range, "interpolate-string", arg-expected, of inner2
 				ctx check-literal-string-only-string part, inner2
 		else
 			part = ast.interpolated[arg-index / 2]
 			range = if part.range is-empty then part range else part.range[0 .. 1]
-			ctx check-call-special ast, range, "interpolate-value", (part,), inner
+			ctx check-call-special ast, range, "interpolate-value", (part,), arg-expected
+	ast list-expr called, for arg in args then arg
 
 -access-local local?(ctx expr-ctx, diag-range source-range, name symbol)
 	# This traverses from the innermost lambda outwards, checking if it was already added to a closure.
