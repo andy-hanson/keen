@@ -529,50 +529,6 @@ purity-range purity-range(a type)
 best-case-purity purity(a type)
 	a.purity-range best-case
 
-params union(destructure[], varargs) # RM ---------------------------------------------------------------------------------------------------------------------------------------
-to json(a params)
-arity arity(a params)
-	match a
-	as array xs
-		xs.size to
-	as varargs _
-		arity-varargs
-varargs record(param destructure, element-type type) # TODO: can't element-type just be param.type.array-element-type ????????
-to json(a varargs)
-is-empty bool(a params)
-	a.arity is-empty
-
-params-array destructure[](a params)
-	match a
-	as array x
-		x
-	as varargs x
-		x.param,
-
-assert-non-variadic destructure[](a params)
-	a.array!
-
-| This is logically a union(nat, arity-varargs), but just using a 'nat' for performance
-arity record
-	-value nat
-is-variadic bool(a arity)
-	a.value == max-value
-to arity(a nat)
-	forbid a == max-value
-	a,
-arity-varargs arity()
-	max-value,
-n-params nat(a arity)
-	forbid a is-variadic
-	a value
-
-count-param-decls nat(a arity)
-	if a is-variadic then 1 else a n-params
-is-empty bool(a arity)
-	a.value == 0
-arity-matches bool(sig-arity arity, n-args nat) # INLINE ---------------------------------------------------------------------------------------------------------
-	sig-arity.value == n-args or sig-arity is-variadic
-
 signature-container union(spec-decl, struct-decl)
 	module-uri uri()
 	name symbol()
@@ -632,10 +588,8 @@ index-of-signature nat(a signature)
 type-params-and-sig record
 	type-params type-params
 	return-type type
-	params params-short
+	params param-short[]
 	count-specs nat
-params-short union(param-short[], params-short-variadic)
-params-short-variadic record(param param-short, element-type type)
 param-short record(name symbol, type type)
 
 record-field-source union(single-destructure-ast, record-field-ast)
@@ -1513,7 +1467,7 @@ fun-decl record force-data, -new
 	name symbol
 	n-type-params-storage nat8
 	return-type mut type
-	params mut params
+	params mut destructure[]
 	param-types mut type[]
 	flags_ fun-flags
 	externs symbol-set
@@ -1589,7 +1543,7 @@ new fun-decl
 	visibility visibility
 	n-type-params nat # TODO: this comes from source so it doesn't need to be a constructor param ---------------------------------
 	return-type type
-	params params
+	params destructure[]
 	flags_ fun-flags
 	externs symbol-set
 	specs specs
@@ -1604,7 +1558,7 @@ do
 		n-type-params-storage: n-type-params to
 		return-type: return-type
 		params: params
-		param-types: for x in params params-array then x type
+		param-types: params map it.type
 		flags_: flags_
 		externs: externs
 		specs: specs
@@ -1616,7 +1570,7 @@ do
 		()::((fun-inst, fun-inst-key) object-memoizer)
 	else
 		:: fun-inst
-		param-types type[] = for x in params params-array then x type
+		param-types type[] = params map it.type # TODO: why not just use res.param-types? --------------------------------------------------------------------------
 		res, (), (), return-type, param-types
 	res
 n-type-params nat(a fun-decl)
@@ -1639,16 +1593,10 @@ doc-comment-ast doc-comment-ast(a fun-decl)
 	a.source doc-comment-ast
 doc-comment doc-comment(a fun-decl)
 	a.doc-comment-ast, a.doc-comment-references
-is-variadic bool(a fun-decl)
-	match a params
-	as array _
-		false
-	as varargs _
-		true
 is-template bool(a fun-decl)
 	a.n-type-params != 0 or a.specs.instantiated-sigs !is-empty
-arity arity(a fun-decl)
-	a.params arity
+arity nat(a fun-decl)
+	a.params size
 
 test_ record force-data
 	hash nat32 # TODO: USED? ---------------------------------------------------------------------------------------------------------
@@ -1742,7 +1690,7 @@ to json(a fun-inst)
 	decl: a.decl.name to
 	type-args: a.type-args to
 	spec-impls: a.spec-impls to
-arity arity(a fun-inst)
+arity nat(a fun-inst)
 	a.decl arity
 
 | Represents calling the n'th signature on this function's {specs}
@@ -1786,8 +1734,8 @@ name symbol(a called-spec-sig)
 	a.non-instantiated-sig name
 name-range uri-and-range(a called-spec-sig)
 	a.non-instantiated-sig name-range
-arity arity(a called-spec-sig)
-	a.non-instantiated-sig.params.size to
+arity nat(a called-spec-sig)
+	a.non-instantiated-sig.params size
 n-type-params nat(_ called-spec-sig)
 	0
 type-param-asts type-params(_ called-spec-sig)
@@ -1801,7 +1749,8 @@ called-decl union(fun-decl, called-spec-sig)
 	n-type-params nat()
 	type-param-asts type-params()
 	return-type type()
-	arity arity()
+	param-types type[]()
+	arity nat() # TODO: could this just come from param-types? -------------------------------------------------------------------------------------------------------------
 	doc-comment doc-comment()
 # TODO: should be a method, but concretize has bugs --------------------------------------------------------------------------
 name symbol(a called-decl)
@@ -1830,13 +1779,11 @@ range uri-and-range(a called-decl)
 		x range
 	as called-spec-sig x
 		x.non-instantiated-sig range
-is-variadic bool(a called-decl)
-	a.arity is-variadic
 
 called union(called-bogus, fun-inst, called-spec-sig)
 	return-type type()
 	param-types type[]()
-	arity arity()
+	arity nat()
 == bool(a called, b called)
 hash-mix void(hasher hasher, a called)
 	match a
@@ -1854,7 +1801,7 @@ hash-mix void(hasher hasher, a called-bogus)
 	hasher hash-mix a.return-type
 	hasher hash-mix a.param-types
 to json(a called-bogus)
-arity arity(a called-bogus)
+arity nat(a called-bogus)
 	a.decl arity
 
 called-decl called-decl(a called)
@@ -3591,9 +3538,9 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 
 sum-type-member-getter fun-decl(funs fun-decl[], struct struct-decl, x sum-type-membership)
 	funs must-find-fun-named struct.name, of fun
-		if _ ?= fun.body sum-type-member-get
-			fun.params.params-array.only.type == x.sum-type and
-			fun.source.struct-decl! == struct
+		_ ?= fun.body sum-type-member-get and
+		fun.params.only.type == x.sum-type and
+		fun.source.struct-decl! == struct
 
 must-find-fun-named fun-decl(funs fun-decl[], name symbol, cb bool mut(x fun-decl)) # TODO: this is slow! ------------------------------
 	funs find! of fun
@@ -3706,7 +3653,6 @@ diag union
 	diag-lambda-multiple-match
 	diag-lambda-not-expected
 	diag-lambda-type-missing-param-type
-	diag-lambda-type-variadic
 	diag-literal-multiple-match
 	diag-literal-not-expected
 	diag-literal-overflow
@@ -3757,7 +3703,6 @@ diag union
 	diag-spec-match-multiple
 	diag-spec-no-match
 	diag-spec-recursion
-	diag-spec-sig-cant-be-variadic
 	diag-spec-use-invalid
 	diag-string-literal-invalid
 	diag-storage-missing-type
@@ -3778,7 +3723,6 @@ diag union
 	diag-unused-local
 	diag-unused-internal-decl
 	diag-unused-private-decl
-	diag-varargs-param-must-be-array
 	diag-visibility-warning
 	diag-wrong-number-type-args
 diag-alias-not-allowed record
@@ -3914,7 +3858,6 @@ diag-lambda-multiple-match record
 	choices expected-for-diag-choices
 diag-lambda-not-expected record(expected expected-for-diag)
 diag-lambda-type-missing-param-type record
-diag-lambda-type-variadic record
 diag-literal-multiple-match record(type-container type-container, types struct-inst[])
 diag-literal-not-expected record(expected expected-for-diag)
 diag-literal-overflow record(type integral-type)
@@ -3969,7 +3912,7 @@ diag-shared-arg-is-not-lambda record
 diag-struct-params-syntax-error record
 	struct struct-decl
 	reason diag-struct-params-syntax-error-reason
-diag-struct-params-syntax-error-reason enum(has-params-and-fields, destructure, variadic)
+diag-struct-params-syntax-error-reason enum(has-params-and-fields, destructure)
 diag-shared-lambda-type-is-not-shared record
 	kind diag-shared-lambda-type-is-not-shared-kind
 	actual type-with-container
@@ -3998,7 +3941,6 @@ spec-cant-infer-type-args record
 spec-impl-not-found record(sig-decl signature, sig-type return-and-param-types)
 spec-too-deep record
 diag-spec-recursion record(trace spec-decl[])
-diag-spec-sig-cant-be-variadic record
 diag-spec-use-invalid record(decl-kind decl-kind)
 diag-string-literal-invalid enum
 	not-extern-js
@@ -4033,7 +3975,6 @@ diag-unused-local record(local local, kind diag-unused-local-kind)
 diag-unused-local-kind enum(completely-unused, read-only, write-only)
 diag-unused-internal-decl record(name symbol, is-used-locally bool)
 diag-unused-private-decl record(name symbol)
-diag-varargs-param-must-be-array record
 diag-method-impl-visibility record
 	member struct-decl # TODO: rename to case-type -----------------------------------------------------------------
 	sum-type struct-inst

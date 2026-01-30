@@ -9,8 +9,7 @@ import
 	../maps
 
 candidates-for-diag called-decl[](candidates candidates)
-	for x in candidates
-		x called
+	candidates map it.called
 
 get-all-candidates-as-called-decls called-decl[](ctx expr-ctx, fun-name fun-name) # TODO: name should indicate that this is only for error reporting
 	with out in build
@@ -20,8 +19,7 @@ get-all-candidates-as-called-decls called-decl[](ctx expr-ctx, fun-name fun-name
 				out ~= called
 		as list-new _
 			ctx each-fun-in-expr-scope "new", of called
-				unless called is-variadic
-					out ~= called
+				out ~= called
 			ctx each-fun-in-expr-scope "list-new", of called
 				if _ ?= called as-list-new
 					out ~= called
@@ -46,15 +44,14 @@ do
 	match fun-name
 	as symbol name
 		funs each-fun-in-scope name, of called
-			guard called.arity arity-matches actual-arity
-			candidate = called init-candidate actual-arity
+			guard called.arity == actual-arity
+			candidate = called init-candidate
 			guard initial-filter[candidate]
 			candidates ~= candidate
 	as list-new
 		funs each-fun-in-scope "new", of called # TODO: this is exactly the same as the 'symbol' case, share code! ---------------------------------------------------------------------
-			guard called !is-variadic
-			guard called.arity arity-matches actual-arity
-			candidate = called init-candidate actual-arity
+			guard called.arity == actual-arity
+			candidate = called init-candidate
 			guard initial-filter[candidate]
 			candidates ~= candidate
 		funs each-fun-in-scope "list-new", of called
@@ -64,8 +61,8 @@ do
 			candidates ~= candidate
 	as named-new x
 		funs each-fun-in-scope "new", of called
-			guard called.arity arity-matches x.names.size and called parameter-names-are x.names
-			candidate = called init-candidate x.names.size
+			guard called.arity == x.names.size and called parameter-names-are x.names
+			candidate = called init-candidate
 			guard initial-filter[candidate]
 			candidates ~= candidate
 		funs each-fun-in-scope "named-new", of called
@@ -78,7 +75,6 @@ do
 -as-list-new type?(called called-decl)
 	param-types type[]? = match called
 	as fun-decl x
-		forbid x is-variadic
 		x param-types
 	as called-spec-sig x
 		x param-types
@@ -86,40 +82,26 @@ do
 
 # Returns `t` if the signature matches `(names symbol[], values t[])`.
 -as-named-new type?(called called-decl, common-types common-types)
-	# TODO: should be able to 'guard param-types type[] ?= ...` ---------------------------------------------------------
-	param-types type[]? = match called
-	as fun-decl x
-		unless x is-variadic
-			x param-types
-	as called-spec-sig x
-		x param-types
-	guard x, y ?= param-types ?opt-only2
+	guard x, y ?= called.param-types opt-only2
 	guard sym ?= x array-element-type
 	guard sym == common-types.symbol
 	y array-element-type
 
 -parameter-names-are bool(a called-decl, names symbol[])
 	forbid names is-empty
-	actual = match a
+	actual = match a # TODO: this should probably be a method on called-decl --------------------------------------------------------------------------------------
 	as fun-decl x
-		match x params
-		as array y
-			y
-		as varargs _
-			# will always fail because 'names' is always non-empty
-			()
+		x params
 	as called-spec-sig x
 		x.non-instantiated-sig params
 	actual arrays-correspond names, of x, y
 		x.name == y
 
 each-candidate void(funs funs-in-scope, fun-name symbol, actual-arity nat, f void mut(x candidate))
-	is-empty-new = fun-name == "new" and actual-arity == 0 # INLINE -------------------------------------------------------------------------------------------------
 	funs each-fun-in-scope fun-name, of called
-		guard called.arity arity-matches actual-arity
-		guard !is-empty-new or called !is-variadic
-		f[called init-candidate actual-arity]
-	if is-empty-new
+		guard called.arity == actual-arity
+		f[called init-candidate]
+	if fun-name == "new" and actual-arity == 0
 		funs each-fun-in-scope "list-new", of called
 			guard element-type ?= called as-list-new
 			f[called init-candidate-for-list-new actual-arity, element-type]
@@ -180,16 +162,11 @@ get-candidate-expected-parameter-type type-and-context(candidate candidate, arg-
 		decl-type, candidate.type-context-for-candidate
 
 candidate-bogus-called called(common-types common-types, candidate candidate)
-	return-type = candidate get-candidate-type-or-bogus candidate.called.return-type
-	param-types type[] = if candidate.called is-variadic
-		- if candidate.param-types is-empty
-			common-types.array[bogus-type]
-		else
-			common-types.array[candidate get-candidate-type-or-bogus candidate.param-types[0] as-type-args]
-	else
-		for i in 0::nat .. candidate.called.arity.count-param-decls
-			candidate get-candidate-type-or-bogus candidate.param-types[i]
-	candidate.called called-bogus return-type, param-types
+	:: called-bogus
+	decl: candidate called
+	return-type: candidate get-candidate-type-or-bogus candidate.called.return-type
+	param-types: for t in candidate param-types
+		candidate get-candidate-type-or-bogus t
 
 -get-candidate-type-or-bogus type(candidate candidate, declared-type type)
 	(declared-type, candidate.type-context-for-candidate) try-get-inexact-non-inferring-type else bogus-type
