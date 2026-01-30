@@ -270,24 +270,34 @@ do
 	ctx check-call-list-no-spread source, range, (), expected
 
 -check-interpolated expr(ctx expr-ctx, ast interpolated-ast, expected expected)
+	ctx check-interpolated-inner ast, ast.range, ast.template, ast.interpolated, expected
+
+-check-interpolated-inner expr
+	ctx expr-ctx
+	source list-expr-source
+	range source-range
+	template literal-string-ast[]
+	interpolated-exprs expr-ast[]
+	expected expected
+do
 	guard result-type ?= expected try-get-inexact-non-inferring-type else # TODO: very similar code in check-list, share code! -------------------------------------
-		ctx add-diag ast.range, interpolated::diag-needs-expected-type
-		expected bogus ast.range
-	guard called ?= ctx find-function-for-interpolate ast.range, result-type else
-		expected bogus ast.range
+		ctx add-diag range, interpolated::diag-needs-expected-type
+		expected bogus range
+	guard called ?= ctx find-function-for-interpolate range, result-type else
+		expected bogus range
 	arg-element-type = called.param-types.only array-element-type!
 	arg-expected = arg-element-type expect
-	args expr[] = for arg-index in 0 .. ast.template.size + ast.interpolated.size
+	args expr[] = for arg-index in 0 .. template.size + interpolated-exprs.size
 		if arg-index is-even
-			part = ast.template[arg-index / 2]
-			range = if part.range is-empty then part range else part.range[0 .. 1]
-			ctx check-call-special-cb1 part, range, "interpolate-string", arg-expected, of inner2
+			part = template[arg-index / 2]
+			range2 = if part.range is-empty then part range else part.range[0 .. 1]
+			ctx check-call-special-cb1 part, range2, "interpolate-string", arg-expected, of inner2
 				ctx check-literal-string-only-string part, inner2
 		else
-			part = ast.interpolated[arg-index / 2]
-			range = if part.range is-empty then part range else part.range[0 .. 1]
-			ctx check-call-special ast, range, "interpolate-value", (part,), arg-expected
-	ast list-expr called, for arg in args then arg
+			part = interpolated-exprs[arg-index / 2]
+			range2 = if part.range is-empty then part range else part.range[0 .. 1]
+			ctx check-call-special source.to, range2, "interpolate-value", (part,), arg-expected
+	source list-expr called, for arg in args then arg
 
 -access-local local?(ctx expr-ctx, diag-range source-range, name symbol)
 	# This traverses from the innermost lambda outwards, checking if it was already added to a closure.
@@ -427,10 +437,7 @@ do
 		else
 			ctx check-literal-string-inner ast, type-index - 2, expected
 	else
-		# "foo".interpolate-string interpolate
-		ctx check-call-special-cb1 ast, ast.range[0 .. 1], "interpolate", expected, of inner
-			ctx check-call-special-cb1 ast, ast.range[0 .. 1], "interpolate-string", inner, of inner2
-				ctx check-literal-string-only-string ast, inner2
+		ctx check-interpolated-inner ast, ast.range, (ast,), (), expected
 
 -check-literal-string-only-string expr(ctx expr-ctx, ast literal-string-ast, expected expected)
 	allowed-types = ctx allowed-literal-string-types false
