@@ -32,8 +32,15 @@ check-call expr(ctx expr-ctx, ast call-ast, expected expected) check-expr
 			ctx type-from-ast x
 		ctx check-call-common expected, ast, ast.name-range, ast.fun-name.name, type-arg, ast.args
 
-check-call-list-no-spread expr(ctx expr-ctx, ast call-expr-source, range source-range, parts expr-ast[], expected expected) check-expr # TODO: better name -----------------------------------
-	ctx check-call-common expected, ast, ast.range, list-new, (), parts
+# Used for a list expression with no '--' parts
+check-call-list-no-multi expr
+	ctx expr-ctx
+	ast call-expr-source
+	range source-range
+	parts expr-ast[]
+	expected expected
+do check-expr
+	ctx check-call-common expected, ast, range, list-new, (), parts
 
 check-call-named expr(ctx expr-ctx, ast call-named-ast, expected expected) check-expr
 	use-names, use-args = ast.names filter-together ast.args, of name, _
@@ -71,66 +78,35 @@ do check-expr
 		(of i, arg-expected then ctx check-expr arg-asts[i], arg-expected), \
 		cb-before-check
 
-check-call-arg-and-lambda expr
+check-for-or-with expr
 	ctx expr-ctx
-	call-source call-expr-source
-	lambda-source lambda-source
-	diag-range source-range
-	fun-name symbol
-	arg-ast expr-ast
-	param-ast destructure-ast
-	body-ast expr-ast
+	ast for-or-with-ast
 	expected expected
 do check-expr, check-lambda
-	ctx check-call-special-cb2 call-source, diag-range, fun-name, expected, \
-		(of arg-expected then ctx check-expr arg-ast, arg-expected), \
-		(of arg-expected then ctx check-lambda lambda-source, param-ast, body-ast, arg-expected), \
-		of candidates then ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, param-ast
+	ctx check-call-special-cb2 ast, ast.keyword-range, ast.called-function, expected, \
+		(of arg-expected then ctx check-expr ast.arg, arg-expected), \
+		(of arg-expected then ctx check-lambda ast, ast.param, ast.body, arg-expected), \
+		of candidates then ctx infer-candidate-type-args-from-lambda-parameter candidates, 1, ast.param
 
-find-function-for-interpolate called?
+find-function-for-interpolate-or-list-new called?
 	ctx expr-ctx
 	diag-range source-range
-	return-type type
-do
-	# TODO: this is basically the same as find-function-for-list-new . Share code! -----------------------------------------------------------------------------------------
-	initial-filter bool mut(x candidate) = of candidate
-		called = candidate called
-		guard fun ?= called fun-decl
-		param = fun.params only
-		guard param.type is-array
-		(called.return-type, candidate.type-context-for-candidate) match-types (return-type, non-inferring), a-to-b
-	ctx.funs-in-expr-scope with-candidates "interpolate", 1, initial-filter, of candidates
-		if x ?= candidates opt-only
-			ctx.check-ctx check-call-after-choosing-overload ctx.common-types, \
-				ctx.type-container, ctx.funs-in-expr-scope, ctx.cur-flags, ctx.externs, x, diag-range, of then ctx check-is-trusted
-		else
-			ctx add-diag diag-range, if candidates is-empty
-				"interpolate" diag-call-no-match-for-list do ctx type-with-container return-type
-			else
-				"interpolate" diag-call-multiple-matches ctx.type-container, for x in candidates then x called
-			()
-
-find-function-for-list-new called?
-	ctx expr-ctx
-	diag-range source-range
+	fun-name symbol
 	return-type type
 do
 	initial-filter bool mut(x candidate) = of candidate
 		called = candidate called
-		guard fun ?= called fun-decl
-		# TODO: reuse code from 'as-list-new'? -----------------------------------------------------------------------------------------------------------------
-		param = fun.params only
-		guard param.type is-array
+		guard _ ?= called as-list-new
 		(called.return-type, candidate.type-context-for-candidate) match-types (return-type, non-inferring), a-to-b
-	ctx.funs-in-expr-scope with-candidates "list-new", 1, initial-filter, of candidates
+	ctx.funs-in-expr-scope with-candidates fun-name, 1, initial-filter, of candidates
 		if x ?= candidates opt-only
-			ctx.check-ctx check-call-after-choosing-overload ctx.common-types, \
+			ctx.check-ctx check-call-after-choosing-overload \
 				ctx.type-container, ctx.funs-in-expr-scope, ctx.cur-flags, ctx.externs, x, diag-range, of then ctx check-is-trusted
 		else
 			ctx add-diag diag-range, if candidates is-empty
-				"list-new" diag-call-no-match-for-list do ctx type-with-container return-type
+				fun-name diag-call-no-match-for-interpolate-or-list-new do ctx type-with-container return-type
 			else
-				"list-new" diag-call-multiple-matches ctx.type-container, for x in candidates then x called
+				fun-name diag-call-multiple-matches ctx.type-container, for x in candidates then x called
 			()
 
 check-call-special-cb1 expr
@@ -206,7 +182,7 @@ do
 			ctx.funs-in-expr-scope each-fun-in-scope x, of called
 				out ~= called
 		as list-new _
-			() # TODO ------------------------------------------------------------------------------------------------------------------------------------------
+			() # TODO ------------------------------------------------------------------------------------------------------
 		as named-new _
 			() # TODO ------------------------------------------------------------------------------------------------------
 
@@ -281,7 +257,7 @@ do
 		candidate test-candidate-for-spec-sig return-and-param-types, non-inferring, no-conversions # TODO: allow conversions here (and prefer exact)
 	funs-in-scope with-candidates name, arity, initial-filter, of candidates
 		if x ?= candidates opt-only
-			ctx check-call-after-choosing-overload common-types, type-container, funs-in-scope, fun-flags, externs, x, diag-range, is-trusted
+			ctx check-call-after-choosing-overload type-container, funs-in-scope, fun-flags, externs, x, diag-range, is-trusted
 		else
 			ctx add-diag diag-range, if candidates is-empty
 				name diag-function-with-signature-not-found type-container, return-and-param-types
@@ -381,7 +357,7 @@ do
 				candidate test-candidate-param-type i, arg-types[i].non-inferring, no-conversions
 
 	if x ?= candidates opt-only
-		ctx.check-ctx check-call-after-choosing-overload ctx.common-types, ctx.type-container, ctx.funs-in-expr-scope, \
+		ctx.check-ctx check-call-after-choosing-overload ctx.type-container, ctx.funs-in-expr-scope, \
 			ctx.cur-flags, ctx.externs, x, diag-range, of then ctx check-is-trusted
 	else
 		ctx add-diag diag-range, if candidates is-empty
@@ -410,6 +386,9 @@ do
 	as for-loop
 		if ast second-arg-is-lambda
 			for-loop
+	as list-new
+		if _ ?= ast.args.opt-only ?list-ast
+			list-new
 	as new
 		new_
 	as not
@@ -536,7 +515,6 @@ do
 
 check-call-after-choosing-overload called
 	ctx check-ctx
-	common-types common-types
 	type-container type-container
 	funs-in-scope funs-in-scope
 	fun-flags fun-flags
@@ -545,7 +523,7 @@ check-call-after-choosing-overload called
 	diag-range source-range
 	is-trusted bool mut()
 do
-	called = ctx check-call-specs common-types, type-container, funs-in-scope, diag-range, candidate
+	called = ctx check-call-specs type-container, funs-in-scope, diag-range, candidate
 	# TODO: should we really ignore this? ------------------------------------------------------------------------------------------------------------
 	_ = ctx check-called diag-range, called, fun-flags, externs, is-trusted
 	called

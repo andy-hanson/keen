@@ -6,8 +6,33 @@ import
 	../number
 	../option
 	../range
+	../tuple
 	./array
 	./collection
+
++indices[col] nat64 range(a col) col size
+	0 .. a.size
+
++range-relative-to-end record(low nat64, high index-relative-to-end)
+
++.. range-relative-to-end(low nat64, high index-relative-to-end)
+	low, high
+
++to-range nat64 range(a range-relative-to-end, size nat64)
+	assert a.low <= size else a.low index-too-big size
+	assert a.high.subtract <= size else a.high.subtract index-too-big size
+	high = size - a.high.subtract
+	assert a.low <= high
+	a.low .. high
+
++subscript-range[out-col, in-col] spec
+	subscript out-col(a in-col, range nat64 range)
+
++subscript[out-col, in-col] out-col
+	a in-col
+	indices range-relative-to-end
+do in-col size, (out-col, in-col) subscript-range
+	a[indices to-range a.size]
 
 +split[out-col, in-col, in-iter, elem] out-col[]
 	a in-col
@@ -159,3 +184,123 @@ do (in-iter, in-col) begin, (in-iter, in-col) end, (elem, in-iter) take-prev, in
 		guard x ?= iter try-take-prev else break a.begin slice before
 		guard f[x] else break a.begin slice before
 		continue
+
++starts-with[col, iter, elem] bool(a col, b col) (col, iter, elem) basic-iter, iter skip-next-n, elem equal
+	a.begin try-take-all b
+
++ends-with[col, iter, elem] bool(a col, b col) (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
+	a.end try-take-all-prev b
+
++try-remove-start[out-col, in-col, in-iter, in-elem] out-col?
+	a in-col
+	start in-col
+do (in-col, in-iter, in-elem) basic-iter, (in-iter, in-col) end, in-iter skip-next-n, (out-col, in-iter) slice, in-elem equal
+	iter = a begin
+	if iter try-take-all start
+		iter slice a.end
++try-remove-end[out-col, in-col, in-iter, in-elem] out-col?
+	a in-col
+	end in-col
+do (in-col, in-iter, in-elem) basic-reverse-iter, (in-iter, in-col) begin, in-iter skip-prev-n, (out-col, in-iter) slice, in-elem equal
+	iter = a end
+	if iter try-take-all-prev end
+		a.begin slice iter
+
+| Removes all occurrences of {b} from the front of {a}.
++strip-left[col, iter, elem] col
+	a col
+	b col
+do (col, iter, elem) basic-iter, (iter, col) end, iter skip-next-n, (col, iter) slice, elem equal
+	if x ?= a try-remove-start b
+		x strip-left b
+	else
+		a
+| Removes all occurrences of {b} from the end of {a}.
++strip-right[col, iter, elem] col
+	a col
+	b col
+do (col, iter, elem) basic-reverse-iter, (iter, col) begin, iter skip-prev-n, (col, iter) slice, elem equal
+	if x ?= a try-remove-end b
+		x strip-right b
+	else
+		a
+
+| If the next elements in {a} all match {start}, skips them all and returns true.
+| Otherwise, does nothing and returns false.
+~try-take-all[col, iter, elem] bool
+	a iter
+	start col
+do (col, iter, elem) basic-iter, iter skip-next-n, elem equal
+	copy = a copy
+	stopped = start iterate of x
+		try value = copy take-next catch iterator-out-of-bounds then true
+		value != x
+	unless stopped
+		a skip-next-n start.size
+		true
+~try-take-all-prev[col, iter, elem] bool
+	a iter
+	end col
+do (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
+	copy = a copy
+	stopped = end iterate-reverse of x
+		try value = copy take-prev catch iterator-out-of-bounds then true
+		value != x
+	unless stopped
+		a skip-prev-n end.size
+		true
+
+| {true} if {b} is contained in {a}.
+|
+| That means: The elements in {b} appear in {a}, in order, without interruptions.
++contains-seq[col, iter, elem] bool(a col, b col) (col, iter, elem) basic-iter, iter skip-next-n, elem equal
+	_ ?= a iters-of-seq b
+
+| Finds the first appearance of {b} in {a},
+| and returns slices of {a} to the left and right of that.
+|
+| Returns an empty option if {b} is not a subsequence of {a}.
++try-split-once[out-col, in-col, in-iter, in-elem] (out-col, out-col)?
+	a in-col
+	b in-col
+do (in-iter, in-col) end, (in-col, in-iter, in-elem) basic-iter, in-iter skip-next-n, (out-col, in-iter) slice, in-elem equal
+	if l, r ?= a iters-of-seq b
+		- a.begin slice l
+		- r slice a.end
+
++try-split-once-right[out-col, in-col, in-iter, in-elem] (out-col, out-col)?
+	a in-col
+	b in-col
+do (in-iter, in-col) begin, (in-col, in-iter, in-elem) basic-reverse-iter, in-iter skip-prev-n, (out-col, in-iter) slice, in-elem equal
+	if l, r ?= a iters-of-seq-right b
+		- a.begin slice l
+		- r slice a.end
+
+| Tries to find a subsequence {b} within {a}. If so, returns an iterator before and after {b}.
+~iters-of-seq[col, iter, elem] (iter, iter)?
+	a col
+	b col
+do (col, iter, elem) basic-iter, iter skip-next-n, elem equal
+	iter = a begin
+	loop
+		before = iter copy
+		if iter try-take-all b
+			break before, iter
+		elif _ ?= iter try-take-next
+			continue
+		else
+			break
+
+-iters-of-seq-right[col, iter, elem] (iter, iter)?
+	a col
+	b col
+do (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
+	iter = a end
+	loop
+		before = iter copy
+		if iter try-take-all-prev b
+			break iter, before
+		elif _ ?= iter try-take-prev
+			continue
+		else
+			break

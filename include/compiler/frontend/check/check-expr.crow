@@ -267,7 +267,7 @@ do
 		ctx check-call-special ast, ast.fun-name.range, ast.fun-name.name, (ast.left, ast.right), arg-expected
 
 -check-empty-new expr(ctx expr-ctx, source call-expr-source, range source-range, expected expected)
-	ctx check-call-list-no-spread source, range, (), expected
+	ctx check-call-list-no-multi source, range, (), expected
 
 -check-interpolated expr(ctx expr-ctx, ast interpolated-ast, expected expected)
 	ctx check-interpolated-inner ast, ast.range, ast.template, ast.interpolated, expected
@@ -280,10 +280,7 @@ do
 	interpolated-exprs expr-ast[]
 	expected expected
 do
-	guard result-type ?= expected try-get-inexact-non-inferring-type else # TODO: very similar code in check-list, share code! -------------------------------------
-		ctx add-diag range, interpolated::diag-needs-expected-type
-		expected bogus range
-	guard called ?= ctx find-function-for-interpolate range, result-type else
+	guard called ?= ctx called-for-interpolate-or-list-new range, "interpolate", expected else
 		expected bogus range
 	arg-element-type = called.param-types.only array-element-type!
 	arg-expected = arg-element-type expect
@@ -651,21 +648,23 @@ do
 
 -check-list expr(ctx expr-ctx, ast list-ast, expected expected)
 	if args ?= (ast.parts map-every it.expr-ast)::expr-ast[]? # TODO: should not need type annotation -------------------------------------
-		ctx check-call-list-no-spread ast, ast.range, args, expected
+		ctx check-call-list-no-multi ast, ast.range, args, expected
 	else
-		guard result-type ?= expected try-get-inexact-non-inferring-type else
-			ctx add-diag ast.range, list::diag-needs-expected-type
-			expected bogus ast.range
-		guard called ?= ctx find-function-for-list-new ast.range, result-type else
+		guard called ?= ctx called-for-interpolate-or-list-new ast.range, "list-new", expected else
 			expected bogus ast.range
 		arg-array-type = called.param-types only
-		parts list-expr-part[] = for part in ast parts
+		ast list-expr called, for part in ast parts
 			match part
 			as expr-ast x
 				ctx check-and-expect x, arg-array-type.array-element-type!
 			as list-ast-part-multi x
 				ctx check-and-expect x.arg, arg-array-type list-expr-part-multi
-		ast list-expr called, parts
+
+-called-for-interpolate-or-list-new called?(ctx expr-ctx, range source-range, name symbol, expected expected)
+	guard result-type ?= expected try-get-inexact-non-inferring-type else
+		ctx add-diag range, list::diag-needs-expected-type
+		()
+	ctx find-function-for-interpolate-or-list-new range, name, result-type
 
 -check-logical expr(ctx expr-ctx, ast logical-ast, expected expected)
 	common-types = ctx common-types
@@ -1143,11 +1142,6 @@ do
 	first = ctx check-and-expect ast.first, ctx.void-type
 	then_ = ctx check-expr ast.then_, expected
 	first seq-expr then_
-
--check-for-or-with expr(ctx expr-ctx, ast for-or-with-ast, expected expected)
-	fun-name symbol = ast called-function
-	keyword-range = ast keyword-range
-	ctx check-call-arg-and-lambda ast, ast, keyword-range, fun-name, ast.arg, ast.param, ast.body, expected
 
 -check-finally expr(ctx expr-ctx, ast finally-ast, expected expected)
 	if _ ?= expected try-get-loop
