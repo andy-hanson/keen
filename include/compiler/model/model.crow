@@ -406,12 +406,6 @@ debug-type-args string(a type-args)
 is-bogus bool(a type)
 	_ ?= a bogus-type
 
-is-empty-type bool(a struct-inst)
-	a.decl is-void or a.decl is-empty-record
--is-empty-record bool(a struct-decl)
-	if x ?= a.body record_
-		x.fields is-empty
-
 is-enum bool(a type)
 	x ?= a struct-inst and _ ?= x.decl.body enum_
 is-flags bool(a type)
@@ -455,8 +449,6 @@ is-nat64 bool(a type)
 is-option bool(a struct-decl)
 	a is-builtin-type option
 is-void bool(a type)
-	a is-builtin-type void
-is-void bool(a struct-decl)
 	a is-builtin-type void
 is-weak-ref bool(a type)
 	a is-builtin-type weak-ref
@@ -2517,7 +2509,7 @@ config-import-uris alias
 config-extern-uris alias
 	uri?[symbol]
 
-local-source union(it-scope-ast, single-destructure-ast, local-source-generated)
+local-source union(it-scope-ast, match-ast, single-destructure-ast, local-source-generated)
 local-source-generated record(name symbol)
 
 local record force-data
@@ -2541,6 +2533,8 @@ name symbol(a local)
 	match a source
 	as it-scope-ast _
 		"it"
+	as match-ast x
+		x.local! name
 	as single-destructure-ast x
 		x.name name
 	as local-source-generated x
@@ -2551,12 +2545,20 @@ local-must-have-name-range source-range(a local)
 	match a source
 	as it-scope-ast x
 		x.first-it range
+	as match-ast x
+		x.local! range
 	as single-destructure-ast x
 		x name-range
 	as local-source-generated _
 		throw unreachable
 -local-must-have-range source-range(a local)
-	a.source.single-destructure-ast! range
+	match a source
+	as match-ast x
+		x.local! range
+	as single-destructure-ast x
+		x range
+	else
+		throw unreachable
 
 mutability enum(immut, mut_) nat8 storage
 == bool(a mutability, b mutability)
@@ -3089,11 +3091,18 @@ return-type type(a lambda-expr)
 is-ignore bool(a lambda-expr)
 	x ?= a.param destructure-ignore and _ ?= x.source void-destructure-ast
 
-let-expr record(ast let-ast, destructure destructure, value expr, then_ expr)
+let-expr-source union(let-ast, match-ast)
+let-expr record(ast let-expr-source, destructure destructure, value expr, then_ expr)
 to json(a let-expr)
 	destructure: a.destructure to
 	value: a.value to
 	then: a.then_ to
+destructure-ast destructure-ast(a let-expr)
+	match a ast
+	as let-ast x
+		x destructure
+	as match-ast x
+		x.local! single-destructure-ast (), () # TODO: We should probably allow name-and-range as a valid destructure AST, would save a lot of space
 range source-range(a let-expr)
 	a.destructure.start, a.then_.end
 type type(a let-expr, types available-types?)
@@ -3230,7 +3239,11 @@ to json(a string-like-type)
 type struct-inst(a literal-string-like-expr, types available-types?)
 	types![a string-type]
 
-local-get-expr record(ast local-get-source, local local)
+local-get-expr record
+	ast local-get-source
+	local local
+	| This is an array since the type may be refined through nested 'match'es.
+	type-refinements type[]
 local-get-source union(it-ast, name-and-range)
 	range source-range()
 to json(a local-get-expr)
@@ -3238,7 +3251,10 @@ to json(a local-get-expr)
 range source-range(a local-get-expr)
 	a.ast range
 type type(a local-get-expr)
-	a.local type
+	if a.type-refinements is-empty
+		a.local type
+	else
+		a.type-refinements[end - 1]
 
 local-set-expr record(assignee-ast name-and-range, local local, value expr)
 to json(a local-set-expr)
@@ -3659,7 +3675,6 @@ diag union
 	diag-match-case-for-type
 	diag-match-case-name-not-in-enum
 	diag-match-case-no-value-for-enum-or-symbol
-	diag-match-case-should-use-ignore
 	diag-match-needs-else
 	diag-match-on-non-matchable
 	diag-match-sum-type-cant-infer-type-args
@@ -3865,7 +3880,6 @@ diag-match-case-duplicate union(symbol, string, nat, int)
 diag-match-case-for-type enum(enum-or-union, numeric, string-like)
 diag-match-case-name-not-in-enum record(actual symbol, enum_ struct-decl)
 diag-match-case-no-value-for-enum-or-symbol record(enum_ struct-decl?)
-diag-match-case-should-use-ignore record(member struct-inst)
 diag-match-needs-else enum(integral, string-like, variant_)
 diag-match-on-non-matchable record(type type-with-container)
 diag-match-sum-type-cant-infer-type-args record(member struct-decl)

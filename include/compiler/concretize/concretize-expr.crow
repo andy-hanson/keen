@@ -165,7 +165,7 @@ do
 		match lambda-arg
 		as lambda-expr l
 			forbid _ ?= l.mut-type-for-explicit-shared # This won't happen because 'for-loop' takes a 'mut' lambda
-			rg uri-and-range = ctx.cur-uri, lambda-arg.range
+			rg uri-and-range = ctx.cur-uri, l.range
 			body = ctx concretize-with-destructure out-element-type, rg, l.param, of
 				ctx concretize-expr out-element-type, l.body
 			type, range, (input array-op-concrete-expr body.local, empty-out-array, body.expr)
@@ -637,16 +637,17 @@ do
 	type concrete-type
 	range uri-and-range
 	local local
+	type-refinements type[]
 do
 	match ctx.locals[local]!
 	as concrete-local x
-		get = range gen-local-get x
-		if x.type is-bogus
-			ctx concretize-bogus type, range
-		elif ctx is-allocated local
-			ctx.concretize-ctx gen-reference-read range, get
-		else
-			get
+		guard x.type !is-bogus else ctx concretize-bogus type, range
+		res mut = range gen-local-get x
+		if ctx is-allocated local
+			res := ctx.concretize-ctx gen-reference-read range, res
+		for t in type-refinements
+			res := (ctx get-concrete-type t), res.range, res.union-assume-case-concrete-expr
+		res
 	as typed-constant x
 		type, range, x.value
 
@@ -863,7 +864,7 @@ do
 	true-branch concrete-expr mut() = of
 		concrete-locals := for local in model-locals then ctx.locals[local]! concrete-local!
 		exprs concrete-expr[] = for type, local in local-types zip model-locals
-			ctx concretize-local-get type, range, local
+			ctx concretize-local-get type, range, local, ()
 		tuple-expr concrete-expr = if model-locals.size == 0
 			ctx.concretize-ctx gen-void range
 		elif model-locals.size == 1
@@ -1057,7 +1058,7 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 	as literal-string-like-expr x
 		ctx concretize-literal-string-like type, range, x.string-type, x.value
 	as local-get-expr x
-		ctx concretize-local-get type, range, x.local
+		ctx concretize-local-get type, range, x.local, x.type-refinements
 	as local-set-expr x
 		ctx concretize-local-set range, x.local, x.value
 	as logical-expr x

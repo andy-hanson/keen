@@ -69,7 +69,7 @@ do
 	as do-ast x
 		ctx check-expr x.body, expected
 	as empty-ast x
-		ctx check-empty-new x, ast.range, expected
+		ctx check-empty-new x, x.range, expected
 	as extern-ast x
 		ctx check-extern x, expected
 	as finally-ast x
@@ -256,7 +256,7 @@ do
 				else
 					ctx check-expr left-call.args[i], arg-expected
 		else
-			ctx add-diag left.range, diag-assignment-not-allowed
+			ctx add-diag left-call.range, diag-assignment-not-allowed
 			expected bogus source.range
 	else
 		ctx add-diag left.range, diag-assignment-not-allowed
@@ -344,7 +344,12 @@ do
 
 -check-identifier expr(ctx expr-ctx, ast name-and-range, expected expected)
 	if local ?= ctx access-local ast.range, ast.name
-		ctx check expected, local.type, do ast local-get-expr local
+		type-refinements type[] = with out in build
+			for l, t in ctx refined-types
+				if l == local
+					out ~= t
+		res = ast local-get-expr local, type-refinements
+		ctx check expected, res.type, res
 	else
 		ctx check-call-identifier ast, expected
 
@@ -551,7 +556,7 @@ do
 	expected expected
 do
 	local = ctx access-local! ast.range, "it"
-	ctx check expected, local.type, do ast local-get-expr local
+	ctx check expected, local.type, do ast local-get-expr local, ()
 
 -check-it-scope expr
 	ctx expr-ctx
@@ -752,7 +757,14 @@ do
 	ast loop-while-or-until-expr condition, body, after
 
 -check-match expr(ctx expr-ctx, ast match-ast, expected expected)
-	matched, matched-type = ctx check-and-infer ast.matched
+	matched-expr, matched-type = ctx check-and-infer ast.matched
+	local local? = if _ ?= ast local
+		ast, immut, matched-type
+	if x ?= local then ctx add-local x
+	matched expr = if l ?= local
+		ast.local! local-get-expr l, ()
+	else
+		matched-expr
 	# Use an arbitrary non-matchable inst as default
 	inst = matched-type struct-inst else ctx.common-types void
 	decl = inst decl
@@ -760,7 +772,7 @@ do
 		if matched-type !is-bogus
 			ctx add-diag ast.matched.range, (ctx type-with-container matched-type).diag-match-on-non-matchable
 		expected bogus ast.matched
-	match decl body
+	res = match decl body
 	as struct-body-bogus _
 		not-matchable[]
 	as struct-body-extern-java _
@@ -783,9 +795,15 @@ do
 			not-matchable[]
 	as sum-type x
 		if x.kind can-match-sum-type
-			ctx check-match-sum-type ast, expected, matched, inst
+			matched-local = local or matched.local-get-expr ?local
+			ctx check-match-sum-type ast, expected, matched, matched-local, inst
 		else
 			not-matchable[]
+	if l ?= local
+		ctx pop-local
+		ast let-expr l, matched-expr, res
+	else
+		res
 
 -can-match-sum-type bool(a sum-type-kind)
 	match a
@@ -846,9 +864,10 @@ do
 	ast match-ast
 	expected expected
 	matched expr
+	matched-local local?
 	sum-type struct-inst
 do
-	cases = ctx check-match-sum-type-cases sum-type, ast.cases, expected
+	cases = ctx check-match-sum-type-cases matched-local, sum-type, ast.cases, expected
 	body = sum-type.decl.body sum-type!
 	is-union = body.kind == union_
 	else_ match-else? = if is-union
@@ -871,6 +890,7 @@ do
 
 -check-match-sum-type-cases match-sum-type-case[]
 	ctx expr-ctx
+	matched-local local?
 	matched-variant struct-inst
 	case-asts case-ast[]
 	expected expected
@@ -879,14 +899,15 @@ do
 	seen hint-size case-asts.size
 	with out in case-asts.size build
 		for case-ast in case-asts
-			if res ?= ctx check-match-sum-type-case matched-variant, case-ast.member, case-ast.then_, expected
+			if res ?= ctx check-match-sum-type-case matched-local, matched-variant, case-ast.member, case-ast.then_, expected
 				if seen try-add res.case-type
 					out ~= res
 				else
 					ctx add-diag case-ast.name-range, res.case-type.decl.name::diag-match-case-duplicate
 
 -check-match-sum-type-case match-sum-type-case?
-	ctx  expr-ctx
+	ctx expr-ctx
+	matched-local local?
 	matched-variant struct-inst
 	member-ast case-member-ast
 	then-ast expr-ast
@@ -898,15 +919,17 @@ do
 		ctx get-sum-type-case-from-name matched-variant, n, member-ast.name-range, of
 			if d ?= as-name ?destructure then ctx type-from-destructure d
 	guard case-type ?= opt-case-type
-	
+
 	destructure = if ast ?= member-ast.as-name-ast!.destructure
 		ctx check-destructure ast, case-type, local
 	else
-		if case-type !is-empty-type
-			ctx add-diag member-ast.name-range, case-type.diag-match-case-should-use-ignore
 		member-ast destructure-ignore case-type
 	if destructure.type !is-bogus
+		if x ?= matched-local
+			ctx.refined-types ~= x, case-type
 		expr = ctx check-expr-with-destructure destructure, then-ast, expected
+		if _ ?= matched-local
+			_ = ctx.refined-types pop!
 		destructure, expr
 
 -get-sum-type-case-from-name struct-inst?
@@ -1159,7 +1182,7 @@ do
 	else
 		body = ctx check-expr ast.tried, expected
 		exception = ctx.common-types exception
-		catches = ctx check-match-sum-type-cases exception, ast.catches, expected
+		catches = ctx check-match-sum-type-cases (), exception, ast.catches, expected
 		else_ match-else? = if x ?= ast catch-else
 			ctx check-match-else x.destructure, x.expr, expected, exception
 		ast try-expr body, catches, else_, expected.inferred
@@ -1167,7 +1190,7 @@ do
 -check-try-let expr(ctx expr-ctx, ast try-let-ast, expected expected)
 	value-expr, value-type = ctx check-and-expect-or-infer ast.value, (ctx type-from-destructure ast.destructure)
 	destructure = ctx check-destructure ast.destructure, value-type, local
-	guard catch_ ?= ctx check-match-sum-type-case ctx.common-types.exception, ast.catch-member, ast.catch_, expected else
+	guard catch_ ?= ctx check-match-sum-type-case (), ctx.common-types.exception, ast.catch-member, ast.catch_, expected else
 		expected bogus ast.range
 	then_ = ctx check-expr-with-destructure destructure, ast.after, expected
 	ast try-let-expr destructure, value-expr, catch_, then_, expected.inferred
