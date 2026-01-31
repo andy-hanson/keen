@@ -152,10 +152,10 @@ do
 -to json(a local-entry)
 -type concrete-type(a local-entry)
 	match a
-	as concrete-local x
-		x type
-	as concrete-type x
-		x
+	as concrete-local
+		a type
+	as concrete-type
+		a
 -== bool(a local-entry, b local-entry)
 -new expr-ctx
 	ctx to-java-ctx
@@ -201,28 +201,20 @@ do
 		ctx verification-type x
 
 -verification-type verification_type_info(ctx expr-ctx, a concrete-type)
-	match a as-runtime-type
+	match rt = a as-runtime-type
 	as void
 		error log "Unexpected verification-type {ctx.ctx.show-ctx.show show-concrete-type a}" # ------------------------
 		throw unreachable
-	as java-primitive-type p
-		match p
-		as T_BOOLEAN
-			integer
-		as T_CHAR
-			integer
-		as T_FLOAT
-			float
-		as T_DOUBLE
-			double
-		as T_BYTE
-			integer
-		as T_SHORT
-			integer
-		as T_INT
-			integer
-		as T_LONG
-			long
+	as java-primitive-type
+		match rt
+		as T_BOOLEAN then integer
+		as T_CHAR then integer
+		as T_FLOAT then float
+		as T_DOUBLE then double
+		as T_BYTE then integer
+		as T_SHORT then integer
+		as T_INT then integer
+		as T_LONG then long
 	as reference-type
 		if f ?= a as-wrapper
 			ctx verification-type f.type
@@ -298,22 +290,24 @@ do
 -init-constant void(out code-builder, ctx expr-ctx, constant any-constant) # TODO: does this really need an expr-ctx? -----------------
 	assert ctx.stack is-empty
 	match constant
-	as single-constant-array x
-		element = x element-type
-		if (element is-nat8 or element is-char8) and x.elements.size > 16
-			resource = ctx.ctx add-resource for e in x elements
+	as single-constant-array
+		array = constant array-type
+		element = constant element-type
+		elements = constant elements
+		if (element is-nat8 or element is-char8) and elements.size > 16
+			resource = ctx.ctx add-resource for e in elements
 				e.scalar-value! to
 			out ldc ctx.this-class
 			out ldc do out.constants string-ref resource
 			out invokevirtual ctx.names.java-Class-getResourceAsStream
 			out invokevirtual ctx.names.java-InputStream-readAllBytes
-			ctx pushed x.array-type
+			ctx pushed array
 		else
-			out make-array ctx, x.elements.size, x.array-type, x.element-type, of i
-				out push-constant ctx, x.elements[i], x.element-type
-	as single-constant-record x
-		out new-record ctx, x.record-type, of i, field
-			out push-constant ctx, x.args[i], field.type
+			out make-array ctx, elements.size, array, element, of i
+				out push-constant ctx, elements[i], element
+	as single-constant-record
+		out new-record ctx, constant.record-type, of i, field
+			out push-constant ctx, constant.args[i], field.type
 	out putstatic do ctx.names constant-field constant
 	ctx must-pop constant.type
 	assert ctx.stack is-empty
@@ -379,33 +373,33 @@ do
 	ctx must-peek array-type
 
 -push-constant void(out code-builder, ctx expr-ctx, constant constant, type concrete-type)
-	match type body
-	as concrete-builtin-type x
-		out push-constant-builtin ctx, constant, type, x
+	match body = type body
+	as concrete-builtin-type
+		out push-constant-builtin ctx, constant, type, body
 		ctx pushed type
-	as concrete-enum x
-		out push-constant-integral x.storage_, constant
+	as concrete-enum
+		out push-constant-integral body.storage_, constant
 		ctx pushed type
-	as struct-body-extern-java x
+	as struct-body-extern-java
 		match constant
 		as constant-gc-safe-value
 			out aconst_null
-		as constant-native-string s
-			x.path is "java/lang/String".parse-path
-			out ldc do out.constants string-ref s.value.to
+		as constant-native-string
+			body.path is "java/lang/String".parse-path
+			out ldc do out.constants string-ref constant.value.to
 		else
 			throw unreachable
 		ctx pushed type
-	as concrete-flags x
-		out push-constant-integral x.storage_, constant
+	as concrete-flags
+		out push-constant-integral body.storage_, constant
 		ctx pushed type
-	as concrete-record _
+	as concrete-record
 		guard type !is-empty-type
 		if field ?= type as-wrapper
 			wrapped = field type
 			match constant
-			as constant-record cr
-				inner = ctx.program.all-constants.records[type]![cr] only
+			as constant-record 
+				inner = ctx.program.all-constants.records[type]![constant] only
 				out push-constant ctx, inner, wrapped
 				ctx must-refine field.type, type
 			as constant-gc-safe-value
@@ -415,19 +409,19 @@ do
 				throw unreachable
 		else
 			match constant
-			as constant-record r
-				out getstatic do ctx.names constant-record-field type, r
+			as constant-record
+				out getstatic do ctx.names constant-record-field type, constant
 			as constant-gc-safe-value
 				out aconst_null
-			as constant-symbol x
-				out getstatic do ctx.names constant-symbol-field ctx.program.symbol, x.index
+			as constant-symbol
+				out getstatic do ctx.names constant-symbol-field ctx.program.symbol, constant.index
 			else
 				throw unreachable
 			ctx pushed type
-	as concrete-union _
+	as concrete-union
 		match constant
-		as constant-union u
-			value = ctx.program.all-constants.unions[type]![u]
+		as constant-union
+			value = ctx.program.all-constants.unions[type]![constant]
 			out new-union ctx, type, value.member-index, of case-type
 				out push-constant ctx, value.member, case-type
 		as constant-gc-safe-value
@@ -485,8 +479,8 @@ do
 	array void mut() = of
 		if type.array-element-type is-empty-type
 			out push-constant-integral nat32, match constant
-			as constant-array ca
-				elements = ctx.ctx.program.all-constants.arrays[ca type-index].constants[ca index] # TODO: have a helper function for this!
+			as constant-array
+				elements = ctx.ctx.program.all-constants.arrays[constant type-index].constants[constant index] # TODO: helper function for this!
 				elements.size to
 			as constant-gc-safe-value
 				0::nat to
@@ -494,8 +488,8 @@ do
 				throw unreachable
 		else
 			match constant
-			as constant-array x
-				out getstatic do ctx.names constant-array-field type, x
+			as constant-array
+				out getstatic do ctx.names constant-array-field type, constant
 			as constant-gc-safe-value
 				out aconst_null
 			else
@@ -551,8 +545,8 @@ do
 
 -push-constant-integral void(out code-builder, type integral-type, constant constant)
 	value int = match constant
-	as scalar-value x
-		x to
+	as scalar-value
+		constant to
 	as constant-gc-safe-value
 		0
 	else
@@ -591,12 +585,12 @@ do
 			if impl ?= impls.cases[case-index] only
 				out ~= names toString-method-impl impl
 
-	class_ ClassFile? = match type body
-	as concrete-builtin-type x
+	class_ ClassFile? = match body = type body
+	as concrete-builtin-type
 		lambda ClassFile mut() = of
 			assert method-impls is-empty else todo
 			names lambda-class type, this-class, super-class, interfaces
-		match x kind
+		match body kind
 		as array
 			()
 		as fun-data
@@ -610,17 +604,17 @@ do
 			names record-class type, false, (), this-class-name, this-class, super-class, interfaces, method-impls
 		else
 			() # TODO: could use a boxing-record for unsigned integer types ........................................................
-	as concrete-enum _
+	as concrete-enum
 		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
 		names boxing-record type, super-class, interfaces, method-impls
-	as struct-body-extern-java _
+	as struct-body-extern-java
 		throw unreachable
-	as concrete-flags _
+	as concrete-flags
 		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
 		names boxing-record type, super-class, interfaces, method-impls
-	as concrete-record x
-		names record-class type, x.is-wrapper, x.fields, this-class-name, this-class, super-class, interfaces, method-impls
-	as concrete-union _
+	as concrete-record
+		names record-class type, body.is-wrapper, body.fields, this-class-name, this-class, super-class, interfaces, method-impls
+	as concrete-union
 		method-decls method_info[] = with out in build
 			for m in ctx.program.method-impls[type] ?methods else ()
 				match ctx.union-info java-method-kind m
@@ -937,12 +931,12 @@ do
 	attributes: code,
 
 -new-array-for-type void(out code-builder, ctx expr-ctx, element-type concrete-type)
-	match element-type as-runtime-type
+	match rt = element-type as-runtime-type
 	as void
 		# Void array represented as the size which is already on stack
 		()
-	as java-primitive-type p
-		out newarray p
+	as java-primitive-type
+		out newarray rt
 	as reference-type
 		if field ?= element-type as-wrapper
 			out new-array-for-type ctx, field.type
@@ -955,14 +949,11 @@ do
 	match type
 	as void
 		0
-	as java-primitive-type p
-		match p
-		as T_DOUBLE
-			2
-		as T_LONG
-			2
-		else
-			1
+	as java-primitive-type
+		match type
+		as T_DOUBLE then 2
+		as T_LONG then 2
+		else then 1
 	else
 		1
 
@@ -1065,18 +1056,18 @@ do
 
 -emit-fun-body void(out code-builder, ctx expr-ctx, fun concrete-fun)
 	names = ctx names
-	match fun body
-	as concrete-fun-body-builtin x # TODO: this should go away, always use the concrete-expr form
+	match body = fun body
+	as concrete-fun-body-builtin # TODO: this should go away, always use the concrete-expr form
 		args concrete-expr[] = for param in fun params
 			param.type, fun.range, param.local-get-concrete-expr
-		out translate-builtin ctx, x.kind, x.type-args, fun.return-type, args
+		out translate-builtin ctx, body.kind, body.type-args, fun.return-type, args
 		out return fun.return-type.as-runtime-type
-	as concrete-expr x
+	as concrete-expr
 		# info log "GONNA EMIT FUNCTION {ctx.ctx.show-ctx.show show-concrete-fun-sig fun, false}" -----------------------------------
-		out emit-expr ctx, return, x
-	as fun-body-extern-java _
+		out emit-expr ctx, return, body
+	as fun-body-extern-java
 		throw unreachable
-	as concrete-fun-body-method _
+	as concrete-fun-body-method
 		union_ = fun.params[0] type
 		info = ctx.program.method-impls[union_]!
 		cases = info cases
@@ -1154,7 +1145,7 @@ do
 		f[jump]
 		for j in jump jumps
 			j jumps-to-here out, ctx.cur-stack-frame
-	as jump _
+	as jump
 		f[pos]
 	as return
 		f[pos]
@@ -1163,8 +1154,8 @@ do
 	match pos
 	as continue_
 		()
-	as jump x
-		x.jumps ~= out goto
+	as jump
+		pos.jumps ~= out goto
 	as return
 		out return type.as-runtime-type
 
@@ -1219,45 +1210,45 @@ do
 	names = ctx names
 	out mark-line-number do (ctx.ctx.show-ctx.line-and-character-getters get-start-line a.start).to::nat16 + 1
 	type = a type
-	match a kind
-	as array-op-concrete-expr x
+	match x = a kind
+	as array-op-concrete-expr
 		out emit-for-loop ctx, pos, a, x
-	as builtin-concrete-expr x
+	as builtin-concrete-expr
 		out translate-builtin ctx, x.fun, x.type-args, type, x.args
 		out handle-pos pos, type
-	as call-concrete-expr x
-		match x.called body
-		as concrete-fun-body-builtin b
-			out translate-builtin ctx, b.kind, b.type-args, type, x.args
+	as call-concrete-expr
+		match body = x.called body
+		as concrete-fun-body-builtin
+			out translate-builtin ctx, body.kind, body.type-args, type, x.args
 		else
 			out function-like ctx, type, x.args, of
 				out call-concrete-fun names, x.called
 		out handle-pos pos, type
-	as cast-concrete-expr x
+	as cast-concrete-expr
 		# This is currently only used to cast an enum to an integral. In Java we just use integrals for enums directly. --------
 		out emit-expr ctx, pos, x.inner
 		ctx must-refine x.inner.type, type
-	as constant x
+	as constant
 		out push-constant ctx, x, type
 		out handle-pos pos, type
-	as create-array-concrete-expr x
+	as create-array-concrete-expr
 		out make-array ctx, x.args.size, type, type.array-element-type, of i
 			out emit-and-continue ctx, x.args[i]
 		out handle-pos pos, type
-	as create-record-concrete-expr x
+	as create-record-concrete-expr
 		out new-record ctx, type, of i, _
 			out emit-and-continue ctx, x.args[i]
 		out handle-pos pos, type
-	as create-union-concrete-expr x
+	as create-union-concrete-expr
 		out new-union ctx, type, x.member-index, of _
 			out emit-and-continue ctx, x.arg
 		out handle-pos pos, type
-	as drop-concrete-expr x
+	as drop-concrete-expr
 		out emit-and-continue ctx, x.arg
 		out pop x.arg.type.as-runtime-type
 		ctx must-pop x.arg.type
 		out handle-pos pos, type
-	as finally-concrete-expr x
+	as finally-concrete-expr
 		out with-inner-pos ctx, pos, of inner-pos
 			start-pc = out next-index
 			out emit-and-continue ctx, x.below # Leave the result on the stack
@@ -1281,7 +1272,7 @@ do
 					out athrow
 				# Treat the stack effect as if it was successful
 				ctx pushed type
-	as if-concrete-expr x
+	as if-concrete-expr
 		out emit-and-continue ctx, x.cond
 		out with-inner-pos ctx, pos, of inner-pos
 			jump-if-false = out ifeq
@@ -1291,10 +1282,10 @@ do
 			jump-if-false jumps-to-here out, ctx.cur-stack-frame
 			out emit-expr ctx, inner-pos, x.else_
 			ctx must-peek type
-	as let-concrete-expr x
+	as let-concrete-expr
 		out emit-and-continue ctx, x.value
 		out emit-with-local ctx, x.local, pos, x.then_
-	as lambda-concrete-expr x
+	as lambda-concrete-expr
 		class-name = ctx.ctx create-lambda-implementation-class a.range.uri, ctx.cur-fun-for-debug!, type, x
 		class_ = out.constants class_ class-name
 		# All we do here is call 'new' or 'instance'
@@ -1308,22 +1299,22 @@ do
 			out invokespecial do names lambda-init-reference class_, x
 		ctx pushed type
 		out handle-pos pos, type
-	as local-get-concrete-expr x
+	as local-get-concrete-expr
 		out get-local ctx, x.local
 		ctx pushed type
 		out handle-pos pos, type
-	as local-set-concrete-expr x
+	as local-set-concrete-expr
 		out emit-and-continue ctx, x.value
 		local-type = x.local type
 		unless local-type is-empty-type
-			match ctx explain-local x.local
-			as nat index
-				out xstore local-type.as-runtime-type, index
-			as field-reference field
-				out putfield field
+			match l = ctx explain-local x.local
+			as nat
+				out xstore local-type.as-runtime-type, l
+			as field-reference
+				out putfield l
 		ctx must-pop local-type
 		out handle-pos pos, type
-	as loop-concrete-expr x
+	as loop-concrete-expr
 		###
 		loop
 			if x
@@ -1343,12 +1334,12 @@ do
 		ctx.loop-pos := out can-jump-back-to-here ctx.cur-stack-frame
 		out emit-expr ctx, pos, x.body
 		ctx.loop-pos := prev-loop-pos
-	as loop-break-concrete-expr x
+	as loop-break-concrete-expr
 		out emit-expr ctx, pos, x.value
 	as loop-continue-concrete-expr
 		out go-back-to ctx.loop-pos!
 		ctx pushed type # Treat the stack effect as if the loop completed
-	as match-scalar-concrete-expr x
+	as match-scalar-concrete-expr
 		# TODO:PERF If <= 3 cases, it's probably better to just use ifeq instructions
 		out emit-and-continue ctx, x.matched
 		out with-inner-pos ctx, pos, of inner-pos
@@ -1407,7 +1398,7 @@ do
 			else
 				out emit-unreachable names
 				ctx pushed type
-	as match-string-like-concrete-expr x
+	as match-string-like-concrete-expr
 		# TODO: factor out a function -------------------------------------------------------------------------------------------
 		out emit-and-continue ctx, x.matched
 		matched-type = x.matched type
@@ -1433,23 +1424,23 @@ do
 				ctx pushed matched-type
 			jump! jumps-to-here out, ctx.cur-stack-frame
 			out emit-with-opt-local ctx, matched-type, inner-pos, x.else_
-	as match-union-concrete-expr x
+	as match-union-concrete-expr
 		out emit-match-union ctx, pos, type, x
-	as record-field-get-concrete-expr x
+	as record-field-get-concrete-expr
 		out emit-and-continue ctx, x.record_
 		unless x.record_.type is-wrapper
 			out getfield do names record-field x.record_.type, x.field
 		ctx must-pop x.record_.type
 		ctx pushed x.field.type
 		out handle-pos pos, type
-	as record-field-set-concrete-expr x
+	as record-field-set-concrete-expr
 		out emit-and-continue ctx, x.record_
 		out emit-and-continue ctx, x.value
 		out putfield do names record-field x.record_.type, x.field
 		ctx must-pop x.value.type
 		ctx must-pop x.record_.type
 		out handle-pos pos, type
-	as seq-concrete-expr x
+	as seq-concrete-expr
 		locals-size = ctx.locals.size # TODO: remove some excessive checking ---------------------------------------------------------
 		stack-size = ctx.stack.size
 		for part in x.parts[0 .. end - 1]
@@ -1461,13 +1452,13 @@ do
 		ctx.locals.size is locals-size
 		unless type is-empty-type
 			ctx.stack.size is stack-size + 1
-	as throw-concrete-expr x
+	as throw-concrete-expr
 		out emit-and-continue ctx, x.thrown
 		ctx must-pop ctx.program.exception
 		out athrow
 		# Treat the stack effect as if it was successful
 		ctx pushed type
-	as try-concrete-expr x
+	as try-concrete-expr
 		out with-inner-pos ctx, pos, of inner-pos
 			start = out next-index
 			out emit-expr ctx, inner-pos, x.tried
@@ -1492,7 +1483,7 @@ do
 					stack: frame-before.stack ~ exception.Object_variable_info
 				ctx pushed ctx.program.exception
 				out emit-with-unboxed-opt-local ctx, ctx.program.exception, else_.local, inner-pos, else_.expr
-	as try-let-concrete-expr x
+	as try-let-concrete-expr
 		start = out next-index
 		out emit-and-continue ctx, x.value
 		end = out next-index
@@ -1508,7 +1499,7 @@ do
 				stack: frame-before.stack ~ boxed-catch-type.Object_variable_info
 			ctx pushed ctx.program.exception # just use an arbitrary type here, we're about to pop it
 			out emit-with-unboxed-opt-local ctx, ctx.program.exception, x.catch_.local, inner-pos, x.catch_.expr
-	as union-assume-case-concrete-expr x
+	as union-assume-case-concrete-expr
 		out emit-and-continue ctx, x.arg
 		match ctx union-representation x.union-type
 		as exception
@@ -1522,7 +1513,7 @@ do
 			throw todo
 		ctx must-refine x.union-type, type
 		out handle-pos pos, type
-	as var-get-concrete-expr x
+	as var-get-concrete-expr
 		match x.var kind
 		as thread-local_
 			throw todo
@@ -1530,7 +1521,7 @@ do
 			out getstatic do names var-field x.var
 		ctx pushed type
 		out handle-pos pos, type
-	as var-set-concrete-expr x
+	as var-set-concrete-expr
 		out emit-and-continue ctx, x.value
 		match x.var kind
 		as thread-local_
@@ -1881,12 +1872,12 @@ do
 
 -get-local void(out code-builder, ctx expr-ctx, local concrete-local)
 	guard local.type !is-empty-type
-	match ctx explain-local local
-	as nat index
-		out xload local.type.as-runtime-type, index
-	as field-reference field
+	match x = ctx explain-local local
+	as nat
+		out xload local.type.as-runtime-type, x
+	as field-reference
 		out aload 0
-		out getfield field
+		out getfield x
 
 -create-lambda-implementation-class symbol
 	ctx to-java-ctx
@@ -1942,12 +1933,12 @@ do
 	this-class-name
 
 -always-throws bool(a concrete-expr)
-	match a kind
-	as finally-concrete-expr x
+	match x = a kind
+	as finally-concrete-expr
 		x.below always-throws
-	as seq-concrete-expr x
+	as seq-concrete-expr
 		x.parts exists it.always-throws
-	as throw-concrete-expr _
+	as throw-concrete-expr
 		true
 	else
 		false
@@ -2057,23 +2048,23 @@ do
 	args concrete-expr[]
 do
 	match fun
-	as builtin-unary x
+	as builtin-unary
 		out function-like ctx, type, args, of
-			out translate-builtin-unary ctx, type, args.only.type, x, type-args
-	as builtin-binary x
+			out translate-builtin-unary ctx, type, args.only.type, fun, type-args
+	as builtin-binary
 		out function-like ctx, type, args, of
-			out translate-builtin-binary ctx.names, type, args[0].type, x
-	as builtin-ternary x
-		out translate-builtin-ternary ctx, x, args
+			out translate-builtin-binary ctx.names, type, args[0].type, fun
+	as builtin-ternary
+		out translate-builtin-ternary ctx, fun, args
 	as builtin-fun-call-lambda
 		out function-like ctx, type, args, of
 			lambda, _ = args only2
 			out invokevirtual do ctx.names lambda-call lambda.type
-	as builtin-fun-constant _
+	as builtin-fun-constant
 		throw unreachable
 	as builtin-fun-is-empty-type
 		throw unreachable
-	as js-fun _
+	as js-fun
 		throw unreachable
 
 -translate-builtin-unary void
@@ -2324,11 +2315,11 @@ do
 		ctx popped-args args
 
 -reference-equal void(out code-builder, names java-refs, param-type concrete-type)
-	match param-type as-runtime-type
+	match rt = param-type as-runtime-type
 	as void
 		throw todo # TODO: if param-type is void, just push 'true' -------------------------------------------------------------------------
-	as java-primitive-type p
-		out invokestatic match p
+	as java-primitive-type
+		out invokestatic match rt
 		as T_BOOLEAN
 			names crow-equal-integral int8
 		as T_CHAR
