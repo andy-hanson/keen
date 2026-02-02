@@ -901,6 +901,29 @@ do
 				else
 					ctx add-diag case-ast.name-range, res.case-type.decl.name::diag-match-case-duplicate
 
+-check-catches catch_[](ctx expr-ctx, asts catch-ast[], expected expected)
+	seen struct-inst mut-set = ()
+	seen hint-size asts.size
+	with out in asts.size build
+		for index, ast in asts with-index
+			guard res ?= ctx check-catch ast, expected, index < asts.size - 1
+			if seen try-add res.caught-type
+				out ~= res
+			else
+				ctx add-diag ast.keyword-range, res.caught-type.decl.name::diag-match-case-duplicate
+
+-check-catch catch_?(ctx expr-ctx, ast catch-ast, expected expected, require-type bool)
+	explicit-caught-type struct-inst? = if as_ ?= ast as_
+		ctx.check-ctx inst-struct-from-ast ctx.types, as_.type-name.name, as_.type-name.range, (), ctx.type-params, yes
+	if require-type and !(_ ?= explicit-caught-type)
+		ctx add-diag ast.keyword-range, diag-catch-else-must-come-last
+	caught-type = explicit-caught-type else ctx.common-types exception
+	destructure simple-destructure = if name ?= ast name
+		name local immut, false, (), caught-type
+	else
+		ast destructure-ignore caught-type
+	destructure, do ctx check-expr-with-destructure destructure.to, ast.then_, expected
+
 -check-match-sum-type-case match-sum-type-case?
 	ctx expr-ctx
 	matched-local local?
@@ -1176,17 +1199,13 @@ do
 		expected bogus ast.range
 	else
 		body = ctx check-expr ast.tried, expected
-		exception = ctx.common-types exception
-		catches = ctx check-match-sum-type-cases (), exception, ast.catches, expected
-		else_ match-else? = if x ?= ast catch-else
-			ctx check-match-else x.destructure, x.expr, expected, exception
-		ast try-expr body, catches, else_, expected.inferred
+		catches = ctx check-catches ast.catches, expected
+		ast try-expr body, catches, expected.inferred
 
 -check-try-let expr(ctx expr-ctx, ast try-let-ast, expected expected)
 	value-expr, value-type = ctx check-and-expect-or-infer ast.value, (ctx type-from-destructure ast.destructure)
 	destructure = ctx check-destructure ast.destructure, value-type, local
-	guard catch_ ?= ctx check-match-sum-type-case (), ctx.common-types.exception, ast.catch-member, ast.catch_, expected else
-		expected bogus ast.range
+	catch_ = ctx check-catch! ast.catch_, expected, false
 	then_ = ctx check-expr-with-destructure destructure, ast.after, expected
 	ast try-let-expr destructure, value-expr, catch_, then_, expected.inferred
 

@@ -958,6 +958,37 @@ do
 		member-indices, cases = ctx concretize-match-sum-type-cases type, range, matched.type, a.cases
 		type, range, do matched match-union-concrete-expr member-indices.to, cases, else_
 
+-concretize-catches (nat[], concrete-local-and-expr[], concrete-local-and-expr?)
+	ctx concretize-expr-ctx
+	type concrete-type
+	range uri-and-range
+	catches catch_[]
+do
+	variant-type = ctx.concretize-ctx exception-type
+	most-catches catch_ array-view, catch-else catch_? = if catches[end - 1].caught-type == ctx.common-types.exception # TODO: rename to typed-catches???????????
+		catches[0 .. end - 1], catches[end - 1]
+	else
+		catches.to, ()
+	member-indices nat[] = for x in most-catches
+		ctx member-index-for-match-sum-type-case variant-type, x.caught-type
+	cases concrete-local-and-expr[] = for member-index in member-indices
+		catch_ = most-catches find! of x # TODO: wait, member-indices is not sorted yet, so we could just zip them?????????????????????????????????????????????????????????
+			(ctx member-index-for-match-sum-type-case variant-type, x.caught-type) == member-index
+		ctx concretize-expr-with-destructure type, range, catch_.destructure.to, catch_.then_
+	indices, concrete-catches = member-indices sort-by-first cases
+	indices, concrete-catches, if x ?= catch-else
+		ctx concretize-expr-with-destructure type, range, x.destructure.to, x.then_
+
+-concretize-catch (nat, concrete-local-and-expr)
+	ctx concretize-expr-ctx
+	type concrete-type
+	range uri-and-range
+	catch_ catch_
+do
+	variant-type = ctx.concretize-ctx exception-type
+	member-index = ctx member-index-for-match-sum-type-case variant-type, catch_.caught-type
+	member-index, do ctx concretize-expr-with-destructure type, range, catch_.destructure.to, catch_.then_
+
 -concretize-match-sum-type-cases (nat[], concrete-local-and-expr[])
 	ctx concretize-expr-ctx
 	type concrete-type
@@ -966,18 +997,14 @@ do
 	cases match-sum-type-case[]
 do
 	member-indices nat[] = for x in cases
-		ctx member-index-for-match-sum-type-case variant-type, x
+		ctx member-index-for-match-sum-type-case variant-type, x.case-type
 	concrete-cases concrete-local-and-expr[] = for member-index in member-indices
-		case_ = cases find! of x
-			(ctx member-index-for-match-sum-type-case variant-type, x) == member-index
+		case_ = cases find! of x # TODO: wait, member-indices is not sorted yet, so we could just zip them?????????????????????????????????????????????????????????
+			(ctx member-index-for-match-sum-type-case variant-type, x.case-type) == member-index
 		ctx concretize-expr-with-destructure type, range, case_.destructure, case_.then_
 	member-indices sort-by-first concrete-cases
--member-index-for-match-sum-type-case nat
-	ctx concretize-expr-ctx
-	variant-type concrete-type
-	a match-sum-type-case
-do
-	ctx.concretize-ctx sum-type-case-index variant-type, do ctx get-concrete-type a.destructure.type
+-member-index-for-match-sum-type-case nat(ctx concretize-expr-ctx, variant-type concrete-type, type struct-inst)
+	ctx.concretize-ctx sum-type-case-index variant-type, do ctx get-concrete-type type
 
 -concretize-force concrete-expr
 	ctx concretize-expr-ctx
@@ -1191,10 +1218,8 @@ do
 	a try-expr
 do
 	tried = ctx concretize-expr type, a.tried
-	member-indices, cases =
-		ctx concretize-match-sum-type-cases type, range, ctx.concretize-ctx.exception-type, a.catches
-	type, range, do tried try-concrete-expr member-indices.to, cases, if x ?= a catch-else
-		ctx concretize-expr-with-opt-destructure type, range, x
+	member-indices, cases, else_ = ctx concretize-catches type, range, a.catches
+	type, range, do tried try-concrete-expr member-indices.to, cases, else_
 
 -concretize-try-let concrete-expr
 	ctx concretize-expr-ctx
@@ -1204,8 +1229,7 @@ do
 do
 	local-type = ctx get-concrete-type a.destructure.type
 	value = ctx concretize-expr local-type, a.value
-	catch-member-index = ctx member-index-for-match-sum-type-case ctx.concretize-ctx.exception-type, a.catch_
-	catch-expr = ctx concretize-expr-with-destructure type, range, a.catch_.destructure, a.catch_.then_
+	catch-member-index, catch-expr = ctx concretize-catch type, range, a.catch_
 	then_ = ctx concretize-expr-with-destructure type, range, a.destructure, a.then_
 	type, range,
 		then_.local try-let-concrete-expr value, catch-member-index, catch-expr, then_.expr

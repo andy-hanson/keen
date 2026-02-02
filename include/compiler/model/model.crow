@@ -2477,7 +2477,7 @@ config-import-uris alias
 config-extern-uris alias
 	uri?[symbol]
 
-local-source union(it-scope-ast, match-ast, single-destructure-ast, local-source-generated)
+local-source union(it-scope-ast, catch-ast, match-ast, name-and-range, single-destructure-ast, local-source-generated)
 local-source-generated record(name symbol)
 
 local record force-data
@@ -2499,10 +2499,14 @@ to json(a local)
 	a.name to
 name symbol(a local)
 	match source = a source
+	as catch-ast
+		source.name! name
 	as it-scope-ast
 		"it"
 	as match-ast
 		source.local! name
+	as name-and-range
+		source name
 	as single-destructure-ast
 		source.name name
 	as local-source-generated
@@ -2511,10 +2515,14 @@ is-mutable bool(a local)
 	a.mutability == mut_
 local-must-have-name-range source-range(a local)
 	match source = a source
+	as catch-ast
+		source.name! range
 	as it-scope-ast
 		source.first-it range
 	as match-ast
 		source.local! range
+	as name-and-range
+		source range
 	as single-destructure-ast
 		source name-range
 	as local-source-generated
@@ -2539,7 +2547,7 @@ to json(a destructure-ignore)
 | A {case-member-ast} may implicitly ignore the value: 'as foo' is equivalent to 'as foo _' (but may have a diagnostic for a non-empty type).
 | {struct-decl} only comes up from generated code.
 | {void-destructure-ast} is treated as a 'destructure-ignore' in the model since it behaves the same as '_ void'.
-destructure-ignore-source union(case-member-ast, struct-decl, ignore-destructure-ast, void-destructure-ast)
+destructure-ignore-source union(case-member-ast, catch-ast, struct-decl, ignore-destructure-ast, void-destructure-ast)
 destructure-split record
 	| This will be the type attempted to destructure.
 	| If it can't be destructured, each of 'parts' will have a bogus type.
@@ -2548,6 +2556,14 @@ destructure-split record
 to json(a destructure-split)
 is-valid-destructure bool(a destructure-split, common-types common-types)
 	types ?= common-types as-tuple a.destructured-type and types.size == a.parts.size
+
+simple-destructure union(destructure-ignore, local)
+	type type()
+to json(a simple-destructure)
+to destructure(a simple-destructure)
+	match a
+	as destructure-ignore then a
+	as local then a
 
 name symbol?(a destructure)
 	match a
@@ -2562,6 +2578,8 @@ range source-range(a destructure)
 	as destructure-ignore
 		match source = a source
 		as case-member-ast
+			()
+		as catch-ast
 			()
 		as struct-decl
 			()
@@ -3391,20 +3409,26 @@ type type(a trusted-expr, types available-types?)
 try-expr record
 	ast try-ast
 	tried expr
-	catches match-sum-type-case[]
-	catch-else match-else?
+	catches catch_[]
 	type type
 to json(a try-expr)
 	tried: a.tried to
 	catches: a.catches to
 range source-range(a try-expr)
 	a.ast range
+| The local type is the caught type.
+| NOTE: We create a local even if the user did not write one.
+| The final catch may have a type of {exception}.
+catch_ record(destructure simple-destructure, then_ expr)
+to json(a catch_)
+caught-type struct-inst(a catch_)
+	a.destructure.type struct-inst!
 
 try-let-expr record
 	ast try-let-ast
 	destructure destructure
 	value expr
-	catch_ match-sum-type-case
+	catch_ catch_
 	then_ expr
 	type type
 to json(a try-let-expr)
@@ -3502,7 +3526,7 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	as trusted-expr
 		cb[a inner]
 	as try-expr
-		cb[a tried] or a.catches direct-child-in-match-sum-type-cases cb
+		cb[a tried] or a.catches first cb[it.then_]
 	as try-let-expr
 		cb[a value] or cb[a.catch_ then_] or cb[a then_]
 	as typed-expr
@@ -3597,6 +3621,7 @@ diag union
 	diag-case-invalid-sum-type
 	diag-case-missing-type
 	diag-case-type-is-template
+	diag-catch-else-must-come-last
 	diag-char-literal-must-be-one-char
 	diag-common-fun-duplicate
 	diag-common-fun-missing
@@ -3762,6 +3787,7 @@ diag-case-duplicate record(member struct-decl, sum-type struct-decl)
 diag-case-invalid-sum-type record(member struct-decl, actual type)
 diag-case-missing-type record
 diag-case-type-is-template record(case-type struct-decl)
+diag-catch-else-must-come-last record
 diag-char-literal-must-be-one-char record
 diag-common-fun-duplicate record(name symbol)
 diag-common-fun-missing record(dummy-for-context fun-decl, sig-choices type-params-and-sig[])
