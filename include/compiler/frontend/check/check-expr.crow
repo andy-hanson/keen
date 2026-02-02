@@ -832,9 +832,6 @@ do
 				body.members-by-name[x]
 			if member ?= opt-member
 				if remaining remove member
-					name-ast = as-name!
-					if d ?= name-ast destructure
-						ctx add-diag d.range, matched-enum.diag-match-case-no-value-for-enum-or-symbol
 					out ~= member, (ctx check-expr case-ast.then_, expected)
 				else
 					has-case-diag := true
@@ -846,7 +843,7 @@ do
 
 	guard !has-case-diag else expected bogus ast.range
 	
-	else_ match-else? = if remaining is-empty
+	else_ expr? = if remaining is-empty
 		if x ?= ast else_
 			ctx add-diag x.keyword-range, diag-match-unnecessary-else
 		()
@@ -866,7 +863,7 @@ do
 	cases = ctx check-match-sum-type-cases matched-local, sum-type, ast.cases, expected
 	body = sum-type.decl.body sum-type!
 	is-union = body.kind == union_
-	else_ match-else? = if is-union
+	else_ expr? = if is-union
 		if cases.size == body.listed-members.size
 			if x ?= ast.else_
 				ctx add-diag x.keyword-range, diag-match-unnecessary-else
@@ -935,28 +932,21 @@ do
 	as-name = ctx name-from-case-member-ast member-ast
 	name = as-name.?name ?name
 	opt-case-type struct-inst? = if n ?= name
-		ctx get-sum-type-case-from-name matched-variant, n, member-ast.name-range, of
-			if d ?= as-name ?destructure then ctx type-from-destructure d
+		ctx get-sum-type-case-from-name matched-variant, n, member-ast.name-range
 	guard case-type ?= opt-case-type
-
-	destructure = if ast ?= member-ast.as-name-ast!.destructure
-		ctx check-destructure ast, case-type, local
-	else
-		member-ast destructure-ignore case-type
-	if destructure.type !is-bogus
-		if x ?= matched-local
-			ctx.refined-types ~= x, case-type
-		expr = ctx check-expr-with-destructure destructure, then-ast, expected
-		if _ ?= matched-local
-			_ = ctx.refined-types pop!
-		destructure, expr
+	guard case-type !is-bogus # TODO: NECESSARY? ---------------------------------------------------------------------------------------------------------------------
+	if x ?= matched-local
+		ctx.refined-types ~= x, case-type
+	expr = ctx check-expr then-ast, expected
+	if _ ?= matched-local
+		_ = ctx.refined-types pop!
+	case-type, expr
 
 -get-sum-type-case-from-name struct-inst?
 	ctx expr-ctx
 	sum-type struct-inst
 	name symbol
 	name-range source-range
-	expected-member-type type? mut()
 do
 	listed-members = sum-type.decl.body.sum-type! listed-members
 	guard sa ?= ctx.check-ctx struct-or-alias-from-name name, name-range, ctx.structs-and-aliases-map, false
@@ -979,7 +969,7 @@ do
 			x
 		else
 			from-membership = sa.sum-type-memberships first of x
-				ctx compare-sum-types name-range, sa, x.sum-type, sum-type, expected-member-type
+				ctx compare-sum-types name-range, sa, x.sum-type, sum-type
 			if res ?= from-membership
 				match res
 				as struct-inst then res
@@ -999,16 +989,11 @@ do
 	case_ struct-decl
 	declared-sum-type struct-inst
 	actual-sum-type struct-inst
-	expected-case-type type? mut()
 do
 	guard declared-sum-type.decl == actual-sum-type.decl
 	case_.n-type-params with-type-context-for of inferring-context
 		inferring-declared-sum-type type-and-context = declared-sum-type, inferring-context
 		guard inferring-declared-sum-type match-types actual-sum-type.non-inferring, exact
-		if inferring-context exists !(_ ?= it)
-			if t ?= expected-case-type[]
-				# Just using this for inference
-				_ = (case_.instantiated-with-own-type-params, inferring-context) match-types t.non-inferring, exact
 		if inferred-types ?= inferring-context map-every-type-args it.?type
 			case_[inferred-types]
 		else
@@ -1112,7 +1097,7 @@ do
 		string-like::diag-match-needs-else
 	ast match-string-like-expr string-type, matched, equals, cases, else_, expected.inferred
 
--check-match-else-required match-else
+-check-match-else-required expr
 	ctx expr-ctx
 	ast match-ast
 	expected expected
@@ -1120,21 +1105,16 @@ do
 	cb-diag diag mut()
 do
 	if else_ ?= ast else_
-		ctx check-match-else else_.destructure, else_.expr, expected, matched-type
+		ctx check-match-else else_.expr, expected
 	else
 		ctx add-diag ast.keyword-range, cb-diag[]
-		(), do expected bogus ast.range
--check-match-else match-else
+		expected bogus ast.range
+-check-match-else expr # TODO:INLINE --------------------------------------------------------------------------------------------------------------------------------
 	ctx expr-ctx
-	destructure-ast destructure-ast?
 	then-ast expr-ast
 	expected expected
-	matched-type type
 do
-	destructure destructure? = if d ?= destructure-ast
-		ctx check-destructure d, matched-type, local
-	destructure: destructure
-	then_: ctx check-expr-with-destructures destructure.from-option, then-ast, expected
+	ctx check-expr then-ast, expected
 
 # TODO: use a with-block ---------------------------------------------------------------------------------------------------------
 -with-extern-from-condition[out] out(ctx expr-ctx, condition expr, is-negated bool, cb out mut())
@@ -1162,8 +1142,6 @@ do
 -string-from-case-ast string?(ctx expr-ctx, ast case-member-ast)
 	match ast
 	as as-name-ast
-		if d ?= ast destructure
-			ctx add-diag d.range, ().diag-match-case-no-value-for-enum-or-symbol
 		ast.name.name to
 	as literal-number
 		ctx add-diag ast.range, string-like::diag-match-case-for-type

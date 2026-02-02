@@ -1351,10 +1351,6 @@ do
 				else
 					value.to::nat64 fits-in-nat32
 			assert ok else todo # If some values don't fit in 32 bits, we can't use a switch. Just use jumps instead.
-			if l ?= x.else_ ?local
-				out dup l.type.as-runtime-type
-				ctx pushed l.type
-				out store-local ctx, l
 			# IF it's a 64-bit type: First check that it's in the range. If not, jump to default.
 			jump-to-pop-then-default deferred-jump? = match matched-type integral-type else nat8
 			as nat64
@@ -1392,9 +1388,7 @@ do
 				ctx must-pop x.matched.type
 			jump-to-default jumps-to-here out, ctx.cur-stack-frame
 			if e ?= x else_
-				out emit-expr ctx, inner-pos, e.expr
-				if l ?= e local
-					ctx.locals.pop! is l
+				out emit-expr ctx, inner-pos, e
 			else
 				out emit-unreachable names
 				ctx pushed type
@@ -1423,7 +1417,7 @@ do
 				ctx must-pop type
 				ctx pushed matched-type
 			jump! jumps-to-here out, ctx.cur-stack-frame
-			out emit-with-opt-local ctx, matched-type, inner-pos, x.else_
+			out emit-with-no-local ctx, matched-type, inner-pos, x.else_
 	as match-union-concrete-expr
 		out emit-match-union ctx, pos, type, x
 	as record-field-get-concrete-expr
@@ -1510,7 +1504,12 @@ do
 			out get-switchable-value ctx, x.union-type
 			out cast-and-unbox-if-necessary ctx, type
 		as nullable
-			throw todo
+			null-type, not-null-type = x.union_.members only2
+			if type == null-type
+				out pop reference-type
+			else
+				assert type == not-null-type
+				out unbox-if-necessary ctx.names, type
 		ctx must-refine x.union-type, type
 		out handle-pos pos, type
 	as var-get-concrete-expr
@@ -1702,13 +1701,13 @@ do
 			# Null types are always empty types. Don't leave a 'null' on the stack, just pop it.
 			out pop reference-type
 			ctx must-pop matched-type
-			out emit-expr ctx, inner-pos, null-case.expr # ignore null-case.local since it is an empty type
+			out emit-expr ctx, inner-pos, null-case # ignore null-case.local since it is an empty type
 
 			# Change the stack to have the state from before the jump
 			ctx must-pop type
 			ctx pushed matched-type
 			jump jumps-to-here out, ctx.cur-stack-frame
-			out emit-with-unboxed-opt-local ctx, matched-type, non-null-case.local, inner-pos, non-null-case.expr
+			out emit-with-no-local ctx, matched-type, inner-pos, non-null-case
 
 -emit-match-union-using-instanceof void(out code-builder, ctx expr-ctx, pos expr-pos, type concrete-type, x match-union-concrete-expr)
 	# Note: I tested using a 'switch' on the 'case-index' method, but it didn't improve performance.
@@ -1724,14 +1723,14 @@ do
 			# The case comsumes that matched value. The next case will still have it since it jumped over this.
 			ctx must-refine matched-type, case-type
 			out cast-and-unbox-if-necessary ctx, case-type
-			out emit-with-opt-local ctx, case-type, inner-pos, case_
+			out emit-with-no-local ctx, case-type, inner-pos, case_
 
 			# Change the stack to have the state from before 'jump'
 			ctx must-pop type
 			ctx pushed matched-type
 			jump jumps-to-here out, ctx.cur-stack-frame
 		if e ?= x else_
-			out emit-with-opt-local ctx, matched-type, inner-pos, e
+			out emit-with-no-local ctx, matched-type, inner-pos, e
 			ctx must-peek type
 		else
 			out pop reference-type
@@ -1756,15 +1755,9 @@ do
 		jump-to-case, jump-to-default = out lookupswitch (x.member-indices map it.to) # TODO: use a table switch usually
 		for target, member-index, case_ in jump-to-case zip3 x.member-indices.to-array, x.cases
 			target jumps-to-here out, ctx.cur-stack-frame
-			case-type = x.union_.members[member-index]
-			if l ?= case_ local # TODO: should I use a 'with-opt-local' helper? ----------------------------------------------------
-				out cast-and-unbox-if-necessary ctx, case-type
-				ctx must-refine matched-type, case-type
-				out emit-with-local ctx, l, inner-pos, case_.expr
-			else
-				out pop reference-type
-				ctx must-pop matched-type
-				out emit-expr ctx, inner-pos, case_.expr
+			out pop reference-type # TODO: now we are popping it unconditionally. Could this be simplified to not push it in the first place?????????????????????
+			ctx must-pop matched-type
+			out emit-expr ctx, inner-pos, case_
 
 			# Change the stack to have the state from before 'jump'
 			ctx must-pop type
@@ -1773,7 +1766,7 @@ do
 		# default case
 		jump-to-default jumps-to-here out,  ctx.cur-stack-frame
 		if e ?= x else_
-			out emit-with-opt-local ctx, matched-type, inner-pos, e
+			out emit-with-no-local ctx, matched-type, inner-pos, e
 			ctx must-peek type
 		else
 			out pop reference-type
@@ -1973,6 +1966,8 @@ do
 
 -emit-with-opt-local void(out code-builder, ctx expr-ctx, local-type concrete-type, pos expr-pos, case_ concrete-local-and-expr)
 	out emit-with-opt-local ctx, case_.local, local-type, pos, case_.expr
+-emit-with-no-local void(out code-builder, ctx expr-ctx, local-type concrete-type, pos expr-pos, expr concrete-expr) # TODO: this is to simplify transitioning away. But if there is never a local, we should simplify things.
+	out emit-with-opt-local ctx, (), local-type, pos, expr
 -emit-with-opt-local void(out code-builder, ctx expr-ctx, local concrete-local?, local-type concrete-type, pos expr-pos, expr concrete-expr)
 	if l ?= local
 		l.type is local-type
