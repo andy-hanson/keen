@@ -1398,10 +1398,13 @@ do
 		matched-type = x.matched type
 		out with-inner-pos ctx, pos, of inner-pos
 			jump mut deferred-jump? = ()
-			for case_ in x cases
+			for index, case_ in x.cases with-index
 				jump ?jumps-to-here out, ctx.cur-stack-frame
-				out dup32
-				ctx pushed matched-type
+				# Final case will consume it
+				is-last-case = index == x.cases.size - 1
+				unless is-last-case
+					out dup32
+					ctx pushed matched-type
 				out emit-and-continue ctx, case_.value
 				# TODO:PERF in the case of a 'string' or 'symbol' input, we could 'intern' and then just use refernce equality
 				out call-concrete-fun names, x.equals
@@ -1409,15 +1412,17 @@ do
 				ctx must-pop matched-type
 				# Jump to next if the equality test returned 0 (false)
 				jump := out ifeq
-				# If the equality test returned 'true', discard the original string
-				out pop reference-type
-				ctx must-pop matched-type
+				unless is-last-case
+					# If the equality test returned 'true', discard the original string
+					out pop reference-type
+					ctx must-pop matched-type
 				out emit-expr ctx, inner-pos, case_.then_
 				# Reset the stack to handle after the jump
 				ctx must-pop type
-				ctx pushed matched-type
+				unless is-last-case
+					ctx pushed matched-type
 			jump! jumps-to-here out, ctx.cur-stack-frame
-			out emit-with-no-local ctx, matched-type, inner-pos, x.else_
+			out emit-expr ctx, inner-pos, x.else_
 	as match-union-concrete-expr
 		out emit-match-union ctx, pos, type, x
 	as record-field-get-concrete-expr
@@ -1676,15 +1681,7 @@ do
 	as sealed-interface
 		out emit-match-union-using-instanceof ctx, pos, type, a
 	as switch
-		out dup32
-		out get-switchable-kind ctx, matched-type
-		out swap
-		out get-switchable-value ctx, matched-type
-		out swap
-		value-type = ctx.program Object
-		ctx must-refine matched-type, value-type
-		ctx pushed ctx.program.nat32
-		out emit-match-union-using-switch ctx, pos, type, value-type, a
+		out emit-match-union-using-switch ctx, pos, type, a
 	as nullable
 		out with-inner-pos ctx, pos, of inner-pos
 			null-case, non-null-case = if a.member-indices[0] == 0
@@ -1696,81 +1693,71 @@ do
 				a.cases[1], a.cases[0]
 			forbid _ ?= a else_
 
-			out dup32
 			jump = out ifnonnull
-			# Null types are always empty types. Don't leave a 'null' on the stack, just pop it.
-			out pop reference-type
 			ctx must-pop matched-type
 			out emit-expr ctx, inner-pos, null-case # ignore null-case.local since it is an empty type
 
 			# Change the stack to have the state from before the jump
 			ctx must-pop type
-			ctx pushed matched-type
 			jump jumps-to-here out, ctx.cur-stack-frame
-			out emit-with-no-local ctx, matched-type, inner-pos, non-null-case
+			out emit-expr ctx, inner-pos, non-null-case
 
 -emit-match-union-using-instanceof void(out code-builder, ctx expr-ctx, pos expr-pos, type concrete-type, x match-union-concrete-expr)
 	# Note: I tested using a 'switch' on the 'case-index' method, but it didn't improve performance.
 	matched-type = x.matched type
 	out with-inner-pos ctx, pos, of inner-pos
 		for member-index, case_ in x.member-indices.to-array zip x.cases
+			is-last-case = member-index == x.member-indices[end - 1]
 			case-type = x.union_.members[member-index]
-			# TODO: we could avoid the dup for the last case (see match-string-like-concrete-expr) --------------------
-			out dup32
+			unless is-last-case
+				out dup32
 			out instanceof do ctx.names class_ case-type
 			# Jump to next if the equality test returned 0 (false)
 			jump = out ifeq
-			# The case comsumes that matched value. The next case will still have it since it jumped over this.
-			ctx must-refine matched-type, case-type
-			out cast-and-unbox-if-necessary ctx, case-type
-			out emit-with-no-local ctx, case-type, inner-pos, case_
-
-			# Change the stack to have the state from before 'jump'
-			ctx must-pop type
-			ctx pushed matched-type
-			jump jumps-to-here out, ctx.cur-stack-frame
-		if e ?= x else_
-			out emit-with-no-local ctx, matched-type, inner-pos, e
-			ctx must-peek type
-		else
-			out pop reference-type
-			ctx must-pop matched-type
-			# TODO: If the type is 'exception' and we're calling 'show', we should call 'toString' in this case? -----------
-			out emit-unreachable ctx.names
-			# Treat the stack effect as if it was successful
-			ctx pushed type
-
-| Stack before calling this should be the value and its kind
--emit-match-union-using-switch void
-	out code-builder
-	ctx expr-ctx
-	pos expr-pos
-	type concrete-type
-	matched-type concrete-type
-	x match-union-concrete-expr
-do
-	out with-inner-pos ctx, pos, of inner-pos
-		# This consumes 'kind'
-		ctx must-pop ctx.program.nat32
-		jump-to-case, jump-to-default = out lookupswitch (x.member-indices map it.to) # TODO: use a table switch usually
-		for target, member-index, case_ in jump-to-case zip3 x.member-indices.to-array, x.cases
-			target jumps-to-here out, ctx.cur-stack-frame
-			out pop reference-type # TODO: now we are popping it unconditionally. Could this be simplified to not push it in the first place?????????????????????
+			unless is-last-case
+				out pop matched-type.as-runtime-type
 			ctx must-pop matched-type
 			out emit-expr ctx, inner-pos, case_
 
 			# Change the stack to have the state from before 'jump'
 			ctx must-pop type
-			ctx pushed matched-type
-		
-		# default case
-		jump-to-default jumps-to-here out,  ctx.cur-stack-frame
+			unless is-last-case
+				ctx pushed matched-type
+			jump jumps-to-here out, ctx.cur-stack-frame
 		if e ?= x else_
-			out emit-with-no-local ctx, matched-type, inner-pos, e
+			out emit-expr ctx, inner-pos, e
 			ctx must-peek type
 		else
-			out pop reference-type
-			ctx must-pop matched-type
+			# TODO: If the type is 'exception' and we're calling 'show', we should call 'toString' in this case? -----------
+			out emit-unreachable ctx.names
+			# Treat the stack effect as if it was successful
+			ctx pushed type
+
+-emit-match-union-using-switch void
+	out code-builder
+	ctx expr-ctx
+	pos expr-pos
+	type concrete-type
+	a match-union-concrete-expr
+do
+	out get-switchable-kind ctx, a.matched.type
+	ctx must-pop a.matched.type
+	ctx pushed ctx.program.nat32
+	out with-inner-pos ctx, pos, of inner-pos
+		# This consumes 'kind'
+		ctx must-pop ctx.program.nat32
+		jump-to-case, jump-to-default = out lookupswitch (a.member-indices map it.to) # TODO: use a table switch usually
+		for target, case_ in jump-to-case zip a.cases
+			target jumps-to-here out, ctx.cur-stack-frame
+			out emit-expr ctx, inner-pos, case_
+			# Change the stack to have the state from before 'jump'
+			ctx must-pop type
+		# default case
+		jump-to-default jumps-to-here out,  ctx.cur-stack-frame
+		if e ?= a else_
+			out emit-expr ctx, pos, e
+			ctx must-peek type
+		else
 			out emit-unreachable ctx.names
 			ctx pushed type
 
@@ -1964,10 +1951,6 @@ do
 		ctx must-pop unboxed-type
 		out emit-expr ctx, pos, expr
 
--emit-with-opt-local void(out code-builder, ctx expr-ctx, local-type concrete-type, pos expr-pos, case_ concrete-local-and-expr)
-	out emit-with-opt-local ctx, case_.local, local-type, pos, case_.expr
--emit-with-no-local void(out code-builder, ctx expr-ctx, local-type concrete-type, pos expr-pos, expr concrete-expr) # TODO: this is to simplify transitioning away. But if there is never a local, we should simplify things.
-	out emit-with-opt-local ctx, (), local-type, pos, expr
 -emit-with-opt-local void(out code-builder, ctx expr-ctx, local concrete-local?, local-type concrete-type, pos expr-pos, expr concrete-expr)
 	if l ?= local
 		l.type is local-type

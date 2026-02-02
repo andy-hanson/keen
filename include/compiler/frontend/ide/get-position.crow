@@ -99,10 +99,10 @@ do
 		elif ast.name-range has-pos pos
 			container position-spec-use spec_
 
--position-in-opt-destructure position-kind?(ctx expr-ctx, a destructure?, ast destructure-ast?, pos pos)
-	guard x ?= a
-	guard y ?= ast
-	ctx position-in-destructure x, y, pos
+-position-in-opt-local position-kind?(ctx expr-ctx, local local?, ast match-ast, pos pos)
+	if l ?= local and ast.local!.range has-pos pos
+		ctx.container.to position-local l
+
 -position-in-destructure position-kind?(ctx expr-ctx, a destructure, ast destructure-ast, pos pos)
 	ctx.container.to position-in-destructure a, ast, pos
 -position-in-destructure position-kind?
@@ -422,6 +422,8 @@ do
 		expression-position[expression-position-literal]
 	as local-get-expr
 		local[get, a.local]
+	as local-get-and-refine-expr
+		local[get, a.local]
 	as local-set-expr
 		if a.assignee-ast.range has-pos pos
 			local[set, a.local]
@@ -562,15 +564,18 @@ do
 
 -position-at-match-enum position-kind?(ctx expr-ctx, a match-enum-expr, pos pos)
 	ctx position-at-match-keyword a, a.type, a.ast, pos or
+	ctx position-in-opt-local a.matched-local, a.ast, pos or
 	a.cases position-at-match-cases a.ast, pos, it.member.position-match-enum-case
 
 -position-at-match-scalar position-kind?(ctx expr-ctx, a match-scalar-expr, pos pos)
 	ctx position-at-match-keyword a, a.type, a.ast, pos or
+	ctx position-in-opt-local a.matched-local, a.ast, pos or
 	a.cases position-at-match-cases a.ast, pos, of x
 		a.integral-type position-match-scalar-case x.value
 
 -position-at-match-string-like position-kind?(ctx expr-ctx, a match-string-like-expr, pos pos)
 	ctx position-at-match-keyword a, a.type, a.ast, pos or
+	ctx position-in-opt-local a.matched-local, a.ast, pos or
 	a.cases position-at-match-cases a.ast, pos, of x
 		(a.matched-type, ctx.container.to) position-match-string-like-case x.value
 
@@ -581,6 +586,7 @@ do
 
 -position-at-match-sum-type position-kind?(ctx expr-ctx, a match-sum-type-expr, pos pos)
 	ctx position-at-match-keyword a, a.type, a.ast, pos or
+	ctx position-in-opt-local a.matched-local, a.ast, pos or
 	ctx position-at-match-sum-type-cases a.cases, a.ast.cases, pos
 
 -position-at-match-sum-type-cases position-kind?
@@ -592,9 +598,28 @@ do
 	cases first-zip-if-size-eq case-asts, of case_, case-ast
 		ctx position-at-match-sum-type-case case_, case-ast, pos
 
+-position-at-catches position-kind?
+	ctx expr-ctx
+	catches catch_[]
+	catch-asts catch-ast[]
+	pos pos
+do
+	catches first-zip-if-size-eq catch-asts, of catch_, catch-ast
+		ctx position-at-catch catch_, catch-ast, pos
+
 -position-at-match-sum-type-case position-kind?(ctx expr-ctx, case_ match-sum-type-case, ast case-ast, pos pos)
 	if ast.keyword-and-member-name-range has-pos pos
 		ctx.container position-match-sum-type-case case_.case-type
+
+-position-at-catch position-kind?(ctx expr-ctx, catch_ catch_, ast catch-ast, pos pos)
+	if ast.keyword-range has-pos pos
+		ctx.container.to position-catch catch_
+	elif x ?= ast name and x.range has-pos pos
+		ctx.container.to position-local catch_.destructure.local!
+	elif x ?= ast as_ and x.keyword-range has-pos pos
+		ctx.container.to position-catch catch_
+	elif x ?= ast as_ and x.type-name.range has-pos pos
+		ctx.container.to position-in-type catch_.caught-type, x.type-name, pos
 
 -position-at-match-keyword position-kind?
 	ctx expr-ctx
@@ -610,24 +635,17 @@ do
 			ctx.container expression-position type, else-after-match
 
 -position-at-try position-kind?(ctx expr-ctx, a try-expr, pos pos)
-	if a.ast.try-keyword-range has-pos pos
-		ctx.container expression-position a.type, a
-	else
-		() # TODO: ctx position-at-match-sum-type-cases a.catches, a.ast.catches, pos -----------------------------------------------------------------------------------------------
+	ctx position-in-keyword a.type, a, a.ast.try-keyword-range, pos or
+	ctx position-at-catches a.catches, a.ast.catches, pos
 
 -position-at-try-let position-kind?(ctx expr-ctx, a try-let-expr, pos pos)
-	()
-	# TODO: ------------------------------------------------------------------------------------------------------------------------------------------------------------------
-	###
-	if a.ast.try-keyword-range has-pos pos
-		ctx.container expression-position (), a
-	elif res ?= ctx position-in-destructure a.destructure, a.ast.destructure, pos
-		res
-	elif (a.ast.catch-keyword-range.start, a.ast.catch-member.name-range.end) has-pos pos
-		ctx.container position-match-sum-type-case a.catch_.case-type
-	else
-		ctx position-in-match-case-destructure a.catch_.destructure, a.ast.catch-member, pos
-	###
+	ctx position-in-keyword (), a, a.ast.try-keyword-range, pos or
+	ctx position-in-destructure a.destructure, a.ast.destructure, pos or
+	ctx position-at-catch a.catch_, a.ast.catch_, pos
+
+-position-in-keyword position-kind?(ctx expr-ctx, type type?, expr expression-position-kind, keyword-range source-range, pos pos)
+	if keyword-range has-pos pos
+		ctx.container expression-position type, expr
 
 -position-in-type position-kind?(container type-container, type type, ast type-ast, pos pos)
 	if ast.range has-pos pos

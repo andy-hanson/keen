@@ -2110,10 +2110,6 @@ subscript struct-inst(a available-types, type string-like-type)
 all-floats struct-inst[](a common-types)
 	a.float32, a.float64
 
-# TODO: I could probably figure out how to get this in common-types -----------------------------------------------------------
-other-types record
-	java-Object struct-inst
-
 integral-types record
 	map (integral-type, struct-inst) enum-map
 subscript struct-inst(a integral-types, type integral-type)
@@ -2390,7 +2386,6 @@ program record
 	line-and-column-getters line-and-column-getters
 	common-funs common-funs
 	common-types common-types
-	other-types other-types
 available-types available-types(a program)
 	common-types: a common-types
 	json: a.common-funs.json-named-new.return-type struct-inst!
@@ -2713,6 +2708,7 @@ expr union
 	literal-scalar-expr
 	literal-string-like-expr
 	local-get-expr
+	local-get-and-refine-expr
 	local-set-expr
 	logical-expr
 	loop-expr
@@ -2779,6 +2775,8 @@ type type(a expr, types available-types?)
 	as literal-string-like-expr
 		a type types
 	as local-get-expr
+		a type
+	as local-get-and-refine-expr
 		a type
 	as local-set-expr
 		common-types! void
@@ -3221,11 +3219,18 @@ to json(a string-like-type)
 type struct-inst(a literal-string-like-expr, types available-types?)
 	types![a string-type]
 
+as-local-get local?(a expr)
+	match a
+	as local-get-expr
+		a local
+	as local-get-and-refine-expr
+		a local
+	else
+		()
+
 local-get-expr record
 	ast local-get-source
 	local local
-	| This is an array since the type may be refined through nested 'match'es.
-	type-refinements type[]
 local-get-source union(it-ast, name-and-range)
 	range source-range()
 to json(a local-get-expr)
@@ -3233,10 +3238,18 @@ to json(a local-get-expr)
 range source-range(a local-get-expr)
 	a.ast range
 type type(a local-get-expr)
-	if a.type-refinements is-empty
-		a.local type
-	else
-		a.type-refinements[end - 1]
+	a.local type
+
+local-get-and-refine-expr record
+	ast name-and-range
+	local local
+	| This is an array since the type may be refined through nested 'match'es.
+	type-refinements type[]
+to json(a local-get-and-refine-expr)
+range source-range(a local-get-and-refine-expr)
+	a.ast range
+type type(a local-get-and-refine-expr)
+	a.type-refinements[end - 1]
 
 local-set-expr record(assignee-ast name-and-range, local local, value expr)
 to json(a local-set-expr)
@@ -3301,6 +3314,7 @@ range source-range(a loop-while-or-until-expr)
 
 match-enum-expr record
 	ast match-ast
+	matched-local local?
 	matched expr
 	cases match-enum-case[]
 	else_ expr?
@@ -3321,6 +3335,7 @@ enum-type struct-inst(a match-enum-expr)
 match-scalar-expr record
 	ast match-ast
 	integral-type char-or-integral-type
+	matched-local local?
 	matched expr
 	cases match-scalar-case[]
 	else_ expr
@@ -3340,6 +3355,7 @@ matched-type struct-inst(a match-scalar-expr)
 match-string-like-expr record
 	ast match-ast
 	string-type string-like-type
+	matched-local local?
 	matched expr
 	| '==' function for the type
 	equals called
@@ -3359,6 +3375,7 @@ matched-type struct-inst(a match-string-like-expr)
 
 match-sum-type-expr record
 	ast match-ast
+	matched-local local?
 	matched expr
 	cases match-sum-type-case[]
 	else_ expr?
@@ -3490,6 +3507,8 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	as literal-string-like-expr
 		()
 	as local-get-expr
+		()
+	as local-get-and-refine-expr
 		()
 	as local-set-expr
 		cb[a value]

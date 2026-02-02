@@ -358,6 +358,20 @@ do
 	ctx concretize-with-destructure type, range, destructure, of
 		ctx concretize-expr type, expr
 
+-concretize-with-opt-local concrete-expr
+	ctx concretize-expr-ctx
+	type concrete-type
+	range uri-and-range
+	local local?
+	value expr
+	f concrete-expr mut(matched concrete-expr)
+do
+	v = ctx concretize-expr value
+	if l ?= local
+		ctx concretize-with-destructure-and-let type, range, l, v, of
+			f[range gen-local-get ctx.locals[l]!.concrete-local!]
+	else
+		f[v]
 -concretize-with-destructure-and-let concrete-expr
 	ctx concretize-expr-ctx
 	type concrete-type
@@ -601,7 +615,7 @@ do
 	else
 		cases concrete-expr[] = else_, then_.expr
 		type, range,
-			option match-union-concrete-expr (0, 1), cases, () # TODO:PERF Might be smaller code size to just check for 'none' and leave the other case as the 'else' case?
+			option match-union-concrete-expr (0, 1), cases, ()
 
 -concretize-literal-string-like concrete-expr
 	ctx concretize-expr-ctx
@@ -643,6 +657,7 @@ do
 			res := ctx get-concrete-type t gen-union-assume-case res.range, res
 		res
 	as typed-constant
+		assert type-refinements is-empty else todo
 		type, range, x.value
 
 -concretize-local-set concrete-expr
@@ -892,15 +907,15 @@ do
 	a match-enum-expr
 do
 	guard a.cases !is-empty else ctx concretize-bogus type, range
-	matched = ctx concretize-expr a.matched
-	values-unsorted scalar-value[] = a.cases map it.member.value
-	cases-unsorted concrete-expr[] = for value in values-unsorted
-		case_ = a.cases find! it.member.value == value
-		ctx concretize-expr type, case_.then_
-	else_ concrete-expr? = if x ?= a else_
-		ctx concretize-expr type, x
-	values, cases = values-unsorted sort-by-first cases-unsorted
-	type gen-match-enum-or-integral range, matched, values.to, cases, else_
+	ctx concretize-with-opt-local type, range, a.matched-local, a.matched, of matched
+		values-unsorted scalar-value[] = a.cases map it.member.value
+		cases-unsorted concrete-expr[] = for value in values-unsorted
+			case_ = a.cases find! it.member.value == value
+			ctx concretize-expr type, case_.then_
+		else_ concrete-expr? = if x ?= a else_
+			ctx concretize-expr type, x
+		values, cases = values-unsorted sort-by-first cases-unsorted
+		type gen-match-enum-or-integral range, matched, values.to, cases, else_
 
 -concretize-match-integral concrete-expr
 	ctx concretize-expr-ctx
@@ -908,15 +923,15 @@ do
 	range uri-and-range
 	a match-scalar-expr
 do
-	matched = ctx concretize-expr a.matched
-	values-unsorted scalar-values = a.cases map it.value to
-	# TODO: If matched is a constant, just compile the relevant case
-	cases-unsorted concrete-expr[] = for value in values-unsorted
-		case_ = a.cases find! it.value == value
-		ctx concretize-expr type, case_.then_
-	else_ = ctx concretize-expr type, a.else_
-	values, cases = values-unsorted.values sort-by-first cases-unsorted
-	type gen-match-enum-or-integral range, matched, values.to, cases, else_
+	ctx concretize-with-opt-local type, range, a.matched-local, a.matched, of matched
+		values-unsorted scalar-values = a.cases map it.value to
+		# TODO: If matched is a constant, just compile the relevant case
+		cases-unsorted concrete-expr[] = for value in values-unsorted
+			case_ = a.cases find! it.value == value
+			ctx concretize-expr type, case_.then_
+		else_ = ctx concretize-expr type, a.else_
+		values, cases = values-unsorted.values sort-by-first cases-unsorted
+		type gen-match-enum-or-integral range, matched, values.to, cases, else_
 
 -concretize-match-string-like concrete-expr
 	ctx concretize-expr-ctx
@@ -926,12 +941,12 @@ do
 do
 	guard equals ?= ctx get-concrete-fun-from-called a.equals else
 		ctx concretize-bogus type, range
-	matched = ctx concretize-expr a.matched
-	cases concrete-match-string-like-case[] = for case_ in a cases
-		value = ctx concretize-literal-string-like matched.type, range, a.string-type, case_.value
-		value, do ctx concretize-expr type, case_.then_
-	else_ = ctx concretize-expr type, a.else_
-	type, range, do matched match-string-like-concrete-expr equals, cases, else_
+	ctx concretize-with-opt-local type, range, a.matched-local, a.matched, of matched
+		cases concrete-match-string-like-case[] = for case_ in a cases
+			value = ctx concretize-literal-string-like matched.type, range, a.string-type, case_.value
+			value, do ctx concretize-expr type, case_.then_
+		else_ = ctx concretize-expr type, a.else_
+		type, range, do matched match-string-like-concrete-expr equals, cases, else_
 
 -concretize-match-sum-type concrete-expr
 	ctx concretize-expr-ctx
@@ -939,15 +954,18 @@ do
 	range uri-and-range
 	a match-sum-type-expr
 do
-	matched = ctx concretize-expr a.matched
-	else_ concrete-expr? = if x ?= a else_
-		ctx concretize-expr type, x
-	# TODO: I think this could be greatly simplified to not have so many different branches -------------------------------
-	if a.cases is-empty
-		else_ else ctx concretize-bogus type, range
-	else
-		member-indices, cases = ctx concretize-match-sum-type-cases type, range, matched.type, a.cases
-		type, range, do matched match-union-concrete-expr member-indices.to, cases, else_
+	ctx concretize-with-opt-local type, range, a.matched-local, a.matched, of matched
+		else_ concrete-expr? = if x ?= a else_
+			ctx concretize-expr type, x
+		if a.cases is-empty
+			else_ else ctx concretize-bogus type, range
+		else
+			case-indices nat[] = for x in a.cases
+				ctx member-index-for-match-sum-type-case matched.type, x.case-type
+			cases concrete-expr[] = for case_ in a.cases
+				ctx concretize-expr type, case_.then_
+			sorted-indices, sorted-cases = case-indices sort-by-first cases
+			type, range, do matched match-union-concrete-expr sorted-indices.to, sorted-cases, else_
 
 -concretize-catches (nat[], concrete-local-and-expr[], concrete-local-and-expr?)
 	ctx concretize-expr-ctx
@@ -956,18 +974,16 @@ do
 	catches catch_[]
 do
 	variant-type = ctx.concretize-ctx exception-type
-	most-catches catch_ array-view, catch-else catch_? = if catches[end - 1].caught-type == ctx.common-types.exception # TODO: rename to typed-catches???????????
+	typed-catches catch_ array-view, catch-else catch_? = if catches[end - 1].caught-type == ctx.common-types.exception
 		catches[0 .. end - 1], catches[end - 1]
 	else
 		catches.to, ()
-	member-indices nat[] = for x in most-catches
+	case-indices nat[] = for x in typed-catches
 		ctx member-index-for-match-sum-type-case variant-type, x.caught-type
-	cases concrete-local-and-expr[] = for member-index in member-indices
-		catch_ = most-catches find! of x # TODO: wait, member-indices is not sorted yet, so we could just zip them?????????????????????????????????????????????????????????
-			(ctx member-index-for-match-sum-type-case variant-type, x.caught-type) == member-index
+	cases concrete-local-and-expr[] = for catch_ in typed-catches
 		ctx concretize-expr-with-destructure type, range, catch_.destructure.to, catch_.then_
-	indices, concrete-catches = member-indices sort-by-first cases
-	indices, concrete-catches, if x ?= catch-else
+	sorted-indices, sorted-catches = case-indices sort-by-first cases
+	sorted-indices, sorted-catches, if x ?= catch-else
 		ctx concretize-expr-with-destructure type, range, x.destructure.to, x.then_
 
 -concretize-catch (nat, concrete-local-and-expr)
@@ -980,20 +996,6 @@ do
 	member-index = ctx member-index-for-match-sum-type-case variant-type, catch_.caught-type
 	member-index, do ctx concretize-expr-with-destructure type, range, catch_.destructure.to, catch_.then_
 
--concretize-match-sum-type-cases (nat[], concrete-expr[])
-	ctx concretize-expr-ctx
-	type concrete-type
-	range uri-and-range
-	variant-type concrete-type
-	cases match-sum-type-case[]
-do
-	member-indices nat[] = for x in cases
-		ctx member-index-for-match-sum-type-case variant-type, x.case-type
-	concrete-cases concrete-expr[] = for member-index in member-indices
-		case_ = cases find! of x # TODO: wait, member-indices is not sorted yet, so we could just zip them?????????????????????????????????????????????????????????
-			(ctx member-index-for-match-sum-type-case variant-type, x.case-type) == member-index
-		ctx concretize-expr type, case_.then_
-	member-indices sort-by-first concrete-cases
 -member-index-for-match-sum-type-case nat(ctx concretize-expr-ctx, variant-type concrete-type, type struct-inst)
 	ctx.concretize-ctx sum-type-case-index variant-type, do ctx get-concrete-type type
 
@@ -1076,6 +1078,8 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 	as literal-string-like-expr
 		ctx concretize-literal-string-like type, range, a.string-type, a.value
 	as local-get-expr
+		ctx concretize-local-get type, range, a.local, ()
+	as local-get-and-refine-expr
 		ctx concretize-local-get type, range, a.local, a.type-refinements
 	as local-set-expr
 		ctx concretize-local-set range, a.local, a.value

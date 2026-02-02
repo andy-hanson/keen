@@ -344,8 +344,11 @@ do
 			for l, t in ctx refined-types
 				if l == local
 					out ~= t
-		res = ast local-get-expr local, type-refinements
-		ctx check expected, res.type, res
+		expr expr, type type = if type-refinements is-empty
+			(ast local-get-expr local), local.type
+		else
+			(ast local-get-and-refine-expr local, type-refinements), type-refinements[end - 1]
+		ctx check expected, type, expr
 	else
 		ctx check-call-identifier ast, expected
 
@@ -552,7 +555,7 @@ do
 	expected expected
 do
 	local = ctx access-local! ast.range, "it"
-	ctx check expected, local.type, do ast local-get-expr local, ()
+	ctx check expected, local.type, do ast local-get-expr local
 
 -check-it-scope expr
 	ctx expr-ctx
@@ -753,14 +756,10 @@ do
 	ast loop-while-or-until-expr condition, body, after
 
 -check-match expr(ctx expr-ctx, ast match-ast, expected expected)
-	matched-expr, matched-type = ctx check-and-infer ast.matched
+	matched, matched-type = ctx check-and-infer ast.matched
 	local local? = if _ ?= ast local
 		ast, immut, matched-type
 	if x ?= local then ctx add-local x
-	matched expr = if l ?= local
-		ast.local! local-get-expr l, ()
-	else
-		matched-expr
 	# Use an arbitrary non-matchable inst as default
 	inst = matched-type struct-inst else ctx.common-types void
 	decl = inst decl
@@ -775,31 +774,27 @@ do
 		not-matchable[]
 	as builtin-type
 		if char-type ?= body.to::char-type?
-			ctx check-match-char ast, expected, matched, matched-type, char-type
+			ctx check-match-char ast, expected, local, matched, char-type
 		elif integral ?= body.to::integral-type?
-			ctx check-match-scalar ast, expected, matched, matched-type, integral
+			ctx check-match-scalar ast, expected, local, matched, integral
 		else
 			not-matchable[]
 	as enum_
-		ctx check-match-enum ast, expected, matched, matched-type, decl, body
+		ctx check-match-enum ast, expected, local, matched, decl, body
 	as flags_
 		not-matchable[]
 	as record_
 		if string-like ?= ctx.common-types get-matchable-string-like-from-record inst
-			ctx check-match-string-like ast, expected, matched, string-like
+			ctx check-match-string-like ast, expected, local, matched, string-like
 		else
 			not-matchable[]
 	as sum-type
 		if body.kind can-match-sum-type
-			matched-local = local or matched.local-get-expr ?local
-			ctx check-match-sum-type ast, expected, matched, matched-local, inst
+			ctx check-match-sum-type ast, expected, local, matched, inst
 		else
 			not-matchable[]
-	if l ?= local
-		ctx pop-local
-		ast let-expr l, matched-expr, res
-	else
-		res
+	if _ ?= local then ctx pop-local
+	res
 
 -can-match-sum-type bool(a sum-type-kind)
 	match a
@@ -816,8 +811,8 @@ do
 	ctx expr-ctx
 	ast match-ast
 	expected expected
+	matched-local local?
 	matched expr
-	matched-type type
 	matched-enum struct-decl
 	body enum_
 do
@@ -848,18 +843,19 @@ do
 			ctx add-diag x.keyword-range, diag-match-unnecessary-else
 		()
 	else
-		ctx check-match-else-required ast, expected, matched-type, of
+		ctx check-match-else-required ast, expected, of
 			remaining.to diag-match-unhandled-enum-members
-	ast match-enum-expr matched, cases, else_, expected.inferred
+	ast match-enum-expr matched-local, matched, cases, else_, expected.inferred
 
 -check-match-sum-type expr
 	ctx expr-ctx
 	ast match-ast
 	expected expected
+	local local?
 	matched expr
-	matched-local local?
 	sum-type struct-inst
 do
+	matched-local = local or matched as-immut-local-get
 	cases = ctx check-match-sum-type-cases matched-local, sum-type, ast.cases, expected
 	body = sum-type.decl.body sum-type!
 	is-union = body.kind == union_
@@ -869,17 +865,21 @@ do
 				ctx add-diag x.keyword-range, diag-match-unnecessary-else
 			()
 		else
-			ctx check-match-else-required ast, expected, sum-type, of
-				(sum-type list-missing-union-cases body, cases) diag-match-unhandled-union-case-types
+			ctx check-match-else-required ast, expected, of
+				sum-type list-missing-union-cases body, cases diag-match-unhandled-union-case-types
 	else
-		ctx check-match-else-required ast, expected, sum-type, of
-			variant_::diag-match-needs-else
-	ast match-sum-type-expr matched, cases, else_, expected.inferred
+		ctx check-match-else-required ast, expected, of then variant_::diag-match-needs-else
+	ast match-sum-type-expr local, matched, cases, else_, expected.inferred
 -list-missing-union-cases struct-inst[](union_ struct-inst, body sum-type, cases match-sum-type-case[])
 	for* member in body listed-members
 		member-inst = member.member instantiate-struct-inst union_.type-args
 		if cases !exists it.case-type == member-inst
 			- member-inst
+
+-as-immut-local-get local?(a expr)
+	guard res ?= a as-local-get
+	guard res.mutability == immut
+	res
 
 -check-match-sum-type-cases match-sum-type-case[]
 	ctx expr-ctx
@@ -934,7 +934,6 @@ do
 	opt-case-type struct-inst? = if n ?= name
 		ctx get-sum-type-case-from-name matched-variant, n, member-ast.name-range
 	guard case-type ?= opt-case-type
-	guard case-type !is-bogus # TODO: NECESSARY? ---------------------------------------------------------------------------------------------------------------------
 	if x ?= matched-local
 		ctx.refined-types ~= x, case-type
 	expr = ctx check-expr then-ast, expected
@@ -1004,8 +1003,8 @@ do
 	ctx expr-ctx
 	ast match-ast
 	expected expected
+	matched-local local?
 	matched expr
-	matched-type type
 	char-type char-type
 do
 	seen scalar-value mut-set = ()
@@ -1022,16 +1021,15 @@ do
 				out ~= value, do ctx check-expr case-ast.then_, expected
 			else
 				ctx add-diag case-ast.name-range, string-value::diag-match-case-duplicate
-	else_ = ctx check-match-else-required ast, expected, matched-type, of
-		integral::diag-match-needs-else
-	ast match-scalar-expr char-type, matched, cases, else_, expected.inferred
+	else_ = ctx check-match-else-required ast, expected, of then integral::diag-match-needs-else
+	ast match-scalar-expr char-type, matched-local, matched, cases, else_, expected.inferred
 
 -check-match-scalar expr
 	ctx expr-ctx
 	ast match-ast
 	expected expected
+	matched-local local?
 	matched expr
-	matched-type type
 	integral-type integral-type
 do
 	seen scalar-value mut-set = ()
@@ -1057,9 +1055,8 @@ do
 						value.to::int64::diag-match-case-duplicate
 					else
 						value.to::nat64::diag-match-case-duplicate
-	else_ = ctx check-match-else-required ast, expected, matched-type, of
-		integral::diag-match-needs-else
-	ast match-scalar-expr integral-type, matched, cases, else_, expected.inferred
+	else_ = ctx check-match-else-required ast, expected, of then integral::diag-match-needs-else
+	ast match-scalar-expr integral-type, matched-local, matched, cases, else_, expected.inferred
 
 -get-matchable-string-like-from-record string-like-type?(common-types common-types, inst struct-inst)
 	if inst == common-types.char32-array
@@ -1075,6 +1072,7 @@ do
 	ctx expr-ctx
 	ast match-ast
 	expected expected
+	matched-local local?
 	matched expr
 	string-type string-like-type
 do
@@ -1093,28 +1091,20 @@ do
 					out ~= value, do ctx check-expr case-ast.then_, expected
 				else
 					ctx add-diag case-ast.name-range, value::diag-match-case-duplicate
-	else_ = ctx check-match-else-required ast, expected, matched-type, of
-		string-like::diag-match-needs-else
-	ast match-string-like-expr string-type, matched, equals, cases, else_, expected.inferred
+	else_ = ctx check-match-else-required ast, expected, of then string-like::diag-match-needs-else
+	ast match-string-like-expr string-type, matched-local, matched, equals, cases, else_, expected.inferred
 
 -check-match-else-required expr
 	ctx expr-ctx
 	ast match-ast
 	expected expected
-	matched-type type
 	cb-diag diag mut()
 do
 	if else_ ?= ast else_
-		ctx check-match-else else_.expr, expected
+		ctx check-expr else_.expr, expected
 	else
 		ctx add-diag ast.keyword-range, cb-diag[]
 		expected bogus ast.range
--check-match-else expr # TODO:INLINE --------------------------------------------------------------------------------------------------------------------------------
-	ctx expr-ctx
-	then-ast expr-ast
-	expected expected
-do
-	ctx check-expr then-ast, expected
 
 # TODO: use a with-block ---------------------------------------------------------------------------------------------------------
 -with-extern-from-condition[out] out(ctx expr-ctx, condition expr, is-negated bool, cb out mut())
