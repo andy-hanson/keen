@@ -152,17 +152,17 @@ do
 -check-if expr(ctx expr-ctx, ast if-ast, expected expected)
 	if (ast.first-branch is-throw or ast.second-branch is-throw) and ast !is-else-of-parent
 		ctx add-diag ast.first-keyword-range, diag-if-throw
-	condition = ctx check-and-expect ast.condition, ctx.common-types.bool
-	destructures = condition condition-destructures
+	condition = ctx check-and-expect-bool-or-option ast.condition
+	destructures = condition condition-destructures-and-refinements
 	is-negated = ast is-condition-negated
 	empty-new-range = ast first-keyword-range
 	first-branch = ctx with-extern-from-condition condition, is-negated, of
-		ctx check-expr-with-destructures-or-empty-new ast, \
+		ctx check-expr-with-condition-or-empty-new ast, \
 			(unless is-negated then destructures), ast.first-branch, empty-new-range, expected
 	if is-inference-log-enabled
 		error log "check-if after first branch: expected is {expected debug}"
 	second-branch = ctx with-extern-from-condition condition, !is-negated, of
-		ctx check-expr-with-destructures-or-empty-new ast, \
+		ctx check-expr-with-condition-or-empty-new ast, \
 			(if is-negated then destructures), ast.second-branch, empty-new-range, expected
 	ast: ast
 	condition: condition
@@ -171,6 +171,15 @@ do
 	type: expected inferred
 -is-throw bool(a expr-ast?)
 	_ ?= a ?throw-ast
+
+-check-and-expect-bool-or-option expr(ctx expr-ctx, ast expr-ast)
+	ctx check-expr ast, ctx.expect-bool-or-option
+
+-expect-bool-or-option expected(ctx expr-ctx)
+	choices type-and-context mut[] =
+		- ctx.common-types.bool, ()
+		- ctx.common-types.option.instantiated-with-own-type-params, ((),)
+	choices to
 
 -check-unpack-option unpack-option(ctx expr-ctx, ast unpack-option-ast)
 	expr, type = ctx check-and-infer ast.option
@@ -218,16 +227,16 @@ do
 		expected bogus ast.range
 
 -check-assert-or-forbid expr(ctx expr-ctx, ast assert-or-forbid-ast, expected expected)
-	condition = ctx check-and-expect ast.condition, ctx.common-types.bool
-	destructures = condition condition-destructures
+	condition = ctx check-and-expect-bool-or-option ast.condition
+	destructures = condition condition-destructures-and-refinements
 	is-forbid = ast is-forbid
 	thrown expr? = if thrown-ast ?= ast thrown
 		if x ?= thrown-ast.expr throw-ast
 			ctx add-diag x.keyword-range, diag-assert-or-forbid-message-is-throw
 		ctx with-extern-from-condition condition, !is-forbid, of
-			ctx check-expr-with-destructures (if is-forbid then destructures), thrown-ast.expr, ctx.common-types.exception.expect	
+			ctx check-expr-with-destructures-and-refinements (if is-forbid then destructures), thrown-ast.expr, ctx.common-types.exception.expect	
 	after = ctx with-extern-from-condition condition, is-forbid, of
-		ctx check-expr-with-destructures (unless is-forbid then destructures), ast.after, expected
+		ctx check-expr-with-destructures-and-refinements (unless is-forbid then destructures), ast.after, expected
 	ast assert-or-forbid-expr is-forbid, condition, thrown, after
 
 -check-assignment expr
@@ -477,24 +486,27 @@ do
 -decode-as-single-unicode-char char32?(a string)
 	a.to::char32[] opt-only
 
--check-expr-with-destructures expr
+-check-expr-with-destructures-and-refinements expr
 	ctx expr-ctx
-	destructures destructure[]
+	a destructures-and-refinements
 	ast expr-ast
 	expected expected
 do
 	restore = ctx.locals size
-	for destructure in destructures
+	for destructure in a destructures
 		ctx add-locals-for-destructure destructure
-	finally ctx restore-locals restore
-	ctx check-expr ast, expected
+	ctx.refined-types ~~= a.refined-types
+	res = ctx check-expr ast, expected
+	ctx restore-locals restore
+	_ = ctx.refined-types pop-n a.refined-types.size
+	res
 -check-expr-with-destructure expr
 	ctx expr-ctx
 	destructure destructure
 	ast expr-ast
 	expected expected
 do
-	ctx check-expr-with-destructures (destructure,), ast, expected
+	ctx check-expr-with-destructures-and-refinements ((destructure,), ()), ast, expected
 
 -add-locals-for-destructure void(ctx expr-ctx, a destructure)
 	match a
@@ -675,8 +687,8 @@ do
 	bool =  common-types bool
 	match ast kind
 	as and_
-		left = ctx check-and-expect ast.left, bool
-		right = ctx check-expr-with-destructures left.condition-destructures, ast.right, bool.expect
+		left = ctx check-and-expect-bool-or-option ast.left
+		right = ctx check-expr-with-destructures-and-refinements left.condition-destructures-and-refinements, ast.right, ctx.expect-bool-or-option
 		res logical-expr = ast, bool-and-bool, bool, left, right
 		ctx check expected, bool, res
 	as else_
@@ -749,10 +761,10 @@ do
 		expected bogus ast
 
 -check-loop-while-or-until expr(ctx expr-ctx, ast loop-while-or-until-ast, expected expected)
-	condition = ctx check-and-expect ast.condition, ctx.common-types.bool
-	destructures = condition condition-destructures
-	body = ctx check-expr-with-destructures (unless ast is-until then destructures), ast.body, ctx.void-type.expect
-	after = ctx check-expr-with-destructures (if ast is-until then destructures), ast.after, expected
+	condition = ctx check-and-expect-bool-or-option ast.condition
+	destructures = condition condition-destructures-and-refinements
+	body = ctx check-expr-with-destructures-and-refinements (unless ast is-until then destructures), ast.body, ctx.void-type.expect
+	after = ctx check-expr-with-destructures-and-refinements (if ast is-until then destructures), ast.after, expected
 	ast loop-while-or-until-expr condition, body, after
 
 -check-match expr(ctx expr-ctx, ast match-ast, expected expected)
@@ -1116,16 +1128,16 @@ do
 	ctx.externs := original-externs
 	res
 
--check-expr-with-destructures-or-empty-new expr
+-check-expr-with-condition-or-empty-new expr
 	ctx expr-ctx
 	parent call-expr-source
-	destructures destructure[]
+	destructures destructures-and-refinements
 	ast expr-ast?
 	empty-new-range source-range
 	expected expected
 do
 	if x ?= ast
-		ctx check-expr-with-destructures destructures, x, expected
+		ctx check-expr-with-destructures-and-refinements destructures, x, expected
 	else
 		ctx check-empty-new parent, empty-new-range, expected
 
