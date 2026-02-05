@@ -23,6 +23,8 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	min-precedence-exclusive int
 -allow-everything arg-ctx()
 	true, min-value
+-allow-everything-except-block arg-ctx()
+	false, min-value
 
 -require-precedence-gt arg-ctx(a arg-ctx, precedence int)
 	allowed-block: a allowed-block
@@ -90,7 +92,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 -parse-calls expr-ast(lexer lexer, start pos, lhs expr-ast, arg-ctx arg-ctx)
 	before-call = lexer cur-pos
 	precedence = arg-ctx min-precedence-exclusive
-	if question-equals-precedence > precedence and lexer try-take-token question-equal
+	if question-equals-precedence > precedence and (lexer try-take-token question-equal or lexer try-take-token equal)
 		unpack = lexer parse-unpack-option lhs, before-call, arg-ctx
 		lexer parse-calls start, unpack, arg-ctx
 	elif comma-precedence > precedence and lexer try-take-token comma
@@ -359,7 +361,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	res
 
 -parse-if expr-ast(lexer lexer, start pos, is-else-of-parent bool, allowed-block bool)
-	condition = lexer parse-expr-no-block
+	condition = lexer parse-condition allow-everything-except-block
 	then-pos = lexer cur-pos
 	if !is-else-of-parent and lexer try-take-token then_
 		then_ = lexer parse-expr-and-calls (false, else_.precedence)
@@ -398,6 +400,22 @@ parse-fun-expr-body expr-ast(lexer lexer)
 		condition: condition
 		first-branch: then_
 		second-branch: else_
+
+-parse-condition expr-ast(lexer lexer, ctx arg-ctx)
+	if lexer lookahead-equals
+		start = lexer cur-pos
+		left = lexer parse-destructure-no-require-parens
+		equals-pos = lexer cur-pos
+		_ = lexer take-or-add-diag-expected-token equal, equals
+		value = lexer parse-expr-and-calls do ctx require-precedence-gt and_.precedence
+		unpack = left unpack-option-ast equals-pos, value
+		and-pos = lexer cur-pos
+		if lexer try-take-token and_
+			unpack logical-ast and_, and-pos, do lexer parse-condition ctx
+		else
+			lexer parse-calls start, unpack, ctx
+	else
+		lexer parse-expr-and-calls ctx
 
 -parse-unless if-ast(lexer lexer, start pos, allowed-block bool)
 	condition = lexer parse-expr-no-block
@@ -442,7 +460,7 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	else_ assert-or-forbid-thrown-ast?
 	after expr-ast
 -parse-assert-forbid-or-guard assert-forbid-or-guard(lexer lexer)
-	condition = lexer parse-expr-and-calls (true, else_.precedence)
+	condition = lexer parse-condition (true, else_.precedence)
 	else-pos = lexer cur-pos
 	condition: condition
 	else_: if lexer try-take-token else_
@@ -468,7 +486,7 @@ do
 	body: body
 
 -parse-loop-while-or-until expr-ast(lexer lexer, start pos, is-until bool)
-	condition = lexer parse-expr-no-block
+	condition = lexer parse-condition allow-everything-except-block
 	body = lexer parse-indented-statements
 	start loop-while-or-until-ast is-until, condition, body, lexer.parse-next-lines-or-empty
 
