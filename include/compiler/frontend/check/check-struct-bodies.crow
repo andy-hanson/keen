@@ -18,8 +18,8 @@ modifier-type-arg-invalid void(ctx check-ctx, modifier modifier-keyword-ast)
 
 modifier-type-arg-invalid void(ctx check-ctx, modifiers modifier-keyword-ast?[])
 	for modifier in modifiers
-		if x ?= modifier
-			ctx modifier-type-arg-invalid x
+		if modifier
+			ctx modifier-type-arg-invalid modifier
 
 check-structs-initial struct-decl[](ctx check-ctx, asts struct-decl-ast[])
 	for ast in asts
@@ -331,8 +331,8 @@ do
 	storage_ integral-type
 do
 	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, enum-member, storage_, of last-value
-		if x ?= last-value
-			(x.to::nat wrap-add 1).to, x.to::nat == storage_.max-value
+		if last-value
+			(last-value.to::nat wrap-add 1).to, last-value.to::nat == storage_.max-value
 		else
 			0::nat.to, false
 	if members.members is-empty
@@ -341,10 +341,10 @@ do
 
 -check-flags flags_(ctx check-ctx, struct struct-decl, ast flags-ast, storage_ integral-type)
 	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, flags-member, storage_, of last-value
-		if x ?= last-value
+		if last-value
 			# TODO: diagnostic if the last value isn't a power of 2
 			# TODO: I think all this is silly. We should just require that *all* values be specified or *none* at all -----------------------------
-			(x.to::nat wrap-mul 2).to, x.to::nat >= storage_.max-value / 2
+			(last-value.to::nat wrap-mul 2).to, last-value.to::nat >= storage_.max-value / 2
 		else
 			1::nat.to, false
 	storage_, members.members
@@ -361,14 +361,14 @@ do
 	storage_ integral-type
 	cb-get-next-value value-and-overflow mut(last-value scalar-value?)
 do
-	if _ ?= params and member-asts !is-empty
+	if params and member-asts !is-empty
 		ctx add-diag struct.name-range.range,
 			struct diag-struct-params-syntax-error has-params-and-fields
 
 	last-value mut nat? = ()
 	cb-value cb-enum-value = of value-range, literal
-		value = if x ?= literal
-			ctx check-literal-integral-value storage_, x.range
+		value = if literal
+			ctx check-literal-integral-value storage_, literal.range
 		else
 			value-and-overflow = cb-get-next-value[last-value ?to]
 			if value-and-overflow overflow
@@ -377,8 +377,8 @@ do
 		last-value := value.to::nat
 		value
 	
-	members = if x ?= params
-		ctx enum-or-flags-members-from-params struct, x, cb-value
+	members = if params
+		ctx enum-or-flags-members-from-params struct, params, cb-value
 	else
 		for x in member-asts
 			x, struct, cb-value[x.range, x.value], ()
@@ -461,7 +461,7 @@ do
 	struct struct-decl
 	ast record-ast
 do
-	if _ ?= ast params and ast.fields !is-empty
+	if ast params and ast.fields !is-empty
 		ctx add-diag struct.name-range.range, (struct diag-struct-params-syntax-error has-params-and-fields)
 	res record-field[] = if params ?= ast params
 		for* param in params
@@ -517,8 +517,8 @@ do
 	mutability-ast field-mutability-ast?
 	type-ast type-ast?
 do
-	member-type = if x ?= type-ast
-		ctx type-from-ast types, x, record_.type-param-asts, yes
+	member-type = if type-ast
+		ctx type-from-ast types, type-ast, record_.type-param-asts, yes
 	else
 		ctx add-diag name.range, name.name.diag-record-field-needs-type
 		bogus-type
@@ -526,10 +526,11 @@ do
 	
 	visibility = ctx visibility-from-default-with-diag record_.visibility, visibility-ast,
 		record_ visibility-warning-field name.name
-	mutability visibility? = if x ?= mutability-ast
+	mutability visibility? = if mutability-ast
 		if record_.purity != mut_ and record_ !purity-is-forced
-			ctx add-diag x.range, diag-mut-field-not-allowed
-		ctx visibility-from-default-with-diag visibility, x.visibility, name.name.visibility-warning-field-mutability
+			ctx add-diag mutability-ast.range, diag-mut-field-not-allowed
+		ctx visibility-from-default-with-diag visibility, mutability-ast.visibility,
+			name.name visibility-warning-field-mutability
 	source, record_, visibility, mutability, member-type, ()
 
 | TODO: {is-flags} is redundant to the declKind -------------------------------------------------------------------------------
@@ -541,32 +542,35 @@ check-enum-or-flags-modifiers integral-type
 	modifiers modifier-ast[]
 	is-flags bool
 do
-	storage-modifier mut modifier-keyword-ast? = ()
+	storage-modifier = ctx find-storage-modifier decl-kind, modifiers
+	if storage-modifier
+		if type-ast ?= storage-modifier type-arg
+			type = ctx type-from-ast types, type-ast, (), yes
+			res = ctx get-enum-type-from-type struct, type-ast.range, types.common-types, type
+			if is-flags and res is-signed
+				ctx add-diag storage-modifier.keyword-range, diag-flags-signed
+			res
+		else
+			ctx add-diag storage-modifier.keyword-range, diag-storage-missing-type
+			nat32
+	else
+		nat32
+
+-find-storage-modifier modifier-keyword-ast?(ctx check-ctx, decl-kind decl-kind, modifiers modifier-ast[])
+	res mut modifier-keyword-ast? = ()
 	for modifier in modifiers
 		guard modifier !is-common-modifier
 		if x ?= modifier modifier-keyword-ast
 			if x.keyword == storage_
-				if _ ?= storage-modifier
+				if res
 					ctx add-diag x.keyword-range, storage_.diag-modifier-duplicate
 				else
-					storage-modifier := x
+					res := x
 			else
 				ctx add-diag x.keyword-range, (x.keyword diag-modifier-invalid decl-kind)
 		else
 			ctx add-diag modifier.range, decl-kind.diag-spec-use-invalid
-	
-	if x ?= storage-modifier
-		if type-ast ?= x type-arg
-			type = ctx type-from-ast types, type-ast, (), yes
-			res = ctx get-enum-type-from-type struct, type-ast.range, types.common-types, type
-			if is-flags and res is-signed
-				ctx add-diag x.keyword-range, diag-flags-signed
-			res
-		else
-			ctx add-diag x.keyword-range, diag-storage-missing-type
-			nat32
-	else
-		nat32
+	res
 
 -record-modifiers record
 	new-visibility modifier-keyword-ast?
