@@ -152,7 +152,7 @@ do
 -check-if expr(ctx expr-ctx, ast if-ast, expected expected)
 	if (ast.first-branch is-throw or ast.second-branch is-throw) and ast !is-else-of-parent
 		ctx add-diag ast.first-keyword-range, diag-if-throw
-	condition = ctx check-and-expect-bool-or-option ast.condition
+	condition = ctx check-condition ast.condition
 	destructures = condition condition-destructures-and-refinements
 	is-negated = ast is-condition-negated
 	empty-new-range = ast first-keyword-range
@@ -172,14 +172,18 @@ do
 -is-throw bool(a expr-ast?)
 	!!a.?throw-ast
 
--check-and-expect-bool-or-option expr(ctx expr-ctx, ast expr-ast)
-	ctx check-expr ast, ctx.expect-bool-or-option
+-check-condition expr(ctx expr-ctx, ast expr-ast)
+	ctx check-expr ast, do ctx expected-for-condition ast
 
--expect-bool-or-option expected(ctx expr-ctx)
-	choices type-and-context mut[] =
-		- ctx.common-types.bool, ()
-		- ctx.common-types.option.instantiated-with-own-type-params, ((),)
-	choices to
+-expected-for-condition expected(ctx expr-ctx, ast expr-ast)
+	if ast.skip-parentheses logical-ast
+		# Expect the whole expression to be a bool to avoid ambiguity (with an 'option or option' expr)
+		ctx.common-types.bool expect
+	else
+		choices type-and-context mut[] =
+			- ctx.common-types.bool, ()
+			- ctx.common-types.option.instantiated-with-own-type-params, ((),)
+		choices to
 
 -check-unpack-option unpack-option(ctx expr-ctx, ast unpack-option-ast)
 	expr, type = ctx check-and-infer ast.option
@@ -227,7 +231,7 @@ do
 		expected bogus ast.range
 
 -check-assert-or-forbid expr(ctx expr-ctx, ast assert-or-forbid-ast, expected expected)
-	condition = ctx check-and-expect-bool-or-option ast.condition
+	condition = ctx check-condition ast.condition
 	destructures = condition condition-destructures-and-refinements
 	is-forbid = ast is-forbid
 	thrown expr? = if thrown-ast = ast thrown
@@ -687,35 +691,37 @@ do
 	bool =  common-types bool
 	match ast kind
 	as and_
-		left = ctx check-and-expect-bool-or-option ast.left
-		right = ctx check-expr-with-destructures-and-refinements left.condition-destructures-and-refinements, ast.right, ctx.expect-bool-or-option
-		res logical-expr = ast, bool-and-bool, bool, left, right
-		ctx check expected, bool, res
+		left = ctx check-condition ast.left
+		right = ctx check-expr-with-destructures-and-refinements left.condition-destructures-and-refinements, ast.right,
+			ctx expected-for-condition ast.right
+		ctx check expected, bool, (ast, bool-and-bool, bool, left, right)::logical-expr
 	as else_
 		left = ctx check-with-modify-expected-option ast.left, expected, of actual
 			ctx add-diag ast.keyword-range, actual.diag-option-else-left-non-option
 		right = ctx check-expr ast.right, expected
-		:: logical-expr
-		ast, option-else, expected.inferred, left, right
+		(ast, option-else, expected.inferred, left, right)::logical-expr
 	as or_
-		# Whether this is a bool-or or option-or, both sides should have the same type as the expected type
-		left = ctx check-expr ast.left, expected
-		right = ctx check-expr ast.right, expected
-		type = expected inferred
-		kind = if type == bool
-			bool-or-bool
+		if expected.try-get-inexact-non-inferring-type == bool
+			left = ctx check-condition ast.left
+			right = ctx check-condition ast.right
+			(ast, bool-or-bool, bool, left, right)::logical-expr
 		else
+			left = ctx check-expr ast.left, expected
+			right = ctx check-expr ast.right, expected
 			left-type = left type ctx.available-types
 			right-type = right type ctx.available-types
-			if left-type !is-option-type
-				ctx add-diag ast.range,
-					ctx type-with-container left-type diag-option-or-left-non-option
-			elif right-type !is-option-type
-				ctx add-diag ast.range,
-					ctx type-with-container right-type diag-option-or-right-non-option
-			option-or
-		:: logical-expr
-		ast, kind, type, left, right
+			type = expected inferred
+			kind = if type == bool
+				bool-or-bool
+			else
+				if left-type !is-option-type
+					ctx add-diag ast.range,
+						ctx type-with-container left-type diag-option-or-left-non-option
+				elif right-type !is-option-type
+					ctx add-diag ast.range,
+						ctx type-with-container right-type diag-option-or-right-non-option
+				option-or
+			(ast, kind, type, left, right)::logical-expr
 
 | Outer expected is 't?', inner expected is 't'
 -check-with-modify-expected-option expr
@@ -761,7 +767,7 @@ do
 		expected bogus ast
 
 -check-loop-while-or-until expr(ctx expr-ctx, ast loop-while-or-until-ast, expected expected)
-	condition = ctx check-and-expect-bool-or-option ast.condition
+	condition = ctx check-condition ast.condition
 	destructures = condition condition-destructures-and-refinements
 	body = ctx check-expr-with-destructures-and-refinements (unless ast is-until then destructures), ast.body, ctx.void-type.expect
 	after = ctx check-expr-with-destructures-and-refinements (if ast is-until then destructures), ast.after, expected
