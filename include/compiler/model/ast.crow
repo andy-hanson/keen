@@ -173,7 +173,6 @@ expr-ast union
 	call-ast
 	call-named-ast
 	do-ast
-	empty-ast
 	extern-ast
 	finally-ast
 	force-ast
@@ -216,10 +215,15 @@ assert-or-forbid-ast record
 	is-forbid bool
 	condition expr-ast
 	thrown assert-or-forbid-thrown-ast?
-	after expr-ast
+	after expr-ast?
 to json(a assert-or-forbid-ast)
 end pos(a assert-or-forbid-ast)
-	a.after end
+	if after = a after
+		after end
+	elif thrown = a thrown
+		thrown end
+	else
+		a.condition end
 range source-range(a assert-or-forbid-ast)
 	a.start, a.end
 keyword-range source-range(a assert-or-forbid-ast)
@@ -230,6 +234,8 @@ assert-or-forbid-thrown-ast record(else-pos pos, expr expr-ast)
 to json(a assert-or-forbid-thrown-ast)
 else-range source-range(a assert-or-forbid-thrown-ast)
 	a.else-pos range-of-start-and-length ":"
+end pos(a assert-or-forbid-thrown-ast)
+	a.expr end
 
 | {left} := {right}
 assignment-ast record(left expr-ast, assignment-pos pos, right expr-ast)
@@ -365,14 +371,6 @@ to json(a do-ast)
 end pos(a do-ast)
 	a.body end
 
-| Used for implicit 'else ()' or implicit '()' after a Let
-empty-ast record(range source-range)
-to json(a empty-ast)
-start pos(a empty-ast)
-	a.range start
-end pos(a empty-ast)
-	a.range end
-
 extern-ast record(range source-range, names name-and-range[])
 to json(a extern-ast)
 start pos(a extern-ast)
@@ -473,10 +471,17 @@ to json(a if-ast-kind)
 end pos(a if-ast)
 	if x = a second-branch
 		x end
+	elif x = a first-branch
+		x end
 	else
-		a.first-branch! end
+		a.condition end
 range source-range(a if-ast)
 	a.start, a.end
+is-guard bool(a if-ast)
+	match a kind
+	as guard-with-else then true
+	as guard-without-else then true
+	else then false
 is-condition-negated bool(a if-ast)
 	match a kind
 	as guard-with-else
@@ -678,12 +683,12 @@ range source-range(a single-destructure-ast)
 	end-range = a.type ?range or a mut-range else a.name range
 	a.name.start, end-range.end
 
-let-ast record(destructure destructure-ast, value expr-ast, then_ expr-ast)
+let-ast record(destructure destructure-ast, value expr-ast, then_ expr-ast?)
 to json(a let-ast)
 start pos(a let-ast)
 	a.destructure start
 end pos(a let-ast)
-	a.then_ end
+	(a then_ else a value) end
 
 | Could be `()`, `x, y`, or a multi-line list with `- x` and `-- xs`
 list-ast record(range source-range, parts list-ast-part[])
@@ -762,10 +767,13 @@ range source-range(a loop-ast)
 keyword-range source-range(a loop-ast)
 	a.start range-of-start-and-length "loop"
 
-loop-break-ast record(start pos, value expr-ast)
+loop-break-ast record(start pos, value expr-ast?)
 to json(a loop-break-ast)
 end pos(a loop-break-ast)
-	a.value end
+	if v = a value
+		v end
+	else
+		a.keyword-range end
 range source-range(a loop-break-ast)
 	a.start, a.end
 keyword-range source-range(a loop-break-ast)
@@ -785,10 +793,10 @@ loop-while-or-until-ast record
 	is-until bool
 	condition expr-ast
 	body expr-ast
-	after expr-ast
+	after expr-ast?
 to json(a loop-while-or-until-ast)
 end pos(a loop-while-or-until-ast)
-	a.after end
+	(a after else a body) end
 range source-range(a loop-while-or-until-ast)
 	a.start, a.end
 keyword-range source-range(a loop-while-or-until-ast)
@@ -926,10 +934,13 @@ try-let-ast record
 	destructure destructure-ast
 	value expr-ast
 	catch_ catch-ast
-	after expr-ast
+	after expr-ast?
 to json(a try-let-ast)
 end pos(a try-let-ast)
-	a.after end
+	if after = a after
+		after end
+	else
+		a.catch_ end
 range source-range(a try-let-ast)
 	a.start, a.end
 try-keyword-range source-range(a try-let-ast)
@@ -937,16 +948,29 @@ try-keyword-range source-range(a try-let-ast)
 
 # `expr :: t` or `:: t \n expr`
 typed-ast record
-	expr expr-ast
+	| This may be missing for `:: t` with no line following it
+	expr expr-ast?
 	colon-pos pos
 	type type-ast
 to json(a typed-ast)
 is-prefix bool(a typed-ast)
-	a.type.start < a.expr.start
+	if expr = a expr
+		a.type.start < expr.start
+	else
+		true
 start pos(a typed-ast)
-	a.expr.start min a.type.start
+	if a is-prefix
+		a.type start
+	else
+		a.expr! start
 end pos(a typed-ast)
-	a.expr.end max a.type.end
+	if a is-prefix
+		if expr = a expr
+			expr end
+		else
+			a.type end
+	else
+		a.type end
 range source-range(a typed-ast)
 	a.start, a.end
 keyword-range source-range(a typed-ast)
@@ -1183,8 +1207,7 @@ fun-decl-ast record
 	return-type type-ast
 	params destructure-ast[]
 	modifiers modifier-ast[]
-	| {empty-ast} if missing
-	body expr-ast
+	body expr-ast?
 to json(a fun-decl-ast)
 visibility visibility-and-range?(a fun-decl-ast)
 	a.range.start get-visibility-and-range a.visibility_
@@ -1197,8 +1220,7 @@ test-ast record
 	doc-comment doc-comment-ast
 	range source-range
 	modifiers modifier-ast[]
-	| {empty-ast} if missing
-	body expr-ast
+	body expr-ast?
 to json(a test-ast)
 keyword-range source-range(a test-ast)
 	a.range.start range-of-start-and-length "test"
@@ -1214,7 +1236,7 @@ var-decl-ast record
 	kind var-kind
 	type type-ast
 	modifiers modifier-ast[]
-	initializer expr-ast
+	initializer expr-ast?
 to json(a var-decl-ast)
 name-range source-range(a var-decl-ast)
 	a.name range
@@ -1337,7 +1359,7 @@ children record(expr expr-ast)
 iterate bool(a children, f bool mut(x expr-ast))
 	match x = a expr
 	as assert-or-forbid-ast
-		f[x condition] or thrown = x thrown and f[thrown expr] or f[x after]
+		f[x condition] or thrown = x thrown and f[thrown expr] or after = x after and f[after]
 	as assignment-ast
 		f[x left] or f[x right]
 	as assignment-call-ast
@@ -1350,8 +1372,6 @@ iterate bool(a children, f bool mut(x expr-ast))
 		x.args iterate f
 	as do-ast
 		f[x body]
-	as empty-ast
-		()
 	as extern-ast
 		()
 	as finally-ast
@@ -1373,7 +1393,7 @@ iterate bool(a children, f bool mut(x expr-ast))
 	as lambda-ast
 		f[x body]
 	as let-ast
-		f[x value] or f[x then_]
+		f[x value] or t = x then_ and f[t]
 	as list-ast
 		x.parts iterate f[it.arg]
 	as literal-number
@@ -1385,11 +1405,11 @@ iterate bool(a children, f bool mut(x expr-ast))
 	as loop-ast
 		f[x body]
 	as loop-break-ast
-		f[x value]
+		(v = x value) and f[v]
 	as loop-continue-ast
 		()
 	as loop-while-or-until-ast
-		f[x condition] or f[x body] or f[x after]
+		f[x condition] or f[x body] or after = x after and f[after]
 	as match-ast
 		f[x matched] or x.cases iterate f[it.then_] or e = x else_ and f[e expr]
 	as parenthesized-ast
@@ -1405,9 +1425,9 @@ iterate bool(a children, f bool mut(x expr-ast))
 	as try-ast
 		f[x tried] or x.catches iterate f[it.then_]
 	as try-let-ast
-		f[x value] or f[x.catch_ then_] or f[x after]
+		f[x value] or f[x.catch_ then_] or after = x after and f[after]
 	as typed-ast
-		f[x expr]
+		(expr = x expr) and f[expr]
 	as underscore-ast
 		()
 	as unpack-option-ast

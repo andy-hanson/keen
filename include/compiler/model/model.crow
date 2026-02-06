@@ -2733,7 +2733,10 @@ type type(a expr, types available-types?)
 	common-types = types ?common-types
 	match a
 	as assert-or-forbid-expr
-		a.after type types
+		if after = a after
+			after type types
+		else
+			common-types! void
 	as bogus-call-expr
 		a expected-type
 	as bogus-expr
@@ -2779,7 +2782,10 @@ type type(a expr, types available-types?)
 	as loop-continue-expr
 		a.loop_ type
 	as loop-while-or-until-expr
-		a.after type types
+		if after = a after
+			after type types
+		else
+			common-types! void
 	as match-enum-expr
 		a type
 	as match-scalar-expr
@@ -2808,6 +2814,8 @@ destructures-and-refinements record
 	refined-types (local, type)[]
 new destructures-and-refinements()
 	(), ()
+to destructures-and-refinements(a destructure)
+	(a,), ()
 ~~ destructures-and-refinements(a destructures-and-refinements, b destructures-and-refinements)
 	a.destructures ~~ b.destructures, a.refined-types ~~ b.refined-types
 condition-destructures-and-refinements destructures-and-refinements(a expr)
@@ -2864,7 +2872,7 @@ assert-or-forbid-expr record
 	is-forbid bool
 	condition expr
 	thrown expr?
-	after expr
+	after expr?
 to json(a assert-or-forbid-expr)
 range source-range(a assert-or-forbid-expr)
 	a.ast range
@@ -2902,7 +2910,6 @@ call-expr-source union
 	assignment-call-ast
 	call-ast
 	call-named-ast
-	empty-ast
 	for-or-with-ast
 	if-ast
 	interpolated-ast
@@ -2912,6 +2919,8 @@ call-expr-source union
 	loop-break-ast
 	loop-continue-ast
 	name-and-range
+	var-decl-ast
+	typed-ast
 do
 	range source-range()
 to json(_ call-expr-source)
@@ -2925,8 +2934,6 @@ name-range source-range(a call-expr-source)
 	as call-ast
 		a name-range
 	as call-named-ast
-		a range
-	as empty-ast
 		a range
 	as for-or-with-ast
 		a keyword-range
@@ -2946,6 +2953,10 @@ name-range source-range(a call-expr-source)
 		a range
 	as name-and-range
 		a range
+	as var-decl-ast
+		a name-range
+	as typed-ast
+		a keyword-range
 
 bogus-call-expr record
 	ast call-expr-source
@@ -3086,7 +3097,7 @@ is-ignore bool(a lambda-expr)
 	(x = a.param destructure-ignore) and x.source void-destructure-ast
 
 let-expr-source union(let-ast, match-ast)
-let-expr record(ast let-expr-source, destructure destructure, value expr, then_ expr)
+let-expr record(ast let-expr-source, destructure destructure, value expr, then_ expr?)
 to json(a let-expr)
 	destructure: a.destructure to
 	value: a.value to
@@ -3098,21 +3109,22 @@ destructure-ast destructure-ast(a let-expr)
 	as match-ast
 		ast.local! single-destructure-ast (), () # TODO: We should probably allow name-and-range as a valid destructure AST, would save a lot of space
 range source-range(a let-expr)
-	a.destructure.start, a.then_.end
+	a.destructure.start, (a then_ else a value).end
 type type(a let-expr, types available-types?)
-	a.then_ type types
+	if then_ = a then_
+		then_ type types
+	else
+		types!.common-types void
 
 list-expr record
 	ast list-expr-source
 	| Takes a single array parameter
 	called called
 	parts list-expr-part[]
-list-expr-source union(empty-ast, if-ast, interpolated-ast, list-ast, literal-string-ast)
+list-expr-source union(if-ast, interpolated-ast, list-ast, literal-string-ast)
 	range source-range()
 to call-expr-source(a list-expr-source)
 	match a
-	as empty-ast
-		a
 	as if-ast
 		a
 	as interpolated-ast
@@ -3316,7 +3328,7 @@ loop-while-or-until-expr record
 	condition expr
 	| Always of type 'void'
 	body expr
-	after expr
+	after expr?
 to json(a loop-while-or-until-expr)
 	condition: a.condition to
 	body: a.body to
@@ -3452,7 +3464,7 @@ try-let-expr record
 	destructure destructure
 	value expr
 	catch_ catch_
-	then_ expr
+	then_ expr?
 	type type
 to json(a try-let-expr)
 	destructure: a.destructure to
@@ -3489,7 +3501,7 @@ each-direct-child-expr void(a expr, cb void mut(x expr))
 find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	match a
 	as assert-or-forbid-expr
-		cb[a condition] or a.thrown cb-option cb or cb[a after]
+		cb[a condition] or a.thrown cb-option cb or a.after cb-option cb
 	as bogus-call-expr
 		()
 	as bogus-expr
@@ -3513,7 +3525,7 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	as lambda-expr
 		cb[a body]
 	as let-expr
-		cb[a value] or cb[a then_]
+		cb[a value] or a.then_ cb-option cb
 	as list-expr
 		a.parts first cb[it.arg]
 	as literal-scalar-expr
@@ -3535,7 +3547,7 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	as loop-continue-expr
 		()
 	as loop-while-or-until-expr
-		cb[a condition] or cb[a body] or cb[a after]
+		cb[a condition] or cb[a body] or a.after cb-option cb
 	as match-enum-expr
 		cb[a matched] or a.cases first cb[it.then_] or a.else_ cb-option cb
 	as match-scalar-expr
@@ -3553,7 +3565,7 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	as try-expr
 		cb[a tried] or a.catches first cb[it.then_]
 	as try-let-expr
-		cb[a value] or cb[a.catch_ then_] or cb[a then_]
+		cb[a value] or cb[a.catch_ then_] or a.then_ cb-option cb
 	as typed-expr
 		cb[a inner]
 	as unpack-option
@@ -3720,6 +3732,7 @@ diag union
 	diag-purity-worse-than-parent
 	diag-purity-worse-than-sum-type
 	diag-record-field-needs-type
+	diag-required-after
 	diag-shared-arg-is-not-lambda
 	diag-shared-lambda-type-is-not-shared
 	diag-shared-lambda-unused
@@ -3932,6 +3945,7 @@ diag-purity-worse-than-parent record(parent struct-decl, child struct-inst)
 diag-purity-worse-than-sum-type record(case_ struct-decl, sum-type struct-inst)
 parse-diag-crowd record(expected string)
 diag-record-field-needs-type record(field-name symbol)
+diag-required-after enum(assert_, forbid_, guard_, let, while_, until_, try-let)
 diag-shared-arg-is-not-lambda record
 diag-struct-params-syntax-error record
 	struct struct-decl

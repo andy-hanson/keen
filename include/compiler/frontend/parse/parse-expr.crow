@@ -10,11 +10,9 @@ import
 	./parse-util
 	./token
 
-parse-fun-expr-body expr-ast(lexer lexer)
+parse-fun-expr-body expr-ast?(lexer lexer)
 	if lexer try-take-token newline-indent
 		lexer parse-statements-and-dedent
-	else
-		lexer empty-ast
 
 -arg-ctx record
 	| Allow things like 'if' that continue into an indented block.
@@ -80,14 +78,13 @@ parse-fun-expr-body expr-ast(lexer lexer)
 	right = lexer parse-expr-no-let
 	left assignment-ast assignment-pos, right
 
--parse-next-lines-or-empty expr-ast(lexer lexer)
+-must-parse-next-lines expr-ast(lexer lexer, diag parse-diag-expected)
+	lexer try-parse-next-lines else
+		lexer add-diag-at-char diag
+		lexer.range-at-char bogus-ast
+-try-parse-next-lines expr-ast?(lexer lexer)
 	if lexer try-take-token newline-same-indent
 		lexer parse-statements
-	else
-		lexer empty-ast
-
--empty-ast expr-ast(lexer lexer)
-	lexer.range-at-char empty-ast
 
 -parse-calls expr-ast(lexer lexer, start pos, lhs expr-ast, arg-ctx arg-ctx)
 	before-call = lexer cur-pos
@@ -458,14 +455,14 @@ parse-fun-expr-body expr-ast(lexer lexer)
 -assert-forbid-or-guard record
 	condition expr-ast
 	else_ assert-or-forbid-thrown-ast?
-	after expr-ast
+	after expr-ast?
 -parse-assert-forbid-or-guard assert-forbid-or-guard(lexer lexer)
 	condition = lexer parse-condition (true, else_.precedence)
 	else-pos = lexer cur-pos
 	condition: condition
 	else_: if lexer try-take-token else_
 		else-pos, lexer.parse-expr-no-let
-	after: lexer parse-next-lines-or-empty
+	after: lexer try-parse-next-lines
 
 -parse-for-or-with for-or-with-ast
 	lexer lexer
@@ -488,7 +485,7 @@ do
 -parse-loop-while-or-until expr-ast(lexer lexer, start pos, is-until bool)
 	condition = lexer parse-condition allow-everything-except-block
 	body = lexer parse-indented-statements
-	start loop-while-or-until-ast is-until, condition, body, lexer.parse-next-lines-or-empty
+	start loop-while-or-until-ast is-until, condition, body, lexer.try-parse-next-lines
 
 -take-indent-or-fail-expr expr-ast(lexer lexer, cb-indent expr-ast mut())
 	lexer take-indent-or-fail-generic cb-indent, it.bogus-ast
@@ -570,9 +567,7 @@ do
 		with inner in lexer parse-expr-before-call false it-scope
 			lexer range start call-ast prefix-bang, 0, (start, "not"), (inner,), ()
 	as break_
-		start loop-break-ast if lexer peek-end-of-line and lexer.get-peek-token != newline-indent
-			lexer empty-ast
-		else
+		start loop-break-ast unless lexer peek-end-of-line and lexer.get-peek-token != newline-indent
 			lexer parse-expr-and-all-calls allowed-block
 	as continue_
 		start loop-continue-ast
@@ -710,12 +705,12 @@ parse-single-statement-line expr-ast(lexer lexer)
 	as colon2
 		lexer must-take-token colon2
 		type = lexer parse-type
-		after = lexer parse-next-lines-or-empty
+		after = lexer try-parse-next-lines
 		after typed-ast start, type
 	as finally_
 		lexer must-take-token finally_
 		right = lexer parse-single-statement-or-block
-		below = lexer parse-next-lines-or-empty
+		below = lexer must-parse-next-lines after-finally
 		start finally-ast right, below
 	as guard_
 		lexer must-take-token guard_
@@ -723,7 +718,7 @@ parse-single-statement-line expr-ast(lexer lexer)
 	as trusted_
 		lexer must-take-token trusted_
 		if lexer peek-token newline-same-indent
-			after = lexer parse-next-lines-or-empty
+			after = lexer must-parse-next-lines after-trusted
 			start trusted-ast after
 		else
 			lexer parse-trusted start, true
@@ -833,7 +828,7 @@ do
 		left = lexer parse-destructure-no-require-parens
 		_ = lexer take-or-add-diag-expected-token-and-may-continue-onto-next-line equal, equals
 		init = lexer parse-expr-no-let
-		then_ = lexer parse-next-lines-or-empty
+		then_ = lexer try-parse-next-lines
 		left let-ast init, then_
 
 -parse-try-let try-let-ast(lexer lexer, start pos)
@@ -843,7 +838,7 @@ do
 	catch-pos = lexer cur-pos
 	_ = lexer take-or-add-diag-expected-token catch_, catch_
 	catch_ = lexer parse-catch-after-keyword catch-pos
-	then_ = lexer parse-next-lines-or-empty
+	then_ = lexer try-parse-next-lines
 	start, destructure, value, catch_, then_
 
 -parse-statements expr-ast(lexer lexer)

@@ -305,7 +305,7 @@ do
 	local-type = ctx get-concrete-type e.destructure.type
 	value = ctx concretize-expr local-type, e.value
 	ctx concretize-with-destructure-and-let type, range, e.destructure, value, of
-		ctx concretize-expr type, e.then_
+		ctx concretize-expr-or-void type, range, e.then_
 
 -concretize-list concrete-expr
 	ctx concretize-expr-ctx
@@ -734,7 +734,10 @@ do
 	if unpack = expr.condition unpack-option
 		option = ctx concretize-expr unpack.option
 		if expr is-until
-			after = ctx concretize-expr-with-destructure type, range, unpack.destructure, expr.after
+			after = if after = expr after
+				ctx concretize-expr-with-destructure type, range, unpack.destructure, after
+			else
+				(), (ctx.concretize-ctx gen-void range)
 			body = ctx concretize-expr void.type, expr.body
 			if root = after local
 				###
@@ -789,7 +792,7 @@ do
 			body = ctx concretize-expr-with-destructure void.type, range, unpack.destructure, expr.body
 			if_ = range gen-if-option option, (body.local, (void.type gen-do-and-continue range, body.expr)), (range gen-break void)
 			loop_ = void.type gen-loop range, if_
-			range gen-seq loop_, do ctx concretize-expr type, expr.after
+			range gen-seq loop_, do ctx concretize-expr-or-void type, range, expr.after
 	elif expr.condition.condition-destructures !is-empty
 		if expr is-until
 			###
@@ -830,7 +833,10 @@ do
 				tuple-type gen-loop range, loop-body
 			root concrete-local = member2, tuple-type
 			get-root = range gen-local-get root
-			after mut = ctx concretize-with-locals-from-condition cond, type, expr.after
+			after mut = if after = expr after
+				ctx concretize-with-locals-from-condition cond, type, after
+			else
+				ctx.concretize-ctx gen-void range
 			for index, local in locals with-index
 				get-it = if locals.size == 1
 					get-root
@@ -861,7 +867,7 @@ do
 			loop-body = ctx concretize-complex-condition void.type, range, expr.condition, true-branch, of
 				range gen-break void
 			loop_ = void.type gen-loop range, loop-body
-			range gen-seq loop_, do ctx concretize-expr type, expr.after
+			range gen-seq loop_, do ctx concretize-expr-or-void type, range, expr.after
 	else
 		###
 		while cond
@@ -887,7 +893,7 @@ do
 		else
 			range gen-if condition, do-and-continue, break_
 		loop_ = void.type gen-loop range, if_
-		range gen-seq loop_, (ctx concretize-expr type, expr.after)
+		range gen-seq loop_, (ctx concretize-expr-or-void type, range, expr.after)
 
 -complex-condition-option-result record
 	model-locals local[]
@@ -1071,7 +1077,7 @@ do
 			ctx.concretize-ctx gen-error range,
 				ctx.cur-uri default-assert-or-forbid-message a, ctx.available-types, ctx.concretize-ctx.file-content-getters
 	after concrete-expr mut() = of
-		ctx concretize-expr a.after
+		ctx concretize-expr-or-void range, a.after
 	true-branch concrete-expr mut(), false-branch concrete-expr mut() =
 		if a is-forbid then throw_, after else after, throw_
 	ctx concretize-if type, model-type, range, a.condition, true-branch, false-branch
@@ -1079,6 +1085,17 @@ do
 -concretize-expr concrete-expr(ctx concretize-expr-ctx, a expr)
 	type = ctx get-concrete-type do a type ctx.available-types
 	ctx concretize-expr type, a
+
+-concretize-expr-or-void concrete-expr(ctx concretize-expr-ctx, type concrete-type, range uri-and-range, a expr?)
+	if a
+		ctx concretize-expr type, a
+	else
+		ctx.concretize-ctx gen-void range
+-concretize-expr-or-void concrete-expr(ctx concretize-expr-ctx, range uri-and-range, a expr?)
+	if a
+		ctx concretize-expr a
+	else
+		ctx.concretize-ctx gen-void range
 
 concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type, a expr)
 	model-type = a type ctx.available-types
@@ -1250,6 +1267,9 @@ do
 	local-type = ctx get-concrete-type a.destructure.type
 	value = ctx concretize-expr local-type, a.value
 	catch-member-index, catch-expr = ctx concretize-catch type, range, a.catch_
-	then_ = ctx concretize-expr-with-destructure type, range, a.destructure, a.then_
+	then_ = if then_ = a then_
+		ctx concretize-expr-with-destructure type, range, a.destructure, then_
+	else
+		(), (ctx.concretize-ctx gen-void range)
 	type, range,
 		then_.local try-let-concrete-expr value, catch-member-index, catch-expr, then_.expr

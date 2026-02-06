@@ -28,7 +28,8 @@ check-fun-or-test-body expr
 	params destructure[]
 	flags_ fun-flags
 	externs symbol-set
-	ast expr-ast
+	ast expr-ast?
+	source-for-empty-new call-expr-source?
 do
 	logged = container.fun-decl.?name == "LOGME"
 	if logged
@@ -45,7 +46,10 @@ do
 		externs: externs
 	for param in params
 		expr-ctx add-locals-for-destructure param
-	res = expr-ctx check-and-expect ast, return-type
+	res = if x = ast
+		expr-ctx check-and-expect x, return-type
+	else
+		expr-ctx check-empty-new source-for-empty-new!, source-for-empty-new!.name-range, return-type.expect
 	expr-ctx restore-locals 0
 	if logged
 		disable-inference-log
@@ -68,8 +72,6 @@ do
 		ctx check-call-named ast, expected
 	as do-ast
 		ctx check-expr ast.body, expected
-	as empty-ast
-		ctx check-empty-new ast, ast.range, expected
 	as extern-ast
 		ctx check-extern ast, expected
 	as finally-ast
@@ -164,11 +166,14 @@ do
 	second-branch = ctx with-extern-from-condition condition, !is-negated, of
 		ctx check-expr-with-condition-or-empty-new ast, \
 			(if is-negated then destructures), ast.second-branch, empty-new-range, expected
+	type = expected inferred
+	if ast is-guard and !ast.second-branch and type !is-void
+		ctx add-diag ast.first-keyword-range, guard_::diag-required-after
 	ast: ast
 	condition: condition
 	true-branch: if is-negated then second-branch else first-branch
 	false-branch: if is-negated then first-branch else second-branch
-	type: expected inferred
+	type: type
 -is-throw bool(a expr-ast?)
 	!!a.?throw-ast
 
@@ -242,7 +247,8 @@ do
 		ctx with-extern-from-condition condition, !is-forbid, of
 			ctx check-expr-with-destructures-and-refinements (if is-forbid then destructures), thrown-ast.expr, ctx.common-types.exception.expect	
 	after = ctx with-extern-from-condition condition, is-forbid, of
-		ctx check-expr-with-destructures-and-refinements (unless is-forbid then destructures), ast.after, expected
+		diag diag-required-after = if is-forbid then forbid_ else assert_
+		ctx check-required-after ast.keyword-range, (unless is-forbid then destructures), ast.after, diag, expected
 	ast assert-or-forbid-expr is-forbid, condition, thrown, after
 
 -check-assignment expr
@@ -280,9 +286,6 @@ do
 -check-assignment-call expr(ctx expr-ctx, ast assignment-call-ast, expected expected)
 	ctx check-assignment ast, ast.left, ast.keyword-range, expected, of arg-expected
 		ctx check-call-special ast, ast.fun-name.range, ast.fun-name.name, (ast.left, ast.right), arg-expected
-
--check-empty-new expr(ctx expr-ctx, source call-expr-source, range source-range, expected expected)
-	ctx check-call-list-no-multi source, range, (), expected
 
 -check-interpolated expr(ctx expr-ctx, ast interpolated-ast, expected expected)
 	ctx check-interpolated-inner ast, ast.range, ast.template, ast.interpolated, expected
@@ -665,8 +668,23 @@ do
 -check-let expr(ctx expr-ctx, ast let-ast, expected expected)
 	value-expr, value-type = ctx check-and-expect-or-infer ast.value, (ctx type-from-destructure ast.destructure)
 	destructure = ctx check-destructure ast.destructure, value-type, local
-	then_ = ctx check-expr-with-destructure destructure, ast.then_, expected
+	then_ = ctx check-required-after ast.destructure.range, destructure.to, ast.then_, let, expected
 	ast let-expr destructure, value-expr, then_
+
+-check-required-after expr?
+	ctx expr-ctx
+	diag-range source-range
+	destructures-and-refinements destructures-and-refinements
+	ast expr-ast?
+	kind diag-required-after
+	expected expected
+do
+	if ast
+		ctx check-expr-with-destructures-and-refinements destructures-and-refinements, ast, expected
+	else
+		unless t = expected.try-get-inexact-non-inferring-type and t is-void
+			ctx add-diag diag-range, kind
+			expected bogus diag-range
 
 -check-list expr(ctx expr-ctx, ast list-ast, expected expected)
 	if args expr-ast[] = ast.parts map-every it.expr-ast
@@ -755,7 +773,7 @@ do
 -check-loop-break expr(ctx expr-ctx, ast loop-break-ast, expected expected)
 	if loop_ = expected try-get-loop
 		loop_.has-break := true
-		value = ctx check-and-expect ast.value, loop_.type
+		value = ctx check-or-empty-new ast, ast.range, ast.value, loop_.type.expect
 		ast loop-break-expr loop_.loop_, value
 	else
 		ctx add-diag ast.range, break_::diag-loop-break-or-continue-outside-loop
@@ -772,7 +790,8 @@ do
 	condition = ctx check-condition ast.condition
 	destructures = condition condition-destructures-and-refinements
 	body = ctx check-expr-with-destructures-and-refinements (unless ast is-until then destructures), ast.body, ctx.void-type.expect
-	after = ctx check-expr-with-destructures-and-refinements (if ast is-until then destructures), ast.after, expected
+	diag diag-required-after = if ast is-until then until_ else while_
+	after = ctx check-required-after ast.keyword-range, (if ast is-until then destructures), ast.after, diag, expected
 	ast loop-while-or-until-expr condition, body, after
 
 -check-match expr(ctx expr-ctx, ast match-ast, expected expected)
@@ -1146,6 +1165,24 @@ do
 		ctx check-expr-with-destructures-and-refinements destructures, ast, expected
 	else
 		ctx check-empty-new parent, empty-new-range, expected
+-check-empty-new expr
+	ctx expr-ctx
+	parent call-expr-source
+	range source-range
+	expected expected
+do
+	ctx check-call-list-no-multi parent, range, (), expected
+-check-or-empty-new expr
+	ctx expr-ctx
+	parent call-expr-source
+	empty-new-range source-range
+	ast expr-ast?
+	expected expected
+do
+	if ast
+		ctx check-expr ast, expected
+	else
+		ctx check-empty-new parent, empty-new-range, expected
 
 -string-from-case-ast string?(ctx expr-ctx, ast case-member-ast)
 	match ast
@@ -1192,11 +1229,11 @@ do
 	value-expr, value-type = ctx check-and-expect-or-infer ast.value, (ctx type-from-destructure ast.destructure)
 	destructure = ctx check-destructure ast.destructure, value-type, local
 	catch_ = ctx check-catch! ast.catch_, expected, false
-	then_ = ctx check-expr-with-destructure destructure, ast.after, expected
+	then_ = ctx check-required-after ast.try-keyword-range, destructure.to, ast.after, try-let, expected
 	ast try-let-expr destructure, value-expr, catch_, then_, expected.inferred
 
 -check-typed expr(ctx expr-ctx, ast typed-ast, expected expected)
 	type = ctx type-from-ast ast.type
 	guard type !is-bogus else expected bogus ast.range
-	expr = ctx check-and-expect ast.expr, type
+	expr = ctx check-or-empty-new ast, ast.keyword-range, ast.expr, type.expect
 	ctx check expected, type, do ast typed-expr expr, type
