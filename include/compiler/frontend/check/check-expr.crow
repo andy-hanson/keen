@@ -178,17 +178,23 @@ do
 	!!a.?throw-ast
 
 -check-condition expr(ctx expr-ctx, ast expr-ast)
-	ctx check-expr ast, do ctx expected-for-condition ast
-
--expected-for-condition expected(ctx expr-ctx, ast expr-ast)
 	if ast.skip-parentheses logical-ast
-		# Expect the whole expression to be a bool to avoid ambiguity (with an 'option or option' expr)
-		ctx.common-types.bool expect
+		ctx check-and-expect ast, ctx.common-types.bool
 	else
+		# Since anything can implicitly convert to 't?', any expression can match this.
+		# But having this will guide code to prefer to exactly match 'bool' instead of converting to option.
 		choices type-and-context mut[] =
 			- ctx.common-types.bool, ()
 			- ctx.common-types.option.instantiated-with-own-type-params, ((),)
-		choices to
+		res = ctx check-expr ast, choices.to
+		# It may implicitly convert to an option and that's what 'expected inferred' gives.
+		# So use 'res type' to get the actual type.
+		type = res type ctx.available-types
+		if type is-bool or type is-option-type
+			res
+		else
+			ctx add-diag ast.range, do ctx type-with-container type diag-condition-type
+			ast.range bogus-expr ctx.common-types.bool
 
 -check-unpack-option unpack-option(ctx expr-ctx, ast unpack-option-ast)
 	expr, type = ctx check-and-expect-or-infer ast.option,
@@ -504,11 +510,18 @@ do
 	ast expr-ast
 	expected expected
 do
+	ctx check-with-destructures-and-refinements a, of
+		ctx check-expr ast, expected
+-check-with-destructures-and-refinements[t] t
+	ctx expr-ctx
+	a destructures-and-refinements
+	f t mut()
+do
 	restore = ctx.locals size
 	for destructure in a destructures
 		ctx add-locals-for-destructure destructure
 	ctx.refined-types ~~= a.refined-types
-	res = ctx check-expr ast, expected
+	res = f[]
 	ctx restore-locals restore
 	_ = ctx.refined-types pop-n a.refined-types.size
 	res
@@ -715,8 +728,8 @@ do
 	match ast kind
 	as and_
 		left = ctx check-condition ast.left
-		right = ctx check-expr-with-destructures-and-refinements left.condition-destructures-and-refinements, ast.right,
-			ctx expected-for-condition ast.right
+		right = ctx check-with-destructures-and-refinements left.condition-destructures-and-refinements, of
+			ctx check-condition ast.right
 		ctx check expected, bool, (ast, bool-and-bool, bool, left, right)::logical-expr
 	as else_
 		left = ctx check-with-modify-expected-option ast.left, expected, of actual
