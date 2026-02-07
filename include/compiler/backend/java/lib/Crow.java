@@ -9,7 +9,7 @@ public class Crow {
 	}
 
 	public static boolean referenceEqual(Object a, Object b) {
-		return a == b;		
+		return a == b;
 	}
 	public static boolean equalInt8(byte a, byte b) {
 		return a == b;

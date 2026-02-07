@@ -1,4 +1,5 @@
 import
+	crow/parse
 	../../model/ast
 	../../model/parse-diag
 	../../model/source-range
@@ -15,18 +16,18 @@ import
 
 parse-file file-ast(uri uri, source char8 array-view, lcg line-and-column-getter)
 	start = perf-now
-	res = uri create-lexer source parse-file-inner lcg
+	res = (uri, source) parse-file-inner lcg
 	start end-parse
 	res
 
 expr-and-diags record(expr expr-ast, diags parse-diagnostic[])
 parse-single-line-expression expr-and-diags(source string)
 	forbid "\n"::char8 in source.to::char8[]
-	lexer = () create-lexer source.to
+	lexer lexer = (), source.to
 	lexer must-take-token newline-same-indent
 	expr = lexer parse-single-statement-line
 	_ = lexer take-or-add-diag-expected-token end-of-file, end-of-line
-	expr, lexer.finish-diagnostics	
+	expr, lexer.finish-diagnostics
 
 -parse-type-params name-and-range[](lexer lexer)
 	if lexer try-take-token bracket-left
@@ -211,6 +212,7 @@ do
 	doc-comment, (lexer range start), visibility, name, type-params, kind-pos, kind, type, modifiers, initializer
 
 -parse-file-inner file-ast(lexer lexer, lcg line-and-column-getter)
+	lexer warn-trailing-whitespace lcg.line-and-character-getter
 	module-doc-comment mut = lexer try-take-doc-comment
 	no-std_ = lexer try-take-token no-std_
 	lexer skip-blank-lines
@@ -266,3 +268,16 @@ do
 	funs: funs move-to
 	tests: tests move-to
 	vars: vars move-to
+
+-warn-trailing-whitespace void(lexer lexer, lcg line-and-character-getter)
+	source = lcg source-text
+	for pos in lcg.line-to-pos[1 .. end]
+		guard pos > 1
+		source[pos - 1 to] is "\n"
+		if source[pos - 2 to] is-whitespace-non-newline
+			lexer add-diag ((source find-first-space pos - 2), pos), parse-diag-trailing-whitespace
+-find-first-space pos(source char8 array-view, end pos)
+	cur mut = end
+	while source[cur - 1 to] is-whitespace-non-newline
+		cur -:= 1
+	cur
