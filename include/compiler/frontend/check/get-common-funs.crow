@@ -21,9 +21,9 @@ do
 		ctx get-non-template-type diags, modules[module], name
 	instantiate-type type mut(decl struct-decl, type-args type-args) = of decl, type-args # todo: inline ------------------------------
 		decl[type-args]
-	get-fun-inner fun-inst mut(module crow-module, name symbol, return-type type, params param-short[]) = of module, name, return-type, params
-		(ctx get-fun diags, module, name, (), return-type, params, 0) instantiate-non-template-fun
-	get-fun fun-inst mut(module common-module, name symbol, return-type type, params param-short[]) = of module, name, return-type, params
+	get-fun-inner fun-inst mut(module crow-module, name symbol, return-type type, params type[]) = of module, name, return-type, params
+		ctx get-fun diags, module, name, (), return-type, params, 0 instantiate-non-template-fun
+	get-fun fun-inst mut(module common-module, name symbol, return-type type, params type[]) = of module, name, return-type, params
 		get-fun-inner[modules[module], name, return-type, params]
 
 	array-decl = ctx get-struct-decl-or-add-diag diags, modules[bootstrap], "array", 1
@@ -43,14 +43,15 @@ do
 		json-array: json-array struct-inst!
 		lambda-subscript: common-types get-lambda-subscript-funs modules[misc]
 		shared-of-mut-lambda: ctx get-fun diags, modules[runtime], "shared-of-mut-lambda", \
-			two-type-params, r-shared-of-p, (("a", r-mut-of-p),), 2
-		to-symbol-from-string: get-fun[symbol, "to", symbol-type, (("a", string-type),)]
-		json-named-new: get-fun[json, "named-new", json-type, (("keys", symbol-array), ("values", json-array))]
-		equal-symbol: get-fun[symbol, "==", bool-type, (("a", symbol-type), ("b", symbol-type))]
-		show-exception: get-fun[bootstrap, "show", string-type, (("a", common-types.exception),)]
+			two-type-params, r-shared-of-p, (r-mut-of-p,), 2
+		to-symbol-from-string: get-fun[symbol, "to", symbol-type, (string-type,)]
+		to-string-from-js-any: get-fun[string, "to", string-type, (common-types.js-any,)]
+		json-named-new: get-fun[json, "named-new", json-type, (symbol-array, json-array)]
+		equal-symbol: get-fun[symbol, "==", bool-type, (symbol-type, symbol-type)]
+		show-exception: get-fun[bootstrap, "show", string-type, (common-types.exception,)]
 		start-runtime: get-fun[runtime, "start-runtime", void, ()]
-		stop-runtime: get-fun[runtime, "stop-runtime", void, (("exit-code", nat64),)]
-		concat-arrays: ctx get-fun diags, modules[array], "~~", one-type-param, t-array, (("a", t-array), ("b", t-array)), 0
+		stop-runtime: get-fun[runtime, "stop-runtime", void, (nat64,)]
+		concat-arrays: ctx get-fun diags, modules[array], "~~", one-type-param, t-array, (t-array, t-array), 0
 	- diags move-to
 -get-fun fun-decl
 	ctx instantiate-ctx
@@ -59,10 +60,10 @@ do
 	name symbol
 	type-params type-params
 	return-type type
-	params param-short[]
+	params type[]
 	count-specs nat
 do
-	ctx get-fun-decl diags-builder, module, name, (type-params, return-type, params, count-specs)
+	ctx get-fun-decl diags-builder, module, name, do type-params, return-type, params, count-specs
 
 get-main-fun-and-diagnostics main-fun-and-diagnostics
 	ctx instantiate-ctx
@@ -91,10 +92,16 @@ do
 		diags-builder ~= res.range-for-diag, (res.required-externs - available-externs).to.diag-main-missing-externs
 	res, diags-builder.move-to
 
-make-param destructure(param param-short)
-	param.name.local-source-generated, immut, param.type
-make-params destructure[](params param-short[])
-	params map it.make-param
+make-param destructure(name symbol, type type)
+	name.local-source-generated, type
+make-params destructure[](params type[])
+	for index, type in params with-index
+		index.name.local-source-generated, type
+-name symbol(index nat)
+	match index
+	as 0 then "a"
+	as 1 then "b"
+	else then throw unreachable
 
 -test-at-line test-selector(diags-builder uri-and-diagnostic mut[], program program, uri uri, line nat)
 	module = program module-at-uri uri
@@ -154,7 +161,7 @@ do
 	actual.n-type-params == expected.type-params.size and
 	actual.return-type == expected.return-type and
 	actual.params arrays-correspond expected.params, of x, y
-		x.type == y.type
+		x.type == y
 
 -get-fun-decl fun-decl
 	ctx instantiate-ctx
@@ -166,10 +173,8 @@ do
 	ctx get-fun-decl-multi diags-builder, module, name, (expected-sig,) decl
 
 -get-main-fun main-fun(ctx instantiate-ctx, diags-builder uri-and-diagnostic mut[], main-module crow-module, common-types common-types)
-	args-params param-short[] =
-		- "args", common-types.string-array
 	sig0 type-params-and-sig = (), common-types.void, (), 0
-	sig1 type-params-and-sig = (), common-types.integrals.nat64, args-params, 0
+	sig1 type-params-and-sig = (), common-types.integrals.nat64, (common-types.string-array,), 0
 	decl = ctx get-fun-decl-multi diags-builder, main-module, "main", (sig0, sig1)
 	inst = decl.decl instantiate-non-template-fun
 	match decl sig-index

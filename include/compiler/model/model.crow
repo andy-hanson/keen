@@ -547,9 +547,8 @@ index-of-signature nat(a signature)
 type-params-and-sig record
 	type-params type-params
 	return-type type
-	params param-short[]
+	params type[]
 	count-specs nat
-param-short record(name symbol, type type)
 
 record-field-source union(single-destructure-ast, record-field-ast)
 	doc-comment doc-comment-ast()
@@ -1991,6 +1990,7 @@ common-funs record
 	lambda-subscript (fun-kind, fun-decl) enum-map
 	shared-of-mut-lambda fun-decl
 	to-symbol-from-string fun-inst
+	to-string-from-js-any fun-inst
 	json-named-new fun-inst
 	equal-symbol fun-inst
 	show-exception fun-inst
@@ -2436,13 +2436,11 @@ local-source-generated record(name symbol)
 
 local record force-data
 	source local-source
-	mutability mutability # TODO: just use a bool --------------------------------------------------------------------------------
-	is-used-in-closure mut bool
 	# This stores a 'reference' to the local's type, if it needs to be referenced mutably in some closure
 	closure-reference-type mut struct-inst?
 	type type
-new local(source local-source, mutability mutability, type type)
-	source, mutability, false, (), type
+new local(source local-source,  type type)
+	source, (), type
 == bool(a local, b local)
 	trusted a reference-equal b
 <=> comparison(_ local, _ local)
@@ -2464,7 +2462,7 @@ name symbol(a local)
 	as local-source-generated
 		source name
 is-mutable bool(a local)
-	a.mutability == mut_
+	(x = a.source single-destructure-ast) and x mut_
 local-must-have-name-range source-range(a local)
 	match source = a source
 	as catch-ast
@@ -2483,9 +2481,6 @@ local-must-have-name-range source-range(a local)
 		source range
 	else
 		throw unreachable
-
-mutability enum(immut, mut_) nat8 storage
-== bool(a mutability, b mutability)
 
 destructure union(destructure-ignore, local, destructure-split)
 to json(a destructure)
@@ -2549,11 +2544,6 @@ type type(a destructure)
 	as destructure-split
 		a destructured-type
 locals record(destructure destructure)
-size nat(a locals)
-	res mut nat = 0
-	for _ in a
-		res +:= 1
-	res
 iterate bool(a locals, f bool mut(x local))
 	match d = a destructure
 	as destructure-ignore
@@ -2563,8 +2553,6 @@ iterate bool(a locals, f bool mut(x local))
 	as destructure-split
 		d.parts iterate of part
 			part.locals iterate f
-to local[](a locals)
-	for x in a then x
 
 doc-comment record
 	ast doc-comment-ast
@@ -2772,32 +2760,26 @@ type type(a expr, types available-types?)
 	as unpack-option
 		common-types! bool
 
-destructures-and-refinements record
-	destructures destructure[]
-	refined-types (local, type)[]
-new destructures-and-refinements()
-	(), ()
-to destructures-and-refinements(a destructure)
-	(a,), ()
-~~ destructures-and-refinements(a destructures-and-refinements, b destructures-and-refinements)
-	a.destructures ~~ b.destructures, a.refined-types ~~ b.refined-types
-condition-destructures-and-refinements destructures-and-refinements(a expr)
-	match a
+condition-destructures-and-refinements record(expr expr)
+local-refinement record(local local, refined-type type)
+local-or-refinement union(local, local-refinement)
+condition-has-locals bool(a expr)
+	a.condition-destructures-and-refinements exists !!it.local
+iterate bool(a condition-destructures-and-refinements, f bool mut(x local-or-refinement))
+	_ local-or-refinement = trusted gc-safe-value # TODO: for some reason the compiler thinks 'local-or-refinement' is unused otherwise! ------------
+	match expr = a expr
 	as local-get-expr
-		l = a local
-		if l.mutability == immut and inner = l.type unwrap-option
-			destructures: ()
-			refined-types: (l, inner),
+		local = expr local
+		if local !is-mutable and inner = local.type unwrap-option
+			f[local, inner]
 	as logical-expr
-		if a.kind == bool-and-bool
-			a.left.condition-destructures-and-refinements ~~ a.right.condition-destructures-and-refinements
+		if expr.kind == bool-and-bool
+			expr.left.condition-destructures-and-refinements iterate f or
+			expr.right.condition-destructures-and-refinements iterate f
 	as unpack-option
-		destructures: a.destructure,
-		refined-types: ()
+		expr.destructure.locals iterate f[it]
 	else
 		()
-condition-destructures destructure[](a expr)
-	a.condition-destructures-and-refinements destructures
 
 extern-condition record
 	is-negated bool

@@ -8,6 +8,11 @@ import
 	java/io/File
 	java/io/FileOutputStream
 	java/io/OutputStream
+	java/lang/Class
+	java/lang/Enum
+	java/lang/Object
+	java/lang/String
+	java/lang/System
 	java/net/URI
 	java/net/URL
 	java/net/URLDecoder
@@ -21,14 +26,6 @@ import
 	java/nio/file/WatchEvent
 	java/nio/file/WatchKey
 	java/nio/file/WatchService
-	java/lang/Class
-	java/lang/Enum
-	java/lang/Module
-	java/lang/module/ModuleFinder
-	java/lang/module/ModuleReference
-	java/lang/Object
-	java/lang/String
-	java/lang/System
 	java/security/CodeSource
 	java/security/ProtectionDomain
 	java/util/Arrays
@@ -40,7 +37,6 @@ import
 	java/util/jar/JarOutputStream
 	java/util/jar/Manifest
 	java/util/List
-	java/util/Optional
 	java/util/stream/Stream
 	java/util/zip/ZipEntry
 	java/util/zip/ZipOutputStream
@@ -238,7 +234,7 @@ with-block[t] t(a with-file-reader, f t mut(a file-reader)) summon
 			files-in-directory-recursive: it.files-in-directory-recursive
 		f[reader]
 
--watch-file void(a file-reader, file file-path) # TODO: better name. This won't watch the file if we don't have watch-service set up. ---------------
+-watch-file void(a file-reader, file file-path)
 	guard service = a watch-service
 	guard a.watched-files try-add file
 	dir = file parent!
@@ -306,26 +302,21 @@ files-in-directory-recursive file-path[](a file-reader, root file-path)
 -find-java-base-jmod file-path() summon
 	trusted
 	if extern java
-		Object Class = "java.lang.Object" forName
-		module = Object getModule
-		assert module isNamed
-		finder ModuleFinder = ofSystem
-		ref ModuleReference = (finder find module.getName).get reinterpret-cast
-		uri URI = ref.location.get reinterpret-cast
-		# e.g. "java.base"
-		jmod-name = uri.toString.to::string try-remove-start! "jrt:/"
-		java-home string = "java.home".getProperty to
-		"{java-home}/jmods/{jmod-name}.jmod" must-parse-file-path
+		"java.base" path-to-jmod
 	elif extern js
-		"/usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod" must-parse-file-path # TODO -------------------------------------------------------
+		"/usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod" must-parse-file-path # TODO: JS code to find this
 	else
 		throw todo
+
+-path-to-jmod file-path(jmod-name string) unsafe, summon, java extern
+	java-home string = "java.home".getProperty to
+	"{java-home}/jmods/{jmod-name}.jmod" must-parse-file-path
 
 -read-java-class read-file-result(base-jmod file-path, class_ path, jmods FileSystem mut[file-path]) summon, java extern
 	trusted
 	# TODO: hax. Use a better method to determine which jmod the class belongs to -------------------------------------------------------------------
 	jmod = if class_.to::string starts-with "com/sun/"
-		"/usr/lib/jvm/java-25-openjdk-amd64/jmods/jdk.httpserver.jmod" must-parse-file-path
+		"jdk.httpserver" path-to-jmod
 	else
 		base-jmod
 	file-system = jmods ensure jmod, of
