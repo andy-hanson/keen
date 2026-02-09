@@ -3,72 +3,61 @@ import
 	../../model/parse-diag
 	../../model/source-range
 	./lexer
-	./lex-token
 	./token
-
-peek-token bool(lexer lexer, expected token)
-	lexer.get-peek-token == expected
+	./token-util
 
 try-take-token bool(lexer lexer, expected token)
-	if lexer peek-token expected
-		_ = lexer take-next-token
+	if lexer peek expected
+		lexer advance
 		true
 
 try-take-token-and-may-continue-onto-next-line bool(lexer lexer, expected token)
-	if lexer peek-token expected
-		_ = lexer take-next-token-may-continue-onto-next-line
+	if lexer peek expected
+		lexer advance-may-continue-onto-next-line
 		true
 
 try-take-operator bool(lexer lexer, expected symbol)
-	lexer try-take-token-if of x
-		x.token == operator and x.as-symbol == expected
-
--try-take-token-if bool(lexer lexer, cb bool data(x token-and-data))
-	(lexer try-take-token-cb of x then if cb[x] then true) else false
-try-take-token-cb[t] t?(lexer lexer, cb t? data(x token-and-data))
-	peek = lexer get-peek-token-and-data
-	res = cb[peek]
-	if res
-		_ = lexer take-next-token
-	res
+	guard lexer peek operator
+	guard lexer.next-symbol == expected
+	lexer advance
+	true
 
 take-or-add-diag-expected-token bool(lexer lexer, token token, kind parse-diag-expected)
 	res = lexer try-take-token token
 	unless res
-		lexer add-diag-at-char kind
+		lexer add-diag-at-next-token kind
 	res
 take-or-add-diag-expected-token-and-may-continue-onto-next-line bool(lexer lexer, token token, kind parse-diag-expected)
 	res = lexer try-take-token-and-may-continue-onto-next-line token
 	unless res
-		lexer add-diag-at-char kind
+		lexer add-diag-at-next-token kind
 	res
 
 add-diag-expected void(lexer lexer, kind parse-diag-expected)
-	lexer add-diag-at-char kind
+	lexer add-diag-at-next-token kind
 
 take-or-add-diag-expected-operator bool(lexer lexer, operator symbol, kind parse-diag-expected)
 	res = lexer try-take-operator operator
 	unless res
-		lexer add-diag-at-char kind
+		lexer add-diag-at-next-token kind
 	res
 
 try-take-name-and-range-allow-name-like-keywords name-and-range?(lexer lexer)
-	start = lexer cur-pos
-	res = lexer try-take-token-cb of x
-		if x.token == name
-			x as-symbol
-		else
-			x.token try-get-name-like-keyword
+	start = lexer next-start
+	token = lexer peek
+	res symbol? = if token == name
+		lexer next-symbol
+	else
+		token try-get-name-like-keyword
 	if res
+		lexer advance
 		start, res
 
 take-name-allow-name-like-keywords symbol(lexer lexer)
-	start = lexer cur-pos
-	res = lexer try-take-name-and-range-allow-name-like-keywords
-	if res
+	if res = lexer try-take-name-and-range-allow-name-like-keywords
 		res name
 	else
-		lexer add-diag (lexer range-for-cur-token start), name::parse-diag-expected
+		lexer add-diag-at-next-token name::parse-diag-expected
 		""
 
 -try-get-name-like-keyword symbol?(a token)
@@ -81,6 +70,8 @@ take-name-allow-name-like-keywords symbol(lexer lexer)
 		"flags"
 	as in_
 		"in"
+	as list-dash
+		"-"
 	as shared_
 		"shared"
 	as reserved-class
@@ -89,64 +80,61 @@ take-name-allow-name-like-keywords symbol(lexer lexer)
 		()
 
 try-take-name-and-range name-and-range?(lexer lexer)
-	start = lexer cur-pos
-	lexer try-take-token-cb of x
-		if x.token == name
-			start, x.as-symbol
+	if lexer peek name
+		lexer advance
+		lexer.prev-start, lexer.prev-symbol
 try-take-name-and-range-or-diag name-and-range?(lexer lexer)
-	start = lexer cur-pos
 	res = lexer try-take-name-and-range
 	unless res
-		lexer add-diag (lexer range-for-cur-token start), name::parse-diag-expected
+		lexer add-diag-at-next-token name::parse-diag-expected
 	res
 
 try-take-name-like-token name-and-range?(lexer lexer, token token)
-	guard lexer peek-token token
+	guard lexer peek token
 	res name-and-range =
-		start: lexer.cur-pos + (token == name-after-question).to
-		name: lexer.get-peek-token-and-data as-symbol
-	lexer must-take-token token
+		start: lexer.next-start + (token == name-after-question).to
+		name: lexer next-symbol
+	lexer advance
 	res
 
 try-take-name-colon symbol?(lexer lexer)
-	if lexer peek-token name-colon
-		lexer.take-next-token as-symbol
+	if lexer peek name-colon
+		lexer advance
+		lexer prev-symbol
 
 | Range does not include the ':'
 try-take-name-colon-and-range name-and-range?(lexer lexer)
-	start = lexer cur-pos
+	start = lexer next-start
 	if name = lexer try-take-name-colon
 		start, name
 
 take-name-and-range name-and-range(lexer lexer)
-	lexer try-take-name-and-range-or-diag else lexer.cur-pos, ""
+	lexer try-take-name-and-range-or-diag else lexer.next-start, ""
 
 take-name symbol(lexer lexer)
 	lexer.take-name-and-range name
 
 take-name-or-operator name-and-range(lexer lexer)
-	start pos = lexer cur-pos
-	if x = lexer try-take-token-cb it.try-get-name-or-operator
-		start, x
+	if res = lexer peek-name-or-operator
+		lexer advance
+		lexer.prev-start, res
 	else
-		lexer add-diag (lexer range-for-cur-token start), name-or-operator::parse-diag-expected
-		start, ""
+		lexer add-diag-at-next-token name-or-operator::parse-diag-expected
+		lexer.next-start, ""
 
--try-get-name-or-operator symbol?(a token-and-data)
-	if a.token is-symbol-token and a.token != name-or-operator-colon-equals
-		a as-symbol
+peek-name-or-operator symbol?(lexer lexer)
+	token = lexer.peek
+	if token is-symbol-token and token != name-or-operator-colon-equals
+		lexer next-symbol
 	else
-		a.token try-get-name-like-keyword
-
-peek-name-or-operator bool(lexer lexer)
-	!!lexer.get-peek-token-and-data.try-get-name-or-operator
+		token try-get-name-like-keyword
 
 skip-blank-lines void(lexer lexer)
 	while lexer try-take-token newline-same-indent
 		()
 
 peek-end-of-line bool(lexer lexer)
-	match lexer get-peek-token
+	match lexer peek
 	as newline-dedent
 		true
 	as newline-indent
@@ -160,7 +148,7 @@ peek-end-of-line bool(lexer lexer)
 
 take-dedent void(lexer lexer)
 	if lexer !try-take-token newline-dedent
-		lexer add-diag-at-char dedent::parse-diag-expected
+		lexer add-diag-at-next-token dedent::parse-diag-expected
 		while lexer.skip-to-next-newline-or-dedent != dedent
 			()
 
@@ -171,10 +159,10 @@ take-newline-or-dedent newline-or-dedent(lexer lexer)
 		newline
 	elif lexer try-take-token newline-dedent
 		dedent
-	elif lexer try-take-token end-of-file
+	elif lexer peek end-of-file
 		dedent
 	else
-		lexer add-diag-at-char newline-or-dedent::parse-diag-expected
+		lexer add-diag-at-next-token newline-or-dedent::parse-diag-expected
 		lexer skip-to-next-newline-or-dedent
 
 -skip-to-next-newline-or-dedent newline-or-dedent(lexer lexer)
@@ -183,14 +171,16 @@ take-newline-or-dedent newline-or-dedent(lexer lexer)
 	dedents-needed mut = init-dedents-needed
 	loop
 		lexer skip-until-newline-no-diag
-		match lexer.take-next-token token
+		match lexer peek
 		as newline-dedent
+			lexer advance
 			if dedents-needed == 0
 				break dedent
 			else
 				dedents-needed -:= 1
 				continue
 		as newline-same-indent
+			lexer advance
 			if dedents-needed == 0
 				break newline
 			else
@@ -199,6 +189,7 @@ take-newline-or-dedent newline-or-dedent(lexer lexer)
 			dedents-needed is 0
 			break newline
 		as newline-indent
+			lexer advance
 			dedents-needed +:= 1
 			continue
 		else
@@ -219,16 +210,14 @@ parse-indented-lines-after-indent[t] t[](lexer lexer, f t mut())
 				break
 
 take-indent-or-fail-generic[t] t(lexer lexer, cb-indent t mut(), cb-fail t mut(x source-range))
-	start = lexer cur-pos
 	if lexer try-take-token newline-indent
 		cb-indent[]
 	else
-		range = lexer range-for-cur-token start
-		lexer add-diag range, indent::parse-diag-expected
-		cb-fail[range]
+		lexer add-diag-at-next-token indent::parse-diag-expected
+		cb-fail[lexer next-range]
 
 try-take-literal-number literal-number?(lexer lexer)
-	start = lexer cur-pos
+	start = lexer next-start
 	if lexer try-take-token literal-number
 		- lexer range start
 
@@ -244,7 +233,7 @@ add-diag-if-trailing-comma void(lexer lexer, trailing-comma source-range?)
 take-comma-separated-names source-range?(lexer lexer, names name-and-range array-builder)
 	loop
 		names ~= lexer take-name-or-operator
-		start = lexer cur-pos
+		start = lexer next-start
 		if lexer try-take-token comma
 			if lexer peek-end-of-line
 				break lexer range start
@@ -255,13 +244,9 @@ take-comma-separated-names source-range?(lexer lexer, names name-and-range array
 
 parse-with-separator[t] t[](lexer lexer, separator token, f t mut())
 	with out in build
-		lexer parse-with-separator separator, of
+		out ~= f[]
+		while lexer try-take-token separator
 			out ~= f[]
-
-parse-with-separator void(lexer lexer, separator token, cb void mut())
-	cb[]
-	while lexer try-take-token separator
-		cb[]
 
 it-scope-if record(args expr-ast[], allow-it bool)
 it-scope it-scope-if(args expr-ast[])
@@ -269,11 +254,6 @@ it-scope it-scope-if(args expr-ast[])
 with-block expr-ast(a it-scope-if, f expr-ast mut(args expr-ast[]))
 	if a.allow-it and a.args exists !!it.it-scope-ast::it-scope-ast?
 		f[a.args map of x then x.it-scope-ast ?inner else x] it-scope-ast
-	else
-		f[a args]
-with-block name-or-string-ast(a it-scope-if, f name-or-string-ast mut(args expr-ast[]))
-	if a.allow-it and a.args exists !!it.it-scope-ast::it-scope-ast?
-		f[a.args map of x then x.it-scope-ast ?inner else x].to it-scope-ast
 	else
 		f[a args]
 it-scope-single record(arg expr-ast)
@@ -285,3 +265,9 @@ with-block expr-ast(a it-scope-single, f expr-ast mut(arg expr-ast))
 		f[arg inner] it-scope-ast
 	else
 		f[arg]
+
+take-after-interpolated void(lexer lexer)
+	unless lexer take-or-add-diag-expected-token brace-right, close-interpolated
+		# Lexer guarantees a fake 'brace-right' token in interpolated
+		until lexer try-take-token brace-right
+			lexer advance

@@ -1,41 +1,43 @@
 import
-	crow/parse
-	../../../crow/private/parse-util
-	../../model/ast
 	../../model/parse-diag
 	../../model/source-range
 	../../model/uri
-	./lex-string
 	./lex-token
-	./lex-whitespace
 	./token
+	./token-util
 
 lexer record mut
+	-next-index mut nat
+	-tokens-starts-ends token-start-end[]
+	-datas token-data[]
 	uri uri
-	ptr string-iterator
-	-indent-kind indent-kind
-	| This is the indent at {ptr}, after {next-token}
-	-cur-indent nat32 reference
-	prev-token-end mut pos # TODO:PRIVATE ------------------------------------------------------------------------------------------
-	-next-token-pos mut pos
 	-diagnostics-builder parse-diagnostic mut[]
-	-next-token mut token-and-data
+	-source char8 array-view
 
 new lexer(uri uri, source char8 array-view)
-	iter string-iterator = source begin
-	indent-kind = iter detect-indent-kind
-	lexer lexer = uri, iter, indent-kind, (0,), 0, 0, (), (alias_,)
-	lexer.next-token := lexer.ptr lex-initial-token lexer.indent-kind, lexer.cur-indent, of diag
-		lexer add-diag-from-pointer diag
-	lexer
+	diagnostics parse-diagnostic mut[] = ()
+	tokens = source lex-tokens diagnostics
+	0, tokens.tokens-starts-ends, tokens.datas, uri, diagnostics, source
 
--add-diag-from-pointer void(lexer lexer, (start pos, diag parse-diag)) # TODO: RENAME -----------------------------------------
-	lexer add-diag (start, lexer.pos-at-ptr), diag
+prev-range source-range(lexer lexer)
+	lexer.prev-start, lexer.prev-end
+prev-start pos(lexer lexer)
+	lexer.tokens-starts-ends[lexer.next-index - 1] start
+prev-end pos(lexer lexer)
+	lexer.tokens-starts-ends[lexer.next-index - 1] end
+-prev-token-data token-data(lexer lexer)
+	lexer.datas[lexer.next-index - 1]
+prev-string string(lexer lexer)
+	lexer.prev-token-data string!
+prev-symbol symbol(lexer lexer)
+	lexer.prev-token-data symbol!
 
-cur-pos pos(lexer lexer)
-	lexer next-token-pos
-pos-at-ptr pos(lexer lexer) # TODO: INTERNAL -------------------------------------------------------------------------------
-	lexer.ptr pos
+next-range source-range(lexer lexer)
+	lexer.tokens-starts-ends[lexer next-index] range
+next-start pos(lexer lexer)
+	lexer.tokens-starts-ends[lexer.next-index] start
+next-symbol symbol(lexer lexer)
+	lexer.datas[lexer next-index] symbol!
 
 add-diag void(lexer lexer, range source-range, diag parse-diag)
 	lexer.diagnostics-builder ~= range, diag
@@ -43,193 +45,106 @@ add-diag void(lexer lexer, range source-range, diag parse-diag)
 finish-diagnostics parse-diagnostic[](lexer lexer)
 	lexer.diagnostics-builder move-to
 
-add-diag-at-char void(lexer lexer, diag parse-diag)
-	lexer add-diag lexer.range-at-char, diag
+add-diag-at-next-token void(lexer lexer, diag parse-diag)
+	lexer add-diag lexer.next-range, diag
 
-range-at-char source-range(lexer lexer)
-	start: lexer cur-pos
-	end: lexer.cur-pos + if lexer.ptr.peek8 == "\0" then 0 else 1
-
-add-diag-unexpected-cur-token void(lexer lexer, start pos, token token-and-data)
-	diag parse-diag = match token token
-	as unexpected-character
-		token.as-unexpected-character parse-diag-unexpected-character
+add-diag-unexpected-next-token void(lexer lexer)
+	lexer add-diag-unexpected-inner lexer.next-index
+add-diag-unexpected-prev-token void(lexer lexer)
+	lexer add-diag-unexpected-inner lexer.next-index - 1
+-add-diag-unexpected-inner void(lexer lexer, index nat)
+	token = lexer.tokens-starts-ends[index]
+	lexer add-diag token.range, match token token
 	as operator
-		token.as-symbol parse-diag-unexpected-operator
+		lexer.datas[index].symbol! parse-diag-unexpected-operator
 	else
 		token.token parse-diag-unexpected-token
-	lexer add-diag (lexer range-for-cur-token start), diag
 
 range source-range(lexer lexer, start pos)
-	start, (lexer.prev-token-end max start) # TODO: shouldn't need 'max' ---------------------------------------------------------
-
-range-for-cur-token source-range(lexer lexer, start pos)
-	if lexer.get-peek-token is-newline-token
-		start, start
-	else
-		start, (lexer.pos-at-ptr max start)
+	prev mut = lexer.next-index - 1
+	while lexer.tokens-starts-ends[prev].token is-newline-token
+		prev -:= 1
+	start, lexer.tokens-starts-ends[prev].end
 
 skip-until-newline-no-diag void(lexer lexer)
-	unless lexer.get-peek-token is-newline-token
-		lexer.ptr skip-until-newline
-		lexer read-next-token
-	assert lexer.get-peek-token is-newline-token
+	until lexer.peek is-newline-token
+		lexer advance
 
-must-take-token void(lexer lexer, token token)
-	actual = lexer.take-next-token token
-	actual is token
+advance void(lexer lexer)
+	lexer.next-index +:= 1
 
-take-next-token token-and-data(lexer lexer)
-	res = lexer next-token
-	if res.token == newline-dedent
-		extra-dedents = res as-extra-dedents
-		lexer.next-token := if extra-dedents == 0
-			newline-same-indent, (0,)::extra-dedents # TODO: do we need the extra-dedents for this token?????????????????
-		else
-			newline-dedent, (extra-dedents - 1,)::extra-dedents
-	elif res.token is-quote-token
-		lexer.next-token := quoted-text,
-	else
-		lexer read-next-token
+take-next-token token(lexer lexer)
+	res = lexer peek
+	lexer advance
 	res
 
--is-quote-token bool(a token)
-	a == quote-bar or a == quote-double
+advance-may-continue-onto-next-line void(lexer lexer)
+	lexer advance
+	while lexer peek newline-same-indent
+		lexer advance
 
-take-next-token-may-continue-onto-next-line token-and-data(lexer lexer)
-	res = lexer take-next-token
-	while lexer.next-token.token == newline-same-indent
-		x = lexer take-next-token
-		x.token is newline-same-indent
-	res
+peek token(lexer lexer)
+	lexer.tokens-starts-ends[lexer next-index] token
+peek bool(lexer lexer, expected token)
+	lexer.peek == expected
+peek2 token(lexer lexer)
+	lexer.tokens-starts-ends[lexer.next-index + 1] token
+peek2 bool(lexer lexer, expected token)
+	lexer.peek2 == expected
 
--read-next-token void(lexer lexer)
-	lexer.prev-token-end := lexer pos-at-ptr
-	lexer.ptr skip-spaces-and-comments it.noop, of diag
-		lexer add-diag-from-pointer diag
-	lexer.next-token-pos := lexer pos-at-ptr
-	lexer.next-token := lexer.ptr lex-token lexer.indent-kind, lexer.next-token.token, lexer.cur-indent, of diag
-		lexer add-diag-from-pointer diag
-
-get-peek-token-and-data token-and-data(lexer lexer)
-	lexer next-token
-get-peek-token token(lexer lexer)
-	lexer.get-peek-token-and-data token
-
-take-closing-brace-then-string-part string-part(lexer lexer, quote-kind quote-kind)
-	if lexer.get-peek-token != brace-right
-		lexer add-diag-at-char close-interpolated
-		lexer.ptr.pos := lexer prev-token-end
-		# Recover previous indent level (this matters for indented strings)
-		match lexer get-peek-token
-		as newline-dedent
-			extra = lexer.get-peek-token-and-data as-extra-dedents
-			restore = lexer.cur-indent.get + 1 + extra
-			lexer.cur-indent set restore
-		as newline-indent
-			restore = lexer.cur-indent.get - 1
-			lexer.cur-indent set restore
-		else
-			()
-		lexer.next-token := brace-right,
-	lexer take-string-part-common quote-kind
-
-take-initial-string-part string-part(lexer lexer, quote-kind quote-kind)
-	lexer.get-peek-token is if quote-kind == indented then newline-indent else quoted-text
-	res = lexer take-string-part-common quote-kind
-	if quote-kind == indented
-		res
-	else
-		(res.range.start - 1, res.range.end), res.text, res.after
-
--take-string-part-common string-part(lexer lexer, quote-kind quote-kind)
-	if quote-kind == indented
-		lexer take-indented-string-inner
-	else
-		res = lexer.ptr take-string-part quote-kind, of diag
-			lexer add-diag-from-pointer diag
-		# Don't skip newline token (which is a parse error)
-		unless lexer.get-peek-token is-newline-token
-			_ = lexer take-next-token
-		res
-
--take-indented-string-inner string-part(lexer lexer)
-	range, text, after = lexer.ptr take-indented-quote-part lexer.indent-kind, lexer.cur-indent, of diag
-		lexer add-diag-from-pointer diag
-	after2 = match after
-	as nat32
-		assert after > 0
-		lexer.prev-token-end := lexer pos-at-ptr
-		lexer.next-token-pos := lexer pos-at-ptr
-		lexer.next-token := newline-dedent, (after - 1,)::extra-dedents
-		done
-	as lbrace
-		_ = lexer take-next-token
-		lbrace
-	range, text, after2
-
-list-part-kind enum(single, multi)
--as-list-part-kind list-part-kind?(a symbol)
-	match a
-	as "-"
-		single
-	as "--"
-		multi
-	else
-		()
-
-try-take-list-part-kind list-part-kind?(lexer lexer)
-	n = lexer next-token
-	guard n.token == operator
-	guard res = n.as-symbol as-list-part-kind
-	guard lexer.ptr.peek8 is-whitespace
-	lexer must-take-token operator
-	res
 lookahead-equals bool(lexer lexer)
-	lexer.ptr lookahead-equals lexer.get-peek-token
-
+	cur mut = lexer next-index
+	if lexer.tokens-starts-ends[cur].token == try_
+		cur +:= 1
+	parens mut nat = 0
+	brackets mut nat = 0
+	loop
+		token = lexer.tokens-starts-ends[cur] token
+		cur +:= 1
+		match token
+		as equal
+			break parens == 0 and brackets == 0
+		as comma then continue
+		as data_ then continue
+		as mut_ then continue
+		as name then continue
+		as question then continue
+		as shared_ then continue
+		as underscore then continue
+		as paren-left
+			parens +:= 1
+			continue
+		as paren-right
+			if parens == 0
+				break false
+			else
+				parens -:= 1
+				continue
+		as bracket-left
+			brackets +:= 1
+			continue
+		as question-bracket
+			brackets +:= 1
+			continue
+		as bracket-right
+			if brackets == 0
+				break false
+			else
+				brackets -:= 1
+				continue
+		else
+			break false
 lookahead-equals-for-match bool(lexer lexer)
-	lexer.ptr lookahead-equals-for-match
+	lexer peek name and lexer peek2 equal
 
 lookahead-new-visibility bool(lexer lexer)
-	lexer.get-peek-token-and-data is-visibility and lexer.ptr lookahead-keyword "new"
--is-visibility bool(a token-and-data)
-	if a.token == operator
-		op = a as-symbol
-		op == "-" or op == "~" or op == "+"
-
-lookahead-open-paren bool(lexer lexer)
-	lexer.ptr.peek8 == "("
-lookahead-open-bracket bool(lexer lexer)
-	lexer.ptr.peek8 == "["
-
-| Returns position of "as"
-try-take-newline-then-as pos?(lexer lexer)
-	lexer try-take-newline-then-keyword as_, "as"
-try-take-newline-then-catch pos?(lexer lexer)
-	lexer try-take-newline-then-keyword catch_, "catch"
-| Returns position of "else"
-try-take-newline-then-else pos?(lexer lexer)
-	lexer try-take-newline-then-keyword else_, "else"
--try-take-newline-then-keyword pos?(lexer lexer, keyword token, keyword-string string)
-	if lexer.get-peek-token == newline-same-indent and lexer.ptr lookahead-keyword keyword-string
-		_ = lexer must-take-token newline-same-indent
-		keyword-pos = lexer cur-pos
-		_ = lexer must-take-token keyword
-		keyword-pos
-
-elif-or-else-keyword record(kind elif-or-else, pos pos)
-try-take-newline-then-elif-or-else elif-or-else-keyword?(lexer lexer)
-	guard lexer.get-peek-token == newline-same-indent
-	guard kind = lexer.ptr lookahead-elif-or-else
-	lexer must-take-token newline-same-indent
-	pos = lexer cur-pos
-	lexer must-take-token kind.to
-	kind, pos
-
--to token(a elif-or-else)
+	guard lexer peek operator
+	guard lexer.next-symbol is-visibility
+	guard lexer peek2 name
+	lexer.datas[lexer.next-index + 1].symbol! == "new"
+-is-visibility bool(a symbol)
 	match a
-	as elif_
-		elif_
-	as else_
-		else_
+	as "-" then true
+	as "~" then true
+	as "+" then true
+	else then false

@@ -4,12 +4,12 @@ import
 	../../model/source-range
 	../../util/util
 	./lexer
-	./lex-token
 	./parse-util
 	./token
+	./token-util
 
 try-take-visibility visibility?(lexer lexer)
-	if lexer try-take-operator "-"
+	if lexer try-take-operator "-" or lexer try-take-token list-dash
 		private
 	elif lexer try-take-operator "+"
 		public
@@ -22,7 +22,7 @@ parse-type-arg-for-var-decl type-ast(lexer lexer)
 		_ = lexer take-or-add-diag-expected-token paren-right, closing-paren
 		res
 	else
-		lexer.range-at-char bogus-type-ast
+		lexer.next-range bogus-type-ast
 
 try-parse-type-arg-for-expr type-ast?(lexer lexer)
 	if lexer try-take-token at
@@ -45,16 +45,19 @@ parse-modifiers modifier-ast[](lexer lexer)
 				out ~= lexer parse-modifier
 
 -parse-modifier modifier-ast(lexer lexer)
-	start = lexer cur-pos
+	start = lexer next-start
 	if keyword = lexer try-take-modifier-keyword
 		((), start, keyword)::modifier-keyword-ast
 	else
 		lexer parse-modifier-suffixes (lexer parse-type-before-suffixes unnecessary)
 
 -try-take-modifier-keyword modifier-keyword?(lexer lexer)
-	res modifier-keyword? = lexer try-take-token-cb it.token.to
-	res or if lexer lookahead-new-visibility
-		visibility = lexer.try-take-visibility !
+	res modifier-keyword? = lexer.peek to
+	if res
+		lexer advance
+		res
+	elif lexer lookahead-new-visibility
+		visibility = lexer try-take-visibility!
 		name = lexer take-name
 		name is "new"
 		visibility new-visibility
@@ -64,7 +67,7 @@ parse-modifiers modifier-ast[](lexer lexer)
 
 | Ensures that 't data' or 't shared' parses as a spec and not a modifier
 -try-take-modifier-keyword-non-spec modifier-keyword?(lexer lexer)
-	unless lexer.get-peek-token is-data-or-shared
+	unless lexer.peek is-data-or-shared
 		lexer try-take-modifier-keyword
 -is-data-or-shared bool(a token)
 	a == data_ or a == shared_
@@ -82,7 +85,7 @@ parse-type-for-typed-expr type-ast(lexer lexer)
 	lexer parse-type-suffixes-non-name (lexer parse-type-before-suffixes necessary)
 
 parse-destructure-require-parens destructure-ast(lexer lexer)
-	start = lexer cur-pos
+	start = lexer next-start
 	if lexer try-take-token paren-left
 		if lexer try-take-token paren-right
 			lexer range start void-destructure-ast
@@ -95,11 +98,11 @@ parse-destructure-require-parens destructure-ast(lexer lexer)
 	else
 		lexer.take-name-and-range single-destructure-ast lexer.try-take-mut, lexer.try-take-type
 -try-take-mut pos?(lexer lexer)
-	pos = lexer cur-pos
+	pos = lexer next-start
 	if lexer try-take-token mut_
 		pos
 -try-take-type type-ast?(lexer lexer)
-	unless lexer.get-peek-token is-destructure-end then lexer parse-type
+	unless lexer.peek is-destructure-end then lexer parse-type
 
 -is-destructure-end bool(a token)
 	a == comma or
@@ -119,7 +122,7 @@ try-parse-sum-type-listed-types-parenthesized type-ast[]?(lexer lexer)
 		lexer parse-types-with-commas-then-closing-paren
 
 try-parse-params-parenthesized destructure-ast[]?(lexer lexer)
-	if lexer peek-token paren-left
+	if lexer peek paren-left
 		lexer parse-params-parenthesized
 
 params-kind enum(indented, parenthesized)
@@ -149,16 +152,17 @@ parse-params-parenthesized destructure-ast[](lexer lexer)
 -== bool(a parentheses-necessary, b parentheses-necessary)
 
 -parse-type-before-suffixes type-ast(lexer lexer, parens parentheses-necessary)
-	start = lexer cur-pos
-	match lexer get-peek-token
+	start = lexer next-start
+	match lexer peek
 	as name
-		start name-and-range lexer.take-next-token.as-symbol
+		lexer advance
+		start name-and-range lexer.prev-symbol
 	as paren-left
-		lexer must-take-token paren-left
+		lexer advance
 		lexer parse-tuple-type start, parens
 	else
-		lexer add-diag-unexpected-cur-token start, lexer.get-peek-token-and-data
-		lexer range-for-cur-token start bogus-type-ast
+		lexer add-diag-unexpected-next-token
+		lexer.next-range bogus-type-ast
 
 -parse-tuple-type type-ast(lexer lexer, start pos, parens parentheses-necessary)
 	args type-ast[] = lexer parse-types-with-commas-then-closing-paren
@@ -183,7 +187,7 @@ parse-params-parenthesized destructure-ast[](lexer lexer)
 		left
 
 -parse-modifier-suffixes modifier-ast(lexer lexer, left type-ast)
-	keyword-pos = lexer cur-pos
+	keyword-pos = lexer next-start
 	if keyword = lexer try-take-modifier-keyword-non-spec
 		left modifier-keyword-ast keyword-pos, keyword
 	elif suffix = lexer parse-type-suffix-non-name of then left
@@ -194,11 +198,11 @@ parse-params-parenthesized destructure-ast[](lexer lexer)
 		() spec-use-ast name
 	else
 		lexer add-diag-expected name
-		left spec-use-ast (lexer.cur-pos, "")
+		left spec-use-ast (lexer.next-start, "")
 
 -parse-modifier-suffixes-after-name modifier-ast(lexer lexer, left type-ast, name name-and-range)
 	name-is-type type-ast data() = of then left suffix-name-type-ast name
-	keyword-pos = lexer cur-pos
+	keyword-pos = lexer next-start
 	if keyword = lexer try-take-modifier-keyword-non-spec
 		name-is-type[] modifier-keyword-ast keyword-pos, keyword
 	elif suffix = lexer parse-type-suffix-non-name name-is-type
@@ -208,14 +212,14 @@ parse-params-parenthesized destructure-ast[](lexer lexer)
 	else
 		left spec-use-ast name
 
-parse-type-suffixes-non-name type-ast(lexer lexer, left type-ast)
+-parse-type-suffixes-non-name type-ast(lexer lexer, left type-ast)
 	if suffix = lexer parse-type-suffix-non-name of then left
 		lexer parse-type-suffixes-non-name suffix
 	else
 		left
 
 -parse-type-suffix-non-name type-ast?(lexer lexer, cb-left type-ast data()) # TODO: does cb-left sitll need to be a cb???
-	suffix-pos = lexer cur-pos
+	suffix-pos = lexer next-start
 	suffix2 type-ast data(kind suffix-special-type-ast-kind, left type-ast) = of kind, left
 		left suffix-special-type-ast suffix-pos, kind
 	suffix1 type-ast data(kind suffix-special-type-ast-kind) = of kind
@@ -227,27 +231,27 @@ parse-type-suffixes-non-name type-ast(lexer lexer, left type-ast)
 	map-like1 type-ast mut(kind map-type-ast-kind) = of kind
 		map-like2[kind, cb-left[]]
 
-	match lexer get-peek-token
+	match lexer peek
 	as question
-		lexer must-take-token question
+		lexer advance
 		suffix1[option]
 	as bracket-left
-		lexer must-take-token bracket-left
+		lexer advance
 		if lexer try-take-token bracket-right
 			suffix1[array]
 		else
 			map-like1[map]
 	as question-bracket
-		lexer must-take-token question-bracket
+		lexer advance
 		left = suffix1[option]
 		if lexer try-take-token bracket-right
 			left suffix-special-type-ast suffix-pos + 1, array
 		else
 			map-like2[map, left]
 	as mut_
-		lexer try-parse-fun-type suffix-pos, mut_, mut_, cb-left or
-			mut-pos = lexer cur-pos
-			lexer must-take-token mut_
+		lexer try-parse-fun-type suffix-pos, mut_, cb-left or
+			mut-pos = lexer next-start
+			lexer advance
 			if lexer try-take-token bracket-left
 				if lexer try-take-token bracket-right
 					suffix1[mut-array]
@@ -257,13 +261,13 @@ parse-type-suffixes-non-name type-ast(lexer lexer, left type-ast)
 				lexer add-diag (lexer range mut-pos), parse-diag-type-trailing-mut
 				()
 	as data_
-		lexer try-parse-fun-type suffix-pos, data_, data_, cb-left
+		lexer try-parse-fun-type suffix-pos, data_, cb-left
 	as shared_
-		if fun = lexer try-parse-fun-type suffix-pos, shared_, shared_, cb-left
+		if fun = lexer try-parse-fun-type suffix-pos, shared_, cb-left
 			fun
-		elif lexer lookahead-open-bracket
-			lexer must-take-token shared_
-			lexer must-take-token bracket-left
+		elif lexer peek2 bracket-left
+			lexer advance
+			lexer advance
 			if lexer try-take-token bracket-right
 				suffix1[shared-array]
 			else
@@ -271,9 +275,9 @@ parse-type-suffixes-non-name type-ast(lexer lexer, left type-ast)
 	else
 		()
 
-try-parse-fun-type fun-type-ast?(lexer lexer, keyword-pos pos, keyword token, kind fun-kind, return-type type-ast data())
-	guard lexer lookahead-open-paren
-	lexer must-take-token keyword
-	before-params = lexer cur-pos
+-try-parse-fun-type fun-type-ast?(lexer lexer, keyword-pos pos, kind fun-kind, return-type type-ast data())
+	guard lexer peek2 paren-left
+	lexer advance
+	before-params = lexer next-start
 	params = lexer parse-params-parenthesized
 	return-type[], keyword-pos, kind, (lexer range before-params), params

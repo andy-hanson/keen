@@ -67,6 +67,7 @@ parse-command-inner command(cwd file-path, os os, args string[])
 	build
 	check
 	lsp
+	perf-test
 	print
 	run
 	test_
@@ -79,6 +80,8 @@ parse-command-inner command(cwd file-path, os os, args string[])
 		"check"
 	as lsp
 		"lsp"
+	as perf-test
+		"perf-test"
 	as print
 		"print"
 	as run
@@ -97,6 +100,8 @@ parse-command-inner command(cwd file-path, os os, args string[])
 		check
 	as lsp
 		lsp
+	as perf-test
+		perf-test
 	as print
 		print
 	as run
@@ -118,6 +123,7 @@ parse-command-inner command(cwd file-path, os os, args string[])
 	expected-paths
 	needs-single-path
 	parse-file-path
+	perf-test-kind-invalid
 	print-kind-invalid
 	redundant-part
 	test-line-number-invalid
@@ -131,6 +137,7 @@ parse-command-inner command(cwd file-path, os os, args string[])
 -expected-paths record(tag string?)
 -needs-single-path record(actual nat)
 -parse-file-path record(actual string)
+-perf-test-kind-invalid record
 -print-kind-invalid record
 -redundant-part record
 	redundant-tag string
@@ -166,6 +173,8 @@ parse-command-inner command(cwd file-path, os os, args string[])
 			"This command expects a single path. Instead got {a actual}."
 	as parse-file-path
 		"Not a valid file path: {a.actual quoted}."
+	as perf-test-kind-invalid
+		"Not a valid perf-test command."
 	as print-kind-invalid
 		"Not a valid print command."
 	as redundant-part
@@ -192,7 +201,7 @@ do
 	as check
 		options = diags parse-check-options args.named
 		diags expect-empty-after-dash-dash args.after
-		paths = cwd parse-root-uris diags, args.nameless
+		paths = cwd parse-root-uris diags, args.nameless.to
 		::check-command
 		root-uris: paths
 		times: options times
@@ -201,6 +210,8 @@ do
 	as lsp
 		diags expect-all-empty args
 		lsp-command
+	as perf-test
+		cwd parse-perf-test-command diags, args
 	as print
 		cwd parse-print-command diags, args
 	as run
@@ -295,11 +306,30 @@ default-executable-extension symbol(os os)
 	type = a file-type
 	type in (crow, crow-config)::file-type[]
 
--parse-root-uris uri[](cwd file-path, diags diags, args string[])
+-parse-root-uris uri[](cwd file-path, diags diags, args string array-view)
 	if args is-empty
 		diags ~= () expected-paths
 	for arg in args
 		cwd parse-crow-or-crow-config-uri diags, arg
+
+-parse-perf-test-command command-kind(cwd file-path, diags diags, args parsed-command)
+	diags expect-empty-after-dash-dash args.after
+	subcommand = args.nameless[0]
+	res command-kind? = match subcommand
+	as parse
+		times mut nat = 1
+		for part in args named
+			match tag = part a
+			as times
+				times := diags expect-nat part
+			else
+				diags ~= tag unexpected-part
+		cwd parse-root-uris diags, args.nameless[1 .. end] perf-test-parse-command times
+	else
+		()
+	res else
+		diags ~= perf-test-kind-invalid
+		bogus
 
 -parse-print-command command-kind(cwd file-path, diags diags, args parsed-command)
 	diags expect-empty-after-dash-dash args.after
@@ -308,8 +338,11 @@ default-executable-extension symbol(os os)
 	as ast
 		guard args.named is-empty
 		cwd parse-main-uri diags, args.nameless[1 .. end] print-ast-command
+	as tokens
+		guard args.named is-empty
+		cwd parse-main-uri diags, args.nameless[1 .. end] print-tokens-command
 	as dependencies
-		uris = cwd parse-root-uris diags, args.nameless[1 .. end].to
+		uris = cwd parse-root-uris diags, args.nameless[1 .. end]
 		guard format print-dependencies-format = if args.named is-empty
 			dot
 		elif args.named.size == 1
@@ -317,7 +350,7 @@ default-executable-extension symbol(os os)
 		uris print-dependencies-command format
 	as model
 		guard args.named is-empty
-		uris = cwd parse-root-uris diags, args.nameless[1 .. end].to
+		uris = cwd parse-root-uris diags, args.nameless[1 .. end]
 		uris print-model-command
 	as concrete-model
 		guard args.named is-empty
@@ -333,7 +366,7 @@ default-executable-extension symbol(os os)
 		elif kind = subcommand.to::print-ide-whole-file-kind?
 			guard args.nameless.size == 2
 			arg = args.nameless[1]
-			kind print-ide-whole-file-command if kind == tokens
+			kind print-ide-whole-file-command if kind == semantic-tokens
 				cwd parse-crow-or-crowd-uri diags, arg
 			else
 				cwd parse-crow-uri diags, arg
@@ -539,6 +572,8 @@ default-executable-path file-path(base file-path, os os)
 		""
 	as print
 		"[kind] PATH [LINE:COLUMN]"
+	as perf-test
+		"[kind] PATH [--times n]"
 	as run
 		"PATH -- [program-args]"
 	as test_
@@ -565,6 +600,9 @@ default-executable-path file-path(base file-path, os os)
 		quote
 			This runs the Language Server Protocol through stdin/stdout.
 			No options.
+	as perf-test
+		quote
+			Does various things to test performance.
 	as print
 		quote
 			Prints various information about the program.

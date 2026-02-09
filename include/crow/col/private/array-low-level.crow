@@ -89,7 +89,7 @@ Calls `f` for each element in `a`.
 	new-size = a.cur-size + values.size
 	if new-size > capacity
 		a expand-capacity (a.cur-size + values.size).round-up-to-power-of-two
-	a.buffer copy-from a.cur-size .. new-size, values.inner, values.view-indices
+	a.buffer copy-from a.cur-size .. new-size, values.inner, values.low .. values.high
 	a.cur-size +:= values size
 -expand-capacity[t] void(a t array-builder, new-capacity nat64)
 	trusted
@@ -108,12 +108,13 @@ region Views
 # TODO:MOVE? ---------------------------------------------------------------------------------------------------------------------
 +array-view[t] record
 	~inner t[]
-	~view-indices nat64 range
+	~low nat
+	~high nat
 +list-new[t] t array-view(a t[])
 	a to
 +subscript[t] t array-view(a t[], indices nat64 range)
 	assert indices.high <= a.array-size else indices.high index-too-big a.array-size
-	a, indices
+	a, indices.low, indices.high
 +to[t] t[](a t array-view)
 	size = a size
 	if size == a.inner.array-size
@@ -121,23 +122,24 @@ region Views
 	else
 		trusted
 		res t mut-slice = a.size gc-safe-mut-slice
-		res copy-from 0 .. size, a.inner, a.view-indices
+		res copy-from 0 .. size, a.inner, a.low .. a.high
 		res cast-immutable
 +to[t] t array-view(a t[])
-	a, 0 .. a.array-size
+	a, 0, a.array-size
 +is-empty[t] bool(a t array-view)
-	a.view-indices is-empty
+	a.low == a.high
 +size[t] nat64(a t array-view)
-	a.view-indices size
+	a.high - a.low
 +subscript[t] t(a t array-view, index nat64)
 	assert index < a.size else index index-too-big a.size
-	a.inner[a.view-indices.low + index]
+	a.inner[a.low + index]
 +subscript[t] t array-view(a t array-view, indices nat64 range)
-	a.inner, a.view-indices[indices]
+	assert indices.high <= a.size else indices.high index-too-big a.size
+	a.inner, a.low + indices.low, a.low + indices.high
 +iterate[t] bool(a t array-view, f bool mut(x t))
-	i mut = a.view-indices low
+	i mut = a low
 	loop
-		if i == a.view-indices.high
+		if i == a.high
 			break false
 		elif f[a.inner[i]]
 			break true

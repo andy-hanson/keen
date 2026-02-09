@@ -19,6 +19,8 @@ import
 	../frontend/frontend
 	../frontend/get-diagnostic-severity
 	../frontend/lang
+	../frontend/parse/lex-token
+	../frontend/parse/parse
 	../frontend/show-diag
 	../frontend/show-model
 	../lib/lsp/lsp-parse
@@ -129,10 +131,12 @@ print void(a main-ctx, pipe pipe, text string)
 	unless config-uri uri-is-file
 		ctx print err, "Can't list test files at non-file URI {config-uri}"
 		throw exit
-	for file in ctx.reader files-in-directory-recursive config-uri.as-file-path.parent!
-		if file.get-extension == ".crow"
-			ctx.server load-single-file ctx.reader, file.to
+	for file in ctx.reader files-for-config config-uri
+		ctx.server load-single-file ctx.reader, file.to
 	ctx.server load-until-no-unknown-uris ctx.reader
+
+-files-for-config file-path[](reader file-reader, config-uri uri)
+	reader files-in-directory-recursive config-uri.as-file-path.parent! filter it.file-type == crow
 
 -load-all-files void(ctx main-ctx, root-uris uri[])
 	start = perf-now
@@ -196,12 +200,43 @@ print void(a main-ctx, pipe pipe, text string)
 		throw command.exit-code.value.to exit
 	as lsp-command
 		ctx.server run-lsp ctx.reader, this-executable
+	as perf-test-parse-command
+		files file-path[] = for* uri in command root-uris
+			if uri is-crow-config
+				ctx.reader files-for-config uri
+			else
+				- uri as-file-path
+		file-contents line-and-column-getter[] = for file in files
+			content char8 array-view = match x = ctx.reader try-read-file file.to
+			as array-view
+				x safe-reinterpret-cast
+			as read-file-diag
+				ctx print err, "error reading {file}"
+				()
+			content line-and-column-getter-for-text
+		for _ in 0 .. command.times
+			for file, lcg in files zip file-contents
+				_ = file.to parse-file lcg.source-text, lcg
+		info log "Parsed {files size} files {command times} times."
 	as print-ast-command
 		ctx.server load-single-file ctx.reader, command.uri
 		diagnostics, json = ctx.server print-ast command.uri
 		unless diagnostics is-empty
 			ctx print err, diagnostics
 		ctx print out, "{json}"
+	as print-tokens-command
+		match content = ctx.reader try-read-file command.uri
+		as array-view
+			source = content.safe-reinterpret-cast::(char8 array-view)
+			diagnostics parse-diagnostic mut[] = ()
+			tokens = source lex-tokens diagnostics
+			unless diagnostics is-empty
+				ctx print err,
+					show = command.uri show-ctx-for-single-file source, ctx.server.uris-info, ctx.server.show-options
+					show show-parse-diagnostics command.uri, diagnostics.move-to
+			ctx print out, tokens.to-crowd
+		as read-file-diag
+			error log "Can't read file"
 	as print-concrete-model-command
 		main = command.main main-kind-main-function ()
 		ctx load-all-files-for-main main
@@ -223,6 +258,7 @@ print void(a main-ctx, pipe pipe, text string)
 		ctx do-and-watch command.main, command.options.watch, of then ctx run command
 	as version-command
 		out print "{this-executable crow-version}"
+
 
 -do-and-watch void(ctx main-ctx, main main-kind, watch bool, f void mut())
 	ctx load-all-files-for-main main
