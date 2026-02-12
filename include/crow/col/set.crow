@@ -1,86 +1,48 @@
 no-std
 import
 	../bool
-	../compare
 	../hash
 	../misc
 	../number
 	../option
-	../string
+	../tuple
 	./array
 	./collection
-	./experimental/index-set
-	./experimental/frozen-set
+	./map
 
-| Immutable unsorted set.
 +set[t] record
-	-add t add-node
-	-remove index-set
+	-inner void[t]
 
--add-node[t] record(here t frozen-set, left t add-node?)
++list-new[t] t set(values t[]) t key
+	values to
 
-+list-new[t] t set(a t[]) t key
-	a to
-
-| Set containing the given elements (with duplicates removed).
 +to[t] t set(a t[]) t key
-	a.to::(t frozen-set) to
+	inner void[t] = for x in a then x, ()
+	inner,
 
-| {true} if {a} and {b} contain the same elements, regardless of order.
 +==[t] bool(a t set, b t set) t key
 	a.size == b.size and a every b[it]
 
--to[t] t set(a t frozen-set) t key
-	# TODO: type annotation should be unnecessary
-	(a, ())::(t add-node), ()
-
-| Copies set elements to a list.
 +to[t] t[](a t set) t key
-	# TODO: If a has a single add node and no remove, just return that
-	for x in a then x
+	a map it.identity
 
-| {true} if `{a}.{size} == 0`.
 +is-empty[t] bool(a t set) t key
-	a.add.here is-empty
+	a.inner is-empty
 
-| Number of elements in the set.
 +size[t] nat64(a t set) t key
-	a.add.add-size - a.remove.size
+	a.inner size
 
--add-size[t] nat64(a t add-node)
-	a.here.size + a.add-size-left
--add-size-left[t] nat64(a t add-node)
-	acc mut nat64 = 0
-	cur mut = a
-	while left = cur left
-		acc +:= left.here size
-		cur := left
-	acc
-
-| {true} if {value} is an element of {a}.
 +in[t] bool(value t, a t set) t key
-	if index = a.add find-in-add value
-		index !in a.remove
-
-+is-subset-of[t] bool(a t set, b t set) t key
-	a every b[it]
-+is-superset-of[t] bool(a t set, b t set) t key
-	b is-subset-of a
+	!!a.inner[value]
 
 | Alternative way of writing `{value} {in} {a}`.
 +subscript[t] bool(a t set, value t) t key
 	value in a
 
--find-in-add[t] nat64?(a t add-node, value t) t key
-	cur mut = a
-	loop
-		if index = cur.here try-get-unordered-index value
-			break cur.add-size-left + index
-		elif left = cur left
-			cur := left
-			continue
-		else
-			break
++is-subset-of[t] bool(a t set, b t set) t key
+	a every b[it]
++is-superset-of[t] bool(a t set, b t set) t key
+	b is-subset-of a
 
 | Adds an element to the set.
 | If `{value} {in} {a}`, returns {a} unmodified.
@@ -91,158 +53,49 @@ import
 | This is a set containing all elements in either {a} or {b}.
 +|[t] t set(a t set, b t set) t key
 	res mut = a
-	for x in b
+	trusted for x in b unsorted
 		res ~:= x
 	res
 
 | Intersection of two sets.
 | This is a set containing all elements in both {a} and {b}.
 +&[t] t set(a t set, b t set) t key
-	# TODO:PERF
-	a filter b[it]
+	trusted a.unsorted filter b[it]
 
 | Set difference.
 | This is a set containing all elements in {a} but not in {b}.
 +-[t] t set(a t set, b t set) t key
-	a filter !b[it]
+	trusted a.unsorted filter !b[it]
 
 | If `{value} {in} {a}`, returns an empty option.
 | Else, adds it and returns the new set.
 +try-add[t] t set?(a t set, value t) t key
-	if index = a.add find-in-add value
-		if new-remove = a.remove try-remove index
-			add: a.add, remove: new-remove
-	else
-		a add-and-maybe-compact value
+	match res = a.inner get-or-add value, it.noop
+	as got
+		()
+	as added
+		inner: res map
 
--add-and-maybe-compact[t] t set(a t set, value t) t key
-	add-size = a.add add-size
-	if add-size == 0
-		# TODO: type annotation should be unnecessary
-		((value,), ())::(t add-node), ()
-	else
-		# size-right starts as 1 because we're adding a value
-		plan = add-size add-and-compact-plan a
-		if plan.compacted-size == 1
-			# TODO: type annotation should be unnecessary
-			((value,), a.add)::(t add-node), a.remove
-		else
-			a add-and-compact add-size, plan, value
-
--compact-plan record
-	# Total size of all non-compacted nodes (all but the new last node)
-	add-size-left nat64
-	# Size that the compacted node will have (sum of 'depth' rightmost nodes)
-	compacted-size nat64
-
--add-and-compact-plan[t] compact-plan(full-add-size nat64, a t set)
-	cur-size-here-and-left mut = full-add-size
-	cur mut = a add
-	remove = a remove
-	cur-size-right mut nat64 = 1
-	loop
-		size-here = cur.here size
-		size-left = cur-size-here-and-left - size-here
-		removals-here-and-right = remove count-greater-or-equal size-left
-		if size-here should-compact cur-size-right, removals-here-and-right
-			size-here-and-right = size-here + cur-size-right
-			if left = cur left
-				cur-size-here-and-left := size-left
-				cur := left
-				cur-size-right := size-here-and-right
-				continue
-			else
-				break size-left, size-here-and-right
-		else
-			break cur-size-here-and-left, cur-size-right
-
--should-compact bool(size-here nat64, size-right nat64, removals-here-and-right nat64)
-	size-right + removals-here-and-right * 2 >= size-here
-
--add-and-compact[t] t set
-	a t set
-	add-size nat64
-	plan compact-plan
-	value t
-do t key
-	assert plan.compacted-size > 1
-	left mut t add-node? = ()
-	compacted t frozen-set = with out in plan.compacted-size build
-		out ~= value
-		left := out do-compact a, add-size, plan.compacted-size
-	(compacted, left), (a.remove filter-less plan.add-size-left)
-
--do-compact[t] t add-node?
-	out t frozen-set-builder
-	a t set
-	add-size nat64
-	compacted-size nat64
-do t key
-	cur mut = a add
-	add-size-here-and-left mut = add-size
-	loop
-		out push cur.here, add-size-here-and-left, a.remove
-		assert out.size <= compacted-size
-		if out.size == compacted-size
-			break cur left
-		else
-			cur := cur left!
-			add-size-here-and-left -:= cur.here size
-			continue
-
--push[t] void
-	out t frozen-set-builder
-	here t frozen-set
-	add-size-here-and-left nat64
-	remove index-set
-do
-	for i, x in here with-index
-		unless add-size-here-and-left + i in remove
-			out ~= x
-
-region spec impls (see collection.crow)
++try-remove[t] t set?(a t set, value t) t key
+	if res = a.inner try-remove value
+		- res b
 
 +iterate[t] bool(a t set, f bool mut(elem t)) t key
-	cur mut = a add
-	add-size-left mut = cur add-size-left
-	loop
-		i mut nat64 = 0
-		here = cur.here iterate of x
-			index = add-size-left + i
-			i +:= 1
-			unless index in a.remove
-				f[x]
-		if here
-			break true
-		elif left = cur left
-			cur := left
-			add-size-left -:= cur.here size
-			continue
-		else
-			break false
+	a.inner iterate f[it.a]
+
+-set-unsorted[t] record(inner t set)
+-unsorted[t] t set-unsorted(a t set)
+	a,
+-iterate[t] bool(a t set-unsorted, f bool mut(x t)) t key, unsafe
+	a.inner.inner.unsorted iterate f[it.a]
 
 +set-builder[t] record mut
-	-inner t frozen-set-builder
+	-inner t array-builder
 +build[t] t set(a build-options, f void mut(out t set-builder)) t key
-	(a build f[it,])::(t frozen-set) to
+	(a build f[it,])::t[] to
 +~=[t] void(a t set-builder, value t) t key
 	a.inner ~= value
 +~~=[t] void(a t set-builder, values t[]) t key
 	a.inner ~~= values
 +~~=[t] void(a t set-builder, values t set) t key
 	a ~~= values.to::t[]
-
-region test
-
-dbg[t] string(a t set) t show
-	add = a.add dbg
-	if a.remove is-empty
-		add
-	else
-		parts = " " join for i in a remove then "{i}"
-		"{add} - [{parts}]"
--dbg[t] string(a t add-node) t show
-	left string = if l = a left
-		"{l dbg}, "
-	here = " " join for x in a here then "{x}"
-	"{left}[{here}]"

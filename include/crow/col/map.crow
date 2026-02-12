@@ -14,17 +14,20 @@ import
 	../tuple
 	./array
 	./collection
-	./experimental/frozen-map
 	./mut-slice
+	./private/frozen-map
+	./sort
 
 | Immutable unordered map type.
+| Iteration is sorted, meaning it does O(n) work even if it only iterates one element.
 | A map is logically a collection of key-value pairs (`({k}, {v})`).
 | A key can appear at most once, and given a key, you can access the associated value in O(1).
 +map[k, v] record
 	-root (k, v) node
 
 +==[k, v] bool(a v[k], b v[k]) k key, v equal
-	a.size == b.size and a every of k, v
+	trusted
+	a.size == b.size and a.unsorted every of k, v
 		b[k] == v
 
 -node[k, v] union
@@ -67,9 +70,9 @@ import
 	else
 		a.to::((k, v) frozen-map),
 
-| Returns all pairs in the map.
+| Returns all pairs in the map, sorted by key.
 +to[k, v] (k, v)[](a v[k]) k key
-	for k, v in a then k, v
+	a map it.identity
 
 | O(n^2) but it doesn't matter since n <= 4
 -has-duplicate-keys[k, v] bool(a (k, v) array-view) k key
@@ -100,7 +103,7 @@ import
 		a is-empty
 
 | Number of pairs.
-+size[k, v] nat64(a v[k]) k key
++size[k, v] nat64(a v[k])
 	a.root size
 -size[k, v] nat64(a (k, v) node)
 	match a
@@ -161,17 +164,15 @@ import
 | Where keys match, values in {b} overwrite values in {b}. Otherwise they add new entries.
 +~~[k, v] v[k](a v[k], b v[k]) k key
 	res mut = a
-	for pair in b
+	trusted for pair in b unsorted
 		res ~:= pair
 	res
 
 +keys[k, v] k[](a v[k]) k key
-	for k, _ in a
-		k
+	a map it.a
 
 +values[k, v] v[](a v[k]) k key
-	for _, v in a
-		v
+	a map it.b
 
 ~got-or-added[k, v] union(v got, (k, v) added)
 ~got[t] record(value t)
@@ -225,7 +226,7 @@ do k key
 	hash = key get-hash
 	match root = a root
 	as frozen-map
-		root.to get-or-update-leaf key, hash, 0, f
+		trusted root.to get-or-update-leaf key, hash, 0, f
 	as inner-node
 		root get-or-update-recur key, hash, 0, f
 	as array
@@ -373,9 +374,18 @@ do k key
 
 region spec impls (see collection.crow)
 
-+iterate[k, v] bool(a v[k], f bool mut(key k, value v))
-	a.root iterate-recur f
--iterate-recur[k, v] bool(a (k, v) node, f bool mut(key k, value v))
++iterate[k, v] bool(a v[k], f bool mut(key k, value v)) k key
+	(trusted a.unsorted map it.identity)::(k, v)[] sort it.a iterate f
+
+~map-unsorted[k, v] record
+	-inner v[k]
+~unsorted[k, v] (k, v) map-unsorted(a v[k]) unsafe
+	a,
+~size[k, v] nat(a (k, v) map-unsorted)
+	a.inner size
+~iterate[k, v] bool(a (k, v) map-unsorted, f bool mut(key k, value v)) unsafe
+	a.inner.root iterate-recur f
+-iterate-recur[k, v] bool(a (k, v) node, f bool mut(key k, value v)) unsafe
 	match a
 	as frozen-map
 		a iterate f

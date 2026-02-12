@@ -13,6 +13,7 @@ import
 	./collection
 	./map
 	./mut-slice
+	./sort
 
 | Mutable unordered map.
 +mut-map[k, v] record mut
@@ -35,12 +36,19 @@ import
 | Convert a list of pairs to a map.
 | Later pairs overwrite earlier pairs with the same key.
 +to[k, v] v mut[k](a (k, v)[]) k key
-	for x in a then x
+	a map it.identity
 +to[k, v] v[k](a v mut[k]) k key
-	for x in a then x
+	with out in a.size build
+		for x in a entries
+			if x
+				out ~= x
 | Copy pairs to an array.
 +to[k, v] (k, v)[](a v mut[k]) k key
-	for x in a then x
+	res (k, v)[] = with out in a.size build
+		for x in a entries
+			if x
+				out ~= x
+	res sort it.a
 
 | Copy pairs to an array and clear the map.
 +move-to[k, v] (k, v)[](a v mut[k]) k key
@@ -68,7 +76,7 @@ import
 	a.size == 0
 
 | Number of pairs in the map.
-+size[k, v] nat64(a v mut[k]) k key
++size[k, v] nat64(a v mut[k])
 	a size_
 
 ~hint-size[k, v] void(a v mut[k], size nat64) k key
@@ -89,6 +97,8 @@ import
 | If `{key} {in} {a}`, this overwrites the previous value.
 +set-subscript[k, v] void(a v mut[k], key k, value v) k key
 	forbid a locked else was-locked
+	a set-allow-locked key, value
+-set-allow-locked[k, v] void(a v mut[k], key k, value v) k key
 	if index = a.entries get-index key
 		# TODO:PERF this needlessly overwrites the key with an equivalent one -----------------------------------------
 		a.entries[index] := key, value
@@ -247,16 +257,10 @@ import
 	forbid a locked else was-locked
 	a.locked := true
 	finally a.locked := false
-	i mut nat64 = 0
-	until i == a.entries.size
-		rm = if x = a.entries[i]
-			!f[x]
-		if rm
-			a remove-at-index i
-		else
-			i +:= 1
-	a.entries map= of entry
-		if entry and f[entry] then entry
+	for key in a keys
+		index = a.entries get-index! key
+		unless f[a.entries[index]!]
+			a remove-at-index index
 
 | Calls {f} on every key and value, and replaces the value with the new value returned by {f}.
 | Does not modify keys.
@@ -264,28 +268,23 @@ import
 	forbid a locked else was-locked
 	a.locked := true
 	finally a.locked := false
-	a.entries map= of entry
-		if k, v = entry then k, f[k, v]
+	for key in a keys
+		a set-allow-locked key, f[key, a[key]!]
+
++keys[k, v] k[](a v mut[k]) k key
+	unsorted k[] = with out in a.size build
+		for pair in a entries
+			if k, _ = pair
+				out ~= k
+	unsorted sort
 
 region spec impls (see collection.crow)
 
-| Calls {f} for every key and value in the map.
 +iterate[k, v] bool(a v mut[k], f bool mut(key k, value v)) k key
 	forbid a locked else was-locked
 	a.locked := true
 	finally a.locked := false
-	i mut nat64 = 0
-	loop
-		if i == a.entries.size
-			break false
-		else
-			done = if x = a.entries[i]
-				f[x]
-			if done
-				break true
-			else
-				i +:= 1
-				continue
+	a.to::(k, v)[] iterate f
 
 +build[k, v] v mut[k](a build-options, f void mut(out v mut[k])) k key
 	res v mut[k] = a.size-hint mut-map-with-capacity
@@ -294,7 +293,7 @@ region spec impls (see collection.crow)
 
 region test
 
-~debug[k, v] (k, v)?[](a v mut[k]) k show, v show
+~debug[k, v] (k, v)?[](a v mut[k]) k show, v show, unsafe
 	a.entries to
 
 ~debug-costs[k, v] nat[](a v mut[k]) k key
