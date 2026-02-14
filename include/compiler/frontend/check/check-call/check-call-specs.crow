@@ -3,6 +3,7 @@ import
 	../../../model/model
 	../../../model/source-range
 	../../lang
+	../../../util/util
 	../allocators
 	../check-ctx
 	../inferring-type
@@ -31,99 +32,55 @@ check-call-specs called
 	ctx check-ctx
 	type-container type-container
 	funs-in-scope funs-in-scope
+	check-trusted check-trusted
 	diag-range source-range
 	candidate candidate
 do
-	check-specs-ctx check-specs-ctx = ctx, funs-in-scope, false
+	check-specs-ctx check-specs-ctx = ctx, funs-in-scope, check-trusted, false
 	match called = check-specs-ctx get-called-from-candidate-after-type-checks candidate, 0.dummy-trace
 	as called
 		if check-specs-ctx has-errors
-			ctx check-call-specs-with-real-trace type-container, funs-in-scope, diag-range, candidate
+			ctx check-call-specs-with-real-trace type-container, funs-in-scope, check-trusted, diag-range, candidate
 		else
 			called
 	as no-match
-		ctx check-call-specs-with-real-trace type-container, funs-in-scope, diag-range, candidate
+		ctx check-call-specs-with-real-trace type-container, funs-in-scope, check-trusted, diag-range, candidate
 
 check-spec-and-get-last-impl called(ctx check-ctx, funs-map funs-map, decl fun-decl, spec_ spec-inst)
-	ctx check-spec-and-get-last-impl funs-map, decl.name-range.range, decl, decl.specs, decl.flags_, decl.externs, spec_
+	ctx check-spec-and-get-last-impl funs-map, decl.name-range.range, decl, decl.specs, decl.externs, spec_
 check-spec-and-get-last-impl called
 	ctx check-ctx
 	funs-map funs-map
 	diag-range source-range
 	caller type-container
 	caller-specs specs
-	caller-flags fun-flags
 	caller-externs symbol-set
 	spec_ spec-inst
 do
 	check-specs-ctx check-specs-ctx =
 		check-ctx: ctx
 		funs-in-scope: caller-specs, funs-map, ctx
+		check-trusted: never-trusted
 		has-errors: false
 	trace real-trace = ctx, caller, diag-range, ()
 	match impls = check-specs-ctx check-spec-impls-inner trace, (spec_,).get-or-add-specs
 	as array
-		res = impls[end - 1]
-		ctx check-called diag-range, res, caller-flags, caller-externs, of then false
-		res
+		impls[end - 1]
 	as no-match
 		ctx add-diag diag-range, impls.diag!
 		types = spec_.sig-types[end - 1]
 		sig called-spec-sig = 1, spec_.decl, spec_.all-sigs[end - 1], types.return-type, types.param-types
 		sig called-bogus sig.return-type, sig.param-types
 
-| Additional checks on a call after the overload and spec impls have been chosen.
-| Mostly this reports errors through diagnostics, but it returns 'true' only if all the externs are OK.
-check-called void
-	ctx check-ctx
-	diag-range source-range
-	called called
-	fun-flags fun-flags
-	externs symbol-set
-	is-trusted bool mut()
-do
-	match called
-	as called-bogus
-		()
-	as fun-inst
-		decl = called decl
-		if decl deprecated
-			ctx add-diag diag-range, decl.diag-call-deprecated
-		ctx check-call-flags diag-range, decl, fun-flags, is-trusted
-		ctx check-call-externs diag-range, decl, externs
-		for impl in called spec-impls
-			ctx check-called diag-range, impl, fun-flags, externs, is-trusted
-	as called-spec-sig
-		# For a spec, we do checks when providing the spec impl
-		()
-
--check-call-externs void(ctx check-ctx, diag-range source-range, called fun-decl, externs symbol-set)
-	for x in called externs
-		if x !in externs
-			ctx add-diag diag-range, (called diag-call-missing-extern x)
-
--check-call-flags void
-	ctx check-ctx
-	diag-range source-range
-	called fun-decl
-	caller fun-flags
-	is-trusted bool mut()
-do
-	diag void mut(reason diag-cant-call-reason) = of reason
-		ctx add-diag diag-range, (reason diag-cant-call called)
-	if called.flags_ summon_ and caller !summon_ and !is-trusted[]
-		diag[summon_]
-	if called.flags_ unsafe_ and caller !unsafe_ and !is-trusted[]
-		diag[unsafe_]
-
 -check-call-specs-with-real-trace called
 	ctx check-ctx
 	type-container type-container
 	funs-in-scope funs-in-scope
+	check-trusted check-trusted
 	range source-range
 	candidate candidate
 do
-	check-specs-ctx check-specs-ctx = ctx, funs-in-scope, false
+	check-specs-ctx check-specs-ctx = ctx, funs-in-scope, check-trusted, false
 	trace real-trace = ctx, type-container, range, ()
 	match x = check-specs-ctx get-called-from-candidate-after-type-checks candidate, trace
 	as called
@@ -132,9 +89,18 @@ do
 		ctx add-diag range, x.diag!
 		candidate candidate-bogus-called
 
+check-trusted interface mut
+	check-trusted bool()
+never-trusted record(x nat) check-trusted case # TODO: I added this silly variable to prevent the interface from being 'nullable', since methods on those aren't implemented yet
+never-trusted never-trusted()
+	0,
+check-trusted bool(_ never-trusted)
+	false
+
 -check-specs-ctx record mut
 	check-ctx check-ctx
 	funs-in-scope funs-in-scope
+	check-trusted check-trusted
 	has-errors mut bool
 instantiate-ctx instantiate-ctx(a check-specs-ctx)
 	a.check-ctx instantiate-ctx
@@ -264,13 +230,23 @@ do
 	else
 		trace.depth no-match do trace spec-no-match do sig-decl spec-impl-not-found sig-type
 
--check-builtin-spec bool(ctx check-specs-ctx, kind builtin-spec, type-arg type)
-	ctx.funs-in-scope.fun-specs is-purity-always-compatible-considering-specs type-arg, kind.to
+-check-builtin-spec bool(ctx check-specs-ctx, kind builtin-spec, type-args type-args)
+	fun-specs = ctx.funs-in-scope fun-specs
+	match kind
+	as data_
+		fun-specs is-purity-always-compatible-considering-specs type-args.only, data_
+	as shared_
+		fun-specs is-purity-always-compatible-considering-specs type-args.only, shared_
+	as summon_
+		# TODO: There should probably be different 'trusted' for different builtin specs. 'trusted unsafe', 'trusted summon' ----------------------------------------------
+		fun-specs is-summon or ctx.check-trusted check-trusted
+	as unsafe_
+		fun-specs is-unsafe or ctx.check-trusted check-trusted
 
 | Whether {specs} tells us that {type} has purity at least {expected}
 -specs-provide-purity bool(specs specs, type type, expected purity)
-	specs.all-builtin exists of builtin_, type-arg
-		type-arg == type and expected is-purity-compatible builtin_.to
+	specs.all-builtin exists of builtin_, type-args
+		(p = builtin_.to::purity?) and type-args.only == type and expected is-purity-compatible p
 
 -specs-result union(called[], no-match)
 -check-spec-impls specs-result(ctx check-specs-ctx, called fun-decl, called-type-args type-args, trace trace)

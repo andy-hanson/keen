@@ -22,7 +22,7 @@ do
 	instantiate-type type mut(decl struct-decl, type-args type-args) = of decl, type-args # todo: inline ------------------------------
 		decl[type-args]
 	get-fun-inner fun-inst mut(module crow-module, name symbol, return-type type, params type[]) = of module, name, return-type, params
-		ctx get-fun diags, module, name, (), return-type, params, 0 instantiate-non-template-fun
+		ctx get-fun diags, module, name, (type-params: (), return-type: return-type, params: params) instantiate-non-template-fun
 	get-fun fun-inst mut(module common-module, name symbol, return-type type, params type[]) = of module, name, return-type, params
 		get-fun-inner[modules[module], name, return-type, params]
 
@@ -42,28 +42,30 @@ do
 		error: get-type[exception, "error"] struct-inst!
 		json-array: json-array struct-inst!
 		lambda-subscript: common-types get-lambda-subscript-funs modules[misc]
-		shared-of-mut-lambda: ctx get-fun diags, modules[runtime], "shared-of-mut-lambda", \
-			two-type-params, r-shared-of-p, (r-mut-of-p,), 2
+		shared-of-mut-lambda: ctx get-fun diags, modules[runtime], "shared-of-mut-lambda",
+			type-params: two-type-params
+			return-type: r-shared-of-p
+			params: r-mut-of-p,
 		to-symbol-from-string: get-fun[symbol, "to", symbol-type, (string-type,)]
 		to-string-from-js-any: get-fun[string, "to", string-type, (common-types.js-any,)]
 		json-named-new: get-fun[json, "named-new", json-type, (symbol-array, json-array)]
 		equal-symbol: get-fun[symbol, "==", bool-type, (symbol-type, symbol-type)]
 		show-exception: get-fun[bootstrap, "show", string-type, (common-types.exception,)]
-		start-runtime: get-fun[runtime, "start-runtime", void, ()]
-		stop-runtime: get-fun[runtime, "stop-runtime", void, (nat64,)]
-		concat-arrays: ctx get-fun diags, modules[array], "~~", one-type-param, t-array, (t-array, t-array), 0
+		start-runtime: ctx get-fun diags, modules[runtime], "start-runtime", (type-params: (), return-type: void, params: (), allow-unsafe: true, allow-summon: true) instantiate-non-template-fun
+		stop-runtime: ctx get-fun diags, modules[runtime], "stop-runtime", (type-params: (), return-type: void, params: (nat64,), allow-unsafe: true, allow-summon: true) instantiate-non-template-fun
+		concat-arrays: ctx get-fun diags, modules[array], "~~",
+			type-params: one-type-param
+			return-type: t-array
+			params: (t-array, t-array)
 	- diags move-to
--get-fun fun-decl
+-get-fun fun-decl # INLINE -----------------------------------------------------------------------------------------------------------------------
 	ctx instantiate-ctx
 	diags-builder uri-and-diagnostic mut[]
 	module crow-module
 	name symbol
-	type-params type-params
-	return-type type
-	params type[]
-	count-specs nat
+	sig type-params-and-sig
 do
-	ctx get-fun-decl diags-builder, module, name, do type-params, return-type, params, count-specs
+	ctx get-fun-decl diags-builder, module, name, sig
 
 get-main-fun-and-diagnostics main-fun-and-diagnostics
 	ctx instantiate-ctx
@@ -156,7 +158,9 @@ do
 	a.public-and-internal-exports.structs-and-aliases[name] ?struct-decl
 
 -signature-matches-template bool(actual fun-decl, expected type-params-and-sig)
-	actual.specs.inner.size == expected.count-specs and
+	actual.specs.instantiated-sigs.size == 0 and
+	(actual !is-unsafe or expected allow-unsafe) and
+	(actual !is-summon or expected allow-summon) and
 	actual.n-type-params == expected.type-params.size and
 	actual.return-type == expected.return-type and
 	actual.params arrays-correspond expected.params, of x, y
@@ -172,8 +176,18 @@ do
 	ctx get-fun-decl-multi diags-builder, module, name, (expected-sig,) decl
 
 -get-main-fun main-fun(ctx instantiate-ctx, diags-builder uri-and-diagnostic mut[], main-module crow-module, common-types common-types)
-	sig0 type-params-and-sig = (), common-types.void, (), 0
-	sig1 type-params-and-sig = (), common-types.integrals.nat64, (common-types.string-array,), 0
+	sig0 type-params-and-sig =
+		type-params: ()
+		return-type: common-types void
+		params: ()
+		allow-unsafe: true
+		allow-summon: true
+	sig1 type-params-and-sig =
+		type-params: ()
+		return-type: common-types.integrals nat64
+		params: common-types.string-array,
+		allow-unsafe: true
+		allow-summon: true
 	decl = ctx get-fun-decl-multi diags-builder, main-module, "main", (sig0, sig1)
 	inst = decl.decl instantiate-non-template-fun
 	match decl sig-index
@@ -214,13 +228,11 @@ do
 		n-type-params: expected-sigs[0].type-params.size
 		return-type: expected-sigs[0].return-type
 		params: expected-sigs[0].params.make-params
-		flags_: ()
 		externs: ()
 		specs: ()
 		doc-comment-references: ()
 		body: fun-body-bogus
-	diag diag = decl diag-common-fun-missing for sig in expected-sigs
-		sig.type-params, sig.return-type, sig.params, 0
+	diag diag = decl diag-common-fun-missing expected-sigs
 	diags-builder ~= (module.uri, ()), diag
 	decl, 0
 

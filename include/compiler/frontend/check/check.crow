@@ -33,8 +33,8 @@ check-bootstrap (crow-module, common-types)
 do
 	start = perf-now
 	finally start end-check
-	show-ctx check-worker all-insts, common-uris, (), uri-and-ast, of ctx, structs-and-aliases-map
-		ctx.instantiate-ctx get-common-types ctx.diagnostics-builder, structs-and-aliases-map, java-String
+	show-ctx check-worker all-insts, common-uris, (), uri-and-ast, of ctx, structs-and-aliases-map, specs-map
+		ctx.instantiate-ctx get-common-types ctx.diagnostics-builder, structs-and-aliases-map, specs-map, java-String
 
 check crow-module
 	show-ctx show-ctx
@@ -50,12 +50,7 @@ do
 	module
 
 -get-builtin-spec builtin-spec?(ctx check-ctx, range source-range, name symbol)
-	match name
-	as "data"
-		data_
-	as "shared"
-		shared_
-	else
+	name to or
 		ctx add-diag range, (spec_ diag-builtin-unsupported name)
 		()
 
@@ -177,7 +172,7 @@ do
 	var var-decl
 do
 	var.initializer :=
-		ctx check-fun-or-test-body types, funs-map, var, var.type, (), (summon_ | unsafe_), (), var.ast.initializer, var.ast
+		ctx check-fun-or-test-body types, funs-map, var, var.type, (), (), var.ast.initializer, var.ast
 
 -spec-flags-and-parents record(is-builtin bool, parents specs)
 -check-spec-modifiers spec-flags-and-parents
@@ -195,7 +190,7 @@ do
 				match ast keyword
 				as builtin_
 					if is-builtin
-						ctx add-diag ast.keyword-range, ast.keyword.diag-modifier-duplicate
+						ctx add-diag ast.keyword-range, ast.keyword.to.diag-modifier-duplicate
 					ctx modifier-type-arg-invalid ast
 					is-builtin := true
 				else
@@ -218,6 +213,8 @@ do
 	config config
 	imports-and-re-exports imports-and-re-exports
 	ast file-ast
+	specs spec-decl[]
+	specs-map specs-map
 do
 	structs-and-aliases-map = types structs-and-aliases-map
 	struct-aliases = types struct-aliases
@@ -227,10 +224,6 @@ do
 	ctx check-struct-bodies types-get, structs, ast.structs
 	vars var-decl[] = for x in ast vars
 		ctx check-var-initial types-get, x
-	specs = ctx check-spec-decls-initial ast.specs
-	specs-map = specs to-by-name of _, y
-		ctx add-diag-assert-same-uri y.range,
-			spec_ diag-duplicate-declaration y.name
 	ts types-and-specs = types-get, specs-map
 	ctx check-spec-bodies ts, ast.specs, specs
 	funs-and-map = ctx check-funs ts, structs, vars, imports-and-re-exports.file-imports, imports-and-re-exports.file-exports, ast.funs, ast.tests
@@ -326,7 +319,7 @@ do
 	common-uris common-uris
 	resolved-imports resolved-import[]
 	uri-and-ast uri-and-ast
-	get-common-types common-types mut(ctx check-ctx, types structs-and-aliases-map)
+	get-common-types common-types mut(ctx check-ctx, types structs-and-aliases-map, specs specs-map)
 do
 	diags-builder diagnostic mut[] = ()
 	imports-and-re-exports = diags-builder check-imports-and-re-exports uri-and-ast.ast, resolved-imports
@@ -347,14 +340,18 @@ do
 	structs = ctx check-structs-initial ast.structs
 	struct-aliases = ctx check-struct-aliases-initial ast.struct-aliases
 	structs-and-aliases-map = ctx build-structs-and-aliases-map structs, struct-aliases
-	common-types = get-common-types[ctx, structs-and-aliases-map]
+	specs = ctx check-spec-decls-initial ast.specs
+	specs-map = specs to-by-name of _, y
+		ctx add-diag-assert-same-uri y.range,
+			spec_ diag-duplicate-declaration y.name
+	common-types = get-common-types[ctx, structs-and-aliases-map, specs-map]
 	ctx check-struct-alias-targets (common-types, structs-and-aliases-map), struct-aliases, ast.struct-aliases
 	types types =
 		structs-and-aliases-map: structs-and-aliases-map
 		struct-aliases: struct-aliases
 		structs: structs
 		common-types: common-types
-	res = ctx check-worker-after-common-types types, uri-and-ast.uri, uri-and-ast.config, imports-and-re-exports, ast
+	res = ctx check-worker-after-common-types types, uri-and-ast.uri, uri-and-ast.config, imports-and-re-exports, ast, specs, specs-map
 	assert-all-allocated-freed
 	res, common-types
 

@@ -63,8 +63,7 @@ do
 			ctx add-funs-for-var out, common-types, var
 
 -check-fun fun-decl(ctx check-ctx, types types-and-specs, fun-ast fun-decl-ast)
-	has-body = !!fun-ast.body
-	flags-and-specs = ctx check-fun-modifiers types, fun-ast.type-params, fun-ast.name-range, has-body, fun-ast.modifiers
+	specs = ctx check-fun-modifiers types, fun-ast.type-params, fun-ast.name-range, fun-ast.modifiers
 	fun fun-decl =
 		hash: ctx next-hash
 		source: fun-ast
@@ -72,9 +71,8 @@ do
 		n-type-params: fun-ast.type-params size
 		return-type: bogus-type
 		params: ()
-		flags_: flags-and-specs flags_
-		externs: flags-and-specs externs
-		specs: flags-and-specs specs
+		externs: specs externs
+		specs: specs specs
 		doc-comment-references: ()
 		body: fun-body-uninitialized
 	ctx check-type-params fun-ast.type-params
@@ -89,8 +87,8 @@ do
 		x.param-types := param-types
 	as object-memoizer
 		()
-	if flags-and-specs is-builtin
-		if has-body
+	if specs is-builtin
+		if fun-ast body
 			ctx add-diag fun-ast.name-range, diag-builtin-fun-cant-have-body
 		fun.body := ctx get-builtin-fun fun
 	fun
@@ -111,7 +109,6 @@ do
 	n-type-params: 0
 	return-type: common-types type-for-file-import ast.type
 	params: ()
-	flags_: ()
 	externs: ()
 	specs: ()
 	doc-comment-references: ()
@@ -125,7 +122,6 @@ do
 		common-types string
 
 -fun-modifiers record
-	flags_ fun-flags
 	is-builtin bool
 	externs symbol-set
 	specs specs
@@ -134,7 +130,6 @@ do
 	types types-and-specs
 	type-params-scope type-params
 	range source-range
-	has-body bool
 	asts modifier-ast[]
 do
 	all-flags mut collected-fun-flags = ()
@@ -147,20 +142,19 @@ do
 					if externs is-empty
 						externs := ctx get-externs-from-modifier ast
 					else
-						ctx add-diag ast.range, extern_.diag-modifier-duplicate
+						ctx add-diag ast.range, "extern".diag-modifier-duplicate
 				else
 					flag = ast.keyword try-get-fun-flag
 					if flag == ()
 						ctx add-diag ast.keyword-range, do ast.keyword diag-modifier-invalid function_
 					elif flag in all-flags
-						ctx add-diag ast.keyword-range, ast.keyword.diag-modifier-duplicate
+						ctx add-diag ast.keyword-range, ast.keyword.to.diag-modifier-duplicate
 					ctx modifier-type-arg-invalid ast
 					all-flags |:= flag
 				()
 			as spec-use-ast
 				if inst = ctx spec-from-ast types, type-params-scope, ast, no-delay-spec-insts
 					out ~= inst
-	flags_: ctx check-fun-flags range, all-flags, (!has-body and externs !is-empty)
 	is-builtin: builtin_::collected-fun-flags in all-flags
 	externs: externs
 	specs: specs get-or-add-specs
@@ -173,91 +167,25 @@ do
 do
 	void = types.common-types void
 	for ast in test-asts
-		modifiers = ctx check-test-modifiers ast
-		test_ test_ = ctx.next-hash, ast, ctx.cur-uri, modifiers.flags_, modifiers.externs, (() bogus-expr void), ()
+		specs = ctx check-fun-modifiers types, (), ast.range, ast.modifiers
+		assert specs.specs.instantiated-sigs is-empty else todo # diag-spec-use-invalid ===============================================================================================
+		forbid specs is-builtin else todo # diag -----------------------------------------------------------------------------------------------------------------
+		test_ test_ = ctx.next-hash, ast, ctx.cur-uri, specs.specs, (), (() bogus-expr void), ()
 		if body = ast body
-			test_.body := ctx check-fun-or-test-body types, funs-map, test_, void, (), modifiers.flags_, modifiers.externs, body, ()
+			test_.body := ctx check-fun-or-test-body types, funs-map, test_, void, (), specs.externs, body, ()
 		else
 			ctx add-diag ast.range, diag-test-missing-body
 		test_
 
--test-modifiers record(flags_ fun-flags, externs symbol-set)
--check-test-modifiers test-modifiers(ctx check-ctx, ast test-ast)
-	all-flags mut collected-fun-flags = ()
-	externs mut symbol-set = ()
-	for modifier in ast modifiers
-		match modifier
-		as modifier-keyword-ast
-			flag = modifier.keyword try-get-fun-flag
-			if flag is-allowed-test-flag
-				ctx modifier-type-arg-invalid modifier
-				all-flags |:= flag
-			elif modifier.keyword == extern_
-				if externs is-empty
-					externs := ctx get-externs-from-modifier modifier
-				else
-					ctx add-diag modifier.range, extern_.diag-modifier-duplicate
-			else
-				ctx add-diag modifier.keyword-range, do modifier.keyword diag-modifier-invalid test_
-		as spec-use-ast
-			ctx add-diag modifier.range, test_.diag-spec-use-invalid
-	flags_: ctx check-fun-flags ast.keyword-range, all-flags, false
-	externs: externs
-
--is-allowed-test-flag bool(flag collected-fun-flags)
-	flag == summon_
-
--collected-fun-flags flags
+-collected-fun-flags flags # RM --------------------------------------------------------------------------------------------------------------------------------------
 	builtin_
-	pure_
-	summon_
-	unsafe_
 -== bool(a collected-fun-flags, b collected-fun-flags)
 -try-get-fun-flag collected-fun-flags(a modifier-keyword)
 	match a
 	as builtin_
 		builtin_
-	as pure_
-		pure_
-	as summon_
-		summon_
-	as unsafe_
-		unsafe_
 	else
 		()
-
--check-fun-flags fun-flags(ctx check-ctx, range source-range, flags_ collected-fun-flags, is-extern-body bool)
-	warn-redundant void mut(modifier modifier-keyword, redundant-modifier modifier-keyword) = of modifier, redundant-modifier
-		ctx add-diag range,
-			modifier diag-modifier-redundant-due-to-modifier redundant-modifier
-
-	is-builtin = builtin_::collected-fun-flags in flags_
-	is-pure = pure_::collected-fun-flags in flags_
-	is-explicit-summon = summon_::collected-fun-flags in flags_
-	is-explicit-unsafe = unsafe_::collected-fun-flags in flags_
-
-	is-implicit-unsafe = is-extern-body and !is-builtin
-	is-unsafe = is-explicit-unsafe or is-implicit-unsafe
-
-	body-modifier modifier-keyword data() = of
-		if is-builtin
-			builtin_
-		elif is-extern-body
-			extern_
-		else
-			throw unreachable
-
-	if is-implicit-unsafe and is-explicit-unsafe
-		warn-redundant[body-modifier[], unsafe_]
-	if is-pure and is-explicit-summon
-		ctx add-diag range, (pure_ diag-modifier-conflict summon_)
-	elif is-pure and !is-extern-body
-		ctx add-diag range, (pure_ diag-modifier-redundant-due-to-decl-kind function_)
-	elif is-explicit-summon and is-extern-body
-		warn-redundant[extern_, summon_]
-
-	is-summon = !is-pure and (is-explicit-summon or is-extern-body and !is-builtin)
-	(if is-summon then summon_) | (if is-unsafe then unsafe_)
 
 -check-funs-with-asts void
 	ctx check-ctx
@@ -273,6 +201,6 @@ do
 		fun.body := if fun.return-type is-bogus
 			fun-body-bogus
 		elif body = fun-ast body
-			ctx check-fun-or-test-body types, funs-map, fun, fun.return-type, fun.params, fun.flags_, fun.externs, body, ()
+			ctx check-fun-or-test-body types, funs-map, fun, fun.return-type, fun.params, fun.externs, body, ()
 		else
 			ctx check-auto-fun types.common-types, types.specs-map, funs-map, fun

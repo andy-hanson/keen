@@ -251,7 +251,7 @@ spec-impls alias
 specs record -new
 	inner spec-inst[]
 	hash nat
-	all-builtin (builtin-spec, type)[]
+	all-builtin (builtin-spec, type-args)[]
 	instantiated-sigs called-spec-sig[]
 to json(a specs)
 	a.inner to
@@ -283,6 +283,24 @@ get-or-add-specs specs(specs spec-inst[])
 					res called-spec-sig = index, x.decl, sig, sig-type
 					index +:= 1
 					res
+is-unsafe bool(a specs)
+	a.all-builtin exists it.a == unsafe_
+is-summon bool(a specs)
+	a.all-builtin exists it.a == summon_
+
+# TODO: This duplicates code in instantiate.crow ... that is a very small module so maybe it should all be moved here --------------------------------------------------------------------------------------------------------------------
+-instantiate-type-args type-args(a type-args, type-args type-args)
+	a map-type-args of x then x instantiate-type type-args
+-instantiate-type type(type type, type-args type-args)
+	match type
+	as bogus-type
+		bogus-type
+	as type-param-index
+		type-args[type index]
+	as struct-inst
+		type instantiate-struct-inst type-args
+-instantiate-struct-inst struct-inst(struct-inst struct-inst, type-args type-args)
+	struct-inst.decl[struct-inst.type-args instantiate-type-args type-args]
 
 type union(bogus-type, type-param-index, struct-inst)
 	hash nat()
@@ -546,7 +564,10 @@ type-params-and-sig record
 	type-params type-params
 	return-type type
 	params type[]
-	count-specs nat
+	allow-unsafe bool
+	allow-summon bool
+new type-params-and-sig(type-params type-params, return-type type, params type[])
+	type-params, return-type, params, false, false
 
 record-field-source union(single-destructure-ast, record-field-ast)
 	doc-comment doc-comment-ast()
@@ -1028,15 +1049,42 @@ spec-decl-body record # TODO:PERF just store this directly! --------------------
 	parents specs
 	sigs signature[]
 
-builtin-spec enum(data_, shared_)
-to purity(a builtin-spec)
+builtin-spec enum
+	data_
+	shared_
+	summon_
+	unsafe_
+== bool(a builtin-spec, b builtin-spec)
+to purity?(a builtin-spec)
 	match a
 	as data_
 		data_
 	as shared_
 		shared_
+	else
+		()
 to symbol(a builtin-spec)
-	a.to::purity.to
+	match a
+	as data_
+		"data"
+	as shared_
+		"shared"
+	as summon_
+		"summon"
+	as unsafe_
+		"unsafe"
+to builtin-spec?(a symbol)
+	match a
+	as "data"
+		data_
+	as "shared"
+		shared_
+	as "summon"
+		summon_
+	as "unsafe"
+		unsafe_
+	else
+		()
 
 spec-decl record force-data, -new
 	hash nat32
@@ -1067,6 +1115,8 @@ doc-comment doc-comment(a spec-decl)
 	a.doc-comment-ast, a.doc-comment-references
 name symbol(a spec-decl)
 	a.ast.name name
+is-template bool(a spec-decl)
+	a.n-type-params != 0
 n-type-params nat(a spec-decl)
 	a.type-param-asts size
 type-param-asts type-params(a spec-decl)
@@ -1096,7 +1146,7 @@ spec-inst record force-data, -new
 	decl spec-decl
 	type-args type-args
 	| This includes builtin parents
-	builtin_ mut (builtin-spec, type)[]
+	builtin_ mut (builtin-spec, type-args)[]
 	| This includes signatures from parents
 	all-sigs mut signature[]
 	| Corresponds to all-sigs
@@ -1313,15 +1363,6 @@ builtin-ternary enum
 	array-set
 to json(a builtin-ternary)
 
-fun-flags flags nat8 storage
-	summon_
-	unsafe_
-to json(a fun-flags)
-summon_ bool(a fun-flags)
-	summon_::fun-flags in a
-unsafe_ bool(a fun-flags)
-	unsafe_::fun-flags in a
-
 fun-decl-source union
 	fun-source-bogus
 	fun-source-java
@@ -1417,8 +1458,7 @@ fun-decl record force-data, -new
 	return-type mut type
 	params mut destructure[]
 	param-types mut type[]
-	flags_ fun-flags
-	externs symbol-set
+	externs symbol-set # TODO: this should also be specs! Only externs left are 'js' and 'java'. ---------------------------------------------------------------
 	specs specs
 	doc-comment-references mut doc-comment-references
 	body mut fun-body
@@ -1431,7 +1471,6 @@ to json(a fun-decl)
 	n-type-params: a.n-type-params to
 	return-type: a.return-type to
 	params: a.params to
-	flags_: a.flags_ to
 	externs: a.externs to
 	specs: a.specs to
 	doc-comment-references: a.doc-comment-references to
@@ -1492,7 +1531,6 @@ new fun-decl
 	n-type-params nat # TODO: this comes from source so it doesn't need to be a constructor param ---------------------------------
 	return-type type
 	params destructure[]
-	flags_ fun-flags
 	externs symbol-set
 	specs specs
 	doc-comment-references doc-comment-references
@@ -1507,7 +1545,6 @@ do
 		return-type: return-type
 		params: params
 		param-types: params map it.type
-		flags_: flags_
 		externs: externs
 		specs: specs
 		doc-comment-references: doc-comment-references
@@ -1544,19 +1581,24 @@ is-template bool(a fun-decl)
 	a.n-type-params != 0 or a.specs.instantiated-sigs !is-empty
 arity nat(a fun-decl)
 	a.params size
+is-unsafe bool(a fun-decl)
+	a.specs is-unsafe
+is-summon bool(a fun-decl)
+	a.specs is-summon
 
 test_ record force-data
 	hash nat32 # TODO: USED? ---------------------------------------------------------------------------------------------------------
 	ast test-ast
 	module-uri uri
-	flags_ fun-flags
+	| This can't have spec-impls, so it's limited to builtin specs like 'summon'
+	specs specs
 	externs symbol-set
 	body mut expr
 	doc-comment-references mut doc-comment-references
 == bool(a test_, b test_)
 	trusted a reference-equal b
 to json(a test_)
-	flags_: a.flags_ to
+	specs: a.specs to
 	externs: a.externs to
 	body: a.body to
 	doc-comment-references: a.doc-comment-references to
@@ -1591,9 +1633,13 @@ specs specs(a expr-container)
 	as fun-decl
 		a specs
 	as test_
-		()
+		a specs
 	as var-decl
 		()
+is-unsafe bool(a expr-container)
+	a.specs is-unsafe
+is-summon bool(a expr-container)
+	a.specs is-summon
 
 fun-inst record force-data, -new
 	decl fun-decl
@@ -2022,6 +2068,11 @@ common-types record
 	tuples-2-through-9 struct-decl[]
 	| Indexed by FunKind, then by arity. (arity = typeArgs.length - 1)
 	fun-structs (fun-kind, struct-decl) enum-map
+	summon_ spec-inst
+	unsafe_ spec-inst
+	summon-specs specs
+	unsafe-specs specs
+	summon-unsafe-specs specs
 tuple struct-decl?(a common-types, arity nat)
 	if arity in 2 .. 10
 		a.tuples-2-through-9[arity - 2]
@@ -3599,7 +3650,6 @@ diag union
 	diag-call-no-match-for-interpolate-or-list-new
 	diag-call-option-non-option
 	diag-call-should-use-syntax
-	diag-cant-call
 	diag-case-duplicate
 	diag-case-invalid-sum-type
 	diag-case-missing-type
@@ -3763,11 +3813,6 @@ diag-call-should-use-syntax-kind enum
 	set-subscript
 	subscript
 	with-block
-diag-cant-call record(reason diag-cant-call-reason, callee fun-decl)
-diag-cant-call-reason enum
-	summon_
-	unsafe_
-== bool(a diag-cant-call-reason, b diag-cant-call-reason)
 diag-case-duplicate record(member struct-decl, sum-type struct-decl)
 diag-case-invalid-sum-type record(member struct-decl, actual type)
 diag-case-missing-type record
@@ -3865,8 +3910,8 @@ diag-match-sum-type-no-member record(sum-type type-with-container, non-member st
 diag-match-unhandled-enum-members record(members enum-or-flags-member[])
 diag-match-unhandled-union-case-types record(case-types struct-inst[])
 diag-match-unnecessary-else record
-diag-modifier-conflict record(prev-modifier modifier-keyword, cur-modifier modifier-keyword)
-diag-modifier-duplicate record(modifier modifier-keyword)
+diag-modifier-conflict record(prev-modifier symbol, cur-modifier symbol)
+diag-modifier-duplicate record(modifier symbol)
 diag-modifier-invalid record(modifier modifier-keyword, decl-kind decl-kind)
 | This is like 'ModifierDuplicate' but the modifiers are not identical.
 | E.g., 'extern unsafe', since 'extern' implies 'unsafe'.
@@ -3878,7 +3923,7 @@ diag-modifier-redundant-due-to-decl-kind record
 	modifier modifier-keyword
 	decl-kind decl-kind
 diag-modifier-type-arg-invalid record
-	modifier modifier-keyword
+	modifier modifier-ast
 diag-mut-field-not-allowed record
 diag-named-new-interpolated record
 diag-name-not-found record(kind diag-name-not-found-kind, name symbol)
@@ -3921,7 +3966,7 @@ spec-no-match-reason union
 	spec-cant-infer-type-args
 	spec-impl-not-found
 	spec-too-deep
-spec-builtin-not-satisfied record(kind builtin-spec, type type)
+spec-builtin-not-satisfied record(kind builtin-spec, type-args type-args)
 spec-cant-infer-type-args record
 	| Since we didn't infer type args, it can't go onto the trace.
 	fun fun-decl
