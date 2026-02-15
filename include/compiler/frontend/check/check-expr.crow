@@ -26,7 +26,6 @@ check-fun-or-test-body expr
 	container expr-container
 	return-type type
 	params destructure[]
-	externs symbol-set
 	ast expr-ast?
 	source-for-empty-new call-expr-source?
 do
@@ -41,7 +40,6 @@ do
 		funs-map: funs-map
 		common-types: types common-types
 		container: container
-		externs: externs
 	for param in params
 		expr-ctx add-locals-for-destructure param
 	res = if ast
@@ -230,14 +228,9 @@ do
 	unless ctx check-can-do-unsafe
 		ctx add-diag ast.range, diag-extern-is-unsafe
 	ok mut bool = true
-	names symbol-set = for name-ast in ast names
-		if name = ctx.check-ctx check-extern-name name-ast, ctx.externs
-			name
-		else
-			ok := false
-			"bogus"
-	if ok
-		ctx check expected, ctx.common-types.bool, (ast extern-expr names)
+	assert name = ast.names opt-only else todo # -------------------------------------------------------------------------------------------------------------------------
+	if target = ctx.check-ctx check-extern-name name, ctx.container, ctx.additional-externs
+		ctx check expected, ctx.common-types.bool, (ast extern-expr target)
 	else
 		expected bogus ast.range
 
@@ -481,7 +474,7 @@ do
 		expected bogus range
 
 -check-is-js bool(ctx expr-ctx, range source-range)
-	res = "js"::symbol in ctx.externs
+	res = ctx.specs has-extern js or ctx.additional-externs[js]
 	unless res
 		ctx add-diag range, not-extern-js
 	res
@@ -1117,7 +1110,7 @@ do
 
 	matched-type = matched type ctx.available-types struct-inst!
 	equals = ctx.check-ctx check-spec-and-get-last-impl ctx.funs-map, ast.keyword-range, ctx.type-container, \
-		ctx.specs, ctx.externs, \
+		ctx.specs, ctx.expr-ctx-check-trusted, \
 		(ctx.instantiate-ctx instantiate-spec spec_, matched-type)
 	seen string mut-set = ()
 	cases match-string-like-case[] = with out in build
@@ -1146,10 +1139,10 @@ do
 -with-extern-from-condition[out] out(ctx expr-ctx, condition expr, is-negated bool, cb out mut())
 	guard extern_ = condition as-extern else cb[]
 	guard !(is-negated xor extern_.is-negated) else cb[]
-	original-externs = ctx externs
-	ctx.externs |:= extern_ required-externs
+	original-externs = ctx additional-externs
+	ctx.additional-externs |:= extern_ required-externs
 	res = cb[]
-	ctx.externs := original-externs
+	ctx.additional-externs := original-externs
 	res
 
 -check-expr-with-condition-or-empty-new expr
