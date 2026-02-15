@@ -109,14 +109,23 @@ do
 		()
 
 -check-struct-specs specs(ctx check-ctx, common-types common-types, ast struct-decl-ast)
-	modifiers = ctx accumulate-struct-modifiers ast, false
-	# TODO:PERF This could probably just enumerate all possibilities ------------------------------------------------------------------------------------------------------
-	foo spec-inst[] =
-		-- if mod = modifiers[extern_] and value = ctx get-extern-from-modifier mod
-			- common-types extern-spec value
-		-- if modifiers[summon_]
-			- common-types summon_
-	foo get-or-add-specs
+	# TODO:PERF --------------------------------------------------------------------------------------------------------------------------------------------------
+	for* modifier in ast modifiers
+		match modifier
+		as modifier-keyword-ast
+			guard modifier.keyword == extern_
+			if value = ctx get-extern-from-modifier modifier
+				- common-types extern-spec value
+		as spec-use-ast
+			name = modifier.name name
+			if name == "summon"
+				- common-types summon_
+			elif value build-target = name to
+				- common-types extern-spec value
+			else
+				ctx add-diag modifier.name.range, ast.body.get-decl-kind.diag-spec-use-invalid
+				()
+	then get-or-add-specs
 
 -check-sum-type-memberships-initial sum-type-membership[]
 	ctx check-ctx
@@ -188,7 +197,7 @@ check-method-impls void(ctx check-ctx, common-types common-types, funs-map funs-
 	ctx check-ctx
 	common-types common-types
 	funs-map funs-map
-	type-container type-container
+	struct struct-decl
 	member-type struct-inst
 	diag-range source-range
 	sum-type struct-inst
@@ -208,8 +217,8 @@ do
 				out ~= member-type
 				for x in sig params
 					out ~= x.type instantiate-type sum-type.type-args
-		called = ctx find-function-for-return-and-param-types common-types, type-container, \
-			(ctx funs-in-non-expr-scope funs-map), \
+		called = ctx find-function-for-return-and-param-types common-types, struct, \
+			(ctx funs-in-non-expr-scope struct.specs, funs-map), \
 			sig.name, \
 			diag-range, \
 			(), \
@@ -219,14 +228,10 @@ do
 				ctx add-diag diag-range, (member diag-method-impl-visibility sum-type, fun)
 		called
 
--struct-modifiers record(is-summon bool, purity-and-forced purity-and-forced)
+-struct-modifiers record(purity-and-forced purity-and-forced) # TODO: INLINE? ----------------------------------------------------------------------------------------------------
 -purity-and-forced record(purity purity, forced bool)
 -get-struct-modifiers struct-modifiers(ctx check-ctx, ast struct-decl-ast)
-	modifiers = ctx accumulate-struct-modifiers ast, true
-	is-summon = x = modifiers[summon_] and
-		ctx modifier-type-arg-invalid x
-		true
-	is-summon: is-summon
+	modifiers = ctx accumulate-struct-modifiers ast
 	purity-and-forced: if p = modifiers[purity]
 		keyword = p modifier-keyword-ast!
 		pf = keyword.keyword purity-and-forced-from-modifier!
@@ -237,43 +242,28 @@ do
 	else
 		data_, false
 
--struct-modifier-kind enum(extern_, summon_, purity)
+# TODO:NEATER -------------------------------------------------------------------------------------------------------------------------------------------------
+-struct-modifier-kind enum(purity)
 -== bool(a struct-modifier-kind, b struct-modifier-kind)
 -<=> comparison(a struct-modifier-kind, b struct-modifier-kind)
 -hash void(a struct-modifier-kind, state hash-state)
 	a.to::nat32 hash state
 -to nat32(a struct-modifier-kind)
--accumulate-struct-modifiers modifier-ast[struct-modifier-kind](ctx check-ctx, ast struct-decl-ast, diags bool)
+-accumulate-struct-modifiers modifier-ast[struct-modifier-kind](ctx check-ctx, ast struct-decl-ast)
 	res modifier-ast mut[struct-modifier-kind] = ()
 	for modifier in ast modifiers
 		match modifier
 		as modifier-keyword-ast
 			guard modifier.keyword !is-new-visibility and modifier.keyword != case_ and modifier.keyword != storage_
-			if modifier.keyword == extern_
-				ctx accumulate-modifier res, extern_, modifier, diags
-			elif modifier.keyword purity-and-forced-from-modifier
-				if diags
-					ctx modifier-type-arg-invalid modifier
-				ctx accumulate-modifier res, purity, modifier, diags
-			else
-				if diags
-					ctx add-diag modifier.keyword-range,
-						modifier.keyword diag-modifier-invalid ast.body.get-decl-kind
-		as spec-use-ast
-			if diags
+			if modifier.keyword purity-and-forced-from-modifier
 				ctx modifier-type-arg-invalid modifier
-			if modifier.name.name == "summon"
-				ctx accumulate-modifier res, summon_, modifier, diags
-			elif diags
-				ctx add-diag modifier.name-range, ast.body.get-decl-kind.diag-spec-use-invalid
+				ctx accumulate-modifier res, purity, modifier, true
+			elif modifier.keyword != extern_
+				ctx add-diag modifier.keyword-range,
+					modifier.keyword diag-modifier-invalid ast.body.get-decl-kind
+		as spec-use-ast
+			()
 	res move-to
-
--to struct-modifier-kind?(a modifier-keyword)
-	match a
-	as extern_ then extern_
-	else
-		if a purity-and-forced-from-modifier
-			purity
 
 -decl-kind-for-sum-type decl-kind(a sum-type-kind)
 	match a
@@ -334,7 +324,7 @@ do
 		else
 			!!a.keyword.purity-and-forced-from-modifier
 	as spec-use-ast
-		a.name.name == "summon"
+		a.name.name == "summon" or a.name.name.to::build-target?
 
 -check-enum struct-body
 	ctx check-ctx
@@ -599,8 +589,7 @@ do
 -accumulate-record-modifiers record-modifiers(ctx check-ctx, modifiers modifier-ast[])
 	res modifier-ast mut[symbol] = ()
 	for modifier in modifiers
-		guard x = modifier modifier-keyword-ast else
-			ctx add-diag modifier.range, record_.diag-spec-use-invalid
+		guard x = modifier modifier-keyword-ast
 		keyword = x keyword
 		if keyword is-new-visibility
 			ctx modifier-type-arg-invalid x
