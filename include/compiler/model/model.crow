@@ -1331,6 +1331,7 @@ builtin-fun union
 	builtin-fun-call-lambda
 	builtin-fun-constant
 	builtin-fun-is-empty-type
+	builtin-fun-is-target
 	js-fun
 to json(a builtin-fun)
 builtin-fun-call-lambda record
@@ -1348,6 +1349,8 @@ builtin-fun-constant-gc-safe-value record
 to json(a builtin-fun-constant-gc-safe-value)
 builtin-fun-is-empty-type record
 to json(a builtin-fun-is-empty-type)
+builtin-fun-is-target record(target build-target)
+to json(a builtin-fun-is-target)
 
 builtin-unary enum
 	| works on mut-slice too
@@ -2892,32 +2895,37 @@ iterate bool(a condition-destructures-and-refinements, f bool mut(x local-or-ref
 
 extern-condition record
 	is-negated bool
+	# TODO: there are only 2 externs 'java' and 'js', so there is no reason to intersect them .....................................................................
 	| If isNegated is set, this means !(x and y and ...)
 	required-externs build-target set
 as-extern extern-condition?(a expr)
 	match x = a skip-trusted
 	as call-expr
-		if x.called is-not and e = x.args.only.skip-trusted extern-expr
-			true, (e.target,)
+		guard fun = x.called as-builtin-fun
+		match fun
+		as builtin-unary
+			if fun == not and e = x.args.only.skip-trusted extern-expr
+				true, (e.target,)
+		as builtin-fun-is-target
+			false, (fun.target,)
+		else
+			()
 	as extern-expr
 		false, (x.target,)
 	as logical-expr
 		guard x.kind == bool-and-bool
+		# TODO: we shouldn't need to guard both left and right ... support 'if foo and js' where 'foo' is completely unrelated -----------------------------------------------
 		guard left = x.left as-extern
 		guard right = x.right as-extern
 		guard left !is-negated and right !is-negated
 		false, left.required-externs | right.required-externs
 	else
 		()
--is-not bool(a called)
-	a is-builtin-fun of fun
-		fun.builtin-unary == not
--is-builtin-fun bool(a called, cb bool data(x builtin-fun))
-	(fun = a fun-inst) and fun.decl.body is-builtin-fun cb
--is-builtin-fun bool(a fun-body, cb bool data(x builtin-fun))
-	(x = a builtin-fun) and cb[x]
 -skip-trusted expr(a expr)
 	a.trusted-expr ?inner else a
+-as-builtin-fun builtin-fun?(a called)
+	guard fun = a fun-inst
+	fun.decl.body builtin-fun
 
 assert-or-forbid-expr record
 	ast assert-or-forbid-ast
