@@ -53,29 +53,51 @@ public class Crow {
 	public static boolean isPositive0(double a) {
 		return Double.doubleToLongBits(a) == 0;
 	}
-	public static boolean lessInt8(byte a, byte b) {
-		return a < b;
+	// This returns 'comparison', which has members 'less' = 0, 'equal' = 1, 'greater' = 2
+	public static byte compareInt8(byte a, byte b) {
+		return a < b ? (byte) 0 : a > b ? (byte) 2 : (byte) 1;
 	}
-	public static boolean lessInt16(short a, short b) {
-		return a < b;
+	public static byte compareInt16(short a, short b) {
+		return a < b ? (byte) 0 : a > b ? (byte) 2 : (byte) 1;
 	}
-	public static boolean lessInt32(int a, int b) {
-		return a < b;
+	public static byte compareInt32(int a, int b) {
+		return a < b ? (byte) 0 : a > b ? (byte) 2 : (byte) 1;
 	}
-	public static boolean lessInt64(long a, long b) {
-		return a < b;
+	public static byte compareInt64(long a, long b) {
+		return a < b ? (byte) 0 : a > b ? (byte) 2 : (byte) 1;
 	}
-	public static boolean lessNat8(byte a, byte b) {
-		return Byte.compareUnsigned(a, b) < 0;
+	private static byte toComparison(int a) {
+		return a < 0 ? (byte) 0 : a > 0 ? (byte) 2 : (byte) 1;
 	}
-	public static boolean lessNat16(short a, short b) {
-		return Short.compareUnsigned(a, b) < 0;
+	public static byte compareNat8(byte a, byte b) {
+		return toComparison(Byte.compareUnsigned(a, b));
 	}
-	public static boolean lessNat32(int a, int b) {
-		return Integer.compareUnsigned(a, b) < 0;
+	public static byte compareNat16(short a, short b) {
+		return toComparison(Short.compareUnsigned(a, b));
 	}
-	public static boolean lessNat64(long a, long b) {
-		return Long.compareUnsigned(a, b) < 0;
+	public static byte compareNat32(int a, int b) {
+		return toComparison(Integer.compareUnsigned(a, b));
+	}
+	public static byte compareNat64(long a, long b) {
+		return toComparison(Long.compareUnsigned(a, b));
+	}
+	public static byte compareFloat32(float a, float b) {
+		return lessFloat32(a, b) ? (byte) 0 : lessFloat32(b, a) ? (byte) 2 : (byte) 1;
+	}
+	private static boolean lessFloat32(float a, float b) {
+		return a < b || isNegative0(a) && isPositive0(b) || Float.isNaN(a) && !Float.isNaN(b);
+	}
+	public static byte compareFloat64(double a, double b) {
+		return lessFloat64(a, b) ? (byte) 0 : lessFloat64(b, a) ? (byte) 2 : (byte) 1;
+	}
+	private static boolean lessFloat64(double a, double b) {
+		return a < b || isNegative0(a) && isPositive0(b) || Double.isNaN(a) && !Double.isNaN(b);
+	}
+	public static byte compareFloat32IEEE(float a, float b) {
+		return a < b ? (byte) 0 : a > b ? (byte) 2 : (byte) 1;
+	}
+	public static byte compareFloat64IEEE(double a, double b) {
+		return a < b ? (byte) 0 : a > b ? (byte) 2 : (byte) 1;
 	}
 
 	public static int nat32FromNat64(long a) {

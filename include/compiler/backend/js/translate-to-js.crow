@@ -170,11 +170,11 @@ do
 	as concrete-builtin-type
 		source gen-is-builtin-type get, x
 	as concrete-enum
-		source gen-is-nat get, x.storage_
+		source gen-is-nat get, x.storage
 	as struct-body-extern-java
 		source gen-bool false
 	as concrete-flags
-		source gen-is-nat get, x.storage_
+		source gen-is-nat get, x.storage
 	as concrete-record
 		source gen-instanceof get, do ctx to-ref source, a
 	as concrete-union
@@ -536,7 +536,7 @@ do
 		ctx translate-builtin-unary type, source, fun, args.only
 	as builtin-binary
 		arg0, arg1 = args only2
-		source translate-builtin-binary type, fun, do (ctx to-js-expr arg0), (ctx to-js-expr arg1)
+		source translate-builtin-binary type, fun, arg0.type, do (ctx to-js-expr arg0), (ctx to-js-expr arg1)
 	as builtin-ternary
 		arg0, arg1, arg2 = args only3
 		source translate-builtin-ternary fun, do (ctx to-js-expr arg0), (ctx to-js-expr arg1), (ctx to-js-expr arg2)
@@ -624,26 +624,34 @@ do
 		source gen-new WeakRef, do arg,
 	as wrap-convert-integral
 		out = type as-integral-type-allow-char!
-		in_ = arg-type as-integral-type-allow-char!
-		source gen-as-integral out, if in_ is-64-bit
-			if out is-64-bit
-				arg
-			else
-				source gen-call-sync (source gen-global "Number"), (arg,)
+		if arg-type is-bool
+			name string = if out is-64-bit then "BigInt" else "Number"
+			source gen-call-sync (source gen-identifier name.no-prefix), (arg,)
 		else
-			if out is-64-bit
-				source gen-call-sync (source gen-global "BigInt"), (arg,)
+			in_ = arg-type as-integral-type-allow-char!
+			source gen-as-integral out, if in_ is-64-bit
+				if out is-64-bit
+					arg
+				else
+					source gen-call-sync (source gen-global "Number"), (arg,)
 			else
-				arg
+				if out is-64-bit
+					source gen-call-sync (source gen-global "BigInt"), (arg,)
+				else
+					arg
 
--translate-builtin-binary js-expr-or-block-statement(source source, type concrete-type, a builtin-binary, (arg0 js-expr, arg1 js-expr))
+-translate-builtin-binary js-expr-or-block-statement
+	source source
+	type concrete-type
+	a builtin-binary
+	arg0-type concrete-type
+	(arg0 js-expr, arg1 js-expr)
+do
 	binary js-expr data(op js-binary-kind) = of op
 		source gen-binary op, arg0, arg1
 	bitwise js-expr data(op js-binary-kind) = of op
 		res = binary[op]
 		if type is-nat32 then source gen-to-nat32 res else res
-	Object-is js-expr data() = of
-		source gen-call-property-sync (source gen-global "Object"), "is", do arg0, arg1
 	match a
 	as add-float
 		match type as-float-type!
@@ -660,12 +668,13 @@ do
 		bitwise[bitwise-or]
 	as bitwise-xor
 		bitwise[bitwise-xor]
+	as compare
+		name string = if arg0-type is-float32-or-64 then "_compareFloat" else "_compareIntegral"
+		source gen-call-sync (source gen-identifier name.no-prefix), (arg0, arg1)
 	as equal-exact
-		Object-is[]
+		source gen-call-property-sync (source gen-global "Object"), "is", (arg0, arg1)
 	as equal-float-ieee
 		binary[eq-eq-eq]
-	as less
-		binary[less]
 	as less-float-ieee
 		binary[less]
 	as mul-float
@@ -773,8 +782,6 @@ do
 			source gen-property-access-computed global_, only-arg[]
 		else
 			throw unreachable
-	as less
-		binary[less]
 	as null
 		source gen-null
 	as plus
@@ -1316,11 +1323,11 @@ do
 	as concrete-builtin-type
 		ctx translate-constant-builtin source, type, x, a
 	as concrete-enum
-		source constant-nat x.storage_, a
+		source constant-nat x.storage, a
 	as struct-body-extern-java
 		throw unreachable
 	as concrete-flags
-		source constant-nat x.storage_, a
+		source constant-nat x.storage, a
 	as concrete-record
 		match a
 		as constant-record
@@ -1587,9 +1594,9 @@ do
 	as concrete-builtin-type
 		body.kind array-for-builtin-type
 	as concrete-enum
-		body.storage_ array-for-nat-type
+		body.storage array-for-nat-type
 	as concrete-flags
-		body.storage_ array-for-nat-type
+		body.storage array-for-nat-type
 	as concrete-record
 		Array
 	as concrete-union
