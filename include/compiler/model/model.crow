@@ -284,25 +284,11 @@ get-or-add-specs specs(specs spec-inst[])
 					index +:= 1
 					res
 is-unsafe bool(a specs)
-	a.all-builtin exists it.a == unsafe_
+	a.all-builtin exists it.a == unsafe
 is-summon bool(a specs)
-	a.all-builtin exists it.a == summon_
+	a.all-builtin exists it.a == summon
 has-extern bool(a specs, value build-target)
 	a.all-builtin exists it.a == value.to
-
-# TODO: This duplicates code in instantiate.crow ... that is a very small module so maybe it should all be moved here --------------------------------------------------------------------------------------------------------------------
--instantiate-type-args type-args(a type-args, type-args type-args)
-	a map-type-args of x then x instantiate-type type-args
--instantiate-type type(type type, type-args type-args)
-	match type
-	as bogus-type
-		bogus-type
-	as type-param-index
-		type-args[type index]
-	as struct-inst
-		type instantiate-struct-inst type-args
--instantiate-struct-inst struct-inst(struct-inst struct-inst, type-args type-args)
-	struct-inst.decl[struct-inst.type-args instantiate-type-args type-args]
 
 type union(bogus-type, type-param-index, struct-inst)
 	hash nat()
@@ -829,7 +815,6 @@ struct-decl record force-data
 	visibility visibility
 	n-type-params_ nat8
 	| Can only contain 'summon', 'js', 'java'
-	# TODO:PERF Just store 'specs' for perf .....................................................................................................................................
 	late-specs mut specs?
 	| Warn: purity on the decl does not take type args into account
 	purity purity
@@ -1080,8 +1065,8 @@ builtin-spec enum
 	java
 	js
 	shared_
-	summon_
-	unsafe_
+	summon
+	unsafe
 == bool(a builtin-spec, b builtin-spec)
 to purity?(a builtin-spec)
 	match a
@@ -1101,9 +1086,9 @@ to symbol(a builtin-spec)
 		"js"
 	as shared_
 		"shared"
-	as summon_
+	as summon
 		"summon"
-	as unsafe_
+	as unsafe
 		"unsafe"
 to builtin-spec?(a symbol)
 	match a
@@ -1116,9 +1101,9 @@ to builtin-spec?(a symbol)
 	as "shared"
 		shared_
 	as "summon"
-		summon_
+		summon
 	as "unsafe"
-		unsafe_
+		unsafe
 	else
 		()
 
@@ -1151,8 +1136,6 @@ doc-comment doc-comment(a spec-decl)
 	a.doc-comment-ast, a.doc-comment-references
 name symbol(a spec-decl)
 	a.ast.name name
-is-template bool(a spec-decl)
-	a.n-type-params != 0
 n-type-params nat(a spec-decl)
 	a.type-param-asts size
 type-param-asts type-params(a spec-decl)
@@ -1501,7 +1484,6 @@ fun-decl record force-data, -new
 	doc-comment-references mut doc-comment-references
 	body mut fun-body
 	insts mut fun-decl-insts
-	deprecated mut bool # RM -----------------------------------------------------------------------------------------------------
 to json(a fun-decl)
 	source: a.source to
 	visibility: a.visibility to
@@ -1585,7 +1567,6 @@ do
 		doc-comment-references: doc-comment-references
 		body: body
 		insts: trusted gc-safe-value
-		deprecated: false
 	res.insts := if res is-template
 		:: (fun-inst, fun-inst-key) object-memoizer
 	else
@@ -1669,10 +1650,6 @@ specs specs(a expr-container)
 		a specs
 	as var-decl
 		()
-is-unsafe bool(a expr-container)
-	a.specs is-unsafe
-is-summon bool(a expr-container)
-	a.specs is-summon
 
 fun-inst record force-data, -new
 	decl fun-decl
@@ -2096,13 +2073,14 @@ common-types record
 	nat8-array struct-inst
 	string-array struct-inst
 	option struct-decl
+	t-option struct-inst
 	reference struct-decl
 	| No tuple0 and tuple1, so this is 2-9 inclusive
 	tuples-2-through-9 struct-decl[]
 	| Indexed by FunKind, then by arity. (arity = typeArgs.length - 1)
 	fun-structs (fun-kind, struct-decl) enum-map
-	summon_ spec-inst # UNUSED ---------------------------------------------------------------------------------------------------------------------------------------
-	unsafe_ spec-inst # UNUSED ---------------------------------------------------------------------------------------------------------------------------------------
+	summon spec-inst
+	unsafe spec-inst
 	java-spec spec-inst
 	js-spec spec-inst
 	java-summon-unsafe-specs specs
@@ -2312,8 +2290,6 @@ main-fun main-fun(a program-with-main)
 	a.main-fun-and-diagnostics main-fun
 main-fun-diagnostics uri-and-diagnostic[](a program-with-main)
 	a.main-fun-and-diagnostics diagnostics
-main-config config(a program-with-main)
-	a.main-fun main-config a.program
 
 build-target enum
 	java
@@ -2326,6 +2302,12 @@ to build-target?(a symbol)
 hash void(a build-target, state hash-state)
 	a.to::nat32 hash state
 to json(a build-target)
+to builtin-spec(a build-target)
+	match a
+	as java
+		java
+	as js
+		js
 
 # TODO: is there a better way to do this? -------------------------------------------------------------------------------------
 program-with-opt-main record
@@ -2381,24 +2363,6 @@ can-run-in-target bool(a main-fun, target build-target)
 			true
 		as test_
 			a can-include-test target
-main-config config(a main-fun, program program)
-	config-for config mut(uri uri) = of uri
-		program module-at-uri uri config
-	match a
-	as main-fun-nat64-of-args
-		config-for[a.fun.decl module-uri]
-	as main-fun-void
-		config-for[a.fun.decl module-uri]
-	as test-selector
-		match a
-		as test-selector-all
-			a main-config
-		as config
-			a
-		as uri
-			config-for[a]
-		as test_
-			config-for[a module-uri]
 
 | All tests, tests in a particular config, tests in a single file, or a single test
 test-selector union(test-selector-all, config, uri, test_)
@@ -2500,30 +2464,10 @@ each-test void(a program, target build-target, selector test-selector, cb void m
 			target == js
 		as shared_
 			throw todo
-		as summon_
+		as summon
 			true
-		as unsafe_
+		as unsafe
 			true
-to builtin-spec(a build-target) # MOVE? -----------------------------------------------------------------------------------------------------------------------------
-	match a
-	as java
-		java
-	as js
-		js
-to build-target?(a builtin-spec) # MOVE? -----------------------------------------------------------------------------------------------------------------------------
-	match a
-	as data_
-		()
-	as java
-		java
-	as js
-		js
-	as shared_
-		()
-	as summon_
-		()
-	as unsafe_
-		()
 
 config record
 	| Empty only for {default-config}
@@ -2889,38 +2833,6 @@ iterate bool(a condition-destructures-and-refinements, f bool mut(x local-or-ref
 		expr.destructure.locals iterate f[it]
 	else
 		()
-
-extern-condition record
-	is-negated bool
-	# TODO: there are only 2 externs 'java' and 'js', so there is no reason to intersect them .....................................................................
-	| If isNegated is set, this means !(x and y and ...)
-	required-externs build-target set
-as-extern extern-condition?(a expr)
-	match x = a skip-trusted
-	as call-expr
-		guard fun = x.called as-builtin-fun
-		match fun
-		as builtin-unary
-			if fun == not and arg = x.args.only as-extern
-				!arg.is-negated, arg.required-externs
-		as builtin-fun-is-target
-			false, (fun.target,)
-		else
-			()
-	as logical-expr
-		guard x.kind == bool-and-bool
-		# TODO: we shouldn't need to guard both left and right ... support 'if foo and js' where 'foo' is completely unrelated -----------------------------------------------
-		guard left = x.left as-extern
-		guard right = x.right as-extern
-		guard left !is-negated and right !is-negated
-		false, left.required-externs | right.required-externs
-	else
-		()
--skip-trusted expr(a expr)
-	a.trusted-expr ?inner else a
--as-builtin-fun builtin-fun?(a called)
-	guard fun = a fun-inst
-	fun.decl.body builtin-fun
 
 assert-or-forbid-expr record
 	ast assert-or-forbid-ast
@@ -3660,7 +3572,6 @@ decl-kind enum
 	thread-local_
 	union_
 	variant_
-== bool(a decl-kind, b decl-kind)
 
 fun-name union(symbol, list-new, named-new)
 list-new record
@@ -3884,7 +3795,6 @@ diag-enum-backing-type-invalid record(enum_ struct-decl, actual type)
 diag-enum-duplicate-value record(signed bool, value scalar-value)
 diag-expected-type-is-not-a-lambda record(expected-type type-with-container?)
 diag-extern-body-multiple record
-diag-extern-is-unsafe record
 diag-flags-signed record
 diag-function-with-signature-not-found record
 	name symbol

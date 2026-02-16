@@ -32,7 +32,7 @@ do
 	funs = ctx check-funs-initial types, structs, vars, file-imports, file-exports, asts
 	assert funs.size >= asts.size
 	funs-map funs-map = funs to
-	ctx check-method-impls types.common-types, funs-map, structs
+	ctx check-method-impls funs-map, structs
 	ctx check-funs-with-asts types, funs-map, funs[0 .. asts.size], asts
 	for i, f in file-imports with-index
 		funs[asts.size + i] set-file-import-function-body f
@@ -63,7 +63,7 @@ do
 			ctx add-funs-for-var out, common-types, var
 
 -check-fun fun-decl(ctx check-ctx, types types-and-specs, fun-ast fun-decl-ast)
-	specs = ctx check-fun-modifiers types, fun-ast.type-params, fun-ast.name-range, fun-ast.modifiers
+	specs = ctx check-fun-modifiers types, fun-ast.type-params, fun-ast.modifiers
 	fun fun-decl =
 		hash: ctx next-hash
 		source: fun-ast
@@ -124,26 +124,24 @@ do
 	ctx check-ctx
 	types types-and-specs
 	type-params-scope type-params
-	range source-range
 	asts modifier-ast[]
 do
-	all-flags mut collected-fun-flags = ()
+	is-builtin mut bool = false
 	specs spec-inst[] =  with out in build
 		for ast in asts
 			match ast
 			as modifier-keyword-ast
-				flag = ast.keyword try-get-fun-flag
-				if flag == ()
+				if ast.keyword == builtin_
+					if is-builtin
+						ctx add-diag ast.keyword-range, ast.keyword.to.diag-modifier-duplicate
+					is-builtin := true
+					ctx modifier-type-arg-invalid ast
+				else
 					ctx add-diag ast.keyword-range, do ast.keyword diag-modifier-invalid function_
-				elif flag in all-flags
-					ctx add-diag ast.keyword-range, ast.keyword.to.diag-modifier-duplicate
-				ctx modifier-type-arg-invalid ast
-				all-flags |:= flag
 			as spec-use-ast
 				if inst = ctx spec-from-ast types, type-params-scope, ast, no-delay-spec-insts
 					out ~= inst
-	is-builtin: builtin_::collected-fun-flags in all-flags
-	specs: specs get-or-add-specs
+	is-builtin, specs.get-or-add-specs
 
 -check-tests test_[]
 	ctx check-ctx
@@ -153,25 +151,16 @@ do
 do
 	void = types.common-types void
 	for ast in test-asts
-		specs = ctx check-fun-modifiers types, (), ast.range, ast.modifiers
-		assert specs.specs.instantiated-sigs is-empty else todo # diag-spec-use-invalid ===============================================================================================
-		forbid specs is-builtin else todo # diag -----------------------------------------------------------------------------------------------------------------
+		specs = ctx check-fun-modifiers types, (), ast.modifiers
+		if specs.specs.instantiated-sigs !is-empty
+			ctx add-diag ast.keyword-range, test_.diag-spec-use-invalid
+		forbid specs is-builtin else todo # diag ----------------------------------------------------------------------------------------------------
 		test_ test_ = ctx.next-hash, ast, ctx.cur-uri, specs.specs, (() bogus-expr void), ()
 		if body = ast body
 			test_.body := ctx check-fun-or-test-body types, funs-map, test_, void, (), body, ()
 		else
 			ctx add-diag ast.range, diag-test-missing-body
 		test_
-
--collected-fun-flags flags # RM --------------------------------------------------------------------------------------------------------------------------------------
-	builtin_
--== bool(a collected-fun-flags, b collected-fun-flags)
--try-get-fun-flag collected-fun-flags(a modifier-keyword)
-	match a
-	as builtin_
-		builtin_
-	else
-		()
 
 -check-funs-with-asts void
 	ctx check-ctx

@@ -176,7 +176,7 @@ do
 		# But having this will guide code to prefer to exactly match 'bool' instead of converting to option.
 		choices type-and-context mut[] =
 			- ctx.common-types.bool, ()
-			- ctx.common-types.option.instantiated-with-own-type-params, ((),)
+			- ctx.common-types.t-option, ((),)
 		res = ctx check-expr ast, choices.to
 		# It may implicitly convert to an option and that's what 'expected inferred' gives.
 		# So use 'res type' to get the actual type.
@@ -1098,8 +1098,7 @@ do
 
 	matched-type = matched type ctx.available-types struct-inst!
 	equals = ctx.check-ctx check-spec-and-get-last-impl ctx.funs-map, ast.keyword-range, ctx.type-container, \
-		ctx.specs, ctx.expr-ctx-check-trusted, \
-		(ctx.instantiate-ctx instantiate-spec spec_, matched-type)
+		ctx.specs, ctx, (ctx.instantiate-ctx instantiate-spec spec_, matched-type)
 	seen string mut-set = ()
 	cases match-string-like-case[] = with out in build
 		for case-ast in ast cases
@@ -1128,10 +1127,34 @@ do
 	guard extern_ = condition as-extern else cb[]
 	guard !(is-negated xor extern_.is-negated) else cb[]
 	original-externs = ctx additional-externs
-	ctx.additional-externs |:= extern_ required-externs
+	ctx.additional-externs ~:= extern_ target
 	res = cb[]
 	ctx.additional-externs := original-externs
 	res
+
+-extern-condition record(is-negated bool, target build-target)
+-as-extern extern-condition?(a expr)
+	match x = a skip-trusted
+	as call-expr
+		guard fun = x.called as-builtin-fun
+		match fun
+		as builtin-unary
+			if fun == not and arg = x.args.only as-extern
+				!arg.is-negated, arg.target
+		as builtin-fun-is-target
+			false, fun.target
+		else
+			()
+	as logical-expr
+		guard x.kind == bool-and-bool
+		x.left as-extern or x.right as-extern
+	else
+		()
+-skip-trusted expr(a expr)
+	a.trusted-expr ?inner else a
+-as-builtin-fun builtin-fun?(a called)
+	guard fun = a fun-inst
+	fun.decl.body builtin-fun
 
 -check-expr-with-condition-or-empty-new expr
 	ctx expr-ctx

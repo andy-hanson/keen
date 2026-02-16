@@ -11,35 +11,27 @@ import
 	../util/util
 	./command
 
--os enum(posix, windows)
--get-os os() summon
-	# ------------------------------------------------------------------------------------------------------------------------------------------------------------
-	#if trusted extern windows
-	#	windows
-	#else
-	posix
-
 parse-command command(cwd file-path, args string[]) summon
-	cwd parse-command-inner get-os, args
+	cwd parse-command-inner args
 
-parse-command-inner command(cwd file-path, os os, args string[])
+parse-command-inner command(cwd file-path, args string[])
 	arg0 string = unless args is-empty then args[0]
 	if arg0 ends-with ".crow"
 		main = (cwd parse-uri-with-cwd arg0) main-kind-main-function args[1 .. end].to
 		(main run-command ()), ()
 	elif name = arg0 command-name
-		cwd parse-command-from-name os, name, args[1 .. end].to.parse-command
+		cwd parse-command-from-name name, args[1 .. end].to.parse-command
 	else
 		kind: help-all-text help-command if arg0 == "help" or arg0 == "--help" then ok else error
 		options: ()
 
--parse-command-from-name command(cwd file-path, os os, name command-name, all-args parsed-command)
+-parse-command-from-name command(cwd file-path, name command-name, all-args parsed-command)
 	args, help, options = all-args extract-options
 	if help
 		(name.help-for-command help-command ok), options
 	else
 		diags diags = ()
-		res = cwd parse-command-kind os, name, args, diags
+		res = cwd parse-command-kind name, args, diags
 		if diags is-empty
 			res, options
 		else
@@ -130,7 +122,7 @@ parse-command-inner command(cwd file-path, os os, args string[])
 	unexpected-part
 	unexpected-part-args
 	unexpected-before
--build-out-bad-file-extension record(executable-extension symbol)
+-build-out-bad-file-extension record
 -expected-crow-uri record(actual string)
 -expected-crow-or-crow-config-uri record(actual string)
 -expected-nat record(tag symbol?, actual string)
@@ -151,7 +143,7 @@ parse-command-inner command(cwd file-path, os os, args string[])
 -show string(a diag)
 	match a
 	as build-out-bad-file-extension
-		"Build output must be a '.c', '.java', '.js', or '{a.executable-extension}' file."
+		"Build output must be a '.js' or extensionless file."
 	as expected-crow-uri
 		"Expected path to a '.crow' file, instead got {a.actual quoted}."
 	as expected-crow-or-crow-config-uri
@@ -190,14 +182,13 @@ parse-command-inner command(cwd file-path, os os, args string[])
 
 -parse-command-kind command-kind
 	cwd file-path
-	os os
 	command-name command-name
 	args parsed-command
 	diags diags
 do
 	match command-name
 	as build
-		cwd parse-build-command diags, os, args
+		cwd parse-build-command diags, args
 	as check
 		options = diags parse-check-options args.named
 		diags expect-empty-after-dash-dash args.after
@@ -239,13 +230,6 @@ do
 -expect-empty-after-dash-dash void(diags diags, after string[])
 	unless after is-empty
 		diags ~= "--" unexpected-part
-
-default-executable-extension symbol(os os)
-	match os
-	as posix
-		""
-	as windows
-		".exe"
 
 -parse-main-kind-for-test main-kind(cwd file-path, diags diags, args string[], all bool)
 	line nat? = if args.size == 2
@@ -392,7 +376,7 @@ parse-line-and-column line-and-column?(a string) # TODO: make it neater using a 
 	if a.peek8 is-digit
 		a take-nat
 
--parse-build-command command-kind(cwd file-path, diags diags, os os, args parsed-command)
+-parse-build-command command-kind(cwd file-path, diags diags, args parsed-command)
 	diags expect-empty-after-dash-dash args.after
 	out mut single-build-output[] = ()
 	test_ mut bool = false
@@ -404,7 +388,7 @@ parse-line-and-column line-and-column?(a string) # TODO: make it neater using a 
 		tag, values = part
 		match tag
 		as out
-			out := cwd parse-build-out os, diags, values
+			out := cwd parse-build-out diags, values
 		as "test"
 			diags expect-flag part
 			test_ := true
@@ -430,7 +414,7 @@ parse-line-and-column line-and-column?(a string) # TODO: make it neater using a 
 	else
 		cwd parse-main-uri diags, args.nameless.to main-kind-main-function ()
 	res-out single-build-output[] = if out is-empty
-		- (main default-executable-path-for-main cwd, os), java
+		- (main default-executable-path-for-main cwd), java
 	else
 		out
 	main: main
@@ -496,40 +480,40 @@ parse-line-and-column line-and-column?(a string) # TODO: make it neater using a 
 	unless args is-empty
 		diags ~= tag unexpected-part-args args
 
--parse-build-out single-build-output[](cwd file-path, os os, diags diags, args string[])
+-parse-build-out single-build-output[](cwd file-path, diags diags, args string[])
 	if args is-empty
 		diags ~= "out" expected-paths
 	for* arg in args
-		cwd parse-single-build-out os, diags, arg from-option
--parse-single-build-out single-build-output?(cwd file-path, os os, diags diags, arg string)
+		cwd parse-single-build-out diags, arg from-option
+-parse-single-build-out single-build-output?(cwd file-path, diags diags, arg string)
 	path = diags parse-file-path-with-cwd-or-diag cwd, arg
-	if kind = path.get-extension build-kind-from-extension os
+	if kind = path.get-extension build-kind-from-extension
 		path, kind
 	else
-		diags ~= os.default-executable-extension build-out-bad-file-extension
+		diags ~= build-out-bad-file-extension
 		()
 
--build-kind-from-extension build-target?(extension symbol, os os)
+-build-kind-from-extension build-target?(extension symbol)
 	match extension
+	as ""
+		java
 	as ".jar"
 		java
 	as ".js"
 		js
 	else
-		if extension == os.default-executable-extension
-			java
+		()
 
 -parse-file-path-with-cwd-or-diag file-path(diags diags, cwd file-path, arg string)
 	cwd parse-file-path-with-cwd arg else
 		diags ~= arg parse-file-path
 		cwd / "bogus"
 
--default-executable-path-for-main file-path(main main-kind, cwd file-path, os os)
+-default-executable-path-for-main file-path(main main-kind, cwd file-path)
 	if main.main-uri-for-all-args uri-is-file
 		main.main-uri-for-all-args as-file-path
 	else
 		cwd / "main"
-	then alter-extension os.default-executable-extension
 
 -main-uri-for-all-args uri(a main-kind)
 	match a
