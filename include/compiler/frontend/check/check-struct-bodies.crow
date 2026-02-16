@@ -43,12 +43,12 @@ do
 			ctx get-builtin-type struct
 		as enum-ast
 			ctx check-no-type-params ast.type-params, enum_
-			storage_ = ctx check-enum-or-flags-modifiers types, struct, enum_, ast.modifiers, false
-			ctx check-enum struct, ast.range, x, storage_
+			ctx check-enum-or-flags-modifiers types, struct, enum_, ast.modifiers, false
+			ctx check-enum struct, x
 		as flags-ast
 			ctx check-no-type-params ast.type-params, flags_
-			storage_ = ctx check-enum-or-flags-modifiers types, struct, flags_, ast.modifiers, true
-			ctx check-flags struct, x, storage_
+			ctx check-enum-or-flags-modifiers types, struct, flags_, ast.modifiers, true
+			ctx check-flags struct, x
 		as record-ast
 			ctx check-record types, struct, ast.modifiers, x
 		as sum-type-ast
@@ -298,43 +298,36 @@ do
 	as spec-use-ast
 		a.name.name == "summon" or a.name.name.to::build-target?
 
--check-enum struct-body
-	ctx check-ctx
-	struct struct-decl
-	range source-range
-	ast enum-ast
-	storage_ integral-type
-do
-	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, enum-member, storage_, of last-value
+-check-enum enum_(ctx check-ctx, struct struct-decl, ast enum-ast)
+	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, enum-member, of last-value
 		if last-value
-			(last-value.to::nat wrap-add 1).to, last-value.to::nat == storage_.max-value
+			(last-value wrap-add 1), last-value == max-value::nat64
 		else
-			0::nat.to, false
+			0, false
 	if members.members is-empty
-		ctx add-diag range, diag-empty-enum-or-union
-	storage_ enum_ members.members, members.members-by-name
+		ctx add-diag struct.name-range.range, diag-empty-enum-or-union
+	members.storage_, members.members, members.members-by-name
 
--check-flags flags_(ctx check-ctx, struct struct-decl, ast flags-ast, storage_ integral-type)
-	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, flags-member, storage_, of last-value
+-check-flags flags_(ctx check-ctx, struct struct-decl, ast flags-ast)
+	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, flags-member, of last-value
 		if last-value
 			# TODO: diagnostic if the last value isn't a power of 2
 			# TODO: I think all this is silly. We should just require that *all* values be specified or *none* at all -----------------------------
-			(last-value.to::nat wrap-mul 2).to, last-value.to::nat >= storage_.max-value / 2
+			(last-value wrap-mul 2), last-value >= max-value::nat64 / 2
 		else
-			1::nat.to, false
-	storage_, members.members
+			1::nat, false
+	members.storage_, members.members
 
--value-and-overflow record(value scalar-value, overflow bool)
+-value-and-overflow record(value nat, overflow bool)
 # TODO: we don't need members-by-name for flags ...................................................................................
--enum-or-flags-members record(members enum-or-flags-member[], members-by-name enum-or-flags-member by-name)
+-enum-or-flags-members record(storage_ nat-type, members enum-or-flags-member[], members-by-name enum-or-flags-member by-name)
 -check-enum-or-flags-members enum-or-flags-members
 	ctx check-ctx
 	struct struct-decl
 	params destructure-ast[]?
 	member-asts enum-or-flags-member-ast[]
 	member-kind diag-duplicate-declaration-kind
-	storage_ integral-type
-	cb-get-next-value value-and-overflow mut(last-value scalar-value?)
+	cb-get-next-value value-and-overflow mut(last-value nat?)
 do
 	if params and member-asts !is-empty
 		ctx add-diag struct.name-range.range,
@@ -343,13 +336,13 @@ do
 	last-value mut nat? = ()
 	cb-value cb-enum-value = of value-range, literal
 		value = if literal
-			ctx check-literal-integral-value storage_, literal.range
+			ctx check-literal-nat-value nat64, literal.range
 		else
-			value-and-overflow = cb-get-next-value[last-value ?to]
+			value-and-overflow = cb-get-next-value[last-value]
 			if value-and-overflow overflow
-				ctx add-diag value-range, storage_.diag-literal-overflow
+				ctx add-diag value-range, nat64.to.diag-literal-overflow
 			value-and-overflow value
-		last-value := value.to::nat
+		last-value := value
 		value
 
 	members = if params
@@ -361,14 +354,15 @@ do
 	members-by-name enum-or-flags-member by-name = members to-by-name of _, duplicate
 		ctx add-diag duplicate.name-range.range,
 			member-kind diag-duplicate-declaration duplicate.name
+	# TODO: I could do better than O(n^2) by requiring that enum members be in sorted order. Then we just check that each is greater than the last and avoid this.
 	members each-pair of x, y
 		if x.value == y.value
 			ctx add-diag-assert-same-uri y.range,
-				storage_.is-signed diag-enum-duplicate-value y.value
-	members, members-by-name
+				y.value diag-enum-duplicate-value
+	members.default-enum-storage-type, members, members-by-name
 
 -cb-enum-value alias
-	scalar-value mut(range source-range, explicit literal-number?)
+	nat mut(range source-range, explicit literal-number?)
 
 -enum-or-flags-members-from-params enum-or-flags-member[]
 	ctx check-ctx
@@ -379,44 +373,16 @@ do
 	for* x in params
 		ctx enum-member-from-param enum-or-flags, x, cb-value[x.range, ()] from-option
 
--default-enum-backing-type integral-type()
-	nat32
-
--get-enum-type-from-type integral-type
-	ctx check-ctx
-	struct struct-decl
-	range source-range
-	common-types common-types
-	type type
-do
-	integrals = common-types integrals
-	# TODO: we don't need common-types for this, the builtin types store what kind of builtin they are! --------------------
-	match type
-	as bogus-type
-		default-enum-backing-type
-	as type-param-index
-		# Enums can't have type params
-		throw unreachable
-	as struct-inst
-		if type == integrals.int8
-			int8
-		elif type == integrals.int16
-			int16
-		elif type == integrals.int32
-			int32
-		elif type == integrals.int64
-			int64
-		elif type == integrals.nat8
-			nat8
-		elif type == integrals.nat16
-			nat16
-		elif type == integrals.nat32
-			nat32
-		elif type == integrals.nat64
-			nat64
-		else
-			ctx add-diag range, do struct diag-enum-backing-type-invalid type
-			default-enum-backing-type
+-default-enum-storage-type nat-type(members enum-or-flags-member[]) # RM. Get the default type from the max member instead ----------------------------------------------------------------------------------
+	max = members max-of it.value else 0
+	if max <= max-value::nat8.to
+		nat8
+	elif max <= max-value::nat16.to
+		nat16
+	elif max <= max-value::nat32.to
+		nat32
+	else
+		nat64
 
 -check-record record_
 	ctx check-ctx
@@ -455,7 +421,7 @@ do
 	ctx check-ctx
 	enum_ struct-decl
 	ast destructure-ast
-	value scalar-value
+	value nat
 do
 	if single = ast single-destructure-ast
 		if x = single mut-range
@@ -507,8 +473,7 @@ do
 			name.name visibility-warning-field-mutability
 	source, record_, visibility, mutability, member-type, ()
 
-| TODO: {is-flags} is redundant to the declKind -------------------------------------------------------------------------------
-check-enum-or-flags-modifiers integral-type
+check-enum-or-flags-modifiers void # RM -----------------------------------------------------------------------------------------------------------------------
 	ctx check-ctx
 	types types-get
 	struct struct-decl
@@ -517,18 +482,7 @@ check-enum-or-flags-modifiers integral-type
 	is-flags bool
 do
 	storage-modifier = ctx find-storage-modifier decl-kind, modifiers
-	if storage-modifier
-		if type-ast = storage-modifier type-arg
-			type = ctx type-from-ast types, type-ast, (), yes
-			res = ctx get-enum-type-from-type struct, type-ast.range, types.common-types, type
-			if is-flags and res is-signed
-				ctx add-diag storage-modifier.keyword-range, diag-flags-signed
-			res
-		else
-			ctx add-diag storage-modifier.keyword-range, diag-storage-missing-type
-			nat32
-	else
-		nat32
+	()
 
 -find-storage-modifier modifier-keyword-ast?(ctx check-ctx, decl-kind decl-kind, modifiers modifier-ast[])
 	res mut modifier-keyword-ast? = ()

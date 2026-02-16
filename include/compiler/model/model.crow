@@ -432,6 +432,8 @@ is-weak-ref bool(a type)
 is-weak-ref bool(a struct-decl)
 	a is-builtin-type weak-ref
 
+as-nat-type nat-type?(a type)
+	a.as-builtin-type ?to
 as-integral-type integral-type?(a type)
 	a.as-builtin-type ?to
 
@@ -610,7 +612,7 @@ enum-member alias
 enum-or-flags-member record force-data
 	source enum-member-source
 	containing-enum struct-decl
-	value scalar-value
+	value nat
 	doc-comment-references mut doc-comment-references
 == bool(a enum-or-flags-member, b enum-or-flags-member)
 	a.source == b.source
@@ -620,7 +622,7 @@ hash void(a enum-or-flags-member, state hash-state)
 	a.name hash state
 to json(a enum-or-flags-member)
 	a.source.name to
-storage_ integral-type(a enum-or-flags-member)
+storage_ nat-type(a enum-or-flags-member)
 	match body = a.containing-enum body
 	as enum_
 		body storage_
@@ -654,7 +656,8 @@ to json(a struct-body)
 struct-body-bogus record
 to json(a struct-body-bogus)
 enum_ record
-	storage_ integral-type
+	| Inferred type big enough to store all members
+	storage_ nat-type
 	members enum-or-flags-member[]
 	members-by-name enum-or-flags-member by-name
 to json(a enum_)
@@ -662,7 +665,10 @@ to json(a enum_)
 	members: a.members to
 struct-body-extern-java record(path path)
 to json(a struct-body-extern-java)
-flags_ record(storage_ integral-type, members enum-or-flags-member[])
+flags_ record
+	| Inferred type big enough to store all members
+	storage_ nat-type
+	members enum-or-flags-member[]
 to json(a flags_)
 record_ record
 	new-visibility visibility
@@ -683,7 +689,7 @@ as-union sum-type-member-and-method-impls[](a sum-type)
 get-all-flags-value nat(body flags_)
 	res mut nat = 0
 	for member in body members
-		res |:= member.value to
+		res |:= member value
 	res
 
 builtin-type enum
@@ -744,6 +750,18 @@ to float-type?(a builtin-type)
 		float32
 	as float64
 		float64
+	else
+		()
+to nat-type?(a builtin-type)
+	match a
+	as nat8
+		nat8
+	as nat16
+		nat16
+	as nat32
+		nat32
+	as nat64
+		nat64
 	else
 		()
 to integral-type?(a builtin-type)
@@ -1216,11 +1234,11 @@ to json(a auto-fun)
 auto-fun-kind enum
 	compare
 	enum-or-flags-members
-	enum-or-flags-to-integral
+	enum-or-flags-to-integral # TODO: rename to enum-or-flags-to-nat ------------------------------------------------------------------------------------------------------
 	enum-to-symbol
 	equals
 	flags-to-symbol-array
-	integral-to-opt-enum-or-flags
+	integral-to-opt-enum-or-flags # TODO: rename to nat-to-enum-or-flags-option ---------------------------------------------------------------------------------------
 	symbol-to-opt-enum-or-flags
 	to-json
 to json(a auto-fun-kind)
@@ -2111,6 +2129,8 @@ subscript struct-inst(a common-types, type char-type)
 		a char8
 	as char32
 		a char32
+subscript struct-inst(a common-types, type nat-type)
+	a[type.to::integral-type]
 subscript struct-inst(a common-types, type integral-type)
 	a.integrals[type]
 subscript struct-inst(a available-types, type float-type-or-js-or-json)
@@ -2186,6 +2206,30 @@ as-integral integral-type(a char-type)
 		nat8
 	as char32
 		nat32
+
+nat-type enum(nat8, nat16, nat32, nat64)
+== bool(a nat-type, b nat-type)
+<=> comparison(a nat-type, b nat-type)
+to symbol(a nat-type)
+to json(a nat-type)
+to integral-type(a nat-type)
+	match a
+	as nat8 then nat8
+	as nat16 then nat16
+	as nat32 then nat32
+	as nat64 then nat64
+to builtin-type(a nat-type)
+	a.to::integral-type to
+max-value nat(a nat-type)
+	match a
+	as nat8
+		max-value::nat8 to
+	as nat16
+		max-value::nat16 to
+	as nat32
+		max-value::nat32 to
+	as nat64
+		max-value::nat64
 
 integral-type enum(nat8, nat16, nat32, nat64, int8, int16, int32, int64)
 to nat32(a integral-type)
@@ -3165,6 +3209,8 @@ size nat(a scalar-values)
 	a.bits size
 iterate bool(a scalar-values, f bool mut(x scalar-value))
 	a.bits iterate f[it.to]
+to scalar-values(values nat[])
+	bits: values
 to scalar-values(values scalar-value[])
 	bits: values map it.to
 values scalar-value[](a scalar-values)
@@ -3622,11 +3668,9 @@ diag union
 	diag-duplicate-import-name
 	diag-duplicate-imports
 	diag-empty-enum-or-union
-	diag-enum-backing-type-invalid
 	diag-enum-duplicate-value
 	diag-expected-type-is-not-a-lambda
 	diag-extern-body-multiple
-	diag-flags-signed
 	diag-function-with-signature-not-found
 	diag-if-throw
 	diag-import-file
@@ -3689,7 +3733,6 @@ diag union
 	diag-spec-recursion
 	diag-spec-use-invalid
 	diag-string-literal-invalid
-	diag-storage-missing-type
 	diag-struct-params-syntax-error
 	diag-sum-type-listed-members-non-union
 	diag-test-missing-body
@@ -3715,8 +3758,8 @@ diag-assert-or-forbid-message-is-throw record
 diag-assignment-not-allowed record
 diag-auto-fun-enum-or-flags-to-wrong-storage record
 	enum-or-flags-type struct-decl
-	actual-storage-type integral-type
-	expected-storage-type integral-type
+	actual-storage-type nat-type
+	expected-storage-type nat-type
 diag-auto-fun-param-not-simple record
 diag-auto-fun-spec-corrupt record(spec-name symbol)
 diag-auto-fun-spec-from-wrong-module record
@@ -3795,12 +3838,9 @@ diag-duplicate-import-name record(name symbol)
 | This is for different types of the same name imported from multiple modules
 diag-duplicate-imports record(kind diag-duplicate-exports-kind, name symbol)
 diag-empty-enum-or-union record
-# TODO: RENAME (since it is called a 'storage' type) --------------------------------------------------------------------------------
-diag-enum-backing-type-invalid record(enum_ struct-decl, actual type)
-diag-enum-duplicate-value record(signed bool, value scalar-value)
+diag-enum-duplicate-value record(value nat)
 diag-expected-type-is-not-a-lambda record(expected-type type-with-container?)
 diag-extern-body-multiple record
-diag-flags-signed record
 diag-function-with-signature-not-found record
 	name symbol
 	type-container type-container
@@ -3920,7 +3960,6 @@ diag-spec-recursion record(trace spec-decl[])
 diag-spec-use-invalid record(decl-kind decl-kind)
 diag-string-literal-invalid enum
 	not-extern-js
-diag-storage-missing-type record
 diag-sum-type-listed-members-non-union record
 diag-test-missing-body record
 diag-trusted-unused record

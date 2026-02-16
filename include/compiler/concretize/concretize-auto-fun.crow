@@ -19,24 +19,26 @@ concretize-auto-fun concrete-expr(concretize-ctx concretize-ctx, fun concrete-fu
 	range = fun range
 	match a kind
 	as compare
-		compare-integral concrete-expr mut(storage_ integral-type) = of storage_
-			p0 = ctx.concretize-ctx gen-cast-integral range, storage_, param0[]
-			p1 = ctx.concretize-ctx gen-cast-integral range, storage_, param1[]
+		compare-nats concrete-expr mut(storage_ nat-type) = of storage_
+			p0 = ctx.concretize-ctx gen-cast-nat range, storage_, param0[]
+			p1 = ctx.concretize-ctx gen-cast-nat range, storage_, param1[]
 			ctx.concretize-ctx gen-compare-integral return-type, range, p0, p1
 		match x = params.same-type enum-flags-record-or-union
 		as enum_
-			compare-integral[x.storage_]
+			compare-nats[x storage_]
 		as flags_
-			compare-integral[x.storage_]
+			compare-nats[x storage_]
 		as concrete-record
 			ctx concretize-compare-record range, return-type, params.only2, x.fields, a.members
 		as concrete-union
 			ctx concretize-compare-union range, return-type, params.only2, x.members, a.members
 	as enum-or-flags-members
 		ctx.all-constants gen-constant-array return-type, range,
-			return-type.array-element-type.enum-or-flags-members map it.value
+			return-type.array-element-type.enum-or-flags-members map it.value.to
 	as enum-or-flags-to-integral
-		return-type gen-cast range, param0[]
+		arg = param0[]
+		storage_ = arg.type enum-or-flags-storage
+		ctx gen-widen-nat return-type.must-be-nat-type, do concretize-ctx nat-type storage_ gen-cast range, param0[]
 	as enum-to-symbol
 		range auto-fun-match-enum return-type, params.only, of x
 			ctx.concretize-ctx symbol-for-enum-member return-type, range, x
@@ -79,57 +81,69 @@ concretize-flags-function concrete-expr(ctx concretize-ctx, cf concrete-fun, fn 
 		range gen-param-get cf.params[0]
 	param1 concrete-expr mut() = of
 		range gen-param-get cf.params[1]
-	cast-param0 concrete-expr mut(storage_ integral-type) = of storage_
-		ctx gen-cast-integral range, storage_, param0[]
-	cast-param1 concrete-expr mut(storage_ integral-type) = of storage_
-		ctx gen-cast-integral range, storage_, param1[]
+	cast-param0 concrete-expr mut(storage_ nat-type) = of storage_
+		ctx gen-cast-nat range, storage_, param0[]
+	cast-param1 concrete-expr mut(storage_ nat-type) = of storage_
+		ctx gen-cast-nat range, storage_, param1[]
 	cast-to-flags concrete-expr mut(x concrete-expr) = of x
 		cf.return-type gen-cast range, x
 	match fn
 	as in_
 		# (x & y) == x
-		storage_ = cf.params[0].type integral-type-from-flags-type
+		storage_ = cf.params[0].type flags-storage
 		ctx gen-flags-in range, storage_, cast-param0[storage_], cast-param1[storage_]
 	as intersect
-		storage_ = cf.params[0].type integral-type-from-flags-type
-		res = ctx gen-intersect-integral range, storage_, cast-param0[storage_], cast-param1[storage_]
+		storage_ = cf.params[0].type flags-storage
+		res = ctx gen-intersect-nat range, storage_, cast-param0[storage_], cast-param1[storage_]
 		cast-to-flags[res]
 	as negate
 		# ~x & all
-		storage_ = cf.params[0].type integral-type-from-flags-type
-		storage-type = ctx integral-type storage_
+		storage_ = cf.params[0].type flags-storage
+		storage-type = ctx nat-type storage_
 		neg = storage-type gen-builtin range, bitwise-not, (), (cast-param0[storage_],)
 		all = ctx get-all-flags-expr range, cf.return-type
-		intersect = ctx gen-intersect-integral range, storage_, neg, all
+		intersect = ctx gen-intersect-nat range, storage_, neg, all
 		cast-to-flags[intersect]
 	as none
-		storage_ = cf.return-type integral-type-from-flags-type
-		res = ctx integral-type storage_ gen-constant-zero range
+		storage_ = cf.return-type flags-storage
+		res = ctx nat-type storage_ gen-constant-zero range
 		cast-to-flags[res]
 	as union_
-		storage_ = cf.params[0].type integral-type-from-flags-type
-		res = ctx integral-type storage_ gen-builtin range, bitwise-or, (),
+		storage_ = cf.params[0].type flags-storage
+		res = ctx nat-type storage_ gen-builtin range, bitwise-or, (),
 			- cast-param0[storage_]
 			- cast-param1[storage_]
 		cast-to-flags[res]
 
 -get-all-flags-expr concrete-expr(ctx concretize-ctx, range uri-and-range, flags-type concrete-type)
-	ctx integral-type flags-type.integral-type-from-flags-type
-	then gen-constant-nat range, flags-type.must-be-flags.get-all-flags-value
+	ctx nat-type flags-type.flags-storage gen-constant-nat range, flags-type.must-be-flags.get-all-flags-value
 
 # WARN: p0 is used twice, so it should be a param get (or other expression that has no side effect)
 -gen-flags-in concrete-expr
 	ctx concretize-ctx
 	range uri-and-range
-	storage_ integral-type
+	storage_ nat-type
 	p0 concrete-expr
 	p1 concrete-expr
 do
 	assert p0.type == p1.type
-	intersect = ctx gen-intersect-integral range, storage_, p0, p1
+	intersect = ctx gen-intersect-nat range, storage_, p0, p1
 	ctx gen-equal-integral range, intersect, p0
 
--integral-type-from-flags-type integral-type(a concrete-type)
+-must-be-nat-type nat-type(a concrete-type)
+	a.body.concrete-builtin-type!.kind to!
+
+-enum-or-flags-storage nat-type(a concrete-type)
+	match body = a body
+	as concrete-enum
+		body storage_
+	as concrete-flags
+		body storage_
+	else
+		throw unreachable
+-enum-storage nat-type(a concrete-type)
+	a.body.concrete-enum! storage_
+-flags-storage nat-type(a concrete-type)
 	a.body.concrete-flags! storage_
 
 -enum-or-flags-members enum-or-flags-member[](type concrete-type)
@@ -141,12 +155,12 @@ do
 -concretize-equal-enum-or-flags concrete-expr
 	ctx concretize-ctx
 	range uri-and-range
-	storage_ integral-type
+	storage_ nat-type
 	arg0 concrete-expr
 	arg1 concrete-expr
 do
-	arg0-cast = ctx gen-cast-integral range, storage_, arg0
-	arg1-cast = ctx gen-cast-integral range, storage_, arg1
+	arg0-cast = ctx gen-cast-nat range, storage_, arg0
+	arg1-cast = ctx gen-cast-nat range, storage_, arg1
 	ctx gen-equal-integral range, arg0-cast, arg1-cast
 
 -gen-compare-integral concrete-expr
@@ -164,13 +178,13 @@ do
 	is-greater = ctx gen-less-integral range, arg1, arg0
 	range gen-if is-less, less, (range gen-if is-greater, greater, equal)
 
--gen-cast-integral concrete-expr
+-gen-cast-nat concrete-expr
 	ctx concretize-ctx
 	range uri-and-range
-	type integral-type
+	type nat-type
 	arg concrete-expr
 do
-	ctx integral-type type gen-cast range, arg
+	ctx nat-type type gen-cast range, arg
 -gen-cast concrete-expr(type concrete-type, range uri-and-range, arg concrete-expr)
 	type, range, arg.cast-concrete-expr
 
@@ -183,15 +197,15 @@ do
 do quick-fill-in-concrete-fun-body
 	# (if a & x == 0 then () else ("x",)) ~~ (if a & y == 0 then () else ("y",))
 	members = param.type.must-be-flags members
-	storage_ = param.type integral-type-from-flags-type
-	storage-type = ctx.concretize-ctx integral-type storage_
-	value = ctx.concretize-ctx gen-cast-integral range, storage_, do range gen-param-get param
+	storage_ = param.type flags-storage
+	storage-type = ctx.concretize-ctx nat-type storage_
+	value = ctx.concretize-ctx gen-cast-nat range, storage_, do range gen-param-get param
 	empty-array = array-type gen-constant range, do ctx.all-constants get-constant-array array-type, ()
 	guard members !is-empty else empty-array
 	array-for-member concrete-expr mut(member enum-or-flags-member) = of member
 		# if value & x == 0 then () else ("x",)
-		member-value concrete-expr = storage-type, range, member.value
-		intersect = ctx.concretize-ctx gen-intersect-integral range, storage_, value, member-value
+		member-value concrete-expr = storage-type, range, member.value.to
+		intersect = ctx.concretize-ctx gen-intersect-nat range, storage_, value, member-value
 		zero = storage-type gen-constant-zero range
 		test_ = ctx.concretize-ctx gen-equal-integral range, intersect, zero
 		array = array-type gen-constant range, do ctx.all-constants get-constant-array array-type, do f[member],
@@ -211,24 +225,31 @@ do quick-fill-in-concrete-fun-body
 	param concrete-local
 do
 	if return-type.unwrap-option-type! is-flags
-		ctx concretize-integral-to-opt-flags range, return-type, param
+		ctx concretize-nat-to-opt-flags range, return-type, param
 	else
 		# TODO: generate a match-integral-concrete-expr! ------------------------------------------------------------------------------------------
 		ctx concretize-convert-to-opt-enum-or-flags range, return-type, param, of param-get, member
 			ctx.concretize-ctx gen-equal-integral range, param-get,
-				(ctx.concretize-ctx integral-type member.storage_), range, member.value
+				(ctx.concretize-ctx nat-type member.storage_), range, member.value.to
 
--concretize-integral-to-opt-flags concrete-expr(ctx concretize-expr-ctx, range uri-and-range, option-type concrete-type, param concrete-local)
+-concretize-nat-to-opt-flags concrete-expr(ctx concretize-expr-ctx, range uri-and-range, option-type concrete-type, param concrete-local)
 	# if a in all then (a.cast,) else ()
 	flags-type = option-type unwrap-option-type!
-	storage_ = flags-type integral-type-from-flags-type
-	param-get = range gen-param-get param
-	all = (ctx.concretize-ctx get-all-flags-expr range, flags-type)
+	storage_ = flags-type flags-storage
+	param-get = ctx gen-widen-nat storage_, do range gen-param-get param
+	all = ctx.concretize-ctx get-all-flags-expr range, flags-type
 	a-in-all = ctx.concretize-ctx gen-flags-in range, storage_, param-get, all
 	cast = flags-type gen-cast range, param-get
 	some = ctx.concretize-ctx gen-option option-type, range, cast
 	none = ctx.concretize-ctx gen-empty-option option-type, range
 	range gen-if a-in-all, some, none
+
+-gen-widen-nat concrete-expr(ctx concretize-expr-ctx, type nat-type, arg concrete-expr)
+	out-type = ctx.concretize-ctx nat-type type
+	if out-type == arg.type
+		arg
+	else
+		out-type gen-builtin arg.range, wrap-convert-integral, (), (arg,)
 
 -concretize-symbol-to-opt-enum-or-flags concrete-expr(ctx concretize-expr-ctx, range uri-and-range, option-type concrete-type, param concrete-local)
 	enum-type = option-type unwrap-option-type!
@@ -238,11 +259,11 @@ do
 	cases concrete-match-string-like-case[] = for member in enum-type must-be-enum-or-flags
 		- symbol-type gen-constant range,
 			ctx.concretize-ctx constant-symbol member.name
-		- ctx.concretize-ctx gen-constant-some option-type, range, member.value
+		- ctx.concretize-ctx gen-constant-some option-type, range, member.value.to
 	else_ = ctx.concretize-ctx gen-empty-option option-type, range
 	option-type, range, do param-get match-string-like-concrete-expr equals, cases, else_
 
--concretize-convert-to-opt-enum-or-flags concrete-expr
+-concretize-convert-to-opt-enum-or-flags concrete-expr # TODO: I think this is never used for flags, so rename -----------------------------------------------------------
 	ctx concretize-expr-ctx
 	range uri-and-range
 	option-type concrete-type
@@ -250,13 +271,15 @@ do
 	# TODO: we should generate a match on integrals or symbols, since we have expressions for those! ----------
 	f-test concrete-expr mut(param-get concrete-expr, member enum-or-flags-member)
 do
+	# TODO: In the common case you can just check 'x <= max-enum-member' and cast it ---------------------------------------------------------------------------
 	enum-type = option-type unwrap-option-type!
-	param-get = range gen-param-get param
+	storage_ = enum-type enum-storage
+	param-get = ctx gen-widen-nat storage_, do range gen-param-get param
 	res mut = ctx.concretize-ctx gen-empty-option option-type, range
 	for member enum-or-flags-member in enum-type.must-be-enum-or-flags reverse # TODO: should not need type annotation
 		# if a == "foo" then (foo,) else res
 		eq = f-test[param-get, member]
-		some-enum-value = ctx.concretize-ctx gen-constant-some option-type, range, member.value
+		some-enum-value = ctx.concretize-ctx gen-constant-some option-type, range, member.value.to
 		res := range gen-if eq, some-enum-value, res
 	res
 
@@ -503,7 +526,7 @@ do quick-fill-in-concrete-fun-body
 
 -gen-compare-or concrete-expr(range uri-and-range, a concrete-expr, b concrete-expr)
 	a.type gen-match-scalar range, a, of x
-		if x.value.to::nat64 == 1
+		if x.value == 1
 			b
 		else
-			a.type gen-constant range, x.value
+			a.type gen-constant range, x.value.to
