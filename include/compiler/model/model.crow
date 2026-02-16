@@ -10,7 +10,7 @@ import
 	./source-range
 	./uri
 
-purity enum(data_, shared_, mut_)
+purity enum(data_, shared_, mut_) nat8 storage
 == bool(a purity, b purity)
 <=> comparison(a purity, b purity)
 to symbol(a purity)
@@ -822,10 +822,11 @@ struct-decl record force-data
 	doc-comment-references mut doc-comment-references # TODO: this should probably come last ----------------------------------
 	sum-type-memberships mut sum-type-membership[]
 	body mut struct-body
-	| This is e.g. a `(t0, t1) foo`
-	instantiated-with-own-type-params -mut struct-inst
-	| For perf, non-templates store their only instance directly
-	insts -mut (struct-inst, type-args) object-memoizer?
+	-insts mut struct-insts
+| For a non-template, this will be its only {struct-inst}
+-struct-insts union mut
+	struct-inst
+	(struct-inst, type-args) object-memoizer
 to-json-with-body json(a struct-decl)
 	source: a.source to
 	visibility: a.visibility to
@@ -839,7 +840,7 @@ to json(a struct-decl)
 	a.name.to::json
 only-inst struct-inst(a struct-decl)
 	forbid a is-template
-	a instantiated-with-own-type-params
+	a.insts struct-inst!
 new struct-decl
 	hash nat32
 	source struct-decl-source
@@ -888,13 +889,11 @@ do
 		doc-comment-references: doc-comment-references
 		sum-type-memberships: sum-type-memberships
 		body: body
-		instantiated-with-own-type-params: trusted gc-safe-value
 		insts: ()
-	if res is-template
-		res.insts := ()::((struct-inst, type-args) object-memoizer)
-		res.instantiated-with-own-type-params := res[res.n-type-params type-params-type-args]
+	res.insts := if res is-template
+		()::((struct-inst, type-args) object-memoizer)
 	else
-		res.instantiated-with-own-type-params := (res, ())
+		(res, ())::struct-inst
 	res
 == bool(a struct-decl, b struct-decl)
 	trusted a reference-equal b
@@ -921,6 +920,13 @@ name-range uri-and-range(a struct-decl)
 	a.module-uri, a.source.name-range
 is-template bool(a struct-decl)
 	a.n-type-params != 0
+| Given a type `foo[t, u], this is the type `(t, u) foo`.
+instantiated-with-own-type-params struct-inst(a struct-decl)
+	match x = a insts
+	as struct-inst
+		x
+	as object-memoizer
+		a[a.n-type-params type-params-type-args]
 
 specs specs(a struct-decl)
 	a late-specs!
@@ -1028,10 +1034,11 @@ can-have-type-params bool(a struct-decl-ast)
 
 struct-inst record(decl struct-decl, type-args type-args) -new
 subscript struct-inst(decl struct-decl, type-args type-args)
-	if type-args is-empty
-		decl instantiated-with-own-type-params
-	else
-		trusted decl.insts! memoize type-args, of then decl, type-args
+	match x = decl insts
+	as struct-inst
+		x
+	as object-memoizer
+		trusted x memoize type-args, of then decl, type-args
 memoizer-key type-args(a struct-inst)
 	a type-args
 == bool(a struct-inst, b struct-inst)
