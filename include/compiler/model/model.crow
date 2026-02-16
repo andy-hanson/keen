@@ -10,7 +10,7 @@ import
 	./source-range
 	./uri
 
-purity enum(data_, shared_, mut_) nat8 storage
+purity enum(data_, shared_, mut_)
 == bool(a purity, b purity)
 <=> comparison(a purity, b purity)
 to symbol(a purity)
@@ -383,11 +383,6 @@ debug-type-args string(a type-args)
 is-bogus bool(a type)
 	!!a.bogus-type
 
-is-enum bool(a type)
-	(x = a struct-inst) and x.decl.body enum_
-is-flags bool(a type)
-	(x = a struct-inst) and x.decl.body flags_
-
 is-array bool(a type)
 	a is-builtin-type array
 is-mut-slice bool(a type) # TODO: some of these should be moved to get-builtin-fun.crow if they are used nowhere else ---------
@@ -658,6 +653,7 @@ to json(a struct-body-bogus)
 enum_ record
 	| Inferred type big enough to store all members
 	storage_ nat-type
+	| Always sorted by value
 	members enum-or-flags-member[]
 	members-by-name enum-or-flags-member by-name
 to json(a enum_)
@@ -668,6 +664,7 @@ to json(a struct-body-extern-java)
 flags_ record
 	| Inferred type big enough to store all members
 	storage_ nat-type
+	| Always sorted by value
 	members enum-or-flags-member[]
 to json(a flags_)
 record_ record
@@ -762,6 +759,18 @@ to nat-type?(a builtin-type)
 		nat32
 	as nat64
 		nat64
+	else
+		()
+to int-type?(a builtin-type)
+	match a
+	as int8
+		int8
+	as int16
+		int16
+	as int32
+		int32
+	as int64
+		int64
 	else
 		()
 to integral-type?(a builtin-type)
@@ -1233,13 +1242,13 @@ to json(a auto-fun)
 
 auto-fun-kind enum
 	compare
-	enum-or-flags-members
-	enum-or-flags-to-integral # TODO: rename to enum-or-flags-to-nat ------------------------------------------------------------------------------------------------------
-	enum-to-symbol
 	equals
-	flags-to-symbol-array
-	integral-to-opt-enum-or-flags # TODO: rename to nat-to-enum-or-flags-option ---------------------------------------------------------------------------------------
-	symbol-to-opt-enum-or-flags
+	members-of-enum-or-flags
+	to-enum-or-flags-option-from-nat
+	to-enum-or-flags-option-from-symbol
+	to-nat-from-enum-or-flags
+	to-symbol-from-enum
+	to-symbol-array-from-flags
 	to-json
 to json(a auto-fun-kind)
 
@@ -2129,8 +2138,6 @@ subscript struct-inst(a common-types, type char-type)
 		a char8
 	as char32
 		a char32
-subscript struct-inst(a common-types, type nat-type)
-	a[type.to::integral-type]
 subscript struct-inst(a common-types, type integral-type)
 	a.integrals[type]
 subscript struct-inst(a available-types, type float-type-or-js-or-json)
@@ -2180,8 +2187,6 @@ nat8 struct-inst(a integral-types)
 	a[nat8]
 nat16 struct-inst(a integral-types)
 	a[nat16]
-nat32 struct-inst(a integral-types)
-	a[nat32]
 nat64 struct-inst(a integral-types)
 	a[nat64]
 
@@ -2219,18 +2224,38 @@ to integral-type(a nat-type)
 	as nat32 then nat32
 	as nat64 then nat64
 to builtin-type(a nat-type)
-	a.to::integral-type to
-max-value nat(a nat-type)
 	match a
-	as nat8
-		max-value::nat8 to
-	as nat16
-		max-value::nat16 to
-	as nat32
-		max-value::nat32 to
-	as nat64
-		max-value::nat64
+	as nat8 then nat8
+	as nat16 then nat16
+	as nat32 then nat32
+	as nat64 then nat64
 
+int-type enum(int8, int16, int32, int64)
+== bool(a int-type, b int-type)
+signed int-type(a nat-type)
+	match a
+	as nat8 then int8
+	as nat16 then int16
+	as nat32 then int32
+	as nat64 then int64
+unsigned nat-type(a int-type)
+	match a
+	as int8 then nat8
+	as int16 then nat16
+	as int32 then nat32
+	as int64 then nat64
+
+nat-or-int union(nat-type, int-type)
+to nat-or-int(a integral-type)
+	match a
+	as nat8 then nat8
+	as nat16 then nat16
+	as nat32 then nat32
+	as nat64 then nat64
+	as int8 then int8
+	as int16 then int16
+	as int32 then int32
+	as int64 then int64
 integral-type enum(nat8, nat16, nat32, nat64, int8, int16, int32, int64)
 to nat32(a integral-type)
 == bool(a integral-type, b integral-type)
@@ -2260,24 +2285,18 @@ is-signed bool(a integral-type)
 		false
 	as nat64
 		false
-to builtin-type(a integral-type)
-	match a
-	as nat8
-		nat8
-	as nat16
-		nat16
-	as nat32
-		nat32
-	as nat64
-		nat64
-	as int8
-		int8
-	as int16
-		int16
-	as int32
-		int32
-	as int64
-		int64
+signed int-type(a integral-type)
+	match x = a.to::nat-or-int
+	as nat-type
+		x signed
+	as int-type
+		x
+unsigned nat-type(a integral-type)
+	match x = a.to::nat-or-int
+	as nat-type
+		x
+	as int-type
+		x unsigned
 
 char-or-integral-or-float-type union(char-type, integral-type, float-type-or-js-or-json)
 	to json()
@@ -3082,7 +3101,7 @@ to json(a lambda-expr)
 	body: a.body to
 	closure: a.closure to
 	type: a.type to
-lambda-kind enum(data_, shared_, mut_, explicit-shared) nat8 storage
+lambda-kind enum(data_, shared_, mut_, explicit-shared)
 == bool(a lambda-kind, b lambda-kind)
 to json(a lambda-kind)
 range source-range(a lambda-expr)
@@ -3213,8 +3232,6 @@ to scalar-values(values nat[])
 	bits: values
 to scalar-values(values scalar-value[])
 	bits: values map it.to
-values scalar-value[](a scalar-values)
-	a.bits map it.to
 is-range bool(a scalar-values)
 	a.with-index every of i, x
 		i == x.to
@@ -3668,7 +3685,8 @@ diag union
 	diag-duplicate-import-name
 	diag-duplicate-imports
 	diag-empty-enum-or-union
-	diag-enum-duplicate-value
+	diag-enum-value-not-sorted
+	diag-flags-value-not-power-of-2
 	diag-expected-type-is-not-a-lambda
 	diag-extern-body-multiple
 	diag-function-with-signature-not-found
@@ -3838,7 +3856,8 @@ diag-duplicate-import-name record(name symbol)
 | This is for different types of the same name imported from multiple modules
 diag-duplicate-imports record(kind diag-duplicate-exports-kind, name symbol)
 diag-empty-enum-or-union record
-diag-enum-duplicate-value record(value nat)
+diag-enum-value-not-sorted record(prev-value nat)
+diag-flags-value-not-power-of-2 record
 diag-expected-type-is-not-a-lambda record(expected-type type-with-container?)
 diag-extern-body-multiple record
 diag-function-with-signature-not-found record

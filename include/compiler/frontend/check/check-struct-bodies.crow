@@ -1,4 +1,5 @@
 import
+	crow/bits
 	../../model/ast
 	../../model/model
 	../../model/source-range
@@ -284,12 +285,15 @@ do
 
 -check-only-common-modifiers void(ctx check-ctx, decl-kind decl-kind, modifiers modifier-ast[])
 	for modifier in modifiers
-		guard modifier !is-common-modifier
-		ctx add-diag modifier.range, match modifier
-		as modifier-keyword-ast
-			modifier.keyword diag-modifier-invalid decl-kind
-		as spec-use-ast
-			decl-kind diag-spec-use-invalid
+		unless modifier is-common-modifier
+			ctx add-diag-modifier-invalid decl-kind, modifier
+
+-add-diag-modifier-invalid void(ctx check-ctx, decl-kind decl-kind, modifier modifier-ast)
+	ctx add-diag modifier.range, match modifier
+	as modifier-keyword-ast
+		modifier.keyword diag-modifier-invalid decl-kind
+	as spec-use-ast
+		decl-kind diag-spec-use-invalid
 
 -is-common-modifier bool(a modifier-ast)
 	match a
@@ -299,27 +303,53 @@ do
 		a.name.name == "summon" or a.name.name.to::build-target?
 
 -check-enum enum_(ctx check-ctx, struct struct-decl, ast enum-ast)
-	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, enum-member, of last-value
-		if last-value
-			(last-value wrap-add 1), last-value == max-value::nat64
+	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, enum-member, of diag-range, last-value, declared-value
+		if declared-value
+			if last-value and declared-value <= last-value
+				ctx add-diag diag-range, last-value.diag-enum-value-not-sorted
+				ctx next-enum-value diag-range, last-value
+			else
+				declared-value
 		else
-			0, false
+			ctx next-enum-value diag-range, last-value
 	if members.members is-empty
 		ctx add-diag struct.name-range.range, diag-empty-enum-or-union
 	members.storage_, members.members, members.members-by-name
+-next-enum-value nat(ctx check-ctx, diag-range source-range, last-value nat?)
+	if last-value
+		try
+			last-value + 1
+		catch as binary-out-of-range
+			ctx add-diag diag-range, nat64.to.diag-literal-overflow
+			0
+	else
+		0
 
 -check-flags flags_(ctx check-ctx, struct struct-decl, ast flags-ast)
-	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, flags-member, of last-value
-		if last-value
-			# TODO: diagnostic if the last value isn't a power of 2
-			# TODO: I think all this is silly. We should just require that *all* values be specified or *none* at all -----------------------------
-			(last-value wrap-mul 2), last-value >= max-value::nat64 / 2
+	members = ctx check-enum-or-flags-members struct, ast.params, ast.members, flags-member, of diag-range, last-value, declared-value
+		if declared-value
+			if declared-value is-power-of-two
+				if last-value and declared-value <= last-value
+					ctx add-diag diag-range, last-value.diag-enum-value-not-sorted
+					ctx next-flags-value diag-range, last-value
+				else
+					declared-value
+			else
+				ctx add-diag diag-range, diag-flags-value-not-power-of-2
+				ctx next-flags-value diag-range, last-value
 		else
-			1::nat, false
+			ctx next-flags-value diag-range, last-value
 	members.storage_, members.members
+-next-flags-value nat(ctx check-ctx, diag-range source-range, last-value nat?)
+	if last-value
+		try
+			last-value * 2
+		catch as binary-out-of-range
+			ctx add-diag diag-range, nat64.to.diag-literal-overflow
+			()
+	else
+		1
 
--value-and-overflow record(value nat, overflow bool)
-# TODO: we don't need members-by-name for flags ...................................................................................
 -enum-or-flags-members record(storage_ nat-type, members enum-or-flags-member[], members-by-name enum-or-flags-member by-name)
 -check-enum-or-flags-members enum-or-flags-members
 	ctx check-ctx
@@ -327,7 +357,7 @@ do
 	params destructure-ast[]?
 	member-asts enum-or-flags-member-ast[]
 	member-kind diag-duplicate-declaration-kind
-	cb-get-next-value value-and-overflow mut(last-value nat?)
+	cb-get-next-value nat mut(diag-range source-range, last-value nat?, declared-value nat?)
 do
 	if params and member-asts !is-empty
 		ctx add-diag struct.name-range.range,
@@ -335,34 +365,27 @@ do
 
 	last-value mut nat? = ()
 	cb-value cb-enum-value = of value-range, literal
-		value = if literal
+		declared-value nat? = if literal
 			ctx check-literal-nat-value nat64, literal.range
-		else
-			value-and-overflow = cb-get-next-value[last-value]
-			if value-and-overflow overflow
-				ctx add-diag value-range, nat64.to.diag-literal-overflow
-			value-and-overflow value
+		value = cb-get-next-value[value-range, last-value, declared-value]
 		last-value := value
 		value
 
 	members = if params
 		ctx enum-or-flags-members-from-params struct, params, cb-value
 	else
-		for x in member-asts
-			x, struct, cb-value[x.range, x.value], ()
+		with out in member-asts.size build
+			for x in member-asts
+				guard value = cb-value[x.range, x.value]
+				out ~= x, struct, value, ()
 
 	members-by-name enum-or-flags-member by-name = members to-by-name of _, duplicate
 		ctx add-diag duplicate.name-range.range,
 			member-kind diag-duplicate-declaration duplicate.name
-	# TODO: I could do better than O(n^2) by requiring that enum members be in sorted order. Then we just check that each is greater than the last and avoid this.
-	members each-pair of x, y
-		if x.value == y.value
-			ctx add-diag-assert-same-uri y.range,
-				y.value diag-enum-duplicate-value
-	members.default-enum-storage-type, members, members-by-name
+	members.enum-storage-type, members, members-by-name
 
 -cb-enum-value alias
-	nat mut(range source-range, explicit literal-number?)
+	nat? mut(range source-range, explicit literal-number?)
 
 -enum-or-flags-members-from-params enum-or-flags-member[]
 	ctx check-ctx
@@ -370,11 +393,14 @@ do
 	params destructure-ast[]
 	cb-value cb-enum-value
 do
-	for* x in params
-		ctx enum-member-from-param enum-or-flags, x, cb-value[x.range, ()] from-option
+	with out in params.size build
+		for x in params
+			guard value = cb-value[x.range, ()]
+			guard member = ctx enum-member-from-param enum-or-flags, x, value
+			out ~= member
 
--default-enum-storage-type nat-type(members enum-or-flags-member[]) # RM. Get the default type from the max member instead ----------------------------------------------------------------------------------
-	max = members max-of it.value else 0
+-enum-storage-type nat-type(members enum-or-flags-member[])
+	max nat = if members is-empty then 0 else members[end - 1].value
 	if max <= max-value::nat8.to
 		nat8
 	elif max <= max-value::nat16.to
