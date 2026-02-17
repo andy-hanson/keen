@@ -1,6 +1,9 @@
 .PHONY: check confirm-upload-site test-end-to-end test-end-to-end-overwrite serve prepare-site test unit-test unit-test-java unit-test-js view-dependencies
 
-all_include = $(shell find include -name '*.crow')
+include = $(shell find include -name '*.crow')
+include_crow = $(shell find include/crow -name '*.crow')
+include_compiler = $(shell find include/compiler -name '*.crow')
+compiler_deps = $(include_crow) $(include_compiler) include/compiler/backend/java/lib/Crow.class bin/imports/date.txt bin/imports/commit-hash.txt
 
 clean:
 	mv bin/crow-lkg crow-lkg
@@ -13,10 +16,10 @@ all: clean test serve
 test: unit-test test-diagnostics test-end-to-end
 
 unit-test: unit-test-java unit-test-js
-unit-test-java: bin/crow $(all_include)
+unit-test-java: bin/crow $(include)
 	bin/crow build include/crow-config.json --test --out bin/test
 	bin/test
-unit-test-js: bin/crow $(all_include)
+unit-test-js: bin/crow $(include)
 	bin/crow build include/crow-config.json --test --out bin/test.js
 	bin/test.js
 
@@ -55,14 +58,14 @@ update-lkg: bin/crow
 check:
 	bin/crow-lkg check include/crow-config.json
 
-bin/crow: $(all_include) include/compiler/backend/java/lib/Crow.class bin/imports/date.txt bin/imports/commit-hash.txt
+bin/crow: $(compiler_deps)
 	bin/crow-lkg build include/compiler/app/main.crow --out bin/crow-tmp
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
 	mv bin/crow-tmp bin/crow
 
 ### Optional commands ###
 
-bin/crow.js: $(all_include) bin/imports/date.txt bin/imports/commit-hash.txt
+bin/crow.js: $(compiler_deps)
 	bin/crow build include/compiler/app/main.crow --out bin/crow.js
 
 profile-check: bin/crow
@@ -89,7 +92,7 @@ prepare-site: site-dependencies
 site/index.js: bin/crow site-src/script/*.crow site-src/script/*/*.crow
 	mkdir -p site
 	bin/crow build site-src/script/index.crow --out site/index.js
-site/worker.js: bin/crow site-src/script/worker.crow $(all_include)
+site/worker.js: bin/crow site-src/script/worker.crow $(compiler_deps)
 	bin/crow build site-src/script/worker.crow --out site/worker.js
 
 serve: site-dependencies
@@ -97,8 +100,8 @@ serve: site-dependencies
 
 ### publish ###
 
-all_include = include/*/*.crow include/*/*/*.crow include/*/*/*/*.crow
-bin/crow.tar.xz: bin/crow $(all_include)
+include = include/*/*.crow include/*/*/*.crow include/*/*/*/*.crow
+bin/crow.tar.xz: bin/crow $(include_crow)
 	tar --create --xz --file bin/crow.tar.xz bin/crow include/crow
 
 bin/crow-demo.tar.xz: demo/* demo/*/* demo/*/*/*
@@ -121,7 +124,7 @@ confirm-upload-site: prepare-site
 upload-site: prepare-site confirm-upload-site
 	$(aws_upload_command)
 
-site/crow-include.tar: $(all_include)
+site/crow-include.tar: $(include)
 	tar -cf site/crow-include.tar -C include/crow .
 site/java-classes.tar:
 	rm -r site/java-classes
