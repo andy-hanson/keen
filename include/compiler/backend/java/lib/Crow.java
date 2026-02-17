@@ -8,6 +8,12 @@ public class Crow {
 		return res;
 	}
 
+	public static boolean isNull(Object a) {
+		return a == null;
+	}
+	public static boolean isNotNull(Object a) {
+		return a != null;
+	}
 	public static boolean referenceEqual(Object a, Object b) {
 		return a == b;
 	}

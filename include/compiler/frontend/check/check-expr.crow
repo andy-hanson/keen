@@ -106,6 +106,8 @@ do
 		ctx check-loop-while-or-until ast, expected
 	as match-ast
 		ctx check-match ast, expected
+	as not-ast
+		ctx check-not ast, expected
 	as parenthesized-ast
 		ctx check-expr ast.inner, expected
 	as seq-ast
@@ -145,7 +147,11 @@ do
 -void-type type(ctx expr-ctx)
 	ctx.common-types void
 
--check-if expr(ctx expr-ctx, ast if-ast, expected expected)
+-check-not expr(ctx expr-ctx, ast not-ast, expected expected)
+	ctx check expected, ctx.common-types.bool,
+		ast not-expr (ctx check-condition ast.arg)
+
+-check-if if-expr(ctx expr-ctx, ast if-ast, expected expected)
 	if (ast.first-branch is-throw or ast.second-branch is-throw) and ast !is-else-of-parent
 		ctx add-diag ast.first-keyword-range, diag-if-throw
 	condition = ctx check-condition ast.condition
@@ -181,10 +187,11 @@ do
 		# It may implicitly convert to an option and that's what 'expected inferred' gives.
 		# So use 'res type' to get the actual type.
 		type = res type ctx.available-types
-		if type is-bool or type is-option-type
+		if type is-bool or type is-option
 			res
 		else
-			ctx add-diag ast.range, do ctx type-with-container type diag-condition-type
+			unless type is-bogus
+				ctx add-diag ast.range, do ctx type-with-container type diag-condition-type
 			ast.range bogus-expr ctx.common-types.bool
 
 -check-unpack-option unpack-option(ctx expr-ctx, ast unpack-option-ast)
@@ -194,7 +201,7 @@ do
 	destructure  = ctx check-destructure ast.destructure, type.unwrap-option-or-same, local
 	ast: ast
 	destructure: destructure
-	option: if type is-option-type
+	option: if type is-option
 		if option = expr local-get-expr and option.local !is-mutable and unpacked = destructure local
 			ctx add-diag ast.option.range, do unpacked.name diag-unpack-option-unnecessary option.local.name
 		expr
@@ -716,10 +723,10 @@ do
 			kind = if type == bool
 				bool-or-bool
 			else
-				if left-type !is-option-type
+				if left-type !is-option
 					ctx add-diag ast.range,
 						ctx type-with-container left-type diag-option-or-left-non-option
-				elif right-type !is-option-type
+				elif right-type !is-option
 					ctx add-diag ast.range,
 						ctx type-with-container right-type diag-option-or-right-non-option
 				option-or
@@ -1137,18 +1144,16 @@ do
 -as-extern extern-condition?(a expr)
 	match x = a skip-trusted
 	as call-expr
-		guard fun = x.called as-builtin-fun
-		match fun
-		as builtin-unary
-			if fun == not and arg = x.args.only as-extern
-				!arg.is-negated, arg.target
-		as builtin-fun-is-target
-			false, fun.target
+		if t = x.called.as-builtin-fun ?builtin-fun-is-target
+			false, t.target
 		else
 			()
 	as logical-expr
 		guard x.kind == bool-and-bool
 		x.left as-extern or x.right as-extern
+	as not-expr
+		if arg = x.arg as-extern
+			!arg.is-negated, arg.target
 	else
 		()
 -skip-trusted expr(a expr)

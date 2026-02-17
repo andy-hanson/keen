@@ -46,6 +46,9 @@ do
 		out translate-call-to-c-or-java diags-out, "force", (a.arg,), is-java
 	as name-and-range
 		out ~~= a.name to
+	as not-ast
+		out ~~= "!"
+		out translate-crow-to-c-or-java diags-out, a.arg, is-java
 	as parenthesized-ast
 		out translate-crow-to-c-or-java diags-out, a.inner, is-java
 	else
@@ -81,9 +84,14 @@ do
 		out output-c-or-java a.left
 		out ~= "."
 		out ~~= a.name to
+	as java-not
+		out ~= "!"
+		out output-c-or-java a.arg
 
 -translate-between-c-or-java java-expr(a java-expr, output-java bool)
 	match a
+	as java-bogus
+		a
 	as java-call
 		match called = a called
 		as java-bogus
@@ -106,7 +114,13 @@ do
 				called.name java-call
 					- called.left translate-between-c-or-java output-java
 					-- for arg in a args then arg translate-between-c-or-java output-java
-	else
+		as java-not
+			a
+	as java-dot
+		a
+	as java-not
+		a.arg translate-between-c-or-java output-java java-not
+	as symbol
 		a
 
 -write-parenthesized[col, elem] void(out string-builder, values col, f void mut(x elem)) (col, elem) iterate
@@ -144,6 +158,9 @@ do
 		out translate-call-to-crow a, position, augment
 	as java-dot
 		out write-crow-call a.left, a.name, (), position, augment
+	as java-not
+		forbid augment else todo # ------------------------------------------------------------------------------------------------------------------
+		out translate-to-crow a.arg, position, not
 -translate-call-to-crow void(out string-builder, a java-call, position position, augment augment?)
 	args = a args
 	match called = a called
@@ -163,6 +180,9 @@ do
 			out ~= "]"
 	as java-dot
 		out write-crow-call called.left, called.name, args.to, position, augment
+	as java-not
+		throw todo # you wouldn't actually call the result of 'not', so just make sure this doesn't blow up -----------------------------------------
+
 -write-crow-call void
 	out string-builder
 	arg0 java-expr
@@ -209,10 +229,11 @@ do
 			out ~= ")"
 
 | Also represents C expressions
--java-expr union(java-bogus, symbol, java-call, java-dot)
+-java-expr union(java-bogus, symbol, java-call, java-dot, java-not)
 -java-bogus record
 -java-call record(called java-expr, args java-expr[])
 -java-dot record(left java-expr, name symbol)
+-java-not record(arg java-expr)
 
 -parse-ctx record(diags pos mut[]) mut
 -add-diag void(ctx parse-ctx, cur string-iterator)
@@ -231,6 +252,8 @@ do
 	iter skip-whitespace
 	if name = iter try-take-crow-identifier
 		ctx parse-java-expr-suffixes iter, name
+	elif iter try-take "!"
+		ctx parse-java-expr-recur iter java-not
 	else
 		ctx add-diag iter
 		java-bogus
@@ -271,7 +294,7 @@ test
 	"a g b f c, d" test-all-ways "f(g(a, b), c, d)", "a.g(b).f(c, d)"
 	"a g b, c f d, e" test-all-ways "f(g(a, b, c), d, e)", "a.g(b, c).f(d, e)"
 	"a g b f (c h d), e.i" test-all-ways "f(g(a, b), h(c, d), i(e))", "a.g(b).f(c.h(d), e.i())"
-	"a !f b" test-all-ways "not(f(a, b))", "a.f(b).not()"
+	"a !f b" test-all-ways "!f(a, b)", "!a.f(b)"
 	"a f! b" test-all-ways "force(f(a, b))", "a.f(b).force()"
 
 	c test-one-way "f(a) x", crow, "a f", (5,)

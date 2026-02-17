@@ -231,7 +231,7 @@ do
 	concrete-called.return-type, range,
 		concrete-called call-concrete-expr (symbol-array, args-array)
 
--is-not bool(a concrete-fun)
+-is-not bool(a concrete-fun) # RM ------------------------------------------------------------------------------------------------------
 	a.body.concrete-fun-body-builtin.?kind.?builtin-unary == not
 
 -is-array-op bool(a concrete-fun)
@@ -503,6 +503,30 @@ do
 -is-allocated bool(ctx concretize-expr-ctx, a local)
 	a closure-reference-type and ctx allocate-mutable-closure-variables
 
+-concretize-not concrete-expr(ctx concretize-expr-ctx, type concrete-type, range uri-and-range, a not-expr)
+	assert type is-bool
+	# Optimize so '!!x' doesn't actually do two negations
+	model-arg expr, is-not-not bool = match x = a arg
+	as not-expr
+		x.arg, true
+	else
+		x, false
+	arg = ctx concretize-expr model-arg
+	if arg.type is-option
+		expected-index nat = if is-not-not then 1 else 0
+		type, range, if c = arg.kind constant
+			c.constant-union!.index == expected-index to
+		else
+			arg union-is-case-concrete-expr expected-index
+	else
+		if c = arg.kind constant
+			value = c.as-bool == is-not-not
+			type gen-constant range, value.to
+		elif is-not-not
+			arg
+		else
+			type gen-builtin range, not, (), (arg,)
+
 -concretize-if concrete-expr
 	ctx concretize-expr-ctx
 	type concrete-type
@@ -522,7 +546,7 @@ do
 	cb-true-branch concrete-expr mut()
 	cb-false-branch concrete-expr mut()
 do
-	if condition type ctx.available-types is-option-type
+	if condition type ctx.available-types is-option
 		option = ctx concretize-expr condition
 		range gen-if-option option, ((), cb-true-branch[]), cb-false-branch[]
 	elif unpack = condition unpack-option
@@ -589,7 +613,7 @@ do
 		inner concrete-expr mut() = of
 			ctx concretize-complex-condition result-type, range, x.right, true-branch, false-branch
 		ctx concretize-complex-condition result-type, range, x.left, inner, false-branch
-	elif a type ctx.available-types is-option-type
+	elif a type ctx.available-types is-option
 		option = ctx concretize-expr a
 		range gen-if-option option, ((), true-branch[]), false-branch[]
 	elif unpack = a unpack-option
@@ -709,7 +733,7 @@ do
 		as bool-or-bool
 			throw unreachable
 		as option-else
-			if model-type is-option-type
+			if model-type is-option
 				type
 			else
 				ctx get-concrete-type ctx.common-types.option[model-type as-type-args]
@@ -1129,6 +1153,8 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 		ctx concretize-force type, range, a
 	as if-expr
 		ctx concretize-if type, range, a
+	as not-expr
+		ctx concretize-not type, range, a
 	as lambda-expr
 		ctx concretize-lambda type, range, a
 	as let-expr
