@@ -42,6 +42,8 @@ quick-fill-in-concrete-fun-body void(ctx concretize-ctx, cf concrete-fun)
 				range gen-local-get param
 	as expr
 		concrete-fun-body-deferred
+	as expr-with-allocated-locals
+		concrete-fun-body-deferred
 	as fun-body-file-import
 		ctx concretize-file-import cf, x
 	as flags-function
@@ -117,9 +119,10 @@ get-var concrete-var(ctx concretize-ctx, decl var-decl)
 			cur-uri: decl module-uri
 			type-scope: ()
 			specs-scope: ()
-		decl, do expr-ctx concretize-expr type, decl.initializer
+			allocated-locals: decl.initializer allocated-locals
+		decl, do expr-ctx concretize-expr type, decl.initializer.expr
 
-concretize-fun-body concrete-expr(ctx concretize-ctx, cf concrete-fun, expr expr)
+concretize-fun-body concrete-expr(ctx concretize-ctx, cf concrete-fun, expr expr-maybe-allocated-locals)
 	# Array operations will not be called normally, so don't bother filling in the body
 	guard cf !is-array-op else cf.return-type, cf.range, constant-gc-safe-value
 
@@ -130,13 +133,13 @@ concretize-fun-body concrete-expr(ctx concretize-ctx, cf concrete-fun, expr expr
 		()
 	as concrete-fun-source-wrap-main
 		throw unreachable
-	expr-ctx concretize-expr-ctx = ctx, cf
+	expr-ctx concretize-expr-ctx = ctx, cf, expr.allocated-locals
 	# Ignore closure param, which is never destructured.
 	concrete-params = cf.params[(params.size + 1 == cf.params.size).to .. end]
 	type = cf return-type
 	for param, concrete-param in params zip concrete-params
 		expr-ctx begin-param-destructure param, concrete-param
-	res mut = expr-ctx concretize-expr type, expr
+	res mut = expr-ctx concretize-expr type, expr.expr
 	for param, concrete-param in params zip concrete-params
 		res := expr-ctx end-param-destructure type, (expr-ctx to-uri-and-range param.range), param, concrete-param, res
 	res
@@ -416,8 +419,7 @@ do
 		()
 	as local
 		root-local concrete-local = a, do ctx get-concrete-type a.type
-		ctx.locals[a] := if ctx is-allocated a
-			reference-type = ctx get-concrete-type a.closure-reference-type!
+		ctx.locals[a] := if reference-type = ctx is-allocated a
 			a.concrete-local-source-reference, reference-type
 		else
 			root-local
@@ -500,8 +502,8 @@ do
 			res := type gen-let part-range, l, its-value, res
 	res
 
--is-allocated bool(ctx concretize-expr-ctx, a local)
-	a closure-reference-type and ctx allocate-mutable-closure-variables
+-is-allocated concrete-type?(ctx concretize-expr-ctx, a local)
+	ctx.allocated-locals[a]
 
 -concretize-not concrete-expr(ctx concretize-expr-ctx, type concrete-type, range uri-and-range, a not-expr)
 	assert type is-bool
