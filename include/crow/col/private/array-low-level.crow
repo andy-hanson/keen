@@ -3,12 +3,9 @@ import
 	java/lang/IndexOutOfBoundsException
 	java/lang/Object
 	java/lang/System
-	../../bits
 	../../bool
 	../../compare
 	../collection
-	../../exception
-	../../js
 	../../misc
 	../../number
 	../../private/bootstrap: array-size, mut-slice
@@ -16,6 +13,9 @@ import
 	../../unsafe
 export
 	../../private/bootstrap: array
+
++array-like[col, elem] spec col size, (col, elem) at-index
++mut-array-like[col, elem] spec (col, elem) array-like, (col, elem) set-at-index
 
 ~mut-slice-size[t] nat64(a t mut-slice)
 
@@ -46,62 +46,12 @@ Calls `f` for each element in `a`.
 			i +:= 1
 			continue
 
-+array-builder[t] record mut
-	-buffer mut t mut-slice
-	-cur-size mut nat64
-+build[t] t[](a build-options, f void mut(out t array-builder))
-	trusted
-	builder t array-builder = a.size-hint.gc-safe-mut-slice, 0
-	f[builder]
-	size = builder cur-size
-	builder.cur-size := max-value
-	buffer = builder buffer
-	builder.buffer := 0 gc-safe-mut-slice
-	if buffer.mut-slice-size == size
-		buffer cast-immutable
-	elif java
-		res t mut-slice = size gc-safe-mut-slice
-		res copy-from 0 .. size, buffer.cast-immutable, 0 .. size
-		res cast-immutable
-	elif js
-		buffer.as-js call-property "slice", 0, size.wrap-to::nat32.to assume-type
-	else
-		throw todo
-
-+size[t] nat64(a t array-builder)
-	forbid a.cur-size == max-value
-	a cur-size
-
-+~=[t] void(a t array-builder, value t)
-	forbid a.cur-size == max-value
-	capacity = a.buffer mut-slice-size
-	if a.cur-size == capacity
-		a expand-capacity if capacity == 0 then 4 else capacity * 2
-	trusted a.buffer array-set a.cur-size, value
-	a.cur-size +:= 1
 ~array-set[t] void(a t mut-slice, index nat64, value t) unsafe
-
-+~~=[t] void(a t array-builder, values t[])
-	a ~~= values to
-+~~=[t] void(a t array-builder, values t array-view)
-	forbid a.cur-size == max-value
-	capacity = a.buffer mut-slice-size
-	new-size = a.cur-size + values.size
-	if new-size > capacity
-		a expand-capacity (a.cur-size + values.size).round-up-to-power-of-two
-	a.buffer copy-from a.cur-size .. new-size, values.inner, values.low .. values.high
-	a.cur-size +:= values size
--expand-capacity[t] void(a t array-builder, new-capacity nat64)
-	trusted
-	# assert new-capacity > a.cur-size # TODO -----------------------------------------------------------------------------------
-	new-buffer t mut-slice = new-capacity gc-safe-mut-slice
-	new-buffer copy-from 0 .. a.cur-size, a.buffer.cast-immutable, 0 .. a.cur-size
-	a.buffer := new-buffer
 
 -wrap-to int32(a nat64)
 	a.wrap-to::nat32 wrap-to
 
--gc-safe-mut-slice[t] t mut-slice(size nat64) unsafe # TODO: Try to only define this once ................................
+~gc-safe-mut-slice[t] t mut-slice(size nat64) unsafe # TODO: Try to only define this once ................................
 
 region Views
 
@@ -147,7 +97,7 @@ region Views
 			i +:= 1
 			continue
 
--cast-immutable[t] t[](a t mut-slice) unsafe
+~cast-immutable[t] t[](a t mut-slice) unsafe
 	a reinterpret-cast
 
 ~copy-from[t] void(dest t mut-slice, dest-range nat range, src t[], src-range nat range)
@@ -162,5 +112,7 @@ region Views
 	if java
 		src.reinterpret-cast::Object arraycopy sl.wrap-to, dest.reinterpret-cast::Object, dl.wrap-to, size.wrap-to
 	else
-		for i in 0::nat .. size
+		i mut nat = 0
+		until i == size
 			dest array-set dl + i, do src array-get sl + i
+			i +:= 1

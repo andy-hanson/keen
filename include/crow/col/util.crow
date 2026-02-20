@@ -1,14 +1,160 @@
 no-std
 import
+	../bits
 	../bool
 	../compare
+	../exception
+	../js
 	../misc
 	../number
 	../option
 	../range
 	../tuple
-	./array
 	./collection
+	./private/array-low-level
+	../private/bootstrap: mut-slice
+
+| Calls {f} for each element in the collection and returns nothing.
++for-loop[col, elem] void(a col, f void mut(elem elem)) (col, elem) iterate
+	res = a iterate of x
+		f[x]
+		false
+	forbid res
+
+| Calls {f} for each element in the input collection
+| and returns an output collection of the results of {f}.
++for-loop[out-col, out-elem, in-col, in-elem] out-col
+	a in-col
+	f out-elem mut(elem in-elem)
+do (out-col, out-elem) list-new, (in-col, in-elem) iterate, in-col size
+	trusted
+	size = a size
+	res out-elem mut-slice = size gc-safe-mut-slice
+	i mut nat = 0
+	_ = a iterate of x
+		res array-set i, f[x]
+		i +:= 1
+		false
+	assert i == size
+	res.cast-immutable list-new
+
+| Calls {f} for each element in the input collection,
+| and returns an output collection of the elements for which {f} returned {true}.
++filter[out-col, elem, in-col] out-col
+	a in-col
+	f bool mut(elem elem)
+do (out-col, elem) list-new, in-col size, (in-col, elem) iterate
+	trusted
+	in-size = a size
+	res elem mut-slice = in-size gc-safe-mut-slice
+	out-size mut nat = 0
+	_ = a iterate of x
+		if f[x]
+			res array-set out-size, x
+			out-size +:= 1
+			assert out-size <= in-size
+		false
+	res.cast-immutable[0 .. out-size].to list-new
+
+| Same as {for-loop}.
+| For good style, use this only with an `it` lambda.
+| `xs map it.abs` is OK, but instead of `xs map of x ...`, prefer `for x in xs ...`
++map[out-col, out-elem, in-col, in-elem] out-col
+	a in-col
+	f out-elem mut(elem in-elem)
+do (out-col, out-elem) list-new, (in-col, in-elem) iterate, in-col size
+	a for-loop f
+
+| Only returns a result if {f} returned a non-empty option every time.
++map-every[out-col, out-elem, in-col, in-elem] out-col?
+	a in-col
+	f out-elem? mut(x in-elem)
+do (out-col, out-elem) list-new, in-col size, (in-col, in-elem) iterate
+	ok mut bool = false
+	out out-elem builder = a.size,
+	ok := a !iterate of x
+		if y = f[x]
+			out ~= y
+			false
+		else
+			true
+	if ok then out finish
+
++map-values[out-col, out-value, in-col, in-value, key] out-col
+	col in-col
+	f out-value mut(value in-value)
+do (out-col, (key, out-value)) list-new, (in-col, (key, in-value)) iterate, in-col size
+	col map of k, v
+		k, f[v]
+
++n-of[col, elem] col(n nat64, value elem) (col, elem) list-new
+	trusted
+	res elem mut-slice = n gc-safe-mut-slice
+	for i in 0 .. n
+		res array-set i, value
+	res.cast-immutable list-new
+
++concatenate[col] spec
+	~~ col(a col, b col)
++repeat[col] col(a col, n nat64) col concatenate, col new
+	res mut col = ()
+	for _ in 0 .. n
+		res ~~:= a
+	res
+
+| Like `for-loop`, but {f} must return an array of outputs which are all added to the result.
++for-star[out-col, out-elem, in-col, in-elem] out-col
+	a in-col
+	f out-elem[] mut(elem in-elem)
+do (out-col, out-elem) list-new, (in-col, in-elem) iterate
+	out out-elem builder = ()
+	_ = a iterate of x
+		out ~~= f[x]
+		false
+	out finish
+
++with-index[col] record(inner col)
++first[out, col, elem] out?(a col with-index, f out? mut(index nat64, elem elem)) (col, elem) iterate
+	i mut nat64 = 0
+	res mut out? = ()
+	_ = a.inner iterate of x
+		res := f[i, x]
+		i +:= 1
+		!!res
+	res
++for-loop[col, elem] void(a col with-index, f void mut(index nat64, elem elem)) (col, elem) iterate
+	i mut nat64 = 0
+	_ = a.inner iterate of x
+		f[i, x]
+		i +:= 1
+		false
++for-loop[out-col, out-elem, in-col, in-elem] out-col
+	a in-col with-index
+	f out-elem mut(index nat64, elem in-elem)
+do (out-col, out-elem) list-new, (in-col, in-elem) iterate, in-col size
+	out out-elem builder = a.inner.size,
+	i mut nat64 = 0
+	_ = a.inner iterate of x
+		out ~= f[i, x]
+		i +:= 1
+		false
+	out finish
++exists[col, elem] bool(a col with-index, f bool mut(index nat64, elem elem)) (col, elem) iterate
+	i mut nat64 = 0
+	a.inner iterate of x
+		res = f[i, x]
+		i +:= 1
+		res
++every[col, elem] bool(a col with-index, f bool mut(index nat64, elem elem)) (col, elem) iterate
+	a !exists !f[it]
++for-star[out-col, out-elem, in-col, in-elem] out-col
+	a in-col with-index
+	f out-elem[] mut(index nat64, elem in-elem)
+do (out-col, out-elem) list-new, (in-col, in-elem) iterate
+	out out-elem builder = ()
+	for x in a
+		out ~~= f[x]
+	out finish
 
 +range-relative-to-end record(low nat64, high index-relative-to-end)
 
@@ -35,20 +181,21 @@ do in-col size, (out-col, in-col) subscript-range
 	a in-col
 	b in-col
 do (in-col, in-iter, elem) basic-iter, in-iter skip-next-n, (out-col, in-iter) slice, elem equal
-	with out in build
-		part-start mut = a begin
-		iter = part-start copy
-		loop
-			before = iter copy
-			if iter try-take-all b
-				out ~= part-start slice before
-				part-start := iter copy
-				continue
-			elif iter try-take-next
-				continue
-			else
-				out ~= part-start slice iter
-				break
+	out out-col builder = ()
+	part-start mut = a begin
+	iter = part-start copy
+	loop
+		before = iter copy
+		if iter try-take-all b
+			out ~= part-start slice before
+			part-start := iter copy
+			continue
+		elif iter try-take-next
+			continue
+		else
+			out ~= part-start slice iter
+			break
+	out finish-array
 
 +count[col, elem] nat(a col, f bool mut(x elem)) (col, elem) iterate
 	a sum f[it].to
@@ -78,13 +225,14 @@ do (in-col, in-iter, elem) basic-iter, in-iter skip-next-n, (out-col, in-iter) s
 	a.inner size
 +iterate[col, elem] bool(a col reverse, f bool mut(x elem)) (col, elem) iterate-reverse
 	a.inner iterate-reverse f
-+to[out-col, in-col, elem, builder] out-col
++to[out-col, in-col, elem] out-col
 	a in-col reverse
-do (out-col, elem, builder) build, in-col size, (in-col, elem) iterate-reverse
-	with out in a.inner.size build
-		_ = a.inner iterate-reverse of x
-			out ~= x
-			false
+do (out-col, elem) list-new, in-col size, (in-col, elem) iterate-reverse
+	out elem builder = a.inner.size,
+	_ = a.inner iterate-reverse of x
+		out ~= x
+		false
+	out finish
 
 +index-of-sequence[col, iter, elem] nat?
 	a col
@@ -300,3 +448,69 @@ do (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
 			continue
 		else
 			break
+
+| This is an opaque type for pushing values to using {~=} or {~~=}.
+| This deliberately does not provide any way to access the values.
+| You get a builder by using `with out in build` where `out` is the builder.
++builder[t] record mut
+	-buffer mut t mut-slice
+	-cur-size mut nat64
+~new[t] t builder()
+	0,
+~new[t] t builder(size-hint nat64)
+	trusted size-hint.gc-safe-mut-slice, 0
++~=[t] void(a t builder, value t)
+	forbid a.cur-size == max-value
+	capacity = a.buffer mut-slice-size
+	if a.cur-size == capacity
+		a expand-capacity if capacity == 0 then 4 else capacity * 2
+	trusted a.buffer array-set a.cur-size, value
+	a.cur-size +:= 1
++~~=[t] void(a t builder, values t[])
+	a ~~= values to
++~~=[t] void(a t builder, values t array-view)
+	forbid a.cur-size == max-value
+	capacity = a.buffer mut-slice-size
+	new-size = a.cur-size + values.size
+	if new-size > capacity
+		a expand-capacity (a.cur-size + values.size).round-up-to-power-of-two
+	a.buffer copy-from a.cur-size .. new-size, values.inner, values.low .. values.high
+	a.cur-size +:= values size
+-expand-capacity[t] void(a t builder, new-capacity nat64)
+	trusted
+	# assert new-capacity > a.cur-size # TODO -----------------------------------------------------------------------------------
+	new-buffer t mut-slice = new-capacity gc-safe-mut-slice
+	new-buffer copy-from 0 .. a.cur-size, a.buffer.cast-immutable, 0 .. a.cur-size
+	a.buffer := new-buffer
+-finish-array[elem] elem[](a elem builder)
+	trusted
+	forbid a.cur-size == max-value
+	size = a cur-size
+	a.cur-size := max-value
+	buffer = a buffer
+	a.buffer := 0 gc-safe-mut-slice
+	if buffer.mut-slice-size == size
+		buffer cast-immutable
+	elif java
+		res elem mut-slice = size gc-safe-mut-slice
+		res copy-from 0 .. size, buffer.cast-immutable, 0 .. size
+		res cast-immutable
+	elif js
+		buffer.as-js call-property "slice", 0, size.wrap-to::nat32.to assume-type
+	else
+		throw todo
+~finish[col, elem] col(a elem builder) (col, elem) list-new
+	a.finish-array list-new
++build-options record
+	size-hint nat64
++build build-options()
+	0,
++build build-options(size-hint nat64)
+	size-hint,
++with-block[col, elem] col
+	a build-options
+	f void mut(out elem builder)
+do (col, elem) list-new
+	out elem builder = a.size-hint,
+	f[out]
+	out finish

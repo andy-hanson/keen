@@ -5,10 +5,7 @@ import
 	../misc
 	../number
 	../option
-	../private/bootstrap: array, exception, string
-	../tuple
-export
-	./private/build
+	../private/bootstrap: exception, string
 
 +index-too-big record(actual nat64, maximum nat64) exception case
 +show string(_ index-too-big)
@@ -113,64 +110,6 @@ do (col, elem) set-at-index, col size
 
 region 'for' loops
 
-| Calls {f} for each element in the collection and returns nothing.
-+for-loop[col, elem] void(a col, f void mut(elem elem)) (col, elem) iterate
-	res = a iterate of x
-		f[x]
-		false
-	forbid res
-
-| Like `for-loop`, but {f} must return an array of outputs which are all added to the result.
-+for-star[out-col, out-elem, out-builder, in-col, in-elem] out-col
-	xs in-col
-	f out-elem[] mut(elem in-elem)
-do (out-col, out-elem, out-builder) build-in-chunks, (in-col, in-elem) iterate
-	(0,) build of out
-		_ = xs iterate of x
-			out ~~= f[x]
-			false
-
-| Calls {f} for each element in the input collection
-| and returns an output collection of the results of {f}.
-+for-loop[out-col, out-elem, out-builder, in-col, in-elem] out-col
-	col in-col
-	f out-elem mut(elem in-elem)
-do (out-col, out-elem, out-builder) build, (in-col, in-elem) iterate, in-col size
-	(col.size,) build of out
-		_ = col iterate of x
-			out ~= f[x]
-			false
-
-| Same as {for-loop}.
-| For good style, use this only with an `it` lambda.
-| `xs map it.abs` is OK, but instead of `xs map of x ...`, prefer `for x in xs ...`
-+map[out-col, out-elem, out-builder, in-col, in-elem] out-col
-	col in-col
-	f out-elem mut(elem in-elem)
-do (out-col, out-elem, out-builder) build, (in-col, in-elem) iterate, in-col size
-	(col.size,) build of out
-		_ = col iterate of x
-			out ~= f[x]
-			false
-
-+map-values[out-col, out-value, out-builder, in-col, in-value, key] out-col
-	col in-col
-	f out-value mut(value in-value)
-do (out-col, (key, out-value), out-builder) build, (in-col, (key, in-value)) iterate, in-col size
-	col map of k, v
-		k, f[v]
-
-| Calls {f} for each element in the input collection,
-| and returns an output collection of the elements for which {f} returned {true}.
-+filter[out-col, elem, out-builder, in-col] out-col
-	col in-col
-	f bool mut(elem elem)
-do (out-col, elem, out-builder) build, (in-col, elem) iterate
-	with out in build
-		for x in col
-			if f[x]
-				out ~= x
-
 | Returns the first non-empty result of {f}.
 +first[out, col, elem] out?(a col, f out? mut(elem elem)) (col, elem) iterate
 	res mut out? = ()
@@ -258,93 +197,6 @@ do (iter, col) end, (elem, iter) take-prev, elem equal
 +every[col, elem] bool(a col, f bool mut(elem elem)) (col, elem) iterate
 	a !iterate !f[it]
 
-+concatenate[t] spec
-	~~ t(a t, b t)
-
-| Concatenate {n} copies of {a}.
-+repeat[col] col(a col, n nat64) col concatenate, col new
-	res mut col = ()
-	for in n n-of
-		res ~~:= a
-	res
-
-+n-of[col, elem, builder] col(n nat64, value elem) (col, elem, builder) build
-	for in n n-of
-		value
-
--n-of record(n nat)
--size nat(a n-of)
-	a n
--iterate bool(a n-of, f bool mut())
-	i mut nat = 0
-	loop
-		if i == a.n
-			break false
-		elif f[]
-			break true
-		else
-			i +:= 1
-			continue
-
-region with-index
-
-+with-index[col] record(inner col)
-+first[out, col, elem] out?(a col with-index, f out? mut(index nat64, elem elem)) (col, elem) iterate
-	i mut nat64 = 0
-	res mut out? = ()
-	_ = a.inner iterate of x
-		res := f[i, x]
-		i +:= 1
-		!!res
-	res
-+for-loop[col, elem] void(a col with-index, f void mut(index nat64, elem elem)) (col, elem) iterate
-	i mut nat64 = 0
-	_ = a.inner iterate of x
-		f[i, x]
-		i +:= 1
-		false
-+for-loop[out-col, out-elem, out-builder, in-col, in-elem] out-col
-	a in-col with-index
-	f out-elem mut(index nat64, elem in-elem)
-do (out-col, out-elem, out-builder) build, (in-col, in-elem) iterate, in-col size
-	(a.inner.size,) build of out
-		i mut nat64 = 0
-		for x in a inner
-			out ~= f[i, x]
-			i +:= 1
-+for-star[out-col, out-elem, out-builder, in-col, in-elem] out-col
-	a in-col with-index
-	f out-elem[] mut(index nat64, elem in-elem)
-do (out-col, out-elem, out-builder) build-in-chunks, (in-col, in-elem) iterate
-	(0,) build of out
-		i mut nat64 = 0
-		for x in a inner
-			out ~~= f[i, x]
-			i +:= 1
-+exists[col, elem] bool(a col with-index, f bool mut(index nat64, elem elem)) (col, elem) iterate
-	i mut nat64 = 0
-	a.inner iterate of x
-		res = f[i, x]
-		i +:= 1
-		res
-+every[col, elem] bool(a col with-index, f bool mut(index nat64, elem elem)) (col, elem) iterate
-	a !exists !f[it]
-
-| Only returns a result if {f} returned a non-empty option every time.
-+map-every[out-col, out-elem, out-builder, in-col, in-elem] out-col?
-	a in-col
-	f out-elem? mut(x in-elem)
-do (out-col, out-elem, out-builder) build, in-col size, (in-col, in-elem) iterate
-	ok mut = false
-	res out-col = with out in a.size build
-		ok := a !iterate of x
-			if y = f[x]
-				out ~= y
-				false
-			else
-				true
-	if ok then res
-
 +max[col, elem] elem?(a col) (col, elem) iterate, elem compare
 	a max-by it.identity
 +max-of[col, elem, key] key?(a col, f key mut(x elem)) (col, elem) iterate, key compare
@@ -379,7 +231,7 @@ do (col, elem) iterate, key compare
 	min-key mut key? = ()
 	max-elem mut elem? = ()
 	max-key mut key? = ()
-	for x in a
+	_ = a iterate of x
 		key = f[x]
 		if min-key
 			if key < min-key!
@@ -393,6 +245,7 @@ do (col, elem) iterate, key compare
 			min-key := key
 			max-elem := x
 			max-key := key
+		false
 	if min-key
 		(min-elem!, max-elem!), (min-key!, max-key!)
 
