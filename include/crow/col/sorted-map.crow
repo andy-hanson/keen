@@ -1,0 +1,492 @@
+import
+	crow/unsafe
+	./mut-stack
+	./private/sort-utils
+
+| Set of unique values.
+| Unlike {array}, the values are always in sorted order, and there are never two of the same value.
++sorted-map[k, v] record
+	-root (k, v) node
+
+-node[k, v] union((k, v) inner-node, (k, v)[])
+	iterate bool(f bool mut(key k, value v))
+-inner-node[k, v] record
+	size nat
+	key k
+	value v
+	left (k, v) node
+	right (k, v) node
+-new[k, v] (k, v) inner-node((key k, value v), left (k, v) node, right (k, v) node)
+	1 + left.size + right.size, key, value, left, right
+-pair[k, v] (k, v)(a (k, v) inner-node)
+	a.key, a.value
+-size[k, v] nat(a (k, v) node)
+	match a
+	as inner-node
+		a size
+	as array
+		a size
+
++is-empty[k, v] bool(a (k, v) sorted-map) k sorted-key
+	a.size == 0
+
+| Number of values in the set.
++size[k, v] nat64(a (k, v) sorted-map) k sorted-key
+	a.root size
+
++==[k, v] bool(a (k, v) sorted-map, b (k, v) sorted-map) k sorted-key, v equal
+	b-iter = b iter
+	ok = a every of a-pair
+		b-pair = b-iter next
+		b-pair and a-pair == b-pair
+	ok and !b-iter.peek
+
++list-new[k, v] (k, v) sorted-map(a (k, v)[]) k sorted-key
+	a to
++named-new[v] (symbol, v) sorted-map(names symbol[], values v[])
+	(for i in 0 .. names.size then names[i], values[i])::(symbol, v)[] to
+
++to[k, v] (k, v) sorted-map(a (k, v)[]) k sorted-key
+	root: (a sort it.a)::(k, v)[]
+
+| List of all values in the set, in sorted order.
+| This is O(n).
++to[k, v] (k, v)[](a (k, v) sorted-map) k sorted-key
+	match x = a root
+	as inner-node
+		x tree-to-array a.size
+	as array
+		x
+
++min-key[k, v] k?(a (k, v) sorted-map) k sorted-key
+	a.root min-key
+-min-key[k, v] k?(a (k, v) node) k sorted-key
+	match a
+	as inner-node
+		a.left min-key
+	as array
+		unless a is-empty
+			a[0] a
++max-key[k, v] k?(a (k, v) sorted-map) k sorted-key
+	a.root max-key
+-max-key[k, v] k?(a (k, v) node) k sorted-key
+	match a
+	as inner-node
+		a.right max-key
+	as array
+		unless a is-empty
+			a[end - 1] a
+
+# True if the value is in the set.
++subscript[k, v] v?(a (k, v) sorted-map, key k) k sorted-key
+	a.root get key
+-get[k, v] v?(a (k, v) node, key k) k sorted-key
+	match a
+	as inner-node
+		match key <=> a.key
+		as less
+			a.left get key
+		as equal
+			a value
+		as greater
+			a.right get key
+	as array
+		a binary-search-key key
+
+| Add a value to the set.
+| No effect if the value is already in the set.
+| This is O({a}.{size} log)
++~[k, v] (k, v) sorted-map(a (k, v) sorted-map, (key k, value v)) k sorted-key
+	a update key, of _ then value
+
+| Adds all pairs in {b} to {a}. Values in {b} overwrite those in {a}.
+| For a more customizable version, see {merge}.
++~~[k, v] (k, v) sorted-map(a (k, v) sorted-map, b (k, v) sorted-map) k sorted-key
+	a merge b, it.b
+-consume-rest[k, v] void(out (k, v) builder, a (k, v) iter)
+	out ~~= a cur
+	for node (k, v) inner-node in a.stack reverse
+		for x (k, v) in node
+			out ~= x
+
+-walk-iter-union[k, v] void
+	out (k, v) builder
+	(key k, value v)
+	iter (k, v) iter
+	f v mut(a v, b v)
+do k sorted-key
+	loop
+		if peek-key, _ = iter peek
+			match key <=> peek-key
+			as less
+				out ~= key, value
+				break
+			as equal
+				_, other-value = iter next!
+				out ~= key, f[value, other-value]
+				break
+			as greater
+				out ~= iter next!
+				continue
+		else
+			out ~= key, value
+			break
+
+-walk-iter-intersect[k, v] void
+	out (k, v) builder
+	(key k, value v)
+	iter (k, v) iter
+	f v mut(a v, b v)
+do k sorted-key
+	loop
+		guard peek-key, _ = iter peek else break
+		match key <=> peek-key
+		as less
+			break
+		as equal
+			_, other-value = iter next!
+			out ~= key, f[value, other-value]
+			break
+		as greater
+			_ = iter next!
+			continue
+
+| Returns a set that does not contain {b}.
+| If {b} is not in the set, returns it unmodified.
+| This is O({a}.{size} log).
++ -[k, v] (k, v) sorted-map(a (k, v) sorted-map, key k) k sorted-key
+	a try-remove key else a
+
+| If {b} is in the set, returns an empty option.
+| Else, returns a set with {b} removed.
+| This is O({a}.{size} log).
++try-remove[k, v] (k, v) sorted-map?(a (k, v) sorted-map, key k) k sorted-key
+	did-remove mut bool = false
+	res = a update key, of old-value
+		if old-value
+			did-remove := true
+		()
+	did-remove is trusted res !reference-equal a
+	res
+
+-iter[k, v] record mut
+	cur mut (k, v) array-view
+	# If a node is on the stack, we have yet to write out the middle and right.
+	# TODO:PERF use a mut-slice, initialized to the tree's height
+	stack (k, v) inner-node mut-stack
+
+-iter[k, v] (k, v) iter(a (k, v) sorted-map)
+	stack (k, v) inner-node mut-stack = ()
+	node mut = a root
+	loop
+		match x = node
+		as inner-node
+			stack ~= x
+			node := x left
+			continue
+		as array
+			break x.to, stack
+
+-peek[k, v] (k, v)?(a (k, v) iter)
+	if a.cur is-empty
+		a.stack.peek ?pair
+	else
+		a.cur[0]
+
+-next[k, v] (k, v)?(a (k, v) iter)
+	if a.cur is-empty
+		guard node = a.stack pop
+		res = node pair
+		match r = node right
+		as inner-node
+			a.stack ~= r
+		as array
+			a.cur := r to
+		res
+	else
+		res = a.cur[0]
+		a.cur := a.cur[1 .. end]
+		res
+
+| Creates a new map containing keys from both {a} and {b}.
+| Calls {f} when they both have the key, otherwise uses the value from whichever one has the key.
++merge[k, v] (k, v) sorted-map(a (k, v) sorted-map, b (k, v) sorted-map, f v mut(a v, b v)) k sorted-key
+	with out in a.size + b.size build
+		b-iter = b iter
+		for x in a
+			out walk-iter-union x, b-iter, f
+		out consume-rest b-iter
+
++intersect[k, v] (k, v) sorted-map(a (k, v) sorted-map, b (k, v) sorted-map, f v mut(a v, b v)) k sorted-key
+	with out in a.size min b.size build
+		b-iter = b iter
+		for x in a
+			out walk-iter-intersect x, b-iter, f
+
+-update[k, v] (k, v) sorted-map(a (k, v) sorted-map, key k, updater v? mut(old-value v?)) k sorted-key
+	match res = a.root update-recur (a.size + 1).get-max-height, key, updater
+	as no-change
+		a
+	as removed
+		()
+	as node
+		root: res
+	as find-scapegoat
+		throw unreachable
+
+| Used for inserting a new pair when the tree is getting too deep.
+-find-scapegoat[k, v] record
+	new-pair (k, v)
+	| height of this subtree
+	height nat64
+-update-result[k, v] union(no-change, removed, (k, v) node, (k, v) find-scapegoat)
+-no-change record
+-removed record
+-update-recur[k, v] (k, v) update-result(a (k, v) node, max-height nat64, key k, updater v? mut(old-value v?) ) k sorted-key
+	match a
+	as inner-node
+		a update-inner-node max-height, key, updater
+	as array
+		a.to update-array max-height, key, updater
+
+-update-inner-node[k, v] (k, v) update-result(a (k, v) inner-node, max-height nat64, key k, updater v? mut(old-value v?) ) k sorted-key
+	match key <=> a.key
+	as less
+		match res = a.left update-recur max-height - 1, key, updater
+		as no-change
+			no-change
+		as removed
+			a.right tree-to-array a.pair, a.size - 1
+		as node
+			a.pair, res, a.right
+		as find-scapegoat
+			a handle-scapegoat res
+	as equal
+		no-change
+	as greater
+		match res = a.right update-recur max-height - 1, key, updater
+		as no-change
+			no-change
+		as removed
+			a.left tree-to-array a.pair, a.size - 1
+		as node
+			a.pair, a.left, res
+		as find-scapegoat
+			a handle-scapegoat res
+
+-update-array[k, v] (k, v) update-result(a (k, v) array-view, max-height nat64, key k, updater v? mut(old-value v?)) k sorted-key
+	insert = a binary-search-insert-cb key <=> it.a
+	old-value v? = if insert != a.size and a[insert].a == key
+		a[insert] b
+	new-value = updater[old-value]
+	if new-value
+		if old-value
+			if trusted new-value reference-equal old-value
+				no-change
+			else
+				a update-at insert, (key, new-value)
+		else
+			if a.size < 4
+				a insert-at insert, (key, new-value)
+			elif max-height == 0
+				new-pair: key, new-value
+				height: 1
+			else
+				a break-up-arr (key, new-value), insert, max-height
+	else
+		if old-value
+			if a.size == 1
+				removed
+			else
+				a remove-at insert
+		else
+			no-change
+-break-up-arr[k, v] (k, v) update-result
+	a (k, v) array-view
+	pair (k, v)
+	insert-index nat64
+	max-height nat64
+do k sorted-key
+	# Break it up into nodes, adding to height
+	mid-index = a.size / 2
+	if insert-index == mid-index
+		pair, a[0 .. insert-index].to, a[insert-index .. end].to
+	else
+		left-arr = a[0 .. mid-index]
+		mid = a[mid-index]
+		right-arr = a[mid-index + 1 .. end]
+		forbid left-arr.is-empty or right-arr.is-empty
+		if insert-index < mid-index
+			# TODO:PERF: This redundantly finds insert-index again
+			match res = left-arr update-array max-height - 1, pair.a, of _ then pair.b
+			as no-change
+				throw unreachable
+			as removed
+				throw unreachable
+			as node
+				mid, res, right-arr.to
+			as find-scapegoat
+				new-pair: pair
+				height: res.height + 1
+		else
+			match res = right-arr update-array max-height - 1, pair.a, of _ then pair.b
+			as no-change
+				throw unreachable
+			as removed
+				throw unreachable
+			as node
+				mid, left-arr.to, res
+			as find-scapegoat
+				new-pair: pair
+				height: res.height + 1
+
+-handle-scapegoat[k, v] (k, v) update-result
+	a (k, v) inner-node
+	f (k, v) find-scapegoat
+do k sorted-key
+	size-here = a.size + 1
+	height-here = f.height + 1
+	if height-here > size-here.get-max-height
+		a tree-to-array f.new-pair, size-here
+	else
+		f.new-pair find-scapegoat height-here
+
+-walk-size[k, v] nat64(a (k, v) node)
+	match a
+	as inner-node
+		a.left.walk-size + 1 + a.right.walk-size
+	as array
+		a size
+
+-tree-to-array[k, v] (k, v)[](a (k, v) node, pair (k, v), size nat64) k sorted-key
+	with out in size build
+		out tree-to-array-recur a, pair
+-tree-to-array[k, v] (k, v)[](a (k, v) node, size nat64) k sorted-key
+	with out in size build
+		out tree-to-array-recur a
+-tree-to-array-recur[k, v] void(out (k, v) builder, a (k, v) node, pair (k, v)) k sorted-key
+	match a
+	as inner-node
+		match pair.a <=> a.key
+		as less
+			out tree-to-array-recur a.left, pair
+			out ~= a pair
+			out tree-to-array-recur a.right
+		as equal
+			throw unreachable
+		as greater
+			out tree-to-array-recur a.left
+			out ~= a pair
+			out tree-to-array-recur a.right, pair
+	as array
+		# Find first x > value, insert it before there
+		key, _ = pair
+		insert = a binary-search-insert-cb it.a <=> key
+		out ~~= a[0 .. insert]
+		out ~= pair
+		out ~~= a[insert .. end]
+| Version where we know we don't have to insert value
+-tree-to-array-recur[k, v] void(out (k, v) builder, a (k, v) node)
+	match a
+	as inner-node
+		out tree-to-array-recur a.left
+		out ~= a pair
+		out tree-to-array-recur a.right
+	as array
+		out ~~= a
+
+# TODO:PERF
+-get-max-height nat64(size nat64)
+	if size >= 4
+		(size / 2).get-max-height + 1
+
++first[k, v] (k, v)?(a (k, v) sorted-map)
+	a.iter peek
++last[k, v] (k, v)?(a (k, v) sorted-map)
+	a.root last
+-last[k, v] (k, v)?(a (k, v) node)
+	match a
+	as inner-node
+		a.right last
+	as array
+		unless a is-empty
+			a[end - 1]
+
++iterate[k, v] bool(a (k, v) sorted-map, f bool mut(key k, value v)) k sorted-key
+	a.root iterate f
+-iterate[k, v] bool(a (k, v) inner-node, f bool mut(key k, value v))
+	a.left iterate f or f[a pair] or a.right iterate f
+
+region test
+
+-dbg[k, v] string(a (k, v) sorted-map) k show, v show
+	a.root dbg
+-dbg[k, v] string(a (k, v) node) k show, v show
+	match a
+	as inner-node
+		"({a.left dbg} {a.key}: {a value} {a.right dbg})"
+	as array
+		parts = " " join for k, v in a then "{k}: {v}"
+		"[{parts}]"
+
+-verify void(a (symbol, nat) sorted-map, expected string)
+	a.size is a.root.walk-size
+	a.dbg is expected
+
+test
+	s (symbol, nat) sorted-map =
+		a: 1
+		c: 3
+		e: 5
+		g: 7
+	s ~ ("d", 4) verify "([a: 1 c: 3] d: 4 [e: 5 g: 7])"
+
+test
+	s0 (symbol, nat) sorted-map = ()
+	s0 verify "[]"
+
+	s1 = s0 ~ ("h", 8)
+	s1 verify "[h: 8]"
+
+	s2 = s1 ~ ("k", 11)
+	s2 verify "[h: 8 k: 11]"
+
+	s3 = s2 ~ ("i", 9)
+	s3 verify "[h: 8 i: 9 k: 11]"
+
+	s4 = s3 ~ ("j", 10)
+	s4 verify "[h: 8 i: 9 j: 10 k: 11]"
+
+	s4["h"] is 8
+	s4 ~ ("i", 99) verify "[h: 8 i: 99 j: 10 k: 11]"
+
+	s5 = s4 ~ ("l", 12)
+	s5 verify "([h: 8 i: 9] j: 10 [k: 11 l: 12])"
+
+	(s5 - "i") verify "([h: 8] j: 10 [k: 11 l: 12])"
+	(s5 - "j") verify "([h: 8 i: 9] j: 10 [k: 11 l: 12])"
+	(s5 - "k") verify "([h: 8 i: 9] j: 10 [l: 12])"
+	s6 = s5 ~ ("jj", 1010)
+	s6 verify "([h: 8 i: 9] j: 10 [jj: 1010 k: 11 l: 12])"
+
+	s7 = s6 ~ ("ji", 109)
+	s7 verify "([h: 8 i: 9] j: 10 [ji: 109 jj: 1010 k: 11 l: 12])"
+
+	s8 = s7 ~ ("jk", 1011)
+	s8 verify "([h: 8 i: 9] j: 10 ([ji: 109 jj: 1010] jk: 1011 [k: 11 l: 12]))"
+
+	s8-k = s8 - "k"
+	s8-k verify "([h: 8 i: 9] j: 10 ([ji: 109 jj: 1010] jk: 1011 [l: 12]))"
+	s8-k-l = s8-k - "l"
+	s8-k-l verify "([h: 8 i: 9] j: 10 [jk: 1011 ji: 109 jj: 1010])"
+	s8-k-l - "jk" verify "([h: 8 i: 9] j: 10 [jk: 1011 ji: 109 jj: 1010])"
+
+	s9 = s8 ~ ("m", 13)
+	s9 verify "([h: 8 i: 9] j: 10 ([ji: 109 jj: 1010] jk: 1011 [k: 11 l: 12 m: 13]))"
+	s10 = s9 ~ ("n", 14)
+	s10 verify "([h: 8 i: 9] j: 10 ([ji: 109 jj: 1010] jk: 1011 [k: 11 l: 12 m: 13 n: 14]))"
+	s11 = s10 ~ ("o", 15)
+	s11 verify "[h: 8 i: 9 j: 10 ji: 109 jj: 1010 jk: 1011 o: 15 k: 11 l: 12 m: 13 n: 14]"
+
+	s8 ~~ (("a", 1), ("jii", 1099), ("z", 26)) verify "[a: 1 h: 8 i: 9 j: 10 ji: 109 jii: 1099 jj: 1010 jk: 1011 k: 11 l: 12 z: 26]"
+	"-" join (for x, _ in s8 then x.show) is "h-i-j-ji-jj-jk-k-l"
