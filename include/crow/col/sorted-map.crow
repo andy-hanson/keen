@@ -1,119 +1,192 @@
 import
+	crow/crypto/pseudo-random
+	crow/crypto/random
 	crow/unsafe
+	./mut-slice
 	./mut-stack
 	./private/sort-utils
 
-| Set of unique values.
-| Unlike {array}, the values are always in sorted order, and there are never two of the same value.
-+sorted-map[k, v] record
+sorted-map[k, v] record
+	| The root node is special:
+	| - It can have a branch with as few as 2 nodes
+	| - It can be a leaf with any number of nodes
 	-root (k, v) node
-
--node[k, v] union((k, v) inner-node, (k, v)[])
+-node[k, v] union
+	(k, v) branch
+	(k, v)[]
+do
+	min-key k()
 	iterate bool(f bool mut(key k, value v))
--inner-node[k, v] record
-	size nat
-	key k
-	value v
-	left (k, v) node
-	right (k, v) node
--new[k, v] (k, v) inner-node((key k, value v), left (k, v) node, right (k, v) node)
-	1 + left.size + right.size, key, value, left, right
--pair[k, v] (k, v)(a (k, v) inner-node)
-	a.key, a.value
+-branch[k, v] record
+	| This is the min-key of each child.
+	keys k[]
+	children (k, v) node[]
+
+-max-branch-children nat()
+	8
+-max-leaf-size nat()
+	16
+
+-min-key[k, v] k(a (k, v) branch)
+	a.keys[0]
+-min-key[k, v] k(a (k, v)[])
+	a[0] a
+
++list-new[k, v] (k, v) sorted-map(pairs (k, v)[]) k sorted-key
+	pairs to
++named-new[v] (symbol, v) sorted-map(names symbol[], values v[])
+	(for i in 0 .. names.size then names[i], values[i])::(symbol, v)[] to
+
+-get-root-for-update[k, v] (k, v) node(a (k, v) sorted-map) k sorted-key
+	root = a root
+	if root array and root.size > max-leaf-size * 2
+		root build-tree
+	else
+		root
+-build-tree[k, v] (k, v) node(pairs (k, v)[])
+	nodes mut (k, v) node[] = for chunk in pairs chunk max-leaf-size
+		chunk
+	until nodes.size == 1
+		nodes := for children in nodes chunk max-branch-children
+			keys: children map it.min-key
+			children: children
+	nodes[0]
+-chunk[t] t[][](a t[], chunk-size nat)
+	for i in 0 .. (a.size div-ceil chunk-size)
+		a[i * chunk-size .. ((i + 1) * chunk-size min a.size)] to
+
++is-empty[k, v] bool(a (k, v) sorted-map) k sorted-key
+	match root = a root
+	as branch
+		false
+	as array
+		root is-empty
+
++size[k, v] nat(a (k, v) sorted-map)
+	a.root size
 -size[k, v] nat(a (k, v) node)
 	match a
-	as inner-node
-		a size
+	as branch
+		a.children sum it.size
 	as array
 		a size
 
-+is-empty[k, v] bool(a (k, v) sorted-map) k sorted-key
-	a.size == 0
-
-| Number of values in the set.
-+size[k, v] nat64(a (k, v) sorted-map) k sorted-key
-	a.root size
-
 +==[k, v] bool(a (k, v) sorted-map, b (k, v) sorted-map) k sorted-key, v equal
-	b-iter = b iter
+	b-iter = b begin
 	ok = a every of a-pair
 		b-pair = b-iter next
 		b-pair and a-pair == b-pair
 	ok and !b-iter.peek
 
-+list-new[k, v] (k, v) sorted-map(a (k, v)[]) k sorted-key
-	a to
-+named-new[v] (symbol, v) sorted-map(names symbol[], values v[])
-	(for i in 0 .. names.size then names[i], values[i])::(symbol, v)[] to
-
 +to[k, v] (k, v) sorted-map(a (k, v)[]) k sorted-key
-	root: (a sort it.a)::(k, v)[]
+	root: a sort-unique it.a
 
-| List of all values in the set, in sorted order.
-| This is O(n).
-+to[k, v] (k, v)[](a (k, v) sorted-map) k sorted-key
-	match x = a root
-	as inner-node
-		x tree-to-array a.size
++to[k, v] (k, v)[](a (k, v) sorted-map)
+	match root = a root
+	as branch
+		a map it.identity
 	as array
-		x
+		root
 
-+min-key[k, v] k?(a (k, v) sorted-map) k sorted-key
-	a.root min-key
--min-key[k, v] k?(a (k, v) node) k sorted-key
-	match a
-	as inner-node
-		a.left min-key
-	as array
-		unless a is-empty
-			a[0] a
-+max-key[k, v] k?(a (k, v) sorted-map) k sorted-key
-	a.root max-key
--max-key[k, v] k?(a (k, v) node) k sorted-key
-	match a
-	as inner-node
-		a.right max-key
-	as array
-		unless a is-empty
-			a[end - 1] a
-
-# True if the value is in the set.
 +subscript[k, v] v?(a (k, v) sorted-map, key k) k sorted-key
-	a.root get key
--get[k, v] v?(a (k, v) node, key k) k sorted-key
+	a.root[key]
+-subscript[k, v] v?(a (k, v) node, key k) k sorted-key
 	match a
-	as inner-node
-		match key <=> a.key
-		as less
-			a.left get key
-		as equal
-			a value
-		as greater
-			a.right get key
+	as branch
+		a.children[a.keys binary-search-key key][key]
 	as array
-		a binary-search-key key
+		if index = a binary-search-exact key
+			a[index] b
 
-| Add a value to the set.
-| No effect if the value is already in the set.
-| This is O({a}.{size} log)
 +~[k, v] (k, v) sorted-map(a (k, v) sorted-map, (key k, value v)) k sorted-key
-	a update key, of _ then value
+	match res = a.get-root-for-update insert (key, value)
+	as no-change
+		a
+	as node
+		root: res
+	as split
+		root:
+			keys: res.left.min-key, res.right.min-key
+			children: res.left, res.right
+
+-insert-result[k, v] union
+	no-change
+	(k, v) node
+	(k, v) split
+-no-change record
+-split[k, v] record(left (k, v) node, right (k, v) node)
+-insert[k, v] (k, v) insert-result(a (k, v) node, (key k, value v)) k sorted-key
+	match a
+	as branch
+		index = a.keys binary-search-key key
+		match res = a.children[index] insert (key, value)
+		as no-change
+			no-change
+		as node
+			keys: a.keys update-if-necessary index, res.min-key
+			children: a.children update-at index, res
+		as split
+			new-node (k, v) branch =
+				keys: a.keys[0 .. index] concat res.left.min-key, res.right.min-key, a.keys[index + 1 .. end]
+				children: a.children[0 .. index] concat res.left, res.right, a.children[index + 1 .. end]
+			if new-node.children.size <= max-branch-children
+				new-node
+			else
+				new-node split
+	as array
+		index = a binary-search-insert key
+		if index != a.size and a[index].a == key
+			if trusted a[index].b reference-equal value
+				no-change
+			else
+				a update-at index, (key, value)
+		else
+			res = a[0 .. index] concat (key, value), a[index .. end]
+			if res.size <= max-leaf-size
+				res
+			else
+				l, r = res split
+				left: l, right: r
+-split[k, v] (k, v) split(a (k, v) branch)
+	kl, kr = a.keys split
+	cl, cr = a.children split
+	left: kl, cl
+	right: kr, cr
+-split[t] (t[], t[])(a t[])
+	mid = a.size / 2
+	a[0 .. mid].to, a[mid .. end].to
+
+-concat[t] t[](a t array-view, b t, c t array-view) # TODO: remove when list expressions hae the same performance
+	res t mut-slice = trusted a.size + 1 + c.size gc-safe-mut-slice
+	res[0 .. a.size] := a
+	res[a.size] := b
+	res[a.size + 1 .. end] := c
+	trusted res cast-immutable
+
+-concat[t] t[](a t array-view, b t, c t, d t array-view) # TODO: remove when list expressions hae the same performance
+	res t mut-slice = trusted a.size + 2 + d.size gc-safe-mut-slice
+	res[0 .. a.size] := a
+	res[a.size] := b
+	res[a.size + 1] := c
+	res[a.size + 2 .. end] := d
+	trusted res cast-immutable
 
 | Adds all pairs in {b} to {a}. Values in {b} overwrite those in {a}.
 | For a more customizable version, see {merge}.
 +~~[k, v] (k, v) sorted-map(a (k, v) sorted-map, b (k, v) sorted-map) k sorted-key
 	a merge b, it.b
 -consume-rest[k, v] void(out (k, v) builder, a (k, v) iter)
-	out ~~= a cur
-	for node (k, v) inner-node in a.stack reverse
-		for x (k, v) in node
-			out ~= x
+	out ~~= a.cur-array[a.cur-index .. end]
+	for index nat, nodes (k, v) node[] in a.stack reverse
+		for node in nodes[index .. end]
+			for x in node
+				out ~= x
 
 -walk-iter-union[k, v] void
 	out (k, v) builder
 	(key k, value v)
 	iter (k, v) iter
-	f v mut(a v, b v)
+	f v mut(key k, a v, b v)
 do k sorted-key
 	loop
 		if peek-key, _ = iter peek
@@ -123,7 +196,7 @@ do k sorted-key
 				break
 			as equal
 				_, other-value = iter next!
-				out ~= key, f[value, other-value]
+				out ~= key, f[key, value, other-value]
 				break
 			as greater
 				out ~= iter next!
@@ -136,7 +209,7 @@ do k sorted-key
 	out (k, v) builder
 	(key k, value v)
 	iter (k, v) iter
-	f v mut(a v, b v)
+	f v mut(key k, a v, b v)
 do k sorted-key
 	loop
 		guard peek-key, _ = iter peek else break
@@ -145,348 +218,256 @@ do k sorted-key
 			break
 		as equal
 			_, other-value = iter next!
-			out ~= key, f[value, other-value]
+			out ~= key, f[key, value, other-value]
 			break
 		as greater
 			_ = iter next!
 			continue
 
-| Returns a set that does not contain {b}.
-| If {b} is not in the set, returns it unmodified.
-| This is O({a}.{size} log).
 + -[k, v] (k, v) sorted-map(a (k, v) sorted-map, key k) k sorted-key
-	a try-remove key else a
+	if _, res = a remove key
+		res
+	else
+		a
 
-| If {b} is in the set, returns an empty option.
-| Else, returns a set with {b} removed.
-| This is O({a}.{size} log).
-+try-remove[k, v] (k, v) sorted-map?(a (k, v) sorted-map, key k) k sorted-key
-	did-remove mut bool = false
-	res = a update key, of old-value
-		if old-value
-			did-remove := true
-		()
-	did-remove is trusted res !reference-equal a
-	res
++remove[k, v] (v, (k, v) sorted-map)?(a (k, v) sorted-map, key k) k sorted-key
+	if r = a.get-root-for-update remove key
+		- r removed-value
+		- root: match node = r new-node
+		as branch
+			match node.children size
+			as 1
+				node.children[0]
+			else
+				node
+		as array
+			node
+-removed[k, v] record
+	removed-value v
+	new-node (k, v) node
+-remove[k, v] (k, v) removed?(a (k, v) node, key k) k sorted-key
+	match a
+	as branch
+		index = a.keys binary-search-key key
+		if r = a.children[index] remove key
+			removed-value: r removed-value
+			new-node: if r.new-node.number-of-branches < r.new-node.min-branches
+				larger-sibling-is-left bool = if index == 0
+					false
+				elif index == a.children.size - 1
+					true
+				else
+					a.children[index - 1].number-of-branches >= a.children[index + 1].number-of-branches
+				left-index = if larger-sibling-is-left then index - 1 else index
+				right-index = if larger-sibling-is-left then index else index + 1
+				new-children = if larger-sibling-is-left
+					a.children[index - 1] merge-or-rebalance r.new-node
+				else
+					r.new-node merge-or-rebalance a.children[index + 1]
+				match new-children
+				as node
+					keys: a.keys remove-at index update-if-necessary left-index, new-children.min-key
+					children: a.children[0 .. left-index] concat new-children, a.children[right-index + 1 .. end]
+				as tuple2
+					x, y = new-children
+					keys: a.keys[0 .. left-index] concat x.min-key, y.min-key, a.keys[right-index + 1 .. end]
+					children: a.children[0 .. left-index] concat x, y, a.children[right-index + 1 .. end]
+			else
+				keys: a.keys update-if-necessary index, r.new-node.min-key
+				children: a.children update-at index, r.new-node
+	as array
+		if index = a binary-search-exact key
+			_, value = a[index]
+			removed-value: value
+			new-node: a remove-at index
+
+-update-if-necessary[t] t[](a t[], index nat, value t) t equal
+	if a[index] == value
+		a
+	else
+		a update-at index, value
+
+-binary-search-key[k] nat(keys k[], key k) k sorted-key
+	index = keys binary-search-insert key
+	if index == 0 or (index != keys.size and keys[index] == key)
+		index
+	else
+		index - 1
+
+-merge-or-rebalance[k, v] union((k, v) node, ((k, v) node, (k, v) node))
+-merge-or-rebalance[k, v] (k, v) merge-or-rebalance(left (k, v) node, right (k, v) node)
+	dir rebalance-direction = if left.number-of-branches < right.number-of-branches then to-left else to-right
+	can-rebalance = match dir
+	as to-left
+		right.number-of-branches > right.min-branches
+	as to-right
+		left.number-of-branches > left.min-branches
+	if can-rebalance
+		left rebalance right, dir
+	else
+		left merge right
+
+-number-of-branches[k, v] nat(a (k, v) node)
+	match a
+	as branch
+		a.children size
+	as array
+		a size
+-min-branches[k, v] nat(a (k, v) node)
+	match a
+	as branch
+		max-branch-children / 2
+	as array
+		max-leaf-size / 2
+-max-branches[k, v] nat(a (k, v) node)
+	match a
+	as branch
+		max-branch-children
+	as array
+		max-leaf-size
+-merge[k, v] (k, v) node(a (k, v) node, b (k, v) node)
+	match a
+	as branch
+		assert b branch
+		keys: a.keys ~~ b.keys
+		children: a.children ~~ b.children
+	as array
+		assert b array
+		a ~~ b
+-rebalance[k, v] ((k, v) node, (k, v) node)(left (k, v) node, right (k, v) node, dir rebalance-direction)
+	match left
+	as branch
+		assert right branch
+		kl, kr = left.keys rebalance right.keys, dir
+		cl, cr = left.children rebalance right.children, dir
+		(kl, cl), (kr, cr)
+	as array
+		assert right array
+		l, r = left rebalance right, dir
+		l, r
+-rebalance-direction enum(to-left, to-right)
+-rebalance[t] (t[], t[])(a t[], b t[], dir rebalance-direction)
+	match dir
+	as to-left
+		a ~ b[0], b[1 .. end].to
+	as to-right
+		a[0 .. end - 1].to, a[end - 1] ~ b
 
 -iter[k, v] record mut
-	cur mut (k, v) array-view
-	# If a node is on the stack, we have yet to write out the middle and right.
-	# TODO:PERF use a mut-slice, initialized to the tree's height
-	stack (k, v) inner-node mut-stack
+	cur-array mut (k, v)[]
+	cur-index mut nat
+	# Each entry in the stack is the remaining branches we need to do
+	stack (nat, (k, v) node[]) mut-stack
+-begin[k, v] (k, v) iter(a (k, v) sorted-map)
+	res (k, v) iter = (), (), ()
+	res add-node a.root
+	res
 
--iter[k, v] (k, v) iter(a (k, v) sorted-map)
-	stack (k, v) inner-node mut-stack = ()
-	node mut = a root
-	loop
-		match x = node
-		as inner-node
-			stack ~= x
-			node := x left
-			continue
-		as array
-			break x.to, stack
+-add-node[k, v] void(a (k, v) iter, node (k, v) node)
+	match node
+	as branch
+		a.stack ~= 1, node.children
+		a add-node node.children[0]
+	as array
+		a.cur-array := node
+		a.cur-index := 0
 
 -peek[k, v] (k, v)?(a (k, v) iter)
-	if a.cur is-empty
-		a.stack.peek ?pair
-	else
-		a.cur[0]
+	unless a.cur-index == a.cur-array.size
+		a.cur-array[a cur-index]
 
 -next[k, v] (k, v)?(a (k, v) iter)
-	if a.cur is-empty
-		guard node = a.stack pop
-		res = node pair
-		match r = node right
-		as inner-node
-			a.stack ~= r
-		as array
-			a.cur := r to
-		res
-	else
-		res = a.cur[0]
-		a.cur := a.cur[1 .. end]
-		res
+	guard a.cur-index != a.cur-array.size
+	res = a.cur-array[a cur-index]
+	a.cur-index +:= 1
+	if a.cur-index == a.cur-array.size
+		if index, branches = a.stack pop
+			a add-node branches[index]
+			unless index + 1 == branches.size
+				a.stack ~= index + 1, branches
+	res
 
-| Creates a new map containing keys from both {a} and {b}.
-| Calls {f} when they both have the key, otherwise uses the value from whichever one has the key.
-+merge[k, v] (k, v) sorted-map(a (k, v) sorted-map, b (k, v) sorted-map, f v mut(a v, b v)) k sorted-key
+| Returns a map containing keys that are in either {a} or {b}.
+| Calls {f} when the same key appears in both; otherwise uses the value from whichever one has the key.
++merge[k, v] (k, v) sorted-map(a (k, v) sorted-map, b (k, v) sorted-map, f v mut(key k, a v, b v)) k sorted-key
 	with out in a.size + b.size build
-		b-iter = b iter
+		b-iter = b begin
 		for x in a
 			out walk-iter-union x, b-iter, f
 		out consume-rest b-iter
 
-+intersect[k, v] (k, v) sorted-map(a (k, v) sorted-map, b (k, v) sorted-map, f v mut(a v, b v)) k sorted-key
+| Returns a map containing only keys that are in both {a} and {b}.
+| Calls {f} on values with the same key.
++intersect[k, v] (k, v) sorted-map(a (k, v) sorted-map, b (k, v) sorted-map, f v mut(key k, a v, b v)) k sorted-key
 	with out in a.size min b.size build
-		b-iter = b iter
+		b-iter = b begin
 		for x in a
 			out walk-iter-intersect x, b-iter, f
 
--update[k, v] (k, v) sorted-map(a (k, v) sorted-map, key k, updater v? mut(old-value v?)) k sorted-key
-	match res = a.root update-recur (a.size + 1).get-max-height, key, updater
-	as no-change
-		a
-	as removed
-		()
-	as node
-		root: res
-	as find-scapegoat
-		throw unreachable
-
-| Used for inserting a new pair when the tree is getting too deep.
--find-scapegoat[k, v] record
-	new-pair (k, v)
-	| height of this subtree
-	height nat64
--update-result[k, v] union(no-change, removed, (k, v) node, (k, v) find-scapegoat)
--no-change record
--removed record
--update-recur[k, v] (k, v) update-result(a (k, v) node, max-height nat64, key k, updater v? mut(old-value v?) ) k sorted-key
-	match a
-	as inner-node
-		a update-inner-node max-height, key, updater
-	as array
-		a.to update-array max-height, key, updater
-
--update-inner-node[k, v] (k, v) update-result(a (k, v) inner-node, max-height nat64, key k, updater v? mut(old-value v?) ) k sorted-key
-	match key <=> a.key
-	as less
-		match res = a.left update-recur max-height - 1, key, updater
-		as no-change
-			no-change
-		as removed
-			a.right tree-to-array a.pair, a.size - 1
-		as node
-			a.pair, res, a.right
-		as find-scapegoat
-			a handle-scapegoat res
-	as equal
-		no-change
-	as greater
-		match res = a.right update-recur max-height - 1, key, updater
-		as no-change
-			no-change
-		as removed
-			a.left tree-to-array a.pair, a.size - 1
-		as node
-			a.pair, a.left, res
-		as find-scapegoat
-			a handle-scapegoat res
-
--update-array[k, v] (k, v) update-result(a (k, v) array-view, max-height nat64, key k, updater v? mut(old-value v?)) k sorted-key
-	insert = a binary-search-insert-cb key <=> it.a
-	old-value v? = if insert != a.size and a[insert].a == key
-		a[insert] b
-	new-value = updater[old-value]
-	if new-value
-		if old-value
-			if trusted new-value reference-equal old-value
-				no-change
-			else
-				a update-at insert, (key, new-value)
-		else
-			if a.size < 4
-				a insert-at insert, (key, new-value)
-			elif max-height == 0
-				new-pair: key, new-value
-				height: 1
-			else
-				a break-up-arr (key, new-value), insert, max-height
-	else
-		if old-value
-			if a.size == 1
-				removed
-			else
-				a remove-at insert
-		else
-			no-change
--break-up-arr[k, v] (k, v) update-result
-	a (k, v) array-view
-	pair (k, v)
-	insert-index nat64
-	max-height nat64
-do k sorted-key
-	# Break it up into nodes, adding to height
-	mid-index = a.size / 2
-	if insert-index == mid-index
-		pair, a[0 .. insert-index].to, a[insert-index .. end].to
-	else
-		left-arr = a[0 .. mid-index]
-		mid = a[mid-index]
-		right-arr = a[mid-index + 1 .. end]
-		forbid left-arr.is-empty or right-arr.is-empty
-		if insert-index < mid-index
-			# TODO:PERF: This redundantly finds insert-index again
-			match res = left-arr update-array max-height - 1, pair.a, of _ then pair.b
-			as no-change
-				throw unreachable
-			as removed
-				throw unreachable
-			as node
-				mid, res, right-arr.to
-			as find-scapegoat
-				new-pair: pair
-				height: res.height + 1
-		else
-			match res = right-arr update-array max-height - 1, pair.a, of _ then pair.b
-			as no-change
-				throw unreachable
-			as removed
-				throw unreachable
-			as node
-				mid, left-arr.to, res
-			as find-scapegoat
-				new-pair: pair
-				height: res.height + 1
-
--handle-scapegoat[k, v] (k, v) update-result
-	a (k, v) inner-node
-	f (k, v) find-scapegoat
-do k sorted-key
-	size-here = a.size + 1
-	height-here = f.height + 1
-	if height-here > size-here.get-max-height
-		a tree-to-array f.new-pair, size-here
-	else
-		f.new-pair find-scapegoat height-here
-
--walk-size[k, v] nat64(a (k, v) node)
-	match a
-	as inner-node
-		a.left.walk-size + 1 + a.right.walk-size
-	as array
-		a size
-
--tree-to-array[k, v] (k, v)[](a (k, v) node, pair (k, v), size nat64) k sorted-key
-	with out in size build
-		out tree-to-array-recur a, pair
--tree-to-array[k, v] (k, v)[](a (k, v) node, size nat64) k sorted-key
-	with out in size build
-		out tree-to-array-recur a
--tree-to-array-recur[k, v] void(out (k, v) builder, a (k, v) node, pair (k, v)) k sorted-key
-	match a
-	as inner-node
-		match pair.a <=> a.key
-		as less
-			out tree-to-array-recur a.left, pair
-			out ~= a pair
-			out tree-to-array-recur a.right
-		as equal
-			throw unreachable
-		as greater
-			out tree-to-array-recur a.left
-			out ~= a pair
-			out tree-to-array-recur a.right, pair
-	as array
-		# Find first x > value, insert it before there
-		key, _ = pair
-		insert = a binary-search-insert-cb it.a <=> key
-		out ~~= a[0 .. insert]
-		out ~= pair
-		out ~~= a[insert .. end]
-| Version where we know we don't have to insert value
--tree-to-array-recur[k, v] void(out (k, v) builder, a (k, v) node)
-	match a
-	as inner-node
-		out tree-to-array-recur a.left
-		out ~= a pair
-		out tree-to-array-recur a.right
-	as array
-		out ~~= a
-
-# TODO:PERF
--get-max-height nat64(size nat64)
-	if size >= 4
-		(size / 2).get-max-height + 1
-
-+first[k, v] (k, v)?(a (k, v) sorted-map)
-	a.iter peek
-+last[k, v] (k, v)?(a (k, v) sorted-map)
-	a.root last
--last[k, v] (k, v)?(a (k, v) node)
-	match a
-	as inner-node
-		a.right last
-	as array
-		unless a is-empty
-			a[end - 1]
-
-+iterate[k, v] bool(a (k, v) sorted-map, f bool mut(key k, value v)) k sorted-key
++iterate[k, v] bool(a (k, v) sorted-map, f bool mut(key k, value v))
 	a.root iterate f
--iterate[k, v] bool(a (k, v) inner-node, f bool mut(key k, value v))
-	a.left iterate f or f[a pair] or a.right iterate f
+-iterate[k, v] bool(a (k, v) branch, f bool mut(key k, value v))
+	a.children iterate of child
+		child iterate f
+
++min-key[k, v] k?(a (k, v) sorted-map) k sorted-key
+	unless a is-empty
+		a.root min-key
++max-key[k, v] k?(a (k, v) sorted-map) k sorted-key
+	unless a is-empty
+		a.root max-key
+-max-key[k, v] k(a (k, v) node)
+	match a
+	as branch
+		a.children[end - 1] max-key
+	as array
+		a[end - 1] a
 
 region test
 
--dbg[k, v] string(a (k, v) sorted-map) k show, v show
-	a.root dbg
--dbg[k, v] string(a (k, v) node) k show, v show
+-validate[k, v] void(a (k, v) sorted-map) k sorted-key, (json, k) to, (json, v) to
+	unless a is-empty
+		a.root validate a.root.min-key
+-validate[k, v] void(a (k, v) node, min k) k sorted-key, (json, k) to, (json, v) to
 	match a
-	as inner-node
-		"({a.left dbg} {a.key}: {a value} {a.right dbg})"
+	as branch
+		a.keys[0] is min
+		a.keys is (a.children map it.min-key)
+		assert a.keys is-sorted
+		for index, child in a.children with-index
+			key = a.keys[index]
+			assert child[key]
+			assert child.min-key == key
+			assert child.number-of-branches >= child.min-branches
+			assert child.number-of-branches <= child.max-branches
+			child validate key
 	as array
-		parts = " " join for k, v in a then "{k}: {v}"
-		"[{parts}]"
+		a[0].a is min
+		assert a is-sorted it.a
 
--verify void(a (symbol, nat) sorted-map, expected string)
-	a.size is a.root.walk-size
-	a.dbg is expected
+test summon
+	seed nat64 = random
+	try
+		p prng = seed,
+		values nat[] = (for _ in 0 .. 1000 then p next-in-range 1000 .. 2000) unique
+		a mut (nat, nat) sorted-map = ()
+		for value in values
+			a ~:= (value, value)
+			a validate
+			a[value] is value
+		for value in values
+			a[value] is value
+		for value in values
+			removed, rest = a remove! value
+			removed is value
+			a := rest
+			a validate
+		assert a is-empty
+	catch e
+		error log "Random seed was {seed}"
+		throw e
 
-test
-	s (symbol, nat) sorted-map =
-		a: 1
-		c: 3
-		e: 5
-		g: 7
-	s ~ ("d", 4) verify "([a: 1 c: 3] d: 4 [e: 5 g: 7])"
-
-test
-	s0 (symbol, nat) sorted-map = ()
-	s0 verify "[]"
-
-	s1 = s0 ~ ("h", 8)
-	s1 verify "[h: 8]"
-
-	s2 = s1 ~ ("k", 11)
-	s2 verify "[h: 8 k: 11]"
-
-	s3 = s2 ~ ("i", 9)
-	s3 verify "[h: 8 i: 9 k: 11]"
-
-	s4 = s3 ~ ("j", 10)
-	s4 verify "[h: 8 i: 9 j: 10 k: 11]"
-
-	s4["h"] is 8
-	s4 ~ ("i", 99) verify "[h: 8 i: 99 j: 10 k: 11]"
-
-	s5 = s4 ~ ("l", 12)
-	s5 verify "([h: 8 i: 9] j: 10 [k: 11 l: 12])"
-
-	(s5 - "i") verify "([h: 8] j: 10 [k: 11 l: 12])"
-	(s5 - "j") verify "([h: 8 i: 9] j: 10 [k: 11 l: 12])"
-	(s5 - "k") verify "([h: 8 i: 9] j: 10 [l: 12])"
-	s6 = s5 ~ ("jj", 1010)
-	s6 verify "([h: 8 i: 9] j: 10 [jj: 1010 k: 11 l: 12])"
-
-	s7 = s6 ~ ("ji", 109)
-	s7 verify "([h: 8 i: 9] j: 10 [ji: 109 jj: 1010 k: 11 l: 12])"
-
-	s8 = s7 ~ ("jk", 1011)
-	s8 verify "([h: 8 i: 9] j: 10 ([ji: 109 jj: 1010] jk: 1011 [k: 11 l: 12]))"
-
-	s8-k = s8 - "k"
-	s8-k verify "([h: 8 i: 9] j: 10 ([ji: 109 jj: 1010] jk: 1011 [l: 12]))"
-	s8-k-l = s8-k - "l"
-	s8-k-l verify "([h: 8 i: 9] j: 10 [jk: 1011 ji: 109 jj: 1010])"
-	s8-k-l - "jk" verify "([h: 8 i: 9] j: 10 [jk: 1011 ji: 109 jj: 1010])"
-
-	s9 = s8 ~ ("m", 13)
-	s9 verify "([h: 8 i: 9] j: 10 ([ji: 109 jj: 1010] jk: 1011 [k: 11 l: 12 m: 13]))"
-	s10 = s9 ~ ("n", 14)
-	s10 verify "([h: 8 i: 9] j: 10 ([ji: 109 jj: 1010] jk: 1011 [k: 11 l: 12 m: 13 n: 14]))"
-	s11 = s10 ~ ("o", 15)
-	s11 verify "[h: 8 i: 9 j: 10 ji: 109 jj: 1010 jk: 1011 o: 15 k: 11 l: 12 m: 13 n: 14]"
-
-	s8 ~~ (("a", 1), ("jii", 1099), ("z", 26)) verify "[a: 1 h: 8 i: 9 j: 10 ji: 109 jii: 1099 jj: 1010 jk: 1011 k: 11 l: 12 z: 26]"
-	"-" join (for x, _ in s8 then x.show) is "h-i-j-ji-jj-jk-k-l"
+-unique[t] t[](a t[]) t key
+	set t mut-set = ()
+	a filter of x
+		set try-add x
