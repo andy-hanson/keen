@@ -1,4 +1,5 @@
 #!/usr/bin/env crow
+use-prefix
 import
 	crow/io/file
 	crow/io/path
@@ -7,17 +8,17 @@ import
 	crow/parse-command
 
 main nat(args string[]) summon
-	if values = args parse-named-args ("print-tests", "overwrite-output", "match")
-		print-tests-strs, overwrite-output-strs, match-test-strs = values as-tuple3
+	if values = parse-named-args args, ("print-tests", "overwrite-output", "match")
+		print-tests-strs, overwrite-output-strs, match-test-strs = as-tuple3 values
 		options test-options =
 			print-tests: !!print-tests-strs
 			overwrite-output: if overwrite-output-strs
-				assert overwrite-output-strs is-empty
+				assert is-empty overwrite-output-strs
 				true
 			match-test: if match-test-strs
 				assert match-test-strs.size == 1
 				match-test-strs[0]
-		options do-test
+		do-test options
 	else
 		print-help
 		1
@@ -27,7 +28,7 @@ main nat(args string[]) summon
 	a[0], a[1], a[2]
 
 -print-help void() summon
-	out print quote
+	print quote
 		options:
 			--print-tests: Print every test before it runs.
 			--overwrite-output: Overwrite '.out' files instead of failing
@@ -39,26 +40,26 @@ main nat(args string[]) summon
 
 -do-test nat(options test-options) summon
 	paths paths = cwd: current-directory, path-to-crow: "./bin/crow"
-	tests = "./test/end-to-end/tests" list-tests options.match-test
+	tests = list-tests "./test/end-to-end/tests", options.match-test
 	# TODO: parallelism ----------------------------------------------------------------------------------------------------------------
 	#failures failure[] = for* x in tests parallel
 	#	paths run-single-crow-test x, options
 	failures failure[] = for* x in tests
-		paths run-single-crow-test x, options
-	if failures is-empty
-		out print "Ran {tests size} crow tests"
+		run-single-crow-test paths, x, options
+	if is-empty failures
+		print "Ran {size tests} crow tests"
 		0
 	else
-		err print failures.show-failures
-		failures size
+		print err, failures.show-failures
+		size failures
 
 -list-tests string[](path string, match-test string) summon
 	res string mut[] = ()
 	# TODO: I no longer need this to be recursive ..............................................................................
-	path each-child-recursive of child
-		if child contains-seq match-test and child ext-is-crow
+	each-child-recursive path, of child
+		if contains-seq child, match-test and ext-is-crow child
 			res ~= child
-	res move-to
+	res.move-to
 
 -ext-is-crow bool(a string)
 	a.base-name.get-extension == "crow"
@@ -68,18 +69,17 @@ main nat(args string[]) summon
 	path string
 	options test-options
 do summon
-	overwrite = options overwrite-output
-	if options print-tests
-		out print "crow run {path}"
-	res failure[]? = members::run-kind[] first of kind
-		failures = paths run-single path, kind, overwrite
-		unless failures is-empty then failures
+	if print-tests options
+		print "crow run {path}"
+	res failure[]? = first members::run-kind[], of kind
+		failures = run-single paths, path, kind, options.overwrite-output
+		unless is-empty failures then failures
 	res else ()
 
 -run-kind enum(java, js)
 -to symbol(a run-kind)
 -show string(a run-kind)
-	a.to::symbol show
+	a.to::symbol.to
 -members run-kind[]()
 
 -run-single failure[]
@@ -93,28 +93,28 @@ do summon
 		"run", path
 	as js
 		"run", path, "--node-js"
-	info log "{paths.path-to-crow} {" " join args}"
-	res = paths.path-to-crow spawn-and-wait-result args
-	out-pre = res format-output
+	log "{paths.path-to-crow} {join " ", args}"
+	res = spawn-and-wait-result paths.path-to-crow, args
+	out-pre = format-output res
 	out = match run-kind
 	as java
 		out-pre
 	as js
-		out-pre.normalize-js-temp-paths remove-node-js-footer
-	path handle-output "{path}.{run-kind}.out", out, overwrite-output, run-kind
+		remove-node-js-footer normalize-js-temp-paths out-pre
+	handle-output path, "{path}.{run-kind}.out", out, overwrite-output, run-kind
 
 -normalize-js-temp-paths string(a string)
 	# Replace '/tmp/crow-123.js' with 'TMP.js'
 	# TODO: I should also replace line numbers ------------------------------------------------------------------------------
 	cur mut = a
 	with out in build
-		while before, after = cur try-split-once "/tmp/crow-"
+		while before, after = try-split-once cur, "/tmp/crow-"
 			out ~~= before
 			out ~~= "TMP"
-			line, rest = after drop-while it.is-digit try-split-once! "\n"
+			line, rest = try-split-once! (drop-while after, it.is-digit), "\n"
 			prev-was-digit mut bool = false
 			for x in line
-				if x is-digit
+				if is-digit x
 					unless prev-was-digit
 						out ~= "1"
 						prev-was-digit := true
@@ -126,31 +126,31 @@ do summon
 		out ~~= cur
 -remove-node-js-footer string(a string)
 	# TODO: I need to adapt this to handle any version number. Just check if the final line starts with "Node.js" -----------------------------------
-	a try-remove-end "\nNode.js v22.13.0\n" else a
+	try-remove-end a, "\nNode.js v22.13.0\n" else a
 
 -is-digit bool(a char32)
 	"0"::char32 <= a and a <= "9"
 
 -format-output string(a process-result)
-	if a has-error
-		exit-code = match x = a exit
+	if has-error a
+		exit-code = match x = exit a
 		as exited
-			x exit-code
+			exit-code x
 		as signaled
-			x signal
+			signal x
 		exit-string string = if exit-code != 0 and exit-code != 1 then "big" else "{exit-code}"
-		"exit code: {exit-string}\n{a format-stdout-stderr}"
+		"exit code: {exit-string}\n{format-stdout-stderr a}"
 	else
-		a.stdout remove-colors
+		remove-colors stdout a
 
 -format-stdout-stderr string(a process-result)
-	stdout string = unless a.stdout == "" then "stdout:\n{a.stdout remove-colors}"
-	"{stdout}stderr:\n{a.stderr remove-colors}"
+	stdout string = unless a.stdout == "" then "stdout:\n{remove-colors stdout a}"
+	"{stdout}stderr:\n{remove-colors stderr a}"
 
 -remove-colors string(a string)
-	if before, rest = a try-split-once "\x1b"
-		before ~~ if _, after = rest try-split-once "m"
-			after remove-colors
+	if before, rest = try-split-once a, "\x1b"
+		before ~~ if _, after = try-split-once rest, "m"
+			remove-colors after
 	else
 		a
 
@@ -162,13 +162,13 @@ do summon
 	kind run-kind
 do summon
 	text string = try
-		output-path read-file
+		read-file output-path
 	catch as path-not-found
 		()
 	if actual == text
 		()
 	elif overwrite-output
-		output-path write-file actual
+		write-file output-path, actual
 		()
 	else
 		-
@@ -178,7 +178,7 @@ do summon
 failure record(path string, message string)
 
 show-failures string(failures failure[])
-	s string = "\n" join for failure in failures
+	s string = join "\n", for failure in failures
 		"{bold}{failure.path}{reset} {failure.message}"
 	"{s}\n{failures.size} failures"
 

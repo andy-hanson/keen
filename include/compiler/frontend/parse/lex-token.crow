@@ -62,7 +62,10 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 		as "\n"
 			state emit-newline iter, start
 		as "~"
-			state emit-operator start, iter, if iter try-take-char8 "~" then "~~" else "~"
+			if iter peek-space-after-binary-operator or iter.peek8 == "~"
+				state emit-operator start, iter, if iter try-take-char8 "~" then "~~" else "~"
+			else
+				state emit prefix-operator, start, iter.pos, "~"::symbol
 		as "@"
 			state emit at, start, iter.pos
 		as "!"
@@ -99,10 +102,13 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 				state take-number-after-sign start, iter
 			elif iter try-take-char8 "-"
 				state emit list-dash-dash, start, iter.pos
-			elif state prev-is-newline and iter.peek8 is-whitespace
-				state emit list-dash, start, iter.pos
+			elif iter peek-space-after-binary-operator
+				if state prev-is-newline and iter.peek8 != "="
+					state emit list-dash, start, iter.pos
+				else
+					state emit-operator start, iter, "-"
 			else
-				state emit-operator start, iter, "-"
+				state emit prefix-operator, start, iter.pos, "-"::symbol
 		as "="
 			if iter try-take-char8 "="
 				state emit-operator start, iter, "=="
@@ -125,6 +131,11 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 				state emit colon2, start, iter.pos
 			else
 				state emit colon, start, iter.pos
+		as "'"
+			if name = iter try-take-crow-identifier
+				state emit name-after-tick, start, iter.pos, name
+			else
+				state.diagnostics ~= (start, iter.pos), "'".parse-diag-unexpected-character
 		as "\""
 			state take-string-part iter, start, double
 		as ","
@@ -175,6 +186,10 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 
 	state emit-newline iter, iter.pos
 	state finish
+
+-peek-space-after-binary-operator bool(iter string-iterator)
+	# Ensure that `x -= 1` or `x -:= 1` parses '-' as an operator
+	iter.peek8 is-whitespace or iter.peek8 == "=" or iter.peek8 == ":"
 
 -number void(state lexer-state, iter string-iterator)
 	iter.pos -:= 1
@@ -241,7 +256,7 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 		else
 			match token = symbol token-for-symbol
 			as name
-				state emit-name-like-token iter, start, symbol, name
+				state emit-name-like-token iter, start, symbol, false
 			as region_
 				iter skip-until-newline
 				state emit region_, start, iter.pos
@@ -296,9 +311,10 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 		state take-string-part iter, iter.pos, quote-kind
 
 -emit-operator void(out lexer-state, start pos, iter string-iterator, value symbol)
-	out emit-name-like-token iter, start, value, operator
--emit-name-like-token void(out lexer-state, iter string-iterator, start pos, value symbol, regular-token token)
+	out emit-name-like-token iter, start, value, true
+-emit-name-like-token void(out lexer-state, iter string-iterator, start pos, value symbol, is-operator bool)
 	v mut = value
+	regular-token = if is-operator then operator else name
 	token = match iter peek8
 	as "="
 		if iter.peek8-next == "="
@@ -306,7 +322,7 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 		else
 			_ = iter take-char8
 			v := "{value}="
-			name-or-operator-equals
+			if is-operator then operator-equals else name-equals
 	as "!"
 		if regular-token == name
 			_ = iter take-char8
@@ -317,7 +333,7 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 		if iter.peek8-next == "="
 			_ = iter take-char8
 			_ = iter take-char8
-			name-or-operator-colon-equals
+			if is-operator then operator-colon-equals else name-colon-equals
 		else
 			regular-token
 	else
@@ -389,6 +405,8 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 		in_
 	as "interface"
 		interface_
+	as "is"
+		is_
 	as "it"
 		it_
 	as "loop"
@@ -433,6 +451,8 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 		union_
 	as "until"
 		until_
+	as "use-prefix"
+		use-prefix_
 	as "variant"
 		variant_
 	as "while"

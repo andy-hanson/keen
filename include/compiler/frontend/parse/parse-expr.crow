@@ -21,6 +21,7 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	true, min-value
 -allow-everything-except-block arg-ctx()
 	false, min-value
+to json(a arg-ctx)
 
 -require-precedence-gt arg-ctx(a arg-ctx, precedence int)
 	allowed-block: a allowed-block
@@ -31,9 +32,14 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	with args2 in args it-scope
 		lexer range start list-ast for x in args2 then x
 
--parse-args expr-ast[](lexer lexer, ctx arg-ctx, first expr-ast)
+-parse-args expr-ast[](lexer lexer, ctx arg-ctx, first expr-ast) # Will this still be used? ---------------------------------------------------------------------
+	lexer parse-args-inner ctx, first
+-parse-args expr-ast[](lexer lexer, ctx arg-ctx)
+	lexer parse-args-inner (ctx require-precedence-gt comma-precedence), ()
+-parse-args-inner expr-ast[](lexer lexer, ctx arg-ctx, first expr-ast?)
 	with out in build
-		out ~= first
+		if first
+			out ~= first
 		assert ctx.min-precedence-exclusive >= comma-precedence
 		if lexer peek-token-expression ctx.allowed-block
 			out ~= lexer parse-expr-and-calls ctx
@@ -44,17 +50,23 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	match lexer peek
 	as and_
 		false
-	as else_
-		false
 	as brace-right
 		false
 	as bracket-right
 		false
 	as catch_
 		false
+	as comma
+		false
+	as is_
+		false
+	as else_
+		false
 	as end-of-file
 		false
 	as paren-right
+		false
+	as name-after-tick
 		false
 	as newline-indent
 		allowed-block
@@ -62,15 +74,14 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 		false
 	as newline-same-indent
 		false
+	as operator
+		false
 	as or_
 		false
 	as then_
 		false
 	else
 		true
-
--is-prefix-unary-operator bool(a symbol)
-	a == "-" or a == "~"
 
 -parse-assignment expr-ast(lexer lexer, left expr-ast, assignment-pos pos)
 	right = lexer parse-expr-no-let
@@ -85,6 +96,7 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 		lexer parse-statements
 
 -parse-calls expr-ast(lexer lexer, start pos, lhs expr-ast, arg-ctx arg-ctx)
+	# error log "TOP OF PARSE-CALLS prefix={lexer.prefix} start={start} lhs={lhs.to-json} arg-ctx={arg-ctx.to-json}" # ---------------------------------------------------
 	before-call = lexer next-start
 	precedence = arg-ctx min-precedence-exclusive
 	if equals-expression-precedence > precedence and lexer try-take-token equal
@@ -99,7 +111,83 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 			lexer parse-expr-and-calls do arg-ctx require-precedence-gt log.precedence
 		lexer parse-calls start, expr, arg-ctx
 	else
-		lexer parse-named-calls start, lhs, arg-ctx
+		named-calls = lexer parse-named-calls start, lhs, arg-ctx
+		if lexer prefix
+			if callable = named-calls as-callable-expr
+				args = lexer parse-args arg-ctx
+				if args is-empty
+					lexer parse-name-after-tick start, named-calls, arg-ctx
+				else
+					res = callable to-expr (lexer range start), args
+					lexer parse-calls start, res, arg-ctx
+			else
+				lexer parse-name-after-tick start, named-calls, arg-ctx
+		else
+			named-calls
+
+-parse-name-after-tick expr-ast(lexer lexer, start pos, lhs expr-ast, arg-ctx arg-ctx)
+	name-after-tick-precedence int = 0
+	if name-after-tick-precedence > arg-ctx.min-precedence-exclusive and lexer try-take-token name-after-tick
+		name = lexer prev-symbol
+		pos = lexer prev-start
+		inner-ctx = arg-ctx require-precedence-gt name-after-tick-precedence
+		args = lexer parse-args inner-ctx, lhs
+		call call-ast =
+			range: lexer range start
+			style: infix
+			keyword-pos: max-value
+			fun-name: pos, name
+			args: args
+			type-arg: ()
+		lexer parse-calls start, call, arg-ctx
+	else
+		lhs
+
+-callable-kind enum(plain, force, not, question)
+-== bool(a callable-kind, b callable-kind)
+-callable-expr record
+	kind callable-kind
+	fun-name name-and-range
+	# Used for 'force' or 'question'
+	keyword-pos pos
+	type-arg type-ast?
+-as-callable-expr callable-expr?(a expr-ast)
+	match a
+	as name-and-range
+		plain, a, 0, ()
+	as call-ast
+		guard a.args is-empty
+		guard !a.type-arg # TODO? ----------------------------------------------------------------------------------------------------------------------
+		match a style
+		as single
+			plain, a.fun-name, 0, a.type-arg
+		as question-name
+			question, a.fun-name, a.keyword-pos, a.type-arg
+		else
+			()
+	as force-ast
+		if arg = a.arg as-callable-expr and arg.kind == plain
+			force, arg.fun-name, a.keyword-pos, arg.type-arg
+	as not-ast
+		if arg = a.arg as-callable-expr and arg.kind == plain
+			not, arg.fun-name, a.keyword-pos, arg.type-arg
+	else
+		()
+-to-expr expr-ast(a callable-expr, range source-range, args expr-ast[])
+	plain expr-ast mut() = of
+		if args is-empty and !a.type-arg
+			a fun-name
+		else
+			range call-ast prefix, max-value, a.fun-name, args, a.type-arg
+	match a kind
+	as plain
+		plain[]
+	as not
+		a.keyword-pos not-ast plain[]
+	as force
+		plain[] force-ast a.keyword-pos
+	as question
+		range call-ast question-name, a.keyword-pos, a.fun-name, args, a.type-arg
 
 -as-logical-ast-kind logical-ast-kind?(token token)
 	match token
@@ -113,15 +201,20 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 		()
 
 -parse-named-calls expr-ast(lexer lexer, start pos, lhs expr-ast, arg-ctx arg-ctx)
+	# error log "TOP OF parse-named-calls at {lexer.next-start}, lhs={lhs to-json}, arg-ctx={arg-ctx to-json}, peek is {lexer.peek to-json}" # ---------------------
 	pos = lexer next-start
 	guard name = lexer try-take-name-and-precedence arg-ctx else lhs
 	fun-token = name token
 	fun-name name-and-range = pos + (fun-token == name-after-bang or fun-token == name-after-question).to, name.name
-	precedence = name precedence
+	precedence int = name precedence
 	assignment assignment-kind? = match fun-token
-	as name-or-operator-colon-equals
+	as name-colon-equals
 		replace
-	as name-or-operator-equals
+	as operator-colon-equals
+		replace
+	as name-equals
+		in-place
+	as operator-equals
 		in-place
 	else
 		()
@@ -162,12 +255,16 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	token token
 	name symbol
 	precedence int
+-to json(a name-and-precedence)
 -try-take-name-and-precedence name-and-precedence?(lexer lexer, arg-ctx arg-ctx)
 	x = lexer peek
-	guard x is-symbol-token or x == in_
-	name symbol = if x == in_ then "in" else lexer next-symbol
-	precedence = name symbol-precedence
-		x == name-or-operator-equals or x == name-or-operator-colon-equals
+	guard x is-symbol-token or x == in_ or x == is_
+	guard lexer allow-infix or x.name-ends-in-equals
+	name symbol = match x
+	as in_ then "in"
+	as is_ then "is"
+	else then lexer next-symbol
+	precedence = name symbol-precedence x.name-ends-in-equals
 	guard precedence > arg-ctx.min-precedence-exclusive
 	if x token-has-continuation
 		lexer advance-may-continue-onto-next-line
@@ -177,8 +274,47 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	name: name
 	precedence: precedence
 
+-name-ends-in-equals bool(token token)
+	match token
+	as name-colon-equals
+		true
+	as name-equals
+		true
+	as operator-colon-equals
+		true
+	as operator-equals
+		true
+	else
+		false
+
+-allow-infix bool(lexer lexer)
+	!lexer.prefix or
+		match lexer peek
+		as is_
+			true
+		as operator
+			true
+		as operator-colon-equals
+			true
+		as operator-equals
+			true
+		else
+			false
+
 -token-has-continuation bool(a token)
-	a == operator or a == name-or-operator-colon-equals or a == name-or-operator-equals
+	match a
+	as name-colon-equals
+		true
+	as name-equals
+		true
+	as operator
+		true
+	as operator-colon-equals
+		true
+	as operator-equals
+		true
+	else
+		false
 
 -assignment-kind enum
 	| foo=
@@ -247,6 +383,8 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 		9
 	as "**"
 		10
+	as "is"
+		-9
 	else
 		name-precedence
 
@@ -637,6 +775,14 @@ do
 			start + 1 name-and-range name
 		with inner2 in inner it-scope
 			start not-ast inner2
+	as name-after-question
+		:: call-ast
+		range: lexer range start
+		style: question-name
+		keyword-pos: start
+		fun-name: start + 1 name-and-range lexer.prev-symbol
+		args: ()
+		type-arg: ()
 	as name-bang
 		lexer try-parse-dots-and-subscripts
 			start name-and-range lexer.prev-symbol force-ast (lexer range start).end - 1
@@ -652,12 +798,8 @@ do
 			lexer parse-destructure-no-require-parens
 		then-pos, body = lexer parse-then-or-indented-statements start, allowed-block, of_
 		start lambda-ast param, then-pos, body
-	as operator
-		operator = lexer.prev-symbol
-		if operator is-prefix-unary-operator
-			lexer handle-prefix-unary-operator allowed-block, start, operator
-		else
-			lexer bad-prev-token
+	as prefix-operator
+		lexer handle-prefix-unary-operator allowed-block, start, lexer.prev-symbol
 	as literal-number
 		lexer try-parse-dots-and-subscripts do lexer range start literal-number
 	as loop_

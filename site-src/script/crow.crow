@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/experimental/observable
 	crow/io/duration
@@ -20,83 +21,83 @@ crow-server record mut
 	-diagnostics lsp-diagnostic[][uri] mut-observable
 
 diagnostics lsp-diagnostic[][uri] observable(a crow-server)
-	a.diagnostics observable
+	observable diagnostics a
 
 make-crow-server crow-server() summon, js
 	trusted
 	start = monotime
-	info log "launched worker at {now-iso}"
-	worker = "Worker".js-global call-new "/worker.js", type: "module"
+	log "launched worker at {now-iso}"
+	worker = call-new "Worker".js-global, "/worker.js", type: "module"
 
 	responses json deferred mut[nat] = ()
 	loaded void deferred = ()
 	diagnostics lsp-diagnostic[][uri] mut-observable = ()
 	on-message void mut(event js-any) = of event
-		object = event["data"].to parse-json
-		if object has-key "id"
-			id nat = object["id"] to
+		object = parse-json event["data"].to
+		if has-key object, "id"
+			id nat = object["id"].to
 			if id == 2
-				loaded resolve ()
-			responses[id]! resolve object["result"]
+				resolve loaded, ()
+			resolve responses[id]!, object["result"]
 		else
-			method symbol = object["method"] to
+			method symbol = object["method"].to
 			params = object["params"]
 			assert method == "textDocument/publishDiagnostics" else todo
-			p publish-diagnostics-params = params to
-			diagnostics modify of x then x ~ (p.uri, p.diagnostics)
-	worker["onmessage"] := on-message as-js
+			p publish-diagnostics-params = params.to
+			modify diagnostics, of x then x ~ (p.uri, p.diagnostics)
+	worker["onmessage"] := as-js on-message
 
 	server crow-server =
 		worker: worker
 		responses: responses
 		next-id: 1
 		diagnostics: diagnostics
-	_ = fire-and-forget with-block shared of
-		_ = server request "initialize", ()
+	_ = with-block fire-and-forget, shared of
+		_ = request server, "initialize", ()
 
-	_ = fire-and-forget with-block shared of # TODO: Support 'shared with' ---------------------------------------------------------------------
-		loaded await
-		info log "Took {monotime - start} to load Crow server"
-		json = server request "custom/perf-report", ()
-		info log json.show
+	_ = with-block fire-and-forget, shared of # TODO: Support 'shared with' ---------------------------------------------------------------------
+		await loaded
+		log "Took {monotime - start} to load Crow server"
+		json = request server, "custom/perf-report", ()
+		log "{json}"
 	server
 
 -send-message void(server crow-server, method symbol, params json) unsafe, js
 	msg json = method: method.to, params: params
-	_ = server.worker call-property "postMessage", msg.to-json.to
+	_ = call-property server.worker, "postMessage", msg.to-json.to
 
 -request json(server crow-server, method symbol, params json) js
 	trusted
 	id = server.next-id
 	server.next-id +:= 1
 	msg json =
-		id: id to
-		method: method to
+		id: id.to
+		method: method.to
 		params: params
 	deferred json deferred = ()
 	server.responses[id] := deferred
-	_ = server.worker call-property "postMessage", msg.to-json.to
-	deferred await
+	_ = call-property server.worker, "postMessage", msg.to-json.to
+	await deferred
 
 open-file void(a crow-server, uri uri, text string) unsafe, summon, js
 	params did-open-text-document-params = textDocument: (uri: uri, text: text)
-	a send-message "textDocument/didOpen", params.to
+	send-message a, "textDocument/didOpen", params.to
 
 change-file void(a crow-server, uri uri, text string) unsafe, summon, js
 	params did-change-text-document-params =
 		textDocument: uri: uri
 		contentChanges:
 			- text: text
-	a send-message "textDocument/didChange", params.to
+	send-message a, "textDocument/didChange", params.to
 
 get-hover string(a crow-server, uri uri, position line-and-character) js
 	params hover-params =
 		params:
 			textDocument: uri: uri
 			position: position
-	res = a request "textDocument/hover", params.to
+	res = request a, "textDocument/hover", params.to
 	unless res == null
-		res["contents"]["value"] to
+		res["contents"]["value"].to
 
 highlightable-token record
 	line nat32
@@ -108,9 +109,9 @@ highlightable-token record
 get-tokens token[](a crow-server, uri uri) js
 	params semantic-tokens-params =
 		textDocument: uri: uri
-	encoded = a request "textDocument/semanticTokens/full", params.to
-	data_ nat[] = encoded["data"] to
-	(data_,).decode-semantic-tokens to
+	encoded = request a, "textDocument/semanticTokens/full", params.to
+	data_ nat[] = encoded["data"].to
+	(data_,).decode-semantic-tokens.to
 
 syntax-translate string
 	server crow-server
@@ -122,12 +123,12 @@ do js
 		source: source
 		from-language: from-lang
 		to-language: to-lang
-	response syntax-translate-result = server request "custom/syntaxTranslate", params.to to
-	if response.diagnostics is-empty
-		response output
+	response syntax-translate-result = request server, "custom/syntaxTranslate", params.to 'to
+	if is-empty diagnostics response
+		output response
 	else
 		"Parse error at position {response.diagnostics[0]}"
 
 build-js-script build-js-script-result(server crow-server, main uri) js
 	params build-js-script-params = uri: main, diagnosticsOnlyForUris: ()
-	server request "custom/build-js-script", params.to to
+	request server, "custom/build-js-script", params.to 'to

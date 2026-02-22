@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/js
 	crow/js/browser
@@ -14,24 +15,24 @@ import
 	./util/util
 
 main void() summon, unsafe, js
-	info log "worker is alive at {now-iso}"
+	log "worker is alive at {now-iso}"
 	# We need to assign `onmessage` immediately, so don't await this yet
 	files-promise = with in parallel then preload
 	server server =
 		settings:
-			include-dir: "file:///usr/local/bin/crow/include" must-parse-uri
-			cwd: "file:///home/me/demo" must-parse-uri
+			include-dir: must-parse-uri "file:///usr/local/bin/crow/include"
+			cwd: must-parse-uri "file:///home/me/demo"
 			show-options: color: false
 	on-message void mut(event js-any) = of event
-		files = files-promise await
-		data_ string = event["data"] to
-		input lsp-in-message = data_.parse-json to
+		files = await files-promise
+		data_ string = event["data"].to
+		input lsp-in-message = data_.parse-json.to
 		read-file-locally read-file-result-params mut(uri uri) = of uri
-			files read-file-locally uri
-		exit = server handle-one-lsp-message input, read-file-locally, of x
-			_ = "postMessage".js-global call x.to-json.to
+			read-file-locally files, uri
+		exit = handle-one-lsp-message server, input, read-file-locally, of x
+			_ = call "postMessage".js-global, x.to-json.to
 		forbid exit else todo
-	self["onmessage"] := on-message as-js
+	self["onmessage"] := as-js on-message
 
 -tar-files alias
 	nat8 array-view[symbol]
@@ -40,23 +41,23 @@ main void() summon, unsafe, js
 	crow-include tar-files
 -preload preloaded-files() summon, js
 	start = perf-now
-	finally start end-read-file
-	j = with in parallel then "java-classes.tar".fetch read-entire-tar
-	c = with in parallel then "crow-include.tar".fetch read-entire-tar
-	java-classes: j await
-	crow-include: c await
+	finally end-read-file start
+	j = with in parallel then read-entire-tar fetch "java-classes.tar"
+	c = with in parallel then read-entire-tar fetch "crow-include.tar"
+	java-classes: await j
+	crow-include: await c
 
 -read-file-locally read-file-result-params(files preloaded-files, uri uri)
 	start = perf-now
-	finally start end-read-file
-	s = uri show
-	content nat8 array-view? = if path = s try-remove-start "file:///usr/local/bin/crow/include/crow/"
-		files.crow-include[path to]
-	elif path = s try-remove-start "java:///"
+	finally end-read-file start
+	s = show uri
+	content nat8 array-view? = if path = try-remove-start s, "file:///usr/local/bin/crow/include/crow/"
+		files.crow-include[path.to]
+	elif path = try-remove-start s, "java:///"
 		files.java-classes["{path}.class"]
 	if content
 		uri, ok, content
 	else
-		unless s ends-with "/crow-config.json"
-			error log "not found: {uri}" # ----------------------------------------------------------------------------------------------------------
+		unless ends-with s, "/crow-config.json"
+			log error, "not found: {uri}" # ----------------------------------------------------------------------------------------------------------
 		uri, notFound, ()

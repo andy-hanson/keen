@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/experimental/observable
 	crow/io/duration
@@ -31,50 +32,49 @@ crow-text-props record mut
 	text string mut-observable
 
 define-crow-text-custom-element void() summon, js
-	"crow-text" define-custom-element (styles: colors-css, crow-text-css), it.connected
+	define-custom-element "crow-text", (styles: colors-css, crow-text-css), it.connected
 
 create-crow-text node(props crow-text-props) js
 	trusted
-	res = "crow-text" create-node
-	res["props"] := props as-js
+	res = create-node "crow-text"
+	res["props"] := as-js props
 	res
 
 -connected void(a custom-element-node) summon, js
 	trusted
-	props crow-text-props = a.as-js["props"] assume-type
-	highlight-div = "highlight" create-div
-	ta = "textarea" create-node
-	ta.value := props.text.observable get
+	props crow-text-props = assume-type a.as-js["props"]
+	highlight-div = create-div "highlight"
+	ta = create-node "textarea"
+	ta.value := props.text.observable.get
 	ta.attributes["spellcheck"] := "false"
-	ta add-event-listener "keydown", of event
-		ta handle-keydown event, props.text
-	ta add-event-listener "input", of _
-		props.text set ta.value
+	add-event-listener ta, "keydown", of event
+		handle-keydown ta, event, props.text
+	add-event-listener ta, "input", of _
+		set props.text, ta.value
 
-	measurer-span = "" create-span
-		- "a".create-text-node
-	line-numbers = "line-numbers" create-div
-	text-container = "code" create-div
-		- "measurer" create-div (measurer-span,)
+	measurer-span = create-span ("a".create-text-node,)
+	line-numbers = create-div "line-numbers"
+	text-container = create-div "code",
+		- create-div "measurer", (measurer-span,)
 		- highlight-div
 		- ta
 
 	interrupter interrupter = ()
 
-	ta add-event-listener "mousemove", of e
-		ta mouse-move measurer-span, text-container, e, props, interrupter
-	ta add-event-listener "mouseout", of e
-		_ = interrupter get
-		ta mouse-out text-container, e
+	add-event-listener ta, "mousemove", of e
+		mouse-move ta, measurer-span, text-container, e, props, interrupter
+	add-event-listener ta, "mouseout", of e
+		_ = get interrupter
+		mouse-out ta, text-container, e
 
 	diag-debounce debouncer = 100.milliseconds,
-	props.tokens-and-diagnostics now-and-subscribe shared of x
-		text = props.text.observable get
-		(x.tokens, ()) highlight highlight-div, text
-		line-numbers.text-content := "\n" join for i nat in 0 .. text.count-lines
+	now-and-subscribe props.tokens-and-diagnostics, shared of x
+		text = get props.text.observable
+		highlight (x.tokens, ()), highlight-div, text
+		line-numbers.text-content := join "\n", for i nat in 0 .. text.count-lines
 			"{i + 1}"
 		with in diag-debounce
-			x highlight highlight-div, text
+			highlight x, highlight-div, text
 
 	a.shadow-root ~~= line-numbers, text-container
 
@@ -83,7 +83,7 @@ create-crow-text node(props crow-text-props) js
 -new interrupter()
 	0,
 -get nat(a interrupter)
-	res = a current
+	res = a.current
 	a.current +:= 1
 	res
 -is-still-current bool(a interrupter, was nat)
@@ -92,32 +92,32 @@ create-crow-text node(props crow-text-props) js
 -handle-keydown void(ta node, event js-any, text string mut-observable) js
 	trusted
 	insert bool mut(to-insert string) = of to-insert
-		text set do ta insert-text-area-text to-insert
+		set text, do insert-text-area-text ta, to-insert
 		true
 	prevent-default = match event["key"].to::string
 	# 'End' works without modification
 	# Modify 'Home' to go after the indentation instead of to the full start of the line
 	as Home
-		ta on-pressed-home-key
+		on-pressed-home-key ta
 	as Enter
-		insert["\n{ta indentation-at-selection}"]
+		insert["\n{indentation-at-selection ta}"]
 	as Tab
 		insert["\t"]
 	as PageUp
-		_ = ta call-property "setSelectionRange", 0, 0
+		_ = call-property ta, "setSelectionRange", 0, 0
 		true
 	as PageDown
 		# Get this using JS so it is the length in UTF-16 characters.
 		text-size = ta["value"]["length"]
-		_ = ta call-property "setSelectionRange", text-size, text-size
+		_ = call-property ta, "setSelectionRange", text-size, text-size
 		true
 	else
 		false
 	if prevent-default
-		_ = event call-property "preventDefault"
+		_ = call-property event, "preventDefault"
 
 -count-lines nat(a string)
-	a split "\n" size
+	size split a, "\n"
 
 -mouse-move void
 	text-area node
@@ -127,19 +127,19 @@ create-crow-text node(props crow-text-props) js
 	props crow-text-props
 	interrupter interrupter
 do unsafe, js
-	offset = event offset
-	state = interrupter get
-	hover = text-area get-hover measurer, offset, props
+	offset = offset event
+	state = get interrupter
+	hover = get-hover text-area, measurer, offset, props
 	# If the mouse has moved again, do nothing, since we are already getting hover at the new position
-	guard interrupter is-still-current state
+	guard is-still-current interrupter, state
 	if hover
 		cur = text-container.attributes["data-tooltip"] else ""
 		if hover.text != cur
 			# We will not attach a tooltip to the actual highlight span, because that does not get hover events.
 			# Instead just attach it to the text-area and set its position.
-			text-container.attributes["data-tooltip"] := hover text
-			text-container.classes["hover-diagnostic"] := hover is-diagnostic
-			text-container.attributes["style"] := "--tooltip-x: {offset x}px; --tooltip-y: {offset y}px"
+			text-container.attributes["data-tooltip"] := text hover
+			text-container.classes["hover-diagnostic"] := is-diagnostic hover
+			text-container.attributes["style"] := "--tooltip-x: {offset.x}px; --tooltip-y: {offset.y}px"
 	else
 		text-container.attributes -= "data-tooltip"
 
@@ -154,8 +154,7 @@ do unsafe, js
 	text-container node
 	event js-any
 do unsafe, js
-	offset = event offset
-	unless offset is-in-rect ((0, 0), text-area.dimensions)
+	unless is-in-rect event.offset, ((0, 0), text-area.dimensions)
 		text-container.attributes -= "data-tooltip"
 
 -is-in-rect bool(pos vec2, rect (vec2, vec2))
@@ -163,78 +162,78 @@ do unsafe, js
 
 -got-hover record(text string, is-diagnostic bool)
 -get-hover got-hover?(text-area node, measurer node, offset vec2, props crow-text-props) unsafe, js
-	guard position = text-area get-position measurer, offset
-	diagnostics = props.tokens-and-diagnostics.get diagnostics
-	if diagnostic = diagnostics find of d then d.range has-pos position
+	guard position = get-position text-area, measurer, offset
+	diagnostics = props.tokens-and-diagnostics.get.diagnostics
+	if diagnostic = find diagnostics, of d then has-pos d.range, position
 		diagnostic.message, true
 	else
 		res = props.get-hover[position]
-		guard res !is-empty
+		guard !is-empty res
 		res, false
 
 find-the-span node?(highlight-div node, position line-and-character) js
-	lines = highlight-div child-nodes
+	lines = child-nodes highlight-div
 	guard position.line < lines.size.to
-	line = lines[position.line to]
-	remaining mut int32 = position.character to
-	line.child-nodes find of x
-		remaining -:= x.text-content.size.to::nat32 to
+	line = lines[position.line.to]
+	remaining mut int32 = position.character.to
+	find line.child-nodes, of x
+		remaining -:= x.text-content.size.to::nat32.to
 		remaining < 0
 
 -text-content string(a node) js
-	(trusted a["textContent"]) to
+	trusted a["textContent"].to
 
 -get-position line-and-character?(text-area node, measurer node, offset vec2) js
-	lines = text-area.value split "\n"
-	column-width float = trusted measurer.as-js["offsetWidth"] to
-	line nat = (offset.y / line-height-px).round-down clamp-to
-	column-pre nat = (offset.x / column-width).round-down clamp-to
+	lines = split text-area.value, "\n"
+	column-width float = trusted measurer.as-js["offsetWidth"].to
+	line nat = clamp-to round-down offset.y / line-height-px
+	column-pre nat = clamp-to round-down offset.x / column-width
 	guard line < lines.size
 	line-text = lines[line]
-	leading-tabs = line-text count-leading-tabs
+	leading-tabs = count-leading-tabs line-text
 	tabs-fix = leading-tabs * (tab-size - 1)
 	character = unless line-text == ""
-		column-pre clamp-sub tabs-fix
+		clamp-sub column-pre, tabs-fix
 	guard character < line-text.size
 	line.to, character.to
 
 -insert-text-area-text string(text-area js-any, inserted string) unsafe, js
-	inserted-js-string js-any = inserted to
+	inserted-js-string js-any = inserted.to
 	value = text-area["value"]
 	selection-start = text-area["selectionStart"]
 	selection-end = text-area["selectionEnd"]
 	# Selection is UTF-16 indices.
 	# The easiest way to handle that is to use JS slicing instead of Crow slicing.
-	before = value.as-js call-property "slice", 0, selection-start
-	after = value.as-js call-property "slice", selection-end
+	before = call-property value.as-js, "slice", 0, selection-start
+	after = call-property value.as-js, "slice", selection-end
 	text-area["value"] := before + inserted-js-string + after
 	# Similarly, get the string length in JS instead of in Crow.
 	new-cursor = selection-start + inserted-js-string["length"]
-	_ = text-area call-property "setSelectionRange", new-cursor, new-cursor
-	text-area["value"] to
+	_ = call-property text-area, "setSelectionRange", new-cursor, new-cursor
+	text-area["value"].to
 
 # If false, do not override default behavior
 -on-pressed-home-key bool(text-area js-any) unsafe, js # TODO: make a new file text-area-utils? --------------------------------------------------
 	str = text-area["value"]
-	pos mut float = text-area["selectionStart"] to
+	pos mut float = text-area["selectionStart"].to
 	guard pos != 0
-	guard str[pos - 1 to] != "\t"
-	if str[pos - 1 to] == "\n"
-		until pos == str["length"].to or str[pos to] != "\t"
+	guard str[pos - 1 'to] != "\t"
+	if str[pos - 1 'to] == "\n"
+		until pos == str["length"].to or str[pos.to] != "\t"
 			pos +:= 1
 	else
 		# Walk backwards to a "\t" or "\n"
-		until pos == 0 or str[pos - 1 to] is-newline-or-tab
+		until pos == 0 or is-newline-or-tab str[pos - 1 'to]
 			pos -:= 1
-	_ = text-area call-property "setSelectionRange", pos.to, pos.to
+	_ = call-property text-area, "setSelectionRange", pos.to, pos.to
 	true
 
 -is-newline-or-tab bool(a js-any) unsafe, js
 	a == "\n" or a == "\t"
 
 -indentation-at-selection string(text-area js-any) unsafe, js
-	str char8[] = text-area["value"].to::string to # TODO: maybe I should just use the value as a JS string .....................................................
-	pos mut nat = text-area["selectionStart"].to min str.size - 1
+	str char8[] = text-area["value"].to::string.to # TODO: maybe I should just use the value as a JS string .....................................................
+	pos mut nat = min text-area["selectionStart"].to, str.size - 1
 	first-non-space mut = pos
 	loop
 		char char8 = str[pos]
@@ -244,11 +243,12 @@ find-the-span node?(highlight-div node, position line-and-character) js
 		if pos >= 0 and str[pos] != "\n"
 			continue
 		else
-			break str[pos + 1 .. first-non-space] to
+			break str[pos + 1 .. first-non-space].to
 
 -count-leading-tabs nat(a string)
+	# TODO: size take-while a, it == "\t" -------------------------------------------------------------------------------------------------------------------------------
 	res mut nat = 0
-	_ = a iterate of x
+	_ = iterate a, of x
 		if x == "\t"
 			res +:= 1
 			false
@@ -257,5 +257,5 @@ find-the-span node?(highlight-div node, position line-and-character) js
 	res
 
 -highlight void(td tokens-and-diagnostics, highlight-div node, text string) js
-	highlight-div remove-all-children
-	highlight-div ~~= td.tokens tokens-and-diags-to-nodes td.diagnostics, text
+	remove-all-children highlight-div
+	highlight-div ~~= tokens-and-diags-to-nodes td.tokens, td.diagnostics, text

@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/experimental/observable
 	crow/format/base64
@@ -20,8 +21,8 @@ import
 
 define-crow-runnable-custom-element void(crow crow-server) summon, js
 	names names = ()
-	trusted "crow-runnable" define-custom-element (styles: colors-css, crow-runnable-css), of x
-		x connected crow, names
+	define-custom-element "crow-runnable", (styles: colors-css, crow-runnable-css), of x
+		trusted connected x, crow, names
 
 -names record(seen string mut-set, next-index mut nat) mut
 -new names()
@@ -32,110 +33,110 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js
 	"demo{index}.crow"
 
 -get-crow-runnable-name string(a names, name-attr string?) unsafe, js
-	name = name-attr else a get-default-name
-	assert name ends-with ".crow"
-	unless a.seen try-add name
-		error log "Two CrowRunnable have the same name {name}"
+	name = name-attr else get-default-name a
+	assert ends-with name, ".crow"
+	unless try-add a.seen, name
+		log error, "Two CrowRunnable have the same name {name}"
 	name
 
 -get-crow-runnable-initial-text string(play bool, node node) summon, unsafe, js
-	(if play then get-code-from-url) else node get-child-text
+	(if play then get-code-from-url) else get-child-text node
 -get-code-from-url string?() summon, unsafe, js
-	if code = "code" get-url-search
-		code.base64-decode as-string
+	if code = get-url-search "code"
+		as-string base64-decode code
 
 -copy-play-link-from-text void(text string) summon, unsafe, js
-	url string = "{location origin}{location pathname}?code={text base64-encode}"
-	url push-history
-	url copy-text-to-clipboard
+	url string = "{origin location}{pathname location}?code={base64-encode text}"
+	push-history url
+	copy-text-to-clipboard url
 
 -is-play bool(a custom-element-node) unsafe, js
 	!!a.attributes["play"]
 
 -connected void(a custom-element-node, crow crow-server, names names) summon, unsafe, js
-	name = names get-crow-runnable-name a.attributes["name"]
+	name = get-crow-runnable-name names, a.attributes["name"]
 	no-run = !!a.attributes["no-run"]
-	play = a is-play
-	initial-text = play get-crow-runnable-initial-text a.as-node
-	main-uri uri = "file:///{name}" must-parse-uri
+	play = is-play a
+	initial-text = get-crow-runnable-initial-text play, a.as-node
+	main-uri uri = must-parse-uri "file:///{name}"
 	text-mut string mut-observable = initial-text,
-	text = text-mut observable
-	tokens-observable token[] observable = text map-non-blocking (), shared of value
-		crow open-file main-uri, value
-		crow get-tokens main-uri
+	text = observable text-mut
+	tokens-observable token[] observable = map-non-blocking text, (), shared of value
+		open-file crow, main-uri, value
+		get-tokens crow, main-uri
 
 	crow-text-props crow-text-props =
 		get-hover: of position
-			crow get-hover main-uri, position
-		tokens-and-diagnostics: for tokens, diagnostics in tokens-observable join crow.diagnostics
+			get-hover crow, main-uri, position
+		tokens-and-diagnostics: for tokens, diagnostics in join tokens-observable, crow.diagnostics
 			tokens, (diagnostics[main-uri] else ())
 		text: text-mut
-	crow-text = crow-text-props create-crow-text
+	crow-text = create-crow-text crow-text-props
 
 	output output = ()
 
 	collapse-button mut node = gc-safe-value # TODO: just use an option ---------------------------------------------------------------------
-	collapse-button := "Hide output" create-button "collapsed", (up-icon,), of ()
-		output hide
+	collapse-button := create-button "Hide output", "collapsed", (up-icon,), of ()
+		hide output
 		collapse-button.classes ~= "collapsed"
 	collapse-button.style["float"] := "right"
 
 	run-button node? = unless no-run
-		button = "Run" create-button "", (play-icon,), of
-			output start-running
+		button = create-button "Run", "", (play-icon,), of
+			start-running output
 			collapse-button.classes -= "collapsed"
-			output finish-running do crow build-js-script main-uri run-js
+			finish-running output, run-js build-js-script crow, main-uri
 		button
 
 	link-button node? = if play
-		"Copy link to clipboard" create-button "", (link-icon,), of
-			text.get copy-play-link-from-text
+		create-button "Copy link to clipboard", "", (link-icon,), of
+			copy-play-link-from-text text.get
 
 	buttons node[] =
-		-- run-button from-option
-		-- link-button from-option
+		-- from-option run-button
+		-- from-option link-button
 		- collapse-button
 	a.shadow-root ~~=
 		- crow-text
-		- output container
-		- "bottom" create-div buttons
+		- container output
+		- create-div "bottom", buttons
 
 -output record(container node) mut
 -new output() js
 	res output =
-		- "output" create-div ()
-	res hide
+		- create-div "output", ()
+	hide res
 	res
 -hide void(a output) js
 	a.container.style["height"] := "0"
 -start-running void(a output) js
 	a.container.classes := "output", "running"
 	a.container.style["height"] := "2em"
-	a.container remove-all-children
+	remove-all-children a.container
 	a.container ~= create-loading-spinner
 -finish-running void(a output, run-result run-test-result) unsafe, js
 	a.container.classes -= "running"
 	a.container.style["height"] := ""
-	a.container remove-all-children
-	a.container add-spans-for-writes run-result
+	remove-all-children a.container
+	add-spans-for-writes a.container, run-result
 
 -add-spans-for-writes void(container node, run-result run-test-result) js
 	cur-pipe mut string? = ()
 	cur-line mut string = ""
 	finish-line void mut() = of
 		unless trusted container.as-js["textContent"] == ""
-			container ~= "br" create-node
-		container ~= cur-pipe!.show create-span (cur-line.create-text-node,)
+			container ~= create-node "br"
+		container ~= create-span "{cur-pipe!}",
+			- create-text-node cur-line
 		cur-line := ""
 
-	for write in run-result writes
-		pipe string = write.pipe to
-		text = write text
+	for write in writes run-result
+		pipe string = write.pipe.to
 		if cur-pipe and cur-pipe != pipe and cur-line != ""
 			finish-line[]
 
 		cur-pipe := pipe
-		parts = text split "\n"
+		parts = split write.text, "\n"
 		cur-line ~~:= parts[0]
 		for part in parts[1 .. end]
 			finish-line[]
@@ -143,51 +144,51 @@ define-crow-runnable-custom-element void(crow crow-server) summon, js
 	if cur-line != ""
 		finish-line[]
 
-	if run-result.exit !is-ok
+	if !is-ok run-result.exit
 		cur-pipe := "exit-code"
-		cur-line := "Exit code: {run-result.exit value}"
+		cur-line := "Exit code: {run-result.exit.value}"
 		finish-line[]
-	elif run-result.writes is-empty
+	elif is-empty run-result.writes
 		cur-pipe := "stdout"
 		cur-line := "<<no output>>"
 		finish-line[]
 
 -run-js run-test-result(build build-js-script-result) js
 	trusted
-	console = "console" js-global
+	console = js-global "console"
 	old-info = console["info"]
 	old-error = console["error"]
 	finally
 		console["info"] := old-info
 		console["error"] := old-error
 	writes write mut[] = ()
-	unless build.diagnostics is-empty
-		writes ~= err, "{build diagnostics}\n"
+	unless is-empty build.diagnostics
+		writes ~= err, "{build.diagnostics}\n"
 	new-info void mut(x js-any) = of x
 		writes ~= out, "{x.to::string}\n"
 	new-error void mut(x js-any) = of x
 		writes ~= err, "{x.to::string}\n"
-	console["info"] := new-info to
-	console["error"] := new-error to
+	console["info"] := new-info.to
+	console["error"] := new-error.to
 
 	# TODO: we might need to provide a global 'process' ---------------------------------------------------------------------------------------------
-	exit exit-code = if script = build script
+	exit exit-code = if script = build.script
 		# Ensure the script is unique, so that side effects happen on js-import even if the same script runs twice
 		unique-script js-any = "{script}\n// ensure unique: {next-script-id}"
 		next-script-id +:= 1
-		encoded = "encodeURIComponent".js-global call unique-script
+		encoded = call "encodeURIComponent".js-global, unique-script
 		data-url = "data:text/javascript;charset=utf-8,"::js-any + encoded
 		try
-			_ = data-url.js-import await
+			_ = await js-import data-url
 			ok
 		catch e
 			writes ~=
 				pipe: err
-				text: e.as-js call-property "toString" to
+				text: call-property e.as-js, "toString" 'to
 			error
 	else
 		error
 	exit: exit
-	writes: writes move-to
+	writes: move-to writes
 
 -next-script-id global(nat)
