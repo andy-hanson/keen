@@ -1,7 +1,9 @@
+use-prefix
 import
 	../../model/concrete-model
 	../../model/model
 	../util
+	../../util/util
 
 union-representation enum
 	| Discriminate between union members using instanceof / typeof checks.
@@ -18,11 +20,11 @@ union-representation union-representation(a union-info, union_ concrete-type)
 
 plan-unions union-info(program concrete-program)
 	res union-representation mut[concrete-type] = ()
-	for s in program all-non-extern-types
-		guard u = s.body concrete-union
-		res[s] := program choose-union-representation s, u
-	union-to-representation: res move-to
-	exception-case-types: program.exception.body.concrete-union!.members to
+	for s in program.all-non-extern-types
+		guard u = concrete-union s.body
+		res[s] := choose-union-representation program, s, u
+	union-to-representation: res.move-to
+	exception-case-types: program.exception.body.concrete-union!.members.to
 
 -choose-union-representation union-representation(program concrete-program, type concrete-type, u concrete-union)
 	if type == program.exception
@@ -30,18 +32,18 @@ plan-unions union-info(program concrete-program)
 	# TODO ---------------------------------------------------------------------------------------------------------------------
 	#elif u is-nullable-union
 	#	nullable
-	elif u.members !every it.can-use-in-direct-union
+	elif !every u.members, it.can-use-in-direct-union
 		switch
-	elif u all-unique-primitives
+	elif all-unique-primitives u
 		direct
 	else
 		switch
 -all-unique-primitives bool(a concrete-union)
-	(for* x in a members then x.as-js-primitive from-option)::js-primitive-kind[] is-unique
+	is-unique (for* x in a.members then from-option x.as-js-primitive)::js-primitive-kind[]
 
 -can-use-in-direct-union bool(a concrete-type)
-	match x = a body
-	as concrete-builtin-type then x.kind != js-any
+	match body = a.body
+	as concrete-builtin-type then body.kind != js-any
 	as concrete-union then false
 	else then true
 
@@ -54,15 +56,15 @@ plan-unions union-info(program concrete-program)
 -<=> comparison(a js-primitive-kind, b js-primitive-kind)
 -to nat32(a js-primitive-kind)
 -hash void(a js-primitive-kind, state hash-state)
-	a.to::nat32 hash state
+	hash a.to::nat32, state
 -as-js-primitive js-primitive-kind?(a concrete-type)
-	match x = a body
+	match body = a.body
 	as concrete-builtin-type
-		x.kind as-js-primitive
+		as-js-primitive body.kind
 	as concrete-enum
-		x.storage.to as-js-primitive
+		as-js-primitive body.storage.to
 	as concrete-flags
-		x.storage.to as-js-primitive
+		as-js-primitive body.storage.to
 	else
 		()
 -as-js-primitive js-primitive-kind?(a builtin-type)
@@ -116,10 +118,11 @@ plan-unions union-info(program concrete-program)
 
 # TODO: identical code in java/union-representation ...........................................................................
 -is-nullable-union bool(type concrete-type)
-	(u = type.body concrete-union) and u is-nullable-union
+	body = type.body
+	concrete-union body and is-nullable-union body
 -is-nullable-union bool(u concrete-union)
-	members = u members
+	members = u.members
 	guard members.size == 2
-	guard members[0] is-empty-type
-	non-null = members[1]
-	non-null !is-empty-type and non-null !is-nullable-union
+	null, non-null = only2 members
+	guard is-empty-type null
+	!is-empty-type non-null and !is-nullable-union non-null

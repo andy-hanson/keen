@@ -1,3 +1,4 @@
+use-prefix
 import
 	../private/sort-utils
 	../mut-array: temp-as-array-view
@@ -14,7 +15,7 @@ import
 
 | Later pairs overwrite earlier pairs with the same key.
 +list-new[k, v] (k, v) mut-sorted-map(a (k, v)[]) k key
-	a to
+	a.to
 
 +to[k, v] (k, v) mut-sorted-map(a (k, v)[]) k key
 	res (k, v) mut-sorted-map = ()::(k, v?) mut[], 0, ()
@@ -24,12 +25,12 @@ import
 
 | {true} if `{a}.{size} == 0`.
 +is-empty[k, v] bool(a (k, v) mut-sorted-map)
-	a.pairs is-empty
+	is-empty a.pairs
 
 | Removes every pair.
 +clear[k, v] void(a (k, v) mut-sorted-map)
 	a.next := ()
-	a.pairs clear
+	clear a.pairs
 
 | Number of pairs in the map.
 | This is O({a} {size}).
@@ -37,8 +38,8 @@ import
 	acc mut nat64 = 0
 	cur mut = a
 	loop
-		acc +:= cur node-size
-		if next = cur next
+		acc +:= cur.node-size
+		if next = cur.next
 			cur := next
 			continue
 		else
@@ -48,15 +49,15 @@ import
 | Returns an empty option iff the key is not in the map.
 | This is O({a}.{size} log).
 +subscript[k, v] v?(a (k, v) mut-sorted-map, key k) k key
-	if index = a.pairs find-exact key
-		a.pairs[index] b
-	elif x = a next
+	if index = find-exact a.pairs, key
+		a.pairs[index].b
+	elif x = a.next
 		x[key]
 
 | Adds a key-value pair, replacing any existing one with that key.
 +set-subscript[k, v] void(a (k, v) mut-sorted-map, key k, value v) k key
-	unless a insert-into-key-match-or-empty-slot key, value
-		a add-pair key, value
+	unless insert-into-key-match-or-empty-slot a, key, value
+		add-pair a, key, value
 
 | Adds many key-value pairs, replacing existing ones with the same keys.
 | Equivalent to adding each element of {b} separately.
@@ -68,7 +69,7 @@ import
 | If that fails, traverses back right-to-left and inserts into an empty slot if possible.
 | Returns {true} if it succeeded.
 -insert-into-key-match-or-empty-slot[k, v] bool(a (k, v) mut-sorted-map, key k, value v) k key
-	insert = a.pairs binary-search-insert-cb key <=> it.a
+	insert = binary-search-insert-cb a.pairs, key <=> it.a
 	next-pair (k, v?)? = unless insert == a.pairs.size
 		a.pairs[insert]
 	if k, v = next-pair and k == key
@@ -77,8 +78,8 @@ import
 		a.pairs[insert] := key, value
 		true
 	else
-		inserted = if next = a next
-			next insert-into-key-match-or-empty-slot key, value
+		inserted = if next = a.next
+			insert-into-key-match-or-empty-slot next, key, value
 
 		if inserted
 			true
@@ -97,21 +98,21 @@ import
 | Returns the new physical size of this node and all nodes to the right
 -add-pair[k, v] void(a (k, v) mut-sorted-map, key k, value v) k key
 	if a.node-size < 4
-		if a.pairs is-empty
+		if is-empty a.pairs
 			a.pairs ~= key, value
 		else
 			# List has a small absolute size, so even if we can't insert near the end,
 			# there's an empty slot somewhere so we don't have to do much moving.
-			a.pairs insert-linear 0, key, value
+			insert-linear a.pairs, 0, key, value
 		a.node-size +:= 1
 	elif key > a.pairs[end - 4].a
 		# We can insert it near the end
-		a.pairs insert-linear a.pairs.size - 4, key, value
+		insert-linear a.pairs, a.pairs.size - 4, key, value
 		a.node-size +:= 1
 	else
-		if next = a next
-			next add-pair key, value
-			a compact-if-needed
+		if next = a.next
+			add-pair next, key, value
+			compact-if-needed a
 		else
 			new-pairs (k, v?) mut[] = ()
 			new-pairs ~= key, value
@@ -120,35 +121,35 @@ import
 | Insert at the last place where the key is < that value.
 -insert-linear[k, v] void(a (k, v?) mut[], index nat64, key k, value v) k key
 	if key < a[index].a
-		a move-right index
+		move-right a, index
 		a[index] := key, value
 	elif index == a.size - 1
 		a ~= key, value
 	else
-		a insert-linear index + 1, key, value
+		insert-linear a, index + 1, key, value
 
 | If there's something here, move it so something else can be inserted.
 -move-right[k, v] void(a (k, v?) mut[], index nat64)
-	if a[index] b
+	if a[index].b
 		# If this is the last value, push it
 		if index == a.size - 1
 			a ~= a[index]
 		else
-			a move-right index + 1
+			move-right a, index + 1
 			a[index + 1] := a[index]
 
 +move-to[k, v] (k, v)[](a (k, v) mut-sorted-map) k key
 	res (k, v)[] = for x in a then x
-	a clear
+	clear a
 	res
 
 # TODO: use the same `try-remove` interface that mut-map uses.
 | If the key is in the map, removes it and returns the value that was associated with it.
 | Else, returns an empty option.
 +remove-key[k, v] v?(a (k, v) mut-sorted-map, key k) k key
-	if index = a.pairs find-exact key
+	if index = find-exact a.pairs, key
 		res = if a.pairs.size - index < 4
-			_, v = a.pairs remove-at index
+			_, v = remove-at a.pairs, index
 			v
 		else
 			_, old-value = a.pairs[index]
@@ -156,49 +157,49 @@ import
 			old-value
 		if res
 			a.node-size -:= 1
-		a compact-if-needed
+		compact-if-needed a
 		res
-	elif next = a next
-		next remove-key key
+	elif next = a.next
+		remove-key next, key
 
 -compact-if-needed[k, v] void(a (k, v) mut-sorted-map) k key
-	physical-size = a total-pairs-size
+	physical-size = total-pairs-size a
 	if a.node-size * 2 <= physical-size
-		a compact
+		compact a
 		assert a.node-size == a.total-pairs-size
 
 -total-pairs-size[k, v] nat64(a (k, v) mut-sorted-map)
 	acc mut nat64 = 0
 	cur mut = a
 	loop
-		acc +:= cur.pairs size
-		if next = cur next
+		acc +:= cur.pairs.size
+		if next = cur.next
 			cur := next
 			continue
 		else
 			break acc
 
 -compact[k, v] void(a (k, v) mut-sorted-map) k key
-	guard next = a next
-	next compact
+	guard next = a.next
+	compact next
 	a.pairs filter= !!it.b
-	a.pairs merge-no-duplicates next.pairs, of (k0, _), (k1, _)
-		k0 <=> k1 assert-comparison-not-equal
+	merge-no-duplicates a.pairs, next.pairs, of (k0, _), (k1, _)
+		assert-comparison-not-equal k0 <=> k1
 	a.next := ()
-	a.node-size := a.pairs size
+	a.node-size := a.pairs.size
 
 -find-exact[k, v] nat64?(pairs (k, v?) mut[], key k) k key
-	(trusted pairs temp-as-array-view) binary-search-exact key
+	binary-search-exact (trusted temp-as-array-view pairs), key
 
 region mutating iteration
 
 +filter=[k, v] void(a (k, v) mut-sorted-map, f bool mut(key k, value v)) k key
-	a compact
+	compact a
 	a.pairs filter= of k, v
 		f[k, v!]
 
 +map=[k, v] void(a (k, v) mut-sorted-map, f (k, v) mut(key k, value v)) k key
-	a compact
+	compact a
 	a.pairs map= of k, v
 		k-out, v-out = f[k, v!]
 		k-out, v-out
@@ -206,128 +207,128 @@ region mutating iteration
 
 test
 	a (nat64, string) mut-sorted-map = (3, "30"), (6, "60")
-	a verify "[3 -> 30, 6 -> 60]"
+	verify a, "[3 -> 30, 6 -> 60]"
 	a map= of k, v
 		10 - k, "{v}!"
-	a verify "[4 -> 60!, 7 -> 30!]"
+	verify a, "[4 -> 60!, 7 -> 30!]"
 
 +map-values=[k, v] void(a (k, v) mut-sorted-map, f v mut(key k, value v)) k key
 	a map= of k, v
 		k, f[k, v]
 
 +iterate[k, v] bool(a (k, v) mut-sorted-map, f bool mut(key k, value v)) k key
-	a compact
-	a.pairs iterate of k, v
+	compact a
+	iterate a.pairs, of k, v
 		f[k, v!]
 
 region test
 
 -dbg[k, v] string(a (k, v) mut-sorted-map) k show, v show
-	pairs = ", " join for k, v in a pairs
-		"{k} -> {v ?show else "_"}"
-	if next = a next
-		"[{pairs}], {next dbg}"
+	pairs = join ", ", for k, v in a.pairs
+		"{k} -> {v.?show else "_"}"
+	if next = a.next
+		"[{pairs}], {dbg next}"
 	else
 		"[{pairs}]"
 
 -verify void(a (nat64, string) mut-sorted-map, expected string)
 	a.dbg is expected
-	a verify-node-size
+	verify-node-size a
 
 -verify-node-size[k, v] void(a (k, v) mut-sorted-map)
 	res mut nat64 = 0
-	for _, v in a pairs
-		res +:= !!v to
+	for _, v in a.pairs
+		res +:= !!v 'to
 	a.node-size is res
-	a.next ?verify-node-size
+	?verify-node-size a.next
 
 test
 	a (nat64, string) mut-sorted-map = (3, "3"), (5, "5"), (7, "7"), (8, "8"), (9, "9"), (10, "10")
-	a verify "[3 -> 3, 5 -> 5, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
+	verify a, "[3 -> 3, 5 -> 5, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
 
 	# Insert into the previous slot
-	a remove-key 5 is "5"
-	a verify "[3 -> 3, 5 -> _, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
+	remove-key a, 5 is "5"
+	verify a, "[3 -> 3, 5 -> _, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
 	a[6] := "6"
-	a verify "[3 -> 3, 6 -> 6, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
+	verify a, "[3 -> 3, 6 -> 6, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
 
 	# Insert into the particular slot
-	a remove-key 6 is "6"
-	a verify "[3 -> 3, 6 -> _, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
+	remove-key a, 6 is "6"
+	verify a, "[3 -> 3, 6 -> _, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
 	a[5] := "5"
-	a verify "[3 -> 3, 5 -> 5, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
+	verify a, "[3 -> 3, 5 -> 5, 7 -> 7, 8 -> 8, 9 -> 9, 10 -> 10]"
 
 test
 	a (nat64, string) mut-sorted-map = ()
-	a verify "[]"
+	verify a, "[]"
 
 	a[5] := "5"
-	a verify "[5 -> 5]"
+	verify a, "[5 -> 5]"
 	a[5] is "5"
 
 	a[8] := "8"
-	a verify "[5 -> 5, 8 -> 8]"
+	verify a, "[5 -> 5, 8 -> 8]"
 
 	a[11] := "11"
 	a[10] := "10"
-	a verify "[5 -> 5, 8 -> 8, 10 -> 10, 11 -> 11]"
+	verify a, "[5 -> 5, 8 -> 8, 10 -> 10, 11 -> 11]"
 
 	a[2] := "2"
-	a verify "[5 -> 5, 8 -> 8, 10 -> 10, 11 -> 11], [2 -> 2]"
+	verify a, "[5 -> 5, 8 -> 8, 10 -> 10, 11 -> 11], [2 -> 2]"
 
 	# Pushes near the end of a node if possible, even if that node is big
 	a[7] := "7"
-	a verify "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [2 -> 2]"
+	verify a, "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [2 -> 2]"
 
 	a[0] := "0"
 	a[6] := "6"
 	a[1] := "1"
-	a verify "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [0 -> 0, 1 -> 1, 2 -> 2, 6 -> 6]"
+	verify a, "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [0 -> 0, 1 -> 1, 2 -> 2, 6 -> 6]"
 	a[1] := "one"
-	a verify "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [0 -> 0, 1 -> one, 2 -> 2, 6 -> 6]"
+	verify a, "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [0 -> 0, 1 -> one, 2 -> 2, 6 -> 6]"
 	a[1] is "one"
 
 	# If near end, removes completely
-	a remove-key 1 is "one"
-	a verify "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [0 -> 0, 2 -> 2, 6 -> 6]"
-	a remove-key 1 is ()
+	remove-key a, 1 is "one"
+	verify a, "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11], [0 -> 0, 2 -> 2, 6 -> 6]"
+	remove-key a, 1 is ()
 
 	# Adding some more values so removals can't fully remove
 	a ~~= (13, "13"), (15, "15"), (17, "17")
 	node2 string = "[0 -> 0, 2 -> 2, 6 -> 6]"
-	a verify "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
+	verify a, "[5 -> 5, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
 
-	a remove-key 5 is "5"
-	a verify "[5 -> _, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
-	a remove-key 5 is ()
+	remove-key a, 5 is "5"
+	verify a, "[5 -> _, 7 -> 7, 8 -> 8, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
+	remove-key a, 5 is ()
 
-	a remove-key 8 is "8"
-	a verify "[5 -> _, 7 -> 7, 8 -> _, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
+	remove-key a, 8 is "8"
+	verify a, "[5 -> _, 7 -> 7, 8 -> _, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
 
 	# Setting near a deleted value re-uses the slot
 	a[9] := "9"
-	a verify "[5 -> _, 7 -> 7, 9 -> 9, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
+	verify a, "[5 -> _, 7 -> 7, 9 -> 9, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
 
 	# Removing enough values makes us compact
-	a remove-key 9 is "9"
-	a verify "[5 -> _, 7 -> 7, 9 -> _, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
+	remove-key a, 9 is "9"
+	verify a, "[5 -> _, 7 -> 7, 9 -> _, 10 -> 10, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17], {node2}"
 
 	# Before, physical sizes are 8 and 3, and first logical size size is 6.
 	# After the removal, first node size is 5 and total physical size is 10, so we compact.
-	a remove-key 10 is "10"
-	a verify "[0 -> 0, 2 -> 2, 6 -> 6, 7 -> 7, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17]"
+	remove-key a, 10 is "10"
+	verify a, "[0 -> 0, 2 -> 2, 6 -> 6, 7 -> 7, 11 -> 11, 13 -> 13, 15 -> 15, 17 -> 17]"
 
 	# Now test compaction for another reason -- enough items are inserted on the right
 
 	# First get 'a' down to size
-	a remove-key 7 is "7"
-	a remove-key 13 is "13"
-	a remove-key 15 is "15"
-	a verify "[0 -> 0, 2 -> 2, 6 -> 6, 7 -> _, 11 -> 11, 17 -> 17]"
+	remove-key a, 7 is "7"
+	remove-key a, 13 is "13"
+	remove-key a, 15 is "15"
+	verify a, "[0 -> 0, 2 -> 2, 6 -> 6, 7 -> _, 11 -> 11, 17 -> 17]"
 
 	# Now physical size of a is 6, logical size is 5.
 	a ~~= ((1, "1"), (5, "5"), (3, "3"))
-	a verify "[0 -> 0, 2 -> 2, 6 -> 6, 7 -> _, 11 -> 11, 17 -> 17], [1 -> 1, 3 -> 3, 5 -> 5]"
+	verify a, "[0 -> 0, 2 -> 2, 6 -> 6, 7 -> _, 11 -> 11, 17 -> 17], [1 -> 1, 3 -> 3, 5 -> 5]"
 
 	a[4] := "4"
-	a verify "[0 -> 0, 1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 11 -> 11, 17 -> 17]"
+	verify a, "[0 -> 0, 1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4, 5 -> 5, 6 -> 6, 11 -> 11, 17 -> 17]"

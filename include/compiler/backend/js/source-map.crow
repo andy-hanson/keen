@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/bits
 	../../model/source-range
@@ -19,13 +20,13 @@ source-map-builder record mut
 new source-map-builder()
 	(), (), (), (), (), ()
 finish string(a source-map-builder, files file-content-getters, module-paths module-paths)
-	res json =
+	to-json
+		:: json
 		version: 3
-		sources: a.sources map module-paths[it].to
-		sourceContent: a.sources map files[it].to::string.to
-		names: a.names map it.to
-		mappings: a.mappings.move-to::char8[].to::string to
-	res to-json
+		sources: map a.sources, module-paths[it].to
+		sourceContent: map a.sources, files[it].to::string.to
+		names: map a.names, it.to
+		mappings: a.mappings.move-to::char8[].to::string.to
 
 source record
 	dummy void # RM ------------------------------------------------------------------------------------------------------------
@@ -34,8 +35,10 @@ source record
 	name symbol
 	pos line-and-character
 new source(uri uri, name symbol, pos line-and-character)
-	fixed-uri = if uri == () then "file://dummy" must-parse-uri else uri
-	(), fixed-uri, name, pos
+	dummy: ()
+	uri: if uri == () then must-parse-uri "file://dummy" else uri
+	name: name
+	pos: pos
 == bool(a source, b source)
 
 single-source-mapping record(source source, out-pos line-and-character)
@@ -43,7 +46,7 @@ new single-source-mapping()
 	("file://dummy".must-parse-uri, "", (0, 0)), (0, 0)
 
 ~= void(a source-map-builder, mapping single-source-mapping)
-	prev = a prev
+	prev = a.prev
 	guard mapping.source != prev.source
 	assert prev.out-pos <= mapping.out-pos
 
@@ -55,31 +58,31 @@ new single-source-mapping()
 	if prev.out-pos.line == mapping.out-pos.line
 		if prev.source.uri != ()
 			a.mappings ~= ","
-	a.mappings write-base-64-vlq mapping.out-pos.character.to
+	write-base-64-vlq a.mappings, mapping.out-pos.character.to
 
 	if prev.source != mapping.source
 		# As an optimization, check if it's the same URI as last time
 		if prev.source.uri == mapping.source.uri
-			a.mappings write-base-64-vlq 0
+			write-base-64-vlq a.mappings, 0
 		else
-			uri-index = a.sources find-index-or-push mapping.source.uri
-			a.mappings write-base-64-vlq uri-index.to - a.prev-source-uri-index.to
+			uri-index = find-index-or-push a.sources, mapping.source.uri
+			write-base-64-vlq a.mappings, uri-index.to - a.prev-source-uri-index.to
 			a.prev-source-uri-index := uri-index
 
-		a.mappings write-base-64-vlq mapping.source.pos.line.to - prev.source.pos.line.to
-		a.mappings write-base-64-vlq mapping.source.pos.character.to - prev.source.pos.character.to
+		write-base-64-vlq a.mappings, mapping.source.pos.line.to - prev.source.pos.line.to
+		write-base-64-vlq a.mappings, mapping.source.pos.character.to - prev.source.pos.character.to
 
 		if prev.source.name == mapping.source.name
-			a.mappings write-base-64-vlq 0
+			write-base-64-vlq a.mappings, 0
 		else
-			name-index = a.names find-index-or-push mapping.source.name
-			a.mappings write-base-64-vlq name-index.to - a.prev-source-name-index.to
+			name-index = find-index-or-push a.names, mapping.source.name
+			write-base-64-vlq a.mappings, name-index.to - a.prev-source-name-index.to
 			a.prev-source-name-index := name-index
 
 	a.prev := mapping
 
 -to int(a nat32)
-	a.to::nat64 to
+	a.to::nat64.to
 
 write-base-64-vlq void(out char8 mut[], value int)
 	sign-bit = value < 0
@@ -87,7 +90,7 @@ write-base-64-vlq void(out char8 mut[], value int)
 	loop
 		code = value-remaining & 0b11111
 		value-remaining >>:= 5
-		out ~= (if value-remaining == 0 then 0 else 0b100000) | code base-64-char
+		out ~= base-64-char (if value-remaining == 0 then 0 else 0b100000) | code
 		if value-remaining == 0
 			break
 		else

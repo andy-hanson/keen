@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/parse
 	../../model/ast
@@ -14,83 +15,83 @@ import
 
 parse-file file-ast(uri uri, source char8 array-view, lcg line-and-column-getter)
 	start = perf-now
-	res = (uri, source) parse-file-inner lcg
-	start end-parse
+	res = parse-file-inner (uri, source), lcg
+	end-parse start
 	res
 
 expr-and-diags record(expr expr-ast, diags parse-diagnostic[])
 parse-single-line-expression expr-and-diags(source string)
-	forbid source contains "\n"
+	forbid contains source, "\n"
 	lexer lexer = (), source.to
-	expr = lexer parse-single-statement-line
-	_ = lexer take-or-add-diag-expected-token end-of-file, end-of-line
+	expr = parse-single-statement-line lexer
+	_ = take-or-add-diag-expected-token lexer, end-of-file, end-of-line
 	expr, lexer.finish-diagnostics
 
 -parse-type-params name-and-range[](lexer lexer)
-	if lexer try-take-token bracket-left
-		res = lexer take-comma-separated-names-diag-trailing-comma
-		_ = lexer take-or-add-diag-expected-token bracket-right, closing-bracket
+	if try-take-token lexer, bracket-left
+		res = take-comma-separated-names-diag-trailing-comma lexer
+		_ = take-or-add-diag-expected-token lexer, bracket-right, closing-bracket
 		res
 
 -parse-indented-sigs signature-ast[](lexer lexer)
-	lexer parse-indented-lines of
-		doc-comment = lexer try-take-doc-comment
-		start = lexer next-start
-		name = lexer take-name-or-operator
+	parse-indented-lines lexer, of
+		doc-comment = try-take-doc-comment lexer
+		start = next-start lexer
+		name = take-name-or-operator lexer
 		name.start is start
-		return-type = lexer parse-type
-		params, _ = lexer parse-params
-		doc-comment, (lexer range start), name.name, return-type, params
+		return-type = parse-type lexer
+		params, _ = parse-params lexer
+		doc-comment, (range lexer, start), name.name, return-type, params
 
 -try-take-doc-comment doc-comment-ast(lexer lexer)
-	lexer skip-blank-lines
-	start = lexer next-start
-	if lexer try-take-token quote-bar-no-interpolated
+	skip-blank-lines lexer
+	start = next-start lexer
+	if try-take-token lexer, quote-bar-no-interpolated
 		res doc-comment-ast = lexer.prev-range,
-		lexer skip-blank-lines
+		skip-blank-lines lexer
 		res
-	elif lexer try-take-token quote-bar-then-interpolated
+	elif try-take-token lexer, quote-bar-then-interpolated
 		references name-and-range mut[] = ()
 		loop
-			references ~= lexer take-name-or-operator
-			guard lexer take-after-interpolated else break
-			if lexer try-take-token quote-bar-no-interpolated
-				lexer skip-blank-lines
-				break content: (lexer range start), references.move-to
+			references ~= take-name-or-operator lexer
+			guard take-after-interpolated lexer else break
+			if try-take-token lexer, quote-bar-no-interpolated
+				skip-blank-lines lexer
+				break content: (range lexer, start), references.move-to
 			else
-				assert lexer try-take-token quote-bar-then-interpolated
+				assert try-take-token lexer, quote-bar-then-interpolated
 				continue
 
 -parse-enum-or-flags-members enum-or-flags-member-ast[](lexer lexer)
-	lexer parse-indented-lines of
-		doc-comment = lexer try-take-doc-comment
-		start = lexer next-start
-		name = lexer take-name
-		value literal-number? = if lexer try-take-token equal
-			res = lexer try-take-literal-number
+	parse-indented-lines lexer, of
+		doc-comment = try-take-doc-comment lexer
+		start = next-start lexer
+		name = take-name lexer
+		value literal-number? = if try-take-token lexer, equal
+			res = try-take-literal-number lexer
 			unless res
-				lexer add-diag-expected literal-integral
+				add-diag-expected lexer, literal-integral
 			res
-		doc-comment, (lexer range start), name, value
+		doc-comment, (range lexer, start), name, value
 
 -parse-record-fields record-field-ast[](lexer lexer)
-	lexer parse-indented-lines of
-		doc-comment = lexer try-take-doc-comment
-		start = lexer next-start
-		visibility = lexer try-take-visibility
-		name = lexer take-name-and-range
-		mutability = lexer parse-field-mutability
-		type type-ast? = unless lexer peek-end-of-line
-			lexer parse-type
-		doc-comment, (lexer range start), visibility, name, mutability, type
+	parse-indented-lines lexer, of
+		doc-comment = try-take-doc-comment lexer
+		start = next-start lexer
+		visibility = try-take-visibility lexer
+		name = take-name-and-range lexer
+		mutability = parse-field-mutability lexer
+		type type-ast? = unless peek-end-of-line lexer
+			parse-type lexer
+		doc-comment, (range lexer, start), visibility, name, mutability, type
 
 -parse-field-mutability field-mutability-ast?(lexer lexer)
-	pos = lexer next-start
-	visibility = lexer try-take-visibility
-	if lexer try-take-token mut_
+	pos = next-start lexer
+	visibility = try-take-visibility lexer
+	if try-take-token lexer, mut_
 		pos, visibility
 	elif visibility
-		lexer add-diag-unexpected-prev-token
+		add-diag-unexpected-prev-token lexer
 		()
 
 -parse-fun fun-decl-ast
@@ -101,16 +102,16 @@ parse-single-line-expression expr-and-diags(source string)
 	name name-and-range
 	type-params name-and-range[]
 do
-	return-type = lexer parse-type
-	params, params-kind = lexer parse-params
+	return-type = parse-type lexer
+	params, params-kind = parse-params lexer
 	can-continue = match params-kind
 	as indented
-		lexer try-take-token do_
+		try-take-token lexer, do_
 	as parenthesized
 		true
-	modifiers = if can-continue then lexer parse-modifiers
-	body = if can-continue then lexer parse-fun-expr-body
-	lexer.uri, doc-comment, (lexer range start), visibility, name, type-params, return-type, params, modifiers, body
+	modifiers = if can-continue then parse-modifiers lexer
+	body = if can-continue then parse-fun-expr-body lexer
+	lexer.uri, doc-comment, (range lexer, start), visibility, name, type-params, return-type, params, modifiers, body
 
 -parse-spec-or-struct-or-fun-or-test void
 	lexer lexer
@@ -122,13 +123,13 @@ do
 	vars var-decl-ast mut[]
 	doc-comment doc-comment-ast
 do
-	start = lexer next-start
-	if lexer try-take-token test_
-		modifiers = lexer parse-modifiers
-		body = lexer parse-fun-expr-body
-		tests ~= doc-comment, (lexer range start), modifiers, body
+	start = next-start lexer
+	if try-take-token lexer, test_
+		modifiers = parse-modifiers lexer
+		body = parse-fun-expr-body lexer
+		tests ~= doc-comment, (range lexer, start), modifiers, body
 	else
-		lexer parse-spec-or-struct-or-fun specs, struct-aliases, structs, funs, vars, doc-comment
+		parse-spec-or-struct-or-fun lexer, specs, struct-aliases, structs, funs, vars, doc-comment
 
 -parse-spec-or-struct-or-fun void
 	lexer lexer
@@ -139,63 +140,63 @@ do
 	var-decls var-decl-ast mut[]
 	doc-comment doc-comment-ast
 do
-	start = lexer next-start
-	visibility = lexer try-take-visibility
-	name = lexer take-name-or-operator
-	type-params = lexer parse-type-params
-	keyword-pos = lexer next-start
+	start = lexer.next-start
+	visibility = try-take-visibility lexer
+	name = take-name-or-operator lexer
+	type-params = parse-type-params lexer
+	keyword-pos = lexer.next-start
 
 	add-struct void mut(modifiers modifier-ast[], body struct-body-ast) = of modifiers, body
-		structs ~= doc-comment, (lexer range start), visibility, name, type-params, keyword-pos, modifiers, body
+		structs ~= doc-comment, (range lexer, start), visibility, name, type-params, keyword-pos, modifiers, body
 	add-sum-type void mut(kind sum-type-kind) = of kind
-		lexer advance
-		types = lexer try-parse-sum-type-listed-types-parenthesized
-		add-struct[lexer.parse-modifiers, (lexer parse-sum-type-after-modifiers kind, types)]
-	match lexer peek
+		advance lexer
+		types = try-parse-sum-type-listed-types-parenthesized lexer
+		add-struct[lexer.parse-modifiers, (parse-sum-type-after-modifiers lexer, kind, types)]
+	match peek lexer
 	as alias_
-		lexer advance
+		advance lexer
 		cb type-ast mut() = of
-			res = lexer parse-type
-			lexer take-dedent
+			res = parse-type lexer
+			take-dedent lexer
 			res
-		target = lexer take-indent-or-fail-generic cb, it.bogus-type-ast
-		struct-aliases ~= doc-comment, (lexer range start), visibility, name, type-params, keyword-pos, target
+		target = take-indent-or-fail-generic lexer, cb, it.bogus-type-ast
+		struct-aliases ~= doc-comment, (range lexer, start), visibility, name, type-params, keyword-pos, target
 	as builtin_
-		lexer advance
+		advance lexer
 		add-struct[lexer.parse-modifiers, builtin-type-ast]
 	as enum_
-		lexer advance
-		params = lexer try-parse-params-parenthesized
-		add-struct[lexer.parse-modifiers, (params enum-ast lexer.parse-enum-or-flags-members)]
+		advance lexer
+		params = try-parse-params-parenthesized lexer
+		add-struct[lexer.parse-modifiers, (enum-ast params, lexer.parse-enum-or-flags-members)]
 	as flags_
-		lexer advance
-		params = lexer try-parse-params-parenthesized
-		add-struct[lexer.parse-modifiers, (params flags-ast lexer.parse-enum-or-flags-members)]
+		advance lexer
+		params = try-parse-params-parenthesized lexer
+		add-struct[lexer.parse-modifiers, (flags-ast params, lexer.parse-enum-or-flags-members)]
 	as global_
-		pos = lexer next-start
-		lexer advance
-		var-decls ~= lexer parse-var-decl start, doc-comment, visibility, name, type-params, pos, global_
+		pos = lexer.next-start
+		advance lexer
+		var-decls ~= parse-var-decl lexer, start, doc-comment, visibility, name, type-params, pos, global_
 	as interface_
 		add-sum-type[interface_]
 	as record_
-		lexer advance
-		params = lexer try-parse-params-parenthesized
-		add-struct[lexer.parse-modifiers, (params record-ast lexer.parse-record-fields)]
+		advance lexer
+		params = try-parse-params-parenthesized lexer
+		add-struct[lexer.parse-modifiers, (record-ast params, lexer.parse-record-fields)]
 	as spec_
-		lexer advance
-		modifiers = lexer parse-modifiers
-		sigs = lexer parse-indented-sigs
-		specs ~= doc-comment, (lexer range start), visibility, name, type-params, keyword-pos, modifiers, sigs
+		advance lexer
+		modifiers = parse-modifiers lexer
+		sigs = parse-indented-sigs lexer
+		specs ~= doc-comment, (range lexer, start), visibility, name, type-params, keyword-pos, modifiers, sigs
 	as thread-local_
-		pos = lexer next-start
-		lexer advance
-		var-decls ~= lexer parse-var-decl start, doc-comment, visibility, name, type-params, pos, thread-local_
+		pos = lexer.next-start
+		advance lexer
+		var-decls ~= parse-var-decl lexer, start, doc-comment, visibility, name, type-params, pos, thread-local_
 	as union_
 		add-sum-type[union_]
 	as variant_
 		add-sum-type[variant_]
 	else
-		funs ~= lexer parse-fun doc-comment, visibility, start, name, type-params
+		funs ~= parse-fun lexer, doc-comment, visibility, start, name, type-params
 
 -parse-sum-type-after-modifiers sum-type-ast(lexer lexer, kind sum-type-kind, types-parenthesized type-ast[]?)
 	types type-ast[], can-parse-sigs bool = if types-parenthesized
@@ -203,13 +204,13 @@ do
 	else
 		match kind
 		as union_
-			types = lexer parse-indented-lines of
-				lexer parse-type
-			_ = lexer try-take-token newline-same-indent
-			types, (lexer try-take-token do_) # TODO: if we took a 'do', we should *require* indented sigs ------------------------------------
+			types = parse-indented-lines lexer, of
+				parse-type lexer
+			_ = try-take-token lexer, newline-same-indent
+			types, (try-take-token lexer, do_) # TODO: if we took a 'do', we should *require* indented sigs ------------------------------------
 		else
 			(), true
-	kind, types, if can-parse-sigs then lexer parse-indented-sigs
+	kind, types, if can-parse-sigs then parse-indented-sigs lexer
 
 -parse-var-decl var-decl-ast
 	lexer lexer
@@ -221,19 +222,19 @@ do
 	kind-pos pos
 	kind var-kind
 do
-	type = lexer parse-type-arg-for-var-decl
-	modifiers = lexer parse-modifiers
-	initializer = lexer parse-fun-expr-body
-	doc-comment, (lexer range start), visibility, name, type-params, kind-pos, kind, type, modifiers, initializer
+	type = parse-type-arg-for-var-decl lexer
+	modifiers = parse-modifiers lexer
+	initializer = parse-fun-expr-body lexer
+	doc-comment, (range lexer, start), visibility, name, type-params, kind-pos, kind, type, modifiers, initializer
 
 -parse-file-inner file-ast(lexer lexer, lcg line-and-column-getter)
-	lexer warn-trailing-whitespace lcg.line-and-character-getter
-	module-doc-comment mut = lexer try-take-doc-comment
-	no-std_ = lexer try-take-token no-std_
-	lexer skip-blank-lines
-	imports = lexer parse-imports-or-exports import_
-	lexer skip-blank-lines
-	exports = lexer parse-imports-or-exports export_
+	warn-trailing-whitespace lexer, lcg.line-and-character-getter
+	module-doc-comment mut = try-take-doc-comment lexer
+	no-std_ = try-take-token lexer, no-std_
+	skip-blank-lines lexer
+	imports = parse-imports-or-exports lexer, import_
+	skip-blank-lines lexer
+	exports = parse-imports-or-exports lexer, export_
 
 	regions source-range mut[] = ()
 	specs spec-decl-ast mut[] = ()
@@ -244,12 +245,12 @@ do
 	vars var-decl-ast mut[] = ()
 
 	first mut bool = true
-	while lexer !try-take-token end-of-file
+	while !try-take-token lexer, end-of-file
 		doc-comment =
-			here = lexer try-take-doc-comment
+			here = try-take-doc-comment lexer
 			if first
 				first := false
-				if module-doc-comment !is-empty and here is-empty and !no-std_ and !imports and !exports
+				if !module-doc-comment.is-empty and here.is-empty and !no-std_ and !imports and !exports
 					res = module-doc-comment
 					module-doc-comment := ()
 					res
@@ -257,43 +258,44 @@ do
 					here
 			else
 				here
-		if lexer peek end-of-file
-			if doc-comment !is-empty
-				lexer add-diag doc-comment.range!, parse-diag-doc-comment-unused
-		elif lexer peek region_
-			x = lexer take-next-token
+		if peek lexer, end-of-file
+			unless doc-comment.is-empty
+				add-diag lexer, doc-comment.range!, parse-diag-doc-comment-unused
+		elif peek lexer, region_
+			x = take-next-token lexer
 			x is region_
-			regions ~= lexer prev-range
+			regions ~= prev-range lexer
 		else
-			lexer parse-spec-or-struct-or-fun-or-test specs, struct-aliases, structs, funs, tests, vars, doc-comment
+			parse-spec-or-struct-or-fun-or-test lexer, specs, struct-aliases, structs, funs, tests, vars, doc-comment
 
 	max-columns nat = 150 # TODO: CONFIGURABLE (and default should be more like 100) ----------------------------------------------------------------
-	for diag in lcg lines-over-n-columns max-columns
-		lexer add-diag (diag.pos, diag.pos + 1), do diag.actual-columns parse-diag-line-too-long max-columns
-	is-prefix: lexer prefix
+	for diag in lines-over-n-columns lcg, max-columns
+		add-diag lexer, (diag.pos, diag.pos + 1),
+			parse-diag-line-too-long diag.actual-columns, max-columns
+	is-prefix: lexer.prefix
 	line-and-column-getter: lcg
-	parse-diagnostics: lexer finish-diagnostics
+	parse-diagnostics: finish-diagnostics lexer
 	doc-comment: module-doc-comment
 	no-std_: no-std_
 	imports: imports
 	re-exports: exports
-	regions: regions move-to
-	specs: specs move-to
-	struct-aliases: struct-aliases move-to
-	structs: structs move-to
-	funs: funs move-to
-	tests: tests move-to
-	vars: vars move-to
+	regions: regions.move-to
+	specs: specs.move-to
+	struct-aliases: struct-aliases.move-to
+	structs: structs.move-to
+	funs: funs.move-to
+	tests: tests.move-to
+	vars: vars.move-to
 
 -warn-trailing-whitespace void(lexer lexer, lcg line-and-character-getter)
-	source = lcg source-text
+	source = lcg.source-text
 	for pos in lcg.line-to-pos[1 .. end]
 		guard pos > 1
-		source[pos - 1 to] is "\n"
-		if source[pos - 2 to] is-whitespace-non-newline
-			lexer add-diag ((source find-first-space pos - 2), pos), parse-diag-trailing-whitespace
+		source[pos - 1 'to] is "\n"
+		if is-whitespace-non-newline source[pos - 2 'to]
+			add-diag lexer, ((find-first-space source, pos - 2), pos), parse-diag-trailing-whitespace
 -find-first-space pos(source char8 array-view, end pos)
 	cur mut = end
-	while source[cur - 1 to] is-whitespace-non-newline
+	while is-whitespace-non-newline source[cur - 1 'to]
 		cur -:= 1
 	cur

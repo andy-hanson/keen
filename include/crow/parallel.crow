@@ -1,3 +1,4 @@
+use-prefix
 no-std
 import
 	java/lang/Runnable
@@ -31,11 +32,11 @@ import
 	trusted if java
 		with in unlocked-exclusion
 			try
-				a.reinterpret-cast::Future.get reinterpret-cast
+				reinterpret-cast a.reinterpret-cast::Future.get
 			catch e as ExecutionException
-				throw e.reinterpret-cast::Throwable.getCause reinterpret-cast
+				throw reinterpret-cast e.reinterpret-cast::Throwable.getCause
 	elif js
-		a.as-js.await assume-type
+		assume-type a.as-js.await
 	else
 		throw todo
 
@@ -46,8 +47,8 @@ import
 			()
 	elif js
 		resolver void mut(resolve js-any) = of resolve
-			_ = "setTimeout".js-global call resolve, 0
-		_ = "Promise".js-global call-new resolver.to await
+			_ = call "setTimeout".js-global, resolve, 0
+		_ = await call-new "Promise".js-global, resolver.to
 	else
 		throw todo
 
@@ -55,11 +56,11 @@ import
 +new[t] t future(value t)
 	trusted if java
 		res CompletableFuture = ()
-		ok = res complete value.reinterpret-cast
+		ok = complete res, value.reinterpret-cast
 		assert ok
-		res reinterpret-cast
+		reinterpret-cast res
 	elif js
-		"Promise".js-global call-property "resolve", value.as-js assume-type
+		assume-type call-property "Promise".js-global, "resolve", value.as-js
 	else
 		throw todo
 test
@@ -70,17 +71,17 @@ test
 +rejected[t] t future(err exception)
 	trusted if java
 		res CompletableFuture = ()
-		ok = res completeExceptionally err.reinterpret-cast
+		ok = completeExceptionally res, err.reinterpret-cast
 		assert ok
-		res reinterpret-cast
+		reinterpret-cast res
 	elif js
-		"Promise".js-global call-property "reject", err.as-js assume-type
+		assume-type call-property "Promise".js-global, "reject", err.as-js
 	else
 		throw todo
 test
-	fut nat future = "foo".error rejected
+	fut nat future = rejected error "foo"
 	try
-		_ = fut await
+		_ = await fut
 		should-throw
 	catch e as error
 		e.show is "foo"
@@ -91,14 +92,14 @@ test
 	trusted if java
 		future CompletableFuture = ()
 		fill-it void mut() = of
-			ok = future complete f[].reinterpret-cast
+			ok = complete future, f[].reinterpret-cast
 			assert ok == true
 		# Ignore this void turue
-		_ Future = get-executor submit fill-it.reinterpret-cast::Runnable
-		future reinterpret-cast
+		_ Future = submit get-executor, fill-it.reinterpret-cast::Runnable
+		reinterpret-cast future
 	elif js
 		# This ensures 'f' is not run immediately
-		"Promise".js-global call-property "resolve" call-property "then", f.as-js assume-type
+		"Promise".js-global 'call-property "resolve" 'call-property "then", f.as-js 'assume-type
 	else
 		throw todo
 # Test single future awaited by multiple fibers at once
@@ -117,7 +118,7 @@ test
 	f void shared(x nat) = shared of x
 		out ~= x
 		()
-	for x in 0::nat .. 10 parallel
+	for x in parallel 0::nat .. 10
 		f[x]
 	out.move-to.sort::nat[] is for x in 0::nat .. 10 then x
 
@@ -125,19 +126,19 @@ test
 | The purpose is to allow other fibers with the current exclusion to run while waiting.
 +new-exclusion record
 +with-block[t] t(_ new-exclusion, f t shared())
-	parallel with-block f await
+	await with-block parallel, f
 
 +later record
 | Run {f} in a new fiber with the current exclusion. So it can't run until the current fiber yields.
 +with-block[t] t future(_ later, f t mut()) t shared
-	parallel with-block f.shared-of-mut-lambda
+	with-block parallel, shared-of-mut-lambda f
 test
 	out nat mut[] = ()
 	f void future = with in later
 		out ~= 2
 	out ~= 1
 	out.to::nat[] is (1,) # this is guaranteed to not have changed yet
-	f await
+	await f
 	out.to::nat[] is (1, 2)
 
 | Does not await the future, but will log any exceptions from the future once it is done.
@@ -145,13 +146,13 @@ test
 	trusted
 	assert js else todo # --------------------------------------------------------------------------------------------
 	cb void mut(x js-any) = of error
-		_ = "console".js-global call-property "error", error
-	_ = a.as-js call-property "catch", cb.to
+		_ = call-property "console".js-global, "error", error
+	_ = call-property a.as-js, "catch", cb.to
 
 +fire-and-forget record
 | Runs {f} in parallel and logs any exceptions, but does not await it.
 +with-block void(_ fire-and-forget, f void shared())
-	parallel with-block f forget
+	forget with-block parallel, f
 
 +parallel-collection[col] record(collection col)
 +parallel[col] col parallel-collection(a col)
@@ -161,7 +162,7 @@ test
 	a in-col parallel-collection
 	f out-elem shared(elem in-elem)
 do out-elem shared, in-elem shared, (in-col, in-elem) iterate, in-col size
-	promises out-elem future[] = for x in a collection
+	promises out-elem future[] = for x in a.collection
 		with in parallel
 			f[x]
 	for x in promises
@@ -170,11 +171,11 @@ do out-elem shared, in-elem shared, (in-col, in-elem) iterate, in-col size
 			# This is tricky because we may have implicitly awaited the Promise already.
 			# TODO: I should *not* use Promise as future since it is implicitly awaited and thus hard to keep typed correctly. ----------------------
 			# Instead have Future wrap Promise in a way that it won't be implicitly awaited.
-			x.as-js.await assume-type
+			assume-type await as-js x
 		else
-			x await
+			await x
 test
-	xs nat[] = for x in 0::nat .. 5 parallel
+	xs nat[] = for x in parallel 0::nat .. 5
 		x * 2
 	xs is (0, 2, 4, 6, 8)
 
@@ -183,19 +184,19 @@ test
 	a in-col parallel-collection
 	f void shared(elem in-elem)
 do (in-col, in-elem) iterate, in-col size, in-elem shared
-	promises void future[] = for x in a collection
+	promises void future[] = for x in a.collection
 		with in parallel
 			f[x]
 	for x in promises
-		x await
+		await x
 
 | Runs {f} in parallel for each element of {a} and returns elements for which it was {true}.
 +filter[out-col, in-col, elem, builder] out-col
 	a in-col parallel-collection
 	f bool shared(elem elem)
 do (in-col, elem) iterate, in-col size, (out-col, elem) list-new, elem shared
-	bools bool[] = a for-loop f
+	bools bool[] = for-loop a, f
 	with out in build
-		for i, x in a.collection with-index
+		for i, x in with-index a.collection
 			if bools[i]
 				out ~= x

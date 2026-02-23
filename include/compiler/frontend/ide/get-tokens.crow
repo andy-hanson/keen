@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/parse
 	../../../crow/json: try-take-number, try-take-quoted-string # TODO: move this stuff to parse-util ----------------------------------
@@ -11,43 +12,43 @@ import
 tokens-of-crowd semantic-tokens(line-and-character-getter line-and-character-getter)
 	# For Crowd, we will  just retokenize the whole file
 	out tokens-builder = line-and-character-getter,
-	iter string-iterator = line-and-character-getter.source-text begin
-	until iter is-at-end
-		start = iter pos
-		if iter try-take-number
+	iter string-iterator = begin line-and-character-getter.source-text
+	until iter.is-at-end
+		start = iter.pos
+		if try-take-number iter
 			out ~= number, (start, iter.pos)
-		elif iter try-take-quoted-string
+		elif try-take-quoted-string iter
 			out ~= string, (start, iter.pos)
-		elif iter try-take-crow-identifier
-			end = iter pos
-			if iter try-take-char8 ":"
+		elif try-take-crow-identifier iter
+			end = iter.pos
+			if try-take-char8 iter, ":"
 				out ~= parameter, (start, end)
 		else
 			# Just skip past anything else
-			_ = iter take-char8
-	out finish
+			_ = take-char8 iter
+	finish out
 
 tokens-of-ast semantic-tokens(file file-ast)
 	out tokens-builder = file.line-and-character-getter,
-	out add-doc-comment-tokens file.doc-comment
-	for ast in file ast-in-order
+	add-doc-comment-tokens out, file.doc-comment
+	for ast in ast-in-order file
 		match ast
 		as imports-or-exports-ast
-			out add-import-tokens ast
+			add-import-tokens out, ast
 		as spec-decl-ast
-			out add-spec-tokens ast
+			add-spec-tokens out, ast
 		as struct-alias-ast
-			out add-struct-alias-tokens ast
+			add-struct-alias-tokens out, ast
 		as struct-decl-ast
-			out add-struct-tokens ast
+			add-struct-tokens out, ast
 		as fun-decl-ast
-			out add-fun-tokens ast
+			add-fun-tokens out, ast
 		as test-ast
-			out add-test-tokens ast
+			add-test-tokens out, ast
 		as var-decl-ast
-			out add-var-decl-tokens ast
-	out add-last-tokens
-	out finish
+			add-var-decl-tokens out, ast
+	add-last-tokens out
+	finish out
 
 | Used to lex the tokens that appear between AST nodes for syntax highlighting.
 lex-tokens-between-asts void
@@ -56,19 +57,19 @@ lex-tokens-between-asts void
 	cb-comment void mut(x source-range)
 	cb-keyword void mut(x source-range)
 do
-	end = range end
-	iter string-iterator = source[range.start.to .. end.to] begin
-	until iter is-at-end
-		iter skip-for-tokens of pos
+	end = range.end
+	iter string-iterator = begin source[range.start.to .. end.to]
+	until iter.is-at-end
+		skip-for-tokens iter, of pos
 			cb-comment[range.start + pos, range.start + iter.pos]
-		unless iter is-at-end
-			start = iter pos
-			until iter is-at-end or iter.peek8 ignore-char-for-tokens
-				_ = iter take-char8
+		unless iter.is-at-end
+			start = iter.pos
+			until iter.is-at-end or ignore-char-for-tokens iter.peek8
+				_ = take-char8 iter
 			cb-keyword[range.start + start, range.start + iter.pos]
 
 -ignore-char-for-tokens bool(a char8)
-	a is-whitespace or a == "\\" or a == "#" or a is-non-keyword-punctuation
+	is-whitespace a or a == "\\" or a == "#" or is-non-keyword-punctuation a
 
 | Skip mundane punctuation instead of highlighting it as a keyword
 -is-non-keyword-punctuation bool(a char8)
@@ -76,18 +77,18 @@ do
 
 -skip-for-tokens void(iter string-iterator, cb-comment cb-comment)
 	loop
-		start = iter pos
-		unless iter is-at-end
-			while iter.peek8 is-non-keyword-punctuation
-				_ = iter take-char8
-		unless iter is-at-end
-			iter skip-spaces-and-comments cb-comment, ()
-		unless iter is-at-end
+		start = iter.pos
+		unless iter.is-at-end
+			while is-non-keyword-punctuation iter.peek8
+				_ = take-char8 iter
+		unless iter.is-at-end
+			skip-spaces-and-comments iter, cb-comment, ()
+		unless iter.is-at-end
 			if iter.peek8 == "\\"
 				# Non-comment '\', skip this too
-				_ = iter take-char8
-		unless iter is-at-end
-			iter skip-blank-lines it.noop, cb-comment, ()
+				_ = take-char8 iter
+		unless iter.is-at-end
+			skip-blank-lines iter, it.noop, cb-comment, ()
 		# TODO: allow 'if iter.pos == start then break else continue'
 		if iter.pos == start
 			break
@@ -95,10 +96,10 @@ do
 			continue
 
 json-of-decoded-tokens json(a semantic-tokens)
-	(a.decode-semantic-tokens map it.to)::json[] to
+	(map a.decode-semantic-tokens, it.to)::json[] 'to
 
 get-tokens-legend json()
-	tokenTypes: members::token-type[] to
+	tokenTypes: members::token-type[].to
 
 token record
 	line nat32
@@ -108,20 +109,20 @@ token record
 to json(a token)
 decode-semantic-tokens record(inner semantic-tokens)
 to token[](a decode-semantic-tokens)
-	a map it.identity
+	map a, it.identity
 size nat(a decode-semantic-tokens)
 	a.inner.data_.size / 5
 iterate bool(a decode-semantic-tokens, f bool mut(x token))
 	line mut nat32 = 0
 	character mut nat32 = 0
 	i mut nat = 0
-	data_ = a.inner data_
+	data_ = a.inner.data_
 	loop
 		guard i != data_.size else break
-		delta-line nat32 = data_[i] to
-		delta-character nat32 = data_[i + 1] to
-		length nat32 = data_[i + 2] to
-		type token-type = data_[i + 3] to!
+		delta-line nat32 = data_[i].to
+		delta-character nat32 = data_[i + 1].to
+		length nat32 = data_[i + 2].to
+		type token-type = data_[i + 3].to!
 		# data_[i + 4] would be modifiers, but we don't use those
 		if delta-line == 0
 			character +:= delta-character
@@ -154,7 +155,7 @@ token-type enum
 -to nat(a token-type)
 -members token-type[]()
 show string(a token-type)
-	a to
+	a.to
 to string(a token-type)
 	match a
 	as comment
@@ -186,7 +187,7 @@ to string(a token-type)
 	as variable
 		"variable"
 to json(a token-type)
-	a.to::string to
+	a.to::string.to
 
 -tokens-builder record mut
 	source char8 array-view
@@ -196,41 +197,41 @@ to json(a token-type)
 	prev-line mut nat32
 	prev-character mut nat32
 -new tokens-builder(line-and-character-getter line-and-character-getter)
-	source: line-and-character-getter source-text
+	source: line-and-character-getter.source-text
 	line-and-character-getter: line-and-character-getter
 	encoded: ()
 	prev-pos: 0
 	prev-line: 0
 	prev-character: 0
 -finish semantic-tokens(a tokens-builder)
-	data_: a.encoded move-to
+	data_: a.encoded.move-to
 
 -~= void(a tokens-builder, (type token-type, range source-range))
 	guard range.length != 0 # This can happen for missing names
-	a advance-to range.start
+	advance-to a, range.start
 	assert range.end <= a.source.size.to
 	a.prev-pos := range.end
-	a add-inner range, type
+	add-inner a, range, type
 
 -advance-to void(a tokens-builder, pos pos)
-	a add-tokens-between (a.prev-pos, pos)
+	add-tokens-between a, (a.prev-pos, pos)
 	a.prev-pos := pos
 
 -add-last-tokens void(a tokens-builder)
-	a advance-to a.source.size.to
+	advance-to a, a.source.size.to
 
 -add-inner void(a tokens-builder, range source-range, type token-type)
 	lc-range = a.line-and-character-getter[range]
-	start = lc-range start
-	end = lc-range end
+	start = lc-range.start
+	end = lc-range.end
 	if start.line == end.line
-		a add-single-line-token start, (end.character - start.character).to, type
+		add-single-line-token a, start, (end.character - start.character).to, type
 	else
-		first-length = (a.line-and-character-getter line-length-in-characters start.line.to) - start.character.to
-		a add-single-line-token start, first-length, type
+		first-length = (line-length-in-characters a.line-and-character-getter, start.line.to) - start.character.to
+		add-single-line-token a, start, first-length, type
 		for line in start.line + 1 .. end.line
-			a add-single-line-token (line, 0), (a.line-and-character-getter line-length-in-characters line.to), type
-		a add-single-line-token (end.line, 0), end.character.to, type
+			add-single-line-token a, (line, 0), (line-length-in-characters a.line-and-character-getter, line.to), type
+		add-single-line-token a, (end.line, 0), end.character.to, type
 
 -add-single-line-token void
 	a tokens-builder
@@ -244,31 +245,31 @@ do
 	else
 		(pos.line - a.prev-line).to, pos.character.to
 	a.encoded ~~= (delta-line, delta-character, length, type.to, 0)::nat[]
-	a.prev-line := pos line
-	a.prev-character := pos character
+	a.prev-line := pos.line
+	a.prev-character := pos.character
 
 -add-tokens-between void(a tokens-builder, range source-range)
 	on-comment void mut(comment-range source-range) = of comment-range
-		assert range range-contains comment-range
-		a add-inner comment-range, comment
-	a.source lex-tokens-between-asts range, on-comment, of keyword-range
-		assert range range-contains keyword-range
-		a add-inner keyword-range, keyword
+		assert range-contains range, comment-range
+		add-inner a, comment-range, comment
+	lex-tokens-between-asts a.source, range, on-comment, of keyword-range
+		assert range-contains range, keyword-range
+		add-inner a, keyword-range, keyword
 
 -add-doc-comment-tokens void(out tokens-builder, a doc-comment-ast)
-	guard a !is-empty
-	range = a range!
-	pos mut = range start
-	for x in a references
+	guard !is-empty a
+	range = a.range!
+	pos mut = range.start
+	for x in a.references
 		out ~= comment, (pos, x.range.start)
 		out ~= variable, x.range
-		pos := x.range end
+		pos := x.range.end
 	out ~= comment, (pos, range.end)
 
 -add-import-tokens void(out tokens-builder, a imports-or-exports-ast)
-	for import-or-export in a paths
+	for import-or-export in a.paths
 		out ~= namespace, import-or-export.path-range
-		match kind = import-or-export kind
+		match kind = import-or-export.kind
 		as import-whole-module-ast
 			()
 		as array
@@ -278,160 +279,160 @@ do
 			out ~= variable, kind.name.range
 
 -add-spec-tokens void(out tokens-builder, a spec-decl-ast)
-	out add-doc-comment-tokens a.doc-comment
+	add-doc-comment-tokens out, a.doc-comment
 	out ~= interface_, a.name.range
-	out add-type-params-tokens a.type-params
-	out add-modifier-tokens a.modifiers
-	for x in a sigs
-		out add-signature-tokens x
+	add-type-params-tokens out, a.type-params
+	add-modifier-tokens out, a.modifiers
+	for x in a.sigs
+		add-signature-tokens out, x
 
 -add-signature-tokens void(out tokens-builder, a signature-ast)
-	out add-doc-comment-tokens a.doc-comment
+	add-doc-comment-tokens out, a.doc-comment
 	out ~= function_, a.name-range
-	out add-sig-return-type-and-params-tokens a.return-type, a.params
+	add-sig-return-type-and-params-tokens out, a.return-type, a.params
 
 -add-sig-return-type-and-params-tokens void(out tokens-builder, return-type type-ast, params destructure-ast[])
-	out add-type-tokens return-type
-	out add-params-tokens params
+	add-type-tokens out, return-type
+	add-params-tokens out, params
 
 -add-params-tokens void(out tokens-builder, params destructure-ast[])
 	for param in params
-		out add-param-destructure-tokens param
+		add-param-destructure-tokens out, param
 
 -add-type-tokens void(out tokens-builder, a type-ast)
 	match a
 	as bogus-type-ast
 		()
 	as fun-type-ast
-		out add-type-tokens a.return-type
-		out add-param-destructure-tokens a.param
+		add-type-tokens out, a.return-type
+		add-param-destructure-tokens out, a.param
 	as map-type-ast
-		out add-type-tokens a.value
-		out add-type-tokens a.key
+		add-type-tokens out, a.value
+		add-type-tokens out, a.key
 	as name-and-range
 		out ~= type, a.range
 	as suffix-name-type-ast
-		out add-type-tokens a.left
+		add-type-tokens out, a.left
 		out ~= type, a.name.range
 	as suffix-special-type-ast
-		out add-type-tokens a.left
+		add-type-tokens out, a.left
 		out ~= type, a.suffix-range
 	as tuple-type-ast
-		for t in a members
-			out add-type-tokens t
+		for t in a.members
+			add-type-tokens out, t
 
 -add-type-params-tokens void(out tokens-builder, a name-and-range[])
 	for type-param in a
 		out ~= typeParameter, type-param.range
 
 -add-struct-alias-tokens void(out tokens-builder, a struct-alias-ast)
-	out add-doc-comment-tokens a.doc-comment
+	add-doc-comment-tokens out, a.doc-comment
 	out ~= type, a.name.range
-	out add-type-params-tokens a.type-params
-	out add-type-tokens a.target
+	add-type-params-tokens out, a.type-params
+	add-type-tokens out, a.target
 
 -add-struct-tokens void(out tokens-builder, a struct-decl-ast)
-	out add-doc-comment-tokens a.doc-comment
+	add-doc-comment-tokens out, a.doc-comment
 	out ~= type, a.name.range
-	out add-type-params-tokens a.type-params
-	match body = a body
+	add-type-params-tokens out, a.type-params
+	match body = a.body
 	as builtin-type-ast
-		out add-modifier-tokens a.modifiers
+		add-modifier-tokens out, a.modifiers
 	as enum-ast
-		out add-enum-or-flags-tokens a, body.params, body.members
+		add-enum-or-flags-tokens out, a, body.params, body.members
 	as flags-ast
-		out add-enum-or-flags-tokens a, body.params, body.members
+		add-enum-or-flags-tokens out, a, body.params, body.members
 	as record-ast
-		out add-record-tokens a, body.params, body.fields
+		add-record-tokens out, a, body.params, body.fields
 	as sum-type-ast
-		for type in body types
-			out add-type-tokens type
-		out add-modifier-tokens a.modifiers
-		for sig in body methods
-			out add-signature-tokens sig
+		for type in body.types
+			add-type-tokens out, type
+		add-modifier-tokens out, a.modifiers
+		for sig in body.methods
+			add-signature-tokens out, sig
 
 -add-record-tokens void(out tokens-builder, a struct-decl-ast, params destructure-ast[]?, members record-field-ast[])
 	if params
-		out add-params-tokens params
-	out add-modifier-tokens a.modifiers
+		add-params-tokens out, params
+	add-modifier-tokens out, a.modifiers
 	for x in members
-		out add-doc-comment-tokens x.doc-comment
+		add-doc-comment-tokens out, x.doc-comment
 		out ~= property, x.name.range
-		if t = x type
-			out add-type-tokens t
+		if t = x.type
+			add-type-tokens out, t
 
 -add-modifier-tokens void(out tokens-builder, a modifier-ast[])
 	for mod in a
 		match mod
 		as modifier-keyword-ast
-			if t = mod type-arg
-				out add-type-tokens t
+			if t = mod.type-arg
+				add-type-tokens out, t
 		as spec-use-ast
-			if t = mod type-arg
-				out add-type-tokens t
+			if t = mod.type-arg
+				add-type-tokens out, t
 			out ~= interface_, mod.name.range
 
 -add-enum-or-flags-tokens void(out tokens-builder, a struct-decl-ast, params destructure-ast[]?, members enum-or-flags-member-ast[])
 	if params
-		out add-params-tokens params
-	out add-modifier-tokens a.modifiers
+		add-params-tokens out, params
+	add-modifier-tokens out, a.modifiers
 	for member in members
-		out add-doc-comment-tokens member.doc-comment
+		add-doc-comment-tokens out, member.doc-comment
 		out ~= enumMember, member.name-range
-		if v = member value
+		if v = member.value
 			out ~= number, v.range
 
 -add-var-decl-tokens void(out tokens-builder, a var-decl-ast)
-	out add-doc-comment-tokens a.doc-comment
+	add-doc-comment-tokens out, a.doc-comment
 	out ~= variable, a.name.range
-	out add-type-params-tokens a.type-params
-	out add-type-tokens a.type
-	out add-modifier-tokens a.modifiers
-	if i = a initializer then out add-expr-tokens i
+	add-type-params-tokens out, a.type-params
+	add-type-tokens out, a.type
+	add-modifier-tokens out, a.modifiers
+	if i = a.initializer then add-expr-tokens out, i
 
 -add-fun-tokens void(out tokens-builder, a fun-decl-ast)
-	out add-doc-comment-tokens a.doc-comment
+	add-doc-comment-tokens out, a.doc-comment
 	out ~= function_, a.name.range
-	out add-type-params-tokens a.type-params
-	out add-sig-return-type-and-params-tokens a.return-type, a.params
-	out add-modifier-tokens a.modifiers
-	if b = a body then out add-expr-tokens b
+	add-type-params-tokens out, a.type-params
+	add-sig-return-type-and-params-tokens out, a.return-type, a.params
+	add-modifier-tokens out, a.modifiers
+	if b = a.body then add-expr-tokens out, b
 
 -add-test-tokens void(out tokens-builder, a test-ast)
-	out add-doc-comment-tokens a.doc-comment
-	if b = a body then out add-expr-tokens b
+	add-doc-comment-tokens out, a.doc-comment
+	if b = a.body then add-expr-tokens out, b
 
 -add-expr-tokens void(out tokens-builder, a expr-ast)
 	match a
 	as assert-or-forbid-ast
-		out add-expr-tokens a.condition
-		if t = a thrown
-			out add-expr-tokens t.expr
-		if after = a after
-			out add-expr-tokens after
+		add-expr-tokens out, a.condition
+		if t = a.thrown
+			add-expr-tokens out, t.expr
+		if after = a.after
+			add-expr-tokens out, after
 	as assignment-ast
-		out add-expr-tokens a.left
-		out add-expr-tokens a.right
+		add-expr-tokens out, a.left
+		add-expr-tokens out, a.right
 	as assignment-call-ast
-		out add-expr-tokens a.left
+		add-expr-tokens out, a.left
 		out ~= function_, a.fun-name.range
-		out add-expr-tokens a.right
+		add-expr-tokens out, a.right
 	as bogus-ast
 		()
 	as call-ast
 		add-name void mut() = of
 			out ~= function_, a.fun-name.range
-			if t = a type-arg
-				out add-type-tokens t
+			if t = a.type-arg
+				add-type-tokens out, t
 		prefix void mut() = of
 			add-name[]
-			out add-exprs-tokens a.args
+			add-exprs-tokens out, a.args
 		name-in-middle void mut() = of
-			out add-expr-tokens a.args[0]
+			add-expr-tokens out, a.args[0]
 			add-name[]
 			for arg in a.args[1 .. end]
-				out add-expr-tokens arg
-		match a style
+				add-expr-tokens out, arg
+		match a.style
 		as dot
 			name-in-middle[]
 		as dot-question
@@ -442,133 +443,133 @@ do
 			prefix[]
 		as prefix-operator
 			add-name[]
-			out add-exprs-tokens a.args
+			add-exprs-tokens out, a.args
 		as single
 			add-name[]
 		as subscript
-			out add-exprs-tokens a.args
+			add-exprs-tokens out, a.args
 		as question-name
 			# TODO: this should always do 'prefix[]', but that causes problems with infix files ... so just add the args for now ...........................................
-			out add-exprs-tokens a.args
+			add-exprs-tokens out, a.args
 		as question-subscript
-			out add-exprs-tokens a.args
+			add-exprs-tokens out, a.args
 	as call-named-ast
-		for name, arg in a.names zip a.args
+		for name, arg in zip a.names, a.args
 			out ~= parameter, name.range
-			out add-expr-tokens arg
+			add-expr-tokens out, arg
 	as do-ast
-		out add-expr-tokens a.body
+		add-expr-tokens out, a.body
 	as finally-ast
-		out add-expr-tokens a.right
-		out add-expr-tokens a.below
+		add-expr-tokens out, a.right
+		add-expr-tokens out, a.below
 	as force-ast
-		out add-expr-tokens a.arg
+		add-expr-tokens out, a.arg
 	as for-or-with-ast
-		out add-param-destructure-tokens a.param
-		out add-expr-tokens a.arg
-		out add-expr-tokens a.body
+		add-param-destructure-tokens out, a.param
+		add-expr-tokens out, a.arg
+		add-expr-tokens out, a.body
 	as name-and-range
 		out ~= variable, a.range
 	as if-ast
-		out add-expr-tokens a.condition
-		if x = a first-branch
-			out add-expr-tokens x
-		if x = a second-branch
-			out add-expr-tokens x
+		add-expr-tokens out, a.condition
+		if x = a.first-branch
+			add-expr-tokens out, x
+		if x = a.second-branch
+			add-expr-tokens out, x
 	as interpolated-ast
-		for i, x in a.template with-index
+		for i, x in with-index a.template
 			out ~= string, x.range
 			if i != a.template.size - 1
-				out add-expr-tokens a.interpolated[i]
+				add-expr-tokens out, a.interpolated[i]
 	as it-ast
 		()
 	as it-scope-ast
-		out add-expr-tokens a.inner
+		add-expr-tokens out, a.inner
 	as lambda-ast
-		out add-param-destructure-tokens a.param
-		out add-expr-tokens a.body
+		add-param-destructure-tokens out, a.param
+		add-expr-tokens out, a.body
 	as let-ast
-		out add-local-destructure-tokens a.destructure
-		out add-expr-tokens a.value
-		if t = a then_
-			out add-expr-tokens t
+		add-local-destructure-tokens out, a.destructure
+		add-expr-tokens out, a.value
+		if t = a.then_
+			add-expr-tokens out, t
 	as list-ast
-		for part in a parts
-			out add-expr-tokens part.arg
+		for part in a.parts
+			add-expr-tokens out, part.arg
 	as literal-number
 		out ~= number, a.range
 	as literal-string-ast
 		out ~= string, a.range
 	as logical-ast
-		out add-expr-tokens a.left
-		out add-expr-tokens a.right
+		add-expr-tokens out, a.left
+		add-expr-tokens out, a.right
 	as loop-ast
-		out add-expr-tokens a.body
+		add-expr-tokens out, a.body
 	as loop-break-ast
-		if v = a value
-			out add-expr-tokens v
+		if v = a.value
+			add-expr-tokens out, v
 	as loop-continue-ast
 		()
 	as loop-while-or-until-ast
-		out add-expr-tokens a.condition
-		out add-expr-tokens a.body
-		if after = a after
-			out add-expr-tokens after
+		add-expr-tokens out, a.condition
+		add-expr-tokens out, a.body
+		if after = a.after
+			add-expr-tokens out, after
 	as match-ast
-		if local = a local
+		if local = a.local
 			out ~= variable, local.range
-		out add-expr-tokens a.matched
-		for case_ in a cases
-			out add-case-tokens case_
-		if e = a else_
-			out add-expr-tokens e.expr
+		add-expr-tokens out, a.matched
+		for case_ in a.cases
+			add-case-tokens out, case_
+		if e = a.else_
+			add-expr-tokens out, e.expr
 	as not-ast
-		out add-expr-tokens a.arg
+		add-expr-tokens out, a.arg
 	as parenthesized-ast
-		out add-expr-tokens a.inner
+		add-expr-tokens out, a.inner
 	as seq-ast
-		out add-expr-tokens a.first
-		out add-expr-tokens a.then_
+		add-expr-tokens out, a.first
+		add-expr-tokens out, a.then_
 	as shared-ast
-		out add-expr-tokens a.inner
+		add-expr-tokens out, a.inner
 	as throw-ast
-		out add-expr-tokens a.thrown
+		add-expr-tokens out, a.thrown
 	as trusted-ast
-		out add-expr-tokens a.inner
+		add-expr-tokens out, a.inner
 	as try-ast
-		out add-expr-tokens a.tried
-		for case_ in a catches
-			out add-catch-tokens case_
+		add-expr-tokens out, a.tried
+		for case_ in a.catches
+			add-catch-tokens out, case_
 	as try-let-ast
-		out add-local-destructure-tokens a.destructure
-		out add-expr-tokens a.value
-		out add-catch-tokens a.catch_
-		if after = a after
-			out add-expr-tokens after
+		add-local-destructure-tokens out, a.destructure
+		add-expr-tokens out, a.value
+		add-catch-tokens out, a.catch_
+		if after = a.after
+			add-expr-tokens out, after
 	as typed-ast
-		if a is-prefix
-			out add-type-tokens a.type
-			if expr = a expr
-				out add-expr-tokens expr
+		if a.is-prefix
+			add-type-tokens out, a.type
+			if expr = a.expr
+				add-expr-tokens out, expr
 		else
-			out add-expr-tokens a.expr!
-			out add-type-tokens a.type
+			add-expr-tokens out, a.expr!
+			add-type-tokens out, a.type
 	as underscore-ast
 		()
 	as unpack-option-ast
-		out add-local-destructure-tokens a.destructure
-		out add-expr-tokens a.option
+		add-local-destructure-tokens out, a.destructure
+		add-expr-tokens out, a.option
 
 -add-catch-tokens void(out tokens-builder, a catch-ast)
-	if n = a name
+	if n = a.name
 		out ~= variable, n.range
-	if x = a as_
+	if x = a.as_
 		out ~= type, x.type-name.range
-	out add-expr-tokens a.then_
+	add-expr-tokens out, a.then_
 
 -add-case-tokens void(out tokens-builder, a case-ast)
-	out add-case-member-tokens a.member
-	out add-expr-tokens a.then_
+	add-case-member-tokens out, a.member
+	add-expr-tokens out, a.then_
 
 -add-case-member-tokens void(out tokens-builder, a case-member-ast)
 	match a
@@ -582,9 +583,9 @@ do
 		()
 
 -add-param-destructure-tokens void(out tokens-builder, a destructure-ast)
-	out add-destructure-tokens-inner a, parameter
+	add-destructure-tokens-inner out, a, parameter
 -add-local-destructure-tokens void(out tokens-builder, a destructure-ast)
-	out add-destructure-tokens-inner a, variable
+	add-destructure-tokens-inner out, a, variable
 
 -add-destructure-tokens-inner void(out tokens-builder, a destructure-ast, kind token-type)
 	match a
@@ -592,24 +593,24 @@ do
 		out ~= kind, a.range
 	as single-destructure-ast
 		out ~= kind, a.name.range
-		if t = a type
-			out add-type-tokens t
+		if t = a.type
+			add-type-tokens out, t
 	as ignore-destructure-ast
 		out ~= comment, a.underscore-range
-		if t = a type
-			out add-type-tokens t
+		if t = a.type
+			add-type-tokens out, t
 	as void-destructure-ast
 		out ~= keyword, a.range
 	as array
 		for x in a
-			out add-destructure-tokens-inner x, kind
+			add-destructure-tokens-inner out, x, kind
 
 -add-exprs-tokens void(out tokens-builder, exprs expr-ast[])
 	for expr in exprs
-		out add-expr-tokens expr
+		add-expr-tokens out, expr
 
 test
 	# ensuring these count as used ------------------------------------------------------------------------------------------------------------------
 	a semantic-tokens = (),
-	_ token[] = (a,)::decode-semantic-tokens to
-	_ = comment::token-type show
+	_ token[] = (a,)::decode-semantic-tokens.to
+	_ = show comment::token-type

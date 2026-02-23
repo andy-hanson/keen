@@ -1,3 +1,4 @@
+use-prefix
 import
 	../unsafe: gc-safe-value
 	./mut-slice
@@ -15,7 +16,7 @@ import
 	max-value
 -prev-index[t] nat64(a t mut-deque, index nat64)
 	forbid index == nil
-	(if index == 0 then a.inner size else index) - 1
+	(if index == 0 then a.inner.size else index) - 1
 -next-index[t] nat64(a t mut-deque, index nat64)
 	forbid index == nil
 	if index == a.inner.size - 1 then 0 else index + 1
@@ -27,12 +28,12 @@ import
 | Copy elements to a list.
 | This is O(n).
 +to[t] t[](a t mut-deque)
-	trusted a.to cast-immutable
+	trusted cast-immutable a.to
 
 -to[t] t mut-slice(a t mut-deque)
-	guard a !is-empty
-	res t mut-slice = trusted a.size gc-safe-mut-slice
-	res[0 .. end] copy-from-deque a
+	guard !is-empty a
+	res t mut-slice = trusted gc-safe-mut-slice a.size
+	copy-from-deque res[0 .. end], a
 	res
 
 | Copy elements to a new deque.
@@ -51,36 +52,36 @@ import
 		a.right - a.left
 	as equal
 		unless a.left == nil
-			a.inner size
+			a.inner.size
 	as greater
 		a.inner.size - a.left + a.right
 
 | Add a new value on the left.
 +push[t] void(value t, a t mut-deque)
 	trusted
-	a ensure-capacity
-	a.left := a prev-index a.left
+	ensure-capacity a
+	a.left := prev-index a, a.left
 	a.inner[a.left] := value
 
 | Add a new value on the right.
 +push[t] void(a t mut-deque, value t)
 	trusted
-	a ensure-capacity
+	ensure-capacity a
 	assert a.right < a.inner.size
 	a.inner[a.right] := value
-	a.right := a next-index a.right
+	a.right := next-index a, a.right
 
 | Returns the leftmost element without removing it.
 | Returns an empty option if `{a} {is-empty}`.
 +peek-left[t] t?(a t mut-deque)
 	guard a.left != nil
-	a.inner[a left]
+	a.inner[a.left]
 
 | Returns the rightmost element without removing it.
 | Returns an empty option if `{a} {is-empty}`.
 +peek-right[t] t?(a t mut-deque)
 	guard a.right != nil
-	a.inner[a prev-index a.right]
+	a.inner[prev-index a, a.right]
 
 | Removes and returns the leftmost element.
 | Returns an empty option if `{a} {is-empty}`.
@@ -88,7 +89,7 @@ import
 	guard a.left != nil
 	res = a.inner[a.left]
 	a.inner[a.left] := trusted gc-safe-value
-	a.left := a next-index a.left
+	a.left := next-index a, a.left
 	if a.left == a.right
 		a.left := nil
 		a.right := nil
@@ -99,7 +100,7 @@ import
 | Returns an empty option if `{a} {is-empty}`.
 +pop-right[t] t?(a t mut-deque)
 	guard a.right != nil
-	a.right := a prev-index a.right
+	a.right := prev-index a, a.right
 	res = a.inner[a.right]
 	a.inner[a.right] := trusted gc-safe-value
 	if a.right == a.left
@@ -111,20 +112,20 @@ import
 -ensure-capacity[t] void(a t mut-deque) unsafe
 	if a.left == nil
 		assert a.right == nil
-		if a.inner is-empty
-			a.inner := 2 gc-safe-mut-slice
+		if is-empty a.inner
+			a.inner := gc-safe-mut-slice 2
 		a.left := 0
 		a.right := 0
 	else
 		assert a.right != nil
-		forbid a.inner is-empty
+		forbid is-empty a.inner
 		if a.left == a.right
-			old-inner = a inner
-			old-capacity = old-inner size
+			old-inner = a.inner
+			old-capacity = old-inner.size
 			new-capacity = old-capacity * 2
-			new-inner t mut-slice = new-capacity gc-safe-mut-slice
-			new-inner[0 .. old-capacity] copy-from-deque a
-			new-inner[old-capacity .. new-capacity] clear-memory
+			new-inner t mut-slice = gc-safe-mut-slice new-capacity
+			copy-from-deque new-inner[0 .. old-capacity], a
+			clear-memory new-inner[old-capacity .. new-capacity]
 			a.inner := new-inner
 			a.left := 0
 			a.right := old-capacity
@@ -139,15 +140,15 @@ import
 		dest[left-to-end-size .. end] := a.inner[0 .. a.right]
 
 -dbg string(a nat64 mut-deque)
-	" " join for i, x in a.inner with-index
+	join " ", for i, x in with-index a.inner
 		is-nil = trusted x == gc-safe-value
 		is-right string = if i == a.right then "<-R "
 		is-left string = if i == a.left then "L-> "
 		"{is-right}{is-left}{if is-nil then "_"::string else "{x}"}"
 
 -verify void(a nat64 mut-deque, expected nat64[], expected-dbg string)
-	a.peek-left is unless expected is-empty then expected[0]
-	a.peek-right is unless expected is-empty then expected[end - 1]
+	a.peek-left is unless is-empty expected then expected[0]
+	a.peek-right is unless is-empty expected then expected[end - 1]
 	a.size is expected.size
 	a.to::nat64[] is expected
 	a.dbg is expected-dbg
@@ -156,28 +157,28 @@ test
 	a nat64 mut-deque = ()
 	a.pop-left is ()
 	a.pop-right is ()
-	a verify (), ""
-	1::nat64 push a
-	a verify (1,), "<-R _ L-> 1"
-	a push 2
-	a verify (1, 2), "2 <-R L-> 1"
+	verify a, (), ""
+	push 1::nat64, a
+	verify a, (1,), "<-R _ L-> 1"
+	push a, 2
+	verify a, (1, 2), "2 <-R L-> 1"
 
-	a-copy = a copy
-	a-copy verify (1, 2), "<-R L-> 1 2"
+	a-copy = copy a
+	verify a-copy, (1, 2), "<-R L-> 1 2"
 
 	a.pop-right is 2
-	a verify (1,), "<-R _ L-> 1"
+	verify a, (1,), "<-R _ L-> 1"
 
 	a.pop-right is 1
 	a.left is nil
 	a.right is nil
-	a verify (), "_ _"
+	verify a, (), "_ _"
 
-	a push 1
-	a verify (1,), "L-> 1 <-R _"
+	push a, 1
+	verify a, (1,), "L-> 1 <-R _"
 
-	2::nat64 push a
-	a verify (2, 1), "1 <-R L-> 2"
+	push 2::nat64, a
+	verify a, (2, 1), "1 <-R L-> 2"
 
-	3::nat64 push a
-	a verify (3, 2, 1), "2 1 <-R _ L-> 3"
+	push 3::nat64, a
+	verify a, (3, 2, 1), "2 1 <-R _ L-> 3"

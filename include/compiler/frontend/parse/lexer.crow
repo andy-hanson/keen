@@ -1,3 +1,4 @@
+use-prefix
 import
 	../../model/parse-diag
 	../../model/source-range
@@ -17,7 +18,7 @@ lexer record mut
 
 new lexer(uri uri, source char8 array-view)
 	diagnostics parse-diagnostic mut[] = ()
-	tokens = source lex-tokens diagnostics
+	tokens = lex-tokens source, diagnostics
 	prefix = tokens.tokens-starts-ends[0].token == use-prefix_
 	index nat = if prefix then 1 else 0
 	prefix, index, tokens.tokens-starts-ends, tokens.datas, uri, diagnostics, source
@@ -25,89 +26,89 @@ new lexer(uri uri, source char8 array-view)
 prev-range source-range(lexer lexer)
 	lexer.prev-start, lexer.prev-end
 prev-start pos(lexer lexer)
-	lexer.tokens-starts-ends[lexer.next-index - 1] start
+	lexer.tokens-starts-ends[lexer.next-index - 1].start
 prev-end pos(lexer lexer)
-	lexer.tokens-starts-ends[lexer.next-index - 1] end
+	lexer.tokens-starts-ends[lexer.next-index - 1].end
 -prev-token-data token-data(lexer lexer)
 	lexer.datas[lexer.next-index - 1]
 prev-string string(lexer lexer)
-	lexer.prev-token-data string!
+	lexer.prev-token-data.string!
 prev-symbol symbol(lexer lexer)
-	lexer.prev-token-data symbol!
+	lexer.prev-token-data.symbol!
 
 next-range source-range(lexer lexer)
-	lexer.tokens-starts-ends[lexer next-index] range
+	lexer.tokens-starts-ends[lexer.next-index].range
 next-start pos(lexer lexer)
-	lexer.tokens-starts-ends[lexer.next-index] start
+	lexer.tokens-starts-ends[lexer.next-index].start
 next-symbol symbol(lexer lexer)
-	lexer.datas[lexer next-index] symbol!
+	lexer.datas[lexer.next-index].symbol!
 
 add-diag void(lexer lexer, range source-range, diag parse-diag)
 	lexer.diagnostics-builder ~= range, diag
 
 finish-diagnostics parse-diagnostic[](lexer lexer)
-	lexer.diagnostics-builder move-to
+	lexer.diagnostics-builder.move-to
 
 add-diag-at-next-token void(lexer lexer, diag parse-diag)
-	lexer add-diag lexer.next-range, diag
+	add-diag lexer, lexer.next-range, diag
 
 add-diag-unexpected-next-token void(lexer lexer)
-	lexer add-diag-unexpected-inner lexer.next-index
+	add-diag-unexpected-inner lexer, lexer.next-index
 add-diag-unexpected-prev-token void(lexer lexer)
-	lexer add-diag-unexpected-inner lexer.next-index - 1
+	add-diag-unexpected-inner lexer, lexer.next-index - 1
 -add-diag-unexpected-inner void(lexer lexer, index nat)
 	token = lexer.tokens-starts-ends[index]
-	lexer add-diag token.range, match token token
+	add-diag lexer, token.range, match token token
 	as operator
-		lexer.datas[index].symbol! parse-diag-unexpected-operator
+		parse-diag-unexpected-operator lexer.datas[index].symbol!
 	else
-		token.token parse-diag-unexpected-token
+		parse-diag-unexpected-token token.token
 
 range source-range(lexer lexer, start pos)
 	start, lexer.end-for-range
 -end-for-range pos(lexer lexer)
 	prev mut = lexer.next-index - 1
-	while lexer.tokens-starts-ends[prev].token is-newline-token
+	while is-newline-token lexer.tokens-starts-ends[prev].token
 		prev -:= 1
 	lexer.tokens-starts-ends[prev].end
 range-allow-empty source-range(lexer lexer, start pos)
-	end = lexer end-for-range
-	start, (end max start)
+	end = lexer.end-for-range
+	start, (max end, start)
 
 skip-until-newline-no-diag void(lexer lexer)
-	until lexer.peek is-newline-token
-		lexer advance
+	until is-newline-token lexer.peek
+		advance lexer
 
 advance void(lexer lexer)
 	lexer.next-index +:= 1
 
 take-next-token token(lexer lexer)
-	res = lexer peek
-	lexer advance
+	res = lexer.peek
+	advance lexer
 	res
 
 advance-may-continue-onto-next-line void(lexer lexer)
-	lexer advance
-	while lexer peek newline-same-indent
-		lexer advance
+	advance lexer
+	while peek lexer, newline-same-indent
+		advance lexer
 
 peek token(lexer lexer)
-	lexer.tokens-starts-ends[lexer next-index] token
+	lexer.tokens-starts-ends[lexer.next-index].token
 peek bool(lexer lexer, expected token)
 	lexer.peek == expected
 peek2 token(lexer lexer)
-	lexer.tokens-starts-ends[lexer.next-index + 1] token
+	lexer.tokens-starts-ends[lexer.next-index + 1].token
 peek2 bool(lexer lexer, expected token)
 	lexer.peek2 == expected
 
 lookahead-equals bool(lexer lexer)
-	cur mut = lexer next-index
+	cur mut = lexer.next-index
 	if lexer.tokens-starts-ends[cur].token == try_
 		cur +:= 1
 	parens mut nat = 0
 	brackets mut nat = 0
 	loop
-		token = lexer.tokens-starts-ends[cur] token
+		token = lexer.tokens-starts-ends[cur].token
 		cur +:= 1
 		match token
 		as equal
@@ -143,10 +144,10 @@ lookahead-equals bool(lexer lexer)
 		else
 			break false
 lookahead-equals-for-match bool(lexer lexer)
-	lexer peek name and lexer peek2 equal
+	peek lexer, name and peek2 lexer, equal
 
 # TODO: MOVE? -----------------------------------------------------------------------------------------------------------------------------------------------------------
 peek-operator-allow-prefix bool(lexer lexer, op symbol)
-	(lexer peek operator or lexer peek prefix-operator) and lexer.next-symbol == op
+	(peek lexer, operator or peek lexer, prefix-operator) and lexer.next-symbol == op
 peek2-name symbol(lexer lexer) # RENAME? Since the 1 version is 'next-symbol' ----------------------------------------------------------------------------------------------------------------------------------------
 	lexer.datas[lexer.next-index + 1].symbol!

@@ -1,3 +1,4 @@
+use-prefix
 import
 	../../frontend/show-model
 	../../model/concrete-model
@@ -35,168 +36,174 @@ build-mangled-names java-names
 	union-info union-info
 do
 	module-to-class-name symbol mut[uri] = ()
-	type-to-name symbol[concrete-type] = for type in program all-types-including-extern
+	type-to-name symbol[concrete-type] = for type in all-types-including-extern program
 		# TODO: if there is only 1 struct with the name (globally), just use the decl name ----------------------------------
-		type, do module-to-class-name gen-type-name type, class-prefix
-	type-to-descriptor symbol[concrete-type] = for type in program all-types-including-extern
-		type, do (program, union-info, type-to-name) generate-descriptor-for-return-type type
-	fun-to-name-and-descriptor (symbol, symbol)[concrete-fun] = for fun in program all-funs-including-extern
-		unless fun is-extern
-			_ = module-to-class-name add-module-name fun.module-uri, class-prefix
-		name symbol = match source = fun source
+		- type
+		- gen-type-name module-to-class-name, type, class-prefix
+	type-to-descriptor symbol[concrete-type] = for type in program.all-types-including-extern
+		- type
+		- generate-descriptor-for-return-type (program, union-info, type-to-name), type
+	fun-to-name-and-descriptor (symbol, symbol)[concrete-fun] = for fun in all-funs-including-extern program
+		unless is-extern fun
+			_ = add-module-name module-to-class-name, fun.module-uri, class-prefix
+		name symbol = match source = source fun
 		as concrete-fun-source-regular
-			original = source.decl name
-			if fun is-extern
+			original = source.decl.name
+			if is-extern fun
 				original
 			else
-				base = original do-mangle
-				module = program.model-program module-at-uri fun.module-uri
+				base = do-mangle original
+				module = module-at-uri program.model-program, fun.module-uri
 				# TODO:PERF module should store funs-by-name (a multi-by-name)
-				if source.decl !is-template and (module.funs count it.name == original) == 1
+				if !is-template source.decl and (count module.funs, it.name == original) == 1
 					base
 				else
-					"{base}{fun hash}"
+					"{base}{fun.hash}"
 		as concrete-fun-source-test
-			"$test{fun hash}"
+			"$test{fun.hash}"
 		as concrete-fun-source-wrap-main
 			"$wrap-main"
 		descriptor string = with out in build
 			out ~= "("
-			for param in fun params
-				out ~~= type-to-descriptor descriptor-for-param-type param.type
+			for param in fun.params
+				out ~~= descriptor-for-param-type type-to-descriptor, param.type
 			out ~= ")"
-			out ~~= type-to-descriptor descriptor-for-return-type fun.return-type
+			out ~~= descriptor-for-return-type type-to-descriptor, fun.return-type
 		fun, (name, descriptor.to)
 	show-ctx: show-ctx
-	var-to-name: for x in program all-vars
-		x, "{x.source.name do-mangle}{x get-hash}" # TODO: If only one var of this name in the module, no need to include the hash
-	module-to-class-name: module-to-class-name move-to
+	var-to-name: for x in program.all-vars
+		x, "{do-mangle x.source.name}{get-hash x}" # TODO: If only one var of this name in the module, no need to include the hash
+	module-to-class-name: module-to-class-name.move-to
 	fun-to-name-and-descriptor: fun-to-name-and-descriptor
 	type-to-name: type-to-name
 	type-to-descriptor: type-to-descriptor
-	type-to-boxed-class-name: for type in program all-types-including-extern
-		type, do (program, union-info, type-to-name) generate-boxed-class-name type
+	type-to-boxed-class-name: for type in program.all-types-including-extern
+		- type
+		- generate-boxed-class-name (program, union-info, type-to-name), type
 	program: program
 	class-prefix: class-prefix
 	union-info: union-info
-	constant-names: show-ctx java-constant-names program, class-prefix
+	constant-names: java-constant-names show-ctx, program, class-prefix
 
 constant-symbols-class-name symbol(a java-names)
-	"{a class-prefix}_constant_symbols"
+	"{a.class-prefix}_constant_symbols"
 
 module-class-name symbol(a java-names, uri uri)
 	a.module-to-class-name[uri]!
 
 subscript class-and-member(a java-names, var concrete-var)
-	(a module-class-name var.module-uri), a.var-to-name[var]!
+	class_: module-class-name a, var.module-uri
+	member: a.var-to-name[var]!
 subscript class-and-member(a java-names, fun concrete-fun)
 	# TODO:PERF do this all in a single lookup ------------------------------------------------------------------------------------
-	match body = fun body
+	match body = fun.body
 	as fun-body-extern-java
-		body.class_.to, fun.source.concrete-fun-source-regular!.decl.name
+		class_: body.class_.to
+		member: fun.source.concrete-fun-source-regular!.decl.name
 	else
 		assert name, _ = a.fun-to-name-and-descriptor[fun] else
-			error log "GET NAME FOR {a.show-ctx show-concrete-fun-sig fun, false}" # ------------------------------------------------------
+			log error, "GET NAME FOR {show-concrete-fun-sig a.show-ctx, fun, false}" # ------------------------------------------------------
 			todo
-		(a module-class-name fun.module-uri), name
+		class_: module-class-name a, fun.module-uri
+		member: name
 subscript symbol(a java-names, type concrete-type)
 	a.type-to-name[type]!
 
 lambda-impl-class-name symbol(a java-names, containing-fun concrete-fun, lambda-index nat)
-	"{a module-class-name containing-fun.module-uri}_{a.fun-to-name-and-descriptor[containing-fun]!.a}_lambda{lambda-index}"
+	"{module-class-name a, containing-fun.module-uri}_{a.fun-to-name-and-descriptor[containing-fun]!.a}_lambda{lambda-index}"
 
 -gen-type-name symbol(module-to-class-name symbol mut[uri], a concrete-type, class-prefix string)
-	if path = a as-extern
-		path to
+	if path = as-extern a
+		path.to
 	else
-		match source = a source
+		match source = source a
 		as concrete-type-source-bogus
-			"$bogus{a id}"
+			"$bogus{a.id}"
 		as concrete-type-source-inst
-			decl = source decl
-			base string = "{module-to-class-name add-module-name decl.module-uri, class-prefix}{decl.name do-mangle}"
-			if source.type-args is-empty
-				base to
+			decl = source.decl
+			base string = "{add-module-name module-to-class-name, decl.module-uri, class-prefix}{do-mangle decl.name}"
+			if is-empty source.type-args
+				base.to
 			else
-				"{base}{a id}"
+				"{base}{a.id}"
 
 -add-module-name symbol(a symbol mut[uri], uri uri, class-prefix string)
-	a ensure uri, of
-		base-name = uri base-name
-		name = base-name try-remove-end! if base-name ends-with ".json" then ".json" else ".crow"
-		"{class-prefix}{name mangle-class-name}{a size}"
+	ensure a, uri, of
+		base-name = base-name uri
+		name = try-remove-end base-name, ".json" else try-remove-end! base-name, ".crow"
+		"{class-prefix}{mangle-class-name name}{size a}"
 
 mangle-class-name string(a string)
 	# Technically, the JVM allows hyphens. But that can mess with tooling. https://bugs.openjdk.org/browse/JDK-8239818
-	a mangle-name-common
+	mangle-name-common a
 
 -do-mangle symbol(a symbol)
-	a.to.mangle-class-name to
+	a.to.mangle-class-name.to
 
 static-method-descriptor symbol(a java-names, fun concrete-fun)
 	a.fun-to-name-and-descriptor[fun]!.b
 
 instance-method-name symbol(a java-names, fun concrete-fun)
-	base = fun.source.concrete-fun-source-regular!.decl name
-	if fun is-extern
+	base = fun.source.concrete-fun-source-regular!.decl.name
+	if is-extern fun
 		base
 	else
 		"{a[fun.params[0].type]}_{base}"
 instance-method-descriptor symbol(a java-names, fun concrete-fun) # TODO: cache this too! -------------------------------------
-	assert a.union-info java-method-kind fun is-instance
+	assert is-instance java-method-kind a.union-info, fun
 	res string = with d in build # TODO: support building symbols -------------------------------------------------------------
 		d ~= "("
 		for param in fun.params[1 .. end]
-			d ~~= a descriptor-for-param-type param.type
+			d ~~= descriptor-for-param-type a, param.type
 		d ~= ")"
-		d ~~= a descriptor-for-return-type fun.return-type
-	res to
+		d ~~= descriptor-for-return-type a, fun.return-type
+	res.to
 
 constructor-descriptor symbol(a java-names, fun concrete-fun) # TODO: cache this too! --------------------------------------------
-	a.union-info java-method-kind fun is constructor
+	java-method-kind a.union-info, fun is constructor
 	res string = with d in build # TODO: support building symbols -------------------------------------------------------------
 		d ~= "("
-		for param in fun params
-			d ~~= a descriptor-for-param-type param.type
+		for param in fun.params
+			d ~~= descriptor-for-param-type a, param.type
 		d ~~= ")V"
-	res to
+	res.to
 
 descriptor-for-field-type symbol(a java-names, type concrete-type)
-	forbid type is-empty-type
-	a descriptor-for-return-type type to
+	forbid is-empty-type type
+	descriptor-for-return-type a, type 'to
 descriptor-for-param-type string(a java-names, type concrete-type)
-	a.type-to-descriptor descriptor-for-param-type type
+	descriptor-for-param-type a.type-to-descriptor, type
 -descriptor-for-param-type string(type-to-descriptor symbol[concrete-type], type concrete-type)
-	unless type is-empty-type
-		type-to-descriptor descriptor-for-return-type type
+	unless is-empty-type type
+		descriptor-for-return-type type-to-descriptor, type
 -generate-descriptor-for-param-type string(ctx gen-ctx, type concrete-type)
-	unless type is-empty-type
-		ctx generate-descriptor-for-return-type type to
+	unless is-empty-type type
+		generate-descriptor-for-return-type ctx, type 'to
 
 descriptor-for-return-type string(a java-names, type concrete-type)
-	a.type-to-descriptor descriptor-for-return-type type
+	descriptor-for-return-type a.type-to-descriptor, type
 -descriptor-for-return-type string(type-to-descriptor symbol[concrete-type], type concrete-type)
-	type-to-descriptor[type]! to
+	type-to-descriptor[type]!.to
 -generate-descriptor-for-return-type symbol(ctx gen-ctx, type concrete-type)
-	match rt = type as-runtime-type
+	match rt = as-runtime-type type
 	as void
 		"V"
 	as java-primitive-type
-		rt.primitive-descriptor to
+		rt.primitive-descriptor.to
 	as reference-type
-		if type is-array-or-mut-array or x = type unwrap-option-type and x is-array-or-mut-array
-			array = type unwrap-option-type else type
-			"[{ctx generate-descriptor-for-return-type array.array-element-type}"
-		elif field = type as-wrapper
-			ctx generate-descriptor-for-return-type field.type
+		if is-array-or-mut-array type or x = unwrap-option-type type and is-array-or-mut-array x
+			array = unwrap-option-type type else type
+			"[{generate-descriptor-for-return-type ctx, array.array-element-type}"
+		elif field = as-wrapper type
+			generate-descriptor-for-return-type ctx, field.type
 		else
-			"L{ctx generate-boxed-class-name type};"
+			"L{generate-boxed-class-name ctx, type};"
 
 lambda-call-descriptor symbol(a java-names, lambda-type concrete-type)
 	builtin_ = lambda-type.body.concrete-builtin-type!
-	assert builtin_.kind is-lambda-type
-	return-type, param-type = builtin_.type-args only2
-	"({a descriptor-for-param-type param-type}){a descriptor-for-return-type return-type}"
+	assert is-lambda-type builtin_.kind
+	return-type, param-type = only2 builtin_.type-args
+	"({descriptor-for-param-type a, param-type}){descriptor-for-return-type a, return-type}"
 
 boxed-class-name symbol(a java-names, type concrete-type)
 	a.type-to-boxed-class-name[type]!
@@ -207,21 +214,21 @@ boxed-class-name symbol(a java-names, type concrete-type)
 	type-to-name symbol[concrete-type]
 
 -generate-boxed-class-name symbol(ctx gen-ctx, type concrete-type)
-	if x = type as-extern
-		x to
+	if x = as-extern type
+		x.to
 	else
-		ctx generate-boxed-class-name-non-extern type
+		generate-boxed-class-name-non-extern ctx, type
 -generate-boxed-class-name-non-extern symbol(ctx gen-ctx, type concrete-type)
 	mangled symbol mut() = of then ctx.type-to-name[type]!
-	match body = type body
+	match body = type.body
 	as concrete-builtin-type
 		array-or-mut-slice symbol mut() = of
-			element = body.type-args only
-			if element is-empty-type
+			element = body.type-args.only
+			if is-empty-type element
 				"java/lang/Integer"
 			else
-				"[{ctx generate-descriptor-for-param-type element}"
-		match body kind
+				"[{generate-descriptor-for-param-type ctx, element}"
+		match body.kind
 		as array then array-or-mut-slice[]
 		as bool then "java/lang/Boolean"
 		as char8 then "java/lang/Byte"
@@ -262,18 +269,18 @@ boxed-class-name symbol(a java-names, type concrete-type)
 		as switch
 			mangled[]
 		as nullable
-			_, non-null = body.members only2
-			ctx generate-boxed-class-name non-null
+			_, non-null = only2 body.members
+			generate-boxed-class-name ctx, non-null
 	as concrete-type-body-deferred
 		throw unreachable
 
 lambda-init-descriptor symbol(a java-names, lambda lambda-concrete-expr)
 	res string = with out in build # TODO: support building symbols -------------------------------------------------------------
 		out ~= "("
-		for x in lambda closure
-			out ~~= a descriptor-for-param-type x.type
+		for x in lambda.closure
+			out ~~= descriptor-for-param-type a, x.type
 		out ~~= ")V"
-	res to
+	res.to
 
 primitive-descriptor symbol(a java-primitive-type)
 	match a
@@ -304,15 +311,15 @@ primitive-descriptor symbol(a java-primitive-type)
 
 	out class-and-member constant-names-builder = ()
 
-	show-ctx each-constant-in-dependency-order program, of constant
+	each-constant-in-dependency-order show-ctx, program, of constant
 		# TODO: RM these assertions -------------------------------------------------------------------------------------------
-		forbid constant.type is-empty-type
+		forbid is-empty-type constant.type
 		match constant
 		as single-constant-array
-			forbid constant.element-type is-empty-type
+			forbid is-empty-type constant.element-type
 		as single-constant-record
-			forbid constant.record-type is-empty-type
-			forbid constant.record-type is-wrapper
+			forbid is-empty-type constant.record-type
+			forbid is-wrapper constant.record-type
 		if field-index >= max-constants-per-class
 			class-to-constants[cur-class-name] := cur-class-constants.move-to
 			cur-class-index +:= 1
@@ -322,8 +329,8 @@ primitive-descriptor symbol(a java-primitive-type)
 		field-index +:= 1
 		cur-class-constants ~= constant
 
-	unless cur-class-constants is-empty
+	unless is-empty cur-class-constants
 		class-to-constants[cur-class-name] := cur-class-constants.move-to
 
-	names: out finish
-	class-to-constants: class-to-constants to
+	names: finish out
+	class-to-constants: class-to-constants.to

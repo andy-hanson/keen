@@ -1,3 +1,4 @@
+use-prefix
 import
 	../model/ast
 	../model/model
@@ -15,45 +16,45 @@ java-ctx interface mut
 
 fill-java-class-supertypes void(ctx java-ctx, struct struct-decl, class_ parsed-java-class-header)
 	start = perf-now
-	finally start end-fill-java-class-supertypes
-	ctx fill-supertypes class_, struct
+	finally end-fill-java-class-supertypes start
+	fill-supertypes ctx, class_, struct
 
 get-java-module java-class-module(ctx java-ctx, path path, struct struct-decl, class_ parsed-java-class-header)
 	start = perf-now
-	finally start end-get-java-module
-	body = class_ parse-java-class-body
-	ctx fill-interface-methods class_, body.methods, struct
-	funs = ctx funs-for-java-class path, class_, body, struct
+	finally end-get-java-module start
+	body = parse-java-class-body class_
+	fill-interface-methods ctx, class_, body.methods, struct
+	funs = funs-for-java-class ctx, path, class_, body, struct
 	path: path
 	public-exports:
-		funs: funs to
-		structs-and-aliases: (struct,) to-by-name of _ then throw unreachable
+		funs: funs.to
+		structs-and-aliases: to-by-name (struct,), of _ then throw unreachable
 		specs: ()
 
 initial-struct-for-java-class struct-decl
 	instantiate-ctx instantiate-ctx
 	path path
 do
-	hash: instantiate-ctx next-hash
-	source: path struct-decl-source-java
-		base = path base-name
-		if _, rest = base try-split-once "$"
-			rest to
+	hash: next-hash instantiate-ctx
+	source: struct-decl-source-java path,
+		base = base-name path
+		if _, rest = try-split-once base, "$"
+			rest.to
 		else
-			base to
-	module-uri: path to-java-uri
+			base.to
+	module-uri: path.to-java-uri
 	visibility: public
 	purity: mut_
 	purity-is-forced: false
 	doc-comment-references: ()
 	sum-type-memberships: ()
-	body: path struct-body-extern-java
+	body: struct-body-extern-java path
 
 -fill-supertypes void(ctx java-ctx, class_ parsed-java-class-header, type struct-decl)
-	type.specs := ctx.common-types java-summon-unsafe-specs
+	type.specs := ctx.common-types.java-summon-unsafe-specs
 	# TODO: do a lot more here! I'd like all Java subclasses to implicitly convert to their superclasses! -------------------------------------------
-	is-throwable = if super = class_ super-class
-		super == "java/lang/Throwable".parse-path or ctx is-throwable (ctx ensure-java-class super)
+	is-throwable = if super = class_.super-class
+		super == "java/lang/Throwable".parse-path or is-throwable ctx, (ensure-java-class ctx, super)
 	if is-throwable
 		type.sum-type-memberships :=
 			-
@@ -61,7 +62,7 @@ do
 				sum-type: ctx.common-types.exception
 				method-impls: ((),) # The type will not actually be emitted, so don't bother with this
 -is-throwable bool(ctx java-ctx, a struct-decl)
-	a.sum-type-memberships exists it.sum-type == ctx.common-types.exception
+	exists a.sum-type-memberships, it.sum-type == ctx.common-types.exception
 
 -fill-interface-methods void(ctx java-ctx, class_ parsed-java-class-header, parsed-methods parsed-method[], type struct-decl)
 	guard class_.access[interface_]
@@ -73,38 +74,38 @@ do
 			guard method.access-flags[abstract_]
 			# Ignore varargs; they just become normal array parameters
 			(method.access-flags & ~varargs) is (abstract_ | public)
-			return-type, params = ctx method-return-type-and-params method
+			return-type, params = method-return-type-and-params ctx, method
 			-
 				container: type
-				source: method.name signature-source-java
+				source: signature-source-java method.name
 				return-type: return-type
 				params: params
 				doc-comment-references: ()
 
 -funs-for-java-class fun-decl[](ctx java-ctx, path path, header parsed-java-class-header, class_ parsed-java-class-body, struct struct-decl)
-	class-type = struct only-inst
+	class-type = only-inst struct
 	is-interface = header.access[interface_]
 	with out in build
-		for field in class_ fields
+		for field in class_.fields
 			guard field.access-flags[public | static] # TODO: support instance fields
 			out ~=
-				hash: ctx.instantiate-ctx next-hash
-				source: path fun-source-java field.name
+				hash: next-hash ctx.instantiate-ctx
+				source: fun-source-java path, field.name
 				visibility: public
 				n-type-params: 0
-				return-type: ctx to-type field.type
+				return-type: to-type ctx, field.type
 				params: ()
-				specs: ctx.common-types java-summon-unsafe-specs
+				specs: ctx.common-types.java-summon-unsafe-specs
 				doc-comment-references: ()
 				body:
 					:: fun-body-extern-java
 					static-field, path
 
-		for method in class_ methods
+		for method in class_.methods
 			guard method.access-flags[public]
 			is-static = method.access-flags[static]
 			is-constructor = method.name == "<init>"
-			return-type, most-params = ctx method-return-type-and-params method
+			return-type, most-params = method-return-type-and-params ctx, method
 			# TODO: NEATER (should be able to declare 'body' on this line ...) -----------------------------------------------
 			body fun-body-extern-java? = if is-static
 				kind: if is-interface then static-method-of-interface else static-method-of-class
@@ -117,8 +118,8 @@ do
 				virtual, path
 			guard body
 			out ~=
-				hash: ctx.instantiate-ctx next-hash
-				source: path fun-source-java if is-constructor then "new" else method.name
+				hash: next-hash ctx.instantiate-ctx
+				source: fun-source-java path, if is-constructor then "new" else method.name
 				visibility: public
 				n-type-params: 0
 				return-type: if is-constructor then class-type else return-type
@@ -127,48 +128,48 @@ do
 				else
 					- "this".local-source-generated, class-type
 					-- most-params
-				specs: ctx.common-types java-summon-unsafe-specs
+				specs: ctx.common-types.java-summon-unsafe-specs
 				doc-comment-references: ()
 				body: body
 
-		if sum = struct.body sum-type
+		if sum = struct.body.sum-type
 			sum.kind is java-interface
-			for index, method in sum.methods with-index
-				out ~= ctx.instantiate-ctx fun-for-method struct, class-type, index, method
+			for index, method in with-index sum.methods
+				out ~= fun-for-method ctx.instantiate-ctx, struct, class-type, index, method
 
 -method-return-type-and-params (type, destructure[])(ctx java-ctx, method parsed-method)
-	- ctx to-type method.descriptor.return-type
-	- for i, x in method.descriptor.param-types with-index
+	- to-type ctx, method.descriptor.return-type
+	- for i, x in with-index method.descriptor.param-types
 		:: local
-		source: "p{i}" local-source-generated # TODO: there should be a way to get parameter names from the attributes ------------------------------
-		type: ctx to-type x
+		source: local-source-generated "p{i}" # TODO: there should be a way to get parameter names from the attributes ------------------------------
+		type: to-type ctx, x
 
 -to-type type(ctx java-ctx, type java-type)
 	match type
 	as void
-		ctx.common-types void
+		ctx.common-types.void
 	as java-primitive-type
-		ctx.common-types type-from-primitive type
+		type-from-primitive ctx.common-types, type
 	as java-array-type
-		ctx.common-types.mut-slice[ctx to-type type.element as-type-args]
+		ctx.common-types.mut-slice[as-type-args to-type ctx, type.element]
 	as path
-		ctx ensure-java-class type only-inst
+		only-inst ensure-java-class ctx, type
 -type-from-primitive type(common-types common-types, type java-primitive-type)
-	i = common-types integrals
+	i = common-types.integrals
 	match type
 	as T_BOOLEAN
-		common-types bool
+		common-types.bool
 	as T_CHAR
-		i nat16
+		i.nat16
 	as T_FLOAT
-		common-types float32
+		common-types.float32
 	as T_DOUBLE
-		common-types float64
+		common-types.float64
 	as T_BYTE
-		i int8
+		i.int8
 	as T_SHORT
-		i int16
+		i.int16
 	as T_INT
-		i int32
+		i.int32
 	as T_LONG
-		i int64
+		i.int64

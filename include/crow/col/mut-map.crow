@@ -1,3 +1,4 @@
+use-prefix
 no-std
 import
 	../bool
@@ -24,7 +25,7 @@ import
 
 | Later pairs overwrite earlier pairs with the same key.
 +list-new[k, v] v mut[k](a (k, v)[]) k key
-	a to
+	a.to
 
 | New empty map with space for approximately {capacity} entries.
 | This can have a small performance benefit if you know that much space will be needed.
@@ -32,37 +33,37 @@ import
 | Since hash conflicts are possible,
 | this makes no guarantees about whether more allocations will be needed.
 ~mut-map-with-capacity[k, v] v mut[k](capacity nat64) k key
-	false, 0, (capacity n-of ())
+	false, 0, n-of capacity, ()
 
 | Convert a list of pairs to a map.
 | Later pairs overwrite earlier pairs with the same key.
 +to[k, v] v mut[k](a (k, v)[]) k key
-	out v mut[k] = a.size mut-map-with-capacity
+	out v mut[k] = mut-map-with-capacity a.size
 	for x in a
 		out ~= x
 	out
 +to[k, v] v[k](a v mut[k]) k key
-	with out in a.size build
-		for x in a entries
+	with out in build a.size
+		for x in a.entries
 			if x
 				out ~= x
 | Copy pairs to an array.
 +to[k, v] (k, v)[](a v mut[k]) k key
-	with out in a.size build
-		for x in a entries
+	res (k, v)[] = with out in build a.size
+		for x in a.entries
 			if x
 				out ~= x
-	then sort it.a
+	sort res, it.a
 
 | Copy pairs to an array and clear the map.
 +move-to[k, v] (k, v)[](a v mut[k]) k key
-	res (k, v)[] = a to
-	a clear
+	res (k, v)[] = a.to
+	clear a
 	res
 +move-to[k, v] v[k](a v mut[k]) k key
 	# TODO: map should have a possibility that is a flat hash table instead of a tree, then this won't have to allocate ---------------
-	res v[k] = a to
-	a clear
+	res v[k] = a.to
+	clear a
 	res
 +move-to[k, v] v mut[k](a v mut[k]) k key
 	forbid a.locked
@@ -81,64 +82,64 @@ import
 
 | Number of pairs in the map.
 +size[k, v] nat64(a v mut[k])
-	a size_
+	a.size_
 
 ~hint-size[k, v] void(a v mut[k], size nat64) k key
 	if size > a.entries.size / 2
-		a expand-to-capacity size * 9 / 8
+		expand-to-capacity a, size * 9 / 8
 
 | Gets the value associated with a key.
 | Returns an empty option if {key} is not in the map.
 +subscript[k, v] v?(a v mut[k], key k) k key
-	if index = a.entries get-index key
-		a.entries[index]! b
+	if index = get-index a.entries, key
+		a.entries[index]!.b
 
 | Sets the key to the given value, so that `{a}[{key}]` will return {value}.
 | If the key was already in the map, this overwrites the previous value.
 +set-subscript[k, v] void(a v mut[k], key k, value v) k key
-	forbid a locked else was-locked
-	a set-allow-locked key, value
+	forbid a.locked else was-locked
+	set-allow-locked a, key, value
 -set-allow-locked[k, v] void(a v mut[k], key k, value v) k key
-	if index = a.entries get-index key
+	if index = get-index a.entries, key
 		# TODO:PERF this needlessly overwrites the key with an equivalent one -----------------------------------------
 		a.entries[index] := key, value
 	else
-		a must-add key, value
+		must-add a, key, value
 
 | Removes all pairs, leaving the map empty.
 +clear[k, v] void(a v mut[k]) k key
-	forbid a locked else was-locked
+	forbid a.locked else was-locked
 	a.entries := ()
 	a.size_ := 0
 
 | Set the contents of {a} to the contents of {b} and vice versa.
 | This is O(1).
 +swap[k, v] void(a v mut[k], b v mut[k]) k key
-	forbid a locked or b locked else was-locked
-	temp-entries = a entries
-	a.entries := b entries
+	forbid a.locked or b.locked else was-locked
+	temp-entries = a.entries
+	a.entries := b.entries
 	b.entries := temp-entries
 	temp-size = a.size_
-	a.size_ := b size_
+	a.size_ := b.size_
 	b.size_ := temp-size
 
 | If the key is in the map, removes it and returns the associated value.
 +remove[k, v] v?(a v mut[k], key k) k key
-	forbid a locked else was-locked
-	guard index = a.entries get-index key
+	forbid a.locked else was-locked
+	guard index = get-index a.entries, key
 	value = a.entries[index]!.b
-	a remove-at-index index
+	remove-at-index a, index
 	value
 
 -remove-at-index[k, v] void(a v mut[k], index nat64) k key
 	# When there is a hole, move values closer to where they should be.
 	hole mut = index
 	a.entries[hole] := ()
-	from mut = index next-index a.entries
+	from mut = next-index index, a.entries
 	while key, _ = a.entries[from]
 		key-desired-index = key.get-hash % a.entries.size
-		if (a.entries walk-distance key-desired-index, hole) < (a.entries walk-distance key-desired-index, from)
-			a.entries swap hole, from
+		if (walk-distance a.entries, key-desired-index, hole) < (walk-distance a.entries, key-desired-index, from)
+			swap a.entries, hole, from
 			hole := from
 		from next-index:= a.entries
 	a.size_ -:= 1
@@ -147,35 +148,35 @@ import
 | If the key is already in the map, does nothing and returns the associated value.
 | Otherwise, sets the value to `{get-value}[]` and returns that.
 +ensure[k, v] v(a v mut[k], key k, get-value v mut()) k key
-	forbid a locked else was-locked
+	forbid a.locked else was-locked
 	a.locked := true
 	finally a.locked := false
-	res = if index = a.entries get-index key
-		a.entries[index]! b
+	res = if index = get-index a.entries, key
+		a.entries[index]!.b
 	else
 		value = get-value[]
-		a must-add key, value
+		must-add a, key, value
 		value
 	res
 
 +ensure[k, v] v(a v mut[k], key k) k key, v new
-	a ensure key, it.noop
+	ensure a, key, it.noop
 
 -must-add[k, v] void(a v mut[k], key k, value v) k key
-	if a should-expand-before-add
-		a do-expand
+	if should-expand-before-add a
+		do-expand a
 	a.size_ +:= 1
-	a.entries must-add-to-entries key, value
+	must-add-to-entries a.entries, key, value
 
 -must-add-to-entries[k, v] void(entries (k, v)? mut-slice, initial-key k, initial-value v) k key
 	key mut = initial-key
 	value mut = initial-value
-	index mut = key hash entries.size
+	index mut = hash key, entries.size
 	my-cost mut nat64 = 0
 	loop
 		if existing-key, existing-value = entries[index]
 			forbid existing-key == key
-			its-cost = entries cost existing-key, index
+			its-cost = cost entries, existing-key, index
 			if my-cost > its-cost
 				entries[index] := key, value
 				key := existing-key
@@ -189,7 +190,7 @@ import
 			break
 
 -cost[k, v] nat64(entries (k, v)? mut-slice, key k, actual-index nat64) k key
-	entries walk-distance (key hash entries.size), actual-index
+	walk-distance entries, (hash key, entries.size), actual-index
 
 -hash[k] nat64(key k, array-size nat64) k key
 	key.get-hash % array-size
@@ -204,8 +205,8 @@ import
 		a ~= pair
 
 -get-index[k, v] nat64?(entries (k, v)? mut-slice, key k) k key
-	guard entries !is-empty
-	start-i = key hash entries.size
+	guard !is-empty entries
+	start-i = hash key, entries.size
 	i mut = start-i
 	loop
 		if k, _ = entries[i]
@@ -241,57 +242,57 @@ import
 		a.size_ * 4 / 3 >= a.entries.size
 
 -do-expand[k, v] void(a v mut[k]) k key
-	a expand-to-capacity if a.entries.size < 2 then 2 else a.entries.size * 2
+	expand-to-capacity a, if a.entries.size < 2 then 2 else a.entries.size * 2
 
 -expand-to-capacity[k, v] void(a v mut[k], new-capacity nat64) k key
-	new-entries (k, v)? mut-slice = new-capacity n-of ()
-	for e in a entries
+	new-entries (k, v)? mut-slice = n-of new-capacity, ()
+	for e in a.entries
 		if k, v = e
-			new-entries must-add-to-entries k, v
+			must-add-to-entries new-entries, k, v
 	a.entries := new-entries
 
 | Filters the map in place.
 | Calls {f} on every key and value and removes the key if {f} returns {false}.
 +filter=[k, v] void(a v mut[k], f bool mut(key k, value v)) k key
-	forbid a locked else was-locked
+	forbid a.locked else was-locked
 	a.locked := true
 	finally a.locked := false
-	for key in a keys
-		index = a.entries get-index! key
+	for key in a.keys
+		index = get-index! a.entries, key
 		unless f[a.entries[index]!]
-			a remove-at-index index
+			remove-at-index a, index
 
 | Calls {f} on every key and value, and replaces the value with the new value returned by {f}.
 | Does not modify keys.
 +map-values=[k, v] void(a v mut[k], f v mut(key k, value v)) k key
-	forbid a locked else was-locked
+	forbid a.locked else was-locked
 	a.locked := true
 	finally a.locked := false
-	for key in a keys
-		a set-allow-locked key, f[key, a[key]!]
+	# TODO:PERF why not just iterate the entries directly? ------------------------------------------------------------------------------------------
+	for key in a.keys
+		set-allow-locked a, key, f[key, a[key]!]
 
 +keys[k, v] k[](a v mut[k]) k key
-	with out in a.size build
-		for pair in a entries
+	sort with out in build a.size
+		for pair in a.entries
 			if k, _ = pair
 				out ~= k
-	then sort
 
 +values[k, v] v[](a v mut[k]) k key
-	a.to::(k, v)[] map it.b
+	map a.to::(k, v)[], it.b
 
 +iterate[k, v] bool(a v mut[k], f bool mut(key k, value v)) k key
-	forbid a locked else was-locked
+	forbid a.locked else was-locked
 	a.locked := true
 	finally a.locked := false
-	a.to::(k, v)[] iterate f
+	iterate a.to::(k, v)[], f
 
 ~debug[k, v] (k, v)?[](a v mut[k]) k show, v show, unsafe
-	a.entries to
+	a.entries.to
 
 ~debug-costs[k, v] nat[](a v mut[k]) k key
-	for index, x in a.entries with-index
+	for index, x in with-index a.entries
 		if key, _ = x
-			a.entries cost key, index
+			cost a.entries, key, index
 		else
 			0

@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/string/util
 	../../crow/private/parse-util
@@ -18,25 +19,25 @@ show-diags-options record
 new show-diags-options()
 	(), (), ()
 show-color bool(a show-diags-options)
-	a.show-options color
+	a.show-options.color
 
 show-diagnostics string
 	ctx show-diag-ctx
 	program program-with-opt-main
 	options show-diags-options
 do
-	severity = program max-diagnostic-severity
+	severity = max-diagnostic-severity program
 	first mut bool = true
 	with out in build
-		for x in program sorted-diagnostics
-			guard x.uri filter-uri options.only-for-uris
-			for diagnostic in x diagnostics
+		for x in sorted-diagnostics program
+			guard filter-uri x.uri, options.only-for-uris
+			for diagnostic in x.diagnostics
 				if options.show-all-diagnostics or diagnostic.kind.get-diagnostic-severity == severity
 					if first
 						first := false
 					else
 						out ~= "\n"
-					out ~~= ctx show-diagnostic (x.uri, diagnostic)
+					out ~~= show-diagnostic ctx, (x.uri, diagnostic)
 
 -filter-uri bool(a uri, filter uri set?)
 	if filter
@@ -45,23 +46,23 @@ do
 		true
 
 show-parse-diagnostics string(ctx show-ctx, uri uri, diagnostics parse-diagnostic[])
-	"\n" join for x in diagnostics
-		"{ctx.line-and-column-getters[uri][x range]} {ctx show-parse-diag x.kind}"
+	join "\n", for x in diagnostics
+		"{ctx.line-and-column-getters[uri][x.range]} {show-parse-diag ctx, x.kind}"
 
 uri-and-diagnostics record(uri uri, diagnostics diagnostic[])
 
 sorted-diagnostics uri-and-diagnostics[](program program-with-opt-main)
 	map diagnostic mut[] mut[uri] = ()
-	program each-diagnostic of x
-		map ensure x.uri ~= x.diagnostic
-	for uri, diags in map
-		uri, (diags.move-to sort it.range)
-	then sort it.uri
+	each-diagnostic program, of x
+		ensure map, x.uri ~= x.diagnostic
+	res uri-and-diagnostics[] = for uri, diags in map
+		uri, (sort diags.move-to, it.range)
+	sort res, it.uri
 
 -max-diagnostic-severity diagnostic-severity(a program-with-opt-main)
 	res mut = lint
-	a each-diagnostic of x
-		res max:= x.kind get-diagnostic-severity
+	each-diagnostic a, of x
+		res max:= get-diagnostic-severity x.kind
 	res
 
 -show-parse-diag string(ctx show-ctx, a parse-diag)
@@ -71,7 +72,7 @@ sorted-diagnostics uri-and-diagnostics[](program program-with-opt-main)
 	as parse-diag-equals-left
 		"Expected a destructure to left of '='."
 	as parse-diag-expected
-		a show-parse-diag-expected
+		show-parse-diag-expected a
 	as parse-diag-file-not-utf8
 		"File is not encoded as UTF-8 or has encoding errors."
 	as parse-diag-import-file-type-not-supported
@@ -79,11 +80,11 @@ sorted-diagnostics uri-and-diagnostics[](program program-with-opt-main)
 	as parse-diag-indent-too-much
 		"Indented too far."
 	as parse-diag-indent-wrong
-		"Indentation should be {a expected} (based on first indented line)."
+		"Indentation should be {a.expected} (based on first indented line)."
 	as parse-diag-invalid-string-escape
-		"Invalid escape sequance '{a actual}'"
+		"Invalid escape sequance '{a.actual}'"
 	as parse-diag-line-too-long
-		"Line is {a actual} columns wide; the maximum is {a maximum}."
+		"Line is {a.actual} columns wide; the maximum is {a.maximum}."
 	as parse-diag-list-call-needs-hyphen
 		"Expected a line starting with '- ' or '-- '."
 	as parse-diag-match-case-interpolated
@@ -107,13 +108,13 @@ sorted-diagnostics uri-and-diagnostics[](program program-with-opt-main)
 	as parse-diag-type-unnecessary-parens
 		"Parentheses are unnecessary."
 	as parse-diag-unexpected-character
-		"Unexpected character {a.character.to quoted} (U+{a.character.to to-hex-with-padding 4})."
+		"Unexpected character {a.character.to.quoted} (U+{to-hex-with-padding a.character.to, 4})."
 	as parse-diag-unexpected-operator
-		"Unexpected operator '{a operator}'."
+		"Unexpected operator '{a.operator}'."
 	as parse-diag-unexpected-token
-		a.token describe-token-for-unexpected
+		describe-token-for-unexpected a.token
 	as read-file-diag
-		ctx show-read-file-diag a, ()
+		show-read-file-diag ctx, a, ()
 
 -show string(a parse-diag-needs-block-ctx)
 	match a
@@ -189,80 +190,80 @@ sorted-diagnostics uri-and-diagnostics[](program program-with-opt-main)
 
 -show-read-file-diag string(ctx show-ctx, a read-file-diag, uri uri?)
 	file string = if uri
-		"imported file {ctx show-uri uri}"
+		"imported file {show-uri ctx, uri}"
 	else
 		"this file"
 	match a
 	as not-found
-		"{file to-upper-first} does not exist."
+		"{to-upper-first file} does not exist."
 	as error
 		"There was an error reading {file}."
 	as unknown
 		"The editor is still loading {file}."
 
 -to-upper-first string(a string)
-	iter = a begin
+	iter = a.begin
 	try
-		first = iter take-next
-		first.upper-case ~ (iter slice a.end)
+		first = take-next iter
+		first.upper-case ~ (slice iter, a.end)
 	catch as iterator-out-of-bounds
 		a is ""
 		""
 
 -show-spec-trace string(ctx show-diag-ctx, container type-container, trace fun-decl-and-type-args[])
 	with out in build
-		for i, x in trace with-index
+		for i, x in trace.with-index
 			out ~~= "\n\t"
-			this-container = if i == 0 then container else trace[i - 1] decl
-			out ~~= ctx show-fun-decl-and-type-args this-container, x
+			this-container = if i == 0 then container else trace[i - 1].decl
+			out ~~= show-fun-decl-and-type-args ctx, this-container, x
 
 -show-call-no-match string(ctx show-diag-ctx, a diag-call-no-match)
-	some-candidate-has-correct-arity = a.all-candidates exists of x
+	some-candidate-has-correct-arity = exists a.all-candidates, of x
 		(a.actual-n-type-args == 0 or x.n-type-params == a.actual-n-type-args) and x.arity == a.actual-arity
 
-	if a.all-candidates is-empty
-		ctx show-call-no-candidates a
+	if is-empty a.all-candidates
+		show-call-no-candidates ctx, a
 	elif !some-candidate-has-correct-arity
-		some-candidate-has-correct-n-type-args = a.actual-n-type-args == 0 or a.all-candidates exists of x
+		some-candidate-has-correct-n-type-args = a.actual-n-type-args == 0 or exists a.all-candidates, of x
 			x.n-type-params == 1 or x.n-type-params == a.actual-n-type-args
-		ctx show-call-no-correct-arity a, some-candidate-has-correct-n-type-args
+		show-call-no-correct-arity ctx, a, some-candidate-has-correct-n-type-args
 	else
-		ctx show-call-close-match a
+		show-call-close-match ctx, a
 
 -show-call-no-candidates string(ctx show-diag-ctx, a diag-call-no-match)
 	or-var string = if a.actual-arity == 0
 		"or variable "
-	res string = "There is no function {or-var}named {ctx show-name a.fun-name}."
-	if x = a.actual-arg-types opt-only
-		"{res}\nArgument type: {ctx show-type-quoted (x, a.type-container)}"
+	res string = "There is no function {or-var}named {show-name ctx, a.fun-name}."
+	if x = opt-only a.actual-arg-types
+		"{res}\nArgument type: {show-type-quoted ctx, (x, a.type-container)}"
 	else
 		res
 
 -show-name string(ctx show-diag-ctx, a fun-name)
 	match a
 	as symbol
-		ctx show-name a
+		show-name ctx, a
 	as list-new
 		"'new' or 'list-new'"
 	as named-new
 		"'new' or 'named-new'"
 
 -show-call-no-correct-arity string(ctx show-diag-ctx, a diag-call-no-match, some-candidate-has-correct-n-type-args bool)
-	name = ctx show-name a.fun-name
+	name = show-name ctx, a.fun-name
 	n-args string = if some-candidate-has-correct-n-type-args
-		"{a actual-arity} arguments"
+		"{a.actual-arity} arguments"
 	else
-		"{a actual-n-type-args} type arguments"
-	candidates = ctx show-called-decls a.type-container, a.all-candidates
+		"{a.actual-n-type-args} type arguments"
+	candidates = show-called-decls ctx, a.type-container, a.all-candidates
 	"There are functions named {name}, but none takes {n-args}. Candidates:{candidates}"
 
 -show-call-close-match string(ctx show-diag-ctx, a diag-call-no-match)
 	with out in build
 		out ~~= "There are functions named "
-		out ~~= ctx show-name a.fun-name
+		out ~~= show-name ctx, a.fun-name
 		out ~~= ", but they do not match the "
-		has-ret = a.expected-return-type expected-for-diag-choices
-		has-args = a.actual-arg-types !is-empty
+		has-ret = expected-for-diag-choices a.expected-return-type
+		has-args = !is-empty a.actual-arg-types
 		out ~~= if has-ret
 			if has-args
 				"expected return type and actual argument types"
@@ -272,15 +273,15 @@ sorted-diagnostics uri-and-diagnostics[](program program-with-opt-main)
 			"actual argument types"
 		out ~~= ".\n"
 		if has-ret
-			out ~~= ctx show-expected a.expected-return-type, return
+			out ~~= show-expected ctx, a.expected-return-type, return
 		if has-args
 			out ~~= "\nActual argument types: "
-			out ~~= ", " join for x in a actual-arg-types
-				ctx show-type-quoted (x, a.type-container)
+			out ~~= join ", ", for x in a.actual-arg-types
+				show-type-quoted ctx, (x, a.type-container)
 			if a.actual-arg-types.size < a.actual-arity
 				out ~~= " (Other arguments not checked; gave up early.)"
-		out ~~= "\nCandidates (with {a actual-arity} arguments):"
-		out ~~= ctx show-called-decls a.type-container, a.all-candidates, it.arity == a.actual-arity
+		out ~~= "\nCandidates (with {a.actual-arity} arguments):"
+		out ~~= show-called-decls ctx, a.type-container, a.all-candidates, it.arity == a.actual-arity
 
 # TODO: rename to 'show-diag' --------------------------------------------------------------------------------------------------------
 string-of-diag string(ctx show-diag-ctx, a diag)
@@ -292,15 +293,15 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 	as diag-assignment-not-allowed
 		"Can't assign to this kind of expression."
 	as diag-auto-fun-enum-or-flags-to-wrong-storage
-		name = ctx show-name a.enum-or-flags-type.name
-		kind = a.enum-or-flags-type decl-kind-of-struct
-		actual = ctx show-name a.actual-storage-type.to
-		expected = ctx show-name a.expected-storage-type.to
-		"{kind decl-kind-upper-case} {name} requires {actual}, so it can't convert to {expected}."
+		name = show-name ctx, a.enum-or-flags-type.name
+		kind = decl-kind-of-struct a.enum-or-flags-type
+		actual = show-name ctx, a.actual-storage-type.to
+		expected = show-name ctx, a.expected-storage-type.to
+		"{decl-kind-upper-case kind} {name} requires {actual}, so it can't convert to {expected}."
 	as diag-auto-fun-param-not-simple
 		"An auto fun must have simple parameters (not ignored or destructured)."
 	as diag-auto-fun-spec-corrupt
-		"Spec {ctx show-name a.spec-name} does not have the expected content."
+		"Spec {show-name ctx, a.spec-name} does not have the expected content."
 	as diag-auto-fun-spec-from-wrong-module
 		"Spec for automatic function comes from unexpected module."
 	as diag-auto-fun-type-not-fully-visible
@@ -308,7 +309,7 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 	as diag-auto-fun-wrong-name
 		"Function needs a body. (An automatic function must be named '==', '<=>', or 'to'.)"
 	as diag-auto-fun-wrong-params
-		match a kind
+		match a.kind
 		as compare
 			"'<=>' must take two parameters of the same type."
 		as equals
@@ -318,9 +319,9 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 		as to
 			"'to' must take a single parameter."
 	as diag-auto-fun-wrong-param-type
-		"An automatic function parameter must be a {ctx show-keyword "record"} or {ctx show-keyword "union"} type."
+		"An automatic function parameter must be a {show-keyword ctx, "record"} or {show-keyword ctx, "union"} type."
 	as diag-auto-fun-wrong-return-type
-		match a kind
+		match a.kind
 		as compare
 			"'<=>' must return 'comparison'."
 		as equals
@@ -334,19 +335,21 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 			"\t'to e?(a symbol)' where 'e' is an enum or flags type\n" ~~
 			"\t'to symbol[](a f)' where 'f' is a flags type"
 	as diag-builtin-unsupported
-		"Crow does not implement a builtin {a kind} named {ctx show-name a.name}."
+		"Crow does not implement a builtin {a.kind} named {show-name ctx, a.name}."
 	as diag-call-deprecated
-		"Called a deprecated function {ctx show-fun-decl quoted, a.callee}"
+		"Called a deprecated function {show-fun-decl ctx, quoted, a.callee}"
 	as diag-call-multiple-matches
-		"Cannot choose an overload of {ctx show-name a.fun-name}. Multiple functions match:{ctx show-called-decls a.type-container, a.matches}"
+		"Cannot choose an overload of {show-name ctx, a.fun-name}. Multiple functions match:{show-called-decls ctx, a.type-container, a.matches}"
 	as diag-call-no-match
-		ctx show-call-no-match a
+		show-call-no-match ctx, a
 	as diag-call-no-match-for-interpolate-or-list-new
-		"Did not find a function named '{a name}' returning a {ctx show-type-quoted a.expected-return-type} taking a single array parameter."
+		"Did not find a function named '{a.name}' returning a {show-type-quoted ctx, a.expected-return-type} taking a single array parameter."
 	as diag-call-option-non-option
-		"Expected an option type to the left of '?{a fun-name}', but got {ctx show-type-quoted a.actual}."
+		quote
+			Expected the first argument to '?{a.fun-name}' to be an option type.
+			Actual: {show-type-quoted ctx, a.actual}.
 	as diag-call-should-use-syntax
-		match a kind
+		match a.kind
 		as force
 			"Prefer to write 'x!' instead of 'x.force'."
 		as for-loop
@@ -354,7 +357,7 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 		as list-new
 			"Prefer to write 'x, y' instead of '(x, y) list-new'."
 		as new_
-			match a arity
+			match a.arity
 			as 0
 				"Prefer to write '()' instead of 'new'."
 			as 1
@@ -368,43 +371,43 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 		as with-block
 			"Prefer to write a 'with' block instead of calling 'with-block'."
 	as diag-case-duplicate
-		case-type = ctx show-name a.member.name
-		sum-type = ctx show-name a.sum-type.name
+		case-type = show-name ctx, a.member.name
+		sum-type = show-name ctx, a.sum-type.name
 		"Type {case-type} can't be declared a case of {sum-type} multiple times."
 	as diag-case-invalid-sum-type
-		"'case' requires an 'interface' or 'variant' type, not {ctx show-type-quoted (a.actual, a.member)}."
+		"'case' requires an 'interface' or 'variant' type, not {show-type-quoted ctx, (a.actual, a.member)}."
 	as diag-case-missing-type
 		"'case' needs a type argument. It should be an 'interface' or 'variant' type."
 	as diag-case-type-is-template
-		"{ctx show-name a.case-type.name} can't be a 'case' type because it is a template."
+		"{show-name ctx, a.case-type.name} can't be a 'case' type because it is a template."
 	as diag-catch-else-must-come-last
 		"Only the last 'catch' is allowed to be missing 'as'."
 	as diag-char-literal-must-be-one-char
 		"Value of 'char' type must be a single character."
 	as diag-common-fun-duplicate
-		"Module contains multiple valid {ctx show-name a.name} functions."
+		"Module contains multiple valid {show-name ctx, a.name} functions."
 	as diag-common-fun-missing
-		choices = "\nOr:\n\t" join for sig in a sig-choices
-			ctx show-sig-simple a.dummy-for-context, a.dummy-for-context.name, sig
+		choices = join "\nOr:\n\t", for sig in a.sig-choices
+			show-sig-simple ctx, a.dummy-for-context, a.dummy-for-context.name, sig
 		"Module should have a function:\n\t{choices}"
 	as diag-common-type-missing
-		"Expected to find a type named {a name} in this module."
+		"Expected to find a type named {a.name} in this module."
 	as diag-common-var-missing
-		"Expected to find a {a.var-kind string-of-var-kind-lower-case} named {ctx show-name a.name} in this module."
+		"Expected to find a {string-of-var-kind-lower-case a.var-kind} named {show-name ctx, a.name} in this module."
 	as diag-condition-type
-		"A condition must be a bool or option. Actual: {ctx show-type-quoted a.actual}."
+		"A condition must be a bool or option. Actual: {show-type-quoted ctx, a.actual}."
 	as diag-config-invalid-json
 		"This file has JSON parse errors."
 	as diag-destructure-type-mismatch
-		actual = ctx show-type-quoted a.actual
-		expected string = match t = a expected
+		actual = show-type-quoted ctx, a.actual
+		expected string = match t = a.expected
 		as destructure-expected-tuple
-			"a tuple with {t size} elements"
+			"a tuple with {t.size} elements"
 		as type-with-container
-			"type {ctx show-type-quoted t}"
+			"type {show-type-quoted ctx, t}"
 		"Expected {expected}, but got {actual}."
 	as diag-duplicate-declaration
-		desc string = match a kind
+		desc string = match a.kind
 		as enum-member
 			"Enum member"
 		as flags-member
@@ -421,37 +424,37 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 			"Type parameter"
 		as union-member
 			"Union case type"
-		"{desc} name {ctx show-name a.name} is already used."
+		"{desc} name {show-name ctx, a.name} is already used."
 	as diag-duplicate-exports
-		kind string = match a kind
+		kind string = match a.kind
 		as spec_
 			"specs"
 		as type
 			"types"
-		"There are multiple exported {kind} named {ctx show-name a.name}."
+		"There are multiple exported {kind} named {show-name ctx, a.name}."
 	as diag-duplicate-import-name
-		"{ctx show-name a.name} is imported twice from the same module."
+		"{show-name ctx, a.name} is imported twice from the same module."
 	as diag-duplicate-imports
 		# TODO: use a.kind
-		"The symbol {ctx show-name a.name} appears in multiple modules."
+		"The symbol {show-name ctx, a.name} appears in multiple modules."
 	as diag-flags-value-not-power-of-2
 		"A flags member value must be a power of 2."
 	as diag-empty-enum-or-union
 		"An enum or union type must have at least one member."
 	as diag-enum-value-not-sorted
-		"An enum member value must be greater than the previous value ({a prev-value})."
+		"An enum member value must be greater than the previous value ({a.prev-value})."
 	as diag-expected-type-is-not-a-lambda
-		if e = a expected-type
-			"The expected type at the lambda is {ctx show-type-quoted e}, which is not a lambda type."
+		if e = a.expected-type
+			"The expected type at the lambda is {show-type-quoted ctx, e}, which is not a lambda type."
 		else
 			"There is no expected type at this location; lambdas need an expected type."
 	as diag-extern-body-multiple
 		"This function has multiple 'extern' modifiers, so it's ambiguous which to use for the body."
 	as diag-function-with-signature-not-found
-		return-type = ctx show-type-unquoted (a.return-and-param-types.return-type, a.type-container)
-		params string = ", " join for t in a.return-and-param-types param-types
-			"_ {ctx show-type-unquoted (t, a.type-container)}"
-		"Could not find a function '{a name} {return-type}({params})'."
+		return-type = show-type-unquoted ctx, (a.return-and-param-types.return-type, a.type-container)
+		params string = join ", ", for t in a.return-and-param-types.param-types
+			"_ {show-type-unquoted ctx, (t, a.type-container)}"
+		"Could not find a function '{a.name} {return-type}({params})'."
 	as diag-if-throw
 		"Instead of throwing from a conditional expression, use 'assert' or 'forbid'."
 	as diag-import-file
@@ -461,17 +464,17 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 			"Can't import a '.crow' file as content."
 		as circular-import
 			parts string[] = for uri in a.cycle ~ a.cycle[0]
-				ctx show-uri uri
-			"This is part of a circular import:\n\t{" imports\n\t" join parts}"
+				show-uri ctx, uri
+			"This is part of a circular import:\n\t{join " imports\n\t", parts}"
 		as library-not-configured
-			"Library {ctx show-name a.library-name} is not configured.\n" ~~
+			"Library {show-name ctx, a.library-name} is not configured.\n" ~~
 			"It must be added to \"include\" in 'crow-config.json'."
 		as read-error
-			ctx.show show-read-file-diag a.diag, a.uri
+			show-read-file-diag ctx.show, a.diag, a.uri
 		as relative-import-reaches-past-root
-			"Relative path {a imported} reaches above the root directory."
+			"Relative path {a.imported} reaches above the root directory."
 	as diag-import-refers-to-nothing
-		"Imported name {ctx show-name a.name} does not refer to anything."
+		"Imported name {show-name ctx, a.name} does not refer to anything."
 	as diag-it-identity
 		"'it' may not be appear alone.\n" ~~
 		"(Hint: Only tightly bound expressions are in the 'it' scope.)\n" ~~
@@ -481,60 +484,60 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 	as diag-lambda-cant-infer-param-type
 		"Can't infer the lambda parameter's type."
 	as diag-lambda-closure-purity
-		reason string = if t = a type
-			"of {ctx show-purity a.local-purity} type {ctx show-type-quoted t}"
+		reason string = if t = a.type
+			"of {show-purity ctx, a.local-purity} type {show-type-quoted ctx, t}"
 		else
-			"a {ctx show-keyword "mut"} local"
-		"Can't access {ctx show-name a.local-name} in a {a lambda-kind} lambda because it is {reason}."
+			"a {show-keyword ctx, "mut"} local"
+		"Can't access {show-name ctx, a.local-name} in a {a.lambda-kind} lambda because it is {reason}."
 	as diag-lambda-multiple-match
-		"Multiple lambda types are possible:{ctx show-types-on-lines a.choices}\n" ~~
+		"Multiple lambda types are possible:{show-types-on-lines ctx, a.choices}\n" ~~
 		"Consider explicitly typing the lambda's parameter."
 	as diag-lambda-not-expected
-		match a expected
+		match a.expected
 		as expected-for-diag-infer
 			"Lambda expression needs an expected type."
 		else
 			"The lambda doesn't match the expected type at this location.\n" ~~
-			(ctx show-expected a.expected, lambda)
+			(show-expected ctx, a.expected, lambda)
 	as diag-lambda-type-missing-param-type
 		"Lambda type needs parameter types.\n" ~~
 		"(It is parsed as a destructure, so it needs both parameter names and types.)"
 	as diag-literal-multiple-match
-		types string[] = for type in a types
-			ctx show-struct-inst a.type-container, type
-		"Multiple possible types for literal expression: {", " join types}"
+		types string[] = for type in a.types
+			show-struct-inst ctx, a.type-container, type
+		"Multiple possible types for literal expression: {join ", ", types}"
 	as diag-literal-not-expected
-		match a expected
+		match a.expected
 		as expected-for-diag-infer
 			"Literal expression needs an expected type."
 		else
 			"The literal doesn't match the expected type at this location.\n" ~~
-			(ctx show-expected a.expected, lambda)
+			(show-expected ctx, a.expected, lambda)
 	as diag-literal-overflow
-		"A value of type {ctx show-name a.type.to} must be from {a.type min-value} to {a.type max-value}."
+		"A value of type {show-name ctx, a.type.to} must be from {a.type.min-value} to {a.type.max-value}."
 	as diag-local-not-mutable
-		"Local variable {ctx show-name a.local.name} was not marked 'mut'."
+		"Local variable {show-name ctx, a.local.name} was not marked 'mut'."
 	as diag-loop-break-or-continue-outside-loop
 		keyword symbol = match a
 		as break_
 			"break"
 		as continue_
 			"continue"
-		"{ctx show-keyword keyword} can not appear outside of a {ctx show-keyword "loop"}."
+		"{show-keyword ctx, keyword} can not appear outside of a {show-keyword ctx, "loop"}."
 	as diag-loop-disallowed-body
-		"Loop body cannot be a {ctx show-name a.to} expression."
+		"Loop body cannot be a {show-name ctx, a.to} expression."
 	as diag-loop-without-break
 		"'loop' is missing a 'break'."
 	as diag-main-incompatible-with-target
-		"'main' function can not run on a {ctx show-name a.target.to} target."
+		"'main' function can not run on a {show-name ctx, a.target.to} target."
 	as diag-main-test-missing
 		"There is no 'test' keyword on line {a.expected-line + 1}."
 	as diag-match-case-duplicate
 		desc = match a
 		as symbol
-			ctx show-name a
+			show-name ctx, a
 		as string
-			a quoted
+			quoted a
 		as nat
 			"{a}"
 		as int
@@ -549,10 +552,10 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 		as string-like
 			"To match a string-like type, branches must use identifiers or string literals."
 	as diag-match-case-name-not-in-enum
-		members string[] = for m in a.enum_.body.enum_! members
-			ctx show-name m.name
-		"Enum {ctx show-name a.enum_.name} has no member {a actual}.\n" ~~
-		"This should be one of: {", " join members}."
+		members string[] = for m in a.enum_.body.enum_!.members
+			show-name ctx, m.name
+		"Enum {show-name ctx, a.enum_.name} has no member {a.actual}.\n" ~~
+		"This should be one of: {join ", ", members}."
 	as diag-match-needs-else
 		desc string = match a
 		as integral
@@ -563,55 +566,55 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 			"a variant"
 		"A 'match' on {desc} must have an explicit 'else'."
 	as diag-match-on-non-matchable
-		type = ctx show-type-quoted a.type
+		type = show-type-quoted ctx, a.type
 		"Can only match on an enum, union, variant, integral, or string-like type, not {type}."
 	as diag-match-sum-type-cant-infer-type-args
-		"Can't infer type arguments of {a.member name}."
+		"Can't infer type arguments of {a.member.name}."
 	as diag-match-sum-type-no-member
-		"Type {ctx show-name a.non-member.name} is not a case of {ctx show-type-quoted a.sum-type}."
+		"Type {show-name ctx, a.non-member.name} is not a case of {show-type-quoted ctx, a.sum-type}."
 	as diag-match-unhandled-enum-members
 		handlers string = if a.members.size == 1
 			"handler for enum member"
 		else
 			"handlers for enum members:"
-		members = ", " join for m in a members then ctx show-name m.name
+		members = join ", ", for m in a.members then show-name ctx, m.name
 		"'match' is missing {handlers} {members}."
 	as diag-match-unhandled-union-case-types
 		handlers string = if a.case-types.size == 1
 			"handler for union case type"
 		else
 			"handlers for union case types:"
-		case-types = ", " join for t in a case-types then ctx show-name t.decl.name
+		case-types = join ", ", for t in a.case-types then show-name ctx, t.decl.name
 		"'match' is missing {handlers} {case-types}."
 	as diag-match-unnecessary-else
 		"The 'match' handles every possible case, so the 'else' is unused."
 	as diag-method-impl-visibility
-		type = ctx show-type-quoted (a.sum-type, a.member)
-		fun = ctx show-fun-inst quoted, a.member, a.method-impl
-		"A method of {type} is implemented by {fun}, but it is less visible than {a.member name}."
+		type = show-type-quoted ctx, (a.sum-type, a.member)
+		fun = show-fun-inst ctx, quoted, a.member, a.method-impl
+		"A method of {type} is implemented by {fun}, but it is less visible than {a.member.name}."
 	as diag-modifier-conflict
-		"{ctx show-keyword a.cur-modifier} conflicts with {ctx show-keyword a.prev-modifier}."
+		"{show-keyword ctx, a.cur-modifier} conflicts with {show-keyword ctx, a.prev-modifier}."
 	as diag-modifier-duplicate
-		"Redundant {ctx show-keyword a.modifier}."
+		"Redundant {show-keyword ctx, a.modifier}."
 	as diag-modifier-invalid
-		"{a.decl-kind a-or-an-decl-kind} can't be {ctx show-modifier a.modifier}."
+		"{a-or-an-decl-kind a.decl-kind} can't be {show-modifier ctx, a.modifier}."
 	as diag-modifier-redundant-due-to-decl-kind
-		"{a.decl-kind a-or-an-decl-kind} is already {ctx show-modifier a.modifier} by default."
+		"{a-or-an-decl-kind a.decl-kind} is already {show-modifier ctx, a.modifier} by default."
 	as diag-modifier-type-arg-invalid
-		"{ctx show-keyword a.modifier.name-or-keyword} does not take a type argument in this context."
+		"{show-keyword ctx, a.modifier.name-or-keyword} does not take a type argument in this context."
 	as diag-mut-field-not-allowed
 		"This field is 'mut', so the record must be 'mut'."
 	as diag-named-new-interpolated
 		"Support for an interpolated key in a named-new expression has not yet been implemented."
 	as diag-name-not-found
-		kind string = match a kind
+		kind string = match a.kind
 		as doc-comment-reference
 			"entity"
 		as spec_
 			"spec"
 		as type
 			"type"
-		"There is no {kind} in scope named {ctx show-name a.name}."
+		"There is no {kind} in scope named {show-name ctx, a.name}."
 	as diag-needs-expected-type
 		kind string = match a
 		as interpolated
@@ -624,41 +627,41 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 			"A 'throw' expression"
 		"{kind} needs an expected type."
 	as diag-option-else-left-non-option
-		type = ctx show-type-quoted a.actual-type
+		type = show-type-quoted ctx, a.actual-type
 		"The left side of 'else' should be an option type (or the 'else' is pointless). Actual: {type}"
 	as diag-option-force-non-option
-		type = ctx show-type-quoted a.actual-type
+		type = show-type-quoted ctx, a.actual-type
 		"The argument to '!' should be an option type (or the '!' is pointless). Actual: {type}"
 	as diag-option-or-left-non-option
-		type = ctx show-type-quoted a.actual-type
+		type = show-type-quoted ctx, a.actual-type
 		"The left side of 'or' should be 'bool' or an option type. Actual: {type}"
 	as diag-option-or-right-non-option
-		type = ctx show-type-quoted a.actual-type
+		type = show-type-quoted ctx, a.actual-type
 		"The right side of 'or' is a non-option type {type}. This could be 'else' instead of 'or'."
 	as diag-param-missing-type
 		"This parameter needs a type."
 	as diag-param-mutable
 		"A parameter can't be mutable."
 	as parse-diag
-		ctx.show show-parse-diag a
+		show-parse-diag ctx.show, a
 	as parse-diag-crowd
 		"Parse error in '.crowd' file: Expected {a.expected}."
 	as diag-purity-worse-than-parent
 		# TODO: use different messages for records and unions to make it more clear. -------------------------------------------
-		parent = ctx show-name a.parent.name
-		parent-purity = ctx show-purity a.parent.purity
-		child = ctx show-type-quoted (a.child, a.parent)
-		child-purity = ctx show-purity a.child.best-case-purity
+		parent = show-name ctx, a.parent.name
+		parent-purity = show-purity ctx, a.parent.purity
+		child = show-type-quoted ctx, (a.child, a.parent)
+		child-purity = show-purity ctx, a.child.best-case-purity
 		"Type {parent} has purity {parent-purity}, but member of type {child} has purity {child-purity}."
 	as diag-purity-worse-than-sum-type
-		sum-type-kind = a.sum-type.decl.body.sum-type!.kind show-sum-type-kind-upper-case
-		sum-type-name = ctx show-name a.sum-type.decl.name
-		sum-type-purity = ctx show-purity a.sum-type.purity-range.best-case
-		case-name = ctx show-name a.case_.name
-		case-purity = ctx show-purity a.case_.purity
+		sum-type-kind = show-sum-type-kind-upper-case a.sum-type.decl.body.sum-type!.kind
+		sum-type-name = show-name ctx, a.sum-type.decl.name
+		sum-type-purity = show-purity ctx, a.sum-type.purity-range.best-case
+		case-name = show-name ctx, a.case_.name
+		case-purity = show-purity ctx, a.case_.purity
 		"{sum-type-kind} {sum-type-name} has purity {sum-type-purity}, but case {case-name} has purity {case-purity}."
 	as diag-record-field-needs-type
-		"Record field {ctx show-name a.field-name} needs a type."
+		"Record field {show-name ctx, a.field-name} needs a type."
 	as diag-required-after
 		kind string = match a
 		as assert_ then "'assert'"
@@ -672,33 +675,33 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 	as diag-shared-arg-is-not-lambda
 		"Argument to 'shared' must be a lambda expression."
 	as diag-shared-lambda-type-is-not-shared
-		kind string = match a kind
+		kind string = match a.kind
 		as param-type
 			"parameter"
 		as return-type
 			"return"
-		"'shared' lambda needs a 'shared' {kind} type, but it is {ctx show-type-quoted a.actual}."
+		"'shared' lambda needs a 'shared' {kind} type, but it is {show-type-quoted ctx, a.actual}."
 	as diag-shared-lambda-unused
 		"The lambda does not have anything 'mut' in its closure, so it does not need 'shared'."
 	as diag-shared-not-expected
-		"Expected type is a lambda, but it is not 'shared'.\n{ctx show-expected a.expected, lambda}"
+		"Expected type is a lambda, but it is not 'shared'.\n{show-expected ctx, a.expected, lambda}"
 	as diag-spec-match-multiple
-		name = ctx show-name a.sig-name
-		matches = ctx show-calleds a.type-container, a.matches
-		trace = ctx show-spec-trace a.type-container, a.trace
+		name = show-name ctx, a.sig-name
+		matches = show-calleds ctx, a.type-container, a.matches
+		trace = show-spec-trace ctx, a.type-container, a.trace
 		"Multiple implementations found for spec signature {name}:{matches}\n\tCalling:{trace}"
 	as diag-spec-no-match
-		desc string = match r = a reason
+		desc string = match r = a.reason
 		as spec-builtin-not-satisfied
-			match r kind
+			match r.kind
 			as data_
-				"{ctx show-type-quoted (r.type-args.only, a.type-container)} is not {ctx show-keyword r.kind.to}."
+				"{show-type-quoted ctx, (r.type-args.only, a.type-container)} is not {show-keyword ctx, r.kind.to}."
 			as java
 				"Trying to call a 'java' function. Either mark the calling function as 'java' too, or check 'if java' around to the call."
 			as js
 				"Trying to call a 'js' function. Either mark the calling function as 'js' too, or check 'if js' around to the call."
 			as shared_
-				"{ctx show-type-quoted (r.type-args.only, a.type-container)} is not {ctx show-keyword r.kind.to}."
+				"{show-type-quoted ctx, (r.type-args.only, a.type-container)} is not {show-keyword ctx, r.kind.to}."
 			as summon
 				"Trying to call a 'summon' function, but this function is not 'summon'."
 			as unsafe
@@ -706,34 +709,34 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 					Trying to call an 'unsafe' function.
 					Either put the call inside of 'trusted' or make the calling function 'unsafe'.
 		as spec-cant-infer-type-args
-			"Can't infer type arguments to {ctx show-fun-decl quoted, r.fun}."
+			"Can't infer type arguments to {show-fun-decl ctx, quoted, r.fun}."
 		as spec-impl-not-found
-			sig = r sig-decl
-			show-sig = ctx show-sig quoted, a.type-container, sig.name, sig.return-type, sig.params, r.sig-type
+			sig = r.sig-decl
+			show-sig = show-sig ctx, quoted, a.type-container, sig.name, sig.return-type, sig.params, r.sig-type
 			"No implementation was found for spec signature {show-sig}."
 		as spec-too-deep
 			"Spec instantiation is too deep."
-		if a.trace is-empty
+		if is-empty a.trace
 			desc
 		else
-			"{desc}\n\tCalling:{ctx show-spec-trace a.type-container, a.trace}"
+			"{desc}\n\tCalling:{show-spec-trace ctx, a.type-container, a.trace}"
 	as diag-spec-recursion
-		trace = ", " join for spec_ in a trace
-			ctx show-name spec_.name
+		trace = join ", ", for spec_ in a.trace
+			show-name ctx, spec_.name
 		"Spec's parents tree is too deep.\n\tTrace:{trace}"
 	as diag-spec-use-invalid
-		"{a.decl-kind a-or-an-decl-kind} can't have specs."
+		"{a-or-an-decl-kind a.decl-kind} can't have specs."
 	as diag-string-literal-invalid
 		match a
 		as not-extern-js
 			"Cant' create a 'js-any' value without 'js'."
 	as diag-struct-params-syntax-error
-		match a reason
+		match a.reason
 		as has-params-and-fields
-			kind = a.struct.decl-kind-of-struct a-or-an-decl-kind
+			kind = a-or-an-decl-kind a.struct.decl-kind-of-struct
 			"{kind} can't have both parameter-style and indented fields."
 		as destructure
-			"{a.struct.member-kind-of-struct a-or-an-member-kind} can't use destructuring."
+			"{a-or-an-member-kind a.struct.member-kind-of-struct} can't use destructuring."
 	as diag-sum-type-listed-members-non-union
 		"Only 'union' types support listing case types."
 	as diag-test-missing-body
@@ -741,13 +744,13 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 	as diag-trusted-unused
 		"There is no 'summon' or 'unsafe' code in this expression; you could remove 'trusted'."
 	as diag-tuple-too-big
-		"This tuple has {a actual} elements; the maximum allowed is {a max-allowed}."
+		"This tuple has {a.actual} elements; the maximum allowed is {a.max-allowed}."
 	as diag-type-conflict
-		"{ctx show-expected a.expected, generic}\nActual:{ctx show-type-quoted a.actual}."
+		"{show-expected ctx, a.expected, generic}\nActual:{show-type-quoted ctx, a.actual}."
 	as diag-type-param-cant-have-type-args
 		"Can't provide type arguments to a type parameter."
 	as diag-type-params-unsupported
-		"{a.decl-kind a-or-an-decl-kind} can't have type parameters."
+		"{a-or-an-decl-kind a.decl-kind} can't have type parameters."
 	as diag-type-should-use-syntax
 		match a
 		as array
@@ -777,46 +780,46 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 	as diag-union-member-type-parameter
 		"A type parameter can't be a union member."
 	as diag-unpack-option-must-be-option
-		"Expression to the right of '=' must be an option type. Got {ctx show-type-quoted a.actual}."
+		"Expression to the right of '=' must be an option type. Got {show-type-quoted ctx, a.actual}."
 	as diag-unpack-option-unnecessary
-		unpacked = ctx show-name a.unpacked-name
-		original = ctx show-name a.original-name
-		if case-type = a case-type
+		unpacked = show-name ctx, a.unpacked-name
+		original = show-name ctx, a.original-name
+		if case-type = a.case-type
 			quote
-				'{a unpacked-name} = {a original-name} {case-type}' is unnecessary.
-				Just test for '{a original-name} {case-type}' and use {original} in place of {unpacked}.
-				(It will be converted to {ctx show-name case-type}.)
+				'{a.unpacked-name} = {a.original-name} {case-type}' is unnecessary.
+				Just test for '{a.original-name} {case-type}' and use {original} in place of {unpacked}.
+				(It will be converted to {show-name ctx, case-type}.)
 		else
 			quote
-				Unpacking '{a unpacked-name} = {a original-name}' is unnecessary.
+				Unpacking '{a.unpacked-name} = {a.original-name}' is unnecessary.
 				Just test for {original} and use {original} in place of {unpacked}.
 				(It will be converted to non-optional.)
 	as diag-unused-import
-		kind string = if n = a imported-name
-			"Imported name {ctx show-name n}"
+		kind string = if n = a.imported-name
+			"Imported name {show-name ctx, n}"
 		else
-			"Imported module {ctx show-name a.imported-module.name.to}"
+			"Imported module {show-name ctx, a.imported-module.name.to}"
 		"{kind} is unused."
 	as diag-unused-local
-		reason string = match a kind
+		reason string = match a.kind
 		as completely-unused
 			"is unused"
 		as read-only
 			"is 'mut' but never reassigned"
 		as write-only
 			"is assigned to but never read"
-		"Local {ctx show-name a.local.name} {reason}."
+		"Local {show-name ctx, a.local.name} {reason}."
 	as diag-unused-internal-decl
-		if a is-used-locally
-			"{ctx show-name a.name} is only used locally, could be private."
+		if a.is-used-locally
+			"{show-name ctx, a.name} is only used locally, could be private."
 		else
-			"{ctx show-name a.name} is unused."
+			"{show-name ctx, a.name} is unused."
 	as diag-unused-private-decl
-		"{ctx show-name a.name} is unused."
+		"{show-name ctx, a.name} is unused."
 	as diag-visibility-warning
-		ctx show-visibility-warning a
+		show-visibility-warning ctx, a
 	as diag-wrong-number-type-args
-		"{ctx show-name a.name} expected to get {a n-expected-type-args} type arguments, but got {a n-actual-type-args}."
+		"{show-name ctx, a.name} expected to get {a.n-expected-type-args} type arguments, but got {a.n-actual-type-args}."
 
 -show string(a lambda-kind)
 	match a
@@ -844,7 +847,7 @@ string-of-diag string(ctx show-diag-ctx, a diag)
 		"try"
 
 show-diagnostic string(ctx show-diag-ctx, a uri-and-diagnostic)
-	"{ctx.show show-uri-and-range a.where} {ctx string-of-diag a.kind}"
+	"{show-uri-and-range ctx.show, a.where} {string-of-diag ctx, a.kind}"
 
 -expected-kind enum(generic, lambda, return)
 -== bool(a expected-kind, b expected-kind)
@@ -855,24 +858,24 @@ show-diagnostic string(ctx show-diag-ctx, a uri-and-diagnostic)
 		"type"
 	match a
 	as expected-for-diag-choices
-		if t = a.types opt-only
-			"Expected {type} {ctx show-type-quoted (t, a.type-container)}."
+		if t = opt-only a.types
+			"Expected {type} {show-type-quoted ctx, (t, a.type-container)}."
 		else
-			"Expected one of these {type}s:{ctx show-types-on-lines a}"
+			"Expected one of these {type}s:{show-types-on-lines ctx, a}"
 	as expected-for-diag-infer
 		"This location has no expected {type}."
 	as expected-for-diag-loop
 		"Expected a loop 'break' or 'continue'."
 
 -show-types-on-lines string(ctx show-diag-ctx, choices expected-for-diag-choices)
-	"" join for x in choices types
-		"\n\t{ctx show-type-quoted (x, choices.type-container)}"
+	join for x in choices.types
+		"\n\t{show-type-quoted ctx, (x, choices.type-container)}"
 
 -show-modifier string(ctx show-diag-ctx, kind modifier-keyword)
-	ctx show-name "{kind}"::symbol
+	show-name ctx, "{kind}"::symbol
 
 -decl-kind-of-struct decl-kind(a struct-decl)
-	match a body
+	match a.body
 	as struct-body-bogus then throw unreachable
 	as struct-body-extern-java then throw unreachable
 	as builtin-type then throw unreachable
@@ -883,7 +886,7 @@ show-diagnostic string(ctx show-diag-ctx, a uri-and-diagnostic)
 
 -member-kind enum(enum-member, flags-member, record-field)
 -member-kind-of-struct member-kind(a struct-decl)
-	match a body
+	match a.body
 	as struct-body-bogus then throw unreachable
 	as struct-body-extern-java then throw unreachable
 	as builtin-type then throw unreachable
@@ -964,29 +967,29 @@ show-diagnostic string(ctx show-diag-ctx, a uri-and-diagnostic)
 		"A record field"
 
 -show-visibility-warning string(ctx show-diag-ctx, a diag-visibility-warning)
-	actual string = ctx show-visibility a.actual-visibility
-	default = ctx show-visibility a.default-visibility
+	actual string = show-visibility ctx, a.actual-visibility
+	default = show-visibility ctx, a.default-visibility
 	if a.actual-visibility > a.default-visibility
-		match x = a kind
+		match x = a.kind
 		as visibility-warning-field
-			field = ctx show-name x.field-name
-			record_ = ctx show-name x.record_.name
+			field = show-name ctx, x.field-name
+			record_ = show-name ctx, x.record_.name
 			"Field {field} should not be more visible than record {record_} which is only {default}."
 		as visibility-warning-field-mutability
-			field = ctx show-name x.field-name
+			field = show-name ctx, x.field-name
 			"Field {field} can't have {actual} mutability when the field itself is {default}."
 		as visibility-warning-new
-			"{ctx show-name "new"} function for record {ctx show-name x.record_.name} " ~~
+			"{show-name ctx, "new"} function for record {show-name ctx, x.record_.name} " ~~
 			"should not have greater visibility than {default} (derived from visibility of fields)."
 	else
 		assert a.actual-visibility == a.default-visibility
-		match x = a kind
+		match x = a.kind
 		as visibility-warning-field
-			"Fields of record {ctx show-name x.record_.name} are already {default} by default."
+			"Fields of record {show-name ctx, x.record_.name} are already {default} by default."
 		as visibility-warning-field-mutability
-			"Field {ctx show-name x.field-name} mutability would already be {default} by default."
+			"Field {show-name ctx, x.field-name} mutability would already be {default} by default."
 		as visibility-warning-new
-			"The 'new' function for {ctx show-name x.record_.name} is already " ~~
+			"The 'new' function for {show-name ctx, x.record_.name} is already " ~~
 			"{default} by default (derived from visibility of fields)."
 
 -describe-token-for-unexpected string(a token)
@@ -1194,4 +1197,4 @@ show-diagnostic string(ctx show-diag-ctx, a uri-and-diagnostic)
 		"Unexpected keyword 'with'."
 
 -to-hex-with-padding string(a nat, size nat)
-	"0x{a.to-hex pad-left size, "0"}"
+	"0x{pad-left a.to-hex, size, "0"}"

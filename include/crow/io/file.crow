@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/bits
 	crow/col/mut-slice
@@ -16,21 +17,21 @@ import
 
 +path-already-exists record(path string) exception case
 +show string(a path-already-exists)
-	"Path already exists: {a path}"
+	"Path already exists: {a.path}"
 
 +path-not-found record(path string) exception case
 +show string(a path-not-found)
-	"Path not found: {a path}"
+	"Path not found: {a.path}"
 
 +file-system-error record(path string, description string) exception case
 +show string(a file-system-error)
-	"Error at path {a path}: {a description}"
+	"Error at path {a.path}: {a.description}"
 
 | {true} if anything (like a file or directory) exists at the path.
 +path-exists bool(path string) summon
 	trusted
 	assert java else todo
-	path.to::Path exists ()
+	exists path.to::Path, ()
 
 | {true} if {path} is the path of a directory, or a symlink to a directory.
 | {false} if there is anything else at the path, or nothing at the path.
@@ -52,16 +53,16 @@ import
 +== bool(a path-kind, b path-kind)
 +to symbol(a path-kind)
 +show string(a path-kind)
-	a.to::symbol to
+	a.to::symbol.to
 
 +get-path-kind path-kind(path string) summon
 	trusted
 	assert java else todo
-	p Path = path to
-	assert p exists () else path path-not-found
-	if p isRegularFile ()
+	p Path = path.to
+	assert exists p, () else path-not-found path
+	if isRegularFile p, ()
 		file
-	elif p isDirectory ()
+	elif isDirectory p, ()
 		directory
 	else
 		other
@@ -69,8 +70,8 @@ import
 | Returns all children of the directory {path}, as full paths.
 | Use {names-in-dir} instead if you want just the basenames.
 +paths-in-dir string[](path string) summon
-	for x in path names-in-dir
-		path child-path x
+	for x in names-in-dir path
+		child-path path, x
 
 | Returns the basename of all children of the directory.
 | Does not include ".." or ".".
@@ -79,11 +80,11 @@ import
 	trusted
 	assert java else todo
 	dir File = a.to,
-	files = dir listFiles
-	if files is-null
-		error log "Nothing in {a}?"
-	forbid files is-null else todo
-	files map it.getName.to sort
+	files = listFiles dir
+	if is-null files
+		log error, "Nothing in {a}?"
+	forbid is-null files else todo
+	sort map files, it.getName.to
 
 | Gets the path a symbolic link refers to.
 +read-link string(_ string) summon
@@ -94,82 +95,82 @@ import
 	trusted
 	assert java else todo
 	try
-		_ = link.to createSymbolicLink target.to, ()
+		_ = createSymbolicLink link.to, target.to, ()
 	catch as FileAlreadyExistsException
-		throw link path-already-exists
+		throw path-already-exists link
 
 | Gets the path of the current executable.
 | If this program was built to executable, this will return its path.
 | Otherwise, this will be the path where `crow` is installed.
 +current-executable-path string() summon
-	"/proc/self/exe" read-link
+	read-link "/proc/self/exe"
 
 +not-a-text-file record(path string) exception case
 +show string(a not-a-text-file)
-	"File is not valid UTF-8: {a path}"
+	"File is not valid UTF-8: {a.path}"
 
 | Reads the full contents of the file.
 +read-file string(path string) summon
 	try
-		path.read-file::nat8[] as-string
+		path.read-file::nat8[].as-string
 	catch as unicode-decode-error
-		throw path not-a-text-file
+		throw not-a-text-file path
 
 +copy-file void(from string, to string) summon
 	trusted
 	assert java else todo
-	_ = from.to copy to.to,
+	_ = copy from.to, to.to,
 		- REPLACE_EXISTING.reinterpret-cast::CopyOption
 
 | Writes the full contents of the file as a string.
 | If the file already exists, overwrites it.
 +write-file void(path string, content string) summon
-	path write-file content.to::nat8[]
+	write-file path, content.to::nat8[]
 +write-file void(path string, content nat8[]) summon
 	trusted
 	assert java else todo
-	_ = path.to write content.reinterpret-cast::(int8 mut-slice), ()
+	_ = write path.to, content.reinterpret-cast::(int8 mut-slice), ()
 
 -fs js-any() js
-	trusted "fs" js-import
+	trusted js-import "fs"
 
 +read-file nat8[](path string) summon
 	trusted
 	if java
-		p Path = path to
+		p Path = to path
 		try
-			p.readAllBytes.cast-immutable safe-reinterpret-cast
+			safe-reinterpret-cast cast-immutable readAllBytes p
 		catch as NoSuchFileException
-			throw path path-not-found
+			throw path-not-found path
 	elif js
 		try
-			fs call-property "readFileSync", path.to array-from-buffer
+			array-from-buffer call-property fs, "readFileSync", path.to
 		catch exception
 			code = exception.as-js["code"]
 			throw if code == "ENOENT"
-				path path-not-found
+				path-not-found path
 			else
 				exception
 	else
 		throw todo
 
 -array-from-buffer nat8[](buffer js-any) unsafe, js
-	"Uint8Array".js-global call-property "from", buffer reinterpret-cast
+	reinterpret-cast call-property "Uint8Array".js-global, "from", buffer
 
 -to Path(a string) java
 	trusted
-	a.to get ()
+	get a.to, ()
 
 | Gets the current directory (of the user that ran the program).
 +current-directory string() summon
 	trusted
 	assert java else todo
-	"user.dir".getProperty to
+	getProperty "user.dir" 'to
 
 | If {path} is a directory, calls {f} on each file in the directory and any nested directories.
 | If {path} is a file, calls {f} once.
 +each-child-recursive void(path string, f void mut(path string)) summon
-	path each-child-recursive (of _ then true), f
+	each-child-recursive path, (of _ then true), f
 
 | Like {each-child-recursive}, but calls {filter} on names of directory children
 | and skips them if {filter} returns false.
@@ -178,10 +179,10 @@ import
 	filter bool mut(name string)
 	f void mut(path string)
 do summon
-	if path is-directory
-		for child-name in path names-in-dir
+	if is-directory path
+		for child-name in names-in-dir path
 			if filter[child-name]
-				path child-path child-name each-child-recursive filter, f
+				each-child-recursive (child-path path, child-name), filter, f
 	else
 		f[path]
 
@@ -222,13 +223,13 @@ do summon
 	trusted
 	assert java else todo
 	file File = path.to,
-	ok = file mkdir
+	ok = mkdir file
 	assert ok else todo
 
 | Like 'make-directory', but OK if it already exists.
 +ensure-directory void(path string) summon
 	try
-		path make-directory
+		make-directory path
 	catch x as path-already-exists
 		assert path.get-path-kind == directory else x
 
@@ -237,9 +238,9 @@ do summon
 	trusted
 	assert java else todo
 	try
-		path.to::Path delete
+		delete path.to::Path
 	catch as NoSuchFileException
-		throw path path-not-found
+		throw path-not-found path
 
 | Deletes the directory at {path}. It should be empty.
 +remove-directory void(path string) summon
@@ -250,6 +251,6 @@ do summon
 +with-block[t] t(a temp-file, f t mut(path string)) summon
 	trusted
 	assert java else todo
-	temp = a.prefix.to createTempFile a.suffix.to
-	finally temp.toPath delete
-	f[temp.toPath.toString to]
+	temp = createTempFile a.prefix.to, a.suffix.to
+	finally delete toPath temp
+	f[temp.toPath.toString.to]

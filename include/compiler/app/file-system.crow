@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/col/mut-slice
 	crow/io/file
@@ -51,33 +52,33 @@ import
 
 exit record(exit-code int32) exception case # TODO: I don't think this is needed any more -----------------------------------
 exit exception()
-	1 exit
+	exit 1
 show string(a exit)
-	"Should exit with exit code {a exit-code}"
+	"Should exit with exit code {a.exit-code}"
 
 -path-exists bool(path file-path) summon
 	trusted
 	if java
-		(path.to,)::File exists
+		exists (path.to,)::File
 	elif js
-		fs call-property "existsSync", path.to to
+		call-property fs, "existsSync", path.to 'to
 	else
 		throw todo
 
 -to String(a file-path) java
-	a.to to
+	a.to.to
 
 -to js-any(a file-path) js
-	a.to::string to
+	a.to::string.to
 
 -do-write-file void(path string, content nat8[]) summon
 	trusted
 	if java
 		# TODO: catch exceptions -----------------------------------------------------------------------------------------
-		content2 int8 mut-slice = for x in content then x wrap-to # TODO:PERF do a cast instead since these have the same representation
-		_ = path.to-java-path write content2, ()
+		content2 int8 mut-slice = for x in content then x.wrap-to # TODO:PERF do a cast instead since these have the same representation
+		_ = write path.to-java-path, content2, ()
 	elif js
-		fs call-property "writeFileSync", path.to, content.to to
+		call-property fs, "writeFileSync", path.to, content.to 'to
 	else
 		throw todo
 
@@ -88,41 +89,41 @@ write-file void(path file-path, content string, permissions permissions, overwri
 		()
 	as disallow
 		# TODO: this could be integrated with opening the file! See 'openFileForWrite' in 'fileSystem.d' --------------------------------------
-		forbid path path-exists else path.to path-already-exists
-	path.to do-write-file content.to
-	path set-permissions permissions.user-only
+		forbid path-exists path else path-already-exists path.to
+	do-write-file path.to, content.to
+	set-permissions path, permissions.user-only
 
 -set-permissions void(path file-path, permissions file-permissions) summon
 	trusted
 	if java
-		args = permissions java-permissions
-		values Enum mut-slice = for x in args then x reinterpret-cast
-		perms EnumSet = values.reinterpret-cast::(Object mut-slice).asList.reinterpret-cast::Collection copyOf
-		_ = path.to-java-path setPosixFilePermissions perms.reinterpret-cast # TODO: most reinterpret-casts in this file should be unnecssary
+		args = java-permissions permissions
+		values Enum mut-slice = map args, it.reinterpret-cast
+		perms EnumSet = values.reinterpret-cast::(Object mut-slice).asList.reinterpret-cast::Collection.copyOf
+		_ = setPosixFilePermissions path.to-java-path, perms.reinterpret-cast # TODO: most reinterpret-casts in this file should be unnecssary
 	elif js
-		_ = fs call-property "chmodSync", path.to, permissions.to::nat.to::float.as-js
+		_ = call-property fs, "chmodSync", path.to, permissions.to::nat.to::float.as-js
 	else
 		throw todo
 
 -java-permissions PosixFilePermission[](a file-permissions) summon, java
 	trusted
-	-- if a.user read
+	-- if a.user.read
 		- OWNER_READ
-	-- if a.user write
+	-- if a.user.write
 		- OWNER_WRITE
-	-- if a.user execute
+	-- if a.user.execute
 		- OWNER_EXECUTE
-	-- if a.group read
+	-- if a.group.read
 		- GROUP_READ
-	-- if a.group write
+	-- if a.group.write
 		- GROUP_WRITE
-	-- if a.group execute
+	-- if a.group.execute
 		- GROUP_EXECUTE
-	-- if a.public read
+	-- if a.public.read
 		- OTHERS_READ
-	-- if a.public write
+	-- if a.public.write
 		- OTHERS_WRITE
-	-- if a.public execute
+	-- if a.public.execute
 		- OTHERS_EXECUTE
 
 write-jar void(path file-path, files java-compiled-class[]) summon
@@ -130,58 +131,58 @@ write-jar void(path file-path, files java-compiled-class[]) summon
 	assert java else todo
 	start = perf-now
 	manifest Manifest = ()
-	attr = manifest getMainAttributes
-	_ = attr putValue "Manifest-Version", "1.0"
-	_ = attr putValue "Main-Class", "Main"
+	attr = getMainAttributes manifest
+	_ = putValue attr, "Manifest-Version", "1.0"
+	_ = putValue attr, "Main-Class", "Main"
 	do
 		file-out FileOutputStream = path.to,
-		finally file-out close
+		finally close file-out
 		buf-out BufferedOutputStream = file-out.reinterpret-cast::OutputStream,
 		out-out = buf-out.reinterpret-cast::OutputStream
-		out-out write "#!/usr/bin/java -jar\n"::char8[].to
+		write out-out, "#!/usr/bin/java -jar\n"::char8[].to
 		jar-out JarOutputStream = out-out, manifest
 		for file in files
 			entry JarEntry = file.path.to,
-			jar-out putNextEntry entry.reinterpret-cast::ZipEntry
-			jar-out.reinterpret-cast::OutputStream write file.bytes.safe-reinterpret-cast.cast-mutable
-			jar-out.reinterpret-cast::ZipOutputStream closeEntry
-		jar-out.reinterpret-cast::ZipOutputStream finish
-		buf-out flush
-	path set-permissions all.user-only
-	start end-write-jar
+			putNextEntry jar-out, entry.reinterpret-cast::ZipEntry
+			write jar-out.reinterpret-cast::OutputStream, file.bytes.safe-reinterpret-cast.cast-mutable
+			closeEntry jar-out.reinterpret-cast::ZipOutputStream
+		finish jar-out.reinterpret-cast::ZipOutputStream
+		flush buf-out
+	set-permissions path, all.user-only
+	end-write-jar start
 
 -to int8 mut-slice(a char8[])
-	a map it.wrap-to
+	map a, it.wrap-to
 -wrap-to int8(a char8)
-	a.to::nat8 wrap-to
+	a.to::nat8.wrap-to
 
 # TODO: have this in std- -------------------------------------------------------------------------------------------------------------
 files-in-directory-recursive file-path[](dir-path file-path) summon
-	for* path in dir-path get-paths-in-dir
-		match path get-path-kind
+	for* path in get-paths-in-dir dir-path
+		match get-path-kind path
 		as other
 			()
 		as file
 			- path
 		as directory
-			path files-in-directory-recursive
+			files-in-directory-recursive path
 
 -get-path-kind path-kind(path file-path) summon
 	trusted
 	if java
-		jpath = path to-java-path
-		if jpath isRegularFile ()
+		jpath = to-java-path path
+		if isRegularFile jpath, ()
 			file
-		elif jpath isDirectory ()
+		elif isDirectory jpath, ()
 			directory
 		else
 			other
 	elif js
 		# TODO: handle dir not found exception ------------------------------------------------------------------------------
-		stat = fs call-property "lstatSync", path.to
-		if stat call-property "isDirectory" to
+		stat = call-property fs, "lstatSync", path.to
+		if call-property stat, "isDirectory" 'to
 			directory
-		elif stat call-property "isFile" to
+		elif call-property stat, "isFile" 'to
 			file
 		else
 			other
@@ -191,12 +192,12 @@ files-in-directory-recursive file-path[](dir-path file-path) summon
 get-paths-in-dir file-path[](dir-path file-path) summon
 	trusted
 	if java
-		stream = dir-path.to-java-path list
-		for path in stream toArray
-			path.toString.to must-parse-file-path
+		stream = list to-java-path dir-path
+		for path in toArray stream
+			must-parse-file-path path.toString.to
 	elif js
 		# TODO: handle dir not found exception ------------------------------------------------------------------------------
-		names js-any[] = fs call-property "readdirSync", dir-path.to to
+		names js-any[] = call-property fs, "readdirSync", dir-path.to 'to
 		for name in names
 			dir-path / name.to
 	else
@@ -215,17 +216,17 @@ with-file-reader record(path-to-crow file-path, watch bool)
 file-reader with-file-reader(path-to-crow file-path, watch bool)
 	path-to-crow, watch
 with-block[t] t(a with-file-reader, f t mut(a file-reader)) summon
-	with read-java-class in a.path-to-crow with-java-class-reader
-		watch-service WatchService? = if a watch
+	with read-java-class in with-java-class-reader path-to-crow a
+		watch-service WatchService? = if watch a
 			trusted
 			assert java else todo
-			getDefault::FileSystem newWatchService
+			newWatchService getDefault::FileSystem
 		finally if watch-service
 			trusted
 			assert java
-			watch-service close
+			close watch-service
 		reader file-reader =
-			path-to-crow: a path-to-crow
+			path-to-crow: path-to-crow a
 			watch-service: watch-service
 			watched-files: ()
 			watched-dirs: ()
@@ -235,43 +236,43 @@ with-block[t] t(a with-file-reader, f t mut(a file-reader)) summon
 		f[reader]
 
 -watch-file void(a file-reader, file file-path)
-	guard service = a watch-service
-	guard a.watched-files try-add file
-	dir = file parent!
-	_ = a.watched-dirs ensure dir, of
+	guard service = watch-service a
+	guard try-add a.watched-files, file
+	dir = parent! file
+	_ = ensure a.watched-dirs, dir, of
 		trusted
 		assert java else todo
-		dir.to-java-path register service, (ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY), ()
+		register dir.to-java-path, service, (ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY), ()
 
 | Returns the path of watched files that changed.
 wait-for-change file-path set(a file-reader)
 	trusted
 	assert java else todo
-	assert service = a watch-service
+	assert service = a.watch-service
 	loop
-		key = service take
-		files mut = a take-events key
-		if files is-empty
+		key = take service
+		files mut = take-events a, key
+		if is-empty files
 			continue
 		else
-			while extra = a poll-and-take-events
+			while extra = poll-and-take-events a
 				files |:= extra
 			break files
 
 -poll-and-take-events file-path set?(a file-reader) java
 	trusted
-	polled = a.watch-service! poll
-	unless polled is-null
-		a take-events polled
+	polled = poll a.watch-service!
+	unless is-null polled
+		take-events a, polled
 
 -take-events file-path set(a file-reader, key WatchKey) java
 	trusted
-	watchable = key watchable
-	dir file-path = watchable.reinterpret-cast::Path to # TODO: this is a Java downcast, don't call it 'reinterpret-cast'
-	events = key.pollEvents toArray
-	assert key reset
+	watchable = key.watchable
+	dir file-path = watchable.reinterpret-cast::Path.to # TODO: this is a Java downcast, don't call it 'reinterpret-cast'
+	events = key.pollEvents.toArray
+	assert reset key
 	for* o in events
-		event WatchEvent = o reinterpret-cast
+		event WatchEvent = reinterpret-cast o
 		# TODO: this is a regular Java cast, so maybe don't call it 'reinterpret-cast'? ------------------
 		name string = event.context.reinterpret-cast::Path.toString.to
 		file-path = dir / name
@@ -287,11 +288,11 @@ wait-for-change file-path set(a file-reader)
 		base-jmod = find-java-base-jmod
 		jmods FileSystem mut[file-path] = ()
 		finally for _, fs in jmods
-			fs close
-		f[of path then base-jmod read-java-class path, jmods]
+			close fs
+		f[of path then read-java-class base-jmod, path, jmods]
 	elif js
 		tar-path = a.path-to-crow.parent!.parent! / "site" / "java-classes.tar"
-		tar = tar-path.to.read-file read-entire-tar
+		tar = read-entire-tar read-file tar-path.to
 		f[of path then tar["{path}.class"] else not-found]
 	else
 		throw todo
@@ -302,53 +303,53 @@ files-in-directory-recursive file-path[](a file-reader, root file-path)
 -find-java-base-jmod file-path() summon
 	trusted
 	if java
-		"java.base" path-to-jmod
+		path-to-jmod "java.base"
 	elif js
-		"/usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod" must-parse-file-path # TODO: JS code to find this
+		must-parse-file-path "/usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod" # TODO: JS code to find this
 	else
 		throw todo
 
 -path-to-jmod file-path(jmod-name string) unsafe, summon, java
-	java-home string = "java.home".getProperty to
-	"{java-home}/jmods/{jmod-name}.jmod" must-parse-file-path
+	java-home string = "java.home".getProperty.to
+	must-parse-file-path "{java-home}/jmods/{jmod-name}.jmod"
 
 -read-java-class read-file-result(base-jmod file-path, class_ path, jmods FileSystem mut[file-path]) summon, java
 	trusted
 	# TODO: hax. Use a better method to determine which jmod the class belongs to -------------------------------------------------------------------
-	jmod = if class_.to::string starts-with "com/sun/"
-		"jdk.httpserver" path-to-jmod
+	jmod = if starts-with class_.to::string, "com/sun/"
+		path-to-jmod "jdk.httpserver"
 	else
 		base-jmod
-	file-system = jmods ensure jmod, of
-		"jar:file://{jmod}".create newFileSystem emptyMap
-	path = file-system getPath "classes/{class_}.class", ()
-	path.readAllBytes.cast-immutable.safe-reinterpret-cast::nat8[] to
+	file-system = ensure jmods, jmod, of
+		newFileSystem "jar:file://{jmod}".create, emptyMap
+	path = getPath file-system, "classes/{class_}.class", ()
+	path.readAllBytes.cast-immutable.safe-reinterpret-cast::nat8[].to
 
 try-read-file read-file-result(a file-reader, uri uri)
-	if path = uri as-java-uri
-		a try-read-java-class path
-	elif uri uri-is-file # TODO: 'is-as' is not as good as 'as' returning an option -----------------------------------------------------------------
-		file = uri as-file-path
-		a watch-file file
-		a.read-file-inner[file to]
+	if path = as-java-uri uri
+		try-read-java-class a, path
+	elif uri-is-file uri # TODO: 'is-as' is not as good as 'as' returning an option -----------------------------------------------------------------
+		file = as-file-path uri
+		watch-file a, file
+		a.read-file-inner[file.to]
 	else
 		not-found
 
 try-read-java-class read-file-result(a file-reader, path path)
 	if path.to::symbol == "CrowClassLoader"
-		crow string = a.path-to-crow.parent!.parent! to
+		crow string = a.path-to-crow.parent!.parent!.to
 		full-path string = "{crow}/include/compiler/backend/java/lib/CrowClassLoader.class"
 		a.read-file-inner[full-path]
 	else
 		start = perf-now
-		finally start end-read-file
+		finally end-read-file start
 		a.read-java-class[path]
 
 -read-file-inner read-file-result(path string) summon
 	start = perf-now
-	finally start end-read-file
+	finally end-read-file start
 	try
-		path.read-file to
+		read-file path 'to
 	catch as path-not-found
 		not-found
 	catch as file-system-error
@@ -356,33 +357,33 @@ try-read-java-class read-file-result(a file-reader, path path)
 
 cwd file-path() summon
 	trusted
-	if java
-		"".to-java-path.toAbsolutePath.toString.to must-parse-file-path
+	must-parse-file-path if java
+		"".to-java-path.toAbsolutePath.toString.to
 	elif js
-		(process call-property "cwd" to) must-parse-file-path
+		call-property process, "cwd" 'to
 	else
 		throw todo
 
 -process js-any() js
-	trusted "process" js-global
+	trusted js-global "process"
 
 -fs js-any() js
-	trusted "fs" js-import
+	trusted js-import "fs"
 
 this-executable file-path() summon
 	trusted
 	if java
 		class_ = "Crow".forName
-		path = class_.getProtectionDomain.getCodeSource.getLocation.getPath decode "UTF-8"
-		path.to must-parse-file-path
+		path = class_.getProtectionDomain.getCodeSource.getLocation.getPath
+		must-parse-file-path (decode path, "UTF-8").to
 	elif js
-		process["argv"]["1"].to must-parse-file-path
+		must-parse-file-path process["argv"]["1"].to
 	else
 		throw todo
 
 -to-java-path Path(a file-path) java
-	a.to::string to-java-path
+	to-java-path a.to::string
 -to-java-path Path(a string) java
-	trusted a.to get ()
+	trusted get a.to, ()
 -to file-path(a Path) java
-	(trusted a toString).to must-parse-file-path
+	must-parse-file-path (trusted a.toString).to

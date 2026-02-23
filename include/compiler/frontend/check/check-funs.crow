@@ -1,3 +1,4 @@
+use-prefix
 import
 	../../../crow/col/experimental/object-memoizer
 	../../model/ast
@@ -28,16 +29,18 @@ check-funs funs-and-map
 	asts fun-decl-ast[]
 	test-asts test-ast[]
 do
-	funs = ctx check-funs-initial types, structs, vars, file-imports, file-exports, asts
+	funs = check-funs-initial ctx, types, structs, vars, file-imports, file-exports, asts
 	assert funs.size >= asts.size
-	funs-map funs-map = funs to
-	ctx check-method-impls funs-map, structs
-	ctx check-funs-with-asts types, funs-map, funs[0 .. asts.size], asts
-	for i, f in file-imports with-index
-		funs[asts.size + i] set-file-import-function-body f
-	for i, f in file-exports with-index
-		funs[asts.size + file-imports.size + i] set-file-import-function-body f
-	funs, (ctx check-tests types, funs-map, test-asts), funs-map
+	funs-map funs-map = funs.to
+	check-method-impls ctx, funs-map, structs
+	check-funs-with-asts ctx, types, funs-map, funs[0 .. asts.size], asts
+	for i, f in with-index file-imports
+		set-file-import-function-body funs[asts.size + i], f
+	for i, f in with-index file-exports
+		set-file-import-function-body funs[asts.size + file-imports.size + i], f
+	funs: funs
+	tests: check-tests ctx, types, funs-map, test-asts
+	funs-map: funs-map
 
 -check-funs-initial fun-decl[]
 	ctx check-ctx
@@ -48,46 +51,46 @@ do
 	file-exports import-or-export-file[]
 	asts fun-decl-ast[]
 do
-	common-types = types common-types
+	common-types = types.common-types
 	with out in build
 		for fun-ast in asts
-			out ~= ctx check-fun types, fun-ast
+			out ~= check-fun ctx, types, fun-ast
 		for f in file-imports
-			out ~= ctx fun-decl-for-file-import-or-export common-types, f, private
+			out ~= fun-decl-for-file-import-or-export ctx, common-types, f, private
 		for f in file-exports
-			out ~= ctx fun-decl-for-file-import-or-export common-types, f, public
+			out ~= fun-decl-for-file-import-or-export ctx, common-types, f, public
 		for struct in structs
-			ctx add-funs-for-struct out, common-types, struct
+			add-funs-for-struct ctx, out, common-types, struct
 		for var in vars
-			ctx add-funs-for-var out, common-types, var
+			add-funs-for-var ctx, out, common-types, var
 
 -check-fun fun-decl(ctx check-ctx, types types-and-specs, fun-ast fun-decl-ast)
 	fun fun-decl =
-		hash: ctx next-hash
+		hash: next-hash ctx
 		source: fun-ast
-		visibility: fun-ast.visibility visibility-from-explicit-top-level
-		n-type-params: fun-ast.type-params size
+		visibility: visibility-from-explicit-top-level fun-ast.visibility
+		n-type-params: fun-ast.type-params.size
 		return-type: bogus-type
 		params: ()
-		specs: ctx check-fun-modifiers types, fun-ast.type-params, fun-ast.modifiers
+		specs: check-fun-modifiers ctx, types, fun-ast.type-params, fun-ast.modifiers
 		doc-comment-references: ()
 		body: fun-body-uninitialized
-	ctx check-type-params fun-ast.type-params
-	return-type, params = ctx check-return-type-and-params types.types, fun, fun-ast.return-type, fun-ast.params, fun-ast.type-params
+	check-type-params ctx, fun-ast.type-params
+	return-type, params = check-return-type-and-params ctx, types.types, fun, fun-ast.return-type, fun-ast.params, fun-ast.type-params
 	fun.return-type := return-type
 	fun.params := params
-	param-types type[] = params map it.type
+	param-types type[] = map params, it.type
 	fun.param-types := param-types
-	match x = fun insts
+	match insts = fun.insts
 	as fun-inst
-		x.return-type := return-type
-		x.param-types := param-types
+		insts.return-type := return-type
+		insts.param-types := param-types
 	as object-memoizer
 		()
 	fun
 
 -set-file-import-function-body void(fun fun-decl, a import-or-export-file)
-	fun.body := a.source.kind.import-file-ast!.type fun-body-file-import a.content
+	fun.body := fun-body-file-import a.source.kind.import-file-ast!.type, a.content
 
 -fun-decl-for-file-import-or-export fun-decl
 	ctx check-ctx
@@ -95,12 +98,12 @@ do
 	a import-or-export-file
 	visibility visibility
 do
-	ast = a.source.kind import-file-ast!
-	hash: ctx next-hash
-	source: ctx.cur-uri fun-source-file-import a.source
+	ast = a.source.kind.import-file-ast!
+	hash: next-hash ctx
+	source: fun-source-file-import ctx.cur-uri, a.source
 	visibility: visibility
 	n-type-params: 0
-	return-type: common-types type-for-file-import ast.type
+	return-type: type-for-file-import common-types, ast.type
 	params: ()
 	specs: ()
 	doc-comment-references: ()
@@ -109,9 +112,9 @@ do
 -type-for-file-import type(common-types common-types, type import-file-type)
 	match type
 	as nat8-array
-		common-types nat8-array
+		common-types.nat8-array
 	as string
-		common-types string
+		common-types.string
 
 -check-fun-modifiers specs
 	ctx check-ctx
@@ -119,15 +122,14 @@ do
 	type-params-scope type-params
 	asts modifier-ast[]
 do
-	with out in build
+	get-or-add-specs with out in build
 		for ast in asts
 			match ast
 			as modifier-keyword-ast
-				ctx add-diag ast.keyword-range, do ast.keyword diag-modifier-invalid function_
+				add-diag ctx, ast.keyword-range, diag-modifier-invalid ast.keyword, function_
 			as spec-use-ast
-				if inst = ctx spec-from-ast types, type-params-scope, ast, no-delay-spec-insts
+				if inst = spec-from-ast ctx, types, type-params-scope, ast, no-delay-spec-insts
 					out ~= inst
-	then get-or-add-specs
 
 -check-tests test_[]
 	ctx check-ctx
@@ -135,16 +137,16 @@ do
 	funs-map funs-map
 	test-asts test-ast[]
 do
-	void = types.common-types void
+	void = types.common-types.void
 	for ast in test-asts
-		specs = ctx check-fun-modifiers types, (), ast.modifiers
-		if specs.instantiated-sigs !is-empty
-			ctx add-diag ast.keyword-range, test_.diag-spec-use-invalid
-		test_ test_ = ctx.next-hash, ast, ctx.cur-uri, specs, (() bogus-expr void), ()
-		if body = ast body
-			test_.body := ctx check-fun-or-test-body types, funs-map, test_, void, (), body, ()
+		specs = check-fun-modifiers ctx, types, (), ast.modifiers
+		if !is-empty specs.instantiated-sigs
+			add-diag ctx, ast.keyword-range, test_.diag-spec-use-invalid
+		test_ test_ = ctx.next-hash, ast, ctx.cur-uri, specs, (bogus-expr (), void), ()
+		if body = ast.body
+			test_.body := check-fun-or-test-body ctx, types, funs-map, test_, void, (), body, ()
 		else
-			ctx add-diag ast.range, diag-test-missing-body
+			add-diag ctx, ast.range, diag-test-missing-body
 		test_
 
 -check-funs-with-asts void
@@ -157,10 +159,10 @@ do
 	for i in 0::nat .. asts.size
 		fun = funs-with-asts[i]
 		fun-ast = asts[i]
-		guard fun.body fun-body-uninitialized
-		fun.body := if fun.return-type is-bogus
+		guard fun.body.fun-body-uninitialized
+		fun.body := if is-bogus fun.return-type
 			fun-body-bogus
-		elif body = fun-ast body
-			ctx check-fun-or-test-body types, funs-map, fun, fun.return-type, fun.params, body, () to
+		elif body = fun-ast.body
+			check-fun-or-test-body ctx, types, funs-map, fun, fun.return-type, fun.params, body, () 'to
 		else
-			ctx check-auto-fun types.common-types, types.specs-map, funs-map, fun
+			check-auto-fun ctx, types.common-types, types.specs-map, funs-map, fun

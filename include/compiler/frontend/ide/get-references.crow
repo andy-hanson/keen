@@ -1,3 +1,4 @@
+use-prefix
 import
 	../../lib/lsp/lsp-types
 	../../model/ast
@@ -10,46 +11,45 @@ import
 	./position
 
 get-document-highlights-for-position document-highlight-result?(program program, pos position)
-	uri = pos.module uri
-	highlights document-highlight[] = for* x in program get-references-for-position pos
+	uri = pos.module.uri
+	highlights document-highlight[] = for* x in get-references-for-position program, pos
 		if x.uri == uri
 			- x.range, Read
 	uri: uri
-	highlights: highlights sort it.range.start
+	highlights: sort highlights, it.range.start
 
 get-references-for-position uri-and-line-and-character-range[](program program, pos position)
-	guard target = pos target-for-position
-	lcgs = program line-and-character-getters
-	with out in build
-		pos.module.uri definition-for-target target, of where
+	guard target = pos.target-for-position
+	lcgs = program.line-and-character-getters
+	sort with out in build
+		definition-for-target pos.module.uri, target, of where
 			out ~= lcgs[where]
 		match target
 		as position-imported-name
 			# TODO: Walk everything in this module. If it matches the name and comes from this module, count it as a reference.
 			throw todo
 		as position-local
-			for ref in target references-for-local
+			for ref in references-for-local target
 				out ~= lcgs[pos.module.uri, ref]
 		as loop-target
-			for ref in target.loop_ references-for-loop
+			for ref in references-for-loop target.loop_
 				out ~= lcgs[pos.module.uri, ref]
 		as crow-module
-			for ref in program references-for-module target
+			for ref in references-for-module program, target
 				out ~= lcgs[ref]
 		as type-param-with-container
-			program.common-types walk-any-decl target.container, of where, _, what
+			walk-any-decl program.common-types, target.container, of where, _, what
 				guard what.type-param-index == target.type-param
 				out ~= lcgs[pos.module.uri, where]
 		else
-			program walk-program of where, _, thing
-				guard thing references target
+			walk-program program, of where, _, thing
+				guard references thing, target
 				out ~= lcgs[where]
-	then sort
 
 -references-for-module uri-and-range[](program program, module crow-module)
 	with out in build
-		for _, importer in program all-modules
-			importer zip-ast-and-module-imports of ast, imported
+		for _, importer in all-modules program
+			zip-ast-and-module-imports importer, of ast, imported
 				guard imported.crow-module == module
 				out ~= importer.uri, ast.range
 
@@ -76,7 +76,7 @@ get-references-for-position uri-and-line-and-character-range[](program program, 
 	as record-field
 		match ref
 		as fun-decl
-			match body = ref body
+			match body = ref.body
 			as record-field-get
 				body.field == target
 			as record-field-set
@@ -101,7 +101,7 @@ get-references-for-position uri-and-line-and-character-range[](program program, 
 	as var-decl
 		match ref
 		as fun-decl
-			match body = ref body
+			match body = ref.body
 			as var-get
 				body.var == target
 			as var-set
@@ -114,22 +114,22 @@ get-references-for-position uri-and-line-and-character-range[](program program, 
 			()
 
 -references-for-local source-range[](a position-local)
-	guard container, body = a.container container-and-body
+	guard container, body = a.container.container-and-body
 	with out in build
-		container.doc-comment walk-doc-comment of where, _, ref
-			guard ref local
+		walk-doc-comment container.doc-comment, of where, _, ref
+			guard ref.local
 			guard ref.local-must-have-name-range == a.local.local-must-have-name-range
 			out ~= where
 		# Deduplicate the 'local-get' and 'local-set' in `x +:= 1`
 		seen pos mut-set = ()
-		body each-descendent-expr-including of x
-			guard ref = x expr-local-reference
-			guard ref.local == a.local and seen try-add x.start
-			out ~= ref name-range
+		each-descendent-expr-including body, of x
+			guard ref = x.expr-local-reference
+			guard ref.local == a.local and try-add seen, x.start
+			out ~= ref.name-range
 -container-and-body (expr-container, expr)?(a local-container)
 	match a
 	as fun-decl
-		if e = a.body expr
+		if e = a.body.expr
 			a, e
 	as test_
 		a, a.body.expr
@@ -154,11 +154,11 @@ get-references-for-position uri-and-line-and-character-range[](program program, 
 
 -references-for-loop source-range[](loop_ loop-expr)
 	with out in build
-		loop_ each-descendent-expr-excluding of child
+		each-descendent-expr-excluding loop_, of child
 			match child
 			as loop-break-expr
-				out ~= child keyword-range
+				out ~= child.keyword-range
 			as loop-continue-expr
-				out ~= child range
+				out ~= child.range
 			else
 				()

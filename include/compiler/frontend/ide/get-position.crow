@@ -1,3 +1,4 @@
+use-prefix
 import
 	../../frontend/parse/lex-token
 	../../model/ast
@@ -17,16 +18,16 @@ get-position position?(program program, where uri-line-and-character, pos-kind g
 	as exact
 		pos
 	as after
-		program.file-content-getters[where uri] walk-backwards-for-position pos
+		walk-backwards-for-position program.file-content-getters[where.uri], pos
 	ctx ctx = program.available-types,
-	module = program module-at-uri where.uri
-	if kind = ctx get-position-kind module, pos-adjusted, pos-kind
+	module = module-at-uri program, where.uri
+	if kind = get-position-kind ctx, module, pos-adjusted, pos-kind
 		module, kind
 
 -has-pos bool(range source-range, pos pos)
 	range.start <= pos and pos <= range.end
 -opt-has-pos bool(range source-range?, pos pos)
-	(range else ()) has-pos pos
+	range and has-pos range, pos
 
 -ctx record
 	available-types available-types
@@ -34,40 +35,40 @@ get-position position?(program program, where uri-line-and-character, pos-kind g
 -get-position-kind position-kind?(ctx ctx, module crow-module, pos pos, pos-kind get-position-kind)
 	# module.imports position-in-imports-or-exports pos or ---------------------------------------------------------------------------
 	# module.re-exports position-in-imports-or-exports pos or -------------------------------------------------------------------------
-	module position-in-doc-comment pos or
-	module.aliases first (of x then x position-in-alias pos) or
-	module.structs first (of x then x position-in-struct pos) or
-	module.vars first (of x then x position-in-var pos) or
-	module.specs first (of x then x position-in-spec pos) or
-	module.funs first (of x then ctx position-in-fun x, pos, pos-kind) or
-	module.tests first (of x then ctx position-in-test x, pos, pos-kind) or
+	position-in-doc-comment module, pos or
+	first module.aliases, (of x then position-in-alias x, pos) or
+	first module.structs, (of x then position-in-struct x, pos) or
+	first module.vars, (of x then position-in-var x, pos) or
+	first module.specs, (of x then position-in-spec x, pos) or
+	first module.funs, (of x then position-in-fun ctx, x, pos, pos-kind) or
+	first module.tests, (of x then position-in-test ctx, x, pos, pos-kind) or
 	if pos == 0 then position-module # We need a definition at position 0, because inlay hints for "Used by" have that as their location.
 
 -position-in-doc-comment position-kind?(a doc-comment-container, pos pos)
-	if index = a.doc-comment.ast.references find-index of x then x.range has-pos pos
-		a position-doc-ref a.doc-comment.references[index]
+	if index = find-index a.doc-comment.ast.references, of x then has-pos x.range, pos
+		position-doc-ref a, a.doc-comment.references[index]
 
 -position-in-fun position-kind?(ctx ctx, a fun-decl, pos pos, pos-kind get-position-kind)
-	guard ast = a.source fun-decl-ast
-	a position-in-decl pos, of
-		a position-in-visibility ast.visibility, pos or
-		(if ast.name.range has-pos pos then a) or
-		a position-in-type-params ast.type-params, pos or
-		a position-in-type a.return-type, ast.return-type, pos or
-		a position-in-params a.params, ast.params, pos or
-		a position-in-modifiers a.specs, ast.modifiers, pos or
-		if expr = a.body expr
-			ctx position-in-expr a, expr, pos, pos-kind
+	guard ast = a.source.fun-decl-ast
+	position-in-decl a, pos, of
+		position-in-visibility a, ast.visibility, pos or
+		(if has-pos ast.name.range, pos then a) or
+		position-in-type-params a, ast.type-params, pos or
+		position-in-type a, a.return-type, ast.return-type, pos or
+		position-in-params a, a.params, ast.params, pos or
+		position-in-modifiers a, a.specs, ast.modifiers, pos or
+		if expr = a.body.expr
+			position-in-expr ctx, a, expr, pos, pos-kind
 
 -position-in-test position-kind?(ctx ctx, a test_, pos pos, pos-kind get-position-kind)
-	if a.ast.keyword-range has-pos pos
+	if has-pos a.ast.keyword-range, pos
 		a
 	else
-		ctx position-in-expr a, a.body.expr, pos, pos-kind
+		position-in-expr ctx, a, a.body.expr, pos, pos-kind
 
 -position-in-params position-kind?(container local-container, params destructure[], asts destructure-ast[], pos pos)
-	params zip asts first of x, y
-		container position-in-destructure x, y, pos
+	first (zip params, asts), of x, y
+		position-in-destructure container, x, y, pos
 
 -position-in-modifiers position-kind?
 	container type-container
@@ -75,8 +76,8 @@ get-position position?(program program, where uri-line-and-character, pos-kind g
 	modifiers modifier-ast[]
 	pos pos
 do
-	if index = modifiers find-index of x then x.range has-pos pos
-		container position-in-modifier specs, modifiers, index, pos
+	if index = find-index modifiers, of x then has-pos x.range, pos
+		position-in-modifier container, specs, modifiers, index, pos
 
 -position-in-modifier position-kind?
 	container type-container
@@ -87,23 +88,23 @@ do
 do
 	match ast = modifiers[index]
 	as modifier-keyword-ast
-		container position-modifier ast.keyword
+		position-modifier container, ast.keyword
 	as spec-use-ast
-		guard specs and specs.inner.size == (modifiers count !!it.spec-use-ast)
+		guard specs and specs.inner.size == (count modifiers, !!it.spec-use-ast)
 		# Find the corresponding spec
-		spec-index = modifiers[0 .. index] count !!it.spec-use-ast
+		spec-index = count modifiers[0 .. index], !!it.spec-use-ast
 		spec_ = specs.inner[spec-index]
-		if res = spec_.type-args find-in-packed-type-args ast.type-arg, of type, type-ast then container position-in-type type, type-ast, pos
+		if res = find-in-packed-type-args spec_.type-args, ast.type-arg, of type, type-ast then position-in-type container, type, type-ast, pos
 			res
-		elif ast.name-range has-pos pos
-			container position-spec-use spec_
+		elif has-pos ast.name-range, pos
+			position-spec-use container, spec_
 
 -position-in-opt-local position-kind?(ctx expr-ctx, local local?, ast match-ast, pos pos)
-	if local and ast.local!.range has-pos pos
-		ctx.container.to position-local local
+	if local and has-pos ast.local!.range, pos
+		position-local ctx.container.to, local
 
 -position-in-destructure position-kind?(ctx expr-ctx, a destructure, ast destructure-ast, pos pos)
-	ctx.container.to position-in-destructure a, ast, pos
+	position-in-destructure ctx.container.to, a, ast, pos
 -position-in-destructure position-kind?
 	container local-container
 	a destructure
@@ -112,35 +113,35 @@ do
 do
 	match a
 	as destructure-ignore
-		match ast = a source
+		match ast = a.source
 		as catch-ast
 			()
 		as struct-decl
 			()
 		as ignore-destructure-ast
-			if ast.underscore-range has-pos pos
+			if has-pos ast.underscore-range, pos
 				underscore::position-keyword
-			elif t = ast type
-				container.to position-in-type a.type, t, pos
+			elif t = ast.type
+				position-in-type container.to, a.type, t, pos
 		as void-destructure-ast
 			()
 	as local
 		match destructure-ast
 		as name-and-range
-			if destructure-ast.range has-pos pos
-				container position-local a
+			if has-pos destructure-ast.range, pos
+				position-local container, a
 		as single-destructure-ast
-			if destructure-ast.name-range has-pos pos
-				container position-local a
-			elif destructure-ast.mut-range opt-has-pos pos
+			if has-pos destructure-ast.name-range, pos
+				position-local container, a
+			elif opt-has-pos destructure-ast.mut-range, pos
 				local-mut::position-keyword
-			elif t = destructure-ast type
-				container.to position-in-type a.type, t, pos
+			elif t = destructure-ast.type
+				position-in-type container.to, a.type, t, pos
 		else
 			throw unreachable
 	as destructure-split
-		a.parts zip destructure-ast.array! first of part, part-ast
-			container position-in-destructure part, part-ast, pos
+		first (zip a.parts, destructure-ast.array!), of part, part-ast
+			position-in-destructure container, part, part-ast, pos
 
 ###
 -position-in-imports-or-exports position-kind?(imports-or-exports import-or-export[], pos pos) --------------------------------------
@@ -168,15 +169,15 @@ do
 ###
 
 -position-in-decl position-kind?(a any-decl, pos pos, f position-kind? mut())
-	a position-in-doc-comment pos or if a.range.range has-pos pos
+	position-in-doc-comment a, pos or if has-pos a.range.range, pos
 		f[]
 
 -position-in-var position-kind?(a var-decl, pos pos)
-	a position-in-decl pos, of
-		a position-in-visibility a.ast.visibility, pos or
-		(if a.name-range.range has-pos pos then a) or
-		(if a.ast.keyword-range has-pos pos then a.kind to) or
-		a position-in-type a.type, a.ast.type, pos
+	position-in-decl a, pos, of
+		position-in-visibility a, a.ast.visibility, pos or
+		(if has-pos a.name-range.range, pos then a) or
+		(if has-pos a.ast.keyword-range, pos then a.kind.to) or
+		position-in-type a, a.type, a.ast.type, pos
 -to position-keyword(a var-kind)
 	match a
 	as global_
@@ -185,28 +186,28 @@ do
 		thread-local_
 
 -position-in-alias position-kind?(a struct-alias, pos pos)
-	a position-in-decl pos, of
-		a position-in-visibility a.ast.visibility, pos or
-		(if a.name-range.range has-pos pos then a) or
-		(if a.ast.keyword-range has-pos pos then alias_) or
-		a position-in-type a.target, a.ast.target, pos
+	position-in-decl a, pos, of
+		position-in-visibility a, a.ast.visibility, pos or
+		(if has-pos a.name-range.range, pos then a) or
+		(if has-pos a.ast.keyword-range, pos then alias_) or
+		position-in-type a, a.target, a.ast.target, pos
 
 -position-in-struct position-kind?(a struct-decl, pos pos)
-	match ast = a source
+	match ast = a.source
 	as struct-decl-ast
-		a position-in-struct ast, pos
+		position-in-struct a, ast, pos
 	as struct-decl-source-bogus
 		()
 	as struct-decl-source-java
 		throw unreachable
 -position-in-struct position-kind?(a struct-decl, ast struct-decl-ast, pos pos)
-	a position-in-decl pos, of
-		a position-in-visibility ast.visibility, pos or
-		(if a.name-range.range has-pos pos then a) or
-		(if ast.keyword-range has-pos pos then ast.body keyword-kind-for-struct-body) or
-		a position-in-type-params ast.type-params, pos or
-		a position-in-modifiers (), ast.modifiers, pos or
-		a position-in-struct-body ast.body, pos
+	position-in-decl a, pos, of
+		position-in-visibility a, ast.visibility, pos or
+		(if has-pos a.name-range.range, pos then a) or
+		(if has-pos ast.keyword-range, pos then keyword-kind-for-struct-body ast.body) or
+		position-in-type-params a, ast.type-params, pos or
+		position-in-modifiers a, (), ast.modifiers, pos or
+		position-in-struct-body a, ast.body, pos
 -keyword-kind-for-struct-body position-keyword(a struct-body-ast)
 	match a
 	as builtin-type-ast
@@ -218,7 +219,7 @@ do
 	as record-ast
 		record_
 	as sum-type-ast
-		a.kind to
+		a.kind.to
 -to position-keyword(a sum-type-kind)
 	match a
 	as interface_
@@ -231,34 +232,34 @@ do
 		variant_
 
 -position-in-visibility position-kind?(a visibility-container, visibility visibility-and-range?, pos pos)
-	if visibility and visibility.range has-pos pos
-		a position-visibility-mark
+	if visibility and has-pos visibility.range, pos
+		position-visibility-mark a
 
 -position-in-type-params position-kind?(container any-decl, asts name-and-range[], pos pos)
-	if index = asts find-index of x then x.range has-pos pos
-		(index,) type-param-with-container container
+	if index = find-index asts, of x then has-pos x.range, pos
+		type-param-with-container (index,), container
 
 -position-in-spec position-kind?(a spec-decl, pos pos)
-	a position-in-decl pos, of
-		a position-in-visibility a.ast.visibility, pos or
-		(if a.ast.name.range has-pos pos then a) or
-		a position-in-type-params a.ast.type-params, pos or
-		(if a.ast.keyword-range has-pos pos then spec_) or
-		a position-in-modifiers a.parents, a.ast.modifiers, pos or
-		a.sigs position-in-signatures a.ast.sigs, pos
+	position-in-decl a, pos, of
+		position-in-visibility a, a.ast.visibility, pos or
+		(if has-pos a.ast.name.range, pos then a) or
+		position-in-type-params a, a.ast.type-params, pos or
+		(if has-pos a.ast.keyword-range, pos then spec_) or
+		position-in-modifiers a, a.parents, a.ast.modifiers, pos or
+		position-in-signatures a.sigs, a.ast.sigs, pos
 
 -position-in-signatures position-kind?(signatures signature[], signature-asts signature-ast[], pos pos)
-	signatures zip signature-asts first of sig, sig-ast
-		sig position-in-signature sig-ast, pos
+	first (zip signatures, signature-asts), of sig, sig-ast
+		position-in-signature sig, sig-ast, pos
 
 -position-in-signature position-kind?(sig signature, ast signature-ast, pos pos)
-	sig position-in-doc-comment pos or
-	(if ast.name-and-range.range has-pos pos then sig) or
-	sig.container.to position-in-type sig.return-type, ast.return-type, pos or
-	sig.container.to position-in-params sig.params, ast.params, pos
+	position-in-doc-comment sig, pos or
+	(if has-pos ast.name-and-range.range, pos then sig) or
+	position-in-type sig.container.to, sig.return-type, ast.return-type, pos or
+	position-in-params sig.container.to, sig.params, ast.params, pos
 
 -position-in-struct-body position-kind?(decl struct-decl, ast struct-body-ast, pos pos)
-	match body = decl body
+	match body = decl.body
 	as struct-body-bogus
 		()
 	as struct-body-extern-java
@@ -266,18 +267,18 @@ do
 	as builtin-type
 		()
 	as enum_
-		body.members position-in-enum-or-flags-body ast.enum-ast!.params, ast.enum-ast!.members, pos
+		position-in-enum-or-flags-body body.members, ast.enum-ast!.params, ast.enum-ast!.members, pos
 	as flags_
-		body.members position-in-enum-or-flags-body ast.flags-ast!.params, ast.flags-ast!.members, pos
+		position-in-enum-or-flags-body body.members, ast.flags-ast!.params, ast.flags-ast!.members, pos
 	as record_
-		decl position-in-record body.fields, ast.record-ast!, pos
+		position-in-record decl, body.fields, ast.record-ast!, pos
 	as sum-type
-		decl position-in-sum-type body, ast.sum-type-ast!, pos
+		position-in-sum-type decl, body, ast.sum-type-ast!, pos
 
 -position-in-sum-type position-kind?(decl struct-decl, a sum-type, ast sum-type-ast, pos pos)
-	in-members = ast.types first-zip-if-size-eq a.listed-members, of type-ast, x
-		decl position-in-type x.member, type-ast, pos
-	in-members or a.methods position-in-signatures ast.methods, pos
+	in-members = first-zip-if-size-eq ast.types, a.listed-members, of type-ast, x
+		position-in-type decl, x.member, type-ast, pos
+	in-members or position-in-signatures a.methods, ast.methods, pos
 
 -position-in-record position-kind?
 	decl struct-decl
@@ -285,13 +286,13 @@ do
 	ast record-ast
 	pos pos
 do
-	guard fields !is-empty
-	if params = ast params
-		fields zip params first of field, param
-			decl position-in-record-field-parameter field, param.single-destructure-ast!, pos
+	guard !is-empty fields
+	if params = ast.params
+		first (zip fields, params), of field, param
+			position-in-record-field-parameter decl, field, param.single-destructure-ast!, pos
 	else
-		fields zip ast.fields first of field, field-ast
-			decl position-in-record-field field, field-ast, pos
+		first (zip fields, ast.fields), of field, field-ast
+			position-in-record-field decl, field, field-ast, pos
 
 -position-in-record-field-parameter position-kind?
 	decl struct-decl
@@ -299,12 +300,12 @@ do
 	param single-destructure-ast
 	pos pos
 do
-	if param.name.range has-pos pos
+	if has-pos param.name.range, pos
 		field
-	elif param.mut-range opt-has-pos pos
-		field.mutability position-record-field-mutability
-	elif t = param type
-		decl position-in-type field.type, t, pos
+	elif opt-has-pos param.mut-range, pos
+		position-record-field-mutability field.mutability
+	elif t = param.type
+		position-in-type decl, field.type, t, pos
 
 -position-in-record-field position-kind?
 	decl struct-decl
@@ -312,16 +313,16 @@ do
 	ast record-field-ast
 	pos pos
 do
-	if res = field position-in-doc-comment pos
+	if res = position-in-doc-comment field, pos
 		res
-	elif res = field position-in-visibility ast.visibility, pos
+	elif res = position-in-visibility field, ast.visibility, pos
 		res
-	elif ast.name.range has-pos pos
+	elif has-pos ast.name.range, pos
 		field
-	elif ast.mutability.?range opt-has-pos pos
-		field.mutability position-record-field-mutability
-	elif t = ast type
-		decl position-in-type field.type, t, pos
+	elif opt-has-pos ast.mutability.?range, pos
+		position-record-field-mutability field.mutability
+	elif t = ast.type
+		position-in-type decl, field.type, t, pos
 
 -position-in-enum-or-flags-body position-kind?
 	members enum-or-flags-member[]
@@ -329,15 +330,15 @@ do
 	member-asts enum-or-flags-member-ast[]
 	pos pos
 do
-	guard members !is-empty
+	guard !is-empty members
 	if param-asts
-		members zip param-asts first of member, param
-			if param.range has-pos pos then member
+		first (zip members, param-asts), of member, param
+			if has-pos param.range, pos then member
 	else
-		members zip member-asts first of member, member-ast
-			member position-in-enum-or-flags-member member-ast, pos
+		first (zip members, member-asts), of member, member-ast
+			position-in-enum-or-flags-member member, member-ast, pos
 -position-in-enum-or-flags-member position-kind?(member enum-or-flags-member, ast enum-or-flags-member-ast, pos pos)
-	member position-in-doc-comment pos or if ast.name-range has-pos pos then member
+	position-in-doc-comment member, pos or if has-pos ast.name-range, pos then member
 
 -position-in-expr position-kind?
 	ctx ctx
@@ -346,26 +347,26 @@ do
 	pos pos
 	pos-kind get-position-kind
 do
-	(ctx.available-types, container) position-in-expr-recur a, pos, pos-kind
+	position-in-expr-recur (ctx.available-types, container), a, pos, pos-kind
 -expr-ctx record(available-types available-types, container expr-container)
 -position-in-expr-recur position-kind?(ctx expr-ctx, a expr, pos pos, pos-kind get-position-kind)
-	if a.range has-pos pos
-		ctx position-at-expr a, pos, pos-kind or ctx position-in-expr-child a, pos, pos-kind
+	if has-pos a.range, pos
+		position-at-expr ctx, a, pos, pos-kind or position-in-expr-child ctx, a, pos, pos-kind
 -position-in-expr-child position-kind?(ctx expr-ctx, a expr, pos pos, pos-kind get-position-kind)
-	a find-direct-child-expr of child
-		ctx position-in-expr-recur child, pos, pos-kind
+	find-direct-child-expr a, of child
+		position-in-expr-recur ctx, child, pos, pos-kind
 -position-at-expr position-kind?(ctx expr-ctx, a expr, pos pos, pos-kind get-position-kind)
 	expression-position position-kind mut(x expression-position-kind) = of x
-		ctx.container expression-position (a type ctx.available-types), x
+		expression-position ctx.container, (type a, ctx.available-types), x
 	keyword position-kind mut(k expr-keyword) = expression-position[it]
 	keyword-at position-kind? mut(range source-range, k expr-keyword) = of range, k
-		if range has-pos pos then keyword[k]
+		if has-pos range, pos then keyword[k]
 	local position-kind mut(kind local-ref-kind, local local) = of kind, local
-		expression-position[kind local-ref local]
+		expression-position[local-ref kind, local]
 	call position-kind? mut(ast call-expr-source, kind expression-position-kind) = of ast, kind
 		ok = match pos-kind
 		as exact
-			ast pos-is-at-call pos
+			pos-is-at-call ast, pos
 		as after
 			true
 		if ok
@@ -373,10 +374,10 @@ do
 
 	match a
 	as assert-or-forbid-expr
-		if a.ast.keyword-range has-pos pos
+		if has-pos a.ast.keyword-range, pos
 			expression-position[a]
-		elif t = a.ast thrown
-			keyword-at[t.else-range, if a is-forbid then else-after-forbid else else-after-assert]
+		elif t = a.ast.thrown
+			keyword-at[t.else-range, if a.is-forbid then else-after-forbid else else-after-assert]
 	as bogus-call-expr
 		call[a.ast, a]
 	as bogus-expr
@@ -389,31 +390,31 @@ do
 		call[a.ast, a]
 	as call-option-expr
 		keyword-at[a.ast.keyword-range!, question-before-name-or-subscript] or
-		if a.ast pos-is-at-call pos then expression-position[a]
+		if pos-is-at-call a.ast, pos then expression-position[a]
 	as finally-expr
 		keyword-at[a.ast.finally-keyword-range, finally_]
 	as force-expr
 		keyword-at[a.ast.keyword-range, force]
 	as if-expr
-		(if a.ast.first-keyword-range has-pos pos then expression-position[a]) or
-		(if k = a.ast second-keyword-range then keyword-at[k, a.ast.kind.if-second-keyword]) or
-		(if k = a.ast third-keyword-range then keyword-at[k, else-after-if])
+		(if has-pos a.ast.first-keyword-range, pos then expression-position[a]) or
+		(if k = a.ast.second-keyword-range then keyword-at[k, a.ast.kind.if-second-keyword]) or
+		(if k = a.ast.third-keyword-range then keyword-at[k, else-after-if])
 	as lambda-expr
-		match ast = a ast
+		match ast = a.ast
 		as for-or-with-ast
 			# 'for' keyword is handled in 'as call-expr'
-			(unless a is-ignore then ctx position-in-destructure a.param, ast.param, pos) or
+			(unless a.is-ignore then position-in-destructure ctx, a.param, ast.param, pos) or
 			keyword-at[ast.in-range, ast.keyword.for-or-with-in-kind] or
-			if t = ast then-range then keyword-at[t, then-after-for-or-with]
+			if t = ast.then-range then keyword-at[t, then-after-for-or-with]
 		as it-scope-ast
-			ast.its first of it_
-				if it_.range has-pos pos then expression-position[a]
+			first ast.its, of it_
+				if has-pos it_.range, pos then expression-position[a]
 		as lambda-ast
-			(if ast.keyword-range has-pos pos then expression-position[a]) or
-			(if t = ast then-range then keyword-at[t, then-after-of]) or
-			ctx position-in-destructure a.param, ast.param, pos
+			(if has-pos ast.keyword-range, pos then expression-position[a]) or
+			(if t = ast.then-range then keyword-at[t, then-after-of]) or
+			position-in-destructure ctx, a.param, ast.param, pos
 	as let-expr
-		ctx position-in-destructure a.destructure, a.destructure-ast, pos
+		position-in-destructure ctx, a.destructure, a.destructure-ast, pos
 	as list-expr
 		# TODO: if the position is at a '-' or '--', then return expression-position[x] -----------------------------------------
 		()
@@ -426,33 +427,33 @@ do
 	as local-get-and-refine-expr
 		local[get, a.local]
 	as local-set-expr
-		if a.assignee-ast.range has-pos pos
+		if has-pos a.assignee-ast.range, pos
 			local[set, a.local]
 	as logical-expr
-		if a.keyword-range has-pos pos
+		if has-pos a.keyword-range, pos
 			expression-position[a]
 	as loop-expr
-		if a.ast.keyword-range has-pos pos
+		if has-pos a.ast.keyword-range, pos
 			expression-position[a]
 	as loop-break-expr
-		if a.ast.keyword-range has-pos pos
+		if has-pos a.ast.keyword-range, pos
 			expression-position[a]
 	as loop-continue-expr
-		if a.ast.keyword-range has-pos pos
+		if has-pos a.ast.keyword-range, pos
 			expression-position[a]
 	as loop-while-or-until-expr
-		if a.ast.keyword-range has-pos pos
+		if has-pos a.ast.keyword-range, pos
 			expression-position[a]
 	as match-enum-expr
-		ctx position-at-match-enum a, pos
+		position-at-match-enum ctx, a, pos
 	as match-scalar-expr
-		ctx position-at-match-scalar a, pos
+		position-at-match-scalar ctx, a, pos
 	as match-string-like-expr
-		ctx position-at-match-string-like a, pos
+		position-at-match-string-like ctx, a, pos
 	as match-sum-type-expr
-		ctx position-at-match-sum-type a, pos
+		position-at-match-sum-type ctx, a, pos
 	as not-expr
-		if a.keyword-range has-pos pos
+		if has-pos a.keyword-range, pos
 			expression-position[a]
 	as seq-expr
 		()
@@ -461,14 +462,14 @@ do
 	as trusted-expr
 		keyword-at[a.ast.keyword-range, trusted_]
 	as try-expr
-		ctx position-at-try a, pos
+		position-at-try ctx, a, pos
 	as try-let-expr
-		ctx position-at-try-let a, pos
+		position-at-try-let ctx, a, pos
 	as typed-expr
 		keyword-at[a.ast.keyword-range, colon-colon] or
-		ctx.container.to position-in-type (a type ctx.available-types), a.ast.type, pos
+		position-in-type ctx.container.to, (type a, ctx.available-types), a.ast.type, pos
 	as unpack-option
-		ctx position-at-unpack-option a, pos
+		position-at-unpack-option ctx, a, pos
 
 -for-or-with-in-kind expr-keyword(a for-or-with-ast-keyword)
 	match a
@@ -501,14 +502,14 @@ do
 		then-after-unless
 
 -position-at-unpack-option position-kind?(ctx expr-ctx, a unpack-option, pos pos)
-	ctx position-in-destructure a.destructure, a.ast.destructure, pos or
-	if a.ast.keyword-range has-pos pos
-		ctx.container expression-position (), equals-expression
+	position-in-destructure ctx, a.destructure, a.ast.destructure, pos or
+	if has-pos a.ast.keyword-range, pos
+		expression-position ctx.container, (), equals-expression
 
 -pos-is-at-call bool(a call-expr-source, pos pos)
-	a.range-for-pos-is-at-call has-pos pos
+	has-pos a.range-for-pos-is-at-call, pos
 -pos-is-at-call bool(a call-ast, pos pos)
-	a.range-for-pos-is-at-call has-pos pos
+	has-pos a.range-for-pos-is-at-call, pos
 -range-for-pos-is-at-call source-range(a call-expr-source)
 	match a
 	as assignment-ast
@@ -516,11 +517,11 @@ do
 	as assignment-call-ast
 		() # TODO
 	as call-ast
-		a range-for-pos-is-at-call
+		range-for-pos-is-at-call a
 	as call-named-ast
 		() # TODO
 	as for-or-with-ast
-		a keyword-range
+		a.keyword-range
 	as if-ast
 		()
 	as interpolated-ast
@@ -534,17 +535,17 @@ do
 	as logical-ast
 		()
 	as loop-break-ast
-		a range
+		a.range
 	as loop-continue-ast
-		a range
+		a.range
 	as name-and-range
-		a range
+		a.range
 	as var-decl-ast
 		()
 	as typed-ast
 		()
 -range-for-pos-is-at-call source-range(ast call-ast)
-	has-name bool = match ast style
+	has-name bool = match ast.style
 	as subscript
 		false
 	as question-subscript
@@ -564,34 +565,34 @@ do
 	as single
 		true
 	if has-name
-		ast.fun-name range
+		ast.fun-name.range
 
 -position-at-match-enum position-kind?(ctx expr-ctx, a match-enum-expr, pos pos)
-	ctx position-at-match-keyword a, a.type, a.ast, pos or
-	ctx position-in-opt-local a.matched-local, a.ast, pos or
-	a.cases position-at-match-cases a.ast, pos, it.member.position-match-enum-case
+	position-at-match-keyword ctx, a, a.type, a.ast, pos or
+	position-in-opt-local ctx, a.matched-local, a.ast, pos or
+	position-at-match-cases a.cases, a.ast, pos, it.member.position-match-enum-case
 
 -position-at-match-scalar position-kind?(ctx expr-ctx, a match-scalar-expr, pos pos)
-	ctx position-at-match-keyword a, a.type, a.ast, pos or
-	ctx position-in-opt-local a.matched-local, a.ast, pos or
-	a.cases position-at-match-cases a.ast, pos, of x
-		a.integral-type position-match-scalar-case x.value
+	position-at-match-keyword ctx, a, a.type, a.ast, pos or
+	position-in-opt-local ctx, a.matched-local, a.ast, pos or
+	position-at-match-cases a.cases, a.ast, pos, of x
+		position-match-scalar-case a.integral-type, x.value
 
 -position-at-match-string-like position-kind?(ctx expr-ctx, a match-string-like-expr, pos pos)
-	ctx position-at-match-keyword a, a.type, a.ast, pos or
-	ctx position-in-opt-local a.matched-local, a.ast, pos or
-	a.cases position-at-match-cases a.ast, pos, of x
-		(a.matched-type, ctx.container.to) position-match-string-like-case x.value
+	position-at-match-keyword ctx, a, a.type, a.ast, pos or
+	position-in-opt-local ctx, a.matched-local, a.ast, pos or
+	position-at-match-cases a.cases, a.ast, pos, of x
+		position-match-string-like-case (a.matched-type, ctx.container.to), x.value
 
 -position-at-match-cases[t] position-kind?(cases t[], ast match-ast,pos pos, get-position position-kind data(case_ t))
-	cases first-zip-if-size-eq ast.cases, of case_, case-ast
-		if case-ast.keyword-and-member-name-range has-pos pos
+	first-zip-if-size-eq cases, ast.cases, of case_, case-ast
+		if has-pos case-ast.keyword-and-member-name-range, pos
 			get-position[case_]
 
 -position-at-match-sum-type position-kind?(ctx expr-ctx, a match-sum-type-expr, pos pos)
-	ctx position-at-match-keyword a, a.type, a.ast, pos or
-	ctx position-in-opt-local a.matched-local, a.ast, pos or
-	ctx position-at-match-sum-type-cases a.cases, a.ast.cases, pos
+	position-at-match-keyword ctx, a, a.type, a.ast, pos or
+	position-in-opt-local ctx, a.matched-local, a.ast, pos or
+	position-at-match-sum-type-cases ctx, a.cases, a.ast.cases, pos
 
 -position-at-match-sum-type-cases position-kind?
 	ctx expr-ctx
@@ -599,8 +600,8 @@ do
 	case-asts case-ast[]
 	pos pos
 do
-	cases first-zip-if-size-eq case-asts, of case_, case-ast
-		ctx position-at-match-sum-type-case case_, case-ast, pos
+	first-zip-if-size-eq cases, case-asts, of case_, case-ast
+		position-at-match-sum-type-case ctx, case_, case-ast, pos
 
 -position-at-catches position-kind?
 	ctx expr-ctx
@@ -608,22 +609,22 @@ do
 	catch-asts catch-ast[]
 	pos pos
 do
-	catches first-zip-if-size-eq catch-asts, of catch_, catch-ast
-		ctx position-at-catch catch_, catch-ast, pos
+	first-zip-if-size-eq catches, catch-asts, of catch_, catch-ast
+		position-at-catch ctx, catch_, catch-ast, pos
 
 -position-at-match-sum-type-case position-kind?(ctx expr-ctx, case_ match-sum-type-case, ast case-ast, pos pos)
-	if ast.keyword-and-member-name-range has-pos pos
-		ctx.container position-match-sum-type-case case_.case-type
+	if has-pos ast.keyword-and-member-name-range, pos
+		position-match-sum-type-case ctx.container, case_.case-type
 
 -position-at-catch position-kind?(ctx expr-ctx, catch_ catch_, ast catch-ast, pos pos)
-	if ast.keyword-range has-pos pos
-		ctx.container.to position-catch catch_
-	elif x = ast name and x.range has-pos pos
-		ctx.container.to position-local catch_.destructure.local!
-	elif x = ast as_ and x.keyword-range has-pos pos
-		ctx.container.to position-catch catch_
-	elif x = ast as_ and x.type-name.range has-pos pos
-		ctx.container.to position-in-type catch_.caught-type, x.type-name, pos
+	if has-pos ast.keyword-range, pos
+		position-catch ctx.container.to, catch_
+	elif x = ast.name and has-pos x.range, pos
+		position-local ctx.container.to, catch_.destructure.local!
+	elif x = ast.as_ and has-pos x.keyword-range, pos
+		position-catch ctx.container.to, catch_
+	elif x = ast.as_ and has-pos x.type-name.range, pos
+		position-in-type ctx.container.to, catch_.caught-type, x.type-name, pos
 
 -position-at-match-keyword position-kind?
 	ctx expr-ctx
@@ -632,48 +633,48 @@ do
 	ast match-ast
 	pos pos
 do
-	if ast.keyword-range has-pos pos
-		ctx.container expression-position type, kind
-	elif e = ast else_
-		if e.keyword-range has-pos pos
-			ctx.container expression-position type, else-after-match
+	if has-pos ast.keyword-range, pos
+		expression-position ctx.container, type, kind
+	elif e = ast.else_
+		if has-pos e.keyword-range, pos
+			expression-position ctx.container, type, else-after-match
 
 -position-at-try position-kind?(ctx expr-ctx, a try-expr, pos pos)
-	ctx position-in-keyword a.type, a, a.ast.try-keyword-range, pos or
-	ctx position-at-catches a.catches, a.ast.catches, pos
+	position-in-keyword ctx, a.type, a, a.ast.try-keyword-range, pos or
+	position-at-catches ctx, a.catches, a.ast.catches, pos
 
 -position-at-try-let position-kind?(ctx expr-ctx, a try-let-expr, pos pos)
-	ctx position-in-keyword (), a, a.ast.try-keyword-range, pos or
-	ctx position-in-destructure a.destructure, a.ast.destructure, pos or
-	ctx position-at-catch a.catch_, a.ast.catch_, pos
+	position-in-keyword ctx, (), a, a.ast.try-keyword-range, pos or
+	position-in-destructure ctx, a.destructure, a.ast.destructure, pos or
+	position-at-catch ctx, a.catch_, a.ast.catch_, pos
 
 -position-in-keyword position-kind?(ctx expr-ctx, type type?, expr expression-position-kind, keyword-range source-range, pos pos)
-	if keyword-range has-pos pos
-		ctx.container expression-position type, expr
+	if has-pos keyword-range, pos
+		expression-position ctx.container, type, expr
 
 -position-in-type position-kind?(container type-container, type type, ast type-ast, pos pos)
-	if ast.range has-pos pos
-		res = type each-type-component ast, of t, a
-			container position-in-type t, a, pos
-		res or container position-in-type-not-args type, ast, pos
+	if has-pos ast.range, pos
+		res = each-type-component type, ast, of t, a
+			position-in-type container, t, a, pos
+		res or position-in-type-not-args container, type, ast, pos
 -position-in-type-not-args position-kind?(container type-container, type type, ast type-ast, pos pos)
 	ok bool = match ast
 	as bogus-type-ast
 		false
 	as fun-type-ast
-		ast.kind-range has-pos pos
+		has-pos ast.kind-range, pos
 	as map-type-ast
 		false
 	as name-and-range
 		true
 	as suffix-name-type-ast
-		ast.name.range has-pos pos
+		has-pos ast.name.range, pos
 	as suffix-special-type-ast
-		ast.suffix-range has-pos pos
+		has-pos ast.suffix-range, pos
 	as tuple-type-ast
 		false
 	if ok
-		type type-with-container container
+		type-with-container type, container
 
 -each-type-component[out] out?(type type, ast type-ast, f out? mut(x type, ast type-ast))
 	match type
@@ -682,7 +683,7 @@ do
 	as type-param-index
 		()
 	as struct-inst
-		type.type-args find-in-type-args ast, f
+		find-in-type-args type.type-args, ast, f
 
 -find-in-packed-type-args[out] out?
 	type-args type-args
@@ -690,9 +691,9 @@ do
 	f out? mut(x type, ast type-ast)
 do
 	if ast
-		type-args zip-each-type-arg-may-unpack-tuple ast, f
+		zip-each-type-arg-may-unpack-tuple type-args, ast, f
 	else
-		assert type-args is-empty
+		assert is-empty type-args
 		()
 
 -find-in-type-args[out] out?(type-args type-args, ast type-ast, f out? mut(x type, ast type-ast))
@@ -700,20 +701,20 @@ do
 	as bogus-type-ast
 		()
 	as fun-type-ast
-		return-type, param-type = type-args only2
-		f[return-type, ast.return-type] or param-type each-type-in-destructure ast.param, f
+		return-type, param-type = only2 type-args
+		f[return-type, ast.return-type] or each-type-in-destructure param-type, ast.param, f
 	as map-type-ast
-		type-args zip-each-type-arg (ast.key, ast.value), f
+		zip-each-type-arg type-args, (ast.key, ast.value), f
 	as name-and-range
 		# For a type alias, 'typeArgs' may be non-empty as it comes from the alias' target type.
 		# But ignore them in any case.
 		()
 	as suffix-name-type-ast
-		type-args zip-each-type-arg-may-unpack-tuple ast.left, f
+		zip-each-type-arg-may-unpack-tuple type-args, ast.left, f
 	as suffix-special-type-ast
-		type-args zip-each-type-arg-may-unpack-tuple ast.left, f
+		zip-each-type-arg-may-unpack-tuple type-args, ast.left, f
 	as tuple-type-ast
-		type-args zip-each-type-arg ast.members, f
+		zip-each-type-arg type-args, ast.members, f
 
 -zip-each-type-arg-may-unpack-tuple[out] out?
 	type-args type-args
@@ -723,15 +724,15 @@ do
 	type-arg-asts type-ast[] = if type-args.size == 1
 		type-arg-ast,
 	else
-		type-arg-ast.tuple-type-ast! members
-	type-args zip-each-type-arg type-arg-asts, f
+		type-arg-ast.tuple-type-ast!.members
+	zip-each-type-arg type-args, type-arg-asts, f
 
 -zip-each-type-arg[out] out?
 	type-args type-args
 	type-arg-asts type-ast[]
 	f out? mut(x type, ast type-ast)
 do
-	type-args.slow-to-array zip type-arg-asts first f
+	first (zip type-args.slow-to-array, type-arg-asts), f
 
 -each-type-in-destructure[out] out?
 	type type
@@ -742,12 +743,12 @@ do
 	as name-and-range
 		()
 	as single-destructure-ast
-		if t = ast type then f[type, t]
+		if t = ast.type then f[type, t]
 	as ignore-destructure-ast
-		if t = ast type then f[type, t]
+		if t = ast.type then f[type, t]
 	as void-destructure-ast
 		()
 	as array
-		guard type !is-bogus
-		type.struct-inst!.type-args.slow-to-array zip ast first of type-arg, param
-			type-arg each-type-in-destructure param, f
+		guard !is-bogus type
+		first (zip type.struct-inst!.type-args.slow-to-array, ast), of type-arg, param
+			each-type-in-destructure type-arg, param, f

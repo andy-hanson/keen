@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/col/shared-array
 	../private/thread-utils
@@ -11,24 +12,24 @@ import
 -new[t] t atomic(value t)
 	(), 0, value
 +get[t] t(a t atomic)
-	trusted with in a lock
-		a value
+	trusted with in a.lock
+		a.value
 +set[t] void(a t atomic, value t)
-	trusted with in a lock
+	trusted with in a.lock
 		a.sequence +:= 1
 		a.value := value
 +get-and-set[t] t(a t atomic, value t)
-	trusted with in a lock
-		res = a value
+	trusted with in a.lock
+		res = a.value
 		a.sequence +:= 1
 		a.value := value
 		res
 
 -get-with-sequence[t] (nat, t)(a t atomic)
-	trusted with in a lock
+	trusted with in a.lock
 		a.sequence, a.value
 -compare-sequence-and-set[t] bool(a t atomic, sequence nat, value t)
-	trusted with in a lock
+	trusted with in a.lock
 		ok = a.sequence == sequence
 		if ok
 			a.sequence +:= 1
@@ -38,9 +39,9 @@ import
 # This will retry if the value changed during modification
 +modify[t] t(a t atomic, cb t data(x t)) t equal
 	loop
-		sequence, old-value = a get-with-sequence
+		sequence, old-value = get-with-sequence a
 		new-value = cb[old-value]
-		if a compare-sequence-and-set sequence, new-value
+		if compare-sequence-and-set a, sequence, new-value
 			break new-value
 		else
 			continue
@@ -48,9 +49,9 @@ import
 test
 	guard !(trusted java) # TODO ----------------------------------------------------------------------------------------------------------
 	a nat atomic = 0,
-	results nat[] = for x in 1::nat .. 10 parallel
-		a get-and-set x
-	(results ~ a.get).sort is (0 .. 10).to
+	results nat[] = for x in parallel 1::nat .. 10
+		get-and-set a, x
+	sort results ~ a.get is (0 .. 10).to
 
 ###
 This is the type for receiving events.
@@ -72,9 +73,9 @@ To send events, use 'events-out'.
 	f out-event mut(x in-event)
 do in-event shared, out-event shared
 	res out-event events-out = ()
-	a subscribe shared of x
+	subscribe a, shared of x
 		res ~= f[x]
-	res events
+	res.events
 
 +events-out[t] record shared
 	events t events
@@ -83,7 +84,7 @@ do in-event shared, out-event shared
 	events: ()
 
 +~=[t] void(a t events-out, event t) t shared
-	trusted a.events.subscribers unsafe-each of subscriber
+	trusted unsafe-each a.events.subscribers, of subscriber
 		with in fire-and-forget
 			subscriber[event]
 
@@ -97,29 +98,29 @@ do in-event shared, out-event shared
 	events-out: (),
 
 +|[t, u] (t, u) observable(a t observable, b u observable) t shared, u shared
-	cur-a mut = a get
-	cur-b mut = b get
+	cur-a mut = a.get
+	cur-b mut = b.get
 	res (t, u) mut-observable = (cur-a, cur-b),
-	a subscribe shared of x
+	subscribe a, shared of x
 		cur-a := x
-		res set (cur-a, cur-b)
-	b subscribe shared of x
+		set res, (cur-a, cur-b)
+	subscribe b, shared of x
 		cur-b := x
-		res set (cur-a, cur-b)
-	res observable
+		set res, (cur-a, cur-b)
+	res.observable
 
 +events[t] t events(a t observable) t shared
-	a.events-out events
+	a.events-out.events
 
 +get[t] t(a t observable) t shared
-	a.value get
+	a.value.get
 
 +subscribe[t] void(a t observable, cb void shared(x t)) t shared
-	a.events subscribe cb
+	subscribe a.events, cb
 
 +now-and-subscribe[t] void(a t observable, cb void shared(x t)) t shared
-	cb[a get]
-	a subscribe cb
+	cb[a.get]
+	subscribe a, cb
 
 +mut-observable[t] record shared
 	observable t observable
@@ -132,26 +133,26 @@ do in-event shared, out-event shared
 	- ()
 
 +events[t] t events(a t mut-observable) t shared
-	a.observable events
+	a.observable.events
 
 +get[t] t(a t mut-observable) t shared
-	a.observable get
+	a.observable.get
 
 +set[t] void(a t mut-observable, value t) t shared
-	a.observable.value set value
+	set a.observable.value, value
 	a.observable.events-out ~= value
 
 +modify[t] void(a t mut-observable, cb t data(x t)) t equal, t shared
-	a set (a.observable.value modify cb)
+	set a, modify a.observable.value, cb
 
 +for-loop[output, input] output observable
 	a input observable
 	f output shared(x input)
 do output shared, input shared
-	res output mut-observable = f[a.value get],
-	a now-and-subscribe of x
-		res set f[x]
-	res observable
+	res output mut-observable = f[a.value.get],
+	now-and-subscribe a, of x
+		set res, f[x]
+	res.observable
 
 | Unlike {for-loop}, this does not block on the first call to {f}.
 | So it needs an {initial} value to use until {f} has completed the first time.
@@ -164,9 +165,9 @@ do output shared, input shared
 	with in fire-and-forget
 		# TODO: if 'f' is asynchronous, we need to make sure it isn't running multiple times at once?
 		# At least 'res set' should not be out of order
-		a now-and-subscribe of x
-			res set f[x]
-	res observable
+		now-and-subscribe a, of x
+			set res, f[x]
+	res.observable
 
 +join[t, u] record(a t observable, b u observable) shared
 +for-loop[out, t, u] out observable
@@ -174,8 +175,8 @@ do output shared, input shared
 	f out shared(x t, y u)
 do t shared, u shared, out shared
 	res out mut-observable = f[a.a.get, a.b.get],
-	a.a subscribe of x
-		res set f[x, a.b.get]
-	a.b subscribe of x
-		res set f[a.a.get, x]
-	res observable
+	subscribe a.a, of x
+		set res, f[x, a.b.get]
+	subscribe a.b, of x
+		set res, f[a.a.get, x]
+	res.observable

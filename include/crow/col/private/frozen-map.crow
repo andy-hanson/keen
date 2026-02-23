@@ -1,3 +1,4 @@
+use-prefix
 no-std
 import
 	../../bool
@@ -21,50 +22,47 @@ import
 	bucket-starts nat64[]
 
 ~list-new[k, v] (k, v) frozen-map(a (k, v)[]) k key
-	a to
+	a.to
 
 ~to[k, v] (k, v) frozen-map(a (k, v)[]) k key
-	trusted a.to as-frozen-map
+	trusted as-frozen-map a.to
 ~to[k, v] (k, v) frozen-map(a (k, v) array-view) k key
-	trusted (for x in a then x) as-frozen-map
+	trusted as-frozen-map a.to
 
 | This is O(1). Unsafe because the pairs are unsorted.
 ~to[k, v] (k, v)[](a (k, v) frozen-map) unsafe
-	a pairs
+	a.pairs
 
 ~is-empty[k, v] bool(a (k, v) frozen-map)
-	a.pairs is-empty
+	is-empty a.pairs
 
 ~size[k, v] nat64(a (k, v) frozen-map)
-	a.pairs size
+	size a.pairs
 
 ~subscript[k, v] v?(a (k, v) frozen-map, key k) k key
-	trusted if index = a try-get-unordered-index key
-		a.pairs[index] b
-
-try-get-unordered-index[k, v] nat64?(a (k, v) frozen-map, key k) k key, unsafe
-	a bucket-indices key find a.pairs[it].a == key
+	if index = find (bucket-indices a, key), a.pairs[it].a == key
+		a.pairs[index].b
 
 -bucket-indices[k, v] nat64 range(a (k, v) frozen-map, key k) k key
-	if a.bucket-starts is-empty
+	if is-empty a.bucket-starts
 		0 .. a.pairs.size
 	else
-		a bucket-indices-at-index key.get-hash % a.bucket-starts.size
+		bucket-indices-at-index a, key.get-hash % a.bucket-starts.size
 
 # Returns a slice of 'a.pairs'
 -bucket-indices-at-index[k, v] nat64 range(a (k, v) frozen-map, bucket-index nat64)
 	bucket-start = a.bucket-starts[bucket-index]
 	bucket-end = if bucket-index == a.bucket-starts.size - 1
-		a.pairs size
+		a.pairs.size
 	else
 		a.bucket-starts[bucket-index + 1]
 	bucket-start .. bucket-end
 
 -bucket-at-index[k, v] (k, v) array-view(a (k, v) frozen-map, bucket-index nat64)
-	a.pairs[a bucket-indices-at-index bucket-index]
+	a.pairs[bucket-indices-at-index a, bucket-index]
 
 -as-frozen-map[k, v] (k, v) frozen-map(a (k, v) mut-slice) unsafe, k key
-	a.make-frozen-map remove-duplicates
+	remove-duplicates a.make-frozen-map
 
 -make-frozen-map[k, v] (k, v) frozen-map
 	a (k, v) mut-slice
@@ -73,11 +71,11 @@ do unsafe, k key
 		a.cast-immutable, ()
 	else
 		n-buckets = a.size / 2
-		bucket-starts = a get-bucket-starts n-buckets
-		bucket-counts nat64 mut-slice = n-buckets n-of 0
+		bucket-starts = get-bucket-starts a, n-buckets
+		bucket-counts nat64 mut-slice = n-of n-buckets, 0
 		cur mut nat64 = 0
 		until cur == a.size
-			bucket-index = a[cur].a get-bucket-index bucket-counts.size
+			bucket-index = get-bucket-index a[cur].a, bucket-counts.size
 			bucket-count = bucket-counts[bucket-index]
 			bucket-start = bucket-starts[bucket-index]
 			bucket-cur-end = bucket-start + bucket-count
@@ -87,51 +85,50 @@ do unsafe, k key
 				cur +:= 1
 			else
 				bucket-counts[bucket-index] := bucket-count + 1
-				a swap-at cur, bucket-cur-end
+				swap-at a, cur, bucket-cur-end
 		a.cast-immutable, bucket-starts
 
 -remove-duplicates[k, v] (k, v) frozen-map(a (k, v) frozen-map) unsafe, k key
-	if a has-duplicates
+	if has-duplicates a
 		# Write out pairs from each bucket to a mut-slice,
 		# omitting a pair if its key appears later in the same bucket.
-		with out in a.size build
-			out write-without-duplicates a
-		then make-frozen-map
+		make-frozen-map with out in build a.size
+			write-without-duplicates out, a
 	else
 		a
 
 -write-without-duplicates[k, v] void(out (k, v) builder, a (k, v) frozen-map) k key
-	if a.bucket-starts is-empty
-		out write-bucket-without-duplicates a.pairs.to
+	if is-empty a.bucket-starts
+		write-bucket-without-duplicates out, a.pairs.to
 	else
 		for i in 0 .. a.bucket-starts.size
-			out write-bucket-without-duplicates (a bucket-at-index i)
+			write-bucket-without-duplicates out, bucket-at-index a, i
 
 -write-bucket-without-duplicates[k, v] void(out (k, v) builder, pairs (k, v) array-view) k key
-	for i, pair in pairs with-index
-		unless pair.a key-in-range pairs[i + 1 .. end]
+	for i, pair in with-index pairs
+		unless key-in-range pair.a, pairs[i + 1 .. end]
 			out ~= pair
 
 -has-duplicates[k, v] bool(a (k, v) frozen-map) k key
-	if a.bucket-starts is-empty
-		a.pairs.to bucket-has-duplicates
+	if is-empty a.bucket-starts
+		bucket-has-duplicates a.pairs.to
 	else
-		0 .. a.bucket-starts.size exists of i
-			a bucket-at-index i bucket-has-duplicates
+		exists 0 .. a.bucket-starts.size, of i
+			bucket-has-duplicates bucket-at-index a, i
 
 -bucket-has-duplicates[k, v] bool(pairs (k, v) array-view) k key
-	pairs.with-index exists of i, (k, _)
-		k key-in-range pairs[i + 1 .. end]
+	exists pairs.with-index, of i, (k, _)
+		key-in-range k, pairs[i + 1 .. end]
 
 -key-in-range[k, v] bool(key k, pairs (k, v) array-view) k key
-	pairs exists it.a == key
+	exists pairs, it.a == key
 
 -get-bucket-starts[k, v] nat64[](a (k, v) mut-slice, n-buckets nat64) unsafe, k key
-	res nat64 mut-slice = n-buckets n-of 0
+	res nat64 mut-slice = n-of n-buckets, 0
 	for k, _ in a
-		res[k get-bucket-index n-buckets] +:= 1
-	res running-sum
-	res cast-immutable
+		res[get-bucket-index k, n-buckets] +:= 1
+	running-sum res
+	cast-immutable res
 
 -get-bucket-index[k] nat64(key k, n-buckets nat64) k key
 	key.get-hash % n-buckets
@@ -144,4 +141,4 @@ do unsafe, k key
 		start
 
 ~iterate[k, v] bool(a (k, v) frozen-map, f bool mut(key k, value v)) unsafe
-	a.pairs iterate f
+	iterate a.pairs, f

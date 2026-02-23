@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/bits
 	./class-builder
@@ -8,17 +9,17 @@ build-code record mut
 with-block Code_attribute(a build-code, f void mut(a code-builder))
 	builder code-builder = (), a.constants, (), (), (), ()
 	f[builder]
-	code = builder.out finish
+	code = finish builder.out
 	attribute-name-index: a.constants["Code"]
 	max-stack: 99
 	max-locals: 99
 	code: code
-	exception-table: builder.exception-table move-to
+	exception-table: builder.exception-table.move-to
 	attributes:
-		-- unless builder.line-number-table is-empty
-			- a.constants["LineNumberTable"] LineNumberTable_attribute builder.line-number-table.move-to
-		-- unless builder.stack-map is-empty
-			- a.constants["StackMapTable"] StackMapTable_attribute builder.stack-map.move-to
+		-- unless is-empty builder.line-number-table
+			- LineNumberTable_attribute a.constants["LineNumberTable"], builder.line-number-table.move-to
+		-- unless is-empty builder.stack-map
+			- StackMapTable_attribute a.constants["StackMapTable"], builder.stack-map.move-to
 # MOVE
 code-builder record mut
 	-out bytecode-out
@@ -38,46 +39,44 @@ deferred-jump record mut
 	-location-of-offset nat16
 | Call this when 'out' is at the postion where it should jump to
 jumps-to-here void(a deferred-jump, out code-builder, stack-frame stack-frame)
-	cur = out next-index
+	cur = out.next-index
 	offset nat16 = cur - a.jump-from
-	out.out.out[a.location-of-offset to] := offset >> 8 to
-	out.out.out[a.location-of-offset.to + 1] := offset & 0xff to
-	out set-stack-frame stack-frame
+	out.out.out[a.location-of-offset.to] := offset >> 8 'to
+	out.out.out[a.location-of-offset.to + 1] := offset & 0xff 'to
+	set-stack-frame out, stack-frame
 
 deferred-jump32 record mut
 	-jump-from nat32
 	-location-of-offset nat32
 jumps-to-here void(a deferred-jump32, out code-builder, stack-frame stack-frame)
-	cur = out next-index
+	cur = out.next-index
 	offset nat32 = cur.to - a.jump-from
-	out.out.out[a.location-of-offset to] := offset >> 24 to
-	out.out.out[a.location-of-offset.to + 1] := ((offset >> 16) & 0xff) to
-	out.out.out[a.location-of-offset.to + 2] := ((offset >> 8) & 0xff) to
-	out.out.out[a.location-of-offset.to + 3] := (offset & 0xff) to
-	out set-stack-frame stack-frame
+	out.out.out[a.location-of-offset.to] := offset >> 24 'to
+	out.out.out[a.location-of-offset.to + 1] := (offset >> 16) & 0xff 'to
+	out.out.out[a.location-of-offset.to + 2] := (offset >> 8) & 0xff 'to
+	out.out.out[a.location-of-offset.to + 3] := offset & 0xff 'to
+	set-stack-frame out, stack-frame
 
 mark-line-number void(a code-builder, line-number nat16)
-	unless a.line-number-table !is-empty and a.line-number-table[end - 1].line-number == line-number
+	unless !is-empty a.line-number-table and a.line-number-table[end - 1].line-number == line-number # TODO: 'unless !is-empty' is confusing ----------------------------------
 		a.line-number-table ~= a.next-index, line-number
 
 add-to-exception-table void(a code-builder, start nat16, end nat16, catch-type class-reference, frame stack-frame)
 	a.exception-table ~= start, end, a.next-index, catch-type
-	a set-stack-frame frame
+	set-stack-frame a, frame
 -set-stack-frame void(a code-builder, frame stack-frame)
-	cur-pos = a next-index
+	cur-pos = a.next-index
 	guard cur-pos + 1 != a.next-stack-frame-relative-to # In that case it would be a duplicate
-	locals = frame locals
-	stack = frame stack
 	# TODO: for efficiency, use the simpler frames where possible and not always full_frame ----------------------------------
 	full full_frame =
 		offset-delta: cur-pos - a.next-stack-frame-relative-to
-		locals: locals
-		stack: stack
+		locals: frame.locals
+		stack: frame.stack
 	a.stack-map ~= full
 	a.next-stack-frame-relative-to := cur-pos + 1
 
 next-index nat16(a code-builder)
-	a.out.next-index to
+	a.out.next-index.to
 dup32 void(a code-builder)
 	a.out ~= 0x59
 dup64 void(a code-builder)
@@ -89,53 +88,53 @@ xload void(a code-builder, type java-runtime-type, index nat)
 	as java-primitive-type
 		match type
 		as T_BOOLEAN
-			a iload index
+			iload a, index
 		as T_CHAR
-			a iload index
+			iload a, index
 		as T_FLOAT
-			a fload index
+			fload a, index
 		as T_DOUBLE
-			a dload index
+			dload a, index
 		as T_BYTE
-			a iload index
+			iload a, index
 		as T_SHORT
-			a iload index
+			iload a, index
 		as T_INT
-			a iload index
+			iload a, index
 		as T_LONG
-			a lload index
+			lload a, index
 	else
-		a aload index
+		aload a, index
 aload void(a code-builder, index nat)
 	if index < 4
 		a.out ~= 0x2a + index.to # aload_0, aload_1, aload_2, or aload_3
 	else
 		a.out ~= 0x19 # aload
-		a.out ~= index to
+		a.out ~= index.to
 -dload void(a code-builder, index nat)
 	if index < 4
 		a.out ~= 0x26 + index.to # dload_0, dload_1, dload_2, or dload_3
 	else
 		a.out ~= 0x18 # dload
-		a.out ~= index to
+		a.out ~= index.to
 -fload void(a code-builder, index nat)
 	if index < 4
 		a.out ~= 0x22 + index.to # fload_0, fload_1, fload_2, or fload_3
 	else
 		a.out ~= 0x17 # fload
-		a.out ~= index to
+		a.out ~= index.to
 iload void(a code-builder, index nat)
 	if index < 4
 		a.out ~= 0x1a + index.to # iload_0, iload_1, iload_2, or iload_3
 	else
 		a.out ~= 0x15 # iload
-		a.out ~= index to
+		a.out ~= index.to
 -lload void(a code-builder, index nat)
 	if index < 4
 		a.out ~= 0x1e + index.to # lload_0, lload_1, lload_2, or lload_3
 	else
 		a.out ~= 0x16 # lload
-		a.out ~= index to
+		a.out ~= index.to
 aconst_null void(a code-builder)
 	a.out ~= 0x1
 dconst void(a code-builder, value float64)
@@ -144,7 +143,7 @@ dconst void(a code-builder, value float64)
 	elif value == 1
 		a.out ~= 0xf
 	else
-		a ldc T_DOUBLE, do a.constants float64 value
+		ldc a, T_DOUBLE, float64 a.constants, value
 fconst void(a code-builder, value float32)
 	if value == 0
 		a.out ~= 0xb # fconst_0
@@ -153,7 +152,7 @@ fconst void(a code-builder, value float32)
 	elif value == 2
 		a.out ~= 0xd
 	else
-		a ldc T_FLOAT, do a.constants float32 value
+		ldc a, T_FLOAT, float32 a.constants, value
 iconst void(a code-builder, value int32)
 	if value == -1
 		a.out ~= 0x2
@@ -163,21 +162,21 @@ iconst void(a code-builder, value int32)
 		a.out ~= 0x10 # bipush
 		a.out ~= value.to::int8.wrap-to
 	else
-		a ldc T_INT, do a.constants int32 value
+		ldc a, T_INT, int32 a.constants, value
 lconst void(a code-builder, value int64)
 	if value == 0
 		a.out ~= 0x9
 	elif value == 1
 		a.out ~= 0xa
 	else
-		a ldc T_LONG, do a.constants int64 value
+		ldc a, T_LONG, int64 a.constants, value
 | 'reference' is a constant index, not the value itself
 ldc void(a code-builder, class_ class-reference)
-	a ldc reference-type, class_.index
+	ldc a, reference-type, class_.index
 ldc void(a code-builder, ref string-reference)
-	a ldc reference-type, ref.index
+	ldc a, reference-type, ref.index
 -ldc void(a code-builder, type java-runtime-type, reference nat16)
-	if type is-double-size
+	if is-double-size type
 		a.out ~= 0x14 # ldc2_w
 		a.out ~~= reference
 	elif reference <= 0xff
@@ -225,7 +224,7 @@ pop void(a code-builder, type java-runtime-type)
 	as void
 		()
 	as java-primitive-type
-		a.out ~= if type is-double-size then 0x58 else 0x57 # pop2 / pop
+		a.out ~= if is-double-size type then 0x58 else 0x57 # pop2 / pop
 	else
 		a.out ~= 0x57 # pop
 putfield void(a code-builder, field field-reference)
@@ -255,25 +254,25 @@ instanceof void(a code-builder, class_ class-reference)
 	a.out ~= 0xc1
 	a.out ~~= class_
 ifeq deferred-jump(a code-builder)
-	jump-from = a.out next-index
+	jump-from = a.out.next-index
 	a.out ~= 0x99 # ifeq
-	location-of-offset = a.out next-index
+	location-of-offset = a.out.next-index
 	a.out ~~= 0xffff::nat16
 	jump-from.to, location-of-offset.to
 ifne void(a code-builder, target jump-target)
-	jump-from = a.out next-index
+	jump-from = a.out.next-index
 	a.out ~= 0x9a # ifne
 	offset nat16 = jump-from.to - target.offset
 	a.out ~~= -offset
 if_icmpne void(a code-builder, target jump-target)
-	jump-from = a.out next-index
+	jump-from = a.out.next-index
 	a.out ~= 0xa0 # if_icmpne
 	offset nat16 = jump-from.to - target.offset
 	a.out ~~= -offset
 ifnonnull deferred-jump(a code-builder)
-	jump-from = a.out next-index
+	jump-from = a.out.next-index
 	a.out ~= 0xc7 # ifnonnull
-	location-of-offset = a.out next-index
+	location-of-offset = a.out.next-index
 	a.out ~~= 0xffff::nat16
 	jump-from.to, location-of-offset.to
 nop void(a code-builder)
@@ -284,7 +283,7 @@ checkcast void(a code-builder, class_ class-reference)
 	a.out ~~= class_
 newarray void(a code-builder, type java-primitive-type)
 	a.out ~= 0xbc
-	a.out ~= type to
+	a.out ~= type.to
 
 java-runtime-type union(void, java-primitive-type, reference-type)
 == bool(a java-runtime-type, b java-runtime-type)
@@ -293,7 +292,7 @@ stack-entry-count nat(a java-runtime-type)
 	as void
 		0
 	as java-primitive-type
-		if a is-double-size then 2 else 1
+		if is-double-size a then 2 else 1
 	as reference-type
 		1
 is-double-size bool(a java-runtime-type) # TODO: I should probably just use 'stack-entry-count' -----------------------------------
@@ -301,7 +300,7 @@ is-double-size bool(a java-runtime-type) # TODO: I should probably just use 'sta
 	as void
 		throw unreachable
 	as java-primitive-type
-		a is-double-size
+		is-double-size a
 	as reference-type
 		false
 void java-runtime-type()
@@ -419,7 +418,7 @@ lcmp void(a code-builder)
 jump-target record
 	offset nat16
 can-jump-back-to-here jump-target(a code-builder, stack-frame stack-frame)
-	a set-stack-frame stack-frame
+	set-stack-frame a, stack-frame
 	a.next-index,
 go-back-to void(a code-builder, where jump-target)
 	assert where.offset < a.next-index
@@ -427,9 +426,9 @@ go-back-to void(a code-builder, where jump-target)
 	a.out ~= 0xa7 # goto
 	a.out ~~= offset
 goto deferred-jump(a code-builder)
-	jump-from = a next-index
+	jump-from = a.next-index
 	a.out ~= 0xa7 # goto
-	location-of-offset = a next-index
+	location-of-offset = a.next-index
 	a.out ~~= 0xffff::nat16
 	jump-from: jump-from
 	location-of-offset: location-of-offset
@@ -441,80 +440,80 @@ xstore void(a code-builder, type java-runtime-type, index nat)
 	as java-primitive-type
 		match type
 		as T_BOOLEAN
-			a istore index
+			istore a, index
 		as T_CHAR
-			a istore index
+			istore a, index
 		as T_FLOAT
-			a fstore index
+			fstore a, index
 		as T_DOUBLE
-			a dstore index
+			dstore a, index
 		as T_BYTE
-			a istore index
+			istore a, index
 		as T_SHORT
-			a istore index
+			istore a, index
 		as T_INT
-			a istore index
+			istore a, index
 		as T_LONG
-			a lstore index
+			lstore a, index
 	else
-		a astore index
+		astore a, index
 astore void(a code-builder, index nat)
 	if index < 4
 		a.out ~= 0x4b + index.to # astore_0, astore_1, astore_2, or astore_3
 	else
 		a.out ~= 0x3a # astore
-		a.out ~= index to
+		a.out ~= index.to
 -dstore void(a code-builder, index nat)
 	if index < 4
 		a.out ~= 0x47 + index.to # dstore_0, dstore_1, dstore_2, or dstore_3
 	else
 		a.out ~= 0x39
-		a.out ~= index to
+		a.out ~= index.to
 -fstore void(a code-builder, index nat)
 	if index < 4
 		a.out ~= 0x43 + index.to # fstore_0, fstore_1, fstore_2, or fstore_3
 	else
 		a.out ~= 0x38 # fstore
-		a.out ~= index to
+		a.out ~= index.to
 istore void(a code-builder, index nat)
 	if index < 4
 		a.out ~= 0x3b + index.to # istore_0, istore_1, istore_2, or istore_3
 	else
 		a.out ~= 0x36 # istore
-		a.out ~= index to
+		a.out ~= index.to
 -lstore void(a code-builder, index nat)
 	if index < 4
 		a.out ~= 0x3f + index.to # lstore_0, lstore_1, lstore_2, or lstore_3
 	else
 		a.out ~= 0x37 # lstore
-		a.out ~= index to
+		a.out ~= index.to
 
 lookupswitch (deferred-jump32[], deferred-jump32)(a code-builder, values int32[])
-	assert values is-sorted
-	jump-from nat32 = a.out.next-index to
+	assert is-sorted values
+	jump-from nat32 = a.out.next-index.to
 	a.out ~= 0xab # lookupswitch
-	a pad-to-align 4
-	location-of-default nat32 = a.out.next-index to
+	pad-to-align a, 4
+	location-of-default nat32 = a.out.next-index.to
 	a.out ~~= 0xffffffff::nat32
 	a.out ~~= values.size.to::nat32
 	jumps deferred-jump32[] = for value in values
 		a.out ~~= value.wrap-to::nat32
-		location-of-offset nat32 = a.out.next-index to
+		location-of-offset nat32 = a.out.next-index.to
 		a.out ~~= 0xffffffff::nat32
 		jump-from, location-of-offset
 	jumps, (jump-from, location-of-default)
 
 tableswitch (deferred-jump32[], deferred-jump32)(a code-builder, range nat32 range) # TODO: just use same function as lookupswitch?
-	forbid range is-empty
-	jump-from nat32 = a.out.next-index to
+	forbid is-empty range
+	jump-from nat32 = a.out.next-index.to
 	a.out ~= 0xaa # tableswitch
-	a pad-to-align 4
-	location-of-default nat32 = a.out.next-index to
+	pad-to-align a, 4
+	location-of-default nat32 = a.out.next-index.to
 	a.out ~~= 0xffffffff::nat32
-	a.out ~~= range low
+	a.out ~~= range.low
 	a.out ~~= range.high - 1
 	jumps deferred-jump32[] = for _ in range
-		location-of-offset nat32 = a.out.next-index to
+		location-of-offset nat32 = a.out.next-index.to
 		a.out ~~= 0xffffffff::nat32
 		jump-from, location-of-offset
 	jumps, (jump-from, location-of-default)

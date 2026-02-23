@@ -1,3 +1,4 @@
+use-prefix
 import
 	java/lang/StackOverflowError
 	../frontend/show-model
@@ -17,10 +18,10 @@ gather-info concrete-fun-info
 	all-vars concrete-var[]
 	method-impls concrete-method-info[concrete-type]
 do
-	called-by = show-ctx build-called-by all-funs, all-vars, method-impls
-	all-used-funs = common-funs get-used-funs all-vars, called-by, method-impls
-	async concrete-async-info? = if common-funs concrete-common-funs-js
-		all-used-funs get-async-funs all-vars, called-by
+	called-by = build-called-by show-ctx, all-funs, all-vars, method-impls
+	all-used-funs = get-used-funs common-funs, all-vars, called-by, method-impls
+	async concrete-async-info? = if common-funs.concrete-common-funs-js
+		get-async-funs all-used-funs, all-vars, called-by
 	all-used-funs, async
 
 -get-used-funs concrete-fun set
@@ -40,22 +41,22 @@ do
 		# TODO: We should first find which vars are used .......................................................................
 		for var in all-vars
 			for v in called-by.var-calls[var] else ()
-				out ~= v called
+				out ~= v.called
 		# All Java interface methods might be used, so force generating implementations
 		for sum-type, impls in method-impls
 			guard sum-type.source.concrete-type-source-inst!.decl.body.sum-type!.kind == java-interface # TODO: have a helper fn for this
-			out ~~= impls methods
-	res concrete-fun mut[] = start-funs.to::concrete-fun[] to
-	set concrete-fun mut-set = start-funs to
-	to-propagate concrete-fun mut[] = start-funs.to::concrete-fun[] to
-	until to-propagate is-empty
-		fun = to-propagate pop!
+			out ~~= impls.methods
+	res concrete-fun mut[] = start-funs.to::concrete-fun[].to
+	set concrete-fun mut-set = start-funs.to
+	to-propagate concrete-fun mut[] = start-funs.to::concrete-fun[].to
+	until is-empty to-propagate
+		fun = pop! to-propagate
 		for x in called-by.calls[fun] else ()
-			called = x called
-			if set try-add called
+			called = x.called
+			if try-add set, called
 				res ~= called
 				to-propagate ~= called
-	res.move-to to
+	res.move-to.to
 
 -temp-async-kind enum(depends-on-caller, always-async) # better name? -----------------------------------------------------------------------
 -== bool(a temp-async-kind, b temp-async-kind)
@@ -71,24 +72,24 @@ do
 
 	# TODO:PERF we already went over all funs when generating 'called-by'. Should do this as part of that to avoid having to walk all funs again.
 	for fun in all-used-funs
-		reason = fun find-direct-async
-		kind temp-async-kind? = reason ?to
+		reason = find-direct-async fun
+		kind temp-async-kind? = reason.?to
 		if kind > temp-kinds[fun]
 			temp-kinds[fun] := kind!
 			to-propagate ~= fun
 
-	until to-propagate is-empty
-		fun = to-propagate pop!
+	until is-empty to-propagate
+		fun = pop! to-propagate
 		its-kind = temp-kinds[fun]!
 		for x in called-by.called-by[fun] else ()
-			caller = x caller
+			caller = x.caller
 			guard all-used-funs[caller] # TODO: can we just not put these in callers then? -----------------------------------------------------
-			new-kind = its-kind propagation-kind x
+			new-kind = propagation-kind its-kind, x
 			if new-kind > temp-kinds[caller]
 				temp-kinds[caller] := new-kind!
 				to-propagate ~= caller
 
-	used-depends-on-caller = all-used-funs calc-used-depends-on-caller called-by, temp-kinds
+	used-depends-on-caller = calc-used-depends-on-caller all-used-funs, called-by, temp-kinds
 
 	async-funs async-kind[concrete-fun] = for* fun, kind in temp-kinds
 		out-kind async-kind? = match kind
@@ -109,9 +110,9 @@ do
 	funs: async-funs
 	# TODO: this is not right.
 	# The correct way to do this is basically consider each concrete-var as if it is a fun, since accessing it might run the initializer.
-	var-initializers: all-used-vars filter of x
+	var-initializers: filter all-used-vars, of x
 		# TODO: This should use 'called-by.var-calls' instead of searching again
-		x.initializer search-async async-funs
+		search-async x.initializer, async-funs
 
 -uses flags(used-sync, used-async)
 -== bool(a uses, b uses)
@@ -132,20 +133,20 @@ do
 			used-sync
 		guard use # TODO: should be able to put the entire 'if' expression in the 'guard' ------------------
 		for x in calls
-			called = x called
-			if async-kinds[called] == depends-on-caller and res try-add called, use
+			called = x.called
+			if async-kinds[called] == depends-on-caller and try-add res, called, use
 				to-propagate ~= called
 
-	until to-propagate is-empty
-		fun = to-propagate pop!
+	until is-empty to-propagate
+		fun = pop! to-propagate
 		guard calls = called-by.calls[fun]
 		uses = res[fun]!
 		for x in calls
-			called = x called
-			if async-kinds[called] == depends-on-caller and res try-add called, uses
+			called = x.called
+			if async-kinds[called] == depends-on-caller and try-add res, called, uses
 				to-propagate ~= called
 
-	res move-to
+	res.move-to
 
 -try-add bool(res uses mut[concrete-fun], key concrete-fun, used uses)
 	should-add = !(cur = res[key] and cur[used])
@@ -154,14 +155,14 @@ do
 	should-add
 
 -search-async bool(a concrete-expr, async-funs async-kind[concrete-fun])
-	here bool = match x = a kind
+	here bool = match x = a.kind
 	as builtin-concrete-expr
-		!!(x.fun intrinsic-async-kind x.args, (), ())
+		!!(intrinsic-async-kind x.fun, x.args, (), ())
 	as call-concrete-expr
-		!!async-funs[x called]
+		!!async-funs[x.called]
 	else
 		false
-	here or a.direct-child-exprs exists of x then x search-async async-funs
+	here or exists a.direct-child-exprs, of x then search-async x, async-funs
 
 -directly-async-reason enum(calls-lambda-parameter, calls-other-lambda, js-await)
 -to temp-async-kind(a directly-async-reason)
@@ -176,17 +177,17 @@ do
 -<=> comparison(a directly-async-reason, b directly-async-reason)
 
 -find-direct-async directly-async-reason?(a concrete-fun)
-	match body = a body
+	match body = a.body
 	as concrete-fun-body-builtin
-		match x = body kind
+		match x = body.kind
 		as builtin-fun-call-lambda
 			calls-lambda-parameter
 		as js-fun
-			x intrinsic-async-kind
+			intrinsic-async-kind x
 		else
 			()
 	as concrete-expr
-		body intrinsic-async-kind a.params.to, ()
+		intrinsic-async-kind body, a.params.to, ()
 	as fun-body-extern-java
 		() # TODO: we shouldn't even get here for a JS build ---------------------------------------------------------------
 	as concrete-fun-body-method
@@ -197,30 +198,30 @@ do
 -intrinsic-async-kind directly-async-reason?(a concrete-expr, params concrete-local set, local-lambda-locals concrete-local set)
 	from-children directly-async-reason? mut() = of
 		max mut directly-async-reason? = ()
-		for x in a direct-child-exprs
-			max := max max do x intrinsic-async-kind params, local-lambda-locals
+		for x in direct-child-exprs a
+			max := max max, intrinsic-async-kind x, params, local-lambda-locals
 		max
-	match x = a kind
+	match x = a.kind
 	as builtin-concrete-expr
-		x.fun intrinsic-async-kind x.args, params, local-lambda-locals max from-children[]
+		max from-children[], intrinsic-async-kind x.fun, x.args, params, local-lambda-locals
 	as let-concrete-expr
-		from-value = x.value intrinsic-async-kind params, local-lambda-locals
-		new-locals = match x.value kind
+		from-value = intrinsic-async-kind x.value, params, local-lambda-locals
+		new-locals = match x.value.kind
 		as lambda-concrete-expr
 			local-lambda-locals ~ x.local
 		else
 			local-lambda-locals
-		from-value max do x.then_ intrinsic-async-kind params, new-locals
+		max from-value, intrinsic-async-kind x.then_, params, new-locals
 	else
 		from-children[]
 -intrinsic-async-kind directly-async-reason?(a builtin-fun, args concrete-expr[], params concrete-local set, local-lambda-locals concrete-local set)
 	match a
 	as builtin-fun-call-lambda
-		match x = args[0] kind
+		match x = args[0].kind
 		as local-get-concrete-expr
-			if params[x local]
+			if params[x.local]
 				calls-lambda-parameter
-			elif local-lambda-locals[x local]
+			elif local-lambda-locals[x.local]
 				# Function is calling a lambda it defined, and we trace its body anyway
 				()
 			else
@@ -229,7 +230,7 @@ do
 		else
 			calls-other-lambda
 	as js-fun
-		a intrinsic-async-kind
+		intrinsic-async-kind a
 	else
 		()
 -intrinsic-async-kind directly-async-reason?(a js-fun)
@@ -254,31 +255,31 @@ do
 	calls call-kind mut[] mut[concrete-fun] = ()
 	called-by caller mut[] mut[concrete-fun] = ()
 	for fun in all-funs
-		match x = fun body
+		match x = fun.body
 		as concrete-fun-body-builtin
 			()
 		as concrete-expr
 			try
-				calls build-called-by-recur called-by, fun, x
+				build-called-by-recur calls, called-by, fun, x
 			catch e as StackOverflowError
-				error log "Stack too deep building called-by for function {show-ctx show-concrete-fun-sig fun, true}" # -------
+				log error, "Stack too deep building called-by for function {show-concrete-fun-sig show-ctx, fun, true}" # -------
 				throw e
 		as fun-body-extern-java
 			()
 		as concrete-fun-body-method
-			method-info = method-impls[fun.params[0] type]!
-			new-method-index = method-info.methods index-of! fun
+			method-info = method-impls[fun.params[0].type]!
+			new-method-index = index-of! method-info.methods, fun
 			assert new-method-index <= x.method-index # some methods may be omitted
 			for impls in method-info.cases
 				if impl = impls[new-method-index]
-					calls ensure fun ~= impl call-kind-method-impl
-					called-by ensure impl ~= fun, impl.call-kind-method-impl
+					(ensure calls, fun) ~= call-kind-method-impl impl
+					(ensure called-by, impl) ~= fun, impl.call-kind-method-impl
 		as concrete-fun-body-deferred
 			throw unreachable
 	var-calls call-kind mut[] mut[concrete-var] = ()
 	for var in all-vars
-		for called in var.initializer all-calls
-			var-calls ensure var ~= called
+		for called in all-calls var.initializer
+			(ensure var-calls, var) ~= called
 	calls: for k, v in calls then k, v.move-to
 	var-calls: for k, v in var-calls then k, v.move-to
 	called-by: for k, v in called-by then k, v.move-to
@@ -288,21 +289,21 @@ do
 	f concrete-fun
 	expr concrete-expr
 do
-	for x in expr all-calls
-		calls ensure f, it.noop ~= x
-		called-by ensure x.called, it.noop ~= (f, x)
+	for x in all-calls expr
+		ensure calls, f, it.noop ~= x
+		ensure called-by, x.called, it.noop ~= (f, x)
 
 -all-calls record(expr concrete-expr)
 -iterate bool(a all-calls, f bool mut(x call-kind))
-	b = match x = a.expr kind
+	b = match x = a.expr.kind
 	as call-concrete-expr
 		f[x]
 	as match-string-like-concrete-expr
 		f[x]
 	else
 		()
-	b or a.expr.direct-child-exprs iterate of child
-		child.all-calls iterate f
+	b or iterate a.expr.direct-child-exprs, of child
+		iterate child.all-calls, f
 
 -caller record
 	caller concrete-fun
@@ -316,24 +317,24 @@ do
 -called concrete-fun(a call-kind)
 	match a
 	as call-concrete-expr
-		a called
+		a.called
 	as match-string-like-concrete-expr
-		a equals
+		a.equals
 	as call-kind-method-impl
-		a impl
+		a.impl
 
 -propagation-kind temp-async-kind?(called-kind temp-async-kind, caller caller)
-	match call = caller call-expr
+	match call = caller.call-expr
 	as call-concrete-expr
 		match called-kind
 		as depends-on-caller
 			res mut temp-async-kind? = ()
 			# TODO: res = call.args max-of ..................................................................................................
-			for arg in call args
-				res max:= if arg.type as-lambda-type
-					match x = arg kind
+			for arg in call.args
+				res max:= if as-lambda-type arg.type
+					match x = arg.kind
 					as local-get-concrete-expr
-						if caller.caller.params contains x.local
+						if contains caller.caller.params, x.local
 							depends-on-caller
 						else
 							# Calling into one of caller's locals, which will be scanned anyway

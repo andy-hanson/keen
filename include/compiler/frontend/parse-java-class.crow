@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/col/mut-slice
 	crow/format/binary
@@ -17,35 +18,35 @@ parsed-java-class-header record
 	start-of-fields nat
 parse-java-class parsed-java-class-header(content nat8 array-view)
 	start = perf-now
-	finally start end-parse-java-class
-	reader = content begin
+	finally end-parse-java-class start
+	reader = begin content
 	reader.take32 is 0xcafebabe
-	version = reader take32
+	version = take32 reader
 	assert version >= 69
-	constants = content.inner.safe-reinterpret-cast read-constant-pool reader
-	access class-access = reader.take16 to!
-	this-class = reader read-class-reference constants
-	super-class = reader read-optional-class-reference constants
-	interfaces = reader read-array of then reader read-class-reference constants
+	constants = read-constant-pool content.inner.safe-reinterpret-cast, reader
+	access class-access = reader.take16.to!
+	this-class = read-class-reference reader, constants
+	super-class = read-optional-class-reference reader, constants
+	interfaces = read-array reader, of then read-class-reference reader, constants
 	content: content
 	constants: constants
 	access: access
 	this-class: this-class
 	super-class: super-class
 	interfaces: interfaces
-	start-of-fields: reader index
+	start-of-fields: index reader
 
 parsed-java-class-body record
 	fields parsed-field[]
 	methods parsed-method[]
 parse-java-class-body parsed-java-class-body(header parsed-java-class-header)
-	reader = header.content begin
-	reader skip-next-n header.start-of-fields
-	constants = header constants
-	fields = reader read-array of then reader read-field constants
-	methods = reader read-array of then reader read-method constants
-	_ = reader read-attributes constants
-	assert reader is-at-end
+	reader = begin header.content
+	skip-next-n reader, header.start-of-fields
+	constants = constants header
+	fields = read-array reader, of then read-field reader, constants
+	methods = read-array reader, of then read-method reader, constants
+	_ = read-attributes reader, constants
+	assert is-at-end reader
 	fields, methods
 
 -read-array[t] t[](reader nat8 array-iterator, f t mut())
@@ -58,10 +59,10 @@ parsed-field record
 	type java-type
 	attributes read-attribute[]
 -read-field parsed-field(reader nat8 array-iterator, constants constants)
-	access-flags: reader.take16 to!
-	name: reader read-utf8-reference constants to
-	type: reader read-utf8-reference constants parse-type
-	attributes: reader read-attributes constants
+	access-flags: reader.take16.to!
+	name: read-utf8-reference reader, constants 'to
+	type: parse-type read-utf8-reference reader, constants
+	attributes: read-attributes reader, constants
 
 -constants record
 	# Use arrays instead of maps for faster lookups
@@ -69,19 +70,19 @@ parsed-field record
 	constant-strings nat32 range[]
 	constant-classes path[]
 -get-string nat32 range(a constants, index nat16)
-	a.constant-strings[index to]
+	a.constant-strings[index.to]
 -get-class path(a constants, index nat16)
-	a.constant-classes[index to]
+	a.constant-classes[index.to]
 
 parsed-method record
 	access-flags method-access-flags
 	name symbol
 	descriptor method-descriptor
 -read-method parsed-method(reader nat8 array-iterator, constants constants)
-	access-flags method-access-flags = reader.take16 to!
-	name symbol = reader read-utf8-reference constants to
-	descriptor = constants.all-char8s parse-method-descriptor do reader read-utf8-reference-2 constants
-	_ = reader read-attributes constants
+	access-flags method-access-flags = reader.take16.to!
+	name symbol = read-utf8-reference reader, constants 'to
+	descriptor = parse-method-descriptor constants.all-char8s, read-utf8-reference-2 reader, constants
+	_ = read-attributes reader, constants
 	access-flags: access-flags
 	name: name
 	descriptor: descriptor
@@ -99,30 +100,30 @@ show string(a java-array-type)
 	"{a.element.show}[]"
 
 -parse-method-descriptor method-descriptor(all-char8s char8[], a nat32 range)
-	index mut nat = a.low to
+	index mut nat = a.low.to
 	all-char8s[index] is "("
 	index +:= 1
 	param-types java-type[] = with out in build
 		until all-char8s[index] == ")"
-			p, new-index = all-char8s read-type index
+			p, new-index = read-type all-char8s, index
 			out ~= p
 			index := new-index
 		index +:= 1
-	return-type, new-index2 = all-char8s read-type index
+	return-type, new-index2 = read-type all-char8s, index
 	new-index2 is a.high.to
 	return-type, param-types
 -wrap-arrays java-type(type java-type, arrays nat)
-	if arrays == 0 then type else type.java-array-type wrap-arrays arrays - 1
+	if arrays == 0 then type else wrap-arrays type.java-array-type, arrays - 1
 -parse-type java-type(a char8 array-view)
 	char = a[0]
 	match char
 	as L
 		a[end - 1] is ";"
-		a[1 .. end - 1] as-path
+		as-path a[1 .. end - 1]
 	as "["
-		a[1 .. end].parse-type java-array-type
+		java-array-type parse-type a[1 .. end]
 	else
-		char single-char-type
+		single-char-type char
 -read-type (java-type, nat)(all-char8s char8[], start nat)
 	arrays mut nat = 0
 	index mut nat = start
@@ -130,16 +131,18 @@ show string(a java-array-type)
 		char = all-char8s[index]
 		match char
 		as L
-			end = all-char8s must-find index + 1, ";"
+			end = must-find all-char8s, index + 1, ";"
 			break
-				- all-char8s[index + 1 .. end].as-path wrap-arrays arrays
+				- wrap-arrays all-char8s[index + 1 .. end].as-path, arrays
 				- end + 1
 		as "["
 			index +:= 1
 			arrays +:= 1
 			continue
 		else
-			break (char.single-char-type wrap-arrays arrays), index + 1
+			break
+				- wrap-arrays char.single-char-type, arrays
+				- index + 1
 
 -must-find nat(xs char8[], start nat, to-find char8)
 	index mut = start
@@ -173,101 +176,101 @@ show string(a java-array-type)
 -read-attribute record
 	attribute-name symbol
 -read-attributes read-attribute[](reader nat8 array-iterator, constants constants)
-	reader read-array of
-		reader read-attribute constants
+	read-array reader, of
+		read-attribute reader, constants
 -read-attribute read-attribute(reader nat8 array-iterator, constants constants)
-	attribute-name = reader read-utf8-reference constants
-	reader skip-next-n reader.take32.to
-	attribute-name: attribute-name to
+	attribute-name = read-utf8-reference reader, constants
+	skip-next-n reader, reader.take32.to
+	attribute-name: attribute-name.to
 
 -read-utf8-reference char8 array-view(reader nat8 array-iterator, constants constants)
-	range = reader read-utf8-reference-2 constants
+	range = read-utf8-reference-2 reader, constants
 	constants.all-char8s[range.low.to .. range.high.to]
 -read-utf8-reference-2 nat32 range(reader nat8 array-iterator, constants constants) # TODO:NAME -------------------------------------------------
-	constants get-string reader.take16
+	get-string constants, reader.take16
 -read-class-reference path(reader nat8 array-iterator, constants constants)
-	constants get-class reader.take16
+	get-class constants, reader.take16
 -read-optional-class-reference path?(reader nat8 array-iterator, constants constants)
-	index = reader take16
+	index = take16 reader
 	unless index == 0
-		constants get-class index
+		get-class constants, index
 
 # https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.4
 -read-constant-pool constants(all-char8s char8[], reader nat8 array-iterator)
-	constants-pool-count = reader take16
+	constants-pool-count = take16 reader
 	constant-pool-index mut nat16 = 1
-	constant-strings-builder nat32 range mut-slice = constants-pool-count.to fill 0 .. 0
-	constant-classes nat16 mut-slice = constants-pool-count.to fill 0
+	constant-strings-builder nat32 range mut-slice = fill constants-pool-count.to, 0 .. 0
+	constant-classes nat16 mut-slice = fill constants-pool-count.to, 0
 	while constant-pool-index < constants-pool-count
-		kind = reader take-next
+		kind = take-next reader
 		constant-pool-index +:= match kind
 		as 1
 			# CONSTANT_Utf8_info
-			bytes = reader take-next-n reader.take16.to
+			bytes = take-next-n reader, reader.take16.to
 			# Java does not really use standard UTF8, but this shouldn't matter for method and type names
-			constant-strings-builder[constant-pool-index to] := bytes.low.to .. bytes.high.to
+			constant-strings-builder[constant-pool-index.to] := bytes.low.to .. bytes.high.to
 			1
 		as 3
 			# CONSTANT_Integer_info
-			reader skip-next-n 4
+			skip-next-n reader, 4
 			1
 		as 4
 			# CONSTANT_Float_info
-			reader skip-next-n 4
+			skip-next-n reader, 4
 			1
 		as 5
 			# CONSTANT_Long_info
-			reader skip-next-n 8
+			skip-next-n reader, 8
 			2
 		as 6
 			# CONSTANT_Double_info
-			reader skip-next-n 8
+			skip-next-n reader, 8
 			2
 		as 7
 			# CONSTANT_Class_info
-			constant-classes[constant-pool-index to] := reader take16
+			constant-classes[constant-pool-index.to] := take16 reader
 			1
 		as 8
 			# CONSTANT_String_info
-			reader skip-next-n 2
+			skip-next-n reader, 2
 			1
 		as 9
 			# CONSTANT_Fieldref_info
-			reader skip-next-n 4
+			skip-next-n reader, 4
 			1
 		as 10
 			# CONSTANT_Methodref_info
-			reader skip-next-n 4
+			skip-next-n reader, 4
 			1
 		as 11
 			# CONSTANT_InterfaceMethodref_info
-			reader skip-next-n 4
+			skip-next-n reader, 4
 			1
 		as 12
 			# CONSTANT_NameAndType_info
-			reader skip-next-n 4
+			skip-next-n reader, 4
 			1
 		as 15
 			# CONSTANT_MethodHandle_info
-			reader skip-next-n 3
+			skip-next-n reader, 3
 			1
 		as 16
 			# CONSTANT_MethodType_info
-			reader skip-next-n 2
+			skip-next-n reader, 2
 			1
 		as 18
 			# CONSTANT_InvokeDynamic_info
-			reader skip-next-n 4
+			skip-next-n reader, 4
 			1
 		else
-			error log "Unexpected constant kind {kind}"
+			log error, "Unexpected constant kind {kind}"
 			throw todo
 	constant-pool-index is constants-pool-count
 	all-char8s: all-char8s
-	constant-strings: trusted constant-strings-builder cast-immutable
+	constant-strings: trusted cast-immutable constant-strings-builder
 	constant-classes: for x in constant-classes
 		if x == 0
-			"" as-path
+			as-path ""
 		else
-			range = constant-strings-builder[x to]
-			all-char8s[range.low.to .. range.high.to] as-path
+			range = constant-strings-builder[x.to]
+			as-path all-char8s[range.low.to .. range.high.to]

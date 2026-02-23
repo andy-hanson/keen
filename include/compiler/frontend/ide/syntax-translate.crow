@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/parse
 	../../../crow/private/parse-util
@@ -8,29 +9,29 @@ import
 	../../model/source-range
 
 syntax-translate syntax-translate-result(params syntax-translate-params)
-	if params.source contains "\n"
+	if contains params.source, "\n"
 		"", (0,)
 	elif params.from-language == params.to-language
 		params.source, ()
 	elif params.to-language == crow
-		expr, diags = params.source parse-java-expr
+		expr, diags = parse-java-expr params.source
 		output: with out in build
-			out translate-to-crow expr, root, ()
+			translate-to-crow out, expr, root, ()
 		diagnostics: diags
 	elif params.from-language == crow
-		res = params.source parse-single-line-expression
+		res = parse-single-line-expression params.source
 		result mut string = ""
 		diagnostics pos[] = with diags-out in build
-			for x in res diags
+			for x in res.diags
 				diags-out ~= x.range.start
 			result := with out in build
-				out translate-crow-to-c-or-java diags-out, res.expr, params.to-language == java
+				translate-crow-to-c-or-java out, diags-out, res.expr, params.to-language == java
 		result, diagnostics
 	else
-		expr, diags = params.source parse-java-expr
+		expr, diags = parse-java-expr params.source
 		output: with out in build
-			out output-c-or-java
-				expr translate-between-c-or-java params.to-language == java
+			output-c-or-java out,
+				translate-between-c-or-java expr, params.to-language == java
 		diagnostics: diags
 
 -translate-crow-to-c-or-java void
@@ -41,16 +42,16 @@ syntax-translate syntax-translate-result(params syntax-translate-params)
 do
 	match a
 	as call-ast
-		out translate-call-to-c-or-java diags-out, a.fun-name.name, a.args, is-java
+		translate-call-to-c-or-java out, diags-out, a.fun-name.name, a.args, is-java
 	as force-ast
-		out translate-call-to-c-or-java diags-out, "force", (a.arg,), is-java
+		translate-call-to-c-or-java out, diags-out, "force", (a.arg,), is-java
 	as name-and-range
-		out ~~= a.name to
+		out ~~= a.name.to
 	as not-ast
-		out ~~= "!"
-		out translate-crow-to-c-or-java diags-out, a.arg, is-java
+		out ~= "!"
+		translate-crow-to-c-or-java out, diags-out, a.arg, is-java
 	as parenthesized-ast
-		out translate-crow-to-c-or-java diags-out, a.inner, is-java
+		translate-crow-to-c-or-java out, diags-out, a.inner, is-java
 	else
 		diags-out ~= a.range.start
 -translate-call-to-c-or-java void
@@ -60,49 +61,49 @@ do
 	args expr-ast[]
 	is-java bool
 do
-	remaining-args = if is-java and args !is-empty
-		out translate-crow-to-c-or-java diags-out, args[0], is-java
+	remaining-args = if is-java and !is-empty args
+		translate-crow-to-c-or-java out, diags-out, args[0], is-java
 		out ~= "."
 		args[1 .. end]
 	else
-		args to
-	out ~~= fun-name to
-	out write-parenthesized remaining-args, of x
-		out translate-crow-to-c-or-java diags-out, x, is-java
+		args.to
+	out ~~= fun-name.to
+	write-parenthesized out, remaining-args, of x
+		translate-crow-to-c-or-java out, diags-out, x, is-java
 
 -output-c-or-java void(out string-builder, a java-expr)
 	match a
 	as java-bogus
 		out ~~= "bogus"
 	as symbol
-		out ~~= a to
+		out ~~= a.to
 	as java-call
-		out output-c-or-java a.called
-		out write-parenthesized a.args, of arg
-			out output-c-or-java arg
+		output-c-or-java out, a.called
+		write-parenthesized out, a.args, of arg
+			output-c-or-java out, arg
 	as java-dot
-		out output-c-or-java a.left
+		output-c-or-java out, a.left
 		out ~= "."
-		out ~~= a.name to
+		out ~~= a.name.to
 	as java-not
 		out ~= "!"
-		out output-c-or-java a.arg
+		output-c-or-java out, a.arg
 
 -translate-between-c-or-java java-expr(a java-expr, output-java bool)
 	match a
 	as java-bogus
 		a
 	as java-call
-		match called = a called
+		match called = a.called
 		as java-bogus
 			a
 		as symbol
-			if output-java and a.args !is-empty
+			if output-java and !is-empty a.args
 				called:
-					a.args[0] translate-between-c-or-java output-java
-					then java-dot called translate-between-c-or-java output-java
+					arg0 = translate-between-c-or-java a.args[0], output-java
+					translate-between-c-or-java (java-dot arg0, called), output-java
 				args: for arg in a.args[1 .. end]
-					arg translate-between-c-or-java output-java
+					translate-between-c-or-java arg, output-java
 			else
 				a
 		as java-call
@@ -111,24 +112,24 @@ do
 			if output-java
 				a
 			else
-				called.name java-call
-					- called.left translate-between-c-or-java output-java
-					-- for arg in a args then arg translate-between-c-or-java output-java
+				java-call called.name,
+					- translate-between-c-or-java called.left, output-java
+					-- for arg in a.args then translate-between-c-or-java arg, output-java
 		as java-not
 			a
 	as java-dot
 		a
 	as java-not
-		a.arg translate-between-c-or-java output-java java-not
+		java-not translate-between-c-or-java a.arg, output-java
 	as symbol
 		a
 
 -write-parenthesized[col, elem] void(out string-builder, values col, f void mut(x elem)) (col, elem) iterate
 	out ~= "("
-	out write-with-commas values, f
+	write-with-commas out, values, f
 	out ~= ")"
 -write-with-commas[col, elem] void(out string-builder, values col, f void mut(x elem)) (col, elem) iterate
-	for i, x in values with-index
+	for i, x in with-index values
 		if i != 0
 			out ~~= ", "
 		f[x]
@@ -139,8 +140,8 @@ do
 -to augment?(a symbol)
 -== bool(a augment, b augment)
 -with-augment void(out string-builder, augment augment?, name symbol)
-	out with-augment augment, of
-		out ~~= name to
+	with-augment out, augment, of
+		out ~~= name.to
 -with-augment void(out string-builder, augment augment?, f void mut())
 	if augment == not
 		out ~= "!"
@@ -153,33 +154,33 @@ do
 	as java-bogus
 		out ~~= "bogus"
 	as symbol
-		out with-augment augment, a
+		with-augment out, augment, a
 	as java-call
-		out translate-call-to-crow a, position, augment
+		translate-call-to-crow out, a, position, augment
 	as java-dot
-		out write-crow-call a.left, a.name, (), position, augment
+		write-crow-call out, a.left, a.name, (), position, augment
 	as java-not
 		forbid augment else todo # ------------------------------------------------------------------------------------------------------------------
-		out translate-to-crow a.arg, position, not
+		translate-to-crow out, a.arg, position, not
 -translate-call-to-crow void(out string-builder, a java-call, position position, augment augment?)
-	args = a args
-	match called = a called
+	args = a.args
+	match called = a.called
 	as java-bogus
 		out ~~= "bogus"
 	as symbol
-		if args is-empty
-			out with-augment augment, called
+		if is-empty args
+			with-augment out, augment, called
 		else
-			out write-crow-call args[0], called, args[1 .. end], position, augment
+			write-crow-call out, args[0], called, args[1 .. end], position, augment
 	as java-call
-		out with-augment augment, of
-			out translate-to-crow called, position, ()
+		with-augment out, augment, of
+			translate-to-crow out, called, position, ()
 			out ~= "["
-			out write-with-commas args, of arg
-				out translate-to-crow arg, non-first-arg, ()
+			write-with-commas out, args, of arg
+				translate-to-crow out, arg, non-first-arg, ()
 			out ~= "]"
 	as java-dot
-		out write-crow-call called.left, called.name, args.to, position, augment
+		write-crow-call out, called.left, called.name, args.to, position, augment
 	as java-not
 		throw todo # you wouldn't actually call the result of 'not', so just make sure this doesn't blow up -----------------------------------------
 
@@ -191,22 +192,22 @@ do
 	position position
 	augment augment?
 do
-	if rest-args is-empty
+	if is-empty rest-args
 		new-augment augment? = if augment
 			()
 		else
-			name to
+			name.to
 		if new-augment
-			out translate-to-crow arg0, position, new-augment
+			translate-to-crow out, arg0, position, new-augment
 		elif position == root
-			out translate-to-crow arg0, first-arg, ()
+			translate-to-crow out, arg0, first-arg, ()
 			out ~= " "
-			out with-augment augment, name
+			with-augment out, augment, name
 		else
-			out with-augment augment, of
-				out translate-to-crow arg0, before-dot, ()
+			with-augment out, augment, of
+				translate-to-crow out, arg0, before-dot, ()
 				out ~= "."
-				out ~~= name to
+				out ~~= name.to
 	else
 		needs-parens bool = match position
 		as root
@@ -219,12 +220,12 @@ do
 			true
 		if needs-parens
 			out ~= "("
-		out translate-to-crow arg0, first-arg, ()
+		translate-to-crow out, arg0, first-arg, ()
 		out ~= " "
-		out with-augment augment, name
+		with-augment out, augment, name
 		out ~= " "
-		out write-with-commas rest-args, of arg
-			out translate-to-crow arg, non-first-arg, ()
+		write-with-commas out, rest-args, of arg
+			translate-to-crow out, arg, non-first-arg, ()
 		if needs-parens
 			out ~= ")"
 
@@ -241,74 +242,74 @@ do
 
 -parse-java-expr (java-expr, pos[])(source string)
 	ctx parse-ctx = (),
-	iter = source begin
-	res = ctx parse-java-expr-recur iter
-	iter skip-whitespace
-	unless iter is-at-end
-		ctx add-diag iter
+	iter = begin source
+	res = parse-java-expr-recur ctx, iter
+	skip-whitespace iter
+	unless iter.is-at-end
+		add-diag ctx, iter
 	res, ctx.diags.move-to
 
 -parse-java-expr-recur java-expr(ctx parse-ctx, iter string-iterator)
-	iter skip-whitespace
-	if name = iter try-take-crow-identifier
-		ctx parse-java-expr-suffixes iter, name
-	elif iter try-take "!"
-		ctx parse-java-expr-recur iter java-not
+	skip-whitespace iter
+	if name = try-take-crow-identifier iter
+		parse-java-expr-suffixes ctx, iter, name
+	elif try-take iter, "!"
+		java-not parse-java-expr-recur ctx, iter
 	else
-		ctx add-diag iter
+		add-diag ctx, iter
 		java-bogus
 -parse-java-expr-suffixes java-expr(ctx parse-ctx, iter string-iterator, lhs java-expr)
-	iter skip-whitespace
-	if iter try-take "."
-		if name = iter try-take-crow-identifier
-			ctx parse-java-expr-suffixes iter, (lhs java-dot name)
+	skip-whitespace iter
+	if try-take iter, "."
+		if name = try-take-crow-identifier iter
+			parse-java-expr-suffixes ctx, iter, java-dot lhs, name
 		else
-			ctx add-diag iter
+			add-diag ctx, iter
 			lhs
-	elif iter try-take "("
-		args java-expr[] = if iter try-take ")"
+	elif try-take iter, "("
+		args java-expr[] = if try-take iter, ")"
 			()
 		else
 			with out in build
 				loop
-					out ~= ctx parse-java-expr-recur iter
-					iter skip-whitespace
-					if iter try-take ","
+					out ~= parse-java-expr-recur ctx, iter
+					skip-whitespace iter
+					if try-take iter, ","
 						continue
 					else
 						break
-				unless iter try-take ")"
-					ctx add-diag iter
-		ctx parse-java-expr-suffixes iter, (lhs java-call args)
+				unless try-take iter, ")"
+					add-diag ctx, iter
+		parse-java-expr-suffixes ctx, iter, java-call lhs, args
 	else
 		lhs
 
 test
-	"a" test-all-ways "a", "a"
-	"a f" test-all-ways "f(a)", "a.f()"
-	"a.f.g h" test-all-ways "h(g(f(a)))", "a.f().g().h()"
-	"a f b" test-all-ways "f(a, b)", "a.f(b)"
-	"a f b, c" test-all-ways "f(a, b, c)", "a.f(b, c)"
-	"a.g f b, c" test-all-ways "f(g(a), b, c)", "a.g().f(b, c)"
-	"a.g f b.h, c" test-all-ways "f(g(a), h(b), c)", "a.g().f(b.h(), c)"
-	"a g b f c, d" test-all-ways "f(g(a, b), c, d)", "a.g(b).f(c, d)"
-	"a g b, c f d, e" test-all-ways "f(g(a, b, c), d, e)", "a.g(b, c).f(d, e)"
-	"a g b f (c h d), e.i" test-all-ways "f(g(a, b), h(c, d), i(e))", "a.g(b).f(c.h(d), e.i())"
-	"a !f b" test-all-ways "!f(a, b)", "!a.f(b)"
-	"a f! b" test-all-ways "force(f(a, b))", "a.f(b).force()"
+	test-all-ways "a", "a", "a"
+	test-all-ways "a f", "f(a)", "a.f()"
+	test-all-ways "a.f.g h", "h(g(f(a)))", "a.f().g().h()"
+	test-all-ways "a f b", "f(a, b)", "a.f(b)"
+	test-all-ways "a f b, c", "f(a, b, c)", "a.f(b, c)"
+	test-all-ways "a.g f b, c", "f(g(a), b, c)", "a.g().f(b, c)"
+	test-all-ways "a.g f b.h, c", "f(g(a), h(b), c)", "a.g().f(b.h(), c)"
+	test-all-ways "a g b f c, d", "f(g(a, b), c, d)", "a.g(b).f(c, d)"
+	test-all-ways "a g b, c f d, e", "f(g(a, b, c), d, e)", "a.g(b, c).f(d, e)"
+	test-all-ways "a g b f (c h d), e.i", "f(g(a, b), h(c, d), i(e))", "a.g(b).f(c.h(d), e.i())"
+	test-all-ways "a !f b", "!f(a, b)", "!a.f(b)"
+	test-all-ways "a f! b", "force(f(a, b))", "a.f(b).force()"
 
-	c test-one-way "f(a) x", crow, "a f", (5,)
-	crow test-one-way "x\n", c, "", (0,)
+	test-one-way c, "f(a) x", crow, "a f", (5,)
+	test-one-way crow, "x\n", c, "", (0,)
 
 -test-all-ways void(crow-src string, c-src string, java-src string)
-	crow test-one-way crow-src, c, c-src, ()
-	crow test-one-way crow-src, java, java-src, ()
-	c test-one-way c-src, crow, crow-src, ()
-	c test-one-way c-src, java, java-src, ()
-	java test-one-way java-src, crow, crow-src, ()
-	java test-one-way java-src, c, c-src, ()
+	test-one-way crow, crow-src, c, c-src, ()
+	test-one-way crow, crow-src, java, java-src, ()
+	test-one-way c, c-src, crow, crow-src, ()
+	test-one-way c, c-src, java, java-src, ()
+	test-one-way java, java-src, crow, crow-src, ()
+	test-one-way java, java-src, c, c-src, ()
 
 -test-one-way void(from language, source string, to language, expected string, expected-diagnostics pos[])
-	result = (source, from, to) syntax-translate
+	result = syntax-translate (source, from, to)
 	result.diagnostics is expected-diagnostics
 	result.output is expected

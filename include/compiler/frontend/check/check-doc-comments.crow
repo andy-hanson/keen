@@ -1,3 +1,4 @@
+use-prefix
 import
 	../../model/ast
 	../../model/model
@@ -20,12 +21,12 @@ check-doc-comments void
 	tests test_[]
 do
 	check-ref doc-comment-reference mut(type-params type-params, specs specs, ast name-and-range) = of type-params, specs, ast
-		ctx check-doc-comment-reference structs-and-aliases-map, specs-map, funs-map, type-params, specs, ast
+		check-doc-comment-reference ctx, structs-and-aliases-map, specs-map, funs-map, type-params, specs, ast
 	check-ref-for-sig doc-comment-reference mut(type-params type-params, specs specs, params destructure[], ast name-and-range) =
 		of type-params, specs, params, ast
-			params reference-in-params ast.name else check-ref[type-params, specs, ast]
+			reference-in-params params, ast.name else check-ref[type-params, specs, ast]
 	check-refs doc-comment-references mut(type-params type-params, specs specs, ast doc-comment-ast) = of type-params, specs, ast
-		ctx check-doc-comment-references structs-and-aliases-map, specs-map, funs-map, type-params, specs, ast
+		check-doc-comment-references ctx, structs-and-aliases-map, specs-map, funs-map, type-params, specs, ast
 	check-refs-for-decl doc-comment-references mut(decl any-decl) = of decl
 		check-refs[decl.type-param-asts, decl.specs, decl.doc-comment-ast]
 	check-refs-for-struct doc-comment-references mut(struct struct-decl, ast doc-comment-ast) = of struct, ast
@@ -35,7 +36,7 @@ do
 		x.doc-comment-references := check-refs-for-decl[x]
 	for struct in structs
 		struct.doc-comment-references := check-refs-for-decl[struct]
-		match body = struct body
+		match body = struct.body
 		as struct-body-bogus
 			()
 		as struct-body-extern-java
@@ -43,27 +44,27 @@ do
 		as builtin-type
 			()
 		as enum_
-			for member in body members
+			for member in body.members
 				member.doc-comment-references := check-refs-for-struct[struct, member.doc-comment-ast]
 		as flags_
-			for member in body members
+			for member in body.members
 				member.doc-comment-references := check-refs-for-struct[struct, member.doc-comment-ast]
 		as record_
-			for field in body fields
+			for field in body.fields
 				field.doc-comment-references := check-refs-for-struct[struct, field.doc-comment-ast]
 		as sum-type
-			for sig in body methods
+			for sig in body.methods
 				sig.doc-comment-references := for ast in sig.doc-comment-ast.references
 					check-ref-for-sig[struct.type-param-asts, (), sig.params, ast]
 	for spec_ in spec-decls
 		spec_.doc-comment-references := check-refs-for-decl[spec_]
-		for sig in spec_ sigs
-			sig.doc-comment-references := for ast in sig.doc-comment-ast references
-				spec_ reference-spec-sig ast.name else check-ref-for-sig[spec_.type-param-asts, spec_.parents, sig.params, ast]
+		for sig in spec_.sigs
+			sig.doc-comment-references := for ast in sig.doc-comment-ast.references
+				reference-spec-sig spec_, ast.name else check-ref-for-sig[spec_.type-param-asts, spec_.parents, sig.params, ast]
 	for x in vars
 		x.doc-comment-references := check-refs-for-decl[x]
 	for x in funs
-		x.doc-comment-references := for ast in x.doc-comment-ast references
+		x.doc-comment-references := for ast in x.doc-comment-ast.references
 			check-ref-for-sig[x.type-param-asts, x.specs, x.params, ast]
 	for x in tests
 		x.doc-comment-references := check-refs-for-decl[x]
@@ -77,8 +78,8 @@ check-doc-comment-references doc-comment-references
 	specs specs
 	ast doc-comment-ast
 do
-	for name in ast references
-		ctx check-doc-comment-reference structs-and-aliases-map, specs-map, funs-map, type-params, specs, name
+	for name in ast.references
+		check-doc-comment-reference ctx, structs-and-aliases-map, specs-map, funs-map, type-params, specs, name
 
 -check-doc-comment-reference doc-comment-reference
 	ctx check-ctx
@@ -89,17 +90,17 @@ do
 	specs specs
 	ast name-and-range
 do
-	name = ast name
-	if x = type-params find-index it.name == name
+	name = ast.name
+	if x = find-index type-params, it.name == name
 		(x,)::type-param-index
-	elif sa = ctx struct-or-alias-from-name name, ast.range, structs-and-aliases-map, true
-		sa to
-	elif spec_ = ctx try-find-spec ast, specs-map, true
+	elif sa = struct-or-alias-from-name ctx, name, ast.range, structs-and-aliases-map, true
+		sa.to
+	elif spec_ = try-find-spec ctx, ast, specs-map, true
 		spec_
-	elif x = ctx reference-fun funs-map, specs, name
+	elif x = reference-fun ctx, funs-map, specs, name
 		x
 	else
-		ctx add-diag ast.range, do doc-comment-reference diag-name-not-found name
+		add-diag ctx, ast.range, diag-name-not-found doc-comment-reference, name
 		doc-comment-reference-bogus
 
 -to doc-comment-reference(a struct-or-alias)
@@ -108,24 +109,24 @@ do
 	as struct-alias then a
 
 -reference-in-params doc-comment-reference?(params destructure[], name symbol)
-	params first of param
+	first params, of param
 		:: local? # TODO: type annotation should not be necessary
-		param.locals find it.name == name
+		find param.locals, it.name == name
 
 -reference-spec-sig doc-comment-reference?(cur-spec spec-decl, name symbol)
 	::signature? # TODO: type annotation should not be necessary
-	cur-spec.sigs find it.name == name
+	find cur-spec.sigs, it.name == name
 
 -reference-fun doc-comment-reference?(ctx check-ctx, funs-map funs-map, specs specs, name symbol)
-	guard called = ctx first-fun-in-scope funs-map, specs, name
+	guard called = first-fun-in-scope ctx, funs-map, specs, name
 	match called
-	as fun-decl then called doc-comment-reference-for-fun-decl
+	as fun-decl then doc-comment-reference-for-fun-decl called
 	as called-spec-sig then called
 
 -doc-comment-reference-for-fun-decl doc-comment-reference(a fun-decl)
 	return-struct doc-comment-reference mut() = of
-		a.return-type.struct-inst! decl
-	match body = a body
+		a.return-type.struct-inst!.decl
+	match body = a.body
 	as fun-body-uninitialized
 		throw unreachable
 	as fun-body-extern-java
@@ -149,21 +150,21 @@ do
 	as flags-function
 		return-struct[]
 	as fun-body-method
-		body method
+		body.method
 	as record-field-get
-		body field
+		body.field
 	as record-field-set
-		body field
+		body.field
 	as sum-type-member-get
 		return-struct[]
 	as var-get
-		body var
+		body.var
 	as var-set
-		body var
+		body.var
 
 -first-fun-in-scope called-decl?(ctx check-ctx, funs-map funs-map, specs specs, name symbol)
 	res mut called-decl? = ()
-	(specs, funs-map, ctx) each-fun-in-scope name, of x
+	each-fun-in-scope (specs, funs-map, ctx), name, of x
 		unless r = res and r.range < x.range
 			res := x
 	res

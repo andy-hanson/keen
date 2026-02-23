@@ -1,3 +1,4 @@
+use-prefix
 import
 	../../model/ast
 	../../model/model
@@ -8,32 +9,32 @@ import
 
 detect-unused-private void(ctx check-ctx, common-types common-types, module crow-module)
 	start = perf-now
-	used = common-types gather-used module
-	for fun in module funs
+	used = gather-used common-types, module
+	for fun in module.funs
 		guard fun.visibility == private
-		guard fun !ok-if-unused
+		guard !ok-if-unused fun
 		guard !used[fun]
-		ctx add-diag-assert-same-uri fun.name-range, fun.name.diag-unused-private-decl
-	for struct in module structs
+		add-diag-assert-same-uri ctx, fun.name-range, fun.name.diag-unused-private-decl
+	for struct in module.structs
 		guard struct.visibility == private
 		guard !used[struct]
-		guard struct.sum-type-memberships !exists of m
-			used[module.funs sum-type-member-getter struct, m]
-		ctx add-diag-assert-same-uri struct.name-range, struct.name.diag-unused-private-decl
-	for spec_ in module specs
+		guard !exists struct.sum-type-memberships, of m
+			used[sum-type-member-getter module.funs, struct, m]
+		add-diag-assert-same-uri ctx, struct.name-range, struct.name.diag-unused-private-decl
+	for spec_ in module.specs
 		guard spec_.visibility == private
 		guard !used[spec_]
-		ctx add-diag-assert-same-uri spec_.name-range, spec_.name.diag-unused-private-decl
+		add-diag-assert-same-uri ctx, spec_.name-range, spec_.name.diag-unused-private-decl
 
-	for x in used unused-locals
-		kind = if x is-mutable and !used.unused-mut-locals[x]
+	for x in used.unused-locals
+		kind = if x.is-mutable and !used.unused-mut-locals[x]
 			write-only
 		else
 			completely-unused
-		ctx add-diag x.local-must-have-name-range, (x diag-unused-local kind)
-	for x in used unused-mut-locals
+		add-diag ctx, x.local-must-have-name-range, diag-unused-local x, kind
+	for x in used.unused-mut-locals
 		unless used.unused-locals[x]
-			ctx add-diag x.local-must-have-name-range, (x diag-unused-local read-only)
+			add-diag ctx, x.local-must-have-name-range, diag-unused-local x, read-only
 
 	# TODO: for vars we need to look for the getter function ---------------------------------------------------------------------
 	#for var in module vars
@@ -41,23 +42,23 @@ detect-unused-private void(ctx check-ctx, common-types common-types, module crow
 	#	guard var !in used
 	#	ctx add-diag-assert-same-uri var.name-range, var.name.diag-unused-private-decl
 
-	module zip-ast-and-module-imports of ast, imported
-		match kind = ast kind
+	zip-ast-and-module-imports module, of ast, imported
+		match kind = ast.kind
 		as import-whole-module-ast
-			unless imported has used
-				ctx add-diag ast.range, (imported diag-unused-import ())
+			unless has imported, used
+				add-diag ctx, ast.range, diag-unused-import imported, ()
 		as array
 			for name in kind
-				unless imported has-for-name name.name, used
-					ctx add-diag name.range, (imported diag-unused-import name.name)
+				unless has-for-name imported, name.name, used
+					add-diag ctx, name.range, diag-unused-import imported, name.name
 		as import-file-ast
 			()
-	start end-detect-unused-private
+	end-detect-unused-private start
 
 ok-if-unused bool(a any-decl)
-	a fun-decl and a ok-if-unused
+	a.fun-decl and ok-if-unused a
 ok-if-unused bool(a fun-decl)
-	match a body
+	match a.body
 	as fun-body-uninitialized then throw unreachable
 	as fun-body-bogus then false
 	as fun-body-extern-java then true
@@ -99,7 +100,7 @@ ok-if-unused bool(a fun-decl)
 	unused-locals local mut-set = ()
 	unused-mut-locals local mut-set = ()
 
-	common-types walk-module module, of _, kind, ref
+	walk-module common-types, module, of _, kind, ref
 		match ref
 		as doc-comment-reference-bogus
 			()
@@ -113,12 +114,12 @@ ok-if-unused bool(a fun-decl)
 			match kind
 			as declare-local
 				unused-locals ~= ref
-				if ref is-mutable
+				if is-mutable ref
 					unused-mut-locals ~= ref
 			as get-local
-				_ = unused-locals remove ref
+				_ = remove unused-locals, ref
 			as set-local
-				_ = unused-mut-locals remove ref
+				_ = remove unused-mut-locals, ref
 			as comment
 				()
 			else
@@ -140,20 +141,20 @@ ok-if-unused bool(a fun-decl)
 	funs.move-to, structs.move-to, specs.move-to, vars.move-to, unused-locals.move-to, unused-mut-locals.move-to
 
 -has bool(module module, used used)
-	exports = module public-and-internal-exports
-	exports.funs exists used[it] or
-	exports.structs-and-aliases exists used[it] or
-	exports.specs exists used[it]
+	exports = module.public-and-internal-exports
+	exists exports.funs, used[it] or
+	exists exports.structs-and-aliases, used[it] or
+	exists exports.specs, used[it]
 -subscript bool(a used, sa struct-or-alias)
 	match sa
 	as struct-decl
 		a[sa]
 	as struct-alias
-		a[sa.target decl]
+		a[sa.target.decl]
 
 -has-for-name bool(module module, name symbol, used used)
-	exports = module public-and-internal-exports
-	exports.funs[name] exists used[it] or
+	exports = module.public-and-internal-exports
+	exists exports.funs[name], used[it] or
 	x = exports.structs-and-aliases[name] and used[x] or
 	x = exports.specs[name] and used[x] or
 	name == "compare" or name == "equal" # 'equal' and 'compare' are needed when checking certain auto-funs

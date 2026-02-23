@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/string/util
 	../../../crow/parse
@@ -17,10 +18,10 @@ write-js-ast js-and-map
 	sanity-checks sanity-checks
 	source-map-name string?
 do
-	show-ctx.show.file-content-getters build-output module-paths, !!source-map-name, of out
-		out ~~= "{a shebang}"
+	build-output show-ctx.show.file-content-getters, module-paths, !!source-map-name, of out
+		out ~~= "{a.shebang}"
 		if source-map-name
-			out ~~= source-map-name source-map-url
+			out ~~= source-map-url source-map-name
 		out ~~= quote
 			export \{}
 			const _global = typeof self === "undefined" ? global : self
@@ -47,23 +48,23 @@ do
 				Object.is(a, -0) ? 0 : 2;
 		if sanity-checks != no-sanity-checks
 			out ~~= "const _assert = cond => \{ if (!cond) throw new Error(\"Assertion failed.\") }"
-		for x in a classes
-			out write-class x
+		for x in a.classes
+			write-class out, x
 			out ~= "\n"
-		for fun in a functions
-			out write-comment fun.comment
-			out ~~= "const {fun name} = "
+		for fun in a.functions
+			write-comment out, fun.comment
+			out ~~= "const {fun.name} = "
 			memoize = fun.memoize == memoize
 			if memoize
 				out ~~= "_memoize("
-			out write-arrow-function 0, expr, fun.fun
+			write-arrow-function out, 0, expr, fun.fun
 			if memoize
 				out ~= ")"
 			out ~= "\n"
-		for var in a vars
-			out write-var-decl 0, var
+		for var in a.vars
+			write-var-decl out, 0, var
 			out ~= "\n"
-		out write-statements a.statements
+		write-statements out, a.statements
 
 # TODO: inline? -----------------------------------------------------------------------------------------------------------------
 -build-output js-and-map
@@ -77,7 +78,7 @@ do
 		out output = text-builder, map-builder, 0, 0
 		f[out]
 	map: if map-builder
-		map-builder finish files, module-paths
+		finish map-builder, files, module-paths
 
 -output record mut
 	text string-builder
@@ -97,17 +98,17 @@ do
 		a ~= x
 
 -write-with-commas[t] void(a output, xs t[], f void mut(x t))
-	for i, x in xs with-index
+	for i, x in with-index xs
 		if i != 0
 			a ~~= ", "
 		f[x]
 
 -mark-map void(a output, source source)
-	if map = a map
+	if map = a.map
 		map ~= source, (a.line, a.character)
 
 -write-on-single-line void(a output, s string) # TODO: this isn't really needed? just use ~~= ............................................
-	forbid s contains "\n"
+	forbid s 'contains "\n"
 	a.text ~~= s
 	a.character +:= s.to::char8[].size.to
 
@@ -124,14 +125,14 @@ do
 -write-statements void(out output, statements js-statement[])
 	for x in statements
 		out ~= "\n"
-		out write-statement 0, x, non-first
+		write-statement out, 0, x, non-first
 
 -show string(a js-name)
-	if a.crow-name is-js-keyword and !a.mangle-index
-		"_{a crow-name}"
+	if is-js-keyword a.crow-name and !a.mangle-index
+		"_{a.crow-name}"
 	else
-		suffix string = if x = a mangle-index then "___{x}"
-		"{a.kind prefix}{a.crow-name mangle-name-common}{suffix}"
+		suffix string = if x = a.mangle-index then "___{x}"
+		"{prefix a.kind}{mangle-name-common a.crow-name}{suffix}"
 -prefix string(a js-name-kind)
 	match a
 	as none
@@ -146,14 +147,14 @@ do
 		"x_"
 
 -property-access string(a string)
-	if a is-js-identifier then ".{a}" else "[\"{a}\"]"
+	if is-js-identifier a then ".{a}" else "[\"{a}\"]"
 -member-name string(a string)
-	if a is-js-identifier then a else "[\"{a}\"]"
+	if is-js-identifier a then a else "[\"{a}\"]"
 
 -is-js-identifier bool(a string)
-	a !is-js-keyword and
-	(a.to::char8[])[0] !is-digit and
-	a.to::char8[] every it.is-ascii-identifier-char
+	!is-js-keyword a and
+	!is-digit (a.to::char8[])[0] and
+	every a.to::char8[], it.is-ascii-identifier-char
 -is-js-keyword bool(a string)
 	match a
 	as arguments
@@ -210,52 +211,52 @@ do
 		false
 
 -write-class void(out output, a js-class-decl)
-	out write-comment a.comment
-	out ~~= "class {a name}"
-	if x = a extends
+	write-comment out, a.comment
+	out ~~= "class {a.name}"
+	if x = a.extends
 		out ~~= " extends {x}"
 	out ~~= " \{"
-	for member in a members
-		out mark-map member.source
+	for member in a.members
+		mark-map out, member.source
 		out ~~= "\n\t"
-		out write-class-member member
+		write-class-member out, member
 	out ~= "\n"
 	out ~= "}"
 
 -write-comment void(out output, comment string)
-	unless comment is-empty
+	unless is-empty comment
 		out ~~= "// {comment}\n"
 
 -write-class-member void(out output, member js-class-member)
-	match member is-static
+	match member.is-static
 	as instance
 		()
 	as static
 		out ~~= "static "
-	match x = member kind
+	match x = member.kind
 	as js-class-method
-		out ~~= "{x.async maybe-async}{member.name member-name}"
-		out write-params x.params, true
+		out ~~= "{maybe-async x.async}{member-name member.name}"
+		write-params out, x.params, true
 		out ~= " "
-		out write-block-statement 1, x.body
+		write-block-statement out, 1, x.body
 	as js-expr
-		out ~~= "{member.name member-name} = "
-		out write-expr 1, x
+		out ~~= "{member-name member.name} = "
+		write-expr out, 1, x
 	as js-class-getter
-		out ~~= "get {member.name member-name}() "
-		out write-block-statement 1, x.body
+		out ~~= "get {member-name member.name}() "
+		write-block-statement out, 1, x.body
 
 -write-params void(out output, a js-params, always-parens bool)
-	parens bool = always-parens or a.params.size != 1 or !a.params.only.js-name or a rest-param
+	parens bool = always-parens or a.params.size != 1 or !a.params.only.js-name or a.rest-param
 	if parens
 		out ~= "("
-	out write-with-commas a.params, of x
-		out write-destructure x
-	if x = a rest-param
-		unless a.params is-empty
+	write-with-commas out, a.params, of x
+		write-destructure out, x
+	if x = a.rest-param
+		unless is-empty a.params
 			out ~~= ", "
 		out ~~= "..."
-		out write-destructure x
+		write-destructure out, x
 	if parens
 		out ~= ")"
 
@@ -264,146 +265,146 @@ do
 	as js-name
 		out ~~= "{a}"
 	as js-default-destructure
-		out write-destructure a.left
+		write-destructure out, a.left
 		out ~~= " = "
-		out write-expr 0, a.default, expr
+		write-expr out, 0, a.default, expr
 	as js-object-destructure
 		out ~~= "\{ "
-		out write-with-commas a.fields, of name, destructure
-			out ~~= "{name member-name}: "
-			out write-destructure destructure
+		write-with-commas out, a.fields, of name, destructure
+			out ~~= "{member-name name}: "
+			write-destructure out, destructure
 		out ~~= " }"
 
 -write-block-statement void(out output, indent nat, a js-block-statement)
 	out ~= "\{"
-	for index, x in a.statements with-index
-		out ~~= indent + 1 newline
-		out write-statement indent + 1, x, if index == 0 then first else non-first
-	out ~~= indent newline
+	for index, x in with-index a.statements
+		out ~~= newline indent + 1
+		write-statement out, indent + 1, x, if index == 0 then first else non-first
+	out ~~= newline indent
 	out ~= "}"
 
 -write-expr-or-block-statement-indented void(out output, indent nat, a js-expr-or-block-statement)
 	match a
 	as js-expr
-		out ~~= indent + 1 newline
-		out write-expr indent + 1, a
+		out ~~= newline indent + 1
+		write-expr out, indent + 1, a
 	as js-block-statement
 		out ~= " "
-		out write-block-statement indent, a
+		write-block-statement out, indent, a
 
 -statement-pos enum(first, non-first)
 -write-statement void(out output, indent nat, a js-statement, pos statement-pos)
-	out mark-map a.source
-	match x = a kind
+	mark-map out, a.source
+	match x = a.kind
 	as js-assign-statement
-		out write-assign indent, x
+		write-assign out, indent, x
 	as js-block-statement
-		out write-block-statement indent, x
+		write-block-statement out, indent, x
 	as js-break-statement
 		out ~~= "break "
-		if l = x label
+		if l = x.label
 			out ~~= " {l}"
 	as js-continue-statement
 		out ~~= "continue"
 	as js-expr
-		out write-expr indent, x, match pos
+		write-expr out, indent, x, match pos
 		as first
 			statement-first
 		as non-first
 			statement-non-first
 	as js-if-statement
-		out write-if indent, x
+		write-if out, indent, x
 	as js-for-of-statement
-		out ~~= "for (const {x local} of "
-		out write-expr indent + 2, x.collection
+		out ~~= "for (const {x.local} of "
+		write-expr out, indent + 2, x.collection
 		out ~~= ") "
-		out write-block-statement indent, x.body
+		write-block-statement out, indent, x.body
 	as js-return-statement
-		if arg = x arg
+		if arg = x.arg
 			out ~~= "return "
-			out write-expr indent, arg
+			write-expr out, indent, arg
 		else
 			out ~~= "return"
 	as js-switch-statement
-		out write-switch indent, x
+		write-switch out, indent, x
 	as js-throw-statement
 		out ~~= "throw "
-		out write-expr indent, x.arg
+		write-expr out, indent, x.arg
 	as js-try-catch-statement
-		out write-try-catch indent, x
+		write-try-catch out, indent, x
 	as js-try-finally-statement
-		out write-try-finally indent, x
+		write-try-finally out, indent, x
 	as js-var-decl
-		out write-var-decl indent, x
+		write-var-decl out, indent, x
 	as js-while-statement
-		out write-while indent, x
+		write-while out, indent, x
 
 -write-assign void(out output, indent nat, a js-assign-statement)
-	out write-expr indent, a.left
+	write-expr out, indent, a.left
 	out ~~= " = "
-	out write-expr indent, a.right
+	write-expr out, indent, a.right
 -write-if void(out output, indent nat, a js-if-statement)
 	out ~~= "if ("
-	out write-expr indent + 2, a.cond
+	write-expr out, indent + 2, a.cond
 	out ~~= ") "
-	out write-block-statement indent, a.then_
-	if else_ = a else_
+	write-block-statement out, indent, a.then_
+	if else_ = a.else_
 		out ~~= " else"
-		if else_.kind js-if-statement
+		if js-if-statement else_.kind
 			out ~= " "
-			out write-statement indent, else_, first
+			write-statement out, indent, else_, first
 		else
-			_ = out write-statement-indented indent, else_, first
+			_ = write-statement-indented out, indent, else_, first
 -write-switch void(out output, indent nat, a js-switch-statement)
 	out ~~= "switch ("
-	out write-expr indent + 2, a.arg
+	write-expr out, indent + 2, a.arg
 	out ~~= ") \{"
-	for case_ in a cases
-		out ~~= indent + 1 newline
+	for case_ in a.cases
+		out ~~= newline indent + 1
 		out ~~= "case "
-		out write-expr indent, case_.value
+		write-expr out, indent, case_.value
 		out ~= ":"
-		out write-block-statement indent + 1, case_.then_
-	out ~~= "{indent + 1 newline}default:"
-	out write-block-statement indent + 1, a.default
-	out ~~= "{indent newline}}"
+		write-block-statement out, indent + 1, case_.then_
+	out ~~= "{newline indent + 1}default:"
+	write-block-statement out, indent + 1, a.default
+	out ~~= "{newline indent}}"
 -write-try-catch void(out output, indent nat, a js-try-catch-statement)
 	out ~~= "try "
-	out write-block-statement indent, a.tried
-	out ~~= " catch ({a exception}) "
-	out write-block-statement indent, a.catch_
+	write-block-statement out, indent, a.tried
+	out ~~= " catch ({a.exception}) "
+	write-block-statement out, indent, a.catch_
 -write-try-finally void(out output, indent nat, a js-try-finally-statement)
 	out ~~= "try "
-	out write-block-statement indent, a.tried
+	write-block-statement out, indent, a.tried
 	out ~~= " finally "
-	out write-block-statement indent, a.finally_
+	write-block-statement out, indent, a.finally_
 -write-var-decl void(out output, indent nat, a js-var-decl)
-	out ~~= "{a const} "
-	for index, var in a.vars with-index
+	out ~~= "{a.const} "
+	for index, var in with-index a.vars
 		unless index == 0
 			out ~~= ", "
-		out write-destructure var.destructure
-		if initializer = var initializer
+		write-destructure out, var.destructure
+		if initializer = var.initializer
 			out ~~= " = "
-			out write-expr indent, initializer
+			write-expr out, indent, initializer
 -write-while void(out output, indent nat, a js-while-statement)
-	if label = a label
+	if label = a.label
 		out ~~= "{label}: "
 	out ~~= "while ("
-	out write-expr indent + 2, a.condition
+	write-expr out, indent + 2, a.condition
 	out ~= ")"
-	out write-block-statement indent, a.body
+	write-block-statement out, indent, a.body
 
 # Returns true if it was a block
 -write-statement-indented bool(out output, indent nat, a js-statement, pos statement-pos)
-	match x = a kind
+	match x = a.kind
 	as js-block-statement
 		out ~= " "
-		out write-block-statement indent, x
+		write-block-statement out, indent, x
 		true
 	else
-		out ~~= indent + 1 newline
-		out write-statement indent + 1, a, pos
+		out ~~= newline indent + 1
+		write-statement out, indent + 1, a, pos
 		false
 
 -expr-pos record
@@ -420,115 +421,115 @@ do
 -statement-non-first expr-pos()
 	true, false
 -write-expr void(out output, indent nat, a js-expr)
-	out write-expr indent, a, expr
+	write-expr out, indent, a, expr
 -write-expr void(out output, indent nat, a js-expr, pos expr-pos)
-	out mark-map a.source
+	mark-map out, a.source
 	write-arg void mut(arg js-expr) = of arg
-		out write-expr indent, arg, expr
+		write-expr out, indent, arg, expr
 	write-arg-with-pos void mut(arg js-expr, arg-pos expr-pos) = of arg, arg-pos
-		out write-expr indent, arg, arg-pos
+		write-expr out, indent, arg, arg-pos
 	write-args void mut(args js-expr[]) = of args
-		out write-with-commas args, of arg
-			out write-expr indent + 1, arg
-	match x = a kind
+		write-with-commas out, args, of arg
+			write-expr out, indent + 1, arg
+	match x = a.kind
 	as js-array-expr
 		out ~= "["
-		write-args[x elements]
+		write-args[x.elements]
 		out ~= "]"
 	as js-arrow-function
-		out write-arrow-function indent, pos, x
+		write-arrow-function out, indent, pos, x
 	as js-assign-expr
-		out ~~= "({x assignee} = "
-		write-arg[x value]
+		out ~~= "({x.assignee} = "
+		write-arg[x.value]
 		out ~= ")"
 	as js-binary-expr
-		if pos is-non-first-statement
+		if is-non-first-statement pos
 			out ~= ";"
 		out ~= "("
-		write-arg[x left]
+		write-arg[x.left]
 		out ~= " "
-		out ~~= "{x.kind operator}"
+		out ~~= "{operator x.kind}"
 		out ~= " "
-		write-arg[x right]
+		write-arg[x.right]
 		out ~= ")"
 	as js-call-expr
 		write-arg-with-pos[x.called, pos.with-called]
 		out ~= "("
-		write-args[x args]
+		write-args[x.args]
 		out ~= ")"
 	as js-call-with-spread-expr
 		write-arg-with-pos[x.called, pos.with-called]
 		out ~= "("
-		write-args[x args]
-		unless x.args is-empty
+		write-args[x.args]
+		unless is-empty x.args
 			out ~~= ", "
 		out ~~= "..."
-		write-arg[x spread-arg]
+		write-arg[x.spread-arg]
 		out ~= ")"
 	as js-literal-bigint
-		out ~~= if x is-signed
+		out ~~= if x.is-signed
 			"{x.value.to::int}"
 		else
 			"{x.value.to::nat}"
 		out ~= "n"
 	as js-literal-bool
-		out ~~= "{x value}"
+		out ~~= "{x.value}"
 	as js-literal-number
-		out write-on-single-line (x.value float-literal-for-js x.type)
+		write-on-single-line out, float-literal-for-js x.value, x.type
 	as js-literal-string
-		out write-on-single-line "{x.value quoted}"
+		write-on-single-line out, quoted x.value
 	as js-name
 		out ~~= "{x}"
 	as js-new-expr
 		out ~~= "new ("
-		write-arg[x class_]
+		write-arg[x.class_]
 		out ~~= ")("
-		write-args[x arguments]
+		write-args[x.arguments]
 		out ~= ")"
 	as js-null-expr
 		out ~~= "null"
 	as js-optional-property-access-expr
 		write-arg-with-pos[x.object, pos]
 		out ~= "?"
-		out ~~= x.property-name property-access
+		out ~~= property-access x.property-name
 	as js-property-access-expr
 		write-arg-with-pos[x.object, pos]
-		out ~~= x.property-name property-access
+		out ~~= property-access x.property-name
 	as js-property-access-computed-expr
 		write-arg-with-pos[x.object, pos]
 		out ~= "["
-		write-arg[x property-name]
+		write-arg[x.property-name]
 		out ~= "]"
 	as js-ternary-expr
-		if pos is-non-first-statement
+		if is-non-first-statement pos
 			out ~= ";"
 		out ~= "("
-		write-arg[x condition]
+		write-arg[x.condition]
 		out ~~= " ? "
-		write-arg[x then_]
+		write-arg[x.then_]
 		out ~~= " : "
-		write-arg[x else_]
+		write-arg[x.else_]
 		out ~= ")"
 	as js-this-expr
 		out ~~= "this"
 	as js-unary-expr
-		if pos is-non-first-statement
+		if is-non-first-statement pos
 			out ~= ";"
 		out ~= "("
-		out ~~= x.kind operator
-		write-arg[x arg]
+		out ~~= operator x.kind
+		write-arg[x.arg]
 		out ~= ")"
 
 -write-arrow-function void(out output, indent nat, pos expr-pos, a js-arrow-function)
-	if pos is-non-first-statement
+	if is-non-first-statement pos
 		out ~= ";"
-	if pos is-called
+	if is-called pos
 		out ~= "("
-	out ~~= a.async maybe-async
-	out write-params a.params, false
+	out ~~= maybe-async a.async
+	write-params out, a.params, false
 	out ~~= " =>"
-	out write-expr-or-block-statement-indented indent, a.body
-	if pos is-called
+	write-expr-or-block-statement-indented out, indent, a.body
+	if is-called pos
 		out ~= ")"
 
 -operator string(a js-binary-kind)
@@ -597,7 +598,7 @@ do
 	elif a == -infinity
 		"-Number.POSITIVE_INFINITY"
 	else
-		res string = a show
+		res string = "{a}"
 		# TODO: float parse res is a --------------------------------------------------------------------------------------------------------
 		match type
 		as float32

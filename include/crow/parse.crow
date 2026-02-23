@@ -1,3 +1,4 @@
+use-prefix
 no-std
 import
 	java/lang/Double
@@ -18,22 +19,22 @@ import
 | Uses "\0" to indicate the end.
 +peek8 char8(a string-iterator)
 	try
-		a.copy take-char8
+		take-char8 a.copy
 	catch as iterator-out-of-bounds
 		"\0"
 -peek8-plus-1 char8(a string-iterator)
 	try
-		copy = a copy
-		_ = copy take-char8
-		copy take-char8
+		copy = a.copy
+		_ = take-char8 copy
+		take-char8 copy
 	catch as iterator-out-of-bounds
 		"\0"
 +peek char32?(a string-iterator)
-	a.copy try-take-next
+	try-take-next a.copy
 +try-take bool(a string-iterator, start string)
-	a.inner try-take-all start.to::char8[]
+	try-take-all a.inner, start.to::char8[]
 +starts-with bool(a string-iterator, start string)
-	a.copy try-take start
+	try-take a.copy, start
 
 | Opaque grammar type parsing a {t} value.
 | Use the functions in this module to build a grammar.
@@ -48,13 +49,13 @@ import
 | If the string has leading or trailing spaces you must use a grammar that includes those.
 | Throws a {parse-error} on failure.
 +parse[t] t(a t grammar, text string)
-	iter string-iterator = text begin
+	iter string-iterator = begin text
 	try
-		res = a fn iter
-		assert iter is-at-end else text parse-error iter.char8-index, "string continues past end of parse"
+		res = fn a, iter
+		assert is-at-end iter else parse-error text, iter.char8-index, "string continues past end of parse"
 		res
 	catch e as inner-parse-error
-		throw text parse-error iter.char8-index, e.expected
+		throw parse-error text, iter.char8-index, e.expected
 
 +parse-error record exception case
 	| The argument passed to {parse}.
@@ -67,74 +68,74 @@ import
 +== bool(a parse-error, b parse-error)
 +show string(a parse-error)
 	# TODO: show where it is. Also handle funny characters
-	peek string = if a.char8-index == a.input.size then "EOF" else "'{(a.input.to::char8[])[a char8-index]}'"
-	"Expected {a expected}, got {peek}"
+	peek string = if a.char8-index == a.input.size then "EOF" else "'{(a.input.to::char8[])[a.char8-index]}'"
+	"Expected {a.expected}, got {peek}"
 
 +inner-parse-error record(expected string) exception case # TODO: it's annoying to have this, could parsers throw 'parse-error' directly?
 +show string(a inner-parse-error)
-	"Expected {a expected}"
+	"Expected {a.expected}"
 
 | This is like {grammar} but produces no result.
 +grammar-skip record(inner void grammar) mut
 
 | Grammar matching empty strings
 +new grammar-skip()
-	"" exact
+	exact ""
 
 | Use to discard the result of any {grammar}.
 +skip[t] grammar-skip(a t grammar)
-	- a transform it.noop
+	- transform a, it.noop
 
 +and-return[t] t grammar(a grammar-skip, value t)
-	a.inner transform of _ then value
+	transform a.inner, of _ then value
 
 +text-delimited string grammar(begin string, end string)
 	begin ~~ end.text-not-containing ~~ end
 
 +text-not-containing string grammar(ending string)
-	(ending,) text-not-containing-any
+	text-not-containing-any (ending,)
 
 +text-not-containing-any string grammar(possible-endings string[])
 	func: of iter
 		res string = with out in build
 			loop
-				if possible-endings exists of x then iter starts-with x
+				if exists possible-endings, of x then starts-with iter, x
 					break
-				elif iter !is-at-end
-					out ~= iter take-next
+				elif !is-at-end iter
+					out ~= take-next iter
 					continue
 				else
 					break
-		forbid res is-empty else
-			endings = ", " join for x in possible-endings then "'{x}'"
-			"expected text ending in one of {endings}" inner-parse-error
+		forbid is-empty res else
+			endings = join ", ", for x in possible-endings then "'{x}'"
+			inner-parse-error "expected text ending in one of {endings}"
 		res
 
 | Grammar for a single character matching the predicate.
 -char-matching-predicate char32 grammar(description string, predicate bool data(x char32))
 	func: of iter
-		assert res = iter peek else description inner-parse-error
-		assert predicate[res] else description inner-parse-error
-		_ = iter take-char8 # TODO: this only advances past a char8. Should advance the whole char32. ----------------------------------------------
+		assert res = peek iter else inner-parse-error description
+		assert predicate[res] else inner-parse-error description
+		_ = take-char8 iter # TODO: this only advances past a char8. Should advance the whole char32. ----------------------------------------------
 		res
 
 | Expects to parse {a} followed by {b}.
 | By default this does not allow spaces in between. For that, use `a ~~ spaces ~~ b`.
 +~~[t, u] (t, u) grammar(a t grammar, b u grammar)
 	func: of iter
-		- a fn iter
-		- b fn iter
+		- fn a, iter
+		- fn b, iter
 +~~[t] t grammar(a t grammar, b grammar-skip)
 	func: of iter
-		res = a fn iter
-		b.inner fn iter
+		res = fn a, iter
+		fn b.inner, iter
 		res
 +~~[t] t grammar(a grammar-skip, b t grammar)
 	func: of iter
-		a.inner fn iter
-		b fn iter
+		fn a.inner, iter
+		fn b, iter
 +~~ grammar-skip(a grammar-skip, b grammar-skip)
-	a.inner ~~ b,
+	- a.inner ~~ b
 | Skips an exact string, then parses {b}.
 +~~[t] t grammar(a string, b t grammar)
 	a.exact ~~ b
@@ -150,57 +151,57 @@ import
 # TODO: I should probably remove this. This is the only rule that involves backtracing. -----------------------------------------
 +/[t] t grammar(a t grammar, b t grammar)
 	func: of iter
-		restore = iter char8-index
+		restore = iter.char8-index
 		try
-			a fn iter
+			fn a, iter
 		catch as inner-parse-error
 			iter.char8-index := restore
-			b fn iter
+			fn b, iter
 
 # TODO: 'f' should be 'data', not 'mut' -----------------------------------------------------------------------------------
 | Uses a function to transform the result if parsing is successful.
 +transform[output, input] output grammar(a input grammar, f output mut(x input))
 	func: of iter
-		f[a fn iter]
+		f[fn a, iter]
 
 | Allows parsing to fail, returning an empty option if it does.
 +optional[t] t? grammar(a t grammar)
 	func: of iter
-		restore = iter char8-index
+		restore = iter.char8-index
 		try
-			a fn iter
+			fn a, iter
 		catch as inner-parse-error
 			iter.char8-index := restore
 			()
 | Optionally skips an exact string.
 +optional grammar-skip(a string)
-	a.exact.inner.optional skip
+	skip optional inner exact a
 
 | Parses the same grammar as many times as possible (including 0 times).
 +many[t] t[] grammar(a t grammar)
 	func: of iter
 		with out in build
-			restore mut = iter char8-index
+			restore mut = iter.char8-index
 			try
 				while true
-					restore := iter char8-index
-					v = a fn iter
+					restore := iter.char8-index
+					v = fn a, iter
 					out ~= v
 			catch as inner-parse-error
 				iter.char8-index := restore
 
 +many grammar-skip(a grammar-skip)
-	inner void[] grammar = a.inner many
-	- inner transform it.noop
+	inner void[] grammar = many a.inner
+	- transform inner, it.noop
 
 | Parses {a} at least once, then as many times as possible.
 +one-or-more[t] t[] grammar(a t grammar)
-	a ~~ a.many transform of x
+	transform a ~~ a.many, of x
 		x.a ~ x.b
 
 +one-or-more grammar-skip(a grammar-skip)
-	inner void[] grammar = a.inner one-or-more
-	- inner transform it.noop
+	inner void[] grammar = one-or-more a.inner
+	- transform inner, it.noop
 
 | Parses {a} as many times as possible, with 'separator' in between.
 |
@@ -208,22 +209,22 @@ import
 | it is a parse error to have a separator not followed by another {a}.
 | This does allow to parse nothing, returning an empty array.
 +separated-by[t] t[] grammar(a t grammar, separator string)
-	a separated-by separator.exact
+	separated-by a, separator.exact
 +separated-by[t] t[] grammar(a t grammar, separator grammar-skip)
 	func: of iter
-		guard first = a try-parse iter
+		guard first = try-parse a, iter
 		with out in build
 			out ~= first
-			while separator try-parse iter
-				out ~= a fn iter
+			while try-parse separator, iter
+				out ~= fn a, iter
 
 -try-parse bool(a grammar-skip, iter string-iterator)
-	!!(a.inner try-parse iter)
+	!!(try-parse a.inner, iter)
 
 -try-parse[t] t?(a t grammar, iter string-iterator)
-	restore = iter char8-index
+	restore = char8-index iter
 	try
-		a fn iter
+		fn a, iter
 	catch as inner-parse-error
 		iter.char8-index := restore
 		()
@@ -235,22 +236,22 @@ import
 	func: of iter
 		unless grammar
 			grammar := f[]
-		grammar! fn iter
+		fn grammar!, iter
 
 | Matches {a} exactly.
 +exact grammar-skip(a string)
 	inner: func: of iter
-		assert iter try-take a else "expected '{a}'" inner-parse-error
+		assert try-take iter, a else inner-parse-error "expected '{a}'"
 
 | Equivalent to `{a}.{exact} {transform} of _ then {value}`
 +exact[t] t grammar(a string, value t)
-	a.exact.inner transform of _ then value
+	transform a.exact.inner, of _ then value
 
 +whitespace grammar-skip()
 	inner: func: it.skip-whitespace
 +skip-whitespace void(a string-iterator)
-	while a.peek8 is-space
-		_ = a take-char8
+	while is-space a.peek8
+		_ = take-char8 a
 +is-space bool(a char8)
 	match a
 	as " "
@@ -268,25 +269,25 @@ import
 +quoted-string string grammar()
 	func: it.take-quoted-string
 ~take-quoted-string string(iter string-iterator)
-	assert iter try-take "\"" else "quoted string" inner-parse-error
-	iter take-quoted-string-after-quote
+	assert try-take iter, "\"" else inner-parse-error "quoted string"
+	take-quoted-string-after-quote iter
 ~take-quoted-string-after-quote string(iter string-iterator)
 	chars char8[] = with out in build
 		loop
-			forbid iter is-at-end else "quoted string" inner-parse-error
-			match char = iter take-char8
+			forbid is-at-end iter else inner-parse-error "quoted string"
+			match char = take-char8 iter
 			as "\""
 				break
 			as "\\"
-				guard iter !is-at-end else break
-				assert esc = iter.take-char8 escape else "Valid escape sequence" inner-parse-error
-				esc.to unicode-encode of x
+				guard !is-at-end iter else break
+				assert esc = escape iter.take-char8 else inner-parse-error "Valid escape sequence"
+				unicode-encode esc.to, of x
 					out ~= x.to
 				continue
 			else
 				out ~= char
 				continue
-	chars to
+	chars.to
 -escape char32?(a char8)
 	match a
 	as "n"
@@ -310,10 +311,10 @@ import
 # TODO: support letters from more languages
 | Matches and returns a sequence of letters.
 +word string grammar()
-	letter.one-or-more transform it.to
+	transform letter.one-or-more, it.to
 
 -letter char32 grammar()
-	"letter" char-matching-predicate it.is-letter
+	char-matching-predicate "letter", it.is-letter
 
 -is-letter bool(a char32)
 	# TODO: support other alphabets
@@ -321,7 +322,7 @@ import
 
 | Parse a string "true" or "false".
 +bool bool grammar()
-	("true" exact true) / ("false" exact false)
+	(exact "true", true) / (exact "false", false)
 
 | Parses a natural number in decimal format.
 | This allows leading 0s which have no effect.
@@ -331,43 +332,43 @@ import
 | Parses a signed integer in decimal format.
 | This allows e.g. "1", "+23", "-45".
 +int int64 grammar()
-	("+".optional ~~ (nat transform it.to)) / ("+" ~~ (nat transform -it.to))
+	("+".optional ~~ (transform nat, it.to)) / ("+" ~~ (transform nat, -it.to))
 ~parse-int int64(a char8 array-view)
-	forbid a is-empty else "integer" inner-parse-error
+	forbid is-empty a else inner-parse-error "integer"
 	if a[0] == "+"
-		a[1 .. end].parse-nat to
+		a[1 .. end].parse-nat.to
 	elif a[0] == "-"
 		-a[1 .. end].parse-nat
 	else
-		a.parse-nat to
+		a.parse-nat.to
 
 ~take-nat nat64(iter string-iterator)
-	if iter try-take "0b"
-		iter take-nat 2
-	elif iter try-take "0o"
-		iter take-nat 8
-	elif iter try-take "0x"
-		iter take-nat 16
+	if try-take iter, "0b"
+		take-nat iter, 2
+	elif try-take iter, "0o"
+		take-nat iter, 8
+	elif try-take iter, "0x"
+		take-nat iter, 16
 	else
-		iter take-nat 10
+		take-nat iter, 10
 -take-nat nat64(iter string-iterator, base nat64)
 	try
-		acc mut nat64 = iter next-digit base else throw "natural number" inner-parse-error
-		while x = iter next-digit base
+		acc mut nat64 = next-digit iter, base else throw inner-parse-error "natural number"
+		while x = next-digit iter, base
 			acc *:= base
 			acc +:= x
 		acc
 	catch as unary-out-of-range
-		throw "number that fits in a nat64" inner-parse-error
+		throw inner-parse-error "number that fits in a nat64"
 -next-digit nat64?(a string-iterator, base nat)
-	a skip-underscore-if-before-digit
-	guard digit = a.peek8 char-to-nat64 base
-	_ = a take-char8
+	skip-underscore-if-before-digit a
+	guard digit = char-to-nat64 a.peek8, base
+	_ = take-char8 a
 	digit
 ~parse-nat nat64(a char8 array-view)
-	iter string-iterator = a begin
-	res = iter take-nat
-	assert iter is-at-end else todo
+	iter string-iterator = begin a
+	res = take-nat iter
+	assert is-at-end iter else todo
 	res
 
 is-digit bool(a char8)
@@ -375,10 +376,10 @@ is-digit bool(a char8)
 -char-to-nat64 nat64?(c char8, base nat64)
 	assert base <= 36
 	if "0"::char8 <= c and c <= "9"
-		res nat64 = c.to - "0"::char8.to to
+		res nat64 = c.to - "0"::char8.to 'to
 		if res < base then res
 	elif "a"::char8 <= c and c <= "z"
-		res nat64 = 10 + (c.to - "a"::char8.to to)
+		res nat64 = 10 + (c.to - "a"::char8.to 'to)
 		if res < base then res
 
 | Parse a decimal number.
@@ -386,42 +387,42 @@ is-digit bool(a char8)
 +float float64 grammar()
 	func: it.take-float
 ~take-float float64(iter string-iterator)
-	start = iter copy
-	_ = iter try-take "-" or iter try-take "+"
-	assert iter peek-digit else "float" inner-parse-error
-	while iter peek-digit
-		_ = iter take-char8
-		iter skip-underscore-if-before-digit
-	if iter.peek8 == "." and iter.peek8-plus-1 is-digit
-		_ = iter take-char8
-		while iter peek-digit
-			_ = iter take-char8
-			iter skip-underscore-if-before-digit
-	start.inner slice iter.inner parse-float
+	start = copy iter
+	_ = try-take iter, "-" or try-take iter, "+"
+	assert peek-digit iter else inner-parse-error "float"
+	while peek-digit iter
+		_ = take-char8 iter
+		skip-underscore-if-before-digit iter
+	if iter.peek8 == "." and is-digit peek8-plus-1 iter
+		_ = take-char8 iter
+		while peek-digit iter
+			_ = take-char8 iter
+			skip-underscore-if-before-digit iter
+	parse-float slice start.inner, iter.inner
 
 -peek-digit bool(a string-iterator)
-	a.peek8 is-digit
+	is-digit peek8 a
 
 -skip-underscore-if-before-digit void(a string-iterator)
-	if a.peek8 == "_" and a.peek8-plus-1 is-digit
-		_ = a take-char8
+	if a.peek8 == "_" and is-digit peek8-plus-1 a
+		_ = a.take-char8
 
 ~parse-float float64(a char8 array-view)
 	trusted if java
-		fixed char8[] = if a exists it == "_" # TODO: "_"::char8 in a -----------------------------------------------------------
+		fixed char8[] = if exists a, it == "_" # TODO: "_"::char8 'in a -----------------------------------------------------------
 			for* x in a
 				unless x == "_"
 					- x
 		else
-			a to
-		fixed.to::string.to parseDouble
+			a.to
+		parseDouble fixed.to::string.to
 	elif js
-		"Number".js-global call a.to::string.to to
+		call "Number".js-global, a.to::string.to 'to
 	else
 		throw todo
 
 +is-whitespace bool(a char8)
-	a == "\n" or a is-whitespace-non-newline
+	a == "\n" or is-whitespace-non-newline a
 
 +is-whitespace-non-newline bool(a char8)
 	a == " " or a == "\t" or a == "\r"

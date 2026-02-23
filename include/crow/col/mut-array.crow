@@ -1,3 +1,4 @@
+use-prefix
 no-std
 import
 	../bits
@@ -29,15 +30,15 @@ import
 	a.size == 0
 
 +size[t] nat64(a t mut[])
-	a size_
+	a.size_
 -set-size[t] void(a t mut[], size nat64)
 	a.size_ := size
 
 +subscript[t] t(a t mut[], index nat64)
-	a check-index index
+	check-index a, index
 	a.backing[index]
 +set-subscript[t] void(a t mut[], index nat64, value t)
-	a check-index index
+	check-index a, index
 	a.backing[index] := value
 
 +list-new[t] t mut[](a t[])
@@ -51,36 +52,36 @@ import
 
 | Removes all elements. This is O(1).
 +clear[t] void(a t mut[])
-	a reduce-size-to 0
+	reduce-size-to a, 0
 
 | Removes all elements with index >= {new-size}.
 | This is O(1).
 +reduce-size-to[t] void(a t mut[], new-size nat64)
 	assert new-size <= a.size
 	trusted
-	a.backing[new-size .. a.size] clear-memory
+	clear-memory a.backing[new-size .. a.size]
 	a.size := new-size
 
 | Copies elements to a new {mut-array}.
 +copy[t] t mut[](a t mut[])
-	backing: (trusted a temp-as-mut-slice) to
-	size_: a size
+	backing: trusted temp-as-mut-slice a 'to
+	size_: a.size
 
 | Copies elements to a new {array}.
 | The result is immutable and won't be affected by future writes to {a}.
 +to[t] t[](a t mut[])
-	(trusted a temp-as-mut-slice) to
+	trusted temp-as-mut-slice a 'to
 
 | This is like {to} but sets the input to empty.
 | This allows safely returning an immutable result but avoids needing to copy elements.
 | This os O(1) normally. In JS it is likely O(n).
 +move-to[t] t[](a t mut[])
-	trusted a.move-to cast-immutable
+	trusted cast-immutable a.move-to
 +move-to[t] t mut-slice(a t mut[])
 	res t mut-slice = if a.backing.size == a.size
-		a backing
+		a.backing
 	else
-		with out in a.size build
+		with out in build a.size
 			for i in 0::nat64 .. a.size
 				out ~= a.backing[i]
 	a.backing := ()
@@ -95,10 +96,10 @@ import
 | Swap the contents of two arrays.
 | This is O(1) normally. In JS it is likely O(n).
 +swap[t] void(a t mut[], b t mut[])
-	a-backing = a backing
-	a-size = a size
-	a.backing := b backing
-	a.size := b size
+	a-backing = backing a
+	a-size = size a
+	a.backing := b.backing
+	a.size := b.size
 	b.backing := a-backing
 	b.size := a-size
 
@@ -108,17 +109,17 @@ import
 	a[j] := temp
 
 -check-index[t] void(a t mut[], index nat64)
-	assert index < a.size else index index-too-big a.size
+	assert index < a.size else index-too-big index, a.size
 
 +peek[t] t?(a t mut[])
-	guard a !is-empty
+	guard !is-empty a
 	a[end - 1]
 
 | Removes the last element and returns it.
 | This is O(1).
 | Returns an empty option if `{a} {is-empty}`.
 +pop[t] t?(a t mut[])
-	guard a !is-empty
+	guard !is-empty a
 	new-size = a.size - 1
 	res = a[new-size]
 	a[new-size] := trusted gc-safe-value # TODO:PERF This is unnecessary for a non-reference type
@@ -128,18 +129,18 @@ import
 | Removes the first element and returns it.
 | Returns an empty option if `{a} {is-empty}`.
 +pop-left[t] t?(a t mut[])
-	unless a is-empty
-		(a pop-n-left 1)[0]
+	unless is-empty a
+		(pop-n-left a, 1)[0]
 
 | Removes the last {n} elements and returns them as an array.
 | The result is guaranteed to be of size {n}.
 | Throws {index-too-big} if there are not at least {n} elements.
 +pop-n[t] t[](a t mut[], n nat64)
-	assert n <= a.size else n index-too-big a.size
+	assert n <= a.size else index-too-big n, a.size
 	new-size = a.size - n
 	slice = a.backing[new-size .. a.size]
-	res t[] = slice to
-	trusted slice clear-memory
+	res t[] = slice.to
+	trusted clear-memory slice
 	a.size := new-size
 	res
 
@@ -147,8 +148,8 @@ import
 | The result is guaranteed to be of size {n}.
 | Throws {index-too-big} if there are not at least {n} elements.
 +pop-n-left[t] t[](a t mut[], n nat64)
-	assert n <= a.size else n index-too-big a.size
-	res t[] = a.backing[0 .. n] to
+	assert n <= a.size else index-too-big n, a.size
+	res t[] = a.backing[0 .. n].to
 	a.backing[0 .. end - n] := a.backing[n .. end]
 	a.size -:= n
 	res
@@ -157,7 +158,7 @@ import
 | This is O(n).
 +prepend=[t] void(a t mut[], value t)
 	trusted
-	a ensure-room-for-one-more
+	ensure-room-for-one-more a
 	a.backing[1 .. a.size + 1] := a.backing[0 .. a.size]
 	a[0] := value
 	a.size +:= 1
@@ -165,8 +166,8 @@ import
 | Push a value onto the end of the array.
 +~=[t] void(a t mut[], value t)
 	trusted
-	a ensure-room-for-one-more
-	a.backing[a size] := value
+	ensure-room-for-one-more a
+	a.backing[a.size] := value
 	a.size +:= 1
 
 | Push multiple values onto the end of the array.
@@ -175,8 +176,8 @@ import
 +~~=[t] void(a t mut[], values t array-view)
 	if trusted java
 		new-size = a.size + values.size
-		a ensure-capacity-round-up new-size
-		a.backing copy-from a.size .. new-size, values.inner, values.low .. values.high
+		ensure-capacity-round-up a, new-size
+		copy-from a.backing, a.size .. new-size, values.inner, values.low .. values.high
 		a.size := new-size
 	else
 		i mut nat64 = 0
@@ -184,37 +185,37 @@ import
 			a ~= values[i]
 			i +:= 1
 +~~=[t] void(a t mut[], values t mut[])
-	a ~~= trusted values temp-as-array-view
+	a ~~= trusted temp-as-array-view values
 +~~=[t] void(a t mut[], values t mut-slice)
-	a ~~= trusted values temp-as-array
+	a ~~= trusted temp-as-array values
 +~~=[t] void(a t mut[], values t mut-slice-view)
-	a ~~= trusted values temp-as-array-view
+	a ~~= trusted temp-as-array-view values
 
 -ensure-room-for-one-more[t] void(a t mut[]) unsafe
 	guard a.size == a.capacity
-	a ensure-capacity-round-up a.size + 1
+	ensure-capacity-round-up a, a.size + 1
 
 -increase-capacity-to[t] void(a t mut[], new-capacity nat64)
 	trusted
 	assert new-capacity > a.capacity
-	old-backing = a backing
-	a.backing := new-capacity gc-safe-mut-slice
+	old-backing = a.backing
+	a.backing := gc-safe-mut-slice new-capacity
 	a.backing[0 .. a.size] := old-backing[0 .. a.size]
 
 -ensure-capacity-round-up[t] void(a t mut[], min-capacity nat64)
-	a ensure-capacity-exact min-capacity.round-up-to-power-of-two
+	ensure-capacity-exact a, min-capacity.round-up-to-power-of-two
 
 -ensure-capacity-exact[t] void(a t mut[], min-capacity nat64)
 	if trusted a.capacity < min-capacity
-		a increase-capacity-to min-capacity
+		increase-capacity-to a, min-capacity
 
 | The new contents of {a} will be `a[0 .. index] ~~ (value,) ~~ a[index .. end]`.
 | So, `{a}[{index}]` will be {value}.
 | This is O(a.size - index) due to having to move a[index .. end] to the right by 1.
 +insert-at[t] void(a t mut[], index nat64, value t)
-	assert index <= a.size else index index-too-big a.size
+	assert index <= a.size else index-too-big index, a.size
 	trusted
-	a ensure-room-for-one-more
+	ensure-room-for-one-more a
 	a.backing[index + 1 .. a.size + 1] := a.backing[index .. a.size]
 	a.size +:= 1
 	assert a.size <= a.capacity
@@ -224,7 +225,7 @@ import
 | Returns the old `a[index]` which will have been removed.
 | This is O(a.size - index) due to having to shift `a[index + 1 .. end]` to the left by 1.
 +remove-at[t] t(a t mut[], index nat64)
-	a check-index index
+	check-index a, index
 	res = a[index]
 	a.backing[index .. a.size - 1] := a.backing[index + 1 .. a.size]
 	a.size -:= 1
@@ -235,17 +236,17 @@ region mutating iteration
 | Replaces every element `x` with `{f}[x]`.
 | WARN: During the map, `a` will appear to be empty and pushes to it won't affect the result.
 +map=[t] void(a t mut[], f t mut(elem t))
-	temp t mut[] = a move-to
+	temp t mut[] = move-to a
 	i mut nat64 = 0
 	while i < temp.size
 		temp[i] := f[temp[i]]
 		i +:= 1
-	a swap temp
+	swap a, temp
 
 | Removes every element `x` where `!{f}[x]`.
 | WARN: During the filter, `a` will appear to be empty and pushes to it won't affect the result.
 +filter=[t] void(a t mut[], f bool mut(elem t))
-	temp t mut[] = a move-to
+	temp t mut[] = a.move-to
 	out mut nat64 = 0
 	i mut nat64 = 0
 	while i < temp.size
@@ -254,21 +255,15 @@ region mutating iteration
 			temp[out] := x
 			out +:= 1
 		i +:= 1
-	temp reduce-size-to out
-	a swap temp
-
-region unsafe
-
-| Create a new array full of {gc-safe-value}.
-+gc-safe-mut-array[t] t mut[](size nat64) unsafe
-	size.gc-safe-mut-slice.cast-immutable to
+	reduce-size-to temp, out
+	swap a, temp
 
 | Pushes {n} of {gc-safe-value} to the mut-array.
 | This can be useful to prepare the array for being written by low-level code.
 # TODO: This should probably not be public ------------------------------------------------------------------------------------
-+push-gc-safe-values[t] void(a t mut[], n nat64) unsafe
+~push-gc-safe-values[t] void(a t mut[], n nat64) unsafe
 	new-size = a.size + n
-	a ensure-capacity-round-up new-size
+	ensure-capacity-round-up a, new-size
 	a.size := new-size
 
 | Returns a {mut-slice} of all elements currently in the `mut-array`.
@@ -280,8 +275,8 @@ region unsafe
 ~temp-as-array-view[t] t array-view(a t mut[]) unsafe
 	a.backing.cast-immutable[0 .. a.size]
 
-capacity[t] nat64(a t mut[]) unsafe
-	a.backing size
+~capacity[t] nat64(a t mut[]) unsafe
+	a.backing.size
 
 +iterate[t] bool(a t mut[], f bool mut(elem t))
 	# TODO: lock it? ------------------------------------------------------------------------------------------------------
@@ -297,7 +292,7 @@ capacity[t] nat64(a t mut[]) unsafe
 			break false
 +iterate-reverse[t] bool(a t mut[], f bool mut(elem t))
 	# TODO: lock it? ------------------------------------------------------------------------------------------------------
-	guard a !is-empty
+	guard !is-empty a
 	i mut = a.size - 1
 	loop
 		if f[a[i]]

@@ -1,3 +1,4 @@
+use-prefix
 import
 	crow/io/print
 	../../frontend/lang
@@ -16,67 +17,67 @@ get-inlay-hints inlay-hint-result
 	test-states test-states
 	params inlay-hint-params
 do
-	uri = params.textDocument uri
+	uri = params.textDocument.uri
 	guard uri.file-type == crow
-	module = program module-at-uri uri
+	module = module-at-uri program, uri
 
-	fun-refs uri mut-set[fun-decl] = for x in module funs then x, ()
-	struct-refs uri mut-set[struct-decl] = for x in module structs then x, ()
-	spec-refs uri mut-set[spec-decl] = for x in module specs then x, ()
+	fun-refs uri mut-set[fun-decl] = for x in module.funs then x, ()
+	struct-refs uri mut-set[struct-decl] = for x in module.structs then x, ()
+	spec-refs uri mut-set[spec-decl] = for x in module.specs then x, ()
 	# TODO: record field refs, enum member refs, spec sigs --------------------------------------------------------------------------------
-	for _, referencing-module in program all-modules
+	for _, referencing-module in program.all-modules
 		guard referencing-module != module
-		program.common-types walk-module referencing-module, of _, kind, x
+		walk-module program.common-types, referencing-module, of _, kind, x
 			guard kind != comment
 			match x
 			as fun-decl
 				if set = fun-refs[x]
-					set ~= referencing-module uri
+					set ~= referencing-module.uri
 			as struct-decl
 				if set = struct-refs[x]
-					set ~= referencing-module uri
+					set ~= referencing-module.uri
 			as spec-decl
 				if set = spec-refs[x]
-					set ~= referencing-module uri
+					set ~= referencing-module.uri
 			else
 				()
 
 	lcg = program.line-and-character-getters[uri]
 	res inlay-hint[] = with out in build
-		out inlay-hints-for-imports program, module
-		for x in module funs
-			out add-inlay-hints-for-ref lcg, x, fun-refs[x]!.move-to
-			out get-inlay-hints-for-fun show-ctx, x
-		for x in module structs
-			out add-inlay-hints-for-ref lcg, x, struct-refs[x]!.move-to
-		for x in module specs
-			out add-inlay-hints-for-ref lcg, x, spec-refs[x]!.move-to
-		for x in module tests
-			out get-inlay-hints-for-test lcg, test-states, x
-	- res sort it.position
+		inlay-hints-for-imports out, program, module
+		for x in module.funs
+			add-inlay-hints-for-ref out, lcg, x, fun-refs[x]!.move-to
+			get-inlay-hints-for-fun out, show-ctx, x
+		for x in module.structs
+			add-inlay-hints-for-ref out, lcg, x, struct-refs[x]!.move-to
+		for x in module.specs
+			add-inlay-hints-for-ref out, lcg, x, spec-refs[x]!.move-to
+		for x in module.tests
+			get-inlay-hints-for-test out, lcg, test-states, x
+	- sort res, it.position
 
 # For this, just track the location of the first thing
 -inlay-hints-for-imports void(out inlay-hint builder, program program, module crow-module)
 	# Maps a module URI to a map from imported names to the first import location
 	imports uri-and-range mut[symbol] mut[uri] = ()
-	program.common-types walk-module module, of _, kind, what
+	walk-module program.common-types, module, of _, kind, what
 		guard kind != comment
-		guard uri = what uri
-		guard name = what name
+		guard uri = what.uri
+		guard name = what.name
 		guard uri != module.uri
-		x = imports ensure uri
-		loc = what name-range
+		x = ensure imports, uri
+		loc = what.name-range
 		if existing = x[name]
 			if loc < existing
 				x[name] := loc
 		else
 			x[name] := loc
-	module zip-ast-and-module-imports of ast, imported
-		match ast kind
+	zip-ast-and-module-imports module, of ast, imported
+		match ast.kind
 		as import-whole-module-ast
-			guard imported crow-module
-			sorted (symbol, uri-and-range)[] = (imports[imported uri] else ()).to sort it.a
-			guard x = program.line-and-character-getters inlay-hint-for-import module.uri, ast, sorted
+			guard imported.crow-module
+			sorted (symbol, uri-and-range)[] = sort (imports[imported.uri] else ()).to, it.a
+			guard x = inlay-hint-for-import program.line-and-character-getters, module.uri, ast, sorted
 			out ~= x
 		as array
 			()
@@ -87,33 +88,33 @@ do
 	as doc-comment-reference-bogus
 		throw unreachable
 	as called-spec-sig
-		a name-range
+		a.name-range
 	as enum-or-flags-member
-		a name-range
+		a.name-range
 	as fun-decl
-		a name-range
+		a.name-range
 	as local
 		throw unreachable
 	as record-field
-		a name-range
+		a.name-range
 	as signature
-		a name-range
+		a.name-range
 	as struct-alias
-		a name-range
+		a.name-range
 	as struct-decl
-		a name-range
+		a.name-range
 	as spec-decl
-		a name-range
+		a.name-range
 	as type-param-index
 		throw unreachable
 	as var-decl
-		a name-range
+		a.name-range
 
 -add-inlay-hints-for-ref void(out inlay-hint builder, lcg line-and-character-getter, decl any-decl, uses uri set)
-	guard uses !is-empty
-	parts inlay-hint-label-part[] = "Used by " uris-or-count-label-parts uses, 3
+	guard !is-empty uses
+	parts inlay-hint-label-part[] = uris-or-count-label-parts "Used by ", uses, 3
 	out ~=
-		position: lcg end-of-line-for-decl decl
+		position: end-of-line-for-decl lcg, decl
 		label: parts
 		kind: ()
 		paddingLeft: true
@@ -124,31 +125,34 @@ do
 	ast import-or-export-ast
 	imported (symbol, uri-and-range)[]
 do
-	guard ast.kind import-whole-module-ast
-	parts inlay-hint-label-part[] = if imported.size > 5
-		("{imported size} imported names", (", " join for x, _ in imported then x to), (), ()),
-	else
-		lcgs imported-name-label-parts imported
-	(lcgs[importer-uri] end-of-line ast.range.start), parts, (), true
+	guard import-whole-module-ast ast.kind
+	position: end-of-line lcgs[importer-uri], ast.range.start
+	label:
+		if imported.size > 5
+			-
+				value: "{imported.size} imported names"
+				tooltip: join ", ", for x, _ in imported then x.to
+		else
+			imported-name-label-parts lcgs, imported
+	kind: ()
+	paddingLeft: true
 -imported-name-label-parts inlay-hint-label-part[](lcgs line-and-character-getters, imported (symbol, uri-and-range)[])
-	for name, range in imported
-		value: name to
+	with-commas for name, range in imported
+		value: name.to
 		tooltip: ()
 		location: lcgs[range]
 		command: ()
-	then with-commas
 
 -uris-or-count-label-parts inlay-hint-label-part[](description string, uris uri set, max-uris nat)
 	if uris.size > max-uris
 		-
-			value: "{description}{uris size} other modules"
-			tooltip: ", " join for x in uris sort then x base-name
+			value: "{description}{uris.size} other modules"
+			tooltip: join ", ", map uris, it.base-name
 	else
-		parts inlay-hint-label-part[] = for uri in uris
-			value: uri base-name
-			location: uri top-of-file
 		- description,
-		-- parts with-commas
+		-- with-commas for uri in uris
+			value: uri.base-name
+			location: uri.top-of-file
 
 -with-commas inlay-hint-label-part[](a inlay-hint-label-part[])
 	# TODO: std function to help?
@@ -162,30 +166,31 @@ do
 			out ~= x
 
 -get-inlay-hints-for-fun void(out inlay-hint builder, show-ctx show-model-ctx, fun fun-decl)
-	guard fun.source fun-decl-ast
-	for param in fun params
-		out get-inlay-hints-for-destructure show-ctx, fun, param
-	if body = fun.body expr
-		body each-descendent-expr-including of expr
-			expr each-destructure-at-expr-for-inlay of destructure
-				out get-inlay-hints-for-destructure show-ctx, fun, destructure
+	guard fun.source.fun-decl-ast
+	for param in fun.params
+		get-inlay-hints-for-destructure out, show-ctx, fun, param
+	body = fun.body
+	if body.expr
+		each-descendent-expr-including body, of expr
+			each-destructure-at-expr-for-inlay expr, of destructure
+				get-inlay-hints-for-destructure out, show-ctx, fun, destructure
 
 -each-destructure-at-expr-for-inlay void(a expr, f void mut(x destructure))
 	match a
 	as lambda-expr
-		f[a param]
+		f[a.param]
 	as let-expr
-		f[a destructure]
+		f[a.destructure]
 	as match-enum-expr
-		if l = a matched-local then f[l]
+		if l = a.matched-local then f[l]
 	as match-scalar-expr
-		if l = a matched-local then f[l]
+		if l = a.matched-local then f[l]
 	as match-string-like-expr
-		if l = a matched-local then f[l]
+		if l = a.matched-local then f[l]
 	as match-sum-type-expr
-		if l = a matched-local then f[l]
+		if l = a.matched-local then f[l]
 	as unpack-option
-		f[a destructure]
+		f[a.destructure]
 	else
 		# Ignore 'match-sum-type-expr' since the type is explicit
 		()
@@ -197,29 +202,29 @@ do
 	a destructure
 do
 	to-line-and-character line-and-character mut(pos pos) = of pos
-		show-ctx.line-and-character-getters[type-container module-uri][pos, start-of-range]
+		show-ctx.line-and-character-getters[type-container.module-uri][pos, start-of-range]
 	match a
 	as destructure-ignore
 		()
 	as local
-		guard name, type-ast = a.source as-simple-destructure
+		guard name, type-ast = as-simple-destructure a.source
 		unless type-ast
 			out ~=
-				position: to-line-and-character[name.range end]
-				label: show-ctx show-type-unquoted (a.type, type-container)
+				position: to-line-and-character[name.range.end]
+				label: show-type-unquoted show-ctx, (a.type, type-container)
 				kind: Type
 				paddingLeft: true
-		purity = a.type best-case-purity
+		purity = best-case-purity a.type
 		if purity != data_
 			out ~=
-				end = if type-ast then type-ast.range end else name.range end
+				end = if type-ast then type-ast.range.end else name.range.end
 				position: to-line-and-character[end]
-				label: purity to
+				label: purity.to
 				kind: ()
 				paddingLeft: true
 	as destructure-split
-		for part in a parts
-			out get-inlay-hints-for-destructure show-ctx, type-container, part
+		for part in a.parts
+			get-inlay-hints-for-destructure out, show-ctx, type-container, part
 
 -as-simple-destructure (name-and-range, type-ast?)?(a local-source)
 	match a
@@ -235,7 +240,7 @@ do
 		()
 
 -end-of-line-for-decl line-and-character(lcg line-and-character-getter, decl any-decl)
-	lcg end-of-line decl.range.range.start
+	end-of-line lcg, decl.range.range.start
 
 -get-inlay-hints-for-test void
 	out inlay-hint builder
@@ -243,23 +248,23 @@ do
 	test-states test-states
 	test_ test_
 do
-	uri = test_ module-uri
-	where uri-and-line = uri, (lcg line-of-pos test_.range.start.pos)
-	position = lcg end-of-line-for-decl test_
+	uri = module-uri test_
+	where uri-and-line = uri, line-of-pos lcg, test_.range.start.pos
+	position = end-of-line-for-decl lcg, test_
 	# TODO: this function should just return a single value then -----------------------------------------------------------
 	out ~=
 		position: position
 		label: if result = test-states[where]
-			result label-for-test-result
+			label-for-test-result result
 		else
-			where label-for-run-test
+			label-for-run-test where
 		kind: ()
 		paddingLeft: true
 
 -label-for-test-result inlay-hint-label(a run-test-result)
 	-
-		value: if a.exit is-ok then "OK" else "Test failed"
-		tooltip: a tooltip-for-run-result
+		value: if is-ok a.exit then "OK" else "Test failed"
+		tooltip: tooltip-for-run-result a
 
 -label-for-run-test inlay-hint-label(where uri-and-line)
 	-
@@ -267,16 +272,16 @@ do
 		command:
 			title: ""
 			tooltip: ()
-			arguments: where run-test
+			arguments: run-test where
 
 -tooltip-for-run-result string?(result run-test-result)
-	guard result.exit is-ok or result.writes !is-empty
-	lines string[] = if result.writes every it.pipe == out
-		for x in result writes
-			x text
+	guard is-ok result.exit or !is-empty result.writes
+	lines string[] = if every result.writes, it.pipe == out
+		for x in result.writes
+			x.text
 	else
-		for x in result writes
-			"{x pipe}: {x text}"
-	exit string = unless result.exit is-ok
-		"\nExit code {result.exit value}"
-	"{"\n" join lines}{exit}"
+		for x in result.writes
+			"{x.pipe}: {x.text}"
+	exit string = unless is-ok result.exit
+		"\nExit code {result.exit.value}"
+	"{join "\n", lines}{exit}"
