@@ -68,7 +68,7 @@ do
 	else
 		args.to
 	out ~~= fun-name.to
-	write-parenthesized out, remaining-args, of x
+	write-parenthesized out, remaining-args, of x, _
 		translate-crow-to-c-or-java out, diags-out, x, is-java
 
 -output-c-or-java void(out string-builder, a java-expr)
@@ -79,7 +79,7 @@ do
 		out ~~= a.to
 	as java-call
 		output-c-or-java out, a.called
-		write-parenthesized out, a.args, of arg
+		write-parenthesized out, a.args.to, of arg, _
 			output-c-or-java out, arg
 	as java-dot
 		output-c-or-java out, a.left
@@ -124,17 +124,18 @@ do
 	as symbol
 		a
 
--write-parenthesized[col, elem] void(out string-builder, values col, f void mut(x elem)) (col, elem) iterate
+-write-parenthesized[elem] void(out string-builder, values elem array-view, f void mut(x elem, pos position))
 	out ~= "("
 	write-with-commas out, values, f
 	out ~= ")"
--write-with-commas[col, elem] void(out string-builder, values col, f void mut(x elem)) (col, elem) iterate
+-write-with-commas[elem] void(out string-builder, values elem array-view, f void mut(x elem, pos position))
 	for i, x in with-index values
 		if i != 0
 			out ~~= ", "
-		f[x]
+		f[x, if i == values.size - 1 then root else non-last-arg]
 
--position enum(root, first-arg, non-first-arg, before-dot)
+# Last arg can be treated same as root
+-position enum(root, non-last-arg, before-dot)
 -== bool(a position, b position)
 -augment enum(not, force)
 -to augment?(a symbol)
@@ -176,8 +177,9 @@ do
 		with-augment out, augment, of
 			translate-to-crow out, called, position, ()
 			out ~= "["
-			write-with-commas out, args, of arg
-				translate-to-crow out, arg, non-first-arg, ()
+			write-with-commas out, args.to, of arg, pos
+				pos = 
+				translate-to-crow out, arg, pos, ()
 			out ~= "]"
 	as java-dot
 		write-crow-call out, called.left, called.name, args.to, position, augment
@@ -200,9 +202,9 @@ do
 		if new-augment
 			translate-to-crow out, arg0, position, new-augment
 		elif position == root
-			translate-to-crow out, arg0, first-arg, ()
-			out ~= " "
 			with-augment out, augment, name
+			out ~= " "
+			translate-to-crow out, arg0, root, ()
 		else
 			with-augment out, augment, of
 				translate-to-crow out, arg0, before-dot, ()
@@ -212,20 +214,18 @@ do
 		needs-parens bool = match position
 		as root
 			false
-		as first-arg
-			false
-		as non-first-arg
+		as non-last-arg
 			true
 		as before-dot
 			true
 		if needs-parens
 			out ~= "("
-		translate-to-crow out, arg0, first-arg, ()
-		out ~= " "
 		with-augment out, augment, name
 		out ~= " "
-		write-with-commas out, rest-args, of arg
-			translate-to-crow out, arg, non-first-arg, ()
+		translate-to-crow out, arg0, non-last-arg, ()
+		out ~~= ", "
+		write-with-commas out, rest-args, of arg, pos
+			translate-to-crow out, arg, pos, ()
 		if needs-parens
 			out ~= ")"
 
@@ -286,19 +286,19 @@ do
 
 test
 	test-all-ways "a", "a", "a"
-	test-all-ways "a f", "f(a)", "a.f()"
-	test-all-ways "a.f.g h", "h(g(f(a)))", "a.f().g().h()"
-	test-all-ways "a f b", "f(a, b)", "a.f(b)"
-	test-all-ways "a f b, c", "f(a, b, c)", "a.f(b, c)"
-	test-all-ways "a.g f b, c", "f(g(a), b, c)", "a.g().f(b, c)"
-	test-all-ways "a.g f b.h, c", "f(g(a), h(b), c)", "a.g().f(b.h(), c)"
-	test-all-ways "a g b f c, d", "f(g(a, b), c, d)", "a.g(b).f(c, d)"
-	test-all-ways "a g b, c f d, e", "f(g(a, b, c), d, e)", "a.g(b, c).f(d, e)"
-	test-all-ways "a g b f (c h d), e.i", "f(g(a, b), h(c, d), i(e))", "a.g(b).f(c.h(d), e.i())"
-	test-all-ways "a !f b", "!f(a, b)", "!a.f(b)"
-	test-all-ways "a f! b", "force(f(a, b))", "a.f(b).force()"
+	test-all-ways "f a", "f(a)", "a.f()"
+	test-all-ways "h g f a", "h(g(f(a)))", "a.f().g().h()"
+	test-all-ways "f a, b", "f(a, b)", "a.f(b)"
+	test-all-ways "f a, b, c", "f(a, b, c)", "a.f(b, c)"
+	test-all-ways "f a.g, b, c", "f(g(a), b, c)", "a.g().f(b, c)"
+	test-all-ways "f a.g, b.h, c", "f(g(a), h(b), c)", "a.g().f(b.h(), c)"
+	test-all-ways "f (g a, b), c, d", "f(g(a, b), c, d)", "a.g(b).f(c, d)"
+	test-all-ways "f (g a, b, c), d, e", "f(g(a, b, c), d, e)", "a.g(b, c).f(d, e)"
+	test-all-ways "f (g a, b), (h c, d), i e", "f(g(a, b), h(c, d), i(e))", "a.g(b).f(c.h(d), e.i())"
+	test-all-ways "!f a, b", "!f(a, b)", "!a.f(b)"
+	test-all-ways "f! a, b", "force(f(a, b))", "a.f(b).force()"
 
-	test-one-way c, "f(a) x", crow, "a f", (5,)
+	test-one-way c, "f(a) x", crow, "f a", (5,)
 	test-one-way crow, "x\n", c, "", (0,)
 
 -test-all-ways void(crow-src string, c-src string, java-src string)
