@@ -26,12 +26,19 @@ check-lambda spec
 
 check-call expr(ctx expr-ctx, ast call-ast, expected expected) check-expr
 	check-call-should-use-syntax ctx, ast
-	if is-option-call ast.style
-		check-option-call ctx, ast, expected
+	if is-option-call ast
+		check-option-call ctx, ast, expected, ast.fun-name.range, ast.fun-name.name, ast.args
 	else
 		type-arg type? = if x = ast.type-arg
 			type-from-ast ctx, x
 		check-call-common ctx, expected, ast, ast.name-range, ast.fun-name.name, type-arg, ast.args
+
+check-call-subscript expr(ctx expr-ctx, ast call-subscript-ast, expected expected) check-expr
+	args expr-ast[] = ast.left, ast.right
+	if ast.is-question-subscript
+		check-option-call ctx, ast, expected, ast.subscript-range, "subscript", args
+	else
+		check-call-common ctx, expected, ast, ast.subscript-range, "subscript", (), args
 
 # Used for a list expression with no '--' parts
 check-call-list-no-multi expr
@@ -100,7 +107,7 @@ do
 		guard as-list-new called
 		match-types (called.return-type, candidate.type-context-for-candidate), (return-type, non-inferring), a-to-b
 	with-candidates ctx.funs-in-expr-scope, fun-name, 1, initial-filter, of candidates
-		if x = opt-only candidates
+		if x = only candidates
 			check-call-after-choosing-overload ctx, x, diag-range
 		else
 			add-diag ctx, diag-range, if is-empty candidates
@@ -249,7 +256,7 @@ do
 		test-candidate-for-spec-sig candidate, return-and-param-types, non-inferring, no-conversions # TODO: allow conversions here (and prefer exact)
 	funs-in-scope = funs-in-non-expr-scope ctx, struct.specs, funs-map
 	with-candidates funs-in-scope, method-name, arity, initial-filter, of candidates
-		if x = opt-only candidates
+		if x = only candidates
 			check-call-specs ctx, struct, funs-in-scope, never-trusted, diag-range, x
 		else
 			add-diag ctx, diag-range, if is-empty candidates
@@ -258,11 +265,18 @@ do
 				diag-call-multiple-matches method-name, struct, candidates.candidates-for-diag
 			()
 
--check-option-call expr(ctx expr-ctx, ast call-ast, outer-expected expected) check-expr
+-check-option-call expr
+	ctx expr-ctx
+	ast call-option-source
+	outer-expected expected
+	diag-range source-range
+	fun-name symbol
+	arg-asts expr-ast[]
+do check-expr
 	check-with-modify-expected ctx, outer-expected, it.as-void-or-option-type, of inner-expected
-		args expr mut-slice = trusted gc-safe-mut-slice ast.args.size
+		args expr mut-slice = trusted gc-safe-mut-slice arg-asts.size
 		check-arg void mut(index nat, arg-expected expected) = of index, arg-expected
-			arg-ast = ast.args[index]
+			arg-ast = arg-asts[index]
 			if index == 0
 				# For the first argument: It's opposite of for the return type.
 				# The call is expecting a non-option, but change that to be expecting an option.
@@ -273,7 +287,7 @@ do
 					expr, option.unwrap-if-option-type
 			else
 				args[index] := check-expr ctx, arg-ast, arg-expected
-		if called = check-call-cb ctx, ast.fun-name.range, ast.fun-name.name, (), ast.args.size, inner-expected, check-arg, of _ then true
+		if called = check-call-cb ctx, diag-range, fun-name, (), arg-asts.size, inner-expected, check-arg, of _ then true
 			type = if is-void called.return-type or is-option called.return-type
 				called.return-type
 			else
@@ -286,10 +300,10 @@ do
 			else
 				add-diag ctx, args[0].range,
 					diag-call-option-non-option called.name, type-with-container ctx, arg0-type
-				- call-expr ast, called, all-args
+				- call-expr ast.to, called, all-args
 				- called.return-type
 		else
-			(bogus inner-expected, ast.fun-name.range), bogus-type
+			(bogus inner-expected, ast.range), bogus-type
 -as-void-or-option-type type?(a type)
 	if is-void a or is-option a then a
 
@@ -348,7 +362,7 @@ do
 			every 0::nat .. arg-index, of i
 				test-candidate-param-type candidate, i, arg-types[i].non-inferring, no-conversions
 
-	if x = opt-only candidates
+	if x = only candidates
 		check-call-after-choosing-overload ctx, x, diag-range
 	else
 		add-diag ctx, diag-range, if is-empty candidates
@@ -378,7 +392,7 @@ do
 		if second-arg-is-lambda ast
 			for-loop
 	as list-new
-		if ?list-ast opt-only ast.args
+		if ?list-ast only ast.args
 			list-new
 	as new
 		new_
@@ -496,7 +510,7 @@ do
 		as 0
 			false
 		as 1
-			infer-candidate-type-args-from-checked-spec-sig spec-candidates.only, spec-sig, return-and-param-types, call-context
+			infer-candidate-type-args-from-checked-spec-sig spec-candidates.only!, spec-sig, return-and-param-types, call-context
 			true
 		else
 			true

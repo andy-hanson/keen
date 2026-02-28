@@ -2,6 +2,7 @@ import
 	../../model/ast
 	../../model/parse-diag
 	../../model/source-range
+	../../util/util
 	./lexer
 	./parse-type
 	./parse-util
@@ -113,8 +114,7 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 			if is-empty args
 				parse-name-after-tick lexer, start, named-calls, arg-ctx
 			else
-				res = to-expr callable, (range lexer, start), args
-				parse-calls lexer, start, res, arg-ctx
+				parse-calls lexer, start, (to-expr callable, args), arg-ctx
 		else
 			parse-name-after-tick lexer, start, named-calls, arg-ctx
 
@@ -125,13 +125,7 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 		pos = lexer.prev-start
 		inner-ctx = require-precedence-gt arg-ctx, name-after-tick-precedence
 		args = parse-args lexer, inner-ctx, lhs
-		call call-ast =
-			range: range lexer, start
-			style: infix
-			keyword-pos: max-value
-			fun-name: pos + 1, name
-			args: args
-			type-arg: ()
+		call = call-ast infix, (pos + 1, name), args, ()
 		parse-calls lexer, start, call, arg-ctx
 	else
 		lhs
@@ -141,50 +135,48 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 -callable-expr record
 	kind callable-kind
 	fun-name name-and-range
-	# Used for 'force' or 'question'
-	keyword-pos pos
 	type-arg type-ast?
 	type-annotation (pos, type-ast)?
 -as-callable-expr callable-expr?(a expr-ast)
 	match a
 	as name-and-range
-		plain, a, 0, (), ()
+		plain, a, (), ()
 	as call-ast
 		guard is-empty a.args
 		match a.style
 		as prefix
 			if is-empty a.args
-				plain, a.fun-name, 0, a.type-arg, ()
+				plain, a.fun-name, a.type-arg, ()
 		as question-name
-			question, a.fun-name, a.keyword-pos, a.type-arg, ()
+			question, a.fun-name, a.type-arg, ()
 		else
 			()
 	as force-ast
 		if arg = as-callable-expr a.arg and arg.kind == plain
-			force, arg.fun-name, a.keyword-pos, arg.type-arg, ()
+			force, arg.fun-name, arg.type-arg, ()
 	as not-ast
 		if arg = as-callable-expr a.arg and arg.kind == plain
-			not, arg.fun-name, a.keyword-pos, arg.type-arg, ()
+			not, arg.fun-name, arg.type-arg, ()
 	as typed-ast
 		if expr = a.expr and arg = as-callable-expr expr and !arg.type-annotation
-			arg.kind, arg.fun-name, arg.keyword-pos, arg.type-arg, (a.colon-pos, a.type)
+			arg.kind, arg.fun-name, arg.type-arg, (a.colon-pos, a.type)
 	else
 		()
--to-expr expr-ast(a callable-expr, range source-range, args expr-ast[])
+-to-expr expr-ast(a callable-expr, args expr-ast[])
 	plain expr-ast mut() = of
 		if is-empty args and !a.type-arg
 			a.fun-name
 		else
-			call-ast range, prefix, max-value, a.fun-name, args, a.type-arg
+			call-ast prefix, a.fun-name, args, a.type-arg
 	res expr-ast = match a.kind
 	as plain
 		plain[]
 	as not
-		not-ast a.keyword-pos, plain[]
+		not-ast a.fun-name.start - 1, plain[]
 	as force
-		force-ast plain[], a.keyword-pos
+		force-ast plain[], a.fun-name.end
 	as question
-		call-ast range, question-name, a.keyword-pos, a.fun-name, args, a.type-arg
+		call-ast question-name, a.fun-name, args, a.type-arg
 	if colon-pos, type = a.type-annotation
 		typed-ast res, colon-pos, type
 	else
@@ -230,15 +222,13 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	expr expr-ast = if assignment
 		match assignment
 		as in-place
-			call-ast (range lexer, start), infix, 0, fun-name, args, ()
+			call-ast infix, fun-name, args, ()
 		else
 			args.size is 2
 			assignment-call-ast fun-name, args[0], args[1]
 	else
 		with args2 in it-scope-if args, precedence > 0
-			range: range lexer, start
 			style: infix
-			keyword-pos: max-value
 			fun-name: fun-name
 			args: args2
 			type-arg: type-arg
@@ -387,13 +377,13 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	match lexer.peek
 	as dot
 		advance lexer
-		try-parse-dots-and-subscripts lexer, do parse-after-dot lexer, initial, dot-pos
+		try-parse-dots-and-subscripts lexer, parse-after-dot lexer, initial
 	as bracket-left
 		advance lexer
-		try-parse-dots-and-subscripts lexer, do parse-subscript lexer, initial, dot-pos, false
+		try-parse-dots-and-subscripts lexer, parse-subscript lexer, initial, dot-pos, false
 	as question-bracket
 		advance lexer
-		try-parse-dots-and-subscripts lexer, do parse-subscript lexer, initial, dot-pos, true
+		try-parse-dots-and-subscripts lexer, parse-subscript lexer, initial, dot-pos, true
 	as colon2
 		try-parse-dots-and-subscripts lexer, with initial2 in it-scope initial
 			advance lexer
@@ -405,15 +395,10 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	else
 		initial
 
--parse-after-dot expr-ast(lexer lexer, initial expr-ast, dot-pos pos)
+-parse-after-dot expr-ast(lexer lexer, initial expr-ast)
 	call expr-ast mut(style call-ast-style, name name-and-range, type-arg type-ast?) = of style, name, type-arg
 		with initial2 in it-scope-single initial
-			range: range lexer, initial.range.start
-			style: style
-			keyword-pos: dot-pos
-			fun-name: name
-			args: initial2,
-			type-arg: type-arg
+			call-ast style, name, (initial2,), type-arg
 	if name = try-take-name-like-token lexer, name-bang
 		with x in it-scope call[dot, name, ()]
 			force-ast x, name.range.end
@@ -432,13 +417,8 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 		_ = take-or-add-diag-expected-token lexer, bracket-right, closing-bracket
 		res
 	with args in it-scope (initial, arg)
-		:: call-ast
-		range: range lexer, initial.range.start
-		style: if is-question-bracket then question-subscript else subscript
-		keyword-pos: subscript-pos
-		fun-name: subscript-pos, "subscript"
-		args: args
-		type-arg: ()
+		left, right = only2! args
+		call-subscript-ast left, is-question-bracket, subscript-pos, right, lexer.prev-end
 
 -parse-match expr-ast(lexer lexer, start pos)
 	local = parse-name-equals lexer
@@ -766,11 +746,11 @@ do
 		try-parse-dots-and-subscripts lexer, start.it-ast.it-scope-ast
 	as in_
 		# It's allowed to access 'in' just in order to access Java's `System.in`
-		handle-name lexer, start, (start, "in")
+		handle-name lexer, (start, "in")
 	as match_
 		if-allow-block[match_, of then parse-match lexer, start]
 	as name
-		handle-name lexer, start, (start, lexer.prev-symbol)
+		handle-name lexer, (start, lexer.prev-symbol)
 	as name-after-bang
 		name = lexer.prev-symbol
 		inner = try-parse-dots-and-subscripts lexer, if name == "it"
@@ -780,13 +760,7 @@ do
 		with inner2 in it-scope inner
 			not-ast start, inner2
 	as name-after-question
-		:: call-ast
-		range: range lexer, start
-		style: question-name
-		keyword-pos: start
-		fun-name: name-and-range start + 1, lexer.prev-symbol
-		args: ()
-		type-arg: ()
+		call-ast question-name, (name-and-range start + 1, lexer.prev-symbol), (), ()
 	as name-bang
 		try-parse-dots-and-subscripts lexer,
 			force-ast (name-and-range start, lexer.prev-symbol), (range lexer, start).end - 1
@@ -797,7 +771,7 @@ do
 		parse-statements-and-dedent lexer
 	as of_
 		param destructure-ast = if peek lexer, then_ or peek lexer, newline-indent
-			void-destructure-ast lexer.next-range
+			void-destructure-ast (lexer.prev-end, lexer.prev-end)
 		else
 			parse-destructure-no-require-parens lexer
 		then-pos, body = parse-then-or-indented-statements lexer, start, allowed-block, of_
@@ -834,11 +808,11 @@ do
 
 -handle-prefix-unary-operator expr-ast(lexer lexer, allowed-block bool, start pos, operator symbol)
 	with arg in it-scope parse-expr-before-call lexer, allowed-block
-		call-ast (range lexer, start), prefix, 0, (start, operator), (arg,), ()
+		call-ast prefix, (start, operator), (arg,), ()
 
--handle-name expr-ast(lexer lexer, start pos, name name-and-range)
-	if type-arg = lexer.try-parse-type-arg-for-expr
-		call-ast (range lexer, start), prefix, 0, name, (), type-arg
+-handle-name expr-ast(lexer lexer, name name-and-range)
+	if type-arg = try-parse-type-arg-for-expr lexer
+		call-ast prefix, name, (), type-arg
 	else
 		try-parse-dots-and-subscripts lexer, name
 

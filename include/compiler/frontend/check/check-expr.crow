@@ -69,6 +69,8 @@ do
 		check-call ctx, ast, expected
 	as call-named-ast
 		check-call-named ctx, ast, expected
+	as call-subscript-ast
+		check-call-subscript ctx, ast, expected
 	as do-ast
 		check-expr ctx, ast.body, expected
 	as finally-ast
@@ -263,6 +265,9 @@ do
 	expected expected
 	cb-right expr mut(x expected)
 do
+	cant-assign expr mut() = of
+		add-diag ctx, left.range, diag-assignment-not-allowed
+		bogus expected, source.range
 	match left
 	as name-and-range
 		check-assign-identifier ctx, left, keyword-range, left.name, expected, cb-right
@@ -270,22 +275,28 @@ do
 		name symbol? = match style left
 		as dot
 			"set-{left.fun-name.name}"
-		as subscript
-			"set-subscript"
 		else
 			()
-		if name
-			check-call-special-cb-n ctx, source, keyword-range, name, expected, left.args.size + 1, of i, arg-expected
-				if i == left.args.size
-					cb-right[arg-expected]
-				else
-					check-expr ctx, left.args[i], arg-expected
-		else
-			add-diag ctx, left.range, diag-assignment-not-allowed
-			bogus expected, source.range
+		guard name else cant-assign[]
+		check-call-special-cb-n ctx, source, keyword-range, name, expected, left.args.size + 1, of i, arg-expected
+			if i == left.args.size
+				cb-right[arg-expected]
+			else
+				check-expr ctx, left.args[i], arg-expected
+	as call-subscript-ast
+		guard !left.is-question-subscript else cant-assign[]
+		check-call-special-cb-n ctx, source, keyword-range, "set-subscript", expected, 3, of i, arg-expected
+			match i
+			as 0
+				check-expr ctx, left.left, arg-expected
+			as 1
+				check-expr ctx, left.right, arg-expected
+			as 2
+				cb-right[arg-expected]
+			else
+				throw unreachable
 	else
-		add-diag ctx, left.range, diag-assignment-not-allowed
-		bogus expected, source.range
+		cant-assign[]
 
 -check-assignment-call expr(ctx expr-ctx, ast assignment-call-ast, expected expected)
 	check-assignment ctx, ast, ast.left, ast.keyword-range, expected, of arg-expected
@@ -304,7 +315,7 @@ do
 do
 	guard called = called-for-interpolate-or-list-new ctx, range, "interpolate", expected else
 		bogus expected, range
-	arg-element-type = array-element-type! called.param-types.only
+	arg-element-type = array-element-type! only! called.param-types
 	arg-expected = expect arg-element-type
 	args expr[] = for arg-index in 0 .. template.size + interpolated-exprs.size
 		if is-even arg-index
@@ -491,7 +502,7 @@ do
 	res
 
 -char8-literal-value char8(ctx expr-ctx, diag-range source-range, value string)
-	opt-only value.to::char8[] else
+	only value.to::char8[] else
 		add-diag ctx, diag-range, diag-char-literal-must-be-one-char
 		"a"
 -char32-literal-value char32(ctx expr-ctx, diag-range source-range, value string)
@@ -499,7 +510,7 @@ do
 		add-diag ctx, diag-range, diag-char-literal-must-be-one-char
 		"a"
 -decode-as-single-unicode-char char32?(a string)
-	opt-only a.to::char32[]
+	only a.to::char32[]
 
 | If {expr}, that is a condition that is true within this context.
 -expression-context union(expr, destructure, void)
@@ -694,7 +705,7 @@ do
 	else
 		guard called = called-for-interpolate-or-list-new ctx, ast.range, "list-new", expected else
 			bogus expected, ast.range
-		arg-array-type = only called.param-types
+		arg-array-type = only! called.param-types
 		list-expr ast, called, for part in ast.parts
 			match part
 			as expr-ast

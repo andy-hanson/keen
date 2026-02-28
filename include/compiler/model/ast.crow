@@ -171,6 +171,7 @@ expr-ast union
 	bogus-ast
 	call-ast
 	call-named-ast
+	call-subscript-ast
 	do-ast
 	finally-ast
 	force-ast
@@ -268,10 +269,7 @@ end pos(a bogus-ast)
 	a.range.end
 
 call-ast record
-	range source-range
 	style call-ast-style
-	| Position of '.' or '?', otherwise 'max-value'
-	keyword-pos pos
 	fun-name name-and-range
 	args expr-ast[]
 	type-arg type-ast?
@@ -284,46 +282,52 @@ call-ast-style enum
 	| `a 'b`, `a 'b c`, `a 'b c, d`, etc. Also operators like `a + b`.
 	infix
 	prefix
-	| `a[b]`
-	subscript
 	| `?foo`
 	question-name
-	| `a?[b]`
-	question-subscript
-is-option-call bool(a call-ast-style)
-	match a
-	as dot-question
-		true
-	as question-name
-		true
-	as question-subscript
-		true
-	else
-		false
+is-option-call bool(a call-ast)
+	a.style == dot-question or a.style == question-name
 == bool(a call-ast-style, b call-ast-style)
 to json(a call-ast-style)
+range source-range(a call-ast)
+	a.start, a.end
 start pos(a call-ast)
-	a.range.start
+	match a.style
+	as dot
+		a.args[0].start
+	as dot-question
+		a.args[0].start
+	as infix
+		a.args[0].start
+	as prefix
+		a.fun-name.start
+	as question-name
+		a.fun-name.start - 1
 end pos(a call-ast)
-	a.range.end
+	is-fun bool = match a.style
+	as dot
+		true
+	as dot-question
+		true
+	as infix
+		a.args.size == 1
+	as prefix
+		a.args.size == 0
+	as question-name
+		a.args.size == 0
+	if is-fun then a.fun-name.end else a.args[end - 1].end
 keyword-range source-range?(a call-ast)
 	match a.style
 	as dot
-		a.keyword-range-1
+		a.fun-name.start - 1, a.fun-name.start
 	as dot-question
-		a.keyword-range-2
-	as subscript
-		a.keyword-range-1
+		a.fun-name.start - 2, a.fun-name.start
 	as question-name
-		a.keyword-range-1
-	as question-subscript
-		a.keyword-range-2
+		a.fun-name.start - 1, a.fun-name.start
 	else
 		()
--keyword-range-1 source-range(a call-ast)
-	range-of-start-and-length a.keyword-pos, 1
--keyword-range-2 source-range(a call-ast)
-	range-of-start-and-length a.keyword-pos, 2
+question-range source-range?(a call-ast)
+	if is-option-call a
+		keyword-range! a
 name-range source-range(a call-ast)
 	a.fun-name.range
 
@@ -349,6 +353,23 @@ end pos(a call-named-ast)
 	a.args[end - 1].end
 range source-range(a call-named-ast)
 	a.start, a.end
+
+call-subscript-ast record
+	left expr-ast
+	is-question-subscript bool
+	keyword-pos pos
+	right expr-ast
+	end pos
+to json(a call-subscript-ast)
+start pos(a call-subscript-ast)
+	a.left.start
+range source-range(a call-subscript-ast)
+	a.start, a.end
+question-range source-range?(a call-subscript-ast)
+	if a.is-question-subscript
+		a.keyword-pos, a.keyword-pos + 1
+subscript-range source-range(a call-subscript-ast)
+	a.keyword-pos, a.end
 
 do-ast record(start pos, body expr-ast)
 to json(a do-ast)
@@ -1355,6 +1376,8 @@ iterate bool(a children, f bool mut(x expr-ast))
 		iterate x.args, f
 	as call-named-ast
 		iterate x.args, f
+	as call-subscript-ast
+		f[x.left] or f[x.right]
 	as do-ast
 		f[x.body]
 	as finally-ast

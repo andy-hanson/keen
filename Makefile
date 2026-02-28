@@ -127,7 +127,7 @@ upload-site: prepare-site confirm-upload-site
 site/crow-include.tar: $(include)
 	tar -cf site/crow-include.tar -C include/crow .
 site/java-classes.tar:
-	rm -r site/java-classes
+	rm -rf site/java-classes
 	mkdir site/java-classes
 	bin/crow print dependencies include/crow-config.json --format flat | \
 		grep 'java:///java' | \
