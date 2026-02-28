@@ -21,7 +21,6 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	true, min-value
 -allow-everything-except-block arg-ctx()
 	false, min-value
-to json(a arg-ctx)
 
 -require-precedence-gt arg-ctx(a arg-ctx, precedence int)
 	allowed-block: a.allowed-block
@@ -32,11 +31,9 @@ to json(a arg-ctx)
 	with args2 in it-scope args
 		list-ast (range lexer, start), map args2, it.identity
 
--parse-args expr-ast[](lexer lexer, ctx arg-ctx, first expr-ast) # Will this still be used? ---------------------------------------------------------------------
-	parse-args-inner lexer, ctx, first
 -parse-args expr-ast[](lexer lexer, ctx arg-ctx)
-	parse-args-inner lexer, (require-precedence-gt ctx, comma-precedence), ()
--parse-args-inner expr-ast[](lexer lexer, ctx arg-ctx, first expr-ast?)
+	parse-args lexer, (require-precedence-gt ctx, comma-precedence), ()
+-parse-args expr-ast[](lexer lexer, ctx arg-ctx, first expr-ast?)
 	with out in build
 		if first
 			out ~= first
@@ -74,7 +71,7 @@ to json(a arg-ctx)
 		false
 	as newline-same-indent
 		false
-	as operator
+	as operator-binary
 		false
 	as or_
 		false
@@ -96,7 +93,6 @@ to json(a arg-ctx)
 		lexer.parse-statements
 
 -parse-calls expr-ast(lexer lexer, start pos, lhs expr-ast, arg-ctx arg-ctx)
-	# error log "TOP OF PARSE-CALLS prefix={lexer.prefix} start={start} lhs={lhs.to-json} arg-ctx={arg-ctx.to-json}" # ---------------------------------------------------
 	before-call = lexer.next-start
 	precedence = arg-ctx.min-precedence-exclusive
 	if equals-expression-precedence > precedence and try-take-token lexer, equal
@@ -154,10 +150,10 @@ to json(a arg-ctx)
 		plain, a, 0, ()
 	as call-ast
 		guard is-empty a.args
-		guard !a.type-arg # TODO? ----------------------------------------------------------------------------------------------------------------------
 		match a.style
-		as single
-			plain, a.fun-name, 0, a.type-arg
+		as prefix
+			if is-empty a.args
+				plain, a.fun-name, 0, a.type-arg
 		as question-name
 			question, a.fun-name, a.keyword-pos, a.type-arg
 		else
@@ -198,7 +194,6 @@ to json(a arg-ctx)
 		()
 
 -parse-named-calls expr-ast(lexer lexer, start pos, lhs expr-ast, arg-ctx arg-ctx)
-	# error log "TOP OF parse-named-calls at {lexer.next-start}, lhs={lhs to-json}, arg-ctx={arg-ctx to-json}, peek is {lexer.peek to-json}" # ---------------------
 	pos = lexer.next-start
 	guard name = try-take-name-and-precedence lexer, arg-ctx else lhs
 	fun-token = name.token
@@ -252,24 +247,32 @@ to json(a arg-ctx)
 	token token
 	name symbol
 	precedence int
--to json(a name-and-precedence)
 -try-take-name-and-precedence name-and-precedence?(lexer lexer, arg-ctx arg-ctx)
-	x = lexer.peek
-	guard is-symbol-token x or x == in_ or x == is_
-	guard peek-infix-name lexer or x.name-ends-in-equals
-	name symbol = match x
-	as in_ then "in"
-	as is_ then "is"
-	else then next-symbol lexer
-	precedence = symbol-precedence name, x.name-ends-in-equals
+	token = peek lexer
+	guard is-infix-name token
+	name symbol = if token == is_ then "is" else next-symbol lexer
+	precedence = symbol-precedence name, token.name-ends-in-equals
 	guard precedence > arg-ctx.min-precedence-exclusive
-	if token-has-continuation x
+	if token-has-continuation token
 		advance-may-continue-onto-next-line lexer
 	else
 		advance lexer
-	token: x
+	token: token
 	name: name
 	precedence: precedence
+
+-is-infix-name bool(token token)
+	match token
+	as is_
+		true
+	as operator-binary
+		true
+	as operator-colon-equals
+		true
+	as operator-equals
+		true
+	else
+		name-ends-in-equals token
 
 -name-ends-in-equals bool(token token)
 	match token
@@ -284,26 +287,13 @@ to json(a arg-ctx)
 	else
 		false
 
--peek-infix-name bool(lexer lexer)
-	match lexer.peek
-	as is_
-		true
-	as operator
-		true
-	as operator-colon-equals
-		true
-	as operator-equals
-		true
-	else
-		false
-
 -token-has-continuation bool(a token)
 	match a
 	as name-colon-equals
 		true
 	as name-equals
 		true
-	as operator
+	as operator-binary
 		true
 	as operator-colon-equals
 		true
@@ -443,16 +433,18 @@ to json(a arg-ctx)
 		type-arg: ()
 
 -parse-match expr-ast(lexer lexer, start pos)
-	local = if lexer.lookahead-equals-for-match
-		res = lexer.try-take-name-and-range
-		_ = take-or-add-diag-expected-token lexer, equal, equals
-		res
+	local = parse-name-equals lexer
 	matched = parse-expr-no-block lexer
 	cases case-ast[] = with out in build
 		while as-pos = try-take-newline-then-as lexer
 			out ~= as-pos, (parse-case-member lexer), parse-then-or-block lexer
 	match-ast start, local, matched, cases, if pos = try-take-newline-then-else lexer
 		pos, lexer.parse-then-or-block
+-parse-name-equals name-and-range?(lexer lexer)
+	if peek lexer, name and peek2 lexer, equal
+		res = try-take-name-and-range! lexer
+		advance lexer
+		res
 
 -parse-then-or-block expr-ast(lexer lexer)
 	if try-take-token lexer, then_
@@ -794,7 +786,7 @@ do
 			parse-destructure-no-require-parens lexer
 		then-pos, body = parse-then-or-indented-statements lexer, start, allowed-block, of_
 		lambda-ast start, param, then-pos, body
-	as prefix-operator
+	as operator-prefix
 		handle-prefix-unary-operator lexer, allowed-block, start, lexer.prev-symbol
 	as literal-number
 		try-parse-dots-and-subscripts lexer, literal-number range lexer, start
@@ -826,11 +818,11 @@ do
 
 -handle-prefix-unary-operator expr-ast(lexer lexer, allowed-block bool, start pos, operator symbol)
 	with arg in it-scope parse-expr-before-call lexer, allowed-block
-		call-ast (range lexer, start), prefix-operator, 0, (start, operator), (arg,), ()
+		call-ast (range lexer, start), prefix, 0, (start, operator), (arg,), ()
 
 -handle-name expr-ast(lexer lexer, start pos, name name-and-range)
 	if type-arg = lexer.try-parse-type-arg-for-expr
-		call-ast (range lexer, start), single, 0, name, (), type-arg
+		call-ast (range lexer, start), prefix, 0, name, (), type-arg
 	else
 		try-parse-dots-and-subscripts lexer, name
 

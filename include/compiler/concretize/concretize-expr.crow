@@ -122,10 +122,8 @@ get-var concrete-var(ctx concretize-ctx, decl var-decl)
 			allocated-locals: decl.initializer.allocated-locals
 		decl, concretize-expr expr-ctx, type, decl.initializer.expr
 
-concretize-fun-body concrete-expr(ctx concretize-ctx, cf concrete-fun, expr expr-maybe-allocated-locals)
-	# Array operations will not be called normally, so don't bother filling in the body
-	guard !is-array-op cf else cf.return-type, cf.range, constant-gc-safe-value # TODO: it would better to use a bogus body ...........................................
-
+concretize-fun-body concrete-fun-body(ctx concretize-ctx, cf concrete-fun, expr expr-maybe-allocated-locals)
+	guard !is-array-op cf else concrete-fun-body-always-inline
 	params = match x = cf.source
 	as concrete-fun-source-regular
 		x.decl.params
@@ -916,9 +914,7 @@ do
 		after
 		###
 		condition = concretize-expr-and-convert-option-to-bool ctx, expr.condition
-		assert is-void void.type # TODO: sanity check ---------------------------------------------------------------------------------------------------------------
 		body = concretize-expr ctx, void.type, expr.body
-		assert is-void body.type # TODO: sanity check -----------------------------------------------------------------------------------------------------------------
 		do-and-continue = gen-do-and-continue void.type, range, body
 		break_ = gen-break range, void
 		if_ = if expr.is-until
@@ -1215,8 +1211,7 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 	as typed-expr
 		concretize-expr ctx, type, a.inner
 	as unpack-option
-		option = concretize-expr ctx, a.option
-		gen-if-option range, option, ((), (gen-true ctx.concretize-ctx, range)), gen-false ctx.concretize-ctx, range
+		gen-option-to-bool ctx.concretize-ctx, concretize-expr ctx, a.option
 	may-widen-type ctx.concretize-ctx, outer-type, res
 
 -concretize-expr-and-convert-option-to-bool concrete-expr(ctx concretize-expr-ctx, expr expr)
@@ -1224,8 +1219,11 @@ concretize-expr concrete-expr(ctx concretize-expr-ctx, outer-type concrete-type,
 	if is-bool inner.type
 		inner
 	else
-		range = inner.range
-		gen-if-option range, inner, ((), (gen-true ctx.concretize-ctx, range)), gen-false ctx.concretize-ctx, range # TODO: this is the same as the code for 'as unpack-option' just above!
+		gen-option-to-bool ctx.concretize-ctx, inner
+
+-gen-option-to-bool concrete-expr(ctx concretize-ctx, arg concrete-expr)
+	range = arg.range
+	gen-if-option range, arg, ((), (gen-true ctx, range)), gen-false ctx, range
 
 -as-seq concrete-expr[](a concrete-expr)
 	match x = a.kind
