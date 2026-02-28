@@ -95,7 +95,7 @@ do
 			continue
 
 json-of-decoded-tokens json(a semantic-tokens)
-	(map a.decode-semantic-tokens, it.to)::json[] 'to
+	map::json[] a.decode-semantic-tokens, it.to 'to
 
 get-tokens-legend json()
 	tokenTypes: members::token-type[].to
@@ -419,16 +419,12 @@ do
 	as bogus-ast
 		()
 	as call-ast
-		add-name void mut() = of
-			out ~= function_, a.fun-name.range
-			if t = a.type-arg
-				add-type-tokens out, t
 		prefix void mut() = of
-			add-name[]
+			add-name-for-call out, a
 			add-exprs-tokens out, a.args
 		name-in-middle void mut() = of
 			add-expr-tokens out, a.args[0]
-			add-name[]
+			add-name-for-call out, a
 			for arg in a.args[1 .. end]
 				add-expr-tokens out, arg
 		match a.style
@@ -540,18 +536,33 @@ do
 		if after = a.after
 			add-expr-tokens out, after
 	as typed-ast
-		if a.is-prefix
-			add-type-tokens out, a.type
-			if expr = a.expr
+		if expr = a.expr
+			if a.type.start < expr.start
+				# `:: t n\n expr`
+				add-type-tokens out, a.type
 				add-expr-tokens out, expr
+			elif a.type.start > expr.end
+				# expr :: t
+				add-expr-tokens out, expr
+				add-type-tokens out, a.type
+			else
+				# fun-name::t args...
+				assert call-ast expr and expr.style == prefix
+				add-name-for-call out, expr
+				add-type-tokens out, a.type
+				add-exprs-tokens out, expr.args
 		else
-			add-expr-tokens out, a.expr!
 			add-type-tokens out, a.type
 	as underscore-ast
 		()
 	as unpack-option-ast
 		add-local-destructure-tokens out, a.destructure
 		add-expr-tokens out, a.option
+
+-add-name-for-call void(out tokens-builder, a call-ast)
+	out ~= function_, a.fun-name.range
+	if t = a.type-arg
+		add-type-tokens out, t
 
 -add-catch-tokens void(out tokens-builder, a catch-ast)
 	if n = a.name

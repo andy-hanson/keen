@@ -19,6 +19,7 @@ import
 	java/nio/file/attribute/PosixFilePermission
 	java/nio/file/Files
 	java/nio/file/FileSystem
+	java/nio/file/FileSystemAlreadyExistsException
 	java/nio/file/FileSystems
 	java/nio/file/Path
 	java/nio/file/Paths
@@ -287,6 +288,7 @@ wait-for-change file-path set(a file-reader)
 		base-jmod = find-java-base-jmod
 		jmods FileSystem mut[file-path] = ()
 		finally for _, fs in jmods
+			# TODO: we should not do this if we got it through 'getFileSystem' instead of 'newFileSystem'
 			close fs
 		f[of path then read-java-class base-jmod, path, jmods]
 	elif js
@@ -320,9 +322,17 @@ files-in-directory-recursive file-path[](a file-reader, root file-path)
 	else
 		base-jmod
 	file-system = ensure jmods, jmod, of
-		newFileSystem "jar:file://{jmod}".create, emptyMap
+		# Even though we cache the jmods, if we are running a client program with 'crow run', it might want to create a file system for the jar too
+		get-or-create-file-system "jar:file://{jmod}".create
 	path = getPath file-system, "classes/{class_}.class", ()
 	path.readAllBytes.cast-immutable.safe-reinterpret-cast::nat8[].to
+
+-get-or-create-file-system FileSystem(uri URI) java, summon
+	trusted
+	try
+		newFileSystem uri, emptyMap
+	catch as FileSystemAlreadyExistsException
+		getFileSystem uri
 
 try-read-file read-file-result(a file-reader, uri uri)
 	if path = as-java-uri uri
