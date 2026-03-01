@@ -64,13 +64,13 @@ do
 	exists a.sum-type-memberships, it.sum-type == ctx.common-types.exception
 
 -fill-interface-methods void(ctx java-ctx, class_ parsed-java-class-header, parsed-methods parsed-method[], type struct-decl)
-	guard class_.access[interface_]
+	do if class_.access[interface_]
 	type.body :=
 		:: sum-type
 		kind: java-interface
 		listed-members: ()
 		methods: for* method in parsed-methods
-			guard method.access-flags[abstract_]
+			do if method.access-flags[abstract_]
 			# Ignore varargs; they just become normal array parameters
 			(method.access-flags & ~varargs) is (abstract_ | public)
 			return-type, params = method-return-type-and-params ctx, method
@@ -84,57 +84,55 @@ do
 -funs-for-java-class fun-decl[](ctx java-ctx, path path, header parsed-java-class-header, class_ parsed-java-class-body, struct struct-decl)
 	class-type = only-inst struct
 	is-interface = header.access[interface_]
-	with out in build
-		for field in class_.fields
-			guard field.access-flags[public | static] # TODO: support instance fields
-			out ~=
-				hash: next-hash ctx.instantiate-ctx
-				source: fun-source-java path, field.name
-				visibility: public
-				n-type-params: 0
-				return-type: to-type ctx, field.type
-				params: ()
-				specs: ctx.common-types.java-summon-unsafe-specs
-				doc-comment-references: ()
-				body:
-					:: fun-body-extern-java
-					static-field, path
+	do with out in build
+	for field in class_.fields
+		do if field.access-flags[public | static] # TODO: support instance fields
+		out ~=
+			hash: next-hash ctx.instantiate-ctx
+			source: fun-source-java path, field.name
+			visibility: public
+			n-type-params: 0
+			return-type: to-type ctx, field.type
+			params: ()
+			specs: ctx.common-types.java-summon-unsafe-specs
+			doc-comment-references: ()
+			body:
+				:: fun-body-extern-java
+				static-field, path
 
-		for method in class_.methods
-			guard method.access-flags[public]
-			is-static = method.access-flags[static]
-			is-constructor = method.name == "<init>"
-			return-type, most-params = method-return-type-and-params ctx, method
-			# TODO: NEATER (should be able to declare 'body' on this line ...) -----------------------------------------------
-			body fun-body-extern-java? = if is-static
-				kind: if is-interface then static-method-of-interface else static-method-of-class
-				class_: path
-			elif is-constructor
-				constructor, path
-			elif is-interface
-				()
+	for method in class_.methods
+		do if method.access-flags[public]
+		is-static = method.access-flags[static]
+		is-constructor = method.name == "<init>"
+		return-type, most-params = method-return-type-and-params ctx, method
+		do if body fun-body-extern-java = if is-static
+			kind: if is-interface then static-method-of-interface else static-method-of-class
+			class_: path
+		elif is-constructor
+			constructor, path
+		elif is-interface
+			()
+		else
+			virtual, path
+		out ~=
+			hash: next-hash ctx.instantiate-ctx
+			source: fun-source-java path, if is-constructor then "new" else method.name
+			visibility: public
+			n-type-params: 0
+			return-type: if is-constructor then class-type else return-type
+			params: if is-static or is-constructor
+				most-params
 			else
-				virtual, path
-			guard body
-			out ~=
-				hash: next-hash ctx.instantiate-ctx
-				source: fun-source-java path, if is-constructor then "new" else method.name
-				visibility: public
-				n-type-params: 0
-				return-type: if is-constructor then class-type else return-type
-				params: if is-static or is-constructor
-					most-params
-				else
-					- "this".local-source-generated, class-type
-					-- most-params
-				specs: ctx.common-types.java-summon-unsafe-specs
-				doc-comment-references: ()
-				body: body
+				- "this".local-source-generated, class-type
+				-- most-params
+			specs: ctx.common-types.java-summon-unsafe-specs
+			doc-comment-references: ()
+			body: body
 
-		if sum = struct.body.sum-type
-			sum.kind is java-interface
-			for index, method in with-index sum.methods
-				out ~= fun-for-method ctx.instantiate-ctx, struct, class-type, index, method
+	if sum = struct.body.sum-type
+		sum.kind is java-interface
+		for index, method in with-index sum.methods
+			out ~= fun-for-method ctx.instantiate-ctx, struct, class-type, index, method
 
 -method-return-type-and-params (type, destructure[])(ctx java-ctx, method parsed-method)
 	- to-type ctx, method.descriptor.return-type

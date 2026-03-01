@@ -29,7 +29,7 @@ reference-kind enum
 
 walk-program void(a program, f void mut(where uri-and-range, kind reference-kind, x doc-comment-reference))
 	for _, module in a.all-modules
-		walk-module a.common-types, module, of range, kind, thing
+		for range, kind, thing in walk-module module, a.common-types
 			f[(module.uri, range), kind, thing]
 
 walk-any-decl void(common-types common-types, decl any-decl, f cb-thing)
@@ -48,8 +48,10 @@ walk-any-decl void(common-types common-types, decl any-decl, f cb-thing)
 	as var-decl
 		walk-var-decl ctx, decl, f
 
-walk-module void(common-types common-types, module crow-module, f cb-thing)
-	ctx walk-ctx = common-types,
+walk-module record(module crow-module, common-types common-types)
+for-loop void(a walk-module, f cb-thing) # TODO: expose as a 'for' loop --------------------------------------------------------
+	ctx walk-ctx = a.common-types,
+	module = a.module
 	for x in module.aliases
 		walk-struct-alias ctx, x, f
 	for x in module.structs
@@ -81,7 +83,7 @@ walk-module void(common-types common-types, module crow-module, f cb-thing)
 		explicit-public
 
 -walk-struct-decl void(ctx walk-ctx, a struct-decl, f cb-thing)
-	guard ast = a.source.struct-decl-ast
+	do if ast = a.source.struct-decl-ast
 	walk-doc-comment a.doc-comment, f
 	walk-struct-modifiers ctx, ast.modifiers, a, f
 	match body = ast.body
@@ -107,7 +109,7 @@ walk-module void(common-types common-types, module crow-module, f cb-thing)
 
 -walk-record void(ctx walk-ctx, ast record-ast, record_ record_, f cb-thing)
 	if params = ast.params
-		guard params.size == record_.fields.size
+		do if params.size == record_.fields.size
 		for field-ast, field in zip params, record_.fields
 			type-ast = field-ast.single-destructure-ast.?type
 			?walk-type type-ast, field.type, ctx, field.visibility.explicit-kind-for-visibility, f
@@ -176,8 +178,7 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 		walk-type ast.return-type, return-type, ctx, kind, f
 		walk-destructure-type ast.param, param-type, ctx, kind, f
 	as map-type-ast
-		guard type-args.size == 2
-		key, value = only2! type-args
+		do if key, value = only2 type-args
 		walk-type ast.key, key, ctx, kind, f
 		walk-type ast.value, value, ctx, kind, f
 	as name-and-range
@@ -192,11 +193,11 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 		for member, arg in zip ast.members, type-args.slow-to-array
 			walk-type member, arg, ctx, kind, f
 -walk-type-args-may-unpack-tuple void(ast type-ast, type-args type-args, ctx walk-ctx, kind reference-kind, f cb-thing)
-	type-arg-asts type-ast[]? = if type-args.size == 1
-		ast,
-	else
-		ast.tuple-type-ast.?members
-	guard type-arg-asts # TODO: should be able to use 'if' in 'guard' directly --------------------------------------------
+	do if type-arg-asts type-ast[] =
+		if type-args.size == 1
+			ast,
+		else
+			ast.tuple-type-ast.?members
 	for member, arg in zip type-arg-asts, type-args.slow-to-array
 		walk-type member, arg, ctx, kind, f
 
@@ -229,7 +230,7 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 	as void-destructure-ast
 		()
 	as array
-		guard !destructure.type.is-bogus
+		do unless is-bogus destructure.type
 		zip-if-size-eq ast, destructure.destructure-split!.parts, of part-ast, part
 			walk-destructure part-ast, part, ctx, kind, include-locals, f
 -walk-destructure-type void(ast destructure-ast, type type, ctx walk-ctx, kind reference-kind, f cb-thing)
@@ -243,14 +244,14 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 	as void-destructure-ast
 		()
 	as array
-		guard !type.is-bogus
+		do unless is-bogus type
 		types = as-tuple! ctx.common-types, type
 		for part-ast, part-type in zip ast, types.slow-to-array
 			walk-destructure-type part-ast, part-type, ctx, kind, f
 
 -walk-fun void(ctx walk-ctx, a fun-decl, f cb-thing)
 	ast = a.source
-	guard ast.fun-decl-ast
+	do if ast.fun-decl-ast
 	walk-doc-comment a.doc-comment, f
 	walk-type ast.return-type, a.return-type, ctx, a.visibility.explicit-kind-for-visibility, f
 	include-locals = match a.body

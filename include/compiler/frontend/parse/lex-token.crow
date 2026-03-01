@@ -56,7 +56,7 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 
 	until iter.is-at-end
 		skip-spaces-and-comments iter, it.noop, diagnostics
-		guard !iter.is-at-end
+		do unless is-at-end iter
 		start = iter.pos
 		match take-char8 iter
 		as "\n"
@@ -487,47 +487,47 @@ region strings
 -take-indented-quote-part void(state lexer-state, iter string-iterator)
 	out char8 mut[] = ()
 	range-start = iter.pos
-	loop
-		start = iter.pos
-		match iter.peek8
-		as "\{"
-			_ = take-char8 iter
-			push-inside-quotes state, indented
-			emit state, quote-block-then-interpolated, range-start, start, out.move-to
-			break
-		as "\\"
-			_ = take-char8 iter
-			take-string-escape out, start, iter, state.diagnostics
+	do loop
+	start = iter.pos
+	match iter.peek8
+	as "\{"
+		_ = take-char8 iter
+		push-inside-quotes state, indented
+		emit state, quote-block-then-interpolated, range-start, start, out.move-to
+		break
+	as "\\"
+		_ = take-char8 iter
+		take-string-escape out, start, iter, state.diagnostics
+		continue
+	as "\n"
+		_ = take-char8 iter
+		while try-take-char8 iter, "\n"
+			()
+		new-indent = take-indent-amount-after-newline iter, state.indent-kind, of pos
+			state.diagnostics ~= (pos, iter.pos), state.indent-kind.parse-diag-indent-wrong
+		if iter.peek8 == "\n"
+			# Ignore blank line even if it has indents
 			continue
-		as "\n"
-			_ = take-char8 iter
-			while try-take-char8 iter, "\n"
-				()
-			new-indent = take-indent-amount-after-newline iter, state.indent-kind, of pos
-				state.diagnostics ~= (pos, iter.pos), state.indent-kind.parse-diag-indent-wrong
-			if iter.peek8 == "\n"
-				# Ignore blank line even if it has indents
-				continue
-			else
-				prev-indent = state.cur-indent
-				if new-indent < prev-indent
-					emit state, quote-block-no-interpolated, range-start, start, out.move-to
-					emit-dedents state, start, iter, prev-indent - new-indent - 1
-					state.cur-indent := new-indent
-					break
-				else
-					out ~~= "\n"
-					for _ in 0::nat32 .. new-indent - prev-indent
-						out ~~= chars state.indent-kind
-					continue
-		as "\0"
-			emit state, quote-block-no-interpolated, range-start, start, out.move-to
-			emit-dedents state, start, iter, state.cur-indent - 1
-			state.cur-indent := 0
-			break
 		else
-			out ~= take-char8 iter
-			continue
+			prev-indent = state.cur-indent
+			if new-indent < prev-indent
+				emit state, quote-block-no-interpolated, range-start, start, out.move-to
+				emit-dedents state, start, iter, prev-indent - new-indent - 1
+				state.cur-indent := new-indent
+				break
+			else
+				out ~~= "\n"
+				for _ in 0::nat32 .. new-indent - prev-indent
+					out ~~= chars state.indent-kind
+				continue
+	as "\0"
+		emit state, quote-block-no-interpolated, range-start, start, out.move-to
+		emit-dedents state, start, iter, state.cur-indent - 1
+		state.cur-indent := 0
+		break
+	else
+		out ~= take-char8 iter
+		continue
 
 -chars char8[](a indent-kind)
 	match a
@@ -670,56 +670,56 @@ cb-comment alias
 
 | Does not skip newlines (unless within a comment), only spaces within a line
 skip-spaces-and-comments void(iter string-iterator, cb-comment cb-comment, diagnostics parse-diagnostic mut[])
-	loop
-		start = iter.pos
-		if is-whitespace-non-newline iter.peek8
-			_ = take-char8 iter
-			continue
-		elif try-take-line-continuation iter, cb-comment
-			continue
-		elif iter.peek8 == "#"
-			if try-take-triple-hash-then-newline iter
-				skip-rest-of-block-comment iter, diagnostics
-				cb-comment[start]
-			else
-				while try-take-char8 iter, " "
-					()
-				skip-until-newline iter
-				cb-comment[start]
-			continue
+	do loop
+	start = iter.pos
+	if is-whitespace-non-newline iter.peek8
+		_ = take-char8 iter
+		continue
+	elif try-take-line-continuation iter, cb-comment
+		continue
+	elif iter.peek8 == "#"
+		if try-take-triple-hash-then-newline iter
+			skip-rest-of-block-comment iter, diagnostics
+			cb-comment[start]
 		else
-			break
+			while try-take-char8 iter, " "
+				()
+			skip-until-newline iter
+			cb-comment[start]
+		continue
+	else
+		break
 
 -skip-blank-lines-and-get-indent-delta int32(state lexer-state, iter string-iterator)
-	loop
-		start mut = iter.pos
-		new-indent mut nat32 = 0
-		cb-start-of-loop void mut() = of
-			start := iter.pos
-			new-indent := take-indent-amount-after-newline iter, state.indent-kind, of pos
-				state.diagnostics ~= (pos, iter.pos), state.indent-kind.parse-diag-indent-wrong
-		skip-blank-lines iter, cb-start-of-loop, it.noop, state.diagnostics
-		if iter.is-at-end
-			# Ignore indent before end of file
-			new-indent := 0
+	do loop
+	start mut = iter.pos
+	new-indent mut nat32 = 0
+	cb-start-of-loop void mut() = of
+		start := iter.pos
+		new-indent := take-indent-amount-after-newline iter, state.indent-kind, of pos
+			state.diagnostics ~= (pos, iter.pos), state.indent-kind.parse-diag-indent-wrong
+	skip-blank-lines iter, cb-start-of-loop, it.noop, state.diagnostics
+	if iter.is-at-end
+		# Ignore indent before end of file
+		new-indent := 0
 
-		# If we got here, we're looking at a non-empty line (or end of file)
-		delta int32 = new-indent.to - state.cur-indent.to
-		if delta > 1
-			state.diagnostics ~= (start, iter.pos), parse-diag-indent-too-much
-			skip-rest-of-line-and-newline iter
-			continue
-		else
-			state.cur-indent := new-indent
-			break delta
+	# If we got here, we're looking at a non-empty line (or end of file)
+	delta int32 = new-indent.to - state.cur-indent.to
+	if delta > 1
+		state.diagnostics ~= (start, iter.pos), parse-diag-indent-too-much
+		skip-rest-of-line-and-newline iter
+		continue
+	else
+		state.cur-indent := new-indent
+		break delta
 
 -try-take-line-continuation bool(iter string-iterator, cb-comment cb-comment)
-	guard iter.peek8 == "\\"
+	do if iter.peek8 == "\\"
 	iter2 = copy iter
 	_ = take-char8 iter2
 	while try-take-char8 iter2, " "
 		()
-	guard try-take-char8 iter2, "\n"
+	do if try-take-char8 iter2, "\n"
 	start = pos iter
 	_ = take-char8 iter
 	cb-comment[start]
@@ -737,12 +737,12 @@ walk-backwards-for-position pos(source-text char8 array-view, pos pos)
 	index.to
 -skip-whitespace-backwards nat(text char8 array-view, index nat)
 	cur mut nat = index
-	loop
-		if cur != 0 and text[cur - 1] == " "
-			cur -:= 1
-			continue
-		else
-			break cur
+	do loop
+	if cur != 0 and text[cur - 1] == " "
+		cur -:= 1
+		continue
+	else
+		break cur
 
 skip-blank-lines void
 	iter string-iterator
@@ -750,25 +750,25 @@ skip-blank-lines void
 	cb-comment cb-comment
 	diagnostics parse-diagnostic mut[]
 do
-	loop
-		cb-start-of-loop[]
-		before = iter.pos
-		if try-take-char8 iter, "\n"
-			continue
-		elif try-take-triple-hash-then-newline iter
-			skip-rest-of-block-comment iter, diagnostics
-			cb-comment[before]
-			continue
-		elif try-take-char8 iter, "#"
-			while try-take-char8 iter, " "
-				()
-			skip-until-newline iter
-			cb-comment[before]
-			continue
-		elif try-take-line-continuation iter, cb-comment
-			continue
-		else
-			break
+	do loop
+	cb-start-of-loop[]
+	before = iter.pos
+	if try-take-char8 iter, "\n"
+		continue
+	elif try-take-triple-hash-then-newline iter
+		skip-rest-of-block-comment iter, diagnostics
+		cb-comment[before]
+		continue
+	elif try-take-char8 iter, "#"
+		while try-take-char8 iter, " "
+			()
+		skip-until-newline iter
+		cb-comment[before]
+		continue
+	elif try-take-line-continuation iter, cb-comment
+		continue
+	else
+		break
 
 -skip-rest-of-line-and-newline void(iter string-iterator)
 	skip-until-newline iter
@@ -785,14 +785,14 @@ do
 
 | Returns the end of the comment text ({iter} will be advanced further, past the '###')
 -skip-rest-of-block-comment void(iter string-iterator, diagnostics parse-diagnostic mut[])
-	loop
-		while try-take-char8 iter, "\t" or try-take-char8 iter, " "
-			()
-		if try-take-triple-hash-then-newline iter
-			break
-		elif iter.is-at-end
-			diagnostics ~= (iter.pos, iter.pos), block-comment-end
-			break
-		else
-			skip-rest-of-line-and-newline iter
-			continue
+	do loop
+	while try-take-char8 iter, "\t" or try-take-char8 iter, " "
+		()
+	if try-take-triple-hash-then-newline iter
+		break
+	elif iter.is-at-end
+		diagnostics ~= (iter.pos, iter.pos), block-comment-end
+		break
+	else
+		skip-rest-of-line-and-newline iter
+		continue
