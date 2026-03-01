@@ -160,12 +160,8 @@ do
 	condition = check-condition ctx, ast.condition
 	is-negated = ast.is-condition-negated
 	empty-new-range = ast.first-keyword-range
-	first-branch = with-extern-from-condition ctx, condition, is-negated, of
-		check-expr-with-condition-or-empty-new ctx, ast, (unless is-negated then condition), ast.first-branch, empty-new-range, expected
-	if is-inference-log-enabled
-		log error, "check-if after first branch: expected is {expected.debug}"
-	second-branch = with-extern-from-condition ctx, condition, !is-negated, of
-		check-expr-with-condition-or-empty-new ctx, ast, (if is-negated then condition), ast.second-branch, empty-new-range, expected
+	first-branch = check-expr-with-condition-or-empty-new ctx, ast, (known-value condition, !is-negated), ast.first-branch, empty-new-range, expected
+	second-branch = check-expr-with-condition-or-empty-new ctx, ast, (known-value condition, is-negated), ast.second-branch, empty-new-range, expected
 	type = expected.inferred
 	ast: ast
 	condition: condition
@@ -246,11 +242,10 @@ do
 	thrown expr? = if thrown-ast = ast.thrown
 		if x = thrown-ast.expr.throw-ast
 			add-diag ctx, x.keyword-range, diag-assert-or-forbid-message-is-throw
-		with-extern-from-condition ctx, condition, !is-forbid, of
-			check-expr-with-context ctx, (if is-forbid then condition), thrown-ast.expr, ctx.common-types.exception.expect
-	after = with-extern-from-condition ctx, condition, is-forbid, of
+		check-expr-with-context ctx, (known-value condition, is-forbid), thrown-ast.expr, ctx.common-types.exception.expect
+	after =
 		diag diag-required-after = if is-forbid then forbid_ else assert_
-		check-required-after ctx, ast.keyword-range, (unless is-forbid then condition), ast.after, diag, expected
+		check-required-after ctx, ast.keyword-range, (known-value condition, !is-forbid), ast.after, diag, expected
 	assert-or-forbid-expr ast, is-forbid, condition, thrown, after
 
 -check-assignment expr
@@ -508,10 +503,9 @@ do
 -decode-as-single-unicode-char char32?(a string)
 	only a.to::char32[]
 
-| If {expr}, that is a condition that is true within this context.
--expression-context union(expr, destructure, void)
--new expression-context()
-	()::void
+-expression-context union(known-value, destructure)
+| Context where {expr} is known to be {expr-value}
+-known-value record(expr expr, expr-value bool)
 -check-expr-with-context expr
 	ctx expr-ctx
 	context expression-context
@@ -523,22 +517,24 @@ do
 -check-with-condition[t] t(ctx expr-ctx, context expression-context, f t mut())
 	restore-locals = ctx.locals.size
 	restore-refined-types = ctx.refined-types.size
+	original-externs build-target set = ctx.additional-externs
 	match context
-	as expr
-		for x in condition-destructures-and-refinements context
+	as known-value
+		for x in condition-knowledge context.expr, context.expr-value
 			match x
 			as local
 				add-local ctx, x
 			as local-refinement
 				ctx.refined-types ~= x
+			as build-target
+				ctx.additional-externs ~:= x
 	as destructure
 		add-locals-for-destructure ctx, context
-	as void
-		()
 	res = f[]
 	restore-locals ctx, restore-locals
 	while ctx.refined-types.size > restore-refined-types
 		_ = pop! ctx.refined-types
+	ctx.additional-externs := original-externs
 	res
 -add-locals-for-destructure void(ctx expr-ctx, destructure destructure)
 	for x in destructure.locals
@@ -721,7 +717,7 @@ do
 	match ast.kind
 	as and_
 		left = check-condition ctx, ast.left
-		right = check-with-condition ctx, left, of
+		right = check-with-condition ctx, (known-value left, true), of
 			check-condition ctx, ast.right
 		check ctx, expected, bool, (ast, bool-and-bool, bool, left, right)::logical-expr
 	as else_
@@ -797,9 +793,9 @@ do
 
 -check-loop-while-or-until expr(ctx expr-ctx, ast loop-while-or-until-ast, expected expected)
 	condition = check-condition ctx, ast.condition
-	body = check-expr-with-context ctx, (unless ast.is-until then condition), ast.body, ctx.void-type.expect
+	body = check-expr-with-context ctx, (known-value condition, !ast.is-until), ast.body, ctx.void-type.expect
 	diag diag-required-after = if ast.is-until then until_ else while_
-	after = check-required-after ctx, ast.keyword-range, (if ast.is-until then condition), ast.after, diag, expected
+	after = check-required-after ctx, ast.keyword-range, (known-value condition, ast.is-until), ast.after, diag, expected
 	loop-while-or-until-expr ast, condition, body, after
 
 -check-match expr(ctx expr-ctx, ast match-ast, expected expected)
@@ -1148,39 +1144,6 @@ do
 	else
 		add-diag ctx, ast.keyword-range, cb-diag[]
 		bogus expected, ast.range
-
-# TODO: use a with-block ---------------------------------------------------------------------------------------------------------
--with-extern-from-condition[out] out(ctx expr-ctx, condition expr, is-negated bool, cb out mut())
-	if extern_ = condition.as-extern and is-negated == extern_.is-negated
-		original-externs = ctx.additional-externs
-		ctx.additional-externs ~:= extern_.target
-		res = cb[]
-		ctx.additional-externs := original-externs
-		res
-	else
-		cb[]
-
--extern-condition record(is-negated bool, target build-target)
--as-extern extern-condition?(a expr)
-	match x = skip-trusted a
-	as call-expr
-		if t = ?builtin-fun-is-target x.called.as-builtin-fun
-			false, t.target
-		else
-			()
-	as logical-expr
-		if x.kind == bool-and-bool
-			as-extern x.left or as-extern x.right
-	as not-expr
-		if arg = as-extern x.arg
-			!arg.is-negated, arg.target
-	else
-		()
--skip-trusted expr(a expr)
-	a.trusted-expr.?inner else a
--as-builtin-fun builtin-fun?(a called)
-	if a.fun-inst
-		a.decl.body.builtin-fun
 
 -check-expr-with-condition-or-empty-new expr
 	ctx expr-ctx

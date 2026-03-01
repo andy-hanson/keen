@@ -1846,6 +1846,9 @@ hash void(a called-bogus, state hash-state)
 to json(a called-bogus)
 arity nat(a called-bogus)
 	a.decl.arity
+-as-builtin-fun builtin-fun?(a called)
+	if a.fun-inst
+		a.decl.body.builtin-fun
 
 called-decl called-decl(a called)
 	match a
@@ -2911,25 +2914,43 @@ type type(a expr, types available-types?)
 	as unpack-option
 		common-types!.bool
 
-condition-destructures-and-refinements record(expr expr)
-local-refinement record(local local, refined-type type)
-local-or-refinement union(local, local-refinement)
+| True if the condition introduces local variables
 condition-has-locals bool(a expr)
-	exists a.condition-destructures-and-refinements, !!it.local
-iterate bool(a condition-destructures-and-refinements, f bool mut(x local-or-refinement))
+	exists (condition-knowledge a, true), !!it.local
+
+| Iterate over this to get knowledge deduced when the expression has the given value.
+condition-knowledge record(expr expr, expr-value bool)
+| Indicates that when the condition has the given value:
+| * A local will exist (e.g. `if x = ...`)
+| * Or an already-existing local will have a more specific type
+|	(e.g. `if x.specific-case-type` or `if x` for an option)
+| * Or the scope is for a particular build (e.g. `if java`)
+condition-knowledge-item union(local, local-refinement, build-target)
+local-refinement record(local local, refined-type type)
+iterate bool(a condition-knowledge, f bool mut(x condition-knowledge-item))
 	match expr = a.expr
 	as call-expr
+		do if a.expr-value
 		if x = as-call-sum-type-member-get-on-local expr
 			f[x]
+		elif x = ?builtin-fun-is-target as-builtin-fun expr.called
+			f[x.target]
 	as local-get-expr
+		do if a.expr-value
 		local = expr.local
 		if !is-mutable local and inner = local.type.unwrap-option
 			f[local, inner]
 	as logical-expr
+		do if a.expr-value
 		if expr.kind == bool-and-bool
-			iterate expr.left.condition-destructures-and-refinements, f or
-			iterate expr.right.condition-destructures-and-refinements, f
+			iterate (condition-knowledge expr.left, true), f or
+			iterate (condition-knowledge expr.right, true), f
+	as not-expr
+		iterate (condition-knowledge expr.arg, !a.expr-value), f
+	as trusted-expr
+		iterate (condition-knowledge expr.inner, a.expr-value), f
 	as unpack-option
+		do if a.expr-value
 		iterate expr.destructure.locals, f[it]
 	else
 		()
