@@ -430,7 +430,7 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	as interpolated-ast then a
 	else then ()
 
--parse-if expr-ast(lexer lexer, start pos, is-else-of-parent bool, allowed-block bool)
+-parse-if expr-ast(lexer lexer, start pos, is-else-of-parent bool, allowed-block bool, is-unless bool)
 	condition = parse-condition lexer, false
 	then-pos = lexer.next-start
 	if !is-else-of-parent and try-take-token lexer, then_
@@ -439,7 +439,7 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 		else_ expr-ast? = if try-take-token lexer, else_
 			lexer.parse-expr-no-block
 		start: start
-		is-unless: false
+		is-unless: is-unless
 		kind: if else_ then if-then-else else if-then
 		is-else-of-parent: false
 		second-keyword-pos: then-pos
@@ -453,11 +453,11 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 		else_ expr-ast? = if elif-or-else
 			match kind elif-or-else
 			as elif_
-				parse-if lexer, elif-or-else.pos, true, allowed-block
+				parse-if lexer, elif-or-else.pos, true, allowed-block, false
 			as else_
 				lexer.parse-indented-statements
 		start: start
-		is-unless: false
+		is-unless: is-unless
 		kind: if elif-or-else
 			match kind elif-or-else
 			as elif_
@@ -503,19 +503,6 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	else
 		parse-expr-and-calls lexer, (allow-block, else_.precedence)
 
--parse-unless if-ast(lexer lexer, start pos, allowed-block bool)
-	condition = lexer.parse-expr-no-block
-	then-pos, body = parse-then-or-indented-statements lexer, start, allowed-block, unless_
-	start: start
-	is-unless: true
-	kind: if then-pos == max-value then if-without-else else if-then
-	is-else-of-parent: false
-	second-keyword-pos: then-pos
-	third-keyword-pos: max-value
-	condition: condition
-	first-branch: body
-	second-branch: ()
-
 -parse-trusted expr-ast(lexer lexer, start pos, arg-ctx arg-ctx)
 	trusted-ast start, parse-expr-and-calls lexer, arg-ctx
 
@@ -525,17 +512,14 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	else
 		parse-expr-no-let lexer
 
--assert-forbid-or-guard record
-	condition expr-ast
-	else_ assert-or-forbid-thrown-ast?
-	after expr-ast?
--parse-assert-forbid-or-guard assert-forbid-or-guard(lexer lexer)
-	condition = parse-condition lexer, true
-	else-pos = lexer.next-start
-	condition: condition
-	else_: if try-take-token lexer, else_
-		else-pos, lexer.parse-expr-no-let
-	after: lexer.try-parse-next-lines
+-parse-assert-or-forbid assert-or-forbid-ast(lexer lexer, is-forbid bool)
+	advance lexer
+	start: prev-start lexer
+	is-forbid: is-forbid
+	condition: parse-condition lexer, true
+	thrown: if try-take-token lexer, else_
+		lexer.prev-start, parse-expr-no-let lexer
+	after: try-parse-next-lines lexer
 
 -parse-do-for-or-with expr-ast
 	lexer lexer
@@ -677,7 +661,7 @@ do
 	as for-star
 		parse-for-or-with lexer, start, allowed-block, for-star, for-star
 	as if_
-		parse-if lexer, start, false, allowed-block
+		parse-if lexer, start, false, allowed-block, false
 	as it_
 		try-parse-dots-and-subscripts lexer, start.it-ast.it-scope-ast
 	as in_
@@ -703,7 +687,7 @@ do
 	as name-colon
 		parse-single-line-named-new-after-first-name lexer, (start, lexer.prev-symbol), allowed-block
 	as newline-indent
-		assert allowed-block # The guard at top handled the false case
+		assert allowed-block # The 'do if' at top handled the false case
 		parse-statements-and-dedent lexer
 	as of_
 		param destructure-ast = if peek lexer, then_ or peek lexer, newline-indent
@@ -729,7 +713,7 @@ do
 	as underscore
 		underscore-ast start
 	as unless_
-		parse-unless lexer, start, allowed-block
+		parse-if lexer, start, false, allowed-block, true
 	as with_
 		parse-for-or-with lexer, start, allowed-block, with_, with_
 	else
@@ -788,9 +772,7 @@ parse-single-statement-line expr-ast(lexer lexer)
 	start = lexer.next-start
 	match peek lexer
 	as assert_
-		advance lexer
-		res = parse-assert-forbid-or-guard lexer
-		assert-or-forbid-ast start, false, res.condition, res.else_, res.after
+		parse-assert-or-forbid lexer, false
 	as colon2
 		advance lexer
 		type = parse-type lexer
@@ -821,9 +803,7 @@ parse-single-statement-line expr-ast(lexer lexer)
 		below = must-parse-next-lines lexer, after-finally
 		finally-ast start, right, below
 	as forbid_
-		advance lexer
-		res = parse-assert-forbid-or-guard lexer
-		assert-or-forbid-ast start, true, res.condition, res.else_, res.after
+		parse-assert-or-forbid lexer, true
 	as list-dash
 		advance lexer
 		parse-list-call lexer, single
