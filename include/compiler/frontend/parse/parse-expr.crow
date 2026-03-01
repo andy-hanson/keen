@@ -20,8 +20,6 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	min-precedence-exclusive precedence
 -allow-everything arg-ctx()
 	true, min-precedence
--allow-everything-except-block arg-ctx()
-	false, min-precedence
 -precedence enum
 	| Dummy value so that 'min-precedence-exclusive' can allow everything
 	min-precedence
@@ -430,7 +428,7 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	else then ()
 
 -parse-if expr-ast(lexer lexer, start pos, is-else-of-parent bool, allowed-block bool)
-	condition = parse-condition lexer, allow-everything-except-block
+	condition = parse-condition lexer, false
 	then-pos = lexer.next-start
 	if !is-else-of-parent and try-take-token lexer, then_
 		then_ = parse-expr-and-calls lexer, (false, else_.precedence)
@@ -438,6 +436,7 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 		else_ expr-ast? = if try-take-token lexer, else_
 			lexer.parse-expr-no-block
 		start: start
+		is-unless: false
 		kind: if else_ then if-then-else else if-then
 		is-else-of-parent: false
 		second-keyword-pos: then-pos
@@ -455,6 +454,7 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 			as else_
 				lexer.parse-indented-statements
 		start: start
+		is-unless: false
 		kind: if elif-or-else
 			match kind elif-or-else
 			as elif_
@@ -485,26 +485,27 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	advance lexer
 	kind, pos
 
--parse-condition expr-ast(lexer lexer, ctx arg-ctx)
+-parse-condition expr-ast(lexer lexer, allow-block bool)
 	if lexer.lookahead-equals
 		left = parse-destructure-no-require-parens lexer
 		equals-pos = next-start lexer
 		_ = take-or-add-diag-expected-token lexer, equal, equals
-		value = parse-expr-and-calls lexer, require-precedence-gt ctx, and_.precedence
+		value = parse-expr-and-calls lexer, (allow-block, and_.precedence)
 		unpack = unpack-option-ast left, equals-pos, value
 		and-pos = next-start lexer
 		if try-take-token lexer, and_
-			logical-ast unpack, and_, and-pos, parse-condition lexer, ctx
+			logical-ast unpack, and_, and-pos, parse-condition lexer, allow-block
 		else
-			parse-calls lexer, unpack, ctx
+			parse-calls lexer, unpack, (allow-block, else_.precedence)
 	else
-		parse-expr-and-calls lexer, ctx
+		parse-expr-and-calls lexer, (allow-block, else_.precedence)
 
 -parse-unless if-ast(lexer lexer, start pos, allowed-block bool)
 	condition = lexer.parse-expr-no-block
 	then-pos, body = parse-then-or-indented-statements lexer, start, allowed-block, unless_
 	start: start
-	kind: if then-pos == max-value then unless_ else unless-then
+	is-unless: true
+	kind: if then-pos == max-value then if-without-else else if-then
 	is-else-of-parent: false
 	second-keyword-pos: then-pos
 	third-keyword-pos: max-value
@@ -524,6 +525,7 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 -parse-guard if-ast(lexer lexer, start pos)
 	res = lexer.parse-assert-forbid-or-guard
 	start: start
+	is-unless: false
 	kind: if res.else_ then guard-with-else else guard-without-else
 	is-else-of-parent: false
 	second-keyword-pos: res.else_.?else-pos else max-value
@@ -537,12 +539,35 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	else_ assert-or-forbid-thrown-ast?
 	after expr-ast?
 -parse-assert-forbid-or-guard assert-forbid-or-guard(lexer lexer)
-	condition = parse-condition lexer, (true, else_.precedence)
+	condition = parse-condition lexer, true
 	else-pos = lexer.next-start
 	condition: condition
 	else_: if try-take-token lexer, else_
 		else-pos, lexer.parse-expr-no-let
 	after: lexer.try-parse-next-lines
+
+-parse-do-for-or-with expr-ast
+	lexer lexer
+	start pos
+	kind for-or-with-ast-keyword
+do
+	advance lexer
+	colon2-pos = next-start lexer
+	type type-ast? = if try-take-token lexer, colon2
+		parse-type-for-typed-expr lexer
+	param, in-pos = parse-for-or-with-parameter lexer
+	res for-or-with-ast =
+		start: start
+		keyword: kind
+		param: param
+		in-pos: in-pos
+		then-pos: max-value
+		arg: parse-expr-no-block lexer
+		body: must-parse-next-lines lexer, after-do-line
+	if type
+		typed-ast res, colon2-pos, type
+	else
+		res
 
 -parse-for-or-with expr-ast
 	lexer lexer
@@ -551,10 +576,10 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	kind for-or-with-ast-keyword
 	block-kind parse-diag-needs-block-ctx
 do
-	colon-pos = next-start lexer
+	colon2-pos = next-start lexer
 	type type-ast? = if try-take-token lexer, colon2
 		parse-type-for-typed-expr lexer
-	param, in-pos = lexer.parse-for-or-with-parameter
+	param, in-pos = parse-for-or-with-parameter lexer
 	arg = lexer.parse-expr-no-block
 	then-pos, body = parse-then-or-indented-statements lexer, start, allowed-block, block-kind
 	res for-or-with-ast =
@@ -566,12 +591,12 @@ do
 		arg: arg
 		body: body
 	if type
-		typed-ast res, colon-pos, type
+		typed-ast res, colon2-pos, type
 	else
 		res
 
 -parse-loop-while-or-until expr-ast(lexer lexer, start pos, is-until bool)
-	condition = parse-condition lexer, allow-everything-except-block
+	condition = parse-condition lexer, false
 	body = lexer.parse-indented-statements
 	loop-while-or-until-ast start, is-until, condition, body, lexer.try-parse-next-lines
 
@@ -778,6 +803,26 @@ parse-single-statement-line expr-ast(lexer lexer)
 		advance lexer
 		type = parse-type lexer
 		typed-ast (try-parse-next-lines lexer), start, type
+	as do_
+		advance lexer
+		match peek lexer
+		as for_
+			parse-do-for-or-with lexer, start, for_
+		as for-star
+			parse-do-for-or-with lexer, start, for-star
+		as if_
+			parse-do-if-or-unless lexer, start, false
+		as loop_
+			advance lexer
+			loop-ast start, must-parse-next-lines lexer, after-do-line
+		as unless_
+			parse-do-if-or-unless lexer, start, true
+		as with_
+			parse-do-for-or-with lexer, start, with_
+		else
+			add-diag-at-next-token lexer, after-do-keyword
+			skip-until-newline-no-diag lexer
+			bogus-ast range lexer, start
 	as finally_
 		advance lexer
 		right = lexer.parse-single-statement-or-block
@@ -818,6 +863,22 @@ parse-single-statement-line expr-ast(lexer lexer)
 				parse-multi-line-named-new lexer, expr
 			else
 				parse-calls lexer, expr, allow-everything
+
+-parse-do-if-or-unless expr-ast(lexer lexer, start pos, is-unless bool)
+	advance lexer
+	condition = parse-condition lexer, true
+	else-pos = next-start lexer
+	else_ expr-ast? = if try-take-token lexer, else_
+		parse-expr-no-let lexer
+	start: start
+	is-unless: is-unless
+	kind: if else_ then do-if-else else do-if
+	is-else-of-parent: false
+	second-keyword-pos: else-pos
+	third-keyword-pos: max-value
+	condition: condition
+	first-branch: else_
+	second-branch: must-parse-next-lines lexer, after-do-line
 
 -list-part-kind enum(single, multi)
 -try-take-list-part-kind list-part-kind?(lexer lexer)
