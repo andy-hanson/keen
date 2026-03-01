@@ -47,6 +47,9 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 -name-after-tick-precedence precedence()
 	comma
 
+-without-block arg-ctx(a arg-ctx)
+	allowed-block: false
+	min-precedence-exclusive: a.min-precedence-exclusive
 -require-precedence-gt arg-ctx(a arg-ctx, precedence precedence)
 	allowed-block: a.allowed-block
 	min-precedence-exclusive: max a.min-precedence-exclusive, precedence
@@ -513,8 +516,8 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	first-branch: body
 	second-branch: ()
 
--parse-trusted expr-ast(lexer lexer, start pos, allowed-block bool)
-	trusted-ast start, parse-expr-and-all-calls lexer, allowed-block
+-parse-trusted expr-ast(lexer lexer, start pos, arg-ctx arg-ctx)
+	trusted-ast start, parse-expr-and-calls lexer, arg-ctx
 
 -parse-single-statement-or-block expr-ast(lexer lexer)
 	if try-take-token lexer, newline-indent
@@ -625,8 +628,9 @@ do
 	else
 		expr-block-not-allowed lexer, start, kind
 
--parse-expr-before-call expr-ast(lexer lexer, allowed-block bool)
+-parse-expr-before-call expr-ast(lexer lexer, arg-ctx arg-ctx)
 	start = lexer.next-start
+	allowed-block = arg-ctx.allowed-block
 	if-allow-block expr-ast mut(kind parse-diag-needs-block-ctx, cb expr-ast mut()) = of kind, cb
 		if-allow-block lexer, start, allowed-block, kind, cb
 	peek = lexer.peek
@@ -661,11 +665,11 @@ do
 		try-parse-dots-and-subscripts lexer,
 			parse-quote-then-interpolated lexer, double, allowed-block
 	as bang
-		with inner in it-scope parse-expr-before-call lexer, false
+		with inner in it-scope parse-expr-before-call lexer, arg-ctx.without-block
 			not-ast start, inner
 	as break_
-		loop-break-ast start, unless peek-end-of-line lexer and lexer.peek != newline-indent
-			parse-expr-and-all-calls lexer, allowed-block
+		loop-break-ast start, if peek-token-expression lexer, allowed-block
+			parse-expr-and-calls lexer, arg-ctx
 	as continue_
 		loop-continue-ast start
 	as for_
@@ -709,17 +713,17 @@ do
 		then-pos, body = parse-then-or-indented-statements lexer, start, allowed-block, of_
 		lambda-ast start, param, then-pos, body
 	as operator-prefix
-		handle-prefix-unary-operator lexer, allowed-block, start, lexer.prev-symbol
+		handle-prefix-unary-operator lexer, arg-ctx, start, lexer.prev-symbol
 	as literal-number
 		try-parse-dots-and-subscripts lexer, literal-number range lexer, start
 	as loop_
 		if-allow-block[loop_, of then loop-ast start, parse-indented-statements lexer]
 	as shared_
-		shared-ast start, parse-expr-and-all-calls lexer, allowed-block
+		shared-ast start, parse-expr-and-calls lexer, arg-ctx
 	as throw_
-		throw-ast start, parse-expr-and-all-calls lexer, allowed-block
+		throw-ast start, parse-expr-and-calls lexer, arg-ctx
 	as trusted_
-		parse-trusted lexer, start, allowed-block
+		parse-trusted lexer, start, arg-ctx
 	as try_
 		if-allow-block[try_, of then parse-try-block lexer, start]
 	as underscore
@@ -738,8 +742,8 @@ do
 	lexer.add-diag-unexpected-next-token
 	skip-rest-of-line-and-return-bogus-no-diag lexer, lexer.next-range
 
--handle-prefix-unary-operator expr-ast(lexer lexer, allowed-block bool, start pos, operator symbol)
-	with arg in it-scope parse-expr-before-call lexer, allowed-block
+-handle-prefix-unary-operator expr-ast(lexer lexer, arg-ctx arg-ctx, start pos, operator symbol)
+	with arg in it-scope parse-expr-before-call lexer, arg-ctx
 		call-ast prefix, (start, operator), (arg,), ()
 
 -handle-name expr-ast(lexer lexer, name name-and-range)
@@ -755,7 +759,7 @@ do
 	parse-expr-and-calls lexer, (allowed-block, min-precedence)
 
 -parse-expr-and-calls expr-ast(lexer lexer, arg-ctx arg-ctx)
-	parse-calls lexer, (parse-expr-before-call lexer, arg-ctx.allowed-block), arg-ctx
+	parse-calls lexer, (parse-expr-before-call lexer, arg-ctx), arg-ctx
 
 -parse-unpack-option expr-ast(lexer lexer, left expr-ast, equals-pos pos, arg-ctx arg-ctx)
 	destructure = to-destructure left else
@@ -832,7 +836,7 @@ parse-single-statement-line expr-ast(lexer lexer)
 			after = must-parse-next-lines lexer, after-trusted
 			trusted-ast start, after
 		else
-			parse-trusted lexer, start, true
+			parse-trusted lexer, start, allow-everything
 	as until_
 		advance lexer
 		parse-loop-while-or-until lexer, start, true
@@ -843,7 +847,7 @@ parse-single-statement-line expr-ast(lexer lexer)
 		if lookahead-equals lexer
 			parse-equals lexer
 		else
-			expr = parse-expr-before-call lexer, true
+			expr = parse-expr-before-call lexer, allow-everything
 			if expr.call-named-ast and expr.names.size == 1
 				parse-multi-line-named-new lexer, expr
 			else
