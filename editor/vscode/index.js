@@ -40,9 +40,7 @@ exports.activate = context => {
 		connectionOptions: {
 			maxRestartCount: 0,
 		},
-		initializationOptions: {
-			unknownUris: false,
-		},
+		initializationOptions: {},
 	}
 	client = new LanguageClient("crow", "Crow language server", serverOptions, clientOptions)
 	client.start()
