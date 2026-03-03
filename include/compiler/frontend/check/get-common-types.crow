@@ -6,16 +6,14 @@ import
 	../../util/by-name
 	../../util/enum-map
 	./instantiate
-	./maps
 
 get-common-types common-types
 	instantiate-ctx instantiate-ctx
 	diagnostics-builder diagnostic mut[]
-	structs-and-aliases-map structs-and-aliases-map
-	specs-map specs-map
+	types-and-specs-map types-and-specs-map
 	java-String struct-inst
 do
-	ctx common-types-ctx = instantiate-ctx, diagnostics-builder, structs-and-aliases-map
+	ctx common-types-ctx = instantiate-ctx, diagnostics-builder, types-and-specs-map
 	char8 = non-template ctx, "char8"
 	char32 = non-template ctx, "char32"
 	symbol = non-template ctx, "symbol"
@@ -26,9 +24,9 @@ do
 		- for type in make-enum-map then non-template ctx, type.to
 	string = non-template ctx, "string"
 	option = get-decl ctx, "option", 1
-	java-spec = non-template-spec ctx, specs-map, java
-	global_ = non-template-spec ctx, specs-map, global_
-	unsafe = non-template-spec ctx, specs-map, unsafe
+	java-spec = non-template-spec ctx, types-and-specs-map, java
+	global_ = non-template-spec ctx, types-and-specs-map, global_
+	unsafe = non-template-spec ctx, types-and-specs-map, unsafe
 
 	bool: non-template ctx, "bool"
 	char8: char8
@@ -60,7 +58,7 @@ do
 	global_: global_
 	unsafe: unsafe
 	java-spec: java-spec
-	js-spec: non-template-spec ctx, specs-map, js
+	js-spec: non-template-spec ctx, types-and-specs-map, js
 	global-java-unsafe-specs: get-or-add-specs (java-spec, global_, unsafe)
 	global-unsafe-specs: get-or-add-specs (global_, unsafe)
 	unsafe-specs: get-or-add-specs (unsafe,)
@@ -68,24 +66,24 @@ do
 -common-types-ctx record mut
 	instantiate-ctx instantiate-ctx
 	diagnostics-builder diagnostic mut[]
-	structs-and-aliases-map structs-and-aliases-map
+	types-and-specs-map types-and-specs-map
 
 -add-diag-missing void(ctx common-types-ctx, name symbol)
 	ctx.diagnostics-builder ~= (), name.diag-common-type-missing
 
 -get-decl struct-decl(ctx common-types-ctx, name symbol, n-type-parameters nat)
-	get-common-template-type ctx.structs-and-aliases-map, name, n-type-parameters else
+	get-common-template-type ctx.types-and-specs-map, name, n-type-parameters else
 		add-diag-missing ctx, name
 		bogus-struct-decl ctx.instantiate-ctx, name, n-type-parameters
 
 -non-template struct-inst(ctx common-types-ctx, name symbol)
-	get-common-non-template-type ctx.structs-and-aliases-map, name else
+	get-common-non-template-type ctx.types-and-specs-map, name else
 		add-diag-missing ctx, name
 		only-inst bogus-struct-decl ctx.instantiate-ctx, name, 0
 
--non-template-spec spec-inst(ctx common-types-ctx, specs-map specs-map, builtin_ builtin-spec)
+-non-template-spec spec-inst(ctx common-types-ctx, types-and-specs-map types-and-specs-map, builtin_ builtin-spec)
 	name symbol = builtin_.to
-	decl = specs-map[name]
+	decl = types-and-specs-map[name].?spec-decl
 	if decl and decl.n-type-params == 0
 		res, did-add = get-or-add-spec-inst decl, ()
 		assert did-add
@@ -98,21 +96,15 @@ do
 -get-tuple struct-decl(ctx common-types-ctx, n nat)
 	get-decl ctx, "tuple{n}", n
 
--get-common-template-type struct-decl?(structs-and-aliases-map structs-and-aliases-map, name symbol, expected-type-params nat)
-	if decl = structs-and-aliases-map[name].?struct-decl
+-get-common-template-type struct-decl?(types-and-specs-map types-and-specs-map, name symbol, expected-type-params nat)
+	if decl = types-and-specs-map[name].?struct-decl
 		if decl.n-type-params == expected-type-params
 			decl
 
--get-common-non-template-type struct-inst?(structs-and-aliases-map structs-and-aliases-map, name symbol)
-	?instantiate-non-template-struct-or-alias structs-and-aliases-map[name]
-
--instantiate-non-template-struct-or-alias struct-inst(a struct-or-alias)
-	a.n-type-params is 0
-	match a
-	as struct-alias
-		a.target
-	as struct-decl
-		a.only-inst
+-get-common-non-template-type struct-inst?(types-and-specs-map types-and-specs-map, name symbol)
+	if decl = types-and-specs-map[name].?struct-decl
+		decl.n-type-params is 0
+		decl.only-inst
 
 bogus-struct-decl struct-decl(ctx instantiate-ctx, name symbol, n-type-parameters nat)
 	hash: next-hash ctx

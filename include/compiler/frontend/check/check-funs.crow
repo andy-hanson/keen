@@ -3,67 +3,69 @@ import
 	../../model/ast
 	../../model/model
 	../../model/source-range
+	../../model/uri
 	../../util/by-name
 	./check-auto-fun
 	./check-ctx
 	./check-expr
 	./check-struct-bodies
 	./check-util
-	./maps
 	./funs-for-struct
 	./instantiate
 	./type-from-ast
 
+import-or-export-file record(source import-or-export-ast, uri uri, content nat8 array-view)
+file-imports-and-exports record
+	imports import-or-export-file[]
+	exports import-or-export-file[]
 funs-and-map record # RENAME, this now includes tests -------------------------------------------------------------------------
 	funs fun-decl[]
 	tests test_[]
 	funs-map funs-map
 check-funs funs-and-map
 	ctx check-ctx
-	types types-and-specs
+	types types-get
 	structs struct-decl[]
 	vars var-decl[]
-	file-imports import-or-export-file[]
-	file-exports import-or-export-file[]
+	file-imports-and-exports file-imports-and-exports
 	asts fun-decl-ast[]
 	test-asts test-ast[]
 do
-	funs = check-funs-initial ctx, types, structs, vars, file-imports, file-exports, asts
+	funs = check-funs-initial ctx, types, structs, vars, file-imports-and-exports, asts
 	assert funs.size >= asts.size
 	funs-map funs-map = funs.to
 	check-method-impls ctx, funs-map, structs
 	check-funs-with-asts ctx, types, funs-map, funs[0 .. asts.size], asts
-	for i, f in with-index file-imports
+	for i, f in with-index file-imports-and-exports.imports
 		set-file-import-function-body funs[asts.size + i], f
-	for i, f in with-index file-exports
-		set-file-import-function-body funs[asts.size + file-imports.size + i], f
+	for i, f in with-index file-imports-and-exports.exports
+		set-file-import-function-body funs[asts.size + file-imports-and-exports.imports.size + i], f
 	funs: funs
 	tests: check-tests ctx, types, funs-map, test-asts
 	funs-map: funs-map
 
 -check-funs-initial fun-decl[]
 	ctx check-ctx
-	types types-and-specs
+	types types-get
 	structs struct-decl[]
 	vars var-decl[]
-	file-imports import-or-export-file[]
-	file-exports import-or-export-file[]
+	file-imports-and-exports file-imports-and-exports
 	asts fun-decl-ast[]
 do
 	common-types = types.common-types
 	do with out in build
 	for fun-ast in asts
 		out ~= check-fun ctx, types, fun-ast
-	for f in file-imports
+	for f in file-imports-and-exports.imports
 		out ~= fun-decl-for-file-import-or-export ctx, common-types, f, private
-	for f in file-exports
+	for f in file-imports-and-exports.exports
 		out ~= fun-decl-for-file-import-or-export ctx, common-types, f, public
 	for struct in structs
 		add-funs-for-struct ctx, out, common-types, struct
 	for var in vars
 		add-funs-for-var ctx, out, common-types, var
 
--check-fun fun-decl(ctx check-ctx, types types-and-specs, fun-ast fun-decl-ast)
+-check-fun fun-decl(ctx check-ctx, types types-get, fun-ast fun-decl-ast)
 	fun fun-decl =
 		hash: next-hash ctx
 		source: fun-ast
@@ -75,7 +77,7 @@ do
 		doc-comment-references: ()
 		body: fun-body-uninitialized
 	check-type-params ctx, fun-ast.type-params
-	return-type, params = check-return-type-and-params ctx, types.types, fun, fun-ast.return-type, fun-ast.params, fun-ast.type-params
+	return-type, params = check-return-type-and-params ctx, types, fun, fun-ast.return-type, fun-ast.params, fun-ast.type-params
 	fun.return-type := return-type
 	fun.params := params
 	param-types type[] = map params, it.type
@@ -117,7 +119,7 @@ do
 
 -check-fun-modifiers specs
 	ctx check-ctx
-	types types-and-specs
+	types types-get
 	type-params-scope type-params
 	asts modifier-ast[]
 do
@@ -132,7 +134,7 @@ do
 
 -check-tests test_[]
 	ctx check-ctx
-	types types-and-specs
+	types types-get
 	funs-map funs-map
 	test-asts test-ast[]
 do
@@ -150,7 +152,7 @@ do
 
 -check-funs-with-asts void
 	ctx check-ctx
-	types types-and-specs
+	types types-get
 	funs-map funs-map
 	funs-with-asts fun-decl array-view
 	asts fun-decl-ast[]
@@ -164,4 +166,4 @@ do
 		elif body = fun-ast.body
 			check-fun-or-test-body ctx, types, funs-map, fun, fun.return-type, fun.params, body, () 'to
 		else
-			check-auto-fun ctx, types.common-types, types.specs-map, funs-map, fun
+			check-auto-fun ctx, types.common-types, types.types-and-specs-map, funs-map, fun

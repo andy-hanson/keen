@@ -1,4 +1,4 @@
-.PHONY: check confirm-upload-site test-end-to-end test-end-to-end-overwrite serve prepare-site test unit-test unit-test-java unit-test-js view-dependencies
+.PHONY: check test-end-to-end test-end-to-end-overwrite serve prepare-site test unit-test unit-test-java unit-test-js view-dependencies
 
 include = $(shell find include -name '*.crow')
 include_crow = $(shell find include/crow -name '*.crow')
@@ -114,15 +114,6 @@ bin/crow.vsix: editor/vscode/* editor/vscode/node_modules
 	cd editor/vscode && ./node_modules/@vscode/vsce/vsce package --allow-missing-repository --out ../../bin/crow.vsix
 editor/vscode/node_modules:
 	cd editor/vscode && npm install
-
-aws_upload_command = aws s3 sync site s3://crow-lang.org --delete
-
-confirm-upload-site: prepare-site
-	$(aws_upload_command) --dryrun
-	@echo -n "Make these changes to crow-lang.org? [y/n] " && read ans && [ $${ans:-n} = y ]
-
-upload-site: prepare-site confirm-upload-site
-	$(aws_upload_command)
 
 site/crow-include.tar: $(include)
 	tar -cf site/crow-include.tar -C include/crow .

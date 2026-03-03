@@ -9,19 +9,10 @@ import
 	../lang
 	./check-ctx
 	./instantiate
-	./maps
 
 types-get record
 	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-types-and-specs record
-	common-types common-types
-	structs-and-aliases-map structs-and-aliases-map
-	specs-map specs-map
-new types-and-specs(types types-get, specs-map specs-map)
-	types.common-types, types.structs-and-aliases-map, specs-map
-types types-get(a types-and-specs)
-	a.common-types, a.structs-and-aliases-map
+	types-and-specs-map types-and-specs-map
 
 alias-allowed enum(different-module, yes)
 
@@ -45,7 +36,7 @@ inst-struct-from-ast struct-inst?
 	type-params-scope type-params
 	alias-allowed alias-allowed
 do
-	do if s-or-a = struct-or-alias-from-name ctx, name, range, types.structs-and-aliases-map, false
+	do if s-or-a = struct-or-alias-from-name ctx, name, range, types.types-and-specs-map
 	type-arg type? = if type-args-ast
 		type-from-ast ctx, types, type-args-ast, type-params-scope, alias-allowed
 	do if type-args = get-type-args-if-number-matches ctx, types.common-types, range, name, s-or-a.n-type-params, type-arg
@@ -65,22 +56,41 @@ do
 	as struct-decl
 		s-or-a[type-args]
 
+struct-or-alias union(struct-alias, struct-decl)
+	n-type-params nat()
 struct-or-alias-from-name struct-or-alias?
 	ctx check-ctx
 	name symbol
 	range source-range
-	structs-and-aliases-map structs-and-aliases-map
+	types-and-specs-map types-and-specs-map
+do
+	do if res = type-or-spec-from-name ctx, name, range, types-and-specs-map, false
+	match res
+	as spec-decl
+		add-diag ctx, range, diag-spec-used-as-type name
+		()
+	as struct-alias
+		res
+	as struct-decl
+		res
+
+type-or-spec-from-name type-or-spec?
+	ctx check-ctx
+	name symbol
+	range source-range
+	types-and-specs-map types-and-specs-map
 	no-diag bool
 do
-	res mut = structs-and-aliases-map[name]
+	res mut = types-and-specs-map[name]
 	for exports in ctx.imports-and-re-exports
-		if x = exports.structs-and-aliases[name]
+		if x = exports.types-and-specs[name]
 			if res
-				add-diag ctx, range, diag-duplicate-imports type, name
+				unless no-diag
+					add-diag ctx, range, diag-duplicate-imports type, name
 			else
 				res := x
 	unless res or no-diag
-		add-diag ctx, range, diag-name-not-found type, name
+		add-diag ctx, range, diag-name-not-found type-or-spec, name
 	res
 
 make-tuple-type type(ctx check-ctx, common-types common-types, args type-args, cb-diag-range source-range data())
@@ -180,16 +190,16 @@ do
 
 spec-from-ast spec-inst?
 	ctx check-ctx
-	types types-and-specs
+	types types-get
 	type-params-scope type-params
 	ast spec-use-ast
 	delay-spec-insts may-delay-spec-insts
 do
-	if spec_ = try-find-spec ctx, ast.name, types.specs-map, false
-		type-arg type? = if x = ast.type-arg
-			type-from-ast ctx, types.types, x, type-params-scope, yes
-		if type-args = get-type-args-if-number-matches ctx, types.common-types, ast.name.range, spec_.name, spec_.n-type-params, type-arg
-			instantiate-spec ctx.instantiate-ctx, spec_, type-args, delay-spec-insts
+	do if spec_ = try-find-spec ctx, ast.name, types.types-and-specs-map
+	type-arg type? = if x = ast.type-arg
+		type-from-ast ctx, types, x, type-params-scope, yes
+	if type-args = get-type-args-if-number-matches ctx, types.common-types, ast.name.range, spec_.name, spec_.n-type-params, type-arg
+		instantiate-spec ctx.instantiate-ctx, spec_, type-args, delay-spec-insts
 
 -find-type-param type-param-index?(type-params-scope type-params, name symbol)
 	if res = find-index type-params-scope, it.name == name
@@ -210,29 +220,25 @@ do
 
 get-spec-from-common-module spec-decl?
 	ctx check-ctx
-	specs-map specs-map
+	types-and-specs-map types-and-specs-map
 	diag-range source-range
 	name symbol
 	expected-module common-module
 do
-	if spec_ = try-find-spec ctx, (diag-range.start, name), specs-map, false
+	if spec_ = try-find-spec ctx, (diag-range.start, name), types-and-specs-map
 		if spec_.module-uri == ctx.common-uris[expected-module]
 			spec_
 		else
 			add-diag ctx, diag-range, diag-auto-fun-spec-from-wrong-module
 			()
 
-try-find-spec spec-decl?(ctx check-ctx, name name-and-range, specs-map specs-map, no-diag bool)
-	res mut = specs-map[name name]
-	for exports in ctx.imports-and-re-exports
-		if x = exports.specs[name name]
-			if res
-				add-diag ctx, name.range, diag-duplicate-imports spec_, name.name
-			else
-				res := x
-	unless res or no-diag
-		add-diag ctx, name.range, diag-name-not-found spec_, name.name
-	res
+-try-find-spec spec-decl?(ctx check-ctx, name name-and-range, map types-and-specs-map)
+	if res = type-or-spec-from-name ctx, name.name, name.range, map, false
+		if res.spec-decl
+			res
+		else
+			add-diag ctx, name.range, diag-type-used-as-spec name.name
+			()
 
 type-from-destructure type?
 	ctx check-ctx
