@@ -484,7 +484,7 @@ do
 		bogus expected, range
 
 -check-is-js bool(ctx expr-ctx, range source-range)
-	res = has-build-target ctx.specs, js or ctx.additional-externs[js]
+	res = has-build-target ctx.specs, js
 	unless res
 		add-diag ctx, range, not-extern-js
 	res
@@ -514,7 +514,7 @@ do
 -check-with-condition[t] t(ctx expr-ctx, context expression-context, f t mut())
 	restore-locals = ctx.locals.size
 	restore-refined-types = ctx.refined-types.size
-	original-externs build-target set = ctx.additional-externs
+	original-specs = ctx.specs
 	match context
 	as known-value
 		for x in condition-knowledge context.expr, context.expr-value
@@ -522,23 +522,30 @@ do
 			as local
 				add-local ctx, x
 			as local-refinement
-				ctx.refined-types ~= x.local, updated-type-refinements ctx, x.local, x.refined-type
+				add-type-refinement ctx, x.local, x.refined-type
 			as build-target
-				ctx.additional-externs ~:= x
+				ctx.specs := add-build-target-to-specs ctx.common-types, ctx.specs, x
 	as destructure
 		add-locals-for-destructure ctx, context
 	res = f[]
 	restore-locals ctx, restore-locals
 	while ctx.refined-types.size > restore-refined-types
 		_ = pop! ctx.refined-types
-	ctx.additional-externs := original-externs
+	ctx.specs := original-specs
 	res
 -add-locals-for-destructure void(ctx expr-ctx, destructure destructure)
 	for x in destructure.locals
 		add-local ctx, x
 
--updated-type-refinements type-args(ctx expr-ctx, local local, refined-type type)
-	if existing = find ctx.refined-types, it.a == local
+-add-build-target-to-specs specs(common-types common-types, specs specs, target build-target)
+	get-or-add-specs specs.inner ~ match target
+	as java
+		common-types.java-spec
+	as js
+		common-types.js-spec
+
+-add-type-refinement void(ctx expr-ctx, local local, refined-type type)
+	ctx.refined-types ~= local, if existing = find ctx.refined-types, it.a == local
 		existing.b ~ refined-type
 	else
 		refined-type.as-type-args
@@ -978,7 +985,7 @@ do
 	do if name
 	do if case-type = get-sum-type-case-from-name ctx, matched-variant, name, member-ast.name-range
 	if matched-local
-		ctx.refined-types ~= matched-local, updated-type-refinements ctx, matched-local, case-type
+		add-type-refinement ctx, matched-local, case-type
 	expr = check-expr ctx, then-ast, expected
 	if matched-local
 		_ = pop! ctx.refined-types
