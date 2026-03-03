@@ -367,14 +367,10 @@ do
 
 -check-identifier expr(ctx expr-ctx, ast name-and-range, expected expected)
 	if local = access-local ctx, ast.range, ast.name
-		type-refinements type[] = with out in build
-			for r in ctx.refined-types
-				if r.local == local
-					out ~= r.refined-type
-		expr expr, type type = if is-empty type-refinements
-			(local-get-expr ast, local), local.type
+		expr expr, type type = if _, type-refinements = find-last ctx.refined-types, it.a == local
+			(local-get-and-refine-expr ast, local, type-refinements), type-refinements.last
 		else
-			(local-get-and-refine-expr ast, local, type-refinements), type-refinements[end - 1]
+			(local-get-expr ast, local), local.type
 		check ctx, expected, type, expr
 	else
 		check-call-identifier ctx, ast, expected
@@ -526,7 +522,7 @@ do
 			as local
 				add-local ctx, x
 			as local-refinement
-				ctx.refined-types ~= x
+				ctx.refined-types ~= x.local, updated-type-refinements ctx, x.local, x.refined-type
 			as build-target
 				ctx.additional-externs ~:= x
 	as destructure
@@ -540,6 +536,12 @@ do
 -add-locals-for-destructure void(ctx expr-ctx, destructure destructure)
 	for x in destructure.locals
 		add-local ctx, x
+
+-updated-type-refinements type-args(ctx expr-ctx, local local, refined-type type)
+	if existing = find ctx.refined-types, it.a == local
+		existing.b ~ refined-type
+	else
+		refined-type.as-type-args
 
 -add-local void(ctx expr-ctx, local local)
 	if exists ctx.locals, it.name == local.name
@@ -976,7 +978,7 @@ do
 	do if name
 	do if case-type = get-sum-type-case-from-name ctx, matched-variant, name, member-ast.name-range
 	if matched-local
-		ctx.refined-types ~= matched-local, case-type
+		ctx.refined-types ~= matched-local, updated-type-refinements ctx, matched-local, case-type
 	expr = check-expr ctx, then-ast, expected
 	if matched-local
 		_ = pop! ctx.refined-types
