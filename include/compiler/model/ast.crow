@@ -1,4 +1,5 @@
 import
+	../util/util
 	./parse-diag
 	./source-range
 	./uri
@@ -76,6 +77,13 @@ range source-range(a visibility-and-range)
 -get-visibility-and-range visibility-and-range?(pos pos, visibility visibility?)
 	if visibility
 		visibility, pos
+
+the-ast record(start pos, type type-ast)
+end pos(a the-ast)
+	a.type.end
+keyword-range source-range(a the-ast)
+	range-of-start-and-length a.start, "the"
+to json(a the-ast)
 
 type-ast union
 	bogus-type-ast
@@ -182,6 +190,7 @@ expr-ast union
 	it-scope-ast
 	lambda-ast
 	let-ast
+	let-the-ast
 	list-ast
 	literal-number
 	literal-string-ast
@@ -195,6 +204,7 @@ expr-ast union
 	parenthesized-ast
 	seq-ast
 	shared-ast
+	the-ast
 	throw-ast
 	trusted-ast
 	try-ast
@@ -675,6 +685,17 @@ start pos(a let-ast)
 end pos(a let-ast)
 	(a.then_ else a.value).end
 
+let-the-ast record
+	start pos
+	type type-ast
+	value expr-ast
+	then_ expr-ast?
+to json(a let-the-ast)
+end pos(a let-the-ast)
+	a.then_.?end else a.value.end
+keyword-range source-range(a let-the-ast)
+	range-of-start-and-length a.start, "the"
+
 | Could be `()`, `x, y`, or a multi-line list with `- x` and `-- xs`
 list-ast record(range source-range, parts list-ast-part[])
 to json(a list-ast)
@@ -1012,7 +1033,6 @@ type-params-range source-range(type-params name-and-range[])
 
 modifier-ast union(modifier-keyword-ast, spec-use-ast)
 	range source-range()
-	type-arg type-ast?()
 to json(a modifier-ast)
 name-or-keyword-range source-range(a modifier-ast)
 	match a
@@ -1343,7 +1363,7 @@ children record(expr expr-ast)
 iterate bool(a children, f bool mut(x expr-ast))
 	match x = a.expr
 	as assert-or-forbid-ast
-		f[x.condition] or thrown = x.thrown and f[thrown.expr] or after = x.after and f[after]
+		f[x.condition] or cb-option x.thrown.?expr, f or cb-option x.after, f
 	as assignment-ast
 		f[x.left] or f[x.right]
 	as assignment-call-ast
@@ -1365,7 +1385,7 @@ iterate bool(a children, f bool mut(x expr-ast))
 	as name-and-range
 		()
 	as if-ast
-		f[x.condition] or t = x.first-branch and f[t] or e = x.second-branch and f[e]
+		f[x.condition] or cb-option x.first-branch, f or cb-option x.second-branch, f
 	as interpolated-ast
 		iterate x.interpolated, f
 	as it-ast
@@ -1375,7 +1395,9 @@ iterate bool(a children, f bool mut(x expr-ast))
 	as lambda-ast
 		f[x.body]
 	as let-ast
-		f[x.value] or t = x.then_ and f[t]
+		f[x.value] or cb-option x.then_, f
+	as let-the-ast
+		f[x.value] or cb-option x.then_, f
 	as list-ast
 		iterate x.parts, f[it.arg]
 	as literal-number
@@ -1387,13 +1409,13 @@ iterate bool(a children, f bool mut(x expr-ast))
 	as loop-ast
 		f[x.body]
 	as loop-break-ast
-		(v = x.value) and f[v]
+		cb-option x.value, f
 	as loop-continue-ast
 		()
 	as loop-while-or-until-ast
-		f[x.condition] or f[x.body] or after = x.after and f[after]
+		f[x.condition] or f[x.body] or cb-option x.after, f
 	as match-ast
-		f[x.matched] or iterate x.cases, f[it.then_] or e = x.else_ and f[e.expr]
+		f[x.matched] or iterate x.cases, f[it.then_] or cb-option x.else_.?expr, f
 	as not-ast
 		f[x.arg]
 	as parenthesized-ast
@@ -1402,6 +1424,8 @@ iterate bool(a children, f bool mut(x expr-ast))
 		f[x.first] or f[x.then_]
 	as shared-ast
 		f[x.inner]
+	as the-ast
+		()
 	as throw-ast
 		f[x.thrown]
 	as trusted-ast
@@ -1409,9 +1433,9 @@ iterate bool(a children, f bool mut(x expr-ast))
 	as try-ast
 		f[x.tried] or iterate x.catches, f[it.then_]
 	as try-let-ast
-		f[x.value] or f[x.catch_.then_] or after = x.after and f[after]
+		f[x.value] or f[x.catch_.then_] or cb-option x.after, f
 	as typed-ast
-		(expr = x.expr) and f[expr]
+		cb-option x.expr, f
 	as underscore-ast
 		()
 	as unpack-option-ast

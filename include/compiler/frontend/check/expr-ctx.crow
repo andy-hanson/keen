@@ -2,6 +2,7 @@ import
 	../../model/ast
 	../../model/model
 	../../model/source-range
+	../../util/util
 	./check-ctx
 	./instantiate
 	./type-from-ast
@@ -10,7 +11,8 @@ lambda-info record mut
 	kind lambda-kind
 	# Index into locals on expr-ctx. This is the first local inside the lambda (or an inner lambda).
 	first-local-index nat
-	closure local mut[]
+	closure-locals local mut[]
+	closure-contexts struct-inst mut[]
 
 check-trusted interface mut
 	check-trusted bool()
@@ -105,3 +107,59 @@ check-destructure destructure(ctx expr-ctx, ast destructure-ast, type type, kind
 
 type-from-ast type(ctx expr-ctx, ast type-ast)
 	type-from-ast ctx.check-ctx, ctx.types, ast, ctx.type-params, yes
+
+ensure-context-in-closure void(ctx expr-ctx, diag-range source-range, context-type struct-inst)
+	i mut = ctx.lambdas.size
+	until i == 0 or contains ctx.lambdas[i - 1].closure-contexts, context-type
+		ctx.lambdas[i - 1].closure-contexts ~= context-type
+		check-lambda-can-reference-local ctx, diag-range, ctx.lambdas[i - 1].kind, "the", context-type, false
+		i -:= 1
+
+check-lambda-can-reference-local void
+	ctx expr-ctx
+	diag-range source-range
+	lambda-kind lambda-kind
+	local-name symbol
+	local-type type
+	local-is-mutable bool
+do
+	expected-purity purity = match lambda-kind
+	as data_ then data_
+	as shared_ then shared_
+	as mut_ then mut_
+	as explicit-shared then mut_
+	if expected-purity != mut_
+		if local-is-mutable
+			add-diag ctx, diag-range,
+				diag-lambda-closure-purity lambda-kind, local-name, mut_, ()
+		elif !is-purity-always-compatible-considering-specs ctx.specs, local-type, expected-purity
+			add-diag ctx, diag-range,
+				diag-lambda-closure-purity lambda-kind, local-name, local-type.purity-range.worst-case, type-with-container ctx, local-type
+
+is-purity-always-compatible-considering-specs bool(fun-specs specs, type type, expected purity)
+	type-purity = purity-range type
+	is-purity-always-compatible expected, type-purity or
+	specs-provide-purity fun-specs, type, expected or
+	match type
+	as bogus-type
+		false
+	as type-param-index
+		false
+	as struct-inst
+		is-purity-compatible expected, type-purity.best-case and
+		every type.type-args, of type-arg
+			is-purity-always-compatible-considering-specs fun-specs, type-arg, expected
+
+| Whether {specs} tells us that {type} has purity at least {expected}
+-specs-provide-purity bool(specs specs, type type, expected purity)
+	exists specs.all-builtin, of builtin_, type-args
+		(p = builtin_.to::purity?) and type-args.only! == type and is-purity-compatible expected, p
+
+get-the bool(ctx expr-ctx, range source-range, the-type struct-inst)
+	if contains ctx.specs.all-contexts, the-type
+		ensure-context-in-closure ctx, range, the-type
+		true
+	else
+		add-diag ctx, range,
+			diag-context-type-missing ctx.type-container, ctx.specs.all-contexts.slow-to-array, the-type
+		false

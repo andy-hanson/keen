@@ -89,6 +89,8 @@ do
 		check-lambda ctx, ast, ast.param, ast.body, expected
 	as let-ast
 		check-let ctx, ast, expected
+	as let-the-ast
+		check-let-the ctx, ast, expected
 	as list-ast
 		check-list ctx, ast, expected
 	as literal-number
@@ -115,6 +117,8 @@ do
 		check-seq ctx, ast, expected
 	as shared-ast
 		check-shared ctx, ast, expected
+	as the-ast
+		check-the ctx, ast, expected
 	as throw-ast
 		check-throw ctx, ast, expected
 	as trusted-ast
@@ -224,6 +228,13 @@ do
 		is-option := false
 		add-diag ctx, ast.keyword-range, actual.diag-option-force-non-option
 	if is-option then force-expr ast, arg else arg
+
+-check-the expr(ctx expr-ctx, ast the-ast, expected expected)
+	do if type = type-for-the ctx, ast.type else bogus expected, ast
+	if get-the ctx, ast.range, type
+		check ctx, expected, type, the-expr ast, type
+	else
+		bogus expected, ast.range
 
 -check-throw expr(ctx expr-ctx, ast throw-ast, expected expected)
 	if type = try-get-inexact-non-inferring-type-including-loop expected
@@ -336,7 +347,7 @@ do
 			local
 	else
 		lambda = ctx.lambdas[i - 1]
-		if local = find lambda.closure, it.name == name
+		if local = find lambda.closure-locals, it.name == name
 			for j in i .. ctx.lambdas.size
 				add-to-closure ctx, diag-range, ctx.lambdas[j], local
 			break local
@@ -345,25 +356,10 @@ do
 			continue
 
 -add-to-closure void(ctx expr-ctx, diag-range source-range, lambda lambda-info, local local)
-	forbid exists lambda.closure, it.name == local.name # RM -----------------------------------------------------------------------
-	lambda.closure ~= local
+	lambda.closure-locals ~= local
 	if is-mutable local
 		_ = ensure ctx.allocated-locals, local, of then ctx.common-types.reference[as-type-args local.type]
-	check-lambda-can-reference-local ctx, diag-range, lambda.kind, local
-
--check-lambda-can-reference-local void(ctx expr-ctx, diag-range source-range, lambda-kind lambda-kind, local local)
-	expected-purity purity = match lambda-kind
-	as data_ then data_
-	as shared_ then shared_
-	as mut_ then mut_
-	as explicit-shared then mut_
-	if expected-purity != mut_
-		if is-mutable local
-			add-diag ctx, diag-range,
-				diag-lambda-closure-purity lambda-kind, local.name, mut_, ()
-		elif !is-purity-always-compatible-considering-specs ctx.specs, local.type, expected-purity
-			add-diag ctx, diag-range,
-				diag-lambda-closure-purity lambda-kind, local.name, local.type.purity-range.worst-case, type-with-container ctx, local.type
+	check-lambda-can-reference-local ctx, diag-range, lambda.kind, local.name, local.type, local.is-mutable
 
 -check-identifier expr(ctx expr-ctx, ast name-and-range, expected expected)
 	if local = access-local ctx, ast.range, ast.name
@@ -500,9 +496,10 @@ do
 -decode-as-single-unicode-char char32?(a string)
 	only a.to::char32[]
 
--expression-context union(known-value, destructure)
+-expression-context union(known-value, destructure, no-context)
 | Context where {expr} is known to be {expr-value}
 -known-value record(expr expr, expr-value bool)
+-no-context record
 -check-expr-with-context expr
 	ctx expr-ctx
 	context expression-context
@@ -527,6 +524,8 @@ do
 				ctx.specs := add-build-target-to-specs ctx.common-types, ctx.specs, x
 	as destructure
 		add-locals-for-destructure ctx, context
+	as no-context
+		()
 	res = f[]
 	restore-locals ctx, restore-locals
 	while ctx.refined-types.size > restore-refined-types
@@ -586,10 +585,19 @@ do
 		diag[diag-shared-lambda-type-is-not-shared return-type, type-with-container ctx, res.return-type]
 
 	all-shared = every res.expr.lambda-expr!.closure, of x
-		!x.is-mutable and is-shared ctx.specs, x.type
+		!x.is-mutable-local and is-shared ctx.specs, x.type
 	if all-shared
 		diag[diag-shared-lambda-unused]
 	res.expr
+
+-is-mutable-local bool(a closure-element)
+	a.local and a.is-mutable
+-type type(a closure-element)
+	match a
+	as local
+		a.type
+	as struct-inst
+		a
 
 -check-it expr
 	ctx expr-ctx
@@ -654,7 +662,7 @@ do
 	fun-struct struct-decl
 	kind lambda-kind
 do
-	lambda-info lambda-info = kind, ctx.locals.size, ()
+	lambda-info lambda-info = kind, ctx.locals.size, (), ()
 	# Checking the body of the lambda may fill in candidate type args
 	# if the expected return type contains candidate's type params
 	body-expected = expect-with-context non-instantiated-return-type, return-type-context
@@ -674,7 +682,9 @@ do
 		param: param
 		mut-type-for-explicit-shared: mut-type-for-explicit-shared
 		body: body
-		closure: lambda-info.closure.move-to
+		closure:
+			-- map lambda-info.closure-locals, it.identity
+			-- map lambda-info.closure-contexts, it.identity
 		type: inst-fun-struct
 	# TODO:PERF this check should never fail, so could just set inferred directly with no check ----------------------------------------
 	res = check ctx, expected, inst-fun-struct, lambda
@@ -685,6 +695,30 @@ do
 	destructure = check-destructure ctx, ast.destructure, value-type, local
 	then_ = check-required-after ctx, ast.destructure.range, destructure, ast.then_, let, expected
 	let-expr ast, destructure, value-expr, then_
+
+-type-for-the struct-inst?(ctx expr-ctx, ast type-ast)
+	match type = type-from-ast ctx, ast
+	as bogus-type
+		()
+	as type-param-index
+		add-diag ctx, ast.range, diag-context-type-param
+		()
+	as struct-inst
+		type
+
+-check-let-the expr(ctx expr-ctx, ast let-the-ast, expected expected)
+	do if is-empty ctx.lambdas else
+		add-diag ctx, ast.keyword-range, diag-context-defined-in-lambda
+		bogus expected, ast
+	do if type = type-for-the ctx, ast.type else bogus expected, ast
+	value = check-and-expect ctx, ast.value, type
+	old-specs = ctx.specs
+	if contains old-specs.all-contexts, type
+		add-diag ctx, ast.keyword-range, diag-context-duplicate type-with-container ctx, type
+	ctx.specs := old-specs ~ type
+	after = check-required-after ctx, ast.keyword-range, (), ast.then_, let, expected
+	ctx.specs := old-specs
+	let-the-expr ast, type, value, after
 
 -check-required-after expr?
 	ctx expr-ctx

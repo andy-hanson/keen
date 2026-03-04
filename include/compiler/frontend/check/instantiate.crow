@@ -33,6 +33,15 @@ instantiate-fun fun-inst(decl fun-decl, type-args type-args, spec-impls spec-imp
 	get-or-add-fun-inst decl, type-args, spec-impls, of
 		instantiate-return-and-param-types decl.return-type, decl.params, type-args
 
+instantiate-spec-or-type spec-or-type-inst(ctx instantiate-ctx, decl spec-or-type, type-args type-args, delay-spec-insts may-delay-spec-insts)
+	match decl
+	as spec-decl
+		instantiate-spec ctx, decl, type-args, delay-spec-insts
+	as struct-alias
+		decl.target
+	as struct-decl
+		decl[type-args]
+
 instantiate-struct-inst struct-inst(struct-inst struct-inst, type-args type-args)
 	struct-inst.decl[instantiate-type-args struct-inst.type-args, type-args]
 
@@ -48,27 +57,48 @@ instantiate-spec spec-inst(ctx instantiate-ctx, decl spec-decl, type-args type-a
 	value
 
 instantiate-spec-body void(ctx instantiate-ctx, a spec-inst, delay-spec-insts may-delay-spec-insts)
-	parents spec-inst[] = for parent in a.decl.parents.inner
-		instantiate-spec-inst ctx, parent, a.type-args, delay-spec-insts
+	parents spec-or-type-inst[] = for parent in a.decl.parents.inner
+		instantiate-spec-or-type-inst ctx, parent, a.type-args, delay-spec-insts
 	a.builtin_ := with out in build
 		for parent in parents
-			out ~~= parent.builtin_
+			if parent.spec-inst
+				out ~~= parent.builtin_
 		if b = a.decl.builtin_
 			out ~= b, a.type-args
+	a.all-contexts := to-type-args for* parent in parents
+		match parent
+		as spec-inst
+			parent.all-contexts.slow-to-array
+		as struct-inst
+			- parent
 	a.all-sigs := with out in build
 		for parent in parents
-			out ~~= parent.all-sigs
+			if parent.spec-inst
+				out ~~= parent.all-sigs
 		out ~~= a.decl.sigs
 	a.sig-types := with out in build
 		for parent in parents
-			out ~~= parent.sig-types
+			if parent.spec-inst
+				out ~~= parent.sig-types
 		for sig in a.decl.sigs
 			out ~= instantiate-return-and-param-types sig.return-type, sig.params, a.type-args
 
 instantiate-specs specs(ctx instantiate-ctx, specs specs, type-args type-args)
 	do unless is-empty type-args else specs
 	get-or-add-specs for x in specs.inner
-		instantiate-spec-inst ctx, x, type-args, no-delay-spec-insts
+		instantiate-spec-or-type-inst ctx, x, type-args, no-delay-spec-insts
+
+instantiate-spec-or-type-inst spec-or-type-inst
+	ctx instantiate-ctx
+	inst spec-or-type-inst
+	type-args type-args
+	delay-spec-insts may-delay-spec-insts
+do
+	match inst
+	as spec-inst
+		instantiate-spec-inst ctx, inst, type-args, delay-spec-insts
+	as struct-inst
+		instantiate-struct-inst inst, type-args
 
 instantiate-spec-inst spec-inst(ctx instantiate-ctx, spec-inst spec-inst, type-args type-args, delay-spec-insts may-delay-spec-insts)
 	instantiated-type-args = instantiate-type-args spec-inst.type-args, type-args

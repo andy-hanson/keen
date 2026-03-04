@@ -167,7 +167,7 @@ slow-to-array type[](a type-args)
 		- a
 	as type-array
 		a.inner
--to-type-args type-args(a type[])
+to-type-args type-args(a type[])
 	match a.size
 	as 0
 		()
@@ -265,37 +265,49 @@ return-and-param-types record
 spec-impls alias
 	called[]
 specs record -new
-	inner spec-inst[]
+	inner spec-or-type-inst[]
 	hash nat
 	all-builtin (builtin-spec, type-args)[]
+	all-contexts type-args
 	instantiated-sigs called-spec-sig[]
 to json(a specs)
 	a.inner.to
 new specs()
-	(), 0, (), ()
+	(), 0, (), (), ()
 is-empty bool(a specs)
 	trusted a 'reference-equal ()
 -specs-key record
-	inner spec-inst[]
+	inner spec-or-type-inst[]
 	hash nat
 -== bool(a specs-key, b specs-key)
 	a.inner == b.inner
 -memoizer-key specs-key(a specs)
 	a.inner, a.hash
-get-or-add-specs specs(specs spec-inst[])
+get-or-add-specs specs(specs spec-or-type-inst[])
 	do unless is-empty specs
 	hash = get-hash specs
 	trusted memoize spec-arrays, (specs, hash), of
 		inner: specs
 		hash: hash
-		all-builtin: for* x in specs then x.builtin_
+		all-builtin: for* x in specs
+			if x.spec-inst
+				x.builtin_
+		all-contexts: to-type-args for* x in specs
+			match x
+			as spec-inst
+				x.all-contexts.slow-to-array
+			as struct-inst
+				- x
 		instantiated-sigs:
 			index mut nat = 0
 			for* x in specs
+				do if x.spec-inst
 				for sig, sig-type in zip x.all-sigs, x.sig-types
 					res called-spec-sig = index, x.decl, sig, sig-type
 					index +:= 1
 					res
+~ ~ specs(a specs, type struct-inst)
+	get-or-add-specs a.inner ~ type
 is-global bool(a specs)
 	exists a.all-builtin, it.a == global_
 is-unsafe bool(a specs)
@@ -1175,8 +1187,8 @@ do
 	a.range <=> b.range
 hash void(a spec-decl, state hash-state)
 	hash a.hash, state
-to json(_ spec-decl)
-	throw todo
+to json(a spec-decl)
+	a.name.to
 doc-comment-ast doc-comment-ast(a spec-decl)
 	a.ast.doc-comment
 doc-comment doc-comment(a spec-decl)
@@ -1213,6 +1225,7 @@ spec-inst record force-data, -new
 	type-args type-args
 	| This includes builtin parents
 	builtin_ mut (builtin-spec, type-args)[]
+	all-contexts mut type-args
 	| This includes signatures from parents
 	all-sigs mut signature[]
 	| Corresponds to all-sigs
@@ -1221,12 +1234,10 @@ get-or-add-spec-inst (spec-inst, bool)(decl spec-decl, type-args type-args)
 	did-add mut bool = false
 	- trusted memoize decl.insts, type-args, of
 		did-add := true
-		decl, type-args, (), (), ()
+		decl, type-args, (), (), (), ()
 	- did-add
 -memoizer-key type-args(a spec-inst)
 	a.type-args
-== bool(a spec-inst, b spec-inst)
-	trusted a 'reference-equal b
 hash void(a spec-inst, state hash-state)
 	# TODO: just use identity ------------------------------------------------------------------------------------------------------
 	hash a.decl, state
@@ -1650,6 +1661,8 @@ do
 	res
 n-type-params nat(a fun-decl)
 	a.n-type-params-storage.to
+contexts type-args(a fun-decl)
+	a.specs.all-contexts
 == bool(a fun-decl, b fun-decl)
 	trusted a 'reference-equal b
 <=> comparison(a fun-decl, b fun-decl)
@@ -1875,11 +1888,30 @@ called-decl called-decl(a called)
 name symbol(a called)
 	a.called-decl.name
 
-type-or-spec union(struct-alias, struct-decl, spec-decl)
+spec-or-type union(spec-decl, struct-alias, struct-decl)
 	name symbol()
 	name-range uri-and-range()
+	n-type-params nat()
 	range uri-and-range()
 	visibility visibility()
+to doc-comment-reference(a spec-or-type)
+	match a
+	as spec-decl then a
+	as struct-alias then a
+	as struct-decl then a
+
+spec-or-type-inst union(spec-inst, struct-inst)
+	hash void(state hash-state)
+	to json()
+	type-args type-args()
+== bool(a spec-or-type-inst, b spec-or-type-inst)
+	trusted a 'reference-equal b
+decl spec-or-type(a spec-or-type-inst)
+	match a
+	as spec-inst
+		a.decl
+	as struct-inst
+		a.decl
 
 | There is no 'var-inst' since these can't be templates
 var-decl record force-data
@@ -1997,7 +2029,7 @@ new exports()
 funs-map alias
 	fun-decl multi-by-name
 types-and-specs-map alias
-	type-or-spec by-name
+	spec-or-type by-name
 
 | Excludes derived decls, e.g. FunDecl that is a record field getter
 each-decl void(a crow-module, cb void mut(x any-decl))
@@ -2815,6 +2847,7 @@ expr union
 	if-expr
 	lambda-expr
 	let-expr
+	let-the-expr
 	list-expr
 	literal-scalar-expr
 	literal-string-like-expr
@@ -2832,6 +2865,7 @@ expr union
 	match-sum-type-expr
 	not-expr
 	seq-expr
+	the-expr
 	throw-expr
 	trusted-expr
 	try-expr
@@ -2881,6 +2915,8 @@ type type(a expr, types available-types?)
 		type a
 	as let-expr
 		type a, types
+	as let-the-expr
+		type a, types
 	as list-expr
 		a.type
 	as literal-scalar-expr
@@ -2918,6 +2954,8 @@ type type(a expr, types available-types?)
 		common-types!.bool
 	as seq-expr
 		type a, types
+	as the-expr
+		type a
 	as throw-expr
 		type a
 	as trusted-expr
@@ -3193,7 +3231,7 @@ lambda-expr record
 	param destructure
 	mut-type-for-explicit-shared struct-inst?
 	body expr
-	closure local[]
+	closure closure-element[]
 	type struct-inst
 to json(a lambda-expr)
 	kind: a.kind.to
@@ -3213,6 +3251,9 @@ return-type type(a lambda-expr)
 is-ignore bool(a lambda-expr)
 	param = a.param
 	param.destructure-ignore and param.source.void-destructure-ast
+| {struct-inst} for a context value
+closure-element union(local, struct-inst)
+	to json()
 
 let-expr-source union(let-ast, match-ast)
 let-expr record(ast let-expr-source, destructure destructure, value expr, then_ expr?)
@@ -3229,6 +3270,19 @@ destructure-ast destructure-ast(a let-expr)
 range source-range(a let-expr)
 	a.destructure.start, (a.then_ else a.value).end
 type type(a let-expr, types available-types?)
+	if then_ = a.then_
+		type then_, types
+	else
+		types!.common-types.void
+
+let-the-expr record(ast let-the-ast, the-type struct-inst, value expr, then_ expr?)
+to json(a let-the-expr)
+	the-type: a.the-type.to
+	value: a.value.to
+	then: a.then_.to
+range source-range(a let-the-expr)
+	a.ast.range
+type type(a let-the-expr, types available-types?)
 	if then_ = a.then_
 		type then_, types
 	else
@@ -3553,6 +3607,11 @@ range source-range(a seq-expr)
 type type(a seq-expr, types available-types?)
 	type a.then_, types
 
+the-expr record(ast the-ast, type struct-inst)
+to json(a the-expr)
+range source-range(a the-expr)
+	a.ast.range
+
 throw-expr record(ast throw-ast, thrown expr, type type)
 to json(a throw-expr)
 	thrown: a.thrown.to
@@ -3651,6 +3710,8 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 		cb[a.body]
 	as let-expr
 		cb[a.value] or cb-option a.then_, cb
+	as let-the-expr
+		cb[a.value] or cb-option a.then_, cb
 	as list-expr
 		first a.parts, cb[it.arg]
 	as literal-scalar-expr
@@ -3685,6 +3746,8 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 		cb[a.arg]
 	as seq-expr
 		cb[a.first] or cb[a.then_]
+	as the-expr
+		()
 	as throw-expr
 		cb[a.thrown]
 	as trusted-expr
@@ -3787,6 +3850,11 @@ diag union
 	diag-common-fun-missing
 	diag-common-type-missing
 	diag-common-var-missing
+	diag-context-defined-in-lambda
+	diag-context-duplicate
+	diag-contexts-not-allowed
+	diag-context-type-missing
+	diag-context-type-param
 	diag-condition-type
 	diag-config-invalid-json
 	diag-destructure-type-mismatch
@@ -3818,6 +3886,7 @@ diag union
 	diag-loop-disallowed-body
 	diag-loop-without-break
 	diag-main-incompatible-with-target
+	diag-main-has-specs
 	diag-main-test-missing
 	diag-match-case-duplicate
 	diag-match-case-for-type
@@ -3942,6 +4011,17 @@ diag-common-fun-duplicate record(name symbol)
 diag-common-fun-missing record(dummy-for-context fun-decl, sig-choices type-params-and-sig[])
 diag-common-type-missing record(name symbol)
 diag-common-var-missing record(var-kind var-kind, name symbol)
+diag-context-defined-in-lambda record
+diag-context-duplicate record(type type-with-container)
+diag-contexts-not-allowed record
+	type-container type-container
+	kind diag-contexts-not-allowed-kind
+	called fun-inst
+context struct-decl(a diag-contexts-not-allowed)
+	a.called.decl.specs.all-contexts[0].struct-inst!.decl
+diag-contexts-not-allowed-kind enum(spec-impl, method-impl)
+diag-context-type-missing record(container type-container, actual type[], expected type)
+diag-context-type-param record
 diag-condition-type record(actual type-with-container)
 diag-config-invalid-json record
 diag-destructure-type-mismatch record
@@ -3955,7 +4035,7 @@ diag-duplicate-declaration-kind enum
 	flags-member
 	param-or-local
 	record-field
-	type-or-spec
+	spec-or-type
 	type-param
 	union-member
 diag-duplicate-exports record(kind diag-duplicate-exports-kind, name symbol)
@@ -4010,6 +4090,7 @@ diag-local-not-mutable record(local local)
 diag-loop-break-or-continue-outside-loop enum(break_, continue_)
 diag-loop-disallowed-body enum(finally_, try_)
 diag-loop-without-break record
+diag-main-has-specs record
 diag-main-incompatible-with-target record(target build-target)
 diag-main-test-missing record(expected-line nat)
 diag-match-case-duplicate union(symbol, string, nat, int)
@@ -4034,7 +4115,7 @@ diag-mut-field-not-allowed record
 diag-named-new-duplicate-name record(name symbol)
 diag-named-new-interpolated record
 diag-name-not-found record(kind diag-name-not-found-kind, name symbol)
-diag-name-not-found-kind enum(doc-comment-reference, type-or-spec)
+diag-name-not-found-kind enum(doc-comment-reference, spec-or-type)
 diag-needs-expected-type enum(interpolated, list, loop_, throw_)
 diag-option-else-left-non-option record(actual-type type-with-container)
 diag-option-force-non-option record(actual-type type-with-container)

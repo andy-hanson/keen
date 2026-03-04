@@ -14,21 +14,25 @@ import
 is-shared bool(fun-specs specs, type type)
 	is-purity-always-compatible-considering-specs fun-specs, type, shared_
 
-is-purity-always-compatible-considering-specs bool(fun-specs specs, type type, expected purity)
-	type-purity = purity-range type
-	is-purity-always-compatible expected, type-purity or
-	specs-provide-purity fun-specs, type, expected or
-	match type
-	as bogus-type
-		false
-	as type-param-index
-		false
-	as struct-inst
-		is-purity-compatible expected, type-purity.best-case and
-		every type.type-args, of type-arg
-			is-purity-always-compatible-considering-specs fun-specs, type-arg, expected
+check-no-contexts bool(ctx check-ctx, container type-container, kind diag-contexts-not-allowed-kind, diag-range source-range, called called)
+	match called
+	as called-bogus
+		true
+	as fun-inst
+		if is-empty called.decl.specs.all-contexts
+			true
+		else
+			add-diag ctx, diag-range, diag-contexts-not-allowed container, kind, called
+			false
+	as called-spec-sig
+		true
 
-check-call-specs called
+check-contexts void(ctx expr-ctx, diag-range source-range, called called)
+	do if called.fun-inst
+	for context-decl in called.decl.specs.all-contexts
+		_ = get-the ctx, diag-range, instantiate-struct-inst context-decl.struct-inst!, called.type-args
+
+check-call-specs-except-contexts called
 	ctx check-ctx
 	type-container type-container
 	funs-in-scope funs-in-scope
@@ -41,10 +45,23 @@ do
 	as called
 		if has-errors check-specs-ctx
 			check-call-specs-with-real-trace ctx, type-container, funs-in-scope, check-trusted, diag-range, candidate
-		else
+		elif deep-check-no-contexts-in-specs ctx, type-container, diag-range, called
 			called
+		else
+			called-bogus called.fun-inst!.decl, called.return-type, called.param-types
 	as no-match
 		check-call-specs-with-real-trace ctx, type-container, funs-in-scope, check-trusted, diag-range, candidate
+
+-deep-check-no-contexts-in-specs bool(ctx check-ctx, container type-container, diag-range source-range, called called)
+	match called
+	as called-bogus
+		throw unreachable
+	as fun-inst
+		every called.spec-impls, of impl
+			check-no-contexts ctx, container, spec-impl, diag-range, impl and
+			deep-check-no-contexts-in-specs ctx, container, diag-range, impl
+	as called-spec-sig
+		true
 
 check-spec-and-get-last-impl called(ctx check-ctx, funs-map funs-map, decl fun-decl, spec_ spec-inst)
 	_ never-trusted = () # TODO: I had to add this so that it would not be considered unused ........................................................
@@ -241,11 +258,6 @@ do
 
 -check-extern bool(ctx check-specs-ctx, kind build-target)
 	has-build-target ctx.funs-in-scope.fun-specs, kind
-
-| Whether {specs} tells us that {type} has purity at least {expected}
--specs-provide-purity bool(specs specs, type type, expected purity)
-	exists specs.all-builtin, of builtin_, type-args
-		(p = builtin_.to::purity?) and type-args.only! == type and is-purity-compatible expected, p
 
 -specs-result union(called[], no-match)
 -check-spec-impls specs-result(ctx check-specs-ctx, called fun-decl, called-type-args type-args, trace trace)
