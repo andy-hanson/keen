@@ -1,4 +1,5 @@
 import
+	../../frontend/show-model
 	../../model/concrete-model
 	../../model/model
 	../../model/uri
@@ -10,114 +11,111 @@ import
 	../util
 	./util
 
+java-names-and-refs spec show-ctx, java-names, java-refs
 | Can generate a constant pool reference for a Crow entity.
 | This should only be used within the same class file,
 | since constant pool references are not the same in different files.
 java-refs record mut
 	-mangled-names java-names
 	constants constants-builder
+-mangled-names java-names() java-refs
+	the::java-refs.mangled-names
+constants constants-builder() java-refs
+	the::java-refs.constants
+
 start-new-class java-refs(mangled-names java-names)
 	mangled-names, ()
 
-build-code build-code(a java-refs)
-	a.constants,
-finish cp_info[](a java-refs)
-	finish a.constants
+build-code build-code() java-refs
+	constants,
 
-union-info union-info(a java-refs)
-	a.mangled-names.union-info
+constant-name utf8-reference(constant any-constant) java-refs
+	constants[mangled-names.constant-names[constant].member]
 
-constant-name utf8-reference(a java-refs, constant any-constant)
-	a.constants[a.mangled-names.constant-names[constant].member]
+constant-symbols-class-name symbol() java-refs
+	mangled-names.constant-symbols-class-name
+constant-symbols-class class-reference() java-refs
+	class_ constants, constant-symbols-class-name
+constant-symbol-name utf8-reference(index nat) java-refs
+	constants["s{index}"]
 
-constant-symbols-class-name symbol(a java-refs)
-	a.mangled-names.constant-symbols-class-name
-constant-symbols-class class-reference(a java-refs)
-	class_ a.constants, a.constant-symbols-class-name
-constant-symbol-name utf8-reference(a java-refs, index nat)
-	a.constants["s{index}"]
+constant-symbol-field field-reference(symbol concrete-type, index nat) java-refs
+	symbol-type = constants[descriptor-for-field-type mangled-names, symbol]
+	name-and-type = name-and-type constants, index.constant-symbol-name, symbol-type
+	field constants, constant-symbols-class, name-and-type
 
-constant-symbol-field field-reference(a java-refs, symbol concrete-type, index nat)
-	symbol-type = a.constants[descriptor-for-field-type a.mangled-names, symbol]
-	name-and-type = name-and-type a.constants, (constant-symbol-name a, index), symbol-type
-	field a.constants, a.constant-symbols-class, name-and-type
+module-class class-reference(uri uri) java-refs
+	class_ constants, module-class-name mangled-names, uri
+module-class-name symbol(uri uri) java-refs
+	module-class-name mangled-names, uri
 
-module-class class-reference(a java-refs, uri uri)
-	class_ a.constants, module-class-name a.mangled-names, uri
-module-class-name symbol(a java-refs, uri uri)
-	module-class-name a.mangled-names, uri
-
-lambda-impl-class-name symbol(a java-refs, containing-fun concrete-fun, lambda-index nat)
-	lambda-impl-class-name a.mangled-names, containing-fun, lambda-index
+lambda-impl-class-name symbol(containing-fun concrete-fun, lambda-index nat) java-refs
+	lambda-impl-class-name mangled-names, containing-fun, lambda-index
 
 # Static "instance" field on a singleton class
-instance-field field-reference(a java-refs, type concrete-type)
-	instance-field a, (class_ a, type), boxed-class-name a.mangled-names, type
-instance-field field-reference(a java-refs, class_ class-reference, class-name symbol)
-	instance-field a, class_, instance-field-descriptor a, class-name
--instance-field field-reference(a java-refs, class_ class-reference, descriptor utf8-reference)
-	field a.constants, class_, name-and-type a.constants, a.instance-field-name, descriptor
-instance-field-name utf8-reference(a java-refs)
-	a.constants["instance"]
-instance-field-descriptor utf8-reference(a java-refs, class-name symbol)
-	a.constants["L{class-name};"]
+instance-field field-reference(type concrete-type) java-refs
+	instance-field type.class_, boxed-class-name mangled-names, type
+instance-field field-reference(class_ class-reference, class-name symbol) java-refs
+	instance-field class_, instance-field-descriptor class-name
+-instance-field field-reference(class_ class-reference, descriptor utf8-reference) java-refs
+	field constants, class_, name-and-type constants, instance-field-name, descriptor
+instance-field-name utf8-reference() java-refs
+	constants["instance"]
+instance-field-descriptor utf8-reference(class-name symbol) java-refs
+	constants["L{class-name};"]
 
-lambda-impl-field field-reference
-	a java-refs
-	lambda-class class-reference
-	closure-local concrete-local
-do
-	name-and-type = name-and-type a.constants, (lambda-impl-field-name a, closure-local),
-		descriptor-for-field-type a, closure-local.type
-	field a.constants, lambda-class, name-and-type
+lambda-impl-field field-reference(lambda-class class-reference, closure-local concrete-local) java-refs
+	name-and-type = name-and-type constants, closure-local.lambda-impl-field-name,
+		descriptor-for-field-type closure-local.type
+	field constants, lambda-class, name-and-type
 
-lambda-impl-field-name utf8-reference(a java-refs, closure-field concrete-local)
+lambda-impl-field-name utf8-reference(closure-field concrete-local) java-refs
 	match source = source closure-field
 	as local
-		a.constants[source.name]
+		constants[source.name]
 	as concrete-local-source-reference
-		a.constants[source.original.name]
+		constants[source.original.name]
 	as concrete-generated-local-kind
 		assert source == the_
-		a.constants["the{closure-field.type.id}"]
+		constants["the{closure-field.type.id}"]
 
-switchable-kind-field field-reference(a java-refs, union-type concrete-type)
-	union-representation a.union-info, union-type is switch
-	switchable-kind-field a, class_ a, union-type
-switchable-kind-field field-reference(a java-refs, sum-type class-reference)
-	field a.constants, sum-type,
-		name-and-type a.constants, a.switchable-kind-name, a.switchable-kind-descriptor
-switchable-kind-name utf8-reference(a java-refs)
-	a.constants["kind"]
-switchable-kind-descriptor utf8-reference(a java-refs)
-	a.constants["I"]
-switchable-value-field field-reference(a java-refs, sum-type concrete-type)
-	union-representation a.union-info, sum-type is switch
-	switchable-value-field a, class_ a, sum-type
-switchable-value-field field-reference(a java-refs, sum-type class-reference)
-	field a.constants, sum-type, name-and-type a.constants, a.value, a.java-Object-descriptor
+switchable-kind-field field-reference(union-type concrete-type) java-names-and-refs
+	union-representation union-info, union-type is switch
+	switchable-kind-field class_ union-type
+switchable-kind-field field-reference(sum-type class-reference) java-refs
+	field constants, sum-type,
+		name-and-type constants, switchable-kind-name, switchable-kind-descriptor
+switchable-kind-name utf8-reference() java-refs
+	constants["kind"]
+switchable-kind-descriptor utf8-reference() java-refs
+	constants["I"]
+switchable-value-field field-reference(sum-type concrete-type) java-names-and-refs
+	union-representation union-info, sum-type is switch
+	switchable-value-field class_ sum-type
+switchable-value-field field-reference(sum-type class-reference) java-refs
+	field constants, sum-type, name-and-type constants, value-name, java-Object-descriptor
 
-class_ class-reference(a java-refs, type concrete-type)
-	class_ a.constants, boxed-class-name a.mangled-names, type
-class-name symbol(a java-refs, type concrete-type)
-	a.mangled-names[type]
+class_ class-reference(type concrete-type) java-refs
+	class_ constants, boxed-class-name mangled-names, type
+class-name symbol(type concrete-type) java-refs
+	mangled-names[type]
 
-crow-reference-equal method-reference(a java-refs)
-	crow-method a, "referenceEqual", "(Ljava/lang/Object;Ljava/lang/Object;)Z"
+crow-reference-equal method-reference() java-refs
+	crow-method "referenceEqual", "(Ljava/lang/Object;Ljava/lang/Object;)Z"
 
-valueOf utf8-reference(a java-refs)
-	a.constants["valueOf"]
-boxed-class-valueOf-descriptor utf8-reference(a java-refs, type concrete-type)
-	param = descriptor-for-param-type a.mangled-names, type
-	return = boxed-class-name a.mangled-names, type
-	a.constants["({param})L{return};"]
-boxed-class-valueOf method-reference(a java-refs, type concrete-type)
-	virtual-method-ref a.constants, (class_ a, type), a.constants["valueOf"],
-		boxed-class-valueOf-descriptor a, type
-primitive-unboxer method-reference(a java-refs, type concrete-type, p java-primitive-type)
-	virtual-method-ref a.constants, (class_ a, type), (primitive-getter-name a, p),
-		primitive-getter-descriptor a, p
-primitive-getter-name utf8-reference(a java-refs, type java-primitive-type)
+valueOf utf8-reference() java-refs
+	constants["valueOf"]
+boxed-class-valueOf-descriptor utf8-reference(type concrete-type) java-refs
+	param = descriptor-for-param-type mangled-names, type
+	return = boxed-class-name mangled-names, type
+	constants["({param})L{return};"]
+boxed-class-valueOf method-reference(type concrete-type) java-refs
+	virtual-method-ref constants, type.class_, constants["valueOf"],
+		boxed-class-valueOf-descriptor type
+primitive-unboxer method-reference(type concrete-type, p java-primitive-type) java-refs
+	virtual-method-ref constants, type.class_, p.primitive-getter-name,
+		primitive-getter-descriptor p
+primitive-getter-name utf8-reference(type java-primitive-type) java-refs
 	name symbol = match type
 	as T_BOOLEAN
 		"booleanValue"
@@ -135,65 +133,65 @@ primitive-getter-name utf8-reference(a java-refs, type java-primitive-type)
 		"intValue"
 	as T_LONG
 		"longValue"
-	a.constants[name]
-primitive-getter-descriptor utf8-reference(a java-refs, type java-primitive-type)
-	a.constants["(){primitive-descriptor type}"]
+	constants[name]
+primitive-getter-descriptor utf8-reference(type java-primitive-type) java-refs
+	constants["(){type.primitive-descriptor::symbol}"]
 
-interface-method-ref method-reference(a java-refs, fun concrete-fun)
-	java-method-kind a.union-info, fun is interface_
-	class_ = class_ a, fun.params[0].type
-	interface-method-ref a.constants, class_, name-and-type a.constants, (instance-method-name a, fun),
-		instance-method-descriptor a, fun
+interface-method-ref method-reference(fun concrete-fun) java-names-and-refs
+	java-method-kind union-info, fun is interface_
+	class_ = class_ fun.params[0].type
+	interface-method-ref constants, class_, name-and-type constants, fun.instance-method-name,
+		instance-method-descriptor fun
 
-virtual-method-ref method-reference(a java-refs, fun concrete-fun)
-	java-method-kind a.union-info, fun is virtual
-	class_ = class_ a, fun.params[0].type
-	virtual-method-ref a.constants, class_, name-and-type a.constants, (instance-method-name a, fun),
-		instance-method-descriptor a, fun
+virtual-method-ref method-reference(fun concrete-fun) java-names-and-refs
+	java-method-kind union-info, fun is virtual
+	class_ = class_ fun.params[0].type
+	virtual-method-ref constants, class_, name-and-type constants, fun.instance-method-name,
+		instance-method-descriptor fun
 
-instance-method-name utf8-reference(a java-refs, fun concrete-fun)
-	a.constants[instance-method-name a.mangled-names, fun]
+instance-method-name utf8-reference(fun concrete-fun) java-refs
+	constants[instance-method-name mangled-names, fun]
 
-fun-name utf8-reference(a java-refs, fun concrete-fun)
-	a.constants[a.mangled-names[fun].member]
-static-method-of-class-ref method-reference(a java-refs, fun concrete-fun) # TODO: this whole thing should be cached -------------------
-	class_, name-and-type = static-method-ref-common a, fun, static-method-of-class
-	virtual-method-ref a.constants, class_, name-and-type
-static-method-of-interface-ref method-reference(a java-refs, fun concrete-fun)
-	class_, name-and-type = static-method-ref-common a, fun, static-method-of-interface
-	interface-method-ref a.constants, class_, name-and-type
--static-method-ref-common (class-reference, name-and-type-reference)(a java-refs, fun concrete-fun, expected-kind java-method-kind)
-	java-method-kind a.union-info, fun is expected-kind
-	m = a.mangled-names[fun]
-	class_ = class_ a.constants,  m.class_
-	name-and-type = name-and-type a.constants, a.constants[m.member], static-method-descriptor a, fun
+fun-name utf8-reference(fun concrete-fun) java-refs
+	constants[mangled-names[fun].member]
+static-method-of-class-ref method-reference(fun concrete-fun) java-names-and-refs # TODO: this whole thing should be cached -------------------
+	class_, name-and-type = static-method-ref-common fun, static-method-of-class
+	virtual-method-ref constants, class_, name-and-type
+static-method-of-interface-ref method-reference(fun concrete-fun) java-names-and-refs
+	class_, name-and-type = static-method-ref-common fun, static-method-of-interface
+	interface-method-ref constants, class_, name-and-type
+-static-method-ref-common (class-reference, name-and-type-reference)(fun concrete-fun, expected-kind java-method-kind) java-names-and-refs
+	java-method-kind union-info, fun is expected-kind
+	m = mangled-names[fun]
+	class_ = class_ constants,  m.class_
+	name-and-type = name-and-type constants, constants[m.member], static-method-descriptor fun
 	class_, name-and-type
 
-static-method-descriptor utf8-reference(a java-refs, fun concrete-fun)
-	a.constants[static-method-descriptor a.mangled-names, fun]
+static-method-descriptor utf8-reference(fun concrete-fun) java-refs
+	constants[static-method-descriptor mangled-names, fun]
 
-constructor-method-ref method-reference(a java-refs, fun concrete-fun)
-	java-method-kind a.union-info, fun is constructor
-	m = a.mangled-names[fun]
-	virtual-method-ref a.constants, (class_ a.constants, m.class_), a.init, constructor-descriptor a, fun
+constructor-method-ref method-reference(fun concrete-fun) java-names-and-refs
+	java-method-kind union-info, fun is constructor
+	m = mangled-names[fun]
+	virtual-method-ref constants, (class_ constants, m.class_), init, constructor-descriptor fun
 
-instance-method-descriptor utf8-reference(a java-refs, fun concrete-fun)
-	assert is-instance java-method-kind a.union-info, fun
-	a.constants[instance-method-descriptor a.mangled-names, fun]
+instance-method-descriptor utf8-reference(fun concrete-fun) java-names-and-refs
+	assert is-instance java-method-kind union-info, fun
+	constants[instance-method-descriptor mangled-names, fun]
 
-constructor-descriptor utf8-reference(a java-refs, fun concrete-fun)
-	java-method-kind a.union-info, fun is constructor
-	a.constants[constructor-descriptor a.mangled-names, fun]
+constructor-descriptor utf8-reference(fun concrete-fun) java-names-and-refs
+	java-method-kind union-info, fun is constructor
+	constants[constructor-descriptor mangled-names, fun]
 
-boxed-class-init method-reference(a java-refs, type concrete-type)
-	virtual-method-ref a.constants, (class_ a, type), a.init, boxed-class-init-descriptor a, type
-boxed-class-init-descriptor utf8-reference(a java-refs, type concrete-type)
-	a.constants["({descriptor-for-param-type a.mangled-names, type})V"]
-boxed-class-value field-reference(a java-refs, type concrete-type)
-	field a.constants, (class_ a, type), name-and-type a.constants, a.constants["value"], descriptor-for-field-type a, type
+boxed-class-init method-reference(type concrete-type) java-refs
+	virtual-method-ref constants, type.class_, init, boxed-class-init-descriptor type
+boxed-class-init-descriptor utf8-reference(type concrete-type) java-refs
+	constants["({descriptor-for-param-type mangled-names, type})V"]
+boxed-class-value field-reference(type concrete-type) java-refs
+	field constants, type.class_, name-and-type constants, constants["value"], descriptor-for-field-type type
 
-record-init-descriptor utf8-reference(a java-refs, fields concrete-field[])
-	a.constants[record-init-descriptor a.mangled-names, fields]
+record-init-descriptor utf8-reference(fields concrete-field[]) java-refs
+	constants[record-init-descriptor mangled-names, fields]
 -record-init-descriptor symbol(a java-names, fields concrete-field[])
 	res string = with out in build # TODO: support building symbols -------------------------------------------------------------
 		out ~= "("
@@ -202,55 +200,55 @@ record-init-descriptor utf8-reference(a java-refs, fields concrete-field[])
 		out ~~= ")V"
 	res.to
 
-record-init-reference method-reference(a java-refs, record_ concrete-type)
-	descriptor = record-init-descriptor a, record_.body.concrete-record!.fields
-	name-and-type = name-and-type a.constants, a.constants["<init>"], descriptor
-	virtual-method-ref a.constants, (class_ a, record_), name-and-type
+record-init-reference method-reference(record_ concrete-type) java-refs
+	descriptor = record-init-descriptor record_.body.concrete-record!.fields
+	name-and-type = name-and-type constants, constants["<init>"], descriptor
+	virtual-method-ref constants, record_.class_, name-and-type
 
-record-field field-reference(a java-refs, record_ concrete-type, field concrete-field)
-	field a, (a.mangled-names[record_], field.debug-name), field.type
-record-field-name utf8-reference(a java-refs, field concrete-field)
-	a.constants[field.debug-name]
-record-field-descriptor utf8-reference(a java-refs, field concrete-field)
-	descriptor-for-field-type a, field.type
+record-field field-reference(record_ concrete-type, field concrete-field) java-refs
+	field (mangled-names[record_], field.debug-name), field.type
+record-field-name utf8-reference(field concrete-field) java-refs
+	constants[field.debug-name]
+record-field-descriptor utf8-reference(field concrete-field) java-refs
+	descriptor-for-field-type field.type
 
-lambda-init-reference method-reference(a java-refs, class_ class-reference, lambda lambda-concrete-expr)
-	virtual-method-ref a.constants, class_, a.constants["<init>"], lambda-init-descriptor a, lambda
-lambda-init-descriptor utf8-reference(a java-refs, lambda lambda-concrete-expr)
-	a.constants[lambda-init-descriptor a.mangled-names, lambda]
+lambda-init-reference method-reference(class_ class-reference, lambda lambda-concrete-expr) java-refs
+	virtual-method-ref constants, class_, constants["<init>"], lambda-init-descriptor lambda
+lambda-init-descriptor utf8-reference(lambda lambda-concrete-expr) java-refs
+	constants[lambda-init-descriptor mangled-names, lambda]
 
-lambda-call method-reference(a java-refs, lambda-type concrete-type)
-	lambda-class = class_ a, lambda-type
-	virtual-method-ref a.constants, lambda-class, a.run, lambda-call-descriptor a, lambda-type
-lambda-call-descriptor utf8-reference(a java-refs, lambda-type concrete-type)
-	a.constants[lambda-call-descriptor a.mangled-names, lambda-type]
+lambda-call method-reference(lambda-type concrete-type) java-refs
+	lambda-class = class_ lambda-type
+	virtual-method-ref constants, lambda-class, run, lambda-call-descriptor lambda-type
+lambda-call-descriptor utf8-reference(lambda-type concrete-type) java-refs
+	constants[lambda-call-descriptor mangled-names, lambda-type]
 
-descriptor-for-field-type utf8-reference(a java-refs, type concrete-type)
-	a.constants[descriptor-for-field-type a.mangled-names, type]
+descriptor-for-field-type utf8-reference(type concrete-type) java-refs
+	constants[descriptor-for-field-type mangled-names, type]
 
-primitive-descriptor utf8-reference(a java-refs, type java-primitive-type)
-	a.constants[primitive-descriptor type]
+primitive-descriptor utf8-reference(type java-primitive-type) java-refs
+	constants[primitive-descriptor type]
 
--crow-method method-reference(a java-refs, (name symbol, descriptor symbol))
-	crow-method a, name, descriptor
--crow-method method-reference(a java-refs, name symbol, descriptor symbol)
+-crow-method method-reference((name symbol, descriptor symbol)) java-refs
+	crow-method name, descriptor
+-crow-method method-reference(name symbol, descriptor symbol) java-refs
 	# NOTE: This does not use the 'class-prefix', meaning that 'crow run foo.crow' uses the same Crow.java that 'crow' was built with
-	virtual-method-ref a.constants, "Crow", name, descriptor
+	virtual-method-ref constants, "Crow", name, descriptor
 
-crow-equal-float method-reference(a java-refs, type float-type)
-	crow-method a, match type
+crow-equal-float method-reference(type float-type) java-refs
+	crow-method match type
 	as float32
 		"equalFloat32", "(FF)Z"
 	as float64
 		"equalFloat64", "(DD)Z"
-crow-equal-float-ieee method-reference(a java-refs, type float-type)
-	crow-method a, match type
+crow-equal-float-ieee method-reference(type float-type) java-refs
+	crow-method match type
 	as float32
 		"equalFloat32IEEE", "(FF)Z"
 	as float64
 		"equalFloat64IEEE", "(DD)Z"
-crow-equal-integral method-reference(a java-refs, type integral-type)
-	crow-method a, match unsigned type
+crow-equal-integral method-reference(type integral-type) java-refs
+	crow-method match unsigned type
 	as nat8
 		"equalInt8", "(BB)Z"
 	as nat16
@@ -259,24 +257,24 @@ crow-equal-integral method-reference(a java-refs, type integral-type)
 		"equalInt32", "(II)Z"
 	as nat64
 		"equalInt64", "(JJ)Z"
-crow-is-null method-reference(a java-refs)
-	crow-method a, "isNull", "(Ljava/lang/Object;)Z"
-crow-is-not-null method-reference(a java-refs)
-	crow-method a, "isNotNull", "(Ljava/lang/Object;)Z"
-crow-compare-float method-reference(a java-refs, type float-type)
-	crow-method a, match type
+crow-is-null method-reference() java-refs
+	crow-method "isNull", "(Ljava/lang/Object;)Z"
+crow-is-not-null method-reference() java-refs
+	crow-method "isNotNull", "(Ljava/lang/Object;)Z"
+crow-compare-float method-reference(type float-type) java-refs
+	crow-method match type
 	as float32
 		"compareFloat32", "(FF)B"
 	as float64
 		"compareFloat64", "(DD)B"
-crow-less-float-ieee method-reference(a java-refs, type float-type)
-	crow-method a, match type
+crow-less-float-ieee method-reference(type float-type) java-refs
+	crow-method match type
 	as float32
 		"lessFloat32IEEE", "(FF)Z"
 	as float64
 		"lessFloat64IEEE", "(DD)Z"
-crow-compare-integral method-reference(a java-refs, type integral-type)
-	crow-method a, match type
+crow-compare-integral method-reference(type integral-type) java-refs
+	crow-method match type
 	as int8
 		"compareInt8", "(BB)B"
 	as int16
@@ -294,36 +292,36 @@ crow-compare-integral method-reference(a java-refs, type integral-type)
 	as nat64
 		"compareNat64", "(JJ)B"
 
-java-Error class-reference(a java-refs)
-	class_ a.constants, "java/lang/Error"
-java-Runnable class-reference(a java-refs)
-	class_ a.constants, "java/lang/Runnable"
+java-Error class-reference() java-refs
+	class_ constants, "java/lang/Error"
+java-Runnable class-reference() java-refs
+	class_ constants, "java/lang/Runnable"
 
-crow-fits-in-nat32 method-reference(a java-refs)
-	crow-method a, "fitsInNat32", "(J)Z"
-crow-fits-in-int32 method-reference(a java-refs)
-	crow-method a, "fitsInInt32", "(J)Z"
-crow-float64FromNat64 method-reference(a java-refs)
-	crow-method a, "float64FromNat64", "(J)D"
-crow-nat32-from-nat64 method-reference(a java-refs)
-	crow-method a, "nat32FromNat64", "(J)I"
-crow-string-array-from-java-string-array method-reference(a java-refs)
-	crow-method a, "stringArrayFromJavaStringArray", "([Ljava/lang/String;)[[B"
-crow-weakRefGet method-reference(a java-refs)
-	crow-method a, "weakRefGet", "(Ljava/lang/ref/WeakReference;)Ljava/lang/Object;"
-crow-newWeakRef method-reference(a java-refs)
-	crow-method a, "newWeakRef", "(Ljava/lang/Object;)Ljava/lang/ref/WeakReference;"
-java-divideUnsigned method-reference(a java-refs, type nat-type)
+crow-fits-in-nat32 method-reference() java-refs
+	crow-method "fitsInNat32", "(J)Z"
+crow-fits-in-int32 method-reference() java-refs
+	crow-method "fitsInInt32", "(J)Z"
+crow-float64FromNat64 method-reference() java-refs
+	crow-method "float64FromNat64", "(J)D"
+crow-nat32-from-nat64 method-reference() java-refs
+	crow-method "nat32FromNat64", "(J)I"
+crow-string-array-from-java-string-array method-reference() java-refs
+	crow-method "stringArrayFromJavaStringArray", "([Ljava/lang/String;)[[B"
+crow-weakRefGet method-reference() java-refs
+	crow-method "weakRefGet", "(Ljava/lang/ref/WeakReference;)Ljava/lang/Object;"
+crow-newWeakRef method-reference() java-refs
+	crow-method "newWeakRef", "(Ljava/lang/Object;)Ljava/lang/ref/WeakReference;"
+java-divideUnsigned method-reference(type nat-type) java-refs
 	match type
 	as nat8
-		virtual-method-ref a.constants, "java/lang/Byte", "divideUnsigned", "(BB)B"
+		virtual-method-ref constants, "java/lang/Byte", "divideUnsigned", "(BB)B"
 	as nat16
-		virtual-method-ref a.constants, "java/lang/Short", "divideUnsigned", "(SS)S"
+		virtual-method-ref constants, "java/lang/Short", "divideUnsigned", "(SS)S"
 	as nat32
-		virtual-method-ref a.constants, "java/lang/Integer", "divideUnsigned", "(II)I"
+		virtual-method-ref constants, "java/lang/Integer", "divideUnsigned", "(II)I"
 	as nat64
-		virtual-method-ref a.constants, "java/lang/Long", "divideUnsigned", "(JJ)J"
-java-remainderUnsigned method-reference(a java-refs, type nat-type)
+		virtual-method-ref constants, "java/lang/Long", "divideUnsigned", "(JJ)J"
+java-remainderUnsigned method-reference(type nat-type) java-refs
 	match type
 	as nat8
 		throw todo
@@ -332,71 +330,71 @@ java-remainderUnsigned method-reference(a java-refs, type nat-type)
 	as nat32
 		throw todo
 	else
-		virtual-method-ref a.constants, "java/lang/Long", "remainderUnsigned", "(JJ)J"
-java-Class-getResourceAsStream method-reference(a java-refs)
-	virtual-method-ref a.constants, "java/lang/Class", "getResourceAsStream", "(Ljava/lang/String;)Ljava/io/InputStream;"
-java-doubleToRawLongBits method-reference(a java-refs)
-	virtual-method-ref a.constants, "java/lang/Double", "doubleToRawLongBits", "(D)J"
-java-floatToRawIntBits method-reference(a java-refs)
-	virtual-method-ref a.constants, "java/lang/Float", "floatToRawIntBits", "(F)I"
-java-InputStream-readAllBytes method-reference(a java-refs)
-	virtual-method-ref a.constants, "java/io/InputStream", "readAllBytes", "()[B"
-java-intBitsToFloat method-reference(a java-refs)
-	virtual-method-ref a.constants, "java/lang/Float", "intBitsToFloat", "(I)F"
-java-longBitsToDouble method-reference(a java-refs)
-	virtual-method-ref a.constants, "java/lang/Double", "longBitsToDouble", "(J)D"
-java-Object class-reference(a java-refs)
-	class_ a.constants, "java/lang/Object"
-java-Object-descriptor utf8-reference(a java-refs)
-	a.constants["Ljava/lang/Object;"]
-java-String class-reference(a java-refs)
-	class_ a.constants, "java/lang/String"
-java-String-init-from-bytes method-reference(a java-refs)
-	virtual-method-ref a.constants, "java/lang/String", "<init>", "([B)V"
-java-String-getBytes method-reference(a java-refs)
-	virtual-method-ref a.constants, "java/lang/String", "getBytes", "()[B"
-java-Throwable class-reference(a java-refs)
-	class_ a.constants, "java/lang/Throwable"
-java-Object-toString method-reference(a java-refs)
-	virtual-method-ref a.constants, a.java-Object, name-and-type a.constants, "toString", "()Ljava/lang/String;"
-toString utf8-reference(a java-refs)
-	a.constants["toString"]
+		virtual-method-ref constants, "java/lang/Long", "remainderUnsigned", "(JJ)J"
+java-Class-getResourceAsStream method-reference() java-refs
+	virtual-method-ref constants, "java/lang/Class", "getResourceAsStream", "(Ljava/lang/String;)Ljava/io/InputStream;"
+java-doubleToRawLongBits method-reference() java-refs
+	virtual-method-ref constants, "java/lang/Double", "doubleToRawLongBits", "(D)J"
+java-floatToRawIntBits method-reference() java-refs
+	virtual-method-ref constants, "java/lang/Float", "floatToRawIntBits", "(F)I"
+java-InputStream-readAllBytes method-reference() java-refs
+	virtual-method-ref constants, "java/io/InputStream", "readAllBytes", "()[B"
+java-intBitsToFloat method-reference() java-refs
+	virtual-method-ref constants, "java/lang/Float", "intBitsToFloat", "(I)F"
+java-longBitsToDouble method-reference() java-refs
+	virtual-method-ref constants, "java/lang/Double", "longBitsToDouble", "(J)D"
+java-Object class-reference() java-refs
+	class_ constants, "java/lang/Object"
+java-Object-descriptor utf8-reference() java-refs
+	constants["Ljava/lang/Object;"]
+java-String class-reference() java-refs
+	class_ constants, "java/lang/String"
+java-String-init-from-bytes method-reference() java-refs
+	virtual-method-ref constants, "java/lang/String", "<init>", "([B)V"
+java-String-getBytes method-reference() java-refs
+	virtual-method-ref constants, "java/lang/String", "getBytes", "()[B"
+java-Throwable class-reference() java-refs
+	class_ constants, "java/lang/Throwable"
+java-Object-toString method-reference() java-refs
+	virtual-method-ref constants, java-Object, name-and-type constants, "toString", "()Ljava/lang/String;"
+toString utf8-reference() java-refs
+	constants["toString"]
 
-SourceFile utf8-reference(a java-refs)
-	a.constants["SourceFile"]
+SourceFile utf8-reference() java-refs
+	constants["SourceFile"]
 
-init-no-args method-reference(a java-refs, class_ class-reference)
-	virtual-method-ref a.constants, class_, a.init, a.init-no-args-descriptor
-init utf8-reference(a java-refs)
-	a.constants["<init>"]
-clinit utf8-reference(a java-refs)
-	a.constants["<clinit>"]
-run utf8-reference(a java-refs)
-	a.constants["run"]
-init-no-args-descriptor utf8-reference(a java-refs)
-	a.constants["()V"]
-init-union-switch method-reference(a java-refs, class_ class-reference)
-	virtual-method-ref a.constants, class_, a.init, a.init-union-switch-descriptor
-init-union-switch-descriptor utf8-reference(a java-refs)
-	a.constants["(ILjava/lang/Object;)V"]
+init-no-args method-reference(class_ class-reference) java-refs
+	virtual-method-ref constants, class_, init, init-no-args-descriptor
+init utf8-reference() java-refs
+	constants["<init>"]
+clinit utf8-reference() java-refs
+	constants["<clinit>"]
+run utf8-reference() java-refs
+	constants["run"]
+init-no-args-descriptor utf8-reference() java-refs
+	constants["()V"]
+init-union-switch method-reference(class_ class-reference) java-refs
+	virtual-method-ref constants, class_, init, init-union-switch-descriptor
+init-union-switch-descriptor utf8-reference() java-refs
+	constants["(ILjava/lang/Object;)V"]
 
-value utf8-reference(a java-refs)
-	a.constants["value"]
+value-name utf8-reference() java-refs
+	constants["value"]
 
-constant-field field-reference(a java-refs, constant any-constant)
-	field a, a.mangled-names.constant-names[constant], constant.type
-constant-array-field field-reference(a java-refs, type concrete-type, value constant-array)
-	field a, (array-name a.mangled-names.constant-names.names, type, value), type
-constant-record-field field-reference(a java-refs, type concrete-type, value constant-record)
-	field a, (record-name a.mangled-names.constant-names.names, type, value), type
+constant-field field-reference(constant any-constant) java-refs
+	field mangled-names.constant-names[constant], constant.type
+constant-array-field field-reference(type concrete-type, value constant-array) java-refs
+	field (array-name mangled-names.constant-names.names, type, value), type
+constant-record-field field-reference(type concrete-type, value constant-record) java-refs
+	field (record-name mangled-names.constant-names.names, type, value), type
 
-var-field field-reference(a java-refs, var concrete-var)
-	field a, a.mangled-names[var], var.type
-var-name utf8-reference(a java-refs, var concrete-var)
-	a.constants[a.mangled-names[var].member]
+var-field field-reference(var concrete-var) java-refs
+	field mangled-names[var], var.type
+var-name utf8-reference(var concrete-var) java-refs
+	constants[mangled-names[var].member]
 
-field field-reference(a java-refs, name class-and-member, type concrete-type) # TODO: should be private ----------------------
-	typedesc = descriptor-for-field-type a, type
-	name-and-type = name-and-type a.constants, a.constants[name.member], typedesc
-	class_ = class_ a.constants, name.class_
-	field a.constants, class_, name-and-type
+field field-reference(name class-and-member, type concrete-type) java-refs # TODO: should be private ----------------------
+	typedesc = descriptor-for-field-type type
+	name-and-type = name-and-type constants, constants[name.member], typedesc
+	class_ = class_ constants, name.class_
+	field constants, class_, name-and-type

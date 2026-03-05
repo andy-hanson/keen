@@ -11,15 +11,17 @@ import
 	./instantiate
 	./type-from-ast
 
-check-auto-fun fun-body(ctx check-ctx, common-types common-types, types-and-specs-map types-and-specs-map, funs-map funs-map, fun fun-decl)
+check-auto-fun fun-body(fun fun-decl) check-ctx, funs-map, types-get
 	wrong fun-body mut(diag diag) = of diag
-		add-diag ctx, fun.name-range.range, diag
+		add-diag fun.name-range.range, diag
 		fun-body-bogus
 	wrong-params fun-body mut(kind auto-fun-name) = of kind
 		wrong[diag-auto-fun-wrong-params kind]
 	wrong-return-type fun-body mut(kind auto-fun-name) = of kind
 		wrong[diag-auto-fun-wrong-return-type kind]
 
+	common-types = the::types-get.common-types
+	types-and-specs-map = the::types-get.types-and-specs-map
 	symbol = common-types.symbol
 	symbol-array = common-types.array[symbol]
 	return-type = fun.return-type
@@ -27,27 +29,27 @@ check-auto-fun fun-body(ctx check-ctx, common-types common-types, types-and-spec
 
 	match fun.name
 	as "=="
-		if param-type = get-auto-fun-param-type ctx, common-types, equals, fun, 2
+		if param-type = get-auto-fun-param-type common-types, equals, fun, 2
 			if is-builtin param-type
-				get-builtin-fun ctx, fun
-			elif spec_ = get-spec-from-common-module ctx, types-and-specs-map, name-range, "equal", compare
-				check-auto-fun-with-spec ctx, funs-map, fun, param-type, equals, equals, spec_, (), ()
+				get-builtin-fun fun
+			elif spec_ = get-spec-from-common-module types-and-specs-map, name-range, "equal", compare
+				check-auto-fun-with-spec fun, param-type, equals, equals, spec_, (), ()
 			else
 				fun-body-bogus
 		else
 			fun-body-bogus
 	as "<=>"
-		if param-type = get-auto-fun-param-type ctx, common-types, compare, fun, 2
+		if param-type = get-auto-fun-param-type common-types, compare, fun, 2
 			if is-builtin param-type
-				get-builtin-fun ctx, fun
-			elif spec_ = get-spec-from-common-module ctx, types-and-specs-map, name-range, "compare", compare
-				check-auto-fun-with-spec ctx, funs-map, fun, param-type, compare, compare, spec_, (), ()
+				get-builtin-fun fun
+			elif spec_ = get-spec-from-common-module types-and-specs-map, name-range, "compare", compare
+				check-auto-fun-with-spec fun, param-type, compare, compare, spec_, (), ()
 			else
 				fun-body-bogus
 		else
 			fun-body-bogus
 	as "to"
-		if param-type = get-auto-fun-param-type ctx, common-types, to, fun, 1
+		if param-type = get-auto-fun-param-type common-types, to, fun, 1
 			returned-nat = as-nat-type return-type
 			param-nat = as-nat-type param-type
 			returned-enum =  as-enum-or-flags-option return-type
@@ -66,9 +68,9 @@ check-auto-fun fun-body(ctx check-ctx, common-types common-types, types-and-spec
 			elif return-type == symbol-array and as-flags param-type
 				auto-fun to-symbol-array-from-flags, ()
 			elif is-builtin param-type
-				get-builtin-fun ctx, fun
-			elif spec_ = get-spec-from-common-module ctx, types-and-specs-map, name-range, "to", misc
-				check-auto-fun-with-spec ctx, funs-map, fun, param-type, to, to-json, spec_, (is-json ctx, return-type), return-type
+				get-builtin-fun fun
+			elif spec_ = get-spec-from-common-module types-and-specs-map, name-range, "to", misc
+				check-auto-fun-with-spec fun, param-type, to, to-json, spec_, return-type.is-json, return-type
 			else
 				fun-body-bogus
 		else
@@ -81,7 +83,7 @@ check-auto-fun fun-body(ctx check-ctx, common-types common-types, types-and-spec
 		else
 			auto-fun members-of-enum-or-flags, ()
 	else
-		get-builtin-fun ctx, fun
+		get-builtin-fun fun
 
 -is-enum-or-flags-array bool(a type)
 	(x = array-element-type a) and as-enum-or-flags x
@@ -101,8 +103,6 @@ check-auto-fun fun-body(ctx check-ctx, common-types common-types, types-and-spec
 		a.decl.body.flags_
 
 -check-auto-fun-with-spec fun-body
-	ctx check-ctx
-	funs-map funs-map
 	fun fun-decl
 	param-type type
 	fun-name auto-fun-name
@@ -110,9 +110,9 @@ check-auto-fun fun-body(ctx check-ctx, common-types common-types, types-and-spec
 	spec_ spec-decl
 	return-type-ok bool? # If none, use sig
 	extra-type-arg type?
-do
+do check-ctx, funs-map
 	diag fun-body mut(x diag) = of x
-		add-diag ctx, fun.name-range.range, x
+		add-diag fun.name-range.range, x
 		fun-body-bogus
 	do if sig = only spec_.sigs else diag[diag-auto-fun-spec-corrupt spec_.name]
 
@@ -122,11 +122,11 @@ do
 	param-inst = param-type.struct-inst!
 	check-spec-for-component called mut(decl-type type) = of decl-type
 		inst-type = instantiate-type decl-type, param-inst.type-args
-		spec-inst = instantiate-spec ctx.instantiate-ctx, spec_, if extra-type-arg
+		spec-inst = instantiate-spec instantiate-ctx, spec_, if extra-type-arg
 			to-type-array (extra-type-arg, inst-type)
 		else
 			as-type-args inst-type
-		check-spec-and-get-last-impl ctx, funs-map, fun, spec-inst
+		check-spec-and-get-last-impl fun, spec-inst
 	members called[] = match body = param-inst.decl.body
 	as struct-body-bogus
 		throw unreachable
@@ -146,14 +146,14 @@ do
 			check-spec-for-component[m.member]
 	auto-fun fun-kind, members
 
-get-auto-fun-param-type type?(ctx check-ctx, common-types common-types, fun-name auto-fun-name, fun fun-decl, count-params nat)
+get-auto-fun-param-type type?(common-types common-types, fun-name auto-fun-name, fun fun-decl, count-params nat) check-ctx
 	fail type? mut(diag diag) = of diag
-		add-diag ctx, fun.name-range.range, diag
+		add-diag fun.name-range.range, diag
 		()
 	do if fun.params.size == count-params and all-same fun.params, it.type else
 		fail[diag-auto-fun-wrong-params fun-name]
 	res = fun.params[0].type
-	if !is-fully-visible ctx, res and res != common-types.symbol
+	if !is-fully-visible res and res != common-types.symbol
 		fail[diag-auto-fun-type-not-fully-visible]
 	elif every fun.params, !!it.local
 		res
@@ -171,10 +171,10 @@ get-auto-fun-param-type type?(ctx check-ctx, common-types common-types, fun-name
 -is-union bool(a struct-body)
 	a.sum-type and a.kind == union_
 
--is-fully-visible bool(ctx check-ctx, a type)
+-is-fully-visible bool(a type) check-ctx
 	do if a.struct-inst
 	decl = a.decl
-	decl.module-uri == ctx.cur-uri or match body = decl.body
+	decl.module-uri == cur-uri or match body = decl.body
 	as struct-body-bogus
 		true
 	as struct-body-extern-java
@@ -190,5 +190,5 @@ get-auto-fun-param-type type?(ctx check-ctx, common-types common-types, fun-name
 	as sum-type
 		body.kind == union_
 
--is-json bool(ctx check-ctx, a type)
-	a.struct-inst and a.decl.module-uri == ctx.common-uris[json] and a.decl.name == "json"
+-is-json bool(a type) check-ctx
+	a.struct-inst and a.decl.module-uri == the::check-ctx.common-uris[json] and a.decl.name == "json"

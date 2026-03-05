@@ -73,8 +73,14 @@ main-ctx record mut
 	server mut server
 	reader file-reader
 	print void mut(pipe pipe, text string)
-print void(a main-ctx, pipe pipe, text string)
-	a.print[pipe, text]
+server server() main-ctx
+	the::main-ctx.server
+set-server void(value server) main-ctx
+	the::main-ctx.server := value
+reader file-reader() main-ctx
+	the::main-ctx.reader
+mprint void(pipe pipe, text string) main-ctx # TODO: this should be called 'print'. That requires disambiguating calls based on contexts. -----------
+	the::main-ctx.print[pipe, text]
 
 -run-lsp void(server server, reader file-reader, this-executable file-path) global
 	log error, this-executable.crow-version.show
@@ -115,38 +121,36 @@ print void(a main-ctx, pipe pipe, text string)
 	else
 		out ~= x
 
--load-all-files-for-main void(ctx main-ctx, main main-kind)
+-load-all-files-for-main void(main main-kind) main-ctx
 	match main
 	as main-kind-main-function
-		load-all-files ctx,
-			- main.uri
+		load-all-files (main.uri,)
 	as main-kind-tests-in-config
-		load-all-files-for-config ctx, main.config-uri
+		load-all-files-for-config main.config-uri
 	as main-kind-tests-at-uri
-		load-all-files ctx,
-			- main.crow-uri
+		load-all-files (main.crow-uri,)
 
--load-all-files-for-config void(ctx main-ctx, config-uri uri)
+-load-all-files-for-config void(config-uri uri) main-ctx
 	unless uri-is-file config-uri
-		print ctx, err, "Can't list test files at non-file URI {config-uri}"
+		mprint err, "Can't list test files at non-file URI {config-uri}"
 		throw exit
-	for file in files-for-config ctx.reader, config-uri
-		load-single-file ctx.server, ctx.reader, file.to
-	load-until-no-unknown-uris ctx.server, ctx.reader
+	for file in files-for-config reader, config-uri
+		load-single-file server, reader, file.to
+	load-until-no-unknown-uris server, reader
 
 -files-for-config file-path[](reader file-reader, config-uri uri)
 	files = files-in-directory-recursive reader, config-uri.as-file-path.parent!
 	filter files, it.file-type == crow
 
--load-all-files void(ctx main-ctx, root-uris uri[])
+-load-all-files void(root-uris uri[]) main-ctx
 	start = perf-now
 	finally end-load-all-files start
 	for uri in root-uris
 		if is-crow-config uri
-			load-all-files-for-config ctx, uri
+			load-all-files-for-config uri
 		else
-			load-single-file ctx.server, ctx.reader, uri
-	load-until-no-unknown-uris ctx.server, ctx.reader
+			load-single-file server, reader, uri
+	load-until-no-unknown-uris server, reader
 
 -read-file-locally read-file-result-params(reader file-reader, uri uri)
 	match res = try-read-file reader, uri
@@ -171,11 +175,12 @@ print void(a main-ctx, pipe pipe, text string)
 	set-file server, uri, try-read-file reader, uri
 
 -go void(ctx main-ctx, this-executable file-path, command command-kind) global
+	the main-ctx = ctx
 	match command
 	as build-command
 		targets build-target set = map command.out, it.kind
-		do-and-watch ctx, command.main, command.watch, of
-			program = check-main-and-print-diags ctx, command.main, targets
+		do-and-watch command.main, command.watch, of
+			program = check-main-and-print-diags command.main, targets
 			if has-fatal-diagnostics program
 				print err, "Due to compile errors, nothing will be built."
 				for out in command.out
@@ -185,21 +190,21 @@ print void(a main-ctx, pipe pipe, text string)
 						()
 				throw exit
 			else
-				build-all-outputs ctx.server, command.out, command.options, command.times, program
+				build-all-outputs server, command.out, command.options, command.times, program
 	as check-command
 		for _ in 0::nat .. command.times
 			options show-diags-options =
 				only-for-uris: ()
 				show-options: color: command.show-color
 				show-all-diagnostics: command.show-all-diagnostics
-			program = check-and-print-diags ctx, command.root-uris, options
+			program = check-and-print-diags command.root-uris, options
 			forbid has-any-diagnostics program else exit
-			ctx.server := trusted ctx.server.settings,
+			server := trusted server.settings,
 	as help-command
 		print command.help-text
 		throw exit command.exit-code.value.to
 	as lsp-command
-		run-lsp ctx.server, ctx.reader, this-executable
+		run-lsp server, reader, this-executable
 	as perf-test-parse-command
 		files file-path[] = for* uri in command.root-uris
 			if is-crow-config uri
@@ -211,75 +216,75 @@ print void(a main-ctx, pipe pipe, text string)
 			as array-view
 				safe-reinterpret-cast x
 			as read-file-diag
-				print ctx, err, "error reading {file}"
+				print err, "error reading {file}"
 				()
 		for _ in 0 .. command.times
 			for file, lcg in zip files, file-contents
 				_ = parse-file file.to, lcg.source-text, lcg
 		log "Parsed {files.size} files {command.times} times."
 	as print-ast-command
-		load-single-file ctx.server, ctx.reader, command.uri
-		diagnostics, json = print-ast ctx.server, command.uri
+		load-single-file server, reader, command.uri
+		diagnostics, json = print-ast server, command.uri
 		unless is-empty diagnostics
-			print ctx, err, diagnostics
-		print ctx, out, "{json}"
+			print err, diagnostics
+		print out, "{json}"
 	as print-tokens-command
-		match content = try-read-file ctx.reader, command.uri
+		match content = try-read-file reader, command.uri
 		as array-view
 			source = content.safe-reinterpret-cast::(char8 array-view)
 			diagnostics parse-diagnostic mut[] = ()
 			tokens = lex-tokens source, diagnostics
 			unless is-empty diagnostics
-				show-ctx = show-ctx-for-single-file command.uri, source, ctx.server.uris-info, ctx.server.show-options
-				print ctx, err, show-parse-diagnostics show-ctx, command.uri, diagnostics.move-to
-			print ctx, out, tokens.to-crowd
+				the show-ctx = show-ctx-for-single-file command.uri, source, server.uris-info, server.show-options
+				print err, show-parse-diagnostics command.uri, diagnostics.move-to
+			print out, tokens.to-crowd
 		as read-file-diag
 			log error, "Can't read file"
 	as print-concrete-model-command
 		main = main-kind-main-function command.main, ()
-		load-all-files-for-main ctx, main
-		program = check-main-and-print-diags ctx, main, ()
-		print ctx, out, "{json-of-concrete-model ctx.server, java, program}"
+		load-all-files-for-main main
+		program = check-main-and-print-diags main, ()
+		print out, "{json-of-concrete-model server, java, program}"
 	as print-dependencies-command
-		program = check-and-print-diags ctx, command.root-uris
-		print ctx, out, print-dependencies ctx.server, program, command.format
+		program = check-and-print-diags command.root-uris
+		print out, print-dependencies server, program, command.format
 	as print-ide-at-pos-command
-		program = check-and-print-diags ctx, (command.where.uri,)
-		print ctx, out, "{json-for-print-ide-at-pos ctx.server, program, command.where, command.kind}"
+		program = check-and-print-diags (command.where.uri,)
+		print out, "{json-for-print-ide-at-pos server, program, command.where, command.kind}"
 	as print-ide-whole-file-command
-		program = check-and-print-diags ctx, (command.uri,)
-		print ctx, out, "{json-for-print-ide-whole-file ctx.server, program, command.uri, command.kind}"
+		program = check-and-print-diags (command.uri,)
+		print out, "{json-for-print-ide-whole-file server, program, command.uri, command.kind}"
 	as print-model-command
-		program = check-and-print-diags ctx, command.root-uris
-		print ctx, out, "{json-of-model ctx.server, program, command.root-uris}"
+		program = check-and-print-diags command.root-uris
+		print out, "{json-of-model server, program, command.root-uris}"
 	as run-command
-		do-and-watch ctx, command.main, command.options.watch, of then run ctx, command
+		do-and-watch command.main, command.options.watch, of then run command
 	as version-command
 		print "{crow-version this-executable}"
 
--do-and-watch void(ctx main-ctx, main main-kind, watch bool, f void mut())
-	load-all-files-for-main ctx, main
+-do-and-watch void(main main-kind, watch bool, f void mut()) main-ctx
+	load-all-files-for-main main
 	f[]
 	do if watch
 	log "watching for changes..."
 	for in infinite
-		changed = wait-for-change ctx.reader
+		changed = wait-for-change reader
 		log "{get-arbitrary! changed} changed, building again..."
-		load-all-files ctx, map changed, it.to
+		load-all-files map changed, it.to
 		f[]
 
--run void(ctx main-ctx, run run-command) global
+-run void(run run-command) global, main-ctx
 	is-js = run.options.node-js
-	program = check-main-and-print-diags ctx, run.main,
+	program = check-main-and-print-diags run.main,
 		- if is-js then js else java
 	forbid has-fatal-diagnostics program else
 		print err, "Stopping due to compile errors."
 		exit
 	trusted if is-js
-		run-node-js ctx.server, program, run.main
+		run-node-js server, program, run.main
 	else
 		assert java else error "This is a JS build, so 'run' only works when the '--node-js' option is passed."
-		run-java ctx.server, program, run.main
+		run-java server, program, run.main
 
 -run-java void(server server, program program-with-main, run-main main-kind) global, unsafe, java
 	loader CrowClassLoader = getSystemClassLoader,
@@ -357,30 +362,30 @@ do global
 	write-file out-file, result.js, all, allow
 	?write-file source-map-path, result.map!, read-write, allow
 
--check-main-and-print-diags program-with-main(ctx main-ctx, main main-kind, targets build-target set)
-	program = get-program-for-main ctx.server, main, targets
+-check-main-and-print-diags program-with-main(main main-kind, targets build-target set) main-ctx
+	program = get-program-for-main server, main, targets
 	if has-any-diagnostics program
-		print ctx, err, show-diagnostics ctx.server, program
+		mprint err, show-diagnostics server, program
 	program
 
--check-and-print-diags program(ctx main-ctx, roots uri[])
-	check-and-print-diags ctx, roots, ()
--check-and-print-diags program(ctx main-ctx, roots uri[], options show-diags-options)
-	load-all-files ctx, roots
+-check-and-print-diags program(roots uri[]) main-ctx
+	check-and-print-diags roots, ()
+-check-and-print-diags program(roots uri[], options show-diags-options) main-ctx
+	load-all-files roots
 	crow-configs uri set = filter roots, it.is-crow-config
-	program = get-program ctx.server, crow-configs
+	program = get-program server, crow-configs
 	if has-any-diagnostics program
-		print ctx, err, show-diagnostics ctx.server, program, options
+		mprint err, show-diagnostics server, program, options
 	program
 
 -print-dependencies string(server server, program program, format print-dependencies-format)
-	ctx = get-show-diag-ctx server, program
+	the show-ctx = get-show-ctx server
 	match format
 	as dot
 		deps = join "\n\t", sort for* from, to in all-dependencies program
 			for t in to
-				"{quoted show-uri ctx, from} -> {quoted show-uri ctx, t}"
+				"{quoted show-uri from} -> {quoted show-uri t}"
 		"digraph \{\n\t{deps}\n}"
 	as flat
 		join "\n", sort for uri in all-uris program
-			show-uri ctx, uri
+			show-uri uri

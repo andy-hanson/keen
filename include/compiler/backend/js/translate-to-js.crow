@@ -19,36 +19,34 @@ import
 translate-to-js js-and-map
 	model-program program-with-main
 	program concrete-program
-	show-ctx show-type-ctx
 	sanity-checks sanity-checks
 	source-map-name string?
-do
+do show-ctx
 	start = perf-now
 	finally end-translate-to-js start
-	ctx to-js-ctx =
-		show-type-ctx: show-ctx
+	the to-js-ctx =
 		program: program
 		sanity-checks: sanity-checks
 		union-info: plan-unions program
 		mangled-names: build-mangled-names program
-		constant-names: gen-constant-names program, show-ctx.show
+		constant-names: gen-constant-names program
 	shebang shebang = node
 	classes js-class-decl[] = for* type in program.all-non-extern-types
-		from-option translate-type ctx, type
+		from-option translate-type type
 	functions js-fun-decl[] = with out in build
 		for x in program.all-non-extern-funs
-			out ~~= to-js-functions ctx, x
+			out ~~= to-js-functions x
 		for var in program.all-vars
 			match var.kind
 			as thread-local_
 				throw todo
 			as global_
 				if var-needs-getter var
-					out ~= gen-var-getter ctx, var
-		each-constant-in-dependency-order show-ctx.show, program, of x
+					out ~= gen-var-getter var
+		each-constant-in-dependency-order program, of x
 			# TODO: This is just an arbitrary source. there should be a way to have a null source?
-			source = source ctx, program.common-funs.concrete-common-funs-js!.to-symbol-from-string
-			out ~= constant-getter ctx, source, x
+			source source = source program.common-funs.concrete-common-funs-js!.to-symbol-from-string
+			out ~= constant-getter source, x
 
 	vars js-var-decl[] = with out in build
 		for var in program.all-vars
@@ -57,15 +55,15 @@ do
 				throw todo
 			as global_
 				if var-needs-getter var
-					out ~= let, (js-name ctx, var), ()
+					out ~= let, var.js-name, ()
 				elif has-simple-initializer var
-					out ~= gen-var-no-getter ctx, var
+					out ~= gen-var-no-getter var
 		to-symbol = program.common-funs.concrete-common-funs-js!.to-symbol-from-string
-		source = source ctx, to-symbol
-		to-symbol-ref = to-ref ctx, source, to-symbol, sync
+		source source = source to-symbol
+		to-symbol-ref = to-ref source, to-symbol, sync
 		for index, sym in with-index program.all-constants.symbols
 			args js-expr[] =
-				- to-string-from-js-string ctx, source, gen-string source, sym.to
+				- to-string-from-js-string source, gen-string source, sym.to
 			out ~= const, index.constant-symbol-name, gen-call-sync source, to-symbol-ref, args
 		for var in program.all-vars
 			match var.kind
@@ -73,27 +71,28 @@ do
 				throw todo
 			as global_
 				unless var-needs-getter var or has-simple-initializer var
-					out ~= gen-var-no-getter ctx, var
+					out ~= gen-var-no-getter var
 
 	ast js-script-ast = shebang, classes, functions, vars,
-		- gen-call-main ctx, program.common-funs.concrete-common-funs-js!.main 'to
+		- gen-call-main program.common-funs.concrete-common-funs-js!.main 'to
 	module-paths = module-paths model-program
-	write-js-ast show-ctx, module-paths, ast, sanity-checks, source-map-name
+	write-js-ast the::show-ctx.file-content-getters, module-paths, ast, sanity-checks, source-map-name
 
 # Emit vars with simple initializers before symbols (this happens to be the only kind of constants that requires)
 -has-simple-initializer bool(a concrete-var)
 	!!a.initializer.kind.constant.?scalar-value
 
--gen-var-no-getter js-var-decl(ctx to-js-ctx, var concrete-var)
+-gen-var-no-getter js-var-decl(var concrete-var) to-js
 	# TODO: actually detect whether it needs to be async --------------------------------------------------------------
+	the to-expr-ctx = async, var.source::var-decl.name
 	const: let
-	destructure: js-name ctx, var
-	initializer: to-js-expr (ctx, async, var.source.name), var.initializer
+	destructure: js-name var
+	initializer: to-js-expr var.initializer
 
--gen-constant-names nat constant-names(program concrete-program, show-ctx show-ctx)
+-gen-constant-names nat constant-names(program concrete-program) show-ctx
 	out nat constant-names-builder = ()
 	constant-index mut nat = 0
-	each-constant-in-dependency-order show-ctx, program, of x
+	each-constant-in-dependency-order program, of x
 		out[x] := constant-index
 		constant-index +:= 1
 	finish out
@@ -101,13 +100,13 @@ do
 -constant-symbol-name js-name(index nat)
 	no-prefix "_symbol{index}"
 
--gen-call-main js-expr(ctx to-js-ctx, main concrete-fun)
+-gen-call-main js-expr(main concrete-fun) to-js
 	###
 	main(typeof process === 'undefined' ? [] : process.argv.slice(2).map(x => toString(x)).then(exit => {
 		if (exit !== 0n) process.exit(Number(exit))
 	})
 	###
-	source = source ctx, main
+	source source = source main
 	process = gen-global source, "process"
 	argv =
 		typeof-process = gen-typeof source, process
@@ -117,16 +116,15 @@ do
 			process-argv = gen-property-access source, process, "argv"
 			gen-call-property-sync source, process-argv, "slice",
 				- gen-number64 source, 2
-		#to-string-from-js-string
 		to-string-lambda =
 			x = no-prefix "x"
 			params js-params = (x,), ()
 			gen-arrow-function source, sync, params,
-				to-string-from-js-string ctx, source, gen-identifier source, x
+				to-string-from-js-string source, gen-identifier source, x
 		process-argv-mapped = gen-call-property-sync source, process-argv-slice, "map", (to-string-lambda,)
 		gen-ternary source, process-is-undefined, empty-array, process-argv-mapped
-	main-async sync-or-async = if ctx.async.funs[main] == always-async then async else sync
-	call-main = gen-call-sync source, (to-ref ctx, source, main, main-async), (argv,)
+	main-async sync-or-async = if main.async-fun-kind == always-async then async else sync
+	call-main = gen-call-sync source, (to-ref source, main, main-async), (argv,)
 	main-promise = match main-async
 	as sync
 		# TODO: this should be `Promise.resolve().then(() => main(process.argv))` to ensure exceptions are caught- ----------------------
@@ -148,9 +146,9 @@ do
 	for uri, _ in program.program.all-modules
 		uri, uri.to
 
--translate-type js-class-decl?(ctx to-js-ctx, a concrete-type)
-	extends js-name? = if ctx.union-info.exception-case-types[a]
-		js-name ctx, ctx.exception
+-translate-type js-class-decl?(a concrete-type) to-js
+	extends js-name? = if union-info.exception-case-types[a]
+		js-name exception
 	match body = a.body
 	as concrete-builtin-type
 		()
@@ -161,13 +159,13 @@ do
 	as concrete-flags
 		()
 	as concrete-record
-		class-for-record ctx, a, extends, body
+		class-for-record a, extends, body
 	as concrete-union
-		class-for-union ctx, a, extends
+		class-for-union a, extends
 	as concrete-type-body-deferred
 		throw unreachable
 
--gen-is-type js-expr?(ctx to-js-ctx, source source, get js-expr, a concrete-type)
+-gen-is-type js-expr?(source source, get js-expr, a concrete-type) to-js-ctx
 	match x = a.body
 	as concrete-builtin-type
 		gen-is-builtin-type source, get, x
@@ -178,15 +176,15 @@ do
 	as concrete-flags
 		gen-is-nat source, get, x.storage
 	as concrete-record
-		gen-instanceof source, get, to-ref ctx, source, a
+		gen-instanceof source, get, to-ref source, a
 	as concrete-union
 		()
 	as concrete-type-body-deferred
 		throw unreachable
 
--gen-type-assert js-statement?(ctx to-js-ctx, source source, get js-expr, a concrete-type)
-	do if ctx.sanity-checks == all-sanity-checks
-	do if is-type = gen-is-type ctx, source, get, a
+-gen-type-assert js-statement?(source source, get js-expr, a concrete-type) to-js
+	do if sanity-checks == all-sanity-checks
+	do if is-type = gen-is-type source, get, a
 	# Allow 'gc-safe-value'
 	is-type-or-null = gen-or source, is-type, gen-eq-eq-eq source, get, source.gen-null
 	gen-call-sync source, (gen-identifier source, "_assert".no-prefix), (is-type-or-null,) 'to
@@ -263,26 +261,21 @@ do
 -unreachable js-expr(source source)
 	gen-call-sync source, (gen-identifier source, "_unreachable".no-prefix), ()
 
--source source(ctx to-js-ctx, a concrete-type)
+-source source(a concrete-type) to-js
 	range uri-and-range = a.source.range
 	uri: range.uri
-	name: show-concrete-type ctx.show-ctx, a 'to
-	pos: ctx.line-and-character-getters[range].range.start
--source source(ctx to-js-ctx, a concrete-fun)
+	name: show-concrete-type a 'to
+	pos: line-and-character-getters[range].range.start
+-source source(a concrete-fun) to-js
 	range = a.range
-	range.uri, (debug-name ctx, a), ctx.line-and-character-getters[range].range.start
--source source(ctx to-js-ctx, a concrete-var)
+	range.uri, a.debug-name, line-and-character-getters[range].range.start
+-source source(a concrete-var) to-js
 	range = a.range
-	range.uri, a.source.name, ctx.line-and-character-getters[range].range.start
--debug-name symbol(ctx to-js-ctx, a concrete-fun)
-	show-concrete-fun-name ctx.show-ctx, a 'to
+	range.uri, a.source::var-decl.name, line-and-character-getters[range].range.start
+-debug-name symbol(a concrete-fun) to-js
+	show-concrete-fun-name a 'to
 
--class-for-record js-class-decl
-	ctx to-js-ctx
-	a concrete-type
-	extends js-name?
-	r concrete-record
-do
+-class-for-record js-class-decl(a concrete-type, extends js-name?, r concrete-record) to-js
 	###
 	class R {
 		constructor(x, y) {
@@ -292,33 +285,33 @@ do
 		}
 	}
 	###
-	source = source ctx, a
 	names string[] = map r.fields, it.debug-name.to
-	comment: show-concrete-type ctx.show-ctx, a
-	name: js-name ctx, a
+	comment: show-concrete-type a
+	name: js-name a
 	extends: extends
 	members: unless is-empty r.fields
+		source source = source a
 		- gen-constructor source, !!extends, names, of index, get
-			gen-type-assert ctx, source, get, r.fields[index].type
+			gen-type-assert source, get, r.fields[index].type
 
--class-for-union js-class-decl?(ctx to-js-ctx, a concrete-type, extends js-name?)
-	match union-representation ctx, a
+-class-for-union js-class-decl?(a concrete-type, extends js-name?) to-js
+	match union-representation a
 	as direct
-		if a == ctx.exception
-			name = js-name ctx, a
+		if a == exception
+			name = js-name a
 			forbid extends
 			comment: ""
 			name: name
 			extends: no-prefix "Error"
 			members:
 				-
-					source = source ctx, a
+					source source = source a
 					source: source
 					is-static: instance
 					name: "message"
 					kind:
 						# return new TextDecoder().decode(show(this).chars)
-						show-exception = to-ref ctx, source, ctx.program.common-funs.show-exception, sync
+						show-exception = to-ref source, program.common-funs.show-exception, sync
 						js-class-getter gen-block-statement
 							- gen-return source, convert-to-js-string source,
 								gen-call-sync source, show-exception,
@@ -332,11 +325,11 @@ do
 			}
 		}
 		###
-		comment: show-concrete-type ctx.show-ctx, a
-		name: js-name ctx, a
+		comment: show-concrete-type a
+		name: js-name a
 		extends: extends
 		members:
-			- gen-constructor (source ctx, a), !!extends, ("index", "value"), it.noop
+			- gen-constructor a.source, !!extends, ("index", "value"), it.noop
 
 -gen-constructor js-class-member
 	source source
@@ -359,59 +352,65 @@ do
 	kind = js-class-method sync, params.to, statements.to
 	source, instance, "constructor", kind
 
--js-name js-name(ctx to-js-ctx, fun concrete-fun, async sync-or-async)
-	no-prefix ctx.mangled-names[fun, async]
--js-name js-name(ctx to-js-ctx, var concrete-var)
-	no-prefix ctx.mangled-names[var]
--var-getter-name js-name(ctx to-js-ctx, var concrete-var)
-	no-prefix "_varget_{ctx.mangled-names[var]}"
--js-name js-name(ctx to-js-ctx, type concrete-type)
-	no-prefix ctx.mangled-names[type]
--to-ref js-expr(ctx to-js-ctx, source source, fun concrete-fun, async sync-or-async)
-	gen-identifier source, js-name ctx, fun, async
--to-ref js-expr(ctx to-js-ctx, source source, var concrete-var)
-	gen-identifier source, js-name ctx, var
--to-ref js-expr(ctx to-js-ctx, source source, type concrete-type)
-	gen-identifier source, js-name ctx, type
+-js-name js-name(fun concrete-fun, async sync-or-async) to-js-ctx
+	no-prefix mangled-names[fun, async]
+-js-name js-name(var concrete-var) to-js-ctx
+	no-prefix mangled-names[var]
+-var-getter-name js-name(var concrete-var) to-js-ctx
+	no-prefix "_varget_{mangled-names[var]}"
+-js-name js-name(type concrete-type) to-js-ctx
+	no-prefix mangled-names[type]
+-to-ref js-expr(source source, fun concrete-fun, async sync-or-async) to-js-ctx
+	gen-identifier source, js-name fun, async
+-to-ref js-expr(source source, var concrete-var) to-js-ctx
+	gen-identifier source, js-name var
+-to-ref js-expr(source source, type concrete-type) to-js-ctx
+	gen-identifier source, js-name type
 
+-to-js spec show-ctx, to-js-ctx
 -to-js-ctx record
-	show-type-ctx show-type-ctx
 	program concrete-program
 	sanity-checks sanity-checks
 	union-info union-info
 	mangled-names js-mangled-names
 	constant-names nat constant-names
--show-ctx show-ctx(a to-js-ctx)
-	a.show-type-ctx.show
--line-and-character-getters line-and-character-getters(a to-js-ctx)
-	a.show-ctx.line-and-character-getters
--common-funs concrete-common-funs-js(a to-js-ctx)
-	a.program.common-funs.concrete-common-funs-js!
--exception concrete-type(a to-js-ctx)
-	a.common-funs.exception
--string concrete-type(a to-js-ctx)
-	a.common-funs.string
--symbol concrete-type(a to-js-ctx)
-	a.common-funs.symbol
--is-string-or-symbol bool(ctx to-js-ctx, a concrete-type)
-	a == ctx.string or a == ctx.symbol
--async concrete-async-info(ctx to-js-ctx)
-	ctx.program.async!
+-sanity-checks sanity-checks() to-js-ctx
+	the::to-js-ctx.sanity-checks
+-program concrete-program() to-js-ctx
+	the::to-js-ctx.program
+-union-info union-info() to-js-ctx
+	the::to-js-ctx.union-info
+-mangled-names js-mangled-names() to-js-ctx
+	the::to-js-ctx.mangled-names
+-constant-names nat constant-names() to-js-ctx
+	the::to-js-ctx.constant-names
+-common-funs concrete-common-funs-js() to-js-ctx
+	the::to-js-ctx.program.common-funs.concrete-common-funs-js!
+-exception concrete-type() to-js-ctx
+	common-funs.exception
+-string concrete-type() to-js-ctx
+	common-funs.string
+-symbol concrete-type() to-js-ctx
+	common-funs.symbol
+-is-string-or-symbol bool(a concrete-type) to-js-ctx
+	a == string or a == symbol
+-async-info concrete-async-info() to-js-ctx
+	program.async!
+-async-fun-kind async-kind?(a concrete-fun) to-js-ctx
+	program.async!.funs[a]
 
+-to-expr spec to-js, to-expr-ctx
 -to-expr-ctx record mut
-	ctx to-js-ctx
 	is-cur-fun-async sync-or-async
 	cur-fun-debug-name symbol
 	cur-loop-label mut js-name?
 	top-declared-locals js-name mut[]
 	temp-local-indices nat mut[concrete-local]
 	next-generated-temp-index mut nat
--with-expr-ctx record(ctx to-js-ctx, is-cur-fun-async sync-or-async, cur-fun-debug-name symbol)
--to-js-expr js-expr(a with-expr-ctx, expr concrete-expr)
-	locals, js-expr = with expr-ctx in a
-		to-expr-or-block-statement expr-ctx, expr
-	source = source a.ctx, expr, a.cur-fun-debug-name
-	to-expr a.is-cur-fun-async, source, with-declare-locals source, locals, js-expr
+-is-cur-fun-async sync-or-async() to-expr-ctx
+	the::to-expr-ctx.is-cur-fun-async
+-cur-fun-debug-name symbol() to-expr-ctx
+	the::to-expr-ctx.cur-fun-debug-name
 -with-declare-locals js-expr-or-block-statement(source source, locals js-name[], expr js-expr-or-block-statement)
 	if is-empty locals
 		expr
@@ -423,58 +422,49 @@ do
 			expr
 		decl js-var-decl = let, for x in locals then x, ()
 		(source, decl) ~ block
--with-block[t] (js-name[], t)(a with-expr-ctx, f t mut(x to-expr-ctx))
-	expr-ctx to-expr-ctx =
-		ctx: a.ctx
-		is-cur-fun-async: a.is-cur-fun-async
-		cur-fun-debug-name: a.cur-fun-debug-name
-		cur-loop-label: ()
-		top-declared-locals: ()
-		temp-local-indices: ()
-		next-generated-temp-index: ()
-	res = f[expr-ctx]
-	expr-ctx.top-declared-locals.move-to, res
--take-next-temp-index nat(a to-expr-ctx)
-	res = a.next-generated-temp-index
-	a.next-generated-temp-index +:= 1
+-new to-expr-ctx(is-cur-fun-async sync-or-async, cur-fun-debug-name symbol)
+	is-cur-fun-async: is-cur-fun-async
+	cur-fun-debug-name: cur-fun-debug-name
+	cur-loop-label: ()
+	top-declared-locals: ()
+	temp-local-indices: ()
+	next-generated-temp-index: ()
+-finish-locals js-name[]() to-expr-ctx
+	the::to-expr-ctx.top-declared-locals.move-to
+-take-next-temp-index nat() to-expr-ctx
+	res = the::to-expr-ctx.next-generated-temp-index
+	the::to-expr-ctx.next-generated-temp-index +:= 1
 	res
--to-ref js-expr(ctx to-expr-ctx, source source, fun concrete-fun, async sync-or-async)
-	to-ref ctx.ctx, source, fun, async
--to-ref js-expr(ctx to-expr-ctx, source source, var concrete-var)
-	to-ref ctx.ctx, source, var
--to-ref js-expr(ctx to-expr-ctx, source source, type concrete-type)
-	to-ref ctx.ctx, source, type
--union-representation union-representation(a to-js-ctx, union_ concrete-type)
-	union-representation a.union-info, union_
--union-representation union-representation(a to-expr-ctx, union_ concrete-type)
-	union-representation a.ctx, union_
+-union-representation union-representation(union_ concrete-type) to-js-ctx
+	union-representation the::to-js-ctx.union-info, union_
 
--source source(ctx to-expr-ctx, a concrete-expr)
-	source ctx.ctx, a, ctx.cur-fun-debug-name
--source source(ctx to-js-ctx, a concrete-expr, cur-fun-debug-name symbol)
+-source source(a concrete-expr) to-expr
+	source a, cur-fun-debug-name
+-source source(a concrete-expr, cur-fun-debug-name symbol) to-js
 	range = a.range
 	uri: range.uri
 	name: cur-fun-debug-name
-	pos: ctx.show-ctx.line-and-character-getters[range].range.start
+	pos: line-and-character-getters[range].range.start
 
--is-async sync-or-async(ctx to-expr-ctx, a concrete-fun)
-	if ctx.ctx.async.funs[a]
-		ctx.is-cur-fun-async
+-is-async sync-or-async(a concrete-fun) to-expr
+	if async-fun-kind a
+		is-cur-fun-async
 	else
 		sync
--is-async-initializer sync-or-async(ctx to-js-ctx, a concrete-var)
-	if ctx.async.var-initializers[a] then async else sync
+-is-async-initializer sync-or-async(a concrete-var) to-js-ctx
+	if async-info.var-initializers[a] then async else sync
 
--gen-var-getter js-fun-decl(ctx to-js-ctx, a concrete-var)
-	async = is-async-initializer ctx, a
-	name = var-getter-name ctx, a
-	initializer = to-js-expr (ctx, async, a.source.name), a.initializer
+-gen-var-getter js-fun-decl(a concrete-var) to-js
+	async = is-async-initializer a
+	name = var-getter-name a
+	the to-expr-ctx = async, a.source::var-decl.name
+	initializer = to-js-expr a.initializer
 	###
 	if (x === undefined) x = initializer
 	return x
 	###
-	source source = source ctx, a
-	x = to-ref ctx, source, a
+	source source = source a
+	x = to-ref source, a
 	body js-statement[] =
 		x-eq-undefined = gen-eq-eq-eq source, x, source.gen-undefined
 		initialize = gen-assign source, x, initializer
@@ -482,42 +472,41 @@ do
 		- gen-return source, x
 	"", name, no-memoize, (async, (), body.to)
 
--to-js-functions js-fun-decl[](ctx to-js-ctx, a concrete-fun)
-	if x = ctx.async.funs[a]
+-to-js-functions js-fun-decl[](a concrete-fun) to-js
+	if x = async-fun-kind a
 		match x
 		as always-async
-			- to-js-function ctx, a, async
+			- to-js-function a, async
 		as sync-and-async
-			- to-js-function ctx, a, sync
-			- to-js-function ctx, a, async
+			- to-js-function a, sync
+			- to-js-function a, async
 	else
-		- to-js-function ctx, a, sync
--to-js-function js-fun-decl(ctx to-js-ctx, a concrete-fun, async sync-or-async)
-	name = js-name ctx, a, async
-	params mut js-destructure[] = ()
-	locals, body = with expr-ctx in with-expr-ctx ctx, async, debug-name ctx, a
-		params := for param in a.params
-			local-name expr-ctx, param
-		to-expr-or-block-statement expr-ctx, a
-	comment: show-concrete-fun-name ctx.show-ctx, a
+		- to-js-function a, sync
+-to-js-function js-fun-decl(a concrete-fun, async sync-or-async) to-js
+	name = js-name a, async
+	the to-expr-ctx = async, debug-name a
+	params js-destructure[] = map a.params, it.local-name
+	body = to-expr-or-block-statement a
+	locals = finish-locals
+	comment: show-concrete-fun-name a
 	name: name
 	memoize: no-memoize
 	fun:
 		async: async
 		params: params, ()
-		body: with-declare-locals (source ctx, a), locals, body
+		body: with-declare-locals a.source, locals, body
 
--to-expr-or-block-statement js-expr-or-block-statement(ctx to-expr-ctx, a concrete-fun)
-	source = source ctx.ctx, a
+-to-expr-or-block-statement js-expr-or-block-statement(a concrete-fun) to-expr
+	source source = source a
 	match body = a.body
 	as concrete-fun-body-builtin
-		translate-builtin ctx, a.return-type, source, body.kind, for param in a.params
+		translate-builtin a.return-type, source, body.kind, for param in a.params
 			param.type, a.range, param.local-get-concrete-expr # TODO: use param range, not a.range ---------------------------------------
 	as concrete-expr
-		res = to-expr-or-block-statement ctx, body
-		type-asserts js-statement[] = unless ctx.ctx.sanity-checks == no-sanity-checks
+		res = to-expr-or-block-statement body
+		type-asserts js-statement[] = unless sanity-checks == no-sanity-checks
 			for* param in a.params
-				from-option gen-type-assert ctx.ctx, source, (get-local ctx, source, param), param.type
+				from-option gen-type-assert source, (get-local source, param), param.type
 		if is-empty type-asserts
 			res
 		else
@@ -532,18 +521,17 @@ do
 		throw unreachable
 
 -translate-builtin js-expr-or-block-statement
-	ctx to-expr-ctx
 	type concrete-type
 	source source
 	fun builtin-fun
 	args concrete-expr[]
-do
+do to-expr
 	arg-exprs js-expr[] mut() = of
 		map args, of arg
-			to-js-expr ctx, arg
+			to-js-expr arg
 	match fun
 	as builtin-unary
-		translate-builtin-unary ctx, type, source, fun, args.only!.type, arg-exprs[].only!
+		translate-builtin-unary type, source, fun, args.only!.type, arg-exprs[].only!
 	as builtin-binary
 		translate-builtin-binary source, type, fun, args[0].type, only2! arg-exprs[]
 	as builtin-ternary
@@ -551,7 +539,7 @@ do
 	as builtin-fun-call-lambda
 		arg0, arg1 = only2! arg-exprs[]
 		call = gen-call-sync source, arg0, (arg1,)
-		gen-await-if-async source, ctx.is-cur-fun-async, call
+		gen-await-if-async source, is-cur-fun-async, call
 	as builtin-fun-constant
 		throw unreachable
 	as builtin-fun-is-empty-type
@@ -559,16 +547,15 @@ do
 	as builtin-fun-is-target
 		throw unreachable
 	as js-fun
-		translate-js-fun ctx, source, fun, args
+		translate-js-fun source, fun, args
 
 -translate-builtin-unary js-expr-or-block-statement
-	ctx to-expr-ctx
 	type concrete-type
 	source source
 	a builtin-unary
 	arg-type concrete-type
 	arg js-expr
-do
+do to-expr
 	unary js-expr mut(op js-unary-kind) = of op
 		gen-unary source, op, arg
 	match a
@@ -578,17 +565,17 @@ do
 		length = gen-property-access source, arg, "length"
 		gen-call-sync source, BigInt, (length,)
 	as bits-of-float32
-		gen-convert ctx, source, 4, "Float32Array", "Uint32Array", arg
+		gen-convert source, 4, "Float32Array", "Uint32Array", arg
 	as bits-of-float64
-		gen-convert ctx, source, 8, "Float64Array", "BigInt64Array", arg
+		gen-convert source, 8, "Float64Array", "BigInt64Array", arg
 	as bitwise-not
 		gen-as-integral source, type.as-integral-type!, unary[bitwise-not]
 	as float32-from-bits
 		Number = gen-global source, "Number"
-		gen-convert ctx, source, 4, "Uint32Array", "Float32Array",
+		gen-convert source, 4, "Uint32Array", "Float32Array",
 			gen-call-sync source, Number, (arg,)
 	as float64-from-bits
-		gen-convert ctx, source, 8, "BigInt64Array", "Float64Array", arg
+		gen-convert source, 8, "BigInt64Array", "Float64Array", arg
 	as gc-safe-mut-slice
 		array-type = js-array-type type
 		array = gen-new source, (gen-global source, array-type.to),
@@ -623,12 +610,12 @@ do
 		return got === undefined ? new Option(0) : new Option(1, got)
 		###
 		arg-get js-expr = gen-optional-call-property-sync source, arg, "deref", ()
-		with-temp ctx, "got", source, arg-get, of got
+		with-temp "got", source, arg-get, of got
 			got-eq-undefined = gen-eq-eq-eq source, got, source.gen-undefined
 			none-type = type.body.concrete-union!.members[0]
-			new-none = gen-new source, (to-ref ctx, source, none-type), () # TODO:PERF don't construct it every time ------------
-			none = gen-create-union ctx.ctx, source, type, 0, new-none
-			some = gen-create-union ctx.ctx, source, type, 1, got
+			new-none = gen-new source, (to-ref source, none-type), () # TODO:PERF don't construct it every time ------------
+			none = gen-create-union source, type, 0, new-none
+			some = gen-create-union source, type, 1, got
 			gen-ternary source, got-eq-undefined, none, some
 	as weak-ref-new
 		WeakRef = gen-global source, "WeakRef"
@@ -743,24 +730,22 @@ do
 		access = gen-property-access-computed source, arg0, arg1
 		gen-assign source, access, arg2 'to
 
--translate-js-fun js-expr-or-block-statement(ctx to-expr-ctx, source source, a js-fun, args concrete-expr[])
+-translate-js-fun js-expr-or-block-statement(source source, a js-fun, args concrete-expr[]) to-expr
 	arg0 js-expr mut() = of
-		to-js-expr ctx, args[0]
+		to-js-expr args[0]
 	args-after js-expr[] mut(first nat) = of first
-		for arg in args[first .. end]
-			to-js-expr ctx, arg
+		map args[first .. end], it.to-js-expr
 	only-arg js-expr mut() = of
-		to-js-expr ctx, only! args
+		to-js-expr only! args
 	only2-args (js-expr, js-expr) mut() = of
 		x, y = only2! args
-		- to-js-expr ctx, x
-		- to-js-expr ctx, y
+		x.to-js-expr, y.to-js-expr
 	unary js-expr mut(kind js-unary-kind) = of kind
 		gen-unary source, kind, only-arg[]
 	binary js-expr mut(kind js-binary-kind) = of kind
 		gen-binary source, kind, only2-args[]
 	prop01 js-expr mut() = of
-		property-access ctx, source, args[0], args[1]
+		property-access source, args[0], args[1]
 	match a
 	as await
 		gen-await source, only-arg[]
@@ -772,7 +757,7 @@ do
 		gen-call-sync source, prop01[], args-after[2]
 	as call-property-spread
 		args.size is 3
-		gen-call-with-spread source, sync, prop01[], (), (to-js-expr ctx, args[2])
+		gen-call-with-spread source, sync, prop01[], (), args[2].to-js-expr
 	as eq-eq-eq
 		binary[eq-eq-eq]
 	as eval
@@ -800,18 +785,18 @@ do
 		binary[plus]
 	as set
 		args.size is 3
-		gen-assign source, prop01[], (to-js-expr ctx, args[2]) 'to
+		gen-assign source, prop01[], args[2].to-js-expr 'to
 	as typeof
 		unary[typeof]
 	as undefined
 		gen-undefined source
 
--property-access js-expr(ctx to-expr-ctx, source source, object concrete-expr, key concrete-expr)
+-property-access js-expr(source source, object concrete-expr, key concrete-expr) to-expr
 	assert is-js-any key.type
-	gen-property-access-computed source, (to-js-expr ctx, object), (to-js-expr ctx, key)
+	gen-property-access-computed source, object.to-js-expr, key.to-js-expr
 
--to-string-from-js-string js-expr(ctx to-js-ctx, source source, arg js-expr)
-	gen-call-sync source, (to-ref ctx, source, ctx.common-funs.to-string-from-js-any, sync), (arg,)
+-to-string-from-js-string js-expr(source source, arg js-expr) to-js-ctx
+	gen-call-sync source, (to-ref source, common-funs.to-string-from-js-any, sync), (arg,)
 
 -convert-to-js-string js-expr(source source, arg js-expr)
 	# TODO: just have this call 'to-js-string' from string.crow! ------------------------------------------------------------------
@@ -825,11 +810,11 @@ do
 			- gen-call-property-sync source, chars, "map",
 				- gen-global source, "Number"
 
--to-js-expr js-expr(ctx to-expr-ctx, a concrete-expr)
-	to-expr ctx, (source ctx, a), to-expr-or-block-statement ctx, a
+-to-js-expr js-expr(a concrete-expr) to-expr
+	to-expr a.source, to-expr-or-block-statement a
 
--to-expr js-expr(ctx to-expr-ctx, source source, a js-expr-or-block-statement)
-	to-expr ctx.is-cur-fun-async, source, a
+-to-expr js-expr(source source, a js-expr-or-block-statement) to-expr
+	to-expr is-cur-fun-async, source, a
 -to-expr js-expr(is-cur-fun-async sync-or-async, source source, a js-expr-or-block-statement)
 	match a
 	as js-expr
@@ -837,8 +822,8 @@ do
 	as js-block-statement
 		gen-iife source, is-cur-fun-async, a
 
--to-block-statement js-block-statement(ctx to-expr-ctx, a concrete-expr) # TODO: this should just be 'to-statements' ........................
-	to-expr-or-block-statement ctx, a 'to-block-statement a.type
+-to-block-statement js-block-statement(a concrete-expr) to-expr # TODO: this should just be 'to-statements' ........................
+	to-expr-or-block-statement a 'to-block-statement a.type
 -to-block-statement js-block-statement(a js-expr-or-block-statement, type concrete-type)
 	match a
 	as js-expr
@@ -852,13 +837,13 @@ do
 	else
 		gen-return expr.source, expr 'to
 
--to-expr-or-block-statement js-expr-or-block-statement(ctx to-expr-ctx, a concrete-expr)
-	source = source ctx, a
+-to-expr-or-block-statement js-expr-or-block-statement(a concrete-expr) to-expr
+	source = source a
 	type = a.type
-	async = ctx.is-cur-fun-async
+	async = is-cur-fun-async
 	match x = a.kind
 	as array-op-concrete-expr
-		input-expr = to-js-expr ctx, x.input
+		input-expr = to-js-expr x.input
 		match x.input-kind
 		as array
 			match output-kind x, type
@@ -866,8 +851,8 @@ do
 				# TODO: PERF I should probably not use 'map' here, do a loop like I do for range
 				# `xs.map(x => {... })` or `await Array.fromAsync(xs, async x => { ... })`
 				params js-params = if l = x.local
-					((local-name ctx, l),).to
-				body = to-expr-or-block-statement ctx, x.body
+					(l.local-name,).to
+				body = to-expr-or-block-statement x.body
 				arrow js-arrow-function = async, params, body
 				fn js-expr = source, arrow
 				in-array-type = x.input.type.js-array-type
@@ -892,13 +877,13 @@ do
 					else
 						out-from[mapped]
 			as void
-				local = local-or-temp ctx, x.local, "ignore"
-				(source, (js-for-of-statement local, input-expr, (to-block-statement ctx, x.body))) 'to
+				local = local-or-temp x.local, "ignore"
+				(source, (js-for-of-statement local, input-expr, x.body.to-block-statement)) 'to
 		as range
 			low, high = range-fields x.input.type
-			cur-name = make-temp-local ctx, "cur"
+			cur-name = make-temp-local "cur"
 			cur-type = low.type
-			end-name = make-temp-local ctx, "end"
+			end-name = make-temp-local "end"
 			get-cur = gen-identifier source, cur-name
 			get-end = gen-identifier source, end-name
 			cur-less-end = gen-less source, get-cur, get-end
@@ -914,26 +899,27 @@ do
 				}
 				return out
 				###
-				start-name = make-temp-local ctx, "start"
+				start-name = make-temp-local "start"
 				get-start = gen-identifier source, start-name
-				out-name = make-temp-local ctx, "out"
+				out-name = make-temp-local "out"
 				get-out = gen-identifier source, out-name
 				range-destructure js-object-destructure =
 					fields:
 						- low.debug-name.to, start-name
 						- high.debug-name.to, end-name
-				declare-start-end = gen-const source, range-destructure, (to-js-expr ctx, x.input)
+				declare-start-end = gen-const source, range-destructure, to-js-expr x.input
 				Array = array-for-array-type source, type
 				Number = gen-global source, "Number"
-				size = gen-call-sync source, Number, ((gen-minus source, get-end, get-start),)
+				size = gen-call-sync source, Number,
+					- gen-minus source, get-end, get-start
 				new-array = gen-new source, Array, (size,)
 				declare-out = gen-const source, out-name, new-array
 				declare-cur = gen-let source, cur-name, get-start
 				body js-statement[] =
 					out-at-index = gen-property-access-computed source, get-out, (gen-minus source, get-cur, get-start)
 					-- if l = x.local
-						- gen-const source, (local-name ctx, l), get-cur
-					- gen-assign source, out-at-index, (to-js-expr ctx, x.body)
+						- gen-const source, l.local-name, get-cur
+					- gen-assign source, out-at-index, to-js-expr x.body
 					- gen-increment source, cur-type, cur-name
 				while_ = gen-while source, cur-less-end, body.to
 				return-out = gen-return source, get-out
@@ -943,7 +929,7 @@ do
 					fields:
 						- low.debug-name.to, cur-name
 						- high.debug-name.to, end-name
-				declare-cur-end = gen-let source, range-destructure, to-js-expr ctx, x.input
+				declare-cur-end = gen-let source, range-destructure, to-js-expr x.input
 				###
 				let { low: cur, high:end } = range
 				while (cur < end) {
@@ -953,66 +939,62 @@ do
 				###
 				body js-statement[] =
 					-- if l = x.local
-						- gen-const source, (local-name ctx, l), get-cur
-					-- statements to-block-statement ctx, x.body
+						- gen-const source, l.local-name, get-cur
+					-- statements to-block-statement x.body
 					- gen-increment source, cur-type, cur-name
 				while_ = gen-while source, cur-less-end, body.to
 				js-block-statement (declare-cur-end, while_)
 	as builtin-concrete-expr
-		translate-builtin ctx, type, source, x.fun, x.args
+		translate-builtin type, source, x.fun, x.args
 	as call-concrete-expr
-		call-async = is-async ctx, x.called
-		called = to-ref ctx, source, x.called, call-async
-		gen-call source, call-async, called, for arg in x.args
-			to-js-expr ctx, arg
+		call-async = is-async x.called
+		called = to-ref source, x.called, call-async
+		gen-call source, call-async, called, map x.args, it.to-js-expr
 	as cast-concrete-expr
-		to-expr-or-block-statement ctx, x.inner
+		to-expr-or-block-statement x.inner
 	as constant
-		translate-constant ctx.ctx, source, type, x
+		translate-constant source, type, x
 	as create-array-concrete-expr
-		array-literal source, type, for arg in x.args
-			to-js-expr ctx, arg
+		array-literal source, type, map x.args, it.to-js-expr
 	as create-record-concrete-expr
-		record_ = to-ref ctx, source, type
-		gen-new source, record_, for arg in x.args
-			to-js-expr ctx, arg
+		record_ = to-ref source, type
+		gen-new source, record_, map x.args, it.to-js-expr
 	as create-union-concrete-expr
-		gen-create-union ctx.ctx, source, type, x.member-index, to-js-expr ctx, x.arg
+		gen-create-union source, type, x.member-index, to-js-expr x.arg
 	as drop-concrete-expr
-		value = to-js-expr ctx, x.arg
+		value = to-js-expr x.arg
 		gen-unary source, void, value
 	as finally-concrete-expr
-		gen-try-finally source, (to-block-statement ctx, x.below), (to-block-statement ctx, x.right) 'to
+		gen-try-finally source, x.below.to-block-statement, x.right.to-block-statement 'to
 	as if-concrete-expr
-		cond = to-js-expr ctx, x.cond
-		match then_ = to-expr-or-block-statement ctx, x.then_
+		cond = to-js-expr x.cond
+		match then_ = to-expr-or-block-statement x.then_
 		as js-expr
-			match else_ = to-expr-or-block-statement ctx, x.else_
+			match else_ = to-expr-or-block-statement x.else_
 			as js-expr
 				gen-ternary source, cond, then_, else_
 			as js-block-statement
 				then-statement = return-unless-void then_, type.is-void
 				gen-if source, cond, then-statement, (source, else_) 'to
 		as js-block-statement
-			else_ = to-block-statement ctx, x.else_
-			gen-if source, cond, then_, (source, else_) 'to
+			gen-if source, cond, then_, (source, x.else_.to-block-statement) 'to
 	as let-concrete-expr
-		local = local-name ctx, x.local
-		value = to-js-expr ctx, x.value
+		local = local-name x.local
+		value = to-js-expr x.value
 		kind js-var-decl-const = if is-mutable x.local then let else const
-		then_ = to-expr-or-block-statement ctx, x.then_
-		expr-or-block-statement-with-local ctx, kind, local, source, value, then_
+		then_ = to-expr-or-block-statement x.then_
+		expr-or-block-statement-with-local kind, local, source, value, then_
 	as lambda-concrete-expr
 		source: source
 		kind:
 			:: js-arrow-function
 			async: async
-			params: (local-name ctx, x.param), 'to
-			body: to-expr-or-block-statement ctx, x.body
+			params: x.param.local-name, 'to
+			body: to-expr-or-block-statement x.body
 	as local-get-concrete-expr
-		get-local ctx, source, x.local
+		get-local source, x.local
 	as local-set-concrete-expr
-		gen-assign source, (get-local ctx, source, x.local), (to-js-expr ctx, x.value) 'to
+		gen-assign source, (get-local source, x.local), (to-js-expr x.value) 'to
 	as loop-concrete-expr
 		###
 		loop
@@ -1029,84 +1011,84 @@ do
 				return 42
 		}
 		###
-		label js-name? = if is-void type then make-temp-local ctx, "loop"
-		prev = ctx.cur-loop-label
-		ctx.cur-loop-label := label
-		res = gen-while-true source, label, to-block-statement ctx, x.body
-		ctx.cur-loop-label := prev
+		label js-name? = if is-void type then make-temp-local "loop"
+		prev = the::to-expr-ctx.cur-loop-label
+		the::to-expr-ctx.cur-loop-label := label
+		res = gen-while-true source, label, to-block-statement x.body
+		the::to-expr-ctx.cur-loop-label := prev
 		res.to
 	as loop-break-concrete-expr
-		value = to-block-statement ctx, x.value
+		value = to-block-statement x.value
 		if is-void type
-			value ~ (gen-break source, ctx.cur-loop-label!)
+			value ~ (gen-break source, the::to-expr-ctx.cur-loop-label!)
 		else
 			value
 	as loop-continue-concrete-expr
 		gen-continue source 'to
 	as match-scalar-concrete-expr
-		translate-match-integral ctx, source, type, x
+		translate-match-integral source, type, x
 	as match-string-like-concrete-expr
 		# TODO: write some unit tests. This should work the same as other types so I should just need to remove the assertion ...
-		unless is-string-or-symbol ctx.ctx, x.matched.type
+		unless is-string-or-symbol x.matched.type
 			log error, "Match on char8[] or char32[]?"
-		assert is-string-or-symbol ctx.ctx, x.matched.type else todo
-		with-temp ctx, "matched", x.matched, of matched
-			res mut = to-block-statement ctx, x.else_
-			equals-async = is-async ctx, x.equals
-			equals = to-ref ctx, source, x.equals, equals-async
+		assert is-string-or-symbol x.matched.type else todo
+		with-temp "matched", x.matched, of matched
+			res mut = to-block-statement x.else_
+			equals-async = is-async x.equals
+			equals = to-ref source, x.equals, equals-async
 			for case_ concrete-match-string-like-case in x.cases.reverse # TODO: should not need type annotation
-				value = to-js-expr ctx, case_.value
+				value = to-js-expr case_.value
 				cond = gen-call source, equals-async, equals, (matched, value)
-				then_ = to-block-statement ctx, case_.then_
+				then_ = to-block-statement case_.then_
 				res := gen-if source, cond, then_, (source, res) 'to
 			res
 	as match-union-concrete-expr
-		translate-match-union ctx, source, type, x
+		translate-match-union source, type, x
 	as record-field-get-concrete-expr
-		gen-property-access source, (to-js-expr ctx, x.record_), x.field.debug-name.to
+		gen-property-access source, x.record_.to-js-expr, x.field.debug-name.to
 	as record-field-set-concrete-expr
-		record_ = to-js-expr ctx, x.record_
-		value = to-js-expr ctx, x.value
+		record_ = to-js-expr x.record_
+		value = to-js-expr x.value
 		access = gen-property-access source, record_, x.field.debug-name.to
 		gen-assign source, access, value 'to
 	as seq-concrete-expr
 		:: js-block-statement
 		- for* part in x.parts
-			statements to-block-statement ctx, part
+			statements to-block-statement part
 	as throw-concrete-expr
-		gen-throw source, (to-js-expr ctx, x.thrown) 'to
+		gen-throw source, x.thrown.to-js-expr 'to
 	as try-concrete-expr
-		translate-try ctx, source, type, x
+		translate-try source, type, x
 	as try-let-concrete-expr
-		translate-try-let ctx, source, type, x
+		translate-try-let source, type, x
 	as union-assume-case-concrete-expr
-		match union-representation ctx, x.union-type
+		match union-representation x.union-type
 		as direct
-			to-expr-or-block-statement ctx, x.arg
+			to-expr-or-block-statement x.arg
 		as switch
-			gen-property-access source, (to-js-expr ctx, x.arg), "value"
+			gen-property-access source, x.arg.to-js-expr, "value"
 	as union-is-case-concrete-expr
-		repr = union-representation ctx, x.union-type
-		gen-union-is-case ctx, source, (to-js-expr ctx, x.arg), x.union_, repr, x.case-index
+		repr = union-representation x.union-type
+		gen-union-is-case source, x.arg.to-js-expr, x.union_, repr, x.case-index
 	as var-get-concrete-expr
 		if var-needs-getter x.var
-			getter = gen-identifier source, var-getter-name ctx.ctx, x.var
-			gen-call source, (is-async-initializer ctx.ctx, x.var), getter, ()
+			getter = gen-identifier source, var-getter-name x.var
+			gen-call source, x.var.is-async-initializer, getter, ()
 		else
-			to-ref ctx, source, x.var
+			to-ref source, x.var
 	as var-set-concrete-expr
-		gen-assign source, (to-ref ctx, source, x.var), (to-js-expr ctx, x.value) 'to
+		gen-assign source, (to-ref source, x.var), x.value.to-js-expr 'to
 
 -gen-increment js-statement(source source, type concrete-type, name js-name)
 	gen-increment source, name, type.as-integral-type!.is-bigint
 
--gen-create-union js-expr(ctx to-js-ctx, source source, union_ concrete-type, member-index nat, value js-expr)
-	match union-representation ctx, union_
+-gen-create-union js-expr(source source, union_ concrete-type, member-index nat, value js-expr) to-js
+	match union-representation union_
 	as direct
 		value
 	as switch
 		index = gen-number64 source, member-index.to
-		gen-new source, (to-ref ctx, source, union_), (index, value)
+		gen-new source, (to-ref source, union_), (index, value)
 
 -var-needs-getter bool(a concrete-var)
 	!a.initializer.kind.constant
@@ -1119,16 +1101,15 @@ do
 	else
 		gen-new source, (gen-global source, x.to), (array,)
 
--translate-match-integral js-expr-or-block-statement(ctx to-expr-ctx, source source, type concrete-type, a match-scalar-concrete-expr)
-	case-exprs js-expr-or-block-statement[] = for e in a.case-exprs
-		to-expr-or-block-statement ctx, e
+-translate-match-integral js-expr-or-block-statement(source source, type concrete-type, a match-scalar-concrete-expr) to-expr
+	case-exprs js-expr-or-block-statement[] = map a.case-exprs, it.to-expr-or-block-statement
 	else_ = if e = a.else_
-		to-expr-or-block-statement ctx, e
+		to-expr-or-block-statement e
 	else
 		unreachable source
 	values js-expr[] = for value in a.case-values
 		constant-integral source, a.matched-integral-type, value
-	with-temp ctx, "matched", a.matched, of matched
+	with-temp "matched", a.matched, of matched
 		match x = to-exprs-or-block-statements (case-exprs ~ else_), type
 		as array
 			res mut = x[end - 1]
@@ -1140,17 +1121,16 @@ do
 				- values[i]
 				- maybe-break-switch-case source, type, x.blocks[i]
 			gen-switch source, matched, cases, x.blocks[end - 1] 'to
--translate-match-union js-expr-or-block-statement(ctx to-expr-ctx, source source, type concrete-type, x match-union-concrete-expr)
+-translate-match-union js-expr-or-block-statement(source source, type concrete-type, x match-union-concrete-expr) to-expr
 	else_ = if e = x.else_
-		to-expr-or-block-statement ctx, e
+		to-expr-or-block-statement e
 	else
 		unreachable source
-	with-temp ctx, "matched", x.matched, of matched
+	with-temp "matched", x.matched, of matched
 		cases concrete-local-and-expr[] = map x.cases, ((), it)
-		translate-match-union-inner ctx, source, type, matched, else_, x.union_, x.member-indices, cases, (union-representation ctx, x.union-type)
+		translate-match-union-inner source, type, matched, else_, x.union_, x.member-indices, cases, union-representation x.union-type
 
 -translate-match-union-inner js-expr-or-block-statement
-	ctx to-expr-ctx
 	source source
 	type concrete-type
 	matched js-expr
@@ -1159,7 +1139,7 @@ do
 	case-indices indices
 	cases concrete-local-and-expr[]
 	repr union-representation
-do
+do to-expr
 	###
 	const matched = ...
 	if (matched instanceof foo) {
@@ -1173,9 +1153,9 @@ do
 	}
 	###
 	js-cases js-expr-or-block-statement[] = for case_ in cases
-		to-expr-or-block-statement ctx, case_.expr
+		to-expr-or-block-statement case_.expr
 	get-cond js-expr mut(i nat) = of i
-		gen-union-is-case ctx, source, matched, union_, repr, case-indices[i]
+		gen-union-is-case source, matched, union_, repr, case-indices[i]
 	matched-value = match repr
 	as direct
 		matched
@@ -1187,7 +1167,7 @@ do
 		res mut = x[cases.size]
 		for i nat in reverse 0 .. cases.size
 			expr = if l = cases[i].local
-				add-local-and-assign ctx, source, (local-name ctx, l), matched-value, x[i]
+				add-local-and-assign source, l.local-name, matched-value, x[i]
 			else
 				x[i]
 			res := gen-ternary source, get-cond[i], expr, res
@@ -1198,23 +1178,22 @@ do
 		for i nat in reverse 0 .. cases.size
 			block = x.blocks[i]
 			full-block = if l = cases[i].local
-				(gen-const source, (local-name ctx, l), matched-value) ~ block
+				(gen-const source, l.local-name, matched-value) ~ block
 			else
 				block
 			res := gen-if source, get-cond[i], full-block, (source, res) 'to
 		res
 
 -gen-union-is-case js-expr
-	ctx to-expr-ctx
 	source source
 	union-value js-expr
 	union_ concrete-union
 	repr union-representation
 	case-index nat
-do
+do to-expr
 	match repr
 	as direct
-		gen-is-type! ctx.ctx, source, union-value, union_.members[case-index]
+		gen-is-type! source, union-value, union_.members[case-index]
 	as switch
 		index = gen-property-access source, union-value, "index"
 		gen-eq-eq-eq source, index, gen-number64 source, case-index.to
@@ -1225,7 +1204,7 @@ do
 	map-every::js-expr[]? a, it.js-expr else
 		block-statements for x in a then to-block-statement x, type
 
--translate-try js-block-statement(ctx to-expr-ctx, source source, type concrete-type, a try-concrete-expr)
+-translate-try js-block-statement(source source, type concrete-type, a try-concrete-expr) to-expr
 	###
 	try
 		tried
@@ -1243,19 +1222,19 @@ do
 		}
 	}
 	###
-	tried = to-block-statement ctx, a.tried
-	error = local-or-temp ctx, a.catch-else.?local, "error"
+	tried = to-block-statement a.tried
+	error = local-or-temp a.catch-else.?local, "error"
 	get-error = gen-identifier source, error
 	else-block = if e = a.catch-else
-		to-block-statement ctx, e.expr
+		to-block-statement e.expr
 	else
 		gen-throw source, get-error 'to
-	catch_ = translate-match-union-inner ctx, source, type, get-error, else-block, \
-		ctx.ctx.exception.body.concrete-union!, a.exception-member-indices, a.catch-cases, direct
+	catch_ = translate-match-union-inner source, type, get-error, else-block, \
+		exception.body.concrete-union!, a.exception-member-indices, a.catch-cases, direct
 	# catch_ will always be a block statement since the else-block is
 	gen-try-catch source, tried, error, catch_.js-block-statement! 'to
 
--translate-try-let js-block-statement(ctx to-expr-ctx, source source, type concrete-type, a try-let-concrete-expr)
+-translate-try-let js-block-statement(source source, type concrete-type, a try-let-concrete-expr) to-expr
 	###
 	x = try value catch local as err then catch_
 	after
@@ -1275,28 +1254,27 @@ do
 	}
 	if (ok) after
 	###
-	local js-name? = if l = a.local
-		local-name ctx, l
+	local js-name? = ?local-name a.local
 	let-local js-statement[] = if local
 		- gen-let source, local
 	# Only needed if void, otherwise 'catch_then' will return
-	ok js-name? = if is-void type then make-temp-local ctx, "ok"
+	ok js-name? = if is-void type then make-temp-local "ok"
 	let-ok js-statement[] = if ok
 		- gen-let source, ok
 	tried js-statement[] =
 		-- if local
-			- gen-assign source, local, (to-js-expr ctx, a.value)
+			- gen-assign source, local, to-js-expr a.value
 		else
-			statements to-block-statement ctx, a.value
+			statements to-block-statement a.value
 		-- if ok
 			- gen-assign source, ok, (gen-bool source, true)
-	error = local-or-temp ctx, a.catch_.local, "error"
+	error = local-or-temp a.catch_.local, "error"
 	get-error = gen-identifier source, error
-	instanceof-caught-type = gen-is-type! ctx.ctx, source, get-error, caught-type a, ctx.ctx.exception
-	catch_ = to-block-statement ctx, a.catch_.expr
+	instanceof-caught-type = gen-is-type! source, get-error, caught-type a, exception
+	catch_ = to-block-statement a.catch_.expr
 	if_ = gen-if source, instanceof-caught-type, catch_, gen-throw source, get-error
 	try_ = gen-try-catch source, tried.to, error, if_.to
-	then_ = to-block-statement ctx, a.then_
+	then_ = to-block-statement a.then_
 	if-ok-then js-block-statement = if ok
 		gen-if source, (gen-identifier source, ok), then_ 'to
 	else
@@ -1309,9 +1287,9 @@ do
 	else
 		a
 
--get-local js-expr(ctx to-expr-ctx, source source, a concrete-local)
-	gen-identifier source, local-name ctx, a
--local-name js-name(ctx to-expr-ctx, a concrete-local)
+-get-local js-expr(source source, a concrete-local) to-expr
+	gen-identifier source, local-name a
+-local-name js-name(a concrete-local) to-expr-ctx
 	kind: local
 	crow-name: match source = a.source
 	as local
@@ -1320,36 +1298,36 @@ do
 		source.original.name.to
 	as concrete-generated-local-kind
 		source.to
-	mangle-index: ensure ctx.temp-local-indices, a, of
-		ctx.temp-local-indices.size
+	mangle-index: ensure the::to-expr-ctx.temp-local-indices, a, of
+		the::to-expr-ctx.temp-local-indices.size
 
--local-or-temp js-name(ctx to-expr-ctx, a concrete-local?, temp-base-name string)
+-local-or-temp js-name(a concrete-local?, temp-base-name string) to-expr
 	if a
-		local-name ctx, a
+		local-name a
 	else
-		make-temp-local ctx, temp-base-name
+		make-temp-local temp-base-name
 
--constant-getter js-fun-decl(ctx to-js-ctx, source source, a any-constant)
+-constant-getter js-fun-decl(source source, a any-constant) to-js
 	comment: ""
-	name: ctx.constant-names[a].constant
+	name: constant-names[a].constant
 	memoize: memoize
-	fun: sync, (), gen-init-constant ctx, source, a
--gen-init-constant js-expr(ctx to-js-ctx, source source, a any-constant)
+	fun: sync, (), gen-init-constant source, a
+-gen-init-constant js-expr(source source, a any-constant) to-js
 	match a
 	as single-constant-array
 		elements = a.elements
 		element-type = a.element-type
 		array-literal source, a.type,  for e in elements
-			translate-constant ctx, source, element-type, e
+			translate-constant source, element-type, e
 	as single-constant-record
-		class_ = to-ref ctx, source, a.type
+		class_ = to-ref source, a.type
 		gen-new source, class_, for field, arg in zip a.fields, a.args
-			translate-constant ctx, source, field.type, arg
+			translate-constant source, field.type, arg
 
--translate-constant js-expr(ctx to-js-ctx, source source, type concrete-type, a constant)
+-translate-constant js-expr(source source, type concrete-type, a constant) to-js
 	match x = type.body
 	as concrete-builtin-type
-		translate-constant-builtin ctx, source, type, x, a
+		translate-constant-builtin source, type, x, a
 	as concrete-enum
 		constant-nat source, x.storage, a
 	as struct-body-extern-java
@@ -1359,7 +1337,7 @@ do
 	as concrete-record
 		match a
 		as constant-record
-			gen-get-constant source, record-name ctx.constant-names, type, a
+			gen-get-constant source, record-name constant-names, type, a
 		as constant-gc-safe-value
 			gen-null source
 		as constant-symbol
@@ -1369,10 +1347,10 @@ do
 	as concrete-union
 		match a
 		as constant-union
-			v = ctx.program.all-constants.unions[type]![a]
+			v = program.all-constants.unions[type]![a]
 			case-type = type.body.concrete-union!.members[v.member-index]
-			gen-create-union ctx, source, type, v.member-index,
-				translate-constant ctx, source, case-type, v.member
+			gen-create-union source, type, v.member-index,
+				translate-constant source, case-type, v.member
 		as constant-gc-safe-value
 			gen-null source
 		else
@@ -1380,12 +1358,12 @@ do
 	as concrete-type-body-deferred
 		throw unreachable
 
--translate-constant-builtin js-expr(ctx to-js-ctx, source source, type concrete-type, builtin_ concrete-builtin-type, a constant)
+-translate-constant-builtin js-expr(source source, type concrete-type, builtin_ concrete-builtin-type, a constant) to-js-ctx
 	match kind builtin_
 	as array
 		match a
 		as constant-array
-			gen-get-constant source, array-name ctx.constant-names, type, a
+			gen-get-constant source, array-name constant-names, type, a
 		as constant-gc-safe-value
 			gen-null source
 		else
@@ -1479,46 +1457,42 @@ do
 
 # TODO: use a 'with-block' --------------------------------------------------------------------------------------------------------------------------
 -with-temp js-expr-or-block-statement
-	ctx to-expr-ctx
 	name string
 	expr concrete-expr
 	f js-expr-or-block-statement mut(get-temp js-expr)
-do
-	with-temp ctx, name, (source ctx, expr), (to-js-expr ctx, expr), f
+do to-expr
+	with-temp name, expr.source, expr.to-js-expr, f
 -with-temp js-expr-or-block-statement
-	ctx to-expr-ctx
 	name string
 	source source
 	expr js-expr
 	f js-expr-or-block-statement mut(get-temp js-expr)
-do
-	with-temp-common ctx, (make-temp-local ctx, name), source, expr, f
--make-temp-local js-name(ctx to-expr-ctx, base string)
-	temp, base, ctx.take-next-temp-index
+do to-expr
+	with-temp-common name.make-temp-local, source, expr, f
+-make-temp-local js-name(base string) to-expr
+	temp, base, take-next-temp-index
 -with-temp-common js-expr-or-block-statement
-	ctx to-expr-ctx
 	local js-name
 	source source
 	value js-expr
 	f js-expr-or-block-statement mut(get-temp js-expr)
-do
-	expr-or-block-statement-with-local ctx, const, local, source, value, f[gen-identifier source, local]
+do to-expr
+	expr-or-block-statement-with-local const, local, source, value, f[gen-identifier source, local]
 -expr-or-block-statement-with-local js-expr-or-block-statement
-	ctx to-expr-ctx
 	kind js-var-decl-const
 	local js-name
 	source source
 	value js-expr
 	then_ js-expr-or-block-statement
-do
+do to-expr
 	match then_
 	as js-expr
-		add-local-and-assign ctx, source, local, value, then_
+		add-local-and-assign source, local, value, then_
 	as js-block-statement
 		(gen-var-decl source, kind, local, value) ~ then_
 
-add-local-and-assign js-expr(ctx to-expr-ctx, source source, local js-name, value js-expr, then_ js-expr)
-	ctx.top-declared-locals ~= local
+add-local-and-assign js-expr(source source, local js-name, value js-expr, then_ js-expr) to-expr
+	the::to-expr-ctx.top-declared-locals ~= local
 	assign js-expr = source: source, kind: js-assign-expr local, value
 	gen-binary source, comma, assign, then_
 
@@ -1567,19 +1541,18 @@ add-local-and-assign js-expr(ctx to-expr-ctx, source source, local js-name, valu
 	gen-call-property-sync source, (gen-global source, "Math"), name, args
 
 -gen-convert js-expr
-	ctx to-expr-ctx
 	source source
 	size-bytes nat
 	input-array-type string
 	output-array-type string
 	arg js-expr
-do
+do to-expr
 	###
 	const buf = new ArrayBuffer(size_bytes)
 	(new InputArray(buf))[0] = arg
 	return (new OutputArray(buf))[0]
 	###
-	buf-name = make-temp-local ctx, "buf"
+	buf-name = make-temp-local "buf"
 	buf = gen-identifier source, buf-name
 	ArrayBuffer = gen-global source, "ArrayBuffer"
 	new-buf = gen-new source, ArrayBuffer,

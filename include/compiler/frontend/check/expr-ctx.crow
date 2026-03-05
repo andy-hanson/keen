@@ -14,17 +14,18 @@ lambda-info record mut
 	closure-locals local mut[]
 	closure-contexts struct-inst mut[]
 
-check-trusted interface mut
+call-scope interface mut
 	check-trusted bool()
 	context-forbids-global bool()
-never-trusted record check-trusted case
+never-trusted record call-scope case
 check-trusted bool(_ never-trusted)
 	false
 context-forbids-global bool(_ never-trusted)
 	false
 
-expr-ctx record mut, check-trusted case
-	check-ctx check-ctx
+check-expr-ctx spec check-ctx, expr-ctx
+
+expr-ctx record mut, call-scope case
 	types-and-specs-map types-and-specs-map
 	funs-map funs-map
 	common-types common-types
@@ -41,13 +42,11 @@ expr-ctx record mut, check-trusted case
 	lambdas lambda-info mut[]
 	allocated-locals struct-inst mut[local]
 new expr-ctx
-	check-ctx check-ctx
 	types-and-specs-map types-and-specs-map
 	funs-map funs-map
 	common-types common-types
 	container expr-container
 do
-	check-ctx: check-ctx
 	types-and-specs-map: types-and-specs-map
 	funs-map: funs-map
 	common-types: common-types
@@ -61,26 +60,47 @@ do
 	lambdas: ()
 	allocated-locals: ()
 
-available-types available-types(a expr-ctx)
-	common-types: a.common-types
-	json: a.check-ctx.json-type
+common-types common-types() expr-ctx
+	the::expr-ctx.common-types
+funs-map funs-map() expr-ctx
+	the::expr-ctx.funs-map
+specs specs() expr-ctx
+	the::expr-ctx.specs
+set-specs void(value specs) expr-ctx
+	the::expr-ctx.specs := value
+types-and-specs-map types-and-specs-map() expr-ctx
+	the::expr-ctx.types-and-specs-map
+type-container type-container() expr-ctx
+	the::expr-ctx.type-container
+type-params type-params() expr-ctx
+	the::expr-ctx.type-params
+types types-get() expr-ctx
+	common-types, types-and-specs-map
+lambdas lambda-info mut[]() expr-ctx
+	the::expr-ctx.lambdas
+locals local mut[]() expr-ctx
+	the::expr-ctx.locals
+refined-types (local, type-args) mut[]() expr-ctx
+	the::expr-ctx.refined-types
+
+available-types available-types() check-expr-ctx
+	common-types: common-types
+	json: the::check-ctx.json-type
 
 type-container type-container(a expr-ctx)
 	a.container.to
 
-instantiate-ctx instantiate-ctx(a expr-ctx)
-	a.check-ctx.instantiate-ctx
+type-with-container type-with-container(a type) expr-ctx
+	a, the::expr-ctx.container.to
 
-type-with-container type-with-container(ctx expr-ctx, a type)
-	a, ctx.container.to
-
-# TODO: use a 'with-block' --------------------------------------------------------------------------------------------------------------
-with-trusted[out] out(ctx expr-ctx, ast trusted-ast, cb out mut())
+trusted-scope record(ast trusted-ast)
+with-block[out] out(a trusted-scope, cb out mut()) check-expr-ctx
+	ctx = the::expr-ctx
 	ctx.is-in-trusted := true
 	res = cb[]
 	ctx.is-in-trusted := false
 	if !ctx.used-trusted
-		add-diag ctx, ast.keyword-range, diag-trusted-unused
+		add-diag a.ast.keyword-range, diag-trusted-unused
 	ctx.used-trusted := false
 	res
 
@@ -93,36 +113,33 @@ check-trusted bool(ctx expr-ctx)
 context-forbids-global bool(a expr-ctx)
 	exists a.lambdas, it.kind == data_
 
-add-diag void(ctx expr-ctx, range source-range, diag diag)
-	add-diag ctx.check-ctx, range, diag
+type-from-destructure type?(ast destructure-ast) check-expr-ctx
+	the types-get = types
+	type-from-destructure ast, type-params
 
-types types-get(a expr-ctx)
-	a.common-types, a.types-and-specs-map
+check-destructure destructure(ast destructure-ast, type type, kind destructure-kind) check-expr-ctx
+	the types-get = types
+	check-destructure type-container, type-params, ast, type, kind
 
-type-from-destructure type?(ctx expr-ctx, ast destructure-ast)
-	type-from-destructure ctx.check-ctx, ctx.types, ast, ctx.type-params
+type-from-ast type(ast type-ast) check-expr-ctx
+	the types-get = types
+	type-from-ast ast, type-params, yes
 
-check-destructure destructure(ctx expr-ctx, ast destructure-ast, type type, kind destructure-kind)
-	check-destructure ctx.check-ctx, ctx.types, ctx.type-container, ctx.type-params, ast, type, kind
-
-type-from-ast type(ctx expr-ctx, ast type-ast)
-	type-from-ast ctx.check-ctx, ctx.types, ast, ctx.type-params, yes
-
-ensure-context-in-closure void(ctx expr-ctx, diag-range source-range, context-type struct-inst)
-	i mut = ctx.lambdas.size
-	until i == 0 or contains ctx.lambdas[i - 1].closure-contexts, context-type
-		ctx.lambdas[i - 1].closure-contexts ~= context-type
-		check-lambda-can-reference-local ctx, diag-range, ctx.lambdas[i - 1].kind, "the", context-type, false
+ensure-context-in-closure void(diag-range source-range, context-type struct-inst) check-expr-ctx
+	lambdas = lambdas
+	i mut = lambdas.size
+	until i == 0 or contains lambdas[i - 1].closure-contexts, context-type
+		lambdas[i - 1].closure-contexts ~= context-type
+		check-lambda-can-reference-local diag-range, lambdas[i - 1].kind, "the", context-type, false
 		i -:= 1
 
 check-lambda-can-reference-local void
-	ctx expr-ctx
 	diag-range source-range
 	lambda-kind lambda-kind
 	local-name symbol
 	local-type type
 	local-is-mutable bool
-do
+do check-expr-ctx
 	expected-purity purity = match lambda-kind
 	as data_ then data_
 	as shared_ then shared_
@@ -130,11 +147,11 @@ do
 	as explicit-shared then mut_
 	if expected-purity != mut_
 		if local-is-mutable
-			add-diag ctx, diag-range,
+			add-diag diag-range,
 				diag-lambda-closure-purity lambda-kind, local-name, mut_, ()
-		elif !is-purity-always-compatible-considering-specs ctx.specs, local-type, expected-purity
-			add-diag ctx, diag-range,
-				diag-lambda-closure-purity lambda-kind, local-name, local-type.purity-range.worst-case, type-with-container ctx, local-type
+		elif !is-purity-always-compatible-considering-specs specs, local-type, expected-purity
+			add-diag diag-range,
+				diag-lambda-closure-purity lambda-kind, local-name, local-type.purity-range.worst-case, type-with-container local-type
 
 is-purity-always-compatible-considering-specs bool(fun-specs specs, type type, expected purity)
 	type-purity = purity-range type
@@ -155,11 +172,11 @@ is-purity-always-compatible-considering-specs bool(fun-specs specs, type type, e
 	exists specs.all-builtin, of builtin_, type-args
 		(p = builtin_.to::purity?) and type-args.only! == type and is-purity-compatible expected, p
 
-get-the bool(ctx expr-ctx, range source-range, the-type struct-inst)
-	if contains ctx.specs.all-contexts, the-type
-		ensure-context-in-closure ctx, range, the-type
+get-the bool(range source-range, the-type struct-inst) check-expr-ctx
+	if contains specs.all-contexts, the-type
+		ensure-context-in-closure range, the-type
 		true
 	else
-		add-diag ctx, range,
-			diag-context-type-missing ctx.type-container, ctx.specs.all-contexts.slow-to-array, the-type
+		add-diag range,
+			diag-context-type-missing type-container, specs.all-contexts.slow-to-array, the-type
 		false

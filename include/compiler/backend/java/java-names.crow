@@ -2,7 +2,6 @@ import
 	../../frontend/show-model
 	../../model/concrete-model
 	../../model/model
-	../../model/show-concrete-model
 	../../model/uri
 	../../util/java-bytecode-types
 	../../util/util
@@ -16,24 +15,25 @@ import
 | Can retrieve the name of a Java entity given the name of a Crow entity.
 | Since Java class files don't directly reference names, you need to use java-refs instead.
 java-names record
-	-show-ctx show-ctx # RM --------------------------------------------------------------------------------------------------------
 	-var-to-name symbol[concrete-var]
 	-module-to-class-name symbol[uri]
 	-fun-to-name-and-descriptor (symbol, symbol)[concrete-fun]
 	-type-to-name symbol[concrete-type]
 	-type-to-descriptor symbol[concrete-type]
 	-type-to-boxed-class-name symbol[concrete-type]
-	-program concrete-program # TODO: RM, this should only be used when building it ---------------------------------------------------
 	class-prefix string
-	union-info union-info # TODO: RM, this should only be used when building it ---------------------------------------------------
+	union-info union-info
 	constant-names java-constant-names
+names java-names() java-names
+	the::java-names
+union-info union-info() java-names
+	the::java-names.union-info
 
 build-mangled-names java-names
-	show-ctx show-ctx
 	program concrete-program
 	class-prefix string
 	union-info union-info
-do
+do show-ctx
 	module-to-class-name symbol mut[uri] = ()
 	type-to-name symbol[concrete-type] = for type in all-types-including-extern program
 		# TODO: if there is only 1 struct with the name (globally), just use the decl name ----------------------------------
@@ -69,7 +69,6 @@ do
 			out ~= ")"
 			out ~~= descriptor-for-return-type type-to-descriptor, fun.return-type
 		fun, (name, descriptor.to)
-	show-ctx: show-ctx
 	var-to-name: for x in program.all-vars
 		x, "{do-mangle x.source.name}{get-hash x}" # TODO: If only one var of this name in the module, no need to include the hash
 	module-to-class-name: module-to-class-name.move-to
@@ -79,10 +78,9 @@ do
 	type-to-boxed-class-name: for type in program.all-types-including-extern
 		- type
 		- generate-boxed-class-name (program, union-info, type-to-name), type
-	program: program
 	class-prefix: class-prefix
 	union-info: union-info
-	constant-names: java-constant-names show-ctx, program, class-prefix
+	constant-names: java-constant-names program, class-prefix
 
 constant-symbols-class-name symbol(a java-names)
 	"{a.class-prefix}_constant_symbols"
@@ -101,7 +99,7 @@ subscript class-and-member(a java-names, fun concrete-fun)
 		member: fun.source.concrete-fun-source-regular!.decl.name
 	else
 		assert name, _ = a.fun-to-name-and-descriptor[fun] else
-			log error, "GET NAME FOR {show-concrete-fun-sig a.show-ctx, fun, false}" # ------------------------------------------------------
+			log error, "GET NAME FOR {fun.to-crowd}" # ------------------------------------------------------
 			todo
 		class_: module-class-name a, fun.module-uri
 		member: name
@@ -300,7 +298,7 @@ primitive-descriptor symbol(a java-primitive-type)
 	as T_LONG
 		"J"
 
--java-constant-names java-constant-names(show-ctx show-ctx, program concrete-program, class-prefix string)
+-java-constant-names java-constant-names(program concrete-program, class-prefix string) show-ctx
 	# Since class files can't get too big, we must break up constants between several classes.
 	cur-class-index mut nat = 0
 	cur-class-name mut symbol = "{class-prefix}_constants{cur-class-index}"
@@ -310,7 +308,7 @@ primitive-descriptor symbol(a java-primitive-type)
 
 	out class-and-member constant-names-builder = ()
 
-	each-constant-in-dependency-order show-ctx, program, of constant
+	each-constant-in-dependency-order program, of constant
 		# TODO: RM these assertions -------------------------------------------------------------------------------------------
 		forbid is-empty-type constant.type
 		match constant

@@ -3,79 +3,79 @@ import
 	../../model/parse-diag
 	../../model/source-range
 	../../model/uri
-	./lexer
+	./parser
 	./parse-type
 	./parse-util
 	./token
 
-parse-imports-or-exports imports-or-exports-ast?(lexer lexer, keyword token)
-	start = lexer.next-start
-	if try-take-token lexer, keyword
-		imports = take-indent-or-fail-generic lexer, (of then parse-import-lines lexer), it.noop
-		(range lexer, start), imports
+parse-imports-or-exports imports-or-exports-ast?(keyword token) parser
+	start = next-start
+	if try-take-token keyword
+		imports = take-indent-or-fail-generic (of then parse-import-lines), it.noop
+		(range start), imports
 
--parse-import-lines import-or-export-ast[](lexer lexer)
+-parse-import-lines import-or-export-ast[]() parser
 	do with out in build
 	do loop
-	out ~= parse-single-module-import-on-own-line lexer
-	match take-newline-or-dedent lexer
+	out ~= parse-single-module-import-on-own-line
+	match take-newline-or-dedent
 	as newline
 		continue
 	as dedent
 		break
 
--parse-import-path (path-or-rel-path, bool)(lexer lexer)
-	n-parents nat? = if try-take-token lexer, dot
-		_ = take-or-add-diag-expected-operator lexer, "/", slash
+-parse-import-path (path-or-rel-path, bool)() parser
+	n-parents nat? = if try-take-token dot
+		_ = take-or-add-diag-expected-operator "/", slash
 		0
-	elif try-take-operator lexer, ".."
-		_ = take-or-add-diag-expected-operator lexer, "/", slash
-		take-dot-dot-slashes lexer
-	first-component, first-colon = take-path-component lexer
-	path, colon = add-path-components lexer, (first-component.root-path, first-colon)
+	elif try-take-operator ".."
+		_ = take-or-add-diag-expected-operator "/", slash
+		take-dot-dot-slashes
+	first-component, first-colon = take-path-component
+	path, colon = add-path-components (first-component.root-path, first-colon)
 	if n-parents
 		(rel-path n-parents, path), colon
 	else
 		path, colon
 
--take-dot-dot-slashes nat(lexer lexer)
+-take-dot-dot-slashes nat() parser
 	acc mut nat = 1
-	while try-take-operator lexer, ".."
-		_ = take-or-add-diag-expected-operator lexer, "/", slash
+	while try-take-operator ".."
+		_ = take-or-add-diag-expected-operator "/", slash
 		acc +:= 1
 	acc
 
--add-path-components (path, bool)(lexer lexer, start (path, bool))
+-add-path-components (path, bool)(start (path, bool)) parser
 	acc mut, colon mut = start
-	while !colon and try-take-operator lexer, "/"
-		name, new-colon = take-path-component lexer
+	while !colon and try-take-operator "/"
+		name, new-colon = take-path-component
 		acc /:= name.to
 		colon := new-colon
 	acc, colon
 
--parse-single-module-import-on-own-line import-or-export-ast(lexer lexer)
-	start = lexer.next-start
-	path, ends-with-colon = parse-import-path lexer
-	path-range = range-allow-empty lexer, start
-	kind = parse-import-or-export-kind lexer, start, ends-with-colon
-	(range-allow-empty lexer, start), path, path-range, kind
+-parse-single-module-import-on-own-line import-or-export-ast() parser
+	start = next-start
+	path, ends-with-colon = parse-import-path
+	path-range = range-allow-empty start
+	kind = parse-import-or-export-kind start, ends-with-colon
+	start.range-allow-empty, path, path-range, kind
 
--parse-import-or-export-kind import-or-export-ast-kind(lexer lexer, start pos, colon bool)
+-parse-import-or-export-kind import-or-export-ast-kind(start pos, colon bool) parser
 	if colon
-		if peek-name-or-operator lexer
-			take-comma-separated-names-diag-trailing-comma lexer
+		if peek-name-or-operator
+			take-comma-separated-names-diag-trailing-comma
 		else
-			take-indent-or-fail-generic lexer, (of then parse-indented-import-names lexer, start), of _ then import-whole-module-ast
-	elif try-take-token lexer, as_
-		name = take-name-and-range lexer
-		type = parse-type lexer
-		import-file-ast name, type, to-import-file-type-or-diag lexer, type
+			take-indent-or-fail-generic (of then parse-indented-import-names start), of _ then import-whole-module-ast
+	elif try-take-token as_
+		name = take-name-and-range
+		type = parse-type
+		import-file-ast name, type, to-import-file-type-or-diag type
 	else
 		import-whole-module-ast
 
--to-import-file-type-or-diag import-file-type(lexer lexer, type type-ast)
+-to-import-file-type-or-diag import-file-type(type type-ast) parser
 	to-import-file-type type else
-		add-diag lexer, type.range, parse-diag-import-file-type-not-supported
+		add-diag type.range, parse-diag-import-file-type-not-supported
 		string
 
 -to-import-file-type import-file-type?(a type-ast)
@@ -89,35 +89,35 @@ parse-imports-or-exports imports-or-exports-ast?(lexer lexer, keyword token)
 -is-nat8-array bool(a type-ast)
 	a.suffix-special-type-ast and a.kind == array and is-simple-name a.left, "nat8"
 
--parse-indented-import-names name-and-range[](lexer lexer, start pos)
+-parse-indented-import-names name-and-range[](start pos) parser
 	do with out in build
 	do loop
-	trailing-comma = take-comma-separated-names lexer, out
-	match take-newline-or-dedent lexer
+	trailing-comma = take-comma-separated-names out
+	match take-newline-or-dedent
 	as newline
 		unless trailing-comma
-			add-diag lexer, (range lexer, start), comma::parse-diag-expected
+			add-diag start.range, comma::parse-diag-expected
 		continue
 	as dedent
-		add-diag-if-trailing-comma lexer, trailing-comma
+		add-diag-if-trailing-comma trailing-comma
 		break
 
--take-path-component (symbol, bool)(lexer lexer)
-	cur mut, colon mut = take-path-component-name lexer
-	while !colon and p = take-path-component-punctuation lexer
-		name, new-colon = take-path-component-name lexer
+-take-path-component (symbol, bool)() parser
+	cur mut, colon mut = take-path-component-name
+	while !colon and p = take-path-component-punctuation
+		name, new-colon = take-path-component-name
 		cur := "{cur}{p}{name}"
 		colon := new-colon
 	cur, colon
 
--take-path-component-name (symbol, bool)(lexer lexer)
-	if x = try-take-name-colon lexer
+-take-path-component-name (symbol, bool)() parser
+	if x = try-take-name-colon
 		x, true
 	else
-		lexer.take-name-allow-name-like-keywords, false
+		take-name-allow-name-like-keywords, false
 
--take-path-component-punctuation string?(lexer lexer)
-	if try-take-token lexer, dollar
+-take-path-component-punctuation string?() parser
+	if try-take-token dollar
 		"$"
-	elif try-take-token lexer, dot
+	elif try-take-token dot
 		"."

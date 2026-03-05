@@ -5,6 +5,7 @@ import
 	../../model/source-range
 	../../util/util
 	./allocators
+	./check-ctx
 	./expr-ctx
 	./instantiate
 
@@ -43,29 +44,28 @@ to expected(a type-and-context[])
 expr-and-type record(expr expr, type type)
 
 check-with-modify-expected expr
-	ctx expr-ctx
 	outer expected
 	# If this returns an empty option, the expected type can't be satisfied.
 	cb-modify-expected-type type? mut(x type)
 	# This can return a modified type. E.g., if expecting a non-option, it would return the option.
 	cb-inner expr-and-type mut(x expected)
-do
+do check-expr-ctx
 	if x = outer.opt-inferred
 		if new-expected = cb-modify-expected-type[x]
 			inner expected = expect new-expected
-			check ctx, inner, cb-inner[inner]
+			check inner, cb-inner[inner]
 		else
-			check ctx, outer, cb-inner[infer]
+			check outer, cb-inner[infer]
 	elif outer-types = outer.opt-choices
 		modified-types type-and-context[] = with out in build
 			for outer-type in outer-types
 				if new-expected = cb-modify-expected-type[outer-type.type]
 					out ~= new-expected, outer-type.context
-		check ctx, outer, cb-inner[if is-empty modified-types then infer else modified-types.to]
+		check outer, cb-inner[if is-empty modified-types then infer else modified-types.to]
 	elif outer.opt-loop
 		expr cb-inner[outer]
 	else
-		check ctx, outer, cb-inner[infer]
+		check outer, cb-inner[infer]
 
 debug string(a expected)
 	#show-ctx show-type-ctx = ((), (), (), (false,)), ctx.common-types
@@ -86,28 +86,25 @@ try-get-loop loop-info?(a expected)
 | Returns an index into {choices} if it is the only allowed choice.
 | If there is no unambiguous choice, adds a diagnostic and returns an empty option.
 find-expected-struct-for-literal nat?
-	ctx expr-ctx
 	range source-range
 	expected expected
 	choices struct-inst[]
-do
-	find-expected-struct-for-literal-common ctx, range, expected, choices, true
+do check-expr-ctx
+	find-expected-struct-for-literal-common range, expected, choices, true
 
 find-expected-struct-for-literal-allow-none nat?
-	ctx expr-ctx
 	range source-range
 	expected expected
 	choices struct-inst[]
-do
-	find-expected-struct-for-literal-common ctx, range, expected, choices, false
+do check-expr-ctx
+	find-expected-struct-for-literal-common range, expected, choices, false
 
 -find-expected-struct-for-literal-common nat?
-	ctx expr-ctx
 	range source-range
 	expected expected
 	choices struct-inst[]
 	should-add-diag-none bool
-do
+do check-expr-ctx
 	res mut nat? = ()
 	# For diag
 	multiple struct-inst mut[] = ()
@@ -127,14 +124,14 @@ do
 
 	if res
 		unless is-empty multiple
-			add-diag ctx, range,
-				diag-literal-multiple-match ctx.type-container, multiple.move-to
+			add-diag range,
+				diag-literal-multiple-match type-container, multiple.move-to
 			set-to-type expected, choices[res!]
 		res!
 	else
 		if should-add-diag-none
-			add-diag ctx, range,
-				diag-literal-not-expected get-expected-for-diag ctx, expected
+			add-diag range,
+				diag-literal-not-expected get-expected-for-diag expected
 		()
 
 -each-narrowed-struct void(a type-and-context, f void mut(x struct-inst))
@@ -212,11 +209,10 @@ expected-lambda-type record mut
 	fun-type fun-type
 	instantiated-param-type type
 get-expected-lambda expected-lambda-type?
-	ctx expr-ctx
 	diag-range source-range
 	declared-param-type type?
 	expected expected
-do
+do check-expr-ctx
 	do unless declared-param-type == bogus-type
 	res mut expected-lambda-type? = ()
 	multiple type mut[] = ()
@@ -224,7 +220,7 @@ do
 	each-choice expected, of choice
 		each-narrowed-struct choice, of struct
 			do if fun-type = get-fun-type struct
-			do if actual-param-type = get-expected-param-type-from-fun-type ctx, diag-range, choice.context, declared-param-type, fun-type, any-diag
+			do if actual-param-type = get-expected-param-type-from-fun-type diag-range, choice.context, declared-param-type, fun-type, any-diag
 			if res
 				if is-empty multiple
 					prev = res!
@@ -235,13 +231,13 @@ do
 
 	if any-diag.get
 		if !is-empty multiple
-			add-diag ctx, diag-range, (multiple.move-to, ctx.type-container).diag-lambda-multiple-match
+			add-diag diag-range, diag-lambda-multiple-match (multiple.move-to, type-container)
 		()
 	else
 		if res
 			freeze-expected-return-type res!
 		else
-			add-diag ctx, diag-range, diag-lambda-not-expected get-expected-for-diag ctx, expected
+			add-diag diag-range, diag-lambda-not-expected get-expected-for-diag expected
 		res
 
 ###
@@ -269,20 +265,19 @@ If the user wrote `xs nat?[] = for x in xs ...`, they presumably want the body t
 		()
 
 -get-expected-param-type-from-fun-type type?
-	ctx expr-ctx
 	diag-range source-range
 	type-context type-context
 	declared-param-type type?
 	fun-type fun-type
 	any-diag bool reference
-do
+do check-ctx
 	if expected-param-type = try-get-inexact-non-inferring-type (fun-type.param-type, type-context)
 		unless declared-param-type and expected-param-type != declared-param-type
 			expected-param-type
 	elif declared-param-type
 		declared-param-type
 	else
-		add-diag ctx, diag-range, diag-lambda-cant-infer-param-type
+		add-diag diag-range, diag-lambda-cant-infer-param-type
 		any-diag set= true
 		()
 
@@ -351,22 +346,22 @@ inferred type(expected expected)
 	else
 		expected.opt-loop!.type
 
-check expr(ctx expr-ctx, expected expected, expr-type type, expr expr)
-	check ctx, expected, (expr, expr-type)
--check expr(ctx expr-ctx, expected expected, a expr-and-type)
+check expr(expected expected, expr-type type, expr expr) check-expr-ctx
+	check expected, (expr, expr-type)
+-check expr(expected expected, a expr-and-type) check-expr-ctx
 	if set-type-no-diagnostic expected, a.type
 		a.expr
 	else
-		add-diag ctx, a.expr.range,
-			diag-type-conflict (get-expected-for-diag ctx, expected), (type-with-container ctx, a.type)
+		add-diag a.expr.range,
+			diag-type-conflict expected.get-expected-for-diag, type-with-container a.type
 		set-to-bogus-if-inferring expected
 		bogus-wrong-type-expr a.expr, expected.inferred
 
-get-expected-for-diag expected-for-diag(ctx expr-ctx, expected expected)
+get-expected-for-diag expected-for-diag(expected expected) check-expr-ctx
 	if x = expected.opt-inferred
-		expected-for-diag-choices (x,), ctx.type-container
+		expected-for-diag-choices (x,), type-container
 	elif choices = expected.opt-choices
-		expected-for-diag-choices (map choices, it.apply-inferred), ctx.type-container
+		expected-for-diag-choices (map choices, it.apply-inferred), type-container
 	elif expected.opt-loop
 		expected-for-diag-loop
 	else

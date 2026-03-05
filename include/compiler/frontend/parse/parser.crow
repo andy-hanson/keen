@@ -1,0 +1,152 @@
+import
+	../../model/parse-diag
+	../../model/source-range
+	../../model/uri
+	./lex-token
+	./token
+	./token-util
+
+parser record mut
+	-next-index mut nat
+	-tokens-starts-ends token-start-end[]
+	-datas token-data[]
+	-uri uri
+	-diagnostics-builder parse-diagnostic mut[]
+	-source char8 array-view
+
+new parser(uri uri, source char8 array-view)
+	diagnostics parse-diagnostic mut[] = ()
+	tokens = lex-tokens source, diagnostics
+	0, tokens.tokens-starts-ends, tokens.datas, uri, diagnostics, source
+
+uri uri() parser
+	the::parser.uri
+
+prev-range source-range() parser
+	prev.range
+prev-start pos() parser
+	prev.start
+prev-end pos() parser
+	prev.end
+-prev token-start-end() parser
+	the::parser.tokens-starts-ends[the::parser.next-index - 1]
+prev-string string() parser
+	prev-token-data.string!
+prev-symbol symbol() parser
+	prev-token-data.symbol!
+-prev-token-data token-data() parser
+	the::parser.datas[the::parser.next-index - 1]
+
+-next token-start-end() parser
+	the::parser.tokens-starts-ends[the::parser.next-index]
+next-range source-range() parser
+	next.range
+next-start pos() parser
+	next.start
+next-symbol symbol() parser
+	the::parser.datas[the::parser.next-index].symbol!
+next-next-symbol symbol() parser
+	the::parser.datas[the::parser.next-index + 1].symbol!
+
+add-diag void(range source-range, diag parse-diag) parser
+	the::parser.diagnostics-builder ~= range, diag
+
+finish-diagnostics parse-diagnostic[]() parser
+	the::parser.diagnostics-builder.move-to
+
+add-diag-at-next-token void(diag parse-diag) parser
+	add-diag next-range, diag
+
+add-diag-unexpected-next-token void() parser
+	add-diag-unexpected-inner the::parser.next-index
+add-diag-unexpected-prev-token void() parser
+	add-diag-unexpected-inner the::parser.next-index - 1
+-add-diag-unexpected-inner void(index nat) parser
+	token = the::parser.tokens-starts-ends[index]
+	add-diag token.range, match token token
+	as operator-binary
+		parse-diag-unexpected-operator the::parser.datas[index].symbol!
+	else
+		parse-diag-unexpected-token token.token
+
+range source-range(start pos) parser
+	start, end-for-range
+-end-for-range pos() parser
+	parser = the::parser
+	prev mut = parser.next-index - 1
+	while is-newline-token parser.tokens-starts-ends[prev].token
+		prev -:= 1
+	parser.tokens-starts-ends[prev].end
+range-allow-empty source-range(start pos) parser
+	start, (max end-for-range, start)
+
+skip-until-newline-no-diag void() parser
+	until is-newline-token peek
+		advance
+
+advance void() parser
+	the::parser.next-index +:= 1
+
+take-next-token token() parser
+	res = peek
+	advance
+	res
+
+advance-may-continue-onto-next-line void() parser
+	advance
+	while peek newline-same-indent
+		advance
+
+peek token() parser
+	next.token
+peek bool(expected token) parser
+	peek == expected
+peek2 token() parser
+	the::parser.tokens-starts-ends[the::parser.next-index + 1].token
+peek2 bool(expected token) parser
+	peek2 == expected
+
+lookahead-equals bool() parser
+	parser = the::parser
+	cur mut = parser.next-index
+	initial = parser.tokens-starts-ends[cur].token
+	if initial == the_ or initial == try_
+		cur +:= 1
+	parens mut nat = 0
+	brackets mut nat = 0
+	do loop
+	token = parser.tokens-starts-ends[cur].token
+	cur +:= 1
+	match token
+	as equal
+		break parens == 0 and brackets == 0
+	as comma then continue
+	as data_ then continue
+	as mut_ then continue
+	as name then continue
+	as question then continue
+	as shared_ then continue
+	as underscore then continue
+	as paren-left
+		parens +:= 1
+		continue
+	as paren-right
+		if parens == 0
+			break false
+		else
+			parens -:= 1
+			continue
+	as bracket-left
+		brackets +:= 1
+		continue
+	as question-bracket
+		brackets +:= 1
+		continue
+	as bracket-right
+		if brackets == 0
+			break false
+		else
+			brackets -:= 1
+			continue
+	else
+		break false

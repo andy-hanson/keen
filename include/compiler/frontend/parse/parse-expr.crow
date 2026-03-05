@@ -3,15 +3,15 @@ import
 	../../model/parse-diag
 	../../model/source-range
 	../../util/util
-	./lexer
+	./parser
 	./parse-type
 	./parse-util
 	./token
 	./token-util
 
-parse-fun-expr-body expr-ast?(lexer lexer)
-	if try-take-token lexer, newline-indent
-		lexer.parse-statements-and-dedent
+parse-fun-expr-body expr-ast?() parser
+	if try-take-token newline-indent
+		parse-statements-and-dedent
 
 -arg-ctx record
 	| Allow things like 'if' that continue into an indented block.
@@ -54,25 +54,25 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	allowed-block: a.allowed-block
 	min-precedence-exclusive: max a.min-precedence-exclusive, precedence
 
--parse-comma-call expr-ast(lexer lexer, arg-ctx arg-ctx, first expr-ast)
-	args = parse-args lexer, arg-ctx, first
+-parse-comma-call expr-ast(arg-ctx arg-ctx, first expr-ast) parser
+	args = parse-args arg-ctx, first
 	with args2 in it-scope args
-		list-ast (range lexer, first.start), map args2, it.identity
+		list-ast first.start.range, map args2, it.identity
 
--parse-args expr-ast[](lexer lexer, ctx arg-ctx)
-	parse-args lexer, (require-precedence-gt ctx, comma), ()
--parse-args expr-ast[](lexer lexer, ctx arg-ctx, first expr-ast?)
+-parse-args expr-ast[](ctx arg-ctx) parser
+	parse-args (require-precedence-gt ctx, comma), ()
+-parse-args expr-ast[](ctx arg-ctx, first expr-ast?) parser
 	do with out in build
 	if first
 		out ~= first
 	assert ctx.min-precedence-exclusive >= comma
-	do if peek-token-expression lexer, ctx.allowed-block
-	out ~= parse-expr-and-calls lexer, ctx
-	while try-take-token lexer, comma
-		out ~= parse-expr-and-calls lexer, ctx
+	do if peek-token-expression ctx.allowed-block
+	out ~= parse-expr-and-calls ctx
+	while try-take-token comma
+		out ~= parse-expr-and-calls ctx
 
--peek-token-expression bool(lexer lexer, allowed-block bool)
-	match lexer.peek
+-peek-token-expression bool(allowed-block bool) parser
+	match peek
 	as and_
 		false
 	as brace-right
@@ -106,87 +106,83 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	else
 		true
 
--parse-assignment expr-ast(lexer lexer, left expr-ast, assignment-pos pos)
-	right = lexer.parse-expr-no-let
-	assignment-ast left, assignment-pos, right
+-must-parse-next-lines expr-ast(diag parse-diag-expected) parser
+	try-parse-next-lines else
+		add-diag-at-next-token diag
+		bogus-ast next-range
+-try-parse-next-lines expr-ast?() parser
+	if try-take-token newline-same-indent
+		parse-statements
 
--must-parse-next-lines expr-ast(lexer lexer, diag parse-diag-expected)
-	try-parse-next-lines lexer else
-		add-diag-at-next-token lexer, diag
-		bogus-ast lexer.next-range
--try-parse-next-lines expr-ast?(lexer lexer)
-	if try-take-token lexer, newline-same-indent
-		lexer.parse-statements
-
--parse-calls expr-ast(lexer lexer, lhs expr-ast, arg-ctx arg-ctx)
-	match peek lexer
+-parse-calls expr-ast(lhs expr-ast, arg-ctx arg-ctx) parser
+	match peek
 	as and_
-		parse-logical-ast lexer, lhs, and_, arg-ctx
+		parse-logical-ast lhs, and_, arg-ctx
 	as colon-equal
 		do if arg-ctx.min-precedence-exclusive < assignment-operator else lhs
-		advance lexer
-		parse-assignment lexer, lhs, lexer.prev-start
+		advance
+		assignment-ast lhs, prev-start, parse-expr-no-let
 	as comma
 		do if arg-ctx.min-precedence-exclusive < comma else lhs
-		advance lexer
-		res = parse-comma-call lexer, (require-precedence-gt arg-ctx, comma), lhs
-		parse-calls lexer, res, arg-ctx
+		advance
+		res = parse-comma-call (require-precedence-gt arg-ctx, comma), lhs
+		parse-calls res, arg-ctx
 	as else_
-		parse-logical-ast lexer, lhs, else_, arg-ctx
+		parse-logical-ast lhs, else_, arg-ctx
 	as equal
 		do if arg-ctx.min-precedence-exclusive < equals-expression else lhs
-		advance lexer
-		unpack = parse-unpack-option lexer, lhs, lexer.prev-start, arg-ctx
-		parse-calls lexer, unpack, arg-ctx
+		advance
+		unpack = parse-unpack-option lhs, prev-start, arg-ctx
+		parse-calls unpack, arg-ctx
 	as name-after-tick
 		do if arg-ctx.min-precedence-exclusive < name-after-tick-precedence else lhs
-		name = next-symbol lexer
-		pos = next-start lexer
-		advance lexer
+		name = next-symbol
+		pos = next-start
+		advance
 		inner-ctx = require-precedence-gt arg-ctx, name-after-tick-precedence
-		args = parse-args lexer, inner-ctx, lhs
+		args = parse-args inner-ctx, lhs
 		call = call-ast infix, (pos + 1, name), args, ()
-		parse-calls lexer, call, arg-ctx
+		parse-calls call, arg-ctx
 	as name-colon-equals
-		parse-assignment-call lexer, lhs, arg-ctx
+		parse-assignment-call lhs, arg-ctx
 	as name-equals
-		parse-binary-infix lexer, lhs, assignment-operator, arg-ctx, lexer.next-symbol
+		parse-binary-infix lhs, assignment-operator, arg-ctx, next-symbol
 	as operator-binary
-		name = next-symbol lexer
-		parse-binary-infix lexer, lhs, name.operator-precedence, arg-ctx, name
+		name = next-symbol
+		parse-binary-infix lhs, name.operator-precedence, arg-ctx, name
 	as operator-colon-equals
-		parse-assignment-call lexer, lhs, arg-ctx
+		parse-assignment-call lhs, arg-ctx
 	as operator-equals
-		parse-binary-infix lexer, lhs, assignment-operator, arg-ctx, lexer.next-symbol
+		parse-binary-infix lhs, assignment-operator, arg-ctx, next-symbol
 	as or_
-		parse-logical-ast lexer, lhs, or_, arg-ctx
+		parse-logical-ast lhs, or_, arg-ctx
 	else
 		if callable = as-callable-expr lhs
-			args = parse-args lexer, arg-ctx
+			args = parse-args arg-ctx
 			if is-empty args
 				lhs
 			else
-				parse-calls lexer, (to-expr callable, args), arg-ctx
+				parse-calls (to-expr callable, args), arg-ctx
 		else
 			lhs
 
--parse-binary-infix expr-ast(lexer lexer, lhs expr-ast, precedence precedence, arg-ctx arg-ctx, name symbol)
+-parse-binary-infix expr-ast(lhs expr-ast, precedence precedence, arg-ctx arg-ctx, name symbol) parser
 	do if arg-ctx.min-precedence-exclusive < precedence else lhs
-	name-pos = next-start lexer
-	advance lexer
-	args expr-ast[] = lhs, parse-expr-and-calls lexer, require-precedence-gt arg-ctx, precedence
+	name-pos = next-start
+	advance
+	args expr-ast[] = lhs, parse-expr-and-calls require-precedence-gt arg-ctx, precedence
 	res = with args2 in it-scope-if args, precedence > comma
 		call-ast infix, (name-pos, name), args2, ()
-	parse-calls lexer, res, arg-ctx
+	parse-calls res, arg-ctx
 
--parse-logical-ast expr-ast(lexer lexer, lhs expr-ast, kind logical-ast-kind, arg-ctx arg-ctx)
+-parse-logical-ast expr-ast(lhs expr-ast, kind logical-ast-kind, arg-ctx arg-ctx) parser
 	precedence = kind.precedence
 	do if arg-ctx.min-precedence-exclusive < precedence else lhs
-	before-call = next-start lexer
-	advance-may-continue-onto-next-line lexer
+	before-call = next-start
+	advance-may-continue-onto-next-line
 	expr = logical-ast lhs, kind, before-call,
-		parse-expr-and-calls lexer, require-precedence-gt arg-ctx, precedence
-	parse-calls lexer, expr, arg-ctx
+		parse-expr-and-calls require-precedence-gt arg-ctx, precedence
+	parse-calls expr, arg-ctx
 
 -callable-kind enum(plain, force, not, question)
 -== bool(a callable-kind, b callable-kind)
@@ -240,11 +236,11 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	else
 		res
 
--parse-assignment-call expr-ast(lexer lexer, lhs expr-ast, arg-ctx arg-ctx)
+-parse-assignment-call expr-ast(lhs expr-ast, arg-ctx arg-ctx) parser
 	do if arg-ctx.min-precedence-exclusive < assignment-operator else lhs
-	advance lexer
-	assignment-call-ast (lexer.prev-start, lexer.prev-symbol), lhs,
-		parse-expr-and-calls lexer, require-precedence-gt arg-ctx, assignment-operator
+	advance
+	assignment-call-ast (prev-start, prev-symbol), lhs,
+		parse-expr-and-calls require-precedence-gt arg-ctx, assignment-operator
 
 -precedence precedence(a logical-ast-kind)
 	match a
@@ -301,90 +297,90 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	else
 		throw unreachable
 
--try-parse-dots-and-subscripts expr-ast(lexer lexer, initial expr-ast)
-	dot-pos = lexer.next-start
-	match lexer.peek
+-try-parse-dots-and-subscripts expr-ast(initial expr-ast) parser
+	dot-pos = next-start
+	match peek
 	as dot
-		advance lexer
-		try-parse-dots-and-subscripts lexer, parse-after-dot lexer, initial
+		advance
+		try-parse-dots-and-subscripts parse-after-dot initial
 	as bracket-left
-		advance lexer
-		try-parse-dots-and-subscripts lexer, parse-subscript lexer, initial, dot-pos, false
+		advance
+		try-parse-dots-and-subscripts parse-subscript initial, dot-pos, false
 	as question-bracket
-		advance lexer
-		try-parse-dots-and-subscripts lexer, parse-subscript lexer, initial, dot-pos, true
+		advance
+		try-parse-dots-and-subscripts parse-subscript initial, dot-pos, true
 	as colon2
-		try-parse-dots-and-subscripts lexer, with initial2 in it-scope initial
-			advance lexer
-			typed-ast initial2, dot-pos, lexer.parse-type-for-typed-expr
+		try-parse-dots-and-subscripts with initial2 in it-scope initial
+			advance
+			typed-ast initial2, dot-pos, parse-type-for-typed-expr
 	as bang
-		try-parse-dots-and-subscripts lexer, with initial2 in it-scope initial
-			advance lexer
+		try-parse-dots-and-subscripts with initial2 in it-scope initial
+			advance
 			force-ast initial2, dot-pos
 	else
 		initial
 
--parse-after-dot expr-ast(lexer lexer, initial expr-ast)
+-parse-after-dot expr-ast(initial expr-ast) parser
 	call expr-ast mut(style call-ast-style, name name-and-range, type-arg type-ast?) = of style, name, type-arg
 		with initial2 in it-scope-single initial
 			call-ast style, name, (initial2,), type-arg
-	if name = try-take-name-like-token lexer, name-bang
+	if name = try-take-name-like-token name-bang
 		with x in it-scope call[dot, name, ()]
 			force-ast x, name.range.end
-	elif name = try-take-name-like-token lexer, name-after-question
+	elif name = try-take-name-like-token name-after-question
 		call[dot-question, name, ()]
-	elif name = lexer.try-take-name-and-range-or-diag
-		call[dot, name, lexer.try-parse-type-arg-for-expr]
+	elif name = try-take-name-and-range-or-diag
+		call[dot, name, try-parse-type-arg-for-expr]
 	else
 		initial
 
--parse-subscript expr-ast(lexer lexer, initial expr-ast, subscript-pos pos, is-question-bracket bool)
-	arg expr-ast = if try-take-token lexer, bracket-right
-		list-ast (range lexer, subscript-pos), ()
+-parse-subscript expr-ast(initial expr-ast, subscript-pos pos, is-question-bracket bool) parser
+	arg expr-ast = if try-take-token bracket-right
+		list-ast (range subscript-pos), ()
 	else
-		res = lexer.parse-expr-no-block
-		_ = take-or-add-diag-expected-token lexer, bracket-right, closing-bracket
+		res = parse-expr-no-block
+		_ = take-or-add-diag-expected-token bracket-right, closing-bracket
 		res
 	with args in it-scope (initial, arg)
 		left, right = only2! args
-		call-subscript-ast left, is-question-bracket, subscript-pos, right, lexer.prev-end
+		call-subscript-ast left, is-question-bracket, subscript-pos, right, prev-end
 
--parse-match expr-ast(lexer lexer, start pos)
-	local = parse-name-equals lexer
-	matched = parse-expr-no-block lexer
+-parse-match expr-ast(start pos) parser
+	local = parse-name-equals
+	matched = parse-expr-no-block
 	cases case-ast[] = with out in build
-		while as-pos = try-take-newline-then-as lexer
-			out ~= as-pos, (parse-case-member lexer), parse-then-or-block lexer
-	match-ast start, local, matched, cases, if pos = try-take-newline-then-else lexer
-		pos, lexer.parse-then-or-block
--parse-name-equals name-and-range?(lexer lexer)
-	if peek lexer, name and peek2 lexer, equal
-		res = try-take-name-and-range! lexer
-		advance lexer
+		while as-pos = try-take-newline-then-as
+			out ~= as-pos, parse-case-member, parse-then-or-block
+	match-ast start, local, matched, cases, if pos = try-take-newline-then-else
+		pos, parse-then-or-block
+-parse-name-equals name-and-range?() parser
+	if peek name and peek2 equal
+		res = try-take-name-and-range!
+		advance
 		res
 
--parse-then-or-block expr-ast(lexer lexer)
-	if try-take-token lexer, then_
-		parse-expr-no-block lexer
+-parse-then-or-block expr-ast() parser
+	if try-take-token then_
+		parse-expr-no-block
 	else
-		parse-indented-statements lexer
+		parse-indented-statements
 
--parse-case-member case-member-ast(lexer lexer)
-	if name = lexer.try-take-name-and-range
+-parse-case-member case-member-ast() parser
+	if name = try-take-name-and-range
 		as-name-ast name
-	elif number = lexer.try-take-literal-number
+	elif number = try-take-literal-number
 		number
 	else
-		parse-string-literal-forbid-interpolated lexer, parse-diag-match-case-interpolated else
-			as-bogus-ast lexer.next-range
+		parse-string-literal-forbid-interpolated parse-diag-match-case-interpolated else
+			as-bogus-ast next-range
 
--parse-string-literal-forbid-interpolated literal-string-ast?(lexer lexer, diag parse-diag)
-	if kind = as-quote-no-interpolated lexer.peek
-		advance lexer
-		kind, lexer.prev-range, lexer.prev-string
+-parse-string-literal-forbid-interpolated literal-string-ast?(diag parse-diag) parser
+	if kind = as-quote-no-interpolated peek
+		advance
+		kind, prev-range, prev-string
 	else
-		add-diag-at-next-token lexer, diag
-		lexer.skip-until-newline-no-diag
+		add-diag-at-next-token diag
+		skip-until-newline-no-diag
 		()
 
 -as-quote-no-interpolated quote-kind?(a token)
@@ -394,50 +390,49 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	as quote-double-no-interpolated then double
 	else then ()
 
--parse-quote-no-interpolated expr-ast(lexer lexer, kind quote-kind, allowed-block bool)
-	string literal-string-ast = kind, lexer.prev-range, lexer.prev-string
-	after-quote lexer, string, allowed-block
+-parse-quote-no-interpolated expr-ast(kind quote-kind, allowed-block bool) parser
+	string literal-string-ast = kind, prev-range, prev-string
+	after-quote string, allowed-block
 
--parse-quote-then-interpolated expr-ast(lexer lexer, kind quote-kind, allowed-block bool)
+-parse-quote-then-interpolated expr-ast(kind quote-kind, allowed-block bool) parser
 	template interpolated-template-part mut[] =
-		- lexer.prev-range, lexer.prev-string
+		- prev-range, prev-string
 	parts expr-ast mut[] = ()
 	res expr-ast = loop
-		parts ~= if peek lexer, brace-right
-			add-diag-at-next-token lexer, parse-diag-missing-interpolated
-			bogus-ast lexer.next-range
+		parts ~= if peek brace-right
+			add-diag-at-next-token parse-diag-missing-interpolated
+			bogus-ast next-range
 		else
-			lexer.parse-expr-no-block
-		do if take-after-interpolated lexer else break bogus-ast range lexer, template[0].range.start
-		token = lexer.take-next-token
-		template ~= lexer.prev-range, lexer.prev-string
+			parse-expr-no-block
+		do if take-after-interpolated else break bogus-ast range template[0].range.start
+		token = take-next-token
+		template ~= prev-range, prev-string
 		if token == kind.no-interpolated
 			break with parts2 in it-scope parts.move-to
 				interpolated-ast kind, template.move-to, parts2
 		else
 			token is kind.then-interpolated
 			continue
-	after-quote lexer, res, allowed-block
+	after-quote res, allowed-block
 
--after-quote expr-ast(lexer lexer, expr expr-ast, allowed-block bool)
-	if try-take-token lexer, colon and string = as-string-like expr
-		parse-single-line-named-new-after-first-name lexer, string, allowed-block
+-after-quote expr-ast(expr expr-ast, allowed-block bool) parser
+	if try-take-token colon and string = as-string-like expr
+		parse-single-line-named-new-after-first-name string, allowed-block
 	else
-		try-parse-dots-and-subscripts lexer, expr
+		try-parse-dots-and-subscripts expr
 -as-string-like name-or-string-ast?(a expr-ast)
 	match a
 	as literal-string-ast then a
 	as interpolated-ast then a
 	else then ()
 
--parse-if expr-ast(lexer lexer, start pos, is-else-of-parent bool, allowed-block bool, is-unless bool)
-	condition = parse-condition lexer, false
-	then-pos = lexer.next-start
-	if !is-else-of-parent and try-take-token lexer, then_
-		then_ = parse-expr-and-calls lexer, (false, else_.precedence)
-		else-pos = lexer.next-start
-		else_ expr-ast? = if try-take-token lexer, else_
-			lexer.parse-expr-no-block
+-parse-if expr-ast(start pos, is-else-of-parent bool, allowed-block bool, is-unless bool) parser
+	condition = parse-condition false
+	then-pos = next-start
+	if !is-else-of-parent and try-take-token then_
+		then_ = parse-expr-and-calls (false, else_.precedence)
+		else-pos = next-start
+		else_ expr-ast? = if try-take-token else_ then parse-expr-no-block
 		start: start
 		is-unless: is-unless
 		kind: if else_ then if-then-else else if-then
@@ -448,14 +443,14 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 		first-branch: then_
 		second-branch: else_
 	else
-		then_ = parse-indented-statements lexer, start, allowed-block, if_
-		elif-or-else = if allowed-block then lexer.try-take-newline-then-elif-or-else
+		then_ = parse-indented-statements start, allowed-block, if_
+		elif-or-else = if allowed-block then try-take-newline-then-elif-or-else
 		else_ expr-ast? = if elif-or-else
 			match kind elif-or-else
 			as elif_
-				parse-if lexer, elif-or-else.pos, true, allowed-block, false
+				parse-if elif-or-else.pos, true, allowed-block, false
 			as else_
-				lexer.parse-indented-statements
+				parse-indented-statements
 		start: start
 		is-unless: is-unless
 		kind: if elif-or-else
@@ -480,83 +475,76 @@ parse-fun-expr-body expr-ast?(lexer lexer)
 	as elif_ then elif_
 	as else_ then else_
 	else then ()
--try-take-newline-then-elif-or-else elif-or-else-keyword?(lexer lexer)
-	do if peek lexer, newline-same-indent
-	do if kind elif-or-else = lexer.peek2.to
-	advance lexer
-	pos = lexer.next-start
-	advance lexer
-	kind, pos
+-try-take-newline-then-elif-or-else elif-or-else-keyword?() parser
+	if peek newline-same-indent and kind = peek2.to::elif-or-else?
+		advance
+		advance
+		kind, prev-start
 
--parse-condition expr-ast(lexer lexer, allow-block bool)
-	if lexer.lookahead-equals
-		left = parse-destructure-no-require-parens lexer
-		equals-pos = next-start lexer
-		_ = take-or-add-diag-expected-token lexer, equal, equals
-		value = parse-expr-and-calls lexer, (allow-block, and_.precedence)
+-parse-condition expr-ast(allow-block bool) parser
+	if lookahead-equals
+		left = parse-destructure-no-require-parens
+		equals-pos = next-start
+		_ = take-or-add-diag-expected-token equal, equals
+		value = parse-expr-and-calls (allow-block, and_.precedence)
 		unpack = unpack-option-ast left, equals-pos, value
-		and-pos = next-start lexer
-		if try-take-token lexer, and_
-			logical-ast unpack, and_, and-pos, parse-condition lexer, allow-block
+		and-pos = next-start
+		if try-take-token and_
+			logical-ast unpack, and_, and-pos, parse-condition allow-block
 		else
-			parse-calls lexer, unpack, (allow-block, else_.precedence)
+			parse-calls unpack, (allow-block, else_.precedence)
 	else
-		parse-expr-and-calls lexer, (allow-block, else_.precedence)
+		parse-expr-and-calls (allow-block, else_.precedence)
 
--parse-trusted expr-ast(lexer lexer, start pos, arg-ctx arg-ctx)
-	trusted-ast start, parse-expr-and-calls lexer, arg-ctx
+-parse-trusted expr-ast(start pos, arg-ctx arg-ctx) parser
+	trusted-ast start, parse-expr-and-calls arg-ctx
 
--parse-single-statement-or-block expr-ast(lexer lexer)
-	if try-take-token lexer, newline-indent
-		parse-statements-and-dedent lexer
+-parse-single-statement-or-block expr-ast() parser
+	if try-take-token newline-indent
+		parse-statements-and-dedent
 	else
-		parse-expr-no-let lexer
+		parse-expr-no-let
 
--parse-assert-or-forbid assert-or-forbid-ast(lexer lexer, is-forbid bool)
-	advance lexer
-	start: prev-start lexer
+-parse-assert-or-forbid assert-or-forbid-ast(is-forbid bool) parser
+	advance
+	start: prev-start
 	is-forbid: is-forbid
-	condition: parse-condition lexer, true
-	thrown: if try-take-token lexer, else_
-		lexer.prev-start, parse-expr-no-let lexer
-	after: try-parse-next-lines lexer
+	condition: parse-condition true
+	thrown: if try-take-token else_
+		prev-start, parse-expr-no-let
+	after: try-parse-next-lines
 
--parse-do-for-or-with expr-ast
-	lexer lexer
-	start pos
-	kind for-or-with-ast-keyword
-do
-	advance lexer
-	colon2-pos = next-start lexer
-	type type-ast? = if try-take-token lexer, colon2
-		parse-type-for-typed-expr lexer
-	param, in-pos = parse-for-or-with-parameter lexer
+-parse-do-for-or-with expr-ast(start pos, kind for-or-with-ast-keyword) parser
+	advance
+	colon2-pos = next-start
+	type type-ast? = if try-take-token colon2
+		parse-type-for-typed-expr
+	param, in-pos = parse-for-or-with-parameter
 	res for-or-with-ast =
 		start: start
 		keyword: kind
 		param: param
 		in-pos: in-pos
 		then-pos: max-value
-		arg: parse-expr-no-block lexer
-		body: must-parse-next-lines lexer, after-do-line
+		arg: parse-expr-no-block
+		body: must-parse-next-lines after-do-line
 	if type
 		typed-ast res, colon2-pos, type
 	else
 		res
 
 -parse-for-or-with expr-ast
-	lexer lexer
 	start pos
 	allowed-block bool
 	kind for-or-with-ast-keyword
 	block-kind parse-diag-needs-block-ctx
-do
-	colon2-pos = next-start lexer
-	type type-ast? = if try-take-token lexer, colon2
-		parse-type-for-typed-expr lexer
-	param, in-pos = parse-for-or-with-parameter lexer
-	arg = lexer.parse-expr-no-block
-	then-pos, body = parse-then-or-indented-statements lexer, start, allowed-block, block-kind
+do parser
+	colon2-pos = next-start
+	type type-ast? = if try-take-token colon2
+		parse-type-for-typed-expr
+	param, in-pos = parse-for-or-with-parameter
+	arg = parse-expr-no-block
+	then-pos, body = parse-then-or-indented-statements start, allowed-block, block-kind
 	res for-or-with-ast =
 		start: start
 		keyword: kind
@@ -570,191 +558,189 @@ do
 	else
 		res
 
--parse-loop-while-or-until expr-ast(lexer lexer, start pos, is-until bool)
-	condition = parse-condition lexer, false
-	body = lexer.parse-indented-statements
-	loop-while-or-until-ast start, is-until, condition, body, lexer.try-parse-next-lines
+-parse-loop-while-or-until loop-while-or-until-ast(start pos, is-until bool) parser
+	advance
+	start: start
+	is-until: is-until
+	condition: parse-condition false
+	body: parse-indented-statements
+	after: try-parse-next-lines
 
--take-indent-or-fail-expr expr-ast(lexer lexer, cb-indent expr-ast mut())
-	take-indent-or-fail-generic lexer, cb-indent, it.bogus-ast
+-take-indent-or-fail-expr expr-ast(cb-indent expr-ast mut()) parser
+	take-indent-or-fail-generic cb-indent, it.bogus-ast
 
--parse-for-or-with-parameter (destructure-ast, pos)(lexer lexer)
-	pos = lexer.next-start
-	if try-take-token lexer, in_
-		(void-destructure-ast range lexer, pos), pos
+-parse-for-or-with-parameter (destructure-ast, pos)() parser
+	pos = next-start
+	if try-take-token in_
+		(void-destructure-ast range pos), pos
 	else
-		res = lexer.parse-destructure-no-require-parens
-		end-token-pos = lexer.next-start
-		_ = take-or-add-diag-expected-token lexer, in_, in_
+		res = parse-destructure-no-require-parens
+		end-token-pos = next-start
+		_ = take-or-add-diag-expected-token in_, in_
 		res, end-token-pos
 
--skip-rest-of-line-and-return-bogus-no-diag expr-ast(lexer lexer, range source-range)
-	lexer.skip-until-newline-no-diag
+-skip-rest-of-line-and-return-bogus-no-diag expr-ast(range source-range) parser
+	skip-until-newline-no-diag
 	bogus-ast range
 
--skip-rest-of-line-and-return-bogus expr-ast(lexer lexer, start pos, diag parse-diag)
-	range = range lexer, start
-	add-diag lexer, range, diag
-	skip-rest-of-line-and-return-bogus-no-diag lexer, range
+-skip-rest-of-line-and-return-bogus expr-ast(start pos, diag parse-diag) parser
+	range = range start
+	add-diag range, diag
+	skip-rest-of-line-and-return-bogus-no-diag range
 
--expr-block-not-allowed expr-ast(lexer lexer, start pos, kind parse-diag-needs-block-ctx)
-	skip-rest-of-line-and-return-bogus lexer, start, kind
+-expr-block-not-allowed expr-ast(start pos, kind parse-diag-needs-block-ctx) parser
+	skip-rest-of-line-and-return-bogus start, kind
 
 -if-allow-block expr-ast
-	lexer lexer
 	start pos
 	allowed-block bool
 	kind parse-diag-needs-block-ctx
 	cb-allow-block expr-ast mut()
-do
+do parser
 	if allowed-block
 		cb-allow-block[]
 	else
-		expr-block-not-allowed lexer, start, kind
+		expr-block-not-allowed start, kind
 
--parse-expr-before-call expr-ast(lexer lexer, arg-ctx arg-ctx)
-	start = lexer.next-start
+-parse-expr-before-call expr-ast(arg-ctx arg-ctx) parser
+	start = next-start
 	allowed-block = arg-ctx.allowed-block
 	if-allow-block expr-ast mut(kind parse-diag-needs-block-ctx, cb expr-ast mut()) = of kind, cb
-		if-allow-block lexer, start, allowed-block, kind, cb
-	peek = lexer.peek
+		if-allow-block start, allowed-block, kind, cb
 	do if !is-newline-token peek or peek == newline-indent and allowed-block else
-		bad-next-token lexer
-	match lexer.take-next-token
+		bad-next-token
+	match take-next-token
 	as paren-left
-		if try-take-token lexer, paren-right
-			expr = list-ast (range lexer, start), ()
-			try-parse-dots-and-subscripts lexer, expr
+		if try-take-token paren-right
+			expr = list-ast start.range, ()
+			try-parse-dots-and-subscripts expr
 		else
-			try-parse-dots-and-subscripts lexer, with inner in it-scope parse-expr-no-block lexer
-				_ = take-or-add-diag-expected-token lexer, paren-right, closing-paren
-				parenthesized-ast (range lexer, start), inner
+			try-parse-dots-and-subscripts with inner in it-scope parse-expr-no-block
+				_ = take-or-add-diag-expected-token paren-right, closing-paren
+				parenthesized-ast start.range, inner
 	as quote-bar-no-interpolated
-		parse-quote-no-interpolated lexer, bar, allowed-block
+		parse-quote-no-interpolated bar, allowed-block
 	as quote-block-no-interpolated
 		if allowed-block
-			(indented, lexer.prev-range, lexer.prev-string)::literal-string-ast
+			(indented, prev-range, prev-string)::literal-string-ast
 		else
-			expr-block-not-allowed lexer, start, quote_
+			expr-block-not-allowed start, quote_
 	as quote-double-no-interpolated
-		parse-quote-no-interpolated lexer, double, allowed-block
+		parse-quote-no-interpolated double, allowed-block
 	as quote-bar-then-interpolated
-		parse-quote-then-interpolated lexer, bar, allowed-block
+		parse-quote-then-interpolated bar, allowed-block
 	as quote-block-then-interpolated
 		if allowed-block
-			parse-quote-then-interpolated lexer, indented, allowed-block
+			parse-quote-then-interpolated indented, allowed-block
 		else
-			expr-block-not-allowed lexer, start, quote_
+			expr-block-not-allowed start, quote_
 	as quote-double-then-interpolated
-		try-parse-dots-and-subscripts lexer,
-			parse-quote-then-interpolated lexer, double, allowed-block
+		try-parse-dots-and-subscripts parse-quote-then-interpolated double, allowed-block
 	as bang
-		with inner in it-scope parse-expr-before-call lexer, arg-ctx.without-block
+		with inner in it-scope parse-expr-before-call arg-ctx.without-block
 			not-ast start, inner
 	as break_
-		loop-break-ast start, if peek-token-expression lexer, allowed-block
-			parse-expr-and-calls lexer, arg-ctx
+		loop-break-ast start, if peek-token-expression allowed-block
+			parse-expr-and-calls arg-ctx
 	as continue_
 		loop-continue-ast start
 	as for_
-		parse-for-or-with lexer, start, allowed-block, for_, for_
+		parse-for-or-with start, allowed-block, for_, for_
 	as for-star
-		parse-for-or-with lexer, start, allowed-block, for-star, for-star
+		parse-for-or-with start, allowed-block, for-star, for-star
 	as if_
-		parse-if lexer, start, false, allowed-block, false
+		parse-if start, false, allowed-block, false
 	as it_
-		try-parse-dots-and-subscripts lexer, start.it-ast.it-scope-ast
+		try-parse-dots-and-subscripts it-scope-ast it-ast start
 	as in_
 		# It's allowed to access 'in' just in order to access Java's `System.in`
-		handle-name lexer, (start, "in")
+		handle-name (start, "in")
 	as match_
-		if-allow-block[match_, of then parse-match lexer, start]
+		if-allow-block[match_, of then parse-match start]
 	as name
-		handle-name lexer, (start, lexer.prev-symbol)
+		handle-name (start, prev-symbol)
 	as name-after-bang
-		name = lexer.prev-symbol
-		inner = try-parse-dots-and-subscripts lexer, if name == "it"
+		name = prev-symbol
+		inner = try-parse-dots-and-subscripts if name == "it"
 			it-scope-ast it-ast start + 1
 		else
 			name-and-range start + 1, name
 		with inner2 in it-scope inner
 			not-ast start, inner2
 	as name-after-question
-		call-ast question-name, (name-and-range start + 1, lexer.prev-symbol), (), ()
+		call-ast question-name, (name-and-range start + 1, prev-symbol), (), ()
 	as name-bang
-		try-parse-dots-and-subscripts lexer,
-			force-ast (name-and-range start, lexer.prev-symbol), (range lexer, start).end - 1
+		try-parse-dots-and-subscripts
+			force-ast (name-and-range start, prev-symbol), start.range.end - 1
 	as name-colon
-		parse-single-line-named-new-after-first-name lexer, (start, lexer.prev-symbol), allowed-block
+		parse-single-line-named-new-after-first-name (start, prev-symbol), allowed-block
 	as newline-indent
 		assert allowed-block # The 'do if' at top handled the false case
-		parse-statements-and-dedent lexer
+		parse-statements-and-dedent
 	as of_
-		param destructure-ast = if peek lexer, then_ or peek lexer, newline-indent
-			void-destructure-ast (lexer.prev-end, lexer.prev-end)
+		param destructure-ast = if peek then_ or peek newline-indent
+			void-destructure-ast (prev-end, prev-end)
 		else
-			parse-destructure-no-require-parens lexer
-		then-pos, body = parse-then-or-indented-statements lexer, start, allowed-block, of_
+			parse-destructure-no-require-parens
+		then-pos, body = parse-then-or-indented-statements start, allowed-block, of_
 		lambda-ast start, param, then-pos, body
 	as operator-prefix
-		handle-prefix-unary-operator lexer, arg-ctx, start, lexer.prev-symbol
+		operator = prev-symbol
+		with arg in it-scope parse-expr-before-call arg-ctx
+			call-ast prefix, (start, operator), (arg,), ()
 	as literal-number
-		try-parse-dots-and-subscripts lexer, literal-number range lexer, start
+		try-parse-dots-and-subscripts literal-number range start
 	as loop_
-		if-allow-block[loop_, of then loop-ast start, parse-indented-statements lexer]
+		if-allow-block[loop_, of then loop-ast start, parse-indented-statements]
 	as shared_
-		shared-ast start, parse-expr-and-calls lexer, arg-ctx
+		shared-ast start, parse-expr-and-calls arg-ctx
 	as the_
-		if take-or-add-diag-expected-token lexer, colon2, colon2
-			try-parse-dots-and-subscripts lexer, the-ast start, parse-type-for-typed-expr lexer
+		if take-or-add-diag-expected-token colon2, colon2
+			try-parse-dots-and-subscripts the-ast start, parse-type-for-typed-expr
 		else
-			bogus-ast range lexer, start
+			bogus-ast start.range
 	as throw_
-		throw-ast start, parse-expr-and-calls lexer, arg-ctx
+		throw-ast start, parse-expr-and-calls arg-ctx
 	as trusted_
-		parse-trusted lexer, start, arg-ctx
+		parse-trusted start, arg-ctx
 	as try_
-		if-allow-block[try_, of then parse-try-block lexer, start]
+		if-allow-block[try_, of then parse-try-block start]
 	as underscore
 		underscore-ast start
 	as unless_
-		parse-if lexer, start, false, allowed-block, true
+		parse-if start, false, allowed-block, true
 	as with_
-		parse-for-or-with lexer, start, allowed-block, with_, with_
+		parse-for-or-with start, allowed-block, with_, with_
 	else
-		lexer.bad-prev-token
+		bad-prev-token
 
--bad-prev-token expr-ast(lexer lexer)
-	lexer.add-diag-unexpected-prev-token
-	skip-rest-of-line-and-return-bogus-no-diag lexer, lexer.prev-range
--bad-next-token expr-ast(lexer lexer)
-	lexer.add-diag-unexpected-next-token
-	skip-rest-of-line-and-return-bogus-no-diag lexer, lexer.next-range
+-bad-prev-token expr-ast() parser
+	add-diag-unexpected-prev-token
+	skip-rest-of-line-and-return-bogus-no-diag prev-range
+-bad-next-token expr-ast() parser
+	add-diag-unexpected-next-token
+	skip-rest-of-line-and-return-bogus-no-diag next-range
 
--handle-prefix-unary-operator expr-ast(lexer lexer, arg-ctx arg-ctx, start pos, operator symbol)
-	with arg in it-scope parse-expr-before-call lexer, arg-ctx
-		call-ast prefix, (start, operator), (arg,), ()
-
--handle-name expr-ast(lexer lexer, name name-and-range)
-	if type-arg = try-parse-type-arg-for-expr lexer
+-handle-name expr-ast(name name-and-range) parser
+	if type-arg = try-parse-type-arg-for-expr
 		call-ast prefix, name, (), type-arg
 	else
-		try-parse-dots-and-subscripts lexer, name
+		try-parse-dots-and-subscripts name
 
--parse-expr-no-block expr-ast(lexer lexer)
-	parse-expr-and-all-calls lexer, false
+-parse-expr-no-block expr-ast() parser
+	parse-expr-and-all-calls false
 
--parse-expr-and-all-calls expr-ast(lexer lexer, allowed-block bool)
-	parse-expr-and-calls lexer, (allowed-block, min-precedence)
+-parse-expr-and-all-calls expr-ast(allowed-block bool) parser
+	parse-expr-and-calls (allowed-block, min-precedence)
 
--parse-expr-and-calls expr-ast(lexer lexer, arg-ctx arg-ctx)
-	parse-calls lexer, (parse-expr-before-call lexer, arg-ctx), arg-ctx
+-parse-expr-and-calls expr-ast(arg-ctx arg-ctx) parser
+	parse-calls (parse-expr-before-call arg-ctx), arg-ctx
 
--parse-unpack-option expr-ast(lexer lexer, left expr-ast, equals-pos pos, arg-ctx arg-ctx)
+-parse-unpack-option expr-ast(left expr-ast, equals-pos pos, arg-ctx arg-ctx) parser
 	destructure = to-destructure left else
-		add-diag lexer, left.range, parse-diag-equals-left
+		add-diag left.range, parse-diag-equals-left
 		ignore-destructure-ast left.start, ()
-	right = parse-expr-and-calls lexer, require-precedence-gt arg-ctx, and_.precedence
+	right = parse-expr-and-calls require-precedence-gt arg-ctx, and_.precedence
 	unpack-option-ast destructure, equals-pos, right
 
 -to-destructure destructure-ast?(a expr-ast)
@@ -773,80 +759,75 @@ do
 	else
 		()
 
--parse-expr-no-let expr-ast(lexer lexer)
-	parse-expr-and-all-calls lexer, true
+-parse-expr-no-let expr-ast() parser
+	parse-expr-and-all-calls true
 
-parse-single-statement-line expr-ast(lexer lexer)
-	start = lexer.next-start
-	match peek lexer
+parse-single-statement-line expr-ast() parser
+	start = next-start
+	match peek
 	as assert_
-		parse-assert-or-forbid lexer, false
+		parse-assert-or-forbid false
 	as colon2
-		advance lexer
-		type = parse-type lexer
-		typed-ast (try-parse-next-lines lexer), start, type
+		advance
+		type = parse-type
+		typed-ast try-parse-next-lines, start, type
 	as do_
-		advance lexer
-		match peek lexer
+		advance
+		match peek
 		as for_
-			parse-do-for-or-with lexer, start, for_
+			parse-do-for-or-with start, for_
 		as for-star
-			parse-do-for-or-with lexer, start, for-star
+			parse-do-for-or-with start, for-star
 		as if_
-			parse-do-if-or-unless lexer, start, false
+			parse-do-if-or-unless start, false
 		as loop_
-			advance lexer
-			loop-ast start, must-parse-next-lines lexer, after-do-line
+			advance
+			loop-ast start, must-parse-next-lines after-do-line
 		as unless_
-			parse-do-if-or-unless lexer, start, true
+			parse-do-if-or-unless start, true
 		as with_
-			parse-do-for-or-with lexer, start, with_
+			parse-do-for-or-with start, with_
 		else
-			add-diag-at-next-token lexer, after-do-keyword
-			skip-until-newline-no-diag lexer
-			bogus-ast range lexer, start
+			add-diag-at-next-token after-do-keyword
+			skip-until-newline-no-diag
+			bogus-ast range start
 	as finally_
-		advance lexer
-		right = lexer.parse-single-statement-or-block
-		below = must-parse-next-lines lexer, after-finally
-		finally-ast start, right, below
+		advance
+		finally-ast start, parse-single-statement-or-block, must-parse-next-lines after-finally
 	as forbid_
-		parse-assert-or-forbid lexer, true
+		parse-assert-or-forbid true
 	as list-dash
-		advance lexer
-		parse-list-call lexer, single
+		advance
+		parse-list-call single
 	as list-dash-dash
-		advance lexer
-		parse-list-call lexer, multi
+		advance
+		parse-list-call multi
 	as trusted_
-		advance lexer
-		if peek lexer, newline-same-indent
-			after = must-parse-next-lines lexer, after-trusted
+		advance
+		if peek newline-same-indent
+			after = must-parse-next-lines after-trusted
 			trusted-ast start, after
 		else
-			parse-trusted lexer, start, allow-everything
+			parse-trusted start, allow-everything
 	as until_
-		advance lexer
-		parse-loop-while-or-until lexer, start, true
+		parse-loop-while-or-until start, true
 	as while_
-		advance lexer
-		parse-loop-while-or-until lexer, start, false
+		parse-loop-while-or-until start, false
 	else
-		if lookahead-equals lexer
-			parse-equals lexer
+		if lookahead-equals
+			parse-equals
 		else
-			expr = parse-expr-before-call lexer, allow-everything
+			expr = parse-expr-before-call allow-everything
 			if expr.call-named-ast and expr.names.size == 1
-				parse-multi-line-named-new lexer, expr
+				parse-multi-line-named-new expr
 			else
-				parse-calls lexer, expr, allow-everything
+				parse-calls expr, allow-everything
 
--parse-do-if-or-unless expr-ast(lexer lexer, start pos, is-unless bool)
-	advance lexer
-	condition = parse-condition lexer, true
-	else-pos = next-start lexer
-	else_ expr-ast? = if try-take-token lexer, else_
-		parse-expr-no-let lexer
+-parse-do-if-or-unless expr-ast(start pos, is-unless bool) parser
+	advance
+	condition = parse-condition true
+	else-pos = next-start
+	else_ expr-ast? = if try-take-token else_ then parse-expr-no-let
 	start: start
 	is-unless: is-unless
 	kind: if else_ then do-if-else else do-if
@@ -855,88 +836,82 @@ parse-single-statement-line expr-ast(lexer lexer)
 	third-keyword-pos: max-value
 	condition: condition
 	first-branch: else_
-	second-branch: must-parse-next-lines lexer, after-do-line
+	second-branch: must-parse-next-lines after-do-line
 
 -list-part-kind enum(single, multi)
--try-take-list-part-kind list-part-kind?(lexer lexer)
-	do if res list-part-kind = match lexer.peek
+-try-take-list-part-kind list-part-kind?() parser
+	do if res list-part-kind = match peek
 	as list-dash
 		single
 	as list-dash-dash
 		multi
 	else
 		()
-	advance lexer
+	advance
 	res
 
--parse-single-line-named-new-after-first-name expr-ast(lexer lexer, first-name name-or-string-ast, allowed-block bool)
-	value = parse-expr-and-calls lexer, (allowed-block, comma)
-	if try-take-token lexer, comma
-		if second-name = lexer.try-take-name-or-string
-			parse-single-line-named-new-after-second-name lexer, first-name, value, second-name, allowed-block
+-parse-single-line-named-new-after-first-name expr-ast(first-name name-or-string-ast, allowed-block bool) parser
+	value = parse-expr-and-calls (allowed-block, comma)
+	if try-take-token comma
+		if second-name = try-take-name-or-string
+			parse-single-line-named-new-after-second-name first-name, value, second-name, allowed-block
 		else
-			value2 = parse-comma-call lexer, (allowed-block, comma), value
+			value2 = parse-comma-call (allowed-block, comma), value
 			call-named-ast (first-name,), (value2,)
 	else
-		value2 = parse-calls lexer, value, (allowed-block, min-precedence)
+		value2 = parse-calls value, (allowed-block, min-precedence)
 		call-named-ast (first-name,), (value2,)
 
 -parse-single-line-named-new-after-second-name call-named-ast
-	lexer lexer
 	first-name name-or-string-ast
 	first-value expr-ast
 	second-name name-or-string-ast
 	allowed-block bool
-do
-	second-value = parse-expr-and-calls lexer, (allowed-block, comma)
+do parser
+	second-value = parse-expr-and-calls (allowed-block, comma)
 	names name-or-string-ast mut[] = first-name, second-name
 	values expr-ast mut[] = first-value, second-value
-	while try-take-token lexer, comma
-		if name = lexer.take-name-or-string
+	while try-take-token comma
+		if name = take-name-or-string
 			names ~= name
-			values ~= parse-expr-and-calls lexer, (allowed-block, comma)
+			values ~= parse-expr-and-calls (allowed-block, comma)
 	names.move-to, values.move-to
 
--parse-multi-line-named-new call-named-ast(lexer lexer, initial call-named-ast)
+-parse-multi-line-named-new call-named-ast(initial call-named-ast) parser
 	names name-or-string-ast mut[] = initial.names.to
 	values expr-ast mut[] = initial.args.to
-	while try-take-newline-for-list-or-named-new lexer
-		if name = take-name-or-string lexer
+	while try-take-token newline-same-indent
+		if name = take-name-or-string
 			names ~= name
-			values ~= parse-expr-no-let lexer
+			values ~= parse-expr-no-let
 	names.move-to, values.move-to
 
--try-take-newline-for-list-or-named-new bool(lexer lexer)
-	if peek lexer, newline-same-indent
-		advance lexer
-		true
-
--try-take-name-or-string name-or-string-ast?(lexer lexer)
-	try-take-name-colon-and-range lexer or
-		if peek lexer, quote-double-no-interpolated or peek lexer, quote-double-then-interpolated
-			string = parse-string-literal-forbid-interpolated lexer, parse-diag-named-new-key
+-try-take-name-or-string name-or-string-ast?() parser
+	try-take-name-colon-and-range or
+		if peek quote-double-no-interpolated or peek quote-double-then-interpolated
+			string = parse-string-literal-forbid-interpolated parse-diag-named-new-key
 			if string
-				_ = take-or-add-diag-expected-token lexer, colon, colon
+				_ = take-or-add-diag-expected-token colon, colon
 			string
 
--take-name-or-string name-or-string-ast?(lexer lexer)
-	try-take-name-colon-and-range lexer or
-		string = parse-string-literal-forbid-interpolated lexer, parse-diag-named-new-key
+-take-name-or-string name-or-string-ast?() parser
+	try-take-name-colon-and-range or
+		string = parse-string-literal-forbid-interpolated parse-diag-named-new-key
 		if string
-			_ = take-or-add-diag-expected-token lexer, colon, colon
+			_ = take-or-add-diag-expected-token colon, colon
 		string
 
--parse-list-call expr-ast(lexer lexer, first-part list-part-kind)
-	start = prev-start lexer
+-parse-list-call expr-ast(first-part list-part-kind) parser
+	start = prev-start
 	parts list-ast-part[] = with out in build
-		out ~= list-part first-part, lexer.parse-expr-no-let
-		while lexer.try-take-newline-for-list-or-named-new
-			if kind = lexer.try-take-list-part-kind
-				out ~= list-part kind, lexer.parse-expr-no-let
+		out ~= list-part first-part, parse-expr-no-let
+		while try-take-token newline-same-indent
+			if kind = try-take-list-part-kind
+				out ~= list-part kind, parse-expr-no-let
 			else
-				add-diag-at-next-token lexer, parse-diag-list-call-needs-hyphen
-				lexer.skip-until-newline-no-diag
-	list-ast (range lexer, start), parts
+				add-diag-at-next-token parse-diag-list-call-needs-hyphen
+				skip-until-newline-no-diag
+	list-ast start.range, parts
 -list-part list-ast-part(kind list-part-kind, expr expr-ast)
 	match kind
 	as single
@@ -944,108 +919,99 @@ do
 	as multi
 		list-ast-part-multi expr
 
--parse-equals expr-ast(lexer lexer)
-	start = lexer.next-start
-	if try-take-token lexer, the_
-		parse-let-the lexer, start
-	elif try-take-token lexer, try_
-		parse-try-let lexer, start
+-parse-equals expr-ast() parser
+	start = next-start
+	if try-take-token the_
+		parse-let-the start
+	elif try-take-token try_
+		parse-try-let start
 	else
-		left = lexer.parse-destructure-no-require-parens
-		_ = take-or-add-diag-expected-token-and-may-continue-onto-next-line lexer, equal, equals
-		init = lexer.parse-expr-no-let
-		then_ = lexer.try-parse-next-lines
+		left = parse-destructure-no-require-parens
+		_ = take-or-add-diag-expected-token-and-may-continue-onto-next-line equal, equals
+		init = parse-expr-no-let
+		then_ = try-parse-next-lines
 		let-ast left, init, then_
 
--parse-let-the expr-ast(lexer lexer, start pos)
-	type = parse-type lexer
-	if take-or-add-diag-expected-token lexer, equal, equals
-		value = parse-expr-no-let lexer
-		after = try-parse-next-lines lexer
-		let-the-ast start, type, value, after
+-parse-let-the expr-ast(start pos) parser
+	type = parse-type
+	if take-or-add-diag-expected-token equal, equals
+		let-the-ast start, type, parse-expr-no-let, try-parse-next-lines
 	else
-		skip-until-newline-no-diag lexer
-		bogus-ast range lexer, start
+		skip-until-newline-no-diag
+		bogus-ast range start
 
--parse-try-let try-let-ast(lexer lexer, start pos)
-	destructure = lexer.parse-destructure-no-require-parens
-	_ = take-or-add-diag-expected-token-and-may-continue-onto-next-line lexer, equal, equals
-	value = lexer.parse-expr-no-block
-	catch-pos = lexer.next-start
-	_ = take-or-add-diag-expected-token lexer, catch_, catch_
-	catch_ = parse-catch-after-keyword lexer, catch-pos
-	then_ = lexer.try-parse-next-lines
-	start, destructure, value, catch_, then_
+-parse-try-let try-let-ast(start pos) parser
+	destructure = parse-destructure-no-require-parens
+	_ = take-or-add-diag-expected-token-and-may-continue-onto-next-line equal, equals
+	value = parse-expr-no-block
+	catch-pos = next-start
+	_ = take-or-add-diag-expected-token catch_, catch_
+	catch_ = parse-catch-after-keyword catch-pos
+	start, destructure, value, catch_, try-parse-next-lines
 
--parse-statements expr-ast(lexer lexer)
-	res mut = parse-single-statement-line lexer
-	while try-take-token lexer, newline-same-indent
-		res seq-ast:= parse-single-statement-line lexer
+-parse-statements expr-ast() parser
+	res mut = parse-single-statement-line
+	while try-take-token newline-same-indent
+		res seq-ast:= parse-single-statement-line
 	res
 
--parse-indented-statements expr-ast(lexer lexer)
-	take-indent-or-fail-expr lexer, of
-		lexer.parse-statements-and-dedent
+-parse-indented-statements expr-ast() parser
+	take-indent-or-fail-expr of
+		parse-statements-and-dedent
 
 # Returns position of 'then' (or max-value no 'then' keyword) and the body.
 -parse-then-or-indented-statements (pos, expr-ast)
-	lexer lexer
 	start pos
 	allow-block bool
 	block-kind parse-diag-needs-block-ctx
-do
-	then-pos = lexer.next-start
-	if try-take-token lexer, then_
-		then-pos, lexer.parse-expr-no-block
+do parser
+	then-pos = next-start
+	if try-take-token then_
+		then-pos, parse-expr-no-block
 	else
 		- max-value
-		- parse-indented-statements lexer, start, allow-block, block-kind
+		- parse-indented-statements start, allow-block, block-kind
 
 -parse-indented-statements expr-ast
-	lexer lexer
 	start pos
 	allow-block bool
 	block-kind parse-diag-needs-block-ctx
-do
+do parser
 	if allow-block
-		lexer.parse-indented-statements
+		parse-indented-statements
 	else
-		expr-block-not-allowed lexer, start, block-kind
+		expr-block-not-allowed start, block-kind
 
--parse-statements-and-dedent expr-ast(lexer lexer)
-	res = lexer.parse-statements
-	lexer.take-dedent
+-parse-statements-and-dedent expr-ast() parser
+	res = parse-statements
+	take-dedent
 	res
 
--parse-try-block expr-ast(lexer lexer, start pos)
-	:: try-ast
+-parse-try-block try-ast(start pos) parser
 	start: start
-	tried: lexer.parse-indented-statements
+	tried: parse-indented-statements
 	catches: with out in build
-		while catch-pos = lexer.try-take-newline-then-catch
-			out ~= parse-catch-after-keyword lexer, catch-pos
--try-parse-catch-as catch-as-ast?(lexer lexer)
-	pos = lexer.next-start
-	if try-take-token lexer, as_
-		pos, lexer.take-name-and-range
+		while catch-pos = try-take-newline-then-catch
+			out ~= parse-catch-after-keyword catch-pos
+-try-parse-catch-as catch-as-ast?() parser
+	if try-take-token as_
+		prev-start, take-name-and-range
 
--parse-catch-after-keyword catch-ast(lexer lexer, start pos)
+-parse-catch-after-keyword catch-ast(start pos) parser
 	start: start
-	name: try-take-name-and-range lexer
-	as_: try-parse-catch-as lexer
-	then_: parse-then-or-block lexer
+	name: try-take-name-and-range
+	as_: try-parse-catch-as
+	then_: parse-then-or-block
 
-| Returns position of "as"
--try-take-newline-then-as pos?(lexer lexer)
-	try-take-newline-then-keyword lexer, as_
--try-take-newline-then-catch pos?(lexer lexer)
-	try-take-newline-then-keyword lexer, catch_
-| Returns position of "else"
--try-take-newline-then-else pos?(lexer lexer)
-	try-take-newline-then-keyword lexer, else_
--try-take-newline-then-keyword pos?(lexer lexer, keyword token)
-	if peek lexer, newline-same-indent and peek2 lexer, keyword
-		advance lexer
-		keyword-pos = lexer.next-start
-		advance lexer
-		keyword-pos
+-try-take-newline-then-as pos?() parser
+	try-take-newline-then-keyword as_
+-try-take-newline-then-catch pos?() parser
+	try-take-newline-then-keyword catch_
+-try-take-newline-then-else pos?() parser
+	try-take-newline-then-keyword else_
+| Returns position of keyword
+-try-take-newline-then-keyword pos?(keyword token) parser
+	if peek newline-same-indent and peek2 keyword
+		advance
+		advance
+		prev-start

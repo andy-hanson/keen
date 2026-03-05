@@ -5,7 +5,6 @@ import
 	../util/util
 
 check-concrete-program void(a concrete-program, types concrete-common-types)
-	ctx ctx = a, types
 	if a.target == java
 		for struct in a.all-non-extern-types
 			match x = body struct
@@ -13,9 +12,10 @@ check-concrete-program void(a concrete-program, types concrete-common-types)
 				assert are-unique x.members
 			else
 				()
+	the ctx = a, types
 	for fun in a.all-non-extern-funs
 		if e = fun.body.concrete-expr
-			check-expr ctx, fun.return-type, e
+			check-expr fun.return-type, e
 
 -are-unique[t] bool(a t[]) t key
 	a.to::(t set).size == a.size
@@ -42,8 +42,12 @@ concrete-common-types record
 -ctx record
 	program concrete-program
 	types concrete-common-types
+-program concrete-program() ctx
+	the::ctx.program
+-types concrete-common-types() ctx
+	the::ctx.types
 
--check-expr void(ctx ctx, type concrete-type, expr concrete-expr)
+-check-expr void(type concrete-type, expr concrete-expr) ctx
 	if is-bogus expr.type
 		assert expr.kind.throw-concrete-expr
 	else
@@ -52,20 +56,20 @@ concrete-common-types record
 	match x = expr.kind
 	as array-op-concrete-expr
 		out-element = if is-void type then type else array-element-type type
-		check-expr ctx, x.input.type, x.input
+		check-expr x.input.type, x.input
 		if l = x.local
 			l.type is x.in-element
-		check-expr ctx, out-element, x.body
+		check-expr out-element, x.body
 	as builtin-concrete-expr
-		check-builtin ctx, type, x
+		check-builtin type, x
 	as call-concrete-expr
 		type is x.called.return-type
 		for param, arg in zip x.called.params, x.args
-			check-expr ctx, param.type, arg
+			check-expr param.type, arg
 	as cast-concrete-expr
-		check-expr ctx, x.inner.type, x.inner
+		check-expr x.inner.type, x.inner
 	as constant
-		each-nested-constant ctx.program.all-constants, type, x, of constant-type, c
+		each-nested-constant program.all-constants, type, x, of constant-type, c
 			match c
 			as constant-record
 				assert constant-type.body.concrete-record
@@ -75,140 +79,139 @@ concrete-common-types record
 	as create-array-concrete-expr
 		element-type = array-element-type type
 		for arg in x.args
-			check-expr ctx, element-type, arg
+			check-expr element-type, arg
 	as create-record-concrete-expr
 		record_ = type.body.concrete-record!
 		for arg, field in zip x.args, record_.fields
-			check-expr ctx, field.type, arg
+			check-expr field.type, arg
 	as create-union-concrete-expr
-		check-expr ctx, type.body.concrete-union!.members[x.member-index], x.arg
+		check-expr type.body.concrete-union!.members[x.member-index], x.arg
 	as drop-concrete-expr
 		assert is-void type
-		check-expr-any-type ctx, x.arg
+		check-expr-any-type x.arg
 	as finally-concrete-expr
-		check-expr ctx, ctx.types.void, x.right
-		check-expr ctx, type, x.below
+		check-expr types.void, x.right
+		check-expr type, x.below
 	as if-concrete-expr
-		check-expr ctx, ctx.types.bool, x.cond
-		check-expr ctx, type, x.then_
-		check-expr ctx, type, x.else_
+		check-expr types.bool, x.cond
+		check-expr type, x.then_
+		check-expr type, x.else_
 	as let-concrete-expr
-		check-expr ctx, x.local.type, x.value
-		check-expr ctx, type, x.then_
+		check-expr x.local.type, x.value
+		check-expr type, x.then_
 	as lambda-concrete-expr
 		assert return-type, param-type = as-lambda-type type
 		assert x.param.type == param-type
-		check-expr ctx, return-type, x.body
+		check-expr return-type, x.body
 	as local-get-concrete-expr
 		type is x.local.type
 	as local-set-concrete-expr
 		assert is-void type
-		check-expr ctx, x.local.type, x.value
+		check-expr x.local.type, x.value
 	as loop-concrete-expr
-		check-expr ctx, type, x.body
+		check-expr type, x.body
 	as loop-break-concrete-expr
-		check-expr ctx, type, x.value
+		check-expr type, x.value
 	as loop-continue-concrete-expr
 		()
 	as match-scalar-concrete-expr
 		body = x.matched.type.body
 		assert concrete-enum body or is-char-or-integral body.concrete-builtin-type!.kind
-		check-expr-any-type ctx, x.matched
+		check-expr-any-type x.matched
 		for case_ in x.case-exprs
-			check-expr ctx, type, case_
+			check-expr type, case_
 		if e = x.else_
-			check-expr ctx, type, e
+			check-expr type, e
 	as match-string-like-concrete-expr
-		check-expr-any-type ctx, x.matched
-		assert x.equals.return-type == ctx.types.bool
+		check-expr-any-type x.matched
+		assert x.equals.return-type == types.bool
 		x.equals.params.size is 2
 		assert every x.equals.params, it.type == x.matched.type
 		for case_ in x.cases
-			check-expr ctx, type, case_.then_
-		check-expr ctx, type, x.else_
+			check-expr type, case_.then_
+		check-expr type, x.else_
 	as match-union-concrete-expr
-		check-expr-any-type ctx, x.matched
+		check-expr-any-type x.matched
 		assert x.member-indices.size <= x.union_.members.size
 		x.cases.size is x.member-indices.size
 		for case_ in x.cases
-			check-expr ctx, type, case_
+			check-expr type, case_
 		if e = x.else_
-			check-expr ctx, type, e
+			check-expr type, e
 	as record-field-get-concrete-expr
-		check-expr-any-type ctx, x.record_
+		check-expr-any-type x.record_
 		assert x.field.type == type
 	as record-field-set-concrete-expr
 		assert is-void type
-		check-expr-any-type ctx, x.record_
-		check-expr ctx, x.field.type, x.value
+		check-expr-any-type x.record_
+		check-expr x.field.type, x.value
 	as seq-concrete-expr
 		for part in x.parts[0 .. end - 1]
-			check-expr ctx, ctx.types.void, part
-		check-expr ctx, type, x.parts[end - 1]
+			check-expr types.void, part
+		check-expr type, x.parts[end - 1]
 	as throw-concrete-expr
-		check-expr ctx, ctx.types.exception, x.thrown
+		check-expr types.exception, x.thrown
 	as try-concrete-expr
-		check-expr ctx, type, x.tried
-		check-catches ctx, type, ctx.types.exception, x.exception-member-indices, x.catch-cases
+		check-expr type, x.tried
+		check-catches type, types.exception, x.exception-member-indices, x.catch-cases
 	as try-let-concrete-expr
 		local = x.local
 		if local
 			assert local.type == x.value.type
-		check-expr ctx, x.value.type, x.value
-		check-catches ctx, type, ctx.types.exception, x.exception-member-index.to, (x.catch_,)
-		check-expr ctx, type, x.then_
+		check-expr x.value.type, x.value
+		check-catches type, types.exception, x.exception-member-index.to, (x.catch_,)
+		check-expr type, x.then_
 	as union-assume-case-concrete-expr
 		assert contains x.union-type.body.concrete-union!.members, type
-		check-expr ctx, x.union-type, x.arg
+		check-expr x.union-type, x.arg
 	as union-is-case-concrete-expr
-		type is ctx.types.bool
-		check-expr ctx, x.union-type, x.arg
+		type is types.bool
+		check-expr x.union-type, x.arg
 	as var-get-concrete-expr
 		type is x.var.type
 	as var-set-concrete-expr
 		assert is-void type
-		check-expr ctx, x.var.type, x.value
+		check-expr x.var.type, x.value
 
 -check-catches void
-	ctx ctx
 	type concrete-type
 	union_ concrete-type
 	member-indices indices
 	cases concrete-local-and-expr[]
-do
+do ctx
 	cases.size is member-indices.size
 	members = union_.union-members
 	for case-index, case_ in with-index cases
-		check-local-and-expr ctx, type, members[member-indices[case-index]], case_
+		check-local-and-expr type, members[member-indices[case-index]], case_
 
--check-local-and-expr void(ctx ctx, type concrete-type, local-type concrete-type, a concrete-local-and-expr)
+-check-local-and-expr void(type concrete-type, local-type concrete-type, a concrete-local-and-expr) ctx
 	if local = a.local
 		local.type is local-type
-	check-expr ctx, type, a.expr
+	check-expr type, a.expr
 
 -union-members concrete-type[](type concrete-type)
 	type.body.concrete-union!.members
 
--check-expr-any-type void(ctx ctx, expr concrete-expr)
-	check-expr ctx, expr.type, expr
+-check-expr-any-type void(expr concrete-expr) ctx
+	check-expr expr.type, expr
 
--check-builtin void(ctx ctx, type concrete-type, a builtin-concrete-expr)
+-check-builtin void(type concrete-type, a builtin-concrete-expr) ctx
 	match x = a.fun
 	as builtin-unary
-		check-builtin-unary ctx, type, x, only! a.args
+		check-builtin-unary type, x, only! a.args
 	as builtin-binary
 		a.args.size is 2
-		check-builtin-binary ctx, type, x, only2! a.args
+		check-builtin-binary type, x, only2! a.args
 	as builtin-ternary
 		a.args.size is 3
-		check-builtin-ternary ctx, type, x, only3! a.args
+		check-builtin-ternary type, x, only3! a.args
 	as builtin-fun-call-lambda
 		# TODO: arg0 is a lambda, we could extract the param type,
 		fun, param = only2! a.args
 		#asdf = fn.type.source concrete-type-source-lambda! # TODO: I need the type of the lambda .........................
 		# TODO: assert that 'type' is the lambda return type -------------------------------------------------------------
-		check-expr ctx, fun.type, fun
-		check-expr ctx, param.type, param # TODO: this should use the lambda param type ---------------------------------------------
+		check-expr fun.type, fun
+		check-expr param.type, param # TODO: this should use the lambda param type ---------------------------------------------
 	as builtin-fun-constant
 		# These were compiled to constants
 		throw unreachable
@@ -219,14 +222,13 @@ do
 		# These were compiled to constants
 		throw unreachable
 	as js-fun
-		check-builtin-js ctx, type, x, a.args
+		check-builtin-js type, x, a.args
 
--check-builtin-unary void(ctx ctx, type concrete-type, kind builtin-unary, a concrete-expr)
+-check-builtin-unary void(type concrete-type, kind builtin-unary, a concrete-expr) ctx
 	check void mut(return-type concrete-type, arg-type concrete-type) = of return-type, arg-type
 		type is return-type
-		check-expr ctx, arg-type, a
+		check-expr arg-type, a
 	check2 void mut(x concrete-type) = check[it, it]
-	types = ctx.types
 	bool = types.bool
 	float32 = types.float32
 	float64 = types.float64
@@ -237,25 +239,25 @@ do
 	as array-size
 		type is nat64
 		assert is-array-or-mut-array a.type
-		check-expr ctx, a.type, a
+		check-expr a.type, a
 	as bits-of-float32
 		check[nat32, float32]
 	as bits-of-float64
 		check[nat64, float64]
 	as bitwise-not
 		assert as-integral-type type
-		check-expr ctx, type, a
+		check-expr type, a
 	as float32-from-bits
 		check[float32, nat32]
 	as float64-from-bits
 		check[float64, nat64]
 	as gc-safe-mut-slice
 		assert is-array-or-mut-array type
-		check-expr ctx, nat64, a
+		check-expr nat64, a
 	as not
 		check2[bool]
 	as reinterpret-cast
-		check-expr ctx, a.type, a
+		check-expr a.type, a
 	as to-float32-from-float64
 		check[float32, float64]
 	as to-float64-from-float32
@@ -268,44 +270,42 @@ do
 		check[int64, float64]
 	as weak-ref-get
 		type.unwrap-option-type! is a.type.unwrap-weak-ref
-		check-expr ctx, a.type, a
+		check-expr a.type, a
 	as weak-ref-new
 		a.type is type.unwrap-weak-ref
-		check-expr ctx, a.type, a
+		check-expr a.type, a
 	as wrap-convert-integral
 		assert as-integral-type-allow-char type
 		assert is-bool a.type or as-integral-type-allow-char a.type
-		check-expr ctx, a.type, a
+		check-expr a.type, a
 
 -check-builtin-binary void
-	ctx ctx
 	type concrete-type
 	kind builtin-binary
 	a concrete-expr, b concrete-expr
-do
+do ctx
 	check void mut(return-type concrete-type, a-type concrete-type, b-type concrete-type) = of return-type, a-type, b-type
 		type is return-type
-		check-expr ctx, a-type, a
-		check-expr ctx, b-type, b
+		check-expr a-type, a
+		check-expr b-type, b
 	check3 void mut(x concrete-type) = check[it, it, it]
 	binary-integral void mut() = of
 		assert as-integral-type type
-		check-expr ctx, type, a
-		check-expr ctx, type, b
+		check-expr type, a
+		check-expr type, b
 	binary-float void mut() = of
 		assert is-float32-or-64 type
-		check-expr ctx, type, a
-		check-expr ctx, type, b
+		check-expr type, a
+		check-expr type, b
 	binary-float-or-integral void mut() = of
 		assert is-float32-or-64 type or as-integral-type type
-		check-expr ctx, type, a
-		check-expr ctx, type, b
+		check-expr type, a
+		check-expr type, b
 	compare-primitive void mut() = of
 		assert is-bool type
 		assert is-bool a.type or is-char8-or-32 a.type or as-integral-type a.type or is-float32-or-64 a.type
-		check-expr ctx, a.type, a
-		check-expr ctx, a.type, b
-	types = ctx.types
+		check-expr a.type, a
+		check-expr a.type, b
 	bool = types.bool
 	float64 = types.float64
 	nat64 = types.nat64
@@ -314,8 +314,8 @@ do
 		binary-float[]
 	as array-get
 		type is a.type.array-element-type
-		check-expr ctx, a.type, a
-		check-expr ctx, nat64, b
+		check-expr a.type, a
+		check-expr nat64, b
 	as bitwise-and
 		binary-integral[]
 	as bitwise-or
@@ -325,8 +325,8 @@ do
 	as compare
 		# TODO: returns 'comparison'
 		a.type is b.type
-		check-expr ctx, a.type, a
-		check-expr ctx, b.type, b
+		check-expr a.type, a
+		check-expr b.type, b
 	as equal-exact
 		check[bool, a.type, a.type]
 	as equal-float-ieee
@@ -355,29 +355,27 @@ do
 		binary-integral[]
 
 -check-builtin-ternary void
-	ctx ctx
 	type concrete-type
 	kind builtin-ternary
 	a concrete-expr, b concrete-expr, c concrete-expr
-do
-	types = ctx.types
+do ctx
 	match kind
 	as array-set
 		type is types.void
-		check-expr ctx, a.type, a
-		check-expr ctx, types.nat64, b
-		check-expr ctx, a.type.array-element-type, c
+		check-expr a.type, a
+		check-expr types.nat64, b
+		check-expr a.type.array-element-type, c
 
--check-builtin-js void(ctx ctx, type concrete-type, fun js-fun, args concrete-expr[])
-	js-any = ctx.program.common-funs.concrete-common-funs-js!.js-any
+-check-builtin-js void(type concrete-type, fun js-fun, args concrete-expr[]) ctx
+	js-any = program.common-funs.concrete-common-funs-js!.js-any
 	js-args void mut() = of
 		for arg in args
-			check-expr ctx, js-any, arg
+			check-expr js-any, arg
 	all-js void mut() = of
 		type is js-any
 		js-args[]
 	bool-from-js void mut() = of
-		type is ctx.types.bool
+		type is types.bool
 		js-args[]
 	match fun
 	as await
@@ -391,10 +389,10 @@ do
 	as call-property-spread
 		type is js-any
 		a, name, xs = only3! args
-		check-expr ctx, js-any, a
-		check-expr ctx, js-any, name
+		check-expr js-any, a
+		check-expr js-any, name
 		assert is-array xs.type
-		check-expr ctx, xs.type, xs
+		check-expr xs.type, xs
 	as eq-eq-eq
 		bool-from-js[]
 	as eval
@@ -413,7 +411,7 @@ do
 	as plus
 		all-js[]
 	as set
-		type is ctx.types.void
+		type is types.void
 		js-args[]
 	as typeof
 		all-js[]
