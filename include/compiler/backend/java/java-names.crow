@@ -1,6 +1,6 @@
 import
 	../../frontend/show-model
-	../../model/concrete-model
+	../../model/low-model
 	../../model/model
 	../../model/uri
 	../../util/java-bytecode-types
@@ -15,12 +15,12 @@ import
 | Can retrieve the name of a Java entity given the name of a Crow entity.
 | Since Java class files don't directly reference names, you need to use java-refs instead.
 java-names record
-	-var-to-name symbol[concrete-var]
+	-var-to-name symbol[low-var]
 	-module-to-class-name symbol[uri]
-	-fun-to-name-and-descriptor (symbol, symbol)[concrete-fun]
-	-type-to-name symbol[concrete-type]
-	-type-to-descriptor symbol[concrete-type]
-	-type-to-boxed-class-name symbol[concrete-type]
+	-fun-to-name-and-descriptor (symbol, symbol)[low-fun]
+	-type-to-name symbol[low-type]
+	-type-to-descriptor symbol[low-type]
+	-type-to-boxed-class-name symbol[low-type]
 	class-prefix string
 	union-info union-info
 	constant-names java-constant-names
@@ -30,23 +30,23 @@ union-info union-info() java-names
 	the::java-names.union-info
 
 build-mangled-names java-names
-	program concrete-program
+	program low-program
 	class-prefix string
 	union-info union-info
 do show-ctx
 	module-to-class-name symbol mut[uri] = ()
-	type-to-name symbol[concrete-type] = for type in all-types-including-extern program
+	type-to-name symbol[low-type] = for type in all-types-including-extern program
 		# TODO: if there is only 1 struct with the name (globally), just use the decl name ----------------------------------
 		- type
 		- gen-type-name module-to-class-name, type, class-prefix
-	type-to-descriptor symbol[concrete-type] = for type in program.all-types-including-extern
+	type-to-descriptor symbol[low-type] = for type in program.all-types-including-extern
 		- type
 		- generate-descriptor-for-return-type (program, union-info, type-to-name), type
-	fun-to-name-and-descriptor (symbol, symbol)[concrete-fun] = for fun in all-funs-including-extern program
+	fun-to-name-and-descriptor (symbol, symbol)[low-fun] = for fun in all-funs-including-extern program
 		unless is-extern fun
 			_ = add-module-name module-to-class-name, fun.module-uri, class-prefix
 		name symbol = match source = source fun
-		as concrete-fun-source-regular
+		as low-fun-source-regular
 			original = source.decl.name
 			if is-extern fun
 				original
@@ -58,9 +58,9 @@ do show-ctx
 					base
 				else
 					"{base}{fun.hash}"
-		as concrete-fun-source-test
+		as low-fun-source-test
 			"$test{fun.hash}"
-		as concrete-fun-source-wrap-main
+		as low-fun-source-wrap-main
 			"$wrap-main"
 		descriptor string = with out in build
 			out ~= "("
@@ -88,35 +88,35 @@ constant-symbols-class-name symbol(a java-names)
 module-class-name symbol(a java-names, uri uri)
 	a.module-to-class-name[uri]!
 
-subscript class-and-member(a java-names, var concrete-var)
+subscript class-and-member(a java-names, var low-var)
 	class_: module-class-name a, var.module-uri
 	member: a.var-to-name[var]!
-subscript class-and-member(a java-names, fun concrete-fun)
+subscript class-and-member(a java-names, fun low-fun)
 	# TODO:PERF do this all in a single lookup ------------------------------------------------------------------------------------
 	match body = fun.body
 	as fun-body-extern-java
 		class_: body.class_.to
-		member: fun.source.concrete-fun-source-regular!.decl.name
+		member: fun.source.low-fun-source-regular!.decl.name
 	else
 		assert name, _ = a.fun-to-name-and-descriptor[fun] else
 			log error, "GET NAME FOR {fun.to-crowd}" # ------------------------------------------------------
 			todo
 		class_: module-class-name a, fun.module-uri
 		member: name
-subscript symbol(a java-names, type concrete-type)
+subscript symbol(a java-names, type low-type)
 	a.type-to-name[type]!
 
-lambda-impl-class-name symbol(a java-names, containing-fun concrete-fun, lambda-index nat)
+lambda-impl-class-name symbol(a java-names, containing-fun low-fun, lambda-index nat)
 	"{module-class-name a, containing-fun.module-uri}_{a.fun-to-name-and-descriptor[containing-fun]!.a}_lambda{lambda-index}"
 
--gen-type-name symbol(module-to-class-name symbol mut[uri], a concrete-type, class-prefix string)
+-gen-type-name symbol(module-to-class-name symbol mut[uri], a low-type, class-prefix string)
 	if path = as-extern a
 		path.to
 	else
 		match source = source a
-		as concrete-type-source-bogus
+		as low-type-source-bogus
 			"$bogus{a.id}"
-		as concrete-type-source-inst
+		as low-type-source-inst
 			decl = source.decl
 			base string = "{add-module-name module-to-class-name, decl.module-uri, class-prefix}{do-mangle decl.name}"
 			if is-empty source.type-args
@@ -137,16 +137,16 @@ mangle-class-name string(a string)
 -do-mangle symbol(a symbol)
 	a.to.mangle-class-name.to
 
-static-method-descriptor symbol(a java-names, fun concrete-fun)
+static-method-descriptor symbol(a java-names, fun low-fun)
 	a.fun-to-name-and-descriptor[fun]!.b
 
-instance-method-name symbol(a java-names, fun concrete-fun)
-	base = fun.source.concrete-fun-source-regular!.decl.name
+instance-method-name symbol(a java-names, fun low-fun)
+	base = fun.source.low-fun-source-regular!.decl.name
 	if is-extern fun
 		base
 	else
 		"{a[fun.params[0].type]}_{base}"
-instance-method-descriptor symbol(a java-names, fun concrete-fun) # TODO: cache this too! -------------------------------------
+instance-method-descriptor symbol(a java-names, fun low-fun) # TODO: cache this too! -------------------------------------
 	assert is-instance java-method-kind a.union-info, fun
 	res string = with d in build # TODO: support building symbols -------------------------------------------------------------
 		d ~= "("
@@ -156,7 +156,7 @@ instance-method-descriptor symbol(a java-names, fun concrete-fun) # TODO: cache 
 		d ~~= descriptor-for-return-type a, fun.return-type
 	res.to
 
-constructor-descriptor symbol(a java-names, fun concrete-fun) # TODO: cache this too! --------------------------------------------
+constructor-descriptor symbol(a java-names, fun low-fun) # TODO: cache this too! --------------------------------------------
 	java-method-kind a.union-info, fun is constructor
 	res string = with d in build # TODO: support building symbols -------------------------------------------------------------
 		d ~= "("
@@ -165,23 +165,23 @@ constructor-descriptor symbol(a java-names, fun concrete-fun) # TODO: cache this
 		d ~~= ")V"
 	res.to
 
-descriptor-for-field-type symbol(a java-names, type concrete-type)
+descriptor-for-field-type symbol(a java-names, type low-type)
 	forbid is-empty-type type
 	descriptor-for-return-type a, type 'to
-descriptor-for-param-type string(a java-names, type concrete-type)
+descriptor-for-param-type string(a java-names, type low-type)
 	descriptor-for-param-type a.type-to-descriptor, type
--descriptor-for-param-type string(type-to-descriptor symbol[concrete-type], type concrete-type)
+-descriptor-for-param-type string(type-to-descriptor symbol[low-type], type low-type)
 	unless is-empty-type type
 		descriptor-for-return-type type-to-descriptor, type
--generate-descriptor-for-param-type string(ctx gen-ctx, type concrete-type)
+-generate-descriptor-for-param-type string(ctx gen-ctx, type low-type)
 	unless is-empty-type type
 		generate-descriptor-for-return-type ctx, type 'to
 
-descriptor-for-return-type string(a java-names, type concrete-type)
+descriptor-for-return-type string(a java-names, type low-type)
 	descriptor-for-return-type a.type-to-descriptor, type
--descriptor-for-return-type string(type-to-descriptor symbol[concrete-type], type concrete-type)
+-descriptor-for-return-type string(type-to-descriptor symbol[low-type], type low-type)
 	type-to-descriptor[type]!.to
--generate-descriptor-for-return-type symbol(ctx gen-ctx, type concrete-type)
+-generate-descriptor-for-return-type symbol(ctx gen-ctx, type low-type)
 	match rt = as-runtime-type type
 	as void
 		"V"
@@ -196,29 +196,29 @@ descriptor-for-return-type string(a java-names, type concrete-type)
 		else
 			"L{generate-boxed-class-name ctx, type};"
 
-lambda-call-descriptor symbol(a java-names, lambda-type concrete-type)
-	builtin_ = lambda-type.body.concrete-builtin-type!
+lambda-call-descriptor symbol(a java-names, lambda-type low-type)
+	builtin_ = lambda-type.body.low-builtin-type!
 	assert is-lambda-type builtin_.kind
 	return-type, param-type = only2! builtin_.type-args
 	"({descriptor-for-param-type a, param-type}){descriptor-for-return-type a, return-type}"
 
-boxed-class-name symbol(a java-names, type concrete-type)
+boxed-class-name symbol(a java-names, type low-type)
 	a.type-to-boxed-class-name[type]!
 
 -gen-ctx record
-	program concrete-program
+	program low-program
 	union-info union-info
-	type-to-name symbol[concrete-type]
+	type-to-name symbol[low-type]
 
--generate-boxed-class-name symbol(ctx gen-ctx, type concrete-type)
+-generate-boxed-class-name symbol(ctx gen-ctx, type low-type)
 	if x = as-extern type
 		x.to
 	else
 		generate-boxed-class-name-non-extern ctx, type
--generate-boxed-class-name-non-extern symbol(ctx gen-ctx, type concrete-type)
+-generate-boxed-class-name-non-extern symbol(ctx gen-ctx, type low-type)
 	mangled symbol mut() = of then ctx.type-to-name[type]!
 	match body = type.body
-	as concrete-builtin-type
+	as low-builtin-type
 		array-or-mut-slice symbol mut() = of
 			element = only! body.type-args
 			if is-empty-type element
@@ -249,15 +249,15 @@ boxed-class-name symbol(a java-names, type concrete-type)
 		as option then throw unreachable
 		as void then mangled[]
 		as weak-ref then "java/lang/ref/WeakReference"
-	as concrete-enum
+	as low-enum
 		mangled[]
 	as struct-body-extern-java
 		throw unreachable
-	as concrete-flags
+	as low-flags
 		mangled[]
-	as concrete-record
+	as low-record
 		mangled[]
-	as concrete-union
+	as low-union
 		match ctx.union-info.union-to-representation[type]!
 		as exception
 			"java/lang/Throwable"
@@ -268,10 +268,10 @@ boxed-class-name symbol(a java-names, type concrete-type)
 		as nullable
 			_, non-null = only2! body.members
 			generate-boxed-class-name ctx, non-null
-	as concrete-type-body-deferred
+	as low-type-body-deferred
 		throw unreachable
 
-lambda-init-descriptor symbol(a java-names, lambda lambda-concrete-expr)
+lambda-init-descriptor symbol(a java-names, lambda lambda-low-expr)
 	res string = with out in build # TODO: support building symbols -------------------------------------------------------------
 		out ~= "("
 		for x in lambda.closure
@@ -298,7 +298,7 @@ primitive-descriptor symbol(a java-primitive-type)
 	as T_LONG
 		"J"
 
--java-constant-names java-constant-names(program concrete-program, class-prefix string) show-ctx
+-java-constant-names java-constant-names(program low-program, class-prefix string) show-ctx
 	# Since class files can't get too big, we must break up constants between several classes.
 	cur-class-index mut nat = 0
 	cur-class-name mut symbol = "{class-prefix}_constants{cur-class-index}"

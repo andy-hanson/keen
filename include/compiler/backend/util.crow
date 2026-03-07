@@ -1,30 +1,30 @@
 import
 	../frontend/show-model
-	../model/concrete-model
+	../model/low-model
 	../model/model
-	../model/show-concrete-model
+	../model/show-low-model
 	../util/full-index-map
 	../util/util
 
-exception concrete-type(a concrete-program)
+exception low-type(a low-program)
 	a.common-funs.exception
 
-is-wrapper bool(a concrete-type)
+is-wrapper bool(a low-type)
 	!!a.as-wrapper
-is-wrapper bool(a concrete-record)
+is-wrapper bool(a low-record)
 	!!a.as-wrapper
-as-wrapper concrete-field?(a concrete-type)
-	a.body.concrete-record.?as-wrapper
-as-wrapper concrete-field?(a concrete-record)
+as-wrapper low-field?(a low-type)
+	a.body.low-record.?as-wrapper
+as-wrapper low-field?(a low-record)
 	if f = only a.fields and !f.is-mutable
 		f
 
 # TODO: MOVE, will need this for the JS build too ------------------------------------------------------------------------------
-each-constant-in-dependency-order void(program concrete-program, emit void mut(x any-constant)) show-ctx
+each-constant-in-dependency-order void(program low-program, emit void mut(x any-constant)) show-ctx
 	# TODO:PERF this could use a full-index-set -----------------------------------------------------------------------------
-	seen-arrays (concrete-type, nat) mut-set = ()
-	seen-records (concrete-type, constant-record) mut-set = ()
-	can-reference bool mut(type concrete-type, c constant) = of type, c
+	seen-arrays (low-type, nat) mut-set = ()
+	seen-records (low-type, constant-record) mut-set = ()
+	can-reference bool mut(type low-type, c constant) = of type, c
 		can-reference program, seen-arrays, seen-records, type, c
 
 	target = program.target
@@ -46,7 +46,7 @@ each-constant-in-dependency-order void(program concrete-program, emit void mut(x
 			for constant, args in map
 				key = record-type, constant
 				do unless seen-records[key]
-				fields = record-type.body.concrete-record!.fields
+				fields = record-type.body.low-record!.fields
 				do if every (zip args, fields), of arg, field
 					can-reference[field.type, arg]
 				seen-records ~= key
@@ -59,11 +59,11 @@ each-constant-in-dependency-order void(program concrete-program, emit void mut(x
 		for constant, args in map
 			key = record-type, constant
 			unless seen-records[key]
-				fields = record-type.body.concrete-record!.fields
-				log error, "Could not emit constant record {show-concrete-type record-type}"
+				fields = record-type.body.low-record!.fields
+				log error, "Could not emit constant record {show-low-type record-type}"
 				for arg, field in zip args, fields
 					unless can-reference[field.type, arg]
-						log error, "  Can not emit field of type {show-concrete-type field.type}"
+						log error, "  Can not emit field of type {show-low-type field.type}"
 
 	n-constant-arrays nat = sum all-constants.arrays, of x
 		do if array-needs-constant x, target
@@ -74,16 +74,16 @@ each-constant-in-dependency-order void(program concrete-program, emit void mut(x
 	seen-arrays.size is n-constant-arrays
 	seen-records.size is n-constant-records
 
--array-needs-constant bool(array arr-type-and-constants-concrete, target build-target)
+-array-needs-constant bool(array low-array-type-and-constants, target build-target)
 	target != java or !is-empty-type array.element-type
--record-needs-constant bool(record-type concrete-type, target build-target)
+-record-needs-constant bool(record-type low-type, target build-target)
 	target != java or !is-empty-type record-type and !is-wrapper record-type
 
 -can-reference bool
-	program concrete-program
-	seen-arrays (concrete-type, nat) mut-set
-	seen-records (concrete-type, constant-record) mut-set
-	type concrete-type
+	program low-program
+	seen-arrays (low-type, nat) mut-set
+	seen-records (low-type, constant-record) mut-set
+	type low-type
 	c constant
 do
 	match c
@@ -104,15 +104,15 @@ do
 		true
 	as constant-union
 		value = program.all-constants.unions[type]![c]
-		case-type = type.body.concrete-union!.members[value.member-index]
+		case-type = type.body.low-union!.members[value.member-index]
 		can-reference program, seen-arrays, seen-records, case-type, value.member
 	as constant-gc-safe-value
 		true
 
-# TODO: this may be simpler (and faster) as a single dictionary class-and-member[nat][concrete-type] ------------------------------------------
+# TODO: this may be simpler (and faster) as a single dictionary class-and-member[nat][low-type] ------------------------------------------
 constant-names[name] record
-	arrays name[nat][concrete-type]
-	records name[constant-record][concrete-type]
+	arrays name[nat][low-type]
+	records name[constant-record][low-type]
 subscript[name] name(a name constant-names, constant any-constant)
 	type = constant.type
 	match constant
@@ -120,14 +120,14 @@ subscript[name] name(a name constant-names, constant any-constant)
 		a.arrays[type]![constant.index]!
 	as single-constant-record
 		a.records[type]![constant.constant]!
-array-name[name] name(a name constant-names, type concrete-type, value constant-array)
+array-name[name] name(a name constant-names, type low-type, value constant-array)
 	a.arrays[type]![value.index]!
-record-name[name] name(a name constant-names, type concrete-type, value constant-record)
+record-name[name] name(a name constant-names, type low-type, value constant-record)
 	a.records[type]![value]!
 
 constant-names-builder[name] record mut
-	-arrays name mut[nat] mut[concrete-type]
-	-records name mut[constant-record] mut[concrete-type]
+	-arrays name mut[nat] mut[low-type]
+	-records name mut[constant-record] mut[low-type]
 new[name] name constant-names-builder()
 	(), ()
 set-subscript[name] void(a name constant-names-builder, constant any-constant, name name)
@@ -143,21 +143,21 @@ finish[name] name constant-names(a name constant-names-builder)
 		k, v.move-to
 
 any-constant union(single-constant-array, single-constant-record) # TODO: rename -- this is any *allocated* constant ----------------------
-type concrete-type(a any-constant)
+type low-type(a any-constant)
 	# TODO: this could be simplified if the type was always called 'type'! --------------------------------------------------
 	match a
 	as single-constant-array then a.array-type
 	as single-constant-record then a.record-type
 single-constant-array record
-	array-type concrete-type
-	element-type concrete-type
+	array-type low-type
+	element-type low-type
 	index nat
 	elements constant[]
 single-constant-record record
-	record-type concrete-type
+	record-type low-type
 	constant constant-record
 	args constant[]
-	fields concrete-field[]
+	fields low-field[]
 
 is-64-bit bool(a integral-type)
 	a == int64 or a == nat64

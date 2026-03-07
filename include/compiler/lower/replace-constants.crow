@@ -1,20 +1,20 @@
 import
-	../model/concrete-model
+	../model/low-model
 	../model/model
 	../util/util
 	./all-constants-builder
-	./concretize-ctx
+	./lower-ctx
 	./generate
 
-replace-constants void() concretize-ctx
-	ctx = the::concretize-ctx
-	assert is-empty ctx.all-unprocessed-concrete-funs
-	constants-map constant mut[concrete-fun] = for* fun in ctx.all-processed-concrete-funs
-		if e = fun.body.concrete-expr and c = e.kind.constant
+replace-constants void() lower-ctx
+	ctx = the::lower-ctx
+	assert is-empty ctx.all-unprocessed-low-funs
+	constants-map constant mut[low-fun] = for* fun in ctx.all-processed-low-funs
+		if e = fun.body.low-expr and c = e.kind.constant
 			- fun, c
 	do loop
 	added-any-new-constants mut bool = false
-	for fun in ctx.all-processed-concrete-funs
+	for fun in ctx.all-processed-low-funs
 		do if new-body = replace-constants-in-function fun, constants-map
 		fun.body := new-body
 		do if c = new-body.kind.constant
@@ -22,28 +22,28 @@ replace-constants void() concretize-ctx
 		added-any-new-constants := true
 	if added-any-new-constants then continue else break
 
--replace-constants-in-function concrete-expr?(fun concrete-fun, constants-map constant mut[concrete-fun]) concretize-ctx
-	do if e = fun.body.concrete-expr
+-replace-constants-in-function low-expr?(fun low-fun, constants-map constant mut[low-fun]) lower-ctx
+	do if e = fun.body.low-expr
 	the replace-constants-specific-ctx = constants-map, ()
 	replace-constants-expr e
 
--replace-constants-ctx spec concretize-ctx, replace-constants-specific-ctx
+-replace-constants-ctx spec lower-ctx, replace-constants-specific-ctx
 -replace-constants-specific-ctx record mut
-	constants-map constant mut[concrete-fun]
-	constant-locals constant mut[concrete-local]
--constants-map constant mut[concrete-fun]() replace-constants-specific-ctx
+	constants-map constant mut[low-fun]
+	constant-locals constant mut[low-local]
+-constants-map constant mut[low-fun]() replace-constants-specific-ctx
 	the::replace-constants-specific-ctx.constants-map
--constant-locals constant mut[concrete-local]() replace-constants-specific-ctx
+-constant-locals constant mut[low-local]() replace-constants-specific-ctx
 	the::replace-constants-specific-ctx.constant-locals
--replace-constants concrete-expr-kind?(a concrete-expr) replace-constants-ctx
+-replace-constants low-expr-kind?(a low-expr) replace-constants-ctx
 	match x = a.kind
-	as array-op-concrete-expr
+	as array-op-low-expr
 		do if input, body = replace-constants-in-args-exprs x.input, x.body
-		array-op-concrete-expr input, x.local, x.empty-out-array, body
-	as builtin-concrete-expr
+		array-op-low-expr input, x.local, x.empty-out-array, body
+	as builtin-low-expr
 		do if args = replace-constants-in-args-exprs x.args
-		builtin-concrete-expr x.fun, x.type-args, args
-	as call-concrete-expr
+		builtin-low-expr x.fun, x.type-args, args
+	as call-low-expr
 		if res = constants-map[x.called]
 			res
 		elif args = replace-constants-in-args-exprs x.args
@@ -51,93 +51,93 @@ replace-constants void() concretize-ctx
 				if constant = try-eval-constant x.called, constants
 					constant
 				else
-					call-concrete-expr x.called, args
+					call-low-expr x.called, args
 			else
-				call-concrete-expr x.called, args
+				call-low-expr x.called, args
 		else
 			# TODO: if they are already constants, we should have already propagated them? ------------------------------------------
 			if constants = as-constants x.args
 				try-eval-constant x.called, constants
-	as cast-concrete-expr
+	as cast-low-expr
 		()
 	as constant
 		()
-	as create-array-concrete-expr
+	as create-array-low-expr
 		do if args = replace-constants-in-args x.args
 		match args
 		as constants
 			get-constant-array all-constants, a.type, args.constants
 		as exprs
-			create-array-concrete-expr args.exprs
-	as create-record-concrete-expr
-		do if args = replace-constants-in-args x.args, !a.type.body.concrete-record!.prevent-constant
+			create-array-low-expr args.exprs
+	as create-record-low-expr
+		do if args = replace-constants-in-args x.args, !a.type.body.low-record!.prevent-constant
 		match args
 		as constants
 			get-constant-record all-constants, a.type, args.constants
 		as exprs
-			create-record-concrete-expr args.exprs
-	as create-union-concrete-expr
+			create-record-low-expr args.exprs
+	as create-union-low-expr
 		do if arg = replace-constants-expr x.arg
 		if c = arg.kind.constant
 			get-constant-union all-constants, a.type, x.member-index, c
 		else
-			create-union-concrete-expr x.member-index, arg
-	as drop-concrete-expr
+			create-union-low-expr x.member-index, arg
+	as drop-low-expr
 		do if arg = replace-constants-expr x.arg
-		drop-concrete-expr arg
-	as finally-concrete-expr
+		drop-low-expr arg
+	as finally-low-expr
 		do if right, below = replace-constants-in-args-exprs x.right, x.below
-		finally-concrete-expr right, below
-	as if-concrete-expr
+		finally-low-expr right, below
+	as if-low-expr
 		do if cond, then_, else_ = replace-constants-in-args x.cond, x.then_, x.else_
 		if constant-cond = cond.kind.constant
 			if as-bool constant-cond then then_.kind else else_.kind
 		else
-			if-concrete-expr cond, then_, else_
-	as let-concrete-expr
+			if-low-expr cond, then_, else_
+	as let-low-expr
 		if value = (replace-constants-expr x.value or if x.value.kind.constant then x.value)
 			if !is-mutable x.local and v = value.kind.constant
 				constant-locals[x.local] := v
-				# TODO: should not need type annotation (but the compiler gets confused converting concrete-expr-kind? to concrete-expr-kind??
-				::concrete-expr-kind
+				# TODO: should not need type annotation (but the compiler gets confused converting low-expr-kind? to low-expr-kind??
+				::low-expr-kind
 				replace-constants x.then_ else x.then_.kind
 			else
-				let-concrete-expr x.local, value, (replace-constants-expr x.then_ else x.then_)
+				let-low-expr x.local, value, (replace-constants-expr x.then_ else x.then_)
 		elif then_ = replace-constants-expr x.then_
-			let-concrete-expr x.local, x.value, then_
-	as lambda-concrete-expr
+			let-low-expr x.local, x.value, then_
+	as lambda-low-expr
 		do if body = replace-constants-expr x.body
-		new-closure concrete-local[] = filter x.closure, !constant-locals[it]
-		lambda-concrete-expr new-closure, x.param, body
-	as local-get-concrete-expr
+		new-closure low-local[] = filter x.closure, !constant-locals[it]
+		lambda-low-expr new-closure, x.param, body
+	as local-get-low-expr
 		constant-locals[x.local]
-	as local-set-concrete-expr
+	as local-set-low-expr
 		do if value = replace-constants-expr x.value
-		local-set-concrete-expr x.local, value
-	as loop-concrete-expr
+		local-set-low-expr x.local, value
+	as loop-low-expr
 		do if body = replace-constants-expr x.body
-		loop-concrete-expr body
-	as loop-break-concrete-expr
+		loop-low-expr body
+	as loop-break-low-expr
 		do if value = replace-constants-expr x.value
-		loop-break-concrete-expr value
-	as loop-continue-concrete-expr
+		loop-break-low-expr value
+	as loop-continue-low-expr
 		()
-	as match-scalar-concrete-expr
+	as match-scalar-low-expr
 		matched = replace-constants-expr x.matched
 		cases = replace-constants-in-args-exprs x.case-exprs
 		else_ = ?replace-constants-expr x.else_
 		do if matched or cases or else_
 		# TODO: if 'matched' is a constant, use just that branch -------------------------------------------------------------------
-		:: match-scalar-concrete-expr
+		:: match-scalar-low-expr
 		matched: matched else x.matched
 		case-values: x.case-values
 		case-exprs: cases else x.case-exprs
 		else_: else_ or x.else_
-	as match-string-like-concrete-expr
+	as match-string-like-low-expr
 		matched = replace-constants-expr x.matched
 		# TODO: if 'matched' is a constant, use just that branch -------------------------------------------------------------------
 		updated-case mut bool = false
-		cases concrete-match-string-like-case[] = for case_ in x.cases
+		cases low-match-string-like-case[] = for case_ in x.cases
 			value = replace-constants-expr case_.value
 			then_ = replace-constants-expr case_.then_
 			updated-case := updated-case or value or then_
@@ -145,104 +145,104 @@ replace-constants void() concretize-ctx
 			then_: then_ else case_.then_
 		else_ = replace-constants-expr x.else_
 		do if matched or updated-case or else_
-		:: match-string-like-concrete-expr
+		:: match-string-like-low-expr
 		matched: matched else x.matched
 		equals: x.equals
 		cases: cases
 		else_: else_ else x.else_
-	as match-union-concrete-expr
+	as match-union-low-expr
 		matched = replace-constants-expr x.matched
 		# TODO: if 'matched' is a constant, use just that branch -------------------------------------------------------------------
 		cases = replace-constants-in-match-union-cases x.cases
 		else_ = ?replace-constants-expr x.else_
 		do if matched or cases or else_
-		:: match-union-concrete-expr
+		:: match-union-low-expr
 		matched: matched else x.matched
 		case-indices: x.member-indices
 		cases: cases else x.cases
 		else_: else_ or x.else_
-	as record-field-get-concrete-expr
+	as record-field-get-low-expr
 		do if record_ = replace-constants-expr x.record_
 		# TODO: For a constant record, get the constant field value! ---------------------------------------------------------
-		record-field-get-concrete-expr record_, x.field-index
-	as record-field-set-concrete-expr
+		record-field-get-low-expr record_, x.field-index
+	as record-field-set-low-expr
 		do if record_, value = replace-constants-in-args-exprs x.record_, x.value
-		record-field-set-concrete-expr record_, x.field-index, value
-	as seq-concrete-expr
+		record-field-set-low-expr record_, x.field-index, value
+	as seq-low-expr
 		do if new-parts = replace-constants-in-args-exprs x.parts
-		without-constants concrete-expr[] = for* index, part in with-index new-parts
+		without-constants low-expr[] = for* index, part in with-index new-parts
 			if index != new-parts.size - 1 and part.kind.constant
 				assert constant-gc-safe-value part.kind.constant! # Always void
 				()
 			else
 				- part
 		# TODO: should not need type annotation
-		::concrete-expr-kind
-		without-constants.only.?kind else seq-concrete-expr without-constants
-	as throw-concrete-expr
+		::low-expr-kind
+		without-constants.only.?kind else seq-low-expr without-constants
+	as throw-low-expr
 		do if thrown = replace-constants-expr x.thrown
-		throw-concrete-expr thrown
-	as try-concrete-expr
+		throw-low-expr thrown
+	as try-low-expr
 		tried = replace-constants-expr x.tried
 		cases = replace-constants-in-catches x.catch-cases
 		catch-else = ?replace-constants-in-local-and-expr x.catch-else
 		do if tried or cases or catch-else
-		:: try-concrete-expr
+		:: try-low-expr
 		tried: tried else x.tried
 		exception-member-indices: x.exception-member-indices
 		catch-cases: cases else x.catch-cases
 		catch-else: catch-else or x.catch-else
-	as try-let-concrete-expr
+	as try-let-low-expr
 		# TODO: if value is constant, the local is constant too -------------------------------------------------------------------
 		value = replace-constants-expr x.value
 		catch_ = replace-constants-in-local-and-expr x.catch_
 		then_ = replace-constants-expr x.then_
 		do if value or catch_ or then_
-		:: try-let-concrete-expr
+		:: try-let-low-expr
 		local: x.local
 		value: value else x.value
 		exception-member-index: x.exception-member-index
 		catch_: catch_ else x.catch_
 		then_: then_ else x.then_
-	as union-assume-case-concrete-expr
+	as union-assume-case-low-expr
 		# TODO: if we get a constant of the union type, check it at compile time here and output a constant of the case type
 		do if arg = replace-constants-expr x.arg
-		union-assume-case-concrete-expr arg
-	as union-is-case-concrete-expr
+		union-assume-case-low-expr arg
+	as union-is-case-low-expr
 		# TODO: if we get a constant of the union type, check it at compile time here and output a constant boolean
 		do if arg = replace-constants-expr x.arg
-		union-is-case-concrete-expr arg, x.case-index
-	as var-get-concrete-expr
+		union-is-case-low-expr arg, x.case-index
+	as var-get-low-expr
 		()
-	as var-set-concrete-expr
+	as var-set-low-expr
 		do if value = replace-constants-expr x.value
-		var-set-concrete-expr x.var, value
+		var-set-low-expr x.var, value
 
--replace-constants-in-match-union-cases concrete-expr[]?(cases concrete-expr[]) replace-constants-ctx
+-replace-constants-in-match-union-cases low-expr[]?(cases low-expr[]) replace-constants-ctx
 	any mut bool = false
-	res concrete-expr[] = for case_ in cases
+	res low-expr[] = for case_ in cases
 		replaced = replace-constants-expr case_
 		any := any or replaced
 		replaced else case_
 	if any then res
--replace-constants-in-catches concrete-local-and-expr[]?(cases concrete-local-and-expr[]) replace-constants-ctx
+-replace-constants-in-catches low-local-and-expr[]?(cases low-local-and-expr[]) replace-constants-ctx
 	any mut bool = false
-	res concrete-local-and-expr[] = for case_ in cases
+	res low-local-and-expr[] = for case_ in cases
 		replaced = replace-constants-in-local-and-expr case_
 		any := any or replaced
 		replaced else case_
 	if any then res
--replace-constants-in-local-and-expr concrete-local-and-expr?(case_ concrete-local-and-expr) replace-constants-ctx
+-replace-constants-in-local-and-expr low-local-and-expr?(case_ low-local-and-expr) replace-constants-ctx
 	if expr = replace-constants-expr case_.expr
 		case_.local, expr
 
 -constants-or-exprs union(constants, exprs)
 -constants record(constants constant[])
--exprs record(exprs concrete-expr[])
+-exprs record(exprs low-expr[])
 
--replace-constants-in-args constants-or-exprs?(a concrete-expr[]) replace-constants-ctx
+-replace-constants-in-args constants-or-exprs?(a low-expr[]) replace-constants-ctx
 	replace-constants-in-args a, true
--replace-constants-in-args constants-or-exprs?(a concrete-expr[], allow-constants bool) replace-constants-ctx
+-replace-constants-in-args constants-or-exprs?(a low-expr[], allow-constants bool) replace-constants-ctx
 	if x = replace-constants-in-args-exprs a
 		if allow-constants and cs = as-constants x
 			cs.constants
@@ -250,23 +250,23 @@ replace-constants void() concretize-ctx
 			x.exprs
 	elif allow-constants and x = as-constants a
 		x.constants
--replace-constants-expr concrete-expr?(a concrete-expr) replace-constants-ctx
+-replace-constants-expr low-expr?(a low-expr) replace-constants-ctx
 	if res = replace-constants a
 		a.type, a.range, res
--replace-constants-in-args-exprs (concrete-expr, concrete-expr)?
-	a concrete-expr
-	b concrete-expr
+-replace-constants-in-args-exprs (low-expr, low-expr)?
+	a low-expr
+	b low-expr
 do replace-constants-ctx
 	?only2 replace-constants-in-args-exprs (a, b)
--replace-constants-in-args (concrete-expr, concrete-expr, concrete-expr)?
-	a concrete-expr
-	b concrete-expr
-	c concrete-expr
+-replace-constants-in-args (low-expr, low-expr, low-expr)?
+	a low-expr
+	b low-expr
+	c low-expr
 do replace-constants-ctx
 	?only3 replace-constants-in-args-exprs (a, b, c)
--replace-constants-in-args-exprs concrete-expr[]?(a concrete-expr[]) replace-constants-ctx
+-replace-constants-in-args-exprs low-expr[]?(a low-expr[]) replace-constants-ctx
 	any mut bool = false
-	res concrete-expr[] = for x in a
+	res low-expr[] = for x in a
 		if updated = replace-constants-expr x
 			any := true
 			updated
@@ -274,9 +274,9 @@ do replace-constants-ctx
 			x
 	if any then res
 
--try-eval-constant constant?(fn concrete-fun, args constant[]) concretize-ctx
+-try-eval-constant constant?(fn low-fun, args constant[]) lower-ctx
 	match body = fn.body
-	as concrete-fun-body-builtin
+	as low-fun-body-builtin
 		match x = body.kind
 		as builtin-binary
 			try-eval-constant-binary fn.return-type, x, only2! args
@@ -294,31 +294,31 @@ do replace-constants-ctx
 			()
 		as js-fun
 			()
-	as concrete-expr
+	as low-expr
 		eval-as-constant fn, body, args
 	as fun-body-extern-java
 		()
-	as concrete-fun-body-method
+	as low-fun-body-method
 		()
-	as concrete-fun-body-deferred
+	as low-fun-body-deferred
 		()
-	as concrete-fun-body-always-inline
+	as low-fun-body-always-inline
 		throw unreachable
--eval-as-constant constant?(fn concrete-fun, a concrete-expr, fn-args constant[]) concretize-ctx
+-eval-as-constant constant?(fn low-fun, a low-expr, fn-args constant[]) lower-ctx
 	match x = a.kind
 	as constant
 		x
-	as create-record-concrete-expr
-		unless prevent-constant a.type.body.concrete-record!
+	as create-record-low-expr
+		unless prevent-constant a.type.body.low-record!
 			if args constant[] = map-every x.args, of arg then eval-as-constant fn, arg, fn-args
 				get-constant-record all-constants, a.type, args
 	# TODO: unions -----------------------------------------------------------------------------------------------------------------------------
-	as local-get-concrete-expr
+	as local-get-low-expr
 		assert index = index-of fn.params, x.local
 		fn-args[index]
 	else
 		()
--try-eval-constant-binary constant?(type concrete-type, fn builtin-binary, (arg0 constant, arg1 constant)) # TODO: probably no longer needed
+-try-eval-constant-binary constant?(type low-type, fn builtin-binary, (arg0 constant, arg1 constant)) # TODO: probably no longer needed
 	match fn
 	as equal-exact
 		if is-nat64 type

@@ -1,0 +1,303 @@
+import
+	../model/low-model
+	../model/model
+	../model/source-range
+	../util/util
+	./all-constants-builder
+	./lower-ctx
+
+gen-constant low-expr(type low-type, range uri-and-range, value constant)
+	type, range, value
+gen-constant-zero low-expr(type low-type, range uri-and-range)
+	type, range, 0::nat.to
+gen-constant-nat low-expr(nat-type low-type, range uri-and-range, value nat)
+	nat-type, range, value.to
+
+gen-false low-expr(range uri-and-range) lower-ctx
+	gen-bool range, false
+gen-true low-expr(range uri-and-range) lower-ctx
+	gen-bool range, true
+-gen-bool low-expr(range uri-and-range, value bool) lower-ctx
+	gen-constant bool-type, range, value.to
+
+gen-call low-expr(range uri-and-range, called low-fun, args low-expr[])
+	called.return-type, range, call-low-expr called, args
+
+gen-union-assume-case low-expr(case-type low-type, range uri-and-range, arg low-expr)
+	case-type, range, arg.union-assume-case-low-expr
+
+# TODO: If I'm just going to use 'then.type' as the type anyway, I might as well have it be a function on the if-low-expr
+gen-if low-expr(range uri-and-range, cond low-expr, then_ low-expr, else_ low-expr)
+	then_.type, range, if-low-expr cond, then_, else_
+# TODO: most of these functions are unnecessary ....................................................................................
+gen-loop low-expr(type low-type, range uri-and-range,  body low-expr)
+	type, range, body.loop-low-expr
+gen-do-and-continue low-expr(type low-type, range uri-and-range, a low-expr)
+	# Make sure we don't have 'throw' followed by an unnecessary 'continue' or we get unreachable code errors in the Java backend
+	match x = a.kind
+	as throw-low-expr
+		type, range, x
+	else
+		gen-seq range, a, gen-continue type, range
+gen-seq low-expr(range uri-and-range, a low-expr, b low-expr)
+	assert is-void a.type
+	b.type, range, (a, b).seq-low-expr
+gen-drop-then low-expr(range uri-and-range, a low-expr, b low-expr) lower-ctx
+	gen-seq range, (gen-drop range, a), b
+gen-continue low-expr(type low-type, range uri-and-range)
+	type, range, loop-continue-low-expr
+gen-break low-expr(range uri-and-range, value low-expr)
+	value.type, range, value.loop-break-low-expr
+gen-create-union low-expr
+	type low-type
+	range uri-and-range
+	member-index nat
+	arg low-expr
+do
+	type, range, create-union-low-expr member-index, arg
+
+gen-option low-expr(option-type low-type, range uri-and-range, arg low-expr) lower-ctx
+	assert option-type.unwrap-option-type! == arg.type
+	gen-create-union option-type, range, 1, arg
+gen-constant-some low-expr
+	option-type low-type
+	range uri-and-range
+	inner constant
+do lower-ctx
+	gen-constant option-type, range, get-constant-union all-constants, option-type, 1, inner
+gen-empty-option low-expr(option-type low-type, range uri-and-range) lower-ctx
+	gen-constant option-type, range, gen-constant-none option-type
+gen-constant-none constant(option-type low-type) lower-ctx
+	none-type = option-type.body.low-union!.members[0]
+	get-constant-union all-constants, option-type, 0,
+		get-constant-record all-constants, none-type, ()
+
+gen-void low-expr(range uri-and-range) lower-ctx
+	gen-constant void-type, range, constant-gc-safe-value
+
+gen-let low-expr
+	type low-type
+	range uri-and-range
+	local low-local
+	value low-expr
+	then_ low-expr
+do
+	type, range, let-low-expr local, value, then_
+
+gen-drop low-expr(range uri-and-range, inner low-expr) lower-ctx
+	void-type, range, inner.drop-low-expr
+gen-local-get low-expr(range uri-and-range, local low-local)
+	local.type, range, local.local-get-low-expr
+gen-local-set low-expr(range uri-and-range, local low-local, value low-expr) lower-ctx
+	void-type, range, local-set-low-expr local, value
+
+field-index-from-field nat(record-type low-type, field record-field)
+	index-of! record-type.source.low-type-source-inst!.decl.body.record_!.fields, field
+
+# TODO: I think this whole thing should be its own kind of low-expr, so the java version can be optimized -------------
+gen-union-member-get low-fun-body(fun low-fun, case-index nat) lower-ctx
+	###
+	This is basically:
+	match a
+	as member
+		a
+	else
+		()
+	###
+	option-type = fun.return-type
+	case-type = unwrap-option-type! option-type
+	range = fun.range
+	get-a = gen-local-get range, only! fun.params
+	option-type, range,
+		:: match-union-low-expr
+		matched: get-a
+		case-indices: case-index,
+		cases:
+			- gen-option option-type, range,
+				case-type, range, union-assume-case-low-expr get-a
+		else_: gen-empty-option option-type, range
+
+generate-call-method low-fun-body
+	fun low-fun
+	sum-type low-type
+	cases low-sum-type-case mut[]
+	method-index nat
+do lower-ctx
+	forbid preserve-methods
+	range = fun.range
+	members = sum-type.body.low-union!.members
+	if is-empty members
+		gen-throw-string fun.return-type, range, "Called method of empty interface"
+	else
+		members.size is cases.size
+		gen-match-union fun.return-type, range, members, (gen-param-get range, fun.params[0]), of i, member
+			if impl = cases[i].method-impls![method-index]
+				gen-call range, impl, for param-index, param in with-index fun.params
+					if param-index == 0 then member else gen-param-get range, param
+			else
+				gen-bogus fun.return-type, range
+
+gen-match-scalar low-expr
+	type low-type
+	range uri-and-range
+	matched low-expr
+	f low-expr mut(x enum-or-flags-member)
+do
+	members = must-be-enum matched.type
+	values scalar-values = map::nat[] members, it.value 'to
+	gen-match-enum-or-integral type, range, matched, values, (map members, f), ()
+gen-match-enum-or-integral low-expr
+	type low-type
+	range uri-and-range
+	matched low-expr
+	case-values scalar-values
+	cases low-expr[]
+	else_ low-expr?
+do
+	type, range, (matched, case-values, cases, else_)::match-scalar-low-expr
+| WARN: 'union_' should be a param getter since it will be copied for each case
+gen-match-union low-expr
+	return-type low-type
+	range uri-and-range
+	member-types low-type[]
+	union_ low-expr
+	f low-expr mut(member-index nat, get-local low-expr)
+do
+	cases low-expr[] = for case-index, case-type in with-index member-types
+		f[case-index, (case-type, range, union_.union-assume-case-low-expr)]
+	kind match-union-low-expr = union_, (0 .. member-types.size).to, cases, ()
+	return-type, range, kind
+
+gen-throw low-expr(type low-type, range uri-and-range, thrown low-expr)
+	type, range, throw-low-expr thrown
+gen-bogus low-expr(type low-type, range uri-and-range) lower-ctx
+	gen-throw-string type, range, "Reached compile error"
+gen-error low-expr(range uri-and-range, message string) lower-ctx
+	# Avoid using a constant so it will have a stack trace
+	error = gen-create-record error-type, range,
+		- gen-string-literal range, message
+	member-index = sum-type-case-index exception-type, error-type
+	gen-create-union exception-type, range, member-index, error
+-gen-throw-string low-expr(type low-type, range uri-and-range, message string) lower-ctx
+	gen-throw type, range, gen-error range, message
+
+gen-string-literal low-expr(range uri-and-range, value string) lower-ctx
+	string-type, range, gen-string-literal-kind value
+gen-string-literal-kind low-expr-kind(value string) lower-ctx
+	get-constant-record all-constants, string-type,
+		- constant-of-bytes char8-array-type, value.to.to
+gen-char8-array low-expr(range uri-and-range, value string) lower-ctx
+	type = char8-array-type
+	gen-constant type, range, constant-of-bytes type, value.to.to
+constant-of-bytes constant(array-type low-type, bytes nat8 array-view) lower-ctx
+	# TODO:PERF creating a Constant per byte is expensive
+	get-constant-array all-constants, array-type, map bytes, it.to::scalar-value
+gen-char32-array low-expr(range uri-and-range, value string) lower-ctx
+	gen-constant char32-array-type, range, char32-array-constant value
+-char32-array-constant constant(value string) lower-ctx
+	get-constant-array all-constants, char32-array-type, map value.to::char32[], it.to::scalar-value
+
+gen-create-array low-expr(array-type low-type, range uri-and-range, args low-expr[]) lower-ctx
+	if is-empty args
+		gen-constant array-type, range, get-constant-array all-constants, array-type, ()
+	else
+		array-type, range, create-array-low-expr args
+
+gen-create-record low-expr(type low-type, range uri-and-range, args low-expr[]) lower-ctx
+	type, range, if !prevent-constant type.body.low-record! and x = as-constants args
+		get-constant-record all-constants, type, x
+	else
+		create-record-low-expr args
+
+as-constants constant[]?(exprs low-expr[])
+	map-every exprs, it.kind.constant
+
+gen-param-get low-expr(range uri-and-range, param low-local)
+	param.type, range, param.local-get-low-expr
+
+# TODO: INLINE -------------------------------------------------------------------------------------------------------------------
+gen-record-field-get low-expr
+	field-type low-type
+	range uri-and-range
+	arg low-expr
+	field-index nat
+do lower-ctx
+	if is-empty-type field-type
+		gen-drop-then range, arg, gen-constant field-type, range, constant-gc-safe-value
+	else
+		field-type, range, record-field-get-low-expr arg, field-index
+# TODO: INLINE -------------------------------------------------------------------------------------------------------------------
+gen-record-field-set low-expr
+	range uri-and-range
+	record_ low-expr
+	field-index nat
+	value low-expr
+do lower-ctx
+	void-type, range, record-field-set-low-expr record_, field-index, value
+gen-and low-expr(range uri-and-range, a low-expr, b low-expr) lower-ctx
+	gen-if range, a, b, gen-false range
+gen-or low-expr(range uri-and-range, a low-expr, b low-expr) lower-ctx
+	gen-if range, a, (gen-true range), b
+
+gen-reference-create low-expr(reference-type low-type, range uri-and-range, value low-expr) lower-ctx
+	gen-create-record reference-type, range, (value,)
+gen-reference-read low-expr(range uri-and-range, reference low-expr) lower-ctx
+	gen-record-field-get (get-referenced-type reference.type), range, reference, 0
+gen-reference-write low-expr
+	range uri-and-range
+	reference low-expr
+	value low-expr
+do lower-ctx
+	_ = get-referenced-type reference.type # Assert that it's a reference type
+	gen-record-field-set range, reference, 0, value
+
+# TODO: inline most of these ---------------------------------------------------------------------------------------------------------
+gen-equal-integral low-expr(range uri-and-range, a low-expr, b low-expr) lower-ctx
+	gen-builtin bool-type, range, equal-exact, (), (a, b)
+gen-intersect-nat low-expr
+	range uri-and-range
+	type nat-type
+	a low-expr
+	b low-expr
+do lower-ctx
+	gen-builtin type.nat-type, range, bitwise-and, (), (a, b)
+gen-builtin low-expr
+	type low-type
+	range uri-and-range
+	fun builtin-fun
+	type-args low-type[]
+	args low-expr[]
+do
+	type, range, builtin-low-expr fun, type-args, args
+
+gen-concat-array low-expr
+	range uri-and-range
+	a low-expr
+	b low-expr
+do lower-ctx, quick-fill-in-low-fun-body
+	assert a.type == b.type
+	concat = get-low-fun common-funs.concat-arrays, (a.type.array-element-type,), ()
+	gen-call range, concat, (a, b)
+
+gen-json-array low-expr(value low-expr) lower-ctx
+	gen-create-record json-type, value.range,
+		- gen-create-union json-inner, value.range, value.type.json-inner-member-index, value
+
+constant-json-number constant(value float) lower-ctx
+	get-constant-record all-constants, json-type,
+		- get-constant-union all-constants, json-inner, json-float-member-index, value.to
+
+constant-json-string constant(value string) lower-ctx
+	get-constant-record all-constants, json-type,
+		- get-constant-union all-constants, json-inner, json-string-member-index,
+			get-constant-string all-constants, string-type, value
+
+-json-inner low-type() lower-ctx
+	json-type.body.low-record!.fields.only!.type
+
+-json-float-member-index nat() lower-ctx
+	index-of! json-inner.body.low-union!.members, float64-type
+-json-string-member-index nat() lower-ctx
+	index-of! json-inner.body.low-union!.members, string-type
+-json-inner-member-index nat(type low-type) lower-ctx
+	index-of! json-inner.body.low-union!.members, type

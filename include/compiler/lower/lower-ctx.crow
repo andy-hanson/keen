@@ -1,0 +1,441 @@
+import
+	crow/crypto/pseudo-random
+	../frontend/show-model
+	../model/ast
+	../model/low-model
+	../model/model
+	../model/show-low-model
+	../model/source-range
+	../util/enum-map
+	../util/util
+	./all-constants-builder
+
+type-args-scope alias
+	low-type[]
+
+type-args-scope-for-fun type-args-scope(a low-fun)
+	match x = a.source
+	as low-fun-source-regular then x.type-args
+	as low-fun-source-test then ()
+	as low-fun-source-wrap-main then ()
+
+specs-scope record(specs specs, spec-impls low-fun[]) # TODO: could this just be the spec-impls???????????????????????????
+new specs-scope()
+	(), ()
+specs-scope-for-fun specs-scope(a low-fun)
+	match x = a.source
+	as low-fun-source-regular then x.decl.specs, x.spec-impls
+	as low-fun-source-test then ()
+	as low-fun-source-wrap-main then ()
+
+lower-ctx record mut
+	show-ctx show-ctx
+	-prng prng
+	# TODO: more of these should probably be private -----------------------------------------------------------------------------
+	target build-target
+	program-with-main program-with-main
+	late-equal-symbol-function mut low-fun?
+	late-json-named-new-function mut low-fun?
+	all-constants all-constants-builder
+	low-types low-type mut[(struct-decl, low-type[])]
+	all-low-types low-type mut[] # TODO:PERF 'low-types' contains them all, except the bogus type
+	low-var-lookup low-var mut[var-decl]
+	low-funs low-fun mut[low-fun-key]
+	sum-type-to-methods low-fun mut[] mut[low-type]
+	deferred-methods low-fun mut[]
+	deferred-java-interfaces struct-decl mut[]
+	all-processed-low-funs low-fun mut[]
+	all-unprocessed-low-funs low-fun mut[]
+	| Maps a sum type to its cases
+	sum-types low-sum-type-case mut[] mut[low-type]
+	| The nth case type needs its method impls filled in
+	deferred-sum-type-method-impls (low-type, nat, sum-type-member-kind) mut[]
+	-late-bogus-type mut low-type?
+	-late-bool-type mut low-type?
+	-late-char8-array-type mut low-type?
+	-late-char32-array-type mut low-type?
+	-late-error-type mut low-type?
+	-late-exception-type mut low-type?
+	-late-none-type mut low-type?
+	-late-void-type mut low-type?
+	-late-integral-types mut (integral-type, low-type) enum-map?
+	-late-string-type mut low-type?
+new lower-ctx
+	show-ctx show-ctx
+	program program-with-main
+	target build-target
+do
+	show-ctx: show-ctx
+	prng: ()
+	target: target
+	program-with-main: program
+	late-equal-symbol-function: ()
+	late-json-named-new-function: ()
+	all-constants: ()
+	low-types: ()
+	all-low-types: ()
+	low-var-lookup: ()
+	low-funs: ()
+	sum-type-to-methods: ()
+	deferred-methods: ()
+	deferred-java-interfaces: ()
+	all-processed-low-funs: ()
+	all-unprocessed-low-funs: ()
+	sum-types: ()
+	deferred-sum-type-method-impls: ()
+	late-bogus-type: ()
+	late-bool-type: ()
+	late-char8-array-type: ()
+	late-char32-array-type: ()
+	late-error-type: ()
+	late-exception-type: ()
+	late-none-type: ()
+	late-void-type: ()
+	late-integral-types: ()
+	late-string-type: ()
+-sum-type-member-kind enum(declared-on-sum-type, declared-on-case-type)
+
+show-ctx show-ctx() lower-ctx
+	the::lower-ctx.show-ctx
+
+all-constants all-constants-builder() lower-ctx
+	the::lower-ctx.all-constants
+target build-target() lower-ctx
+	the::lower-ctx.target
+is-java bool() lower-ctx
+	target == java
+is-js bool() lower-ctx
+	target == js
+preserve-methods bool() lower-ctx
+	is-java # TODO: also JS -----------------------------------------------------------------------------------------------------------------
+equal-symbol-function low-fun() lower-ctx
+	the::lower-ctx.late-equal-symbol-function!
+json-named-new-function low-fun() lower-ctx
+	the::lower-ctx.late-json-named-new-function!
+program program() lower-ctx
+	the::lower-ctx.program-with-main.program
+common-funs common-funs() lower-ctx
+	program.common-funs
+common-types common-types() lower-ctx
+	program.common-types
+available-types available-types() lower-ctx
+	program.available-types
+
+take-next-id nat() lower-ctx
+	the::lower-ctx.prng.next
+
+low-sum-type-case record(member-type low-type, method-impls mut low-fun?[]?) mut # TODO: rename 'member-type' to 'case-type'
+
+finish-low-vars low-var[]() lower-ctx
+	res low-var[] = for _, v in the::lower-ctx.low-var-lookup then v
+	# TODO: this also needs to take into account order of dependencies. If A imports B, B needs to initialize first.
+	sort res, it.range.range.start
+
+-bogus-type low-type() lower-ctx
+	ctx = the::lower-ctx
+	ctx.late-bogus-type else
+		res low-type =
+			id: take-next-id
+			purity: data_
+			source: low-type-source-bogus
+			body: (prevent-constant: false, fields: ())::low-record
+		ctx.all-low-types ~= res
+		ctx.late-bogus-type := res
+		res
+
+bool-type low-type() lower-ctx
+	the::lower-ctx.late-bool-type else
+		res = get-low-type-for-struct-inst common-types.bool, ()
+		the::lower-ctx.late-bool-type := res
+		res
+
+json-type low-type() lower-ctx
+	json-named-new-function.return-type
+json-array-type low-type() lower-ctx
+	get-low-type common-funs.json-array, ()
+
+none-type low-type() lower-ctx
+	the::lower-ctx.late-none-type else
+		res = get-low-type-for-struct-inst common-types.none, ()
+		the::lower-ctx.late-none-type := res
+		res
+
+void-type low-type() lower-ctx
+	the::lower-ctx.late-void-type else
+		res = get-low-type-for-struct-inst common-types.void, ()
+		the::lower-ctx.late-void-type := res
+		res
+
+char8-array-type low-type() lower-ctx
+	the::lower-ctx.late-char8-array-type else
+		res = get-low-type-for-struct-inst common-types.char8-array, ()
+		the::lower-ctx.late-char8-array-type := res
+		res
+
+char32-array-type low-type() lower-ctx
+	the::lower-ctx.late-char32-array-type else
+		res = get-low-type-for-struct-inst common-types.char32-array, ()
+		the::lower-ctx.late-char32-array-type := res
+		res
+
+char-types (char-type, low-type) enum-map() lower-ctx
+	for key in make-enum-map
+		match key
+		as char8
+			array-element-type char8-array-type
+		as char32
+			array-element-type char32-array-type
+integral-types (integral-type, low-type) enum-map() lower-ctx
+	the::lower-ctx.late-integral-types else
+		res (integral-type, low-type) enum-map = for x in make-enum-map
+			get-low-type-for-struct-inst common-types[x], ()
+		the::lower-ctx.late-integral-types := res
+		res
+integral-type low-type(type integral-type) lower-ctx
+	integral-types[type]
+nat-type low-type(type nat-type) lower-ctx
+	integral-type type.to
+nat64-type low-type() lower-ctx
+	nat-type nat64
+float-types (float-type, low-type) enum-map() lower-ctx
+	for key in make-enum-map
+		match key
+		as float32
+			get-low-type-for-struct-inst common-types.float32, ()
+		as float64
+			get-low-type-for-struct-inst common-types.float64, ()
+
+error-type low-type() lower-ctx
+	# TODO: is caching this this really an optimization / necessary? ---------------------------------------------------------------------------
+	the::lower-ctx.late-error-type else
+		res = get-low-type-for-struct-inst common-funs.error, ()
+		the::lower-ctx.late-error-type := res
+		res
+
+exception-type low-type() lower-ctx
+	the::lower-ctx.late-exception-type else
+		res = get-low-type-for-struct-inst common-types.exception, ()
+		the::lower-ctx.late-exception-type := res
+		res
+
+float64-type low-type() lower-ctx
+	get-low-type-for-struct-inst common-types.float64, ()
+
+string-type low-type() lower-ctx
+	# TODO: I should measure if using 'late-string-type' is actually aany better than just getting it every time ..................
+	the::lower-ctx.late-string-type else
+		res = get-low-type-for-struct-inst common-types.string, ()
+		the::lower-ctx.late-string-type := res
+		res
+
+get-referenced-type low-type(type low-type) lower-ctx
+	inst = type.source.low-type-source-inst!
+	assert inst.decl == common-types.reference
+	only! inst.type-args
+
+constant-symbol constant(value symbol) lower-ctx
+	get-constant-symbol all-constants, value
+
+quick-fill-in-low-fun-body spec
+	quick-fill-in-low-fun-body void(ctx lower-ctx, cf low-fun)
+
+get-low-fun low-fun
+	decl fun-decl
+	type-args low-type[]
+	spec-impls low-fun[]
+do lower-ctx, quick-fill-in-low-fun-body
+	key low-fun-key = decl, type-args, spec-impls
+	res = get-or-add-and-did-add the::lower-ctx.low-funs, key, of
+		get-low-fun-from-key decl, type-args, spec-impls
+	if res.did-add
+		add-low-fun res.value
+		quick-fill-in-low-fun-body the::lower-ctx, res.value
+	res.value
+
+get-non-template-low-fun low-fun(inst fun-inst) lower-ctx, quick-fill-in-low-fun-body
+	assert !is-template inst.decl
+	get-low-fun inst.decl, (), ()
+
+get-low-type-for-struct-inst low-type(inst struct-inst, type-args-scope type-args-scope) lower-ctx
+	type-args = get-low-types inst.type-args, type-args-scope
+	decl = inst.decl
+	res = get-or-add-and-did-add the::lower-ctx.low-types, (decl, type-args), of
+		purity mut = decl.purity
+		for x in type-args
+			purity worse-purity:= x.purity
+		res low-type =
+			id: take-next-id
+			purity: purity
+			source: low-type-source-inst decl, type-args
+			body: low-type-body-deferred
+		the::lower-ctx.all-low-types ~= res
+		res
+	if res.did-add
+		initialize-low-type inst, res.value, type-args
+	res.value
+
+get-low-type low-type(type type, type-args-scope type-args-scope) lower-ctx
+	match type
+	as bogus-type
+		bogus-type
+	as type-param-index
+		type-args-scope[type.index]
+	as struct-inst
+		get-low-type-for-struct-inst type, type-args-scope
+
+-get-low-types low-type[](types type-args, type-args-scope type-args-scope) lower-ctx
+	for t in types
+		get-low-type t, type-args-scope
+
+get-low-fun-from-called low-fun?
+	type-scope type-args-scope
+	specs-scope specs-scope
+	called called
+do lower-ctx, quick-fill-in-low-fun-body
+	match called
+	as called-bogus
+		()
+	as fun-inst
+		get-low-fun-from-fun-inst type-scope, specs-scope, called
+	as called-spec-sig
+		specs-scope.spec-impls[called.index-in-specs]
+
+get-low-fun-from-fun-inst low-fun?
+	type-scope type-args-scope
+	specs-scope specs-scope
+	fun-inst fun-inst
+do lower-ctx, quick-fill-in-low-fun-body
+	spec-impls low-fun[]? = map-every fun-inst.spec-impls, of x
+		get-low-fun-from-called type-scope, specs-scope, x
+	if spec-impls
+		type-args = get-low-types fun-inst.type-args, type-scope
+		get-low-fun fun-inst.decl, type-args, spec-impls
+
+-get-low-fun-from-key low-fun(decl fun-decl, type-args low-type[], spec-impls low-fun[]) lower-ctx
+	hash: take-next-id
+	source: low-fun-source-regular decl, type-args, spec-impls
+	return-type: get-low-type decl.return-type, type-args
+	params:
+		-- for x in decl.params
+			lower-param-destructure x, type-args
+		-- for x in decl.contexts
+			the_::low-generated-local-kind, get-low-type x, type-args
+	body: low-fun-body-deferred
+
+-lower-param-destructure low-local(a destructure, type-args-scope type-args-scope) lower-ctx
+	source: match a
+	as destructure-ignore
+		ignore::low-generated-local-kind
+	as local
+		a
+	as destructure-split
+		destruct::low-generated-local-kind
+	type: get-low-type a.type, type-args-scope
+
+add-low-fun void(fun low-fun) lower-ctx
+	the::lower-ctx.all-unprocessed-low-funs ~= fun
+
+-initialize-low-type void
+	inst struct-inst
+	res low-type
+	type-args low-type[]
+do lower-ctx
+	match body = inst.decl.body
+	as struct-body-bogus
+		throw unreachable
+	as struct-body-extern-java
+		res.body := body
+	as builtin-type
+		initialize-low-type-for-builtin res, type-args, body
+	as enum_
+		res.body := body.storage.low-enum
+	as flags_
+		res.body := body.storage.low-flags
+	as record_
+		fields low-field[] = for field in body.fields
+			debug-name: field.name
+			is-mutable: !!field.mutability
+			type: get-low-type field.type, type-args
+		res.body :=
+			:: low-record
+			is-exception-case = exists inst.decl.sum-type-memberships, of x
+				x.sum-type == common-types.exception
+			prevent-constant: is-exception-case or exists fields, it.is-mutable
+			fields: fields
+	as sum-type
+		res.body :=
+			:: low-union
+			java-interface: if body.kind == java-interface
+				inst.decl.source.struct-decl-source-java!.path
+			late-members: ()
+		cases low-sum-type-case mut[] = for index, member in with-index body.listed-members
+			member-type = get-low-type-for-struct-inst member.member, type-args
+			the::lower-ctx.deferred-sum-type-method-impls ~= res, index, declared-on-sum-type
+			member-type, ()
+		the::lower-ctx.sum-types[res] := cases
+		match body.kind
+		as interface_
+			()
+		as java-interface
+			the::lower-ctx.deferred-java-interfaces ~= inst.decl
+		as union_
+			finish-sum-type-cases res, cases
+		as variant_
+			()
+
+	for x in sum-type-memberships inst.decl
+		sum-type = get-low-type x.sum-type, type-args
+		case-types = the::lower-ctx.sum-types[sum-type]!
+		index = case-types.size
+		case-types ~= (res, ())
+		the::lower-ctx.deferred-sum-type-method-impls ~= sum-type, index, declared-on-case-type
+
+sum-type-case-index nat(sum-type low-type, case-type low-type) lower-ctx
+	body = sum-type.body.low-union!
+	if body.has-members
+		index-of! body.members, case-type
+	else
+		the show-ctx = show-ctx
+		assert st = the::lower-ctx.sum-types[sum-type] else
+			error "Could not find members for sum type {show-low-type sum-type}"
+		find-index st, it.member-type == case-type else
+			log error, "Could not find sum type member {show-low-type case-type} for {show-low-type sum-type}"
+			throw todo
+
+sum-type-body-from-type sum-type(a low-type)
+	a.source.low-type-source-inst!.decl.body.sum-type!
+
+finish-sum-type-cases void(sum-type low-type, cases low-sum-type-case mut[])
+	sum-type.body.low-union!.members := for x in cases
+		x.member-type
+
+sum-type-membership-method-impls low-fun?[]
+	sum-type low-type
+	member-type low-type
+do lower-ctx, quick-fill-in-low-fun-body
+	sum-type-decl = sum-type.source.low-type-source-inst!.decl
+	member-source = member-type.source.low-type-source-inst!
+	membership = must-find-only member-source.decl.sum-type-memberships, it.sum-type.decl == sum-type-decl
+	sum-type-method-impls-common membership.method-impls, member-source.type-args
+
+sum-type-method-impls-common low-fun?[]
+	method-impls called?[]
+	type-args type-args-scope
+do lower-ctx, quick-fill-in-low-fun-body
+	for x in method-impls
+		if x
+			get-low-fun-from-called type-args, (), x
+
+-initialize-low-type-for-builtin void
+	type low-type
+	type-args low-type[]
+	builtin_ builtin-type
+do lower-ctx
+	match builtin_
+	as option
+		type.body :=
+			:: low-union
+			java-interface: ()
+			late-members: none-type, only! type-args
+	else
+		type.body := low-builtin-type builtin_, type-args

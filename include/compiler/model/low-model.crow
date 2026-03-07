@@ -1,0 +1,895 @@
+import
+	crow/unsafe
+	../util/full-index-map
+	../util/util
+	./ast
+	./model
+	./source-range
+	./uri
+
+low-type-body union
+	low-builtin-type
+	low-enum
+	struct-body-extern-java
+	low-flags
+	low-record
+	low-union
+	low-type-body-deferred
+low-builtin-type record(kind builtin-type, type-args low-type[])
+low-enum record(storage nat-type)
+low-flags record(storage nat-type)
+low-record record
+	prevent-constant bool
+	fields low-field[]
+| Lambdas and all {sum-type} kinds compile to this.
+| Method impls are stored separately on the {low-program}.
+low-union record force-data
+	java-interface path?
+	| This may be an empty array for a lambda type with no implementations.
+	| WARN: for a Java interface, this is not exhaustive.
+	late-members mut low-type[]?
+low-type-body-deferred record
+has-members bool(a low-union)
+	!!a.late-members
+members low-type[](a low-union)
+	a.late-members!
+set-members void(a low-union, members low-type[])
+	a.late-members := members
+
+is-void bool(a low-type)
+	a.body.low-builtin-type.?kind == void
+is-empty-type bool(a low-type)
+	match body = a.body
+	as low-builtin-type
+		body.kind == void
+	as low-enum
+		false
+	as struct-body-extern-java
+		false
+	as low-flags
+		false
+	as low-record
+		!prevent-constant body and every body.fields, it.type.is-empty-type
+	as low-union
+		false
+	as low-type-body-deferred
+		false
+is-enum-or-flags bool(a low-type)
+	a.is-enum or a.is-flags
+is-enum bool(a low-type)
+	!!a.body.low-enum
+is-flags bool(a low-type)
+	!!a.body.low-flags
+must-be-enum-or-flags enum-or-flags-member[](a low-type)
+	a.source.low-type-source-inst!.decl.must-be-enum-or-flags
+must-be-enum enum-or-flags-member[](a low-type)
+	a.source.low-type-source-inst!.decl.body.enum_!.members
+must-be-flags flags_(a low-type)
+	a.source.low-type-source-inst!.decl.body.flags_!
+
+low-type-source union(low-type-source-inst, low-type-source-bogus)
+low-type-source-bogus record
+low-type-source-inst record
+	decl struct-decl
+	type-args low-type[]
+range uri-and-range(a low-type-source)
+	match a
+	as low-type-source-bogus
+		()
+	as low-type-source-inst
+		a.decl.range
+low-type record force-data
+	id nat
+	purity purity
+	source low-type-source
+	body mut low-type-body
+to json(a low-type)
+	"{a.simple-name} {a.id}"
+| Not guaranteed to be unique
+simple-name symbol(a low-type)
+	match source = a.source
+	as low-type-source-bogus
+		"BOGUS"
+	as low-type-source-inst
+		source.decl.name.to
+== bool(a low-type, b low-type)
+	trusted a 'reference-equal b
+<=> comparison(a low-type, b low-type)
+	a.id <=> b.id
+hash void(a low-type, state hash-state)
+	hash a.id, state
+as-extern path?(a low-type)
+	match body = a.body
+	as low-builtin-type
+		()
+	as low-enum
+		()
+	as struct-body-extern-java
+		body.path
+	as low-flags
+		()
+	as low-record
+		()
+	as low-union
+		body.java-interface
+	as low-type-body-deferred
+		throw unreachable
+
+# Returns return and param types
+as-lambda-type (low-type, low-type)?(a low-type)
+	body = a.body
+	if body.low-builtin-type and is-lambda-type body.kind
+		only2! body.type-args
+
+is-bool bool(a low-type)
+	a.body.low-builtin-type.?kind == bool
+is-char8-or-32 bool(a low-type)
+	body = a.body
+	body.low-builtin-type and (body.kind == char8 or body.kind == char32)
+is-char8 bool(a low-type)
+	a.body.low-builtin-type.?kind == char8
+is-nat8 bool(a low-type)
+	a.body.low-builtin-type.?kind == nat8
+is-nat32 bool(a low-type)
+	a.body.low-builtin-type.?kind == nat32
+is-nat64 bool(a low-type)
+	a.body.low-builtin-type.?kind == nat64
+is-float32-or-64 bool(a low-type)
+	body = a.body
+	body.low-builtin-type and (body.kind == float32 or body.kind == float64)
+as-char-type char-type?(a low-type)
+	a.body.low-builtin-type.?kind.?to
+as-nat-type nat-type?(a low-type)
+	a.body.low-builtin-type.?kind.?to
+as-int-type int-type?(a low-type)
+	a.body.low-builtin-type.?kind.?to
+as-integral-type integral-type?(a low-type)
+	a.body.low-builtin-type.?kind.?to
+as-integral-type-allow-char integral-type?(a low-type)
+	if x = a.as-char-type
+		match x
+		as char8 then nat8
+		as char32 then nat32
+	else
+		a.as-integral-type
+as-float-type float-type?(a low-type)
+	a.body.low-builtin-type.?kind.?to
+is-array bool(a low-type)
+	a.body.low-builtin-type.?kind == array
+is-array-or-mut-array bool(a low-type) # TODO: should be 'is-array-or-mut-slice' ----------------------------------------------
+	if b = a.body.low-builtin-type
+		b.kind == array or b.kind == mut-slice
+
+array-element-type low-type(array-type low-type)
+	assert is-array-or-mut-array array-type
+	only! array-type.source.low-type-source-inst!.type-args
+is-option bool(a low-type)
+	source = a.source
+	source.low-type-source-inst and is-option source.decl
+unwrap-option-type low-type?(option-type low-type) # TODO:make this return an option -----------------------------
+	if option-type.is-option
+		only! option-type.source.low-type-source-inst!.type-args
+unwrap-weak-ref low-type(a low-type)
+	assert is-weak-ref a
+	only! a.source.low-type-source-inst!.type-args
+is-weak-ref bool(a low-type)
+	source = a.source
+	source.low-type-source-inst and is-weak-ref source.decl
+is-bogus bool(a low-type)
+	!!a.source.low-type-source-bogus
+is-js-any bool(a low-type)
+	a.body.low-builtin-type.?kind == js-any
+
+low-field record
+	debug-name symbol # TODO: rename to just 'name' .........................................................................
+	is-mutable bool
+	type low-type
+
+low-local-source union(local, low-local-source-reference, low-generated-local-kind)
+	hash void(state hash-state)
+	to json()
+is-mutable bool(a low-local-source)
+	a.local and a.is-mutable
+low-local-source-reference record(original local)
+to json(a low-local-source-reference)
+hash void(a low-local-source-reference, state hash-state)
+	hash a.original, state
+low-generated-local-kind enum(args, ignore, destruct, member, member2, the_, union-kind)
+== bool(a low-generated-local-kind, b low-generated-local-kind)
+to nat32(a low-generated-local-kind)
+to symbol(a low-generated-local-kind)
+to string(a low-generated-local-kind)
+	a.to::symbol.to
+show string(a low-generated-local-kind)
+	a.to::symbol.to
+to json(a low-generated-local-kind)
+hash void(a low-generated-local-kind, state hash-state)
+	hash a.to::nat32, state
+low-local record
+	source low-local-source
+	type low-type
+to json(a low-local)
+	source: a.source.to
+	type: a.type.to
+== bool(a low-local, b low-local)
+	trusted a 'reference-equal b
+<=> comparison(_ low-local, _ low-local)
+	throw todo
+hash void(a low-local, state hash-state)
+	hash a.source, state
+is-mutable bool(a low-local)
+	is-mutable a.source
+
+low-fun-body union
+	low-fun-body-builtin
+	low-expr
+	fun-body-extern-java
+	low-fun-body-method
+	low-fun-body-deferred
+	low-fun-body-always-inline
+to json(a low-fun-body)
+| Use this instead of {builtin-low-expr} to ensure it is inlined
+low-fun-body-builtin record(kind builtin-fun, type-args low-type[])
+to json(a low-fun-body-builtin)
+low-fun-body-method record(method-index nat)
+to json(a low-fun-body-method)
+low-fun-body-deferred record
+to json(a low-fun-body-deferred)
+# Type for a function body that will never be filled in because the function should always be inlined
+low-fun-body-always-inline record
+to json(a low-fun-body-always-inline)
+
+low-fun-source union
+	low-fun-source-regular
+	low-fun-source-test
+	low-fun-source-wrap-main
+to json(a low-fun-source)
+range uri-and-range(a low-fun-source)
+	match a
+	as low-fun-source-regular
+		a.decl.range
+	as low-fun-source-test
+		a.test_.range
+	as low-fun-source-wrap-main
+		a.range
+low-fun-source-test record
+	test_ test_
+	| Arbitrary index over all tests
+	test-index nat
+to json(_ low-fun-source-test)
+	throw todo
+low-fun-source-wrap-main record(range uri-and-range)
+to json(a low-fun-source-wrap-main)
+
+low-fun record force-data
+	hash nat
+	source low-fun-source
+	return-type low-type
+	| This includes regular params and context params (low-model makes no distinction)
+	params low-local[]
+	body mut low-fun-body
+== bool(a low-fun, b low-fun)
+	trusted a 'reference-equal b
+<=> comparison(a low-fun, b low-fun)
+	a.range <=> b.range
+hash void(a low-fun, state hash-state)
+	hash a.hash, state
+context-params low-local array-view(a low-fun)
+	source = a.source
+	last-n a.params, if source.low-fun-source-regular
+		source.decl.contexts.size
+to-json-with-body json(a low-fun)
+	source: a.source.to
+	return-type: a.return-type.to
+	params: a.params.to
+	body: a.body.to
+to json(a low-fun)
+	"{a.simple-name}{a.hash}"
+| Not guaranteed to be unique
+simple-name symbol(a low-fun)
+	match source = a.source
+	as low-fun-source-regular
+		source.decl.name
+	as low-fun-source-test
+		"test"
+	as low-fun-source-wrap-main
+		"wrap-main"
+module-uri uri(a low-fun)
+	a.range.uri
+range uri-and-range(a low-fun)
+	a.source.range
+is-extern bool(a low-fun)
+	match a.body
+	as low-fun-body-builtin
+		false
+	as low-expr
+		false
+	as fun-body-extern-java
+		true
+	as low-fun-body-method
+		!!a.params[0].type.as-extern
+	as low-fun-body-deferred
+		throw unreachable
+	as low-fun-body-always-inline
+		throw unreachable
+
+low-fun-source-regular record
+	decl fun-decl
+	type-args low-type[]
+	spec-impls low-fun[]
+to json(a low-fun-source-regular)
+	omit-empty-values
+		decl: a.decl.name.to
+		type-args: a.type-args.to
+		spec-impls: a.spec-impls.to
+low-fun-key record
+	decl fun-decl
+	type-args low-type[]
+	spec-impls low-fun[]
+== bool(a low-fun-key, b low-fun-key)
+<=> comparison(_ low-fun-key, _ low-fun-key)
+	throw todo
+hash void(a low-fun-key, state hash-state)
+	hash a.decl, state
+	for x in a.type-args
+		hash x, state
+	for x in a.spec-impls
+		hash x, state
+
+name symbol?(a low-fun)
+	a.source.low-fun-source-regular.?decl.?name
+
+low-expr record
+	type low-type
+	range uri-and-range
+	kind low-expr-kind
+to json(a low-expr)
+start uri-and-pos(a low-expr)
+	a.range.start
+
+low-expr-kind union
+	array-op-low-expr
+	builtin-low-expr
+	call-low-expr
+	cast-low-expr
+	constant
+	create-array-low-expr
+	create-record-low-expr
+	create-union-low-expr
+	drop-low-expr
+	finally-low-expr
+	if-low-expr
+	let-low-expr
+	lambda-low-expr
+	local-get-low-expr
+	local-set-low-expr
+	loop-low-expr
+	loop-break-low-expr
+	loop-continue-low-expr
+	match-scalar-low-expr
+	match-string-like-low-expr
+	match-union-low-expr
+	record-field-get-low-expr
+	record-field-set-low-expr
+	seq-low-expr
+	throw-low-expr
+	try-low-expr
+	try-let-low-expr
+	union-assume-case-low-expr
+	union-is-case-low-expr
+	var-get-low-expr
+	var-set-low-expr
+to json(a low-expr-kind)
+| Specialization of `for local in in-array then inner` where the input and output collections are both arrays (or {mut-slice})
+| If the return type is 'void', this does not return an array.
+array-op-low-expr record # TODO: rename to 'for-loop-low-expr' -------------------------------------------------------
+	input low-expr
+	local low-local?
+	| Used for performance to avoid allocating empty arrays
+	empty-out-array constant-array?
+	body low-expr
+input-kind for-loop-input-kind(a array-op-low-expr)
+	if is-array-or-mut-array a.input.type
+		array
+	else
+		range
+for-loop-input-kind enum(array, range)
+== bool(a for-loop-input-kind, b for-loop-input-kind)
+output-kind for-loop-output-kind(_ array-op-low-expr, type low-type)
+	if is-array-or-mut-array type
+		array
+	else
+		assert is-void type
+		void
+for-loop-output-kind enum(array, void)
+in-element low-type(a array-op-low-expr)
+	match input-kind a
+	as array
+		a.input.type.array-element-type
+	as range
+		a.input.type.range-element-type
+range-element-type low-type(range-type low-type)
+	low, high = range-fields range-type
+	low.type is high.type
+	low.type
+range-fields (low-field, low-field)(range-type low-type)
+	only2! range-type.body.low-record!.fields
+out-element low-type(a array-op-low-expr)
+	a.body.type
+to json(a array-op-low-expr)
+builtin-low-expr record(fun builtin-fun, type-args low-type[], args low-expr[])
+to json(a builtin-low-expr)
+call-low-expr record(called low-fun, args low-expr[])
+to json(a call-low-expr)
+| Reinterpret cast between different types with the same size
+cast-low-expr record(inner low-expr) # TODO: this is only used to cast an enum to an integral. Just make that a kind of builtin unary?
+to json(a cast-low-expr)
+create-array-low-expr record(args low-expr[])
+to json(a create-array-low-expr)
+create-record-low-expr record(args low-expr[]) # TODO: this is basically the same as create-array-low-expr, share?
+to json(a create-record-low-expr)
+create-union-low-expr record(member-index nat, arg low-expr)
+to json(a create-union-low-expr)
+drop-low-expr record(arg low-expr)
+to json(a drop-low-expr)
+finally-low-expr record(right low-expr, below low-expr)
+to json(a finally-low-expr)
+if-low-expr record(cond low-expr, then_ low-expr, else_ low-expr)
+to json(a if-low-expr)
+
+let-low-expr record(local low-local, value low-expr, then_ low-expr)
+to json(a let-low-expr)
+lambda-low-expr record
+	closure low-local[]
+	param low-local
+	body low-expr
+to json(a lambda-low-expr)
+| For a JS target, this can get a local through a closure.
+local-get-low-expr record(local low-local) # TODO: consider perf of just using the 'local' directly .............................
+to json(a local-get-low-expr)
+local-set-low-expr record(local low-local, value low-expr)
+to json(a local-set-low-expr)
+loop-low-expr record(body low-expr)
+to json(a loop-low-expr)
+loop-break-low-expr record(value low-expr)
+to json(a loop-break-low-expr)
+loop-continue-low-expr record
+to json(a loop-continue-low-expr)
+
+match-scalar-low-expr record # TODO: RENAME TO MATCH_SCALAR -----------------------------------------------------
+	-dummy void # TODO:KILL ----------------------------------------------------------------------------------------------
+	matched low-expr
+	case-values scalar-values
+	case-exprs low-expr[]
+	else_ low-expr?
+new match-scalar-low-expr
+	matched low-expr
+	case-values scalar-values
+	case-exprs low-expr[]
+	else_ low-expr?
+do
+	assert is-sorted case-values
+	case-values.size is case-exprs.size
+	(), matched, case-values, case-exprs, else_
+to json(a match-scalar-low-expr)
+matched-integral-type char-or-integral-type(a match-scalar-low-expr)
+	match body = a.matched.type.body
+	as low-builtin-type
+		body.kind.to!
+	as low-enum
+		body.storage.to
+	else
+		throw unreachable
+
+match-string-like-low-expr record
+	matched low-expr
+	equals low-fun
+	cases low-match-string-like-case[]
+	else_ low-expr
+to json(a match-string-like-low-expr)
+# TODO: shouldn't 'value' be a constant? ------------------------------------------------------------------------------------------------
+low-match-string-like-case record(value low-expr, then_ low-expr)
+to json(a low-match-string-like-case)
+
+indices record(values scalar-values)
+list-new indices(values nat64[])
+	values.to
+== bool(a indices, b indices)
+to json(a indices)
+	a.values.to
+to indices(a nat)
+	values: (a.to::scalar-value,).to::scalar-values
+to indices(a nat range)
+	a.to::nat[].to
+to indices(a nat[])
+	values: a.to
+size nat(a indices)
+	a.values.size
+iterate bool(a indices, f bool mut(x nat))
+	iterate a.values, f[it.to]
+subscript nat(a indices, index nat)
+	a.values[index].to
+to-array nat[](a indices)
+	map a.values, it.to
+
+match-union-low-expr record
+	-dummy void
+	matched low-expr
+	member-indices indices
+	cases low-expr[]
+	else_ low-expr?
+new match-union-low-expr
+	matched low-expr
+	case-indices indices
+	cases low-expr[]
+	else_ low-expr?
+do
+	assert matched.type.body.low-union
+	assert is-sorted case-indices
+	forbid is-empty cases
+	case-indices.size is cases.size
+	(), matched, case-indices, cases, else_
+match-union-low-expr match-union-low-expr
+	matched low-expr
+	case-indices indices
+	cases low-expr[]
+	else_ low-expr?
+do
+	matched, case-indices, cases, else_
+to json(a match-union-low-expr)
+union-type low-type(a match-union-low-expr)
+	a.matched.type
+union_ low-union(a match-union-low-expr)
+	a.union-type.body.low-union!
+| Expression that optionally uses something as a local
+low-local-and-expr record(local low-local?, expr low-expr)
+to json(a low-local-and-expr)
+record-field-get-low-expr record(record_ low-expr, field-index nat)
+to json(a record-field-get-low-expr)
+field low-field(a record-field-get-low-expr)
+	a.record_.type.body.low-record!.fields[a.field-index]
+record-field-set-low-expr record
+	record_ low-expr
+	field-index nat
+	value low-expr
+to json(a record-field-set-low-expr)
+record-type low-type(a record-field-set-low-expr) # TODO: inline -----------------------------------------------------
+	a.record_.type
+field low-field(a record-field-set-low-expr)
+	a.record-type.body.low-record!.fields[a.field-index]
+seq-low-expr record
+	| All parts but the last should be of type 'void'
+	parts low-expr[]
+to json(a seq-low-expr)
+throw-low-expr record(thrown low-expr)
+to json(a throw-low-expr)
+try-low-expr record
+	tried low-expr
+	exception-member-indices indices
+	catch-cases low-local-and-expr[]
+	| For this, the local type is always 'exception'
+	catch-else low-local-and-expr?
+to json(a try-low-expr)
+# TODO: to avoid duplicating code in translate-to-js / translate-to-java / lower, compile this to a 'try' early --------------------
+try-let-low-expr record
+	local low-local?
+	value low-expr
+	exception-member-index nat
+	catch_ low-local-and-expr
+	then_ low-expr
+caught-type low-type(a try-let-low-expr, exception low-type)
+	exception.body.low-union!.members[a.exception-member-index]
+to json(a try-let-low-expr)
+| The type of {arg} is a union type and the type of this expression is one of its cases.
+| Use only in situations where we know the union value has that case type.
+| In a JavaScript build this will usually do nothing. In Java it must insert a cast.
+union-assume-case-low-expr record(arg low-expr)
+union-type low-type(a union-assume-case-low-expr)
+	a.arg.type
+union_ low-union(a union-assume-case-low-expr)
+	a.union-type.body.low-union!
+to json(a union-assume-case-low-expr)
+
+union-is-case-low-expr record(arg low-expr, case-index nat)
+union-type low-type(a union-is-case-low-expr)
+	a.arg.type
+union_ low-union(a union-is-case-low-expr)
+	a.union-type.body.low-union!
+case-type low-type(a union-is-case-low-expr)
+	a.union_.members[a.case-index]
+to json(a union-is-case-low-expr)
+
+var-get-low-expr record(var low-var)
+to json(a var-get-low-expr)
+var-set-low-expr record(var low-var, value low-expr)
+to json(a var-set-low-expr)
+
+low-array-type-and-constants record
+	array-type low-type
+	element-type low-type # TODO: don't need to store this, can get it from arr-type ----------------------------------------
+	constants constant[][]
+
+all-constants record
+	symbols symbol[]
+	arrays low-array-type-and-constants[]
+	| Maps a {constant-record} to the record values.
+	records (constant-record, constant[]) full-index-map[low-type]
+	unions (constant-union, constant-union-value) full-index-map[low-type]
+
+low-var record
+	source var-decl
+	initializer low-expr
+type low-type(a low-var)
+	a.initializer.type
+== bool(a low-var, b low-var)
+	trusted a 'reference-equal b
+<=> comparison(a low-var, b low-var)
+	a.range <=> b.range
+hash void(a low-var, state hash-state)
+	hash a.source, state
+to json(a low-var)
+	kind: a.kind.to
+	name: a.source.name.to
+	type: a.type.to
+kind var-kind(a low-var)
+	a.source.kind
+range uri-and-range(a low-var)
+	a.source.range
+module-uri uri(a low-var)
+	a.source.module-uri
+
+low-program record
+	model-program program
+	target build-target
+	all-constants all-constants
+	all-non-extern-types low-type[]
+	all-types-including-extern low-type[]
+	all-vars low-var[]
+	all-non-extern-funs low-fun[]
+	all-funs-including-extern low-fun[]
+	| Currently only used in a Java build (TODO: use in JS) -----------------------------------------------------------------
+	method-impls low-method-info[low-type]
+	| Only used in a JS build
+	async low-async-info?
+	common-funs low-common-funs
+low-async-info record
+	funs async-kind[low-fun]
+	var-initializers low-var set
+to json(a low-program)
+	funs json[] = for x in a.all-funs-including-extern # TODO: should be able to 'build' a 'json' directly ---------------------
+		x.to-json-with-body
+	target: a.target.to
+	all-types: a.all-types-including-extern.to
+	all-vars: a.all-vars.to
+	all-funs: funs.to
+
+# If this is missing it will be always sync
+async-kind enum
+	always-async
+	| This should compile to separate sync and async versions. Async callers will call the async version.
+	| This can happen for a function that takes a callback and calls it.
+	sync-and-async
+== bool(a async-kind, b async-kind)
+
+low-method-info record
+	| Note: This is not all methods, only the ones that were accessed
+	methods low-fun[]
+	# This matches the order of types in the union
+	cases low-fun?[][]
+new low-method-info()
+	(), ()
+is-empty bool(a low-method-info)
+	res = is-empty a.methods
+	res is a.cases.is-empty
+	res
+low-common-funs union
+	low-common-funs-java
+	low-common-funs-js
+do
+	exception low-type()
+	main low-fun()
+	show-exception low-fun()
+	string low-type()
+low-common-funs-java record
+	exception low-type
+	bool low-type
+	nat32 low-type
+	show-exception low-fun
+	start-runtime low-fun
+	stop-runtime low-fun
+	to-symbol-from-string low-fun
+	main low-fun
+string low-type(a low-common-funs-java)
+	a.to-symbol-from-string.params.only!.type
+symbol low-type(a low-common-funs-java)
+	a.to-symbol-from-string.return-type
+low-common-funs-js record
+	exception low-type
+	js-any low-type
+	main low-fun
+	show-exception low-fun
+	to-symbol-from-string low-fun
+	to-string-from-js-any low-fun
+string low-type(a low-common-funs-js)
+	a.to-symbol-from-string.params.only!.type
+symbol low-type(a low-common-funs-js)
+	a.to-symbol-from-string.return-type
+
+direct-child-exprs record(expr low-expr)
+iterate bool(a direct-child-exprs, f bool mut(x low-expr))
+	match x = a.expr.kind
+	as array-op-low-expr
+		f[x.input] or f[x.body]
+	as builtin-low-expr
+		iterate x.args, f
+	as call-low-expr
+		iterate x.args, f
+	as cast-low-expr
+		f[x.inner]
+	as constant
+		false
+	as create-array-low-expr
+		iterate x.args, f
+	as create-record-low-expr
+		iterate x.args, f
+	as create-union-low-expr
+		f[x.arg]
+	as drop-low-expr
+		f[x.arg]
+	as finally-low-expr
+		f[x.right] or f[x.below]
+	as if-low-expr
+		f[x.cond] or f[x.then_] or f[x.else_]
+	as lambda-low-expr
+		f[x.body]
+	as let-low-expr
+		f[x.value] or f[x.then_]
+	as local-get-low-expr
+		false
+	as local-set-low-expr
+		f[x.value]
+	as loop-low-expr
+		f[x.body]
+	as loop-break-low-expr
+		f[x.value]
+	as loop-continue-low-expr
+		false
+	as match-scalar-low-expr
+		f[x.matched] or iterate x.case-exprs, f or cb-option x.else_, f
+	as match-string-like-low-expr
+		f[x.matched] or
+		iterate x.cases, (of case_ then f[case_.value] or f[case_.then_]) or
+		f[x.else_]
+	as match-union-low-expr
+		f[x.matched] or
+		iterate x.cases, f[it] or
+		cb-option x.else_, f
+	as record-field-get-low-expr
+		f[x.record_]
+	as record-field-set-low-expr
+		f[x.record_] or f[x.value]
+	as seq-low-expr
+		iterate x.parts, f
+	as throw-low-expr
+		f[x.thrown]
+	as try-low-expr
+		f[x.tried] or
+		iterate x.catch-cases, f[it.expr] or
+		cb-option x.catch-else.?expr, f
+	as try-let-low-expr
+		f[x.value] or f[x.catch_.expr] or f[x.then_]
+	as union-assume-case-low-expr
+		f[x.arg]
+	as union-is-case-low-expr
+		f[x.arg]
+	as var-get-low-expr
+		false
+	as var-set-low-expr
+		f[x.value]
+
+| The type of a constant is implicit (given by context).
+| This means two constants that look equal may not be the same constant if they have different types
+| (e.g., IntegralValue has different sizes.)
+constant union
+	constant-array
+	constant-native-string
+	constant-record
+	scalar-value
+	constant-symbol
+	constant-union
+	constant-gc-safe-value
+do
+	hash void(state hash-state)
+to json(a constant)
+# This assumes the constants are for the same type
+== bool(a constant, b constant)
+<=> comparison(a constant, b constant)
+each-nested-constant void
+	all-constants all-constants
+	type low-type
+	a constant
+	f void mut(type low-type, value constant)
+do
+	f[type, a]
+	match a
+	as constant-array
+		elem = type.array-element-type
+		for x in all-constants.arrays[a.type-index].constants[a.index]
+			each-nested-constant all-constants, elem, x, f
+	as constant-native-string
+		()
+	as constant-record
+		fields = type.body.low-record!.fields
+		args = all-constants.records[type]![a]
+		for arg, field in zip args, fields
+			each-nested-constant all-constants, field.type, arg, f
+	as scalar-value
+		()
+	as constant-symbol
+		()
+	as constant-union
+		value = all-constants.unions[type]![a]
+		member-type = type.body.low-union!.members[value.member-index]
+		each-nested-constant all-constants, member-type, value.member, f
+	as constant-gc-safe-value
+		()
+
+constant-array record
+	| Index of the array type in {all-constants}.{arrays} (TODO: maybe that should just be a map keyed by {low-type}?)
+	type-index nat
+	| Index within that array type
+	index nat
+== bool(a constant-array, b constant-array)
+<=> comparison(a constant-array, b constant-array)
+to json(a constant-array)
+hash void(a constant-array, state hash-state)
+	hash a.type-index, state
+	hash a.index, state
+| Constant Java or JS string
+constant-native-string record(value string)
+== bool(a constant-native-string, b constant-native-string)
+<=> comparison(a constant-native-string, b constant-native-string)
+hash void(a constant-native-string, state hash-state)
+	hash a.value, state
+to json(a constant-native-string)
+| Index into {all-constants}.{records}
+constant-record record(index nat)
+== bool(a constant-record, b constant-record)
+<=> comparison(a constant-record, b constant-record)
+hash void(a constant-record, state hash-state)
+	hash a.index, state
+to json(a constant-record)
+	a.index.to
+constant-symbol record(index nat)
+== bool(a constant-symbol, b constant-symbol)
+<=> comparison(a constant-symbol, b constant-symbol)
+hash void(a constant-symbol, state hash-state)
+	hash a.index, state
+to json(a constant-symbol)
+| Index into {all-constants}.{unions}
+constant-union record(index nat)
+== bool(a constant-union, b constant-union)
+<=> comparison(a constant-union, b constant-union)
+hash void(a constant-union, state hash-state)
+	hash a.index, state
+to json(a constant-union)
+	a.index.to
+constant-union-value record(member-index nat, member constant) # TODO: rename 'member-index' to 'case-index' and 'member' to 'value'
+== bool(a constant-union-value, b constant-union-value)
+<=> comparison(a constant-union-value, b constant-union-value)
+hash void(a constant-union-value, state hash-state)
+	hash a.member-index, state
+	hash a.member, state
+constant-gc-safe-value record
+== bool(a constant-gc-safe-value, b constant-gc-safe-value)
+<=> comparison(a constant-gc-safe-value, b constant-gc-safe-value)
+to json(a constant-gc-safe-value)
+hash void(_ constant-gc-safe-value, _ hash-state)
+	()
+
+as-bool bool(a constant)
+	a.scalar-value!.to
+as-nat64 nat(a constant)
+	a.scalar-value!.to
+as-float float64(a constant)
+	a.scalar-value!.to

@@ -1,0 +1,1266 @@
+import
+	../../crow/col/sort: sort-by-first
+	../frontend/show-model
+	../model/low-model
+	../model/model
+	../model/show-low-model
+	../model/source-range
+	../util/util
+	./all-constants-builder
+	./lower-auto-fun
+	./lower-ctx
+	./lower-expr-ctx
+	./generate
+
+fun-body-decl fun-body(fun low-fun)
+	fun.source.low-fun-source-regular!.decl.body
+
+# Fills in simple function bodies
+quick-fill-in-low-fun-body void(ctx lower-ctx, cf low-fun)
+	the lower-ctx = ctx
+	assert cf.body.low-fun-body-deferred
+	fun-body = cf.fun-body-decl
+	return-type = cf.return-type
+	range = cf.range
+	low-params = cf.params
+	cf.body := match x = fun-body
+	as fun-body-bogus
+		gen-bogus return-type, range
+	as fun-body-extern-java
+		x
+	as auto-fun
+		lower-auto-fun cf, x
+	as builtin-fun
+		lower-builtin-fun cf, x
+	as create-enum-or-flags
+		gen-constant return-type, range, x.member.value.to
+	as create-record
+		if is-empty low-params and !prevent-constant return-type.body.low-record!
+			constant = get-constant-record ctx.all-constants, return-type, ()
+			low-expr return-type, range, constant
+		else
+			gen-create-record return-type, range, for param in low-params
+				gen-local-get range, param
+	as expr
+		low-fun-body-deferred
+	as expr-with-allocated-locals
+		low-fun-body-deferred
+	as fun-body-file-import
+		lower-file-import cf, x
+	as flags-function
+		lower-flags-function cf, x
+	as fun-body-method
+		if preserve-methods
+			ensure ctx.sum-type-to-methods, cf.params[0].type ~= cf
+			low-fun-body-method x.method-index
+		else
+			ctx.deferred-methods ~= cf
+			low-fun-body-deferred
+	as record-field-get
+		record_ = gen-local-get range, only! low-params
+		index = field-index-from-field record_.type, x.field
+		gen-record-field-get return-type, range, record_, index
+	as record-field-set
+		param0, param1 = only2! low-params
+		p0 = gen-local-get range, param0
+		p1 = gen-local-get range, param1
+		index = field-index-from-field p0.type, x.field
+		gen-record-field-set range, p0, index, p1
+	as sum-type-member-get
+		case_ = sum-type-case-index low-params.only!.type, unwrap-option-type! return-type
+		gen-union-member-get cf, case_
+	as var-get
+		assert is-empty low-params
+		expr = var-get-low-expr get-var x.var
+		return-type, range, expr
+	as var-set
+		value = gen-local-get range, only! low-params
+		return-type, range, var-set-low-expr (get-var x.var), value
+	as fun-body-uninitialized
+		throw unreachable
+
+-lower-builtin-fun low-fun-body(cf low-fun, a builtin-fun) lower-ctx
+	return-type = cf.return-type
+	range = cf.range
+	type-args low-type[] data() = of
+		cf.source.low-fun-source-regular!.type-args
+	match a
+	as builtin-fun-constant
+		gen-constant return-type, range, to-constant return-type, a
+	as builtin-fun-is-empty-type
+		constant constant = to::scalar-value is-empty-type only! type-args[]
+		low-expr return-type, range, constant
+	as builtin-fun-is-target
+		gen-constant return-type, range, to::scalar-value a.target == target
+	else
+		low-fun-body-builtin a, type-args[]
+-to-constant constant(type low-type, a builtin-fun-constant) lower-ctx
+	match a
+	as bool
+		a.to::scalar-value
+	as float
+		a.to::scalar-value
+	as builtin-fun-constant-empty-option
+		gen-constant-none type
+	as builtin-fun-constant-gc-safe-value
+		constant-gc-safe-value
+
+-lower-file-import low-expr(cf low-fun, import_ fun-body-file-import) lower-ctx
+	cf.return-type, cf.range, match import_.type
+	as nat8-array
+		constant-of-bytes cf.return-type, import_.content
+	as string
+		gen-string-literal-kind import_.content.as-string
+
+get-var low-var(decl var-decl) lower-ctx
+	ensure the::lower-ctx.low-var-lookup, decl, of
+		get-var-inner decl
+-get-var-inner low-var(decl var-decl) lower-ctx
+	type = get-low-type decl.type, ()
+	the lower-expr-ctx =
+		cur-uri: decl.module-uri
+		type-scope: ()
+		specs-scope: ()
+		allocated-locals: decl.initializer.allocated-locals
+	decl, lower-expr type, decl.initializer.expr
+
+lower-fun-body low-fun-body(cf low-fun, expr expr-maybe-allocated-locals) lower-ctx
+	do unless is-array-op cf else low-fun-body-always-inline
+	params = match x = cf.source
+	as low-fun-source-regular
+		x.decl.params
+	as low-fun-source-test
+		()
+	as low-fun-source-wrap-main
+		throw unreachable
+	the lower-expr-ctx = cf, expr.allocated-locals
+	type = cf.return-type
+	for param, low-param in zip params, cf.params[0 .. params.size] # Ignore context params
+		begin-param-destructure param, low-param
+	res mut = lower-expr type, expr.expr
+	for param, low-param in zip params, cf.params[0 .. params.size]
+		res := end-param-destructure type, param.range.to-uri-and-range, param, low-param, res
+	res
+
+-lower-bogus low-expr(type low-type, range uri-and-range) lower-ctx
+	gen-bogus type, range
+
+-with-temp-if-necessary low-expr(range uri-and-range, value low-expr, f low-expr mut(get-temp low-expr))
+	if get = value.kind.local-get-low-expr and !is-mutable get.local
+		f[value]
+	else
+		temp low-local = member, value.type
+		res = f[gen-local-get range, temp]
+		gen-let res.type, range, temp, value, res
+
+-lower-call low-expr
+	type low-type
+	range uri-and-range
+	a call-expr
+do lower-and-expr-ctx
+	do if low-called = get-low-fun-from-called a.called else
+		lower-bogus type, range
+	if is-array-op low-called
+		input-arg, lambda-arg = only2! a.args
+		input = lower-expr low-called.params[0].type, input-arg
+		in-element-type = if is-range input.type then range-element-type input.type else array-element-type input.type
+		out-element-type = if is-void type then type else array-element-type type
+		empty-out-array constant-array? = unless is-void type
+			constant-array! get-constant-array all-constants, type, ()
+		match lambda-arg
+		as lambda-expr
+			forbid lambda-arg.mut-type-for-explicit-shared # This won't happen because 'for-loop' takes a 'mut' lambda
+			rg uri-and-range = cur-uri, lambda-arg.range
+			body = lower-with-destructure out-element-type, rg, lambda-arg.param, of
+				lower-expr out-element-type, lambda-arg.body
+			type, range, array-op-low-expr input, body.local, empty-out-array, body.expr
+		else
+			lambda-type = low-called.params[1].type
+			lambda = lower-expr lambda-type, lambda-arg
+			with-temp-if-necessary range, lambda, of get-lambda
+				in-element low-local = member, in-element-type # TODO: use a new kind, not 'member' ----------------------------
+				body = builtin-low-expr builtin-fun-call-lambda, (out-element-type, in-element-type),
+					- get-lambda
+					- gen-local-get range, in-element
+				type, range,
+					array-op-low-expr input, in-element, empty-out-array, (out-element-type, range, body)
+	else
+		args low-expr[] =
+			# Since 'list-new' is allowed to implement the 'new' spec, we need to support those here
+			-- if a.args.size == 0 and is-list-new low-called
+				array-type = low-called.params.only!.type
+				empty-array = get-constant-array all-constants, array-type, ()
+				- array-type, range, empty-array
+			else
+				for i in 0 .. a.args.size
+					lower-expr low-called.params[i].type, a.args[i]
+			-- context-args range, a.called, low-called
+		if is-not low-called and constant = args.only!.kind.constant
+			low-called.return-type, range, (!constant.as-bool).to
+		else
+			# We need to widen again even though it was done already in 'lower-expr',
+			# because we may be calling a spec-impl that has a narrower type than the spec.
+			# (The call expr's type can't reflect this and uses the spec's declared type.)
+			low-called.return-type, range, if builtin_ = low-called.body.low-fun-body-builtin
+				builtin-low-expr builtin_.kind, builtin_.type-args, args
+			elif e = low-called.body.low-expr and constant = e.kind.constant
+				constant
+			else
+				call-low-expr low-called, args
+
+-is-list-new bool(a low-fun)
+	a.name == "list-new" and a.params.size == 1 and is-array a.params.only!.type
+
+-lower-call-named-new low-expr
+	type low-type
+	range uri-and-range
+	a call-named-new-expr
+do lower-and-expr-ctx
+	do if low-called = get-low-fun-from-called a.called else lower-bogus type, range
+	p0 = low-called.params[0]
+	p1 = low-called.params[1]
+	symbol-array-type = p0.type
+	arg-array-type = p1.type
+	symbols constant[] = map a.names, it.constant-symbol
+	symbol-array low-expr = symbol-array-type, range, get-constant-array all-constants, symbol-array-type, symbols
+	arg-type = get-low-type-for a.args[0]
+	args low-expr[] = for arg in a.args
+		lower-expr arg-type, arg
+	symbols.size is args.size
+	args-array low-expr = arg-array-type, range, args.create-array-low-expr
+	low-called.return-type, range,
+		call-low-expr low-called,
+			- symbol-array
+			- args-array
+			-- context-args range, a.called, low-called
+
+-context-args low-expr[]
+	range uri-and-range
+	called called
+	low-called low-fun
+do lower-and-expr-ctx
+	for p in last-n low-called.params, called.count-contexts
+		get-the p.type, range
+
+-count-contexts nat(a called)
+	if a.fun-inst
+		a.decl.contexts.size
+
+-is-not bool(a low-fun) # RM ------------------------------------------------------------------------------------------------------
+	a.body.low-fun-body-builtin.?kind.?builtin-unary == not
+
+-is-array-op bool(a low-fun)
+	# TODO: make sure this is the one in collection.crow and all the spec impls are as expected ------------------------
+	do if a.name == "for-loop"
+	do if is-void a.return-type or is-array-or-mut-array a.return-type
+	do if a.params.size == 2
+	input = a.params[0]
+	do if is-range input.type or is-array-or-mut-array input.type
+	do if as-lambda-type a.params[1].type
+	true
+
+-is-range bool(a low-type)
+	do if inst = a.source.low-type-source-inst
+	decl = inst.decl
+	# TODO: base this on more than just the name ... uri too? -------------------------------------------------------------------
+	decl.name == "range"
+
+-lower-call-option low-expr(type low-type, range uri-and-range, a call-option-expr) lower-and-expr-ctx
+	# `a ?foo` ==> `if x = a then a foo else ()`
+	# But `a foo` may already be an option and might not need to be wrapped
+	do if called = get-low-fun-from-called a.called else lower-bogus type, range
+	local low-local = destruct::low-generated-local-kind, called.params[0].type
+	option = lower-expr a.first-arg
+	call = gen-call range, called,
+		- gen-local-get range, local
+		-- for i, x in with-index a.rest-args
+			lower-expr called.params[i + 1].type, x
+		-- context-args range, a.called, called
+	wrapped = if call.type == type
+		call
+	else
+		gen-option type, range, call
+	assert wrapped.type == type
+	gen-if-option range, option, (local, wrapped), if is-void type
+		gen-void range
+	else
+		gen-empty-option type, range
+
+-lower-lambda low-expr(type low-type, range uri-and-range, e lambda-expr) lower-and-expr-ctx
+	return-type = get-low-type e.return-type
+	do unless is-bogus return-type else lower-bogus type, range
+	param-type = get-low-type e.param.type
+	body = lower-expr-with-destructure return-type, range, e.param, e.body
+	param = body.local else args::low-generated-local-kind, param-type
+	closure low-local[] = for x in e.closure
+		match x
+		as local
+			locals[x]!
+		as struct-inst
+			get-the-local get-low-type x
+	need-wrap = !is-js and e.kind == explicit-shared
+	lambda-type = if need-wrap
+		get-low-type e.mut-type-for-explicit-shared!
+	else
+		type
+	lambda low-expr = lambda-type, range, lambda-low-expr closure, param, body.expr
+	# TODO: given that 'shared' just converts a mut lambda to shared,
+	# it might make more sense to have it be a separate expression that wraps the lambda
+	if need-wrap
+		decl = program.common-funs.shared-of-mut-lambda
+		fun = get-low-fun decl, (return-type, param-type), ()
+		gen-call range, fun, (lambda,)
+	else
+		lambda
+
+-lower-let low-expr(type low-type, range uri-and-range, e let-expr) lower-and-expr-ctx
+	local-type = get-low-type e.destructure.type
+	value = lower-expr local-type, e.value
+	lower-with-destructure-and-let type, range, e.destructure, value, of
+		lower-expr-or-void type, range, e.then_
+
+-lower-list low-expr(type low-type, range uri-and-range, a list-expr) lower-and-expr-ctx
+	do if called = get-low-fun-from-called a.called else lower-bogus type, range
+	array-type = get-low-type a.array-type
+	called.return-type, range,
+		call-low-expr called,
+			- lower-list-inner array-type, range, a.parts
+
+-lower-list-inner low-expr
+	array-type low-type
+	range uri-and-range
+	parts list-expr-part[]
+do lower-and-expr-ctx
+	element = array-element-type array-type
+	arrays low-expr mut[] = ()
+	cur-list low-expr mut[] = ()
+	finish-list void mut() = of
+		arrays ~= array-type, range, cur-list.move-to.create-array-low-expr
+	for part in parts
+		match part
+		as expr
+			cur-list ~= lower-expr element, part
+		as list-expr-part-multi
+			finish-list[]
+			arrays ~= lower-expr array-type, part.arg
+	finish-list[]
+
+	finished-arrays low-expr[] = arrays.move-to
+	res mut = finished-arrays[0]
+	for x in finished-arrays[1 .. end]
+		res := gen-concat-array range, res, x
+	res
+
+-lower-expr-with-destructure low-local-and-expr
+	type low-type
+	range uri-and-range
+	destructure destructure
+	expr expr
+do lower-and-expr-ctx
+	lower-with-destructure type, range, destructure, of
+		lower-expr type, expr
+
+-lower-with-opt-local low-expr
+	type low-type
+	range uri-and-range
+	local local?
+	value expr
+	f low-expr mut(matched low-expr)
+do lower-and-expr-ctx
+	v = lower-expr value
+	if local
+		lower-with-destructure-and-let type, range, local, v, of
+			f[gen-local-get range, locals[local]!]
+	else
+		f[v]
+-lower-with-destructure-and-let low-expr
+	type low-type
+	range uri-and-range
+	destructure destructure
+	value low-expr
+	f low-expr mut()
+do lower-and-expr-ctx
+	use-root-local value,
+		lower-with-destructure type, range, destructure, f
+-use-root-local low-expr(value low-expr, then_ low-local-and-expr) lower-ctx
+	expr = then_.expr
+	if root = then_.local
+		gen-let expr.type, expr.range, root, value, expr
+	elif value.kind.constant
+		then_.expr
+	else
+		gen-drop-then expr.range, value, expr
+
+-lower-with-destructure low-local-and-expr
+	type low-type
+	range uri-and-range
+	destructure destructure
+	f low-expr mut()
+do lower-and-expr-ctx
+	begin-destructure destructure
+	res = f[]
+	end-destructure type, range, destructure, res
+
+-begin-destructure void(a destructure) lower-and-expr-ctx
+	match a
+	as destructure-ignore
+		()
+	as local
+		root-local low-local = a, get-low-type a.type
+		the::lower-expr-ctx.locals[a] := if reference-type = is-allocated a
+			a.low-local-source-reference, reference-type
+		else
+			root-local
+	as destructure-split
+		if is-valid-destructure a, common-types
+			for part in a.parts
+				begin-destructure part
+-begin-param-destructure void(a destructure, low-param low-local) lower-and-expr-ctx
+	match a
+	as destructure-ignore
+		()
+	as local
+		locals[a] := low-param
+	as destructure-split
+		begin-destructure a
+-end-destructure low-local-and-expr
+	type low-type
+	range uri-and-range
+	a destructure
+	expr low-expr
+do lower-and-expr-ctx
+	match a
+	as destructure-ignore
+		(), expr
+	as local
+		low-local = remove! locals, a
+		if is-allocated a
+			root-local low-local = a, get-low-type a.type
+			value = gen-reference-create low-local.type, range,
+				gen-local-get range, root-local
+			- root-local
+			- gen-let type, range, low-local, value, expr
+		else
+			low-local, expr
+	as destructure-split
+		if is-valid-destructure a, common-types
+			root-local low-local = destruct, get-low-type a.type
+			- root-local
+			- end-destructure-split type, range, expr, a, root-local
+		else
+			- ()
+			- lower-bogus type, range
+-end-param-destructure low-expr
+	type low-type
+	range uri-and-range
+	destructure destructure
+	root-local low-local
+	expr low-expr
+do lower-and-expr-ctx
+	match destructure
+	as destructure-ignore
+		expr
+	as local
+		forbid is-allocated destructure
+		expr
+	as destructure-split
+		end-destructure-split type, range, expr, destructure, root-local
+-end-destructure-split low-expr
+	type low-type
+	range uri-and-range
+	expr low-expr
+	x destructure-split
+	root-local low-local
+do lower-and-expr-ctx
+	# TODO: we should detect this earlier and make the entire expression fail
+	do if is-valid-destructure x, common-types else lower-bogus type, range
+	get-root-local = gen-local-get range, root-local
+	res mut = expr
+	for part-index, part in with-index x.parts
+		part-range = to-uri-and-range part.range
+		value-type = root-local.type.body.low-record!.fields[part-index].type
+		assert value-type == part.type.get-low-type
+		its-value = gen-record-field-get value-type, part-range, get-root-local, part-index
+		its-local-and-expr = end-destructure type, part-range, part, res
+		res := its-local-and-expr.expr
+		if l = its-local-and-expr.local
+			res := gen-let type, part-range, l, its-value, res
+	res
+
+-is-allocated low-type?(a local) lower-expr-ctx
+	the::lower-expr-ctx.allocated-locals[a]
+
+-lower-not low-expr(type low-type, range uri-and-range, a not-expr) lower-and-expr-ctx
+	assert is-bool type
+	# Optimize so '!!x' doesn't actually do two negations
+	model-arg expr, is-not-not bool = match x = a.arg
+	as not-expr
+		x.arg, true
+	else
+		x, false
+	arg = lower-expr model-arg
+	if is-option arg.type
+		expected-index nat = if is-not-not then 1 else 0
+		type, range, if c = arg.kind.constant
+			c.constant-union!.index == expected-index 'to
+		else
+			union-is-case-low-expr arg, expected-index
+	else
+		if c = arg.kind.constant
+			value = c.as-bool == is-not-not
+			gen-constant type, range, value.to
+		elif is-not-not
+			arg
+		else
+			gen-builtin type, range, not, (), (arg,)
+
+-lower-if low-expr(type low-type, range uri-and-range, a if-expr) lower-and-expr-ctx
+	true-branch low-expr mut() = of then lower-expr type, a.true-branch
+	false-branch low-expr mut() = of then lower-expr type, a.false-branch
+	lower-if type, a.model-type, range, a.condition, true-branch, false-branch
+
+-lower-if low-expr
+	type low-type
+	model-type type
+	range uri-and-range
+	condition expr
+	cb-true-branch low-expr mut()
+	cb-false-branch low-expr mut()
+do lower-and-expr-ctx
+	if is-option model-type condition
+		option = lower-expr condition
+		gen-if-option range, option, ((), cb-true-branch[]), cb-false-branch[]
+	elif unpack-option condition
+		option = lower-expr condition.option
+		true-branch = lower-with-destructure type, range, condition.destructure, cb-true-branch
+		false-branch = cb-false-branch[]
+		gen-if-option range, option, true-branch, false-branch
+	elif !condition-has-locals condition
+		cond = lower-expr bool-type, condition
+		if constant = cond.kind.constant
+			if as-bool constant then cb-true-branch[] else cb-false-branch[]
+		else
+			type, range, if-low-expr cond, cb-true-branch[], cb-false-branch[]
+	else
+		###
+		For a complex condition like:
+			if x = o1 and y = o2
+				true-branch
+			else
+				false-branch
+
+		It will compile to:
+			result t? = if x = o1
+				if y = o2
+					true-branch
+			result else false-branch
+
+		This strategy avoids repeating 'false-branch' twice.
+		The function lower-complex-condition just handles the true part of this.
+		###
+		option-type = get-low-type common-types.option[as-type-args model-type]
+		true-branch low-expr mut() = of
+			true_ = cb-true-branch[]
+			if throw-low-expr true_.kind
+				# Avoid wrapping a 'throw' expression in an option, since the JVM complains about unreachable code
+				option-type, range, true_.kind
+			else
+				gen-option option-type, range, true_
+		option-true-branch = lower-complex-condition option-type, range, condition, true-branch, of
+			gen-empty-option option-type, range
+		gen-option-else type, range, option-true-branch, cb-false-branch[]
+
+###
+WARN: This duplicates 'false-branch'.
+Compiles to code like:
+	if x = expr1
+		if y = expr2
+			true-branch
+		else
+			false-branch
+	else
+		false-branch
+###
+| WARN: This duplicates the false branch.
+-lower-complex-condition low-expr
+	result-type low-type
+	range uri-and-range
+	a expr
+	true-branch low-expr mut()
+	false-branch low-expr mut()
+do lower-and-expr-ctx
+	if a.logical-expr and a.kind == bool-and-bool
+		inner low-expr mut() = of
+			lower-complex-condition result-type, range, a.right, true-branch, false-branch
+		lower-complex-condition result-type, range, a.left, inner, false-branch
+	elif is-option model-type a
+		option = lower-expr a
+		gen-if-option range, option, ((), true-branch[]), false-branch[]
+	elif a.unpack-option
+		option = lower-expr a.option
+		true_ = lower-with-destructure result-type, range, a.destructure, true-branch
+		gen-if-option range, option, true_, false-branch[]
+	else
+		condition = lower-expr bool-type, a
+		gen-if range, condition, true-branch[], false-branch[]
+
+-gen-option-else low-expr(type low-type, range uri-and-range, option low-expr, else_ low-expr) lower-ctx
+	local low-local = member::low-generated-local-kind, option.type.unwrap-option-type!
+	get-local low-expr = may-widen-type type, gen-local-get range, local
+	gen-if-option range, option, (local, get-local), else_
+
+-gen-if-option low-expr
+	range uri-and-range
+	option low-expr
+	then_ low-local-and-expr
+	else_ low-expr
+do
+	type = else_.type
+	if x = then_.local
+		option-local low-local = member2::low-generated-local-kind, option.type
+		get-option-local low-expr = gen-local-get range, option-local
+		gen-let type, range, option-local, option,
+			cast-option = gen-union-assume-case x.type, range, get-option-local
+			cases low-expr[] =
+				- else_
+				- gen-let type, then_.expr.range, x, cast-option, then_.expr
+			type, range,
+				match-union-low-expr get-option-local, (0, 1), cases, ()
+	else
+		cases low-expr[] = else_, then_.expr
+		type, range,
+			match-union-low-expr option, (0, 1), cases, ()
+
+-lower-literal-string-like low-expr
+	type low-type
+	range uri-and-range
+	kind string-like-type
+	value string
+do lower-ctx
+	match kind
+	as char8-array
+		gen-char8-array range, value
+	as char32-array
+		gen-char32-array range, value
+	as java-String
+		type, range, value.constant-native-string
+	as js-any
+		type, range, value.constant-native-string
+	as string
+		gen-string-literal range, value
+	as symbol
+		type, range, constant-symbol value.to
+	as json
+		type, range, constant-json-string value
+
+-lower-local-get low-expr
+	type low-type
+	range uri-and-range
+	local local
+	type-refinements type-args
+do lower-and-expr-ctx
+	low-local = locals[local]!
+	do unless is-bogus low-local.type else lower-bogus type, range
+	res mut = gen-local-get range, low-local
+	if is-allocated local
+		res := gen-reference-read range, res
+	for t in type-refinements
+		res := gen-union-assume-case t.get-low-type, res.range, res
+	res
+
+-lower-local-set low-expr
+	range uri-and-range
+	local local
+	value expr
+do lower-and-expr-ctx
+	low-local = locals[local]!
+	value-type = if is-allocated local
+		get-referenced-type low-local.type
+	else
+		low-local.type
+	low-value = lower-expr value-type, value
+	if is-allocated local
+		gen-reference-write range, (gen-local-get range, low-local), low-value
+	else
+		gen-local-set range, low-local, low-value
+
+-lower-logical low-expr
+	outer-type low-type
+	type low-type
+	model-type type
+	range uri-and-range
+	a logical-expr
+do lower-and-expr-ctx
+	if a.kind == bool-and-bool
+		true-branch low-expr mut() = of then lower-expr-and-convert-option-to-bool a.right
+		lower-complex-condition type, range, a.left, true-branch, of then gen-false range
+	elif a.kind == bool-or-bool
+		left = lower-expr-and-convert-option-to-bool a.left
+		right = lower-expr-and-convert-option-to-bool a.right
+		gen-or range, left, right
+	else
+		left-type low-type = match a.kind
+		as bool-and-bool
+			throw unreachable
+		as bool-or-bool
+			throw unreachable
+		as option-else
+			if is-option model-type
+				type
+			else
+				get-low-type common-types.option[model-type.as-type-args]
+		as option-or
+			outer-type
+		left = lower-expr left-type, a.left
+		right = lower-expr type, a.right
+		match a.kind
+		as bool-and-bool
+			throw unreachable
+		as bool-or-bool
+			throw unreachable
+		as option-else
+			gen-option-else type, range, left, right
+		as option-or
+			temp low-local = member::low-generated-local-kind, type
+			get-temp = gen-local-get range, temp
+			gen-let type, range, temp, left,
+				gen-if-option range, get-temp, ((), get-temp), right
+
+-lower-loop-while-or-until low-expr
+	type low-type
+	range uri-and-range
+	expr loop-while-or-until-expr
+do lower-and-expr-ctx
+	assert is-void void-type # TODO: sanity check -------------------------------------------------------------------------------
+	void = gen-void range
+	if unpack = expr.condition.unpack-option
+		option = lower-expr unpack.option
+		if expr.is-until
+			after = if after = expr.after
+				lower-expr-with-destructure type, range, unpack.destructure, after
+			else
+				(), gen-void range
+			body = lower-expr void.type, expr.body
+			if root = after.local
+				###
+				until x = xs
+					body
+				after
+				==>
+				x = loop
+					if temp = xs
+						break temp
+					else
+						body
+						continue
+				after
+				###
+				temp low-local = root.source, root.type
+				break_ = gen-break range, gen-local-get range, temp
+				if_ = gen-if-option range, option, (temp, break_), gen-do-and-continue root.type, range, body
+				loop_ = gen-loop root.type, range, if_
+				gen-let type, range, root, loop_, after.expr
+			else
+				###
+				until _ = xs
+					body
+				after
+				=>
+				loop
+					if _ = xs
+						break
+					else
+						body
+						continue
+				after
+				###
+				if_ = gen-if-option range, option, ((), (gen-break range, void)), (gen-do-and-continue void.type, range, body)
+				loop_ = gen-loop void.type, range, if_
+				gen-seq range, loop_, after.expr
+		else
+			###
+			while x = xs
+				body
+			after
+			==>
+			loop
+				if x = xs
+					body
+					continue
+				else
+					break
+			after
+			###
+			body = lower-expr-with-destructure void.type, range, unpack.destructure, expr.body
+			if_ = gen-if-option range, option, (body.local, (gen-do-and-continue void.type, range, body.expr)), gen-break range, void
+			loop_ = gen-loop void.type, range, if_
+			gen-seq range, loop_, lower-expr-or-void type, range, expr.after
+	elif condition-has-locals expr.condition
+		if is-until expr
+			###
+			until x = xs and y = ys
+				body
+			after
+			==>
+			root = loop
+				# This variable will actually be inlined
+				# NOTE: all destructures from the original are flattened into 'both'
+				both (nat, nat)? = if x = xs
+					if y = ys
+						x, y
+					else
+						()
+				else
+					()
+				if b = both
+					break b
+				else
+					body
+					continue
+			x = root item0
+			y = root item1
+			after
+			###
+			cond = complex-condition-to-option expr.condition
+			locals = cond.locals
+			tuple-option = cond.tuple-option
+			both = cond.expr
+			tuple-type = tuple-option.unwrap-option-type!
+			loop_ =
+				body = lower-expr void.type, expr.body
+				body-and-continue = gen-do-and-continue tuple-type, range, body
+				b low-local = member, tuple-type
+				break-b = gen-break range, gen-local-get range, b
+				loop-body = gen-if-option range, both, (b, break-b), body-and-continue
+				gen-loop tuple-type, range, loop-body
+			root low-local = member2, tuple-type
+			get-root = gen-local-get range, root
+			after mut = if after = expr.after
+				lower-with-locals-from-condition cond, type, after
+			else
+				gen-void range
+			for index, local in with-index locals
+				get-it = if locals.size == 1
+					get-root
+				else
+					gen-record-field-get local.type, range, get-root, index
+				after := gen-let type, range, local, get-it, after
+			gen-let type, range, root, loop_, after
+		else
+			###
+			while x = xs and y = ys
+				body
+			after
+			==>
+			loop
+				if x = xs
+					if y = ys
+						body
+						continue
+					else
+						break
+				else
+					break
+			after
+			###
+			true-branch low-expr mut() = of
+				body = lower-expr void.type, expr.body
+				gen-do-and-continue void.type, range, body
+			loop-body = lower-complex-condition void.type, range, expr.condition, true-branch, of
+				gen-break range, void
+			loop_ = gen-loop void.type, range, loop-body
+			gen-seq range, loop_, lower-expr-or-void type, range, expr.after
+	else
+		###
+		while cond
+			body
+		after
+		==>
+		loop
+			if cond
+				body
+				continue
+			else
+				break
+		after
+		###
+		condition = lower-expr-and-convert-option-to-bool expr.condition
+		body = lower-expr void.type, expr.body
+		do-and-continue = gen-do-and-continue void.type, range, body
+		break_ = gen-break range, void
+		if_ = if expr.is-until
+			gen-if range, condition, break_, do-and-continue
+		else
+			gen-if range, condition, do-and-continue, break_
+		loop_ = gen-loop void.type, range, if_
+		gen-seq range, loop_, lower-expr-or-void type, range, expr.after
+
+-complex-condition-option-result record
+	model-locals local[]
+	locals low-local[]
+	tuple-option low-type
+	expr low-expr
+-complex-condition-to-option complex-condition-option-result(a expr) lower-and-expr-ctx
+	range = to-uri-and-range a.range
+	model-locals local[] = for* x in condition-knowledge a, true
+		from-option x.local
+	low-tuple-option low-type = if model-locals.size == 1
+		get-low-type common-types.option[as-type-args model-locals[0].type]
+	else
+		tuple struct-inst = tuple! common-types, make-type-args model-locals, it.type
+		get-low-type common-types.option[tuple]
+	low-tuple-type = unwrap-option-type! low-tuple-option
+	local-types low-type[] = if model-locals.size == 0
+		()
+	elif model-locals.size == 1
+		low-tuple-type,
+	else
+		low-tuple-type.source.low-type-source-inst!.type-args
+	local-types.size is model-locals.size
+	low-locals mut low-local[] = ()
+	true-branch low-expr mut() = of
+		low-locals := for local in model-locals then locals[local]!
+		exprs low-expr[] = for type, local in zip local-types, model-locals
+			lower-local-get type, range, local, ()
+		tuple-expr low-expr = if model-locals.size == 0
+			gen-void range
+		elif model-locals.size == 1
+			only! exprs
+		else
+			gen-create-record low-tuple-type, range, exprs
+		gen-option low-tuple-option, range, tuple-expr
+	expr = lower-complex-condition low-tuple-option, range, a, true-branch, of
+		gen-empty-option low-tuple-option, range
+	model-locals: model-locals
+	locals: low-locals
+	tuple-option: low-tuple-option
+	expr: expr
+-lower-with-locals-from-condition low-expr
+	cond complex-condition-option-result
+	type low-type
+	expr expr
+do lower-and-expr-ctx
+	for model-local, low-local in zip cond.model-locals, cond.locals
+		locals[model-local] := low-local
+	finally
+		for model-local in cond.model-locals
+			_ = remove! locals, model-local
+	lower-expr type, expr
+
+-lower-match-enum low-expr(type low-type, range uri-and-range, a match-enum-expr) lower-and-expr-ctx
+	do unless is-empty a.cases else lower-bogus type, range
+	lower-with-opt-local type, range, a.matched-local, a.matched, of matched
+		values-unsorted nat[] = map a.cases, it.member.value
+		cases-unsorted low-expr[] = for value in values-unsorted
+			case_ = find! a.cases, it.member.value == value
+			lower-expr type, case_.then_
+		else_ low-expr? = if x = a.else_
+			lower-expr type, x
+		values, cases = sort-by-first values-unsorted, cases-unsorted
+		gen-match-enum-or-integral type, range, matched, values.to, cases, else_
+
+-lower-match-integral low-expr
+	type low-type
+	range uri-and-range
+	a match-scalar-expr
+do lower-and-expr-ctx
+	lower-with-opt-local type, range, a.matched-local, a.matched, of matched
+		values-unsorted scalar-value[] = map a.cases, it.value
+		# TODO: If matched is a constant, just compile the relevant case
+		cases-unsorted low-expr[] = for value in values-unsorted
+			case_ = find! a.cases, it.value == value
+			lower-expr type, case_.then_
+		else_ = lower-expr type, a.else_
+		values, cases = sort-by-first values-unsorted, cases-unsorted
+		gen-match-enum-or-integral type, range, matched, values.to, cases, else_
+
+-lower-match-string-like low-expr
+	type low-type
+	range uri-and-range
+	a match-string-like-expr
+do lower-and-expr-ctx
+	do if equals = get-low-fun-from-called a.equals else
+		lower-bogus type, range
+	lower-with-opt-local type, range, a.matched-local, a.matched, of matched
+		cases low-match-string-like-case[] = for case_ in a.cases
+			value = lower-literal-string-like matched.type, range, a.string-type, case_.value
+			value, lower-expr type, case_.then_
+		else_ = lower-expr type, a.else_
+		type, range, match-string-like-low-expr matched, equals, cases, else_
+
+-lower-match-sum-type low-expr
+	type low-type
+	range uri-and-range
+	a match-sum-type-expr
+do lower-and-expr-ctx
+	lower-with-opt-local type, range, a.matched-local, a.matched, of matched
+		else_ low-expr? = if x = a.else_
+			lower-expr type, x
+		if is-empty a.cases
+			else_ else lower-bogus type, range
+		else
+			case-indices nat[] = for x in a.cases
+				member-index-for-match-sum-type-case matched.type, x.case-type
+			cases low-expr[] = for case_ in a.cases
+				lower-expr type, case_.then_
+			sorted-indices, sorted-cases = sort-by-first case-indices, cases
+			type, range, match-union-low-expr matched, sorted-indices.to, sorted-cases, else_
+
+-lower-catches (nat[], low-local-and-expr[], low-local-and-expr?)
+	type low-type
+	range uri-and-range
+	catches catch_[]
+do lower-and-expr-ctx
+	variant-type = exception-type
+	typed-catches catch_ array-view, catch-else catch_? = if catches[end - 1].caught-type == common-types.exception
+		catches[0 .. end - 1], catches[end - 1]
+	else
+		catches.to, ()
+	case-indices nat[] = for x in typed-catches
+		member-index-for-match-sum-type-case variant-type, x.caught-type
+	cases low-local-and-expr[] = for catch_ in typed-catches
+		lower-expr-with-destructure type, range, catch_.destructure.to, catch_.then_
+	sorted-indices, sorted-catches = sort-by-first case-indices, cases
+	sorted-indices, sorted-catches, if catch-else
+		lower-expr-with-destructure type, range, catch-else.destructure.to, catch-else.then_
+
+-lower-catch (nat, low-local-and-expr)
+	type low-type
+	range uri-and-range
+	catch_ catch_
+do lower-and-expr-ctx
+	- member-index-for-match-sum-type-case exception-type, catch_.caught-type
+	- lower-expr-with-destructure type, range, catch_.destructure.to, catch_.then_
+
+-member-index-for-match-sum-type-case nat(variant-type low-type, type struct-inst) lower-and-expr-ctx
+	sum-type-case-index variant-type, get-low-type type
+
+-lower-force low-expr
+	type low-type
+	range uri-and-range
+	a force-expr
+do lower-and-expr-ctx
+	arg = lower-expr a.arg
+	gen-option-else type, range, arg,
+		gen-throw type, range,
+			gen-error range,
+				"Option was empty: '{show-ctx.file-content-getters[arg.range].to::string}'"
+
+-lower-assert-or-forbid low-expr
+	type low-type
+	range uri-and-range
+	a assert-or-forbid-expr
+do lower-and-expr-ctx
+	throw_ low-expr mut() = of
+		gen-throw type, range, if x = a.thrown
+			lower-expr exception-type, x
+		else
+			gen-error range,
+				default-assert-or-forbid-message cur-uri, a, available-types, show-ctx.file-content-getters
+	after low-expr mut() = of
+		lower-expr-or-void range, a.after
+	true-branch low-expr mut(), false-branch low-expr mut() =
+		if a.is-forbid then throw_, after else after, throw_
+	lower-if type, a.model-type, range, a.condition, true-branch, false-branch
+
+-lower-expr low-expr(a expr) lower-and-expr-ctx
+	lower-expr a.low-type, a
+
+-lower-expr-or-void low-expr(type low-type, range uri-and-range, a expr?) lower-and-expr-ctx
+	if a
+		lower-expr type, a
+	else
+		gen-void range
+-lower-expr-or-void low-expr(range uri-and-range, a expr?) lower-and-expr-ctx
+	if a
+		lower-expr a
+	else
+		gen-void range
+
+lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
+	model-type = model-type a
+	type = get-low-type model-type
+	range = to-uri-and-range a.range
+	do unless is-bogus type else lower-bogus type, range
+	res = match a
+	as assert-or-forbid-expr
+		lower-assert-or-forbid type, range, a
+	as bogus-call-expr
+		lower-bogus type, range
+	as bogus-expr
+		lower-bogus type, range
+	as bogus-wrong-type-expr
+		lower-bogus type, range
+	as call-expr
+		lower-call type, range, a
+	as call-named-new-expr
+		lower-call-named-new type, range, a
+	as call-option-expr
+		lower-call-option type, range, a
+	as finally-expr
+		lower-finally type, range, a
+	as force-expr
+		lower-force type, range, a
+	as if-expr
+		lower-if type, range, a
+	as not-expr
+		lower-not type, range, a
+	as lambda-expr
+		lower-lambda type, range, a
+	as let-expr
+		# Use 'outer-type' instead of 'type' here to make the conversion be in the 'then' expression instead of wrapping the whole 'let'.
+		# This leads to simpler generated code.
+		lower-let outer-type, range, a
+	as let-the-expr
+		the-type = get-low-type a.the-type
+		value = lower-expr the-type, a.value
+		local = low-local the_::low-generated-local-kind, the-type
+		the::lower-expr-ctx.contexts ~:= local
+		gen-let type, range, local, value, lower-expr-or-void type, range, a.then_
+	as list-expr
+		lower-list type, range, a
+	as literal-scalar-expr
+		if a.type == json
+			type, range, constant-json-number a.value.to
+		else
+			gen-constant type, range, a.value
+	as literal-string-like-expr
+		lower-literal-string-like type, range, a.string-type, a.value
+	as local-get-expr
+		lower-local-get type, range, a.local, ()
+	as local-get-and-refine-expr
+		lower-local-get type, range, a.local, a.type-refinements
+	as local-set-expr
+		lower-local-set range, a.local, a.value
+	as logical-expr
+		lower-logical outer-type, type, model-type, range, a
+	as loop-expr
+		gen-loop type, range, lower-expr type, a.body
+	as loop-break-expr
+		gen-break range, lower-expr type, a.value
+	as loop-continue-expr
+		gen-continue type, range
+	as loop-while-or-until-expr
+		lower-loop-while-or-until type, range, a
+	as match-enum-expr
+		lower-match-enum type, range, a
+	as match-scalar-expr
+		lower-match-integral type, range, a
+	as match-string-like-expr
+		lower-match-string-like type, range, a
+	as match-sum-type-expr
+		lower-match-sum-type type, range, a
+	as seq-expr
+		first = lower-expr void-type, a.first
+		# See comment on 'as let-expr' for why we use 'outer-type' instead of 'type'
+		then_ = lower-expr outer-type, a.then_
+		if first.kind.constant
+			then_
+		else
+			outer-type, range, seq-low-expr first.as-seq ~~ then_.as-seq
+	as the-expr
+		get-the type, range
+	as throw-expr
+		thrown = lower-expr exception-type, a.thrown
+		type, range, thrown.throw-low-expr
+	as trusted-expr
+		lower-expr type, a.inner
+	as try-expr
+		lower-try type, range, a
+	as try-let-expr
+		lower-try-let type, range, a
+	as typed-expr
+		lower-expr type, a.inner
+	as unpack-option
+		gen-option-to-bool lower-expr a.option
+	may-widen-type outer-type, res
+
+-~[t] t array-view(a t array-view, x t)
+	a.to::t[] ~ x 'to
+
+-get-the low-expr(type low-type, range uri-and-range) lower-expr-ctx
+	gen-local-get range, get-the-local type
+-get-the-local low-local(type low-type) lower-expr-ctx
+	find! the::lower-expr-ctx.contexts, it.type == type
+
+-lower-expr-and-convert-option-to-bool low-expr(expr expr) lower-and-expr-ctx
+	inner = lower-expr expr
+	if is-bool inner.type
+		inner
+	else
+		gen-option-to-bool inner
+
+-gen-option-to-bool low-expr(arg low-expr) lower-ctx
+	range = arg.range
+	gen-if-option range, arg, ((), range.gen-true), range.gen-false
+
+-as-seq low-expr[](a low-expr)
+	match x = a.kind
+	as seq-low-expr
+		x.parts
+	else
+		- a
+
+-may-widen-type low-expr(expected-type low-type, actual low-expr) lower-ctx
+	try-widen expected-type, actual else
+		the show-ctx = show-ctx
+		where = line-and-column-getters[actual.range]
+		log error, "At: {where}, expected type: {show-low-type expected-type}, actual: {show-low-type actual.type}"
+		throw unreachable
+
+# This goes in reverse, from 'to' to 'from'. So must reverse the path at the end.
+-try-widen low-expr?(expected low-type, actual low-expr) lower-ctx
+	if actual.type == expected
+		actual
+	elif expected-unwrapped = unwrap-option-type expected
+		if res = try-widen expected-unwrapped, actual
+			gen-option expected, actual.range, res
+		elif actual-unwrapped = unwrap-option-type actual.type
+			# 'actual' generates an option.
+			temp low-local = member::low-generated-local-kind, actual-unwrapped
+			range = actual.range
+			if widen-temp = try-widen expected-unwrapped, gen-local-get range, temp
+				some = gen-option expected, range, widen-temp
+				gen-if-option range, actual, (temp, some), gen-empty-option expected, range
+	elif u = low-union expected.body
+		if u.has-members
+			first u.members.with-index, of member-index, member
+				if res = try-widen member, actual
+					gen-create-union expected, actual.range, member-index, res
+		else
+			first the::lower-ctx.sum-types[expected]!.with-index, of member-index, x
+				if res = try-widen x.member-type, actual
+					gen-create-union expected, actual.range, member-index, res
+
+-lower-finally low-expr
+	type low-type
+	range uri-and-range
+	a finally-expr
+do lower-and-expr-ctx
+	right = lower-expr void-type, a.right
+	below = lower-expr type, a.below
+	type, range, finally-low-expr right, below
+
+-lower-try low-expr
+	type low-type
+	range uri-and-range
+	a try-expr
+do lower-and-expr-ctx
+	tried = lower-expr type, a.tried
+	member-indices, cases, else_ = lower-catches type, range, a.catches
+	type, range, try-low-expr tried, member-indices.to, cases, else_
+
+-lower-try-let low-expr
+	type low-type
+	range uri-and-range
+	a try-let-expr
+do lower-and-expr-ctx
+	local-type = get-low-type a.destructure.type
+	value = lower-expr local-type, a.value
+	catch-member-index, catch-expr = lower-catch type, range, a.catch_
+	then_ = if then_ = a.then_
+		lower-expr-with-destructure type, range, a.destructure, then_
+	else
+		(), gen-void range
+	type, range,
+		try-let-low-expr then_.local, value, catch-member-index, catch-expr, then_.expr

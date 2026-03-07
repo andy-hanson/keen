@@ -1,69 +1,69 @@
 import
 	../frontend/show-model
-	../model/concrete-model
+	../model/low-model
 	../model/model
 	../model/source-range
 	../util/by-name
 	../util/perf
 	./all-constants-builder
-	./check-concrete-model
-	./concretize-ctx
-	./concretize-expr
-	./concretize-fun-body
+	./check-low-model
+	./lower-ctx
+	./lower-expr
+	./lower-fun-body
 	./gather-info
 	./generate
 	./replace-constants
 
-concretize concrete-program(target build-target, program program-with-main) show-ctx
+lower low-program(target build-target, program program-with-main) show-ctx
 	start = perf-now
-	res = concretize-inner target, program
-	end-concretize start
+	res = lower-inner target, program
+	end-lower start
 	res
 
--concretize-inner concrete-program(target build-target, program program-with-main) show-ctx
-	ctx concretize-ctx =
+-lower-inner low-program(target build-target, program program-with-main) show-ctx
+	ctx lower-ctx =
 		show-ctx: the::show-ctx
 		program: program
 		target: target
-	the concretize-ctx = ctx
+	the lower-ctx = ctx
 	common-funs = common-funs program.program
-	ctx.late-equal-symbol-function := get-non-template-concrete-fun common-funs.equal-symbol
-	ctx.late-json-named-new-function := get-non-template-concrete-fun common-funs.json-named-new
-	show-exception = get-non-template-concrete-fun common-funs.show-exception
-	to-symbol-from-string = get-non-template-concrete-fun common-funs.to-symbol-from-string
-	to-string-from-js-any = get-non-template-concrete-fun common-funs.to-string-from-js-any
-	concrete-common-funs concrete-common-funs = match target
+	ctx.late-equal-symbol-function := get-non-template-low-fun common-funs.equal-symbol
+	ctx.late-json-named-new-function := get-non-template-low-fun common-funs.json-named-new
+	show-exception = get-non-template-low-fun common-funs.show-exception
+	to-symbol-from-string = get-non-template-low-fun common-funs.to-symbol-from-string
+	to-string-from-js-any = get-non-template-low-fun common-funs.to-string-from-js-any
+	low-common-funs low-common-funs = match target
 	as js
-		:: concrete-common-funs-js
+		:: low-common-funs-js
 		exception: exception-type
-		js-any: get-concrete-type-for-struct-inst common-types.js-any, ()
-		main: concretize-main-fun program.main-fun
+		js-any: get-low-type-for-struct-inst common-types.js-any, ()
+		main: lower-main-fun program.main-fun
 		show-exception: show-exception
 		to-symbol-from-string: to-symbol-from-string
 		to-string-from-js-any: to-string-from-js-any
 	as java
-		:: concrete-common-funs-java
+		:: low-common-funs-java
 		exception: exception-type
 		bool: bool-type
 		nat32: integral-type nat32
 		show-exception: show-exception
-		start-runtime: get-non-template-concrete-fun common-funs.start-runtime
-		stop-runtime: get-non-template-concrete-fun common-funs.stop-runtime
+		start-runtime: get-non-template-low-fun common-funs.start-runtime
+		stop-runtime: get-non-template-low-fun common-funs.stop-runtime
 		to-symbol-from-string: to-symbol-from-string
-		main: concretize-main-fun program.main-fun
+		main: lower-main-fun program.main-fun
 
 	loop
 		any mut bool = false
-		while fun = pop ctx.all-unprocessed-concrete-funs
+		while fun = pop ctx.all-unprocessed-low-funs
 			any := true
-			ctx.all-processed-concrete-funs ~= fun
-			do if fun.body.concrete-fun-body-deferred
+			ctx.all-processed-low-funs ~= fun
+			do if fun.body.low-fun-body-deferred
 			match body = fun-body-decl fun
 			as expr
-				fun.body := concretize-fun-body fun, body
+				fun.body := lower-fun-body fun, body
 				any := true
 			as expr-with-allocated-locals
-				fun.body := concretize-fun-body fun, body
+				fun.body := lower-fun-body fun, body
 				any := true
 			as fun-body-method
 				()
@@ -76,19 +76,19 @@ concretize concrete-program(target build-target, program program-with-main) show
 		else
 			break
 
-	assert is-empty ctx.all-unprocessed-concrete-funs
+	assert is-empty ctx.all-unprocessed-low-funs
 
 	replace-constants
 
 	method-impls = finish-variants
 
-	all-funs concrete-fun[] = ctx.all-processed-concrete-funs.move-to
-	all-vars = finish-concrete-vars
+	all-funs low-fun[] = ctx.all-processed-low-funs.move-to
+	all-vars = finish-low-vars
 	all-constants = finish-all-constants all-constants
-	fun-info = gather-info concrete-common-funs, all-funs, all-vars, method-impls
-	all-structs concrete-type[] = ctx.all-concrete-types.move-to
-	res concrete-program =
-		all-funs-including-extern concrete-fun[] = sort fun-info.all-used-funs.to, it.range
+	fun-info = gather-info low-common-funs, all-funs, all-vars, method-impls
+	all-structs low-type[] = ctx.all-low-types.move-to
+	res low-program =
+		all-funs-including-extern low-fun[] = sort fun-info.all-used-funs.to, it.range
 		model-program: program program
 		target: target
 		all-constants: all-constants
@@ -99,8 +99,8 @@ concretize concrete-program(target build-target, program program-with-main) show
 		all-funs-including-extern: all-funs-including-extern
 		method-impls: method-impls
 		async: fun-info.async
-		common-funs: concrete-common-funs
-	check-concrete-program res,
+		common-funs: low-common-funs
+	check-low-program res,
 		bool: bool-type
 		char-types: char-types
 		exception: exception-type
@@ -110,17 +110,17 @@ concretize concrete-program(target build-target, program program-with-main) show
 		void: void-type
 	res
 
--concretize-main-fun concrete-fun(main main-fun) concretize-ctx
+-lower-main-fun low-fun(main main-fun) lower-ctx
 	match main
 	as main-fun-nat64-of-args
-		get-non-template-concrete-fun main.fun
+		get-non-template-low-fun main.fun
 	as main-fun-void
-		concrete-fun-for-wrap-main main.fun
+		low-fun-for-wrap-main main.fun
 	as test-selector
-		concrete-fun-for-all-tests main
+		low-fun-for-all-tests main
 
--fill-sum-type-method-impls bool() concretize-ctx
-	ctx = the::concretize-ctx
+-fill-sum-type-method-impls bool() lower-ctx
+	ctx = the::lower-ctx
 	res = !is-empty ctx.deferred-sum-type-method-impls
 	while sum-type, index, kind = pop ctx.deferred-sum-type-method-impls
 		body = sum-type-body-from-type sum-type
@@ -129,15 +129,15 @@ concretize concrete-program(target build-target, program program-with-main) show
 		case_.method-impls := match kind
 		as declared-on-sum-type
 			i = body.listed-members[index]
-			type-args = sum-type.source.concrete-type-source-inst!.type-args
+			type-args = sum-type.source.low-type-source-inst!.type-args
 			sum-type-method-impls-common i.method-impls, type-args
 		as declared-on-case-type
 			sum-type-membership-method-impls sum-type, case_.member-type
 		case_.method-impls!.size is body.methods.size
 	res
 
--make-callers-for-java-interfaces bool() concretize-ctx
-	interfaces = the::concretize-ctx.deferred-java-interfaces
+-make-callers-for-java-interfaces bool() lower-ctx
+	interfaces = the::lower-ctx.deferred-java-interfaces
 	res = !is-empty interfaces
 	while decl = pop interfaces
 		# For a Crow interface, we know all calls to its methods and so can omit unused methods.
@@ -147,13 +147,13 @@ concretize concrete-program(target build-target, program program-with-main) show
 			do if fun.body.fun-body-method
 			target = fun.params[0].type.struct-inst!.decl # TODO: there is other code like this somewhere ....................
 			do if target == decl
-			_ = get-concrete-fun fun, (), ()
+			_ = get-low-fun fun, (), ()
 	res
 
--finish-variants concrete-method-info[concrete-type]() concretize-ctx
-	ctx = the::concretize-ctx
+-finish-variants low-method-info[low-type]() lower-ctx
+	ctx = the::lower-ctx
 	for sum-type, cases in ctx.sum-types
-		unless has-members sum-type.body.concrete-union! # It will already be set for a 'union' (not interface or variant)
+		unless has-members sum-type.body.low-union! # It will already be set for a 'union' (not interface or variant)
 			finish-sum-type-cases sum-type, cases
 
 	if preserve-methods
@@ -161,7 +161,7 @@ concretize concrete-program(target build-target, program program-with-main) show
 		for sum-type, cases in ctx.sum-types
 			sum-type, if methods-unsorted = ctx.sum-type-to-methods[sum-type]
 				# TODO: below could use move-to? --------------------------------------------------------------------------------
-				methods concrete-fun[] = sort methods-unsorted.to, it.method-index
+				methods low-fun[] = sort methods-unsorted.to, it.method-index
 				method-indices nat[] = map methods, it.method-index
 				methods: methods
 				cases: for case_ in cases
@@ -169,12 +169,12 @@ concretize concrete-program(target build-target, program program-with-main) show
 	else
 		for fun in ctx.deferred-methods
 			sum-type = fun.params[0].type
-			method-index = fun.source.concrete-fun-source-regular!.decl.body.fun-body-method!.method-index
+			method-index = fun.source.low-fun-source-regular!.decl.body.fun-body-method!.method-index
 			fun.body := generate-call-method fun, sum-type, ctx.sum-types[sum-type]!, method-index
 		()
 
--method-index nat(a concrete-fun)
-	a.body.concrete-fun-body-method!.method-index
+-method-index nat(a low-fun)
+	a.body.low-fun-body-method!.method-index
 
 -select-indices[t] t[](a t[], indices nat[])
 	map indices, a[it]
