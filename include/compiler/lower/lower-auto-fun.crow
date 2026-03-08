@@ -42,6 +42,16 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 			lower-equal-record range, params.only2!, x.fields, a.members
 		as low-union
 			lower-equal-union range, return-type, params.only2!, x.members, a.members
+	as hash
+		match x = enum-flags-record-or-union params[0].type
+		as enum_
+			lower-hash-enum-or-flags range, params.only2!, x.storage
+		as flags_
+			lower-hash-enum-or-flags range, params.only2!, x.storage
+		as low-record
+			lower-hash-record range, params.only2!, x.fields, a.members
+		as low-union
+			lower-hash-union range, params.only2!, x.members, a.members
 	as members-of-enum-or-flags
 		gen-constant-array all-constants, return-type, range,
 			map return-type.array-element-type.enum-or-flags-members, it.value.to
@@ -496,3 +506,44 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 			b
 		else
 			gen-constant a.type, range, x.value.to
+
+-lower-hash-enum-or-flags low-expr
+	range uri-and-range
+	(value low-local, hash-state low-local)
+	storage nat-type
+do lower-and-expr-ctx
+	gen-call range, storage.hash-nat-function,
+		- gen-cast-nat range, storage, gen-local-get range, value
+		- gen-local-get range, hash-state
+
+-lower-hash-record low-expr
+	range uri-and-range
+	(value low-local, hash-state low-local)
+	fields low-field[]
+	field-hash called[]
+do lower-and-expr-ctx, quick-fill-in-low-fun-body
+	fields.size is field-hash.size
+	do unless is-empty fields else gen-void range
+	get-value = gen-local-get range, value
+	get-hash-state = gen-local-get range, hash-state
+	void-type, range, seq-low-expr for i in 0 .. fields.size
+		get-field = gen-record-field-get fields[i].type, range, get-value, i
+		lower-and-call field-hash[i], range, (get-field, get-hash-state)
+
+-lower-hash-union low-expr
+	range uri-and-range
+	(value low-local, hash-state low-local)
+	members low-type[]
+	member-hash called[]
+do lower-and-expr-ctx, quick-fill-in-low-fun-body
+	members.size is member-hash.size
+	do unless is-empty members else gen-void range
+	get-value = gen-local-get range, value
+	get-hash-state = gen-local-get range, hash-state
+	gen-match-union void-type, range, members, get-value, of member-index, get-member
+		void-type, range, seq-low-expr
+			-
+				assert members.size <= nat8.max-value else todo
+				index-expr = gen-constant-nat nat8.nat-type, range, member-index
+				gen-call range, nat8.hash-nat-function, (index-expr, get-hash-state)
+			- lower-and-call member-hash[member-index], range, (get-member, get-hash-state)
