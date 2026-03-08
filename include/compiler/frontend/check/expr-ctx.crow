@@ -8,7 +8,7 @@ import
 	./type-from-ast
 
 lambda-info record mut
-	kind lambda-kind
+	allowed-purity purity
 	# Index into locals on expr-ctx. This is the first local inside the lambda (or an inner lambda).
 	first-local-index nat
 	closure-locals local mut[]
@@ -111,7 +111,7 @@ check-trusted bool(ctx expr-ctx)
 	res
 
 context-forbids-global bool(a expr-ctx)
-	exists a.lambdas, it.kind == data_
+	exists a.lambdas, it.allowed-purity == data_
 
 type-from-destructure type?(ast destructure-ast) check-expr-ctx
 	the types-get = types
@@ -130,28 +130,23 @@ ensure-context-in-closure void(diag-range source-range, context-type struct-inst
 	i mut = lambdas.size
 	until i == 0 or contains lambdas[i - 1].closure-contexts, context-type
 		lambdas[i - 1].closure-contexts ~= context-type
-		check-lambda-can-reference-local diag-range, lambdas[i - 1].kind, "the", context-type, false
+		check-lambda-can-reference-local diag-range, lambdas[i - 1].allowed-purity, "the", context-type, false
 		i -:= 1
 
 check-lambda-can-reference-local void
 	diag-range source-range
-	lambda-kind lambda-kind
+	expected-purity purity
 	local-name symbol
 	local-type type
 	local-is-mutable bool
 do check-expr-ctx
-	expected-purity purity = match lambda-kind
-	as data_ then data_
-	as shared_ then shared_
-	as mut_ then mut_
-	as explicit-shared then mut_
 	if expected-purity != mut_
 		if local-is-mutable
 			add-diag diag-range,
-				diag-lambda-closure-purity lambda-kind, local-name, mut_, ()
+				diag-lambda-closure-purity expected-purity, local-name, mut_, ()
 		elif !is-purity-always-compatible-considering-specs specs, local-type, expected-purity
 			add-diag diag-range,
-				diag-lambda-closure-purity lambda-kind, local-name, local-type.purity-range.worst-case, type-with-container local-type
+				diag-lambda-closure-purity expected-purity, local-name, local-type.purity-range.worst-case, type-with-container local-type
 
 is-purity-always-compatible-considering-specs bool(fun-specs specs, type type, expected purity)
 	type-purity = purity-range type

@@ -22,9 +22,8 @@ infer expected()
 	(), (), ()
 expect expected(type type)
 	type, (), ()
-expect-with-context expected(type type, context type-context)
-	choice type-and-context = type, context
-	(), (choice,), ()
+expect-with-context expected(type type-and-context)
+	(), (type,), ()
 | Also writes to {info}.{has-break}
 to expected(info loop-info)
 	(), (), info
@@ -83,28 +82,20 @@ debug string(a expected)
 try-get-loop loop-info?(a expected)
 	a.opt-loop
 
-| Returns an index into {choices} if it is the only allowed choice.
+| If there is a single supported type, sets 'expected' and returns it.
 | If there is no unambiguous choice, adds a diagnostic and returns an empty option.
-find-expected-struct-for-literal nat?
+choose-type nat?
 	range source-range
 	expected expected
 	choices struct-inst[]
 do check-expr-ctx
-	find-expected-struct-for-literal-common range, expected, choices, true
+	res = choose-type-allow-none range, expected, choices
+	unless res
+		add-diag range, diag-literal-not-expected get-expected-for-diag expected
+	res
 
-find-expected-struct-for-literal-allow-none nat?
-	range source-range
-	expected expected
-	choices struct-inst[]
-do check-expr-ctx
-	find-expected-struct-for-literal-common range, expected, choices, false
-
--find-expected-struct-for-literal-common nat?
-	range source-range
-	expected expected
-	choices struct-inst[]
-	should-add-diag-none bool
-do check-expr-ctx
+| Same as {choose-type} but does not add a diagnostic if no literal types match.
+choose-type-allow-none nat?(range source-range, expected expected, choices struct-inst[]) check-expr-ctx
 	res mut nat? = ()
 	# For diag
 	multiple struct-inst mut[] = ()
@@ -124,15 +115,9 @@ do check-expr-ctx
 
 	if res
 		unless is-empty multiple
-			add-diag range,
-				diag-literal-multiple-match type-container, multiple.move-to
-			set expected, choices[res!]
-		res!
-	else
-		if should-add-diag-none
-			add-diag range,
-				diag-literal-not-expected get-expected-for-diag expected
-		()
+			add-diag range, diag-literal-multiple-match type-container, multiple.move-to
+		must-check expected, choices[res!]
+	res
 
 -each-narrowed-struct void(a type-and-context, f void mut(x struct-inst))
 	match type = a.type
@@ -202,74 +187,88 @@ set-to-bogus-if-inferring void(a expected)
 	else
 		set a, bogus-type
 
-expected-lambda-type record mut
-	type-context type-context
-	fun-type fun-type
+expected-lambda record mut
+	lambda-decl struct-decl
+	return-type type-and-context
+	| Fully inferred, not in type-context.
 	instantiated-param-type type
-get-expected-lambda expected-lambda-type?
-	diag-range source-range
-	declared-param-type type?
+get-expected-lambda expected-lambda?
+	source lambda-source
+	param-ast destructure-ast?
 	expected expected
 do check-expr-ctx
+	declared-param-type = ?type-from-destructure param-ast
 	do unless declared-param-type == bogus-type
-	res mut expected-lambda-type? = ()
-	multiple type mut[] = ()
+	res mut expected-lambda? = ()
+	multiple struct-inst mut[] = ()
 	any-diag bool reference = false,
 	each-choice expected, of choice
 		each-narrowed-struct choice, of struct
-			do if fun-type = get-fun-type struct
-			do if actual-param-type = get-expected-param-type-from-fun-type diag-range, choice.context, declared-param-type, fun-type, any-diag
-			if res
+			do if as-lambda-type struct
+			return-type, param-type = only2! struct.type-args
+			do if actual-param = get-lambda-param-type source.diag-range, declared-param-type, (param-type, choice.context), any-diag
+			prev = res
+			res := struct.decl, (return-type, choice.context), actual-param
+			if prev
 				if is-empty multiple
-					prev = res!
-					multiple ~= apply-inferred (prev.fun-type.struct-inst, prev.type-context)
-				multiple ~= apply-inferred choice
+					multiple ~= apply-inferred prev
+				multiple ~= apply-inferred res!
 				any-diag set= true
-			res := choice.context, fun-type, actual-param-type
-
 	if any-diag.get
-		if !is-empty multiple
-			add-diag diag-range, diag-lambda-multiple-match (multiple.move-to, type-container)
+		unless is-empty multiple
+			add-diag source.diag-range, diag-lambda-multiple-match ((map multiple, it.identity), type-container)
 		()
 	else
 		if res
-			freeze-expected-return-type res!
+			freeze-expected-return-type res!.return-type
 		else
-			add-diag diag-range, diag-lambda-not-expected get-expected-for-diag expected
+			add-diag source.diag-range, diag-lambda-not-expected get-expected-for-diag expected
 		res
+diag-range source-range(a lambda-source)
+	match a
+	as for-or-with-ast
+		a.keyword-range
+	as it-scope-ast
+		a.first-it.range
+	as lambda-ast
+		a.keyword-range
+-apply-inferred struct-inst(a expected-lambda)
+	return-type = apply-inferred a.return-type
+	param-type = a.instantiated-param-type
+	a.lambda-decl[to-type-array (return-type, param-type)]
 
 ###
 If we have an expected type, we should freeze it at this point (to forbid narrowing).
 If the user wrote `xs nat?[] = for x in xs ...`, they presumably want the body to have a type of `nat?` not `nat`.
 ###
--freeze-expected-return-type void(a expected-lambda-type)
+-freeze-expected-return-type void(return-type type-and-context)
 	if trusted LOG
-		log error, "top of freeze-expected-return-type: it is {debug a.fun-type.return-type}"
-	match type = a.fun-type.return-type
+		log error, "top of freeze-expected-return-type: it is {debug return-type}"
+	match type = return-type.type
 	as bogus-type
 		()
 	as type-param-index
+		type-context = return-type.context
 		if trusted LOG
-			log error, "is it inferring? {is-inferring a.type-context}"
-		do if is-inferring a.type-context
-		do if inferred = a.type-context[type.index]
+			log error, "is it inferring? {is-inferring type-context}"
+		do if is-inferring type-context
+		do if inferred = type-context[type.index]
 		if trusted LOG
 			log error, "inferred {inferred.debug}"
 		do unless inferred.kind == exact
 		if trusted LOG
 			log error, "overwrite with {(exact, inferred.type)::inference.debug}"
-		a.type-context[type.index] := exact, inferred.type
+		type-context[type.index] := exact, inferred.type
 	as struct-inst
 		()
 
--get-expected-param-type-from-fun-type type?
+-get-lambda-param-type type?
 	diag-range source-range
-	type-context type-context
 	declared-param-type type?
-	fun-type fun-type
+	expected-lambda-type-param-type type-and-context
 	any-diag bool reference
 do check-ctx
-	if expected-param-type = try-get-inexact-non-inferring-type (fun-type.param-type, type-context)
+	if expected-param-type = try-get-inexact-non-inferring-type expected-lambda-type-param-type
 		unless declared-param-type and expected-param-type != declared-param-type
 			expected-param-type
 	elif declared-param-type
@@ -365,6 +364,9 @@ get-expected-for-diag expected-for-diag(expected expected) check-expr-ctx
 	else
 		expected-for-diag-infer
 
+| Call this when you are certain 'type' satisfies 'expected'. (But it may still be necessary to update expected with a more precise type.)_
+must-check void(expected expected, actual type)
+	assert try-set-no-diagnostic expected, actual
 | This may infer type parameters
 -try-set-no-diagnostic bool(expected expected, actual type)
 	if trusted LOG
@@ -456,21 +458,6 @@ try-get-inexact-non-inferring-type type?(a type-and-context)
 				try-get-exact-non-inferring-type (x, a.context)
 			exact, type.decl[new-type-args]
 
-fun-type record(kind fun-kind, struct-inst struct-inst)
-fun-struct struct-decl(a fun-type)
-	a.struct-inst.decl
-return-type type(a fun-type)
-	a.struct-inst.type-args[0]
-param-type type(a fun-type)
-	a.struct-inst.type-args[1]
-
-get-fun-type fun-type?(a type)
-	a.struct-inst.?get-fun-type
-get-fun-type fun-type?(a struct-inst)
-	body = a.decl.body
-	if body.builtin-type and kind = body.to::fun-kind?
-		kind, a # TODO: returning its own input is kind of silly......................................................................
-
 | For diagnostics. Applies types that have been inferred, otherwise uses {bogus-type}.
 | This is like {try-get-inexact-non-inferring-type} but returns a type with {bogus-type} in it instead of an empty option.
 apply-inferred type(a type-and-context)
@@ -499,32 +486,33 @@ to symbol(a implicit-conversions)
 show string(a implicit-conversions)
 	a.to::symbol.show
 
-| TODO: this would probably be more readable if it took a {type-and-context} ----------------------------------------------------
+# Infer information about a candidate based on the declared type on a lambda parameter
 infer-type-args-from-lambda-parameter-type void
-	a type
-	a-context type-context
-	lambda-parameter-type type
+	expected type-and-context
+	declared-lambda-parameter-type type
 do
-	if fun-type = get-fun-type a
-		infer-type-args-from fun-type.param-type, a-context, lambda-parameter-type.non-inferring
-| Infers to {a-context}. Doesn't change {b}.
-infer-type-args-from void(a type, a-context type-context, b type-and-context)
+	expected-type = expected.type
+	do if struct-inst expected-type and as-lambda-type expected-type
+	_, param-type = only2! expected-type.type-args
+	infer-type-args-from (param-type, expected.context), declared-lambda-parameter-type.non-inferring
+| Infers to {a}.{context}. Doesn't change {b}.
+infer-type-args-from void(a type-and-context, b type-and-context)
 	do unless is-inferring-non-inferred-type-param b
 	b2 = maybe-inferred b
-	match a
+	match a-type = a.type
 	as bogus-type
 		()
 	as type-param-index
-		unless a-context[a.index] # TODO: are there situations where we want to refine it if the kind is not 'exact'?
+		unless a.context[a-type.index] # TODO: are there situations where we want to refine it if the kind is not 'exact'?
 			if t = try-get-inexact-non-inferring-type b2
-				a-context[a.index] := exact, t
+				a.context[a-type.index] := exact, t
 	as struct-inst
 		do if bi = struct-inst b2.type
-		do if a.decl == bi.decl
-		for i in 0::nat .. a.type-args.size
-			ta = a.type-args[i]
+		do if a-type.decl == bi.decl
+		for i in 0::nat .. a-type.type-args.size
+			ta = a-type.type-args[i]
 			tb = bi.type-args[i]
-			infer-type-args-from ta, a-context, (tb, b2.context)
+			infer-type-args-from (ta, a.context), (tb, b2.context)
 
 is-type-match-possible-for-completions bool(param-type type-with-container, actual-arg-type type)
 	inferring type-context = trusted gc-safe-mut-slice param-type.container.n-type-params

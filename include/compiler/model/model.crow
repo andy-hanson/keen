@@ -10,22 +10,6 @@ import
 	./source-range
 	./uri
 
-purity enum(data_, shared_, mut_)
-== bool(a purity, b purity)
-<=> comparison(a purity, b purity)
-to symbol(a purity)
-	match a
-	as data_
-		"data"
-	as shared_
-		"shared"
-	as mut_
-		"mut"
-to string(a purity)
-	a.to::symbol.to
-to json(a purity)
-	a.to::string.to
-
 is-purity-compatible bool(expected purity, actual purity)
 	actual <= expected
 
@@ -497,10 +481,12 @@ is-option bool(a struct-inst)
 is-option bool(a struct-decl)
 	is-builtin-type a, option
 
-is-lambda-type bool(a type)
-	a.struct-inst and is-lambda-type a.decl
-is-lambda-type bool(a struct-decl)
-	!!(a.body.builtin-type.?to::fun-kind?)
+as-lambda-type purity?(a type)
+	if a.struct-inst then as-lambda-type a
+as-lambda-type purity?(a struct-inst)
+	as-lambda-type a.decl
+as-lambda-type purity?(a struct-decl)
+	a.body.builtin-type.?as-lambda-type
 
 purity-range purity-range(a type)
 	match a
@@ -742,16 +728,6 @@ builtin-type enum
 == bool(a builtin-type, b builtin-type)
 to json(a builtin-type)
 to builtin-type?(a symbol)
-is-lambda-type bool(a builtin-type)
-	match a
-	as fun-data
-		true
-	as fun-mut
-		true
-	as fun-shared
-		true
-	else
-		false
 is-char-or-integral bool(a builtin-type)
 	!!a.to::char-or-integral-type?
 is-char-or-integral bool(a type)
@@ -818,7 +794,7 @@ to integral-type?(a builtin-type)
 		nat64
 	else
 		()
-to fun-kind?(a builtin-type)
+as-lambda-type purity?(a builtin-type)
 	match a
 	as fun-data
 		data_
@@ -2149,7 +2125,7 @@ is-std bool(a import-or-export)
 common-funs record
 	error struct-inst
 	json-array struct-inst
-	lambda-subscript (fun-kind, fun-decl) enum-map
+	lambda-subscript (purity, fun-decl) enum-map
 	shared-of-mut-lambda fun-decl
 	to-symbol-from-string fun-inst
 	to-string-from-js-any fun-inst
@@ -2187,8 +2163,7 @@ common-types record
 	reference struct-decl
 	| No tuple0 or tuple1, so this is 2 .. max-type-params + 1
 	tuples struct-decl[]
-	| Indexed by FunKind, then by arity. (arity = typeArgs.length - 1)
-	fun-structs (fun-kind, struct-decl) enum-map
+	fun-structs (purity, struct-decl) enum-map
 	global_ spec-inst
 	unsafe spec-inst
 	java-spec spec-inst
@@ -3230,24 +3205,32 @@ param destructure-ast?(a lambda-source)
 		()
 	as lambda-ast
 		a.param
+body expr-ast(a lambda-source)
+	match a
+	as for-or-with-ast
+		a.body
+	as it-scope-ast
+		a.inner
+	as lambda-ast
+		a.body
 
 lambda-expr record
 	ast lambda-source
-	kind lambda-kind
 	param destructure
+	| If this is present, the lambda was part of a `shared` expression.
 	mut-type-for-explicit-shared struct-inst?
 	body expr
 	closure closure-element[]
 	type struct-inst
+is-explicit-shared bool(a lambda-expr)
+	!!a.mut-type-for-explicit-shared
+purity purity(a lambda-expr)
+	a.type.as-lambda-type!
 to json(a lambda-expr)
-	kind: a.kind.to
 	param: a.param.to
 	body: a.body.to
 	closure: a.closure.to
 	type: a.type.to
-lambda-kind enum(data_, shared_, mut_, explicit-shared)
-== bool(a lambda-kind, b lambda-kind)
-to json(a lambda-kind)
 range source-range(a lambda-expr)
 	a.ast.range
 return-type type(a lambda-expr)
@@ -3927,7 +3910,6 @@ diag union
 	diag-record-field-needs-type
 	diag-required-after
 	diag-shared-arg-is-not-lambda
-	diag-shared-lambda-type-is-not-shared
 	diag-shared-lambda-unused
 	diag-shared-not-expected
 	diag-spec-match-multiple
@@ -4077,7 +4059,8 @@ diag-it-identity record
 diag-lambda-cant-be-function-pointer record
 diag-lambda-cant-infer-param-type record
 diag-lambda-closure-purity record
-	lambda-kind lambda-kind
+	| This will only ever be 'data' or 'shared', since a 'mut' lambda allows everything
+	lambda-kind purity
 	local-name symbol
 	local-purity purity
 	| If missing, the error is that the local itself is 'mut'.
@@ -4138,10 +4121,6 @@ diag-struct-params-syntax-error record
 	struct struct-decl
 	reason diag-struct-params-syntax-error-reason
 diag-struct-params-syntax-error-reason enum(has-params-and-fields, destructure)
-diag-shared-lambda-type-is-not-shared record
-	kind diag-shared-lambda-type-is-not-shared-kind
-	actual type-with-container
-diag-shared-lambda-type-is-not-shared-kind enum(param-type, return-type)
 diag-shared-lambda-unused record
 diag-shared-not-expected record(expected expected-for-diag)
 diag-spec-used-as-type record(name symbol)

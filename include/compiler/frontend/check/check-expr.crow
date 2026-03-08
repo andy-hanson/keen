@@ -85,7 +85,7 @@ do check-ctx, types-get, funs-map
 	as it-scope-ast
 		check-it-scope ast, expected
 	as lambda-ast
-		check-lambda ast, ast.param, ast.body, expected
+		check-lambda ast, expected, ()
 	as let-ast
 		check-let ast, expected
 	as let-the-ast
@@ -350,7 +350,7 @@ do check-expr-ctx
 	if is-mutable local
 		_ = ensure the::expr-ctx.allocated-locals, local, of
 			common-types.reference[as-type-args local.type]
-	check-lambda-can-reference-local diag-range, lambda.kind, local.name, local.type, local.is-mutable
+	check-lambda-can-reference-local diag-range, lambda.allowed-purity, local.name, local.type, local.is-mutable
 
 -check-identifier expr(ast name-and-range, expected expected) check-expr-ctx
 	if local = access-local ast.range, ast.name
@@ -379,16 +379,6 @@ do check-expr-ctx
 	else
 		check-call-special-cb1 source, keyword-range, "set-{left}", expected, cb-right
 
--as-float expr
-	range source-range
-	float-type float-type-or-js-or-json
-	inst struct-inst
-	expected expected
-do check-expr-ctx
-	check expected, inst,
-		literal-scalar-expr range, float-type,
-			parse-float get-text range 'to
-
 # TODO: these could use 'mebmers'? --------------------------------------------------------------------------------------------
 # ALSO, it's important that this matches the order of 'integral-type' in model.crow -----------------------------------------------
 -nat-types integral-type[]()
@@ -409,17 +399,14 @@ do check-expr-ctx
 		-- common-types.all-floats
 		- common-types.js-any
 		-- from-option the::check-ctx.json-type
-	if type-index = find-expected-struct-for-literal range, expected, allowed-types
-		number-type = allowed-types[type-index]
-		if type-index < integral-types.size
-			integral-type = integral-types[type-index]
-			value = check-literal-integral-value integral-type, range
-			check expected, number-type, literal-scalar-expr range, integral-type, value
-		else
-			float-type = float-types[type-index - integral-types.size]
-			as-float range, float-type, number-type, expected
+	do if type-index = choose-type range, expected, allowed-types else bogus expected, range
+	if type-index < integral-types.size
+		integral-type = integral-types[type-index]
+		literal-scalar-expr range, integral-type,
+			check-literal-integral-value integral-type, range
 	else
-		bogus expected, range
+		literal-scalar-expr range, float-types[type-index - integral-types.size],
+			parse-float get-text range 'to
 
 -allowed-literal-string-types struct-inst[](include-chars bool) check-expr-ctx
 	types = common-types
@@ -438,7 +425,7 @@ do check-expr-ctx
 	range = ast.range
 	value = ast.value
 	allowed-types struct-inst[] = allowed-literal-string-types true
-	if type-index = find-expected-struct-for-literal-allow-none range, expected, allowed-types
+	if type-index = choose-type-allow-none range, expected, allowed-types
 		if type-index == 0
 			literal-scalar-expr range, char8,
 				char8-literal-value range, value 'to
@@ -454,7 +441,7 @@ do check-expr-ctx
 
 -check-literal-string-only-string expr(ast interpolated-template-part, expected expected) check-expr-ctx
 	allowed-types = allowed-literal-string-types false
-	if type-index = find-expected-struct-for-literal ast.range, expected, allowed-types
+	if type-index = choose-type ast.range, expected, allowed-types
 		check-literal-string-inner ast.range, ast.value, type-index, expected
 	else
 		bogus expected, ast.range
@@ -463,8 +450,7 @@ do check-expr-ctx
 	kinds string-like-type[] = char8-array, char32-array, java-String, js-any, string, symbol, json
 	string-type = kinds[type-index]
 	if string-type != js-any or check-is-js range
-		check expected, (allowed-literal-string-types false)[type-index],
-			literal-string-like-expr range, string-type, value
+		literal-string-like-expr range, string-type, value
 	else
 		bogus expected, range
 
@@ -548,35 +534,11 @@ do check-expr-ctx
 	_ = pop! locals
 
 -check-shared expr(ast shared-ast, expected expected) check-expr-ctx
-	diag void mut(diag diag) = of diag
-		add-diag ast.keyword-range, diag
-	diag-bogus expr mut(diag diag) = of x
-		add-diag ast.keyword-range, x
+	if inner = lambda-ast ast.inner
+		check-lambda inner, expected, ast.keyword-range
+	else
+		add-diag ast.keyword-range, diag-shared-arg-is-not-lambda
 		bogus expected, ast.range
-
-	do if inner = lambda-ast ast.inner else diag-bogus[diag-shared-arg-is-not-lambda]
-	do if et = get-expected-lambda ast.range, (type-from-destructure inner.param), expected else
-		bogus expected, ast.range
-	do if et.fun-type.kind == shared_ else
-		diag-bogus[diag-shared-not-expected get-expected-for-diag expected]
-	param = check-destructure inner.param, et.instantiated-param-type, param
-	res = check-lambda-inner inner, param, inner.body, expected, \
-		common-types.fun-structs[mut_][et.fun-type.struct-inst.type-args], \
-		et.fun-type.return-type, \
-		et.type-context, \
-		et.fun-type.fun-struct, \
-		explicit-shared
-
-	if !is-shared specs, et.instantiated-param-type
-		diag[diag-shared-lambda-type-is-not-shared param-type, type-with-container et.instantiated-param-type]
-	if !is-shared specs, res.return-type
-		diag[diag-shared-lambda-type-is-not-shared return-type, type-with-container res.return-type]
-
-	all-shared = every res.expr.lambda-expr!.closure, of x
-		!x.is-mutable-local and is-shared specs, x.type
-	if all-shared
-		diag[diag-shared-lambda-unused]
-	res.expr
 
 -is-mutable-local bool(a closure-element)
 	a.local and a.is-mutable
@@ -587,10 +549,7 @@ do check-expr-ctx
 	as struct-inst
 		a
 
--check-it expr
-	ast it-ast
-	expected expected
-do check-expr-ctx
+-check-it expr(ast it-ast, expected expected) check-expr-ctx
 	local = access-local! ast.range, "it"
 	check expected, local.type, local-get-expr ast, local
 
@@ -599,88 +558,63 @@ do check-expr-ctx
 		add-diag ast.range, diag-it-identity
 		bogus expected, ast
 	else
-		diag-range = ast.range
-		do if et = get-expected-lambda diag-range, (), expected else
-			bogus expected, diag-range
-		kind = et.fun-type.kind
-		param local = ast, et.instantiated-param-type
-		expr check-lambda-inner ast, param, ast.inner, expected, (), \
-			et.fun-type.return-type, et.type-context, et.fun-type.fun-struct, kind.to-lambda-kind
+		check-lambda ast, expected, ()
 
+| This exists to work around the fact that spec impls currently can't take contexts
 -check-lambda expr
 	check-ctx check-ctx
 	expr-ctx expr-ctx
 	source lambda-source
-	param-ast destructure-ast
-	body-ast expr-ast
 	expected expected
 do
 	the check-ctx = check-ctx
 	the expr-ctx = expr-ctx
-	check-lambda source, param-ast, body-ast, expected
--check-lambda expr
-	source lambda-source
-	param-ast destructure-ast
-	body-ast expr-ast
-	expected expected
-do check-expr-ctx
-	diag-range = source.range
-	do if et = get-expected-lambda diag-range, (type-from-destructure param-ast), expected else
-		bogus expected, diag-range
-	kind = et.fun-type.kind
-	param = check-destructure param-ast, et.instantiated-param-type, param
-	expr check-lambda-inner source, param, body-ast, expected, (), \
-		et.fun-type.return-type, et.type-context, et.fun-type.fun-struct, kind.to-lambda-kind
+	check-lambda source, expected, ()
+-check-lambda expr(ast lambda-source, expected expected, explicit-shared source-range?) check-expr-ctx
+	do if el = get-expected-lambda ast, ast.param, expected else
+		bogus expected, ast.diag-range
+	return-type = el.return-type
+	lambda-decl = el.lambda-decl
+	param-type = el.instantiated-param-type
+	param = if param-ast = ast.param
+		check-destructure param-ast, param-type, param
+	else
+		ast.it-scope-ast!, param-type
 
--to-lambda-kind lambda-kind(a fun-kind)
-	match a
-	as data_
-		data_
-	as shared_
-		shared_
-	as mut_
-		mut_
-
--lambda-and-return-type record(expr expr, return-type type)
--check-lambda-inner lambda-and-return-type
-	source lambda-source
-	param destructure
-	body-ast expr-ast
-	expected expected
-	mut-type-for-explicit-shared struct-inst?
-	# TODO: Pass these together as a type-and-context? ---------------------------------------------------------------------------
-	non-instantiated-return-type type
-	return-type-context type-context
-	fun-struct struct-decl
-	kind lambda-kind
-do check-expr-ctx
-	lambda-info lambda-info = kind, locals.size, (), ()
+	allowed-purity purity = if explicit-shared then mut_ else as-lambda-type! lambda-decl
+	lambda-info lambda-info = allowed-purity, locals.size, (), ()
 	# Checking the body of the lambda may fill in candidate type args
 	# if the expected return type contains candidate's type params
-	body-expected = expect-with-context non-instantiated-return-type, return-type-context
+	body-expected = expect-with-context return-type
 
 	lambdas ~= lambda-info
-	body = check-expr-with-context param, body-ast, body-expected
+	body = check-expr-with-context param, ast.body, body-expected
 	_ = pop! lambdas
 
 	# Can't just use `body-expected inferred` since that may be a narrower type than requested.
-	body-type = try-get-inexact-non-inferring-type (non-instantiated-return-type, return-type-context) else
+	body-type = try-get-inexact-non-inferring-type return-type else
 		log error, "GOT A BOGUS BODY. THIS SHOULD ONLY HAPPEN IF THERE IS AN ERROR, RIGHT?" # ---------------------------------------------------
 		bogus-type
-	inst-fun-struct = fun-struct[(body-type, param.type).to-type-array]
-	lambda lambda-expr =
-		ast: source
-		kind: kind
+	return-and-param-type = to-type-array (body-type, param-type)
+	inst-fun-struct = lambda-decl[return-and-param-type]
+	res lambda-expr =
+		ast: ast
 		param: param
-		mut-type-for-explicit-shared: mut-type-for-explicit-shared
+		mut-type-for-explicit-shared: if explicit-shared then common-types.fun-structs[mut_][return-and-param-type]
 		body: body
 		closure:
 			-- map lambda-info.closure-locals, it.identity
 			-- map lambda-info.closure-contexts, it.identity
 		type: inst-fun-struct
-	# TODO:PERF this check should never fail, so could just set inferred directly with no check ----------------------------------------
-	res = check expected, inst-fun-struct, lambda
-	res, body-type
+	must-check expected, inst-fun-struct
+	if explicit-shared
+		if lambda-decl.as-lambda-type! != shared_
+			add-diag explicit-shared, diag-shared-not-expected get-expected-for-diag expected
+		all-shared = every res.closure, of x
+			!x.is-mutable-local and is-shared specs, x.type
+		if all-shared
+			add-diag explicit-shared, diag-shared-lambda-unused
+	res
 
 -check-let expr(ast let-ast, expected expected) check-expr-ctx
 	value-expr, value-type = check-and-expect-or-infer ast.value, type-from-destructure ast.destructure
