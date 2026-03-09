@@ -75,6 +75,11 @@ check-call-special expr
 do check-expr-ctx, check-expr
 	check-call-common expected, source, range, fun-name, (), args
 
+candidates-filter alias
+	bool mut(candidates candidate stack-array)
+candidate-filter alias
+	bool mut(candidate candidate)
+
 -check-call-common expr
 	expected expected
 	source call-expr-source
@@ -83,7 +88,7 @@ do check-expr-ctx, check-expr
 	type-arg type?
 	arg-asts expr-ast[]
 do check-expr-ctx, check-expr
-	cb-before-check bool mut(candidates candidates) = of candidates
+	cb-before-check candidates-filter = of candidates
 		every arg-asts.with-index, of arg-idx, arg
 			infer-candidate-type-args-from-explicitly-typed-argument candidates, arg-idx, arg
 	check-call-special-cb-n source, diag-range, fun-name, expected, type-arg, arg-asts.size, \
@@ -101,7 +106,7 @@ find-function-for-interpolate-or-list-new called?
 	fun-name symbol
 	return-type type
 do check-expr-ctx
-	initial-filter bool mut(x candidate) = of candidate
+	initial-filter candidate-filter = of candidate
 		called = called candidate
 		do if as-list-new called
 		match-types (called.return-type, candidate.type-context-for-candidate), (return-type, non-inferring), a-to-b
@@ -135,7 +140,7 @@ check-call-special-cb2 expr
 	cb-arg1 expr mut(x expected)
 	cb-before-check bool mut(x candidates)
 do check-expr-ctx
-	check-arg expr mut(i nat, arg-expected expected) = of i, arg-expected
+	check-arg cb-check-arg = of i, arg-expected
 		match i
 		as 0
 			cb-arg0[arg-expected]
@@ -145,13 +150,15 @@ do check-expr-ctx
 			throw unreachable
 	check-call-special-cb-n source, diag-range, fun-name, expected, (), 2, check-arg, cb-before-check
 
+cb-check-arg alias
+	expr mut(arg-index nat, arg-expected expected)
 check-call-special-cb-n expr
 	source call-expr-source
 	diag-range source-range
 	fun-name symbol
 	expected expected
 	n-args nat
-	cb-check-arg expr mut(i nat, arg-expected expected)
+	cb-check-arg cb-check-arg
 do check-expr-ctx
 	check-call-special-cb-n source, diag-range, fun-name, expected, (), n-args, cb-check-arg, of _ then true
 -check-call-special-cb-n expr
@@ -161,11 +168,11 @@ do check-expr-ctx
 	expected expected
 	type-arg type?
 	n-args nat
-	cb-check-arg expr mut(i nat, arg-expected expected)
-	cb-before-check bool mut(candidates candidates)
+	cb-check-arg cb-check-arg
+	cb-before-check candidates-filter
 do check-expr-ctx
 	args expr mut-slice = trusted gc-safe-mut-slice n-args
-	check-arg void mut(i nat, arg-expected expected) = of i, arg-expected
+	check-arg cb-check-arg-void = of i, arg-expected
 		args[i] := cb-check-arg[i, arg-expected]
 	if called = check-call-cb diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-before-check
 		# Check should always succeed, but we need it to set the inferred type
@@ -214,7 +221,7 @@ do check-expr-ctx
 	else
 		throw unreachable
 
--cb-check-arg alias
+-cb-check-arg-void alias
 	void mut(arg-index nat, arg-expected expected)
 -check-call-cb called?
 	diag-range source-range
@@ -222,10 +229,10 @@ do check-expr-ctx
 	type-arg type?
 	n-args nat
 	expected expected
-	cb-check-arg cb-check-arg
+	cb-check-arg cb-check-arg-void
 	cb-before-check bool mut(x candidates)
 do check-expr-ctx
-	initial-filter bool mut(x candidate) = of candidate
+	initial-filter candidate-filter = of candidate
 		filter-candidate-by-explicit-type-arg common-types, candidate, type-arg and
 		test-candidate-return-type expected, candidate, allow-conversions
 	with-candidates funs-in-expr-scope, fun-name, n-args, initial-filter, of candidates
@@ -306,7 +313,7 @@ do check-expr-ctx, check-expr
 	candidates candidates
 	expected expected
 	n-args nat
-	cb-check-arg cb-check-arg
+	cb-check-arg cb-check-arg-void
 do check-expr-ctx
 	some-arg-is-bogus mut bool = false
 	arg-index mut nat = 0
@@ -413,11 +420,7 @@ do check-expr-ctx
 			candidate.type-args[i] := exact, arg
 	ok
 
--with-param-expected type
-	candidates candidates
-	arg-index nat
-	cb-check-arg void mut(arg-index nat, x expected)
-do
+-with-param-expected type(candidates candidates, arg-index nat, cb-check-arg cb-check-arg-void)
 	out type-and-context mut[] = allocate
 	for candidate in candidates
 		expected = get-candidate-expected-parameter-type candidate, arg-index
@@ -491,7 +494,7 @@ do check-expr-ctx
 	return-and-param-types return-and-param-types
 do check-expr-ctx
 	call-context = type-context-for-candidate call-candidate
-	initial-filter bool mut(x candidate) = of candidate
+	initial-filter candidate-filter = of candidate
 		test-candidate-for-spec-sig candidate, return-and-param-types, call-context, allow-conversions
 	with-candidates funs-in-expr-scope, spec-sig.name, spec-sig.params.size, initial-filter, of spec-candidates
 		match spec-candidates.size
