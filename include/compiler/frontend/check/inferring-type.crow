@@ -502,25 +502,22 @@ do
 	expected-type = expected.type
 	do if struct-inst expected-type and as-lambda-type expected-type
 	_, param-type = only2! expected-type.type-args
-	infer-type-args-from (param-type, expected.context), declared-lambda-parameter-type.non-inferring
-| Infers to {a}.{context}. Doesn't change {b}.
-infer-type-args-from void(a type-and-context, b type-and-context)
-	do unless is-inferring-non-inferred-type-param b
-	b2 = maybe-inferred b
-	match a-type = a.type
-	as bogus-type
-		()
-	as type-param-index
-		unless a.context[a-type.index] # TODO: are there situations where we want to refine it if the kind is not 'exact'?
-			if t = try-get-inexact-non-inferring-type b2
-				a.context[a-type.index] := exact, t
-	as struct-inst
-		do if bi = struct-inst b2.type
-		do if a-type.decl == bi.decl
+	infer-type-args-bidirectional (param-type, expected.context), declared-lambda-parameter-type.non-inferring
+
+| This is only used in situations without implicit conversion.
+| Infers types in 'a' and 'b' given that they are expected to be the same type. (If they are not, does nothing.)
+infer-type-args-bidirectional void(a type-and-context, b type-and-context)
+	a-type = a.type
+	b-type = b.type
+	if ta = is-inferring-non-inferred-type-param a
+		if tb = try-get-inexact-non-inferring-type b
+			a.context[ta.index] := exact, tb
+	elif tb = is-inferring-non-inferred-type-param b
+		if ta = try-get-inexact-non-inferring-type a
+			b.context[tb.index] := exact, ta
+	elif a-type.struct-inst and b-type.struct-inst and a-type.decl == b-type.decl
 		for i in 0::nat .. a-type.type-args.size
-			ta = a-type.type-args[i]
-			tb = bi.type-args[i]
-			infer-type-args-from (ta, a.context), (tb, b2.context)
+			infer-type-args-bidirectional (a-type.type-args[i], a.context), (b-type.type-args[i], b.context)
 
 is-type-match-possible-for-completions bool(param-type type-with-container, actual-arg-type type)
 	inferring type-context = trusted gc-safe-mut-slice param-type.container.n-type-params
@@ -532,19 +529,9 @@ is-type-match-possible-for-completions bool(param-type type-with-container, actu
 	match-types a-clone, b, conv
 
 | True for a type param with no inference yet
--is-inferring-non-inferred-type-param bool(a type-and-context)
-	if x = a.type.type-param-index
-		is-inferring a.context and !a.context[x.index]
-
--maybe-inferred type-and-context(a type-and-context)
-	if x = a.type.type-param-index
-		if is-inferring a.context
-			# force because we tested 'is-inferring-non-inferred-type-param' before
-			non-inferring a.context[x.index]!.type
-		else
-			a
-	else
-		a
+-is-inferring-non-inferred-type-param type-param-index?(a type-and-context)
+	if x = a.type.type-param-index and is-inferring a.context and !a.context[x.index]
+		x
 
 # RM --------------------------------------------------------------------------------------------------------------------------
 enable-inference-log void()
