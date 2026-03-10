@@ -265,25 +265,40 @@ do lower-and-expr-ctx
 	decl.name == "range"
 
 -lower-call-option low-expr(type low-type, range uri-and-range, a call-option-expr) lower-and-expr-ctx
-	# `a ?foo` ==> `if x = a then a foo else ()`
-	# But `a foo` may already be an option and might not need to be wrapped
+	###
+	Args are evaluated from left to right, and it stops at the first empty option.
+	So '?foo a, b, c' where 'b' is an option must compile to:
+	x = a
+	if y = b
+		foo x, y, c
+	###
 	do if called = get-low-fun-from-called a.called else lower-bogus type, range
-	local low-local = destruct::low-generated-local-kind, called.params[0].type
-	option = lower-expr a.first-arg
-	call = gen-call range, called,
-		- gen-local-get range, local
-		-- for i, x in with-index a.rest-args
-			lower-expr called.params[i + 1].type, x
+	option-args nat mut[] = ()
+	args low-expr[] = for i in 0 .. a.args.size
+		if is-option type a.args[i], available-types and !is-option a.called.param-types[i]
+			option-args ~= i
+			lower-expr a.args[i]
+		else
+			lower-expr called.params[i].type, a.args[i]
+	first-non-option = option-args[end - 1] + 1
+	arg-locals low-local[] = for i in 0 .. first-non-option
+		destruct::low-generated-local-kind, called.params[i].type
+	# Generate it backwards, starting form the innermost call and wrapping in optional checks
+	res mut = gen-call range, called,
+		-- for local in arg-locals then gen-local-get range, local
+		-- args[first-non-option .. end].to
 		-- context-args range, a.called, called
-	wrapped = if call.type == type
-		call
-	else
-		gen-option type, range, call
-	assert wrapped.type == type
-	gen-if-option range, option, (local, wrapped), if is-void type
-		gen-void range
-	else
-		gen-empty-option type, range
+	if res.type != type
+		res := gen-option type, range, res
+	else_ = if is-void type then gen-void range else gen-empty-option type, range
+	for i nat in reverse 0 .. first-non-option # TODO: should not need type annotation
+		if option-args.peek == i
+			_ = pop! option-args
+			local = arg-locals[i]
+			res := gen-if-option range, args[i], (local, res), else_
+		else
+			res := gen-let type, range, arg-locals[i], args[i], res
+	res
 
 -lower-lambda low-expr(type low-type, range uri-and-range, e lambda-expr) lower-and-expr-ctx
 	return-type = get-low-type e.return-type
