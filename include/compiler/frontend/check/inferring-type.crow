@@ -3,6 +3,8 @@ import
 	../../model/ast
 	../../model/model
 	../../model/source-range
+	../../model/uri
+	../../util/enum-map
 	../../util/util
 	./allocators
 	./check-ctx
@@ -120,6 +122,64 @@ choose-type-allow-none nat?(range source-range, expected expected, choices struc
 			add-diag range, diag-literal-multiple-match type-container, multiple.move-to
 		must-check expected, choices[res!]
 	res
+
+number-type union(integral-type, float-type-or-js-or-json)
+choose-number-type number-type?(range source-range, expected expected) check-expr-ctx
+	res-nat mut nat-type? = ()
+	res-int mut int-type? = ()
+	res-float mut float-type? = ()
+	res-js mut struct-inst? = ()
+	res-json mut struct-inst? = ()
+	each-choice expected, of choice
+		each-narrowed-struct choice, of struct
+			if x = as-nat-type struct
+				res-nat := max res-nat, x
+			elif x = as-int-type struct
+				res-int := max res-int, x
+			elif x = as-float-type struct
+				res-float := max res-float, x
+			elif is-js-any struct
+				res-js := struct
+			elif is-json struct
+				res-json := struct
+	total nat = (!!res-nat).to + (!!res-int).to + (!!res-float).to + (!!res-js).to + (!!res-json).to
+	if total == 0
+		add-diag range, diag-literal-not-expected get-expected-for-diag expected
+		()
+	else
+		res number-type, type struct-inst = if res-nat
+			res-nat!.to::integral-type, res-nat!.to
+		elif res-int
+			res-int!.to::integral-type, res-int!.to
+		elif res-float
+			res-float!.to, res-float!.to
+		elif res-js
+			js-any, res-js!
+		else
+			json, res-json!
+		must-check expected, type
+		if total > 1
+			add-diag range, diag-literal-multiple-match type-container,
+				-- from-option res-nat.?to
+				-- from-option res-int.?to
+				-- from-option res-float.?to
+				-- from-option res-js
+				-- from-option res-json
+		res
+
+-to float-type-or-js-or-json(a float-type)
+	match a
+	as float32 then float32
+	as float64 then float64
+-to struct-inst(a nat-type) common-types
+	common-types[a]
+-to struct-inst(a int-type) common-types
+	common-types[a]
+-to struct-inst(a float-type) common-types
+	common-types[a]
+
+-is-json bool(a struct-inst) check-ctx
+	a.decl.name == "json" and a.decl.uri == the::check-ctx.common-uris[json]
 
 -each-narrowed-struct void(a type-and-context, f void mut(x struct-inst)) common-types
 	match type = a.type
