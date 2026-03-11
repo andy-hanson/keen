@@ -121,7 +121,7 @@ choose-type-allow-none nat?(range source-range, expected expected, choices struc
 		must-check expected, choices[res!]
 	res
 
--each-narrowed-struct void(a type-and-context, f void mut(x struct-inst))
+-each-narrowed-struct void(a type-and-context, f void mut(x struct-inst)) common-types
 	match type = a.type
 	as bogus-type
 		()
@@ -145,7 +145,10 @@ choose-type-allow-none nat?(range source-range, expected expected, choices struc
 				# This is only used for the expected type for a literal, so don't worry about interface/variant since literals can't implement those
 				f[type]
 		else
-			f[type]
+			if is-array-view type
+				f[the::common-types.array[type.type-args]]
+			else
+				f[type]
 -can-widen-to bool(narrow struct-inst, wide struct-inst) common-types
 	# TODO: Can this just use 'match-struct-insts'? ---------------------------------------------------------------------------------------
 	# 'narrow' can widen to 'wide' if 'wide' is 'narrow?', or 'wide' is a sum-type containing 'narrow', or transitive
@@ -172,9 +175,14 @@ choose-type-allow-none nat?(range source-range, expected expected, choices struc
 				# Or could just cache all implemented interfaces
 				st 'is-or-can-widen-to wide
 	else
-		wide.decl == the::common-types.array-view and is-array narrow and narrow.type-args == wide.type-args
+		is-array-view wide and is-array narrow and narrow.type-args 'can-match wide.type-args
 -is-or-can-widen-to bool(narrow struct-inst, wide struct-inst) common-types
 	narrow == wide or narrow 'can-widen-to wide
+-is-array-view bool(a struct-inst) common-types
+	a.decl == the::common-types.array-view
+-can-match bool(a type-args, b type-args)
+	zip-every-type-args a, b, of x, y
+		x == y or is-bogus y
 
 -set void(a expected, type type)
 	a.opt-inferred := type
@@ -684,7 +692,7 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 	# TODO: it seems that these callbacks are often nearly the same, is there a better way to do it? ----------------------------
 	match-type-args bool mut(x type, y type, conv implicit-conversions)
 	match-after-unwrap bool mut(x type, y type)
-do
+do common-types
 	if trusted LOG
 		log error, "match-struct-insts {sa.to::json} {sb.to::json}"
 	if sa.decl == sb.decl
@@ -703,7 +711,7 @@ do
 	sa struct-inst
 	sb struct-inst
 	match-after-unwrap bool mut(x type, y type)
-do
+do common-types
 	match body = sb.decl.body
 	as builtin-type
 		if body == option
@@ -717,7 +725,8 @@ do
 			# TODO: interface/variant ... but where is this needed? --------------------------------------------------------------
 			false
 	else
-		false
+		if is-array sa and is-array-view sb
+			match-after-unwrap[sa.type-args.only!, sb.type-args.only!]
 
 | Returns new inference value for 'a', or none if they can't match
 -match-types-no-context inference?(a inference, b type, conv implicit-conversions) common-types
