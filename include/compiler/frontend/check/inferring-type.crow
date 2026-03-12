@@ -157,7 +157,9 @@ choose-number-type number-type?(range source-range, expected expected) check-exp
 			js-any, res-js!
 		else
 			json, res-json!
-		must-check expected, type
+		# TODO: should be able to assert this!
+		# But there is some issue in the IDE (probably involving Java types...) where types get duplicated and int32 != int32
+		_ = try-set-no-diagnostic expected, type
 		if total > 1
 			add-diag range, diag-literal-multiple-match type-container,
 				-- from-option res-nat.?to
@@ -205,39 +207,47 @@ choose-number-type number-type?(range source-range, expected expected) check-exp
 				# This is only used for the expected type for a literal, so don't worry about interface/variant since literals can't implement those
 				f[type]
 		else
+			# NOTE: no need to handle 'builtin-widens' here, since 'choose-number-type' handles that.
 			if is-array-view type
 				f[the::common-types.array[type.type-args]]
 			else
 				f[type]
--can-widen-to bool(narrow struct-inst, wide struct-inst) common-types
+-can-widen-to type-match-kind?(narrow struct-inst, wide struct-inst) common-types
 	# TODO: Can this just use 'match-struct-insts'? ---------------------------------------------------------------------------------------
 	# 'narrow' can widen to 'wide' if 'wide' is 'narrow?', or 'wide' is a sum-type containing 'narrow', or transitive
 	match body = wide.decl.body
 	as builtin-type
-		do if body == option
-		match w = only! wide.type-args
-		as bogus-type
-			true
-		as type-param-index
-			false
-		as struct-inst
-			is-or-can-widen-to narrow, w
+		if body == option
+			match w = only! wide.type-args
+			as bogus-type
+				bogus-match
+			as type-param-index
+				()
+			as struct-inst
+				min convert-to-option-or-union, is-or-can-widen-to narrow, w
+		else
+			narrow-body = narrow.decl.body
+			if narrow-body.builtin-type and builtin-widens narrow-body, body then convert-array-view-or-numeric
 	as sum-type
 		if body.kind == union_
-			exists body.listed-members, of x
+			min convert-to-option-or-union, first body.listed-members, of x
 				# TODO:PERF It would probably help to have all instantiated members precomputed
 				narrow 'is-or-can-widen-to instantiate-struct-inst x.member, wide.type-args
 		else
-			exists narrow.decl.sum-type-memberships, of x
+			min convert-to-option-or-union, first narrow.decl.sum-type-memberships, of x
 				# TODO:PERF It would probably help to have all instantiated members precomputed
 				st = instantiate-struct-inst x.sum-type, narrow.type-args
 				# TODO:PERF could have a simpler recursion since we already know we're looking for a sum-type.
 				# Or could just cache all implemented interfaces
 				st 'is-or-can-widen-to wide
 	else
-		is-array-view wide and is-array narrow and narrow.type-args 'can-match wide.type-args
--is-or-can-widen-to bool(narrow struct-inst, wide struct-inst) common-types
-	narrow == wide or narrow 'can-widen-to wide
+		if is-array-view wide and is-array narrow and narrow.type-args 'can-match wide.type-args
+			convert-array-view-or-numeric
+-is-or-can-widen-to type-match-kind?(narrow struct-inst, wide struct-inst) common-types
+	if narrow == wide
+		exact-match
+	else
+		narrow 'can-widen-to wide
 -is-array-view bool(a struct-inst) common-types
 	a.decl == the::common-types.array-view
 -can-match bool(a type-args, b type-args)
@@ -369,38 +379,29 @@ try-get-inexact-non-inferring-type-including-loop type?(expected expected)
 try-get-inexact-non-inferring-type type?(expected expected)
 	opt-inferred expected or ?try-get-inexact-non-inferring-type ?only expected.opt-choices
 
-allow-implicit-conversions enum
-	no-conversions
-	allow-conversions
-match-expected-vs-return-type-no-diagnostic bool
+match-expected-vs-return-type-no-diagnostic type-match-kind?
 	expected expected
 	candidate-return-type type-and-context
-	conversions allow-implicit-conversions
 do common-types
 	if trusted LOG # RM ---------------------------------------------------------------------------------------------------------
 		log error, "top of match-expected-vs-return-type-no-diagnostic"
 		log error, "expected is {debug expected}, candidate-return-type is {debug candidate-return-type}"
-	conv implicit-conversions = match conversions
-	as no-conversions
-		exact
-	as allow-conversions
-		a-to-b
-	res = if x = expected.opt-inferred
+	res type-match-kind? = if x = expected.opt-inferred
 		# We have a particular expected type, so infer candidate-return-type's type args
-		match-types candidate-return-type, x.non-inferring, conv
+		match-types candidate-return-type, x.non-inferring, a-to-b
 	elif choices = expected.opt-choices
-		match res = none-or-one-or-many choices, of x then is-type-match-possible candidate-return-type, x, conv
+		match res = none-or-one-or-many choices, of x then is-type-match-possible candidate-return-type, x, a-to-b
 		as none
-			false
+			()
 		as one
-			match-types candidate-return-type, res.value, conv
+			match-types candidate-return-type, res.value, a-to-b
 		as many
 			# Else don't infer any type args; multiple candidates and multiple possible return types.
-			true
+			exact-match
 	elif expected.opt-loop
-		false
+		()
 	else
-		true
+		exact-match
 	if trusted LOG
 		log error, "match-expected-vs-return-type-no-diagnostic returned {res}"
 	res
@@ -448,11 +449,11 @@ must-check void(expected expected, actual type) common-types
 	if trusted LOG
 		log error, "top of set-type-no-diagnostic: expected is {debug expected}, actual is {debug actual}"
 	if x = expected.opt-inferred
-		match-types x.non-inferring, actual.non-inferring, b-to-a
+		!!(match-types x.non-inferring, actual.non-inferring, b-to-a)
 	elif choices = opt-choices expected
 		# TODO:PERF: use none-or-one-or-many? -------------------------------------------------------------------------------------------------------
 		matching-choices type-and-context[] = filter choices, of x
-			match-types x, actual.non-inferring, b-to-a
+			!!(match-types x, actual.non-inferring, b-to-a)
 		match matching-choices.size
 		as 0
 			false
@@ -594,7 +595,7 @@ is-type-match-possible-for-completions bool(param-type type-with-container, actu
 -is-type-match-possible bool(a type-and-context, b type-and-context, conv implicit-conversions) common-types
 	# TODO: PERF Avoid the clone! -----------------------------------------------------------------------------------------------
 	a-clone type-and-context = a.type, a.context.copy
-	match-types a-clone, b, conv
+	!!(match-types a-clone, b, conv)
 
 | True for a type param with no inference yet
 -is-inferring-non-inferred-type-param type-param-index?(a type-and-context)
@@ -611,9 +612,21 @@ disable-inference-log void()
 
 -LOG global(bool) # RM --------------------------------------------------------------------------------------------------------------
 
+| Ranked from least to most exact
+type-match-kind enum(bogus-match, convert-array-view-or-numeric, convert-to-option-or-union, exact-match)
+type-match-kind-enum-size nat()
+	4
+== bool(a type-match-kind, b type-match-kind)
+<=> comparison(a type-match-kind, b type-match-kind)
+to nat8(a type-match-kind)
+to symbol(a type-match-kind)
+show string(a type-match-kind)
+	a.to::symbol.to
+show string(a type-match-kind?)
+	if a then show a else "none"
 | Returns true if 'a' and 'b' are possibly compatible.
 | 'a' may have its type args be inferred, 'b' may not. Unknown types in 'b' are always possibly compatible.
-match-types bool(a type-and-context, b type-and-context, conv implicit-conversions) common-types
+match-types type-match-kind?(a type-and-context, b type-and-context, conv implicit-conversions) common-types
 	if trusted LOG
 		log error, "match-types a=({debug a}) b=({debug b}) conv={conv}"
 	if is-inferring a.context
@@ -622,14 +635,14 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 		else
 			match-types-no-b-context a, b.type, conv
 	elif is-inferring b.context
-		!!(match-types-no-a-context (exact, a.type), b, conv)
+		?a match-types-no-a-context (exact, a.type), b, conv
 	else
-		!!(match-types-no-context (exact, a.type), b.type, conv)
+		?a match-types-no-context (exact, a.type), b.type, conv
 
--match-types-both-inferring bool(a type-and-context, b type-and-context, conv implicit-conversions) common-types
-	res bool = match tb = b.type
+-match-types-both-inferring type-match-kind?(a type-and-context, b type-and-context, conv implicit-conversions) common-types
+	res type-match-kind? = match tb = b.type
 	as bogus-type
-		true
+		bogus-match
 	as type-param-index
 		if b-inferred = b.context[tb.index]
 			inner-conv implicit-conversions = match conv
@@ -647,16 +660,16 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 				b-to-a
 			match-types-no-b-context a, b-inferred.type, inner-conv
 		else
-			true
+			exact-match
 	as struct-inst
 		match ta = a.type
 		as bogus-type
-			false
+			()
 		as type-param-index
 			if a-inferred = a.context[ta.index]
-				if x = match-types-no-a-context a-inferred, b, conv
+				if kind, x = match-types-no-a-context a-inferred, b, conv
 					a.context[ta.index] := x
-					true
+					kind
 			elif x = try-get-non-inferring b
 				if x.kind == exact
 					kind inference-kind = match conv
@@ -667,9 +680,9 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 					as b-to-a
 						allow-narrower
 					a.context[ta.index] := kind, x.type
-				true
+				exact-match
 			else
-				true
+				exact-match
 		as struct-inst
 			match-struct-insts ta, tb, conv, (of x, y, conv2 then match-types (x, a.context), (y, b.context), conv2), of x, y
 				match-types (x, a.context), (y, b.context), conv
@@ -678,12 +691,12 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 	res
 
 | Returns new inference value for 'a'.
--match-types-no-a-context inference?(a inference, b type-and-context, conv implicit-conversions) common-types
+-match-types-no-a-context (type-match-kind, inference)?(a inference, b type-and-context, conv implicit-conversions) common-types
 	if trusted LOG
 		log error, "match-types-no-a-context a={debug a} b={debug b} conv={conv}"
 	match tb = b.type
 	as bogus-type
-		a
+		bogus-match, a
 	as type-param-index
 		# This function isn't called when 'b' is non-inferring
 		assert is-inferring b.context
@@ -691,7 +704,7 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 			match-types-no-context a, b-inferred.type, conv
 		else
 			# We haven't inferred anything about 'b', so it could match
-			a
+			exact-match, a
 	as struct-inst
 		match ta = a.type
 		as bogus-type
@@ -700,25 +713,33 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 			()
 		as struct-inst
 			if ta.decl == tb.decl
-				res = zip-every-type-args ta.type-args, tb.type-args, of x, y
-					!!(match-types-no-a-context (exact, x), (y, b.context), conv)
+				res = zip-type-args-and-match ta.type-args, tb.type-args, of x, y
+					?a match-types-no-a-context (exact, x), (y, b.context), conv
 				if res
-					exact, a.type
+					exact-match, (exact, a.type)
 			else
 				match-types-no-context a, b.replace-uninferred-with-bogus, conv
 
--match-types-no-b-context bool(a type-and-context, b type, conv implicit-conversions) common-types
+-zip-type-args-and-match type-match-kind?(a type-args, b type-args, f type-match-kind? mut(x type, y type))
+	res mut type-match-kind = exact-match
+	ok = zip-every-type-args a, b, of x, y
+		if here = f[x, y]
+			res min:= here
+			true
+	if ok then res
+
+-match-types-no-b-context type-match-kind?(a type-and-context, b type, conv implicit-conversions) common-types
 	if trusted LOG
 		log error, "match-types-no-b-context a=({debug a}) b=({debug b}) conv={conv}"
-	res bool = match ta = a.type
+	res type-match-kind? = match ta = a.type
 	as bogus-type
-		false
+		()
 	as type-param-index
 		if is-inferring a.context
 			if a-inferred = a.context[ta.index]
-				if new-a = match-types-no-context a-inferred, b, conv
+				if kind, new-a = match-types-no-context a-inferred, b, conv
 					a.context[ta.index] := new-a
-					true
+					kind
 			else
 				kind inference-kind = match conv
 				as exact
@@ -728,16 +749,16 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 				as b-to-a
 					allow-wider
 				a.context[ta.index] := kind, b
-				true
+				exact-match
 		else
-			b == a.type
+			if b == a.type then exact-match
 	as struct-inst
 		match b
 		as bogus-type
-			true
+			bogus-match
 		as type-param-index
 			if is-option ta.decl and conv == b-to-a
-				match-types-no-b-context (ta.type-args.only!, a.context), b, conv
+				min convert-to-option-or-union, match-types-no-b-context (ta.type-args.only!, a.context), b, conv
 		as struct-inst
 			match-struct-insts ta, b, conv, (of x, y, conv2 then match-types-no-b-context (x, a.context), y, conv2), of x, y
 				match-types-no-b-context (x, a.context), y, conv
@@ -745,63 +766,66 @@ match-types bool(a type-and-context, b type-and-context, conv implicit-conversio
 		log error, "match-types-no-b-context returns {res} for a=({debug a}) b=({debug b}) conv={conv}"
 	res
 
--match-struct-insts bool
+-match-struct-insts type-match-kind?
 	sa struct-inst
 	sb struct-inst
 	conv implicit-conversions
 	# TODO: it seems that these callbacks are often nearly the same, is there a better way to do it? ----------------------------
-	match-type-args bool mut(x type, y type, conv implicit-conversions)
-	match-after-unwrap bool mut(x type, y type)
+	match-type-args type-match-kind? mut(x type, y type, conv implicit-conversions)
+	match-after-unwrap type-match-kind? mut(x type, y type)
 do common-types
 	if trusted LOG
 		log error, "match-struct-insts {sa.to::json} {sb.to::json}"
 	if sa.decl == sb.decl
 		conv2 = if is-option sa.decl then conv else exact
-		zip-every-type-args sa.type-args, sb.type-args, of x, y
+		zip-type-args-and-match sa.type-args, sb.type-args, of x, y
 			match-type-args[x, y, conv2]
 	else
 		match conv
 		as exact
-			false
+			()
 		as a-to-b
 			match-struct-insts-a-to-b sa, sb, match-after-unwrap
 		as b-to-a
 			match-struct-insts-a-to-b sb, sa, of y, x then match-after-unwrap[x, y]
--match-struct-insts-a-to-b bool
+-match-struct-insts-a-to-b type-match-kind?
 	sa struct-inst
 	sb struct-inst
-	match-after-unwrap bool mut(x type, y type)
+	match-after-unwrap type-match-kind? mut(x type, y type)
 do common-types
 	match body = sb.decl.body
 	as builtin-type
 		if body == option
-			match-after-unwrap[sa, sb.unwrap-option!]
+			min convert-to-option-or-union, match-after-unwrap[sa, sb.unwrap-option!]
+		else
+			body-a = sa.decl.body
+			if body-a.builtin-type and builtin-widens body-a, body then convert-array-view-or-numeric
 	as sum-type
 		if body.kind == union_
-			exists body.listed-members, of x
+			min convert-to-option-or-union, first body.listed-members, of x
 				member = instantiate-struct-inst x.member, sb.type-args
 				match-after-unwrap[sa, member]
 		else
 			# TODO: interface/variant ... but where is this needed? --------------------------------------------------------------
-			false
+			()
 	else
 		if is-array sa and is-array-view sb
-			match-after-unwrap[sa.type-args.only!, sb.type-args.only!]
+			min convert-array-view-or-numeric, match-after-unwrap[sa.type-args.only!, sb.type-args.only!]
 
 | Returns new inference value for 'a', or none if they can't match
--match-types-no-context inference?(a inference, b type, conv implicit-conversions) common-types
+-match-types-no-context (type-match-kind, inference)?(a inference, b type, conv implicit-conversions) common-types
 	if trusted LOG
 		log error, "match-types-no-context a={debug a} b={debug b} conv={conv}"
-	res inference? = match ta = a.type
+	res (type-match-kind, inference)? = match ta = a.type
 	as bogus-type
 		()
 	as type-param-index
 		match b
 		as bogus-type
-			a
+			bogus-match, a
 		as type-param-index
 			if ta == b
-				a
+				exact-match, a
 		as struct-inst
 			can-widen-a = match conv
 			as exact
@@ -811,11 +835,11 @@ do common-types
 			as b-to-a
 				false
 			if can-widen-a and is-option b
-				match-types-no-context a, b.unwrap-option!, conv
+				min-kind convert-to-option-or-union, match-types-no-context a, b.unwrap-option!, conv
 	as struct-inst
 		match b
 		as bogus-type
-			a
+			bogus-match, a
 		as type-param-index
 			can-widen-b = match conv
 			as exact
@@ -825,15 +849,14 @@ do common-types
 			as b-to-a
 				true
 			if can-widen-b and is-option ta
-				match-types-no-context (a.kind, ta.unwrap-option!), b, conv
+				min-kind convert-to-option-or-union, match-types-no-context (a.kind, ta.unwrap-option!), b, conv
 		as struct-inst
 			if ta.decl == b.decl
 				if ta.type-args == b.type-args
 					# Need to choose the new inference kind based on 'a.kind' and 'conv'
-					(kind-combine a.kind, conv), a.type
+					exact-match, ((kind-combine a.kind, conv), a.type)
 				elif is-option ta.decl and conv != exact
-					if inner = match-types-no-context (a.kind, ta.type-args.only!), b.type-args.only!, conv
-						inner.kind, ta.decl[as-type-args inner.type]
+					min-kind convert-to-option-or-union, match-types-no-context (a.kind, ta.type-args.only!), b.type-args.only!, conv
 			else
 				match conv
 				as exact
@@ -841,16 +864,20 @@ do common-types
 					as exact
 						()
 					as allow-wider
-						if can-widen-to ta, b then exact, b
+						if kind = can-widen-to ta, b then kind, (exact, b)
 					as allow-narrower
-						if can-widen-to b, ta then exact, b
+						if kind = can-widen-to b, ta then kind, (exact, b)
 				as a-to-b
-					if can-widen-to ta, b then a
+					if kind = can-widen-to ta, b then kind, a
 				as b-to-a
-					if can-widen-to b, ta then a
+					if kind = can-widen-to b, ta then kind, a
 	if trusted LOG
-		log error, "match-types-no-context returns {debug res} for a={debug a} b={debug b} conv={conv}"
+		log error, "match-types-no-context returns {res.?a} {debug res.?b} for a={debug a} b={debug b} conv={conv}"
 	res
+
+-min-kind (type-match-kind, inference)?(kind type-match-kind, b (type-match-kind, inference)?)
+	if b-kind, inference = b
+		(min kind, b-kind), inference
 
 -debug string(a inference?)
 	if a then debug a else "none"
