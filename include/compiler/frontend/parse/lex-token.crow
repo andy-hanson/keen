@@ -41,7 +41,7 @@ to json(a token-data)
 no-token-data record
 to json(a no-token-data)
 
-lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
+lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 	assert source.size < (1 << 24) # Check that 24 bits is enough for pos
 	perf-start = perf-now
 	finally end-tokens perf-start
@@ -58,7 +58,7 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 		skip-spaces-and-comments iter, it.noop, diagnostics
 		do unless is-at-end iter
 		start = iter.pos
-		match take-char8 iter
+		match take-next iter
 		as "\n"
 			emit-newline state, iter, start
 		as "~"
@@ -207,7 +207,7 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 	diagnostics parse-diagnostic mut[]
 -finish tokens(a lexer-state)
 	a.tokens-starts-ends[0 .. a.n-tokens].to, a.data_[0 .. a.n-tokens].to
--new lexer-state(source char8 array-view, diagnostics parse-diagnostic mut[])
+-new lexer-state(source string-view, diagnostics parse-diagnostic mut[])
 	expected-n-tokens = max source.size / 4, 1
 	n-tokens: 0
 	tokens-starts-ends: trusted gc-safe-mut-slice expected-n-tokens
@@ -286,7 +286,7 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 		state.diagnostics ~= (start, iter.pos), char.parse-diag-unexpected-character
 		# Skip to end of line to avoid excessive diagnostics
 		until iter.is-at-end or iter.peek8 == "\n"
-			_ = take-char8 iter
+			_ = take-next iter
 
 -emit-newline void(state lexer-state, iter string-iterator, start pos)
 	end-all-quotes state, iter
@@ -334,19 +334,19 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 		if iter.peek8-next == "="
 			regular-token
 		else
-			_ = take-char8 iter
+			_ = take-next iter
 			v := "{value}="
 			if is-operator then operator-equals else name-equals
 	as "!"
 		if regular-token == name
-			_ = take-char8 iter
+			_ = take-next iter
 			name-bang
 		else
 			regular-token
 	as ":"
 		if iter.peek8-next == "="
-			_ = take-char8 iter
-			_ = take-char8 iter
+			_ = take-next iter
+			_ = take-next iter
 			if is-operator then operator-colon-equals else name-colon-equals
 		else
 			regular-token
@@ -356,7 +356,7 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 
 -try-take-just-colon bool(a string-iterator)
 	if a.peek8 == ":" and a.peek8-next != ":" and a.peek8-next != "="
-		_ = take-char8 a
+		_ = take-next a
 		true
 
 -token-for-symbol token(a symbol)
@@ -501,16 +501,16 @@ region strings
 	start = iter.pos
 	match iter.peek8
 	as "\{"
-		_ = take-char8 iter
+		_ = take-next iter
 		push-inside-quotes state, indented
 		emit state, quote-block-then-interpolated, range-start, start, out.move-to
 		break
 	as "\\"
-		_ = take-char8 iter
+		_ = take-next iter
 		take-string-escape out, start, iter, state.diagnostics
 		continue
 	as "\n"
-		_ = take-char8 iter
+		_ = take-next iter
 		while try-take-char8 iter, "\n"
 			()
 		new-indent = take-indent-amount-after-newline iter, state.indent-kind, of pos
@@ -536,7 +536,7 @@ region strings
 		state.cur-indent := 0
 		break
 	else
-		out ~= take-char8 iter
+		out ~= take-next iter
 		continue
 
 -chars char8[](a indent-kind)
@@ -560,7 +560,7 @@ do
 		start-of-char = iter.pos
 		match iter.peek8
 		as "\""
-			_ = take-char8 iter
+			_ = take-next iter
 			match quote-kind
 			as bar
 				out ~= "\""
@@ -570,10 +570,10 @@ do
 			as indented
 				throw unreachable
 		as "\{"
-			_ = take-char8 iter
+			_ = take-next iter
 			break true
 		as "\\"
-			_ = take-char8 iter
+			_ = take-next iter
 			take-string-escape out, start-of-char, iter, state.diagnostics
 			continue
 		as "\n"
@@ -581,9 +581,9 @@ do
 			as bar
 				iter2 = copy iter
 				while is-whitespace iter2.peek8
-					_ = take-char8 iter2
+					_ = take-next iter2
 				if iter2.peek8 == "|"
-					_ = take-char8 iter2
+					_ = take-next iter2
 					_ = try-take-char8 iter2, " "
 					iter.pos := iter2.pos
 					out ~= "\n"
@@ -605,7 +605,7 @@ do
 				throw unreachable
 			break
 		else
-			out ~= take-char8 iter
+			out ~= take-next iter
 			continue
 	if interpolate
 		push-inside-quotes state, quote-kind
@@ -614,7 +614,7 @@ do
 		emit state, quote-kind.no-interpolated, start, iter.pos, out.move-to
 
 -take-string-escape void(out char8 mut[], start pos, iter string-iterator, diagnostics parse-diagnostic mut[])
-	match take-char8 iter
+	match take-next iter
 	as "\\"
 		out ~= "\\"
 	as "\{"
@@ -669,7 +669,7 @@ do
 
 -try-take-hex-digit nat8?(a string-iterator)
 	if x = decode-hex-digit a.peek8
-		_ = take-char8 a
+		_ = take-next a
 		x
 
 region whitespace (including comments)
@@ -682,7 +682,7 @@ skip-spaces-and-comments void(iter string-iterator, cb-comment cb-comment, diagn
 	do loop
 	start = iter.pos
 	if is-whitespace-non-newline iter.peek8
-		_ = take-char8 iter
+		_ = take-next iter
 		continue
 	elif try-take-line-continuation iter, cb-comment
 		continue
@@ -725,26 +725,26 @@ skip-spaces-and-comments void(iter string-iterator, cb-comment cb-comment, diagn
 -try-take-line-continuation bool(iter string-iterator, cb-comment cb-comment)
 	do if iter.peek8 == "\\"
 	iter2 = copy iter
-	_ = take-char8 iter2
+	_ = take-next iter2
 	while try-take-char8 iter2, " "
 		()
 	do if try-take-char8 iter2, "\n"
 	start = pos iter
-	_ = take-char8 iter
+	_ = take-next iter
 	cb-comment[start]
 	iter.pos := iter2.pos
 	true
 
 | Used for completions and signature help.
 | Walks to the left skipping whitespace on the same line. Can also skip a single '.'.
-walk-backwards-for-position pos(source-text char8 array-view, pos pos)
+walk-backwards-for-position pos(source-text string-view, pos pos)
 	index mut pos = pos
 	index := skip-whitespace-backwards source-text, index
 	if index != 0 and source-text[index - 1] == "."
 		index -:= 1
 		index := skip-whitespace-backwards source-text, index
 	index.to
--skip-whitespace-backwards pos(text char8 array-view, index pos)
+-skip-whitespace-backwards pos(text string-view, index pos)
 	cur mut pos = index
 	do loop
 	if cur != 0 and text[cur - 1] == " "

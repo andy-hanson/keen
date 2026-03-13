@@ -7,6 +7,7 @@ import
 	./col/util
 	./compare
 	./exception
+	./java
 	./js
 	./misc
 	./number
@@ -18,8 +19,8 @@ import
 -peek-after char8(a string-iterator)
 	try
 		copy = a.copy
-		_ = take-char8 copy
-		take-char8 copy
+		_ = take-next copy
+		take-next copy
 	catch as iterator-out-of-bounds
 		"\0"
 +try-take bool(a string-iterator, start string)
@@ -45,23 +46,23 @@ import
 	iter string-iterator = begin text
 	try
 		res = fn a, iter
-		assert is-at-end iter else parse-error text.to, iter.char8-index, "string continues past end of parse"
+		assert is-at-end iter else parse-error text.to, iter.index, "string continues past end of parse"
 		res
 	catch e as inner-parse-error
-		throw parse-error text.to, iter.char8-index, e.expected
+		throw parse-error text.to, iter.index, e.expected
 
 +parse-error record exception case
 	| The argument passed to {parse}.
 	input string
 	| Position where the parse error happened.
 	| This will be `{input}.end` if the error was end of input.
-	char8-index nat
+	index nat
 	| Description of what was expected.
 	expected string
 + == bool(a parse-error, b parse-error)
 +show string(a parse-error)
 	# TODO: show where it is. Also handle funny characters
-	peek string = if a.char8-index == a.input.size then "EOF" else "'{(a.input.to::char8[])[a.char8-index]}'"
+	peek string = if a.index == a.input.size then "EOF" else "'{(a.input.to::char8[])[a.index]}'"
 	"Expected {a.expected}, got {peek}"
 
 +inner-parse-error record(expected string) exception case # TODO: it's annoying to have this, could parsers throw 'parse-error' directly?
@@ -109,7 +110,7 @@ import
 	func: of iter
 		res = peek iter
 		assert res and predicate[res] else inner-parse-error description
-		_ = take-char8 iter # TODO: this only advances past a char8. Should advance the whole char32. ----------------------------------------------
+		_ = take-next iter # TODO: this only advances past a char8. Should advance the whole char32. ----------------------------------------------
 		res
 
 | Expects to parse {a} followed by {b}.
@@ -144,11 +145,11 @@ import
 # TODO: I should probably remove this. This is the only rule that involves backtracing. -----------------------------------------
 + /[t] t grammar(a t grammar, b t grammar)
 	func: of iter
-		restore = iter.char8-index
+		restore = iter.index
 		try
 			fn a, iter
 		catch as inner-parse-error
-			iter.char8-index := restore
+			iter.index := restore
 			fn b, iter
 
 # TODO: 'f' should be 'data', not 'mut' -----------------------------------------------------------------------------------
@@ -160,11 +161,11 @@ import
 | Allows parsing to fail, returning an empty option if it does.
 +optional[t] t? grammar(a t grammar)
 	func: of iter
-		restore = iter.char8-index
+		restore = iter.index
 		try
 			fn a, iter
 		catch as inner-parse-error
-			iter.char8-index := restore
+			iter.index := restore
 			()
 | Optionally skips an exact string.
 +optional grammar-skip(a string)
@@ -174,14 +175,14 @@ import
 +many[t] t[] grammar(a t grammar)
 	func: of iter
 		do with out in build
-		restore mut = iter.char8-index
+		restore mut = iter.index
 		try
 			while true
-				restore := iter.char8-index
+				restore := iter.index
 				v = fn a, iter
 				out ~= v
 		catch as inner-parse-error
-			iter.char8-index := restore
+			iter.index := restore
 
 +many grammar-skip(a grammar-skip)
 	inner void[] grammar = many a.inner
@@ -215,11 +216,11 @@ import
 	!!(try-parse a.inner, iter)
 
 -try-parse[t] t?(a t grammar, iter string-iterator)
-	restore = char8-index iter
+	restore = index iter
 	try
 		fn a, iter
 	catch as inner-parse-error
-		iter.char8-index := restore
+		iter.index := restore
 		()
 
 | Use this to allow recursive grammars.
@@ -244,7 +245,7 @@ import
 	inner: func: it.skip-whitespace
 +skip-whitespace void(a string-iterator)
 	while x = a.peek and is-space x
-		_ = take-char8 a
+		_ = take-next a
 +is-space bool(a char8)
 	match a
 	as " "
@@ -268,12 +269,12 @@ import
 	with out in build
 		do loop
 		forbid is-at-end iter else inner-parse-error "quoted string"
-		match char = take-char8 iter
+		match char = take-next iter
 		as "\""
 			break
 		as "\\"
 			do unless is-at-end iter else break
-			assert esc = escape iter.take-char8 else inner-parse-error "Valid escape sequence"
+			assert esc = escape iter.take-next else inner-parse-error "Valid escape sequence"
 			out ~~= esc.to::string.to
 			continue
 		else
@@ -324,7 +325,7 @@ import
 | This allows e.g. "1", "+23", "-45".
 +int int64 grammar()
 	("+".optional ~~ (transform nat, it.to)) / ("+" ~~ (transform nat, -it.to))
-~parse-int int64(a char8 array-view)
+~parse-int int64(a string-view)
 	forbid is-empty a else inner-parse-error "integer"
 	if a[0] == "+"
 		a[1 .. end].parse-nat.to
@@ -355,9 +356,9 @@ import
 	skip-underscore-if-before-digit a
 	do if char = peek a
 	do if digit = char-to-nat64 char, base
-	_ = take-char8 a
+	_ = take-next a
 	digit
-~parse-nat nat64(a char8 array-view)
+~parse-nat nat64(a string-view)
 	iter string-iterator = begin a
 	res = take-nat iter
 	assert is-at-end iter else todo
@@ -383,12 +384,12 @@ import
 	_ = try-take iter, "-" or try-take iter, "+"
 	assert peek-digit iter else inner-parse-error "float"
 	while peek-digit iter
-		_ = take-char8 iter
+		_ = take-next iter
 		skip-underscore-if-before-digit iter
 	if iter.peek == "." and is-digit peek-after iter
-		_ = take-char8 iter
+		_ = take-next iter
 		while peek-digit iter
-			_ = take-char8 iter
+			_ = take-next iter
 			skip-underscore-if-before-digit iter
 	parse-float slice start, iter
 
@@ -397,7 +398,7 @@ import
 
 -skip-underscore-if-before-digit void(a string-iterator)
 	if a.peek == "_" and is-digit peek-after a
-		_ = a.take-char8
+		_ = a.take-next
 
 ~parse-float float64(a string-view)
 	trusted if java

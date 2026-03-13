@@ -7,10 +7,10 @@ import
 	./col/array
 	./col/mut-array
 	./col/mut-slice
-	./col/private/array-low-level: inner, low, high
 	./col/util
 	./exception
 	./hash
+	./java
 	./js
 	./misc
 	./number
@@ -42,18 +42,7 @@ export
 +interpolate-value[t] string(a t) t show
 	show a
 +interpolate string(parts string[])
-	# TODO: this could just use 'flatten' from collection.crow if that had better perf .......................................
-	res-size mut nat64 = 0
-	for part in parts
-		res-size +:= part.to::char8[].size
-	res char8 mut-slice = trusted gc-safe-mut-slice res-size
-	out-i mut nat64 = 0
-	for part in parts
-		chars char8[] = part.to
-		res[out-i .. out-i + chars.size] := chars
-		out-i +:= chars.size
-	assert out-i == res-size
-	trusted res.cast-immutable.to
+	join parts
 +interpolate String(parts string[]) java
 	parts.interpolate::string.to
 +interpolate js-any(parts string[]) js
@@ -95,7 +84,7 @@ region conversion
 | Treats UTF-8 character codes as a string.
 +to string(a char8[])
 	a,
-+to string(a char8 array-view)
++to string(a string-view)
 	a.to::char8[].to
 +move-to string(a char8 mut[])
 	a.move-to::char8[].to
@@ -225,31 +214,17 @@ region conversion
 +iterate-reverse bool(a string, f bool mut(x char8))
 	iterate-reverse a.to::char8[], f
 
-| NOTE: More helpful functions are in 'crow/parse'
 +string-iterator alias
 	char8 array-iterator
 +begin string-iterator(a string)
 	begin a.to::char8[]
 +end string-iterator(a string)
 	end a.to::char8[]
-+take-char8 char8(a string-iterator)
-	take-next a
-+char8-index nat(a string-iterator)
-	a.index
-+set-char8-index void(a string-iterator, index nat)
-	a.index := index
 
 +with-block string(a build-options, f void mut(out char8 builder))
 	with-block::char8[] a.size-hint.build, f 'to
 
 region utilities
-
-+invalid-unicode-character record(character nat32) exception case
-+show string(a invalid-unicode-character)
-	"0x{to-hex a.character} is not a valid Unicode character."
-+unicode-decode-error record exception case
-+show string(_ unicode-decode-error)
-	"Error decoding bytes as UTF-8"
 
 +join string(parts string[])
 	join "", parts
@@ -263,30 +238,18 @@ region utilities
 	else
 		join-with-multiple-parts joiner, parts
 -join-with-multiple-parts string(joiner string, parts string[])
-	first mut bool = true
-	do with out in build
-	do for x in parts
-	if first
-		first := false
-	else
-		out ~~= joiner.chars
-	out ~~= x.chars
-
-region conversion
-
-+to string(a String) java
-	to safe-reinterpret-cast trusted cast-immutable a.getBytes
-+to string(a js-any) js
-	trusted
-	assert a.typeof == "string" else
-		error "Value is not a string. Actual typeof: {a.typeof.to::string}"
-	- assume-type call-property "TextEncoder".js-global.call-new, "encode", a
-
-+to String(a string) java
-	trusted
-	- cast-mutable a.chars.safe-reinterpret-cast::int8[]
-+to js-any(a string) js
-	trusted call-property "TextDecoder".js-global.call-new, "decode", a.chars.as-js
-
-+safe-reinterpret-cast char8 array-view(a nat8 array-view)
-	a.inner.safe-reinterpret-cast, a.low, a.high
+	res-size mut nat64 = 0
+	for part in parts
+		res-size +:= part.size
+	res-size +:= joiner.size * (parts.size - 1)
+	res char8 mut-slice = trusted gc-safe-mut-slice res-size
+	out-i mut nat = 0
+	for i in 0 .. parts.size
+		if i != 0
+			res[out-i .. out-i + joiner.size] := joiner.chars
+			out-i +:= joiner.size
+		part = parts[i].chars
+		res[out-i .. out-i + part.size] := part
+		out-i +:= part.size
+	assert out-i == res.size
+	trusted res.cast-immutable.to
