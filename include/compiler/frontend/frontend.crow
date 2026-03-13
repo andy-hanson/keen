@@ -260,8 +260,6 @@ change-file void(a frontend, uri uri, changes text-document-content-change-event
 
 read-file-result union(nat8 array-view, read-file-diag)
 == bool(a read-file-result, b read-file-result)
-set-file void(a frontend, uri uri, string string)
-	set-file a, uri, string.to::nat8[]
 set-file void(a frontend, uri uri, result read-file-result)
 	# Files don't change *to* unknown, only change out of that state
 	forbid result.read-file-diag == unknown
@@ -420,7 +418,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 		a.common-types-option := common-types
 		bootstrap.module := module
 		a.count-uncompiled-crow-files -:= 1
-		mark-all-non-bootstrap-modules-dirty a, bootstrap # since they all use common-types
+		mark-all-non-bootstrap-modules-dirty a, bootstrap.uri # since they all use common-types
 
 	do if a.common-types-option
 	do loop
@@ -561,11 +559,10 @@ set-file void(a frontend, uri uri, result read-file-result)
 		a.workable-crow ~= file.uri
 
 -is-workable bool(a frontend, file java-class-file)
-	forbid file.module
 	parsed = file.parsed
 	do if parsed.parsed-java-class-header
 	if super = parsed.super-class
-		has-filled-in-supertypes ensure-java-class-file a, super, header-only
+		has-filled-in-supertypes a.java-class-files[super]!
 	else
 		true
 -is-workable bool(a crow-file)
@@ -608,14 +605,18 @@ set-file void(a frontend, uri uri, result read-file-result)
 	#z nat = a.re-exports.?paths.?size or 0
 	x + y + z
 
-# TODO: just take `bootstrap uri`, not `bootstrap crow-file` --------------------------------------------------------------------------
--mark-all-non-bootstrap-modules-dirty void(a frontend, bootstrap crow-file)
+-mark-all-non-bootstrap-modules-dirty void(a frontend, bootstrap uri)
+	clear a.workable-java
+	for path, file in a.java-class-files
+		file.module := ()
+		# No need to reset files that aren't yet workable, they'll be processed eventually anyway
+		add-to-workable-if-so a, path, file
 	for uri, x in a.crow-files
-		if uri != bootstrap.uri
+		if uri != bootstrap
 			mark-module-dirty a, x
 	clear a.workable-crow
 	for uri, x in a.crow-files
-		if uri != bootstrap.uri
+		if uri != bootstrap
 			add-to-workable-if-so a, x
 
 -mark-module-dirty void(a frontend, file crow-file)
@@ -755,7 +756,7 @@ do
 test
 	a frontend = crow-include-dir: must-parse-uri "test://bin/crow"
 	uri-a = must-parse-uri "test://src/a.crow"
-	set-file a, uri-a, "a"
+	set-file a, uri-a, "a".to::read-file-result
 	get-file-content a, uri-a is "a"::char8[]
 	change-file a, uri-a,
 		- "a\nb\nc",
