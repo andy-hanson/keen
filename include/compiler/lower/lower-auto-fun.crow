@@ -52,7 +52,7 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 			lower-hash-union range, params.only2!, x.members, a.members
 	as members-of-enum-or-flags
 		gen-constant-array all-constants, return-type, range,
-			map return-type.array-element-type.enum-or-flags-members, it.value.to
+			map return-type.as-array!.enum-or-flags-members, it.value.to
 	as to-enum-or-flags-option-from-nat
 		lower-integral-to-opt-enum-or-flags range, return-type, only! params
 	as to-enum-or-flags-option-from-symbol
@@ -186,25 +186,27 @@ do
 	param low-local
 	f constant mut(x enum-or-flags-member)
 do lower-ctx, quick-fill-in-low-fun-body
-	# (if a & x == 0 then () else ("x",)) ~~ (if a & y == 0 then () else ("y",))
 	members = param.type.must-be-flags.members
-	storage = param.type.flags-storage
-	storage-type = nat-type storage
-	value = gen-cast-nat range, storage, gen-param-get range, param
-	empty-array = gen-constant array-type, range, get-constant-array all-constants, array-type, ()
-	do unless is-empty members else empty-array
-	array-for-member = of member enum-or-flags-member
-		# if value & x == 0 then () else ("x",)
-		member-value low-expr = storage-type, range, member.value.to
-		intersect = gen-intersect-nat range, storage, value, member-value
-		zero = gen-constant-zero storage-type, range
-		test_ = gen-equal-integral range, intersect, zero
-		array = gen-constant array-type, range, get-constant-array all-constants, array-type, (f[member],)
-		gen-if range, test_, empty-array, array
-	res mut = array-for-member[members[0]]
-	for member in members[1 .. end]
-		res := gen-concat-array range, res, array-for-member[member]
-	res
+	do unless is-empty members else
+		gen-constant array-type, range, get-constant-array all-constants, array-type, ()
+	###
+	Generates code like:
+	-- if a & x == 0 then () else ("x",)
+	-- if a & y == 0 then () else ("y",)
+	###
+	gen-concat-array-views range, array-type.as-array!, of array-view-type
+		empty-array-view = gen-constant-array-view array-view-type, range, array-type, ()
+		storage = flags-storage param.type
+		storage-type = nat-type storage
+		value = gen-cast-nat range, storage, gen-param-get range, param
+		for member in members
+			# if value & x == 0 then () else ("x",)
+			member-value low-expr = storage-type, range, member.value.to
+			intersect = gen-intersect-nat range, storage, value, member-value
+			zero = gen-constant-zero storage-type, range
+			test_ = gen-equal-integral range, intersect, zero
+			gen-if range, test_, empty-array-view,
+				gen-constant-array-view array-view-type, range, array-type, (f[member],)
 
 -auto-fun-match-enum low-expr(range uri-and-range, return-type low-type, param low-local, f low-expr mut(x enum-or-flags-member))
 	gen-match-scalar return-type, range, (gen-param-get range, param), f
@@ -214,7 +216,7 @@ do lower-ctx, quick-fill-in-low-fun-body
 	return-type low-type
 	param low-local
 do lower-ctx
-	if is-flags unwrap-option-type! return-type
+	if is-flags as-option! return-type
 		lower-nat-to-opt-flags range, return-type, param
 	else
 		# TODO: generate a match-integral-low-expr! ------------------------------------------------------------------------------------------
@@ -224,7 +226,7 @@ do lower-ctx
 
 -lower-nat-to-opt-flags low-expr(range uri-and-range, option-type low-type, param low-local) lower-ctx
 	# if a in all then (a.cast,) else ()
-	flags-type = unwrap-option-type! option-type
+	flags-type = as-option! option-type
 	storage = flags-storage flags-type
 	param-get = gen-widen-nat storage, gen-param-get range, param
 	all = get-all-flags-expr range, flags-type
@@ -242,7 +244,7 @@ do lower-ctx
 		gen-builtin out-type, arg.range, wrap-convert-integral, (), (arg,)
 
 -lower-symbol-to-opt-enum-or-flags low-expr(range uri-and-range, option-type low-type, param low-local) lower-ctx
-	enum-type = unwrap-option-type! option-type
+	enum-type = as-option! option-type
 	param-get = gen-param-get range, param
 	symbol-type = param-get.type
 	cases low-match-string-like-case[] = for member in must-be-enum-or-flags enum-type
@@ -259,7 +261,7 @@ do lower-ctx
 	f-test low-expr mut(param-get low-expr, member enum-or-flags-member)
 do lower-ctx
 	# TODO: In the common case you can just check 'x <= max-enum-member' and cast it ----------------------------------------------------------------
-	enum-type = unwrap-option-type! option-type
+	enum-type = as-option! option-type
 	storage = enum-storage enum-type
 	param-get = gen-widen-nat storage, gen-param-get range, param
 	res mut = gen-empty-option option-type, range

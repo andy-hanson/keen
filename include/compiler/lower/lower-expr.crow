@@ -67,7 +67,7 @@ quick-fill-in-low-fun-body void(ctx lower-ctx, cf low-fun)
 		index = field-index-from-field p0.type, x.field
 		gen-record-field-set range, p0, index, p1
 	as sum-type-member-get
-		case_ = sum-type-case-index low-params.only!.type, unwrap-option-type! return-type
+		case_ = sum-type-case-index low-params.only!.type, as-option! return-type
 		gen-union-member-get cf, case_
 	as var-get
 		assert is-empty low-params
@@ -162,8 +162,8 @@ do lower-and-expr-ctx
 	if is-array-op low-called
 		input-arg, lambda-arg = only2! a.args
 		input = lower-expr low-called.params[0].type, input-arg
-		in-element-type = if is-range input.type then range-element-type input.type else array-element-type input.type
-		out-element-type = if is-void type then type else array-element-type type
+		in-element-type = if is-range input.type then range-element-type input.type else as-array-or-mut-slice! input.type
+		out-element-type = if is-void type then type else as-array-or-mut-slice! type
 		empty-out-array constant-array? = unless is-void type
 			constant-array! get-constant-array all-constants, type, ()
 		match lambda-arg
@@ -228,11 +228,10 @@ do lower-and-expr-ctx
 	args low-expr[] = for arg in a.args
 		lower-expr arg-type, arg
 	symbols.size is args.size
-	args-array low-expr = arg-array-type, range, args.create-array-low-expr
 	low-called.return-type, range,
 		call-low-expr low-called,
 			- symbol-array
-			- args-array
+			- arg-array-type, range, create-array-low-expr args
 			-- context-args range, a.called, low-called
 
 -context-args low-expr[]
@@ -253,10 +252,10 @@ do lower-and-expr-ctx
 -is-array-op bool(a low-fun)
 	# TODO: make sure this is the one in collection.crow and all the spec impls are as expected ------------------------
 	do if a.name == "for-loop"
-	do if is-void a.return-type or is-array-or-mut-array a.return-type
+	do if is-void a.return-type or as-array-or-mut-slice a.return-type
 	do if a.params.size == 2
 	input = a.params[0]
-	do if is-range input.type or is-array-or-mut-array input.type
+	do if is-range input.type or as-array-or-mut-slice input.type
 	do if as-lambda-type a.params[1].type
 	true
 
@@ -337,35 +336,34 @@ do lower-and-expr-ctx
 
 -lower-list low-expr(type low-type, range uri-and-range, a list-expr) lower-and-expr-ctx
 	do if called = get-low-fun-from-called a.called else lower-bogus type, range
-	array-type = get-low-type a.array-type
 	called.return-type, range,
 		call-low-expr called,
-			- lower-list-inner array-type, range, a.parts
+			- lower-list-inner a.array-type.get-low-type, range, a.parts
 
 -lower-list-inner low-expr
 	array-type low-type
 	range uri-and-range
 	parts list-expr-part[]
 do lower-and-expr-ctx
-	element = array-element-type array-type
-	arrays low-expr mut[] = ()
-	cur-list low-expr mut[] = ()
-	finish-list = of
-		arrays ~= array-type, range, cur-list.move-to.create-array-low-expr
-	for part in parts
-		match part
-		as expr
-			cur-list ~= lower-expr element, part
-		as list-expr-part-multi
+	elem-type = as-array! array-type
+	if every parts, !!it.expr
+		array-type, range, create-array-low-expr for part in parts
+			lower-expr elem-type, part.expr!
+	else
+		gen-concat-array-views range, elem-type, of array-view-type
+			array-views low-expr mut[] = ()
+			cur-list low-expr mut[] = ()
+			finish-list = of
+				array-views ~= gen-to-array-view (array-type, range, create-array-low-expr cur-list.move-to)
+			for part in parts
+				match part
+				as expr
+					cur-list ~= lower-expr elem-type, part
+				as list-expr-part-multi
+					finish-list[]
+					array-views ~= lower-expr array-view-type, part.arg
 			finish-list[]
-			arrays ~= lower-expr array-type, part.arg
-	finish-list[]
-
-	finished-arrays low-expr[] = arrays.move-to
-	res mut = finished-arrays[0]
-	for x in finished-arrays[1 .. end]
-		res := gen-concat-array range, res, x
-	res
+			array-views.move-to
 
 -lower-expr-with-destructure low-local-and-expr
 	type low-type
@@ -515,7 +513,7 @@ do lower-and-expr-ctx
 	else
 		x, false
 	arg = lower-expr model-arg
-	if is-option arg.type
+	if as-option arg.type
 		expected-index nat = if is-not-not then 1 else 0
 		type, range, if c = arg.kind.constant
 			c.constant-union!.index == expected-index 'to
@@ -622,7 +620,7 @@ do lower-and-expr-ctx
 		gen-if range, condition, true-branch[], false-branch[]
 
 -gen-option-else low-expr(type low-type, range uri-and-range, option low-expr, else_ low-expr) lower-ctx
-	local low-local = member::low-generated-local-kind, option.type.unwrap-option-type!
+	local low-local = member::low-generated-local-kind, option.type.as-option!
 	get-local low-expr = may-widen-type type, gen-local-get range, local
 	gen-if-option range, option, (local, get-local), else_
 
@@ -842,7 +840,7 @@ do lower-and-expr-ctx
 			locals = cond.locals
 			tuple-option = cond.tuple-option
 			both = cond.expr
-			tuple-type = tuple-option.unwrap-option-type!
+			tuple-type = tuple-option.as-option!
 			loop_ =
 				body = lower-expr void.type, expr.body
 				body-and-continue = gen-do-and-continue tuple-type, range, body
@@ -926,7 +924,7 @@ do lower-and-expr-ctx
 	else
 		tuple struct-inst = tuple! common-types, make-type-args model-locals, it.type
 		get-low-type common-types.option[tuple]
-	low-tuple-type = unwrap-option-type! low-tuple-option
+	low-tuple-type = as-option! low-tuple-option
 	local-types low-type[] = if model-locals.size == 0
 		()
 	elif model-locals.size == 1
@@ -1228,10 +1226,10 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 -try-widen low-expr?(expected low-type, actual low-expr) lower-ctx
 	if actual.type == expected
 		actual
-	elif expected-unwrapped = unwrap-option-type expected
+	elif expected-unwrapped = as-option expected
 		if res = try-widen expected-unwrapped, actual
 			gen-option expected, actual.range, res
-		elif actual-unwrapped = unwrap-option-type actual.type
+		elif actual-unwrapped = as-option actual.type
 			# 'actual' generates an option.
 			temp low-local = member::low-generated-local-kind, actual-unwrapped
 			range = actual.range
@@ -1247,9 +1245,8 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 			if res = try-widen member, actual
 				gen-create-union expected, actual.range, member-index, res
 	else
-		if is-array-view expected and elem = as-array actual.type
-			to-array-view = get-low-fun common-funs.to-array-view, (elem,), ()
-			gen-call actual.range, to-array-view, (actual,)
+		if is-array-view expected and as-array actual.type
+			gen-to-array-view actual
 		elif expected-builtin = as-builtin-type expected and actual-builtin = as-builtin-type actual.type
 			if builtin-widens actual-builtin.kind, expected-builtin.kind
 				if as-integral-type expected and as-integral-type actual.type

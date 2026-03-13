@@ -20,6 +20,7 @@ expected record mut
 	-opt-choices mut type-and-context mut[]?
 	| If empty, this is purely inferring
 	-opt-loop loop-info?
+-to json(a expected)
 infer expected()
 	(), (), ()
 expect expected(type type)
@@ -38,6 +39,7 @@ loop-info record mut
 	loop_ loop-expr
 	type type
 	has-break mut bool
+to json(a loop-info)
 
 to expected(a type-and-context[])
 	(), a.to, ()
@@ -157,9 +159,10 @@ choose-number-type number-type?(range source-range, expected expected) check-exp
 			js-any, res-js!
 		else
 			json, res-json!
-		# TODO: should be able to assert this!
-		# But there is some issue in the IDE (probably involving Java types...) where types get duplicated and int32 != int32
-		_ = try-set-no-diagnostic expected, type
+		unless try-set-no-diagnostic expected, type
+			log "Expected: {expected.to-json}"
+			log "Actual: {type.to-json}"
+			throw todo
 		if total > 1
 			add-diag range, diag-literal-multiple-match type-container,
 				-- from-option res-nat.?to
@@ -208,7 +211,7 @@ choose-number-type number-type?(range source-range, expected expected) check-exp
 				f[type]
 		else
 			# NOTE: no need to handle 'builtin-widens' here, since 'choose-number-type' handles that.
-			if is-array-view type
+			if as-array-view type
 				f[the::common-types.array[type.type-args]]
 			else
 				f[type]
@@ -241,15 +244,16 @@ choose-number-type number-type?(range source-range, expected expected) check-exp
 				# Or could just cache all implemented interfaces
 				st 'is-or-can-widen-to wide
 	else
-		if is-array-view wide and is-array narrow and narrow.type-args 'can-match wide.type-args
+		if as-array-view wide and as-array narrow and narrow.type-args 'can-match wide.type-args
 			convert-array-view-or-numeric
 -is-or-can-widen-to type-match-kind?(narrow struct-inst, wide struct-inst) common-types
 	if narrow == wide
 		exact-match
 	else
 		narrow 'can-widen-to wide
--is-array-view bool(a struct-inst) common-types
-	a.decl == the::common-types.array-view
+-as-array-view type?(a struct-inst) common-types
+	if a.decl == the::common-types.array-view
+		only! a.type-args
 -can-match bool(a type-args, b type-args)
 	zip-every-type-args a, b, of x, y
 		x == y or is-bogus y
@@ -809,8 +813,8 @@ do common-types
 			# TODO: interface/variant ... but where is this needed? --------------------------------------------------------------
 			()
 	else
-		if is-array sa and is-array-view sb
-			min convert-array-view-or-numeric, match-after-unwrap[sa.type-args.only!, sb.type-args.only!]
+		if x = as-array sa and y = as-array-view sb
+			min convert-array-view-or-numeric, match-after-unwrap[x, y]
 
 | Returns new inference value for 'a', or none if they can't match
 -match-types-no-context (type-match-kind, inference)?(a inference, b type, conv implicit-conversions) common-types
