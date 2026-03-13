@@ -2,11 +2,9 @@ no-std
 import
 	java/util/Arrays
 	java/lang/String
-	./bits
 	./bool
 	./compare
 	./col/array
-	./col/collection
 	./col/mut-array
 	./col/mut-slice
 	./col/private/array-low-level: inner, low, high
@@ -16,7 +14,6 @@ import
 	./js
 	./misc
 	./number
-	./option
 	./private/bootstrap: chars
 	./range
 	./tuple
@@ -28,12 +25,17 @@ export
 +to nat8(a char8)
 + == bool(a char8, b char8)
 
++string-view alias
+	char8 array-view
++show string(a string-view)
+	a.to
+
 + ~~ string(a string, b string)
-	a.to::char8[] ~~ b.to 'to
-+ ~ string(a char32, b string)
-	a.to ~~ b
-+ ~ string(a string, b char32)
-	a ~~ b.to
+	a.chars ~~ b.chars 'to
++ ~ string(a char8, b string)
+	a ~ b.chars 'to
++ ~ string(a string, b char8)
+	a.chars ~ b 'to
 
 +interpolate-string string(a string)
 	a
@@ -65,12 +67,8 @@ export
 +is-empty bool(a string)
 	is-empty a.to::char8[]
 
-| Number of {char32}s in the string. This must walk and decode the string to count them.
 +size nat64(a string)
-	res mut nat64 = 0
-	for _ in a
-		res +:= 1
-	res
+	a.to::char8[].size
 
 + == bool(a string, b string)
 	trusted if java
@@ -78,45 +76,21 @@ export
 	else
 		# TODO: ideally, this would have just as good performance. Would require letting it specialize on types.
 		a.to::char8[] == b.to
-+ == bool(a char32, b char32)
-+to nat32(a char32)
-| This is unsafe because a {char32} should be a valid unicode character.
-+unsafe-to char32(a nat32) unsafe
-+to char32(a nat32)
-	assert is-valid-unicode-character a
-	trusted a.unsafe-to
 
 + <=> comparison(a string, b string)
 	trusted a.to::char8[] <=> b.to # TODO: this is same as the auto fun, so just use that? --------------------------------------------------------
 + <=> comparison(a char8, b char8)
 	trusted a.to::nat8 <=> b.to
-+ <=> comparison(a char32, b char32)
-	trusted a.to::nat32 <=> b.to
 
 +hash void(a string, state hash-state)
 	trusted hash a.chars, state
 +hash void(a char8, state hash-state)
 	trusted hash a.to::nat8, state
-+hash void(a char32, state hash-state)
-	trusted hash a.to::nat32, state
 
 region conversion
 
--unsafe-to char32(a char8)
-+to char32(a char8)
-	assert is-valid-single-byte-character a
-	a.unsafe-to
-+to char8(a char32)
-	a.to::nat32.to::nat8.to
-
 +to char8[](a string)
 	a.chars
-+to char32[](a string)
-	for x in a then x
-+to string(a char32 array-view)
-	with out in build
-		for x in a
-			out ~= x
 
 | Treats UTF-8 character codes as a string.
 +to string(a char8[])
@@ -144,18 +118,15 @@ region conversion
 
 | String containing a single character.
 +to string(a char8)
-	a.to::char32.to
+	chars: a,
 +show string(a char8)
 	if is-valid-single-byte-character a
 		a.to
 	else
 		"\\u{to-hex a.to::nat8}"
-+to string(a char32)
-	with out in build
-		out ~= a
-+show string(a char32)
-	a.to
 
+~is-valid-single-byte-character bool(a char8)
+	a.to::nat8 < 0b1000_0000
 
 +show string(a nat8)
 	show a::nat
@@ -173,7 +144,7 @@ region conversion
 
 -digit-to-string string(a nat64)
 	a.digit-to-char.to
--digit-to-char char32(a nat64)
+-digit-to-char char8(a nat64)
 	match a
 	as 0
 		"0"
@@ -247,76 +218,29 @@ region conversion
 	else
 		throw todo
 -strip-point-0 string(a string)
-	try-remove-end a, ".0" else a
+	?to try-remove-end a, ".0" else a
 
-+iterate bool(a string, f bool mut(x char32))
-	iter = begin a.to::char8[]
-	do loop
-	next char32? = try
-		unicode-decode iter
-	catch as iterator-out-of-bounds
-		()
-	do if next else break false
-	if f[next] then break true else continue
-+iterate-reverse bool(a string, f bool mut(x char32))
-	iter = end a.to::char8[]
-	do loop
-	prev char32? = try
-		unicode-decode-prev iter
-	catch as iterator-out-of-bounds
-		()
-	do if prev else break false
-	# TODO: `if f[x] then break true else continue` should parse
-	if f[prev]
-		break true
-	else
-		continue
++iterate bool(a string, f bool mut(x char8))
+	iterate a.to::char8[], f
++iterate-reverse bool(a string, f bool mut(x char8))
+	iterate-reverse a.to::char8[], f
 
 | NOTE: More helpful functions are in 'crow/parse'
-+string-iterator record mut
-	~inner char8 array-iterator
++string-iterator alias
+	char8 array-iterator
 +begin string-iterator(a string)
-	begin a.to::(char8 array-view)
-+begin string-iterator(a char8 array-view)
-	a.begin,
+	begin a.to::char8[]
 +end string-iterator(a string)
-	end a.to::(char8 array-view)
-+end string-iterator(a char8 array-view)
-	a.end,
-+copy string-iterator(a string-iterator)
-	a.inner.copy,
-+is-at-end bool(a string-iterator) # TODO: this should be a generic function on iterators .......................................................
-	is-at-end a.inner
+	end a.to::char8[]
 +take-char8 char8(a string-iterator)
-	take-next a.inner
-+take-next char32(a string-iterator)
-	unicode-decode a.inner
-+take-prev char32(a string-iterator)
-	unicode-decode-prev a.inner
-+skip-next-n void(a string-iterator, n nat)
-	for _ in 0 .. n
-		_ = take-next a
-+skip-prev-n void(a string-iterator, n nat)
-	for _ in 0 .. n
-		_ = take-prev a
+	take-next a
 +char8-index nat(a string-iterator)
-	a.inner.index
+	a.index
 +set-char8-index void(a string-iterator, index nat)
-	a.inner.index := index
-+slice string(a string-iterator, b string-iterator)
-	slice a.inner, b.inner 'to
+	a.index := index
 
-+string-builder record mut
-	-inner char8 builder
-+with-block string(a build-options, f void mut(out string-builder))
-	chars char8[] = with out in build a.size-hint
-		f[out,]
-	chars.to
-+ ~= void(a string-builder, value char32)
-	unicode-encode value.to, of x
-		push-byte a, x
-+ ~~= void(a string-builder, s string)
-	a.inner ~~= s.to::char8[]
++with-block string(a build-options, f void mut(out char8 builder))
+	with-block::char8[] a.size-hint.build, f 'to
 
 region utilities
 
@@ -345,93 +269,8 @@ region utilities
 	if first
 		first := false
 	else
-		out ~~= joiner
-	out ~~= x
-
-~unicode-encode void(a nat32, cb void mut(x nat8))
-	if a < (1 << 7)
-		cb[a.to]
-	elif a < (1 << 11)
-		cb[(a >> 6).to | first-byte-flags]
-		cb[a.last-6-bits | byte-top-bit]
-	elif a < (1 << 16)
-		forbid a 'in 0xd800 .. 0xe000 else invalid-unicode-character a
-		cb[(a >> 12).to | 0b1110_0000]
-		cb[(a >> 6).last-6-bits | byte-top-bit]
-		cb[a.last-6-bits | byte-top-bit]
-	else
-		assert a < 0x110000 else invalid-unicode-character a
-		cb[(a >> 18).to | 0b1111_0000]
-		cb[(a >> 12).last-6-bits | byte-top-bit]
-		cb[(a >> 6).last-6-bits | byte-top-bit]
-		cb[a.last-6-bits | byte-top-bit]
--push-byte void(out string-builder, a nat8)
-	out.inner ~= a.to
-
-~unicode-decode char32(iter char8 array-iterator)
-	first-char = take-next iter
-	if is-valid-single-byte-character first-char
-		first-char.to
-	else
-		assert is-first-byte first-char else unicode-decode-error
-		res mut nat32 = first-char.to::nat8.to
-		flag mut nat8 = first-char.to << 1
-		result char32? = first 1::nat64 .. 4, of i
-			next-char = try-take-next iter else throw unicode-decode-error
-			code nat8 = next-char.to
-			assert (code & first-byte-flags) == byte-top-bit else unicode-decode-error
-			res := (res << 6) | code.to.last-6-bits
-			flag <<:= 1
-			do if (flag & 0x80) == 0
-			assert bits-intersect res, ~(i - 1).mask else unicode-decode-error
-			res &:= i.mask
-			assert is-valid-unicode-character res else unicode-decode-error
-			res.to
-		result else throw unicode-decode-error
-
--mask nat32(i nat64)
-	match i
-	as 0
-		(1 << 7) - 1
-	as 1
-		(1 << 11) - 1
-	as 2
-		(1 << 16) - 1
-	as 3
-		(1 << 21) - 1
-	else
-		throw unreachable
-
--unicode-decode-prev char32(iter char8 array-iterator)
-	first-char = take-prev iter
-	if is-valid-single-byte-character first-char
-		first-char.to
-	else
-		result = first 1::nat64 .. 4, of _
-			prev-char = try-take-prev iter else throw unicode-decode-error
-			if is-first-byte prev-char
-				unicode-decode iter.copy
-		result else throw unicode-decode-error
-
--last-6-bits nat8(a nat32)
-	a.wrap-to & 0b111111
-
--first-byte-flags nat8()
-	0b1100_0000
--is-first-byte bool(a char8)
-	has-all-bits a.to::nat8, first-byte-flags
-
-~is-valid-single-byte-character bool(a char8)
-	a.to::nat8 < 0b1000_0000
-
--byte-top-bit nat8()
-	0x80
-
--is-valid-unicode-character bool(a nat32)
-	a < 0xd800 or a 'in 0xe000 .. 0x110000
-
-+is-valid-unicode-character bool(a char32)
-	is-valid-unicode-character a.to
+		out ~~= joiner.chars
+	out ~~= x.chars
 
 region conversion
 

@@ -14,7 +14,7 @@ as-path path(a char8 array-view)
 
 -parent-and-base-name (path, string)?(a path)
 	if left, right = try-split-once-right a.to::string, "/"
-		(left.to,), right
+		(left.to,), right.to
 base-name string(a path)
 	a.parent-and-base-name.?b else a.to
 test
@@ -52,12 +52,12 @@ first-and-rest (symbol, path?)(a path)
 test
 	("a/b/c",).first-and-rest is ("a", ("b/c",))
 
-parse-path path(a string)
+parse-path path(a string-view)
 	(parse-path-inner a, (false, false)).to,
 test
 	"a/b\\c".parse-path is "a".root-path / "b" / "c"
 -parse-path-options record(uri-decode bool, is-uri-file bool) # TODO: seems that these are always both false or both true ---------------------------
--parse-path-inner string(a string, options parse-path-options)
+-parse-path-inner string(a string-view, options parse-path-options)
 	iter = a.begin
 	res string = with out in build
 		parse-path-component out, iter, options.uri-decode
@@ -65,15 +65,15 @@ test
 			out ~= "/"
 			parse-path-component out, iter, options.uri-decode
 	if res.is-windows-path then res.lower-case else res
--parse-path-component void(out string-builder, iter string-iterator, uri-decode bool)
+-parse-path-component void(out char8 builder, iter string-iterator, uri-decode bool)
 	do loop
 	do unless is-at-end iter else break
 	x = iter.take-char8
 	if x == "%" and uri-decode
-		out ~= if x0 = iter.take-char8-or-nul.decode-hex-digit # TODO: factor out a function ----------------------------
+		out ~~= if x0 = iter.take-char8-or-nul.decode-hex-digit # TODO: factor out a function ----------------------------
 			if x1 = iter.take-char8-or-nul.decode-hex-digit
 				decoded char8 = (x0 << 4) | x1 'to
-				decoded.to.lower-case
+				decoded.lower-case,
 			else
 				"�"
 		else
@@ -82,7 +82,7 @@ test
 	elif x.is-slash
 		break
 	else
-		out ~= x.to
+		out ~= x
 		continue
 
 file-path record(to symbol) -new
@@ -119,7 +119,7 @@ uri record(to symbol) -new
 -file-scheme string()
 	"file://"
 as-file-path file-path(a uri) # TODO: rename to 'to' ---------------------------------------------------------------------------
-	res string = try-remove-start! a.to::symbol.to::string, file-scheme
+	res = try-remove-start! a.to::symbol.to::string, file-scheme
 	path char8[] = parse-path-inner res, (true, true) 'to
 	# A uri has a "/" before a Windows path, like `file:///c%3a`; a file-path does not.
 	str string = if !path.is-empty and path[0] == "/" and path[1 .. end].is-windows-path
@@ -280,10 +280,10 @@ must-parse-file-path file-path(text string)
 # TODO: define a grammar? ---------------------------------------------------------------------------------------------------------------
 parse-file-path file-path(a string)
 	is-windows = a.is-windows-path
-	fixed-a = if is-windows
-		a.lower-case
+	fixed-a string-view = if is-windows
+		a.lower-case.to
 	else
-		try-remove-start a, "/" else a
+		try-remove-start a, "/" else a.to
 	path = parse-path-inner fixed-a, (false, false)
 	- if is-windows then path.to else "/{path}"
 test
@@ -363,36 +363,34 @@ test
 	show-uri-prefer-relative info, ("file://x/y/c/d",) is "file://x/y/c/d"
 	show-uri-prefer-relative info, ("file://crow/include/crow/json.crow",) is "crow/json.crow"
 
--components string[](a string)
+-components string-view[](a string)
 	split a, "/"
 
--show-components string(components string array-view, uri-encode bool)
+-show-components string(components string-view array-view, uri-encode bool)
 	join "/", for index, component in with-index components
 		# First component of a Uri is the scheme, which is not encoded
 		if uri-encode and index != 0
 			encode-path-component component
 		else
-			component
+			component.to
 -uri-encode string(a string)
-	chars char8[] = with out in build
-		for x in a.to::char8[]
-			if x == "/"
-				out ~= x
-			else
-				encode-char out, x
-	chars.to
+	do with out in build
+	do for x in a
+	if x == "/"
+		out ~= x
+	else
+		encode-char out, x
 
--encode-path-component string(component string)
-	chars char8[] = with out in build
-		for x in component.to::char8[]
+-encode-path-component string(component string-view)
+	with out in build
+		for x in component
 			encode-char out, x
-	chars.to
 -encode-char void(out char8 builder, a char8)
-	if a.is-uri-safe-char
+	if is-uri-safe-char a
 		out ~= a
 	else
 		out ~= "%"
-		out ~~= a.to.encode-as-hex
+		out ~~= encode-as-hex a.to
 
 -is-uri-safe-char bool(a char8)
 	a.is-ascii-identifier-char or a == "-" or a == "." or a == "~"

@@ -1,0 +1,125 @@
+no-std
+import
+	../bits
+	../bool
+	../col/array
+	../col/collection
+	../col/util
+	../compare
+	../exception
+	../hash
+	../misc
+	../number
+	../option
+	../range
+	../string
+
+-unsafe-to char32(a char8)
++to char32(a char8)
+	assert is-valid-single-byte-character a
+	a.unsafe-to
++to char8(a char32)
+	a.to::nat32.to::nat8.to
+
++ == bool(a char32, b char32)
++to nat32(a char32)
+| This is unsafe because a {char32} should be a valid unicode character.
++unsafe-to char32(a nat32) unsafe
++to char32(a nat32)
+	trusted a.unsafe-to
++ <=> comparison(a char32, b char32)
+	trusted a.to::nat32 <=> b.to
++hash void(a char32, state hash-state)
+	trusted hash a.to::nat32, state
+
++to char32[](a string)
+	with out in build
+		iter = begin a
+		while x = try-unicode-decode-one iter
+			out ~= x
++to string(a char32 array-view)
+	with out in build
+		for x in a
+			out ~~= x.to
+
++to string(a char32)
+	a.to::char8[].to
++show string(a char32)
+	a.to
+
+-to char8[](a char32)
+	n nat32 = a.to
+	if n < (1 << 7)
+		n.to,
+	elif n < (1 << 11)
+		- (n >> 6).to | first-byte-flags 'to
+		- n.last-6-bits | byte-top-bit 'to
+	elif n < (1 << 16)
+		forbid n 'in 0xd800 .. 0xe000 else invalid-unicode-character n
+		- (n >> 12).to | 0b1110_0000 'to
+		- (n >> 6).last-6-bits | byte-top-bit 'to
+		- n.last-6-bits | byte-top-bit 'to
+	else
+		assert n < 0x110000 else invalid-unicode-character n
+		- (n >> 18).to | 0b1111_0000 'to
+		- (n >> 12).last-6-bits | byte-top-bit 'to
+		- (n >> 6).last-6-bits | byte-top-bit 'to
+		- n.last-6-bits | byte-top-bit 'to
+-to char8(a nat32)
+	a.to::nat8.to
+
+-try-unicode-decode-one char32?(a string-iterator)
+	try
+		unicode-decode-one a
+	catch as iterator-out-of-bounds
+		()
++unicode-decode-one char32(iter string-iterator)
+	first-char = take-next iter
+	if is-valid-single-byte-character first-char
+		first-char.to
+	else
+		assert is-first-byte first-char else unicode-decode-error
+		res mut nat32 = first-char.to::nat8.to
+		flag mut nat8 = first-char.to << 1
+		result char32? = first 1::nat64 .. 4, of i
+			next-char = try-take-next iter else throw unicode-decode-error
+			code nat8 = next-char.to
+			assert (code & first-byte-flags) == byte-top-bit else unicode-decode-error
+			res := (res << 6) | code.to.last-6-bits
+			flag <<:= 1
+			do if (flag & 0x80) == 0
+			assert bits-intersect res, ~(i - 1).mask else unicode-decode-error
+			res &:= i.mask
+			assert is-valid-unicode-character res else unicode-decode-error
+			res.to
+		result else throw unicode-decode-error
+
+-mask nat32(i nat64)
+	match i
+	as 0
+		(1 << 7) - 1
+	as 1
+		(1 << 11) - 1
+	as 2
+		(1 << 16) - 1
+	as 3
+		(1 << 21) - 1
+	else
+		throw unreachable
+
+-last-6-bits nat8(a nat32)
+	a.wrap-to & 0b111111
+
+-first-byte-flags nat8()
+	0b1100_0000
+-is-first-byte bool(a char8)
+	has-all-bits a.to::nat8, first-byte-flags
+
+-byte-top-bit nat8()
+	0x80
+
+-is-valid-unicode-character bool(a nat32)
+	a < 0xd800 or a 'in 0xe000 .. 0x110000
+
++is-valid-unicode-character bool(a char32)
+	is-valid-unicode-character a.to

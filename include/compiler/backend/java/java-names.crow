@@ -62,13 +62,8 @@ do show-ctx
 			"$test{fun.hash}"
 		as low-fun-source-wrap-main
 			"$wrap-main"
-		descriptor string = with out in build
-			out ~= "("
-			for param in fun.params
-				out ~~= descriptor-for-param-type type-to-descriptor, param.type
-			out ~= ")"
-			out ~~= descriptor-for-return-type type-to-descriptor, fun.return-type
-		fun, (name, descriptor.to)
+		descriptor = descriptor-for-signature type-to-descriptor, (map fun.params, it.type), fun.return-type
+		fun, (name, descriptor)
 	var-to-name: for x in program.all-vars
 		x, "{do-mangle x.source.name}{get-hash x}" # TODO: If only one var of this name in the module, no need to include the hash
 	module-to-class-name: module-to-class-name.move-to
@@ -128,7 +123,7 @@ lambda-impl-class-name symbol(a java-names, containing-fun low-fun, lambda-index
 	ensure a, uri, of
 		base-name = base-name uri
 		name = try-remove-end base-name, ".json" else try-remove-end! base-name, ".crow"
-		"{class-prefix}{mangle-class-name name}{size a}"
+		"{class-prefix}{mangle-class-name name.to}{size a}"
 
 mangle-class-name string(a string)
 	# Technically, the JVM allows hyphens. But that can mess with tooling. https://bugs.openjdk.org/browse/JDK-8239818
@@ -148,23 +143,22 @@ instance-method-name symbol(a java-names, fun low-fun)
 		"{a[fun.params[0].type]}_{base}"
 instance-method-descriptor symbol(a java-names, fun low-fun) # TODO: cache this too! -------------------------------------
 	assert is-instance java-method-kind a.union-info, fun
-	res string = with d in build # TODO: support building symbols -------------------------------------------------------------
-		d ~= "("
-		for param in fun.params[1 .. end]
-			d ~~= descriptor-for-param-type a, param.type
-		d ~= ")"
-		d ~~= descriptor-for-return-type a, fun.return-type
-	res.to
+	descriptor-for-signature a, (map fun.params[1 .. end], it.type), fun.return-type
 
 constructor-descriptor symbol(a java-names, fun low-fun) # TODO: cache this too! --------------------------------------------
 	java-method-kind a.union-info, fun is constructor
-	res string = with d in build # TODO: support building symbols -------------------------------------------------------------
-		d ~= "("
-		for param in fun.params
-			d ~~= descriptor-for-param-type a, param.type
-		d ~~= ")V"
-	res.to
+	descriptor-for-signature a, (map fun.params, it.type), ()
 
+descriptor-for-signature symbol(a java-names, param-types low-type[], return-type low-type?)
+	descriptor-for-signature a.type-to-descriptor, param-types, return-type
+descriptor-for-signature symbol(type-to-descriptor symbol[low-type], param-types low-type[], return-type low-type?)
+	params = join for param in param-types
+		descriptor-for-param-type type-to-descriptor, param
+	return = if return-type
+		descriptor-for-return-type type-to-descriptor, return-type
+	else
+		"V"
+	"({params}){return}"
 descriptor-for-field-type symbol(a java-names, type low-type)
 	forbid is-empty-type type
 	descriptor-for-return-type a, type 'to
@@ -274,12 +268,7 @@ boxed-class-name symbol(a java-names, type low-type)
 		throw unreachable
 
 lambda-init-descriptor symbol(a java-names, lambda lambda-low-expr)
-	res string = with out in build # TODO: support building symbols -------------------------------------------------------------
-		out ~= "("
-		for x in lambda.closure
-			out ~~= descriptor-for-param-type a, x.type
-		out ~~= ")V"
-	res.to
+	descriptor-for-signature a, (map lambda.closure, it.type), ()
 
 primitive-descriptor symbol(a java-primitive-type)
 	match a

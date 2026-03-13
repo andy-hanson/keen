@@ -12,26 +12,18 @@ import
 	./number
 	./option
 	./string
+	./string/unicode
 	./tuple
 
-| WARN: This peeks the next byte, which could be an invalid char8.
-| Uses "\0" to indicate the end.
-+peek8 char8(a string-iterator)
-	try
-		take-char8 a.copy
-	catch as iterator-out-of-bounds
-		"\0"
--peek8-plus-1 char8(a string-iterator)
+-peek-after char8(a string-iterator)
 	try
 		copy = a.copy
 		_ = take-char8 copy
 		take-char8 copy
 	catch as iterator-out-of-bounds
 		"\0"
-+peek char32?(a string-iterator)
-	try-take-next a.copy
 +try-take bool(a string-iterator, start string)
-	try-take-all a.inner, start.to::char8[]
+	try-take-all a, start.to::char8[]
 +starts-with bool(a string-iterator, start string)
 	try-take a.copy, start
 
@@ -48,13 +40,15 @@ import
 | If the string has leading or trailing spaces you must use a grammar that includes those.
 | Throws a {parse-error} on failure.
 +parse[t] t(a t grammar, text string)
+	parse a, text.to::string-view
++parse[t] t(a t grammar, text string-view)
 	iter string-iterator = begin text
 	try
 		res = fn a, iter
-		assert is-at-end iter else parse-error text, iter.char8-index, "string continues past end of parse"
+		assert is-at-end iter else parse-error text.to, iter.char8-index, "string continues past end of parse"
 		res
 	catch e as inner-parse-error
-		throw parse-error text, iter.char8-index, e.expected
+		throw parse-error text.to, iter.char8-index, e.expected
 
 +parse-error record exception case
 	| The argument passed to {parse}.
@@ -111,10 +105,10 @@ import
 		res
 
 | Grammar for a single character matching the predicate.
--char-matching-predicate char32 grammar(description string, predicate bool data(x char32))
+-char-matching-predicate char8 grammar(description string, predicate bool data(x char8))
 	func: of iter
-		assert res = peek iter else inner-parse-error description
-		assert predicate[res] else inner-parse-error description
+		res = peek iter
+		assert res and predicate[res] else inner-parse-error description
 		_ = take-char8 iter # TODO: this only advances past a char8. Should advance the whole char32. ----------------------------------------------
 		res
 
@@ -249,7 +243,7 @@ import
 +whitespace grammar-skip()
 	inner: func: it.skip-whitespace
 +skip-whitespace void(a string-iterator)
-	while is-space a.peek8
+	while x = a.peek and is-space x
 		_ = take-char8 a
 +is-space bool(a char8)
 	match a
@@ -271,7 +265,7 @@ import
 	assert try-take iter, "\"" else inner-parse-error "quoted string"
 	take-quoted-string-after-quote iter
 ~take-quoted-string-after-quote string(iter string-iterator)
-	to with::char8[] out in build
+	with out in build
 		do loop
 		forbid is-at-end iter else inner-parse-error "quoted string"
 		match char = take-char8 iter
@@ -280,8 +274,7 @@ import
 		as "\\"
 			do unless is-at-end iter else break
 			assert esc = escape iter.take-char8 else inner-parse-error "Valid escape sequence"
-			unicode-encode esc.to, of x
-				out ~= x.to
+			out ~~= esc.to::string.to
 			continue
 		else
 			out ~= char
@@ -311,12 +304,12 @@ import
 +word string grammar()
 	transform letter.one-or-more, it.to
 
--letter char32 grammar()
+-letter char8 grammar()
 	char-matching-predicate "letter", it.is-letter
 
--is-letter bool(a char32)
+-is-letter bool(a char8)
 	# TODO: support other alphabets
-	"a"::char32.to::nat32 <= a.to and a.to::nat32 <= "z"::char32.to
+	"a"::char8.to::nat8 <= a.to and a.to::nat8 <= "z"::char8.to
 
 | Parse a string "true" or "false".
 +bool bool grammar()
@@ -360,7 +353,8 @@ import
 		throw inner-parse-error "number that fits in a nat64"
 -next-digit nat64?(a string-iterator, base nat)
 	skip-underscore-if-before-digit a
-	do if digit = char-to-nat64 a.peek8, base
+	do if char = peek a
+	do if digit = char-to-nat64 char, base
 	_ = take-char8 a
 	digit
 ~parse-nat nat64(a char8 array-view)
@@ -369,7 +363,7 @@ import
 	assert is-at-end iter else todo
 	res
 
-is-digit bool(a char8)
++is-digit bool(a char8)
 	"0"::char8 <= a and a <= "9"
 -char-to-nat64 nat64?(c char8, base nat64)
 	assert base <= 36
@@ -391,21 +385,21 @@ is-digit bool(a char8)
 	while peek-digit iter
 		_ = take-char8 iter
 		skip-underscore-if-before-digit iter
-	if iter.peek8 == "." and is-digit peek8-plus-1 iter
+	if iter.peek == "." and is-digit peek-after iter
 		_ = take-char8 iter
 		while peek-digit iter
 			_ = take-char8 iter
 			skip-underscore-if-before-digit iter
-	parse-float slice start.inner, iter.inner
+	parse-float slice start, iter
 
 -peek-digit bool(a string-iterator)
-	is-digit peek8 a
+	(x = peek a) and is-digit x
 
 -skip-underscore-if-before-digit void(a string-iterator)
-	if a.peek8 == "_" and is-digit peek8-plus-1 a
+	if a.peek == "_" and is-digit peek-after a
 		_ = a.take-char8
 
-~parse-float float64(a char8 array-view)
+~parse-float float64(a string-view)
 	trusted if java
 		fixed char8[] = if exists a, it == "_" # TODO: "_"::char8 'in a -----------------------------------------------------------
 			for* x in a

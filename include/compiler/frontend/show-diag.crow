@@ -1,4 +1,5 @@
 import
+	crow/string/unicode
 	crow/string/util
 	../../crow/private/parse-util
 	../model/ast
@@ -25,17 +26,11 @@ show-diagnostics string
 	options show-diags-options
 do show-type-ctx
 	severity = max-diagnostic-severity program
-	first mut bool = true
-	do with out in build
-	do for x in sorted-diagnostics program
-	do if filter-uri x.uri, options.only-for-uris
-	do for diagnostic in x.diagnostics
-	do if options.show-all-diagnostics or diagnostic.kind.get-diagnostic-severity == severity
-	if first
-		first := false
-	else
-		out ~= "\n"
-	out ~~= show-diagnostic (x.uri, diagnostic)
+	join "\n", for* x in sorted-diagnostics program
+		do if filter-uri x.uri, options.only-for-uris
+		do for* diagnostic in x.diagnostics
+		do if options.show-all-diagnostics or diagnostic.kind.get-diagnostic-severity == severity
+		- show-diagnostic (x.uri, diagnostic)
 
 -filter-uri bool(a uri, filter uri set?)
 	if filter
@@ -215,17 +210,15 @@ sorted-diagnostics uri-and-diagnostics[](program program-with-opt-main)
 	iter = a.begin
 	try
 		first = take-next iter
-		first.upper-case ~ (slice iter, a.end)
+		first.upper-case ~ (slice iter, a.end).to
 	catch as iterator-out-of-bounds
 		a is ""
 		""
 
 -show-spec-trace string(container type-container, trace fun-decl-and-type-args[]) show-type-ctx
-	do with out in build
-	for i, x in with-index trace
-		out ~~= "\n\t"
+	join for i, x in with-index trace
 		this-container = if i == 0 then container else trace[i - 1].decl
-		out ~~= show-fun-decl-and-type-args this-container, x
+		"\n\t{show-fun-decl-and-type-args this-container, x}"
 
 -show-call-no-match string(a diag-call-no-match) show-type-ctx
 	some-candidate-has-correct-arity = exists a.all-candidates, of x
@@ -268,30 +261,26 @@ sorted-diagnostics uri-and-diagnostics[](program program-with-opt-main)
 	"There are functions named {name}, but none takes {n-args}. Candidates:{candidates}"
 
 -show-call-close-match string(a diag-call-no-match) show-type-ctx
-	do with out in build
-	out ~~= "There are functions named "
-	out ~~= show-name a.fun-name
-	out ~~= ", but they do not match the "
-	has-ret = expected-for-diag-choices a.expected-return-type
-	has-args = !is-empty a.actual-arg-types
-	out ~~= if has-ret
-		if has-args
-			"expected return type and actual argument types"
+	join
+		has-ret = expected-for-diag-choices a.expected-return-type
+		has-args = !is-empty a.actual-arg-types
+		- "There are functions named {show-name a.fun-name}, but they do not match the "
+		- if has-ret
+			if has-args
+				"expected return type and actual argument types"
+			else
+				"expected return type"
 		else
-			"expected return type"
-	else
-		"actual argument types"
-	out ~~= ".\n"
-	if has-ret
-		out ~~= show-expected a.expected-return-type, return
-	if has-args
-		out ~~= "\nActual argument types: "
-		out ~~= join ", ", for x in a.actual-arg-types
-			show-type-quoted (x, a.type-container)
-		if a.actual-arg-types.size < a.actual-arity
-			out ~~= " (Other arguments not checked; gave up early.)"
-	out ~~= "\nCandidates (with {a.actual-arity} arguments):"
-	out ~~= show-called-decls a.type-container, a.all-candidates, it.arity == a.actual-arity
+			"actual argument types"
+		- ".\n"
+		- if has-ret then show-expected a.expected-return-type, return
+		-- if has-args
+			- "\nActual argument types: "
+			- join ", ", for x in a.actual-arg-types
+				show-type-quoted (x, a.type-container)
+			- if a.actual-arg-types.size < a.actual-arity then " (Other arguments not checked; gave up early.)"
+		- "\nCandidates (with {a.actual-arity} arguments):"
+		- show-called-decls a.type-container, a.all-candidates, it.arity == a.actual-arity
 
 # TODO: rename to 'show-diag' --------------------------------------------------------------------------------------------------------
 string-of-diag string(a diag) show-type-ctx
@@ -1226,3 +1215,9 @@ show-diagnostic string(a uri-and-diagnostic) show-type-ctx
 
 -to-hex-with-padding string(a nat, size nat)
 	"0x{pad-left a.to-hex, size, "0"}"
+
+-pad-left string(a string, min-size nat64, padding char8)
+	if a.size < min-size
+		(n-of::char8[] min-size - a.size, padding).to ~~ a
+	else
+		a
