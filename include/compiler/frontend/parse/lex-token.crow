@@ -65,7 +65,7 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 			if peek-space-after-binary-operator iter or iter.peek8 == "~"
 				emit-operator state, start, iter, if try-take-char8 iter, "~" then "~~" else "~"
 			else
-				emit state, operator-prefix, start, iter.pos, "~"::symbol
+				emit-operator-prefix state, start, iter, "~"
 		as "@"
 			emit state, at, start, iter.pos
 		as "!"
@@ -108,7 +108,7 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 				else
 					emit-operator state, start, iter, "-"
 			else
-				emit state, operator-prefix, start, iter.pos, "-"::symbol
+				emit-operator-prefix state, start, iter, "-"
 		as "="
 			if try-take-char8 iter, "="
 				emit-operator state, start, iter, "=="
@@ -314,8 +314,18 @@ lex-tokens tokens(source char8 array-view, diagnostics parse-diagnostic mut[])
 		emit state, brace-right, iter.pos, iter.pos
 		take-string-part state, iter, iter.pos, quote-kind
 
+-emit-operator-prefix void(out lexer-state, start pos, iter string-iterator, value symbol)
+	check-after-operator out, start, iter, value
+	emit out, operator-prefix, start, iter.pos, value
 -emit-operator void(out lexer-state, start pos, iter string-iterator, value symbol)
+	check-after-operator out, start, iter, value
 	emit-name-like-token out, iter, start, value, true
+-check-after-operator void(out lexer-state, start pos, iter string-iterator, value symbol)
+	if is-operator-char iter.peek8
+		unless value == ".." and iter.peek8 == "/" or value == "/" and iter.peek8 == "." # This happens all the time in imports, so ignore it
+			out.diagnostics ~= (start, iter.pos + 1), parse-diag-operator-needs-space value, iter.peek8.to
+	elif iter.peek8 == "=" and iter.peek8-next == "="
+		out.diagnostics ~= (start, iter.pos + 2), parse-diag-operator-needs-space value, "=="
 -emit-name-like-token void(out lexer-state, iter string-iterator, start pos, value symbol, is-operator bool)
 	v mut = value
 	regular-token = if is-operator then operator-binary else name
@@ -796,3 +806,20 @@ do
 	else
 		skip-rest-of-line-and-newline iter
 		continue
+
+-is-operator-char bool(a char8)
+	match a
+	as "." then true
+	as "~" then true
+	as "!" then true
+	as "<" then true
+	as ">" then true
+	as "|" then true
+	as "^" then true
+	as "&" then true
+	as "+" then true
+	as "-" then true
+	as "*" then true
+	as "/" then true
+	as "%" then true
+	else then false
