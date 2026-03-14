@@ -20,7 +20,6 @@ expected record mut
 	-opt-choices mut type-and-context mut[]?
 	| If empty, this is purely inferring
 	-opt-loop loop-info?
--to json(a expected)
 infer expected()
 	(), (), ()
 expect expected(type type)
@@ -45,7 +44,6 @@ loop-info record mut
 	loop_ loop-expr
 	type type
 	has-break mut bool
-to json(a loop-info)
 
 to expected(a type-and-context[])
 	(), a.to, ()
@@ -141,7 +139,17 @@ choose-string-type (type, char-or-string-type?)?(range source-range, expected ex
 		()
 
 number-type union(integral-type, float-type-or-js-or-json)
-choose-number-type number-type?(range source-range, expected expected) check-expr-ctx
+choose-number-type number-type?(range source-range, expected expected, text string-view) check-expr-ctx
+	is-float = contains text, "." or (contains text, "e" and !starts-with text, "0x")
+	is-negative = text[0] == "-"
+	do unless is-practically-inferring expected else
+		must-check expected, common-types.nat64
+		if is-float
+			float64
+		elif is-negative
+			int64
+		else
+			nat64
 	res-nat mut nat-type? = ()
 	res-int mut int-type? = ()
 	res-float mut float-type? = ()
@@ -149,9 +157,9 @@ choose-number-type number-type?(range source-range, expected expected) check-exp
 	res-json mut struct-inst? = ()
 	each-choice expected, of choice
 		each-narrowed-struct choice, of struct
-			if x = as-nat-type struct
+			if x = as-nat-type struct and !is-float and !is-negative
 				res-nat := max res-nat, x
-			elif x = as-int-type struct
+			elif x = as-int-type struct and !is-float
 				res-int := max res-int, x
 			elif x = as-float-type struct
 				res-float := max res-float, x
@@ -159,7 +167,7 @@ choose-number-type number-type?(range source-range, expected expected) check-exp
 				res-js := struct
 			elif is-json struct
 				res-json := struct
-	total nat = (!!res-nat).to + (!!res-int).to + (!!res-float).to + (!!res-js).to + (!!res-json).to
+	total = (!!res-nat).to + (!!res-int).to + (!!res-float).to + (!!res-js).to + (!!res-json).to
 	if total == 0
 		add-diag range, diag-literal-not-expected get-expected-for-diag expected
 		()
@@ -174,17 +182,7 @@ choose-number-type number-type?(range source-range, expected expected) check-exp
 			js-any, res-js!
 		else
 			json, res-json!
-		unless try-set-no-diagnostic expected, type
-			log "Expected: {expected.to-json}"
-			log "Actual: {type.to-json}"
-			throw todo
-		if total > 1
-			add-diag range, diag-literal-multiple-match type-container,
-				-- from-option res-nat.?to
-				-- from-option res-int.?to
-				-- from-option res-float.?to
-				-- from-option res-js
-				-- from-option res-json
+		assert try-set-no-diagnostic expected, type
 		res
 
 -to float-type-or-js-or-json(a float-type)
