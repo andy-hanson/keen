@@ -167,12 +167,25 @@ do check-ctx, types-get, funs-map
 	condition = check-condition ast.condition
 	is-negated = ast.is-condition-negated
 	empty-new-range = ast.first-keyword-range
-	first-branch = check-expr-with-condition-or-empty-new ast, (known-value condition, !is-negated), ast.first-branch, empty-new-range, expected
-	type = expected.inferred
-	second-branch expr = if is-bogus type
-		bogus-expr empty-new-range, type
+	# Usually check code in order, but if the first branch is empty, check it last (for better type inference)
+	first-branch expr, type type, second-branch expr = if ast.first-branch
+		first-branch = check-expr-with-context (known-value condition, !is-negated), ast.first-branch!, expected
+		type = expected.inferred
+		second-branch expr = if is-bogus type
+			bogus-expr (ast.second-branch.?range else empty-new-range), type
+		elif ast.second-branch
+			check-expr-with-context (known-value condition, is-negated), ast.second-branch!, expected
+		else
+			check-empty-new ast, empty-new-range, expected
+		first-branch, type, second-branch
 	else
-		check-expr-with-condition-or-empty-new ast, (known-value condition, is-negated), ast.second-branch, empty-new-range, expected
+		second-branch = check-expr-with-context (known-value condition, is-negated), ast.second-branch!, expected
+		type = expected.inferred
+		first-branch expr = if is-bogus type
+			bogus-expr empty-new-range, type
+		else
+			check-empty-new ast, empty-new-range, expected
+		first-branch, type, second-branch
 	ast: ast
 	condition: condition
 	true-branch: if is-negated then second-branch else first-branch
@@ -1091,17 +1104,6 @@ do check-expr-ctx
 		add-diag ast.keyword-range, cb-diag[]
 		bogus expected, ast.range
 
--check-expr-with-condition-or-empty-new expr
-	parent call-expr-source
-	condition expression-context
-	ast expr-ast?
-	empty-new-range source-range
-	expected expected
-do check-expr-ctx
-	if ast
-		check-expr-with-context condition, ast, expected
-	else
-		check-empty-new parent, empty-new-range, expected
 -check-empty-new expr
 	parent call-expr-source
 	range source-range
