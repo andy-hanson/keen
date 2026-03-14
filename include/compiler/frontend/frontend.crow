@@ -10,7 +10,6 @@ import
 	../util/enum-map
 	../util/perf
 	../util/util
-	./all-insts
 	./check/check
 	./check/check-ctx
 	./check/detect-unused-internal
@@ -23,13 +22,13 @@ import
 	./parse-java-class
 	./show-model
 
-frontend record mut, java-ctx case
+frontend record mut, java-classes case
 	-crow-include-dir uri
 	-common-uris common-uris
 	-common-files mut (common-module, crow-file) enum-map
 	-unknown uri mut-set
 	-loading uri mut-set
-	-all-insts all-insts
+	instantiate-ctx instantiate-ctx
 	-line-and-column-getters-map mut line-and-column-getter[uri]
 	| Set after 'bootstrap.crow' is compiled
 	-common-types-option mut common-types?
@@ -47,8 +46,6 @@ frontend record mut, java-ctx case
 	| If all import uris are resolved but nothing is workable, there must be a circular import.
 	-workable-java path mut-set
 	-workable-crow uri mut-set
-instantiate-ctx instantiate-ctx(a frontend)
-	- a.all-insts
 common-types common-types(a frontend)
 	a.common-types-option!
 ensure-java-class struct-decl(a frontend, path path)
@@ -81,7 +78,7 @@ new frontend(crow-include-dir uri)
 			module: ()
 		unknown: ()
 		loading: ()
-		all-insts: ()
+		instantiate-ctx: ()
 		line-and-column-getters-map: ()
 		common-types-option: ()
 		crow-files: ()
@@ -168,7 +165,8 @@ program-with-main-from-program program-with-main
 	main main-kind
 	targets build-target set
 do
-	program, get-main-fun-and-diagnostics (a.all-insts,), program, main, targets
+	the instantiate-ctx = a.instantiate-ctx
+	program, get-main-fun-and-diagnostics program, main, targets
 
 make-program program(a frontend, fully-loaded-configs uri set)
 	start = perf-now
@@ -176,9 +174,9 @@ make-program program(a frontend, fully-loaded-configs uri set)
 	assert a.files-state == all-loaded
 	common-modules (common-module, crow-module) enum-map = for _, x in a.common-files
 		x.module!
-	ctx instantiate-ctx = a.all-insts,
+	the instantiate-ctx = a.instantiate-ctx
 	the common-types = a.common-types
-	common-funs, common-funs-diagnostics = get-common-funs ctx, common-modules
+	common-funs, common-funs-diagnostics = get-common-funs common-modules
 	all-modules crow-module[uri] = for uri, file in a.crow-files
 		uri, file.must-have-module
 	unused-diagnostics = detect-unused-internal all-modules, fully-loaded-configs
@@ -382,9 +380,10 @@ set-file void(a frontend, uri uri, result read-file-result)
 		config: unknown, parent: parent
 
 -ensure-java-class-file java-class-file(a frontend, path path, work-needed java-work-kind)
+	the instantiate-ctx = a.instantiate-ctx
 	res = ensure a.java-class-files, path, of
 		a.unknown ~= path.to-java-uri
-		type: initial-struct-for-java-class (a.all-insts,), path
+		type: initial-struct-for-java-class path
 		parsed: unknown
 		work-needed: work-needed
 		has-filled-in-supertypes: ()
@@ -411,30 +410,33 @@ set-file void(a frontend, uri uri, result read-file-result)
 	start = perf-now
 	finally end-dirty-work start
 
+	the instantiate-ctx = a.instantiate-ctx
+	the java-classes = a
 	bootstrap = a.common-files[bootstrap]
 	if remove a.workable-crow, bootstrap.uri
 		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.get-ast
 		String = type ensure-java-class-file a, "java/lang/String".parse-path, header-only
-		module, common-types = check-bootstrap a.show-ctx-for-debug, a.all-insts, a.common-uris, fa, String.only-inst
+		module, common-types = check-bootstrap a.show-ctx-for-debug, a.common-uris, fa, String.only-inst
 		a.common-types-option := common-types
 		bootstrap.module := module
 		a.count-uncompiled-crow-files -:= 1
 		mark-all-non-bootstrap-modules-dirty a, bootstrap.uri # since they all use common-types
 
-	do if a.common-types-option
+	do if common-types = a.common-types-option
+	the common-types = common-types
 	do loop
 	if path = pop-arbitrary a.workable-java
 		file = a.java-class-files[path]!
 		header = parsed-java-class-header! file.parsed
 		unless file.has-filled-in-supertypes
-			fill-java-class-supertypes a, file.type, header
+			fill-java-class-supertypes file.type, header
 			file.has-filled-in-supertypes := true
 
 		match file.work-needed
 		as header-only
 			()
 		as all
-			file.module := get-java-module a, path, file.type, header
+			file.module := get-java-module path, file.type, header
 		for x in file.referenced-by-crow
 			file.work-needed is all
 			add-to-workable-if-so a, a.crow-files[x]!
@@ -485,7 +487,8 @@ set-file void(a frontend, uri uri, result read-file-result)
 	assert common-types = a.common-types-option # bootstrap must be compiled first
 	ast uri-and-ast = file.uri, file.config!, file.get-ast
 	imports = fully-resolve-imports file.resolved-imports!
-	check a.show-ctx-for-debug, a.all-insts, a.common-uris, ast, imports, common-types
+	the instantiate-ctx = a.instantiate-ctx
+	check a.show-ctx-for-debug, a.common-uris, ast, imports, common-types
 
 -update-file-on-config-change void(a frontend, file crow-file)
 	do if best-config = find-config file.config-file

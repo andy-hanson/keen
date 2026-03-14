@@ -12,16 +12,15 @@ import
 	./instantiate
 
 get-common-funs (common-funs, uri-and-diagnostic[])
-	ctx instantiate-ctx
 	modules (common-module, crow-module) enum-map
-do common-types
+do instantiate-ctx, common-types
 	diags uri-and-diagnostic mut[] = ()
 	get-type-decl = of module common-module, name symbol, count-type-params nat8
-		get-struct-decl-or-add-diag ctx, diags, modules[module], name, count-type-params
+		get-struct-decl-or-add-diag diags, modules[module], name, count-type-params
 	get-type = of module common-module, name symbol
-		get-non-template-type ctx, diags, modules[module], name
+		get-non-template-type diags, modules[module], name
 	get-fun-inner = of module crow-module, name symbol, return-type type, params type[]
-		instantiate-non-template-fun get-fun ctx, diags, module, name, (type-params: (), return-type: return-type, params: params)
+		instantiate-non-template-fun get-fun diags, module, name, (type-params: (), return-type: return-type, params: params)
 	get-fun = of module common-module, name symbol, return-type type, params type[]
 		get-fun-inner[modules[module], name, return-type, params]
 
@@ -46,11 +45,11 @@ do common-types
 		error: get-type[exception, "error"]
 		json-array: json-array
 		lambda-subscript: get-lambda-subscript-funs modules[misc]
-		shared-of-mut-lambda: get-fun ctx, diags, modules[runtime], "shared-of-mut-lambda",
+		shared-of-mut-lambda: get-fun diags, modules[runtime], "shared-of-mut-lambda",
 			type-params: two-type-params
 			return-type: r-shared-of-p
 			params: r-mut-of-p,
-		to-array-view: get-fun ctx, diags, modules[array-low-level], "to-array-view",
+		to-array-view: get-fun diags, modules[array-low-level], "to-array-view",
 			type-params: one-type-param
 			return-type: t-array-view
 			params: t-array,
@@ -61,35 +60,33 @@ do common-types
 		json-named-new: get-fun[json, "named-new", json-type, (symbol-array, json-array)]
 		equal-symbol: get-fun[symbol, "==", bool-type, (symbol-type, symbol-type)]
 		show-exception: get-fun[bootstrap, "show", string-type, (common-types.exception,)]
-		start-runtime: instantiate-non-template-fun get-fun ctx, diags, modules[runtime], "start-runtime",
+		start-runtime: instantiate-non-template-fun get-fun diags, modules[runtime], "start-runtime",
 			type-params: (), return-type: void, params: (), allow-global: true, allow-unsafe: true
-		stop-runtime: instantiate-non-template-fun get-fun ctx, diags, modules[runtime], "stop-runtime",
+		stop-runtime: instantiate-non-template-fun get-fun diags, modules[runtime], "stop-runtime",
 			type-params: (), return-type: void, params: (nat64,), allow-global: true, allow-unsafe: true
-		concat-array-views: get-fun ctx, diags, modules[array], "concat-array-views",
+		concat-array-views: get-fun diags, modules[array], "concat-array-views",
 			type-params: one-type-param
 			return-type: t-array
 			params: t-array-view-array,
 	- move-to diags
 -get-fun fun-decl # INLINE -----------------------------------------------------------------------------------------------------------------------
-	ctx instantiate-ctx
 	diags-builder uri-and-diagnostic mut[]
 	module crow-module
 	name symbol
 	sig type-params-and-sig
-do
-	get-fun-decl ctx, diags-builder, module, name, sig
+do instantiate-ctx
+	get-fun-decl diags-builder, module, name, sig
 
 get-main-fun-and-diagnostics main-fun-and-diagnostics
-	ctx instantiate-ctx
 	program program
 	kind main-kind
 	targets build-target set
-do
+do instantiate-ctx
 	diags-builder uri-and-diagnostic mut[] = ()
 	common-types = common-types program
 	res main-fun = match kind
 	as main-kind-main-function
-		get-main-fun ctx, diags-builder, (module-at-uri program, kind.uri), common-types
+		get-main-fun diags-builder, (module-at-uri program, kind.uri), common-types
 	as main-kind-tests-in-config
 		config = config-at-uri program, kind.config-uri
 		if kind.all then test-selector-all config else config
@@ -142,21 +139,20 @@ make-params destructure[](params type[])
 		assert fun.params[0].type.as-lambda-type! == kind
 		fun
 
--get-non-template-type struct-inst(ctx instantiate-ctx, diags-builder uri-and-diagnostic mut[], module crow-module, name symbol)
-	only-inst get-struct-decl-or-add-diag ctx, diags-builder, module, name, 0
+-get-non-template-type struct-inst(diags-builder uri-and-diagnostic mut[], module crow-module, name symbol) instantiate-ctx
+	only-inst get-struct-decl-or-add-diag diags-builder, module, name, 0
 
 -get-struct-decl-or-add-diag struct-decl
-	ctx instantiate-ctx
 	diags-builder uri-and-diagnostic mut[]
 	module crow-module
 	name symbol
 	n-type-params nat8
-do
+do instantiate-ctx
 	if res = get-struct-decl module, name and res.n-type-params == n-type-params
 		res
 	else
 		diags-builder ~= (module.uri, ()), name.diag-common-type-missing
-		bogus-struct-decl ctx, name, n-type-params
+		bogus-struct-decl name, n-type-params
 
 -get-struct-decl struct-decl?(a module, name symbol)
 	a.public-and-internal-exports.types-and-specs[name].?struct-decl
@@ -171,15 +167,14 @@ do
 		x.type == y
 
 -get-fun-decl fun-decl
-	ctx instantiate-ctx
 	diags-builder uri-and-diagnostic mut[]
 	module crow-module
 	name symbol
 	expected-sig type-params-and-sig
-do
-	get-fun-decl-multi ctx, diags-builder, module, name, (expected-sig,) 'decl
+do instantiate-ctx
+	get-fun-decl-multi diags-builder, module, name, (expected-sig,) 'decl
 
--get-main-fun main-fun(ctx instantiate-ctx, diags-builder uri-and-diagnostic mut[], main-module crow-module, common-types common-types)
+-get-main-fun main-fun(diags-builder uri-and-diagnostic mut[], main-module crow-module, common-types common-types) instantiate-ctx
 	sig0 type-params-and-sig =
 		type-params: ()
 		return-type: common-types.void
@@ -192,7 +187,7 @@ do
 		params: (common-types.string-array,)
 		allow-global: true
 		allow-unsafe: true
-	decl = get-fun-decl-multi ctx, diags-builder, main-module, "main", (sig0, sig1)
+	decl = get-fun-decl-multi diags-builder, main-module, "main", (sig0, sig1)
 	inst = instantiate-non-template-fun decl.decl
 	specs = inst.decl.specs
 	unless is-empty specs.all-contexts and is-empty specs.instantiated-sigs
@@ -207,12 +202,11 @@ do
 
 -fun-decl-and-sig-index record(decl fun-decl, sig-index nat)
 -get-fun-decl-multi fun-decl-and-sig-index
-	ctx instantiate-ctx
 	diags-builder uri-and-diagnostic mut[]
 	module crow-module
 	name symbol
 	expected-sigs type-params-and-sig[]
-do
+do instantiate-ctx
 	res mut fun-decl-and-sig-index? = ()
 	for x in get-funs module, name
 		do if index = find-index expected-sigs, of sig then signature-matches-template x, sig
@@ -220,16 +214,15 @@ do
 			diags-builder ~= x.range, name.diag-common-fun-duplicate
 		else
 			res := x, index
-	res else bogus-fun-decl-multi ctx, diags-builder, module, name, expected-sigs
+	res else bogus-fun-decl-multi diags-builder, module, name, expected-sigs
 -bogus-fun-decl-multi fun-decl-and-sig-index
-	ctx instantiate-ctx
 	diags-builder uri-and-diagnostic mut[]
 	module crow-module
 	name symbol
 	expected-sigs type-params-and-sig[]
-do
+do instantiate-ctx
 	decl fun-decl =
-		hash: next-hash ctx
+		hash: next-hash
 		source: fun-source-bogus module.uri, name, expected-sigs[0].type-params
 		visibility: public
 		return-type: expected-sigs[0].return-type

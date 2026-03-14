@@ -10,9 +10,7 @@ import
 	./check-ctx
 	./instantiate
 
-types-get record
-	common-types common-types
-	types-and-specs-map types-and-specs-map
+types-get spec common-types, types-and-specs-map
 
 alias-allowed enum(different-module, yes)
 
@@ -32,10 +30,10 @@ inst-struct-from-ast struct-inst?
 	type-params-scope type-params
 	alias-allowed alias-allowed
 do check-ctx, types-get
-	do if s-or-a = struct-or-alias-from-name name, range, the::types-get.types-and-specs-map
+	do if s-or-a = struct-or-alias-from-name name, range
 	type-arg type? = if type-args-ast
 		type-from-ast type-args-ast, type-params-scope, alias-allowed
-	do if type-args = get-type-args-if-number-matches the::types-get.common-types, range, name, s-or-a.n-type-params, type-arg
+	do if type-args = get-type-args-if-number-matches range, name, s-or-a.n-type-params, type-arg
 	match s-or-a
 	as struct-alias
 		assert is-empty type-args
@@ -54,12 +52,8 @@ do check-ctx, types-get
 
 struct-or-alias union(struct-alias, struct-decl)
 	n-type-params nat8()
-struct-or-alias-from-name struct-or-alias?
-	name symbol
-	range source-range
-	types-and-specs-map types-and-specs-map
-do check-ctx
-	do if res = spec-or-type-from-name name, range, types-and-specs-map, false
+struct-or-alias-from-name struct-or-alias?(name symbol, range source-range) check-ctx, types-and-specs-map
+	do if res = spec-or-type-from-name name, range, false
 	match res
 	as spec-decl
 		add-diag range, diag-spec-used-as-type name
@@ -69,16 +63,15 @@ do check-ctx
 	as struct-decl
 		res
 
-try-find-spec-or-type spec-or-type?(name name-and-range, types-and-specs-map types-and-specs-map) check-ctx
-	spec-or-type-from-name name.name, name.range, types-and-specs-map, false
+try-find-spec-or-type spec-or-type?(name name-and-range) check-ctx, types-and-specs-map
+	spec-or-type-from-name name.name, name.range, false
 spec-or-type-from-name spec-or-type?
 	name symbol
 	range source-range
-	types-and-specs-map types-and-specs-map
 	no-diag bool
-do check-ctx
-	res mut = types-and-specs-map[name]
-	for exports in the::check-ctx.imports-and-re-exports
+do check-ctx, types-and-specs-map
+	res mut = (the::types-and-specs-map)[name]
+	for exports in imports-and-re-exports
 		if x = exports.types-and-specs[name]
 			if res
 				unless no-diag
@@ -89,7 +82,7 @@ do check-ctx
 		add-diag range, diag-name-not-found spec-or-type, name
 	res
 
-make-tuple-type type(common-types common-types, args type-args, cb-diag-range source-range data()) check-ctx
+make-tuple-type type(args type-args, cb-diag-range source-range data()) check-ctx, common-types
 	match args
 	as no-type-args
 		common-types.void
@@ -107,14 +100,13 @@ make-tuple-type type(common-types common-types, args type-args, cb-diag-range so
 			bogus-type
 
 -get-type-args-if-number-matches type-args?
-	common-types common-types
 	range source-range
 	name symbol
 	n-expected-type-args nat
 	type type?
-do check-ctx
+do check-ctx, common-types
 	res = if type
-		unpack-tuple-if-needed common-types, n-expected-type-args, type
+		unpack-tuple-if-needed n-expected-type-args, type
 	if res.size == n-expected-type-args
 		res
 	else
@@ -122,7 +114,7 @@ do check-ctx
 		()
 
 | Tries to return array of length 'nExpectedTypeArgs', but may fail
-unpack-tuple-if-needed type-args(common-types common-types, n-expected-type-args nat, type type)
+unpack-tuple-if-needed type-args(n-expected-type-args nat, type type) common-types
 	if n-expected-type-args == 1
 		as-type-args type
 	elif x = as-tuple common-types, type
@@ -176,7 +168,7 @@ do check-ctx, types-get
 	as tuple-type-ast
 		members = make-type-args ast.members, of member
 			type-from-ast member, type-params-scope, alias-allowed
-		make-tuple-type the::types-get.common-types, members, of
+		make-tuple-type members, of
 			ast.members[0].range.start, ast.members[end - 1].end
 
 spec-or-type-from-ast spec-or-type-inst?
@@ -184,12 +176,11 @@ spec-or-type-from-ast spec-or-type-inst?
 	ast spec-use-ast
 	delay-spec-insts may-delay-spec-insts
 do check-ctx, types-get
-	do if spec-or-type = try-find-spec-or-type ast.name, the::types-get.types-and-specs-map
+	do if spec-or-type = try-find-spec-or-type ast.name
 	type-arg type? = if x = ast.type-arg
 		type-from-ast x, type-params-scope, yes
-	common-types = the::types-get.common-types
-	if type-args = get-type-args-if-number-matches common-types, ast.name.range, spec-or-type.name, spec-or-type.n-type-params, type-arg
-		instantiate-spec-or-type the::check-ctx.instantiate-ctx, spec-or-type, type-args, delay-spec-insts
+	if type-args = get-type-args-if-number-matches ast.name.range, spec-or-type.name, spec-or-type.n-type-params, type-arg
+		instantiate-spec-or-type spec-or-type, type-args, delay-spec-insts
 
 -find-type-param type-param-index?(type-params-scope type-params, name symbol)
 	if res = find-index type-params-scope, it.name == name
@@ -204,23 +195,22 @@ do check-ctx, types-get
 	param-type = type-from-destructure ast.param, type-params-scope else
 		add-diag ast.param.range, diag-lambda-type-missing-param-type
 		bogus-type
-	the::types-get.common-types.fun-structs[ast.kind][to-type-array (return-type, param-type)]
+	common-types.fun-structs[ast.kind][to-type-array (return-type, param-type)]
 
 get-spec-from-common-module spec-decl?
-	types-and-specs-map types-and-specs-map
 	diag-range source-range
 	name symbol
 	expected-module common-module
-do check-ctx
-	if spec_ = try-find-spec (diag-range.start, name), types-and-specs-map
-		if spec_.module-uri == the::check-ctx.common-uris[expected-module]
+do check-ctx, types-and-specs-map
+	if spec_ = try-find-spec (diag-range.start, name)
+		if spec_.module-uri == common-uris[expected-module]
 			spec_
 		else
 			add-diag diag-range, diag-auto-fun-spec-from-wrong-module
 			()
 
--try-find-spec spec-decl?(name name-and-range, map types-and-specs-map) check-ctx
-	if res = spec-or-type-from-name name.name, name.range, map, false
+-try-find-spec spec-decl?(name name-and-range) check-ctx, types-and-specs-map
+	if res = spec-or-type-from-name name.name, name.range, false
 		if res.spec-decl
 			res
 		else
@@ -238,11 +228,11 @@ type-from-destructure type?(ast destructure-ast, type-params-scope type-params) 
 		if t = ast.type
 			type-from-ast t, type-params-scope, yes
 	as void-destructure-ast
-		the::types-get.common-types.void
+		common-types.void
 	as array
 		do if type-args = map-every-type-args ast, of part
 			type-from-destructure part, type-params-scope
-		make-tuple-type the::types-get.common-types, type-args, of
+		make-tuple-type type-args, of
 			ast[0].start, ast[end - 1].end
 
 destructure-kind enum(local, param)
@@ -256,7 +246,6 @@ check-destructure destructure
 	destructured-type type?
 	kind destructure-kind
 do check-ctx, types-get
-	common-types = the::types-get.common-types
 	type-with-container type-with-container mut(x type) = it, type-container
 	default-type = of
 		if destructured-type
@@ -304,6 +293,6 @@ do check-ctx, types-get
 			parts destructure[] = for part in ast
 				check-destructure type-container, type-params-scope, part, (), kind
 			part-types = make-type-args parts, of part then part.type
-			destructured-type: make-tuple-type common-types, part-types, of
+			destructured-type: make-tuple-type part-types, of
 				ast[0].range.start, ast[end - 1].end
 			parts: parts

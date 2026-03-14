@@ -5,7 +5,6 @@ import
 	../../model/uri
 	../../util/by-name
 	../../util/perf
-	../all-insts
 	../lang
 	../show-model
 	./allocators
@@ -33,27 +32,25 @@ is-std bool(a import-or-export)
 
 check-bootstrap (crow-module, common-types)
 	show-ctx show-ctx
-	all-insts all-insts
 	common-uris common-uris
 	uri-and-ast uri-and-ast
 	java-String struct-inst
-do
+do instantiate-ctx
 	start = perf-now
 	finally end-check start
-	check-worker show-ctx, all-insts, common-uris, (), uri-and-ast, of ctx, types-and-specs-map
-		get-common-types ctx.instantiate-ctx, ctx.diagnostics-builder, types-and-specs-map, java-String
+	check-worker show-ctx, common-uris, (), uri-and-ast, of ctx, types-and-specs-map
+		get-common-types ctx.diagnostics-builder, types-and-specs-map, java-String
 
 check crow-module
 	show-ctx show-ctx
-	all-insts all-insts
 	common-uris common-uris
 	uri-and-ast uri-and-ast
 	imports resolved-import[]
 	common-types common-types
-do
+do instantiate-ctx
 	start = perf-now
 	finally end-check start
-	module, _ = check-worker show-ctx, all-insts, common-uris, imports, uri-and-ast, (of _ then common-types)
+	module, _ = check-worker show-ctx, common-uris, imports, uri-and-ast, (of _ then common-types)
 	module
 
 -get-builtin-spec builtin-spec?(range source-range, name symbol) check-ctx # inline
@@ -87,7 +84,7 @@ do check-ctx, types-get
 	for decl in specs
 		detect-and-fix-spec-recursion decl
 	while x = pop delay-spec-insts
-		instantiate-spec-body the::check-ctx.instantiate-ctx, x, delay-spec-insts
+		instantiate-spec-body x, delay-spec-insts
 
 -detect-and-fix-spec-recursion void(decl spec-decl) check-ctx
 	trace spec-decl mut[] = ()
@@ -120,7 +117,7 @@ do check-ctx, types-get
 		type = type-from-ast ast.target, ast.type-params, different-module
 		struct-alias.target := match type
 		as bogus-type
-			the::types-get.common-types.void
+			common-types.void
 		as struct-inst
 			type
 		as type-param-index
@@ -205,11 +202,10 @@ do check-ctx, types-get
 	ast file-ast
 	specs spec-decl[]
 do check-ctx
-	types-and-specs-map = types.types-and-specs-map
+	the common-types = types.common-types
+	the types-and-specs-map = types.types-and-specs-map
 	struct-aliases = types.struct-aliases
 	structs = types.structs
-	the common-types = types.common-types
-	the types-get = the::common-types, types.types-and-specs-map
 	check-struct-bodies structs, ast.structs
 	vars var-decl[] = for x in ast.vars
 		check-var-initial x
@@ -220,11 +216,10 @@ do check-ctx
 	for var in vars
 		var.initializer :=
 			check-fun-or-test-body var, var.type, (), var.ast.initializer, var.ast, false
-	check-doc-comments types-and-specs-map, funs-and-map.funs-map, \
+	check-doc-comments funs-and-map.funs-map, \
 		struct-aliases, structs, specs, vars, funs-and-map.funs, funs-and-map.tests
-	module-doc-comment-references = check-doc-comment-references types-and-specs-map, funs-and-map.funs-map, (), (), ast.doc-comment
-	exports =
-		get-all-exports imports-and-re-exports.module-re-exports, types-and-specs-map, funs-and-map.funs-map
+	module-doc-comment-references = check-doc-comment-references funs-and-map.funs-map, (), (), ast.doc-comment
+	exports = get-all-exports imports-and-re-exports.module-re-exports, funs-and-map.funs-map
 	res crow-module =
 		uri: uri
 		config: config
@@ -247,16 +242,12 @@ do check-ctx
 		public-exports: exports.public
 		public-and-internal-exports: exports.public-and-internal
 		doc-comment-references: module-doc-comment-references
-	detect-unused-private the::check-ctx.diagnostics-builder, res
+	detect-unused-private the::check-context.diagnostics-builder, res
 	res.diagnostics := finish-diagnostics
 	res
 
 -all-exports record(public exports, public-and-internal exports)
--get-all-exports all-exports
-	re-exports import-or-export[]
-	types-and-specs-map types-and-specs-map
-	funs-map funs-map
-do check-ctx
+-get-all-exports all-exports(re-exports import-or-export[], funs-map funs-map) check-ctx, types-and-specs-map
 	exported-funs fun-decl mut[] = ()
 	exported-types-and-specs spec-or-type mut[] = ()
 
@@ -274,7 +265,7 @@ do check-ctx
 		for x in its-exports.types-and-specs
 			exported-types-and-specs ~= x
 
-	for x in types-and-specs-map
+	for x in the::types-and-specs-map
 		if x.visibility != private
 			exported-types-and-specs ~= x
 	for x in funs-map
@@ -292,19 +283,17 @@ do check-ctx
 
 -check-worker (crow-module, common-types)
 	show-ctx show-ctx
-	all-insts all-insts
 	common-uris common-uris
 	resolved-imports resolved-import[]
 	uri-and-ast uri-and-ast
-	get-common-types common-types mut(ctx check-ctx, types types-and-specs-map)
-do
+	get-common-types common-types mut(ctx check-context, types types-and-specs-map)
+do instantiate-ctx
 	diags-builder diagnostic mut[] = ()
 	imports-and-re-exports = check-imports-and-re-exports diags-builder, uri-and-ast.ast, resolved-imports
 	ast = uri-and-ast.ast
 	all-imports = collect-imports-and-re-exports imports-and-re-exports
-	the check-ctx  =
-		show-ctx: show-ctx
-		instantiate-ctx: all-insts,
+	the check-context  =
+		crow-include: show-ctx.uris-info.crow-include
 		common-uris: common-uris
 		cur-uri: uri-and-ast.uri
 		config: uri-and-ast.config
@@ -316,13 +305,12 @@ do
 	structs = check-structs-initial ast.structs
 	struct-aliases = check-struct-aliases-initial ast.struct-aliases
 	specs = check-spec-decls-initial ast.specs
-	types-and-specs-map = build-types-and-specs-map structs, struct-aliases, specs
+	the types-and-specs-map = build-types-and-specs-map structs, struct-aliases, specs
 
-	common-types = get-common-types[the::check-ctx, types-and-specs-map]
-	the types-get = common-types, types-and-specs-map
+	the common-types = get-common-types[the::check-context, the::types-and-specs-map]
 	check-struct-alias-targets struct-aliases, ast.struct-aliases
 	types types =
-		types-and-specs-map: types-and-specs-map
+		types-and-specs-map: the::types-and-specs-map
 		struct-aliases: struct-aliases
 		structs: structs
 		common-types: common-types
