@@ -1,0 +1,211 @@
+no-std
+import
+	../bool
+	../compare
+	../misc
+	../number
+	../range
+	../unsafe
+	./array
+	./private/array-low-level: array-set, copy-from, inner, buffer-size, new-array-view, low, high
+	./collection
+	./util
+export
+	../private/bootstrap: buffer
+
+| {true} if {a} and {b} are the exact same reference.
+| This is O(1) as it does not need to look at the elements.
++ ==[t] bool(a t buffer, b t buffer)
+	trusted a 'reference-equal b
+
++list-new[t] t buffer(a t[])
+	a.to
+
++buffer-view[t] record mut
+	-inner t buffer
+	-low nat
+	-high nat
++new[t] t buffer-view()
+	(), 0, 0
+
++as-const[t] t array-view(a t buffer-view) unsafe
+	new-array-view a.inner.cast-immutable, a.low, a.high
+
++to[t] t[](a t buffer-view)
+	map a, it.identity
++to[t] t buffer(a t buffer-view)
+	map a, it.identity
+
++is-empty[t] bool(a t buffer-view)
+	a.low == a.high
+
++size[t] nat64(a t buffer-view)
+	a.high - a.low
+
++subscript[t] t(a t buffer-view, index nat64)
+	assert index < a.size else index-too-big index, a.size
+	a.inner[a.low + index]
+
++set-subscript[t] void(a t buffer-view, index nat64, value t)
+	assert index < a.size else index-too-big index, a.size
+	a.inner[a.low + index] := value
+
++subscript[t] t buffer-view(a t buffer, indices nat64 range)
+	assert indices.high <= a.size else index-too-big indices.high, a.size
+	a, indices.low, indices.high
++subscript[t] t buffer-view(a t buffer-view, indices nat64 range)
+	assert indices.high <= a.size else index-too-big indices.high, a.size
+	a.inner, a.low + indices.low, a.low + indices.high
+
++iterate[t] bool(a t buffer-view, f bool mut(x t))
+	i mut = a.low
+	do loop
+	if i == a.high
+		break false
+	elif f[a.inner[i]]
+		break true
+	else
+		i +:= 1
+		continue
+
+| Copies the array elements to a new `buffer`.
+| This is O({a} {size}).
++to[t] t buffer(a t[])
+	if is-empty a
+		trusted cast-mutable a
+	else
+		a::(t array-view).to
+
++to[t] t buffer(a t array-view)
+	res t buffer = trusted uninitialized-buffer a.size
+	copy-from res[0 .. end], a
+	res
+
+| Copies the elements to an immutable array.
+| This is O({a} {size}).
+|
+| There is no `move-to` function for `buffer`,
+| since its pointer and size are immutable and so it can't be made empty.
++to[t] t[](a t buffer)
+	for x in a then x
+
+| Number of elements.
++size[t] nat64(a t buffer)
+	buffer-size a
+
+| {true} if `{a}.{size} == 0`.
++is-empty[t] bool(a t buffer)
+	a.size == 0
+
+| Copies the elements to a new `buffer`.
+| This is O({a} {size}).
++copy[t] t buffer(a t buffer)
+	for x in a then x
+
++subscript[t] t(a t buffer, index nat64)
+	assert index < a.size else index-too-big index, a.size
+	trusted array-get a, index
+-array-get[t] t(a t buffer, index nat64) unsafe
+
++set-subscript[t] void(a t buffer, index nat64, value t)
+	assert index < a.size else index-too-big index, a.size
+	trusted array-set a, index, value
+
++set-subscript[t] void(dest t buffer, range nat64 range, source t[])
+	dest[range] 'copy-from source
++set-subscript[t] void(dest t buffer, range nat64 range, source t array-view)
+	dest[range] 'copy-from source
++set-subscript[t] void(dest t buffer, range nat64 range, source t buffer)
+	dest[range] 'copy-from source
++set-subscript[t] void(dest t buffer, range nat64 range, source t buffer-view)
+	dest[range] 'copy-from source
++set-subscript[t] void(dest t buffer, range range-relative-to-end, source t[])
+	dest[to-range range, dest.size] 'copy-from source
++set-subscript[t] void(dest t buffer, range range-relative-to-end, source t array-view)
+	dest[to-range range, dest.size] 'copy-from source
++set-subscript[t] void(dest t buffer, range range-relative-to-end, source t buffer)
+	dest[to-range range, dest.size] 'copy-from source
++set-subscript[t] void(dest t buffer, range range-relative-to-end, source t buffer-view)
+	dest[to-range range, dest.size] 'copy-from source
+
+# TODO: overloading this on every collection is silly. It should work on anything with 'size' and 'iterate'. -----------------------------
++set-subscript[t] void(dest t buffer-view, range nat64 range, source t[])
+	dest[range] 'copy-from source
++set-subscript[t] void(dest t buffer-view, range nat64 range, source t array-view)
+	dest[range] 'copy-from source
++set-subscript[t] void(dest t buffer-view, range nat64 range, source t buffer)
+	dest[range] 'copy-from source
++set-subscript[t] void(dest t buffer-view, range nat64 range, source t buffer-view)
+	dest[range] 'copy-from source
++set-subscript[t] void(dest t buffer-view, range range-relative-to-end, source t[])
+	dest[to-range range, dest.size] 'copy-from source
++set-subscript[t] void(dest t buffer-view, range range-relative-to-end, source t array-view)
+	dest[to-range range, dest.size] 'copy-from source
++set-subscript[t] void(dest t buffer-view, range range-relative-to-end, source t buffer)
+	dest[to-range range, dest.size] 'copy-from source
++set-subscript[t] void(dest t buffer-view, range range-relative-to-end, source t buffer-view)
+	dest[to-range range, dest.size] 'copy-from source
+
+| Overwrites {dest} with the contents of {source}.
+| {dest} and {source} must be the same size.
++copy-from[t] void(dest t buffer-view, source t buffer)
+	dest 'copy-from source[0 .. end]
+-copy-from[t] void(dest t buffer-view, source t[])
+	dest 'copy-from source[0 .. end]
+-copy-from[t] void(dest t buffer-view, source t buffer-view)
+	dest 'copy-from trusted temp-as-array-view source
+-copy-from[t] void(dest t buffer-view, source t array-view)
+	dest.inner 'copy-from dest.low .. dest.high, source.inner, source.low .. source.high
+
+| Swaps the values at `{a}[{i}]` and `{a}[{j}]`.
++swap[t] void(a t buffer, i nat64, j nat64)
+	temp = a[i]
+	a[i] := a[j]
+	a[j] := temp
+
+| Overwrites each element `x` with `{f}[x]`.
++map=[t] void(a t buffer, f t mut(x t))
+	for i in 0::nat64 .. a.size
+		a[i] := f[a[i]]
+
+region unsafe
+
+| Allocates a `buffer` full of {gc-safe-value}.
+| There are usually better ways of creating a buffer, such as a `for` over a range.
+|
+| Keep exceptions in mind: Don't store a reference to the result until it's initialized,
+| since initialization code might throw an exception.
+|
+| This is used by collections like `mut[]` that need some excess capacity that will be GC-safe.
++uninitialized-buffer[t] t buffer(size nat64) unsafe
+
++fill[t] t buffer(size nat64, value t)
+	res t buffer = trusted uninitialized-buffer size
+	for i in 0 .. size
+		res[i] := value
+	res
+
+| Sets every element to {gc-safe-value}.
++clear-memory[t] void(a t buffer-view) unsafe
+	i mut nat64 = 0
+	until i == a.size
+		a[i] := gc-safe-value
+		i +:= 1
+
+| Unsafe cast to an immutable array.
+| This is O(1).
+| WARN: It's undefined behavior if {a} is ever written to again.
++cast-immutable[t] t[](a t buffer) unsafe
+	reinterpret-cast a
++cast-mutable[t] t buffer(a t[]) unsafe
+	reinterpret-cast a
+
+~temp-as-array[t] t[](a t buffer) unsafe
+	cast-immutable a
+~temp-as-array-view[t] t array-view(a t buffer-view) unsafe
+	as-const a
+
+| Calls {f} on each element in {a}.
+| If {a} is mutated while iterating, it will affect future calls to {f}.
++iterate[t] bool(a t buffer, f bool mut(elem t))
+	trusted iterate a.temp-as-array, f

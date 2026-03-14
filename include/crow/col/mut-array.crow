@@ -10,7 +10,7 @@ import
 	../unsafe
 	./array
 	./collection
-	./mut-slice
+	./buffer
 	./private/array-low-level: copy-from, inner, low, high
 	./util
 
@@ -20,7 +20,7 @@ import
 +mut-array[t] record mut
 	| {backing}.{size} is the capacity.
 	| Unused parts of backing are filled with {gc-safe-value}.
-	-backing mut t mut-slice
+	-backing mut t buffer
 	-size-and-locked mut nat64
 
 | Returns the size. Call {unlock-for-writing} in a 'finally'.
@@ -104,22 +104,22 @@ import
 | Copies elements to a new {mut-array}.
 +copy[t] t mut[](a t mut[])
 	assert-can-read a
-	backing: trusted temp-as-mut-slice a 'to
+	backing: trusted temp-as-buffer a 'to
 	size-and-locked: a.size
 
 | Copies elements to a new {array}.
 | The result is immutable and won't be affected by future writes to {a}.
 +to[t] t[](a t mut[])
-	trusted temp-as-mut-slice a 'to
+	trusted temp-as-buffer a 'to
 
 | This is like {to} but sets the input to empty.
 | This allows safely returning an immutable result but avoids needing to copy elements.
 | This os O(1) normally. In JS it is likely O(n).
 +move-to[t] t[](a t mut[])
 	trusted cast-immutable a.move-to
-+move-to[t] t mut-slice(a t mut[])
++move-to[t] t buffer(a t mut[])
 	assert-can-write a
-	res t mut-slice = if a.backing.size == a.size
+	res t buffer = if a.backing.size == a.size
 		a.backing
 	else
 		with out in build a.size
@@ -237,9 +237,9 @@ import
 			i +:= 1
 + ~~=[t] void(a t mut[], values t mut[])
 	a ~~= trusted temp-as-array-view values
-+ ~~=[t] void(a t mut[], values t mut-slice)
++ ~~=[t] void(a t mut[], values t buffer)
 	a ~~= trusted temp-as-array values
-+ ~~=[t] void(a t mut[], values t mut-slice-view)
++ ~~=[t] void(a t mut[], values t buffer-view)
 	a ~~= trusted temp-as-array-view values
 
 -ensure-room-for-one-more[t] void(a t mut[]) unsafe
@@ -251,7 +251,7 @@ import
 	trusted
 	assert new-capacity > a.backing.size
 	old-backing = a.backing
-	a.backing := gc-safe-mut-slice new-capacity
+	a.backing := uninitialized-buffer new-capacity
 	a.backing[0 .. a.size] := old-backing[0 .. a.size]
 
 -ensure-capacity-round-up[t] void(a t mut[], min-capacity nat64)
@@ -323,11 +323,11 @@ region mutating iteration
 	ensure-capacity-round-up a, new-size
 	a.size := new-size
 
-| Returns a {mut-slice} of all elements currently in the `mut-array`.
+| Returns a {buffer} of all elements currently in the `mut-array`.
 |
 | WARN: The result is temporary.
 | It's undefined behavior to modify {a} while the result of this function is still in use.
-~temp-as-mut-slice[t] t mut-slice-view(a t mut[]) unsafe # TODO: RENAME ------------------------------------------------
+~temp-as-buffer[t] t buffer-view(a t mut[]) unsafe # TODO: RENAME ------------------------------------------------
 	a.backing[0 .. a.size]
 ~temp-as-array-view[t] t array-view(a t mut[]) unsafe
 	a.backing.cast-immutable[0 .. a.size]

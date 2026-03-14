@@ -12,7 +12,7 @@ import
 	../tuple
 	./collection
 	./private/array-low-level
-	../private/bootstrap: mut-slice
+	../private/bootstrap: buffer
 
 | Calls {f} for each element in the collection and returns nothing.
 +for-loop[col, elem] void(a col, f void mut(elem elem)) (col, elem) iterate
@@ -29,7 +29,7 @@ import
 do (out-col, out-elem) list-new, (in-col, in-elem) iterate, in-col size
 	trusted
 	size = a.size
-	res out-elem mut-slice = gc-safe-mut-slice size
+	res out-elem buffer = uninitialized-buffer size
 	i mut = 0
 	_ = iterate a, of x
 		array-set res, i, f[x]
@@ -46,7 +46,7 @@ do (out-col, out-elem) list-new, (in-col, in-elem) iterate, in-col size
 do (out-col, elem) list-new, in-col size, (in-col, elem) iterate
 	trusted
 	in-size = a.size
-	res elem mut-slice = gc-safe-mut-slice in-size
+	res elem buffer = uninitialized-buffer in-size
 	out-size mut = 0
 	_ = iterate a, of x
 		if f[x]
@@ -89,7 +89,7 @@ do (out-col, (key, out-value)) list-new, (in-col, (key, in-value)) iterate, in-c
 
 +n-of[col, elem] col(n nat64, value elem) (col, elem) list-new
 	trusted
-	res elem mut-slice = gc-safe-mut-slice n
+	res elem buffer = uninitialized-buffer n
 	for i in 0 .. n
 		array-set res, i, value
 	list-new cast-immutable res
@@ -419,15 +419,15 @@ do (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
 | This deliberately does not provide any way to access the values.
 | You get a builder by using `with out in build` where `out` is the builder.
 +builder[t] record mut
-	-buffer mut t mut-slice
+	-buffer mut t buffer
 	-cur-size mut nat64
 ~new[t] t builder()
 	0,
 ~new[t] t builder(size-hint nat64)
-	trusted size-hint.gc-safe-mut-slice, 0
+	trusted size-hint.uninitialized-buffer, 0
 + ~=[t] void(a t builder, value t)
 	forbid a.cur-size == max-value
-	capacity = mut-slice-size a.buffer
+	capacity = buffer-size a.buffer
 	if a.cur-size == capacity
 		expand-capacity a, if capacity == 0 then 4 else capacity * 2
 	trusted array-set a.buffer, a.cur-size, value
@@ -436,7 +436,7 @@ do (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
 	a ~~= values::(t array-view)
 + ~~=[t] void(a t builder, values t array-view)
 	forbid a.cur-size == max-value
-	capacity = a.buffer.mut-slice-size
+	capacity = a.buffer.buffer-size
 	new-size = a.cur-size + values.size
 	if new-size > capacity
 		expand-capacity a, round-up-to-power-of-two (a.cur-size + values.size)
@@ -445,7 +445,7 @@ do (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
 -expand-capacity[t] void(a t builder, new-capacity nat64)
 	trusted
 	# assert new-capacity > a.cur-size # TODO -----------------------------------------------------------------------------------
-	new-buffer t mut-slice = gc-safe-mut-slice new-capacity
+	new-buffer t buffer = uninitialized-buffer new-capacity
 	copy-from new-buffer, 0 .. a.cur-size, a.buffer.cast-immutable, 0 .. a.cur-size
 	a.buffer := new-buffer
 -finish-array[elem] elem[](a elem builder)
@@ -454,11 +454,11 @@ do (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
 	size = a.cur-size
 	a.cur-size := max-value
 	buffer = a.buffer
-	a.buffer := gc-safe-mut-slice 0
-	if buffer.mut-slice-size == size
+	a.buffer := uninitialized-buffer 0
+	if buffer.buffer-size == size
 		cast-immutable buffer
 	elif java
-		res elem mut-slice = gc-safe-mut-slice size
+		res elem buffer = uninitialized-buffer size
 		copy-from res, 0 .. size, buffer.cast-immutable, 0 .. size
 		cast-immutable res
 	elif js
