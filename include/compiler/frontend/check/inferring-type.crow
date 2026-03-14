@@ -34,6 +34,14 @@ to expected(choices type-and-context mut[])
 	(), choices, ()
 -is-purely-inferring bool(a expected)
 	!a.opt-inferred and !a.opt-choices and !a.opt-loop
+| Purely inferring, or expecting 't' where 't' can be any type
+-is-practically-inferring bool(expected expected)
+	if is-purely-inferring expected
+		true
+	else
+		do if choice = ?only expected.opt-choices
+		type = choice.type
+		type.type-param-index and !choice.context[type.index]
 
 loop-info record mut
 	loop_ loop-expr
@@ -77,9 +85,7 @@ debug string(a expected)
 	if x = a.opt-inferred
 		"local type {debug x}"
 	elif choices = a.opt-choices
-		x string = join ", ", for choice in choices
-			debug choice
-		"choices: {x}"
+		"choices: {join ", ", map choices, it.debug}"
 	elif x = a.opt-loop
 		"loop returning {debug x.type}"
 	else
@@ -88,42 +94,53 @@ debug string(a expected)
 try-get-loop loop-info?(a expected)
 	a.opt-loop
 
-| If there is a single supported type, sets 'expected' and returns it.
-| If there is no unambiguous choice, adds a diagnostic and returns an empty option.
-choose-type nat?
-	range source-range
-	expected expected
-	choices struct-inst[]
-do check-expr-ctx
-	res = choose-type-allow-none range, expected, choices
-	unless res
-		add-diag range, diag-literal-not-expected get-expected-for-diag expected
-	res
-
-| Same as {choose-type} but does not add a diagnostic if no literal types match.
-choose-type-allow-none nat?(range source-range, expected expected, choices struct-inst[]) check-expr-ctx
-	res mut nat? = ()
-	# For diag
-	multiple struct-inst mut[] = ()
-
+| Final 'type' option is for any other type when it is unambiguous
+char-or-string-type union(char-type, string-like-type)
+== bool(a char-or-string-type, b char-or-string-type)
+choose-string-type (type, char-or-string-type?)?(range source-range, expected expected) check-expr-ctx
+	do unless is-practically-inferring expected else
+		must-check expected, common-types.string
+		common-types.string, string
+	choices (struct-inst, char-or-string-type) mut[] = ()
 	each-choice expected, of choice
 		each-narrowed-struct choice, of struct
-			do if here = index-of choices, struct
-			if res
-				rslt-struct = choices[res!]
-				if struct != rslt-struct
-					if is-empty multiple
-						multiple ~= rslt-struct
-					elif !contains multiple, struct
-						multiple ~= struct
+			if kind = as-char-or-string-type struct and !exists choices, it.b == kind
+				choices ~= struct, kind
+	if is-empty choices
+		if x = try-get-inexact-non-inferring-type expected
+			x, ()
+	else
+		choice = only choices else
+			# Prefer string over char8[]
+			if every choices, of _, kind then kind == string or kind == char8-array
+				common-types.string, string
 			else
-				res := here
+				add-diag range, diag-literal-multiple-match type-container, map choices, it.a
+				choices[0]
+		must-check expected, choice.a
+		choice.a, choice.b
 
-	if res
-		unless is-empty multiple
-			add-diag range, diag-literal-multiple-match type-container, multiple.move-to
-		must-check expected, choices[res!]
-	res
+-as-char-or-string-type char-or-string-type?(a type) check-ctx, common-types
+	if is-char8 a
+		char8
+	elif is-char32 a
+		char32
+	elif a == common-types.char8-array
+		char8-array
+	elif a == common-types.char32-array
+		char32-array
+	elif a == common-types.java-String
+		java-String
+	elif is-js-any a
+		js-any
+	elif a == common-types.string
+		string
+	elif a == common-types.symbol
+		symbol
+	elif a::type? == the::check-ctx.json-type
+		json
+	else
+		()
 
 number-type union(integral-type, float-type-or-js-or-json)
 choose-number-type number-type?(range source-range, expected expected) check-expr-ctx

@@ -89,7 +89,7 @@ do check-ctx, types-get, funs-map
 	as if-ast
 		check-if ast, expected
 	as interpolated-ast
-		check-interpolated ast, ast.range, ast.template, ast.interpolated, expected
+		check-interpolated ast, expected
 	as it-ast
 		check-it ast, expected
 	as it-scope-ast
@@ -309,18 +309,25 @@ do check-expr-ctx
 	check-assignment ast, ast.left, ast.keyword-range, expected, of arg-expected
 		check-call-special ast, ast.fun-name.range, ast.fun-name.name, (ast.left, ast.right), arg-expected
 
--check-interpolated expr
+-check-interpolated expr(ast interpolated-ast, expected expected) check-expr-ctx
+	if type, _ = choose-string-type ast.range, expected
+		check-interpolated-inner ast, ast.range, ast.template, ast.interpolated, expected, type
+	else
+		add-diag ast.range, interpolated::diag-needs-expected-type
+		bogus expected, ast.range
+
+-check-interpolated-inner expr
 	source list-expr-source
 	range source-range
 	template interpolated-template-part[]
 	interpolated-exprs expr-ast[]
 	expected expected
+	type type
 do check-expr-ctx
-	do if called = called-for-interpolate-or-list-new range, "interpolate", expected else
+	do if called = find-function-for-interpolate-or-list-new range, "interpolate", type else
 		bogus expected, range
-	arg-element-type = as-array! only! called.param-types
-	arg-expected = expect arg-element-type
-	args expr[] = for arg-index in 0 .. template.size + interpolated-exprs.size
+	arg-expected = expect as-array! only! called.param-types
+	list-expr source, called, for arg-index in 0 .. template.size + interpolated-exprs.size
 		if is-even arg-index
 			part = template[arg-index / 2]
 			range2 = if is-empty part.range then part.range else part.range[0 .. 1]
@@ -330,7 +337,6 @@ do check-expr-ctx
 			part = interpolated-exprs[arg-index / 2]
 			range2 = if is-empty part.range then part.range else part.range[0 .. 1]
 			check-call-special source.to, range2, "interpolate-value", (part,), arg-expected
-	list-expr source, called, for arg in args then arg
 
 -access-local local?(diag-range source-range, name symbol) check-expr-ctx
 	# This traverses from the innermost lambda outwards, checking if it was already added to a closure.
@@ -398,51 +404,41 @@ do check-expr-ctx
 		literal-scalar-expr range, number-type,
 			parse-float get-text range 'to
 
--allowed-literal-string-types struct-inst[](include-chars bool) check-expr-ctx
-	types = common-types
-	-- if include-chars
-		- types.char8
-		- types.char32
-	- types.char8-array
-	- types.char32-array
-	- types.java-String
-	- types.js-any
-	- types.string
-	- types.symbol
-	-- from-option the::check-ctx.json-type
-
 -check-literal-string expr(ast literal-string-ast, expected expected) check-expr-ctx
-	range = ast.range
-	value = ast.value
-	allowed-types struct-inst[] = allowed-literal-string-types true
-	if type-index = choose-type-allow-none range, expected, allowed-types
-		if type-index == 0
-			literal-scalar-expr range, char8,
-				char8-literal-value range, value 'to
-		elif type-index == 1
-			literal-scalar-expr range, char32,
-				char32-literal-value range, value 'to
+	if type, kind = choose-string-type ast.range, expected
+		if kind
+			check-literal-string-inner ast.range, ast.value, kind, expected
 		else
-			check-literal-string-inner ast.range, ast.value, type-index - 2, expected
+			check-interpolated-inner ast, ast.range, (ast.to,), (), expected, type
 	else
-		check-interpolated ast, ast.range, (ast.to,), (), expected
+		add-diag ast.range, interpolated::diag-needs-expected-type
+		bogus expected, ast.range
 -to interpolated-template-part(a literal-string-ast)
 	a.range, a.value
 
+| For a string part of an interpolated expression, it is only allowed to be a literal string type, not another 'interpolate' call.
 -check-literal-string-only-string expr(ast interpolated-template-part, expected expected) check-expr-ctx
-	allowed-types = allowed-literal-string-types false
-	if type-index = choose-type ast.range, expected, allowed-types
-		check-literal-string-inner ast.range, ast.value, type-index, expected
+	if _, kind = choose-string-type ast.range, expected and kind
+		check-literal-string-inner ast.range, ast.value, kind, expected
 	else
+		add-diag ast.range, diag-literal-not-expected get-expected-for-diag expected
 		bogus expected, ast.range
 
--check-literal-string-inner expr(range source-range, value string, type-index nat, expected expected) check-expr-ctx
-	kinds string-like-type[] = char8-array, char32-array, java-String, js-any, string, symbol, json
-	string-type = kinds[type-index]
-	if string-type != js-any or check-is-js range
-		literal-string-like-expr range, string-type, value
-	else
-		bogus expected, range
+-check-literal-string-inner expr(range source-range, value string, kind char-or-string-type, expected expected) check-expr-ctx
+	match kind
+	as char-type
+		match kind
+		as char8
+			literal-scalar-expr range, char8,
+				char8-literal-value range, value 'to
+		as char32
+			literal-scalar-expr range, char32,
+				char32-literal-value range, value 'to
+	as string-like-type
+		if kind != js-any or check-is-js range
+			literal-string-like-expr range, kind, value
+		else
+			bogus expected, range
 
 -check-is-js bool(range source-range) check-expr-ctx
 	res = has-build-target specs, js
@@ -658,10 +654,12 @@ do check-expr-ctx
 	if args expr-ast[] = map-every ast.parts, it.expr-ast
 		check-call-list-no-multi ast, ast.range, args, expected
 	else
-		do if called = called-for-interpolate-or-list-new ast.range, "list-new", expected else
+		do if result-type = try-get-inexact-non-inferring-type expected else
+			add-diag ast.range, list::diag-needs-expected-type
 			bogus expected, ast.range
-		arg-array-type = only! called.param-types
-		arg-elem-type = as-array! arg-array-type
+		do if called = find-function-for-interpolate-or-list-new ast.range, "list-new", result-type else
+			bogus expected, ast.range
+		arg-elem-type = as-array! only! called.param-types
 		arg-array-view-type = common-types.array-view[as-type-args arg-elem-type]
 		list-expr ast, called, for part in ast.parts
 			match part
@@ -669,12 +667,6 @@ do check-expr-ctx
 				check-and-expect part, arg-elem-type
 			as list-ast-part-multi
 				list-expr-part-multi check-and-expect part.arg, arg-array-view-type
-
--called-for-interpolate-or-list-new called?(range source-range, name symbol, expected expected) check-expr-ctx
-	do if result-type = try-get-inexact-non-inferring-type expected else
-		add-diag range, list::diag-needs-expected-type
-		()
-	find-function-for-interpolate-or-list-new range, name, result-type
 
 -check-logical expr(ast logical-ast, expected expected) check-expr-ctx
 	bool =  common-types.bool
