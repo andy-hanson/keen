@@ -7,7 +7,6 @@ import
 	../../model/model
 	../../model/source-range
 	../../util/by-name
-	../../util/enum-map
 	../../util/util
 	./check-call/check-call
 	./check-call/check-call-specs
@@ -146,7 +145,7 @@ do
 	as typed-ast
 		check-typed ast, expected
 	as unpack-option-ast
-		check expected, common-types.bool, check-unpack-option ast
+		check expected, bool, check-unpack-option ast
 	as underscore-ast
 		add-diag ast.range, diag-underscore
 		bogus expected, ast.range
@@ -166,7 +165,7 @@ do
 	check-expr ast, expected.expect
 
 -check-not expr(ast not-ast, expected expected) check-expr-ctx
-	check expected, common-types.bool, not-expr ast, check-condition ast.arg
+	check expected, bool, not-expr ast, check-condition ast.arg
 
 -check-if if-expr(ast if-ast, expected expected) check-expr-ctx
 	if (ast.first-branch.is-throw or ast.second-branch.is-throw) and !ast.is-else-of-parent
@@ -203,28 +202,28 @@ do
 
 -check-condition expr(ast expr-ast) check-expr-ctx
 	if ast.skip-parentheses.logical-ast
-		check-and-expect ast, common-types.bool
+		check-and-expect ast, bool
 	else
 		# Since anything can implicitly convert to 't?', any expression can match this.
 		# But having this will guide code to prefer to exactly match 'bool' instead of converting to option.
 		choices type-and-context mut[] =
-			- common-types.bool, ()
-			- common-types.t-option, ((),)
+			- bool, ()
+			- t-option, ((),)
 		res = check-expr ast, choices.to
 		# It may implicitly convert to an option and that's what 'expected inferred' gives.
 		# So use 'res type' to get the actual type.
-		type = type res, available-types
+		type = type-not-json res
 		if is-bool type or is-option type
 			res
 		else
 			unless is-bogus type
 				add-diag ast.range, diag-condition-type type-with-container type
-			bogus-expr ast.range, common-types.bool
+			bogus-expr ast.range, bool
 
 -check-unpack-option unpack-option(ast unpack-option-ast) check-expr-ctx
 	expr, type = check-and-expect-or-infer ast.option,
 		if t = type-from-destructure ast.destructure
-			common-types.option[t]
+			option-of t
 	destructure  = check-destructure ast.destructure, type.unwrap-option-or-same, local
 	ast: ast
 	destructure: destructure
@@ -245,7 +244,7 @@ do
 		range = ast.option.range
 		unless is-bogus type
 			add-diag range, diag-unpack-option-must-be-option type-with-container type
-		bogus-expr range, common-types.option[type]
+		bogus-expr range, option-of type
 
 -check-force expr(ast force-ast, expected expected) check-expr-ctx
 	is-option mut bool = true
@@ -263,7 +262,7 @@ do
 
 -check-throw expr(ast throw-ast, expected expected) check-expr-ctx
 	if type = try-get-inexact-non-inferring-type-including-loop expected
-		thrown = check-and-expect ast.thrown, common-types.exception
+		thrown = check-and-expect ast.thrown, exception
 		throw-expr ast, thrown, type
 	else
 		add-diag ast.range, throw_::diag-needs-expected-type
@@ -279,7 +278,7 @@ do
 	thrown expr? = if thrown-ast = ast.thrown
 		if x = thrown-ast.expr.throw-ast
 			add-diag x.keyword-range, diag-assert-or-forbid-message-is-throw
-		check-expr-with-context (known-value condition, is-forbid), thrown-ast.expr, common-types.exception.expect
+		check-expr-with-context (known-value condition, is-forbid), thrown-ast.expr, exception.expect
 	after =
 		diag diag-required-after = if is-forbid then forbid_ else assert_
 		check-required-after ast.keyword-range, (known-value condition, !is-forbid), ast.after, diag, expected
@@ -385,7 +384,7 @@ do check-expr-ctx
 	lambda.closure-locals ~= local
 	if is-mutable local
 		_ = ensure the::expr-ctx.allocated-locals, local, of
-			common-types.reference[local.type]
+			reference[local.type]
 	check-lambda-can-reference-local diag-range, lambda.allowed-purity, local.name, local.type, local.is-mutable
 
 -check-identifier expr(ast name-and-range, expected expected) check-expr-ctx
@@ -407,8 +406,7 @@ do check-expr-ctx
 do check-expr-ctx
 	if local = access-local source.range, left
 		if is-mutable local
-			check expected, common-types.void,
-				local-set-expr source, local, cb-right[local.type.expect]
+			check expected, void, local-set-expr source, local, cb-right[local.type.expect]
 		else
 			add-diag source.range, local.diag-local-not-mutable
 			bogus expected, source.range
@@ -501,7 +499,7 @@ do check-expr-ctx
 			as local-refinement
 				add-type-refinement x.local, x.refined-type
 			as build-target
-				specs := add-build-target-to-specs common-types, specs, x
+				specs := add-build-target-to-specs specs, x
 	as destructure
 		add-locals-for-destructure context
 	as no-context
@@ -516,12 +514,12 @@ do check-expr-ctx
 	for x in destructure.locals
 		add-local x
 
--add-build-target-to-specs specs(common-types common-types, specs specs, target build-target)
+-add-build-target-to-specs specs(specs specs, target build-target) common-types
 	get-or-add-specs specs.inner ~ match target
 	as java
-		common-types.java-spec
+		java-spec
 	as js
-		common-types.js-spec
+		js-spec
 
 -add-type-refinement void(local local, refined-type type) expr-ctx
 	refined-types ~= local, if existing = find refined-types, it.a == local
@@ -611,7 +609,7 @@ do
 	res lambda-expr =
 		ast: ast
 		param: param
-		mut-type-for-explicit-shared: if explicit-shared then common-types.fun-structs[mut_][return-and-param-type]
+		mut-type-for-explicit-shared: if explicit-shared then lambda-mut[return-and-param-type]
 		body: body
 		closure:
 			-- map lambda-info.closure-locals, it.identity
@@ -682,16 +680,14 @@ do check-expr-ctx
 		do if called = find-function-for-interpolate-or-list-new ast.range, "list-new", result-type else
 			bogus expected, ast.range
 		arg-elem-type = as-array! only! called.param-types
-		arg-array-view-type = common-types.array-view[arg-elem-type]
 		list-expr ast, called, for part in ast.parts
 			match part
 			as expr-ast
 				check-and-expect part, arg-elem-type
 			as list-ast-part-multi
-				list-expr-part-multi check-and-expect part.arg, arg-array-view-type
+				list-expr-part-multi check-and-expect part.arg, array-view-of arg-elem-type
 
 -check-logical expr(ast logical-ast, expected expected) check-expr-ctx
-	bool =  common-types.bool
 	match ast.kind
 	as and_
 		left = check-condition ast.left
@@ -711,8 +707,8 @@ do check-expr-ctx
 		else
 			left = check-expr ast.left, expected
 			right = check-expr ast.right, expected
-			left-type = type left, available-types
-			right-type = type right, available-types
+			left-type = type-not-json left
+			right-type = type-not-json right
 			type = expected.inferred
 			kind = if type == bool
 				bool-or-bool
@@ -732,9 +728,9 @@ do check-expr-ctx
 	outer expected
 	warn-non-option void mut(actual type-with-container)
 do check-expr-ctx
-	check-with-modify-expected outer, common-types.option[it], of inner
+	check-with-modify-expected outer, it.option-of, of inner
 		arg = check-expr ast, inner
-		arg-type = type arg, available-types
+		arg-type = type-not-json arg
 		un-option = unwrap-option-allow-bogus arg-type else
 			warn-non-option[type-with-container arg-type]
 			arg-type
@@ -770,7 +766,7 @@ do check-expr-ctx
 
 -check-loop-while-or-until expr(ast loop-while-or-until-ast, expected expected) check-expr-ctx
 	condition = check-condition ast.condition
-	body = check-expr-with-context (known-value condition, !ast.is-until), ast.body, expect common-types.void
+	body = check-expr-with-context (known-value condition, !ast.is-until), ast.body, expect void
 	diag diag-required-after = if ast.is-until then until_ else while_
 	after = check-required-after ast.keyword-range, (known-value condition, ast.is-until), ast.after, diag, expected
 	loop-while-or-until-expr ast, condition, body, after
@@ -781,7 +777,7 @@ do check-expr-ctx
 		local, matched-type
 	if local then add-local local
 	# Use an arbitrary non-matchable inst as default
-	inst = matched-type.struct-inst else common-types.void
+	inst = matched-type.struct-inst else void
 	decl = inst.decl
 	not-matchable = of
 		unless is-bogus matched-type
@@ -805,7 +801,7 @@ do check-expr-ctx
 	as flags_
 		not-matchable[]
 	as record_
-		if string-like = get-matchable-string-like-from-record common-types, inst
+		if string-like = get-matchable-string-like-from-record inst
 			check-match-string-like ast, expected, local, matched, string-like
 		else
 			not-matchable[]
@@ -930,7 +926,7 @@ do check-expr-ctx
 		inst-struct-from-ast as_.type-name.name, as_.type-name.range, (), type-params, yes
 	if require-type and !explicit-caught-type
 		add-diag ast.keyword-range, diag-catch-else-must-come-last
-	caught-type = explicit-caught-type else common-types.exception
+	caught-type = explicit-caught-type else exception
 	destructure simple-destructure = if name = ast.name
 		(name, caught-type)::local
 	else
@@ -1069,14 +1065,14 @@ do check-expr-ctx
 	else_ = check-match-else-required ast, expected, of then integral::diag-match-needs-else
 	match-scalar-expr ast, integral-type, matched-local, matched, cases, else_, expected.inferred
 
--get-matchable-string-like-from-record string-like-type?(common-types common-types, inst struct-inst)
-	if inst == common-types.char32-array
+-get-matchable-string-like-from-record string-like-type?(inst struct-inst) common-types
+	if inst == char32-array
 		char32-array
-	elif inst == common-types.char8-array
+	elif inst == char8-array
 		char8-array
-	elif inst == common-types.symbol
+	elif inst == symbol
 		symbol
-	elif inst == common-types.string
+	elif inst == string
 		string
 
 -check-match-string-like expr
@@ -1090,7 +1086,7 @@ do check-expr-ctx
 	do if spec_ = get-spec-from-common-module ast.keyword-range, "equal", compare else
 		bogus expected, ast.range
 
-	matched-type = struct-inst! type matched, available-types
+	matched-type = struct-inst! type-not-json matched
 	equals = check-spec-and-get-last-impl ast.keyword-range, instantiate-spec spec_, matched-type
 	seen string mut-set = ()
 	cases match-string-like-case[] = with out in build
@@ -1150,7 +1146,7 @@ do check-expr-ctx
 	res
 
 -check-seq expr(ast seq-ast, expected expected) check-expr-ctx
-	first = check-and-expect ast.first, common-types.void
+	first = check-and-expect ast.first, void
 	then_ = check-expr ast.then_, expected
 	seq-expr first, then_
 
@@ -1159,7 +1155,7 @@ do check-expr-ctx
 		add-diag ast.finally-keyword-range, finally_::diag-loop-disallowed-body
 		bogus expected, ast.range
 	else
-		right = check-and-expect ast.right, common-types.void
+		right = check-and-expect ast.right, void
 		below = check-expr ast.below, expected
 		finally-expr ast, right, below
 

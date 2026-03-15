@@ -16,8 +16,10 @@ fun-body-decl fun-body(fun low-fun)
 	fun.source.low-fun-source-regular!.decl.body
 
 # Fills in simple function bodies
-quick-fill-in-low-fun-body void(ctx lower-ctx, cf low-fun)
-	the lower-ctx = ctx
+quick-fill-in-low-fun-body void(ctx lower-context, cf low-fun)
+	the common-types = ctx.common-types
+	the uncommon-types = ctx.uncommon-types
+	the lower-context = ctx
 	assert cf.body.low-fun-body-deferred
 	fun-body = cf.fun-body-decl
 	return-type = cf.return-type
@@ -112,7 +114,7 @@ quick-fill-in-low-fun-body void(ctx lower-ctx, cf low-fun)
 		gen-string-literal-kind import_.content.as-string
 
 get-var low-var(decl var-decl) lower-ctx
-	ensure the::lower-ctx.low-var-lookup, decl, of
+	ensure the::lower-context.low-var-lookup, decl, of
 		get-var-inner decl
 -get-var-inner low-var(decl var-decl) lower-ctx
 	type = get-low-type decl.type, ()
@@ -276,7 +278,7 @@ do lower-and-expr-ctx
 	do if called = get-low-fun-from-called a.called else lower-bogus type, range
 	option-args nat mut[] = ()
 	args low-expr[] = for i in 0 .. a.args.size
-		if is-option type a.args[i], available-types and !is-option a.called.param-types[i]
+		if is-option type-not-json a.args[i] and !is-option a.called.param-types[i]
 			option-args ~= i
 			lower-expr a.args[i]
 		else
@@ -426,7 +428,7 @@ do lower-and-expr-ctx
 		else
 			root-local
 	as destructure-split
-		if is-valid-destructure a, common-types
+		if is-valid-destructure a
 			for part in a.parts
 				begin-destructure part
 -begin-param-destructure void(a destructure, low-param low-local) lower-and-expr-ctx
@@ -457,7 +459,7 @@ do lower-and-expr-ctx
 		else
 			low-local, expr
 	as destructure-split
-		if is-valid-destructure a, common-types
+		if is-valid-destructure a
 			root-local low-local = destruct, get-low-type a.type
 			- root-local
 			- end-destructure-split type, range, expr, a, root-local
@@ -487,7 +489,7 @@ do lower-and-expr-ctx
 	root-local low-local
 do lower-and-expr-ctx
 	# TODO: we should detect this earlier and make the entire expression fail
-	do if is-valid-destructure x, common-types else lower-bogus type, range
+	do if is-valid-destructure x else lower-bogus type, range
 	get-root-local = gen-local-get range, root-local
 	res mut = expr
 	for part-index, part in with-index x.parts
@@ -572,7 +574,7 @@ do lower-and-expr-ctx
 		This strategy avoids repeating 'false-branch' twice.
 		The function lower-complex-condition just handles the true part of this.
 		###
-		option-type = get-low-type common-types.option[model-type]
+		option-type = get-low-type option-of model-type
 		true-branch = of
 			:: low-expr
 			true_ = cb-true-branch[]
@@ -723,7 +725,7 @@ do lower-and-expr-ctx
 			if is-option model-type
 				type
 			else
-				get-low-type common-types.option[model-type]
+				get-low-type option-of model-type
 		as option-or
 			outer-type
 		left = lower-expr left-type, a.left
@@ -920,10 +922,9 @@ do lower-and-expr-ctx
 	model-locals local[] = for* x in condition-knowledge a, true
 		from-option x.local
 	low-tuple-option low-type = if model-locals.size == 1
-		get-low-type common-types.option[model-locals[0].type]
+		get-low-type option-of model-locals[0].type
 	else
-		tuple struct-inst = tuple! common-types, make-type-args model-locals, it.type
-		get-low-type common-types.option[tuple]
+		get-low-type option-of tuple! make-type-args model-locals, it.type
 	low-tuple-type = as-option! low-tuple-option
 	local-types low-type[] = if model-locals.size == 0
 		()
@@ -1027,7 +1028,7 @@ do lower-and-expr-ctx
 	catches catch_[]
 do lower-and-expr-ctx
 	variant-type = exception-type
-	typed-catches catch_ array-view, catch-else catch_? = if catches[end - 1].caught-type == common-types.exception
+	typed-catches catch_ array-view, catch-else catch_? = if catches[end - 1].caught-type == exception
 		catches[0 .. end - 1], catches[end - 1]
 	else
 		catches, ()
@@ -1071,7 +1072,7 @@ do lower-and-expr-ctx
 			lower-expr exception-type, x
 		else
 			gen-error range,
-				default-assert-or-forbid-message cur-uri, a, available-types, show-ctx.file-content-getters
+				default-assert-or-forbid-message cur-uri, a, show-ctx.file-content-getters
 	after = of
 		lower-expr-or-void range, a.after
 	true-branch low-expr mut(), false-branch low-expr mut() =
@@ -1135,7 +1136,7 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 	as list-expr
 		lower-list type, range, a
 	as literal-scalar-expr
-		if a.type == json
+		if a.type::char-or-integral-or-float-type == json
 			type, range, constant-json-number a.value.to
 		else
 			gen-constant type, range, a.value
@@ -1240,7 +1241,7 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 		members low-type[] = if u.has-members
 			u.members
 		else
-			map the::lower-ctx.sum-types[expected]!, it.member-type
+			map the::lower-context.sum-types[expected]!, it.member-type
 		first members.with-index, of member-index, member
 			if res = try-widen member, actual
 				gen-create-union expected, actual.range, member-index, res
@@ -1258,10 +1259,10 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 					gen-builtin expected, actual.range, to-float64-from-float32, (), (actual,)
 -is-array-view bool(a low-type) lower-ctx
 	source = a.source
-	source.low-type-source-inst and source.decl == common-types.array-view
+	source.low-type-source-inst and source.decl == array-view
 -is-buffer-view bool(a low-type) lower-ctx
 	source = a.source
-	source.low-type-source-inst and source.decl == common-types.buffer-view
+	source.low-type-source-inst and source.decl == buffer-view
 
 -lower-finally low-expr
 	type low-type
