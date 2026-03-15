@@ -76,7 +76,7 @@ do show-ctx
 	ast js-script-ast = shebang, classes, functions, vars,
 		- gen-call-main program.common-funs.low-common-funs-js!.main 'to
 	module-paths = module-paths model-program
-	write-js-ast the::show-ctx.file-content-getters, module-paths, ast, sanity-checks, source-map-name
+	write-js-ast file-content-getters, module-paths, ast, sanity-checks, source-map-name
 
 # Emit vars with simple initializers before symbols (this happens to be the only kind of constants that requires)
 -has-simple-initializer bool(a low-var)
@@ -610,7 +610,7 @@ do to-expr
 		return got === undefined ? new Option(0) : new Option(1, got)
 		###
 		arg-get js-expr = gen-optional-call-property-sync source, arg, "deref", ()
-		with-temp "got", source, arg-get, of got
+		with got in temp-local "got", source, arg-get
 			got-eq-undefined = gen-eq-eq-eq source, got, source.gen-undefined
 			none-type = type.body.low-union!.members[0]
 			new-none = gen-new source, (to-ref source, none-type), () # TODO:PERF don't construct it every time ------------
@@ -974,7 +974,7 @@ do
 		value = to-js-expr x.value
 		kind js-var-decl-const = if is-mutable x.local then let else const
 		then_ = to-expr-or-block-statement x.then_
-		expr-or-block-statement-with-local kind, local, source, value, then_
+		expr-or-block-statement-with-local kind, (local, source, value), then_
 	as lambda-low-expr
 		source: source
 		kind:
@@ -1023,7 +1023,7 @@ do
 		unless is-string-or-symbol x.matched.type
 			log error, "Match on char8[] or char32[]?"
 		assert is-string-or-symbol x.matched.type else todo
-		with-temp "matched", x.matched, of matched
+		with matched in temp-local "matched", x.matched
 			res mut = to-block-statement x.else_
 			equals-async = is-async x.equals
 			equals = to-ref source, x.equals, equals-async
@@ -1100,7 +1100,7 @@ do
 		unreachable source
 	values js-expr[] = for value in a.case-values
 		constant-integral source, a.matched-integral-type, value
-	with-temp "matched", a.matched, of matched
+	with matched in temp-local "matched", a.matched
 		match x = to-exprs-or-block-statements (case-exprs ~ else_), type
 		as array
 			res mut = x[end - 1]
@@ -1117,7 +1117,7 @@ do
 		to-expr-or-block-statement e
 	else
 		unreachable source
-	with-temp "matched", x.matched, of matched
+	with matched in temp-local "matched", x.matched
 		cases low-local-and-expr[] = map x.cases, ((), it)
 		match-union source, type, matched, else_, x.union-type, x.member-indices, cases
 
@@ -1159,7 +1159,7 @@ do to-expr
 		res mut = x[cases.size]
 		for i nat in reverse 0 .. cases.size
 			expr = if l = cases[i].local
-				add-local-and-assign source, l.local-name, matched-value, x[i]
+				add-local-and-assign (l.local-name, source, matched-value), x[i]
 			else
 				x[i]
 			res := gen-ternary source, get-cond[i], expr, res
@@ -1446,46 +1446,33 @@ do to-expr
 -is-bigint bool(type integral-type)
 	type == int64 or type == nat64
 
-# TODO: use a 'with-block' --------------------------------------------------------------------------------------------------------------------------
--with-temp js-expr-or-block-statement
-	name string
-	expr low-expr
-	f js-expr-or-block-statement mut(get-temp js-expr)
-do to-expr
-	with-temp name, expr.source, expr.to-js-expr, f
--with-temp js-expr-or-block-statement
-	name string
-	source source
-	expr js-expr
-	f js-expr-or-block-statement mut(get-temp js-expr)
-do to-expr
-	with-temp-common name.make-temp-local, source, expr, f
+-temp-local record(local js-name, source source, value js-expr)
+-temp-local temp-local(name string, expr low-expr) to-expr
+	temp-local name.make-temp-local, expr.source, expr.to-js-expr
+-temp-local temp-local(name string, source source, expr js-expr) to-expr
+	name.make-temp-local, source, expr
 -make-temp-local js-name(base string) to-expr
 	temp, base, take-next-temp-index
--with-temp-common js-expr-or-block-statement
-	local js-name
-	source source
-	value js-expr
+-with-block js-expr-or-block-statement
+	a temp-local
 	f js-expr-or-block-statement mut(get-temp js-expr)
 do to-expr
-	expr-or-block-statement-with-local const, local, source, value, f[gen-identifier source, local]
+	expr-or-block-statement-with-local const, a, f[gen-identifier a.source, a.local]
 -expr-or-block-statement-with-local js-expr-or-block-statement
 	kind js-var-decl-const
-	local js-name
-	source source
-	value js-expr
+	local temp-local
 	then_ js-expr-or-block-statement
 do to-expr
 	match then_
 	as js-expr
-		add-local-and-assign source, local, value, then_
+		add-local-and-assign local, then_
 	as js-block-statement
-		(gen-var-decl source, kind, local, value) ~ then_
+		(gen-var-decl local.source, kind, local.local, local.value) ~ then_
 
-add-local-and-assign js-expr(source source, local js-name, value js-expr, then_ js-expr) to-expr
-	the::to-expr-ctx.top-declared-locals ~= local
-	assign js-expr = source: source, kind: js-assign-expr local, value
-	gen-binary source, comma, assign, then_
+add-local-and-assign js-expr(local temp-local, then_ js-expr) to-expr
+	the::to-expr-ctx.top-declared-locals ~= local.local
+	assign js-expr = source: local.source, kind: js-assign-expr local.local, local.value
+	gen-binary local.source, comma, assign, then_
 
 | This function is run after an arithmetic operation to keep an integral type within its expected range.
 -gen-as-integral js-expr(source source, type integral-type, arg js-expr)

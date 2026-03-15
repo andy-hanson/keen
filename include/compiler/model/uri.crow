@@ -53,17 +53,16 @@ test
 	("a/b/c",).first-and-rest is ("a", ("b/c",))
 
 parse-path path(a string-view)
-	(parse-path-inner a, (false, false)).to,
+	- parse-path-inner a, false 'to
 test
 	"a/b\\c".parse-path is "a".root-path / "b" / "c"
--parse-path-options record(uri-decode bool, is-uri-file bool) # TODO: seems that these are always both false or both true ---------------------------
--parse-path-inner string(a string-view, options parse-path-options)
+-parse-path-inner string(a string-view, uri-decode bool)
 	iter = a.begin
 	res string = with out in build
-		parse-path-component out, iter, options.uri-decode
+		parse-path-component out, iter, uri-decode
 		until iter.is-at-end
 			out ~= "/"
-			parse-path-component out, iter, options.uri-decode
+			parse-path-component out, iter, uri-decode
 	if res.is-windows-path then res.lower-case else res
 -parse-path-component void(out char8 builder, iter string-iterator, uri-decode bool)
 	do loop
@@ -118,9 +117,10 @@ is-windows-path bool(a file-path)
 uri record(to symbol) -new
 -file-scheme string()
 	"file://"
-as-file-path file-path(a uri) # TODO: rename to 'to' ---------------------------------------------------------------------------
+as-file-path file-path?(a uri)
+	do if uri-is-file a.to::string
 	res = try-remove-start! a.to::symbol.to::string, file-scheme
-	path char8[] = parse-path-inner res, (true, true) 'to
+	path char8[] = parse-path-inner res, true 'to
 	# A uri has a "/" before a Windows path, like `file:///c%3a`; a file-path does not.
 	str string = if !path.is-empty and path[0] == "/" and path[1 .. end].is-windows-path
 		path[1 .. end].to
@@ -229,7 +229,7 @@ must-parse-uri uri(a string) # TODO: can just use parse-uri now ----------------
 	else
 		a.to,
 is-windows-path bool(a uri)
-	a.uri-is-file and a.as-file-path.is-windows-path
+	(f = as-file-path a) and is-windows-path f
 test
 	("file:///",)::uri.is-windows-path is false
 	("file://c%3a",)::uri.is-windows-path is true
@@ -273,11 +273,9 @@ test
 parse-uri-with-cwd uri(cwd file-path, text string)
 	parse-uri-with-cwd cwd.to::uri, text
 parse-file-path-with-cwd file-path?(cwd file-path, text string)
-	res = parse-uri-with-cwd cwd, text
-	if res.uri-is-file
-		res.as-file-path
+	as-file-path parse-uri-with-cwd cwd, text
 must-parse-file-path file-path(text string)
-	text.parse-file-path
+	parse-file-path text
 # TODO: define a grammar? ---------------------------------------------------------------------------------------------------------------
 parse-file-path file-path(a string)
 	is-windows = a.is-windows-path
@@ -285,7 +283,7 @@ parse-file-path file-path(a string)
 		a.lower-case.to
 	else
 		try-remove-start a, "/" else a.to
-	path = parse-path-inner fixed-a, (false, false)
+	path = parse-path-inner fixed-a, false
 	- if is-windows then path.to else "/{path}"
 test
 	parse-file-path "a/b" is ("/a/b",)
@@ -299,8 +297,6 @@ test
 	fp file-path = "/a/b",
 	fp.to::uri is ("file:///a/b",)
 
-uri-is-file bool(a uri)
-	a.to::string.uri-is-file
 -uri-is-file bool(a string)
 	starts-with a, file-scheme
 
@@ -488,8 +484,7 @@ test
 -verify-file void(uri-in string, uri-out string, file-path-in string, file-path-out string, components string[])
 	uri = must-parse-uri uri-in
 	file-path = parse-file-path file-path-in
-	assert uri-is-file uri
-	uri.as-file-path is file-path
+	uri.as-file-path! is file-path
 	file-path.to::uri is uri
 
 	file-path.to.test-components is components
@@ -506,7 +501,9 @@ test
 		unless cur.to::string.is-empty
 			out ~= cur.base-name
 
-# TODO: this definitely doesn't belong here! ........................................................................................................
-java-compiled-class record
-	path string
-	bytes nat8[]
+to-java-uri uri(a path)
+	concat-uri-and-path "java://".must-parse-uri, a
+is-java-uri bool(a uri)
+	starts-with a.to::symbol.to::string, "java://"
+as-java-uri path?(a uri)
+	?parse-path try-remove-start a.to::symbol.to::string, "java:///"

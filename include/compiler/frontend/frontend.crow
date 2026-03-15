@@ -29,7 +29,7 @@ frontend record mut, java-classes case
 	-unknown uri mut-set
 	-loading uri mut-set
 	instantiate-ctx instantiate-ctx
-	-line-and-column-getters-map mut line-and-column-getter[uri]
+	line-and-column-getters -mut line-and-column-getter[uri]
 	| Set after 'bootstrap.crow' is compiled
 	-common-types-option mut common-types?
 	-crow-files crow-file mut[uri]
@@ -51,16 +51,10 @@ common-types common-types(a frontend)
 ensure-java-class struct-decl(a frontend, path path)
 	type ensure-java-class-file a, path, header-only
 
-show-ctx-for-debug show-ctx(a frontend)
-	show-ctx a, (cwd: (), crow-include: a.crow-include-dir), ()
 show-ctx show-ctx(a frontend, uris-info uris-info, options show-options)
 	line-and-column-getters: a.line-and-column-getters
-	file-content-getters: a.file-content-getters
 	uris-info: uris-info
 	options: options
-
-line-and-column-getters line-and-column-getters(a frontend)
-	my-line-and-column-getters a.line-and-column-getters-map
 
 new frontend(crow-include-dir uri)
 	common-uris = common-uris crow-include-dir
@@ -79,7 +73,7 @@ new frontend(crow-include-dir uri)
 		unknown: ()
 		loading: ()
 		instantiate-ctx: ()
-		line-and-column-getters-map: ()
+		line-and-column-getters: ()
 		common-types-option: ()
 		crow-files: ()
 		count-uncompiled-crow-files: 0
@@ -191,25 +185,10 @@ make-program program(a frontend, fully-loaded-configs uri set)
 			- k, m
 	all-java-classes: map-values a.java-class-files, it.type
 	additional-diagnostics: common-funs-diagnostics ~~ unused-diagnostics ~~ crowd-diagnostics
-	file-content-getters: a.file-content-getters
 	line-and-column-getters: a.line-and-column-getters
 	common-funs: common-funs
 	common-types: a.common-types
 	uncommon-types: json: common-funs.json-named-new.return-type.struct-inst!
-
-# TODO: there's no real need for file-content-getters to even be an interface ----------------------------------------------------------------------
--file-content-getters file-content-getters(a frontend)
-	my-file-content-getters a.line-and-column-getters-map
--my-file-content-getters record(line-and-column-getters line-and-column-getter[uri]) file-content-getters case
--subscript string-view(a my-file-content-getters, uri uri)
-	source-text line-and-character-getter (a.line-and-column-getters[uri] else ())
-get-file-content string-view(a frontend, uri uri)
-	a.file-content-getters[uri]
-
-# TODO: There's no reason for that to be an interface -----------------------------------------------------------------------------------------------
--my-line-and-column-getters record(lookup line-and-column-getter[uri]) line-and-column-getters case
--subscript line-and-column-getter(a my-line-and-column-getters, uri uri)
-	a.lookup[uri] else ()
 
 get-crowd-file line-and-character-getter(a frontend, uri uri)
 	a.crowd-files[uri]!.line-and-column-getter.line-and-character-getter
@@ -218,7 +197,7 @@ get-ast file-ast(a frontend, uri uri)
 -get-ast file-ast(a crow-file)
 	to-ast a.ast-or-diag
 line-and-character-getter line-and-character-getter(a frontend, uri uri)
-	a.line-and-column-getters-map[uri]!.line-and-character-getter
+	a.line-and-column-getters[uri]!.line-and-character-getter
 
 | Changes them to loading
 flush-all-unknown-uris uri[](a frontend)
@@ -239,7 +218,7 @@ files-state files-state(a frontend)
 
 change-file void(a frontend, uri uri, changes text-document-content-change-event[])
 	set-file a, uri,
-		string = apply-changes a.line-and-column-getters-map[uri]!.line-and-character-getter, changes
+		string = apply-changes (line-and-character-getter a, uri), changes
 		string.to::nat8[]
 
 -apply-changes string(lc line-and-character-getter, events text-document-content-change-event[])
@@ -286,7 +265,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 			parse-file uri, text, text.line-and-column-getter-for-text
 		as read-file-diag
 			result
-		a.line-and-column-getters-map ~:= uri, file.ast-or-diag.line-and-column-getter
+		a.line-and-column-getters ~:= uri, file.ast-or-diag.line-and-column-getter
 		updated-ast-or-config a, file
 	as crowd
 		file = ensure-crowd-file a, uri
@@ -306,7 +285,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 			file.parsed := null
 			file.diagnostics :=
 				- (), result
-		a.line-and-column-getters-map ~:= uri, file.line-and-column-getter
+		a.line-and-column-getters ~:= uri, file.line-and-column-getter
 	as crow-config
 		config-file = ensure-config-file-for a, uri
 		config-file.config := match result
@@ -320,7 +299,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 				result
 			as error
 				config-for-diag uri, error
-		a.line-and-column-getters-map ~:= uri, config-file.config.line-and-column-getter
+		a.line-and-column-getters ~:= uri, config-file.config.line-and-column-getter
 		for file in values a.crow-files
 			update-file-on-config-change a, file
 	as other
@@ -417,7 +396,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 	if remove a.workable-crow, bootstrap.uri
 		fa uri-and-ast = bootstrap.uri, bootstrap.config!, bootstrap.get-ast
 		String = type ensure-java-class-file a, "java/lang/String".parse-path, header-only
-		module, common-types = check-bootstrap a.show-ctx-for-debug, a.common-uris, fa, String.only-inst
+		module, common-types = check-bootstrap a.crow-include-dir, a.common-uris, fa, String.only-inst
 		a.common-types-option := common-types
 		bootstrap.module := module
 		a.count-uncompiled-crow-files -:= 1
@@ -483,13 +462,12 @@ set-file void(a frontend, uri uri, result read-file-result)
 	index = index-of! values, first-value
 	values[index .. end] ~~ values[0 .. index]
 
--compile-non-bootstrap-module crow-module(a frontend, file crow-file)
+-compile-non-bootstrap-module crow-module(a frontend, file crow-file) instantiate-ctx
 	assert file.is-workable
 	assert common-types = a.common-types-option # bootstrap must be compiled first
 	ast uri-and-ast = file.uri, file.config!, file.get-ast
 	imports = fully-resolve-imports file.resolved-imports!
-	the instantiate-ctx = a.instantiate-ctx
-	check a.show-ctx-for-debug, a.common-uris, ast, imports, common-types
+	check a.crow-include-dir, a.common-uris, ast, imports, common-types
 
 -update-file-on-config-change void(a frontend, file crow-file)
 	do if best-config = find-config file.config-file
@@ -767,3 +745,5 @@ test
 		- ((0, 0), (0, 1)), "x"
 		- ((2, 0), (2, 1)), "z"
 	get-file-content a, uri-a is "x\ny\nz"::char8[]
+-get-file-content string-view(a frontend, uri uri)
+	a.line-and-column-getters[uri]!.source-text

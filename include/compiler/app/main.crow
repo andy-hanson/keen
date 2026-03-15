@@ -32,6 +32,7 @@ import
 	../model/source-range
 	../model/uri
 	../util/exit-code
+	../util/java-bytecode-types
 	../util/perf
 	../util/util
 	./command
@@ -54,7 +55,7 @@ main nat(args string[]) global
 		ctx main-ctx =
 			server: server
 			reader: reader
-			print: of pipe, text then print pipe, text
+			print-error: it.print-error
 		try
 			go ctx, this-executable, command.kind
 			0
@@ -73,15 +74,15 @@ main nat(args string[]) global
 main-ctx record mut
 	server mut server
 	reader file-reader
-	print void mut(pipe pipe, text string)
+	print-error void mut(text string)
 server server() main-ctx
 	the::main-ctx.server
 set-server void(value server) main-ctx
 	the::main-ctx.server := value
 reader file-reader() main-ctx
 	the::main-ctx.reader
-mprint void(pipe pipe, text string) main-ctx # TODO: this should be called 'print'. That requires disambiguating calls based on contexts. -----------
-	the::main-ctx.print[pipe, text]
+output-error void(text string) main-ctx
+	the::main-ctx.print-error[text]
 
 -run-lsp void(server server, reader file-reader, this-executable file-path) global
 	log error, this-executable.crow-version.show
@@ -108,8 +109,8 @@ mprint void(pipe pipe, text string) main-ctx # TODO: this should be called 'prin
 -lsp-write void(content-json json, log-lsp bool) global
 	content-string = to-json-strict content-json
 	if log-lsp
-		print err, "LSP out: {content-string}"
-	print-no-newline out, "Content-Length: {content-string.to::char8[].size}\r\n\r\n{content-string}"
+		print-error "LSP out: {content-string}"
+	print-no-newline "Content-Length: {content-string.to::char8[].size}\r\n\r\n{content-string}"
 
 # VSCode seems to crash on unusual characters like ▶
 -to-json-strict string(a json)
@@ -132,15 +133,15 @@ mprint void(pipe pipe, text string) main-ctx # TODO: this should be called 'prin
 		load-all-files (main.crow-uri,)
 
 -load-all-files-for-config void(config-uri uri) main-ctx
-	unless uri-is-file config-uri
-		mprint err, "Can't list test files at non-file URI {config-uri}"
-		throw exit
-	for file in files-for-config reader, config-uri
+	assert config-file = as-file-path config-uri else
+		output-error "Can't list test files at non-file URI {config-uri}"
+		exit
+	for file in files-for-config reader, config-file
 		load-single-file server, reader, file.to
 	load-until-no-unknown-uris server, reader
 
--files-for-config file-path[](reader file-reader, config-uri uri)
-	files = files-in-directory-recursive reader, config-uri.as-file-path.parent!
+-files-for-config file-path[](reader file-reader, config-file file-path)
+	files = files-in-directory-recursive reader, config-file.parent!
 	filter files, it.file-type == crow
 
 -load-all-files void(root-uris uri[]) main-ctx
@@ -183,7 +184,7 @@ mprint void(pipe pipe, text string) main-ctx # TODO: this should be called 'prin
 		do-and-watch command.main, command.watch, of
 			program = check-main-and-print-diags command.main, targets
 			if has-fatal-diagnostics program
-				print err, "Due to compile errors, nothing will be built."
+				print-error "Due to compile errors, nothing will be built."
 				for out in command.out
 					try
 						remove-file out.path.to
@@ -208,16 +209,17 @@ mprint void(pipe pipe, text string) main-ctx # TODO: this should be called 'prin
 		run-lsp server, reader, this-executable
 	as perf-test-parse-command
 		files file-path[] = for* uri in command.root-uris
+			file = as-file-path! uri
 			if is-crow-config uri
-				files-for-config ctx.reader, uri
+				files-for-config ctx.reader, file
 			else
-				- as-file-path uri
+				- file
 		file-contents line-and-column-getter[] = for file in files
 			line-and-column-getter-for-text match x = try-read-file ctx.reader, file.to
 			as array-view
 				safe-reinterpret-cast x
 			as read-file-diag
-				print err, "error reading {file}"
+				print-error "error reading {file}"
 				()
 		for _ in 0 .. command.times
 			for file, lcg in zip files, file-contents
@@ -227,8 +229,8 @@ mprint void(pipe pipe, text string) main-ctx # TODO: this should be called 'prin
 		load-single-file server, reader, command.uri
 		diagnostics, json = print-ast server, command.uri
 		unless is-empty diagnostics
-			print err, diagnostics
-		print out, "{json}"
+			print-error diagnostics
+		print "{json}"
 	as print-tokens-command
 		match content = try-read-file reader, command.uri
 		as array-view
@@ -237,27 +239,27 @@ mprint void(pipe pipe, text string) main-ctx # TODO: this should be called 'prin
 			tokens = lex-tokens source, diagnostics
 			unless is-empty diagnostics
 				the show-ctx = show-ctx-for-single-file command.uri, source, server.uris-info, server.show-options
-				print err, show-parse-diagnostics command.uri, diagnostics.move-to
-			print out, tokens.to-crowd
+				print-error show-parse-diagnostics command.uri, diagnostics.move-to
+			print tokens.to-crowd
 		as read-file-diag
 			log error, "Can't read file"
 	as print-low-model-command
 		main = main-kind-main-function command.main, ()
 		load-all-files-for-main main
 		program = check-main-and-print-diags main, ()
-		print out, "{json-of-low-model server, java, program}"
+		print "{json-of-low-model server, java, program}"
 	as print-dependencies-command
 		program = check-and-print-diags command.root-uris
-		print out, print-dependencies server, program, command.format
+		print print-dependencies server, program, command.format
 	as print-ide-at-pos-command
 		program = check-and-print-diags (command.where.uri,)
-		print out, "{json-for-print-ide-at-pos server, program, command.where, command.kind}"
+		print "{json-for-print-ide-at-pos server, program, command.where, command.kind}"
 	as print-ide-whole-file-command
 		program = check-and-print-diags (command.uri,)
-		print out, "{json-for-print-ide-whole-file server, program, command.uri, command.kind}"
+		print "{json-for-print-ide-whole-file server, program, command.uri, command.kind}"
 	as print-model-command
 		program = check-and-print-diags command.root-uris
-		print out, "{json-of-model server, program, command.root-uris}"
+		print "{json-of-model server, program, command.root-uris}"
 	as run-command
 		do-and-watch command.main, command.options.watch, of then run command
 	as version-command
@@ -279,7 +281,7 @@ mprint void(pipe pipe, text string) main-ctx # TODO: this should be called 'prin
 	program = check-main-and-print-diags run.main,
 		- if is-js then js else java
 	forbid has-fatal-diagnostics program else
-		print err, "Stopping due to compile errors."
+		print-error "Stopping due to compile errors."
 		exit
 	trusted if is-js
 		run-node-js server, program, run.main
@@ -369,7 +371,7 @@ do global
 -check-main-and-print-diags program-with-main(main main-kind, targets build-target set) main-ctx
 	program = get-program-for-main server, main, targets
 	if has-any-diagnostics program
-		mprint err, show-diagnostics server, program
+		output-error show-diagnostics server, program
 	program
 
 -check-and-print-diags program(roots uri[]) main-ctx
@@ -379,7 +381,7 @@ do global
 	crow-configs uri set = filter roots, it.is-crow-config
 	program = get-program server, crow-configs
 	if has-any-diagnostics program
-		mprint err, show-diagnostics server, program, options
+		output-error show-diagnostics server, program, options
 	program
 
 -print-dependencies string(server server, program program, format print-dependencies-format)
