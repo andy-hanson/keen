@@ -29,6 +29,7 @@ get-position position?(program program, where uri-line-and-character, pos-kind g
 	range and has-pos range, pos
 
 -get-position-kind position-kind?(module crow-module, pos pos, pos-kind get-position-kind) common-types
+	the crow-module = module
 	# module.imports position-in-imports-or-exports pos or ---------------------------------------------------------------------------
 	# module.re-exports position-in-imports-or-exports pos or -------------------------------------------------------------------------
 	position-in-doc-comment module, pos or
@@ -44,47 +45,47 @@ get-position position?(program program, where uri-line-and-character, pos-kind g
 	if index = find-index a.doc-comment.ast.references, of x then has-pos x.range, pos
 		position-doc-ref a, a.doc-comment.references[index]
 
--position-in-fun position-kind?(a fun-decl, pos pos, pos-kind get-position-kind) common-types
+-position-in-fun position-kind?(a fun-decl, pos pos, pos-kind get-position-kind) common-types, crow-module
+	the type-container = a
+	the local-container = a
 	do if ast = a.source.fun-decl-ast
 	position-in-decl a, pos, of
 		position-in-visibility a, ast.visibility, pos or
 		(if has-pos ast.name.range, pos then a) or
 		position-in-type-params a, ast.type-params, pos or
-		position-in-type a, a.return-type, ast.return-type, pos or
-		position-in-params a, a.params, ast.params, pos or
-		position-in-modifiers a, a.specs, ast.modifiers, pos or
+		position-in-type a.return-type, ast.return-type, pos or
+		position-in-params a.params, ast.params, pos or
+		position-in-modifiers a.specs, ast.modifiers, pos or
 		if expr = as-expr a.body
 			position-in-expr a, expr, pos, pos-kind
 
--position-in-test position-kind?(a test_, pos pos, pos-kind get-position-kind) common-types
+-position-in-test position-kind?(a test_, pos pos, pos-kind get-position-kind) common-types, crow-module
 	if has-pos a.ast.keyword-range, pos
 		a
 	else
 		position-in-expr a, a.body.expr, pos, pos-kind
 
--position-in-params position-kind?(container local-container, params destructure[], asts destructure-ast[], pos pos)
+-position-in-params position-kind?(params destructure[], asts destructure-ast[], pos pos) crow-module, local-container
 	first (zip params, asts), of x, y
-		position-in-destructure container, x, y, pos
+		position-in-destructure x, y, pos
 
 -position-in-modifiers position-kind?
-	container type-container
 	specs specs?
 	modifiers modifier-ast[]
 	pos pos
-do
+do type-ctx
 	if index = find-index modifiers, of x then has-pos x.range, pos
-		position-in-modifier container, specs, modifiers, index, pos
+		position-in-modifier specs, modifiers, index, pos
 
 -position-in-modifier position-kind?
-	container type-container
 	specs specs?
 	modifiers modifier-ast[]
 	index nat
 	pos pos
-do
+do type-ctx
 	match ast = modifiers[index]
 	as modifier-keyword-ast
-		position-modifier container, ast.keyword
+		position-modifier the::type-container, ast.keyword
 	as spec-use-ast
 		do if specs and specs.inner.size == (count modifiers, !!it.spec-use-ast)
 		# Find the corresponding spec
@@ -92,26 +93,24 @@ do
 		spec_ = specs.inner[spec-index]
 		if type-arg = ast.type-arg and has-pos type-arg.range, pos
 			zip-each-type-arg-may-unpack-tuple spec_.type-args, type-arg, of type, type-ast
-				position-in-type container, type, type-ast, pos
+				position-in-type type, type-ast, pos
 		elif has-pos ast.name-range, pos
 			match spec_
 			as spec-inst
-				position-spec-use container, spec_
+				position-spec-use the::type-container, spec_
 			as struct-inst
-				position-context-modifier container, spec_
+				position-context-modifier the::type-container, spec_
 
 -position-in-opt-local position-kind?(local local?, ast match-ast, pos pos) expr-ctx
 	if local and has-pos ast.local!.range, pos
 		position-local container.to, local
 
--position-in-destructure position-kind?(a destructure, ast destructure-ast, pos pos) expr-ctx
-	position-in-destructure container.to, a, ast, pos
 -position-in-destructure position-kind?
-	container local-container
 	a destructure
 	destructure-ast destructure-ast
 	pos pos
-do
+do crow-module, local-container
+	the type-container = the::local-container.to
 	match a
 	as destructure-ignore
 		match ast = a.source
@@ -123,37 +122,38 @@ do
 			if has-pos ast.underscore-range, pos
 				underscore::position-keyword
 			elif t = ast.type
-				position-in-type container.to, a.type, t, pos
+				position-in-type a.type, t, pos
 		as void-destructure-ast
 			()
 	as local
 		match destructure-ast
 		as name-and-range
 			if has-pos destructure-ast.range, pos
-				position-local container, a
+				position-local the::local-container, a
 		as single-destructure-ast
 			if has-pos destructure-ast.name-range, pos
-				position-local container, a
+				position-local the::local-container, a
 			elif opt-has-pos destructure-ast.mut-range, pos
 				local-mut::position-keyword
 			elif t = destructure-ast.type
-				position-in-type container.to, a.type, t, pos
+				position-in-type a.type, t, pos
 		else
 			throw unreachable
 	as destructure-split
 		first (zip a.parts, destructure-ast.array!), of part, part-ast
-			position-in-destructure container, part, part-ast, pos
+			position-in-destructure part, part-ast, pos
 
 -position-in-decl position-kind?(a any-decl, pos pos, f position-kind? mut())
 	position-in-doc-comment a, pos or if has-pos a.range.range, pos
 		f[]
 
--position-in-var position-kind?(a var-decl, pos pos)
+-position-in-var position-kind?(a var-decl, pos pos) crow-module
+	the type-container = a
 	position-in-decl a, pos, of
 		position-in-visibility a, a.ast.visibility, pos or
 		(if has-pos a.name-range.range, pos then a) or
 		(if has-pos a.ast.keyword-range, pos then a.kind.to) or
-		position-in-type a, a.type, a.ast.type, pos
+		position-in-type a.type, a.ast.type, pos
 -to position-keyword(a var-kind)
 	match a
 	as global_
@@ -161,14 +161,15 @@ do
 	as thread-local_
 		thread-local_
 
--position-in-alias position-kind?(a struct-alias, pos pos)
+-position-in-alias position-kind?(a struct-alias, pos pos) crow-module
+	the type-container = a
 	position-in-decl a, pos, of
 		position-in-visibility a, a.ast.visibility, pos or
 		(if has-pos a.name-range.range, pos then a) or
 		(if has-pos a.ast.keyword-range, pos then alias_) or
-		position-in-type a, a.target, a.ast.target, pos
+		position-in-type a.target, a.ast.target, pos
 
--position-in-struct position-kind?(a struct-decl, pos pos)
+-position-in-struct position-kind?(a struct-decl, pos pos) crow-module
 	match ast = a.source
 	as struct-decl-ast
 		position-in-struct a, ast, pos
@@ -176,13 +177,14 @@ do
 		()
 	as struct-decl-source-java
 		throw unreachable
--position-in-struct position-kind?(a struct-decl, ast struct-decl-ast, pos pos)
+-position-in-struct position-kind?(a struct-decl, ast struct-decl-ast, pos pos) crow-module
+	the type-container = a
 	position-in-decl a, pos, of
 		position-in-visibility a, ast.visibility, pos or
 		(if has-pos a.name-range.range, pos then a) or
 		(if has-pos ast.keyword-range, pos then keyword-kind-for-struct-body ast.body) or
 		position-in-type-params a, ast.type-params, pos or
-		position-in-modifiers a, (), ast.modifiers, pos or
+		position-in-modifiers (), ast.modifiers, pos or
 		position-in-struct-body a, ast.body, pos
 -keyword-kind-for-struct-body position-keyword(a struct-body-ast)
 	match a
@@ -215,26 +217,30 @@ do
 	if index = find-index asts, of x then has-pos x.range, pos
 		type-param-with-container (index,), container
 
--position-in-spec position-kind?(a spec-decl, pos pos)
+-position-in-spec position-kind?(a spec-decl, pos pos) crow-module
+	the type-container = a
+	the local-container = a
 	position-in-decl a, pos, of
 		position-in-visibility a, a.ast.visibility, pos or
 		(if has-pos a.ast.name.range, pos then a) or
 		position-in-type-params a, a.ast.type-params, pos or
 		(if has-pos a.ast.keyword-range, pos then spec_) or
-		position-in-modifiers a, a.parents, a.ast.modifiers, pos or
+		position-in-modifiers a.parents, a.ast.modifiers, pos or
 		position-in-signatures a.sigs, a.ast.sigs, pos
 
--position-in-signatures position-kind?(signatures signature[], signature-asts signature-ast[], pos pos)
+-position-in-signatures position-kind?(signatures signature[], signature-asts signature-ast[], pos pos) type-ctx, local-container
 	first (zip signatures, signature-asts), of sig, sig-ast
 		position-in-signature sig, sig-ast, pos
 
--position-in-signature position-kind?(sig signature, ast signature-ast, pos pos)
+-position-in-signature position-kind?(sig signature, ast signature-ast, pos pos) type-ctx, local-container
 	position-in-doc-comment sig, pos or
 	(if has-pos ast.name-and-range.range, pos then sig) or
-	position-in-type sig.container.to, sig.return-type, ast.return-type, pos or
-	position-in-params sig.container.to, sig.params, ast.params, pos
+	position-in-type sig.return-type, ast.return-type, pos or
+	position-in-params sig.params, ast.params, pos
 
--position-in-struct-body position-kind?(decl struct-decl, ast struct-body-ast, pos pos)
+-position-in-struct-body position-kind?(decl struct-decl, ast struct-body-ast, pos pos) crow-module
+	the type-container = decl
+	the local-container = decl
 	match body = decl.body
 	as struct-body-bogus
 		()
@@ -247,48 +253,45 @@ do
 	as flags_
 		position-in-enum-or-flags-body body.members, ast.flags-ast!.params, ast.flags-ast!.members, pos
 	as record_
-		position-in-record decl, body.fields, ast.record-ast!, pos
+		position-in-record body.fields, ast.record-ast!, pos
 	as sum-type
-		position-in-sum-type decl, body, ast.sum-type-ast!, pos
+		position-in-sum-type body, ast.sum-type-ast!, pos
 
--position-in-sum-type position-kind?(decl struct-decl, a sum-type, ast sum-type-ast, pos pos)
+-position-in-sum-type position-kind?(a sum-type, ast sum-type-ast, pos pos) type-ctx, local-container
 	in-members = first-zip-if-size-eq ast.types, a.listed-members, of type-ast, x
-		position-in-type decl, x.member, type-ast, pos
+		position-in-type x.member, type-ast, pos
 	in-members or position-in-signatures a.methods, ast.methods, pos
 
 -position-in-record position-kind?
-	decl struct-decl
 	fields record-field[]
 	ast record-ast
 	pos pos
-do
+do type-ctx
 	do unless is-empty fields
 	if params = ast.params
 		first-zip-if-size-eq fields, params, of field, param
-			position-in-record-field-parameter decl, field, param.single-destructure-ast!, pos
+			position-in-record-field-parameter field, param.single-destructure-ast!, pos
 	else
 		first (zip fields, ast.fields), of field, field-ast
-			position-in-record-field decl, field, field-ast, pos
+			position-in-record-field field, field-ast, pos
 
 -position-in-record-field-parameter position-kind?
-	decl struct-decl
 	field record-field
 	param single-destructure-ast
 	pos pos
-do
+do type-ctx
 	if has-pos param.name.range, pos
 		field
 	elif opt-has-pos param.mut-range, pos
 		position-record-field-mutability field.mutability
 	elif t = param.type
-		position-in-type decl, field.type, t, pos
+		position-in-type field.type, t, pos
 
 -position-in-record-field position-kind?
-	decl struct-decl
 	field record-field
 	ast record-field-ast
 	pos pos
-do
+do type-ctx
 	if res = position-in-doc-comment field, pos
 		res
 	elif res = position-in-visibility field, ast.visibility, pos
@@ -298,7 +301,7 @@ do
 	elif opt-has-pos ast.mutability.?range, pos
 		position-record-field-mutability field.mutability
 	elif t = ast.type
-		position-in-type decl, field.type, t, pos
+		position-in-type field.type, t, pos
 
 -position-in-enum-or-flags-body position-kind?
 	members enum-or-flags-member[]
@@ -321,10 +324,12 @@ do
 	a expr
 	pos pos
 	pos-kind get-position-kind
-do common-types
+do crow-module, common-types
 	the expr-container = container
+	the local-container = container.to
+	the type-container = container.to
 	position-in-expr-recur a, pos, pos-kind
--expr-ctx spec expr-container, common-types
+-expr-ctx spec common-types, crow-module, expr-container, local-container, type-container
 -container expr-container() expr-container
 	the::expr-container
 -position-in-expr-recur position-kind?(a expr, pos pos, pos-kind get-position-kind) expr-ctx
@@ -644,30 +649,35 @@ do expr-ctx
 	if has-pos keyword-range, pos
 		expression-position container, expr, kind
 
--position-in-type position-kind?(type type, ast type-ast, pos pos) expr-ctx
-	position-in-type container.to, type, ast, pos
--position-in-type position-kind?(container type-container, type type, ast type-ast, pos pos)
+-type-ctx spec crow-module, type-container
+-position-in-type position-kind?(type type, ast type-ast, pos pos) type-ctx
 	do if has-pos ast.range, pos
 	res = each-type-component type, ast, of t, a
-		position-in-type container, t, a, pos
-	res or position-in-type-not-args container, type, ast, pos
--position-in-type-not-args position-kind?(container type-container, type type, ast type-ast, pos pos)
-	do if match ast
+		position-in-type t, a, pos
+	res or position-in-type-not-args type, ast, pos
+-position-in-type-not-args position-kind?(type type, ast type-ast, pos pos) type-ctx
+	match ast
 	as bogus-type-ast
-		false
+		()
 	as fun-type-ast
-		has-pos ast.kind-range, pos
+		if has-pos ast.kind-range, pos
+			type-with-container type, the::type-container
 	as map-type-ast
-		false
+		()
 	as name-and-range
-		true
+		name = ast.name
+		if type.struct-inst and name != type.decl.name
+			find-alias-in-module-scope! the::crow-module, name
+		else
+			type-with-container type, the::type-container
 	as suffix-name-type-ast
-		has-pos ast.name.range, pos
+		if has-pos ast.name.range, pos
+			type-with-container type, the::type-container
 	as suffix-special-type-ast
-		has-pos ast.suffix-range, pos
+		if has-pos ast.suffix-range, pos
+			type-with-container type, the::type-container
 	as tuple-type-ast
-		false
-	type-with-container type, container
+		()
 
 -each-type-component[out] out?(type type, ast type-ast, f out? mut(x type, ast type-ast))
 	match type

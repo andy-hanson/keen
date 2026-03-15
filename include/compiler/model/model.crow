@@ -2064,16 +2064,69 @@ each-decl void(a crow-module, cb void mut(x any-decl))
 	for x in a.tests
 		cb[x]
 
+| This if for detecting unused imports, so it omits the standard import and re-exports (which are never considered unused)
+walk-explicit-imports record(module crow-module)
+iterate bool(a walk-explicit-imports, f bool mut(ast import-or-export-ast, imported module))
+	iterate a.module.walk-all-imports, of kind, ast, imported
+		if kind == import_
+			f[ast!, imported]
+
+| Does not include the standard import
+walk-explicit-imports-and-re-exports record(module crow-module)
+iterate bool(a walk-explicit-imports-and-re-exports, f bool mut(a import-or-export-ast, imported module))
+	iterate a.module.walk-all-imports, of _, ast, imported
+		ast and f[ast, imported]
+
+find-alias-in-module-scope struct-alias?(module crow-module, name symbol)
+	find module.aliases, it.name == name or
+		first module.walk-all-imports, of _, import-ast, imported
+			?struct-alias get-imported-spec-or-type import-ast, imported, name
+
+-import-or-export enum(standard-import, import_, export_)
+- == bool(a import-or-export, b import-or-export)
 | Does not walk re-exports
-zip-ast-and-module-imports void(module crow-module, f void mut(ast import-or-export-ast, imported module))
+-walk-all-imports record(module crow-module)
+| The first will have no ast if it is the standard import
+-iterate bool(a walk-all-imports, f bool mut(kind import-or-export, ast import-or-export-ast?, imported module))
+	module = a.module
+	imports-and-re-exports = module.imports-and-re-exports
 	ast = module.ast
 	ast-total = ast.imports.count-non-file-imports + ast.re-exports.count-non-file-imports + (!ast.no-std_).to
-	do if ast-total == module.imports-and-re-exports.size
+	do if ast-total == imports-and-re-exports.size
+	import-asts = ast.imports.?paths else ()
+	do unless !ast.no-std_ and f[standard-import, (), imports-and-re-exports[0]]
 	i mut nat = !ast.no-std_ 'to
-	do for x in ast.imports.?paths else ()
-	do unless x.kind.import-file-ast
-	f[x, module.imports-and-re-exports[i]]
-	i +:= 1
+	res-imports = iterate import-asts, of import-ast
+		do unless import-ast.kind.import-file-ast
+		res = f[import_, import-ast, imports-and-re-exports[i]]
+		i +:= 1
+		res
+	export-asts = ast.re-exports.?paths else ()
+	res-exports = res-imports or iterate export-asts, of export-ast
+		do unless export-ast.kind.import-file-ast
+		res = f[export_, export-ast, imports-and-re-exports[i]]
+		i +:= 1
+		res
+	unless res-exports
+		i is imports-and-re-exports.size
+	res-exports
+-get-imported-spec-or-type spec-or-type?(ast import-or-export-ast?, imported module, name symbol)
+	if ast
+		all exports = match ast.path
+		as path
+			imported.public-exports
+		as rel-path
+			imported.public-and-internal-exports
+		match kind = ast.kind
+		as import-whole-module-ast
+			all.types-and-specs[name]
+		as array
+			if exists kind, it.name == name
+				all.types-and-specs[name]
+		as import-file-ast
+			throw unreachable
+	else
+		imported.public-exports.types-and-specs[name]
 -count-non-file-imports nat(a imports-or-exports-ast?)
 	do if a
 	count a.paths, !it.kind.import-file-ast
