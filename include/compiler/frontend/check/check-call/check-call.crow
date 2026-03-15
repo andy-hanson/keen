@@ -40,15 +40,16 @@ check-call expr(ast call-ast, expected expected) check-expr-ctx, check-expr
 	if is-option-call ast
 		check-option-call ast, expected, ast.fun-name.range, ast.fun-name.name, ast.args
 	else
-		type-arg = ast.type-arg.?type-from-ast
-		check-call-common expected, ast, ast.name-range, ast.fun-name.name, type-arg, ast.args
+		check-call-common ast.args, expected,
+			ast, ast.name-range, ast.fun-name.name, ast.type-arg.?type-from-ast, ast.args.size
 
 check-call-subscript expr(ast call-subscript-ast, expected expected) check-expr-ctx, check-expr
 	args expr-ast[] = ast.left, ast.right
 	if ast.is-question-subscript
 		check-option-call ast, expected, ast.subscript-range, "subscript", args
 	else
-		check-call-common expected, ast, ast.subscript-range, "subscript", (), args
+		check-call-common args, expected,
+			ast, ast.subscript-range, "subscript", (), args.size
 
 # Used for a list expression with no '--' parts
 check-call-list-no-multi expr
@@ -57,7 +58,8 @@ check-call-list-no-multi expr
 	parts expr-ast[]
 	expected expected
 do check-expr-ctx, check-expr
-	check-call-common expected, ast, range, fun-name-list-new, (), parts
+	check-call-common parts, expected,
+		ast, range, fun-name-list-new, (), parts.size
 
 check-call-named expr(ast call-named-ast, expected expected) check-expr-ctx, check-expr
 	use-names, use-args = filter-together ast.names, ast.args, of index, name, _
@@ -71,7 +73,8 @@ check-call-named expr(ast call-named-ast, expected expected) check-expr-ctx, che
 		else
 			add-diag name.range, diag-named-new-interpolated
 			false
-	check-call-common expected, ast, ast.range, (names: map use-names, it.name!), (), use-args
+	check-call-common use-args, expected,
+		ast, (names: map use-names, it.name!), use-args.size
 
 check-call-special expr
 	source call-expr-source
@@ -80,7 +83,8 @@ check-call-special expr
 	args expr-ast[]
 	expected expected
 do check-expr-ctx, check-expr
-	check-call-common expected, source, range, fun-name, (), args
+	check-call-common args, expected,
+		source, range, fun-name, (), args.size
 
 candidates-filter alias
 	bool mut(candidates candidate stack-array)
@@ -88,25 +92,27 @@ candidate-filter alias
 	bool mut(candidate candidate)
 
 -check-call-common expr
-	expected expected
-	source call-expr-source
-	diag-range source-range
-	fun-name fun-name
-	type-arg type?
 	arg-asts expr-ast[]
+	expected expected
+	info call-info
 do check-expr-ctx, check-expr
 	cb-before-check candidates-filter = of candidates
 		every arg-asts.with-index, of arg-idx, arg
 			infer-candidate-type-args-from-explicitly-typed-argument candidates, arg-idx, arg
-	check-call-special-cb-n source, diag-range, fun-name, expected, type-arg, arg-asts.size, \
-		(of i, arg-expected then check-expr arg-asts[i], arg-expected), \
-		cb-before-check
+	check-call-special-cb-n info, expected, (of i, arg-expected then check-expr arg-asts[i], arg-expected), cb-before-check
 
 check-for-or-with expr(ast for-or-with-ast, expected expected) check-expr-ctx, check-expr, check-lambda
-	check-call-special-cb2 ast, ast.keyword-range, ast.called-function, expected, \
-		(of arg-expected then check-expr ast.arg, arg-expected), \
-		(of arg-expected then check-lambda ast, arg-expected), \
-		of candidates then infer-candidate-type-args-from-lambda-parameter candidates, 1, ast.param
+	info call-info = ast, ast.keyword-range, ast.called-function, 2
+	check-arg cb-check-arg = of i, arg-expected
+		match i
+		as 0
+			check-expr ast.arg, arg-expected
+		as 1
+			check-lambda ast, arg-expected
+		else
+			throw unreachable
+	check-call-special-cb-n info, expected, check-arg, of candidates
+		infer-candidate-type-args-from-lambda-parameter candidates, 1, ast.param
 
 find-function-for-interpolate-or-list-new called?
 	diag-range source-range
@@ -163,63 +169,45 @@ check-call-special-cb1 expr
 	expected expected
 	cb-arg expr mut(x expected)
 do check-expr-ctx
-	check-call-special-cb-n source, diag-range, fun-name, expected, 1, of i, arg-expected
+	check-call-special-cb-n (source, diag-range, fun-name, 1), expected, of i, arg-expected
 		i is 0
 		cb-arg[arg-expected]
 
-check-call-special-cb2 expr
-	source call-expr-source
-	diag-range source-range
-	fun-name symbol
-	expected expected
-	cb-arg0 expr mut(x expected)
-	cb-arg1 expr mut(x expected)
-	cb-before-check bool mut(x candidates)
-do check-expr-ctx
-	check-arg cb-check-arg = of i, arg-expected
-		match i
-		as 0
-			cb-arg0[arg-expected]
-		as 1
-			cb-arg1[arg-expected]
-		else
-			throw unreachable
-	check-call-special-cb-n source, diag-range, fun-name, expected, (), 2, check-arg, cb-before-check
-
 cb-check-arg alias
 	expr mut(arg-index nat, arg-expected expected)
-check-call-special-cb-n expr
-	source call-expr-source
-	diag-range source-range
-	fun-name symbol
-	expected expected
-	n-args nat
-	cb-check-arg cb-check-arg
-do check-expr-ctx
-	check-call-special-cb-n source, diag-range, fun-name, expected, (), n-args, cb-check-arg, of _ then true
--check-call-special-cb-n expr
+check-call-special-cb-n expr(info call-info, expected expected, cb-check-arg cb-check-arg) check-expr-ctx
+	check-call-special-cb-n info, expected, cb-check-arg, of _ then true
+
+call-info record
 	source call-expr-source
 	diag-range source-range
 	fun-name fun-name
-	expected expected
 	type-arg type?
 	n-args nat
+new call-info(source call-expr-source, diag-range source-range, fun-name fun-name, n-args nat)
+	source, diag-range, fun-name, (), n-args
+new call-info(source call-expr-source, fun-name fun-name, n-args nat)
+	source, source.range, fun-name, n-args
+
+-check-call-special-cb-n expr
+	info call-info
+	expected expected
 	cb-check-arg cb-check-arg
 	cb-before-check candidates-filter
 do check-expr-ctx
-	args expr buffer = trusted uninitialized-buffer n-args
+	args expr buffer = trusted uninitialized-buffer info.n-args
 	check-arg cb-check-arg-void = of i, arg-expected
 		args[i] := cb-check-arg[i, arg-expected]
-	if called = check-call-cb diag-range, fun-name, type-arg, n-args, expected, check-arg, cb-before-check
+	if called = check-call-cb info, expected, check-arg, cb-before-check
 		# Check should always succeed, but we need it to set the inferred type
-		check expected, called.return-type, make-call source, called, trusted cast-immutable args
+		check expected, called.return-type, make-call info.source, called, trusted cast-immutable args
 	else
-		candidates = get-candidate-decls-for-bogus fun-name
+		candidates = get-candidate-decls-for-bogus info.fun-name
 		if is-empty candidates
-			bogus expected, source.range
+			bogus expected, info.source.range
 		else
 			set-to-bogus-if-inferring expected
-			bogus-call-expr source, candidates, (trusted cast-immutable args), expected.inferred
+			bogus-call-expr info.source, candidates, (trusted cast-immutable args), expected.inferred
 -get-candidate-decls-for-bogus called-decl[](fun-name fun-name) check-expr-ctx
 	do with out in build
 	match fun-name
@@ -260,20 +248,17 @@ do check-expr-ctx
 -cb-check-arg-void alias
 	void mut(arg-index nat, arg-expected expected)
 -check-call-cb called?
-	diag-range source-range
-	fun-name fun-name
-	type-arg type?
-	n-args nat
+	info call-info
 	expected expected
 	cb-check-arg cb-check-arg-void
 	cb-before-check bool mut(x candidates)
 do check-expr-ctx
 	initial-filter candidate-filter = of candidate
-		filter-candidate-by-explicit-type-arg candidate, type-arg and
+		filter-candidate-by-explicit-type-arg candidate, info.type-arg and
 		test-candidate-return-type expected, candidate
-	with-candidates funs-in-expr-scope, fun-name, n-args, initial-filter, of candidates
+	with-candidates funs-in-expr-scope, info.fun-name, info.n-args, initial-filter, of candidates
 		if cb-before-check[candidates]
-			check-call-inner diag-range, fun-name, type-arg, candidates, expected, n-args, cb-check-arg
+			check-call-inner info, candidates, expected, cb-check-arg
 
 check-call-identifier expr(ast name-and-range, expected expected) check-expr-ctx, check-expr
 	if ast.name == "new"
@@ -288,7 +273,7 @@ check-method-impl called?
 do check-ctx, common-types, funs-map
 	arity = return-and-param-types.param-types.size
 	initial-filter bool mut(x candidate) = of candidate
-		test-candidate-for-spec-sig candidate, return-and-param-types, non-inferring, no-conversions # TODO: allow conversions here (and prefer exact)
+		test-candidate-for-spec-sig candidate, return-and-param-types, non-inferring, no-conversions
 	funs-in-scope = funs-in-non-expr-scope struct.specs
 	with-candidates funs-in-scope, method-name, arity, initial-filter, of candidates
 		if x = only candidates
@@ -318,7 +303,8 @@ do check-expr-ctx, check-expr
 				option = inferred optional-arg-expected
 				args[index] := expr
 				expr, option.unwrap-if-option-type
-		if called = check-call-cb diag-range, fun-name, (), arg-asts.size, inner-expected, check-arg, of _ then true
+		info call-info = ast.to, diag-range, fun-name, args.size
+		if called = check-call-cb info, inner-expected, check-arg, of _ then true
 			type = if is-void called.return-type then called.return-type else to-option called.return-type
 			all-args = trusted cast-immutable args
 			if exists all-args, of x then is-option type-not-json x
@@ -337,14 +323,14 @@ do check-expr-ctx, check-expr
 	if is-option a then a else option[a]
 
 -check-call-inner called?
-	diag-range source-range
-	fun-name fun-name
-	explicit-type-arg type?
+	info call-info
 	candidates candidates
 	expected expected
-	n-args nat
 	cb-check-arg cb-check-arg-void
 do check-expr-ctx
+	diag-range = info.diag-range
+	fun-name = info.fun-name
+	n-args = info.n-args
 	LOG = fun-name.symbol and fun-name == "log-me"
 	if LOG
 		log "initial candidates:"
@@ -404,7 +390,7 @@ do check-expr-ctx
 			type-container: type-container
 			fun-name: fun-name
 			expected-return-type: get-expected-for-diag expected
-			actual-n-type-args: get-n-type-args-for-diagnostic explicit-type-arg
+			actual-n-type-args: get-n-type-args-for-diagnostic info.type-arg
 			actual-arity: n-args
 			actual-arg-types: arg-types[0 .. arg-index].to
 			all-candidates: all-candidates
