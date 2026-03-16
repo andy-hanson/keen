@@ -19,9 +19,11 @@ unit-test: unit-test-java unit-test-js
 unit-test-java: bin/crow $(include)
 	bin/crow build include/crow-config.json --test --out bin/test
 	bin/test
+	rm bin/test
 unit-test-js: bin/crow $(include)
 	bin/crow build include/crow-config.json --test --out bin/test.js
 	bin/test.js
+	rm bin/test.js bin/test.js.map
 
 test-diagnostics: bin/crow
 	cd test/diagnostics && bash -c 'diff <(../../bin/crow check crow-config.json --no-color --all-errors 2>&1) expected.txt'
