@@ -1,8 +1,10 @@
 import
 	../../frontend/parse/lex-token
+	../../lib/lsp/lsp-types
 	../../model/ast
 	../../model/model
 	../../model/source-range
+	../../model/uri
 	../../util/util
 	./position
 
@@ -11,7 +13,10 @@ get-position-kind enum
 	exact
 	| The cursor may be to the right of the thing; used for speculative requests such as completions.
 	after
+get-position position?(program program, where text-document-position-params, pos-kind get-position-kind)
+	get-position program, where.to, pos-kind
 get-position position?(program program, where uri-line-and-character, pos-kind get-position-kind)
+	do if module = program.crow-modules[where.uri]
 	the common-types = program.common-types
 	pos = program.line-and-character-getters[where]
 	pos-adjusted = match pos-kind
@@ -19,7 +24,6 @@ get-position position?(program program, where uri-line-and-character, pos-kind g
 		pos
 	as after
 		walk-backwards-for-position program.file-content-getters[where.uri], pos
-	module = module-at-uri program, where.uri
 	if kind = get-position-kind module, pos-adjusted, pos-kind
 		module, kind
 
@@ -30,8 +34,6 @@ get-position position?(program program, where uri-line-and-character, pos-kind g
 
 -get-position-kind position-kind?(module crow-module, pos pos, pos-kind get-position-kind) common-types
 	the crow-module = module
-	# module.imports position-in-imports-or-exports pos or ---------------------------------------------------------------------------
-	# module.re-exports position-in-imports-or-exports pos or -------------------------------------------------------------------------
 	position-in-doc-comment module, pos or
 	first module.aliases, (of x then position-in-alias x, pos) or
 	first module.structs, (of x then position-in-struct x, pos) or
@@ -39,7 +41,8 @@ get-position position?(program program, where uri-line-and-character, pos-kind g
 	first module.specs, (of x then position-in-spec x, pos) or
 	first module.funs, (of x then position-in-fun x, pos, pos-kind) or
 	first module.tests, (of x then position-in-test x, pos, pos-kind) or
-	if pos == 0 then position-module # We need a definition at position 0, because inlay hints for "Used by" have that as their location.
+	# We need a definition at position 0, because inlay hints for "Used by" have that as their location.
+	if pos == 0 then position-module
 
 -position-in-doc-comment position-kind?(a doc-comment-container, pos pos)
 	if index = find-index a.doc-comment.ast.references, of x then has-pos x.range, pos
@@ -228,8 +231,8 @@ do crow-module, local-container
 		position-in-modifiers a.parents, a.ast.modifiers, pos or
 		position-in-signatures a.sigs, a.ast.sigs, pos
 
--position-in-signatures position-kind?(signatures signature[], signature-asts signature-ast[], pos pos) type-ctx, local-container
-	first (zip signatures, signature-asts), of sig, sig-ast
+-position-in-signatures position-kind?(signatures signature[], asts signature-ast[], pos pos) type-ctx, local-container
+	first (zip signatures, asts), of sig, sig-ast
 		position-in-signature sig, sig-ast, pos
 
 -position-in-signature position-kind?(sig signature, ast signature-ast, pos pos) type-ctx, local-container
@@ -406,7 +409,7 @@ do crow-module, common-types
 		else
 			position-in-type a.the-type, a.ast.type, pos
 	as list-expr
-		# TODO: if the position is at a '-' or '--', then return expression-position[x] -----------------------------------------
+		# TODO: if the position is at a '-' or '--', then return expression-position[x]
 		()
 	as literal-scalar-expr
 		expression-position[expression-position-literal]

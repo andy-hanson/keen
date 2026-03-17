@@ -3,6 +3,7 @@ import
 	crow/format/binary
 	crow/unsafe
 	../../crow/col/private/array-low-level: inner, low, high
+	../../crow/private/parse-util
 	../model/uri
 	../util/java-bytecode-types
 	../util/perf
@@ -15,6 +16,14 @@ parsed-java-class-header record
 	super-class path?
 	interfaces path[]
 	start-of-fields nat
+bogus-java-class-header parsed-java-class-header(path path)
+	content: 0, 0, 0, 0, 0, 0 # 0 fields, 0 methods, 0 attributes (and 2 bytes per '0')
+	constants: ()
+	access: public
+	this-class: path
+	super-class: ()
+	interfaces: ()
+	start-of-fields: 0
 parse-java-class parsed-java-class-header(content nat8 array-view)
 	start = perf-now
 	finally end-parse-java-class start
@@ -68,6 +77,8 @@ parsed-field record
 	all-char8s char8[]
 	constant-strings nat32 range[]
 	constant-classes path[]
+new constants()
+	(), (), ()
 -get-string nat32 range(a constants, index nat16)
 	a.constant-strings[index]
 -get-class path(a constants, index nat16)
@@ -80,7 +91,7 @@ parsed-method record
 -read-method parsed-method(reader nat8 array-iterator, constants constants)
 	access-flags method-access-flags = reader.take16.to!
 	name symbol = read-utf8-reference reader, constants 'to
-	descriptor = parse-method-descriptor constants.all-char8s, read-utf8-reference-2 reader, constants
+	descriptor = parse-method-descriptor read-utf8-reference reader, constants
 	_ = read-attributes reader, constants
 	access-flags: access-flags
 	name: name
@@ -89,7 +100,7 @@ parsed-method record
 method-descriptor record
 	return-type java-type
 	param-types java-type[]
-| string is a class path such as "java/lang/Object"
+| 'path' is a class path such as "java/lang/Object"
 java-type union(void, java-primitive-type, java-array-type, path)
 	show string()
 java-array-type record(element java-type)
@@ -98,18 +109,14 @@ show string(_ void)
 show string(a java-array-type)
 	"{a.element.show}[]"
 
--parse-method-descriptor method-descriptor(all-char8s char8[], a nat32 range)
-	index mut nat = a.low
-	all-char8s[index] is "("
-	index +:= 1
+-parse-method-descriptor method-descriptor(a string-view)
+	iter string-iterator = begin a
+	take-next iter is "("
 	param-types java-type[] = with out in build
-		until all-char8s[index] == ")"
-			p, new-index = read-type all-char8s, index
-			out ~= p
-			index := new-index
-		index +:= 1
-	return-type, new-index2 = read-type all-char8s, index
-	new-index2 is a.high
+		until try-take-char8 iter, ")"
+			out ~= read-type iter
+	return-type = read-type iter
+	assert is-at-end iter
 	return-type, param-types
 -wrap-arrays java-type(type java-type, arrays nat)
 	if arrays == 0 then type else wrap-arrays type.java-array-type, arrays - 1
@@ -122,31 +129,23 @@ show string(a java-array-type)
 		java-array-type parse-type a[1 .. end]
 	else
 		single-char-type char
--read-type (java-type, nat)(all-char8s char8[], start nat)
+-read-type java-type(iter string-iterator)
 	arrays mut = 0
-	index mut = start
 	do loop
-	char = all-char8s[index]
+	char = take-next iter
 	match char
 	as L
-		end = must-find all-char8s, index + 1, ";"
-		break
-			- wrap-arrays all-char8s[index + 1 .. end].as-path, arrays
-			- end + 1
+		start = copy iter
+		until iter.peek8 == ";"
+			_ = take-next iter
+		path = as-path (start 'slice iter)
+		_ = take-next iter
+		break wrap-arrays path, arrays
 	as "["
-		index +:= 1
 		arrays +:= 1
 		continue
 	else
-		break
-			- wrap-arrays char.single-char-type, arrays
-			- index + 1
-
--must-find nat(xs char8[], start nat, to-find char8)
-	index mut = start
-	until xs[index] == to-find
-		index +:= 1
-	index
+		break wrap-arrays char.single-char-type, arrays
 
 -single-char-type java-type(a char8)
 	match a
@@ -182,10 +181,8 @@ show string(a java-array-type)
 	attribute-name: attribute-name.to
 
 -read-utf8-reference string-view(reader nat8 array-iterator, constants constants)
-	range = read-utf8-reference-2 reader, constants
+	range = get-string constants, reader.take16
 	constants.all-char8s[range.low .. range.high]
--read-utf8-reference-2 nat32 range(reader nat8 array-iterator, constants constants) # TODO:NAME -------------------------------------------------
-	get-string constants, reader.take16
 -read-class-reference path(reader nat8 array-iterator, constants constants)
 	get-class constants, reader.take16
 -read-optional-class-reference path?(reader nat8 array-iterator, constants constants)

@@ -94,7 +94,7 @@ quick-fill-in-low-fun-body void(ctx lower-context, cf low-fun)
 	as builtin-fun-is-target
 		gen-constant return-type, range, to::scalar-value a.target == target
 	else
-		low-fun-body-builtin a, type-args[]
+		a
 -to-constant constant(type low-type, a builtin-fun-constant) lower-ctx
 	match a
 	as bool
@@ -111,7 +111,7 @@ quick-fill-in-low-fun-body void(ctx lower-context, cf low-fun)
 	as nat8-array
 		constant-of-bytes cf.return-type, import_.content
 	as string
-		gen-string-literal-kind import_.content.as-string
+		constant-string import_.content.as-string
 
 get-var low-var(decl var-decl) lower-ctx
 	ensure the::lower-context.low-var-lookup, decl, of
@@ -154,6 +154,11 @@ lower-fun-body low-fun-body(cf low-fun, expr expr-maybe-allocated-locals) lower-
 		res = f[gen-local-get range, temp]
 		gen-let res.type, range, temp, value, res
 
+-with-local record(local-type low-type, range uri-and-range)
+-with-block low-local-and-expr(a with-local, f low-expr mut(get low-expr))
+	local low-local = temp::low-generated-local-kind, a.local-type
+	local, f[gen-local-get a.range, local]
+
 -lower-call low-expr
 	type low-type
 	range uri-and-range
@@ -180,7 +185,7 @@ do lower-and-expr-ctx
 			lambda = lower-expr lambda-type, lambda-arg
 			with-temp-if-necessary range, lambda, of get-lambda
 				in-element low-local = member, in-element-type # TODO: use a new kind, not 'member' ----------------------------
-				body = builtin-low-expr builtin-fun-call-lambda, (out-element-type, in-element-type),
+				body = builtin-low-expr builtin-fun-call-lambda,
 					- get-lambda
 					- gen-local-get range, in-element
 				type, range,
@@ -201,8 +206,8 @@ do lower-and-expr-ctx
 			# We need to widen again even though it was done already in 'lower-expr',
 			# because we may be calling a spec-impl that has a narrower type than the spec.
 			# (The call expr's type can't reflect this and uses the spec's declared type.)
-			low-called.return-type, range, if builtin_ = low-called.body.low-fun-body-builtin
-				builtin-low-expr builtin_.kind, builtin_.type-args, args
+			low-called.return-type, range, if builtin_ = low-called.body.builtin-fun
+				builtin-low-expr builtin_, args
 			elif e = low-called.body.low-expr and constant = e.kind.constant
 				constant
 			else
@@ -248,8 +253,10 @@ do lower-and-expr-ctx
 	if a.fun-inst
 		a.decl.contexts.size
 
--is-not bool(a low-fun) # RM ------------------------------------------------------------------------------------------------------
-	a.body.low-fun-body-builtin.?kind.?builtin-unary == not
+-is-not bool(a low-fun)
+	res = a.body.builtin-fun.?builtin-unary == not
+	forbid res
+	res
 
 -is-array-op bool(a low-fun)
 	# TODO: make sure this is the one in collection.crow and all the spec impls are as expected ------------------------
@@ -264,7 +271,7 @@ do lower-and-expr-ctx
 -is-range bool(a low-type)
 	do if inst = a.source.low-type-source-inst
 	decl = inst.decl
-	# TODO: base this on more than just the name ... uri too? -------------------------------------------------------------------
+	# TODO: base this on more than just the name ... uri too?
 	decl.name == "range"
 
 -lower-call-option low-expr(type low-type, range uri-and-range, a call-option-expr) lower-and-expr-ctx
@@ -297,8 +304,9 @@ do lower-and-expr-ctx
 	for i in reverse 0 .. first-non-option
 		if option-args.peek == i
 			_ = pop! option-args
-			local = arg-locals[i]
-			res := gen-if-option range, args[i], (local, res), else_
+			res := gen-if-option range, args[i],
+				then_: arg-locals[i], res
+				else_: else_
 		else
 			res := gen-let type, range, arg-locals[i], args[i], res
 	res
@@ -528,7 +536,7 @@ do lower-and-expr-ctx
 		elif is-not-not
 			arg
 		else
-			gen-builtin type, range, not, (), (arg,)
+			gen-builtin-unary type, range, not, arg
 
 -lower-if low-expr(type low-type, range uri-and-range, a if-expr) lower-and-expr-ctx
 	true-branch = of then lower-expr type, a.true-branch
@@ -544,13 +552,11 @@ do lower-and-expr-ctx
 	cb-false-branch low-expr mut()
 do lower-and-expr-ctx
 	if is-option model-type condition
-		option = lower-expr condition
-		gen-if-option range, option, ((), cb-true-branch[]), cb-false-branch[]
+		gen-if-option range, condition.lower-expr, then_: cb-true-branch[], else_: cb-false-branch[]
 	elif unpack-option condition
-		option = lower-expr condition.option
-		true-branch = lower-with-destructure type, range, condition.destructure, cb-true-branch
-		false-branch = cb-false-branch[]
-		gen-if-option range, option, true-branch, false-branch
+		gen-if-option range, condition.option.lower-expr,
+			then_: lower-with-destructure type, range, condition.destructure, cb-true-branch
+			else_: cb-false-branch[]
 	elif !condition-has-locals condition
 		cond = lower-expr bool-type, condition
 		if constant = cond.kind.constant
@@ -611,27 +617,27 @@ do lower-and-expr-ctx
 			lower-complex-condition result-type, range, a.right, true-branch, false-branch
 		lower-complex-condition result-type, range, a.left, inner, false-branch
 	elif is-option model-type a
-		option = lower-expr a
-		gen-if-option range, option, ((), true-branch[]), false-branch[]
+		gen-if-option range, a.lower-expr, then_: true-branch[], else_: false-branch[]
 	elif a.unpack-option
-		option = lower-expr a.option
-		true_ = lower-with-destructure result-type, range, a.destructure, true-branch
-		gen-if-option range, option, true_, false-branch[]
+		gen-if-option range, a.option.lower-expr,
+			then_: lower-with-destructure result-type, range, a.destructure, true-branch
+			else_: false-branch[]
 	else
 		condition = lower-expr bool-type, a
 		gen-if range, condition, true-branch[], false-branch[]
 
 -gen-option-else low-expr(type low-type, range uri-and-range, option low-expr, else_ low-expr) lower-ctx
-	local low-local = member::low-generated-local-kind, option.type.as-option!
-	get-local low-expr = may-widen-type type, gen-local-get range, local
-	gen-if-option range, option, (local, get-local), else_
+	gen-if-option range, option,
+		then_: with get in with-local option.type.as-option!, range
+			may-widen-type type, get
+		else_: else_
 
--gen-if-option low-expr
-	range uri-and-range
-	option low-expr
-	then_ low-local-and-expr
-	else_ low-expr
-do
+-branches record(then_ low-local-and-expr, else_ low-expr)
+-new branches(then_ low-expr, else_ low-expr)
+	((), then_), else_
+-gen-if-option low-expr(range uri-and-range, option low-expr, branches branches)
+	then_ = branches.then_
+	else_ = branches.else_
 	type = else_.type
 	if x = then_.local
 		option-local low-local = member2::low-generated-local-kind, option.type
@@ -648,27 +654,26 @@ do
 		type, range,
 			match-union-low-expr option, (0, 1), cases, ()
 
--lower-literal-string-like low-expr
+-lower-literal-string-like constant
 	type low-type
-	range uri-and-range
 	kind string-like-type
 	value string
 do lower-ctx
 	match kind
 	as char8-array
-		gen-char8-array range, value
+		constant-char8-array type, value
 	as char32-array
-		gen-char32-array range, value
+		constant-char32-array type, value
 	as java-String
-		type, range, value.constant-native-string
+		constant-native-string value
 	as js-any
-		type, range, value.constant-native-string
+		constant-native-string value
 	as string
-		gen-string-literal range, value
+		constant-string value
 	as symbol
-		type, range, constant-symbol value.to
+		constant-symbol value.to
 	as json
-		type, range, constant-json-string value
+		constant-json-string value
 
 -lower-local-get low-expr
 	type low-type
@@ -741,14 +746,13 @@ do lower-and-expr-ctx
 			temp low-local = member::low-generated-local-kind, type
 			get-temp = gen-local-get range, temp
 			gen-let type, range, temp, left,
-				gen-if-option range, get-temp, ((), get-temp), right
+				gen-if-option range, get-temp, then_: get-temp, else_: right
 
 -lower-loop-while-or-until low-expr
 	type low-type
 	range uri-and-range
 	expr loop-while-or-until-expr
 do lower-and-expr-ctx
-	assert is-void void-type # TODO: sanity check -------------------------------------------------------------------------------
 	void = gen-void range
 	if unpack = expr.condition.unpack-option
 		option = lower-expr unpack.option
@@ -772,10 +776,11 @@ do lower-and-expr-ctx
 						continue
 				after
 				###
-				temp low-local = root.source, root.type
-				break_ = gen-break range, gen-local-get range, temp
-				if_ = gen-if-option range, option, (temp, break_), gen-do-and-continue root.type, range, body
-				loop_ = gen-loop root.type, range, if_
+				loop_ = gen-loop root.type, range,
+					gen-if-option range, option,
+						then_: with temp in with-local root.type, range
+							gen-break range, temp
+						else_: gen-do-and-continue root.type, range, body
 				gen-let type, range, root, loop_, after.expr
 			else
 				###
@@ -791,8 +796,10 @@ do lower-and-expr-ctx
 						continue
 				after
 				###
-				if_ = gen-if-option range, option, ((), (gen-break range, void)), (gen-do-and-continue void.type, range, body)
-				loop_ = gen-loop void.type, range, if_
+				loop_ = gen-loop void.type, range,
+					gen-if-option range, option,
+						then_: gen-break range, void
+						else_: gen-do-and-continue void.type, range, body
 				gen-seq range, loop_, after.expr
 		else
 			###
@@ -808,9 +815,12 @@ do lower-and-expr-ctx
 					break
 			after
 			###
-			body = lower-expr-with-destructure void.type, range, unpack.destructure, expr.body
-			if_ = gen-if-option range, option, (body.local, (gen-do-and-continue void.type, range, body.expr)), gen-break range, void
-			loop_ = gen-loop void.type, range, if_
+			loop_ = gen-loop void.type, range,
+				gen-if-option range, option,
+					then_:
+						body = lower-expr-with-destructure void.type, range, unpack.destructure, expr.body
+						body.local, gen-do-and-continue void.type, range, body.expr
+					else_: gen-break range, void
 			gen-seq range, loop_, lower-expr-or-void type, range, expr.after
 	elif condition-has-locals expr.condition
 		if is-until expr
@@ -846,9 +856,10 @@ do lower-and-expr-ctx
 			loop_ =
 				body = lower-expr void.type, expr.body
 				body-and-continue = gen-do-and-continue tuple-type, range, body
-				b low-local = member, tuple-type
-				break-b = gen-break range, gen-local-get range, b
-				loop-body = gen-if-option range, both, (b, break-b), body-and-continue
+				loop-body = gen-if-option range, both,
+					then_: with temp in tuple-type, range
+						gen-break range, temp
+					else_: body-and-continue
 				gen-loop tuple-type, range, loop-body
 			root low-local = member2, tuple-type
 			get-root = gen-local-get range, root
@@ -998,8 +1009,8 @@ do lower-and-expr-ctx
 		lower-bogus type, range
 	lower-with-opt-local type, range, a.matched-local, a.matched, of matched
 		cases low-match-string-like-case[] = for case_ in a.cases
-			value = lower-literal-string-like matched.type, range, a.string-type, case_.value
-			value, lower-expr type, case_.then_
+			- lower-literal-string-like matched.type, a.string-type, case_.value
+			- lower-expr type, case_.then_
 		else_ = lower-expr type, a.else_
 		type, range, match-string-like-low-expr matched, equals, cases, else_
 
@@ -1125,7 +1136,8 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 	as lambda-expr
 		lower-lambda type, range, a
 	as let-expr
-		# Use 'outer-type' instead of 'type' here to make the conversion be in the 'then' expression instead of wrapping the whole 'let'.
+		# Use 'outer-type' instead of 'type' here
+		# to make the conversion be in the 'then' expression instead of wrapping the whole 'let'.
 		# This leads to simpler generated code.
 		lower-let outer-type, range, a
 	as let-the-expr
@@ -1142,7 +1154,7 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 		else
 			gen-constant type, range, a.value
 	as literal-string-like-expr
-		lower-literal-string-like type, range, a.string-type, a.value
+		type, range, lower-literal-string-like type, a.string-type, a.value
 	as local-get-expr
 		lower-local-get type, range, a.local, ()
 	as local-get-and-refine-expr
@@ -1209,7 +1221,9 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 
 -gen-option-to-bool low-expr(arg low-expr) lower-ctx
 	range = arg.range
-	gen-if-option range, arg, ((), range.gen-true), range.gen-false
+	gen-if-option range, arg,
+		then_: gen-true range
+		else_: gen-false range
 
 -as-seq low-expr[](a low-expr)
 	match x = a.kind
@@ -1236,8 +1250,9 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 			temp low-local = member::low-generated-local-kind, actual-unwrapped
 			range = actual.range
 			if widen-temp = try-widen expected-unwrapped, gen-local-get range, temp
-				some = gen-option expected, range, widen-temp
-				gen-if-option range, actual, (temp, some), gen-empty-option expected, range
+				gen-if-option range, actual,
+					then_: temp, gen-option expected, range, widen-temp
+					else_: gen-empty-option expected, range
 	elif u = low-union expected.body
 		members low-type[] = if u.has-members
 			u.members
@@ -1254,10 +1269,10 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 		elif expected-builtin = as-builtin-type expected and actual-builtin = as-builtin-type actual.type
 			if builtin-widens actual-builtin.kind, expected-builtin.kind
 				if as-integral-type expected and as-integral-type actual.type
-					gen-builtin expected, actual.range, wrap-convert-integral, (), (actual,)
+					gen-builtin-unary expected, actual.range, wrap-convert-integral, actual
 				else
 					assert expected-builtin.kind == float64 and actual-builtin.kind == float32
-					gen-builtin expected, actual.range, to-float64-from-float32, (), (actual,)
+					gen-builtin-unary expected, actual.range, to-float64-from-float32, actual
 -is-array-view bool(a low-type) lower-ctx
 	source = a.source
 	source.low-type-source-inst and source.decl == array-view

@@ -22,6 +22,7 @@ import
 	java/nio/file/FileSystem
 	java/nio/file/FileSystemAlreadyExistsException
 	java/nio/file/FileSystems
+	java/nio/file/NoSuchFileException
 	java/nio/file/Path
 	java/nio/file/Paths
 	java/nio/file/StandardWatchEventKinds
@@ -73,26 +74,19 @@ show string(a exit)
 -to js-any(a file-path) js
 	a.to::string.to
 
--do-write-file void(path string, content nat8[]) global
-	trusted
-	if java
-		# TODO: catch exceptions -----------------------------------------------------------------------------------------
-		content2 int8 buffer = for x in content then x.wrap-to # TODO:PERF do a cast instead since these have the same representation
-		_ = write path.to-java-path, content2, ()
-	elif js
-		call-property fs, "writeFileSync", path.to, content.to 'to
-	else
-		throw todo
-
 allow-overwrite enum(allow, disallow)
 write-file void(path file-path, content string, permissions permissions, overwrite allow-overwrite) global
 	match overwrite
 	as allow
 		()
 	as disallow
-		# TODO: this could be integrated with opening the file! See 'openFileForWrite' in 'fileSystem.d' --------------------------------------
 		forbid path-exists path else path-already-exists path.to
-	do-write-file path.to, content.to
+	if java
+		_ = trusted write path.to-java-path, content.to::int8[].cast-mutable, ()
+	elif js
+		trusted call-property fs, "writeFileSync", path.to, content.to 'to
+	else
+		throw todo
 	change-permissions path, permissions.user-only
 
 -change-permissions void(path file-path, permissions file-permissions) global
@@ -101,7 +95,7 @@ write-file void(path file-path, content string, permissions permissions, overwri
 		args = java-permissions permissions
 		values Enum buffer = map args, it.reinterpret-cast
 		perms EnumSet = values.reinterpret-cast::(Object buffer).asList.reinterpret-cast::Collection.copyOf
-		_ = setPosixFilePermissions path.to-java-path, perms.reinterpret-cast # TODO: most reinterpret-casts in this file should be unnecssary
+		_ = setPosixFilePermissions path.to-java-path, perms.reinterpret-cast
 	elif js
 		_ = call-property fs, "chmodSync", path.to, permissions.to::nat.to::float.as-js
 	else
@@ -157,7 +151,6 @@ write-jar void(path file-path, files java-compiled-class[]) global
 -wrap-to int8(a char8)
 	a.to::nat8.wrap-to
 
-# TODO: have this in std- -------------------------------------------------------------------------------------------------------------
 files-in-directory-recursive file-path[](dir-path file-path) global
 	for* path in get-paths-in-dir dir-path
 		match get-path-kind path
@@ -282,7 +275,7 @@ wait-for-change file-path set(a file-reader)
 -java-class-reader alias
 	read-file-result mut(path path)
 -with-java-class-reader record(path-to-crow file-path)
--with-block[t] t(a with-java-class-reader, f t mut(a java-class-reader)) # TODO: use a with-block ------------------------------------------
+-with-block[t] t(a with-java-class-reader, f t mut(a java-class-reader))
 	trusted
 	if java
 		base-jmod = find-java-base-jmod
@@ -326,7 +319,10 @@ files-in-directory-recursive file-path[](a file-reader, root file-path)
 		# it might want to create a file system for the jar too.
 		get-or-create-file-system "jar:file://{jmod}".create
 	path = getPath file-system, "classes/{class_}.class", ()
-	path.readAllBytes.cast-immutable.safe-reinterpret-cast::nat8[]
+	try
+		path.readAllBytes.cast-immutable.safe-reinterpret-cast::nat8[]
+	catch as NoSuchFileException
+		not-found
 
 -get-or-create-file-system FileSystem(uri URI) global, java
 	trusted

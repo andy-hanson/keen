@@ -151,12 +151,9 @@ get-start-line nat(a line-and-character-getters, where uri-and-pos)
 
 line-and-column-getters alias
 	line-and-column-getter[uri]
-subscript uri-line-and-column(a line-and-column-getters, (pos uri-and-pos, kind pos-kind))
+subscript uri-line-and-column(a line-and-column-getters, pos uri-and-pos)
 	uri: pos.uri
-	pos: if l = a[pos.uri]
-		l[pos.pos, kind]
-	else
-		0, 0
+	pos: a[pos.uri]?[pos.pos] else 0, 0
 subscript uri-line-and-column-range(a line-and-column-getters, range uri-and-range)
 	range.uri, a[range.uri]![range.range]
 
@@ -176,8 +173,10 @@ subscript source-range(a line-and-character-getter, lc line-and-character-range)
 get-start-line nat(a line-and-character-getter, pos nat32)
 	line-at-pos a.line-to-pos, pos
 
-# TODO: using 'subscript' with a hardcoded 'kind' is silly, just use differently named functions 000000000000000000000000000
-subscript line-and-character(a line-and-character-getter, (start-pos pos, kind pos-kind))
+subscript line-and-character(a line-and-character-getter, pos pos)
+	a[pos, start-of-range]
+
+-subscript line-and-character(a line-and-character-getter, (start-pos pos, kind pos-kind))
 	pos mut = start-pos
 	line mut = get-start-line a, start-pos
 	if kind == end-of-range and a.line-to-pos[line] == pos and line != 0
@@ -196,7 +195,7 @@ last-line nat(a line-and-character-getter)
 		a.line-to-pos.size - 1
 
 subscript line-and-character-range(a line-and-character-getter, range source-range)
-	a[range.start, start-of-range], a[range.end, end-of-range]
+	a[range.start], a[range.end, end-of-range]
 
 end-of-file pos(a line-and-character-getter)
 	a.source-text.size.to
@@ -215,13 +214,13 @@ range-of-line source-range(a line-and-character-getter, line nat)
 	start: start-of-line-pos a, line
 	end: next-line-pos a, line
 end-of-line line-and-character(a line-and-character-getter, start pos)
-	lc = a[start, start-of-range]
+	lc = a[start]
 	next = next-line-pos a, lc.line
 	assert next > start
 	lc.line, lc.character + (next - start)
 
 line-of-pos nat32(a line-and-character-getter, pos pos)
-	a[pos, start-of-range].line
+	a[pos].line
 
 line-and-column-getter record
 	line-and-character-getter line-and-character-getter
@@ -250,7 +249,9 @@ lines-over-n-columns line-too-long[](a line-and-column-getter, max-columns nat)
 	do if actual > max-columns
 	- pos.to, actual
 
-subscript line-and-column(a line-and-column-getter, where (pos, pos-kind))
+subscript line-and-column(a line-and-column-getter, where pos)
+	a[where, start-of-range]
+-subscript line-and-column(a line-and-column-getter, where (pos, pos-kind))
 	x line-and-character = a.line-and-character-getter[where]
 	line = x.line
 	character = x.character
@@ -262,7 +263,7 @@ subscript line-and-column(a line-and-column-getter, where (pos, pos-kind))
 	line, column
 
 subscript line-and-column-range(a line-and-column-getter, range source-range)
-	a[range.start, start-of-range], a[range.end, end-of-range]
+	a[range.start], a[range.end, end-of-range]
 
 to-line-and-character line-and-character(a line-and-column-getter, lc line-and-column)
 	n-tabs = if lc.line-0-indexed::nat64 < a.line-to-n-tabs.size
@@ -327,26 +328,23 @@ line-at-pos nat(line-to-pos nat32[], pos pos)
 tab-size nat32()
 	4
 
-pos-kind enum(start-of-range, end-of-range)
-== bool(a pos-kind, b pos-kind)
+-pos-kind enum(start-of-range, end-of-range)
+- == bool(a pos-kind, b pos-kind)
 
--byte-index-of-character-index nat(a string, b nat)
-	chars char32[] = a.to
-	# TODO: PERF -----------------------------------------------------------------------------------------------------------------
-	chars[0 .. (min b, chars.size)].to::string.to::char8[].size
+-byte-index-of-character-index nat(a string, character-index nat)
+	iter = begin a
+	cur mut = 0
+	until is-at-end iter or cur >= character-index
+		_ = must-take-one-unicode-char iter
+		cur +:= 1
+	iter.index
 -character-index-of-byte-index nat(a string, byte-index nat)
-	# TODO: PERF -----------------------------------------------------------------------------------------------------------------
-	walker = a.begin
+	iter = begin a
 	res mut = 0
-	cur-byte mut = 0
-	do loop
-	if walker.is-at-end or cur-byte >= byte-index
-		break res
-	else
-		c32 = walker.must-take-one-unicode-char
+	until is-at-end iter or iter.index >= byte-index
+		_ = must-take-one-unicode-char iter
 		res +:= 1
-		cur-byte +:= c32.to::string.to::char8[].size
-		continue
+	res
 
 region test
 
@@ -414,7 +412,15 @@ test
 	verify-convert lcg, pos, line, character, character
 -verify-convert void(lcg line-and-column-getter, pos pos, line nat32, character nat32, column nat32)
 	verify-convert lcg, pos, start-of-range, line, character, column, pos
--verify-convert void(lcg line-and-column-getter, pos pos, kind pos-kind, line nat32, character nat32, column nat32, convert-back-pos pos)
+-verify-convert void
+	lcg line-and-column-getter
+	pos pos
+	kind pos-kind
+	line nat32
+	character nat32
+	column nat32
+	convert-back-pos pos
+do
 	line-and-character line-and-character = line, character
 	line-and-column line-and-column = line, column
 	lcg.line-and-character-getter[pos, kind] is line-and-character

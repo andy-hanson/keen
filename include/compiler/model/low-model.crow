@@ -136,8 +136,6 @@ is-nat8 bool(a low-type)
 	a.body.low-builtin-type.?kind == nat8
 is-nat32 bool(a low-type)
 	a.body.low-builtin-type.?kind == nat32
-is-nat64 bool(a low-type)
-	a.body.low-builtin-type.?kind == nat64
 is-float32-or-64 bool(a low-type)
 	body = a.body
 	body.low-builtin-type and (body.kind == float32 or body.kind == float64)
@@ -199,7 +197,7 @@ is-mutable bool(a low-local-source)
 low-local-source-reference record(original local)
 to json(a low-local-source-reference)
 hash void(a low-local-source-reference, state hash-state)
-low-generated-local-kind enum(args, ignore, destruct, member, member2, the_, union-kind)
+low-generated-local-kind enum(args, ignore, destruct, member, member2, temp, the_, union-kind)
 == bool(a low-generated-local-kind, b low-generated-local-kind)
 to symbol(a low-generated-local-kind)
 to string(a low-generated-local-kind)
@@ -224,16 +222,13 @@ is-mutable bool(a low-local)
 	is-mutable a.source
 
 low-fun-body union
-	low-fun-body-builtin
+	builtin-fun # TODO: this could just use builtin-low-expr ...
 	low-expr
 	fun-body-extern-java
 	low-fun-body-method
 	low-fun-body-deferred
 	low-fun-body-always-inline
 to json(a low-fun-body)
-| Use this instead of {builtin-low-expr} to ensure it is inlined
-low-fun-body-builtin record(kind builtin-fun, type-args low-type[])
-to json(a low-fun-body-builtin)
 low-fun-body-method record(method-index nat)
 to json(a low-fun-body-method)
 low-fun-body-deferred record
@@ -303,7 +298,7 @@ range uri-and-range(a low-fun)
 	a.source.range
 is-extern bool(a low-fun)
 	match a.body
-	as low-fun-body-builtin
+	as builtin-fun
 		false
 	as low-expr
 		false
@@ -327,14 +322,6 @@ to json(a low-fun-source-regular)
 		decl: a.decl.name.to
 		type-args: a.type-args.to
 		spec-impls: a.spec-impls.to
-low-fun-key record
-	decl fun-decl
-	type-args low-type[]
-	spec-impls low-fun[]
-== bool(a low-fun-key, b low-fun-key)
-<=> comparison(_ low-fun-key, _ low-fun-key)
-	trusted throw todo
-hash void(a low-fun-key, state hash-state)
 
 low-expr record
 	type low-type
@@ -348,7 +335,6 @@ low-expr-kind union
 	array-op-low-expr
 	builtin-low-expr
 	call-low-expr
-	cast-low-expr
 	constant
 	create-array-low-expr
 	create-record-low-expr
@@ -414,18 +400,15 @@ range-fields (low-field, low-field)(range-type low-type)
 out-element low-type(a array-op-low-expr)
 	a.body.type
 to json(a array-op-low-expr)
-builtin-low-expr record(fun builtin-fun, type-args low-type[], args low-expr[])
+builtin-low-expr record(fun builtin-fun, args low-expr[])
 to json(a builtin-low-expr)
 call-low-expr record(called low-fun, args low-expr[])
 to json(a call-low-expr)
-| Reinterpret cast between different types with the same size
-cast-low-expr record(inner low-expr) # TODO: this is only used to cast an enum to an integral. Just make that a kind of builtin unary?
-to json(a cast-low-expr)
 create-array-low-expr record(args low-expr[])
 to json(a create-array-low-expr)
 create-record-low-expr record(args low-expr[]) # TODO: this is basically the same as create-array-low-expr, share?
 to json(a create-record-low-expr)
-create-union-low-expr record(member-index nat, arg low-expr)
+create-union-low-expr record(case-index nat, arg low-expr)
 to json(a create-union-low-expr)
 drop-low-expr record(arg low-expr)
 to json(a drop-low-expr)
@@ -442,7 +425,7 @@ lambda-low-expr record
 	body low-expr
 to json(a lambda-low-expr)
 | For a JS target, this can get a local through a closure.
-local-get-low-expr record(local low-local) # TODO: consider perf of just using the 'local' directly .............................
+local-get-low-expr record(local low-local)
 to json(a local-get-low-expr)
 local-set-low-expr record(local low-local, value low-expr)
 to json(a local-set-low-expr)
@@ -484,8 +467,7 @@ match-string-like-low-expr record
 	cases low-match-string-like-case[]
 	else_ low-expr
 to json(a match-string-like-low-expr)
-# TODO: shouldn't 'value' be a constant? ------------------------------------------------------------------------------------------------
-low-match-string-like-case record(value low-expr, then_ low-expr)
+low-match-string-like-case record(value constant, then_ low-expr)
 to json(a low-match-string-like-case)
 
 indices record(values scalar-values)
@@ -552,10 +534,8 @@ record-field-set-low-expr record
 	field-index nat
 	value low-expr
 to json(a record-field-set-low-expr)
-record-type low-type(a record-field-set-low-expr) # TODO: inline -----------------------------------------------------
-	a.record_.type
 field low-field(a record-field-set-low-expr)
-	a.record-type.body.low-record!.fields[a.field-index]
+	a.record_.type.body.low-record!.fields[a.field-index]
 seq-low-expr record
 	| All parts but the last should be of type 'void'
 	parts low-expr[]
@@ -569,7 +549,7 @@ try-low-expr record
 	| For this, the local type is always 'exception'
 	catch-else low-local-and-expr?
 to json(a try-low-expr)
-# TODO: to avoid duplicating code in translate-to-js / translate-to-java / lower, compile this to a 'try' early --------------------
+# TODO: to avoid duplicating code in translate-to-js / translate-to-java / lower, compile this to a 'try' early
 try-let-low-expr record
 	local low-local?
 	value low-expr
@@ -614,6 +594,13 @@ all-constants record
 	| Maps a {constant-record} to the record values.
 	records (constant-record, constant[]) full-index-map[low-type]
 	unions (constant-union, constant-union-value) full-index-map[low-type]
+subscript constant[](a all-constants, constant constant-array)
+	a.arrays[constant.type-index].constants[constant.index]
+get-record constant[](a all-constants, type low-type, constant constant-record)
+	a.records[type]![constant]
+get-union (low-type, nat, constant)(a all-constants, type low-type, constant constant-union)
+	res = a.unions[type]![constant]
+	type.body.low-union!.members[res.case-index], res.case-index, res.value
 
 low-var record
 	source var-decl
@@ -720,8 +707,6 @@ iterate bool(a direct-child-exprs, f bool mut(x low-expr))
 		iterate x.args, f
 	as call-low-expr
 		iterate x.args, f
-	as cast-low-expr
-		f[x.inner]
 	as constant
 		false
 	as create-array-low-expr
@@ -753,13 +738,9 @@ iterate bool(a direct-child-exprs, f bool mut(x low-expr))
 	as match-scalar-low-expr
 		f[x.matched] or iterate x.case-exprs, f or cb-option x.else_, f
 	as match-string-like-low-expr
-		f[x.matched] or
-		iterate x.cases, (of case_ then f[case_.value] or f[case_.then_]) or
-		f[x.else_]
+		f[x.matched] or iterate x.cases, f[it.then_] or f[x.else_]
 	as match-union-low-expr
-		f[x.matched] or
-		iterate x.cases, f[it] or
-		cb-option x.else_, f
+		f[x.matched] or iterate x.cases, f[it] or cb-option x.else_, f
 	as record-field-get-low-expr
 		f[x.record_]
 	as record-field-set-low-expr
@@ -769,9 +750,7 @@ iterate bool(a direct-child-exprs, f bool mut(x low-expr))
 	as throw-low-expr
 		f[x.thrown]
 	as try-low-expr
-		f[x.tried] or
-		iterate x.catch-cases, f[it.expr] or
-		cb-option x.catch-else.?expr, f
+		f[x.tried] or iterate x.catch-cases, f[it.expr] or cb-option x.catch-else.?expr, f
 	as try-let-low-expr
 		f[x.value] or f[x.catch_.expr] or f[x.then_]
 	as union-assume-case-low-expr
@@ -810,23 +789,21 @@ do
 	match a
 	as constant-array
 		elem = as-array! type
-		for x in all-constants.arrays[a.type-index].constants[a.index]
+		for x in all-constants[a]
 			each-nested-constant all-constants, elem, x, f
 	as constant-native-string
 		()
 	as constant-record
-		fields = type.body.low-record!.fields
-		args = all-constants.records[type]![a]
-		for arg, field in zip args, fields
+		args = get-record all-constants, type, a
+		for arg, field in zip args, type.body.low-record!.fields
 			each-nested-constant all-constants, field.type, arg, f
 	as scalar-value
 		()
 	as constant-symbol
 		()
 	as constant-union
-		value = all-constants.unions[type]![a]
-		member-type = type.body.low-union!.members[value.member-index]
-		each-nested-constant all-constants, member-type, value.member, f
+		member-type, _, member = get-union all-constants, type, a
+		each-nested-constant all-constants, member-type, member, f
 	as constant-gc-safe-value
 		()
 
@@ -864,7 +841,7 @@ constant-union record(index nat)
 hash void(a constant-union, state hash-state)
 to json(a constant-union)
 	a.index.to
-constant-union-value record(member-index nat, member constant) # TODO: rename 'member-index' to 'case-index' and 'member' to 'value'
+constant-union-value record(case-index nat, value constant)
 == bool(a constant-union-value, b constant-union-value)
 <=> comparison(a constant-union-value, b constant-union-value)
 hash void(a constant-union-value, state hash-state)
@@ -874,8 +851,6 @@ constant-gc-safe-value record
 to json(a constant-gc-safe-value)
 hash void(a constant-gc-safe-value, state hash-state)
 as-bool bool(a constant)
-	a.scalar-value!.to
-as-nat64 nat(a constant)
 	a.scalar-value!.to
 as-float float64(a constant)
 	a.scalar-value!.to

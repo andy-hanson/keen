@@ -65,9 +65,9 @@ new frontend(crow-include-dir uri)
 			# Dummy value, about to get overwritten
 			uri: uri
 			referenced-by: ()
-			ast-or-diag: unknown
 			config-file: unknown, ()
 			config: ()
+			ast-or-diag: unknown
 			resolved-imports: ()
 			module: ()
 		unknown: ()
@@ -87,22 +87,21 @@ new frontend(crow-include-dir uri)
 		ensure-crow-file res, uri
 	res
 
-| Note: This is initially empty and the fields fill in from top to bottom in various steps.
-| First the file gets content, then it gets parsed, then its config is determined, then imports are resolved, then a module is built.
+|  This is initially empty and the fields fill in from top to bottom in various steps.
+| * The config is determined ({config-file}, {config})
+| * The file is (attempted) read and parsed and gets ({ast-or-diag})
+| * Then imports are resolved ({resolved-imports})
+| * Then a {module} is built
 -crow-file record mut
 	uri uri
 	| Uris are for {crow-file}s
 	referenced-by uri mut-set
-	ast-or-diag mut ast-or-diag
 	config-file config-file
 	config mut config?
+	ast-or-diag mut ast-or-diag
 	| Also includes re-exports. Set once we have config.
 	resolved-imports mut mostly-resolved-import[]?
 	module mut crow-module?
-has-module bool(a crow-file) # TODO: inline ----------------------------------------------------------------------------------
-	!!a.module
-must-have-module crow-module(a crow-file) # TODO: inline ----------------------------------------------------------------------------------
-	a.module!
 
 -crowd-file record mut
 	line-and-column-getter mut line-and-column-getter
@@ -126,6 +125,8 @@ must-have-module crow-module(a crow-file) # TODO: inline -----------------------
 	referenced-by-crow uri mut-set
 	| Subclasses or interface implementers must be processed after their supertypes.
 	inheritors path mut-set
+-path path(a java-class-file)
+	a.type.source.struct-decl-source-java!.path
 
 | If a Java class has only come up as a type, we can process the header only.
 | If it is imported as a module, we must process the entire class including methods.
@@ -171,15 +172,15 @@ make-program program(a frontend, fully-loaded-configs uri set)
 	the instantiate-ctx = a.instantiate-ctx
 	the common-types = a.common-types
 	common-funs, common-funs-diagnostics = get-common-funs common-modules
-	all-modules crow-module[uri] = for uri, file in a.crow-files
-		uri, file.must-have-module
-	unused-diagnostics = detect-unused-internal all-modules, fully-loaded-configs
+	crow-modules crow-module[uri] = for uri, file in a.crow-files
+		uri, file.module!
+	unused-diagnostics = detect-unused-internal crow-modules, fully-loaded-configs
 	crowd-diagnostics uri-and-diagnostic[] = for* uri, file in a.crowd-files
 		map file.diagnostics, (uri, it)
 	all-configs: for* uri, x in a.config-files
 		if config = x.config.config
 			- uri, config
-	all-modules: all-modules
+	crow-modules: crow-modules
 	java-modules: for* k, v in a.java-class-files
 		if m = v.module
 			- k, m
@@ -252,11 +253,9 @@ set-file void(a frontend, uri uri, result read-file-result)
 			file.parsed := parse-java-class result
 			if super = file.parsed.parsed-java-class-header!.super-class
 				(ensure-java-class-file a, super, header-only).inheritors ~= path
-			add-to-workable-if-so a, path, file
 		as read-file-diag
-			log error, "ERROR READING JAVA CLASS? {path} {to-json result}"
-			# A missing Java module should probably be treated just like a missing Crow module
-			throw todo # ------------------------------------------------------------------------------------------------------------------------
+			file.parsed := result
+		add-to-workable-if-so a, path, file
 	as crow
 		file = ensure-crow-file a, uri
 		file.ast-or-diag := match result
@@ -335,9 +334,9 @@ set-file void(a frontend, uri uri, result read-file-result)
 		config-file = ensure-config-file-for a, uri
 		uri: uri
 		referenced-by: ()
-		ast-or-diag: unknown
 		config-file: config-file
 		config: find-config config-file
+		ast-or-diag: unknown
 		resolved-imports: ()
 		module: ()
 
@@ -407,7 +406,11 @@ set-file void(a frontend, uri uri, result read-file-result)
 	do loop
 	if path = pop-arbitrary a.workable-java
 		file = a.java-class-files[path]!
-		header = parsed-java-class-header! file.parsed
+		header = match x = file.parsed
+		as parsed-java-class-header
+			x
+		as read-file-diag
+			bogus-java-class-header path
 		unless file.has-filled-in-supertypes
 			fill-java-class-supertypes file.type, header
 			file.has-filled-in-supertypes := true
@@ -440,7 +443,7 @@ set-file void(a frontend, uri uri, result read-file-result)
 
 | This may not fix all circular imports, but it's run in a loop
 -fix-circular-imports void(a frontend)
-	do if _, file = find a.crow-files, !it.b.has-module
+	do if _, file = find a.crow-files, !it.b.module
 	cycle-builder uri mut[] = ()
 	_ = fix-circular-imports-recur a, cycle-builder, file
 -fix-circular-imports-recur uri[](a frontend, cycle-builder uri mut[], file crow-file)
@@ -542,14 +545,16 @@ set-file void(a frontend, uri uri, result read-file-result)
 		a.workable-crow ~= file.uri
 
 -is-workable bool(a frontend, file java-class-file)
-	parsed = file.parsed
-	do if parsed.parsed-java-class-header
-	if super = parsed.super-class
-		has-filled-in-supertypes a.java-class-files[super]!
-	else
-		true
+	match parsed = file.parsed
+	as parsed-java-class-header
+		if super = parsed.super-class
+			has-filled-in-supertypes a.java-class-files[super]!
+		else
+			true
+	as read-file-diag
+		parsed != unknown
 -is-workable bool(a crow-file)
-	forbid a.has-module
+	forbid a.module
 	a.ast-or-diag.read-file-diag != unknown and
 	a.config and
 	every a.resolved-imports!, it.is-import-workable
@@ -569,7 +574,6 @@ set-file void(a frontend, uri uri, result read-file-result)
 	do with out in build ast.count-imports-and-re-exports
 	unless ast.no-std_
 		out ~= a.common-files[std]
-	# TODO: use each-import-or-re-export? ---------------------------------------------------------------------------------------
 	if i = ast.imports
 		for x in i.paths
 			out ~= try-resolve-import a, config, uri, x
@@ -607,11 +611,15 @@ set-file void(a frontend, uri uri, result read-file-result)
 		as crow-file
 			match x = file.ast-or-diag
 			as file-ast
-				file.must-have-module
+				file.module!
 			as read-file-diag
 				read-error file.uri, x
 		as java-class-file
-			file.module!
+			match x = file.parsed
+			as parsed-java-class-header
+				file.module!
+			as read-file-diag
+				read-error file.path.to-java-uri, x
 		as other-file
 			match x = file.content
 			as array-view
@@ -684,16 +692,13 @@ do
 	as path
 		library-name, rest = path.first-and-rest
 		if library-name == "crow"
-			try-resolve-import-from-uri a, ast, concat-uri-and-path a.crow-include-dir, path
+			try-resolve-import-from-uri a, ast, a.crow-include-dir / path
 		elif p = without-extension path, ".class"
 			ensure-java-class-file a, p, all
 		elif is-java-library library-name
 			ensure-java-class-file a, path, all
 		elif from-config = config.include[library-name]
-			uri = if rest
-				concat-uri-and-path from-config, rest
-			else
-				from-config
+			uri = if rest then from-config / rest else from-config
 			try-resolve-import-from-uri a, ast, uri
 		else
 			library-not-configured library-name

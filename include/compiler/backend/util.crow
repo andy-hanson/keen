@@ -19,7 +19,7 @@ as-wrapper low-field?(a low-record)
 		f
 
 # TODO: MOVE, will need this for the JS build too ------------------------------------------------------------------------------
-each-constant-in-dependency-order void(program low-program, emit void mut(x any-constant)) show-ctx
+each-constant-in-dependency-order void(program low-program, emit void mut(x any-allocated-constant)) show-ctx
 	# TODO:PERF this could use a full-index-set -----------------------------------------------------------------------------
 	seen-arrays (low-type, nat) mut-set = ()
 	seen-records (low-type, constant-record) mut-set = ()
@@ -34,7 +34,7 @@ each-constant-in-dependency-order void(program low-program, emit void mut(x any-
 		for arr in all-constants.arrays
 			do if array-needs-constant arr, target
 			for array-id, xs in with-index arr.constants
-				key = arr.array-type, array-id
+				key (low-type, nat) = arr.array-type, array-id
 				do unless seen-arrays[key]
 				do if every xs, can-reference[arr.element-type, it]
 				seen-arrays ~= key
@@ -43,7 +43,7 @@ each-constant-in-dependency-order void(program low-program, emit void mut(x any-
 		for record-type, map in all-constants.records
 			do if record-needs-constant record-type, target
 			for constant, args in map
-				key = record-type, constant
+				key (low-type, constant-record) = record-type, constant
 				do unless seen-records[key]
 				fields = record-type.body.low-record!.fields
 				do if every (zip args, fields), of arg, field
@@ -82,7 +82,8 @@ do
 		if is-empty-type type
 			true
 		elif field = as-wrapper type
-			can-reference program, seen-arrays, seen-records, field.type, only! program.all-constants.records[type]![c]
+			can-reference program, seen-arrays, seen-records, field.type,
+				only! get-record program.all-constants, type, c
 		else
 			seen-records[type, c]
 	as scalar-value
@@ -90,17 +91,16 @@ do
 	as constant-symbol
 		true
 	as constant-union
-		value = program.all-constants.unions[type]![c]
-		case-type = type.body.low-union!.members[value.member-index]
-		can-reference program, seen-arrays, seen-records, case-type, value.member
+		case-type, _, value = get-union program.all-constants, type, c
+		can-reference program, seen-arrays, seen-records, case-type, value
 	as constant-gc-safe-value
 		true
 
-# TODO: this may be simpler (and faster) as a single dictionary class-and-member[nat][low-type] ------------------------------------------
+# TODO:PERF this may be simpler (and faster) as a single dictionary class-and-member[nat][low-type]
 constant-names[name] record
 	arrays name[nat][low-type]
 	records name[constant-record][low-type]
-subscript[name] name(a name constant-names, constant any-constant)
+subscript[name] name(a name constant-names, constant any-allocated-constant)
 	type = constant.type
 	match constant
 	as single-constant-array
@@ -117,7 +117,7 @@ constant-names-builder[name] record mut
 	-records name mut[constant-record] mut[low-type]
 new[name] name constant-names-builder()
 	(), ()
-set-subscript[name] void(a name constant-names-builder, constant any-constant, name name)
+set-subscript[name] void(a name constant-names-builder, constant any-allocated-constant, name name)
 	match constant
 	as single-constant-array
 		(ensure a.arrays, constant.type)[constant.index] := name
@@ -129,19 +129,15 @@ finish[name] name constant-names(a name constant-names-builder)
 	records: for k, v in a.records
 		k, v.move-to
 
-any-constant union(single-constant-array, single-constant-record) # TODO: rename -- this is any *allocated* constant ----------------------
-type low-type(a any-constant)
-	# TODO: this could be simplified if the type was always called 'type'! --------------------------------------------------
-	match a
-	as single-constant-array then a.array-type
-	as single-constant-record then a.record-type
+any-allocated-constant union(single-constant-array, single-constant-record)
+	type low-type()
 single-constant-array record
-	array-type low-type
+	type low-type
 	element-type low-type
 	index nat
 	elements constant[]
 single-constant-record record
-	record-type low-type
+	type low-type
 	constant constant-record
 	args constant[]
 	fields low-field[]

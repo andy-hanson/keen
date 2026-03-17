@@ -6,7 +6,6 @@ import
 	../../model/show-low-model
 	../../model/source-range
 	../../model/uri
-	../../util/full-index-map
 	../../util/perf
 	../../util/util
 	../util
@@ -118,8 +117,7 @@ do show-ctx
 				- gen-number64 source, 2
 		to-string-lambda =
 			x = no-prefix "x"
-			params js-params = (x,), ()
-			gen-arrow-function source, sync, params,
+			gen-arrow-function source, sync, (x,),
 				to-string-from-js-string source, gen-identifier source, x
 		process-argv-mapped = gen-call-property-sync source, process-argv-slice, "map", (to-string-lambda,)
 		gen-ternary source, process-is-undefined, empty-array, process-argv-mapped
@@ -127,23 +125,22 @@ do show-ctx
 	call-main = gen-call-sync source, (to-ref source, main, main-async), (argv,)
 	main-promise = match main-async
 	as sync
-		# TODO: this should be `Promise.resolve().then(() => main(process.argv))` to ensure exceptions are caught- ----------------------
+		# TODO: this should be `Promise.resolve().then(() => main(process.argv))` to ensure exceptions are caught
 		gen-call-property-sync source, (gen-global source, "Promise"), "resolve", (call-main,)
 	as async
 		call-main
 	gen-call-property-sync source, main-promise, "then",
 		exit js-name = no-prefix "exit"
-		params js-params = (exit,), ()
 		get-exit = gen-identifier source, exit
 		exit-neq-0 = gen-not-eq-eq source, get-exit, gen-bigint-unsigned source, 0
 		number-exit = gen-call-sync source, (gen-global source, "Number"), (get-exit,)
 		call-exit = gen-call-property-sync source, process, "exit", (number-exit,)
 		body = gen-if source, exit-neq-0, call-exit.to
-		- gen-arrow-function source, sync, params, body.to
+		- gen-arrow-function source, sync, (exit,), body.to
 
-# TODO: this does expose the URIs on the build machine ......................................................................
+# TODO: this does expose the URIs on the build machine ...
 -module-paths module-paths(program program-with-main)
-	for uri, _ in program.program.all-modules
+	for uri, _ in program.program.crow-modules
 		uri, uri.to
 
 -translate-type js-class-decl?(a low-type) to-js
@@ -307,7 +304,6 @@ do show-ctx
 				-
 					source source = source a
 					source: source
-					is-static: instance
 					name: "message"
 					kind:
 						# return new TextDecoder().decode(show(this).chars)
@@ -349,8 +345,7 @@ do
 		-- for name, identifier in zip names, identifiers
 			this_x = gen-property-access source, this, name
 			gen-assign source, this_x, identifier
-	kind = js-class-method sync, params.to, statements.to
-	source, instance, "constructor", kind
+	source, "constructor", js-class-method sync, params.to, statements.to
 
 -js-name js-name(fun low-fun, async sync-or-async) to-js-ctx
 	no-prefix mangled-names[fun, async]
@@ -470,7 +465,8 @@ do
 		initialize = gen-assign source, x, initializer
 		- gen-if source, x-eq-undefined, initialize.to
 		- gen-return source, x
-	"", name, no-memoize, (async, (), body.to)
+	name: name
+	fun: async, (), body.to
 
 -to-js-functions js-fun-decl[](a low-fun) to-js
 	if x = async-fun-kind a
@@ -483,25 +479,22 @@ do
 	else
 		- to-js-function a, sync
 -to-js-function js-fun-decl(a low-fun, async sync-or-async) to-js
-	name = js-name a, async
 	the to-expr-ctx = async, debug-name a
-	params js-destructure[] = map a.params, it.local-name
 	body = to-expr-or-block-statement a
 	locals = finish-locals
 	comment: show-low-fun-name a
-	name: name
-	memoize: no-memoize
+	name: js-name a, async
 	fun:
 		async: async
-		params: params, ()
+		params: map a.params, it.local-name
 		body: with-declare-locals a.source, locals, body
 
 -to-expr-or-block-statement js-expr-or-block-statement(a low-fun) to-expr
 	source source = source a
 	match body = a.body
-	as low-fun-body-builtin
-		translate-builtin a.return-type, source, body.kind, for param in a.params
-			param.type, a.range, param.local-get-low-expr # TODO: use param range, not a.range ---------------------------------------
+	as builtin-fun
+		translate-builtin a.return-type, source, body, for param in a.params
+			param.type, a.range, local-get-low-expr param
 	as low-expr
 		res = to-expr-or-block-statement body
 		type-asserts js-statement[] = unless sanity-checks == no-sanity-checks
@@ -714,7 +707,11 @@ do
 	as wrap-sub
 		gen-as-integral source, type.as-integral-type!, binary[minus]
 
--translate-builtin-ternary js-expr-or-block-statement(source source, a builtin-ternary, (arg0 js-expr, arg1 js-expr, arg2 js-expr))
+-translate-builtin-ternary js-expr-or-block-statement
+	source source
+	a builtin-ternary
+	(arg0 js-expr, arg1 js-expr, arg2 js-expr)
+do
 	match a
 	as array-set
 		access = gen-property-access-computed source, arg0, arg1
@@ -754,7 +751,7 @@ do
 	as eval
 		gen-call-sync source, (gen-global source, "eval"),
 			- only-arg[]
-	as get
+	as subscript
 		args.size is 2
 		prop01[]
 	as import_
@@ -774,7 +771,7 @@ do
 		gen-null source
 	as plus
 		binary[plus]
-	as set
+	as set-subscript
 		args.size is 3
 		gen-assign source, prop01[], args[2].to-js-expr 'to
 	as typeof
@@ -790,7 +787,7 @@ do
 	gen-call-sync source, (to-ref source, common-funs.to-string-from-js-any, sync), (arg,)
 
 -convert-to-js-string js-expr(source source, arg js-expr)
-	# TODO: just have this call 'to-js-string' from string.crow! ------------------------------------------------------------------
+	# TODO:PERF just have this call 'to-js-string' from string.crow!
 	# new TextDecoder().decode(new Uint8Array(arg.chars.map(Number)))
 	TextDecoder = gen-global source, "TextDecoder"
 	text-decoder = gen-new source, TextDecoder, ()
@@ -841,8 +838,8 @@ do
 			as array
 				# TODO: PERF I should probably not use 'map' here, do a loop like I do for range
 				# `xs.map(x => {... })` or `await Array.fromAsync(xs, async x => { ... })`
-				params js-params = if l = x.local
-					(l.local-name,).to
+				params js-destructure[] = if l = x.local
+					l.local-name,
 				body = to-expr-or-block-statement x.body
 				arrow js-arrow-function = async, params, body
 				fn js-expr = source, arrow
@@ -850,6 +847,7 @@ do
 				out-array-type = type.js-array-type
 				out-from = of input js-expr
 					gen-call-property-sync source, (gen-global source, out-array-type.to), "from", (input,)
+				js-Array = gen-global source, "Array"
 				match async
 				as sync
 					map = of input js-expr
@@ -859,10 +857,10 @@ do
 					elif in-array-type == Array
 						out-from[map[input-expr]]
 					else
-						in-array = gen-call-property-sync source, (gen-global source, "Array"), "from", (input-expr,)
+						in-array = gen-call-property-sync source, js-Array, "from", (input-expr,)
 						out-from[map[in-array]]
 				as async
-					mapped = gen-await source, gen-call-property-sync source, (gen-global source, "Array"), "fromAsync", (input-expr, fn)
+					mapped = gen-await source, gen-call-property-sync source, js-Array, "fromAsync", (input-expr, fn)
 					if out-array-type == Array
 						mapped
 					else
@@ -941,8 +939,6 @@ do
 		call-async = is-async x.called
 		called = to-ref source, x.called, call-async
 		gen-call source, call-async, called, map x.args, it.to-js-expr
-	as cast-low-expr
-		to-expr-or-block-statement x.inner
 	as constant
 		translate-constant source, type, x
 	as create-array-low-expr
@@ -951,7 +947,7 @@ do
 		record_ = to-ref source, type
 		gen-new source, record_, map x.args, it.to-js-expr
 	as create-union-low-expr
-		gen-create-union source, type, x.member-index, to-js-expr x.arg
+		gen-create-union source, type, x.case-index, to-js-expr x.arg
 	as drop-low-expr
 		value = to-js-expr x.arg
 		gen-unary source, void, value
@@ -980,7 +976,7 @@ do
 		kind:
 			:: js-arrow-function
 			async: async
-			params: x.param.local-name, 'to
+			params: x.param.local-name,
 			body: to-expr-or-block-statement x.body
 	as local-get-low-expr
 		get-local source, x.local
@@ -1019,16 +1015,13 @@ do
 	as match-scalar-low-expr
 		translate-match-integral source, type, x
 	as match-string-like-low-expr
-		# TODO: write some unit tests. This should work the same as other types so I should just need to remove the assertion ...
-		unless is-string-or-symbol x.matched.type
-			log error, "Match on char8[] or char32[]?"
-		assert is-string-or-symbol x.matched.type else todo
+		assert is-string-or-symbol x.matched.type
 		with matched in temp-local "matched", x.matched
 			res mut = to-block-statement x.else_
 			equals-async = is-async x.equals
 			equals = to-ref source, x.equals, equals-async
 			for case_ low-match-string-like-case in x.cases.reverse # TODO: should not need type annotation
-				value = to-js-expr case_.value
+				value = translate-constant source, x.matched.type, case_.value
 				cond = gen-call source, equals-async, equals, (matched, value)
 				then_ = to-block-statement case_.then_
 				res := gen-if source, cond, then_, (source, res) 'to
@@ -1298,18 +1291,16 @@ do to-expr
 	else
 		make-temp-local temp-base-name
 
--constant-getter js-fun-decl(source source, a any-constant) to-js
+-constant-getter js-fun-decl(source source, a any-allocated-constant) to-js
 	comment: ""
 	name: constant-names[a].constant
-	memoize: memoize
+	memoize: true
 	fun: sync, (), gen-init-constant source, a
--gen-init-constant js-expr(source source, a any-constant) to-js
+-gen-init-constant js-expr(source source, a any-allocated-constant) to-js
 	match a
 	as single-constant-array
-		elements = a.elements
-		element-type = a.element-type
-		array-literal source, a.type,  for e in elements
-			translate-constant source, element-type, e
+		array-literal source, a.type, for e in a.elements
+			translate-constant source, a.element-type, e
 	as single-constant-record
 		class_ = to-ref source, a.type
 		gen-new source, class_, for field, arg in zip a.fields, a.args
@@ -1338,10 +1329,8 @@ do to-expr
 	as low-union
 		match a
 		as constant-union
-			v = program.all-constants.unions[type]![a]
-			case-type = type.body.low-union!.members[v.member-index]
-			gen-create-union source, type, v.member-index,
-				translate-constant source, case-type, v.member
+			case-type, member-index, value = get-union program.all-constants, type, a
+			gen-create-union source, type, member-index, translate-constant source, case-type, value
 		as constant-gc-safe-value
 			gen-null source
 		else

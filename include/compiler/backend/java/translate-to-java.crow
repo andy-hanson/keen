@@ -6,7 +6,6 @@ import
 	../../model/show-low-model
 	../../model/source-range
 	../../model/uri
-	../../util/full-index-map
 	../../util/java-bytecode-types
 	../../util/perf
 	../../util/util
@@ -15,7 +14,7 @@ import
 	./class-code-builder
 	./java-names
 	./lib/Crow.class as Crow-class nat8[]
-	./lib/CrowClassLoader.class as CrowClassLoader-class nat8[] # TODO: USED? -------------------------------------------------
+	./lib/CrowClassLoader.class as CrowClassLoader-class nat8[]
 	./java-refs
 	./union-representation
 	./util
@@ -64,25 +63,7 @@ do show-type-ctx
 	this-class = class_ constants, name
 	main method_info =
 		code = with out in build-code
-			# TODO: break this out into its own function --------------------------------------------------------------------------
-			aload out, 0
-			invokestatic out, crow-string-array-from-java-string-array
-			funs = program.common-funs.low-common-funs-java!
-			call-low-fun out, funs.start-runtime
-			start-pc = out.next-index
-			call-low-fun out, funs.main
-			end-pc = out.next-index
-			call-low-fun out, funs.stop-runtime
-			return out, void
-
-			# Catch exceptions (temporarily) and ensure the runtime still shuts down. This is basically a 'finally'.
-			add-to-exception-table out, start-pc, end-pc, java-Throwable,
-				locals: ()
-				stack: java-Throwable.Object_variable_info,
-			# Shut down the runtime with a 0 exit code so it doesn't call System.exit, then throw the exception so it fails anyway
-			lconst out, 0
-			call-low-fun out, funs.stop-runtime
-			athrow out
+			call-main out
 		access-flags: public | static | synthetic
 		name: constants["main"]
 		descriptor: constants["([Ljava/lang/String;)V"]
@@ -96,6 +77,25 @@ do show-type-ctx
 	fields: ()
 	methods: main,
 	attributes: ()
+-call-main void(out code-builder) java-ctx, java-refs
+	aload out, 0
+	invokestatic out, crow-string-array-from-java-string-array
+	funs = program.common-funs.low-common-funs-java!
+	call-low-fun out, funs.start-runtime
+	start-pc = out.next-index
+	call-low-fun out, funs.main
+	end-pc = out.next-index
+	call-low-fun out, funs.stop-runtime
+	return out, void
+
+	# Catch exceptions (temporarily) and ensure the runtime still shuts down. This is basically a 'finally'.
+	add-to-exception-table out, start-pc, end-pc, java-Throwable,
+		locals: ()
+		stack: java-Throwable.Object_variable_info,
+	# Shut down the runtime with a 0 exit code so it doesn't call System.exit, then throw the exception so it fails anyway
+	lconst out, 0
+	call-low-fun out, funs.stop-runtime
+	athrow out
 
 -funs-and-vars-by-uri (low-fun[], low-var[])[uri](a low-program)
 	res (low-fun mut[], low-var mut[]) mut[uri] = ()
@@ -256,7 +256,7 @@ do
 	methods: static-init,
 	attributes: ()
 
--constants-class ClassFile(name symbol, constants-array any-constant[]) java-ctx
+-constants-class ClassFile(name symbol, constants-array any-allocated-constant[]) java-ctx
 	the java-refs = start-new-class names
 	fields field_info[] = for x in constants-array
 		forbid is-empty-type x.type or is-wrapper x.type
@@ -281,18 +281,22 @@ do
 	fields: fields
 	methods: static-init,
 	attributes: ()
--constants-static-init void(out code-builder, this-class class-reference, constants any-constant[]) java-ctx, java-refs
+-constants-static-init void
+	out code-builder
+	this-class class-reference
+	constants any-allocated-constant[]
+do java-ctx, java-refs
 	the expr-ctx = this-class, (), (), (), ()
 	for constant in constants
 		forbid is-empty-type constant.type or is-wrapper constant.type
 		init-constant out, constant
 	return out, void
 
--init-constant void(out code-builder, constant any-constant) java-expr-ctx
+-init-constant void(out code-builder, constant any-allocated-constant) java-expr-ctx
 	assert is-empty stack
+	type = constant.type
 	match constant
 	as single-constant-array
-		array = array-type constant
 		element = element-type constant
 		elements = elements constant
 		if (is-nat8 element or is-char8 element) and elements.size > 16
@@ -301,12 +305,12 @@ do
 			ldc out, string-ref out.constants, resource
 			invokevirtual out, java-Class-getResourceAsStream
 			invokevirtual out, java-InputStream-readAllBytes
-			pushed array
+			pushed type
 		else
-			make-array out, elements.size, array, element, of i
+			make-array out, elements.size, type, element, of i
 				push-constant out, elements[i], element
 	as single-constant-record
-		new-record out, constant.record-type, of i, field
+		new-record out, type, of i, field
 			push-constant out, constant.args[i], field.type
 	putstatic out, constant-field constant
 	must-pop constant.type
@@ -396,7 +400,7 @@ do java-expr-ctx
 			wrapped = type field
 			match constant
 			as constant-record
-				inner = only! program.all-constants.records[type]![constant]
+				inner = only! get-record program.all-constants, type, constant
 				push-constant out, inner, wrapped
 				must-refine field.type, type
 			as constant-gc-safe-value
@@ -418,9 +422,9 @@ do java-expr-ctx
 	as low-union
 		match constant
 		as constant-union
-			value = program.all-constants.unions[type]![constant]
-			new-union out, type, value.member-index, of case-type
-				push-constant out, value.member, case-type
+			case-type, case-index, value = get-union program.all-constants, type, constant
+			push-constant out, value, case-type
+			new-union out, type, case-type, case-index
 		as constant-gc-safe-value
 			aconst_null out
 			pushed type
@@ -432,36 +436,31 @@ do java-expr-ctx
 -new-union void
 	out code-builder
 	type low-type
-	member-index nat
-	emit-member void mut(case-type low-type)
+	case-type low-type
+	case-index nat
 do java-expr-ctx
-	case-type = type.body.low-union!.members[member-index]
-	emit-member-object = of
-		emit-member[case-type]
-		box out, case-type, type
 	match union-representation type
 	as exception
-		emit-member-object[]
-	as sealed-interface
-		emit-member-object[]
+		box out, case-type, type
+	as interface_
+		box out, case-type, type
 	as switch
-		emit-member-object[]
+		box out, case-type, type
 		local = next-local-index
 		astore out, local
 		union-class = class_ type
 		makenew out, union-class
 		dup32 out
-		push-constant-nat out, nat32, member-index.to
+		push-constant-nat out, nat32, case-index.to
 		aload out, local
 		invokespecial out, init-union-switch union-class
 	as nullable
-		match member-index
+		match case-index
 		as 0
-			emit-member[case-type] # for the side effect
 			aconst_null out
 			pushed type
 		as 1
-			emit-member-object[]
+			box out, case-type, type
 		else
 			throw unreachable
 
@@ -475,8 +474,7 @@ do java-expr-ctx
 		if is-empty-type type.as-array-or-buffer!
 			push-constant-nat out, nat32, match constant
 			as constant-array
-				elements = program.all-constants.arrays[constant.type-index].constants[constant.index] # TODO: helper function for this!
-				elements.size.to
+				program.all-constants[constant].size.to
 			as constant-gc-safe-value
 				0::nat.to
 			else
@@ -578,7 +576,8 @@ do java-expr-ctx
 			impls = program.method-impls[program.exception]!
 			# TODO:PERF have the index handy so we don't have to search for it again
 			case-index = index-of! program.exception.body.low-union!.members, type
-			# 'show' is not a Java method (since we don't control the Throwable type), but while we're here, define 'toString' in terms of it
+			# 'show' is not a Java method (since we don't control the Throwable type),
+			# but while we're here, define 'toString' in terms of it
 			if impl = only! impls.cases[case-index]
 				out ~= toString-method-impl impl
 
@@ -600,7 +599,7 @@ do java-expr-ctx
 			# Can't use java.lang.Void since that has no instances
 			record-class type, false, (), this-class-name, this-class, super-class, interfaces, method-impls
 		else
-			() # TODO: could use a boxing-record for unsigned integer types ........................................................
+			()
 	as low-enum
 		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
 		boxing-record type, super-class, interfaces, method-impls
@@ -623,7 +622,6 @@ do java-expr-ctx
 					()
 				as static-method-of-interface
 					()
-				# TODO: a union method can't be implemented as the below three, so use a more specific type for 'java-method-kind'!
 				as constructor
 					throw unreachable
 				as static-field
@@ -634,7 +632,7 @@ do java-expr-ctx
 		match union-representation type
 		as exception
 			()
-		as sealed-interface
+		as interface_
 			union-sealed-interface this-class, super-class, interfaces, all-methods
 		as switch
 			assert is-empty all-methods else todo
@@ -876,7 +874,7 @@ do java-refs
 
 -make-valueOf method_info(type low-type) java-refs
 	this-class = class_ type
-	# TODO: this should have a cache. For enums, statically generate all members. For flags or integrals, just cache the 10 most recent?
+	# TODO:PERF For some types this should have a cache. For enums, statically generate all members.
 	code = with out in build-code
 		makenew out, this-class
 		dup32 out
@@ -1020,20 +1018,15 @@ do java-refs
 
 -verify-expr-ctx-finished void(return-type low-type, params low-local[]) java-expr-ctx
 	must-pop return-type
-	# RM --------------------------------------------------------------------------------------------------------------------------
-	unless is-empty stack
-		log error, "You left something on the stack: "
-		for x in stack
-			log error, "{show-low-type x}"
 	assert is-empty stack
 	locals.size is count params, !it.type.is-empty-type
 
 -emit-fun-body void(out code-builder, fun low-fun) java-expr-ctx
 	match body = body fun
-	as low-fun-body-builtin # TODO: this should go away, always use the low-expr form
+	as builtin-fun # TODO: this should go away, always use the low-expr form
 		args low-expr[] = for param in params fun
 			param.type, fun.range, param.local-get-low-expr
-		translate-builtin out, body.kind, body.type-args, fun.return-type, args
+		translate-builtin out, body, fun.return-type, args
 		return out, fun.return-type.as-runtime-type
 	as low-expr
 		# log "GONNA EMIT FUNCTION {show-low-fun-sig ctx.ctx.show-ctx.show, fun, false}" -----------------------------------
@@ -1074,7 +1067,7 @@ do java-refs
 			invokevirtual out, java-String-getBytes
 			return out, return-type.as-runtime-type
 			pushed return-type
-		as sealed-interface
+		as interface_
 			throw unreachable
 		as switch
 			aload out, 0
@@ -1171,11 +1164,10 @@ do java-refs
 		as 0
 			makenew out, class_
 			dup32 out
-		# TODO: this should produce smaller bytecode ------------------------------------------------------------------------------------
-		#as 1
-		#	out makenew class_
-		#	out dup_x1
-		#	out swap
+		as 1
+			makenew out, class_
+			dup_x1 out
+			swap out
 		else
 			l mut = 99 - n-param-slots # TODO: pass next param index into call-low-fun -----------------------------------
 			for param low-local in reverse fun.params # TODO: should not need type annotation
@@ -1204,20 +1196,16 @@ do java-refs
 	as array-op-low-expr
 		emit-for-loop out, pos, a, x
 	as builtin-low-expr
-		translate-builtin out, x.fun, x.type-args, type, x.args
+		translate-builtin out, x.fun, type, x.args
 		handle-pos out, pos, type
 	as call-low-expr
 		match body = x.called.body
-		as low-fun-body-builtin
-			translate-builtin out, body.kind, body.type-args, type, x.args
+		as builtin-fun
+			translate-builtin out, body, type, x.args
 		else
 			function-like out, type, x.args, of
 				call-low-fun out, x.called
 		handle-pos out, pos, type
-	as cast-low-expr
-		# This is currently only used to cast an enum to an integral. In Java we just use integrals for enums directly. --------
-		emit-expr out, pos, x.inner
-		must-refine x.inner.type, type
 	as constant
 		push-constant out, x, type
 		handle-pos out, pos, type
@@ -1230,8 +1218,8 @@ do java-refs
 			emit-and-continue out, x.args[i]
 		handle-pos out, pos, type
 	as create-union-low-expr
-		new-union out, type, x.member-index, of _
-			emit-and-continue out, x.arg
+		emit-and-continue out, x.arg
+		new-union out, type, x.arg.type, x.case-index
 		handle-pos out, pos, type
 	as drop-low-expr
 		emit-and-continue out, x.arg
@@ -1268,7 +1256,7 @@ do java-refs
 			jump-if-false = ifeq out
 			must-pop program.bool
 			emit-expr out, inner-pos, x.then_
-			must-pop type # The value is not actually popped, be we are now doing the other branch where it wasn't pushed in the first place
+			must-pop type # The value isn't actually popped, be we will now emit the other branch
 			jumps-to-here jump-if-false, out, cur-stack-frame
 			emit-expr out, inner-pos, x.else_
 			must-peek type
@@ -1384,7 +1372,6 @@ do java-refs
 				emit-unreachable out
 				pushed type
 	as match-string-like-low-expr
-		# TODO: factor out a function -------------------------------------------------------------------------------------------
 		emit-and-continue out, x.matched
 		matched-type = x.matched.type
 		with inner-pos in inner-pos out, pos
@@ -1396,7 +1383,7 @@ do java-refs
 				unless is-last-case
 					dup32 out
 					pushed matched-type
-				emit-and-continue out, case_.value
+				push-constant out, case_.value, matched-type
 				# TODO:PERF in the case of a 'string' or 'symbol' input, we could 'intern' and then just use refernce equality
 				call-low-fun out, x.equals
 				must-pop matched-type
@@ -1431,17 +1418,9 @@ do java-refs
 		must-pop x.record_.type
 		handle-pos out, pos, type
 	as seq-low-expr
-		locals-size = locals.size # TODO: remove some excessive checking ---------------------------------------------------------
-		stack-size = stack.size
 		for part in x.parts[0 .. end - 1]
 			emit-and-continue out, part
-		locals.size is locals-size
-		stack.size is stack-size
-		locals.size is locals-size
 		emit-expr out, pos, x.parts[end - 1]
-		locals.size is locals-size
-		unless is-empty-type type
-			stack.size is stack-size + 1
 	as throw-low-expr
 		emit-and-continue out, x.thrown
 		must-pop program.exception
@@ -1494,7 +1473,7 @@ do java-refs
 		match union-representation x.union-type
 		as exception
 			cast-and-unbox-if-necessary out, type
-		as sealed-interface
+		as interface_
 			cast-and-unbox-if-necessary out, type
 		as switch
 			get-switchable-value out, x.union-type
@@ -1513,7 +1492,7 @@ do java-refs
 		match union-representation x.union-type
 		as exception
 			instanceof out, class_ x.case-type
-		as sealed-interface
+		as interface_
 			instanceof out, class_ x.case-type
 		as switch
 			get-switchable-kind out, x.union-type
@@ -1548,6 +1527,10 @@ do java-refs
 			must-pop x.value.type
 		handle-pos out, pos, type
 
+-emit-uninitialized-buffer void(out code-builder, size-type low-type, elem-type low-type) java-expr-ctx
+	checked-to-nat32 out, size-type
+	unless is-empty-type elem-type
+		new-array-for-type out, elem-type
 -emit-for-loop void(out code-builder, pos expr-pos, a low-expr, x array-op-low-expr) java-expr-ctx
 	type = a.type
 	emit-and-continue out, x.input
@@ -1576,7 +1559,7 @@ do java-refs
 		nat32
 	as range
 		x.in-element
-	ir = as-runtime-type integral-type # TODO: NAME --------------------------------------------------------------------------------
+	java-index-type = java-primitive-type! as-runtime-type integral-type
 
 	match x.input-kind
 	as array
@@ -1602,31 +1585,22 @@ do java-refs
 	out-array = begin-synthetic-local out, type
 
 	# If cur == end: goto bottom
-	# TODO: helper function for this (compares two integrals) --------------------------------------------------------------
-	xload out, ir, cur
-	xload out, ir, end
-	match java-primitive-type! ir
-	as T_LONG
-		lcmp out
-	as T_INT
-		isub out
-	else
-		throw unreachable
+	xload out, java-index-type, cur
+	xload out, java-index-type, end
+	compare-integrals out, java-index-type
 	goto-bottom = ifeq out
 
 	# If non-empty: assign out-array to a non-empty array
 	unless is-void
-		xload out, ir, end
+		xload out, java-index-type, end
 		match x.input-kind
 		as array
 			()
 		as range
 			# size is end - cur
-			xload out, ir, cur
-			xsub out, ir
-		checked-to-nat32 out, integral-type
-		unless empty-out-elem
-			new-array-for-type out, x.out-element
+			xload out, java-index-type, cur
+			xsub out, java-index-type
+		emit-uninitialized-buffer out, integral-type, x.out-element
 		xstore out, type.as-runtime-type, out-array
 		must-pop type
 
@@ -1635,29 +1609,29 @@ do java-refs
 		()
 	as range
 		unless is-void
-			xload out, ir, cur
+			xload out, java-index-type, cur
 			begin-synthetic-local out, integral-type
 
 	loop-body = of
 		unless empty-out-elem
 			aload out, out-array
 			pushed type
-			xload out, ir, cur
+			xload out, java-index-type, cur
 			if out-offset
-				xload out, ir, out-offset
-				xsub out, ir
+				xload out, java-index-type, out-offset
+				xsub out, java-index-type
 			unchecked-to-nat32 out, integral-type
 			pushed nat32
 		match x.input-kind
 		as array
 			unless is-empty-type x.in-element
 				aload out, in-array!
-				xload out, ir, cur
+				xload out, java-index-type, cur
 				unchecked-to-nat32 out, integral-type
 				xaload out, x.in-element.as-runtime-type
 				pushed x.in-element
 		as range
-			xload out, ir, cur
+			xload out, java-index-type, cur
 			pushed integral-type
 		# TODO:PERF in the case of looping over a range,
 		# it could be more efficient to reuse 'cur' as the local for 'x.local' instead of copying it to a new local
@@ -1683,6 +1657,15 @@ do java-refs
 		if in-array
 			end-synthetic-local input-type, in-array
 
+-compare-integrals void(out code-builder, type java-primitive-type)
+	match type
+	as T_LONG
+		lcmp out
+	as T_INT
+		isub out
+	else
+		throw unreachable
+
 -emit-match-union void(out code-builder, pos expr-pos, type low-type, a match-union-low-expr) java-expr-ctx
 	emit-and-continue out, a.matched
 	matched-type = a.matched.type
@@ -1690,7 +1673,7 @@ do java-refs
 	match union-representation matched-type
 	as exception
 		emit-match-union-using-instanceof out, pos, type, a
-	as sealed-interface
+	as interface_
 		emit-match-union-using-instanceof out, pos, type, a
 	as switch
 		emit-match-union-using-switch out, pos, type, a
@@ -2035,17 +2018,11 @@ do java-expr-ctx
 	popped-args args
 	pushed return-type
 
--translate-builtin void
-	out code-builder
-	fun builtin-fun
-	type-args low-type[]
-	type low-type
-	args low-expr[]
-do java-expr-ctx
+-translate-builtin void(out code-builder, fun builtin-fun, type low-type, args low-expr[]) java-expr-ctx
 	match fun
 	as builtin-unary
 		function-like out, type, args, of
-			translate-builtin-unary out, type, args.only!.type, fun, type-args
+			translate-builtin-unary out, type, args.only!.type, fun
 	as builtin-binary
 		function-like out, type, args, of
 			translate-builtin-binary out, type, args[0].type, fun
@@ -2069,11 +2046,10 @@ do java-expr-ctx
 	return-type low-type
 	arg-type low-type
 	kind builtin-unary
-	type-args low-type[]
 do java-expr-ctx
 	match kind
 	as array-size
-		unless is-empty-type only! type-args
+		unless is-empty-type as-array-or-buffer! arg-type
 			arraylength out
 		i2l out
 	as bits-of-float32
@@ -2098,8 +2074,7 @@ do java-expr-ctx
 	as float64-from-bits
 		invokestatic out, java-longBitsToDouble
 	as uninitialized-buffer
-		l2i out # TODO: throw OOM if it's too big to fit in an int32 -------------------------------------------------------------------------
-		new-array-for-type out, only! type-args
+		emit-uninitialized-buffer out, arg-type, as-buffer! return-type
 	as not
 		bitwise-not-int32 out
 		iconst out, 1
@@ -2108,7 +2083,7 @@ do java-expr-ctx
 		if x = as-array-or-buffer return-type and y = as-array-or-buffer arg-type and x == y
 			# Do nothing, they have the same representation
 			()
-		elif is-enum-or-flags return-type
+		elif is-enum-or-flags return-type or is-enum-or-flags arg-type
 			()
 		elif is-Object return-type
 			box-no-refine out, arg-type, return-type
@@ -2126,11 +2101,12 @@ do java-expr-ctx
 		d2l out
 	as weak-ref-get
 		invokestatic out, crow-weakRefGet
-		cast-and-unbox-if-necessary out, only! type-args
+		cast-and-unbox-if-necessary out, as-weak-ref! arg-type
 	as weak-ref-new
 		invokestatic out, crow-newWeakRef
 	as wrap-convert-integral
-		convert-integral out, return-type.as-integral-type-allow-char!, (if is-bool arg-type then nat8 else arg-type.as-integral-type-allow-char!)
+		convert-integral out, return-type.as-integral-type-allow-char!,
+			if is-bool arg-type then nat8 else arg-type.as-integral-type-allow-char!
 
 -bitwise-not-int32 void(out code-builder)
 	iconst out, -1
@@ -2342,7 +2318,7 @@ do java-refs
 -reference-equal void(out code-builder, param-type low-type) java-refs
 	match rt = as-runtime-type param-type
 	as void
-		throw todo # TODO: if param-type is void, just push 'true' -------------------------------------------------------------------------
+		iconst out, 1 # true
 	as java-primitive-type
 		invokestatic out, match rt
 		as T_BOOLEAN

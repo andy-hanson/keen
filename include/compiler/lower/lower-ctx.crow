@@ -1,5 +1,6 @@
 import
 	crow/crypto/pseudo-random
+	../../crow/col/experimental/object-memoizer
 	../frontend/show-model
 	../model/ast
 	../model/low-model
@@ -32,17 +33,16 @@ lower-ctx spec available-types, lower-context
 lower-context record mut
 	show-ctx show-ctx
 	-prng prng
-	# TODO: more of these should probably be private -----------------------------------------------------------------------------
 	target build-target
 	program-with-main program-with-main
 	late-equal-symbol-function mut low-fun?
 	late-hash-nat-functions mut (nat-type, low-fun) enum-map?
 	late-json-named-new-function mut low-fun?
 	all-constants all-constants-builder
-	low-types low-type mut[(struct-decl, low-type[])]
+	low-types (low-type, low-type-source-inst) object-memoizer
 	all-low-types low-type mut[] # TODO:PERF 'low-types' contains them all, except the bogus type
 	low-var-lookup low-var mut[var-decl]
-	low-funs low-fun mut[low-fun-key]
+	low-funs (low-fun, low-fun-source-regular) object-memoizer
 	sum-type-to-methods low-fun mut[] mut[low-type]
 	deferred-methods low-fun mut[]
 	deferred-java-interfaces struct-decl mut[]
@@ -98,6 +98,20 @@ do
 	late-string-type: ()
 -sum-type-member-kind enum(declared-on-sum-type, declared-on-case-type)
 
+-memoizer-key low-fun-source-regular(a low-fun)
+	low-fun-source-regular! a.source
+- == bool(a low-fun-source-regular, b low-fun-source-regular)
+-hash nat(a low-fun-source-regular)
+	trusted get-hash a
+-hash void(a low-fun-source-regular, state hash-state)
+
+-memoizer-key low-type-source-inst(a low-type)
+	low-type-source-inst! a.source
+- == bool(a low-type-source-inst, b low-type-source-inst)
+-hash nat(a low-type-source-inst)
+	trusted get-hash a
+-hash void(a low-type-source-inst, state hash-state)
+
 show-ctx show-ctx() lower-context
 	the::lower-context.show-ctx
 
@@ -110,7 +124,7 @@ is-java bool() lower-context
 is-js bool() lower-context
 	target == js
 preserve-methods bool() lower-context
-	is-java # TODO: also JS -----------------------------------------------------------------------------------------------------------------
+	is-java # TODO: Would be nice to do this in JS too
 equal-symbol-function low-fun() lower-context
 	the::lower-context.late-equal-symbol-function!
 hash-nat-function low-fun(nat-type nat-type) lower-context
@@ -211,7 +225,7 @@ float-types (float-type, low-type) enum-map() lower-ctx
 			get-low-type-for-struct-inst float64, ()
 
 error-type low-type() lower-ctx
-	# TODO: is caching this this really an optimization / necessary? ---------------------------------------------------------------------------
+	# TODO:PERF is caching this this really an optimization / necessary?
 	the::lower-context.late-error-type else
 		res = get-low-type-for-struct-inst common-funs.error, ()
 		the::lower-context.late-error-type := res
@@ -227,7 +241,6 @@ float64-type low-type() lower-ctx
 	get-low-type-for-struct-inst float64, ()
 
 string-type low-type() lower-ctx
-	# TODO: I should measure if using 'late-string-type' is actually aany better than just getting it every time ..................
 	the::lower-context.late-string-type else
 		res = get-low-type-for-struct-inst string, ()
 		the::lower-context.late-string-type := res
@@ -249,35 +262,48 @@ get-low-fun low-fun
 	type-args low-type[]
 	spec-impls low-fun[]
 do lower-context, quick-fill-in-low-fun-body
-	key low-fun-key = decl, type-args, spec-impls
-	res = get-or-add-and-did-add the::lower-context.low-funs, key, of
-		get-low-fun-from-key decl, type-args, spec-impls
-	if res.did-add
-		add-low-fun res.value
-		quick-fill-in-low-fun-body the::lower-context, res.value
-	res.value
+	key low-fun-source-regular = decl, type-args, spec-impls
+	did-add mut bool = false
+	res = trusted memoize the::lower-context.low-funs, key, of
+		did-add := true
+		hash: take-next-id
+		source: key
+		return-type: get-low-type decl.return-type, type-args
+		params:
+			-- for x in decl.params
+				lower-param-destructure x, type-args
+			-- for x in decl.contexts
+				the_::low-generated-local-kind, get-low-type x, type-args
+		body: low-fun-body-deferred
+	if did-add
+		add-low-fun res
+		quick-fill-in-low-fun-body the::lower-context, res
+	res
 
 get-non-template-low-fun low-fun(inst fun-inst) lower-ctx, quick-fill-in-low-fun-body
 	assert !is-template inst.decl
 	get-low-fun inst.decl, (), ()
 
 get-low-type-for-struct-inst low-type(inst struct-inst, type-args-scope type-args-scope) lower-context
-	type-args = get-low-types inst.type-args, type-args-scope
 	decl = inst.decl
-	res = get-or-add-and-did-add the::lower-context.low-types, (decl, type-args), of
+	type-args = get-low-types inst.type-args, type-args-scope
+	key low-type-source-inst = decl, type-args
+	did-add mut bool = false
+	res = trusted memoize the::lower-context.low-types, key, of
+		did-add := true
 		purity mut = decl.purity
 		for x in type-args
 			purity worse-purity:= x.purity
 		res low-type =
 			id: take-next-id
 			purity: purity
-			source: low-type-source-inst decl, type-args
+			source: key
 			body: low-type-body-deferred
 		the::lower-context.all-low-types ~= res
 		res
-	if res.did-add
-		initialize-low-type inst, res.value, type-args
-	res.value
+	if did-add
+		initialize-low-type inst, res, type-args
+	res
 
 get-low-type low-type(type type, type-args-scope type-args-scope) lower-context
 	match type
@@ -315,17 +341,6 @@ do lower-context, quick-fill-in-low-fun-body
 	if spec-impls
 		type-args = get-low-types fun-inst.type-args, type-scope
 		get-low-fun fun-inst.decl, type-args, spec-impls
-
--get-low-fun-from-key low-fun(decl fun-decl, type-args low-type[], spec-impls low-fun[]) lower-context
-	hash: take-next-id
-	source: low-fun-source-regular decl, type-args, spec-impls
-	return-type: get-low-type decl.return-type, type-args
-	params:
-		-- for x in decl.params
-			lower-param-destructure x, type-args
-		-- for x in decl.contexts
-			the_::low-generated-local-kind, get-low-type x, type-args
-	body: low-fun-body-deferred
 
 -lower-param-destructure low-local(a destructure, type-args-scope type-args-scope) lower-context
 	source: match a

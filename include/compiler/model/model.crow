@@ -118,12 +118,12 @@ no-type-args record
 hash void(a no-type-args, state hash-state)
 new type-args()
 	no-type-args
-make-type-args[col, elem] type-args(inputs col, f type mut(x elem)) (col, elem) iterate, (col, elem) array-like
+make-type-args[col, elem] type-args(inputs col, f type mut(x elem)) (col, elem) iterate, col size
 	match inputs.size
 	as 0
 		()
 	as 1
-		as-type-args f[inputs[0]]
+		as-type-args f[first! inputs]
 	else
 		to-type-array map inputs, f
 | Most code should avoid calling this as it means allocating an array
@@ -349,30 +349,6 @@ new type-param-index(index nat)
 to json(a type-param-index)
 	a.index.to
 
-debug string(a type)
-	match a
-	as bogus-type
-		"<<bogus>>"
-	as type-param-index
-		"t{a.index}"
-	as struct-inst
-		a.debug
-debug string(a struct-inst)
-	name = a.decl.name
-	if is-empty a.type-args
-		"{name}"
-	else
-		"{debug-type-args a.type-args} {name}"
-debug-type-args string(a type-args)
-	args string[] = map a, it.debug
-	match args.size
-	as 0
-		""
-	as 1
-		only! args
-	else
-		"({join ", ", args}) "
-
 is-bogus bool(a type)
 	!!a.bogus-type
 
@@ -480,6 +456,8 @@ purity-range purity-range(a type)
 
 best-case-purity purity(a type)
 	a.purity-range.best-case
+worst-case-purity purity(a type)
+	a.purity-range.worst-case
 
 signature-container union(spec-decl, struct-decl)
 	module-uri uri()
@@ -609,14 +587,6 @@ hash void(a enum-or-flags-member, state hash-state)
 	trusted hash a.name, state
 to json(a enum-or-flags-member)
 	a.source.name.to
-storage nat-type(a enum-or-flags-member)
-	match body = a.containing-enum.body
-	as enum_
-		body.storage
-	as flags_
-		body.storage
-	else
-		throw unreachable
 module-uri uri(a enum-or-flags-member)
 	a.containing-enum.module-uri
 name symbol(a enum-or-flags-member)
@@ -694,7 +664,7 @@ builtin-type enum
 	int32
 	int64
 	js-any
-	# TODO: call these 'lambda' (requires changing the name in the struct decl too) -----------------------------------------------
+	# TODO: call these 'lambda' (requires changing the name in the struct decl too)
 	fun-data
 	fun-mut
 	fun-shared
@@ -1092,7 +1062,7 @@ purity-range purity-range(a struct-inst)
 		res combine-purity-range:= x.purity-range
 	res
 
-spec-decl-body record # TODO:PERF just store this directly! ----------------------------------------------------------------------------------
+spec-decl-body record # TODO:PERF just store this directly!
 	builtin_ builtin-spec?
 	parents specs
 	sigs signature[]
@@ -1217,7 +1187,6 @@ get-or-add-spec-inst (spec-inst, bool)(decl spec-decl, type-args type-args)
 -memoizer-key type-args(a spec-inst)
 	a.type-args
 hash void(a spec-inst, state hash-state)
-	# TODO: just use identity ------------------------------------------------------------------------------------------------------
 	trusted
 	hash a.decl, state
 	hash a.type-args, state
@@ -1345,7 +1314,7 @@ create-record record(nominal_ bool)
 to json(a create-record)
 fun-body-file-import record(type import-file-type, content nat8 array-view)
 to json(a fun-body-file-import)
-fun-body-method record(method-index nat, method signature) # TODO: is method-index used? -----------------------------------------
+fun-body-method record(method-index nat, method signature)
 to json(a fun-body-method)
 	a.method.name.to
 record-field-get record(field record-field)
@@ -1371,13 +1340,13 @@ js-fun enum
 	call-property-spread
 	eq-eq-eq
 	eval
-	get # TODO: rename to 'subscript' ---------------------------------------------------------------------------------------
+	subscript
 	import_
 	instanceof
 	js-global
 	null
 	plus
-	set # TODO: rename to 'set-subscript' ---------------------------------------------------------------------------------------
+	set-subscript
 	typeof
 	undefined
 == bool(a js-fun, b js-fun)
@@ -1763,7 +1732,7 @@ do
 	a.type-args, a.spec-impls
 == bool(a fun-inst, b fun-inst)
 	trusted a 'reference-equal b
-hash void(a fun-inst, state hash-state) # TODO: would this be faster if fun-inst had an ID? -------------------------------------
+hash void(a fun-inst, state hash-state)
 	trusted
 	hash a.decl, state
 	hash a.type-args, state
@@ -1965,7 +1934,9 @@ crow-module record force-data
 	| The config closest to this module. (Not necessarily the main config.)
 	config config
 	ast file-ast
-	| WARN: May contain duplicates. This will match the order in {ast}.imports and {ast}.re-exports, but does not include file imports.
+	| Used to implement {walk-explicit-imports}.
+	| This will match the order in {ast}.imports and {ast}.re-exports, omitting file imports.
+	| As a result, it can contain duplicates if a module is both imported and re-exported.
 	imports-and-re-exports module[]
 	file-imports-and-exports uri[]
 	| WARN: This is not every diagnostic. See {each-diagnostic}.
@@ -2665,8 +2636,7 @@ has-any-diagnostics bool(a program-with-main)
 
 program record
 	all-configs config[uri]
-	# NOTE: Despite the name this does not include java-class-modules ..................................... rename this then .......
-	all-modules crow-module[uri] # TODO: the module stores its uri, so this could be a hash-table --------------------------------------------
+	crow-modules crow-module[uri]
 	java-modules java-class-module[path]
 	# Some Java class files are loaded indirectly, so we don't produce a module, just a class type.
 	all-java-classes struct-decl[path]
@@ -2687,17 +2657,17 @@ line-and-character-getters line-and-character-getters(a program)
 config-at-uri config(a program, uri uri)
 	a.all-configs[uri]!
 module-at-uri crow-module(a program, uri uri)
-	a.all-modules[uri]!
+	a.crow-modules[uri]!
 java-module-at-uri java-class-module(a program, uri uri)
 	a.java-modules[uri.as-java-uri!]!
 all-uris uri set(a program)
 	-- map a.all-configs, it.a
-	-- map a.all-modules, it.a
+	-- map a.crow-modules, it.a
 	-- map a.all-java-classes, it.a.to-java-uri
-	-- for* _, module in a.all-modules
+	-- for* _, module in a.crow-modules
 		module.file-imports-and-exports
 all-dependencies uri set[uri](a program)
-	map-values a.all-modules, of module
+	map-values a.crow-modules, of module
 		-- map module.imports-and-re-exports, it.uri
 		-- module.file-imports-and-exports
 
@@ -2721,19 +2691,19 @@ exists-diagnostic bool(a program, cb bool mut(x uri-and-diagnostic))
 		exists config.diagnostics, of x
 			cb[config.config-uri!, x]
 -exists-diagnostic-in-modules bool(a program, cb bool mut(x uri-and-diagnostic))
-	exists a.all-modules, of _, module
+	exists a.crow-modules, of _, module
 		exists module.ast.parse-diagnostics, cb[(module.uri, it.range), it.kind] or
 		exists module.diagnostics, cb[module.uri, it]
 
 each-test void(a program, target build-target, selector test-selector, cb void mut(x test_))
 	match selector
 	as test-selector-all
-		for _, m in a.all-modules
+		for _, m in a.crow-modules
 			for x in m.tests
 				if can-include-test x, target
 					cb[x]
 	as config
-		for _, m in a.all-modules
+		for _, m in a.crow-modules
 			if m.config == selector
 				for x in m.tests
 					if can-include-test x, target
@@ -3224,7 +3194,7 @@ call-expr-source union
 do
 	range source-range()
 to json(_ call-expr-source)
-	null # ------------------------------------------------------------------------------------------------------------------------
+	null # TODO
 name-range source-range(a call-expr-source)
 	match a
 	as assignment-ast
@@ -3904,7 +3874,8 @@ sum-type-member-getter fun-decl(funs fun-decl[], struct struct-decl, x sum-type-
 		fun.params.only!.type == x.sum-type and
 		fun.source.struct-decl! == struct
 
-must-find-fun-named fun-decl(funs fun-decl[], name symbol, cb bool mut(x fun-decl)) # TODO: this is slow! ------------------------------
+# TODO:PERF this is slow!
+must-find-fun-named fun-decl(funs fun-decl[], name symbol, cb bool mut(x fun-decl))
 	find! funs, of fun
 		fun.name == name and cb[fun]
 
@@ -3959,7 +3930,7 @@ diag union
 	diag-alias-not-allowed
 	diag-assert-or-forbid-message-is-throw
 	diag-assignment-not-allowed
-	diag-auto-fun-enum-or-flags-to-wrong-storage
+	diag-auto-fun-enum-to-nat-too-small
 	diag-auto-fun-param-not-simple
 	diag-auto-fun-spec-corrupt
 	diag-auto-fun-spec-from-wrong-module
@@ -4089,7 +4060,7 @@ diag union
 diag-alias-not-allowed record
 diag-assert-or-forbid-message-is-throw record
 diag-assignment-not-allowed record
-diag-auto-fun-enum-or-flags-to-wrong-storage record
+diag-auto-fun-enum-to-nat-too-small record
 	enum-or-flags-type struct-decl
 	actual-storage-type nat-type
 	expected-storage-type nat-type
@@ -4210,7 +4181,6 @@ diag-lambda-closure-purity record
 	| This will only ever be 'data' or 'shared', since a 'mut' lambda allows everything
 	lambda-kind purity
 	local-name symbol
-	local-purity purity
 	| If missing, the error is that the local itself is 'mut'.
 	| If present, the error is that the type is 'mut'.
 	type type-with-container?

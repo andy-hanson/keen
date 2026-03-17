@@ -78,6 +78,8 @@ next-index nat16(a code-builder)
 	a.out.next-index.to
 dup32 void(a code-builder)
 	a.out ~= 0x59
+dup_x1 void(a code-builder)
+	a.out ~= 0x5a
 dup64 void(a code-builder)
 	a.out ~= 0x5c
 swap void(a code-builder)
@@ -177,15 +179,19 @@ ldc void(a code-builder, class_ class-reference)
 ldc void(a code-builder, ref string-reference)
 	ldc a, reference-type, ref.index
 -ldc void(a code-builder, type java-runtime-type, reference nat16)
-	if is-double-size type
+	match stack-entry-count type
+	as 1
+		if reference <= 0xff
+			a.out ~= 0x12 # ldc
+			a.out ~= reference.to
+		else
+			a.out ~= 0x13 # ldc_w
+			a.out ~~= reference
+	as 2
 		a.out ~= 0x14 # ldc2_w
 		a.out ~~= reference
-	elif reference <= 0xff
-		a.out ~= 0x12 # ldc
-		a.out ~= reference.to
 	else
-		a.out ~= 0x13 # ldc_w
-		a.out ~~= reference
+		throw unreachable
 idiv void(a code-builder)
 	a.out ~= 0x6c
 return void(a code-builder, type java-runtime-type)
@@ -221,13 +227,15 @@ getfield void(a code-builder, field field-reference)
 	a.out ~= 0xb4
 	a.out ~~= field
 pop void(a code-builder, type java-runtime-type)
-	match type
-	as void
+	match stack-entry-count type
+	as 0
 		()
-	as java-primitive-type
-		a.out ~= if is-double-size type then 0x58 else 0x57 # pop2 / pop
-	else
+	as 1
 		a.out ~= 0x57 # pop
+	as 2
+		a.out ~= 0x58 # pop2
+	else
+		throw unreachable
 putfield void(a code-builder, field field-reference)
 	a.out ~= 0xb5
 	a.out ~~= field
@@ -293,17 +301,9 @@ stack-entry-count nat(a java-runtime-type)
 	as void
 		0
 	as java-primitive-type
-		if is-double-size a then 2 else 1
+		if a == T_DOUBLE or a == T_LONG then 2 else 1
 	as reference-type
 		1
-is-double-size bool(a java-runtime-type) # TODO: I should probably just use 'stack-entry-count' -----------------------------------
-	match a
-	as void
-		throw unreachable
-	as java-primitive-type
-		is-double-size a
-	as reference-type
-		false
 void java-runtime-type()
 	()::void
 reference-type record
@@ -504,7 +504,8 @@ lookupswitch (deferred-jump32[], deferred-jump32)(a code-builder, values int32[]
 		jump-from, location-of-offset
 	jumps, (jump-from, location-of-default)
 
-tableswitch (deferred-jump32[], deferred-jump32)(a code-builder, range nat32 range) # TODO: just use same function as lookupswitch?
+# TODO:PERF This and 'lookupswitch' should be the same function, and choose based on which will be smaller
+tableswitch (deferred-jump32[], deferred-jump32)(a code-builder, range nat32 range)
 	forbid is-empty range
 	jump-from nat32 = a.out.next-index.to
 	a.out ~= 0xaa # tableswitch

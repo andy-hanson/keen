@@ -1,7 +1,6 @@
 import
 	java/lang/StackOverflowError
 	../frontend/show-model
-	../model/ast
 	../model/low-model
 	../model/show-low-model
 	../model/model
@@ -25,25 +24,24 @@ do show-ctx
 -get-used-funs low-fun set
 	common-funs low-common-funs
 	all-vars low-var[]
-	called-by foo
+	called-by calls-info
 	method-impls low-method-info[low-type]
 do
 	start-funs low-fun set = with out in build
-		# TODO: it would be simpler to have 'start-runtime' and 'stop-runtime' on all backends. Then these cases would be identical.
 		from-common-funs low-fun[] = match x = common-funs
 		as low-common-funs-java
 			x.main, x.show-exception, x.to-symbol-from-string, x.start-runtime, x.stop-runtime
 		as low-common-funs-js
 			x.main, x.show-exception, x.to-symbol-from-string, x.to-string-from-js-any
 		out ~~= from-common-funs
-		# TODO: We should first find which vars are used .......................................................................
+		# TODO: We should first find which vars are used
 		for var in all-vars
 			for v in called-by.var-calls[var] else ()
 				out ~= v.called
 		# All Java interface methods might be used, so force generating implementations
 		for sum-type, impls in method-impls
-			do if sum-type.source.low-type-source-inst!.decl.body.sum-type!.kind == java-interface # TODO: have a helper fn for this
-			out ~~= impls.methods
+			if sum-type.body.low-union!.java-interface
+				out ~~= impls.methods
 	res low-fun mut[] = start-funs.to::low-fun[].to
 	set low-fun mut-set = start-funs.to
 	to-propagate low-fun mut[] = start-funs.to::low-fun[].to
@@ -56,19 +54,20 @@ do
 				to-propagate ~= called
 	res.move-to.to
 
--temp-async-kind enum(depends-on-caller, always-async) # better name? -----------------------------------------------------------------------
+-temp-async-kind enum(depends-on-caller, always-async)
 - == bool(a temp-async-kind, b temp-async-kind)
 - <=> comparison(a temp-async-kind, b temp-async-kind)
 
 -get-async-funs low-async-info
 	all-used-funs low-fun set
 	all-used-vars low-var[]
-	called-by foo
+	called-by calls-info
 do
 	temp-kinds temp-async-kind mut[low-fun] = ()
 	to-propagate low-fun mut[] = ()
 
-	# TODO:PERF we already went over all funs when generating 'called-by'. Should do this as part of that to avoid having to walk all funs again.
+	# TODO:PERF we already went over all funs when generating 'called-by'.
+	# Should do this as part of that to avoid having to walk all funs again.
 	for fun in all-used-funs
 		reason = find-direct-async fun
 		kind temp-async-kind? = reason.?to
@@ -81,7 +80,7 @@ do
 		its-kind = temp-kinds[fun]!
 		for x in called-by.called-by[fun] else ()
 			caller = x.caller
-			do if all-used-funs[caller] # TODO: can we just not put these in callers then? -----------------------------------------------------
+			do if all-used-funs[caller] # TODO: can we just not put these in callers then?
 			new-kind = propagation-kind its-kind, x
 			if new-kind > temp-kinds[caller]
 				temp-kinds[caller] := new-kind!
@@ -107,14 +106,19 @@ do
 			- fun, out-kind
 	funs: async-funs
 	# TODO: this is not right.
-	# The correct way to do this is basically consider each low-var as if it is a fun, since accessing it might run the initializer.
+	# The correct way to do this is basically consider each low-var as if it is a fun,
+	# since accessing it might run the initializer.
 	var-initializers: filter all-used-vars, of x
 		# TODO: This should use 'called-by.var-calls' instead of searching again
 		search-async x.initializer, async-funs
 
 -uses flags(used-sync, used-async)
 - == bool(a uses, b uses)
--calc-used-depends-on-caller uses[low-fun](all-used-funs low-fun set, called-by foo, async-kinds temp-async-kind mut[low-fun])
+-calc-used-depends-on-caller uses[low-fun]
+	all-used-funs low-fun set
+	called-by calls-info
+	async-kinds temp-async-kind mut[low-fun]
+do
 	# This will only contain 'depends-on-caller' functions
 	to-propagate low-fun mut[] = ()
 	res uses mut[low-fun] = ()
@@ -176,8 +180,8 @@ do
 
 -find-direct-async directly-async-reason?(a low-fun)
 	match body = a.body
-	as low-fun-body-builtin
-		match x = body.kind
+	as builtin-fun
+		match x = body
 		as builtin-fun-call-lambda
 			calls-lambda-parameter
 		as js-fun
@@ -214,7 +218,12 @@ do
 		max from-value, intrinsic-async-kind x.then_, params, new-locals
 	else
 		from-children[]
--intrinsic-async-kind directly-async-reason?(a builtin-fun, args low-expr[], params low-local set, local-lambda-locals low-local set)
+-intrinsic-async-kind directly-async-reason?
+	a builtin-fun
+	args low-expr[]
+	params low-local set
+	local-lambda-locals low-local set
+do
 	match a
 	as builtin-fun-call-lambda
 		match x = args[0].kind
@@ -237,16 +246,12 @@ do
 	if a == await or a == import_
 		js-await
 
-# Maps a function to all functions that call it.
--called-by alias
-	low-fun[][low-fun]
-
--foo record # NAME ---------------------------------------------------------------------------------------------------------------------
+-calls-info record
 	calls call-kind[][low-fun]
 	var-calls call-kind[][low-var]
 	called-by caller[][low-fun]
 
--build-called-by foo
+-build-called-by calls-info
 	all-funs low-fun[]
 	all-vars low-var[]
 	method-impls low-method-info[low-type]
@@ -255,7 +260,7 @@ do show-ctx
 	called-by caller mut[] mut[low-fun] = ()
 	for fun in all-funs
 		match x = fun.body
-		as low-fun-body-builtin
+		as builtin-fun
 			()
 		as low-expr
 			try
@@ -330,7 +335,6 @@ do
 		match called-kind
 		as depends-on-caller
 			res mut temp-async-kind? = ()
-			# TODO: res = call.args max-of ..................................................................................................
 			for arg in call.args
 				res max:= if as-lambda-type arg.type
 					match x = arg.kind

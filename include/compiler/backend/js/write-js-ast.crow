@@ -16,7 +16,9 @@ write-js-ast js-and-map
 	sanity-checks sanity-checks
 	source-map-name string?
 do
-	build-output file-content-getters, module-paths, !!source-map-name, of out
+	map-builder source-map-builder? = if source-map-name then ()::source-map-builder
+	js: with text-out in build
+		out output = text-out, map-builder, 0, 0
 		out ~~= "{a.shebang}"
 		if source-map-name
 			out ~~= source-map-url source-map-name
@@ -52,31 +54,18 @@ do
 		for fun in a.functions
 			write-comment out, fun.comment
 			out ~~= "const {fun.name} = "
-			memoize = fun.memoize == memoize
-			if memoize
+			if fun.memoize
 				out ~~= "_memoize("
 			write-arrow-function out, 0, expr, fun.fun
-			if memoize
+			if fun.memoize
 				out ~= ")"
 			out ~= "\n"
 		for var in a.vars
 			write-var-decl out, 0, var
 			out ~= "\n"
 		write-statements out, a.statements
-
-# TODO: inline? -----------------------------------------------------------------------------------------------------------------
--build-output js-and-map
-	files file-content-getters
-	module-paths module-paths
-	include-source-map bool
-	f void mut(output output)
-do
-	map-builder source-map-builder? = if include-source-map then ()::source-map-builder
-	js: with text-builder in build
-		out output = text-builder, map-builder, 0, 0
-		f[out]
 	map: if map-builder
-		finish map-builder, files, module-paths
+		finish map-builder, file-content-getters, module-paths
 
 -output record mut
 	text char8 builder
@@ -105,11 +94,6 @@ do
 	if map = a.map
 		map ~= source, (a.line, a.character)
 
--write-on-single-line void(a output, s string) # TODO: this isn't really needed? just use ~~= ............................................
-	forbid s 'contains "\n"
-	a.text ~~= s.to
-	a.character +:= s.to::char8[].size.to
-
 -show string(a shebang)
 	match a
 	as none
@@ -136,8 +120,6 @@ do
 		""
 	as constant
 		"c_"
-	as function_
-		"f_"
 	as local
 		"l_"
 	as temp
@@ -225,11 +207,6 @@ do
 		out ~~= "// {comment}\n"
 
 -write-class-member void(out output, member js-class-member)
-	match member.is-static
-	as instance
-		()
-	as static
-		out ~~= "static "
 	match x = member.kind
 	as js-class-method
 		out ~~= "{maybe-async x.async}{member-name member.name}"
@@ -243,16 +220,11 @@ do
 		out ~~= "get {member-name member.name}() "
 		write-block-statement out, 1, x.body
 
--write-params void(out output, a js-params, always-parens bool)
-	parens bool = always-parens or a.params.size != 1 or !a.params.only!.js-name or a.rest-param
+-write-params void(out output, a js-destructure[], always-parens bool)
+	parens bool = always-parens or a.size != 1 or !a.only!.js-name
 	if parens
 		out ~= "("
-	write-with-commas out, a.params, of x
-		write-destructure out, x
-	if x = a.rest-param
-		unless is-empty a.params
-			out ~~= ", "
-		out ~~= "..."
+	write-with-commas out, a, of x
 		write-destructure out, x
 	if parens
 		out ~= ")"
@@ -261,10 +233,6 @@ do
 	match a
 	as js-name
 		out ~~= "{a}"
-	as js-default-destructure
-		write-destructure out, a.left
-		out ~~= " = "
-		write-expr out, 0, a.default, expr
 	as js-object-destructure
 		out ~~= "\{ "
 		write-with-commas out, a.fields, of name, destructure
@@ -317,11 +285,8 @@ do
 		out ~~= ") "
 		write-block-statement out, indent, x.body
 	as js-return-statement
-		if arg = x.arg
-			out ~~= "return "
-			write-expr out, indent, arg
-		else
-			out ~~= "return"
+		out ~~= "return "
+		write-expr out, indent, x.arg
 	as js-switch-statement
 		write-switch out, indent, x
 	as js-throw-statement
@@ -472,9 +437,9 @@ do
 	as js-literal-bool
 		out ~~= "{x.value}"
 	as js-literal-number
-		write-on-single-line out, float-literal-for-js x.value, x.type
+		out ~~= float-literal-for-js x.value, x.type
 	as js-literal-string
-		write-on-single-line out, quoted x.value
+		out ~~= quoted x.value
 	as js-name
 		out ~~= "{x}"
 	as js-new-expr
@@ -596,7 +561,6 @@ do
 		"-Number.POSITIVE_INFINITY"
 	else
 		res = "{a}"
-		# TODO: float parse res is a --------------------------------------------------------------------------------------------------------
 		match type
 		as float32
 			"Math.fround({res})"

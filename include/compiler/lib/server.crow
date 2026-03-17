@@ -16,12 +16,10 @@ import
 	../frontend/ide/get-hover
 	../frontend/ide/get-implementation
 	../frontend/ide/get-inlay-hints
-	../frontend/ide/get-position
 	../frontend/ide/get-rename
 	../frontend/ide/get-references
 	../frontend/ide/get-signature-help
 	../frontend/ide/get-tokens
-	../frontend/ide/position
 	../frontend/ide/syntax-translate
 	../frontend/lang
 	../frontend/show-diag
@@ -222,6 +220,7 @@ folding-ranges folding-range-result(server server, uri uri)
 	program program
 	request lsp-in-request
 do
+	the show-ctx = get-show-ctx server, true
 	program-with-main = of main main-kind, target build-target
 		program-with-main-from-program server.frontend, program, main, (target,)
 	respond = of x lsp-out-result
@@ -236,39 +235,39 @@ do
 	as code-lens-params
 		respond[get-code-lenses program, params]
 	as completion-params
-		respond[if res = get-completion-for-program server, program, params then res]
+		respond[if res = get-completion program, params then res]
 	as definition-params
-		respond[ranges-result get-definition-for-program server, program, params]
+		respond[ranges-result get-definition program, params]
 	as document-highlight-params
-		respond[if res = get-document-highlights-for-program server, program, params then res]
+		respond[if res = get-document-highlights program, params then res]
 	as execute-command-params
 		execute-command server, program, request, params
 	as folding-range-params
 		throw unreachable
 	as hover-params
-		respond[if res = get-hover-for-program server, program, params then res]
+		respond[if res = get-hover program, params then res]
 	as implementation-params
-		respond[ranges-result get-implementation-for-program server, program, params]
+		respond[ranges-result get-implementation program, params]
 	as initialize-params
 		throw unreachable
 	as inlay-hint-params
-		respond[get-inlay-hints-for-program server, program, params]
+		respond[get-inlay-hints program, server.lsp-state.test-states, params]
 	as perf-report-params
 		throw unreachable
 	as reference-params
-		respond[ranges-result get-references-for-program server, program, params]
+		respond[ranges-result get-references program, params]
 	as rename-params
-		respond[if res = get-rename-for-program server, program, params then res]
+		respond[if res = get-rename program, params then res]
 	as semantic-tokens-params
 		throw unreachable
 	as shutdown-params
 		throw unreachable
 	as signature-help-params
-		respond[if res = get-signature-help-for-program server, program, params then res]
+		respond[if res = get-signature-help program, params then res]
 	as syntax-translate-params
 		throw unreachable
 	as type-definition-params
-		respond[ranges-result get-type-definition-for-program server, program, params]
+		respond[ranges-result get-type-definition program, params]
 
 -execute-command lsp-out-action
 	server server
@@ -370,96 +369,11 @@ do
 	the common-types = program.program.common-types
 	show-diagnostics program, options
 
--get-completion-for-program completion-list?(server server, program program, params completion-params)
-	if position = server-get-position server, program, params.params, after
-		the show-ctx = get-show-ctx server, true
-		the common-types = program.common-types
-		get-completion-for-position position
-
--get-definition-for-program uri-and-line-and-character-range[]
-	server server
-	program program
-	params definition-params
-do
-	if position = server-get-position server, program, params.params, exact
-		get-definition-for-position program, position
-
--get-implementation-for-program uri-and-line-and-character-range[]
-	server server
-	program program
-	params implementation-params
-do
-	if position = server-get-position server, program, params.params, exact
-		get-implementation-for-position program, position
-
--get-type-definition-for-program uri-and-line-and-character-range[]
-	server server
-	program program
-	params type-definition-params
-do
-	if position = server-get-position server, program, params.text-document-and-position, exact
-		get-type-definition-for-position program, position
-
--get-document-highlights-for-program document-highlight-result?
-	server server
-	program program
-	params document-highlight-params
-do
-	if position = server-get-position server, program, params.params, exact
-		find-document-highlights program, position
-
--get-references-for-program uri-and-line-and-character-range[]
-	server server
-	program program
-	params reference-params
-do
-	if position = server-get-position server, program, params.params, exact
-		find-all-references program, position
-
--get-rename-for-program workspace-edit?(server server, program program, params rename-params)
-	if position = server-get-position server, program, params.text-document-and-position, exact
-		get-rename-for-position program, position, params.newName
-
--get-signature-help-for-program signature-help?
-	server server
-	program program
-	params signature-help-params
-do
-	if position = server-get-position server, program, params.text-document-and-position, after
-		the show-ctx = get-show-ctx server, true
-		the common-types = program.common-types
-		get-signature-help-for-position position
-
--get-hover-for-program hover?(server server, program program, params hover-params)
-	if position = server-get-position server, program, params.params, exact
-		the show-ctx = get-show-ctx server, true
-		the common-types = program.common-types
-		the uncommon-types = program.uncommon-types
-		get-hover position
-
--get-inlay-hints-for-program inlay-hint-result
-	server server
-	program program
-	params inlay-hint-params
-do
-	the show-ctx = get-show-ctx server, true
-	the common-types = program.common-types
-	get-inlay-hints program, server.lsp-state.test-states, params
-
 get-program program(server server, fully-loaded-configs uri set)
 	make-program server.frontend, fully-loaded-configs
 
 get-program-for-main program-with-main(server server, main main-kind, targets build-target set)
 	make-program-with-main server.frontend, main, targets
-
--server-get-position position?
-	_ server # TODO: if this is not used, simplify code! --------------------------------------------------------------------------
-	program program
-	where text-document-position-params
-	kind get-position-kind
-do
-	if program.all-modules[where.textDocument.uri]
-		get-position program, where.to, kind
 
 print-ast (string, json)(server server, uri uri)
 	file = get-ast server.frontend, uri
@@ -484,28 +398,29 @@ json-for-print-ide-at-pos json
 	where uri-line-and-column
 	kind print-ide-at-pos-kind
 do
+	the show-ctx = get-show-ctx server, true
 	params text-document-position-params =
 		textDocument: uri: where.uri
 		position: to-line-and-character server.frontend.line-and-column-getters[where.uri]!, where.pos
 	match kind
 	as completion
-		to get-completion-for-program server, program, (params,)
+		to get-completion program, (params,)
 	as definition
-		to get-definition-for-program server, program, (params,)
+		to get-definition program, (params,)
 	as document-highlights
-		to get-document-highlights-for-program server, program, (params,)
+		to get-document-highlights program, (params,)
 	as hover
-		to get-hover-for-program server, program, (params,)
+		to get-hover program, (params,)
 	as implementation
-		to get-implementation-for-program server, program, (params,)
+		to get-implementation program, (params,)
 	as rename
-		to get-rename-for-program server, program, (params, "new-name")
+		to get-rename program, (params, "new-name")
 	as references
-		to get-references-for-program server, program, (params,)
+		to get-references program, (params,)
 	as signature-help
-		to get-signature-help-for-program server, program, (params,)
+		to get-signature-help program, (params,)
 	as type-definition
-		to get-type-definition-for-program server, program, (params,)
+		to get-type-definition program, (params,)
 
 json-for-print-ide-whole-file json
 	server server
@@ -513,13 +428,14 @@ json-for-print-ide-whole-file json
 	uri uri
 	kind print-ide-whole-file-kind
 do
+	the show-ctx = get-show-ctx server, true
 	match kind
 	as code-lenses
 		to get-code-lenses program, textDocument: uri: uri
 	as folding-ranges
 		to folding-ranges server, uri
 	as inlay-hints
-		to get-inlay-hints-for-program server, program,
+		to get-inlay-hints program, server.lsp-state.test-states,
 			textDocument: uri: uri
 			range: top-of-file
 	as semantic-tokens
@@ -580,7 +496,7 @@ get-show-ctx show-ctx(server server, force-no-color bool)
 		res ~= publish-diagnostics-params ud.uri, for x in ud.diagnostics
 			range: (line-and-character-getter server.frontend, ud.uri)[x.range]
 			severity: to-lsp-diagnostic-severity x.kind.get-diagnostic-severity
-			message: string-of-diag x.kind
+			message: show-diag x.kind
 
 -to-lsp-diagnostic-severity lsp-diagnostic-severity(a diagnostic-severity)
 	match a

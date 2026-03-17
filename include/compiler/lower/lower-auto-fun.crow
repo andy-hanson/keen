@@ -20,7 +20,7 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 		compare-nats = of storage nat-type
 			p0 = gen-cast-nat range, storage, param0[]
 			p1 = gen-cast-nat range, storage, param1[]
-			gen-compare-integral return-type, range, p0, p1
+			gen-builtin-binary return-type, range, compare, p0, p1
 		match x = enum-flags-record-or-union params.same-type
 		as enum_
 			compare-nats[x.storage]
@@ -54,7 +54,11 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 		gen-constant-array all-constants, return-type, range,
 			map return-type.as-array!.enum-or-flags-members, it.value.to
 	as to-enum-or-flags-option-from-nat
-		lower-integral-to-opt-enum-or-flags range, return-type, only! params
+		param = only! params
+		if is-flags as-option! return-type
+			lower-nat-to-opt-flags range, return-type, param
+		else
+			lower-nat-to-opt-enum range, return-type, param
 	as to-enum-or-flags-option-from-symbol
 		lower-symbol-to-opt-enum-or-flags range, return-type, only! params
 	as to-nat-from-enum-or-flags
@@ -82,6 +86,7 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 			symbol-for-enum-member return-type, range, x
 
 lower-flags-function low-expr(cf low-fun, fn flags-function) lower-ctx
+	type = cf.return-type
 	range = cf.range
 	param0 = of
 		gen-param-get range, cf.params[0]
@@ -92,7 +97,7 @@ lower-flags-function low-expr(cf low-fun, fn flags-function) lower-ctx
 	cast-param1 = of storage nat-type
 		gen-cast-nat range, storage, param1[]
 	cast-to-flags = of x low-expr
-		gen-cast cf.return-type, range, x
+		gen-cast type, range, x
 	match fn
 	as intersect
 		storage = flags-storage cf.params[0].type
@@ -101,7 +106,7 @@ lower-flags-function low-expr(cf low-fun, fn flags-function) lower-ctx
 	as negate
 		# ~x & all
 		storage = flags-storage cf.params[0].type
-		neg = gen-builtin storage.nat-type, range, bitwise-not, (), (cast-param0[storage],)
+		neg = gen-builtin-unary storage.nat-type, range, bitwise-not, cast-param0[storage]
 		all = get-all-flags-expr range, cf.return-type
 		intersect = gen-intersect-nat range, storage, neg, all
 		cast-to-flags[intersect]
@@ -114,9 +119,7 @@ lower-flags-function low-expr(cf low-fun, fn flags-function) lower-ctx
 		gen-flags-subscript range, storage, cast-param0[storage], cast-param1[storage]
 	as union_
 		storage = flags-storage cf.params[0].type
-		res = gen-builtin storage.nat-type, range, bitwise-or, (),
-			- cast-param0[storage]
-			- cast-param1[storage]
+		res = gen-builtin-binary storage.nat-type, range, bitwise-or, cast-param0[storage], cast-param1[storage]
 		cast-to-flags[res]
 
 -get-all-flags-expr low-expr(range uri-and-range, flags-type low-type) lower-ctx
@@ -167,18 +170,10 @@ do lower-ctx
 	arg1-cast = gen-cast-nat range, storage, arg1
 	gen-equal-integral range, arg0-cast, arg1-cast
 
--gen-compare-integral low-expr
-	comparison-type low-type
-	range uri-and-range
-	arg0 low-expr
-	arg1 low-expr
-do
-	gen-builtin comparison-type, range, compare::builtin-binary, (), (arg0, arg1)
-
 -gen-cast-nat low-expr(range uri-and-range, type nat-type, arg low-expr) lower-ctx
 	gen-cast type.nat-type, range, arg
 -gen-cast low-expr(type low-type, range uri-and-range, arg low-expr)
-	type, range, arg.cast-low-expr
+	gen-builtin-unary type, range, reinterpret-cast, arg
 
 -lower-flags-to-array low-expr
 	range uri-and-range
@@ -208,21 +203,13 @@ do lower-ctx, quick-fill-in-low-fun-body
 			gen-if range, test_, empty-array-view,
 				gen-constant-array-view array-view-type, range, array-type, (f[member],)
 
--auto-fun-match-enum low-expr(range uri-and-range, return-type low-type, param low-local, f low-expr mut(x enum-or-flags-member))
-	gen-match-scalar return-type, range, (gen-param-get range, param), f
-
--lower-integral-to-opt-enum-or-flags low-expr
+-auto-fun-match-enum low-expr
 	range uri-and-range
 	return-type low-type
 	param low-local
-do lower-ctx
-	if is-flags as-option! return-type
-		lower-nat-to-opt-flags range, return-type, param
-	else
-		# TODO: generate a match-integral-low-expr! ------------------------------------------------------------------------------------------
-		lower-nat-to-opt-enum range, return-type, param, of param-get, member
-			gen-equal-integral range, param-get,
-				member.storage.nat-type, range, member.value.to
+	f low-expr mut(x enum-or-flags-member)
+do
+	gen-match-scalar return-type, range, (gen-param-get range, param), f
 
 -lower-nat-to-opt-flags low-expr(range uri-and-range, option-type low-type, param low-local) lower-ctx
 	# if a in all then (a.cast,) else ()
@@ -241,14 +228,13 @@ do lower-ctx
 	if out-type == arg.type
 		arg
 	else
-		gen-builtin out-type, arg.range, wrap-convert-integral, (), (arg,)
+		gen-builtin-unary out-type, arg.range, wrap-convert-integral, arg
 
 -lower-symbol-to-opt-enum-or-flags low-expr(range uri-and-range, option-type low-type, param low-local) lower-ctx
 	enum-type = as-option! option-type
 	param-get = gen-param-get range, param
-	symbol-type = param-get.type
 	cases low-match-string-like-case[] = for member in must-be-enum-or-flags enum-type
-		- gen-constant symbol-type, range, constant-symbol member.name
+		- constant-symbol member.name
 		- gen-constant-some option-type, range, member.value.to
 	else_ = gen-empty-option option-type, range
 	option-type, range, match-string-like-low-expr param-get, equal-symbol-function, cases, else_
@@ -257,20 +243,19 @@ do lower-ctx
 	range uri-and-range
 	option-type low-type
 	param low-local
-	# TODO: we should generate a match on integrals or symbols, since we have expressions for those! ----------
-	f-test low-expr mut(param-get low-expr, member enum-or-flags-member)
 do lower-ctx
 	# TODO:PERF In the common case you can just check 'x <= max-enum-member' and cast it
 	enum-type = as-option! option-type
 	storage = enum-storage enum-type
+	members = must-be-enum-or-flags enum-type
 	param-get = gen-widen-nat storage, gen-param-get range, param
-	res mut = gen-empty-option option-type, range
-	for member in reverse enum-type.must-be-enum-or-flags
-		# if a == "foo" then (foo,) else res
-		eq = f-test[param-get, member]
-		some-enum-value = gen-constant-some option-type, range, member.value.to
-		res := gen-if range, eq, some-enum-value, res
-	res
+	option-type, range,
+		:: match-scalar-low-expr
+		matched: param-get
+		case-values: to map::nat[] members, it.value
+		case-exprs: for member in members
+			gen-constant-some option-type, range, member.value.to
+		else_: gen-empty-option option-type, range
 
 -symbol-for-enum-member low-expr # TODO: INLINE ----------------------------------------------------------------------------
 	symbol-type low-type
@@ -398,7 +383,7 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 			cases low-expr[] =
 				- gen-compare-same-case range, member-compares[member-index], get-member, p1
 			a-case-index = gen-constant-nat nat, range, member-index
-			default = gen-compare-integral comparison, range, a-case-index, get-b-case-index
+			default = gen-builtin-binary comparison, range, compare, a-case-index, get-b-case-index
 			comparison, range,
 				match-union-low-expr p1, member-index.to::indices, cases, default
 		gen-let comparison, range, b-case-index, init-b-case-index, match_

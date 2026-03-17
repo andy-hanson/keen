@@ -42,7 +42,7 @@ replace-constants void() lower-ctx
 		array-op-low-expr input, x.local, x.empty-out-array, body
 	as builtin-low-expr
 		do if args = replace-constants-in-args-exprs x.args
-		builtin-low-expr x.fun, x.type-args, args
+		builtin-low-expr x.fun, args
 	as call-low-expr
 		if res = constants-map[x.called]
 			res
@@ -54,12 +54,8 @@ replace-constants void() lower-ctx
 					call-low-expr x.called, args
 			else
 				call-low-expr x.called, args
-		else
-			# TODO: if they are already constants, we should have already propagated them? ------------------------------------------
-			if constants = as-constants x.args
-				try-eval-constant x.called, constants
-	as cast-low-expr
-		()
+		elif constants = as-constants x.args
+			try-eval-constant x.called, constants
 	as constant
 		()
 	as create-array-low-expr
@@ -79,9 +75,9 @@ replace-constants void() lower-ctx
 	as create-union-low-expr
 		do if arg = replace-constants-expr x.arg
 		if c = arg.kind.constant
-			get-constant-union all-constants, a.type, x.member-index, c
+			get-constant-union all-constants, a.type, x.case-index, c
 		else
-			create-union-low-expr x.member-index, arg
+			create-union-low-expr x.case-index, arg
 	as drop-low-expr
 		do if arg = replace-constants-expr x.arg
 		drop-low-expr arg
@@ -98,8 +94,9 @@ replace-constants void() lower-ctx
 		if value = (replace-constants-expr x.value or if x.value.kind.constant then x.value)
 			if !is-mutable x.local and v = value.kind.constant
 				constant-locals[x.local] := v
-				# TODO: should not need type annotation (but the compiler gets confused converting low-expr-kind? to low-expr-kind??
-				::low-expr-kind
+				# TODO: should not need type annotation
+				# (but the compiler gets confused converting low-expr-kind? to low-expr-kind??
+				:: low-expr-kind
 				replace-constants x.then_ else x.then_.kind
 			else
 				let-low-expr x.local, value, (replace-constants-expr x.then_ else x.then_)
@@ -127,7 +124,7 @@ replace-constants void() lower-ctx
 		cases = replace-constants-in-args-exprs x.case-exprs
 		else_ = ?replace-constants-expr x.else_
 		do if matched or cases or else_
-		# TODO: if 'matched' is a constant, use just that branch -------------------------------------------------------------------
+		# TODO: if 'matched' is a constant, use just that branch
 		:: match-scalar-low-expr
 		matched: matched else x.matched
 		case-values: x.case-values
@@ -135,13 +132,12 @@ replace-constants void() lower-ctx
 		else_: else_ or x.else_
 	as match-string-like-low-expr
 		matched = replace-constants-expr x.matched
-		# TODO: if 'matched' is a constant, use just that branch -------------------------------------------------------------------
+		# TODO: if 'matched' is a constant, use just that branch
 		updated-case mut bool = false
 		cases low-match-string-like-case[] = for case_ in x.cases
-			value = replace-constants-expr case_.value
 			then_ = replace-constants-expr case_.then_
-			updated-case := updated-case or value or then_
-			value: value else case_.value
+			updated-case := updated-case or then_
+			value: case_.value
 			then_: then_ else case_.then_
 		else_ = replace-constants-expr x.else_
 		do if matched or updated-case or else_
@@ -152,7 +148,7 @@ replace-constants void() lower-ctx
 		else_: else_ else x.else_
 	as match-union-low-expr
 		matched = replace-constants-expr x.matched
-		# TODO: if 'matched' is a constant, use just that branch -------------------------------------------------------------------
+		# TODO: if 'matched' is a constant, use just that branch
 		cases = replace-constants-in-match-union-cases x.cases
 		else_ = ?replace-constants-expr x.else_
 		do if matched or cases or else_
@@ -163,7 +159,7 @@ replace-constants void() lower-ctx
 		else_: else_ or x.else_
 	as record-field-get-low-expr
 		do if record_ = replace-constants-expr x.record_
-		# TODO: For a constant record, get the constant field value! ---------------------------------------------------------
+		# TODO: For a constant record, get the constant field value
 		record-field-get-low-expr record_, x.field-index
 	as record-field-set-low-expr
 		do if record_, value = replace-constants-in-args-exprs x.record_, x.value
@@ -193,7 +189,7 @@ replace-constants void() lower-ctx
 		catch-cases: cases else x.catch-cases
 		catch-else: catch-else or x.catch-else
 	as try-let-low-expr
-		# TODO: if value is constant, the local is constant too -------------------------------------------------------------------
+		# TODO: if value is constant, the local is constant too (like for let-low-expr)
 		value = replace-constants-expr x.value
 		catch_ = replace-constants-in-local-and-expr x.catch_
 		then_ = replace-constants-expr x.then_
@@ -276,24 +272,8 @@ do replace-constants-ctx
 
 -try-eval-constant constant?(fn low-fun, args constant[]) lower-ctx
 	match body = fn.body
-	as low-fun-body-builtin
-		match x = body.kind
-		as builtin-binary
-			try-eval-constant-binary fn.return-type, x, only2! args
-		as builtin-unary
-			try-eval-constant-unary x, only! args
-		as builtin-fun-constant
-			throw unreachable # compiles to a constant
-		as builtin-fun-is-empty-type
-			throw unreachable # compiles to a constant
-		as builtin-fun-is-target
-			throw unreachable # compiles to a constant
-		as builtin-fun-call-lambda
-			()
-		as builtin-ternary
-			()
-		as js-fun
-			()
+	as builtin-fun
+		()
 	as low-expr
 		eval-as-constant fn, body, args
 	as fun-body-extern-java
@@ -312,22 +292,8 @@ do replace-constants-ctx
 		unless prevent-constant a.type.body.low-record!
 			if args constant[] = map-every x.args, of arg then eval-as-constant fn, arg, fn-args
 				get-constant-record all-constants, a.type, args
-	# TODO: unions -----------------------------------------------------------------------------------------------------------------------------
 	as local-get-low-expr
 		assert index = index-of fn.params, x.local
 		fn-args[index]
 	else
-		()
--try-eval-constant-binary constant?(type low-type, fn builtin-binary, (arg0 constant, arg1 constant)) # TODO: probably no longer needed
-	match fn
-	as equal-exact
-		if is-nat64 type
-			arg0.as-nat64 == arg1.as-nat64 'to
-	else
-		()
--try-eval-constant-unary constant?(fn builtin-unary, arg constant)
-	match fn
-	as not
-		!arg.as-bool 'to
-	else
-		()
+		() # TODO
