@@ -1,7 +1,8 @@
 import
-	../../model/source-range
-	../../model/uri
-	../../util/exit-code
+	../util/exit-code
+	../util/util
+	./source-range
+	./uri
 
 location alias
 	uri-and-line-and-character-range
@@ -21,6 +22,68 @@ to uri-line-and-character(a text-document-position-params)
 	a.textDocument.uri, a.position
 
 lsp-in-message union(lsp-in-notification, lsp-in-request, lsp-in-response)
+to lsp-in-message(message json)
+	do unless has-key message, "result" else lsp-in-response
+	request = of req lsp-in-request-params
+		lsp-in-request message["id"].to, req
+	params = message["params"]
+	match message["method"].to::string
+	as "$/cancelRequest"
+		cancel-request-params params["id"].to
+	as "$/setTrace"
+		set-trace-params params["value"].to::trace-value
+	as "custom/syntaxTranslate"
+		request[params.to::syntax-translate-params]
+	as "custom/build-js-script"
+		request[params.to::build-js-script-params]
+	as "custom/perf-report"
+		request[perf-report-params]
+	as exit
+		exit-params
+	as initialize
+		request[params.to::initialize-params]
+	as initialized
+		initialized-params
+	as shutdown
+		request[shutdown-params]
+	as "textDocument/codeLens"
+		request[params.to::code-lens-params]
+	as "textDocument/completion"
+		request[params.to::completion-params]
+	as "textDocument/definition"
+		request[params.to::definition-params]
+	as "textDocument/didChange"
+		params.to::did-change-text-document-params
+	as "textDocument/didClose"
+		did-close-text-document-params
+	as "textDocument/didOpen"
+		params.to::did-open-text-document-params
+	as "textDocument/didSave"
+		params.to::did-save-text-document-params
+	as "textDocument/documentHighlight"
+		request[params.to::document-highlight-params]
+	as "textDocument/foldingRange"
+		request[params.to::folding-range-params]
+	as "textDocument/hover"
+		request[params.to::hover-params]
+	as "textDocument/implementation"
+		request[params.to::implementation-params]
+	as "textDocument/inlayHint"
+		request[params.to::inlay-hint-params]
+	as "textDocument/references"
+		request[params.to::reference-params]
+	as "textDocument/rename"
+		request[params.to::rename-params]
+	as "textDocument/semanticTokens/full"
+		request[params.to::semantic-tokens-params]
+	as "textDocument/signatureHelp"
+		request[params.to::signature-help-params]
+	as "textDocument/typeDefinition"
+		request[params.to::type-definition-params]
+	as "workspace/executeCommand"
+		request[params.to::execute-command-params]
+	else
+		throw unreachable
 
 lsp-in-notification union
 	cancel-request-params
@@ -220,6 +283,8 @@ shutdown-params record
 to json(a shutdown-params)
 code-lens-params record(textDocument text-document-identifier)
 to json(a code-lens-params)
+to code-lens-params(a json)
+	textDocument: a["textDocument"].to
 code-lens-result record(lenses code-lens[])
 new code-lens-result()
 	(),
@@ -253,6 +318,13 @@ new command(title string)
 	title, (), ()
 execute-command-params union(run-test)
 to json(a execute-command-params)
+to execute-command-params(a json)
+	arguments json[] = a["arguments"].to
+	match a["command"].to::string
+	as run-test
+		where: arguments.only!.to
+	else
+		throw unreachable
 == bool(a execute-command-params, b execute-command-params)
 run-test record(where uri-and-line)
 to json(a run-test)
@@ -260,6 +332,8 @@ to json(a run-test)
 
 completion-params record(params text-document-position-params)
 to json(a completion-params)
+to completion-params(a json)
+	params: a.to
 completion-list record(items completion-item[])
 == bool(a completion-list, b completion-list)
 to json(a completion-list)
@@ -276,24 +350,40 @@ to json(a ranges-result)
 definition-params record(params text-document-position-params)
 to json(a definition-params)
 	a.params.to
+to definition-params(a json)
+	params: a.to
 implementation-params record(params text-document-position-params)
 to json(a implementation-params)
+to implementation-params(a json)
+	params: a.to
 did-change-text-document-params record
 	textDocument text-document-identifier
 	contentChanges text-document-content-change-event[]
 to json(a did-change-text-document-params)
+to did-change-text-document-params(a json)
+	textDocument: a["textDocument"].to
+	contentChanges: a["contentChanges"].to
 did-close-text-document-params record
 to json(a did-close-text-document-params)
 did-open-text-document-params record(textDocument text-document-item)
 to json(a did-open-text-document-params)
+to did-open-text-document-params(a json)
+	textDocument: a["textDocument"].to
 did-save-text-document-params record(textDocument text-document-identifier)
 to json(a did-save-text-document-params)
+to did-save-text-document-params(a json)
+	textDocument: a["textDocument"].to
 text-document-item record(uri uri, text string)
 to json(a text-document-item)
+to text-document-item(a json)
+	uri: a["uri"].to
+	text: a["text"].to
 
 hover-params record(params text-document-position-params)
 to json(a hover-params)
 	a.params.to
+to hover-params(a json)
+	params: a.to
 hover record(contents markup-content)
 == bool(a hover, b hover)
 to json(a hover)
@@ -315,6 +405,10 @@ text-document-content-change-event record(range line-and-character-range?, text 
 new text-document-content-change-event(text string)
 	(), text
 to json(a text-document-content-change-event)
+to text-document-content-change-event(a json)
+	range = a["range"]
+	range: unless range == null then range.to
+	text: a["text"].to
 lsp-diagnostic record(range line-and-character-range, severity lsp-diagnostic-severity, message string)
 == bool(a lsp-diagnostic, b lsp-diagnostic)
 to json(a lsp-diagnostic)
@@ -347,10 +441,14 @@ reference-params record
 	params text-document-position-params
 to json(a reference-params)
 	a.params.to
+to reference-params(a json)
+	params: a.to
 document-highlight-params record
 	params text-document-position-params
 to json(a document-highlight-params)
 	a.params.to
+to document-highlight-params(a json)
+	params: a.to
 | Result for a document highlight can also be {null-lsp-out-result} instead of this
 document-highlight-result record
 	uri uri
@@ -371,6 +469,8 @@ to json(a document-highlight-kind)
 	a.to::nat32.to
 semantic-tokens-params record(textDocument text-document-identifier)
 to json(a semantic-tokens-params)
+to semantic-tokens-params(a json)
+	textDocument: a["textDocument"].to
 workspace-edit record(changes (uri, text-edit[])[])
 == bool(a workspace-edit, b workspace-edit)
 to json(a workspace-edit)
@@ -386,6 +486,8 @@ to json(a semantic-tokens)
 	data: a.data_.to
 signature-help-params record(text-document-and-position text-document-position-params)
 to json(a signature-help-params)
+to signature-help-params(a json)
+	text-document-and-position: a.to
 signature-help record
 	signatures signature-information[]
 	activeSignature nat?
@@ -431,8 +533,13 @@ to json(a parameter-information)
 
 type-definition-params record(text-document-and-position text-document-position-params)
 to json(a type-definition-params)
+to type-definition-params(a json)
+	text-document-and-position: a.to
 inlay-hint-params record(textDocument text-document-identifier, range line-and-character-range)
 to json(a inlay-hint-params)
+to inlay-hint-params(a json)
+	textDocument: a["textDocument"].to
+	range: a["range"].to
 inlay-hint-result record(hints inlay-hint[])
 new inlay-hint-result()
 	(),
@@ -481,6 +588,8 @@ to json(a inlay-hint-label-part)
 		command: a.command.to
 folding-range-params record(textDocument text-document-identifier)
 to json(a folding-range-params)
+to folding-range-params(a json)
+	textDocument: a["textDocument"].to
 folding-range-result record(ranges folding-range[])
 new folding-range-result()
 	(),
