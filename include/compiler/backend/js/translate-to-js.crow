@@ -29,7 +29,6 @@ do show-ctx
 		union-info: plan-unions program
 		mangled-names: build-mangled-names program
 		constant-names: gen-constant-names program
-	shebang shebang = node
 	classes js-class-decl[] = for* type in program.all-non-extern-types
 		from-option translate-type type
 	functions js-fun-decl[] = with out in build
@@ -72,8 +71,12 @@ do show-ctx
 				unless var-needs-getter var or has-simple-initializer var
 					out ~= gen-var-no-getter var
 
-	ast js-script-ast = shebang, classes, functions, vars,
-		- gen-call-main program.common-funs.low-common-funs-js!.main 'to
+	ast js-script-ast =
+		classes: classes
+		functions: functions
+		vars: vars
+		statements:
+			- gen-call-main program.common-funs.low-common-funs-js!.main 'to
 	module-paths = module-paths model-program
 	write-js-ast file-content-getters, module-paths, ast, sanity-checks, source-map-name
 
@@ -82,7 +85,7 @@ do show-ctx
 	!!a.initializer.kind.constant.?scalar-value
 
 -gen-var-no-getter js-var-decl(var low-var) to-js
-	# TODO: actually detect whether it needs to be async --------------------------------------------------------------
+	# TODO: actually detect whether it needs to be async
 	the to-expr-ctx = async, var.source::var-decl.name
 	const: let
 	destructure: js-name var
@@ -282,7 +285,7 @@ do show-ctx
 		}
 	}
 	###
-	names string[] = map r.fields, it.debug-name.to
+	names string[] = map r.fields, it.name.to
 	comment: show-low-type a
 	name: js-name a
 	extends: extends
@@ -600,13 +603,13 @@ do to-expr
 	as weak-ref-get
 		###
 		const got = arg?.get()
-		return got === undefined ? new Option(0) : new Option(1, got)
+		return got === undefined ? new None() : got
 		###
 		arg-get js-expr = gen-optional-call-property-sync source, arg, "deref", ()
 		with got in temp-local "got", source, arg-get
 			got-eq-undefined = gen-eq-eq-eq source, got, source.gen-undefined
 			none-type = type.body.low-union!.members[0]
-			new-none = gen-new source, (to-ref source, none-type), () # TODO:PERF don't construct it every time ------------
+			new-none = gen-new source, (to-ref source, none-type), () # TODO:PERF don't construct it every time
 			none = gen-create-union source, type, 0, new-none
 			some = gen-create-union source, type, 1, got
 			gen-ternary source, got-eq-undefined, none, some
@@ -810,7 +813,7 @@ do
 	as js-block-statement
 		gen-iife source, is-cur-fun-async, a
 
--to-block-statement js-block-statement(a low-expr) to-expr # TODO: this should just be 'to-statements' ........................
+-to-block-statement js-block-statement(a low-expr) to-expr
 	to-expr-or-block-statement a 'to-block-statement a.type
 -to-block-statement js-block-statement(a js-expr-or-block-statement, type low-type)
 	match a
@@ -894,8 +897,8 @@ do
 				get-out = gen-identifier source, out-name
 				range-destructure js-object-destructure =
 					fields:
-						- low.debug-name.to, start-name
-						- high.debug-name.to, end-name
+						- low.name.to, start-name
+						- high.name.to, end-name
 				declare-start-end = gen-const source, range-destructure, to-js-expr x.input
 				Array = array-for-array-type source, type
 				Number = gen-global source, "Number"
@@ -916,8 +919,8 @@ do
 			as void
 				range-destructure js-object-destructure =
 					fields:
-						- low.debug-name.to, cur-name
-						- high.debug-name.to, end-name
+						- low.name.to, cur-name
+						- high.name.to, end-name
 				declare-cur-end = gen-let source, range-destructure, to-js-expr x.input
 				###
 				let { low: cur, high:end } = range
@@ -1029,11 +1032,11 @@ do
 	as match-union-low-expr
 		translate-match-union source, type, x
 	as record-field-get-low-expr
-		gen-property-access source, x.record_.to-js-expr, x.field.debug-name.to
+		gen-property-access source, x.record_.to-js-expr, x.field.name.to
 	as record-field-set-low-expr
 		record_ = to-js-expr x.record_
 		value = to-js-expr x.value
-		access = gen-property-access source, record_, x.field.debug-name.to
+		access = gen-property-access source, record_, x.field.name.to
 		gen-assign source, access, value 'to
 	as seq-low-expr
 		:: js-block-statement
@@ -1230,7 +1233,8 @@ do to-expr
 	} catch (error) {
 		if (error instanceof foo)
 			const catch_local = error
-			// For a void output, this won't return and will instead continue to the bottom. That's why it checks 'if (ok)'
+			// For a void output, this won't return and will instead continue to the bottom.
+			// That's why it checks 'if (ok)'
 			return catch_then
 		} else {
 			throw error

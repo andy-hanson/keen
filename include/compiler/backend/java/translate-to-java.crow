@@ -3,7 +3,6 @@ import
 	../../frontend/show-model
 	../../model/low-model
 	../../model/model
-	../../model/show-low-model
 	../../model/source-range
 	../../model/uri
 	../../util/java-bytecode-types
@@ -92,7 +91,8 @@ do show-type-ctx
 	add-to-exception-table out, start-pc, end-pc, java-Throwable,
 		locals: ()
 		stack: java-Throwable.Object_variable_info,
-	# Shut down the runtime with a 0 exit code so it doesn't call System.exit, then throw the exception so it fails anyway
+	# Shut down the runtime with a 0 exit code so it doesn't call System.exit,
+	# then throw the exception so it fails anyway
 	lconst out, 0
 	call-low-fun out, funs.stop-runtime
 	athrow out
@@ -202,7 +202,6 @@ do
 -verification-type verification_type_info(a low-type) java-expr-ctx
 	match rt = as-runtime-type a
 	as void
-		log error, "Unexpected verification-type {show-low-type a}" # ------------------------
 		throw unreachable
 	as java-primitive-type
 		match rt
@@ -597,19 +596,19 @@ do java-expr-ctx
 			lambda[]
 		as void
 			# Can't use java.lang.Void since that has no instances
-			record-class type, false, (), this-class-name, this-class, super-class, interfaces, method-impls
+			record-class type, (false, ()), this-class-name, this-class, super-class, interfaces, method-impls
 		else
 			()
 	as low-enum
-		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
+		# TODO:PERF We only need the boxing class if an enum is used in a union or option; otherwise can omit
 		boxing-record type, super-class, interfaces, method-impls
 	as struct-body-extern-java
 		throw unreachable
 	as low-flags
-		# TODO: we only need the boxing class if an enum is used in a union (including Option) -----------------------------
+		# TODO:PERF We only need the boxing class if an enum is used in a union or option; otherwise can omit
 		boxing-record type, super-class, interfaces, method-impls
 	as low-record
-		record-class type, body.is-wrapper, body.fields, this-class-name, this-class, super-class, interfaces, method-impls
+		record-class type, body, this-class-name, this-class, super-class, interfaces, method-impls
 	as low-union
 		method-decls method_info[] = with out in build
 			for m in program.method-impls[type].?methods else ()
@@ -653,7 +652,7 @@ do java-expr-ctx
 | Creates the instance method that implements an interface method by calling a static function
 -method-impl method_info(method low-fun, impl low-fun?) java-names-and-refs
 	code = with out in build-code
-		assert impl else todo # TODO: generate code that will throw an error --------------------------------------------------
+		assert impl else todo # TODO: generate code that will throw an error
 		java-param-index mut = 0
 		for index, param in with-index method.params
 			if index == 0
@@ -762,14 +761,15 @@ do java-refs
 
 -record-class ClassFile
 	type low-type
-	is-wrapper bool
-	low-fields low-field[]
+	body low-record
 	this-class-name symbol
 	this-class class-reference
 	super-class class-reference
 	interfaces class-reference[]
 	method-impls method_info[]
 do java-names-and-refs
+	is-wrapper = body.is-wrapper
+	low-fields = body.fields
 	fields field_info[] = if is-empty-type type
 		- instance-field this-class-name
 	else
@@ -781,7 +781,7 @@ do java-names-and-refs
 				descriptor: record-field-descriptor field
 	methods method_info[] = with methods-out in build
 		field-refs (field-reference, java-runtime-type)[] = for* x in low-fields
-			# TODO: we should just not lower empty fields --------------------------------------------------------------
+			# TODO: we should just not lower empty fields
 			do unless is-empty-type x.type
 			- (record-field type, x), x.type.as-runtime-type
 		methods-out ~= record-initializer super-class, field-refs,
@@ -945,7 +945,7 @@ do java-refs
 	if p = as-java-primitive-type type
 		invokevirtual out, primitive-unboxer type, p
 	elif field = as-wrapper type
-		getfield out, record-field type, field # TODO: doesn't this need to apply recursively? ----------------------
+		getfield out, record-field type, field # TODO: doesn't this need to apply recursively?
 
 -translate-funs-for-uri void(uri uri, funs low-fun[], vars low-var[]) java-ctx
 	the java-refs = start-new-class names
@@ -1029,7 +1029,6 @@ do java-refs
 		translate-builtin out, body, fun.return-type, args
 		return out, fun.return-type.as-runtime-type
 	as low-expr
-		# log "GONNA EMIT FUNCTION {show-low-fun-sig ctx.ctx.show-ctx.show, fun, false}" -----------------------------------
 		emit-expr out, return, body
 	as fun-body-extern-java
 		throw unreachable
@@ -1169,7 +1168,7 @@ do java-refs
 			dup_x1 out
 			swap out
 		else
-			l mut = 99 - n-param-slots # TODO: pass next param index into call-low-fun -----------------------------------
+			l mut = 99 - n-param-slots # TODO: pass next param index into call-low-fun
 			for param low-local in reverse fun.params # TODO: should not need type annotation
 				type = as-runtime-type param.type
 				xstore out, type, l
@@ -1346,16 +1345,9 @@ do java-refs
 				res
 			else
 				()
-			assert is-sorted x.case-values
-			int-values int32[] = for v in x.case-values then v.to::int64.to
-			# TODO: doesn't the low-model already sort the case-values? Then this can be omitted?
-			permutation = get-sort-permutation int-values
-			jump-to-case, jump-to-default = if is-range x.case-values
-				tableswitch out, 0 .. x.case-values.size.to
-			else
-				lookupswitch out, apply-permutation int-values, permutation
+			jump-to-case, jump-to-default, sorted-cases = prepare-switch out, x.case-values, x.case-exprs
 			must-pop x.matched.type
-			for target, expr in zip jump-to-case, apply-permutation x.case-exprs, permutation
+			for target, expr in zip jump-to-case, sorted-cases
 				jumps-to-here target, out, cur-stack-frame
 				emit-expr out, inner-pos, expr
 				must-pop type
@@ -1384,7 +1376,6 @@ do java-refs
 					dup32 out
 					pushed matched-type
 				push-constant out, case_.value, matched-type
-				# TODO:PERF in the case of a 'string' or 'symbol' input, we could 'intern' and then just use refernce equality
 				call-low-fun out, x.equals
 				must-pop matched-type
 				must-pop matched-type
@@ -1699,7 +1690,12 @@ do java-refs
 -swap[t, u] (u, t)((a t, b u))
 	b, a
 
--emit-match-union-using-instanceof void(out code-builder, pos expr-pos, type low-type, x match-union-low-expr) java-expr-ctx
+-emit-match-union-using-instanceof void
+	out code-builder
+	pos expr-pos
+	type low-type
+	x match-union-low-expr
+do java-expr-ctx
 	# Note: I tested using a 'switch' on the 'case-index' method, but it didn't improve performance.
 	matched-type = x.matched.type
 	with inner-pos in inner-pos out, pos
@@ -1725,7 +1721,6 @@ do java-refs
 			emit-expr out, inner-pos, e
 			must-peek type
 		else
-			# TODO: If the type is 'exception' and we're calling 'show', we should call 'toString' in this case? -----------
 			emit-unreachable out
 			# Treat the stack effect as if it was successful
 			pushed type
@@ -1742,8 +1737,8 @@ do java-expr-ctx
 	with inner-pos in inner-pos out, pos
 		# This consumes 'kind'
 		must-pop program.nat32
-		jump-to-case, jump-to-default = lookupswitch out, map a.member-indices, it.to # TODO: use a table switch usually
-		for target, case_ in zip jump-to-case, a.cases
+		jump-to-case, jump-to-default, sorted-cases = prepare-switch out, a.member-indices.values, a.cases
+		for target, case_ in zip jump-to-case, sorted-cases
 			jumps-to-here target, out, cur-stack-frame
 			emit-expr out, inner-pos, case_
 			# Change the stack to have the state from before 'jump'
@@ -1756,6 +1751,17 @@ do java-expr-ctx
 		else
 			emit-unreachable out
 			pushed type
+
+| Returns jumps for each case, jump to 'else', and permuted cases.
+-prepare-switch[t] (deferred-jump32[], deferred-jump32, t[])(out code-builder, values scalar-values, cases t[])
+	if is-range values
+		case-jumps, else_ = tableswitch out, 0 .. values.size.to
+		case-jumps, else_, cases
+	else
+		ints int32[] = map values, it.to::int64.to
+		sorted-ints, sorted-cases = sort-by-first ints, cases
+		case-jumps, else_ = lookupswitch out, sorted-ints
+		case-jumps, else_, sorted-cases
 
 -xsub void(out code-builder, type java-runtime-type)
 	match java-primitive-type! type
@@ -1829,7 +1835,7 @@ do java-expr-ctx
 	if out.next-index == before
 		# Give it space for a stack frame after the loop
 		nop out
-	handle-pos out, pos, type # TODO: then there is a double jump in some cases, improve? -------------------
+	handle-pos out, pos, type # TODO:PERF then there is a double jump in some cases, improve?
 
 -increment-integral void(out code-builder, local nat, integral-type low-type)
 	java-type = as-runtime-type integral-type
@@ -1952,7 +1958,13 @@ do java-expr-ctx
 		must-pop unboxed-type
 		emit-expr out, pos, expr
 
--emit-with-opt-local void(out code-builder, local low-local?, local-type low-type, pos expr-pos, expr low-expr) java-expr-ctx
+-emit-with-opt-local void
+	out code-builder
+	local low-local?
+	local-type low-type
+	pos expr-pos
+	expr low-expr
+do java-expr-ctx
 	if local
 		local.type is local-type
 		emit-with-local out, local, pos, expr

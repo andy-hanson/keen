@@ -283,8 +283,8 @@ get-expected-lambda expected-lambda?
 	param-ast destructure-ast?
 	expected expected
 do check-expr-ctx
-	declared-param-type = ?type-from-destructure param-ast
-	do unless declared-param-type == bogus-type
+	declared-param = ?type-from-destructure param-ast
+	do unless declared-param == bogus-type
 	res mut expected-lambda? = ()
 	multiple struct-inst mut[] = ()
 	any-diag bool reference = false,
@@ -293,13 +293,13 @@ do check-expr-ctx
 		each-narrowed-struct choice, of struct
 			do if as-lambda-type struct
 			return-type, param-type = only2! struct.type-args
-			do if actual-param = get-lambda-param-type diag-range, declared-param-type, (param-type, choice.context), any-diag
+			do if actual-param = lambda-param-type diag-range, declared-param, (param-type, choice.context), any-diag
 			prev = res
 			res := struct.decl, (return-type, choice.context), actual-param
 			if prev
 				if is-empty multiple
-					multiple ~= apply-inferred prev
-				multiple ~= apply-inferred res!
+					multiple ~= get-inferred-or-bogus prev
+				multiple ~= get-inferred-or-bogus res!
 				any-diag set= true
 	if any-diag.get
 		unless is-empty multiple
@@ -310,8 +310,8 @@ do check-expr-ctx
 			freeze-expected-return-type res!.return-type!
 			res
 		else
-			if is-purely-inferring expected and declared-param-type
-				lambda-mut, (), declared-param-type
+			if is-purely-inferring expected and declared-param
+				lambda-mut, (), declared-param
 			else
 				add-diag diag-range, diag-lambda-not-expected get-expected-for-diag expected
 				()
@@ -323,8 +323,8 @@ diag-range source-range(a lambda-source)
 		a.first-it.range
 	as lambda-ast
 		a.keyword-range
--apply-inferred struct-inst(a expected-lambda)
-	a.lambda-decl[a.return-type!.apply-inferred, a.instantiated-param-type]
+-get-inferred-or-bogus struct-inst(a expected-lambda)
+	a.lambda-decl[a.return-type!.get-inferred-or-bogus, a.instantiated-param-type]
 
 ###
 If we have an expected type, we should freeze it at this point (to forbid narrowing).
@@ -343,7 +343,7 @@ If the user wrote `xs nat?[] = for x in xs ...`, they presumably want the body t
 	as struct-inst
 		()
 
--get-lambda-param-type type?
+-lambda-param-type type?
 	diag-range source-range
 	declared-param-type type?
 	expected-lambda-type-param-type type-and-context
@@ -424,7 +424,7 @@ get-expected-for-diag expected-for-diag(expected expected) check-expr-ctx
 	if x = expected.opt-inferred
 		expected-for-diag-choices (x,), type-container
 	elif choices = expected.opt-choices
-		expected-for-diag-choices (map choices, it.apply-inferred), type-container
+		expected-for-diag-choices (map choices, it.get-inferred-or-bogus), type-container
 	elif expected.opt-loop
 		expected-for-diag-loop
 	else
@@ -512,9 +512,9 @@ try-get-inexact-non-inferring-type type?(a type-and-context)
 				try-get-exact-non-inferring-type (x, a.context)
 			exact, type.decl[new-type-args]
 
-| For diagnostics. Applies types that have been inferred, otherwise uses {bogus-type}.
-| This is like {try-get-inexact-non-inferring-type} but returns a type with {bogus-type} in it instead of an empty option.
-apply-inferred type(a type-and-context)
+| For diagnostics. Applies inferred types as much as possible, using {bogus-type} where types have not been inferred.
+| This is like {try-get-inexact-non-inferring-type}, but always succeeds.
+get-inferred-or-bogus type(a type-and-context)
 	match type = a.type
 	as bogus-type
 		bogus-type
@@ -525,7 +525,7 @@ apply-inferred type(a type-and-context)
 			type
 	as struct-inst
 		new-type-args = make-type-args type.type-args, of x
-			apply-inferred (x, a.context)
+			get-inferred-or-bogus (x, a.context)
 		type.decl[new-type-args]
 
 implicit-conversions enum
@@ -595,7 +595,11 @@ match-types type-match-kind?(a type-and-context, b type-and-context, conv implic
 	else
 		?a match-types-no-context (exact, a.type), b.type, conv
 
--match-types-both-inferring type-match-kind?(a type-and-context, b type-and-context, conv implicit-conversions) common-types
+-match-types-both-inferring type-match-kind?
+	a type-and-context
+	b type-and-context
+	conv implicit-conversions
+do common-types
 	match tb = b.type
 	as bogus-type
 		bogus-match
@@ -640,11 +644,15 @@ match-types type-match-kind?(a type-and-context, b type-and-context, conv implic
 			else
 				exact-match
 		as struct-inst
-			match-struct-insts ta, tb, conv, (of x, y, conv2 then match-types (x, a.context), (y, b.context), conv2), of x, y
-				match-types (x, a.context), (y, b.context), conv
+			match-struct-insts ta, tb, conv, of x, y, conv2
+				match-types (x, a.context), (y, b.context), conv2
 
 | Returns new inference value for 'a'.
--match-types-no-a-context (type-match-kind, inference)?(a inference, b type-and-context, conv implicit-conversions) common-types
+-match-types-no-a-context (type-match-kind, inference)?
+	a inference
+	b type-and-context
+	conv implicit-conversions
+do common-types
 	match tb = b.type
 	as bogus-type
 		bogus-match, a
@@ -709,28 +717,29 @@ match-types type-match-kind?(a type-and-context, b type-and-context, conv implic
 			if is-option ta.decl and conv == b-to-a
 				min convert-to-option-or-union, match-types-no-b-context (ta.type-args.only!, a.context), b, conv
 		as struct-inst
-			match-struct-insts ta, b, conv, (of x, y, conv2 then match-types-no-b-context (x, a.context), y, conv2), of x, y
-				match-types-no-b-context (x, a.context), y, conv
+			match-struct-insts ta, b, conv, of x, y, conv2
+				match-types-no-b-context (x, a.context), y, conv2
 
+-match-type-args alias
+	type-match-kind? mut(x type, y type, conv implicit-conversions)
 -match-struct-insts type-match-kind?
 	sa struct-inst
 	sb struct-inst
 	conv implicit-conversions
-	match-type-args type-match-kind? mut(x type, y type, conv implicit-conversions)
-	match-after-unwrap type-match-kind? mut(x type, y type)
+	match-inner type-match-kind? mut(x type, y type, conv implicit-conversions)
 do common-types
 	if sa.decl == sb.decl
 		conv2 = if is-option sa.decl then conv else exact
 		zip-type-args-and-match sa.type-args, sb.type-args, of x, y
-			match-type-args[x, y, conv2]
+			match-inner[x, y, conv2]
 	else
 		match conv
 		as exact
 			()
 		as a-to-b
-			match-struct-insts-a-to-b sa, sb, match-after-unwrap
+			match-struct-insts-a-to-b sa, sb, of x, y then match-inner[x, y, conv]
 		as b-to-a
-			match-struct-insts-a-to-b sb, sa, of y, x then match-after-unwrap[x, y]
+			match-struct-insts-a-to-b sb, sa, of y, x then match-inner[x, y, conv]
 -match-struct-insts-a-to-b type-match-kind?
 	sa struct-inst
 	sb struct-inst

@@ -17,7 +17,7 @@ final class CrowClassLoader extends ClassLoader {
 	}
 
 	@Override public Class findClass(String name) throws ClassNotFoundException {
-		byte[] bytes = classes.get(name.replace(".", "/")); // TODO:PERF classes.remove(name.replace(".", "/")); --------------
+		byte[] bytes = classes.get(name.replace(".", "/"));
 		return bytes == null ? super.findClass(name) : defineClass(name, bytes, 0, bytes.length);
 	}
 

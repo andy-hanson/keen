@@ -75,7 +75,8 @@ type-params alias
 	name-and-range[]
 | No type args, one type arg, or many type args.
 | This is more efficient than always allocating an array, since most types have <= 1 type args.
-# TODO: I'd like to just use `no-type-args, type, type-array`. But currently unions-of-unions have inefficient representation.
+# TODO: I'd like to just use `no-type-args, type, type-array`.
+# But currently unions-of-unions have inefficient representation.
 type-args union(no-type-args, bogus-type, type-param-index, struct-inst, type-array)
 	hash void(state hash-state)
 type type?(a type-args)
@@ -308,7 +309,8 @@ hash void(a type-param-index, state hash-state)
 index nat(a type-param-index)
 	a.index_
 new type-param-index(index nat)
-	# This silly-looking code ensures that each type-param-index value is a compile-time constant, avoiding runtime allocation
+	# This silly-looking code ensures that each type-param-index value is a compile-time constant,
+	# avoiding runtime allocation.
 	match index
 	as 0
 		0, 0
@@ -370,7 +372,6 @@ as-tuple type-args?(type type) common-types
 	if is-tuple type
 		type.struct-inst!.type-args
 
-# TODO: most of these are only used for get-builtin-fun, maybe just move them there -------------------------------------------
 is-bool bool(a type)
 	is-builtin-type a, bool
 is-char8 bool(a type)
@@ -485,7 +486,7 @@ signature record force-data
 	source signature-source
 	return-type type
 	params destructure[]
-	doc-comment-references mut doc-comment-references
+	doc-comment-references mut doc-comment-reference[]
 == bool(a signature, b signature)
 	trusted a.range == b.range
 to json(a signature)
@@ -539,7 +540,7 @@ record-field record force-data
 	visibility visibility
 	mutability visibility?
 	type type
-	doc-comment-references mut doc-comment-references
+	doc-comment-references mut doc-comment-reference[]
 == bool(a record-field, b record-field)
 	trusted a 'reference-equal b
 to json(a record-field)
@@ -578,7 +579,7 @@ enum-or-flags-member record force-data
 	source enum-member-source
 	containing-enum struct-decl
 	value nat
-	doc-comment-references mut doc-comment-references
+	doc-comment-references mut doc-comment-reference[]
 == bool(a enum-or-flags-member, b enum-or-flags-member)
 	trusted a.source == b.source
 <=> comparison(a enum-or-flags-member, b enum-or-flags-member)
@@ -780,7 +781,7 @@ struct-alias record force-data
 	ast struct-alias-ast
 	module-uri uri
 	visibility visibility
-	doc-comment-references mut doc-comment-references
+	doc-comment-references mut doc-comment-reference[]
 	late-target mut struct-inst?
 == bool(a struct-alias, b struct-alias)
 	trusted a 'reference-equal b
@@ -809,7 +810,6 @@ name-range uri-and-range(a struct-alias)
 struct-decl record force-data
 	hash nat32
 	source struct-decl-source
-	module-uri uri # TODO: could get this from the 'source' -------------------------------------------------------------------
 	visibility visibility
 	n-type-params nat8
 	| Can only contain 'global', 'js', 'java'
@@ -817,10 +817,10 @@ struct-decl record force-data
 	| Warn: purity on the decl does not take type args into account
 	purity purity
 	purity-is-forced bool
-	doc-comment-references mut doc-comment-references # TODO: this should probably come last ----------------------------------
 	sum-type-memberships mut sum-type-membership[]
 	body mut struct-body
 	-insts mut struct-insts
+	doc-comment-references mut doc-comment-reference[]
 | For a non-template, this will be its only {struct-inst}
 -struct-insts union mut
 	struct-inst
@@ -842,19 +842,17 @@ only-inst struct-inst(a struct-decl)
 new struct-decl
 	hash nat32
 	source struct-decl-source
-	module-uri uri
 	visibility visibility
 	specs specs
 	purity purity
 	purity-is-forced bool
-	doc-comment-references doc-comment-references
+	doc-comment-references doc-comment-reference[]
 	sum-type-memberships sum-type-membership[]
 	body struct-body
 do
 	res struct-decl =
 		hash: hash
 		source: source
-		module-uri: module-uri
 		visibility: visibility
 		purity: purity
 		purity-is-forced: purity-is-forced
@@ -866,28 +864,26 @@ do
 new struct-decl
 	hash nat32
 	source struct-decl-source
-	module-uri uri
 	visibility visibility
 	purity purity
 	purity-is-forced bool
-	doc-comment-references doc-comment-references
+	doc-comment-references doc-comment-reference[]
 	sum-type-memberships sum-type-membership[]
 	body struct-body
 do
 	res struct-decl =
 		hash: hash
 		source: source
-		module-uri: module-uri
 		visibility: visibility
 		n-type-params: if can-have-type-params source
 			source.type-params.size.to
 		late-specs: ()
 		purity: purity
 		purity-is-forced: purity-is-forced
-		doc-comment-references: doc-comment-references
 		sum-type-memberships: sum-type-memberships
 		body: body
 		insts: ()
+		doc-comment-references: doc-comment-references
 	res.insts := if res.is-template
 		()::((struct-inst, type-args) object-memoizer)
 	else
@@ -908,6 +904,8 @@ type-param-asts type-params(a struct-decl)
 		a.source.type-params
 name symbol(a struct-decl)
 	a.source.name
+module-uri uri(a struct-decl)
+	a.source.module-uri
 range uri-and-range(a struct-decl)
 	a.module-uri, a.source.range
 keyword-range uri-and-range(a struct-decl)
@@ -957,6 +955,7 @@ sum-type-decl-methods signature[](a sum-type-membership)
 	a.sum-type-body.methods
 
 struct-decl-source union(struct-decl-ast, struct-decl-source-java, struct-decl-source-bogus)
+	module-uri uri()
 	type-params type-params()
 to json(a struct-decl-source)
 	match a
@@ -967,9 +966,11 @@ to json(a struct-decl-source)
 	as struct-decl-source-bogus
 		"bogus"
 struct-decl-source-java record(path path, name symbol)
+module-uri uri(a struct-decl-source-java)
+	a.path.to-java-uri
 type-params name-and-range[](_ struct-decl-source-java)
 	()
-struct-decl-source-bogus record(name symbol, type-params type-params)
+struct-decl-source-bogus record(module-uri uri, name symbol, type-params type-params)
 range source-range(a struct-decl-source)
 	match a
 	as struct-decl-ast
@@ -1119,7 +1120,7 @@ spec-decl record force-data, -new
 	module-uri uri
 	ast spec-decl-ast
 	visibility visibility
-	doc-comment-references mut doc-comment-references
+	doc-comment-references mut doc-comment-reference[]
 	late-body mut spec-decl-body?
 	insts (spec-inst, type-args) object-memoizer
 new spec-decl
@@ -1292,7 +1293,7 @@ fun-body-extern-java record
 	class_ path
 	dummy void
 new fun-body-extern-java(kind java-method-kind, class_ path)
-	# Interface callers are not 'extern', they are fun-body-method (TODO: maybe improve types to avoid needing an ssertion?)
+	# Interface callers are not 'extern', they are fun-body-method
 	forbid kind == interface_
 	kind, class_, ()
 to json(a fun-body-extern-java)
@@ -1519,7 +1520,7 @@ fun-decl record force-data, -new
 	params mut destructure[]
 	param-types mut type[]
 	specs specs
-	doc-comment-references mut doc-comment-references
+	doc-comment-references mut doc-comment-reference[]
 	body mut fun-body
 	insts mut fun-decl-insts
 to json(a fun-decl)
@@ -1599,7 +1600,7 @@ new fun-decl
 	return-type type
 	params destructure[]
 	specs specs
-	doc-comment-references doc-comment-references
+	doc-comment-references doc-comment-reference[]
 	body fun-body
 do
 	res fun-decl =
@@ -1657,7 +1658,7 @@ test_ record force-data
 	| Tests can't have spec-impls, so this iss limited to builtin specs like 'global', 'java', 'js'
 	specs specs
 	body mut expr-maybe-allocated-locals
-	doc-comment-references mut doc-comment-references
+	doc-comment-references mut doc-comment-reference[]
 == bool(a test_, b test_)
 	trusted a 'reference-equal b
 to json(a test_)
@@ -1885,7 +1886,7 @@ var-decl record force-data
 	visibility visibility
 	type type
 	initializer mut expr-maybe-allocated-locals
-	doc-comment-references mut doc-comment-references
+	doc-comment-references mut doc-comment-reference[]
 == bool(a var-decl, b var-decl)
 	trusted a 'reference-equal b
 <=> comparison(a var-decl, b var-decl)
@@ -1939,8 +1940,8 @@ crow-module record force-data
 	| As a result, it can contain duplicates if a module is both imported and re-exported.
 	imports-and-re-exports module[]
 	file-imports-and-exports uri[]
-	| WARN: This is not every diagnostic. See {each-diagnostic}.
-	diagnostics mut diagnostic[]
+	| WARN: This is not every diagnostic; some are on the {ast}.
+	check-diagnostics mut diagnostic[]
 	aliases struct-alias[]
 	structs struct-decl[]
 	vars var-decl[]
@@ -1950,7 +1951,7 @@ crow-module record force-data
 	| This is derived data based on the funs, specs, and structs/aliases in a module
 	public-exports exports
 	public-and-internal-exports exports
-	doc-comment-references doc-comment-references
+	doc-comment-references doc-comment-reference[]
 == bool(a crow-module, b crow-module)
 	trusted a 'reference-equal b
 to json(a crow-module)
@@ -2015,7 +2016,7 @@ each-decl void(a crow-module, cb void mut(x any-decl))
 	for x in a.tests
 		cb[x]
 
-| This if for detecting unused imports, so it omits the standard import and re-exports (which are never considered unused)
+| This if for detecting unused imports, so it omits the standard import and re-exports (which are not considered unused)
 walk-explicit-imports record(module crow-module)
 iterate bool(a walk-explicit-imports, f bool mut(ast import-or-export-ast, imported module))
 	iterate a.module.walk-all-imports, of kind, ast, imported
@@ -2098,7 +2099,7 @@ do
 	doc-comment doc-comment()
 	type-param-asts type-params()
 	visibility visibility()
-# TODO: should be a method, but there are bugs in lower -----------------------------------------------------------------
+# TODO: should be a method, but there are bugs in lower
 name symbol(a any-decl)
 	match a
 	as fun-decl then a.name
@@ -2572,7 +2573,6 @@ to builtin-spec(a build-target)
 	as js
 		js
 
-# TODO: is there a better way to do this? -------------------------------------------------------------------------------------
 program-with-opt-main record
 	program program
 	main-fun-and-diagnostics main-fun-and-diagnostics?
@@ -2631,9 +2631,6 @@ can-run-in-target bool(a main-fun, target build-target)
 test-selector union(test-selector-all, config, uri, test_)
 test-selector-all record(main-config config)
 
-has-any-diagnostics bool(a program-with-main)
-	has-any-diagnostics a.program or !is-empty a.main-fun-diagnostics
-
 program record
 	all-configs config[uri]
 	crow-modules crow-module[uri]
@@ -2671,29 +2668,34 @@ all-dependencies uri set[uri](a program)
 		-- map module.imports-and-re-exports, it.uri
 		-- module.file-imports-and-exports
 
-has-any-diagnostics bool(a program)
-	exists-diagnostic a, of _ then true
-# TODO: define a type with an 'iterate' function -----------------------------------------------------------------------------
-each-diagnostic void(a program-with-opt-main, cb void mut(x uri-and-diagnostic))
-	res = exists-diagnostic a, of x
-		cb[x]
-		false
-	forbid res
--exists-diagnostic bool(a program-with-opt-main, cb bool mut(x uri-and-diagnostic))
-	a.has-main and exists a.as-program-with-main.main-fun-diagnostics, cb or
-	exists-diagnostic a.program, cb
-exists-diagnostic bool(a program, cb bool mut(x uri-and-diagnostic))
-	exists a.additional-diagnostics, cb or
-	exists-diagnostic-in-configs a, cb or
-	exists-diagnostic-in-modules a, cb
--exists-diagnostic-in-configs bool(a program, cb bool mut(x uri-and-diagnostic))
-	exists a.all-configs, of _, config
-		exists config.diagnostics, of x
-			cb[config.config-uri!, x]
--exists-diagnostic-in-modules bool(a program, cb bool mut(x uri-and-diagnostic))
-	exists a.crow-modules, of _, module
-		exists module.ast.parse-diagnostics, cb[(module.uri, it.range), it.kind] or
-		exists module.diagnostics, cb[module.uri, it]
+program-with-opt-main-diagnostics record(program program-with-opt-main)
+diagnostics program-with-opt-main-diagnostics(a program-with-main)
+	a.as-program-with-opt-main,
+diagnostics program-with-opt-main-diagnostics(a program-with-opt-main)
+	a,
+is-empty bool(a program-with-opt-main-diagnostics)
+	!iterate a, of _ then true
+iterate bool(a program-with-opt-main-diagnostics, f bool mut(x uri-and-diagnostic))
+	a.program.has-main and iterate a.program.as-program-with-main.main-fun-diagnostics, f or
+	iterate a.program.program.diagnostics, f
+
+program-diagnostics record(program program)
+diagnostics program-diagnostics(a program)
+	a,
+is-empty bool(a program-diagnostics)
+	!iterate a, of _ then true
+iterate bool(a program-diagnostics, f bool mut(x uri-and-diagnostic))
+	iterate a.program.additional-diagnostics, f or
+	iterate-diagnostic-in-configs a.program, f or
+	iterate-diagnostic-in-modules a.program, f
+-iterate-diagnostic-in-configs bool(a program, f bool mut(x uri-and-diagnostic))
+	iterate a.all-configs, of _, config
+		iterate config.diagnostics, of x
+			f[config.config-uri!, x]
+-iterate-diagnostic-in-modules bool(a program, f bool mut(x uri-and-diagnostic))
+	iterate a.crow-modules, of _, module
+		iterate module.ast.parse-diagnostics, f[(module.uri, it.range), it.kind] or
+		iterate module.check-diagnostics, f[module.uri, it]
 
 each-test void(a program, target build-target, selector test-selector, cb void mut(x test_))
 	match selector
@@ -2876,7 +2878,7 @@ iterate bool(a locals, f bool mut(x local))
 
 doc-comment record
 	ast doc-comment-ast
-	references doc-comment-references
+	references doc-comment-reference[]
 is-empty bool(a doc-comment)
 	a.ast.is-empty
 
@@ -2899,8 +2901,6 @@ doc-comment-reference-bogus record
 to json(a doc-comment-reference-bogus)
 doc-comment-reference-context record(type struct-inst)
 to json(a doc-comment-reference-context)
-doc-comment-references alias # TODO: this is silly, just write doc-comment-reference[] directly -------------------------------
-	doc-comment-reference[]
 name symbol?(a doc-comment-reference)
 	match a
 	as doc-comment-reference-bogus
@@ -3777,48 +3777,48 @@ to json(a unpack-option)
 range source-range(a unpack-option)
 	a.destructure.start, a.option.end
 
-each-descendent-expr-including void(a expr, cb void mut(x expr))
-	cb[a]
-	each-descendent-expr-excluding a, cb
-each-descendent-expr-excluding void(a expr, cb void mut(x expr))
-	each-direct-child-expr a, of x
-		each-descendent-expr-including x, cb
-each-direct-child-expr void(a expr, cb void mut(x expr))
-	res bool? = find-direct-child-expr a, of x
-		cb[x]
-		()
-	forbid res
-# TODO: define a 'direct-child-exprs' type with 'iterate', then don't need to define 'each-direct-child-expr' -----------------
-find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
-	match a
+all-exprs-in-tree record(expr expr)
+iterate bool(a all-exprs-in-tree, f bool mut(x expr))
+	f[a.expr] or
+	iterate a.expr.direct-child-exprs, of x
+		iterate x.all-exprs-in-tree, f
+
+all-exprs-in-tree-exclusive record(expr expr)
+iterate bool(a all-exprs-in-tree-exclusive, f bool mut(x expr))
+	iterate a.expr.direct-child-exprs, of x
+		iterate x.all-exprs-in-tree, f
+
+direct-child-exprs record(expr expr)
+iterate bool(a direct-child-exprs, f bool mut(x expr))
+	match x = a.expr
 	as assert-or-forbid-expr
-		cb[a.condition] or cb-option a.thrown, cb or cb-option a.after, cb
+		f[x.condition] or cb-option x.thrown, f or cb-option x.after, f
 	as bogus-call-expr
 		()
 	as bogus-expr
 		()
 	as bogus-wrong-type-expr
-		cb[a.inner]
+		f[x.inner]
 	as call-expr
-		first a.args, cb
+		iterate x.args, f
 	as call-named-new-expr
-		first a.args, cb
+		iterate x.args, f
 	as call-option-expr
-		first a.args, cb
+		iterate x.args, f
 	as finally-expr
-		cb[a.right] or cb[a.below]
+		f[x.right] or f[x.below]
 	as force-expr
-		cb[a.arg]
+		f[x.arg]
 	as if-expr
-		cb[a.condition] or cb[a.first-branch] or cb[a.second-branch]
+		f[x.condition] or f[x.first-branch] or f[x.second-branch]
 	as lambda-expr
-		cb[a.body]
+		f[x.body]
 	as let-expr
-		cb[a.value] or cb-option a.then_, cb
+		f[x.value] or cb-option x.then_, f
 	as let-the-expr
-		cb[a.value] or cb-option a.then_, cb
+		f[x.value] or cb-option x.then_, f
 	as list-expr
-		first a.parts, cb[it.arg]
+		iterate x.parts, f[it.arg]
 	as literal-scalar-expr
 		()
 	as literal-string-like-expr
@@ -3828,45 +3828,43 @@ find-direct-child-expr[t] t?(a expr, cb t? mut(x expr))
 	as local-get-and-refine-expr
 		()
 	as local-set-expr
-		cb[a.value]
+		f[x.value]
 	as logical-expr
-		cb[a.left] or cb[a.right]
+		f[x.left] or f[x.right]
 	as loop-expr
-		cb[a.body]
+		f[x.body]
 	as loop-break-expr
-		cb[a.value]
+		f[x.value]
 	as loop-continue-expr
 		()
 	as loop-while-or-until-expr
-		cb[a.condition] or cb[a.body] or cb-option a.after, cb
+		f[x.condition] or f[x.body] or cb-option x.after, f
 	as match-enum-expr
-		cb[a.matched] or first a.cases, cb[it.then_] or cb-option a.else_, cb
+		f[x.matched] or iterate x.cases, f[it.then_] or cb-option x.else_, f
 	as match-scalar-expr
-		cb[a.matched] or first a.cases, cb[it.then_] or cb[a.else_]
+		f[x.matched] or iterate x.cases, f[it.then_] or f[x.else_]
 	as match-string-like-expr
-		cb[a.matched] or first a.cases, cb[it.then_] or cb[a.else_]
+		f[x.matched] or iterate x.cases, f[it.then_] or f[x.else_]
 	as match-sum-type-expr
-		cb[a.matched] or direct-child-in-match-sum-type-cases a.cases, cb or cb-option a.else_, cb
+		f[x.matched] or iterate x.cases, f[it.then_] or cb-option x.else_, f
 	as not-expr
-		cb[a.arg]
+		f[x.arg]
 	as seq-expr
-		cb[a.first] or cb[a.then_]
+		f[x.first] or f[x.then_]
 	as the-expr
 		()
 	as throw-expr
-		cb[a.thrown]
+		f[x.thrown]
 	as trusted-expr
-		cb[a.inner]
+		f[x.inner]
 	as try-expr
-		cb[a.tried] or first a.catches, cb[it.then_]
+		f[x.tried] or iterate x.catches, f[it.then_]
 	as try-let-expr
-		cb[a.value] or cb[a.catch_.then_] or cb-option a.then_, cb
+		f[x.value] or f[x.catch_.then_] or cb-option x.then_, f
 	as typed-expr
-		cb[a.inner]
+		f[x.inner]
 	as unpack-option
-		cb[a.option]
--direct-child-in-match-sum-type-cases[t] t?(cases match-sum-type-case[], cb t? mut(x expr))
-	first cases, cb[it.then_]
+		f[x.option]
 
 sum-type-member-getter fun-decl(funs fun-decl[], struct struct-decl, x sum-type-membership)
 	must-find-fun-named funs, struct.name, of fun
@@ -3908,12 +3906,14 @@ diagnostic record(range source-range, kind diag)
 
 decl-kind enum
 	alias_
+	bogus-struct
 	builtin_
 	enum_
 	flags_
 	function_
 	global_
 	interface_
+	java-class
 	java-interface
 	record_
 	spec_
@@ -4298,7 +4298,7 @@ diag-unused-local-kind enum(completely-unused, read-only, write-only)
 diag-unused-internal-decl record(name symbol, is-used-locally bool)
 diag-unused-private-decl record(name symbol)
 diag-method-impl-visibility record
-	member struct-decl # TODO: rename to case-type -----------------------------------------------------------------
+	case-type struct-decl
 	sum-type struct-inst
 	method-impl fun-inst
 | We don't have any warning at the top-level even though '~' is redundant. This is only within a record.

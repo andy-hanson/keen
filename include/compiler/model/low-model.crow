@@ -185,7 +185,7 @@ is-js-any bool(a low-type)
 	a.body.low-builtin-type.?kind == js-any
 
 low-field record
-	debug-name symbol # TODO: rename to just 'name' .........................................................................
+	name symbol
 	is-mutable bool
 	type low-type
 
@@ -201,8 +201,6 @@ low-generated-local-kind enum(args, ignore, destruct, member, member2, temp, the
 == bool(a low-generated-local-kind, b low-generated-local-kind)
 to symbol(a low-generated-local-kind)
 to string(a low-generated-local-kind)
-	a.to::symbol.to
-show string(a low-generated-local-kind)
 	a.to::symbol.to
 to json(a low-generated-local-kind)
 hash void(a low-generated-local-kind, state hash-state)
@@ -363,9 +361,10 @@ low-expr-kind union
 	var-get-low-expr
 	var-set-low-expr
 to json(a low-expr-kind)
-| Specialization of `for local in in-array then inner` where the input and output collections are both arrays (or {buffer})
-| If the return type is 'void', this does not return an array.
-array-op-low-expr record # TODO: rename to 'for-loop-low-expr' -------------------------------------------------------
+| Specialization of `for local in in-array then inner`
+| where the input is an {array}, {buffer}, or {range} and the output is an {array}, {buffer}, or {void}.
+| If the return type is {void}, this does not return an array.
+array-op-low-expr record
 	input low-expr
 	local low-local?
 	| Used for performance to avoid allocating empty arrays
@@ -436,21 +435,11 @@ to json(a loop-break-low-expr)
 loop-continue-low-expr record
 to json(a loop-continue-low-expr)
 
-match-scalar-low-expr record # TODO: RENAME TO MATCH_SCALAR -----------------------------------------------------
-	-dummy void # TODO:KILL ----------------------------------------------------------------------------------------------
+match-scalar-low-expr record
 	matched low-expr
 	case-values scalar-values
 	case-exprs low-expr[]
 	else_ low-expr?
-new match-scalar-low-expr
-	matched low-expr
-	case-values scalar-values
-	case-exprs low-expr[]
-	else_ low-expr?
-do
-	assert is-sorted case-values
-	case-values.size is case-exprs.size
-	(), matched, case-values, case-exprs, else_
 to json(a match-scalar-low-expr)
 matched-integral-type char-or-integral-type(a match-scalar-low-expr)
 	match body = a.matched.type.body
@@ -585,8 +574,9 @@ to json(a var-set-low-expr)
 
 low-array-type-and-constants record
 	array-type low-type
-	element-type low-type # TODO: don't need to store this, can get it from arr-type ----------------------------------------
 	constants constant[][]
+element-type low-type(a low-array-type-and-constants)
+	as-array-or-buffer! a.array-type
 
 all-constants record
 	symbols symbol[]
@@ -633,7 +623,6 @@ low-program record
 	all-vars low-var[]
 	all-non-extern-funs low-fun[]
 	all-funs-including-extern low-fun[]
-	| Currently only used in a Java build (TODO: use in JS) -----------------------------------------------------------------
 	method-impls low-method-info[low-type]
 	| Only used in a JS build
 	async low-async-info?
@@ -642,12 +631,11 @@ low-async-info record
 	funs async-kind[low-fun]
 	var-initializers low-var set
 to json(a low-program)
-	funs json[] = for x in a.all-funs-including-extern # TODO: should be able to 'build' a 'json' directly ---------------------
-		x.to-json-with-body
 	target: a.target.to
 	all-types: a.all-types-including-extern.to
 	all-vars: a.all-vars.to
-	all-funs: funs.to
+	all-funs: for x in a.all-funs-including-extern
+		x.to-json-with-body
 
 # If this is missing it will be always sync
 async-kind enum
@@ -698,8 +686,10 @@ string low-type(a low-common-funs-js)
 symbol low-type(a low-common-funs-js)
 	a.to-symbol-from-string.return-type
 
-direct-child-exprs record(expr low-expr)
-iterate bool(a direct-child-exprs, f bool mut(x low-expr))
+low-direct-child-exprs record(expr low-expr)
+direct-child-exprs low-direct-child-exprs(expr low-expr)
+	expr,
+iterate bool(a low-direct-child-exprs, f bool mut(x low-expr))
 	match x = a.expr.kind
 	as array-op-low-expr
 		f[x.input] or f[x.body]

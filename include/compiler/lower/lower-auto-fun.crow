@@ -21,7 +21,7 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 			p0 = gen-cast-nat range, storage, param0[]
 			p1 = gen-cast-nat range, storage, param1[]
 			gen-builtin-binary return-type, range, compare, p0, p1
-		match x = enum-flags-record-or-union params.same-type
+		match x = enum-flags-record-or-union params.assert-all-same-type
 		as enum_
 			compare-nats[x.storage]
 		as flags_
@@ -31,7 +31,7 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 		as low-union
 			lower-compare-union range, return-type, params.only2!, x.members, a.members
 	as equals
-		match x = enum-flags-record-or-union params.same-type
+		match x = enum-flags-record-or-union params.assert-all-same-type
 		as enum_
 			lower-equal-enum-or-flags range, x.storage, param0[], param1[]
 		as flags_
@@ -83,7 +83,7 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 			constant-symbol member.name
 	as to-symbol-from-enum
 		auto-fun-match-enum range, return-type, params.only!, of x
-			symbol-for-enum-member return-type, range, x
+			gen-constant return-type, range, constant-symbol x.name
 
 lower-flags-function low-expr(cf low-fun, fn flags-function) lower-ctx
 	type = cf.return-type
@@ -257,14 +257,7 @@ do lower-ctx
 			gen-constant-some option-type, range, member.value.to
 		else_: gen-empty-option option-type, range
 
--symbol-for-enum-member low-expr # TODO: INLINE ----------------------------------------------------------------------------
-	symbol-type low-type
-	range uri-and-range
-	member enum-or-flags-member
-do lower-ctx
-	gen-constant symbol-type, range, constant-symbol member.name
-
--same-type low-type(params low-local[]) # TODO: rename to 'assert-same-type' ----------------------------------------
+-assert-all-same-type low-type(params low-local[])
 	assert all-same params, it.type
 	params[0].type
 
@@ -293,20 +286,21 @@ do lower-ctx
 	fields low-field[]
 	field-compares called[]
 do lower-and-expr-ctx, quick-fill-in-low-fun-body
-	equal-or-compare-record range, params, fields, field-compares, (of then gen-comparison-equal comparison, range), of x, y
-		gen-compare-or range, x, y
+	if is-empty fields
+		gen-comparison-equal comparison, range
+	else
+		equal-or-compare-record range, params, fields, field-compares, of x, y
+			gen-compare-or range, x, y
 
 -equal-or-compare-record low-expr
 	range uri-and-range
 	param0 low-local, param1 low-local
 	fields low-field[]
 	field-called called[]
-	# TODO: instead of taking a callback, we could just rely on the caller to do it ........................................
-	f-no-fields low-expr mut()
 	f-fold low-expr mut(x low-expr, y low-expr)
 do lower-and-expr-ctx, quick-fill-in-low-fun-body
+	forbid is-empty fields
 	fields.size is field-called.size
-	do unless is-empty fields else f-no-fields[]
 	p0 = gen-local-get range, param0
 	p1 = gen-local-get range, param1
 	compare-field = of index nat
@@ -404,8 +398,11 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	fields low-field[]
 	field-equals called[]
 do lower-and-expr-ctx, quick-fill-in-low-fun-body
-	equal-or-compare-record range, params, fields, field-equals, (of then gen-true range), of x, y
-		gen-and range, x, y
+	if is-empty fields
+		gen-true range
+	else
+		equal-or-compare-record range, params, fields, field-equals, of x, y
+			gen-and range, x, y
 
 -lower-equal-union low-expr
 	range uri-and-range
@@ -447,7 +444,12 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 			constant-symbol name
 		- gen-create-array json-array.type, range, values
 
--gen-constant-array low-expr(constants all-constants-builder, array-type low-type, range uri-and-range, elements constant[])
+-gen-constant-array low-expr
+	constants all-constants-builder
+	array-type low-type
+	range uri-and-range
+	elements constant[]
+do
 	array-type, range, get-constant-array constants, array-type, elements
 
 -lower-union-to-json low-expr
