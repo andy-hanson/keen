@@ -3,7 +3,6 @@ import
 	../bits
 	../bool
 	../compare
-	../exception
 	../js
 	../misc
 	../number
@@ -11,8 +10,8 @@ import
 	../range
 	../tuple
 	./collection
-	./private/array-low-level
-	../private/bootstrap: buffer
+	./array
+	./buffer
 
 +array-like[col, elem] spec col size
 	subscript elem(a col, index nat64)
@@ -37,7 +36,7 @@ do (out-col, out-elem) list-new, (in-col, in-elem) iterate, in-col size
 	res out-elem buffer = uninitialized-buffer size
 	i mut = 0
 	_ = iterate a, of x
-		array-set res, i, f[x]
+		res[i] := f[x]
 		i +:= 1
 		false
 	assert i == size
@@ -55,7 +54,7 @@ do (out-col, elem) list-new, in-col size, (in-col, elem) iterate
 	out-size mut = 0
 	_ = iterate a, of x
 		if f[x]
-			array-set res, out-size, x
+			res[out-size] := x
 			out-size +:= 1
 			assert out-size <= in-size
 		false
@@ -96,7 +95,7 @@ do (out-col, (key, out-value)) list-new, (in-col, (key, in-value)) iterate, in-c
 	trusted
 	res elem buffer = uninitialized-buffer n
 	for i in 0 .. n
-		array-set res, i, value
+		res[i] := value
 	list-new cast-immutable res
 
 +concatenate[col] spec
@@ -127,23 +126,6 @@ do (out-col, out-elem) list-new, (in-col, in-elem) iterate
 		res = f[i, x]
 		i +:= 1
 		res
-
-+index-maybe-relative-to-end union(nat, index-relative-to-end)
-+range-relative-to-end record(low index-maybe-relative-to-end, high index-relative-to-end)
-+ .. range-relative-to-end(low nat, high index-relative-to-end)
-	low, high
-+ .. range-relative-to-end(low index-relative-to-end, high index-relative-to-end)
-	low, high
-
-+to-range[col] nat64 range(col col, range range-relative-to-end) col size
-	low = match x = range.low
-	as nat
-		x
-	as index-relative-to-end
-		to-index col, x
-	high = to-index col, range.high
-	assert low <= high else index-too-big low, high
-	low .. high
 
 +split[out-col, in-col, in-iter, elem] out-col[]
 	a in-col
@@ -442,26 +424,26 @@ do (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
 	trusted size-hint.uninitialized-buffer, 0
 + ~=[t] void(a t builder, value t)
 	forbid a.cur-size == max-value
-	capacity = buffer-size a.buffer
+	capacity = a.buffer.size
 	if a.cur-size == capacity
 		expand-capacity a, if capacity == 0 then 4 else capacity * 2
-	trusted array-set a.buffer, a.cur-size, value
+	a.buffer[a.cur-size] := value
 	a.cur-size +:= 1
 + ~~=[t] void(a t builder, values t[])
 	a ~~= values::(t array-view)
 + ~~=[t] void(a t builder, values t array-view)
 	forbid a.cur-size == max-value
-	capacity = a.buffer.buffer-size
+	capacity = a.buffer.size
 	new-size = a.cur-size + values.size
 	if new-size > capacity
 		expand-capacity a, round-up-to-power-of-two a.cur-size + values.size
-	a.buffer 'copy-from a.cur-size .. new-size, values.inner, values.low .. values.high
+	a.buffer[a.cur-size .. new-size] := values
 	a.cur-size +:= values.size
 -expand-capacity[t] void(a t builder, new-capacity nat64)
 	trusted
-	assert new-capacity > a.buffer.buffer-size
+	assert new-capacity > a.buffer.size
 	new-buffer t buffer = uninitialized-buffer new-capacity
-	copy-from new-buffer, 0 .. a.cur-size, a.buffer.cast-immutable, 0 .. a.cur-size
+	new-buffer[0 .. a.cur-size] := a.buffer[0 .. a.cur-size]
 	a.buffer := new-buffer
 -finish-array[elem] elem[](a elem builder)
 	trusted
@@ -470,16 +452,10 @@ do (col, iter, elem) basic-reverse-iter, iter skip-prev-n, elem equal
 	a.cur-size := max-value
 	buffer = a.buffer
 	a.buffer := uninitialized-buffer 0
-	if buffer.buffer-size == size
+	if buffer.size == size
 		cast-immutable buffer
-	elif java
-		res elem buffer = uninitialized-buffer size
-		copy-from res, 0 .. size, buffer.cast-immutable, 0 .. size
-		cast-immutable res
-	elif js
-		assume-type call-property buffer.as-js, "slice", 0, size.wrap-to::nat32.to
 	else
-		throw todo
+		buffer[0 .. size].to
 ~finish[col, elem] col(a elem builder) (col, elem) list-new
 	list-new finish-array a
 +build-options record

@@ -1,17 +1,23 @@
 no-std
 import
+	java/lang/IndexOutOfBoundsException
+	java/lang/Object
+	java/lang/System
 	../bool
 	../compare
 	../misc
 	../number
+	../private/bootstrap: array, array-view, high, inner, low
 	../range
 	../unsafe
-	./array
-	./private/array-low-level: array-set, copy-from, buffer-size, high, inner, low, new-array-view, new-buffer-view
+	./private/private-util
 	./collection
-	./util
 export
 	../private/bootstrap: buffer, buffer-view
+
+# Called implicitly by the compiler
+~to-buffer-view[t] t buffer-view(a t buffer)
+	buffer-view a, 0, a.size
 
 | {true} if {a} and {b} are the exact same reference.
 | This is O(1) as it does not need to look at the elements.
@@ -22,15 +28,17 @@ export
 	a.to
 
 +new[t] t buffer-view()
-	new-buffer-view (), 0, 0
+	buffer-view (), 0, 0
 
 +cast-immutable[t] t array-view(a t buffer-view) unsafe
-	new-array-view a.inner.cast-immutable, a.low, a.high
+	array-view a.inner.cast-immutable, a.low, a.high
 
 +to[t] t[](a t buffer-view)
-	map a, it.identity
+	trusted cast-immutable a.to::(t buffer)
 +to[t] t buffer(a t buffer-view)
-	map a, it.identity
+	res t buffer = trusted uninitialized-buffer a.size
+	res 'copy-from a
+	res
 
 +is-empty[t] bool(a t buffer-view)
 	a.low == a.high
@@ -51,12 +59,12 @@ export
 	a[to-index a, index] := value
 
 +subscript[t] t buffer-view(a t buffer, indices nat64 range)
-	(a::(t buffer-view))[indices]
+	a.to-buffer-view[indices]
 +subscript[t] t buffer-view(a t buffer, indices range-relative-to-end)
-	(a::(t buffer-view))[indices]
+	a.to-buffer-view[indices]
 +subscript[t] t buffer-view(a t buffer-view, indices nat64 range)
 	assert indices.high <= a.size else index-too-big indices.high, a.size
-	new-buffer-view a.inner, a.low + indices.low, a.low + indices.high
+	buffer-view a.inner, a.low + indices.low, a.low + indices.high
 +subscript[t] t buffer-view(a t buffer-view, indices range-relative-to-end)
 	a[to-range a, indices]
 
@@ -74,7 +82,7 @@ export
 | Copies the array elements to a new `buffer`.
 | This is O({a} {size}).
 +to[t] t buffer(a t[])
-	if is-empty a
+	if a.size == 0
 		trusted cast-mutable a
 	else
 		a::(t array-view).to
@@ -90,11 +98,10 @@ export
 | There is no `move-to` function for `buffer`,
 | since its pointer and size are immutable and so it can't be made empty.
 +to[t] t[](a t buffer)
-	for x in a then x
+	a::(t buffer-view) 'to
 
 | Number of elements.
 +size[t] nat64(a t buffer)
-	buffer-size a
 
 | {true} if `{a}.{size} == 0`.
 +is-empty[t] bool(a t buffer)
@@ -103,16 +110,30 @@ export
 | Copies the elements to a new `buffer`.
 | This is O({a} {size}).
 +copy[t] t buffer(a t buffer)
-	for x in a then x
+	a::(t buffer-view) 'to
 
 +subscript[t] t(a t buffer, index nat64)
-	assert index < a.size else index-too-big index, a.size
-	trusted array-get a, index
+	trusted if java
+		try
+			array-get a, index
+		catch as IndexOutOfBoundsException
+			throw index-too-big index, a.size
+	else
+		assert index < a.size else index-too-big index, a.size
+		array-get a, index
 -array-get[t] t(a t buffer, index nat64) unsafe
+-array-get[t] t(a t[], index nat64) unsafe
 
 +set-subscript[t] void(a t buffer, index nat64, value t)
-	assert index < a.size else index-too-big index, a.size
-	trusted array-set a, index, value
+	trusted if java
+		try
+			array-set a, index, value
+		catch as IndexOutOfBoundsException
+			throw index-too-big index, a.size
+	else
+		assert index < a.size else index-too-big index, a.size
+		array-set a, index, value
+-array-set[t] void(a t buffer, index nat64, value t) unsafe
 
 +set-subscript[t] void(dest t buffer, range nat64 range, source t[])
 	dest[range] 'copy-from source
@@ -155,6 +176,22 @@ export
 	dest 'copy-from trusted cast-immutable source
 +copy-from[t] void(dest t buffer-view, source t array-view)
 	dest.inner 'copy-from dest.low .. dest.high, source.inner, source.low .. source.high
+-copy-from[t] void(dest t buffer, dest-range nat range, src t[], src-range nat range)
+	trusted
+	do unless is-empty-type@t
+	size = dest-range.size
+	assert src-range.size == size
+	assert dest-range.high <= dest.size
+	assert src-range.high <= src.size
+	dl = dest-range.low
+	sl = src-range.low
+	if java
+		arraycopy src.reinterpret-cast::Object, sl.wrap-to, dest.reinterpret-cast::Object, dl.wrap-to, size.wrap-to
+	else
+		i mut = 0
+		until i == size
+			array-set dest, dl + i, array-get src, sl + i
+			i +:= 1
 
 | Swaps the values at `{a}[{i}]` and `{a}[{j}]`.
 +swap[t] void(a t buffer, i nat64, j nat64)
@@ -164,25 +201,17 @@ export
 
 | Overwrites each element `x` with `{f}[x]`.
 +map=[t] void(a t buffer, f t mut(x t))
-	for i in 0::nat64 .. a.size
+	i mut = 0
+	until i == a.size
 		a[i] := f[a[i]]
+		i +:= 1
 
 region unsafe
 
-| Allocates a `buffer` full of {gc-safe-value}.
-| There are usually better ways of creating a buffer, such as a `for` over a range.
-|
-| Keep exceptions in mind: Don't store a reference to the result until it's initialized,
-| since initialization code might throw an exception.
-|
-| This is used by collections like `mut[]` that need some excess capacity that will be GC-safe.
+| Allocates a buffer full of {gc-safe-value}.
+| To use this safely, you need to be careful to never read an element before writing it.
+| For a safer alternative, consider using a `for` loop to create the buffer.
 +uninitialized-buffer[t] t buffer(size nat64) unsafe
-
-+fill[t] t buffer(size nat64, value t)
-	res t buffer = trusted uninitialized-buffer size
-	for i in 0 .. size
-		res[i] := value
-	res
 
 | Sets every element to {gc-safe-value}.
 +clear-memory[t] void(a t buffer-view) unsafe
@@ -196,10 +225,25 @@ region unsafe
 | WARN: It's undefined behavior if {a} is ever written to again.
 +cast-immutable[t] t[](a t buffer) unsafe
 	reinterpret-cast a
+| Unsafe cast to a mutable array.
+| Use this only if you are sure it will not actually be written to.
 +cast-mutable[t] t buffer(a t[]) unsafe
 	reinterpret-cast a
 
 | Calls {f} on each element in {a}.
-| If {a} is mutated while iterating, it will affect future calls to {f}.
+| {a} remains mutable during iteration.
 +iterate[t] bool(a t buffer, f bool mut(elem t))
-	iterate (trusted cast-immutable a), f
+	i mut = a.low
+	do loop
+	if i == a.high
+		break false
+	elif f[a.inner[i]]
+		break true
+	else
+		i +:= 1
+		continue
+
+# These are defined by 'array.crow', but that imports this, so just copy the definitions here.
+-size[t] nat(a t[])
+-size[t] nat(a t array-view)
+	a.high - a.low

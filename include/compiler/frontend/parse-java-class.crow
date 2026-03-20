@@ -2,7 +2,6 @@ import
 	crow/col/buffer
 	crow/format/binary
 	crow/unsafe
-	../../crow/col/private/array-low-level: inner, low, high
 	../../crow/private/parse-util
 	../model/uri
 	../util/java-bytecode-types
@@ -31,7 +30,7 @@ parse-java-class parsed-java-class-header(content nat8 array-view)
 	reader.take32 is 0xcafebabe
 	version = take32 reader
 	assert version >= 69
-	constants = read-constant-pool content.inner.safe-reinterpret-cast, reader
+	constants = read-constant-pool reader
 	access class-access = reader.take16.to!
 	this-class = read-class-reference reader, constants
 	super-class = read-optional-class-reference reader, constants
@@ -73,16 +72,11 @@ parsed-field record
 	attributes: read-attributes reader, constants
 
 -constants record
-	# Use arrays instead of maps for faster lookups
-	all-char8s char8[]
-	constant-strings nat32 range[]
+	| These are both indexed by constant pool indices. Thus some entries are unused,
+	constant-strings string-view[]
 	constant-classes path[]
 new constants()
-	(), (), ()
--get-string nat32 range(a constants, index nat16)
-	a.constant-strings[index]
--get-class path(a constants, index nat16)
-	a.constant-classes[index]
+	(), ()
 
 parsed-method record
 	access-flags method-access-flags
@@ -181,21 +175,20 @@ show string(a java-array-type)
 	attribute-name: attribute-name.to
 
 -read-utf8-reference string-view(reader nat8 array-iterator, constants constants)
-	range = get-string constants, reader.take16
-	constants.all-char8s[range.low .. range.high]
+	constants.constant-strings[reader.take16]
 -read-class-reference path(reader nat8 array-iterator, constants constants)
-	get-class constants, reader.take16
+	read-optional-class-reference! reader, constants
 -read-optional-class-reference path?(reader nat8 array-iterator, constants constants)
 	index = take16 reader
 	unless index == 0
-		get-class constants, index
+		constants.constant-classes[index]
 
 # https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.4
--read-constant-pool constants(all-char8s char8[], reader nat8 array-iterator)
+-read-constant-pool constants(reader nat8 array-iterator)
 	constants-pool-count = take16 reader
 	constant-pool-index mut nat16 = 1
-	constant-strings-builder nat32 range buffer = fill constants-pool-count, 0 .. 0
-	constant-classes nat16 buffer = fill constants-pool-count, 0
+	constant-strings-builder string-view buffer = n-of constants-pool-count, ()
+	constant-classes nat16 buffer = n-of constants-pool-count, 0
 	while constant-pool-index < constants-pool-count
 		kind = take-next reader
 		constant-pool-index +:= match kind
@@ -203,7 +196,7 @@ show string(a java-array-type)
 			# CONSTANT_Utf8_info
 			bytes = take-next-n reader, reader.take16
 			# Java does not really use standard UTF8, but this shouldn't matter for method and type names
-			constant-strings-builder[constant-pool-index] := bytes.low.to .. bytes.high.to
+			constant-strings-builder[constant-pool-index] := safe-reinterpret-cast bytes
 			1
 		as 3
 			# CONSTANT_Integer_info
@@ -261,11 +254,9 @@ show string(a java-array-type)
 			log error, "Unexpected constant kind {kind}"
 			throw todo
 	constant-pool-index is constants-pool-count
-	all-char8s: all-char8s
 	constant-strings: trusted cast-immutable constant-strings-builder
 	constant-classes: for x in constant-classes
 		if x == 0
 			as-path ""
 		else
-			range = constant-strings-builder[x]
-			as-path all-char8s[range.low .. range.high]
+			as-path constant-strings-builder[x]

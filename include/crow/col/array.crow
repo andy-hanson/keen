@@ -1,20 +1,44 @@
 no-std
 import
+	java/lang/IndexOutOfBoundsException
 	../bool
 	../compare
 	../hash
 	../misc
 	../number
 	../option
-	../private/bootstrap: array-size
+	../private/bootstrap: high, inner, low
 	../range
 	../unsafe
+	./buffer
 	./collection
-	./private/array-low-level: inner, low, high
-	./util
+	./private/private-util
 export
-	../private/bootstrap: array
-	./private/array-low-level: array-view, is-empty, iterate, size, subscript, to
+	../private/bootstrap: array, array-view
+
+# Called implicitly by the compiler
+~to-array-view[t] t array-view(a t[])
+	array-view a, 0, a.size
+
++subscript[t] t(a t[], index nat64)
+	trusted if java
+		try
+			array-get a, index
+		catch as IndexOutOfBoundsException
+			throw index-too-big index, a.size
+	else
+		assert index < a.size else index-too-big index, a.size
+		array-get a, index
+-array-get[t] t(a t[], index nat64) unsafe
++subscript[t] t(a t array-view, index nat64)
+	assert index < a.size else index-too-big index, a.size
+	a.inner[a.low + index]
+
++subscript[t] t array-view(a t[], indices nat64 range)
+	(a::(t array-view))[indices]
++subscript[t] t array-view(a t array-view, indices nat64 range)
+	assert indices.high <= a.size else index-too-big indices.high, a.size
+	array-view a.inner, a.low + indices.low, a.low + indices.high
 
 +subscript[t] t(a t[], index index-relative-to-end)
 	a[to-index a, index]
@@ -30,14 +54,28 @@ export
 	a
 
 +size[t] nat64(a t[])
-	array-size a
++size[t] nat64(a t array-view)
+	a.high - a.low
 
 +to[t] t[](a t range) t rangeable, t difference
-	map a, it.identity
+	res t buffer = trusted uninitialized-buffer a.size
+	i mut nat = 0
+	_ = iterate a, of x
+		res[i] := x
+		i +:= 1
+		false
+	trusted cast-immutable res
++to[t] t[](a t array-view)
+	if a.size == a.inner.size
+		a.inner
+	else
+		trusted cast-immutable a.to::(t buffer)
 
 | {true} if `a.size == 0`.
 +is-empty[t] bool(a t[])
 	a.size == 0
++is-empty[t] bool(a t array-view)
+	a.low == a.high
 
 | Prepend an element to an array.
 | This is O(n).
@@ -52,11 +90,18 @@ export
 | Used by the compiler to implement list-new expressions
 ~concat-array-views[t] t[](parts t array-view[])
 	size mut = 0
-	for part in parts
+	_ = iterate parts, of part
 		size +:= part.size
-	with out in build size
-		for part in parts
-			out ~~= part
+		false
+	res t buffer = trusted uninitialized-buffer size
+	i mut = 0
+	_ = iterate parts, of part
+		j = i + part.size
+		res[i .. i + part.size] := part
+		i := j
+		false
+	assert i == res.size
+	trusted cast-immutable res
 
 | Concatenates two arrays.
 | This is O(n).
@@ -66,21 +111,20 @@ export
 	elif is-empty b
 		a
 	else
-		with out in build a.size + b.size
-			out ~~= a
-			out ~~= b
+		a.to-array-view ~~ b.to-array-view
 + ~~[t] t[](a t array-view, b t array-view)
 	if is-empty a
 		b.to
 	elif is-empty b
 		a.to
 	else
-		with out in build a.size + b.size
-			out ~~= a
-			out ~~= b
+		res t buffer = trusted uninitialized-buffer a.size + b.size
+		res[0 .. a.size] := a
+		res[a.size .. res.size] := b
+		trusted cast-immutable res
 
 + ==[t] bool(a t[], b t[]) t equal
-	trusted a::(t array-view) == b::(t array-view)
+	trusted a.to-array-view == b.to-array-view
 
 + ==[t] bool(a t array-view, b t array-view) t equal
 	trusted if reference-equal a.inner, b.inner and a.low == b.low and a.high == b.high
@@ -119,35 +163,33 @@ region basic array operations
 |
 | {index} must be a valid index into {a}. This can't be used to add a value to the end.
 +update-at[t] t[](a t[], index nat64, new-value t)
-	update-at a::(t array-view), index, new-value
+	update-at a.to-array-view, index, new-value
 +update-at[t] t[](a t array-view, index nat64, new-value t)
 	assert index < a.size else index-too-big index, a.size
-	do with out in build a.size
-	out ~~= a[0 .. index]
-	out ~= new-value
-	out ~~= a[index + 1 .. a.size]
+	-- a[0 .. index]
+	- new-value
+	-- a[index + 1 .. end]
 
 | Inserts an element at {index}.
 | Moves all elements that were at {index} or after to the right.
 | Unlike for {update-at}, {index} can be `{a}.{size}`, though it still can't be higher.
 +insert-at[t] t[](a t[], index nat64, value t)
-	insert-at a::(t array-view), index, value
+	insert-at a.to-array-view, index, value
 +insert-at[t] t[](a t array-view, index nat64, value t)
 	assert index <= a.size else index-too-big index, a.size
-	do with out in build a.size + 1
-	out ~~= a[0 .. index]
-	out ~= value
-	out ~~= a[index .. a.size]
+	-- a[0 .. index]
+	- value
+	-- a[index .. end]
 
 | Removes the element at {index}, shifting all later elements to the left.
 +remove-at[t] t[](a t[], index nat64)
-	remove-at a::(t array-view), index
+	remove-at a.to-array-view, index
 +remove-at[t] t[](a t array-view, index nat64)
 	assert index < a.size else index-too-big index, a.size
 	a[0 .. index] ~~ a[index + 1 .. a.size]
 
 +hash[t] void(a t[], state hash-state) t hash
-	trusted hash a::(t array-view), state
+	trusted hash a.to-array-view, state
 +hash[t] void(a t array-view, state hash-state) t hash
 	trusted
 	i mut nat64 = 0
@@ -155,8 +197,29 @@ region basic array operations
 		hash a[i], state
 		i +:= 1
 
++iterate[t] bool(a t[], f bool mut(elem t))
+	i mut nat64 = 0
+	do loop
+	if i == a.size
+		break false
+	elif f[a[i]]
+		break true
+	else
+		i +:= 1
+		continue
++iterate[t] bool(a t array-view, f bool mut(x t))
+	i mut = a.low
+	do loop
+	if i == a.high
+		break false
+	elif f[a.inner[i]]
+		break true
+	else
+		i +:= 1
+		continue
+
 +iterate-reverse[t] bool(a t[], f bool mut(x t))
-	iterate-reverse a::(t array-view), f
+	iterate-reverse a.to-array-view, f
 +iterate-reverse[t] bool(a t array-view, f bool mut(x t))
 	do unless is-empty a
 	i mut = a.high - 1
