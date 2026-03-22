@@ -834,108 +834,7 @@ do
 	async = is-cur-fun-async
 	match x = a.kind
 	as array-op-low-expr
-		input-expr = to-js-expr x.input
-		match x.input-kind
-		as array
-			match output-kind x, type
-			as array
-				# TODO: PERF I should probably not use 'map' here, do a loop like I do for range
-				# `xs.map(x => {... })` or `await Array.fromAsync(xs, async x => { ... })`
-				params js-destructure[] = if l = x.local
-					l.local-name,
-				body = to-expr-or-block-statement x.body
-				arrow js-arrow-function = async, params, body
-				fn js-expr = source, arrow
-				in-array-type = x.input.type.js-array-type
-				out-array-type = type.js-array-type
-				out-from = of input js-expr
-					gen-call-property-sync source, (gen-global source, out-array-type.to), "from", (input,)
-				js-Array = gen-global source, "Array"
-				match async
-				as sync
-					map = of input js-expr
-						gen-call-property-sync source, input, "map", (fn,)
-					if in-array-type == out-array-type
-						map[input-expr]
-					elif in-array-type == Array
-						out-from[map[input-expr]]
-					else
-						in-array = gen-call-property-sync source, js-Array, "from", (input-expr,)
-						out-from[map[in-array]]
-				as async
-					mapped = gen-await source, gen-call-property-sync source, js-Array, "fromAsync", (input-expr, fn)
-					if out-array-type == Array
-						mapped
-					else
-						out-from[mapped]
-			as void
-				local = local-or-temp x.local, "ignore"
-				(source, (js-for-of-statement local, input-expr, x.body.to-block-statement)) 'to
-		as range
-			low, high = range-fields x.input.type
-			cur-name = make-temp-local "cur"
-			cur-type = low.type
-			end-name = make-temp-local "end"
-			get-cur = gen-identifier source, cur-name
-			get-end = gen-identifier source, end-name
-			cur-less-end = gen-less source, get-cur, get-end
-			match output-kind x, type
-			as array
-				###
-				const { low: start, high: end } = range
-				const out = new Array(Number(end - start))
-				let cur = start
-				while (cur < end) {
-					out[cur - start] = ...
-					cur = cur + 1n
-				}
-				return out
-				###
-				start-name = make-temp-local "start"
-				get-start = gen-identifier source, start-name
-				out-name = make-temp-local "out"
-				get-out = gen-identifier source, out-name
-				range-destructure js-object-destructure =
-					fields:
-						- low.name.to, start-name
-						- high.name.to, end-name
-				declare-start-end = gen-const source, range-destructure, to-js-expr x.input
-				Array = array-for-array-type source, type
-				Number = gen-global source, "Number"
-				size = gen-call-sync source, Number,
-					- gen-minus source, get-end, get-start
-				new-array = gen-new source, Array, (size,)
-				declare-out = gen-const source, out-name, new-array
-				declare-cur = gen-let source, cur-name, get-start
-				body js-statement[] =
-					out-at-index = gen-property-access-computed source, get-out, (gen-minus source, get-cur, get-start)
-					-- if l = x.local
-						- gen-const source, l.local-name, get-cur
-					- gen-assign source, out-at-index, to-js-expr x.body
-					- gen-increment source, cur-type, cur-name
-				while_ = gen-while source, cur-less-end, body.to
-				return-out = gen-return source, get-out
-				js-block-statement (declare-start-end, declare-out, declare-cur, while_, return-out)
-			as void
-				range-destructure js-object-destructure =
-					fields:
-						- low.name.to, cur-name
-						- high.name.to, end-name
-				declare-cur-end = gen-let source, range-destructure, to-js-expr x.input
-				###
-				let { low: cur, high:end } = range
-				while (cur < end) {
-					<<body>>
-					cur = cur + 1n
-				}
-				###
-				body js-statement[] =
-					-- if l = x.local
-						- gen-const source, l.local-name, get-cur
-					-- statements to-block-statement x.body
-					- gen-increment source, cur-type, cur-name
-				while_ = gen-while source, cur-less-end, body.to
-				js-block-statement (declare-cur-end, while_)
+		array-op a, x
 	as builtin-low-expr
 		translate-builtin type, source, x.fun, x.args
 	as call-low-expr
@@ -1049,11 +948,9 @@ do
 	as try-let-low-expr
 		translate-try-let source, type, x
 	as union-assume-case-low-expr
-		match union-representation x.union-type
-		as direct
-			to-expr-or-block-statement x.arg
-		as switch
-			gen-property-access source, x.arg.to-js-expr, "value"
+		union-as-case source, x.arg, x.union-type
+	as union-as-case-or-gc-safe-low-expr
+		union-as-case source, x.arg, x.union-type
 	as union-is-case-low-expr
 		repr = union-representation x.union-type
 		gen-union-is-case source, x.arg.to-js-expr, x.union_, repr, x.case-index
@@ -1065,6 +962,120 @@ do
 			to-ref source, x.var
 	as var-set-low-expr
 		gen-assign source, (to-ref source, x.var), x.value.to-js-expr 'to
+
+-array-op js-expr-or-block-statement(a low-expr, x array-op-low-expr) to-expr
+	source = source a
+	type = a.type
+	async = is-cur-fun-async
+	input-expr = to-js-expr x.input
+	match x.input-kind
+	as array
+		match output-kind x, type
+		as array
+			# TODO: PERF I should probably not use 'map' here, do a loop like I do for range
+			# `xs.map(x => {... })` or `await Array.fromAsync(xs, async x => { ... })`
+			params js-destructure[] = if l = x.local
+				l.local-name,
+			body = to-expr-or-block-statement x.body
+			arrow js-arrow-function = async, params, body
+			fn js-expr = source, arrow
+			in-array-type = x.input.type.js-array-type
+			out-array-type = type.js-array-type
+			out-from = of input js-expr
+				gen-call-property-sync source, (gen-global source, out-array-type.to), "from", (input,)
+			js-Array = gen-global source, "Array"
+			match async
+			as sync
+				map = of input js-expr
+					gen-call-property-sync source, input, "map", (fn,)
+				if in-array-type == out-array-type
+					map[input-expr]
+				elif in-array-type == Array
+					out-from[map[input-expr]]
+				else
+					in-array = gen-call-property-sync source, js-Array, "from", (input-expr,)
+					out-from[map[in-array]]
+			as async
+				mapped = gen-await source, gen-call-property-sync source, js-Array, "fromAsync", (input-expr, fn)
+				if out-array-type == Array
+					mapped
+				else
+					out-from[mapped]
+		as void
+			local = local-or-temp x.local, "ignore"
+			(source, (js-for-of-statement local, input-expr, x.body.to-block-statement)) 'to
+	as range
+		low, high = range-fields x.input.type
+		cur-name = make-temp-local "cur"
+		cur-type = low.type
+		end-name = make-temp-local "end"
+		get-cur = gen-identifier source, cur-name
+		get-end = gen-identifier source, end-name
+		cur-less-end = gen-less source, get-cur, get-end
+		match output-kind x, type
+		as array
+			###
+			const { low: start, high: end } = range
+			const out = new Array(Number(end - start))
+			let cur = start
+			while (cur < end) {
+				out[cur - start] = ...
+				cur = cur + 1n
+			}
+			return out
+			###
+			start-name = make-temp-local "start"
+			get-start = gen-identifier source, start-name
+			out-name = make-temp-local "out"
+			get-out = gen-identifier source, out-name
+			range-destructure js-object-destructure =
+				fields:
+					- low.name.to, start-name
+					- high.name.to, end-name
+			declare-start-end = gen-const source, range-destructure, to-js-expr x.input
+			Array = array-for-array-type source, type
+			Number = gen-global source, "Number"
+			size = gen-call-sync source, Number,
+				- gen-minus source, get-end, get-start
+			new-array = gen-new source, Array, (size,)
+			declare-out = gen-const source, out-name, new-array
+			declare-cur = gen-let source, cur-name, get-start
+			body js-statement[] =
+				out-at-index = gen-property-access-computed source, get-out, (gen-minus source, get-cur, get-start)
+				-- if l = x.local
+					- gen-const source, l.local-name, get-cur
+				- gen-assign source, out-at-index, to-js-expr x.body
+				- gen-increment source, cur-type, cur-name
+			while_ = gen-while source, cur-less-end, body.to
+			return-out = gen-return source, get-out
+			js-block-statement (declare-start-end, declare-out, declare-cur, while_, return-out)
+		as void
+			range-destructure js-object-destructure =
+				fields:
+					- low.name.to, cur-name
+					- high.name.to, end-name
+			declare-cur-end = gen-let source, range-destructure, to-js-expr x.input
+			###
+			let { low: cur, high:end } = range
+			while (cur < end) {
+				<<body>>
+				cur = cur + 1n
+			}
+			###
+			body js-statement[] =
+				-- if l = x.local
+					- gen-const source, l.local-name, get-cur
+				-- statements to-block-statement x.body
+				- gen-increment source, cur-type, cur-name
+			while_ = gen-while source, cur-less-end, body.to
+			js-block-statement (declare-cur-end, while_)
+
+-union-as-case js-expr-or-block-statement(source source, arg low-expr, union-type low-type) to-expr
+	match union-representation union-type
+	as direct
+		to-expr-or-block-statement arg
+	as switch
+		gen-property-access source, arg.to-js-expr, "value"
 
 -gen-increment js-statement(source source, type low-type, name js-name)
 	gen-increment source, name, type.as-integral-type!.is-bigint
@@ -1282,8 +1293,6 @@ do to-expr
 	crow-name: match source = a.source
 	as local
 		source.name.to
-	as low-local-source-reference
-		source.original.name.to
 	as low-generated-local-kind
 		source.to
 	mangle-index: ensure the::to-expr-ctx.temp-local-indices, a, of
@@ -1359,9 +1368,9 @@ do to-expr
 	as char32
 		constant-nat source, nat32, a
 	as float32
-		gen-number32 source, a.as-float
+		gen-number32 source, as-float a
 	as float64
-		gen-number64 source, a.as-float
+		gen-number64 source, as-float a
 	as future
 		throw unreachable
 	as int8

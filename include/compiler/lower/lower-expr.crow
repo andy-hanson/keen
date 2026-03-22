@@ -429,11 +429,7 @@ do lower-and-expr-ctx
 	as destructure-ignore
 		()
 	as local
-		root-local low-local = a, get-low-type a.type
-		the::lower-expr-ctx.locals[a] := if reference-type = is-allocated a
-			a.low-local-source-reference, reference-type
-		else
-			root-local
+		the::lower-expr-ctx.locals[a] := a, (is-allocated a else get-low-type a.type)
 	as destructure-split
 		if is-valid-destructure a
 			for part in a.parts
@@ -540,90 +536,103 @@ do lower-and-expr-ctx
 -lower-if low-expr(type low-type, range uri-and-range, a if-expr) lower-and-expr-ctx
 	true-branch = of then lower-expr type, a.true-branch
 	false-branch = of then lower-expr type, a.false-branch
-	lower-if type, a.type, range, a.condition, true-branch, false-branch
+	lower-if range, a.condition, true-branch, false-branch
 
 -lower-if low-expr
-	type low-type
-	model-type type
 	range uri-and-range
 	condition expr
-	cb-true-branch low-expr mut()
-	cb-false-branch low-expr mut()
-do lower-and-expr-ctx
-	if is-option condition.type
-		gen-if-option range, condition.lower-expr, then_: cb-true-branch[], else_: cb-false-branch[]
-	elif unpack-option condition
-		gen-if-option range, condition.option.lower-expr,
-			then_: lower-with-destructure type, range, condition.destructure, cb-true-branch
-			else_: cb-false-branch[]
-	elif !condition-has-locals condition
-		cond = lower-expr bool-type, condition
-		if constant = cond.kind.constant
-			if as-bool constant then cb-true-branch[] else cb-false-branch[]
-		else
-			type, range, if-low-expr cond, cb-true-branch[], cb-false-branch[]
-	else
-		###
-		For a complex condition like:
-			if x = o1 and y = o2
-				true-branch
-			else
-				false-branch
-
-		It will compile to:
-			result t? = if x = o1
-				if y = o2
-					true-branch
-			result else false-branch
-
-		This strategy avoids repeating 'false-branch' twice.
-		The function lower-complex-condition just handles the true part of this.
-		###
-		option-type = get-low-type option[model-type]
-		true-branch = of
-			:: low-expr
-			true_ = cb-true-branch[]
-			if throw-low-expr true_.kind
-				# Avoid wrapping a 'throw' expression in an option, since the JVM complains about unreachable code
-				option-type, range, true_.kind
-			else
-				gen-option option-type, range, true_
-		option-true-branch = lower-complex-condition option-type, range, condition, true-branch, of
-			gen-empty-option option-type, range
-		gen-option-else type, range, option-true-branch, cb-false-branch[]
-
-###
-WARN: This duplicates 'false-branch'.
-Compiles to code like:
-	if x = expr1
-		if y = expr2
-			true-branch
-		else
-			false-branch
-	else
-		false-branch
-###
-| WARN: This duplicates the false branch.
--lower-complex-condition low-expr
-	result-type low-type
-	range uri-and-range
-	a expr
 	true-branch low-expr mut()
 	false-branch low-expr mut()
 do lower-and-expr-ctx
-	if a.logical-expr and a.kind == bool-and-bool
-		inner = of
-			lower-complex-condition result-type, range, a.right, true-branch, false-branch
-		lower-complex-condition result-type, range, a.left, inner, false-branch
-	elif is-option a.type
-		gen-if-option range, a.lower-expr, then_: true-branch[], else_: false-branch[]
-	elif a.unpack-option
-		gen-if-option range, a.option.lower-expr,
-			then_: lower-with-destructure result-type, range, a.destructure, true-branch
-			else_: false-branch[]
+	with-lower-condition range, condition, of cond
+		if constant = cond.kind.constant
+			if as-bool constant then true-branch[] else false-branch[]
+		else
+			gen-if range, cond, true-branch[], false-branch[]
+
+-with-lower-condition low-expr
+	range uri-and-range
+	expr expr
+	f low-expr mut(condition low-expr)
+do lower-and-expr-ctx
+	cond = lower-condition range, expr, ()
+	res mut = f[cond.condition]
+	for local, value in reverse cond.locals
+		res := gen-let res.type, range, local, value, res
+	res
+
+-lower-condition-to-expr low-expr
+	range uri-and-range
+	expr expr
+do lower-and-expr-ctx
+	with-lower-condition range, expr, it.identity
+
+-lower-condition-result record
+	condition low-expr
+	locals (low-local, low-expr)[]
+-lower-condition lower-condition-result
+	range uri-and-range
+	expr expr
+	prev lower-condition-result?
+do lower-and-expr-ctx
+	if logical-expr expr and expr.kind == bool-and-bool
+		lower-condition range, expr.right,
+			lower-condition range, expr.left, prev
+	elif unpack-option expr
+		option = lower-expr expr.option
+		temp low-local = temp::low-generated-local-kind, option.type
+		option-with-prev = if prev
+			gen-if range, prev.condition, option, gen-empty-option option.type, range
+		else
+			option
+		get-temp = gen-local-get range, temp
+		condition: gen-option-is-non-empty get-temp
+		locals:
+			-- prev.?locals else ()
+			- temp, option-with-prev
+			-- locals-for-option expr.destructure, get-temp
 	else
-		condition = lower-expr bool-type, a
-		gen-if range, condition, true-branch[], false-branch[]
+		cond = if is-option expr.type
+			gen-option-is-non-empty lower-expr expr
+		else
+			lower-expr bool-type, expr
+		if prev
+			condition: gen-and range, prev.condition, cond
+			locals: prev.locals
+		else
+			cond, ()
+
+-locals-for-option (low-local, low-expr)[](a destructure, option-expr low-expr) lower-and-expr-ctx
+	match a
+	as destructure-ignore
+		()
+	as local
+		forbid is-allocated a else todo
+		local low-local = a, option-expr.type.as-option!
+		locals[a] := local
+		range uri-and-range = cur-uri, a.range
+		- local, (local.type, range, union-as-case-or-gc-safe-low-expr option-expr)
+	as destructure-split
+		assert is-valid-destructure a else todo
+		non-option-expr = gen-assert-option option-expr
+		fields = non-option-expr.type.body.low-record!.fields
+		for* index in 0 .. a.parts.size
+			part = a.parts[index]
+			field = fields[index]
+			optional-field-type = get-low-type option[part.type]
+			range uri-and-range = cur-uri, part.range
+			is-non-optional = gen-option-is-non-empty option-expr
+			some = gen-option optional-field-type, range,
+				gen-record-field-get field.type, range, non-option-expr, index
+			none = gen-empty-option optional-field-type, range
+			optional-field = gen-if range, is-non-optional, some, none
+			locals-for-option a.parts[index], optional-field
+
+-gen-assert-option low-expr(option low-expr) lower-ctx
+	gen-union-assume-case (as-option! option.type), option.range, option
+
+-gen-option-is-non-empty low-expr(option low-expr) lower-ctx
+	bool-type, option.range, union-is-case-low-expr option, 1
 
 -gen-option-else low-expr(type low-type, range uri-and-range, option low-expr, else_ low-expr) lower-ctx
 	gen-if-option range, option,
@@ -712,10 +721,10 @@ do lower-and-expr-ctx
 	range uri-and-range
 	a logical-expr
 do lower-and-expr-ctx
-	if a.kind == bool-and-bool
-		true-branch = of then lower-expr-and-convert-option-to-bool a.right
-		lower-complex-condition type, range, a.left, true-branch, of then gen-false range
-	elif a.kind == bool-or-bool
+	match a.kind
+	as bool-and-bool
+		lower-condition-to-expr range, a
+	as bool-or-bool
 		left = lower-expr-and-convert-option-to-bool a.left
 		right = lower-expr-and-convert-option-to-bool a.right
 		gen-or range, left, right
@@ -753,150 +762,25 @@ do lower-and-expr-ctx
 	expr loop-while-or-until-expr
 do lower-and-expr-ctx
 	void = gen-void range
-	if unpack = expr.condition.unpack-option
-		option = lower-expr unpack.option
-		if expr.is-until
-			after = if after = expr.after
-				lower-expr-with-destructure type, range, unpack.destructure, after
+	if expr.is-until
+		###
+		until cond
+			body
+		after
+		==>
+		loop
+			if cond
+				# Put this inside the 'if' so it can access any locals introduced by 'cond'
+				break after
 			else
-				(), gen-void range
-			body = lower-expr void.type, expr.body
-			if root = after.local
-				###
-				until x = xs
-					body
-				after
-				==>
-				x = loop
-					if temp = xs
-						break temp
-					else
-						body
-						continue
-				after
-				###
-				loop_ = gen-loop root.type, range,
-					gen-if-option range, option,
-						then_: with temp in with-local root.type, range
-							gen-break range, temp
-						else_: gen-do-and-continue root.type, range, body
-				gen-let type, range, root, loop_, after.expr
-			else
-				###
-				until _ = xs
-					body
-				after
-				=>
-				loop
-					if _ = xs
-						break
-					else
-						body
-						continue
-				after
-				###
-				loop_ = gen-loop void.type, range,
-					gen-if-option range, option,
-						then_: gen-break range, void
-						else_: gen-do-and-continue void.type, range, body
-				gen-seq range, loop_, after.expr
-		else
-			###
-			while x = xs
 				body
-			after
-			==>
-			loop
-				if x = xs
-					body
-					continue
-				else
-					break
-			after
-			###
-			loop_ = gen-loop void.type, range,
-				gen-if-option range, option,
-					then_:
-						body = lower-expr-with-destructure void.type, range, unpack.destructure, expr.body
-						body.local, gen-do-and-continue void.type, range, body.expr
-					else_: gen-break range, void
-			gen-seq range, loop_, lower-expr-or-void type, range, expr.after
-	elif condition-has-locals expr.condition
-		if is-until expr
-			###
-			until x = xs and y = ys
-				body
-			after
-			==>
-			root = loop
-				# This variable will actually be inlined
-				# NOTE: all destructures from the original are flattened into 'both'
-				both (nat, nat)? = if x = xs
-					if y = ys
-						x, y
-					else
-						()
-				else
-					()
-				if b = both
-					break b
-				else
-					body
-					continue
-			x = root item0
-			y = root item1
-			after
-			###
-			cond = complex-condition-to-option expr.condition
-			locals = cond.locals
-			tuple-option = cond.tuple-option
-			both = cond.expr
-			tuple-type = tuple-option.as-option!
-			loop_ =
-				body = lower-expr void.type, expr.body
-				body-and-continue = gen-do-and-continue tuple-type, range, body
-				loop-body = gen-if-option range, both,
-					then_: with temp in tuple-type, range
-						gen-break range, temp
-					else_: body-and-continue
-				gen-loop tuple-type, range, loop-body
-			root low-local = member2, tuple-type
-			get-root = gen-local-get range, root
-			after mut = if after = expr.after
-				lower-with-locals-from-condition cond, type, after
-			else
-				gen-void range
-			for index, local in with-index locals
-				get-it = if locals.size == 1
-					get-root
-				else
-					gen-record-field-get local.type, range, get-root, index
-				after := gen-let type, range, local, get-it, after
-			gen-let type, range, root, loop_, after
-		else
-			###
-			while x = xs and y = ys
-				body
-			after
-			==>
-			loop
-				if x = xs
-					if y = ys
-						body
-						continue
-					else
-						break
-				else
-					break
-			after
-			###
-			true-branch = of
-				body = lower-expr void.type, expr.body
-				gen-do-and-continue void.type, range, body
-			loop-body = lower-complex-condition void.type, range, expr.condition, true-branch, of
-				gen-break range, void
-			loop_ = gen-loop void.type, range, loop-body
-			gen-seq range, loop_, lower-expr-or-void type, range, expr.after
+				continue
+		###
+		gen-loop type, range,
+			with-lower-condition range, expr.condition, of cond
+				gen-if range, cond,
+					then_: gen-break range, lower-expr-or-void type, range, expr.after
+					else_: gen-do-and-continue type, range, lower-expr void.type, expr.body
 	else
 		###
 		while cond
@@ -911,66 +795,13 @@ do lower-and-expr-ctx
 				break
 		after
 		###
-		condition = lower-expr-and-convert-option-to-bool expr.condition
-		body = lower-expr void.type, expr.body
-		do-and-continue = gen-do-and-continue void.type, range, body
-		break_ = gen-break range, void
-		if_ = if expr.is-until
-			gen-if range, condition, break_, do-and-continue
-		else
-			gen-if range, condition, do-and-continue, break_
-		loop_ = gen-loop void.type, range, if_
-		gen-seq range, loop_, lower-expr-or-void type, range, expr.after
-
--complex-condition-option-result record
-	model-locals local[]
-	locals low-local[]
-	tuple-option low-type
-	expr low-expr
--complex-condition-to-option complex-condition-option-result(a expr) lower-and-expr-ctx
-	range = to-uri-and-range a.range
-	model-locals local[] = for* x in condition-knowledge a, true
-		from-option x.local
-	low-tuple-option = get-low-type option[single-or-tuple map model-locals, it.type]
-	low-tuple-type = as-option! low-tuple-option
-	local-types low-type[] = if model-locals.size == 0
-		()
-	elif model-locals.size == 1
-		low-tuple-type,
-	else
-		low-tuple-type.source.low-type-source-inst!.type-args
-	local-types.size is model-locals.size
-	low-locals mut low-local[] = ()
-	true-branch = of
-		low-locals := for local in model-locals then locals[local]!
-		exprs low-expr[] = for type, local in zip local-types, model-locals
-			lower-local-get type, range, local, ()
-		tuple-expr low-expr = if model-locals.size == 0
-			gen-void range
-		elif model-locals.size == 1
-			only! exprs
-		else
-			gen-create-record low-tuple-type, range, exprs
-		gen-option low-tuple-option, range, tuple-expr
-	expr = lower-complex-condition low-tuple-option, range, a, true-branch, of
-		gen-empty-option low-tuple-option, range
-	model-locals: model-locals
-	locals: low-locals
-	tuple-option: low-tuple-option
-	expr: expr
--single-or-tuple type(a type[]) common-types
-	only a else tuple! to-type-args a
--lower-with-locals-from-condition low-expr
-	cond complex-condition-option-result
-	type low-type
-	expr expr
-do lower-and-expr-ctx
-	for model-local, low-local in zip cond.model-locals, cond.locals
-		locals[model-local] := low-local
-	finally
-		for model-local in cond.model-locals
-			_ = remove! locals, model-local
-	lower-expr type, expr
+		gen-seq range,
+			- gen-loop void.type, range,
+				with-lower-condition range, expr.condition, of cond
+					gen-if range, cond,
+						then_: gen-do-and-continue void.type, range, lower-expr void.type, expr.body
+						else_: gen-break range, void
+			- lower-expr-or-void type, range, expr.after
 
 -lower-match-enum low-expr(type low-type, range uri-and-range, a match-enum-expr) lower-and-expr-ctx
 	do unless is-empty a.cases else lower-bogus type, range
@@ -1088,7 +919,7 @@ do lower-and-expr-ctx
 		lower-expr-or-void range, a.after
 	true-branch low-expr mut(), false-branch low-expr mut() =
 		if a.is-forbid then throw_, after else after, throw_
-	lower-if type, a.type, range, a.condition, true-branch, false-branch
+	lower-if range, a.condition, true-branch, false-branch
 
 -lower-expr low-expr(a expr) lower-and-expr-ctx
 	lower-expr a.low-type, a
@@ -1200,7 +1031,7 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 	as typed-expr
 		lower-expr type, a.inner
 	as unpack-option
-		gen-option-to-bool lower-expr a.option
+		gen-option-is-non-empty lower-expr a.option
 	may-widen-type outer-type, res
 
 - ~[t] t array-view(a t array-view, x t)
@@ -1216,13 +1047,7 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 	if is-bool inner.type
 		inner
 	else
-		gen-option-to-bool inner
-
--gen-option-to-bool low-expr(arg low-expr) lower-ctx
-	range = arg.range
-	gen-if-option range, arg,
-		then_: gen-true range
-		else_: gen-false range
+		gen-option-is-non-empty inner
 
 -as-seq low-expr[](a low-expr)
 	match x = a.kind

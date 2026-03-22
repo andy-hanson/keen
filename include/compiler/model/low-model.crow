@@ -15,12 +15,18 @@ low-type-body union
 	low-record
 	low-union
 	low-type-body-deferred
+do
+	to json()
 low-builtin-type record(kind builtin-type, type-args low-type[])
+to json(a low-builtin-type)
 low-enum record(storage nat-type)
+to json(a low-enum)
 low-flags record(storage nat-type)
+to json(a low-flags)
 low-record record
 	prevent-constant bool
 	fields low-field[]
+to json(a low-record)
 | Lambdas and all {sum-type} kinds compile to this.
 | Method impls are stored separately on the {low-program}.
 low-union record force-data
@@ -28,7 +34,9 @@ low-union record force-data
 	| This may be an empty array for a lambda type with no implementations.
 	| WARN: for a Java interface, this is not exhaustive.
 	late-members mut low-type[]?
+to json(a low-union)
 low-type-body-deferred record
+to json(a low-type-body-deferred)
 has-members bool(a low-union)
 	!!a.late-members
 members low-type[](a low-union)
@@ -70,10 +78,13 @@ must-be-flags flags_(a low-type)
 	a.source.low-type-source-inst!.decl.body.flags_!
 
 low-type-source union(low-type-source-inst, low-type-source-bogus)
+	to json()
 low-type-source-bogus record
+to json(a low-type-source-bogus)
 low-type-source-inst record
 	decl struct-decl
 	type-args low-type[]
+to json(a low-type-source-inst)
 range uri-and-range(a low-type-source)
 	match a
 	as low-type-source-bogus
@@ -87,6 +98,11 @@ low-type record force-data
 	body mut low-type-body
 to json(a low-type)
 	"{a.simple-name} {a.id}"
+to-json-with-body json(a low-type)
+	id: a.id.to
+	purity: a.purity.to
+	source: a.source.to
+	body: a.body.to
 | Not guaranteed to be unique
 simple-name symbol(a low-type)
 	match source = a.source
@@ -188,15 +204,13 @@ low-field record
 	name symbol
 	is-mutable bool
 	type low-type
+to json(a low-field)
 
-low-local-source union(local, low-local-source-reference, low-generated-local-kind)
+low-local-source union(local, low-generated-local-kind)
 	hash void(state hash-state)
 	to json()
 is-mutable bool(a low-local-source)
 	a.local and a.is-mutable
-low-local-source-reference record(original local)
-to json(a low-local-source-reference)
-hash void(a low-local-source-reference, state hash-state)
 low-generated-local-kind enum(args, ignore, destruct, member, member2, temp, the_, union-kind)
 == bool(a low-generated-local-kind, b low-generated-local-kind)
 to symbol(a low-generated-local-kind)
@@ -220,7 +234,7 @@ is-mutable bool(a low-local)
 	is-mutable a.source
 
 low-fun-body union
-	builtin-fun # TODO: this could just use builtin-low-expr ...
+	builtin-fun
 	low-expr
 	fun-body-extern-java
 	low-fun-body-method
@@ -357,6 +371,7 @@ low-expr-kind union
 	try-low-expr
 	try-let-low-expr
 	union-assume-case-low-expr
+	union-as-case-or-gc-safe-low-expr
 	union-is-case-low-expr
 	var-get-low-expr
 	var-set-low-expr
@@ -558,6 +573,13 @@ union_ low-union(a union-assume-case-low-expr)
 	a.union-type.body.low-union!
 to json(a union-assume-case-low-expr)
 
+union-as-case-or-gc-safe-low-expr record(arg low-expr)
+union-type low-type(a union-as-case-or-gc-safe-low-expr)
+	a.arg.type
+union_ low-union(a union-as-case-or-gc-safe-low-expr)
+	a.union-type.body.low-union!
+to json(a union-as-case-or-gc-safe-low-expr)
+
 union-is-case-low-expr record(arg low-expr, case-index nat)
 union-type low-type(a union-is-case-low-expr)
 	a.arg.type
@@ -632,7 +654,8 @@ low-async-info record
 	var-initializers low-var set
 to json(a low-program)
 	target: a.target.to
-	all-types: a.all-types-including-extern.to
+	all-types: for x in a.all-types-including-extern
+		x.to-json-with-body
 	all-vars: a.all-vars.to
 	all-funs: for x in a.all-funs-including-extern
 		x.to-json-with-body
@@ -745,6 +768,8 @@ iterate bool(a low-direct-child-exprs, f bool mut(x low-expr))
 		f[x.value] or f[x.catch_.expr] or f[x.then_]
 	as union-assume-case-low-expr
 		f[x.arg]
+	as union-as-case-or-gc-safe-low-expr
+		f[x.arg]
 	as union-is-case-low-expr
 		f[x.arg]
 	as var-get-low-expr
@@ -843,4 +868,10 @@ hash void(a constant-gc-safe-value, state hash-state)
 as-bool bool(a constant)
 	a.scalar-value!.to
 as-float float64(a constant)
-	a.scalar-value!.to
+	match a
+	as constant-gc-safe-value
+		trusted nan
+	as scalar-value
+		a.to
+	else
+		throw unreachable

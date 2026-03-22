@@ -496,9 +496,9 @@ do java-expr-ctx
 	as char32
 		push-constant-integral out, int32, constant
 	as float32
-		fconst out, constant.scalar-value!.to::float64.to
+		fconst out, to as-float constant
 	as float64
-		dconst out, constant.scalar-value!.to::float64
+		dconst out, as-float constant
 	as future
 		throw unreachable
 	as int8
@@ -941,10 +941,14 @@ do java-refs
 		checkcast out, class_ type
 		unbox-if-necessary out, type
 
+-needs-unbox bool(type low-type)
+	as-java-primitive-type type or as-wrapper type
 -unbox-if-necessary void(out code-builder, type low-type) java-refs
+	do if needs-unbox type
 	if p = as-java-primitive-type type
 		invokevirtual out, primitive-unboxer type, p
-	elif field = as-wrapper type
+	else
+		field = as-wrapper! type
 		getfield out, record-field type, field # TODO: doesn't this need to apply recursively?
 
 -translate-funs-for-uri void(uri uri, funs low-fun[], vars low-var[]) java-ctx
@@ -1076,8 +1080,7 @@ do java-refs
 				case-type = union_.body.low-union!.members[case-index]
 				jumps-to-here jump-to-case[case-index], out, cur-stack-frame
 				aload out, 0
-				get-switchable-value out, union_
-				cast-and-unbox-if-necessary out, case-type
+				get-switchable-value out, union_, case-type
 				load-rest-params[]
 				case-impl = case-impls[method-index] else throw todo
 				call-low-fun out, case-impl
@@ -1467,8 +1470,7 @@ do java-refs
 		as interface_
 			cast-and-unbox-if-necessary out, type
 		as switch
-			get-switchable-value out, x.union-type
-			cast-and-unbox-if-necessary out, type
+			get-switchable-value out, x.union-type, type
 		as nullable
 			null-type, not-null-type = only2! x.union_.members
 			if type == null-type
@@ -1478,6 +1480,74 @@ do java-refs
 				unbox-if-necessary out, type
 		must-refine x.union-type, type
 		handle-pos out, pos, type
+	as union-as-case-or-gc-safe-low-expr
+		emit-and-continue out, x.arg
+		if is-empty-type type
+			pop out, as-runtime-type x.union-type
+			must-refine x.union-type, type
+			handle-pos out, pos, type
+		else
+			match union-representation x.union-type
+			as exception
+				# This is only used for options, so it will never be an exception or interface
+				throw unreachable
+			as interface_
+				throw unreachable
+			as switch
+				###
+				dup
+				get kind
+				ifeq case-index goto end
+				pop
+				push gc-safe-value
+				return
+				end:
+				get value
+				return
+				###
+				with inner-pos in inner-pos out, pos
+					dup32 out
+					get-switchable-kind out, x.arg.type
+					case-index = index-of! x.union_.members, type
+					push-constant-integral out, nat32, case-index.to
+					isub out
+					jump = ifeq out
+					pop out, x.arg.type.as-runtime-type
+					push-constant out, constant-gc-safe-value, type
+					handle-pos out, inner-pos, type
+					must-pop type
+					jumps-to-here jump, out, cur-stack-frame
+					get-switchable-value out, x.union-type, type
+					must-refine x.union-type, type
+					handle-pos out, inner-pos, type
+			as nullable
+				_, not-null-type = only2! x.union_.members
+				assert type == not-null-type else todo
+				if needs-unbox type
+					###
+					dup
+					ifnonnull goto b
+					pop
+					push 0
+					return
+					b:
+					unbox
+					return
+					###
+					with inner-pos in inner-pos out, pos
+						dup32 out
+						jump = ifnonnull out
+						pop out, x.union-type.as-runtime-type
+						push-constant out, constant-gc-safe-value, type
+						must-pop type
+						handle-pos out, inner-pos, type
+						jumps-to-here jump, out, cur-stack-frame
+						unbox-if-necessary out, type
+						must-refine x.union-type, type
+						handle-pos out, inner-pos, type
+				else
+					must-refine x.union-type, type
+					handle-pos out, pos, type
 	as union-is-case-low-expr
 		emit-and-continue out, x.arg
 		match union-representation x.union-type
@@ -1933,8 +2003,9 @@ do java-ctx, java-refs
 
 -get-switchable-kind void(out code-builder, union-type low-type) java-expr-ctx
 	getfield out, switchable-kind-field union-type
--get-switchable-value void(out code-builder, union-type low-type) java-expr-ctx
+-get-switchable-value void(out code-builder, union-type low-type, case-type low-type) java-expr-ctx
 	getfield out, switchable-value-field union-type
+	cast-and-unbox-if-necessary out, case-type
 
 -fits-in-int32 bool(a int64)
 	min-value::int32::int64 <= a and a <= max-value::int32
