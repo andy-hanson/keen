@@ -19,10 +19,10 @@ import
 	./util
 
 translate-to-java-classes java-compiled-class[]
-	program program
 	low-program low-program
 	class-prefix string
-do show-type-ctx
+do show-ctx
+	the low-common-types = low-program.common-types
 	start = perf-now
 	union-info = plan-unions low-program
 	the java-names = build-mangled-names low-program, class-prefix, union-info
@@ -30,7 +30,6 @@ do show-type-ctx
 		res: ()
 		next-lambda-index: 0
 		next-resource-index: 0
-		model-program: program
 		program: low-program
 		structs-for-integrals: get-types-for-integrals low-program
 	start-constants = perf-now
@@ -110,12 +109,11 @@ do show-type-ctx
 -new (low-fun mut[], low-var mut[])()
 	(), ()
 
--java-ctx spec show-ctx, java-names, to-java-ctx
+-java-ctx spec show-ctx, low-common-types, java-names, to-java-ctx
 -to-java-ctx record mut
 	res java-compiled-class mut[]
 	next-lambda-index mut nat
 	next-resource-index mut nat
-	model-program program
 	program low-program
 	structs-for-integrals low-type[integral-type]
 -program low-program() to-java-ctx
@@ -230,16 +228,16 @@ do
 	fields field_info[] = for index in 0 .. constant-symbols.size
 		access-flags: static | final
 		name: constant-symbol-name index
-		descriptor: descriptor-for-field-type program.symbol
+		descriptor: descriptor-for-field-type symbol
 		attributes: ()
 	this-class class-reference = constant-symbols-class
 	static-init method_info =
 		code = with out in build-code
-			for index, symbol in with-index constant-symbols
-				ldc out, string-ref out.constants, symbol.to
+			for index, value in with-index constant-symbols
+				ldc out, string-ref out.constants, value.to
 				invokevirtual out, java-String-getBytes
 				call-low-fun out, program.common-funs.low-common-funs-java!.to-symbol-from-string
-				putstatic out, constant-symbol-field program.symbol, index
+				putstatic out, constant-symbol-field symbol, index
 			return out, void
 		access-flags: static | final | synthetic
 		name: clinit
@@ -364,11 +362,11 @@ do java-expr-ctx
 		dup32 out
 		pushed array-type
 		iconst out, i.to
-		pushed program.nat32
+		pushed nat32
 		emit-element[i]
 		astore out, element-type.as-runtime-type
 		must-pop element-type
-		must-pop program.nat32
+		must-pop nat32
 		must-pop array-type
 	must-peek array-type
 
@@ -414,7 +412,7 @@ do java-expr-ctx
 			as constant-gc-safe-value
 				aconst_null out
 			as constant-symbol
-				getstatic out, constant-symbol-field program.symbol, constant.index
+				getstatic out, constant-symbol-field symbol, constant.index
 			else
 				throw unreachable
 			pushed type
@@ -532,7 +530,7 @@ do java-expr-ctx
 	as void
 		()
 	as weak-ref
-		assert constant constant-gc-safe-value
+		assert constant.constant-gc-safe-value
 		aconst_null out
 
 -push-constant-nat void(out code-builder, type nat-type, constant constant)
@@ -1028,9 +1026,8 @@ do java-refs
 -emit-fun-body void(out code-builder, fun low-fun) java-expr-ctx
 	match body = body fun
 	as builtin-fun # TODO: this should go away, always use the low-expr form
-		args low-expr[] = for param in params fun
-			param.type, fun.range, param.local-get-low-expr
-		translate-builtin out, body, fun.return-type, args
+		translate-builtin out, body, fun.return-type, for param in params fun
+			local-get-low-expr fun.range, param
 		return out, fun.return-type.as-runtime-type
 	as low-expr
 		emit-expr out, return, body
@@ -1194,48 +1191,48 @@ do java-refs
 -emit-expr void(out code-builder, pos expr-pos, a low-expr) java-expr-ctx
 	mark-line-number out, (get-start-line line-and-character-getters, a.start).to::nat16 + 1
 	type = a.type
-	match x = a.kind
+	match a
 	as array-op-low-expr
-		emit-for-loop out, pos, a, x
+		emit-for-loop out, pos, a, a
 	as builtin-low-expr
-		translate-builtin out, x.fun, type, x.args
+		translate-builtin out, a.fun, type, a.args
 		handle-pos out, pos, type
 	as call-low-expr
-		match body = x.called.body
+		match body = a.called.body
 		as builtin-fun
-			translate-builtin out, body, type, x.args
+			translate-builtin out, body, type, a.args
 		else
-			function-like out, type, x.args, of
-				call-low-fun out, x.called
+			function-like out, type, a.args, of
+				call-low-fun out, a.called
 		handle-pos out, pos, type
-	as constant
-		push-constant out, x, type
+	as constant-low-expr
+		push-constant out, a.value, type
 		handle-pos out, pos, type
 	as create-array-low-expr
-		make-array out, x.args.size, type, type.as-array!, of i
-			emit-and-continue out, x.args[i]
+		make-array out, a.args.size, type, type.as-array!, of i
+			emit-and-continue out, a.args[i]
 		handle-pos out, pos, type
 	as create-record-low-expr
 		new-record out, type, of i, _
-			emit-and-continue out, x.args[i]
+			emit-and-continue out, a.args[i]
 		handle-pos out, pos, type
 	as create-union-low-expr
-		emit-and-continue out, x.arg
-		new-union out, type, x.arg.type, x.case-index
+		emit-and-continue out, a.arg
+		new-union out, type, a.arg.type, a.case-index
 		handle-pos out, pos, type
 	as drop-low-expr
-		emit-and-continue out, x.arg
-		pop out, x.arg.type.as-runtime-type
-		must-pop x.arg.type
+		emit-and-continue out, a.arg
+		pop out, a.arg.type.as-runtime-type
+		must-pop a.arg.type
 		handle-pos out, pos, type
 	as finally-low-expr
 		with inner-pos in inner-pos out, pos
 			start-pc = out.next-index
-			emit-and-continue out, x.below # Leave the result on the stack
+			emit-and-continue out, a.below # Leave the result on the stack
 			end-pc = out.next-index
-			unless always-throws x.below # No point compiling the happy path if it always throws
-				emit-and-continue out, x.right
-				unless always-throws x.right
+			unless always-throws a.below # No point compiling the happy path if it always throws
+				emit-and-continue out, a.right
+				unless always-throws a.right
 					handle-pos out, inner-pos, type
 			if start-pc == end-pc
 				# Edge case: empty code below the 'finally'. Since empty code can't throw, don't handle exceptions
@@ -1245,49 +1242,49 @@ do java-refs
 				exception = program.exception
 				pushed exception
 				add-to-exception-table out, start-pc, end-pc, exception.class_, cur-stack-frame
-				emit-and-continue out, x.right
+				emit-and-continue out, a.right
 				# 'x.right' is void, so the exception should be at the top of the stack.
 				must-pop exception
-				unless always-throws x.right
+				unless always-throws a.right
 					athrow out
 				# Treat the stack effect as if it was successful
 				pushed type
 	as if-low-expr
-		emit-and-continue out, x.cond
+		emit-and-continue out, a.cond
 		with inner-pos in inner-pos out, pos
 			jump-if-false = ifeq out
-			must-pop program.bool
-			emit-expr out, inner-pos, x.then_
+			must-pop bool
+			emit-expr out, inner-pos, a.then_
 			must-pop type # The value isn't actually popped, be we will now emit the other branch
 			jumps-to-here jump-if-false, out, cur-stack-frame
-			emit-expr out, inner-pos, x.else_
+			emit-expr out, inner-pos, a.else_
 			must-peek type
 	as let-low-expr
-		emit-and-continue out, x.value
-		emit-with-local out, x.local, pos, x.then_
+		emit-and-continue out, a.value
+		emit-with-local out, a.local, pos, a.then_
 	as lambda-low-expr
-		class-name = create-lambda-implementation-class a.range.uri, the::expr-ctx.cur-fun-for-debug!, type, x
+		class-name = create-lambda-implementation-class a.uri, the::expr-ctx.cur-fun-for-debug!, type, a
 		class_ = class_ out.constants, class-name
 		# All we do here is call 'new' or 'instance'
-		if is-empty x.closure
+		if is-empty a.closure
 			getstatic out, instance-field class_, class-name
 		else
 			makenew out, class_
 			dup32 out
-			for local in x.closure
+			for local in a.closure
 				get-local out, local
-			invokespecial out, lambda-init-reference class_, x
+			invokespecial out, lambda-init-reference class_, a
 		pushed type
 		handle-pos out, pos, type
 	as local-get-low-expr
-		get-local out, x.local
+		get-local out, a.local
 		pushed type
 		handle-pos out, pos, type
 	as local-set-low-expr
-		emit-and-continue out, x.value
-		local-type = x.local.type
+		emit-and-continue out, a.value
+		local-type = a.local.type
 		unless is-empty-type local-type
-			match l = explain-local x.local
+			match l = explain-local a.local
 			as nat
 				xstore out, local-type.as-runtime-type, l
 			as field-reference
@@ -1312,20 +1309,20 @@ do java-refs
 		###
 		prev-loop-pos = loop-pos
 		loop-pos := can-jump-back-to-here out, cur-stack-frame
-		emit-expr out, pos, x.body
+		emit-expr out, pos, a.body
 		loop-pos := prev-loop-pos
 	as loop-break-low-expr
-		emit-expr out, pos, x.value
+		emit-expr out, pos, a.value
 	as loop-continue-low-expr
 		go-back-to out, the::expr-ctx.loop-pos!
 		pushed type # Treat the stack effect as if the loop completed
 	as match-scalar-low-expr
 		# TODO:PERF If <= 3 cases, it's probably better to just use ifeq instructions
-		emit-and-continue out, x.matched
+		emit-and-continue out, a.matched
 		with inner-pos in inner-pos out, pos
-			matched-type = x.matched-integral-type
+			matched-type = a.matched-integral-type
 			is-signed = is-signed matched-type
-			ok = every x.case-values, of value
+			ok = every a.case-values, of value
 				if is-signed
 					fits-in-int32 value.to::int64
 				else
@@ -1348,38 +1345,38 @@ do java-refs
 				res
 			else
 				()
-			jump-to-case, jump-to-default, sorted-cases = prepare-switch out, x.case-values, x.case-exprs
-			must-pop x.matched.type
+			jump-to-case, jump-to-default, sorted-cases = prepare-switch out, a.case-values, a.case-exprs
+			must-pop a.matched.type
 			for target, expr in zip jump-to-case, sorted-cases
 				jumps-to-here target, out, cur-stack-frame
 				emit-expr out, inner-pos, expr
 				must-pop type
 			if jump-to-pop-then-default
 				# In this case it will still have the long value on the stack
-				pushed x.matched.type
+				pushed a.matched.type
 				jumps-to-here jump-to-pop-then-default, out, cur-stack-frame
 				pop out, T_LONG
-				must-pop x.matched.type
+				must-pop a.matched.type
 			jumps-to-here jump-to-default, out, cur-stack-frame
-			if e = x.else_
+			if e = a.else_
 				emit-expr out, inner-pos, e
 			else
 				emit-unreachable out
 				pushed type
 	as match-string-like-low-expr
-		emit-and-continue out, x.matched
-		matched-type = x.matched.type
+		emit-and-continue out, a.matched
+		matched-type = a.matched.type
 		with inner-pos in inner-pos out, pos
 			jump mut deferred-jump? = ()
-			for index, case_ in with-index x.cases
+			for index, case_ in with-index a.cases
 				?jumps-to-here jump, out, cur-stack-frame
 				# Final case will consume it
-				is-last-case = index == x.cases.size - 1
+				is-last-case = index == a.cases.size - 1
 				unless is-last-case
 					dup32 out
 					pushed matched-type
 				push-constant out, case_.value, matched-type
-				call-low-fun out, x.equals
+				call-low-fun out, a.equals
 				must-pop matched-type
 				must-pop matched-type
 				# Jump to next if the equality test returned 0 (false)
@@ -1394,29 +1391,29 @@ do java-refs
 				unless is-last-case
 					pushed matched-type
 			jumps-to-here jump!, out, cur-stack-frame
-			emit-expr out, inner-pos, x.else_
+			emit-expr out, inner-pos, a.else_
 	as match-union-low-expr
-		emit-match-union out, pos, type, x
+		emit-match-union out, pos, type, a
 	as record-field-get-low-expr
-		emit-and-continue out, x.record_
-		unless is-wrapper x.record_.type
-			getfield out, record-field x.record_.type, x.field
-		must-pop x.record_.type
-		pushed x.field.type
+		emit-and-continue out, a.record_
+		unless is-wrapper a.record_.type
+			getfield out, record-field a.record_.type, a.field
+		must-pop a.record_.type
+		pushed a.field.type
 		handle-pos out, pos, type
 	as record-field-set-low-expr
-		emit-and-continue out, x.record_
-		emit-and-continue out, x.value
-		putfield out, record-field x.record_.type, x.field
-		must-pop x.value.type
-		must-pop x.record_.type
+		emit-and-continue out, a.record_
+		emit-and-continue out, a.value
+		putfield out, record-field a.record_.type, a.field
+		must-pop a.value.type
+		must-pop a.record_.type
 		handle-pos out, pos, type
 	as seq-low-expr
-		for part in x.parts[0 .. end - 1]
+		for part in a.parts[0 .. end - 1]
 			emit-and-continue out, part
-		emit-expr out, pos, x.parts[end - 1]
+		emit-expr out, pos, a.parts[end - 1]
 	as throw-low-expr
-		emit-and-continue out, x.thrown
+		emit-and-continue out, a.thrown
 		must-pop program.exception
 		athrow out
 		# Treat the stack effect as if it was successful
@@ -1424,9 +1421,9 @@ do java-refs
 	as try-low-expr
 		with inner-pos in inner-pos out, pos
 			start = out.next-index
-			emit-expr out, inner-pos, x.tried
+			emit-expr out, inner-pos, a.tried
 			end = out.next-index
-			for exception-case-index, case_ in zip x.exception-member-indices.to-array, x.catch-cases
+			for exception-case-index, case_ in zip a.exception-member-indices.to-array, a.catch-cases
 				must-pop type
 				catch-type = exception-case-type-from-index exception-case-index
 				frame-before = cur-stack-frame
@@ -1436,7 +1433,7 @@ do java-refs
 					stack: frame-before.stack ~ boxed-catch-type.Object_variable_info
 				pushed program.exception # just use an arbitrary type here, we're about to pop it
 				emit-with-unboxed-opt-local out, program.exception, case_.local, inner-pos, case_.expr
-			if else_ = x.catch-else
+			if else_ = a.catch-else
 				must-pop type
 				# TODO: this is basicaly the same as for other cases, share code
 				frame-before = cur-stack-frame
@@ -1448,46 +1445,46 @@ do java-refs
 				emit-with-unboxed-opt-local out, program.exception, else_.local, inner-pos, else_.expr
 	as try-let-low-expr
 		start = out.next-index
-		emit-and-continue out, x.value
+		emit-and-continue out, a.value
 		end = out.next-index
 		with inner-pos in inner-pos out, pos
-			emit-with-opt-local out, x.local, x.value.type, inner-pos, x.then_
+			emit-with-opt-local out, a.local, a.value.type, inner-pos, a.then_
 			# TODO: this is very similar to the code for try-low-expr, share code!
 			must-pop type
-			catch-type = exception-case-type-from-index x.exception-member-index
+			catch-type = exception-case-type-from-index a.exception-member-index
 			frame-before = cur-stack-frame
 			boxed-catch-type = class_ catch-type
 			add-to-exception-table out, start, end, boxed-catch-type,
 				locals: frame-before.locals
 				stack: frame-before.stack ~ boxed-catch-type.Object_variable_info
 			pushed program.exception # just use an arbitrary type here, we're about to pop it
-			emit-with-unboxed-opt-local out, program.exception, x.catch_.local, inner-pos, x.catch_.expr
+			emit-with-unboxed-opt-local out, program.exception, a.catch_.local, inner-pos, a.catch_.expr
 	as union-assume-case-low-expr
-		emit-and-continue out, x.arg
-		match union-representation x.union-type
+		emit-and-continue out, a.arg
+		match union-representation a.union-type
 		as exception
 			cast-and-unbox-if-necessary out, type
 		as interface_
 			cast-and-unbox-if-necessary out, type
 		as switch
-			get-switchable-value out, x.union-type, type
+			get-switchable-value out, a.union-type, type
 		as nullable
-			null-type, not-null-type = only2! x.union_.members
+			null-type, not-null-type = only2! a.union_.members
 			if type == null-type
 				pop out, reference-type
 			else
 				assert type == not-null-type
 				unbox-if-necessary out, type
-		must-refine x.union-type, type
+		must-refine a.union-type, type
 		handle-pos out, pos, type
 	as union-as-case-or-gc-safe-low-expr
-		emit-and-continue out, x.arg
+		emit-and-continue out, a.arg
 		if is-empty-type type
-			pop out, as-runtime-type x.union-type
-			must-refine x.union-type, type
+			pop out, as-runtime-type a.union-type
+			must-refine a.union-type, type
 			handle-pos out, pos, type
 		else
-			match union-representation x.union-type
+			match union-representation a.union-type
 			as exception
 				# This is only used for options, so it will never be an exception or interface
 				throw unreachable
@@ -1507,21 +1504,21 @@ do java-refs
 				###
 				with inner-pos in inner-pos out, pos
 					dup32 out
-					get-switchable-kind out, x.arg.type
-					case-index = index-of! x.union_.members, type
+					get-switchable-kind out, a.arg.type
+					case-index = index-of! a.union_.members, type
 					push-constant-integral out, nat32, case-index.to
 					isub out
 					jump = ifeq out
-					pop out, x.arg.type.as-runtime-type
+					pop out, a.arg.type.as-runtime-type
 					push-constant out, constant-gc-safe-value, type
 					handle-pos out, inner-pos, type
 					must-pop type
 					jumps-to-here jump, out, cur-stack-frame
-					get-switchable-value out, x.union-type, type
-					must-refine x.union-type, type
+					get-switchable-value out, a.union-type, type
+					must-refine a.union-type, type
 					handle-pos out, inner-pos, type
 			as nullable
-				_, not-null-type = only2! x.union_.members
+				_, not-null-type = only2! a.union_.members
 				assert type == not-null-type else todo
 				if needs-unbox type
 					###
@@ -1537,55 +1534,55 @@ do java-refs
 					with inner-pos in inner-pos out, pos
 						dup32 out
 						jump = ifnonnull out
-						pop out, x.union-type.as-runtime-type
+						pop out, a.union-type.as-runtime-type
 						push-constant out, constant-gc-safe-value, type
 						must-pop type
 						handle-pos out, inner-pos, type
 						jumps-to-here jump, out, cur-stack-frame
 						unbox-if-necessary out, type
-						must-refine x.union-type, type
+						must-refine a.union-type, type
 						handle-pos out, inner-pos, type
 				else
-					must-refine x.union-type, type
+					must-refine a.union-type, type
 					handle-pos out, pos, type
 	as union-is-case-low-expr
-		emit-and-continue out, x.arg
-		match union-representation x.union-type
+		emit-and-continue out, a.arg
+		match union-representation a.union-type
 		as exception
-			instanceof out, class_ x.case-type
+			instanceof out, class_ a.case-type
 		as interface_
-			instanceof out, class_ x.case-type
+			instanceof out, class_ a.case-type
 		as switch
-			get-switchable-kind out, x.union-type
-			push-constant-integral out, int32, x.case-index.to
+			get-switchable-kind out, a.union-type
+			push-constant-integral out, int32, a.case-index.to
 			invokestatic out, crow-equal-integral int32
 		as nullable
-			invokestatic out, match x.case-index
+			invokestatic out, match a.case-index
 			as 0
 				crow-is-null
 			as 1
 				crow-is-not-null
 			else
 				throw unreachable
-		must-pop x.arg.type
+		must-pop a.arg.type
 		pushed type
 		handle-pos out, pos, type
 	as var-get-low-expr
-		match x.var.kind
+		match a.var.kind
 		as thread-local_
 			throw todo
 		as global_
-			getstatic out, var-field x.var
+			getstatic out, var-field a.var
 		pushed type
 		handle-pos out, pos, type
 	as var-set-low-expr
-		emit-and-continue out, x.value
-		match kind x.var
+		emit-and-continue out, a.value
+		match kind a.var
 		as thread-local_
 			throw todo
 		as global_
-			putstatic out, var-field x.var
-			must-pop x.value.type
+			putstatic out, var-field a.var
+			must-pop a.value.type
 		handle-pos out, pos, type
 
 -emit-uninitialized-buffer void(out code-builder, size-type low-type, elem-type low-type) java-expr-ctx
@@ -1614,8 +1611,7 @@ do java-refs
 	as void
 		true
 
-	nat32 = program.nat32
-	integral-type = match input-kind x
+	integral-type low-type = match input-kind x
 	as array
 		nat32
 	as range
@@ -1740,11 +1736,11 @@ do java-refs
 		emit-match-union-using-switch out, pos, type, a
 	as nullable
 		with inner-pos in inner-pos out, pos
-			null-case, non-null-case = if a.member-indices[0] == 0
-				a.member-indices is (0, 1)
+			null-case, non-null-case = if a.case-indices[0] == 0
+				a.case-indices is (0, 1)
 				only2! a.cases
 			else
-				a.member-indices is (1, 0)
+				a.case-indices is (1, 0)
 				swap only2! a.cases
 			forbid a.else_
 
@@ -1769,8 +1765,8 @@ do java-expr-ctx
 	# Note: I tested using a 'switch' on the 'case-index' method, but it didn't improve performance.
 	matched-type = x.matched.type
 	with inner-pos in inner-pos out, pos
-		for member-index, case_ in zip x.member-indices.to-array, x.cases
-			is-last-case = member-index == x.member-indices[end - 1]
+		for member-index, case_ in zip x.case-indices.to-array, x.cases
+			is-last-case = member-index == x.case-indices[end - 1]
 			case-type = x.union_.members[member-index]
 			unless is-last-case
 				dup32 out
@@ -1803,11 +1799,11 @@ do java-expr-ctx
 do java-expr-ctx
 	get-switchable-kind out, a.matched.type
 	must-pop a.matched.type
-	pushed program.nat32
+	pushed nat32
 	with inner-pos in inner-pos out, pos
 		# This consumes 'kind'
-		must-pop program.nat32
-		jump-to-case, jump-to-default, sorted-cases = prepare-switch out, a.member-indices.values, a.cases
+		must-pop nat32
+		jump-to-case, jump-to-default, sorted-cases = prepare-switch out, a.case-indices.values, a.cases
 		for target, case_ in zip jump-to-case, sorted-cases
 			jumps-to-here target, out, cur-stack-frame
 			emit-expr out, inner-pos, case_
@@ -1991,11 +1987,11 @@ do java-ctx, java-refs
 	attributes: code,
 
 -always-throws bool(a low-expr)
-	match x = a.kind
+	match a
 	as finally-low-expr
-		always-throws x.below
+		always-throws a.below
 	as seq-low-expr
-		exists x.parts, it.always-throws
+		exists a.parts, it.always-throws
 	as throw-low-expr
 		true
 	else
@@ -2077,7 +2073,7 @@ do java-expr-ctx
 		emit-and-continue out, arg
 		must-peek arg.type
 | Does not actually pop args, just acknowledges that some operation took values off of the stack
--popped-args void(args low-expr[]) expr-ctx
+-popped-args void(args low-expr[]) low-common-types, expr-ctx
 	for arg low-expr in reverse args # TODO: should not need type annotation
 		must-pop arg.type
 -pushed void(type low-type) expr-ctx

@@ -2,10 +2,9 @@ import
 	../model/ast
 	../model/low-model
 	../model/model
-	../util/enum-map
 	../util/util
 
-check-low-program void(a low-program, types low-common-types)
+check-low-program void(a low-program) low-common-types
 	if a.target == java
 		for struct in a.all-non-extern-types
 			match x = body struct
@@ -13,7 +12,7 @@ check-low-program void(a low-program, types low-common-types)
 				assert are-unique x.members
 			else
 				()
-	the ctx = a, types
+	the low-program = a
 	for fun in a.all-non-extern-funs
 		if e = fun.body.low-expr
 			check-expr fun.return-type, e
@@ -21,54 +20,31 @@ check-low-program void(a low-program, types low-common-types)
 -are-unique[t] bool(a t[]) t key
 	a.to::(t set).size == a.size
 
-low-common-types record
-	bool low-type
-	char-types (char-type, low-type) enum-map
-	exception low-type
-	integral-types (integral-type, low-type) enum-map
-	float-types (float-type, low-type) enum-map
-	string low-type
-	void low-type
--int64 low-type(a low-common-types)
-	a.integral-types[int64]
--nat32 low-type(a low-common-types)
-	a.integral-types[nat32]
--nat64 low-type(a low-common-types)
-	a.integral-types[nat64]
--float32 low-type(a low-common-types)
-	a.float-types[float32]
--float64 low-type(a low-common-types)
-	a.float-types[float64]
+-ctx spec low-program, low-common-types
+-program low-program() low-program
+	the::low-program
 
--ctx record
-	program low-program
-	types low-common-types
--program low-program() ctx
-	the::ctx.program
--types low-common-types() ctx
-	the::ctx.types
-
--check-expr void(type low-type, expr low-expr) ctx
-	if is-bogus expr.type
-		assert expr.kind.throw-low-expr
+-check-expr void(type low-type, a low-expr) low-common-types, ctx
+	if is-bogus a.type
+		assert a.throw-low-expr
 	else
 		forbid is-bogus type
-		type is expr.type
-	match x = expr.kind
+		type is a.type
+	match a
 	as array-op-low-expr
 		out-element = if is-void type then type else as-array-or-buffer! type
-		check-expr x.input.type, x.input
-		if l = x.local
-			l.type is x.in-element
-		check-expr out-element, x.body
+		check-expr a.input.type, a.input
+		if l = a.local
+			l.type is a.in-element
+		check-expr out-element, a.body
 	as builtin-low-expr
-		check-builtin type, x
+		check-builtin type, a
 	as call-low-expr
-		type is x.called.return-type
-		for param, arg in zip x.called.params, x.args
+		type is a.called.return-type
+		for param, arg in zip a.called.params, a.args
 			check-expr param.type, arg
-	as constant
-		each-nested-constant program.all-constants, type, x, of constant-type, c
+	as constant-low-expr
+		each-nested-constant program.all-constants, type, a.value, of constant-type, c
 			match c
 			as constant-record
 				assert constant-type.body.low-record
@@ -77,105 +53,108 @@ low-common-types record
 				()
 	as create-array-low-expr
 		element-type = as-array! type
-		for arg in x.args
+		for arg in a.args
 			check-expr element-type, arg
 	as create-record-low-expr
 		record_ = type.body.low-record!
-		for arg, field in zip x.args, record_.fields
+		for arg, field in zip a.args, record_.fields
 			check-expr field.type, arg
 	as create-union-low-expr
-		check-expr type.body.low-union!.members[x.case-index], x.arg
+		check-expr type.body.low-union!.members[a.case-index], a.arg
 	as drop-low-expr
 		assert is-void type
-		check-expr-any-type x.arg
+		check-expr-any-type a.arg
 	as finally-low-expr
-		check-expr types.void, x.right
-		check-expr type, x.below
+		check-expr void, a.right
+		check-expr type, a.below
 	as if-low-expr
-		check-expr types.bool, x.cond
-		check-expr type, x.then_
-		check-expr type, x.else_
+		check-expr bool, a.cond
+		check-expr type, a.then_
+		check-expr type, a.else_
 	as let-low-expr
-		check-expr x.local.type, x.value
-		check-expr type, x.then_
+		check-expr a.local.type, a.value
+		check-expr type, a.then_
 	as lambda-low-expr
 		assert return-type, param-type = as-lambda-type type
-		assert x.param.type == param-type
-		check-expr return-type, x.body
+		assert a.param.type == param-type
+		check-expr return-type, a.body
 	as local-get-low-expr
-		type is x.local.type
+		type is a.local.type
 	as local-set-low-expr
 		assert is-void type
-		check-expr x.local.type, x.value
+		check-expr a.local.type, a.value
 	as loop-low-expr
-		check-expr type, x.body
+		check-expr type, a.body
 	as loop-break-low-expr
-		check-expr type, x.value
+		check-expr type, a.value
 	as loop-continue-low-expr
 		()
 	as match-scalar-low-expr
-		assert is-sorted x.case-values
-		x.case-values.size is x.case-exprs.size
-		body = x.matched.type.body
+		assert is-sorted a.case-values
+		a.case-values.size is a.case-exprs.size
+		body = a.matched.type.body
 		assert low-enum body or is-char-or-integral body.low-builtin-type!.kind
-		check-expr-any-type x.matched
-		for case_ in x.case-exprs
+		check-expr-any-type a.matched
+		for case_ in a.case-exprs
 			check-expr type, case_
-		if e = x.else_
+		if e = a.else_
 			check-expr type, e
 	as match-string-like-low-expr
-		check-expr-any-type x.matched
-		assert x.equals.return-type == types.bool
-		x.equals.params.size is 2
-		assert every x.equals.params, it.type == x.matched.type
-		for case_ in x.cases
+		check-expr-any-type a.matched
+		assert a.equals.return-type == bool
+		a.equals.params.size is 2
+		assert every a.equals.params, it.type == a.matched.type
+		for case_ in a.cases
 			check-expr type, case_.then_
-		check-expr type, x.else_
+		check-expr type, a.else_
 	as match-union-low-expr
-		check-expr-any-type x.matched
-		assert x.member-indices.size <= x.union_.members.size
-		x.cases.size is x.member-indices.size
-		for case_ in x.cases
+		assert is-sorted a.case-indices
+		forbid is-empty a.cases
+		check-expr-any-type a.matched
+		case-types = a.union_.members
+		assert a.case-indices.size <= case-types.size
+		a.cases.size is a.case-indices.size
+		for case_ in a.cases
 			check-expr type, case_
-		if e = x.else_
+		if e = a.else_
 			check-expr type, e
 	as record-field-get-low-expr
-		check-expr-any-type x.record_
-		assert x.field.type == type
+		check-expr-any-type a.record_
+		assert a.field.type == type
 	as record-field-set-low-expr
 		assert is-void type
-		check-expr-any-type x.record_
-		check-expr x.field.type, x.value
+		check-expr-any-type a.record_
+		check-expr a.field.type, a.value
 	as seq-low-expr
-		for part in x.parts[0 .. end - 1]
-			check-expr types.void, part
-		check-expr type, x.parts[end - 1]
+		for part in a.parts[0 .. end - 1]
+			check-expr void, part
+		check-expr type, a.parts[end - 1]
 	as throw-low-expr
-		check-expr types.exception, x.thrown
+		check-expr exception, a.thrown
 	as try-low-expr
-		check-expr type, x.tried
-		check-catches type, types.exception, x.exception-member-indices, x.catch-cases
+		check-expr type, a.tried
+		check-catches type, exception, a.exception-member-indices, a.catch-cases
 	as try-let-low-expr
-		local = x.local
+		local = a.local
 		if local
-			assert local.type == x.value.type
-		check-expr x.value.type, x.value
-		check-catches type, types.exception, x.exception-member-index.to, (x.catch_,)
-		check-expr type, x.then_
+			assert local.type == a.value.type
+		check-expr a.value.type, a.value
+		check-catches type, exception, a.exception-member-index.to, (a.catch_,)
+		check-expr type, a.then_
 	as union-assume-case-low-expr
-		assert contains x.union_.members, type
-		check-expr x.union-type, x.arg
+		assert contains a.union_.members, type
+		check-expr a.union-type, a.arg
 	as union-as-case-or-gc-safe-low-expr
-		assert contains x.union_.members, type
-		check-expr x.union-type, x.arg
+		assert contains a.union_.members, type
+		check-expr a.union-type, a.arg
 	as union-is-case-low-expr
-		type is types.bool
-		check-expr x.union-type, x.arg
+		type is bool
+		check-expr a.union-type, a.arg
 	as var-get-low-expr
-		type is x.var.type
+		type is a.var.type
 	as var-set-low-expr
 		assert is-void type
-		check-expr x.var.type, x.value
+		check-expr a.var.type, a.value
 
 -check-catches void
 	type low-type
@@ -238,12 +217,6 @@ do ctx
 		type is return-type
 		check-expr arg-type, a
 	check2 void mut(x low-type) = check[it, it]
-	bool = types.bool
-	float32 = types.float32
-	float64 = types.float64
-	int64 = types.int64
-	nat32 = types.nat32
-	nat64 = types.nat64
 	match kind
 	as array-size
 		type is nat64
@@ -315,9 +288,6 @@ do ctx
 		assert is-bool a.type or is-char8-or-32 a.type or as-integral-type a.type or is-float32-or-64 a.type
 		check-expr a.type, a
 		check-expr a.type, b
-	bool = types.bool
-	float64 = types.float64
-	nat64 = types.nat64
 	match kind
 	as add-float
 		binary-float[]
@@ -370,9 +340,9 @@ do ctx
 do ctx
 	match kind
 	as array-set
-		type is types.void
+		type is void
 		check-expr a.type, a
-		check-expr types.nat64, b
+		check-expr nat64, b
 		check-expr a.type.as-buffer!, c
 
 -check-builtin-js void(type low-type, fun js-fun, args low-expr[]) ctx
@@ -384,7 +354,7 @@ do ctx
 		type is js-any
 		js-args[]
 	bool-from-js = of
-		type is types.bool
+		type is bool
 		js-args[]
 	match fun
 	as await
@@ -420,7 +390,7 @@ do ctx
 	as plus
 		all-js[]
 	as set-subscript
-		type is types.void
+		type is void
 		js-args[]
 	as typeof
 		all-js[]

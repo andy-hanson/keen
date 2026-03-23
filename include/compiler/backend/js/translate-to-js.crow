@@ -16,13 +16,13 @@ import
 	./write-js-ast
 
 translate-to-js js-and-map
-	model-program program-with-main
 	program low-program
 	sanity-checks sanity-checks
 	source-map-name string?
 do show-ctx
 	start = perf-now
 	finally end-translate-to-js start
+	the low-common-types = program.common-types
 	the to-js-ctx =
 		program: program
 		sanity-checks: sanity-checks
@@ -77,12 +77,12 @@ do show-ctx
 		vars: vars
 		statements:
 			- gen-call-main program.common-funs.low-common-funs-js!.main 'to
-	module-paths = module-paths model-program
+	module-paths = module-paths program.model-program
 	write-js-ast file-content-getters, module-paths, ast, sanity-checks, source-map-name
 
 # Emit vars with simple initializers before symbols (this happens to be the only kind of constants that requires)
 -has-simple-initializer bool(a low-var)
-	!!a.initializer.kind.constant.?scalar-value
+	!!a.initializer.constant-low-expr.?value.?scalar-value
 
 -gen-var-no-getter js-var-decl(var low-var) to-js
 	# TODO: actually detect whether it needs to be async
@@ -142,8 +142,8 @@ do show-ctx
 		- gen-arrow-function source, sync, (exit,), body.to
 
 # TODO: this does expose the URIs on the build machine ...
--module-paths module-paths(program program-with-main)
-	for uri, _ in program.program.crow-modules
+-module-paths module-paths(program program)
+	for uri, _ in program.crow-modules
 		uri, uri.to
 
 -translate-type js-class-decl?(a low-type) to-js
@@ -365,7 +365,7 @@ do
 -to-ref js-expr(source source, type low-type) to-js-ctx
 	gen-identifier source, js-name type
 
--to-js spec show-ctx, to-js-ctx
+-to-js spec show-ctx, low-common-types, to-js-ctx
 -to-js-ctx record
 	program low-program
 	sanity-checks sanity-checks
@@ -384,13 +384,7 @@ do
 	the::to-js-ctx.constant-names
 -common-funs low-common-funs-js() to-js-ctx
 	the::to-js-ctx.program.common-funs.low-common-funs-js!
--exception low-type() to-js-ctx
-	common-funs.exception
--string low-type() to-js-ctx
-	common-funs.string
--symbol low-type() to-js-ctx
-	common-funs.symbol
--is-string-or-symbol bool(a low-type) to-js-ctx
+-is-string-or-symbol bool(a low-type) low-common-types
 	a == string or a == symbol
 -async-info low-async-info() to-js-ctx
 	program.async!
@@ -439,10 +433,9 @@ do
 -source source(a low-expr) to-expr
 	source a, cur-fun-debug-name
 -source source(a low-expr, cur-fun-debug-name symbol) to-js
-	range = a.range
-	uri: range.uri
+	uri: a.uri
 	name: cur-fun-debug-name
-	pos: line-and-character-getters[range].range.start
+	pos: line-and-character-getters[a.start].pos
 
 -is-async sync-or-async(a low-fun) to-expr
 	if async-fun-kind a
@@ -497,7 +490,7 @@ do
 	match body = a.body
 	as builtin-fun
 		translate-builtin a.return-type, source, body, for param in a.params
-			param.type, a.range, local-get-low-expr param
+			local-get-low-expr a.range, param
 	as low-expr
 		res = to-expr-or-block-statement body
 		type-asserts js-statement[] = unless sanity-checks == no-sanity-checks
@@ -832,58 +825,58 @@ do
 	source = source a
 	type = a.type
 	async = is-cur-fun-async
-	match x = a.kind
+	match a
 	as array-op-low-expr
-		array-op a, x
+		array-op a, a
 	as builtin-low-expr
-		translate-builtin type, source, x.fun, x.args
+		translate-builtin type, source, a.fun, a.args
 	as call-low-expr
-		call-async = is-async x.called
-		called = to-ref source, x.called, call-async
-		gen-call source, call-async, called, map x.args, it.to-js-expr
-	as constant
-		translate-constant source, type, x
+		call-async = is-async a.called
+		called = to-ref source, a.called, call-async
+		gen-call source, call-async, called, map a.args, it.to-js-expr
+	as constant-low-expr
+		translate-constant source, type, a.value
 	as create-array-low-expr
-		array-literal source, type, map x.args, it.to-js-expr
+		array-literal source, type, map a.args, it.to-js-expr
 	as create-record-low-expr
 		record_ = to-ref source, type
-		gen-new source, record_, map x.args, it.to-js-expr
+		gen-new source, record_, map a.args, it.to-js-expr
 	as create-union-low-expr
-		gen-create-union source, type, x.case-index, to-js-expr x.arg
+		gen-create-union source, type, a.case-index, to-js-expr a.arg
 	as drop-low-expr
-		value = to-js-expr x.arg
+		value = to-js-expr a.arg
 		gen-unary source, void, value
 	as finally-low-expr
-		gen-try-finally source, x.below.to-block-statement, x.right.to-block-statement 'to
+		gen-try-finally source, a.below.to-block-statement, a.right.to-block-statement 'to
 	as if-low-expr
-		cond = to-js-expr x.cond
-		match then_ = to-expr-or-block-statement x.then_
+		cond = to-js-expr a.cond
+		match then_ = to-expr-or-block-statement a.then_
 		as js-expr
-			match else_ = to-expr-or-block-statement x.else_
+			match else_ = to-expr-or-block-statement a.else_
 			as js-expr
 				gen-ternary source, cond, then_, else_
 			as js-block-statement
 				then-statement = return-unless-void then_, type.is-void
 				gen-if source, cond, then-statement, (source, else_) 'to
 		as js-block-statement
-			gen-if source, cond, then_, (source, x.else_.to-block-statement) 'to
+			gen-if source, cond, then_, (source, a.else_.to-block-statement) 'to
 	as let-low-expr
-		local = local-name x.local
-		value = to-js-expr x.value
-		kind js-var-decl-const = if is-mutable x.local then let else const
-		then_ = to-expr-or-block-statement x.then_
+		local = local-name a.local
+		value = to-js-expr a.value
+		kind js-var-decl-const = if is-mutable a.local then let else const
+		then_ = to-expr-or-block-statement a.then_
 		expr-or-block-statement-with-local kind, (local, source, value), then_
 	as lambda-low-expr
 		source: source
 		kind:
 			:: js-arrow-function
 			async: async
-			params: x.param.local-name,
-			body: to-expr-or-block-statement x.body
+			params: a.param.local-name,
+			body: to-expr-or-block-statement a.body
 	as local-get-low-expr
-		get-local source, x.local
+		get-local source, a.local
 	as local-set-low-expr
-		gen-assign source, (get-local source, x.local), (to-js-expr x.value) 'to
+		gen-assign source, (get-local source, a.local), (to-js-expr a.value) 'to
 	as loop-low-expr
 		###
 		loop
@@ -903,11 +896,11 @@ do
 		label js-name? = if is-void type then make-temp-local "loop"
 		prev = the::to-expr-ctx.cur-loop-label
 		the::to-expr-ctx.cur-loop-label := label
-		res = gen-while-true source, label, to-block-statement x.body
+		res = gen-while-true source, label, to-block-statement a.body
 		the::to-expr-ctx.cur-loop-label := prev
 		res.to
 	as loop-break-low-expr
-		value = to-block-statement x.value
+		value = to-block-statement a.value
 		if is-void type
 			value ~ (gen-break source, the::to-expr-ctx.cur-loop-label!)
 		else
@@ -915,53 +908,53 @@ do
 	as loop-continue-low-expr
 		gen-continue source 'to
 	as match-scalar-low-expr
-		translate-match-integral source, type, x
+		translate-match-integral source, type, a
 	as match-string-like-low-expr
-		assert is-string-or-symbol x.matched.type
-		with matched in temp-local "matched", x.matched
-			res mut = to-block-statement x.else_
-			equals-async = is-async x.equals
-			equals = to-ref source, x.equals, equals-async
-			for case_ low-match-string-like-case in x.cases.reverse # TODO: should not need type annotation
-				value = translate-constant source, x.matched.type, case_.value
+		assert is-string-or-symbol a.matched.type
+		with matched in temp-local "matched", a.matched
+			res mut = to-block-statement a.else_
+			equals-async = is-async a.equals
+			equals = to-ref source, a.equals, equals-async
+			for case_ low-match-string-like-case in a.cases.reverse # TODO: should not need type annotation
+				value = translate-constant source, a.matched.type, case_.value
 				cond = gen-call source, equals-async, equals, (matched, value)
 				then_ = to-block-statement case_.then_
 				res := gen-if source, cond, then_, (source, res) 'to
 			res
 	as match-union-low-expr
-		translate-match-union source, type, x
+		translate-match-union source, type, a
 	as record-field-get-low-expr
-		gen-property-access source, x.record_.to-js-expr, x.field.name.to
+		gen-property-access source, a.record_.to-js-expr, a.field.name.to
 	as record-field-set-low-expr
-		record_ = to-js-expr x.record_
-		value = to-js-expr x.value
-		access = gen-property-access source, record_, x.field.name.to
+		record_ = to-js-expr a.record_
+		value = to-js-expr a.value
+		access = gen-property-access source, record_, a.field.name.to
 		gen-assign source, access, value 'to
 	as seq-low-expr
 		:: js-block-statement
-		- for* part in x.parts
+		- for* part in a.parts
 			statements to-block-statement part
 	as throw-low-expr
-		gen-throw source, x.thrown.to-js-expr 'to
+		gen-throw source, a.thrown.to-js-expr 'to
 	as try-low-expr
-		translate-try source, type, x
+		translate-try source, type, a
 	as try-let-low-expr
-		translate-try-let source, type, x
+		translate-try-let source, type, a
 	as union-assume-case-low-expr
-		union-as-case source, x.arg, x.union-type
+		union-as-case source, a.arg, a.union-type
 	as union-as-case-or-gc-safe-low-expr
-		union-as-case source, x.arg, x.union-type
+		union-as-case source, a.arg, a.union-type
 	as union-is-case-low-expr
-		repr = union-representation x.union-type
-		gen-union-is-case source, x.arg.to-js-expr, x.union_, repr, x.case-index
+		repr = union-representation a.union-type
+		gen-union-is-case source, a.arg.to-js-expr, a.union_, repr, a.case-index
 	as var-get-low-expr
-		if var-needs-getter x.var
-			getter = gen-identifier source, var-getter-name x.var
-			gen-call source, x.var.is-async-initializer, getter, ()
+		if var-needs-getter a.var
+			getter = gen-identifier source, var-getter-name a.var
+			gen-call source, a.var.is-async-initializer, getter, ()
 		else
-			to-ref source, x.var
+			to-ref source, a.var
 	as var-set-low-expr
-		gen-assign source, (to-ref source, x.var), x.value.to-js-expr 'to
+		gen-assign source, (to-ref source, a.var), a.value.to-js-expr 'to
 
 -array-op js-expr-or-block-statement(a low-expr, x array-op-low-expr) to-expr
 	source = source a
@@ -1089,7 +1082,7 @@ do
 		gen-new source, (to-ref source, union_), (index, value)
 
 -var-needs-getter bool(a low-var)
-	!a.initializer.kind.constant
+	!a.initializer.constant-low-expr
 
 -array-literal js-expr(source source, array-type low-type, elements js-expr[])
 	array = gen-array source, elements
@@ -1126,7 +1119,7 @@ do
 		unreachable source
 	with matched in temp-local "matched", x.matched
 		cases low-local-and-expr[] = map x.cases, ((), it)
-		match-union source, type, matched, else_, x.union-type, x.member-indices, cases
+		match-union source, type, matched, else_, x.union-type, x.case-indices, cases
 
 -match-union js-expr-or-block-statement
 	source source

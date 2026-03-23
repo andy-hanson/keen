@@ -12,15 +12,15 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 	the lower-expr-ctx = fun, ()
 	return-type = fun.return-type
 	params = fun.params
-	param0 = of then gen-param-get fun.range, params[0]
-	param1 = of then gen-param-get fun.range, params[1]
+	param0 = of then local-get-low-expr fun.range, params[0]
+	param1 = of then local-get-low-expr fun.range, params[1]
 	range = fun.range
 	match a.kind
 	as compare
 		compare-nats = of storage nat-type
 			p0 = gen-cast-nat range, storage, param0[]
 			p1 = gen-cast-nat range, storage, param1[]
-			gen-builtin-binary return-type, range, compare, p0, p1
+			builtin-low-expr return-type, range, compare, (p0, p1)
 		match x = enum-flags-record-or-union params.assert-all-same-type
 		as enum_
 			compare-nats[x.storage]
@@ -64,34 +64,32 @@ lower-auto-fun low-expr(fun low-fun, a auto-fun) lower-ctx, quick-fill-in-low-fu
 	as to-nat-from-enum-or-flags
 		arg = param0[]
 		storage = enum-or-flags-storage arg.type
-		gen-widen-nat return-type.must-be-nat-type, gen-cast storage.nat-type, range, param0[]
+		gen-widen-nat return-type.must-be-nat-type, gen-cast storage.to, range, param0[]
 	as to-json
 		param = only! params
 		match body = enum-flags-record-or-union param.type
 		as enum_
-			auto-fun-match-enum range, return-type, param, of x
-				gen-constant return-type, range, constant-json-string x.name.to
+			enum-to-constant return-type, range, param, it.name.to.constant-json-string
 		as flags_
 			gen-json-array lower-flags-to-array range, json-array-type, param, of member
 				constant-json-string member.name.to
 		as low-record
-			lower-record-to-json range, param, body.fields, a.members
+			lower-record-to-json range, param, a.members
 		as low-union
 			lower-union-to-json range, param, body.members, a.members
 	as to-symbol-array-from-flags
 		lower-flags-to-array range, return-type, params.only!, of member
 			constant-symbol member.name
 	as to-symbol-from-enum
-		auto-fun-match-enum range, return-type, params.only!, of x
-			gen-constant return-type, range, constant-symbol x.name
+		enum-to-constant return-type, range, params.only!, it.name.constant-symbol
 
 lower-flags-function low-expr(cf low-fun, fn flags-function) lower-ctx
 	type = cf.return-type
 	range = cf.range
 	param0 = of
-		gen-param-get range, cf.params[0]
+		local-get-low-expr range, cf.params[0]
 	param1 = of
-		gen-param-get range, cf.params[1]
+		local-get-low-expr range, cf.params[1]
 	cast-param0 = of storage nat-type
 		gen-cast-nat range, storage, param0[]
 	cast-param1 = of storage nat-type
@@ -106,25 +104,24 @@ lower-flags-function low-expr(cf low-fun, fn flags-function) lower-ctx
 	as negate
 		# ~x & all
 		storage = flags-storage cf.params[0].type
-		neg = gen-builtin-unary storage.nat-type, range, bitwise-not, cast-param0[storage]
+		neg = builtin-low-expr storage.to, range, bitwise-not, (cast-param0[storage],)
 		all = get-all-flags-expr range, cf.return-type
 		intersect = gen-intersect-nat range, storage, neg, all
 		cast-to-flags[intersect]
 	as none
 		storage = flags-storage cf.return-type
-		res = gen-constant-zero storage.nat-type, range
+		res = constant-low-expr storage.to, range, 0::nat.to
 		cast-to-flags[res]
 	as subscript
 		storage = flags-storage cf.params[0].type
 		gen-flags-subscript range, storage, cast-param0[storage], cast-param1[storage]
 	as union_
 		storage = flags-storage cf.params[0].type
-		res = gen-builtin-binary storage.nat-type, range, bitwise-or, cast-param0[storage], cast-param1[storage]
+		res = builtin-low-expr storage.to, range, bitwise-or, (cast-param0[storage], cast-param1[storage])
 		cast-to-flags[res]
 
--get-all-flags-expr low-expr(range uri-and-range, flags-type low-type) lower-ctx
-	type = flags-type.flags-storage.nat-type
-	gen-constant-nat type, range, flags-type.must-be-flags.get-all-flags-value
+-get-all-flags-expr constant-low-expr(range uri-and-range, flags-type low-type) lower-ctx
+	flags-type.flags-storage.to, range, flags-type.must-be-flags.get-all-flags-value.to
 
 # WARN: p1 is used twice, so it should be a param get (or other expression that has no side effect)
 -gen-flags-subscript low-expr
@@ -171,9 +168,9 @@ do lower-ctx
 	gen-equal-integral range, arg0-cast, arg1-cast
 
 -gen-cast-nat low-expr(range uri-and-range, type nat-type, arg low-expr) lower-ctx
-	gen-cast type.nat-type, range, arg
+	gen-cast type.to, range, arg
 -gen-cast low-expr(type low-type, range uri-and-range, arg low-expr)
-	gen-builtin-unary type, range, reinterpret-cast, arg
+	builtin-low-expr type, range, reinterpret-cast, (arg,)
 
 -lower-flags-to-array low-expr
 	range uri-and-range
@@ -183,7 +180,7 @@ do lower-ctx
 do lower-ctx, quick-fill-in-low-fun-body
 	members = param.type.must-be-flags.members
 	do unless is-empty members else
-		gen-constant array-type, range, get-constant-array all-constants, array-type, ()
+		constant-low-expr array-type, range, get-constant-array all-constants, array-type, ()
 	###
 	Generates code like:
 	-- if a & x == 0 then () else ("x",)
@@ -192,52 +189,52 @@ do lower-ctx, quick-fill-in-low-fun-body
 	gen-concat-array-views range, array-type.as-array!, of array-view-type
 		empty-array-view = gen-constant-array-view array-view-type, range, array-type, ()
 		storage = flags-storage param.type
-		storage-type = nat-type storage
-		value = gen-cast-nat range, storage, gen-param-get range, param
+		value = gen-cast-nat range, storage, local-get-low-expr range, param
 		for member in members
 			# if value & x == 0 then () else ("x",)
-			member-value low-expr = storage-type, range, member.value.to
+			member-value low-expr = storage.to, range, member.value.to
 			intersect = gen-intersect-nat range, storage, value, member-value
-			zero = gen-constant-zero storage-type, range
+			zero = constant-low-expr storage.to, range, 0::nat.to
 			test_ = gen-equal-integral range, intersect, zero
-			gen-if range, test_, empty-array-view,
+			if-low-expr range, test_, empty-array-view,
 				gen-constant-array-view array-view-type, range, array-type, (f[member],)
 
--auto-fun-match-enum low-expr
+-enum-to-constant low-expr
+	type low-type
 	range uri-and-range
-	return-type low-type
 	param low-local
-	f low-expr mut(x enum-or-flags-member)
-do
-	gen-match-scalar return-type, range, (gen-param-get range, param), f
+	f constant mut(x enum-or-flags-member)
+do low-common-types
+	gen-match-enum range, (local-get-low-expr range, param), of x
+		constant-low-expr type, range, f[x]
 
 -lower-nat-to-opt-flags low-expr(range uri-and-range, option-type low-type, param low-local) lower-ctx
 	# if a in all then (a.cast,) else ()
 	flags-type = as-option! option-type
 	storage = flags-storage flags-type
-	param-get = gen-widen-nat storage, gen-param-get range, param
+	param-get = gen-widen-nat storage, local-get-low-expr range, param
 	all = get-all-flags-expr range, flags-type
 	a-in-all = gen-flags-subscript range, storage, all, param-get
 	cast = gen-cast flags-type, range, param-get
-	some = gen-option option-type, range, cast
-	none = gen-empty-option option-type, range
-	gen-if range, a-in-all, some, none
+	if-low-expr range, a-in-all,
+		then_: gen-option option-type, range, cast
+		else_: gen-empty-option option-type, range
 
 -gen-widen-nat low-expr(type nat-type, arg low-expr) lower-ctx
-	out-type = nat-type type
+	out-type low-type = type.to
 	if out-type == arg.type
 		arg
 	else
-		gen-builtin-unary out-type, arg.range, wrap-convert-integral, arg
+		builtin-low-expr out-type, arg.range, wrap-convert-integral, (arg,)
 
 -lower-symbol-to-opt-enum-or-flags low-expr(range uri-and-range, option-type low-type, param low-local) lower-ctx
 	enum-type = as-option! option-type
-	param-get = gen-param-get range, param
+	param-get = local-get-low-expr range, param
 	cases low-match-string-like-case[] = for member in must-be-enum-or-flags enum-type
 		- constant-symbol member.name
 		- gen-constant-some option-type, range, member.value.to
 	else_ = gen-empty-option option-type, range
-	option-type, range, match-string-like-low-expr param-get, equal-symbol-function, cases, else_
+	match-string-like-low-expr range, param-get, equal-symbol-function, cases, else_
 
 -lower-nat-to-opt-enum low-expr
 	range uri-and-range
@@ -248,14 +245,14 @@ do lower-ctx
 	enum-type = as-option! option-type
 	storage = enum-storage enum-type
 	members = must-be-enum-or-flags enum-type
-	param-get = gen-widen-nat storage, gen-param-get range, param
-	option-type, range,
-		:: match-scalar-low-expr
-		matched: param-get
-		case-values: to map::nat[] members, it.value
-		case-exprs: for member in members
-			gen-constant-some option-type, range, member.value.to
-		else_: gen-empty-option option-type, range
+	param-get = gen-widen-nat storage, local-get-low-expr range, param
+	:: match-scalar-low-expr
+	range: range
+	matched: param-get
+	case-values: to map::nat[] members, it.value
+	case-exprs: for member in members
+		gen-constant-some option-type, range, member.value.to
+	else_: gen-empty-option option-type, range
 
 -assert-all-same-type low-type(params low-local[])
 	assert all-same params, it.type
@@ -301,13 +298,12 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	forbid is-empty fields
 	fields.size is field-called.size
-	p0 = gen-local-get range, param0
-	p1 = gen-local-get range, param1
+	p0 = local-get-low-expr range, param0
+	p1 = local-get-low-expr range, param1
 	compare-field = of index nat
-		field-type = fields[index].type
-		f0 = gen-record-field-get field-type, range, p0, index
-		f1 = gen-record-field-get field-type, range, p1, index
-		lower-and-call field-called[index], range, (f0, f1)
+		lower-and-call field-called[index], range,
+			- gen-record-field-get range, p0, index
+			- gen-record-field-get range, p1, index
 	res mut = compare-field[0]
 	for i in 1::nat .. fields.size
 		res := f-fold[res, compare-field[i]]
@@ -321,8 +317,8 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	member-compares called[]
 do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	do unless is-empty members else gen-comparison-equal comparison, range
-	p0 = gen-param-get range, param0
-	p1 = gen-param-get range, param1
+	p0 = local-get-low-expr range, param0
+	p1 = local-get-low-expr range, param1
 	less = gen-comparison-less comparison, range
 	greater = gen-comparison-greater comparison, range
 	###
@@ -357,15 +353,14 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 					if more-cases-are-greater then greater else less
 			default low-expr? = unless cases.size == members.size
 				if more-cases-are-greater then less else greater
-			comparison, range, match-union-low-expr p1, member-indices.to, cases, default
+			match-union-low-expr range, p1, member-indices.to, cases, default
 	else
-		nat = nat64-type
-		b-case-index low-local = union-kind::low-generated-local-kind, nat
-		get-b-case-index = gen-local-get range, b-case-index
+		b-case-index low-local = union-kind::low-generated-local-kind, nat64
+		get-b-case-index = local-get-low-expr range, b-case-index
 		init-b-case-index low-expr =
 			cases low-expr[] = for member-index in 0 .. members.size
-				gen-constant-nat nat, range, member-index
-			nat, range, match-union-low-expr p1, (0 .. members.size).to, cases, ()
+				constant-low-expr nat64, range, member-index.to
+			match-union-low-expr range, p1, (0 .. members.size).to, cases, ()
 		match_ low-expr = gen-match-union comparison, range, members, p0, of member-index, get-member
 			###
 			match p1
@@ -376,11 +371,10 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 			###
 			cases low-expr[] =
 				- gen-compare-same-case range, member-compares[member-index], get-member, p1
-			a-case-index = gen-constant-nat nat, range, member-index
-			default = gen-builtin-binary comparison, range, compare, a-case-index, get-b-case-index
-			comparison, range,
-				match-union-low-expr p1, member-index.to::indices, cases, default
-		gen-let comparison, range, b-case-index, init-b-case-index, match_
+			a-case-index = constant-low-expr nat64, range, member-index.to
+			default = builtin-low-expr comparison, range, compare, (a-case-index, get-b-case-index)
+			match-union-low-expr range, p1, member-index.to::indices, cases, default
+		let-low-expr range, b-case-index, init-b-case-index, match_
 
 -gen-compare-same-case low-expr
 	range uri-and-range
@@ -412,34 +406,31 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	member-equals called[]
 do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	do unless is-empty members else gen-true range
-	p0 = gen-param-get range, param0
-	p1 = gen-param-get range, param1
+	p0 = local-get-low-expr range, param0
+	p1 = local-get-low-expr range, param1
 	gen-match-union bool-type, range, members, p0, of member-index, get-member
 		cases low-expr[] =
 			- lower-and-call member-equals[member-index], range,
 				- get-member
 				- gen-union-assume-case get-member.type, range, p1
 		default = gen-false range
-		bool-type, range, match-union-low-expr p1, member-index.to, cases, default
+		match-union-low-expr range, p1, member-index.to, cases, default
 
 -lower-record-to-json low-expr
 	range uri-and-range
 	param low-local
-	fields low-field[]
 	field-to-json called[]
 do lower-and-expr-ctx, quick-fill-in-low-fun-body
-	get-param = gen-param-get range, param
-	record-fields = get-param.type.struct-body.record_!.fields
-	names symbol[] = map record-fields, it.name
-	values low-expr[] = for index, (field, called) in with-index zip fields, field-to-json
+	get-param = local-get-low-expr range, param
+	names symbol[] = map get-param.type.struct-body.record_!.fields, it.name
+	gen-new-json-object range, names, for index, called in with-index field-to-json
 		lower-and-call called, range,
-			- gen-record-field-get field.type, range, get-param, index
-	gen-new-json-object range, names, values
+			- gen-record-field-get range, get-param, index
 
 -gen-new-json-object low-expr(range uri-and-range, names symbol[], values low-expr[]) lower-ctx
 	names.size is values.size
 	symbol-array, json-array = only2! json-named-new-function.params
-	gen-call range, json-named-new-function,
+	call-low-expr range, json-named-new-function,
 		- gen-constant-array all-constants, symbol-array.type, range, for name in names
 			constant-symbol name
 		- gen-create-array json-array.type, range, values
@@ -461,7 +452,7 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	members = as-union param.type.struct-body
 	member-types.size is members.size
 	member-to-json.size is members.size
-	get-param = gen-param-get range, param
+	get-param = local-get-low-expr range, param
 	gen-match-union json-type, range, member-types, get-param, of member-index, get-member
 		name = members[member-index].member.decl.name
 		value = lower-and-call member-to-json[member-index], range, (get-member,)
@@ -476,32 +467,32 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	args low-expr[]
 do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	if fun = get-low-fun-from-called called
-		gen-call range, fun, args
+		call-low-expr range, fun, args
 	else
 		gen-bogus called.return-type.get-low-type, range
 
--gen-comparison-less low-expr(comparison-type low-type, range uri-and-range)
-	gen-constant-nat comparison-type, range, 0
--gen-comparison-equal low-expr(comparison-type low-type, range uri-and-range)
-	gen-constant-nat comparison-type, range, 1
--gen-comparison-greater low-expr(comparison-type low-type, range uri-and-range)
-	gen-constant-nat comparison-type, range, 2
+-gen-comparison-less constant-low-expr(comparison-type low-type, range uri-and-range)
+	comparison-type, range, 0.to
+-gen-comparison-equal constant-low-expr(comparison-type low-type, range uri-and-range)
+	comparison-type, range, 1.to
+-gen-comparison-greater constant-low-expr(comparison-type low-type, range uri-and-range)
+	comparison-type, range, 2.to
 
--gen-compare-or low-expr(range uri-and-range, a low-expr, b low-expr)
-	gen-match-scalar a.type, range, a, of x
+-gen-compare-or low-expr(range uri-and-range, a low-expr, b low-expr) low-common-types
+	gen-match-enum range, a, of x
 		if x.value == 1
 			b
 		else
-			gen-constant a.type, range, x.value.to
+			constant-low-expr a.type, range, x.value.to
 
 -lower-hash-enum-or-flags low-expr
 	range uri-and-range
 	(value low-local, hash-state low-local)
 	storage nat-type
 do lower-and-expr-ctx
-	gen-call range, storage.hash-nat-function,
-		- gen-cast-nat range, storage, gen-local-get range, value
-		- gen-local-get range, hash-state
+	call-low-expr range, storage.hash-nat-function,
+		- gen-cast-nat range, storage, local-get-low-expr range, value
+		- local-get-low-expr range, hash-state
 
 -lower-hash-record low-expr
 	range uri-and-range
@@ -511,11 +502,12 @@ do lower-and-expr-ctx
 do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	fields.size is field-hash.size
 	do unless is-empty fields else gen-void range
-	get-value = gen-local-get range, value
-	get-hash-state = gen-local-get range, hash-state
-	void-type, range, seq-low-expr for i in 0 .. fields.size
-		get-field = gen-record-field-get fields[i].type, range, get-value, i
-		lower-and-call field-hash[i], range, (get-field, get-hash-state)
+	get-value = local-get-low-expr range, value
+	get-hash-state = local-get-low-expr range, hash-state
+	seq-low-expr range, for i in 0 .. fields.size
+		lower-and-call field-hash[i], range,
+			- gen-record-field-get range, get-value, i
+			- get-hash-state
 
 -lower-hash-union low-expr
 	range uri-and-range
@@ -525,12 +517,12 @@ do lower-and-expr-ctx, quick-fill-in-low-fun-body
 do lower-and-expr-ctx, quick-fill-in-low-fun-body
 	members.size is member-hash.size
 	do unless is-empty members else gen-void range
-	get-value = gen-local-get range, value
-	get-hash-state = gen-local-get range, hash-state
-	gen-match-union void-type, range, members, get-value, of member-index, get-member
-		void-type, range, seq-low-expr
+	get-value = local-get-low-expr range, value
+	get-hash-state = local-get-low-expr range, hash-state
+	gen-match-union void, range, members, get-value, of member-index, get-member
+		seq-low-expr range,
 			-
 				assert members.size <= nat8.max-value else todo
-				index-expr = gen-constant-nat nat8.nat-type, range, member-index
-				gen-call range, nat8.hash-nat-function, (index-expr, get-hash-state)
+				index-expr constant-low-expr = nat8, range, member-index.to
+				call-low-expr range, nat8.hash-nat-function, (index-expr, get-hash-state)
 			- lower-and-call member-hash[member-index], range, (get-member, get-hash-state)
