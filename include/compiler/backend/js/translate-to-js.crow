@@ -487,10 +487,10 @@ do
 
 -to-expr-or-block-statement js-expr-or-block-statement(a low-fun) to-expr
 	source source = source a
+	get-params = of
+		:: js-expr[]
+		map a.params, of x then get-local source, x
 	match body = a.body
-	as builtin-fun
-		translate-builtin a.return-type, source, body, for param in a.params
-			local-get-low-expr a.range, param
 	as low-expr
 		res = to-expr-or-block-statement body
 		type-asserts js-statement[] = unless sanity-checks == no-sanity-checks
@@ -508,40 +508,19 @@ do
 		throw unreachable
 	as low-fun-body-always-inline
 		throw unreachable
-
--translate-builtin js-expr-or-block-statement
-	type low-type
-	source source
-	fun builtin-fun
-	args low-expr[]
-do to-expr
-	arg-exprs = of
-		map::js-expr[] args, of arg
-			to-js-expr arg
-	match fun
-	as builtin-unary
-		translate-builtin-unary type, source, fun, args.only!.type, arg-exprs[].only!
-	as builtin-binary
-		translate-builtin-binary source, type, fun, args[0].type, only2! arg-exprs[]
-	as builtin-ternary
-		translate-builtin-ternary source, fun, only3! arg-exprs[]
-	as builtin-fun-call-lambda
-		arg0, arg1 = only2! arg-exprs[]
-		call = gen-call-sync source, arg0, (arg1,)
-		gen-await-if-async source, is-cur-fun-async, call
-	as builtin-fun-constant
-		throw unreachable
-	as builtin-fun-is-empty-type
-		throw unreachable
-	as builtin-fun-is-target
-		throw unreachable
+	as low-builtin-unary
+		translate-builtin-unary a.return-type, source, body, a.params.only!.type, only! get-params[]
+	as low-builtin-binary
+		translate-builtin-binary a.return-type, source, body, a.params[0].type, is-cur-fun-async, only2! get-params[]
+	as low-builtin-ternary
+		translate-builtin-ternary source, body, only3! get-params[]
 	as js-fun
-		translate-js-fun source, fun, args
+		throw todo
 
 -translate-builtin-unary js-expr-or-block-statement
 	type low-type
 	source source
-	a builtin-unary
+	a low-builtin-unary
 	arg-type low-type
 	arg js-expr
 do to-expr
@@ -559,6 +538,8 @@ do to-expr
 		gen-convert source, 8, "Float64Array", "BigInt64Array", arg
 	as bitwise-not
 		gen-as-integral source, type.as-integral-type!, unary[bitwise-not]
+	as drop
+		gen-unary source, void, arg
 	as float32-from-bits
 		Number = gen-global source, "Number"
 		gen-convert source, 4, "Uint32Array", "Float32Array",
@@ -628,10 +609,11 @@ do to-expr
 					arg
 
 -translate-builtin-binary js-expr-or-block-statement
-	source source
 	type low-type
-	a builtin-binary
+	source source
+	a low-builtin-binary
 	arg0-type low-type
+	is-cur-fun-async sync-or-async
 	(arg0 js-expr, arg1 js-expr)
 do
 	binary = of op js-binary-kind
@@ -655,6 +637,9 @@ do
 		bitwise[bitwise-or]
 	as bitwise-xor
 		bitwise[bitwise-xor]
+	as call-lambda
+		call = gen-call-sync source, arg0, (arg1,)
+		gen-await-if-async source, is-cur-fun-async, call
 	as compare
 		name = if is-float32-or-64 arg0-type then "_compareFloat" else "_compareIntegral"
 		gen-call-sync source, (gen-identifier source, name.no-prefix), (arg0, arg1)
@@ -705,7 +690,7 @@ do
 
 -translate-builtin-ternary js-expr-or-block-statement
 	source source
-	a builtin-ternary
+	a low-builtin-ternary
 	(arg0 js-expr, arg1 js-expr, arg2 js-expr)
 do
 	match a
@@ -828,8 +813,14 @@ do
 	match a
 	as array-op-low-expr
 		array-op a, a
-	as builtin-low-expr
-		translate-builtin type, source, a.fun, a.args
+	as builtin-unary-low-expr
+		translate-builtin-unary type, source, a.fun, a.arg.type, to-js-expr a.arg
+	as builtin-binary-low-expr
+		translate-builtin-binary type, source, a.fun, a.arg0.type, async, (a.arg0.to-js-expr, a.arg1.to-js-expr)
+	as builtin-ternary-low-expr
+		translate-builtin-ternary source, a.fun, (a.arg0.to-js-expr, a.arg1.to-js-expr, a.arg2.to-js-expr)
+	as builtin-js-low-expr
+		translate-js-fun source, a.fun, a.args
 	as call-low-expr
 		call-async = is-async a.called
 		called = to-ref source, a.called, call-async
@@ -843,9 +834,6 @@ do
 		gen-new source, record_, map a.args, it.to-js-expr
 	as create-union-low-expr
 		gen-create-union source, type, a.case-index, to-js-expr a.arg
-	as drop-low-expr
-		value = to-js-expr a.arg
-		gen-unary source, void, value
 	as finally-low-expr
 		gen-try-finally source, a.below.to-block-statement, a.right.to-block-statement 'to
 	as if-low-expr

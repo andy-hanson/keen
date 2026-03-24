@@ -44,9 +44,18 @@ replace-constants void() lower-ctx
 	as array-op-low-expr
 		do if input, body = replace-constants-in-args-exprs a.input, a.body
 		array-op-low-expr type, range, input, a.local, a.empty-out-array, body
-	as builtin-low-expr
-		do if args = replace-constants-in-args-exprs a.args
-		builtin-low-expr type, range, a.fun, args
+	as builtin-unary-low-expr
+		do if new-arg = replace-constants a.arg
+		builtin-unary-low-expr type, range, a.fun, new-arg
+	as builtin-binary-low-expr
+		do if new-arg0, new-arg1 = replace-constants-in-args-exprs a.arg0, a.arg1
+		builtin-binary-low-expr type, range, a.fun, new-arg0, new-arg1
+	as builtin-ternary-low-expr
+		do if new-arg0, new-arg1, new-arg2 = replace-constants-in-args-exprs a.arg0, a.arg1, a.arg2
+		builtin-ternary-low-expr type, range, a.fun, new-arg0, new-arg1, new-arg2
+	as builtin-js-low-expr
+		do if new-args = replace-constants-in-args-exprs a.args
+		builtin-js-low-expr type, range, a.fun, new-args
 	as call-low-expr
 		if res = constants-map[a.called]
 			type, range, res
@@ -82,11 +91,6 @@ replace-constants void() lower-ctx
 			type, range, get-constant-union all-constants, type, a.case-index, arg.value
 		else
 			create-union-low-expr type, range, a.case-index, arg
-	as drop-low-expr
-		# TODO: if this drops a constant, just replace it with constant void
-		do if arg = replace-constants a.arg
-		:: drop-low-expr
-		arg: arg
 	as finally-low-expr
 		do if right, below = replace-constants-in-args-exprs a.right, a.below
 		finally-low-expr range, right, below
@@ -177,10 +181,7 @@ replace-constants void() lower-ctx
 	as seq-low-expr
 		do if new-parts = replace-constants-in-args-exprs a.parts
 		without-constants low-expr[] = for* index, part in with-index new-parts
-			if index != new-parts.size - 1 and part.constant-low-expr
-				assert constant-gc-safe-value part.value # Always void
-				()
-			else
+			if index == new-parts.size - 1 or !part.constant-low-expr
 				- part
 		# TODO: should not need type annotation
 		:: low-expr
@@ -257,16 +258,22 @@ replace-constants void() lower-ctx
 -replace-constants-in-args constants-or-exprs?(a low-expr[], allow-constants bool) replace-constants-ctx
 	if x = replace-constants-in-args-exprs a
 		if allow-constants and cs = as-constants x
-			cs.constants
+			constants cs
 		else
-			x.exprs
+			exprs x
 	elif allow-constants and x = as-constants a
-		x.constants
+		constants x
 -replace-constants-in-args-exprs (low-expr, low-expr)?
 	a low-expr
 	b low-expr
 do replace-constants-ctx
 	?only2 replace-constants-in-args-exprs (a, b)
+-replace-constants-in-args-exprs (low-expr, low-expr, low-expr)?
+	a low-expr
+	b low-expr
+	c low-expr
+do replace-constants-ctx
+	?only3 replace-constants-in-args-exprs (a, b, c)
 -replace-constants-in-args (low-expr, low-expr, low-expr)?
 	a low-expr
 	b low-expr
@@ -285,8 +292,6 @@ do replace-constants-ctx
 
 -try-eval-constant constant?(fn low-fun, args constant[]) lower-ctx
 	match body = fn.body
-	as builtin-fun
-		()
 	as low-expr
 		eval-as-constant fn, body, args
 	as fun-body-extern-java
@@ -297,6 +302,14 @@ do replace-constants-ctx
 		()
 	as low-fun-body-always-inline
 		throw unreachable
+	as low-builtin-unary
+		()
+	as low-builtin-binary
+		()
+	as low-builtin-ternary
+		()
+	as js-fun
+		()
 -eval-as-constant constant?(fn low-fun, a low-expr, fn-args constant[]) lower-ctx
 	match a
 	as constant-low-expr

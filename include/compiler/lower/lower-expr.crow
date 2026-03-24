@@ -87,14 +87,20 @@ quick-fill-in-low-fun-body void(ctx lower-context, cf low-fun)
 	range = fun.range
 	type-args = of then fun.source.low-fun-source-regular!.type-args
 	match a
+	as builtin-unary
+		a.to::low-builtin-unary
+	as builtin-binary
+		a.to::low-builtin-binary
+	as builtin-ternary
+		a.to::low-builtin-ternary
+	as js-fun
+		a
 	as builtin-fun-constant
 		constant-low-expr return-type, range, to-constant return-type, a
 	as builtin-fun-is-empty-type
 		constant-low-expr return-type, range, to::scalar-value is-empty-type only! type-args[]
 	as builtin-fun-is-target
 		constant-low-expr return-type, range, to::scalar-value a.target == target
-	else
-		a
 -to-constant constant(type low-type, a builtin-fun-constant) lower-ctx
 	match a
 	as bool
@@ -185,9 +191,8 @@ do lower-and-expr-ctx
 			with-temp-if-necessary range, lambda, of get-lambda
 				in-element low-local = temp, in-element-type
 				array-op-low-expr type, range, input, in-element, empty-out-array,
-					builtin-low-expr out-element-type, range, builtin-fun-call-lambda,
-						- get-lambda
-						- local-get-low-expr range, in-element
+					builtin-binary-low-expr out-element-type, range, call-lambda, get-lambda,
+						local-get-low-expr range, in-element
 	else
 		args low-expr[] =
 			# Since 'list-new' is allowed to implement the 'new' spec, we need to support those here
@@ -198,18 +203,56 @@ do lower-and-expr-ctx
 				for i in 0 .. a.args.size
 					lower-expr low-called.params[i].type, a.args[i]
 			-- context-args range, a.called, low-called
-		if is-not low-called and constant = args.only!.constant-low-expr
-			low-called.return-type, range, (!constant.value.as-bool).to
-		else
-			# We need to widen again even though it was done already in 'lower-expr',
-			# because we may be calling a spec-impl that has a narrower type than the spec.
-			# (The call expr's type can't reflect this and uses the spec's declared type.)
-			if builtin_ = low-called.body.builtin-fun
-				builtin-low-expr low-called.return-type, range, builtin_, args
-			elif e = low-called.body.low-expr and e.constant-low-expr
-				e
-			else
-				call-low-expr range, low-called, args
+		# We need to widen again even though it was done already in 'lower-expr',
+		# because we may be calling a spec-impl that has a narrower type than the spec.
+		# (The call expr's type can't reflect this and uses the spec's declared type.)
+		gen-call range, low-called, args
+
+-to low-builtin-unary(a builtin-unary)
+	match a
+	as array-size then array-size
+	as bits-of-float32 then bits-of-float32
+	as bits-of-float64 then bits-of-float64
+	as bitwise-not then bitwise-not
+	as float32-from-bits then float32-from-bits
+	as float64-from-bits then float64-from-bits
+	as uninitialized-buffer then uninitialized-buffer
+	as reinterpret-cast then reinterpret-cast
+	as to-float32-from-float64 then to-float32-from-float64
+	as to-float64-from-float32 then to-float64-from-float32
+	as to-float64-from-int64 then to-float64-from-int64
+	as to-float64-from-nat64 then to-float64-from-nat64
+	as truncate-to-int64-from-float64 then truncate-to-int64-from-float64
+	as weak-ref-get then weak-ref-get
+	as weak-ref-new then weak-ref-new
+	as wrap-convert-integral then wrap-convert-integral
+
+-to low-builtin-binary(a builtin-binary)
+	match a
+	as add-float then add-float
+	as array-get then array-get
+	as bitwise-and then bitwise-and
+	as bitwise-or then bitwise-or
+	as bitwise-xor then bitwise-xor
+	as call-lambda then call-lambda
+	as compare then compare
+	as equal-exact then equal-exact
+	as equal-float-ieee then equal-float-ieee
+	as less-float-ieee then less-float-ieee
+	as mul-float then mul-float
+	as sub-float then sub-float
+	as unsafe-bit-shift-left then unsafe-bit-shift-left
+	as unsafe-bit-shift-right then unsafe-bit-shift-right
+	as unsafe-div then unsafe-div
+	as unsafe-mod-float64 then unsafe-mod-float64
+	as unsafe-mod-nat64 then unsafe-mod-nat64
+	as wrap-add then wrap-add
+	as wrap-mul then wrap-mul
+	as wrap-sub then wrap-sub
+
+-to low-builtin-ternary(a builtin-ternary)
+	match a
+	as array-set then array-set
 
 # Returns the parameter array type
 -as-list-new low-type?(a low-fun)
@@ -250,11 +293,6 @@ do lower-and-expr-ctx
 	if a.fun-inst
 		a.decl.contexts.size
 
--is-not bool(a low-fun)
-	res = a.body.builtin-fun.?builtin-unary == not
-	forbid res
-	res
-
 -is-array-op bool(a low-fun)
 	# TODO: make sure this is the one in collection.crow and all the spec impls are as expected
 	do if a.name == "for-loop"
@@ -291,7 +329,7 @@ do lower-and-expr-ctx
 	arg-locals low-local[] = for i in 0 .. first-non-option
 		destruct::low-generated-local-kind, called.params[i].type
 	# Generate it backwards, starting form the innermost call and wrapping in optional checks
-	res mut low-expr = call-low-expr range, called,
+	res mut low-expr = gen-call range, called,
 		-- for local in arg-locals then local-get-low-expr range, local
 		-- args[first-non-option .. end].to
 		-- context-args range, a.called, called
@@ -526,7 +564,7 @@ do lower-and-expr-ctx
 		elif is-not-not
 			arg
 		else
-			builtin-low-expr type, range, not, (arg,)
+			builtin-unary-low-expr type, range, not, arg
 
 -lower-if low-expr(type low-type, range uri-and-range, a if-expr) lower-and-expr-ctx
 	true-branch = of then lower-expr type, a.true-branch
@@ -1078,10 +1116,10 @@ lower-expr low-expr(outer-type low-type, a expr) lower-and-expr-ctx
 		elif expected-builtin = as-builtin-type expected and actual-builtin = as-builtin-type actual.type
 			if builtin-widens actual-builtin.kind, expected-builtin.kind
 				if as-integral-type expected and as-integral-type actual.type
-					builtin-low-expr expected, actual.range, wrap-convert-integral, (actual,)
+					builtin-unary-low-expr expected, actual.range, wrap-convert-integral, actual
 				else
 					assert expected-builtin.kind == float64 and actual-builtin.kind == float32
-					builtin-low-expr expected, actual.range, to-float64-from-float32, (actual,)
+					builtin-unary-low-expr expected, actual.range, to-float64-from-float32, actual
 -is-array-view bool(a low-type) lower-ctx
 	source = a.source
 	source.low-type-source-inst and source.decl == array-view

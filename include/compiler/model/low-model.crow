@@ -234,16 +234,18 @@ is-mutable bool(a low-local)
 	is-mutable a.source
 
 low-fun-body union
-	builtin-fun
 	low-expr
 	fun-body-extern-java
 	low-fun-body-method
 	low-fun-body-deferred
 	low-fun-body-always-inline
+	# Builtin functions are usually inlined, but not if they are used to implement a method
+	low-builtin-unary
+	low-builtin-binary
+	low-builtin-ternary
+	js-fun
 to json(a low-fun-body)
 	match a
-	as builtin-fun
-		builtin-fun: a.to
 	as low-expr
 		a.to
 	as fun-body-extern-java
@@ -254,6 +256,14 @@ to json(a low-fun-body)
 		"deferred"
 	as low-fun-body-always-inline
 		"always-inline"
+	as low-builtin-unary
+		a.to
+	as low-builtin-binary
+		a.to
+	as low-builtin-ternary
+		a.to
+	as js-fun
+		a.to
 low-fun-body-method record(method-index nat)
 low-fun-body-deferred record
 # Type for a function body that will never be filled in because the function should always be inlined
@@ -320,8 +330,6 @@ range uri-and-range(a low-fun)
 	a.source.range
 is-extern bool(a low-fun)
 	match a.body
-	as builtin-fun
-		false
 	as low-expr
 		false
 	as fun-body-extern-java
@@ -332,6 +340,14 @@ is-extern bool(a low-fun)
 		throw unreachable
 	as low-fun-body-always-inline
 		throw unreachable
+	as low-builtin-unary
+		false
+	as low-builtin-binary
+		false
+	as low-builtin-ternary
+		false
+	as js-fun
+		false
 name symbol?(a low-fun)
 	a.source.low-fun-source-regular.?decl.?name
 
@@ -347,13 +363,15 @@ to json(a low-fun-source-regular)
 
 low-expr union
 	array-op-low-expr
-	builtin-low-expr
+	builtin-unary-low-expr
+	builtin-binary-low-expr
+	builtin-ternary-low-expr
+	builtin-js-low-expr
 	call-low-expr
 	constant-low-expr
 	create-array-low-expr
 	create-record-low-expr
 	create-union-low-expr
-	drop-low-expr
 	finally-low-expr
 	if-low-expr
 	let-low-expr
@@ -388,7 +406,13 @@ type low-type(a low-expr) low-common-types
 	match a
 	as array-op-low-expr
 		type a
-	as builtin-low-expr
+	as builtin-unary-low-expr
+		type a
+	as builtin-binary-low-expr
+		type a
+	as builtin-ternary-low-expr
+		type a
+	as builtin-js-low-expr
 		type a
 	as call-low-expr
 		type a
@@ -399,8 +423,6 @@ type low-type(a low-expr) low-common-types
 	as create-record-low-expr
 		type a
 	as create-union-low-expr
-		type a
-	as drop-low-expr
 		type a
 	as finally-low-expr
 		type a
@@ -490,12 +512,62 @@ out-element low-type(a array-op-low-expr) low-common-types
 	a.body.type
 to json(a array-op-low-expr)
 
-builtin-low-expr record
+builtin-unary-low-expr record
 	type low-type
 	range uri-and-range
-	fun builtin-fun
+	fun low-builtin-unary
+	arg low-expr
+to json(a builtin-unary-low-expr)
+| This has some additional members not in {builtin-unary}
+low-builtin-unary enum
+	array-size
+	bits-of-float32
+	bits-of-float64
+	bitwise-not
+	drop
+	float32-from-bits
+	float64-from-bits
+	uninitialized-buffer
+	not
+	reinterpret-cast
+	to-float32-from-float64
+	to-float64-from-float32
+	to-float64-from-int64
+	to-float64-from-nat64
+	truncate-to-int64-from-float64
+	weak-ref-get
+	weak-ref-new
+	wrap-convert-integral
+to json(a low-builtin-unary)
+
+builtin-binary-low-expr record
+	type low-type
+	range uri-and-range
+	fun builtin-binary
+	arg0 low-expr
+	arg1 low-expr
+to json(a builtin-binary-low-expr)
+low-builtin-binary alias
+	builtin-binary
+
+builtin-ternary-low-expr record
+	type low-type
+	range uri-and-range
+	fun low-builtin-ternary
+	arg0 low-expr
+	arg1 low-expr
+	arg2 low-expr
+to json(a builtin-ternary-low-expr)
+low-builtin-ternary alias
+	builtin-ternary
+
+builtin-js-low-expr record
+	type low-type
+	range uri-and-range
+	fun js-fun
 	args low-expr[]
-to json(a builtin-low-expr)
+to json(a builtin-js-low-expr)
+
 call-low-expr record
 	range uri-and-range
 	called low-fun
@@ -528,14 +600,6 @@ create-union-low-expr record
 	case-index nat
 	arg low-expr
 to json(a create-union-low-expr)
-
-drop-low-expr record
-	arg low-expr
-type low-type(_ drop-low-expr) low-common-types
-	void
-range uri-and-range(a drop-low-expr)
-	a.arg.range
-to json(a drop-low-expr)
 
 finally-low-expr record(range uri-and-range, right low-expr, below low-expr)
 type low-type(a finally-low-expr) low-common-types
@@ -914,7 +978,13 @@ iterate bool(a low-direct-child-exprs, f bool mut(x low-expr))
 	match x = a.expr
 	as array-op-low-expr
 		f[x.input] or f[x.body]
-	as builtin-low-expr
+	as builtin-unary-low-expr
+		f[x.arg]
+	as builtin-binary-low-expr
+		f[x.arg0] or f[x.arg1]
+	as builtin-ternary-low-expr
+		f[x.arg0] or f[x.arg1] or f[x.arg2]
+	as builtin-js-low-expr
 		iterate x.args, f
 	as call-low-expr
 		iterate x.args, f
@@ -925,8 +995,6 @@ iterate bool(a low-direct-child-exprs, f bool mut(x low-expr))
 	as create-record-low-expr
 		iterate x.args, f
 	as create-union-low-expr
-		f[x.arg]
-	as drop-low-expr
 		f[x.arg]
 	as finally-low-expr
 		f[x.right] or f[x.below]

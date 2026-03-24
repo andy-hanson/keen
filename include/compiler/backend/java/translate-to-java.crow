@@ -1025,10 +1025,6 @@ do java-refs
 
 -emit-fun-body void(out code-builder, fun low-fun) java-expr-ctx
 	match body = body fun
-	as builtin-fun # TODO: this should go away, always use the low-expr form
-		translate-builtin out, body, fun.return-type, for param in params fun
-			local-get-low-expr fun.range, param
-		return out, fun.return-type.as-runtime-type
 	as low-expr
 		emit-expr out, return, body
 	as fun-body-extern-java
@@ -1105,6 +1101,26 @@ do java-refs
 	as low-fun-body-deferred
 		throw unreachable
 	as low-fun-body-always-inline
+		throw unreachable
+	as low-builtin-unary
+		param = only! fun.params
+		get-local out, param
+		translate-builtin-unary out, body, fun.return-type, param.type
+		pushed fun.return-type
+		return out, fun.return-type.as-runtime-type
+	as low-builtin-binary
+		for param in fun.params
+			get-local out, param
+		translate-builtin-binary out, body, fun.return-type, fun.params[0].type
+		pushed fun.return-type
+		return out, fun.return-type.as-runtime-type
+	as low-builtin-ternary
+		args low-expr[] = for param in fun.params
+			local-get-low-expr fun.range, param
+		translate-builtin-ternary out, body, only3! args
+		pushed fun.return-type
+		return out, fun.return-type.as-runtime-type
+	as js-fun
 		throw unreachable
 
 -expr-pos union(continue_, jump, return) mut
@@ -1194,16 +1210,22 @@ do java-refs
 	match a
 	as array-op-low-expr
 		emit-for-loop out, pos, a, a
-	as builtin-low-expr
-		translate-builtin out, a.fun, type, a.args
+	as builtin-unary-low-expr
+		function-like out, type, (a.arg,), of
+			translate-builtin-unary out, a.fun, type, a.arg.type
 		handle-pos out, pos, type
+	as builtin-binary-low-expr
+		function-like out, type, (a.arg0, a.arg1), of
+			translate-builtin-binary out, a.fun, type, a.arg0.type
+		handle-pos out, pos, type
+	as builtin-ternary-low-expr
+		translate-builtin-ternary out, a.fun, (a.arg0, a.arg1, a.arg2)
+		handle-pos out, pos, type
+	as builtin-js-low-expr
+		throw unreachable
 	as call-low-expr
-		match body = a.called.body
-		as builtin-fun
-			translate-builtin out, body, type, a.args
-		else
-			function-like out, type, a.args, of
-				call-low-fun out, a.called
+		function-like out, type, a.args, of
+			call-low-fun out, a.called
 		handle-pos out, pos, type
 	as constant-low-expr
 		push-constant out, a.value, type
@@ -1219,11 +1241,6 @@ do java-refs
 	as create-union-low-expr
 		emit-and-continue out, a.arg
 		new-union out, type, a.arg.type, a.case-index
-		handle-pos out, pos, type
-	as drop-low-expr
-		emit-and-continue out, a.arg
-		pop out, a.arg.type.as-runtime-type
-		must-pop a.arg.type
 		handle-pos out, pos, type
 	as finally-low-expr
 		with inner-pos in inner-pos out, pos
@@ -2097,36 +2114,13 @@ do java-expr-ctx
 	popped-args args
 	pushed return-type
 
--translate-builtin void(out code-builder, fun builtin-fun, type low-type, args low-expr[]) java-expr-ctx
-	match fun
-	as builtin-unary
-		function-like out, type, args, of
-			translate-builtin-unary out, type, args.only!.type, fun
-	as builtin-binary
-		function-like out, type, args, of
-			translate-builtin-binary out, type, args[0].type, fun
-	as builtin-ternary
-		translate-builtin-ternary out, fun, args
-	as builtin-fun-call-lambda
-		function-like out, type, args, of
-			lambda, _ = only2! args
-			invokevirtual out, lambda-call lambda.type
-	as builtin-fun-constant
-		throw unreachable
-	as builtin-fun-is-empty-type
-		throw unreachable
-	as builtin-fun-is-target
-		throw unreachable
-	as js-fun
-		throw unreachable
-
 -translate-builtin-unary void
 	out code-builder
+	fun low-builtin-unary
 	return-type low-type
 	arg-type low-type
-	kind builtin-unary
 do java-expr-ctx
-	match kind
+	match fun
 	as array-size
 		unless is-empty-type as-array-or-buffer! arg-type
 			arraylength out
@@ -2148,6 +2142,8 @@ do java-expr-ctx
 		as nat64
 			lconst out, -1
 			lxor out
+	as drop
+		pop out, arg-type.as-runtime-type
 	as float32-from-bits
 		invokestatic out, java-intBitsToFloat
 	as float64-from-bits
@@ -2261,11 +2257,11 @@ do java-expr-ctx
 
 -translate-builtin-binary void
 	out code-builder
+	fun low-builtin-binary
 	return-type low-type
 	param0-type low-type
-	kind builtin-binary
 do java-refs
-	match kind
+	match fun
 	as add-float
 		match as-float-type! return-type
 		as float32
@@ -2293,6 +2289,8 @@ do java-refs
 			lxor out
 		else
 			ixor out
+	as call-lambda
+		invokevirtual out, lambda-call param0-type
 	as compare
 		if f = as-float-type param0-type
 			invokestatic out, crow-compare-float f
@@ -2379,20 +2377,23 @@ do java-refs
 		else
 			isub out
 
--translate-builtin-ternary void(out code-builder, kind builtin-ternary, args low-expr[]) java-expr-ctx
-	match kind
+-translate-builtin-ternary void
+	out code-builder
+	fun low-builtin-ternary
+	arg0 low-expr, arg1 low-expr, arg2 low-expr
+do java-expr-ctx
+	match fun
 	as array-set
-		array, index, value = only3! args
-		emit-and-continue out, array
-		emit-and-continue out, index
+		emit-and-continue out, arg0
+		emit-and-continue out, arg1
 		l2i out
-		emit-and-continue out, value
-		if is-empty-type value.type
+		emit-and-continue out, arg2
+		if is-empty-type arg2.type
 			pop out, T_INT
 			pop out, reference-type
 		else
-			astore out, value.type.as-runtime-type
-		popped-args args
+			astore out, arg2.type.as-runtime-type
+		popped-args (arg0, arg1, arg2)
 
 -reference-equal void(out code-builder, param-type low-type) java-refs
 	match rt = as-runtime-type param-type

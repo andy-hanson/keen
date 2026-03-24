@@ -156,8 +156,10 @@ do
 
 -search-async bool(a low-expr, async-funs async-kind[low-fun])
 	here bool = match a
-	as builtin-low-expr
-		!!(intrinsic-async-kind a.fun, a.args, (), ())
+	as builtin-binary-low-expr
+		!!(intrinsic-async-kind a.fun, a.arg0, (), ())
+	as builtin-js-low-expr
+		!!(intrinsic-async-kind a.fun)
 	as call-low-expr
 		!!async-funs[a.called]
 	else
@@ -178,14 +180,6 @@ do
 
 -find-direct-async directly-async-reason?(a low-fun)
 	match body = a.body
-	as builtin-fun
-		match x = body
-		as builtin-fun-call-lambda
-			calls-lambda-parameter
-		as js-fun
-			intrinsic-async-kind x
-		else
-			()
 	as low-expr
 		intrinsic-async-kind body, a.params.to, ()
 	as fun-body-extern-java
@@ -196,6 +190,18 @@ do
 		throw unreachable
 	as low-fun-body-always-inline
 		throw unreachable
+	as low-builtin-unary
+		()
+	as low-builtin-binary
+		match body
+		as call-lambda
+			calls-lambda-parameter
+		else
+			()
+	as low-builtin-ternary
+		()
+	as js-fun
+		intrinsic-async-kind body
 
 -intrinsic-async-kind directly-async-reason?(a low-expr, params low-local set, local-lambda-locals low-local set)
 	from-children = of
@@ -204,8 +210,10 @@ do
 			max := max max, intrinsic-async-kind x, params, local-lambda-locals
 		max
 	match a
-	as builtin-low-expr
-		max from-children[], intrinsic-async-kind a.fun, a.args, params, local-lambda-locals
+	as builtin-binary-low-expr
+		max from-children[], intrinsic-async-kind a.fun, a.arg0, params, local-lambda-locals
+	as builtin-js-low-expr
+		max from-children[], intrinsic-async-kind a.fun
 	as let-low-expr
 		from-value = intrinsic-async-kind a.value, params, local-lambda-locals
 		new-locals = match a.value
@@ -217,18 +225,18 @@ do
 	else
 		from-children[]
 -intrinsic-async-kind directly-async-reason?
-	a builtin-fun
-	args low-expr[]
+	a low-builtin-binary
+	arg0 low-expr
 	params low-local set
 	local-lambda-locals low-local set
 do
 	match a
-	as builtin-fun-call-lambda
-		match x = args[0]
+	as call-lambda
+		match arg0
 		as local-get-low-expr
-			if params[x.local]
+			if params[arg0.local]
 				calls-lambda-parameter
-			elif local-lambda-locals[x.local]
+			elif local-lambda-locals[arg0.local]
 				# Function is calling a lambda it defined, and we trace its body anyway
 				()
 			else
@@ -236,8 +244,6 @@ do
 				calls-other-lambda
 		else
 			calls-other-lambda
-	as js-fun
-		intrinsic-async-kind a
 	else
 		()
 -intrinsic-async-kind directly-async-reason?(a js-fun)
@@ -258,8 +264,6 @@ do show-ctx
 	called-by caller mut[] mut[low-fun] = ()
 	for fun in all-funs
 		match x = fun.body
-		as builtin-fun
-			()
 		as low-expr
 			build-called-by-recur calls, called-by, fun, x
 		as fun-body-extern-java
@@ -275,6 +279,14 @@ do show-ctx
 		as low-fun-body-deferred
 			throw unreachable
 		as low-fun-body-always-inline
+			()
+		as low-builtin-unary
+			()
+		as low-builtin-binary
+			()
+		as low-builtin-ternary
+			()
+		as js-fun
 			()
 	var-calls call-kind mut[] mut[low-var] = ()
 	for var in all-vars

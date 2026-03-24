@@ -36,8 +36,34 @@ gen-do-and-continue low-expr(type low-type, range uri-and-range, a low-expr)
 			- loop-continue-low-expr type, range
 gen-drop-then low-expr(range uri-and-range, a low-expr, b low-expr) lower-ctx
 	seq-low-expr range,
-		- drop-low-expr a
+		- builtin-unary-low-expr void, range, drop, a
 		- b
+
+gen-call low-expr(range uri-and-range, fun low-fun, args low-expr[])
+	match body = fun.body
+	as low-expr
+		if body.constant-low-expr
+			body
+		else
+			call-low-expr range, fun, args
+	as fun-body-extern-java
+		call-low-expr range, fun, args
+	as low-fun-body-method
+		call-low-expr range, fun, args
+	as low-fun-body-deferred
+		call-low-expr range, fun, args
+	as low-fun-body-always-inline
+		throw unreachable
+	as low-builtin-unary
+		builtin-unary-low-expr fun.return-type, range, body, only! args
+	as low-builtin-binary
+		arg0, arg1 = only2! args
+		builtin-binary-low-expr fun.return-type, range, body, arg0, arg1
+	as low-builtin-ternary
+		arg0, arg1, arg2 = only3! args
+		builtin-ternary-low-expr fun.return-type, range, body, arg0, arg1, arg2
+	as js-fun
+		builtin-js-low-expr fun.return-type, range, body, args
 
 gen-option low-expr(option-type low-type, range uri-and-range, arg low-expr) lower-ctx
 	assert option-type.as-option! == arg.type
@@ -99,7 +125,7 @@ do lower-ctx
 		members.size is cases.size
 		gen-match-union fun.return-type, range, members, (local-get-low-expr range, fun.params[0]), of i, member
 			if impl = cases[i].method-impls![method-index]
-				call-low-expr range, impl, for param-index, param in with-index fun.params
+				gen-call range, impl, for param-index, param in with-index fun.params
 					if param-index == 0 then member else local-get-low-expr range, param
 			else
 				gen-bogus fun.return-type, range
@@ -216,14 +242,14 @@ do lower-ctx
 	record-field-set-low-expr range, reference, 0, value
 
 gen-equal-integral low-expr(range uri-and-range, a low-expr, b low-expr) lower-ctx
-	builtin-low-expr bool, range, equal-exact, (a, b)
+	builtin-binary-low-expr bool, range, equal-exact, a, b
 gen-intersect-nat low-expr
 	range uri-and-range
 	type nat-type
 	a low-expr
 	b low-expr
 do lower-ctx
-	builtin-low-expr type.to, range, bitwise-and, (a, b)
+	builtin-binary-low-expr type.to, range, bitwise-and, a, b
 
 gen-json-array low-expr(value low-expr) lower-ctx
 	gen-create-record json-type, value.range,

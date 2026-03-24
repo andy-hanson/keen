@@ -37,9 +37,17 @@ check-low-program void(a low-program) low-common-types
 		if l = a.local
 			l.type is a.in-element
 		check-expr out-element, a.body
-	as builtin-low-expr
-		check-builtin type, a
+	as builtin-unary-low-expr
+		check-builtin-unary type, a.fun, a.arg
+	as builtin-binary-low-expr
+		check-builtin-binary type, a.fun, a.arg0, a.arg1
+	as builtin-ternary-low-expr
+		check-builtin-ternary type, a.fun, a.arg0, a.arg1, a.arg2
+	as builtin-js-low-expr
+		check-builtin-js type, a.fun, a.args
 	as call-low-expr
+		body = a.called.body
+		assert body.low-expr or body.fun-body-extern-java or body.low-fun-body-method
 		type is a.called.return-type
 		for param, arg in zip a.called.params, a.args
 			check-expr param.type, arg
@@ -61,9 +69,6 @@ check-low-program void(a low-program) low-common-types
 			check-expr field.type, arg
 	as create-union-low-expr
 		check-expr type.body.low-union!.members[a.case-index], a.arg
-	as drop-low-expr
-		assert is-void type
-		check-expr-any-type a.arg
 	as finally-low-expr
 		check-expr void, a.right
 		check-expr type, a.below
@@ -178,46 +183,18 @@ do ctx
 -check-expr-any-type void(expr low-expr) ctx
 	check-expr expr.type, expr
 
--check-builtin void(type low-type, a builtin-low-expr) ctx
-	match x = a.fun
-	as builtin-unary
-		check-builtin-unary type, x, only! a.args
-	as builtin-binary
-		a.args.size is 2
-		check-builtin-binary type, x, only2! a.args
-	as builtin-ternary
-		a.args.size is 3
-		check-builtin-ternary type, x, only3! a.args
-	as builtin-fun-call-lambda
-		fun, param = only2! a.args
-		assert _, return-type, param-type = as-lambda fun.type
-		type is return-type
-		check-expr fun.type, fun
-		check-expr param-type, param
-	as builtin-fun-constant
-		# These were compiled to constants
-		throw unreachable
-	as builtin-fun-is-empty-type
-		# These were compiled to constants
-		throw unreachable
-	as builtin-fun-is-target
-		# These were compiled to constants
-		throw unreachable
-	as js-fun
-		check-builtin-js type, x, a.args
-
 -as-lambda (purity, low-type, low-type)?(a low-type)
 	source = a.source.low-type-source-inst!
 	do if purity = as-lambda-type source.decl
 	return-type, param-type = only2! source.type-args
 	purity, return-type, param-type
 
--check-builtin-unary void(type low-type, kind builtin-unary, a low-expr) ctx
+-check-builtin-unary void(type low-type, fun low-builtin-unary, a low-expr) ctx
 	check = of return-type low-type, arg-type low-type
 		type is return-type
 		check-expr arg-type, a
 	check2 void mut(x low-type) = check[it, it]
-	match kind
+	match fun
 	as array-size
 		type is nat64
 		assert as-array-or-buffer a.type
@@ -229,6 +206,9 @@ do ctx
 	as bitwise-not
 		assert as-integral-type type
 		check-expr type, a
+	as drop
+		type is void
+		check-expr a.type, a
 	as float32-from-bits
 		check[float32, nat32]
 	as float64-from-bits
@@ -263,8 +243,9 @@ do ctx
 
 -check-builtin-binary void
 	type low-type
-	kind builtin-binary
-	a low-expr, b low-expr
+	fun low-builtin-binary
+	a low-expr
+	b low-expr
 do ctx
 	check = of return-type low-type, a-type low-type, b-type low-type
 		type is return-type
@@ -288,7 +269,7 @@ do ctx
 		assert is-bool a.type or is-char8-or-32 a.type or as-integral-type a.type or is-float32-or-64 a.type
 		check-expr a.type, a
 		check-expr a.type, b
-	match kind
+	match fun
 	as add-float
 		binary-float[]
 	as array-get
@@ -301,6 +282,11 @@ do ctx
 		binary-integral[]
 	as bitwise-xor
 		binary-integral[]
+	as call-lambda
+		assert _, return-type, param-type = as-lambda a.type
+		type is return-type
+		check-expr a.type, a
+		check-expr param-type, b
 	as compare
 		# TODO: returns 'comparison'
 		a.type is b.type
@@ -335,10 +321,12 @@ do ctx
 
 -check-builtin-ternary void
 	type low-type
-	kind builtin-ternary
-	a low-expr, b low-expr, c low-expr
+	fun low-builtin-ternary
+	a low-expr
+	b low-expr
+	c low-expr
 do ctx
-	match kind
+	match fun
 	as array-set
 		type is void
 		check-expr a.type, a
