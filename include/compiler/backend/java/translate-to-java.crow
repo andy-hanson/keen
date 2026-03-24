@@ -1779,34 +1779,34 @@ do java-refs
 	type low-type
 	x match-union-low-expr
 do java-expr-ctx
-	# Note: I tested using a 'switch' on the 'case-index' method, but it didn't improve performance.
 	matched-type = x.matched.type
-	with inner-pos in inner-pos out, pos
-		for member-index, case_ in zip x.case-indices.to-array, x.cases
-			is-last-case = member-index == x.case-indices[end - 1]
-			case-type = x.union_.members[member-index]
-			unless is-last-case
-				dup32 out
-			instanceof out, class_ case-type
-			# Jump to next if the equality test returned 0 (false)
-			jump = ifeq out
-			unless is-last-case
-				pop out, matched-type.as-runtime-type
-			must-pop matched-type
-			emit-expr out, inner-pos, case_
-
-			# Change the stack to have the state from before 'jump'
-			must-pop type
-			unless is-last-case
-				pushed matched-type
-			jumps-to-here jump, out, cur-stack-frame
-		if e = x.else_
-			emit-expr out, inner-pos, e
-			must-peek type
+	do with inner-pos in inner-pos out, pos
+	# Don't bother checking the type of the last branch in a match with no 'else'.
+	checked-case-indices nat64 array-view, checked-cases low-expr array-view, final-branch low-expr =
+		if else_ = x.else_
+			x.case-indices.to-array, x.cases, else_
 		else
-			emit-unreachable out
-			# Treat the stack effect as if it was successful
-			pushed type
+			x.case-indices.to-array[0 .. end - 1], x.cases[0 .. end - 1], x.cases[end - 1]
+	for case-index, case_ in zip checked-case-indices, checked-cases
+		is-last-case = case-index == checked-case-indices[end - 1]
+		case-type = x.union_.members[case-index]
+		unless is-last-case
+			dup32 out
+		instanceof out, class_ case-type
+		jump = ifeq out
+		unless is-last-case
+			pop out, as-runtime-type matched-type
+		must-pop matched-type
+		emit-expr out, inner-pos, case_
+		# Change the stack to have the state from before 'jump'
+		must-pop type
+		unless is-last-case
+			pushed matched-type
+		jumps-to-here jump, out, cur-stack-frame
+	if is-empty checked-cases
+		pop out, as-runtime-type matched-type
+		must-pop matched-type
+	emit-expr out, inner-pos, final-branch
 
 -emit-match-union-using-switch void
 	out code-builder
