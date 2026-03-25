@@ -5,8 +5,21 @@ import
 	../model/uri
 	../util/util
 
+reference-ast union(name-and-range, call-expr-source, it-ast, list-expr-source, type-ast)
+reference-range source-range(a reference-ast)
+	match a
+	as name-and-range
+		range a
+	as call-expr-source
+		name-range a
+	as it-ast
+		range a
+	as list-expr-source
+		range a
+	as type-ast
+		name-range-or-range a
 cb-thing alias
-	void mut(range source-range, kind reference-kind, x doc-comment-reference)
+	void mut(range reference-ast, kind reference-kind, x doc-comment-reference)
 reference-kind enum
 	| Reference is explicit. We distinguish these if they are part of a declaration.
 	explicit-public
@@ -29,11 +42,11 @@ reference-kind enum
 	set-local
 == bool(a reference-kind, b reference-kind)
 
-walk-program void(a program, f void mut(where uri-and-range, kind reference-kind, x doc-comment-reference))
+walk-program void(a program, f void mut(where uri, source reference-ast, kind reference-kind, x doc-comment-reference))
 	the common-types = a.common-types
 	for _, module in a.crow-modules
 		for range, kind, thing in walk-module module
-			f[(module.uri, range), kind, thing]
+			f[module.uri, range, kind, thing]
 
 walk-any-decl void(decl any-decl, f cb-thing) common-types
 	match decl
@@ -100,10 +113,11 @@ for-loop void(a walk-module, f cb-thing) common-types
 	case-modifiers modifier-ast[] = filter modifiers, of mod
 		mod.modifier-keyword-ast and mod.keyword == case_
 	for mod, x in zip-if-size-eq case-modifiers, struct.sum-type-memberships
+		type-ast = mod.modifier-keyword-ast!.type-arg!
 		for called in x.method-impls
 			if called
-				handle-call called, mod.range, (), sum-type-method-impl, f
-		walk-type mod.modifier-keyword-ast!.type-arg!, x.sum-type, struct.visibility.explicit-kind-for-visibility, f
+				handle-call called, type-ast, (), sum-type-method-impl, f
+		walk-type type-ast, x.sum-type, struct.visibility.explicit-kind-for-visibility, f
 
 -walk-record void(ast record-ast, record_ record_, f cb-thing) common-types
 	if params = ast.params
@@ -120,7 +134,7 @@ for-loop void(a walk-module, f cb-thing) common-types
 		walk-type type-ast, member.member, struct-visibility.explicit-kind-for-visibility, f
 		for called in member.method-impls
 			if called
-				handle-call called, type-ast.range, (), sum-type-method-impl, f
+				handle-call called, type-ast, (), sum-type-method-impl, f
 	for method in a.methods
 		walk-signature method, struct-visibility, f
 
@@ -141,7 +155,7 @@ for-loop void(a walk-module, f cb-thing) common-types
 		kind = visibility.explicit-kind-for-visibility
 		if arg = mod.spec-use-ast!.type-arg
 			walk-type-args-may-unpack-tuple arg, parent.type-args, kind, f
-		f[mod.name-or-keyword-range, kind, parent.decl.to]
+		f[mod.spec-use-ast!.name, kind, parent.decl.to]
 
 -walk-signature void(a signature, visibility visibility, f cb-thing) common-types
 	walk-doc-comment a.doc-comment, f
@@ -162,16 +176,16 @@ do common-types
 
 walk-doc-comment void(a doc-comment, f cb-thing)
 	for name, ref in zip a.ast.references, a.references
-		f[name.range, comment, ref]
+		f[name, comment, ref]
 
 -walk-type void(ast type-ast, type type, kind reference-kind, f cb-thing) common-types
 	match type
 	as bogus-type
 		()
 	as type-param-index
-		f[ast.range, kind, type]
+		f[ast, kind, type]
 	as struct-inst
-		f[ast.name-range-or-range, kind, type.decl]
+		f[ast, kind, type.decl]
 		walk-type-args ast, type.type-args, kind, f
 -walk-type-args void(ast type-ast, type-args type-args, kind reference-kind, f cb-thing) common-types
 	match ast
@@ -207,11 +221,11 @@ walk-doc-comment void(a doc-comment, f cb-thing)
 
 -walk-simple-destructure void(ast name-and-range?, destructure simple-destructure, f cb-thing)
 	if ast
-		f[ast.range, declare-local, destructure.local!]
+		f[ast, declare-local, destructure.local!]
 
 -walk-opt-local void(ast match-ast, local local?, f cb-thing)
 	if local
-		f[ast.local!.range, declare-local, local]
+		f[ast.local!, declare-local, local]
 
 -include-locals enum(include-locals, ignore-locals)
 -walk-destructure void
@@ -225,13 +239,13 @@ do common-types
 	as name-and-range
 		match include-locals
 		as include-locals
-			f[ast.range, declare-local, destructure.local!]
+			f[ast, declare-local, destructure.local!]
 		as ignore-locals
 			()
 	as single-destructure-ast
 		match include-locals
 		as include-locals
-			f[ast.range, declare-local, destructure.local!]
+			f[ast.name, declare-local, destructure.local!]
 		as ignore-locals
 			()
 		?walk-type ast.type, destructure.type, kind, f
@@ -272,7 +286,7 @@ do common-types
 	match body = a.body
 	as auto-fun
 		for c in body.members
-			handle-call c, a.name-range.range, (), auto, f
+			handle-call c, a.source.fun-decl-ast!.name, (), auto, f
 	as expr
 		walk-expr body, f
 	as expr-with-allocated-locals
@@ -296,11 +310,11 @@ do common-types
 		as bogus-wrong-type-expr
 			()
 		as call-expr
-			handle-call e.called, e.ast.name-range, e.ast.call-ast.?type-arg, explicit-private, f
+			handle-call e.called, e.ast, e.ast.call-ast.?type-arg, explicit-private, f
 		as call-named-new-expr
-			handle-call e.called, e.ast.range, (), explicit-private, f
+			handle-call e.called, e.ast, (), explicit-private, f
 		as call-option-expr
-			handle-call e.called, e.ast.name-or-subscript-range, e.ast.type-arg, explicit-private, f
+			handle-call e.called, e.ast.to, e.ast.type-arg, explicit-private, f
 		as finally-expr
 			()
 		as force-expr
@@ -315,17 +329,17 @@ do common-types
 		as let-the-expr
 			walk-type e.ast.type, e.the-type, explicit-private, f
 		as list-expr
-			handle-call e.called, e.ast.range, (), explicit-private, f
+			handle-call e.called, e.ast, (), explicit-private, f
 		as literal-scalar-expr
 			()
 		as literal-string-like-expr
 			()
 		as local-get-expr
-			f[e.range, get-local, e.local]
+			f[e.ast.to, get-local, e.local]
 		as local-get-and-refine-expr
-			f[e.range, get-local, e.local]
+			f[e.ast, get-local, e.local]
 		as local-set-expr
-			f[e.range, set-local, e.local]
+			f[e.assignee-ast, set-local, e.local]
 		as logical-expr
 			()
 		as loop-expr
@@ -339,7 +353,7 @@ do common-types
 		as match-enum-expr
 			walk-opt-local e.ast, e.matched-local, f
 			for case-ast, case_ in zip-if-size-eq e.ast.cases, e.cases
-				f[case-ast.name-range, explicit-private, case_.member]
+				f[case-ast.member.as-name-ast!.name, explicit-private, case_.member]
 		as match-scalar-expr
 			walk-opt-local e.ast, e.matched-local, f
 		as match-string-like-expr
@@ -365,21 +379,25 @@ do common-types
 			walk-type e.ast.type, e.type, explicit-private, f
 		as unpack-option
 			walk-destructure e.ast.destructure, e.destructure, explicit-private, include-locals, f
+-to reference-ast(a local-get-source)
+	match a
+	as it-ast then a
+	as name-and-range then a
 
--handle-call void(called called, range source-range, type-arg type-ast?, kind reference-kind, f cb-thing) common-types
+-handle-call void(called called, source reference-ast, type-arg type-ast?, kind reference-kind, f cb-thing) common-types
 	match called
 	as called-bogus
-		f[range, kind, called.decl.to]
+		f[source, kind, called.decl.to]
 	as fun-inst
-		f[range, kind, called.decl]
+		f[source, kind, called.decl]
 		if type-arg
 			walk-type-args-may-unpack-tuple type-arg, called.type-args, explicit-private, f
 		for context in called.specs.all-contexts
-			f[range, implicit-context, doc-comment-reference-context context.struct-inst!]
+			f[source, implicit-context, doc-comment-reference-context context.struct-inst!]
 		for impl in called.spec-impls
-			handle-call impl, range, (), spec-impl, f
+			handle-call impl, source, (), spec-impl, f
 	as called-spec-sig
-		f[range, kind, called]
+		f[source, kind, called]
 
 -to doc-comment-reference(a called-decl)
 	match a
@@ -392,10 +410,10 @@ do common-types
 -handle-catch void(ast catch-ast, catch_ catch_, f cb-thing)
 	walk-simple-destructure ast.name, catch_.destructure, f
 	if x = ast.as_
-		f[x.type-name.range, explicit-private, catch_.caught-type.decl]
+		f[x.type-name, explicit-private, catch_.caught-type.decl]
 
 -handle-match-sum-type-cases void(case-asts case-ast[], cases match-sum-type-case[], f cb-thing)
 	for case-ast, case_ in zip-if-size-eq case-asts, cases
 		handle-match-sum-type-case case-ast.member, case_, f
 -handle-match-sum-type-case void(ast case-member-ast, case_ match-sum-type-case, f cb-thing)
-	f[ast.name-range, explicit-private, case_.case-type.decl]
+	f[ast.as-name-ast!.name, explicit-private, case_.case-type.decl]
