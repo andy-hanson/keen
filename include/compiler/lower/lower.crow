@@ -1,4 +1,5 @@
 import
+	crow/col/buffer
 	../frontend/show-model
 	../model/low-model
 	../model/model
@@ -67,7 +68,7 @@ lower low-program(target build-target, program program-with-main) show-ctx
 				()
 			else
 				throw unreachable
-		if fill-sum-type-method-impls or make-callers-for-java-interfaces
+		if make-callers-for-java-interfaces
 			any := true
 		if any
 			continue
@@ -78,15 +79,15 @@ lower low-program(target build-target, program program-with-main) show-ctx
 
 	replace-constants
 
-	method-impls = finish-variants
+	method-impls = finish-sum-types
 
 	all-funs low-fun[] = ctx.all-processed-low-funs.move-to
 	all-vars = finish-low-vars
 	all-constants = finish-all-constants all-constants
 	fun-info = gather-info low-common-funs, all-funs, all-vars, method-impls
 	all-structs low-type[] = ctx.all-low-types.move-to
+	all-funs-including-extern low-fun[] = sort fun-info.all-used-funs.to, it.range
 	res low-program =
-		all-funs-including-extern low-fun[] = sort fun-info.all-used-funs.to, it.range
 		model-program: program program
 		target: target
 		all-constants: all-constants
@@ -111,23 +112,6 @@ lower low-program(target build-target, program program-with-main) show-ctx
 	as test-selector
 		low-fun-for-all-tests main
 
--fill-sum-type-method-impls bool() lower-ctx
-	ctx = the::lower-context
-	res = !is-empty ctx.deferred-sum-type-method-impls
-	while sum-type, index, kind = pop ctx.deferred-sum-type-method-impls
-		body = sum-type-body-from-type sum-type
-		case_ = ctx.sum-types[sum-type]![index]
-		forbid case_.method-impls
-		case_.method-impls := match kind
-		as declared-on-sum-type
-			i = body.listed-members[index]
-			type-args = sum-type.source.low-type-source-inst!.type-args
-			sum-type-method-impls-common i.method-impls, type-args
-		as declared-on-case-type
-			sum-type-membership-method-impls sum-type, case_.case-type
-		case_.method-impls!.size is body.methods.size
-	res
-
 -make-callers-for-java-interfaces bool() lower-ctx
 	interfaces = the::lower-context.deferred-java-interfaces
 	res = !is-empty interfaces
@@ -142,30 +126,28 @@ lower low-program(target build-target, program program-with-main) show-ctx
 			_ = get-low-fun fun, (), ()
 	res
 
--finish-variants low-method-info[low-type]() lower-ctx
+-finish-sum-types low-method-info[low-type]() lower-ctx
 	ctx = the::lower-context
-	for sum-type, cases in ctx.sum-types
+	for sum-type, info in ctx.sum-types
 		unless has-members sum-type.body.low-union! # It will already be set for a 'union' (not interface or variant)
-			finish-sum-type-cases sum-type, cases
+			finish-sum-type-cases sum-type, info.cases
 
 	if preserve-methods
 		assert is-empty ctx.deferred-methods
-		for sum-type, cases in ctx.sum-types
-			sum-type, if methods-unsorted = ctx.sum-type-to-methods[sum-type]
-				methods low-fun[] = sort methods-unsorted.to, it.method-index
+		for sum-type, info in ctx.sum-types
+			- sum-type
+			-
+				methods low-fun[] = sort info.methods-unsorted.to, it.method-index
 				method-indices nat[] = map methods, it.method-index
 				methods: methods
-				cases: for case_ in cases
-					select-indices case_.method-impls!, method-indices
+				cases: for case_ in info.cases
+					map method-indices, case_.method-impls[it]
 	else
 		for fun in ctx.deferred-methods
 			sum-type = fun.params[0].type
 			method-index = fun.source.low-fun-source-regular!.decl.body.fun-body-method!.method-index
-			fun.body := generate-call-method fun, sum-type, ctx.sum-types[sum-type]!, method-index
+			fun.body := generate-call-method fun, sum-type, ctx.sum-types[sum-type]!.cases, method-index
 		()
 
 -method-index nat(a low-fun)
 	a.body.low-fun-body-method!.method-index
-
--select-indices[t] t[](a t[], indices nat[])
-	map indices, a[it]
