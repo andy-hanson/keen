@@ -268,7 +268,7 @@ lex-tokens tokens(source string-view, diagnostics parse-diagnostic mut[])
 				before-newline = iter.pos
 				if try-take-char8 iter, "\n"
 					end-all-quotes state, iter
-					delta = skip-blank-lines-and-get-indent-delta state, iter
+					delta = just-get-indent-delta state, iter
 					if delta == 1
 						take-indented-quote-part state, iter
 					else
@@ -511,26 +511,24 @@ region strings
 		take-string-escape out, start, iter, state.diagnostics
 		continue
 	as "\n"
-		_ = take-next iter
+		count-newlines mut nat = 0
+		new-indent mut nat32 = 0
 		while try-take-char8 iter, "\n"
-			()
-		new-indent = take-indent-amount-after-newline iter, state.indent-kind, of pos
-			state.diagnostics ~= (pos, iter.pos), state.indent-kind.parse-diag-indent-wrong
-		if iter.peek8 == "\n"
-			# Ignore blank line even if it has indents
-			continue
+			count-newlines +:= 1
+			new-indent := take-indent-amount-after-newline iter, state.indent-kind, of pos
+				state.diagnostics ~= (pos, iter.pos), state.indent-kind.parse-diag-indent-wrong
+		prev-indent = state.cur-indent
+		if new-indent < prev-indent
+			emit state, quote-block-no-interpolated, range-start, start, out.move-to
+			emit-dedents state, start, iter, prev-indent - new-indent - 1
+			state.cur-indent := new-indent
+			break
 		else
-			prev-indent = state.cur-indent
-			if new-indent < prev-indent
-				emit state, quote-block-no-interpolated, range-start, start, out.move-to
-				emit-dedents state, start, iter, prev-indent - new-indent - 1
-				state.cur-indent := new-indent
-				break
-			else
-				out ~~= "\n"
-				for _ in 0::nat32 .. new-indent - prev-indent
-					out ~~= chars state.indent-kind
-				continue
+			for _ in 0 .. count-newlines
+				out ~= "\n"
+			for _ in 0::nat32 .. new-indent - prev-indent
+				out ~~= chars state.indent-kind
+			continue
 	as "\0"
 		emit state, quote-block-no-interpolated, range-start, start, out.move-to
 		emit-dedents state, start, iter, state.cur-indent - 1
@@ -699,26 +697,34 @@ skip-spaces-and-comments void(iter string-iterator, cb-comment cb-comment, diagn
 		break
 
 -skip-blank-lines-and-get-indent-delta int32(state lexer-state, iter string-iterator)
-	do loop
-	start mut = iter.pos
-	new-indent mut nat32 = 0
-	cb-start-of-loop = of
-		start := iter.pos
-		new-indent := take-indent-amount-after-newline iter, state.indent-kind, of pos
-			state.diagnostics ~= (pos, iter.pos), state.indent-kind.parse-diag-indent-wrong
-	skip-blank-lines iter, cb-start-of-loop, it.noop, state.diagnostics
-	if iter.is-at-end
-		# Ignore indent before end of file
-		new-indent := 0
+	repeat-until-indent-delta state, iter, of
+		start mut = pos iter
+		new-indent mut nat32 = 0
+		cb-start-of-line = of
+			start := iter.pos
+			new-indent := take-indent-amount-after-newline state, iter
+		skip-blank-lines iter, cb-start-of-line, it.noop, state.diagnostics
+		start, new-indent
 
-	# If we got here, we're looking at a non-empty line (or end of file)
+-just-get-indent-delta int32(state lexer-state, iter string-iterator)
+	repeat-until-indent-delta state, iter, of
+		iter.pos, take-indent-amount-after-newline state, iter
+
+-take-indent-amount-after-newline nat32(state lexer-state, iter string-iterator)
+	take-indent-amount-after-newline iter, state.indent-kind, of pos
+		state.diagnostics ~= (pos, iter.pos), parse-diag-indent-wrong state.indent-kind
+
+-repeat-until-indent-delta int32(state lexer-state, iter string-iterator, f (pos, nat32) mut())
+	do loop
+	start, new-indent = f[]
 	delta = new-indent.to::int32 - state.cur-indent.to
 	if delta > 1
 		state.diagnostics ~= (start, iter.pos), parse-diag-indent-too-much
 		skip-rest-of-line-and-newline iter
 		continue
 	else
-		state.cur-indent := new-indent
+		# Ignore indent before end of file
+		state.cur-indent := if is-at-end iter then 0 else new-indent
 		break delta
 
 | Used for completions and signature help.
@@ -741,12 +747,12 @@ walk-backwards-for-position pos(source-text string-view, pos pos)
 
 skip-blank-lines void
 	iter string-iterator
-	cb-start-of-loop void mut()
+	cb-start-of-line void mut()
 	cb-comment cb-comment
 	diagnostics parse-diagnostic mut[]
 do
 	do loop
-	cb-start-of-loop[]
+	cb-start-of-line[]
 	before = iter.pos
 	if try-take-char8 iter, "\n"
 		continue
