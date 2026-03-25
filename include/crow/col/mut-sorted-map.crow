@@ -1,6 +1,5 @@
 import
-	../private/sort-utils
-	../mut-array: temp-as-array-view
+	./private/sort-utils
 
 | Mutable sorted map.
 | This works like `mut v[k]`, but iterates in sorted order.
@@ -13,10 +12,10 @@ import
 	-next mut (k, v) mut-sorted-map?
 
 | Later pairs overwrite earlier pairs with the same key.
-+list-new[k, v] (k, v) mut-sorted-map(a (k, v)[]) k key
++list-new[k, v] (k, v) mut-sorted-map(a (k, v)[]) k sorted-key
 	a.to
 
-+to[k, v] (k, v) mut-sorted-map(a (k, v)[]) k key
++to[k, v] (k, v) mut-sorted-map(a (k, v)[]) k sorted-key
 	res (k, v) mut-sorted-map = ()::(k, v?) mut[], 0, ()
 	for k, v in a
 		res[k] := v
@@ -30,6 +29,24 @@ import
 +clear[k, v] void(a (k, v) mut-sorted-map)
 	a.next := ()
 	clear a.pairs
+
++min-key[k, v] k?(a (k, v) mut-sorted-map) k sorted-key
+	compact a
+	unless is-empty a
+		a.pairs[0].a
+
++remove-min-key[k, v] (k, v)?(a (k, v) mut-sorted-map) k sorted-key
+	if key = min-key a
+		key, remove-key! a, key
+
++max-key[k, v] k?(a (k, v) mut-sorted-map) k sorted-key
+	compact a
+	unless is-empty a
+		a.pairs[end - 1].a
+
++remove-max-key[k, v] (k, v)?(a (k, v) mut-sorted-map) k sorted-key
+	if key = max-key a
+		key, remove-key! a, key
 
 | Number of pairs in the map.
 | This is O({a} {size}).
@@ -47,27 +64,27 @@ import
 | Find the value associated with the key.
 | Returns an empty option iff the key is not in the map.
 | This is O({a}.{size} log).
-+subscript[k, v] v?(a (k, v) mut-sorted-map, key k) k key
++subscript[k, v] v?(a (k, v) mut-sorted-map, key k) k sorted-key
 	if index = find-exact a.pairs, key
 		a.pairs[index].b
 	elif x = a.next
 		x[key]
 
 | Adds a key-value pair, replacing any existing one with that key.
-+set-subscript[k, v] void(a (k, v) mut-sorted-map, key k, value v) k key
++set-subscript[k, v] void(a (k, v) mut-sorted-map, key k, value v) k sorted-key
 	unless insert-into-key-match-or-empty-slot a, key, value
 		add-pair a, key, value
 
 | Adds many key-value pairs, replacing existing ones with the same keys.
 | Equivalent to adding each element of {b} separately.
-+ ~~=[k, v] void(a (k, v) mut-sorted-map, b (k, v)[]) k key
++ ~~=[k, v] void(a (k, v) mut-sorted-map, b (k, v)[]) k sorted-key
 	for k, v in b
 		a[k] := v
 
 | Traverses nodes left-to-right looking for the key.
 | If that fails, traverses back right-to-left and inserts into an empty slot if possible.
 | Returns {true} if it succeeded.
--insert-into-key-match-or-empty-slot[k, v] bool(a (k, v) mut-sorted-map, key k, value v) k key
+-insert-into-key-match-or-empty-slot[k, v] bool(a (k, v) mut-sorted-map, key k, value v) k sorted-key
 	insert = binary-search-insert-cb a.pairs, key <=> it.a
 	next-pair (k, v?)? = unless insert == a.pairs.size
 		a.pairs[insert]
@@ -95,7 +112,7 @@ import
 			true
 
 | Returns the new physical size of this node and all nodes to the right
--add-pair[k, v] void(a (k, v) mut-sorted-map, key k, value v) k key
+-add-pair[k, v] void(a (k, v) mut-sorted-map, key k, value v) k sorted-key
 	if a.node-size < 4
 		if is-empty a.pairs
 			a.pairs ~= key, value
@@ -118,7 +135,7 @@ import
 			a.next := new-pairs, 1, ()
 
 | Insert at the last place where the key is < that value.
--insert-linear[k, v] void(a (k, v?) mut[], index nat64, key k, value v) k key
+-insert-linear[k, v] void(a (k, v?) mut[], index nat64, key k, value v) k sorted-key
 	if key < a[index].a
 		move-right a, index
 		a[index] := key, value
@@ -137,7 +154,7 @@ import
 			move-right a, index + 1
 			a[index + 1] := a[index]
 
-+move-to[k, v] (k, v)[](a (k, v) mut-sorted-map) k key
++move-to[k, v] (k, v)[](a (k, v) mut-sorted-map) k sorted-key
 	res (k, v)[] = for x in a then x
 	clear a
 	res
@@ -145,7 +162,7 @@ import
 # TODO: use the same `try-remove` interface that mut-map uses.
 | If the key is in the map, removes it and returns the value that was associated with it.
 | Else, returns an empty option.
-+remove-key[k, v] v?(a (k, v) mut-sorted-map, key k) k key
++remove-key[k, v] v?(a (k, v) mut-sorted-map, key k) k sorted-key
 	if index = find-exact a.pairs, key
 		res = if a.pairs.size - index < 4
 			_, v = remove-at a.pairs, index
@@ -161,11 +178,11 @@ import
 	elif next = a.next
 		remove-key next, key
 
--compact-if-needed[k, v] void(a (k, v) mut-sorted-map) k key
+-compact-if-needed[k, v] void(a (k, v) mut-sorted-map) k sorted-key
 	physical-size = total-pairs-size a
 	if a.node-size * 2 <= physical-size
 		compact a
-		assert a.node-size == a.total-pairs-size
+		a.node-size is a.total-pairs-size
 
 -total-pairs-size[k, v] nat64(a (k, v) mut-sorted-map)
 	acc mut nat64 = 0
@@ -178,26 +195,26 @@ import
 	else
 		break acc
 
--compact[k, v] void(a (k, v) mut-sorted-map) k key
+-compact[k, v] void(a (k, v) mut-sorted-map) k sorted-key
+	a.pairs filter= !!it.b
 	do if next = a.next
 	compact next
-	a.pairs filter= !!it.b
 	merge-no-duplicates a.pairs, next.pairs, of (k0, _), (k1, _)
 		assert-comparison-not-equal k0 <=> k1
 	a.next := ()
 	a.node-size := a.pairs.size
 
--find-exact[k, v] nat64?(pairs (k, v?) mut[], key k) k key
-	binary-search-exact (trusted temp-as-array-view pairs), key
+-find-exact[k, v] nat64?(pairs (k, v?) mut[], key k) k sorted-key
+	binary-search-exact pairs, key
 
 region mutating iteration
 
-+filter=[k, v] void(a (k, v) mut-sorted-map, f bool mut(key k, value v)) k key
++filter=[k, v] void(a (k, v) mut-sorted-map, f bool mut(key k, value v)) k sorted-key
 	compact a
 	a.pairs filter= of k, v
 		f[k, v!]
 
-+map=[k, v] void(a (k, v) mut-sorted-map, f (k, v) mut(key k, value v)) k key
++map=[k, v] void(a (k, v) mut-sorted-map, f (k, v) mut(key k, value v)) k sorted-key
 	compact a
 	a.pairs map= of k, v
 		k-out, v-out = f[k, v!]
@@ -211,13 +228,18 @@ test
 		10 - k, "{v}!"
 	verify a, "[4 -> 60!, 7 -> 30!]"
 
-+map-values=[k, v] void(a (k, v) mut-sorted-map, f v mut(key k, value v)) k key
++map-values=[k, v] void(a (k, v) mut-sorted-map, f v mut(key k, value v)) k sorted-key
 	a map= of k, v
 		k, f[k, v]
 
-+iterate[k, v] bool(a (k, v) mut-sorted-map, f bool mut(key k, value v)) k key
++iterate[k, v] bool(a (k, v) mut-sorted-map, f bool mut(key k, value v)) k sorted-key
 	compact a
 	iterate a.pairs, of k, v
+		f[k, v!]
+
++iterate-reverse[k, v] bool(a (k, v) mut-sorted-map, f bool mut(key k, value v)) k sorted-key
+	compact a
+	iterate-reverse a.pairs, of k, v
 		f[k, v!]
 
 region test
