@@ -1,5 +1,4 @@
 import
-	crow/col/buffer
 	../../../model/ast
 	../../../model/model
 	../../../model/source-range
@@ -144,27 +143,34 @@ do check-expr-ctx
 			res +:= to test-candidate-param-type! candidate, i, arg-types[i].non-inferring, allow-conversions
 		res *:= type-match-kind-enum-size
 		# Candidates can sometimes infer 'bogus', which will cause 'test-candidate-return-type' to fail.
-		res +:= ?to test-candidate-return-type expected, candidate else 0
-		# As a tie breaker, for numeric functions, prefer the biggest type.
-		# So 'pi' will prefer to be float64 over float32.
-		res *:= 4
-		res +:= numeric-return-priority candidate.called.return-type
-		res
+		?to test-candidate-return-type expected, candidate else 0
 
--numeric-return-priority nat(type type)
+	filter-partial-compare candidates, of c1, c2
+		r1 = c1.called.return-type
+		r2 = c2.called.return-type
+		if class1, pri1 = return-priority r1 and class2, pri2 = return-priority r2 and class1 == class2
+			pri1 <=> pri2
+		else
+			equal
+
+# Within the same category, larger number types are preferred.
+# There is no preference across categories so int8 vs nat64 is ambiguous.
+-number-category enum(int, nat, float)
+- == bool(a number-category, b number-category)
+-return-priority (number-category, nat32)?(type type)
 	do if b = as-builtin-type type
 	match b
-	as int8 then 0
-	as int16 then 1
-	as int32 then 2
-	as int64 then 3
-	as nat8 then 0
-	as nat16 then 1
-	as nat32 then 2
-	as nat64 then 3
-	as float32 then 0
-	as float64 then 1
-	else then 0
+	as int8 then int, 0
+	as int16 then int, 1
+	as int32 then int, 2
+	as int64 then int, 3
+	as nat8 then nat, 0
+	as nat16 then nat, 1
+	as nat32 then nat, 2
+	as nat64 then nat, 3
+	as float32 then float, 0
+	as float64 then float, 1
+	else then ()
 
 check-call-special-cb1 expr
 	source call-expr-source
@@ -282,8 +288,14 @@ do check-ctx, common-types, funs-map
 	with-candidates funs-in-scope, method-name, arity, initial-filter, of candidates
 		if x = only candidates
 			res = check-call-specs-except-contexts struct, funs-in-scope, never-trusted, diag-range, x
-			if check-no-contexts struct, method-impl, diag-range, res
-				res.fun-inst!
+			match res
+			as called-bogus
+				()
+			as fun-inst
+				if check-no-contexts struct, method-impl, diag-range, res
+					res
+			as called-spec-sig
+				()
 		else
 			add-diag diag-range, if is-empty candidates
 				diag-function-with-signature-not-found method-name, struct, return-and-param-types

@@ -1,4 +1,4 @@
-.PHONY: check test-end-to-end test-end-to-end-overwrite serve prepare-site test unit-test unit-test-java unit-test-js view-dependencies
+.PHONY: check test-end-to-end test-end-to-end-overwrite test unit-test unit-test-java unit-test-js view-dependencies
 
 include = $(shell find include -name '*.crow')
 include_crow = $(shell find include/crow -name '*.crow')
@@ -11,7 +11,7 @@ clean:
 	mkdir bin
 	mv crow-lkg bin/crow-lkg
 
-all: clean test serve
+all: clean test
 
 test: unit-test test-diagnostics test-end-to-end
 
@@ -20,7 +20,7 @@ unit-test-java: bin/crow $(include)
 	bin/crow build include/crow-config.json --test --out bin/test
 	bin/test
 	rm bin/test
-unit-test-js: bin/crow $(include)
+unit-test-js: bin/crow bin/java-classes.tar $(include)
 	bin/crow build include/crow-config.json --test --out bin/test.js
 	bin/test.js
 	rm bin/test.js bin/test.js.map
@@ -65,6 +65,29 @@ bin/crow: $(compiler_deps)
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
 	mv bin/crow-tmp bin/crow
 
+include = include/*/*.crow include/*/*/*.crow include/*/*/*/*.crow
+bin/crow.tar.xz: bin/crow $(include_crow)
+	tar --create --xz --file bin/crow.tar.xz bin/crow include/crow
+
+install-vscode-extension: bin/crow.vsix
+	code --install-extension bin/crow.vsix
+bin/crow.vsix: editor/vscode/* editor/vscode/node_modules
+	cd editor/vscode && ./node_modules/@vscode/vsce/vsce package --allow-missing-repository --out ../../bin/crow.vsix
+editor/vscode/node_modules:
+	cd editor/vscode && npm install
+
+bin/java-classes.tar:
+	rm -rf bin/java-classes
+	mkdir bin/java-classes
+	crow print dependencies ../crow/include/crow-config.json --format flat | \
+		grep 'java:///java' | \
+		sed 's|^java:///java/|classes/java/|' | \
+		sed 's|%24|\$$|' | \
+		sed 's|$$|.class|' | \
+		xargs -d '\n' unzip -qq /usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod -d bin/java-classes || true
+	tar -cf bin/java-classes.tar -C bin/java-classes/classes .
+	rm -r bin/java-classes
+
 ### Optional commands ###
 
 bin/crow.js: $(compiler_deps)
@@ -82,51 +105,3 @@ profile-translate-to-java: bin/crow
 view-dependencies: bin/crow
 	bin/crow print dependencies include/crow-config.json | dot -Tsvg > bin/dependencies.svg
 	xdg-open bin/dependencies.svg
-
-### site ###
-
-# TODO: bin/crow.tar.xz bin/crow-demo.tar.xz bin/crow.vsix
-site-dependencies: bin/crow site/index.js site/worker.js site/crow-include.tar site/java-classes.tar
-
-prepare-site: site-dependencies
-	bin/crow site-src/build/site.crow
-
-site/index.js: bin/crow site-src/script/*.crow site-src/script/*/*.crow
-	mkdir -p site
-	bin/crow build site-src/script/index.crow --out site/index.js
-site/worker.js: bin/crow site-src/script/worker.crow $(compiler_deps)
-	bin/crow build site-src/script/worker.crow --out site/worker.js
-
-serve: site-dependencies
-	( trap 'kill 0' INT; bin/crow run site-src/build/site.crow --watch & bin/crow build site-src/script/index.crow --out site/index.js --watch & ./site-src/build/serve.crow & wait )
-
-### publish ###
-
-include = include/*/*.crow include/*/*/*.crow include/*/*/*/*.crow
-bin/crow.tar.xz: bin/crow $(include_crow)
-	tar --create --xz --file bin/crow.tar.xz bin/crow include/crow
-
-bin/crow-demo.tar.xz: demo/* demo/*/* demo/*/*/*
-	tar --create --xz --file bin/crow-demo.tar.xz \
-		--transform 'flags=r;s|demo|crow-demo|' --exclude crow-demo/extern demo
-
-install-vscode-extension: bin/crow.vsix
-	code --install-extension bin/crow.vsix
-bin/crow.vsix: editor/vscode/* editor/vscode/node_modules
-	cd editor/vscode && ./node_modules/@vscode/vsce/vsce package --allow-missing-repository --out ../../bin/crow.vsix
-editor/vscode/node_modules:
-	cd editor/vscode && npm install
-
-site/crow-include.tar: $(include)
-	tar -cf site/crow-include.tar -C include/crow .
-site/java-classes.tar:
-	rm -rf site/java-classes
-	mkdir site/java-classes
-	bin/crow print dependencies include/crow-config.json --format flat | \
-		grep 'java:///java' | \
-		sed 's|^java:///java/|classes/java/|' | \
-		sed 's|%24|\$$|' | \
-		sed 's|$$|.class|' | \
-		xargs -d '\n' unzip -qq /usr/lib/jvm/java-25-openjdk-amd64/jmods/java.base.jmod -d site/java-classes || true
-	tar -cf site/java-classes.tar -C site/java-classes/classes .
-	rm -r site/java-classes

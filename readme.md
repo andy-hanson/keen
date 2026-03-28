@@ -33,7 +33,3 @@ make test
 * A handful of tests in `test/end-to-end`.
   Since these each get their own process, they are slow.
   If adding or changing tests, run `make test-end-to-end-overwrite`.
-
-# Publishing
-
-Run `make upload-site` to build and publish. This requires you to have `aws` installed.
