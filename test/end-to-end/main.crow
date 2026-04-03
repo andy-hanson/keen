@@ -92,32 +92,47 @@ do global
 	out-pre = format-output res
 	out = match run-kind
 	as java
-		out-pre
+		normalize-java out-pre
 	as js
 		remove-node-js-footer normalize-js-temp-paths out-pre
 	handle-output path, "{path}.{run-kind}.out", out, overwrite-output, run-kind
 
+-normalize-java string(a string)
+	update-lines a, of line
+		if starts-with line, "\tat "
+			if before, after = try-split-once line, "("
+				# Keep line numbers, but discard hashes in method identifiers
+				"{normalize-numbers-to-1 before.to}({after}"
+		else
+			line
+
 -normalize-js-temp-paths string(a string)
 	# Replace '/tmp/crow-123.js' with 'TMP.js'
-	# TODO: I should also replace line numbers
-	cur mut string-view = a.to
-	with out in build
-		while before, after = try-split-once cur, "/tmp/crow-"
-			out ~~= before
-			out ~~= "TMP"
-			line, rest = try-split-once! (drop-while after, it.is-digit), "\n"
-			prev-was-digit mut bool = false
-			for x in line
-				if is-digit x
-					unless prev-was-digit
-						out ~= "1"
-						prev-was-digit := true
-				else
-					out ~= x
-					prev-was-digit := false
-			out ~= "\n"
-			cur := rest
-		out ~~= cur
+	update-lines a, of line
+		if starts-with line, "    at " or starts-with line, "file://"
+			normalize-numbers-to-1 normalize-temp-file line
+		else
+			line
+-update-lines string(a string, f string mut(line string))
+	join "\n", for line in split a, "\n"
+		f[line.to]
+-normalize-temp-file string(a string)
+	if before, after = try-split-once a, "/tmp/crow-"
+		rest = drop-while after, it.is-digit
+		"{before}TMP{rest}"
+	else
+		a
+-normalize-numbers-to-1 string(a string)
+	do with out in build
+	prev-was-digit mut bool = false
+	for x in a
+		if is-digit x
+			unless prev-was-digit
+				out ~= "1"
+				prev-was-digit := true
+		else
+			out ~= x
+			prev-was-digit := false
 -remove-node-js-footer string(a string)
 	do if i = last-index-of a.strip-right, "\n" else a
 	do if starts-with a[i + 1 .. end], "Node.js v" else a

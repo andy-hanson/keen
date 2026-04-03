@@ -12,12 +12,12 @@ region Create nodes
 
 | Create a new DOM node with the given tag.
 +create-node node(tag-name symbol) js
-	trusted call-property "document".js-global, "createElement", tag-name.to
+	trusted call-property document, "createElement", tag-name.to
 | Create a new node with the given tag and HTML attributes.
 +create-node node(tag-name symbol, attr string[symbol]) js
 	node = create-node tag-name
 	for key, value in attr
-		_ = trusted call-property node.as-js, "setAttribute", key.to, value.to
+		_ = trusted call-property node, "setAttribute", key.to, value.to
 	node
 +create-node node
 	tag-name symbol
@@ -40,13 +40,16 @@ do js
 do js
 	trusted
 	res = create-node "button", (("title", title),), class-name, children
-	res.as-js["onclick"] := on-click.as-js
+	res["onclick"] := on-click.to
 	res
 
 +style record(node node) mut
 +set-subscript void(a style, key symbol, value string) js
 	trusted
-	a.node.as-js["style"][key.to] := value.to
+	a.node["style"][key.to] := value.to
++ ~~= void(a style, properties string[symbol]) js
+	for key, value in properties
+		a[key] := value
 
 +classes record(node node) mut
 + ~= void(a classes, class-name string) js
@@ -66,20 +69,22 @@ do js
 	else
 		a -= class-name
 
++text-content string(a node) unsafe, js
+	a["textContent"].to
 +set-text-content void(a node, text string) js
 	trusted
 	a["textContent"] := text.to
 
 +add-event-listener void(a node, event-name string, fn void mut(event js-any)) js
 	trusted
-	_ = call-property a, "addEventListener", event-name.to, fn.as-js
+	_ = call-property a, "addEventListener", event-name.to, fn.to
 
 +create-input-text node(on-input void mut(x js-any), value string) js
 	trusted
 	res = create-node "input",
 		type: "text"
 		value: value
-	_ = call-property res.as-js, "addEventListener", "input", on-input.as-js
+	_ = call-property res, "addEventListener", "input", on-input.to
 	res
 
 +create-div node() js
@@ -97,10 +102,10 @@ do js
 	create-node "span", attr, class-name, children
 
 +create-text-node node(text string) js
-	trusted call-property "document".js-global, "createTextNode", text.to
+	trusted call-property document, "createTextNode", text.to
 
 +document node() global, js
-	trusted js-global "document"
+	trusted js-global["document"]
 
 region Node properties
 
@@ -118,6 +123,9 @@ region Node properties
 + -= void(a attributes, attr-name symbol) js
 	trusted
 	_ = call-property a.node, "removeAttribute", attr-name.to
++ ~~= void(a attributes, attributes string[symbol]) js
+	for key, value in attributes
+		a[key] := value
 
 | Gets the value for an input node, or "" if it's not an input node.
 +value string(a node) js
@@ -134,7 +142,7 @@ region Node queries
 | Calls 'querySelector'
 +query node?(parent node, selector string) js
 	trusted
-	res = call-property parent.as-js, "querySelector", selector.to
+	res = call-property parent, "querySelector", selector.to
 	unless res == null then res
 
 +query-all node[](parent node, selector string) js
@@ -144,7 +152,7 @@ region Node queries
 	trusted array-of-node-list a["childNodes"]
 
 -array-of-node-list node[](node-list js-any) js
-	trusted call-property "Array".js-global, "from", node-list 'to
+	trusted call-property js-global["Array"], "from", node-list 'to
 
 | Calls 'getElementById'
 +element node?(parent node, id string) js
@@ -154,19 +162,19 @@ region Node queries
 
 +first-child node?(a node) js
 	trusted
-	res = a.as-js["firstChild"]
+	res = a["firstChild"]
 	unless res == null then res
 
 region Events
 
 +on-click void(a node, fn void mut()) global, js
-	_ = trusted call-property a.as-js, "addEventListener", "click"::js-any, fn.as-js
+	_ = trusted call-property a, "addEventListener", "click"::js-any, fn.to
 
 +on-mouse-down void(a node, fn void mut()) global, js
-	_ = trusted call-property a.as-js, "addEventListener", "mousedown"::js-any, fn.as-js
+	_ = trusted call-property a, "addEventListener", "mousedown"::js-any, fn.to
 
 +on-mouse-up void(a node, fn void mut()) global, js
-	_ = trusted call-property a.as-js, "addEventListener", "mouseup"::js-any, fn.as-js
+	_ = trusted call-property a, "addEventListener", "mouseup"::js-any, fn.to
 
 region Mutations
 
@@ -174,11 +182,11 @@ region Mutations
 	trusted a["id"].to
 +set-id void(a node, value string) js
 	trusted
-	a.as-js["id"] := value.to
+	a["id"] := value.to
 
 | Append a child node.
 + ~= void(a node, b node) js
-	_ = trusted call-property a.as-js, "appendChild", b
+	_ = trusted call-property a, "appendChild", b
 
 | Append many child nodes.
 + ~~= void(a node, b node[]) js
@@ -192,7 +200,10 @@ region Mutations
 
 +remove-all-children void(a node) js
 	while child = first-child a
-		_ = trusted call-property a.as-js, "removeChild", child
+		_ = trusted call-property a, "removeChild", child
+
++remove-self void(a node) js
+	_ = trusted call-property a, "remove"
 
 region Custom elements
 
@@ -211,15 +222,15 @@ do global, js
 	constructor method = of this, _
 		root = call-property this, "attachShadow", mode: "open"
 		sheets js-any[] = for style in options.styles
-			sheet = call-new "CSSStyleSheet".js-global
+			sheet = call-new js-global["CSSStyleSheet"]
 			_ = call-property sheet, "replace", style.to
 			sheet
 		root["adoptedStyleSheets"] := sheets.to
 		()
 	connected-callback method = of this, _
-		as-js connected[as-custom-element-node this]
-	cls = make-class "HTMLElement".js-global, constructor, connectedCallback: connected-callback
-	_ = call-property "customElements".js-global, "define", element-name.to, cls
+		connected[as-custom-element-node this].to
+	cls = make-class js-global["HTMLElement"], constructor, connectedCallback: connected-callback
+	_ = call-property js-global["customElements"], "define", element-name.to, cls
 
 +connected-callback alias
 	void mut(this custom-element-node)
@@ -227,7 +238,9 @@ do global, js
 # TODO: figure out why it crashes when I try to make this an alias for js-any
 # (some early access to 'target' is crashing it)
 +custom-element-node record(dummy js-any)
-+as-custom-element-node custom-element-node(a js-any) unsafe, js
++as-js js-any(a custom-element-node) js, unsafe
+	reinterpret-cast a
++as-custom-element-node custom-element-node(a js-any) js, unsafe
 	reinterpret-cast a
 +as-node node(a custom-element-node) js
 	trusted reinterpret-cast a
@@ -238,5 +251,5 @@ do global, js
 
 +wait-until-window-loaded void() global, js
 	trusted
-	unless "document".js-global["readyState"] == "complete"
+	unless document["readyState"] == "complete"
 		_ = await eval "new Promise(resolve => window.addEventListener('load', resolve))"

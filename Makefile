@@ -7,7 +7,7 @@ compiler_deps = $(include_crow) $(include_compiler) include/compiler/backend/jav
 
 clean:
 	mv bin/crow-lkg crow-lkg
-	rm -rf bin site demo/webapp/db demo/*/index.js demo/*/index.js.map
+	rm -rf bin
 	mkdir bin
 	mv crow-lkg bin/crow-lkg
 

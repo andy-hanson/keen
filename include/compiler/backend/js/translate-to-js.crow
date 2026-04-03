@@ -76,7 +76,7 @@ do show-ctx
 		functions: functions
 		vars: vars
 		statements:
-			- gen-call-main program.common-funs.low-common-funs-js!.main 'to
+			gen-call-main program.common-funs.low-common-funs-js!.main 'to
 	module-paths = module-paths program.model-program
 	write-js-ast file-content-getters, module-paths, ast, sanity-checks, source-map-name
 
@@ -102,11 +102,10 @@ do show-ctx
 -constant-symbol-name js-name(index nat)
 	no-prefix "_symbol{index}"
 
--gen-call-main js-expr(main low-fun) to-js
+-gen-call-main js-statement[](main low-fun) to-js
 	###
-	main(typeof process === 'undefined' ? [] : process.argv.slice(2).map(x => toString(x)).then(exit => {
-		if (exit !== 0n) process.exit(Number(exit))
-	})
+	const exit = main(typeof process === 'undefined' ? [] : process.argv.slice(2).map(x => toString(x))
+	if (exit !== 0n) process.exit(Number(exit))
 	###
 	source source = source main
 	process = gen-global source, "process"
@@ -126,20 +125,13 @@ do show-ctx
 		gen-ternary source, process-is-undefined, empty-array, process-argv-mapped
 	main-async sync-or-async = if main.async-fun-kind == always-async then async else sync
 	call-main = gen-call-sync source, (to-ref source, main, main-async), (argv,)
-	main-promise = match main-async
-	as sync
-		# TODO: this should be `Promise.resolve().then(() => main(process.argv))` to ensure exceptions are caught
-		gen-call-property-sync source, (gen-global source, "Promise"), "resolve", (call-main,)
-	as async
-		call-main
-	gen-call-property-sync source, main-promise, "then",
-		exit js-name = no-prefix "exit"
-		get-exit = gen-identifier source, exit
-		exit-neq-0 = gen-not-eq-eq source, get-exit, gen-bigint-unsigned source, 0
-		number-exit = gen-call-sync source, (gen-global source, "Number"), (get-exit,)
-		call-exit = gen-call-property-sync source, process, "exit", (number-exit,)
-		body = gen-if source, exit-neq-0, call-exit.to
-		- gen-arrow-function source, sync, (exit,), body.to
+	exit js-name = no-prefix "exit"
+	get-exit = gen-identifier source, exit
+	exit-neq-0 = gen-not-eq-eq source, get-exit, gen-bigint-unsigned source, 0
+	call-exit = gen-call-property-sync source, process, "exit",
+		- gen-call-sync source, (gen-global source, "Number"), (get-exit,)
+	- gen-const source, exit, gen-await-if-async source, main-async, call-main
+	- gen-if source, exit-neq-0, call-exit.to
 
 # TODO: this does expose the URIs on the build machine ...
 -module-paths module-paths(program program)
@@ -740,14 +732,7 @@ do
 	as instanceof
 		binary[instanceof]
 	as js-global
-		global_ = gen-global source, "_global" # This is generated at top of write-js-ast
-		match size args
-		as 0
-			global_
-		as 1
-			gen-property-access-computed source, global_, only-arg[]
-		else
-			throw unreachable
+		gen-global source, "_global" # This is generated at top of write-js-ast
 	as null
 		gen-null source
 	as plus

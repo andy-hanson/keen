@@ -1,4 +1,6 @@
 import
+	crow/string/unicode
+	../../../crow/private/parse-util
 	../../frontend/parse/lex-token
 	../../model/ast
 	../../model/lsp
@@ -11,24 +13,40 @@ import
 get-position-kind enum
 	| Expect cursor exactly on the thing. Used for requests like hover.
 	exact
+	exact-or-end
 	| The cursor may be to the right of the thing; used for speculative requests such as completions.
 	after
+== bool(a get-position-kind, b get-position-kind)
 get-position position?(program program, where text-document-position-params, pos-kind get-position-kind)
 	get-position program, where.to, pos-kind
 get-position position?(program program, where uri-line-and-character, pos-kind get-position-kind)
 	do if module = program.crow-modules[where.uri]
 	the common-types = program.common-types
 	pos = program.line-and-character-getters[where]
+	content = program.file-content-getters[where.uri]
 	pos-adjusted = match pos-kind
 	as exact
 		pos
+	as exact-or-end
+		get-prev-identifier content, pos
 	as after
-		walk-backwards-for-position program.file-content-getters[where.uri], pos
+		get-prev-identifier content, walk-backwards-for-position content, pos
 	if kind = get-position-kind module, pos-adjusted, pos-kind
 		module, kind
 
+-get-prev-identifier pos(content char8 array-view, pos pos)
+	iter string-iterator = content.begin
+	skip-next-n iter, pos.to
+	try
+		if !is-crow-identifier "{next-char32 iter.copy}" and is-crow-identifier "{prev-char32 iter}"
+			iter.pos
+		else
+			pos
+	catch as iterator-out-of-bounds
+		pos
+
 -has-pos bool(range source-range, pos pos)
-	range.start <= pos and pos <= range.end
+	range.start <= pos and pos < range.end
 -opt-has-pos bool(range source-range?, pos pos)
 	range and has-pos range, pos
 
@@ -344,27 +362,28 @@ do crow-module, common-types
 -position-at-expr position-kind?(a expr, pos pos, pos-kind get-position-kind) expr-ctx
 	expression-position = of x expression-position-kind
 		expression-position container, a, x
+	expression-position-at = of range source-range, x expression-position-kind
+		:: position-kind?
+		if has-pos range, pos then expression-position[x]
 	keyword-at = of range source-range, k expr-keyword
 		:: position-kind?
 		if has-pos range, pos then expression-position[k]
+	keyword-at-opt = of range source-range?, k expr-keyword
+		if range then keyword-at[range, k]
 	local = of kind local-ref-kind, local local
 		expression-position[local-ref kind, local]
 	call = of ast call-expr-source, kind expression-position-kind
 		:: position-kind?
-		ok = match pos-kind
-		as exact
-			pos-is-at-call ast, pos
-		as after
-			true
-		if ok
+		if pos-kind == after or pos-is-at-call ast, pos
 			expression-position[kind]
+		elif ast.for-or-with-ast
+			keyword-at[ast.in-range, ast.keyword.for-or-with-in-kind] or
+			keyword-at-opt[ast.then-range, then-after-for-or-with]
 
 	match a
 	as assert-or-forbid-expr
-		if has-pos a.ast.keyword-range, pos
-			expression-position[a]
-		elif t = a.ast.thrown
-			keyword-at[t.else-range, if a.is-forbid then else-after-forbid else else-after-assert]
+		expression-position-at[a.ast.keyword-range, a] or
+		keyword-at-opt[a.ast.thrown.?else-range, if a.is-forbid then else-after-forbid else else-after-assert]
 	as bogus-call-expr
 		call[a.ast, a]
 	as bogus-expr
@@ -384,30 +403,26 @@ do crow-module, common-types
 		keyword-at[a.ast.keyword-range, force]
 	as if-expr
 		is-unless = a.ast.is-unless
-		(if has-pos a.ast.first-keyword-range, pos then expression-position[a]) or
-		(if k = a.ast.second-keyword-range then keyword-at[k, if-second-keyword a.ast.kind, is-unless]) or
-		(if k = a.ast.third-keyword-range then keyword-at[k, if is-unless then else-after-unless else else-after-if])
+		expression-position-at[a.ast.first-keyword-range, a] or
+		keyword-at-opt[a.ast.second-keyword-range, if-second-keyword a.ast.kind, is-unless] or
+		keyword-at-opt[a.ast.third-keyword-range, if is-unless then else-after-unless else else-after-if]
 	as lambda-expr
 		match ast = a.ast
 		as for-or-with-ast
 			# 'for' keyword is handled in 'as call-expr'
-			(unless a.is-ignore then position-in-destructure a.param, ast.param, pos) or
-			keyword-at[ast.in-range, ast.keyword.for-or-with-in-kind] or
-			if t = ast.then-range then keyword-at[t, then-after-for-or-with]
+			unless is-ignore a
+				position-in-destructure a.param, ast.param, pos
 		as it-scope-ast
-			first ast.its, of it_
-				if has-pos it_.range, pos then expression-position[a]
+			first ast.its, expression-position-at[it.range, a]
 		as lambda-ast
-			(if has-pos ast.keyword-range, pos then expression-position[a]) or
-			(if t = ast.then-range then keyword-at[t, then-after-of]) or
+			expression-position-at[ast.keyword-range, a] or
+			keyword-at-opt[ast.then-range, then-after-of] or
 			position-in-destructure a.param, ast.param, pos
 	as let-expr
 		position-in-destructure a.destructure, a.destructure-ast, pos
 	as let-the-expr
-		if has-pos a.ast.keyword-range, pos
-			expression-position[a]
-		else
-			position-in-type a.the-type, a.ast.type, pos
+		expression-position-at[a.ast.keyword-range, a] or
+		position-in-type a.the-type, a.ast.type, pos
 	as list-expr
 		# TODO: if the position is at a '-' or '--', then return expression-position[x]
 		()
@@ -423,20 +438,15 @@ do crow-module, common-types
 		if has-pos a.assignee-ast.range, pos
 			local[set, a.local]
 	as logical-expr
-		if has-pos a.keyword-range, pos
-			expression-position[a]
+		expression-position-at[a.keyword-range, a]
 	as loop-expr
-		if has-pos a.ast.keyword-range, pos
-			expression-position[a]
+		expression-position-at[a.ast.keyword-range, a]
 	as loop-break-expr
-		if has-pos a.ast.keyword-range, pos
-			expression-position[a]
+		expression-position-at[a.ast.keyword-range, a]
 	as loop-continue-expr
-		if has-pos a.ast.keyword-range, pos
-			expression-position[a]
+		expression-position-at[a.ast.keyword-range, a]
 	as loop-while-or-until-expr
-		if has-pos a.ast.keyword-range, pos
-			expression-position[a]
+		expression-position-at[a.ast.keyword-range, a]
 	as match-enum-expr
 		position-at-match-enum a, pos
 	as match-scalar-expr
@@ -446,15 +456,12 @@ do crow-module, common-types
 	as match-sum-type-expr
 		position-at-match-sum-type a, pos
 	as not-expr
-		if has-pos a.keyword-range, pos
-			expression-position[a]
+		expression-position-at[a.keyword-range, a]
 	as seq-expr
 		()
 	as the-expr
-		if has-pos a.ast.keyword-range, pos
-			expression-position[a]
-		else
-			position-in-type a.type, a.ast.type, pos
+		expression-position-at[a.ast.keyword-range, a] or
+		position-in-type a.type, a.ast.type, pos
 	as throw-expr
 		keyword-at[a.ast.keyword-range, throw_]
 	as trusted-expr
@@ -481,7 +488,7 @@ do crow-module, common-types
 -if-second-keyword expr-keyword(kind if-ast-kind, is-unless bool)
 	match kind
 	as do-if
-		throw unreachable
+		else-after-if # should be unused
 	as do-if-else
 		if is-unless
 			else-after-do-unless
@@ -505,7 +512,7 @@ do crow-module, common-types
 		else
 			then-after-if-with-else
 	as if-without-else
-		throw unreachable
+		else-after-if # should be unused
 
 -position-at-unpack-option position-kind?(a unpack-option, pos pos) expr-ctx
 	position-in-destructure a.destructure, a.ast.destructure, pos or
