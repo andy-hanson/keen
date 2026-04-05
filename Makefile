@@ -1,7 +1,7 @@
 .PHONY: check test-end-to-end test-end-to-end-overwrite test unit-test unit-test-java unit-test-js view-dependencies
 
 include = $(shell find include -name '*.crow')
-include_crow = $(shell find include/crow -name '*.crow')
+include_crow = $(shell find include/keen -name '*.crow')
 include_compiler = $(shell find include/compiler -name '*.crow')
 compiler_deps = $(include_crow) $(include_compiler) include/compiler/backend/java/lib/Keen.class include/compiler/backend/java/lib/KeenClassLoader.class bin/imports/date.txt bin/imports/commit-hash.txt
 
@@ -69,7 +69,7 @@ bin/crow: $(compiler_deps)
 
 include = include/*/*.crow include/*/*/*.crow include/*/*/*/*.crow
 bin/crow.tar.xz: bin/crow $(include_crow)
-	tar --create --xz --file bin/crow.tar.xz bin/crow include/crow
+	tar --create --xz --file bin/crow.tar.xz bin/crow include/keen
 
 install-vscode-extension: bin/crow.vsix
 	code --install-extension bin/crow.vsix
@@ -81,7 +81,7 @@ editor/vscode/node_modules:
 bin/java-classes.tar:
 	rm -rf bin/java-classes
 	mkdir bin/java-classes
-	crow print dependencies ../crow/include/keen-config.json --format flat | \
+	crow print dependencies ../keen/include/keen-config.json --format flat | \
 		grep 'java:///java' | \
 		sed 's|^java:///java/|classes/java/|' | \
 		sed 's|%24|\$$|' | \
