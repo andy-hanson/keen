@@ -1,6 +1,6 @@
 /*
 If editing this file, run 'make install-vscode-extension' for the changes to take effect.
-(You don't need to do that when rebuilding `bin/crow`.)
+(You don't need to do that when rebuilding `bin/keen`.)
 */
 
 const childProcess = require("child_process")

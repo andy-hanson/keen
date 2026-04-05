@@ -1,0 +1,196 @@
+#!/usr/bin/env crow
+import
+	keen/io/file
+	keen/io/path
+	keen/io/print
+	keen/io/process
+	keen/parse
+	keen/parse-command
+	keen/string/util
+
+main nat(args string[]) global
+	if values = parse-named-args args, ("print-tests", "overwrite-output", "match")
+		print-tests-strs, overwrite-output-strs, match-test-strs = as-tuple3 values
+		options test-options =
+			print-tests: !!print-tests-strs
+			overwrite-output: if overwrite-output-strs
+				assert is-empty overwrite-output-strs
+				true
+			match-test: if match-test-strs
+				assert match-test-strs.size == 1
+				match-test-strs[0]
+		do-test options
+	else
+		print-help
+		1
+
+-as-tuple3[t] (t, t, t)(a t[])
+	assert a.size == 3
+	a[0], a[1], a[2]
+
+-print-help void() global
+	print quote
+		options:
+			--print-tests: Print every test before it runs.
+			--overwrite-output: Overwrite '.out' files instead of failing
+			--match [STR]: Print tests that have STR in the name.
+
+-test-options record(print-tests bool, overwrite-output bool, match-test string)
+
+-paths record(cwd string, path-to-crow string)
+
+-do-test nat(options test-options) global
+	paths paths = cwd: current-directory, path-to-crow: "./bin/crow"
+	tests = list-tests "./test/end-to-end/tests", options.match-test
+	failures failure[] = for* x in tests
+		run-single-crow-test paths, x, options
+	if is-empty failures
+		print "Ran {size tests} crow tests"
+		0
+	else
+		print-error failures.show-failures
+		size failures
+
+-list-tests string[](path string, match-test string) global
+	filter path.paths-in-dir, of child
+		ext-is-crow child and contains-seq child, match-test
+
+-ext-is-crow bool(a string)
+	a.base-name.get-extension == "keen"
+
+-run-single-crow-test failure[]
+	paths paths
+	path string
+	options test-options
+do global
+	if print-tests options
+		print "crow run {path}"
+	res failure[]? = first members::run-kind[], of kind
+		failures = run-single paths, path, kind, options.overwrite-output
+		unless is-empty failures then failures
+	res else ()
+
+-run-kind enum(java, js)
+-to symbol(a run-kind)
+-show string(a run-kind)
+	a.to::symbol.to
+-members run-kind[]()
+
+-run-single failure[]
+	paths paths
+	path string
+	run-kind run-kind
+	overwrite-output bool
+do global
+	args string[] = match run-kind
+	as java
+		"run", path
+	as js
+		"run", path, "--node-js"
+	log "{paths.path-to-crow} {join " ", args}"
+	res = spawn-and-wait-result paths.path-to-crow, args
+	out-pre = format-output res
+	out = match run-kind
+	as java
+		normalize-java out-pre
+	as js
+		remove-node-js-footer normalize-js-temp-paths out-pre
+	handle-output path, "{path}.{run-kind}.out", out, overwrite-output, run-kind
+
+-normalize-java string(a string)
+	update-lines a, of line
+		if starts-with line, "\tat "
+			if before, after = try-split-once line, "("
+				# Keep line numbers, but discard hashes in method identifiers
+				"{normalize-numbers-to-1 before.to}({after}"
+		else
+			line
+
+-normalize-js-temp-paths string(a string)
+	# Replace '/tmp/crow-123.js' with 'TMP.js'
+	update-lines a, of line
+		if starts-with line, "    at " or starts-with line, "file://"
+			normalize-numbers-to-1 normalize-temp-file line
+		else
+			line
+-update-lines string(a string, f string mut(line string))
+	join "\n", for line in split a, "\n"
+		f[line.to]
+-normalize-temp-file string(a string)
+	if before, after = try-split-once a, "/tmp/crow-"
+		rest = drop-while after, it.is-digit
+		"{before}TMP{rest}"
+	else
+		a
+-normalize-numbers-to-1 string(a string)
+	do with out in build
+	prev-was-digit mut bool = false
+	for x in a
+		if is-digit x
+			unless prev-was-digit
+				out ~= "1"
+				prev-was-digit := true
+		else
+			out ~= x
+			prev-was-digit := false
+-remove-node-js-footer string(a string)
+	do if i = last-index-of a.strip-right, "\n" else a
+	do if starts-with a[i + 1 .. end], "Node.js v" else a
+	a[0 .. i].to
+
+-format-output string(a process-result)
+	if has-error a
+		exit-code = match x = exit a
+		as exited
+			exit-code x
+		as signaled
+			signal x
+		exit-string = if exit-code != 0 and exit-code != 1 then "big" else "{exit-code}"
+		"exit code: {exit-string}\n{format-stdout-stderr a}"
+	else
+		remove-colors stdout a
+
+-format-stdout-stderr string(a process-result)
+	stdout = unless a.stdout == "" then "stdout:\n{remove-colors stdout a}"
+	"{stdout}stderr:\n{remove-colors stderr a}"
+
+-remove-colors string(a string)
+	if before, rest = try-split-once a, "\x1b"
+		before.to ~~ if _, after = try-split-once rest, "m"
+			remove-colors after.to
+	else
+		a
+
+-handle-output failure[]
+	original-path string
+	output-path string
+	actual string
+	overwrite-output bool
+	kind run-kind
+do global
+	text string = try
+		read-file output-path
+	catch as path-not-found
+		()
+	if actual == text
+		()
+	elif overwrite-output
+		write-file output-path, actual
+		()
+	else
+		-
+			path: original-path
+			message: "For {kind.to::symbol}: {output-path} was not as expected. Actual:\n{actual}"
+
+failure record(path string, message string)
+
+show-failures string(failures failure[])
+	s = join "\n", for failure in failures
+		"{bold}{failure.path}{reset} {failure.message}"
+	"{s}\n{failures.size} failures"
+
+-bold string()
+	"\x1b[1m"
+
+-reset string()
+	"\x1b[m"

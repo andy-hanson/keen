@@ -1,0 +1,16 @@
+"2:10":
+	-
+		uri: "test:/references/doc-comments.keen"
+		range:
+			start: line: 0, character: 8
+			end: line: 0, character: 9
+	-
+		uri: "test:/references/doc-comments.keen"
+		range:
+			start: line: 1, character: 9
+			end: line: 1, character: 10
+	-
+		uri: "test:/references/doc-comments.keen"
+		range:
+			start: line: 2, character: 1
+			end: line: 2, character: 2

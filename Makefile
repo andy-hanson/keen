@@ -1,8 +1,8 @@
 .PHONY: check test-end-to-end test-end-to-end-overwrite test unit-test unit-test-java unit-test-js view-dependencies
 
-include = $(shell find include -name '*.crow')
-include_crow = $(shell find include/keen -name '*.crow')
-include_compiler = $(shell find include/compiler -name '*.crow')
+include = $(shell find include -name '*.keen')
+include_crow = $(shell find include/keen -name '*.keen')
+include_compiler = $(shell find include/compiler -name '*.keen')
 compiler_deps = $(include_crow) $(include_compiler) include/compiler/backend/java/lib/Keen.class include/compiler/backend/java/lib/KeenClassLoader.class bin/imports/date.txt bin/imports/commit-hash.txt
 
 clean:
@@ -32,9 +32,9 @@ test-diagnostics-overwrite: bin/crow
 	cd test/diagnostics && ../../bin/crow check keen-config.json --no-color --all-errors 2> expected.txt || true
 
 test-end-to-end: bin/crow
-	./test/end-to-end/main.crow
+	./test/end-to-end/main.keen
 test-end-to-end-overwrite: bin/crow
-	./test/end-to-end/main.crow --overwrite-output
+	./test/end-to-end/main.keen --overwrite-output
 
 today = $(shell date --iso-8601 --utc)
 
@@ -63,11 +63,11 @@ check:
 	bin/crow-lkg check include/keen-config.json
 
 bin/crow: $(compiler_deps)
-	bin/crow-lkg build include/compiler/app/main.crow --out bin/crow-tmp
+	bin/crow-lkg build include/compiler/app/main.keen --out bin/crow-tmp
 	# Avoid directly writing to the file. This avoids crashing any IDE using the old version.
 	mv bin/crow-tmp bin/crow
 
-include = include/*/*.crow include/*/*/*.crow include/*/*/*/*.crow
+include = include/*/*.keen include/*/*/*.keen include/*/*/*/*.keen
 bin/crow.tar.xz: bin/crow $(include_crow)
 	tar --create --xz --file bin/crow.tar.xz bin/crow include/keen
 
@@ -93,14 +93,14 @@ bin/java-classes.tar:
 ### Optional commands ###
 
 bin/crow.js: $(compiler_deps)
-	bin/crow build include/compiler/app/main.crow --out bin/crow.js
+	bin/crow build include/compiler/app/main.keen --out bin/crow.js
 
 profile-check: bin/crow
-	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow check include/compiler/app/main.crow --times 30 --perf
+	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow check include/compiler/app/main.keen --times 30 --perf
 	jmc
 
 profile-translate-to-java: bin/crow
-	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow build include/compiler/app/main.crow --out bin/temp --times 30 --perf
+	java -XX:StartFlightRecording=filename=profile.jfr,settings=profile -jar bin/crow build include/compiler/app/main.keen --out bin/temp --times 30 --perf
 	rm bin/temp
 	jmc
 

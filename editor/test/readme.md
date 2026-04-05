@@ -1,1 +1,1 @@
-These tests are used by include/compiler/test/test-ide.crow
+These tests are used by include/compiler/test/test-ide.keen

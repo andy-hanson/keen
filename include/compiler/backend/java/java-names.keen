@@ -1,0 +1,321 @@
+import
+	../../frontend/show-model
+	../../model/low-model
+	../../model/model
+	../../model/uri
+	../../util/java-bytecode-types
+	../../util/util
+	../util
+	./class-code-builder
+	./union-representation
+	./util
+
+| Can retrieve the name of a Java entity given the name of a Keen entity.
+| Since Java class files don't directly reference names, you need to use java-refs instead.
+java-names record
+	-var-to-name symbol[low-var]
+	-module-to-class-name symbol[uri]
+	-fun-to-name-and-descriptor (symbol, symbol)[low-fun]
+	-type-to-name symbol[low-type]
+	-type-to-descriptor symbol[low-type]
+	-type-to-boxed-class-name symbol[low-type]
+	class-prefix string
+	union-info union-info
+	constant-names java-constant-names
+names java-names() java-names
+	the::java-names
+union-info union-info() java-names
+	the::java-names.union-info
+
+build-mangled-names java-names
+	program low-program
+	class-prefix string
+	union-info union-info
+do show-ctx
+	module-to-class-name symbol mut[uri] = ()
+	type-to-name symbol[low-type] = for type in all-types-including-extern program
+		- type
+		- gen-type-name module-to-class-name, type, class-prefix
+	type-to-descriptor symbol[low-type] = for type in program.all-types-including-extern
+		- type
+		- generate-descriptor-for-return-type (program, union-info, type-to-name), type
+	fun-to-name-and-descriptor (symbol, symbol)[low-fun] = for fun in all-funs-including-extern program
+		unless is-extern fun
+			_ = add-module-name module-to-class-name, fun.module-uri, class-prefix
+		name symbol = match source = source fun
+		as low-fun-source-regular
+			original = source.decl.name
+			if is-extern fun
+				original
+			else
+				base = do-mangle original
+				module = module-at-uri program.model-program, fun.module-uri
+				# TODO:PERF module should store funs-by-name (a multi-by-name)
+				if !is-template source.decl and (count module.funs, it.name == original) == 1
+					base
+				else
+					"{base}{fun.hash}"
+		as low-fun-source-test
+			"$test{fun.hash}"
+		as low-fun-source-wrap-main
+			"$wrap-main"
+		descriptor = descriptor-for-signature type-to-descriptor, (map fun.params, it.type), fun.return-type
+		fun, (name, descriptor)
+	var-to-name: for x in program.all-vars
+		x, "{do-mangle x.source.name}{get-hash x}"
+	module-to-class-name: module-to-class-name.move-to
+	fun-to-name-and-descriptor: fun-to-name-and-descriptor
+	type-to-name: type-to-name
+	type-to-descriptor: type-to-descriptor
+	type-to-boxed-class-name: for type in program.all-types-including-extern
+		- type
+		- generate-boxed-class-name (program, union-info, type-to-name), type
+	class-prefix: class-prefix
+	union-info: union-info
+	constant-names: java-constant-names program, class-prefix
+
+constant-symbols-class-name symbol(a java-names)
+	"{a.class-prefix}_constant_symbols"
+
+module-class-name symbol(a java-names, uri uri)
+	a.module-to-class-name[uri]!
+
+subscript class-and-member(a java-names, var low-var)
+	class_: module-class-name a, var.module-uri
+	member: a.var-to-name[var]!
+subscript class-and-member(a java-names, fun low-fun)
+	match body = fun.body
+	as fun-body-extern-java
+		class_: body.class_.to
+		member: fun.source.low-fun-source-regular!.decl.name
+	else
+		assert name, _ = a.fun-to-name-and-descriptor[fun] else
+			log "No name for {fun.to-json-with-body}"
+			todo
+		class_: module-class-name a, fun.module-uri
+		member: name
+subscript symbol(a java-names, type low-type)
+	a.type-to-name[type]!
+
+lambda-impl-class-name symbol(a java-names, containing-fun low-fun, lambda-index nat)
+	module = module-class-name a, containing-fun.module-uri
+	fun, _ = a.fun-to-name-and-descriptor[containing-fun]!
+	"{module}_{fun}_lambda{lambda-index}"
+
+-gen-type-name symbol(module-to-class-name symbol mut[uri], a low-type, class-prefix string)
+	if path = as-extern a
+		path.to
+	else
+		match source = source a
+		as low-type-source-bogus
+			"$bogus{a.id}"
+		as low-type-source-inst
+			decl = source.decl
+			base = "{add-module-name module-to-class-name, decl.module-uri, class-prefix}{do-mangle decl.name}"
+			if is-empty source.type-args
+				base.to
+			else
+				"{base}{a.id}"
+
+-add-module-name symbol(a symbol mut[uri], uri uri, class-prefix string)
+	ensure a, uri, of
+		base-name = base-name uri
+		name = try-remove-end base-name, ".json" else try-remove-end! base-name, ".keen"
+		"{class-prefix}{mangle-class-name name.to}{size a}"
+
+mangle-class-name string(a string)
+	# Technically, the JVM allows hyphens. But that can mess with tooling. https://bugs.openjdk.org/browse/JDK-8239818
+	mangle-name-common a
+
+-do-mangle symbol(a symbol)
+	a.to.mangle-class-name.to
+
+static-method-descriptor symbol(a java-names, fun low-fun)
+	a.fun-to-name-and-descriptor[fun]!.b
+
+instance-method-name symbol(a java-names, fun low-fun)
+	base = fun.source.low-fun-source-regular!.decl.name
+	if is-extern fun
+		base
+	else
+		"{a[fun.params[0].type]}_{base}"
+instance-method-descriptor symbol(a java-names, fun low-fun)
+	assert is-instance java-method-kind a.union-info, fun
+	descriptor-for-signature a, (map fun.params[1 .. end], it.type), fun.return-type
+
+constructor-descriptor symbol(a java-names, fun low-fun)
+	java-method-kind a.union-info, fun is constructor
+	descriptor-for-signature a, (map fun.params, it.type), ()
+
+descriptor-for-signature symbol(a java-names, param-types low-type[], return-type low-type?)
+	descriptor-for-signature a.type-to-descriptor, param-types, return-type
+descriptor-for-signature symbol(type-to-descriptor symbol[low-type], param-types low-type[], return-type low-type?)
+	params = join for param in param-types
+		descriptor-for-param-type type-to-descriptor, param
+	return = if return-type
+		descriptor-for-return-type type-to-descriptor, return-type
+	else
+		"V"
+	"({params}){return}"
+descriptor-for-field-type symbol(a java-names, type low-type)
+	forbid is-empty-type type
+	descriptor-for-return-type a, type 'to
+descriptor-for-param-type string(a java-names, type low-type)
+	descriptor-for-param-type a.type-to-descriptor, type
+-descriptor-for-param-type string(type-to-descriptor symbol[low-type], type low-type)
+	unless is-empty-type type
+		descriptor-for-return-type type-to-descriptor, type
+-generate-descriptor-for-param-type string(ctx gen-ctx, type low-type)
+	unless is-empty-type type
+		generate-descriptor-for-return-type ctx, type 'to
+
+descriptor-for-return-type string(a java-names, type low-type)
+	descriptor-for-return-type a.type-to-descriptor, type
+-descriptor-for-return-type string(type-to-descriptor symbol[low-type], type low-type)
+	type-to-descriptor[type]!.to
+-generate-descriptor-for-return-type symbol(ctx gen-ctx, type low-type)
+	match rt = as-runtime-type type
+	as void
+		"V"
+	as java-primitive-type
+		rt.primitive-descriptor.to
+	as reference-type
+		if elem = as-array-or-buffer type
+			"[{generate-descriptor-for-return-type ctx, elem}"
+		elif x = as-option type and elem = as-array-or-buffer x
+			"[{generate-descriptor-for-return-type ctx, elem}"
+		elif field = as-wrapper type
+			generate-descriptor-for-return-type ctx, field.type
+		else
+			"L{generate-boxed-class-name ctx, type};"
+
+lambda-call-descriptor symbol(a java-names, lambda-type low-type)
+	builtin_ = lambda-type.body.low-builtin-type!
+	assert as-lambda-type builtin_.kind
+	return-type, param-type = only2! builtin_.type-args
+	"({descriptor-for-param-type a, param-type}){descriptor-for-return-type a, return-type}"
+
+boxed-class-name symbol(a java-names, type low-type)
+	a.type-to-boxed-class-name[type]!
+
+-gen-ctx record
+	program low-program
+	union-info union-info
+	type-to-name symbol[low-type]
+
+-generate-boxed-class-name symbol(ctx gen-ctx, type low-type)
+	if x = as-extern type
+		x.to
+	else
+		generate-boxed-class-name-non-extern ctx, type
+-generate-boxed-class-name-non-extern symbol(ctx gen-ctx, type low-type)
+	mangled = of then ctx.type-to-name[type]!
+	match body = type.body
+	as low-builtin-type
+		array-or-buffer = of
+			:: symbol
+			element = only! body.type-args
+			if is-empty-type element
+				"java/lang/Integer"
+			else
+				"[{generate-descriptor-for-param-type ctx, element}"
+		match body.kind
+		as array then array-or-buffer[]
+		as bool then "java/lang/Boolean"
+		as buffer then array-or-buffer[]
+		as char8 then "java/lang/Byte"
+		as char32 then "java/lang/Integer"
+		as float32 then "java/lang/Float"
+		as float64 then "java/lang/Double"
+		as future then "java/util/concurrent/Future"
+		as int8 then "java/lang/Byte"
+		as int16 then "java/lang/Short"
+		as int32 then "java/lang/Integer"
+		as int64 then "java/lang/Long"
+		as js-any then "java/lang/Object"
+		as lambda-data then mangled[]
+		as lambda-mut then mangled[]
+		as lambda-shared then mangled[]
+		as nat8 then "java/lang/Byte"
+		as nat16 then "java/lang/Short"
+		as nat32 then "java/lang/Integer"
+		as nat64 then "java/lang/Long"
+		as option then throw unreachable
+		as void then mangled[]
+		as weak-ref then "java/lang/ref/WeakReference"
+	as low-enum
+		mangled[]
+	as struct-body-extern-java
+		throw unreachable
+	as low-flags
+		mangled[]
+	as low-record
+		mangled[]
+	as low-union
+		match ctx.union-info.union-to-representation[type]!
+		as exception
+			"java/lang/Throwable"
+		as interface_
+			mangled[]
+		as switch
+			mangled[]
+		as nullable
+			_, non-null = only2! body.members
+			generate-boxed-class-name ctx, non-null
+	as low-type-body-deferred
+		throw unreachable
+
+lambda-init-descriptor symbol(a java-names, lambda lambda-low-expr)
+	descriptor-for-signature a, (map lambda.closure, it.type), ()
+
+primitive-descriptor symbol(a java-primitive-type)
+	match a
+	as T_BOOLEAN
+		"Z"
+	as T_CHAR
+		"C"
+	as T_FLOAT
+		"F"
+	as T_DOUBLE
+		"D"
+	as T_BYTE
+		"B"
+	as T_SHORT
+		"S"
+	as T_INT
+		"I"
+	as T_LONG
+		"J"
+
+-java-constant-names java-constant-names(program low-program, class-prefix string) show-ctx
+	# Since class files can't get too big, we must break up constants between several classes.
+	cur-class-index mut = 0
+	cur-class-name mut symbol = "{class-prefix}_constants{cur-class-index}"
+	field-index mut = 0
+	cur-class-constants any-allocated-constant mut[] = ()
+	class-to-constants any-allocated-constant[] mut[symbol] = ()
+
+	out class-and-member constant-names-builder = ()
+
+	each-constant-in-dependency-order program, of constant
+		forbid is-empty-type constant.type
+		match constant
+		as single-constant-array
+			forbid is-empty-type constant.element-type
+		as single-constant-record
+			forbid is-empty-type constant.type
+			forbid is-wrapper constant.type
+		if field-index >= max-constants-per-class
+			class-to-constants[cur-class-name] := cur-class-constants.move-to
+			cur-class-index +:= 1
+			cur-class-name := "{class-prefix}_constants{cur-class-index}"
+			field-index := 0
+		out[constant] := cur-class-name, "x{field-index}"
+		field-index +:= 1
+		cur-class-constants ~= constant
+
+	unless is-empty cur-class-constants
+		class-to-constants[cur-class-name] := cur-class-constants.move-to
+
+	names: finish out
+	class-to-constants: class-to-constants.to

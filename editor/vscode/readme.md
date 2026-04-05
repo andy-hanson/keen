@@ -1,15 +1,15 @@
 # Build
 
-In the root of the `crow` repository, run `make editor/vscode/crow-0.0.0.vsix`.
+In the root of the `keen` repository, run `make editor/vscode/keen-0.0.0.vsix`.
 
 # Install
 
-First, the extension needs `crow` to be installed somewhere on the default PATH (e.g., `/usr/local/bin/crow`).
-See https://crow-lang.org/download.html for instructions.
+First, the extension needs `keen` to be installed somewhere on the default PATH (e.g., `/usr/local/bin/keen`).
+See https://keen-lang.org/download.html for instructions.
 
 Then run:
 ```
-code --install-extension crow/editor/vscode/crow-0.0.0.vsix
+code --install-extension keen/editor/vscode/keen-0.0.0.vsix
 ```
 
 # Debug

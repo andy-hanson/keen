@@ -1,0 +1,46 @@
+-
+	position: line: 1, character: 4
+	label:
+		-
+			value: "b"
+			location:
+				uri: "test:/inlay-hints/b.keen"
+				range:
+					start: line: 0, character: 0
+					end: line: 0, character: 1
+	paddingLeft: true
+-
+	position: line: 2, character: 4
+	label:
+		-
+			value: "6 imported names"
+			tooltip: "c0, c1, c3, c4, c5, c6"
+	paddingLeft: true
+-
+	position: line: 9, character: 5
+	label: "nat64"
+	kind: "Type"
+	paddingLeft: true
+-
+	position: line: 10, character: 4
+	label: "nat64"
+	kind: "Type"
+	paddingLeft: true
+-
+	position: line: 11, character: 43
+	label: "nat64"
+	kind: "Type"
+	paddingLeft: true
+-
+	position: line: 13, character: 6
+	label: "nat64"
+	kind: "Type"
+	paddingLeft: true
+-
+	position: line: 16, character: 33
+	label: "mut"
+	paddingLeft: true
+-
+	position: line: 16, character: 54
+	label: "mut"
+	paddingLeft: true

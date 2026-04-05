@@ -1,0 +1,78 @@
+import
+	../app/server
+	../frontend/frontend
+	../frontend/ide/get-tokens
+	../model/lsp
+	../model/model
+	../model/source-range
+	../model/uri
+	../util/exit-code
+	./test-util
+
+test global # test actual LSP
+	server = test-server
+	uri-a = parse-uri "test:///a.keen"
+	setup-test-server server, uri-a, ""
+	server.files-state is all-loaded
+	in-message0 did-change-text-document-params =
+		textDocument: uri: uri-a
+		contentChanges: change-whole-file "main void()"
+	out0 = handle-lsp-message server, in-message0
+	diag lsp-diagnostic =
+		range: (0, 0), (0, 4)
+		severity: Error
+		message: "Function needs a body. (An automatic function must be named '==', '<=>', or 'to'.)"
+	out0.out-messages is
+		- publish-diagnostics-params uri-a, (diag,)
+	out0.exit-code is ()
+	in-message1 = semantic-tokens-params (uri-a,)
+	out1 = handle-lsp-message server, lsp-in-request 1, in-message1
+	tokens semantic-tokens =
+		data_: 0, 0, 4, 3, 0, 0, 5, 4, 11, 0
+	tokens.json-of-decoded-tokens is
+		- line: 0, character: 0, length: 4, type: "function"
+		- line: 0, character: 5, length: 4, type: "type"
+	out1.out-messages is
+		- lsp-out-response 1, tokens
+	out1.exit-code is ()
+
+-change-whole-file text-document-content-change-event[](new-text string)
+	((), new-text),
+
+test global # test circular import
+	server = test-server
+	uri-a = parse-uri "test:///a.keen"
+	uri-b = parse-uri "test:///b.keen"
+
+	setup-test-server server, uri-a, "main void()"
+	server.files-state is all-loaded
+
+	show-diags = of then show-diagnostics server, get-program server, ()
+
+	show-diags[] is
+		"test:///a.keen 1:1-1:5 Function needs a body. (An automatic function must be named '==', '<=>', or 'to'.)"
+
+	set-file server, uri-a, "main void()\n\tlog \"hello, world!\""
+	server.files-state is all-loaded
+	show-diags[] is ()
+
+	set-file server, uri-b, "import\n\t./a"
+	server.files-state is all-loaded
+	show-diags[] is "test:///b.keen 2:5-2:8 Imported module 'a.keen' is unused."
+
+	set-file server, uri-a, "import\n\t./b\n\nmain void()\n\tlog hello"
+	show-diags[] is expected-diags-2
+
+	set-file server, uri-b, "hello string()\n\t\"hello\""
+	show-diags[] is ""
+
+-expected-diags-2 string()
+	quote
+		test:///a.keen 2:5-2:8 This is part of a circular import:
+			test:///a.keen imports
+			test:///b.keen imports
+			test:///a.keen
+		test:///b.keen 2:5-2:8 This is part of a circular import:
+			test:///b.keen imports
+			test:///a.keen imports
+			test:///b.keen
